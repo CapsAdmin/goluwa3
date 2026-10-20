@@ -32,14 +32,18 @@ for _, feature in ipairs{
 	{"sun_shadows", "r_water_sun_shadows", "shadows of the sun on the water, the floor under it and in the shafts"},
 	{"shaft_caustics", "r_water_shaft_caustics", "the caustics in the light shafts"},
 	{"ambient_gi", "r_water_ambient_gi", "the light from above that the global illumination probes give the water, off is the sky's"},
+	{"waves", "r_water_waves", "the waves, the ripples and the roughness they leave, off is a perfectly flat, smooth mirror surface"},
+	{"roughness", "r_water_roughness", "the roughness the unresolved waves give the sea, off the waves are drawn with a mirror surface", false},
+	{"uniform_roughness", "r_water_uniform_roughness", "the roughness of the sea is what the nearest wave texture leaves unresolved everywhere, off it is what the textures that cover the pixel leave, which steps at the edge of each"},
 } do
 	FEATURES[#FEATURES + 1] = {
 		bit = 2 ^ #FEATURES,
-		pvar = pvars.Setup2{key = feature[2], default = true, help = feature[3]},
+		pvar = pvars.Setup2{key = feature[2], default = feature[4] ~= false, help = feature[3]},
 	}
 end
 
 -- how much work each part does. the defaults are the full quality, lower is cheaper and changes the look
+local screenspace_roughness_pvar = pvars.Setup2{key = "r_water_screenspace_roughness", default = 1, min = 0, max = 1, help = "perceptual roughness below which the water's reflection is the screen first (the last frame, fog and all) and the rays only fill what the screen does not hold, the water's own reflection_screenspace_roughness. 0 is rays only, which have no fog and are blurred by the denoiser"}
 local shaft_samples_pvar = pvars.Setup2{key = "r_water_shaft_samples", default = 8, min = 1, max = 8, integer = true, help = "most samples along the view ray for the sun shafts under the surface (short paths take fewer), fewer is noisier shafts"}
 local ripple_pairs_pvar = pvars.Setup2{key = "r_water_ripple_pairs", default = 6, min = 1, max = 6, integer = true, help = "pairs of ripple waves per octave in the small ripples on top of the wave textures, fewer is a more regular ripple pattern"}
 local trace_steps_pvar = pvars.Setup2{key = "r_water_trace_steps", default = 160, min = 24, max = 160, integer = true, help = "most steps of the trace for the sea's surface from above, too few miss the thin tops of steep waves at grazing angles"}
@@ -625,6 +629,11 @@ list.insert(
 						{"shaft_samples", "int"},
 						{"ripple_pairs", "int"},
 						{"trace_steps", "int"},
+						{"rough_rays", "int"},
+						{"last_frame_tex", "int"},
+						{"prev_view", "mat4"},
+						{"prev_projection", "mat4"},
+						{"reflection_roughness_cutoff", "float"},
 						{"sun_direction", "vec3"},
 						{"primary_sun_illuminance", "float"},
 						{"primary_sun_color", "vec3"},
@@ -654,6 +663,7 @@ list.insert(
 						{"shadows", directional_shadows.BuildFogShadowBlockLayout()},
 						post_source.pre_exposure_block,
 						RAY_QUERY and scene_reflection.block or nil,
+						RAY_QUERY and atmosphere.GetBlockLayout() or nil,
 					},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
@@ -682,6 +692,20 @@ list.insert(
 						block.shaft_samples = shaft_samples_pvar:Get()
 						block.ripple_pairs = ripple_pairs_pvar:Get()
 						block.trace_steps = trace_steps_pvar:Get()
+						-- the reflection pass traces its rays at a fraction of the screen, the water at all of it: the same
+						-- rays for the same share of the screen
+						local scale = scene_reflection.RESOLUTION_SCALES[pvars.Get("reflection_resolution")]
+						block.rough_rays = math.max(1, math.floor(scene_reflection.rough_rays:Get() * scale * scale + 0.5))
+						-- the fog pass has not run yet this frame, its image is the last frame's with the water and the fog in it
+						block.last_frame_tex = render3d.ShouldUseLastFrameHistory() and render3d.IsPassEnabled("volumetric_fog") and
+							self:GetTextureIndex(post_source.GetFoggedOpaqueSceneTexture()) or
+							-1
+						local prev_view = render3d.GetPreviousViewMatrix() or render3d.GetCamera():BuildViewMatrix()
+						local prev_projection = render3d.GetPreviousProjectionMatrix() or render3d.GetCamera():BuildProjectionMatrix()
+						prev_view:CopyToFloatPointer(block.prev_view)
+						prev_projection:CopyToFloatPointer(block.prev_projection)
+						local _, gi_end = ibl.GetReflectionGIRange()
+						block.reflection_roughness_cutoff = gi_end
 						local lights = render3d.GetLights()
 						directional_shadows.GetPrimarySunDirection(lights):CopyToFloatPointer(block.sun_direction)
 						block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
@@ -692,7 +716,11 @@ list.insert(
 						block.bump_info[0] = water.wave_bump and water.wave_bump.slope_variance or 0
 						write_volumes(block)
 
-						if RAY_QUERY then scene_reflection.WriteBlock(self, block) end
+						if RAY_QUERY then
+							scene_reflection.WriteBlock(self, block)
+							atmosphere.WriteBlock(self, block, render3d.GetCamera():GetPosition(), directional_shadows.GetPrimarySunDirection(render3d.GetLights()))
+							block.reflection_screenspace_roughness = screenspace_roughness_pvar:Get()
+						end
 
 						return block
 					end,
@@ -714,6 +742,9 @@ list.insert(
 			const int WATER_SUN_SHADOWS = 256;
 			const int WATER_SHAFT_CAUSTICS = 512;
 			const int WATER_AMBIENT_GI = 1024;
+			const int WATER_WAVES = 2048;
+			const int WATER_ROUGHNESS = 4096;
+			const int WATER_UNIFORM_ROUGHNESS = 8192;
 
 			bool water_feature(int bit) {
 				return (ocean_data.features & bit) != 0;
@@ -724,6 +755,9 @@ list.insert(
 				if (ocean_data.scene_tex == -1) return vec3(0.0);
 				return texture(TEXTURE(ocean_data.scene_tex), uv).rgb / get_pre_exposure();
 			}
+
+			// how much of the reflection the rays made, what the denoiser has to average
+			float water_rt_share = 0.0;
 
 			// how close the pixel is to the waterline, where the surface cuts the near plane. a thin film of water
 			// clings to the lens there and catches the light
@@ -762,10 +796,9 @@ list.insert(
 			const int WAVE_CASCADES = ]] .. #WAVE_CASCADES .. [[;
 			const int RIPPLE_OCTAVES = ]] .. water.DETAIL_OCTAVES .. [[;
 			const float WAVE_TEXELS_PER_WAVELENGTH = ]] .. water.WAVE_TEXELS_PER_WAVELENGTH .. [[;
-			const float SUN_ANGULAR_RADIUS = ]] .. atmosphere.SUN_ANGULAR_RADIUS .. [[;
 			// how far the medium is followed when nothing is behind it
 			const float WATER_OPEN_DEPTH = 2000.0;
-			const float WATER_SCREENSPACE_DISTANCE = 400.0;
+			const float WATER_SCREENSPACE_DISTANCE = 20000.0;
 
 			]] .. gbuffer_layout.GetDecodeGLSL("ocean_data") .. [[
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ocean_data") .. [[
@@ -783,7 +816,7 @@ list.insert(
 			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetFresnelGLSL() .. glsl_common.GetBlueNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
 					RAY_QUERY and
-					render3d.GetEmissiveGLSL() .. scene_reflection.GetGLSL("ocean_data")
+					render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("ocean_data", "ocean_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("ocean_data") .. scene_reflection.GetDirectionGLSL()
 					or
 					""
 				) .. [[
@@ -794,9 +827,9 @@ list.insert(
 				return fract(n + float(ocean_data.frame) * 0.61803398875);
 			}
 
-			vec2 get_blue_noise2() {
+			vec2 get_blue_noise2(int sample_index) {
 				if (ocean_data.blue_noise_tex == -1) return vec2(0.5);
-				return blue_noise_r2(blue_noise_texel(TEXTURE(ocean_data.blue_noise_tex), ivec2(gl_FragCoord.xy)).rg, float(ocean_data.frame));
+				return blue_noise_r2(blue_noise_texel(TEXTURE(ocean_data.blue_noise_tex), ivec2(gl_FragCoord.xy)).rg, float(ocean_data.frame * ocean_data.rough_rays + sample_index));
 			}
 
 			float water_hash(vec2 p) {
@@ -897,6 +930,7 @@ list.insert(
 				// beyond the wave textures the sea is the largest tile, which repeats without end
 				vec4 data = vec4(0.0);
 				resolved_variance = 0.0;
+				if (!water_feature(WATER_WAVES)) return data;
 				{
 					const float FAR_TILE = ]] .. water.FFT_CASCADES[1].size .. [[;
 					vec2 uv = world_xz / FAR_TILE + 0.5 / ]] .. water.FFT_SIZE .. [[.0;
@@ -1067,7 +1101,7 @@ list.insert(
 				vec4 info = ocean_data.detail_info;
 				vec4 ripple = ocean_data.ripple_info;
 				// the roughness takes what is not drawn
-				if (!water_feature(WATER_RIPPLES)) return info.w * float(RIPPLE_OCTAVES);
+				if (!water_feature(WATER_RIPPLES) || !water_feature(WATER_WAVES)) return info.w * float(RIPPLE_OCTAVES);
 				// RippleStrength of their slope variance is drawn, the rest is left to the roughness.
 				// RippleScale stretches them, as steep, so taller too
 				float drawn = info.w * ripple.x * rough * rough;
@@ -1388,13 +1422,14 @@ list.insert(
 			}
 
 			// the light from above at P: the ddgi probes' where there are any, so shores, bridges and
-			// night lights tint the water, the sky's elsewhere
-			vec3 get_ambient_irradiance(vec3 P) {
+			// night lights tint the water and a roof or a plane over it darkens it, the sky's elsewhere.
+			// visibility_min_weight and smooth_blend are ddgi_sample_irradiance's, DDGI_NO_VISIBILITY_RAYS for no rays
+			vec3 get_ambient_irradiance(vec3 P, float visibility_min_weight, bool smooth_blend) {
 				vec3 sky = sample_environment_irradiance(ocean_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && water_feature(WATER_AMBIENT_GI)) {
 					float weight;
-					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), true, DDGI_NO_VISIBILITY_RAYS, weight);
+					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), smooth_blend, visibility_min_weight, weight);
 					// the weight only fades out near walls, the sky would leak in under a roof
 					if (weight > 0.0) return gi.rgb;
 				}
@@ -1462,6 +1497,11 @@ list.insert(
 						vec3 surface = p - sun_dir * ((p.y - w.surface_y) / sun_dir.y);
 						float shaft = get_water_sun_visibility(surface, ocean_data.sun_direction);
 
+						#ifdef SCENE_REFLECTION
+						// what is in the water between the surface and the point (a plane, a roof, a room) keeps the light off it
+						if (shaft > 0.0 && scene_reflection_ready() && water_feature(WATER_SUN_SHADOWS) && !scene_reflection_visible(p, -sun_dir, distance(p, surface) - 0.05)) shaft = 0.0;
+						#endif
+
 						// the light the surface focuses into this point, which is what makes the shafts
 						if (shaft_focus > 0.0 && shaft > 0.0) {
 							shaft *= mix(1.0, get_caustic(w, p, get_pixel_footprint(distance(p, ocean_data.camera_position.xyz), 1.0), 0, 3.0, false).g, shaft_focus);
@@ -1485,7 +1525,32 @@ list.insert(
 				// looking up; the molecules half each way
 				float particle_share = mix(WATER_PARTICLE_BACKSCATTER, 1.0 - WATER_PARTICLE_BACKSCATTER, 0.5 + 0.5 * dir.y) / (2.0 * PI);
 				vec3 sky_phase = WATER_MOLECULAR_SCATTERING / (4.0 * PI) + w.particles * particle_share;
-				vec3 sky_scatter = get_ambient_irradiance(vec3(origin.x, w.surface_y + 0.1, origin.z)) * (PI * sky_phase + diffuse_scatter) * integrate_attenuated(sigma, depth_start, rate, len, 0.75);
+				// the light the sky scatters comes from the probes at the points along the path, where it is: a roof, a
+				// plane or a room over a point leave it dark, the water does not glow with the sky above what covers it
+				// (what the volumetric fog does). each point counts as much as the scattered light that gets from it
+				// to the viewer, and the rest of the formula is the same as with one value of it
+				vec3 ambient = get_ambient_irradiance(vec3(origin.x, w.surface_y + 0.1, origin.z), DDGI_NO_VISIBILITY_RAYS, true);
+
+				#ifdef SCENE_REFLECTION
+				if (scene_reflection_ready() && water_feature(WATER_AMBIENT_GI)) {
+					int ambient_samples = 2;
+					float ambient_len = min(len, 60.0);
+					vec3 weighted = vec3(0.0);
+					vec3 weights = vec3(0.0);
+
+					for (int i = 0; i < ambient_samples; i++) {
+						float f = (float(i) + jitter) / float(ambient_samples);
+						vec3 p = origin + dir * (ambient_len * f * f);
+						vec3 reach = exp(-sigma * (ambient_len * f * f + max(w.surface_y - p.y, 0.0) / 0.75)) * (f + 0.01);
+						weighted += get_ambient_irradiance(p, DDGI_NO_VISIBILITY_RAYS, false) * reach;
+						weights += reach;
+					}
+
+					if (dot(weights, vec3(1.0)) > 1e-20) ambient = weighted / weights;
+				}
+				#endif
+
+				vec3 sky_scatter = ambient * (PI * sky_phase + diffuse_scatter) * integrate_attenuated(sigma, depth_start, rate, len, 0.75);
 				vec3 light_scatter = vec3(0.0);
 
 				#ifdef SCENE_REFLECTION
@@ -1649,6 +1714,21 @@ list.insert(
 			// reflections
 			// ---------------------------------------------------------------
 
+			// the last frame's image (water, fog and all) where the world point was, the lit scene at uv where it was not
+			vec3 get_last_frame_color(vec3 world_pos, vec2 uv) {
+				if (ocean_data.last_frame_tex == -1) return get_scene_color(uv);
+
+				vec4 prev_clip = ocean_data.prev_projection * (ocean_data.prev_view * vec4(world_pos, 1.0));
+
+				if (prev_clip.w <= 1e-5) return get_scene_color(uv);
+
+				vec2 prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
+
+				if (!screen_refraction_on_screen(prev_uv)) return get_scene_color(uv);
+
+				return texture(TEXTURE(ocean_data.last_frame_tex), prev_uv).rgb / get_previous_pre_exposure();
+			}
+
 			float scene_depth_at(vec2 uv) {
 				return textureLod(TEXTURE(ocean_data.depth_tex), uv, 0.0).r;
 			}
@@ -1706,55 +1786,104 @@ list.insert(
 				return false;
 			}
 
-			// where a traced reflection may reach, far enough for a coast across the water
-			const float WATER_REFLECTION_TRACE_DISTANCE = 1000000.0;
+			// screen first: the last frame where the screen holds the reflection (a mirror march, sharp and without noise),
+			// and rays for what it does not hold (off screen, behind something) like the reflection pass: a rough surface
+			// traces several, each in its own direction over the lobe, and their hits are limited and averaged
+			const int WATER_SCREEN_LOBE_TAPS = 8;
 
 			vec3 get_reflection(vec3 surface_pos, vec3 view_dir, vec3 reflection_dir, vec3 normal, float alpha, float jitter) {
 				float perceptual = sqrt(alpha);
 				vec3 reflected = sample_environment_specular(ocean_data.env_tex, reflection_dir, normal, perceptual);
-				#ifdef SCENE_REFLECTION
-				bool rt_primary = scene_reflection_ready() && !scene_reflection_screen_first(perceptual);
-				#else
-				bool rt_primary = false;
-				#endif
-				float screenspace_fade = reflection_dir.y > -0.2 ? 1.0 - smoothstep(0.1, 0.35, perceptual) : 0.0;
 				vec3 origin = surface_pos + normal * 0.02;
-				vec3 screenspace_color = vec3(0.0);
-				float screenspace_weight = 0.0;
-				vec2 screenspace_uv;
-				float screenspace_t;
+				water_rt_share = 0.0;
 
-				if (!water_feature(WATER_REFLECTION_TRACE)) return reflected;
+				if (!water_feature(WATER_REFLECTION_TRACE) || perceptual > ocean_data.reflection_roughness_cutoff) return reflected;
 
-				if (!rt_primary && screenspace_fade > 0.0 && trace_water_reflection(origin, reflection_dir, jitter, screenspace_uv, screenspace_t, screenspace_weight)) {
-					screenspace_color = get_scene_color(screenspace_uv);
-					screenspace_weight *= screenspace_fade;
+				bool rays_ready = false;
+				bool screen_first = true;
+
+				#ifdef SCENE_REFLECTION
+				rays_ready = scene_reflection_ready();
+				screen_first = !rays_ready || scene_reflection_screen_first(perceptual);
+				#endif
+
+				vec3 screen_color = vec3(0.0);
+				float screen_weight = 0.0;
+				vec2 screen_uv;
+				float screen_t;
+
+				// the screen holds nothing below the horizon of the waves
+				if (screen_first && reflection_dir.y > -0.2 && trace_water_reflection(origin, reflection_dir, jitter, screen_uv, screen_t, screen_weight)) {
+					vec3 hit_pos = get_world_pos(screen_uv, scene_depth_at(screen_uv));
+					screen_color = get_last_frame_color(hit_pos, screen_uv);
+
+					// a rough surface sees the screen through its lobe, as wide at the hit as the rays' spread: taps of the
+					// last frame over a disc around the hit, perpendicular to the ray, the reflection pass's lobe width
+					if (perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD) {
+						vec3 tangent = normalize(cross(reflection_dir, abs(reflection_dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+						vec3 bitangent = cross(reflection_dir, tangent);
+						float spin = get_blue_noise() * 6.2831853;
+						float radius = screen_t * perceptual * perceptual;
+						vec3 sum = screen_color;
+						float valid = 1.0;
+						float tolerance = max(0.4, screen_t * 0.04);
+
+						for (int tap = 0; tap < WATER_SCREEN_LOBE_TAPS; tap++) {
+							float angle = spin + float(tap) * 2.39996323;
+							float r = radius * sqrt((float(tap) + 0.5) / float(WATER_SCREEN_LOBE_TAPS));
+							vec3 tap_pos = hit_pos + (tangent * cos(angle) + bitangent * sin(angle)) * r;
+							vec2 tap_uv = screen_refraction_project(tap_pos).xy;
+
+							// the last frame holds what the tap's pixel showed: a tap counts where that is the surface it is on,
+							// not a thin thing in front of it (a leaf, a rail) or the sky past it
+							if (!screen_refraction_on_screen(tap_uv)) continue;
+
+							float tap_depth = scene_depth_at(tap_uv);
+
+							if (tap_depth <= 0.0 || length(get_world_pos(tap_uv, tap_depth) - tap_pos) > tolerance) continue;
+
+							sum += get_last_frame_color(tap_pos, tap_uv);
+							valid += 1.0;
+						}
+
+						// what the lobe finds of the screen is as much of the reflection as the screen gives, the rays fill the rest
+						screen_color = sum / valid;
+						screen_weight *= valid / float(WATER_SCREEN_LOBE_TAPS + 1);
+					}
 				}
 
 				#ifdef SCENE_REFLECTION
-				// what the screen doesn't hold is traced, at any roughness: a ray per pixel through the
-				// waves' unresolved slopes, which ocean_resolve averages into the blurred reflection
-				if (screenspace_weight < 0.999 && scene_reflection_ready()) {
-					vec3 dir = reflection_dir;
+				if (rays_ready && screen_weight < 0.999) {
+					bool rough = perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD;
+					int count = scene_reflection_ray_count(perceptual, ocean_data.rough_rays);
+					float limit = scene_reflection_hit_luminance_limit(perceptual, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), ocean_data.reflection_roughness_cutoff);
+					vec3 sum = vec3(0.0);
 
-					if (perceptual > 0.1) {
-						vec3 up = abs(normal.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-						vec3 T = normalize(cross(up, normal));
-						vec3 B = cross(normal, T);
-						vec3 V_local = vec3(dot(view_dir, T), dot(view_dir, B), dot(view_dir, normal));
-						vec3 H_local = ImportanceSampleGGXVNDF(V_local, alpha, get_blue_noise2());
-						dir = reflect(-view_dir, normalize(T * H_local.x + B * H_local.y + normal * H_local.z));
-						// like the mirror direction, reflections dip under the horizon on the backs of waves
-						if (dir.y < 0.0) dir = normalize(vec3(dir.x, -dir.y * 0.3, dir.z));
+					for (int ray = 0; ray < count; ray++) {
+						vec3 dir = reflection_dir;
+						float environment_roughness = perceptual;
+
+						if (rough) {
+							dir = scene_reflection_direction(normal, view_dir, perceptual, get_blue_noise2(ray), environment_roughness);
+							// like the mirror direction, reflections dip under the horizon on the backs of waves
+							if (dir.y < 0.0) dir = normalize(vec3(dir.x, -dir.y * 0.3, dir.z));
+						}
+
+						float traced_t;
+						vec3 traced = trace_scene_reflection(origin, dir, normal, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
+
+						if (rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, perceptual, limit);
+
+						sum += traced;
 					}
 
-					float traced_t;
-					vec3 traced = trace_scene_reflection(origin, dir, normal, perceptual, WATER_REFLECTION_TRACE_DISTANCE, traced_t);
-					return rt_primary ? traced : mix(traced, screenspace_color, screenspace_weight);
+					// the rays are a point of the lobe each, what the denoiser has to average
+					water_rt_share = rough ? 1.0 - screen_weight : 0.0;
+					return mix(sum / float(count), screen_color, screen_weight);
 				}
 				#endif
 
-				return mix(reflected, screenspace_color, screenspace_weight);
+				return mix(reflected, screen_color, screen_weight);
 			}
 
 			// ---------------------------------------------------------------
@@ -1978,7 +2107,7 @@ list.insert(
 				foam = mix(foam, coverage * coverage * 0.5, smoothstep(0.15, 1.2, footprint)) * 0.95;
 
 				if (foam > 0.0) {
-					vec3 foam_light = sun_light * (max(dot(vec3(0.0, 1.0, 0.0), sun), 0.0) / PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0));
+					vec3 foam_light = sun_light * (max(dot(vec3(0.0, 1.0, 0.0), sun), 0.0) / PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0), DDGI_NO_VISIBILITY_RAYS, true);
 					// thick mats are brighter than the thin lace around them
 					float thickness = clamp((pattern.x - threshold) * 4.0 + 0.5, 0.0, 1.0);
 					vec3 foam_color = vec3(0.8) * mix(0.4, 1.0, thickness) * (0.9 + 0.1 * pattern.y) * foam_light;
@@ -2065,8 +2194,8 @@ list.insert(
 					#ifdef SCENE_REFLECTION
 					if (scene_reflection_ready()) {
 						float traced_t;
-						primary_above = trace_scene_reflection(surface_pos + normal_up * 0.02, primary_dir, normal_up, 0.05, WATER_REFLECTION_TRACE_DISTANCE, traced_t);
-						hit_scene = traced_t < WATER_REFLECTION_TRACE_DISTANCE;
+						primary_above = trace_scene_reflection(surface_pos + normal_up * 0.02, primary_dir, normal_up, 0.05, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
+						hit_scene = traced_t < SCENE_REFLECTION_MAX_DISTANCE;
 					} else
 					#endif
 					{
@@ -2306,7 +2435,7 @@ list.insert(
 						vec3 transmittance;
 						vec3 inscatter = get_water_inscatter(w, surface_pos, ray_dir, len, jitter, transmittance);
 						set_scene_color(behind * transmittance + inscatter, 1.0);
-						set_ocean_distance(vec2(volume_entry));
+						set_ocean_distance(vec2(volume_entry, 0.0));
 						return;
 					}
 
@@ -2317,7 +2446,7 @@ list.insert(
 					float alpha = sqrt(w.roughness * w.roughness + lost_variance);
 					color = shade_surface_from_above(w, surface_pos, normal, alpha, 0.0, ray_dir, volume_entry, scene_t < 1e29 ? max(scene_t - volume_entry, 0.0) : 1e30, jitter);
 					set_scene_color(color, 1.0);
-					set_ocean_distance(vec2(volume_entry));
+					set_ocean_distance(vec2(volume_entry, sqrt(alpha) * water_rt_share));
 					return;
 				}
 
@@ -2360,12 +2489,13 @@ list.insert(
 
 				// the slopes of the sea no wave here shows make up the roughness,
 				// so the whole matches cox and munk's for the wind
-				float unresolved = max(ocean_data.ocean_wave_info.z - resolved_variance - (detail_total - detail_lost), 0.0) * sea_state.x * sea_state.x;
-				float alpha = sqrt(max(unresolved, 4e-4));
+				float unresolved = max(ocean_data.ocean_wave_info.z - (water_feature(WATER_UNIFORM_ROUGHNESS) ? ocean_data.wave_origin[0].w : resolved_variance) - (detail_total - detail_lost), 0.0) * sea_state.x * sea_state.x;
+				if (!water_feature(WATER_WAVES)) unresolved = 0.0;
+				float alpha = water_feature(WATER_WAVES) && water_feature(WATER_ROUGHNESS) ? sqrt(max(unresolved, 4e-4)) : 0.001;
 				vec3 normal = normalize(vec3(-grad.x, 1.0, -grad.y));
 				vec3 color = shade_surface_from_above(w, surface_pos, normal, alpha, wd.a, ray_dir, ocean_t, scene_t < 1e29 ? max(scene_t - ocean_t, 0.0) : 1e30, jitter);
 				set_scene_color(color, 1.0);
-				set_ocean_distance(vec2(ocean_t));
+				set_ocean_distance(vec2(ocean_t, sqrt(alpha) * water_rt_share));
 			}
 		]],
 		},
@@ -2392,6 +2522,7 @@ list.insert(
 						{"history_ocean_tex", "int"},
 						{"history_blend", "float"},
 						{"current_ocean_distance_tex", "int"},
+						{"filter_radius", "float"},
 						{"prev_view", "mat4"},
 						{"prev_projection", "mat4"},
 						post_source.pre_exposure_block,
@@ -2411,6 +2542,7 @@ list.insert(
 						end
 
 						block.history_blend = render3d.IsTemporalAntiAliasingEnabled() and 0.7 or 0.9
+						block.filter_radius = scene_reflection.filter_radius:Get()
 
 						if not render3d.pipelines.ocean_resolve.framebuffers then
 							block.history_ocean_tex = -1
@@ -2449,6 +2581,49 @@ list.insert(
 				return texture(TEXTURE(ocean_resolve_data.current_ocean_distance_tex), uv).r;
 			}
 
+			]] .. scene_reflection.CONSTANTS_GLSL .. [[
+
+			// the perceptual roughness of the surface above the water, 0 elsewhere
+			float get_current_ocean_roughness(vec2 uv) {
+				if (ocean_resolve_data.current_ocean_distance_tex == -1) return 0.0;
+				return texture(TEXTURE(ocean_resolve_data.current_ocean_distance_tex), uv).g;
+			}
+
+			// the reflection pass's denoiser: the more rough the surface the wider the average over the texels around, the
+			// rays of a rough surface are one sharp point of the scene each. a tap counts by how near it is in depth
+			const int OCEAN_FILTER_TAPS = 16;
+
+			vec4 get_filtered_ocean(vec4 center, float center_distance, float roughness) {
+				// the filter radius is in texels of the half resolution
+				float radius = ocean_resolve_data.filter_radius * 2.0 * smoothstep(0.02, 0.15, roughness);
+
+				if (radius < 0.5) return center;
+
+				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(ocean_resolve_data.current_ocean_tex), 0));
+				float spin = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.28318530718;
+				// bright taps count for less, the reflection pass's firefly weight. the color is pre-exposed, so white
+				// on screen is 1 and the limit is its share of the exposure that made it so
+				float limit = SCENE_REFLECTION_MAX_HIT_LUMINANCE / ]] .. post_source.PRE_EXPOSURE_HEADROOM .. [[.0;
+				float center_weight = 1.0 / (1.0 + dot(center.rgb, vec3(0.2126, 0.7152, 0.0722)) / (limit * 0.1));
+				vec3 sum = center.rgb * center_weight;
+				float total = center_weight;
+
+				for (int i = 0; i < OCEAN_FILTER_TAPS; i++) {
+					float angle = spin + float(i) * 2.39996323;
+					vec2 tap_uv = in_uv + vec2(cos(angle), sin(angle)) * (radius * sqrt((float(i) + 0.5) / float(OCEAN_FILTER_TAPS))) * texel_size;
+					vec4 tap = get_current_ocean(tap_uv);
+					float tap_distance = get_current_ocean_distance(tap_uv);
+
+					if (tap.a < 0.0 || tap_distance < 0.0) continue;
+
+					float weight = exp(-abs(tap_distance - center_distance) / max(center_distance * 0.02, 0.05)) / (1.0 + dot(tap.rgb, vec3(0.2126, 0.7152, 0.0722)) / (limit * 0.1));
+					sum += tap.rgb * weight;
+					total += weight;
+				}
+
+				return vec4(sum / total, center.a);
+			}
+
 			]] .. post_source.GetPreExposureGLSL("ocean_resolve_data") .. [[
 
 			// last frame's ocean was pre-exposed for last frame
@@ -2464,6 +2639,8 @@ list.insert(
 			void main() {
 				vec4 current = get_current_ocean(in_uv);
 				float current_distance = get_current_ocean_distance(in_uv);
+
+				if (current.a >= 0.0 && current_distance >= 0.0) current = get_filtered_ocean(current, current_distance, get_current_ocean_roughness(in_uv));
 
 				if (current.a < 0.0 || current_distance < 0.0 || ocean_resolve_data.history_ocean_tex == -1) {
 					set_color(current);

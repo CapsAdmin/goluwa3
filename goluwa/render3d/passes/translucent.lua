@@ -13,6 +13,7 @@ local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
+local ibl = import("goluwa/render3d/ibl.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
@@ -107,6 +108,12 @@ table.insert(
 		block = {
 			surface_lighting.block,
 			{"reflection_screenspace_roughness", "float"},
+			{"reflection_gi_start", "float"},
+			{"reflection_gi_end", "float"},
+			{"rough_rays", "int"},
+			{"reflection_max_distance", "float"},
+			{"reflection_fog", "int"},
+			{"frame_index", "int"},
 			{"depth_tex", "int"},
 			{"refraction_tex", "int"},
 			{"b0_tex", "int"},
@@ -117,6 +124,11 @@ table.insert(
 		write = function(self, block)
 			surface_lighting.WriteBlock(self, block)
 			block.reflection_screenspace_roughness = 0
+			block.reflection_gi_start, block.reflection_gi_end = ibl.GetReflectionGIRange()
+			block.rough_rays = scene_reflection.rough_rays:Get()
+			block.reflection_max_distance = scene_reflection.max_distance:Get()
+			block.reflection_fog = scene_reflection.fog:Get() and 1 or 0
+			block.frame_index = render3d.GetTemporalFrame()
 			block.fog = render3d.IsPassEnabled("volumetric_fog") and 1 or 0
 			block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
 			local b0, moments = translucent_moments.GetTextures()
@@ -136,19 +148,7 @@ table.insert(
 	{
 		name = "ddgi_data",
 		block = ddgi.GetProbeBlockLayout(),
-		write = function(self, block)
-			if render3d.IsPassEnabled("ddgi") then
-				ddgi.WriteProbeBlock(self, block)
-
-				if not scene_reflection.IsEnabled() then block.ddgi_rt_ready = 0 end
-
-				return block
-			end
-
-			block.ddgi_cascade_count = 0
-			block.ddgi_rt_ready = 0
-			return block
-		end,
+		write = scene_reflection.WriteProbeBlock,
 		upload_scope = "frame",
 	}
 )
@@ -370,7 +370,7 @@ local passes = {
 				""
 			) .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. (
 				scene_reflection.RAY_QUERY and
-				scene_reflection.GetGLSL("lighting_data", true) or
+				scene_reflection.GetGLSL("lighting_data", true) .. scene_reflection.GetDirectionGLSL() or
 				""
 			) .. screen_refraction.GetGLSL("lighting_data") .. translucent_moments.GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
 				float get_fog_sun_visibility(vec3 world_pos, vec3 sun_dir) {
@@ -566,6 +566,8 @@ local passes = {
 					float perceptual_roughness = sqrt(roughness);
 					float diffuse_transmission = get_transmission(in_uv);
 					bool refractive = refraction.amount > 0.0;
+					// one roughness for the surface, what it reflects and what it lets through: the same microfacets scatter both
+					float refraction_roughness = roughness;
 					// a refracting surface reflects what its index of refraction
 					// says, and scatters diffusely only what it doesn't transmit
 					float ior_f0 = (refraction.ior - 1.0) / (refraction.ior + 1.0);
@@ -595,11 +597,12 @@ local passes = {
 					finish_surface_features(surface);
 					vec3 direct_diffuse = get_direct_light(surface, direct_specular);
 
-					// a smooth surface reflects what the scene holds, one ray along the mirror direction (there
-					// is no history to average a rough one over), fading into the probes as it roughens
+					// a surface reflects what the scene holds, a rough one traces several rays over its lobe like the reflection
+					// pass (the temporal anti aliasing averages them over the frames), fading into the probes as the
+					// reflection pvars say
 					bool traced_only = false;
 					#ifdef SCENE_REFLECTION
-					float traced_weight = 1.0 - smoothstep(0.1, 0.35, perceptual_roughness);
+					float traced_weight = 1.0 - smoothstep(lighting_data.reflection_gi_start, lighting_data.reflection_gi_end, clamp(perceptual_roughness, 0.0, 1.0));
 					traced_only = traced_weight >= 1.0 && scene_reflection_ready();
 					#endif
 					// the light of the probes is the surface's own diffuse and what it reflects where nothing is traced. A
@@ -623,7 +626,7 @@ local passes = {
 					exit_geometric_N = geometric_N;
 					exit_V = V;
 					exit_N = N;
-					exit_perceptual_roughness = perceptual_roughness;
+					exit_perceptual_roughness = sqrt(refraction_roughness);
 					vec3 raw_R = reflect(-V, N);
 					vec3 reflection = vec3(0.0);
 
@@ -635,9 +638,30 @@ local passes = {
 
 					#ifdef SCENE_REFLECTION
 					if (traced_weight > 0.0 && scene_reflection_ready()) {
-						float traced_t;
-						vec3 traced = trace_scene_reflection(world_pos + (dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N) * 0.02, raw_R, N, perceptual_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
-						reflection = mix(reflection, traced, traced_weight);
+						vec3 trace_origin = world_pos + (dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N) * 0.02;
+						bool rough = perceptual_roughness > SCENE_REFLECTION_MIRROR_THRESHOLD;
+						int count = scene_reflection_ray_count(perceptual_roughness, lighting_data.rough_rays);
+						float limit = scene_reflection_hit_luminance_limit(perceptual_roughness, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), lighting_data.reflection_gi_end);
+						vec3 sum = vec3(0.0);
+
+						for (int ray = 0; ray < count; ray++) {
+							vec3 dir = raw_R;
+							float environment_roughness = perceptual_roughness;
+
+							if (rough) {
+								vec2 xi = pcg3d_unorm(uvec3(uvec2(gl_FragCoord.xy), uint(lighting_data.frame_index) * 16u + uint(ray))).xy;
+								dir = scene_reflection_direction(N, V, perceptual_roughness, xi, environment_roughness);
+							}
+
+							float traced_t;
+							vec3 traced = trace_scene_reflection(trace_origin, dir, N, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
+
+							if (rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, perceptual_roughness, limit);
+
+							sum += traced;
+						}
+
+						reflection = mix(reflection, sum / float(count), traced_weight);
 					}
 					#endif
 					vec2 env_brdf = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(NdotV, perceptual_roughness)).rg;
@@ -766,11 +790,11 @@ local passes = {
 								reach = 3.0 * max(distance(lighting_data.camera_position.xyz, scene_pos) - surface_distance, 0.0) + 0.5;
 							}
 
-							channel_background = get_refracted_background(world_pos, exit_pos, exit_outward, exit_dir, reach, roughness);
+							channel_background = get_refracted_background(world_pos, exit_pos, exit_outward, exit_dir, reach, refraction_roughness);
 						} else {
 							vec2 slope = (lighting_data.view * vec4(N - facing_N, 0.0)).xy;
 							vec2 uv = clamp(screen_uv + vec2(slope.x, -slope.y) * (ior - 1.0), vec2(0.0), vec2(1.0));
-							float blur_pixels = roughness * lighting_data.render_size.y * 0.05;
+							float blur_pixels = refraction_roughness * lighting_data.render_size.y * 0.05;
 							channel_background = textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb / get_pre_exposure();
 						}
 

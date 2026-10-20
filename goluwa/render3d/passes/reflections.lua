@@ -12,30 +12,19 @@ local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local RAY_QUERY = scene_reflection.RAY_QUERY
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
-local rough_rays = pvars.Setup2{
-	key = "reflection_rough_rays",
-	default = 4,
-	integer = true,
-	min = 1,
-	max = 16,
-	help = "rays a pixel traces once its surface is rough (the count rises from 1 between roughness 0.1 and 0.4), each in its own direction over the lobe, and their results are averaged. a single ray is one sharp point of the scene",
-}
-local filter_radius = pvars.Setup2{
-	key = "reflection_filter_radius",
-	default = 3,
-	min = 1,
-	max = 16,
-	help = "radius in texels of the half resolution (a full resolution texel counts as half) the denoiser averages a fully rough reflection over, it falls to 1 as the surface gets smooth. the taps are weighted by plane distance, normal and roughness so it stays on the surface",
-}
+local rough_rays = scene_reflection.rough_rays
+local filter_radius = scene_reflection.filter_radius
 local hit_reprojection = pvars.Setup2{
 	key = "reflection_hit_reprojection",
 	default = true,
 	help = "the history of a reflection is read where the reflected image was last frame, found from the hit distance, and not where the surface was. off, the reflection drags along with the surface and bends when the camera moves",
 }
-local SCALES = {full = 1, half = 0.5, quarter = 0.25}
+local SCALES = scene_reflection.RESOLUTION_SCALES
 local resolution = pvars.Setup2{
 	key = "reflection_resolution",
 	default = "half",
@@ -64,13 +53,8 @@ local shared_glsl = [[
 			#define SCREENSPACE_MAX_DISTANCE 80.0
 			// where lighting stops using the reflection buffer (get_reflection_blend_weight), nothing above it is traced
 			#define REFLECTION_ROUGHNESS_CUTOFF (reflection_data.roughness_cutoff)
-			#define REFLECTION_MIRROR_THRESHOLD 0.06
-			// times white on screen, under last frame's exposure
-			#define REFLECTION_MAX_HIT_LUMINANCE 8.0
 			// taps spread over the reflection cone's footprint in the last frame
 			#define SCREENSPACE_CONE_TAPS 9
-			// how much of the luminance limit a fully rough lobe keeps
-			#define REFLECTION_ROUGH_LIMIT_SCALE 0.25
 			// glints are high variance, a tight clamp and a short history would never settle them
 			#define REFLECTION_CLAMP_SIGMA 3.0
 			#define REFLECTION_HIST_LO 0.9
@@ -82,12 +66,6 @@ local shared_glsl = [[
 			vec4 inv_projection_row_z;
 			vec4 inv_projection_row_w;
 			float max_hit_luminance;
-
-			// a rough lobe averages many directions, so one bright texel in it is a firefly
-			// and not light. the limit falls as the lobe widens
-			float get_hit_luminance_limit(float roughness) {
-				return max_hit_luminance * mix(1.0, REFLECTION_ROUGH_LIMIT_SCALE, smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_ROUGHNESS_CUTOFF, roughness));
-			}
 
 			// downweights bright samples when averaging, relative to the limit
 			float get_firefly_weight(vec3 color, float limit) {
@@ -154,6 +132,8 @@ local function get_uniform_buffers(with_ddgi)
 				{"prev_projection", "mat4"},
 				post_source.pre_exposure_block,
 				RAY_QUERY and scene_reflection.block or nil,
+				RAY_QUERY and atmosphere.GetBlockLayout() or nil,
+				RAY_QUERY and {"primary_sun_illuminance", "float"} or nil,
 			},
 			write = function(self, block)
 				render3d.WriteCameraBlock(self, block)
@@ -196,7 +176,13 @@ local function get_uniform_buffers(with_ddgi)
 					block.history_depth_tex = -1
 				end
 
-				if RAY_QUERY then scene_reflection.WriteBlock(self, block) end
+				if RAY_QUERY then
+					scene_reflection.WriteBlock(self, block)
+					local lights = render3d.GetLights()
+					local sun_direction = directional_shadows.GetPrimarySunDirection(lights)
+					atmosphere.WriteBlock(self, block, render3d.GetCamera():GetPosition(), sun_direction)
+					block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
+				end
 
 				local prev_view = render3d.GetPreviousViewMatrix()
 				local prev_projection = render3d.GetPreviousProjectionMatrix()
@@ -269,12 +255,18 @@ return {
 		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("reflection_data") .. (
 				RAY_QUERY and
-				scene_reflection.GetGLSL("reflection_data") or
+				atmosphere.GetGLSLDefines("reflection_data", "reflection_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("reflection_data") or
 				""
 			) .. [[
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. [[
 		]] .. screen_reconstruct.GetGeometricNormalGLSL("reflection_data", {world_pos_function = "get_world_pos"}) .. [[
-		]] .. shared_glsl .. [[
+		]] .. shared_glsl .. scene_reflection.GetDirectionGLSL() .. [[
+			// a rough lobe averages many directions, so one bright texel in it is a firefly
+			// and not light. the limit falls as the lobe widens
+			float get_hit_luminance_limit(float roughness) {
+				return scene_reflection_hit_luminance_limit(roughness, max_hit_luminance, REFLECTION_ROUGHNESS_CUTOFF);
+			}
+
 			// how far the ray that just found something went, in meters, set by the traces
 			float reflection_hit_distance;
 			vec2 blue_noise(ivec2 pixel, int sample_index) {
@@ -284,13 +276,6 @@ return {
 				// are never another frame's
 				vec2 xi = blue_noise_texel(TEXTURE(reflection_data.blue_noise_tex), pixel).rg;
 				return blue_noise_r2(xi, float((reflection_data.frame_index % 64) * reflection_data.rough_rays + sample_index));
-			}
-
-			void build_orthonormal_basis(vec3 n, out vec3 t, out vec3 b) {
-				float a = 1.0 / (1.0 + n.z);
-				float d = -n.x * n.y * a;
-				t = vec3(1.0 - n.x * n.x * a, d, -n.x);
-				b = vec3(d, 1.0 - n.y * n.y * a, -n.y);
 			}
 
 			vec2 get_last_frame_uv(vec2 hit_uv, vec3 hit_view_pos) {
@@ -395,7 +380,7 @@ return {
 								// last frame's scene was pre-exposed for last frame, reflections are absolute
 								vec3 hit_color;
 
-								if (roughness > REFLECTION_MIRROR_THRESHOLD) {
+								if (roughness > SCENE_REFLECTION_MIRROR_THRESHOLD) {
 									// the reflection's cone is wider than a texel: its footprint at the hit
 									float radius_uv = roughness * roughness * length(hit_vs - pos_vs) / max(-hit_vs.z, 0.1) * reflection_data.projection[1][1] * 0.5;
 									radius_uv = min(radius_uv, 0.05);
@@ -422,7 +407,7 @@ return {
 									hit_color = texture(TEXTURE(reflection_data.last_frame_tex), last_frame_uv).rgb / get_previous_pre_exposure();
 								}
 
-								if (roughness > REFLECTION_MIRROR_THRESHOLD) {
+								if (roughness > SCENE_REFLECTION_MIRROR_THRESHOLD) {
 									float hit_luma = luminance(hit_color);
 
 									float hit_limit = get_hit_luminance_limit(roughness);
@@ -449,43 +434,17 @@ return {
 				// a normal map can turn a pixel away from the camera, which would
 				// reflect into the surface. bend it back toward the viewer
 				N = bend_normal_to_view(N, V);
-				vec3 N_vs = normalize(mat3(reflection_data.view) * N);
-				vec3 V_vs = normalize(-pos_vs);
-				vec3 mirror_R_vs = reflect(-V_vs, N_vs);
-
-				vec3 R_vs = mirror_R_vs;
-				// how blurred the environment is read where a ray leaves the scene. a sampled direction is already spread over
-				// the lobe, a prefiltered lookup on top of it would convolve it twice (the sun's glow came out half as bright)
-				float environment_roughness = roughness;
-
-				if (roughness > REFLECTION_MIRROR_THRESHOLD) {
-					vec3 T;
-					vec3 B;
-					build_orthonormal_basis(N_vs, T, B);
-					vec3 V_local = vec3(dot(V_vs, T), dot(V_vs, B), dot(V_vs, N_vs));
-					vec3 H_local = ImportanceSampleGGXVNDF(V_local, max(0.001, roughness * roughness), xi);
-					vec3 H_vs = normalize(T * H_local.x + B * H_local.y + N_vs * H_local.z);
-					float rough_mix = smoothstep(REFLECTION_MIRROR_THRESHOLD, REFLECTION_MIRROR_THRESHOLD * 3.0, roughness);
-					R_vs = normalize(mix(mirror_R_vs, reflect(-V_vs, H_vs), rough_mix));
-					environment_roughness = roughness * (1.0 - rough_mix);
-
-					// a sampled direction below the surface is reflected back above it. replacing it with the
-					// mirror ray (as it was) turned half the rays of a fully rough surface, 20% at 0.7, into the
-					// sharp mirror reflection, so the spread peaked at about 0.7 and fell again
-					float below_normal = dot(N_vs, R_vs);
-
-					if (below_normal < 0.001) R_vs = normalize(R_vs + N_vs * (0.001 - 2.0 * below_normal));
-				}
+				float environment_roughness;
+				vec3 R_world = scene_reflection_direction(N, V, roughness, xi, environment_roughness);
 
 				// a normal map tilted sideways can reflect below the actual surface,
 				// where the ray would leave through the floor and find the sky.
 				// mirror it back above the geometric plane instead
-				vec3 geometric_N_vs = mat3(reflection_data.view) * geometric_N;
-				float below = dot(R_vs, geometric_N_vs);
+				float below = dot(R_world, geometric_N);
 
-				if (below < 0.01) R_vs = normalize(R_vs + geometric_N_vs * (0.01 - 2.0 * below));
+				if (below < 0.01) R_world = normalize(R_world + geometric_N * (0.01 - 2.0 * below));
 
-				vec3 R_world = (reflection_data.inv_view * vec4(R_vs, 0.0)).xyz;
+				vec3 R_vs = normalize(mat3(reflection_data.view) * R_world);
 				bool rt_primary = false;
 
 				#ifdef SCENE_REFLECTION
@@ -506,14 +465,7 @@ return {
 					vec3 traced = trace_scene_reflection(origin, R_world, N, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
 					reflection_hit_distance = traced_t;
 
-					// the environment is smooth, a firefly is a small bright thing in the scene: a bright sky is real light
-					if (roughness > REFLECTION_MIRROR_THRESHOLD && traced_t < SCENE_REFLECTION_MAX_DISTANCE) {
-						float traced_luma = luminance(traced);
-
-						float traced_limit = get_hit_luminance_limit(roughness);
-
-						if (traced_luma > traced_limit) traced *= traced_limit / traced_luma;
-					}
+					if (roughness > SCENE_REFLECTION_MIRROR_THRESHOLD && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, roughness, get_hit_luminance_limit(roughness));
 
 					return vec4(mix(traced, hit.rgb, hit.a), 1.0);
 				}
@@ -530,7 +482,7 @@ return {
 				mat4 inv_projection = reflection_data.inv_projection;
 				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
-				max_hit_luminance = reflection_data.exposure_tex != -1 ? REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
+				max_hit_luminance = reflection_data.exposure_tex != -1 ? SCENE_REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
 				bool in_bounds = is_screen_pos_in_bounds(pos, reflection_size);
 				ivec2 gbuffer_pos = min(get_reflection_gbuffer_pos(pos, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
 				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
@@ -557,7 +509,7 @@ return {
 
 					// a rough surface traces several rays, each with its own random numbers (see blue_noise)
 					// and the results are averaged weighted by what each found
-					int rays = 1 + int(float(reflection_data.rough_rays - 1) * smoothstep(0.03, 0.25, roughness) + 0.5);
+					int rays = scene_reflection_ray_count(roughness, reflection_data.rough_rays);
 					vec4 sum = vec4(0.0);
 					float found = 0.0;
 					float distance_sum = 0.0;
@@ -611,7 +563,7 @@ return {
 		]],
 		-- what the trace pass found, filtered over the surrounding texels (a pass of its own, a tile of
 		-- shared memory left a grid of noisier texels along its borders) and blended with the history
-		shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. [[
+		shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. scene_reflection.CONSTANTS_GLSL .. [[
 		]] .. ibl.GetReflectionQuadGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. shared_glsl .. [[
 
 			void main() {
@@ -621,7 +573,7 @@ return {
 				mat4 inv_projection = reflection_data.inv_projection;
 				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
-				max_hit_luminance = reflection_data.exposure_tex != -1 ? REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
+				max_hit_luminance = reflection_data.exposure_tex != -1 ? SCENE_REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
 
 				if (!is_screen_pos_in_bounds(pos, reflection_size)) return;
 

@@ -12,14 +12,35 @@ local ray_reorder = import("goluwa/render3d/ray_reorder.lua")
 local scene_reflection = {}
 scene_reflection.RAY_QUERY = render.GetDevice().ray_query_supported
 pvars.StartGroup("Rendering", "Ray traced hit shading", {store = false})
-local max_distance = pvars.Setup2{
+scene_reflection.fog = pvars.Setup2{
+	key = "r_rt_reflection_fog",
+	default = true,
+	help = "the ground fog between a reflection ray's origin and what it hit is applied to the hit (analytic, unshadowed), the volumetric fog only covers what the camera sees. the reflections, the glass and the water use it",
+}
+scene_reflection.max_distance = pvars.Setup2{
 	key = "r_rt_reflection_distance",
-	default = 1000,
+	default = 1000000,
 	min = 1,
-	help = "how far reflection and refraction rays travel, in meters, a ray that goes no further finds the sky or the environment. built into the shaders",
+	help = "how far reflection and refraction rays travel, in meters, a ray that goes no further finds the sky or the environment. the reflections, the glass and the water use it",
 }
 pvars.EndGroup()
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
+scene_reflection.rough_rays = pvars.Setup2{
+	key = "reflection_rough_rays",
+	default = 4,
+	integer = true,
+	min = 1,
+	max = 16,
+	help = "rays a pixel traces once its surface is rough (the count rises from 1 between roughness 0.1 and 0.4), each in its own direction over the lobe, and their results are averaged. a single ray is one sharp point of the scene. the reflections and the water use it",
+}
+scene_reflection.RESOLUTION_SCALES = {full = 1, half = 0.5, quarter = 0.25}
+scene_reflection.filter_radius = pvars.Setup2{
+	key = "reflection_filter_radius",
+	default = 3,
+	min = 1,
+	max = 16,
+	help = "radius in texels of the half resolution (a full resolution texel counts as half) the denoiser averages a fully rough reflection over, it falls to 1 as the surface gets smooth. the taps are weighted by plane distance, normal and roughness so it stays on the surface. the water's resolve uses it too, by its distance",
+}
 local enabled = pvars.Setup2{
 	key = "reflection_ray_query",
 	default = true,
@@ -121,6 +142,67 @@ function scene_reflection.GetRayGeneration()
 	}
 end
 
+-- how a reflection ray is chosen and its hit limited, for every surface that traces reflections (the reflection pass and
+-- the water). roughness is perceptual, V points from the surface to the eye
+scene_reflection.CONSTANTS_GLSL = [[
+		// below this the surface is a mirror
+		#define SCENE_REFLECTION_MIRROR_THRESHOLD 0.06
+		// times white on screen, under last frame's exposure
+		#define SCENE_REFLECTION_MAX_HIT_LUMINANCE 8.0
+		// how much of the luminance limit a fully rough lobe keeps
+		#define SCENE_REFLECTION_ROUGH_LIMIT_SCALE 0.25
+]]
+
+function scene_reflection.GetDirectionGLSL()
+	return scene_reflection.CONSTANTS_GLSL .. [[
+
+		// a rough surface traces several rays, each with its own random numbers, and the results are averaged
+		int scene_reflection_ray_count(float roughness, int rough_rays) {
+			return 1 + int(float(rough_rays - 1) * smoothstep(0.03, 0.25, roughness) + 0.5);
+		}
+
+		// environment_roughness is how blurred the environment is read where a ray leaves the scene. a sampled direction is
+		// already spread over the lobe, a prefiltered lookup on top of it would convolve it twice
+		vec3 scene_reflection_direction(vec3 N, vec3 V, float roughness, vec2 xi, out float environment_roughness) {
+			vec3 mirror = reflect(-V, N);
+			environment_roughness = roughness;
+
+			if (roughness <= SCENE_REFLECTION_MIRROR_THRESHOLD) return mirror;
+
+			vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+			vec3 T = normalize(cross(up, N));
+			vec3 B = cross(N, T);
+			vec3 V_local = vec3(dot(V, T), dot(V, B), dot(V, N));
+			vec3 H_local = ImportanceSampleGGXVNDF(V_local, max(0.001, roughness * roughness), xi);
+			vec3 H = normalize(T * H_local.x + B * H_local.y + N * H_local.z);
+			float rough_mix = smoothstep(SCENE_REFLECTION_MIRROR_THRESHOLD, SCENE_REFLECTION_MIRROR_THRESHOLD * 3.0, roughness);
+			vec3 R = normalize(mix(mirror, reflect(-V, H), rough_mix));
+			environment_roughness = roughness * (1.0 - rough_mix);
+
+			// a sampled direction below the surface is reflected back above it. replacing it with the
+			// mirror ray turned half the rays of a fully rough surface into the sharp mirror reflection
+			float below_normal = dot(N, R);
+
+			if (below_normal < 0.001) R = normalize(R + N * (0.001 - 2.0 * below_normal));
+
+			return R;
+		}
+
+		// a rough lobe averages many directions, so one bright texel in it is a firefly and not light. the limit
+		// falls as the lobe widens. max_luminance is SCENE_REFLECTION_MAX_HIT_LUMINANCE over the exposure
+		float scene_reflection_hit_luminance_limit(float roughness, float max_luminance, float cutoff) {
+			return max_luminance * mix(1.0, SCENE_REFLECTION_ROUGH_LIMIT_SCALE, smoothstep(SCENE_REFLECTION_MIRROR_THRESHOLD, cutoff, roughness));
+		}
+
+		// the environment is smooth, a firefly is a small bright thing in the scene: a bright sky is real light
+		vec3 scene_reflection_limit_hit(vec3 traced, float roughness, float limit) {
+			float traced_luma = dot(traced, vec3(0.2126, 0.7152, 0.0722));
+
+			return traced_luma > limit ? traced * (limit / traced_luma) : traced;
+		}
+	]]
+end
+
 function scene_reflection.IsReordered()
 	return reorder:Get()
 end
@@ -133,6 +215,8 @@ scene_reflection.block = {
 	{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 	{"light_count", "int"},
 	{"reflection_screenspace_roughness", "float"},
+	{"reflection_max_distance", "float"},
+	{"reflection_fog", "int"},
 	{"glass_light", "int"},
 }
 
@@ -140,8 +224,27 @@ function scene_reflection.WriteBlock(self, block)
 	local lights = render3d.GetLights()
 	block.light_count = math.min(#lights, scene_lights.MAX_LIGHTS)
 	block.reflection_screenspace_roughness = screenspace_roughness:Get()
+	block.reflection_max_distance = scene_reflection.max_distance:Get()
+	block.reflection_fog = scene_reflection.fog:Get() and 1 or 0
 	block.glass_light = ddgi.HasGlass() and 1 or 0
 	scene_lights.WriteLightsBlock(block.lights, lights)
+end
+
+-- the hit shading reads the sun, the sky and, where there are probes, their light from ddgi_data. the rays do not need
+-- the ddgi pass: without it there are no cascades, hits are lit by the sun, the lights and the sky alone
+function scene_reflection.WriteProbeBlock(self, block)
+	ddgi.WriteProbeBlock(self, block)
+
+	if not render3d.IsPassEnabled("ddgi") then
+		block.ddgi_cascade_count = 0
+		block.ddgi_reset_mask = 0
+		block.ddgi_update_mask = 0
+		block.ddgi_rt_ready = scene_reflection.RAY_QUERY and 1 or 0
+	end
+
+	if not enabled:Get() then block.ddgi_rt_ready = 0 end
+
+	return block
 end
 
 function scene_reflection.GetDDGIUniformBuffer(binding)
@@ -149,18 +252,7 @@ function scene_reflection.GetDDGIUniformBuffer(binding)
 		name = "ddgi_data",
 		binding_index = binding,
 		block = ddgi.GetProbeBlockLayout(),
-		write = function(self, block)
-			if render3d.IsPassEnabled("ddgi") then
-				ddgi.WriteProbeBlock(self, block)
-			else
-				block.ddgi_cascade_count = 0
-				block.ddgi_rt_ready = 0
-			end
-
-			if not enabled:Get() then block.ddgi_rt_ready = 0 end
-
-			return block
-		end,
+		write = scene_reflection.WriteProbeBlock,
 	}
 end
 
@@ -175,7 +267,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			"" or
 			glass_light.GetGLSL("ddgi_scene")
 		) .. glsl_common.GetHashGLSL() .. [[
-		#define SCENE_REFLECTION_MAX_DISTANCE ]] .. string.format("%.1f", max_distance:Get()) .. [[
+		#define SCENE_REFLECTION_MAX_DISTANCE (]]..block_name..[[.reflection_max_distance)
 
 		#define SCENE_REFLECTION_FLAGS (RT_HIT_ANY_HIT != 0 ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT)
 		#define SCENE_REFLECTION_LIGHT_FULL_RADIANCE 0.02
@@ -473,6 +565,10 @@ function scene_reflection.GetGLSL(block_name, shared)
 			vec3 radiance = trace_scene_reflection_hit(origin, dir, N, roughness, max_distance, hit_t);
 
 			if (]]..block_name..[[.glass_light != 0) radiance *= get_glass_light(origin, dir, hit_t, 0.0);
+
+			// a hit is fogged by the ground fog along the ray (the camera's own fog covers the way to the surface); a ray
+			// that found the sky has the sky's haze already
+			if (]]..block_name..[[.reflection_fog != 0 && hit_t < max_distance) radiance = apply_ground_fog_ray(radiance, dir, ATMOSPHERE_SKY_SUN_DIRECTION, origin, hit_t, 1.0, vec3(0.0), 1.0);
 
 			return radiance;
 		}
