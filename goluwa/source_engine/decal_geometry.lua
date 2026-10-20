@@ -158,6 +158,8 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 						v1, v2, v3 = grid[c], grid[d], grid[b]
 					end
 
+					if v1 == v2 or v2 == v3 or v1 == v3 then goto continue end
+
 					local p1, p2, p3 = v1.pos, v2.pos, v3.pos
 					local ux, uy, uz = p2.x - p1.x, p2.y - p1.y, p2.z - p1.z
 					local wx, wy, wz = p3.x - p1.x, p3.y - p1.y, p3.z - p1.z
@@ -187,6 +189,8 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 
 						shared[#shared + 1] = tri
 					end
+
+					::continue::
 				end
 			end
 		end
