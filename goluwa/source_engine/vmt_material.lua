@@ -2,6 +2,7 @@ local tasks = import("goluwa/tasks.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -185,12 +186,25 @@ local surfaceprop_pbr = {
 local FEATURES = {
 	-- envmap and phong become a roughness lerp (the mask) plus a metallic estimate
 	reflection = true,
+	-- the envmap tint's metal estimate is scaled by how dark the albedo is
+	metal_gate = true,
+	-- $envmap with a $bumpmap and no mask flag takes the bump alpha as the mask
+	implicit_normal_mask = true,
 	-- $fresnelreflection is a dielectric signature, it lowers the envmap metal estimate
 	fresnel_damping = true,
-	-- source has no specular without an envmap or phong
-	no_reflection_matte = true,
+	-- source has no specular without an envmap or phong, but a dielectric always reflects about 4%, and the
+	-- roughness (from the surfaceprop, derived from the albedo) already keeps a rough surface from showing it
+	no_reflection_matte = false,
+	-- a roughness that varies with the albedo and the normal map for a material that has no roughness map
+	derived_roughness = true,
 	-- no reflection info: roughness and metallic from $surfaceprop
 	surfaceprop_fallback = true,
+	-- a material that says nothing about itself takes the $surfaceprop the model was compiled with, from its .phy
+	model_surfaceprop = true,
+	-- the $detail texture varies the roughness up close, see features/micro_detail.lua
+	micro_detail = true,
+	-- no $surfaceprop: the family of a $detail texture (metal_detail_01) says what it is, and is tried before the vmt path
+	detail_keywords = true,
 	-- no $surfaceprop: guess the material family from the vmt path
 	path_keywords = true,
 	-- lightmapped surfaces were authored dark for source's 2x overbright
@@ -246,6 +260,24 @@ local ALBEDO_TARGETS = {
 -- the shaders whose lighting is multiplied by source's 2x overbright
 local OVERBRIGHT_SHADERS = {lightmappedgeneric = true, worldvertextransition = true}
 local MAX_ALBEDO = 0.9
+local CHROME_ROUGHNESS = 0.05
+local SSBUMP_MASK_ROUGHNESS = 0.25
+-- how much roughness a material without a roughness map varies by, as a multiple of its constant roughness, so a mirror stays smooth
+local DERIVED_ROUGHNESS_ALBEDO = 1.5
+local DERIVED_ROUGHNESS_NORMAL = 2
+-- perceptual roughness per unit of $detail grain, times $detailblendfactor
+local MICRO_DETAIL_ROUGHNESS = 0.6
+local MICRO_DETAIL_DEFAULT_SCALE = 4
+-- the normal slope per unit of $detail grain height change over a texel, times $detailblendfactor
+local MICRO_DETAIL_NORMAL = 3
+-- the roughness variation of a fully metallic texel is this many times larger
+local DERIVED_ROUGHNESS_METAL = 2
+-- the part of the specular a fully dark or steep texel loses
+local DERIVED_SPECULAR_CAVITY = 0.8
+-- the part of the specular a fully dark or steep texel loses
+local DERIVED_SPECULAR_CAVITY = 0.8
+local PARALLAX_DEFAULT_SCALE = 0.025
+local PARALLAX_DEFAULT_CENTER = 0.5
 local on_load_vmt
 
 do
@@ -330,6 +362,56 @@ do
 		end
 	end
 
+	-- an envmap tint only says how strong the reflection is, wood and plastic have strong ones too. a metal has
+	-- hardly any diffuse and what it has is close to gray, dark brown wood is dark too but strongly colored. so the
+	-- tint's metal estimate counts for as much as the albedo is dark and gray. the average of the albedo (the vtf
+	-- reflectivity) is only known once it is loaded. a colored tint is a deliberate metal color and is not gated.
+	-- a surfaceprop, detail or path that names a family other than metal (wood, plastic...) votes against metal and
+	-- the tint is not metal at all. a metal one is a vote that lifts the brightness limit and loosens the color one, and with an envmap it makes the
+	-- tint's estimate 1. without an envmap it is not metal by itself
+	local function apply_envmap_metal(self, ctx, phong_metal, envmap_metal, tint_colored)
+		local albedo = self:GetAlbedoTexture()
+
+		if FEATURES.metal_gate and ctx.family and ctx.family ~= "metal" then
+			self:SetMetallicMultiplier(phong_metal)
+			return
+		end
+
+		local pbr = ctx.class and surfaceprop_pbr[ctx.class]
+		local voted = pbr ~= nil and pbr[2] > 0.5
+
+		-- a tint that is nearly black only dims the reflection, it says nothing of what it is. with a metal vote and
+		-- an envmap that is enough, the albedo below still has to look like a metal
+		if FEATURES.metal_gate and voted and ctx.envmap then
+			envmap_metal = math.max(envmap_metal, 1)
+		end
+
+		if envmap_metal <= 0 or tint_colored or not FEATURES.metal_gate or not albedo then
+			self:SetMetallicMultiplier(math.max(phong_metal, envmap_metal))
+			return
+		end
+
+		self:SetMetallicMultiplier(phong_metal)
+		local generation = self.vmt_generation
+
+		albedo:AddOnReady(function(texture)
+			local refl = texture.reflectivity
+
+			if not self:IsValid() or generation ~= self.vmt_generation then return end
+
+			local gate = 1
+
+			if refl then
+				local lum = refl[1] * 0.2126 + refl[2] * 0.7152 + refl[3] * 0.0722
+				local high, low = math.max(refl[1], refl[2], refl[3]), math.min(refl[1], refl[2], refl[3])
+				local saturation = high > 0 and (high - low) / high or 0
+				gate = (voted and 1 or 1 - math.smoothstep(0.05, 0.15, lum)) * (1 - math.smoothstep(voted and 0.3 or 0.2, voted and 0.6 or 0.45, saturation))
+			end
+
+			self:SetMetallicMultiplier(math.max(phong_metal, envmap_metal * gate))
+		end)
+	end
+
 	-- source has no roughness. an envmap or phong is a reflection that a mask
 	-- scales, so the mask becomes a roughness lerp from fully rough (no mask)
 	-- to the lobe's roughness (full mask), and metallic follows the same mask.
@@ -338,22 +420,39 @@ do
 	local function apply_reflection(self, vmt, ctx)
 		local envmap, phong = ctx.envmap, ctx.phong
 		local lobe = 0.1
-		local metallic = 0
+		local envmap_metal, phong_metal = 0, 0
+		local tint_colored = false
 		local mask_texture = nil
 		local mask_in_albedo, mask_in_normal, mask_in_luminance = false, false, false
 		local invert_mask = false
 
+		-- an unmasked spherical envmap is chrome
+		if envmap and not phong and vmt.envmapsphere == 1 and vmt.envmapmode == 1 then
+			self:SetRoughnessMultiplier(CHROME_ROUGHNESS)
+			self:SetMetallicMultiplier(1)
+			return
+		end
+
 		if envmap then
 			local r, g, b = get_rgb(vmt.envmaptint)
-			metallic = math.smoothstep(0.15, 0.4, r * 0.2126 + g * 0.7152 + b * 0.0722)
+			envmap_metal = math.smoothstep(0.15, 0.4, r * 0.2126 + g * 0.7152 + b * 0.0722)
+			local high = math.max(r, g, b)
+			tint_colored = high > 0 and (high - math.min(r, g, b)) / high > 0.4
 
 			if FEATURES.fresnel_damping and vmt.fresnelreflection then
-				metallic = metallic * (1 - math.clamp(vmt.fresnelreflection, 0, 1))
+				envmap_metal = envmap_metal * (1 - math.clamp(vmt.fresnelreflection, 0, 1))
 			end
 
 			if vmt.envmapmask then
 				mask_texture = vmt.envmapmask
-			elseif vmt.normalmapalphaenvmapmask == 1 and vmt.bumpmap then
+			elseif
+				vmt.bumpmap and
+				(
+					vmt.normalmapalphaenvmapmask == 1 or
+					FEATURES.implicit_normal_mask
+				)
+			then
+				-- an opaque bump alpha is the same as no mask, so a bump that has no mask flag can still be one
 				mask_in_normal = true
 			elseif vmt.basealphaenvmapmask == 1 then
 				-- unlike the other masks, source uses the inverse of the base alpha
@@ -382,17 +481,14 @@ do
 			end
 
 			local ranges = vmt.phongfresnelranges or Vec3(0, 0.5, 1)
-			metallic = math.max(
-				metallic,
-				math.smoothstep(0.25, 0.5, ranges.x * boost) * math.smoothstep(0.3, 0.8, ranges.x / math.max(ranges.z, 0.001))
-			)
+			phong_metal = math.smoothstep(0.25, 0.5, ranges.x * boost) * math.smoothstep(0.3, 0.8, ranges.x / math.max(ranges.z, 0.001))
 
 			if vmt.phongtint then
 				local r, g, b = get_rgb(vmt.phongtint)
 				local high = math.max(r, g, b)
 
 				if high > 0 and (high - math.min(r, g, b)) / high > 0.25 then
-					metallic = 1
+					phong_metal = 1
 				end
 			end
 		end
@@ -403,7 +499,7 @@ do
 			self:SetRoughnessTexture(ctx.linear(exponent_texture))
 			self:SetRoughnessMin(lobe_roughness(1, boost))
 			self:SetRoughnessMax(lobe_roughness(150, boost))
-			self:SetMetallicMultiplier(metallic)
+			apply_envmap_metal(self, ctx, phong_metal, envmap_metal, tint_colored)
 			return
 		end
 
@@ -423,15 +519,63 @@ do
 				self:SetRoughnessMax(1)
 			else
 				self:SetRoughnessMin(1)
-				self:SetRoughnessMax(lobe)
+				-- the mask of an ssbump is linear here, so the lobe is kept from getting mirror sharp where the mask is only partly there
+				self:SetRoughnessMax(
+					mask_in_normal and
+						vmt.ssbump == 1 and
+						math.max(lobe, SSBUMP_MASK_ROUGHNESS) or
+						lobe
+				)
 			end
 
-			self:SetMetallicFromRoughnessMask(metallic > 0)
+			self:SetMetallicFromRoughnessMask(math.max(phong_metal, envmap_metal) > 0)
 		else
 			self:SetRoughnessMultiplier(lobe)
 		end
 
-		self:SetMetallicMultiplier(metallic)
+		apply_envmap_metal(self, ctx, phong_metal, envmap_metal, tint_colored)
+	end
+
+	-- the strata/gpbr "pbr" shader. $mraotexture is R metallic, G roughness, B occlusion, and
+	-- $mraoscale scales each of them. $bumpmap and $basetexture are loaded as for any shader
+	local function apply_pbr(self, vmt, ctx)
+		self:SetMetallicMultiplier(0)
+		self:SetRoughnessMultiplier(0.5)
+
+		if vmt.mraotexture then
+			local metallic, roughness, occlusion = 1, 1, 1
+
+			if vmt.mraoscale then metallic, roughness, occlusion = get_rgb(vmt.mraoscale) end
+
+			self:SetMetallicRoughnessTexture(ctx.linear(vmt.mraotexture))
+			self:SetMetallicRoughnessIsMRAO(true)
+			self:SetMetallicMultiplier(metallic)
+			self:SetRoughnessMultiplier(roughness)
+			self:SetAmbientOcclusionMultiplier(occlusion)
+		end
+
+		if vmt.emissiontexture then
+			local r, g, b = get_rgb(vmt.emissionscale or 1)
+			self:SetEmissiveTexture(ctx.linear(vmt.emissiontexture))
+			self:SetEmissiveTextureIsColor(true)
+			self:SetEmissiveMultiplier(Color(r, g, b, 1))
+		end
+	end
+
+	-- $parallaxmap is a height texture of its own, $parallax with the pbr shader reads the alpha of the bump
+	local function apply_parallax(self, vmt, ctx)
+		if vmt.parallaxmap then
+			self:SetHeightTexture(ctx.linear(vmt.parallaxmap))
+			self:SetHeightScale(vmt.parallaxmapscale or PARALLAX_DEFAULT_SCALE)
+		elseif vmt.parallax == 1 and vmt.bumpmap then
+			self:SetHeightTexture(ctx.linear(vmt.bumpmap))
+			self:SetHeightTextureIsAlpha(true)
+			self:SetHeightScale(vmt.parallaxdepth or PARALLAX_DEFAULT_SCALE)
+		else
+			return
+		end
+
+		self:SetHeightMidlevel(vmt.parallaxcenter or PARALLAX_DEFAULT_CENTER)
 	end
 
 	-- only a prior: an explicit envmap or phong already decided the surface
@@ -481,7 +625,50 @@ do
 		end
 
 		self:SetRoughnessMultiplier(roughness)
-		self:SetMetallicMultiplier(pbr[2] > 0.5 and 1.0 or 0.0)
+		-- a translucent texture is a cable, a card or a glass, whatever the model it is on is made of
+		self:SetMetallicMultiplier(pbr[2] > 0.5 and vmt.translucent ~= 1 and vmt.additive ~= 1 and 1.0 or 0.0)
+	end
+
+	-- the roughness is only a constant where nothing gave the material a map, see features/derived_roughness.lua. its
+	-- albedo part needs the average of the texture, which is only known once it is loaded
+	local function apply_derived_roughness(self)
+		if
+			self:HasExplicitRoughnessTexture() or
+			self.Refraction > 0 or
+			self.Additive or
+			self.Modulate
+		then
+			return
+		end
+
+		local base = self.RoughnessMultiplier
+		local albedo = self:GetAlbedoTexture()
+
+		if self:GetNormalTexture() then
+			self:SetDerivedRoughnessNormal(base * DERIVED_ROUGHNESS_NORMAL)
+			self:SetDerivedRoughnessMetal(DERIVED_ROUGHNESS_METAL)
+
+			-- with an albedo the cavity compares it to its mean, which is not known yet
+			if not albedo then self:SetDerivedSpecularCavity(DERIVED_SPECULAR_CAVITY) end
+		end
+
+		if not albedo then return end
+
+		local generation = self.vmt_generation
+
+		albedo:AddOnReady(function(texture)
+			local refl = texture.reflectivity
+
+			if not refl or not self:IsValid() or generation ~= self.vmt_generation then
+				return
+			end
+
+			local lum = refl[1] * 0.2126 + refl[2] * 0.7152 + refl[3] * 0.0722
+			self:SetDerivedRoughnessAlbedoMean(math.sqrt(lum))
+			self:SetDerivedRoughnessAlbedo(base * DERIVED_ROUGHNESS_ALBEDO)
+			self:SetDerivedRoughnessMetal(DERIVED_ROUGHNESS_METAL)
+			self:SetDerivedSpecularCavity(DERIVED_SPECULAR_CAVITY)
+		end)
 	end
 
 	-- the texture's average (the vtf reflectivity) is only known once it is loaded
@@ -541,6 +728,16 @@ do
 			self.vmt_surfaceprop = class
 		end
 
+		if not class and FEATURES.detail_keywords and type(vmt.detail) == "string" then
+			class = find_family(file_path.GetFileNameFromPath(vmt.detail):lower())
+		end
+
+		self.vmt_has_own_class = class ~= nil
+
+		if not class and FEATURES.model_surfaceprop then
+			class = self.model_surfaceprop
+		end
+
 		if not class and FEATURES.path_keywords then
 			class = find_family(self.vmt_path or "")
 		end
@@ -558,7 +755,9 @@ do
 		self:SetMetallicMultiplier(0)
 		load_textures(self, vmt, ctx)
 
-		if ctx.envmap or ctx.phong then
+		if shader == "pbr" then
+			apply_pbr(self, vmt, ctx)
+		elseif ctx.envmap or ctx.phong then
 			if FEATURES.reflection then apply_reflection(self, vmt, ctx) end
 		else
 			if FEATURES.no_reflection_matte then self:SetSpecularMultiplier(0) end
@@ -566,6 +765,17 @@ do
 			if FEATURES.surfaceprop_fallback then
 				apply_surfaceprop_fallback(self, vmt, ctx)
 			end
+		end
+
+		apply_parallax(self, vmt, ctx)
+
+		if FEATURES.micro_detail and type(vmt.detail) == "string" then
+			local scale = tonumber(vmt.detailscale) or MICRO_DETAIL_DEFAULT_SCALE
+			self:SetMicroDetailTexture(ctx.linear(vmt.detail))
+			self:SetMicroDetailTiling(Vec2(scale, scale))
+			local blend = tonumber(vmt.detailblendfactor) or 1
+			self:SetMicroDetailRoughness(MICRO_DETAIL_ROUGHNESS * blend)
+			self:SetMicroDetailNormal(MICRO_DETAIL_NORMAL * blend)
 		end
 
 		if vmt.selfillum == 1 then
@@ -700,6 +910,8 @@ do
 			apply_albedo_gain(self, ctx)
 		end
 
+		if FEATURES.derived_roughness and not is_glass then apply_derived_roughness(self) end
+
 		material_proxies.Attach(self, vmt.source_text)
 		local color = self.ColorMultiplier
 		local flags = {}
@@ -809,6 +1021,17 @@ function vmt_material.Apply(material, vmt)
 	material_proxies.Detach(material)
 	material.vmt = vmt
 	on_load_vmt(material, track_vmt(vmt))
+end
+
+-- the first model that uses a material decides, a material shared by different models would otherwise flip with the load order
+function vmt_material.SetModelSurfaceProperty(material, name)
+	if not name or material.model_surfaceprop then return end
+
+	material.model_surfaceprop = name:lower()
+
+	if material.vmt and not material.vmt_has_own_class then
+		vmt_material.Apply(material, material.vmt)
+	end
 end
 
 function vmt_material.FromVMT(path, private_prefix)

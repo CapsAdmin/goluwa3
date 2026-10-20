@@ -120,6 +120,10 @@ do
 		selfillummask = true,
 		normalmap = true,
 		refracttinttexture = true,
+		mraotexture = true,
+		emissiontexture = true,
+		parallaxmap = true,
+		detail = true,
 	}
 	local special_textures = {
 		_rt_fullframefb = "error",

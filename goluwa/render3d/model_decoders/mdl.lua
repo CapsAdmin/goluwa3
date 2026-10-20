@@ -1205,6 +1205,7 @@ function mdl_decoder.Finish(path, full_path, input, meta, blob_table, mesh_callb
 			end
 
 			material = vmt_material.FromVMT(material_path)
+			vmt_material.SetModelSurfaceProperty(material, meta.physics and meta.physics.surface_property)
 		end
 
 		mesh.Skin = skin
