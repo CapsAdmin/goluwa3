@@ -4,6 +4,7 @@ local system = import("goluwa/system.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local event = import("goluwa/event.lua")
 local QueryPool = import("goluwa/render/vulkan/internal/query_pool.lua")
+local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
 local gpu_timing = {}
 local serialized = os.getenv("GOLUWA_GPU_SERIALIZE") == "1"
 local MAX_SCOPES = 128
@@ -207,6 +208,8 @@ function gpu_timing.BeginFrame(cmd)
 end
 
 function gpu_timing.BeginScope(cmd, name)
+	if checkpoints.enabled then checkpoints.Set(cmd, "scope " .. name) end
+
 	if cmd.gpu_timing_disabled then return end
 
 	if not render.available or not timestamps_are_supported() then return end

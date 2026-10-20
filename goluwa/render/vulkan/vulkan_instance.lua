@@ -139,7 +139,12 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 		"VK_KHR_acceleration_structure",
 		"VK_KHR_ray_tracing_pipeline",
 		"VK_KHR_ray_query",
+		"VK_EXT_device_fault",
 	}
+
+	if os.getenv("GOLUWA_CHECKPOINTS") then
+		table.insert(requested_device_extensions, "VK_NV_device_diagnostic_checkpoints")
+	end
 
 	if not is_headless then
 		table.insert(requested_device_extensions, "VK_KHR_swapchain")

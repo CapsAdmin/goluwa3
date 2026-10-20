@@ -8,6 +8,7 @@ local DescriptorPool = import("goluwa/render/vulkan/internal/descriptor_pool.lua
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local common = import("goluwa/render/vulkan/pipeline_common.lua")
+local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
 local RayTracingPipelineInternal = import("goluwa/render/vulkan/internal/ray_tracing_pipeline.lua")
 local ComputePipeline = objects.CreateTemplate("render_compute_pipeline")
 local RAY_TRACING_STAGE_BITS = 0x100 + 0x200 + 0x400 + 0x800
@@ -210,6 +211,7 @@ function ComputePipeline.New(vulkan_instance, raw_config)
 		pipeline = RayTracingPipelineInternal.New(
 			vulkan_instance.device,
 			{
+				name = config.name,
 				stages = {
 					{name = "raygeneration", code = stage.code},
 					{name = "closesthit", code = config.ray_tracing.closesthit},
@@ -354,11 +356,15 @@ function ComputePipeline:Bind(cmd, frame_index, dynamic_offsets)
 end
 
 function ComputePipeline:Dispatch(cmd, group_count_x, group_count_y, group_count_z, frame_index, dynamic_offsets)
+	if checkpoints.enabled then checkpoints.Set(cmd, "dispatch " .. tostring(self.config.name)) end
+
 	self:Bind(cmd, frame_index, dynamic_offsets)
 	cmd:Dispatch(group_count_x or 1, group_count_y or 1, group_count_z or 1)
 end
 
 function ComputePipeline:DispatchIndirect(cmd, buffer, offset, frame_index, dynamic_offsets)
+	if checkpoints.enabled then checkpoints.Set(cmd, "dispatch indirect " .. tostring(self.config.name)) end
+
 	self:Bind(cmd, frame_index, dynamic_offsets)
 	cmd:DispatchIndirect(buffer, offset)
 end

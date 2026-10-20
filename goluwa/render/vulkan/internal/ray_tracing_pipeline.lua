@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local PipelineCache = import("goluwa/render/vulkan/internal/pipeline_cache.lua")
+local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
 local render = import("goluwa/render/render.lua")
 local ShaderModule = import("goluwa/render/vulkan/internal/shader_module.lua")
 local DescriptorSetLayout = import("goluwa/render/vulkan/internal/descriptor_set_layout.lua")
@@ -193,6 +194,7 @@ function RayTracingPipeline.New(device, config)
 		data = sbt,
 	}
 	local self = RayTracingPipeline:CreateObject{
+		name = config.name,
 		device = device,
 		pipeline = ptr[0],
 		records_buffer = records_buffer,
@@ -252,6 +254,10 @@ function RayTracingPipeline:DispatchRays(cmd, width, height, depth, descriptor_s
 	call[0].stride = 0
 	call[0].size = 0
 	self.trace_rays(cmd.ptr[0], rgs, miss, chs, call, width, height, depth)
+	if checkpoints.enabled then
+		checkpoints.Set(cmd, "trace rays " .. tostring(self.name) .. " " .. width .. "x" .. height .. "x" .. depth)
+	end
+
 end
 
 function RayTracingPipeline:OnRemove()

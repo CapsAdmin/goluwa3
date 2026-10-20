@@ -5,6 +5,7 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local AccelerationStructure = import("goluwa/render/vulkan/internal/acceleration_structure.lua")
 local QueryPool = import("goluwa/render/vulkan/internal/query_pool.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
 local accel = {}
 pvars.StartGroup("Rendering", "Ray tracing", {store = false})
 local compaction = pvars.Setup2{
@@ -294,6 +295,8 @@ function accel.BuildBLASes(cmd, jobs, count)
 			n = n + 1
 		end
 
+		if checkpoints.enabled then checkpoints.Set(cmd, "build blas") end
+
 		cmd_build(cmd.ptr[0], n, infos + first, range_pointers + first)
 		first = first + n
 
@@ -532,12 +535,12 @@ do
 	end
 end
 
-	local slot = get_free_tlas_slot(frame, count)
-
-	if not slot then return current_slot and current_slot.tlas end
 -- builds the top level structure from `count` records of an instance buffer. an unused record has a zero blas reference
 function accel.BuildTLAS(cmd, instance_buffer, count)
 	local frame = system.GetFrameNumber()
+	local slot = get_free_tlas_slot(frame, count)
+
+	if not slot then return current_slot and current_slot.tlas end
 
 	slot.geometry.geometry.instances.data = instance_buffer:GetDeviceAddress()
 	local ranges = VkRangeInfoArray(1)
@@ -547,6 +550,8 @@ function accel.BuildTLAS(cmd, instance_buffer, count)
 		dstStage = "acceleration_structure_build_khr",
 		memoryBarrier = true,
 	}
+	if checkpoints.enabled then checkpoints.Set(cmd, "build tlas") end
+
 	slot.tlas:Build(cmd, 1, slot.geometry, ranges, BUILD_PREFER_FAST_TRACE)
 	cmd:PipelineBarrier{
 		srcStage = "acceleration_structure_build_khr",

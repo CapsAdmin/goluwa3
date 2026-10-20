@@ -1,6 +1,7 @@
 -- vram of a scene by label, once it has settled: the `vram_dump` rows, every pipeline with whether it drew, the process total
 -- from nvidia-smi (the driver's own memory is the difference to the tracked allocations)
 -- SCENE=alpine|esther|quarry|<file.lua> AFTER=seconds LIMIT=400 luajit glw --3d --hdr --background --validate lua "./test/harnesses/perf/vram_dump.lua"
+if os.getenv("NOGC") then collectgarbage("stop") end
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local commands = import("goluwa/cli/commands.lua")
@@ -51,7 +52,8 @@ event.AddListener("Update", "vram_dump_probe", function()
 		if not (ready_at and not scene_loading.IsLoading() and good > 60 and now - ready_at > after) then return end
 	end
 	done = true
-	collectgarbage()
+	if not os.getenv("NOGC") then collectgarbage() end
+	print(string.format("LUA HEAP %.0f MiB", collectgarbage("count") / 1024))
 	commands.RunString("vram_dump " .. limit)
 	local render3d = import("goluwa/render3d/render3d.lua")
 	for _, pipeline in ipairs(render3d.pipelines_i) do

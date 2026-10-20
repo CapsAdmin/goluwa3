@@ -39,6 +39,7 @@ local VkPhysicalDeviceDynamicRenderingFeaturesBox = ffi.typeof("$[1]", vulkan.vk
 local VkPhysicalDeviceConditionalRenderingFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceConditionalRenderingFeaturesEXT)
 local VkPhysicalDeviceFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceFeatures)
 local VkPhysicalDeviceVulkan12FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceVulkan12Features)
+local VkPhysicalDeviceFaultFeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceFaultFeaturesEXT)
 local VkPhysicalDeviceRobustness2FeaturesEXTBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRobustness2FeaturesEXT)
 local VkPhysicalDeviceAccelerationStructureFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceAccelerationStructureFeaturesKHR)
 local VkPhysicalDeviceRayTracingPipelineFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceRayTracingPipelineFeaturesKHR)
@@ -372,6 +373,17 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			)
 			pNextChain = enabledRobustness2Features
 		end
+	end
+
+	if table.has_value(finalExtensions, "VK_EXT_device_fault") then
+		pNextChain = VkPhysicalDeviceFaultFeaturesEXTBox(
+			vulkan.vk.s.PhysicalDeviceFaultFeaturesEXT{
+				sType = "physical_device_fault_features_ext",
+				pNext = pNextChain,
+				deviceFault = 1,
+				deviceFaultVendorBinary = 0,
+			}
+		)
 	end
 
 	local queuePriority = ffi.new("float[1]", 1.0)

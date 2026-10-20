@@ -1647,4 +1647,26 @@ function CommandBuffer:BlitImage(config)
 	)
 end
 
+if os.getenv("GOLUWA_CHECKPOINTS") then
+	import("goluwa/render/vulkan/internal/checkpoints.lua").Instrument(
+		CommandBuffer,
+		{
+			"PipelineBarrier",
+			"Dispatch",
+			"DispatchIndirect",
+			"CopyBuffer",
+			"FillBuffer",
+			"UpdateBuffer",
+			"CopyImageToImage",
+			"CopyBufferToImage",
+			"CopyBufferToImageMip",
+			"CopyImageToBuffer",
+			"BlitImage",
+			"ClearColorImage",
+			"BeginRendering",
+			"DrawIndexedIndirectCount",
+		}
+	)
+end
+
 return CommandBuffer:Register()

@@ -416,6 +416,7 @@ do
 		end
 
 		self.pipeline = render.CreateComputePipeline{
+			name = config.name,
 			ray_tracing = ray_tracing,
 			DescriptorSetCount = config.DescriptorSetCount or
 				(
