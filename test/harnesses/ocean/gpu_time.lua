@@ -1,5 +1,6 @@
 -- GPU time of the ocean passes. VARIANTS="pvar=val,pvar=val;pvar=val" runs each after a baseline in one
--- process (the gpu clock wanders between runs), POS ANG WIND OCEAN FOV as in shot.lua
+-- process (the gpu clock wanders between runs), POS ANG WIND OCEAN FOV as in shot.lua. SETUP is a lua file run after
+-- the sun is set (a scene to measure in), then WIND and OCEAN are not applied again
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
@@ -31,6 +32,8 @@ local function nums(name, default)
 
 	return out
 end
+
+if os.getenv("SETUP") then import(os.getenv("SETUP")) end
 
 local pos, ang = nums("POS", "0,6,0"), nums("ANG", "-0.12,0,0")
 View.New{Position = Vec3(pos[1], pos[2], pos[3]), Rotation = QuatDeg3(math.deg(ang[1]), math.deg(ang[2]), 0), FOV = tonumber(os.getenv("FOV") or 1.1), Priority = 100}:Activate()
@@ -102,17 +105,18 @@ event.AddListener("Update", "ocean_gpu_time", function()
 	n = n + 1
 
 	if k == per - 1 then
-		local total, fft, waves, foam = 0, 0, 0, 0
+		local total, fft, waves, foam, resolve = 0, 0, 0, 0, 0
 
 		for name, v in pairs(sum) do
 			v = v / n
 
 			if name == "ocean" then total = v
+			elseif name == "ocean_resolve" then resolve = v
 			elseif name:find("ocean_fft") then fft = fft + v
 			elseif name:find("_foam") then foam = foam + v
 			elseif name:find("ocean_waves") then waves = waves + v end
 		end
 
-		results[vi] = string.format("ocean %.3f  fft %.3f  waves %.3f  foam %.3f  sum %.3f", total, fft, waves, foam, total + fft + waves + foam)
+		results[vi] = string.format("ocean %.3f  resolve %.3f  fft %.3f  waves %.3f  foam %.3f  sum %.3f", total, resolve, fft, waves, foam, total + resolve + fft + waves + foam)
 	end
 end)
