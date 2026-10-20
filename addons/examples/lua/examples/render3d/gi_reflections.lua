@@ -527,6 +527,25 @@ do
 	}
 end
 
+do
+	local cx, cz, w, h, d, t = 80, -100, 10, 5, 10, 0.4
+	box("tiny_emitter_room_floor", Vec3(cx, 0.05, cz), Vec3(w, 0.1, d), white)
+	box("tiny_emitter_room_roof", Vec3(cx, h, cz), Vec3(w, t, d), white)
+	box("tiny_emitter_room_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
+	box("tiny_emitter_room_front", Vec3(cx, h / 2, cz + d / 2), Vec3(w, h, t), white)
+	box("tiny_emitter_room_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), white)
+	box("tiny_emitter_room_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
+	box("tiny_emitter_room_pillar", Vec3(cx - 1.5, 1.25, cz - 1), Vec3(1, 2.5, 1), blue)
+	box("tiny_emitter_room_crate", Vec3(cx + 2, 0.5, cz + 1.5), Vec3(1, 1, 1), orange)
+	sphere("tiny_emitter_room_ball", Vec3(cx + 1.5, 0.8, cz - 2), 0.8, mat(Color(0.95, 0.95, 0.95, 1), 0.05, 1))
+	box(
+		"tiny_emitter_room_emitter",
+		Vec3(cx, h - t / 2 - 0.05, cz),
+		Vec3(0.1, 0.1, 0.1),
+		emissive_mat(Color(1, 0.9, 0.75, 1), 800)
+	)
+end
+
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
