@@ -546,6 +546,25 @@ do
 	)
 end
 
+do
+	local cx, cz, w, h, d, t, gap = 120, -100, 10, 5, 10, 0.4, 0.2
+	local name = "ceiling_gap_room"
+	box(name .. "_floor", Vec3(cx, 0.05, cz), Vec3(w, 0.1, d), white)
+	box(name .. "_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
+	box(name .. "_front", Vec3(cx, h / 2, cz + d / 2), Vec3(w, h, t), white)
+	box(name .. "_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), white)
+	box(name .. "_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
+	local seg_x, seg_z = (w - gap) / 2, (d - gap) / 2
+	local off_x, off_z = w / 2 - seg_x / 2, d / 2 - seg_z / 2
+	box(name .. "_roof_back", Vec3(cx, h, cz - off_z), Vec3(w, t, seg_z), white)
+	box(name .. "_roof_front", Vec3(cx, h, cz + off_z), Vec3(w, t, seg_z), white)
+	box(name .. "_roof_left", Vec3(cx - off_x, h, cz), Vec3(seg_x, t, gap), white)
+	box(name .. "_roof_right", Vec3(cx + off_x, h, cz), Vec3(seg_x, t, gap), white)
+	box(name .. "_pillar", Vec3(cx - 2, 1.25, cz - 1), Vec3(1, 2.5, 1), blue)
+	box(name .. "_crate", Vec3(cx + 2, 0.5, cz + 1.5), Vec3(1, 1, 1), orange)
+	sphere(name .. "_ball", Vec3(cx + 1.5, 0.8, cz - 2), 0.8, white)
+end
+
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
