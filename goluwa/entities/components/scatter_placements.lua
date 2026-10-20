@@ -9,7 +9,7 @@ META:GetSet("Model", "")
 META:GetSet("MaterialOverride", "")
 META:GetSet("Bending", 0, {validate = "number"})
 META:GetSet("Billboard", false)
--- 14 radii is where the lod system switches to a billboard, the pvar r_scatter_billboard_distance (0.25) scales it
+-- the lod system switches to a billboard at 14 radii, the pvar r_scatter_billboard_distance (0.75) scales this to 42
 META:GetSet("BillboardRadii", 56, {validate = "number"})
 META:GetSet("MaxDistance", 4000, {validate = "number"})
 META:GetSet("Shadow", true)

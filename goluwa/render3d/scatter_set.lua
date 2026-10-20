@@ -34,7 +34,8 @@
 --   billboard: {distance = meters, fade = 0.15}, or true for 150 m. the model beyond the distance is drawn as the
 --     baked billboard of render3d/billboard.lua (a few crossed quads with the model's picture on, made when the model
 --     has loaded), crossfading with the model over fade (a share of the distance) around it. it casts shadows in the model's place.
---     the r_scatter_billboards pvar turns them off, and r_scatter_billboard_distance scales the distance. only for
+--     the r_scatter_billboards pvar turns them off, and r_scatter_billboard_distance scales the distance and, for a prototype
+--     that has one (not a placed one), how far it reaches past max_distance (a share of 4 times the pvar). only for
 --     models that are a path
 --   shadow: (true by default) the instances are drawn in the shadow maps, all of them, in view or not, so the ones behind the camera cast
 --     shadows into it, and the shadow maps decide how far that goes. past the billboard's distance it is the billboard

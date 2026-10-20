@@ -50,6 +50,9 @@ scatter.MAX_UNITS = 16384
 scatter.MAX_BAKED = 2 ^ 21
 scatter.GROW_MARGIN = 1.5
 scatter.MAX_BATCHES = 1024
+-- the value of r_scatter_billboard_distance at which a billboard reaches max_distance, a prototype with one reaches that much farther
+-- the higher it is (it only scaled where the model gives way to the billboard before, at 0.25)
+scatter.BILLBOARD_REACH_UNIT = 0.25
 scatter.TILE_CELLS = 32
 scatter.MAX_LEVEL = 4
 pvars.StartGroup("Rendering", "Scatter", {store = false, prefix = "feature_"})
@@ -67,8 +70,8 @@ local billboards_enabled = pvars.Setup2{
 }
 local billboard_scale = pvars.Setup2{
 	key = "r_scatter_billboard_distance",
-	default = 0.25,
-	help = "multiplies the distance the billboards of the scatter prototypes start at",
+	default = 0.75,
+	help = "scales the distances of the scatter prototypes that have a billboard: where the model gives way to it, and how far it reaches (4 times this, as a share of max_distance)",
 }
 pvars.EndGroup()
 local MAX_PROTOTYPES = ScatterSet.MAX_PROTOTYPES
@@ -1417,8 +1420,8 @@ end
 
 local function write_prototype(out, proto, instance_base, far_base, shadow_base, shadow_billboard_base)
 	out.placement[0] = proto.density * proto.density_multiplier
-	out.placement[1] = proto.max_distance * proto.distance_multiplier
-	out.placement[2] = proto.full_density_distance * proto.distance_multiplier
+	out.placement[1] = proto.max_distance * proto.distance_multiplier * proto.reach
+	out.placement[2] = proto.full_density_distance * proto.distance_multiplier * proto.reach
 	out.placement[3] = proto.distance_scale
 	out.cluster[0] = proto.cluster_scale
 	out.cluster[1] = proto.cluster_amount
@@ -1488,6 +1491,14 @@ local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
 local demand_copy = BufferCopy()
 local demand_versions = {}
 
+-- how many times farther than its max_distance a prototype reaches: one with a billboard that is baked (and the pvar allows it)
+-- is drawn as the billboard from where its model gives way, so it is cheap to take far
+local function get_reach(proto)
+	if proto.placed or not (billboards_enabled:Get() and proto.billboard_part) then return 1 end
+
+	return billboard_scale:Get() / scatter.BILLBOARD_REACH_UNIT
+end
+
 -- where a prototype's model gives way to its billboard, 0 for never: when it has one that is baked, the pvar
 -- allows it and it is nearer than the end of the prototype
 local function get_switch(proto)
@@ -1495,7 +1506,7 @@ local function get_switch(proto)
 
 	return math.min(
 		proto.billboard_distance * billboard_scale:Get() * proto.distance_multiplier,
-		proto.max_distance * proto.distance_multiplier * 0.95
+		proto.max_distance * proto.distance_multiplier * get_reach(proto) * 0.95
 	)
 end
 
@@ -1504,8 +1515,8 @@ end
 -- view (all of it for what casts shadows) and a margin. the gpu's own counts correct it from then on
 local function estimate_room(proto, from, to, view)
 	local set = proto.set
-	local far = proto.max_distance * proto.distance_multiplier
-	local full = proto.full_density_distance * proto.distance_multiplier
+	local far = proto.max_distance * proto.distance_multiplier * proto.reach
+	local full = proto.full_density_distance * proto.distance_multiplier * proto.reach
 	local steps = 64
 	local area = 0
 
@@ -1522,10 +1533,12 @@ end
 
 local function size_prototype(proto)
 	local set = proto.set
-	local far = proto.max_distance * proto.distance_multiplier
+	proto.reach = get_reach(proto)
+	local far = proto.max_distance * proto.distance_multiplier * proto.reach
 	local switch = get_switch(proto)
 	proto.sized_density = proto.density_multiplier
 	proto.sized_distance = proto.distance_multiplier
+	proto.sized_reach = proto.reach
 	proto.sized_scale = billboard_scale:Get()
 	proto.sized_switch = switch
 	-- the model reaches a little past the billboard's distance, and the billboard from a little before it
@@ -1780,8 +1793,8 @@ end
 -- the share of a prototype's density that is left at a distance, the same as scatter_keep in the shaders
 local function cpu_keep(proto, distance)
 	local set = proto.set
-	local far = proto.max_distance * proto.distance_multiplier
-	local full = proto.full_density_distance * proto.distance_multiplier
+	local far = proto.max_distance * proto.distance_multiplier * proto.reach
+	local full = proto.full_density_distance * proto.distance_multiplier * proto.reach
 
 	if distance >= far then return 0 end
 
@@ -2501,13 +2514,20 @@ function scatter.PreDraw(cmd)
 	apply_unit_counts(b, ring)
 
 	for _, proto in ipairs(protos) do
-		if proto.sized_density ~= proto.density_multiplier or proto.sized_distance ~= proto.distance_multiplier then
+		local wanted_reach = get_reach(proto)
+
+		if
+			proto.sized_density ~= proto.density_multiplier or
+			proto.sized_distance ~= proto.distance_multiplier or
+			proto.sized_reach ~= wanted_reach
+		then
 			bake_epoch = bake_epoch + 1
 		end
 
 		if
 			proto.sized_density ~= proto.density_multiplier or
 			proto.sized_distance ~= proto.distance_multiplier or
+			proto.sized_reach ~= wanted_reach or
 			proto.sized_scale ~= billboard_scale:Get() or
 			proto.sized_switch ~= get_switch(proto)
 		then
@@ -2530,7 +2550,7 @@ function scatter.PreDraw(cmd)
 	local reach = 0
 
 	for _, proto in ipairs(protos) do
-		if not proto.placed then reach = math.max(reach, proto.max_distance * proto.distance_multiplier) end
+		if not proto.placed then reach = math.max(reach, proto.max_distance * proto.distance_multiplier * proto.reach) end
 	end
 
 	collect_bakes(candidates, camera, reach, frame)
