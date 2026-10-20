@@ -295,6 +295,14 @@ function Material:Copy()
 	return copy
 end
 
+function Material:ResetToDefaults()
+	for _, info in ipairs(objects.GetStorableVariables(self)) do
+		if info.var_name ~= "Name" and info.var_name ~= "Flags" then
+			self[info.set_name](self, info.copy and info.copy() or info.default)
+		end
+	end
+end
+
 function Material:HasExplicitMetallicTexture()
 	return self.MetallicTexture ~= nil or self.MetallicRoughnessTexture ~= nil
 end
