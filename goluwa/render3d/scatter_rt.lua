@@ -340,11 +340,15 @@ local function refresh(segment_list)
 	return false
 end
 
-local function produce(cmd)
+local sources, list_buffer, counts_buffer
+
+local function prepare()
+	sources = nil
+
 	if not enabled:Get() or not render.GetDevice().ray_tracing_supported then return end
 
-	local scatter = import("goluwa/render3d/scatter.lua")
-	local sources, list_buffer, counts_buffer, version = scatter.GetRTSources()
+	local version
+	sources, list_buffer, counts_buffer, version = import("goluwa/render3d/scatter.lua").GetRTSources()
 
 	if not sources then return end
 
@@ -358,6 +362,10 @@ local function produce(cmd)
 			rebuild(segment_list)
 		end
 	end
+end
+
+local function produce(cmd)
+	if not sources then return end
 
 	if not range_base then return end
 
@@ -400,5 +408,5 @@ local function produce(cmd)
 	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
 end
 
-instances.AddProducer("scatter", produce)
+instances.AddProducer("scatter", produce, prepare)
 return scatter_rt

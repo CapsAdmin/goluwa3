@@ -324,10 +324,14 @@ function instances.GetRecordFlags(flags)
 end
 
 local producers = {}
+local preparers = {}
 
--- a producer writes the rows it owns on the gpu in the command buffer that builds the structure: fn(cmd)
-function instances.AddProducer(name, fn)
-	producers[name] = fn
+-- a producer writes the rows it owns on the gpu in the command buffer that builds the structure: produce(cmd). prepare()
+-- runs before the tables are flushed to the gpu and is where it may lay its rows out (that can grow the tables, whose new
+-- buffers only hold what the cpu uploads in that flush)
+function instances.AddProducer(name, produce, prepare)
+	producers[name] = produce
+	preparers[name] = prepare
 end
 
 -- the runs of rows between the ranges of producers, which are the rows of visuals: {first, count, first, count, ...}
@@ -488,6 +492,11 @@ do
 	-- level structure from it. it is built every frame, the levels of detail follow the camera
 	function instances.Build(cmd)
 		instances.GetTables()
+
+		for _, prepare in pairs(preparers) do
+			prepare()
+		end
+
 		store.FlushStaged(cmd)
 		meshes.Build(cmd, skinning.updated)
 
