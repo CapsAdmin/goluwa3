@@ -599,6 +599,43 @@ do
 	end)
 end
 
+do
+	local event = import("goluwa/event.lua")
+	local system = import("goluwa/system.lua")
+	local cx, cz, w, h, d, t = 200, -100, 10, 6, 10, 0.4
+	local name = "spot_mover_room"
+	box(name .. "_floor", Vec3(cx, 0.05, cz), Vec3(w, 0.1, d), white)
+	box(name .. "_roof", Vec3(cx, h, cz), Vec3(w, t, d), white)
+	box(name .. "_back", Vec3(cx, h / 2, cz - d / 2), Vec3(w, h, t), white)
+	box(name .. "_front", Vec3(cx, h / 2, cz + d / 2), Vec3(w, h, t), white)
+	box(name .. "_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), white)
+	box(name .. "_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
+	box(name .. "_pillar", Vec3(cx + 3.5, 1.5, cz - 3.5), Vec3(1, 3, 1), white)
+	local spot_position = Vec3(cx, h - t / 2 - 0.1, cz)
+	local spot = spot_light(name .. "_spot", spot_position, -90, 0, neutral, 4000, 10, 6, 12)
+	local mover_material = mat(Color(1, 1, 1, 1), 0.5)
+	local mover = shapes.Sphere{
+		Name = name .. "_mover",
+		Position = Vec3(cx + 2, 1.2, cz),
+		Radius = 0.7,
+		Material = mover_material,
+		Collision = false,
+		RigidBody = false,
+	}
+	event.AddListener("Update", "gi_reflections_spot_mover", function()
+		local time = system.GetElapsedTime()
+		local position = Vec3(
+			cx + math.cos(time * 0.6) * 2.5,
+			1.2 + math.abs(math.sin(time * 1.5)) * 1.5,
+			cz + math.sin(time * 0.6) * 2.5
+		)
+		mover.transform:SetPosition(position)
+		local dir = (position - spot_position):GetNormalized()
+		spot.Owner.transform:SetRotation(QuatDeg3(math.deg(math.asin(dir.y)), math.deg(math.atan2(-dir.x, -dir.z)), 0))
+		mover_material:SetColorMultiplier(Color.FromHSV(time * 0.15, 0.9, 1))
+	end)
+end
+
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
