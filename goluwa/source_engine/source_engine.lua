@@ -12,12 +12,13 @@ local Entity = import("goluwa/entities/entity.lua")
 local engines = import("goluwa/engines.lua")
 local game = import("goluwa/source_engine/game.lua")
 local bsp = import("goluwa/source_engine/bsp.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local map_scene = import("goluwa/source_engine/map_scene.lua")
 import("goluwa/source_engine/lights.lua")
 local source_engine = {}
 
-local function wait_for_map(path)
-	local ok, result = pcall(bsp.Load, path)
+local function wait_for_map(path, skybox)
+	local ok, result = pcall(bsp.Load, path, skybox)
 
 	if not ok then
 		wlog("failed to load map " .. path .. ": " .. tostring(result))
@@ -66,35 +67,110 @@ function source_engine.Load(name)
 	startup.Begin("source map load")
 
 	function task:OnStart()
-		startup.Begin("bsp load")
-		local data = wait_for_map(path)
-		startup.End("bsp load")
-
-		if not data then
-			startup.End("source map load")
-
-			return
-		end
-
-		startup.Begin("map translate")
-		local scene_data = map_scene.Translate(data, name, path)
-		startup.End("map translate")
-		startup.Begin("scene spawn")
 		scene.BeginSpawning()
-		local ok, err = pcall(
-			scene.Deserialize,
-			scene_data,
-			Entity.World,
-			{yield_every = 128, skip_unavailable = not RENDER_3D}
-		)
+		local ok, err = pcall(source_engine.SpawnChain, name, path)
 		scene.EndSpawning()
-		startup.End("scene spawn")
 		startup.End("source map load")
 
 		if not ok then error(err, 0) end
 	end
 
 	task:Start()
+end
+
+function source_engine.GetLandmarks(entities)
+	local landmarks = {}
+
+	for _, info in pairs(entities) do
+		if info.classname == "info_landmark" and info.targetname and info.origin then
+			landmarks[info.targetname] = info.origin
+		end
+	end
+
+	return landmarks
+end
+
+function source_engine.GetChangeLevels(entities)
+	local changes = {}
+
+	for _, info in pairs(entities) do
+		if info.classname == "trigger_changelevel" and info.map and info.landmark then
+			changes[#changes + 1] = {map = info.map:lower(), landmark = info.landmark}
+		end
+	end
+
+	return changes
+end
+
+-- the map and the maps of its group that are reachable through its trigger_changelevel entities, each with the offset
+-- that puts the landmark it shares with the map it was reached from in the same place
+function source_engine.FindChain(name, path)
+	local group = name:match("^(.-)_%d+%a*$") or name
+	local chain = {{name = name, path = path, offset = Vec3(0, 0, 0)}}
+	local placed = {[name] = true}
+	local head = 1
+
+	while chain[head] do
+		local entry = chain[head]
+		head = head + 1
+		local entities = bsp.LoadEntities(entry.path)
+		local landmarks = source_engine.GetLandmarks(entities)
+
+		for _, change in ipairs(source_engine.GetChangeLevels(entities)) do
+			if
+				not placed[change.map] and
+				change.map:match("^(.-)_%d+%a*$") == group and
+				landmarks[change.landmark]
+			then
+				local next_path = game.GetMapPath(change.map)
+				game.EnsureMounted(next_path)
+
+				if vfs.IsFile(next_path) then
+					local ok, next_entities = pcall(bsp.LoadEntities, next_path)
+					local next_landmark = ok and source_engine.GetLandmarks(next_entities)[change.landmark]
+
+					if next_landmark then
+						placed[change.map] = true
+						logn("chaining ", change.map, " via ", change.landmark)
+						chain[#chain + 1] = {
+							name = change.map,
+							path = next_path,
+							offset = entry.offset + landmarks[change.landmark] - next_landmark,
+						}
+					end
+				end
+			end
+		end
+	end
+
+	return chain
+end
+
+-- spawns the map and the maps chained to it. The 3D skybox is only kept when there is no chain, the skyboxes of
+-- maps placed next to each other do not belong in the same world
+function source_engine.SpawnChain(name, path)
+	local chain = source_engine.FindChain(name, path)
+
+	for i, entry in ipairs(chain) do
+		startup.Begin("bsp load")
+		local data = wait_for_map(entry.path, #chain == 1)
+		startup.End("bsp load")
+
+		if not data then
+			if i == 1 then error("failed to load " .. entry.name, 0) end
+		else
+			startup.Begin("map translate")
+			local scene_data = map_scene.Translate(data, entry.name, entry.path, i > 1 and entry.offset or nil)
+			startup.End("map translate")
+			startup.Begin("scene spawn")
+			scene.Deserialize(
+				scene_data,
+				Entity.World,
+				{yield_every = 128, skip_unavailable = not RENDER_3D}
+			)
+			startup.End("scene spawn")
+		end
+	end
 end
 
 engines.Register(

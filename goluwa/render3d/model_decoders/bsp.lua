@@ -4,7 +4,7 @@ local static_geometry = import("goluwa/source_engine/static_geometry.lua")
 import("goluwa/source_engine/source_engine.lua")
 
 model_loader.AddModelDecoder("bsp", function(path, full_path, mesh_callback)
-	local ok, result = pcall(bsp.Load, full_path)
+	local ok, result = pcall(bsp.Load, full_path, true)
 
 	if not ok then error("Failed to load BSP map: " .. tostring(result)) end
 

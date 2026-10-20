@@ -138,7 +138,7 @@ local function clip_bounds(info)
 	return {box.min_x, box.min_y, box.min_z, box.max_x, box.max_y, box.max_z}
 end
 
-function map_scene.Translate(data, map_name, map_path)
+function map_scene.Translate(data, map_name, map_path, offset)
 	assert(tasks.GetActiveTask(), "map_scene.Translate must run inside a task")
 	local records = {}
 	local root_guid = "bsp:" .. map_name
@@ -155,12 +155,15 @@ function map_scene.Translate(data, map_name, map_path)
 		guid = root_guid,
 		properties = {Name = map_name},
 		components = {
-			transform = {},
+			transform = {Position = offset and units.PositionToEngine(offset) or nil},
 			static_world = {Pak = map_path},
 			nav_mesh = vfs.IsFile(nav_path) and {Path = nav_path} or nil,
 		},
 	}
-	add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
+	if not offset then
+		add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
+	end
+
 	local containers = {}
 	local sub_groups = {}
 
@@ -195,7 +198,7 @@ function map_scene.Translate(data, map_name, map_path)
 				guid = guid,
 				parent = container_guid,
 				properties = {Name = name},
-				components = {},
+				components = {transform = {}},
 			}
 		end
 
@@ -279,6 +282,8 @@ function map_scene.Translate(data, map_name, map_path)
 	local handled = {}
 
 	for index, info in pairs(data.entities) do
+		if info.dropped then goto continue end
+
 		if info.skyname then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
 		elseif
@@ -337,6 +342,8 @@ function map_scene.Translate(data, map_name, map_path)
 				)
 			end
 		end
+
+		::continue::
 	end
 
 	startup.End("translate classify entities")

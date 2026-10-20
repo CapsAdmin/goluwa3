@@ -26,6 +26,7 @@ local bsp = {}
 bsp.ReplaceNodraw = false
 local loaded = {}
 local CUBEMAPS = true
+local ENTITIES = true
 local AIR_EPSILON = 2
 local BSP_CONTENTS_SOLID = collision.BSP_CONTENTS_SOLID
 local get_displacement_corners = collision.get_displacement_corners
@@ -37,11 +38,7 @@ local get_face_first_source_height = collision.get_face_first_source_height
 local source_pos_to_engine = collision.source_pos_to_engine
 local source_height_to_engine_y = collision.source_height_to_engine_y
 
-local function convert_bsp_types(header)
-	local function vec3(a)
-		return Vec3(a[1], a[2], a[3])
-	end
-
+local function convert_entities(header)
 	for _, ent in ipairs(header.entities) do
 		for key, value in pairs(ent) do
 			if type(value) == "table" and value.type then
@@ -57,6 +54,14 @@ local function convert_bsp_types(header)
 
 		if ent.classname == "sky_camera" then header.sky_camera = ent end
 	end
+end
+
+local function convert_bsp_types(header)
+	local function vec3(a)
+		return Vec3(a[1], a[2], a[3])
+	end
+
+	convert_entities(header)
 
 	for _, plane in ipairs(header.planes) do
 		plane.normal = vec3(plane.normal)
@@ -105,15 +110,37 @@ local decode_job_source = [=[
 	local input = ...
 	local bsp = import("goluwa/codecs/bsp.lua")
 	local stage = not _G.thread_pool_job and import("goluwa/tasks.lua").Wait or nil
-	return assert(bsp.Decode(input.data, {cubemaps = input.cubemaps}, stage))
+	return assert(bsp.Decode(input.data, {cubemaps = input.cubemaps, entities_only = input.entities_only}, stage))
 ]=]
 
-function bsp.Load(path)
-	path = assert(R(path) or nil)
+do
+	local entity_cache = {}
 
-	if loaded[path] then
+	-- the entities of a map without reading the rest of it
+	function bsp.LoadEntities(path)
+		path = assert(R(path) or nil)
+
+		if entity_cache[path] then return entity_cache[path] end
+
+		local bsp_file = assert(vfs.Open(path))
+		local bsp_data = bsp_file:ReadBytes(bsp_file:GetSize())
+		bsp_file:Close()
+		local header = thread_pool.Run(decode_job_source, {data = bsp_data, entities_only = true}, #bsp_data):Await()
+		convert_entities(header)
+		entity_cache[path] = header.entities
+		return header.entities
+	end
+end
+
+-- skybox keeps the 3D skybox. Without it everything that belongs to it is left out
+function bsp.Load(path, skybox)
+	path = assert(R(path) or nil)
+	local SKYBOX = skybox
+	local cache_key = path .. (skybox and "" or ":no_skybox")
+
+	if loaded[cache_key] then
 		logn("map already loaded: ", path)
-		return loaded[path]
+		return loaded[cache_key]
 	end
 
 	logn("loading map: ", path)
@@ -480,6 +507,15 @@ function bsp.Load(path)
 			if ent.origin then
 				local area = 0
 
+				if
+					not ENTITIES and
+					not ent.skyname and
+					ent.classname ~= "env_fog_controller" and
+					not ent.classname:find("light_environment")
+				then
+					ent.dropped = true
+				end
+
 				if ent.classname == "static_entity" and ent.leaf_count > 0 then
 					for i = 1, ent.leaf_count do
 						local leaf_area = leafs[header.static_prop_leafs[ent.first_leaf + i] + 1].area
@@ -510,7 +546,7 @@ function bsp.Load(path)
 					ent.origin = (ent.origin - sky_origin) * sky_scale
 					ent.model_size_mult = sky_scale
 					ent.sky_clip = sky_clip_aabb
-					ent.dropped = near_map_air(ent.origin)
+					ent.dropped = ent.dropped or not SKYBOX or near_map_air(ent.origin)
 				end
 			end
 		end
@@ -536,6 +572,8 @@ function bsp.Load(path)
 			if area == 0 then area = nearest_area(center) end
 
 			if not sky_areas[area] then return min, max, area_groups[area] end
+
+			if not SKYBOX then return nil end
 
 			local a = source_pos_to_engine((engine_to_source(min) - sky_origin) * sky_scale)
 			local b = source_pos_to_engine((engine_to_source(max) - sky_origin) * sky_scale)
@@ -699,7 +737,9 @@ function bsp.Load(path)
 			local texdata = texinfo and header.texdatas[1 + texinfo.texdata]
 			local texname_lower = header.texdatastringdata[1 + texdata.nameStringTableID]:lower()
 
-			if texname_lower:find("skyb", nil, true) then goto continue end
+			if (in_sky and not SKYBOX) or texname_lower:find("skyb", nil, true) then
+				goto continue
+			end
 
 			if texname_lower:find("water", nil, true) then
 				if header.ocean_level == nil then
@@ -988,6 +1028,8 @@ function bsp.Load(path)
 				if hull then
 
 				-- a brush with a skybox face closes off the map or the 3D skybox, it is invisible and would only be a wall
+				elseif sky and not SKYBOX then
+
 				elseif sky and not has_geometry then
 
 				-- nothing of it is drawn, such a brush only bounds the 3D skybox and has no use as collision
@@ -1297,7 +1339,7 @@ function bsp.Load(path)
 
 	if ocean_level == nil then ocean_level = header.lowest_point or 0 end
 
-	loaded[path] = {
+	loaded[cache_key] = {
 		world = {
 			Texinfos = texinfos,
 			Brushes = brush_list,
@@ -1313,7 +1355,7 @@ function bsp.Load(path)
 		path = path,
 	}
 	tasks.ReportProgress("finished reading " .. path)
-	return loaded[path]
+	return loaded[cache_key]
 end
 
 return bsp

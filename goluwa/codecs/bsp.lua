@@ -431,6 +431,8 @@ function bsp.Decode(str, options, stage)
 
 	header.entities = parse_entities(ffi_string(entities_data, text_length), stage)
 
+	if options.entities_only then return header end
+
 	do
 		local lump = header.lumps[LUMP_GAME]
 		local game_lumps = ffi.cast(int32_ptr_t, at(lump.fileofs, 4))[0]

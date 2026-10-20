@@ -277,7 +277,7 @@ do
 				if hull and hull.bounds_min and texname then
 					local min, max, visibility_group = to_engine_box(hull.bounds_min, hull.bounds_max)
 
-					if max.x - min.x > 0.01 and max.z - min.z > 0.01 then
+					if min and max.x - min.x > 0.01 and max.z - min.z > 0.01 then
 						list.insert(
 							boxes,
 							{
