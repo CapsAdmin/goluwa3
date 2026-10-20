@@ -26,6 +26,8 @@ local SEA_LEVEL_EYE_HEIGHT = 1.75 * CAMERA_METERS_TO_KM
 atmosphere.SEA_LEVEL_EYE_HEIGHT = SEA_LEVEL_EYE_HEIGHT
 local DEFAULT_OCEAN_LEVEL = 0
 local CAMERA_TEST_MULTIPLIER = 1
+-- what a length in meters is in the units of the atmosphere's rays (kilometers)
+atmosphere.METERS_TO_UNITS = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
 local SKY_VIEW_LUT_WIDTH = 1024
 local SKY_VIEW_LUT_HEIGHT = 512
 local SKY_VIEW_STEPS = 128

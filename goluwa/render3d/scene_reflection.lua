@@ -2,6 +2,7 @@ local render = import("goluwa/render/render.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
@@ -568,7 +569,24 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 			// a hit is fogged by the ground fog along the ray (the camera's own fog covers the way to the surface); a ray
 			// that found the sky has the sky's haze already
-			if (]]..block_name..[[.reflection_fog != 0 && hit_t < max_distance) radiance = apply_ground_fog_ray(radiance, dir, ATMOSPHERE_SKY_SUN_DIRECTION, origin, hit_t, 1.0, vec3(0.0), 1.0);
+			if (]]..block_name..[[.reflection_fog != 0 && hit_t < max_distance) {
+				// the air is lit as it is where the ray starts: open sky outside the probes, in a room the probes' light
+				// and no sun, as the volumetric fog does it. what the sky sees there tells which
+				float fog_sky = 1.0;
+				vec3 fog_gi = vec3(0.0);
+
+				if (ddgi_data.ddgi_cascade_count > 0 && ddgi_in_volume(origin)) {
+					float fog_weight;
+					vec4 up = ddgi_sample_irradiance(origin, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0), false, DDGI_NO_VISIBILITY_RAYS, fog_weight);
+
+					if (fog_weight > 0.0) {
+						fog_sky = saturate(up.a);
+						fog_gi = up.rgb;
+					}
+				}
+
+				radiance = apply_ground_fog_ray(radiance, dir, ATMOSPHERE_SKY_SUN_DIRECTION, origin, hit_t * ]]..string.format("%.17g", atmosphere.METERS_TO_UNITS)..[[, fog_sky, fog_gi, fog_sky);
+			}
 
 			return radiance;
 		}
