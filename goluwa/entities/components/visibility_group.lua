@@ -3,7 +3,6 @@ local event = import("goluwa/event.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local VisibilityGroup = objects.CreateTemplate("visibility_group")
-VisibilityGroup.active = nil
 VisibilityGroup.has_boxes = false
 VisibilityGroup:StartStorable()
 VisibilityGroup:GetSet("Boxes", nil, {Hidden = true})
@@ -51,89 +50,95 @@ function VisibilityGroup:SetBoxes(boxes)
 	VisibilityGroup.has_boxes = true
 end
 
-function VisibilityGroup.Locate(position)
+-- the boxes are in the space of the map root, a map placed at an offset moves them with it
+local function get_offset(group)
+	local root = group.Owner:GetParent()
+
+	if root:IsValid() and root.transform then return root.transform:GetWorldPosition() end
+end
+
+local function inside(group, position, margin)
 	local x, y, z = position.x, position.y, position.z
-	local best, best_volume
+	local bounds = group.bounds
 
-	for _, group in ipairs(VisibilityGroup.Instances) do
-		local bounds = group.bounds
+	if not bounds then return false end
 
-		if
-			bounds and
-			x >= bounds[1] and
-			y >= bounds[2] and
-			z >= bounds[3] and
-			x <= bounds[4] and
-			y <= bounds[5] and
-			z <= bounds[6]
-		then
-			local boxes = group.Boxes
+	local offset = get_offset(group)
 
-			for i = 1, #boxes, 6 do
-				if
-					x >= boxes[i] and
-					y >= boxes[i + 1] and
-					z >= boxes[i + 2] and
-					x <= boxes[i + 3] and
-					y <= boxes[i + 4] and
-					z <= boxes[i + 5]
-				then
-					local volume = (
-							boxes[i + 3] - boxes[i]
-						) * (
-							boxes[i + 4] - boxes[i + 1]
-						) * (
-							boxes[i + 5] - boxes[i + 2]
-						)
+	if offset then x, y, z = x - offset.x, y - offset.y, z - offset.z end
 
-					if not best_volume or volume < best_volume then
-						best, best_volume = group, volume
-					end
-				end
-			end
-		end
+	if
+		x < bounds[1] - margin or
+		y < bounds[2] - margin or
+		z < bounds[3] - margin or
+		x > bounds[4] + margin or
+		y > bounds[5] + margin or
+		z > bounds[6] + margin
+	then
+		return false
 	end
 
-	if best then return best end
+	local boxes = group.Boxes
 
-	local active = VisibilityGroup.active
-
-	if active and active.bounds then
-		local boxes = active.Boxes
-
-		for i = 1, #boxes, 6 do
-			if
-				x >= boxes[i] - KEEP_MARGIN and
-				y >= boxes[i + 1] - KEEP_MARGIN and
-				z >= boxes[i + 2] - KEEP_MARGIN and
-				x <= boxes[i + 3] + KEEP_MARGIN and
-				y <= boxes[i + 4] + KEEP_MARGIN and
-				z <= boxes[i + 5] + KEEP_MARGIN
-			then
-				return nil
-			end
+	for i = 1, #boxes, 6 do
+		if
+			x >= boxes[i] - margin and
+			y >= boxes[i + 1] - margin and
+			z >= boxes[i + 2] - margin and
+			x <= boxes[i + 3] + margin and
+			y <= boxes[i + 4] + margin and
+			z <= boxes[i + 5] + margin
+		then
+			return true
 		end
 	end
 
 	return false
 end
 
+-- every group that holds the position goes into found, a position can be inside of several: groups that are nested
+-- in each other, or the groups of different maps that overlap where they are joined. All of them are shown, picking one
+-- would hide what can be seen from the others
+function VisibilityGroup.Locate(position, found)
+	local count = 0
+
+	for _, group in ipairs(VisibilityGroup.Instances) do
+		if inside(group, position, 0) then
+			found[group] = true
+			count = count + 1
+		end
+	end
+
+	return count
+end
+
+-- the groups that are shown, nil when all of them are
+VisibilityGroup.active = nil
+
+local function set_shown(target)
+	local changed = false
+
+	for _, group in ipairs(VisibilityGroup.Instances) do
+		local shown = target == nil or target[group] == true
+
+		if group.shown ~= shown then
+			apply(group, shown)
+			changed = true
+		end
+	end
+
+	if changed then ddgi.ResetHistory() end
+end
+
 function VisibilityGroup.GetActive()
 	return VisibilityGroup.active
 end
 
-function VisibilityGroup.SetActive(group)
-	if VisibilityGroup.active == group then return end
+function VisibilityGroup.ShowAll()
+	if VisibilityGroup.active == nil then return end
 
-	VisibilityGroup.active = group
-
-	for _, other in ipairs(VisibilityGroup.Instances) do
-		local shown = group == nil or other == group
-
-		if other.shown ~= shown then apply(other, shown) end
-	end
-
-	ddgi.ResetHistory()
+	VisibilityGroup.active = nil
+	set_shown(nil)
 end
 
 function VisibilityGroup:OnCreate()
@@ -143,15 +148,41 @@ end
 function VisibilityGroup:OnRemove()
 	self.shown = true
 
-	if VisibilityGroup.active == self then VisibilityGroup.SetActive(nil) end
+	if VisibilityGroup.active and VisibilityGroup.active[self] then
+		VisibilityGroup.ShowAll()
+	end
 end
 
 function VisibilityGroup:OnFirstCreated()
+	local found, current = {}, {}
+
 	event.AddListener("Update", "visibility_groups", function()
 		if VisibilityGroup.has_boxes then
-			local group = VisibilityGroup.Locate(render3d.GetCamera():GetPosition())
+			local position = render3d.GetCamera():GetPosition()
+			table.clear(found)
 
-			if group ~= nil then VisibilityGroup.SetActive(group or nil) end
+			if VisibilityGroup.Locate(position, found) > 0 then
+				table.clear(current)
+
+				for group in pairs(found) do
+					current[group] = true
+				end
+
+				VisibilityGroup.active = current
+				set_shown(current)
+			else
+				local keep = false
+
+				for group in pairs(VisibilityGroup.active or {}) do
+					if inside(group, position, KEEP_MARGIN) then
+						keep = true
+
+						break
+					end
+				end
+
+				if not keep then VisibilityGroup.ShowAll() end
+			end
 		end
 
 		for _, group in ipairs(VisibilityGroup.Instances) do

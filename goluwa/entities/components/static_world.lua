@@ -79,7 +79,7 @@ function META:Clear()
 		self.Owner:RemoveComponent("rigid_body")
 	end
 
-	if RENDER_3D then VisibilityGroup.SetActive(nil) end
+	if RENDER_3D then VisibilityGroup.ShowAll() end
 
 	self:ResetRuntime()
 
@@ -389,7 +389,7 @@ function META:OnRemove()
 
 	if self.Pak ~= "" then game.UnmountMapPak(self.Pak) end
 
-	if RENDER_3D then VisibilityGroup.SetActive(nil) end
+	if RENDER_3D then VisibilityGroup.ShowAll() end
 end
 
 -- the entity drawing the batches of a visibility group
