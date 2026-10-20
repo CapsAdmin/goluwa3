@@ -179,6 +179,7 @@ function Polygon3D:GetVertices()
 	return self.Vertices
 end
 
+-- returns self when no triangle lies inside the box, nil when every triangle does
 function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
 	local packed = self.packed
 	local vertices = packed.vertices
@@ -217,7 +218,9 @@ function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
 		end
 	end
 
-	if removed == 0 then return nil end
+	if removed == 0 then return self end
+
+	if copy.i == 1 then return nil end
 
 	copy:SetMaterialSlot(self.MaterialSlot)
 	copy:SetLODLevel(self.LODLevel)

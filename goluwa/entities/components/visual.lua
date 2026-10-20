@@ -1004,8 +1004,9 @@ function Visual:SetModelPath(path)
 			primitive_index = primitive_index + 1
 
 			if self.ClipWorldAABB then
-				mesh = mesh:CopyOutsideWorldAABB(self.Owner.transform:GetWorldMatrix(), self.ClipWorldAABB) or
-					mesh
+				mesh = mesh:CopyOutsideWorldAABB(self.Owner.transform:GetWorldMatrix(), self.ClipWorldAABB)
+
+				if not mesh then return end
 			end
 
 			self:CreatePrimitiveEntity(
