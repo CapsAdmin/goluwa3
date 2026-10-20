@@ -485,9 +485,6 @@ local function get_free_tlas_slot(frame, count)
 	end
 end
 
--- builds the top level structure from `count` records of an instance buffer. an unused record has a zero blas reference
-function accel.BuildTLAS(cmd, instance_buffer, count)
-	local frame = system.GetFrameNumber()
 do
 	local VkBufferCopyArray = ffi.typeof("$[?]", vk.VkBufferCopy)
 	local regions = VkBufferCopyArray(16)
@@ -538,6 +535,9 @@ end
 	local slot = get_free_tlas_slot(frame, count)
 
 	if not slot then return current_slot and current_slot.tlas end
+-- builds the top level structure from `count` records of an instance buffer. an unused record has a zero blas reference
+function accel.BuildTLAS(cmd, instance_buffer, count)
+	local frame = system.GetFrameNumber()
 
 	slot.geometry.geometry.instances.data = instance_buffer:GetDeviceAddress()
 	local ranges = VkRangeInfoArray(1)
