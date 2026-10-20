@@ -488,6 +488,45 @@ do
 	end
 end
 
+do
+	-- dimensions and reflectances are from the original Cornell box data (552.8 x 548.8 x 559.2), scaled by k
+	local cx, cz, k, t = 40, -100, 0.012, 0.4
+	local w, h, d = 552.8 * k, 548.8 * k, 559.2 * k
+	local cornell_white = mat(Color(0.725, 0.71, 0.68, 1), 1)
+	local cornell_red = mat(Color(0.63, 0.065, 0.05, 1), 1)
+	local cornell_green = mat(Color(0.14, 0.45, 0.091, 1), 1)
+	box("cornell_room_floor", Vec3(cx, -t / 2 + 0.1, cz), Vec3(w + 2 * t, t, d + 2 * t), cornell_white)
+	box("cornell_room_ceiling", Vec3(cx, h + 0.1 + t / 2, cz), Vec3(w + 2 * t, t, d + 2 * t), cornell_white)
+	box("cornell_room_back", Vec3(cx, h / 2 + 0.1, cz - d / 2 - t / 2), Vec3(w, h, t), cornell_white)
+	box("cornell_room_front", Vec3(cx, h / 2 + 0.1, cz + d / 2 + t / 2), Vec3(w, h, t), cornell_white)
+	box("cornell_room_left", Vec3(cx - w / 2 - t / 2, h / 2 + 0.1, cz), Vec3(t, h, d), cornell_red)
+	box("cornell_room_right", Vec3(cx + w / 2 + t / 2, h / 2 + 0.1, cz), Vec3(t, h, d), cornell_green)
+	box(
+		"cornell_room_light",
+		Vec3(cx, h + 0.1 - 0.01, cz + 0.5 * k),
+		Vec3(130 * k, 0.02, 105 * k),
+		emissive_mat(Color(1, 0.83, 0.58, 1), 15)
+	)
+	shapes.Box{
+		Name = "cornell_room_short_block",
+		Position = Vec3(cx + 90 * k, 0.1 + 82.5 * k, cz + 65 * k),
+		Rotation = QuatDeg3(0, -18, 0),
+		Size = Vec3(165, 165, 165) * k,
+		Material = cornell_white,
+		Collision = false,
+		RigidBody = false,
+	}
+	shapes.Box{
+		Name = "cornell_room_tall_block",
+		Position = Vec3(cx - 85 * k, 0.1 + 165 * k, cz - 90 * k),
+		Rotation = QuatDeg3(0, 17, 0),
+		Size = Vec3(165, 330, 165) * k,
+		Material = cornell_white,
+		Collision = false,
+		RigidBody = false,
+	}
+end
+
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
