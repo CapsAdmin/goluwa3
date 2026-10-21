@@ -83,8 +83,14 @@ function META:SetFirstPerson(first_person)
 	if self.outfit then self:ApplyFirstPerson() end
 end
 
+function META:SetOutfitFirstPersonVisible(visible)
+	self.outfit_first_person_visible = visible
+
+	if self.outfit then self:ApplyFirstPerson() end
+end
+
 function META:ApplyFirstPerson()
-	if self.first_person then
+	if self.first_person and not self.outfit_first_person_visible then
 		self.outfit.visibility:AddHider("first_person")
 	else
 		self.outfit.visibility:RemoveHider("first_person")
