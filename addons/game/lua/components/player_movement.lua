@@ -6,6 +6,9 @@ local Quat = import("goluwa/structs/quat.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local event = import("goluwa/event.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
+local network = import("goluwa/network/network.lua")
+local Entity = import("goluwa/entities/entity.lua")
+local damage = import("lua/damage.lua")
 local META = objects.CreateTemplate("player_movement")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 META:IsSet("Crouching", false)
@@ -45,12 +48,16 @@ META:GetSet("SwimEnterFraction", 0.75)
 META:GetSet("SwimExitFraction", 0.5)
 META:IsSet("Swimming", false)
 META:GetSet("BodyDensity", 1060)
+META:GetSet("SafeFallSpeed", 7)
+META:GetSet("FatalFallSpeed", 20)
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
 	self.Owner:EnsureComponent("rigid_body")
 	assert(self.Owner.rigid_body)
 	self.crouch_alpha = self:IsCrouching() and 1 or 0
+	self.previous_velocity = Vec3()
+	self.previous_valid = false
 	self.fly_speed_multiplier = 1
 	self.Owner.transform.RenderOffset = Vec3()
 	self:AddGlobalEvent("PhysicsUpdate")
@@ -65,6 +72,7 @@ end
 
 function META:Reset(mode)
 	self.mode = nil
+	self.previous_valid = false
 	self.Crouching = false
 	self.crouch_alpha = 0
 	self.CrouchTransition = false
@@ -364,9 +372,37 @@ function META:SetCrouch(b)
 	self.Crouching = b
 end
 
+do
+	local UP = Vec3(0, 1, 0)
+
+	function META:Impact(speed)
+		local owner = self.Owner
+		local health = owner.health
+
+		if not health or speed <= self.SafeFallSpeed or not network.HasAuthority() then
+			return
+		end
+
+		local safe = self.SafeFallSpeed
+		local fatal = self.FatalFallSpeed
+		damage.Deal(
+			owner,
+			{
+				Attacker = owner,
+				Inflictor = Entity.World,
+				Damage = health:GetMaxHealth() * (speed * speed - safe * safe) / (fatal * fatal - safe * safe),
+				Position = owner.transform:GetPosition(),
+				Normal = UP,
+				Force = Vec3(0, -speed, 0),
+			}
+		)
+	end
+end
+
 function META:ApplyMode(mode)
 	local body = self.Owner.rigid_body
 	self.mode = mode
+	self.previous_valid = false
 	self.Swimming = false
 	self.Mode = mode
 
@@ -446,7 +482,6 @@ do
 	function META:OnPhysicsUpdate(dt)
 		local body = self.Owner.rigid_body
 		local cmd = self:GetCommandSource():NextCommand(dt)
-
 		if cmd.mode ~= self.mode then self:ApplyMode(cmd.mode) end
 
 		self:SetBodyYaw(cmd.view)
@@ -480,6 +515,7 @@ do
 			end
 
 			if self.Swimming then
+				self.previous_valid = false
 				self:SetCrouch(false)
 				self:UpdateCrouchTransition(dt)
 				local wish = Vec3()
@@ -524,6 +560,18 @@ do
 			local velocity = body:GetVelocity()
 			local x, y, z = velocity.x, velocity.y, velocity.z
 			local grounded = body:GetGrounded()
+			local impact = 0
+
+			if self.previous_valid and (body.SubmergedFraction or 0) <= 0 then
+				local previous = self.previous_velocity
+				local lost_x = math.max((previous.x - x) * math.sign(previous.x), 0)
+				local lost_y = math.max((previous.y - y) * math.sign(previous.y), 0)
+				local lost_z = math.max((previous.z - z) * math.sign(previous.z), 0)
+				impact = math.sqrt(lost_x * lost_x + lost_y * lost_y + lost_z * lost_z)
+			end
+
+			self.previous_velocity:Set(x, y, z)
+			self.previous_valid = true
 
 			if y <= 0 then self.jumping = false end
 
@@ -581,6 +629,12 @@ do
 			if grounded and not MOVE.grounded then body:SetGrounded(false) end
 
 			grounded = MOVE.grounded
+
+			if grounded and not self.was_grounded then
+				impact = math.max(impact, -velocity.y)
+			end
+
+			if impact > 0 then self:Impact(impact) end
 
 			if grounded and jump_requested then
 				y = self.JumpSpeed

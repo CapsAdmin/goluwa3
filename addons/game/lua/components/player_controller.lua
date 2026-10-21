@@ -155,6 +155,7 @@ function META:TeleportToAim(cmd)
 	local target = hit.position + hit.normal * movement.Radius + Vec3(0, 0.05, 0)
 	movement:MoveBodyBy(body, target - body:GetOriginPosition())
 	body:SetVelocity(Vec3())
+	movement.previous_valid = false
 end
 
 function META:Reconcile(number, position, velocity)
