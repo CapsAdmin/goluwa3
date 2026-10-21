@@ -25,6 +25,8 @@ function META.OnActivate(item, index) end
 
 function META.OnSelect(item, index) end
 
+function META.OnClick(item, index) end
+
 local function on_content_draw(content)
 	content.Grid:draw_items(content)
 end
@@ -60,6 +62,8 @@ local function on_content_mouse_input(content, button, press, local_pos)
 	if not index then return end
 
 	grid:SetSelectedIndex(index)
+
+	if button == "button_1" then grid.OnClick(grid._items[index], index) end
 
 	if button == "button_2" then
 		grid.OnContextMenu(grid._items[index], index)
