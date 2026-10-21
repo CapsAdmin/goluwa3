@@ -225,7 +225,7 @@ function ComputePipeline.New(vulkan_instance, raw_config)
 			}
 		)
 	else
-		pipeline = ComputePipelineInternal.New(vulkan_instance.device, shader, pipeline_layout)
+		pipeline = ComputePipelineInternal.New(vulkan_instance.device, shader, pipeline_layout, config.name)
 	end
 
 	local descriptor_set_count = config.DescriptorSetCount or 1

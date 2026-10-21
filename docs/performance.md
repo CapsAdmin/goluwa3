@@ -52,7 +52,7 @@ Screenshot A/B: freeze time-driven things (`system.SetElapsedTime` from a high p
 
 ## Caches and the slow first start
 
-1. `storage/cache/shaders/<crc32>_<length>.spv` (`shader_module.lua`): header, SPIR-V, then the GLSL it came from; a hit needs identical GLSL. Misses log `[shader] compiled ...`. shaderc is fast, this is not the slow part.
+1. `storage/cache/shaders/<crc32>_<length>.spv` (`shader_module.lua`): header, SPIR-V, then the GLSL it came from; a hit needs identical GLSL. Misses log `[shader] shaderc compiled ...` (GLSL to SPIR-V only; the driver step logs `[pipeline] the driver compiled ...`). shaderc is fast, this is not the slow part.
 2. `storage/cache/vulkan_pipeline_cache.bin`: saved a couple of seconds after the last pipeline was made (a `--one-frame` run exits before that).
 3. The NVIDIA driver cache (`~/.cache/nvidia/GLCache`, `~/.nv/ComputeCache`) is what makes a cold start take minutes: the driver compiles the huge lighting fragment shaders serially. Any edit of shared GLSL (gbuffer layout, lighting, surface features) costs a slow start once. `[pipeline] the driver compiled ...` is logged for pipelines taking 50 ms or more. Graphics pipelines are created on `thread_pool` workers and waited for at first bind (`GraphicsPipeline:Wait`), but the driver does not scale across threads; splitting big shaders is the remaining lever.
 

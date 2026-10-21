@@ -149,7 +149,7 @@ function RayTracingPipeline.New(device, config)
 		create_pipelines(device.ptr[0], nil, device.pipeline_cache.ptr[0], 1, create_info, nil, ptr),
 		"failed to create ray tracing pipeline"
 	)
-	PipelineCache.LogIfSlow("ray tracing", start)
+	PipelineCache.LogIfSlow("ray tracing", config.name, start)
 	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
 
 	for i = 1, stage_count do

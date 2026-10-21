@@ -1714,6 +1714,7 @@ local function build_internal_pipeline(vulkan_instance, pipeline_layout, config,
 	local pipeline = InternalGraphicsPipeline.New(
 		vulkan_instance.device,
 		{
+			name = config.name,
 			shaderModules = shader_modules,
 			extent = pipeline_extent,
 			vertexBindings = vertex_bindings,

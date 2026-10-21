@@ -191,7 +191,8 @@ local function get_or_create_cached_module(device, glsl, type, name)
 		spirv_data, spirv_size = shaderc.compile(glsl, type)
 		startup.Add("shader: shaderc compile", started)
 		logf(
-			"[shader] compiled %s shader %s (%d bytes of glsl) in %.0f ms%s\n",
+			"[shader] shaderc compiled %s %s glsl to spir-v %s (%d bytes of glsl) in %.0f ms%s\n",
+			name or "unnamed",
 			type,
 			path:match("([^/]+)%.spv$"),
 			#glsl,

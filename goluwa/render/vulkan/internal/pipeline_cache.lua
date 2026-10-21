@@ -13,13 +13,14 @@ function PipelineCache.GetTime()
 	return system.GetTime()
 end
 
-function PipelineCache.LogIfSlow(kind, start)
+function PipelineCache.LogIfSlow(kind, name, start)
 	local seconds = system.GetTime() - start
 
 	if seconds >= SLOW_PIPELINE_SECONDS then
 		logf(
-			"[pipeline] the driver compiled a %s pipeline in %.0f ms (not in the pipeline cache)\n",
+			"[pipeline] the driver compiled %s pipeline %s in %.0f ms (not in the pipeline cache)\n",
 			kind,
+			tostring(name),
 			seconds * 1000
 		)
 	end

@@ -6,7 +6,7 @@ local PipelineCache = import("goluwa/render/vulkan/internal/pipeline_cache.lua")
 local ComputePipeline = objects.CreateTemplate("vulkan_compute_pipeline")
 local VkPipelineBox = ffi.typeof("$[1]", vulkan.vk.VkPipeline)
 
-function ComputePipeline.New(device, shaderModule, pipelineLayout)
+function ComputePipeline.New(device, shaderModule, pipelineLayout, name)
 	local info = vulkan.vk.s.PipelineShaderStageCreateInfo{
 		stage = vulkan.vk.e.VkShaderStageFlagBits("compute"),
 		module = shaderModule.ptr[0],
@@ -31,7 +31,7 @@ function ComputePipeline.New(device, shaderModule, pipelineLayout)
 		),
 		"failed to create compute pipeline"
 	)
-	PipelineCache.LogIfSlow("compute", start)
+	PipelineCache.LogIfSlow("compute", name, start)
 	startup.Add("pipeline: compute create", start)
 	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
 	return ComputePipeline:CreateObject{device = device, ptr = ptr}

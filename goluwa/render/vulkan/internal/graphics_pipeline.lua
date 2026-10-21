@@ -385,7 +385,7 @@ function GraphicsPipeline:Wait()
 
 		if not job:IsDone() then
 			logn(
-				"[pipeline] the driver is compiling a graphics pipeline, this can take a while..."
+				"[pipeline] the driver is compiling graphics pipeline " .. tostring(self.config.name) .. ", this can take a while..."
 			)
 		end
 
@@ -396,7 +396,8 @@ function GraphicsPipeline:Wait()
 
 		if milliseconds >= 50 then
 			logf(
-				"[pipeline] the driver compiled a graphics pipeline in %.0f ms (not in the pipeline cache)\n",
+				"[pipeline] the driver compiled graphics pipeline %s in %.0f ms (not in the pipeline cache)\n",
+				tostring(self.config.name),
 				milliseconds
 			)
 		end
