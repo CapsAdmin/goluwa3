@@ -44,6 +44,7 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 - When asked to commit: no git identity is configured, use `git -c user.name=CapsAdmin -c user.email=eliashogstvedt@gmail.com commit`. To split mixed files, stage hunks with `git diff -U0` and `git apply --cached --unidiff-zero`, and `luajit -bl` each staged file first.
 - Commit as several single-purpose, independent commits, never one commit for everything. Each commit covers one concern (a fix, a feature, a theme, a test change) with the tests that go with it, and must stand on its own: no commit may rely on a hunk from a later one. Order them so dependencies come first. When one file carries changes for several commits (a shared theme or base file), split it by hunk, or rebuild each intermediate file state from the final version, so every commit contains only its own lines. Afterwards check that the working tree is clean, that it equals the final state from before the split, and that the suite still passes. Write a short lowercase imperative message per commit and no attribution lines.
 - By default, verify changes: run the relevant tests, and for visual or in-game work take a screenshot or run the real scene. Report failures with their output and say what was skipped.
+- Keep verification short, about 30 seconds: one relevant test file or one harness shot, not long benchmark loops or full suites. The user tests in the real game and reports back, so report numbers honestly and hand over what to test.
 - If told not to test, that only means no harnesses, screenshots or in-game checks. Still run the relevant existing tests and make sure the changed scripts compile (`luajit -bl file.lua`).
 
 # Coding rules
@@ -138,4 +139,4 @@ Harnesses, benchmarks and repro scripts for one specific purpose go in `./tmp/` 
 
 Docs in `docs/` are for LLMs: keep them short, general and timeless (concepts, durable pitfalls as rules, how to measure). No diary entries, dated findings, session measurements or per-function summaries; the source is the source of truth.
 
-Only rules that apply to everything belong in this file. System specific lessons (what broke, why, how to measure it) go in the matching doc, not in the assistant's memory. Add new notes to the matching file in `docs/` (or a new one) and add at most a one-line entry here.
+Only rules that apply to everything belong in this file.
