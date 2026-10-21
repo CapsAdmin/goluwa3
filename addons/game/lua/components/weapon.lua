@@ -53,7 +53,7 @@ function META:RefreshWorldState()
 	if model then
 		prefab.Suppress()
 		model.transform:SetAttachment(held and "hand_r" or "root")
-		model.transform:SetPosition(held and Vec3() or self.WorldCenter * -1)
+		model.transform:SetPosition(held and self:GetHolder().HoldOffset or self.WorldCenter * -1)
 		model.visibility:SetVisible(not held)
 		prefab.Unsuppress()
 	end
