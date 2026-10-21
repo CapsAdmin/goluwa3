@@ -9,10 +9,6 @@ Entity.RegisterComponent("player_controller", import("lua/components/player_cont
 Entity.RegisterComponent("player_movement", import("lua/components/player_movement.lua"))
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
-Entity.RegisterComponent("weapon_physgun", import("lua/components/weapon_physgun.lua"))
-Entity.RegisterComponent("weapon_pistol", import("lua/components/weapon_pistol.lua"))
-Entity.RegisterComponent("weapon_camera", import("lua/components/weapon_camera.lua"))
-import("lua/weapon_models.lua")
 import("lua/weapons.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 

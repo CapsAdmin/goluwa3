@@ -70,8 +70,8 @@ local function make_weapon_entries()
 		local definition = weapons.Definitions[name]
 		entries[#entries + 1] = {
 			category = "prefabs",
-			name = definition.Model,
-			path = definition.Model,
+			name = name,
+			path = name,
 			label = definition.DisplayName ?? name,
 			spawn_name = name,
 			kind = "weapon",

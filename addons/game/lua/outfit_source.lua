@@ -33,7 +33,7 @@ local WALK_SPEED = 100 * UNIT
 local RUN_SPEED = 200 * UNIT
 local HEAD_PITCH_SHARE = 0.6
 local NECK_PITCH_SHARE = 0.4
-local WEAPONS = {weapon_camera_model = "camera", weapon_physgun_model = "physgun", weapon_pistol_model = "pistol"}
+local WEAPONS = {weapon_camera = "camera", weapon_physgun = "physgun", weapon_pistol = "pistol"}
 local matrix = Matrix44()
 local pitch_matrix = Matrix44()
 local META = objects.CreateTemplate("outfit_source")
@@ -67,7 +67,7 @@ end
 local function weapon_suffix(script)
 	local holder = script.player and script.player.weapon_holder
 	local weapon = holder and holder:GetActiveWeapon()
-	return weapon and WEAPONS[weapon.weapon:GetModel().prefab.Path] or "all"
+	return weapon and WEAPONS[weapon.prefab.Path] or "all"
 end
 
 function META:OnUpdate(dt)

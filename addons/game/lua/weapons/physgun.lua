@@ -1,3 +1,21 @@
+local nodes = import("lua/weapon_nodes.lua")
+local Color = import("goluwa/structs/color.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
+local METAL = {Color = Color(0.25, 0.27, 0.3, 1), Roughness = 0.35, Metallic = 0.8}
+local BLUE = {Color = Color(0.1, 0.35, 1, 1), Roughness = 0.4, Metallic = 0.3}
+local box = nodes.Box
+local muzzle = nodes.Muzzle
+return {
+	Values = {Slot = 1, DisplayName = "Physgun"},
+	Nodes = {
+		box("body", Vec3(0.1, 0.1, 0.36), FORWARD * 0.32, METAL),
+		box("coil", Vec3(0.12, 0.05, 0.2), FORWARD * 0.28 + Vec3(0, 0.07, 0), BLUE),
+		box("tip", Vec3(0.06, 0.06, 0.1), FORWARD * 0.59, BLUE),
+		box("grip", Vec3(0.06, 0.13, 0.08), FORWARD * 0.16 - Vec3(0, 0.09, 0), METAL),
+		muzzle(0.64),
+	},
+	Source = [=====[
 local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local physics = import("goluwa/physics.lua")
@@ -227,7 +245,7 @@ end
 
 local rotate_delta = {x = 0, y = 0}
 
-function META:WeaponThink(dt, cmd)
+function META:OnWeaponThink(dt, cmd)
 	local controller = self.Owner:GetParent().player_controller
 
 	if
@@ -275,12 +293,12 @@ function META:WeaponThink(dt, cmd)
 	controller:SetHolding(self.held_body ~= nil)
 end
 
-function META:WeaponHolster()
+function META:OnWeaponHolster()
 	self:Release()
 	self.Owner:GetParent().player_controller:SetHolding(false)
 end
 
-function META:WeaponPlayerModeChanged()
+function META:OnWeaponPlayerModeChanged()
 	self:Release()
 end
 
@@ -289,3 +307,5 @@ function META:OnRemove()
 end
 
 return META:Register()
+]=====],
+}

@@ -2,40 +2,24 @@ local prefab = import("goluwa/entities/prefab.lua")
 local weapons = {}
 weapons.Definitions = {}
 
-function weapons.Register(name, values, model_prefab)
-	weapons.Definitions[name] = {DisplayName = values.DisplayName, Model = model_prefab}
-	prefab.Register(
-			name,
-			{
-				inputs = {},
-				entities = {
-					{guid = "root", components = {weapon = values, [name] = {}}},
-					{
-						guid = "model",
-						parent = "root",
-						properties = {Name = "model"},
-						components = {
-							prefab = {Path = model_prefab},
-							transform = {Attachment = "hand_r"},
-							visibility = {Visible = false},
-						},
-					},
-				},
-			}
-		).builtin = true
-end
+function weapons.Register(name, values, nodes, source)
+	weapons.Definitions[name] = {DisplayName = values.DisplayName}
+	local entities = {
+		{guid = "root", components = {weapon = values, script = {Source = source}}},
+		{
+			guid = "model",
+			parent = "root",
+			properties = {Name = "model"},
+			components = {transform = {Attachment = "hand_r"}, visibility = {Visible = false}},
+		},
+	}
 
-weapons.Register(
-	"weapon_camera",
-	{Slot = 3, DisplayName = "Camera", HiddenInFirstPerson = true},
-	"weapon_camera_model"
-)
-weapons.Register("weapon_physgun", {Slot = 1, DisplayName = "Physgun"}, "weapon_physgun_model")
-weapons.Register(
-	"weapon_pistol",
-	{Slot = 2, DisplayName = "Pistol", FireRate = 0.25},
-	"weapon_pistol_model"
-)
+	for _, node in ipairs(nodes) do
+		entities[#entities + 1] = node
+	end
+
+	prefab.Register(name, {inputs = {}, entities = entities}).builtin = true
+end
 
 function weapons.GetNames()
 	local names = {}
@@ -49,4 +33,10 @@ function weapons.GetNames()
 end
 
 weapons.Loadout = {"weapon_camera", "weapon_physgun", "weapon_pistol"}
+
+for _, name in ipairs{"camera", "physgun", "pistol"} do
+	local definition = import("lua/weapons/" .. name .. ".lua")
+	weapons.Register("weapon_" .. name, definition.Values, definition.Nodes, definition.Source)
+end
+
 return weapons

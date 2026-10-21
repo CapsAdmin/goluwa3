@@ -86,11 +86,11 @@ function META:Select(weapon)
 
 	if old then
 		old.weapon:SetActive(false)
-		old:CallLocalEvent("WeaponHolster")
+		old:CallLocalEvent("OnWeaponHolster")
 	end
 
 	weapon.weapon:SetActive(true)
-	weapon:CallLocalEvent("WeaponEquip")
+	weapon:CallLocalEvent("OnWeaponEquip")
 end
 
 function META:SelectSlot(slot)
@@ -133,7 +133,7 @@ end
 function META:OnPlayerModeChanged(mode)
 	local weapon = self:GetActiveWeapon()
 
-	if weapon then weapon:CallLocalEvent("WeaponPlayerModeChanged", mode) end
+	if weapon then weapon:CallLocalEvent("OnWeaponPlayerModeChanged", mode) end
 end
 
 return META:Register()

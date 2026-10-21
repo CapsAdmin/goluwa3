@@ -27,7 +27,7 @@ function META:GetModel()
 end
 
 function META:GetMuzzle()
-	return self:GetModel().prefab:GetNode("muzzle")
+	return self.Owner.prefab:GetNode("muzzle")
 end
 
 function META:UpdateModel(visible)
@@ -37,7 +37,7 @@ end
 function META:Think(dt, cmd)
 	local owner = self.Owner
 	self.time = self.time + dt
-	owner:CallLocalEvent("WeaponThink", dt, cmd)
+	owner:CallLocalEvent("OnWeaponThink", dt, cmd)
 
 	if not usercmd.HasButton(cmd, BUTTON.ACTIVE) then return end
 
@@ -51,7 +51,7 @@ function META:Think(dt, cmd)
 			usercmd.HasButton(cmd, BUTTON.ATTACK1)
 		)
 		and
-		owner:CallLocalEvent("WeaponPrimary", cmd) ~= false
+		owner:CallLocalEvent("OnWeaponPrimary", cmd) ~= false
 	then
 		self.next_primary = self.time + self.FireRate
 	end
@@ -64,7 +64,7 @@ function META:Think(dt, cmd)
 			usercmd.HasButton(cmd, BUTTON.ATTACK2)
 		)
 		and
-		owner:CallLocalEvent("WeaponSecondary", cmd) ~= false
+		owner:CallLocalEvent("OnWeaponSecondary", cmd) ~= false
 	then
 		self.next_secondary = self.time + self.FireRate
 	end
