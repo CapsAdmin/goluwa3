@@ -6,6 +6,7 @@ local model_loader = import("goluwa/render3d/model_loader.lua")
 local packed_mesh = import("goluwa/render3d/packed_mesh.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local render = import("goluwa/render/render.lua")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
@@ -208,6 +209,7 @@ local function run_flex_rules(flex, src, dest)
 end
 
 local load_skeleton
+local get_root_offset
 
 do
 	local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift
@@ -810,6 +812,50 @@ do
 		add_clips(main)
 		return skeleton
 	end
+
+	get_root_offset = function(path)
+		local main = open_source(path)
+		local hdr = main.header
+
+		if hdr.bone_count ~= 1 or hdr.localseq_count == 0 then return end
+
+		local seq = ffi.cast(I32, main.data + hdr.localseq_offset)
+		local desc = main.data + hdr.localanim_offset + ffi.cast(I16, ffi.cast(U8, seq) + seq[15])[0] * ANIMDESC_SIZE
+		local desc_flags = ffi.cast(I32, desc + 12)[0]
+
+		if
+			band(desc_flags, ANIMDESC_ALLZEROS + ANIMDESC_DELTA + ANIMDESC_FRAMEANIM) ~= 0 or
+			ffi.cast(I32, desc + 52)[0] ~= 0
+		then
+			return
+		end
+
+		local o = ffi.cast(F32, main.bones)
+		local bind_position = Vec3(-o[1] * SCALE, o[2] * SCALE, -o[0] * SCALE)
+		local bind_rotation = Quat(-o[13], o[14], -o[12], o[15])
+		local pose = ffi.new(
+			"float[7]",
+			bind_position.x,
+			bind_position.y,
+			bind_position.z,
+			bind_rotation.x,
+			bind_rotation.y,
+			bind_rotation.z,
+			bind_rotation.w
+		)
+		decode_frame(main, desc, 0, ffi.new("int32_t[1]"), pose)
+		local rotation = Quat(pose[3], pose[4], pose[5], pose[6]) * bind_rotation:GetConjugated()
+		local position = Vec3(pose[0], pose[1], pose[2]) - rotation:VecMul(bind_position)
+
+		if
+			math.abs(rotation.w) > 0.99999 and
+			position:GetLength() < 1e-6
+		then
+			return
+		end
+
+		return rotation, position
+	end
 end
 
 local copy_array
@@ -1152,6 +1198,9 @@ function mdl_decoder.Finish(
 	end
 
 	local skeleton = load_skeleton(full_path)
+	local root_rotation, root_position
+
+	if not skeleton then root_rotation, root_position = get_root_offset(full_path) end
 
 	if skeleton then
 		if mdl.flex then mdl.flex.Compute = run_flex_rules end
@@ -1182,6 +1231,15 @@ function mdl_decoder.Finish(
 				}
 				skins[mesh_info.skin] = skin
 			end
+		end
+
+		if root_rotation then
+			vertex_math.Transform(
+				ffi.cast(vertex_math.VertexPointer, blob_table.ptr + mesh_info.vertex_offset),
+				mesh_info.vertex_count,
+				root_rotation,
+				root_position
+			)
 		end
 
 		tasks.Wait()
