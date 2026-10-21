@@ -372,6 +372,42 @@ function META:GetMatrix()
 	return m
 end
 
+function META:SetLookDirection(direction, up)
+	up = up or orientation.UP_VECTOR
+	local forward = orientation.FORWARD_VECTOR
+	local dot = forward:Dot(direction)
+
+	if dot < -0.999999 then
+		self.x, self.y, self.z, self.w = up.x, up.y, up.z, 0
+	else
+		self.x = forward.y * direction.z - forward.z * direction.y
+		self.y = forward.z * direction.x - forward.x * direction.z
+		self.z = forward.x * direction.y - forward.y * direction.x
+		self.w = 1 + dot
+		self:Normalize()
+	end
+
+	local up_dot = up:Dot(direction)
+	local tx, ty, tz = up.x - direction.x * up_dot, up.y - direction.y * up_dot, up.z - direction.z * up_dot
+	local target_length = math.sqrt(tx * tx + ty * ty + tz * tz)
+
+	if target_length < 1e-6 then return self end
+
+	tx, ty, tz = tx / target_length, ty / target_length, tz / target_length
+	local current = self:VecMul(orientation.UP_VECTOR)
+	local cx = current.y * tz - current.z * ty
+	local cy = current.z * tx - current.x * tz
+	local cz = current.x * ty - current.y * tx
+	local angle = math.atan2(
+		direction.x * cx + direction.y * cy + direction.z * cz,
+		current.x * tx + current.y * ty + current.z * tz
+	)
+	local roll = QuatFromAxis(angle, direction)
+	local result = roll * self
+	self.x, self.y, self.z, self.w = result.x, result.y, result.z, result.w
+	return self
+end
+
 function META:Rotate(angle, x, y, z)
 	if angle == 0 then return self end
 

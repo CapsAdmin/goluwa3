@@ -287,3 +287,20 @@ T.Test("Quat Rotate with zero angle", function()
 	q:Rotate(0, 1, 0, 0)
 	T(q.x == 0 and q.y == 0 and q.z == 0 and q.w == 1)["=="](true)
 end)
+
+T.Test("Quat SetLookDirection", function()
+	local directions = {
+		Vec3(0, 0, -1),
+		Vec3(1, 0, 0),
+		Vec3(0.3, 0.5, -0.8):GetNormalized(),
+		Vec3(0, 1, 0),
+		Vec3(0, -0.7, 0.7):GetNormalized(),
+		Vec3(0, 0, 1),
+	}
+
+	for _, direction in ipairs(directions) do
+		local q = Quat():SetLookDirection(direction)
+		T((q:GetForward() - direction):GetLength() < 0.0001)["=="](true)
+		T(math.abs(q:GetRight().y) < 0.0001)["=="](true)
+	end
+end)
