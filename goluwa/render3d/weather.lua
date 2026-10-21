@@ -288,13 +288,13 @@ end
 local UP = Vec3(0, 1, 0)
 local BACK_TO_UP = QuatFromAxis(-math.pi / 2, Vec3(1, 0, 0))
 
-local function get_light_rotation(dir)
+function weather.GetSunRotationFromDirection(dir)
 	local axis = UP:GetCross(dir)
 	return Quat(axis.x, axis.y, axis.z, 1 + UP:GetDot(dir)):Normalize() * BACK_TO_UP
 end
 
 function weather.GetSunRotation()
-	return get_light_rotation(weather.GetSunDirection())
+	return weather.GetSunRotationFromDirection(weather.GetSunDirection())
 end
 
 function weather.GetSunDirection()
@@ -482,7 +482,7 @@ function weather.UpdateSky()
 	end
 
 	weather.syncing_light = true
-	weather.light.transform:SetRotation(get_light_rotation(dir))
+	weather.light.transform:SetRotation(weather.GetSunRotationFromDirection(dir))
 	weather.syncing_light = false
 	weather.light.light_sun:SetColor(Color(color.x, color.y, color.z, 1))
 	clouds.SetShadowDirection(dir)
