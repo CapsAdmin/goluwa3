@@ -17,6 +17,8 @@ local spawnlists = import("lua/spawnlists.lua")
 local weapons = import("lua/weapons.lua")
 local npcs = import("lua/npcs.lua")
 local props = import("lua/props.lua")
+local game_history = import("lua/game_history.lua")
+local clients = import("goluwa/network/clients.lua")
 local spawnmenu = {}
 local TILE_SIZE = 84
 local LABELED_TILE_SIZE = 120
@@ -112,10 +114,20 @@ function spawnmenu.Spawn(entry)
 	if entry.kind == "npc" then
 		local npc = npcs.Spawn(entry.spawn_name, position, yaw)
 		npc:SetTransient(false)
+		npc:SetOwnedBy(clients.GetLocalClient())
+		game_history.RecordSpawn("spawn " .. entry.spawn_name, npc)
 		return npc
 	end
 
-	props.Spawn(entry.path, position, QuatFromAxis(yaw, Vec3(0, 1, 0)))
+	props.Spawn(
+		entry.path,
+		position,
+		QuatFromAxis(yaw, Vec3(0, 1, 0)),
+		function(entity)
+			entity:SetOwnedBy(clients.GetLocalClient())
+			game_history.RecordSpawn("spawn " .. entity:GetName(), entity)
+		end
+	)
 end
 
 local function draw_tile(item, index, x, y, w, h, selected, hovered)
@@ -174,7 +186,7 @@ local TileGrid = react.Component(
 				Gap = 4,
 				ContentPadding = 4,
 				OnDrawItem = draw_tile,
-				OnSelect = spawnmenu.Spawn,
+				OnClick = spawnmenu.Spawn,
 				OnHoverItem = set_hovered,
 				layout = {GrowWidth = 1, GrowHeight = 1},
 			},
