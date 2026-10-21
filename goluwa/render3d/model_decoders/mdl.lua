@@ -430,7 +430,7 @@ do
 		local bones = source.bones
 		local p = chain
 
-		while true do
+		while p[0] ~= 255 do
 			local bone = p[0]
 			local flags = p[1]
 			local target = bone_map[bone]
