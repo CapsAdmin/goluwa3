@@ -33,6 +33,7 @@ META:GetSet("SelectionColor", nil)
 META:GetSet("GhostText", "")
 META:GetSet("Editable", false, {callback = "OnEditableChanged"})
 META:GetSet("Selectable", false, {callback = "OnEditableChanged"})
+META:GetSet("Multiline", true, {callback = "OnMultilineChanged"})
 META:EndStorable()
 
 local function count_expandable_spaces(text)
@@ -289,6 +290,10 @@ local function get_cached_wrap_layout(self, width)
 	return layout
 end
 
+function META:OnMultilineChanged()
+	if self.editor then self.editor:SetMultiline(self.Multiline) end
+end
+
 function META:OnEditableChanged()
 	if self:GetEditable() or self:GetSelectable() then
 		if not self.Owner:HasComponent("key_input") then
@@ -299,6 +304,7 @@ function META:OnEditableChanged()
 
 		if not self.editor then
 			self.editor = sequence_editor.New(self:GetText())
+			self.editor:SetMultiline(self.Multiline)
 			self.editor.OnTextChanged = function(_, text)
 				self._is_updating_from_editor = true
 				self:SetText(text)

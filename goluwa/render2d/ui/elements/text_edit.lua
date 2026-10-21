@@ -23,6 +23,7 @@ META:GetSet("Text", "")
 META:GetSet("Hint", "")
 META:GetSet("Editable", true)
 META:GetSet("Wrap", false)
+META:GetSet("Multiline", nil)
 META:GetSet("ScrollX", nil)
 META:GetSet("ScrollY", false)
 META:GetSet("ScrollbarVisible", true)
@@ -135,6 +136,10 @@ function META:OnCreate()
 	META.BaseClass.OnCreate(self)
 	local editable = self.Editable
 	local wrap = self.Wrap
+	local multiline = self.Multiline
+
+	if multiline == nil then multiline = wrap or self.ScrollY end
+
 	self._last_text = self.Text
 	self:SetState("panel_color", self.PanelColor)
 	self:SetState("editable", editable)
@@ -166,6 +171,7 @@ function META:OnCreate()
 		Cursor = "text_input",
 		Editable = editable,
 		Selectable = true,
+		Multiline = multiline,
 		Wrap = wrap,
 		Color = self.TextColor or "text_input",
 		SelectionColor = self.SelectionColor,
