@@ -27,7 +27,7 @@ local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 
 function META:OnWeaponPrimary(cmd)
 	local player = self.Owner:GetParent()
-	local origin = player.transform:GetPosition() + player.player_movement:GetViewOffset()
+	local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 	local forward = cmd.view:GetForward()
 	local hit = physics.Sweep(origin, forward * self.Range, 0, player, nil, TRACE_OPTIONS)
 

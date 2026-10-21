@@ -80,7 +80,7 @@ event.AddListener("DrawHUD", "health_hud", function()
 			local alpha = math.min((record.time + VISIBLE_TIME + FADE_TIME - now) / FADE_TIME, 1)
 
 			if alpha > 0 and owner.transform then
-				local height = owner.player_movement and owner.player_movement:GetHeight() or 2
+				local height = owner.character_movement and owner.character_movement:GetHeight() or 2
 				local screen = camera:WorldPositionToScreen(
 					owner.transform:GetPosition() + Vec3(0, height + NPC_LIFT, 0),
 					screen_w,

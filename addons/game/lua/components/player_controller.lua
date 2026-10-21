@@ -136,7 +136,7 @@ end
 
 function META:TeleportToAim(cmd)
 	local owner = self.Owner
-	local movement = owner.player_movement
+	local movement = owner.character_movement
 	local origin = owner.transform:GetPosition() + movement:GetViewOffset()
 	local direction = cmd.view:GetForward()
 	local hit = physics.RayCast(origin, direction, TELEPORT_MAX_DISTANCE, owner, nil, TELEPORT_TRACE_OPTIONS)
@@ -160,7 +160,7 @@ end
 
 function META:Reconcile(number, position, velocity)
 	local body = self.Owner.rigid_body
-	local movement = self.Owner.player_movement
+	local movement = self.Owner.character_movement
 	local entry = self:GetHistory(number)
 
 	if not entry then return 0 end
@@ -196,7 +196,7 @@ end
 
 function META:Start(position)
 	local body = self.Owner.rigid_body
-	local movement = self.Owner.player_movement
+	local movement = self.Owner.character_movement
 	movement:Reset("fly")
 	movement:MoveBodyBy(body, position - body:GetOriginPosition())
 	body:SetVelocity(Vec3())

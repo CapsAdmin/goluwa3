@@ -19,7 +19,7 @@ pvars.EndGroup()
 local players = table.weak("k")
 
 local function setup_player(entity)
-	local movement = entity.player_movement
+	local movement = entity.character_movement
 	movement:SetAirAcceleration(1000000)
 	movement:SetStickToGround(false)
 	movement:SetWalkMaxLinearSpeed(MAX_SPEED)
@@ -54,7 +54,7 @@ event.AddListener("PlayerMove", "bhop", function(entity, move)
 			move.grounded = false
 			local speed = velocity:GetLength()
 			local keep = DOWN_LOOK_HORIZONTAL_KEEP
-			local jump_speed = entity.player_movement.JumpSpeed
+			local jump_speed = entity.character_movement.JumpSpeed
 			velocity:Set(
 				math.lerp(look_down, velocity.x, velocity.x * keep),
 				math.lerp(look_down, velocity.y, velocity.y + speed * DOWN_LOOK_SPEED_GAIN) + jump_speed,
@@ -73,7 +73,7 @@ event.AddListener("PlayerMove", "bhop", function(entity, move)
 		velocity.x ~= 0 and
 		velocity.z ~= 0
 	then
-		local movement = entity.player_movement
+		local movement = entity.character_movement
 		local radius = math.sqrt(movement.Radius ^ 2 + (movement.Height * 0.5) ^ 2)
 		local hit = movement:SweepHull(velocity:GetNormalized(), radius * 2)
 

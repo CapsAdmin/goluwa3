@@ -21,9 +21,9 @@ Source `.nav` meshes, pathfinding over them, and NPC prefabs that walk a map wit
 
 An npc prefab is a model, `animator`, `locomotion` and `npc` on the root: `Entity.New{prefab = {Path = "npc_zombie"}}` or `npcs.Spawn`. Inputs: `Wander`, `WanderRadius`, `Running`, `WalkSpeed`, `RunSpeed`. Console `npc_spawn <name>[,count]`. A definition is the model, idle/walk/run sequence names and walk/run speed in Source units per second (what `GetGroundSpeed` reports; `entities/npc.lua` checks them within 3%).
 
-- `npc` has no physics of its own: it adds a `player_movement` in `walk` mode and is its command source (`NextCommand(dt)` returns a `usercmd` once per physics tick), only where `network.HasAuthority()`; elsewhere the transform replicates.
+- `npc` has no physics of its own: it adds a `character_movement` in `walk` mode and is its command source (`NextCommand(dt)` returns a `usercmd` once per physics tick), only where `network.HasAuthority()`; elsewhere the transform replicates.
 - API: `MoveTo(position, running)`, `Stop()`, `Teleport(position, yaw)` (use it to place one: setting the transform does not move a dynamic body), `GetGoal/GetPath/IsMoving`; events `OnNPCArrived`, `OnNPCPathFailed`. Stuck detection blocks the current connection/area for a while and repaths; repeated failures give up. An npc off the mesh is put back on the closest point.
-- `player_movement` friction removes `StopSpeed * Friction * dt` per tick, so slow characters never get going unless `StopSpeed` is lowered (the npc sets it to half its walk speed).
+- `character_movement` friction removes `StopSpeed * Friction * dt` per tick, so slow characters never get going unless `StopSpeed` is lowered (the npc sets it to half its walk speed).
 - Simulation LOD: a dynamic capsule on a brush world is expensive, so only the nearest `npc.MaxSimulated` npcs within `PhysicsDistance` of a camera or player keep a body; the rest are in `fly` mode (collision off, `MoveBodyBy` over the mesh height) and cost almost nothing. With no camera or player everything is simulated.
 - `locomotion` reads `transform:GetRenderVelocity()` (works for replicated npcs): idle/walk/run thresholds, `animator:SetSpeed(speed / ground speed)` so feet do not slide, `move_yaw` is the velocity angle against the facing.
 

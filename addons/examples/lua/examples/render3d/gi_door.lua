@@ -72,7 +72,7 @@ do
 	local rig = Entity.World:GetKeyed("player_camera_rig")
 
 	if rig and rig:IsValid() then
-		rig.player_movement:SetEyePosition(cam:GetPosition())
+		rig.character_movement:SetEyePosition(cam:GetPosition())
 
 		if rig.player_input and rig.player_input.SyncFromCamera then
 			rig.player_input:SyncFromCamera(cam)

@@ -106,7 +106,7 @@ function META:Drop(weapon)
 		weapon:CallLocalEvent("OnWeaponHolster")
 	end
 
-	local position = owner.transform:GetPosition() + owner.player_movement:GetViewOffset() + forward * 0.6
+	local position = owner.transform:GetPosition() + owner.character_movement:GetViewOffset() + forward * 0.6
 	weapon:UnParent()
 	weapon.transform:SetPosition(position)
 	weapon.transform:SetRotation(owner.player_controller.cmd.view:Copy())
@@ -176,7 +176,7 @@ function META:OnPhysicsUpdate(dt)
 		local owner = self.Owner
 		use.Press(
 			owner,
-			owner.transform:GetPosition() + owner.player_movement:GetViewOffset(),
+			owner.transform:GetPosition() + owner.character_movement:GetViewOffset(),
 			cmd.view:GetForward()
 		)
 	end

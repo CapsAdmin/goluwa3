@@ -31,7 +31,7 @@ Collide once, soft contacts: broadphase and islands only on substep 1 (`BeginSte
 - BSP loader (`source_engine/bsp.lua`, `bsp_collision.lua`): displacements become exact triangle meshes (they can overhang); world brushes come from walking the world model's node tree (the brush lump also holds trigger/door brushes and orphans); MONSTERCLIP is dropped; solid brush entities do not collide. Use plain gm_construct for map checks.
 - Source `.phy` props: the mdl decoder emits `data.physics`; the engine has no COM offset (body origin = COM), so hulls are shifted by the .phy mass center and the visual is a child with `PhysicsNoCollision`. Colliders are handed to the solver as if they were bodies: lever arms and inertia must use `body:GetBody()`. Engine gravity is -28 m/s^2 (not Source's 11.43). `RigidBodyIterations = 1` leaves stacks creeping; 4 fixes it.
 
-## Player controller (`addons/game/lua/components/player_movement.lua`)
+## Player controller (`addons/game/lua/components/character_movement.lua`)
 
 - Source friction/accelerate/airaccelerate computed per fixed step and applied as ONE impulse. Body damping/friction 0, `LockRotation`, `CanSleep` false. Camera input latches `jump_requested`; velocity logic runs in `OnPhysicsUpdate(dt)`.
 - Source units: `units.meters = 0.01905` (`source_engine/units.lua`, not 0.0254): the 32x72 hull is a capsule, step 18u, jump 200u/s, gravity as body gravity scale.

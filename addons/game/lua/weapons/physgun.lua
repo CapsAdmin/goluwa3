@@ -47,7 +47,7 @@ local beam_owners = table.weak("k")
 local AIM_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 
 local function get_origin(owner)
-	return owner.transform:GetPosition() + owner.player_movement:GetViewOffset()
+	return owner.transform:GetPosition() + owner.character_movement:GetViewOffset()
 end
 
 local function sync_body_rotation_to_transform(body)

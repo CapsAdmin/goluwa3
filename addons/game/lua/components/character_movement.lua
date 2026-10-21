@@ -9,7 +9,7 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local network = import("goluwa/network/network.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local damage = import("lua/damage.lua")
-local META = objects.CreateTemplate("player_movement")
+local META = objects.CreateTemplate("character_movement")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 META:IsSet("Crouching", false)
 META:GetSet("GroundSpeed", 200 * UNIT)

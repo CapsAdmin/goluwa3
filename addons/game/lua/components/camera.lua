@@ -62,7 +62,7 @@ end
 function META:OnLateUpdate(dt)
 	local transform = self.Owner.transform
 	local view = self.view
-	local movement = self.Owner.player_movement
+	local movement = self.Owner.character_movement
 
 	if movement then self:SetViewOffset(movement:GetViewOffset()) end
 

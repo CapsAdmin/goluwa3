@@ -141,7 +141,7 @@ function META:OnUpdate(dt)
 
 	if controller then
 		self:SetViewRotation(controller.cmd.view:Copy())
-		self:SetCrouching(owner.player_movement:IsCrouching())
+		self:SetCrouching(owner.character_movement:IsCrouching())
 		self:SetHolding(controller:IsHolding())
 	end
 
@@ -180,7 +180,7 @@ function META:OnUpdate(dt)
 	local _, entity_rotation = transform:GetRenderPositionRotation()
 	local pitch
 
-	local movement = owner.player_movement
+	local movement = owner.character_movement
 
 	if movement and movement.dead then
 		self.dead_pitch = self.dead_pitch or self.pitch

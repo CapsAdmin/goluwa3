@@ -25,7 +25,7 @@ local rig = Entity.New{
 		"camera",
 		"player_input",
 		"player_controller",
-		"player_movement",
+		"character_movement",
 		"weapon_holder",
 		"player_avatar",
 		"health",
@@ -42,7 +42,7 @@ local rig = Entity.New{
 }
 _G.PLAYER_RIG = rig
 rig.weapon_holder:GiveLoadout()
-rig.player_movement:SetEyePosition(cam:GetPosition())
+rig.character_movement:SetEyePosition(cam:GetPosition())
 rig.player_input:SyncFromCamera(cam)
 system.GetWindow():SetMouseTrapped(true)
 local FLASHLIGHT_LUMEN = 3

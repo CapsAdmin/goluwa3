@@ -80,7 +80,7 @@ local function update_simulation()
 	local count = 0
 
 	for _, npc in ipairs(META.Instances) do
-		if npc.Owner.player_movement then
+		if npc.Owner.character_movement then
 			local position = npc.Owner.transform:GetPosition()
 			local nearest = math.huge
 
@@ -138,7 +138,7 @@ function META:Initialize()
 
 	if network.HasAuthority() then
 		owner:AddComponent(
-			"player_movement",
+			"character_movement",
 			{
 				Mode = "walk",
 				Radius = self.Radius,
@@ -152,13 +152,13 @@ function META:Initialize()
 end
 
 function META:HasAuthority()
-	return self.Owner.player_movement ~= nil
+	return self.Owner.character_movement ~= nil
 end
 
 function META:Teleport(position, yaw)
 	local owner = self.Owner
 	local body = owner.rigid_body
-	owner.player_movement:MoveBodyBy(body, position - body:GetOriginPosition())
+	owner.character_movement:MoveBodyBy(body, position - body:GetOriginPosition())
 	body:SetVelocity(Vec3())
 	self.yaw = yaw or self.yaw
 	self:Stop()
@@ -362,7 +362,7 @@ function META:Advance(position, dir_x, dir_z, distance)
 
 	if area then y = mesh:GetHeight(area, x, z) end
 
-	self.Owner.player_movement:MoveBodyBy(self.Owner.rigid_body, Vec3(x - position.x, y - position.y, z - position.z))
+	self.Owner.character_movement:MoveBodyBy(self.Owner.rigid_body, Vec3(x - position.x, y - position.y, z - position.z))
 end
 
 function META:IsSimulated()
@@ -406,7 +406,7 @@ function META:NextCommand(dt)
 	local half = yaw / 2
 	local view = cmd.view
 	view.x, view.y, view.z, view.w = 0, math.sin(half), 0, math.cos(half)
-	local movement = owner.player_movement
+	local movement = owner.character_movement
 	movement:SetGroundSpeed(speed)
 	movement:SetStopSpeed(self.WalkSpeed * STOP_SPEED_SHARE)
 	return cmd

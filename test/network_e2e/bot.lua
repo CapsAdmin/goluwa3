@@ -10,7 +10,7 @@ local RUN_TIME = 4
 local BUTTON = usercmd.BUTTON
 local ent = Entity.New{
 	Name = "e2e_bot",
-	ComponentSet = {"transform", "player_controller", "player_movement"},
+	ComponentSet = {"transform", "player_controller", "character_movement"},
 	transform = {Position = Vec3(0, 3, 0)},
 	player_controller = {Source = "local", Networked = true},
 }
@@ -162,6 +162,6 @@ if os.getenv("E2E_DESYNC") then
 		if not start_time or system.GetTime() - start_time < 2.2 then return end
 
 		event.RemoveListener("Update", "e2e_bot_desync")
-		ent.player_movement:MoveBodyBy(ent.rigid_body, Vec3(2, 0, 0))
+		ent.character_movement:MoveBodyBy(ent.rigid_body, Vec3(2, 0, 0))
 	end)
 end

@@ -11,7 +11,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
-Entity.RegisterComponent("player_movement", import("lua/components/player_movement.lua"))
+Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("npc", import("lua/components/npc.lua"))
 Entity.RegisterComponent("locomotion", import("lua/components/locomotion.lua"))
 local npc_component = import("lua/components/npc.lua")
@@ -79,7 +79,7 @@ T.TestPhysics("npc has a body and walks the path to a goal around a bend", funct
 	local entity = create_npc(Vec3(1, 0.05, 1))
 	local npc = entity.npc
 	T(entity.rigid_body ~= nil)["=="](true)
-	T(entity.player_movement ~= nil)["=="](true)
+	T(entity.character_movement ~= nil)["=="](true)
 	local arrived = 0
 
 	entity:AddLocalListener("OnNPCArrived", function()
@@ -230,7 +230,7 @@ T.TestPhysics("npc far from every camera follows the mesh and gets a body back w
 	local npc = entity.npc
 	run(1)
 	T(npc:IsSimulated())["=="](false)
-	T(entity.player_movement.mode)["=="]("fly")
+	T(entity.character_movement.mode)["=="]("fly")
 	local arrived = false
 
 	entity:AddLocalListener("OnNPCArrived", function()
@@ -247,7 +247,7 @@ T.TestPhysics("npc far from every camera follows the mesh and gets a body back w
 	camera:SetPosition(Vec3(58, 1, 40))
 	run(1)
 	T(npc:IsSimulated())["=="](true)
-	T(entity.player_movement.mode)["=="]("walk")
+	T(entity.character_movement.mode)["=="]("walk")
 	T(run(3, function()
 		return entity.rigid_body:GetGrounded()
 	end))["=="](true)
@@ -299,7 +299,7 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	T(instance.model.ModelPath)["=="]("models/zombie/classic.mdl")
 	T(math.abs(npc.WalkSpeed - 45 * UNIT) < 1e-6)["=="](true)
 	T(npc:HasAuthority())["=="](true)
-	T(instance.player_movement ~= nil)["=="](true)
+	T(instance.character_movement ~= nil)["=="](true)
 	instance.prefab:SetInput("WalkSpeed", 2)
 	instance.prefab:SetInput("Wander", false)
 	T(npc.WalkSpeed)["=="](2)

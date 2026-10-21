@@ -6,7 +6,7 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local physics = import("goluwa/physics.lua")
 local BUTTON = usercmd.BUTTON
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
-Entity.RegisterComponent("player_movement", import("lua/components/player_movement.lua"))
+Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
 import("lua/weapons.lua")
@@ -21,7 +21,7 @@ end
 
 local function create_player(position, buffer_target)
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "player_movement"},
+		ComponentSet = {"transform", "player_controller", "character_movement"},
 		transform = {Position = position or Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
@@ -181,7 +181,7 @@ T.TestPhysics("player origin is at the feet and the eye is above it", function()
 	local player = create_player()
 	drive(player, 120)
 	local body = player.rigid_body
-	local movement = player.player_movement
+	local movement = player.character_movement
 	T(body:GetGrounded())["=="](true)
 	T(math.abs(player.transform:GetPosition().y))["<"](0.01)
 	T(math.abs(body:GetPosition().y - player.transform:GetPosition().y - 0.6858))["<"](0.001)
@@ -261,7 +261,7 @@ T.TestPhysics("player movement mode switching keeps the eye position", function(
 		cmd.mode = "fly"
 	end)
 
-	local movement = player.player_movement
+	local movement = player.character_movement
 	local eye = player.transform:GetPosition() + movement:GetViewOffset()
 
 	drive(player, 1, function(cmd)
@@ -316,7 +316,7 @@ T.TestPhysics("player controller start resets the simulation state", function()
 	local controller = player.player_controller
 	controller:Start(Vec3(10, 3, 10))
 	T(controller.number)["=="](0)
-	T(player.player_movement:GetMode())["=="]("fly")
+	T(player.character_movement:GetMode())["=="]("fly")
 	T((player.transform:GetPosition() - Vec3(10, 3, 10)):GetLength())["<"](0.001)
 	T(controller.synced)["=="](true)
 	player:Remove()
@@ -326,7 +326,7 @@ end)
 T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies from commands", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "player_movement", "weapon_holder"},
+		ComponentSet = {"transform", "player_controller", "character_movement", "weapon_holder"},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
@@ -396,7 +396,7 @@ end)
 T.TestPhysics("player physgun releases when the primary button is released", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "player_movement", "weapon_holder"},
+		ComponentSet = {"transform", "player_controller", "character_movement", "weapon_holder"},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
@@ -433,7 +433,7 @@ end)
 T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodies", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "player_movement", "weapon_holder"},
+		ComponentSet = {"transform", "player_controller", "character_movement", "weapon_holder"},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
@@ -478,7 +478,7 @@ T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodi
 	T(physgun.weapon_physgun.held_body == nil)["=="](true)
 	T(player.player_controller:IsHolding())["=="](false)
 	T(crate.rigid_body:GetCollisionGroup())["=="](1)
-	local eye = player.transform:GetPosition() + player.player_movement:GetViewOffset()
+	local eye = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 	crate:Remove()
 	crate = Entity.New{
 		transform = {Position = Vec3(0, eye.y, -6)},
@@ -527,7 +527,7 @@ end)
 T.TestPhysics("a weapon in the world has a body, is picked up by touch and can be dropped", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "player_movement", "weapon_holder"},
+		ComponentSet = {"transform", "player_controller", "character_movement", "weapon_holder"},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
