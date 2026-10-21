@@ -52,8 +52,8 @@ function META:RefreshWorldState()
 
 	if model then
 		prefab.Suppress()
-		model.transform:SetAttachment(held and "hand_r" or "root")
-		model.transform:SetPosition(held and self:GetHolder().HoldOffset or self.WorldCenter * -1)
+		model.transform:SetAttachment(held and "grip_r" or "root")
+		model.transform:SetPosition(held and Vec3() or self.WorldCenter * -1)
 		model.visibility:SetVisible(not held)
 		prefab.Unsuppress()
 	end
@@ -127,6 +127,9 @@ function META:Think(dt, cmd)
 		owner:CallLocalEvent("OnWeaponPrimary", cmd) ~= false
 	then
 		self.next_primary = self.time + self.FireRate
+		local pose = self:GetHolder().Owner.character_pose
+
+		if pose then pose:RegisterShot() end
 	end
 
 	if

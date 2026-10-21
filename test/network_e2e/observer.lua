@@ -135,7 +135,7 @@ event.AddListener("Update", "e2e_observer", function()
 
 		if active_name == "weapon_physgun" then saw_physgun = true end
 
-		if avatar.player_avatar:IsHolding() and crate then
+		if avatar.character_pose:IsHolding() and crate then
 			held_seen = true
 			held_distance = (crate.transform:GetPosition() - avatar.transform:GetPosition()):GetLength()
 		end

@@ -39,8 +39,8 @@ end)
 T.Test("The default outfit swings the eye around the pupil point and keeps the feet planted", function()
 	local Vec3 = import("goluwa/structs/vec3.lua")
 	local player = Entity.New{transform = {}}
+	player.character_pose = {crouch_alpha = 0}
 	player.player_avatar = {
-		crouch_alpha = 0,
 		SetOutfitFirstPersonVisible = function(self, visible)
 			self.visible = visible
 		end,
@@ -56,7 +56,7 @@ T.Test("The default outfit swings the eye around the pupil point and keeps the f
 	T(eye:GetPosition().z)["~"](outfit.EyeRadius, 1e-5)
 	local foot = instance.prefab:GetNode("foot_l").transform:GetPosition()
 	T(foot.y)["~"](outfit.FootHeight, 2e-2)
-	player.player_avatar.crouch_alpha = 1
+	player.character_pose.crouch_alpha = 1
 	rig.outfit_eye:OnUpdate(0.016)
 	T(eye:GetPosition().y)["~"](outfit.CrouchEyeHeight, 1e-5)
 	instance:Remove()
@@ -72,7 +72,8 @@ T.TestPhysics("The default outfit plants its feet on the ground found by a physi
 	local test_helpers = import("test/tests/physics/test_helpers.lua")
 	prefab.Register("test_outfit_ground", outfit.GetDefault())
 	local player = Entity.New{transform = {}}
-	player.player_avatar = {crouch_alpha = 0, SetOutfitFirstPersonVisible = function() end}
+	player.character_pose = {crouch_alpha = 0}
+	player.player_avatar = {SetOutfitFirstPersonVisible = function() end}
 	local expected = outfit.FootHeight - outfit.FootSink
 	local cases = {{0, expected}, {outfit.GroundBound * 0.5, expected + outfit.GroundBound * 0.5}, {outfit.GroundBound * 3, expected}}
 

@@ -1,0 +1,5 @@
+local Entity = import("goluwa/entities/entity.lua")
+Entity.RegisterComponent("character_pose", import("lua/components/character_pose.lua"))
+Entity.RegisterComponent("attachment_points", import("lua/components/attachment_points.lua"))
+Entity.RegisterComponent("source_pose", import("lua/components/source_pose.lua"))
+Entity.RegisterComponent("procedural_pose", import("lua/components/procedural_pose.lua"))

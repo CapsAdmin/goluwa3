@@ -7,6 +7,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local outfit_source = import("lua/outfit_source.lua")
 import("addons/game/lua/autorun/network_players.lua")
+import("addons/game/lua/autorun/characters.lua")
 
 T.Test3D("the source outfit animates a gmod player model from the movement of the player", function()
 	steam.MountSourceGame("gmod")
@@ -16,7 +17,7 @@ T.Test3D("the source outfit animates a gmod player model from the movement of th
 	end
 
 	pvars.SetSession("cl_outfit", outfit_source.Name)
-	local player = Entity.New{transform = {Position = Vec3(0, 0, 0)}, player_avatar = {}}
+	local player = Entity.New{transform = {Position = Vec3(0, 0, 0)}, player_avatar = {}, character_pose = {}}
 	local model
 
 	T.WaitUntil(
@@ -26,15 +27,14 @@ T.Test3D("the source outfit animates a gmod player model from the movement of th
 			return model and
 				model.animator and
 				model.animator:GetRig() and
-				model.outfit_source and
+				model.source_pose and
 				player.player_avatar.armature
 		end,
 		30
 	)
 
 	T(model ~= nil)["=="](true)
-	T(model.script.Error)["=="](nil)
-	T(model.outfit_source.added_events.Update)["=="](true)
+		T(model.source_pose.added_events.Update)["=="](true)
 	local animator = model.animator
 
 	local function step(_, velocity)
@@ -42,13 +42,14 @@ T.Test3D("the source outfit animates a gmod player model from the movement of th
 		player.transform.RenderVelocityFrame = system.GetFrameNumber()
 
 		for _ = 1, 60 do
-			model.outfit_source:OnUpdate(1 / 60)
+			player.character_pose:OnUpdate(1 / 60)
+			model.source_pose:OnUpdate(1 / 60)
 		end
 	end
 
 	step(0.5, Vec3(0, 0, 0))
 	T(animator:GetSequence())["=="]("idle_all_01")
-	T(player.player_avatar.bones_driven)["=="](true)
+	T(player.character_pose.driver)["=="](model.source_pose)
 	local standing = player.player_avatar.armature:GetBoneMatrix("head").m31
 	T(standing)[">"](1)
 	step(1, Vec3(0, 0, -1.5))

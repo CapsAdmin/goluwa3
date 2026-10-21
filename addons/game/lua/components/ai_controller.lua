@@ -74,8 +74,6 @@ function META:Initialize()
 	self.cmd.mode = "walk"
 	self.cmd.buttons = BUTTON.ACTIVE
 
-	if RENDER_3D then self:AddGlobalEvent("Update") end
-
 	if network.HasAuthority() then
 		owner:AddComponent(
 			"character_movement",
@@ -88,14 +86,6 @@ function META:Initialize()
 				GroundSpeed = self.WalkSpeed,
 			}
 		)
-	end
-end
-
-function META:OnUpdate()
-	for _, child in ipairs(self.Owner:GetChildren()) do
-		local weapon = child.weapon
-
-		if weapon then weapon:UpdateModel(weapon:IsActive()) end
 	end
 end
 

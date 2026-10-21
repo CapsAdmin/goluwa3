@@ -7,12 +7,25 @@ local system = import("goluwa/system.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("weapon_holder")
-META:StartStorable()
-META:GetSet("HoldOffset", Vec3())
-META:EndStorable()
 
 function META:Initialize()
 	self:AddGlobalEvent("PhysicsUpdate")
+	self:AddGlobalEvent("Update")
+end
+
+function META:OnUpdate()
+	if not (CLIENT and RENDER_3D) then return end
+
+	local pose = self.Owner.character_pose
+	local first_person = pose and pose:IsFirstPerson()
+
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		local weapon = child.weapon
+
+		if weapon then
+			weapon:UpdateModel(weapon:IsActive() and not (first_person and weapon:IsHiddenInFirstPerson()))
+		end
+	end
 end
 
 function META:GetActiveWeapon()

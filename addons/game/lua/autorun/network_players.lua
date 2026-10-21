@@ -18,34 +18,6 @@ Entity.RegisterComponent("character_movement", import("lua/components/character_
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
 
-if RENDER_3D then
-	import("goluwa/entities/components/armature.lua").RegisterSkeleton(
-		"player",
-		{
-			{"root"},
-			{"body", "root"},
-			{"spine", "body"},
-			{"chest", "spine"},
-			{"neck", "chest"},
-			{"head", "neck"},
-			{"clavicle_r", "chest"},
-			{"upperarm_r", "clavicle_r"},
-			{"forearm_r", "upperarm_r"},
-			{"hand_r", "forearm_r"},
-			{"clavicle_l", "chest"},
-			{"upperarm_l", "clavicle_l"},
-			{"forearm_l", "upperarm_l"},
-			{"hand_l", "forearm_l"},
-			{"thigh_r", "body"},
-			{"calf_r", "thigh_r"},
-			{"foot_r", "calf_r"},
-			{"thigh_l", "body"},
-			{"calf_l", "thigh_l"},
-			{"foot_l", "calf_l"},
-		}
-	)
-end
-
 local ACK_INTERVAL = 1 / 20
 local RELAY_BATCH = 4
 local OUTFIT_PUSH_DELAY = 0.2
@@ -68,7 +40,16 @@ if SERVER then
 
 		players[uid] = Entity.New{
 			Name = client:GetNick(),
-			ComponentSet = {"transform", "player_controller", "character_movement", "weapon_holder", "health"},
+			ComponentSet = {
+				"transform",
+				"player_controller",
+				"character_movement",
+				"character_pose",
+				"attachment_points",
+				"procedural_pose",
+				"weapon_holder",
+				"health",
+			},
 			transform = {Position = position:Copy(), Rotation = rotation:Copy()},
 			player_controller = {Source = "queue"},
 			player_avatar = {},

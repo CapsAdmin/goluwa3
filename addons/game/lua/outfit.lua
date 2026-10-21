@@ -133,8 +133,9 @@ function META:OnUpdate(dt)
 
 	local player = self.player
 	local avatar = player and player.player_avatar
-	local view = avatar and avatar.pitch or identity
-	local crouch = avatar and avatar.crouch_alpha or 0
+	local pose = player and player.character_pose
+	local view = pose and pose.pitch or identity
+	local crouch = pose and pose.crouch_alpha or 0
 	local velocity = zero
 	local grounded = true
 	local grips
@@ -151,7 +152,7 @@ function META:OnUpdate(dt)
 
 		if weapon then
 			grips = GRIPS[weapon.prefab.Path] or DEFAULT_GRIPS
-			local bone = avatar.armature:GetBoneMatrix("hand_r")
+			local bone = avatar.armature:GetBoneMatrix("grip_r")
 			weapon_origin = Vec3(bone.m30, bone.m31, bone.m32)
 			hide_arms = avatar.first_person and weapon.weapon:IsHeldAtEye()
 		end

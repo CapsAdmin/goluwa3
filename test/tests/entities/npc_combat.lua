@@ -10,6 +10,7 @@ Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
 import("lua/weapons.lua")
 import("lua/damage.lua")
+import("addons/game/lua/autorun/characters.lua")
 
 local function create_ground()
 	return Entity.New{
@@ -26,7 +27,7 @@ end
 
 local function create_gunman(position)
 	local entity = Entity.New{
-		ComponentSet = {"transform", "ai_controller", "weapon_holder", "health"},
+		ComponentSet = {"transform", "ai_controller", "character_pose", "weapon_holder", "health"},
 		transform = {Position = position:Copy()},
 		ai_controller = {Wander = false, WalkSpeed = 3},
 	}
@@ -37,7 +38,7 @@ end
 
 local function create_target(position)
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "character_movement", "health"},
+		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "health"},
 		transform = {Position = position:Copy()},
 		player_controller = {Source = "queue"},
 	}
@@ -54,6 +55,14 @@ T.TestPhysics("npc with a weapon turns to and shoots a player in range", functio
 	T(player.health.Health < player.health.MaxHealth)["=="](true)
 	local forward = gunman.transform:GetRotation():GetForward()
 	T(forward.x > 0.9)["=="](true)
+	gunman.character_pose:OnUpdate(1 / 60)
+	T(gunman.character_pose.pitch:GetForward().y < 0)["=="](true)
+	T(gunman.character_pose.Shots > 0)["=="](true)
+	T(player.character_pose.Hits > 0)["=="](true)
+	player.character_pose:OnUpdate(1 / 60)
+	T(player.character_pose.flinch > 0)["=="](true)
+	gunman.character_pose:OnUpdate(1 / 60)
+	T(gunman.character_pose.recoil > 0.5)["=="](true)
 end)
 
 T.TestPhysics("npc with a weapon leaves a player out of range alone", function()

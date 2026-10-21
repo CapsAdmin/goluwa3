@@ -13,7 +13,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
-Entity.RegisterComponent("locomotion", import("lua/components/locomotion.lua"))
+import("addons/game/lua/autorun/characters.lua")
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 import("lua/weapons.lua")
@@ -298,7 +298,7 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	local instance = Entity.New{prefab = {Path = npcs.GetPrefabName("zombie")}, transform = {}}
 	local npc = instance.ai_controller
 	T(npc ~= nil)["=="](true)
-	T(instance.locomotion.WalkSequence)["=="]("walk")
+	T(instance.source_pose.WalkSequence)["=="]("walk")
 	T(instance.model.ModelPath)["=="]("models/zombie/classic.mdl")
 	T(math.abs(npc.WalkSpeed - 45 * UNIT) < 1e-6)["=="](true)
 	T(npc:HasAuthority())["=="](true)

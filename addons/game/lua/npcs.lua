@@ -5,12 +5,12 @@ local commands = import("goluwa/cli/commands.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
-local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 import("lua/damage.lua")
 local npcs = {}
 npcs.Definitions = {
 	citizen = {
 		Weapon = "weapon_pistol",
+		Biped = true,
 		Model = "models/humans/group01/male_01.mdl",
 		Idle = "idle_subtle",
 		Walk = "walk_all",
@@ -20,6 +20,7 @@ npcs.Definitions = {
 	},
 	barney = {
 		Weapon = "weapon_pistol",
+		Biped = true,
 		Model = "models/barney.mdl",
 		Idle = "idle_subtle",
 		Walk = "walk_all",
@@ -29,6 +30,7 @@ npcs.Definitions = {
 	},
 	combine_soldier = {
 		Weapon = "weapon_pistol",
+		Biped = true,
 		Model = "models/combine_soldier.mdl",
 		Idle = "Idle_Unarmed",
 		Walk = "WalkEasy_all",
@@ -93,7 +95,6 @@ function npcs.GetPrefabName(name)
 end
 
 function npcs.Register(name, info)
-	local height = (info.Height or 72) * UNIT
 	local npc = {
 		WalkSpeed = info.WalkSpeed * UNIT,
 		RunSpeed = info.RunSpeed * UNIT,
@@ -118,9 +119,17 @@ function npcs.Register(name, info)
 					components = {
 						model = {ModelPath = info.Model},
 						animator = {},
-						locomotion = {IdleSequence = info.Idle, WalkSequence = info.Walk, RunSequence = info.Run},
+						character_pose = {},
+						source_pose = {
+							IdleSequence = info.Idle,
+							WalkSequence = info.Walk,
+							RunSequence = info.Run,
+							Mirror = info.Biped,
+							OwnsArmature = info.Biped,
+						},
+						attachment_points = info.Biped and {} or nil,
 						ai_controller = npc,
-						weapon_holder = info.Weapon and {HoldOffset = Vec3(0, height * 0.6, 0) + FORWARD * 0.05} or nil,
+						weapon_holder = info.Weapon and {} or nil,
 						health = {Health = info.Health or 50, MaxHealth = info.Health or 50, RemoveOnDeath = true},
 					},
 				},

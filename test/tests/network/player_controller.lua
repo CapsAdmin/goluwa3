@@ -453,7 +453,7 @@ T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodi
 
 	T(#holder:GetWeapons())["=="](3)
 	T(camera.rigid_body == nil)["=="](true)
-	T(camera.weapon:GetModel().transform:GetAttachment())["=="]("hand_r")
+	T(camera.weapon:GetModel().transform:GetAttachment())["=="]("grip_r")
 	T(holder:GetActiveWeapon() == camera)["=="](true)
 
 	drive(player, 1, function(cmd)
