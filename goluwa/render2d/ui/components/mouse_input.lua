@@ -14,6 +14,7 @@ META:GetSet("BringToFrontOnClick", false)
 META:GetSet("RedirectFocus", NULL)
 META:GetSet("Cursor", "arrow")
 META:GetSet("RequestMouse", false)
+META:GetSet("PassThrough", false)
 META:EndStorable()
 
 function META:SetHovered(b)
@@ -358,6 +359,15 @@ function META:OnFirstCreated()
 
 			if press then
 				local hovered = get_active_hovered_entity(world, pos)
+
+				if
+					hovered and
+					hovered:IsValid() and
+					hovered.mouse_input and
+					hovered.mouse_input:GetPassThrough()
+				then
+					hovered = nil
+				end
 
 				if hovered and hovered:IsValid() then
 					local mouse_comp = hovered.mouse_input

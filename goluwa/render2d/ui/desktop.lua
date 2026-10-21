@@ -343,6 +343,7 @@ function desktop.Show(is_dimmed)
 	if not root:IsValid() then react.Mount(DesktopView{}, Panel.World) end
 
 	dimmed = is_dimmed
+	root.mouse_input:SetPassThrough(not is_dimmed)
 	render2d.SetHudHidden("desktop", true)
 	Dock.GetInstance():SetPinned(true)
 	root.transform:SetSize(Panel.World.transform:GetSize())
