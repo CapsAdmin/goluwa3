@@ -114,10 +114,8 @@ function game.GetMountableGames()
 end
 
 function game.GetGameName(info)
-	if info.appid == info.filesystem.steamappid then
-		for _, installed in ipairs(steam.GetGames()) do
-			if installed.appid == info.appid then return installed.name end
-		end
+	for _, installed in ipairs(steam.GetGames()) do
+		if installed.appid == info.filesystem.steamappid then return installed.name end
 	end
 
 	return info.game
@@ -133,7 +131,11 @@ function game.ListLooseMaps(info)
 	local seen = {}
 
 	for _, path in ipairs(info.filesystem.searchpaths) do
-		if not path:ends_with("*") and not path:ends_with(".vpk/") then
+		if
+			path:starts_with(info.vdf_directory) and
+			not path:ends_with("*") and
+			not path:ends_with(".vpk/")
+		then
 			for _, file in ipairs(vfs.Find("os:" .. path .. "maps/%.bsp$")) do
 				local name = file:sub(1, -5)
 
