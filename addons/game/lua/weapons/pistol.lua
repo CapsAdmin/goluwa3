@@ -18,6 +18,7 @@ return {
 local objects = import("goluwa/objects/objects.lua")
 local physics = import("goluwa/physics.lua")
 local damage = import("lua/damage.lua")
+local weapon_effects = import("lua/weapon_effects.lua")
 local META = objects.CreateTemplate("weapon_pistol")
 META:GetSet("Range", 50)
 META:GetSet("Damage", 20)
@@ -30,7 +31,11 @@ function META:OnWeaponPrimary(cmd)
 	local forward = cmd.view:GetForward()
 	local hit = physics.Sweep(origin, forward * self.Range, 0, player, nil, TRACE_OPTIONS)
 
+	weapon_effects.MuzzleFlash(self.Owner, forward)
+
 	if not hit then return end
+
+	weapon_effects.Hit(hit.point, hit.normal, forward * self.Impulse)
 
 	if hit.entity and hit.entity.health then
 		damage.Deal(
