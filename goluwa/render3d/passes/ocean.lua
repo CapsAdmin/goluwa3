@@ -620,6 +620,7 @@ do
 			block.volume_flow[i][1] = flow.y
 			block.volume_flow[i][2] = volume:GetCaustics()
 			block.volume_flow[i][3] = volume:GetAbbeNumber()
+			block.volume_misc[i][0] = volume:GetOpen() and 0 or 1
 			count = count + 1
 		end
 
@@ -758,6 +759,7 @@ list.insert(
 						{"volume_scattering", "vec4", water.MAX_VOLUMES},
 						{"volume_waves", "vec4", water.MAX_VOLUMES},
 						{"volume_flow", "vec4", water.MAX_VOLUMES},
+						{"volume_misc", "vec4", water.MAX_VOLUMES},
 						{"volume_count", "int"},
 						{"shadows", directional_shadows.BuildFogShadowBlockLayout()},
 						post_source.pre_exposure_block,
@@ -1400,7 +1402,7 @@ list.insert(
 				w.foam = ocean_data.volume_waves[i].w;
 				w.caustics = ocean_data.volume_flow[i].z;
 				w.roughness = ocean_data.volume_scattering[i].w;
-				w.closed = 1.0;
+				w.closed = ocean_data.volume_misc[i].x;
 				return w;
 			}
 
@@ -1879,7 +1881,7 @@ list.insert(
 				}
 
 				floor_pos = get_world_pos(floor_uv, depth);
-				has_floor = w.volume < 0 || is_inside_volume(w.volume, floor_pos);
+				has_floor = w.volume < 0 || w.closed < 0.5 || is_inside_volume(w.volume, floor_pos);
 				path_len = has_floor ? length(floor_pos - surface_pos) : volume_exit;
 				return behind;
 			}

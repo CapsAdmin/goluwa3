@@ -564,6 +564,7 @@ function map_scene.Translate(data, map_name, map_path, offset)
 				transform = {Position = info.position},
 				water_volume = {
 					Size = info.size,
+					Open = true,
 					Absorption = info.absorption,
 					ParticleScattering = info.scattering,
 					WaveHeight = info.slime and 0 or 0.04,

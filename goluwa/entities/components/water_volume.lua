@@ -18,6 +18,7 @@ WaterVolume:GetSet("Flow", Vec2(0, 0))
 WaterVolume:GetSet("Roughness", 0.015, {validate = "number"})
 WaterVolume:GetSet("Foam", 0.4, {validate = "number"})
 WaterVolume:GetSet("Caustics", 1, {validate = "number"})
+WaterVolume:GetSet("Open", false)
 WaterVolume:GetSet("Visible", true)
 WaterVolume:EndStorable()
 
