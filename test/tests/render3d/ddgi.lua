@@ -250,6 +250,86 @@ do
 		if not ok then error(err, 0) end
 	end)
 
+	-- a room of six quads that face inwards and have no thickness, built on the probe grid (the finest cascade is 0.5 m
+	-- apart) or off it. returns the ceiling, which the tests take away to see what the sealed room is missing
+	local function add_plane_room(created, polygons, center, half, height, double_sided)
+		local planes = {
+			{Vec3(0, 0, 0), Vec3(0, 1, 0), half, half},
+			{Vec3(0, height, 0), Vec3(0, -1, 0), half, half},
+			{Vec3(0, height / 2, -half), Vec3(0, 0, 1), half, height / 2},
+			{Vec3(0, height / 2, half), Vec3(0, 0, -1), half, height / 2},
+			{Vec3(-half, height / 2, 0), Vec3(1, 0, 0), half, height / 2},
+			{Vec3(half, height / 2, 0), Vec3(-1, 0, 0), half, height / 2},
+		}
+		local material = Material.New{ColorMultiplier = Color(0.8, 0.8, 0.8, 1), MetallicMultiplier = 0, DoubleSided = double_sided}
+		local ceiling
+
+		for i, plane in ipairs(planes) do
+			local polygon3d = Polygon3D.New()
+			shapes.BuildPlane(polygon3d, Vec3(0, 0, 0), plane[2], plane[3], plane[4])
+			polygon3d:BuildBoundingBox()
+			polygon3d:Upload()
+			polygons[#polygons + 1] = polygon3d
+			local ent = Entity.New{Name = "ddgi_plane"}
+			created[#created + 1] = ent
+			ent:AddComponent("transform")
+			ent.transform:SetPosition(center + plane[1])
+			ent:AddComponent("visual")
+			local p = Entity.New{Name = "ddgi_plane_p", Parent = ent}
+			p:AddComponent("transform")
+			p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
+			p.visual_primitive:SetMaterial(material)
+			ent.visual:BuildAABB()
+
+			if i == 2 then ceiling = ent end
+		end
+
+		return ceiling
+	end
+
+	local function test_plane_room(name, center, double_sided, half, height)
+		T.Test3D(name, function(draw)
+			local created, polygons = {}, {}
+			use_ddgi()
+			render3d.camera:SetPosition(center + Vec3(0, 2, 2))
+			render3d.camera:SetAngles{x = 0, y = 0, z = 0}
+			local ceiling = add_plane_room(created, polygons, center, half, height, double_sided)
+
+			-- the leak builds up over many frames (the multiple bounces average slowly)
+			local function gi_average()
+				for _ = 1, 60 do
+					draw()
+				end
+
+				local r, g, b = gi_mean()
+				return r + g + b
+			end
+
+			local ok, err = pcall(function()
+				local sealed = gi_average()
+				ceiling:Remove()
+				local open = gi_average()
+				T(open > 0)["=="](true)
+				T(sealed <= open * 0.002)["=="](true)
+			end)
+
+			for _, e in ipairs(created) do
+				if e:IsValid() then e:Remove() end
+			end
+
+			restore()
+
+			for _, polygon3d in ipairs(polygons) do
+				polygon3d:Remove()
+			end
+
+			if not ok then error(err, 0) end
+		end)
+	end
+
+	test_plane_room("Graphics render3d ddgi does not leak into a sealed room of planes on the probe grid", Vec3(0, 0, 0), false, 4, 4)
+	test_plane_room("Graphics render3d ddgi does not leak into a sealed room of planes between the probes", Vec3(0.13, 0.07, -0.21), false, 4, 4)
+
 	T.Test3D("Graphics render3d ddgi small emitter lights a sealed room", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)

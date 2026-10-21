@@ -712,6 +712,8 @@ function ddgi.GetDefinesGLSL()
 			uint h = uint(probe >> 5) * 747796405u + uint(c) * 2891336453u + frame * 277803737u;
 			h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
 			h = (h >> 22u) ^ h;
+		// how far behind a probe its rays start, in the spacing of its cascade
+		#define DDGI_ORIGIN_PULL 0.001
 			return h %% max(DDGI_DISABLED_PROBE_FRAMES >> uint(c), 1u) != 0u;
 		}
 	]]
@@ -2099,8 +2101,13 @@ void main()
 
     vec3 dir = ddgi_ray_direction(ray, uint(params.uniform_rays), params.rotation, tile, ddgi_guide_valid(tile, world, c));
     payload.sun = 0u;
-    traceRayEXT(scene, DDGI_SCENE_FLAGS, 0xFF, 0, 0, 0, origin, params.tmin, dir, params.max_ray_distance, 0);
-    float hit_t = payload.hit_t;
+    // The ray starts a hair behind the probe. A probe that lies on a surface (a wall without thickness on the
+    // grid, a floor) has that surface exactly at its origin, which a ray does not reliably hit, so the probe saw
+    // both sides of it and lit one with the other. Now every direction hits it right away, the back face half
+    // of them mark the probe as inside the surface, and a double sided one gives it a distance of nothing
+    float pull = DDGI_ORIGIN_PULL * params.cascades[c].w;
+    traceRayEXT(scene, DDGI_SCENE_FLAGS, 0xFF, 0, 0, 0, origin - dir * pull, params.tmin, dir, params.max_ray_distance + pull, 0);
+    float hit_t = payload.hit_t >= 0.0 ? max(payload.hit_t - pull, 1e-5) : payload.hit_t;
     uint instance = payload.instance;
     uint primitive = payload.primitive;
     uint sun_visible = 0u;
