@@ -1,4 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
+local event = import("goluwa/event.lua")
 local META = objects.CreateTemplate("health")
 META.Network = {
 	Health = {"number", 0.1, "reliable"},
@@ -35,6 +36,7 @@ function META:TakeDamage(info)
 	if self.Health > 0 then return end
 
 	self.Owner:CallLocalEvent("OnDeath", info)
+	event.Call("EntityKilled", self.Owner, info)
 
 	if self.RemoveOnDeath then self.Owner:Remove() end
 end
