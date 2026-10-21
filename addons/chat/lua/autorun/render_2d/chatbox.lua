@@ -192,7 +192,7 @@ function chatbox.Hide()
 	event.Call("ChatboxVisible", false)
 end
 
-event.AddListener("PreDraw2D", "chatbox_hud", function()
+event.AddListener("DrawHUD", "chatbox_hud", function()
 	local w, h = render2d.GetSize()
 	render2d.PushMatrix(50, h / 2)
 	MarkupLabel.SyncTheme(chatbox.markup_hud, "M", true)

@@ -53,7 +53,7 @@ All icons are defined up front in `goluwa/render2d/ui/themes/icons.lua` as strok
 ## Desktop, load window, spawn menu
 
 - `desktop.RegisterBackdrop{Name, OnDraw, OnActivate, OnDeactivate}` replaces the dimmed scene behind the desktop (pvar `desktop_backdrop`). `desktop.RegisterProgram{Content = Component}` is the window-less react component of a program (used by the spawn menu Utilities tab). A window that is only hidden on close should unmount live content on `OnVisibilityChanged`.
-- The HUD: `event.Call("DrawHUD", dt)` draws before Draw2D and is skipped while `render2d.SetHudHidden(reason, hidden)` has any reason set (the desktop and a `View` with `HideHud`).
+- The HUD: `event.Call("DrawHUD", dt)` draws before Draw2D and is skipped while `render2d.SetHudHidden(reason, hidden)` has any reason set (the desktop, a `View` with `HideHud` and the equipped camera weapon). The crosshair, weapon selection and chat HUD all draw there.
 - Load window (`goluwa/render2d/ui/load_window.lua`) only talks to `goluwa/engines.lua` (see animation-and-source.md "Mounting games").
 - Spawn menu (`addons/game/lua/spawnmenu.lua`, hold `q`): a full screen panel mounted once and then hidden; spawnlists come from GMod `settings/spawnlist*` through the vfs (needs the gmod mount); models spawn as `prop_physics` prefab instances (`addons/game/lua/props.lua`); only the process running the menu spawns. Tab hosts that fill a parent need `FitHeight = false` on every column/row between them and a `Splitter` or grid, otherwise they collapse.
 

@@ -19,6 +19,7 @@ return {
 	Source = [=====[
 local objects = import("goluwa/objects/objects.lua")
 local input = import("goluwa/input.lua")
+local render2d = RENDER_2D and import("goluwa/render2d/render2d.lua")
 local META = objects.CreateTemplate("weapon_camera")
 
 function META:OnWeaponMouseLook(player_input, mouse_delta)
@@ -43,7 +44,17 @@ function META:OnWeaponReset(player_input)
 	return true
 end
 
+function META:OnWeaponEquip()
+	if RENDER_2D then render2d.SetHudHidden("weapon_camera", true) end
+end
+
+function META:OnRemove()
+	if RENDER_2D then render2d.SetHudHidden("weapon_camera", false) end
+end
+
 function META:OnWeaponHolster()
+	if RENDER_2D then render2d.SetHudHidden("weapon_camera", false) end
+
 	local player_input = self.Owner:GetParent().player_input
 
 	if not player_input then return end
