@@ -82,12 +82,12 @@ local function get_texture(path)
 	return texture
 end
 
-local function draw_picture(path, x, y, w, h, alpha)
+local function draw_picture(path, x, y, w, h, alpha, crop)
 	local texture = path and get_texture(path)
 
 	if not texture then return false end
 
-	render2d.DrawTextureCover(texture, x, y, w, h, 4, 1, 1, 1, alpha, top_first[path:lower():match("%.(%w+)$")])
+	render2d.DrawTextureCover(texture, x, y, w, h, 4, 1, 1, 1, alpha, top_first[path:lower():match("%.(%w+)$")], crop)
 	return true
 end
 
@@ -148,10 +148,12 @@ local function draw_map(map, index, x, y, w, h, selected, hovered)
 	local px, py, pw, ph = x + inset, y + inset, w - inset * 2, h - LABEL_HEIGHT - inset
 
 	if map.thumbnail == nil then
-		map.thumbnail = engines.GetMapThumbnail(map) or false
+		local thumbnail, crop = engines.GetMapThumbnail(map)
+		map.thumbnail = thumbnail or false
+		map.thumbnail_crop = crop
 	end
 
-	if not draw_picture(map.thumbnail, px, py, pw, ph, 1) then
+	if not draw_picture(map.thumbnail, px, py, pw, ph, 1, map.thumbnail_crop) then
 		render2d.DrawBox(px, py, pw, ph, 4, colors.placeholder)
 		draw_picture(map.game_image, px, py, pw, ph, 0.35)
 	end

@@ -369,4 +369,60 @@ function vtf.DecodeBuffer(input_buffer)
 	data_buffer
 end
 
+function vtf.GetOpaqueBounds(meta, data)
+	local stride, color_offset = 4, 0
+
+	if meta.vtf_format == VTF_IMAGE_FORMAT.DXT3 or meta.vtf_format == VTF_IMAGE_FORMAT.DXT5 then
+		stride, color_offset = 8, 4
+	elseif meta.vtf_format ~= VTF_IMAGE_FORMAT.DXT1 then
+		return
+	end
+
+	local blocks = ffi.cast("uint16_t*", data)
+	local min_x, min_y, max_x, max_y = math.huge, math.huge, -1, -1
+
+	for block_y = 0, meta.height / 4 - 1 do
+		for block_x = 0, meta.width / 4 - 1 do
+			local block = (block_y * meta.width / 4 + block_x) * stride + color_offset
+			local c0, c1 = blocks[block], blocks[block + 1]
+
+			if c0 ~= 0 or c1 ~= 0 then
+				local indices = blocks[block + 2] + blocks[block + 3] * 65536
+
+				for pixel = 0, 15 do
+					local index = band(rshift(indices, pixel * 2), 3)
+					local c = c0
+
+					if index == 1 then
+						c = c1
+					elseif index > 1 then
+						local r = (rshift(c0, 11) * (4 - index) + rshift(c1, 11) * (index - 1)) / 3
+						local g = (band(rshift(c0, 5), 63) * (4 - index) + band(rshift(c1, 5), 63) * (index - 1)) / 3
+						local b = (band(c0, 31) * (4 - index) + band(c1, 31) * (index - 1)) / 3
+
+						if c0 <= c1 then
+							r, g, b = (rshift(c0, 11) + rshift(c1, 11)) / 2, (band(rshift(c0, 5), 63) + band(rshift(c1, 5), 63)) / 2, (band(c0, 31) + band(c1, 31)) / 2
+
+							if index == 3 then r, g, b = 0, 0, 0 end
+						end
+
+						c = (r + g + b > 3) and 1 or 0
+					end
+
+					if c ~= 0 then
+						local x = block_x * 4 + pixel % 4
+						local y = block_y * 4 + math.floor(pixel / 4)
+						min_x, min_y = math.min(min_x, x), math.min(min_y, y)
+						max_x, max_y = math.max(max_x, x), math.max(max_y, y)
+					end
+				end
+			end
+		end
+	end
+
+	if max_x < 0 then return end
+
+	return min_x, min_y, max_x + 1, max_y + 1
+end
+
 return vtf

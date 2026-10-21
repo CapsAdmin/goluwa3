@@ -1,5 +1,7 @@
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
+local vtf = import("goluwa/codecs/vtf.lua")
+local Buffer = import("goluwa/structs/buffer.lua")
 local game = {}
 local map_games = {
 	["gm_.+"] = {"garry's mod", "tf2", "css"},
@@ -151,6 +153,76 @@ function game.ListLooseMaps(info)
 end
 
 do
+	local cache = {}
+
+	function game.GetChapters(info)
+		local appid = info.filesystem.steamappid
+
+		if cache[appid] then return cache[appid] end
+
+		local chapters = {}
+
+		for _, file in ipairs(vfs.Find("os:" .. info.vdf_directory .. "cfg/chapter.-%.cfg$")) do
+			local id = file:sub(1, -5)
+			local map = vfs.Read("os:" .. info.vdf_directory .. "cfg/" .. file):match("map%s+(%S+)%s*$")
+
+			if map then
+				local number, suffix = id:match("chapter(%d+)(%a*)")
+				local thumbnail
+
+				for _, path in ipairs(info.filesystem.searchpaths) do
+					if path:starts_with(info.vdf_directory) and not path:ends_with("*") then
+						local full = path .. "materials/vgui/chapters/" .. id .. ".vtf"
+						local os_full = path:ends_with(".vpk/") and full or "os:" .. full
+
+						if vfs.IsFile(os_full) then
+							thumbnail = os_full
+
+							break
+						end
+					end
+				end
+
+				local crop
+
+				if thumbnail then
+					local data = vfs.Read(thumbnail)
+					local meta, pixels = vtf.DecodeBuffer(Buffer.New(data, #data))
+					local min_x, min_y, max_x, max_y = vtf.GetOpaqueBounds(meta, pixels)
+
+					if
+						max_x and
+						min_x <= 1 and
+						min_y <= 1 and
+						max_x < meta.width * 0.9 and
+						max_y < meta.height * 0.9
+					then
+						crop = {0, 0, (max_x - 1) / meta.width, (max_y - 1) / meta.height}
+					end
+				end
+
+				chapters[#chapters + 1] = {
+					id = id,
+					map = map,
+					thumbnail = thumbnail,
+					crop = crop,
+					order = tonumber(number) * 256 + (suffix:byte() or 0),
+				}
+			end
+		end
+
+		table.sort(chapters, function(a, b)
+			return a.order < b.order
+		end)
+
+		cache[appid] = chapters
+		return chapters
+	end
+end
+
+do
+	local TAIL_ORDER = 1e6
+
 	local function find_owner(path, mounted_games)
 		for _, info in ipairs(mounted_games) do
 			if path:starts_with(info.vdf_directory) then return info end
@@ -174,15 +246,43 @@ do
 		local seen = {}
 		local mounted_games = {}
 
-		for _, info in ipairs(game.GetMountableGames()) do
+		local ranks = {}
+
+		for rank, info in ipairs(game.GetMountableGames()) do
 			local mounted = steam.IsSourceGameMounted(info)
+			ranks[info.filesystem.steamappid] = rank
 
 			if mounted then mounted_games[#mounted_games + 1] = info end
 
-			for _, name in ipairs(game.ListLooseMaps(info)) do
+			local names = game.ListLooseMaps(info)
+			table.sort(names)
+			local chapters_by_map = {}
+
+			for _, chapter in ipairs(game.GetChapters(info)) do
+				chapters_by_map[chapter.map] = chapter
+			end
+
+			local current
+
+			for _, name in ipairs(names) do
+				local chapter = chapters_by_map[name]
+
+				if chapter then
+					current = chapter
+				elseif current and name:match("^[^_]+") ~= current.map:match("^[^_]+") then
+					current = nil
+				end
+
 				if not seen[name] then
 					seen[name] = true
-					maps[#maps + 1] = {name = name, game = info.filesystem.steamappid, mounted = mounted}
+					maps[#maps + 1] = {
+						name = name,
+						game = info.filesystem.steamappid,
+						mounted = mounted,
+						order = current and current.order or TAIL_ORDER,
+						chapter_thumbnail = current and current.thumbnail,
+						chapter_thumbnail_crop = current and current.crop,
+					}
 				end
 			end
 		end
@@ -205,6 +305,16 @@ do
 		end
 
 		table.sort(maps, function(a, b)
+			local rank_a = ranks[a.game] or math.huge
+			local rank_b = ranks[b.game] or math.huge
+
+			if rank_a ~= rank_b then return rank_a < rank_b end
+
+			local order_a = a.order or TAIL_ORDER
+			local order_b = b.order or TAIL_ORDER
+
+			if order_a ~= order_b then return order_a < order_b end
+
 			return a.name < b.name
 		end)
 

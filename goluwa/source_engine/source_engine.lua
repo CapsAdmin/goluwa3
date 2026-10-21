@@ -201,7 +201,11 @@ engines.Register(
 		end,
 		GetMaps = game.GetMaps,
 		GetMapThumbnail = function(map)
-			return game.GetMapThumbnail(map.name, map.game and steam.FindSourceGame(map.game))
+			local thumbnail = game.GetMapThumbnail(map.name, map.game and steam.FindSourceGame(map.game))
+
+			if thumbnail then return thumbnail end
+
+			return map.chapter_thumbnail, map.chapter_thumbnail_crop
 		end,
 	}
 )

@@ -539,17 +539,25 @@ function render2d.DrawBox(x, y, w, h, radius, fill, outline, outline_width)
 	render2d.PopShapeMode()
 end
 
-function render2d.DrawTextureCover(texture, x, y, w, h, radius, r, g, b, a, flip_y)
+function render2d.DrawTextureCover(texture, x, y, w, h, radius, r, g, b, a, flip_y, crop)
 	local texture_width, texture_height = texture:GetWidth(), texture:GetHeight()
-	local scale = math.max(w / texture_width, h / texture_height)
+	local crop_x1, crop_y1, crop_x2, crop_y2 = 0, 0, 1, 1
+
+	if crop then crop_x1, crop_y1, crop_x2, crop_y2 = crop[1], crop[2], crop[3], crop[4] end
+
+	local scale = math.max(
+		w / ((crop_x2 - crop_x1) * texture_width),
+		h / ((crop_y2 - crop_y1) * texture_height)
+	)
 	local u = w / (texture_width * scale)
 	local v = h / (texture_height * scale)
+	local center_x, center_y = (crop_x1 + crop_x2) / 2, (crop_y1 + crop_y2) / 2
 	render2d.PushShapeMode("none")
-	local v1, v2 = (1 - v) / 2, (1 + v) / 2
+	local v1, v2 = 1 - (center_y + v / 2), 1 - (center_y - v / 2)
 
-	if flip_y then v1, v2 = v2, v1 end
+	if flip_y then v1, v2 = center_y + v / 2, center_y - v / 2 end
 
-	render2d.PushColorUV((1 - u) / 2, v1, (1 + u) / 2, v2)
+	render2d.PushColorUV(center_x - u / 2, v1, center_x + u / 2, v2)
 	render2d.PushTexture(texture)
 	render2d.PushBorderRadius(radius)
 	render2d.PushSDFSoftness(default_sdf_softness)

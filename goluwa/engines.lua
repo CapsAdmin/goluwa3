@@ -89,7 +89,8 @@ end
 
 function engines.GetMapThumbnail(map)
 	local engine = registered[map.engine]
-	return engine.GetMapThumbnail and engine.GetMapThumbnail(map)
+
+	if engine.GetMapThumbnail then return engine.GetMapThumbnail(map) end
 end
 
 function engines.MountGame(engine_name, id)
