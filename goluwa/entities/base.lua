@@ -2,6 +2,10 @@ local event = import("goluwa/event.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Visibility = import("goluwa/entities/components/visibility.lua")
 local BaseEntity = objects.CreateTemplate("base_entity")
+
+function BaseEntity:__tostring2()
+	return self.GUID ~= "" and (" " .. self.GUID) or ""
+end
 objects.ParentingTemplate(BaseEntity)
 BaseEntity:GetSet("Transient", nil, {type = "boolean"})
 
