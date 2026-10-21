@@ -10,6 +10,7 @@ local prefab = import("goluwa/entities/prefab.lua")
 local outfit = import("lua/outfit.lua")
 local clients = import("goluwa/network/clients.lua")
 local View = import("goluwa/render3d/view.lua")
+local third_person = import("lua/third_person.lua")
 local META = objects.CreateTemplate("player_avatar")
 META.Network = {
 	Crouching = {"boolean", 0.1, "reliable"},
@@ -156,7 +157,7 @@ function META:OnUpdate(dt)
 
 	if camera then
 		rotation = owner.player_input:GetRotation()
-		self:SetFirstPerson(not camera:IsThirdPerson() and camera:IsRendered())
+		self:SetFirstPerson(not third_person.IsEnabled() and camera:IsRendered())
 	else
 		rotation = self:GetViewRotation()
 		local relay = self.relay_cmd

@@ -6,6 +6,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
+local third_person = import("lua/third_person.lua")
 local META = objects.CreateTemplate("player_input")
 META:GetSet("Mode", "fly")
 META:GetSet("Rotation", Quat(0, 0, 0, 1))
@@ -199,6 +200,7 @@ function META:BuildCommand(cmd)
 		if input.IsKeyDown("b") then buttons = bit.bor(buttons, BUTTON.DROP) end
 	end
 
+	third_person.AdjustCommand(cmd)
 	cmd.buttons = buttons
 	cmd.scroll = self.scroll_accum
 	cmd.rotate_x = self.rotate_accum.x
@@ -276,6 +278,8 @@ function META:OnPreUpdate(dt)
 	end
 
 	self:OnCameraInputUpdate(dt)
+
+	if self.mouse_trapped then third_person.ApplyRelativeMovement(self, dt) end
 end
 
 function META:OnCameraInputUpdate(dt)

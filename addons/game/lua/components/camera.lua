@@ -1,26 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local physics = import("goluwa/physics.lua")
-local pvars = import("goluwa/cli/pvars.lua")
-local third_person = pvars.Setup2{
-	key = "cl_thirdperson",
-	category = "Game",
-	group = "Player",
-	default = false,
-	help = "over the shoulder camera, client side only",
-}
-local THIRD_PERSON_DISTANCE = 2.4
-local THIRD_PERSON_SHOULDER = 0.55
-local THIRD_PERSON_LIFT = 0.15
-local THIRD_PERSON_RADIUS = 0.15
-local THIRD_PERSON_MARGIN = 0.1
-local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = true}
-
-local function is_static_geometry(entity)
-	local body = entity.rigid_body
-	return body ~= nil and body:IsStatic()
-end
+local third_person = import("lua/third_person.lua")
 
 local META = objects.CreateTemplate("camera")
 META:GetSet("Active", false)
@@ -73,15 +54,12 @@ function META:Initialize()
 	self.Owner:EnsureComponent("transform")
 	self:SetViewOffset(self.ViewOffset)
 	self.view = View.New{Priority = self.Priority}
+	self.default_near_z = self.view:GetNearZ()
 	self:AddGlobalEvent("LateUpdate")
 	self:SetActive(self.Active)
 end
 
-function META:IsThirdPerson()
-	return third_person:Get()
-end
-
-function META:OnLateUpdate()
+function META:OnLateUpdate(dt)
 	local transform = self.Owner.transform
 	local view = self.view
 	local movement = self.Owner.player_movement
@@ -93,32 +71,33 @@ function META:OnLateUpdate()
 
 	if look then
 		local rotation = look:GetRotation()
-		view:SetRotation(rotation:Copy())
-		view:SetFOV(look:GetFOV())
 
-		if third_person:Get() then
-			local offset = rotation:GetForward() * -THIRD_PERSON_DISTANCE + rotation:GetRight() * THIRD_PERSON_SHOULDER + rotation:GetUp() * THIRD_PERSON_LIFT
-			local length = offset:GetLength()
-			local hit = physics.Sweep(
-				position,
-				offset,
-				THIRD_PERSON_RADIUS,
+		if third_person.IsEnabled() then
+			local velocity = self.Owner.rigid_body:GetVelocity()
+			local fov, near_z
+			position, rotation, fov, near_z = third_person.Update(
 				self.Owner,
-				is_static_geometry,
-				TRACE_OPTIONS
+				position,
+				self.ViewOffset,
+				rotation,
+				look:GetFOV(),
+				velocity,
+				dt
 			)
-
-			if hit then
-				offset = offset * (math.max(hit.distance - THIRD_PERSON_MARGIN, 0) / length)
-			end
-
-			position = position + offset
+			view:SetFOV(fov)
+			view:SetNearZ(near_z)
+			view:SetRotation(rotation:Copy())
+		else
+			third_person.Disable()
+			view:SetNearZ(self.default_near_z)
+			view:SetRotation(rotation:Copy())
+			view:SetFOV(look:GetFOV())
 		end
 	else
 		view:SetRotation(transform:GetRotation():Copy())
 	end
 
-	view:SetPosition(position)
+	view:SetPosition(position:Copy())
 end
 
 function META:OnRemove()

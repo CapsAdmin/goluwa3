@@ -2,6 +2,7 @@ local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
+local third_person = import("lua/third_person.lua")
 local CELL_WIDTH = 110
 local CELL_HEIGHT = 40
 local CELL_GAP = 6
@@ -15,7 +16,7 @@ local last_change = -math.huge
 event.AddListener("DrawHUD", "weapon_hud", function()
 	local rig = _G.PLAYER_RIG
 
-	if not (rig and rig:IsValid()) then return end
+	if not (rig and rig:IsValid()) or third_person.IsHudHidden() then return end
 
 	local holder = rig.weapon_holder
 	local slot = holder:GetActiveSlot()
