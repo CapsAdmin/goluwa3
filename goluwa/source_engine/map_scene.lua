@@ -101,6 +101,28 @@ local function get_transform(info, is_light)
 	return units.PositionToEngine(info.origin), rotation
 end
 
+local sun_priority = {light_environment = 3, env_sun = 2, env_skypaint = 1}
+
+local function get_sun_direction(info)
+	local x, y, z
+
+	if info.classname == "env_skypaint" then
+		local color = info.suncolor
+
+		if color.r + color.g + color.b == 0 then return end
+
+		x, y, z = info.sunnormal:match("(%S+)%s+(%S+)%s+(%S+)")
+		x, y, z = tonumber(x), tonumber(y), tonumber(z)
+	else
+		local angles = info.angles
+		local pitch = math.rad(info.pitch or angles and angles.x or 0)
+		local yaw = math.rad(angles and angles.y or 0)
+		x, y, z = math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), -math.sin(pitch)
+	end
+
+	return Vec3(-y, z, -x):GetNormalized()
+end
+
 local function load_models(paths)
 	local results = {}
 	local pending = 0
@@ -277,6 +299,8 @@ function map_scene.Translate(data, map_name, map_path, offset)
 
 	startup.End("translate world geometry")
 	startup.Begin("translate classify entities")
+	local weather = import("goluwa/render3d/weather.lua")
+	local best_sun_priority = 0
 	local entries = {}
 	local physics_models = {}
 	local handled = {}
@@ -295,8 +319,18 @@ function map_scene.Translate(data, map_name, map_path, offset)
 		then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
 			entries[#entries + 1] = {kind = "spawn", info = info, index = index}
-		elseif info.classname and info.classname:find("light_environment") then
+		elseif info.classname == "env_sun" or info.classname == "env_skypaint" or info.classname:find("light_environment") then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
+			local priority = sun_priority[info.classname] or sun_priority.light_environment
+
+			if priority > best_sun_priority then
+				local direction = get_sun_direction(info)
+
+				if direction then
+					best_sun_priority = priority
+					atmosphere.SunRotation = weather.GetSunRotationFromDirection(direction)
+				end
+			end
 		elseif info.classname:lower():find("light") and (info._lightHDR or info._light) then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
 			entries[#entries + 1] = {kind = "light", info = info, index = index}
