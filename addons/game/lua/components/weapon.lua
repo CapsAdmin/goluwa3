@@ -29,6 +29,9 @@ function META:Initialize()
 	self.next_primary = 0
 	self.next_secondary = 0
 	self.pickup_time = 0
+end
+
+function META:OnEntityConstructed()
 	self:RefreshWorldState()
 end
 

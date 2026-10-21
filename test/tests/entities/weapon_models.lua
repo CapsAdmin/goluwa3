@@ -10,14 +10,15 @@ T.Test("Weapons are built in prefabs with a model, a muzzle and a loaded script"
 		local instance = Entity.New{prefab = {Path = name}}
 		local model = instance.weapon:GetModel()
 		T(model:GetParent())["=="](instance)
-		T(model.transform:GetAttachment())["=="]("hand_r")
+		T(model.transform:GetAttachment())["=="]("root")
 		local muzzle = instance.weapon:GetMuzzle()
 		T(muzzle:GetParent())["=="](model)
 		T(muzzle.transform:GetPosition():GetLength())[">"](0.3)
 		T(instance.script.Error == nil)["=="](true)
 		T(instance[name] ~= nil)["=="](true)
-		instance.weapon:UpdateModel(true)
 		T(model.visibility:GetVisible())["=="](true)
+		instance.weapon:UpdateModel(false)
+		T(model.visibility:GetVisible())["=="](false)
 		instance:Remove()
 	end
 end)
