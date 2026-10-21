@@ -182,11 +182,17 @@ function convex_face_clipping.ClipFacePolygonToReference(reference_body, referen
 	for i, point in ipairs(polygon) do
 		local clamped_u = math.max(
 			-reference_face.tangent_u_extent,
-			math.min(reference_face.tangent_u_extent, get_component(point, reference_face.tangent_u_index))
+			math.min(
+				reference_face.tangent_u_extent,
+				get_component(point, reference_face.tangent_u_index)
+			)
 		)
 		local clamped_v = math.max(
 			-reference_face.tangent_v_extent,
-			math.min(reference_face.tangent_v_extent, get_component(point, reference_face.tangent_v_index))
+			math.min(
+				reference_face.tangent_v_extent,
+				get_component(point, reference_face.tangent_v_index)
+			)
 		)
 
 		if reference_face.tangent_u_index == 1 then

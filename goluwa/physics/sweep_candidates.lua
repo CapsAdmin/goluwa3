@@ -432,7 +432,15 @@ local function collect_rigid_body_candidates(physics, world_aabb, ignore_entity,
 		local overflow_entries = broadphase.OverflowEntries
 
 		for i = 1, #overflow_entries do
-			append_rigid_body_candidate(overflow_entries[i], world_aabb, ignore_entity, filter_fn, options, effective_options, out)
+			append_rigid_body_candidate(
+				overflow_entries[i],
+				world_aabb,
+				ignore_entity,
+				filter_fn,
+				options,
+				effective_options,
+				out
+			)
 		end
 
 		local untracked = get_untracked_bodies(broadphase)

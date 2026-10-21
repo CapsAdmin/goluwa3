@@ -187,7 +187,9 @@ T.Test("UDP transport layer ignores garbage from strangers", function()
 	local raw = UDPClient.New()
 	raw:SetAddress("127.0.0.1", 27022)
 	raw:Send("not a goluwa packet")
-	raw:Send(import("goluwa/network/packet_header.lua").Encode(0, 0, 0, 0, 1, 1, "data without handshake"))
+	raw:Send(
+		import("goluwa/network/packet_header.lua").Encode(0, 0, 0, 0, 1, 1, "data without handshake")
+	)
 
 	for _ = 1, 20 do
 		transport_layer.Update()

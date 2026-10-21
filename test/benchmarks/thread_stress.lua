@@ -132,11 +132,15 @@ local function join_serialized_batch(round, workers)
 		local result, err = workers[index]:join()
 
 		if err then
-			error(string.format("serialized round %d worker %d failed: %s", round, index, tostring(err)))
+			error(
+				string.format("serialized round %d worker %d failed: %s", round, index, tostring(err))
+			)
 		end
 
 		if not result or result.round ~= round or result.index ~= index then
-			error(string.format("serialized round %d worker %d returned invalid result", round, index))
+			error(
+				string.format("serialized round %d worker %d returned invalid result", round, index)
+			)
 		end
 
 		combined = (combined + result.checksum + result.payload_len) % 2147483647
@@ -191,7 +195,9 @@ local function join_shared_batch(round, jobs, workers)
 		local _, err = workers[index]:join()
 
 		if err then
-			error(string.format("shared round %d worker %d failed: %s", round, index, tostring(err)))
+			error(
+				string.format("shared round %d worker %d failed: %s", round, index, tostring(err))
+			)
 		end
 
 		if jobs[index][0].done ~= 1 then

@@ -114,7 +114,9 @@ end)
 
 T.Test("surface features join the thin expressions of the features", function()
 	T(surface_features.New{{name = "a"}}.GetThinExpressionGLSL())["=="]("false")
-	T(surface_features.New{{name = "a", thin = "x(c)"}, {name = "b"}, {name = "c", thin = "y(c)"}}.GetThinExpressionGLSL())["=="]("(x(c)) || (y(c))")
+	T(
+		surface_features.New{{name = "a", thin = "x(c)"}, {name = "b"}, {name = "c", thin = "y(c)"}}.GetThinExpressionGLSL()
+	)["=="]("(x(c)) || (y(c))")
 end)
 
 T.Test("gbuffer layout packs every kind into its own slot", function()

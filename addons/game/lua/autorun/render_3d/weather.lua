@@ -12,4 +12,6 @@ local function parse_time(str, utc_offset)
 end
 
 weather.SetLocation(21.1777703, 106.070245)
-weather.SetTime(date.diff(date(os.date("!%Y-%m-%d") .. " 10:00 +07:00"), date.epoch()):spanseconds())
+weather.SetTime(
+	date.diff(date(os.date("!%Y-%m-%d") .. " 10:00 +07:00"), date.epoch()):spanseconds()
+)

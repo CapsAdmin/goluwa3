@@ -217,7 +217,9 @@ T.Test("Assets index builds a sorted folder tree with recursive counts", functio
 	T(folder.folders[1].name)["=="]("sub")
 	T(folder.folders[2].name)["=="]("Sub2")
 	T(index.folders["models/index_tree/sub/deeper/"].count)["=="](1)
-	T(index.folders["models/index_tree/sub/deeper/"].parent == index.folders["models/index_tree/sub/"])["=="](true)
+	T(
+		index.folders["models/index_tree/sub/deeper/"].parent == index.folders["models/index_tree/sub/"]
+	)["=="](true)
 	T(index.by_path["models/index_tree/sub2/d.mdl"].extension)["=="](".mdl")
 	T(index.by_path["models/index_tree/notes.txt"] == nil)["=="](true)
 	local previous = ""

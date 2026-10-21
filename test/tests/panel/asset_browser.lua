@@ -10,19 +10,19 @@ local function find_first(root, predicate)
 end
 
 local function find_grid(root)
-	return find_first(root, |child| -> child.SetItems and child.GetSelectedIndex and child.OnDrawItem)
+	return find_first(root, |child|->child.SetItems and child.GetSelectedIndex and child.OnDrawItem)
 end
 
 local function button(root, text)
-	return find_first(root, |child| -> child.Type == "panel_button" and child:GetText() == text)
+	return find_first(root, |child|->child.Type == "panel_button" and child:GetText() == text)
 end
 
 local function tab(root, name)
-	return find_first(root, |child| -> child.TabName == name)
+	return find_first(root, |child|->child.TabName == name)
 end
 
 local function has_text(root, text)
-	return find_first(root, |child| -> child.Type == "panel_text" and child.text:GetText() == text) ~= nil
+	return find_first(root, |child|->child.Type == "panel_text" and child.text:GetText() == text) ~= nil
 end
 
 local function names(grid)
@@ -40,7 +40,7 @@ T.Test2D("asset browser opens once per key and a pick calls back and closes it",
 	local window = AssetBrowser{
 		Key = "TestAssetPicker",
 		PickerCategory = "components",
-		OnPick = |entry| -> do
+		OnPick = |entry|-> do
 			picked = entry
 		end,
 	}
@@ -69,7 +69,7 @@ T.Test2D("asset browser navigates folders, keeps the tree, the breadcrumb and th
 	}
 
 	for _, path in ipairs(paths) do
-		assets.RegisterVirtualAsset(path, {category = "models", load = || -> nil})
+		assets.RegisterVirtualAsset(path, {category = "models", load = ||->nil})
 	end
 
 	local window = AssetBrowser{Key = "TestAssetNavigation"}
@@ -89,7 +89,10 @@ T.Test2D("asset browser navigates folders, keeps the tree, the breadcrumb and th
 	react.Flush()
 	T(names(grid))["=="]("[sub],one")
 	T(has_text(window, "test_browser"))["=="](true)
-	T(has_text(window, "2 folders, 1 assets") or has_text(window, "1 folders, 1 assets"))["=="](true)
+	T(
+		has_text(window, "2 folders, 1 assets") or
+			has_text(window, "1 folders, 1 assets")
+	)["=="](true)
 	local sub = grid:GetItems()[1]
 	grid.OnSelect(sub, 1)
 	react.Flush()
@@ -97,7 +100,7 @@ T.Test2D("asset browser navigates folders, keeps the tree, the breadcrumb and th
 	grid.OnActivate(sub, 1)
 	react.Flush()
 	T(names(grid))["=="]("three,two")
-	local tree = find_first(window, |child| -> child.GetSelectedKey)
+	local tree = find_first(window, |child|->child.GetSelectedKey)
 	T(tree:GetSelectedKey():find("sub", 1, true) ~= nil)["=="](true)
 	grid.OnSelect(grid:GetItems()[2], 2)
 	react.Flush()

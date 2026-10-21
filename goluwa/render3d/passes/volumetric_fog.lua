@@ -51,7 +51,9 @@ local function write_ocean_distance_texture(self, block, key)
 		render3d.IsPassEnabled("ocean") and
 		render3d.pipelines.ocean.framebuffers
 	then
-		block[key] = self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(2))
+		block[key] = self:GetTextureIndex(
+			render3d.pipelines.ocean:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(2)
+		)
 	else
 		block[key] = -1
 	end

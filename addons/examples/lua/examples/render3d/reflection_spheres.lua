@@ -38,7 +38,9 @@ end
 local floor_material = shapes.Material{
 	Roughness = 0.7,
 	Metallic = 0,
-	AlbedoTexture = Material.SRGBTexture(info.game_dir .. "Game/Textures.pak/Textures/Terrain/Detail/plains_grass_green.dds"),
+	AlbedoTexture = Material.SRGBTexture(
+		info.game_dir .. "Game/Textures.pak/Textures/Terrain/Detail/plains_grass_green.dds"
+	),
 	ColorMultiplier = Color(0.6, 0.9, 0.35, 1),
 	BaseTextureTransformU = Vec4(W / 2, 0, 0, 0),
 	BaseTextureTransformV = Vec4(0, D / 2, 0, 0),

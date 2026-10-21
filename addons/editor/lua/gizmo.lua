@@ -680,7 +680,11 @@ end
 
 function get_transform_local_rotation(transform)
 	local _, interpolated_rotation = transform:GetRenderPositionRotation()
-	return (transform.OverrideRotation or interpolated_rotation or transform.Rotation):GetNormalized()
+	return (
+		transform.OverrideRotation or
+		interpolated_rotation or
+		transform.Rotation
+	):GetNormalized()
 end
 
 function get_transform_world_rotation(transform)
@@ -775,7 +779,11 @@ function get_screen_segment_distance(mouse_pos, start_pos, stop_pos)
 		return math.sqrt(sx * sx + sy * sy)
 	end
 
-	local t = clamp(((mouse_pos.x - start_pos.x) * dx + (mouse_pos.y - start_pos.y) * dy) / len_sq, 0, 1)
+	local t = clamp(
+		((mouse_pos.x - start_pos.x) * dx + (mouse_pos.y - start_pos.y) * dy) / len_sq,
+		0,
+		1
+	)
 	local px = start_pos.x + dx * t
 	local py = start_pos.y + dy * t
 	local ox = mouse_pos.x - px

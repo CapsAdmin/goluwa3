@@ -67,7 +67,9 @@ T.Test3D("Graphics render3d ddgi produces a screen gi texture", function(draw)
 		created[#created + 1] = p
 		p:AddComponent("transform")
 		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
-		p.visual_primitive:SetMaterial(Material.New{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.9, MetallicMultiplier = 0})
+		p.visual_primitive:SetMaterial(
+			Material.New{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.9, MetallicMultiplier = 0}
+		)
 		ent.visual:BuildAABB()
 		T(render3d.IsPassEnabled("ddgi"))["=="](true)
 		T(render3d.pipelines.ddgi_irradiance ~= nil)["=="](true)

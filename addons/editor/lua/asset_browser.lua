@@ -47,7 +47,12 @@ local CATEGORY_ICONS = {
 	prefabs = "layers",
 	components = "component",
 }
-local PICK_MODES = {models = "model", prefabs = "prefab", materials = "material", textures = "texture"}
+local PICK_MODES = {
+	models = "model",
+	prefabs = "prefab",
+	materials = "material",
+	textures = "texture",
+}
 local WINDOW_SIZE = Vec2(1280, 760)
 local folder_icon_box = Vec2()
 local WORLD_PREVIEW = {status = "loading"}
@@ -187,7 +192,11 @@ end
 
 local function apply_material(target, entry)
 	editor_history.Begin("apply " .. entry.name .. " to " .. target:GetName())
-	editor_history.SetProperty(editor_history.EnsureComponent(target, "visual"), "MaterialOverridePath", entry.path)
+	editor_history.SetProperty(
+		editor_history.EnsureComponent(target, "visual"),
+		"MaterialOverridePath",
+		entry.path
+	)
 	editor_history.End()
 end
 
@@ -244,32 +253,37 @@ local function open_texture_viewer(entry)
 	if texture then TextureViewer(texture, entry.path) end
 end
 
-local SourceViewer = react.Component(|props| -> ViewerWindow{Title = props.Title, Size = Vec2(760, 560)}{
-	TextEdit{
-		Text = props.Source,
-		Editable = false,
-		Wrap = false,
-		ScrollX = true,
-		ScrollY = true,
-		Size = Vec2(720, 500),
-		MinSize = Vec2(100, 100),
-		MaxSize = Vec2(0, 0),
-		layout = {GrowWidth = 1, GrowHeight = 1},
-	},
-})
+local SourceViewer = react.Component(
+	|props|->ViewerWindow{Title = props.Title, Size = Vec2(760, 560)}{
+		TextEdit{
+			Text = props.Source,
+			Editable = false,
+			Wrap = false,
+			ScrollX = true,
+			ScrollY = true,
+			Size = Vec2(720, 500),
+			MinSize = Vec2(100, 100),
+			MaxSize = Vec2(0, 0),
+			layout = {GrowWidth = 1, GrowHeight = 1},
+		},
+	}
+)
 
 local function open_source_viewer(entry)
 	local source = asset_info.ReadSource(entry)
 
 	if not source then return end
 
-	react.OpenWindow("AssetSourceViewer/" .. entry.path, SourceViewer, {Title = entry.path:upper(), Source = source})
+	react.OpenWindow(
+		"AssetSourceViewer/" .. entry.path,
+		SourceViewer,
+		{Title = entry.path:upper(), Source = source}
+	)
 end
 
 local function activate_item(item, api)
 	if item.is_folder then
 		api.navigate(item.folder)
-
 		return
 	end
 
@@ -536,7 +550,13 @@ local function draw_item(item, index, x, y, w, h, selected, hovered)
 	local tw = colors.font:GetTextSize(item.label)
 	draw_text(colors.font, item.label, x + (w - tw) / 2, label_y, colors.text)
 	local sw = colors.font_small:GetTextSize(item.sub_label)
-	draw_text(colors.font_small, item.sub_label, x + (w - sw) / 2, label_y + 16, colors.text_disabled)
+	draw_text(
+		colors.font_small,
+		item.sub_label,
+		x + (w - sw) / 2,
+		label_y + 16,
+		colors.text_disabled
+	)
 end
 
 local function list_items(category, index, folder, query, recursive, cache)
@@ -685,109 +705,133 @@ local function reveal_in_tree(tree, items, expanded, root, folder)
 	tree:EnsureVisible(node.Key)
 end
 
-local FolderTree = react.Component(|props| -> do
-	local tree = react.UseRef()
-	local expanded = react.UseRef({})
-	local items = react.UseMemo(|| -> do
-		local root_node = make_root_node(props.Category, props.Root)
-		expanded.current[root_node.Key] = true
-		return {root_node}
-	end, {props.Index, props.Root})
+local FolderTree = react.Component(
+	|props|-> do
+		local tree = react.UseRef()
+		local expanded = react.UseRef({})
+		local items = react.UseMemo(
+			||-> do
+				local root_node = make_root_node(props.Category, props.Root)
+				expanded.current[root_node.Key] = true
+				return {root_node}
+			end,
+			{props.Index, props.Root}
+		)
+		react.UseLayoutEffect(
+			||->reveal_in_tree(tree.current, items, expanded.current, props.Root, props.Folder),
+			{props.Folder, items}
+		)
+		return Tree{
+			Ref = tree,
+			Items = items,
+			LabelGrow = true,
+			layout = {GrowWidth = 1, FitHeight = true},
+			OnIsExpanded = |node,path,key|->expanded.current[key] == true,
+			OnSelect = |node|-> do
+				if node then props.OnNavigate(node.Folder) end
+			end,
+			OnToggle = |node,is_expanded,key|-> do
+				expanded.current[key] = is_expanded == true
 
-	react.UseLayoutEffect(
-		|| -> reveal_in_tree(tree.current, items, expanded.current, props.Root, props.Folder),
-		{props.Folder, items}
-	)
+				if is_expanded and ensure_children(node) then
+					tree.current:RefreshBranchForKey(key)
+				end
+			end,
+		}
+	end
+)
+local Breadcrumb = react.Component(
+	|props|-> do
+		local root = props.Root
+		local chain = react.UseMemo(
+			||-> do
+				local result = {}
+				local folder = props.Folder
 
-	return Tree{
-		Ref = tree,
-		Items = items,
-		LabelGrow = true,
-		layout = {GrowWidth = 1, FitHeight = true},
-		OnIsExpanded = |node, path, key| -> expanded.current[key] == true,
-		OnSelect = |node| -> do
-			if node then props.OnNavigate(node.Folder) end
-		end,
-		OnToggle = |node, is_expanded, key| -> do
-			expanded.current[key] = is_expanded == true
+				while folder do
+					table.insert(result, 1, folder)
 
-			if is_expanded and ensure_children(node) then tree.current:RefreshBranchForKey(key) end
-		end,
-	}
-end)
-local Breadcrumb = react.Component(|props| -> do
-	local root = props.Root
-	local chain = react.UseMemo(|| -> do
-		local result = {}
-		local folder = props.Folder
+					if folder == root then break end
 
-		while folder do
-			table.insert(result, 1, folder)
+					folder = folder.parent
+				end
 
-			if folder == root then break end
+				return result
+			end,
+			{root, props.Folder}
+		)
+		local crumbs = {}
 
-			folder = folder.parent
+		for i, crumb in ipairs(chain) do
+			if i > 1 then
+				crumbs[#crumbs + 1] = Icon{
+					Key = "separator/" .. i,
+					Icon = "chevron_right",
+					Size = "S",
+					IconColor = "text_disabled",
+				}
+			end
+
+			crumbs[#crumbs + 1] = Clickable{
+				Key = "crumb/" .. i,
+				Mode = "text",
+				Padding = Rect(4, 2, 4, 2),
+				OnClick = ||->props.OnNavigate(crumb),
+				layout = {FitWidth = true, FitHeight = true},
+			}{
+				Text{
+					Text = crumb == root and props.Category or crumb.name,
+					Font = i == #chain and "body_strong S" or "body S",
+					IgnoreMouseInput = true,
+				},
+			}
 		end
 
-		return result
-	end, {root, props.Folder})
-	local crumbs = {}
+		return Row{layout = {GrowWidth = 1, ChildGap = 2, AlignmentY = "center"}}{crumbs}
+	end
+)
+local StatusBar = react.Component(
+	|props|-> do
+		local hovered, set_hovered = react.UseState()
+		props.HoverRef.current = set_hovered
+		local entry = hovered ?? props.Selected
+		local text
 
-	for i, crumb in ipairs(chain) do
-		if i > 1 then
-			crumbs[#crumbs + 1] = Icon{Key = "separator/" .. i, Icon = "chevron_right", Size = "S", IconColor = "text_disabled"}
+		if not entry then
+			text = props.Folder.path ~= "" and props.Folder.path or props.Category
+		elseif entry.is_folder then
+			text = entry.folder.path
+		else
+			text = entry.path
 		end
 
-		crumbs[#crumbs + 1] = Clickable{
-			Key = "crumb/" .. i,
-			Mode = "text",
-			Padding = Rect(4, 2, 4, 2),
-			OnClick = || -> props.OnNavigate(crumb),
-			layout = {FitWidth = true, FitHeight = true},
-		}{
+		return Row{layout = {GrowWidth = 1, ChildGap = 8, AlignmentY = "center"}}{
 			Text{
-				Text = crumb == root and props.Category or crumb.name,
-				Font = i == #chain and "body_strong S" or "body S",
-				IgnoreMouseInput = true,
+				Text = text,
+				Color = "text_disabled",
+				Elide = true,
+				layout = {GrowWidth = 1, FitWidth = false},
+			},
+			props.Picking and
+			Button{
+				Key = "select",
+				Text = "Select",
+				Icon = "check",
+				OnClick = ||-> do
+					if props.Selected then props.OnPick(props.Selected) end
+				end,
+			},
+			props.Picking and
+			Button{
+				Key = "cancel",
+				Text = "Cancel",
+				Icon = "close",
+				Mode = "outline",
+				OnClick = props.OnCancel,
 			},
 		}
 	end
-
-	return Row{layout = {GrowWidth = 1, ChildGap = 2, AlignmentY = "center"}}{crumbs}
-end)
-local StatusBar = react.Component(|props| -> do
-	local hovered, set_hovered = react.UseState()
-	props.HoverRef.current = set_hovered
-	local entry = hovered ?? props.Selected
-	local text
-
-	if not entry then
-		text = props.Folder.path ~= "" and props.Folder.path or props.Category
-	elseif entry.is_folder then
-		text = entry.folder.path
-	else
-		text = entry.path
-	end
-
-	return Row{layout = {GrowWidth = 1, ChildGap = 8, AlignmentY = "center"}}{
-		Text{Text = text, Color = "text_disabled", Elide = true, layout = {GrowWidth = 1, FitWidth = false}},
-		props.Picking && Button{
-			Key = "select",
-			Text = "Select",
-			Icon = "check",
-			OnClick = || -> do
-				if props.Selected then props.OnPick(props.Selected) end
-			end,
-		},
-		props.Picking && Button{
-			Key = "cancel",
-			Text = "Cancel",
-			Icon = "close",
-			Mode = "outline",
-			OnClick = props.OnCancel,
-		},
-	}
-end)
+)
 
 local function start_detail_preview(entry)
 	local detail = {entry = entry, ready = false}
@@ -982,236 +1026,300 @@ local function draw_no_selection(self)
 end
 
 local function detail_error(message)
-	return Text{Text = "preview failed: " .. tostring(message), Wrap = true, Color = "negative", layout = {GrowWidth = 1}}
+	return Text{
+		Text = "preview failed: " .. tostring(message),
+		Wrap = true,
+		Color = "negative",
+		layout = {GrowWidth = 1},
+	}
 end
 
-local ChannelTile = react.Component(|props| -> do
-	local texture = props.Texture
-	local draw = react.UseCallback(|self| -> do
-		refresh_colors()
-		local size = self.Owner.transform:GetSize()
-		render2d.DrawBox(0, 0, size.x, size.y, 4, colors.preview_background)
+local ChannelTile = react.Component(
+	|props|-> do
+		local texture = props.Texture
+		local draw = react.UseCallback(
+			|self|-> do
+				refresh_colors()
+				local size = self.Owner.transform:GetSize()
+				render2d.DrawBox(0, 0, size.x, size.y, 4, colors.preview_background)
 
-		if texture:IsReady() then
-			render2d.SetTexture(texture)
-			render2d.SetColor(1, 1, 1, 1)
-			render2d.DrawRect(2, 2, size.x - 4, size.y - 4)
-		end
-	end, {texture})
-	local on_mouse_input = react.UseCallback(|self, button, press| -> do
-		if button ~= "button_1" or not press then return end
+				if texture:IsReady() then
+					render2d.SetTexture(texture)
+					render2d.SetColor(1, 1, 1, 1)
+					render2d.DrawRect(2, 2, size.x - 4, size.y - 4)
+				end
+			end,
+			{texture}
+		)
+		local on_mouse_input = react.UseCallback(
+			|self,button,press|-> do
+				if button ~= "button_1" or not press then return end
 
-		TextureViewer(texture, props.Title)
-
-		return true
-	end, {texture, props.Title})
-
-	return Column{layout = {FitWidth = true, FitHeight = true, ChildGap = 2, AlignmentX = "start"}}{
-		Canvas{
-			Name = "AssetDetailChannel",
-			Cursor = "hand",
-			OnDraw = draw,
-			OnMouseInput = on_mouse_input,
-			layout = {
-				MinSize = Vec2(CHANNEL_SIZE, CHANNEL_SIZE),
-				MaxSize = Vec2(CHANNEL_SIZE, CHANNEL_SIZE),
-				FitWidth = false,
-				FitHeight = false,
+				TextureViewer(texture, props.Title)
+				return true
+			end,
+			{texture, props.Title}
+		)
+		return Column{
+			layout = {FitWidth = true, FitHeight = true, ChildGap = 2, AlignmentX = "start"},
+		}{
+			Canvas{
+				Name = "AssetDetailChannel",
+				Cursor = "hand",
+				OnDraw = draw,
+				OnMouseInput = on_mouse_input,
+				layout = {
+					MinSize = Vec2(CHANNEL_SIZE, CHANNEL_SIZE),
+					MaxSize = Vec2(CHANNEL_SIZE, CHANNEL_SIZE),
+					FitWidth = false,
+					FitHeight = false,
+				},
 			},
-		},
-		Text{Text = props.Label, Font = "body XS", Color = "text_disabled", IgnoreMouseInput = true, layout = {FitWidth = true}},
-	}
-end)
-local AssetDetails = react.Component(|props| -> do
-	local entry = props.Entry
-	local view = props.View
-	local _, update = react.UseState(0)
-	local detail = react.UseResource(|| -> do
-		local started = start_detail_preview(entry)
-		view.detail = started
-		return started
-	end, |started| -> do
-		stop_detail_preview(started)
+			Text{
+				Text = props.Label,
+				Font = "body XS",
+				Color = "text_disabled",
+				IgnoreMouseInput = true,
+				layout = {FitWidth = true},
+			},
+		}
+	end
+)
+local AssetDetails = react.Component(
+	|props|-> do
+		local entry = props.Entry
+		local view = props.View
+		local _, update = react.UseState(0)
+		local detail = react.UseResource(
+			||-> do
+				local started = start_detail_preview(entry)
+				view.detail = started
+				return started
+			end,
+			|started|-> do
+				stop_detail_preview(started)
 
-		if view.detail == started then view.detail = nil end
-	end, {})
+				if view.detail == started then view.detail = nil end
+			end,
+			{}
+		)
+		react.UseEvent("Update", |dt|-> do
+			update_detail_preview(detail, view, dt)
+		end)
+		local state = react.UsePoll(
+			||->(
+				entry.preview and
+				entry.preview.status or
+				"none"
+			) .. (
+				detail.ready and
+				"+" or
+				"-"
+			),
+			0.1
+		)
+		local sections = react.UseMemo(||->asset_info.Get(entry, detail.material), {entry, state})
+		local channels = react.UseMemo(
+			||-> do
+				local list = {}
 
-	react.UseEvent("Update", |dt| -> do
-		update_detail_preview(detail, view, dt)
-	end)
+				if detail.material and detail.ready then
+					for _, info in ipairs(detail.material:GetTextures()) do
+						list[#list + 1] = {texture = info.texture, label = info.name:lower()}
+					end
+				end
 
-	local state = react.UsePoll(|| -> (entry.preview and entry.preview.status or "none") .. (detail.ready and "+" or "-"), 0.1)
-	local sections = react.UseMemo(|| -> asset_info.Get(entry, detail.material), {entry, state})
-	local channels = react.UseMemo(|| -> do
-		local list = {}
+				return list
+			end,
+			{detail, state}
+		)
+		local draw = react.UseCallback(|self|->draw_detail_preview(self, entry, detail, view), {})
+		local drag = kit.UseOrbitDrag(view)
+		local actions = {}
 
-		if detail.material and detail.ready then
-			for _, info in ipairs(detail.material:GetTextures()) do
-				list[#list + 1] = {texture = info.texture, label = info.name:lower()}
+		if props.Picking then
+			actions[#actions + 1] = Button{
+				Key = "select",
+				Text = "Select",
+				Icon = "check",
+				OnClick = ||->props.OnPick(entry),
+			}
+		end
+
+		actions[#actions + 1] = Button{
+			Key = "copy",
+			Text = "Copy path",
+			Icon = "copy",
+			Mode = "outline",
+			OnClick = ||->clipboard.Set(entry.path),
+		}
+
+		if entry.category == "materials" then
+			actions[#actions + 1] = Button{
+				Key = "view",
+				Text = "View",
+				Icon = "cube",
+				Mode = "outline",
+				OnClick = ||->open_material_viewer(entry, view),
+			}
+		end
+
+		if entry.category == "textures" then
+			actions[#actions + 1] = Button{
+				Key = "open",
+				Text = "Open",
+				Icon = "image",
+				Mode = "outline",
+				OnClick = ||->open_texture_viewer(entry),
+			}
+		end
+
+		local target = entry.category == "components" and get_selected_object() or get_selected_entity()
+
+		if is_viewable_model(entry) then
+			actions[#actions + 1] = Button{
+				Key = "view",
+				Text = "View",
+				Icon = "cube",
+				Mode = "outline",
+				OnClick = ||->open_model_viewer(entry),
+			}
+			actions[#actions + 1] = Button{
+				Key = "spawn",
+				Text = "Spawn",
+				Icon = "place",
+				Mode = "outline",
+				OnClick = ||->spawn_model(entry),
+			}
+
+			if target then
+				actions[#actions + 1] = Button{
+					Key = "use",
+					Text = "Use on selected",
+					Icon = "arrow_right",
+					Mode = "outline",
+					OnClick = ||->apply_model(target, entry),
+				}
+			end
+		elseif entry.category == "materials" and target and not entry.material then
+			actions[#actions + 1] = Button{
+				Key = "use",
+				Text = "Apply to selected",
+				Icon = "arrow_right",
+				Mode = "outline",
+				OnClick = ||->apply_material(target, entry),
+			}
+		elseif
+			entry.category == "components" and
+			not props.Picking and
+			target and
+			not target:HasComponent(entry.name)
+		then
+			actions[#actions + 1] = Button{
+				Key = "use",
+				Text = "Add to selected",
+				Icon = "plus",
+				Mode = "outline",
+				OnClick = ||-> do
+					editor_history.AddComponent(target, entry.name)
+					update(|n|->n + 1)
+				end,
+			}
+		elseif entry.category == "prefabs" then
+			actions[#actions + 1] = Button{
+				Key = "place",
+				Text = "Place",
+				Icon = "place",
+				Mode = "outline",
+				OnClick = ||->place_prefab(entry),
+			}
+
+			if get_selected_instance() then
+				actions[#actions + 1] = Button{
+					Key = "use",
+					Text = "Use on selected",
+					Icon = "arrow_right",
+					Mode = "outline",
+					OnClick = ||->editor_history.SetProperty(get_selected_instance().prefab, "Path", entry.name),
+				}
 			end
 		end
 
-		return list
-	end, {detail, state})
-	local draw = react.UseCallback(|self| -> draw_detail_preview(self, entry, detail, view), {})
-	local drag = kit.UseOrbitDrag(view)
-	local actions = {}
+		local tiles = {}
 
-	if props.Picking then
-		actions[#actions + 1] = Button{
-			Key = "select",
-			Text = "Select",
-			Icon = "check",
-			OnClick = || -> props.OnPick(entry),
-		}
-	end
-
-	actions[#actions + 1] = Button{
-		Key = "copy",
-		Text = "Copy path",
-		Icon = "copy",
-		Mode = "outline",
-		OnClick = || -> clipboard.Set(entry.path),
-	}
-
-	if entry.category == "materials" then
-		actions[#actions + 1] = Button{
-			Key = "view",
-			Text = "View",
-			Icon = "cube",
-			Mode = "outline",
-			OnClick = || -> open_material_viewer(entry, view),
-		}
-	end
-
-	if entry.category == "textures" then
-		actions[#actions + 1] = Button{
-			Key = "open",
-			Text = "Open",
-			Icon = "image",
-			Mode = "outline",
-			OnClick = || -> open_texture_viewer(entry),
-		}
-	end
-
-	local target = entry.category == "components" and get_selected_object() or get_selected_entity()
-
-	if is_viewable_model(entry) then
-		actions[#actions + 1] = Button{
-			Key = "view",
-			Text = "View",
-			Icon = "cube",
-			Mode = "outline",
-			OnClick = || -> open_model_viewer(entry),
-		}
-		actions[#actions + 1] = Button{
-			Key = "spawn",
-			Text = "Spawn",
-			Icon = "place",
-			Mode = "outline",
-			OnClick = || -> spawn_model(entry),
-		}
-
-		if target then
-			actions[#actions + 1] = Button{
-				Key = "use",
-				Text = "Use on selected",
-				Icon = "arrow_right",
-				Mode = "outline",
-				OnClick = || -> apply_model(target, entry),
+		for i, channel in ipairs(channels) do
+			tiles[i] = ChannelTile{
+				Key = channel.label,
+				Texture = channel.texture,
+				Label = channel.label,
+				Title = entry.name .. " " .. channel.label,
 			}
 		end
-	elseif entry.category == "materials" and target and not entry.material then
-		actions[#actions + 1] = Button{
-			Key = "use",
-			Text = "Apply to selected",
-			Icon = "arrow_right",
-			Mode = "outline",
-			OnClick = || -> apply_material(target, entry),
-		}
-	elseif entry.category == "components" and not props.Picking and target and not target:HasComponent(entry.name) then
-		actions[#actions + 1] = Button{
-			Key = "use",
-			Text = "Add to selected",
-			Icon = "plus",
-			Mode = "outline",
-			OnClick = || -> do
-				editor_history.AddComponent(target, entry.name)
-				update(|n| -> n + 1)
-			end,
-		}
-	elseif entry.category == "prefabs" then
-		actions[#actions + 1] = Button{
-			Key = "place",
-			Text = "Place",
-			Icon = "place",
-			Mode = "outline",
-			OnClick = || -> place_prefab(entry),
-		}
 
-		if get_selected_instance() then
-			actions[#actions + 1] = Button{
-				Key = "use",
-				Text = "Use on selected",
-				Icon = "arrow_right",
-				Mode = "outline",
-				OnClick = || -> editor_history.SetProperty(get_selected_instance().prefab, "Path", entry.name),
+		local facts = {}
+
+		for _, section in ipairs(sections) do
+			facts[#facts + 1] = Text{
+				Key = "section/" .. section.title,
+				Text = section.title:upper(),
+				Font = "body_strong S",
+				Color = "text_disabled",
+				layout = {FitWidth = true, Margin = Rect(0, 8, 0, 2)},
 			}
+
+			for i, row in ipairs(section.rows) do
+				facts[#facts + 1] = Row{
+					Key = section.title .. "/" .. i,
+					layout = {GrowWidth = 1, AlignmentY = "start", ChildGap = 8},
+				}{
+					Text{
+						Text = row[1],
+						Font = "body S",
+						Color = "text_disabled",
+						layout = {MinSize = Vec2(92, 0), MaxSize = Vec2(92, 0), FitWidth = false},
+					},
+					Text{Text = row[2], Font = "body S", Wrap = true, layout = {GrowWidth = 1}},
+				}
+			end
 		end
-	end
 
-	local tiles = {}
-
-	for i, channel in ipairs(channels) do
-		tiles[i] = ChannelTile{
-			Key = channel.label,
-			Texture = channel.texture,
-			Label = channel.label,
-			Title = entry.name .. " " .. channel.label,
-		}
-	end
-
-	local facts = {}
-
-	for _, section in ipairs(sections) do
-		facts[#facts + 1] = Text{
-			Key = "section/" .. section.title,
-			Text = section.title:upper(),
-			Font = "body_strong S",
-			Color = "text_disabled",
-			layout = {FitWidth = true, Margin = Rect(0, 8, 0, 2)},
-		}
-
-		for i, row in ipairs(section.rows) do
-			facts[#facts + 1] = Row{Key = section.title .. "/" .. i, layout = {GrowWidth = 1, AlignmentY = "start", ChildGap = 8}}{
+		return Column{
+			layout = {GrowWidth = 1, FitHeight = true, ChildGap = 6, AlignmentX = "stretch"},
+		}{
+			Canvas{
+				Name = "AssetDetailPreview",
+				Cursor = "sizeall",
+				OnDraw = draw,
+				Drag = drag,
+				layout = {GrowWidth = 1, MinSize = Vec2(0, 320), MaxSize = Vec2(0, 320)},
+			},
+			#tiles > 0 and
+			Row{
+				layout = {GrowWidth = 1, ChildGap = 8, WrapChildren = true, Margin = Rect(0, 0, 0, 12)},
+			}{tiles},
+			Column{
+				layout = {GrowWidth = 1, FitHeight = true, ChildGap = 4, AlignmentX = "stretch"},
+			}{
 				Text{
-					Text = row[1],
+					Text = entry.name .. entry.extension,
+					Font = "body_strong M",
+					Wrap = true,
+					layout = {GrowWidth = 1},
+				},
+				Text{
+					Text = entry.path,
 					Font = "body S",
 					Color = "text_disabled",
-					layout = {MinSize = Vec2(92, 0), MaxSize = Vec2(92, 0), FitWidth = false},
+					Wrap = true,
+					layout = {GrowWidth = 1},
 				},
-				Text{Text = row[2], Font = "body S", Wrap = true, layout = {GrowWidth = 1}},
-			}
-		end
+				Row{layout = {GrowWidth = 1, ChildGap = 6, WrapChildren = true}}{actions},
+				facts,
+			},
+		}
 	end
+)
 
-	return Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = 6, AlignmentX = "stretch"}}{
-		Canvas{
-			Name = "AssetDetailPreview",
-			Cursor = "sizeall",
-			OnDraw = draw,
-			Drag = drag,
-			layout = {GrowWidth = 1, MinSize = Vec2(0, 320), MaxSize = Vec2(0, 320)},
-		},
-		#tiles > 0 && Row{layout = {GrowWidth = 1, ChildGap = 8, WrapChildren = true, Margin = Rect(0, 0, 0, 12)}}{tiles},
-		Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = 4, AlignmentX = "stretch"}}{
-			Text{Text = entry.name .. entry.extension, Font = "body_strong M", Wrap = true, layout = {GrowWidth = 1}},
-			Text{Text = entry.path, Font = "body S", Color = "text_disabled", Wrap = true, layout = {GrowWidth = 1}},
-			Row{layout = {GrowWidth = 1, ChildGap = 6, WrapChildren = true}}{actions},
-			facts,
-		},
-	}
-end)
 local function select_picked(api, value, extra)
 	local category = api.category
 
@@ -1221,7 +1329,6 @@ local function select_picked(api, value, extra)
 		for _, entry in pairs(assets.GetIndex(name).by_path) do
 			if matches(entry) then
 				api.select(entry)
-
 				return true
 			end
 		end
@@ -1290,321 +1397,349 @@ local function select_picked(api, value, extra)
 	}
 end
 
-local AssetBrowser = react.Component(|props| -> do
-	local categories = react.UseMemo(|| -> props.PickerCategory ? {props.PickerCategory} : DEFAULT_CATEGORIES, {})
-	local picking = props.OnPick ~= nil
-	local api = react.UseRef({}).current
-	local window = react.UseRef()
-	local filter = react.UseRef()
-	local hover = react.UseRef()
-	local world_pick = react.UseRef({})
-	local start = react.UseMemo(|| -> do
-		prepare_category(categories[1], props)
-		local path = props.SelectedPath
+local AssetBrowser = react.Component(
+	|props|-> do
+		local categories = react.UseMemo(||->props.PickerCategory ? {props.PickerCategory} : DEFAULT_CATEGORIES, {})
+		local picking = props.OnPick ~= nil
+		local api = react.UseRef({}).current
+		local window = react.UseRef()
+		local filter = react.UseRef()
+		local hover = react.UseRef()
+		local world_pick = react.UseRef({})
+		local start = react.UseMemo(
+			||-> do
+				prepare_category(categories[1], props)
+				local path = props.SelectedPath
 
-		if path and path ~= "" then
-			return assets.GetIndex(categories[1]).by_path[path:lower()]
+				if path and path ~= "" then
+					return assets.GetIndex(categories[1]).by_path[path:lower()]
+				end
+			end,
+			{}
+		)
+		local category, set_category = react.UseState(categories[1])
+		local folder_state, set_folder = react.UseState(start and start.folder)
+		local selected_item, set_selected_item = react.UseState(start)
+		local query, set_query = react.UseState("")
+		local recursive, set_recursive = react.UseState(false)
+		local zoom, set_zoom = react.UseState(128)
+		local refresh, set_refresh = react.UseState(0)
+		local world_picking, set_world_picking = react.UseState(false)
+		local applied_query = react.UseDebounce(query, 0.12)
+		local search = react.UseRef({})
+		local view = react.UseMemo(
+			||-> do
+				local orbit = OrbitCamera.New()
+				orbit:SetYaw(math.pi / 4)
+				orbit:SetPitch(-math.asin(1 / math.sqrt(3)))
+				return {orbit = orbit, auto_rotate = true}
+			end,
+			{}
+		)
+		local index = react.UseMemo(||->assets.GetIndex(category), {category, refresh})
+		local root = react.UseMemo(
+			||-> do
+				local top = index.root
+
+				while #top.entries == 0 and #top.folders == 1 do
+					top = top.folders[1]
+				end
+
+				return top
+			end,
+			{index}
+		)
+		local folder = folder_state ?? root
+		local items = react.UseMemo(
+			||->list_items(category, index, folder, applied_query, recursive, search.current),
+			{category, index, index.version, folder, applied_query, recursive}
+		)
+		local count_text = react.UseMemo(
+			||-> do
+				local asset_count = 0
+				local folder_count = 0
+
+				for _, item in ipairs(items) do
+					if item.is_folder then folder_count += 1 else asset_count += 1 end
+				end
+
+				if folder_count > 0 then
+					return ("%d folders, %d assets"):format(folder_count, asset_count)
+				end
+
+				return ("%d assets"):format(asset_count)
+			end,
+			{items}
+		)
+		local selected
+
+		if selected_item and not selected_item.is_folder then
+			selected = selected_item
 		end
-	end, {})
-	local category, set_category = react.UseState(categories[1])
-	local folder_state, set_folder = react.UseState(start && start.folder)
-	local selected_item, set_selected_item = react.UseState(start)
-	local query, set_query = react.UseState("")
-	local recursive, set_recursive = react.UseState(false)
-	local zoom, set_zoom = react.UseState(128)
-	local refresh, set_refresh = react.UseState(0)
-	local world_picking, set_world_picking = react.UseState(false)
-	local applied_query = react.UseDebounce(query, 0.12)
-	local search = react.UseRef({})
-	local view = react.UseMemo(|| -> do
-		local orbit = OrbitCamera.New()
-		orbit:SetYaw(math.pi / 4)
-		orbit:SetPitch(-math.asin(1 / math.sqrt(3)))
-		return {orbit = orbit, auto_rotate = true}
-	end, {})
-	local index = react.UseMemo(|| -> assets.GetIndex(category), {category, refresh})
-	local root = react.UseMemo(|| -> do
-		local top = index.root
 
-		while #top.entries == 0 and #top.folders == 1 do
-			top = top.folders[1]
-		end
-
-		return top
-	end, {index})
-	local folder = folder_state ?? root
-	local items = react.UseMemo(
-		|| -> list_items(category, index, folder, applied_query, recursive, search.current),
-		{category, index, index.version, folder, applied_query, recursive}
-	)
-	local count_text = react.UseMemo(|| -> do
-		local asset_count = 0
-		local folder_count = 0
-
-		for _, item in ipairs(items) do
-			if item.is_folder then
-				folder_count += 1
-			else
-				asset_count += 1
+		local close = props.Close
+		local navigate = |target|-> do
+			if target.path:lower():starts_with("textures/internals/") then
+				assets.RefreshInternalTextures()
 			end
+
+			set_folder(target)
+			set_selected_item(nil)
 		end
+		local change_category = |name|-> do
+			prepare_category(name, props)
 
-		if folder_count > 0 then
-			return ("%d folders, %d assets"):format(folder_count, asset_count)
-		end
-
-		return ("%d assets"):format(asset_count)
-	end, {items})
-	local selected
-
-	if selected_item and not selected_item.is_folder then selected = selected_item end
-
-	local close = props.Close
-	local navigate = |target| -> do
-		if target.path:lower():starts_with("textures/internals/") then
-			assets.RefreshInternalTextures()
-		end
-
-		set_folder(target)
-		set_selected_item(nil)
-	end
-	local change_category = |name| -> do
-		prepare_category(name, props)
-
-		if world_pick.current.owns then picker.Stop() end
-
-		set_category(name)
-		set_folder(nil)
-		set_selected_item(nil)
-	end
-	local pick = |entry| -> do
-		if props.OnPick(entry) ~= false then close() end
-	end
-	api.picking = picking
-	api.pick = pick
-	api.navigate = navigate
-	api.change_category = change_category
-	api.category = category
-	api.view = view
-	api.select = |entry| -> do
-		set_folder(entry.folder)
-		set_selected_item(entry)
-	end
-	api.select_transient = set_selected_item
-
-	local start_pick = || -> do
-		if world_pick.current.owns then return picker.Stop() end
-
-		world_pick.current.owns = true
-		set_world_picking(true)
-		window.current.visual:SetVisible(false)
-		picker.Start{
-			mode = PICK_MODES[category],
-			hide_desktop = true,
-			entity_blacklist = (category == "models" or category == "prefabs") and {_G.PLAYER_RIG} or nil,
-			on_pick = |value, extra| -> select_picked(api, value, extra),
-			on_stop = || -> do
-				world_pick.current.owns = false
-			end,
-			on_done = || -> do
-				if not window.current:IsValid() then return end
-
-				set_world_picking(false)
-				window.current.visual:SetVisible(true)
-				window.current:BringToFront()
-			end,
-		}
-	end
-
-	react.UseEffect(|| -> do
-		open_windows += 1
-		filter.current:GetTextPanel():RequestFocus()
-
-		return || -> do
 			if world_pick.current.owns then picker.Stop() end
 
-			open_windows -= 1
-
-			if open_windows == 0 then previews.Clear() end
+			set_category(name)
+			set_folder(nil)
+			set_selected_item(nil)
 		end
-	end, {})
+		local pick = |entry|-> do
+			if props.OnPick(entry) ~= false then close() end
+		end
+		api.picking = picking
+		api.pick = pick
+		api.navigate = navigate
+		api.change_category = change_category
+		api.category = category
+		api.view = view
+		api.select = |entry|-> do
+			set_folder(entry.folder)
+			set_selected_item(entry)
+		end
+		api.select_transient = set_selected_item
+		local start_pick = ||-> do
+			if world_pick.current.owns then return picker.Stop() end
 
-	local input_height = theme.active:GetInputHeight("M")
-	local details
+			world_pick.current.owns = true
+			set_world_picking(true)
+			window.current.visual:SetVisible(false)
+			picker.Start{
+				mode = PICK_MODES[category],
+				hide_desktop = true,
+				entity_blacklist = (category == "models" or category == "prefabs") and {_G.PLAYER_RIG} or nil,
+				on_pick = |value,extra|->select_picked(api, value, extra),
+				on_stop = ||-> do
+					world_pick.current.owns = false
+				end,
+				on_done = ||-> do
+					if not window.current:IsValid() then return end
 
-	if selected then
-		details = ErrorBoundary{Key = selected.path, Fallback = detail_error}{
-			AssetDetails{Entry = selected, View = view, Picking = picking, OnPick = pick},
-		}
-	else
-		details = Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = 6, AlignmentX = "stretch"}}{
-			Canvas{
-				Name = "AssetDetailPreview",
-				OnDraw = draw_no_selection,
-				layout = {GrowWidth = 1, MinSize = Vec2(0, 320), MaxSize = Vec2(0, 320)},
-			},
-			Text{
-				Text = picking and "Select an asset, then press Select." or "Select an asset to see details.",
-				Wrap = true,
-				Color = "text_disabled",
-				layout = {GrowWidth = 1},
-			},
-		}
-	end
+					set_world_picking(false)
+					window.current.visual:SetVisible(true)
+					window.current:BringToFront()
+				end,
+			}
+		end
+		react.UseEffect(
+			||-> do
+				open_windows += 1
+				filter.current:GetTextPanel():RequestFocus()
+				return ||-> do
+					if world_pick.current.owns then picker.Stop() end
 
-	return ViewerWindow{
-		Ref = window,
-		Title = picking and ("PICK " .. categories[1]:upper()) or "ASSET BROWSER",
-		Size = WINDOW_SIZE,
-		layout = {FitHeight = false, FitWidth = false},
-	}{
-		Column{
-			layout = {
-				GrowWidth = 1,
-				GrowHeight = 1,
-				FitHeight = false,
-				AlignmentX = "stretch",
-				ChildGap = 6,
-				Padding = Rect() + 8,
-			},
-		}{
-			#categories > 1 && TabBar{
-				Tabs = categories,
-				Icons = CATEGORY_ICONS,
-				Value = category,
-				OnChange = change_category,
-			},
-			Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center"}}{
-				TextEdit{
-					Ref = filter,
-					Hint = "search names and paths in the selected folder",
-					Size = Vec2(0, input_height),
-					MinSize = Vec2(160, input_height),
-					MaxSize = Vec2(0, input_height),
-					Wrap = false,
-					ScrollX = false,
-					ScrollY = false,
-					OnTextChanged = |_, text| -> set_query(text),
+					open_windows -= 1
+
+					if open_windows == 0 then previews.Clear() end
+				end
+			end,
+			{}
+		)
+		local input_height = theme.active:GetInputHeight("M")
+		local details
+
+		if selected then
+			details = ErrorBoundary{Key = selected.path, Fallback = detail_error}{
+				AssetDetails{Entry = selected, View = view, Picking = picking, OnPick = pick},
+			}
+		else
+			details = Column{
+				layout = {GrowWidth = 1, FitHeight = true, ChildGap = 6, AlignmentX = "stretch"},
+			}{
+				Canvas{
+					Name = "AssetDetailPreview",
+					OnDraw = draw_no_selection,
+					layout = {GrowWidth = 1, MinSize = Vec2(0, 320), MaxSize = Vec2(0, 320)},
+				},
+				Text{
+					Text = picking and
+						"Select an asset, then press Select." or
+						"Select an asset to see details.",
+					Wrap = true,
+					Color = "text_disabled",
 					layout = {GrowWidth = 1},
 				},
-				Text{Text = count_text, Color = "text_disabled", layout = {FitWidth = true, MinSize = Vec2(80, 0)}},
-				Slider{
-					Mode = "horizontal",
-					Min = 72,
-					Max = 240,
-					Value = zoom,
-					OnChange = |value| -> set_zoom(math.floor(value)),
-					Tooltip = "tile size",
-					layout = {MinSize = Vec2(110, 16), MaxSize = Vec2(110, 16), FitWidth = false},
+			}
+		end
+
+		return ViewerWindow{
+			Ref = window,
+			Title = picking and ("PICK " .. categories[1]:upper()) or "ASSET BROWSER",
+			Size = WINDOW_SIZE,
+			layout = {FitHeight = false, FitWidth = false},
+		}{
+			Column{
+				layout = {
+					GrowWidth = 1,
+					GrowHeight = 1,
+					FitHeight = false,
+					AlignmentX = "stretch",
+					ChildGap = 6,
+					Padding = Rect() + 8,
 				},
-				Button{
-					Text = "Subfolders",
-					Icon = "tree",
-					Mode = "outline",
-					Active = recursive,
-					Tooltip = "list every asset below the selected folder",
-					OnClick = || -> set_recursive(!recursive),
+			}{
+				#categories > 1 and
+				TabBar{
+					Tabs = categories,
+					Icons = CATEGORY_ICONS,
+					Value = category,
+					OnChange = change_category,
 				},
-				RENDER_3D && category ~= "components" && table.has_value(categories, "materials") && Button{
-					Key = "pick",
-					Text = "Pick",
-					Icon = "target",
-					Mode = "outline",
-					Active = world_picking,
-					Tooltip = "pick from the world: the material of a surface, the model or the prefab of an entity depending on the tab. escape cancels",
-					OnClick = start_pick,
-				},
-				Button{
-					Text = "Refresh",
-					Icon = "refresh",
-					Mode = "outline",
-					OnClick = || -> do
-						assets.InvalidateIndex(category)
-						prepare_category(category, props)
-						set_folder(nil)
-						set_selected_item(nil)
-						set_refresh(|n| -> n + 1)
-					end,
-				},
-			},
-			Splitter{InitialSize = 260, layout = {GrowWidth = 1, GrowHeight = 1}}{
-				ScrollablePanel{
-					Padding = Rect(),
-					ScrollX = false,
-					ScrollY = true,
-					layout = {GrowWidth = 1, GrowHeight = 1},
-				}{
-					FolderTree{Index = index, Category = category, Root = root, Folder = folder, OnNavigate = navigate},
-				},
-				Column{
-					layout = {
-						GrowWidth = 1,
-						GrowHeight = 1,
-						FitHeight = false,
-						AlignmentX = "stretch",
-						ChildGap = 4,
+				Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center"}}{
+					TextEdit{
+						Ref = filter,
+						Hint = "search names and paths in the selected folder",
+						Size = Vec2(0, input_height),
+						MinSize = Vec2(160, input_height),
+						MaxSize = Vec2(0, input_height),
+						Wrap = false,
+						ScrollX = false,
+						ScrollY = false,
+						OnTextChanged = |_,text|->set_query(text),
+						layout = {GrowWidth = 1},
 					},
-				}{
-					Breadcrumb{Category = category, Root = root, Folder = folder, OnNavigate = navigate},
-					Row{
+					Text{
+						Text = count_text,
+						Color = "text_disabled",
+						layout = {FitWidth = true, MinSize = Vec2(80, 0)},
+					},
+					Slider{
+						Mode = "horizontal",
+						Min = 72,
+						Max = 240,
+						Value = zoom,
+						OnChange = |value|->set_zoom(math.floor(value)),
+						Tooltip = "tile size",
+						layout = {MinSize = Vec2(110, 16), MaxSize = Vec2(110, 16), FitWidth = false},
+					},
+					Button{
+						Text = "Subfolders",
+						Icon = "tree",
+						Mode = "outline",
+						Active = recursive,
+						Tooltip = "list every asset below the selected folder",
+						OnClick = ||->set_recursive(not recursive),
+					},
+					RENDER_3D and
+					category ~= "components" and
+					table.has_value(categories, "materials") and
+					Button{
+						Key = "pick",
+						Text = "Pick",
+						Icon = "target",
+						Mode = "outline",
+						Active = world_picking,
+						Tooltip = "pick from the world: the material of a surface, the model or the prefab of an entity depending on the tab. escape cancels",
+						OnClick = start_pick,
+					},
+					Button{
+						Text = "Refresh",
+						Icon = "refresh",
+						Mode = "outline",
+						OnClick = ||-> do
+							assets.InvalidateIndex(category)
+							prepare_category(category, props)
+							set_folder(nil)
+							set_selected_item(nil)
+							set_refresh(|n|->n + 1)
+						end,
+					},
+				},
+				Splitter{InitialSize = 260, layout = {GrowWidth = 1, GrowHeight = 1}}{
+					ScrollablePanel{
+						Padding = Rect(),
+						ScrollX = false,
+						ScrollY = true,
+						layout = {GrowWidth = 1, GrowHeight = 1},
+					}{
+						FolderTree{
+							Index = index,
+							Category = category,
+							Root = root,
+							Folder = folder,
+							OnNavigate = navigate,
+						},
+					},
+					Column{
 						layout = {
 							GrowWidth = 1,
 							GrowHeight = 1,
-							ChildGap = 6,
 							FitHeight = false,
-							AlignmentY = "stretch",
+							AlignmentX = "stretch",
+							ChildGap = 4,
 						},
 					}{
-						VirtualGrid{
-							Items = items,
-							SelectedItem = selected_item,
-							CellWidth = zoom,
-							ExtraHeight = LABEL_HEIGHT,
-							Gap = 8,
-							ContentPadding = 6,
-							OnDrawItem = draw_item,
-							OnSelect = set_selected_item,
-							OnActivate = |item| -> activate_item(item, api),
-							OnContextMenu = |item| -> open_context_menu(item, api),
-							OnHoverItem = |item| -> hover.current(item),
-							layout = {GrowWidth = 1, GrowHeight = 1},
-						},
-						Frame{
-							Padding = Rect() + 6,
+						Breadcrumb{Category = category, Root = root, Folder = folder, OnNavigate = navigate},
+						Row{
 							layout = {
-								MinSize = Vec2(344, 0),
-								MaxSize = Vec2(344, 0),
-								FitWidth = false,
+								GrowWidth = 1,
 								GrowHeight = 1,
-								FitHeight = false,
-								Direction = "y",
 								ChildGap = 6,
-								AlignmentX = "stretch",
+								FitHeight = false,
+								AlignmentY = "stretch",
 							},
 						}{
-							ScrollablePanel{
-								Padding = Rect(),
-								ScrollX = false,
-								ScrollY = true,
+							VirtualGrid{
+								Items = items,
+								SelectedItem = selected_item,
+								CellWidth = zoom,
+								ExtraHeight = LABEL_HEIGHT,
+								Gap = 8,
+								ContentPadding = 6,
+								OnDrawItem = draw_item,
+								OnSelect = set_selected_item,
+								OnActivate = |item|->activate_item(item, api),
+								OnContextMenu = |item|->open_context_menu(item, api),
+								OnHoverItem = |item|->hover.current(item),
 								layout = {GrowWidth = 1, GrowHeight = 1},
-							}{details},
+							},
+							Frame{
+								Padding = Rect() + 6,
+								layout = {
+									MinSize = Vec2(344, 0),
+									MaxSize = Vec2(344, 0),
+									FitWidth = false,
+									GrowHeight = 1,
+									FitHeight = false,
+									Direction = "y",
+									ChildGap = 6,
+									AlignmentX = "stretch",
+								},
+							}{
+								ScrollablePanel{
+									Padding = Rect(),
+									ScrollX = false,
+									ScrollY = true,
+									layout = {GrowWidth = 1, GrowHeight = 1},
+								}{details},
+							},
 						},
 					},
 				},
+				StatusBar{
+					HoverRef = hover,
+					Folder = folder,
+					Category = category,
+					Selected = selected,
+					Picking = picking,
+					OnPick = pick,
+					OnCancel = close,
+				},
 			},
-			StatusBar{
-				HoverRef = hover,
-				Folder = folder,
-				Category = category,
-				Selected = selected,
-				Picking = picking,
-				OnPick = pick,
-				OnCancel = close,
-			},
-		},
-	}
-end)
-
+		}
+	end
+)
 return function(props)
 	return react.OpenWindow(
 		props.Key,

@@ -448,7 +448,15 @@ temporal_toi_intersects = function(context, t)
 	nlerp_into(scratch.rot_b, context.previous_rotation_b, context.current_rotation_b, t)
 
 	if
-		intersects_polyhedron_pair_at_transforms(context.poly_a, pos_a, scratch.rot_a, context.poly_b, pos_b, scratch.rot_b, scratch)
+		intersects_polyhedron_pair_at_transforms(
+			context.poly_a,
+			pos_a,
+			scratch.rot_a,
+			context.poly_b,
+			pos_b,
+			scratch.rot_b,
+			scratch
+		)
 	then
 		TEMPORAL_TOI_HIT.t = t
 		return TEMPORAL_TOI_HIT

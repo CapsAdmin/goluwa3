@@ -38,7 +38,11 @@ local function window_scale(index, first, last, factor)
 	r, g, b = r - math.floor(r * factor),
 	g - math.floor(g * factor),
 	b - math.floor(b * factor)
-	return pal16(math.max(r - steps * 4, 0), math.max(g - steps * 4, 0), math.max(b - steps * 4, 0))
+	return pal16(
+		math.max(r - steps * 4, 0),
+		math.max(g - steps * 4, 0),
+		math.max(b - steps * 4, 0)
+	)
 end
 
 local function win(index)

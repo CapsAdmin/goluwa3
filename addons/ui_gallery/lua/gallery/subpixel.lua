@@ -90,121 +90,126 @@ local function draw_swatch_background(self)
 end
 
 local font_cache = {}
-
 return {
 	Name = "subpixel",
 	Section = "Foundations",
 	Order = 1.5,
-	View = react.Component(|| -> do
-		local pattern_svgs = react.UseMemo(
-			|| -> list.map(
-				patterns,
-				|pattern| -> SVG.New(build_pattern_source(pattern.kind, pattern.cell), {TextureSize = PATTERN_SIZE, Mode = "msdf"})
-			),
-			{}
-		)
-		local layouts = react.UseMemo(
-			|| -> list.map(pvars.GetAll()["r_text_subpixel"].enums, |value| -> {Text = layout_labels[value], Value = value}),
-			{}
-		)
-
-		return kit.Page{
-			Title = "Subpixel",
-			Description = "Text and icons can use the pixel layout of the display for extra horizontal detail. Pick the layout of your display, then check the patterns below.",
-		}{
-			kit.Section{
-				Title = "Layout",
-				Description = "r_text_subpixel is the pixel layout. r_text_subpixel_strength blends between grayscale and the full per colour result.",
-			}{
-				kit.Labeled(
-					"r_text_subpixel",
-					ui.Dropdown{
-						Options = layouts,
-						Value = pvars.Get("r_text_subpixel"),
-						OnSelect = |value| -> pvars.Set("r_text_subpixel", value),
-					}
+	View = react.Component(
+		||-> do
+			local pattern_svgs = react.UseMemo(
+				||->list.map(
+					patterns,
+					|pattern|->SVG.New(
+						build_pattern_source(pattern.kind, pattern.cell),
+						{TextureSize = PATTERN_SIZE, Mode = "msdf"}
+					)
 				),
-				kit.SliderRow{
-					Label = "Strength",
-					Value = math.floor(pvars.Get("r_text_subpixel_strength") * 100 + 0.5),
-					Min = 0,
-					Max = 100,
-					Suffix = "%",
-					OnChange = |value| -> pvars.Set("r_text_subpixel_strength", value / 100),
-				},
-				ui.Text{
-					Text = render2d.SupportsSubpixelText() and
-						"Applies to MSDF text and icons drawn straight to the window. Outlines and glows stay grayscale." or
-						"This GPU has no dual source blending, so subpixel rendering is unavailable.",
-					Color = "text_disabled",
-					IgnoreMouseInput = true,
-				},
-			},
-			kit.Section{
-				Title = "Lines and checkerboards",
-				Description = "One pixel patterns drawn 1:1. The right layout keeps them neutral grey, the wrong one tints them.",
+				{}
+			)
+			local layouts = react.UseMemo(
+				||->list.map(
+					pvars.GetAll()["r_text_subpixel"].enums,
+					|value|->{Text = layout_labels[value], Value = value}
+				),
+				{}
+			)
+			return kit.Page{
+				Title = "Subpixel",
+				Description = "Text and icons can use the pixel layout of the display for extra horizontal detail. Pick the layout of your display, then check the patterns below.",
 			}{
-				kit.Wrap(
-					list.map(
-						patterns,
-						|pattern, index| -> kit.Labeled(
-							pattern.name,
-							kit.Group(
-								list.map(
-									backgrounds,
-									|swatch| -> ui.Panel{
-										Key = swatch.name,
-										Svg = pattern_svgs[index],
-										Background = swatch.background,
-										Foreground = swatch.foreground,
-										transform = true,
-										layout = {
-											MinSize = Vec2(PATTERN_SIZE + 16, PATTERN_SIZE + 16),
-											MaxSize = Vec2(PATTERN_SIZE + 16, PATTERN_SIZE + 16),
-										},
-										visual = {OnDraw = draw_pattern},
-									}
-								),
-								{GrowWidth = 0, FitWidth = true, ChildGap = "XS"}
-							)
-						)
+				kit.Section{
+					Title = "Layout",
+					Description = "r_text_subpixel is the pixel layout. r_text_subpixel_strength blends between grayscale and the full per colour result.",
+				}{
+					kit.Labeled(
+						"r_text_subpixel",
+						ui.Dropdown{
+							Options = layouts,
+							Value = pvars.Get("r_text_subpixel"),
+							OnSelect = |value|->pvars.Set("r_text_subpixel", value),
+						}
 					),
-					{ChildGap = "L"}
-				),
-			},
-			kit.Section{Title = "Small sizes", Description = "Fixed pixel sizes that ignore the theme."}{
-				kit.Wrap(
-					list.map(
-						backgrounds,
-						|swatch| -> kit.Labeled(
-							swatch.name,
-							ui.Column{
-								Padding = "S",
-								swatch_background = swatch.background,
-								visual = true,
-								OnDraw = draw_swatch_background,
-								layout = {AlignmentX = "start", ChildGap = "XXS", GrowWidth = 0, FitWidth = true},
-							}{
-								list.map(
-									text_sizes,
-									|size| -> do
-										font_cache[size] = font_cache[size] or fonts.New{Size = size}
-
-										return ui.Text{
-											Key = size,
-											Text = string.format("Hamburgefonstiv 1lI| design tokens %dpx", size),
-											Font = font_cache[size],
-											Color = swatch.foreground,
-											IgnoreMouseInput = true,
+					kit.SliderRow{
+						Label = "Strength",
+						Value = math.floor(pvars.Get("r_text_subpixel_strength") * 100 + 0.5),
+						Min = 0,
+						Max = 100,
+						Suffix = "%",
+						OnChange = |value|->pvars.Set("r_text_subpixel_strength", value / 100),
+					},
+					ui.Text{
+						Text = render2d.SupportsSubpixelText() and
+							"Applies to MSDF text and icons drawn straight to the window. Outlines and glows stay grayscale." or
+							"This GPU has no dual source blending, so subpixel rendering is unavailable.",
+						Color = "text_disabled",
+						IgnoreMouseInput = true,
+					},
+				},
+				kit.Section{
+					Title = "Lines and checkerboards",
+					Description = "One pixel patterns drawn 1:1. The right layout keeps them neutral grey, the wrong one tints them.",
+				}{
+					kit.Wrap(
+						list.map(
+							patterns,
+							|pattern,index|->kit.Labeled(
+								pattern.name,
+								kit.Group(
+									list.map(
+										backgrounds,
+										|swatch|->ui.Panel{
+											Key = swatch.name,
+											Svg = pattern_svgs[index],
+											Background = swatch.background,
+											Foreground = swatch.foreground,
+											transform = true,
+											layout = {
+												MinSize = Vec2(PATTERN_SIZE + 16, PATTERN_SIZE + 16),
+												MaxSize = Vec2(PATTERN_SIZE + 16, PATTERN_SIZE + 16),
+											},
+											visual = {OnDraw = draw_pattern},
 										}
-									end
-								),
-							}
-						)
+									),
+									{GrowWidth = 0, FitWidth = true, ChildGap = "XS"}
+								)
+							)
+						),
+						{ChildGap = "L"}
 					),
-					{ChildGap = "L"}
-				),
-			},
-		}
-	end),
+				},
+				kit.Section{Title = "Small sizes", Description = "Fixed pixel sizes that ignore the theme."}{
+					kit.Wrap(
+						list.map(
+							backgrounds,
+							|swatch|->kit.Labeled(
+								swatch.name,
+								ui.Column{
+									Padding = "S",
+									swatch_background = swatch.background,
+									visual = true,
+									OnDraw = draw_swatch_background,
+									layout = {AlignmentX = "start", ChildGap = "XXS", GrowWidth = 0, FitWidth = true},
+								}{
+									list.map(
+										text_sizes,
+										|size|-> do
+											font_cache[size] = font_cache[size] or fonts.New{Size = size}
+											return ui.Text{
+												Key = size,
+												Text = string.format("Hamburgefonstiv 1lI| design tokens %dpx", size),
+												Font = font_cache[size],
+												Color = swatch.foreground,
+												IgnoreMouseInput = true,
+											}
+										end
+									),
+								}
+							)
+						),
+						{ChildGap = "L"}
+					),
+				},
+			}
+		end
+	),
 }

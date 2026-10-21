@@ -56,8 +56,10 @@ local function get_lunar_state()
 		)
 	)
 	local waxing = later > elongation
-
-	return elongation, waxing, waxing and elongation / (2 * math.pi) or 1 - elongation / (2 * math.pi), moon
+	return elongation,
+	waxing,
+	waxing and elongation / (2 * math.pi) or 1 - elongation / (2 * math.pi),
+	moon
 end
 
 local function get_phase_name(phase)
@@ -129,7 +131,10 @@ local function update_cache()
 			local peak = -1
 
 			for half_hour = -6, 6 do
-				peak = math.max(peak, weather.GetSunDirectionAt(noon + (1 + i * 15) * 86400 + half_hour * 1800, latitude, longitude).y)
+				peak = math.max(
+					peak,
+					weather.GetSunDirectionAt(noon + (1 + i * 15) * 86400 + half_hour * 1800, latitude, longitude).y
+				)
 			end
 
 			noon_elevation[i] = math.deg(math.asin(peak))
@@ -141,14 +146,25 @@ local function dome_point(cx, cy, x, y, z)
 	local elevation = math.deg(math.asin(math.clamp(y, -1, 1)))
 	local azimuth = math.atan2(x, -z)
 	local radius = elevation >= 0 and
-		DOME_RADIUS * (1 - elevation / 90) or
+		DOME_RADIUS * (
+			1 - elevation / 90
+		)
+		or
 		DOME_RADIUS - elevation / 90 * DOME_MARGIN
-
-	return cx + math.sin(azimuth) * radius, cy - math.cos(azimuth) * radius, elevation, azimuth
+	return cx + math.sin(azimuth) * radius,
+	cy - math.cos(azimuth) * radius,
+	elevation,
+	azimuth
 end
 
 local function chart_y(elevation, height)
-	return height * (1 - (math.clamp(elevation, CHART_MIN, CHART_MAX) - CHART_MIN) / (CHART_MAX - CHART_MIN))
+	return height * (
+			1 - (
+				math.clamp(elevation, CHART_MIN, CHART_MAX) - CHART_MIN
+			) / (
+				CHART_MAX - CHART_MIN
+			)
+		)
 end
 
 local function elevation_of(y)
@@ -195,7 +211,13 @@ local function draw_dome(self)
 		{"E", cx + DOME_RADIUS + 8, cy - 7},
 		{"W", cx - DOME_RADIUS - 16, cy - 7},
 	} do
-		render2d.DrawText{text = compass[1], x = compass[2], y = compass[3], size = 12, foreground_color = TEXT_COMPASS}
+		render2d.DrawText{
+			text = compass[1],
+			x = compass[2],
+			y = compass[3],
+			size = 12,
+			foreground_color = TEXT_COMPASS,
+		}
 	end
 
 	render2d.SetColor(1, 0.85, 0.4, 0.55)
@@ -363,31 +385,46 @@ local function read_sky()
 	end
 
 	last_sky = sky
-
 	return sky
 end
 
-local DragSurface = react.Component(|props| -> do
-	local drag = react.UseDrag{OnDrag = props.OnDrag}
-
-	return ui.Panel{
-		transform = true,
-		layout = props.layout,
-		mouse_input = {Cursor = "hand"},
-		visual = {OnDraw = props.Draw},
-		OnMouseInput = drag.OnMouseInput,
-		OnGlobalMouseMove = drag.OnGlobalMouseMove,
-		OnGlobalMouseInput = drag.OnGlobalMouseInput,
-	}
-end)
+local DragSurface = react.Component(
+	|props|-> do
+		local drag = react.UseDrag{OnDrag = props.OnDrag}
+		return ui.Panel{
+			transform = true,
+			layout = props.layout,
+			mouse_input = {Cursor = "hand"},
+			visual = {OnDraw = props.Draw},
+			OnMouseInput = drag.OnMouseInput,
+			OnGlobalMouseMove = drag.OnGlobalMouseMove,
+			OnGlobalMouseInput = drag.OnGlobalMouseInput,
+		}
+	end
+)
 
 local function caption(text)
-	return ui.Text{Key = "caption", Text = text, Font = "body XS", Color = "text_disabled", IgnoreMouseInput = true}
+	return ui.Text{
+		Key = "caption",
+		Text = text,
+		Font = "body XS",
+		Color = "text_disabled",
+		IgnoreMouseInput = true,
+	}
 end
 
 local function axis(labels, layout)
 	return ui.Row{Key = "axis", layout = layout}{
-		list.map(labels, |text, index| -> ui.Text{Key = index, Text = text, Font = "body XS", Color = "text_disabled", IgnoreMouseInput = true}),
+		list.map(
+			labels,
+			|text,index|->ui.Text{
+				Key = index,
+				Text = text,
+				Font = "body XS",
+				Color = "text_disabled",
+				IgnoreMouseInput = true,
+			}
+		),
 	}
 end
 
@@ -404,130 +441,160 @@ local function strip(title, height, draw, on_drag, labels)
 	}
 end
 
-local SunDial = react.Component(|| -> do
-	local sky = react.UsePoll(read_sky, 0.1)
-	local on_dome = |position, size| -> do
-		local dx, dy = position.x - size.x / 2, size.y / 2 - position.y
-		local radius = math.sqrt(dx * dx + dy * dy)
-		local azimuth = math.atan2(dx, dy)
-		local elevation = radius <= DOME_RADIUS and
-			90 * (1 - radius / DOME_RADIUS) or
-			-math.min((radius - DOME_RADIUS) / DOME_MARGIN, 1) * 90
-		elevation = math.rad(elevation)
-		weather.SetSunDirection(
-			Vec3(
-				math.sin(azimuth) * math.cos(elevation),
-				math.sin(elevation),
-				-math.cos(azimuth) * math.cos(elevation)
+local SunDial = react.Component(
+	||-> do
+		local sky = react.UsePoll(read_sky, 0.1)
+		local on_dome = |position,size|-> do
+			local dx, dy = position.x - size.x / 2, size.y / 2 - position.y
+			local radius = math.sqrt(dx * dx + dy * dy)
+			local azimuth = math.atan2(dx, dy)
+			local elevation = radius <= DOME_RADIUS and
+				90 * (
+					1 - radius / DOME_RADIUS
+				)
+				or
+				-math.min((radius - DOME_RADIUS) / DOME_MARGIN, 1) * 90
+			elevation = math.rad(elevation)
+			weather.SetSunDirection(
+				Vec3(
+					math.sin(azimuth) * math.cos(elevation),
+					math.sin(elevation),
+					-math.cos(azimuth) * math.cos(elevation)
+				)
 			)
+		end
+		local on_time = |position,size|->weather.SetSolarHours(math.clamp(position.x / size.x, 0, 1) * 24)
+		local on_day = |position,size|->weather.SetDayOfYear(1 + math.clamp(position.x / size.x, 0, 1) * 365)
+		local on_latitude = |position,size|->weather.SetLocation(
+			-90 + math.clamp(position.x / size.x, 0, 1) * 180,
+			select(2, weather.GetLocation())
 		)
+		local on_moon = |position,size|-> do
+			local _, _, phase = get_lunar_state()
+			local target = math.clamp(position.x / size.x, 0, 1)
+			weather.SetTime(weather.GetTime() + wrap(target - phase) * SYNODIC_DAYS * 86400)
+		end
+		return ui.Row{layout = {GrowWidth = 1, GrowHeight = 1, ChildGap = "M", AlignmentY = "start"}}{
+			ui.Column{
+				layout = {ChildGap = "XS", AlignmentX = "start", GrowWidth = 0, FitWidth = true},
+			}{
+				DragSurface{
+					Key = "dome",
+					Draw = draw_dome,
+					OnDrag = on_dome,
+					layout = {
+						MinSize = Vec2(DOME_SIZE, DOME_SIZE),
+						MaxSize = Vec2(DOME_SIZE, DOME_SIZE),
+						GrowWidth = 0,
+					},
+				},
+				ui.Text{
+					Key = "sun",
+					Text = string.format("sun   %5.1f° up   %5.1f° az", sky.sun_elevation, sky.sun_azimuth),
+					Font = "body S",
+					IgnoreMouseInput = true,
+				},
+				ui.Text{
+					Key = "moon",
+					Text = string.format("moon %5.1f° up   %s %d%%", sky.moon_elevation, sky.phase_name, sky.illumination),
+					Font = "body S",
+					IgnoreMouseInput = true,
+				},
+			},
+			ui.Column{layout = {GrowWidth = 1, ChildGap = "S", AlignmentX = "stretch"}}{
+				strip(
+					"day   drag to set the time of day",
+					CHART_H,
+					draw_day,
+					on_time,
+					axis(HOUR_LABELS, {GrowWidth = 1, AlignmentX = "space_between"})
+				),
+				strip(
+					string.format("year   drag to set the date   day %d", sky.day),
+					STRIP_H,
+					draw_year,
+					on_day,
+					ui.Row{Key = "axis", layout = {GrowWidth = 1}}{
+						list.map(
+							MONTHS,
+							|month,index|->ui.Text{
+								Key = index,
+								Text = month,
+								Font = "body XS",
+								Color = "text_disabled",
+								AlignX = 0.5,
+								IgnoreMouseInput = true,
+								layout = {GrowWidth = MONTH_STARTS[index + 1] - MONTH_STARTS[index]},
+							}
+						),
+					}
+				),
+				strip(
+					string.format("latitude   %.1f° %s", math.abs(sky.latitude), sky.latitude < 0 and "S" or "N"),
+					STRIP_H,
+					draw_latitude,
+					on_latitude,
+					axis(LATITUDE_LABELS, {GrowWidth = 1, AlignmentX = "space_evenly"})
+				),
+				strip("moon   drag to change the phase", STRIP_H, draw_moon_phase, on_moon, nil),
+			},
+		}
 	end
-	local on_time = |position, size| -> weather.SetSolarHours(math.clamp(position.x / size.x, 0, 1) * 24)
-	local on_day = |position, size| -> weather.SetDayOfYear(1 + math.clamp(position.x / size.x, 0, 1) * 365)
-	local on_latitude = |position, size| -> weather.SetLocation(
-		-90 + math.clamp(position.x / size.x, 0, 1) * 180,
-		select(2, weather.GetLocation())
-	)
-	local on_moon = |position, size| -> do
-		local _, _, phase = get_lunar_state()
-		local target = math.clamp(position.x / size.x, 0, 1)
-		weather.SetTime(weather.GetTime() + wrap(target - phase) * SYNODIC_DAYS * 86400)
+)
+local SunDialContent = react.Component(
+	|props|-> do
+		local tab, set_tab = react.UseState("Dial")
+		return ui.Tabs{
+			Value = tab,
+			OnChange = set_tab,
+			BarHidden = props.BarHidden,
+			layout = {GrowWidth = 1, GrowHeight = 1},
+		}{
+			ui.Column{
+				Key = "dial",
+				Tab = "Dial",
+				layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"},
+			}{
+				props.Shown and
+				tab == "Dial" and
+				SunDial{},
+			},
+			ui.Column{
+				Key = "shadows",
+				Tab = "Shadows",
+				layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"},
+			}{
+				props.Shown and
+				tab == "Shadows" and
+				SunShadowEditor{Height = HEIGHT - 24},
+			},
+		}
 	end
-
-	return ui.Row{layout = {GrowWidth = 1, GrowHeight = 1, ChildGap = "M", AlignmentY = "start"}}{
-		ui.Column{layout = {ChildGap = "XS", AlignmentX = "start", GrowWidth = 0, FitWidth = true}}{
-			DragSurface{
-				Key = "dome",
-				Draw = draw_dome,
-				OnDrag = on_dome,
-				layout = {MinSize = Vec2(DOME_SIZE, DOME_SIZE), MaxSize = Vec2(DOME_SIZE, DOME_SIZE), GrowWidth = 0},
-			},
-			ui.Text{
-				Key = "sun",
-				Text = string.format("sun   %5.1f° up   %5.1f° az", sky.sun_elevation, sky.sun_azimuth),
-				Font = "body S",
-				IgnoreMouseInput = true,
-			},
-			ui.Text{
-				Key = "moon",
-				Text = string.format("moon %5.1f° up   %s %d%%", sky.moon_elevation, sky.phase_name, sky.illumination),
-				Font = "body S",
-				IgnoreMouseInput = true,
-			},
-		},
-		ui.Column{layout = {GrowWidth = 1, ChildGap = "S", AlignmentX = "stretch"}}{
-			strip(
-				"day   drag to set the time of day",
-				CHART_H,
-				draw_day,
-				on_time,
-				axis(HOUR_LABELS, {GrowWidth = 1, AlignmentX = "space_between"})
-			),
-			strip(
-				string.format("year   drag to set the date   day %d", sky.day),
-				STRIP_H,
-				draw_year,
-				on_day,
-				ui.Row{Key = "axis", layout = {GrowWidth = 1}}{
-					list.map(
-						MONTHS,
-						|month, index| -> ui.Text{
-							Key = index,
-							Text = month,
-							Font = "body XS",
-							Color = "text_disabled",
-							AlignX = 0.5,
-							IgnoreMouseInput = true,
-							layout = {GrowWidth = MONTH_STARTS[index + 1] - MONTH_STARTS[index]},
-						}
-					),
-				}
-			),
-			strip(
-				string.format("latitude   %.1f° %s", math.abs(sky.latitude), sky.latitude < 0 and "S" or "N"),
-				STRIP_H,
-				draw_latitude,
-				on_latitude,
-				axis(LATITUDE_LABELS, {GrowWidth = 1, AlignmentX = "space_evenly"})
-			),
-			strip("moon   drag to change the phase", STRIP_H, draw_moon_phase, on_moon, nil),
-		},
-	}
-end)
-local SunDialContent = react.Component(|props| -> do
-	local tab, set_tab = react.UseState("Dial")
-
-	return ui.Tabs{Value = tab, OnChange = set_tab, BarHidden = props.BarHidden, layout = {GrowWidth = 1, GrowHeight = 1}}{
-		ui.Column{Key = "dial", Tab = "Dial", layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"}}{
-			props.Shown && tab == "Dial" && SunDial{},
-		},
-		ui.Column{Key = "shadows", Tab = "Shadows", layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"}}{
-			props.Shown && tab == "Shadows" && SunShadowEditor{Height = HEIGHT - 24},
-		},
-	}
-end)
-local SunDialWindow = react.Component(|| -> do
-	local shown, set_shown = react.UseState(true)
-	local hud, set_hud = react.UseState(false)
-	local position = react.UseMemo(|| -> do
-		local world_size = Panel.World.transform:GetSize()
-
-		return Vec2(world_size.x - WIDTH - 16, world_size.y - HEIGHT - HEADER - TAB_BAR - 16)
-	end, {})
-
-	return ui.Window{
-		Title = "SUN DIAL",
-		Pinnable = true,
-		Maximizable = false,
-		Padding = "S",
-		Size = Vec2(WIDTH, HEIGHT + HEADER + TAB_BAR),
-		MinSize = Vec2(WIDTH, HEIGHT + HEADER + TAB_BAR),
-		Position = position,
-		OnHudChanged = |_, value| -> set_hud(value),
-		OnVisibilityChanged = |_, visible| -> set_shown(visible),
-	}{SunDialContent{Shown = shown, BarHidden = hud}}
-end)
-
+)
+local SunDialWindow = react.Component(
+	||-> do
+		local shown, set_shown = react.UseState(true)
+		local hud, set_hud = react.UseState(false)
+		local position = react.UseMemo(
+			||-> do
+				local world_size = Panel.World.transform:GetSize()
+				return Vec2(world_size.x - WIDTH - 16, world_size.y - HEIGHT - HEADER - TAB_BAR - 16)
+			end,
+			{}
+		)
+		return ui.Window{
+			Title = "SUN DIAL",
+			Pinnable = true,
+			Maximizable = false,
+			Padding = "S",
+			Size = Vec2(WIDTH, HEIGHT + HEADER + TAB_BAR),
+			MinSize = Vec2(WIDTH, HEIGHT + HEADER + TAB_BAR),
+			Position = position,
+			OnHudChanged = |_,value|->set_hud(value),
+			OnVisibilityChanged = |_,visible|->set_shown(visible),
+		}{SunDialContent{Shown = shown, BarHidden = hud}}
+	end
+)
 desktop.RegisterProgram{
 	Name = "Sun",
 	Icon = "light",

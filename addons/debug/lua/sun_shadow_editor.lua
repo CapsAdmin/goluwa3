@@ -20,20 +20,106 @@ local SHADOW_GROUPS = {
 		text = "Cascades",
 		help = "shadow maps that follow the camera, each one covers the view out to its split",
 		settings = {
-			{"enabled", "enabled", "boolean", "off destroys the cascades, nothing is lit by them"},
-			{"count", "count", "integer", "how many cascades, each is a texture of the size below", {Min = 1, Max = 4, Precision = 0, ShowSlider = true}},
-			{"size", "size", "enum", "texels per side of every cascade", {Options = SIZE_OPTIONS}},
-			{"format", "depth format", "enum", "d16 has 65536 depth steps over the cascade's depth range", {Options = FORMAT_OPTIONS}},
-			{"distance", "distance", "number", "farthest the last cascade reaches, meters", {Min = 20, Max = 10000, Precision = 0, ShowSlider = true}},
-			{"split_lambda", "split lambda", "number", "0 splits the distance evenly, 1 by powers", {Min = 0, Max = 1, Precision = 2, ShowSlider = true}},
-			{"zoom", "zoom 1", "number", "above 1 the cascade fits a smaller part of its slice and the next one covers the rest", {Min = 0.25, Max = 8, Precision = 2, ShowSlider = true}, 1},
-			{"zoom", "zoom 2", "number", "zoom of the second cascade", {Min = 0.25, Max = 8, Precision = 2, ShowSlider = true}, 2},
-			{"zoom", "zoom 3", "number", "zoom of the third cascade", {Min = 0.25, Max = 8, Precision = 2, ShowSlider = true}, 3},
-			{"zoom", "zoom 4", "number", "zoom of the fourth cascade", {Min = 0.25, Max = 8, Precision = 2, ShowSlider = true}, 4},
-			{"min_caster_texel_size", "min caster size", "number", "casters smaller than this many texels are not drawn", {Min = 0, Max = 16, Precision = 1, ShowSlider = true}},
-			{"update_interval", "update interval", "integer", "frames between draws of the cascades", {Min = 1, Max = 8, Precision = 0, ShowSlider = true}},
-			{"cache_far_cascade", "cache far cascade", "boolean", "the farthest cascade is only drawn again when the world changed or the camera moved or turned"},
-			{"far_cascade_move", "far cascade move", "number", "meters the camera moves before the cached cascade is drawn again", {Min = 1, Max = 1000, Precision = 0, ShowSlider = true}},
+			{
+				"enabled",
+				"enabled",
+				"boolean",
+				"off destroys the cascades, nothing is lit by them",
+			},
+			{
+				"count",
+				"count",
+				"integer",
+				"how many cascades, each is a texture of the size below",
+				{Min = 1, Max = 4, Precision = 0, ShowSlider = true},
+			},
+			{
+				"size",
+				"size",
+				"enum",
+				"texels per side of every cascade",
+				{Options = SIZE_OPTIONS},
+			},
+			{
+				"format",
+				"depth format",
+				"enum",
+				"d16 has 65536 depth steps over the cascade's depth range",
+				{Options = FORMAT_OPTIONS},
+			},
+			{
+				"distance",
+				"distance",
+				"number",
+				"farthest the last cascade reaches, meters",
+				{Min = 20, Max = 10000, Precision = 0, ShowSlider = true},
+			},
+			{
+				"split_lambda",
+				"split lambda",
+				"number",
+				"0 splits the distance evenly, 1 by powers",
+				{Min = 0, Max = 1, Precision = 2, ShowSlider = true},
+			},
+			{
+				"zoom",
+				"zoom 1",
+				"number",
+				"above 1 the cascade fits a smaller part of its slice and the next one covers the rest",
+				{Min = 0.25, Max = 8, Precision = 2, ShowSlider = true},
+				1,
+			},
+			{
+				"zoom",
+				"zoom 2",
+				"number",
+				"zoom of the second cascade",
+				{Min = 0.25, Max = 8, Precision = 2, ShowSlider = true},
+				2,
+			},
+			{
+				"zoom",
+				"zoom 3",
+				"number",
+				"zoom of the third cascade",
+				{Min = 0.25, Max = 8, Precision = 2, ShowSlider = true},
+				3,
+			},
+			{
+				"zoom",
+				"zoom 4",
+				"number",
+				"zoom of the fourth cascade",
+				{Min = 0.25, Max = 8, Precision = 2, ShowSlider = true},
+				4,
+			},
+			{
+				"min_caster_texel_size",
+				"min caster size",
+				"number",
+				"casters smaller than this many texels are not drawn",
+				{Min = 0, Max = 16, Precision = 1, ShowSlider = true},
+			},
+			{
+				"update_interval",
+				"update interval",
+				"integer",
+				"frames between draws of the cascades",
+				{Min = 1, Max = 8, Precision = 0, ShowSlider = true},
+			},
+			{
+				"cache_far_cascade",
+				"cache far cascade",
+				"boolean",
+				"the farthest cascade is only drawn again when the world changed or the camera moved or turned",
+			},
+			{
+				"far_cascade_move",
+				"far cascade move",
+				"number",
+				"meters the camera moves before the cached cascade is drawn again",
+				{Min = 1, Max = 1000, Precision = 0, ShowSlider = true},
+			},
 		},
 	},
 	{
@@ -43,11 +129,41 @@ local SHADOW_GROUPS = {
 		settings = {
 			{"enabled", "enabled", "boolean", "off destroys the inset"},
 			{"size", "size", "enum", "texels per side", {Options = SIZE_OPTIONS}},
-			{"format", "depth format", "enum", "d16 has 65536 depth steps over the inset's depth range", {Options = FORMAT_OPTIONS}},
-			{"distance", "distance", "number", "how far from the camera it reaches, meters", {Min = 2, Max = 200, Precision = 1, ShowSlider = true}},
-			{"zoom", "zoom", "number", "above 1 it fits a smaller part of the view", {Min = 0.25, Max = 8, Precision = 2, ShowSlider = true}},
-			{"min_caster_texel_size", "min caster size", "number", "casters smaller than this many texels are not drawn", {Min = 0, Max = 16, Precision = 1, ShowSlider = true}},
-			{"update_interval", "update interval", "integer", "frames between draws", {Min = 1, Max = 8, Precision = 0, ShowSlider = true}},
+			{
+				"format",
+				"depth format",
+				"enum",
+				"d16 has 65536 depth steps over the inset's depth range",
+				{Options = FORMAT_OPTIONS},
+			},
+			{
+				"distance",
+				"distance",
+				"number",
+				"how far from the camera it reaches, meters",
+				{Min = 2, Max = 200, Precision = 1, ShowSlider = true},
+			},
+			{
+				"zoom",
+				"zoom",
+				"number",
+				"above 1 it fits a smaller part of the view",
+				{Min = 0.25, Max = 8, Precision = 2, ShowSlider = true},
+			},
+			{
+				"min_caster_texel_size",
+				"min caster size",
+				"number",
+				"casters smaller than this many texels are not drawn",
+				{Min = 0, Max = 16, Precision = 1, ShowSlider = true},
+			},
+			{
+				"update_interval",
+				"update interval",
+				"integer",
+				"frames between draws",
+				{Min = 1, Max = 8, Precision = 0, ShowSlider = true},
+			},
 		},
 	},
 	{
@@ -55,8 +171,20 @@ local SHADOW_GROUPS = {
 		text = "Bias",
 		help = "how far a lit point is moved before it is compared with the shadow maps, against acne and against light leaking in under and through walls",
 		settings = {
-			{"normal", "normal offset", "number", "texels the point is moved along its surface normal, more at a slant. lower stops light from leaking through thin walls", {Min = 0, Max = 4, Precision = 2, ShowSlider = true}},
-			{"light", "light offset", "number", "how far the point is moved towards the sun, scaled so that 1 is the default. lower stops light from leaking at the base of a wall, below 0 it moves away from the sun, too low shows acne", {Min = -10, Max = 10, Precision = 2, ShowSlider = true}},
+			{
+				"normal",
+				"normal offset",
+				"number",
+				"texels the point is moved along its surface normal, more at a slant. lower stops light from leaking through thin walls",
+				{Min = 0, Max = 4, Precision = 2, ShowSlider = true},
+			},
+			{
+				"light",
+				"light offset",
+				"number",
+				"how far the point is moved towards the sun, scaled so that 1 is the default. lower stops light from leaking at the base of a wall, below 0 it moves away from the sun, too low shows acne",
+				{Min = -10, Max = 10, Precision = 2, ShowSlider = true},
+			},
 		},
 	},
 }
@@ -66,7 +194,11 @@ local function describe_cascade(category, i)
 
 	if not map or i > map:GetCascadeCount() then return "off" end
 
-	return string.format("to %.0f m, texel %.3f m", map:GetCascadeSplits()[i] or 0, map:GetCascadeTexelWorldSize(i))
+	return string.format(
+		"to %.0f m, texel %.3f m",
+		map:GetCascadeSplits()[i] or 0,
+		map:GetCascadeTexelWorldSize(i)
+	)
 end
 
 local function build_items()
@@ -82,7 +214,7 @@ local function build_items()
 					Text = "defaults",
 					Description = "every sun shadow setting back to its default, the shadow maps are made again",
 					ButtonText = "Reset",
-					OnAction = || -> weather.ResetSunShadow(),
+					OnAction = ||->weather.ResetSunShadow(),
 				},
 			},
 		},
@@ -135,8 +267,8 @@ local function build_items()
 				Description = "how far it reaches and the world size of one texel",
 				Type = "string",
 				Value = describe_cascade(category, i),
-				GetValue = || -> describe_cascade(category, i),
-				OnChange = || -> false,
+				GetValue = ||->describe_cascade(category, i),
+				OnChange = ||->false,
 			}
 			nodes[#nodes + 1] = node
 			children[#children + 1] = node
@@ -172,25 +304,28 @@ local function read_values()
 	return values
 end
 
-return react.Component(|props| -> do
-	local editor = react.UseRef()
-	local items = react.UseMemo(build_items, {})
-	local values = react.UsePoll(read_values, POLL_INTERVAL)
+return react.Component(
+	|props|-> do
+		local editor = react.UseRef()
+		local items = react.UseMemo(build_items, {})
+		local values = react.UsePoll(read_values, POLL_INTERVAL)
+		react.UseEffect(
+			||-> do
+				for _, node in ipairs(nodes) do
+					local value = values[node.Key]
 
-	react.UseEffect(|| -> do
-		for _, node in ipairs(nodes) do
-			local value = values[node.Key]
-
-			if value ~= node.Value then editor.current:UpdateValueForKey(node.Key, value) end
-		end
-	end, {values, items})
-
-	return ui.ScrollablePanel{
-		ScrollX = false,
-		ScrollY = true,
-		Padding = "M",
-		layout = {GrowWidth = 1, MinSize = Vec2(0, props.Height), MaxSize = Vec2(0, props.Height)},
-	}{
-		ui.PropertyEditor{Ref = editor, Items = items, layout = {GrowWidth = 1}},
-	}
-end)
+					if value ~= node.Value then editor.current:UpdateValueForKey(node.Key, value) end
+				end
+			end,
+			{values, items}
+		)
+		return ui.ScrollablePanel{
+			ScrollX = false,
+			ScrollY = true,
+			Padding = "M",
+			layout = {GrowWidth = 1, MinSize = Vec2(0, props.Height), MaxSize = Vec2(0, props.Height)},
+		}{
+			ui.PropertyEditor{Ref = editor, Items = items, layout = {GrowWidth = 1}},
+		}
+	end
+)

@@ -38,7 +38,6 @@
 --   bc.dump(foo, out)
 --
 ------------------------------------------------------------------------------
-
 -- Cache some library functions and objects.
 local jit = require("jit")
 local jutil = require("jit.util")
@@ -51,138 +50,163 @@ local bcnames = vmdef.bcnames
 local stdout, stderr = io.stdout, io.stderr
 
 ------------------------------------------------------------------------------
-
 local function ctlsub(c)
-  if c == "\n" then return "\\n"
-  elseif c == "\r" then return "\\r"
-  elseif c == "\t" then return "\\t"
-  else return format("\\%03d", byte(c))
-  end
+	if c == "\n" then
+		return "\\n"
+	elseif c == "\r" then
+		return "\\r"
+	elseif c == "\t" then
+		return "\\t"
+	else
+		return format("\\%03d", byte(c))
+	end
 end
 
 -- Return one bytecode line.
 local function bcline(func, pc, prefix)
-  local ins, m = funcbc(func, pc)
-  if not ins then return end
-  local ma, mb, mc = m & 7, (m >> 3) & 15, (m >> 7) & 15
-  local a = (ins >> 8) & 0xff
-  local oidx = 6 * (ins & 0xff)
-  local op = sub(bcnames, oidx+1, oidx+6)
-  local s = format("%04d %s %-6s %3s ",
-    pc, prefix or "  ", op, ma == 0 ? "" : a)
-  local d = ins >> 16
-  if mc == 13 then -- BCMjump
-    return format("%s=> %04d\n", s, pc+d-0x7fff)
-  end
-  if mb != 0 then
-    d &= 0xff
-  elseif mc == 0 then
-    return s.."\n"
-  end
-  local kc
-  if mc == 10 then -- BCMstr
-    kc = funck(func, -d-1)
-    kc = format(#kc > 40 ? '"%.40s"~' : '"%s"', gsub(kc, "%c", ctlsub))
-  elseif mc == 9 then -- BCMnum
-    kc = funck(func, d)
-    if op == "TSETM " then kc -= 2^52 end
-  elseif mc == 12 then -- BCMfunc
-    local fi = funcinfo(funck(func, -d-1))
-    if fi.ffid then
-      kc = vmdef.ffnames[fi.ffid]
-    else
-      kc = fi.loc
-    end
-  elseif mc == 5 then -- BCMuv
-    kc = funcuvname(func, d)
-  end
-  if ma == 5 then -- BCMuv
-    local ka = funcuvname(func, a)
-    if kc then kc = ka.." ; "..kc else kc = ka end
-  end
-  if mb != 0 then
-    local b = ins >> 24
-    if kc then return format("%s%3d %3d  ; %s\n", s, b, d, kc) end
-    return format("%s%3d %3d\n", s, b, d)
-  end
-  if kc then return format("%s%3d      ; %s\n", s, d, kc) end
-  if mc == 7 and d > 32767 then d -= 65536 end -- BCMlits
-  return format("%s%3d\n", s, d)
+	local ins, m = funcbc(func, pc)
+
+	if not ins then return end
+
+	local ma, mb, mc = m & 7, (m >> 3) & 15, (m >> 7) & 15
+	local a = (ins >> 8) & 0xff
+	local oidx = 6 * (ins & 0xff)
+	local op = sub(bcnames, oidx + 1, oidx + 6)
+	local s = format("%04d %s %-6s %3s ", pc, prefix or "  ", op, ma == 0 ? "" : a)
+	local d = ins >> 16
+
+	if mc == 13 then -- BCMjump
+		return format("%s=> %04d\n", s, pc + d - 0x7fff)
+	end
+
+	if mb ~= 0 then d &= 0xff elseif mc == 0 then return s .. "\n" end
+
+	local kc
+
+	if mc == 10 then -- BCMstr
+		kc = funck(func, -d - 1)
+		kc = format(#kc > 40 ? "\"%.40s\"~" : "\"%s\"", gsub(kc, "%c", ctlsub))
+	elseif mc == 9 then -- BCMnum
+		kc = funck(func, d)
+
+		if op == "TSETM " then kc -= 2 ^ 52 end
+	elseif mc == 12 then -- BCMfunc
+		local fi = funcinfo(funck(func, -d - 1))
+
+		if fi.ffid then kc = vmdef.ffnames[fi.ffid] else kc = fi.loc end
+	elseif mc == 5 then -- BCMuv
+		kc = funcuvname(func, d)
+	end
+
+	if ma == 5 then -- BCMuv
+		local ka = funcuvname(func, a)
+
+		if kc then kc = ka .. " ; " .. kc else kc = ka end
+	end
+
+	if mb ~= 0 then
+		local b = ins >> 24
+
+		if kc then return format("%s%3d %3d  ; %s\n", s, b, d, kc) end
+
+		return format("%s%3d %3d\n", s, b, d)
+	end
+
+	if kc then return format("%s%3d      ; %s\n", s, d, kc) end
+
+	if mc == 7 and d > 32767 then d -= 65536 end -- BCMlits
+	return format("%s%3d\n", s, d)
 end
 
 -- Collect branch targets of a function.
 local function bctargets(func)
-  local target = {}
-  for pc=1,1000000000 do
-    local ins, m = funcbc(func, pc)
-    if not ins then break end
-    if m & (15 << 7) == (13 << 7) then target[pc+(ins >> 16)-0x7fff] = true end
-  end
-  return target
+	local target = {}
+
+	for pc = 1, 1000000000 do
+		local ins, m = funcbc(func, pc)
+
+		if not ins then break end
+
+		if m & (15 << 7) == (13 << 7) then target[pc + (ins >> 16) - 0x7fff] = true end
+	end
+
+	return target
 end
 
 -- Dump bytecode instructions of a function.
 local function bcdump(func, out, all)
-  if not out then out = stdout end
-  local fi = funcinfo(func)
-  if all and fi.children then
-    for n=-1,-1000000000,-1 do
-      local k = funck(func, n)
-      if not k then break end
-      if type(k) == "proto" then bcdump(k, out, true) end
-    end
-  end
-  out:write(format("-- BYTECODE -- %s-%d\n", fi.loc, fi.lastlinedefined))
-  local target = bctargets(func)
-  for pc=1,1000000000 do
-    local s = bcline(func, pc, target[pc] and "=>")
-    if not s then break end
-    out:write(s)
-  end
-  out:write("\n")
-  out:flush()
+	if not out then out = stdout end
+
+	local fi = funcinfo(func)
+
+	if all and fi.children then
+		for n = -1, -1000000000, -1 do
+			local k = funck(func, n)
+
+			if not k then break end
+
+			if type(k) == "proto" then bcdump(k, out, true) end
+		end
+	end
+
+	out:write(format("-- BYTECODE -- %s-%d\n", fi.loc, fi.lastlinedefined))
+	local target = bctargets(func)
+
+	for pc = 1, 1000000000 do
+		local s = bcline(func, pc, target[pc] and "=>")
+
+		if not s then break end
+
+		out:write(s)
+	end
+
+	out:write("\n")
+	out:flush()
 end
 
 ------------------------------------------------------------------------------
-
 -- Active flag and output file handle.
 local active, out
 
 -- List handler.
 local function h_list(func)
-  return bcdump(func, out)
+	return bcdump(func, out)
 end
 
 -- Detach list handler.
 local function bclistoff()
-  if active then
-    active = false
-    jit.attach(h_list)
-    if out and out != stdout and out != stderr then out:close() end
-    out = nil
-  end
+	if active then
+		active = false
+		jit.attach(h_list)
+
+		if out and out ~= stdout and out ~= stderr then out:close() end
+
+		out = nil
+	end
 end
 
 -- Open the output file and attach list handler.
 local function bcliston(outfile)
-  if active then bclistoff() end
-  if not outfile then outfile = os.getenv("LUAJIT_LISTFILE") end
-  if outfile then
-    out = outfile == "-" ? stdout : assert(io.open(outfile, "w"))
-  else
-    out = stderr
-  end
-  jit.attach(h_list, "bc")
-  active = true
+	if active then bclistoff() end
+
+	if not outfile then outfile = os.getenv("LUAJIT_LISTFILE") end
+
+	if outfile then
+		out = outfile == "-" ? stdout : assert(io.open(outfile, "w"))
+	else
+		out = stderr
+	end
+
+	jit.attach(h_list, "bc")
+	active = true
 end
 
 -- Public module functions.
 return {
-  line = bcline,
-  dump = bcdump,
-  targets = bctargets,
-  on = bcliston,
-  off = bclistoff,
-  start = bcliston -- For -j command line option.
+	line = bcline,
+	dump = bcdump,
+	targets = bctargets,
+	on = bcliston,
+	off = bclistoff,
+	start = bcliston, -- For -j command line option.
 }
-

@@ -85,7 +85,9 @@ local function update_simulation()
 			local nearest = math.huge
 
 			for i = 1, observer_count, 3 do
-				local dx, dy, dz = observers[i] - position.x, observers[i + 1] - position.y, observers[i + 2] - position.z
+				local dx, dy, dz = observers[i] - position.x,
+				observers[i + 1] - position.y,
+				observers[i + 2] - position.z
 				nearest = math.min(nearest, dx * dx + dy * dy + dz * dz)
 			end
 
@@ -247,7 +249,11 @@ function META:OnStuck(position)
 	end
 
 	local ahead = mesh:GetAreaAt(
-		Vec3(position.x + self.dir_x * STUCK_PROBE, position.y, position.z + self.dir_z * STUCK_PROBE)
+		Vec3(
+			position.x + self.dir_x * STUCK_PROBE,
+			position.y,
+			position.z + self.dir_z * STUCK_PROBE
+		)
 	)
 
 	if ahead and ahead ~= current then self.blocked[ahead] = expires end

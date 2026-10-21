@@ -61,55 +61,62 @@ return {
 	Name = "text flow",
 	Section = "Graphics",
 	Order = 2,
-	View = react.Component(|| -> do
-		local panel = react.UseRef()
-		local view = react.UseMemo(|| -> do
-			local font = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 18}
+	View = react.Component(
+		||-> do
+			local panel = react.UseRef()
+			local view = react.UseMemo(
+				||-> do
+					local font = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 18}
+					return {font = font, prepared = pretext.prepare(ARTICLE, font)}
+				end,
+				{}
+			)
+			react.UseEvent(
+				"Update",
+				||-> do
+					if panel.current then rebuild_layout(view, panel.current.transform:GetSize()) end
+				end
+			)
+			local draw = react.UseCallback(
+				|flow|-> do
+					local size = flow.transform:GetSize()
+					render2d.SetTexture(nil)
+					render2d.SetColor(0.05, 0.06, 0.08, 1)
+					render2d.DrawRect(0, 0, size.x, size.y)
+					render2d.SetColor(0.1, 0.11, 0.14, 1)
+					render2d.DrawRect(20, 20, size.x - 40, size.y - 40)
 
-			return {font = font, prepared = pretext.prepare(ARTICLE, font)}
-		end, {})
+					if not view.flow then return end
 
-		react.UseEvent("Update", || -> do
-			if panel.current then rebuild_layout(view, panel.current.transform:GetSize()) end
-		end)
+					render2d.SetColor(1, 1, 1, 0.03)
+					render2d.DrawRect(view.region.x, view.region.y, view.region.width, view.region.height)
 
-		local draw = react.UseCallback(|flow| -> do
-			local size = flow.transform:GetSize()
-			render2d.SetTexture(nil)
-			render2d.SetColor(0.05, 0.06, 0.08, 1)
-			render2d.DrawRect(0, 0, size.x, size.y)
-			render2d.SetColor(0.1, 0.11, 0.14, 1)
-			render2d.DrawRect(20, 20, size.x - 40, size.y - 40)
+					for _, obstacle in ipairs(view.obstacles) do
+						draw_obstacle(obstacle)
+					end
 
-			if not view.flow then return end
+					render2d.SetColor(0.9, 0.93, 0.98, 1)
 
-			render2d.SetColor(1, 1, 1, 0.03)
-			render2d.DrawRect(view.region.x, view.region.y, view.region.width, view.region.height)
-
-			for _, obstacle in ipairs(view.obstacles) do
-				draw_obstacle(obstacle)
-			end
-
-			render2d.SetColor(0.9, 0.93, 0.98, 1)
-
-			for _, line in ipairs(view.flow.lines) do
-				view.font:DrawText(line.text, line.x, line.y)
-			end
-		end, {})
-
-		return kit.Page{
-			Title = "Text flow",
-			Description = "Band based obstacle flow built on pretext.layout_next_line. The circle animates while the card stays fixed, and the text reflows around both every frame.",
-		}{
-			kit.Section{Title = "Obstacles", Framed = false}{
-				ui.Panel{
-					Ref = panel,
-					transform = true,
-					layout = {GrowWidth = 1, MinSize = Vec2(100, 420)},
-					visual = true,
-					OnDraw = draw,
+					for _, line in ipairs(view.flow.lines) do
+						view.font:DrawText(line.text, line.x, line.y)
+					end
+				end,
+				{}
+			)
+			return kit.Page{
+				Title = "Text flow",
+				Description = "Band based obstacle flow built on pretext.layout_next_line. The circle animates while the card stays fixed, and the text reflows around both every frame.",
+			}{
+				kit.Section{Title = "Obstacles", Framed = false}{
+					ui.Panel{
+						Ref = panel,
+						transform = true,
+						layout = {GrowWidth = 1, MinSize = Vec2(100, 420)},
+						visual = true,
+						OnDraw = draw,
+					},
 				},
-			},
-		}
-	end),
+			}
+		end
+	),
 }

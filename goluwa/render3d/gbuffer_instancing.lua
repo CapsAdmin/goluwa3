@@ -28,7 +28,15 @@ local function draw_instanced(_, batch, instance_buffers, first_instance)
 	render3d.SetCurrentPolygon3D(batch.polygon3d)
 	render3d.SetMaterial(batch.material)
 	render3d.UploadInstancedGBufferConstants()
-	batch.mesh:DrawInstanced(render.GetCommandBuffer(), batch.count, instance_buffers, nil, 0, 0, first_instance)
+	batch.mesh:DrawInstanced(
+		render.GetCommandBuffer(),
+		batch.count,
+		instance_buffers,
+		nil,
+		0,
+		0,
+		first_instance
+	)
 end
 
 local batcher = InstanceBatcher.New{

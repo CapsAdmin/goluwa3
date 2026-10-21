@@ -1286,7 +1286,9 @@ function Visual:GetLODEntriesAt(camera_position)
 	local center_x, center_y, center_z = (aabb.min_x + aabb.max_x) * 0.5,
 	(aabb.min_y + aabb.max_y) * 0.5,
 	(aabb.min_z + aabb.max_z) * 0.5
-	local dx, dy, dz = camera_position.x - center_x, camera_position.y - center_y, camera_position.z - center_z
+	local dx, dy, dz = camera_position.x - center_x,
+	camera_position.y - center_y,
+	camera_position.z - center_z
 	local extent_x, extent_y, extent_z = aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z
 	local radius = math.sqrt(extent_x * extent_x + extent_y * extent_y + extent_z * extent_z) * 0.5
 	local ratio = math.sqrt(dx * dx + dy * dy + dz * dz) / (
@@ -1560,7 +1562,10 @@ do
 		if not gpu_culling.culling_enabled then return true end
 
 		for i = 0, 20, 4 do
-			local a, b, c, d = frustum_planes[i], frustum_planes[i + 1], frustum_planes[i + 2], frustum_planes[i + 3]
+			local a, b, c, d = frustum_planes[i],
+			frustum_planes[i + 1],
+			frustum_planes[i + 2],
+			frustum_planes[i + 3]
 			local px = a > 0 and aabb.max_x or aabb.min_x
 			local py = b > 0 and aabb.max_y or aabb.min_y
 			local pz = c > 0 and aabb.max_z or aabb.min_z
@@ -2497,9 +2502,15 @@ function Visual:OnFirstCreated()
 
 			local m = world_matrix
 			return math.min(
-				(aabb.max_x - aabb.min_x) * math.sqrt(m.m00 * m.m00 + m.m01 * m.m01 + m.m02 * m.m02),
-				(aabb.max_y - aabb.min_y) * math.sqrt(m.m10 * m.m10 + m.m11 * m.m11 + m.m12 * m.m12),
-				(aabb.max_z - aabb.min_z) * math.sqrt(m.m20 * m.m20 + m.m21 * m.m21 + m.m22 * m.m22)
+				(
+						aabb.max_x - aabb.min_x
+					) * math.sqrt(m.m00 * m.m00 + m.m01 * m.m01 + m.m02 * m.m02),
+				(
+						aabb.max_y - aabb.min_y
+					) * math.sqrt(m.m10 * m.m10 + m.m11 * m.m11 + m.m12 * m.m12),
+				(
+						aabb.max_z - aabb.min_z
+					) * math.sqrt(m.m20 * m.m20 + m.m21 * m.m21 + m.m22 * m.m22)
 			)
 		end
 

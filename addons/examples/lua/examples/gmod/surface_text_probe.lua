@@ -7,7 +7,12 @@ end
 
 local function outline_rect(x, y, w, h, color)
 	surface.SetDrawColor(color.r, color.g, color.b, color.a or 255)
-	surface.DrawOutlinedRect(math.floor(x), math.floor(y), math.max(math.floor(w), 0), math.max(math.floor(h), 0))
+	surface.DrawOutlinedRect(
+		math.floor(x),
+		math.floor(y),
+		math.max(math.floor(w), 0),
+		math.max(math.floor(h), 0)
+	)
 end
 
 local function draw_label(text, x, y, color, font)

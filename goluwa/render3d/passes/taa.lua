@@ -317,7 +317,9 @@ return {
 						post_source.pre_exposure_block,
 					},
 					write = function(self, block)
-						block.source_tex = self:GetTextureIndex(render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
+						block.source_tex = self:GetTextureIndex(
+							render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
+						)
 						block.strength = strength:Get()
 						post_source.WritePreExposureBlock(self, block)
 						return block

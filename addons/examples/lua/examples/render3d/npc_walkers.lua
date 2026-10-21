@@ -27,6 +27,10 @@ event.AddListener("Update", "npc_walkers", function()
 
 	for i = 1, COUNT do
 		local position = mesh:GetRandomPoint(center, SPREAD) or mesh:GetRandomPoint()
-		npcs.Spawn(names[i % #names + 1], position + Vec3(0, 0.05, 0), math.randomf(-math.pi, math.pi))
+		npcs.Spawn(
+			names[i % #names + 1],
+			position + Vec3(0, 0.05, 0),
+			math.randomf(-math.pi, math.pi)
+		)
 	end
 end)

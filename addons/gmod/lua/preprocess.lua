@@ -172,7 +172,17 @@ function gine.PreprocessLua(code, add_newlines)
 		end
 
 		if not in_string and not in_comment and not in_multiline then
-			if (chars[i] == "/" and chars[i + 1] == "/") or (chars[i] == "-" and chars[i + 1] == "-") then
+			if
+				(
+					chars[i] == "/" and
+					chars[i + 1] == "/"
+				)
+				or
+				(
+					chars[i] == "-" and
+					chars[i + 1] == "-"
+				)
+			then
 				chars[i] = "-"
 				chars[i + 1] = "-"
 				in_comment = "line"

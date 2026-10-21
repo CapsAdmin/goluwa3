@@ -170,7 +170,11 @@ do
 			local point = points[i]
 			local next_point = points[math.min(i + 1, count)]
 			local prev_point = points[math.max(i - 1, 1)]
-			local dx, dy, dz = normalize(next_point[1] - prev_point[1], next_point[2] - prev_point[2], next_point[3] - prev_point[3])
+			local dx, dy, dz = normalize(
+				next_point[1] - prev_point[1],
+				next_point[2] - prev_point[2],
+				next_point[3] - prev_point[3]
+			)
 			local dot = rx * dx + ry * dy + rz * dz
 			rx, ry, rz = normalize(rx - dx * dot, ry - dy * dot, rz - dz * dot)
 			local ux, uy, uz = cross(dx, dy, dz, rx, ry, rz)

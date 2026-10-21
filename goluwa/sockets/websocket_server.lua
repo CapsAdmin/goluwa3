@@ -28,7 +28,9 @@ function WebSocketServer:OnClientConnected(client)
 			{
 				["Upgrade"] = "websocket",
 				["Connection"] = headers["connection"],
-				["Sec-WebSocket-Accept"] = crypto.Base64Encode(crypto.SHA1(headers["sec-websocket-key"] .. "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")),
+				["Sec-WebSocket-Accept"] = crypto.Base64Encode(
+					crypto.SHA1(headers["sec-websocket-key"] .. "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+				),
 			}
 		)
 

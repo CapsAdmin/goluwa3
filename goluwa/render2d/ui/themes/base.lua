@@ -1603,9 +1603,17 @@ function BaseTheme:Draw(pnl)
 			}
 		)
 	elseif role == "tree_toggle" then
-		return self:DrawTreeToggle(pnl.transform:GetSize(), pnl:GetState("tree_meta"), pnl:GetState("tree_opts") or {})
+		return self:DrawTreeToggle(
+			pnl.transform:GetSize(),
+			pnl:GetState("tree_meta"),
+			pnl:GetState("tree_opts") or {}
+		)
 	elseif role == "tree_guides" then
-		return self:DrawTreeGuideLines(pnl.transform:GetSize(), pnl:GetState("tree_meta"), pnl:GetState("tree_opts") or {})
+		return self:DrawTreeGuideLines(
+			pnl.transform:GetSize(),
+			pnl:GetState("tree_meta"),
+			pnl:GetState("tree_opts") or {}
+		)
 	elseif role == "tree_label" then
 		local size = pnl.transform:GetSize()
 
@@ -1747,11 +1755,21 @@ function BaseTheme:DrawArrow(x, y, w, h, direction, color, unit)
 		if direction == "up" then
 			render2d.DrawRect(math.floor(cx - width / 2), math.floor(cy - length / 2 + along), width, unit)
 		elseif direction == "down" then
-			render2d.DrawRect(math.floor(cx - width / 2), math.floor(cy + length / 2 - along - unit), width, unit)
+			render2d.DrawRect(
+				math.floor(cx - width / 2),
+				math.floor(cy + length / 2 - along - unit),
+				width,
+				unit
+			)
 		elseif direction == "left" then
 			render2d.DrawRect(math.floor(cx - length / 2 + along), math.floor(cy - width / 2), unit, width)
 		else
-			render2d.DrawRect(math.floor(cx + length / 2 - along - unit), math.floor(cy - width / 2), unit, width)
+			render2d.DrawRect(
+				math.floor(cx + length / 2 - along - unit),
+				math.floor(cy - width / 2),
+				unit,
+				width
+			)
 		end
 	end
 end

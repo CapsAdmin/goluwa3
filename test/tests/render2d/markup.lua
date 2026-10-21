@@ -208,7 +208,10 @@ T.Test2D("Markup visual down movement follows wrapped layout", function()
 	m:Invalidate()
 	m:SetCaretSubPosition(1)
 	local caret = m.caret_pos
-	local expected = m:CaretFromPixels(caret.char.data.x + caret.char.data.w / 2, caret.char.data.y + caret.char.data.h + 1)
+	local expected = m:CaretFromPixels(
+		caret.char.data.x + caret.char.data.w / 2,
+		caret.char.data.y + caret.char.data.h + 1
+	)
 	m:OnKeyInput("down")
 	T(m.editor.Cursor)["=="](expected.i)
 end)

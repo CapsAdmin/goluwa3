@@ -110,67 +110,66 @@ function chatbox.AddText(...)
 	end
 end
 
-local ChatWindow = react.Component(|| -> do
-	local edit, set_edit = react.UseState()
-
-	react.UseEffect(|| -> do
-		if edit then edit:RequestTextFocus() end
-	end, {edit})
-
-	return {
-		ui.Window{Name = "chatbox", Title = "chat", Padding = "XS"}{
-			ui.MarkupPanel{
-				Markup = chatbox.markup_chatbox,
-				AdaptColors = true,
-				layout = {MinSize = Vec2(0, 0), MaxSize = Vec2(10000, 10000), GrowHeight = 1},
-			},
-			ui.Row{layout = {AlignmentY = "start", ChildGap = "XS"}}{
-				ui.TextEdit{
-					Ref = |entity| -> do
-						chatbox.text_edit = entity ?? NULL
-						set_edit(entity)
-					end,
-					Text = "",
-					Editable = true,
-					History = chatbox.history,
-					Autocomplete = chatbox.autocomplete,
-					AutocompleteGhost = false,
-					ScrollY = true,
-					FontSize = "M",
-					Wrap = true,
-					AutoResize = true,
-					layout = {GrowWidth = 1},
-					Padding = Rect(4, 4, 4, 4),
-					OnTextChanged = |_, text| -> event.Call("ChatTextChanged", text),
-					OnKeyInput = |_, key, press| -> do
-						if not press then return end
-
-						if key == "escape" then
-							chatbox.Hide()
-
-							return true
-						elseif key == "enter" and not input.IsShiftDown() then
-							chatbox.text_edit:CommitHistory()
-							event.Call("ChatBoxInput", chatbox.text_edit:GetText())
-							chatbox.Hide()
-
-							return true
-						end
-					end,
+local ChatWindow = react.Component(
+	||-> do
+		local edit, set_edit = react.UseState()
+		react.UseEffect(||-> do
+			if edit then edit:RequestTextFocus() end
+		end, {edit})
+		return {
+			ui.Window{Name = "chatbox", Title = "chat", Padding = "XS"}{
+				ui.MarkupPanel{
+					Markup = chatbox.markup_chatbox,
+					AdaptColors = true,
+					layout = {MinSize = Vec2(0, 0), MaxSize = Vec2(10000, 10000), GrowHeight = 1},
 				},
-				ui.MarkupTagPicker{Target = edit},
+				ui.Row{layout = {AlignmentY = "start", ChildGap = "XS"}}{
+					ui.TextEdit{
+						Ref = |entity|-> do
+							chatbox.text_edit = entity ?? NULL
+							set_edit(entity)
+						end,
+						Text = "",
+						Editable = true,
+						History = chatbox.history,
+						Autocomplete = chatbox.autocomplete,
+						AutocompleteGhost = false,
+						ScrollY = true,
+						FontSize = "M",
+						Wrap = true,
+						AutoResize = true,
+						layout = {GrowWidth = 1},
+						Padding = Rect(4, 4, 4, 4),
+						OnTextChanged = |_,text|->event.Call("ChatTextChanged", text),
+						OnKeyInput = |_,key,press|-> do
+							if not press then return end
+
+							if key == "escape" then
+								chatbox.Hide()
+								return true
+							elseif key == "enter" and not input.IsShiftDown() then
+								chatbox.text_edit:CommitHistory()
+								event.Call("ChatBoxInput", chatbox.text_edit:GetText())
+								chatbox.Hide()
+								return true
+							end
+						end,
+					},
+					ui.MarkupTagPicker{Target = edit},
+				},
 			},
-		},
-		edit && react.Portal{Target = Panel.World}{ui.AutocompleteList{Target = edit, Transparent = true}},
-	}
-end)
-local ChatRoot = react.Component(|| -> do
-	local open, set_open = react.UseState(false)
-
-	react.UseEvent("ChatboxVisible", set_open)
-
-	return open && ChatWindow{}
-end)
+			edit and
+			react.Portal{Target = Panel.World}{ui.AutocompleteList{Target = edit, Transparent = true}},
+		}
+	end
+)
+local ChatRoot = react.Component(
+	||-> do
+		local open, set_open = react.UseState(false)
+		react.UseEvent("ChatboxVisible", set_open)
+		return open and ChatWindow{}
+	end
+)
 
 function chatbox.Show()
 	if event.Call("ChatOpen") == false then return end

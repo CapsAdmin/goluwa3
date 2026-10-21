@@ -39,7 +39,11 @@ local function spawn_grid(side)
 		local entity = Entity.New{Name = "animated_" .. index}
 		local transform = entity:AddComponent("transform")
 		transform:SetPosition(
-			Vec3((math.floor(index / side) - half) * SPACING, floor_y, (index % side - half) * SPACING)
+			Vec3(
+				(math.floor(index / side) - half) * SPACING,
+				floor_y,
+				(index % side - half) * SPACING
+			)
 		)
 		transform:SetRotation(QuatDeg3(0, (index * 47) % 360, 0))
 		entity:AddComponent("visual")

@@ -845,9 +845,7 @@ local function putop(ctx, text, operands)
 			)
 		)
 	else
-		ctx.out(
-			format("%08x  %-5s %s%s\n", ctx.addr + pos, text, concat(operands, ", "), extra)
-		)
+		ctx.out(format("%08x  %-5s %s%s\n", ctx.addr + pos, text, concat(operands, ", "), extra))
 	end
 
 	ctx.pos = pos + 4
@@ -1009,7 +1007,6 @@ local function disass_ins(ctx)
 
 					if name == "mov" then
 						name = s
-						
 						x = r
 					elseif r then
 						x = format("%s %s", s, r)
@@ -1034,7 +1031,7 @@ local function disass_ins(ctx)
 		elseif p == "G" then
 			vr = "d"
 		elseif p == "." then
-			suffix ..= vr == "s" ? ".f32" : ".f64"--[[#: ]]
+			suffix ..= vr == "s" ? ".f32" : ".f64"
 		elseif p == "R" then
 			if op & 0x00200000 ~= 0 and #operands == 1 then
 				operands[1] = operands[1] .. "!"
@@ -1070,9 +1067,9 @@ local function disass_ins(ctx)
 			x = (op >> 7) & 31
 
 			if op & 0x40 == 0 then
-				x = x == 0 ? nil : "lsl #" .. x--[[#: ]]
+				x = x == 0 ? nil : "lsl #" .. x
 			else
-				x = x == 0 ? "asr #32" : "asr #" .. x--[[#: ]]
+				x = x == 0 ? "asr #32" : "asr #" .. x
 			end
 		elseif p == "v" then
 			x = (op >> 7) & 31
@@ -1109,7 +1106,7 @@ end
 local function disass_block(ctx, ofs, len)
 	if not ofs then ofs = 0 end
 
-	local stop = len ? ofs + len : #ctx.code--[[#: ]]
+	local stop = len ? ofs + len : #ctx.code
 	ctx.pos = ofs
 	ctx.rel = nil
 

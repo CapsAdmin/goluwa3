@@ -726,7 +726,9 @@ do
 			local count = #output / 3
 
 			for i = 1, count do
-				local a, b, c = output[1 + (i - 1) * 3 + 0], output[1 + (i - 1) * 3 + 1], output[1 + (i - 1) * 3 + 2]
+				local a, b, c = output[1 + (i - 1) * 3 + 0],
+				output[1 + (i - 1) * 3 + 1],
+				output[1 + (i - 1) * 3 + 2]
 				local normal = (b.pos - a.pos):Cross(c.pos - a.pos):GetNormalized()
 				vertex_normals[a.pos_index] = vertex_normals[a.pos_index] or Vec3()
 				vertex_normals[a.pos_index] = (vertex_normals[a.pos_index] + normal)

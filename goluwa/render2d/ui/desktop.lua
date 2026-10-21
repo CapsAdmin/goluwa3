@@ -38,7 +38,11 @@ local function default_shown(window)
 end
 
 local function default_hidden(window)
-	if window.Pinned then window:SetHud(true) else window.visual:SetVisible(false) end
+	if window.Pinned then
+		window:SetHud(true)
+	else
+		window.visual:SetVisible(false)
+	end
 end
 
 local function noop() end
@@ -59,7 +63,7 @@ function desktop.RegisterProgram(program)
 end
 
 function desktop.GetPrograms()
-	return list.map(order, |name| -> programs[name])
+	return list.map(order, |name|->programs[name])
 end
 
 function desktop.RegisterMenu(menu)
@@ -68,7 +72,9 @@ function desktop.RegisterMenu(menu)
 end
 
 function desktop.RegisterBackdrop(backdrop)
-	if not backdrops[backdrop.Name] then backdrop_order[#backdrop_order + 1] = backdrop.Name end
+	if not backdrops[backdrop.Name] then
+		backdrop_order[#backdrop_order + 1] = backdrop.Name
+	end
 
 	backdrop.OnActivate = backdrop.OnActivate or noop
 	backdrop.OnDeactivate = backdrop.OnDeactivate or noop
@@ -90,7 +96,6 @@ end
 
 function desktop.GetBackdrop()
 	local name = pvars.Get("desktop_backdrop")
-
 	return backdrops[name] and name or "dim"
 end
 
@@ -161,7 +166,11 @@ function desktop.Open(name)
 
 	program.Window:BringToFront()
 
-	if shown then program.OnShown(program.Window) else program.OnHidden(program.Window) end
+	if shown then
+		program.OnShown(program.Window)
+	else
+		program.OnHidden(program.Window)
+	end
 
 	if program.Interactive then desktop.Hide() end
 
@@ -207,7 +216,6 @@ local function build_menu_items()
 						system.ShutDown(0)
 					end,
 				}
-
 				return items
 			end,
 		},
@@ -238,7 +246,11 @@ local function build_menu_items()
 						end,
 					},
 					MenuItem{
-						Text = "Layout debugger" .. (Panel.World.ui_debug:IsLayoutDebugEnabled() and " (on)" or " (off)"),
+						Text = "Layout debugger" .. (
+								Panel.World.ui_debug:IsLayoutDebugEnabled() and
+								" (on)" or
+								" (off)"
+							),
 						Icon = "layers",
 						OnClick = function()
 							Panel.World.ui_debug:SetLayoutDebug(not Panel.World.ui_debug:IsLayoutDebugEnabled())
@@ -282,42 +294,46 @@ local function draw_backdrop(self)
 	active_backdrop.OnDraw(self, size.x, size.y)
 end
 
-local DesktopView = react.Component(|| -> do
-	local version, set_version = react.UseState(0)
-	local menu_items = react.UseMemo(build_menu_items, {version})
-
-	react.UseEvent("DesktopChanged", || -> set_version(|current| -> current + 1))
-
-	return ui.Panel{
-		Ref = |entity| -> do root = entity ?? NULL end,
-		transform = true,
-		layout = {Direction = "y", AlignmentX = "stretch"},
-		visual = true,
-		mouse_input = {RequestMouse = true},
-		OnDraw = draw_backdrop,
-	}{
-		ui.Frame{layout = {GrowWidth = 1, FitHeight = true, AlignmentX = "stretch"}}{
-			ui.MenuBar{
-				Ref = |entity| -> do menu_bar = entity ?? NULL end,
-				MenuKey = "DesktopMenuBarContextMenu",
-				Items = menu_items,
-				layout = {GrowWidth = 1},
+local DesktopView = react.Component(
+	||-> do
+		local version, set_version = react.UseState(0)
+		local menu_items = react.UseMemo(build_menu_items, {version})
+		react.UseEvent("DesktopChanged", ||->set_version(|current|->current + 1))
+		return ui.Panel{
+			Ref = |entity|-> do
+				root = entity ?? NULL
+			end,
+			transform = true,
+			layout = {Direction = "y", AlignmentX = "stretch"},
+			visual = true,
+			mouse_input = {RequestMouse = true},
+			OnDraw = draw_backdrop,
+		}{
+			ui.Frame{layout = {GrowWidth = 1, FitHeight = true, AlignmentX = "stretch"}}{
+				ui.MenuBar{
+					Ref = |entity|-> do
+						menu_bar = entity ?? NULL
+					end,
+					MenuKey = "DesktopMenuBarContextMenu",
+					Items = menu_items,
+					layout = {GrowWidth = 1},
+				},
 			},
-		},
-		ui.Row{layout = {ChildGap = "S", Padding = "M"}}{
-			list.map(
-				list.filter(order, |name| -> not programs[name].NoButton),
-				|name| -> ui.Button{
-					Key = name,
-					Text = name,
-					Icon = programs[name].Icon,
-					Mode = "filled",
-					OnClick = || -> desktop.Open(name),
-				}
-			),
-		},
-	}
-end)
+			ui.Row{layout = {ChildGap = "S", Padding = "M"}}{
+				list.map(
+					list.filter(order, |name|->not programs[name].NoButton),
+					|name|->ui.Button{
+						Key = name,
+						Text = name,
+						Icon = programs[name].Icon,
+						Mode = "filled",
+						OnClick = ||->desktop.Open(name),
+					}
+				),
+			},
+		}
+	end
+)
 
 function desktop.Show(is_dimmed)
 	if shown then return end
@@ -329,7 +345,6 @@ function desktop.Show(is_dimmed)
 	dimmed = is_dimmed
 	render2d.SetHudHidden("desktop", true)
 	Dock.GetInstance():SetPinned(true)
-
 	root.transform:SetSize(Panel.World.transform:GetSize())
 	root.visual:SetVisible(true)
 	root:SendToBack()
@@ -395,7 +410,9 @@ end
 
 function desktop.ToggleShown()
 	for _, name in ipairs(order) do
-		if desktop.IsOpen(name) and programs[name].OnEscape(programs[name].Window) then return end
+		if desktop.IsOpen(name) and programs[name].OnEscape(programs[name].Window) then
+			return
+		end
 	end
 
 	if shown then desktop.Hide() else desktop.Show(true) end

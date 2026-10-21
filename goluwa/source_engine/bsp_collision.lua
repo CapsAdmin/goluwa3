@@ -239,7 +239,11 @@ do
 	local function try_merge(a, b)
 		if a.key ~= b.key then return nil end
 
-		local min = Vec3(math.min(a.min.x, b.min.x), math.min(a.min.y, b.min.y), math.min(a.min.z, b.min.z))
+		local min = Vec3(
+			math.min(a.min.x, b.min.x),
+			math.min(a.min.y, b.min.y),
+			math.min(a.min.z, b.min.z)
+		)
 		local max = Vec3(math.max(a.max.x, b.max.x), a.max.y, math.max(a.max.z, b.max.z))
 		local union = {min = min, max = max}
 		local overlap_x = math.max(math.min(a.max.x, b.max.x) - math.max(a.min.x, b.min.x), 0)

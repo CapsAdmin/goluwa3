@@ -631,8 +631,12 @@ do
 			local max_x = math.max(min_x, bounds_width - self.x - part.siz.x)
 			local max_y = math.max(min_y, markup.height - self.y - part.siz.y)
 			local keep = drag ^ (dt * 60)
-			part.vel.x = (part.vel.x + gravity_x * 800 * dt + math.randomf(-1, 1) * rand_mult * 200 * dt) * keep
-			part.vel.y = (part.vel.y + gravity_y * 800 * dt + math.randomf(-1, 1) * rand_mult * 200 * dt) * keep
+			part.vel.x = (
+					part.vel.x + gravity_x * 800 * dt + math.randomf(-1, 1) * rand_mult * 200 * dt
+				) * keep
+			part.vel.y = (
+					part.vel.y + gravity_y * 800 * dt + math.randomf(-1, 1) * rand_mult * 200 * dt
+				) * keep
 			part.pos.x = part.pos.x + part.vel.x * dt
 			part.pos.y = part.pos.y + part.vel.y * dt
 

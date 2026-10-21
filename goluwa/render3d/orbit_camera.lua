@@ -44,7 +44,11 @@ end
 
 function META:GetViewOffset()
 	local cos_pitch = math.cos(self.Pitch)
-	return Vec3(math.sin(self.Yaw) * cos_pitch, -math.sin(self.Pitch), math.cos(self.Yaw) * cos_pitch)
+	return Vec3(
+		math.sin(self.Yaw) * cos_pitch,
+		-math.sin(self.Pitch),
+		math.cos(self.Yaw) * cos_pitch
+	)
 end
 
 function META:Zoom(steps)

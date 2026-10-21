@@ -126,7 +126,13 @@ function ops.RecordProperty(target, info, old_value, new_value, set)
 	local var_name = info.var_name
 	history:Push{
 		Name = var_name .. " of " .. get_entity_label(target),
-		Key = (ref.guid or tostring(ref.object)) .. "/" .. (ref.component or "") .. "/" .. var_name,
+		Key = (
+				ref.guid or
+				tostring(ref.object)
+			) .. "/" .. (
+				ref.component or
+				""
+			) .. "/" .. var_name,
 		Undo = function()
 			if ref.guid then select_entity(ref.guid) end
 

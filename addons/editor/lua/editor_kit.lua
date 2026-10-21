@@ -5,19 +5,19 @@ local Row = react.Element(import("goluwa/render2d/ui/elements/row.lua"))
 local Text = react.Element(import("goluwa/render2d/ui/elements/text.lua"))
 local PanelElement = react.Element(Panel)
 local kit = {}
-
-kit.ViewerWindow = react.Component(|props| -> do
-	local position = react.UseMemo(|| -> (Panel.World.transform:GetSize() - props.Size) / 2, {})
-
-	return Window{
-		Title = props.Title,
-		Size = props.Size,
-		Padding = "none",
-		Position = position,
-		layout = props.layout,
-		Ref = props.Ref,
-	}{props.children}
-end)
+kit.ViewerWindow = react.Component(
+	|props|-> do
+		local position = react.UseMemo(||->(Panel.World.transform:GetSize() - props.Size) / 2, {})
+		return Window{
+			Title = props.Title,
+			Size = props.Size,
+			Padding = "none",
+			Position = position,
+			layout = props.layout,
+			Ref = props.Ref,
+		}{props.children}
+	end
+)
 
 function kit.Canvas(props)
 	return PanelElement{
@@ -26,9 +26,9 @@ function kit.Canvas(props)
 		layout = props.layout ?? {GrowWidth = 1, GrowHeight = 1},
 		mouse_input = {Cursor = props.Cursor ?? "arrow"},
 		visual = {OnDraw = props.OnDraw},
-		OnMouseInput = props.Drag && props.Drag.OnMouseInput || props.OnMouseInput,
-		OnGlobalMouseMove = props.Drag && props.Drag.OnGlobalMouseMove,
-		OnGlobalMouseInput = props.Drag && props.Drag.OnGlobalMouseInput,
+		OnMouseInput = props.Drag and props.Drag.OnMouseInput or props.OnMouseInput,
+		OnGlobalMouseMove = props.Drag and props.Drag.OnGlobalMouseMove,
+		OnGlobalMouseInput = props.Drag and props.Drag.OnGlobalMouseInput,
 		OnMouseMove = props.OnMouseMove,
 		Ref = props.Ref,
 	}
@@ -36,21 +36,40 @@ end
 
 function kit.UseOrbitDrag(view)
 	return react.UseDrag{
-		OnDrag = |_, _, dx, dy, moved| -> do
+		OnDrag = |_,_,dx,dy,moved|-> do
 			view.orbit:Rotate(dx, dy)
 
 			if moved then view.auto_rotate = false end
 		end,
-		OnEnd = |moved| -> do
+		OnEnd = |moved|-> do
 			if not moved then view.auto_rotate = not view.auto_rotate end
 		end,
 	}
 end
 
 function kit.InfoRow(props)
-	return Row{layout = {Direction = "x", GrowWidth = 1, FitHeight = true, AlignmentY = "center", ChildGap = 4}}{
-		Text{Text = props.Label, Font = "body XS", Color = "text_disabled", IgnoreMouseInput = true, layout = {FitWidth = true}},
-		Text{Text = props.Value, Font = "body XS", IgnoreMouseInput = true, layout = {GrowWidth = 1}},
+	return Row{
+		layout = {
+			Direction = "x",
+			GrowWidth = 1,
+			FitHeight = true,
+			AlignmentY = "center",
+			ChildGap = 4,
+		},
+	}{
+		Text{
+			Text = props.Label,
+			Font = "body XS",
+			Color = "text_disabled",
+			IgnoreMouseInput = true,
+			layout = {FitWidth = true},
+		},
+		Text{
+			Text = props.Value,
+			Font = "body XS",
+			IgnoreMouseInput = true,
+			layout = {GrowWidth = 1},
+		},
 	}
 end
 

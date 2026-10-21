@@ -237,7 +237,11 @@ do
 		world_to_screen_matrix:GetInverse(screen_to_world_inverse)
 		local near_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 1, screen_to_world_near)
 		local far_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 0, screen_to_world_far)
-		return Vec3(far_pos.m00 - near_pos.m00, far_pos.m01 - near_pos.m01, far_pos.m02 - near_pos.m02):GetNormalized()
+		return Vec3(
+			far_pos.m00 - near_pos.m00,
+			far_pos.m01 - near_pos.m01,
+			far_pos.m02 - near_pos.m02
+		):GetNormalized()
 	end
 end
 

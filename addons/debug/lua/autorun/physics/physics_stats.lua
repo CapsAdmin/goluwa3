@@ -28,7 +28,11 @@ local function timing_row(rows, label, seconds, per, total, indent, color)
 end
 
 local function count_row(rows, label, value, per, unit)
-	rows[#rows + 1] = {label = label, value = string.format("%.1f", per > 0 and value / per or 0), detail = unit}
+	rows[#rows + 1] = {
+		label = label,
+		value = string.format("%.1f", per > 0 and value / per or 0),
+		detail = unit,
+	}
 end
 
 local function build_rows(s, snapshot_frames, frame_time)
@@ -49,7 +53,11 @@ local function build_rows(s, snapshot_frames, frame_time)
 	local gauges = s.gauges
 	local counts = s.counts
 	rows[#rows + 1] = {
-		label = string.format("physics  %.1f steps/frame  frame %.1f ms", s.steps / frame_count, frame_time * 1000),
+		label = string.format(
+			"physics  %.1f steps/frame  frame %.1f ms",
+			s.steps / frame_count,
+			frame_time * 1000
+		),
 		color = "head",
 	}
 	rows[#rows + 1] = {
@@ -80,11 +88,26 @@ local function build_rows(s, snapshot_frames, frame_time)
 		end
 	end
 
-	timing_row(rows, "unaccounted", math.max(step_seconds - accounted, 0), steps, step_seconds, 0, "dim")
+	timing_row(
+		rows,
+		"unaccounted",
+		math.max(step_seconds - accounted, 0),
+		steps,
+		step_seconds,
+		0,
+		"dim"
+	)
 	rows[#rows + 1] = {label = "queries (per frame, any caller)", color = "head"}
 
 	for _, name in ipairs(stats.QueryNames) do
-		timing_row(rows, name, s.sections[name] or 0, frame_count, nil, name:find("^sweep_") and 2 or 0)
+		timing_row(
+			rows,
+			name,
+			s.sections[name] or 0,
+			frame_count,
+			nil,
+			name:find("^sweep_") and 2 or 0
+		)
 	end
 
 	rows[#rows + 1] = {label = "counts", color = "head"}
@@ -94,13 +117,43 @@ local function build_rows(s, snapshot_frames, frame_time)
 	count_row(rows, "contact points rebuilt", counts.contact_points or 0, steps, "/step")
 	count_row(rows, "sweeps (all)", counts.sweeps or 0, frame_count, "/frame")
 	count_row(rows, "  from ccd", counts.sweeps_ccd or 0, frame_count, "/frame")
-	count_row(rows, "  from support (body)", counts.sweeps_support_body or 0, frame_count, "/frame")
-	count_row(rows, "  from support (points)", counts.sweeps_support_points or 0, frame_count, "/frame")
-	count_row(rows, "  from support (sphere)", counts.sweeps_support_sphere or 0, frame_count, "/frame")
+	count_row(
+		rows,
+		"  from support (body)",
+		counts.sweeps_support_body or 0,
+		frame_count,
+		"/frame"
+	)
+	count_row(
+		rows,
+		"  from support (points)",
+		counts.sweeps_support_points or 0,
+		frame_count,
+		"/frame"
+	)
+	count_row(
+		rows,
+		"  from support (sphere)",
+		counts.sweeps_support_sphere or 0,
+		frame_count,
+		"/frame"
+	)
 	count_row(rows, "ray casts", counts.traces or 0, frame_count, "/frame")
-	count_row(rows, "collider index queries", counts.collider_index_queries or 0, steps, "/step")
+	count_row(
+		rows,
+		"collider index queries",
+		counts.collider_index_queries or 0,
+		steps,
+		"/step"
+	)
 	local queries = math.max(counts.collider_index_queries or 0, 1)
-	count_row(rows, "  colliders returned", counts.collider_index_returned or 0, queries, "/query")
+	count_row(
+		rows,
+		"  colliders returned",
+		counts.collider_index_returned or 0,
+		queries,
+		"/query"
+	)
 	count_row(rows, "  of colliders total", counts.collider_index_total or 0, queries, "/query")
 	count_row(rows, "world model scans", counts.world_model_scans or 0, frame_count, "/frame")
 	local scans = math.max(counts.world_model_scans or 0, 1)
@@ -114,41 +167,45 @@ end
 perf.RegisterTab(
 	"PHYSICS",
 	4,
-	react.Component(|| -> do
-		local rows, set_rows = react.UseState(|| -> build_rows())
-		local window = react.UseRef()
+	react.Component(
+		||-> do
+			local rows, set_rows = react.UseState(||->build_rows())
+			local window = react.UseRef()
+			react.UseEffect(
+				||-> do
+					stats:Enable()
+					latest.snapshot = nil
+					window.current = nil
+					return ||->stats:Disable()
+				end,
+				{}
+			)
+			react.UseEvent(
+				"Update",
+				||-> do
+					local now = system.GetElapsedTime()
 
-		react.UseEffect(|| -> do
-			stats:Enable()
-			latest.snapshot = nil
-			window.current = nil
+					if not window.current then
+						window.current = {start = now, frames = 0, last_update = now}
+					end
 
-			return || -> stats:Disable()
-		end, {})
+					local current = window.current
+					current.frames = current.frames + 1
+					latest.frame_time = latest.frame_time * 0.9 + (now - current.last_update) * 0.1
+					current.last_update = now
 
-		react.UseEvent("Update", || -> do
-			local now = system.GetElapsedTime()
-
-			if not window.current then
-				window.current = {start = now, frames = 0, last_update = now}
-			end
-
-			local current = window.current
-			current.frames = current.frames + 1
-			latest.frame_time = latest.frame_time * 0.9 + (now - current.last_update) * 0.1
-			current.last_update = now
-
-			if now - current.start >= WINDOW then
-				latest.snapshot = stats:TakeSnapshot()
-				latest.snapshot_frames = current.frames
-				current.start = now
-				current.frames = 0
-				set_rows(build_rows(latest.snapshot, latest.snapshot_frames, latest.frame_time))
-			end
-		end)
-
-		return ui.StatTable{Size = Vec2(660, 470), Columns = 2, Rows = rows}
-	end)
+					if now - current.start >= WINDOW then
+						latest.snapshot = stats:TakeSnapshot()
+						latest.snapshot_frames = current.frames
+						current.start = now
+						current.frames = 0
+						set_rows(build_rows(latest.snapshot, latest.snapshot_frames, latest.frame_time))
+					end
+				end
+			)
+			return ui.StatTable{Size = Vec2(660, 470), Columns = 2, Rows = rows}
+		end
+	)
 )
 
 commands.Add("physics_stats", function()

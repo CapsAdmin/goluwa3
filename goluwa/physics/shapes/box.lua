@@ -87,7 +87,9 @@ local function collect_box_support_contact(context, collider, point, fallback_hi
 	end
 
 	local margin = collider:GetCollisionMargin() or 0
-	local depth = (fallback_hit.position + fallback_hit.normal * margin - point):Dot(fallback_hit.normal)
+	local depth = (
+		fallback_hit.position + fallback_hit.normal * margin - point
+	):Dot(fallback_hit.normal)
 	local support_tolerance = (collider:GetCollisionProbeDistance() or 0) + margin
 
 	if depth < -support_tolerance then return end
@@ -126,7 +128,11 @@ end
 function META:GetScaled(scale)
 	local size = self:GetSize()
 	return META.New(
-		Vec3(size.x * math.abs(scale.x), size.y * math.abs(scale.y), size.z * math.abs(scale.z))
+		Vec3(
+			size.x * math.abs(scale.x),
+			size.y * math.abs(scale.y),
+			size.z * math.abs(scale.z)
+		)
 	)
 end
 

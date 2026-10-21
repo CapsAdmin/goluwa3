@@ -599,7 +599,10 @@ function envprobe.Initialize()
 	envprobe.camera:SetNearZ(0.1)
 	envprobe.camera:SetFarZ(1000)
 	envprobe.environment_probe.needs_update = true
-	render3d.SetEnvironmentTexture(envprobe.environment_probe.color_equirect, envprobe.environment_probe.irradiance_equirect)
+	render3d.SetEnvironmentTexture(
+		envprobe.environment_probe.color_equirect,
+		envprobe.environment_probe.irradiance_equirect
+	)
 	envprobe.MarkAllReflectionProbesDirty()
 	envprobe.InitializeCubemapLayouts()
 end

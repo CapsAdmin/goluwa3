@@ -5,7 +5,10 @@ local theme = import("goluwa/render2d/ui/theme.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
 
 local function draw_dock_piece(piece)
-	theme.active:DrawBox(piece.transform:GetSize(), {fill = piece.Token, radius = theme.active:GetRadius("S")})
+	theme.active:DrawBox(
+		piece.transform:GetSize(),
+		{fill = piece.Token, radius = theme.active:GetRadius("S")}
+	)
 end
 
 local function dock_piece(label, dock, size, token, children)

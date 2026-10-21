@@ -31,7 +31,13 @@ function steam.DownloadWorkshop(id, callback, on_error, last_modified)
 					return
 				end
 
-				resource.Download(details.file_url, nil, nil, true, details.creator_app_id == 4000 and "gma" or "zip"):Then(function(path)
+				resource.Download(
+					details.file_url,
+					nil,
+					nil,
+					true,
+					details.creator_app_id == 4000 and "gma" or "zip"
+				):Then(function(path)
 					local bin, err = codec.ReadFile("lzma", path)
 
 					if not bin then

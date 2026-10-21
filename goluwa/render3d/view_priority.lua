@@ -24,7 +24,9 @@ function ViewPriority:Update(position, forward, half_angle)
 
 	if self.time then
 		local dt = math.max(now - self.time, 1e-3)
-		local dx, dy, dz = position.x - self.position_x, position.y - self.position_y, position.z - self.position_z
+		local dx, dy, dz = position.x - self.position_x,
+		position.y - self.position_y,
+		position.z - self.position_z
 
 		if dx * dx + dy * dy + dz * dz > 1e6 then
 			self.velocity_x, self.velocity_y, self.velocity_z = 0, 0, 0

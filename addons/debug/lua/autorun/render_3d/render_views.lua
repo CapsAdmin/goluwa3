@@ -118,7 +118,9 @@ local function get_tile_at(self, tiles, local_x, local_y)
 	local x, y, w, h = fit(size.x, size.y - HEADER)
 	y = y + HEADER
 
-	if local_x < x or local_y < y or local_x >= x + w or local_y >= y + h then return nil end
+	if local_x < x or local_y < y or local_x >= x + w or local_y >= y + h then
+		return nil
+	end
 
 	local columns, rows = get_grid(#tiles)
 	local index = math.floor((local_y - y) / (h / rows)) * columns + math.floor((local_x - x) / (w / columns)) + 1
@@ -181,7 +183,14 @@ function TileView:OnDraw()
 		end
 
 		local mouse = self.mouse_input:GetMousePosition()
-		draw_labels(labels, x, y, w, h, self.mouse_input.Hovered and get_tile_at(self, tiles, mouse.x, mouse.y) or nil)
+		draw_labels(
+			labels,
+			x,
+			y,
+			w,
+			h,
+			self.mouse_input.Hovered and get_tile_at(self, tiles, mouse.x, mouse.y) or nil
+		)
 	end
 end
 
@@ -230,7 +239,10 @@ local CHANNELS = {"r", "g", "b", "a"}
 local function get_cell_rect(self, row_index, channel_index)
 	local size = self.transform:GetSize()
 	local cell_w = (size.x - LABEL_WIDTH - 12) / 4
-	return LABEL_WIDTH + (channel_index - 1) * cell_w, 8 + (row_index - 1) * ROW_HEIGHT, cell_w - 4, ROW_HEIGHT - 5
+	return LABEL_WIDTH + (channel_index - 1) * cell_w,
+	8 + (row_index - 1) * ROW_HEIGHT,
+	cell_w - 4,
+	ROW_HEIGHT - 5
 end
 
 function LayoutView:OnMouseInput(button, press, local_pos)
@@ -240,7 +252,12 @@ function LayoutView:OnMouseInput(button, press, local_pos)
 		for channel_index, channel in ipairs(CHANNELS) do
 			local x, y, w, h = get_cell_rect(self, row_index, channel_index)
 
-			if local_pos.x >= x and local_pos.x < x + w and local_pos.y >= y and local_pos.y < y + h then
+			if
+				local_pos.x >= x and
+				local_pos.x < x + w and
+				local_pos.y >= y and
+				local_pos.y < y + h
+			then
 				local cell = row.cells[channel][1]
 
 				if cell then
@@ -306,7 +323,13 @@ function LayoutView:OnDraw()
 				free = free + 1
 				render2d.SetColor(0.08, 0.09, 0.13, 1)
 				render2d.DrawRoundedRect(x, cy, w, h, 4)
-				render2d.DrawText{text = "free", x = x + 8, y = cy + h / 2 - 7, size = 11, foreground_color = TEXT_DIM}
+				render2d.DrawText{
+					text = "free",
+					x = x + 8,
+					y = cy + h / 2 - 7,
+					size = 11,
+					foreground_color = TEXT_DIM,
+				}
 			end
 		end
 	end
@@ -342,7 +365,7 @@ local function get_targets_tiles()
 		tiles[i] = {
 			label = "raw " .. target.texture,
 			OnClick = function()
-				show_fullscreen({mode = "target", target = target.texture, channel = "rgb"})
+				show_fullscreen{mode = "target", target = target.texture, channel = "rgb"}
 			end,
 		}
 	end
@@ -351,8 +374,6 @@ local function get_targets_tiles()
 end
 
 local TARGETS_SPEC = {mode = "targets"}
-
-
 local LABEL_HEIGHT = 36
 local CELL_WIDTH = 150
 local PREVIEW_HEIGHT = 186
@@ -511,7 +532,15 @@ local function get_items(category, folder)
 	if category == "passes" then
 		for _, pass in ipairs(get_pass_views()) do
 			if not folder and #pass.views > 1 then
-				items[#items + 1] = {name = pass.name, kind = "pass_folder", is_folder = true, views = pass.views, pipeline = pass.views[1].pipeline, view = pass.views[1].view, title = pass.name}
+				items[#items + 1] = {
+					name = pass.name,
+					kind = "pass_folder",
+					is_folder = true,
+					views = pass.views,
+					pipeline = pass.views[1].pipeline,
+					view = pass.views[1].view,
+					title = pass.name,
+				}
 			elseif not folder and #pass.views == 1 then
 				items[#items + 1] = pass.views[1]
 			elseif folder == pass.name then
@@ -526,7 +555,13 @@ local function get_items(category, folder)
 
 	if not folder then
 		for _, sheet in ipairs(gbuffer_inspect.GetSheets()) do
-			items[#items + 1] = {name = sheet.name, kind = "sheet", entry = sheet.primary, sheet = sheet, is_folder = #sheet.entries > 1}
+			items[#items + 1] = {
+				name = sheet.name,
+				kind = "sheet",
+				entry = sheet.primary,
+				sheet = sheet,
+				is_folder = #sheet.entries > 1,
+			}
 		end
 	else
 		local sheet = get_sheet(folder)
@@ -539,6 +574,7 @@ local function get_items(category, folder)
 	table.sort(items, function(a, b)
 		return a.entry.index < b.entry.index
 	end)
+
 	items.names = {}
 
 	for i, item in ipairs(items) do
@@ -553,7 +589,7 @@ end
 local function request_preview()
 	if browser.category ~= "sheets" then return end
 
-	gbuffer_inspect.SetPreview({mode = "sheet", names = browser.items.names})
+	gbuffer_inspect.SetPreview{mode = "sheet", names = browser.items.names}
 	preview_time = system.GetElapsedTime()
 end
 
@@ -637,10 +673,22 @@ local function draw_item(item, index, x, y, w, h, selected, hovered)
 	local label_y = y + h - LABEL_HEIGHT + 2
 	local tw = colors.font:GetTextSize(item.name)
 	draw_font_text(colors.font, item.name, x + (w - tw) / 2, label_y, colors.text)
-	local sub = item.kind == "lighting" and item.mode.key or
-		item.is_folder and (item.sheet and "sheet" or "pass") or
-		item.kind == "pass_view" and item.view.swizzle or
-		(item.entry.field and item.entry.field.kind or "fixed")
+	local sub = item.kind == "lighting" and
+		item.mode.key or
+		item.is_folder and
+		(
+			item.sheet and
+			"sheet" or
+			"pass"
+		)
+		or
+		item.kind == "pass_view" and
+		item.view.swizzle or
+		(
+			item.entry.field and
+			item.entry.field.kind or
+			"fixed"
+		)
 	local sw = colors.font_small:GetTextSize(sub)
 	draw_font_text(colors.font_small, sub, x + (w - sw) / 2, label_y + 16, colors.text_disabled)
 end
@@ -658,7 +706,7 @@ local function show_selected_fullscreen()
 		pass_fullscreen = item
 		desktop.Hide()
 	else
-		show_fullscreen({mode = "field", name = item.entry.name})
+		show_fullscreen{mode = "field", name = item.entry.name}
 	end
 end
 
@@ -666,10 +714,15 @@ local FIXED_DETAILS = {
 	albedo = {"stored", "albedo target, rgb (r8g8b8a8_srgb)"},
 	alpha = {"stored", "albedo target, a"},
 	emissive = {"stored", "emissive target (b10g11r11), shown as 1 - exp(-v / 16)"},
-	depth = {"stored", "depth buffer (d32_sfloat), shown as the distance from the camera, white is far"},
-	velocity = {"stored", "velocity target, rg in uv per frame (shown x200) and prev_view_depth in b"},
+	depth = {
+		"stored",
+		"depth buffer (d32_sfloat), shown as the distance from the camera, white is far",
+	},
+	velocity = {
+		"stored",
+		"velocity target, rg in uv per frame (shown x200) and prev_view_depth in b",
+	},
 }
-
 open_entry = function(entry)
 	event.Call("RenderViewsOpen", entry)
 end
@@ -778,7 +831,12 @@ local function filter_nodes(nodes, filter)
 
 	for _, node in ipairs(nodes) do
 		local matches = node.Text:lower():find(filter, 1, true) ~= nil
-		local children = node.Children and (matches and node.Children or filter_nodes(node.Children, filter))
+		local children = node.Children and
+			(
+				matches and
+				node.Children or
+				filter_nodes(node.Children, filter)
+			)
 
 		if matches or (children and children[1]) then
 			local copy = {}
@@ -834,302 +892,385 @@ local function detail_row(label, value)
 end
 
 local function detail_text(key, text, font, color)
-	return ui.Text{Key = key, Text = text, Font = font, Color = color, Wrap = true, layout = {GrowWidth = 1}}
+	return ui.Text{
+		Key = key,
+		Text = text,
+		Font = font,
+		Color = color,
+		Wrap = true,
+		layout = {GrowWidth = 1},
+	}
 end
 
-local ViewsPage = react.Component(|| -> do
-	local nav, set_nav = react.UseState({category = "sheets"})
-	local picked, set_picked = react.UseState()
-	local filter, set_filter = react.UseState("")
-	local terrain_only, set_terrain_only = react.UseState(|| -> gbuffer_inspect.GetTerrainOnly())
-	local _, set_version = react.UseState(0)
-	local tree = react.UseRef()
-	local items = react.UseMemo(|| -> get_items(nav.category, nav.folder), {nav.category, nav.folder})
-	local selected = picked
+local ViewsPage = react.Component(
+	||-> do
+		local nav, set_nav = react.UseState({category = "sheets"})
+		local picked, set_picked = react.UseState()
+		local filter, set_filter = react.UseState("")
+		local terrain_only, set_terrain_only = react.UseState(||->gbuffer_inspect.GetTerrainOnly())
+		local _, set_version = react.UseState(0)
+		local tree = react.UseRef()
+		local items = react.UseMemo(||->get_items(nav.category, nav.folder), {nav.category, nav.folder})
+		local selected = picked
 
-	if not selected and nav.select then
-		for _, item in ipairs(items) do
-			if item.name == nav.select then selected = item end
+		if not selected and nav.select then
+			for _, item in ipairs(items) do
+				if item.name == nav.select then selected = item end
+			end
 		end
-	end
 
-	browser.category = nav.category
-	browser.folder = nav.folder
-	browser.items = items
-	browser.selected = selected
+		browser.category = nav.category
+		browser.folder = nav.folder
+		browser.items = items
+		browser.selected = selected
 
-	local function navigate(category, folder, select_name)
-		set_nav({category = category, folder = folder, select = select_name})
-		set_picked(nil)
-	end
+		local function navigate(category, folder, select_name)
+			set_nav{category = category, folder = folder, select = select_name}
+			set_picked(nil)
+		end
 
-	react.UseEvent("RenderViewsOpen", |entry| -> do
-		local sheet = get_sheet(entry.sheet)
+		react.UseEvent(
+			"RenderViewsOpen",
+			|entry|-> do
+				local sheet = get_sheet(entry.sheet)
 
-		if #sheet.entries == 1 then
-			navigate("sheets", nil, sheet.name)
+				if #sheet.entries == 1 then
+					navigate("sheets", nil, sheet.name)
+				else
+					navigate("sheets", sheet.name, entry.name)
+				end
+			end
+		)
+		react.UseEvent("RenderViewsChanged", ||->set_version(|version|->version + 1))
+		local tree_items = react.UseMemo(||->build_tree_items(filter), {filter})
+		local tree_key = nav.category
+
+		if selected and not nav.folder then
+			tree_key = tree_key .. "/" .. selected.name
+		elseif selected then
+			tree_key = tree_key .. "/" .. nav.folder .. "/" .. selected.name
+		elseif nav.folder then
+			tree_key = tree_key .. "/" .. nav.folder
+		end
+
+		react.UseEffect(||->tree.current:ExpandToKey(tree_key), {tree_key, tree_items})
+		local crumbs = {{name = nav.category, category = nav.category}}
+
+		if nav.folder then
+			crumbs[2] = {name = nav.folder, category = nav.category, folder = nav.folder}
+		end
+
+		local breadcrumb = {}
+
+		for index, crumb in ipairs(crumbs) do
+			if index > 1 then
+				breadcrumb[#breadcrumb + 1] = ui.Icon{
+					Key = "separator",
+					Icon = "chevron_right",
+					Size = "S",
+					IconColor = "text_disabled",
+				}
+			end
+
+			breadcrumb[#breadcrumb + 1] = ui.Clickable{
+				Key = "crumb " .. index,
+				Mode = "text",
+				Padding = Rect(4, 2, 4, 2),
+				OnClick = ||->navigate(crumb.category, crumb.folder),
+				layout = {FitWidth = true, FitHeight = true},
+			}{
+				ui.Text{
+					Text = crumb.name,
+					Font = index == #crumbs and "body_strong S" or "body S",
+					IgnoreMouseInput = true,
+				},
+			}
+		end
+
+		local details = {}
+
+		if not selected then
+			details[1] = detail_text("empty", "Select a view to see details.", nil, "text_disabled")
+		elseif selected.kind == "lighting" then
+			details[1] = detail_text("title", selected.name, "body_strong M")
+			details[2] = detail_text("description", selected.mode.description, "body S")
+			details[3] = detail_row("pvar", selected.mode.key)
+			details[4] = detail_row("value", tostring(selected.mode.value))
+			details[5] = detail_row("state", is_lighting_mode_on(selected.mode) and "on" or "off")
+		elseif selected.kind == "pass_view" or selected.kind == "pass_folder" then
+			local texture = get_pass_texture(selected)
+			details[1] = detail_text("title", selected.title, "body_strong M")
+			details[2] = detail_row("pass", selected.pipeline.name)
+			details[3] = detail_row("view", selected.view.name)
+			details[4] = detail_row("channels", selected.view.swizzle or "all")
+
+			if texture then
+				details[#details + 1] = detail_row("size", texture:GetWidth() .. " x " .. texture:GetHeight())
+			end
+
+			if selected.is_folder then
+				details[#details + 1] = detail_row("views", tostring(#selected.views))
+			end
 		else
-			navigate("sheets", sheet.name, entry.name)
+			local entry = selected.entry
+			details[1] = detail_text(
+				"title",
+				selected.is_folder and (selected.name .. " (sheet)") or entry.name,
+				"body_strong M"
+			)
+
+			if selected.is_folder then
+				local names = {}
+
+				for _, sheet_entry in ipairs(selected.sheet.entries) do
+					names[#names + 1] = sheet_entry.name
+				end
+
+				details[2] = detail_row("fields", table.concat(names, ", "))
+				details[3] = detail_row("primary", entry.name)
+				details[4] = detail_text("hint", "Double click the tile to open the sheet.", "body S", "text_disabled")
+			elseif entry.field then
+				local field = entry.field
+				details[2] = detail_row("kind", field.kind)
+				details[3] = detail_row(
+					"stored",
+					string.format(
+						"%s.%s%s",
+						field.target.texture,
+						field.swizzle,
+						field.nibble and (field.nibble == 1 and " (high half)" or " (low half)") or ""
+					)
+				)
+				details[4] = detail_row("range", "0 to " .. (field.max or 1))
+				details[5] = detail_row("read by", field.readers and table.concat(field.readers, ", ") or "everything")
+				details[6] = detail_row("sheet", entry.sheet)
+			elseif FIXED_DETAILS[entry.name] then
+				details[2] = detail_row(unpack(FIXED_DETAILS[entry.name]))
+			end
 		end
-	end)
-	react.UseEvent("RenderViewsChanged", || -> set_version(|version| -> version + 1))
 
-	local tree_items = react.UseMemo(|| -> build_tree_items(filter), {filter})
-	local tree_key = nav.category
-
-	if selected and not nav.folder then
-		tree_key = tree_key .. "/" .. selected.name
-	elseif selected then
-		tree_key = tree_key .. "/" .. nav.folder .. "/" .. selected.name
-	elseif nav.folder then
-		tree_key = tree_key .. "/" .. nav.folder
-	end
-
-	react.UseEffect(|| -> tree.current:ExpandToKey(tree_key), {tree_key, tree_items})
-
-	local crumbs = {{name = nav.category, category = nav.category}}
-
-	if nav.folder then
-		crumbs[2] = {name = nav.folder, category = nav.category, folder = nav.folder}
-	end
-
-	local breadcrumb = {}
-
-	for index, crumb in ipairs(crumbs) do
-		if index > 1 then
-			breadcrumb[#breadcrumb + 1] = ui.Icon{Key = "separator", Icon = "chevron_right", Size = "S", IconColor = "text_disabled"}
-		end
-
-		breadcrumb[#breadcrumb + 1] = ui.Clickable{
-			Key = "crumb " .. index,
-			Mode = "text",
-			Padding = Rect(4, 2, 4, 2),
-			OnClick = || -> navigate(crumb.category, crumb.folder),
-			layout = {FitWidth = true, FitHeight = true},
+		local context = selected and selected.entry and CONTEXTS[selected.entry.sheet]
+		local input_height = theme.active:GetInputHeight("M")
+		return ui.Column{
+			Tab = "VIEWS",
+			layout = {
+				MinSize = Vec2(WIDTH, VIEWS_HEIGHT),
+				MaxSize = Vec2(WIDTH, VIEWS_HEIGHT),
+				FitWidth = false,
+				FitHeight = false,
+				AlignmentX = "stretch",
+			},
 		}{
-			ui.Text{
-				Text = crumb.name,
-				Font = index == #crumbs and "body_strong S" or "body S",
-				IgnoreMouseInput = true,
+			ui.Splitter{InitialSize = 200, layout = {GrowWidth = 1, GrowHeight = 1}}{
+				ui.Column{
+					layout = {
+						GrowWidth = 1,
+						GrowHeight = 1,
+						FitHeight = false,
+						AlignmentX = "stretch",
+						ChildGap = 4,
+					},
+				}{
+					ui.TextEdit{
+						Hint = "search",
+						Wrap = false,
+						ScrollX = false,
+						ScrollY = false,
+						ScrollbarVisible = false,
+						Size = Vec2(0, input_height),
+						MinSize = Vec2(0, input_height),
+						MaxSize = Vec2(0, input_height),
+						OnTextChanged = |_,text|->set_filter(text:lower():match("^%s*(.-)%s*$")),
+						layout = {GrowWidth = 1},
+					},
+					ui.ScrollablePanel{
+						Padding = Rect(),
+						ScrollX = false,
+						ScrollY = true,
+						layout = {GrowWidth = 1, GrowHeight = 1},
+					}{
+						ui.Tree{
+							Ref = tree,
+							Items = tree_items,
+							SelectedKey = tree_key,
+							LabelGrow = true,
+							layout = {GrowWidth = 1, FitHeight = true},
+							OnIsExpanded = |_,_,key|->filter ~= "" or expanded[key] == true,
+							OnToggle = |_,is_expanded,key|-> do
+								expanded[key] = is_expanded == true
+							end,
+							OnSelect = |node|-> do
+								if node then navigate(node.Nav.category, node.Nav.folder, node.Nav.select) end
+							end,
+						},
+					},
+				},
+				ui.Column{
+					layout = {
+						GrowWidth = 1,
+						GrowHeight = 1,
+						FitHeight = false,
+						AlignmentX = "stretch",
+						ChildGap = 4,
+					},
+				}{
+					ui.Row{layout = {GrowWidth = 1, ChildGap = 2, AlignmentY = "center"}}{breadcrumb},
+					ui.Row{
+						layout = {
+							GrowWidth = 1,
+							GrowHeight = 1,
+							ChildGap = 6,
+							FitHeight = false,
+							AlignmentY = "stretch",
+						},
+					}{
+						ui.VirtualGrid{
+							CellWidth = CELL_WIDTH,
+							ExtraHeight = LABEL_HEIGHT,
+							Gap = 8,
+							ContentPadding = 6,
+							Items = items,
+							SelectedItem = selected,
+							OnDrawItem = draw_item,
+							OnSelect = set_picked,
+							OnActivate = |item|-> do
+								if item.is_folder then
+									navigate(nav.category, item.name)
+								else
+									set_picked(item)
+									browser.selected = item
+									show_selected_fullscreen()
+								end
+							end,
+							layout = {GrowWidth = 1, GrowHeight = 1},
+						},
+						ui.Frame{
+							Padding = Rect() + 6,
+							layout = {
+								MinSize = Vec2(344, 0),
+								MaxSize = Vec2(344, 0),
+								FitWidth = false,
+								GrowHeight = 1,
+								FitHeight = false,
+								Direction = "y",
+								ChildGap = 6,
+								AlignmentX = "stretch",
+							},
+						}{
+							ui.Panel{
+								Name = "ViewPreview",
+								transform = true,
+								layout = {
+									GrowWidth = 1,
+									MinSize = Vec2(0, PREVIEW_HEIGHT),
+									MaxSize = Vec2(0, PREVIEW_HEIGHT),
+								},
+								visual = {OnDraw = draw_preview},
+							},
+							ui.Row{layout = {GrowWidth = 1, ChildGap = 4}}{
+								ui.Button{
+									Key = "fullscreen",
+									Text = "Fullscreen",
+									Icon = "expand",
+									Mode = "outline",
+									OnClick = show_selected_fullscreen,
+								},
+								nav.category == "sheets" and
+								ui.Button{
+									Key = "sheet",
+									Text = "Sheet fullscreen",
+									Mode = "outline",
+									OnClick = ||->show_fullscreen{mode = "sheet", names = browser.items.names},
+								},
+								nav.category == "lighting" and
+								ui.Button{
+									Key = "toggle",
+									Text = "Toggle",
+									Mode = "outline",
+									OnClick = ||-> do
+										if selected and selected.kind == "lighting" then
+											set_lighting_mode(selected.mode, not is_lighting_mode_on(selected.mode))
+											set_version(|version|->version + 1)
+										end
+									end,
+								},
+							},
+							ui.Row{layout = {GrowWidth = 1, ChildGap = 4, AlignmentY = "center"}}{
+								context == "normal_source" and
+								ui.Dropdown{
+									Key = "normal source",
+									Options = gbuffer_inspect.NORMAL_SOURCES,
+									Value = gbuffer_inspect.GetNormalSource(),
+									OnSelect = |value|->gbuffer_inspect.SetNormalSource(value),
+									layout = {MinSize = Vec2(120, 0), MaxSize = Vec2(120, 0), GrowWidth = 0},
+								},
+								context == "terrain" and
+								ui.Button{
+									Key = "terrain",
+									Text = terrain_only and "Terrain base only: on" or "Terrain base only",
+									Mode = "outline",
+									OnClick = ||-> do
+										local on = not gbuffer_inspect.GetTerrainOnly()
+										gbuffer_inspect.SetTerrainOnly(on)
+										set_terrain_only(on)
+									end,
+								},
+							},
+							ui.ScrollablePanel{
+								Padding = Rect(),
+								ScrollX = false,
+								ScrollY = true,
+								layout = {GrowWidth = 1, GrowHeight = 1},
+							}{
+								ui.Column{
+									layout = {GrowWidth = 1, FitHeight = true, ChildGap = 4, AlignmentX = "stretch"},
+								}{details},
+							},
+						},
+					},
+				},
 			},
 		}
 	end
-
-	local details = {}
-
-	if not selected then
-		details[1] = detail_text("empty", "Select a view to see details.", nil, "text_disabled")
-	elseif selected.kind == "lighting" then
-		details[1] = detail_text("title", selected.name, "body_strong M")
-		details[2] = detail_text("description", selected.mode.description, "body S")
-		details[3] = detail_row("pvar", selected.mode.key)
-		details[4] = detail_row("value", tostring(selected.mode.value))
-		details[5] = detail_row("state", is_lighting_mode_on(selected.mode) and "on" or "off")
-	elseif selected.kind == "pass_view" or selected.kind == "pass_folder" then
-		local texture = get_pass_texture(selected)
-		details[1] = detail_text("title", selected.title, "body_strong M")
-		details[2] = detail_row("pass", selected.pipeline.name)
-		details[3] = detail_row("view", selected.view.name)
-		details[4] = detail_row("channels", selected.view.swizzle or "all")
-
-		if texture then details[#details + 1] = detail_row("size", texture:GetWidth() .. " x " .. texture:GetHeight()) end
-
-		if selected.is_folder then details[#details + 1] = detail_row("views", tostring(#selected.views)) end
-	else
-		local entry = selected.entry
-		details[1] = detail_text(
-			"title",
-			selected.is_folder and (selected.name .. " (sheet)") or entry.name,
-			"body_strong M"
-		)
-
-		if selected.is_folder then
-			local names = {}
-
-			for _, sheet_entry in ipairs(selected.sheet.entries) do
-				names[#names + 1] = sheet_entry.name
-			end
-
-			details[2] = detail_row("fields", table.concat(names, ", "))
-			details[3] = detail_row("primary", entry.name)
-			details[4] = detail_text("hint", "Double click the tile to open the sheet.", "body S", "text_disabled")
-		elseif entry.field then
-			local field = entry.field
-			details[2] = detail_row("kind", field.kind)
-			details[3] = detail_row(
-				"stored",
-				string.format("%s.%s%s", field.target.texture, field.swizzle, field.nibble and (field.nibble == 1 and " (high half)" or " (low half)") or "")
-			)
-			details[4] = detail_row("range", "0 to " .. (field.max or 1))
-			details[5] = detail_row("read by", field.readers and table.concat(field.readers, ", ") or "everything")
-			details[6] = detail_row("sheet", entry.sheet)
-		elseif FIXED_DETAILS[entry.name] then
-			details[2] = detail_row(unpack(FIXED_DETAILS[entry.name]))
-		end
-	end
-
-	local context = selected and selected.entry and CONTEXTS[selected.entry.sheet]
-	local input_height = theme.active:GetInputHeight("M")
-
-	return ui.Column{
-		Tab = "VIEWS",
-		layout = {
-			MinSize = Vec2(WIDTH, VIEWS_HEIGHT),
-			MaxSize = Vec2(WIDTH, VIEWS_HEIGHT),
-			FitWidth = false,
-			FitHeight = false,
-			AlignmentX = "stretch",
-		},
-	}{
-		ui.Splitter{InitialSize = 200, layout = {GrowWidth = 1, GrowHeight = 1}}{
-			ui.Column{layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch", ChildGap = 4}}{
-				ui.TextEdit{
-					Hint = "search",
-					Wrap = false,
-					ScrollX = false,
-					ScrollY = false,
-					ScrollbarVisible = false,
-					Size = Vec2(0, input_height),
-					MinSize = Vec2(0, input_height),
-					MaxSize = Vec2(0, input_height),
-					OnTextChanged = |_, text| -> set_filter(text:lower():match("^%s*(.-)%s*$")),
-					layout = {GrowWidth = 1},
-				},
-				ui.ScrollablePanel{Padding = Rect(), ScrollX = false, ScrollY = true, layout = {GrowWidth = 1, GrowHeight = 1}}{
-					ui.Tree{
-						Ref = tree,
-						Items = tree_items,
-						SelectedKey = tree_key,
-						LabelGrow = true,
-						layout = {GrowWidth = 1, FitHeight = true},
-						OnIsExpanded = |_, _, key| -> filter ~= "" or expanded[key] == true,
-						OnToggle = |_, is_expanded, key| -> do expanded[key] = is_expanded == true end,
-						OnSelect = |node| -> do
-							if node then navigate(node.Nav.category, node.Nav.folder, node.Nav.select) end
-						end,
-					},
-				},
-			},
-			ui.Column{layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch", ChildGap = 4}}{
-				ui.Row{layout = {GrowWidth = 1, ChildGap = 2, AlignmentY = "center"}}{breadcrumb},
-				ui.Row{layout = {GrowWidth = 1, GrowHeight = 1, ChildGap = 6, FitHeight = false, AlignmentY = "stretch"}}{
-					ui.VirtualGrid{
-						CellWidth = CELL_WIDTH,
-						ExtraHeight = LABEL_HEIGHT,
-						Gap = 8,
-						ContentPadding = 6,
-						Items = items,
-						SelectedItem = selected,
-						OnDrawItem = draw_item,
-						OnSelect = set_picked,
-						OnActivate = |item| -> do
-							if item.is_folder then
-								navigate(nav.category, item.name)
-							else
-								set_picked(item)
-								browser.selected = item
-								show_selected_fullscreen()
-							end
-						end,
-						layout = {GrowWidth = 1, GrowHeight = 1},
-					},
-					ui.Frame{
-						Padding = Rect() + 6,
-						layout = {
-							MinSize = Vec2(344, 0),
-							MaxSize = Vec2(344, 0),
-							FitWidth = false,
-							GrowHeight = 1,
-							FitHeight = false,
-							Direction = "y",
-							ChildGap = 6,
-							AlignmentX = "stretch",
-						},
-					}{
-						ui.Panel{
-							Name = "ViewPreview",
-							transform = true,
-							layout = {GrowWidth = 1, MinSize = Vec2(0, PREVIEW_HEIGHT), MaxSize = Vec2(0, PREVIEW_HEIGHT)},
-							visual = {OnDraw = draw_preview},
-						},
-						ui.Row{layout = {GrowWidth = 1, ChildGap = 4}}{
-							ui.Button{Key = "fullscreen", Text = "Fullscreen", Icon = "expand", Mode = "outline", OnClick = show_selected_fullscreen},
-							nav.category == "sheets" && ui.Button{
-								Key = "sheet",
-								Text = "Sheet fullscreen",
-								Mode = "outline",
-								OnClick = || -> show_fullscreen({mode = "sheet", names = browser.items.names}),
-							},
-							nav.category == "lighting" && ui.Button{
-								Key = "toggle",
-								Text = "Toggle",
-								Mode = "outline",
-								OnClick = || -> do
-									if selected and selected.kind == "lighting" then
-										set_lighting_mode(selected.mode, not is_lighting_mode_on(selected.mode))
-										set_version(|version| -> version + 1)
-									end
-								end,
-							},
-						},
-						ui.Row{layout = {GrowWidth = 1, ChildGap = 4, AlignmentY = "center"}}{
-							context == "normal_source" && ui.Dropdown{
-								Key = "normal source",
-								Options = gbuffer_inspect.NORMAL_SOURCES,
-								Value = gbuffer_inspect.GetNormalSource(),
-								OnSelect = |value| -> gbuffer_inspect.SetNormalSource(value),
-								layout = {MinSize = Vec2(120, 0), MaxSize = Vec2(120, 0), GrowWidth = 0},
-							},
-							context == "terrain" && ui.Button{
-								Key = "terrain",
-								Text = terrain_only and "Terrain base only: on" or "Terrain base only",
-								Mode = "outline",
-								OnClick = || -> do
-									local on = not gbuffer_inspect.GetTerrainOnly()
-									gbuffer_inspect.SetTerrainOnly(on)
-									set_terrain_only(on)
-								end,
-							},
-						},
-						ui.ScrollablePanel{Padding = Rect(), ScrollX = false, ScrollY = true, layout = {GrowWidth = 1, GrowHeight = 1}}{
-							ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = 4, AlignmentX = "stretch"}}{details},
-						},
-					},
-				},
-			},
-		},
-	}
-end)
+)
 local TileViewElement = react.Element(TileView)
 local LayoutViewElement = react.Element(LayoutView)
-local RenderViewsView = react.Component(|| -> do
-	local tab, set_tab = react.UseState("VIEWS")
-	local hud, set_hud = react.UseState(false)
-
-	react.UseEvent("RenderViewsOpen", || -> set_tab("VIEWS"))
-
-	return ui.Window{
-		Title = "RENDER VIEWS",
-		Pinnable = true,
-		OnHudChanged = |_, value| -> set_hud(value),
-		Size = Vec2(WIDTH + 40, CONTENT_HEIGHT + 90),
-		MinSize = Vec2(WIDTH + 40, CONTENT_HEIGHT + 90),
-	}{
-		ui.Tabs{Value = tab, OnChange = set_tab, BarHidden = hud, layout = {GrowWidth = 1, GrowHeight = 1}}{
-			ViewsPage{},
-			ui.Column{Key = "layout", Tab = "GBUFFER LAYOUT", layout = {GrowWidth = 1, AlignmentX = "center", ChildGap = "XS"}}{
-				LayoutViewElement{Size = Vec2(WIDTH, LAYOUT_HEIGHT)},
-				TileViewElement{
-					Size = Vec2(WIDTH, TARGETS_HEIGHT),
-					OnSpec = || -> TARGETS_SPEC,
-					OnTiles = get_targets_tiles,
-					OnTitle = || -> "raw targets, as stored (click one to see it full screen)",
+local RenderViewsView = react.Component(
+	||-> do
+		local tab, set_tab = react.UseState("VIEWS")
+		local hud, set_hud = react.UseState(false)
+		react.UseEvent("RenderViewsOpen", ||->set_tab("VIEWS"))
+		return ui.Window{
+			Title = "RENDER VIEWS",
+			Pinnable = true,
+			OnHudChanged = |_,value|->set_hud(value),
+			Size = Vec2(WIDTH + 40, CONTENT_HEIGHT + 90),
+			MinSize = Vec2(WIDTH + 40, CONTENT_HEIGHT + 90),
+		}{
+			ui.Tabs{
+				Value = tab,
+				OnChange = set_tab,
+				BarHidden = hud,
+				layout = {GrowWidth = 1, GrowHeight = 1},
+			}{
+				ViewsPage{},
+				ui.Column{
+					Key = "layout",
+					Tab = "GBUFFER LAYOUT",
+					layout = {GrowWidth = 1, AlignmentX = "center", ChildGap = "XS"},
+				}{
+					LayoutViewElement{Size = Vec2(WIDTH, LAYOUT_HEIGHT)},
+					TileViewElement{
+						Size = Vec2(WIDTH, TARGETS_HEIGHT),
+						OnSpec = ||->TARGETS_SPEC,
+						OnTiles = get_targets_tiles,
+						OnTitle = ||->"raw targets, as stored (click one to see it full screen)",
+					},
 				},
 			},
-		},
-	}
-end)
-
+		}
+	end
+)
 desktop.RegisterProgram{
 	Name = "Render Views",
 	Icon = "layout",
@@ -1223,7 +1364,14 @@ event.AddListener("Draw2D", "gbuffer_view_fullscreen", function()
 		draw_labels(get_fullscreen_labels(view), 0, 0, size.x, size.y)
 	else
 		render2d.DrawText{
-			text = view.mode == "field" and view.name or (view.target .. " " .. (view.channel or "rgb")),
+			text = view.mode == "field" and
+				view.name or
+				(
+					view.target .. " " .. (
+						view.channel or
+						"rgb"
+					)
+				),
 			x = 12,
 			y = 22,
 			align_y = "cap_center",
@@ -1252,7 +1400,7 @@ commands.Add("gbuffer_view=string|nil", function(name)
 	elseif name == "sheet" or name == "targets" then
 		gbuffer_inspect.SetView({mode = name})
 	else
-		gbuffer_inspect.SetView({mode = "field", name = name})
+		gbuffer_inspect.SetView{mode = "field", name = name}
 	end
 end)
 

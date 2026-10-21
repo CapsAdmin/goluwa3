@@ -713,7 +713,9 @@ local function build_winch()
 	)
 	local anchor = crate_position + direction * 0.5 + normal * 0.2
 	local length = (post_top - anchor):GetLength()
-	SCENE.winch = joint(constraints.Winch(nil, crate, post_top, anchor, {Length = length, MaxForce = 1500}))
+	SCENE.winch = joint(
+		constraints.Winch(nil, crate, post_top, anchor, {Length = length, MaxForce = 1500})
+	)
 	SCENE.winch_length = length
 
 	every(

@@ -1589,7 +1589,10 @@ function RigidBody:ApplyCorrection(compliance, correction, pos, other_body, othe
 		impulse_b.y = -impulse.y
 		impulse_b.z = -impulse.z
 		prev_pos.x, prev_pos.y, prev_pos.z = other_body.Position.x, other_body.Position.y, other_body.Position.z
-		prev_rot.x, prev_rot.y, prev_rot.z, prev_rot.w = other_body.Rotation.x, other_body.Rotation.y, other_body.Rotation.z, other_body.Rotation.w
+		prev_rot.x, prev_rot.y, prev_rot.z, prev_rot.w = other_body.Rotation.x,
+		other_body.Rotation.y,
+		other_body.Rotation.z,
+		other_body.Rotation.w
 		other_body:_ApplyCorrection(impulse_b, other_pos)
 		Vec3.SetSub(CORRECTION_DIFF, other_body.Position, prev_pos)
 		dx = CORRECTION_DIFF.x

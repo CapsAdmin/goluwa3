@@ -43,7 +43,11 @@ event.AddListener("PlayerMove", "bhop", function(entity, move)
 	local jump_multiplier = multiplier:Get()
 
 	if jump_multiplier ~= 1 and move.jump_pressed and move.grounded then
-		velocity:Set(velocity.x * jump_multiplier, velocity.y * jump_multiplier, velocity.z * jump_multiplier)
+		velocity:Set(
+			velocity.x * jump_multiplier,
+			velocity.y * jump_multiplier,
+			velocity.z * jump_multiplier
+		)
 		local look_down = math.clamp(-move.pitch / DOWN_LOOK_PITCH, 0, 1) ^ 3
 
 		if look_down > DOWN_LOOK_MIN then

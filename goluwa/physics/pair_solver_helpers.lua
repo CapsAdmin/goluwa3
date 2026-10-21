@@ -408,7 +408,10 @@ function pair_solver_helpers.GetTemporalTOISampleSteps(body_a, body_b, distance_
 	distance_scale = distance_scale or 0.25
 	min_steps = min_steps or TEMPORAL_TOI_MIN_SAMPLE_STEPS
 	max_steps = max_steps or TEMPORAL_TOI_MAX_SAMPLE_STEPS
-	local motion_scale = math.max(pair_solver_helpers.GetBodyMotionScale(body_a), pair_solver_helpers.GetBodyMotionScale(body_b))
+	local motion_scale = math.max(
+		pair_solver_helpers.GetBodyMotionScale(body_a),
+		pair_solver_helpers.GetBodyMotionScale(body_b)
+	)
 	return math.max(min_steps, math.min(max_steps, math.ceil(motion_scale / distance_scale) * 2))
 end
 
@@ -766,7 +769,9 @@ local POINT_SWEEP_EXACT_RADIUS = 0.0005
 
 function pair_solver_helpers.ClipSegmentAgainstPolyhedron(polyhedron, start_world, movement_world, position, rotation, inflate, max_t)
 	local qx, qy, qz, qw = -rotation.x, -rotation.y, -rotation.z, rotation.w
-	local px, py, pz = start_world.x - position.x, start_world.y - position.y, start_world.z - position.z
+	local px, py, pz = start_world.x - position.x,
+	start_world.y - position.y,
+	start_world.z - position.z
 	local tx = 2 * (qy * pz - qz * py)
 	local ty = 2 * (qz * px - qx * pz)
 	local tz = 2 * (qx * py - qy * px)

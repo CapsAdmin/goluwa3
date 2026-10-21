@@ -21,7 +21,14 @@ function ComputePipeline.New(device, shaderModule, pipelineLayout)
 	local ptr = VkPipelineBox()
 	local start = PipelineCache.GetTime()
 	vulkan.assert(
-		vulkan.lib.vkCreateComputePipelines(device.ptr[0], device.pipeline_cache.ptr[0], 1, computePipelineCreateInfo, nil, ptr),
+		vulkan.lib.vkCreateComputePipelines(
+			device.ptr[0],
+			device.pipeline_cache.ptr[0],
+			1,
+			computePipelineCreateInfo,
+			nil,
+			ptr
+		),
 		"failed to create compute pipeline"
 	)
 	PipelineCache.LogIfSlow("compute", start)

@@ -53,257 +53,273 @@ local function apply_size(state, width, height)
 	state.view:SetSupersample(width * height <= 900 * 600 and 2 or 1)
 end
 
-local ModelView = react.Component(|props| -> do
-	local entry = props.Entry
-	local canvas = react.UseRef()
-	local status, set_status = react.UseState("loading...")
-	local state = react.UseResource(|| -> do
-		local entity = assert(previews.CreateModelEntity(entry.path), "there is no model to view in " .. entry.path)
-		local view = SceneView.New{TransparentSky = false}
-		local started = system.GetElapsedTime()
-		view:SetEnvironment(Environment.GetPreset(DEFAULT_ENVIRONMENT))
+local ModelView = react.Component(
+	|props|-> do
+		local entry = props.Entry
+		local canvas = react.UseRef()
+		local status, set_status = react.UseState("loading...")
+		local state = react.UseResource(
+			||-> do
+				local entity = assert(
+					previews.CreateModelEntity(entry.path),
+					"there is no model to view in " .. entry.path
+				)
+				local view = SceneView.New{TransparentSky = false}
+				local started = system.GetElapsedTime()
+				view:SetEnvironment(Environment.GetPreset(DEFAULT_ENVIRONMENT))
 
-		function view.OnDrawGeometry()
-			SceneView.DrawVisual(entity.visual)
-		end
+				function view.OnDrawGeometry()
+					SceneView.DrawVisual(entity.visual)
+				end
 
-		return {
-			entity = entity,
-			visual = entity.visual,
-			view = view,
-			orbit = OrbitCamera.New(view:GetCamera()),
-			started = started,
-			last_time = started,
-			last_press = 0,
-			ready = false,
-			sized = false,
-			failed = false,
-			auto_rotate = false,
-		}
-	end, |state| -> do
-		state.view:Remove()
+				return {
+					entity = entity,
+					visual = entity.visual,
+					view = view,
+					orbit = OrbitCamera.New(view:GetCamera()),
+					started = started,
+					last_time = started,
+					last_press = 0,
+					ready = false,
+					sized = false,
+					failed = false,
+					auto_rotate = false,
+				}
+			end,
+			|state|-> do
+				state.view:Remove()
 
-		if state.entity:IsValid() then state.entity:Remove() end
-	end, {})
+				if state.entity:IsValid() then state.entity:Remove() end
+			end,
+			{}
+		)
+		react.UseEvent(
+			"Update",
+			||-> do
+				local panel = canvas.current
 
-	react.UseEvent("Update", || -> do
-		local panel = canvas.current
+				if not panel then return end
 
-		if not panel then return end
+				local view = state.view
+				local now = system.GetElapsedTime()
+				local dt = math.min(now - state.last_time, 0.1)
+				state.last_time = now
+				local canvas_size = panel.transform:GetSize()
 
-		local view = state.view
-		local now = system.GetElapsedTime()
-		local dt = math.min(now - state.last_time, 0.1)
-		state.last_time = now
-		local canvas_size = panel.transform:GetSize()
+				if not state.sized then
+					if canvas_size.x < SIZE_STEP * 4 or canvas_size.y < SIZE_STEP * 4 then return end
 
-		if not state.sized then
-			if canvas_size.x < SIZE_STEP * 4 or canvas_size.y < SIZE_STEP * 4 then return end
+					state.sized = true
+					local width, height = get_render_size(canvas_size)
+					apply_size(state, width, height)
+				end
 
-			state.sized = true
-			local width, height = get_render_size(canvas_size)
-			apply_size(state, width, height)
-		end
+				if not state.ready then
+					if state.failed then return end
 
-		if not state.ready then
-			if state.failed then return end
-
-			if now - state.started > LOAD_TIMEOUT then
-				state.failed = true
-				set_status("could not load " .. entry.path)
-
-				return
-			end
-
-			if
-				not state.visual.Loading and
-				state.visual:GetRenderEntries()[1] and
-				previews.AreModelMaterialsReady(state.visual)
-			then
-				state.ready = true
-				view:SetAutoRender(true)
-				fit(state)
-				set_status(HELP)
-			end
-
-			return
-		end
-
-		local width, height = get_render_size(canvas_size)
-
-		if width == view:GetWidth() and height == view:GetHeight() then
-			state.pending_since = nil
-		elseif
-			state.pending_since == nil or
-			width ~= state.pending_width or
-			height ~= state.pending_height
-		then
-			state.pending_width, state.pending_height, state.pending_since = width, height, now
-		elseif now - state.pending_since >= RESIZE_DELAY then
-			state.pending_since = nil
-			apply_size(state, width, height)
-		end
-
-		local changed = false
-
-		if state.drag then
-			-- the release isn't seen when it happens outside of the canvas
-			if not input.IsMouseDown(state.drag_button) then
-				state.drag = nil
-			else
-				local x, y = system.GetWindow():GetMousePosition():Unpack()
-				local dx, dy = x - state.drag_x, y - state.drag_y
-				state.drag_x, state.drag_y = x, y
-
-				if dx ~= 0 or dy ~= 0 then
-					if state.drag == "orbit" then
-						state.orbit:Rotate(dx, dy)
-					else
-						state.orbit:Pan(dx, dy, view:GetHeight())
+					if now - state.started > LOAD_TIMEOUT then
+						state.failed = true
+						set_status("could not load " .. entry.path)
+						return
 					end
 
+					if
+						not state.visual.Loading and
+						state.visual:GetRenderEntries()[1] and
+						previews.AreModelMaterialsReady(state.visual)
+					then
+						state.ready = true
+						view:SetAutoRender(true)
+						fit(state)
+						set_status(HELP)
+					end
+
+					return
+				end
+
+				local width, height = get_render_size(canvas_size)
+
+				if width == view:GetWidth() and height == view:GetHeight() then
+					state.pending_since = nil
+				elseif
+					state.pending_since == nil or
+					width ~= state.pending_width or
+					height ~= state.pending_height
+				then
+					state.pending_width, state.pending_height, state.pending_since = width, height, now
+				elseif now - state.pending_since >= RESIZE_DELAY then
+					state.pending_since = nil
+					apply_size(state, width, height)
+				end
+
+				local changed = false
+
+				if state.drag then
+					-- the release isn't seen when it happens outside of the canvas
+					if not input.IsMouseDown(state.drag_button) then
+						state.drag = nil
+					else
+						local x, y = system.GetWindow():GetMousePosition():Unpack()
+						local dx, dy = x - state.drag_x, y - state.drag_y
+						state.drag_x, state.drag_y = x, y
+
+						if dx ~= 0 or dy ~= 0 then
+							if state.drag == "orbit" then
+								state.orbit:Rotate(dx, dy)
+							else
+								state.orbit:Pan(dx, dy, view:GetHeight())
+							end
+
+							changed = true
+						end
+					end
+				end
+
+				if state.auto_rotate and not state.drag then
+					state.orbit:Rotate(dt * 40, 0)
 					changed = true
 				end
+
+				if changed then
+					state.orbit:Apply()
+					view:Invalidate()
+				end
 			end
-		end
+		)
+		local on_mouse_input = react.UseCallback(
+			|self,button,press|-> do
+				if button == "mwheel_up" or button == "mwheel_down" then
+					if state.ready and press then
+						state.orbit:Zoom(button == "mwheel_up" and -1 or 1)
+						state.orbit:Apply()
+						state.view:Invalidate()
+					end
 
-		if state.auto_rotate and not state.drag then
-			state.orbit:Rotate(dt * 40, 0)
-			changed = true
-		end
+					return true
+				end
 
-		if changed then
-			state.orbit:Apply()
-			view:Invalidate()
-		end
-	end)
+				if button ~= "button_1" and button ~= "button_2" and button ~= "button_3" then
+					return
+				end
 
-	local on_mouse_input = react.UseCallback(|self, button, press| -> do
-		if button == "mwheel_up" or button == "mwheel_down" then
-			if state.ready and press then
-				state.orbit:Zoom(button == "mwheel_up" and -1 or 1)
-				state.orbit:Apply()
-				state.view:Invalidate()
-			end
+				if not press then
+					state.drag = nil
+					return true
+				end
 
-			return true
-		end
+				if not state.ready then return true end
 
-		if button ~= "button_1" and button ~= "button_2" and button ~= "button_3" then return end
+				state.drag_x, state.drag_y = system.GetWindow():GetMousePosition():Unpack()
+				state.drag_button = button
 
-		if not press then
-			state.drag = nil
+				if button == "button_1" then
+					state.drag = "orbit"
+					local now = system.GetTime()
 
-			return true
-		end
-
-		if not state.ready then return true end
-
-		state.drag_x, state.drag_y = system.GetWindow():GetMousePosition():Unpack()
-		state.drag_button = button
-
-		if button == "button_1" then
-			state.drag = "orbit"
-			local now = system.GetTime()
-
-			if now - state.last_press < DOUBLE_CLICK_TIME then
-				state.orbit:Reset()
-				state.orbit:Apply()
-				state.view:Invalidate()
-				state.last_press = 0
-			else
-				state.last_press = now
-			end
-		else
-			state.drag = "pan"
-		end
-
-		return true
-	end, {})
-	local draw = react.UseCallback(|self| -> do
-		local size = self.Owner.transform:GetSize()
-		render2d.SetTexture(nil)
-		render2d.SetColor(0.07, 0.08, 0.09, 1)
-		render2d.DrawRect(0, 0, size.x, size.y)
-
-		if not (state.ready and state.view:HasRendered()) then return end
-
-		render2d.PushTexture(state.view:GetTexture())
-		render2d.PushColorUV(0, 1, 1, 0, 0)
-		render2d.SetColor(1, 1, 1, 1)
-		render2d.DrawRect(0, 0, size.x, size.y)
-		render2d.PopColorUV()
-		render2d.PopTexture()
-	end, {})
-
-	return ViewerWindow{
-		Title = entry.path:upper(),
-		Size = WINDOW_SIZE,
-		layout = {FitHeight = false, FitWidth = false},
-	}{
-		Column{
-			layout = {
-				GrowWidth = 1,
-				GrowHeight = 1,
-				FitHeight = false,
-				AlignmentX = "stretch",
-				ChildGap = 6,
-				Padding = Rect() + 8,
-			},
-		}{
-			Row{layout = {GrowWidth = 1, ChildGap = 10, AlignmentY = "center"}}{
-				Text{Text = "Environment", Color = "text_disabled", layout = {FitWidth = true}},
-				Dropdown{
-					Options = Environment.GetPresetNames(),
-					Value = DEFAULT_ENVIRONMENT,
-					Padding = "XS",
-					OnSelect = |value| -> state.view:SetEnvironment(Environment.GetPreset(value)),
-					layout = {MinSize = Vec2(180, 0), MaxSize = Vec2(180, 0), GrowWidth = 0},
-				},
-				Checkbox{
-					Text = "Background",
-					Value = true,
-					OnChange = |value| -> state.view:SetTransparentSky(not value),
-				},
-				Checkbox{
-					Text = "Auto rotate",
-					Value = false,
-					OnChange = |value| -> do state.auto_rotate = value end,
-				},
-				Text{Text = "Exposure", Color = "text_disabled", layout = {FitWidth = true}},
-				Slider{
-					Mode = "horizontal",
-					Min = -4,
-					Max = 4,
-					Value = 0,
-					OnChange = |value| -> state.view:SetExposureCompensation(value),
-					Tooltip = "exposure compensation in stops",
-					layout = {MinSize = Vec2(140, 16), MaxSize = Vec2(140, 16), FitWidth = false},
-				},
-				Button{
-					Text = "Reset view",
-					Mode = "outline",
-					OnClick = || -> do
-						if not state.ready then return end
-
+					if now - state.last_press < DOUBLE_CLICK_TIME then
 						state.orbit:Reset()
 						state.orbit:Apply()
 						state.view:Invalidate()
-					end,
-				},
-			},
-			Canvas{
-				Name = "ModelViewerCanvas",
-				Cursor = "sizeall",
-				Ref = canvas,
-				OnDraw = draw,
-				OnMouseInput = on_mouse_input,
-			},
-			Text{Text = status, Color = "text_disabled", layout = {GrowWidth = 1}},
-		},
-	}
-end)
+						state.last_press = 0
+					else
+						state.last_press = now
+					end
+				else
+					state.drag = "pan"
+				end
 
+				return true
+			end,
+			{}
+		)
+		local draw = react.UseCallback(
+			|self|-> do
+				local size = self.Owner.transform:GetSize()
+				render2d.SetTexture(nil)
+				render2d.SetColor(0.07, 0.08, 0.09, 1)
+				render2d.DrawRect(0, 0, size.x, size.y)
+
+				if not (state.ready and state.view:HasRendered()) then return end
+
+				render2d.PushTexture(state.view:GetTexture())
+				render2d.PushColorUV(0, 1, 1, 0, 0)
+				render2d.SetColor(1, 1, 1, 1)
+				render2d.DrawRect(0, 0, size.x, size.y)
+				render2d.PopColorUV()
+				render2d.PopTexture()
+			end,
+			{}
+		)
+		return ViewerWindow{
+			Title = entry.path:upper(),
+			Size = WINDOW_SIZE,
+			layout = {FitHeight = false, FitWidth = false},
+		}{
+			Column{
+				layout = {
+					GrowWidth = 1,
+					GrowHeight = 1,
+					FitHeight = false,
+					AlignmentX = "stretch",
+					ChildGap = 6,
+					Padding = Rect() + 8,
+				},
+			}{
+				Row{layout = {GrowWidth = 1, ChildGap = 10, AlignmentY = "center"}}{
+					Text{Text = "Environment", Color = "text_disabled", layout = {FitWidth = true}},
+					Dropdown{
+						Options = Environment.GetPresetNames(),
+						Value = DEFAULT_ENVIRONMENT,
+						Padding = "XS",
+						OnSelect = |value|->state.view:SetEnvironment(Environment.GetPreset(value)),
+						layout = {MinSize = Vec2(180, 0), MaxSize = Vec2(180, 0), GrowWidth = 0},
+					},
+					Checkbox{
+						Text = "Background",
+						Value = true,
+						OnChange = |value|->state.view:SetTransparentSky(not value),
+					},
+					Checkbox{
+						Text = "Auto rotate",
+						Value = false,
+						OnChange = |value|-> do
+							state.auto_rotate = value
+						end,
+					},
+					Text{Text = "Exposure", Color = "text_disabled", layout = {FitWidth = true}},
+					Slider{
+						Mode = "horizontal",
+						Min = -4,
+						Max = 4,
+						Value = 0,
+						OnChange = |value|->state.view:SetExposureCompensation(value),
+						Tooltip = "exposure compensation in stops",
+						layout = {MinSize = Vec2(140, 16), MaxSize = Vec2(140, 16), FitWidth = false},
+					},
+					Button{
+						Text = "Reset view",
+						Mode = "outline",
+						OnClick = ||-> do
+							if not state.ready then return end
+
+							state.orbit:Reset()
+							state.orbit:Apply()
+							state.view:Invalidate()
+						end,
+					},
+				},
+				Canvas{
+					Name = "ModelViewerCanvas",
+					Cursor = "sizeall",
+					Ref = canvas,
+					OnDraw = draw,
+					OnMouseInput = on_mouse_input,
+				},
+				Text{Text = status, Color = "text_disabled", layout = {GrowWidth = 1}},
+			},
+		}
+	end
+)
 return function(entry)
 	return react.OpenWindow("ModelViewer/" .. entry.path, ModelView, {Entry = entry})
 end

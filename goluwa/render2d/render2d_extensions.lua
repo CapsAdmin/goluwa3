@@ -678,7 +678,12 @@ do
 
 		if softness > 0 then
 			local bg_alpha = background_color.a * (foreground_color.a ^ 2) * 0.67
-			render2d.PushColor(background_color.r, background_color.g, background_color.b, bg_alpha * (tbl.blur_intensity or 1))
+			render2d.PushColor(
+				background_color.r,
+				background_color.g,
+				background_color.b,
+				bg_alpha * (tbl.blur_intensity or 1)
+			)
 			render2d.PushSDFSoftness(softness)
 			font:DrawText(text, x, y, spacing, align_x, align_y)
 			render2d.PopSDFSoftness()

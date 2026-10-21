@@ -602,7 +602,9 @@ local function test_primitive_with_limit(
 			primitive.local_matrix:TransformVectorUnpacked(local_position.x, local_position.y, local_position.z)
 		)
 		local normal_end = local_position + closest_hit.normal
-		local transformed_normal_end = Vec3(primitive.local_matrix:TransformVectorUnpacked(normal_end.x, normal_end.y, normal_end.z))
+		local transformed_normal_end = Vec3(
+			primitive.local_matrix:TransformVectorUnpacked(normal_end.x, normal_end.y, normal_end.z)
+		)
 		closest_hit.normal = (transformed_normal_end - closest_hit.position):GetNormalized()
 
 		if closest_hit.face_normal then

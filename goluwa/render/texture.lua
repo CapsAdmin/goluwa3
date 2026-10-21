@@ -1424,7 +1424,16 @@ function Texture:Shade(glsl, extra_config)
 			srcAccess = "none",
 			dstStage = "color_attachment_output",
 			dstAccess = "color_attachment_write",
-			oldLayout = (extra_config.load_op == "load") and (self.image.layout or "undefined") or "undefined",
+			oldLayout = (
+					extra_config.load_op == "load"
+				)
+				and
+				(
+					self.image.layout or
+					"undefined"
+				)
+				or
+				"undefined",
 			level_count = 1,
 			layer_count = layers,
 		}
@@ -1771,7 +1780,9 @@ do
 				end
 			end
 		else
-			error(string.format("TextureDownloaded:ToPNG: unsupported format '%s'", tostring(format)))
+			error(
+				string.format("TextureDownloaded:ToPNG: unsupported format '%s'", tostring(format))
+			)
 		end
 
 		local png_file = png.Encode(w, h, without_alpha and "rgb" or "rgba")

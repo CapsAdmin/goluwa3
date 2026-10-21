@@ -379,7 +379,10 @@ do
 			]],
 			}
 			assert(config.fragment)
-			config.fragment.custom_declarations = (config.fragment.custom_declarations or "") .. [[
+			config.fragment.custom_declarations = (
+					config.fragment.custom_declarations or
+					""
+				) .. [[
 			layout(location = 0) in vec2 in_uv;
 		]]
 		end
@@ -816,7 +819,12 @@ do
 		local bindless_cubemap_capacity = bindless_descriptor_capacities.cubemaps
 		local bindless_view_capacity = bindless_descriptor_capacities.views
 		local bindless_sampler_capacity = bindless_descriptor_capacities.samplers
-		local tess_control_outputs = (config.tessellation_control and config.tessellation_control.outputs) or shader_outputs
+		local tess_control_outputs = (
+				config.tessellation_control and
+				config.tessellation_control.outputs
+			)
+			or
+			shader_outputs
 		local tess_eval_outputs = (
 				config.tessellation_evaluation and
 				config.tessellation_evaluation.outputs

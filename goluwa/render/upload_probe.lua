@@ -205,7 +205,14 @@ function probe.RecordUniformUpload(block_name, field_descriptors, data, block_si
 end
 
 local function get_elapsed_window()
-	local elapsed = (system.GetElapsedTime and system.GetElapsedTime() or 0) - (probe.last_reset_at or 0)
+	local elapsed = (
+			system.GetElapsedTime and
+			system.GetElapsedTime() or
+			0
+		) - (
+			probe.last_reset_at or
+			0
+		)
 
 	if elapsed <= 0 then elapsed = 1 end
 

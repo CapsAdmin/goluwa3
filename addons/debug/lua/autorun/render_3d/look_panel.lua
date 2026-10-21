@@ -273,19 +273,61 @@ local function build_items()
 			Text = "Time and place",
 			Tab = "Sky",
 			Children = {
-				number_node("weather/hours", "time of day", 0, 24, 2, weather.GetSolarHours, weather.SetSolarHours, "local solar hours"),
-				number_node("weather/day", "day of year", 1, 366, 0, weather.GetDayOfYear, weather.SetDayOfYear),
-				number_node("weather/latitude", "latitude", -90, 90, 2, function()
-					return (weather.GetLocation())
-				end, function(value)
-					weather.SetLocation(value, select(2, weather.GetLocation()))
-				end),
-				number_node("weather/longitude", "longitude", -180, 180, 2, function()
-					return select(2, weather.GetLocation())
-				end, function(value)
-					weather.SetLocation((weather.GetLocation()), value)
-				end),
-				number_node("weather/time_scale", "time scale", 0, 3600, 0, weather.GetTimeScale, weather.SetTimeScale, "game seconds per second"),
+				number_node(
+					"weather/hours",
+					"time of day",
+					0,
+					24,
+					2,
+					weather.GetSolarHours,
+					weather.SetSolarHours,
+					"local solar hours"
+				),
+				number_node(
+					"weather/day",
+					"day of year",
+					1,
+					366,
+					0,
+					weather.GetDayOfYear,
+					weather.SetDayOfYear
+				),
+				number_node(
+					"weather/latitude",
+					"latitude",
+					-90,
+					90,
+					2,
+					function()
+						return (weather.GetLocation())
+					end,
+					function(value)
+						weather.SetLocation(value, select(2, weather.GetLocation()))
+					end
+				),
+				number_node(
+					"weather/longitude",
+					"longitude",
+					-180,
+					180,
+					2,
+					function()
+						return select(2, weather.GetLocation())
+					end,
+					function(value)
+						weather.SetLocation((weather.GetLocation()), value)
+					end
+				),
+				number_node(
+					"weather/time_scale",
+					"time scale",
+					0,
+					3600,
+					0,
+					weather.GetTimeScale,
+					weather.SetTimeScale,
+					"game seconds per second"
+				),
 			},
 		},
 		{
@@ -293,7 +335,15 @@ local function build_items()
 			Text = "Sky",
 			Tab = "Sky",
 			Children = {
-				number_node("weather/moon_scale", "moon scale", 0, 10, 2, weather.GetMoonScale, weather.SetMoonScale),
+				number_node(
+					"weather/moon_scale",
+					"moon scale",
+					0,
+					10,
+					2,
+					weather.GetMoonScale,
+					weather.SetMoonScale
+				),
 			},
 		},
 		{
@@ -301,17 +351,44 @@ local function build_items()
 			Text = "Air",
 			Tab = "Air",
 			Children = {
-				number_node("weather/temperature", "temperature", -40, 50, 1, weather.GetTemperature, weather.SetTemperature, "celsius"),
-				number_node("weather/aerosol", "aerosol visibility", 1.5, 5.5, 2, function()
-					return math.log10(weather.GetAerosolVisibility())
-				end, function(value)
-					weather.SetAerosolVisibility(10 ^ value)
-				end, "log10 of meters"),
-				number_node("weather/ground_fog", "ground fog visibility", 1.5, 5.5, 2, function()
-					return math.log10(weather.GetGroundFogVisibility())
-				end, function(value)
-					weather.SetGroundFogVisibility(10 ^ value)
-				end, "log10 of meters"),
+				number_node(
+					"weather/temperature",
+					"temperature",
+					-40,
+					50,
+					1,
+					weather.GetTemperature,
+					weather.SetTemperature,
+					"celsius"
+				),
+				number_node(
+					"weather/aerosol",
+					"aerosol visibility",
+					1.5,
+					5.5,
+					2,
+					function()
+						return math.log10(weather.GetAerosolVisibility())
+					end,
+					function(value)
+						weather.SetAerosolVisibility(10 ^ value)
+					end,
+					"log10 of meters"
+				),
+				number_node(
+					"weather/ground_fog",
+					"ground fog visibility",
+					1.5,
+					5.5,
+					2,
+					function()
+						return math.log10(weather.GetGroundFogVisibility())
+					end,
+					function(value)
+						weather.SetGroundFogVisibility(10 ^ value)
+					end,
+					"log10 of meters"
+				),
 			},
 		},
 		{
@@ -366,13 +443,31 @@ local function build_items()
 			Text = "Wind",
 			Tab = "Air",
 			Children = {
-				number_node("weather/wind_direction", "direction", 0, 360, 0, get_wind_direction, function(value)
-					wind_direction = value
-					set_wind(value, get_wind_speed())
-				end, "degrees, 0 blows towards +x, 90 towards +z"),
-				number_node("weather/wind_speed", "speed", 0, 40, 1, get_wind_speed, function(value)
-					set_wind(wind_direction, value)
-				end, "meters per second"),
+				number_node(
+					"weather/wind_direction",
+					"direction",
+					0,
+					360,
+					0,
+					get_wind_direction,
+					function(value)
+						wind_direction = value
+						set_wind(value, get_wind_speed())
+					end,
+					"degrees, 0 blows towards +x, 90 towards +z"
+				),
+				number_node(
+					"weather/wind_speed",
+					"speed",
+					0,
+					40,
+					1,
+					get_wind_speed,
+					function(value)
+						set_wind(wind_direction, value)
+					end,
+					"meters per second"
+				),
 			},
 		},
 		{
@@ -380,7 +475,16 @@ local function build_items()
 			Text = "Precipitation",
 			Tab = "Ground",
 			Children = {
-				number_node("weather/rain", "rain", 0, 100, 1, weather.GetRain, weather.SetRain, "mm per hour"),
+				number_node(
+					"weather/rain",
+					"rain",
+					0,
+					100,
+					1,
+					weather.GetRain,
+					weather.SetRain,
+					"mm per hour"
+				),
 				number_node("weather/snow", "snow", 0, 30, 1, weather.GetSnow, weather.SetSnow, "mm per hour"),
 			},
 		},
@@ -390,7 +494,16 @@ local function build_items()
 			Tab = "Ground",
 			Children = {
 				number_node("weather/wetness", "wetness", 0, 1, 3, weather.GetWetness, weather.SetWetness),
-				number_node("weather/snow_depth", "snow depth", 0, 2, 3, weather.GetSnowDepth, weather.SetSnowDepth, "meters"),
+				number_node(
+					"weather/snow_depth",
+					"snow depth",
+					0,
+					2,
+					3,
+					weather.GetSnowDepth,
+					weather.SetSnowDepth,
+					"meters"
+				),
 			},
 		},
 	}
@@ -511,7 +624,6 @@ local function build_items()
 			grade.Stop()
 			pvars.SetSession(info.key, value)
 		end)
-
 		node.GetValue = function()
 			return pvars.Get(info.key)
 		end
@@ -526,7 +638,6 @@ local function name_layers()
 	for _, layer in ipairs(weather.GetCloudLayers()) do
 		if not layer.name then
 			weather.SetCloudLayers(copy_layers())
-
 			return
 		end
 	end
@@ -551,45 +662,51 @@ local function read_values()
 	return values
 end
 
-local LookEditor = react.Component(|| -> do
-	local editor = react.UseRef()
-	local signature = react.UsePoll(|| -> do
-		name_layers()
+local LookEditor = react.Component(
+	||-> do
+		local editor = react.UseRef()
+		local signature = react.UsePoll(||-> do
+			name_layers()
+			return get_signature()
+		end, POLL_INTERVAL)
+		local items = react.UseMemo(build_items, {signature})
+		local values = react.UsePoll(read_values, POLL_INTERVAL)
+		react.UseEffect(
+			||-> do
+				for _, node in ipairs(nodes) do
+					local value = values[node.Key]
 
-		return get_signature()
-	end, POLL_INTERVAL)
-	local items = react.UseMemo(build_items, {signature})
-	local values = react.UsePoll(read_values, POLL_INTERVAL)
-
-	react.UseEffect(|| -> do
-		for _, node in ipairs(nodes) do
-			local value = values[node.Key]
-
-			if value ~= node.Value then editor.current:UpdateValueForKey(node.Key, value) end
-		end
-	end, {values, items})
-
-	return ui.ScrollablePanel{ScrollX = false, ScrollY = true, Padding = "M", layout = {GrowWidth = 1, GrowHeight = 1}}{
-		ui.PropertyEditor{Ref = editor, Items = items, layout = {GrowWidth = 1}},
-	}
-end)
-local LookView = react.Component(|| -> do
-	local shown, set_shown = react.UseState(true)
-	local size = react.UseMemo(|| -> Vec2(WIDTH, Panel.World.transform:GetSize().y - DESKTOP_BAR), {})
-
-	return ui.Window{
-		Title = "LOOK",
-		Pinnable = true,
-		Padding = "none",
-		Size = size,
-		Position = Vec2(0, DESKTOP_BAR),
-		MinSize = Vec2(WIDTH, 200),
-		OnVisibilityChanged = |_, visible| -> set_shown(visible),
-	}{shown && LookEditor{}}
-end)
-
-local LookContent = react.Component(|props| -> props.Shown ~= false && LookEditor{})
-
+					if value ~= node.Value then editor.current:UpdateValueForKey(node.Key, value) end
+				end
+			end,
+			{values, items}
+		)
+		return ui.ScrollablePanel{
+			ScrollX = false,
+			ScrollY = true,
+			Padding = "M",
+			layout = {GrowWidth = 1, GrowHeight = 1},
+		}{
+			ui.PropertyEditor{Ref = editor, Items = items, layout = {GrowWidth = 1}},
+		}
+	end
+)
+local LookView = react.Component(
+	||-> do
+		local shown, set_shown = react.UseState(true)
+		local size = react.UseMemo(||->Vec2(WIDTH, Panel.World.transform:GetSize().y - DESKTOP_BAR), {})
+		return ui.Window{
+			Title = "LOOK",
+			Pinnable = true,
+			Padding = "none",
+			Size = size,
+			Position = Vec2(0, DESKTOP_BAR),
+			MinSize = Vec2(WIDTH, 200),
+			OnVisibilityChanged = |_,visible|->set_shown(visible),
+		}{shown and LookEditor{}}
+	end
+)
+local LookContent = react.Component(|props|->props.Shown ~= false and LookEditor{})
 desktop.RegisterProgram{
 	Name = "Look",
 	Icon = "eye",

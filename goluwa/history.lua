@@ -21,7 +21,10 @@ end
 function History:Push(entry)
 	if self.applying then return end
 
-	assert(entry.Undo and entry.Redo and entry.Name, "a history entry needs Name, Undo and Redo")
+	assert(
+		entry.Undo and entry.Redo and entry.Name,
+		"a history entry needs Name, Undo and Redo"
+	)
 	local now = system.GetElapsedTime()
 
 	if self.depth > 0 then

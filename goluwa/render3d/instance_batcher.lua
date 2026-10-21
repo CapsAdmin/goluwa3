@@ -171,7 +171,11 @@ do
 			end
 
 			for _, buffer in ipairs(slot.buffers) do
-				buffer.buffer:CopyData(buffer.data + first * MATRIX_BYTES, instance_count * MATRIX_BYTES, first * MATRIX_BYTES)
+				buffer.buffer:CopyData(
+					buffer.data + first * MATRIX_BYTES,
+					instance_count * MATRIX_BYTES,
+					first * MATRIX_BYTES
+				)
 			end
 
 			slot.used = cursor

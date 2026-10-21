@@ -277,7 +277,9 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 
 				if cascade.last_camera_forward and camera then
 					turned = math.deg(
-						math.acos(math.clamp(camera:GetRotation():GetForward():Dot(cascade.last_camera_forward), -1, 1))
+						math.acos(
+							math.clamp(camera:GetRotation():GetForward():Dot(cascade.last_camera_forward), -1, 1)
+						)
 					)
 				end
 

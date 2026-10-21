@@ -68,7 +68,9 @@ local function collect_capsule_support_contact(context, collider, point, fallbac
 	end
 
 	local margin = collider:GetCollisionMargin() or 0
-	local depth = (fallback_hit.position + fallback_hit.normal * margin - point):Dot(fallback_hit.normal)
+	local depth = (
+		fallback_hit.position + fallback_hit.normal * margin - point
+	):Dot(fallback_hit.normal)
 	local support_tolerance = (collider:GetCollisionProbeDistance() or 0) + margin
 
 	if depth < -support_tolerance then return end

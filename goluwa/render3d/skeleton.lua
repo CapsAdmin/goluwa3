@@ -178,8 +178,14 @@ function Skeleton:ComputeSkinMatrices(pose, out, world, overrides)
 		local a10, a11, a12, a13 = world[w + 4], world[w + 5], world[w + 6], world[w + 7]
 		local a20, a21, a22, a23 = world[w + 8], world[w + 9], world[w + 10], world[w + 11]
 		local b00, b01, b02, b03 = inverse_bind[w], inverse_bind[w + 1], inverse_bind[w + 2], inverse_bind[w + 3]
-		local b10, b11, b12, b13 = inverse_bind[w + 4], inverse_bind[w + 5], inverse_bind[w + 6], inverse_bind[w + 7]
-		local b20, b21, b22, b23 = inverse_bind[w + 8], inverse_bind[w + 9], inverse_bind[w + 10], inverse_bind[w + 11]
+		local b10, b11, b12, b13 = inverse_bind[w + 4],
+		inverse_bind[w + 5],
+		inverse_bind[w + 6],
+		inverse_bind[w + 7]
+		local b20, b21, b22, b23 = inverse_bind[w + 8],
+		inverse_bind[w + 9],
+		inverse_bind[w + 10],
+		inverse_bind[w + 11]
 		out[w] = a00 * b00 + a01 * b10 + a02 * b20
 		out[w + 1] = a00 * b01 + a01 * b11 + a02 * b21
 		out[w + 2] = a00 * b02 + a01 * b12 + a02 * b22

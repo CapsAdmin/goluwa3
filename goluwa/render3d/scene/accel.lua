@@ -175,7 +175,9 @@ function accel.BuildBLASes(cmd, jobs, count)
 	local device = render.GetDevice()
 	scratch_alignment = scratch_alignment or
 		math.max(
-			tonumber(device.physical_device:GetAccelerationStructureProperties().minAccelerationStructureScratchOffsetAlignment),
+			tonumber(
+				device.physical_device:GetAccelerationStructureProperties().minAccelerationStructureScratchOffsetAlignment
+			),
 			1
 		)
 	local geometries = VkGeometryArray(count)

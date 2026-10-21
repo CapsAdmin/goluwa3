@@ -6,6 +6,7 @@ config.ignorefiles = {
 	"^%./addons/gmod/src/",
 	"^%./goluwa/nattlua/",
 	"^%./local_stuff/",
+	"^%./storage/",
 }
 config.commands["build"] = {
 	cb = function()

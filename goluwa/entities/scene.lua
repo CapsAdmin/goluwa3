@@ -307,7 +307,10 @@ end
 
 function scene.Deserialize(data, parent, options)
 	options = options or {}
-	assert(data.version == scene.Version, "unsupported scene version " .. tostring(data.version))
+	assert(
+		data.version == scene.Version,
+		"unsupported scene version " .. tostring(data.version)
+	)
 	local spawned = {}
 	local skipped = {}
 	local roots = {}

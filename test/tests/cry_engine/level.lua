@@ -149,7 +149,9 @@ T.Test("Cry level parser reads visual objects from editor level xml", function()
 end)
 
 T.Test("Cry quaternions are w first and cry yaw maps to engine yaw", function()
-	local transform = crylevel.ConvertCryWorldMatrixToEngineTransform(crylevel.BuildCryLocalMatrix{Pos = "1967,2682,203", Rotate = "0.70710659,0,0,0.70710695"})
+	local transform = crylevel.ConvertCryWorldMatrixToEngineTransform(
+		crylevel.BuildCryLocalMatrix{Pos = "1967,2682,203", Rotate = "0.70710659,0,0,0.70710695"}
+	)
 	local right, up, forward = get_basis(transform)
 	T((transform.position - Vec3(1967, 203, -2682)):GetLength())["~"](0, 0.001)
 	T((right - Vec3(0, 0, -1)):GetLength())["~"](0, 0.001)

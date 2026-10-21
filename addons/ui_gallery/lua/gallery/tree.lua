@@ -62,8 +62,18 @@ local function build_items(show_hidden)
 			},
 			true
 		),
-		folder("project/tests", "tests", "Widget and interaction tests.", files("project/tests", "case_", ".lua", 10, "A test case")),
-		folder("project/assets", "assets", "Artwork and icons.", files("project/assets", "icon_", ".png", 12, "An icon")),
+		folder(
+			"project/tests",
+			"tests",
+			"Widget and interaction tests.",
+			files("project/tests", "case_", ".lua", 10, "A test case")
+		),
+		folder(
+			"project/assets",
+			"assets",
+			"Artwork and icons.",
+			files("project/assets", "icon_", ".png", 12, "An icon")
+		),
 	}
 
 	if show_hidden then
@@ -126,7 +136,6 @@ local function move_node(items, drop)
 
 	if not target then
 		table.insert(source_nodes, source_index, source)
-
 		return false
 	end
 
@@ -145,110 +154,120 @@ return {
 	Name = "tree",
 	Section = "Data",
 	Order = 1,
-	View = react.Component(|| -> do
-		local tree = react.UseRef()
-		local items, set_items = react.UseState(|| -> build_items(false))
-		local selected, set_selected = react.UseState(DEFAULT_SELECTION)
-		local drag_text, set_drag_text = react.UseState(
-			"Drag a row by its label. Drop near an edge to place before or after, or in the middle of a folder to move into it."
-		)
-		local _, _, node = find_location(items, selected)
-		local children = #(node and node.Children or {})
-
-		react.UseEffect(|| -> tree.current:ExpandToKey(selected), {items, selected})
-
-		return kit.Page{
-			Title = "Tree",
-			Description = "A keyed tree view with expandable branches, selection, programmatic focus, live item replacement and drag and drop. Rows are created lazily as they scroll into view.",
-		}{
-			kit.Section{
-				Title = "File browser",
-				Description = "Items are plain tables: Key, Text, Children, Expanded. Callbacks such as OnGetNodePanel, OnSelect and OnDrop customize it.",
+	View = react.Component(
+		||-> do
+			local tree = react.UseRef()
+			local items, set_items = react.UseState(||->build_items(false))
+			local selected, set_selected = react.UseState(DEFAULT_SELECTION)
+			local drag_text, set_drag_text = react.UseState(
+				"Drag a row by its label. Drop near an edge to place before or after, or in the middle of a folder to move into it."
+			)
+			local _, _, node = find_location(items, selected)
+			local children = #(node and node.Children or {})
+			react.UseEffect(||->tree.current:ExpandToKey(selected), {items, selected})
+			return kit.Page{
+				Title = "Tree",
+				Description = "A keyed tree view with expandable branches, selection, programmatic focus, live item replacement and drag and drop. Rows are created lazily as they scroll into view.",
 			}{
-				kit.Group{
-					ui.Button{Text = "Expand all", OnClick = || -> tree.current:ExpandAll()},
-					ui.Button{Text = "Collapse all", Mode = "outline", OnClick = || -> tree.current:CollapseAll()},
-					ui.Button{
-						Text = "Focus tree.lua",
-						Mode = "outline",
-						OnClick = || -> do
-							set_selected(DEFAULT_SELECTION)
-							tree.current:ExpandToKey(DEFAULT_SELECTION)
-							tree.current:SetSelectedKey(DEFAULT_SELECTION)
-							tree.current:EnsureVisible(DEFAULT_SELECTION)
-						end,
-					},
-					ui.Checkbox{
-						Text = "Show hidden files",
-						Value = false,
-						OnChange = |value| -> set_items(build_items(value)),
-					},
-				},
-				ui.Text{
-					Text = drag_text,
-					Color = "text_disabled",
-					Wrap = true,
-					IgnoreMouseInput = true,
-					layout = {GrowWidth = 1},
-				},
-				ui.Splitter{InitialSize = 300, layout = {MinSize = Vec2(0, 360), MaxSize = Vec2(0, 360)}}{
-					ui.Frame{Padding = "XS", layout = {GrowWidth = 1, GrowHeight = 1}}{
-						ui.ScrollablePanel{layout = {GrowWidth = 1, GrowHeight = 1}, Padding = "XXS"}{
-							ui.Tree{
-								Ref = tree,
-								Items = items,
-								SelectedKey = selected,
-								OnSelect = |_, key| -> set_selected(key),
-								OnCanDropInside = |dropped| -> dropped.Kind == "folder",
-								OnDrop = |drop| -> do
-									local moved = clone(items)
-
-									if not move_node(moved, drop) then return false end
-
-									set_items(moved)
-									set_selected(drop.source_key)
-									set_drag_text(
-										string.format(
-											"Moved %s %s %s.",
-											drop.source_node.Text,
-											drop.position == "inside" and "into" or drop.position,
-											drop.target_node.Text
-										)
-									)
-
-									return true
-								end,
-							},
+				kit.Section{
+					Title = "File browser",
+					Description = "Items are plain tables: Key, Text, Children, Expanded. Callbacks such as OnGetNodePanel, OnSelect and OnDrop customize it.",
+				}{
+					kit.Group{
+						ui.Button{Text = "Expand all", OnClick = ||->tree.current:ExpandAll()},
+						ui.Button{
+							Text = "Collapse all",
+							Mode = "outline",
+							OnClick = ||->tree.current:CollapseAll(),
+						},
+						ui.Button{
+							Text = "Focus tree.lua",
+							Mode = "outline",
+							OnClick = ||-> do
+								set_selected(DEFAULT_SELECTION)
+								tree.current:ExpandToKey(DEFAULT_SELECTION)
+								tree.current:SetSelectedKey(DEFAULT_SELECTION)
+								tree.current:EnsureVisible(DEFAULT_SELECTION)
+							end,
+						},
+						ui.Checkbox{
+							Text = "Show hidden files",
+							Value = false,
+							OnChange = |value|->set_items(build_items(value)),
 						},
 					},
-					ui.Frame{Padding = "S", layout = {GrowWidth = 1, GrowHeight = 1}}{
-						ui.Column{layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch", ChildGap = "XS"}}{
-							ui.Text{Text = node and node.Text or "", Font = "body_strong M", IgnoreMouseInput = true},
-							ui.Text{
-								Text = node and
-									(
-										string.upper(node.Kind) .. "  |  " .. node.Key .. (
+					ui.Text{
+						Text = drag_text,
+						Color = "text_disabled",
+						Wrap = true,
+						IgnoreMouseInput = true,
+						layout = {GrowWidth = 1},
+					},
+					ui.Splitter{InitialSize = 300, layout = {MinSize = Vec2(0, 360), MaxSize = Vec2(0, 360)}}{
+						ui.Frame{Padding = "XS", layout = {GrowWidth = 1, GrowHeight = 1}}{
+							ui.ScrollablePanel{layout = {GrowWidth = 1, GrowHeight = 1}, Padding = "XXS"}{
+								ui.Tree{
+									Ref = tree,
+									Items = items,
+									SelectedKey = selected,
+									OnSelect = |_,key|->set_selected(key),
+									OnCanDropInside = |dropped|->dropped.Kind == "folder",
+									OnDrop = |drop|-> do
+										local moved = clone(items)
+
+										if not move_node(moved, drop) then return false end
+
+										set_items(moved)
+										set_selected(drop.source_key)
+										set_drag_text(
+											string.format(
+												"Moved %s %s %s.",
+												drop.source_node.Text,
+												drop.position == "inside" and "into" or drop.position,
+												drop.target_node.Text
+											)
+										)
+										return true
+									end,
+								},
+							},
+						},
+						ui.Frame{Padding = "S", layout = {GrowWidth = 1, GrowHeight = 1}}{
+							ui.Column{
+								layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch", ChildGap = "XS"},
+							}{
+								ui.Text{
+									Text = node and node.Text or "",
+									Font = "body_strong M",
+									IgnoreMouseInput = true,
+								},
+								ui.Text{
+									Text = node and
+										(
+											string.upper(node.Kind) .. "  |  " .. node.Key .. (
 												children > 0 and
 												"  |  " .. children .. " children" or
 												""
 											)
-									) or
-									"",
-								Color = "text_disabled",
-								Wrap = true,
-								IgnoreMouseInput = true,
-								layout = {GrowWidth = 1},
-							},
-							ui.Text{
-								Text = node and node.Description or "",
-								Wrap = true,
-								IgnoreMouseInput = true,
-								layout = {GrowWidth = 1},
+										)
+										or
+										"",
+									Color = "text_disabled",
+									Wrap = true,
+									IgnoreMouseInput = true,
+									layout = {GrowWidth = 1},
+								},
+								ui.Text{
+									Text = node and node.Description or "",
+									Wrap = true,
+									IgnoreMouseInput = true,
+									layout = {GrowWidth = 1},
+								},
 							},
 						},
 					},
 				},
-			},
-		}
-	end),
+			}
+		end
+	),
 }

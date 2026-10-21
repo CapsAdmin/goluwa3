@@ -179,7 +179,7 @@ local map_os = {
 local function checkarg(str, map, err)
 	str = str:lower()
 	local s = check(map[str], "unknown ", err)
-	return type(s) == "string" ? s : str--[[#: ]]
+	return type(s) == "string" ? s : str
 end
 
 local function detecttype(str)
@@ -367,7 +367,7 @@ typedef struct {
 	end
 
 	-- Create ELF object and fill in header.
-	local o = ffi.new(is64 ? "ELF64obj" : "ELF32obj"--[[#: ]])
+	local o = ffi.new(is64 ? "ELF64obj" : "ELF32obj")
 	local hdr = o.hdr
 
 	if ctx.os == "bsd" or ctx.os == "other" then -- Determine native hdr.eosabi.
@@ -381,8 +381,8 @@ typedef struct {
 		hdr.eosabi = ({freebsd = 9, netbsd = 2, openbsd = 12, solaris = 6})[ctx.os] or 0
 	end
 
-	hdr.eclass = is64 ? 2 : 1--[[#: ]]
-	hdr.eendian = isbe ? 2 : 1--[[#: ]]
+	hdr.eclass = is64 ? 2 : 1
+	hdr.eendian = isbe ? 2 : 1
 	hdr.eversion = 1
 	hdr.type = f16(1)
 	hdr.machine = f16(ai.m)

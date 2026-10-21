@@ -21,7 +21,13 @@ local spawnmenu = {}
 local TILE_SIZE = 84
 local LABELED_TILE_SIZE = 120
 local LABEL_HEIGHT = 20
-local PAGE_LAYOUT = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, Direction = "y", AlignmentX = "stretch"}
+local PAGE_LAYOUT = {
+	GrowWidth = 1,
+	GrowHeight = 1,
+	FitHeight = false,
+	Direction = "y",
+	AlignmentX = "stretch",
+}
 local SPAWN_RANGE = 40
 local DEFAULT_DISTANCE = 3
 local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
@@ -114,7 +120,16 @@ end
 
 local function draw_tile(item, index, x, y, w, h, selected, hovered)
 	refresh_colors()
-	render2d.DrawBox(x, y, w, h, 4, colors.preview_background, hovered and colors.primary or colors.border, hovered and -2 or -1)
+	render2d.DrawBox(
+		x,
+		y,
+		w,
+		h,
+		4,
+		colors.preview_background,
+		hovered and colors.primary or colors.border,
+		hovered and -2 or -1
+	)
 	local label_height = item.label and LABEL_HEIGHT or 0
 	local preview = previews.Request(item)
 	local size = math.min(w, h - label_height) - 4
@@ -139,25 +154,39 @@ local function draw_tile(item, index, x, y, w, h, selected, hovered)
 	end
 end
 
-local TileGrid = react.Component(|props| -> do
-	local hovered, set_hovered = react.UseState()
-	local size = props.Items[1] and props.Items[1].label and LABELED_TILE_SIZE or TILE_SIZE
-
-	return ui.Column{layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, ChildGap = 4, AlignmentX = "stretch"}}{
-		ui.VirtualGrid{
-			Items = props.Items,
-			CellWidth = size,
-			ExtraHeight = 0,
-			Gap = 4,
-			ContentPadding = 4,
-			OnDrawItem = draw_tile,
-			OnSelect = spawnmenu.Spawn,
-			OnHoverItem = set_hovered,
-			layout = {GrowWidth = 1, GrowHeight = 1},
-		},
-		ui.Text{Text = hovered ? hovered.path : "", Color = "text_disabled", Elide = true, layout = {GrowWidth = 1, FitWidth = false}},
-	}
-end)
+local TileGrid = react.Component(
+	|props|-> do
+		local hovered, set_hovered = react.UseState()
+		local size = props.Items[1] and props.Items[1].label and LABELED_TILE_SIZE or TILE_SIZE
+		return ui.Column{
+			layout = {
+				GrowWidth = 1,
+				GrowHeight = 1,
+				FitHeight = false,
+				ChildGap = 4,
+				AlignmentX = "stretch",
+			},
+		}{
+			ui.VirtualGrid{
+				Items = props.Items,
+				CellWidth = size,
+				ExtraHeight = 0,
+				Gap = 4,
+				ContentPadding = 4,
+				OnDrawItem = draw_tile,
+				OnSelect = spawnmenu.Spawn,
+				OnHoverItem = set_hovered,
+				layout = {GrowWidth = 1, GrowHeight = 1},
+			},
+			ui.Text{
+				Text = hovered ? hovered.path : "",
+				Color = "text_disabled",
+				Elide = true,
+				layout = {GrowWidth = 1, FitWidth = false},
+			},
+		}
+	end
+)
 
 local function make_tree_items(roots, counter)
 	local items = {}
@@ -167,7 +196,14 @@ local function make_tree_items(roots, counter)
 		items[#items + 1] = {
 			Key = "list" .. counter.count,
 			Text = node.Name,
-			Icon = #node.Children > 0 and (|_, expanded| -> expanded and "folder_open" or "folder") or "layers",
+			Icon = #node.Children > 0 and
+				(
+					|_,expanded|->expanded and
+					"folder_open" or
+					"folder"
+				)
+				or
+				"layers",
 			List = node,
 			Children = make_tree_items(node.Children, counter),
 		}
@@ -176,177 +212,238 @@ local function make_tree_items(roots, counter)
 	return items
 end
 
-local SpawnlistsPage = react.Component(|| -> do
-	local roots = react.UseMemo(spawnlists.Load, {})
-	local everything = react.UseMemo(|| -> spawnlists.GetEntries(roots), {roots})
-	local tree_items = react.UseMemo(|| -> {
-		{Key = "root", Text = "Your Spawnlists", Icon = "folder_open", Children = make_tree_items(roots, {count = 0})},
-	}, {roots})
-	local list, set_list = react.UseState(roots[1])
-	local query, set_query = react.UseState("")
-	local applied_query = react.UseDebounce(query, 0.12)
-	local expanded = react.UseRef({root = true})
-	local tree = react.UseRef()
-	local items = react.UseMemo(|| -> do
-		local text = applied_query:lower():match("^%s*(.-)%s*$")
+local SpawnlistsPage = react.Component(
+	||-> do
+		local roots = react.UseMemo(spawnlists.Load, {})
+		local everything = react.UseMemo(||->spawnlists.GetEntries(roots), {roots})
+		local tree_items = react.UseMemo(
+			||->{
+				{
+					Key = "root",
+					Text = "Your Spawnlists",
+					Icon = "folder_open",
+					Children = make_tree_items(roots, {count = 0}),
+				},
+			},
+			{roots}
+		)
+		local list, set_list = react.UseState(roots[1])
+		local query, set_query = react.UseState("")
+		local applied_query = react.UseDebounce(query, 0.12)
+		local expanded = react.UseRef({root = true})
+		local tree = react.UseRef()
+		local items = react.UseMemo(
+			||-> do
+				local text = applied_query:lower():match("^%s*(.-)%s*$")
 
-		if text == "" then return list and list.Entries ?? {} end
+				if text == "" then return list and list.Entries ?? {} end
 
-		local found = {}
+				local found = {}
 
-		for _, entry in ipairs(everything) do
-			if entry.lower_path:find(text, 1, true) then found[#found + 1] = entry end
+				for _, entry in ipairs(everything) do
+					if entry.lower_path:find(text, 1, true) then found[#found + 1] = entry end
+				end
+
+				return found
+			end,
+			{list, applied_query, everything}
+		)
+		react.UseLayoutEffect(
+			||-> do
+				if tree.current then
+					tree.current:SetSelectedKey(tree_items[1].Children[1].Key)
+				end
+			end,
+			{}
+		)
+
+		if #roots == 0 then
+			return ui.Text{
+				Text = "no spawnlists found, mount Garry's Mod to get settings/spawnlist_default",
+				Color = "text_disabled",
+				Wrap = true,
+				layout = {GrowWidth = 1},
+			}
 		end
 
-		return found
-	end, {list, applied_query, everything})
-
-	react.UseLayoutEffect(|| -> do
-		if tree.current then tree.current:SetSelectedKey(tree_items[1].Children[1].Key) end
-	end, {})
-
-	if #roots == 0 then
-		return ui.Text{
-			Text = "no spawnlists found, mount Garry's Mod to get settings/spawnlist_default",
-			Color = "text_disabled",
-			Wrap = true,
-			layout = {GrowWidth = 1},
+		return ui.Column{
+			layout = {
+				GrowWidth = 1,
+				GrowHeight = 1,
+				FitHeight = false,
+				ChildGap = 6,
+				AlignmentX = "stretch",
+			},
+		}{
+			ui.TextEdit{
+				Hint = "Search",
+				Wrap = false,
+				ScrollX = false,
+				ScrollY = false,
+				ScrollbarVisible = false,
+				Size = Vec2(0, 26),
+				MinSize = Vec2(0, 26),
+				MaxSize = Vec2(0, 26),
+				OnTextChanged = |_,text|->set_query(text),
+				layout = {GrowWidth = 1},
+			},
+			ui.Splitter{InitialSize = 220, layout = {GrowWidth = 1, GrowHeight = 1}}{
+				ui.ScrollablePanel{
+					Padding = Rect(),
+					ScrollX = false,
+					ScrollY = true,
+					layout = {GrowWidth = 1, GrowHeight = 1},
+				}{
+					ui.Tree{
+						Ref = tree,
+						Items = tree_items,
+						LabelGrow = true,
+						layout = {GrowWidth = 1, FitHeight = true},
+						OnIsExpanded = |_,_,key|->expanded.current[key] == true,
+						OnToggle = |_,is_expanded,key|-> do
+							expanded.current[key] = is_expanded == true
+						end,
+						OnSelect = |node|-> do
+							if node then set_list(node.List) end
+						end,
+					},
+				},
+				TileGrid{Items = items},
+			},
 		}
 	end
+)
+local ListPage = react.Component(
+	|props|-> do
+		local items = react.UseMemo(props.Make, {})
+		return TileGrid{Items = items}
+	end
+)
+local UtilitiesPage = react.Component(
+	|props|-> do
+		local version, set_version = react.UseState(0)
+		local selected, set_selected = react.UseState("Sun")
+		local programs = react.UseMemo(
+			||->list.filter(desktop.GetPrograms(), |program|->program.Content ~= nil),
+			{version}
+		)
+		local program = list.find(programs, |candidate|->candidate.Name == selected) ?? programs[1]
+		react.UseEvent("DesktopChanged", ||->set_version(|current|->current + 1))
+		local categories = react.UseMemo(
+			||-> do
+				local result = {}
+				local by_name = {}
 
-	return ui.Column{layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, ChildGap = 6, AlignmentX = "stretch"}}{
-		ui.TextEdit{
-			Hint = "Search",
-			Wrap = false,
-			ScrollX = false,
-			ScrollY = false,
-			ScrollbarVisible = false,
-			Size = Vec2(0, 26),
-			MinSize = Vec2(0, 26),
-			MaxSize = Vec2(0, 26),
-			OnTextChanged = |_, text| -> set_query(text),
-			layout = {GrowWidth = 1},
-		},
-		ui.Splitter{InitialSize = 220, layout = {GrowWidth = 1, GrowHeight = 1}}{
-			ui.ScrollablePanel{Padding = Rect(), ScrollX = false, ScrollY = true, layout = {GrowWidth = 1, GrowHeight = 1}}{
-				ui.Tree{
-					Ref = tree,
-					Items = tree_items,
-					LabelGrow = true,
-					layout = {GrowWidth = 1, FitHeight = true},
-					OnIsExpanded = |_, _, key| -> expanded.current[key] == true,
-					OnToggle = |_, is_expanded, key| -> do expanded.current[key] = is_expanded == true end,
-					OnSelect = |node| -> do
-						if node then set_list(node.List) end
-					end,
+				for _, candidate in ipairs(programs) do
+					local name = candidate.Category ?? "desktop"
+
+					if not by_name[name] then
+						by_name[name] = {Name = name, Programs = {}}
+						result[#result + 1] = by_name[name]
+					end
+
+					list.insert(by_name[name].Programs, candidate)
+				end
+
+				return result
+			end,
+			{programs}
+		)
+		return ui.Splitter{InitialSize = 180, layout = {GrowWidth = 1, GrowHeight = 1}}{
+			ui.ScrollablePanel{
+				Padding = "XS",
+				ScrollX = false,
+				ScrollY = true,
+				layout = {GrowWidth = 1, GrowHeight = 1},
+			}{
+				ui.Column{
+					layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XXS", AlignmentX = "stretch"},
+				}{
+					list.map(
+						categories,
+						|category|->ui.Collapsible{Key = category.Name, Title = category.Name, HeaderMode = "text"}{
+							list.map(
+								category.Programs,
+								|candidate|->ui.MenuItem{
+									Key = candidate.Name,
+									Text = candidate.Name,
+									Icon = candidate.Icon,
+									Padding = "S",
+									Selected = candidate == program,
+									OnClick = ||->set_selected(candidate.Name),
+								}
+							),
+						}
+					),
 				},
 			},
-			TileGrid{Items = items},
-		},
-	}
-end)
-
-local ListPage = react.Component(|props| -> do
-	local items = react.UseMemo(props.Make, {})
-
-	return TileGrid{Items = items}
-end)
-
-local UtilitiesPage = react.Component(|props| -> do
-	local version, set_version = react.UseState(0)
-	local selected, set_selected = react.UseState("Sun")
-	local programs = react.UseMemo(|| -> list.filter(desktop.GetPrograms(), |program| -> program.Content ~= nil), {version})
-	local program = list.find(programs, |candidate| -> candidate.Name == selected) ?? programs[1]
-
-	react.UseEvent("DesktopChanged", || -> set_version(|current| -> current + 1))
-
-	local categories = react.UseMemo(|| -> do
-		local result = {}
-		local by_name = {}
-
-		for _, candidate in ipairs(programs) do
-			local name = candidate.Category ?? "desktop"
-
-			if not by_name[name] then
-				by_name[name] = {Name = name, Programs = {}}
-				result[#result + 1] = by_name[name]
-			end
-
-			list.insert(by_name[name].Programs, candidate)
-		end
-
-		return result
-	end, {programs})
-
-	return ui.Splitter{InitialSize = 180, layout = {GrowWidth = 1, GrowHeight = 1}}{
-		ui.ScrollablePanel{Padding = "XS", ScrollX = false, ScrollY = true, layout = {GrowWidth = 1, GrowHeight = 1}}{
-			ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XXS", AlignmentX = "stretch"}}{
-				list.map(
-					categories,
-					|category| -> ui.Collapsible{Key = category.Name, Title = category.Name, HeaderMode = "text"}{
-						list.map(
-							category.Programs,
-							|candidate| -> ui.MenuItem{
-								Key = candidate.Name,
-								Text = candidate.Name,
-								Icon = candidate.Icon,
-								Padding = "S",
-								Selected = candidate == program,
-								OnClick = || -> set_selected(candidate.Name),
-							}
-						),
-					}
-				),
+			ui.Column{
+				layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch"},
+			}{
+				program and
+				program.Content{Key = program.Name, Shown = props.Shown, BarHidden = false},
 			},
-		},
-		ui.Column{layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch"}}{
-			program && program.Content{Key = program.Name, Shown = props.Shown, BarHidden = false},
-		},
-	}
-end)
-
+		}
+	end
+)
 local LEFT_PAGES = {
-	Spawnlists = || -> SpawnlistsPage{},
-	Weapons = || -> ListPage{Make = make_weapon_entries},
-	NPCs = || -> ListPage{Make = make_npc_entries},
+	Spawnlists = ||->SpawnlistsPage{},
+	Weapons = ||->ListPage{Make = make_weapon_entries},
+	NPCs = ||->ListPage{Make = make_npc_entries},
 }
-
-local SpawnMenu = react.Component(|| -> do
-	local shown, set_shown = react.UseState(false)
-	local tab, set_tab = react.UseState("Spawnlists")
-	local width = react.UseMemo(|| -> Panel.World.transform:GetSize().x, {})
-
-	react.UseEffect(|| -> do
-		shown_setter = set_shown
-
-		return || -> do shown_setter = nil end
-	end, {})
-
-	return ui.Panel{
-		Ref = |entity| -> do root = entity ?? NULL end,
-		transform = true,
-		layout = {Direction = "x", AlignmentY = "stretch", Padding = Rect() + 48},
-		visual = true,
-		mouse_input = {RequestMouse = true},
-		OnMouseInput = |_, button, press| -> do
-			if button == "button_1" and press and MouseInput.GetHoveredObject() == root then spawnmenu.Hide() end
-		end,
-	}{
-		ui.Splitter{InitialSize = width * 0.54 - 48, layout = {GrowWidth = 1, GrowHeight = 1}}{
-			ui.Tabs{Value = tab, OnChange = set_tab, Backed = true, layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false}}{
-				list.map(
-					LEFT_TABS,
-					|name| -> ui.Frame{Key = name, Tab = name, Padding = "S", layout = PAGE_LAYOUT}{LEFT_PAGES[name]()}
-				),
-			},
-			ui.Tabs{Value = "Utilities", Backed = true, layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false}}{
-				ui.Frame{Key = "utilities", Tab = "Utilities", Padding = "S", layout = PAGE_LAYOUT}{
-					UtilitiesPage{Shown = shown},
+local SpawnMenu = react.Component(
+	||-> do
+		local shown, set_shown = react.UseState(false)
+		local tab, set_tab = react.UseState("Spawnlists")
+		local width = react.UseMemo(||->Panel.World.transform:GetSize().x, {})
+		react.UseEffect(
+			||-> do
+				shown_setter = set_shown
+				return ||-> do
+					shown_setter = nil
+				end
+			end,
+			{}
+		)
+		return ui.Panel{
+			Ref = |entity|-> do
+				root = entity ?? NULL
+			end,
+			transform = true,
+			layout = {Direction = "x", AlignmentY = "stretch", Padding = Rect() + 48},
+			visual = true,
+			mouse_input = {RequestMouse = true},
+			OnMouseInput = |_,button,press|-> do
+				if button == "button_1" and press and MouseInput.GetHoveredObject() == root then
+					spawnmenu.Hide()
+				end
+			end,
+		}{
+			ui.Splitter{InitialSize = width * 0.54 - 48, layout = {GrowWidth = 1, GrowHeight = 1}}{
+				ui.Tabs{
+					Value = tab,
+					OnChange = set_tab,
+					Backed = true,
+					layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false},
+				}{
+					list.map(
+						LEFT_TABS,
+						|name|->ui.Frame{Key = name, Tab = name, Padding = "S", layout = PAGE_LAYOUT}{LEFT_PAGES[name]()}
+					),
+				},
+				ui.Tabs{
+					Value = "Utilities",
+					Backed = true,
+					layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false},
+				}{
+					ui.Frame{Key = "utilities", Tab = "Utilities", Padding = "S", layout = PAGE_LAYOUT}{
+						UtilitiesPage{Shown = shown},
+					},
 				},
 			},
-		},
-	}
-end)
+		}
+	end
+)
 
 function spawnmenu.IsShown()
 	return root:IsValid() and root.visual:GetVisible()
@@ -371,7 +468,11 @@ end
 
 function spawnmenu.IsEditing()
 	local focused = objects.GetFocusedObject()
-	return focused and focused:IsValid() and focused.text and focused.text:GetEditable() or false
+	return focused and
+		focused:IsValid() and
+		focused.text and
+		focused.text:GetEditable() or
+		false
 end
 
 function spawnmenu.Hold()

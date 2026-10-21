@@ -720,7 +720,9 @@ if os.getenv("JITINFO") then
 	end
 
 	local _, _, _, mcode = jit_util.tracemc and 0, 0, 0, 0
-	print(string.format("[JITINFO] live traces %d  status %s", live, tostring(jit.status())))
+	print(
+		string.format("[JITINFO] live traces %d  status %s", live, tostring(jit.status()))
+	)
 end
 
 if os.getenv("ABORTS") then
@@ -736,7 +738,9 @@ if os.getenv("ABORTS") then
 		return a[2] > b[2]
 	end)
 
-	print(string.format("[ABORT] traces started=%d stopped(ok)=%d", abort_started, abort_stopped))
+	print(
+		string.format("[ABORT] traces started=%d stopped(ok)=%d", abort_started, abort_stopped)
+	)
 
 	for i = 1, math.min(tonumber(os.getenv("TOP") or "25"), #list) do
 		print(string.format("[ABORT] %4d %s", list[i][2], list[i][1]))
@@ -827,7 +831,9 @@ print(
 		settle_ms
 	)
 )
-print(string.format("state: awake=%d/%d  sum=(%.9f, %.9f, %.9f)", awake, dynamic, sx, sy, sz))
+print(
+	string.format("state: awake=%d/%d  sum=(%.9f, %.9f, %.9f)", awake, dynamic, sx, sy, sz)
+)
 local results = benchmark_results.New("physics_stress")
 results:Add("settle step mean", settle_ms, settle_ms * 0.1, "ms")
 results:Add("step mean", mean, window_dev, "ms")

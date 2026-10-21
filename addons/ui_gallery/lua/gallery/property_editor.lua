@@ -41,7 +41,7 @@ end
 
 local function build_items(values, changed, reset)
 	local function on_change(key)
-		return |_, value| -> changed(key, value)
+		return |_,value|->changed(key, value)
 	end
 
 	return {
@@ -200,59 +200,61 @@ return {
 	Name = "property editor",
 	Section = "Data",
 	Order = 3,
-	View = react.Component(|| -> do
-		local values, set_values = react.UseState(new_values)
-		local resets, set_resets = react.UseState(0)
-		local inspector = react.UseRef()
-		local demo = react.UseResource(|| -> DemoObject.New(), |object| -> object:Remove(), {})
-		local items = react.UseMemo(
-			|| -> build_items(
-				values,
-				|key, value| -> set_values(|current| -> table.merge(table.shallow_copy(current), {[key] = value})),
-				|| -> do
-					set_values(new_values())
-					set_resets(|count| -> count + 1)
-				end
-			),
-			{resets}
-		)
-
-		react.UseEffect(|| -> inspector.current:SetObject(demo), {demo})
-
-		return kit.Page{
-			Title = "Property editor",
-			Description = "Grouped, labelled editors for numbers, strings, booleans, enums, vectors, colors, assets and actions. Right click any row to copy, paste or reset it.",
-		}{
-			kit.Section{
-				Title = "Hand built items",
-				Description = "Items are nodes with a Type and a Value. OnChange(node, value) can veto a change by returning false.",
+	View = react.Component(
+		||-> do
+			local values, set_values = react.UseState(new_values)
+			local resets, set_resets = react.UseState(0)
+			local inspector = react.UseRef()
+			local demo = react.UseResource(||->DemoObject.New(), |object|->object:Remove(), {})
+			local items = react.UseMemo(
+				||->build_items(
+					values,
+					|key,value|->set_values(|current|->table.merge(table.shallow_copy(current), {[key] = value})),
+					||-> do
+						set_values(new_values())
+						set_resets(|count|->count + 1)
+					end
+				),
+				{resets}
+			)
+			react.UseEffect(||->inspector.current:SetObject(demo), {demo})
+			return kit.Page{
+				Title = "Property editor",
+				Description = "Grouped, labelled editors for numbers, strings, booleans, enums, vectors, colors, assets and actions. Right click any row to copy, paste or reset it.",
 			}{
-				ui.Splitter{InitialSize = 460, layout = {MinSize = Vec2(0, 300), MaxSize = Vec2(0, 300)}}{
-					ui.ScrollablePanel{layout = {GrowWidth = 1, GrowHeight = 1}}{
-						ui.PropertyEditor{Key = resets, Items = items},
-					},
-					ui.Frame{Padding = "S", layout = {GrowWidth = 1, GrowHeight = 1}}{
-						ui.Column{layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch", ChildGap = "XS"}}{
-							ui.Text{Text = "Live state", Font = "body_strong S", IgnoreMouseInput = true},
-							ui.TextEdit{
-								Editable = false,
-								Wrap = true,
-								ScrollY = true,
-								Text = snapshot(values),
-								Size = Vec2(0, 280),
-								MinSize = Vec2(0, 280),
-								MaxSize = Vec2(0, 280),
+				kit.Section{
+					Title = "Hand built items",
+					Description = "Items are nodes with a Type and a Value. OnChange(node, value) can veto a change by returning false.",
+				}{
+					ui.Splitter{InitialSize = 460, layout = {MinSize = Vec2(0, 300), MaxSize = Vec2(0, 300)}}{
+						ui.ScrollablePanel{layout = {GrowWidth = 1, GrowHeight = 1}}{
+							ui.PropertyEditor{Key = resets, Items = items},
+						},
+						ui.Frame{Padding = "S", layout = {GrowWidth = 1, GrowHeight = 1}}{
+							ui.Column{
+								layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch", ChildGap = "XS"},
+							}{
+								ui.Text{Text = "Live state", Font = "body_strong S", IgnoreMouseInput = true},
+								ui.TextEdit{
+									Editable = false,
+									Wrap = true,
+									ScrollY = true,
+									Text = snapshot(values),
+									Size = Vec2(0, 280),
+									MinSize = Vec2(0, 280),
+									MaxSize = Vec2(0, 280),
+								},
 							},
 						},
 					},
 				},
-			},
-			kit.Section{
-				Title = "Object inspector",
-				Description = "SetObject builds the items from an object's storable properties, including enums, vectors and colors.",
-			}{
-				ui.Frame{Padding = "XS", layout = {GrowWidth = 1, FitHeight = true}}{ui.PropertyEditor{Ref = inspector}},
-			},
-		}
-	end),
+				kit.Section{
+					Title = "Object inspector",
+					Description = "SetObject builds the items from an object's storable properties, including enums, vectors and colors.",
+				}{
+					ui.Frame{Padding = "XS", layout = {GrowWidth = 1, FitHeight = true}}{ui.PropertyEditor{Ref = inspector}},
+				},
+			}
+		end
+	),
 }

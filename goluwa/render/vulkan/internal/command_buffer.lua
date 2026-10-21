@@ -308,9 +308,12 @@ function CommandBuffer:Begin()
 	self.keepalive_resources = nil
 	self.recording_serial = (self.recording_serial or 0) + 1
 	vulkan.assert(
-		vulkan.lib.vkBeginCommandBuffer(self.ptr[0], vulkan.vk.s.CommandBufferBeginInfo{
-			flags = "one_time_submit",
-		}),
+		vulkan.lib.vkBeginCommandBuffer(
+			self.ptr[0],
+			vulkan.vk.s.CommandBufferBeginInfo{
+				flags = "one_time_submit",
+			}
+		),
 		"failed to begin command buffer"
 	)
 	self.is_recording = true
@@ -585,7 +588,13 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 	local bind_key = pipeline_bind_point
 
 	if
-		descriptor_set_binding_matches(self.bound_descriptor_sets[bind_key], pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
+		descriptor_set_binding_matches(
+			self.bound_descriptor_sets[bind_key],
+			pipelineLayout,
+			descriptorSets,
+			dynamicOffsets,
+			firstSet
+		)
 	then
 		return
 	end
@@ -629,13 +638,25 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 		dynamicOffsetCount,
 		pDynamicOffsets
 	)
-	self.bound_descriptor_sets[bind_key] = capture_descriptor_set_binding(self.bound_descriptor_sets[bind_key], pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
+	self.bound_descriptor_sets[bind_key] = capture_descriptor_set_binding(
+		self.bound_descriptor_sets[bind_key],
+		pipelineLayout,
+		descriptorSets,
+		dynamicOffsets,
+		firstSet
+	)
 end
 
 function CommandBuffer:Draw(vertexCount, instanceCount, firstVertex, firstInstance)
 	if render.stats then render_stats.AddDrawCalls(1) end
 
-	vulkan.lib.vkCmdDraw(self.ptr[0], vertexCount or 3, instanceCount or 1, firstVertex or 0, firstInstance or 0)
+	vulkan.lib.vkCmdDraw(
+		self.ptr[0],
+		vertexCount or 3,
+		instanceCount or 1,
+		firstVertex or 0,
+		firstInstance or 0
+	)
 end
 
 function CommandBuffer:BindIndexBuffer(buffer, offset, indexType)
@@ -1295,7 +1316,13 @@ function CommandBuffer:ClearAttachments(config)
 	clear_rect_array[0].rect.extent.height = config.h or 0
 	clear_rect_array[0].baseArrayLayer = 0
 	clear_rect_array[0].layerCount = 1
-	vulkan.lib.vkCmdClearAttachments(self.ptr[0], attachment_count, attachment_array, clear_rect_count, clear_rect_array)
+	vulkan.lib.vkCmdClearAttachments(
+		self.ptr[0],
+		attachment_count,
+		attachment_array,
+		clear_rect_count,
+		clear_rect_array
+	)
 end
 
 function CommandBuffer:CopyImageToBuffer(config)

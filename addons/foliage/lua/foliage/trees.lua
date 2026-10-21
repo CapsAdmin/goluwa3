@@ -444,7 +444,10 @@ function trees.BuildTree(config, rng)
 		height = height,
 		wood = MeshBuilder.New(),
 		cards = trees.NewCards(),
-		crown_shape = assert(CROWN_SHAPES[config.crown_shape], "unknown crown shape " .. tostring(config.crown_shape)),
+		crown_shape = assert(
+			CROWN_SHAPES[config.crown_shape],
+			"unknown crown shape " .. tostring(config.crown_shape)
+		),
 		reference = build_references(config, height),
 		center = Vec3(0, 0, 0),
 		trunk = {},

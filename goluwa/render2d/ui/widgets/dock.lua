@@ -135,7 +135,10 @@ function META:OnUpdate()
 	end
 
 	transform:SetPosition(
-		Vec2((world_size.x - size.x) / 2, world_size.y + (shown_y - world_size.y) * self._fraction)
+		Vec2(
+			(world_size.x - size.x) / 2,
+			world_size.y + (shown_y - world_size.y) * self._fraction
+		)
 	)
 end
 

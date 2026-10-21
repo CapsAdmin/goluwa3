@@ -112,11 +112,12 @@ local function draw_game(game, index, x, y, w, h, selected, hovered)
 
 	if game.all then
 		draw_text(colors.font_strong, name, x + inset * 2, y + (h - 16) / 2, colors.text)
-
 		return
 	end
 
-	if not draw_picture(game.image, x + inset, y + inset, w - inset * 2, h - inset * 2, 1) then
+	if
+		not draw_picture(game.image, x + inset, y + inset, w - inset * 2, h - inset * 2, 1)
+	then
 		render2d.DrawBox(x + inset, y + inset, w - inset * 2, h - inset * 2, 4, colors.placeholder)
 	end
 
@@ -124,10 +125,19 @@ local function draw_game(game, index, x, y, w, h, selected, hovered)
 	draw_text(colors.font_strong, name, x + inset * 2, y + h - 34, {r = 1, g = 1, b = 1, a = 1})
 	draw_text(
 		colors.font_small,
-		game.mountable and (game.mounted and "mounted" or "not mounted") or "always available",
+		game.mountable and
+			(
+				game.mounted and
+				"mounted" or
+				"not mounted"
+			)
+			or
+			"always available",
 		x + inset * 2,
 		y + h - 18,
-		game.mounted and {r = 0.5, g = 1, b = 0.5, a = 1} or {r = 0.85, g = 0.85, b = 0.85, a = 1}
+		game.mounted and
+			{r = 0.5, g = 1, b = 0.5, a = 1} or
+			{r = 0.85, g = 0.85, b = 0.85, a = 1}
 	)
 end
 
@@ -189,111 +199,150 @@ local function load_data()
 end
 
 local function load_error(err, reset)
-	return Column{layout = {GrowWidth = 1, GrowHeight = 1, ChildGap = "S", Padding = "S", AlignmentX = "stretch"}}{
+	return Column{
+		layout = {
+			GrowWidth = 1,
+			GrowHeight = 1,
+			ChildGap = "S",
+			Padding = "S",
+			AlignmentX = "stretch",
+		},
+	}{
 		Text{Text = tostring(err), Wrap = true, layout = {GrowWidth = 1}},
 		Button{Text = "Back", Icon = "arrow_left", OnClick = reset},
 	}
 end
 
-local LoadView = react.Component(|props| -> do
-	local data, set_data = react.UseState(load_data)
-	local query, set_query = react.UseState("")
-	local game_key, set_game_key = react.UseState(ALL_KEY)
-	local selected_map, set_selected_map = react.UseState()
-	local selected_game = data.by_key[game_key] ?? ALL_GAMES
-	local maps = react.UseMemo(|| -> do
-		local shown = {}
+local LoadView = react.Component(
+	|props|-> do
+		local data, set_data = react.UseState(load_data)
+		local query, set_query = react.UseState("")
+		local game_key, set_game_key = react.UseState(ALL_KEY)
+		local selected_map, set_selected_map = react.UseState()
+		local selected_game = data.by_key[game_key] ?? ALL_GAMES
+		local maps = react.UseMemo(
+			||-> do
+				local shown = {}
 
-		for _, map in ipairs(data.maps) do
-			if
-				(selected_game.all or (map.engine == selected_game.engine and map.game == selected_game.id)) and
-				(query == "" or map.name:lower():find(query, 1, true))
-			then
-				shown[#shown + 1] = map
+				for _, map in ipairs(data.maps) do
+					if
+						(
+							selected_game.all or
+							(
+								map.engine == selected_game.engine and
+								map.game == selected_game.id
+							)
+						)
+						and
+						(
+							query == "" or
+							map.name:lower():find(query, 1, true)
+						)
+					then
+						shown[#shown + 1] = map
+					end
+				end
+
+				return shown
+			end,
+			{data, selected_game, query}
+		)
+		local map = selected_map and list.has_value(maps, selected_map) ? selected_map : nil
+		local input_height = theme.active:GetInputHeight("M")
+
+		local function toggle_mount()
+			if not selected_game.mountable then return end
+
+			if selected_game.mounted then
+				engines.UnmountGame(selected_game.engine, selected_game.id)
+			else
+				engines.MountGame(selected_game.engine, selected_game.id)
 			end
+
+			set_data(load_data())
 		end
 
-		return shown
-	end, {data, selected_game, query})
-	local map = selected_map && list.has_value(maps, selected_map) ? selected_map : nil
-	local input_height = theme.active:GetInputHeight("M")
-
-	local function toggle_mount()
-		if not selected_game.mountable then return end
-
-		if selected_game.mounted then
-			engines.UnmountGame(selected_game.engine, selected_game.id)
-		else
-			engines.MountGame(selected_game.engine, selected_game.id)
+		local function load_map(target)
+			engines.LoadMap(target)
+			props.OnLoad()
 		end
 
-		set_data(load_data())
-	end
-
-	local function load_map(target)
-		engines.LoadMap(target)
-		props.OnLoad()
-	end
-
-	return Window{Title = "LOAD", Size = Vec2(980, 640), MinSize = Vec2(640, 360)}{
-		ErrorBoundary{Fallback = load_error}{
-			Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center"}}{
-				TextEdit{
-					Hint = "search maps",
-					Wrap = false,
-					ScrollX = false,
-					ScrollY = false,
-					Size = Vec2(0, input_height),
-					MinSize = Vec2(160, input_height),
-					MaxSize = Vec2(0, input_height),
-					OnTextChanged = |_, text| -> set_query(text:lower()),
-					layout = {GrowWidth = 1},
-				},
-				Text{Text = #maps .. " maps", Color = "text_disabled", layout = {FitWidth = true, MinSize = Vec2(80, 0)}},
-				Button{Text = "Load", Icon = "play", Disabled = map == nil, OnClick = || -> load_map(map)},
-			},
-			Splitter{InitialSize = 310, layout = {GrowWidth = 1, GrowHeight = 1}}{
-				Column{layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch", ChildGap = 4}}{
-					Button{
-						Text = selected_game.mountable ? (selected_game.mounted ? "Unmount" : "Mount") : (selected_game.all ? "Mount" : "Always available"),
-						Disabled = !selected_game.mountable,
-						OnClick = toggle_mount,
+		return Window{Title = "LOAD", Size = Vec2(980, 640), MinSize = Vec2(640, 360)}{
+			ErrorBoundary{Fallback = load_error}{
+				Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center"}}{
+					TextEdit{
+						Hint = "search maps",
+						Wrap = false,
+						ScrollX = false,
+						ScrollY = false,
+						Size = Vec2(0, input_height),
+						MinSize = Vec2(160, input_height),
+						MaxSize = Vec2(0, input_height),
+						OnTextChanged = |_,text|->set_query(text:lower()),
 						layout = {GrowWidth = 1},
 					},
+					Text{
+						Text = #maps .. " maps",
+						Color = "text_disabled",
+						layout = {FitWidth = true, MinSize = Vec2(80, 0)},
+					},
+					Button{
+						Text = "Load",
+						Icon = "play",
+						Disabled = map == nil,
+						OnClick = ||->load_map(map),
+					},
+				},
+				Splitter{InitialSize = 310, layout = {GrowWidth = 1, GrowHeight = 1}}{
+					Column{
+						layout = {
+							GrowWidth = 1,
+							GrowHeight = 1,
+							FitHeight = false,
+							AlignmentX = "stretch",
+							ChildGap = 4,
+						},
+					}{
+						Button{
+							Text = selected_game.mountable ? (selected_game.mounted ? "Unmount" : "Mount") : (selected_game.all ? "Mount" : "Always available"),
+							Disabled = not selected_game.mountable,
+							OnClick = toggle_mount,
+							layout = {GrowWidth = 1},
+						},
+						VirtualGrid{
+							CellWidth = 280,
+							CellAspect = 0.34,
+							ExtraHeight = 0,
+							Gap = 6,
+							ContentPadding = 4,
+							KeepScroll = true,
+							Items = data.games,
+							SelectedItem = selected_game,
+							OnDrawItem = draw_game,
+							OnSelect = |game|->set_game_key(game_key_of(game)),
+							OnActivate = toggle_mount,
+							layout = {GrowWidth = 1, GrowHeight = 1},
+						},
+					},
 					VirtualGrid{
-						CellWidth = 280,
-						CellAspect = 0.34,
-						ExtraHeight = 0,
-						Gap = 6,
-						ContentPadding = 4,
-						KeepScroll = true,
-						Items = data.games,
-						SelectedItem = selected_game,
-						OnDrawItem = draw_game,
-						OnSelect = |game| -> set_game_key(game_key_of(game)),
-						OnActivate = toggle_mount,
+						CellWidth = 170,
+						CellAspect = 0.5625,
+						ExtraHeight = LABEL_HEIGHT + 4,
+						Gap = 8,
+						ContentPadding = 6,
+						Items = maps,
+						SelectedItem = map,
+						OnDrawItem = draw_map,
+						OnSelect = |selected|->set_selected_map(selected),
+						OnActivate = load_map,
 						layout = {GrowWidth = 1, GrowHeight = 1},
 					},
 				},
-				VirtualGrid{
-					CellWidth = 170,
-					CellAspect = 0.5625,
-					ExtraHeight = LABEL_HEIGHT + 4,
-					Gap = 8,
-					ContentPadding = 6,
-					Items = maps,
-					SelectedItem = map,
-					OnDrawItem = draw_map,
-					OnSelect = |selected| -> set_selected_map(selected),
-					OnActivate = load_map,
-					layout = {GrowWidth = 1, GrowHeight = 1},
-				},
+				Text{Text = HINT, Color = "text_disabled", layout = {GrowWidth = 1}},
 			},
-			Text{Text = HINT, Color = "text_disabled", layout = {GrowWidth = 1}},
-		},
-	}
-end)
-
+		}
+	end
+)
 return function(props)
 	return react.Mount(LoadView{OnLoad = props.OnLoad}, Panel.World):GetEntity()
 end

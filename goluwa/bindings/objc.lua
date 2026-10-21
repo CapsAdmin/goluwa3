@@ -362,7 +362,10 @@ end
 
 local function loadFramework(framework)
 	assert(
-		ffi.load(string.format("/System/Library/Frameworks/%s.framework/%s", framework, framework), true)
+		ffi.load(
+			string.format("/System/Library/Frameworks/%s.framework/%s", framework, framework),
+			true
+		)
 	)
 end
 

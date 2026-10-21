@@ -743,7 +743,12 @@ function vorbis.DecodeSetup(packet, info)
 
 				for j = 1, info.channels do
 					map.mux[j] = reader:Read(4)
-					assertf(map.mux[j] < submaps, "Invalid channel mux %d for submaps=%d", map.mux[j], submaps)
+					assertf(
+						map.mux[j] < submaps,
+						"Invalid channel mux %d for submaps=%d",
+						map.mux[j],
+						submaps
+					)
 				end
 			end
 

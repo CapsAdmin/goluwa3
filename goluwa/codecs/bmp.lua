@@ -12,7 +12,10 @@ local header_ptr = ffi.typeof("$ *", header_type)
 function bmp.Decode(data)
 	local header = ffi.cast(header_ptr, data)
 	assert(header.magic == 0x4D42, "not a bmp")
-	assert(header.compression == 0 or header.compression == 3, "compressed bmp is not supported")
+	assert(
+		header.compression == 0 or header.compression == 3,
+		"compressed bmp is not supported"
+	)
 	assert(header.bpp == 24 or header.bpp == 32, "only 24 and 32 bit bmp is supported")
 	local width = header.width
 	local height = math.abs(header.height)

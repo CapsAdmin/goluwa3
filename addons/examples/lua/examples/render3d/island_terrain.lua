@@ -256,7 +256,11 @@ do
 
 		fly.y = math.lerp(1 - 0.5 ^ (dt * 2), fly.y, fly.ground + fly.height)
 		fly.view:SetPosition(
-			Vec3(PEAK.x + math.cos(angle) * fly.radius, fly.y, PEAK.z + math.sin(angle) * fly.radius)
+			Vec3(
+				PEAK.x + math.cos(angle) * fly.radius,
+				fly.y,
+				PEAK.z + math.sin(angle) * fly.radius
+			)
 		)
 		fly.view:SetRotation(QuatDeg3(-8, -math.deg(angle) - 25, 0))
 	end

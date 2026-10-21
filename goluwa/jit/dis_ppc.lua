@@ -742,9 +742,7 @@ local function putop(ctx, text, operands)
 			)
 		)
 	else
-		ctx.out(
-			format("%08x  %-7s %s%s\n", ctx.addr + pos, text, concat(operands, ", "), extra)
-		)
+		ctx.out(format("%08x  %-7s %s%s\n", ctx.addr + pos, text, concat(operands, ", "), extra))
 	end
 
 	ctx.pos = pos + 4
@@ -826,20 +824,20 @@ local function disass_ins(ctx)
 			rs -= 10
 
 			if bo & 4 == 0 then
-				cn = bo & 2 == 0 ? "dnz" : "dz"--[[#: ]]
+				cn = bo & 2 == 0 ? "dnz" : "dz"
 
 				if bo & 0x10 == 0 then
-					cn ..= bo & 8 == 0 ? "f" : "t"--[[#: ]]
+					cn ..= bo & 8 == 0 ? "f" : "t"
 					x = condfmt(cond)
 				end
 
-				name ..= bo & 1 == (op >> 15) & 1 ? "-" : "+"--[[#: ]]
+				name ..= bo & 1 == (op >> 15) & 1 ? "-" : "+"
 			elseif bo & 0x10 == 0 then
 				cn = map_cond[(cond & 3) | ((bo >> 1) & 4)]
 
 				if cond > 3 then x = "cr" .. (cond >> 2) end
 
-				name ..= bo & 1 == (op >> 15) & 1 ? "-" : "+"--[[#: ]]
+				name ..= bo & 1 == (op >> 15) & 1 ? "-" : "+"
 			end
 
 			name = gsub(name, "_", cn)
@@ -856,7 +854,7 @@ local function disass_ins(ctx)
 			if op & 2 ~= 0 then name ..= "a" end
 		elseif p == "X" or p == "Y" then
 			x = (op >> rs + 2) & 7
-			x = x == 0 and p == "Y" ? nil : "cr" .. x--[[#: ]]
+			x = x == 0 and p == "Y" ? nil : "cr" .. x
 			rs -= 5
 		elseif p == "W" then
 			x = "cr" .. (op & 7)
@@ -872,13 +870,13 @@ local function disass_ins(ctx)
 				if altname then name = altname end
 			end
 		elseif p == "L" then
-			name = gsub(name, "_", op & 0x00200000 ~= 0 ? "d" : "w"--[[#: ]])
+			name = gsub(name, "_", op & 0x00200000 ~= 0 ? "d" : "w")
 		elseif p == "." then
 			if op & 1 == 1 then name ..= "." end
 		elseif p == "N" then
 			if op == 0x60000000 then
 				name = "nop"
-				
+
 				break
 			end
 		elseif p == "~" then
@@ -907,7 +905,6 @@ local function disass_ins(ctx)
 
 		if x then
 			operands[#operands + 1] = x
-			
 			last = x
 		end
 	end

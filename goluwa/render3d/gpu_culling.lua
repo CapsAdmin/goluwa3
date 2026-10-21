@@ -327,7 +327,10 @@ function gpu_culling.GetOcclusionMode()
 end
 
 function gpu_culling.SetOcclusionMode(mode)
-	assert(VALID_OCCLUSION_MODES[mode], "invalid gpu culling occlusion mode: " .. tostring(mode))
+	assert(
+		VALID_OCCLUSION_MODES[mode],
+		"invalid gpu culling occlusion mode: " .. tostring(mode)
+	)
 	gpu_culling.occlusion_mode = mode
 end
 

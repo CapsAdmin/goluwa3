@@ -19,16 +19,17 @@ end
 T.Test2D("react counter updates the same entities on state change", function()
 	local set_count
 	local renders = 0
-	local Counter = react.Component(|props| -> do
-		local count, set = react.UseState(props.Start)
-		set_count = set
-		renders += 1
-
-		return Column{}{
-			Text{Text = "count " .. count},
-			Button{Text = "+", OnClick = || -> set(count + 1)},
-		}
-	end)
+	local Counter = react.Component(
+		|props|-> do
+			local count, set = react.UseState(props.Start)
+			set_count = set
+			renders += 1
+			return Column{}{
+				Text{Text = "count " .. count},
+				Button{Text = "+", OnClick = ||->set(count + 1)},
+			}
+		end
+	)
 	local root = react.Mount(Counter{Start = 2}, Panel.World)
 	local column = root:GetEntity()
 	local label, button = column:GetChildren()[1], column:GetChildren()[2]
@@ -50,8 +51,9 @@ end)
 T.Test2D("react conditionals and keyed lists keep order and identity", function()
 	local function view(show, ids)
 		return Column{}{
-			show && Text{Key = "head", Text = "head"},
-			list.map(ids, |id| -> Text{Key = id, Text = id}),
+			show and
+			Text{Key = "head", Text = "head"},
+			list.map(ids, |id|->Text{Key = id, Text = id}),
 			Text{Key = "tail", Text = "tail"},
 		}
 	end
@@ -80,12 +82,14 @@ T.Test2D("react removed props reset to defaults and component props are diffed",
 		return Button(props)
 	end
 
-	local root = react.Mount(view({Text = "x", Disabled = true, layout = {GrowWidth = 1}}), Panel.World)
+	local root = react.Mount(view{Text = "x", Disabled = true, layout = {GrowWidth = 1}}, Panel.World)
 	local button = root:GetEntity()
 	T(button:GetDisabled())["=="](true)
 	T(button.layout:GetGrowWidth())["=="](1)
 	local clicks = 0
-	root:Render(view({Text = "y", OnClick = || -> do clicks += 1 end}))
+	root:Render(view{Text = "y", OnClick = ||-> do
+		clicks += 1
+	end})
 	T(button:GetText())["=="]("y")
 	T(button:GetDisabled())["=="](false)
 	T(button.layout:GetGrowWidth())["=="](0)
@@ -100,27 +104,36 @@ end)
 T.Test2D("react effects run after render, rerun on deps and clean up on unmount", function()
 	local log = {}
 	local set_value
-	local Child = react.Component(|props| -> do
-		react.UseEffect(|| -> do
-			log[#log + 1] = "mount"
-
-			return || -> do log[#log + 1] = "unmount" end
-		end, {})
-
-		react.UseEffect(|| -> do
-			log[#log + 1] = "dep " .. props.Value
-
-			return || -> do log[#log + 1] = "undep " .. props.Value end
-		end, {props.Value})
-
-		return Text{Text = tostring(props.Value)}
-	end)
-	local Parent = react.Component(|props| -> do
-		local value, set = react.UseState(1)
-		set_value = set
-
-		return Column{}{value < 3 && Child{Value = value}}
-	end)
+	local Child = react.Component(
+		|props|-> do
+			react.UseEffect(
+				||-> do
+					log[#log + 1] = "mount"
+					return ||-> do
+						log[#log + 1] = "unmount"
+					end
+				end,
+				{}
+			)
+			react.UseEffect(
+				||-> do
+					log[#log + 1] = "dep " .. props.Value
+					return ||-> do
+						log[#log + 1] = "undep " .. props.Value
+					end
+				end,
+				{props.Value}
+			)
+			return Text{Text = tostring(props.Value)}
+		end
+	)
+	local Parent = react.Component(
+		|props|-> do
+			local value, set = react.UseState(1)
+			set_value = set
+			return Column{}{value < 3 and Child{Value = value}}
+		end
+	)
 	local root = react.Mount(Parent{}, Panel.World)
 	T(table.concat(log, ","))["=="]("mount,dep 1")
 	set_value(2)
@@ -135,12 +148,19 @@ end)
 T.Test2D("react component swapping its root and refs", function()
 	local seen
 	local set_wide
-	local View = react.Component(|props| -> do
-		local wide, set = react.UseState(false)
-		set_wide = set
-
-		return wide && Row{Ref = |e| -> do if e then seen = "row" end end}{Text{Text = "wide"}} || Column{Ref = |e| -> do if e then seen = "column" end end}{Text{Text = "narrow"}}
-	end)
+	local View = react.Component(
+		|props|-> do
+			local wide, set = react.UseState(false)
+			set_wide = set
+			return wide and
+				Row{Ref = |e|-> do
+					if e then seen = "row" end
+				end}{Text{Text = "wide"}} or
+				Column{Ref = |e|-> do
+					if e then seen = "column" end
+				end}{Text{Text = "narrow"}}
+		end
+	)
 	local root = react.Mount(Column{}{View{}, Text{Text = "after"}}, Panel.World)
 	local column = root:GetEntity()
 	T(seen)["=="]("column")
@@ -164,13 +184,18 @@ end
 
 T.Test2D("react error boundary shows the fallback for a render error and resets", function()
 	local broken = true
-	local Bad = react.Component(|props| -> do
-		if broken then error("render exploded", 0) end
+	local Bad = react.Component(
+		|props|-> do
+			if broken then error("render exploded", 0) end
 
-		return Text{Text = "fine"}
-	end)
+			return Text{Text = "fine"}
+		end
+	)
 	local root = react.Mount(
-		Column{}{Text{Text = "outside"}, ErrorBoundary{Fallback = fallback}{Text{Text = "before"}, Bad{}}},
+		Column{}{
+			Text{Text = "outside"},
+			ErrorBoundary{Fallback = fallback}{Text{Text = "before"}, Bad{}},
+		},
 		Panel.World
 	)
 	local column = root:GetEntity()
@@ -203,14 +228,16 @@ end)
 
 T.Test2D("react error boundary catches handler errors and a later update that throws", function()
 	local set_value
-	local Child = react.Component(|props| -> do
-		local value, set = react.UseState(0)
-		set_value = set
+	local Child = react.Component(
+		|props|-> do
+			local value, set = react.UseState(0)
+			set_value = set
 
-		if value == 2 then error("update exploded", 0) end
+			if value == 2 then error("update exploded", 0) end
 
-		return Button{Text = "go " .. value, OnClick = || -> error("click exploded", 0)}
-	end)
+			return Button{Text = "go " .. value, OnClick = ||->error("click exploded", 0)}
+		end
+	)
 	local root = react.Mount(Column{}{ErrorBoundary{Fallback = fallback}{Child{}}}, Panel.World)
 	local column = root:GetEntity()
 	local button = column:GetChildren()[1]
@@ -229,17 +256,18 @@ T.Test2D("react error boundary catches handler errors and a later update that th
 end)
 
 T.Test2D("react error boundary catches effect errors and nests", function()
-	local Effect = react.Component(|props| -> do
-		react.UseEffect(|| -> error("effect exploded", 0), {})
-
-		return Text{Text = "effect"}
-	end)
-	local Throws = react.Component(|props| -> error("inner fallback exploded", 0))
+	local Effect = react.Component(
+		|props|-> do
+			react.UseEffect(||->error("effect exploded", 0), {})
+			return Text{Text = "effect"}
+		end
+	)
+	local Throws = react.Component(|props|->error("inner fallback exploded", 0))
 	local root = react.Mount(
 		Column{}{
 			ErrorBoundary{Fallback = fallback}{Effect{}},
-			ErrorBoundary{Fallback = |err| -> Text{Text = "outer got " .. tostring(err)}}{
-				ErrorBoundary{Fallback = |err| -> Throws{}}{Throws{}},
+			ErrorBoundary{Fallback = |err|->Text{Text = "outer got " .. tostring(err)}}{
+				ErrorBoundary{Fallback = |err|->Throws{}}{Throws{}},
 			},
 		},
 		Panel.World
@@ -251,10 +279,14 @@ T.Test2D("react error boundary catches effect errors and nests", function()
 end)
 
 T.Test2D("react error boundary leaves per frame callbacks unwrapped and guards the rest", function()
-	local draw = function() error("draw exploded", 0) end
+	local draw = function()
+		error("draw exploded", 0)
+	end
 	local click = function() end
 	local root = react.Mount(
-		Column{}{ErrorBoundary{Fallback = fallback}{Text{Text = "x", OnDraw = draw, OnMouseMove = draw, OnClick = click}}},
+		Column{}{
+			ErrorBoundary{Fallback = fallback}{Text{Text = "x", OnDraw = draw, OnMouseMove = draw, OnClick = click}},
+		},
 		Panel.World
 	)
 	local text = root:GetEntity():GetChildren()[1]
@@ -269,22 +301,29 @@ T.Test2D("react memo skips renders with equal props and renders again for state 
 	local renders = {}
 	local Ctx = react.CreateContext("default")
 	local set_value
-	local Item = react.Memo(react.Component(|props| -> do
-		renders[props.Name] = (renders[props.Name] or 0) + 1
+	local Item = react.Memo(
+		react.Component(
+			|props|-> do
+				renders[props.Name] = (renders[props.Name] or 0) + 1
+				return Text{Text = props.Name .. ":" .. tostring(props.Selected)}
+			end
+		)
+	)
+	local Reader = react.Memo(
+		react.Component(
+			|props|-> do
+				renders.reader = (renders.reader or 0) + 1
+				return Text{Text = "ctx " .. react.UseContext(Ctx)}
+			end
+		)
+	)
 
-		return Text{Text = props.Name .. ":" .. tostring(props.Selected)}
-	end))
-	local Reader = react.Memo(react.Component(|props| -> do
-		renders.reader = (renders.reader or 0) + 1
-
-		return Text{Text = "ctx " .. react.UseContext(Ctx)}
-	end))
 	local function view(selected, value)
 		return Ctx.Provider{Value = value}{
 			Column{}{
 				Item{Name = "a", Selected = selected == "a"},
 				Item{Name = "b", Selected = selected == "b"},
-				Item{Name = "c", Selected = selected == "c", OnClick = || -> nil},
+				Item{Name = "c", Selected = selected == "c", OnClick = ||->nil},
 				Reader{},
 			},
 		}
@@ -309,7 +348,7 @@ end)
 
 T.Test2D("react use context reads the default without a provider and nests providers", function()
 	local Ctx = react.CreateContext("none")
-	local Reader = react.Component(|props| -> Text{Text = react.UseContext(Ctx)})
+	local Reader = react.Component(|props|->Text{Text = react.UseContext(Ctx)})
 	local root = react.Mount(
 		Column{}{
 			Reader{},
@@ -323,14 +362,18 @@ end)
 
 T.Test2D("react foreign hosts an entity made elsewhere and removes it with the node", function()
 	local made = 0
+
 	local function create()
 		made = made + 1
-
 		return Panel.New{Name = "foreign" .. made}
 	end
 
 	local function view(key)
-		return Column{}{Text{Text = "before"}, react.Foreign{Key = key, Create = create}, Text{Text = "after"}}
+		return Column{}{
+			Text{Text = "before"},
+			react.Foreign{Key = key, Create = create},
+			Text{Text = "after"},
+		}
 	end
 
 	local root = react.Mount(view("a"), Panel.World)
@@ -353,21 +396,25 @@ T.Test2D("react use event subscribes while mounted and sees the latest callback"
 	local event = import("goluwa/event.lua")
 	local seen = {}
 	local set_show
-	local Listener = react.Component(|props| -> do
-		react.UseEvent("react_test_event", |value| -> do seen[#seen + 1] = props.Tag .. value end)
-
-		return Text{Text = props.Tag}
-	end)
-	local View = react.Component(|props| -> do
-		local show, set = react.UseState(true)
-		local tag, set_tag = react.UseState("a")
-		set_show = |value| -> do
-			set(value)
-			set_tag("b")
+	local Listener = react.Component(
+		|props|-> do
+			react.UseEvent("react_test_event", |value|-> do
+				seen[#seen + 1] = props.Tag .. value
+			end)
+			return Text{Text = props.Tag}
 		end
-
-		return Column{}{show && Listener{Tag = tag}}
-	end)
+	)
+	local View = react.Component(
+		|props|-> do
+			local show, set = react.UseState(true)
+			local tag, set_tag = react.UseState("a")
+			set_show = |value|-> do
+				set(value)
+				set_tag("b")
+			end
+			return Column{}{show and Listener{Tag = tag}}
+		end
+	)
 	local root = react.Mount(View{}, Panel.World)
 	event.Call("react_test_event", 1)
 	set_show(false)
@@ -380,17 +427,35 @@ end)
 T.Test2D("react unmounts components whose entities were removed from outside and runs their cleanups", function()
 	local event = import("goluwa/event.lua")
 	local log = {}
-	local Inner = react.Component(|props| -> do
-		react.UseEffect(|| -> do return || -> do log[#log + 1] = "inner cleanup" end end, {})
-
-		return Text{Text = "inner"}
-	end)
-	local Outer = react.Component(|props| -> do
-		react.UseEffect(|| -> do return || -> do log[#log + 1] = "outer cleanup" end end, {})
-		react.UseEvent("react_removed_test", || -> do log[#log + 1] = "event" end)
-
-		return Column{}{Inner{}}
-	end)
+	local Inner = react.Component(
+		|props|-> do
+			react.UseEffect(
+				||-> do
+					return ||-> do
+						log[#log + 1] = "inner cleanup"
+					end
+				end,
+				{}
+			)
+			return Text{Text = "inner"}
+		end
+	)
+	local Outer = react.Component(
+		|props|-> do
+			react.UseEffect(
+				||-> do
+					return ||-> do
+						log[#log + 1] = "outer cleanup"
+					end
+				end,
+				{}
+			)
+			react.UseEvent("react_removed_test", ||-> do
+				log[#log + 1] = "event"
+			end)
+			return Column{}{Inner{}}
+		end
+	)
 	local root = react.Mount(Outer{}, Panel.World)
 	event.Call("react_removed_test")
 	T(table.concat(log, ","))["=="]("event")
@@ -406,19 +471,26 @@ end)
 T.Test2D("react use resource creates once, replaces on deps and disposes on unmount and when a boundary tears it down", function()
 	local log = {}
 	local set_tag
-	local Holder = react.Component(|props| -> do
-		local tag, set = react.UseState("a")
-		set_tag = set
-		local resource = react.UseResource(
-			|| -> do log[#log + 1] = "create " .. tag return {tag = tag} end,
-			|value| -> do log[#log + 1] = "dispose " .. value.tag end,
-			{tag}
-		)
+	local Holder = react.Component(
+		|props|-> do
+			local tag, set = react.UseState("a")
+			set_tag = set
+			local resource = react.UseResource(
+				||-> do
+					log[#log + 1] = "create " .. tag
+					return {tag = tag}
+				end,
+				|value|-> do
+					log[#log + 1] = "dispose " .. value.tag
+				end,
+				{tag}
+			)
 
-		if props.Throw then error("render exploded", 0) end
+			if props.Throw then error("render exploded", 0) end
 
-		return Text{Text = resource.tag}
-	end)
+			return Text{Text = resource.tag}
+		end
+	)
 	local root = react.Mount(Column{}{Holder{}}, Panel.World)
 	root:Render(Column{}{Holder{}})
 	T(table.concat(log, ","))["=="]("create a")
@@ -428,10 +500,7 @@ T.Test2D("react use resource creates once, replaces on deps and disposes on unmo
 	root:Unmount()
 	T(table.concat(log, ","))["=="]("create a,dispose a,create b,dispose b")
 	log = {}
-	local boundary_root = react.Mount(
-		Column{}{ErrorBoundary{Fallback = fallback}{Holder{Throw = true}}},
-		Panel.World
-	)
+	local boundary_root = react.Mount(Column{}{ErrorBoundary{Fallback = fallback}{Holder{Throw = true}}}, Panel.World)
 	T(table.concat(log, ","))["=="]("create a,dispose a")
 	boundary_root:Unmount()
 end)
@@ -440,14 +509,24 @@ T.Test2D("react portal mounts under its target, stays out of the parent's order 
 	local PanelElement = react.Element(Panel)
 	local target = Panel.New{Name = "portal target"}
 	local log = {}
-	local Inner = react.Component(|props| -> do
-		react.UseEffect(|| -> do return || -> do log[#log + 1] = "cleanup" end end, {})
-
-		return PanelElement{Name = "in portal"}
-	end)
+	local Inner = react.Component(
+		|props|-> do
+			react.UseEffect(||-> do
+				return ||-> do
+					log[#log + 1] = "cleanup"
+				end
+			end, {})
+			return PanelElement{Name = "in portal"}
+		end
+	)
 
 	local function view(open)
-		return Column{}{Text{Text = "a"}, open && react.Portal{Target = target}{Inner{}}, Text{Text = "b"}}
+		return Column{}{
+			Text{Text = "a"},
+			open and
+			react.Portal{Target = target}{Inner{}},
+			Text{Text = "b"},
+		}
 	end
 
 	local root = react.Mount(view(true), Panel.World)
@@ -478,24 +557,24 @@ T.Test2D("react use poll recomputes every update without an interval, rarely wit
 	local event = import("goluwa/event.lua")
 	local frame_calls = 0
 	local slow_calls = 0
-	local Frames = react.Component(|props| -> do
-		local value = react.UsePoll(|| -> do
-			frame_calls = frame_calls + 1
-
-			return frame_calls
-		end)
-
-		return Text{Text = "frames " .. value}
-	end)
-	local Slow = react.Component(|props| -> do
-		local value = react.UsePoll(|| -> do
-			slow_calls = slow_calls + 1
-
-			return slow_calls
-		end, 1000)
-
-		return Text{Text = "slow " .. value}
-	end)
+	local Frames = react.Component(
+		|props|-> do
+			local value = react.UsePoll(||-> do
+				frame_calls = frame_calls + 1
+				return frame_calls
+			end)
+			return Text{Text = "frames " .. value}
+		end
+	)
+	local Slow = react.Component(
+		|props|-> do
+			local value = react.UsePoll(||-> do
+				slow_calls = slow_calls + 1
+				return slow_calls
+			end, 1000)
+			return Text{Text = "slow " .. value}
+		end
+	)
 	local root = react.Mount(Column{}{Frames{}, Slow{}}, Panel.World)
 	local column = root:GetEntity()
 	T(table.concat(texts(column), ","))["=="]("frames 1,slow 1")
@@ -512,10 +591,17 @@ end)
 
 T.Test2D("react use debounce follows a value on the first update after its delay and not before", function()
 	local event = import("goluwa/event.lua")
-	local Shown = react.Component(|props| -> Text{Text = props.Name .. " " .. react.UseDebounce(props.Value, props.Delay)})
+	local Shown = react.Component(
+		|props|->Text{Text = props.Name .. " " .. react.UseDebounce(props.Value, props.Delay)}
+	)
+
 	local function tree(value)
-		return Column{}{Shown{Name = "now", Value = value, Delay = 0}, Shown{Name = "later", Value = value, Delay = 1000}}
+		return Column{}{
+			Shown{Name = "now", Value = value, Delay = 0},
+			Shown{Name = "later", Value = value, Delay = 1000},
+		}
 	end
+
 	local root = react.Mount(tree(1), Panel.World)
 	local column = root:GetEntity()
 	T(table.concat(texts(column), ","))["=="]("now 1,later 1")
@@ -533,9 +619,9 @@ T.Test2D("react prop diff does not recurse into cyclic tables", function()
 		local entry = {name = "entry", folder = folder}
 		folder.entries[1] = entry
 		folder.parent = folder
-
 		return {entry}
 	end
+
 	local root = react.Mount(Column{Data = make()}{}, Panel.World)
 	root:Render(Column{Data = make()}{})
 	root:Unmount()
@@ -544,29 +630,31 @@ end)
 T.Test2D("react layout effect sees the layout of the render that scheduled it and an effect runs after it", function()
 	local order = {}
 	local heights = {}
-	local Measured = react.Component(|props| -> do
-		local box = react.UseRef()
+	local Measured = react.Component(
+		|props|-> do
+			local box = react.UseRef()
+			react.UseEffect(||-> do
+				order[#order + 1] = "effect"
+			end, {})
+			react.UseLayoutEffect(
+				||-> do
+					order[#order + 1] = "layout"
+					heights[#heights + 1] = box.current.transform:GetSize().y
+					return ||-> do
+						order[#order + 1] = "cleanup"
+					end
+				end,
+				{props.Rows}
+			)
+			local rows = {}
 
-		react.UseEffect(|| -> do
-			order[#order + 1] = "effect"
-		end, {})
-		react.UseLayoutEffect(|| -> do
-			order[#order + 1] = "layout"
-			heights[#heights + 1] = box.current.transform:GetSize().y
-
-			return || -> do
-				order[#order + 1] = "cleanup"
+			for i = 1, props.Rows do
+				rows[i] = Text{Key = i, Text = "row " .. i}
 			end
-		end, {props.Rows})
 
-		local rows = {}
-
-		for i = 1, props.Rows do
-			rows[i] = Text{Key = i, Text = "row " .. i}
+			return Column{Ref = box, layout = {FitHeight = true, FitWidth = true}}{rows}
 		end
-
-		return Column{Ref = box, layout = {FitHeight = true, FitWidth = true}}{rows}
-	end)
+	)
 	local root = react.Mount(Measured{Rows = 2}, Panel.World)
 	T(table.concat(order, ","))["=="]("layout,effect")
 	T(heights[1])[">"](0)
@@ -580,13 +668,14 @@ end)
 T.Test2D("react use stable keeps its identity and calls the callback of the latest render", function()
 	local seen = {}
 	local calls = {}
-	local Holder = react.Component(|props| -> do
-		local stable = react.UseStable(|| -> props.Name)
-		seen[#seen + 1] = stable
-		calls[#calls + 1] = stable()
-
-		return Text{Text = props.Name}
-	end)
+	local Holder = react.Component(
+		|props|-> do
+			local stable = react.UseStable(||->props.Name)
+			seen[#seen + 1] = stable
+			calls[#calls + 1] = stable()
+			return Text{Text = props.Name}
+		end
+	)
 	local root = react.Mount(Column{}{Holder{Name = "first"}}, Panel.World)
 	root:Render(Column{}{Holder{Name = "second"}})
 	T(seen[1])["=="](seen[2])
@@ -596,11 +685,12 @@ end)
 
 T.Test2D("react open window opens once per key, hands the component a close and opens again after it", function()
 	local closes = {}
-	local Closable = react.Component(|props| -> do
-		closes[#closes + 1] = props.Close
-
-		return Text{Text = props.Title}
-	end)
+	local Closable = react.Component(
+		|props|-> do
+			closes[#closes + 1] = props.Close
+			return Text{Text = props.Title}
+		end
+	)
 	local first = react.OpenWindow("test_window", Closable, {Title = "one"})
 	T(react.OpenWindow("test_window", Closable, {Title = "two"}))["=="](first)
 	T(#closes)["=="](1)
@@ -616,24 +706,27 @@ end)
 T.Test2D("react use drag reports the press, the moves outside the panel, the end and whether it was a click", function()
 	local log = {}
 	local PanelElement = react.Element(Panel)
-	local Surface = react.Component(|| -> do
-		local drag = react.UseDrag{
-			OnDrag = |position, size, dx, dy, moved| -> do
-				log[#log + 1] = ("drag %d,%d %dx%d moved=%s"):format(position.x, position.y, size.x, size.y, tostring(moved))
-			end,
-			OnEnd = |moved| -> do
-				log[#log + 1] = "end moved=" .. tostring(moved)
-			end,
-		}
-
-		return PanelElement{
-			transform = true,
-			Size = Vec2(100, 50),
-			OnMouseInput = drag.OnMouseInput,
-			OnGlobalMouseMove = drag.OnGlobalMouseMove,
-			OnGlobalMouseInput = drag.OnGlobalMouseInput,
-		}
-	end)
+	local Surface = react.Component(
+		||-> do
+			local drag = react.UseDrag{
+				OnDrag = |position,size,dx,dy,moved|-> do
+					log[#log + 1] = (
+						"drag %d,%d %dx%d moved=%s"
+					):format(position.x, position.y, size.x, size.y, tostring(moved))
+				end,
+				OnEnd = |moved|-> do
+					log[#log + 1] = "end moved=" .. tostring(moved)
+				end,
+			}
+			return PanelElement{
+				transform = true,
+				Size = Vec2(100, 50),
+				OnMouseInput = drag.OnMouseInput,
+				OnGlobalMouseMove = drag.OnGlobalMouseMove,
+				OnGlobalMouseInput = drag.OnGlobalMouseInput,
+			}
+		end
+	)
 	local root = react.Mount(Surface{}, Panel.World)
 	local panel = root:GetEntity()
 	T(panel.OnMouseInput(panel, "button_2", true, Vec2(1, 1)))["=="](nil)

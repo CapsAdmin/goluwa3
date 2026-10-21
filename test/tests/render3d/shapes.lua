@@ -4,7 +4,9 @@ local shapes = import("goluwa/render3d/shapes.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 
 local function winding_dot(poly, first)
-	local a, b, c = poly.Vertices[first].pos, poly.Vertices[first + 1].pos, poly.Vertices[first + 2].pos
+	local a, b, c = poly.Vertices[first].pos,
+	poly.Vertices[first + 1].pos,
+	poly.Vertices[first + 2].pos
 	local geometric = (c - a):GetCross(b - a):GetNormalized()
 	return geometric:GetDot(poly.Vertices[first].normal)
 end
@@ -49,7 +51,9 @@ local function check_lathe(poly, scale)
 	local checked = 0
 
 	for first = 1, #poly.Vertices - 2, 3 do
-		local a, b, c = poly.Vertices[first].pos, poly.Vertices[first + 1].pos, poly.Vertices[first + 2].pos
+		local a, b, c = poly.Vertices[first].pos,
+		poly.Vertices[first + 1].pos,
+		poly.Vertices[first + 2].pos
 		local geometric = (c - a):GetCross(b - a)
 
 		if geometric:GetLength() > 1e-6 then

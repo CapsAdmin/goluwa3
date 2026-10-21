@@ -113,7 +113,9 @@ function cutout_texture.BuildMipChain(pixels, width, height, cutoff)
 						) / 4
 				end
 
-				alpha[i] = (source_pixels[a + 3] + source_pixels[b + 3] + source_pixels[c + 3] + source_pixels[d + 3]) / 4
+				alpha[i] = (
+						source_pixels[a + 3] + source_pixels[b + 3] + source_pixels[c + 3] + source_pixels[d + 3]
+					) / 4
 			end
 		end
 

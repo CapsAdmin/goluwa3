@@ -26,7 +26,9 @@ render3d.SetOceanEnabled(false)
 weather.SetGroundFogVisibility(10 ^ 3.5)
 
 local function material(r, g, b, extra)
-	return shapes.Material(table.merge({Color = Color(r, g, b, 1), Roughness = 0.8, Metallic = 0}, extra or {}))
+	return shapes.Material(
+		table.merge({Color = Color(r, g, b, 1), Roughness = 0.8, Metallic = 0}, extra or {})
+	)
 end
 
 local function box(name, pos, size, mat)

@@ -174,7 +174,9 @@ local function create_swapchain(self)
 
 	local supported_present_modes = {}
 
-	for _, mode in ipairs(self.vulkan_instance.physical_device:GetPresentModes(self.vulkan_instance.surface)) do
+	for _, mode in ipairs(
+		self.vulkan_instance.physical_device:GetPresentModes(self.vulkan_instance.surface)
+	) do
 		supported_present_modes[vulkan.vk.str.VkPresentModeKHR(mode)] = true
 	end
 

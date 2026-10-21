@@ -297,7 +297,16 @@ end
 
 function RetroTheme:DrawFrame(size, emphasis)
 	local surface = self:GetColor(emphasis == 2 and "surface_variant" or "surface")
-	self:DrawTiled(self.Textures.Noise, NOISE_SIZE, 0, 0, size.x, size.y, surface:Copy():SetAlpha(1), 1)
+	self:DrawTiled(
+		self.Textures.Noise,
+		NOISE_SIZE,
+		0,
+		0,
+		size.x,
+		size.y,
+		surface:Copy():SetAlpha(1),
+		1
+	)
 end
 
 function RetroTheme:DrawFramePost(size, emphasis)

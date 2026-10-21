@@ -531,7 +531,10 @@ local function normalize_block_source(block, size, alignment, kind)
 	end
 
 	if offset < 0 then
-		error(string.format("%s '%s' source offset must be >= 0", kind, tostring(block.name)), 3)
+		error(
+			string.format("%s '%s' source offset must be >= 0", kind, tostring(block.name)),
+			3
+		)
 	end
 
 	local source_size = ffi.sizeof(source_ctype)

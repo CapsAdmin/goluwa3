@@ -157,8 +157,8 @@ end)
 
 T.Test2D("Ref and Parent are handled by the core for every widget", function()
 	local parent = Panel.New{}
-	local ref local
-	button = Button{
+	local ref
+	local button = Button{
 		Text = "x",
 		Parent = parent,
 		Ref = function(self)
@@ -283,11 +283,19 @@ T.Test2D("derma theme loads its skin texture and samples its colors", function()
 	T(theme.active.SkinTexture ~= nil)["=="](true)
 	T(theme.active:GetColor("text_input").r < 0.2)["=="](true)
 	T(theme.active:ResolveButtonStyleContext({mode = "menu"}).foreground_token)["=="](nil)
-	T(theme.active:ResolveButtonStyleContext{mode = "menu", button_color = "positive"}.foreground_token)["=="](nil)
+	T(
+		theme.active:ResolveButtonStyleContext{mode = "menu", button_color = "positive"}.foreground_token
+	)["=="](nil)
 	T(theme.active:ResolveButtonStyleContext({mode = "text"}).foreground_token)["=="](nil)
-	T(theme.active:ResolveButtonStyleContext{mode = "text", disabled = true}.foreground_token)["=="]("text_disabled")
-	T(theme.active:ResolveButtonStyleContext{mode = "outline", theme_role = "dropdown"}.foreground_token)["=="]("text_combo")
-	T(theme.active:ResolveButtonStyleContext({mode = "outline"}).foreground_token ~= "text_combo")["=="](true)
+	T(
+		theme.active:ResolveButtonStyleContext{mode = "text", disabled = true}.foreground_token
+	)["=="]("text_disabled")
+	T(
+		theme.active:ResolveButtonStyleContext{mode = "outline", theme_role = "dropdown"}.foreground_token
+	)["=="]("text_combo")
+	T(
+		theme.active:ResolveButtonStyleContext({mode = "outline"}).foreground_token ~= "text_combo"
+	)["=="](true)
 	theme.LoadTheme(original)
 end)
 

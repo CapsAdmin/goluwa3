@@ -114,7 +114,10 @@ do
 	function surface_weather.WriteRainSurfaceBlock(self, block)
 		block.rain_time = system.GetElapsedTime() % (SPLASH_LIFETIME * 4096)
 		block.rain_agitation = AGITATION_SLOPE * math.sqrt(surface_weather.rain_impact_rate / 1000)
-		local chance = math.min(surface_weather.splash_rate * SPLASH_LIFETIME * SPLASH_CELL * SPLASH_CELL / SPLASH_LAYERS, 1)
+		local chance = math.min(
+			surface_weather.splash_rate * SPLASH_LIFETIME * SPLASH_CELL * SPLASH_CELL / SPLASH_LAYERS,
+			1
+		)
 		block.splash_chance = chance
 		local coverage = math.min(
 			chance * SPLASH_LAYERS * math.pi * SPLASH_RADIUS * 2 * SPLASH_WIDTH / (

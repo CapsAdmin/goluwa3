@@ -118,7 +118,10 @@ if ffi.os == "Windows" then
 			[1455] = "Page file quota exceeded",
 		}
 		local err_msg = error_messages[error_code] or "unknown error"
-		error(string.format("Thread operation failed: %s (Error code: %d)", err_msg, error_code), 2)
+		error(
+			string.format("Thread operation failed: %s (Error code: %d)", err_msg, error_code),
+			2
+		)
 	end
 
 	local INFINITE = ffi.new("uint32_t", 0xFFFFFFFF)

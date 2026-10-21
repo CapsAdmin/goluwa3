@@ -1692,7 +1692,11 @@ function atmosphere.FoldTransmittance(rayleigh_depth, aerosol_depth, ozone_depth
 		end
 	end
 
-	return Vec3(math.max(transmitted[1], 0), math.max(transmitted[2], 0), math.max(transmitted[3], 0))
+	return Vec3(
+		math.max(transmitted[1], 0),
+		math.max(transmitted[2], 0),
+		math.max(transmitted[3], 0)
+	)
 end
 
 function atmosphere.GetTransmittance(sunDir, camPos)

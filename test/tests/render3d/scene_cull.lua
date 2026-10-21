@@ -223,9 +223,11 @@ T.Test3D("Graphics render3d the main view cull picks one level of detail and fad
 	draw_frames(draw)
 	local between = levels(entity, scene_draw.ReadBackCull(0))
 	T(#between)["=="](2)
-	T(between[1].fade * between[2].fade < 0 or
-		between[1].fade == 0 or
-		between[2].fade == 0)["=="](true)
+	T(
+		between[1].fade * between[2].fade < 0 or
+			between[1].fade == 0 or
+			between[2].fade == 0
+	)["=="](true)
 	pvars.SetSession("lod_level", 1)
 	draw_frames(draw)
 	local forced = levels(entity, scene_draw.ReadBackCull(0))

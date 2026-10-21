@@ -640,7 +640,12 @@ function pipeline_common.update_storage_buffer_array(self, frame_index, binding_
 
 	if render.stats then render_stats.AddDescriptorWrites(count) end
 
-	self.vulkan_instance.device:UpdateDescriptorSetBufferArray(self.descriptor_sets[frame_index][set_index + 1], binding_index, buffer_infos, count)
+	self.vulkan_instance.device:UpdateDescriptorSetBufferArray(
+		self.descriptor_sets[frame_index][set_index + 1],
+		binding_index,
+		buffer_infos,
+		count
+	)
 end
 
 function pipeline_common.update_sampled_image_descriptor_set_array(self, frame_index, binding_index, set_index, view_array, override_count)

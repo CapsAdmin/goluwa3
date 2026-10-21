@@ -65,7 +65,14 @@ local function build_index(body, colliders)
 	for i = 1, #colliders do
 		local collider = colliders[i]
 		local bounds = collider:GetBroadphaseAABB(collider:GetPosition(), collider:GetRotation(), BUILD_BOUNDS)
-		collider.IndexBounds = AABB(bounds.min_x, bounds.min_y, bounds.min_z, bounds.max_x, bounds.max_y, bounds.max_z)
+		collider.IndexBounds = AABB(
+			bounds.min_x,
+			bounds.min_y,
+			bounds.min_z,
+			bounds.max_x,
+			bounds.max_y,
+			bounds.max_z
+		)
 		items[i] = collider
 	end
 

@@ -750,7 +750,13 @@ do
 					end
 
 					if latest.current.OnDrag then
-						latest.current.OnDrag(self.transform:GlobalToLocal(position), self.transform:GetSize(), dx, dy, state.moved)
+						latest.current.OnDrag(
+							self.transform:GlobalToLocal(position),
+							self.transform:GetSize(),
+							dx,
+							dy,
+							state.moved
+						)
 					end
 
 					return true

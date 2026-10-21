@@ -85,8 +85,12 @@ local function get_focus_bounds(entity)
 
 		if aabb and aabb.min_x <= aabb.max_x then
 			found = true
-			min_x, min_y, min_z = math.min(min_x, aabb.min_x), math.min(min_y, aabb.min_y), math.min(min_z, aabb.min_z)
-			max_x, max_y, max_z = math.max(max_x, aabb.max_x), math.max(max_y, aabb.max_y), math.max(max_z, aabb.max_z)
+			min_x, min_y, min_z = math.min(min_x, aabb.min_x),
+			math.min(min_y, aabb.min_y),
+			math.min(min_z, aabb.min_z)
+			max_x, max_y, max_z = math.max(max_x, aabb.max_x),
+			math.max(max_y, aabb.max_y),
+			math.max(max_z, aabb.max_z)
 		end
 	end
 
@@ -131,7 +135,6 @@ end
 
 local function make_menu_items(h)
 	local f = h.f
-
 	return {
 		{
 			Text = "FILE",
@@ -413,7 +416,8 @@ local function open_node_menu(node, h)
 			nil,
 			can_create_shapes and
 			can_remove and
-			not scene.IsTransientEntity(entity) and
+			not scene.IsTransientEntity(entity)
+			and
 			MenuItem{
 				Text = "Clone",
 				Icon = "copy",
@@ -478,634 +482,678 @@ local function open_node_menu(node, h)
 	return true
 end
 
-local CornerButton = react.Component(|props| -> do
-	local button = react.UseRef()
+local CornerButton = react.Component(
+	|props|-> do
+		local button = react.UseRef()
+		local follow = ||-> do
+			local anchor = props.Anchor.current
 
-	local follow = || -> do
-		local anchor = props.Anchor.current
+			if not (anchor and anchor:IsValid()) then return end
 
-		if not (anchor and anchor:IsValid()) then return end
-
-		local _, _, x, y = anchor.transform:GetWorldRectFast()
-		local size = button.current.transform:GetSize()
-		button.current.transform:SetPosition(
-			button.current:GetParent().transform:GlobalToLocal(Vec2(x - size.x + props.OffsetX, y - size.y + props.OffsetY))
-		)
+			local _, _, x, y = anchor.transform:GetWorldRectFast()
+			local size = button.current.transform:GetSize()
+			button.current.transform:SetPosition(
+				button.current:GetParent().transform:GlobalToLocal(Vec2(x - size.x + props.OffsetX, y - size.y + props.OffsetY))
+			)
+		end
+		react.UseLayoutEffect(follow, {})
+		react.UseEvent("Update", follow)
+		return IconButton{
+			Ref = button,
+			Name = props.Name,
+			Icon = props.Icon,
+			Size = Vec2(28, 28),
+			Padding = "XXS",
+			Mode = "outline",
+			Active = props.Active,
+			Tooltip = props.Tooltip,
+			layout = {Floating = true},
+			OnClick = props.OnClick,
+		}
 	end
-
-	react.UseLayoutEffect(follow, {})
-	react.UseEvent("Update", follow)
-
-	return IconButton{
-		Ref = button,
-		Name = props.Name,
-		Icon = props.Icon,
-		Size = Vec2(28, 28),
-		Padding = "XXS",
-		Mode = "outline",
-		Active = props.Active,
-		Tooltip = props.Tooltip,
-		layout = {Floating = true},
-		OnClick = props.OnClick,
-	}
-end)
-local Editor = react.Component(|props| -> do
-	local window = react.UseRef()
-	local tree = react.UseRef()
-	local tree_scroll = react.UseRef()
-	local property_scroll = react.UseRef()
-	local property_editor = react.UseRef()
-	local flags = react.UseRef({stack = {}, transient = false, nearby = false, nearby_dirty = true})
-	local edit_stack, set_edit_stack = react.UseState({})
-	local playing, set_playing = react.UseState(false)
-	local sync, sync_properties = react.UseState(0)
-	local search, set_search = react.UseState("")
-	local applied_search = react.UseDebounce(search, 0.25)
-	local picking = react.UsePoll(picker.IsActive)
-	local size = react.UseMemo(|| -> Vec2(400, Panel.World.transform:GetSize().y), {})
-	local view = react.UseResource(|| -> View.New{Priority = 10}:Activate(), |view| -> view:Remove(), {})
-	local h = react.UseMemo(|| -> do
-		local f = flags.current
-		local h = {f = f, tree = tree}
-		picker.include_transient = false
-
-		function h.set_transient(show)
-			f.transient = show
-			picker.include_transient = show
-			tree.current:Refresh(true)
-		end
-
-		function h.resolve_target(target)
-			local editing = f.stack[#f.stack]
-			local stop = editing and editing.prefab or nil
-
-			while target.prefab_owner and target.prefab_owner ~= stop do
-				target = target.prefab_owner.Owner
-			end
-
-			return target
-		end
-
-		function h.set_selected_target(target)
-			target = h.resolve_target(target)
-
-			if not f.transient and target:IsRuntime() then h.set_transient(true) end
-
-			Gizmo.EnableGizmo(target)
-			prefab_tools.Watch(target)
-			tree.current:SelectEntity(target)
-			tree.current:ExpandToEntity(target)
-			tree.current:EnsureEntityVisible(target)
-			sync_properties(|n| -> n + 1)
-		end
-
-		function h.add_child_entity(entity, parent_entity, owner, name)
-			local world_position = camera.GetPosition() + camera.GetRotation():GetForward() * 2
-			entity:SetParent(parent_entity)
-
-			if owner then entity:SetOwnedBy(owner) end
-
-			if parent_entity.transform then
-				entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(world_position))
-			else
-				entity.transform:SetPosition(world_position)
-			end
-
-			editor_history.RecordCreate("create " .. name, entity)
-			h.set_selected_target(entity)
-		end
-
-		function h.create_child_entity(parent_entity, owner)
-			local entity = Entity.New{Name = "entity", Transient = false}
-			entity:AddComponent("transform")
-			h.add_child_entity(entity, parent_entity, owner, "entity")
-		end
-
-		function h.pick_child_prefab(parent_entity, owner)
-			AssetBrowser{
-				Key = "AssetPicker",
-				PickerCategory = "prefabs",
-				OnPick = function(asset)
-					local entity = Entity.New{Name = asset.name, prefab = {Path = asset.name}}
-					entity:SetTransient(false)
-					h.add_child_entity(entity, parent_entity, owner, asset.name)
-				end,
-			}
-		end
-
-		function h.can_cut(entity)
-			return can_edit_components(entity) and entity ~= f.stack[#f.stack]
-		end
-
-		function h.can_paste(target)
-			local cut = f.cut
-
-			if not (cut and cut:IsValid()) then return false end
-
-			if target == cut or target:ContainsParent(cut) then return false end
-
-			local root = cut:GetRoot()
-
-			return target == root or target:GetRoot() == root
-		end
-
-		function h.paste_into(target, owner)
-			if not h.can_paste(target) then return end
-
-			local entity = f.cut
-			local old_parent = entity:GetParent()
-			f.cut = nil
-
-			if old_parent == target and not owner then return end
-
-			local transform = entity.transform
-			local keep_world = transform and not transform.Is2D and target.transform and transform.Attachment == "root"
-			local world_position, world_rotation
-
-			if keep_world then
-				world_position = transform:GetWorldPosition()
-				world_rotation = transform:GetWorldMatrix():GetRotation()
-			end
-
-			entity.prefab_patch = nil
-			entity:SetParent(target)
-
-			if owner then entity:SetOwnedBy(owner) end
-
-			if keep_world then
-				transform:SetPosition(transform:WorldToLocalPosition(world_position))
-				transform:SetRotation(target.transform:GetWorldMatrix():GetRotation():GetConjugated() * world_rotation)
-			end
-
-			editor_history.RecordReparent(entity, old_parent, target)
-			h.set_selected_target(entity)
-		end
-
-		function h.set_stack(stack)
-			f.stack = stack
-			set_edit_stack(stack)
-			local editing = stack[#stack]
-			prefab.SetEditing(editing and editing.prefab or nil)
-
-			if editing then
-				tree.current:SetGroupByOwner(false)
-				tree.current:SetRootLabels({[editing] = editing:GetName()})
-				tree.current:SetRootEntities({editing})
-			else
-				tree.current:SetGroupByOwner(true)
-				tree.current:SetRootLabels({[Entity.World] = "3D World", [Panel.World] = "2D World"})
-				tree.current:SetRootEntities({Entity.World, Panel.World})
-			end
-
-			tree.current:ExpandRoots()
-		end
-
-		function h.enter_prefab_edit(entity)
-			local stack = {table.unpack(f.stack)}
-			stack[#stack + 1] = entity
-			h.set_stack(stack)
-			h.set_selected_target(entity)
-		end
-
-		function h.exit_prefab_edit()
-			local stack = {table.unpack(f.stack)}
-			local left = table.remove(stack)
-
-			if not left then return end
-
-			h.set_stack(stack)
-
-			if left:IsValid() then h.set_selected_target(left) end
-		end
-
-		function h.set_playing(value)
-			if f.playing == value then return end
-
-			f.playing = value
-
-			if value then
-				if picker.IsActive() then picker.Stop() end
-
-				f.playing_selection = tree.current:GetSelectedEntity()
-				Gizmo.EnableGizmo(nil)
-			elseif f.playing_selection and f.playing_selection:IsValid() then
-				Gizmo.EnableGizmo(f.playing_selection)
-			end
-
-			window.current.visual:SetVisible(not value)
-			set_playing(value)
-			event.Call("EditorControlsChanged", value)
-		end
-
-		function h.filter(entity)
-			if entity_tree_filter_callback(entity, window.current) then return true end
-
-			local editing = f.stack[#f.stack]
-
-			if editing then
-				return entity ~= editing and entity.prefab_owner ~= editing.prefab
-			end
-
-			return entity.prefab_owner ~= nil or
-				(
-					not f.transient and
-					entity ~= Entity.World and
-					entity ~= Panel.World and
-					entity:IsRuntime()
-				)
-		end
-
-		function h.on_select(node, key)
-			local target = node and (node.Entity or node.Object) or objects.GetObjectByGUID(key)
-			Gizmo.EnableGizmo(target)
-			prefab_tools.Watch(target)
-			sync_properties(|n| -> n + 1)
-			_G.SELECTED_OBJECT = target
-		end
-
-		function h.on_hover(node, key, path, row_info, hovered)
-			highlight.SetEntity(hovered and node and node.Entity or nil)
-		end
-
-		function h.is_dimmed(node)
-			return f.cut ~= nil and node.Entity == f.cut
-		end
-
-		function h.on_double_click(node)
-			local entity = node.Entity
-
-			if entity and entity.prefab and entity.prefab.definition and entity ~= f.stack[#f.stack] then
-				h.enter_prefab_edit(entity)
-				return true
-			end
-		end
-
-		function h.on_context_menu(node)
-			return open_node_menu(node, h)
-		end
-
-		function h.on_category_menu(_, name, entity)
-			if not entity.component_list or not can_edit_components(entity) then return end
-
-			return {
-				MenuItem{
-					Text = "Remove",
-					Icon = "trash",
-					OnClick = function()
-						editor_history.RemoveComponent(entity, name)
-					end,
-				},
-			}
-		end
-
-		function h.on_breadcrumb(index)
-			while #f.stack >= index do
-				h.exit_prefab_edit()
-			end
-		end
-
-		h.menu_items = make_menu_items(h)
-		return h
-	end, {})
-	local f = h.f
-
-	react.UseEvent("Update", |dt| -> do
-		local stack = f.stack
-
-		if stack[1] then
-			local pruned = {table.unpack(stack)}
-
-			while pruned[1] and not pruned[#pruned]:IsValid() do
-				pruned[#pruned] = nil
-			end
-
-			if #pruned ~= #stack then h.set_stack(pruned) end
-		end
-
-		local focused = objects:GetFocusedObject()
-		local hovered = MouseInput.GetHoveredObject()
-		local gizmo_status = Gizmo.GetStatus()
-		camera.SetBlockMovement(
-			(
-				focused:IsValid() and
-				window.current:ContainsParent(focused) and
-				(
-					focused.text ~= nil or
-					focused.Name == "TextEdit"
-				)
-			) or
-				f.playing
-		)
-		camera.SetBlockDragging(
-			f.playing or
-				(
-					hovered:IsValid() and
-					hovered ~= Panel.World
-				)
-				or
-				gizmo_status.active_drag or
-				gizmo_status.hovered_handle or
-				brush_editor.IsBusy()
-		)
-		camera.Update(dt)
-		view:SetPosition(camera.GetPosition():Copy())
-		view:SetRotation(camera.GetRotation():Copy())
-		local position = camera.GetPosition()
-
-		if not f.camera_position or (position - f.camera_position):GetLength() > 0.001 then
-			f.camera_position = position:Copy()
-			f.camera_moved = system.GetElapsedTime()
-			f.nearby_dirty = true
-		elseif f.nearby and f.nearby_dirty and system.GetElapsedTime() - f.camera_moved >= NEARBY_SETTLE_TIME then
-			f.nearby_dirty = false
-			tree.current:SetNearby(nearby.Collect(position, NEARBY_COUNT))
-		end
-	end)
-
-	react.UseEffect(|| -> tree.current:SetSearch(applied_search), {applied_search})
-
-	react.UseEffect(|| -> do
-		local target = tree.current:GetSelectedEntity()
-
-		if target then
-			tree.current:BlockMutations()
-			property_editor.current:SetObject(target)
-			property_editor.current:ExpandAll()
-			tree.current:UnblockMutations()
-		end
-	end, {sync})
-
-	react.UseEvent("EditorSelect", |target| -> h.set_selected_target(target))
-	react.UseEvent("PrefabInputsChanged", || -> sync_properties(|n| -> n + 1))
-	react.UseEvent("EntityTreeReparent", |entity, old_parent, new_parent| -> editor_history.RecordReparent(entity, old_parent, new_parent))
-	react.UseEvent("KeyInput", |key, press| -> do
-		if press and key == "e" and input.IsControlDown() then
-			h.set_playing(not f.playing)
-			return true
-		end
-	end)
-	react.UseEvent("WindowKeyInput", |_, key, press| -> do
-		if not press or not input.IsControlDown() then return end
-
-		local focused = objects:GetFocusedObject()
-
-		if focused:IsValid() and window.current:ContainsParent(focused) and (focused.text ~= nil or focused.Name == "TextEdit") then
-			return
-		end
-
-		if Gizmo.GetStatus().active_drag then return end
-
-		if key == "x" then
-			local entity = tree.current:GetSelectedEntity()
-
-			if entity and entity:GetRoot() == Entity.World and h.can_cut(entity) then
-				f.cut = entity
-				return true
-			end
-		end
-
-		if key == "v" then
-			local entity = tree.current:GetSelectedEntity()
-
-			if entity and h.can_paste(entity) then
-				h.paste_into(entity)
-				return true
-			end
-		end
-
-		if key == "z" and not input.IsShiftDown() then
-			history:Undo()
-			return true
-		end
-
-		if key == "y" or key == "z" and input.IsShiftDown() then
-			history:Redo()
-			return true
-		end
-	end)
-
-	react.UseEffect(|| -> do
-		local removers = {}
-
-		for _, world in ipairs({Entity.World, Panel.World}) do
-			removers[#removers + 1] = world:AddLocalListener("OnEntityComponentChanged", |_, entity, _, name| -> do
-				local selected_entity = tree.current:GetSelectedEntity()
-
-				if selected_entity and entity == selected_entity then
-					sync_properties(|n| -> n + 1)
-					prefab_tools.Watch(selected_entity)
+)
+local Editor = react.Component(
+	|props|-> do
+		local window = react.UseRef()
+		local tree = react.UseRef()
+		local tree_scroll = react.UseRef()
+		local property_scroll = react.UseRef()
+		local property_editor = react.UseRef()
+		local flags = react.UseRef{stack = {}, transient = false, nearby = false, nearby_dirty = true}
+		local edit_stack, set_edit_stack = react.UseState({})
+		local playing, set_playing = react.UseState(false)
+		local sync, sync_properties = react.UseState(0)
+		local search, set_search = react.UseState("")
+		local applied_search = react.UseDebounce(search, 0.25)
+		local picking = react.UsePoll(picker.IsActive)
+		local size = react.UseMemo(||->Vec2(400, Panel.World.transform:GetSize().y), {})
+		local view = react.UseResource(||->View.New{Priority = 10}:Activate(), |view|->view:Remove(), {})
+		local h = react.UseMemo(
+			||-> do
+				local f = flags.current
+				local h = {f = f, tree = tree}
+				picker.include_transient = false
+
+				function h.set_transient(show)
+					f.transient = show
+					picker.include_transient = show
+					tree.current:Refresh(true)
 				end
 
-				if name == "prefab" or name == "script" then tree.current:Refresh() end
-			end)
-		end
+				function h.resolve_target(target)
+					local editing = f.stack[#f.stack]
+					local stop = editing and editing.prefab or nil
 
-		return || -> do
-			for _, remove in ipairs(removers) do
-				remove()
+					while target.prefab_owner and target.prefab_owner ~= stop do
+						target = target.prefab_owner.Owner
+					end
+
+					return target
+				end
+
+				function h.set_selected_target(target)
+					target = h.resolve_target(target)
+
+					if not f.transient and target:IsRuntime() then h.set_transient(true) end
+
+					Gizmo.EnableGizmo(target)
+					prefab_tools.Watch(target)
+					tree.current:SelectEntity(target)
+					tree.current:ExpandToEntity(target)
+					tree.current:EnsureEntityVisible(target)
+					sync_properties(|n|->n + 1)
+				end
+
+				function h.add_child_entity(entity, parent_entity, owner, name)
+					local world_position = camera.GetPosition() + camera.GetRotation():GetForward() * 2
+					entity:SetParent(parent_entity)
+
+					if owner then entity:SetOwnedBy(owner) end
+
+					if parent_entity.transform then
+						entity.transform:SetPosition(parent_entity.transform:GetWorldMatrixInverse():TransformVector(world_position))
+					else
+						entity.transform:SetPosition(world_position)
+					end
+
+					editor_history.RecordCreate("create " .. name, entity)
+					h.set_selected_target(entity)
+				end
+
+				function h.create_child_entity(parent_entity, owner)
+					local entity = Entity.New{Name = "entity", Transient = false}
+					entity:AddComponent("transform")
+					h.add_child_entity(entity, parent_entity, owner, "entity")
+				end
+
+				function h.pick_child_prefab(parent_entity, owner)
+					AssetBrowser{
+						Key = "AssetPicker",
+						PickerCategory = "prefabs",
+						OnPick = function(asset)
+							local entity = Entity.New{Name = asset.name, prefab = {Path = asset.name}}
+							entity:SetTransient(false)
+							h.add_child_entity(entity, parent_entity, owner, asset.name)
+						end,
+					}
+				end
+
+				function h.can_cut(entity)
+					return can_edit_components(entity) and entity ~= f.stack[#f.stack]
+				end
+
+				function h.can_paste(target)
+					local cut = f.cut
+
+					if not (cut and cut:IsValid()) then return false end
+
+					if target == cut or target:ContainsParent(cut) then return false end
+
+					local root = cut:GetRoot()
+					return target == root or target:GetRoot() == root
+				end
+
+				function h.paste_into(target, owner)
+					if not h.can_paste(target) then return end
+
+					local entity = f.cut
+					local old_parent = entity:GetParent()
+					f.cut = nil
+
+					if old_parent == target and not owner then return end
+
+					local transform = entity.transform
+					local keep_world = transform and
+						not transform.Is2D and
+						target.transform and
+						transform.Attachment == "root"
+					local world_position, world_rotation
+
+					if keep_world then
+						world_position = transform:GetWorldPosition()
+						world_rotation = transform:GetWorldMatrix():GetRotation()
+					end
+
+					entity.prefab_patch = nil
+					entity:SetParent(target)
+
+					if owner then entity:SetOwnedBy(owner) end
+
+					if keep_world then
+						transform:SetPosition(transform:WorldToLocalPosition(world_position))
+						transform:SetRotation(target.transform:GetWorldMatrix():GetRotation():GetConjugated() * world_rotation)
+					end
+
+					editor_history.RecordReparent(entity, old_parent, target)
+					h.set_selected_target(entity)
+				end
+
+				function h.set_stack(stack)
+					f.stack = stack
+					set_edit_stack(stack)
+					local editing = stack[#stack]
+					prefab.SetEditing(editing and editing.prefab or nil)
+
+					if editing then
+						tree.current:SetGroupByOwner(false)
+						tree.current:SetRootLabels{[editing] = editing:GetName()}
+						tree.current:SetRootEntities({editing})
+					else
+						tree.current:SetGroupByOwner(true)
+						tree.current:SetRootLabels{[Entity.World] = "3D World", [Panel.World] = "2D World"}
+						tree.current:SetRootEntities{Entity.World, Panel.World}
+					end
+
+					tree.current:ExpandRoots()
+				end
+
+				function h.enter_prefab_edit(entity)
+					local stack = {table.unpack(f.stack)}
+					stack[#stack + 1] = entity
+					h.set_stack(stack)
+					h.set_selected_target(entity)
+				end
+
+				function h.exit_prefab_edit()
+					local stack = {table.unpack(f.stack)}
+					local left = table.remove(stack)
+
+					if not left then return end
+
+					h.set_stack(stack)
+
+					if left:IsValid() then h.set_selected_target(left) end
+				end
+
+				function h.set_playing(value)
+					if f.playing == value then return end
+
+					f.playing = value
+
+					if value then
+						if picker.IsActive() then picker.Stop() end
+
+						f.playing_selection = tree.current:GetSelectedEntity()
+						Gizmo.EnableGizmo(nil)
+					elseif f.playing_selection and f.playing_selection:IsValid() then
+						Gizmo.EnableGizmo(f.playing_selection)
+					end
+
+					window.current.visual:SetVisible(not value)
+					set_playing(value)
+					event.Call("EditorControlsChanged", value)
+				end
+
+				function h.filter(entity)
+					if entity_tree_filter_callback(entity, window.current) then return true end
+
+					local editing = f.stack[#f.stack]
+
+					if editing then
+						return entity ~= editing and entity.prefab_owner ~= editing.prefab
+					end
+
+					return entity.prefab_owner ~= nil or
+						(
+							not f.transient and
+							entity ~= Entity.World and
+							entity ~= Panel.World and
+							entity:IsRuntime()
+						)
+				end
+
+				function h.on_select(node, key)
+					local target = node and (node.Entity or node.Object) or objects.GetObjectByGUID(key)
+					Gizmo.EnableGizmo(target)
+					prefab_tools.Watch(target)
+					sync_properties(|n|->n + 1)
+					_G.SELECTED_OBJECT = target
+				end
+
+				function h.on_hover(node, key, path, row_info, hovered)
+					highlight.SetEntity(hovered and node and node.Entity or nil)
+				end
+
+				function h.is_dimmed(node)
+					return f.cut ~= nil and node.Entity == f.cut
+				end
+
+				function h.on_double_click(node)
+					local entity = node.Entity
+
+					if
+						entity and
+						entity.prefab and
+						entity.prefab.definition and
+						entity ~= f.stack[#f.stack]
+					then
+						h.enter_prefab_edit(entity)
+						return true
+					end
+				end
+
+				function h.on_context_menu(node)
+					return open_node_menu(node, h)
+				end
+
+				function h.on_category_menu(_, name, entity)
+					if not entity.component_list or not can_edit_components(entity) then return end
+
+					return {
+						MenuItem{
+							Text = "Remove",
+							Icon = "trash",
+							OnClick = function()
+								editor_history.RemoveComponent(entity, name)
+							end,
+						},
+					}
+				end
+
+				function h.on_breadcrumb(index)
+					while #f.stack >= index do
+						h.exit_prefab_edit()
+					end
+				end
+
+				h.menu_items = make_menu_items(h)
+				return h
+			end,
+			{}
+		)
+		local f = h.f
+		react.UseEvent(
+			"Update",
+			|dt|-> do
+				local stack = f.stack
+
+				if stack[1] then
+					local pruned = {table.unpack(stack)}
+
+					while pruned[1] and not pruned[#pruned]:IsValid() do
+						pruned[#pruned] = nil
+					end
+
+					if #pruned ~= #stack then h.set_stack(pruned) end
+				end
+
+				local focused = objects:GetFocusedObject()
+				local hovered = MouseInput.GetHoveredObject()
+				local gizmo_status = Gizmo.GetStatus()
+				camera.SetBlockMovement(
+					(
+							focused:IsValid() and
+							window.current:ContainsParent(focused) and
+							(
+								focused.text ~= nil or
+								focused.Name == "TextEdit"
+							)
+						)
+						or
+						f.playing
+				)
+				camera.SetBlockDragging(
+					f.playing or
+						(
+							hovered:IsValid() and
+							hovered ~= Panel.World
+						)
+						or
+						gizmo_status.active_drag or
+						gizmo_status.hovered_handle or
+						brush_editor.IsBusy()
+				)
+				camera.Update(dt)
+				view:SetPosition(camera.GetPosition():Copy())
+				view:SetRotation(camera.GetRotation():Copy())
+				local position = camera.GetPosition()
+
+				if not f.camera_position or (position - f.camera_position):GetLength() > 0.001 then
+					f.camera_position = position:Copy()
+					f.camera_moved = system.GetElapsedTime()
+					f.nearby_dirty = true
+				elseif
+					f.nearby and
+					f.nearby_dirty and
+					system.GetElapsedTime() - f.camera_moved >= NEARBY_SETTLE_TIME
+				then
+					f.nearby_dirty = false
+					tree.current:SetNearby(nearby.Collect(position, NEARBY_COUNT))
+				end
 			end
+		)
+		react.UseEffect(||->tree.current:SetSearch(applied_search), {applied_search})
+		react.UseEffect(
+			||-> do
+				local target = tree.current:GetSelectedEntity()
 
-			event.Call("EditorControlsChanged", false)
-			highlight.SetEntity()
-			prefab_tools.Watch(nil)
-			prefab.SetEditing(nil)
-			Gizmo.Clear()
-			render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
-		end
-	end, {})
+				if target then
+					tree.current:BlockMutations()
+					property_editor.current:SetObject(target)
+					property_editor.current:ExpandAll()
+					tree.current:UnblockMutations()
+				end
+			end,
+			{sync}
+		)
+		react.UseEvent("EditorSelect", |target|->h.set_selected_target(target))
+		react.UseEvent("PrefabInputsChanged", ||->sync_properties(|n|->n + 1))
+		react.UseEvent(
+			"EntityTreeReparent",
+			|entity,old_parent,new_parent|->editor_history.RecordReparent(entity, old_parent, new_parent)
+		)
+		react.UseEvent(
+			"KeyInput",
+			|key,press|-> do
+				if press and key == "e" and input.IsControlDown() then
+					h.set_playing(not f.playing)
+					return true
+				end
+			end
+		)
+		react.UseEvent(
+			"WindowKeyInput",
+			|_,key,press|-> do
+				if not press or not input.IsControlDown() then return end
 
-	react.UseLayoutEffect(|| -> do
-		local entity = window.current
+				local focused = objects:GetFocusedObject()
 
-		function entity:SetPlaying(value)
-			h.set_playing(value)
-		end
+				if
+					focused:IsValid() and
+					window.current:ContainsParent(focused) and
+					(
+						focused.text ~= nil or
+						focused.Name == "TextEdit"
+					)
+				then
+					return
+				end
 
-		function entity:IsPlaying()
-			return f.playing == true
-		end
+				if Gizmo.GetStatus().active_drag then return end
 
-		camera.SetPosition(render3d.GetCamera():GetPosition():Copy())
-		camera.SetRotation(render3d.GetCamera():GetRotation():Copy())
-		tree.current:CollapseOwnerGroup(Entity.World, Entity.World)
+				if key == "x" then
+					local entity = tree.current:GetSelectedEntity()
 
-		if not props.SelectedEntityGUID then
-			local player = _G.PLAYER_RIG
-			local outfit = player and player:IsValid() and player.player_avatar.outfit
+					if entity and entity:GetRoot() == Entity.World and h.can_cut(entity) then
+						f.cut = entity
+						return true
+					end
+				end
 
-			if outfit and outfit:IsValid() then
-				h.set_selected_target(outfit)
-			else
-				local closest = nearby.Collect(camera.GetPosition(), 1)[1]
+				if key == "v" then
+					local entity = tree.current:GetSelectedEntity()
 
-				if closest then h.set_selected_target(closest.entity) end
+					if entity and h.can_paste(entity) then
+						h.paste_into(entity)
+						return true
+					end
+				end
+
+				if key == "z" and not input.IsShiftDown() then
+					history:Undo()
+					return true
+				end
+
+				if key == "y" or key == "z" and input.IsShiftDown() then
+					history:Redo()
+					return true
+				end
+			end
+		)
+		react.UseEffect(
+			||-> do
+				local removers = {}
+
+				for _, world in ipairs{Entity.World, Panel.World} do
+					removers[#removers + 1] = world:AddLocalListener(
+						"OnEntityComponentChanged",
+						|_,entity,_,name|-> do
+							local selected_entity = tree.current:GetSelectedEntity()
+
+							if selected_entity and entity == selected_entity then
+								sync_properties(|n|->n + 1)
+								prefab_tools.Watch(selected_entity)
+							end
+
+							if name == "prefab" or name == "script" then tree.current:Refresh() end
+						end
+					)
+				end
+
+				return ||-> do
+					for _, remove in ipairs(removers) do
+						remove()
+					end
+
+					event.Call("EditorControlsChanged", false)
+					highlight.SetEntity()
+					prefab_tools.Watch(nil)
+					prefab.SetEditing(nil)
+					Gizmo.Clear()
+					render3d.GetCamera():SetViewport(Rect(0, 0, Panel.World.transform:GetSize().x, Panel.World.transform:GetSize().y))
+				end
+			end,
+			{}
+		)
+		react.UseLayoutEffect(
+			||-> do
+				local entity = window.current
+
+				function entity:SetPlaying(value)
+					h.set_playing(value)
+				end
+
+				function entity:IsPlaying()
+					return f.playing == true
+				end
+
+				camera.SetPosition(render3d.GetCamera():GetPosition():Copy())
+				camera.SetRotation(render3d.GetCamera():GetRotation():Copy())
+				tree.current:CollapseOwnerGroup(Entity.World, Entity.World)
+
+				if not props.SelectedEntityGUID then
+					local player = _G.PLAYER_RIG
+					local outfit = player and player:IsValid() and player.player_avatar.outfit
+
+					if outfit and outfit:IsValid() then
+						h.set_selected_target(outfit)
+					else
+						local closest = nearby.Collect(camera.GetPosition(), 1)[1]
+
+						if closest then h.set_selected_target(closest.entity) end
+					end
+				end
+
+				local selected = tree.current:GetSelectedEntity()
+
+				if selected and selected:IsValid() and selected.transform then
+					view_from_front(selected)
+				end
+			end,
+			{}
+		)
+		local names = {}
+
+		if edit_stack[1] then
+			names[1] = "scene"
+
+			for i, entity in ipairs(edit_stack) do
+				names[i + 1] = entity.prefab.Path
 			end
 		end
 
-		local selected = tree.current:GetSelectedEntity()
-
-		if selected and selected:IsValid() and selected.transform then view_from_front(selected) end
-	end, {})
-
-	local names = {}
-
-	if edit_stack[1] then
-		names[1] = "scene"
-
-		for i, entity in ipairs(edit_stack) do
-			names[i + 1] = entity.prefab.Path
-		end
-	end
-
-	return Window{
-		Ref = window,
-		RequestMouse = props.RequestMouse,
-		Title = "ENTITY EDITOR",
-		Name = "entity editor",
-		Size = size,
-		Position = Vec2(0, 0),
-		Padding = Rect(),
-		MinSize = Vec2(320, 320),
-		OnClose = |self| -> props.OnClose(self, tree.current:GetSelectedEntityGUID()),
-	}{
-		MenuBar{MenuKey = "EditorMenuBarContextMenu", Items = h.menu_items, layout = {GrowWidth = 1}},
-		Splitter{
-			InitialSize = math.floor(size.y * 0.45),
-			MinSplitSize = 120,
-			Vertical = true,
+		return Window{
+			Ref = window,
+			RequestMouse = props.RequestMouse,
+			Title = "ENTITY EDITOR",
+			Name = "entity editor",
+			Size = size,
+			Position = Vec2(0, 0),
 			Padding = Rect(),
-			layout = {GrowWidth = 1, GrowHeight = 1},
+			MinSize = Vec2(320, 320),
+			OnClose = |self|->props.OnClose(self, tree.current:GetSelectedEntityGUID()),
 		}{
-			Column{
-				layout = {
-					Direction = "y",
-					GrowWidth = 1,
-					GrowHeight = 1,
-					FitHeight = false,
-					ChildGap = 2,
-					AlignmentX = "stretch",
-				},
-			}{
-				TextEdit{
-					Hint = "search: name, model:path, name:text",
-					Size = Vec2(0, 28),
-					MinSize = Vec2(100, 28),
-					MaxSize = Vec2(0, 28),
-					Wrap = false,
-					ScrollX = false,
-					ScrollY = false,
-					OnTextChanged = |_, text| -> set_search(text),
-					layout = {GrowWidth = 1},
-				},
-				Breadcrumb{Items = names, Icons = {scene = "world"}, OnSelect = h.on_breadcrumb},
-				ScrollablePanel{
-					Ref = tree_scroll,
-					ScrollX = false,
-					ScrollY = true,
-					Padding = Rect(),
-					layout = {GrowWidth = 1, GrowHeight = 1},
-				}{
-					EntityTree{
-						Ref = tree,
-						RootEntities = {Entity.World, Panel.World},
-						RootLabels = {[Entity.World] = "3D World", [Panel.World] = "2D World"},
-						SelectedKey = props.SelectedEntityGUID,
-						ShowVirtualChildren = true,
-						GroupByOwner = true,
-						FilterCallback = h.filter,
-						layout = {GrowWidth = 1, FitHeight = true},
-						OnSelect = h.on_select,
-						OnNodeHover = h.on_hover,
-						OnIsNodeDimmed = h.is_dimmed,
-						OnNodeDoubleClick = h.on_double_click,
-						OnNodeContextMenu = h.on_context_menu,
-					},
-				},
+			MenuBar{
+				MenuKey = "EditorMenuBarContextMenu",
+				Items = h.menu_items,
+				layout = {GrowWidth = 1},
 			},
-			ScrollablePanel{
-				Ref = property_scroll,
-				ScrollX = false,
-				ScrollY = true,
-				Padding = "none",
+			Splitter{
+				InitialSize = math.floor(size.y * 0.45),
+				MinSplitSize = 120,
+				Vertical = true,
+				Padding = Rect(),
 				layout = {GrowWidth = 1, GrowHeight = 1},
 			}{
-				PanelElement{
-					Name = "PropertyEditorFrame",
-					transform = true,
+				Column{
 					layout = {
+						Direction = "y",
 						GrowWidth = 1,
-						FitHeight = true,
-						FitWidth = false,
-						MinSize = Vec2(size.x - 24, 0),
-						Padding = Rect(2, 2, 2, 2),
+						GrowHeight = 1,
+						FitHeight = false,
+						ChildGap = 2,
+						AlignmentX = "stretch",
 					},
 				}{
-					PropertyEditor{
-						Ref = property_editor,
-						OnPropertyEdited = editor_history.RecordProperty,
-						CategoryOrder = COMPONENT_ORDER,
-						OnContextActions = prefab_tools.GetPropertyActions,
-						OnCategoryContextMenu = h.on_category_menu,
-						OnGetCategoryBadge = prefab_tools.GetCategoryBadge,
-						OnGetPropertyBadge = prefab_tools.GetPropertyBadge,
+					TextEdit{
+						Hint = "search: name, model:path, name:text",
+						Size = Vec2(0, 28),
+						MinSize = Vec2(100, 28),
+						MaxSize = Vec2(0, 28),
+						Wrap = false,
+						ScrollX = false,
+						ScrollY = false,
+						OnTextChanged = |_,text|->set_search(text),
+						layout = {GrowWidth = 1},
+					},
+					Breadcrumb{Items = names, Icons = {scene = "world"}, OnSelect = h.on_breadcrumb},
+					ScrollablePanel{
+						Ref = tree_scroll,
+						ScrollX = false,
+						ScrollY = true,
+						Padding = Rect(),
+						layout = {GrowWidth = 1, GrowHeight = 1},
+					}{
+						EntityTree{
+							Ref = tree,
+							RootEntities = {Entity.World, Panel.World},
+							RootLabels = {[Entity.World] = "3D World", [Panel.World] = "2D World"},
+							SelectedKey = props.SelectedEntityGUID,
+							ShowVirtualChildren = true,
+							GroupByOwner = true,
+							FilterCallback = h.filter,
+							layout = {GrowWidth = 1, FitHeight = true},
+							OnSelect = h.on_select,
+							OnNodeHover = h.on_hover,
+							OnIsNodeDimmed = h.is_dimmed,
+							OnNodeDoubleClick = h.on_double_click,
+							OnNodeContextMenu = h.on_context_menu,
+						},
+					},
+				},
+				ScrollablePanel{
+					Ref = property_scroll,
+					ScrollX = false,
+					ScrollY = true,
+					Padding = "none",
+					layout = {GrowWidth = 1, GrowHeight = 1},
+				}{
+					PanelElement{
+						Name = "PropertyEditorFrame",
+						transform = true,
 						layout = {
 							GrowWidth = 1,
-							GrowHeight = 1,
+							FitHeight = true,
 							FitWidth = false,
-							MinSize = Vec2(size.x - 28, 0),
+							MinSize = Vec2(size.x - 24, 0),
+							Padding = Rect(2, 2, 2, 2),
+						},
+					}{
+						PropertyEditor{
+							Ref = property_editor,
+							OnPropertyEdited = editor_history.RecordProperty,
+							CategoryOrder = COMPONENT_ORDER,
+							OnContextActions = prefab_tools.GetPropertyActions,
+							OnCategoryContextMenu = h.on_category_menu,
+							OnGetCategoryBadge = prefab_tools.GetCategoryBadge,
+							OnGetPropertyBadge = prefab_tools.GetPropertyBadge,
+							layout = {
+								GrowWidth = 1,
+								GrowHeight = 1,
+								FitWidth = false,
+								MinSize = Vec2(size.x - 28, 0),
+							},
 						},
 					},
 				},
 			},
-		},
-		CornerButton{
-			Name = "PickerButton",
-			Icon = "target",
-			Tooltip = "pick an entity in the scene",
-			Anchor = tree_scroll,
-			OffsetX = -4,
-			OffsetY = 0,
-			Active = picking,
-			OnClick = |self| -> do
-				if picker.IsActive() then
-					picker.Stop()
-				else
-					self.mouse_input:SetCursorOverride("crosshair")
-					picker.Start{
-						mode = "entity",
-						on_pick = |target| -> h.set_selected_target(target),
-						on_stop = || -> self.mouse_input:ClearCursorOverride(),
+			CornerButton{
+				Name = "PickerButton",
+				Icon = "target",
+				Tooltip = "pick an entity in the scene",
+				Anchor = tree_scroll,
+				OffsetX = -4,
+				OffsetY = 0,
+				Active = picking,
+				OnClick = |self|-> do
+					if picker.IsActive() then
+						picker.Stop()
+					else
+						self.mouse_input:SetCursorOverride("crosshair")
+						picker.Start{
+							mode = "entity",
+							on_pick = |target|->h.set_selected_target(target),
+							on_stop = ||->self.mouse_input:ClearCursorOverride(),
+						}
+					end
+
+					return true
+				end,
+			},
+			CornerButton{
+				Name = "AddComponentButton",
+				Icon = "plus",
+				Tooltip = "add a component to the selected entity",
+				Anchor = property_scroll,
+				OffsetX = -16,
+				OffsetY = -8,
+				OnClick = ||-> do
+					local entity = tree.current:GetSelectedEntity()
+
+					if not entity or not can_edit_components(entity) then return true end
+
+					AssetBrowser{
+						Key = "AssetPicker",
+						PickerCategory = "components",
+						ComponentTarget = entity,
+						OnPick = |asset|->editor_history.AddComponent(entity, asset.name),
 					}
-				end
-
-				return true
-			end,
-		},
-		CornerButton{
-			Name = "AddComponentButton",
-			Icon = "plus",
-			Tooltip = "add a component to the selected entity",
-			Anchor = property_scroll,
-			OffsetX = -16,
-			OffsetY = -8,
-			OnClick = || -> do
-				local entity = tree.current:GetSelectedEntity()
-
-				if not entity or not can_edit_components(entity) then return true end
-
-				AssetBrowser{
-					Key = "AssetPicker",
-					PickerCategory = "components",
-					ComponentTarget = entity,
-					OnPick = |asset| -> editor_history.AddComponent(entity, asset.name),
-				}
-
-				return true
-			end,
-		},
-	}
-end)
-
+					return true
+				end,
+			},
+		}
+	end
+)
 return function(props)
 	return react.OpenWindow(
 		props.Key,

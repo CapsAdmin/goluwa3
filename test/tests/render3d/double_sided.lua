@@ -83,7 +83,9 @@ local function draw_center_red(draw, double_sided, count, from_store)
 	if not ok then error(err, 0) end
 
 	local size = render.GetRenderImageSize()
-	return (gbuffer_layout.GetTexture("albedo"):GetPixel(math.floor(size.x / 2), math.floor(size.y / 2)))
+	return (
+		gbuffer_layout.GetTexture("albedo"):GetPixel(math.floor(size.x / 2), math.floor(size.y / 2))
+	)
 end
 
 T.Test3D("Graphics render3d double sided materials draw back faces in single draws", function(draw)

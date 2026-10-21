@@ -136,8 +136,10 @@ T.Test("Simulation islands cache dynamic bodies separately from anchors and cons
 	T(#built[1].dynamic_bodies)["=="](2)
 	T(#built[1].constraint_dynamic_bodies)["=="](2)
 	T(built[1].has_constraints)["=="](true)
-	T(built[1].dynamic_bodies[1] == static_anchor or
-		built[1].dynamic_bodies[2] == static_anchor)["=="](false)
+	T(
+		built[1].dynamic_bodies[1] == static_anchor or
+			built[1].dynamic_bodies[2] == static_anchor
+	)["=="](false)
 end)
 
 T.Test("Simulation islands stay marked sleeping when all connected dynamics are asleep", function()

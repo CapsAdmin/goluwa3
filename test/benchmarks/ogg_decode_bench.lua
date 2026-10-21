@@ -194,7 +194,9 @@ local ok, err = xpcall(
 		end
 
 		assert(#corpus > 0, "no ogg files matched love_games/mrrescue/data/sfx/*.ogg")
-		log(string.format("Loaded %d Ogg files from love_games/mrrescue/data/sfx/*.ogg", #corpus))
+		log(
+			string.format("Loaded %d Ogg files from love_games/mrrescue/data/sfx/*.ogg", #corpus)
+		)
 
 		if #cli.selected_files > 0 then
 			log("Selected files: " .. table.concat(cli.selected_files, ", "))
@@ -337,14 +339,18 @@ local ok, err = xpcall(
 			log(string.format("  Total decode time: %s", format_duration_ns(total_decode_ns)))
 		else
 			log(string.format("  Total decode time sum: %s", format_duration_ns(total_decode_ns)))
-			log(string.format("  Total decode median:   %s", format_duration_ns(median(total_runs))))
+			log(
+				string.format("  Total decode median:   %s", format_duration_ns(median(total_runs)))
+			)
 			log(
 				string.format(
 					"  Total decode best:     %s",
 					format_duration_ns(copy_sorted_numbers(total_runs)[1])
 				)
 			)
-			log(string.format("  Total decode mean:     %s", format_duration_ns(mean(total_runs))))
+			log(
+				string.format("  Total decode mean:     %s", format_duration_ns(mean(total_runs)))
+			)
 		end
 
 		log(string.format("  Total wall time:   %s", format_duration_ns(wall_elapsed_ns)))

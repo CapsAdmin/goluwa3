@@ -350,8 +350,16 @@ local function build_cry_terrain_source(terrain)
 		SelectChunkLayers = has_layers and
 			function(request)
 				local first_row = math.clamp(math.floor(request.min_x * cells_per_meter_y), 0, index_height - 1)
-				local last_row = math.clamp(math.ceil((request.min_x + request.size) * cells_per_meter_y), 0, index_height - 1)
-				local first_column = math.clamp(math.floor(-(request.min_z + request.size) * cells_per_meter_x), 0, index_width - 1)
+				local last_row = math.clamp(
+					math.ceil((request.min_x + request.size) * cells_per_meter_y),
+					0,
+					index_height - 1
+				)
+				local first_column = math.clamp(
+					math.floor(-(request.min_z + request.size) * cells_per_meter_x),
+					0,
+					index_width - 1
+				)
 				local last_column = math.clamp(math.ceil(-request.min_z * cells_per_meter_x), 0, index_width - 1)
 				local stride = math.max(math.floor(math.max(last_row - first_row, last_column - first_column) / 64), 1)
 				local counts = {}
