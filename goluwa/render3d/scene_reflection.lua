@@ -537,7 +537,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			#endif
 
 			float weight;
-			vec4 gi = ddgi_sample_irradiance(P, hit_N, hit_N, -dir, false, DDGI_NO_VISIBILITY_RAYS, weight);
+			vec4 gi = ddgi_sample_irradiance(P, hit_N, hit_N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight);
 
 			if (weight <= 0.0 && !ddgi_in_volume(P)) {
 				// outside the probes nothing knows how much sky is open, and a hit in a

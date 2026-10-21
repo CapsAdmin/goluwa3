@@ -263,6 +263,12 @@ local visibility_rays = pvars.Setup2{
 	enums = {"none", "relocated", "all"},
 	help = "probes checked with a ray: none, only the relocated ones, or all",
 }
+local contrast_ratio = pvars.Setup2{
+	key = "ddgi_contrast_ratio",
+	default = 4,
+	min = 0,
+	help = "the lookups of the probe rays' hits and of reflections trace a ray to the probes that are this many times brighter than the dimmest one that counts, the ones a thin wall can leak through. 0 traces all, a large number none",
+}
 local visibility_front_faces_only = pvars.Setup2{
 	key = "ddgi_visibility_front_faces_only",
 	default = true,
@@ -692,6 +698,8 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_DIRECTION_OFFSET %.1f
 		#define DDGI_SUN_VISIBLE_BIT 0x80000000u
 		#define DDGI_SHADOW_OFFSET 0.02
+		// how far behind a probe its rays start, in the spacing of its cascade
+		#define DDGI_ORIGIN_PULL 0.001
 		#define DDGI_LIGHT_SAMPLES %d
 		#define DDGI_BACKFACE_SCALE 0.2
 		// GLSL leaves %% undefined for negative operands (NVIDIA treats them
@@ -712,8 +720,6 @@ function ddgi.GetDefinesGLSL()
 			uint h = uint(probe >> 5) * 747796405u + uint(c) * 2891336453u + frame * 277803737u;
 			h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
 			h = (h >> 22u) ^ h;
-		// how far behind a probe its rays start, in the spacing of its cascade
-		#define DDGI_ORIGIN_PULL 0.001
 			return h %% max(DDGI_DISABLED_PROBE_FRAMES >> uint(c), 1u) != 0u;
 		}
 	]]
@@ -1346,6 +1352,90 @@ function ddgi.GetCommonGLSL()
 		#define DDGI_VISIBILITY_MIN_WEIGHT 0.02
 		#define DDGI_VISIBILITY_MIN_SHARE 0.02
 		#define DDGI_NO_VISIBILITY_RAYS 1e30
+		// for the many lookups of the probe rays' hits and the reflections, which cannot afford a ray for each probe: a ray goes
+		// only to a probe that is much brighter than what the point is compared to (ddgi_contrast_reference) and adds a share of what
+		// the probes so far add up to. Probes that are alike cannot leak into each other, and a thin wall that lets one through is
+		// a probe thousands of times brighter than what it leaks into
+		#define DDGI_CONTRAST_VISIBILITY_RAYS 1e29
+		#define DDGI_CONTRAST_SHARE 0.002
+		// what a probe is compared to in such a lookup: the brightness of a probe that sees the point (the one whose
+		// ray found it), set before the lookup by whoever has one. 0 compares to nothing, every probe that adds a share is checked
+		float ddgi_contrast_reference = 0.0;
+
+		// Whether the probe is behind something as seen from P, by a ray query. The probe's position can be
+		// right on a surface, so the ray is cast from P along the normal
+		bool ddgi_probe_hidden(vec3 P, vec3 N, vec3 probe_pos, float spacing) {
+			#ifdef DDGI_VISIBILITY_RAYS
+			vec3 origin = P + N * (0.02 * spacing);
+			vec3 to_probe_ray = probe_pos - origin;
+			float len = length(to_probe_ray);
+
+			// a ray query with a nan or zero direction is undefined
+			if (!(len > 1e-4)) return true;
+
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | (ddgi_data.ddgi_visibility_front_faces_only != 0 ? gl_RayFlagsCullBackFacingTrianglesEXT : 0u), DDGI_VISIBILITY_MASK, origin, 0.0, to_probe_ray / len, len);
+
+			while (rayQueryProceedEXT(query)) {}
+
+			return rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+			#else
+			return false;
+			#endif
+		}
+
+		bool ddgi_probe_can_be_traced(vec3 probe_position, ivec3 world) {
+			return ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && probe_position != vec3(world));
+		}
+
+		// What a probe of a lookup counts for at P, 0 when it cannot be used, and the irradiance it holds along L.
+		// biased is P pushed off its surface. kernel is the probe's share of the interpolation
+		float ddgi_probe_weight(int c, ivec3 world, float kernel, vec3 P, vec3 N, vec3 L, vec3 biased, float spacing, out vec4 irradiance, out vec3 probe_position) {
+			ivec3 slot = ddgi_slot(world, c);
+			vec4 data = ddgi_probe_data(slot, c);
+			probe_position = data.xyz;
+			irradiance = vec4(0.0);
+
+			if (!ddgi_probe_is_current(data, world) || ddgi_probe_disabled(data)) return 0.0;
+
+			vec3 probe_pos = data.xyz * spacing;
+			vec3 to_probe = normalize(probe_pos - P);
+			float w = (dot(to_probe, N) + 1.0) * 0.5;
+			w = w * w + 0.2;
+
+			vec3 probe_to_point = biased - probe_pos;
+			float dist = length(probe_to_point);
+			vec2 moments = textureLod(
+				TEXTURE(ddgi_data.ddgi_distance_tex),
+				ddgi_atlas_uv(slot, c, probe_to_point / max(dist, 1e-4), DDGI_DISTANCE_TEXELS),
+				0.0
+			).rg;
+			float chebyshev = 1.0;
+
+			if (dist > moments.x) {
+				float variance = abs(moments.x * moments.x - moments.y);
+				float d = dist - moments.x;
+				chebyshev = variance / (variance + d * d);
+				chebyshev = chebyshev * chebyshev * chebyshev;
+			}
+
+			w *= max(0.05, chebyshev);
+			w = max(1e-6, w);
+
+			// crush tiny weights so a barely visible probe cannot tint the result
+			if (w < 0.2) w *= w * w / 0.04;
+
+			w *= kernel;
+
+			if (w <= 0.0) return 0.0;
+
+			irradiance = textureLod(
+				TEXTURE(ddgi_data.ddgi_irradiance_tex),
+				ddgi_atlas_uv(slot, c, L, DDGI_IRRADIANCE_TEXELS),
+				0.0
+			);
+			return w;
+		}
 
 		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
 			weight = 0.0;
@@ -1365,8 +1455,6 @@ function ddgi.GetCommonGLSL()
 			ivec3 volume_min = ddgi_volume_base(c);
 			ivec3 volume_max = volume_min + ddgi_volume_size(c) - 1;
 			vec4 sum = vec4(0.0);
-			vec4 hidden_sum = vec4(0.0);
-			float hidden_weight = 0.0;
 
 			for (int i = 0; i < side * side * side; i++) {
 				ivec3 offset = ivec3(i % side, (i / side) % side, i / (side * side));
@@ -1374,83 +1462,29 @@ function ddgi.GetCommonGLSL()
 
 				if (any(lessThan(world, volume_min)) || any(greaterThan(world, volume_max))) continue;
 
-				ivec3 slot = ddgi_slot(world, c);
-				vec4 data = ddgi_probe_data(slot, c);
-
-				if (!ddgi_probe_is_current(data, world) || ddgi_probe_disabled(data)) continue;
-
-				vec3 probe_pos = data.xyz * spacing;
 				vec3 kernel = smooth_blend ? mix(mix(below, middle, equal(offset, ivec3(1))), above, equal(offset, ivec3(2))) : mix(1.0 - alpha, alpha, vec3(offset));
-				vec3 to_probe = normalize(probe_pos - P);
-				float w = (dot(to_probe, N) + 1.0) * 0.5;
-				w = w * w + 0.2;
+				vec4 irradiance;
+				vec3 probe_position;
+				float w = ddgi_probe_weight(c, world, kernel.x * kernel.y * kernel.z, P, N, L, biased, spacing, irradiance, probe_position);
 
-				vec3 probe_to_point = biased - probe_pos;
-				float dist = length(probe_to_point);
-				vec2 moments = textureLod(
-					TEXTURE(ddgi_data.ddgi_distance_tex),
-					ddgi_atlas_uv(slot, c, probe_to_point / max(dist, 1e-4), DDGI_DISTANCE_TEXELS),
-					0.0
-				).rg;
-				float chebyshev = 1.0;
+				if (w <= 0.0) continue;
 
-				if (dist > moments.x) {
-					float variance = abs(moments.x * moments.x - moments.y);
-					float d = dist - moments.x;
-					chebyshev = variance / (variance + d * d);
-					chebyshev = chebyshev * chebyshev * chebyshev;
-				}
+				float luma = luminance(irradiance.rgb);
+				bool trace = visibility_min_weight == DDGI_CONTRAST_VISIBILITY_RAYS ?
+					luma > ddgi_data.ddgi_contrast_ratio * ddgi_contrast_reference && w * luma > DDGI_CONTRAST_SHARE * luminance(sum.rgb) :
+					visibility_min_weight < DDGI_NO_VISIBILITY_RAYS && (w >= visibility_min_weight || w * luma > DDGI_VISIBILITY_MIN_SHARE * luminance(sum.rgb));
 
-				w *= max(0.05, chebyshev);
-				w = max(1e-6, w);
+				if (trace && ddgi_probe_can_be_traced(probe_position, world) && ddgi_probe_hidden(P, N, probe_position * spacing, spacing)) continue;
 
-				// crush tiny weights so a barely visible probe cannot tint the result
-				if (w < 0.2) w *= w * w / 0.04;
-
-				w *= kernel.x * kernel.y * kernel.z;
-
-				vec4 irradiance = textureLod(
-					TEXTURE(ddgi_data.ddgi_irradiance_tex),
-					ddgi_atlas_uv(slot, c, L, DDGI_IRRADIANCE_TEXELS),
-					0.0
-				);
-				bool hidden = false;
-
-				#ifdef DDGI_VISIBILITY_RAYS
-				if (visibility_min_weight < DDGI_NO_VISIBILITY_RAYS && (w >= visibility_min_weight || w * luminance(irradiance.rgb) > DDGI_VISIBILITY_MIN_SHARE * luminance(sum.rgb)) && ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && data.xyz != vec3(world))) {
-					vec3 origin = P + N * (0.02 * spacing);
-					vec3 to_probe_ray = probe_pos - origin;
-					float len = length(to_probe_ray);
-
-					// a ray query with a nan or zero direction is undefined
-					if (!(len > 1e-4)) continue;
-
-					rayQueryEXT query;
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | (ddgi_data.ddgi_visibility_front_faces_only != 0 ? gl_RayFlagsCullBackFacingTrianglesEXT : 0u), DDGI_VISIBILITY_MASK, origin, 0.0, to_probe_ray / len, len);
-
-					while (rayQueryProceedEXT(query)) {}
-
-					hidden = rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
-				}
-				#endif
-
-				if (hidden) {
-					hidden_sum += irradiance * w;
-					hidden_weight += w;
-				} else {
-					sum += irradiance * w;
-					weight += w;
-				}
+				sum += irradiance * w;
+				weight += w;
 			}
-
-			float fallback = 1.0 - smoothstep(0.0, 0.025, weight);
-			sum += hidden_sum * fallback;
-			weight += hidden_weight * fallback;
 
 			// When every probe is all but hidden (a point inside geometry, or
 			// on an edge where the reconstructed position slips behind a wall)
 			// dividing by the tiny total would blow up whichever hidden probe
-			// is least hidden, often one outside. Such points fade out instead.
+			// is least hidden, often one outside. Such points fade out instead,
+			// the next cascade takes over (see ddgi_sample_irradiance_unscaled).
 			return sum / max(weight, ]] .. MIN_WEIGHT .. [[);
 		}
 
@@ -1548,6 +1582,7 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_strength", "float"},
 		{"ddgi_light_radius", "float"},
 		{"ddgi_cascade_blend", "float"},
+		{"ddgi_contrast_ratio", "float"},
 		{"ddgi_debug_scale", "float"},
 		{"ddgi_debug_probes", "int"},
 		{"ddgi_debug_cascade", "int"},
@@ -1644,6 +1679,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_strength = strength:Get()
 	block.ddgi_light_radius = light_radius:Get()
 	block.ddgi_cascade_blend = ddgi.CASCADE_BLEND
+	block.ddgi_contrast_ratio = contrast_ratio:Get()
 	block.ddgi_debug_scale = debug_scale:Get()
 	block.ddgi_debug_probes = DEBUG_PROBES[debug_probes:Get()]
 	block.ddgi_debug_cascade = debug_cascade:Get()

@@ -329,6 +329,61 @@ do
 
 	test_plane_room("Graphics render3d ddgi does not leak into a sealed room of planes on the probe grid", Vec3(0, 0, 0), false, 4, 4)
 	test_plane_room("Graphics render3d ddgi does not leak into a sealed room of planes between the probes", Vec3(0.13, 0.07, -0.21), false, 4, 4)
+	test_plane_room("Graphics render3d ddgi does not leak into a sealed room of double sided planes", Vec3(0.13, 0.07, -0.21), true, 4, 4)
+	test_plane_room("Graphics render3d ddgi does not leak into a big sealed room of double sided planes", Vec3(0.13, 0.07, -0.21), true, 14, 10)
+
+	T.Test3D("Graphics render3d ddgi light behind a thin partition does not light the room next to it", function(draw)
+		local polygon3d = Polygon3D.New()
+		shapes.BuildCube(polygon3d, 1)
+		polygon3d:BuildBoundingBox()
+		polygon3d:Upload()
+		local created = {}
+		use_ddgi()
+		render3d.camera:SetPosition(Vec3(3, 2, 3))
+		render3d.camera:SetAngles{x = 0, y = 0, z = 0}
+		-- two rooms side by side, 0.15 m walls, the partition at x = 0 on the probe grid
+		local t = 0.15
+		add_slab(polygon3d, created, Vec3(-6, -t, -4), Vec3(6, 0, 4))
+		add_slab(polygon3d, created, Vec3(-6, 4, -4), Vec3(6, 4 + t, 4))
+		add_slab(polygon3d, created, Vec3(-6, 0, -4), Vec3(6, 4, -4 + t))
+		add_slab(polygon3d, created, Vec3(-6, 0, 4 - t), Vec3(6, 4, 4))
+		add_slab(polygon3d, created, Vec3(-6, 0, -4), Vec3(-6 + t, 4, 4))
+		add_slab(polygon3d, created, Vec3(6 - t, 0, -4), Vec3(6, 4, 4))
+		add_slab(polygon3d, created, Vec3(-t / 2, 0, -4), Vec3(t / 2, 4, 4))
+		local light = Entity.New{Name = "ddgi_test_light"}
+		created[#created + 1] = light
+		light:AddComponent("transform")
+		light:AddComponent("light_point"):SetLumen(2000000)
+
+		local function gi_average(position)
+			light.transform:SetPosition(position)
+			ddgi.ResetHistory()
+
+			for _ = 1, 8 do
+				draw()
+			end
+
+			local r, g, b = gi_mean()
+			return r + g + b
+		end
+
+		local ok, err = pcall(function()
+			local none = gi_average(Vec3(0, 3, -1000))
+			local behind = gi_average(Vec3(-0.5, 2, 0))
+			local inside = gi_average(Vec3(3, 2, 0))
+			T(inside > none)["=="](true)
+			T(behind - none <= inside * 0.02)["=="](true)
+		end)
+
+		for _, e in ipairs(created) do
+			if e:IsValid() then e:Remove() end
+		end
+
+		restore()
+		polygon3d:Remove()
+
+		if not ok then error(err, 0) end
+	end)
 
 	T.Test3D("Graphics render3d ddgi small emitter lights a sealed room", function(draw)
 		local polygon3d = Polygon3D.New()

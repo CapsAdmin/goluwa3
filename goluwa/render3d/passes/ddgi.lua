@@ -432,7 +432,9 @@ local function pass_shade()
 
 				float weight;
 				#if RT_HIT_PROBES
-				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, DDGI_NO_VISIBILITY_RAYS, weight).rgb;
+				// the probe that shot the ray sees the point, the probes that are far brighter than it are the ones to check
+				ddgi_contrast_reference = luminance(textureLod(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, N, DDGI_IRRADIANCE_TEXELS), 0.0).rgb);
+				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight).rgb;
 				#endif
 
 				store_ray(pos, vec4(radiance * glass, t));
