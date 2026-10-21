@@ -65,7 +65,7 @@ end
 function META:RefreshKeys()
 	local move_local = self.move_local
 	move_local.x = (input.IsKeyDown("d") and 1 or 0) - (input.IsKeyDown("a") and 1 or 0)
-	move_local.y = (input.IsKeyDown("x") and 1 or 0) - (input.IsKeyDown("z") and 1 or 0)
+	move_local.y = input.IsKeyDown("space") and 1 or 0
 	move_local.z = (input.IsKeyDown("w") and 1 or 0) - (input.IsKeyDown("s") and 1 or 0)
 	self.crouching = input.IsKeyDown("left_control") or input.IsKeyDown("right_control")
 	self.sprint_down = input.IsKeyDown("left_shift")
