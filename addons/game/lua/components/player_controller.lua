@@ -4,6 +4,7 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local network = import("goluwa/network/network.lua")
 local physics = import("goluwa/physics.lua")
+local CharacterMovement = import("lua/components/character_movement.lua")
 local raycast = RENDER_3D and import("goluwa/render3d/raycast.lua")
 local META = objects.CreateTemplate("player_controller")
 local HISTORY_SIZE = 256
@@ -151,11 +152,7 @@ function META:TeleportToAim(cmd)
 
 	if not hit then return end
 
-	local body = owner.rigid_body
-	local target = hit.position + hit.normal * movement.Radius + Vec3(0, 0.05, 0)
-	movement:MoveBodyBy(body, target - body:GetOriginPosition())
-	body:SetVelocity(Vec3())
-	movement.previous_valid = false
+	movement:TeleportTo(hit.position + hit.normal * movement.Radius + Vec3(0, 0.05, 0))
 end
 
 function META:Reconcile(number, position, velocity)
@@ -195,11 +192,9 @@ function META:Reconcile(number, position, velocity)
 end
 
 function META:Start(position)
-	local body = self.Owner.rigid_body
 	local movement = self.Owner.character_movement
 	movement:Reset("fly")
-	movement:MoveBodyBy(body, position - body:GetOriginPosition())
-	body:SetVelocity(Vec3())
+	movement:TeleportTo(position)
 	self.history = {}
 	self.number = 0
 	self.recent = {}
@@ -290,5 +285,7 @@ function META:NextCommand(dt)
 	self.cmd = repeated
 	return repeated
 end
+
+CharacterMovement.RegisterController("player_controller")
 
 return META:Register()

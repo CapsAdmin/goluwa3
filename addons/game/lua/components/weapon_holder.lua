@@ -99,7 +99,7 @@ end
 
 function META:Drop(weapon)
 	local owner = self.Owner
-	local forward = owner.player_controller.cmd.view:GetForward()
+	local forward = owner.character_movement:GetCommand().view:GetForward()
 
 	if weapon.weapon:IsActive() then
 		weapon.weapon:SetActive(false)
@@ -109,7 +109,7 @@ function META:Drop(weapon)
 	local position = owner.transform:GetPosition() + owner.character_movement:GetViewOffset() + forward * 0.6
 	weapon:UnParent()
 	weapon.transform:SetPosition(position)
-	weapon.transform:SetRotation(owner.player_controller.cmd.view:Copy())
+	weapon.transform:SetRotation(owner.character_movement:GetCommand().view:Copy())
 	weapon.weapon.pickup_time = system.GetElapsedTime() + weapon.weapon.PickupDelay
 
 	if weapon.network then weapon.network:SetNetworkOwner("") end
@@ -163,7 +163,7 @@ function META:HasAuthority()
 end
 
 function META:OnPhysicsUpdate(dt)
-	local cmd = self.Owner.player_controller.cmd
+	local cmd = self.Owner.character_movement:GetCommand()
 
 	if cmd.select ~= 0 then self:SelectSlot(cmd.select) end
 

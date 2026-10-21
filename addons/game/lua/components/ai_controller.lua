@@ -5,6 +5,7 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local nav_mesh = import("goluwa/entities/components/nav_mesh.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
+local CharacterMovement = import("lua/components/character_movement.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local PlayerController = import("lua/components/player_controller.lua")
 local BUTTON = usercmd.BUTTON
@@ -156,10 +157,7 @@ function META:HasAuthority()
 end
 
 function META:Teleport(position, yaw)
-	local owner = self.Owner
-	local body = owner.rigid_body
-	owner.character_movement:MoveBodyBy(body, position - body:GetOriginPosition())
-	body:SetVelocity(Vec3())
+	self.Owner.character_movement:TeleportTo(position)
 	self.yaw = yaw or self.yaw
 	self:Stop()
 end
@@ -411,5 +409,7 @@ function META:NextCommand(dt)
 	movement:SetStopSpeed(self.WalkSpeed * STOP_SPEED_SHARE)
 	return cmd
 end
+
+CharacterMovement.RegisterController("ai_controller")
 
 return META:Register()

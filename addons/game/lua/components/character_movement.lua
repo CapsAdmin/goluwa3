@@ -71,8 +71,33 @@ function META:Initialize()
 	self:ApplyMode(self.Mode)
 end
 
-function META:GetCommandSource()
-	return self.Owner.player_controller or self.Owner.npc
+local controller_names = {}
+
+function META.RegisterController(name)
+	table.insert(controller_names, name)
+end
+
+function META:GetController()
+	local owner = self.Owner
+
+	for _, name in ipairs(controller_names) do
+		local controller = owner[name]
+
+		if controller then return controller end
+	end
+
+	error("character has no controller: " .. tostring(owner), 2)
+end
+
+function META:GetCommand()
+	return self:GetController().cmd
+end
+
+function META:TeleportTo(position)
+	local body = self.Owner.rigid_body
+	self:MoveBodyBy(body, position - body:GetOriginPosition())
+	body:SetVelocity(Vec3())
+	self.previous_valid = false
 end
 
 function META:Reset(mode)
@@ -513,7 +538,7 @@ do
 
 	function META:OnPhysicsUpdate(dt)
 		local body = self.Owner.rigid_body
-		local cmd = self:GetCommandSource():NextCommand(dt)
+		local cmd = self:GetController():NextCommand(dt)
 		local health = self.Owner.health
 
 		if health and health:IsDead() then
