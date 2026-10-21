@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local vertex_math = {}
-vertex_math.VertexType = ffi.typeof([[
+local vertex_t = ffi.typeof([[
 	struct {
 		float position[3];
 		float normal[3];
@@ -8,12 +8,37 @@ vertex_math.VertexType = ffi.typeof([[
 		float tangent[4];
 		float texture_blend;
 		float vertex_color[4];
-	}[?]
+	}
 ]])
+vertex_math.VertexType = ffi.typeof("$[?]", vertex_t)
+vertex_math.VertexPointer = ffi.typeof("$ *", vertex_t)
 local sqrt, abs = math.sqrt, math.abs
 local TANGENT_EPSILON = 1e-9
 local double_array_t = ffi.typeof("double[?]")
 local uint8_array_t = ffi.typeof("uint8_t[?]")
+
+do
+	local function rotate(v, qx, qy, qz, qw)
+		local x, y, z = v[0], v[1], v[2]
+		local tx, ty, tz = 2 * (qy * z - qz * y), 2 * (qz * x - qx * z), 2 * (qx * y - qy * x)
+		v[0] = x + qw * tx + (qy * tz - qz * ty)
+		v[1] = y + qw * ty + (qz * tx - qx * tz)
+		v[2] = z + qw * tz + (qx * ty - qy * tx)
+	end
+
+	function vertex_math.Transform(vertices, vertex_count, rotation, position)
+		local qx, qy, qz, qw = rotation.x, rotation.y, rotation.z, rotation.w
+
+		for i = 0, vertex_count - 1 do
+			local vertex = vertices[i]
+			local p = vertex.position
+			rotate(p, qx, qy, qz, qw)
+			rotate(vertex.normal, qx, qy, qz, qw)
+			rotate(vertex.tangent, qx, qy, qz, qw)
+			p[0], p[1], p[2] = p[0] + position.x, p[1] + position.y, p[2] + position.z
+		end
+	end
+end
 
 function vertex_math.BuildTangents(vertices, vertex_count, indices, index_count)
 	local tan1 = double_array_t(vertex_count * 3)
