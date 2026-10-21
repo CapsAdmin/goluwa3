@@ -17,8 +17,10 @@ return {
 	Source = [=====[
 local objects = import("goluwa/objects/objects.lua")
 local physics = import("goluwa/physics.lua")
+local damage = import("lua/damage.lua")
 local META = objects.CreateTemplate("weapon_pistol")
 META:GetSet("Range", 50)
+META:GetSet("Damage", 20)
 META:GetSet("Impulse", 6)
 local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 
@@ -29,6 +31,20 @@ function META:OnWeaponPrimary(cmd)
 	local hit = physics.Sweep(origin, forward * self.Range, 0, player, nil, TRACE_OPTIONS)
 
 	if not hit then return end
+
+	if hit.entity and hit.entity.health then
+		damage.Deal(
+			hit.entity,
+			{
+				Attacker = player,
+				Inflictor = self.Owner,
+				Damage = self.Damage,
+				Position = hit.point,
+				Normal = hit.normal,
+				Force = forward * self.Impulse,
+			}
+		)
+	end
 
 	local body = hit.rigid_body or (hit.entity and hit.entity.rigid_body)
 

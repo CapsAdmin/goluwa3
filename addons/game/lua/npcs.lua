@@ -5,6 +5,7 @@ local commands = import("goluwa/cli/commands.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
+import("lua/damage.lua")
 local npcs = {}
 npcs.Definitions = {
 	citizen = {
@@ -114,6 +115,7 @@ function npcs.Register(name, info)
 						animator = {},
 						locomotion = {IdleSequence = info.Idle, WalkSequence = info.Walk, RunSequence = info.Run},
 						npc = npc,
+						health = {Health = info.Health or 50, MaxHealth = info.Health or 50, RemoveOnDeath = true},
 					},
 				},
 			},

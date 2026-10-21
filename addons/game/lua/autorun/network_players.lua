@@ -12,6 +12,7 @@ local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
 local PlayerMovement = import("lua/components/player_movement.lua")
 local outfit = import("lua/outfit.lua")
 import("lua/weapons.lua")
+import("lua/damage.lua")
 import("lua/outfit_source.lua")
 Entity.RegisterComponent("player_avatar", import("lua/components/player_avatar.lua"))
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
@@ -74,7 +75,7 @@ if SERVER then
 
 		players[uid] = Entity.New{
 			Name = client:GetNick(),
-			ComponentSet = {"transform", "player_controller", "player_movement", "weapon_holder"},
+			ComponentSet = {"transform", "player_controller", "player_movement", "weapon_holder", "health"},
 			transform = {Position = position:Copy(), Rotation = rotation:Copy()},
 			player_controller = {Source = "queue"},
 			player_avatar = {},

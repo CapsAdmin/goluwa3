@@ -9,6 +9,7 @@ local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local network = import("goluwa/network/network.lua")
 local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
 import("lua/weapons.lua")
+import("lua/damage.lua")
 Entity.RegisterComponent("camera", import("lua/components/camera.lua"))
 Entity.RegisterComponent("player_input", import("lua/components/player_input.lua"))
 local current = Entity.World:GetKeyed("player_camera_rig")
@@ -27,6 +28,7 @@ local rig = Entity.New{
 		"player_movement",
 		"weapon_holder",
 		"player_avatar",
+		"health",
 	},
 	camera = {
 		Active = true,
