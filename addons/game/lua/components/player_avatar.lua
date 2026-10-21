@@ -27,6 +27,7 @@ local CROUCH_EYE_HEIGHT = 28 * UNIT
 local WEAPON_RAISE = 0.12
 local WEAPON_FORWARD = 0.12
 local HAND_SPACING = 0.22
+local EYE_HOLD_BACK = 0.14
 local bone_matrix = Matrix44()
 
 function META:Initialize()
@@ -179,7 +180,17 @@ function META:OnUpdate(dt)
 		bone_matrix:SetRotation(pitch)
 		bone_matrix:SetTranslation(0, math.lerp(self.crouch_alpha, EYE_HEIGHT, CROUCH_EYE_HEIGHT), 0)
 		armature:SetBone("head", bone_matrix, "local")
-		local hand = Vec3(0, height * 0.5 + WEAPON_RAISE, 0) + pitch:GetForward() * WEAPON_FORWARD
+		local forward = pitch:GetForward()
+		local holder = owner.weapon_holder
+		local active = holder and holder:GetActiveWeapon()
+		local hand
+
+		if active and active.weapon:IsHeldAtEye() then
+			hand = Vec3(0, math.lerp(self.crouch_alpha, EYE_HEIGHT, CROUCH_EYE_HEIGHT), 0) - forward * EYE_HOLD_BACK
+		else
+			hand = Vec3(0, height * 0.5 + WEAPON_RAISE, 0) + forward * WEAPON_FORWARD
+		end
+
 		bone_matrix:SetTranslation(hand.x, hand.y, hand.z)
 		armature:SetBone("hand_r", bone_matrix, "local")
 		hand = hand - pitch:GetRight() * HAND_SPACING
