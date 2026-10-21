@@ -4,13 +4,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 local weapon_models = {}
 local METAL = {Color = Color(0.25, 0.27, 0.3, 1), Roughness = 0.35, Metallic = 0.8}
-local GLOW = {
-	Color = Color(1, 0.55, 0.15, 1),
-	Roughness = 0.6,
-	Metallic = 0,
-	AlbedoAlphaIsEmissive = true,
-	EmissiveMultiplier = Color(1, 1, 1, 4),
-}
+local BLUE = {Color = Color(0.1, 0.35, 1, 1), Roughness = 0.4, Metallic = 0.3}
 local DARK_METAL = {Color = Color(0.12, 0.12, 0.14, 1), Roughness = 0.3, Metallic = 0.9}
 local GRIP = {Color = Color(0.3, 0.2, 0.12, 1), Roughness = 0.8, Metallic = 0}
 local CAMERA_BODY = {Color = Color(0.1, 0.1, 0.11, 1), Roughness = 0.5, Metallic = 0.3}
@@ -66,8 +60,8 @@ weapon_models.Register(
 	"weapon_physgun_model",
 	{
 		box("body", Vec3(0.1, 0.1, 0.36), FORWARD * 0.32, METAL),
-		box("coil", Vec3(0.12, 0.05, 0.2), FORWARD * 0.28 + Vec3(0, 0.07, 0), GLOW),
-		box("tip", Vec3(0.06, 0.06, 0.1), FORWARD * 0.59, GLOW),
+		box("coil", Vec3(0.12, 0.05, 0.2), FORWARD * 0.28 + Vec3(0, 0.07, 0), BLUE),
+		box("tip", Vec3(0.06, 0.06, 0.1), FORWARD * 0.59, BLUE),
 		box("grip", Vec3(0.06, 0.13, 0.08), FORWARD * 0.16 - Vec3(0, 0.09, 0), METAL),
 		muzzle(0.64),
 	}
