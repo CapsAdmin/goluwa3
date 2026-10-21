@@ -1,10 +1,12 @@
 local objects = import("goluwa/objects/objects.lua")
 local network = import("goluwa/network/network.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
+local physics = import("goluwa/physics.lua")
 local nav_mesh = import("goluwa/entities/components/nav_mesh.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local CharacterMovement = import("lua/components/character_movement.lua")
+local PlayerController = import("lua/components/player_controller.lua")
 local simulation_lod = import("lua/simulation_lod.lua")
 local BUTTON = usercmd.BUTTON
 local META = objects.CreateTemplate("ai_controller")
@@ -23,6 +25,9 @@ META:GetSet("WanderRadius", 30)
 META:GetSet("WanderMinDelay", 1)
 META:GetSet("WanderMaxDelay", 6)
 META:GetSet("PhysicsDistance", 15)
+META:GetSet("AttackRange", 12)
+META:GetSet("FireInterval", 0.8)
+META:GetSet("AimError", 0.05)
 META:EndStorable()
 local WAYPOINT_RADIUS = 0.5
 local GOAL_RADIUS = 0.3
@@ -41,6 +46,10 @@ local LOST_DISTANCE = 60
 local STOP_SPEED_SHARE = 0.5
 local WANDER_MIN_DISTANCE = 4
 local WANDER_TRIES = 4
+local TARGET_INTERVAL = 0.25
+local TARGET_CHEST = 0.6
+local AIM_TOLERANCE = 0.12
+local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 
 function META:Initialize()
 	-- an npc in a prefab is added while its entity is being built and initialized once more when the build ends
@@ -58,9 +67,14 @@ function META:Initialize()
 	self.stuck_failures = 0
 	self.stuck_time = 0
 	self.turning = false
+	self.next_target = 0
+	self.next_fire = 0
+	self.aim_direction = Vec3()
 	self.cmd = usercmd.New()
 	self.cmd.mode = "walk"
 	self.cmd.buttons = BUTTON.ACTIVE
+
+	if RENDER_3D then self:AddGlobalEvent("Update") end
 
 	if network.HasAuthority() then
 		owner:AddComponent(
@@ -74,6 +88,14 @@ function META:Initialize()
 				GroundSpeed = self.WalkSpeed,
 			}
 		)
+	end
+end
+
+function META:OnUpdate()
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		local weapon = child.weapon
+
+		if weapon then weapon:UpdateModel(weapon:IsActive()) end
 	end
 end
 
@@ -292,14 +314,70 @@ function META:IsSimulated()
 	return not self.far
 end
 
+function META:UpdateTarget(position)
+	local owner = self.Owner
+	local target = self.target
+
+	if target and (not target:IsValid() or target.health:IsDead()) then
+		target = nil
+	end
+
+	if self.time >= self.next_target then
+		self.next_target = self.time + TARGET_INTERVAL
+		target = nil
+
+		local holder = owner.weapon_holder
+
+		if holder and holder:GetActiveWeapon() then
+			local eye = position + owner.character_movement:GetViewOffset()
+			local nearest = self.AttackRange
+
+			for _, controller in ipairs(PlayerController.Instances or {}) do
+				local candidate = controller.Owner
+
+				if not candidate.health:IsDead() then
+					local offset = candidate.transform:GetPosition() + Vec3(
+							0,
+							candidate.character_movement:GetHeight() * TARGET_CHEST,
+							0
+						) - eye
+					local distance = offset:GetLength()
+
+					if distance < nearest then
+						local hit = physics.Sweep(eye, offset, 0, owner, nil, TRACE_OPTIONS)
+
+						if not hit or hit.entity == candidate then
+							nearest = distance
+							target = candidate
+						end
+					end
+				end
+			end
+		end
+	end
+
+	self.target = target
+	return target
+end
+
 function META:NextCommand(dt)
 	local owner = self.Owner
 	local position = owner.rigid_body:GetOriginPosition()
 	local cmd = self.cmd
+	local previous_buttons = cmd.buttons
 	simulation_lod.Update(META.Instances)
 	local far = self.far
 	self.dir_x, self.dir_z = nil, nil
-	self:Think(dt, position)
+	local target = not far and self:UpdateTarget(position)
+
+	if target then
+		self.time = self.time + dt
+		self.stuck_position = nil
+	else
+		self.target = nil
+		self:Think(dt, position)
+	end
+
 	local dir_x, dir_z = self.dir_x, self.dir_z
 	local yaw = self.yaw
 	cmd.mode = far and "fly" or "walk"
@@ -326,10 +404,36 @@ function META:NextCommand(dt)
 		end
 	end
 
-	local half = yaw / 2
-	local view = cmd.view
-	view.x, view.y, view.z, view.w = 0, math.sin(half), 0, math.cos(half)
 	local movement = owner.character_movement
+	local view = cmd.view
+
+	if target then
+		local eye = position + movement:GetViewOffset()
+		local aim = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * TARGET_CHEST, 0)
+		local dx, dy, dz = aim.x - eye.x, aim.y - eye.y, aim.z - eye.z
+		local delta = math.normalizeangle(math.atan2(-dx, -dz) - yaw)
+		local step = self.TurnSpeed * dt
+		yaw = yaw + math.clamp(delta, -step, step)
+		self.yaw = yaw
+		local aim_yaw = yaw
+		local pitch = math.atan2(dy, math.sqrt(dx * dx + dz * dz))
+
+		if math.abs(delta) < AIM_TOLERANCE and self.time >= self.next_fire then
+			self.next_fire = self.time + self.FireInterval * math.randomf(0.7, 1.3)
+			cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
+			aim_yaw = aim_yaw + math.randomf(-self.AimError, self.AimError)
+			pitch = pitch + math.randomf(-self.AimError, self.AimError)
+		end
+
+		local flat = math.cos(pitch)
+		self.aim_direction:Set(-math.sin(aim_yaw) * flat, math.sin(pitch), -math.cos(aim_yaw) * flat)
+		view:SetLookDirection(self.aim_direction)
+	else
+		local half = yaw / 2
+		view.x, view.y, view.z, view.w = 0, math.sin(half), 0, math.cos(half)
+	end
+
+	cmd.pressed = bit.band(cmd.buttons, bit.bnot(previous_buttons))
 	movement:SetGroundSpeed(speed)
 	movement:SetStopSpeed(self.WalkSpeed * STOP_SPEED_SHARE)
 	return cmd

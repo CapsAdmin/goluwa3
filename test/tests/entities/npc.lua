@@ -14,6 +14,9 @@ local UNIT = import("goluwa/source_engine/units.lua").meters
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
 Entity.RegisterComponent("locomotion", import("lua/components/locomotion.lua"))
+Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
+Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
+import("lua/weapons.lua")
 local npcs = import("lua/npcs.lua")
 local simulation_lod = import("lua/simulation_lod.lua")
 
@@ -304,7 +307,11 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	instance.prefab:SetInput("Wander", false)
 	T(npc.WalkSpeed)["=="](2)
 	T(npc.Wander)["=="](false)
+	T(instance.weapon_holder == nil)["=="](true)
 	instance:Remove()
+	local armed = npcs.Spawn("barney", Vec3(0, 0.05, 0), 0)
+	T(armed.weapon_holder:GetActiveWeapon().weapon:GetDisplayName())["=="]("Pistol")
+	armed:Remove()
 end)
 
 T.Test3D("npc speeds are the ground speeds of the sequences they play", function()
