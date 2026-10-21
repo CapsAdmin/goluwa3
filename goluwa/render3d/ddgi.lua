@@ -72,9 +72,9 @@ local min_coverage = pvars.Setup2{
 }
 local max_coverage = pvars.Setup2{
 	key = "ddgi_max_coverage",
-	default = 4000,
+	default = 1000,
 	min = 0,
-	help = "most meters the fitted region reaches from the camera",
+	help = "most meters the fitted region reaches from the camera. Past it the probes are not there and the light is the sky's. The far cascades are 64 to 256 m apart, on Quarry 1000 m instead of 4000 m is the same picture and a few tenths of a millisecond",
 }
 local change_threshold = pvars.Setup2{
 	key = "ddgi_change_threshold",
