@@ -385,6 +385,75 @@ do
 		if not ok then error(err, 0) end
 	end)
 
+	T.Test3D("Graphics render3d ddgi a room lit through a pinhole is as bright as its slow average", function(draw)
+		local polygon3d = Polygon3D.New()
+		shapes.BuildCube(polygon3d, 1)
+		polygon3d:BuildBoundingBox()
+		polygon3d:Upload()
+		local created = {}
+		use_ddgi()
+		render3d.camera:SetPosition(Vec3(0, 2, 3))
+		render3d.camera:SetAngles{x = 0, y = 0, z = 0}
+		-- a room that is lit by the sky and the sun through a 0.1 m hole in its roof. A probe sees them in a fraction of
+		-- a percent of its rays, 1e3 times brighter than the room, so its light is a few spikes, and what a probe does
+		-- with spikes decides how bright the room is: a probe that takes spikes in at the fast rate of a probe whose
+		-- light changes made this room twice as bright as the average of a hundred times as many frames
+		local gap = 0.1
+		add_slab(polygon3d, created, Vec3(-30, -0.5, -30), Vec3(30, 0, 30))
+		add_slab(polygon3d, created, Vec3(-6, 0, -6), Vec3(-5.6, 5, 6))
+		add_slab(polygon3d, created, Vec3(5.6, 0, -6), Vec3(6, 5, 6))
+		add_slab(polygon3d, created, Vec3(-5.6, 0, -6), Vec3(5.6, 5, -5.6))
+		add_slab(polygon3d, created, Vec3(-5.6, 0, 5.6), Vec3(5.6, 5, 6))
+		add_slab(polygon3d, created, Vec3(-6, 5, -6), Vec3(6, 5.4, -gap / 2))
+		add_slab(polygon3d, created, Vec3(-6, 5, gap / 2), Vec3(6, 5.4, 6))
+		add_slab(polygon3d, created, Vec3(-6, 5, -gap / 2), Vec3(-gap / 2, 5.4, gap / 2))
+		add_slab(polygon3d, created, Vec3(gap / 2, 5, -gap / 2), Vec3(6, 5.4, gap / 2))
+		local pvars = import("goluwa/cli/pvars.lua")
+
+		-- the mean of the GI texture over 12 consecutive frames after the given number of frames
+		local function gi_average(frames)
+			ddgi.ResetHistory()
+
+			for _ = 1, frames do
+				draw()
+			end
+
+			local sum = 0
+
+			for _ = 1, 12 do
+				draw()
+				local r, g, b = gi_mean()
+				sum = sum + r + g + b
+			end
+
+			return sum / 12
+		end
+
+		local ok, err = pcall(function()
+			-- the room as the defaults see it (a probe's light varies a lot, so three rooms)
+			local default = (gi_average(600) + gi_average(600) + gi_average(600)) / 3
+			-- and as a probe that averages over ten times as long, which takes no change in faster, sees it
+			pvars.SetSession("ddgi_hysteresis", 0.998)
+			pvars.SetSession("ddgi_change_power", 1)
+			local slow = gi_average(1500)
+			T(slow > 0)["=="](true)
+			T(default >= slow * 0.7)["=="](true)
+			T(default <= slow * 1.35)["=="](true)
+		end)
+
+		pvars.SetSession("ddgi_hysteresis", 0.99)
+		pvars.SetSession("ddgi_change_power", 4)
+
+		for _, e in ipairs(created) do
+			if e:IsValid() then e:Remove() end
+		end
+
+		restore()
+		polygon3d:Remove()
+
+		if not ok then error(err, 0) end
+	end)
+
 	T.Test3D("Graphics render3d ddgi small emitter lights a sealed room", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)

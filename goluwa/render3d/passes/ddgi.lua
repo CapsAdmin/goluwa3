@@ -444,7 +444,8 @@ local function pass_shade()
 end
 
 local function pass_update(name, texels, integrate)
-	-- state, one texel per probe (every texel of a probe computes the same): x the frames behind it, y its mean ray brightness
+	-- state, one texel per probe (every texel of a probe computes the same): x the frames behind it, y the median of its mean ray
+	-- brightness, z how consistently new values are on one side of the median, w their average
 	local color_formats = {{integrate.atlas_format[1], {name, "rgba"}}}
 	local storage_images = {
 		{binding_index = BINDING_OUTPUT, dst_stage = "compute"},
@@ -495,6 +496,9 @@ local function pass_update(name, texels, integrate)
 		custom_declarations = declarations,
 		shader = common_glsl() .. [[
 			#define TEXELS ]] .. texels .. [[
+			// how far from its median a value has to be to count as one side of it: a light that is slowly settling
+			// is not a change, the median keeps up with it
+			#define DDGI_CHANGE_MARGIN 1.15
 
 			shared vec4 s_ray[DDGI_RAYS];
 			shared vec3 s_dir[DDGI_RAYS];
@@ -568,16 +572,23 @@ local function pass_update(name, texels, integrate)
 				}
 
 				probe_mean /= max(probe_weight, 1e-4);
-				// the probe's mean against its slow average: z is the signed relative difference
-				// smoothed over a few frames (noise cancels in it), w the typical size of a single
-				// frame's difference. A real change makes z large against w, noise does not
-				float diff = state.y > 0.0 ? (probe_mean - state.y) / max(state.y, 1e-3) : 0.0;
-				state.z = state.y > 0.0 ? mix(diff, state.z, 0.8) : 0.0;
-				state.w = state.y > 0.0 ? mix(abs(diff), state.w, 0.95) : 0.0;
-				float change = abs(state.z) / (state.w + 0.01);
-				state.y = state.y > 0.0 ? mix(probe_mean, state.y, 0.97) : probe_mean;
+				// Has the probe's light changed? y follows the median of the probe's mean ray brightness, a step of 1 percent
+				// of w (their average) up and of y down towards each new value, and z is how consistently the new values are
+				// on one side of it. A change that stays puts them all on one side until the median has caught up, noise puts
+				// them on both, and a light that is slowly settling stays within the margin. Rare bright rays are no change
+				// either: a probe that sees a sun lit patch or a gap in the sky in a fraction of a percent of its rays has a
+				// mean far above its median, the values around its average are all below it, which an average mistakes for
+				// the light going down. What the frames before this one found decides how fast this one is taken in, or a
+				// lone spike would give way to itself
+				float change = abs(state.z);
+				float direction = probe_mean > state.y ? 1.0 : -1.0;
+				float side = probe_mean > state.y * DDGI_CHANGE_MARGIN ? 1.0 : (probe_mean < state.y / DDGI_CHANGE_MARGIN ? -1.0 : 0.0);
+				float average = state.w;
+				state.z = state.x > 0.0 ? mix(side, state.z, 0.8) : 0.0;
+				state.y = state.x > 0.0 ? (direction > 0.0 ? state.y + 0.01 * max(average, 1e-3) : state.y * 0.99) : probe_mean;
+				state.w = state.x > 0.0 ? mix(probe_mean, average, 0.97) : probe_mean;
 				float keep = ddgi_data.ddgi_cascade_update[c].x;
-				keep = mix(keep, pow(keep, 4.0), clamp((change - 0.6) / 0.6, 0.0, 1.0));
+				keep = mix(keep, pow(keep, ddgi_data.ddgi_change_power), clamp((change - 0.6) / 0.3, 0.0, 1.0));
 				// the sun moved since this cascade was last updated, what it held is out of date
 				if (ddgi_data.ddgi_cascade_update[c].y > 0.0) keep = min(keep, 0.4);
 				keep = min(keep, state.x / (state.x + 1.0));

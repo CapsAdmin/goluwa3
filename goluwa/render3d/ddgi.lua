@@ -182,6 +182,12 @@ local hysteresis = pvars.Setup2{
 	max = 1,
 	help = "how much of a probe texel's history survives a frame at 60 fps, a cascade that updates less often keeps this to the power of the frames it was away",
 }
+local change_power = pvars.Setup2{
+	key = "ddgi_change_power",
+	default = 4,
+	min = 1,
+	help = "a probe whose light is changing (its mean ray brightness stays on one side of its median) keeps its history to this power per update, so it takes the new rays in faster. 1 turns that off",
+}
 local ray_clamp = pvars.Setup2{
 	key = "ddgi_ray_clamp",
 	default = 0,
@@ -1583,6 +1589,7 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_light_radius", "float"},
 		{"ddgi_cascade_blend", "float"},
 		{"ddgi_contrast_ratio", "float"},
+		{"ddgi_change_power", "float"},
 		{"ddgi_debug_scale", "float"},
 		{"ddgi_debug_probes", "int"},
 		{"ddgi_debug_cascade", "int"},
@@ -1680,6 +1687,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_light_radius = light_radius:Get()
 	block.ddgi_cascade_blend = ddgi.CASCADE_BLEND
 	block.ddgi_contrast_ratio = contrast_ratio:Get()
+	block.ddgi_change_power = change_power:Get()
 	block.ddgi_debug_scale = debug_scale:Get()
 	block.ddgi_debug_probes = DEBUG_PROBES[debug_probes:Get()]
 	block.ddgi_debug_cascade = debug_cascade:Get()
