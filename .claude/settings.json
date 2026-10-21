@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | grep -E '\\.lua$' | xargs -r nattlua fmt >/dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -37,7 +37,6 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 
 - Scratch scripts that flip a pvar must use `pvars.SetSession`; `pvars.Set` writes the user's `pvars.txt` for good. Pvars that shaders and passes are built from ("build time" ones like `r_rt_hit_*`, `reflection_reorder`) are read when the passes are made, before a script runs, so a script's `SetSession` comes too late for them: put `GOLUWA_PVARS="key=value key=value"` in the environment instead.
 
-- Never edit files under `goluwa/` or `addons/` while a benchmark or scene run is going in the background if `--hot-reload` is on; the reload crashes the run.
 
 # Git and testing
 
