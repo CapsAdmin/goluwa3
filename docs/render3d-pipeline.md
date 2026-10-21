@@ -208,7 +208,7 @@ Inside one `T.Test3D` body, `draw()` more than 16 times fails with "EasyPipeline
 
 **How to apply:** budget draws across all measurements in a test (e.g. 4 draws × 4 measurements) and grep test output for "rror" when numbers look repeated.
 
-Also, DDGI's sealed test rooms pick up a noisy sky baseline (16–35 in `gi_mean` sums) that varies per `ResetHistory`. Leak tests need a light bright enough to dwarf it, see [DDGI without ray tracing](render3d-lighting.md#ddgi-without-ray-tracing).
+The sealed test rooms used to pick up a noisy sky baseline (16–35 in `gi_mean` sums) that varied per `ResetHistory`; that was the thin wall leak, they read 0 now (2026-10-21, see [DDGI thin walls](render3d-lighting.md#ddgi-thin-walls-the-fast-adapt-bias-and-small-bright-patches)). The 16 draw limit above did not show up any more on 2026-10-21: the DDGI tests draw 600 to 1500 times in one body, with no ring error and a GI that keeps changing between the draws (if the error is back, this section is true again).
 
 ## Test scene material defaults
 
