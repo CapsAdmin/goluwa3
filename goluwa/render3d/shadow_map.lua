@@ -135,6 +135,7 @@ local function build_shadow_pipeline_config(
 	color_format
 )
 	local config = {
+		name = "shadow_map",
 		ViewportX = 0,
 		ViewportY = 0,
 		ViewportWidth = max_shadow_width,

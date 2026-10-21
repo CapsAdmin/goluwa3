@@ -2172,6 +2172,7 @@ function ddgi.GetRTPipeline()
 		rt_pipeline = RayTracingPipeline.New(
 			render.GetDevice(),
 			{
+				name = "ddgi_rt",
 				stages = stages,
 				bindless = ddgi.ALPHA_TEST,
 				max_recursion_depth = 1,

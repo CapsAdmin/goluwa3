@@ -1658,7 +1658,7 @@ local function build_internal_pipeline(vulkan_instance, pipeline_layout, config,
 	for i, stage in ipairs(config.shader_stages) do
 		shader_modules[i] = {
 			type = stage.type,
-			module = ShaderModule.New(vulkan_instance.device, stage.code, stage.type),
+			module = ShaderModule.New(vulkan_instance.device, stage.code, stage.type, config.name),
 		}
 	end
 

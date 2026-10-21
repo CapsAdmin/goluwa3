@@ -65,6 +65,7 @@ function RayTracingPipeline.New(device, config)
 	local internal = InternalRayTracingPipeline.New(
 		device,
 		{
+			name = config.name,
 			stages = config.stages,
 			descriptor_sets = set_bindings,
 			max_recursion_depth = config.max_recursion_depth,

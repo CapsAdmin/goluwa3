@@ -6,6 +6,7 @@ local shaderc = import("goluwa/bindings/shaderc.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local crypto = import("goluwa/crypto.lua")
 local ShaderModule = objects.CreateTemplate("vulkan_shader_module")
+local dump_glsl
 local shader_module_cache = setmetatable({}, {__mode = "k"})
 local VkShaderModuleBox = ffi.typeof("$[1]", vulkan.vk.VkShaderModule)
 
@@ -127,7 +128,46 @@ local function save_disk_cache(path, glsl, spirv_data, spirv_size)
 	logf("[shader] could not write %s\n", path)
 end
 
-local function get_or_create_cached_module(device, glsl, type)
+do
+	local dump_dir = "./storage/shader_source/"
+	local enabled = os.getenv("GOLUWA_DUMP_SHADERS") == "1"
+	local extensions = {
+		vertex = "vert",
+		fragment = "frag",
+		compute = "comp",
+		geometry = "geom",
+		tess_control = "tesc",
+		tess_evaluation = "tese",
+		raygeneration = "rgen",
+		closesthit = "rchit",
+		miss = "rmiss",
+		anyhit = "rahit",
+		intersection = "rint",
+		callable = "rcall",
+		task = "task",
+		mesh = "mesh",
+	}
+	local written = {}
+
+	function dump_glsl(glsl, type, name)
+		if not enabled then return end
+
+		local base = (name or "unnamed"):gsub("[^%w_%-]", "_")
+		local path = dump_dir .. base .. "." .. (extensions[type] or type)
+
+		if written[path] == glsl then return end
+
+		if written[path] then
+			path = dump_dir .. base .. "_" .. crypto.CRC32(glsl) .. "." .. (extensions[type] or type)
+		end
+
+		written[path] = glsl
+		fs.create_directory_recursive(dump_dir)
+		fs.write_file(path, glsl)
+	end
+end
+
+local function get_or_create_cached_module(device, glsl, type, name)
 	local device_cache = get_device_cache(device)
 	local type_cache = device_cache[type]
 
@@ -140,6 +180,7 @@ local function get_or_create_cached_module(device, glsl, type)
 
 	if record then return record end
 
+	dump_glsl(glsl, type, name)
 	local path = disk_cache_path(glsl, type)
 	local spirv_data, spirv_size = load_disk_cache(path, glsl)
 
@@ -187,8 +228,8 @@ local function get_or_create_cached_module(device, glsl, type)
 	return record
 end
 
-function ShaderModule.New(device, glsl, type)
-	local record = get_or_create_cached_module(device, glsl, type)
+function ShaderModule.New(device, glsl, type, name)
+	local record = get_or_create_cached_module(device, glsl, type, name)
 	record.ref_count = record.ref_count + 1
 	return ShaderModule:CreateObject{ptr = record.ptr, device = device, cache_record = record}
 end

@@ -32,7 +32,7 @@ function RayTracingPipeline.New(device, config)
 		if stage.spv then
 			spirv_data, spirv_size = stage.spv, #stage.spv
 		else
-			local module = ShaderModule.New(device, stage.code, stage.name)
+			local module = ShaderModule.New(device, stage.code, stage.name, config.name)
 			spirv_data, spirv_size = module:Data()
 			shader_modules[i] = module
 		end

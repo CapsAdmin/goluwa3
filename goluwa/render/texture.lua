@@ -1358,6 +1358,8 @@ function Texture:Shade(glsl, extra_config)
 		end
 
 		pipeline = render.CreateGraphicsPipeline{
+			name = extra_config.name or
+				"shade_" .. debug.getinfo(2, "S").short_src:match("([^/]+)%.lua$"),
 			ColorFormat = self.format,
 			RasterizationSamples = "1",
 			Topology = "triangle_list",

@@ -1039,6 +1039,7 @@ do
 				)
 				or
 				1,
+			name = config.name or debug.getinfo(2, "S").short_src:match("([^/]+)%.lua$"),
 			shader_stages = shader_stages,
 			Topology = config.Topology or "triangle_list",
 			PatchControlPoints = config.PatchControlPoints or 3,

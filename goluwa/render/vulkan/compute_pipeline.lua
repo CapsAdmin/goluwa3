@@ -177,7 +177,8 @@ function ComputePipeline.New(vulkan_instance, raw_config)
 		shader = ShaderModule.New(
 			vulkan_instance.device,
 			assert(stage.code, "ComputePipeline.New: compute shader code is required"),
-			"compute"
+			"compute",
+			config.name
 		)
 	end
 
