@@ -202,6 +202,14 @@ local guided_ray_fraction = pvars.Setup2{
 	help = "share of each probe's rays aimed by its own radiance map, 0 is uniform rays only",
 }
 
+local aim_share = pvars.Setup2{
+	key = "ddgi_aim_share",
+	default = 0.5,
+	min = 0,
+	max = 0.9,
+	help = "the most of the rays a bright guide cell aims at the brightest spot of it, instead of spreading them over the cell. A small bright patch is a fraction of a percent of a cell and spread rays find it once in a while, each time the probe flickers. 0 spreads them. built into the shaders",
+}
+
 function ddgi.GetUniformRays()
 	return ddgi.RAYS_PER_PROBE - math.floor(ddgi.RAYS_PER_PROBE * guided_ray_fraction:Get() + 0.5)
 end
@@ -751,6 +759,13 @@ function ddgi.GetRayDirectionGLSL()
 		#define DDGI_GUIDE_CELLS 64
 		// how much of its previous value a guide cell keeps each frame
 		#define DDGI_GUIDE_HISTORY 0.9
+		// the cell that holds the probe's stamp in its cumulative probability, the search for a cell never reads that of the last
+		#define DDGI_GUIDE_STAMP_CELL 63
+		// Rays are spread over a cell, and the part of them a bright cell aims at the brightest spot of it, a square this many
+		// cell widths wide, at most this share of the cell's rays. A small bright patch is a fraction of a percent of a cell,
+		// the rays that spread over it find it once in a few frames, and each time it is the whole probe's flicker
+		#define DDGI_AIM_SIZE 0.125
+		#define DDGI_AIM_SHARE ]] .. string.format("%.3f", aim_share:Get()) .. [[
 		// what reads the guide texel of a probe's tile, so that the ray generation
 		// shader and the guide pass can use their own bindings
 		#ifndef DDGI_GUIDE_FETCH
@@ -769,8 +784,10 @@ function ddgi.GetRayDirectionGLSL()
 
 		// The guide is one 8x8 octahedral tile per probe, in world space. Per
 		// cell: r = mean radiance luminance, g = the probability a guided ray
-		// picks the cell, b = cumulative probability up to and including it,
-		// a = stamp of the probe that wrote it. A slot that a different probe
+		// picks the cell, b = cumulative probability up to and including it (in
+		// the last cell the stamp of the probe that wrote the tile instead),
+		// a = where the cell aims (the spot's x and y in the cell, and how much
+		// of the cell's rays go there, 8 bits each). A slot that a different probe
 		// scrolled into has a stamp that does not match, and its rays are uniform.
 		float ddgi_guide_stamp(ivec3 world, int c) {
 			uint h = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u ^ uint(c + 1) * 2654435761u;
@@ -782,7 +799,19 @@ function ddgi.GetRayDirectionGLSL()
 		}
 
 		bool ddgi_guide_valid(ivec2 tile, ivec3 world, int c) {
-			return DDGI_GUIDE_FETCH(ddgi_guide_texel(tile, 0)).a == ddgi_guide_stamp(world, c);
+			return DDGI_GUIDE_FETCH(ddgi_guide_texel(tile, DDGI_GUIDE_STAMP_CELL)).b == ddgi_guide_stamp(world, c);
+		}
+
+		// what a guide texel's aim is: xy the centre of the spot in the cell (kept inside it), z how much of the cell's rays
+		// go there, as stored (0 to 1)
+		vec3 ddgi_guide_aim_stored(float stored) {
+			uint v = uint(stored);
+			return vec3(float(v & 255u), float((v >> 8u) & 255u), float((v >> 16u) & 255u)) / 255.0;
+		}
+
+		vec3 ddgi_guide_aim(float stored) {
+			vec3 aim = ddgi_guide_aim_stored(stored);
+			return vec3(clamp(aim.xy, vec2(DDGI_AIM_SIZE * 0.5), vec2(1.0 - DDGI_AIM_SIZE * 0.5)), aim.z * DDGI_AIM_SHARE);
 		}
 
 		// The first uniform_count rays of a probe are uniform, the rest are drawn
@@ -813,6 +842,10 @@ function ddgi.GetRayDirectionGLSL()
 			}
 
 			vec2 inner = fract(vec2(0.7548776662, 0.5698402910) * float(k) + jitter.yz);
+			vec3 aim = ddgi_guide_aim(DDGI_GUIDE_FETCH(ddgi_guide_texel(tile, lo)).a);
+
+			if (fract(float(k) * 0.8191725134 + jitter.y * 7.0) < aim.z) inner = aim.xy + (inner - 0.5) * DDGI_AIM_SIZE;
+
 			vec2 p = (vec2(lo % DDGI_GUIDE_TEXELS, lo / DDGI_GUIDE_TEXELS) + inner) / float(DDGI_GUIDE_TEXELS) * 2.0 - 1.0;
 			return oct_decode(p);
 		}
@@ -825,11 +858,16 @@ function ddgi.GetRayDirectionGLSL()
 		float ddgi_ray_weight(vec3 d, uint uniform_count, ivec2 tile, bool guided) {
 			if (!guided || uniform_count >= uint(DDGI_RAYS)) return 1.0;
 
-			ivec2 cell = clamp(ivec2((oct_encode(d) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS)), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
-			float probability = DDGI_GUIDE_FETCH(tile * DDGI_GUIDE_TEXELS + cell).g;
+			vec2 scaled = (oct_encode(d) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS);
+			ivec2 cell = clamp(ivec2(scaled), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
+			vec4 texel = DDGI_GUIDE_FETCH(tile * DDGI_GUIDE_TEXELS + cell);
+			vec3 aim = ddgi_guide_aim(texel.a);
+			vec2 offset = abs(clamp(scaled - vec2(cell), 0.0, 1.0) - aim.xy);
+			// the density of the rays inside the cell: spread evenly, plus the aimed ones on their spot
+			float in_cell = (1.0 - aim.z) + (all(lessThanEqual(offset, vec2(DDGI_AIM_SIZE * 0.5))) ? aim.z / (DDGI_AIM_SIZE * DDGI_AIM_SIZE) : 0.0);
 			vec3 a = abs(d);
 			float l1 = a.x + a.y + a.z;
-			float density = probability * float(DDGI_GUIDE_TEXELS * DDGI_GUIDE_TEXELS) * 0.25 / (l1 * l1 * l1);
+			float density = texel.g * in_cell * float(DDGI_GUIDE_TEXELS * DDGI_GUIDE_TEXELS) * 0.25 / (l1 * l1 * l1);
 			float share = float(uniform_count) / float(DDGI_RAYS);
 			return 1.0 / (share + (1.0 - share) * density * 12.5663706144);
 		}

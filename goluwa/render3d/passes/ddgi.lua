@@ -813,6 +813,8 @@ local function pass_guide()
 			shared vec3 s_dir[DDGI_RAYS];
 			shared float s_q[DDGI_RAYS];
 			shared int s_cell[DDGI_RAYS];
+			// where in its cell a ray is
+			shared vec2 s_inner[DDGI_RAYS];
 			shared float s_value[DDGI_GUIDE_CELLS];
 			shared float s_cdf[DDGI_GUIDE_CELLS];
 			shared float s_floor;
@@ -831,14 +833,17 @@ local function pass_guide()
 				bool guided = ddgi_guide_valid(tile, world, c);
 				bool has_history = guided && !ddgi_cascade_reset(c);
 				int cell = local.y * DDGI_GUIDE_TEXELS + local.x;
-				float previous = imageLoad(guide_atlas, tile * DDGI_GUIDE_TEXELS + local).r;
+				vec4 previous_texel = imageLoad(guide_atlas, tile * DDGI_GUIDE_TEXELS + local);
+				float previous = previous_texel.r;
 
 				for (int r = cell; r < DDGI_RAYS; r += DDGI_GUIDE_CELLS) {
 					s_ray[r] = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(r), slot, c), 0);
 					s_dir[r] = ddgi_ray(uint(r), tile, guided);
 					s_q[r] = ddgi_ray_q(s_dir[r], tile, guided);
-					ivec2 ray_cell = clamp(ivec2((oct_encode(s_dir[r]) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS)), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
+					vec2 scaled = (oct_encode(s_dir[r]) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS);
+					ivec2 ray_cell = clamp(ivec2(scaled), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
 					s_cell[r] = ray_cell.y * DDGI_GUIDE_TEXELS + ray_cell.x;
+					s_inner[r] = clamp(scaled - vec2(ray_cell), 0.0, 1.0);
 				}
 
 				barrier();
@@ -846,6 +851,10 @@ local function pass_guide()
 				float weight = 0.0;
 				float all_sum = 0.0;
 				float all_weight = 0.0;
+				// the brightest ray of the cell, and where the bright ones are in it (weighed by their luminance squared)
+				float peak = 0.0;
+				vec2 spot_sum = vec2(0.0);
+				float spot_weight = 0.0;
 
 				for (int r = 0; r < DDGI_RAYS; r++) {
 					float luma = luminance(s_ray[r].rgb);
@@ -855,6 +864,9 @@ local function pass_guide()
 					if (s_cell[r] == cell) {
 						sum += luma * s_q[r];
 						weight += s_q[r];
+						peak = max(peak, luma);
+						spot_sum += s_inner[r] * luma * luma;
+						spot_weight += luma * luma;
 					}
 				}
 
@@ -864,6 +876,23 @@ local function pass_guide()
 
 				if (weight > 0.0 && has_history) value = mix(value, previous, DDGI_GUIDE_HISTORY);
 
+				// Where the cell aims its rays and how many. A cell with a peak far above its mean (a small bright patch
+				// in it) aims at the peak, the spot follows the peaks that are found, and the share fades while none is
+				vec3 aim = has_history ? ddgi_guide_aim_stored(previous_texel.a) : vec3(0.5, 0.5, 0.0);
+
+				if (weight > 0.0) {
+					float ratio = peak / max(value, 1e-6);
+
+					if (ratio > 3.0 && spot_weight > 0.0) {
+						vec2 spot = spot_sum / spot_weight;
+						aim.xy = aim.z > 0.0 ? mix(spot, aim.xy, 0.7) : spot;
+					}
+
+					aim.z = has_history ? mix(clamp((ratio - 3.0) / 9.0, 0.0, 1.0), aim.z, 0.9) : clamp((ratio - 3.0) / 9.0, 0.0, 1.0);
+				}
+
+				uvec3 aim_bits = uvec3(aim * 255.0 + 0.5);
+				float stored_aim = float(aim_bits.x | (aim_bits.y << 8u) | (aim_bits.z << 16u));
 				s_value[cell] = value;
 				barrier();
 
@@ -888,7 +917,7 @@ local function pass_guide()
 				imageStore(
 					guide_atlas,
 					tile * DDGI_GUIDE_TEXELS + local,
-					vec4(value, (value + s_floor) / s_total, s_cdf[cell], ddgi_guide_stamp(world, c))
+					vec4(value, (value + s_floor) / s_total, cell == DDGI_GUIDE_STAMP_CELL ? ddgi_guide_stamp(world, c) : s_cdf[cell], stored_aim)
 				);
 			}
 		]],
