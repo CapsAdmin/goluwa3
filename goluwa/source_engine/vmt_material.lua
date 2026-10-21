@@ -288,7 +288,7 @@ local MICRO_DETAIL_DEFAULT_SCALE = 4
 local MICRO_DETAIL_NORMAL = 3
 local DERIVED_ROUGHNESS_METAL = 2
 local DERIVED_SPECULAR_CAVITY = 0.8
-local DERIVED_SPECULAR_CAVITY = 0.8
+local METAL_ROUGHNESS_BIAS = 0.25
 local PARALLAX_DEFAULT_SCALE = 0.025
 local PARALLAX_DEFAULT_CENTER = 0.5
 local on_load_vmt
@@ -384,11 +384,19 @@ do
 		end
 	end
 
+	local function set_estimated_metal(self, metal)
+		self:SetMetallicMultiplier(metal)
+
+		if metal > 0 and not self:HasExplicitRoughnessTexture() then
+			self:SetRoughnessMultiplier(math.lerp(METAL_ROUGHNESS_BIAS, self.RoughnessMultiplier, 1))
+		end
+	end
+
 	local function apply_envmap_metal(self, ctx, phong_metal, envmap_metal, tint_colored)
 		local albedo = self:GetAlbedoTexture()
 
 		if FEATURES.metal_gate and ctx.family and ctx.family ~= "metal" then
-			self:SetMetallicMultiplier(phong_metal)
+			set_estimated_metal(self, phong_metal)
 			return
 		end
 
@@ -400,11 +408,11 @@ do
 		end
 
 		if envmap_metal <= 0 or tint_colored or not FEATURES.metal_gate or not albedo then
-			self:SetMetallicMultiplier(math.max(phong_metal, envmap_metal))
+			set_estimated_metal(self, math.max(phong_metal, envmap_metal))
 			return
 		end
 
-		self:SetMetallicMultiplier(phong_metal)
+		set_estimated_metal(self, phong_metal)
 		local generation = self.vmt_generation
 
 		albedo:AddOnReady(function(texture)
@@ -427,7 +435,13 @@ do
 					)
 			end
 
-			self:SetMetallicMultiplier(math.max(phong_metal, envmap_metal * gate))
+			local metal = math.max(phong_metal, envmap_metal * gate)
+
+			if phong_metal > 0 then
+				self:SetMetallicMultiplier(metal)
+			else
+				set_estimated_metal(self, metal)
+			end
 		end)
 	end
 
@@ -552,7 +566,9 @@ do
 		if vmt.mraotexture then
 			local metallic, roughness, occlusion = 1, 1, 1
 
-			if vmt.mraoscale then metallic, roughness, occlusion = get_rgb(vmt.mraoscale) end
+			if vmt.mraoscale then
+				metallic, roughness, occlusion = get_rgb(vmt.mraoscale)
+			end
 
 			self:SetMetallicRoughnessTexture(ctx.linear(vmt.mraotexture))
 			self:SetMetallicRoughnessIsMRAO(true)
@@ -630,7 +646,7 @@ do
 		end
 
 		self:SetRoughnessMultiplier(roughness)
-		self:SetMetallicMultiplier(pbr[2] > 0.5 and vmt.translucent ~= 1 and vmt.additive ~= 1 and 1.0 or 0.0)
+		set_estimated_metal(self, pbr[2] > 0.5 and vmt.translucent ~= 1 and vmt.additive ~= 1 and 1.0 or 0.0)
 	end
 
 	local function apply_derived_roughness(self)
