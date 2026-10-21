@@ -3,6 +3,9 @@ local network = import("goluwa/network/network.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local use = import("goluwa/entities/use.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
+local system = import("goluwa/system.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("weapon_holder")
 
 function META:Initialize()
@@ -73,6 +76,53 @@ function META:Give(weapon_name)
 	return weapon
 end
 
+function META:Pickup(weapon)
+	local owner = self.Owner
+
+	for _, held in ipairs(self:GetWeapons()) do
+		if held:GetName() == weapon:GetName() then return false end
+	end
+
+	weapon.transform:SetPosition(Vec3())
+	weapon.transform:SetRotation(Quat():Identity())
+
+	if owner.network and weapon.network then
+		weapon.network:SetNetworkOwner(owner.network:GetNetworkOwner())
+	end
+
+	owner:AddChild(weapon)
+
+	if not self:GetActiveWeapon() then self:Select(weapon) end
+
+	return true
+end
+
+function META:Drop(weapon)
+	local owner = self.Owner
+	local forward = owner.player_controller.cmd.view:GetForward()
+
+	if weapon.weapon:IsActive() then
+		weapon.weapon:SetActive(false)
+		weapon:CallLocalEvent("OnWeaponHolster")
+	end
+
+	local position = owner.transform:GetPosition() + owner.player_movement:GetViewOffset() + forward * 0.6
+	weapon:UnParent()
+	weapon.transform:SetPosition(position)
+	weapon.transform:SetRotation(owner.player_controller.cmd.view:Copy())
+	weapon.weapon.pickup_time = system.GetElapsedTime() + weapon.weapon.PickupDelay
+
+	if weapon.network then weapon.network:SetNetworkOwner("") end
+
+	weapon.rigid_body:SetVelocity(forward * 6)
+
+	if not self:GetActiveWeapon() then
+		local weapons = self:GetWeapons()
+
+		if weapons[1] then self:Select(weapons[1]) end
+	end
+end
+
 function META:GiveLoadout()
 	for _, name in ipairs(import("lua/weapons.lua").Loadout) do
 		self:Give(name)
@@ -126,6 +176,15 @@ function META:OnPhysicsUpdate(dt)
 	end
 
 	local weapon = self:GetActiveWeapon()
+
+	if
+		weapon and
+		usercmd.WasPressed(cmd, usercmd.BUTTON.DROP) and
+		usercmd.HasButton(cmd, usercmd.BUTTON.ACTIVE)
+	then
+		self:Drop(weapon)
+		return
+	end
 
 	if weapon then weapon.weapon:Think(dt, cmd) end
 end

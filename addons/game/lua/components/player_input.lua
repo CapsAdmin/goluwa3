@@ -195,6 +195,8 @@ function META:BuildCommand(cmd)
 		if input.IsKeyDown("e") and not self.Owner.player_controller:IsHolding() then
 			buttons = bit.bor(buttons, BUTTON.USE)
 		end
+
+		if input.IsKeyDown("b") then buttons = bit.bor(buttons, BUTTON.DROP) end
 	end
 
 	cmd.buttons = buttons

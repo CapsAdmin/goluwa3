@@ -99,6 +99,8 @@ local function make_npc_entries()
 end
 
 function spawnmenu.Spawn(entry)
+	local position, yaw = get_aim()
+
 	if entry.kind == "weapon" then
 		local holder = _G.PLAYER_RIG.weapon_holder
 
@@ -106,10 +108,11 @@ function spawnmenu.Spawn(entry)
 			if weapon:GetName() == entry.spawn_name then return holder:Select(weapon) end
 		end
 
-		return holder:Select(holder:Give(entry.spawn_name))
+		local weapon = weapons.Spawn(entry.spawn_name, position + Vec3(0, 0.3, 0), QuatFromAxis(yaw, Vec3(0, 1, 0)))
+		weapon:SetOwnedBy(clients.GetLocalClient())
+		game_history.RecordSpawn("spawn " .. entry.spawn_name, weapon)
+		return weapon
 	end
-
-	local position, yaw = get_aim()
 
 	if entry.kind == "npc" then
 		local npc = npcs.Spawn(entry.spawn_name, position, yaw)

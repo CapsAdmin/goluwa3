@@ -7,7 +7,7 @@ local BLUE = {Color = Color(0.1, 0.35, 1, 1), Roughness = 0.4, Metallic = 0.3}
 local box = nodes.Box
 local muzzle = nodes.Muzzle
 return {
-	Values = {Slot = 1, DisplayName = "Physgun"},
+	Values = {WorldSize = Vec3(0.12, 0.2, 0.7), WorldCenter = FORWARD * 0.32, Slot = 1, DisplayName = "Physgun"},
 	Nodes = {
 		box("body", Vec3(0.1, 0.1, 0.36), FORWARD * 0.32, METAL),
 		box("coil", Vec3(0.12, 0.05, 0.2), FORWARD * 0.28 + Vec3(0, 0.07, 0), BLUE),

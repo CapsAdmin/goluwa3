@@ -7,7 +7,7 @@ local GRIP = {Color = Color(0.3, 0.2, 0.12, 1), Roughness = 0.8, Metallic = 0}
 local box = nodes.Box
 local muzzle = nodes.Muzzle
 return {
-	Values = {Slot = 2, DisplayName = "Pistol", FireRate = 0.25},
+	Values = {WorldSize = Vec3(0.06, 0.2, 0.36), WorldCenter = FORWARD * 0.24, Slot = 2, DisplayName = "Pistol", FireRate = 0.25},
 	Nodes = {
 		box("barrel", Vec3(0.055, 0.07, 0.34), FORWARD * 0.29 + Vec3(0, 0.03, 0), DARK_METAL),
 		box("muzzle_block", Vec3(0.04, 0.04, 0.12), FORWARD * 0.4 - Vec3(0, 0.01, 0), DARK_METAL),

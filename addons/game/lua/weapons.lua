@@ -1,4 +1,5 @@
 local prefab = import("goluwa/entities/prefab.lua")
+local Entity = import("goluwa/entities/entity.lua")
 local weapons = {}
 weapons.Definitions = {}
 
@@ -19,6 +20,15 @@ function weapons.Register(name, values, nodes, source)
 	end
 
 	prefab.Register(name, {inputs = {}, entities = entities}).builtin = true
+end
+
+function weapons.Spawn(name, position, rotation)
+	return Entity.New{
+		Name = name,
+		transform = {Position = position, Rotation = rotation},
+		network = SERVER and {} or nil,
+		prefab = {Path = name},
+	}
 end
 
 function weapons.GetNames()
