@@ -145,7 +145,9 @@ function source_engine.FindChain(name, path)
 end
 
 function source_engine.SpawnChain(name, path)
-	local chain = source_engine.FindChain(name, path)
+	local chain = game.chain_levels_pvar:Get() and
+		source_engine.FindChain(name, path) or
+		{{name = name, path = path, offset = Vec3(0, 0, 0)}}
 
 	for i, entry in ipairs(chain) do
 		startup.Begin("bsp load")

@@ -1,4 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -13,10 +14,19 @@ local Column = react.Element(import("goluwa/render2d/ui/elements/column.lua"))
 local Row = react.Element(import("goluwa/render2d/ui/elements/row.lua"))
 local Text = react.Element(import("goluwa/render2d/ui/elements/text.lua"))
 local TextEdit = react.Element(import("goluwa/render2d/ui/elements/text_edit.lua"))
+local Checkbox = react.Element(import("goluwa/render2d/ui/elements/checkbox.lua"))
+local Breadcrumb = react.Element(import("goluwa/render2d/ui/widgets/breadcrumb.lua"))
 local ErrorBoundary = react.ErrorBoundary
 local LABEL_HEIGHT = 40
 local ALL_GAMES = {name = "All games", all = true}
 local ALL_KEY = "all"
+pvars.StartGroup("Engine", "Load window", {prefix = "load_"})
+local group_maps_pvar = pvars.Setup2{
+	key = "load_group_maps",
+	default = true,
+	help = "group the maps of the load window by name prefix",
+}
+local chain_levels_pvar = import("goluwa/source_engine/game.lua").chain_levels_pvar
 local HINT = "double click a map to load it, mounting a game lists the maps it keeps in packages"
 local textures = {}
 local colors = {}
@@ -167,7 +177,10 @@ local function draw_map(map, index, x, y, w, h, selected, hovered)
 	)
 	draw_text(
 		colors.font_small,
-		colors.font_small:ElideText(map.game_name, w - inset * 2),
+		colors.font_small:ElideText(
+			map.group and (#map.maps .. " maps, " .. map.game_name) or map.game_name,
+			w - inset * 2
+		),
 		x + inset,
 		y + h - LABEL_HEIGHT + 18,
 		colors.text_disabled
@@ -200,6 +213,38 @@ local function load_data()
 	return {games = items, by_key = by_key, maps = maps}
 end
 
+local function group_maps(maps)
+	local groups = {}
+	local counts = {}
+
+	for _, map in ipairs(maps) do
+		local prefix = map.name:match("^(.-)_?%d+%a*$")
+		map.group_key = prefix and prefix ~= "" and (map.engine .. tostring(map.game) .. prefix)
+		counts[map.group_key or 0] = (counts[map.group_key or 0] or 0) + 1
+	end
+
+	local items = {}
+
+	for _, map in ipairs(maps) do
+		if not map.group_key or counts[map.group_key] < 2 then
+			items[#items + 1] = map
+		elseif not groups[map.group_key] then
+			local group = table.shallow_copy(map)
+			group.name = map.name:match("^(.-)_?%d+%a*$")
+			group.group = true
+			group.maps = {}
+			groups[map.group_key] = group
+			items[#items + 1] = group
+		end
+
+		if groups[map.group_key] then
+			list.insert(groups[map.group_key].maps, map)
+		end
+	end
+
+	return items
+end
+
 local function load_error(err, reset)
 	return Column{
 		layout = {
@@ -221,6 +266,9 @@ local LoadView = react.Component(
 		local query, set_query = react.UseState("")
 		local game_key, set_game_key = react.UseState(ALL_KEY)
 		local selected_map, set_selected_map = react.UseState()
+		local group_enabled, set_group_enabled = react.UseState(group_maps_pvar:Get())
+		local chain_levels, set_chain_levels = react.UseState(chain_levels_pvar:Get())
+		local open_group, set_open_group = react.UseState()
 		local selected_game = data.by_key[game_key] ?? ALL_GAMES
 		local maps = react.UseMemo(
 			||-> do
@@ -245,9 +293,13 @@ local LoadView = react.Component(
 					end
 				end
 
-				return shown
+				if not group_enabled or query ~= "" then return shown end
+
+				if open_group then return open_group.maps end
+
+				return group_maps(shown)
 			end,
-			{data, selected_game, query}
+			{data, selected_game, query, group_enabled, open_group}
 		)
 		local map = selected_map and list.has_value(maps, selected_map) ? selected_map : nil
 		local input_height = theme.active:GetInputHeight("M")
@@ -265,6 +317,13 @@ local LoadView = react.Component(
 		end
 
 		local function load_map(target)
+			if target.group then
+				set_open_group(target)
+				set_selected_map(nil)
+
+				return
+			end
+
 			engines.LoadMap(target)
 			props.OnLoad()
 		end
@@ -280,16 +339,36 @@ local LoadView = react.Component(
 						Size = Vec2(0, input_height),
 						MinSize = Vec2(160, input_height),
 						MaxSize = Vec2(0, input_height),
-						OnTextChanged = |_,text|->set_query(text:lower()),
+						OnTextChanged = |_,text|-> do
+							set_query(text:lower())
+							set_open_group(nil)
+						end,
 						layout = {GrowWidth = 1},
 					},
 					Text{
-						Text = #maps .. " maps",
+						Text = #maps .. (open_group and " maps in group" or " maps"),
 						Color = "text_disabled",
 						layout = {FitWidth = true, MinSize = Vec2(80, 0)},
 					},
+					Checkbox{
+						Text = "Group",
+						Value = group_enabled,
+						OnChange = |value|-> do
+							group_maps_pvar:Set(value)
+							set_group_enabled(value)
+							set_open_group(nil)
+						end,
+					},
+					Checkbox{
+						Text = "Chain levels",
+						Value = chain_levels,
+						OnChange = |value|-> do
+							chain_levels_pvar:Set(value)
+							set_chain_levels(value)
+						end,
+					},
 					Button{
-						Text = "Load",
+						Text = (map and map.group) ? "Open" : "Load",
 						Icon = "play",
 						Disabled = map == nil,
 						OnClick = ||->load_map(map),
@@ -321,12 +400,28 @@ local LoadView = react.Component(
 							Items = data.games,
 							SelectedItem = selected_game,
 							OnDrawItem = draw_game,
-							OnSelect = |game|->set_game_key(game_key_of(game)),
+							OnSelect = |game|-> do
+								set_game_key(game_key_of(game))
+								set_open_group(nil)
+							end,
 							OnActivate = toggle_mount,
 							layout = {GrowWidth = 1, GrowHeight = 1},
 						},
 					},
-					VirtualGrid{
+					Column{
+						layout = {
+							GrowWidth = 1,
+							GrowHeight = 1,
+							FitHeight = false,
+							AlignmentX = "stretch",
+							ChildGap = 4,
+						},
+					}{
+						(group_enabled and query == "") ? Breadcrumb{
+							Items = open_group and {"Maps", open_group.name} or {"Maps"},
+							OnSelect = ||->set_open_group(nil),
+						} : nil,
+						VirtualGrid{
 						CellWidth = 170,
 						CellAspect = 0.5625,
 						ExtraHeight = LABEL_HEIGHT + 4,
@@ -338,6 +433,7 @@ local LoadView = react.Component(
 						OnSelect = |selected|->set_selected_map(selected),
 						OnActivate = load_map,
 						layout = {GrowWidth = 1, GrowHeight = 1},
+						},
 					},
 				},
 				Text{Text = HINT, Color = "text_disabled", layout = {GrowWidth = 1}},
