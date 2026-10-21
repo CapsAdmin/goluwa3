@@ -2,10 +2,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
--- what the passes that light a medium (the froxel fog, the particles) share: the primary sun out of the lights block,
--- writing that block, and the local lights' scattering. They need scene_lights.GetLightGLSLCode, the light grid and
--- light_occlusion.GetSamplingGLSL, atmosphere.GetGLSLDefines and directional_shadows.GetMediumDirectionalShadowGLSL
--- in front of them
 local medium_lighting = {}
 
 function medium_lighting.GetSunHelpersGLSL(data_block)
@@ -47,9 +43,6 @@ function medium_lighting.WriteLightsBlock(self, block)
 	return lights
 end
 
--- get_local_light_scattering(ray_dir, world_pos, g): the light of the local lights (not the sun) around world_pos
--- that a medium there scatters along ray_dir (the direction from the viewer), with a Henyey-Greenstein phase of
--- asymmetry g. At most limit lights are counted
 function medium_lighting.GetLocalLightsGLSL(data_block, limit)
 	return [[
 		float calculateLocalDirectionalMediumShadow(vec3 world_pos, vec3 light_dir) {
@@ -91,7 +84,6 @@ function medium_lighting.GetLocalLightsGLSL(data_block, limit)
 				if (occlusion <= 0.0) continue;
 
 				processed++;
-				// a soft core in the air for lights with a glow radius, so they glow instead of showing a hot spot
 				float core_falloff = get_light_falloff(light, length(light.position.xyz - world_pos));
 				attenuation *= core_falloff / max(core_falloff + light.falloff.w * light.falloff.w, 0.0001);
 				float shadow = 1.0;

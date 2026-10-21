@@ -110,7 +110,6 @@ function chatbox.AddText(...)
 	end
 end
 
--- the chat log and the input, mounted while the chat is open. The autocomplete list floats over everything and needs the input as its Target, so the input is held in state and the list goes into the world through a portal
 local ChatWindow = react.Component(|| -> do
 	local edit, set_edit = react.UseState()
 
@@ -165,7 +164,6 @@ local ChatWindow = react.Component(|| -> do
 		edit && react.Portal{Target = Panel.World}{ui.AutocompleteList{Target = edit, Transparent = true}},
 	}
 end)
--- made when the chat is first opened, it is shown and hidden with an event so that hiding it from a key handler of the input unmounts after the handler has returned
 local ChatRoot = react.Component(|| -> do
 	local open, set_open = react.UseState(false)
 

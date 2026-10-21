@@ -2,8 +2,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local geometry_block = {}
 
--- the per frame uniform block of a pass that draws geometry into the gbuffer: the camera, the
--- previous frame's camera and the weather, plus the pass's own fields. write_extra fills those
 function geometry_block.New(name, fields, write_extra)
 	return {
 		name = name,

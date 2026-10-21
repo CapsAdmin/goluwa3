@@ -6,7 +6,6 @@ local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
--- a prefab is a tree of entity records plus inputs, each input pushes its value into properties of the nodes it targets
 prefab.Register(
 	"glow_box",
 	{
@@ -18,7 +17,6 @@ prefab.Register(
 				Targets = {{Node = "root", Component = "model", Property = "ModelOptions", Key = "size"}},
 			},
 			{
-				-- one input, two targets: the color of the light and of the bulb it sits in
 				Name = "Glow",
 				Type = "color",
 				Default = Color(1, 0.6, 0.2, 1),

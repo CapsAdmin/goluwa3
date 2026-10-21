@@ -1,20 +1,8 @@
--- scatter sets of the procedural foliage, for materials and terrains to have as their ScatterSet (see
--- goluwa/render3d/scatter_set.lua). they need nothing installed. returns them by name:
---
---   foliage_meadow: grass, flowers, a few rocks, bushes and lone oaks and birches, for flat green ground
---   foliage_forest: pines, oaks and birches over ferns, leaf litter, logs, stumps, mushrooms and mossy rocks
---   foliage_tropical: palms over bushes, ferns, long grass and flowers
---   foliage_rocky: dry grass, scree, crags, slabs, junipers and dead trees, for stony ground
---   foliage_wetland: reeds, tussocks, willows and birches by the water
---
--- the layers of each prototype are for a terrain whose first layer is the grass, the second dirt, the third rock and
--- the fourth snow or sand, like the Crysis presets
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local foliage = import("lua/foliage/foliage.lua")
 local sets = {}
 local GREEN = {0.75, 1.1, 0.6}
 local DRY = {1.4, 1.1, 0.6}
--- what kind of thing a prototype is, the classes are the defaults and the calls the exceptions
 local classes = {
 	ground_cover = {
 		conform = true,

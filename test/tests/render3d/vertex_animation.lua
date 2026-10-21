@@ -23,11 +23,9 @@ T.Test3D("vertex animation motion is what the wind moves a plant, in units of th
 		model_pipeline.FillVertexAnimationData(block, tree)
 		local motion = block.Motion
 		T(motion)[">"](0)
-		-- twice the pixels it takes to stand still, half the movement in those units
 		pvars.SetSession("r_wind_still_pixels", 4)
 		model_pipeline.FillVertexAnimationData(block, tree)
 		T(block.Motion)["=="](motion / 2)
-		-- the flutter alone moves it, and more in a stronger wind
 		local leaves = Material.New{DetailBending = "leaves"}
 		model_pipeline.FillVertexAnimationData(block, leaves)
 		local flutter = block.Motion
@@ -35,10 +33,8 @@ T.Test3D("vertex animation motion is what the wind moves a plant, in units of th
 		atmosphere.SetWind(Vec3(20, 0, 0))
 		model_pipeline.FillVertexAnimationData(block, leaves)
 		T(block.Motion)[">"](flutter)
-		-- what the wind does not move never stands still
 		model_pipeline.FillVertexAnimationData(block, Material.New())
 		T(block.Motion)["=="](0)
-		-- 0 pixels turns standing still off, however little it moves
 		pvars.SetSession("r_wind_still_pixels", 0)
 		model_pipeline.FillVertexAnimationData(block, tree)
 		T(block.Motion)["=="](1e9)
@@ -70,7 +66,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local HEIGHT = 20
 
--- a plate as tall as its bend height, standing on the origin
 local function create_plate()
 	local polygon = Polygon3D.New()
 	local normal = Vec3(0, 0, 1)
@@ -86,7 +81,6 @@ local function create_plate()
 	return polygon
 end
 
--- the pixels the plate covers at a distance with the wind's clock at a time
 local function cover(draw, polygon, material, distance, elapsed)
 	local camera = render3d.GetCamera()
 	camera:SetFOV(math.rad(90))
@@ -156,7 +150,6 @@ T.Test3D("vertex animation moves a plant that is near and leaves one that is far
 	local ok, err = pcall(function()
 		atmosphere.SetWind(Vec3(10, 0, 0))
 		pvars.SetSession("r_wind_still_pixels", 2)
-		-- where the plate's movement spans 4 and then 0.3 times the pixels it takes to stand still
 		local block = Block()
 		render3d.SetCurrentPolygon3D(polygon)
 		model_pipeline.FillVertexAnimationData(block, material)
@@ -171,7 +164,6 @@ T.Test3D("vertex animation moves a plant that is near and leaves one that is far
 		T(moving_count)[">"](20)
 		T(differing(moving, moving_later))[">"](4)
 		T(differing(still, still_later))["=="](0)
-		-- and with standing still off the far plate moves like the near one
 		pvars.SetSession("r_wind_still_pixels", 0)
 		local free = cover(draw, polygon, material, far, 1000)
 		local free_later = cover(draw, polygon, material, far, 1003)

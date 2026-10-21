@@ -38,7 +38,6 @@ return {
 			void main() {
 				ivec2 pixel = ivec2(gl_FragCoord.xy);
 				vec4 bounce_ao = texelFetch(TEXTURE(debug_data.ao_tex), pixel, 0);
-				// bounce light lit by a thirtieth of the sun's illuminance reads as a mid grey
 				float reference = 0.03 * debug_data.primary_sun_illuminance;
 				vec3 shown;
 

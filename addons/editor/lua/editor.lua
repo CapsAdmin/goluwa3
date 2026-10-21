@@ -41,7 +41,6 @@ local picker = import("lua/picker.lua")
 local editor_history = import("lua/editor_history.lua")
 local HistoryPanel = import("lua/history_panel.lua")
 local history = editor_history.history
--- the order the components of an entity are listed in the property editor, the rest follows alphabetically
 local COMPONENT_ORDER = {
 	"prefab",
 	"script",
@@ -130,7 +129,6 @@ local function can_edit_components(entity)
 	return entity ~= Entity.World and entity ~= Panel.World and not entity:GetSingleton()
 end
 
--- h is what the editor hands to its menus: the actions and the state they depend on (h.f)
 local function make_menu_items(h)
 	local f = h.f
 
@@ -480,7 +478,6 @@ local function open_node_menu(node, h)
 	return true
 end
 
--- a button that floats over a corner of another panel and follows it
 local CornerButton = react.Component(|props| -> do
 	local button = react.UseRef()
 
@@ -496,7 +493,6 @@ local CornerButton = react.Component(|props| -> do
 		)
 	end
 
-	-- in place before the first frame, then it follows the panel when the window moves or resizes
 	react.UseLayoutEffect(follow, {})
 	react.UseEvent("Update", follow)
 
@@ -528,7 +524,6 @@ local Editor = react.Component(|props| -> do
 	local picking = react.UsePoll(picker.IsActive)
 	local size = react.UseMemo(|| -> Vec2(400, Panel.World.transform:GetSize().y), {})
 	local view = react.UseResource(|| -> View.New{Priority = 10}:Activate(), |view| -> view:Remove(), {})
-	-- the actions of the editor, they keep their identity and read the state that changes through h.f
 	local h = react.UseMemo(|| -> do
 		local f = flags.current
 		local h = {f = f, tree = tree}
@@ -540,7 +535,6 @@ local Editor = react.Component(|props| -> do
 			tree.current:Refresh(true)
 		end
 
-		-- what is inside an instance is only visible while that instance is edited, anything else selects the instance
 		function h.resolve_target(target)
 			local editing = f.stack[#f.stack]
 			local stop = editing and editing.prefab or nil
@@ -599,7 +593,6 @@ local Editor = react.Component(|props| -> do
 			}
 		end
 
-		-- the entity that was cut stays where it is until it is pasted so it can be taken across prefab mode and the scene
 		function h.can_cut(entity)
 			return can_edit_components(entity) and entity ~= f.stack[#f.stack]
 		end
@@ -648,7 +641,6 @@ local Editor = react.Component(|props| -> do
 			h.set_selected_target(entity)
 		end
 
-		-- prefab mode: the instances whose definition is edited, the last one is the one the tree is rooted on
 		function h.set_stack(stack)
 			f.stack = stack
 			set_edit_stack(stack)
@@ -832,7 +824,6 @@ local Editor = react.Component(|props| -> do
 
 	react.UseEffect(|| -> tree.current:SetSearch(applied_search), {applied_search})
 
-	-- the properties of what is selected, rebuilding them again is for a change that is not a value that was edited (that would drop the control that is being dragged)
 	react.UseEffect(|| -> do
 		local target = tree.current:GetSelectedEntity()
 
@@ -923,7 +914,6 @@ local Editor = react.Component(|props| -> do
 		end
 	end, {})
 
-	-- the window is what the desktop program drives, the tree scrolls to the selected entity so it needs the layout
 	react.UseLayoutEffect(|| -> do
 		local entity = window.current
 

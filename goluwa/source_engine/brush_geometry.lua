@@ -2,8 +2,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local brush_geometry = {}
 local EXTENT = 131072
 
--- planes is a list of {normal = Vec3, dist = number} with outward normals. Returns the polygon of
--- planes[side_index] clipped by all other planes, wound clockwise as seen from the front (Source winding).
 function brush_geometry.ClipSide(planes, side_index)
 	local plane = planes[side_index]
 	local normal = plane.normal

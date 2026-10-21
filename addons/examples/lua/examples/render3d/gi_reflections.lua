@@ -398,7 +398,6 @@ end
 do
 	local cx, cz, half, h = -40, -100, 4, 5
 
-	-- six single quads facing into the room, so only the inside faces are drawn and the sun has no wall thickness to hide behind
 	local function plane(name, position, normal, size_x, size_y)
 		shapes.Polygon{
 			Name = name,
@@ -451,7 +450,6 @@ do
 		return seed / 2147483647
 	end
 
-	-- each surface: center, the two tangent half extents, and the axis the emitter is thin along
 	local surfaces = {
 		{pos = Vec3(cx, 0.1, cz), u = w / 2, v = d / 2, axis = "y", sign = 1},
 		{pos = Vec3(cx, inner_y, cz), u = w / 2, v = d / 2, axis = "y", sign = -1},
@@ -488,7 +486,6 @@ do
 end
 
 do
-	-- dimensions and reflectances are from the original Cornell box data (552.8 x 548.8 x 559.2), scaled by k
 	local cx, cz, k, t = 40, -100, 0.012, 0.4
 	local w, h, d = 552.8 * k, 548.8 * k, 559.2 * k
 	local cornell_white = mat(Color(0.725, 0.71, 0.68, 1), 1)

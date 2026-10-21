@@ -195,7 +195,6 @@ function render3d.GetEnvironment()
 	return context_value("environment", nil)
 end
 
--- an environment with a map shows it as the sky, one without, the studio, only has its probe
 function render3d.IsSkyFromProbe()
 	local environment = render3d.GetEnvironment()
 	return environment ~= nil and environment:GetSourceTexture() == nil
@@ -384,8 +383,6 @@ function render3d.GetNoisePhase()
 	return 0
 end
 
--- what a pass that varies its sampling from frame to frame goes by. without a temporal anti aliasing mode
--- nothing resolves the variation, so it shows as pixels that crawl, and the sampling is held still
 function render3d.GetTemporalFrame()
 	if render3d.IsTemporalAntiAliasingEnabled() then
 		return system.GetFrameNumber()
@@ -490,8 +487,6 @@ function render3d.CreatePipelineBundle(options)
 	return bundle
 end
 
--- rebuilds the pipelines in the same tables so contexts and callers holding them stay valid,
--- the old ones keep running if the new ones fail to build (a shader that does not compile)
 function render3d.RebuildPipelineBundle(bundle)
 	local fresh = {
 		pipelines = {},
@@ -522,7 +517,6 @@ function render3d.RebuildPipelineBundle(bundle)
 		bundle.pipelines_i[i] = pipeline
 	end
 
-	-- every pipeline makes anonymous ffi structs and luajit only has room for so many
 	collectgarbage()
 end
 
@@ -592,7 +586,6 @@ function render3d.Initialize(config)
 	local startup_pass_names = table.weak("k")
 	local Visual = import("goluwa/entities/components/visual.lua").Library
 
-	-- the shadow maps record before the frame begins, their first pass would cull with the matrices of the last frame
 	event.AddListener(
 		"PreFrame",
 		"render3d_scene",

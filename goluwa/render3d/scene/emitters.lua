@@ -13,11 +13,7 @@ local EMITTER_WORDS = 4
 local HEADER_WORDS = 2
 local SCAN_SIZE = 256
 emitters.EMITTER_WORDS = EMITTER_WORDS
--- count is the number of triangles that can emit, the gpu gives the ones of no power (hidden, removed, degenerate) none of
--- the cdf
 local list = {count = 0, version = -1}
--- an emissive instance as the gpu reads it: the first of its triangles in the list, the instance, how many triangles it
--- has, the double sided bit and the luminance of what it emits
 local Source = ffi.typeof([[struct {
 	uint32_t first;
 	uint32_t instance;
@@ -31,9 +27,6 @@ local words_buffer
 local sums_base = 0
 local built_frame = -1
 
--- the emissive instances of level 0 and the number of triangles they have: all that is left for the cpu to do, the
--- triangles are read and weighed by their power on the gpu, in the world the instance's record puts them in, so a moving
--- emitter costs nothing here. this changes when an emissive instance appears, goes or changes its material
 function emitters.Get(include_additive)
 	if list.version == bridge.emitter_version and list.additive == include_additive then
 		return list
@@ -99,7 +92,6 @@ do
 			layout(scalar, set = 0, binding = 5) buffer EmitterWords { uint words[]; };
 			shared float scan_data[]] .. SCAN_SIZE .. [[];
 
-			// the inclusive sum of v over the workgroup
 			float block_scan(uint lid, float v) {
 				scan_data[lid] = v;
 				barrier();
@@ -152,7 +144,6 @@ do
 		end
 
 		pipelines = {
-			-- the power of every triangle, and the sum of it over each workgroup
 			power = create(
 				"scene_emitter_power",
 				[[
@@ -199,7 +190,6 @@ do
 				}
 			]]
 			),
-			-- the sums of the workgroups, summed in order
 			blocks = create(
 				"scene_emitter_blocks",
 				[[
@@ -221,7 +211,6 @@ do
 				}
 			]]
 			),
-			-- the cdf: the sum up to a triangle over the total, which goes in the header
 			cdf = create(
 				"scene_emitter_cdf",
 				[[
@@ -273,9 +262,6 @@ do
 		end
 	end
 
-	-- the emitter words of this frame, in a buffer the gpu fills: 0 total power (float), 1 count, then 4 words per
-	-- triangle: the instance, the primitive (and the double sided bit), the cdf over all of them (float), the power
-	-- (float). the sums of the workgroups follow them. recorded once a frame, after the instances are up to date
 	function emitters.Build(cmd, include_additive)
 		local frame = system.GetFrameNumber()
 		local emitter_list = emitters.Get(include_additive)
@@ -337,7 +323,6 @@ do
 		local slot = ((render.GetCurrentFrame() or 1) - 1) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 		local buffers = {sources_buffer, words_buffer}
 
-		-- the frames in flight read the words, the tables are written by the copies and passes before this
 		cmd:PipelineBarrier{
 			srcStage = {"host", "transfer", "compute", "acceleration_structure_build_khr", "ray_tracing_shader_khr"},
 			dstStage = "compute",
@@ -370,7 +355,6 @@ do
 		return words_buffer
 	end
 
-	-- a buffer to bind while there is nothing to build
 	function emitters.GetBuffer()
 		if not words_buffer then
 			words_buffer = render.CreateBuffer{
@@ -385,7 +369,6 @@ do
 	end
 end
 
--- the header the gpu built: the total power and the count. it stalls until the gpu is done, for tests
 function emitters.ReadBackHeader()
 	local data = store.Download(words_buffer, HEADER_WORDS * 4)
 	return ffi.cast("float*", data)[0], ffi.cast("uint32_t*", data)[1]

@@ -35,7 +35,6 @@ local function create_mesh_entity(mesh)
 	return entity
 end
 
--- a corridor along x and a second one along z from the end of it
 local function create_bend()
 	local mesh = navmesh.New()
 	local a = rectangle(mesh, 1, 0, 0, 10, 3)
@@ -107,7 +106,6 @@ T.TestPhysics("npc has a body and walks the path to a goal around a bend", funct
 	T(math.abs(position.x - 8.5) < 0.6)["=="](true)
 	T(math.abs(position.z - 12) < 0.6)["=="](true)
 	T(entity.rigid_body:GetGrounded())["=="](true)
-	-- the path turns at the end of the corridor, it never went into the wall
 	T(position.x > 6.5)["=="](true)
 end)
 
@@ -150,7 +148,6 @@ end)
 T.TestPhysics("npc goes around an area it cannot get through", function()
 	create_ground()
 	local mesh = navmesh.New()
-	-- two routes to the goal, the short one is closed by a wall the mesh does not know about
 	local start = rectangle(mesh, 1, 0, 0, 4, 4)
 	local north = rectangle(mesh, 2, 4, 0, 8, 4)
 	local goal = rectangle(mesh, 3, 8, 0, 12, 4)

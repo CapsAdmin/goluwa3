@@ -14,7 +14,6 @@ local VkPipelineColorBlendAttachmentStateArray = ffi.typeof("$[?]", vulkan.vk.Vk
 local VkGraphicsPipelineCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkGraphicsPipelineCreateInfo)
 local VkPipelineBox = ffi.typeof("$[1]", vulkan.vk.VkPipeline)
 
--- the job source loads these back into pointers
 local function address(pointer)
 	return tostring(ffi.cast("uint64_t", ffi.cast("uintptr_t", pointer)))
 end
@@ -401,7 +400,6 @@ function GraphicsPipeline:Wait()
 end
 
 function GraphicsPipeline:OnRemove()
-	-- a job that never ran leaves no pipeline to destroy
 	pcall(self.Wait, self)
 
 	if self.device:IsValid() then

@@ -39,7 +39,6 @@ local function restore()
 	}
 end
 
--- every draw is a step of the simulation
 local function step(draw, count)
 	for _ = 1, count do
 		system.SetElapsedTime(system.GetElapsedTime() + STEP)
@@ -77,7 +76,6 @@ T.Test3D("Graphics render3d particles snow falls through a box around the camera
 				if luma(p) > 0 then lit = lit + 1 end
 			end
 
-			-- what did not wrap or respawn this step moved along its velocity
 			local b = before[i]
 			local dy = p.position[1] - b.position[1]
 
@@ -103,7 +101,6 @@ T.Test3D("Graphics render3d particles pick up the light of a lamp", function(dra
 	init()
 	local lamp
 	local ok, err = pcall(function()
-		-- the sun far below the horizon, so what lights the flakes is the lamp and the night sky
 		weather.SetSunDirection(Vec3(0.3, -1, 0.2):GetNormalized())
 		render3d.GetCamera():SetPosition(Vec3(0, 20, 0))
 		lamp = Entity.New{Name = "particle_lamp"}
@@ -124,7 +121,6 @@ T.Test3D("Graphics render3d particles pick up the light of a lamp", function(dra
 			if p.visibility > 0 then
 				local distance = math.sqrt((p.position[0] - 4) ^ 2 + (p.position[1] - 20) ^ 2 + p.position[2] ^ 2)
 
-				-- the lamp scatters forward, a flake lit from behind (seen against the lamp) is bright
 				local behind = (4 - p.position[0]) / math.max(distance, 1e-4)
 
 				if distance < 2 and behind > 0.9 then
@@ -164,7 +160,6 @@ T.Test3D("Graphics render3d particles do nothing without precipitation", functio
 	if not ok then error(err, 0) end
 end)
 
--- an emitter component at position whose up is turned to direction
 local function add_emitter(component, position, direction)
 	local entity = Entity.New{Name = "test_emitter"}
 	entity:AddComponent("transform")
@@ -185,7 +180,6 @@ local function count_alive(records, count)
 	return alive
 end
 
--- one frame of the game: the update the cpu backend runs in, then a draw
 local function step_with_update(draw, count)
 	for _ = 1, count do
 		system.SetElapsedTime(system.GetElapsedTime() + STEP)
@@ -211,7 +205,6 @@ T.Test3D("Graphics render3d particle emitter spawns the number its rate and burs
 		emitter:Burst(120)
 		step(draw, 2)
 		T(count_alive(particles.Download(def), def.GetCount()))["=="](120)
-		-- 60 a second is 2 a frame, for half a second
 		emitter:SetRate(60)
 		emitter:SetLoop(false)
 		emitter:SetDuration(0.5)
@@ -219,7 +212,6 @@ T.Test3D("Graphics render3d particle emitter spawns the number its rate and burs
 		step(draw, 40)
 		local alive = count_alive(particles.Download(def), def.GetCount())
 		T(math.abs(alive - 150) <= 3)["=="](true)
-		-- the ring wraps when the range is full, it does not grow
 		emitter:Burst(500)
 		step(draw, 2)
 		T(count_alive(particles.Download(def), def.GetCount()))["=="](500)
@@ -235,7 +227,6 @@ T.Test3D("Graphics render3d particle emitter spawns the number its rate and burs
 	if not ok then error(err, 0) end
 end)
 
--- particles fired at a wall, how far past its face the farthest one that is in view gets with a collision mode
 local function fire_at_wall(draw, collision)
 	local farthest
 	local entity
@@ -261,7 +252,6 @@ local function fire_at_wall(draw, collision)
 		for i = 0, def.GetCount() - 1 do
 			local p = records[i]
 
-			-- only what is in view, the depth buffer sees nothing of what has fallen out of it
 			if p.life > 0 and math.abs(p.position[1]) < 4 then farthest = math.max(farthest, -p.position[2] - 6) end
 		end
 	end)
@@ -279,7 +269,6 @@ for _, collision in ipairs{"rays", "scene_depth"} do
 	T.Test3D("Graphics render3d particle emitter bounces off a wall with " .. collision, function(draw)
 		init()
 		local ok, err = pcall(function()
-			-- the face of the wall is at z = -5.9, a particle past it went through
 			T(fire_at_wall(draw, "none") > 0.5)["=="](true)
 			T(fire_at_wall(draw, collision) < 0.1)["=="](true)
 		end)
@@ -319,7 +308,6 @@ T.Test3D("Graphics render3d particle emitter in the gbuffer is queued as instanc
 		emitter:SetOnHit("stick")
 		step_with_update(draw, 45)
 		local runtime = emitter.particle_state.cpu
-		-- 60 a second for 1.5 seconds
 		T(math.abs(particle_emitter_cpu.GetParticleCount(emitter) - 90) <= 2)["=="](true)
 		T(gbuffer_instancing.GetStats().queued_instances)["=="](particle_emitter_cpu.GetParticleCount(emitter))
 		local count = particle_emitter_cpu.GetParticleCount(emitter)
@@ -331,7 +319,6 @@ T.Test3D("Graphics render3d particle emitter in the gbuffer is queued as instanc
 			farthest = math.max(farthest, -p.z - 6)
 		end
 
-		-- they cross the 4 m to the wall in under a second, the ones that did stuck to its face and none went through
 		T(stuck > 10)["=="](true)
 		T(farthest < 0.1)["=="](true)
 	end)
@@ -351,15 +338,12 @@ T.Test("Graphics render3d particle emitters differ by type in what they have", f
 	cpu:AddComponent("transform")
 	local a = gpu:AddComponent("particle_emitter_gpu")
 	local b = cpu:AddComponent("particle_emitter_cpu")
-	-- what both have, from the base
 	T(a.GetRate ~= nil and b.GetRate ~= nil and a.Burst ~= nil and b.Burst ~= nil)["=="](true)
-	-- what only the gpu has, and what only the cpu has
 	T(a.GetColorEnd ~= nil and a.GetEmissive ~= nil and a.GetLit ~= nil)["=="](true)
 	T(b.GetColorEnd == nil and b.GetEmissive == nil and b.GetLit == nil)["=="](true)
 	T(b.GetMesh ~= nil and b.GetMaterial ~= nil and b.GetSpin ~= nil)["=="](true)
 	T(b.GetColor == nil and b.GetRoughness == nil and b.GetMetallic == nil)["=="](true)
 	T(a.GetMesh == nil and a.GetMaterial == nil and a.GetSpin == nil)["=="](true)
-	-- and the collision modes each can have
 	T(pcall(a.SetCollision, a, "scene_depth"))["=="](true)
 	T(pcall(b.SetCollision, b, "scene_depth"))["=="](false)
 	gpu:Remove()

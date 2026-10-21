@@ -380,9 +380,6 @@ do
 		end
 	end)
 
-	-- budget (seconds per frame) makes the callbacks of the callers wait in a queue shared by all load caches that have
-	-- one once a frame's budget is spent, a model that a thousand entities are waiting on would otherwise build all of
-	-- them in the frame it finished
 	function utility.CreateLoadCache(cache, frame_budget)
 		local self = {}
 

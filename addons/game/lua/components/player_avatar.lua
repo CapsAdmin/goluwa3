@@ -62,14 +62,12 @@ function META:OnAdd()
 	if client:IsValid() then self.Owner:SetOwnedBy(client) end
 end
 
--- the player entity stands on its origin and has an armature with the points things attach to, the look is the outfit
 function META:Build()
 	self.first_person = false
 	self.armature = self.Owner:AddComponent("armature")
 	self.armature:SetSkeleton("player")
 end
 
--- an outfit that animates its own model (a script) sets the bones of the armature itself
 function META:SetBonesDriven(driven)
 	self.bones_driven = driven
 end
@@ -90,7 +88,6 @@ function META:ApplyFirstPerson()
 	end
 end
 
--- the whole player is hidden, the weapons it holds are not part of the outfit
 function META:ApplyShotHidden()
 	local view = View.GetActive()
 	local visibility = self.Owner:EnsureComponent("visibility")
@@ -170,7 +167,6 @@ function META:OnUpdate(dt)
 			) - self.crouch_alpha
 		) * math.min(dt * 12, 1)
 	local height = math.lerp(self.crouch_alpha, HEIGHT, CROUCH_HEIGHT)
-	-- the player entity turns with the view in yaw, so the head and hands are the view relative to it, which is the pitch
 	local transform = owner.transform
 	local _, entity_rotation = transform:GetRenderPositionRotation()
 	local pitch = (entity_rotation or transform:GetRotation()):GetConjugated() * rotation

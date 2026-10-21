@@ -25,9 +25,6 @@ local function read_vec3(base, offset)
 	return {x = f[0], y = f[1], z = f[2]}
 end
 
--- CryPhysics' serialized phys_geometry, the payload of a cgf MeshPhysicsData chunk. A trimesh saved
--- with foreign indices stores only triangle ids of the render mesh, so the render mesh streams
--- (1 based, like the cgf decoder produces them) are needed to resolve its vertices and triangles.
 function cry_physics.Decode(str, positions, indices)
 	local length = #str
 	local base = ffi.cast(uint8_ptr_t, str)

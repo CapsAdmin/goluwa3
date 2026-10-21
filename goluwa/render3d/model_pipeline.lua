@@ -42,7 +42,6 @@ local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "NormalMapMultiplier", getter = "GetNormalMapMultiplier"},
 }
 
--- a feature's params are in the factor block, or in a block of its own when it says so
 local FEATURE_BLOCK_FIELDS = {}
 
 for _, feature in ipairs(surface_features.list) do
@@ -50,7 +49,6 @@ for _, feature in ipairs(surface_features.list) do
 		local field = {type = param.kind or "float", name = param.name, getter = "Get" .. param.name}
 
 		if feature.block == "none" or param.block == false then
-			-- read through the material
 		elseif feature.block == "own" then
 			FEATURE_BLOCK_FIELDS[feature] = FEATURE_BLOCK_FIELDS[feature] or {}
 			table.insert(FEATURE_BLOCK_FIELDS[feature], field)
@@ -485,7 +483,6 @@ do
 			record_blocks[#record_blocks + 1] = {name = ubo.name, field = "m_" .. ubo.name, block = ubo.block, write = ubo.write}
 		end
 
-		-- what the translucent passes read of a refracting material
 		record_blocks[#record_blocks + 1] = {
 			name = "refraction_record",
 			field = "m_refraction_record",
@@ -498,7 +495,6 @@ do
 			write = function(self, block)
 				local material = get_material()
 				block.amount = material:GetRefraction()
-				-- an index under 1 is not a medium light slows down in, and 0 divides by zero in the refraction
 				block.ior = math.max(material:GetIndexOfRefraction(), 1)
 				block.abbe = material:GetAbbeNumber()
 				block.attenuation = material:GetAttenuationDistance()
@@ -562,7 +558,6 @@ do
 
 	local write_record
 
-	-- one function with the field names in it, a field of a cdata read by a name that is not a constant is slow
 	function model_pipeline.WritePBRBatchRecord(pipeline, record)
 		if not write_record then
 			local blocks = get_record_blocks()
@@ -579,7 +574,6 @@ do
 		return write_record(pipeline, record)
 	end
 
-	-- the part of a record that moves with the wind, for a batch whose material hasn't changed
 	function model_pipeline.WritePBRBatchAnimationRecord(pipeline, record)
 		model_pipeline.WriteVertexAnimationBlock(pipeline, record.m_vertex_animation)
 	end
@@ -646,8 +640,6 @@ mat4 multi_draw_instance_world;
 mat4 multi_draw_instance_prev_world;
 PBRBatch_vertex_animation vertex_animation;
 
-// scatter instances carry a color multiplier in the free bottom row of their world matrix, rgb in
-// unorm8 at half scale. a scene instance leaves it zero, which is no tint
 vec3 multi_draw_instance_tint(float packed) {
 	uint bits = floatBitsToUint(packed);
 	return bits == 0u ? vec3(1.0) : unpackUnorm4x8(bits).rgb * 2.0;
@@ -680,7 +672,6 @@ local function build_material_block_writer(name, field_defs)
 	}
 
 	for _, def in ipairs(field_defs) do
-		-- the field of a property whose getter is the one every property gets is read directly
 		local info = Material.objects_variables[def.name]
 		local value = info and
 			def.getter == info.get_name and
@@ -781,8 +772,6 @@ function model_pipeline.GetPBRColorUploadKey()
 	return render3d.GetMaterialUploadKey()
 end
 
--- what a pipeline whose uniform buffers all follow the material can reuse the offsets of for the rest of the
--- frame: the material and its property_version, nothing for one that animates, whose buffers are uploaded per draw
 function model_pipeline.GetMaterialMemoKey()
 	local material = get_material()
 
@@ -792,7 +781,6 @@ function model_pipeline.GetMaterialMemoKey()
 end
 
 do
-	-- what a material's keys come to only depends on its properties, so they are worked out once per property_version
 	local SCALAR_GETTERS = {
 		"GetMetallicMultiplier",
 		"GetRoughnessMultiplier",
@@ -878,7 +866,6 @@ do
 end
 
 pvars.StartGroup("Rendering", "Wind", {store = false})
--- moves with the wind's version, see GetVertexAnimationVersion
 local still_version = 0
 local still_pixels = pvars.Setup2{
 	key = "r_wind_still_pixels",
@@ -909,24 +896,12 @@ do
 		{"Motion", "float", "float Motion;"},
 	}
 	local DETAIL_BENDING_MODES = {none = 0, leaves = 1, grass = 2}
-	-- how far the part of the wind's movement that changes with time takes a plant, in units of its bend height and of
-	-- the detail amplitudes, worked out from the formulas of get_vertex_animation_offset_at_time. the top of the main
-	-- bending moves 0.015 * 12 of MainBending, of which the sway and the gust are 0.45. a leaf's flutter goes up to
-	-- twice its amplitude
 	local MAIN_MOTION = 0.015 * 12 * 0.45
 	local DETAIL_MOTION = 2
-	-- the wind's strength in the detail bending (crysis' fSpeed) is cryengine's (SBending in lumberyard's
-	-- 3dEngine.cpp and D3DHWShader.cpp, see docs/crysis.md): 0.3 of a quarter of the wind in m/s, softly clamped. its
-	-- clamp of 2 held it under 0.6, so a storm moved leaves little more than a breeze. at 6 it is near cryengine's in a
-	-- light wind (0.28 in a gentle breeze of 4.4 m/s against 0.21) and goes on to 1.07 in a hurricane (35 m/s). the
-	-- materials of crysis were made for it
 	local BEND_RESPONSE = 0.25
 	local MAX_DETAIL_BENDING = 6
 	local DETAIL_SPEED = 0.3
 	local BEND_PER_HEIGHT = 0.25
-	-- how far the wind leans a plant, from its speed in m/s: the drag grows faster than the speed and a plant gives way
-	-- less and less, so it rises as speed^1.6 and eases towards MAX_BENDING. a top moves about 0.045 times the height a
-	-- unit of it (see the main bending below): 5 m/s 0.6, 10 m/s 1.5, 20 m/s 3.2, 40 m/s 5
 	local MAX_BENDING = 7
 	local BENDING_SPEED = 22
 
@@ -1001,7 +976,6 @@ do
 		if block.DetailBending ~= 0 and detail_speed > 0 then
 			local strength = detail_speed * block.DetailFrequency
 
-			-- grass bends more the higher a vertex is
 			if block.DetailBending == 2 then strength = strength * (height > 0 and height or 1) end
 
 			local amplitude = strength < 0.5 and strength * 2 or math.sqrt(strength * 2)
@@ -1009,14 +983,11 @@ do
 		end
 
 		local pixels = still_pixels:Get()
-		-- counted in the pixels the movement has to span for the plant to move at all, 0 turns standing still off
 		block.Motion = pixels > 0 and motion / pixels or 1e9
 		return block
 	end
 end
 
--- changes when FillVertexAnimationData would write something else for the same material and polygon, the times of
--- the wind are not counted because the multi draw shaders take them from the frame
 function model_pipeline.GetVertexAnimationVersion()
 	return atmosphere.GetWindVersion() + still_version
 end
@@ -1024,8 +995,6 @@ end
 do
 	local frame, position, pixel_scale = -1, nil, 0
 
-	-- the camera as the vertex animation sees it for the frame: where it is and how many pixels a meter at a distance of
-	-- one spans, for the passes that have no camera block of their own (the shadow maps)
 	function model_pipeline.GetVertexAnimationView()
 		local now = system.GetFrameNumber()
 
@@ -1054,8 +1023,6 @@ function model_pipeline.GetVertexAnimationUploadKey()
 	return render3d.GetMaterialUploadKey()
 end
 
--- camera_position_expr and pixel_scale_expr (a vec3 and a float, the pixels a meter spans at a distance of one) say where
--- the camera is, without them nothing stands still
 function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_position_expr, pixel_scale_expr)
 	local still = camera_position_expr and
 		([[
@@ -1071,16 +1038,11 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 				return vertex_animation.MainBending > 0.0 || (vertex_animation.DetailBending != 0 && vertex_animation.BendSpeed > 0.0);
 			}
 
-			// a wave of period 1 between 0 and 1, eased at its ends
 			vec4 vegetation_smooth_triangle_wave(vec4 x) {
 				vec4 t = abs(fract(x + 0.5) * 2.0 - 1.0);
 				return t * t * (3.0 - 2.0 * t);
 			}
 
-			// a scatter instance that conforms to the ground has the sign bit set in the corner of its matrix (a scene
-			// instance has 1.0), the radius it was measured at and the height of the ground over its base plane, along
-			// its up axis, at the four edges of its footprint (see scatter.lua). the vertices near the base move to meet
-			// it by a parabola through the edges along each axis, and the higher up the less, the tips stay free
 			vec3 get_instance_conform_offset(vec3 world_pos) {
 				mat4 world = ]] .. world_matrix_expr .. [[;
 				uint bits = floatBitsToUint(world[3][3]);
@@ -1106,17 +1068,12 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 				mat3 world_matrix3 = mat3(world);
 				mat3 inv_world_matrix3 = inverse(world_matrix3);
 				vec3 origin = world[3].xyz;
-				// object space is y up, cryengine's is z up, so its xy is our xz
 				vec3 start_pos = inv_world_matrix3 * (world_pos - origin);
 				vec3 pos = start_pos;
 				float speed = vertex_animation.BendSpeed;
-				// each instance has its own phase, from a hash of where it is, so neighbours do not move together
 				float instance_phase = fract(sin(dot(origin, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-				// the wind in object space, what moves with it moves the same way in the world whatever the instance's rotation
 				vec2 bend_dir = normalize((inv_world_matrix3 * vertex_animation.BendDirection).xz);
 
-				// the detail bending of crysis (gpu gems 3, chapter 16): the vertex color's red is how much a leaf's edge
-				// flutters, green the phase of a branch and its leaves, blue how stiff it is (1 does not move)
 				if (vertex_animation.DetailBending != 0) {
 					vec4 color = clamp(vertex_color, 0.0, 1.0);
 					float edge_atten = color.r;
@@ -1127,21 +1084,13 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 					float branch_phase = color.g + instance_phase * 7.0;
 					float vertex_phase = dot(pos, vec3(vertex_animation.DetailPhase + branch_phase));
 					vec2 waves_in = detail_time + vec2(vertex_phase, branch_phase);
-					// two waves for the edges and two slower ones for the branches, at fixed rates (the detail clock
-					// runs faster in a strong wind), centered on the rest position
 					vec4 waves = vegetation_smooth_triangle_wave(waves_in.xxyy * vec4(1.975, 0.793, 0.375, 0.193)) - 0.5;
-					// how much the wind moves the detail. crysis multiplied the wave's input by speed * frequency, which
-					// below 0.5 scales how far it goes and above it how fast, so a strong wind only made it buzz. here it
-					// is the amplitude, as crysis below 0.5 and growing as the square root above it
 					float strength = detail_speed * vertex_animation.DetailFrequency;
 					float amplitude = strength < 0.5 ? strength * 2.0 : sqrt(strength * 2.0);
 					vec2 waves_sum = (waves.xz + waves.yw) * amplitude;
 					vec3 object_normal = normalize(transpose(world_matrix3) * world_normal);
 					vec2 facing = object_normal.xz;
-					// a leaf flutters across itself (along its normal, so a card never slides within itself) and the part
-					// of it that faces the wind is pushed downwind in the slow gusts of its branch
 					pos.xz += facing * (waves_sum.x + dot(facing, bend_dir) * (amplitude + waves_sum.y) * 0.5) * edge_atten * vertex_animation.DetailLeafAmplitude;
-					// a branch bobs up and down and is pushed downwind in the same gusts
 					pos.y += waves_sum.y * branch_atten * vertex_animation.DetailBranchAmplitude;
 					pos.xz += bend_dir * ((amplitude + waves_sum.y) * 0.5 * branch_atten * vertex_animation.DetailBranchAmplitude);
 				}
@@ -1149,13 +1098,8 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 				if (vertex_animation.MainBending > 0.0) {
 					vec2 bend = bend_dir * vertex_animation.MainBending;
 
-					// gusts roll over the land with the wind, so neighbours lean in turn and not at once: a sum of sines of
-					// unrelated periods over the time they reach this instance, -1 to 1
 					float gust_time = anim_time - dot(origin.xz, vertex_animation.BendDirection.xz) / 6.0 + instance_phase * 3.0;
 					float gust = 0.5 * sin(gust_time * 0.71) + 0.3 * sin(gust_time * 1.63 + 1.7) + 0.2 * sin(gust_time * 2.87 + 4.1);
-					// on top of the lean the instance swings at its own frequency, lower the taller it is (a 12 m tree about
-					// 0.35 hz, a meter of grass 1.2 hz), harder in a gust, and a little across the wind on a slightly
-					// different period, which makes the tip go round in loops instead of back and forth on a line
 					float sway_time = anim_time * 6.2832 * 1.2 / sqrt(max(vertex_animation.BendHeight, 0.5)) + instance_phase * 6.2832;
 					float strength = 0.6 + 0.4 * gust;
 					float along = 0.25 * gust + 0.15 * strength * sin(sway_time);
@@ -1168,7 +1112,6 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 					bend_factor = bend_factor * bend_factor - bend_factor;
 					float len = length(pos);
 
-					// bending around the origin keeps the distance to it, trunks curve instead of stretching
 					if (len > 0.0) {
 						vec3 bent = pos;
 						bent.xz += bend * bend_factor;
@@ -1179,14 +1122,10 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 				return conform + world_matrix3 * (pos - start_pos);
 			}
 
-			// how much of the way to standing still the wind has this instance, 0 moves it in full and 1 leaves it in the pose
-			// it has at time 0. Motion is how far it moves in units of r_wind_still_pixels, so its movement spans that
-			// many of them times its scale and the pixels a meter has at its distance. a band of twice that is a blend
 			float get_vertex_animation_still() {
 				]] .. still .. [[
 			}
 
-			// the time of the wind and of the detail only move a plant that is not standing still
 			vec3 get_vertex_animation_offset_still(vec3 world_pos, vec3 world_normal, vec4 vertex_color, float anim_time, float detail_time) {
 				if (!has_vertex_animation()) return get_instance_conform_offset(world_pos);
 
@@ -1251,10 +1190,6 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, 
 	)
 end
 
--- get_alpha_uv and get_alpha for a pass with its own sources of the textures: the surface pass and the shadow
--- passes share it, so a cutout is the same shape in both. the shader has base_uv and bump_uv. options:
--- albedo_texture, normal_texture, color_alpha: GLSL expressions. sample(texture, uv): a GLSL expression
--- reading a texture. albedo_rgb: a GLSL expression of uv for the color the additive alpha comes from
 function model_pipeline.SampleTextureGlsl(texture, uv)
 	return "texture(TEXTURE(" .. texture .. "), " .. uv .. ")"
 end
@@ -1310,7 +1245,6 @@ function model_pipeline.BuildNormalDecodeGlsl()
 				return vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
 			}
 
-			// source's bump basis, the directions an ssbump texel holds the light of
 			vec3 decode_normal_texture(vec4 texel) {
 				if (!NormalTextureIsSSBump) {
 					return decode_normal_map(texel.xy);
@@ -1392,7 +1326,6 @@ function model_pipeline.BuildSurfaceSamplingGlsl()
 	]]
 end
 
--- the blocks of the features that have one of their own, only uploaded for a material the feature is on
 local FEATURE_BLOCKS = {}
 
 for _, feature in ipairs(surface_features.list) do
@@ -1422,7 +1355,6 @@ for _, feature in ipairs(surface_features.list) do
 					return render3d.GetMaterialUploadKey()
 				end,
 				block = build_material_block(FEATURE_BLOCK_FIELDS[feature]),
-				-- the uniform upload passes more than the block
 				write = function(self, block)
 					return write(self, block)
 				end,
@@ -1480,7 +1412,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return ]=] .. camera_block_name .. [=[.camera_position;
 			}
 
-			// the terrain without its layers: the chunk's own color and normal, nothing blended over them
 			bool terrain_layers_hidden() {
 				return ]=] .. camera_block_name .. [=[.terrain_only != 0;
 			}
@@ -1519,7 +1450,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					return in_texture_blend;
 				}
 
-				// source blendmodulate: g is the transition center, r its half width
 				vec2 modulate = texture(TEXTURE(detail_model.BlendTexture), uv).rg;
 				return smoothstep(clamp(modulate.g - modulate.r, 0.0, 1.0), clamp(modulate.g + modulate.r, 0.0, 1.0), in_texture_blend);
 			}
@@ -1538,21 +1468,17 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			}
 
 			vec3 get_terrain_triplanar_weights(vec3 normal) {
-				// scaled by the largest first, a high sharpness would underflow the others
 				vec3 w = abs(normal);
 				w = pow(w / max(max(w.x, w.y), max(w.z, 0.0001)), vec3(max(terrain_model.TerrainTriplanarSharpness, 1.0)));
 				return w / max(w.x + w.y + w.z, 0.0001);
 			}
 
-			// a layer's texture coordinates in each of the three projections
 			struct TerrainLayerUV {
 				vec2 x;
 				vec2 y;
 				vec2 z;
 			};
 
-			// against a texture's repeats being the same everywhere: the layer is also sampled turned and shifted, and the two are
-			// swapped between by noise that changes over a few repeats, mostly one or the other with a short fade between
 			float terrain_tiling_hash(vec2 p) {
 				return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
 			}
@@ -1582,7 +1508,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return t;
 			}
 
-			// the tangent space normal (not normalized) and the ao of a normal texture
 			vec4 sample_terrain_layer_normal_texel(int tex, vec2 uv, float anti_tiling) {
 				vec4 t = texture(TEXTURE(tex), uv);
 				vec3 tn = t.xyz * 2.0 - 1.0;
@@ -1591,7 +1516,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				if (anti_tiling > 0.0) {
 					vec4 t2 = texture(TEXTURE(tex), terrain_tiling_variant(uv));
 					vec3 tn2 = t2.xyz * 2.0 - 1.0;
-					// the turned sample's normal is turned back
 					tn2.xy = tn2.xy * TERRAIN_TILING_TURN;
 					float m = terrain_tiling_mask(uv) * anti_tiling;
 					tn = mix(tn, tn2, m);
@@ -1647,9 +1571,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return vec4(n, ao);
 			}
 
-			// crysis' terrain parallax occlusion mapping: march the height from 1 down to 0 along the
-			// view ray, which moves the texture coordinates by up to displacement at the bottom.
-			// view_uv is the direction to the camera along the projection's axes, view_n along its normal
 			vec2 terrain_layer_parallax(int height_tex, vec2 uv, vec2 view_uv, float view_n, float displacement) {
 				const int STEPS = 15;
 				vec2 uv_dx = dFdx(uv);
@@ -1693,7 +1614,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			]=] .. terrain_layer_rules .. [=[
 
-			// the weights of layers 1 to 4 and, when the chunk has more than four layers, 5 to 8. Together they add up to one
 			void get_terrain_material_weights_both_uv(vec2 uv, out vec4 weights, out vec4 weights2) {
 				weights = vec4(0.0);
 				weights2 = vec4(0.0);
@@ -1708,13 +1628,10 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					weights2 = max(texture(TEXTURE(terrain_model.TerrainMaterial2Texture), uv), vec4(0.0));
 				}
 
-				// where a layer may be by the slope of the ground at this pixel, which the weight texture is too coarse for
-				// (and its texels cover more ground the coarser the tile is). 0 is flat, 1 is a wall
 				float steepness = 1.0 - (get_terrain_world_normal(uv).y * 0.5 + 0.5);
 				weights *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin, terrain_model.TerrainLayerSlopeMax, terrain_model.TerrainLayerSlopeBlend);
 				weights2 *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin2, terrain_model.TerrainLayerSlopeMax2, terrain_model.TerrainLayerSlopeBlend2);
 
-				// a covering layer is not mixed in by its weight, what covers the ground is over the others
 				vec4 cover = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope, terrain_model.TerrainLayerCoverStart, terrain_model.TerrainLayerCoverRange, terrain_model.TerrainLayerCoverPower, terrain_model.TerrainLayerCoverBlend);
 				vec4 cover2 = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope2, terrain_model.TerrainLayerCoverStart2, terrain_model.TerrainLayerCoverRange2, terrain_model.TerrainLayerCoverPower2, terrain_model.TerrainLayerCoverBlend2);
 				weights *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope, vec4(0.0)));
@@ -1746,7 +1663,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				float normal_weight;
 			};
 
-			// how much a layer's own height at this pixel scales its weight, 1 where it has none or amount is 0
 			float get_terrain_layer_height_factor(int height_tex, vec3 world_pos, float scale, vec3 blend, float amount, float weight) {
 				if (height_tex == -1 || amount <= 0.0 || weight <= 0.001) {
 					return 1.0;
@@ -1760,9 +1676,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			TerrainLayerSample terrain_layer_cache;
 			bool terrain_layer_cache_valid = false;
 
-			// far_scale and far_scale_b are larger scales the layer fades to (between far_distance / 2 and far_distance, then the
-			// same for the second), so that its repeats are not all that is seen from far away. 0 for none. past fade_distance / 2
-			// the layer fades to its average color and is not sampled at all from fade_distance. 0 for never
 			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, int height_tex, vec3 world_pos, vec3 blend, vec3 N, vec3 V, float distance_to_camera, float weight, float scale, float detail_strength, float additive_detail, float displacement, vec4 far, float fade_distance, float anti_tiling) {
 				if (weight <= 0.001) {
 					return;
@@ -1774,7 +1687,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec4 albedo = vec4(0.0);
 				vec4 n = vec4(0.0);
 
-				// one call site for the scales, see get_terrain_layer_uv
 				for (int i = 0; i < 3; i++) {
 					float w = (i == 0 ? (1.0 - far_a) * (1.0 - far_b) : (i == 1 ? far_a * (1.0 - far_b) : far_b)) * (1.0 - fade);
 
@@ -1782,7 +1694,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 						continue;
 					}
 
-					// like crysis, a layer displaces as much as it covers
 					TerrainLayerUV uv = get_terrain_layer_uv(i == 0 ? height_tex : -1, world_pos, i == 0 ? scale : (i == 1 ? far.x : far.z), blend, N, V, i == 0 ? displacement * weight : 0.0);
 
 					if (albedo_tex != -1) {
@@ -1795,7 +1706,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				}
 
 				if (fade > 0.0) {
-					// the smallest mip is the average color of the layer, and nothing of its normal map is left
 					if (albedo_tex != -1) {
 						albedo += textureLod(TEXTURE(albedo_tex), vec2(0.5), 16.0) * fade;
 					}
@@ -1808,16 +1718,12 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				if (albedo_tex != -1) {
 					if (detail_strength > 0.0) {
 						if (additive_detail > 0.0) {
-							// the detail is an offset around 0.5 in gamma space, adding it to the linear color
-							// clips each channel at a different point and leaves saturated specks in dark spots
 							vec3 base_gamma = pow(base, vec3(1.0 / 2.2));
 							albedo.rgb = pow(max(base_gamma + (albedo.rgb - 0.5) * detail_strength, vec3(0.0)), vec3(2.2)) * additive_detail;
 						} else {
-							// the smallest mip is the average color of the layer
 							vec3 average = textureLod(TEXTURE(albedo_tex), vec2(0.5), 16.0).rgb;
 							albedo.rgb = base * mix(vec3(1.0), albedo.rgb / max(average, vec3(0.01)), detail_strength);
 						}
-						// a detail layer's alpha is not roughness, TerrainLayerRoughness alone decides it
 						albedo.a = 1.0;
 					} else {
 						albedo.rgb *= base;
@@ -1870,15 +1776,12 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec3 to_camera = get_surface_camera_position() - world_pos;
 				vec3 V = normalize(to_camera);
 				float distance_to_camera = length(to_camera);
-				// crysis fades the displacement out towards the detail layers' view distance
 				float fade = 1.0 - pow(min(distance_to_camera / max(terrain_model.TerrainLayerHeightDistance, 0.001), 1.0), 4.0);
 				vec4 displacement = terrain_model.TerrainLayerHeightScales * fade;
 				ivec4 albedo_textures = ivec4(terrain_model.TerrainLayer1Texture, terrain_model.TerrainLayer2Texture, terrain_model.TerrainLayer3Texture, terrain_model.TerrainLayer4Texture);
 				ivec4 normal_textures = ivec4(terrain_model.TerrainLayer1NormalTexture, terrain_model.TerrainLayer2NormalTexture, terrain_model.TerrainLayer3NormalTexture, terrain_model.TerrainLayer4NormalTexture);
 				ivec4 height_textures = ivec4(terrain_model.TerrainLayer1HeightTexture, terrain_model.TerrainLayer2HeightTexture, terrain_model.TerrainLayer3HeightTexture, terrain_model.TerrainLayer4HeightTexture);
 
-				// where the layers' own heights are higher they take the weight of the ones that are lower, so a transition
-				// follows the grain of the layers (the pebbles of one stand up through the other) rather than being a gradient
 				vec4 height_blend = terrain_model.TerrainLayerHeightBlend;
 				vec4 height_blend2 = terrain_model.TerrainLayerHeightBlend2;
 				bool has_second_set = terrain_model.TerrainMaterial2Texture != -1;
@@ -1908,12 +1811,10 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec4 fade_distances = terrain_model.TerrainLayerFadeDistance;
 				vec4 anti_tiling = terrain_model.TerrainLayerAntiTiling;
 
-				// a loop rather than four calls so the layer code is compiled once
 				for (int i = 0; i < 4; i++) {
 					accumulate_terrain_layer(s, base, albedo_textures[i], normal_textures[i], height_textures[i], world_pos, blend, N, V, distance_to_camera, weights[i], scales[i], detail[i], additive_detail[i], displacement[i], vec4(far_scales[i], far_distances[i], far_scales_b[i], far_distances_b[i]), fade_distances[i], anti_tiling[i]);
 				}
 
-				// layers 5 to 8 are only there for chunks with more than four layers
 				if (terrain_model.TerrainMaterial2Texture != -1) {
 					ivec4 albedo_textures2 = ivec4(terrain_model.TerrainLayer5Texture, terrain_model.TerrainLayer6Texture, terrain_model.TerrainLayer7Texture, terrain_model.TerrainLayer8Texture);
 					ivec4 normal_textures2 = ivec4(terrain_model.TerrainLayer5NormalTexture, terrain_model.TerrainLayer6NormalTexture, terrain_model.TerrainLayer7NormalTexture, terrain_model.TerrainLayer8NormalTexture);
@@ -1947,7 +1848,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return s;
 			}
 
-			// a per layer value averaged by the layer weights
 			float get_terrain_weighted_value(vec2 uv, vec4 values, vec4 values2) {
 				if (terrain_layers_hidden()) {
 					return 1.0;
@@ -2030,8 +1930,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 		sample = model_pipeline.SampleTextureGlsl,
 		albedo_rgb = "get_albedo_uv(uv)",
 	} .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff", nil, camera_block_name .. ".noise_phase") .. [[
-			// the normal seen from the back of a thin surface. a bent normal keeps the part along the face and
-			// reverses only the part across it
+
 			vec3 get_back_normal(vec3 N) {
 				if (BentNormals) {
 					vec3 face = normalize(cross(dFdx(in_position), dFdy(in_position)));
@@ -2056,8 +1955,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec3 tangent = normalize(in_tangent.xyz);
 				vec3 bitangent = cross(normal, tangent) * in_tangent.w;
 
-				// the back of a thin surface is the front mirrored through it, so a bump on
-				// one side is a dent on the other and the whole frame flips
 				if (DoubleSided && gl_FrontFacing) {
 					tangent = -tangent;
 					bitangent = -bitangent;
@@ -2073,7 +1970,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				float right = get_height_sample(uv + vec2(texel.x, 0.0));
 				float down = get_height_sample(uv - vec2(0.0, texel.y));
 				float up = get_height_sample(uv + vec2(0.0, texel.y));
-				// the slope in texture units, the height being HeightScale texture units deep
 				return normalize(vec3((left - right) / (2.0 * texel.x), (down - up) / (2.0 * texel.y), 1.0 / displacement_model.HeightScale));
 			}
 
@@ -2098,7 +1994,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				N = normalize(vec3(N.xy * ]] .. camera_block_name .. [[.normal_map_strength, N.z));
 
-				// crysis detail bump: two octaves centered on 0.5 offset the normal's slope
 				if (detail_model.DetailTexture != -1) {
 					vec2 detail_uv = uv * detail_model.DetailTiling;
 					vec2 detail = texture(TEXTURE(detail_model.DetailTexture), detail_uv).xy + texture(TEXTURE(detail_model.DetailTexture), detail_uv * 2.0).xy;
@@ -2106,7 +2001,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					N.xy += detail;
 				}
 
-				// the grain of a micro detail texture as a height, one texel to the right and up gives its slope
 				if (micro_detail_model.MicroDetailTexture != -1 && micro_detail_model.MicroDetailNormal > 0.0) {
 					vec2 grain_uv = uv * micro_detail_model.MicroDetailTiling;
 					vec2 texel = 1.0 / vec2(textureSize(TEXTURE(micro_detail_model.MicroDetailTexture), 0));
@@ -2133,7 +2027,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return N;
 			}
 
-			// the blended bump's alpha, source masks specular with the alpha of whichever bump is showing
 			float get_normal_alpha(vec2 uv) {
 				float alpha = texture(TEXTURE(model.NormalTexture), bump_uv(uv)).a;
 
@@ -2144,10 +2037,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return alpha;
 			}
 
-			// the specular mask of a source envmap or phong, 1 without one
 			float get_gloss(vec2 uv) {
 				if (SpecularFromRoughnessMask) {
-					// a source envmap or phong mask, 1 is shiny unless it is inverted
 					float mask = 1.0;
 
 					if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
@@ -2166,7 +2057,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return 1.0;
 			}
 
-			// the raw roughness source texel, negative when the material has none
 			float get_roughness_texel(vec2 uv) {
 				if (model.AlbedoTexture != -1 && AlbedoTextureAlphaIsRoughness) {
 					return texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
@@ -2187,7 +2077,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				float val = 1.0;
 
 				if (MetallicFromRoughnessMask) {
-					// the roughness texel is a mask, and the roughness range says which end is shiny
 					float texel = get_roughness_texel(uv);
 
 					if (texel >= 0.0) {
@@ -2234,27 +2123,14 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				if (InvertRoughnessTexture) val = -val + 1.0;
 
-				// perceptual roughness in, GGX alpha out
 				val *= val;
 				val = clamp(val, 0.002, 1.0);
 				return val;
 			}
 
-			// specular antialiasing (Tokuyoshi & Kaplanyan 2019, "Improved
-			// Geometric Specular Antialiasing"). a normal that turns across the
-			// pixel, on a small sphere, a thin pipe or a fine normal map, spreads
-			// the pixel's reflection like roughness does. sampling one normal per
-			// pixel instead catches or misses the highlight, which flickers as
-			// things move. the turn is taken as a gaussian over the pixel filter
-			// and its variance added to the ggx alpha squared, capped so a crease
-			// or a tight curve doesn't go fully rough. a mirror is left alone: its
-			// bevels and bumps are resolved detail, and roughening them hands those
-			// pixels to the environment while the flat parts keep the traced
-			// reflection, which draws their outline. ggx alpha in and out
 			float get_antialiased_roughness(vec3 N, float alpha) {
 				vec3 dx = dFdx(N);
 				vec3 dy = dFdy(N);
-				// the pixel filter's variance, 1 / (2 pi)
 				float kernel = 2.0 * 0.15915494 * (dot(dx, dx) + dot(dy, dy)) * smoothstep(0.0, 0.05, alpha);
 				return sqrt(clamp(alpha * alpha + min(kernel, 0.18), 0.0, 1.0));
 			}
@@ -2288,7 +2164,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			]] .. surface_features.GetGetterGLSL() .. [[
 
-			// the SpecularMultiplier; 1 is dielectric F0 0.04
 			float get_specular(vec2 uv) {
 				float val = factor_model.SpecularMultiplier * get_gloss(uv);
 
@@ -2296,7 +2171,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					val *= get_terrain_weighted_value(uv, terrain_model.TerrainLayerSpecular, terrain_model.TerrainLayerSpecular2);
 				}
 
-				// as much as the gbuffer holds
 				return clamp(val, 0.0, 2.0);
 			}
 

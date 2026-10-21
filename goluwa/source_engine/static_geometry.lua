@@ -33,12 +33,6 @@ function static_geometry.AddVertex(mesh, texinfo, position, blend, uv_position, 
 	}
 end
 
--- A record is the runtime form of one static source:
--- brush: {sides = {{normal, dist, texname, vecs, visible}}, group, collide}
--- displacement: {dims, positions (source space Vec3), alphas, corners, texname, vecs, normal, group}
--- mesh: {positions (source space Vec3, three per triangle), uvs (flat u, v), blends, normals (engine space Vec3, may be nil), texname, group, collide}
--- group is whatever identifies the visibility group of the source, it only has to be usable as a table key.
--- mins, maxs and spans are filled in by the Emit functions.
 function static_geometry.NewState(name)
 	return {
 		batches = {},
@@ -184,7 +178,6 @@ function static_geometry.ExpandMesh(world, index)
 	return record
 end
 
--- the records of the importer's world data
 function static_geometry.ExpandWorld(world)
 	local brushes, displacements, meshes = {}, {}, {}
 
@@ -221,7 +214,6 @@ function static_geometry.UpdateBrushBounds(record)
 	end
 end
 
--- updates the bounds and, when rendering, appends the triangles of a brush to the batches
 function static_geometry.EmitBrush(state, record)
 	record.spans = {}
 	record.visible = nil
@@ -262,7 +254,6 @@ function static_geometry.EmitBrush(state, record)
 	end
 end
 
--- appends the triangles of a mesh to the batches. Without normals every triangle is shaded flat.
 function static_geometry.EmitMesh(state, record)
 	record.spans = {}
 	record.visible = nil
@@ -300,7 +291,6 @@ function static_geometry.EmitMesh(state, record)
 	end
 end
 
--- the summed, unnormalized vertex normals of one displacement, indexed like record.positions
 function static_geometry.ComputeDisplacementNormals(record)
 	local dims, positions = record.dims, record.positions
 	local points, nx, ny, nz = {}, {}, {}, {}
@@ -337,8 +327,6 @@ function static_geometry.ComputeDisplacementNormals(record)
 	return normals
 end
 
--- appends the triangles of a displacement to the batches. weld_groups maps the normals of tile edge vertices
--- to every normal sharing that position so the shading is smooth across tiles, it may be nil.
 function static_geometry.EmitDisplacement(state, record, normals, weld_groups)
 	record.spans = {}
 	record.visible = nil
@@ -405,7 +393,6 @@ function static_geometry.EmitDisplacement(state, record, normals, weld_groups)
 	list.insert(record.spans, {entry = batch, first = first, count = mesh.i - first})
 end
 
--- Builds the render batches of every record. Returns {state, batches, brushes, displacements}.
 function static_geometry.Build(brushes, displacements, meshes, name)
 	local state = static_geometry.NewState(name)
 
@@ -473,7 +460,6 @@ function static_geometry.UploadBatch(batch)
 	batch.is_new = nil
 end
 
--- Uploads every batch that has vertices and drops the empty ones.
 function static_geometry.Finalize(result)
 	local non_empty = {}
 
@@ -490,8 +476,6 @@ function static_geometry.Finalize(result)
 	return result
 end
 
--- Appends a convex polygon of {pos, u, v, normal, fade} (engine space positions, normal and fade are optional) to a batch mesh as a
--- triangle fan that is flat shaded where the vertices have no normal, returns the first vertex index and the vertex count.
 function static_geometry.AddPolygon(mesh, polygon)
 	local first = mesh.i
 
@@ -519,8 +503,6 @@ function static_geometry.AddPolygon(mesh, polygon)
 	return first, mesh.i - first
 end
 
--- Builds the collision shapes of the records: the brush model with one primitive per collidable brush, plus a shape per
--- displacement. Returns shapes, model, a record to brush primitive map; displacement records get a collision_shape.
 function static_geometry.BuildColliders(brushes, displacements, meshes)
 	local model = {
 		Visible = true,

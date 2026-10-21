@@ -1055,7 +1055,6 @@ function render2d.Initialize()
 					vec2 p = (coords - 0.5) * quad_size;
 					vec2 b = logical_size * 0.5;
 
-					// radius = (tl, tr, br, bl); p.y > 0 is the top of the screen
 					float rad;
 					if (p.x < 0.0 && p.y > 0.0) rad = radius.x;
 					else if (p.x > 0.0 && p.y > 0.0) rad = radius.y;
@@ -1239,8 +1238,6 @@ function render2d.Initialize()
 				vec2 get_uv_sdf(vec2 coords) {
 					vec2 uv = coords;
 					if (draw.sdf_texture_index != -1) {
-						// transformed: sample uv goes through the draw uv transform (uv_scale/uv_offset)
-						// direct: vertex sample uv is used as-is, ignoring the uv transform
 						uv = FLAGS_SDF_SAMPLE_UV_MODE_DIRECT ? in_sample_uv : (in_sample_uv * draw.sdf_uv_scale + draw.sdf_uv_offset);
 					}
 
@@ -1275,9 +1272,6 @@ function render2d.Initialize()
 					return clamp(x / (2.0 * softness) + 0.5, 0.0, 1.0);
 				}
 					
-				// d is the sharp (median) distance, d_far the true euclidean distance.
-				// the glyph edge uses d, offsets (outlines, glows) use d_far so they
-				// stay round instead of mitring at corners
 				float compute_sdf_alpha(float d, float d_far) {
 					float glow = clamp((shape.sdf_softness - 0.75) * 2.0, 0.0, 1.0);
 					float alpha = edge(mix(d, d_far, glow));
@@ -1323,7 +1317,6 @@ function render2d.Initialize()
 						d += shape.sdf_bias * range;
 						d /= max(get_sdf_texels_per_screen_pixel(), 1e-6);
 						return d;
-					//} else if (FLAGS_SHAPE != 0 && shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0) {
 					} else if (FLAGS_SHAPE != 0) {
 						vec2 p = (coords - 0.5) * shape.rect_size;
 						vec2 b = shape.sdf_rect_size * 0.5;
@@ -1339,9 +1332,6 @@ function render2d.Initialize()
 						} else if (FLAGS_SHAPE_ELLIPSE) {
 							d = sd_ellipse(p, b);
 						}
-						//else if (FLAGS_SHAPE_LINE) {
-							//d = sd_line(p, b);
-						//}
 						return vec2((-d) * get_sdf_screen_scale());
 					} else if (shape.sdf_rect_size.x > 0.0 && shape.sdf_rect_size.y > 0.0) {
 						float d = sd_rect(coords);
@@ -1375,8 +1365,6 @@ function render2d.Initialize()
 					return mix(low, high, step(vec3(0.0031308), c));
 				}
 
-				// the working space of the target: colors stay sRGB encoded when the
-				// target is blended in gamma space, otherwise they are linear
 				vec3 srgb_to_working(vec3 c) {
 					#if GAMMA_BLEND
 					return c;
@@ -1386,17 +1374,11 @@ function render2d.Initialize()
 				}
 
 				vec4 sample_fragment_color(vec2 uv) {
-					// Vertex/global colors and texture values are both authored in
-					// sRGB display space. On an sRGB target the final product is
-					// linearized and the hardware re-encodes at write time, so blending
-					// happens in linear space. On a unorm target (GAMMA_BLEND) the
-					// encoded values are written and blended as is, like a browser would.
 					vec4 color = in_color * draw.global_color;
 
 					if (draw.texture_index >= 0) {
 						vec4 tex = apply_swizzle(texture(TEXTURE(draw.texture_index), uv));
 
-						// an srgb format texture is already linear once sampled
 						if (FLAGS_LINEAR_TEXTURE != 0) {
 							#if GAMMA_BLEND
 							tex.rgb = linear_to_srgb(tex.rgb);
@@ -1426,24 +1408,14 @@ function render2d.Initialize()
 					vec3 subpixel_alpha = vec3(0.0);
 
 					if (FLAGS_SUBPIXEL != 0 && draw.sdf_texture_index != -1) {
-						// The plain coverage stays the luminance, so a strength of 0 is exactly the
-						// grayscale result. On top of it each colour gets the deviation of its own
-						// coverage, sampled where that colour's emitter sits along the screen axis of
-						// the layout and filtered over neighbouring positions (FreeType's default
-						// 1 2 3 2 1 filter). The white emitter of RGBW panels is driven by the panel
-						// itself and is not modelled.
 						vec2 axis = vec2(1.0, 0.0);
 						vec3 offsets = vec3(-1.0 / 3.0, 0.0, 1.0 / 3.0);
 						if (FLAGS_SUBPIXEL_BGR) offsets = offsets.bgr;
 						if (FLAGS_SUBPIXEL_VRGB) axis = vec2(0.0, 1.0);
 						if (FLAGS_SUBPIXEL_VBGR) { axis = vec2(0.0, 1.0); offsets = offsets.bgr; }
-						// R W B G, each emitter a quarter of the pixel wide
 						if (FLAGS_SUBPIXEL_RWBG) offsets = vec3(-0.375, 0.375, 0.125);
-						// B W R G
 						if (FLAGS_SUBPIXEL_BWRG) offsets = vec3(0.125, 0.375, -0.375);
 
-						// a tap covers a third of a pixel along the axis and a whole pixel across it,
-						// so its ramp is as wide as that footprint measured along the edge normal
 						vec2 gradient = vec2(dFdx(d), dFdy(d));
 						float gradient_length = length(gradient);
 						vec2 edge_normal = gradient_length > 1e-5 ? gradient / gradient_length : axis;
@@ -3070,7 +3042,6 @@ render.RegisterFlushCallback("render2d", function(reason)
 	return render2d.FlushBatches(reason)
 end)
 
--- DrawHUD is Draw2D for the in game hud, drawn under the ui and skipped while anything hides it (the desktop, a shot)
 local hud_hiders = {}
 
 function render2d.SetHudHidden(reason, hidden)

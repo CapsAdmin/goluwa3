@@ -278,7 +278,6 @@ local function start_saving_pipeline_cache(path, saved_size)
 
 		saved_generation = generation
 
-		-- a cache that grew by nothing holds nothing new, writing it again would only cost the time
 		local size = vulkan_instance:GetPipelineCacheDataSize()
 
 		if size == saved_size then return end

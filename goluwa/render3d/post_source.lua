@@ -157,7 +157,6 @@ function post_source.GetPreExposureGLSL(block_name)
 			return read_pre_exposure(]] .. block_name .. [[.pre_exposure_tex);
 		}
 
-		// what an absolute luminance is multiplied by to show on screen, where 1 is white
 		float get_exposure() {
 			return get_pre_exposure() * ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[;
 		}
@@ -182,8 +181,6 @@ function post_source.GetCompressGLSL()
 			return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z);
 		}
 
-		// exposed and Reinhard compressed by luminance, so the inverse is exact. 1 - luma
-		// keeps float precision to ~1e6 exposed, the sun's disc is ~5e4 at noon
 		vec3 compress(vec3 c, float exposure) {
 			c *= exposure;
 			return rgb_to_ycocg(c / (1.0 + luminance(c)));

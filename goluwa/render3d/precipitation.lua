@@ -16,9 +16,7 @@ local BOX_SIZE = 20
 local MAX_RAIN_DROPS = 131072
 local MAX_SNOWFLAKES = 131072
 local EXPOSURE_TIME = 1 / 60
--- geometric optics of a water sphere without its diffraction peak
 local RAIN_SCATTER_G = 0.81
--- an ice aggregate without its diffraction peak scatters less forward than a drop
 local SNOW_SCATTER_G = 0.6
 
 function precipitation.SetRain(mm_per_hour)
@@ -123,9 +121,6 @@ function precipitation.IsActive()
 		)
 end
 
--- the particles live in a box around the camera and wrap around its sides, so the density is the same wherever the
--- camera goes. They fall with the wind, hit what the shelter map sees (a roof, a canopy, the ground) and are hidden
--- under it
 local function get_common_glsl()
 	return [[
 		#ifndef PRECIPITATION_COMMON
@@ -171,7 +166,6 @@ precipitation.rain = particles.Register{
 		const float RAIN_MIN_DIAMETER = ]] .. string.format("%.2f", RAIN_MIN_DIAMETER) .. [[;
 		const float RAIN_MAX_DIAMETER = ]] .. string.format("%.2f", RAIN_MAX_DIAMETER) .. [[;
 
-		// terminal velocity of a drop of this diameter in mm
 		vec3 get_rain_velocity(float diameter) {
 			return vec3(rain_data.wind.x, -(9.65 - 10.3 * exp(-0.6 * diameter)), rain_data.wind.z);
 		}
@@ -179,7 +173,6 @@ precipitation.rain = particles.Register{
 	spawn = [[
 		vec3 r = pcg3d_unorm(uvec3(index, generation, 17u));
 		vec3 r2 = pcg3d_unorm(uvec3(index, generation, 101u));
-		// exponentially distributed sizes above the smallest drawn
 		float diameter = min(RAIN_MIN_DIAMETER - log(max(r2.x, 1e-7)) / rain_data.lambda, RAIN_MAX_DIAMETER);
 		p.width = diameter * 0.001;
 		p.position = get_camera_box_position(r);
@@ -187,17 +180,17 @@ precipitation.rain = particles.Register{
 		p.life = mix(8.0, 16.0, r2.y);
 	]],
 	update = [[
+
 		p.velocity = get_rain_velocity(p.width * 1000.0);
 		vec3 moved = p.position + p.velocity * dt;
 		p.position = wrap_into_camera_box(moved);
 
-		// the box moved it, it did not fall
 		if (distance(moved, p.position) > 0.01) particle_previous = p.position;
 	]],
-	-- a drop that hits something is gone, the slot spawns again
 	collision = "shelter_map",
 	collide = "p.life = 0.0;",
 	visibility = [[
+
 		vec3 surface;
 		vec3 normal;
 		return particle_probe_shelter_map(p.position, surface, normal) ? 0.0 : 1.0;
@@ -231,13 +224,9 @@ precipitation.snow = particles.Register{
 	declarations = get_common_glsl() .. [[
 		const float SNOW_MIN_MELTED_DIAMETER = ]] .. string.format("%.2f", SNOW_MIN_MELTED_DIAMETER) .. [[;
 		const float SNOW_MAX_MELTED_DIAMETER = ]] .. string.format("%.2f", SNOW_MAX_MELTED_DIAMETER) .. [[;
-		// seconds a flake lies on the surface before it is gone
 		const float SNOW_LAND_TIME = 1.5;
 		const float SNOW_DENSITY_SCALE = ]] .. string.format("%.3f", SNOW_DENSITY_SCALE) .. [[;
 
-		// flakes flutter as they fall, a few centimeters to a couple of decimeters every second or two (calibrated,
-		// not sourced), the lighter dry ones more. the offset is a function of the age, so it is added as the change
-		// over the step and does not drift
 		struct SnowSway {
 			float angular;
 			float amplitude;
@@ -258,7 +247,6 @@ precipitation.snow = particles.Register{
 			return s.amplitude * s.angular * vec3(cos(s.angular * t + s.phase), 0.0, -0.7 * sin(s.angular * 0.7 * t + s.phase));
 		}
 
-		// unrimed aggregates, wet ones fall faster
 		vec3 get_snow_velocity(float diameter) {
 			return vec3(snow_data.wind.x, -0.8 * pow(diameter, 0.16) * (1.0 + snow_data.wetness), snow_data.wind.z);
 		}
@@ -267,7 +255,6 @@ precipitation.snow = particles.Register{
 		vec3 r = pcg3d_unorm(uvec3(index, generation, 53u));
 		vec3 r2 = pcg3d_unorm(uvec3(index, generation, 211u));
 		float melted = min(SNOW_MIN_MELTED_DIAMETER - log(max(r2.x, 1e-7)) / snow_data.lambda, SNOW_MAX_MELTED_DIAMETER);
-		// wet flakes stick together into aggregates about twice as big and fast (calibrated, not sourced)
 		float diameter = sqrt(melted * melted * melted / SNOW_DENSITY_SCALE) * (1.0 + snow_data.wetness);
 		p.width = diameter * 0.001;
 		p.position = get_camera_box_position(r);
@@ -275,7 +262,7 @@ precipitation.snow = particles.Register{
 		p.life = mix(12.0, 24.0, r2.y);
 	]],
 	update = [[
-		// a flake that has landed stays where it is and melts away
+
 		if (p.user.y == 1u) {
 			p.velocity = vec3(0.0);
 
@@ -290,10 +277,8 @@ precipitation.snow = particles.Register{
 		p.position = wrap_into_camera_box(moved);
 		p.velocity = velocity + get_snow_sway_velocity(sway, p.age);
 
-		// the box moved it, it did not fall
 		if (distance(moved, p.position) > 0.01) particle_previous = p.position;
 	]],
-	-- a flake comes to rest on the surface (half sunk by its own size) and melts away
 	collision = "shelter_map",
 	collide = [[
 		particle_stick(p, hit, normal);
@@ -301,7 +286,7 @@ precipitation.snow = particles.Register{
 		p.user.z = floatBitsToUint(p.age);
 	]],
 	visibility = [[
-		// a landed flake melts
+
 		if (p.user.y == 1u) return 1.0 - smoothstep(0.0, SNOW_LAND_TIME, p.age - uintBitsToFloat(p.user.z));
 
 		vec3 surface;

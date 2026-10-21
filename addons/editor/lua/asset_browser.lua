@@ -132,7 +132,6 @@ local function get_selected_entity()
 	end
 end
 
--- the components an object can have are virtual assets, the registry depends on what is edited (3D entity or 2D panel)
 local function sync_component_assets(target, hide_present)
 	for path in pairs(assets.virtual_assets) do
 		if path:starts_with("components/") then assets.UnregisterVirtualAsset(path) end
@@ -198,7 +197,6 @@ local function place_prefab(entry)
 	return entity
 end
 
--- only an entity that already is a prefab instance can switch prefab
 local function get_selected_instance()
 	local target = get_selected_entity()
 	return target and target.prefab and target or nil
@@ -217,7 +215,6 @@ local function get_folder_node_chain(folder)
 	return chain, text
 end
 
--- the material the selected asset's preview loaded, so the viewers and the debug info do not load it again
 local function get_detail_material(view, entry)
 	local detail = view.detail
 
@@ -269,7 +266,6 @@ local function open_source_viewer(entry)
 	react.OpenWindow("AssetSourceViewer/" .. entry.path, SourceViewer, {Title = entry.path:upper(), Source = source})
 end
 
--- api is what the browser hands to its callbacks: picking, pick(entry), navigate(folder) and view (the detail view)
 local function activate_item(item, api)
 	if item.is_folder then
 		api.navigate(item.folder)
@@ -543,7 +539,6 @@ local function draw_item(item, index, x, y, w, h, selected, hovered)
 	draw_text(colors.font_small, item.sub_label, x + (w - sw) / 2, label_y + 16, colors.text_disabled)
 end
 
--- the folders and assets the grid shows, a search narrows the previous result while the query only gets longer
 local function list_items(category, index, folder, query, recursive, cache)
 	query = query:match("^%s*(.-)%s*$")
 	local items
@@ -645,7 +640,6 @@ local function make_root_node(category, root)
 	return node
 end
 
--- opens the branches down to folder and selects it, a folder the tree already shows is left alone
 local function reveal_in_tree(tree, items, expanded, root, folder)
 	local ancestors = {}
 	local current = folder
@@ -691,7 +685,6 @@ local function reveal_in_tree(tree, items, expanded, root, folder)
 	tree:EnsureVisible(node.Key)
 end
 
--- the folders of a category, branches are built when they open
 local FolderTree = react.Component(|props| -> do
 	local tree = react.UseRef()
 	local expanded = react.UseRef({})
@@ -762,7 +755,6 @@ local Breadcrumb = react.Component(|props| -> do
 
 	return Row{layout = {GrowWidth = 1, ChildGap = 2, AlignmentY = "center"}}{crumbs}
 end)
--- hovering changes on every mouse move, so the status bar keeps it and nothing above it renders
 local StatusBar = react.Component(|props| -> do
 	local hovered, set_hovered = react.UseState()
 	props.HoverRef.current = set_hovered
@@ -993,7 +985,6 @@ local function detail_error(message)
 	return Text{Text = "preview failed: " .. tostring(message), Wrap = true, Color = "negative", layout = {GrowWidth = 1}}
 end
 
--- one of the textures a material uses
 local ChannelTile = react.Component(|props| -> do
 	local texture = props.Texture
 	local draw = react.UseCallback(|self| -> do
@@ -1031,7 +1022,6 @@ local ChannelTile = react.Component(|props| -> do
 		Text{Text = props.Label, Font = "body XS", Color = "text_disabled", IgnoreMouseInput = true, layout = {FitWidth = true}},
 	}
 end)
--- everything about the selected asset: the preview, the textures of a material, the actions and the facts of asset_info
 local AssetDetails = react.Component(|props| -> do
 	local entry = props.Entry
 	local view = props.View
@@ -1050,7 +1040,6 @@ local AssetDetails = react.Component(|props| -> do
 		update_detail_preview(detail, view, dt)
 	end)
 
-	-- the preview loads and the model readies on their own, what the facts show depends on both
 	local state = react.UsePoll(|| -> (entry.preview and entry.preview.status or "none") .. (detail.ready and "+" or "-"), 0.1)
 	local sections = react.UseMemo(|| -> asset_info.Get(entry, detail.material), {entry, state})
 	local channels = react.UseMemo(|| -> do
@@ -1223,7 +1212,6 @@ local AssetDetails = react.Component(|props| -> do
 		},
 	}
 end)
--- what picker.Start hands over for the current tab: a model path, a prefab name, a material and its hit or a texture and its name
 local function select_picked(api, value, extra)
 	local category = api.category
 
@@ -1310,7 +1298,6 @@ local AssetBrowser = react.Component(|props| -> do
 	local filter = react.UseRef()
 	local hover = react.UseRef()
 	local world_pick = react.UseRef({})
-	-- the asset the browser opens on
 	local start = react.UseMemo(|| -> do
 		prepare_category(categories[1], props)
 		local path = props.SelectedPath
@@ -1329,7 +1316,6 @@ local AssetBrowser = react.Component(|props| -> do
 	local world_picking, set_world_picking = react.UseState(false)
 	local applied_query = react.UseDebounce(query, 0.12)
 	local search = react.UseRef({})
-	-- the orbit camera of the detail preview stays when another asset is selected
 	local view = react.UseMemo(|| -> do
 		local orbit = OrbitCamera.New()
 		orbit:SetYaw(math.pi / 4)

@@ -131,7 +131,6 @@ local function build_virtual_children(entity, guid)
 		end
 	end
 
-	-- the model's material is made from its MaterialConfig, so no storable property holds it
 	local model = entity.model
 
 	if model and model.material then
@@ -151,7 +150,6 @@ end
 
 local build_entity_node
 
--- the children of a root are listed under the owner they belong to, you first and the world last
 local function get_group_key(root, child)
 	return root:GetGUID() .. "/owner/" .. root.GetOwnerKey(child:GetOwnedBy())
 end

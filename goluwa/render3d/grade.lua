@@ -117,14 +117,10 @@ grade.block = {
 	{"grade_gain_b", "float"},
 }
 
--- ambiance, highlights and shadows look at the surroundings of a pixel, which takes the local exposure grid
--- (passes/blit.lua). It is only built for them, with all three at 0 nothing of it runs
 function grade.NeedsLocal()
 	return ambiance:Get() ~= 0 or highlights:Get() ~= 0 or shadows:Get() ~= 0
 end
 
--- the sliders are -100 to 100, the shader takes -1 to 1. grade_local says the grid is there to read, the blit
--- pass sets it
 function grade.WriteBlock(block)
 	block.grade_brightness = brightness:Get() / 100
 	block.grade_contrast = contrast:Get() / 100
@@ -162,23 +158,6 @@ function grade.WriteBlock(block)
 	return block
 end
 
--- the grade of the tonemapped image, in the sRGB encoding like the dither is, where mid grey is the middle of
--- the range. 1 is SDR white. base is the luminance of the pixel's surroundings in the same encoding, from the
--- local exposure grid, or -1 for none, which makes it the pixel's own. Without a grade it returns the colour
--- untouched, so the neutral output is exactly what the tonemapper gave. In this order:
--- shadows, highlights and ambiance first, since base is the image before the grade. The tone of a region b
--- is moved to b + s k b (1-b)^6 + h k b^6 (1-b), the two mirror images of each other, bumps that are 0 at
--- black and white and have almost nothing at mid grey (at b = 0.5 shadows is 1.6 percent of k, 0.1 where
--- b = 0.14 peaks it), so shadows is only the darks and highlights only the brights. A pixel is scaled by
--- what its region is scaled by, m(b) / b = 1 + s k (1-b)^6 + h k b^5 (1-b), so a dark pixel in a bright
--- region isn't lifted and a region keeps its own contrast. k is 3.5 where it lifts the shadows or recovers
--- the highlights and 1 on the other side, which is as much as keeps m rising for any pair of sliders (up to
--- 5.2 and 1), so the pixel's own b gives a curve that never reverses. Ambiance is half of each, towards the
--- middle, plus the pixel's difference to its surroundings scaled by 1 + 0.8 a (at -1 the detail is a fifth,
--- at 1 it is 1.8 times) and some saturation.
--- brightness is a gamma, black and white stay.
--- contrast is x^p / (x^p + (1-x)^p), an S curve that keeps black, white and mid grey and is flat at p = 0.
--- saturation, then warmth (red up and blue down), then the lift and gain per channel.
 function grade.GetGLSL(block_name)
 	return (([[
 		vec3 grade_display(vec3 c, float base) {
@@ -223,7 +202,6 @@ function grade.GetGLSL(block_name)
 			return SRGBToLinear(clamp(x, 0.0, 1.0));
 		}
 
-		// HDR output: only what is up to paper white is graded, the highlights above it are left as they are
 		vec3 grade_display_hdr(vec3 c, float base) {
 			vec3 sdr = min(c, vec3(1.0));
 			return grade_display(sdr, base) + (c - sdr);
@@ -231,8 +209,6 @@ function grade.GetGLSL(block_name)
 	]]):gsub("BLOCK", block_name))
 end
 
--- a preset is the pvars it sets, anything it leaves out is the pvar's default, so a preset is the whole look
--- and never keeps what the one before it set
 local fields = {
 	{key = "r_grade_brightness"},
 	{key = "r_grade_contrast"},
@@ -321,14 +297,11 @@ local function apply(a, b, t)
 		local value
 
 		if type(from) ~= "number" then
-			-- a name or a switch can't be in between
 			value = t < 0.5 and from or to
 		elseif field.white_balance then
 			if from == 0 or to == 0 then
-				-- 0 estimates the white from the frame, which has no temperature to move through
 				value = t < 1 and from or to
 			else
-				-- a temperature moves evenly in mired, 1e6 / kelvin, not in kelvin
 				value = 1e6 / math.lerp(t, 1e6 / from, 1e6 / to)
 			end
 		else

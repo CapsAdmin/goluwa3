@@ -8,17 +8,14 @@ local BaseTheme = import("./base.lua")
 local ZsnesTheme = objects.CreateTemplate("ui_theme_zsnes")
 ZsnesTheme.Base = BaseTheme
 ZsnesTheme.Name = "zsnes"
--- the zsnes gui is drawn on a 256x224 screen, every pixel of it is PX pixels here
 local PX = 2
 local FONT = "bitmap:zsnes:" .. PX
 local zsnes_font = import("goluwa/render2d/fonts/zsnes_bitmap.lua")
--- a pixel gets a brighter shade towards the bottom right, GUIoutputchar draws it as colour - rows left - columns left + 1
 zsnes_font.shade = function(x, y)
 	return 1 - 0.028 * ((4 - y) + (5 - x))
 end
 glyphs.RegisterBitmapFont(zsnes_font)
 
--- the gui palette (GUISetPal16 in gui/c_gui.c) with the default config, a colour is 565 in 16 bits
 local function from_565(c)
 	local r = bit.rshift(c, 11)
 	local g = bit.band(bit.rshift(c, 5), 63)
@@ -37,7 +34,6 @@ local function window_scale(index, first, last, factor)
 	return pal16(math.max(r - steps * 4, 0), math.max(g - steps * 4, 0), math.max(b - steps * 4, 0))
 end
 
--- 148..152 active windows, 153..157 behind them, 158..162 further back
 local function win(index)
 	if index <= 152 then return window_scale(index, 148, 152, 0) end
 
@@ -46,7 +42,6 @@ local function win(index)
 	return window_scale(index, 158, 162, 1 / 2)
 end
 
--- 189.. is the blue gray scale all window controls and text are drawn with
 local function gray(index)
 	local i = index - 189
 	return pal16(math.floor(i * 3 / 2), math.floor(i * 3 / 2), i * 2)
@@ -56,7 +51,6 @@ local function hex(s)
 	return Color.FromHex(s)
 end
 
--- the menu uses the 32..63 scale which the 16 bit conversion bends, so those are read off a screenshot
 local MENU_BAR = {"#002c88", "#003098", "#0034a8", "#0038b8", "#003cc8", "#0040d8", "#0044e8", "#0048f8"}
 local ICON_CLOSE = {
 	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -137,7 +131,6 @@ local function fill(x, y, w, h, c, k, a)
 	render2d.DrawRect(x, y, w, h)
 end
 
--- a line of 1 zsnes pixel, in zsnes pixel coordinates
 local function zfill(x, y, w, h, c, k, a)
 	fill(x * PX, y * PX, w * PX, h * PX, c, k, a)
 end
@@ -154,7 +147,6 @@ local function draw_icon(x, y, icon, red)
 	end
 end
 
--- DrawGUIButton in gui/c_gui_windp.c: one pixel edge on every side, lit from the top left, a pressed button is inverted
 local function gui_button(x, y, w, h, base, pressed)
 	local top, left, body, right, bottom
 
@@ -309,7 +301,6 @@ function ZsnesTheme:Initialize()
 	self:SetFontCache({})
 end
 
--- text is drawn with a one pixel shadow down and to the right
 function ZsnesTheme:GetTextShadow(foreground)
 	if foreground.r * 0.3 + foreground.g * 0.59 + foreground.b * 0.11 < 0.4 then return nil end
 
@@ -350,7 +341,6 @@ function ZsnesTheme:UpdateCheckboxAnimations(pnl) end
 
 function ZsnesTheme:UpdateSliderAnimations(pnl) end
 
--- GUIDisplayBBox: a black box with a window coloured border, dark at the top left and light at the bottom right
 function ZsnesTheme:DrawSunken(x, y, w, h, color)
 	fill(x, y, w, h, color or self:GetColor("field"))
 	fill(x, y, w, PX, win(148))
@@ -388,7 +378,6 @@ function ZsnesTheme:DrawFrame(size, emphasis)
 	fill(0, 0, w, h, self:GetColor("surface"))
 end
 
--- GUIDrawWindowBox: the window is lit from the left, shaded to the right and at the bottom
 function ZsnesTheme:DrawFramePost(size, emphasis)
 	local w, h = math.floor(size.x), math.floor(size.y)
 	render2d.SetTexture(nil)
@@ -405,7 +394,6 @@ function ZsnesTheme:DrawFramePost(size, emphasis)
 	fill(0, h - PX, w, PX, win(148))
 end
 
--- DrawTitleBar: a gray gradient of 10 lines with lit left and shaded right edges
 function ZsnesTheme:DrawHeader(size)
 	local w, h = math.floor(size.x), math.floor(size.y)
 	render2d.SetTexture(nil)
@@ -422,7 +410,6 @@ function ZsnesTheme:DrawHeader(size)
 	fill(w - PX, 0, PX, h, gray(201))
 end
 
--- GUIDMHelp: the buttons of the menu bar are dark gray, the open one is inverted
 function ZsnesTheme:DrawBarButton(size, state)
 	local w, h = math.floor(size.x / PX), math.floor(size.y / PX)
 	local open = (state.pressed or state.active or state.hovered) and not state.disabled
@@ -484,7 +471,6 @@ function ZsnesTheme:DrawButton(size, state)
 	gui_button(0, 0, w, h, hovered and 220 or 217, pressed)
 end
 
--- the dropdown selection: seven lines of magenta between two darker ones
 function ZsnesTheme:DrawMenuButton(size, state)
 	if not (state.pressed or state.selected or state.active or state.hovered) then return end
 
@@ -525,7 +511,6 @@ function ZsnesTheme:DrawButtonRadio(size, state)
 	draw_icon(0, y, state.value and ICON_RADIO_ON or ICON_RADIO_OFF, self:GetColor("negative"))
 end
 
--- GUIDrawSlider: a light line over a dark one and a pointer knob
 function ZsnesTheme:DrawSlider(size, state)
 	local value, min_value, max_value = state.value, state.min, state.max
 	render2d.SetTexture(nil)
@@ -591,7 +576,6 @@ function ZsnesTheme:DrawMenuSpacer(size, vertical)
 	end
 end
 
--- GUIDrawMenuM: a gray panel lit from the top left
 function ZsnesTheme:DrawMenuContainer(size)
 	local w, h = math.floor(size.x), math.floor(size.y)
 	render2d.SetTexture(nil)
@@ -630,7 +614,6 @@ function ZsnesTheme:DrawTreeToggle(size, meta, opts)
 	return center_x, center_y
 end
 
--- GUIDrawSlideBar: the track and handle are 8 pixels wide and shaded like a cylinder
 function ZsnesTheme:DrawScrollbarTrack(size)
 	local w, h = math.floor(size.x), math.floor(size.y)
 	local shades = {197, 195, 194, 193, 193, 194, 195, 197}
@@ -675,7 +658,6 @@ function ZsnesTheme:DrawScrollbarButton(size, direction, pressed, hovered)
 	self:DrawArrow(shift, shift, w * PX, h * PX, direction, gray(pressed and 199 or 197), PX)
 end
 
--- a raised gray button with a pixel dot in the middle and a stepped arrow on each side the view scrolls
 function ZsnesTheme:DrawAutoscrollMarker(size, vertical, horizontal)
 	local w, h = math.floor(size.x / PX), math.floor(size.y / PX)
 	local color = gray(197)

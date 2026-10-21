@@ -52,7 +52,6 @@ local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local vmt = {}
 vmt.ConvertTypedValues = convert_typed_values
 
--- the shader model of a modern gpu, a block like ">=dx90_20b" or "<dx90" holds the parameters used on cards that have it or lack it
 local DX_LEVEL = 95
 local DX_COMPARE = {
 	[">="] = function(a, b)
@@ -75,7 +74,6 @@ local DX_COMPARE = {
 	end,
 }
 
--- the parameters of the dx blocks that apply replace the ones outside them and the blocks are gone, a missing one is a no
 local function apply_dx_blocks(tbl)
 	local blocks = {}
 
@@ -125,8 +123,6 @@ do
 		parallaxmap = true,
 		detail = true,
 	}
-	-- extras that stock content names without shipping them, a missing one is dropped and not an error. 89 of the 95
-	-- hl2 materials with a $parallaxmap have no height texture
 	local optional_textures = {
 		parallaxmap = true,
 		detail = true,

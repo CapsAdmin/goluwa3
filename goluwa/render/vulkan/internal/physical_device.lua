@@ -354,7 +354,6 @@ function PhysicalDevice:GetRayTracingPipelineFeatures()
 	return features[0]
 end
 
--- vendor is "ext" or "nv", whether the device can reorder invocations by what they hit
 function PhysicalDevice:GetRayTracingInvocationReorderFeatures(vendor)
 	local features = VkRayTracingInvocationReorderFeaturesBoxes[vendor]()
 	features[0].sType = vulkan.vk.VkStructureType["VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_" .. vendor:upper()]

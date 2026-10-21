@@ -11,7 +11,6 @@ local Vec4 = import("goluwa/structs/vec4.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local Material = objects.CreateTemplate("render3d_material")
--- versioned properties stamp the material with a new property_version when they change, see Material:Touch
 Material:StartStorable({versioned = true})
 Material:StartCategory("Albedo")
 Material:GetSet("AlbedoTexture", nil, {type = "render_texture", callback = "InvalidateAlbedo"})
@@ -62,13 +61,9 @@ Material:GetSet(
 Material:StartCategory("Blending")
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
--- decals are laid over other surfaces and do not cast shadows
 Material:GetSet("Decal", false, {callback = "InvalidateFlags"})
--- a decal alpha is pushed towards fully transparent or fully opaque, which makes it more like alpha testing
 Material:GetSet("SharpAlpha", false, {callback = "InvalidateFlags"})
--- the vertex texture blend of a decal is how much of its alpha is gone, see decal_projection
 Material:GetSet("DecalFade", false, {callback = "InvalidateFlags"})
--- a decal that blends by dithering in the gbuffer pass instead of drawing in the translucent pass
 Material:GetSet("Dithered", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaCutoff", 0.5, {callback = "InvalidateColor", requires = "AlphaTest"})
 Material:GetSet("Additive", false, {callback = "InvalidateFlags"})
@@ -76,8 +71,6 @@ Material:GetSet("Modulate", false, {callback = "InvalidateFlags"})
 Material:GetSet("DisplayReferred", false, {callback = "InvalidateFlags"})
 Material:StartCategory("Rendering")
 Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
--- the vertex normals lean off the face (leaf cards bent away from the trunk so a crown shades as a volume), the back
--- of a double sided face mirrors them through the face instead of reversing them, which would point the bend inwards
 Material:GetSet("BentNormals", false, {callback = "InvalidateFlags", requires = "DoubleSided"})
 Material:GetSet("IgnoreZ", false, {callback = "InvalidateSceneKey"})
 Material:GetSet("NoDraw", false, {callback = "InvalidateSceneKey"})
@@ -113,7 +106,6 @@ Material:GetSet("SpecularFromRoughnessMask", false, {callback = "InvalidateFlags
 Material:GetSet("RoughnessMaskOnlyScalesSpecular", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("MetallicFromRoughnessMask", false, {callback = "InvalidateFlags"})
--- the MetallicRoughnessTexture is packed R metallic, G roughness, B ambient occlusion instead of glTF's R occlusion, G roughness, B metallic
 Material:GetSet("MetallicRoughnessIsMRAO", false, {callback = "InvalidateFlags", requires = "MetallicRoughnessTexture"})
 Material:GetSet("HeightTextureIsAlpha", false, {callback = "InvalidateFlags", requires = "HeightTexture"})
 Material:StartCategory("Source")
@@ -123,7 +115,6 @@ Material:EndStorable()
 Material:GetSet("Flags", 0)
 Material.property_version = 0
 
--- for code that changes a vector or color of the material in place, which no setter sees
 function Material:Touch()
 	local version = objects.version_counter + 1
 	objects.version_counter = version
@@ -306,7 +297,6 @@ function Material:ResetToDefaults()
 	end
 end
 
--- whether any of the surface is metal: the multiplier scales a metallic texture, a packed one or the roughness mask as well
 function Material:IsMetallic()
 	return self.MetallicMultiplier > 0
 end
@@ -337,7 +327,6 @@ function Material:HasHeightMap()
 	return self.HeightTexture ~= nil and self.HeightScale > 0
 end
 
--- decals draw with the pipelines that write the fragment depth, which pulls them in front of what they lie on
 function Material:WritesFragmentDepth()
 	return self:HasHeightMap() or self.Decal
 end

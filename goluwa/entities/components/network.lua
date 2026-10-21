@@ -44,7 +44,6 @@ end
 do
 	local waiting = {}
 
-	-- an entity a client owns on the network belongs to that client, which can be created after the entity
 	function META:OnNetworkOwnerChanged()
 		local client = clients.GetByUniqueID(self.NetworkOwner)
 

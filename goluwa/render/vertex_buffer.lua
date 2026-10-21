@@ -30,7 +30,6 @@ end
 
 local cached = {}
 
--- `mode` "owned" keeps the given cdata as the cpu copy instead of copying it, "host" does that and has no gpu buffer
 function VertexBuffer.New(vertices, vertex_attributes, name, mode)
 	local self = VertexBuffer:CreateObject()
 	self.debug_name = name

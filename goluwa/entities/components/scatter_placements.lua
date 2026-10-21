@@ -1,33 +1,25 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
--- instances of one model that stand where they were put (a level's painted vegetation), drawn by the scatter system
--- instead of an entity for each one: the model's prototype, a set of its own, and the instances as 32 byte records
 local META = objects.CreateTemplate("scatter_placements")
 META:StartStorable()
 META:GetSet("Model", "")
 META:GetSet("MaterialOverride", "")
 META:GetSet("Bending", 0, {validate = "number"})
 META:GetSet("Billboard", false)
--- the lod system switches to a billboard at 14 radii, the pvar r_scatter_billboard_distance (0.75) scales this to 42
 META:GetSet("BillboardRadii", 56, {validate = "number"})
 META:GetSet("MaxDistance", 4000, {validate = "number"})
 META:GetSet("Shadow", true)
--- the base of each follows the ground under it (needs ray queries)
 META:GetSet("Conform", false)
--- position, scale, yaw and the up axis of each: x, y, z, scale, yaw, nx, ny, nz as float32
 META:GetSet("Records", "")
 META:EndStorable()
 local Record = ffi.typeof("struct { float x, y, z, scale, yaw, nx, ny, nz; }")
 local RecordPtr = ffi.typeof("$ *", Record)
 local FloatArray = ffi.typeof("float[?]")
--- no tint: 0.5 in the three color channels (the tint is stored at half scale) and 1 in alpha, as unorm8
 local TINT_WORD = 0xFF808080
 
--- the matrix of an instance as the cull pass reads it, see the bottom row in scatter.lua
 local function write_matrix(out, words, at, r)
 	local nx, ny, nz = r.nx, r.ny, r.nz
-	-- two vectors that with the up axis make an orthonormal basis (Duff et al.)
 	local sign = nz >= 0 and 1 or -1
 	local a = -1 / (sign + nz)
 	local b = nx * ny * a

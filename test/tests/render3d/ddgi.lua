@@ -250,8 +250,6 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	-- a room of six quads that face inwards and have no thickness, built on the probe grid (the finest cascade is 0.5 m
-	-- apart) or off it. returns the ceiling, which the tests take away to see what the sealed room is missing
 	local function add_plane_room(created, polygons, center, half, height, double_sided)
 		local planes = {
 			{Vec3(0, 0, 0), Vec3(0, 1, 0), half, half},
@@ -295,7 +293,6 @@ do
 			render3d.camera:SetAngles{x = 0, y = 0, z = 0}
 			local ceiling = add_plane_room(created, polygons, center, half, height, double_sided)
 
-			-- the leak builds up over many frames (the multiple bounces average slowly)
 			local function gi_average()
 				for _ = 1, 60 do
 					draw()
@@ -341,7 +338,6 @@ do
 		use_ddgi()
 		render3d.camera:SetPosition(Vec3(3, 2, 3))
 		render3d.camera:SetAngles{x = 0, y = 0, z = 0}
-		-- two rooms side by side, 0.15 m walls, the partition at x = 0 on the probe grid
 		local t = 0.15
 		add_slab(polygon3d, created, Vec3(-6, -t, -4), Vec3(6, 0, 4))
 		add_slab(polygon3d, created, Vec3(-6, 4, -4), Vec3(6, 4 + t, 4))
@@ -394,10 +390,6 @@ do
 		use_ddgi()
 		render3d.camera:SetPosition(Vec3(0, 2, 3))
 		render3d.camera:SetAngles{x = 0, y = 0, z = 0}
-		-- a room that is lit by the sky and the sun through a 0.1 m hole in its roof. A probe sees them in a fraction of
-		-- a percent of its rays, 1e3 times brighter than the room, so its light is a few spikes, and what a probe does
-		-- with spikes decides how bright the room is: a probe that takes spikes in at the fast rate of a probe whose
-		-- light changes made this room twice as bright as the average of a hundred times as many frames
 		local gap = 0.1
 		add_slab(polygon3d, created, Vec3(-30, -0.5, -30), Vec3(30, 0, 30))
 		add_slab(polygon3d, created, Vec3(-6, 0, -6), Vec3(-5.6, 5, 6))
@@ -410,7 +402,6 @@ do
 		add_slab(polygon3d, created, Vec3(gap / 2, 5, -gap / 2), Vec3(6, 5.4, gap / 2))
 		local pvars = import("goluwa/cli/pvars.lua")
 
-		-- the mean of the GI texture over 12 consecutive frames after the given number of frames
 		local function gi_average(frames)
 			ddgi.ResetHistory()
 
@@ -430,9 +421,7 @@ do
 		end
 
 		local ok, err = pcall(function()
-			-- the room as the defaults see it (a probe's light varies a lot, so three rooms)
 			local default = (gi_average(600) + gi_average(600) + gi_average(600)) / 3
-			-- and as a probe that averages over ten times as long, which takes no change in faster, sees it
 			pvars.SetSession("ddgi_hysteresis", 0.998)
 			pvars.SetSession("ddgi_change_power", 1)
 			local slow = gi_average(1500)

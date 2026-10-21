@@ -3,15 +3,10 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local bsp_clip = {}
 local EPSILON = 0.01
 
--- Clips geometry against the BSP tree of a map: whatever ends up in a leaf for which is_removed(leaf) is true is cut away.
--- Surfaces that lie in a node's plane only stay where neither side of it is removed.
--- nodes are {plane number, front child, back child}, a negative child is minus the leaf number
 function bsp_clip.New(nodes, planes, leafs, headnode, is_removed)
 	local self = {nodes = nodes, planes = planes, leafs = leafs, headnode = headnode}
 	local bounds_cache = {}
 
-	-- the box around everything that is removed below a child, false when nothing is. Geometry that does not touch this box
-	-- does not have to be split any further.
 	local function removed_bounds(child)
 		if child < 0 then
 			local leaf = leafs[-child]
@@ -51,7 +46,6 @@ function bsp_clip.New(nodes, planes, leafs, headnode, is_removed)
 	return setmetatable(self, {__index = bsp_clip})
 end
 
--- whether the box of a list of points overlaps a removed_bounds box
 local function overlaps(bounds, points_a, points_b)
 	local min_x, min_y, min_z = math.huge, math.huge, math.huge
 	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
@@ -70,7 +64,6 @@ local function overlaps(bounds, points_a, points_b)
 		max_z >= bounds[3]
 end
 
--- a vertex is {pos = Vec3, attributes = {numbers}}, attributes are interpolated when an edge is cut
 local function lerp_vertex(a, b, t)
 	local attributes = {}
 
@@ -115,8 +108,6 @@ local function split_polygon(polygon, plane, distances)
 	return front, back
 end
 
--- Returns the fragments of a convex polygon that are not removed, a list of polygons. The polygon itself is returned in
--- the list when nothing was cut off.
 function bsp_clip:ClipPolygon(polygon)
 	local nodes, planes, leafs = self.nodes, self.planes, self.leafs
 	local removed_bounds, is_removed = self.removed_bounds, self.is_removed
@@ -149,7 +140,6 @@ function bsp_clip:ClipPolygon(polygon)
 		end
 
 		if min_distance >= -EPSILON and max_distance <= EPSILON then
-			-- in the plane, which is the boundary between the two sides: it only stays where neither side removes it
 			local front = {}
 			descend(node[2], polygon, front)
 
@@ -174,8 +164,6 @@ function bsp_clip:ClipPolygon(polygon)
 	return out
 end
 
--- Returns the pieces of a convex brush that are not removed, a list of side lists. A side is {normal, dist, ...}, the
--- brush is the volume where normal . x <= dist for all of them. Cuts add sides without any extra fields.
 function bsp_clip:ClipBrush(sides)
 	local out = {}
 	local nodes, planes, leafs = self.nodes, self.planes, self.leafs

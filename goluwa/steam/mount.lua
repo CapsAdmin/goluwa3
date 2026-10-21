@@ -61,7 +61,6 @@ return function(steam)
 			return lst
 		end,
 		callback = function(lst)
-			-- TODO
 			do
 				return
 			end
@@ -199,7 +198,6 @@ return function(steam)
 		}
 		local cache = {}
 
-		-- the steam client's cached art for a game, nil when the client never downloaded it. newer clients keep the files in a hash named subfolder
 		function steam.GetGameImage(appid, kind)
 			local key = appid .. kind
 

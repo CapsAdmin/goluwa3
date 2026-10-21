@@ -5,18 +5,14 @@ local materials = import("goluwa/render3d/scene/materials.lua")
 local draw = import("goluwa/render3d/scene/draw.lua")
 local bridge = {}
 local dynamic = setmetatable({}, {__mode = "k"})
--- visuals with an entry the store has no row for (a mesh the gpu has no buffers of), which the cpu draws
 local cpu_drawn = setmetatable({}, {__mode = "k"})
--- every visual in the scene, for the bounds of all of it
 local tracked = setmetatable({}, {__mode = "k"})
 local bounds_min, bounds_max = {[0] = 0, 0, 0}, {[0] = 0, 0, 0}
 local bounds_valid = false
 local bounds_dirty = false
--- visuals that have an emissive instance, and a version that changes whenever the emitters could have
 local emissive_visuals = setmetatable({}, {__mode = "k"})
 bridge.emitter_version = 0
 local MAX_DIRTY_BOXES = 64
--- where the scene changed since the last time it was asked, for what caches per region (the light occlusion maps)
 local dirty_boxes = {}
 local dirty_all = false
 
@@ -54,8 +50,6 @@ local function snapshot(visual)
 	}
 end
 
--- the box around everything in the scene, nil for an empty one. it only grows until something leaves the scene, then it
--- is measured again
 function bridge.GetBounds()
 	if bounds_dirty then
 		bounds_dirty = false
@@ -105,7 +99,6 @@ local function grow_bounds(box)
 	bounds_max[2] = math.max(bounds_max[2], box.max_z)
 end
 
--- the levels of detail of a visual are picked by the distance to the sphere around it
 local function set_lod_bounds(visual, list)
 	local box = visual.scene_aabb
 
@@ -165,14 +158,10 @@ function bridge.GetEmissiveVisuals()
 	return emissive_visuals
 end
 
--- what the main view needs of a row: whether it is drawn there at all (not rays only, not hidden, a material the gbuffer
--- draws), the box and the previous matrix
 do
 	local box = {}
 	local huge = math.huge
 
-	-- the box of an entry's own mesh in the world, a visual of many parts (the world of a map is a part per material)
-	-- would otherwise have the box of all of them for every part. nil when the entry has no bounds
 	function bridge.GetEntryBox(entry, matrix)
 		local aabb = entry.source_aabb
 
@@ -219,7 +208,6 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 
 		if material:GetDoubleSided() then flags = flags + instances.RASTER_DOUBLE_SIDED end
 
-		-- they write no depth, but what the opaque depth of the last frame hides they do not show either
 		if visual.UseOcclusionCulling then flags = flags + instances.RASTER_OCCLUSION end
 	end
 
@@ -254,8 +242,6 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	item.raster = (drawn or translucent) or nil
 end
 
--- the instances of a visual: one per render entry that has a mesh the gpu has, in the scene as the entry's own world
--- matrix places it. called whenever the visual is dirty in the scene acceleration, in the frame it changed
 function bridge.UpdateVisual(visual, is_dynamic)
 	if not visual:IsValid() or visual.scene_removed then
 		cpu_drawn[visual] = nil
@@ -287,7 +273,6 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 			if r + g + b > 0 and (entry.lod_level or 0) == 0 then emissive = true end
 
-			-- a visual that is not in the ray traced scene is only drawn
 			if hidden or not visual.InSceneBVH then mask = 0 end
 
 			if not visual.CastShadows or material:GetRayShadowOpacity() < 0.5 then
@@ -383,7 +368,6 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	end
 end
 
--- whether the main view draws the entry from the store
 function bridge.IsRasterEntry(visual, entry)
 	local list = visual.scene_instances
 
@@ -405,7 +389,6 @@ function bridge.GetCPUDrawnVisuals()
 	return cpu_drawn
 end
 
--- what moves with a body or a skeleton gets its matrices again every frame
 function bridge.RefreshDynamic()
 	for visual in pairs(dynamic) do
 		local list = visual.scene_instances

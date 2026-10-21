@@ -210,7 +210,6 @@ return function(META)
 		end
 	end
 
-	-- META.Slot names a field holding the object user children go into (a window's content area), an object with IsInternal set is part of the widget itself and is added to it directly
 	function META:AddChild(obj, pos)
 		local slot_name = self.Slot
 
@@ -348,7 +347,6 @@ return function(META)
 		end
 	end
 
-	-- removes the children user code added (the ones of the slot when there is one), what IsInternal is left alone
 	function META:RemoveChildren()
 		local slot_name = self.Slot
 
@@ -361,7 +359,6 @@ return function(META)
 		self:CallLocalEvent("OnChildrenRemoved")
 	end
 
-	-- everything, internal children included, for when the object itself is removed
 	function META:RemoveAllChildren()
 		if self.__skip_remove_children then
 			self.__skip_remove_children = nil

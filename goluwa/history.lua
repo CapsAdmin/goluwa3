@@ -3,7 +3,6 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local History = objects.CreateTemplate("history")
 History:GetSet("Limit", 500)
--- pushes with the same Key closer together than this (seconds) become one entry, a slider drag is one edit
 History:GetSet("MergeTime", 0.75)
 
 function History.New()
@@ -19,7 +18,6 @@ local function notify(self)
 	event.Call("HistoryChanged", self)
 end
 
--- entry is {Name, Undo = function, Redo = function, Key = optional merge key}, the change itself has already happened
 function History:Push(entry)
 	if self.applying then return end
 
@@ -60,7 +58,6 @@ function History:Push(entry)
 	notify(self)
 end
 
--- every entry pushed until the matching End is one entry
 function History:Begin(name)
 	self.depth = self.depth + 1
 
@@ -140,7 +137,6 @@ function History:Redo()
 	return true
 end
 
--- steps until index entries are applied, 0 is the state before the first entry
 function History:GoTo(index)
 	while self.index > index do
 		self:Undo()

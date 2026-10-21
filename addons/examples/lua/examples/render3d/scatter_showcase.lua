@@ -1,8 +1,3 @@
--- hills and a steep rise, grown over with a scatter set. the terrain's layers are grass, dirt and rock by
--- slope, so the set's slope rules and layer weights show. SCATTER_SET picks the set (crysis_meadow,
--- crysis_forest, crysis_jungle, crysis_rocky with Crysis installed, the procedural foliage_meadow, foliage_forest,
--- foliage_tropical, foliage_rocky and foliage_wetland without, which is foliage_meadow when it is not given)
--- luajit glw --3d lua "import('addons/examples/lua/examples/render3d/scatter_showcase.lua')"
 local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local noise = import("goluwa/terrain/noise.lua")
@@ -11,7 +6,6 @@ local foliage_sets = import("lua/foliage/scatter_sets.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 local scatter_set = presets[_G.SCATTER_SET or "crysis_jungle"] or foliage_sets[_G.SCATTER_SET] or foliage_sets.foliage_meadow
 
--- 3 times the density and 10 times the distance of the set
 scatter_set:SetDensityMultiplier(3)
 scatter_set:SetDistanceMultiplier(10)
 

@@ -45,7 +45,6 @@ local function noop() end
 
 local function not_consumed() end
 
--- a program is centered unless it sets Positioned. Content is optional, the react component of what its window shows, for hosts that show a program without its window (the spawn menu). An Interactive program (the editor) works with the world while it is open, so it asks for the mouse itself, opening it hides the desktop and it ignores the desktop showing or hiding. OnShown and OnHidden of a program get its window when the desktop shows or hides while the program is open
 function desktop.RegisterProgram(program)
 	if not programs[program.Name] then order[#order + 1] = program.Name end
 
@@ -59,18 +58,15 @@ function desktop.RegisterProgram(program)
 	event.Call("DesktopChanged")
 end
 
--- the programs in registration order
 function desktop.GetPrograms()
 	return list.map(order, |name| -> programs[name])
 end
 
--- adds a menu to the menu bar, {Text, Items = a function returning MenuItems}
 function desktop.RegisterMenu(menu)
 	menus[#menus + 1] = menu
 	event.Call("DesktopChanged")
 end
 
--- a backdrop replaces the dimmed scene behind the desktop, {Name, OnDraw(root, width, height)}. OnActivate and OnDeactivate run when it starts and stops being shown, so it only has to work while the desktop is up
 function desktop.RegisterBackdrop(backdrop)
 	if not backdrops[backdrop.Name] then backdrop_order[#backdrop_order + 1] = backdrop.Name end
 
@@ -92,7 +88,6 @@ function desktop.GetBackdrops()
 	return backdrop_order
 end
 
--- a backdrop that is not registered (its addon is not loaded) falls back to dim
 function desktop.GetBackdrop()
 	local name = pvars.Get("desktop_backdrop")
 
@@ -188,7 +183,6 @@ function desktop.Toggle(name)
 	if desktop.IsOpen(name) then desktop.Close(name) else desktop.Open(name) end
 end
 
--- the menus of the menu bar: the two of the engine and the ones other code registered
 local function build_menu_items()
 	local menu_items = {
 		{
@@ -288,7 +282,6 @@ local function draw_backdrop(self)
 	active_backdrop.OnDraw(self, size.x, size.y)
 end
 
--- the root panel with the menu bar and a button for every program, made when the desktop is first shown. Programs and menus registered later arrive as a DesktopChanged event and are added to what is there
 local DesktopView = react.Component(|| -> do
 	local version, set_version = react.UseState(0)
 	local menu_items = react.UseMemo(build_menu_items, {version})
@@ -362,7 +355,6 @@ function desktop.Hide()
 	end
 end
 
--- opened from the load item in the engine menu
 desktop.RegisterProgram{
 	Name = "Load",
 	Icon = "folder",
@@ -377,7 +369,6 @@ desktop.RegisterProgram{
 	end,
 }
 
--- a scroll view that has focus for its keys is not a program being edited
 function desktop.IsEditing()
 	local focused = objects.GetFocusedObject()
 
@@ -394,7 +385,6 @@ function desktop.IsEditing()
 	return false
 end
 
--- the c key: held shows the program buttons, a press while the desktop is up hides it, release hides it unless a program has focus
 function desktop.Hold()
 	if shown then desktop.Hide() else desktop.Show(false) end
 end
@@ -403,7 +393,6 @@ function desktop.Release()
 	if not desktop.IsEditing() then desktop.Hide() end
 end
 
--- the escape key: toggles the desktop with its dimmed backdrop
 function desktop.ToggleShown()
 	for _, name in ipairs(order) do
 		if desktop.IsOpen(name) and programs[name].OnEscape(programs[name].Window) then return end

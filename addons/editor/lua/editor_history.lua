@@ -32,7 +32,6 @@ local function resolve_entity(guid)
 	return entity
 end
 
--- an object is addressed by the guid of its entity and the name of its component, so it can be found again after the entity was removed and restored
 local function get_ref(object)
 	if object.component_map then return {guid = object:GetGUID()} end
 
@@ -73,7 +72,6 @@ local function set_property(target, info, value)
 	objects.SetProperty(target, info.var_name, value)
 end
 
--- an entity and everything below it as a scene record, an entity that was never meant to be saved is serialized anyway
 local function snapshot(entity)
 	local transient = entity.Transient
 	entity.Transient = false
@@ -113,13 +111,11 @@ function ops.End()
 	history:End()
 end
 
--- for edits that cannot be undone, what came before them can no longer be applied
 function ops.Barrier(reason)
 	history:Clear()
 	logn("editor history cleared: ", reason)
 end
 
--- a property of an object was changed from old_value to new_value, set(target, info, value) applies a value
 function ops.RecordProperty(target, info, old_value, new_value, set)
 	if values_equal(old_value, new_value) then return end
 
@@ -206,7 +202,6 @@ function ops.RemoveComponent(entity, name)
 	}
 end
 
--- an entity that was just created
 function ops.RecordCreate(name, entity)
 	local snap = snapshot(entity)
 	local guid = snap.guid
@@ -244,11 +239,9 @@ function ops.RemoveEntity(entity)
 	}
 end
 
--- the entity was already moved from old_parent to new_parent
 function ops.RecordReparent(entity, old_parent, new_parent)
 	local guid = entity:GetGUID()
 	local old_guid, new_guid = old_parent:GetGUID(), new_parent:GetGUID()
-	-- a node that leaves its instance has to be released by the instance that owns it, the one it moves into then takes it
 	prefab.MarkStructureDirty(entity)
 	prefab.MarkStructureDirty(old_parent)
 	prefab.MarkStructureDirty(new_parent)
@@ -274,7 +267,6 @@ function ops.RecordReparent(entity, old_parent, new_parent)
 	}
 end
 
--- the entity is rebuilt from a scene record, for edits that replace or restructure the entity itself
 function ops.ReplaceEntity(name, entity, edit)
 	local before = snapshot(entity)
 	edit()
@@ -297,7 +289,6 @@ function ops.ReplaceEntity(name, entity, edit)
 	}
 end
 
--- edits the definition of a prefab, its inputs and the nodes it is made of
 function ops.EditPrefab(name, prefab_name, edit)
 	local before = prefab.Snapshot(prefab_name)
 	edit()
@@ -322,7 +313,6 @@ function ops.CaptureTransform(entity)
 	}
 end
 
--- before is what CaptureTransform returned when the edit began
 function ops.RecordTransform(name, entity, before)
 	local after = ops.CaptureTransform(entity)
 

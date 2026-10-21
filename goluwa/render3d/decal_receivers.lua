@@ -7,8 +7,6 @@ local function cell_key(x, z)
 	return (x + 32768) * 65536 + z + 32768
 end
 
--- Takes a snapshot of every visual that accepts decals. The grid is not kept up to date, make a new one when the
--- scene changed.
 function decal_receivers.New()
 	local self = setmetatable({}, decal_receivers)
 	self.cells = {}
@@ -41,7 +39,6 @@ function decal_receivers.New()
 	return self
 end
 
--- transforms and tests the triangles of one polygon, mirrored is true when the world matrix flips the winding
 local function visit_polygon(polygon, matrix, mirrored, min_x, min_y, min_z, max_x, max_y, max_z, callback, context)
 	if polygon.packed then polygon:GetVertices() end
 
@@ -111,7 +108,6 @@ local function visit_polygon(polygon, matrix, mirrored, min_x, min_y, min_z, max
 
 			if length > 1e-12 then
 				nx, ny, nz = nx / length, ny / length, nz / length
-				-- face the way the vertex normals do
 				local na, nb, nc = va.normal, vb.normal, vc.normal
 				local sx, sy, sz = na.x + nb.x + nc.x, na.y + nb.y + nc.y, na.z + nb.z + nc.z
 				local vertex_nx = sx * m00 + sy * m10 + sz * m20
@@ -132,7 +128,6 @@ local function visit_polygon(polygon, matrix, mirrored, min_x, min_y, min_z, max
 	end
 end
 
--- calls callback(context, ax, ay, az, bx, by, bz, cx, cy, cz, nx, ny, nz) for every triangle that may touch the box
 function decal_receivers:ForEachTriangle(min_x, min_y, min_z, max_x, max_y, max_z, callback, context)
 	self.stamp = self.stamp + 1
 	local stamp, stamps, cells = self.stamp, self.stamps, self.cells

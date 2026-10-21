@@ -539,7 +539,6 @@ function render2d.DrawBox(x, y, w, h, radius, fill, outline, outline_width)
 	render2d.PopShapeMode()
 end
 
--- fills the rect with the texture keeping its aspect ratio, what overflows is cropped equally on both sides
 function render2d.DrawTextureCover(texture, x, y, w, h, radius, r, g, b, a, flip_y)
 	local texture_width, texture_height = texture:GetWidth(), texture:GetHeight()
 	local scale = math.max(w / texture_width, h / texture_height)
@@ -566,9 +565,7 @@ end
 do
 	local src_x, src_y, dst_x, dst_y = {}, {}, {}, {}
 
-	-- draws the (sx, sy, sw, sh) pixel region of an atlas texture into (x, y, w, h), keeping the left/top/right/bottom
-	-- borders unscaled and stretching the rest. region coordinates are in image space with y pointing down, textures are
-	-- stored bottom-up so v is flipped here.
+	-- textures are stored bottom-up, so v is flipped here
 	function render2d.DrawNinePatch(texture, sx, sy, sw, sh, left, top, right, bottom, x, y, w, h)
 		local size = texture:GetSize()
 		local tw, th = size.x, size.y

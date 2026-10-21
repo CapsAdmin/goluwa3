@@ -1,7 +1,6 @@
 local prefab = import("goluwa/entities/prefab.lua")
 local outfit_source = {}
 outfit_source.Model = "models/player/kleiner.mdl"
--- the player rig bone each Source biped bone drives, hands and head are set from the view where a weapon needs them
 outfit_source.Bones = {
 	body = "ValveBiped.Bip01_Pelvis",
 	spine = "ValveBiped.Bip01_Spine1",
@@ -24,8 +23,6 @@ outfit_source.Bones = {
 	foot_l = "ValveBiped.Bip01_L_Foot",
 }
 
--- everything the animation needs is in here: velocity from the movement of the player, the weapon from its model prefab,
--- the sequences and pose parameters are the ones of the gmod player models
 outfit_source.Script = [[
 local objects = import("goluwa/objects/objects.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")

@@ -241,7 +241,6 @@ local function create_red_cubes(overrides)
 	return ScatterSet.New{Name = "test_cubes_" .. cube_count, Prototypes = {definition}}
 end
 
--- the share of the pixels around the center of the view of the ground that are red
 local function draw_red_share(draw, set, tilt)
 	local camera = render3d.GetCamera()
 	camera:SetFOV(math.rad(60))
@@ -327,7 +326,6 @@ T.Test3D("Graphics render3d scatter draws the instances placed in a prototype", 
 	end
 
 	local total, uploaded, active = scatter.GetPlacedStatus()
-	-- the grid straddles the corner of four cells
 	T(total)["=="](4)
 	T(uploaded)["=="](4)
 	T(active)["=="](4)

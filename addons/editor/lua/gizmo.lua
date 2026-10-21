@@ -700,7 +700,6 @@ function get_transform_world_rotation(transform)
 	return rotation
 end
 
--- the world rotation local rotations of this entity are relative to, with the bone of its attachment in between
 local function get_parent_space_rotation(entity)
 	local parent = entity:GetParent()
 

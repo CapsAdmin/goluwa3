@@ -327,7 +327,6 @@ function cry_scene.Translate(data, level_name, level_path, options)
 		group.entries[#group.entries + 1] = entry
 	end
 
-	-- the painted vegetation of a prototype is one entity, its instances are drawn by the scatter system
 	if placement_order[1] then
 		local ScatterPlacements = import("goluwa/entities/components/scatter_placements.lua")
 		local Record, RecordArray = ScatterPlacements.Record, ScatterPlacements.RecordArray
@@ -351,7 +350,6 @@ function cry_scene.Translate(data, level_name, level_path, options)
 				local r = records[i - 1]
 				local position = units.ToEngine(entry.position)
 				r.x, r.y, r.z, r.scale, r.yaw = position.x, position.y, position.z, entry.scale, entry.yaw
-				-- grass on slopes follows the ground by conforming to it, it stands upright
 				local up = not entry.fit_to_terrain and entry.terrain_normal and entry.terrain_normal:GetNormalized()
 
 				if up then

@@ -13,13 +13,11 @@ local function rectangle(mesh, id, x1, z1, x2, z2, y, extra)
 	return mesh:AddArea(extra)
 end
 
--- both directions, a and b are the ends of the shared edge
 local function join(mesh, a, b, p, q)
 	mesh:Connect(a, b, p, q)
 	mesh:Connect(b, a, p, q)
 end
 
--- a corridor along x from 0 to 10, then a corridor along z from 2 to 12
 local function create_corner()
 	local mesh = navmesh.New()
 	local a = rectangle(mesh, 1, 0, 0, 10, 2, 0)
@@ -100,7 +98,6 @@ end)
 
 T.Test("navmesh path takes the shorter way around a wall", function()
 	local mesh = navmesh.New()
-	-- a ring of eight areas around a hole in the middle, the way through the north is much shorter than the south
 	local start = rectangle(mesh, 1, 0, 0, 4, 4, 0)
 	local north_a = rectangle(mesh, 2, 4, 0, 8, 4, 0)
 	local goal = rectangle(mesh, 3, 8, 0, 12, 4, 0)

@@ -1,5 +1,3 @@
--- every preset of the foliage laid out on the ground in rows, a block for each category: grass at the front (at the
--- origin), then the plants, the rocks and the trees towards -z. each is an entity with a visual of its model path
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local foliage = import("lua/foliage/foliage.lua")
@@ -10,10 +8,8 @@ gallery.BLOCKS = {
 	{category = "rocks", spacing = 4.5, columns = 12},
 	{category = "trees", spacing = 15, columns = 8},
 }
--- meters between two blocks, from the last row of one to the first of the next
 gallery.GAP = 5
 
--- returns the root entity and the placements, {path = model path, position = Vec3}
 function gallery.Spawn(parent, origin)
 	local root = Entity.New{Name = "foliage_gallery", Parent = parent}
 	root:AddComponent("transform")

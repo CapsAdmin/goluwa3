@@ -24,7 +24,6 @@ return {
 		local readout, set_readout = react.UseState("OnToggle has not fired yet")
 		local collapsed, set_collapsed = react.UseState({first = false, nested = true, filled = true})
 
-		-- the widgets toggle themselves when clicked, the state follows what they report
 		local function on_toggle(key)
 			return |is_collapsed| -> do
 				set_readout("OnToggle(" .. tostring(is_collapsed) .. ")")

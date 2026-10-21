@@ -1250,7 +1250,6 @@ function Texture:Shade(glsl, extra_config)
 		[[
 		#version 450
 
-		// Full-screen triangle
 		vec2 positions[3] = vec2[](
 			vec2(-1.0, -1.0),
 			vec2( 3.0, -1.0),
@@ -1266,12 +1265,12 @@ function Texture:Shade(glsl, extra_config)
 
 		vec3 get_cube_dir(vec2 uv, int face) {
 			vec3 dir;
-			if (face == 0) dir = vec3(1.0, -uv.y, -uv.x); // +X
-			else if (face == 1) dir = vec3(-1.0, -uv.y, uv.x); // -X
-			else if (face == 2) dir = vec3(uv.x, 1.0, uv.y); // +Y
-			else if (face == 3) dir = vec3(uv.x, -1.0, -uv.y); // -Y
-			else if (face == 4) dir = vec3(uv.x, -uv.y, 1.0); // +Z
-			else if (face == 5) dir = vec3(-uv.x, -uv.y, -1.0); // -Z
+			if (face == 0) dir = vec3(1.0, -uv.y, -uv.x);
+			else if (face == 1) dir = vec3(-1.0, -uv.y, uv.x);
+			else if (face == 2) dir = vec3(uv.x, 1.0, uv.y);
+			else if (face == 3) dir = vec3(uv.x, -1.0, -uv.y);
+			else if (face == 4) dir = vec3(uv.x, -uv.y, 1.0);
+			else if (face == 5) dir = vec3(-uv.x, -uv.y, -1.0);
 			return normalize(dir);
 		}
 

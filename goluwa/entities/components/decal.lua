@@ -15,28 +15,20 @@ local static_world = import("goluwa/entities/components/static_world.lua")
 local META = objects.CreateTemplate("decal")
 META:StartStorable()
 META:GetSet("Material", "", {asset = "materials", callback = "OnMaterialChanged"})
--- brush projects on the brushes and displacements of a source static world, in source units. The other projections
--- work in engine space and use the decal transform as the box [-1, 1] on every axis: planar is a quad, terrain drapes
--- over the height of the static world, objects clips the triangles of visuals that receive decals, terrain_objects is
--- both and road is a strip along Points on the terrain.
 META:GetSet("Projection", "brush", {callback = "OnFrameChanged"})
 META:GetSet("Frame", Vec4(-16, -16, 16, 16), {callback = "OnFrameChanged"})
 META:GetSet("URange", Vec2(0, 1), {callback = "OnFrameChanged"})
 META:GetSet("VRange", Vec2(0, 1), {callback = "OnFrameChanged"})
 META:GetSet("SortPriority", 0, {callback = "OnFrameChanged"})
--- road: ten numbers per point, position, back handle and forward handle in engine space and the width
 META:GetSet("Points", nil, {type = "table", callback = "OnFrameChanged"})
 META:GetSet("Width", 1, {callback = "OnFrameChanged"})
 META:GetSet("TileLength", 1, {callback = "OnFrameChanged"})
--- road: the length in meters over which the road fades in and out at its ends
 META:GetSet("FadeLength", 1, {callback = "OnFrameChanged"})
--- 1 hangs the height map below the decal polygon, 0.5 centers it on the polygon
 META:GetSet("HeightMidlevel", 1, {callback = "OnMaterialChanged"})
 META:GetSet("SharpAlpha", false, {callback = "OnMaterialChanged"})
 META:EndStorable()
 local REBUILD_SETTLE_TIME = 0.2
 local PROJECTION_BUDGET = 0.004
--- how far the decal geometry sits above the surface in meters, plus a little per sort priority
 local PROJECTION_OFFSETS = {
 	planar = 0.005,
 	objects = 0.005,
@@ -45,8 +37,6 @@ local PROJECTION_OFFSETS = {
 	road = 0.03,
 }
 local PRIORITY_OFFSET = 0.002
--- decals of the same priority that overlap are layered in the order they are placed, each a little above the last. The
--- steps stay inside one priority step so the priority always wins
 local LAYER_OFFSET = 0.00025
 local MAX_LAYERS = 7
 local LAYER_CELL_SIZE = 8
@@ -81,7 +71,6 @@ function META:Rebuild()
 	self.world:SetDecalFragments(self, decal_geometry.Project(self))
 end
 
--- the key of the batch of the decal and its material, the material is nil when the batch can create it from the key
 function META:GetBatchMaterial()
 	local texname = self.Material:match("^materials/(.*)%.vmt$")
 
@@ -122,7 +111,6 @@ do
 		return (x + 32768) * 65536 + z + 32768
 	end
 
-	-- how many decals that do not have a higher priority are already placed over this one, and registers this one
 	function META:TakeLayer(placed)
 		local matrix = self.Owner.transform:GetWorldMatrix()
 		local x, z = matrix.m30, matrix.m32
@@ -206,7 +194,6 @@ function META:BuildRoad()
 	}
 end
 
--- the fragments of a non brush decal, receivers is only used by the projections that clip against visuals
 function META:Project(receivers, layer)
 	local projection = self.Projection
 

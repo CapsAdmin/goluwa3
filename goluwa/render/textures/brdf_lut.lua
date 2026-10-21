@@ -17,7 +17,6 @@ tex:Shade([[
 	const float INV_SAMPLES = 1.0 / float(NUM_SAMPLES);
 	const float EPSILON     = 0.001;
 
-	// Van der Corput radical inverse (Hammersley base-2 component)
 	float radicalInverse(uint bits) {
 		bits = (bits << 16u) | (bits >> 16u);
 		bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
@@ -31,11 +30,9 @@ tex:Shade([[
 		return vec2(float(i) * INV_SAMPLES, radicalInverse(i));
 	}
 
-	// GGX NDF importance sampling: maps Xi -> half-vector H
 	vec3 importanceSampleGGX(vec2 Xi, float roughness) {
 		float a     = roughness * roughness;
 		float phi   = 2.0 * PI * Xi.x;
-		// Invert the GGX CDF
 		float cosT  = sqrt((1.0 - Xi.y) / (1.0 + (a * a - 1.0) * Xi.y));
 		float sinT  = sqrt(1.0 - cosT * cosT);
 		return vec3(cos(phi) * sinT, sin(phi) * sinT, cosT);
@@ -53,19 +50,17 @@ tex:Shade([[
 		float roughness = uv.y;
 		float alpha = max(roughness * roughness, EPSILON);
 
-		// Tangent-space view vector (N = +Z)
 		vec3 V = vec3(sqrt(1.0 - NdotV * NdotV), 0.0, NdotV);
 
-		float DFG1 = 0.0; // scale: coefficient of F0
-		float DFG2 = 0.0; // bias:  constant additive term
+		float DFG1 = 0.0;
+		float DFG2 = 0.0;
 
 		for (uint i = 0u; i < NUM_SAMPLES; i++) {
 			vec2 Xi = hammersley(i);
 			vec3 H  = importanceSampleGGX(Xi, roughness);
-			// Reflect V around H to get incident direction L
 			vec3 L  = normalize(2.0 * dot(V, H) * H - V);
 
-			float NdotL = L.z;          // N = (0,0,1) so N·L = L.z
+			float NdotL = L.z;
 			float NdotH = H.z;
 			float VdotH = max(dot(V, H), 0.0);
 

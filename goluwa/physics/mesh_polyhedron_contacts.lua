@@ -171,8 +171,6 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 	local triangle_center = triangle_geometry.GetTriangleCenter(v0, v1, v2)
 	local triangle_center_world = use_local_space and mesh_body:LocalToWorld(triangle_center) or triangle_center
 	local found_contact = false
-	-- Samples at least combined_margin above the triangle's plane cannot touch it, which is almost
-	-- every sample of a prop standing on the floor, so they are skipped before the full query.
 	local e1x, e1y, e1z = v1.x - v0.x, v1.y - v0.y, v1.z - v0.z
 	local e2x, e2y, e2z = v2.x - v0.x, v2.y - v0.y, v2.z - v0.z
 	local nx, ny, nz = e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x

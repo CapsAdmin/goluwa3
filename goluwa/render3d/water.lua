@@ -137,9 +137,6 @@ function water.HasVolumes()
 	return water.volumes[1] ~= nil
 end
 
--- the sea is the sum of three tiles of an inverse FFT, each holding the waves of a band of wavelengths. the
--- bands end where the wave textures stop resolving: the far texture (4 m texels) holds the first, the middle
--- (1 m) the first two and the near one (0.25 m) all three. what is shorter than the last band is the ripples
 water.FFT_SIZE = 256
 water.FFT_CASCADES = {{size = 1000}, {size = 167}, {size = 37.3}}
 water.FFT_BAND_WAVELENGTHS = {
@@ -156,7 +153,6 @@ do
 	local BASE_OMEGA = 2 * PI / water.WAVE_PERIOD
 	local N = water.FFT_SIZE
 
-	-- a good integer hash (lowbias32), the multiplications done in 16 bit halves so they stay exact
 	local function multiply(a, b)
 		local ah, al = bit.rshift(a, 16), bit.band(a, 0xffff)
 		local bh, bl = bit.rshift(b, 16), bit.band(b, 0xffff)
@@ -179,7 +175,6 @@ do
 		return 0.0081 * water.GRAVITY ^ 2 * omega ^ -5 * math.exp(-1.25 * (peak_omega / omega) ^ 4)
 	end
 
-	-- two independent normal values for the texel, the same everywhere for the same seed
 	local function gaussians(seed, cascade, u, r)
 		local key = hash(bit.bxor(hash(r * N + u), hash(seed * 131 + cascade * 17 + 5)))
 		local u1 = to_unit(hash(key + 1))
@@ -192,7 +187,6 @@ do
 		return math.atan2(math.sin(angle), math.cos(angle))
 	end
 
-	-- the 1d spectrum over wavenumber of the waves the wind makes, the slope variance in a range of it
 	local function slope_variance_between(waves, k_from, k_to)
 		if k_to <= k_from then return 0 end
 
@@ -243,7 +237,6 @@ do
 			band_edges[i] = 2 * PI / wavelength
 		end
 
-		-- the swell has its own narrow band of the first cascade, its energy is set by summing it
 		local first_dk = 2 * PI / water.FFT_CASCADES[1].size
 		local swell_raw = 0
 
@@ -385,7 +378,6 @@ function water.GetOceanWaves()
 	return water.ocean_waves or water.BuildOceanWaves()
 end
 
--- how much of the sea is whitecaps, 0 in a breeze, 1 from a strong breeze (Monahan: grows with the wind's power)
 function water.GetWhitecapFactor(wind_speed)
 	return math.clamp((wind_speed - 3) / 11, 0, 1) ^ 1.5
 end

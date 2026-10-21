@@ -54,12 +54,10 @@ end
 react.ErrorBoundary = react.Component(nil)
 react.ErrorBoundary.is_boundary = true
 
--- skips rendering when the props are shallow equal (children only count as equal when there are none) and nothing inside asked for a render, pass stable callbacks (UseCallback, a context) or it never skips
 function react.Memo(component)
 	return setmetatable({render = component.render, is_component = true, memo = true}, getmetatable(component))
 end
 
--- Context.Provider{Value = v}{children}, react.UseContext(Context) reads the nearest value and renders again when it changes
 function react.CreateContext(default)
 	local context = {default = default}
 	context.Provider = react.Component(|props| -> props.children)
@@ -67,11 +65,9 @@ function react.CreateContext(default)
 	return context
 end
 
--- Portal{Target = entity}{children} mounts the children under Target (a window under the world panel) and not under the parent they are written in, they go with the portal
 react.Portal = react.Component(|props| -> props.children)
 react.Portal.is_portal = true
 
--- hosts an entity made by code outside of react (Create(parent_entity) returns it), it is never updated, change the Key to build another one and it is removed with the node
 react.Foreign = setmetatable(
 	{is_foreign = true},
 	{
@@ -98,7 +94,6 @@ local function flatten(items, out)
 	return out
 end
 
--- plain tables are compared by content a few levels down, deeper than that (a list of assets that point at their folders and back) counts as changed
 local function equal(a, b, depth)
 	if a == b then return true end
 
@@ -155,7 +150,6 @@ local pending_layout_effects = {}
 local removed_hosts = {}
 local inst_of_entity = setmetatable({}, {__mode = "k"})
 
--- an entity removed by someone else (a closed window) queues its node, the flush unmounts it so effects clean up
 local function on_entity_removed(entity)
 	local inst = inst_of_entity[entity]
 
@@ -207,7 +201,7 @@ local function finish(boundary, ok, ...)
 	fail(boundary, (...))
 end
 
--- callbacks that run every frame (drawing, updates, mouse moves, hover) are left alone, an error there would tear the subtree down on a single bad frame and the xpcall would sit in hot code
+-- per frame callbacks are not guarded: an xpcall in hot code, and one bad frame would tear the subtree down
 local function is_guarded(key, value)
 	return type(value) == "function" and
 		key:starts_with("On") and
@@ -226,7 +220,6 @@ local function guard_callback(boundary, callback)
 	end
 end
 
--- runs fn, and when it throws removes what it mounted halfway and records the error on the boundary, the caller schedules the fallback
 local function guard(boundary, fn, a)
 	local previous = boundary.created
 	local created = {}
@@ -568,7 +561,6 @@ function reconcile(old, descs, parent_entity, parent)
 		end
 	end
 
-	-- what goes away is removed before anything new is mounted, a widget that limits its children (splitter) never sees both
 	for _, inst in ipairs(old) do
 		if not used[inst] then unmount(inst, true) end
 	end
@@ -622,7 +614,7 @@ function render_boundary(inst)
 	inst.children = reconcile(inst.children, {fallback}, inst.parent_entity, inst)
 end
 
-do -- hooks
+do
 	local function use_hook()
 		hook_index = hook_index + 1
 		local hooks = current_inst.hooks
@@ -694,7 +686,6 @@ do -- hooks
 		return react.UseMemo(|| -> callback, deps)
 	end
 
-	-- a function with a fixed identity that calls the latest callback, for what is handed to a widget, a listener or a picker and still has to see the props and state of the render it runs in
 	function react.UseStable(callback)
 		local latest = react.UseRef()
 		latest.current = callback
@@ -708,7 +699,6 @@ do -- hooks
 
 	local DRAG_THRESHOLD = 3
 
-	-- the callbacks of a panel that is dragged with button_1: OnDrag(local_position, size, dx, dy, moved) runs when the button goes down (dx and dy are 0) and on every mouse move while it is held, also outside the panel, OnEnd(moved) when it goes up, moved is false for a click that stayed within a few pixels. Returns {OnMouseInput, OnGlobalMouseMove, OnGlobalMouseInput} to give to the panel
 	function react.UseDrag(handlers)
 		local latest = react.UseRef()
 		latest.current = handlers
@@ -765,7 +755,6 @@ do -- hooks
 		end, {})
 	end
 
-	-- a window or panel that is opened once per key: opening it again brings the open one to the front and returns it. The component gets a Close prop that unmounts it, props are the props of the component
 	local opened = {}
 
 	function react.OpenWindow(key, component, props)
@@ -815,7 +804,6 @@ do -- hooks
 		return context.default
 	end
 
-	-- calls callback (the latest one, no need to memoize it) for every event_name event while the component is mounted
 	function react.UseEvent(event_name, callback)
 		local latest = react.UseRef()
 		latest.current = callback
@@ -833,7 +821,6 @@ do -- hooks
 		end, {event_name})
 	end
 
-	-- create() runs on the first render and again when deps change (never without deps), dispose(value) when it is replaced or the component unmounts, a boundary that tears a half built subtree down included
 	function react.UseResource(create, dispose, deps)
 		local hook, is_new = use_hook()
 		deps = deps or {}
@@ -852,7 +839,6 @@ do -- hooks
 		return hook.value
 	end
 
-	-- fn() on the first render and again every interval seconds (every frame without one) while mounted, the result is state so each poll renders, give it a result that is worth a render
 	function react.UsePoll(fn, interval)
 		local value, set_value = react.UseState(fn)
 		local latest = react.UseRef()
@@ -873,7 +859,6 @@ do -- hooks
 		return value
 	end
 
-	-- value once it has stayed the same for delay seconds
 	function react.UseDebounce(value, delay)
 		local debounced, set_debounced = react.UseState(value)
 		local pending = react.UseRef()
@@ -905,7 +890,6 @@ do -- hooks
 		end
 	end
 
-	-- like UseEffect, but it runs after the layout of what the render changed was done, so sizes and positions can be read (and scrolled to) before a frame is drawn. Without deps it runs after every render
 	function react.UseLayoutEffect(effect, deps)
 		local hook, is_new = use_hook()
 

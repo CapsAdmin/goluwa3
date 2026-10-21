@@ -1,5 +1,3 @@
--- tints a dielectric's specular reflection by its albedo's color (KHR_materials_specular's
--- specularColor), as colored plastics and some stones do
 return {
 	name = "specular_tint",
 	category = "Specular Tint",

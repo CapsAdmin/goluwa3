@@ -1,9 +1,7 @@
 local Color = import("goluwa/structs/color.lua")
--- light through a thin surface, leaves and cloth
 return {
 	name = "transmission",
 	category = "Transmission",
-	-- the params have a texture and a color, and a material that isn't transmissive doesn't upload them
 	block = "own",
 	active = function(material)
 		return material:GetTransmissive()
@@ -42,7 +40,6 @@ return {
 			return clamp(transmission_model.TransmissionScattering, 0.0, 1.0);
 		}
 
-		// only the hue, the brightness comes from DiffuseTransmission
 		vec3 get_transmission_color() {
 			if (!Transmissive) return vec3(1.0);
 			vec3 tint = transmission_model.TransmissionColor.rgb;
@@ -58,8 +55,6 @@ return {
 			default = "0.0",
 			material = "get_transmission_scattering()",
 		},
-		-- red and blue of a tint, halved to fit up to 2. its luminance is 1, which gives the green back. eight bits: four
-		-- left a hue 13 percent off (a white tint 7 percent red and blue)
 		{name = "transmission_tint_r", sheet = "transmission", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0", max = 2},
 		{name = "transmission_tint_b", sheet = "transmission", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0", max = 2},
 	},
@@ -78,12 +73,7 @@ return {
 		}
 	]],
 	common = [[
-		// how a thin surface spreads the light going through it, over the side facing away from the
-		// light. lambert, blended by scattering towards a henyey greenstein lobe around the light's
-		// direction. the lobe sends as much light out of that side as lambert does, whatever the angle the light
-		// arrives at: a henyey greenstein lobe alone sends 30 percent more at normal incidence and half as much
-		// at grazing ones, so it is divided by that flux (a quartic in cos_incidence fitted to its integral, within
-		// 0.03 percent)
+
 		float transmission_phase(vec3 V, vec3 L, float cos_incidence, float scattering)
 		{
 			const float g = 0.6;
@@ -94,7 +84,7 @@ return {
 		}
 	]],
 	surface_members = [[
-		// the part of the diffuse light that leaves through the side facing away from the light
+
 		vec3 transmission_color;
 	]],
 	surface_default = [[
@@ -104,7 +94,7 @@ return {
 		s.transmission_color = get_transmission_color();
 	]],
 	weather_input = [[
-		// thin translucent leaves are waxy rather than porous
+
 		w.porosity *= 1.0 - s.transmission;
 	]],
 	weather = [[
@@ -119,9 +109,7 @@ return {
 		set_transmission_tint_b(transmission_tint.y);
 	]],
 	direct_shadow = [[
-		// light reaches a thin translucent surface from either side, so its shadow is looked up
-		// on the side facing the light, and bent towards the light so edge on doesn't read as
-		// facing away
+
 		if (s.transmission > 0.0) {
 			shadow_N = normalize((dot(s.geometric_N, L) < 0.0 ? -s.geometric_N : s.geometric_N) + L);
 			shadow_facing = 1.0;
@@ -139,9 +127,6 @@ return {
 		ambient_diffuse *= 1.0 - s.transmission;
 
 		if (s.transmission > 0.0) {
-			// the gi only holds the light arriving at the front. the sky's part of it
-			// is taken again from behind, and what bounced is assumed the same on
-			// both sides
 			vec3 front_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, s.N) * sky_visibility;
 			vec3 back_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, -s.N) * sky_visibility;
 			vec3 back_irradiance = back_sky + max(irradiance - front_sky, vec3(0.0));

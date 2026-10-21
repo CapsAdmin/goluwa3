@@ -1,5 +1,3 @@
--- what every surface has: base color, normal, metallic, roughness, ambient occlusion and emission.
--- it comes first in the list, the other features build on its members
 return {
 	name = "core",
 	fields = {
@@ -10,7 +8,6 @@ return {
 			member = "roughness_alpha",
 			kind = "unorm8",
 			default = "1.0",
-			-- ggx alpha in, stored as the perceptual roughness
 			encode = "sqrt(v)",
 			decode = "v * v",
 			material = "get_roughness(uv)",
@@ -31,7 +28,7 @@ return {
 		s.emissive = get_emissive(uv);
 	]],
 	weather_input = [[
-		// rough dielectrics are porous and soak water up, smooth ones and metals don't (Lagarde 2013)
+
 		w.porosity = clamp((sqrt(s.roughness_alpha) - 0.5) / 0.4, 0.0, 1.0) * (1.0 - s.metallic);
 		w.wet_scale = 1.0;
 		w.snow_scale = 1.0;

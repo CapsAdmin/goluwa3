@@ -31,13 +31,6 @@ function compute_helpers.GetColorHelpersGLSL()
 			return mix(low, high, step(0.04045, col));
 		}
 
-		// Dithers encoded (0 to 1, in the space the output is quantized in) to
-		// hide banding from quantizing it to steps + 1 levels. noise is uniform
-		// in 0 to 1 per channel. Reshaped to a triangular distribution of +-1
-		// step, the noise is equally strong whatever the value (uniform +-0.5
-		// vanishes on exact output levels and peaks between them, Gjol 2016).
-		// Within a step of black or white it narrows to +-0.5 so clamping
-		// doesn't lift black or dim white. steps 0 turns it off.
 		vec3 dither(vec3 encoded, vec3 noise, float steps) {
 			if (steps == 0.0) return encoded;
 
@@ -47,10 +40,6 @@ function compute_helpers.GetColorHelpersGLSL()
 			return clamp(encoded + r * amplitude / steps, 0.0, 1.0);
 		}
 
-		// AgX (Troy Sobotka), with the polynomial fit of its default contrast
-		// curve by Benjamin Wrensch. About 16.5 stops from black to white, and
-		// bright saturated colours desaturate towards white instead of
-		// skewing hue like a per channel curve does.
 		vec3 agx_contrast(vec3 x) {
 			vec3 x2 = x * x;
 			vec3 x4 = x2 * x2;
@@ -73,8 +62,6 @@ function compute_helpers.GetColorHelpersGLSL()
 			x = clamp(log2(max(inset * x, vec3(1e-10))), min_ev, max_ev);
 			x = agx_contrast((x - min_ev) / (max_ev - min_ev));
 
-			// looks: base AgX reads washed out, so the default adds a little
-			// saturation; punchy is Blender's
 			float saturation = 1.2;
 
 			if (punchy) {
@@ -85,7 +72,6 @@ function compute_helpers.GetColorHelpersGLSL()
 			float luma = luminance(x);
 			x = luma + saturation * (x - luma);
 
-			// the curve's output is display encoded (gamma 2.2)
 			return pow(max(outset * x, vec3(0.0)), vec3(2.2));
 		}
 
@@ -93,12 +79,6 @@ function compute_helpers.GetColorHelpersGLSL()
 			return (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14);
 		}
 
-		// Gran Turismo 7 (Polyphony Digital's MIT sample, ICtCp). A per channel
-		// curve is blended with one that keeps the hue and only fades chroma
-		// out near peak, so highlights desaturate without skewing. It works in
-		// linear BT.2020 where 1.0 is 100 cd/m2. The curve's toe and midpoint
-		// are absolute, so only the shoulder moves with the display's peak and
-		// SDR (peak 250 cd/m2) and HDR look the same below it.
 		vec3 gt7_curve(vec3 x, float peak) {
 			const float alpha = 0.25;
 			const float mid = 0.538;
@@ -143,8 +123,6 @@ function compute_helpers.GetColorHelpersGLSL()
 			return max(lms_to_rgb * pq_decode(ictcp_to_lms * ictcp) * 0.01, vec3(0.0));
 		}
 
-		// x is linear BT.709 in units of 100 cd/m2, peak (at least 2.5) in the
-		// same units; returns the same
 		vec3 gt7(vec3 x, float peak) {
 			const mat3 bt709_to_bt2020 = mat3(
 				0.6274, 0.0691, 0.0164,
@@ -168,13 +146,6 @@ function compute_helpers.GetColorHelpersGLSL()
 			return max(bt2020_to_bt709 * min(mix(skewed, scaled, blend_ratio), vec3(peak)), vec3(0.0));
 		}
 
-		// Neutral: what the exposed colour says is shown as it is. Up to start the colour passes through
-		// unchanged, no toe, no black offset, no contrast, so middle grey (0.18) is 0.18. Above it the
-		// brightest channel rolls off smoothly (the slope is 1 at start) to peak with the ratio of the
-		// channels kept, and the harder a colour has to be compressed the more it moves towards white, so a
-		// saturated highlight fades instead of clipping a channel. peak is the display's peak over diffuse
-		// white: 1 for SDR and 4.9 for a 1000 nit display at 203 nits of paper white. Start does not depend on
-		// it, so SDR and HDR show everything below start the same and HDR keeps more of the highlights.
 		vec3 neutral(vec3 x, float peak) {
 			const float start = 0.76;
 			const float desaturation = 0.15;
@@ -189,13 +160,9 @@ function compute_helpers.GetColorHelpersGLSL()
 			return mix(x, vec3(new_peak), g);
 		}
 
-		// x is exposed (middle grey at 0.18); returns linear display colour.
-		// tonemapper: 0 = AgX, 1 = AgX punchy, 2 = ACES, 3 = GT7, 4 = Neutral
 		vec3 tonemap(vec3 x, int tonemapper) {
 			x = max(x, vec3(0.0));
 
-			// exposed 1.0 is GT's SDR white of 250 cd/m2, which keeps middle
-			// grey at 0.18
 			if (tonemapper == 3) return gt7(x * 2.5, 2.5) / 2.5;
 
 			if (tonemapper == 2) return aces_fitted(x);

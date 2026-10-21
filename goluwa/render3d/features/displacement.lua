@@ -1,4 +1,3 @@
--- a height map the surface is parallax mapped with, only for a material that has one
 return {
 	name = "displacement",
 	category = "Height",

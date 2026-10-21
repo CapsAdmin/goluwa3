@@ -19,7 +19,6 @@ function CONTEXT:OnParseArchive(file, archive_path)
 	return self:ParseZipData(file:ReadBytes(file:GetSize()), archive_path, 0)
 end
 
--- file_data is the zip, base_offset is where it starts inside the archive file (non zero when the zip is embedded)
 function CONTEXT:ParseZipData(file_data, archive_path, base_offset)
 	local LOCAL_FILE_HEADER_SIG = 0x04034b50
 	local CENTRAL_DIR_HEADER_SIG = 0x02014b50
@@ -154,7 +153,6 @@ local inflate_job_source = [=[
 	return {}, out:ReadBytes(input.size)
 ]=]
 
--- the entry is inflated on a worker thread, the Open that follows takes the result instead of inflating it itself
 function CONTEXT:Prefetch(path_info, callback)
 	if self:GetMode() ~= "read" then return callback() end
 

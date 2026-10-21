@@ -73,10 +73,8 @@ function scene_reflection.GetDescriptorSets(bindings, stage)
 end
 
 do
-	-- a set that a command buffer is still using can't be written to, so only what changed is
 	local bound = setmetatable({}, {__mode = "k"})
 
-	-- bindings.light_grid is left out by a pass that has the light grid already
 	function scene_reflection.Bind(self, cmd, desc, bindings)
 		local materials = ddgi.WriteMaterialBuffer(self)
 		local tlas = rt.GetTLAS(cmd)
@@ -104,14 +102,11 @@ do
 	end
 end
 
--- shared is for a pass that has the light grid and ddgi_sample_irradiance's visibility rays turned
--- off already, it is not given the light grid and does not get the visibility rays
 function scene_reflection.GetDeclarationGLSL(bindings, shared)
 	return [[
 		]] .. (shared and "" or "#define DDGI_VISIBILITY_RAYS") .. [[
 
 		#define SCENE_REFLECTION
-		// radians the footprint of a reflected pixel widens by, a pixel at 1080p and a 60 degree view
 		#define SCENE_REFLECTION_CONE 0.0017
 	]] .. hit.GetSceneGLSL("ddgi_scene", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. (
 			bindings.light_grid and
@@ -120,8 +115,6 @@ function scene_reflection.GetDeclarationGLSL(bindings, shared)
 		)
 end
 
--- the ray generation form of a pass that traces the reflection hit with a hit object and reorders the threads by what
--- they hit before shading it. the any hit shader is the confirmation of the ray query loop
 function scene_reflection.GetRayGeneration()
 	return ray_reorder.GetRayGeneration{
 		declarations = [[
@@ -143,27 +136,20 @@ function scene_reflection.GetRayGeneration()
 	}
 end
 
--- how a reflection ray is chosen and its hit limited, for every surface that traces reflections (the reflection pass and
--- the water). roughness is perceptual, V points from the surface to the eye
 scene_reflection.CONSTANTS_GLSL = [[
-		// below this the surface is a mirror
+
 		#define SCENE_REFLECTION_MIRROR_THRESHOLD 0.06
-		// times white on screen, under last frame's exposure
 		#define SCENE_REFLECTION_MAX_HIT_LUMINANCE 8.0
-		// how much of the luminance limit a fully rough lobe keeps
 		#define SCENE_REFLECTION_ROUGH_LIMIT_SCALE 0.25
 ]]
 
 function scene_reflection.GetDirectionGLSL()
 	return scene_reflection.CONSTANTS_GLSL .. [[
 
-		// a rough surface traces several rays, each with its own random numbers, and the results are averaged
 		int scene_reflection_ray_count(float roughness, int rough_rays) {
 			return 1 + int(float(rough_rays - 1) * smoothstep(0.03, 0.25, roughness) + 0.5);
 		}
 
-		// environment_roughness is how blurred the environment is read where a ray leaves the scene. a sampled direction is
-		// already spread over the lobe, a prefiltered lookup on top of it would convolve it twice
 		vec3 scene_reflection_direction(vec3 N, vec3 V, float roughness, vec2 xi, out float environment_roughness) {
 			vec3 mirror = reflect(-V, N);
 			environment_roughness = roughness;
@@ -180,8 +166,6 @@ function scene_reflection.GetDirectionGLSL()
 			vec3 R = normalize(mix(mirror, reflect(-V, H), rough_mix));
 			environment_roughness = roughness * (1.0 - rough_mix);
 
-			// a sampled direction below the surface is reflected back above it. replacing it with the
-			// mirror ray turned half the rays of a fully rough surface into the sharp mirror reflection
 			float below_normal = dot(N, R);
 
 			if (below_normal < 0.001) R = normalize(R + N * (0.001 - 2.0 * below_normal));
@@ -189,13 +173,10 @@ function scene_reflection.GetDirectionGLSL()
 			return R;
 		}
 
-		// a rough lobe averages many directions, so one bright texel in it is a firefly and not light. the limit
-		// falls as the lobe widens. max_luminance is SCENE_REFLECTION_MAX_HIT_LUMINANCE over the exposure
 		float scene_reflection_hit_luminance_limit(float roughness, float max_luminance, float cutoff) {
 			return max_luminance * mix(1.0, SCENE_REFLECTION_ROUGH_LIMIT_SCALE, smoothstep(SCENE_REFLECTION_MIRROR_THRESHOLD, cutoff, roughness));
 		}
 
-		// the environment is smooth, a firefly is a small bright thing in the scene: a bright sky is real light
 		vec3 scene_reflection_limit_hit(vec3 traced, float roughness, float limit) {
 			float traced_luma = dot(traced, vec3(0.2126, 0.7152, 0.0722));
 
@@ -231,8 +212,6 @@ function scene_reflection.WriteBlock(self, block)
 	scene_lights.WriteLightsBlock(block.lights, lights)
 end
 
--- the hit shading reads the sun, the sky and, where there are probes, their light from ddgi_data. the rays do not need
--- the ddgi pass: without it there are no cascades, hits are lit by the sun, the lights and the sky alone
 function scene_reflection.WriteProbeBlock(self, block)
 	ddgi.WriteProbeBlock(self, block)
 
@@ -257,7 +236,6 @@ function scene_reflection.GetDDGIUniformBuffer(binding)
 	}
 end
 
--- shared is for a pass that has ddgi.GetCommonGLSL, the light code and get_glass_light before this
 function scene_reflection.GetGLSL(block_name, shared)
 	return ddgi.GetHitDefinesGLSL() .. (
 			shared and
@@ -273,15 +251,10 @@ function scene_reflection.GetGLSL(block_name, shared)
 		#define SCENE_REFLECTION_FLAGS (RT_HIT_ANY_HIT != 0 ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT)
 		#define SCENE_REFLECTION_LIGHT_FULL_RADIANCE 0.02
 
-		// different for every point, light and frame, the reflections' histories average it out
 		float scene_reflection_random(vec3 p, int light) {
 			return pcg_unorm(pcg3d(uvec3(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z) ^ (uint(light) * 2654435761u + uint(ddgi_data.ddgi_frame) * 40503u))).x);
 		}
 
-		// what a light that adds contribution (absolute luminance) at p counts for. a light that
-		// shows dimmer than SCENE_REFLECTION_LIGHT_FULL_RADIANCE on screen (1 is white) is only
-		// traced with a probability that falls with it, 0 when it isn't and the inverse of the
-		// probability when it is, so the light that is left out is counted for in what is not
 		float scene_reflection_light_weight(vec3 contribution, vec3 p, int light) {
 			float probability = min(max(max(contribution.r, contribution.g), contribution.b) * get_exposure() / SCENE_REFLECTION_LIGHT_FULL_RADIANCE, 1.0);
 
@@ -294,13 +267,10 @@ function scene_reflection.GetGLSL(block_name, shared)
 			return ddgi_data.ddgi_rt_ready != 0;
 		}
 
-		// the scene hit owns visibility and is shaded with the hit's textures, screen space is not used
-		// the screen is the reflection of a surface this smooth, the trace only fills what it does not hold
 		bool scene_reflection_screen_first(float roughness) {
 			return roughness < ]]..block_name..[[.reflection_screenspace_roughness;
 		}
 
-		// confirms the first solid hit, looking through glass and respecting cutout textures
 		#define SCENE_REFLECTION_PROCEED(query) \
 			while (rayQueryProceedEXT(query)) { \
 				uint candidate = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)); \
@@ -316,7 +286,6 @@ function scene_reflection.GetGLSL(block_name, shared)
 			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
 		}
 
-		// how far along dir the scene is, max_distance when nothing is that close
 		float scene_hit_distance(vec3 origin, vec3 dir, float max_distance) {
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, 0xFF, origin, 0.0, dir, max_distance);
@@ -328,7 +297,6 @@ function scene_reflection.GetGLSL(block_name, shared)
 			return rayQueryGetIntersectionTEXT(query, true);
 		}
 
-		// the hit is lit by the sun and lights through the glass in front of them, see trace_scene_reflection
 		vec3 trace_scene_reflection_hit(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			hit_t = max_distance;
 			float t;
@@ -370,7 +338,6 @@ function scene_reflection.GetGLSL(block_name, shared)
 			hit_t = t;
 			scene_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
 			ddgi_material material = ddgi_materials[tri.material];
-			// the visible side winds clockwise, so tri.normal points inward
 			vec3 hit_N = -tri.normal;
 
 			if (dot(dir, hit_N) > 0.0) {
@@ -389,7 +356,6 @@ function scene_reflection.GetGLSL(block_name, shared)
 				scene_uv uv = scene_hit_uv(hit_instance, hit_primitive);
 				vec3 weights = vec3(1.0 - barycentrics.x - barycentrics.y, barycentrics);
 				vec2 coord = uv.uv0 * weights.x + uv.uv1 * weights.y + uv.uv2 * weights.z;
-				// the cone of the reflection widens with the distance the ray went and with how rough the surface is
 				float cone_width = t * (SCENE_REFLECTION_CONE + roughness * roughness * 0.25);
 				vec3 rgb = textureLod(TEXTURE(material.albedo_tex), coord, scene_hit_texture_lod(tri, uv, textureSize(TEXTURE(material.albedo_tex), 0), cone_width)).rgb;
 
@@ -422,8 +388,6 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 			#if RT_HIT_LIGHTS && RT_HIT_LIGHT_SAMPLES > 0
 			{
-				// the lights of the cell are streamed through once keeping RT_HIT_LIGHT_SAMPLES of them, each with its share of
-				// the weight summed so far, the kept lights are traced and scaled by the inverse of their probability
 				int light_cell = light_grid_cell(surface);
 				int light_count = ]] .. block_name .. [[.light_count;
 				float total = 0.0;
@@ -467,7 +431,6 @@ function scene_reflection.GetGLSL(block_name, shared)
 						for (int k = 0; k < RT_HIT_LIGHT_SAMPLES; k++) {
 							if (u[k] < p) {
 								picked_light[k] = contribution;
-								// stops short of the light so a bulb mesh around it doesn't shadow it
 								picked_ray[k] = vec4(L, dot(light.position.xyz - surface, L));
 								picked_weight[k] = weight;
 								u[k] /= p;
@@ -520,7 +483,6 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 					if (light_weight == 0.0) continue;
 
-					// stops short of the light so a bulb mesh around it doesn't shadow it
 					float dist = dot(light.position.xyz - surface, L);
 
 					if (RT_HIT_SHADOWS != 0 && dist > 0.05 && !scene_reflection_visible(surface, L, dist - 0.05)) continue;
@@ -540,8 +502,6 @@ function scene_reflection.GetGLSL(block_name, shared)
 			vec4 gi = ddgi_sample_irradiance(P, hit_N, hit_N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight);
 
 			if (weight <= 0.0 && !ddgi_in_volume(P)) {
-				// outside the probes nothing knows how much sky is open, and a hit in a
-				// cave would be lit by all of it. estimate from rays around the normal
 				vec3 tangent = normalize(cross(hit_N, abs(hit_N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
 				vec3 bitangent = cross(hit_N, tangent);
 				float spin = fract(sin(dot(P, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 6.28318530718;
@@ -560,18 +520,12 @@ function scene_reflection.GetGLSL(block_name, shared)
 			return radiance + albedo * gi.rgb;
 		}
 
-		// radiance arriving at origin from dir, shaded like a ddgi probe ray's hit, after the glass the
-		// ray passes through. hit_t is how far the hit is, max_distance when the ray went on to the sky
 		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			vec3 radiance = trace_scene_reflection_hit(origin, dir, N, roughness, max_distance, hit_t);
 
 			if (]]..block_name..[[.glass_light != 0) radiance *= get_glass_light(origin, dir, hit_t, 0.0);
 
-			// a hit is fogged by the ground fog along the ray (the camera's own fog covers the way to the surface); a ray
-			// that found the sky has the sky's haze already
 			if (]]..block_name..[[.reflection_fog != 0 && hit_t < max_distance) {
-				// the air is lit as it is where the ray starts: open sky outside the probes, in a room the probes' light
-				// and no sun, as the volumetric fog does it. what the sky sees there tells which
 				float fog_sky = 1.0;
 				vec3 fog_gi = vec3(0.0);
 

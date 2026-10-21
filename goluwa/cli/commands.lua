@@ -905,7 +905,6 @@ do
 		end
 	end
 
-	-- returns true, or false and the message to print, and a short one line version of it
 	function commands.RunLine(line)
 		local ok, msg = commands.run_line(line)
 

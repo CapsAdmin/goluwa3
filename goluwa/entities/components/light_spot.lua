@@ -17,10 +17,6 @@ SpotLight:GetSet("OuterCone", 20, {validate = "number"})
 SpotLight:EndStorable()
 local MIN_OUTER_CONE_DEGREES = 0.5
 
--- the solid angle the lumens leave through: the cone is full strength inside the inner angle and falls with
--- smoothstep(cos outer, cos inner, cos angle) to nothing at the outer one (the shader's cone), so the integral of that
--- over the sphere is 2 pi (1 - (cos inner + cos outer) / 2). The intensity is the lumens over it, the lamp
--- emits what its lumens say
 function SpotLight:GetEmissionSolidAngle()
 	local outer = math.clamp(self.OuterCone, MIN_OUTER_CONE_DEGREES, 180)
 	local cos_inner = math.cos(math.rad(math.clamp(self.InnerCone, 0, 180)))

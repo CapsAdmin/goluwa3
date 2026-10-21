@@ -70,7 +70,6 @@ do
 					local part = parts[i]
 					local child = rawget(node, part)
 
-					-- a file next to a folder of the same name stays reachable through the folder
 					if not directories[child] then
 						local directory = {}
 						directories[directory] = true

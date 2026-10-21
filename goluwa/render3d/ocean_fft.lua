@@ -2,7 +2,6 @@ local Texture = import("goluwa/render/texture.lua")
 local water = import("goluwa/render3d/water.lua")
 local ocean_fft = {}
 local N = water.FFT_SIZE
--- the tiles are sampled at the texel of the world position they hold, which is half a texel off the uv
 local HALF_TEXEL = 0.5 / N
 ocean_fft.textures = {}
 
@@ -24,8 +23,6 @@ local function create_texture(format, name, data)
 	return texture
 end
 
--- the textures the transform works in and what it makes, and the spectrum when it has changed: h0 holds
--- the amplitudes of k and of -k, omega the number of the angular frequency in the wave period
 function ocean_fft.Update()
 	local t = ocean_fft.textures
 	local waves = water.GetOceanWaves()
@@ -38,9 +35,7 @@ function ocean_fft.Update()
 			t[i] = cascade
 			cascade.temp0 = create_texture("r32g32b32a32_sfloat", "temp0 " .. i)
 			cascade.temp1 = create_texture("r32g32b32a32_sfloat", "temp1 " .. i)
-			-- displacement x, height, displacement z, d(displacement x)/dz
 			cascade.displacement = create_texture("r16g16b16a16_sfloat", "displacement " .. i)
-			-- slope x, slope z, d(displacement x)/dx, d(displacement z)/dz
 			cascade.derivatives = create_texture("r16g16b16a16_sfloat", "derivatives " .. i)
 		end
 
@@ -59,8 +54,6 @@ function ocean_fft.Update()
 	return t
 end
 
--- the lookup of the tiles of the first count cascades by the world position of what is
--- undisplaced. the block holds the displacement and derivative texture of each in fft_tex
 function ocean_fft.GetGLSL(block, count)
 	local lines = {}
 	local function add(...)
@@ -81,15 +74,12 @@ function ocean_fft.GetGLSL(block, count)
 	add("\treturn d;")
 	add("}")
 	add("")
-	add("// the point the waves carry to world_xz")
 	add("vec2 fft_undisplace(vec2 world_xz, float choppiness) {")
 	add("\tvec2 p = world_xz;")
 	add("\tfor (int i = 0; i < 4; i++) p = world_xz - choppiness * fft_displacement(p);")
 	add("\treturn p;")
 	add("}")
 	add("")
-	add("// height, normal and the jacobian of the horizontal displacement, which drops towards 0 and below")
-	add("// where a crest folds over and breaks")
 	add("void fft_surface(vec2 p, float choppiness, out float height, out vec3 normal, out float jacobian) {")
 	add("\theight = 0.0;")
 	add("\tvec2 slope = vec2(0.0);")

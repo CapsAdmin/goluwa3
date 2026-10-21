@@ -4,8 +4,6 @@ local store = import("goluwa/render3d/scene/store.lua")
 local accel = import("goluwa/render3d/scene/accel.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local meshes = {}
--- what the shaders read of a mesh. the bottom level structure of the mesh is built from its own vertex and index
--- buffers, instances only point at it, so any number of instances share one
 local MeshRow = ffi.typeof([[struct {
 	uint64_t vertex_address;
 	uint64_t index_address;
@@ -22,7 +20,6 @@ local table_rows
 local by_mesh = setmetatable({}, {__mode = "k"})
 local mesh_of_row = setmetatable({}, {__mode = "v"})
 local records = {}
--- the meshes that deform, by the address of their vertices, for the structures to follow what skins them
 local dynamic_records = {}
 local pending = {}
 local sweep_cursor = 0
@@ -35,8 +32,6 @@ function meshes.GetTable()
 	return table_rows
 end
 
--- the row of a mesh, which is built for ray tracing once and kept for as long as the mesh lives. nil for a mesh the gpu
--- has no buffers of
 function meshes.Get(mesh, dynamic)
 	local row = by_mesh[mesh]
 
@@ -91,8 +86,6 @@ function meshes.Get(mesh, dynamic)
 	return row
 end
 
--- what drawing a mesh needs besides its buffers: indices in the shared index pool (a mesh without indices gets the
--- sequential ones, which is what its structure was built from as well), and the row says where they are
 function meshes.EnsureRaster(row)
 	local record = records[row]
 
@@ -128,8 +121,6 @@ function meshes.GetRecord(row)
 	return records[row]
 end
 
--- builds the bottom level structures that are waiting, within a budget of triangles per frame, and refits the ones of
--- meshes that were skinned (updated is a set of the addresses of their vertices)
 function meshes.Build(cmd, updated)
 	if not render.GetDevice().ray_tracing_supported then
 		table.clear(pending)
@@ -213,7 +204,6 @@ function meshes.GetPendingCount()
 	return #pending
 end
 
--- rows whose mesh is gone are released a few at a time
 function meshes.Update()
 	local rows = meshes.GetTable()
 	local top = rows.count

@@ -15,10 +15,8 @@ META.CMP.visual = {}
 META.CMP.mouse_input = {}
 META:StartStorable()
 META:GetSet("Columns", 1)
--- a wide bar column instead of the value, detail and small bar: rows with `offset` and `fraction` draw a span of the whole bar
 META:GetSet("Timeline", false)
 META:EndStorable()
--- rows of {label, value, detail, fraction, offset, color} where color is a COLOR_TOKENS key
 META:GetSet("Rows", nil)
 META:GetSet("FirstRow", 0)
 

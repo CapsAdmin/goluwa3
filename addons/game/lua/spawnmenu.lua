@@ -45,7 +45,6 @@ local function refresh_colors()
 	colors.font = active:GetFont("body", "XS")
 end
 
--- where the player aims: the first thing within reach, otherwise a little way in front. yaw faces the prop towards the player
 local function get_aim()
 	local camera = render3d.GetCamera()
 	local origin = camera:GetPosition()
@@ -56,7 +55,6 @@ local function get_aim()
 	return position, yaw
 end
 
--- the entries of the three kinds of tiles. A weapon is previewed by the model prefab it holds, an npc by its own prefab
 local function make_weapon_entries()
 	local entries = {}
 
@@ -92,7 +90,6 @@ local function make_npc_entries()
 	return entries
 end
 
--- a model goes into the world with physics, a weapon is given to the player (it only works held, see weapon_holder) and an npc is placed on the ground
 function spawnmenu.Spawn(entry)
 	if entry.kind == "weapon" then
 		local holder = _G.PLAYER_RIG.weapon_holder
@@ -142,7 +139,6 @@ local function draw_tile(item, index, x, y, w, h, selected, hovered)
 	end
 end
 
--- a grid of tiles that spawns what is clicked, the path of the hovered one is shown under it
 local TileGrid = react.Component(|props| -> do
 	local hovered, set_hovered = react.UseState()
 	local size = props.Items[1] and props.Items[1].label and LABELED_TILE_SIZE or TILE_SIZE
@@ -180,7 +176,6 @@ local function make_tree_items(roots, counter)
 	return items
 end
 
--- gmod's spawnlists as a tree on the left and the models of the selected one, the search looks through all of them
 local SpawnlistsPage = react.Component(|| -> do
 	local roots = react.UseMemo(spawnlists.Load, {})
 	local everything = react.UseMemo(|| -> spawnlists.GetEntries(roots), {roots})
@@ -257,7 +252,6 @@ local ListPage = react.Component(|props| -> do
 	return TileGrid{Items = items}
 end)
 
--- the programs of the desktop that can show their content without a window, a list of them and the one that is selected
 local UtilitiesPage = react.Component(|props| -> do
 	local version, set_version = react.UseState(0)
 	local selected, set_selected = react.UseState("Sun")
@@ -317,7 +311,6 @@ local LEFT_PAGES = {
 	NPCs = || -> ListPage{Make = make_npc_entries},
 }
 
--- the menu is made when it is first shown and only hidden after that, so the list, tab, search and utility it was left on are still there. Contents that follow live state get Shown and stop while it is hidden
 local SpawnMenu = react.Component(|| -> do
 	local shown, set_shown = react.UseState(false)
 	local tab, set_tab = react.UseState("Spawnlists")
@@ -376,13 +369,11 @@ function spawnmenu.Hide()
 	_G.PLAYER_RIG.player_input:SetKeyboardMovement(false)
 end
 
--- only a text field that has focus keeps the menu open after q is released, clicking a tile or a tree row gives focus to the widget too
 function spawnmenu.IsEditing()
 	local focused = objects.GetFocusedObject()
 	return focused and focused:IsValid() and focused.text and focused.text:GetEditable() or false
 end
 
--- the q key: held opens it, released closes it unless something in it has focus, pressed again closes it
 function spawnmenu.Hold()
 	if spawnmenu.IsShown() then spawnmenu.Hide() else spawnmenu.Show() end
 end

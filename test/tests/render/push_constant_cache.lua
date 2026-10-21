@@ -21,16 +21,13 @@ T.Test("EasyPipeline ShouldPushConstants only pushes what changed since the comm
 	data.values[2] = 3
 	T(push(pipeline, cmd, key, "vertex", 0, data))["=="](true)
 	T(push(pipeline, cmd, key, "vertex", 0, data))["=="](false)
-	-- another stage, offset or pipeline is another constant
 	T(push(pipeline, cmd, key, "fragment", 0, data))["=="](true)
 	T(push(pipeline, cmd, key, "vertex", 16, data))["=="](true)
 	T(push(pipeline, cmd, {}, "vertex", 0, data))["=="](true)
 	T(push(pipeline, cmd, key, "vertex", 0, data))["=="](false)
-	-- a new recording pushes everything again
 	cmd.recording_serial = 2
 	T(push(pipeline, cmd, key, "vertex", 0, data))["=="](true)
 	T(push(pipeline, cmd, key, "vertex", 0, data))["=="](false)
-	-- another command buffer has its own record
 	T(push(pipeline, {recording_serial = 1}, key, "vertex", 0, data))["=="](true)
 end)
 

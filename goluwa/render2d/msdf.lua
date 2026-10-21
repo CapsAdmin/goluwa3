@@ -31,9 +31,6 @@ local function get_pipelines()
 			shader = [[
 				layout(set = 0, binding = 0, rgba8) uniform writeonly image2D out_tex;
 
-				// Edge data: 6 floats per edge (x0, y0, x1, y1, channel, side)
-				// channel: bit flags - bit0=R(1), bit1=G(2), bit2=B(4)
-				// side: +1 if the filled side is where cross(b - a, p - a) > 0, else -1
 				layout(set = 0, binding = 1, std430) coherent buffer EdgeBuffer {
 					float edges[];
 				} edge_buf;

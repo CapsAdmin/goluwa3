@@ -63,7 +63,6 @@ local function pass_label(group, name)
 	return label:sub(#word + 2)
 end
 
--- the golden angle keeps neighbouring slices apart in hue
 local function slice_color(index, shade)
 	local c = Color.FromHSV(index * 0.381966, 0.62 - shade * 0.25, 0.95 - shade * 0.35)
 	return c.r, c.g, c.b

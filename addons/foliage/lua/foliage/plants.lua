@@ -1,4 +1,3 @@
--- the small things: flowers, ferns, mushrooms, fallen logs, stumps, leaf litter and fallen branches
 local Vec3 = import("goluwa/structs/vec3.lua")
 local MeshBuilder = import("lua/foliage/mesh_builder.lua")
 local foliage = import("lua/foliage/foliage.lua")
@@ -12,8 +11,6 @@ local function add_generator(name, category, defaults, build)
 	foliage.AddGenerator(name, {category = category, defaults = defaults, build = build})
 end
 
--- a flower head from above as a shallow cup, the picture laid over it from the top so it reads from the side too. it
--- is held in the middle with the stiffness of its stem's top, its petals flutter
 local function add_head(mesh, center, up, radius, cup, tile, atlas, phase, stiffness)
 	local side = trees.perpendicular(up)
 	local other = up:GetCross(side)
@@ -67,7 +64,6 @@ function plants.BuildFlowers(config, rng)
 		tallest = max(tallest, height)
 		local points = trees.Grow(flower_rng, root, dir, height, config.stem_radius, {taper = 0.3, curve = 0, noise = 6}, 5)
 
-		-- held at the root like a blade of grass
 		trees.AddTube(
 			stems,
 			points,
@@ -92,7 +88,6 @@ function plants.BuildFlowers(config, rng)
 		end
 	end
 
-	-- the leaves at the foot of the clump
 	local leaf_rng = rng:Fork("leaves")
 
 	for _ = 1, config.leaves do
@@ -151,7 +146,6 @@ flower("cornflowers", {count = {4, 8}, height = {0.35, 0.6}, head_size = {0.03, 
 flower("buttercups", {count = {5, 9}, height = {0.2, 0.4}, head_size = {0.02, 0.028}, cup = 0.9, stem_radius = 0.002, material = "flower_buttercup", leaves = 10, leaf_length = {0.06, 0.1}, leaf_width = {0.015, 0.025}})
 flower("lupines", {count = {3, 6}, height = {0.35, 0.55}, head_size = {0.3, 0.42}, stem_radius = 0.005, spike = true, material = "flower_lupine", leaves = 12, leaf_length = {0.15, 0.25}, leaf_width = {0.015, 0.025}, radius = 0.2})
 
--- a fern: fronds out of the ground from upright to lying, drooping at their tips
 function plants.BuildFern(config, rng)
 	local mesh = MeshBuilder.New()
 	local frond_rng = rng:Fork("fronds")
@@ -185,17 +179,13 @@ add_generator(
 		width = 0.4,
 		fold = 12,
 		droop = 0.9,
-		-- how much less stiff a meter of a frond's reach
 		flex = 0.6,
-		-- how far the normals lean away from the root
 		bend = 0.3,
 		material = "fern_frond",
 	},
 	plants.BuildFern
 )
 
--- mushrooms: a cap (a dome turned on a lathe, its texture around it and out from the middle), the gills under it and a
--- stem, in a little group
 function plants.BuildMushrooms(config, rng)
 	local caps = MeshBuilder.New()
 	local under = MeshBuilder.New()
@@ -218,7 +208,6 @@ function plants.BuildMushrooms(config, rng)
 
 		for k = 0, 3 do
 			local t = k / 3
-			-- a little thicker at the foot
 			stem[k + 1] = {pos = root + up * (height * t), dir = up, radius = stem_radius * (1.25 - 0.25 * t), t = t}
 		end
 
@@ -235,7 +224,6 @@ function plants.BuildMushrooms(config, rng)
 		)
 		local side = trees.perpendicular(up)
 		local other = up:GetCross(side)
-		-- the cap's profile from its top (0) to its rim (1): how far out and how high
 		local rings = 6
 		local first = caps:GetVertexCount()
 		local under_first = under:GetVertexCount()
@@ -263,7 +251,6 @@ function plants.BuildMushrooms(config, rng)
 			end
 		end
 
-		-- the gills, from the stem out to the rim, facing down
 		for k = 0, 1 do
 			for s = 0, sides do
 				local a = s / sides * pi * 2
@@ -297,14 +284,12 @@ add_generator(
 		cap_radius = {0.05, 0.08},
 		height = {0.08, 0.13},
 		dome = 0.7,
-		-- the stem's radius, of the cap's
 		stem = 0.22,
 		material = "mushroom_amanita",
 	},
 	plants.BuildMushrooms
 )
 
--- a disc of end grain capping a tube, facing along normal
 local function add_end(mesh, center, normal, radius, sides)
 	local side = trees.perpendicular(normal)
 	local other = normal:GetCross(side)
@@ -323,7 +308,6 @@ local function add_end(mesh, center, normal, radius, sides)
 	end
 end
 
--- a fallen log, lying along x with a few broken branches
 function plants.BuildLog(config, rng)
 	local wood = MeshBuilder.New()
 	local ends = MeshBuilder.New()
@@ -340,7 +324,6 @@ function plants.BuildLog(config, rng)
 
 	trees.AddTube(wood, points, 12, config.bark_tile, 0, stiff, false)
 	local first, last = points[1], points[#points]
-	-- the ends are cut, a little in from the bark
 	add_end(ends, first.pos, first.dir * -1, first.radius * 0.98, 12)
 	add_end(ends, last.pos, last.dir, last.radius * 0.98, 12)
 
@@ -374,7 +357,6 @@ add_generator(
 	plants.BuildLog
 )
 
--- a stump: a short trunk with roots running out into the ground, cut on top
 function plants.BuildStump(config, rng)
 	local wood = MeshBuilder.New()
 	local ends = MeshBuilder.New()
@@ -399,7 +381,6 @@ function plants.BuildStump(config, rng)
 	for i = 1, roots do
 		local angle = (i - 1) / roots * pi * 2 + stump_rng:Range(-0.3, 0.3)
 		local out = Vec3(cos(angle), -0.12, sin(angle)):GetNormalized()
-		-- from inside the stump out and down into the ground
 		local root = trees.Grow(stump_rng, Vec3(cos(angle) * radius * 0.4, 0.12, sin(angle) * radius * 0.4), out, stump_rng:Range(0.7, 1.2), radius * 0.38, {taper = 0.8, noise = 8, gravity = 0.35}, 7)
 		trees.AddTube(wood, root, 7, config.bark_tile, 0, stiff, true)
 	end
@@ -423,7 +404,6 @@ add_generator(
 	plants.BuildStump
 )
 
--- fallen leaves lying about, cards nearly flat on the ground, the later ones on top
 function plants.BuildLitter(config, rng)
 	local mesh = MeshBuilder.New()
 	local leaf_rng = rng:Fork("leaves")
@@ -437,7 +417,6 @@ function plants.BuildLitter(config, rng)
 		local tilt = rad(leaf_rng:Range(0, config.tilt))
 		local forward = Vec3(cos(yaw), sin(tilt), sin(yaw)):GetNormalized()
 		local normal = UP:GetRotated(trees.perpendicular(forward), leaf_rng:Range(-tilt, tilt))
-		-- right by up is the card's normal
 		local side = forward:GetCross(normal):GetNormalized()
 		normal = side:GetCross(forward)
 		local tile = leaf_rng:Int(0, config.atlas - 1)
@@ -463,7 +442,6 @@ add_generator(
 	plants.BuildLitter
 )
 
--- fallen branches lying on the ground, a few forks each
 function plants.BuildBranches(config, rng)
 	local wood = MeshBuilder.New()
 	local branch_rng = rng:Fork("branches")

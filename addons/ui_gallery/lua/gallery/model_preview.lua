@@ -168,7 +168,6 @@ local function build_definitions()
 	}
 end
 
--- every tile owns an entity and a preview renderer, both go when the tile does
 local Tile = react.Component(|props| -> do
 	local definition = props.Definition
 	local base_angles = definition.base_angles or Ang3(0, 0, 0)

@@ -3,8 +3,6 @@ local objects = import("goluwa/objects/objects.lua")
 local META = objects.CreateTemplate("bitmap_font")
 META.Base = import("goluwa/render2d/fonts/base.lua")
 
--- a pixel font from glyphs.RegisterBitmapFont, used with a path like "bitmap:name:scale".
--- the glyphs are cells of one texture, so there is no atlas to build
 function META.New(font_path)
 	local self = META:CreateObject()
 	self:SetFontPath(font_path)

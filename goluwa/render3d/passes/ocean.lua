@@ -16,7 +16,6 @@ local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local RAY_QUERY = scene_reflection.RAY_QUERY
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
 local pvars = import("goluwa/cli/pvars.lua")
--- the parts of the water that can be turned off, to see what each costs. they are the bits of ocean_data.features
 local FEATURES = {}
 pvars.StartGroup("Environment", "Water", {store = false, prefix = "water_"})
 
@@ -42,7 +41,6 @@ for _, feature in ipairs{
 	}
 end
 
--- how much work each part does. the defaults are the full quality, lower is cheaper and changes the look
 local screenspace_roughness_pvar = pvars.Setup2{key = "r_water_screenspace_roughness", default = 1, min = 0, max = 1, help = "perceptual roughness below which the water's reflection is the screen first (the last frame, fog and all) and the rays only fill what the screen does not hold, the water's own reflection_screenspace_roughness. 0 is rays only, which have no fog and are blurred by the denoiser"}
 local shaft_samples_pvar = pvars.Setup2{key = "r_water_shaft_samples", default = 8, min = 1, max = 8, integer = true, help = "most samples along the view ray for the sun shafts under the surface (short paths take fewer), fewer is noisier shafts"}
 local ripple_pairs_pvar = pvars.Setup2{key = "r_water_ripple_pairs", default = 6, min = 1, max = 6, integer = true, help = "pairs of ripple waves per octave in the small ripples on top of the wave textures, fewer is a more regular ripple pattern"}
@@ -70,8 +68,6 @@ end
 
 local passes = {}
 
--- the foam the waves leave behind: it is made where the surface folds, then fades. it is kept
--- in world space, where the fold is seen
 local FOAM_BIAS = 1.03
 local FOAM_SPREAD = 1.5
 local FOAM_GAIN = 2.5
@@ -83,12 +79,6 @@ local function get_foam_pipeline_name(cascade)
 	return cascade.name .. "_foam"
 end
 
--- the inverse transform of the waves' spectrum, one tile per band of wavelengths: a pass over the rows then one
--- over the columns, each workgroup doing the 256 point transform of a row or a column in shared memory. the
--- fields are packed two to a transform (a real field and another as its imaginary part). the row pass makes the
--- spectrum of the time (h(k, t) = h0(k) e^(-i w t) + conj(h0(-k)) e^(i w t)) and what is made from the height
--- by its derivatives, c0 = Dx + i Dz, c1 = height + i dDx/dz, c2 = slope x + i slope z, c3 = dDx/dx + i dDz/dz,
--- where D is the horizontal displacement of the waves
 local FFT_COMMON_GLSL = [[
 	const uint FFT_N = 256u;
 	shared vec2 fft_buf[2][256];
@@ -97,8 +87,6 @@ local FFT_COMMON_GLSL = [[
 		return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
 	}
 
-	// the inverse transform of the 256 values in fft_buf[0], without the division by n. it takes 128 threads,
-	// each one butterfly a stage, and returns the buffer the result is in
 	uint fft_inverse(uint tid) {
 		uint src = 0u;
 
@@ -189,7 +177,6 @@ for cascade_index, fft_cascade in ipairs(water.FFT_CASCADES) do
 					vec2 kv = vec2(float(n), float(m)) * (6.28318530718 / TILE_SIZE);
 					float k = length(kv);
 					vec2 dir = kv / k;
-					// the angular frequency is a whole number of the wave period's, so the sea repeats with it
 					float phase = 6.28318530718 * fract(omega_index * fft_data.time_fraction);
 					vec2 e = vec2(cos(phase), sin(phase));
 					vec2 h = fft_mul(h0.xy, vec2(e.x, -e.y)) + fft_mul(vec2(h0.z, -h0.w), e);
@@ -279,7 +266,6 @@ for cascade_index, fft_cascade in ipairs(water.FFT_CASCADES) do
 						barrier();
 					}
 
-					// the real parts are the first field of a transform, the imaginary parts the second
 					imageStore(out_displacement, low_id, vec4(out_low[0].x, out_low[1].x, out_low[0].y, out_low[1].y));
 					imageStore(out_derivatives, low_id, vec4(out_low[2].x, out_low[2].y, out_low[3].x, out_low[3].y));
 					imageStore(out_displacement, high_id, vec4(out_high[0].x, out_high[1].x, out_high[0].y, out_high[1].y));
@@ -431,9 +417,6 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 				const float FOAM_WEIGHT = ]] .. cascade.foam_weight .. [[;
 				const float FOAM_GAIN = ]] .. FOAM_GAIN .. [[;
 
-				// height above the mean, the height's slope, and the foam: what the
-				// waves left behind here, plus where the surface
-				// folds right now
 				void main() {
 					vec2 world_xz = wave_block.wave_origin + (in_uv * 2.0 - 1.0) * WAVE_TEX_WORLD_HALF;
 					float choppiness = wave_block.wave_choppiness;
@@ -527,7 +510,6 @@ do
 	end
 end
 
--- the gusts, slicks and windrows drift with the wind, at about its speed near the surface
 local SEA_DRIFT = 0.7
 local sea_offset = {x = 0, z = 0, time = 0, frame = -1}
 
@@ -692,11 +674,8 @@ list.insert(
 						block.shaft_samples = shaft_samples_pvar:Get()
 						block.ripple_pairs = ripple_pairs_pvar:Get()
 						block.trace_steps = trace_steps_pvar:Get()
-						-- the reflection pass traces its rays at a fraction of the screen, the water at all of it: the same
-						-- rays for the same share of the screen
 						local scale = scene_reflection.RESOLUTION_SCALES[pvars.Get("reflection_resolution")]
 						block.rough_rays = math.max(1, math.floor(scene_reflection.rough_rays:Get() * scale * scale + 0.5))
-						-- the fog pass has not run yet this frame, its image is the last frame's with the water and the fog in it
 						block.last_frame_tex = render3d.ShouldUseLastFrameHistory() and render3d.IsPassEnabled("volumetric_fog") and
 							self:GetTextureIndex(post_source.GetFoggedOpaqueSceneTexture()) or
 							-1
@@ -730,7 +709,6 @@ list.insert(
 			shader = [[
 			]] .. post_source.GetPreExposureGLSL("ocean_data") .. [[
 
-			// the parts of the water the r_water_* pvars turn off
 			const int WATER_CAUSTICS = 1;
 			const int WATER_SHAFTS = 2;
 			const int WATER_RIPPLES = 4;
@@ -750,17 +728,13 @@ list.insert(
 				return (ocean_data.features & bit) != 0;
 			}
 
-			// the lit scene is pre-exposed, the water's shading is absolute
 			vec3 get_scene_color(vec2 uv) {
 				if (ocean_data.scene_tex == -1) return vec3(0.0);
 				return texture(TEXTURE(ocean_data.scene_tex), uv).rgb / get_pre_exposure();
 			}
 
-			// how much of the reflection the rays made, what the denoiser has to average
 			float water_rt_share = 0.0;
 
-			// how close the pixel is to the waterline, where the surface cuts the near plane. a thin film of water
-			// clings to the lens there and catches the light
 			float waterline = 0.0;
 
 			void set_scene_color(vec3 color, float alpha) {
@@ -768,18 +742,13 @@ list.insert(
 				set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha));
 			}
 
-			// the camera's near plane distance
 			const float WATER_NEAR_PLANE = 0.1;
-			// how far the sea is traced, and the steepest slope its height map can have (for the sphere trace)
 			const float WATER_TRACE_RANGE = 1000000.0;
 			const float WATER_MAX_SLOPE = 1.5;
 			const vec3 WATER_MOLECULAR_SCATTERING = vec3(]] .. water.MOLECULAR_SCATTERING.x .. ", " .. water.MOLECULAR_SCATTERING.y .. ", " .. water.MOLECULAR_SCATTERING.z .. [[);
-			// how much of Gordon's multiple scattering is added to the single scattering
 			const float WATER_MULTIPLE_SCATTERING = 0.5;
-			// the thin crest's glow, in multiples of what single scattering through its thickness gives
 			const float WATER_CREST_GLOW = 20.0;
 			const float WATER_PARTICLE_G = ]] .. water.PARTICLE_PHASE_G .. [[;
-			// the share of what the particles scatter that goes back
 			const float WATER_PARTICLE_BACKSCATTER = ]] .. string.format(
 					"%.5f",
 					(
@@ -796,7 +765,6 @@ list.insert(
 			const int WAVE_CASCADES = ]] .. #WAVE_CASCADES .. [[;
 			const int RIPPLE_OCTAVES = ]] .. water.DETAIL_OCTAVES .. [[;
 			const float WAVE_TEXELS_PER_WAVELENGTH = ]] .. water.WAVE_TEXELS_PER_WAVELENGTH .. [[;
-			// how far the medium is followed when nothing is behind it
 			const float WATER_OPEN_DEPTH = 2000.0;
 			const float WATER_SCREENSPACE_DISTANCE = 20000.0;
 
@@ -804,7 +772,7 @@ list.insert(
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ocean_data") .. [[
 			]] .. screen_reconstruct.GetViewRayFromUVGLSL("ocean_data") .. [[
 			]] .. screen_refraction.GetGLSL("ocean_data") .. [[
-			// what the medium shadow lookup expects from the atmosphere code
+
 ]] .. glsl_common.GetSunHorizonVisibilityGLSL() .. [[
 
 			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("ocean_data", "get_water_sun_visibility_shadowed") .. [[
@@ -838,7 +806,6 @@ list.insert(
 				return fract((p3.x + p3.y) * p3.z);
 			}
 
-			// the distances to the nearest and the second nearest of the jittered cells' points
 			vec2 foam_cells(vec2 p) {
 				vec2 i = floor(p);
 				vec2 f = fract(p);
@@ -863,10 +830,6 @@ list.insert(
 				return sqrt(vec2(d1, d2));
 			}
 
-			// foam is a mat of bubbles: ragged rafts with holes of every size, the lace of strands
-			// between bubbles around them, and small bright bubbles. x is the density the coverage
-			// is thresholded against, y the bubbles, z a soft mottling. the finer
-			// parts fade out to their mean when a pixel covers them
 			vec3 foam_pattern(vec2 p, float time, float footprint) {
 				vec2 flow = vec2(time * 0.07, -time * 0.05);
 				vec2 warp = vec2(value_noise2(p * 0.35 + flow), value_noise2(p * 0.35 + flow + 31.7)) - 0.5;
@@ -886,31 +849,21 @@ list.insert(
 				return vec3(density, bubbles, raft);
 			}
 
-			// how many meters one pixel covers on a surface t away that the
-			// view ray meets at cos_incidence. the stretch along the view is
-			// only partly counted, all of it would blur everything at grazing
 			float get_pixel_footprint(float t, float cos_incidence) {
 				float pixel_angle = 2.0 / (ocean_data.projection[1][1] * ocean_data.render_size.y);
 				return t * pixel_angle / sqrt(max(abs(cos_incidence), 0.03));
 			}
 
-			// fades waves shorter than the pixel. the faded ones' slopes
-			// become roughness instead of aliasing
 			float get_wave_resolve(float wavelength, float footprint) {
 				float x = clamp(wavelength / max(footprint, 1e-6) * 0.5 - 1.0, 0.0, 1.0);
 				return x * x * (3.0 - 2.0 * x);
 			}
 
-			// exact fresnel reflectance of unpolarized light, eta = n_from / n_to
-			// the water molecules' phase function, Rayleigh's with water's depolarization (Morel 1974)
 			float water_molecular_phase(float mu) {
 				return (1.0 + 0.835 * mu * mu) / (4.0 * PI * (1.0 + 0.835 / 3.0));
 			}
 
 
-			// ---------------------------------------------------------------
-			// ocean waves
-			// ---------------------------------------------------------------
 
 			vec4 sample_wave_cascade(int cascade, vec2 world_xz, out float coverage) {
 				coverage = 0.0;
@@ -924,10 +877,7 @@ list.insert(
 				return textureLod(TEXTURE(tex), uv, 0.0);
 			}
 
-			// the finest cascades the pixel resolves, blended over the coarser
-			// ones. resolved_variance is the slope variance the result holds
 			vec4 get_wave_data(vec2 world_xz, float footprint, out float resolved_variance) {
-				// beyond the wave textures the sea is the largest tile, which repeats without end
 				vec4 data = vec4(0.0);
 				resolved_variance = 0.0;
 				if (!water_feature(WATER_WAVES)) return data;
@@ -949,7 +899,6 @@ list.insert(
 					float coverage;
 					vec4 cascade = sample_wave_cascade(i, world_xz, coverage);
 					float texel = ocean_data.wave_origin[i].z * 2.0 / ]] .. WAVE_TEX_SIZE .. [[.0;
-					// the cascade's shortest waves still resolve
 					float weight = coverage * get_wave_resolve(texel * WAVE_TEXELS_PER_WAVELENGTH, footprint);
 					data = mix(data, cascade, weight);
 					resolved_variance = mix(resolved_variance, ocean_data.wave_origin[i].w, weight);
@@ -963,21 +912,7 @@ list.insert(
 				return ocean_data.ocean_level + get_wave_data(world_xz, 0.0, variance).r;
 			}
 
-			// the ripples too short for the wave textures: a sum of sine waves around the wind, each at
-			// the speed the dispersion of capillary-gravity waves gives its length. real ripples aren't
-			// endless trains: they are groups that rise, run a few wavelengths and die out (capillary
-			// ones are damped within seconds, and gusts and walls keep making new ones), and a few
-			// endless trains read as rigid layers sliding over each other. so each wave lives
-			// lifetime periods, fading in and out as sin(pi u), and comes back with a new
-			// direction and phase while it is gone. the two waves of a pair share a length and are half
-			// a life apart, sin^2 + cos^2 keeps their sum as steep all the time. r_water_ripple_pairs pairs (6) per
-			// octave, each octave half the length of the last and slope_variance steep. adds their
-			// slope and the height's second derivatives (xx, zz, xz), and returns the slope variance of
-			// the waves the pixel can't resolve
 			const float VOLUME_RIPPLE_LIFETIME = 10.0;
-			// the share of ripples going against the wind. the sea's are blown along with it; in a pool
-			// or a lake the walls and shores throw them back and they cross every which way, so the
-			// pattern churns in place instead of drifting as a whole
 			const float OCEAN_RIPPLE_UPWIND_SHARE = 0.1;
 			const float VOLUME_RIPPLE_UPWIND_SHARE = 0.5;
 
@@ -991,7 +926,6 @@ list.insert(
 				for (int o = 0; o < RIPPLE_OCTAVES; o++) {
 					for (int i = 0; i < PAIRS; i++) {
 						float pair_seed = float(o * PAIRS + i);
-						// stratified across the octave so its lengths are covered evenly
 						float length = wavelength * exp2(-(float(i) + water_hash(vec2(pair_seed, 1.7))) / float(PAIRS));
 						float k = 6.28318530718 / length;
 						float resolve = get_wave_resolve(length, footprint);
@@ -999,7 +933,6 @@ list.insert(
 
 						if (resolve <= 0.0) continue;
 
-						// a sine wave's slope variance is (a k)^2 / 2
 						float amplitude = sqrt(2.0 * slope_variance / float(PAIRS)) / k * resolve;
 						float omega = sqrt(WATER_GRAVITY * k + 0.074e-3 * k * k * k);
 						float life = lifetime * 6.28318530718 / omega;
@@ -1009,8 +942,6 @@ list.insert(
 							float u = age + float(half_life) * 0.5;
 							float generation = floor(u);
 							float seed = pair_seed * 2.0 + float(half_life) + generation * 97.0;
-							// spread around the wind's axis, most within 60 degrees of it and some across it,
-							// upwind_share of them going against it
 							float angle = wind_angle + (water_hash(vec2(seed, 5.3)) + water_hash(vec2(seed, 9.1)) - 1.0) * 2.0;
 							if (water_hash(vec2(seed, 7.7)) < upwind_share) angle += 3.14159265359;
 							vec2 kv = vec2(cos(angle), sin(angle)) * k;
@@ -1027,12 +958,6 @@ list.insert(
 				return lost_variance;
 			}
 
-			// Crysis's ocean waves: four layers of one tiling normal map, a pair at a low frequency
-			// and a pair at twice that, the second of each pair read with its axes swapped so the
-			// two cross, with the sum scaled to at most 0.15 of a slope. here each layer moves at
-			// the speed gravity gives waves as long as four of its texels. strength scales the
-			// slopes, the frequencies are per meter times scale. adds their slope and the height's
-			// second derivatives, and returns the slope variance the pixel can't resolve
 			float add_bump_waves(vec2 p, float footprint, float scale, vec2 wind, float strength, inout vec2 grad, inout vec3 hess) {
 				const vec4 FREQUENCIES = vec4(0.02, 0.01, 0.04, 0.02);
 				const vec4 WEIGHTS = vec4(2.0, 2.0, 1.0, 1.0);
@@ -1042,7 +967,6 @@ list.insert(
 					float frequency = FREQUENCIES[layer] * scale;
 					float texel = 1.0 / (frequency * 256.0);
 					float speed = sqrt(WATER_GRAVITY * 4.0 * texel / 6.28318530718);
-					// the second layer of each pair is the first one's transpose
 					bool transposed = (layer & 1) == 1;
 					vec2 direction = transposed ? wind.yx : wind;
 					vec2 q = (transposed ? p.yx : p) - direction * (speed * ocean_data.time);
@@ -1051,7 +975,6 @@ list.insert(
 					vec2 step_uv = vec2(step_size * frequency, 0.0);
 					float weight = WEIGHTS[layer] * 0.15 * strength;
 					vec2 here = (textureLod(TEXTURE(ocean_data.bump_tex), q * frequency, lod).rg - 0.5) * weight;
-					// a step in the world along x or z is a step in u or v, the other way round when transposed
 					vec2 along_x = (textureLod(TEXTURE(ocean_data.bump_tex), q * frequency + (transposed ? step_uv.yx : step_uv), lod).rg - 0.5) * weight;
 					vec2 along_z = (textureLod(TEXTURE(ocean_data.bump_tex), q * frequency + (transposed ? step_uv : step_uv.yx), lod).rg - 0.5) * weight;
 					vec2 d_dx = (along_x - here) / step_size;
@@ -1065,11 +988,6 @@ list.insert(
 				return lost_variance;
 			}
 
-			// the sea's large scale variation in world space, which never repeats like the wave tiles do. x is how
-			// rough the short waves are, as a multiplier on their slopes, y is the gusts (0 to 1), patches of
-			// rougher water that drift downwind and reflect less of the bright horizon, z the slicks, long calm
-			// bands along the wind where films damp the ripples, mirror like, w the windrows, thin lines along
-			// the wind in fresh wind (smooth lanes with a trace of foam)
 			float sea_noise(vec2 p, float seed) {
 				return value_noise2(p + vec2(seed * 31.7, seed * 17.3));
 			}
@@ -1081,7 +999,6 @@ list.insert(
 				float g1 = sea_noise(p / 620.0, 1.0);
 				float g2 = sea_noise(p / 230.0 + vec2(ocean_data.sea_offset.z * 0.0009, 0.37), 2.0);
 				float gust = clamp((g1 * 0.62 + g2 * 0.38 - 0.5) * 3.0 * info.y + 0.5, 0.0, 1.0);
-				// the wind's frame, bent a little so the bands meander
 				float along = dot(p, wind);
 				float across = dot(p, vec2(-wind.y, wind.x)) + (g2 - 0.5) * 26.0;
 				float calm_wind = smoothstep(13.0, 4.0, info.x);
@@ -1092,30 +1009,22 @@ list.insert(
 				return vec4(rough, gust, slick, streak);
 			}
 
-			// what the sea's variation is at the surface point being shaded
 			vec4 sea_state = vec4(1.0, 0.5, 0.0, 0.0);
 
-			// the ocean's ripples shorter than the finest cascade, with the
-			// slope variance the spectrum has there
 			float add_detail_ripples(vec2 p, float footprint, float rough, inout vec2 grad, inout vec3 hess) {
 				vec4 info = ocean_data.detail_info;
 				vec4 ripple = ocean_data.ripple_info;
-				// the roughness takes what is not drawn
 				if (!water_feature(WATER_RIPPLES) || !water_feature(WATER_WAVES)) return info.w * float(RIPPLE_OCTAVES);
-				// RippleStrength of their slope variance is drawn, the rest is left to the roughness.
-				// RippleScale stretches them, as steep, so taller too
 				float drawn = info.w * ripple.x * rough * rough;
 
 				if (ocean_data.bump_tex != -1) {
 					float lost = add_bump_waves(p, footprint, 1.0, info.xy, 1.0, grad, hess);
-					// the textures replace the ripples, the rest is the roughness's as before
 					return max(info.w * float(RIPPLE_OCTAVES) - ocean_data.bump_info.x * 0.0225 * 10.0 + lost, 0.0);
 				}
 
 				return add_ripples(p, footprint, info.xy, vec2(0.0), drawn, info.z * ripple.y, OCEAN_RIPPLE_UPWIND_SHARE, ripple.z, grad, hess) + (info.w - drawn) * float(RIPPLE_OCTAVES);
 			}
 
-			// scene_limit is how far along the ray the surface can matter, the scene is in front of anything past it
 			float height_map_tracing(vec3 ray_dir, float plane_t, vec3 camera_origin, float scene_limit, out vec3 hit_pos) {
 				float wave_bound = ocean_data.ocean_wave_info.x;
 
@@ -1127,10 +1036,6 @@ list.insert(
 				float camera_height = camera_origin.y - get_water_surface_height(camera_origin.xz);
 
 				if (camera_height >= 0.0) {
-					// from above the waves lie in the slab around the mean level, as tall as the tallest wave. the ray is
-					// walked through it in steps that cannot pass the surface: how far the surface could rise towards the ray
-					// by the steepest slope in that distance (a sphere trace of the height map). a ray that looks up still
-					// meets the crests that stand higher than the eye, and a long grazing one meets them far out
 					float top = ocean_data.ocean_level + wave_bound;
 					float bottom = ocean_data.ocean_level - wave_bound;
 					float dy = abs(ray_dir.y) < 1e-5 ? 1e-5 : ray_dir.y;
@@ -1164,13 +1069,11 @@ list.insert(
 					}
 
 					if (!crossed && t <= t_end) {
-						// out of steps skimming the waves: the surface is as close as the walk got
 						hit_pos = ray_dir * t;
 						return t;
 					}
 
 					if (!crossed) {
-						// the walk left the slab above the surface. a ray that comes down meets the mean plane
 						float mean_t = (ocean_data.ocean_level - camera_origin.y) / min(ray_dir.y, -1e-5);
 
 						if (ray_dir.y < 0.0 && last_h < wave_bound * 2.0 && mean_t > 0.0 && mean_t < scene_limit) {
@@ -1207,8 +1110,6 @@ list.insert(
 					search_radius = min(search_radius, mix(24.0, 64.0, smoothstep(0.0, wave_bound * 1.7, camera_height)));
 				}
 
-				// from above the surface lies within the waves' height of the plane, which a ray at a low angle
-				// crosses over a long way: a window of a fixed size lost the far sea in lines along the crests
 				if (plane_t > 0.0 && camera_height >= 0.0) {
 					search_radius = clamp(wave_bound * 2.6 / max(abs(ray_dir.y), 0.002), 8.0, 8192.0);
 				}
@@ -1257,9 +1158,6 @@ list.insert(
 
 				if (!found_bracket) {
 					if (start_h * end_h > 0.0) {
-						// a ray that has not met the waves in the window meets the sea further on, which is
-						// the mean plane out there. looking at the sea from above only: from below the
-						// surface is not hit by rays pointing down
 						float mean_t = (ocean_data.ocean_level - camera_origin.y) / min(ray_dir.y, -1e-5);
 
 						if (camera_height >= 0.0 && ray_dir.y < 0.0 && mean_t > 0.0 && mean_t < scene_limit) {
@@ -1293,13 +1191,7 @@ list.insert(
 				return tfinal;
 			}
 
-			// ---------------------------------------------------------------
-			// water volumes
-			// ---------------------------------------------------------------
 
-			// the entry and exit distances of the ray through volume i. the
-			// entry is negative when the ray starts inside. top is whether it
-			// enters through the surface
 			bool intersect_volume(int i, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
 				mat4 to_local = ocean_data.volume_to_local[i];
 				vec4 shape = ocean_data.volume_shape[i];
@@ -1317,7 +1209,6 @@ list.insert(
 				return t_exit > max(t_entry, 0.0);
 			}
 
-			// how far a ray from inside volume i goes before it leaves it
 			float get_volume_exit(int i, vec3 ray_origin, vec3 ray_dir) {
 				float t_entry;
 				float t_exit;
@@ -1326,16 +1217,12 @@ list.insert(
 				return t_exit;
 			}
 
-			// with a few centimeters to spare, for surfaces that line the box
 			bool is_inside_volume(int i, vec3 p) {
 				vec4 shape = ocean_data.volume_shape[i];
 				vec3 local = (ocean_data.volume_to_local[i] * vec4(p, 1.0)).xyz;
 				return all(lessThanEqual(abs(local.xz), shape.xz + 0.05)) && local.y <= 0.0 && local.y >= -shape.y - 0.05;
 			}
 
-			// the ripples on volume i, wave height is the significant height
-			// of the longest ones
-			// each octave as steep as the noise ripples these replaced made WaveHeight and WaveLength
 			float get_volume_ripples(int i, vec2 world_xz, float footprint, out vec2 grad, inout vec3 hess) {
 				vec4 waves = ocean_data.volume_waves[i];
 				grad = vec2(0.0);
@@ -1349,24 +1236,17 @@ list.insert(
 				return add_ripples(world_xz, footprint, vec2(cos(waves.z), sin(waves.z)), ocean_data.volume_flow[i].xy, 2.72 * slope * slope, waves.y, VOLUME_RIPPLE_UPWIND_SHARE, VOLUME_RIPPLE_LIFETIME, grad, hess);
 			}
 
-			// ---------------------------------------------------------------
-			// the water body
-			// ---------------------------------------------------------------
 
 			struct Water {
-				// -1 for the ocean, else the volume index
 				int volume;
 				vec3 absorption;
-				// what's suspended in it, the water's own scattering is WATER_MOLECULAR_SCATTERING
 				vec3 particles;
 				float ior;
-				// 0 for no dispersion
 				float abbe;
 				float surface_y;
 				float foam;
 				float caustics;
 				float roughness;
-				// 1 when the water ends at the volume's sides and bottom, 0 when it is open like the sea
 				float closed;
 			};
 
@@ -1400,7 +1280,6 @@ list.insert(
 				return w;
 			}
 
-			// a volume's surface at the height of the ocean goes over into the ocean's over this many meters of its edge
 			const float VOLUME_EDGE_BLEND = 12.0;
 
 			Water mix_water(Water a, Water b, float t) {
@@ -1420,8 +1299,6 @@ list.insert(
 				return w.absorption + WATER_MOLECULAR_SCATTERING + w.particles;
 			}
 
-			// per meter and steradian, what the water scatters by the cosine mu between where the light
-			// went and where it goes
 			vec3 water_scatter(Water w, float mu) {
 				return WATER_MOLECULAR_SCATTERING * water_molecular_phase(mu) + w.particles * phase_henyey_greenstein(mu, WATER_PARTICLE_G);
 			}
@@ -1431,8 +1308,6 @@ list.insert(
 				return ocean_data.primary_sun_color * (ocean_data.primary_sun_illuminance * above_horizon);
 			}
 
-			// direction the sunlight travels in once it's refracted into the
-			// water, and how much of it gets through the flat surface
 			vec3 get_underwater_sun_dir(Water w, out float transmission) {
 				vec3 sun = normalize(ocean_data.sun_direction);
 				float cos_i = max(sun.y, 0.0);
@@ -1441,31 +1316,18 @@ list.insert(
 				return dot(refracted, refracted) > 0.0 ? normalize(refracted) : vec3(0.0, -1.0, 0.0);
 			}
 
-			// the light from above at P: the ddgi probes' where there are any, so shores, bridges and
-			// night lights tint the water and a roof or a plane over it darkens it, the sky's elsewhere.
-			// visibility_min_weight and smooth_blend are ddgi_sample_irradiance's, DDGI_NO_VISIBILITY_RAYS for no rays
 			vec3 get_ambient_irradiance(vec3 P, float visibility_min_weight, bool smooth_blend) {
 				vec3 sky = sample_environment_irradiance(ocean_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && water_feature(WATER_AMBIENT_GI)) {
 					float weight;
 					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), smooth_blend, visibility_min_weight, weight);
-					// the weight only fades out near walls, the sky would leak in under a roof
 					if (weight > 0.0) return gi.rgb;
 				}
 				#endif
 				return sky;
 			}
 
-			// light arriving at depth z along a path, integrated over a straight
-			// path of length len that starts depth_start below the surface and
-			// goes down by rate per meter. mu is the cosine of the light in the
-			// water. both exponentials are at most 1, so looking up from the
-			// deep doesn't overflow, and x is negative when the path climbs
-			// faster than the light fades. near x = 0, where it climbs as fast as
-			// the light fades with depth, their difference cancels to noise (a
-			// ring at that elevation), so it's a series there. the depth isn't
-			// clamped at the end: under a crest the path ends above the mean level
 			vec3 integrate_attenuated(vec3 sigma, float depth_start, float rate, float len, float mu) {
 				vec3 x = sigma * ((1.0 + rate / mu) * len);
 				vec3 first = exp(-sigma * (depth_start / mu));
@@ -1475,17 +1337,12 @@ list.insert(
 				return len * mix((first - last) / mix(x, vec3(1.0), near_zero), series, near_zero);
 			}
 
-			// how far along a path lights scatter, at how many points, and how many of the lights in a
-			// point's cell are shadow traced
 			const float WATER_LIGHT_RANGE = 40.0;
 			const int WATER_LIGHT_SAMPLES = 4;
 			const int WATER_LIGHT_MAX_PER_SAMPLE = 6;
 
 			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail);
 
-			// what the water between origin and origin + dir * len adds by
-			// scattering sun and sky light towards the viewer, and how much of
-			// what's behind it gets through
 			vec3 get_water_inscatter(Water w, vec3 origin, vec3 dir, float len, float jitter, out vec3 transmittance) {
 				vec3 sigma = get_extinction(w);
 				transmittance = exp(-sigma * len);
@@ -1497,32 +1354,23 @@ list.insert(
 				vec3 sun_light = get_sun_illuminance() * sun_transmission;
 				float visibility = 0.0;
 
-				// shadows over the first stretch of the path, which is where
-				// the scattered light comes from. taa smooths the steps into
-				// light shafts
 				if (dot(sun_light, sun_light) > 0.0 && water_feature(WATER_SHAFTS)) {
 					float shadow_len = min(len, 60.0);
 
-					// the caustics in the shafts are lines thinner than a pixel from afar, which average out to no change,
-					// and they were over half of the ocean pass: only pixels close enough to show them have them
 					float shaft_focus = 1.0 - smoothstep(25.0, 140.0, distance(origin, ocean_data.camera_position.xyz));
 
-					// a short path through the water scatters little, and the samples are smoothed over frames
 					int shaft_samples = min(len < 2.0 ? 2 : (len < 8.0 ? 4 : 8), ocean_data.shaft_samples);
 
 					for (int i = 0; i < shaft_samples; i++) {
 						float f = (float(i) + jitter) / float(shaft_samples);
 						vec3 p = origin + dir * (shadow_len * f * f);
-						// the light reaches p through the surface above it
 						vec3 surface = p - sun_dir * ((p.y - w.surface_y) / sun_dir.y);
 						float shaft = get_water_sun_visibility(surface, ocean_data.sun_direction);
 
 						#ifdef SCENE_REFLECTION
-						// what is in the water between the surface and the point (a plane, a roof, a room) keeps the light off it
 						if (shaft > 0.0 && scene_reflection_ready() && water_feature(WATER_SUN_SHADOWS) && !scene_reflection_visible(p, -sun_dir, distance(p, surface) - 0.05)) shaft = 0.0;
 						#endif
 
-						// the light the surface focuses into this point, which is what makes the shafts
 						if (shaft_focus > 0.0 && shaft > 0.0) {
 							shaft *= mix(1.0, get_caustic(w, p, get_pixel_footprint(distance(p, ocean_data.camera_position.xyz), 1.0), 0, 3.0, false).g, shaft_focus);
 						}
@@ -1533,22 +1381,11 @@ list.insert(
 					visibility /= float(shaft_samples);
 				}
 
-				// the light that reaches the viewer leaves along -dir
-				// the light scattered more than once comes out of the water from all over, which a single scattering
-				// phase function doesn't have. Gordon's irradiance reflectance of the water, R = 0.33 bb / (a + bb), as
-				// a diffuse scattering coefficient, so the water has a color of its own whatever the angle to the sun
 				vec3 backscatter = WATER_MOLECULAR_SCATTERING * 0.5 + w.particles * WATER_PARTICLE_BACKSCATTER;
 				vec3 diffuse_scatter = backscatter * (WATER_MULTIPLE_SCATTERING * 0.33 * 4.0) / (w.absorption + backscatter) * sigma / PI;
 				vec3 sun_scatter = sun_light * visibility * (water_scatter(w, dot(-dir, sun_dir)) + diffuse_scatter) * integrate_attenuated(sigma, depth_start, rate, len, sun_mu);
-				// sky light comes down from all over the window above, as if at 40 degrees. the particles
-				// send their backscattered share of it up to a viewer looking down, the rest on down to one
-				// looking up; the molecules half each way
 				float particle_share = mix(WATER_PARTICLE_BACKSCATTER, 1.0 - WATER_PARTICLE_BACKSCATTER, 0.5 + 0.5 * dir.y) / (2.0 * PI);
 				vec3 sky_phase = WATER_MOLECULAR_SCATTERING / (4.0 * PI) + w.particles * particle_share;
-				// the light the sky scatters comes from the probes at the points along the path, where it is: a roof, a
-				// plane or a room over a point leave it dark, the water does not glow with the sky above what covers it
-				// (what the volumetric fog does). each point counts as much as the scattered light that gets from it
-				// to the viewer, and the rest of the formula is the same as with one value of it
 				vec3 ambient = get_ambient_irradiance(vec3(origin.x, w.surface_y + 0.1, origin.z), DDGI_NO_VISIBILITY_RAYS, true);
 
 				#ifdef SCENE_REFLECTION
@@ -1574,8 +1411,6 @@ list.insert(
 				vec3 light_scatter = vec3(0.0);
 
 				#ifdef SCENE_REFLECTION
-				// lights scatter towards the viewer from a few points along the path: through the water
-				// between the light and the point, and from the point to the viewer
 				if (scene_reflection_ready() && water_feature(WATER_LIGHTS)) {
 					float light_len = min(len, WATER_LIGHT_RANGE);
 
@@ -1604,7 +1439,6 @@ list.insert(
 								if (!get_light_vector_and_attenuation(light, p, L, attenuation)) continue;
 
 								float dist = dot(light.position.xyz - p, L);
-								// a light above the water reaches the point through the surface above it
 								float light_path = light.position.y > w.surface_y ? min(dist, point_depth / max(L.y, 0.1)) : dist;
 								vec3 contribution = light.color.rgb * light.color.a * attenuation * water_scatter(w, dot(dir, L)) * exp(-sigma * light_path);
 								float light_weight = scene_reflection_light_weight(contribution * exp(-sigma * t) * (light_len / float(WATER_LIGHT_SAMPLES)), p, li);
@@ -1628,10 +1462,6 @@ list.insert(
 				return sun_scatter + sky_scatter + light_scatter;
 			}
 
-			// the lit scene under the surface was lit as if the water weren't
-			// there. what the sun gives it is estimated from its albedo and
-			// normal, dimmed by the water above and focused into caustics, and
-			// the rest is dimmed like sky light
 			vec3 relight_submerged(Water w, vec2 uv, vec3 scene_color, vec3 world_pos, vec3 caustic) {
 				float depth = w.surface_y - world_pos.y;
 				if (depth <= 0.0) return scene_color;
@@ -1649,36 +1479,24 @@ list.insert(
 				return direct * sun_path * (sun_transmission * caustic) + rest * sky_path;
 			}
 
-			// sunlight through a sloped surface lands offset by the slope times
-			// depth * (1 - 1 / ior). the light that lands at a point came through
-			// the surface point x where x + s * slope(x) is that point, found
-			// with a few newton steps from where flat water would send it. where
-			// the landing map folds over itself the light piles up into the thin
-			// bright lines of caustics, by one over the jacobian determinant there.
-			// the pattern is smoothed a little with depth, deeper down the light
-			// arrives from a wider spread of ripples
 			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail) {
 				if (w.caustics <= 0.0 || !water_feature(detail ? WATER_CAUSTICS : WATER_SHAFT_CAUSTICS)) return vec3(1.0);
 				float sun_transmission;
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
 				float depth = max(w.surface_y - world_pos.y, 0.0);
 				if (depth <= 0.0) return vec3(1.0);
-				// the sun's disc blurs them deeper down, and so does distance
 				float blur = clamp(smoothstep(4.0 * fade, 30.0 * fade, depth) + smoothstep(0.3, 2.0, footprint), 0.0, 1.0);
 				if (blur >= 1.0) return vec3(1.0);
 
-				// half blurred away, the lines are wide and what the newton steps and the small ripples place is lost in it
 				if (blur >= 0.5) {
 					newton_steps = 0;
 					detail = false;
 				}
 
-				// each wavelength lands by its own index, so the focus differs a little by colour
 				vec3 s = depth * (1.0 - 1.0 / screen_refraction_dispersed_ior(w.ior, w.abbe));
 				vec2 target = world_pos.xz - sun_dir.xz * (depth / max(-sun_dir.y, 0.05));
 				vec2 xz = target;
 				float filter_size = max(footprint, depth * 0.012);
-				// the surface's curvature: the ripples' exactly, the wave textures' (slopes only) across the filter
 				vec2 grad;
 				vec3 hess;
 				bool refiltered = false;
@@ -1698,9 +1516,6 @@ list.insert(
 						if (detail) add_detail_ripples(xz, filter_size, 1.0, grad, hess);
 					}
 
-					// below the depth where a ripple focuses its light the pattern has folded over
-					// many times and what is left is noise, which the sun's disc averages out. the
-					// waves too short for that are filtered away, leaving the ones that still focus
 					float focus = max(abs(s.g * hess.x), abs(s.g * hess.y));
 
 					if (i == 0 && !refiltered && focus > 1.0) {
@@ -1717,7 +1532,6 @@ list.insert(
 					float d = 1.0 + s.g * hess.y;
 					float b = s.g * hess.z;
 					float det = a * d - b * b;
-					// at a fold the step would be unbounded
 					det = abs(det) < 0.15 ? (det < 0.0 ? -0.15 : 0.15) : det;
 					vec2 step = vec2(d * residual.x - b * residual.y, a * residual.y - b * residual.x) / det;
 					float max_step = depth * 0.15 + filter_size;
@@ -1725,16 +1539,11 @@ list.insert(
 				}
 
 				vec3 jacobian = (1.0 + s * hess.x) * (1.0 + s * hess.y) - s * s * hess.z * hess.z;
-				// the floor keeps the lines' peaks finite
 				vec3 intensity = 1.0 / sqrt(jacobian * jacobian + 0.0144);
 				return mix(vec3(1.0), mix(intensity, vec3(1.0), blur), clamp(w.caustics, 0.0, 1.0));
 			}
 
-			// ---------------------------------------------------------------
-			// reflections
-			// ---------------------------------------------------------------
 
-			// the last frame's image (water, fog and all) where the world point was, the lit scene at uv where it was not
 			vec3 get_last_frame_color(vec3 world_pos, vec2 uv) {
 				if (ocean_data.last_frame_tex == -1) return get_scene_color(uv);
 
@@ -1753,9 +1562,6 @@ list.insert(
 				return textureLod(TEXTURE(ocean_data.depth_tex), uv, 0.0).r;
 			}
 
-			// marches the reflected ray through the depth buffer. the lit scene
-			// where it meets something is what the water reflects there
-			// hit_uv is where on screen, hit_t how far along dir, weight how far from the screen's edge
 			bool trace_water_reflection(vec3 origin, vec3 dir, float jitter, out vec2 hit_uv, out float hit_t, out float weight) {
 				float previous = 0.0;
 				hit_uv = vec2(0.0);
@@ -1790,7 +1596,6 @@ list.insert(
 						vec3 ray_pos = origin + dir * far;
 						vec3 scene_pos = get_world_pos(hit.xy, scene_depth_at(hit.xy));
 
-						// it went behind something instead of into it
 						if (length(scene_pos - ray_pos) > max(0.4, far * 0.04)) return false;
 
 						vec2 edge = min(hit.xy, 1.0 - hit.xy);
@@ -1806,9 +1611,6 @@ list.insert(
 				return false;
 			}
 
-			// screen first: the last frame where the screen holds the reflection (a mirror march, sharp and without noise),
-			// and rays for what it does not hold (off screen, behind something) like the reflection pass: a rough surface
-			// traces several, each in its own direction over the lobe, and their hits are limited and averaged
 			const int WATER_SCREEN_LOBE_TAPS = 8;
 
 			vec3 get_reflection(vec3 surface_pos, vec3 view_dir, vec3 reflection_dir, vec3 normal, float alpha, float jitter) {
@@ -1832,13 +1634,10 @@ list.insert(
 				vec2 screen_uv;
 				float screen_t;
 
-				// the screen holds nothing below the horizon of the waves
 				if (screen_first && reflection_dir.y > -0.2 && trace_water_reflection(origin, reflection_dir, jitter, screen_uv, screen_t, screen_weight)) {
 					vec3 hit_pos = get_world_pos(screen_uv, scene_depth_at(screen_uv));
 					screen_color = get_last_frame_color(hit_pos, screen_uv);
 
-					// a rough surface sees the screen through its lobe, as wide at the hit as the rays' spread: taps of the
-					// last frame over a disc around the hit, perpendicular to the ray, the reflection pass's lobe width
 					if (perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD) {
 						vec3 tangent = normalize(cross(reflection_dir, abs(reflection_dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
 						vec3 bitangent = cross(reflection_dir, tangent);
@@ -1854,8 +1653,6 @@ list.insert(
 							vec3 tap_pos = hit_pos + (tangent * cos(angle) + bitangent * sin(angle)) * r;
 							vec2 tap_uv = screen_refraction_project(tap_pos).xy;
 
-							// the last frame holds what the tap's pixel showed: a tap counts where that is the surface it is on,
-							// not a thin thing in front of it (a leaf, a rail) or the sky past it
 							if (!screen_refraction_on_screen(tap_uv)) continue;
 
 							float tap_depth = scene_depth_at(tap_uv);
@@ -1866,7 +1663,6 @@ list.insert(
 							valid += 1.0;
 						}
 
-						// what the lobe finds of the screen is as much of the reflection as the screen gives, the rays fill the rest
 						screen_color = sum / valid;
 						screen_weight *= valid / float(WATER_SCREEN_LOBE_TAPS + 1);
 					}
@@ -1885,7 +1681,6 @@ list.insert(
 
 						if (rough) {
 							dir = scene_reflection_direction(normal, view_dir, perceptual, get_blue_noise2(ray), environment_roughness);
-							// like the mirror direction, reflections dip under the horizon on the backs of waves
 							if (dir.y < 0.0) dir = normalize(vec3(dir.x, -dir.y * 0.3, dir.z));
 						}
 
@@ -1897,7 +1692,6 @@ list.insert(
 						sum += traced;
 					}
 
-					// the rays are a point of the lobe each, what the denoiser has to average
 					water_rt_share = rough ? 1.0 - screen_weight : 0.0;
 					return mix(sum / float(count), screen_color, screen_weight);
 				}
@@ -1906,25 +1700,12 @@ list.insert(
 				return mix(reflected, screen_color, screen_weight);
 			}
 
-			// ---------------------------------------------------------------
-			// shading
-			// ---------------------------------------------------------------
 
-			// the scene seen through the surface, and how far that is through the
-			// water. only the ripples' bending is followed: the pixel straight
-			// behind is shifted by how far the rippled refraction strays from a
-			// flat surface's by the time it reaches the scene. the flat
-			// refraction itself (the floor looking raised) can't be done in
-			// screen space: where it would land off screen or behind something
-			// in front of the water there is nothing to show, and falling back
-			// there tore the image apart
 			vec3 get_refracted_scene(Water w, vec3 surface_pos, vec3 ray_dir, vec3 normal, float scene_distance, out float path_len, out vec3 floor_pos, out vec2 floor_uv, out bool has_floor) {
 				path_len = WATER_OPEN_DEPTH;
 				has_floor = false;
 				floor_uv = in_uv;
 				floor_pos = surface_pos;
-				// red, green and blue bend by their own index. the green one places the floor that is
-				// lit; the others only move what is seen of the scene
 				vec3 channel_ior = screen_refraction_dispersed_ior(w.ior, w.abbe);
 				vec3 flat_dir = normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / channel_ior.g));
 				vec3 bent_dir = refract(ray_dir, normal, 1.0 / channel_ior.g);
@@ -1942,7 +1723,6 @@ list.insert(
 				if (bent.z > -1.0) {
 					vec2 uv = clamp(bent.xy, vec2(0.001), vec2(0.999));
 
-					// something in front of the water is where the shift lands
 					if (scene_depth_at(uv) <= screen_refraction_project(surface_pos).z) floor_uv = uv;
 				}
 
@@ -1975,8 +1755,6 @@ list.insert(
 				}
 
 				floor_pos = get_world_pos(floor_uv, depth);
-				// the scene straight behind may be further than where the
-				// refracted ray leaves the volume, so it's the point that counts
 				has_floor = w.volume < 0 || is_inside_volume(w.volume, floor_pos);
 				path_len = has_floor ? length(floor_pos - surface_pos) : volume_exit;
 				return behind;
@@ -1987,12 +1765,8 @@ list.insert(
 				float no_v = max(dot(normal, view_dir), 1e-4);
 				float fresnel = fresnel_dielectric(no_v, 1.0 / w.ior);
 				vec3 reflection_dir = reflect(ray_dir, normal);
-				// reflections dip under the horizon on the backs of waves
-				// a reflection that points under the horizon meets other waves, not sky: it is darkened as it dips
 				float sky_visibility = smoothstep(-0.15, 0.08, reflection_dir.y);
 				if (reflection_dir.y < 0.0) reflection_dir = normalize(vec3(reflection_dir.x, -reflection_dir.y * 0.3, reflection_dir.z));
-				// the facets the waves are too small to show tilt the average reflection towards the higher, darker sky:
-				// rough patches (gusts) darken towards the horizon, slicks stay bright and mirror like
 				if (w.volume < 0) {
 					float up = max(reflection_dir.y, 0.004) + alpha * (1.0 - max(reflection_dir.y, 0.0));
 					reflection_dir = normalize(vec3(reflection_dir.x, up, reflection_dir.z));
@@ -2000,7 +1774,6 @@ list.insert(
 				vec3 reflection = get_reflection(surface_pos, view_dir, reflection_dir, normal, alpha, jitter);
 				reflection *= mix(0.3, 1.0, sky_visibility);
 
-				// refraction into the water body
 				float path_len;
 				vec3 floor_pos;
 				vec2 floor_uv;
@@ -2012,7 +1785,6 @@ list.insert(
 				has_floor = false;
 
 				if (water_feature(WATER_REFRACTION)) behind = get_refracted_scene(w, surface_pos, ray_dir, normal, scene_distance, path_len, floor_pos, floor_uv, has_floor);
-				// the water between the surface and what's behind it
 				vec3 refracted_dir = has_floor && path_len > 1e-3 ? normalize(floor_pos - surface_pos) : normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / w.ior));
 				refracted_dir.y = min(refracted_dir.y, -0.02);
 				refracted_dir = normalize(refracted_dir);
@@ -2027,7 +1799,6 @@ list.insert(
 				if (water_feature(WATER_INSCATTER)) inscatter = get_water_inscatter(w, surface_pos, refracted_dir, path_len, jitter, transmittance);
 				vec3 transmitted = behind * transmittance + inscatter;
 
-				// sun glint off the waves, rough with the waves too small to see
 				vec3 sun = normalize(ocean_data.sun_direction);
 				float shadow = get_water_sun_visibility(surface_pos, sun);
 				vec3 sun_light = get_sun_illuminance() * shadow;
@@ -2039,8 +1810,6 @@ list.insert(
 				vec3 color = mix(transmitted, reflection, fresnel) + sun_light * (specular * no_l);
 
 				#ifdef SCENE_REFLECTION
-				// lights above the water glint off the waves like the sun does, a point of light with
-				// only the waves' roughness spreading it
 				if (scene_reflection_ready() && water_feature(WATER_LIGHTS)) {
 					int light_cell = light_grid_cell(surface_pos);
 					int light_count = ocean_data.light_count;
@@ -2082,7 +1851,6 @@ list.insert(
 				}
 				#endif
 
-				// light through the thin tops of waves between the viewer and the sun
 				if (w.volume < 0) {
 					float sun_transmission;
 					vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
@@ -2090,9 +1858,6 @@ list.insert(
 					vec3 sigma = get_extinction(w);
 					float thickness = 1.5;
 					color += (1.0 - fresnel) * sun_light * sun_transmission * water_scatter(w, dot(-refracted_dir, sun_dir)) * thickness * exp(-sigma * thickness) * crest * crest * 4.0;
-					// the light that enters the top and back of a thin crest leaves by its face over a broad lobe, the
-					// thin water turns out green (the red is gone, the blue is not): waves lit from the side glow
-					// too, most when the viewer looks towards the sun
 					vec2 view_side = normalize(view_dir.xz + 1e-5);
 					vec2 sun_side = normalize(sun.xz + 1e-5);
 					float back = pow(clamp(dot(view_side, -sun_side) * 0.6 + 0.4, 0.0, 1.0), 2.5);
@@ -2101,16 +1866,10 @@ list.insert(
 					color += (1.0 - fresnel) * sun_light * sun_transmission * isotropic * thickness * exp(-sigma * thickness) * WATER_CREST_GLOW * back * lit_crest * smoothstep(0.0, 0.25, sun.y);
 				}
 
-				// foam: whitecaps where the waves fold, and along shores and
-				// around things in the water
-				// the depth of the water under the surface. what's seen through it is only that at steep views,
-				// at grazing ones it lies far off toward the shore, so a floor further away counts as deeper
 				float shore_range = 0.25 * w.foam;
 				float shore_depth = has_floor ? max(w.surface_y - floor_pos.y, length(floor_pos.xz - surface_pos.xz) * 0.5) : 1e3;
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && shore_range > 0.0 && water_feature(WATER_SHORE_FOAM)) {
-					// measured from above the crests: from the surface itself a trough beside the shore
-					// starts inside the ground, reads no water, and the foam blazes up there
 					float rise = max(ocean_data.ocean_wave_info.x, 0.05);
 					shore_depth = max(scene_hit_distance(vec3(surface_pos.x, w.surface_y + rise, surface_pos.z), vec3(0.0, -1.0, 0.0), shore_range + rise) - rise, 0.0);
 				}
@@ -2118,17 +1877,14 @@ list.insert(
 				vec3 pattern = foam_pattern(surface_pos.xz, ocean_data.time, footprint);
 				float whitecap = fold * mix(0.5, 1.5, sea_state.y);
 				float shore = smoothstep(shore_range, 0.0, shore_depth);
-				// the more foam, the more of the bubble pattern shows
 				float coverage = clamp((whitecap + shore) * w.foam, 0.0, 1.0);
 				float threshold = 1.05 - coverage * 1.1;
 				float soft = 0.1 + footprint * 0.1;
 				float foam = smoothstep(threshold - soft, threshold + soft, pattern.x) * (pattern.y * 0.25 + 0.8) * smoothstep(0.0, 0.08, coverage);
-				// far away the pattern averages out to the coverage
 				foam = mix(foam, coverage * coverage * 0.5, smoothstep(0.15, 1.2, footprint)) * 0.95;
 
 				if (foam > 0.0) {
 					vec3 foam_light = sun_light * (max(dot(vec3(0.0, 1.0, 0.0), sun), 0.0) / PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0), DDGI_NO_VISIBILITY_RAYS, true);
-					// thick mats are brighter than the thin lace around them
 					float thickness = clamp((pattern.x - threshold) * 4.0 + 0.5, 0.0, 1.0);
 					vec3 foam_color = vec3(0.8) * mix(0.4, 1.0, thickness) * (0.9 + 0.1 * pattern.y) * foam_light;
 					color = mix(color, foam_color, foam * mix(0.6, 0.95, thickness));
@@ -2137,23 +1893,14 @@ list.insert(
 				return color;
 			}
 
-			// the surface seen from under the water: what's above comes through
-			// snell's window, outside it the water reflects its own depths
-			// the light at a submerged point of the scene, relative to above the water: the sun's path
-			// down through the water to it, for a traced hit that was lit as if there were none
 			vec3 get_submerged_light(Water w, vec3 world_pos) {
 				float sun_transmission;
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
 				return sun_transmission * exp(-get_extinction(w) * (max(w.surface_y - world_pos.y, 0.0) / max(-sun_dir.y, 0.05)));
 			}
 
-			// what the surface reflects back down into the water: the underwater scene along the
-			// mirrored ray, seen through the water like the view straight into it. off the screen it's
-			// traced; what's hit there was lit without the water, so it is dimmed by its depth
 			vec3 get_underwater_reflection(Water w, vec3 surface_pos, vec3 dir, float jitter) {
 				vec3 origin = surface_pos + dir * 0.02;
-				// a volume's walls are usually right on its sides, so what's hit a little past where the
-				// ray leaves it still counts
 				float len = w.volume >= 0 ? mix(WATER_OPEN_DEPTH, get_volume_exit(w.volume, origin, dir) + 0.25, w.closed) : WATER_OPEN_DEPTH;
 				vec3 behind = vec3(0.0);
 				vec2 hit_uv;
@@ -2190,8 +1937,6 @@ list.insert(
 				vec3 normal = -normal_up;
 				vec3 view_dir = -ray_dir;
 				float cos_i = dot(normal, view_dir);
-				// each wavelength has its own index, so the blue is totally reflected first and the
-				// edge of the window is fringed
 				vec3 channel_ior = screen_refraction_dispersed_ior(w.ior, w.abbe);
 				vec3 fresnel = vec3(
 					fresnel_dielectric(cos_i, channel_ior.r),
@@ -2203,14 +1948,11 @@ list.insert(
 				if (fresnel.r < 1.0) {
 					vec3 sun = normalize(ocean_data.sun_direction);
 					vec3 sun_light = get_sun_illuminance() * get_water_sun_visibility(surface_pos, sun);
-					// red is the last to be totally reflected, so it is the one that is there
 					int primary = fresnel.g < 1.0 ? 1 : 0;
 					vec3 primary_dir = normalize(refract(ray_dir, normal, channel_ior[primary]));
 					vec3 primary_above = sample_environment_specular(ocean_data.env_tex, primary_dir, normal_up, 0.05);
 					bool hit_scene = false;
 
-					// from below, what's above the water is mostly hidden on screen, behind the parts
-					// of things under it (the top of something floating), so it's traced where it can be
 					#ifdef SCENE_REFLECTION
 					if (scene_reflection_ready()) {
 						float traced_t;
@@ -2222,8 +1964,6 @@ list.insert(
 						vec2 uv;
 						float hit;
 
-						// only what the ray really met: where it stopped without meeting anything the screen
-						// holds something else
 						if (screen_refraction_trace(surface_pos, surface_pos, primary_dir, 200.0, jitter, uv, hit) && hit < 200.0 && scene_depth_at(uv) > 0.0) {
 							primary_above = get_scene_color(uv);
 							hit_scene = true;
@@ -2233,8 +1973,6 @@ list.insert(
 					if (w.abbe <= 0.0) {
 						above = primary_above + sun_light * smoothstep(0.9995, 0.99995, dot(primary_dir, sun)) * 2000.0;
 					} else {
-						// a thing above the water is seen by every wavelength through the same pixel to
-						// within a pixel or so, only the sky differs across the window
 						for (int c = 0; c < 3; c++) {
 							if (fresnel[c] >= 1.0) continue;
 
@@ -2249,9 +1987,6 @@ list.insert(
 				return mix(above, depths, fresnel);
 			}
 
-			// looking from inside the water along ray_dir: through surface_t of
-			// water to the surface (or -1 when the ray doesn't reach it) or
-			// to whatever is behind
 			vec3 shade_underwater(Water w, vec3 camera, vec3 ray_dir, float surface_t, vec3 surface_normal, float exit_t, float scene_t, vec3 scene_color, vec3 scene_pos, float jitter, out float distance) {
 				float len;
 				vec3 behind;
@@ -2267,8 +2002,6 @@ list.insert(
 					behind = relight_submerged(w, in_uv, scene_color, scene_pos, caustic);
 					distance = scene_t;
 				} else {
-					// out of the side or the bottom of a volume, or into the
-					// open ocean
 					len = exit_t;
 					behind = w.volume >= 0 ? scene_color : vec3(0.0);
 					distance = w.volume >= 0 ? -1.0 : -1.0;
@@ -2279,7 +2012,6 @@ list.insert(
 				return behind * transmittance + inscatter;
 			}
 
-			// the sea's normal, roughness and fold at a point of its surface
 			void get_ocean_surface(vec2 xz, float footprint, out vec3 normal, out float alpha, out float fold) {
 				vec3 unused_hess = vec3(0.0);
 				float resolved_variance;
@@ -2289,8 +2021,6 @@ list.insert(
 				float detail_lost = add_detail_ripples(xz, footprint, sea_state.x, grad, unused_hess);
 				float detail_total = ocean_data.detail_info.w * float(RIPPLE_OCTAVES);
 
-				// the slopes of the sea no wave here shows make up the roughness,
-				// so the whole matches cox and munk's for the wind
 				float unresolved = max(ocean_data.ocean_wave_info.z - (water_feature(WATER_UNIFORM_ROUGHNESS) ? ocean_data.wave_origin[0].w : resolved_variance) - (detail_total - detail_lost), 0.0) * sea_state.x * sea_state.x;
 				if (!water_feature(WATER_WAVES)) unresolved = 0.0;
 				alpha = water_feature(WATER_WAVES) && water_feature(WATER_ROUGHNESS) ? sqrt(max(unresolved, 4e-4)) : 0.001;
@@ -2304,7 +2034,6 @@ list.insert(
 			}
 
 			void main() {
-				// the surface's curvature, only the caustics need it
 				vec3 unused_hess = vec3(0.0);
 				vec3 scene_color = get_scene_color(in_uv);
 
@@ -2315,12 +2044,8 @@ list.insert(
 
 				float scene_depth = gbuffer_depth(in_uv);
 				vec3 ray_dir = get_view_ray(in_uv);
-				// the ray starts on the near plane, not at the eye: with the camera in the waves the
-				// plane is cut by the surface, and each pixel is in the water or in the air by where its
-				// own start is. that gives the waterline across the screen, which follows the waves
 				vec3 camera_origin = ocean_data.camera_position.xyz + ray_dir * WATER_NEAR_PLANE;
 
-				// the surface near the start of the ray: the ocean's, or the nearest water volume's top
 				bool near_surface = ocean_data.ocean_enabled != 0 && abs(camera_origin.y - ocean_data.ocean_level) < ocean_data.ocean_wave_info.x + 0.5;
 
 				for (int i = 0; i < ocean_data.volume_count && !near_surface; i++) {
@@ -2345,9 +2070,6 @@ list.insert(
 				}
 
 				if (abs(near_height) < 0.03) {
-					// the film of water on the lens: its edge wobbles with the ripples (millimeters of height,
-					// moving with the water), is dithered over a few millimeters so the taa softens it, and bends the
-					// view through it like a lens where it is thick
 					float wobble_time = ocean_data.time;
 					vec2 wobble_p = camera_origin.xz;
 					float wobble = (value_noise2(wobble_p * 110.0 + vec2(wobble_time * 0.7, -wobble_time * 0.4)) - 0.5) * 0.0035 + (value_noise2(wobble_p * 290.0 + vec2(-wobble_time * 1.1, wobble_time * 0.6)) - 0.5) * 0.0012;
@@ -2371,7 +2093,6 @@ list.insert(
 					scene_t = dot(scene_pos - camera_origin, ray_dir);
 				}
 
-				// the nearest volume along the ray
 				int volume = -1;
 				float volume_entry = 1e30;
 				float volume_exit = 0.0;
@@ -2394,7 +2115,6 @@ list.insert(
 					}
 				}
 
-				// the ocean along the ray
 				bool camera_under_ocean = false;
 				float ocean_t = -1.0;
 				vec3 ocean_local_pos = vec3(0.0);
@@ -2405,8 +2125,6 @@ list.insert(
 					camera_under_ocean = camera_surface_delta < 0.0;
 					float trace_plane_y = ocean_data.ocean_level + (camera_under_ocean ? -wave_bound : wave_bound);
 
-					// a camera between the troughs and the crests has the plane of the crests above it, where
-					// downward rays never meet it and only the few meters around the camera would be searched
 					if (!camera_under_ocean && camera_origin.y < trace_plane_y) trace_plane_y = ocean_data.ocean_level;
 
 					float denom = abs(ray_dir.y) < 1e-5 ? 1e-5 : ray_dir.y;
@@ -2417,11 +2135,8 @@ list.insert(
 						trace_anchor_t = 0.0;
 					}
 
-					// under the water the surface is above: marched from the camera when it is between the
-					// troughs and the crests, where the plane of the troughs is behind it
 					if (camera_under_ocean && trace_anchor_t < 0.0) trace_anchor_t = ray_dir.y > 0.0 ? 0.0 : -1.0;
 
-					// from above every pixel is traced: a ray looking up can still meet the crests higher than the eye
 					if (!camera_under_ocean) trace_anchor_t = max(trace_anchor_t, 0.0);
 
 					if (trace_anchor_t >= 0.0) {
@@ -2432,14 +2147,11 @@ list.insert(
 				bool ocean_first = camera_under_ocean || (ocean_t > 0.0 && ocean_t < scene_t);
 				float ocean_entry = camera_under_ocean ? 0.0 : ocean_t;
 
-				// a volume in front of the ocean, or the camera in one
-				// a volume that lies in the sea covers the crests that rise through its surface
 				bool volume_in_sea = false;
 
 				if (volume >= 0 && ocean_data.ocean_enabled != 0) {
 					volume_in_sea = abs(ocean_data.volume_shape[volume].w - ocean_data.ocean_level) < ocean_data.ocean_wave_info.x + 0.5;
 
-					// the sides of such a volume are open to the sea, there is no glass to see them by
 					if (volume_in_sea && !volume_top && volume_entry > 0.0) volume = -1;
 				}
 
@@ -2449,8 +2161,6 @@ list.insert(
 					float distance;
 
 					if (volume_entry <= 0.0) {
-						// in the volume: the surface above is where the ray
-						// leaves through the top
 						float surface_t = ray_dir.y > 1e-4 ? (w.surface_y - camera_origin.y) / ray_dir.y : -1.0;
 						if (surface_t > volume_exit + 1e-3) surface_t = -1.0;
 						vec3 normal_up = vec3(0.0, 1.0, 0.0);
@@ -2471,7 +2181,6 @@ list.insert(
 					vec3 surface_pos = camera_origin + ray_dir * volume_entry;
 
 					if (!volume_top) {
-						// into the side of the volume, like through the glass of a tank
 						float len = min(scene_t, volume_exit) - volume_entry;
 						vec3 behind = scene_color;
 
@@ -2496,7 +2205,6 @@ list.insert(
 					float fold = 0.0;
 
 					if (volume_in_sea) {
-						// towards the edge the surface becomes the sea's, its water, waves and roughness
 						vec3 local = (ocean_data.volume_to_local[volume] * vec4(surface_pos, 1.0)).xyz;
 						vec4 shape = ocean_data.volume_shape[volume];
 						float edge = min(shape.x - abs(local.x), shape.z - abs(local.z));
@@ -2644,26 +2352,20 @@ list.insert(
 
 			]] .. scene_reflection.CONSTANTS_GLSL .. [[
 
-			// the perceptual roughness of the surface above the water, 0 elsewhere
 			float get_current_ocean_roughness(vec2 uv) {
 				if (ocean_resolve_data.current_ocean_distance_tex == -1) return 0.0;
 				return texture(TEXTURE(ocean_resolve_data.current_ocean_distance_tex), uv).g;
 			}
 
-			// the reflection pass's denoiser: the more rough the surface the wider the average over the texels around, the
-			// rays of a rough surface are one sharp point of the scene each. a tap counts by how near it is in depth
 			const int OCEAN_FILTER_TAPS = 16;
 
 			vec4 get_filtered_ocean(vec4 center, float center_distance, float roughness) {
-				// the filter radius is in texels of the half resolution
 				float radius = ocean_resolve_data.filter_radius * 2.0 * smoothstep(0.02, 0.15, roughness);
 
 				if (radius < 0.5) return center;
 
 				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(ocean_resolve_data.current_ocean_tex), 0));
 				float spin = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.28318530718;
-				// bright taps count for less, the reflection pass's firefly weight. the color is pre-exposed, so white
-				// on screen is 1 and the limit is its share of the exposure that made it so
 				float limit = SCENE_REFLECTION_MAX_HIT_LUMINANCE / ]] .. post_source.PRE_EXPOSURE_HEADROOM .. [[.0;
 				float center_weight = 1.0 / (1.0 + dot(center.rgb, vec3(0.2126, 0.7152, 0.0722)) / (limit * 0.1));
 				vec3 sum = center.rgb * center_weight;
@@ -2687,7 +2389,6 @@ list.insert(
 
 			]] .. post_source.GetPreExposureGLSL("ocean_resolve_data") .. [[
 
-			// last frame's ocean was pre-exposed for last frame
 			vec4 get_history_ocean(vec2 uv) {
 				if (ocean_resolve_data.history_ocean_tex == -1) return vec4(0.0, 0.0, 0.0, -1.0);
 				vec4 history = texture(TEXTURE(ocean_resolve_data.history_ocean_tex), uv);

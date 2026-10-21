@@ -59,7 +59,6 @@ function META:CycleSlot(slot, direction)
 	return weapons[(index - 1 + direction) % count + 1].weapon:GetSlot()
 end
 
--- a weapon is a prefab of the same name as its component (addons/game/lua/weapons.lua)
 function META:Give(weapon_name)
 	local owner = self.Owner
 	local weapon = Entity.New{

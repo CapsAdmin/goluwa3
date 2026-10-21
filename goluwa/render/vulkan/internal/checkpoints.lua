@@ -3,10 +3,6 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local checkpoints = {}
--- GOLUWA_CHECKPOINTS=1 puts a marker in the command buffers before every named gpu scope, compute dispatch, ray launch, build of a
--- structure and the command buffer methods that are instrumented below. when the device is lost (VK_ERROR_DEVICE_LOST) the driver
--- says which markers the queue had reached (VK_NV_device_diagnostic_checkpoints, nvidia only): the last top of pipe marker is how far
--- the front end got, the last bottom of pipe marker is the command that had not finished
 checkpoints.enabled = os.getenv("GOLUWA_CHECKPOINTS") ~= nil
 local VkCheckpointDataArray = ffi.typeof("$[?]", vulkan.vk.VkCheckpointDataNV)
 local start_time = system.GetTime()
@@ -27,7 +23,6 @@ function checkpoints.Set(cmd, name)
 	set_checkpoint(cmd.ptr[0], ffi.cast("void *", id))
 end
 
--- puts a marker with the lua call site (the first outside the vulkan wrappers) before each of the methods
 function checkpoints.Instrument(meta, method_names)
 	for _, method in ipairs(method_names) do
 		local original = meta[method]
@@ -160,8 +155,6 @@ local function report_checkpoints()
 	end
 end
 
--- called when the device is lost: everything the driver and the kernel will say about it. each part is guarded, the process is
--- about to exit and one failing query must not hide the others
 function checkpoints.Report()
 	print(
 		string.format(

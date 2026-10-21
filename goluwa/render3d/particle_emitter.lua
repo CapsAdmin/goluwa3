@@ -3,16 +3,6 @@ local list = import("goluwa/list.lua")
 local system = import("goluwa/system.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
--- what the particle emitter components are made of: their properties, which an editor lists in groups, and what both
--- backends share, how many particles to spawn this frame and where the emitter is. The backends are two components with
--- their own properties, that follow each other where they can and deviate where they have to:
---   particle_emitter_gpu  (particle_emitter_gpu.lua) one gpu system for all of them, simulated and lit in the particles
---                         pass and drawn blended, thousands of particles
---   particle_emitter_cpu  (particle_emitter_cpu.lua) simulated in lua, every particle an instance of a mesh with a material,
---                         drawn into the gbuffer through the instancing path like any model, hundreds
--- both are extensions of the particle_emitter component (the properties of `common` and Burst/Restart). An emitter spawns
--- the number of particles Step gives it every frame, so a rate, bursts and a duration mean the same in both. The
--- emission axis is the entity's up, and it moves with the entity
 local particle_emitter = {}
 particle_emitter.GPU_MAX_PARTICLES = 16384
 particle_emitter.CPU_MAX_PARTICLES = 4096
@@ -30,7 +20,6 @@ local function ranged(min, max)
 	return {validate = "number", min = min, max = max}
 end
 
--- {name, default, info, group}, what both kinds have
 particle_emitter.common = {
 	{"Visible", true, boolean, "Emission"},
 	{"Playing", true, boolean, "Emission"},
@@ -54,7 +43,6 @@ particle_emitter.common = {
 	{"Restitution", 0.5, ranged(0, 1), "Collision"},
 	{"Friction", 0.2, ranged(0, 1), "Collision"},
 }
--- the gpu emitter: blended particles, lit by the scene or glowing, thousands. Colors fade over the life, any collision mode
 particle_emitter.gpu = {
 	{"MaxParticles", 1000, {validate = "integer", min = 1, max = particle_emitter.GPU_MAX_PARTICLES}, "Emission"},
 	{"ColorStart", Color(1, 1, 1, 1), nil, "Look"},
@@ -63,7 +51,6 @@ particle_emitter.gpu = {
 	{"Emissive", 0, ranged(0, 1e7), "Look"},
 	{"Collision", "none", particle_emitter.GPU_COLLISIONS, "Collision"},
 }
--- the cpu emitter: solid meshes with a material in the gbuffer, hundreds. Spinning, collides with rays
 particle_emitter.cpu = {
 	{"MaxParticles", 100, {validate = "integer", min = 1, max = particle_emitter.CPU_MAX_PARTICLES}, "Emission"},
 	{"Mesh", "quad", particle_emitter.MESHES, "Look"},
@@ -83,7 +70,6 @@ function particle_emitter.Remove(emitter)
 	list.remove_value(particle_emitter.instances, emitter)
 end
 
--- an emitter that is in the scene: Visible, and its entity not hidden (visibility component)
 function particle_emitter.IsShown(emitter)
 	return emitter.Visible and not emitter.Owner.visibility_hidden
 end
@@ -92,15 +78,12 @@ function particle_emitter.Burst(emitter, count)
 	emitter.particle_state.burst = emitter.particle_state.burst + count
 end
 
--- start the duration over
 function particle_emitter.Restart(emitter)
 	local state = emitter.particle_state
 	state.time = 0
 	state.carry = 0
 end
 
--- how many particles it spawns over dt seconds: its rate, while it plays and its duration has not run out (a looping
--- emitter has none), and the bursts asked for
 function particle_emitter.Step(emitter, dt)
 	local state = emitter.particle_state
 	local count = state.burst
@@ -120,7 +103,6 @@ function particle_emitter.Step(emitter, dt)
 	return math.min(count, emitter.MaxParticles)
 end
 
--- where the emitter is, the way its particles are thrown (the entity's up) and how fast it moves
 function particle_emitter.Sample(emitter, dt)
 	local state = emitter.particle_state
 	local matrix = emitter.Owner.transform:GetWorldMatrix()

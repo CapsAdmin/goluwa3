@@ -10,9 +10,6 @@ local accel = import("goluwa/render3d/scene/accel.lua")
 local skinning = import("goluwa/render3d/skinning.lua")
 local instances = {}
 local TLASInstance = vulkan.vk.VkAccelerationStructureInstanceKHR
--- what the shaders read of an instance. the row has the same index as the record of the top level structure whose custom
--- index is that index. an instance is one level of detail of one part of a visual, the update pass lets the one that fits
--- the distance be seen by rays and the others be inactive
 local InstanceData = ffi.typeof([[struct {
 	uint32_t mesh_row;
 	uint32_t material_row;
@@ -34,18 +31,13 @@ instances.FLAG_ALPHA_TEST = 2
 instances.FLAG_EMISSIVE = 4
 instances.FLAG_NO_OPAQUE = 8
 instances.FLAG_REMOVED = 16
--- the row is written by a pass of a producer, which the update pass leaves alone
 instances.FLAG_PRODUCED = 32
--- the shadow maps leave an instance out, or a billboard (crossed quads would shadow themselves)
 instances.FLAG_NO_SHADOW = 64
 instances.FLAG_BILLBOARD = 128
--- the level of detail before a billboard casts in its place
 instances.FLAG_BEFORE_BILLBOARD = 256
 local produced_ranges = {}
 local UPDATE_LOCAL_SIZE = 64
 local tlas_table, data_table
--- what drawing an instance in the main view needs: the box of its visual (the culling's tests), how far it is drawn, the
--- previous world matrix (motion vectors) and what pipeline group it is in
 local RasterData = ffi.typeof([[struct {
 	float min_x;
 	float min_y;
@@ -61,7 +53,6 @@ local RasterData = ffi.typeof([[struct {
 	float local_size_z;
 	float thickness;
 }]])
--- the shaders that read the table declare the row with this, it has to match RasterData
 instances.RASTER_DATA_GLSL = [[
 	struct raster_data {
 		vec3 box_min;
@@ -119,7 +110,6 @@ function instances.GetRasterTable()
 	return raster_table
 end
 
--- thickness is what a refracting surface is as thick as, negative for the size of the entry's own bounds along its axes
 function instances.SetRaster(id, aabb, cull_distance, flags, prev, local_aabb, thickness)
 	local row = instances.GetRasterTable():Get()[id]
 	raster_table:Touch(id)
@@ -161,7 +151,6 @@ function instances.GetDataTable()
 	return select(2, instances.GetTables())
 end
 
--- the transform of the record is the world matrix as three rows of four
 local function write_matrix(record, m)
 	local t = record.transform.matrix
 	t[0][0], t[0][1], t[0][2], t[0][3] = m.m00, m.m10, m.m20, m.m30
@@ -179,8 +168,6 @@ local function write_flags(record, data, mask, flags)
 	data.mask_lod = bit.bor(bit.band(data.mask_lod, 0xFFFFFF00), mask)
 end
 
--- mask 0 hides an instance from rays. level, last, near and far say which level of detail the instance is (of the last
--- one) and between which distance ratios it is seen, a model with one level has the defaults
 function instances.Add(mesh_row, material_row, matrix, mask, flags, level, last, near, far)
 	instances.GetTables()
 	local id = tlas_table:Alloc()
@@ -209,7 +196,6 @@ function instances.Add(mesh_row, material_row, matrix, mask, flags, level, last,
 end
 
 function instances.Remove(id)
-	-- inactive from the next update on, what the instance's rows say stays until frames in flight are done with it
 	local record = tlas_table:Get()[id]
 	record.accelerationStructureReference = 0
 	local data = data_table:Get()[id]
@@ -227,7 +213,6 @@ function instances.SetMatrix(id, matrix)
 	instances.version = instances.version + 1
 end
 
--- the sphere the level of detail is picked by, of the whole visual
 function instances.SetBounds(id, x, y, z, radius)
 	local data = data_table:Get()[id]
 	data_table:Touch(id)
@@ -272,7 +257,6 @@ function instances.SetMask(id, mask, flags)
 	return true
 end
 
--- n rows in a row for a producer, which writes the records and the data of them on the gpu. returns the first
 function instances.AllocRange(n)
 	instances.GetTables()
 	local base = tlas_table:AllocRange(n)
@@ -294,7 +278,6 @@ function instances.FreeRange(base, n, immediate)
 	instances.version = instances.version + 1
 end
 
--- the flags and ray mask of a material, how rays treat the surface
 function instances.GetMaterialFlags(material)
 	local flags = 0
 	local see_through = material:GetAlphaTest() or material:IsSeeThrough()
@@ -314,7 +297,6 @@ function instances.GetMaterialFlags(material)
 	return flags, see_through and instances.MASK_SEE_THROUGH or instances.MASK_SOLID
 end
 
--- what a producer's instance of a part writes to its record: the instance flags of the structure
 function instances.GetRecordFlags(flags)
 	return accel.INSTANCE_FACING_CULL_DISABLE + (
 			bit.band(flags, instances.FLAG_NO_OPAQUE) ~= 0 and
@@ -326,15 +308,11 @@ end
 local producers = {}
 local preparers = {}
 
--- a producer writes the rows it owns on the gpu in the command buffer that builds the structure: produce(cmd). prepare()
--- runs before the tables are flushed to the gpu and is where it may lay its rows out (that can grow the tables, whose new
--- buffers only hold what the cpu uploads in that flush)
 function instances.AddProducer(name, produce, prepare)
 	producers[name] = produce
 	preparers[name] = prepare
 end
 
--- the runs of rows between the ranges of producers, which are the rows of visuals: {first, count, first, count, ...}
 function instances.GetVisualRows()
 	local bases = {}
 
@@ -488,8 +466,6 @@ do
 		return update_pipeline
 	end
 
-	-- builds the bottom level structures that are waiting, lets the update pass pick what rays see and builds the top
-	-- level structure from it. it is built every frame, the levels of detail follow the camera
 	function instances.Build(cmd)
 		instances.GetTables()
 
@@ -515,7 +491,6 @@ do
 		local bound = bound_buffers[slot]
 		local tlas_buffer, data_buffer, mesh_buffer = tlas_table:GetBuffer(), data_table:GetBuffer(), meshes.GetTable():GetBuffer()
 
-		-- a set that a frame in flight uses cannot be written, so only a replaced buffer is
 		if not bound or bound[1] ~= tlas_buffer or bound[2] ~= data_buffer or bound[3] ~= mesh_buffer then
 			bound_buffers[slot] = {tlas_buffer, data_buffer, mesh_buffer}
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_buffer, tlas_table:GetSize())
@@ -545,7 +520,6 @@ do
 		local instance_buffer, instance_count = tlas_buffer, row_count
 		local used, span_count = tlas_table:GetSpans(spans)
 
-		-- free rows between the used ones (a replaced producer's range) would make the structure as big as the table
 		if row_count - used >= 4096 and used * 4 <= row_count * 3 then
 			instance_buffer = accel.CompactInstances(cmd, tlas_buffer, spans, span_count, used)
 			instance_count = used

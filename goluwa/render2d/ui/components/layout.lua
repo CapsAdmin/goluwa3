@@ -989,7 +989,6 @@ end
 
 local signature = {}
 
--- lays out everything that was invalidated, what the Update listener does, for code that needs the sizes now
 function META.FlushDirty()
 	local queue = dirty_queue
 	dirty_queue = dirty_queue_next

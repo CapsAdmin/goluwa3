@@ -4,7 +4,6 @@ local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local BINDING_OUT = 0
 local BINDING_HEIGHTS = 1
 local BINDING_DATA = 2
--- the sun has to move this much (the length of the difference of the unit vectors) for the shadow to be marched again
 local SUN_EPSILON = 0.0005
 local sun_marched = {0, 0, 0}
 
@@ -87,7 +86,6 @@ return {
 		shader = [[
 			const int MAX_STEPS = 600;
 			const float START_TEXELS = 2.0;
-			// the step grows with the distance, 1 texel up close and a texel more every this many
 			const float GROWTH_TEXELS = 48.0;
 
 			void main() {
@@ -118,7 +116,6 @@ return {
 						float h = textureLod(terrain_heights, q / vec2(size), 0.0).r;
 						lowest_ray = max(lowest_ray, h - d * step_m * rise);
 
-						// nothing further along can reach over what was found
 						if (max_height - d * step_m * rise <= lowest_ray) break;
 
 						d += 1.0 + d / GROWTH_TEXELS;

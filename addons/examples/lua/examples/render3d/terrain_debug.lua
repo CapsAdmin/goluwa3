@@ -1,8 +1,3 @@
--- a bare rolling terrain with nothing on it, colored to show how it is chunked: every lod level has its own hue, every
--- chunk has a white border, a checker of 8x8 cells and a slight brightness of its own, so a missing, doubled, late or
--- wrongly sized chunk is easy to see
--- luajit glw --3d lua "import('addons/examples/lua/examples/render3d/terrain_debug.lua')"
--- `terrain_debug_view N` goes to one of the views below (0 lists them), `terrain_tiles` prints the tile state
 local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local commands = import("goluwa/cli/commands.lua")

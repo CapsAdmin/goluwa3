@@ -100,7 +100,6 @@ local function draw_moon(x, y, radius, elongation, waxing, alpha)
 	end
 end
 
--- the positions of the sun and the moon over the day and the noon height of the sun over the year, made again when the day or the place changes
 local function update_cache()
 	local latitude, longitude = weather.GetLocation()
 	local time = weather.GetTime()
@@ -138,7 +137,6 @@ local function update_cache()
 	end
 end
 
--- a point of the dome seen from above with north up and east to the right, the center of the dome is (cx, cy)
 local function dome_point(cx, cy, x, y, z)
 	local elevation = math.deg(math.asin(math.clamp(y, -1, 1)))
 	local azimuth = math.atan2(x, -z)
@@ -339,7 +337,6 @@ end
 
 local last_sky
 
--- what the captions and the readouts say, rounded to what they show and the same table while it is the same, so that a quiet sky is not a render
 local function read_sky()
 	local time = weather.GetTime()
 	local latitude, longitude = weather.GetLocation()
@@ -370,7 +367,6 @@ local function read_sky()
 	return sky
 end
 
--- a canvas that is dragged to set something, OnDrag(local_position, size) is called when the button goes down and while it is held, also outside of the canvas
 local DragSurface = react.Component(|props| -> do
 	local drag = react.UseDrag{OnDrag = props.OnDrag}
 
@@ -472,7 +468,6 @@ local SunDial = react.Component(|| -> do
 				STRIP_H,
 				draw_year,
 				on_day,
-				-- the width of a month is its days, so each letter sits in the middle of its month
 				ui.Row{Key = "axis", layout = {GrowWidth = 1}}{
 					list.map(
 						MONTHS,
@@ -499,7 +494,6 @@ local SunDial = react.Component(|| -> do
 		},
 	}
 end)
--- the pages of the sun dial without a window, only the open tab is mounted and only while shown
 local SunDialContent = react.Component(|props| -> do
 	local tab, set_tab = react.UseState("Dial")
 
@@ -512,7 +506,6 @@ local SunDialContent = react.Component(|props| -> do
 		},
 	}
 end)
--- closing the window only hides it, nothing reads the sky or the shadow settings while it is hidden
 local SunDialWindow = react.Component(|| -> do
 	local shown, set_shown = react.UseState(true)
 	local hud, set_hud = react.UseState(false)

@@ -37,7 +37,6 @@ local function remove_instance(self)
 	end
 end
 
--- a light is in the scene while it is Visible and its entity is not hidden (visibility component)
 function Light:RefreshRegistration()
 	local active = self.Visible and not self.Owner.visibility_hidden or false
 

@@ -452,14 +452,12 @@ T.Test2D("scrolling with the wheel does not change focus", function()
 	event.Call("MouseInput", "mwheel_up", false)
 	T(objects.GetFocusedObject() == field)["=="](true)
 	T(panel.Viewport.transform:GetScroll().y)["=="](40)
-	-- over something that takes no focus the wheel must not clear it either
 	window.GetMousePosition = function()
 		return Vec2(600, 600)
 	end
 	event.Call("MouseInput", "mwheel_up", true)
 	event.Call("MouseInput", "mwheel_up", false)
 	T(objects.GetFocusedObject() == field)["=="](true)
-	-- a click still does
 	event.Call("MouseInput", "button_1", true)
 	event.Call("MouseInput", "button_1", false)
 	T(objects.GetFocusedObject():IsValid())["=="](false)
@@ -566,7 +564,6 @@ T.Test2D("the click that stops a toggled autoscroll is consumed by the real mous
 	T(panel.autoscroll_sticky)["=="](true)
 	event.Call("MouseInput", "button_1", true)
 	T(panel.autoscroll_origin)["=="](nil)
-	-- the press was consumed, so it did not focus the view
 	T(objects.GetFocusedObject():IsValid())["=="](false)
 	event.Call("MouseInput", "button_1", false)
 	event.Call("MouseInput", "button_1", true)

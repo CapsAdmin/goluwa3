@@ -27,7 +27,6 @@ function glass_light.IsEnabled()
 	return glass_light.RAY_QUERY and enabled:Get()
 end
 
--- the shadow maps see glass as dithered opacity until a ray sees it as a filter
 Material.GlassCastsShadow = function()
 	return not glass_light.IsEnabled()
 end
@@ -39,7 +38,6 @@ function glass_light.GetDescriptorSets(bindings, stage)
 end
 
 do
-	-- a set that a command buffer is still using can't be written to, so only what changed is
 	local bound = setmetatable({}, {__mode = "k"})
 
 	function glass_light.Bind(self, cmd, desc, bindings)
@@ -71,9 +69,6 @@ function glass_light.GetDeclarationGLSL(bindings)
 	return hit.GetSceneGLSL("glass_light_scene", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials)
 end
 
--- what the light along origin + dir * distance is multiplied by after the glass in between. only see
--- through geometry makes a candidate once opaque geometry is culled, so what the shadow maps hold is not
--- counted twice. a closed glass solid is counted once, by the faces the ray enters through
 function glass_light.GetGLSL(scene_name)
 	return [[
 		#define GLASS_LIGHT
@@ -89,7 +84,6 @@ function glass_light.GetGLSL(scene_name)
 
 				if (material.glass == 0) continue;
 
-				// the soup's faces wind the other way round, so a face the ray enters through is not a front face
 				if (material.double_sided == 0 && rayQueryGetIntersectionFrontFaceEXT(query, false)) continue;
 
 				vec3 albedo = material.albedo;
@@ -102,9 +96,6 @@ function glass_light.GetGLSL(scene_name)
 			return transmitted;
 		}
 
-		// search_radius is how far to look sideways for glass when the ray itself finds none. the shadow maps'
-		// penumbra reaches past the edge of an opaque frame into where its footprint is, the light that gets
-		// through there passed beside the frame and through the glass next to it. 0 for no search
 		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
 			vec3 transmitted = get_glass_light_ray(origin, dir, distance);
 
@@ -122,7 +113,6 @@ function glass_light.GetGLSL(scene_name)
 	]]
 end
 
--- no ray queries, the surface lighting counts nothing for glass
 function glass_light.GetStubGLSL()
 	return [[
 		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {

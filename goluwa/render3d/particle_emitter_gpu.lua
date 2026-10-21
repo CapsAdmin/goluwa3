@@ -2,10 +2,6 @@ local list = import("goluwa/list.lua")
 local system = import("goluwa/system.lua")
 local particles = import("goluwa/render3d/particles.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
--- the gpu backend of particle emitters (the particle_emitter_gpu component): every emitter gets a range of slots in the pool of one
--- particle system, "emitters". Each frame the cpu says how many slots of the range (a ring) spawn, and the shader spawns
--- them from the emitter's parameters in its uniform block, moves all of them, collides them with what the emitter asks
--- for, and lights them (or not) and colors them. Particles are in world space
 local gpu = {}
 gpu.MAX_EMITTERS = 32
 gpu.POOL_SIZE = 65536
@@ -28,7 +24,6 @@ local function by_first(a, b)
 	return a.first < b.first
 end
 
--- finds room for count slots between the ranges that are taken
 local function allocate(count)
 	table.sort(ranges, by_first)
 
@@ -44,7 +39,6 @@ local function allocate(count)
 	return first
 end
 
--- gives the emitters that are in the scene a range and a slot, takes them from the ones that are not or changed size
 local function sync()
 	local frame = system.GetFrameNumber()
 
@@ -229,7 +223,7 @@ gpu.system = particles.Register{
 		return block
 	end,
 	declarations = [[
-		// the slot of the emitter whose range holds index, 32 when none does
+
 		uint find_emitter(uint index) {
 			for (int i = 0; i < emitters_data.emitter_count; i++) {
 				if (emitters_data.emitters[i].enabled != 0 && index >= uint(emitters_data.emitters[i].first) && index < uint(emitters_data.emitters[i].first + emitters_data.emitters[i].count)) return uint(i);
@@ -238,7 +232,6 @@ gpu.system = particles.Register{
 			return 32u;
 		}
 
-		// the emitter of a particle, if it is still the one that spawned it
 		bool get_particle_emitter(Particle p, out uint slot) {
 			slot = min(p.user.y, 31u);
 			return emitters_data.emitters[slot].enabled != 0 && uint(emitters_data.emitters[slot].uid) == p.user.z;
@@ -288,7 +281,6 @@ gpu.system = particles.Register{
 			offset = across * (r.x - 0.5) * e.shape_size.x + axis * (r.y - 0.5) * e.shape_size.y + along * (r.z - 0.5) * e.shape_size.z;
 		}
 
-		// a cone around the axis, of the spread, or straight out of a sphere
 		float cos_theta = mix(1.0, cos(e.spread), r2.x);
 		float phi = 6.2831853 * r2.y;
 		vec3 direction = axis * cos_theta + (across * cos(phi) + along * sin(phi)) * sqrt(1.0 - cos_theta * cos_theta);
@@ -314,7 +306,6 @@ gpu.system = particles.Register{
 		float t = clamp(p.age / p.life, 0.0, 1.0);
 		p.width = mix(e.size_start, e.size_end, t);
 
-		// a particle that stuck lies where it is
 		if (p.spare != 0u) {
 			p.velocity = vec3(0.0);
 			return;

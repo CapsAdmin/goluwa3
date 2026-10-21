@@ -158,9 +158,6 @@ local updating = 0
 
 local fps_resume
 
--- an fps thinker may spend 1 / fps seconds per frame, but all of them together share that budget, otherwise 128
--- running tasks cost 128 budgets in one frame. when the budget runs out the next frame starts with the thinker that
--- did not get to run, so none are starved
 local function run_fps_thinkers(fps_thinkers, count)
 	local spent_time = 0
 	local first = 1

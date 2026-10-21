@@ -11,7 +11,6 @@ META:GetSet("Icon", "disclosure")
 META:GetSet("IconColor", nil)
 META:GetSet("OpenFraction", 0)
 META:EndStorable()
--- a texture is drawn instead of the theme icon
 META:GetSet("Texture", nil)
 
 function META:OnDraw()

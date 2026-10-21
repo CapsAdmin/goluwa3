@@ -45,7 +45,6 @@ T.Test("shapes cube faces point away from the center", function()
 	end
 end)
 
--- the triangles of a lathe that are not degenerate (the ones at the axis are), with their winding against their normals
 local function check_lathe(poly, scale)
 	local checked = 0
 
@@ -71,7 +70,6 @@ T.Test("shapes lathe makes a closed cylinder that faces outwards", function()
 	local poly = Polygon3D.New()
 	shapes.BuildLathe(poly, {{0, 0}, {1, 0}, {1, 2}, {0, 2}}, 12)
 	T(#poly.Vertices)["=="](3 * 2 * 12 * 3)
-	-- the caps and the side, 12 segments of 2 triangles each, minus the cap triangles that collapse on the axis
 	T(check_lathe(poly))["=="](48)
 
 	for _, vertex in ipairs(poly.Vertices) do
@@ -97,7 +95,6 @@ T.Test("shapes lathe keeps normals right when it is stretched", function()
 
 	for _, vertex in ipairs(poly.Vertices) do
 		local p = vertex.pos
-		-- the ellipsoid's normal is its position over the squared radii
 		local expected = Vec3(p.x / scale.x ^ 2, p.y / scale.y ^ 2, p.z / scale.z ^ 2):GetNormalized()
 
 		if math.abs(p.y) < 0.7 then T(vertex.normal:GetDot(expected))[">"](0.98) end

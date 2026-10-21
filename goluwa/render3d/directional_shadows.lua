@@ -6,9 +6,6 @@ local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local directional_shadows = {}
 directional_shadows.MAX_CASCADES = 4
--- how far a surface point is moved off the surface along its normal (in shadow texels, scaled by the slope) and towards the
--- sun (at least a quarter texel and a depth step, a negative scale moves it away) before it is compared with the shadow map.
--- more hides acne and light leaking in through thin walls less, a point moved too far steps out of a wall's shadow
 directional_shadows.bias = {normal = 1, light = 1}
 
 function directional_shadows.GetPrimarySun(lights)
@@ -168,13 +165,10 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 
 			if (cascade_count <= 0 && !has_inset) return 1.0;
 
-			// without cascades the inset is all there is
 			int cascade_idx = max(getCascadeIndex(world_pos), 0);
 			float dist = -(@@BLOCK@@.view * vec4(world_pos, 1.0)).z;
 			float inset_distance = @@BLOCK@@.shadows.inset_shadow_distance;
 
-			// the inset takes over completely closer than its blend band, the cascades would be
-			// looked up for nothing
 			if (has_inset && dist <= max(inset_distance - max(inset_distance * 0.25, 4.0), 0.0)) {
 				float inset_shadow = 1.0;
 
@@ -186,8 +180,6 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 				}
 			}
 
-			// the split picks the cascade, but a zoomed or stale cascade may not
-			// cover the point, in which case the next one is used
 			float shadow = -1.0;
 
 			for (; cascade_idx < cascade_count; cascade_idx++) {
@@ -196,7 +188,6 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 			}
 
 			if (shadow < 0.0) {
-				// no cascade reaches the point, the inset may still
 				if (!has_inset || dist >= inset_distance) return get_terrain_shadow(world_pos);
 
 				shadow = 1.0;
@@ -237,8 +228,6 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 				}
 			}
 
-			// the terrain's own shadow (a height field march, no triangles) takes over where the shadow maps stop, or the
-			// tiles that cast into them do
 			float raster_end = min(@@BLOCK@@.shadows.terrain_shadow_params.z, cascade_count > 0 ? @@BLOCK@@.shadows.cascade_splits[cascade_count - 1] : inset_distance);
 			float terrain_weight = smoothstep(raster_end * 0.8, raster_end, dist);
 
@@ -262,12 +251,10 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 		"sampleMediumInsetShadow(world_pos, light_dir, %s)"
 	)
 	return header .. clouds.GetShadowGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows") .. terrain_shadow.GetShadowGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows") .. getCascadeIndexGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK") .. [[
-			// the texel size of the coarsest cascade the last lookup used
+
 			float shadow_texel_world_size = 0.0;
 
 
-			// no offset towards the light like a surface needs against acne: it
-			// would carry points near a wall through it into the light
 			bool projectMediumShadowMap(mat4 light_space_matrix, vec3 world_pos, out vec3 proj_coords) {
 				vec4 light_space_pos = light_space_matrix * vec4(world_pos, 1.0);
 				proj_coords = light_space_pos.xyz / light_space_pos.w;
@@ -301,7 +288,6 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 				return visibility / 12.0;
 			}
 
-			// returns -1.0 when the cascade does not cover the point
 			float sampleMediumShadowCascade(int cascade_idx, vec3 world_pos, vec3 light_dir) {
 				if (cascade_idx < 0 || cascade_idx >= MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count) return -1.0;
 
@@ -356,12 +342,9 @@ local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 				return smoothstep(0.0, 0.1, dot(normal, light_dir));
 			}
 
-			// percentage closer soft shadows: the penumbra is the distance to the blockers times the
-			// tangent of the sun's angular radius, which clouds widen from a disc into a glow
 			const float SOFT_SHADOW_MAX_BLOCKER_DISTANCE = 30.0;
 			const float SOFT_SHADOW_MAX_TEXELS = 32.0;
 
-			// returns -1.0 when the penumbra is no wider than the regular filter
 			float sampleSoftShadowMap(
 				int shadow_map_idx,
 				vec3 proj_coords,
@@ -378,12 +361,8 @@ local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 
 				if (search_texels <= filter_radius_texels) return -1.0;
 
-				// a rotation per point turns the banding of the few taps into grain. the point's bits are hashed,
-				// a hash of a linear function of the position draws diagonal streaks. the phase turns it every
-				// frame, so a temporal antialiasing averages different taps
 				float angle = (pcg_unorm(pcg3d(floatBitsToUint(world_pos)).x) + noise_phase) * 6.2831853;
 				mat2 rotation = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
-				// how much deeper a tilted receiver is at a tap this many meters away, so it doesn't shadow itself
 				float tolerance_per_meter = tan_slope * depth_per_meter;
 				const vec2 SEARCH[5] = vec2[5](vec2(0.0), vec2(0.7, 0.0), vec2(-0.7, 0.0), vec2(0.0, 0.7), vec2(0.0, -0.7));
 				float blocker_sum = 0.0;
@@ -398,7 +377,6 @@ local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 					blocker_count += dot(blocker, vec4(1.0));
 				}
 
-				// nothing found, but a blocker thinner than the taps can still be there
 				if (blocker_count <= 0.0) return -1.0;
 
 				float blocker_distance = (proj_coords.z - blocker_sum / blocker_count) / depth_per_meter;
@@ -424,7 +402,6 @@ local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 				return visibility / 12.0;
 			}
 
-			// returns -1.0 when the map does not cover the point
 			float sampleShadowMap(
 				int shadow_map_idx,
 				mat4 light_space_matrix,
@@ -479,8 +456,6 @@ local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 					if (soft >= 0.0) return soft;
 				}
 
-				// 2x2 bilinear PCF lookups spread over the filter radius, a tent
-				// about two texels wide at radius 1
 				float visibility = 0.0;
 
 				for (int j = 0; j < 2; ++j) {
@@ -508,11 +483,10 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 		"sampleInsetShadow(world_pos, normal, light_dir, %s)"
 	)
 	return header .. clouds.GetShadowGLSL("DIRECTIONAL_SHADOW_BLOCK.shadows") .. terrain_shadow.GetShadowGLSL("DIRECTIONAL_SHADOW_BLOCK.shadows") .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. "\n" .. SHADOW_PROJECTION_GLSL .. [[
-			// the texel size of the coarsest cascade the last lookup used
+
 			float shadow_texel_world_size = 0.0;
 
 
-			// returns -1.0 when the cascade does not cover the point
 			float sampleShadowCascade(int cascade_idx, vec3 world_pos, vec3 normal, vec3 light_dir) {
 				if (cascade_idx < 0 || cascade_idx >= DIRECTIONAL_SHADOW_BLOCK.shadows.cascade_count) return -1.0;
 
@@ -564,9 +538,6 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 				]] .. body .. [[
 			}
 
-			// normal offsets the lookup. fading out towards the terminator is left to the
-			// caller (get_shadow_facing), with a smooth normal: the geometric normal of a
-			// tessellated surface would fade it triangle by triangle
 			float DIRECTIONAL_SHADOW_FN(vec3 world_pos, vec3 normal, vec3 light_dir) {
 				float shadow = calculateShadowUnfaded(world_pos, normal, light_dir);
 

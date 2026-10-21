@@ -312,7 +312,6 @@ function stats.Get()
 	return public
 end
 
--- the fields as rows of {group, label, value, color}, ungrouped fields first, each group after its heading row
 function stats.GetRows()
 	local bucket = get_display_bucket()
 	local rows = {}

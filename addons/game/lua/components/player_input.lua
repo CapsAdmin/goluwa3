@@ -18,7 +18,6 @@ META:GetSet("MaxPitch", math.pi / 2 - 0.01)
 META:GetSet("MinFOV", math.rad(0.1))
 META:GetSet("MaxFOV", math.rad(175))
 META:GetSet("MouseDivisor", 2)
--- the movement keys keep working while a ui has the mouse (the spawn menu), looking, shooting and using still need the trapped mouse. Typing in a text field never moves
 META:GetSet("KeyboardMovement", false)
 
 function META:SetRotation(rotation)
@@ -47,7 +46,6 @@ function META:Initialize()
 	self:AddGlobalEvent("EditorControlsChanged")
 end
 
--- the editor hides and leaves the controls to the player while its camera keeps rendering
 function META:OnEditorControlsChanged(playing)
 	self.controls_override = playing
 end
@@ -186,7 +184,6 @@ function META:BuildCommand(cmd)
 			buttons = bit.bor(buttons, BUTTON.TELEPORT)
 		end
 
-		-- e is also what rotates a body held with the physgun
 		if input.IsKeyDown("e") and not self.Owner.player_controller:IsHolding() then
 			buttons = bit.bor(buttons, BUTTON.USE)
 		end

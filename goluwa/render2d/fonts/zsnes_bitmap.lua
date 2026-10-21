@@ -1,5 +1,3 @@
--- the ZSNES gui pixel font (gui/c_gui.c GUIFontData), 5 rows of 5 pixels in the high bits of each byte, drawn on a 6 pixel advance
--- codepoints follow ZSNES's ASCII2Font table (it has capitals only, lower case shares them) and glyph_for_codepoint
 return {
 	name = "zsnes",
 	width = 5,

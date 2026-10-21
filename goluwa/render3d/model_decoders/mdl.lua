@@ -615,7 +615,6 @@ do
 		end
 	end
 
-	-- the speed a sequence moves at in meters per second, from the movement the animations were compiled with
 	local function get_ground_speed(clip, params)
 		local ix, fx = axis_position(clip, 1, params)
 		local iy, fy = axis_position(clip, 2, params)
@@ -640,7 +639,6 @@ do
 		return math.sqrt(x * x + y * y) / duration
 	end
 
-	-- where an animation ends up after one cycle, relative to where it started, the last movement block holds the sum
 	local function get_anim_movement(desc)
 		local count = ffi.cast(I32, desc + 20)[0]
 
@@ -917,8 +915,6 @@ local job_source = [=[
 		local skinned = mdl_meta.bone_count >= 2
 		result.meshes = {}
 		result.skins = {}
-		-- the vertices of a lod are the ones the vvd fixups keep for it, in the order of the full array. the
-		-- vtx ids of its meshes count from where the mesh starts in that smaller array
 		local lod_vertex_sets = {}
 
 		local function get_vertex_set(lod_index)
@@ -950,7 +946,6 @@ local job_source = [=[
 				local model_info = mdl_meta.bodypart_models[body_part_i][model_i]
 
 				for lod_i, lod in ipairs(model.lods) do
-					-- a negative switch point marks the shadow only lod at the end
 					if lod.meshes[1] and (lod_i == 1 or lod.switch_point >= 0) then
 						local lod_index = lod_i - 1
 						local set = get_vertex_set(lod_index)
@@ -1063,7 +1058,6 @@ end
 
 local mdl_decoder = {job = job_source}
 
--- the source files are read here, the parsing runs on a worker (see model_loader.AddThreadedDecoder)
 function mdl_decoder.Gather(path, full_path)
 	local companion_path = path
 

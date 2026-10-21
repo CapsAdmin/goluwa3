@@ -22,7 +22,6 @@ do
 		return list_concat(lines), ...
 	end
 
-	-- runs callback with everything it logs collected, returns the log text and then what callback returned
 	function logging.Capture(callback, ...)
 		local lines = {}
 		local original = logging.RawLog

@@ -1,6 +1,4 @@
 local render3d = import("goluwa/render3d/render3d.lua")
--- what the passes that write and read the translucent moments share: the glsl, the blend states of
--- the attachments and the depth warp, which maps a distance to what the moments are stored in
 local translucent_moments = {}
 
 translucent_moments.GLSL = [[
@@ -8,10 +6,6 @@ translucent_moments.GLSL = [[
 		return clamp(log(max(distance, 1e-4)) * warp.x + warp.y, -1.0, 1.0);
 	}
 
-	// the transmittance of everything in front of depth. b0 is the summed
-	// absorbance, moments its weighted depth, depth², depth³ and depth⁴. a
-	// surface counts a quarter of itself as in front of it, so the summed
-	// weights never vanish
 	float moments_transmittance(float b0, vec4 moments, float depth) {
 		if (b0 < 0.00100050033) return 1.0;
 

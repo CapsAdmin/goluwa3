@@ -14,7 +14,6 @@ META:StartStorable()
 META:GetSet("Code", "")
 META:EndStorable()
 
--- gets the text, returns an error message or nothing
 function META.OnApply(code, editor) end
 
 function META.PropDefaults(_, props)

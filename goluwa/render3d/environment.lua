@@ -10,8 +10,6 @@ local SAMPLER = {
 	wrap_t = "clamp_to_edge",
 }
 local MAP_WIDTH = 2048
--- the atmosphere modules in render3d/atmospheres all define get_atmosphere(dir, sun_dir, cam_pos),
--- this renders it into an equirect the same way an hdr file is laid out, the top row is up
 local SHADER_WRAPPER = [[
 
 	vec4 shade(vec2 uv, vec3 _cube_dir) {
@@ -22,7 +20,6 @@ local SHADER_WRAPPER = [[
 		float ground = %.6f;
 		vec3 color = get_atmosphere(dir, sun, vec3(0.0));
 
-		// a sky has no ground, the albedo given here lights one by the sky along the horizon and overhead
 		if (ground > 0.0 && dir.y < 0.0) {
 			vec3 horizon = get_atmosphere(normalize(vec3(dir.x, 0.0, dir.z)), sun, vec3(0.0));
 			vec3 overhead = get_atmosphere(vec3(0.0, 1.0, 0.0), sun, vec3(0.0));
@@ -124,7 +121,6 @@ function META:GetIrradianceTexture()
 	return self.probe.irradiance_equirect
 end
 
--- the exposure that shows a map value of 1 as white
 function META:GetExposure()
 	return 1 / self.Intensity
 end
@@ -175,8 +171,6 @@ function META:Bake(cmd)
 	return true
 end
 
--- what a viewer offers to pick from. the ones with a Shader are rendered from the modules in
--- render3d/atmospheres, whose values are around 1 by day, so their Intensity is 1
 META.presets = {
 	{Name = "Studio"},
 	{

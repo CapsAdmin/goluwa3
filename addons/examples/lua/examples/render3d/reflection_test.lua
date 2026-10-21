@@ -1,9 +1,3 @@
--- a mirror plate, a glass pane and a body of water side by side, all reflecting a nearby grid wall (cyan, 14 m away) and a
--- far one (pink, 20 km away). thin strips hang in front of the walls, so what the screen can not hold shows in the
--- reflections as it does behind leaves
--- luajit glw --3d lua "import('addons/examples/lua/examples/render3d/reflection_test.lua')"
--- page up and page down change the roughness of all three (the water's waves are off, its own roughness stands in for
--- them), `reflection_test_roughness N` sets it (0 to 1, perceptual), `reflection_test_view N` holds a fixed view (0 lists them and gives the camera back)
 local Entity = import("goluwa/entities/entity.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -29,7 +23,6 @@ test.roughness = 0.1
 weather.SetTimeScale(0)
 weather.SetSunDirection(Vec3(0.2, 0.55, 0.8):GetNormalized())
 render3d.SetOceanEnabled(false)
--- 3.5 on the look panel's log10 scale: about 3160 m
 weather.SetGroundFogVisibility(10 ^ 3.5)
 
 local function material(r, g, b, extra)
@@ -48,7 +41,6 @@ local function box(name, pos, size, mat)
 	}
 end
 
--- a wall of grid lines from base up to base + height: a dark panel and lines every spacing meters, line is how thick they are
 local function grid_wall(name, z, half_width, base, height, spacing, line, panel_mat, line_mat)
 	box(name .. "_panel", Vec3(0, base + height / 2, z - line), Vec3(half_width * 2, height, line), panel_mat)
 
@@ -66,13 +58,10 @@ grid_wall("far", FAR_Z, 60000, 3000, 9000, 1000, 80, material(0.05, 0.02, 0.04),
 box("glass_floor", Vec3(PLATE_X.glass, -1.2, 0), Vec3(PLATE, 0.2, PLATE), material(0.04, 0.04, 0.05))
 box("mirror_floor", Vec3(PLATE_X.mirror, -1.2, 0), Vec3(PLATE, 0.2, PLATE), material(0.04, 0.04, 0.05))
 
--- the mirror: a metal plate
 test.mirror_material = material(0.95, 0.95, 1, {Metallic = 1, Roughness = 1})
 test.mirror = box("mirror", Vec3(PLATE_X.mirror, -0.1, 0), Vec3(PLATE, 0.2, PLATE), test.mirror_material)
--- the glass: a pane over a dark floor, bending and reflecting. one roughness blurs both its reflection and what is seen through it
 test.glass_material = material(1, 1, 1, {Roughness = 1, Refraction = 1, IndexOfRefraction = 1.5, RefractionThickness = 0.02})
 test.glass = box("glass", Vec3(PLATE_X.glass, 0, 0), Vec3(PLATE, 0.02, PLATE), test.glass_material)
--- the water: a volume with no waves
 test.water = Entity.New{
 	Name = "reflection_test_water",
 	Parent = test.root,
@@ -85,10 +74,8 @@ test.water = Entity.New{
 		Foam = 0,
 	},
 }
--- the sides of the water, so it is a pool in the floor
 box("pool_floor", Vec3(PLATE_X.water, -3.6, 0), Vec3(PLATE + 0.4, 0.2, PLATE + 0.4), material(0.5, 0.45, 0.35))
 
--- thin strips hanging between the eye and the walls, what the screen sees behind them is the strip
 local strip_material = material(0.15, 0.3, 0.1)
 
 for i = -16, 16 do
@@ -99,7 +86,6 @@ function test.SetRoughness(roughness)
 	test.roughness = math.clamp(roughness, 0, 1)
 	test.mirror_material:SetRoughnessMultiplier(test.roughness)
 	test.glass_material:SetRoughnessMultiplier(test.roughness)
-	-- the volume takes the ggx alpha, the others the perceptual roughness
 	test.water.water_volume:SetRoughness(test.roughness * test.roughness)
 	logn("roughness ", test.roughness, " (alpha ", test.roughness * test.roughness, ")")
 end

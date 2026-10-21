@@ -133,7 +133,6 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 	T(mra[1])["~"](0.25, 0.01)
 	T(mra[4])["~"](0.5, 0.01)
 	local lum = 0.2126 + 0.7152 * 0.6 + 0.0722 * 0.2
-	-- the tint is 4 bits a channel over 0 to 2, so a step is 0.13
 	T(transmission[1])["~"](1 / lum, 0.07)
 	T(transmission[2])["~"](0.6 / lum, 0.07)
 	T(transmission[3])["~"](0.2 / lum, 0.07)

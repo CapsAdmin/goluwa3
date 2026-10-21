@@ -50,7 +50,6 @@ function Pose:Blend(a, b, t)
 	return self
 end
 
--- clips of formats without motion data do not move the character
 local function get_no_ground_speed()
 	return 0
 end

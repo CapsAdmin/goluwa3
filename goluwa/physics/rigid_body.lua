@@ -58,7 +58,6 @@ RigidBody:GetSet("AirAngularDamping", 0)
 RigidBody:GetSet("CollisionEnabled", true, {callback = "OnCollisionEnabledChanged"})
 RigidBody:GetSet("WorldGeometry", false, {callback = "OnWorldGeometryChanged"})
 RigidBody:GetSet("CollisionGroup", 1, {validate = "integer"})
--- where the center of the body is relative to the origin of its entity, a player stands on its origin
 RigidBody:GetSet("CenterOffset", nil)
 RigidBody:GetSet("CollisionMask", -1, {validate = "integer"})
 RigidBody:GetSet("CCD", false)
@@ -827,8 +826,6 @@ function RigidBody:ApplyForce(force, world_pos)
 	return self
 end
 
--- ApplyForce with plain numbers for callers that apply many forces a step (a vehicle's springs and tires): no vectors
--- are allocated. the point is where in the world the force acts
 function RigidBody:ApplyForceAt(fx, fy, fz, px, py, pz)
 	if not self:HasSolverMass() then return self end
 

@@ -22,7 +22,6 @@ function SpawnPoint:OnRemove()
 	end
 end
 
--- a spawn point sits on the ground, this is the position a given height above it, and the way the spawn point faces
 function SpawnPoint:GetPlacement(height)
 	local transform = self.Owner.transform
 	return transform:GetWorldPosition() + Vec3(0, height + CLEARANCE, 0),
@@ -33,7 +32,6 @@ function SpawnPoint.GetInstances()
 	return SpawnPoint.instances
 end
 
--- spawn points of the first group that has any enabled one, or every enabled one when no group is given
 function SpawnPoint.Find(...)
 	local found = {}
 	local group_count = select("#", ...)

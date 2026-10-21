@@ -5,11 +5,6 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local draw = import("goluwa/render3d/scene/draw.lua")
 local visibility = {}
--- an estimate of which of the rows the main cull drew can be seen: rays from the camera through random points of each
--- row's box, against the ray traced scene, and the row counts as seen when a ray's first solid hit is that row. it is
--- for looking at the culling (see scene_draw_dump and scene_draw_visibility), it stalls like draw.ReadBackCull does.
--- not every row can be told: rows that are not in the ray traced scene (InSceneBVH false, hidden from rays) never
--- get hit, and alpha tested or refractive ones are looked through. a thin or small row may be missed by all its rays
 local NO_HIT = 0xFFFFFFFF
 local RayArray = ffi.typeof("float[?]")
 local pipeline
@@ -45,7 +40,6 @@ local function get_pipeline()
 				rayQueryEXT query;
 				rayQueryInitializeEXT(query, scene, gl_RayFlagsNoneEXT, 0xFF, origin, 0.0, direction, 100000.0);
 
-				// what is not opaque (cutouts, glass) is not confirmed, the ray goes through it
 				while (rayQueryProceedEXT(query)) {}
 
 				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
@@ -59,7 +53,6 @@ local function get_pipeline()
 	return pipeline
 end
 
--- {by_id = {[id] = {samples, self, other, sky, solid}}, drawn, seen, unseen} for the rows the main cull drew
 function visibility.Estimate(rays_per_row)
 	rays_per_row = rays_per_row or 128
 	local drawn = draw.ReadBackCull(0)
@@ -136,7 +129,6 @@ function visibility.Estimate(rays_per_row)
 
 	for row, id in ipairs(ids) do
 		local entry = {samples = rays_per_row, self = 0, other = 0, sky = 0}
-		-- a solid instance is one the rays can hit and stop at
 		entry.solid = bit.band(data[id].mask_lod, 0xFF) ~= 0 and bit.band(data[id].flags, instances.FLAG_NO_OPAQUE) == 0
 
 		for k = 0, rays_per_row - 1 do

@@ -15,16 +15,11 @@ local store = import("goluwa/render3d/scene/store.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local render3d
 local draw = {}
--- the main view drawn from the scene store: rows of the same mesh, material and first polygon are a group, one pass puts
--- the rows of a group that are in view next to each other in the group's room, with their world matrices and the previous
--- ones, a second one writes an indexed indirect draw for each group that has any (packed, with their count), and the
--- gbuffer's multi draw pipelines draw them, with a record of the group's mesh and material as the batch
 local LOCAL_SIZE = 64
 local COMMAND_SIZE = 20
 local GROUPS = 4
 local DEAD_MESH = {IsValid = function() return false end}
 local DEAD_ROW = {mesh = DEAD_MESH}
--- a row does not keep its mesh, material or polygon alive, the visual does, and a mesh that is gone reads as a dead row
 local ROW_META = {__mode = "v", __index = DEAD_ROW}
 local rows = {}
 local slot_of = {}
@@ -33,12 +28,8 @@ local slot_rows
 local translucent_ids = {}
 local translucent_count = 0
 draw.serial = 0
--- the slot (plus one) that each change of the rows, which is what the serial counts, was made to
 local CHANGE_LOG_SIZE = 65536
 local changes = {log = {}, size = CHANGE_LOG_SIZE}
--- the groups: what is drawn together, by the side of the draw too (single or double sided, with a height map or not, which
--- is which of the four draws of a pipeline it is in). a group has a room in the instance buffers, as many as it has rows
--- at the most (a power of two), the id of a group is the index of its batch record
 local MIN_GROUP_ROOM = 4
 local GroupRecord = ffi.typeof("struct { uint32_t mesh_row, base, room, set; }")
 local groups = {}
@@ -139,13 +130,10 @@ local function release_group(group)
 	note_group_change(group.id)
 end
 
--- a drawn row has a slot of its own, the slots are what the draws index (the instance data), so rows that
--- are not drawn, and the rows of producers, cost nothing
 function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 	slot_rows = slot_rows or store.CreateTable{name = "draw_slot_rows", ctype = "uint32_t", capacity = 4096}
 	slot_groups = slot_groups or store.CreateTable{name = "draw_slot_groups", ctype = "uint32_t", capacity = 4096}
 	local slot = slot_of[id]
-	-- which of the four draws of a pipeline, the sides and the height map ones (translucent ones only have the sides)
 	local set = (material:GetDoubleSided() and 1 or 0) + (material:HasHeightMap() and 2 or 0)
 
 	if (translucent_ids[id] or false) ~= (translucent or false) then
@@ -340,8 +328,7 @@ function create_cull_pipeline()
 			layout(set = 0, binding = 0) uniform sampler2D source_depth_tex;
 		]] .. DRAW_DECLARATIONS,
 		shader = [[
-			// a level of detail: whether it is drawn at this ratio, and the fade that dithers it into the next one, 0 for
-			// none, towards 1 for a level on its way out, towards -1 for one that is just coming in
+
 			bool select_lod(uint level, uint last, float near_ratio, float far_ratio, float ratio, out float fade) {
 				fade = 0.0;
 
@@ -375,7 +362,6 @@ function create_cull_pipeline()
 				return true;
 			}
 
-			// a box the depth pyramid of the last frame hides completely
 			bool is_occluded(raster_data raster) {
 				if (compute.occlusion_enabled == 0 || (raster.flags & 2u) == 0u) return false;
 
@@ -435,7 +421,6 @@ function create_cull_pipeline()
 
 				raster_data raster = RasterArray(ARGS.raster).r[id];
 
-				// 1 draws in the gbuffer, 32 in the translucent passes, 16 is a removed row (see instances.lua)
 				if ((raster.flags & (compute.kind == 0 ? 1u : 32u)) == 0u) return;
 
 				instance_data inst = DataArray(ARGS.data).d[id];
@@ -488,8 +473,6 @@ function create_cull_pipeline()
 				if (group_id == 0xFFFFFFFFu) return;
 
 				group_record group = GroupArray(ARGS.group_table).g[group_id];
-				// the rows of a group in view are put next to each other in its room, the instance index
-				// is the first instance of its draw plus the place in the room
 				uint place = atomicAdd(CountArray(ARGS.group_counts).n[group_id], 1u);
 
 				if (place >= group.room) return;
@@ -543,8 +526,7 @@ local function get_finalize_pipeline()
 		end,
 		custom_declarations = DRAW_DECLARATIONS,
 		shader = [[
-			// the draw of a group that has rows in view: one instanced draw, packed with the others of its set, which of the
-			// four draws of a pipeline it is in (the translucent passes only have the sides). the instances are in its room
+
 			void main() {
 				uint group_id = gl_GlobalInvocationID.x;
 
@@ -565,8 +547,6 @@ local function get_finalize_pipeline()
 	return finalize_pipeline
 end
 
--- the draws of the gbuffer (kind 0) and of the translucent passes (kind 1) are written by the same pass into a set of
--- buffers each
 local buffer_sets = {}
 
 local function ensure_buffers(kind, instance_capacity, group_count)
@@ -601,21 +581,18 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 			memory_property = {"device_local"},
 			label = name .. ".commands",
 		},
-		-- how many draws each of the four draws got
 		counts = render.CreateBuffer{
 			byte_size = GROUPS * 4,
 			buffer_usage = usage,
 			memory_property = {"device_local"},
 			label = name .. ".counts",
 		},
-		-- how many rows of each group were in view
 		group_counts = render.CreateBuffer{
 			byte_size = group_capacity * 4,
 			buffer_usage = usage,
 			memory_property = {"device_local"},
 			label = name .. ".group_counts",
 		},
-		-- the group and the slot of each instance
 		batch_ids = render.CreateBuffer{
 			byte_size = capacity * 8,
 			buffer_usage = usage,
@@ -658,11 +635,9 @@ end
 
 local frame_state = {frame = -1, counts = {[0] = 0, 0}, group_counts = {[0] = 0, 0}}
 
--- records the pass that writes this frame's draws, outside of a render pass, after the instances were updated
 function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewport_height, culling_enabled)
 	local tlas_table, data_table = instances.GetTables()
 	local raster_table = instances.GetRasterTable()
-	-- only the rows that were given a mesh and a material can be drawn
 	local count = #rows
 	frame_state.frame = system.GetFrameNumber()
 	frame_state.counts[0] = 0
@@ -680,8 +655,6 @@ function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewpo
 	local hiz, fallback_hiz = gpu_culling.GetMainViewHiZ()
 	local bound = hiz or fallback_hiz
 	local descriptor_slot
-	-- the slots follow the frames that were recorded, not the frame number: a blocking callback wait runs the Update
-	-- event again inside a main loop iteration and that draws a second frame with the same number
 
 	if bound then
 		descriptor_slot = render.frame_serial % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
@@ -760,13 +733,10 @@ end
 
 local batch_tables = setmetatable({}, {__mode = "k"})
 
--- whether the views of this frame were culled, and what the store draws is not left to the cpu
 function draw.IsCulled()
 	return frame_state.frame == system.GetFrameNumber()
 end
 
--- draws what Cull wrote in the gbuffer pass: every row of the pipelines' groups, the rows that are not in view have no
--- instances
 function draw.Draw(gbuffer_instancing, pipelines)
 	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[0] == 0 then return false end
 
@@ -774,7 +744,6 @@ function draw.Draw(gbuffer_instancing, pipelines)
 	local cmd = render.GetCommandBuffer()
 	local stride = COMMAND_SIZE
 	local group_size = buffers.group_capacity * stride
-	-- the groups that were given rows, past them nothing is drawn
 	local count = frame_state.group_counts[0]
 
 	gpu_culling.MarkMainViewDrawn()
@@ -802,8 +771,6 @@ function draw.Draw(gbuffer_instancing, pipelines)
 	return true
 end
 
--- draws the translucent rows of the view in a translucent pass, with the pass's multi draw pipeline. returns whether the
--- store had any
 function draw.DrawTranslucent(gbuffer_instancing, pipeline)
 	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[1] == 0 then return false end
 
@@ -834,10 +801,6 @@ function draw.DrawTranslucent(gbuffer_instancing, pipeline)
 	return true
 end
 
--- the shadow maps: a pass like the main view's that writes, for every slot, a draw (vertices pulled through the index
--- buffer by the shadow multi draw pipeline, which is what its non indexed command is for) and the world matrix, into buffers
--- of the cascade. what is not in the cascade's box, is too small to show in it, or is not the level of detail that casts
--- has no instances
 local SHADOW_COMMAND_SIZE = COMMAND_SIZE
 local shadow_pipeline
 
@@ -951,8 +914,7 @@ function create_shadow_pipeline()
 			#define ARGS ArgsRef(compute.args).a
 		]],
 		shader = [[
-			// the level of detail that casts, no fade: the one the camera is nearest to, a billboard casts nothing and the
-			// mesh level before it casts in its place
+
 			bool select_shadow_lod(uint flags, uint level, uint last, float near_ratio, float far_ratio, float ratio) {
 				if ((flags & 128u) != 0u) return false;
 
@@ -982,7 +944,6 @@ function create_shadow_pipeline()
 				if (casts) {
 					raster = RasterArray(ARGS.raster).r[id];
 					inst = DataArray(ARGS.data).d[id];
-					// 16 casts a shadow. removed 16, produced 32
 					casts = (raster.flags & 16u) != 0u && (inst.flags & 48u) == 0u;
 				}
 
@@ -1015,7 +976,6 @@ function create_shadow_pipeline()
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[inst.mesh_row];
 				tlas_instance t = TLASArray(ARGS.tlas).t[id];
-				// only what casts has a draw, packed at the start, the slot is the first instance
 				CommandArray(ARGS.commands).c[atomicAdd(CountArray(ARGS.counts).n[0], 1u)] = draw_command(mesh.triangle_count * 3u, 1u, mesh.pool_first_index, 0, slot);
 				WorldArray(ARGS.worlds).w[slot] = mat4(
 					vec4(t.m[0], t.m[4], t.m[8], 0.0),
@@ -1029,7 +989,6 @@ function create_shadow_pipeline()
 	return shadow_pipeline
 end
 
--- the buffers a cascade of a shadow map writes its draws into, grown with the number of slots
 function draw.NewShadowBuffers()
 	return {capacity = 0}
 end
@@ -1043,8 +1002,6 @@ function draw.RemoveShadowBuffers(buffers)
 	end
 end
 
--- records the pass in the command buffer of the shadow map, outside of its render pass. returns the number of slots, nil
--- when there is nothing to draw
 function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_extent, light_view)
 	local tlas_table, data_table = instances.GetTables()
 	local count = #rows
@@ -1104,7 +1061,6 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 	v.camera = camera_position
 	v.count = count
 
-	-- the four sides and the far plane of the box of the cascade
 	for i = 0, 3 do
 		for k = 0, 3 do
 			v.planes[i * 4 + k] = planes[i * 4 + k]
@@ -1133,8 +1089,6 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 	return count
 end
 
--- what the culling decided, read back to the host. these stall until the gpu is done, they are for the tests and the debug
--- mode (r_scene_draw_debug) and are never called in a frame otherwise
 do
 	local download = store.Download
 
@@ -1142,8 +1096,6 @@ do
 		return slot_rows:Get()[slot]
 	end
 
-	-- the rows the last cull of kind (0 the gbuffer, 1 the translucent passes) draws: {by_id = {[id] = {slot, group, fade,
-	-- world = 12 floats}}, count, slots}
 	function draw.ReadBackCull(kind)
 		kind = kind or 0
 		local result = {by_id = {}, count = 0, slots = frame_state.counts[kind]}
@@ -1182,7 +1134,6 @@ do
 		return result
 	end
 
-	-- the same for a shadow cascade's buffers (draw.CullShadow), count is what CullShadow returned
 	function draw.ReadBackShadowCull(buffers, count)
 		local result = {by_id = {}, count = 0, slots = count or 0}
 

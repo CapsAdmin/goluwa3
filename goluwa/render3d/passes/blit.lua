@@ -10,7 +10,6 @@ local grade = import("goluwa/render3d/grade.lua")
 local assets = import("goluwa/assets.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
--- the exposed value the metered average is shown at, 18 percent grey
 local KEY = 0.18
 local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
 render3d.LOG_EXPOSURE_AT_EV0 = LOG_EXPOSURE_AT_EV0
@@ -230,7 +229,6 @@ do
 			curve[i] = math.min(curve[i], curve[i + 1])
 		end
 
-		-- eye and camera show a sunlit scene the same, the eye only departs from the camera in dimmer light
 		local anchor = curve[(ADAPTATION_CURVE_ANCHOR_EV - ADAPTATION_CURVE_EV_MIN) / ADAPTATION_CURVE_EV_STEP + 1]
 
 		for i = 1, ADAPTATION_CURVE_COUNT do
@@ -249,7 +247,7 @@ do
 end
 
 local WHITE_BALANCE_GLSL = [[
-	// chromaticity of the daylight locus (4000 to 25000 K, CIE) and of a blackbody below it (Kim et al.)
+
 	vec2 illuminant_xy(float t) {
 		t = clamp(t, 2000.0, 25000.0);
 		float x;
@@ -281,8 +279,6 @@ local WHITE_BALANCE_GLSL = [[
 		-0.4985314, 0.0415560, 1.0572252
 	);
 
-	// von Kries in the Bradford cone space: what a surface looks like under an illuminant of this correlated colour
-	// temperature, in linear sRGB, shown as it would under D65 (the display's white)
 	mat3 white_balance_matrix(vec2 xy) {
 		const mat3 bradford = mat3(
 			0.8951, -0.7502, 0.0389,
@@ -301,7 +297,6 @@ local WHITE_BALANCE_GLSL = [[
 		return XYZ_TO_SRGB * adapt * SRGB_TO_XYZ;
 	}
 
-	// the chromaticity of a linear sRGB colour
 	vec2 rgb_to_xy(vec3 rgb) {
 		vec3 xyz = SRGB_TO_XYZ * rgb;
 		return xyz.xy / max(xyz.x + xyz.y + xyz.z, 1e-6);
@@ -315,7 +310,6 @@ local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 	]] .. post_source.GetPreExposureFromExposureGLSL() .. [[
 
 	#define BINS 128
-	// log2 luminance range of the histogram
 	#define LOG_MIN -10.0
 	#define LOG_MAX 22.0
 	#define GRID_X 160
@@ -327,7 +321,7 @@ local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 	shared float partial_weight[256];
 
 	float log2_to_ev(float log_luma) {
-		return log_luma + 3.0; // log2(100 / 12.5)
+		return log_luma + 3.0;
 	}
 
 	const float ADAPTATION_CURVE_RODS[]] .. ADAPTATION_CURVE_COUNT .. [[] = float[](]] .. ADAPTATION_CURVE_RODS_GLSL .. [[);
@@ -345,7 +339,6 @@ local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 
 	float sample_luma(int n, float to_absolute, out float weight) {
 		vec2 uv = (vec2(n % GRID_X, n / GRID_X) + 0.5) / vec2(GRID_X, GRID_Y);
-		// the centre of the view counts four times as much as the corners
 		weight = 1.0 + 3.0 * (1.0 - smoothstep(0.2, 1.0, length(uv * 2.0 - 1.0)));
 		return luminance(textureLod(source_tex, uv, 0.0).rgb) * to_absolute;
 	}
@@ -355,11 +348,9 @@ local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 
 		for (uint i = id; i < BINS; i += 256u) bins[i] = 0u;
 
-		// the scene was pre-exposed with last frame's exposure, the meter reads absolute luminance
 		float to_absolute = 1.0 / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 		barrier();
 
-		// a histogram of the log luminance, only to find where the brightest few percent start
 		for (int n = int(id); n < GRID_X * GRID_Y; n += 256) {
 			float weight;
 			float luma = sample_luma(n, to_absolute, weight);
@@ -387,14 +378,11 @@ local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 				}
 			}
 
-			// the top of the bin that holds the percentile
 			clamp_luma = exp2(LOG_MIN + (float(top) + 1.0) / float(BINS) * (LOG_MAX - LOG_MIN));
 		}
 
 		barrier();
 
-		// what an averaging meter reads: the mean of the luminance, linear light, centre weighted, with each pixel held at
-		// the percentile so a small highlight (the sun, a glint) does not pull it
 		float light = 0.0;
 		float light_weight = 0.0;
 
@@ -522,13 +510,8 @@ local GRID_GLSL = (
 	#define GRID_Z %d
 	#define GRID_LOG_MIN -12.0
 	#define GRID_LOG_MAX 20.0
-	// log2 of KEY, what the metered average is exposed to
 	#define LOG_KEY %.7g
 
-	// log2 of the exposed average of the frame the eye adapted to (b of the
-	// exposure texture), relative to which a region is lighter or darker. In
-	// mode "eye" and with a locked exposure the average isn't at KEY on purpose;
-	// local exposure only evens out the differences within the frame.
 	float get_frame_log_level(vec4 exposure) {
 		return exposure.r > 0.0 ? exposure.b - (%.7g - log2(exposure.r)) + LOG_KEY : LOG_KEY;
 	}
@@ -557,7 +540,6 @@ local function is_eye_mode()
 	return eye_enabled:Get()
 end
 
--- the grid is built for the eye's local exposure and for the grade's local sliders, and not at all without them
 local function needs_local_grid()
 	return is_eye_mode() or grade.NeedsLocal()
 end
@@ -598,7 +580,6 @@ local local_exposure_grid_pass = {
 		layout(set = 0, binding = 3) uniform sampler2D prev_exposure_tex;
 		]] .. post_source.GetPreExposureFromExposureGLSL() .. [[
 
-		// fixed point, since shared float atomics are an extension
 		#define FIXED 256.0
 		shared uint cell_sum[GRID_Z];
 		shared uint cell_count[GRID_Z];
@@ -614,7 +595,6 @@ local local_exposure_grid_pass = {
 			barrier();
 			ivec2 tile = ivec2(gl_WorkGroupID.xy);
 			vec2 uv = (vec2(tile) + (vec2(gl_LocalInvocationID.xy) + 0.5) / 16.0) / vec2(GRID_X, GRID_Y);
-			// the scene is pre-exposed with last frame's exposure
 			float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 			float luma = luminance(textureLod(source_tex, uv, 0.0).rgb) * exposure;
 			float l = clamp(log2(max(luma, 1e-6)) - get_frame_log_level(texture(exposure_tex, vec2(0.5))), GRID_LOG_MIN, GRID_LOG_MAX);
@@ -676,26 +656,21 @@ local local_exposure_blur_pass = {
 				}
 			}
 
-			// the kernel's weights sum to 16 * 16 * 4; keep counts in samples
 			imageStore(out_grid, pos, vec4(sum / 1024.0, 0.0, 0.0));
 		}
 	]],
 }
 local LOCAL_ADAPTATION_GLSL = [[
-	// average exposed log2 luminance (relative to KEY) around uv among
-	// pixels about as bright as l
+
 	float local_log_luma(vec2 uv, float l) {
 		float z = clamp((l - GRID_LOG_MIN) / (GRID_LOG_MAX - GRID_LOG_MIN) * float(GRID_Z) - 0.5, 0.0, float(GRID_Z - 1));
 		int z0 = int(z);
 		int z1 = min(z0 + 1, GRID_Z - 1);
-		// bilinear within a slice, kept off its edges so it can't read the next
 		vec2 xy = clamp(uv * vec2(GRID_X, GRID_Y), vec2(0.5), vec2(GRID_X, GRID_Y) - 0.5);
 		vec2 size = vec2(GRID_X * GRID_Z, GRID_Y);
 		vec2 a = texture(grid_tex, (xy + vec2(z0 * GRID_X, 0.0)) / size).rg;
 		vec2 b = texture(grid_tex, (xy + vec2(z1 * GRID_X, 0.0)) / size).rg;
 		vec2 cell = mix(a, b, z - float(z0));
-		// one sample's worth of the pixel itself, so a sparse cell leans
-		// towards no adjustment smoothly instead of switching to it
 		return (cell.x + l) / (cell.y + 1.0);
 	}
 
@@ -706,9 +681,6 @@ local LOCAL_ADAPTATION_GLSL = [[
 
 		if (local_l <= 0.0) return min(-local_l * compute.local_shadows, compute.local_max_stops);
 
-		// how far the eye can adapt to the region, fading out over the 5
-		// stops up to the ceiling. the luminance it adapted to for the frame
-		// is from its EV100
 		float region_luminance = exp2(exposure.b + local_l) * 0.125;
 		float adaptable = clamp((log2(compute.local_ceiling) - log2(region_luminance)) / 5.0, 0.0, 1.0);
 		float fixation = compute.local_highlights > 0.0 ? (local_l - compute.local_headroom) * (1.0 - compute.local_slope) : 0.0;
@@ -800,7 +772,6 @@ do
 
 				vec2 uv = get_screen_uv(pos, size);
 				vec2 half_texel = 0.5 / vec2(textureSize(bloom_tex, 0));
-				// the scene is pre-exposed with last frame's exposure
 				float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 				vec3 glare = textureLod(bloom_tex, clamp(uv, half_texel, 1.0 - half_texel), 0.0).rgb * compute.bloom_strength * exposure;
 
@@ -830,14 +801,6 @@ local compute_shader = [[
 	layout(set = 0, binding = 8) uniform sampler2D white_balance_tex;
 	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute") .. WHITE_BALANCE_GLSL .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL .. [[
 
-	// For HDR output: x exposed, returns linear light in units of paper white.
-	// The shadows and midtones go through the SDR tonemapper so they look the
-	// same as in SDR: AgX's toe puts an exposed 0.005 at 0.0017, 1.5 stops
-	// darker than leaving it alone would, and a night scene lives down there.
-	// AgX crosses x at 0.335, where it hands over to x. Above the knee the
-	// brightest channel rolls off smoothly to peak, and the harder a colour is
-	// compressed the more it moves towards white. GT7 has its own HDR mapping,
-	// with exposed 1.0 at paper white like SDR white is in SDR.
 	vec3 tonemap_hdr(vec3 x, float peak, int tonemapper) {
 		x = max(x, vec3(0.0));
 
@@ -859,18 +822,9 @@ local compute_shader = [[
 		return mix(x * (mapped / m), vec3(mapped), compressed * compressed);
 	}
 
-	// Between ~5 and ~0.005 cd/m2 the rods take over from the cones (the mesopic range, CIE 191).
-	// Rods only see once the eye has adapted to the dark (in a lit room they are saturated), and
-	// only light too dim for the cones: a lamp or a traffic light keeps its colour at night. Rods have one kind of receptor, so they see no
-	// colour, and they peak at 507 nm, so reds go dark and blues light up (Purkinje).
-	// Their response to each primary is Larson's scotopic luminance
-	// Y (1.33 (1 + (Y + Z) / X) - 1.68) at that primary, relative to white.
 	const vec3 ROD_RESPONSE = vec3(0.0329, 0.7652, 0.2017);
-	// what rod vision is seen as, chromaticity (0.25, 0.25) (Jensen et al. 2000)
 	const vec3 ROD_TINT = vec3(0.7062, 0.9899, 1.9657);
 
-	// Blue noise per channel, moved along the golden ratio each frame so 16
-	// frames in a row see different values (as in NVIDIA's RTXGI sample)
 	vec3 blue_noise(ivec2 pos) {
 		vec3 noise = vec3(blue_noise_texel(blue_noise_tex, pos).rg, blue_noise_texel(blue_noise_tex, pos + ivec2(37, 19)).r);
 		return fract(noise + 0.61803398875 * float(compute.frame % 16));
@@ -891,7 +845,6 @@ local compute_shader = [[
 		vec3 col = texture(source_tex, uv).rgb;
 		float scene_luma = compute.grade_local != 0 ? luminance(col) : 0.0;
 
-		// the camera's white balance, the light it takes for white given as a colour temperature and a tint or estimated from the frame
 		if (compute.white_balance_on != 0) {
 			vec2 illuminant = vec2(0.3127, 0.3290);
 
@@ -907,12 +860,9 @@ local compute_shader = [[
 			col = max(white_balance_matrix(illuminant) * col, vec3(0.0));
 		}
 		float exposure = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).r : exp2(]] .. LOG_EXPOSURE_AT_EV0 .. [[ - 10.0);
-		// the scene is pre-exposed with last frame's exposure
 		float pre_exposure = pre_exposure_from_exposure(compute.has_exposure_tex != 0 ? texture(prev_exposure_tex, vec2(0.5)).r : 0.0);
 		exposure /= pre_exposure;
 
-		// the luminance of the surroundings as the display shows it, for the grade's shadows, highlights and ambiance:
-		// the grid's local average of the scene, through the tonemapper as a grey
 		float grade_base = -1.0;
 
 		if (compute.grade_local != 0) {
@@ -923,17 +873,10 @@ local compute_shader = [[
 			surroundings = compute.output_mode == 0 ? tonemap(surroundings, compute.tonemapper) : min(tonemap_hdr(surroundings, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper), vec3(1.0));
 			grade_base = LinearToSRGB(clamp(surroundings, 0.0, 1.0)).g;
 		}
-		// Share of vision the cones provide: all of it when the eye is adapted to
-		// light (a dark corner of a lit room) or when the pixel itself is bright
-		// enough for them (a lamp in a dark room). Adapted EV100 to log10 cd/m2 is
-		// (ev - 3) * log10(2).
 		float adapted_ev = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).b : 10.0;
 		float pixel_log10 = log(max(luminance(col) / pre_exposure, 1e-9)) * 0.4342945;
 		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
 
-		// Local exposure adapts the scene. The glare was made from the light as
-		// the eye adapted to it (see passes/bloom.lua), so a region adapted down
-		// scatters less and its glow never outshines it; it is added on top.
 		if (compute.has_grid_tex != 0) {
 			col *= exp2(get_local_adaptation(uv, luminance(col) * exposure, texture(exposure_tex, vec2(0.5))));
 		}
@@ -947,7 +890,6 @@ local compute_shader = [[
 		if (compute.output_mode == 0) {
 			col = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) : grade_display(clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0), grade_base);
 
-			// dithered in the sRGB encoding the output is quantized in
 			col = SRGBToLinear(dither(LinearToSRGB(col), blue_noise(pos), compute.dither_steps));
 
 			if (compute.requires_manual_gamma == 1) col = LinearToSRGB(col);
@@ -955,12 +897,8 @@ local compute_shader = [[
 			vec3 nits = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) * compute.hdr_paper_white : grade_display_hdr(tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper), grade_base) * compute.hdr_paper_white;
 
 			if (compute.output_mode == 1) {
-				// scRGB: linear BT.709, 1.0 = 80 nits. fp16 doesn't band, but the
-				// compositor converts it to what the display takes, usually
-				// 10 bit PQ, which does. Dithered as if in that encoding.
 				col = pq_decode(dither(pq_encode(nits), blue_noise(pos), compute.dither_steps)) / 80.0;
 			} else {
-				// HDR10: PQ encoded BT.2020
 				const mat3 bt709_to_bt2020 = mat3(
 					0.6274, 0.0691, 0.0164,
 					0.3293, 0.9195, 0.0880,
@@ -974,14 +912,13 @@ local compute_shader = [[
 	}
 ]]
 local white_balance_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
-	// the estimate is read and written in place, in the same texture the composite samples
+
 	layout(set = 0, binding = 0, rgba32f) uniform image2D white_balance_state;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
 	]] .. WHITE_BALANCE_GLSL .. [[
 
 	#define GRID_X 160
 	#define GRID_Y 90
-	// the frame's mean colour relative to its brightness
 	shared uint chroma_sum[3];
 	shared uint chroma_weight;
 
@@ -1011,7 +948,6 @@ local white_balance_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 
 		vec3 mean = vec3(float(chroma_sum[0]), float(chroma_sum[1]), float(chroma_sum[2])) / max(float(chroma_weight), 1.0);
 		vec2 xy = rgb_to_xy(mean);
-		// gray world is wrong for a green field or a blue sky, keep the estimate near the daylight locus
 		xy.x = clamp(xy.x, 0.28, 0.44);
 		float locus = -3.0 * xy.x * xy.x + 2.87 * xy.x - 0.275;
 		xy.y = clamp(xy.y, locus - 0.02, locus + 0.02);

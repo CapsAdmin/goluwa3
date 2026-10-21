@@ -61,7 +61,6 @@ local function get_sorted_engines()
 	return list
 end
 
--- the games an engine can load maps from, {engine, id, name, image, mounted, mountable}. a mountable game costs something to mount and lists more maps once it is
 function engines.GetGames()
 	local games = {}
 
@@ -75,7 +74,6 @@ function engines.GetGames()
 	return games
 end
 
--- {engine, name, game, mounted} for every map that can be listed without loading anything
 function engines.GetMaps()
 	local maps = {}
 
@@ -89,7 +87,6 @@ function engines.GetMaps()
 	return maps
 end
 
--- a vfs path to a picture of the map or nil
 function engines.GetMapThumbnail(map)
 	local engine = registered[map.engine]
 	return engine.GetMapThumbnail and engine.GetMapThumbnail(map)

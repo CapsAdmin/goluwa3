@@ -367,7 +367,6 @@ function META:OnFirstCreated()
 						mouse_comp.button_states = mouse_comp.button_states or {}
 						mouse_comp.button_states[button] = {press = press, pos = pos}
 
-						-- the panel under the cursor takes focus, or else the nearest ancestor that does, or nothing does
 						local focus_source = is_wheel and NULL or hovered
 
 						while focus_source:IsValid() and not (
@@ -393,7 +392,6 @@ function META:OnFirstCreated()
 						local bring_to_front_target = NULL
 
 						if is_wheel then
-							-- scrolling does not raise a window
 						elseif mouse_comp:GetBringToFrontOnClick() then
 							bring_to_front_target = hovered
 						else

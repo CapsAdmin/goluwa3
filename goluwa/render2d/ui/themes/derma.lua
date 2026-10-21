@@ -15,7 +15,6 @@ DermaTheme.SkinPath = "textures/gui/skins/gmod.png"
 local WHITE = Color(1, 1, 1, 1)
 local BLACK = Color(0, 0, 0, 1)
 
--- region tables are {x, y, w, h, left, top, right, bottom} in skin image pixels, copied from garrysmod/lua/skins/default.lua
 local function border(x, y, w, h, l, t, r, b)
 	return {x, y, w, h, l, t or l, r or l, b or l}
 end
@@ -93,7 +92,6 @@ end
 function DermaTheme:ConfigurePalette(palette)
 	local image = self.SkinImage
 
-	-- until the skin image has loaded the colors come from garrysmod's default skin
 	local function pick(x, y, fallback)
 		if image then return sample(image, x, y) end
 
@@ -213,8 +211,6 @@ local SKIN_SAMPLER = {
 	wrap_t = "clamp_to_edge",
 }
 
--- skin paths are relative to the downloadable assets. a skin that is already downloaded loads right away,
--- otherwise the theme starts with a loading texture and the default colors and updates when the file arrives
 function DermaTheme:Initialize()
 	local local_path = vfs.GetAbsolutePath(self.SkinPath)
 

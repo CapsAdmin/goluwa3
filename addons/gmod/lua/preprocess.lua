@@ -188,7 +188,6 @@ function gine.PreprocessLua(code, add_newlines)
 		if not in_string and not in_comment and not in_multiline then
 			if chars[i] == "'" or chars[i] == "\"" then in_string = chars[i] end
 		elseif in_string then
-			-- TODO: my head hurts
 			if (chars[i] == "'" or chars[i] == "\"") and chars[i] == in_string then
 				in_string = nil
 			end

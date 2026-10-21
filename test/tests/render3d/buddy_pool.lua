@@ -48,7 +48,6 @@ T.Test("Buddy pool puts a room back together when its buddies are free", functio
 
 	T(pool:Alloc(2))["=="](nil)
 
-	-- the other way round than they were handed out
 	for i = #rooms, 1, -1 do
 		pool:Free(rooms[i], 2)
 	end
@@ -81,7 +80,6 @@ T.Test("Buddy pool fills up as far as the slots go, whatever was freed in betwee
 	end
 
 	local free, by_class = pool:GetFree()
-	-- every block of the biggest class that was handed out is whole again, and nothing is held
 	T(free)["=="](pool.Top)
 
 	for class = 2, 7 do

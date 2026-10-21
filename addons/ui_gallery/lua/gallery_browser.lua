@@ -51,7 +51,6 @@ local function load_pages()
 end
 
 local GalleryContext = react.CreateContext()
--- the page and whether it is selected are the only props, the select function comes from the context and never changes, so only the two items whose selection changed render
 local SidebarItem = react.Memo(
 	react.Component(|props| -> do
 		local gallery = react.UseContext(GalleryContext)

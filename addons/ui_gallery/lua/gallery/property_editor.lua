@@ -39,7 +39,6 @@ local function new_values()
 	}
 end
 
--- the values only start the editor off, it keeps them itself and reports every change through changed(key)
 local function build_items(values, changed, reset)
 	local function on_change(key)
 		return |_, value| -> changed(key, value)
@@ -206,7 +205,6 @@ return {
 		local resets, set_resets = react.UseState(0)
 		local inspector = react.UseRef()
 		local demo = react.UseResource(|| -> DemoObject.New(), |object| -> object:Remove(), {})
-		-- a reset makes a new editor with the default items, the first ones are only used when it opens
 		local items = react.UseMemo(
 			|| -> build_items(
 				values,

@@ -34,7 +34,6 @@ local shader = gbuffer_layout.GetDecodeGLSL("debug_data") .. ([[
 	}
 
 	vec3 inspect_entry(int index, ivec2 pixel) {
-		// the sky has no surface, its values are the gbuffer defaults
 		if (index != %d && gbuffer_depth(pixel) == 0.0) return vec3(0.06);
 
 		%s
@@ -45,7 +44,6 @@ local shader = gbuffer_layout.GetDecodeGLSL("debug_data") .. ([[
 		return %s;
 	}
 
-	// the n-th entry of the sheet, the entries are bits of two masks
 	int inspect_nth_entry(int n) {
 		int seen = 0;
 
@@ -96,9 +94,6 @@ local shader = gbuffer_layout.GetDecodeGLSL("debug_data") .. ([[
 			shown = inspect_entry(debug_data.index, pixel);
 
 			if (inspect_is_normal(debug_data.index)) {
-				// a half sphere in the corner shaded like the surfaces, as seen from the camera: each pixel is the
-				// normal a surface facing that way on screen would have. the map normal is tangent space, so its
-				// sphere is not rotated into the world
 				float radius = debug_data.render_size.y * 0.1;
 				vec2 offset = vec2(debug_data.render_size.x - radius * 1.4, debug_data.render_size.y - radius * 1.4);
 				vec2 d = (gl_FragCoord.xy - offset) / radius;

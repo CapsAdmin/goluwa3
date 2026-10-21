@@ -1,4 +1,3 @@
--- the model set grown on a surface, built by scatter.lua from these, see scatter_set.lua
 return {
 	name = "scatter",
 	category = "Scatter",

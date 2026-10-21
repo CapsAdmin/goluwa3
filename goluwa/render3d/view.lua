@@ -14,9 +14,7 @@ for _, name in ipairs{"Position", "Rotation", "FOV", "NearZ", "FarZ", "OrthoMode
 end
 
 View:GetSet("Priority", 0, {callback = "OnPriorityChanged"})
--- a view that stands outside the game (a shot) should not show the players in it
 View:GetSet("HideAvatars", false)
--- and no hud (render2d DrawHUD)
 View:GetSet("HideHud", false)
 View:GetSet("ExposureLock", false)
 View:GetSet("ExposureCompensation", false)

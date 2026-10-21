@@ -1,9 +1,5 @@
 local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local buffer_pool = {}
--- small buffers are bound to ranges of a few big allocations instead of getting an allocation each (a vkAllocateMemory
--- costs about as much as a mesh upload, and drivers allow only a few thousand of them). a range is one of the size
--- classes (eight per power of two, a multiple of ALIGNMENT, so every range is aligned), a freed range is reused by the
--- next buffer of its class, blocks are never given back
 local BLOCK_SIZE = 64 * 2 ^ 20
 local ALIGNMENT = 256
 buffer_pool.MAX_BUFFER_SIZE = 4 * 2 ^ 20
@@ -15,8 +11,6 @@ local function get_class_size(size)
 	return math.ceil(size / step) * step
 end
 
--- an allocation {block, offset, size, free}, block.memory is what the buffer is bound to. nil when the buffer does not
--- belong in a pool
 function buffer_pool.Allocate(device, type_index, flags, size, alignment)
 	size = tonumber(size)
 	alignment = tonumber(alignment)
@@ -34,7 +28,6 @@ function buffer_pool.Allocate(device, type_index, flags, size, alignment)
 	local key = type_index .. ":" .. (flags and table.concat(flags, ",") or "")
 	local pool = pools[key]
 
-	-- the blocks go away with the device they were made for
 	if not pool or (pool.current and not pool.current.memory:IsValid()) then
 		pool = {free = {}, blocks = {}}
 		pools[key] = pool
@@ -76,7 +69,6 @@ function buffer_pool.Allocate(device, type_index, flags, size, alignment)
 	return allocation
 end
 
--- only once the gpu is done with the buffer that was bound to it
 function buffer_pool.Free(allocation)
 	local free = allocation.free
 	free[#free + 1] = allocation

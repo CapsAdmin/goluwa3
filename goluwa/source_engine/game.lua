@@ -30,7 +30,6 @@ end
 do
 	local owners
 
-	-- which game ships a map as a loose file, so a map can be loaded without knowing what to mount
 	local function get_map_owner(name)
 		if not owners then
 			owners = {}
@@ -77,7 +76,6 @@ end
 do
 	local mounted = {}
 
-	-- mounts the pakfile embedded in a bsp so the materials, textures and models it ships with can be found
 	function game.MountMapPak(path)
 		game.EnsureMounted(path)
 		local full = vfs.GetAbsolutePath(path)
@@ -103,7 +101,6 @@ do
 	end
 end
 
--- source 1 games installed through steam. source 2 games ship no bsp and a source mod has no appid to mount it by
 function game.GetMountableGames()
 	local games = {}
 
@@ -131,7 +128,6 @@ function game.GetGameImage(info)
 		steam.GetGameImage(info.appid, "header")
 end
 
--- the maps a game ships as loose files in its own folders. packed maps and the ones in addons and workshop content are only found by mounting, which is the part that costs
 function game.ListLooseMaps(info)
 	local names = {}
 	local seen = {}
@@ -171,7 +167,6 @@ do
 		end
 	end
 
-	-- {name, game = appid, mounted} for every map that can be listed right now, the maps of mounted games included
 	function game.GetMaps()
 		local maps = {}
 		local seen = {}
@@ -218,7 +213,6 @@ end
 do
 	local candidates = {"maps/thumb/%s.png", "materials/vgui/maps/menu_thumb_%s.vtf"}
 
-	-- a vfs path to the menu picture of a map, nil if the game ships none. an unmounted game is only searched in its loose folders
 	function game.GetMapThumbnail(name, info)
 		if info and not steam.IsSourceGameMounted(info) then
 			for _, path in ipairs(info.filesystem.searchpaths) do

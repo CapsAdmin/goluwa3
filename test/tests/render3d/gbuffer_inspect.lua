@@ -65,7 +65,6 @@ T.Test3D("Graphics render3d gbuffer inspect shows the decoded fields", function(
 	}
 	local metallic = inspect(draw, material, {mode = "field", name = "metallic"})
 	T(metallic[1])["~"](0.25, 0.01)
-	-- specular is stored over 0 to 2, the view shows it relative to that
 	local specular = inspect(draw, material, {mode = "field", name = "specular"})
 	T(specular[1])["~"](0.75, 0.02)
 	local albedo = inspect(draw, material, {mode = "field", name = "albedo"})
@@ -76,7 +75,6 @@ end)
 
 T.Test3D("Graphics render3d gbuffer inspect draws the entries of a sheet", function(draw)
 	local material = Material.New{MetallicMultiplier = 0.25, SpecularMultiplier = 1.5}
-	-- one entry is a grid of one tile, that is the whole screen
 	local metallic = inspect(draw, material, {mode = "sheet", names = {"metallic"}})
 	T(metallic[1])["~"](0.25, 0.01)
 	local specular = inspect(draw, material, {mode = "sheet", names = {"specular"}})

@@ -1,9 +1,3 @@
--- vertices and triangles written straight into the packed vertex layout of Polygon3D, which is how the generators
--- build their meshes without a table per vertex. a triangle is given counter clockwise as seen from the side its
--- normal faces, the engine's winding is the other way and it is turned here
---
--- the vertex color is the vegetation bending convention of model_pipeline.lua: r is how much the edge flutters,
--- g the phase, b the stiffness (1 rigid) and a, the occlusion, is 1
 local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
@@ -31,12 +25,10 @@ function MeshBuilder.New()
 	)
 end
 
--- the bending color of the vertices added from now on
 function MeshBuilder:SetColor(flutter, phase, stiffness)
 	self.r, self.g, self.b = flutter, phase, stiffness
 end
 
--- returns the index of the vertex (from 0)
 function MeshBuilder:Vertex(px, py, pz, nx, ny, nz, u, v)
 	local count = self.vertex_count
 
@@ -79,7 +71,6 @@ function MeshBuilder:Triangle(a, b, c)
 	self.index_count = count + 3
 end
 
--- a b c d around the quad, counter clockwise
 function MeshBuilder:Quad(a, b, c, d)
 	self:Triangle(a, b, c)
 	self:Triangle(a, c, d)
@@ -114,7 +105,6 @@ function MeshBuilder:GetNormal(index)
 	return n[0], n[1], n[2]
 end
 
--- the vertex normals from the faces around each vertex, weighted by their area
 function MeshBuilder:BuildNormals(first_vertex, first_index)
 	first_vertex = first_vertex or 0
 	first_index = first_index or 0
@@ -130,7 +120,6 @@ function MeshBuilder:BuildNormals(first_vertex, first_index)
 		local pa, pb, pc = vertices[a].position, vertices[b].position, vertices[c].position
 		local x1, y1, z1 = pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]
 		local x2, y2, z2 = pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]
-		-- the stored winding is the engine's, the outward normal is c - a by b - a
 		local nx, ny, nz = z1 * y2 - y1 * z2, x1 * z2 - z1 * x2, y1 * x2 - x1 * y2
 
 		for _, index in ipairs{a, b, c} do
@@ -147,9 +136,6 @@ function MeshBuilder:BuildNormals(first_vertex, first_index)
 	end
 end
 
--- a tube along a path of points {x, y, z, radius, flutter, phase, stiffness}, with frames carried along it so it
--- does not twist. u goes around it u_repeat times, v is the length along it over v_length. options: sides, u_repeat,
--- v_length, v_offset, cap (closes the end with a point), flare(t) (radius scale along the first point)
 do
 	local function normalize(x, y, z)
 		local length = sqrt(x * x + y * y + z * z)
@@ -169,7 +155,6 @@ do
 		local v_length = options.v_length or 1
 		local v = options.v_offset or 0
 		local count = #points
-		-- the first frame: any vector across the first direction
 		local p1, p2 = points[1], points[2]
 		local tx, ty, tz = normalize(p2[1] - p1[1], p2[2] - p1[2], p2[3] - p1[3])
 		local ax, ay, az = 0, 0, 1
@@ -184,7 +169,6 @@ do
 			local next_point = points[math.min(i + 1, count)]
 			local prev_point = points[math.max(i - 1, 1)]
 			local dx, dy, dz = normalize(next_point[1] - prev_point[1], next_point[2] - prev_point[2], next_point[3] - prev_point[3])
-			-- carry the frame: take the part of the last right vector across the new direction
 			local dot = rx * dx + ry * dy + rz * dz
 			rx, ry, rz = normalize(rx - dx * dot, ry - dy * dot, rz - dz * dot)
 			local ux, uy, uz = cross(dx, dy, dz, rx, ry, rz)
@@ -230,7 +214,6 @@ do
 	end
 end
 
--- a quad around a center, right and up are the half sizes. uv is {u0, v0, u1, v1}, v0 at the bottom edge
 function MeshBuilder:Card(cx, cy, cz, rx, ry, rz, ux, uy, uz, nx, ny, nz, uv)
 	local a = self:Vertex(cx - rx - ux, cy - ry - uy, cz - rz - uz, nx, ny, nz, uv[1], uv[2])
 	local b = self:Vertex(cx + rx - ux, cy + ry - uy, cz + rz - uz, nx, ny, nz, uv[3], uv[2])
@@ -240,8 +223,6 @@ function MeshBuilder:Card(cx, cy, cz, rx, ry, rz, ux, uy, uz, nx, ny, nz, uv)
 	return a
 end
 
--- moves every vertex by matrix-like axes and an offset: p = x * ax + y * ay + z * az + o, normals are turned by the
--- same axes (they are expected to be a rotation with a uniform scale)
 function MeshBuilder:Transform(first_vertex, ax, ay, az, o)
 	local vertices = self.vertices
 
@@ -260,7 +241,6 @@ function MeshBuilder:Transform(first_vertex, ax, ay, az, o)
 	end
 end
 
--- the polygon of what was added, with tangents. options: bend_height, lod_level, lod_distance, name
 function MeshBuilder:Build(options)
 	assert(self.index_count > 0, "the mesh is empty")
 	options = options or {}

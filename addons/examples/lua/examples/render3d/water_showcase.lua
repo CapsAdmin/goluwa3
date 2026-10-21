@@ -29,7 +29,6 @@ const vec4 SWAMP = vec4(%f, %f, %f, %f);
 const vec3 RIVER = vec3(%f, %f, %f);
 const vec4 POOL = vec4(%f, %f, %f, %f);
 
-// a bowl whose rim rises out of the water at radius r, depth deep below the surface
 float basin(vec2 p, vec4 b, float depth) {
 	float r = length(p - b.xy) / b.z;
 	float bowl = 1.0 - clamp(r, 0.0, 1.0);
@@ -65,32 +64,25 @@ float smin(float a, float b, float k) {
 local HEIGHT_GLSL = [=[
 float terrain_height(vec2 p) {
 	float step = terrain_bake_step();
-	// the coast winds along x, the beach runs down into a sea floor that
-	// keeps falling away
 	float coast = -18.0 + pn_noise(vec2(p.x * 0.006, 1.3)) * 14.0;
 	float d = p.y - coast;
 	float land = LAND_HEIGHT + 1.0 + pn_fbm_lod(p * 0.012, 4, 83.0, step) * 0.9 + smoothstep(60.0, 260.0, p.y) * 28.0 * (0.6 + 0.4 * pn_noise(p * 0.004));
 	float beach = mix(-1.5, LAND_HEIGHT, smoothstep(-25.0, 10.0, d));
 	float h = mix(beach, land, smoothstep(0.0, 30.0, d));
-	// past the shallows the shelf drops away
 	h = max(h - max(-d - 15.0, 0.0) * 0.25, -40.0);
-	// sandbars and ripples on the sea floor
 	h += pn_fbm_lod(p * 0.05, 3, 20.0, step) * (d < 0.0 ? 0.6 : 0.25);
 
 	h = smin(h, basin(p, LAKE, 7.0 + pn_noise(p * 0.05) * 1.5), 3.0);
 	h = smin(h, basin(p, POND, 1.8), 1.5);
-	// the swamp is shallow and lumpy, with islands of mud and reeds
 	float swamp = basin(p, vec4(SWAMP.xy, SWAMP.z * (0.85 + 0.25 * pn_noise(p * 0.04)), SWAMP.w), 1.1);
 	swamp += max(pn_fbm_lod(p * 0.09, 3, 11.0, step) - 0.15, 0.0) * 2.4;
 	h = smin(h, swamp, 2.0);
 
-	// the river meanders across, its bed deepest in the middle
 	float center = RIVER.x + sin(p.x * 0.025) * 9.0 + pn_noise(vec2(p.x * 0.01, 7.0)) * 6.0;
 	float across = abs(p.y - center) / RIVER.y;
 	float bed = RIVER.z - 1.6 * (1.0 - smoothstep(0.0, 1.0, across)) + smoothstep(0.8, 1.6, across) * 1.4;
 	h = smin(h, bed, 1.5);
 
-	// a flat deck around the pool, the pool itself is built from boxes
 	vec2 to_pool = abs(p - POOL.xy) - POOL.zw * 0.5;
 	float pool_deck = max(to_pool.x, to_pool.y);
 	h = mix(LAND_HEIGHT, h, smoothstep(8.0, 20.0, pool_deck));
@@ -104,7 +96,6 @@ vec4 terrain_splat(vec2 p, float h, vec3 n) {
 	float breakup = pn_fbm(p * 0.05, 3);
 	float coast = -18.0 + pn_noise(vec2(p.x * 0.006, 1.3)) * 14.0;
 	float sand = 1.0 - smoothstep(4.0, 16.0, p.y - coast + breakup * 6.0);
-	// banks that are under water or wet are mud
 	float wet = 1.0 - smoothstep(LAND_HEIGHT - 0.7, LAND_HEIGHT + 0.1, h + breakup * 0.4);
 	float rock = smoothstep(0.25, 0.45, slope + breakup * 0.1);
 	vec4 w;

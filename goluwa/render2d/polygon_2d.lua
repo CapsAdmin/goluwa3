@@ -195,9 +195,6 @@ do
 	local station_angle = {}
 	local station_alpha = {}
 
-	-- writes an annular sector from vertex index `vertex` and returns the next free index.
-	-- feather is a fringe in pixels around the whole shape that fades to transparent, it anti aliases
-	-- the edges without multisampling. a vertex capacity of (segments + 2) * 18 is needed with a feather
 	function Polygon2D:SetArc(vertex, x, y, inner, outer, a0, a1, segments, feather, r, g, b, a)
 		local rings = 2
 		ring_radius[1], ring_alpha[1] = inner, 1

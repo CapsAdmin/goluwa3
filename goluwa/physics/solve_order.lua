@@ -6,8 +6,6 @@ local function movable(body)
 	return body.InverseMass > 0 and body.MotionType == "dynamic"
 end
 
--- Gauss-Seidel carries a stack's weight down only as far as one sweep reaches, so contacts are
--- solved from the top of the pile (along gravity) to the bottom, static contacts a bit later.
 function solve_order.Build(island, up_x, up_y, up_z)
 	local pairs = island.pairs
 	local count = #pairs

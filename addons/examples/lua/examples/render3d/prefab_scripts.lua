@@ -4,10 +4,6 @@ local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
--- walk up to the things and press e. a script is the source of a component, like the files in lua/components: it returns the component it defines and the entity it is on is self.Owner.
--- the component can define Initialize, OnUpdate(dt), OnRemove and any On* local event such as OnUse. self.Owner:GetPrefab() is the instance it belongs to and self.Owner:GetNode(id) one of its nodes.
--- state that has to be the same everywhere lives in prefab inputs, only whoever has the authority changes them (network.HasAuthority(), true in a standalone game too) and they replicate, the visuals follow them in OnUpdate.
--- scripts with the same source share one class, so per instance state lives on self.
 local LAMP_SCRIPT = [[
 local objects = import("goluwa/objects/objects.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")

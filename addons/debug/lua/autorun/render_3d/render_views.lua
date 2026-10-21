@@ -25,7 +25,6 @@ local preview_time = -math.huge
 local TEXT = Color(0.9, 0.92, 0.97, 1)
 local TEXT_DIM = Color(0.55, 0.6, 0.7, 1)
 local PANEL = Color(0.03, 0.04, 0.07, 0.95)
--- what a sheet lets you change while you look at it
 local CONTEXTS = {normal = "normal_source", albedo = "terrain"}
 
 local function get_tint(name, shade)
@@ -53,7 +52,6 @@ local function get_preview_texture()
 	return pipeline:GetFramebuffer():GetAttachment(1)
 end
 
--- the rect that fits the render size in a w x h box
 local function fit(w, h)
 	local render_size = render3d.GetRenderSize()
 	local scale = math.min(w / render_size.x, h / render_size.y)
@@ -105,7 +103,6 @@ function TileView.PropDefaults(_, props)
 	return {layout = {MinSize = props.Size, MaxSize = props.Size}}
 end
 
--- the preview to draw, the clickable tiles ({label, OnClick}) when it is a grid, the title and going back
 function TileView.OnSpec(view) end
 
 function TileView.OnTiles(view) end
@@ -356,8 +353,6 @@ end
 local TARGETS_SPEC = {mode = "targets"}
 
 
--- the VIEWS tab: a tree of the views, the views or the fields of one as tiles, and what is selected on the right.
--- the sheets are the gbuffer decoded (gbuffer_inspect), the passes are the debug textures of the passes
 local LABEL_HEIGHT = 36
 local CELL_WIDTH = 150
 local PREVIEW_HEIGHT = 186
@@ -397,7 +392,6 @@ local function draw_font_text(font, text, x, y, color)
 	render2d.PopColor()
 end
 
--- views that are a setting of the lighting, they have no picture of their own, applying one shows it on screen
 local LIGHTING_MODES = {
 	{
 		name = "direct light only",
@@ -459,7 +453,6 @@ local function is_lighting_mode_on(mode)
 	return pvars.Get(mode.key) == mode.value
 end
 
--- the pvars are bools or enums with "off"
 local function set_lighting_mode(mode, on)
 	if on then
 		pvars.SetSession(mode.key, mode.value)
@@ -543,7 +536,6 @@ local function get_items(category, folder)
 		end
 	end
 
-	-- the preview draws its tiles in the order of the entries
 	table.sort(items, function(a, b)
 		return a.entry.index < b.entry.index
 	end)
@@ -565,13 +557,11 @@ local function request_preview()
 	preview_time = system.GetElapsedTime()
 end
 
--- draws one tile of the preview texture, which holds count tiles
 local function draw_tile(texture, index, count, x, y, w, h)
 	local columns, rows = get_grid(count)
 	local column, row = (index - 1) % columns, math.floor((index - 1) / columns)
 	local inset = 0.003
 	render2d.SetColor(1, 1, 1, 1)
-	-- the uv are left, bottom, right and top, and row 0 of the texture is the top of the screen
 	render2d.PushColorUV(
 		(column + inset) / columns,
 		(row + 1 - inset) / rows,
@@ -595,7 +585,6 @@ local function draw_pass_texture(texture, view, x, y, w, h)
 	render2d.SetTexture(nil)
 end
 
--- the item's picture in a rect of the aspect of the screen
 local function draw_item_picture(item, x, y, w, h)
 	if item.kind == "lighting" then
 		local text = is_lighting_mode_on(item.mode) and "on" or "off"
@@ -656,7 +645,6 @@ local function draw_item(item, index, x, y, w, h, selected, hovered)
 	draw_font_text(colors.font_small, sub, x + (w - sw) / 2, label_y + 16, colors.text_disabled)
 end
 
--- the view of the selected item on screen, for sheets one of the inspect views
 local function show_selected_fullscreen()
 	local item = browser.selected
 
@@ -785,7 +773,6 @@ local function build_all_tree_items()
 	}
 end
 
--- the nodes that match the filter, a node that matches keeps all its children
 local function filter_nodes(nodes, filter)
 	local out = {}
 
@@ -850,7 +837,6 @@ local function detail_text(key, text, font, color)
 	return ui.Text{Key = key, Text = text, Font = font, Color = color, Wrap = true, layout = {GrowWidth = 1}}
 end
 
--- the VIEWS tab. nav says where the tree, the breadcrumb and the grid are, the selected item is the one picked in the grid or the one the navigation asked for, everything else is made from those two. browser is what the draw code and the fullscreen views read, it is written while this renders
 local ViewsPage = react.Component(|| -> do
 	local nav, set_nav = react.UseState({category = "sheets"})
 	local picked, set_picked = react.UseState()
@@ -1175,7 +1161,6 @@ event.AddListener("Update", "gbuffer_view_idle", function()
 	end
 end)
 
--- the labels of a view that fills the screen
 local function get_fullscreen_labels(view)
 	local labels = {}
 

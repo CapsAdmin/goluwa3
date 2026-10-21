@@ -24,7 +24,6 @@ Entity.RegisterComponent("weapon_pistol", import("lua/components/weapon_pistol.l
 Entity.RegisterComponent("weapon_camera", import("lua/components/weapon_camera.lua"))
 
 if RENDER_3D then
-	-- the points of a player that things attach to, player_avatar moves them
 	import("goluwa/entities/components/armature.lua").RegisterSkeleton(
 		"player",
 		{

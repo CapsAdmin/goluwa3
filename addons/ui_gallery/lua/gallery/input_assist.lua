@@ -42,7 +42,6 @@ local function draw_backdrop(backdrop)
 	render2d.DrawRect(0, 0, size.x, size.y)
 end
 
--- a text edit and its suggestion list, the list is a floating panel that needs the edit as its Target so the edit is held in state and the list goes into the world through a portal
 local AssistedEdit = react.Component(|props| -> do
 	local edit, set_edit = react.UseState()
 	local session = react.UseMemo(|| -> props.NewSession and props.NewSession(), {})

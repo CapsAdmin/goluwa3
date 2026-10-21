@@ -13,7 +13,6 @@ META:StartStorable()
 META:GetSet("Sides", nil, {Hidden = true})
 META:GetSet("Collide", true, {callback = "OnShapeChanged"})
 META:EndStorable()
--- sides are planes in source space, a static world below the brush batches and collides it
 local MATRIX_FIELDS = {}
 
 for row = 0, 3 do
@@ -75,7 +74,6 @@ function META:OnRemove()
 	if self.world and self.world:IsValid() then self.world:RemoveSource(self) end
 end
 
--- the world space polygons of the visible sides in the entity's local space, for highlighting
 function META:GetPolygons()
 	if self.polygons then return self.polygons end
 
@@ -125,13 +123,11 @@ function META:GetPolygons()
 	return polygons
 end
 
--- the polygon of one side in the entity's local space, nil when the side has no visible area
 function META:GetSidePolygon(index)
 	self:GetPolygons()
 	return self.side_polygons[index]
 end
 
--- the corners of a side in source space, wound clockwise as seen from the front
 function META:GetSideCorners(index)
 	return brush_geometry.ClipSide(self.sides, index)
 end
@@ -160,7 +156,6 @@ function META:GetVisibleSideCount()
 	return count
 end
 
--- moves a side plane, refusing changes that would leave fewer than four sides with area
 function META:SetSideDist(index, dist)
 	local side = self.sides[index]
 	local previous = side.dist
@@ -183,7 +178,6 @@ do
 	local PLANE_EPSILON = 0.05
 	local MIN_CROSS_LENGTH = 0.01
 
-	-- the corners of the brush in source space, solved from the planes so they are exact and shared by every side that meets there
 	function META:GetVertices()
 		local sides = self.sides
 		local count = #sides
@@ -249,8 +243,6 @@ do
 		return vertices
 	end
 
-	-- replaces the sides with the convex hull of points. Every new side copies the texture of the template side it faces
-	-- most. Returns false and changes nothing when the hull is flat or a point in required is no longer a corner of it.
 	function META:RebuildFromPoints(points, templates, required)
 		local count = #points
 		local sides = {}
@@ -297,7 +289,6 @@ do
 
 							if above then normal, dist = normal * -1, -dist end
 
-							-- a face is the set of corners on it, planes through the same corners are one face
 							local key = table.concat(on_plane, ",", 1, on_count)
 							local duplicate = seen[key]
 							seen[key] = true
@@ -363,14 +354,12 @@ do
 end
 
 do
-	-- texture axes for a side that has no mapping yet, tiling every 256 units along the dominant axis of its normal
 	local DEFAULT_VECS = {
 		x = {0, 1 / 256, 0, 0, 0, 0, -1 / 256, 0},
 		y = {1 / 256, 0, 0, 0, 0, 0, -1 / 256, 0},
 		z = {1 / 256, 0, 0, 0, 0, -1 / 256, 0, 0},
 	}
 
-	-- texname is a material name like "dev/dev_measuregeneric01"
 	function META:SetSideMaterial(index, texname)
 		local side = self.sides[index]
 		local old = side.texname
@@ -435,7 +424,6 @@ do
 	end
 end
 
--- puts the pivot in the middle of the brush without moving any plane
 function META:Recenter()
 	local sum = Vec3(0, 0, 0)
 	local count = 0
@@ -457,7 +445,6 @@ function META:Recenter()
 	self.side_polygons = nil
 end
 
--- watches the transform so moving, rotating or scaling the entity carries the planes along
 function META:Activate()
 	if self.active then return end
 
@@ -509,7 +496,6 @@ function META:OnUpdate()
 end
 
 do
-	-- the six planes of an axis aligned box with the texture tiling every 256 units
 	local FACES = {
 		{Vec3(1, 0, 0), "x", 1, {0, 1, 0}, {0, 0, -1}},
 		{Vec3(-1, 0, 0), "x", -1, {0, 1, 0}, {0, 0, -1}},
@@ -519,7 +505,6 @@ do
 		{Vec3(0, 0, -1), "z", -1, {1, 0, 0}, {0, -1, 0}},
 	}
 
-	-- creates a new box brush below parent, min and max are in source space and texname is a material name like "dev/dev_measuregeneric01"
 	function META.CreateBox(parent, min, max, texname)
 		local sides = {}
 

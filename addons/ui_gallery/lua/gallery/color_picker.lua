@@ -16,14 +16,12 @@ return {
 		local color, set_color = react.UseState(|| -> Color.FromBytes(54, 199, 255, 214))
 		local initial = react.UseMemo(|| -> color, {})
 		local window_position, set_window_position = react.UseState(nil)
-		-- the picker windows start from the current color and keep their own after that
 		local window_color = react.UseMemo(|| -> color, {window_position})
 		local current = react.UseRef(color)
 		current.current = color
 		local bytes = color:Get255()
 		local on_change = |value| -> set_color(value)
 
-		-- drawn from a ref so the callback keeps its identity
 		local draw_preview = react.UseCallback(|preview| -> do
 			local size = preview.transform:GetSize()
 			render2d.SetTexture(nil)

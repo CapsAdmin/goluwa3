@@ -17,7 +17,6 @@ end
 
 BaseEntity:GetSet("OwnedBy", nil, {callback = "OnOwnedByChanged"})
 
--- the owner is a client or a world, an entity without one belongs to its parent's owner, and at the top to its world
 function BaseEntity:GetOwnedBy()
 	local owned_by = self.OwnedBy
 
@@ -30,7 +29,6 @@ function BaseEntity:GetOwnedBy()
 	return self.World or self
 end
 
--- transient entities are derived or made by code, what a client owns still shows up in the editor
 function BaseEntity:IsRuntime()
 	return self:GetTransient() and self:GetOwnedBy() == self.World
 end
@@ -527,7 +525,6 @@ function BaseEntity:OnPostCreate()
 	end
 end
 
--- the nearest entity at or above this one that is a prefab instance
 function BaseEntity:GetPrefab()
 	local entity = self
 
@@ -538,7 +535,6 @@ function BaseEntity:GetPrefab()
 	end
 end
 
--- a node of the nearest prefab by its id
 function BaseEntity:GetNode(id)
 	local root = self:GetPrefab()
 	assert(root, "entity is not part of a prefab instance")

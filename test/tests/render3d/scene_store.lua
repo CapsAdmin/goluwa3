@@ -14,7 +14,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local RESULT_COUNT = 8
 
--- one ray straight at the instance and one that misses it
 local function trace(tlas, cmd, results, origin)
 	origin = origin or {0, 0, 0}
 	local pipeline = EasyPipeline.Compute{
@@ -332,7 +331,6 @@ T.Test3D("Graphics render3d scene store follows a skinned mesh in the ray traced
 	animator:SetTime(0)
 	animator:Animate(0)
 	visual:BuildAABB()
-	-- a ray through the corner of the cube in its bind pose, which the swing moves away from it
 	local origin = {-0.45, -0.45, 0}
 	draw()
 	draw()

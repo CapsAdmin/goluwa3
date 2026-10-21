@@ -37,7 +37,6 @@ return {
 				return sqrt(max(c.x, 0.0));
 			}
 
-			// the console variant of FXAA 3.11, without the search for the edge's end
 			void main() {
 				ivec2 size = textureSize(TEXTURE(fxaa_data.source_tex), 0);
 				vec2 texel = 1.0 / vec2(size);

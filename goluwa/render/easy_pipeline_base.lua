@@ -517,8 +517,6 @@ do
 		return memcmp(lhs, rhs, size) == 0
 	end
 
-	-- what was pushed since the command buffer started recording is kept in entries[1..count], the entries
-	-- and their snapshots are reused from one recording to the next
 	function EasyPipeline:ShouldPushConstants(cmd, pipeline_key, stage_key, offset, data, size)
 		local cache = self.push_constant_cache_by_cmd[cmd]
 		local serial = cmd and cmd.recording_serial or 0

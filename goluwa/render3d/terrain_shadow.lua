@@ -1,11 +1,6 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
--- the shadow of the terrain on everything, far past where the shadow maps reach and without any triangles. a point
--- (x, y, z) is in the sun when y is at least S(x, z), the height of the lowest sun ray over that column of the terrain:
--- S = max over d of (H(p + d * horizontal sun direction) - d * rise of the sun per meter). a compute pass
--- (passes/terrain_shadow.lua) marches that for every texel of a height field the terrain gives (Terrain.ShadowExtent),
--- and the lighting reads S where the shadow maps do not cover
 local terrain_shadow = {}
 terrain_shadow.textures = {}
 terrain_shadow.field = nil
@@ -30,7 +25,6 @@ local function create_texture(size, usage, name)
 	return texture
 end
 
--- `heights` is size * size floats, row z * size + x, the sample at (x, z) is at world (min_x + x * step, min_z + z * step)
 function terrain_shadow.SetHeightField(heights, size, min_x, min_z, step, max_height, caster_radius)
 	local t = terrain_shadow.textures
 
@@ -88,11 +82,8 @@ function terrain_shadow.WriteShadowBlock(self, block)
 	block.terrain_shadow_field[1] = field.min_z - field.step * 0.5
 	block.terrain_shadow_field[2] = 1 / (field.step * field.size)
 	block.terrain_shadow_field[3] = 0
-	-- the shadow edge is where a point is at the sun's lowest ray, and a low sun turns every meter of height into many
-	-- of distance along the ground, so the blend around it is narrow: in full sun this far over it, in full shadow this far under it
 	block.terrain_shadow_params[0] = field.step * 0.1
 	block.terrain_shadow_params[1] = field.step * 0.1
-	-- how far from the camera the terrain's tiles themselves cast shadows, past it only the height field does
 	block.terrain_shadow_params[2] = field.caster_radius
 	block.terrain_shadow_params[3] = 0
 end
@@ -101,7 +92,6 @@ function terrain_shadow.GetShadowGLSL(prefix)
 	return [[
 		#ifndef TERRAIN_SHADOW_GLSL
 		#define TERRAIN_SHADOW_GLSL
-		// 1 in the sun, 0 in the shadow of the terrain, 1 where the height field does not reach
 		float get_terrain_shadow(vec3 world_pos) {
 			if (]] .. prefix .. [[.terrain_shadow_tex < 0) return 1.0;
 

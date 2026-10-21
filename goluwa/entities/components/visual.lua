@@ -114,7 +114,6 @@ end
 
 visual.MaterialDrawsInGBuffer = material_draws_in_gbuffer
 
--- the translucent passes draw it
 function visual.MaterialDrawsTranslucent(material)
 	return material_is_translucent(material) and render3d.pipelines.translucent_surface ~= nil
 end
@@ -141,7 +140,6 @@ local function mark_shadow_change(component)
 	component.shadow_change_version = next_shadow_change_version()
 end
 
--- what hangs under a moving body moves with it, whether or not the body has been stepped yet
 local function is_visual_dynamic(component)
 	local owner = component and component.Owner
 	local body = owner and owner.rigid_body
@@ -645,9 +643,7 @@ Visual:StartStorable()
 Visual:GetSet("Visible", true)
 Visual:GetSet("CastShadows", true)
 Visual:GetSet("ReceivesDecals", true)
--- in the ray traced scene (gi, reflections, glass, fog) and nothing else: no gbuffer, shadow map or culling draws
 Visual:GetSet("RaysOnly", false)
--- false keeps it out of the ray traced scene (no gi, reflections or traced hits)
 Visual:GetSet("InSceneBVH", true)
 Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 1000000)
@@ -810,7 +806,6 @@ do
 	end
 end
 
--- Visible is what is drawn: the own flag (SetVisible, stored) unless the visibility of the entity hides it (OnHide/OnShow)
 function Visual:ApplyVisible(visible)
 	if self.Visible == visible then return end
 
@@ -2090,7 +2085,6 @@ do
 		return out
 	end
 
-	-- the components in view by the cpu alone (frustum and distance), for what the gpu culling does not draw
 	function visual.CollectCPUVisibleComponents(out)
 		local acceleration = ensure_scene_acceleration()
 		local frustum_planes = get_frustum_planes()
@@ -2452,7 +2446,6 @@ function Visual:OnFirstCreated()
 		local camera_position = render3d.GetCamera():GetPosition()
 
 		if not visual.noculling and store_pipelines[2] and scene_draw.Draw(gbuffer_instancing, store_pipelines) then
-			-- what the store has no row for
 			for component in pairs(scene_bridge.GetCPUDrawnVisuals()) do
 				if component.Visible and not component:IsCulled() then
 					for _, entry in ipairs(component:GetLODEntriesAt(camera_position)) do
@@ -2464,7 +2457,6 @@ function Visual:OnFirstCreated()
 			return
 		end
 
-		-- the store did not cull this frame
 		for _, component in ipairs(visual.CollectCPUVisibleComponents(main_visible_components)) do
 			for _, entry in ipairs(component:GetLODEntriesAt(camera_position)) do
 				draw_geometry_entry(component, entry)
@@ -2481,12 +2473,8 @@ function Visual:OnFirstCreated()
 	end)
 
 	do
-		-- what the translucent passes draw this frame, in arrays that are reused from one frame to the next
 		local draw_count = 0
 		local draw_entries, draw_materials, draw_world_matrices, draw_prev_world_matrices, draw_thicknesses = {}, {}, {}, {}, {}
-		-- what is worked out of a component's entries and their materials stays true until the entries, the material
-		-- override or a material change, so it is kept per component. what depends on where the entry is stays true until
-		-- its world matrix changes, and only the distance to the camera is worked out every frame
 		local item_caches = setmetatable({}, {__mode = "k"})
 		local MATRIX_SIZE = ffi.sizeof(Matrix44)
 
@@ -2569,8 +2557,6 @@ function Visual:OnFirstCreated()
 			return items
 		end
 
-		-- the world matrix of an item, and what is worked out of it: the world center and radius of the entry's
-		-- bounds and the thickness of what refracts
 		local function get_item_matrix(component, item)
 			local entry = item.entry
 			local world_matrix = entry.transform and entry.transform:GetWorldMatrix() or component:GetWorldMatrix()
@@ -2632,7 +2618,6 @@ function Visual:OnFirstCreated()
 
 								local entry = item.entry
 
-								-- the store draws the rows it has, the cpu the rest
 								if not (in_store and scene_bridge.IsRasterEntry(component, entry)) then
 									draw_count = draw_count + 1
 									draw_entries[draw_count] = entry

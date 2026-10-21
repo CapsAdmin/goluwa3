@@ -13,8 +13,6 @@ local commands = import("goluwa/cli/commands.lua")
 local Terrain = {}
 Terrain.__index = Terrain
 
--- scatter needs a render device when it is loaded, and a terrain can be built without one (the tests): a tile only has a
--- scatter entry when its material has a scatter set, which needs one
 local function get_scatter()
 	return import("goluwa/render3d/scatter.lua")
 end
@@ -38,37 +36,25 @@ function Terrain.New(config)
 	self.Source = config.Source
 	self.Levels = config.Levels or 7
 	self.BaseChunkSize = config.BaseChunkSize or 64
-	-- the chunks per side of a level. the next finer level fills the middle half, so the ring around it is GridSize / 4
-	-- chunks thick, and it has to be at least 2 or the finer level can poke out of it when the two snap differently
+	-- the ring around the next finer level is GridSize / 4 chunks thick and must be at least 2, or the finer level can poke out
 	self.GridSize = config.GridSize or 8
 	self.Samples = config.Samples or 65
 	self.DetailSize = config.DetailSize or 256
 	self.SplatSize = config.SplatSize or 128
 	self.ColorSize = config.ColorSize
 	self.ShadowLevels = config.ShadowLevels or self.Levels
-	-- the finest levels that are in the scene bvh (gi and reflections)
 	self.BVHLevels = config.BVHLevels or self.Levels
-	-- a tile enters the bvh once it has been wanted for this many seconds, and at most BVHPerFrame enter in a frame, the
-	-- nearest first. its bvh is a coarse copy (~0.1 ms of cpu), so there is no need to wait: a tile that is not in the bvh
-	-- is not in gi or reflections
 	self.BVHDelay = config.BVHDelay or 0
 	self.BVHPerFrame = config.BVHPerFrame or 8
-	-- the scene bvh uses every stride:th sample of the tile, the finest level a smaller stride
 	self.BVHStride = config.BVHStride or 4
 	self.BVHNearStride = config.BVHNearStride or 2
 	self.BVHDue = {}
-	-- the terrain's shadow on everything past the shadow maps comes from a height field of this many meters around the
-	-- camera (see terrain_shadow.lua), baked at ShadowSamples squared samples and baked again when the camera is more
-	-- than ShadowRecenter of the extent from its center. nil is off
 	self.ShadowExtent = config.ShadowExtent
 	self.ShadowSamples = config.ShadowSamples or 1024
 	self.ShadowRecenter = config.ShadowRecenter or 0.2
-	-- the frames a tile that is replaced waits for the vegetation of its replacements to be baked, so that it does not go
-	-- before there is anything to replace its vegetation with
 	self.ScatterWaitFrames = config.ScatterWaitFrames or 120
 	self.ViewPriority = ViewPriority.New{PredictSeconds = config.PredictSeconds, OutsidePenalty = config.OutsidePenalty}
 	self.BuildsPerFrame = config.BuildsPerFrame or 2
-	-- while the terrain holds the scene load nothing is flying yet, so the first tiles are built in bulk
 	self.LoadBuildsPerFrame = config.LoadBuildsPerFrame or 16
 	self.ScatterSet = config.ScatterSet
 	-- the frames a chunk's textures live on after its tile is removed: the culling and the frames in flight can still draw
@@ -170,7 +156,6 @@ function Terrain:ProcessBuildQueue()
 	local queue = self.BuildQueue
 	local count = 0
 
-	-- entries of chunks that were released while they waited are dropped here
 	for i = 1, #queue do
 		local entry = queue[i]
 
@@ -355,8 +340,6 @@ function Terrain:CreateTile(want, chunk)
 	}
 end
 
--- the scene bvh is built from a coarser, rays only copy of the tile: a bvh of the 8448 triangles of the tile costs
--- about 10 ms of cpu, a few hundred triangles are not worth the nearest few meters of detail to rays
 function Terrain:CreateBVHEntity(tile)
 	local entity = Entity.New{
 		Name = tile.entity:GetName() .. "_bvh",
@@ -416,7 +399,6 @@ local function set_tile_hidden(self, tile, hidden)
 	tile.entity.visual:SetCastShadows(not hidden and tile.level < self.ShadowLevels)
 end
 
--- the desired tiles that overlap a retiring tile are worked out when the desired tiles change (UpdateTiles)
 function Terrain:IsTileReplaced(tile)
 	local keys = tile.replacement_keys
 
@@ -426,8 +408,6 @@ function Terrain:IsTileReplaced(tile)
 		if not current or not current.entity then return false end
 	end
 
-	-- everything that replaces it is built, now the vegetation: the replacements are hidden until it is, and they are
-	-- looked at by scatter anyway (scatter.Preload), so it bakes while the old tile and its vegetation are still there
 	local frame = self:GetFrame()
 	tile.scatter_wait = tile.scatter_wait or frame
 
@@ -446,7 +426,6 @@ function Terrain:GetFrame()
 	return system.GetFrameNumber()
 end
 
--- a tile is drawn once the culling that is drawn was dispatched after the tile was shown
 function Terrain:IsTileDrawn(tile)
 	if not tile.entity or tile.hidden or not tile.shown then return false end
 
@@ -463,7 +442,6 @@ function Terrain:AreReplacementsDrawn(tile)
 	return true
 end
 
--- the oldest first, a few per frame: a teleport releases hundreds of chunks at once and freeing their textures is slow
 function Terrain:ProcessPendingReleases()
 	local pending = self.PendingReleases
 	local frame = self:GetFrame()
@@ -481,8 +459,6 @@ function Terrain:ProcessPendingReleases()
 	end
 end
 
--- a tile is blocked while a retiring tile that overlaps it is not yet replaced. the retiring tiles are those of the last
--- UpdateTiles, a tile that is built later looks at them once (FindBlockers) and its list is refreshed every update
 function Terrain:FindBlockers(tile)
 	local blockers = tile.blockers or {}
 	local retiring = self.RetiringList
@@ -518,7 +494,6 @@ function Terrain:RetireTiles()
 				self:RemoveTile(tile)
 				self.Tiles[key] = nil
 			elseif self:IsTileReplaced(tile) then
-				-- what replaces it can be shown now (it is no longer blocked by it), it goes when they are drawn
 				tile.replaced_frame = tile.replaced_frame or frame
 
 				if self:AreReplacementsDrawn(tile) then
@@ -562,7 +537,6 @@ function Terrain:RetireTiles()
 	table.clear(due)
 end
 
--- the keys of the desired tiles that overlap a tile, by looking at the part of every level's grid that it covers
 function Terrain:GatherOverlappingDesired(tile, keys)
 	local desired = self.Desired
 	local last = self.GridSize - 1
@@ -587,7 +561,6 @@ function Terrain:GatherOverlappingDesired(tile, keys)
 	end
 end
 
--- forward is the camera's forward and half_angle the horizontal half of what it sees (plus a margin), in radians
 function Terrain:UpdateTiles(position, forward, half_angle)
 	local desired = self:GatherDesiredTiles(position)
 	self.Desired = desired
@@ -634,7 +607,6 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 					tile.chunk = chunk
 					tile.material = built.material
 
-					-- while the scene loads nothing flies, the tile is wanted for good and the first bvh build takes it along
 					if tile.level < self.BVHLevels then
 						tile.bvh_time = system.GetElapsedTime() + (self.holding_scene_load and 0 or self.BVHDelay)
 					end
@@ -676,7 +648,6 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 		end
 	end
 
-	-- what a retiring tile waits for, and what blocks a hidden tile, only changes with the desired tiles
 	for i = 1, #retiring_list do
 		local tile = retiring_list[i]
 		local keys = tile.replacement_keys
@@ -692,10 +663,6 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 	end
 
 	local priorities = self.PriorityScratch
-	-- a lower priority is built first, and the queue is as old as the position it was filled at, so it is worked out
-	-- again every update. what has nothing drawn under it comes before what only makes a drawn tile finer, and inside
-	-- that nearest first, from the nearer of where the camera is and where it will be in PredictSeconds, with what is
-	-- out of view (looking mostly down is everything) counting as up to 5 times as far
 	local view_priority = self.ViewPriority
 	view_priority:Update(position, forward, half_angle)
 	local min_height, max_height = self.Source.MinHeight, self.Source.MaxHeight
@@ -722,8 +689,6 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 		end
 	end
 
-	-- a retiring tile only goes once everything that replaces it is built, and the replacements that are built wait hidden
-	-- until then. so the replacements of a retiring tile are built together, at the priority of the one that is first
 	for i = 1, #retiring_list do
 		local keys = retiring_list[i].replacement_keys
 		local best = math.huge
@@ -815,8 +780,6 @@ end
 local active_terrains = setmetatable({}, {__mode = "k"})
 Terrain.Active = active_terrains
 
--- what is up with the tiles, for when some are not there that should be: every tile that exists is listed with what
--- keeps it from being drawn, and whether the scene has it
 function Terrain:GetDebugReport()
 	local lines = {}
 	local counts = {tiles = 0, with_entity = 0, hidden = 0, retiring = 0, swapping = 0}
@@ -878,7 +841,6 @@ function Terrain:GetDebugReport()
 	return table.concat(lines, "\n")
 end
 
--- what the terrain is doing, for the overlay: counts of the tiles per level and of the build jobs
 function Terrain:GetStats()
 	local levels = {}
 

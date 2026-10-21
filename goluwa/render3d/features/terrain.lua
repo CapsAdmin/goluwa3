@@ -1,8 +1,5 @@
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
--- a terrain chunk: a weight texture that mixes up to eight layers, each with its own albedo, normal
--- and height textures and its own scale, roughness and so on, four values to a color for layers 1 to 4
--- (and again for 5 to 8). a material without a weight texture doesn't upload any of it
 local ray = "InvalidateRayMaterial"
 local params = {}
 
@@ -43,7 +40,6 @@ local function layer_values(suffix, requires)
 			default = 128,
 			requires = requires,
 		}
-		-- the exponent of the triplanar weights: the higher the less the projections show together
 		add{
 			name = "TerrainTriplanarSharpness",
 			default = 4,
@@ -56,25 +52,16 @@ local function layer_values(suffix, requires)
 	values("DetailStrength", Color(0.0, 0.0, 0.0, 0.0), ray)
 	values("AdditiveDetail", Color(0.0, 0.0, 0.0, 0.0), ray)
 	values("Specular", Color(1.0, 1.0, 1.0, 1.0))
-	-- where a layer may be by the slope of the ground at the pixel, as 1 - (normal.y * 0.5 + 0.5): it is there from SlopeMin to
-	-- SlopeMax, fading in and out over SlopeBlend. the defaults are everywhere
 	values("SlopeMin", Color(-1.0, -1.0, -1.0, -1.0))
 	values("SlopeMax", Color(2.0, 2.0, 2.0, 2.0))
 	values("SlopeBlend", Color(0.01, 0.01, 0.01, 0.01))
-	-- 0 to 1, how much the layer's height texture decides its weight against the other layers
 	values("HeightBlend", Color(0.0, 0.0, 0.0, 0.0))
-	-- a second, larger scale (in meters like Scales) that the layer fades to by FarDistances, 0 for none
 	values("FarScales", Color(0.0, 0.0, 0.0, 0.0))
 	values("FarDistances", Color(0.0, 0.0, 0.0, 0.0))
-	-- and a third scale after the second, for FarDistanceB
 	values("FarScaleB", Color(0.0, 0.0, 0.0, 0.0))
 	values("FarDistanceB", Color(0.0, 0.0, 0.0, 0.0))
-	-- the layer fades to its average color from half of this distance and is not sampled past it, 0 for never
 	values("FadeDistance", Color(0.0, 0.0, 0.0, 0.0))
-	-- 0 to 1, how much of the layer is sampled turned and shifted and swapped for the original by noise, so that its repeats differ
 	values("AntiTiling", Color(0.0, 0.0, 0.0, 0.0))
-	-- a layer with a CoverSlope is laid over the others instead of mixed in by its weight (snow): it covers the ground flatter
-	-- than CoverSlope * ((height - CoverStart) / CoverRange) ^ CoverPower, fading over CoverBlend. 0 for not a covering layer
 	values("CoverSlope", Color(0.0, 0.0, 0.0, 0.0))
 	values("CoverStart", Color(0.0, 0.0, 0.0, 0.0))
 	values("CoverRange", Color(1000.0, 1000.0, 1000.0, 1000.0))
@@ -105,7 +92,6 @@ for layer = 1, 4 do
 	texture("TerrainLayer" .. layer .. "HeightTexture", "TerrainMaterialTexture")
 end
 
--- layers 5 to 8 and their weights, for chunks that have more than four layers
 texture("TerrainMaterial2Texture", "TerrainMaterialTexture", ray)
 
 for layer = 5, 8 do

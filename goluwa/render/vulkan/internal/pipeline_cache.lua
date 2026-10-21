@@ -8,8 +8,6 @@ local SizeBox = ffi.typeof("size_t[1]")
 local ByteArray = ffi.typeof("uint8_t[?]")
 local HeaderPtr = ffi.typeof("const $*", vulkan.vk.VkPipelineCacheHeaderVersionOne)
 
--- a pipeline the driver has seen before is made in a few milliseconds, one it has to compile
--- takes much longer, that is the slow part of a first start
 local SLOW_PIPELINE_SECONDS = 0.05
 
 function PipelineCache.GetTime()

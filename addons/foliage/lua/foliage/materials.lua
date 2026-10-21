@@ -1,19 +1,7 @@
--- the materials of the foliage and how their textures are drawn (textures.lua). leaves and blades let light through
--- (DiffuseTransmission) and bend in the wind with the trees (Bending, DetailBending, see model_pipeline.lua)
 local Color = import("goluwa/structs/color.lua")
 local foliage = import("lua/foliage/foliage.lua")
 local add = foliage.AddMaterial
--- the detail bending's frequency is how much the wind moves the detail, the amplitudes are meters (see the detail
--- bending in model_pipeline.lua): at 1 a branch and a leaf's edge go about half their amplitude in a gentle breeze
--- (4.4 m/s), the whole of it in a fresh one (9.4 m/s) and half again in a hurricane. crysis' leaves are 0.2 to 0.5 with
--- larger amplitudes. the default (5) is crysis' untuned one, for what has no detail bending
 local BARK = {MetallicMultiplier = 0, SpecularMultiplier = 0.6, Bending = 1, DetailBending = "leaves", BendDetailFrequency = 1}
--- small plants sway more for their height than trees do (the sway is a share of the height), and the detail bending's
--- amplitudes are meters, the defaults are for the branches and leaves of trees. the detail phase is how fast the
--- flutter's phase changes over the position: the default (100) has two vertices a centimeter apart flutter apart,
--- which tears a blade, 1 has a blade flutter as one with a wave along it. in the grass mode the wind is multiplied by
--- the height of the vertex, so a half meter blade at 3 goes most of its amplitude in a gentle breeze, and what is tall
--- is lower
 local SMALL = {
 	Bending = 3,
 	DetailBending = "grass",
@@ -24,9 +12,6 @@ local SMALL = {
 }
 local STONE = {MetallicMultiplier = 0, SpecularMultiplier = 0.7}
 
--- leaves are alpha tested, two sided, see through and move with the wind. the flutter's phase changes over a meter, so
--- the corners of a card or the two sides of a fern's frond move apart but a frond is not torn. their normals lean away
--- from the trunk (trees.BuildCards), BentNormals keeps that lean on the back of a card
 local function leaves(extra)
 	local out = {
 		MetallicMultiplier = 0,
@@ -216,7 +201,6 @@ do
 				normal = {"frond", shape},
 				roughness = {"frond", shape},
 			},
-			-- a fern is small, its fronds move less than a tree's branches
 			material = leaves{DiffuseTransmission = 0.5, BendDetailLeafAmplitude = 0.03, BendDetailBranchAmplitude = 0.1},
 		}
 	)

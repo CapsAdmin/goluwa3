@@ -7,8 +7,6 @@ META.Is3D = true
 META.Skeletons = META.Skeletons or {}
 local Floats = ffi.typeof("float[?]")
 
--- bones is a list of {name, parent_name}, the parent comes first and the first bone is the root
--- every bone is at the origin of its parent, a pose sets where they really are
 function META.RegisterSkeleton(name, bones)
 	local count = #bones
 	local names = {}
@@ -87,14 +85,11 @@ function META:GetBoneNames()
 	return self.rig and self.rig:GetBoneNames() or {}
 end
 
--- the matrix of a bone, set by whatever animates the armature, "local" is relative to its parent bone
--- and "model" relative to the entity
 function META:SetBone(name, matrix, space)
 	self.rig:SetBone(name, matrix, space)
 	self.matrices = {}
 end
 
--- shared until the next SetBone, nil for a name the skeleton does not have
 function META:GetBoneMatrix(name)
 	local rig = self.rig
 

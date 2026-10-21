@@ -1,8 +1,3 @@
--- the soft rim of cloth, light scattered by fibres standing up from the surface. a charlie lobe
--- (Estevez and Kulla 2017) with the neubelt visibility, colored by the albedo's hue (the albedo scaled so its
--- brightest channel is 1, Sheen is how much of it). what the lobe sends back is taken from the
--- layers under it (the khronos sheen extension), by the directional albedo of the lobe, a table integrated
--- from the lobe itself
 return {
 	name = "sheen",
 	category = "Sheen",
@@ -38,9 +33,6 @@ return {
 			return 1.0 / (4.0 * (NoL + NoV - NoL * NoV));
 		}
 
-		// the directional albedo of the lobe, the integral of D * V * NoL over the hemisphere, by n.v from 0 to 1
-		// in 8 steps (columns) and by roughness from 0.07 to 1 in 8 steps (rows). it is above 1 at a glancing angle
-		// on a smooth lobe, which no layer can give back, so the table stops at 1
 		const float SHEEN_ALBEDO_TABLE[64] = float[64](
 			1.0000, 0.3156, 0.0135, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000,
 			1.0000, 0.6897, 0.2771, 0.1029, 0.0324, 0.0076, 0.0010, 0.0000,
@@ -67,16 +59,13 @@ return {
 			float sheen_NoL = saturate(dot(s.N, L));
 			vec3 sheen_color = s.sheen * s.albedo / max(max(s.albedo.r, max(s.albedo.g, s.albedo.b)), 0.001);
 			specular += D_Charlie(s.sheen_roughness, saturate(dot(s.N, H))) * V_Neubelt(s.NdotV, sheen_NoL) * sheen_color * radiance * sheen_NoL;
-			// the layers under take what the sheen does not send back, the lesser of the view's and the light's
 			float sheen_scaling = min(1.0 - s.sheen * get_sheen_albedo(s.NdotV, s.sheen_roughness), 1.0 - s.sheen * get_sheen_albedo(sheen_NoL, s.sheen_roughness));
 			radiance *= max(sheen_scaling, 0.0);
 		}
 	]],
 	indirect_layer = [[
 		if (s.sheen > 0.0) {
-			// the lobe is broad, the irradiance stands in for what it gathers of the environment
 			float lobe_albedo = get_sheen_albedo(s.NdotV, s.sheen_roughness);
-			// the brightest channel of the color is Sheen
 			float sheen_albedo = s.sheen * lobe_albedo;
 			vec3 sheen_color = s.sheen * s.albedo / max(max(s.albedo.r, max(s.albedo.g, s.albedo.b)), 0.001);
 			ambient_diffuse *= 1.0 - sheen_albedo;

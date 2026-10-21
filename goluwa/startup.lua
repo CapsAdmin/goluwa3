@@ -34,17 +34,14 @@ function startup.End(name)
 	return span.stop - span.start
 end
 
--- for wall time that is not one block of code, ie a load that yields: `Begin` on the way in, `End` from the callback
 function startup.Mark(name)
 	marks[#marks + 1] = {name = name, time = get_time() - origin}
 end
 
--- seconds to add to a total with `Add`
 function startup.Start()
 	return get_time()
 end
 
--- adds the time since `Start` to a named total, for work that happens many times (a decode per model, a pipeline per shader)
 function startup.Add(name, started)
 	if startup.ready_time then return end
 
@@ -66,7 +63,6 @@ function startup.Add(name, started)
 	total.last = now - origin
 end
 
--- `time` is seconds since the start, the moment the scene stopped changing (it is only noticed a little later)
 function startup.SetReady(time, snapshot)
 	if startup.ready_time then return end
 
@@ -90,7 +86,6 @@ function startup.SetReady(time, snapshot)
 	end
 end
 
--- copies the totals, for `SetReady` when the scene only turned out to be done a while after it was
 function startup.Snapshot()
 	local snapshot = {}
 
@@ -121,7 +116,6 @@ local function by_start(a, b)
 	return a.order < b.order
 end
 
--- spans in start order with a depth; an unfinished span ends now
 function startup.GetTree()
 	local now = get_time() - origin
 	local list = {}

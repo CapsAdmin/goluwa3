@@ -54,8 +54,6 @@ local function common_glsl()
 	return glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("ddgi_data") .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL()
 end
 
--- the rays of a frame: every probe of every cascade is dispatched, the ones whose cascade is not updating this frame
--- return at once, so rays is what is traced and dispatched what is launched
 local function record_ray_info(name, state)
 	local updating = 0
 
@@ -221,23 +219,17 @@ local function pass_shade()
 			};
 		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
 		shader = "#define DDGI_UNSCALED\n" .. ddgi.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (VISIBILITY_RAYS and glass_light.GetGLSL("ddgi_scene") or glass_light.GetStubGLSL()) .. [[
-			// clamped to what the ray texture holds, see ddgi.HALF_PRECISION_RAYS
+
 			void store_ray(ivec2 pos, vec4 ray) {
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
 			}
 
-			// The sun's visibility comes from the trace pass. The local lights in
-			// P's light grid cell are sampled (see ddgi.LIGHT_SAMPLES): each
-			// sample streams over them keeping a light with its share of the
-			// weight summed so far, reusing one random number by rescaling it,
-			// and the kept light's shadow ray is traced here, by ray query.
 			vec3 ddgi_direct_light(vec3 P, vec3 N, bool sun_visible, float radius, vec4 u) {
 				vec3 L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 				float NoL = max(dot(N, L), 0.0);
 				vec3 direct = vec3(0.0);
 
 				if (RT_HIT_SUN != 0 && sun_visible) {
-					// the fog layer above the hit takes its share of the beam (see atmosphere.lua), world y is up from the eye's altitude
 					float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_EYE_HEIGHT) .. [[ + P.y * 0.001;
 					float fog = ddgi_ground_fog_sun_transmittance(fog_altitude, L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y);
 					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P) * fog;
@@ -251,7 +243,6 @@ local function pass_shade()
 
 				float total = 0.0;
 				vec3 picked_light[DDGI_LIGHT_SAMPLES];
-				// xyz = direction to the light, w = distance along it
 				vec4 picked_ray[DDGI_LIGHT_SAMPLES];
 				float picked_weight[DDGI_LIGHT_SAMPLES];
 
@@ -280,7 +271,6 @@ local function pass_shade()
 
 					if (light_NoL <= 0.0) continue;
 
-					// flatten the falloff inside the light radius
 					vec3 to_light = light.position.xyz - P;
 					float light_dist = length(to_light);
 					attenuation *= get_light_falloff(light, light_dist) / max(get_light_falloff(light, max(light_dist, radius)), 0.0025);
@@ -308,13 +298,11 @@ local function pass_shade()
 				for (int k = 0; k < DDGI_LIGHT_SAMPLES; k++) {
 					if (picked_weight[k] <= 0.0) continue;
 
-					// stops short of the light so a bulb mesh around it doesn't shadow it
 					float shadow_distance = max(picked_ray[k].w - DDGI_SHADOW_OFFSET, 0.0);
 					#if defined(DDGI_VISIBILITY_RAYS) && RT_HIT_SHADOWS
 					rayQueryEXT query;
 					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, P, 0.0, picked_ray[k].xyz, shadow_distance);
 
-					// glass is no occluder, it tints the light below. everything else non opaque blocks
 					while (rayQueryProceedEXT(query)) {
 						if (ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))].glass == 0) rayQueryConfirmIntersectionEXT(query);
 					}
@@ -356,12 +344,6 @@ local function pass_shade()
 				vec3 origin = ddgi_probe_origin(slot, c, world);
 				uint hit_index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
 
-				// An emitter sample that got through (see the ray generation
-				// shader): its estimate of the irradiance, the point's radiance
-				// over the weight it was drawn with (luminance, since the power
-				// it was drawn by divides out). Over pi and the sample count like
-				// the uniform rays' estimate, with the direction packed into a;
-				// the update pass applies each texel's cosine.
 				if (ray >= uint(DDGI_RAYS)) {
 					uvec4 hit = ddgi_hits[hit_index];
 					float weight = uintBitsToFloat(hit.x);
@@ -397,21 +379,17 @@ local function pass_shade()
 
 				uvec4 hit = ddgi_hits[hit_index];
 				float t = uintBitsToFloat(hit.x);
-				// what the ray sees is filtered by the glass it passes through on its way
 				vec3 glass = vec3(1.0);
 
 				if (ddgi_data.glass_light != 0) glass = get_glass_light(origin, dir, t < 0.0 ? ddgi_data.ddgi_max_distance : t, 0.0);
 
 				if (t < 0.0) {
-					// the miss distance carries how much of the sky the glass lets through, from half the distance (none) to all of it
 					store_ray(pos, vec4(ddgi_sky(dir) * glass, DDGI_MISS_DISTANCE * mix(0.5, 1.0, luminance(glass))));
 					return;
 				}
 
 				scene_triangle tri = scene_hit_tri(hit.y, hit.z);
 				ddgi_material material = ddgi_materials[tri.material];
-				// the rasterizer culls counter clockwise ("front") faces, so the
-				// visible side winds clockwise and cross(e1, e2) points inward
 				vec3 N = -tri.normal;
 
 				if (dot(dir, N) > 0.0) {
@@ -432,7 +410,6 @@ local function pass_shade()
 
 				float weight;
 				#if RT_HIT_PROBES
-				// the probe that shot the ray sees the point, the probes that are far brighter than it are the ones to check
 				ddgi_contrast_reference = luminance(textureLod(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, N, DDGI_IRRADIANCE_TEXELS), 0.0).rgb);
 				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight).rgb;
 				#endif
@@ -444,8 +421,6 @@ local function pass_shade()
 end
 
 local function pass_update(name, texels, integrate)
-	-- state, one texel per probe (every texel of a probe computes the same): x the frames behind it, y the median of its mean ray
-	-- brightness, z how consistently new values are on one side of the median, w their average
 	local color_formats = {{integrate.atlas_format[1], {name, "rgba"}}}
 	local storage_images = {
 		{binding_index = BINDING_OUTPUT, dst_stage = "compute"},
@@ -496,13 +471,11 @@ local function pass_update(name, texels, integrate)
 		custom_declarations = declarations,
 		shader = common_glsl() .. [[
 			#define TEXELS ]] .. texels .. [[
-			// how far from its median a value has to be to count as one side of it: a light that is slowly settling
-			// is not a change, the median keeps up with it
+
 			#define DDGI_CHANGE_MARGIN 1.15
 
 			shared vec4 s_ray[DDGI_RAYS];
 			shared vec3 s_dir[DDGI_RAYS];
-			// what each ray counts for, see ddgi_ray_weight
 			shared float s_q[DDGI_RAYS];
 
 			void main() {
@@ -511,7 +484,6 @@ local function pass_update(name, texels, integrate)
 				int c = tile.y / DDGI_P;
 				int probe = tile.x + DDGI_P * DDGI_P * (tile.y % DDGI_P);
 
-				// a whole workgroup is one probe, so this leaves no one at the barrier
 				if ((ddgi_data.ddgi_update_mask & (1 << c)) == 0 || probe >= ddgi_probe_count(c)) return;
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
@@ -554,10 +526,6 @@ local function pass_update(name, texels, integrate)
 				""
 			) .. [[
 
-				// A probe that was reset, just moved or is disabled has no history. How much of the
-				// history a texel keeps: the cascade's rate, but a texel with n frames behind it
-				// weighs the new one 1 / (n + 1), and a probe whose mean ray brightness moved takes
-				// the new frame at once. Noise averages out of that mean, a moving shadow does not.
 				vec4 data = ddgi_probe_data(slot, c);
 				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && !ddgi_probe_disabled(data) && !ddgi_probe_moved(data);
 				vec4 state = current ? imageLoad(state_atlas, tile) : vec4(0.0);
@@ -572,14 +540,6 @@ local function pass_update(name, texels, integrate)
 				}
 
 				probe_mean /= max(probe_weight, 1e-4);
-				// Has the probe's light changed? y follows the median of the probe's mean ray brightness, a step of 1 percent
-				// of w (their average) up and of y down towards each new value, and z is how consistently the new values are
-				// on one side of it. A change that stays puts them all on one side until the median has caught up, noise puts
-				// them on both, and a light that is slowly settling stays within the margin. Rare bright rays are no change
-				// either: a probe that sees a sun lit patch or a gap in the sky in a fraction of a percent of its rays has a
-				// mean far above its median, the values around its average are all below it, which an average mistakes for
-				// the light going down. What the frames before this one found decides how fast this one is taken in, or a
-				// lone spike would give way to itself
 				float change = abs(state.z);
 				float direction = probe_mean > state.y ? 1.0 : -1.0;
 				float side = probe_mean > state.y * DDGI_CHANGE_MARGIN ? 1.0 : (probe_mean < state.y / DDGI_CHANGE_MARGIN ? -1.0 : 0.0);
@@ -589,11 +549,9 @@ local function pass_update(name, texels, integrate)
 				state.w = state.x > 0.0 ? mix(probe_mean, average, 0.97) : probe_mean;
 				float keep = ddgi_data.ddgi_cascade_update[c].x;
 				keep = mix(keep, pow(keep, ddgi_data.ddgi_change_power), clamp((change - 0.6) / 0.3, 0.0, 1.0));
-				// the sun moved since this cascade was last updated, what it held is out of date
 				if (ddgi_data.ddgi_cascade_update[c].y > 0.0) keep = min(keep, 0.4);
 				keep = min(keep, state.x / (state.x + 1.0));
 				state.x = min(state.x + 1.0, 1024.0);
-				// the texels of a probe all read the state before the first of them writes it
 				memoryBarrierImage();
 				barrier();
 
@@ -608,8 +566,7 @@ end
 local IRRADIANCE_INTEGRATE = {
 	atlas_format = {"r16g16b16a16_sfloat", "rgba16f"},
 	declare = [[
-		// mean luminance of the probe's rays without its brightest, the
-		// reference a ray is capped against
+
 		float ray_cap = 1e30;
 
 		if (ddgi_data.ddgi_ray_clamp > 0.0) {
@@ -663,7 +620,6 @@ local DISTANCE_INTEGRATE = {
 
 		if (w <= 0.0) continue;
 
-		// long enough to reach across a cell to a probe relocated away from it
 		float d = min(abs(ray.a), spacing * 2.6);
 		sum += vec4(d, d * d, 0.0, 0.0) * w;
 		weight_sum += w;
@@ -726,7 +682,6 @@ local function pass_probe_data()
 				float min_distance = ddgi_data.ddgi_relocation_distance * spacing;
 				ivec2 tile = ddgi_tile(slot, c);
 
-				// only the uniform rays, the others look where the light is
 				for (int r = 0; r < ddgi_data.ddgi_uniform_rays; r++) {
 					float a = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(r), slot, c), 0).a;
 
@@ -743,11 +698,6 @@ local function pass_probe_data()
 					}
 				}
 
-				// One frame's fraction of a few dozen rays is too noisy to decide on:
-				// a probe near the threshold would switch on and off (and relocate
-				// back and forth) with every rotation of the rays. It is averaged
-				// over frames, and a disabled probe needs a clearly lower fraction
-				// to come back.
 				bool settled = !ddgi_cascade_reset(c) && ddgi_probe_is_current(previous, world) && !ddgi_probe_moved(previous);
 				float backface_fraction = backfaces / float(ddgi_data.ddgi_uniform_rays);
 				float smoothed = settled ? mix(backface_fraction, ddgi_probe_backfaces(previous), 0.8) : backface_fraction;
@@ -755,10 +705,7 @@ local function pass_probe_data()
 				vec3 previous_offset = offset;
 				vec3 moved = offset;
 
-				// a probe in a thin wall sees its backfaces close in every direction. Which side it
-				// leaves by is a coin toss, and half the time it ends up outside the room
 				if (min_distance > 0.0 && disabled && short_back < backfaces * 0.8) {
-					// along one axis only: a diagonal move at a corner of thin walls leaves through the crack between them
 					vec3 axis = abs(closest_back_dir);
 					vec3 move_dir = sign(closest_back_dir) * vec3(axis.x >= axis.y && axis.x >= axis.z, axis.y > axis.x && axis.y >= axis.z, axis.z > axis.x && axis.z > axis.y);
 					moved += move_dir * (closest_back + min_distance * 0.5);
@@ -813,7 +760,6 @@ local function pass_guide()
 			shared vec3 s_dir[DDGI_RAYS];
 			shared float s_q[DDGI_RAYS];
 			shared int s_cell[DDGI_RAYS];
-			// where in its cell a ray is
 			shared vec2 s_inner[DDGI_RAYS];
 			shared float s_value[DDGI_GUIDE_CELLS];
 			shared float s_cdf[DDGI_GUIDE_CELLS];
@@ -851,7 +797,6 @@ local function pass_guide()
 				float weight = 0.0;
 				float all_sum = 0.0;
 				float all_weight = 0.0;
-				// the brightest ray of the cell, and where the bright ones are in it (weighed by their luminance squared)
 				float peak = 0.0;
 				vec2 spot_sum = vec2(0.0);
 				float spot_weight = 0.0;
@@ -870,14 +815,10 @@ local function pass_guide()
 					}
 				}
 
-				// a cell no ray landed in keeps its history, and starts at the
-				// probe's mean without one
 				float value = weight > 0.0 ? sum / weight : (has_history ? previous : all_sum / all_weight);
 
 				if (weight > 0.0 && has_history) value = mix(value, previous, DDGI_GUIDE_HISTORY);
 
-				// Where the cell aims its rays and how many. A cell with a peak far above its mean (a small bright patch
-				// in it) aims at the peak, the spot follows the peaks that are found, and the share fades while none is
 				vec3 aim = has_history ? ddgi_guide_aim_stored(previous_texel.a) : vec3(0.5, 0.5, 0.0);
 
 				if (weight > 0.0) {
@@ -950,7 +891,6 @@ local function pass_probe_debug()
 			vec2 in_uv;
 		]] .. screen_reconstruct.GetWorldRayGLSL("ddgi_data") .. [[
 
-			// Quilez's ray/capsule intersection, -1 on a miss
 			float ddgi_capsule(vec3 ro, vec3 rd, vec3 pa, vec3 pb, float r) {
 				vec3 ba = pb - pa;
 				vec3 oa = ro - pa;
@@ -990,9 +930,7 @@ local function pass_probe_debug()
 				float spacing = ddgi_spacing(c);
 				float best = depth <= 0.0 ? 1e9 : length(get_world_pos(in_uv, depth) - O);
 				float radius = spacing * 0.12;
-				// display units per absolute unit, the exposure the scene is shown with
 				float exposure = get_pre_exposure() * ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[;
-				// clip the ray to the volume, grown by a cell for the offsets
 				vec3 inv = 1.0 / (D + vec3(equal(D, vec3(0.0))) * 1e-7);
 				vec3 box_min = vec3(ddgi_volume_base(c) - 1) * spacing;
 				vec3 box_max = vec3(ddgi_volume_base(c) + ddgi_volume_size(c)) * spacing;
@@ -1005,9 +943,6 @@ local function pass_probe_debug()
 				vec4 result = vec4(0.0);
 
 				if (t < t_exit) {
-					// walk the cells the ray crosses; a probe (offset under half a
-					// cell, plus its radius) stays inside the cells around its
-					// grid point, so testing each crossed cell's corners finds it
 					vec3 o = O / spacing;
 					vec3 d = D / spacing;
 					ivec3 cell = ivec3(floor(o + d * (t + 1e-4)));
@@ -1048,7 +983,6 @@ local function pass_probe_debug()
 									hit_color = shown / (1.0 + shown);
 								}
 
-								// a disabled probe's atlas is a fresh noisy estimate every frame, nothing shades with it
 								if (disabled) hit_color = vec3(0.8, 0.0, 0.0);
 							}
 
@@ -1213,7 +1147,6 @@ local function pass_scene_debug()
 				if (ddgi_data.ddgi_rt_ready != 0 && debug_trace(O, D, hit)) {
 					scene_triangle tri = scene_hit_tri(hit.instance, hit.primitive);
 					ddgi_material material = ddgi_materials[tri.material];
-					// see the shade pass: cross(e1, e2) points inward
 					vec3 N = -tri.normal;
 					bool back = dot(D, N) > 0.0;
 
@@ -1284,9 +1217,7 @@ local function pass_resolve()
  layout(set = 0, binding = ]] .. BINDING_SCREEN_SPECULAR .. [[, rgba16f) uniform writeonly image2D out_specular;
  ]],
 		shader = common_glsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
-			// each texel resolves the mean of four pixels spread over the pixels it covers (one
-			// probe lookup at their mean position and normal), so thin moving geometry doesn't
-			// flip it between the surface and what is behind
+
 			void main() {
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(out_color);
@@ -1319,7 +1250,6 @@ local function pass_resolve()
 						vec3 bent = texture(TEXTURE(ddgi_data.ddgi_bent_normal_tex), uv).xyz;
 						float bent_length = length(bent);
 
-						// the sky and glass have none
 						if (bent_length > 0.1) bent_sum += bent / bent_length - N;
 					}
 
@@ -1345,16 +1275,12 @@ local function pass_resolve()
 				float weight;
 				vec4 gi = ddgi_sample_irradiance(P, N, L, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
 
-				// outside the volume the sky is all there is to go on; inside it,
-				// no usable probe means the point is enclosed and gets nothing
 				if (weight <= 0.0 && !ddgi_in_volume(P)) {
 					gi = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, N) * ddgi_data.ddgi_strength, 1.0);
 				}
 
 				imageStore(out_color, pos, gi);
 
-				// what stands in for a rough reflection is the light around the reflection direction, not around
-				// the normal. a smooth surface traces its reflection, so it keeps the normal's
 				vec4 specular = gi;
 
 				if (roughness > 0.25) {

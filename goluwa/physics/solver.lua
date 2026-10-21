@@ -424,8 +424,6 @@ local function solve_pair(self, pair, dt)
 	end
 end
 
--- The first pass collects the manifolds of an island (rebuilding contacts where needed), prepares
--- and warm starts them as one batch; later passes and the relax sweeps re-solve that batch.
 function Solver:SolveRigidBodyPairs(island, dt, pass)
 	if pass == 1 then
 		contact_solver.BeginGroup(island)

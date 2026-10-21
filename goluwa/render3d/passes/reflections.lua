@@ -36,7 +36,6 @@ local resolution = pvars.Setup2{
 	enums = {"full", "half", "quarter"},
 	help = "the resolution the reflections are traced and filtered at, relative to the screen. full traces a ray for every pixel (4 times the work of half), quarter a ray for every 4 by 4 pixels. the filter radius is the same on screen at every resolution",
 	callback = function()
-		-- the framebuffers take their size from the scale when they are made, the history starts over with them
 		local pipelines = render3d.pipelines
 
 		if pipelines and pipelines.reflections_trace then
@@ -56,11 +55,8 @@ local shared_glsl = [[
 			#define SCREENSPACE_BINARY_STEPS 6
 			#define SCREENSPACE_STRIDE 2.0
 			#define SCREENSPACE_MAX_DISTANCE 80.0
-			// where lighting stops using the reflection buffer (get_reflection_blend_weight), nothing above it is traced
 			#define REFLECTION_ROUGHNESS_CUTOFF (reflection_data.roughness_cutoff)
-			// taps spread over the reflection cone's footprint in the last frame
 			#define SCREENSPACE_CONE_TAPS 9
-			// glints are high variance, a tight clamp and a short history would never settle them
 			#define REFLECTION_CLAMP_SIGMA 3.0
 			#define REFLECTION_HIST_LO 0.9
 			#define REFLECTION_HIST_HI 0.97
@@ -72,7 +68,6 @@ local shared_glsl = [[
 			vec4 inv_projection_row_w;
 			float max_hit_luminance;
 
-			// downweights bright samples when averaging, relative to the limit
 			float get_firefly_weight(vec3 color, float limit) {
 				return 1.0 / (1.0 + luminance(color) / max(limit * 0.1, 1e-6));
 			}
@@ -109,7 +104,6 @@ local shared_glsl = [[
 
 ]]
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
--- both passes read the same block, the history is the reflections pass's own
 local function get_uniform_buffers(with_ddgi)
 	return {
 		{
@@ -273,19 +267,13 @@ return {
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. [[
 		]] .. screen_reconstruct.GetGeometricNormalGLSL("reflection_data", {world_pos_function = "get_world_pos"}) .. [[
 		]] .. shared_glsl .. scene_reflection.GetDirectionGLSL() .. [[
-			// a rough lobe averages many directions, so one bright texel in it is a firefly
-			// and not light. the limit falls as the lobe widens
+
 			float get_hit_luminance_limit(float roughness) {
 				return scene_reflection_hit_luminance_limit(roughness, max_hit_luminance, REFLECTION_ROUGHNESS_CUTOFF);
 			}
 
-			// how far the ray that just found something went, in meters, set by the traces
 			float reflection_hit_distance;
 			vec2 blue_noise(ivec2 pixel, int sample_index) {
-				// the pixel's blue noise texel, moved on by one step of the R2 sequence per sample. frame_index is 0 without a
-				// temporal anti aliasing mode (render3d.GetTemporalFrame), then the noise stays where it is instead of crawling,
-				// a pattern nothing resolves. sample is the frame's own ray number, rays_per_frame of them: a ray's numbers
-				// are never another frame's
 				vec2 xi = blue_noise_texel(TEXTURE(reflection_data.blue_noise_tex), pixel).rg;
 				return blue_noise_r2(xi, float((reflection_data.frame_index % 64) * reflection_data.rough_rays + sample_index));
 			}
@@ -389,11 +377,9 @@ return {
 								edge_fade *= 1.0 - pow(max(abs(last_frame_uv.x - 0.5), abs(last_frame_uv.y - 0.5)) * 2.0, 3.0);
 								float dist_fade = 1.0 - smoothstep(SCREENSPACE_MAX_DISTANCE * 0.7, SCREENSPACE_MAX_DISTANCE, length(hit_vs - pos_vs));
 								float thick_conf = 1.0 - saturate(refined_diff / max(0.15, -z_surf * 0.03));
-								// last frame's scene was pre-exposed for last frame, reflections are absolute
 								vec3 hit_color;
 
 								if (roughness > SCENE_REFLECTION_MIRROR_THRESHOLD) {
-									// the reflection's cone is wider than a texel: its footprint at the hit
 									float radius_uv = roughness * roughness * length(hit_vs - pos_vs) / max(-hit_vs.z, 0.1) * reflection_data.projection[1][1] * 0.5;
 									radius_uv = min(radius_uv, 0.05);
 									vec3 sum = vec3(0.0);
@@ -443,15 +429,10 @@ return {
 			vec4 cast_reflection_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 geometric_N, vec3 V, float roughness, vec2 xi) {
 				if (roughness > REFLECTION_ROUGHNESS_CUTOFF) return vec4(0.0);
 
-				// a normal map can turn a pixel away from the camera, which would
-				// reflect into the surface. bend it back toward the viewer
 				N = bend_normal_to_view(N, V);
 				float environment_roughness;
 				vec3 R_world = scene_reflection_direction(N, V, roughness, xi, environment_roughness);
 
-				// a normal map tilted sideways can reflect below the actual surface,
-				// where the ray would leave through the floor and find the sky.
-				// mirror it back above the geometric plane instead
 				float below = dot(R_world, geometric_N);
 
 				if (below < 0.01) R_world = normalize(R_world + geometric_N * (0.01 - 2.0 * below));
@@ -468,9 +449,6 @@ return {
 				vec4 hit = rt_primary ? vec4(0.0) : trace_screenspace_direction(pos_vs, R_vs, roughness, xi.y);
 
 				#ifdef SCENE_REFLECTION
-				// what the screen doesn't hold (off screen, behind something or
-				// facing the camera) is traced; faded screen hits blend into it.
-				// when primary the scene hit owns visibility and screen-space hits are not used
 				if (scene_reflection_ready() && hit.a < 0.999) {
 					vec3 origin = world_pos + geometric_N * (0.02 + 0.002 * -pos_vs.z);
 					float traced_t;
@@ -483,7 +461,6 @@ return {
 				}
 				#endif
 
-				// lighting fills the rest with its sky visibility aware environment
 				return hit.a > 0.0 ? hit : vec4(0.0);
 			}
 
@@ -526,7 +503,6 @@ return {
 
 				if (depth > 0.0) {
 					N = gbuffer_normal(gbuffer_pos);
-					// the gbuffer stores ggx alpha
 					roughness = sqrt(gbuffer_roughness(gbuffer_pos));
 					world_pos = get_world_pos(uv, depth);
 					vec3 pos_vs = (reflection_data.view * vec4(world_pos, 1.0)).xyz;
@@ -537,8 +513,6 @@ return {
 					float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * reflection_data.inv_projection[1][1] / float(gbuffer_size.y);
 					]] .. surface_features.GetReflectionGLSL() .. [[
 
-					// a rough surface traces several rays, each with its own random numbers (see blue_noise)
-					// and the results are averaged weighted by what each found
 					int rays = scene_reflection_ray_count(roughness, reflection_data.rough_rays);
 					vec4 sum = vec4(0.0);
 					float found = 0.0;
@@ -591,8 +565,6 @@ return {
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_reflection;
 			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_reflection_depth;
 		]],
-		-- what the trace pass found, filtered over the surrounding texels (a pass of its own, a tile of
-		-- shared memory left a grid of noisier texels along its borders) and blended with the history
 		shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. scene_reflection.CONSTANTS_GLSL .. [[
 		]] .. ibl.GetReflectionQuadGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. shared_glsl .. [[
 
@@ -619,7 +591,6 @@ return {
 
 				vec4 current = texelFetch(TEXTURE(reflection_data.raw_tex), pos, 0);
 				vec3 N = gbuffer_normal(gbuffer_pos);
-				// the gbuffer stores ggx alpha
 				float roughness = sqrt(gbuffer_roughness(gbuffer_pos));
 				float view_depth = -linearize_depth(uv, depth);
 				vec3 moment1 = vec3(0.0);
@@ -627,34 +598,23 @@ return {
 				float alpha_accum = 0.0;
 				float color_weight = 0.0;
 				float total_weight = 0.0;
-				// the alphas the similar surrounding texels hold, history is held to them
 				float alpha_min = 1.0;
 				float alpha_max = 0.0;
 
-				// the center, then taps over a disc (a golden angle spiral turned by a per pixel angle, so the taps of
-				// neighbouring texels differ and the error is grain, not a pattern). the disc's radius is a texel
-				// for a reflection that stays sharp and grows with the lobe's width at the hit, up to filter_radius
 				float hit_distance = texelFetch(TEXTURE(reflection_data.raw_distance_tex), pos, 0).r;
 
-				// no hit (the sky, or nothing found): as far as it goes
 				bool has_hit = hit_distance > 0.0 && current.a > 0.5;
 
 				if (hit_distance <= 0.0) hit_distance = 1000.0;
 
-				// the lobe's width at the hit, in meters, over the size of a texel on this surface: how many
-				// texels reflect into the same lobe, and so how far a texel's neighbours can be averaged with it
 				float lobe_width = 2.0 * hit_distance * roughness * roughness;
 				float texel_size = view_depth * 2.0 * reflection_data.inv_projection[1][1] / float(reflection_size.y);
-				// on a curved surface the reflected rays of neighbouring texels diverge, the normal turns by dN between
-				// two and the reflection by twice that, so where they land at the hit moves by that much times the
-				// distance on top of the texel's own size. a flat surface has no dN and keeps the whole lobe
 				ivec2 texel_step = gbuffer_size / reflection_size;
 				float normal_change = max(
 					length(gbuffer_normal(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1)) - N),
 					length(gbuffer_normal(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1)) - N)
 				);
 				float hit_shift_per_texel = texel_size + 2.0 * hit_distance * normal_change;
-				// the radius pvar is in texels of the half resolution, a full resolution texel is half as far on screen
 				float max_radius = max(1.0, reflection_data.filter_radius * 2.0 / float(texel_step.x));
 				float disc_radius = clamp(lobe_width / max(hit_shift_per_texel, 1e-5), 1.0, max_radius);
 				float disc_turn = 6.2831853 * fract(52.9829189 * fract(dot(vec2(pos), vec2(0.06711056, 0.00583715))));
@@ -677,7 +637,6 @@ return {
 
 					if (sample_gbuffer_depth <= 0.0) continue;
 
-					// how far the tap's surface is from the center's plane, a slope has no view depth step to cut it
 					vec3 sample_world = get_world_pos((vec2(sample_gbuffer_pos) + 0.5) / vec2(gbuffer_size), sample_gbuffer_depth);
 					float plane_distance = abs(dot(N, sample_world - center_world));
 					float depth_weight = exp(-plane_distance / max(view_depth * 0.03, 0.03));
@@ -688,7 +647,6 @@ return {
 					if (weight <= 0.0001) continue;
 
 					vec4 sample_value = texelFetch(TEXTURE(reflection_data.raw_tex), sample_pos, 0);
-					// rgb only counts as much as the sample found something
 					float sample_color_weight = weight * sample_value.a * get_firefly_weight(sample_value.rgb, max_hit_luminance);
 					moment1 += sample_value.rgb * sample_color_weight;
 					moment2 += sample_value.rgb * sample_value.rgb * sample_color_weight;
@@ -717,23 +675,12 @@ return {
 					bool has_motion = fetch_surface_motion(uv, prev_uv, prev_depth);
 
 					if (has_motion) {
-						// the ray was traced from a gbuffer pixel off the texel's centre, but history
-						// is stored and read at texel centres. reading it at the pixel's own position
-						// would shift the feedback by that offset every frame, smearing it one way
 						prev_uv += (vec2(pos) + 0.5) / vec2(reflection_size) - uv;
-						// the reflection is an image behind the surface, hit_distance past it along the view ray, and it
-						// moves with the camera by another amount than the surface does. the history is read where the
-						// image was, as far as the hit distance says where that is, which it does not for a rough
-						// surface (an average of rays going everywhere). what is left of the difference is not
-						// corrected, and the history is held back by it
 						float history_weight_scale = 1.0;
 						vec2 surface_prev_uv = prev_uv;
 
 						if (reflection_data.hit_reprojection != 0 && has_hit) {
 							vec3 view_ray = normalize(center_world - reflection_data.camera_position.xyz);
-							// the image of a curved mirror is not hit_distance behind it. 1 / image = 1 / hit + 2 * curvature
-							// (a convex surface brings it closer, a concave one pushes it out and past a point there is no
-							// image behind the surface at all), the curvature is how far the normal turns over a texel
 							vec3 step_x_world = get_world_pos((vec2(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1)) + 0.5) / vec2(gbuffer_size), gbuffer_depth(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1))) - center_world;
 							vec3 step_y_world = get_world_pos((vec2(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1)) + 0.5) / vec2(gbuffer_size), gbuffer_depth(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1))) - center_world;
 							float curvature = 0.5 * (
@@ -754,8 +701,6 @@ return {
 						}
 
 						if (prev_uv.x > 0.0 && prev_uv.x < 1.0 && prev_uv.y > 0.0 && prev_uv.y < 1.0 && surface_prev_uv.x > 0.0 && surface_prev_uv.x < 1.0 && surface_prev_uv.y > 0.0 && surface_prev_uv.y < 1.0) {
-							// the surface is checked where it was, the image is somewhere else on it (or on something else,
-							// the colour clamp holds that back)
 							float history_depth = texture(TEXTURE(reflection_data.history_depth_tex), surface_prev_uv).r;
 
 							if (abs(history_depth - prev_depth) < prev_depth * 0.05 + 0.02) {
@@ -764,10 +709,6 @@ return {
 								if (!any(isnan(history))) {
 									vec3 clamp_extent = deviation * REFLECTION_CLAMP_SIGMA + mean * 0.05 + 0.001;
 									history.rgb = clamp(history.rgb, mean - clamp_extent, mean + clamp_extent);
-									// the colour is held to the neighbourhood, so is the alpha. history is read between
-									// texels, and at a silhouette that blends in the alpha of what is beside the
-									// surface (an object without a reflection), which feeds itself and leaves a
-									// line of the bright environment fallback along the contact
 									if (alpha_min <= alpha_max) history.a = clamp(history.a, alpha_min, alpha_max);
 									float history_weight = mix(REFLECTION_HIST_LO, REFLECTION_HIST_HI, smoothstep(0.0, 0.3, roughness));
 									result = mix(filtered, history, history_weight * history_weight_scale);

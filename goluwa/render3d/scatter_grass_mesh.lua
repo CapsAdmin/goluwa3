@@ -11,7 +11,6 @@ local GRADIENT_WIDTH = 8
 local GRADIENT_HEIGHT = 16
 local material
 
--- a blade is lit by its tuft rather than by its own facing, so the vertex normal is mostly up
 local NORMAL_UP = 0.6
 
 local function get_material()
@@ -26,7 +25,6 @@ local function get_material()
 			local edge = math.abs(x / (GRADIENT_WIDTH - 1) * 2 - 1)
 			local shade = math.lerp(0.45, 1.0, t) * (1 - edge * edge * 0.18)
 			local i = (y * GRADIENT_WIDTH + x) * 4
-			-- near neutral, the tint of the instance brings the color
 			pixels[i] = math.min(shade * 0.62 * 255, 255)
 			pixels[i + 1] = math.min(shade * 0.72 * 255, 255)
 			pixels[i + 2] = math.min(shade * 0.42 * 255, 255)
@@ -53,9 +51,7 @@ local function get_material()
 	material:SetDoubleSided(true)
 	material:SetMetallicMultiplier(0)
 	material:SetRoughnessMultiplier(0.7)
-	-- F0 0.02 rather than 0.04, edge on blades otherwise get a white sheen from the fresnel
 	material:SetSpecularMultiplier(0.5)
-	-- light through the blade, a yellow green tint with luminance 1
 	material:SetDiffuseTransmission(0.4)
 	material:SetTransmissionScattering(0.5)
 	material:SetTransmissionColor(Color(0.9, 1.07, 0.6, 1))
@@ -64,8 +60,6 @@ local function get_material()
 	return material
 end
 
--- one tuft of curved blades around the origin, up is +y. the vertex colors are the vegetation bending
--- convention: r edge flutter, g phase, b stiffness (1 rigid), a occlusion
 function scatter_grass_mesh.Build(options)
 	local blade_count = options.blades
 	local state = options.seed * 2654435761 % 4294967296
@@ -86,7 +80,6 @@ function scatter_grass_mesh.Build(options)
 		local facing_angle = rand() * math.pi * 2
 		local facing = Vec3(math.cos(facing_angle), 0, math.sin(facing_angle))
 		local side = Vec3(-facing.z, 0, facing.x)
-		-- blades toward the middle of the tuft stand taller and straighter
 		local centered = 1 - distance / options.radius
 		local height = options.height * math.lerp(0.55, 1.0, rand()) * math.lerp(0.75, 1.0, centered)
 		local lean = math.lerp(0.1, options.lean, rand() * rand()) * math.lerp(1.0, 0.6, centered)

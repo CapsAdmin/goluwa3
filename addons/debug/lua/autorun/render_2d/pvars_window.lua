@@ -59,10 +59,8 @@ local function reset_all(editor)
 	refresh_values(editor)
 end
 
--- the editor that was mounted last, the desktop refreshes it when the window opens again
 local window_editor
 
--- the search, the groups and reset without a window
 local PvarsContent = react.Component(|| -> do
 	local filter, set_filter = react.UseState("")
 	local items = react.UseMemo(build_items, {})

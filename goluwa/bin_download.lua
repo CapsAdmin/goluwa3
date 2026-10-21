@@ -83,7 +83,6 @@ function bin_download.Fetch(url, label)
 	return body
 end
 
--- downloads release .. asset.file into directory and verifies its sha256, returns the written path
 function bin_download.Download(release, asset, directory)
 	if not asset.sha256 then
 		return nil,

@@ -1,8 +1,5 @@
 if not RENDER_2D then return end
 
--- the TERRAIN tab of the PERF window: the build queue and jobs, tiles per level, timings and a map of the tiles
--- around the camera colored by what they are doing. `terrain_stats` prints the same rows, `terrain_stats_map=<level>`
--- sets how far the map reaches (the extent of that level's grid, 0 is the finest)
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local commands = import("goluwa/cli/commands.lua")
@@ -16,7 +13,6 @@ local Terrain = import("goluwa/terrain/terrain.lua")
 local perf = import("lua/perf.lua")
 local MAP_SIZE = 200
 local TEXT_DIM = Color(0.5, 0.55, 0.65, 1)
--- what a tile is doing, in the map and in its legend
 local STATES = {
 	{name = "drawn", color = Color(0.25, 0.8, 0.35, 0.55)},
 	{name = "built, not drawn yet", color = Color(0.95, 0.85, 0.2, 0.7)},

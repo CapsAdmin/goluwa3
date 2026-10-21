@@ -35,8 +35,6 @@ vec3 lc_value_noise(vec2 x, float seed) {
 	return vec3(a + k1 * u.x + k2 * u.y + k3 * u.x * u.y, (k1 + k3 * u.y) * du.x, (k2 + k3 * u.x) * du.y);
 }
 
-// the original runs 15 octaves on the nearest heightmap and fewer on the coarse ones. here an octave stops once its
-// wavelength is under two samples, and the sum is normalised by the full 15 so levels agree
 float terrain_height(vec2 world) {
 	const mat2 m = mat2(0.825, -0.6, 0.6, 0.825);
 	const float erosion = 2.5;
@@ -72,7 +70,6 @@ float terrain_height(vec2 world) {
 		wavelength *= 0.5;
 	}
 
-	// the octaves a coarse bake leaves out have a mean of 0.5 each, without them the level sits lower than the finer ones
 	if (used < 15) a += b * 2.0 * (1.0 - pow(0.5, float(15 - used))) * 0.5 / (1.0 + dot(d, d) * erosion);
 
 	return (a / full_total - 0.5) * HEIGHT_RANGE + HEIGHT_OFFSET;
@@ -108,7 +105,6 @@ const float SNOW_RANGE = %f;
 	)
 end
 
--- the layers are grass, rock, snow, rock. the meadow grows on the low grass, the forest above it up to the tree line, the rocky set on the rock
 local function build_scatter_set()
 	local prototypes = {}
 

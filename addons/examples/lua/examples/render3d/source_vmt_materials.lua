@@ -8,7 +8,6 @@ local timer = import("goluwa/timer.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vmt_material = import("goluwa/source_engine/vmt_material.lua")
 steam.MountSourceGame("gmod")
--- one row per translation path of vmt_material.lua
 local rows = {
 	{
 		name = "envmap, no mask: weak tint = smooth dielectric, strong tint = metal",

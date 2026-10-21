@@ -1337,14 +1337,11 @@ commands.Add({
 					table.insert(output_parts, tostring(select(i, ...)))
 				end
 			end
-			-- Override io.write before requiring helpers.test so that the module's
-			-- `local io_write = io.write` alias picks up our capture function.
+			-- must be set before helpers.test is required, it aliases io.write locally
 			io.write = capture
 			io.flush = function() end
 
-			-- Intercept ShutDown: the test framework calls system.ShutDown() when all
-			-- tests complete. In a thread's Lua state this would kill the whole process.
-			-- Capture the exit code instead and use it to break the event loop.
+			-- ShutDown would kill the whole process from a thread, capture the exit code instead
 			local shutdown_code = nil
 			local has_tests = false
 			local system = import("goluwa/system.lua")
@@ -1374,10 +1371,7 @@ commands.Add({
 
 			local task = import("goluwa/tasks.lua")
 
-			-- IsBusy normally counts ALL tasks, including raw tasks created inside tests.
-			-- Those raw tasks may outlive the test tasks, preventing shutdown_code from
-			-- ever being set. Patch IsBusy to only count test tasks so the shutdown
-			-- signal fires as soon as all T.Test() wrappers have finished.
+			-- raw tasks created inside tests can outlive the test tasks and block shutdown_code, only count test tasks
 			task.IsBusy = function(exclude)
 				for task in pairs(task.created) do
 					if task ~= exclude and task.is_test_task then return true end

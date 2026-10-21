@@ -10,10 +10,6 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
 local editor_history = import("lua/editor_history.lua")
 local brush_editor = {}
--- Click selects a face, an edge or a vertex. Dragging the arrow of a selected face pushes or pulls it, dragging a
--- vertex or an edge moves it and holding R while starting the drag rotates it instead. Rotating a selected face works
--- the same, hold R and drag the face. X, Y or Z held while starting a rotation rotates around that world axis instead
--- of the view axis. Shift snaps.
 local listener_key = "brush_editor"
 local HANDLE_PIXELS = 90
 local HANDLE_TIP_RADIUS_PIXELS = 7
@@ -92,7 +88,6 @@ local function distance_to_segment(point, a, b)
 	return math.sqrt((point.x - x) ^ 2 + (point.y - y) ^ 2)
 end
 
--- world units covered by one pixel at a position, nil when it is behind the camera
 local function get_pixel_size(position)
 	local cam = render3d.GetCamera()
 	local depth = (position - cam:GetPosition()):GetDot(cam:GetRotation():GetForward())
@@ -124,7 +119,6 @@ local function get_centroid(points)
 	return sum / #points
 end
 
--- the view ray through the mouse hits the plane through origin that faces the camera
 local function intersect_view_plane(mouse_position, origin)
 	local cam = render3d.GetCamera()
 	local forward = cam:GetRotation():GetForward()
@@ -144,7 +138,6 @@ local function rotate_around_axis(point, pivot, axis, angle)
 		)
 end
 
--- projects the brush: its sides, the corners they share and the edges between corners
 local function update_geometry()
 	local brush = state.brush
 	local cam = render3d.GetCamera()
@@ -586,7 +579,6 @@ local function end_drag()
 	end
 end
 
--- points are the source space corners to move or rotate
 local function begin_edit_drag(window, points, select_face)
 	local mouse_position = window:GetMousePosition():Copy()
 	local start_points = state.brush:GetVertices()
@@ -724,7 +716,6 @@ function brush_editor.SetEntity(entity)
 	if state.brush then state.brush:Activate() end
 end
 
--- true while the editor wants the mouse, so the camera should not look around
 function brush_editor.IsBusy()
 	local hovered = state.hovered
 	return state.drag ~= nil or

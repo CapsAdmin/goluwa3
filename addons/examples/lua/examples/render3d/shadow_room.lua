@@ -9,7 +9,6 @@ local HEIGHT = 5
 local grey = shapes.Material{Color = Color(0.7, 0.7, 0.7, 1), Roughness = 0.9, Metallic = 0}
 local outside = shapes.Material{Color = Color(0.45, 0.4, 0.35, 1), Roughness = 0.9, Metallic = 0}
 
--- every plane is one quad facing into the room, so only its inside face is drawn and nothing but the plane itself stands between the sun and the floor
 local function plane(name, position, normal, size_x, size_y, material)
 	shapes.Polygon{
 		Name = name,

@@ -101,7 +101,6 @@ do
 		}
 	end
 
-	-- the rows of a snapshot of the allocations
 	local function build_rows(s)
 		local fraction = s.heap > 0 and s.total / s.heap or 0
 		local rows = {

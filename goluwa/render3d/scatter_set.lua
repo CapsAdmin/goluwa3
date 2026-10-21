@@ -1,87 +1,3 @@
--- sets of models scattered over surfaces, an object like a material. a material has one (ScatterSet), and
--- scatter.lua grows the set's prototypes on the material's ground, on the gpu, every frame, wherever the
--- prototype's rules say
---
--- local meadow = ScatterSet.New{
---     Name = "meadow",
---     Prototypes = {
---         {
---             model = "objects/natural/ground_plants/grass/grass_a.cgf",
---             density = 4,
---             ...
---         },
---     },
--- }
---
--- a set also has DensityMultiplier and DistanceMultiplier (both 1 by default), which scale the density and
--- the max_distance and full_density_distance of all its prototypes, and can be changed while it is in use
--- with set:SetDensityMultiplier(2). setting Prototypes builds them again, set.protos are the ones built
---
--- a prototype is one of the models and the rules for where and how it is grown. every key is optional
--- but model. a key that is not listed here is an error. ranges are a number or {min, max}, angles are
--- degrees, lengths meters
---
---   model: a model path, or a function returning the list of {mesh = polygon3d, material = material} the
---     model is made of (called once, when the set is first used)
---   density: instances per square meter where nothing holds it back
---   max_instances: leave it out for the room of the prototype to follow what it needs, which scatter.lua
---     estimates from the rules and then adjusts to what the gpu wanted. a number holds it there, instances over it
---     are dropped. 65536 instances is 4 MB
---   max_distance: no instances beyond it. past full_density_distance the instances thin out the further
---     they are, and the last 30% of max_distance they dither away
---   distance_scale: how much the instances grow wider as they thin out with distance, 0 not at all and 1
---     keeps the ground covered, for things that read as a carpet like grass
---   billboard: {distance = meters, fade = 0.15}, or true for 150 m. the model beyond the distance is drawn as the
---     baked billboard of render3d/billboard.lua (a few crossed quads with the model's picture on, made when the model
---     has loaded), crossfading with the model over fade (a share of the distance) around it. it casts shadows in the model's place.
---     the r_scatter_billboards pvar turns them off, and r_scatter_billboard_distance scales the distance and, for a prototype
---     that has one (not a placed one), how far it reaches past max_distance (a share of 4 times the pvar). only for
---     models that are a path
---   shadow: (true by default) the instances are drawn in the shadow maps, all of them, in view or not, so the ones behind the camera cast
---     shadows into it, and the shadow maps decide how far that goes. past the billboard's distance it is the billboard
---     that casts, which is much cheaper to draw in every cascade
---   bvh: (true by default) the instances are in the ray traced scene (global illumination, reflections, fog) the way the
---     shadow maps get them: the model up to the billboard's distance and the billboard beyond it, so a prototype that
---     casts no shadow is not in it. false for what is too small to matter to light (the pebbles)
---   density_response: the same for the set's DensityMultiplier, 1 by default and above it is fine: at 3 a
---     multiplier of 2 makes the density 4 times, so grass can grow denser than the trees do. the result is
---     `proto.density_multiplier`
---   distance_response: how much of the set's DistanceMultiplier this takes, 0 to 1 (1 by default). the multiplier
---     is what a prototype's distances are multiplied by, at 0.1 a multiplier of 10 makes them 1.9 times, so
---     grass can stay near while trees reach the horizon. the result is `proto.distance_multiplier`
---   conform: true makes the instance's base follow the ground under its footprint. a rigid copy of a wide model
---     aimed along the ground's normal at its root pokes through or floats off ground that curves, so at bake time
---     (needs ray queries) the ground is measured under the four edges of its footprint, and the vertex stage moves
---     the vertices near its base along its up axis to meet it, less the higher they are, so the tips stay free. for
---     models that are wide and low, grass and ground plants
---   cluster: {scale = meters, amount = 0 to 1}. noise patches across the ground that the density follows,
---     amount 1 leaves bare ground between clumps of the size of scale
---   layers: {r, g, b, a}, how much each channel of the surface's layer mask (the terrain's splat
---     weights) grows it, so one set can put grass on the grass layer and stones on the rock layer
---   slope: {min, max, fade} the angle of the ground to the horizon it grows on, with the density going to
---     zero over fade degrees outside of that
---   altitude: {min, max, fade} the same for the world height
---   scale: size, uniform, and height: an extra stretch along the up axis
---   yaw: random rotation around the up axis, 360 is any
---   align: how much the up axis follows the ground's normal instead of the world up, 0 to 1
---   align_steep: how much of align is left on a steep slope, 1 for all of it (the default). `align` stands the
---     model on the ground's normal, which on a wall of 50 degrees lays it nearly flat out of it, so this fades
---     the alignment to align * align_steep between 30 and 55 degrees of slope
---   tilt: random lean away from the up axis
---   sink: how far it is pushed into the ground along its up axis, before scaling
---   color: {surface, saturation, brightness, variation, tint = {a, b}, tint_scale, tint_amount}. the
---     instance is tinted by the color of the ground under it, surface is how much (0 to 1), saturation
---     pushes the ground's color away from grey (1 is as is), brightness how much of the ground's
---     brightness it keeps (0 only keeps the hue), variation is a random brightness range per instance.
---     tint is two colors (rgb 0 to 2, 1 leaves it as is) blended between by patches of tint_scale meters,
---     tint_amount is how strongly
---   bending: the wind bending of the model's materials, see the Bending material param. it is set on the
---     model's materials, which are shared with every other use of the model
---   placed: true for a prototype that has no rules, its instances are given to scatter.AddPlacements (the
---     scatter_placements component does that). density, cluster, layers, slope, altitude, the scale, yaw and
---     tilt keys mean nothing to it, max_distance is how far it is drawn and conform still applies. the billboard may
---     have `radii` instead of `distance`: the distance is that many of the model's radii (the model has to load first)
---   material_override: a material path (a Crysis mtl) that replaces the materials of the model's parts by their slot
 local objects = import("goluwa/objects/objects.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -89,13 +5,10 @@ local Material = import("goluwa/render3d/material.lua")
 local scatter_grass_mesh = import("goluwa/render3d/scatter_grass_mesh.lua")
 local ScatterSet = objects.CreateTemplate("render3d_scatter_set")
 ScatterSet.MAX_PROTOTYPES = 256
--- bumps whenever the list of prototypes or one of their models changes
 ScatterSet.version = 0
 local next_uid = 0
 local set_count = 0
--- the sets that are in use
 local active = {}
--- the prototypes of those, in a list
 local prototypes = {}
 local DEFAULTS = {
 	density = 1,
@@ -278,7 +191,6 @@ ScatterSet:StartStorable()
 ScatterSet:GetSet("DensityMultiplier", 1, {callback = "UpdateMultipliers"})
 ScatterSet:GetSet("DistanceMultiplier", 1, {callback = "UpdateMultipliers"})
 ScatterSet:EndStorable()
--- the definitions of the prototypes, see above
 ScatterSet:GetSet("Prototypes", {}, {callback = "BuildPrototypes"})
 
 function ScatterSet:OnConstruct()
@@ -359,7 +271,6 @@ local function finish_loading(proto, entries)
 		local polygon = entry.mesh
 		local mesh = polygon:GetMesh()
 
-		-- the lower levels of detail are other polygons of the same model
 		if polygon:GetLODLevel() == 0 and not polygon:GetLODBillboard() and mesh:IsValid() then
 			assert(mesh.index_buffer, proto.name .. " has a mesh without indices")
 			local material = entry.material or render3d.GetDefaultMaterial()
@@ -382,7 +293,6 @@ local function finish_loading(proto, entries)
 
 			proto.parts[#proto.parts + 1] = {mesh = mesh, polygon = polygon, material = material}
 		elseif mesh:IsValid() and not polygon:GetLODBillboard() and mesh.index_buffer then
-			-- the lowest level of detail there is is what stands in for the model in the bvh
 			local level = polygon:GetLODLevel()
 
 			if level > lod_level then
@@ -402,9 +312,7 @@ local function finish_loading(proto, entries)
 	else
 		proto.state = "ready"
 
-		-- how far from its origin the model reaches, and how tall it is, unscaled
 		proto.height = math.max(max_y, 0.01)
-		-- the mean half width of the model, how far the ground is measured from its root when it conforms
 		proto.footprint = 0.25 * ((max_x - min_x) + (max_z - min_z))
 		proto.radius = math.sqrt(
 			math.max(min_x * min_x, max_x * max_x) + math.max(min_y * min_y, max_y * max_y) + math.max(min_z * min_z, max_z * max_z)
@@ -476,7 +384,6 @@ function ScatterSet.Rebuild()
 	end
 end
 
--- marks the set as in use, which starts loading its models
 function ScatterSet:Use()
 	if not active[self] then
 		active[self] = true
@@ -486,7 +393,6 @@ function ScatterSet:Use()
 	return self
 end
 
--- the prototypes of the sets that are in use, proto.index is the place in this list (from 0)
 function ScatterSet.GetPrototypes()
 	return prototypes
 end
@@ -497,7 +403,6 @@ local TUFT_VARIANTS = {
 	{blades = 22, height = 0.5, width = 0.026, radius = 0.2, lean = 1.6},
 }
 
--- the grass that needs no assets, tufts of blades made in lua
 local grass
 
 function ScatterSet.GetGrass()

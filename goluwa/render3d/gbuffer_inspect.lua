@@ -3,10 +3,7 @@ gbuffer_inspect.SHEET = 1
 gbuffer_inspect.FIELD = 2
 gbuffer_inspect.TARGET = 3
 gbuffer_inspect.TARGETS = 4
--- which channels of a raw target are shown, the index is the channel mode of the shader
 gbuffer_inspect.CHANNELS = {"rgb", "r", "g", "b", "a"}
--- the gbuffer can be written differently while it is inspected: the normal from the vertices or from the normal map
--- instead of the combined one the lighting uses, and a terrain with its layers left out (the base color only)
 gbuffer_inspect.NORMAL_SOURCES = {"combined", "vertex", "map"}
 local normal_source = "combined"
 local terrain_only = false
@@ -15,8 +12,6 @@ local preview
 local entries
 local sheets
 
--- what the gbuffer holds per pixel, decoded: every field of the layout and the fixed targets. glsl is a vec3 expression
--- of `pixel` (an ivec2), GBUFFER. is the block the shader reads the targets from
 function gbuffer_inspect.GetEntries()
 	if entries then return entries end
 
@@ -53,8 +48,6 @@ function gbuffer_inspect.GetEntries()
 	return entries
 end
 
--- the entries grouped in sheets, in the order of their first entry: {name, primary = the entry that stands for the sheet,
--- entries}. a sheet is a field's `sheet` (its own name by default), so clearcoat has its roughness, rain and normal
 function gbuffer_inspect.GetSheets()
 	if sheets then return sheets end
 
@@ -92,12 +85,6 @@ function gbuffer_inspect.GetEntry(name)
 	error("no gbuffer entry " .. tostring(name), 2)
 end
 
--- nil for the normal image, or one of
--- {mode = "sheet", names = {entry names}}: the entries in a grid, in the order of the entries (all of them without names)
--- {mode = "targets"}: every raw packed target in a grid
--- {mode = "field", name = entry name}: one entry full screen
--- {mode = "target", target = target texture name, channel = one of CHANNELS}: a raw packed target
--- the view replaces the image on screen, the preview is only rendered, for a window to draw (the view wins)
 function gbuffer_inspect.SetView(new_view)
 	view = new_view
 end
@@ -131,7 +118,6 @@ function gbuffer_inspect.GetTerrainOnly()
 	return terrain_only
 end
 
--- what the gbuffer pass writes, only while something is inspected: 0 the combined normal, 1 the vertex normal, 2 the map normal
 function gbuffer_inspect.GetNormalSourceIndex()
 	if not (view or preview) then return 0 end
 
@@ -142,7 +128,6 @@ function gbuffer_inspect.IsTerrainOnly()
 	return terrain_only and (view ~= nil or preview ~= nil)
 end
 
--- the pass renders when there is a view or a preview
 function gbuffer_inspect.IsActive()
 	return view ~= nil or preview ~= nil
 end
@@ -155,7 +140,6 @@ local function get_rendered()
 	return view or preview
 end
 
--- the entries a sheet view draws, in the order of the grid
 function gbuffer_inspect.GetSheetEntries(names)
 	local list = {}
 
@@ -166,7 +150,6 @@ function gbuffer_inspect.GetSheetEntries(names)
 	return list
 end
 
--- which entries a sheet draws as two bit masks of the entry indices, and how many tiles the grid has
 function gbuffer_inspect.GetTileMask()
 	local rendered = get_rendered()
 

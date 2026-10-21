@@ -5,7 +5,6 @@ META:GetSet("IdleSequence", "")
 META:GetSet("WalkSequence", "")
 META:GetSet("RunSequence", "")
 META:EndStorable()
--- the speed it takes to start walking and to stop, and how far above the middle of walking and running it takes to switch to running
 local START_SPEED = 0.3
 local STOP_SPEED = 0.12
 local RUN_MARGIN = 1.1
@@ -23,8 +22,6 @@ function META:Initialize()
 	self:AddGlobalEvent("Update")
 end
 
--- plays the walk and run sequences of the animator at the speed the character really moves, so the feet stay where they land,
--- and tells the move_yaw pose parameter which way it goes relative to where it faces
 function META:OnUpdate(dt)
 	local owner = self.Owner
 	local animator = owner.animator

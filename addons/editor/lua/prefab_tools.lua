@@ -20,7 +20,6 @@ local EXPOSABLE_TYPES = {
 	ang3 = true,
 	color = true,
 }
--- what a new input without targets can hold, a script reads and writes it
 local INPUT_TYPES = {
 	{Text = "number", Type = "number", Default = function() return 0 end},
 	{Text = "boolean", Type = "boolean", Default = function() return false end},
@@ -34,7 +33,6 @@ local function on_property_changed(object, var_name, _, _, info)
 	if info and info.storable then prefab.MarkDirty(object, var_name) end
 end
 
--- edits made to the selected entity of an instance are written back to the prefab, the gizmo and the property editor both end up here
 function tools.Watch(target)
 	for i = #removers, 1, -1 do
 		removers[i]()
@@ -77,7 +75,6 @@ local function get_unique_input_name(definition, base)
 	return name
 end
 
--- what an input targets for a property row: the property itself, or a key of the Values table of a script for the rows of its component
 local function get_target(node, component_name, info)
 	if info.link then
 		return {Node = node, Component = component_name, Property = info.link.Property, Key = info.link.Key}
@@ -156,7 +153,6 @@ local function add_input(instance, input_type)
 	}
 end
 
--- right click items for a property: on a prefab instance a new input without targets, on a property of a node the link to an input
 function tools.GetPropertyActions(object, info)
 	if object.Type == "prefab" and object.definition then
 		local type_actions = {}
@@ -247,7 +243,6 @@ function tools.GetPropertyActions(object, info)
 	return {{Text = "Show in prefab", Icon = "layers", Items = link_actions}}
 end
 
--- the Tab puts what only this instance has, and the prefab it is an instance of, apart from what is shared with every instance
 local SHARED_BADGE = {
 	Text = "shared",
 	Color = "text_on_accent",
@@ -270,8 +265,6 @@ local PREFAB_BADGE = {
 	Tooltip = "The prefab this entity is an instance of",
 }
 
--- a label for the header of a script that failed, and in prefab mode the tabs of a nested instance: its prefab component is
--- this instance, the rest is shared with the prefab being edited, everything else in prefab mode and the scene has no such split
 function tools.GetCategoryBadge(object, name)
 	local entity = object.component_map and object or object.Owner
 	local editing = prefab.editing
@@ -296,7 +289,6 @@ function tools.GetCategoryBadge(object, name)
 	return INSTANCE_BADGE
 end
 
--- a property an input pushes into is marked with the input, its value here is not the one that sticks
 function tools.GetPropertyBadge(object, info)
 	if not ((info.storable or info.link) and (object.component_map or object.Owner)) then return end
 

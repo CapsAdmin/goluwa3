@@ -204,8 +204,6 @@ do
 		return content
 	end
 
-	-- returns the bytes this process tree may still use: limit is the tightest cgroup limit above the
-	-- process (or physical memory), used is its working set without the reclaimable file cache
 	function system.GetMemoryInfo()
 		if jit.os ~= "Linux" then return nil end
 

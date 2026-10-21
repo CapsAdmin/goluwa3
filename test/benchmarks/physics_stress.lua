@@ -16,15 +16,12 @@ local constraints = import("goluwa/physics/constraints.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local stats = import("goluwa/physics/stats.lua")
 local benchmark_results = import("goluwa/benchmark_results.lua")
--- One deterministic world made of independent zones, each one a different way to hurt the solver.
--- ZONES=pit,chains env restricts which zones are built, WARMUP/STEPS/WINDOW override the phases.
 local DT = 1 / 60
 local WARMUP_STEPS = tonumber(os.getenv("WARMUP") or "150")
 local MEASURE_STEPS = tonumber(os.getenv("STEPS") or "100")
 local WINDOW_STEPS = tonumber(os.getenv("WINDOW") or "50")
 local ALLOC_STEPS = 20
 local ZONE_SPACING = 60
--- FULL=1 builds the large scene (~965 bodies), the default is a quarter of that so a run takes seconds.
 local FULL = os.getenv("FULL") ~= nil
 local WALL_H = tonumber(os.getenv("WALL_H") or (FULL and "12" or "8"))
 local WALL_W = tonumber(os.getenv("WALL_W") or (FULL and "20" or "10"))

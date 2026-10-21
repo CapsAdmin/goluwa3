@@ -6,7 +6,6 @@ META.Network = {
 	Path = {"string", 0.5, "reliable"},
 }
 META:StartStorable()
--- inputs are declared before the path so an instance that is constructed or loaded builds once, with its inputs
 META:GetSet("Inputs", nil, {callback = "OnInputsChanged", Hidden = true})
 META:GetSet("Path", "", {callback = "Rebuild", asset = "prefabs"})
 META:EndStorable()

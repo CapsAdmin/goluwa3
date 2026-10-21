@@ -19,7 +19,6 @@ end
 
 local DT = 1 / 60
 
--- Builds a manifold the way manifold.RebuildContacts leaves it: persistent contacts in a ffi array.
 local function create_manifold(contacts)
 	local cs = contact_store.New(math.max(#contacts, 4))
 
@@ -45,7 +44,6 @@ local function create_manifold(contacts)
 	return {cs = cs, n = #contacts, normal = Vec3(0, 1, 0)}
 end
 
--- Collects, prepares and warm starts one manifold, optionally followed by a solve sweep.
 local function run_manifold(body_a, body_b, data, solve)
 	local solver = body_a:GetPhysics().solver
 	local friction = solver:GetPairFriction(body_a, body_b)
@@ -69,7 +67,6 @@ local function run_manifold(body_a, body_b, data, solve)
 	contact_solver.Store(group, DT)
 end
 
--- Solve only: warm starting is disabled so the stored impulses are not applied first.
 local function solve_impulses(body_a, body_b, data)
 	local solver = body_a:GetPhysics().solver
 	local warm, tangent_warm = solver.WARM_START_SCALE, solver.TANGENT_WARM_START_SCALE

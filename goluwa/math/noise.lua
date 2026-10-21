@@ -296,7 +296,6 @@ do
 	local function GetN(bx, by, x, y)
 		local t = .5 - x * x - y * y
 
-		-- a corner only reaches as far as its falloff
 		if t < 0 then return 0 end
 
 		local index = Perms12[bx + Perms[by]]

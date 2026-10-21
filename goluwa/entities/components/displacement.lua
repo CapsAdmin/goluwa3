@@ -15,8 +15,6 @@ META:GetSet("Alphas", nil, {Hidden = true})
 META:GetSet("Material", "", {asset = "materials", callback = "OnShapeChanged"})
 META:GetSet("Vecs", nil, {Hidden = true})
 META:EndStorable()
--- Positions are the points of the (2^power + 1) squared grid in source space as they were when the entity was
--- created, the entity's transform moves them from there. A static world below the displacement batches and collides it.
 local REST_EPSILON = 1e-5
 local MATRIX_FIELDS = {
 	"m00",
@@ -37,7 +35,6 @@ local MATRIX_FIELDS = {
 	"m33",
 }
 
--- the big tables are stored as packed float strings
 function META:GetCorners()
 	if not self.Corners then return nil end
 
@@ -79,7 +76,6 @@ function META:SetAlphas(value)
 	self.polygons = nil
 end
 
--- the grid in engine space relative to its center, computed on first use
 function META:EnsureGrid()
 	if self.dims then return end
 
@@ -180,7 +176,6 @@ function META:OnRemove()
 	if self.world and self.world:IsValid() then self.world:RemoveSource(self) end
 end
 
--- the grid as a polygon in the entity's local space, for highlighting
 function META:GetPolygons()
 	if self.polygons then return self.polygons end
 
@@ -250,7 +245,6 @@ function META:GetPolygons()
 	return self.polygons
 end
 
--- watches the transform so moving the entity moves the displacement
 function META:Activate()
 	if self.active then return end
 

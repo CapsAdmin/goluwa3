@@ -209,7 +209,6 @@ T.Test3D("Model preview is upright and not mirrored", function()
 	local ok, err = xpcall(
 		function()
 			local tex = preview:RenderTarget(entity.visual)
-			-- the pillar stands on the left, tall, with its foot at the bottom right
 			T.AssertTexturePixel{tex = tex, pos = {130, 40}, color = function(r, g, b, a)
 				return a > 0.9
 			end}

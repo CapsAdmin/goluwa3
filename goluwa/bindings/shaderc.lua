@@ -8,6 +8,7 @@ function mod.Initialize(shaderc_lib)
 	if not cdef_done then
 		cdef_done = true
 		ffi.cdef[[
+
 		    // Opaque handles
 		    typedef struct shaderc_compiler* shaderc_compiler_t;
 		    typedef struct shaderc_compile_options* shaderc_compile_options_t;
@@ -100,7 +101,6 @@ function mod.Initialize(shaderc_lib)
 	mod.initialized = true
 end
 
--- the library that is loaded, the shader cache uses it to tell compiled shaders of one build from another
 mod.identity = ""
 
 function mod.compile(source, shader_type, entry_point)

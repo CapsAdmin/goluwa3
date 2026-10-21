@@ -70,7 +70,6 @@ return {
 					block.frame = system.GetFrameNumber() % 4096
 					block.gi_enabled = ambient_occlusion.IsGIEnabled() and block.last_frame_tex ~= -1 and 1 or 0
 					block.gi_strength = ambient_occlusion.GetGIStrength()
-					-- the probes' sky visibility of the frame before, the resolve runs after this pass
 					local screen = ddgi.GetScreenTexture()
 					block.ddgi_screen_tex = screen and self:GetTextureIndex(screen) or -1
 					gbuffer_layout.WriteBlock(self, block)
@@ -87,8 +86,6 @@ return {
 
 			const float BENT_COS_SQUARED[32] = float[32](]] .. table.concat(BENT_COS_SQUARED, ", ") .. [[);
 			const float BENT_COS_SIN[32] = float[32](]] .. table.concat(BENT_COS_SIN, ", ") .. [[);
-			// a diffuse surface in full sun is about this bright in cd/m2. anything above is a glint, an
-			// emitter or earlier bounce piling up, and one such pixel should not become a firefly
 			const float BELOW_HORIZON_WEIGHT = 0.25;
 			const float BOUNCE_MAX_LUMINANCE = 30000.0;
 
@@ -103,24 +100,17 @@ return {
 
 ]] .. screen_reconstruct.GetGeometricNormalGLSL("lighting_data", {world_pos_function = "get_world_pos_uv"}) .. [[
 
-			// the rotation that takes the unit vector from to the unit vector to, applied to v. from and
-			// to are on the same side, so 1 + dot(from, to) stays away from 0
 			vec3 rotate_between(vec3 v, vec3 from, vec3 to) {
 				vec3 axis = cross(from, to);
 				return v * dot(from, to) + cross(axis, v) + axis * (dot(axis, v) / (1.0 + dot(from, to)));
 			}
 
-			// ao is the share of the hemisphere left open, bounce the light that came in through
-			// the part that was not, in the same units as the gi irradiance, and bent the
-			// cosine weighted direction of what is open
 			void get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N, out float ao, out vec3 bounce, out vec3 bent) {
 				vec3 p = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
 				vec3 V = normalize(-p);
 				vec3 view_normal = normalize(mat3(lighting_data.view) * N);
 				vec3 view_up = mat3(lighting_data.view) * vec3(0.0, 1.0, 0.0);
 
-				// how much of the sky the probes see around this point, as a share of the upper half that a surface with
-				// this normal faces. where they see it the ground and the ceiling are in their light already
 				float probe_sky = 0.0;
 
 				if (lighting_data.ddgi_screen_tex != -1) {
@@ -144,15 +134,9 @@ return {
 				const int Nd = 3; 
 				const int Ns = 6; 
 				const uint Nb = 32;
-				// how far behind its visible front an occluder is assumed to
-				// extend, in view space units. thin translucent surfaces
-				// (transmissive, like leaves and grass blades) barely extend at
-				// all, or a field of blades would black out the ground between
-				// them
 				float thickness = 0.5;
 				float thin_thickness = 0.03;
 
-				// the light of the last frame was exposed for that frame
 				float history_scale = get_pre_exposure() / get_previous_pre_exposure();
 				float bounce_max = BOUNCE_MAX_LUMINANCE * get_pre_exposure();
 				vec2 history_texel = 1.0 / vec2(screen_size);
@@ -202,23 +186,11 @@ return {
 
 							if (dist2 > world_radius * world_radius || dist2 < 0.0001) continue;
 
-							// at or below the tangent plane nothing can occlude, and on flat
-							// or convex faceted surfaces that is where every sample lands, a
-							// hair above or below. without a margin those set a bit each
 							if (dot(v_f, view_normal) < 0.1 * sqrt(dist2)) continue;
 
 							bool sample_thin = gbuffer_is_thin(sample_uv);
 							float sample_thickness = sample_thin ? thin_thickness : thickness;
 
-							// Angles from the view vector, signed by the side of
-							// the slice the sample is on (Therrien 2023). The
-							// back of the occluder is its front pushed away from
-							// the viewer by thickness; on a flat surface that
-							// lands below the horizon and occludes nothing.
-							// Taking the angles from atan of the in-slice
-							// components instead lets the back one, which points
-							// almost straight away from the viewer, flip sign
-							// on noise and cover the whole hemisphere.
 							float theta_f = side * acos(clamp(dot(v_f * inversesqrt(dist2), V), -1.0, 1.0));
 							float theta_b = side * acos(clamp(dot(normalize(v_f - V * sample_thickness), V), -1.0, 1.0));
 							float diff_f = theta_f - theta_n;
@@ -237,7 +209,6 @@ return {
 								uint count = b - a;
 								uint mask = (count >= 32u) ? 0xFFFFFFFFu : ((1u << count) - 1u) << a;
 
-								// only the part of the arc nothing nearer covered already sends light
 								uint fresh = mask & ~bi;
 
 								if (lighting_data.gi_enabled != 0 && fresh != 0u) {
@@ -246,9 +217,7 @@ return {
 									if (history_uv.x > 0.0 && history_uv.x < 1.0 && history_uv.y > 0.0 && history_uv.y < 1.0) {
 										vec3 sample_normal = normalize(mat3(lighting_data.view) * gbuffer_normal(sample_uv));
 										float facing = sample_thin ? 1.0 : clamp(dot(sample_normal, -v_f * inversesqrt(dist2)), 0.0, 1.0);
-										// the share of the cosine weighted hemisphere this arc covers
 										float cosine_share = 0.5 * (sin(theta_max) - sin(theta_min));
-										// a few taps around it, so a single bright pixel is only a part of what the sample sees
 										vec3 hit = (
 											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(-1.5, -0.5)).rgb +
 											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(0.5, -1.5)).rgb +
@@ -267,9 +236,6 @@ return {
 
 					total_bounce += slice_bounce * weight;
 
-					// the probes already hold the large occluders around, a floor or a ceiling next to the surface, so
-					// a direction counts more the further up it points. below the horizon it keeps a share, or a wall
-					// touching a ceiling, whose upward directions are all covered, would go black
 					float sky_open = 0.0;
 					float sky_total = 0.0;
 					float open_cos_squared = 0.0;
@@ -284,18 +250,15 @@ return {
 
 						if (!covered) sky_open += direction_weight;
 
-						// the bent normal takes the same share of the ground out, or the lookup leans up where the ao does not darken
 						float open_share = covered ? (up <= 0.0 ? 1.0 - below_horizon_weight : 0.0) : 1.0;
 						open_cos_squared += BENT_COS_SQUARED[k] * open_share;
 						open_cos_sin += BENT_COS_SIN[k] * open_share;
 					}
 
 					total_ao += sky_open / sky_total * weight;
-					// the open direction in the slice, measured from the projected normal, back in view space
 					float cn = cos(theta_n);
 					float sn = sin(theta_n);
 					total_bent += (V * (open_cos_squared * cn - open_cos_sin * sn) + T_v * (open_cos_squared * sn + open_cos_sin * cn)) * weight;
-					// the same with nothing covering the slice, its bits' cos squared add up to half of them
 					total_bent_open += (V * cn + T_v * sn) * (weight * float(Nb / 2u));
 					total_weight += weight;
 				}
@@ -309,8 +272,6 @@ return {
 
 				ao = clamp(total_ao / total_weight, 0.0, 1.0);
 				bounce = total_bounce / total_weight * lighting_data.gi_strength;
-				// the slices all contain the view vector, so with nothing covering them their sum leans towards
-				// the viewer. what is covered is taken off the sum of the open slices, which stands in for the normal
 				vec3 open_bent = view_normal * dot(total_bent_open, view_normal) - (total_bent_open - total_bent);
 				float bent_length = length(open_bent);
 				bent = bent_length > 1e-4 ? normalize(mat3(lighting_data.inv_view) * (open_bent / bent_length)) : N;
@@ -337,8 +298,6 @@ return {
 				vec3 N = shading_normal;
 				bool thin = gbuffer_is_thin(pixel);
 
-				// on a thin card the depth derivatives belong to whatever the card and its neighbours are,
-				// and flip from pixel to pixel
 				if (!thin) N = get_geometric_normal(pixel, world_pos, depth, normalize(lighting_data.camera_position.xyz - world_pos), N);
 
 				float ao;
@@ -346,15 +305,10 @@ return {
 				vec3 bent;
 				get_ambient_occlusion(in_uv, world_pos, N, ao, bounce, bent);
 
-				// the normals of foliage are not a surface, bending the lookup by them only adds noise
 				if (thin) bent = N;
-				// the geometric normal is flat per triangle, so the bent normal is handed over relative to the smooth one
 				else {
 					bent = rotate_between(bent, N, shading_normal);
 
-					// On a wall the sideways part of the lean has nothing to be measured against, the horizon search
-					// only sees the nearer of whatever is beside it, and the lookup shows it as a square around every
-					// opening. The up and down part stays, on a floor or a ceiling all of it does.
 					float horizontal_face = smoothstep(0.5, 0.9, abs(shading_normal.y));
 					vec3 lean = bent - shading_normal;
 					bent = normalize(shading_normal + vec3(lean.x * horizontal_face, lean.y, lean.z * horizontal_face));
@@ -450,10 +404,8 @@ return {
 				vec4 motion = texture(TEXTURE(temporal_data.velocity_tex), uv);
 				vec2 history_uv = uv - motion.xy;
 
-				// what the history held where this surface was: a different depth there means something else was in view
 				float history_depth = texelFetch(TEXTURE(temporal_data.history_bent_tex), clamp(ivec2(history_uv * vec2(size)), ivec2(0), size - 1), 0).w;
 				bool valid = history_uv.x > 0.0 && history_uv.x < 1.0 && history_uv.y > 0.0 && history_uv.y < 1.0 && history_depth > 0.0;
-				// thin geometry changes what a pixel sees constantly, so how far off the history is decides how much of it is kept
 				float depth_error = abs(history_depth - motion.z) / max(motion.z, 0.1);
 				float history_weight = 0.92 * (1.0 - smoothstep(0.05, 0.3, depth_error));
 
@@ -474,13 +426,11 @@ return {
 					}
 				}
 
-				// a pixel far brighter than what is around it is a firefly, not the light
 				vec4 around = (mean - current) / 8.0;
 				current.rgb = min(current.rgb, around.rgb * 2.0 + vec3(50.0 * get_pre_exposure()));
 				mean /= 9.0;
 				vec4 sigma = sqrt(max(mean_squared / 9.0 - mean * mean, vec4(0.0)));
 				vec4 history = texture(TEXTURE(temporal_data.history_ao_tex), history_uv);
-				// the history was exposed for the frame before
 				history.rgb *= get_pre_exposure() / get_previous_pre_exposure();
 				history = clamp(history, mean - 2.0 * sigma, mean + 2.0 * sigma);
 				vec4 history_bent = texture(TEXTURE(temporal_data.history_bent_tex), history_uv);
@@ -542,10 +492,6 @@ return {
 				imageStore(out_bent_normal, get_screen_pos(), vec4(bent, 1.0));
 			}
 
-			// the pixel makes up its ao from the texels around it, each weighted by how near it is, how
-			// close the depth it stands for is to the pixel's and, unless the pixel is foliage whose
-			// normals disagree with their neighbours' however close they are, which way it faces. blurring
-			// the ao across leaves at different depths would smear the shade of one over the others
 			void main() {
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(out_color);
@@ -574,7 +520,6 @@ return {
 					for (int x = -1; x <= 2; x++) {
 						ivec2 texel = clamp(base + ivec2(x, y), ivec2(0), ao_size - 1);
 						vec4 bent = texelFetch(TEXTURE(ao_blur_data.bent_tex), texel, 0);
-						// the depth the texel stands for, 0 where there is none
 						float texel_depth = bent.w;
 
 						if (texel_depth <= 0.0) continue;
@@ -594,7 +539,6 @@ return {
 				if (weight_sum > 0.0001) {
 					set_color(total / weight_sum, total_bent / weight_sum);
 				} else {
-					// nothing that looks like this pixel is near: the closest texel's
 					ivec2 texel = clamp(base + (pos & 1), ivec2(0), ao_size - 1);
 					set_color(texelFetch(TEXTURE(ao_blur_data.ao_tex), texel, 0), texelFetch(TEXTURE(ao_blur_data.bent_tex), texel, 0).xyz);
 				}

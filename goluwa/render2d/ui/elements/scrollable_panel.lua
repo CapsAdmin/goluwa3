@@ -55,12 +55,10 @@ META:GetSet("ScrollbarAutoHide", true, function(self, val)
 	self:update_handle()
 end)
 
--- the viewport takes focus when it, a scrollbar part or a child that takes no focus itself is clicked, and then scrolls with the arrow keys, page up, page down, home and end
 META:GetSet("KeyScrolling", true, function(self, val)
 	self:update_key_scrolling()
 end)
 
--- an arrow button at each end of a visible scrollbar, it scrolls a line and repeats while held
 META:GetSet("ScrollbarButtons", false, function(self, val)
 	self:update_handle()
 end)
@@ -82,8 +80,6 @@ META:GetSet(
 	}
 )
 META:GetSet("ScrollbarReserve", nil)
--- a wheel step that cannot scroll this view because it is at an end goes on to the view around it, unless this is set.
--- a view with nothing to scroll never takes the wheel
 META:GetSet("CaptureWheelAtExtents", false)
 
 META:GetSet("Padding", Rect(), function(self, val)
@@ -133,7 +129,6 @@ local function on_button_start_click(button)
 	return true
 end
 
--- a press on the track outside the handle scrolls a page towards the pointer, and repeats until the handle is there
 local function on_track_start_click(track, button, press, pos)
 	local scrollable = track.Scrollable
 	local axis = track.Axis
@@ -215,19 +210,16 @@ function META:get_button_length()
 	return self.ScrollbarButtons and theme.active:GetScrollbarWidth() or 0
 end
 
--- a bar with arrow buttons always has its full width, otherwise it is thin until hovered
 function META:get_collapsed_width()
 	if self.ScrollbarButtons then return theme.active:GetScrollbarWidth() end
 
 	return theme.active:GetScrollbarCollapsedWidth()
 end
 
--- content is padded by the collapsed bar only, an expanded bar grows over it so hovering never shifts the layout
 function META:get_scrollbar_reserve()
 	return theme.active:ResolveSize(self.ScrollbarReserve or (self:get_collapsed_width() + theme.active:GetScrollbarMargin()))
 end
 
--- the bars grow while the mouse is over them, or a handle is being dragged
 function META:update_expand()
 	local hold = self.expand_hold
 
@@ -315,7 +307,6 @@ function META:OnCreate()
 	self:AddGlobalEvent("Update")
 end
 
--- holding the middle button scrolls continuously, faster the further the mouse is from where it was pressed
 
 local function autoscroll_velocity(distance)
 	local past = math.abs(distance) - AUTOSCROLL_DEAD_ZONE
@@ -348,8 +339,6 @@ function META:end_autoscroll()
 	self:RemoveEvent("ScrollableAutoscrollKey")
 end
 
--- releasing after a click that never left the dead zone keeps autoscrolling until the next click or escape,
--- releasing after moving away ends it (hold to scroll)
 function META:release_autoscroll()
 	if not self.autoscroll_origin or self.autoscroll_sticky then return end
 
@@ -372,7 +361,6 @@ function META:OnAutoscrollKeyInput(key, press)
 	end
 end
 
--- the click that stops a click-toggled autoscroll is consumed
 function META:OnGlobalMouseInput(button, press)
 	if self.autoscroll_sticky and press and button:starts_with("button_") then
 		self:end_autoscroll()
@@ -424,7 +412,6 @@ function META:update_key_scrolling()
 	end
 end
 
--- presses on the scrollbar parts bubble up to here, so the wheel and the middle button work over the bars too
 function META:OnMouseInput(button, press)
 	return on_viewport_mouse_input(self.Viewport, button, press)
 end
@@ -479,7 +466,6 @@ function META:get_view_length(axis)
 	return axis == "y" and state.available_h or state.available_w
 end
 
--- scrolls a page towards pos, a position along the track, returns false when the handle already covers it
 function META:step_track_page(track, pos)
 	local axis = track.Axis
 	local handle = axis == "y" and self.HandleY or self.HandleX

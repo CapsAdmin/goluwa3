@@ -28,7 +28,6 @@ event.AddListener("SceneLoad", "startup_gc_pause", function()
 	normal_gc_pause = normal_gc_pause or collectgarbage("setpause", pvars.Get("r_loading_gc_pause"))
 end)
 
--- the scene is ready once the map load is done, the ray traced scene has stopped changing and frames are fast again
 event.AddListener("Update", "startup_ready", function(dt)
 	if startup.IsReady() or not scene_rt.readied then return end
 

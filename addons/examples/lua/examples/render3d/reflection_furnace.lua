@@ -3,12 +3,6 @@ local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
--- a furnace test. a closed room whose walls emit and reflect, so the light is uniform everywhere: with an emission E and an
--- albedo A a wall's radiance L = E + A * L, L = E / (1 - A) at every point of every surface. a sphere that reflects
--- everything (albedo 1, no loss) in that room must show the same L as the walls, whatever its roughness: no sphere
--- may look brighter or darker than the walls. top row: metal spheres of albedo 1 (F0 = 1) from roughness 0 to 1, bottom
--- row: dielectrics of albedo 1. what differs is where an estimate loses or gains energy (ddgi, the traced reflection, the
--- clamps and the occlusion applied to it). try ddgi_strength, reflection_rough_rays, reflection_screenspace_roughness, r_pass_reflections
 local W, D, H, T = 16, 12, 6, 0.2
 local WALL_ALBEDO = 0.5
 local EMISSION = 1

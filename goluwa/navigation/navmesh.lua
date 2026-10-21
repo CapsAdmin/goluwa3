@@ -16,7 +16,6 @@ local function cell_key(cx, cz)
 	return (cx + 32768) * 65536 + cz + 32768
 end
 
--- areas are convex polygons seen from above, the points are x, y, z and y is up, the winding is made counter clockwise on the xz plane
 function navmesh:AddArea(info)
 	local polygon = info.Polygon
 	local count = #polygon
@@ -79,13 +78,11 @@ function navmesh:GetAreas()
 	return self.areas
 end
 
--- a one way connection, a and b are the ends of the edge the two areas share
 function navmesh:Connect(from, to, a, b)
 	local mid_x, mid_y, mid_z = (a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2
 	local dx, dz = mid_x - from.center_x, mid_z - from.center_z
 	local left, right = a, b
 
-	-- left of the direction of travel when x and z are drawn as the right and up axes, which is what pull_string expects
 	if dx * (a.z - mid_z) - dz * (a.x - mid_x) < 0 then left, right = b, a end
 
 	local link = {
@@ -128,7 +125,6 @@ function navmesh:Build()
 	self.built = true
 end
 
--- the height of the surface of an area above x, z, the fan of triangles from the first point is the surface
 function navmesh:GetHeight(area, x, z)
 	local p = area.points
 	local ax, ay, az = p[1], p[2], p[3]
@@ -177,7 +173,6 @@ local function contains(area, x, z)
 	return true
 end
 
--- the nearest point of the area to x, z in the horizontal plane, with its height
 function navmesh:GetClosestPoint(area, x, z)
 	if contains(area, x, z) then return x, self:GetHeight(area, x, z), z end
 
@@ -233,7 +228,6 @@ local function collect(self, min_x, min_z, max_x, max_z)
 	return count
 end
 
--- the areas that reach into the square around a position
 function navmesh:GetAreasNear(position, radius)
 	local count = collect(self, position.x - radius, position.z - radius, position.x + radius, position.z + radius)
 	local out = {}
@@ -245,7 +239,6 @@ function navmesh:GetAreasNear(position, radius)
 	return out
 end
 
--- the area that has the point above it, with the closest surface to the height of the point
 function navmesh:GetAreaAt(position, tolerance)
 	tolerance = tolerance or navmesh.HEIGHT_TOLERANCE
 	local x, y, z = position.x, position.y, position.z
@@ -272,7 +265,6 @@ function navmesh:GetAreaAt(position, tolerance)
 	return best
 end
 
--- the closest area within the distance, with the closest point on it
 function navmesh:GetNearestArea(position, max_distance)
 	max_distance = max_distance or navmesh.SNAP_DISTANCE
 	local x, y, z = position.x, position.y, position.z
@@ -295,7 +287,6 @@ function navmesh:GetNearestArea(position, max_distance)
 	return best, best_x, best_y, best_z
 end
 
--- a random point of the mesh, around a position when one is given, only on the areas of a table when one is given
 function navmesh:GetRandomPoint(around, radius, allowed)
 	local candidates, total = {}, 0
 
@@ -338,7 +329,6 @@ function navmesh:GetRandomPoint(around, radius, allowed)
 		local p = area.points
 		local x, z
 
-		-- a triangle of the fan, weighted by its surface, then a point in it
 		local weights, sum = {}, 0
 
 		for i = 2, area.count - 1 do
@@ -382,7 +372,6 @@ local function is_passable(link, blocked, max_climb, max_drop)
 		-link.rise <= max_drop
 end
 
--- every area that can be walked to from a position, a table with the areas as keys, takes the options of FindPath
 function navmesh:GetReachableAreas(from, options)
 	options = options or EMPTY
 	local start = self:GetAreaAt(from) or self:GetNearestArea(from, options.SnapDistance or navmesh.SNAP_DISTANCE)
@@ -467,7 +456,6 @@ end
 local portal_left_x, portal_left_z, portal_right_x, portal_right_z = {}, {}, {}, {}
 local portal_left_y, portal_right_y = {}, {}
 
--- the shortest way through the portals in a straight line where it can, the funnel algorithm
 local function pull_string(points, count)
 	local apex_x, apex_y, apex_z = portal_left_x[1], portal_left_y[1], portal_left_z[1]
 	local left_x, left_y, left_z = apex_x, apex_y, apex_z
@@ -531,10 +519,6 @@ local function pull_string(points, count)
 	end
 end
 
--- options: Radius keeps the path that far from the ends of the portals, MaxClimb and MaxDrop limit the height of a connection,
--- Blocked is a table that has the areas that are not to be entered and the links that are not to be used as keys, SnapDistance
--- how far off the mesh the start and goal may be. The path has the points to walk to, the areas it goes through and the
--- link it takes from each one to the next
 function navmesh:FindPath(from, to, options)
 	options = options or EMPTY
 	local snap = options.SnapDistance or navmesh.SNAP_DISTANCE

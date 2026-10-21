@@ -118,7 +118,6 @@ T.Test("gbuffer layout packs every kind into its own slot", function()
 		end
 	end
 
-	-- two of the three unorm4 fields share a channel
 	T(fields[6].target)["=="](fields[7].target)
 	T(fields[6].swizzle)["=="](fields[7].swizzle)
 	T(fields[6].nibble)["=="](0)
@@ -135,7 +134,6 @@ T.Test("gbuffer layout packs every kind into its own slot", function()
 		end
 	end
 
-	-- 5 unorm8 and 2 channels of unorm4 fit in 2 targets of 4 channels, 2 unorm16 and 2 octa need 6 channels
 	local count = {["8"] = 0, ["16"] = 0}
 
 	for _, target in ipairs(targets) do

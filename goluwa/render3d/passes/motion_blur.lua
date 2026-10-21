@@ -79,8 +79,6 @@ return {
 			ivec2 size;
 			float exposure;
 
-			// how far the pixel moved over the shutter, in pixels. the velocity buffer has
-			// the surfaces, whatever it has no surface for (the sky) goes through the cameras
 			vec2 get_blur(ivec2 pixel, float depth) {
 				pixel = clamp(pixel, ivec2(0), size - 1);
 				vec2 motion;
@@ -105,7 +103,6 @@ return {
 
 				vec2 blur = motion * vec2(size) * mb_data.blur_scale;
 				float len = length(blur);
-				// the jitter of the taa alone moves a still surface by up to a pixel
 				float keep = smoothstep(1.0, 2.5, len) * min(mb_data.max_length / max(len, 1e-4), 1.0);
 				return blur * keep;
 			}
@@ -128,8 +125,6 @@ return {
 				vec2 center_blur = get_blur(pixel, center_depth);
 				float center_z = get_view_depth(uv, center_depth);
 
-				// a fast object blurs onto the still pixels beside it, so the direction is
-				// the fastest one that reaches this pixel among a ring of probes
 				vec2 direction = center_blur;
 				float probe_radius = 0.5 * mb_data.max_length;
 

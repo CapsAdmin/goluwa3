@@ -548,7 +548,6 @@ do
 				config.DepthFormat
 			)
 		then
-			-- a lazy pipeline gets them when its framebuffer is first asked for
 			self.lazy_framebuffers = config.lazy_framebuffers
 
 			if not self.lazy_framebuffers then self:RecreateFramebuffers() end

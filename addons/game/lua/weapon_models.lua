@@ -33,7 +33,6 @@ local function box(name, size, position, material)
 	}
 end
 
--- the muzzle is an empty node where a shot or a beam starts
 local function muzzle(distance)
 	return {
 		guid = "muzzle",

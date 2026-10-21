@@ -49,10 +49,6 @@ end
 model_loader.model_cache = {}
 model_loader.model_loads = utility.CreateLoadCache(model_loader.model_cache, 0.004)
 
--- a decoder whose parsing runs on a worker thread. Gather(path, full_path) runs on the main thread and returns the
--- input of the job (bytes, the workers have no vfs mounts) and its size, `job` is the source of the worker (it gets
--- the input and returns a table and a blob, see packed_mesh.lua) and Finish(path, full_path, input, meta, blob,
--- mesh_callback, physics_callback, skeleton_callback) turns the result into meshes on the main thread
 function model_loader.AddThreadedDecoder(id, decoder, ext)
 	model_loader.AddModelDecoder(
 		id,
@@ -105,8 +101,6 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 	event.Call("PreLoad3DModel", path)
 	loads:Begin(path, callback, {mesh = callback2, on_fail = on_fail})
 
-	-- a lua model asset (a file or a virtual one) is built from its descriptor with the default options. the
-	-- position, rotation and scale of its primitives are for the model component, they are not applied here
 	if path:ends_with(".lua") then
 		local entry = assets.GetModel(path)
 

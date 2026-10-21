@@ -1,8 +1,4 @@
 -- glw: --server
--- Loads a Source map, takes some of its dynamic props and stacks them above one location so they
--- fall onto each other, then reports step time and how the pile settles.
--- usage: luajit glw --server lua test/benchmarks/physics_map_stack.lua
--- env: STATS=1 prints the physics section summary, PROF=1 writes tmp/map_stack.glwp (both start at step DIAG_FROM). MAP, COUNT, MIN_RADIUS/MAX_RADIUS (prop size filter), SPACING (extra gap between bodies), X/Y/Z (stack base), STEPS, SETTLE, WINDOW
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local physics = import("goluwa/physics.lua")
@@ -80,7 +76,6 @@ local function run()
 			#all_dynamic
 		)
 	)
-	-- crate/barrel sized props, in map order
 	local stack = {}
 
 	for _, body in ipairs(all_dynamic) do

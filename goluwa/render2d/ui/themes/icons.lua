@@ -1,8 +1,3 @@
--- Every icon is a stroked line drawing on a 24 unit grid, the theme wraps the body in an svg with
--- fill none and stroke currentColor and decides the stroke width, caps and joins (IconStyle).
--- Strokes only meet at points they share, they must not cross anywhere else and neighbouring strokes
--- keep about 3.5 units between their center lines, see math2d.StrokePolylines. Filled shapes are the
--- exception, they ignore the weight.
 local ARC_STEP = 11.25
 local icons = {}
 local categories = {}
@@ -17,7 +12,6 @@ local function polar(cx, cy, rx, ry, degrees)
 	return cx + math.cos(a) * rx, cy + math.sin(a) * ry
 end
 
--- degrees run clockwise from the positive x axis, the first point is a line to unless move is set
 local function arc(cx, cy, rx, ry, from, to, move)
 	local steps = math.max(1, math.ceil(math.abs(to - from) / ARC_STEP - 1e-9))
 	local out = {}
@@ -79,14 +73,12 @@ local function gear(cx, cy, r_out, r_in, teeth)
 	return table.concat(out) .. "Z"
 end
 
--- a circle with a point outside of it, the lines from the point touch the circle
 local function teardrop(cx, cy, r, tx, ty)
 	local phi = math.deg(math.atan2(ty - cy, tx - cx))
 	local beta = math.deg(math.acos(r / math.sqrt((tx - cx) ^ 2 + (ty - cy) ^ 2)))
 	return "M" .. f(tx) .. " " .. f(ty) .. arc(cx, cy, r, r, phi + beta, phi - beta + 360) .. "Z"
 end
 
--- two lines ending in x, y that look back along degrees
 local function head(x, y, degrees, size)
 	local x1, y1 = polar(x, y, size, size, degrees + 180 - 45)
 	local x2, y2 = polar(x, y, size, size, degrees + 180 + 45)

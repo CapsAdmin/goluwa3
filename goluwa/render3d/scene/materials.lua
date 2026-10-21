@@ -1,5 +1,4 @@
 local materials = {}
--- a material row is the index of the material in this list. consumers build their own per material records from it
 materials.list = {}
 materials.ids = {}
 
@@ -15,7 +14,6 @@ function materials.GetID(material)
 	return id
 end
 
--- the colour a surface of this material emits, zero for one that does not
 function materials.GetEmissive(material)
 	if
 		material:GetAlbedoAlphaIsEmissive() or

@@ -259,13 +259,10 @@ function BaseTheme:GetInputHeight(font_size_name)
 	return self:ResolveFontSize(font_size_name or "M") + self:GetPadding("S") * 2
 end
 
--- the width of a scrollbar when it is under the mouse (and the size of its hit area)
 function BaseTheme:GetScrollbarWidth()
 	return self:GetSize("XXS") * 2
 end
 
--- the width it is drawn at otherwise, it grows to GetScrollbarWidth with a backdrop when hovered. content is only ever
--- padded by this, so growing never shifts the layout. a theme with a fixed bar returns GetScrollbarWidth here
 function BaseTheme:GetScrollbarCollapsedWidth()
 	return self:GetSize("XXS")
 end
@@ -1702,8 +1699,6 @@ function BaseTheme:Draw(pnl)
 	end
 end
 
--- the track (the backdrop, only visible once the bar is expanded) and the handle of a scrollbar. pnl.Expand is 0 for the
--- thin collapsed bar and 1 when expanded, the bar sits against the edge of its hit area and grows towards the content
 function BaseTheme:DrawScrollbarPart(pnl, name, color, is_track)
 	local size = pnl.transform:GetTotalSize()
 	local vertical = name:sub(-1) == "y"
@@ -1731,7 +1726,6 @@ function BaseTheme:DrawScrollbarPart(pnl, name, color, is_track)
 	render2d.PopMatrix()
 end
 
--- a triangle of one pixel high steps centered in the box, direction is up, down, left or right. unit is the step size in pixels
 function BaseTheme:DrawArrow(x, y, w, h, direction, color, unit)
 	local short = math.min(w, h)
 	unit = unit or math.max(1, math.floor(short / 8))
@@ -1757,8 +1751,6 @@ function BaseTheme:DrawArrow(x, y, w, h, direction, color, unit)
 	end
 end
 
--- a theme icon (a chevron) centered on a point, for the arrows of the autoscroll marker. spread_x and spread_y draw it
--- twice that far apart, which makes the stroke heavier than the theme's icon stroke
 function BaseTheme:DrawAutoscrollChevron(name, center_x, center_y, icon_size, color, spread_x, spread_y)
 	spread_x = (spread_x or 0) / 2
 	spread_y = (spread_y or 0) / 2
@@ -1773,8 +1765,6 @@ function BaseTheme:DrawAutoscrollChevron(name, center_x, center_y, icon_size, co
 	render2d.SetTexture(nil)
 end
 
--- the marker shown where the middle button was pressed to autoscroll: a round badge with a small dot in the middle and a
--- heavier chevron on each side the view scrolls
 function BaseTheme:DrawAutoscrollMarker(size, vertical, horizontal)
 	local w, h = size.x, size.y
 	local color = self:GetColor("text")
@@ -1789,7 +1779,6 @@ function BaseTheme:DrawAutoscrollMarker(size, vertical, horizontal)
 	)
 	local dot = math.max(2, math.floor(math.min(w, h) * 0.1))
 	self:DrawBoxShape((w - dot) / 2, (h - dot) / 2, dot, dot, {fill = color, radius = self:GetRadius("full")})
-	-- four arrows are smaller and further out so they do not run into each other
 	local both = vertical and horizontal
 	local icon = math.floor(math.min(w, h) * (both and 0.36 or 0.46))
 	local near = both and 0.2 or 0.25

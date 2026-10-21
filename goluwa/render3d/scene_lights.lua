@@ -75,13 +75,10 @@ function scene_lights.GetLightGLSLCode()
 				return normalize(light.direction.xyz);
 			}
 
-			// see Light: source radius^2 + linear * d + quadratic * d^2
 			float get_light_falloff(lights_t light, float dist) {
 				return light.falloff.x + dist * (light.falloff.y + dist * light.falloff.z);
 			}
 
-			// 1 / get_light_falloff, windowed so it reaches exactly zero at the
-			// light's range instead of cutting off with a visible edge
 			float get_light_distance_attenuation(lights_t light, float dist, float range) {
 				float ratio = dist / range;
 				float window = clamp(1.0 - ratio * ratio * ratio * ratio, 0.0, 1.0);
@@ -120,8 +117,6 @@ function scene_lights.GetLightGLSLCode()
 						return false;
 					}
 
-					// light_dir points back toward the source, so light travels
-					// along -light_dir and surfaces behind the light are not lit
 					vec3 light_dir = get_light_direction(light);
 					float in_front = 1.0 - smoothstep(-0.1, 0.2, dot(from_light / dist, light_dir));
 

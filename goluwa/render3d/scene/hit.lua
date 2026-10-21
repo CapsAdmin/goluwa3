@@ -2,9 +2,6 @@ local render = import("goluwa/render/render.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local hit = {}
--- a hit is an instance (the custom index of the top level structure) and a primitive of its mesh. everything about it
--- is read from the scene store: the instance says which mesh, material and transform, the mesh where its vertices and
--- indices are. the three tables take consecutive bindings from `binding`
 hit.BINDING_COUNT = 3
 
 function hit.GetDescriptorSets(binding, stage, tlas_binding)
@@ -22,7 +19,6 @@ function hit.GetDescriptorSets(binding, stage, tlas_binding)
 end
 
 do
-	-- a set that a command buffer is still using can't be written to, so only what changed is
 	local bound = setmetatable({}, {__mode = "k"})
 
 	function hit.Bind(pipeline, desc, binding)
@@ -51,10 +47,6 @@ function hit.GetSceneGLSL(name, tlas_binding)
 	return "#extension GL_EXT_ray_query : require\nlayout(set = 0, binding = " .. tlas_binding .. ") uniform accelerationStructureEXT " .. name .. ";\n"
 end
 
--- declarations, the triangle of a hit in world space and its uvs. a triangle's normal is the normalized cross product
--- of its edges (the winding of the mesh), its material the row of the instance's material
--- the structs of the tables and the functions that read a vertex of a mesh through them, for shaders that reach the
--- tables by address instead of by binding
 function hit.GetCoreGLSL()
 	return [[
 		#extension GL_EXT_buffer_reference : require
@@ -173,8 +165,6 @@ function hit.GetGLSL(binding)
 			return tri;
 		}
 
-		// the mip a texture of this size is read at when the ray's footprint at the hit is width meters across: the texels
-		// per meter of the triangle come from how much of the texture its uvs cover
 		float scene_hit_texture_lod(scene_triangle tri, scene_uv uv, ivec2 size, float width) {
 			float area = 0.5 * length(cross(tri.e1, tri.e2));
 			vec2 d1 = uv.uv1 - uv.uv0;
@@ -204,8 +194,6 @@ function hit.GetGLSL(binding)
 	]]):format(binding, binding + 1, binding + 2)
 end
 
--- trace helpers over a top level structure: the closest hit between t_min and t_max, and whether there is one. they
--- see the solid instances only, what the ray flies through (see through materials, alpha tested leaves) is not hit
 function hit.GetTraceGLSL(tlas_name)
 	return [[
 		struct scene_trace_hit {
@@ -246,7 +234,6 @@ function hit.GetTraceGLSL(tlas_name)
 	]]
 end
 
--- without ray queries nothing is hit
 function hit.GetStubTraceGLSL()
 	return [[
 		struct scene_trace_hit {

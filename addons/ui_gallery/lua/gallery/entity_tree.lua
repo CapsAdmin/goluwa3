@@ -18,7 +18,6 @@ return {
 		local meta = ""
 		local body = "Select an entity from the tree to inspect it."
 
-		-- the entity can be removed while it is selected
 		if selected and selected:IsValid() then
 			local children = #selected:GetChildren()
 			local components = #selected.component_list

@@ -4,7 +4,6 @@ local spawnlists = {}
 local DEFAULT_DIRECTORY = "settings/spawnlist_default/"
 local USER_DIRECTORY = "settings/spawnlist/"
 
--- the .txt files of the first mounted folder that has any, a game mounted later or a second copy of the folder is ignored like gmod does
 local function find_files(directory)
 	local files = {}
 	local mount_directory
@@ -22,7 +21,6 @@ local function find_files(directory)
 	return files
 end
 
--- "models/props_c17/chair01a.mdl" as a browser entry, the entries of a list are made once so their previews are kept
 local function make_entry(path)
 	return {
 		category = "models",
@@ -33,7 +31,6 @@ local function make_entry(path)
 	}
 end
 
--- gmod's spawnlists (settings/spawnlist_default, or the user's own once they were saved) as a tree of {Name, Icon, Entries, Children}, in the order of the files. Empty when no game with spawnlists is mounted. Headers inside a list are dropped, a grid has no rows
 function spawnlists.Load()
 	local files = find_files(USER_DIRECTORY)
 
@@ -86,7 +83,6 @@ function spawnlists.Load()
 	return roots
 end
 
--- every model of the lists once, for the search
 function spawnlists.GetEntries(roots)
 	local entries = {}
 	local seen = {}

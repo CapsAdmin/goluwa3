@@ -96,7 +96,6 @@ do
 		end
 
 		local probe_enabled = upload_probe.IsEnabled()
-		-- the command buffer copies what it binds, so one table per pipeline (or per memo key) does
 		local offsets = memo_entry and memo_entry.offsets or self.uniform_offsets
 		local record_upload = upload_probe.RecordUpload
 		local record_cache_access = upload_probe.RecordCacheAccess
@@ -681,8 +680,6 @@ do
 		self._per_stage_push_blocks = {}
 
 		do
-			-- when every uniform buffer is per frame or follows what one memo_key function names, the offsets of one
-			-- key stay the same for the rest of the frame
 			local memo_key
 			local memoizable = true
 
@@ -1114,7 +1111,6 @@ do
 				config.DepthFormat
 			)
 		then
-			-- a lazy pipeline gets them when its framebuffer is first asked for
 			self.lazy_framebuffers = config.lazy_framebuffers
 
 			if not self.lazy_framebuffers then self:RecreateFramebuffers() end

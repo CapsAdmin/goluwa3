@@ -6,8 +6,6 @@ local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local npcs = {}
--- the speeds are the ground speeds of the walk and run sequences in source units per second, the sequences move the
--- character that far per second so the feet do not slide (clip:GetGroundSpeed gives them, test/tests/entities/npc.lua checks)
 npcs.Definitions = {
 	citizen = {
 		Model = "models/humans/group01/male_01.mdl",
@@ -89,7 +87,6 @@ function npcs.GetPrefabName(name)
 	return "npc_" .. name
 end
 
--- a prefab of a model and the npc and locomotion that make it walk around, the root is the entity that gets the body
 function npcs.Register(name, info)
 	local npc = {
 		WalkSpeed = info.WalkSpeed * UNIT,
@@ -124,7 +121,6 @@ function npcs.Register(name, info)
 	)
 end
 
--- places an npc, the feet at the position
 function npcs.Spawn(name, position, yaw)
 	local entity = Entity.New{
 		Name = name,
@@ -138,7 +134,6 @@ function npcs.Spawn(name, position, yaw)
 	return entity
 end
 
--- one on a random place of the navigation mesh, around a position when one is given
 function npcs.SpawnOnMesh(name, around, radius)
 	local mesh = nav_mesh.GetMesh()
 	assert(mesh, "there is no navigation mesh, load a map that has a nav file")

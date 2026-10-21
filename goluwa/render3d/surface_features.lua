@@ -19,8 +19,6 @@ surface_features.default_list = {
 	import("goluwa/render3d/features/scatter.lua"),
 }
 
--- the registry of a list of features, the engine uses the one for default_list. a list is a
--- parameter so the generation can be tested with features of its own
 function surface_features.New(source_list)
 local self = {}
 local list = {}
@@ -31,8 +29,6 @@ end
 
 self.list = list
 
--- a field with a member (its name unless member says another, false for none) gets the member in
--- Surface, its default, its decode and its write generated, ahead of the feature's own snippets
 for _, feature in ipairs(list) do
 	local generated = {
 		surface_members = {},
@@ -116,61 +112,6 @@ local function build_function(signature, key)
 	return signature .. " {\n" .. join(key) .. "\n}\n"
 end
 
--- A feature is one table in features/*.lua. Every key is optional. The GLSL snippets are
--- statements, spliced in feature order, and `s` is the Surface they work on.
---
--- fields: gbuffer fields, see gbuffer_layout.lua. besides what it stores a field gives the
---   Surface a member, and the default, decode and write of it are generated. key member renames
---   the member (false for none, the feature then does it all), material is the GLSL expression the
---   member gets from the material, with uv in scope
--- params: material parameters, {name, default, requires, callback, kind, getter, getter_expression}.
---   They become Material GetSets (kind is float, vec4 for a Color or texture) and fields of the
---   factor block, and a material with all of its floats at their default skips the upload.
---   getter names a GLSL function that reads the param, getter_expression is what it returns of
---   the value v. block = "own" gives the feature a uniform block of its own, <name>_model, that
---   is only uploaded for a material the function active says is using the feature, and
---   block = "none" gives the params no block at all, for what Lua code reads through the material
--- category: the Material category the params are listed under, the name by default. a param can name
---   another one, from it on. block = false on a param keeps it out of the block, Lua reads it
--- getters: GLSL functions reading factor_model, next to the other material getters
--- common: GLSL helper functions the snippets use
--- encoders, decoders: GLSL for the gbuffer's encode and decode side, decoders use COORD for the
---   coordinate type
--- surface_members: members added to struct Surface, besides the generated ones
---
--- building a Surface, each besides what is generated from the fields:
---   surface_default: when there is no material, defaults. scope: s, with geometric_N set
---   material_init: from the material, after surface_default. scope: s, uv, with geometric_N set
---   weather: reacts to the rain and snow on the surface. scope: s, w (SurfaceWeather)
---   surface_decode: from the gbuffer in the lighting pass. scope: s with the core members
---     and geometric_N set, uv, size
---   surface_finish: last, once every feature has set its members. scope: s
---   gbuffer_write: stores the members. scope: s
---
--- lobes, spliced into get_direct_light and get_indirect_light:
---   direct_peak: refines lobe_alpha_min, the smoothest lobe's alpha, which scales how bright
---     a light has to be to show on screen. scope: s, lobe_alpha_min
---   direct_shadow: runs before the shadow lookup. scope: s, L, shadow_N (inout),
---     shadow_facing (inout)
---   direct_layer: layers over the base lobe, before it is added. scope: s, light, type, L, H,
---     LoH, glow_widening, radiance (inout), diffuse_weight (inout), specular (inout)
---   direct: after the base lobe is added, with what the layers left of the radiance. scope: as
---     direct_layer, and diffuse (inout)
---   indirect: scope: s, in_uv, sky_visibility, irradiance, ambient_occlusion,
---     ambient_diffuse (inout), ambient_specular (inout)
---   indirect_layer: the same, layered over what indirect and the base made
---
--- weather_input: before the weather is applied, what this surface asks of it. scope: s, w
---   (SurfaceWeather) with porosity, wet_scale and snow_scale set, core derives the porosity from
---   the roughness and metal
---
--- other passes:
---   reflection: see GetReflectionGLSL
---   thin: a GLSL bool expression of c, a gbuffer coordinate, true where the surface is thin
---   lit_from_behind: a GLSL bool expression of s, true where a light facing away from s.N still adds
---     something (the direct stages of other features read the light behind the surface), the
---     lighting loop skips those lights otherwise
--- the getters of the params that name one, reading the block the param is in
 function self.GetGetterGLSL()
 	local out = {join("getters")}
 
@@ -227,16 +168,10 @@ function self.GetIndirectGLSL()
 	return join("indirect")
 end
 
--- statements for the reflections pass, which traces one ray per pixel off the surface's reflection. scope:
--- gbuffer_pos (ivec2), world_pos, view_depth, V, geometric_N, footprint (meters a pixel covers on
--- the surface), N (inout, what the ray reflects off), roughness (inout, perceptual). a feature
--- whose lobe is smoother than the surface under it traces off that
 function self.GetReflectionGLSL()
 	return join("reflection")
 end
 
--- bool gbuffer_is_thin(COORD c), true for what is a thin card, for passes that treat those
--- differently
 function self.GetThinExpressionGLSL()
 	local out = {}
 
@@ -247,7 +182,6 @@ function self.GetThinExpressionGLSL()
 	return #out > 0 and table.concat(out, " || ") or "false"
 end
 
--- a GLSL bool expression of s, true where a light behind the surface still adds something
 function self.GetLitFromBehindExpressionGLSL()
 	local out = {}
 
@@ -264,29 +198,20 @@ function self.GetIndirectLayerGLSL()
 	return join("indirect_layer")
 end
 
--- struct Surface and SurfaceWeather. any shader that builds a Surface includes this, and the
--- guard lets several of them
 function self.GetSurfaceGLSL()
 	return "\n" .. [[
 		#ifndef GOLUWA_SURFACE_STRUCT
 		#define GOLUWA_SURFACE_STRUCT
-		// what rain and snow did to a surface, for the features to react to
 		struct SurfaceWeather {
-			// how much snow covers it
 			float snow;
-			// the rain's film over it, its ggx alpha, and how exposed to the rain it is
 			float film;
 			float film_alpha;
 			float rain;
-			// what the surface asks of the weather: how much water its pores soak up, and how much
-			// of the wetness and the snow it takes. prepare_surface_weather sets them
 			float porosity;
 			float wet_scale;
 			float snow_scale;
 		};
 
-		// everything the lobes shade a point with. a feature adds its members to it
-		// instead of a parameter to every lighting function
 		struct Surface {
 			vec3 F0;
 			float NdotV;
@@ -301,17 +226,14 @@ function self.GetSurfaceGLSL()
 	]] .. "\n"
 end
 
--- void default_surface_features(inout Surface s), for shaders that have no material
 function self.GetDefaultFunctionGLSL()
 	return build_function("void default_surface_features(inout Surface s)", "surface_default")
 end
 
--- void init_surface_features(inout Surface s, vec2 uv), from the material
 function self.GetInitFunctionGLSL()
 	return "void init_surface_features(inout Surface s, vec2 uv) {\n" .. join("surface_default") .. "\n" .. join("material_init") .. "\n}\n"
 end
 
--- void prepare_surface_weather(inout Surface s, out SurfaceWeather w)
 function self.GetPrepareWeatherFunctionGLSL()
 	return build_function("void prepare_surface_weather(in Surface s, out SurfaceWeather w)", "weather_input")
 end
@@ -324,12 +246,10 @@ function self.GetFinishFunctionGLSL()
 	return build_function("void finish_surface_features(inout Surface s)", "surface_finish")
 end
 
--- void write_surface_features(Surface s), in the passes that write the gbuffer
 function self.GetWriteFunctionGLSL()
 	return "void write_surface_features(Surface s) {\n" .. join("gbuffer_write") .. "\ngbuffer_flush_packed();\n}\n"
 end
 
--- void decode_surface_features(inout Surface s, vec2 uv, ivec2 size), from the gbuffer
 function self.GetDecodeFunctionGLSL()
 	return build_function("void decode_surface_features(inout Surface s, vec2 uv, ivec2 size)", "surface_decode")
 end

@@ -1,9 +1,3 @@
--- a landscape grown over with all of the procedural foliage (addons/foliage): a meadow valley, forest on the hills to
--- the east, a rocky ridge to the west, and a lake to the north with a beach of palms on its east shore and reeds and
--- willows on its west one. in the middle stands a mesa with every preset on it in rows (lua/foliage/gallery.lua),
--- labelled with its path when you are near, cliffs on three sides and a long slope down the south one. you spawn on it
--- luajit glw --3d lua "import('addons/examples/lua/examples/render3d/foliage_world.lua')"
--- `foliage_world_view N` goes to a view (0 lists them and gives the camera back), `foliage_world_labels` toggles the labels
 local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local noise = import("goluwa/terrain/noise.lua")
@@ -20,13 +14,11 @@ local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 local sets = import("lua/foliage/scatter_sets.lua")
 local gallery = import("lua/foliage/gallery.lua")
 local world = {}
--- the layout, in meters. the same numbers are in the glsl below
 local MESA = Vec3(0, 62, 0)
 local MESA_HALF_X, MESA_HALF_Z = 70, 38
 local LAKE_X, LAKE_Z, LAKE_RADIUS = 0, -330, 150
 local FOREST_X, FOREST_Z = 330, -80
 local RIDGE_X, RIDGE_Z = -340, -60
--- nothing is scattered above this, so the mesa's top is bare for the gallery
 local SCATTER_CEILING = 54
 local HEIGHT_GLSL = ([=[
 const vec2 MESA = vec2(%f, %f);
@@ -37,13 +29,11 @@ const float LAKE_RADIUS = %f;
 const vec2 FOREST = vec2(%f, %f);
 const vec2 RIDGE = vec2(%f, %f);
 
-// how much of the ridge is here, a crest along z
 float ridge_amount(vec2 p) {
 	vec2 r = (p - RIDGE) / vec2(55.0, 260.0);
 	return exp(-dot(r, r));
 }
 
-// rolling ground, the forest's hills, the ridge and the lake's basin
 float world_base(vec2 p) {
 	float h = 13.0 + 5.0 * sin(p.x * 0.011) * cos(p.y * 0.013) + 3.0 * sin(p.x * 0.023 + p.y * 0.017 + 1.3);
 	vec2 f = (p - FOREST) / 230.0;
@@ -52,8 +42,6 @@ float world_base(vec2 p) {
 	return mix(h, -7.0, smoothstep(1.35, 0.55, length(p - LAKE) / LAKE_RADIUS));
 }
 
-// how much of the mesa's height a point has: 1 on its flat top, ragged cliffs on three sides and a long slope down the
-// south one. the cliffs' noise is what world.GetHeight in lua leaves out
 float mesa_amount(vec2 p, float bake_step) {
 	vec2 q = abs(p - MESA) - MESA_HALF;
 	float outside = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
@@ -69,7 +57,6 @@ float terrain_height(vec2 world) {
 	return mix(world_base(world), MESA_TOP, mesa) + detail * 0.8 * (1.0 - mesa);
 }
 ]=]):format(MESA.x, MESA.z, MESA_HALF_X, MESA_HALF_Z, MESA.y, LAKE_X, LAKE_Z, LAKE_RADIUS, FOREST_X, FOREST_Z, RIDGE_X, RIDGE_Z)
--- the four layers are the four biomes: x the meadow (grass), y the forest floor (dirt), z rock, w the beach (sand)
 local SPLAT_GLSL = [=[
 vec4 terrain_splat(vec2 world, float h, vec3 n) {
 	vec2 p = world;
@@ -80,10 +67,8 @@ vec4 terrain_splat(vec2 world, float h, vec3 n) {
 	float ridge = pow(ridge_amount(p), 0.4);
 	rock = max(rock, smoothstep(20.0, 28.0, h + breakup * 10.0) * ridge);
 	float lake = length(p - LAKE) / LAKE_RADIUS;
-	// the beach is on the east shore, the west one is grass for the reeds
 	float sand = (1.0 - smoothstep(2.0, 4.5, h + fine * 2.0)) * step(lake, 1.7) * smoothstep(-0.25, 0.25, (p.x - LAKE.x) / LAKE_RADIUS + breakup);
 	float forest = smoothstep(1.05, 0.8, length((p - FOREST) / 270.0) + breakup * 0.6);
-	// and a few groves out in the meadow, not on the ridge
 	forest = max(forest, smoothstep(0.62, 0.7, pn_fbm(p * 0.005 + vec2(11.0, 2.0), 3) * 0.5 + 0.5 + fine * 0.1) * (1.0 - ridge));
 	vec4 w;
 	w.w = sand * (1.0 - rock);
@@ -93,7 +78,6 @@ vec4 terrain_splat(vec2 world, float h, vec3 n) {
 	return w / max(dot(w, vec4(1.0)), 0.0001);
 }
 ]=]
--- the forest floor is the dirt layer darkened, the same mask as in the splat
 local COLOR_GLSL = [=[
 vec3 terrain_color(vec2 world, float h, vec3 n) {
 	float patches = pn_fbm(world * 0.008 + vec2(1.0, 7.0), 3);
@@ -107,7 +91,6 @@ vec3 terrain_color(vec2 world, float h, vec3 n) {
 }
 ]=]
 
--- the height without the small noise of the glsl (at most 0.8 m off), and exactly the mesa's on its top
 function world.GetHeight(x, z)
 	local h = 13 + 5 * math.sin(x * 0.011) * math.cos(z * 0.013) + 3 * math.sin(x * 0.023 + z * 0.017 + 1.3)
 	local fx, fz = (x - FOREST_X) / 230, (z - FOREST_Z) / 230
@@ -120,13 +103,11 @@ function world.GetHeight(x, z)
 	local outside = math.sqrt(math.max(qx, 0) ^ 2 + math.max(qz, 0) ^ 2) + math.min(math.max(qx, qz), 0)
 	local south = math.smoothstep(MESA.z + MESA_HALF_Z - 10, MESA.z + MESA_HALF_Z + 10, z)
 
-	-- the ragged cliffs are not in here, only the slope
 	if south < 1 and outside > 0 then return h end
 
 	return math.lerp(1 - math.smoothstep(0, math.lerp(south, 22, 200), outside), h, MESA.y)
 end
 
--- one set of all five foliage sets, each growing on its own layer, the wetland's near the water
 local function build_scatter_set()
 	local prototypes = {}
 
@@ -154,7 +135,6 @@ local function build_scatter_set()
 	add(sets.foliage_tropical, {0, 0, 0, 1}, function()
 		return {0.4, SCATTER_CEILING, 0.5}
 	end)
-	-- reeds stand in the shallows, the rest of the wetland just above the water
 	add(sets.foliage_wetland, {1, 0.3, 0, 0.3}, function(definition)
 		if definition.model:find("reeds") then return {-0.6, 2, 0.6} end
 
@@ -206,7 +186,6 @@ local spawn = Entity.New{Name = "foliage_world_spawn", Parent = world.root}
 spawn:AddComponent("transform"):SetPosition(Vec3(MESA.x, MESA.y, MESA.z + 30))
 spawn:AddComponent("spawn_point", {Group = "start"})
 
--- a rotation looking from one point at another
 local function look(from, to)
 	local dir = (to - from):GetNormalized()
 	local rotation = Quat()
@@ -261,7 +240,6 @@ commands.Add("foliage_world_view=number[0]", function(index)
 	world.SetView(index)
 end)
 
--- the path of each preset over it when the camera is near
 world.labels = true
 local LABEL_DISTANCE = 10
 

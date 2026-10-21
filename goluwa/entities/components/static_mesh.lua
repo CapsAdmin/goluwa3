@@ -12,9 +12,6 @@ META:GetSet("Vertices", nil, {Hidden = true})
 META:GetSet("Material", "", {asset = "materials", callback = "OnShapeChanged"})
 META:GetSet("Collide", true, {callback = "OnShapeChanged"})
 META:EndStorable()
--- Vertices holds 9 floats per vertex, three vertices make a triangle: position in source space, uv, texture blend and the
--- engine space normal. The positions are as they were when the entity was created, the entity's transform moves them from
--- there. A static world below the mesh batches and collides it.
 local REST_EPSILON = 1e-5
 local MATRIX_FIELDS = {
 	"m00",
@@ -46,7 +43,6 @@ function META:SetVertices(value)
 	self:OnShapeChanged()
 end
 
--- the points in engine space relative to the center of their bounds, computed on first use
 function META:EnsureLocalPoints()
 	if self.local_points then return end
 
@@ -155,7 +151,6 @@ function META:OnRemove()
 	if self.world and self.world:IsValid() then self.world:RemoveSource(self) end
 end
 
--- the triangles as a polygon in the entity's local space, for highlighting
 function META:GetPolygons()
 	if self.polygons then return self.polygons end
 
@@ -180,7 +175,6 @@ function META:GetPolygons()
 	return self.polygons
 end
 
--- watches the transform so moving the entity moves the mesh
 function META:Activate()
 	if self.active then return end
 

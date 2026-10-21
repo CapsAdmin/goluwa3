@@ -26,7 +26,6 @@ end)
 T.Test3D("source materials: a colored envmap tint is a metal and a wood surfaceprop is not", function()
 	local gold = apply{shader = "vertexlitgeneric", envmap = "env_cubemap", envmaptint = "[1 .8 .4]"}
 	T(gold:IsMetallic())["=="](true)
-	-- a translucent material is not metal for a class guess, an opaque one is
 	local panel = {shader = "vertexlitgeneric", surfaceprop = {surfaceprop_name = "metalpanel"}}
 	T(apply(panel):IsMetallic())["=="](true)
 	panel = {shader = "vertexlitgeneric", surfaceprop = {surfaceprop_name = "metalpanel"}, translucent = 1}
@@ -40,7 +39,6 @@ T.Test3D("source materials: a colored envmap tint is a metal and a wood surfacep
 	T(wood:IsMetallic())["=="](false)
 end)
 
--- name, is metal. what the metal gate and the surfaceprop, detail and model hints have to get right on content that ships with gmod
 local vmts = {
 	{"models/props_combine/breendesk_sheet", false, "dark brown wood with a metal surfaceprop and a strong envmap tint"},
 	{"models/props_combine/breenglobe_sheet", false, "wood surfaceprop with a warm envmap tint"},
@@ -52,7 +50,6 @@ local vmts = {
 	{"models/props_combine/combine_barricade_short01a", true, "dark metal, a bluish envmap tint"},
 	{"models/props_combine/combine_interface001", true, "metal surfaceprop with an envmap tint of 0.1"},
 }
--- model, material, is metal. the vmt of the material says nothing, the surfaceprop the model was compiled with does
 local models = {
 	{"models/props_lab/blastdoor001a.mdl", "materials/models/props_lab/blastdoor_sheet.vmt", true},
 	{"models/props_lab/workspace004.mdl", "materials/models/props_lab/workspace_wires.vmt", false},
@@ -109,10 +106,8 @@ T.Test3D("source materials: metallic estimate on gmod content", function()
 		T(materials[i]:IsMetallic(), info[1] .. " (" .. info[3] .. ")")["=="](info[2])
 	end
 
-	-- the lockers have a $detail texture, which varies their roughness
 	T(materials[5]:GetMicroDetailTexture() ~= nil)["=="](true)
 	T(materials[5]:GetMicroDetailRoughness() > 0)["=="](true)
-	-- the desk has a roughness source of its own, the bump alpha. the fence has none, so its roughness is derived
 	T(materials[1]:GetDerivedRoughnessAlbedo())["=="](0)
 	T(materials[4]:GetDerivedRoughnessAlbedo() > 0)["=="](true)
 

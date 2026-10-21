@@ -21,7 +21,6 @@ META:GetSet("FieldPadding", nil)
 META:GetSet("RowHeight", 20)
 META:EndStorable()
 
--- gives the error of the last applied code, or nothing
 function META.OnGetStatus(control) end
 
 local function get_preview(value, language)

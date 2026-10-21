@@ -1,13 +1,3 @@
--- particle emitters and collision: a yard with a wall, a hut and a pillar under light rain, and two emitters thrown at the
--- wall. Sparks (a particle_emitter_gpu: simulated and lit on the gpu, thousands) collide with what the current mode sees:
---   shelter_map  the depth map of the world from above (what keeps the rain off roofs): ground, the roof, the top of the
---                wall, but the sparks go through the sides of everything
---   scene_depth  the depth buffer of the view: whatever is on screen, sides included, nothing behind or out of view
---   rays         the scene bvh: everything solid
--- Debris (a particle_emitter_cpu: simulated in lua, every piece a lit cube in the gbuffer, hundreds) bounces on rays whatever the mode.
--- luajit glw --3d lua "import('addons/examples/lua/examples/render3d/particles_demo.lua')"
--- `particles_demo_collision <mode>` switches the sparks' mode, with no argument it cycles. It cycles every 6 seconds by
--- itself, PARTICLES_DEMO_CYCLE=0 turns that off. Rain is on, `particles_demo_rain 0` stops it.
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
@@ -32,7 +22,6 @@ test_scene.Box{name = "wall", pos = Vec3(0, 1.5, 7), size = Vec3(8, 3, 0.4), mat
 test_scene.Box{name = "pillar", pos = Vec3(3, 1.5, 2), size = Vec3(0.6, 3, 0.6), material = test_scene.Matte(0.5)}
 weather.SetRain(1)
 
--- an emitter at position, its up turned to direction
 local function add_emitter(name, component, position, direction)
 	local entity = Entity.New{Name = name}
 	entity:AddComponent("transform")
@@ -45,7 +34,6 @@ local function add_emitter(name, component, position, direction)
 	return emitter
 end
 
--- towards the wall, so they hit its face and the ground
 demo.sparks = add_emitter("sparks", "particle_emitter_gpu", Vec3(0, 0.3, 4), Vec3(0, 1, 0.55))
 demo.sparks:SetRate(500)
 demo.sparks:SetMaxParticles(1500)

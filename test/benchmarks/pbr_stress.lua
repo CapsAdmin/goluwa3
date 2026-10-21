@@ -1,8 +1,4 @@
 -- glw: --3d
--- screens filled with one shading path each: every pixel of a phase's view hits the path being measured, so the per pass gpu times
--- of a phase are the path's cost at 1080p. The planes stand far apart, high above the default scene. The camera of a phase looks
--- at its own plane (view), the default phases are replaced by static ones.
--- PBR_PHASES=name,name picks phases by name part, PBR_MEASURE=5 seconds measured per phase (gpu timing needs few)
 local frame_benchmark = import("goluwa/render3d/frame_benchmark.lua")
 local test_scene = import("goluwa/render3d/test_scene.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
@@ -22,7 +18,6 @@ local function material(config)
 	return shapes.Material(config)
 end
 
--- one quad facing +z turned by yaw, uv 0 to 1
 local function quad(name, center, yaw, width, height, mat)
 	local ent = shapes.Polygon{
 		Name = name,
@@ -57,7 +52,6 @@ local grid = material{
 }
 local ramp = "return vec4(mix(0.03, 1.0, uv.x));"
 
--- a cell is a place for a phase: its center, built by add(center)
 local function cell(name, add, config)
 	local index = #cells + 1
 	local center = ORIGIN + Vec3(index * SPACING, 0, 0)
@@ -90,7 +84,6 @@ local function build()
 
 	local function corridor(roughness)
 		return function(c)
-			-- a metal wall that reflects a lit checker wall behind the camera: the reflection rays hit geometry
 			quad("mirror", c, 0, 60, 40, material{Color = Color(0.95, 0.95, 0.95, 1), Roughness = roughness, Metallic = 1})
 			quad("behind", c + Vec3(0, 0, 14), 180, 60, 40, grid)
 		end
@@ -173,7 +166,6 @@ local function build_phases()
 	end
 end
 
--- the phases are listed before the scene is built, and the loader's first view is the first phase's
 local config
 config = {
 	name = "pbr stress",
@@ -195,7 +187,6 @@ config = {
 	phases = {},
 }
 
--- PBR_SHOTS=<tag> saves a picture of every phase to tmp/ab/<tag>_<phase number>.png instead of measuring (for A/B comparisons)
 if os.getenv("PBR_SHOTS") then
 	local Shot = import("goluwa/render3d/shot.lua")
 	local system = import("goluwa/system.lua")

@@ -1,19 +1,3 @@
--- every part of the wind bending in rasterization, on flat colored debug models. the vertex colors follow the bending
--- convention of the foliage (addons/foliage): a debug tree is a rigid pole with 4 branches pointing out, a branch
--- loses FLEX of its stiffness a meter out, each with 4 planes for leaves that flutter at their top edge and are held
--- at their bottom edge (the leaves detail mode). a grass patch is blades of the foliage grass in the grass detail mode
---
---   the trees: as built, turned, turned and scaled, scaled down, and a short and a tall one (the sway's period
---     follows the height), each labeled
---   the grass patches: as built, turned and scaled
---   crysis vegetation at the sides when crysis 1 is installed (a palm, a jungle tree, a twisted tree and a bush), with
---     their own materials and bend heights, which the multipliers scale too once they have loaded
---   a bumpy patch at the back that a scatter set grows grass (conform, the base follows the ground) and small trees
---     on (turned, tilted, aligned to the ground) through scatter's own draw
---
--- hold q for the controls: the wind's direction and speed, multipliers on the bending params of every material and
--- the time scale of the wind's clock (0 stops the plants where they are)
--- luajit glw --3d lua "import('addons/examples/lua/examples/render3d/wind_debug.lua')"
 local event = import("goluwa/event.lua")
 local input = import("goluwa/input.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
@@ -38,8 +22,6 @@ local Random = import("lua/foliage/random.lua")
 local trees = import("lua/foliage/trees.lua")
 local grass = import("lua/foliage/grass.lua")
 local FLEX = 0.1
--- far past real wind, to exaggerate. the engine eases the sway towards a limit as the wind gets stronger, the
--- bending multiplier scales the Bending of the materials past it
 local MAX_SPEED = 100
 local SCATTER_CENTER = Vec3(0, 0, -34)
 local SCATTER_SIZE = 32
@@ -49,7 +31,6 @@ local BRANCH_COLORS = {
 	Color(0.25, 0.45, 0.95, 1),
 	Color(0.95, 0.8, 0.2, 1),
 }
--- the bending params of a material the multipliers scale
 local PARAMS = {"Bending", "BendDetailFrequency", "BendDetailLeafAmplitude", "BendDetailBranchAmplitude", "BendDetailPhase"}
 
 if _G.wind_debug then _G.wind_debug.Remove() end
@@ -58,7 +39,6 @@ local scene = {}
 _G.wind_debug = scene
 scene.root = Entity.New{Name = "wind_debug", Parent = Entity.World}
 scene.root:AddComponent("transform")
--- {material, base = {param = value}}, the materials the multipliers scale and their own values
 scene.materials = {}
 scene.tracked = {}
 scene.labels = {}
@@ -88,7 +68,6 @@ local function tree_material(color, double_sided)
 	return material{ColorMultiplier = color, DoubleSided = double_sided, Bending = 1, DetailBending = "leaves", BendDetailPhase = 1, BendDetailFrequency = 1}
 end
 
--- the amplitudes and frequencies of the foliage's small plants (SMALL in addons/foliage/lua/foliage/materials.lua)
 local grass_material = material{
 	ColorMultiplier = Color(0.45, 0.75, 0.3, 1),
 	DoubleSided = true,
@@ -107,8 +86,6 @@ for i, color in ipairs(BRANCH_COLORS) do
 	plane_materials[i] = tree_material(color * 0.5 + Color(0.5, 0.5, 0.5, 0.5), true)
 end
 
--- the parts of a debug tree of a height, {mesh = polygon, material = material}: the pole, then a branch and its
--- planes for each direction. the branches are at 3/4 of the height and a third of it long
 local function build_tree(height)
 	local parts = {}
 	local branch_height, branch_length, plane_size = height * 0.75, height / 3, height / 15
@@ -155,7 +132,6 @@ local function build_tree(height)
 			local base = dir * reach + Vec3(0, branch_height, 0)
 			local first = planes:GetVertexCount()
 
-			-- the bottom edge is held by the branch, the top flutters
 			for corner = 0, 3 do
 				local sx = (corner == 1 or corner == 2) and 1 or -1
 				local top = corner >= 2
@@ -173,7 +149,6 @@ local function build_tree(height)
 	return parts
 end
 
--- blades over a square of a size around the origin, leaning every way, half a meter tall
 local function build_grass(size, count, seed)
 	local rng = Random.New(seed)
 	local mesh = MeshBuilder.New()
@@ -243,8 +218,6 @@ spawn("wind_debug_tree_scaled", tree_6, Vec3(-6, 0, 6), 120, 1.5, "6 m x1.5, tur
 spawn("wind_debug_tree_small", tree_6, Vec3(6, 0, 6), -30, 0.6, "6 m x0.6, turned -30")
 spawn("wind_debug_tree_short", build_tree(3), Vec3(-15, 0, 0), 0, 1, "3 m")
 spawn("wind_debug_tree_tall", build_tree(12), Vec3(15, 0, 0), 0, 1, "12 m")
--- crysis vegetation next to the debug trees when crysis 1 is installed, their materials join the multipliers once
--- they have loaded
 scene.pending = {}
 
 do
@@ -274,7 +247,6 @@ local grass_patch = build_grass(1.5, 120, 1)
 spawn("wind_debug_grass", grass_patch, Vec3(-3, 0, 14), 0, 1, "grass")
 spawn("wind_debug_grass_turned", grass_patch, Vec3(0, 0, 14), 60, 1, "grass, turned 60")
 spawn("wind_debug_grass_scaled", grass_patch, Vec3(3, 0, 14), 0, 2, "grass x2")
--- the scatter patch: hills over the square that fall to the ground at its edges
 scene.scatter_set = ScatterSet.New{
 	Name = "wind_debug",
 	Prototypes = {
@@ -351,8 +323,6 @@ end
 local spawn_point = Entity.New{Name = "wind_debug_spawn", Parent = scene.root}
 spawn_point:AddComponent("transform"):SetPosition(Vec3(0, 3, 26))
 spawn_point:AddComponent("spawn_point", {Group = "start"})
--- the wind as a direction (degrees, 0 blows towards +x, 90 towards +z) and a speed in m/s, the multipliers on the
--- bending params of every material and the wind's time scale
 scene.direction = 0
 scene.speed = 4
 scene.multipliers = {}
@@ -377,7 +347,6 @@ end
 
 apply_wind()
 
--- an arrow over the middle of the trees, the way the wind blows and as long as it is fast, and the labels
 event.AddListener("Update", "wind_debug", function()
 	for i = #scene.pending, 1, -1 do
 		local visual = scene.pending[i]
@@ -416,12 +385,10 @@ event.AddListener("Update", "wind_debug", function()
 	end
 end)
 
--- the controls, shown while q is held
 local panel = NULL
 scene.controls_shown = false
 local readout
 
--- the beaufort scale, the upper speed of each force in m/s and what the wind does to plants at it
 local BEAUFORT = {
 	{0.5, "0 calm"},
 	{1.5, "1 light air"},
@@ -575,7 +542,6 @@ event.AddListener("Update", "wind_debug_controls", function()
 	if down then
 		show()
 	elseif panel:IsValid() then
-		-- the window is gone when the ui was rebuilt while q was held
 		panel.visual:SetVisible(false)
 	end
 end)
@@ -585,7 +551,6 @@ function scene.Remove()
 	event.RemoveListener("Update", "wind_debug_controls")
 	weather.SetWindTimeScale(1)
 
-	-- the crysis materials are shared with every other use of their models
 	for _, entry in ipairs(scene.materials) do
 		for _, param in ipairs(PARAMS) do
 			entry.material["Set" .. param](entry.material, entry.base[param])

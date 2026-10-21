@@ -278,8 +278,6 @@ do
 		grouped = nil
 	end
 
-	-- scopes that match no registered group get a group of their own. gpu_frame and gpu_total are
-	-- aggregates of the other scopes and are left out
 	function gpu_timing.GetGroups()
 		if grouped and grouped_count == #slot_order then return grouped end
 
@@ -330,8 +328,6 @@ function gpu_timing.IsSerialized()
 	return serialized
 end
 
--- what a scope worked on in the last frame it was recorded (rays dispatched, rows drawn, pixels), set by the pass that
--- knows, so a time can be read as a time per unit of work
 do
 	local infos = {}
 
@@ -352,7 +348,6 @@ do
 
 	local capture
 
-	-- averages the scopes over the frames between BeginCapture and EndCapture
 	function gpu_timing.BeginCapture()
 		capture = {frames = 0, sums = {}}
 	end
@@ -367,7 +362,6 @@ do
 		end
 	end)
 
-	-- {frame_ms, frames, scopes = {{name, ms, share, info}}, groups = {{id, label, ms, share}}}, largest first
 	function gpu_timing.EndCapture()
 		local frames = math.max(capture.frames, 1)
 		local frame_ms = (capture.sums.gpu_frame or 0) / frames

@@ -68,7 +68,6 @@ local function grow(array, ctype, used, capacity, needed)
 	return new_array, new_capacity
 end
 
--- Solver constants for one substep.
 local function configure(solver, dt)
 	P.dt = dt
 	P.slop = solver.PENETRATION_SLOP
@@ -93,7 +92,6 @@ end
 
 local soft_hertz, soft_damping_ratio
 
--- Starts a substep: clears the batch and loads the solver constants every island shares.
 function contact_solver.Begin(solver, dt)
 	body_count, man_count, task_count = 0, 0, 0
 	soft_hertz, soft_damping_ratio = configure(solver, dt)
@@ -117,7 +115,6 @@ local function load_velocity(b, body)
 	b.pc = body.PositionCorrection
 end
 
--- World inverse inertia is R * M * R^T, zero for bodies the solver must not move.
 local function load_pose(b, body)
 	local p = body.Position
 	b.px, b.py, b.pz = p.x, p.y, p.z
@@ -156,8 +153,6 @@ local function load_pose(b, body)
 	end
 end
 
--- Registers a manifold in the island's batch. Only bookkeeping happens here, the contact math
--- runs in Prepare once every manifold of the island is known.
 function contact_solver.Add(
 	group,
 	manifold_data,
@@ -291,7 +286,6 @@ function contact_solver.Store(group, dt)
 	end
 end
 
--- Contact anchors, effective masses, separation and the pre-solve normal speed of one manifold.
 local function prepare_manifold(m, ba, bb)
 	local cs = m.cs
 	local last = m.rows - 1
@@ -318,8 +312,6 @@ local function prepare_manifold(m, ba, bb)
 		local pby = m.pby + ly + m.qbw * ty + (m.qbz * tx - m.qbx * tz)
 		local pbz = m.pbz + lz + m.qbw * tz + (m.qbx * ty - m.qby * tx)
 		local depth = (pax - pbx) * nx + (pay - pby) * ny + (paz - pbz) * nz
-		-- First substep after a rebuild: remember depth and starting separation, afterwards the
-		-- separation follows the depth change.
 		local first = 1 - c.has_base
 		local start = c.has_sep * c.sep - (1 - c.has_sep) * (depth + m.depth_offset)
 		c.base_sep = first * start + (1 - first) * c.base_sep
@@ -381,8 +373,6 @@ local function prepare_manifold(m, ba, bb)
 	return min_separation <= P.touch_tolerance
 end
 
--- Orthonormal tangent frame for warm starting: the cached tangent projected onto the contact plane,
--- else an arbitrary one. Written to the row's t and b.
 local function warm_frame(m, c)
 	local nx, ny, nz = m.nx, m.ny, m.nz
 	local px, py, pz, length = 0, 0, 0, 0
@@ -430,7 +420,6 @@ local function warm_frame(m, c)
 	return true
 end
 
--- Applies impulse * direction at the contact to both bodies (ia/ib are 0 for bodies that must not move).
 local function apply_contact_impulse(m, c, ba, bb, ia, ib, dx, dy, dz, impulse)
 	local scale = impulse * m.pm_a * ia
 	ba.vx, ba.vy, ba.vz = ba.vx - dx * scale, ba.vy - dy * scale, ba.vz - dz * scale
@@ -544,9 +533,6 @@ local function solve_normal(m, c, ba, bb, relax)
 	bb.wz = bb.wz + delta * c.wbz
 end
 
--- Builds the friction frame for a row from the current slip velocity: t along the slip (or the
--- cached tangent), b = n x t. Writes t, b and the slip numerators to the row; returns false when
--- there is no slip.
 local function friction_frame(m, c, ba, bb)
 	local rel_x = bb.vx + bb.wy * c.rbz - bb.wz * c.rby - ba.vx - ba.wy * c.raz + ba.wz * c.ray
 	local rel_y = bb.vy + bb.wz * c.rbx - bb.wx * c.rbz - ba.vy - ba.wz * c.rax + ba.wx * c.raz
@@ -600,7 +586,6 @@ local function friction_frame(m, c, ba, bb)
 	return true
 end
 
--- Effective mass of a row along the direction (dx, dy, dz) for both bodies.
 local function friction_inverse_mass(m, c, ba, bb, dx, dy, dz)
 	local ux, uy, uz = c.ray * dz - c.raz * dy, c.raz * dx - c.rax * dz, c.rax * dy - c.ray * dx
 	local vx, vy, vz = c.rby * dz - c.rbz * dy, c.rbz * dx - c.rbx * dz, c.rbx * dy - c.rby * dx
@@ -810,7 +795,6 @@ local function solve_tasks(first, last, relax)
 	end
 end
 
--- Loads the island's bodies and prepares and warm starts every collected manifold.
 function contact_solver.Prepare(solver, group, dt)
 	local first = group.first_man
 	local last = group.man_end - 1
@@ -862,7 +846,6 @@ function contact_solver.Prepare(solver, group, dt)
 	build_tasks(group)
 end
 
--- One Gauss-Seidel sweep over the island's prepared manifolds, on the loaded velocities.
 function contact_solver.Solve(group, relax)
 	if group.task_end > group.first_task then
 		solve_tasks(group.first_task, group.task_end - 1, relax and 1 or 0)

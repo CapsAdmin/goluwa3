@@ -1,5 +1,3 @@
--- a second ggx lobe next to the base one, a broad sheen over a tight highlight or the other way
--- around, like the phong and envmap of a source material. a dielectric, F0 0.04
 return {
 	name = "secondary_specular",
 	category = "Secondary Specular",
@@ -9,7 +7,6 @@ return {
 			name = "SecondarySpecularRoughness",
 			default = 0.3,
 			requires = "SecondarySpecular",
-			-- ggx alpha
 			getter = "get_secondary_specular_roughness",
 			getter_expression = "v * v",
 		},
@@ -30,14 +27,13 @@ return {
 			material = "get_secondary_specular_roughness()",
 			kind = "unorm8",
 			default = "1.0",
-			-- ggx alpha in, stored as the perceptual roughness
 			encode = "sqrt(v)",
 			decode = "v * v",
 			readers = {"lighting"},
 		},
 	},
 	reflection = [[
-		// a strong smooth second lobe is the sharp reflection, the base lobe's is blurred by it
+
 		if (gbuffer_secondary_specular(gbuffer_pos) > 0.5) {
 			roughness = min(roughness, sqrt(gbuffer_secondary_specular_roughness(gbuffer_pos)));
 		}

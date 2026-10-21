@@ -12,15 +12,12 @@ local grade = import("goluwa/render3d/grade.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local WIDTH = 460
--- how often the editor looks at the models, seconds
 local POLL_INTERVAL = 0.1
--- the desktop menu bar and its program buttons stay uncovered
 local DESKTOP_BAR = 104
 local nodes = {}
 local wind_direction = 0
 local grade_blend_seconds = grade.BLEND_TIME
 
--- editing by hand takes over from a preset that is still blending in
 local function number_node(key, text, min, max, precision, get, set, help)
 	local node = {
 		Key = key,
@@ -97,7 +94,6 @@ local LAYER_FIELDS = {
 	{"detail_scale", 50, 1000, 0},
 }
 
--- layers are addressed by name because setting layers sorts them by altitude
 local function copy_layers()
 	local list = {}
 
@@ -511,7 +507,6 @@ local function build_items()
 			items[#items + 1] = group
 		end
 
-		-- editing by hand takes over from a preset that is still blending in
 		local node = pvar_node.Build(info, function(value)
 			grade.Stop()
 			pvars.SetSession(info.key, value)
@@ -537,7 +532,6 @@ local function name_layers()
 	end
 end
 
--- the values of every node the editor shows, the same table while nothing changed so that a poll that finds nothing is not a render
 local last_values = {}
 
 local function read_values()
@@ -557,7 +551,6 @@ local function read_values()
 	return values
 end
 
--- the editor follows the weather, the climate and the grade while the window is shown: a new set of cloud layers builds new items, a changed value is put into its row
 local LookEditor = react.Component(|| -> do
 	local editor = react.UseRef()
 	local signature = react.UsePoll(|| -> do
@@ -580,7 +573,6 @@ local LookEditor = react.Component(|| -> do
 		ui.PropertyEditor{Ref = editor, Items = items, layout = {GrowWidth = 1}},
 	}
 end)
--- closing the window only hides it, nothing follows the models while it is hidden
 local LookView = react.Component(|| -> do
 	local shown, set_shown = react.UseState(true)
 	local size = react.UseMemo(|| -> Vec2(WIDTH, Panel.World.transform:GetSize().y - DESKTOP_BAR), {})
@@ -596,7 +588,6 @@ local LookView = react.Component(|| -> do
 	}{shown && LookEditor{}}
 end)
 
--- a host that keeps the content mounted while hidden passes Shown = false so nothing polls
 local LookContent = react.Component(|props| -> props.Shown ~= false && LookEditor{})
 
 desktop.RegisterProgram{

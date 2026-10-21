@@ -28,8 +28,6 @@ local function luma(x)
 	return 0.2126 * x[1] + 0.7152 * x[2] + 0.0722 * x[3]
 end
 
--- the grade of one colour as the shader does it, the sliders in -100 to 100 and lift and gain per channel. base is
--- the luminance of the surroundings in the sRGB encoding, nil for the pixel's own
 local function reference(c, p, base)
 	local brightness, contrast, saturation = (p.brightness or 0) / 100, (p.contrast or 0) / 100, (p.saturation or 0) / 100
 	local ambiance, highlights, shadows, warmth = (p.ambiance or 0) / 100, (p.highlights or 0) / 100, (p.shadows or 0) / 100, (p.warmth or 0) / 100
@@ -139,7 +137,6 @@ T.Test("Graphics render3d grade switches what can't be in between", function()
 	T(pvars.Get("r_tonemapper"))["=="]("agx")
 	grade.Blend({r_tonemapper = "agx"}, {r_tonemapper = "aces"}, 0.5)
 	T(pvars.Get("r_tonemapper"))["=="]("aces")
-	-- 0 estimates the white balance from the frame, it only changes once the blend is done
 	grade.Blend({r_camera_white_balance = 0}, {r_camera_white_balance = 8000}, 0.99)
 	T(pvars.Get("r_camera_white_balance"))["=="](0)
 	grade.Blend({r_camera_white_balance = 0}, {r_camera_white_balance = 8000}, 1)
@@ -209,12 +206,10 @@ T.Test("Graphics render3d grade shadows is only the darks and highlights only th
 			T(shown(x, {shadows = amount}))["~"](x, 0.005)
 		end
 
-		-- and mid grey is hardly moved by either
 		T(shown(0.5, {highlights = amount}))["~"](0.5, 0.04)
 		T(shown(0.5, {shadows = amount}))["~"](0.5, 0.04)
 	end
 
-	-- while they do move their own end
 	T(shown(0.14, {shadows = 100}) - 0.14 > 0.1)["=="](true)
 	T(0.14 - shown(0.14, {shadows = -100}) > 0.03)["=="](true)
 	T(0.86 - shown(0.86, {highlights = -100}) > 0.1)["=="](true)
@@ -314,14 +309,12 @@ T.Test3D("Graphics render3d grade shader grades the tonemapped colour like the r
 	local ok, err = pcall(function()
 		local texels = run(draw)
 
-		-- no grade is the tonemapper's output untouched
 		for x = 0, 4 do
 			for i = 1, 3 do
 				T(texels[x][i])["~"](inputs[x + 1][i], 1e-6)
 			end
 		end
 
-		-- with nothing that looks at the surroundings the grid isn't built at all
 		T(render3d.pipelines.local_exposure_grid.is_enabled())["=="](false)
 		T(render3d.pipelines.local_exposure_blur.is_enabled())["=="](false)
 		set{shadows = 40}
@@ -361,13 +354,11 @@ T.Test3D("Graphics render3d grade shader grades the tonemapped colour like the r
 			end
 		end
 
-		-- saturation -100 is grey: the luma of the encoded red
 		reset()
 		set{saturation = -100}
 		texels = run(draw)
 		T(texels[1][1])["~"](srgb_to_linear(0.2126), 1e-4)
 		T(texels[1][3])["~"](srgb_to_linear(0.2126), 1e-4)
-		-- contrast -100 is the flattest: the tones close in on mid grey
 		reset()
 		set{contrast = -100}
 		texels = run(draw)

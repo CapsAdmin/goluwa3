@@ -22,8 +22,6 @@ local Canvas = kit.Canvas
 local DEFAULT_ENVIRONMENT = "Studio"
 local WINDOW_SIZE = Vec2(1040, 740)
 local LOAD_TIMEOUT = 20
--- the view is rendered at multiples of this and stretched to the canvas, a bundle of passes is kept
--- for every size
 local SIZE_STEP = 16
 local RESIZE_DELAY = 0.25
 local DOUBLE_CLICK_TIME = 0.3
@@ -59,7 +57,6 @@ local ModelView = react.Component(|props| -> do
 	local entry = props.Entry
 	local canvas = react.UseRef()
 	local status, set_status = react.UseState("loading...")
-	-- everything the frames and the mouse change lives here, the scene view and the entity go when the window does
 	local state = react.UseResource(|| -> do
 		local entity = assert(previews.CreateModelEntity(entry.path), "there is no model to view in " .. entry.path)
 		local view = SceneView.New{TransparentSky = false}
@@ -101,7 +98,6 @@ local ModelView = react.Component(|props| -> do
 		local canvas_size = panel.transform:GetSize()
 
 		if not state.sized then
-			-- the layout hasn't given the canvas its size yet
 			if canvas_size.x < SIZE_STEP * 4 or canvas_size.y < SIZE_STEP * 4 then return end
 
 			state.sized = true
@@ -125,7 +121,6 @@ local ModelView = react.Component(|props| -> do
 				previews.AreModelMaterialsReady(state.visual)
 			then
 				state.ready = true
-				-- not before, the first render is at the size of the canvas
 				view:SetAutoRender(true)
 				fit(state)
 				set_status(HELP)
@@ -134,7 +129,6 @@ local ModelView = react.Component(|props| -> do
 			return
 		end
 
-		-- the view follows the canvas once it has stopped changing size, a size of passes is not free
 		local width, height = get_render_size(canvas_size)
 
 		if width == view:GetWidth() and height == view:GetHeight() then

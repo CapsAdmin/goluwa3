@@ -22,8 +22,6 @@ function froxel_fog.EnsureResources()
 	for _, key in ipairs{"raw", "scatter1", "scatter2"} do
 		if froxels[key] then froxels[key]:Remove() end
 
-		-- raw is also the integrated volume: the light scattered towards the camera in its first half of the depth, what
-		-- is left of the light behind it per channel in the second
 		local depth = key == "raw" and 2 * froxel_fog.SLICES or froxel_fog.SLICES
 
 		froxels[key] = Texture.New{
@@ -110,10 +108,6 @@ froxel_fog.SLICE_GLSL = (
 		return FROXEL_SLICES * log(1.0 + depth / FROXEL_DEPTH_KNEE) / log(1.0 + FROXEL_FAR / FROXEL_DEPTH_KNEE);
 	}
 
-	// how deep a froxel's point may go in front of a surface at surface_depth:
-	// half a slice short of it. Right against the surface the sun's shadow
-	// map can't tell the point from the surface, so points in front of a wall
-	// facing away from the sun would be lit by the light on its other side.
 	float froxel_surface_limit(float surface_depth) {
 		float s = froxel_slice_coord(surface_depth);
 		return max(surface_depth - max(0.5 * (froxel_slice_depth(s + 1.0) - froxel_slice_depth(s)), 0.05), 0.0);
@@ -123,7 +117,7 @@ froxel_fog.SLICE_GLSL = (
 
 function froxel_fog.GetViewDirGLSL(block)
 	return [[
-		// view space direction through uv, scaled to a view depth of 1
+
 		vec3 get_view_dir(vec2 uv) {
 			vec4 p = ]] .. block .. [[.inv_projection * vec4(uv * 2.0 - 1.0, 0.0, 1.0);
 			return p.xyz / -p.z;
@@ -133,30 +127,19 @@ end
 
 function froxel_fog.GetPointGLSL(block)
 	return screen_reconstruct.GetViewDepthGLSL(block) .. [[
-		// view depth of the surface seen through uv, the ocean's included
+
 		float froxel_surface_depth(vec2 uv) {
 			float depth = textureLod(TEXTURE(]] .. block .. [[.depth_tex), uv, 0.0).r;
 			float view_depth = depth > 0.0 ? get_view_depth(uv, depth) : 1e30;
-			// where the air ends at the water, 0 with the camera in it
 			float air_distance = ]] .. block .. [[.ocean_distance_tex != -1 ? textureLod(TEXTURE(]] .. block .. [[.ocean_distance_tex), uv, 0.0).g : -1.0;
 			return air_distance >= 0.0 ? min(view_depth, air_distance / length(get_view_dir(uv))) : view_depth;
 		}
 
-		// A froxel spans several pixels that see surfaces at different
-		// depths. When the pixel at uv can't see the point (it is behind its
-		// surface), the point is taken on the ray of the froxel's pixel that
-		// sees furthest instead: past a leaf, the mountain's pixels see the
-		// air there, and along a wall the pixels further down it. No pixel
-		// sees past the furthest surface, and a point reaching past it would
-		// bring the light on its other side to the pixels in front of it, so
-		// such points are lit in front of it.
 		float froxel_point(ivec3 id, vec2 uv, float depth, float pick, out vec2 point_uv) {
 			point_uv = uv;
 			float surface_depth = froxel_surface_depth(uv);
 
 			if (depth > surface_depth && pick >= 0.0) {
-				// the scatter samples take a random one of the corners that sees further, always the same one lit a bright
-				// dot along an edge at every froxel, the history averages the random ones into a soft glow
 				int i = int(pick * 4.0);
 				vec2 corner_uv = (vec2(id.xy) + vec2(i & 1, i >> 1) * 0.8 + 0.1) / ]] .. block .. [[.froxel_size;
 				float corner_depth = froxel_surface_depth(corner_uv);
@@ -184,10 +167,7 @@ end
 
 function froxel_fog.GetGLSL(block)
 	return [[
-		// The integrated volume at depth slice s along the ray through uv, blended bilinearly from the four froxel columns
-		// around it by hand: a column whose froxel at this depth is behind a surface holds no light of its own (the alpha
-		// of the first half is 0 there), and blending it in would bring the fog of a nearer surface to a pixel behind it.
-		// front is the scattered light, back the transmittance.
+
 		void froxel_sample(vec2 uv, float s, out vec4 front, out vec4 back) {
 			float z = clamp(s - 0.5, 0.5, FROXEL_SLICES - 0.5);
 			float front_z = z / (2.0 * FROXEL_SLICES);
@@ -220,11 +200,8 @@ function froxel_fog.GetGLSL(block)
 			}
 		}
 
-		// The air and the fog from the camera to hit_distance (a negative one is the sky: the far end of the volume): the
-		// light scattered towards the camera and, per channel, what is left of the light behind it.
 		vec3 get_volumetric_fog(vec2 uv, float hit_distance, out vec3 transmittance) {
 			vec3 view_dir = get_view_dir(uv);
-			// meters along the ray per meter of view depth
 			float ray_scale = length(view_dir);
 			float s = froxel_slice_coord(hit_distance < 0.0 ? FROXEL_FAR : min(hit_distance / ray_scale, FROXEL_FAR));
 			float near = clamp(s, 0.0, 1.0);
@@ -234,8 +211,6 @@ function froxel_fog.GetGLSL(block)
 			return front.rgb * near;
 		}
 
-		// what the fog layer and the precipitation alone let through of the light behind them (the air's own part of it
-		// is in whatever is behind: the sky is attenuated by the air already)
 		float get_fog_layer_transmittance(vec2 uv, float hit_distance) {
 			float ray_scale = length(get_view_dir(uv));
 			float s = froxel_slice_coord(hit_distance < 0.0 ? FROXEL_FAR : min(hit_distance / ray_scale, FROXEL_FAR));

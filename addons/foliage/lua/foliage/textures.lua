@@ -1,16 +1,3 @@
--- the procedural textures of the foliage, drawn on the gpu by Texture:Shade. a texture is a kind (the picture: bark,
--- leaves, a rock...) and a config, every key of which is a constant in the shader (color_* keys are srgb colors and
--- become linear vec3, style is a #define, the rest floats), so the same seed and config draw the same texture. a
--- kind draws every channel of its material from one function of the uv, `Surface surface_at(vec2 uv)`:
---
---   albedo: the color and the coverage in alpha (srgb). cutout kinds are alpha tested, their mips keep the coverage
---     (render/cutout_texture.lua)
---   normal: tangent space from the height
---   roughness: the perceptual roughness in one channel, for RoughnessTexture
---   transmission: how much light goes through, for TransmissionTexture
---
--- textures.Register(path, kind, config) makes a virtual texture asset of it, assets.GetTexture(path) draws it the
--- first time it is asked for, with the keys of the request's config over the registered ones
 local ffi = require("ffi")
 local assets = import("goluwa/assets.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -40,13 +27,11 @@ Surface surface(vec3 albedo, float alpha, float height, float roughness, float t
 	return s;
 }
 
-// integer hashes of the cell and the seed, so every gpu draws the same picture from the same seed
 float hash1(ivec2 c) { return pcg_unorm(pcg3d(uvec3(uvec2(c), SEED)).x); }
 vec2 hash2(ivec2 c) { return vec2(pcg3d(uvec3(uvec2(c), SEED)).xy >> 8u) * (1.0 / 16777216.0); }
 float hash1(ivec3 c) { return pcg_unorm(pcg4d(uvec4(uvec3(c), SEED)).x); }
 vec3 hash3(ivec3 c) { return vec3(pcg4d(uvec4(uvec3(c), SEED)).xyz >> 8u) * (1.0 / 16777216.0); }
 
-// the n-th random number of stream s, for laying out the things in a picture
 float rand(int s, int n) { return pcg_unorm(pcg4d(uvec4(uint(s), uint(n), SEED, 40503u)).x); }
 
 ivec2 wrap(ivec2 c, ivec2 period) { return ((c % period) + period) % period; }
@@ -56,7 +41,6 @@ vec2 grad2(ivec2 c) {
 	return vec2(cos(a), sin(a));
 }
 
-// gradient noise repeating every period cells, about -1 to 1
 float gnoise(vec2 p, ivec2 period) {
 	vec2 i = floor(p);
 	vec2 f = p - i;
@@ -89,7 +73,6 @@ float fbm(vec2 p, ivec2 period, int octaves) {
 
 float fbm(vec2 p, int octaves) { return fbm(p, ivec2(1 << 20), octaves); }
 
-// the distance to the nearest and the second nearest point of a jittered grid, and a number of the nearest cell
 vec3 voronoi(vec2 p, ivec2 period, float jitter) {
 	ivec2 c = ivec2(floor(p));
 	vec2 f = p - vec2(c);
@@ -184,7 +167,6 @@ vec3 voronoi3(vec3 p) {
 	return vec3(f1, f2, id);
 }
 
-// the distance from p to the segment a b, and where along it (0 to 1) the nearest point is
 vec2 segment(vec2 p, vec2 a, vec2 b) {
 	vec2 ab = b - a;
 	float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-8), 0.0, 1.0);
@@ -195,7 +177,6 @@ vec2 bezier(vec2 a, vec2 b, vec2 c, float t) {
 	return mix(mix(a, b, t), mix(b, c, t), t);
 }
 
-// how much of a pixel a shape covers, from its signed distance in pixels (positive inside)
 float coverage(float distance_in_pixels) {
 	return clamp(distance_in_pixels + 0.5, 0.0, 1.0);
 }
@@ -204,7 +185,6 @@ vec3 vary(vec3 color, float amount, float r) {
 	return color * (1.0 + (r * 2.0 - 1.0) * amount);
 }
 
-// what the cutout kinds paint on, premultiplied, so the edges of a shape keep its own color and not what is under it
 struct Canvas {
 	vec3 color;
 	float alpha;
@@ -231,13 +211,11 @@ void paint(inout Canvas c, vec3 color, float cover, float height, float roughnes
 	c.transmission = transmission * cover + c.transmission * (1.0 - cover);
 }
 
-// the height is of what is painted, not a slope down to the clear texels around it (the normal map leaves those out)
 Surface finish(Canvas c) {
 	float a = max(c.alpha, 1e-4);
 	return surface(c.color / a, c.alpha, c.height / a, c.roughness / a, c.transmission / a);
 }
 ]]
--- the tangent space normal of a kind, from its height unless it has its own (CUSTOM_NORMAL)
 local NORMAL = [[
 #ifndef CUSTOM_NORMAL
 vec3 surface_normal(vec2 uv) {
@@ -245,7 +223,6 @@ vec3 surface_normal(vec2 uv) {
 	Surface s = surface_at(uv);
 	Surface sx = surface_at(uv + vec2(e.x, 0.0));
 	Surface sy = surface_at(uv + vec2(0.0, e.y));
-	// a cutout's edge is where the leaf ends, not a slope, so a clear neighbour is as high as the texel
 	float hx = sx.alpha < 0.5 ? s.height : sx.height;
 	float hy = sy.alpha < 0.5 ? s.height : sy.height;
 	return normalize(vec3((s.height - hx) / e.x * BUMP, (s.height - hy) / e.y * BUMP, 1.0));
@@ -267,7 +244,6 @@ vec4 shade(vec2 uv, vec3 dir) {
 	roughness = [[
 vec4 shade(vec2 uv, vec3 dir) {
 	Surface s = surface_at(uv);
-	// the clear texels of a cutout have the kind's roughness, so the mips do not take the edges to 0
 	return vec4(clamp(s.alpha > 0.0 ? s.roughness : ROUGHNESS, 0.0, 1.0), 0.0, 0.0, 1.0);
 }
 ]],
@@ -277,8 +253,6 @@ vec4 shade(vec2 uv, vec3 dir) {
 }
 ]],
 }
--- a kind: glsl (defines surface_at), defaults (every key the kind reads, a config can only set these), cutout (the
--- albedo is alpha tested), wrap (the sampler repeats)
 function textures.AddKind(name, kind)
 	assert(kind.glsl and kind.defaults, name .. " needs glsl and defaults")
 	textures.kinds[name] = kind
@@ -334,7 +308,6 @@ local function build_constants(kind_name, kind, config)
 	return table.concat(lines, "\n") .. "\n"
 end
 
--- a config with every key, the kind's defaults under the given ones
 function textures.Resolve(kind_name, config)
 	local kind = assert(textures.kinds[kind_name], "unknown foliage texture kind " .. tostring(kind_name))
 	local out = {seed = 1, width = kind.width or 512, height = kind.height or 512}
@@ -350,7 +323,6 @@ function textures.Resolve(kind_name, config)
 	return out, kind
 end
 
--- the shader of a kind without its main, with surface_at and surface_normal, for drawing it some other way (previews)
 function textures.GetSource(kind_name, config)
 	local resolved, kind = textures.Resolve(kind_name, config)
 	return build_constants(kind_name, kind, resolved) .. COMMON .. kind.glsl .. NORMAL, resolved
@@ -374,7 +346,6 @@ do
 		anisotropy = 8,
 	}
 
-	-- draws one channel (albedo, normal, roughness or transmission) of a kind
 	function textures.Build(kind_name, channel, config)
 		local resolved, kind = textures.Resolve(kind_name, config)
 		local main = assert(MAIN[channel], "unknown foliage texture channel " .. tostring(channel))
@@ -415,7 +386,6 @@ do
 	end
 end
 
--- a virtual texture asset of one channel of a kind
 function textures.Register(path, kind_name, channel, config)
 	textures.Resolve(kind_name, config)
 	assets.RegisterVirtualTexture(path, function(_, options)
@@ -428,7 +398,6 @@ function textures.Register(path, kind_name, channel, config)
 
 		if request then
 			for key, value in pairs(request) do
-				-- assets.GetTexture adds srgb, the format of a channel is its own
 				if key ~= "srgb" then merged[key] = value end
 			end
 		end
@@ -444,7 +413,6 @@ textures.AddKind(
 	{
 		wrap = true,
 		defaults = {
-			-- 0 furrowed ridges (oak, willow), 1 flaking plates (pine), 2 birch, 3 palm rings, 4 smooth
 			style = 0,
 			plates_u = 9,
 			plates_v = 2,
@@ -472,17 +440,13 @@ Surface surface_at(vec2 uv) {
 	q.x += fbm(uv * vec2(3.0, 2.0), ivec2(3, 2), 4) * WARP;
 	q.y += fbm(uv * vec2(2.0, 3.0) + 5.0, ivec2(2, 3), 3) * WARP * 0.3;
 #if STYLE == 1
-	// ragged plate outlines
 	q += vec2(fbm(uv * vec2(14.0, 10.0), ivec2(14, 10), 3), fbm(uv * vec2(10.0, 14.0) + 3.0, ivec2(10, 14), 3)) * 0.22;
 #endif
 	vec3 cells = voronoi(q, period, 0.95);
 	float edge = cells.y - cells.x;
 	float plate = smoothstep(0.0, CRACK_WIDTH, edge);
-	// rounded ridges, highest in the middle of a plate
 	float ridge = sqrt(smoothstep(0.0, CRACK_WIDTH * 3.5, edge));
 #if STYLE == 1
-	// plates in layers: the grey outer layer has flaked off in patches and shows the red one under it. the fissures
-	// between the plates are of all widths
 	float fissure_width = CRACK_WIDTH * (0.35 + 0.9 * (fbm(uv * vec2(9.0, 5.0), ivec2(9, 5), 3) * 0.5 + 0.5));
 	plate = smoothstep(0.0, fissure_width, edge);
 	float flaked = smoothstep(0.05, 0.25, fbm(uv * vec2(12.0, 16.0) + cells.z * 13.0, ivec2(12, 16), 4) + (cells.z - 0.5) * 0.5);
@@ -491,7 +455,6 @@ Surface surface_at(vec2 uv) {
 	albedo = mix(COLOR_RIDGE * (0.75 + 0.2 * layers + 0.3 * cells.z) * (0.9 + 0.2 * detail), COLOR_BARK * (0.8 + 0.4 * cells.z), flaked);
 	albedo = mix(COLOR_CRACK, albedo, plate);
 #else
-	// streaks along the ridges and cross cracks that break them up
 	float streaks = gnoise(vec2(uv.x * 70.0, uv.y * 6.0), ivec2(70, 6)) * 0.5 + 0.5;
 	float cross_crack = smoothstep(0.75, 0.95, abs(gnoise(vec2(uv.x * 30.0, uv.y * 9.0), ivec2(30, 9))));
 	float tone = cells.z * 0.5 + streaks * 0.5;
@@ -501,7 +464,6 @@ Surface surface_at(vec2 uv) {
 #endif
 	roughness = mix(1.0, ROUGHNESS, plate);
 #elif STYLE == 2
-	// white bark with dashes of dark lenticels and black fissured patches, more of them low on the trunk
 	ivec2 grid = ivec2(4, 26);
 	vec2 q = uv * vec2(grid);
 	q.y += gnoise(uv * vec2(3.0, 2.0), ivec2(3, 2)) * 0.6;
@@ -524,8 +486,6 @@ Surface surface_at(vec2 uv) {
 	height = 0.5 - dash * 0.15 - fissure * (0.25 + 0.25 * (detail * 0.5 + 0.5)) + detail * 0.03;
 	roughness = mix(ROUGHNESS, 0.95, max(dash, fissure));
 #elif STYLE == 3
-	// rings where the old fronds were, each its own: a little tilted, scalloped by the scars of the leaf bases, wider or
-	// narrower, and fibres along the trunk
 	float base = uv.y * RINGS + fbm(uv * vec2(4.0, 1.0), ivec2(4, 1), 3) * 0.15;
 	int ring_index = int(floor(base));
 	ivec2 ring_cell = wrap(ivec2(ring_index, 0), ivec2(int(RINGS), 1));
@@ -542,7 +502,6 @@ Surface surface_at(vec2 uv) {
 	albedo = mix(COLOR_CRACK, mix(COLOR_BARK, COLOR_RIDGE, fibres * 0.6 + scar * 0.3), 1.0 - groove * 0.85);
 	roughness = mix(ROUGHNESS, 1.0, groove);
 #else
-	// smooth with mottling and a few fine rings
 	float mottle = fbm(uv * vec2(4.0, 6.0), ivec2(4, 6), 5) * 0.5 + 0.5;
 	float line = smoothstep(0.92, 1.0, abs(gnoise(vec2(uv.x * 3.0, uv.y * 30.0), ivec2(3, 30))));
 	albedo = mix(COLOR_BARK, COLOR_RIDGE, mottle) * (0.95 + 0.05 * detail);
@@ -560,9 +519,6 @@ Surface surface_at(vec2 uv) {
 ]],
 	}
 )
--- a twig of leaves on a card, or an atlas of a few in a row (atlas tiles side by side, each square). the twig goes up
--- from the bottom middle (v 0), the leaves are alternate along it and one is at its tip. the leaf is a width profile
--- along its midrib, pow(x, shape_base) * pow(1 - x, shape_tip), cut by lobes and teeth
 textures.AddKind(
 	"leaves",
 	{
@@ -587,7 +543,6 @@ textures.AddKind(
 			twig_length = 0.8,
 			twig_width = 0.012,
 			twig_bend = 0.15,
-			-- 1 a single leaf filling the tile, for litter and lily pads
 			single = 0,
 			veins = 7,
 			vein_slope = 1.2,
@@ -599,7 +554,6 @@ textures.AddKind(
 			color_variation = {0.48, 0.48, 0.14},
 			variation = 0.1,
 			brightness_variation = 0.15,
-			-- berries hanging among the leaves
 			berries = 0,
 			berry_size = 0.035,
 			color_berry = {0.7, 0.05, 0.08},
@@ -612,7 +566,6 @@ float leaf_profile(float x) {
 	float w = LEAF_WIDTH * 0.5 * pow(clamp(x, 0.0, 1.0), SHAPE_BASE) * pow(clamp(1.0 - x, 0.0, 1.0), SHAPE_TIP) / norm;
 
 	if (LOBES > 0.0) {
-		// narrow sinuses between broad round lobes
 		float sinus = pow(0.5 + 0.5 * cos((x - 0.1) * LOBES * TAU), 6.0);
 		w *= 1.0 - LOBE_DEPTH * sinus * smoothstep(0.1, 0.3, x) * smoothstep(1.0, 0.75, x);
 	}
@@ -622,7 +575,6 @@ float leaf_profile(float x) {
 	return w;
 }
 
-// the leaf in its own frame: x along the midrib from the base (0) to the tip (1), y across, both in leaf lengths
 void draw_leaf(inout Canvas canvas, vec2 p, vec2 base, vec2 dir, float len, float side, int id, float pixel) {
 	vec2 d = p - base;
 	vec2 across = vec2(-dir.y, dir.x);
@@ -646,16 +598,13 @@ void draw_leaf(inout Canvas canvas, vec2 p, vec2 base, vec2 dir, float len, floa
 	float rel = abs(y) / max(w, 1e-4);
 	float vein_w = VEIN_WIDTH * (1.0 - x * 0.75);
 	float midrib = 1.0 - smoothstep(vein_w * 0.4, vein_w, abs(y));
-	// the side veins leave the midrib towards the tip
 	float vein_coord = (x - abs(y) * VEIN_SLOPE) * VEINS;
 	float vein_dist = min(fract(vein_coord), 1.0 - fract(vein_coord));
 	float vein = (1.0 - smoothstep(0.0, 0.07, vein_dist)) * step(0.0, vein_coord);
 	vein *= smoothstep(1.0, 0.7, rel) * smoothstep(1.0, 0.85, x);
 	c = mix(c, COLOR_VEIN, max(midrib * 0.75, vein * 0.3));
-	// a little darker at the very margin
 	c *= mix(1.0, 0.8, smoothstep(0.85, 1.0, rel));
 	float h = 0.6 - rel * rel * 0.3 - midrib * 0.25 - vein * 0.08 + mottle * 0.03;
-	// the blade is waxy, the veins less so
 	paint(canvas, c, inside, h, ROUGHNESS + max(midrib, vein) * 0.2 + (1.0 - mottle) * 0.05, 1.0 - midrib * 0.5 - vein * 0.2);
 }
 
@@ -721,8 +670,6 @@ Surface surface_at(vec2 uv) {
 		float cover = coverage((1.0 - dist) * radius / pixel);
 
 		if (cover > 0.0) {
-			// a highlight up and to the left
-			// glossy, the highlight is the lighting's
 			vec3 berry = COLOR_BERRY * mix(1.0, 0.7, dist * dist);
 			paint(canvas, berry, cover, 1.0 - dist * dist * 0.6, 0.25, 0.1);
 		}
@@ -733,7 +680,6 @@ Surface surface_at(vec2 uv) {
 ]],
 	}
 )
--- a spray of needles along a twig and two side twigs, the needles pointing forward on both sides
 textures.AddKind(
 	"needles",
 	{
@@ -811,8 +757,6 @@ Surface surface_at(vec2 uv) {
 ]],
 	}
 )
--- a frond as seen from above: a rachis up the middle and leaflets on both sides angled towards the tip, for palms
--- and ferns. the texture is frond_width wide for a length of 1, which is the shape of the strip it goes on
 textures.AddKind(
 	"frond",
 	{
@@ -844,7 +788,6 @@ float leaflet_length(float v) {
 }
 
 Surface surface_at(vec2 uv) {
-	// in lengths of the frond
 	vec2 p = vec2((uv.x - 0.5) * FROND_WIDTH, uv.y);
 	float pixel = 1.0 / SIZE.y;
 	float side = p.x < 0.0 ? 0.0 : 1.0;
@@ -855,7 +798,6 @@ Surface surface_at(vec2 uv) {
 	if (rachis > 0.0) paint(canvas, COLOR_RACHIS, rachis, 0.8, ROUGHNESS + 0.2, 0.0);
 
 	float spacing = 1.0 / LEAFLETS;
-	// the leaflet through this point started on the rachis at v_start
 	float v_start = p.y - x * LEAFLET_SLOPE - DROOP * x * x;
 	float nearest = floor(v_start / spacing + 0.5);
 
@@ -885,7 +827,6 @@ Surface surface_at(vec2 uv) {
 			c = mix(c, COLOR_TIP, smoothstep(1.0 - TIP_DRY, 1.0, t) * rand(id, 6));
 			float midrib = 1.0 - smoothstep(0.0, width * 0.25 + pixel, across);
 			c = mix(c, COLOR_RACHIS, midrib * 0.4);
-			// the dry tips are rougher
 			paint(canvas, c, inside, 0.6 - across / max(width, 1e-4) * 0.3 - midrib * 0.15, ROUGHNESS + midrib * 0.1 + smoothstep(1.0 - TIP_DRY, 1.0, t) * 0.25, 1.0 - midrib * 0.4);
 		}
 	}
@@ -895,8 +836,6 @@ Surface surface_at(vec2 uv) {
 ]],
 	}
 )
--- the color of grass blades, u across a blade and v from the root (0) to the tip (1). an atlas of a few in a row,
--- each a little different in color, a blade picks one by its u
 textures.AddKind(
 	"blade",
 	{
@@ -924,23 +863,18 @@ Surface surface_at(vec2 uv) {
 	vec3 color = mix(COLOR_ROOT, COLOR_MID, smoothstep(0.0, 0.35, v));
 	color = mix(color, COLOR_TIP, smoothstep(0.4, 1.0, v));
 	color = vary(color, VARIATION, r);
-	// some of the variants are dry
 	color = mix(color, COLOR_DRY, step(rand(tile, 2), DRY) * 0.8);
-	// and the tips dry out
 	color = mix(color, COLOR_DRY, smoothstep(1.0 - DRY_TIPS, 1.0, v) * rand(tile, 3));
 	float streaks = gnoise(vec2(u * 12.0, v * 2.0) + float(tile) * 9.0);
 	color *= 0.92 + 0.08 * streaks;
 	float midrib = 1.0 - smoothstep(0.0, 0.12, abs(u - 0.5));
 	color = mix(color, color * 1.25 + vec3(0.02), midrib * 0.4);
-	// folded along the midrib
 	float height = 1.0 - abs(u - 0.5) * 2.0;
 	return surface(color, 1.0, height * 0.5 + streaks * 0.02, ROUGHNESS + streaks * 0.06 - midrib * 0.08 + smoothstep(1.0 - DRY_TIPS, 1.0, v) * 0.2, 0.85 - midrib * 0.2);
 }
 ]],
 	}
 )
--- the heads of grasses, side on: a stem up the middle and spikelets on its upper part. style 0 a loose panicle of
--- hanging spikelets (oat grass), 1 a dense spike (timothy), 2 a feathery plume
 textures.AddKind(
 	"seed_head",
 	{
@@ -1006,7 +940,6 @@ Surface surface_at(vec2 uv) {
 		float side = (i % 2 == 0) ? 1.0 : -1.0;
 		float head = (t - HEAD_START) / (1.0 - HEAD_START);
 #if STYLE == 0
-		// on thin stalks, hanging out and down
 		float angle = side * mix(1.2, 0.5, head);
 		vec2 out_dir = vec2(tangent.x * cos(angle) - tangent.y * sin(angle), tangent.x * sin(angle) + tangent.y * cos(angle));
 		vec2 tip = attach + out_dir * mix(0.12, 0.03, head) * mix(0.7, 1.2, rand(id, 3));
@@ -1018,7 +951,6 @@ Surface surface_at(vec2 uv) {
 		draw_seed(canvas, p, attach - tangent * 0.01, dir, SPIKELET_LENGTH * mix(1.0, 0.6, head * head), SPIKELET_WIDTH, id, pixel);
 		draw_seed(canvas, p, attach - tangent * 0.015, vec2(-dir.x, dir.y), SPIKELET_LENGTH * mix(0.9, 0.5, head * head), SPIKELET_WIDTH, id + 1, pixel);
 #else
-		// fine hairs fanning out
 		for (int h = 0; h < 3; h++) {
 			float angle = side * (0.3 + 0.35 * float(h)) * mix(0.7, 1.3, rand(id, 10 + h));
 			vec2 dir = vec2(tangent.x * cos(angle) - tangent.y * sin(angle), tangent.x * sin(angle) + tangent.y * cos(angle));
@@ -1035,8 +967,6 @@ Surface surface_at(vec2 uv) {
 ]],
 	}
 )
--- a flower head from above, the petals around the middle and the disc in it. style 1 is a spike of florets side
--- on (lupins), from the bottom of the tile to the top
 textures.AddKind(
 	"flower",
 	{
@@ -1072,7 +1002,6 @@ Surface surface_at(vec2 uv) {
 	int stream = tile * 401;
 	Canvas canvas = canvas();
 #if STYLE == 1
-	// florets in a spike, smaller and paler towards the top
 	vec2 a = vec2(0.5, 0.0);
 	vec2 c = vec2(0.5 + (rand(stream, 1) - 0.5) * 0.1, 1.0);
 	vec2 st = segment(p, a, c);
@@ -1116,7 +1045,6 @@ Surface surface_at(vec2 uv) {
 			float petal_angle = offset + index / count * TAU + (rand(id, 1) - 0.5) * 0.15;
 			float delta = mod(theta - petal_angle + PI, TAU) - PI;
 			float len = PETAL_LENGTH * 2.0 * layer_scale * mix(0.88, 1.06, rand(id, 2));
-			// along and across the petal, in tile halves
 			float x = r * cos(delta);
 			float y = r * sin(delta);
 			float t = (x - CENTER * 0.5) / max(len - CENTER * 0.5, 1e-4);
@@ -1139,14 +1067,12 @@ Surface surface_at(vec2 uv) {
 		}
 	}
 
-	// the disc, florets in a fermat spiral
 	float disc = coverage((CENTER - r) * 0.5 / pixel);
 
 	if (disc > 0.0) {
 		float n = r / CENTER;
 		float spiral = sin(theta * 13.0 + n * 40.0) * sin(theta * 8.0 - n * 34.0);
 		vec3 col = COLOR_CENTER * (0.75 + 0.25 * spiral) * mix(1.0, 0.7, n * n);
-		// the florets of the disc are matte
 		paint(canvas, col, disc, 0.9 - n * n * 0.3 + spiral * 0.05, 0.85, 0.1);
 	}
 
@@ -1156,9 +1082,6 @@ Surface surface_at(vec2 uv) {
 ]],
 	}
 )
--- the faces of a cube laid out in a 3x2 atlas, each texel is the direction through it, so a rock built on a cube
--- sphere (rocks.lua, same faces and layout) has a texture without seams. styles: 0 granite, 1 layered sandstone,
--- 2 basalt, 3 river stone. moss grows on top
 textures.AddKind(
 	"rock",
 	{
@@ -1191,7 +1114,6 @@ const vec3 FACE_N[6] = vec3[](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0), vec3
 const vec3 FACE_U[6] = vec3[](vec3(0, 0, -1), vec3(0, 0, 1), vec3(1, 0, 0), vec3(1, 0, 0), vec3(1, 0, 0), vec3(-1, 0, 0));
 const vec3 FACE_V[6] = vec3[](vec3(0, 1, 0), vec3(0, 1, 0), vec3(0, 0, -1), vec3(0, 0, 1), vec3(0, 1, 0), vec3(0, 1, 0));
 
-// the face of the atlas a uv is on, and where on it (-1 to 1, beyond in the padding)
 int face_of(vec2 uv, out vec2 st) {
 	vec2 cell = uv * vec2(3.0, 2.0);
 	vec2 tile = min(floor(cell), vec2(2.0, 1.0));
@@ -1232,17 +1154,14 @@ Surface rock_surface(vec3 d) {
 #else
 	albedo = mix(COLOR_DARK, COLOR_BASE, smoothstep(-0.7, 0.3, large));
 	albedo = mix(albedo, COLOR_LIGHT, smoothstep(0.3, 0.8, large) * 0.4);
-	// only the detail is in the height, the shape is the mesh's and a different noise
 	height = 0.5 + detail * 0.15;
 	roughness = ROUGHNESS + detail * 0.05;
 #endif
 	albedo = mix(albedo, albedo * COLOR_WARM / max(COLOR_BASE, vec3(0.01)), smoothstep(0.0, 0.5, zones) * 0.5);
-	// crystals or grains, dark and light
 	vec3 grain = voronoi3(p * GRAIN);
 	albedo = mix(albedo, COLOR_DARK * 0.7, step(0.85, grain.z) * SPECKLE * smoothstep(0.5, 0.2, grain.x));
 	albedo = mix(albedo, COLOR_LIGHT, step(grain.z, 0.1) * SPECKLE * 0.7 * smoothstep(0.5, 0.2, grain.x));
 	albedo *= 0.88 + 0.12 * detail;
-	// cracks, darker and lower
 	vec3 cells = voronoi3(p * 1.2 + large * 0.4);
 	float crack = (1.0 - smoothstep(0.0, 0.04, cells.y - cells.x)) * CRACKS;
 	albedo = mix(albedo, COLOR_DARK * 0.5, crack * 0.85);
@@ -1267,7 +1186,6 @@ Surface surface_at(vec2 uv) {
 vec3 surface_normal(vec2 uv) {
 	vec2 st;
 	int face = face_of(uv, st);
-	// a texel in st
 	float e = 2.0 / ((1.0 - 2.0 * PAD) * SIZE.y * 0.5);
 	float h = rock_surface(face_direction(face, st)).height;
 	float hx = rock_surface(face_direction(face, st + vec2(e, 0.0))).height;
@@ -1277,8 +1195,6 @@ vec3 surface_normal(vec2 uv) {
 ]],
 	}
 )
--- a mushroom cap from above (u around, v from the middle to the rim), style 0 red with white warts, 1 brown and
--- smooth, 2 the pale underside with its gills and the stem
 textures.AddKind(
 	"mushroom",
 	{
@@ -1323,7 +1239,6 @@ Surface surface_at(vec2 uv) {
 ]],
 	}
 )
--- the cut end of a log or a stump, rings around the middle, cracks out from it and the bark around
 textures.AddKind(
 	"end_grain",
 	{
@@ -1347,9 +1262,7 @@ Surface surface_at(vec2 uv) {
 	float ring = fract((r + warp) * RINGS);
 	float late = smoothstep(0.6, 0.95, ring);
 	vec3 albedo = mix(COLOR_EARLY, COLOR_LATE, late) * (0.9 + 0.1 * fbm(d * 30.0, 3));
-	// the heartwood is darker
 	albedo *= mix(0.8, 1.0, smoothstep(0.1, 0.6, r));
-	// cracks out from the middle, where a noise around it crosses zero
 	float around = theta / TAU + 0.5;
 	float crack_noise = abs(gnoise(vec2(around * 7.0, r * 0.8), ivec2(7, 1 << 20)));
 	float crack = (1.0 - smoothstep(0.0, 0.015 + r * 0.01, crack_noise)) * smoothstep(0.2, 0.6, r + gnoise(vec2(around * 5.0, 3.0), ivec2(5, 1 << 20)) * 0.3) * smoothstep(1.0 - BARK, 0.75, r);

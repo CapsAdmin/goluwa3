@@ -13,7 +13,6 @@ LAYERS.grass = {
 			return tuft * tuft * present;
 		}
 
-		// blades lean in locally consistent directions
 		float grass_blades(vec2 uv) {
 			float a = tile_fbm(uv, vec2(24.0, 96.0), 3, 0.5);
 			float b = tile_fbm(uv + 0.37, vec2(96.0, 24.0), 3, 0.5);
@@ -57,7 +56,6 @@ LAYERS.grass = {
 LAYERS.dirt = {
 	Depth = 0.07,
 	Height = [=[
-		// returns stone coverage 0..1 and the stone id
 		vec3 dirt_stones(vec2 uv) {
 			vec2 w = tile_warp(uv + 0.5, 6.0, 0.03);
 			vec3 c = tile_cells(w, 28.0);
@@ -201,7 +199,6 @@ LAYERS.sand = {
 		float sand_ripples(vec2 uv) {
 			float warp = tile_gfbm(uv + 0.2, 3.0, 3, 0.5) * 0.1;
 			float r = sin((uv.y + warp + uv.x * 0.15) * 6.2831853 * 26.0);
-			// ripples are asymmetric, the lee side is steeper
 			r = r * 0.5 + 0.5;
 			r = r * r * (3.0 - 2.0 * r);
 			float mask = smoothstep(0.3, 0.7, tile_fbm(uv + 2.1, 3.0, 3, 0.5));

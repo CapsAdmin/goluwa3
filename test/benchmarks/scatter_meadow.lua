@@ -1,6 +1,4 @@
 -- glw: --3d
--- the scatter passes over hills, SCATTER_SET picks the set (crysis_meadow, or the builtin grass without Crysis),
--- SCATTER_OFF=1 leaves scatter out for the baseline to compare against
 local frame_benchmark = import("goluwa/render3d/frame_benchmark.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")

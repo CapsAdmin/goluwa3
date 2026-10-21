@@ -200,7 +200,6 @@ local grain_shared = [[
 		return fract((p3.xx + p3.yz) * p3.zy);
 	}
 
-	// value noise repeating every period cells
 	float noise(vec2 p, vec2 period) {
 		vec2 i = floor(p);
 		vec2 f = fract(p);
@@ -229,19 +228,15 @@ local grain_shared = [[
 		return vec4(normalize(vec3((h - hu) * strength, (h - hv) * strength, 1.0)) * 0.5 + 0.5, 1.0);
 	}
 
-	// a texel's grain tilted up to max_slope in a random direction
 	vec3 grain_normal(vec2 uv, float seed, float max_slope) {
 		vec2 r = hash22(floor(uv * TEXELS) + seed) * 2.0 - 1.0;
 		return normalize(vec3(r * max_slope, 1.0));
 	}
 
-	// a fraction of the texels are smooth facets: a fresh quartz face, a mica
-	// flake, an ice crystal, each catching the sun at its own angle
 	bool is_facet(vec2 uv, float fraction) {
 		return hash12(floor(uv * TEXELS) + 71.3) < fraction;
 	}
 
-	// a facet's normal, anywhere within 60 degrees of the surface's
 	vec3 facet_normal(vec2 uv) {
 		vec2 r = hash22(floor(uv * TEXELS) + 13.7);
 		float cos_theta = mix(1.0, 0.5, r.x);
@@ -249,14 +244,12 @@ local grain_shared = [[
 		return vec3(vec2(cos(phi), sin(phi)) * sqrt(1.0 - cos_theta * cos_theta), cos_theta);
 	}
 
-	// wind ripples a few cm apart, a gentle windward slope and a steep lee
 	float sand_height(vec2 uv) {
 		float x = uv.y * 30.0 + fbm(uv, 3.0, 4) * 4.0;
 		float t = fract(x);
 		return (t < 0.75 ? t / 0.75 : (1.0 - t) / 0.25) * 0.5 + fbm(uv, 12.0, 4) * 0.5;
 	}
 
-	// wind crust over soft drifts
 	float snow_height(vec2 uv) {
 		return fbm(uv, 4.0, 6);
 	}

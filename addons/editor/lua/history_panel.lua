@@ -8,7 +8,6 @@ local Row = react.Element(import("goluwa/render2d/ui/elements/row.lua"))
 local ScrollablePanel = react.Element(import("goluwa/render2d/ui/elements/scrollable_panel.lua"))
 local editor_history = import("lua/editor_history.lua")
 local history = editor_history.history
--- a row only renders when its own text or state changed, not on every entry that is pushed
 local HistoryRow = react.Memo(
 	react.Component(|props| -> Button{
 		Text = props.Index == 0 and props.Name or props.Index .. "  " .. props.Name,

@@ -1,6 +1,3 @@
--- wind on plants: a billboarded card, the trunk bending and the leaves and branches fluttering. the
--- vertex animation block in model_pipeline.lua reads these through the material, along with the wind
--- and the time, which are not material params, so it keeps its own block
 return {
 	name = "vegetation",
 	category = "Vegetation",

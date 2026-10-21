@@ -1,9 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local decal_projection = {}
--- Fragments are lists of {cell, polygon} where polygon is a list of {pos, normal, u, v, fade} in engine space, laid out
--- like source decals produce them. Frames describe the decal box: origin, right/up/back axes, half extents and uv ranges.
--- fade is how much of the decal's alpha is gone at a vertex, 0 to 1. RADIAL_FADE asks for the falloff towards the edge
--- of the decal to be worked out per pixel from the decal uvs, which does not depend on how the surface is tessellated.
 decal_projection.RADIAL_FADE = -1
 local TERRAIN_STEP = 1
 local TERRAIN_MAX_CELLS = 48
@@ -17,7 +13,6 @@ local function get_cell(x, z)
 	return math.floor(x / CELL_SIZE) .. "," .. math.floor(z / CELL_SIZE)
 end
 
--- reorders a polygon to be clockwise seen from the surface normal, which is the front face of this renderer
 local function orient(polygon, normal)
 	local a, b, c = polygon[1].pos, polygon[2].pos, polygon[3].pos
 	local abx, aby, abz = b.x - a.x, b.y - a.y, b.z - a.z
@@ -67,7 +62,6 @@ do
 		return Vec3(-dx, GRADIENT_STEP * 2, -dz):GetNormalized()
 	end
 
-	-- the decal is projected straight down. The uv axes are the horizontal parts of the decal axes.
 	function decal_projection.Terrain(frame, height)
 		local origin = frame.origin
 		local delta = origin.y - height(origin.x, origin.z)
@@ -125,7 +119,6 @@ do
 		return a * (s * s * s) + b * (3 * s * s * t) + c * (3 * s * t * t) + d * (t * t * t)
 	end
 
-	-- road: {points = {{pos, back, forw, width}}, width, tile_length, sort_priority}, positions in engine space
 	function decal_projection.Road(road, height, offset)
 		local points = road.points
 		local samples = {}
@@ -176,7 +169,6 @@ do
 
 		for i, sample in ipairs(samples) do
 			local row = {}
-			-- the road fades in over its first and out over its last stretch
 			local fade = 1 - math.min(
 				math.min(sample.distance / road.fade_length, 1),
 				math.min((total_distance - sample.distance) / road.fade_length, 1)
@@ -226,7 +218,6 @@ do
 		{0, 0, -1, "half_z"},
 	}
 
-	-- polygon vertices are {x, y, z, lx, ly, lz} with local box coordinates
 	local function clip_polygon(polygon, frame)
 		for _, plane in ipairs(CLIP_PLANES) do
 			local limit = frame[plane[4]]
@@ -262,8 +253,6 @@ do
 		return polygon
 	end
 
-	-- Clips the triangles of the receivers to the decal box. Receivers need a ForEachTriangle(aabb, callback, context) that
-	-- calls callback(context, ax, ay, az, bx, by, bz, cx, cy, cz, nx, ny, nz) with world positions and the outward normal.
 	local function add_triangle(frame, ax, ay, az, bx, by, bz, cx, cy, cz, nx, ny, nz)
 		local back = frame.back
 

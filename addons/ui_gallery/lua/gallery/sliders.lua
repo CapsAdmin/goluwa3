@@ -3,7 +3,6 @@ local Color = import("goluwa/structs/color.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
--- the bar runs on its own state so a frame renders this one component and not the page
 local AnimatedProgress = react.Component(|| -> do
 	local progress, set_progress = react.UseState(0)
 

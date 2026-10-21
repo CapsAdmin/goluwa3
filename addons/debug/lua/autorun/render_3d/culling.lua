@@ -54,7 +54,6 @@ do
 		local visible_lookup = {}
 		local gpu = scene_draw.debug_result
 
-		-- with r_scene_draw_debug on, what the gpu drew about a second ago, otherwise what the cpu would
 		if gpu then
 			for _, component in ipairs(Visual.Instances or {}) do
 				for _, item in ipairs(component.scene_instances or {}) do
@@ -167,9 +166,6 @@ do
 	)
 end
 
--- lists what the gpu culling of the main view drew in the last frame, by entity: the rows it kept (one per render entry and
--- level of detail), whether the box of the visual holds the camera (such a row is never occluded) and whether it is
--- translucent. stalls, reads the culling back
 commands.Add("scene_draw_dump", function(count)
 	count = tonumber(count) or 40
 	local camera = render3d.GetCamera():GetPosition()
@@ -209,8 +205,6 @@ commands.Add("scene_draw_dump", function(count)
 					math.max(box.max_x - box.min_x, box.max_y - box.min_y, box.max_z - box.min_z) or
 					0
 
-				-- a box with a corner behind the eye reaches the near plane, its nearest point is as near as can be and
-				-- no depth in front of it can hide it
 				local behind_eye = false
 
 				if box and not contains then
@@ -275,9 +269,6 @@ commands.Add("scene_draw_dump", function(count)
 	end
 end)
 
--- of the rows the main cull drew, which can be seen: rays from the camera through random points of the box of each row, see
--- visibility.lua for what it can and cannot tell. lists the rows no ray reached, the ones the cull should have hidden
--- if the estimate is right
 commands.Add("scene_draw_visibility", function(rays)
 	local result = scene_visibility.Estimate(tonumber(rays) or 128)
 	local by_id = {}

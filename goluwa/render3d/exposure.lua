@@ -1,8 +1,5 @@
 local pvars = import("goluwa/cli/pvars.lua")
 local exposure = {}
--- Exposure is one number, EV100. A camera reaches it with its settings: EV100 = log2(N^2 / t) - log2(ISO / 100),
--- for the f-number N, the shutter time t and the sensitivity ISO. The eye has no such settings and gets its own table.
--- What both give is how much the scene's luminance is multiplied by before the tonemapper (see passes/blit.lua).
 pvars.StartGroup("Post", "Camera", {store = false, prefix = "camera_"})
 local mode = pvars.Setup2{
 	key = "r_camera_mode",
@@ -120,12 +117,10 @@ function exposure.GetCameraMode()
 	return mode:Get()
 end
 
--- what the manual settings expose for
 function exposure.GetManualEV()
 	return settings_to_ev(aperture:Get(), shutter:Get(), iso:Get())
 end
 
--- the darkest and the brightest scene, as EV100, that the camera can expose properly with the settings it may change
 function exposure.GetCameraRange()
 	local m = mode:Get()
 	local n_lo, n_hi = aperture_min:Get(), aperture_max:Get()
@@ -142,15 +137,12 @@ function exposure.GetCameraRange()
 	return lo, math.max(lo, hi)
 end
 
--- one way for the camera to reach ev: the program line moves aperture and shutter evenly away from f/8 and 1/125, and the ISO
--- makes up what the limits do not allow. Only for reading out, the image depends on ev alone
 function exposure.DescribeCamera(ev)
 	local m = mode:Get()
 
 	if m == "manual" then return iso:Get(), aperture:Get(), shutter:Get() end
 
 	local s = iso_min:Get()
-	-- log2(N^2 / t) at that ISO
 	local light = ev + log2(s / 100)
 	local n, t
 
@@ -171,15 +163,11 @@ function exposure.DescribeCamera(ev)
 	return s, n, t
 end
 
--- how the metering and the adaptation behave. The meter is an averaging one: the centre weighted mean of the frame's luminance
--- (linear light, ISO 2720) with every pixel held at the high_percent percentile of the histogram, so a small highlight does
--- not pull it. tau: seconds to adapt to a brighter and to a darker scene
 exposure.camera = {
 	high_percent = 0.95,
 	tau_brighten = 0.5,
 	tau_darken = 1.5,
 }
--- what the eye can adapt to as EV100 (darkest rod vision to a sunlit snow field) and how it meters
 exposure.eye = {
 	min_ev = -4,
 	max_ev = 18,

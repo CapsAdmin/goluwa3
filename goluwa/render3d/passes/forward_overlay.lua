@@ -5,8 +5,6 @@ local Material = import("goluwa/render3d/material.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
--- the overlay draws to the swapchain, whose depth is cleared to 1 and not
--- the reversed depth of the gbuffer, so its geometry is flipped back
 local standard_depth = Matrix44()
 standard_depth.m22 = -1
 standard_depth.m32 = 1

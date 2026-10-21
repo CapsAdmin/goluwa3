@@ -96,7 +96,6 @@ return {
 	Section = "Foundations",
 	Order = 1.5,
 	View = react.Component(|| -> do
-		-- the pattern vectors are made once and the page owns them
 		local pattern_svgs = react.UseMemo(
 			|| -> list.map(
 				patterns,

@@ -6,7 +6,6 @@ local shapes = import("goluwa/render3d/shapes.lua")
 local assets = import("goluwa/assets.lua")
 import("goluwa/render3d/ddgi.lua").VISIBILITY_RAYS = 0
 local root = Entity.New{Name = "pbr_parameters"}
--- everything collides but does not move
 local STATIC = {MotionType = "static"}
 local COLUMNS = 9
 local SPACING = 1.2
@@ -26,7 +25,6 @@ local shared = [[
 		return fract((p3.xx + p3.yz) * p3.zy);
 	}
 
-	// value noise repeating every period cells
 	float noise(vec2 p, vec2 period) {
 		vec2 i = floor(p);
 		vec2 f = fract(p);
@@ -55,8 +53,6 @@ local shared = [[
 		return vec4(normalize(vec3((h - hu) * strength, (h - hv) * strength, 1.0)) * 0.5 + 0.5, 1.0);
 	}
 
-	// hemispherical dents of hammered metal, the distance to the nearest
-	// hammer blow squared
 	float dents_height(vec2 uv) {
 		vec2 p = uv * 14.0;
 		vec2 i = floor(p);
@@ -74,19 +70,16 @@ local shared = [[
 		return d;
 	}
 
-	// brushing leaves fine grooves along u, a texel or two apart
 	float brushed_height(vec2 uv) {
 		return noise(vec2(uv.x * 6.0, uv.y * 900.0), vec2(6.0, 900.0)) * 0.7 + noise(vec2(uv.x * 48.0, uv.y * 300.0), vec2(48.0, 300.0)) * 0.3;
 	}
 
-	// straight scratches of random length, direction and depth
 	float scratches_height(vec2 uv) {
 		float groove = 0.0;
 
 		for (int i = 0; i < 90; i++) {
 			vec2 r = hash22(vec2(i, 3.7));
 			vec2 s = hash22(vec2(i, 11.3));
-			// most go roughly one way, as from wiping
 			float angle = s.x < 0.7 ? 0.2 + s.x * 0.5 : s.x * 9.0;
 			vec2 dir = vec2(cos(angle), sin(angle));
 			vec2 d = fract(uv - r + 0.5) - 0.5;
@@ -98,31 +91,26 @@ local shared = [[
 		return 1.0 - groove;
 	}
 
-	// 0 paint, 1 primer at the chip's edge, 2 bare steel
 	float paint_wear(vec2 uv) {
 		float n = fbm(uv, 5.0, 7);
 		return smoothstep(0.6, 0.61, n) + smoothstep(0.635, 0.645, n);
 	}
 
-	// round bumps a few pixels apart once the sphere is a few meters away
 	float fine_bumps_height(vec2 uv) {
 		vec2 cell = fract(uv * 48.0) - 0.5;
 		return sqrt(max(1.0 - dot(cell, cell) / 0.2, 0.0));
 	}
 
-	// ridges along u, 2 cm apart on a 3.2 m sheet
 	float corrugated_height(vec2 uv) {
 		return 0.5 + 0.5 * sin(uv.y * 6.2831853 * 160.0);
 	}
 
-	// a pointed ellipse along v, x across it from -1 to 1
 	float leaf_mask(vec2 uv) {
 		vec2 p = (vec2(uv.x, 1.0 - uv.y) - 0.5) * 2.0;
 		float half_width = 0.85 * pow(max(1.0 - p.y * p.y, 0.0), 0.8) * (1.0 - 0.25 * p.y);
 		return step(abs(p.x), half_width) * step(p.y, 0.92) + step(abs(p.x), 0.02) * step(0.9, p.y);
 	}
 
-	// the midrib and the side veins running out from it towards the tip
 	float leaf_veins(vec2 uv) {
 		vec2 p = (vec2(uv.x, 1.0 - uv.y) - 0.5) * 2.0;
 		float midrib = smoothstep(0.025, 0.01, abs(p.x));
@@ -170,7 +158,6 @@ local function sphere(parent, name, x, z, mat)
 	}
 end
 
--- a row, build(t) makes the material for t from 0 to 1 along it, place puts a shape with it at x, z (a sphere by default)
 local function sweep(parent, name, z, build, place)
 	local row = group(name, parent)
 
@@ -185,7 +172,6 @@ local function sweep(parent, name, z, build, place)
 	end
 end
 
--- a sphere on a small tile of grid lines: what a refracting sphere bends is visible there
 local function sphere_on_grid(parent, name, x, z, mat)
 	shapes.Box{
 		Name = name .. "_grid",
@@ -205,9 +191,6 @@ local function sphere_on_grid(parent, name, x, z, mat)
 	}
 end
 
--- a brilliant cut diamond with its girdle at y = 0 and its culet pointing down, in the usual proportions (the table is
--- 53 percent of the girdle's width, the crown 34.5 degrees, the pavilion 40.7). 8 table corners, 16 girdle corners:
--- each table corner has the girdle corner under it and the two beside it, between two table corners there is one more
 local GEM_RADIUS = 0.42
 local GEM_TABLE, GEM_CROWN, GEM_GIRDLE, GEM_PAVILION = 0.53, 0.32, 0.03, 0.83
 
@@ -230,7 +213,6 @@ local function build_diamond(poly, radius)
 	local culet = point(0, 0, -GEM_GIRDLE - GEM_PAVILION)
 	local inside = Vec3(0, -0.1 * radius, 0)
 
-	-- a facet, flat shaded, with its normal pointing out of the stone whatever order the corners come in
 	local function facet(a, b, c)
 		local n = (b - a):GetCross(c - a)
 
@@ -267,7 +249,6 @@ local function build_diamond(poly, radius)
 	return poly
 end
 
--- a diamond balanced on its culet over a small tile of grid lines
 local function gem_on_grid(parent, name, x, z, mat)
 	shapes.Box{
 		Name = name .. "_grid",
@@ -289,7 +270,6 @@ local function gem_on_grid(parent, name, x, z, mat)
 	}
 end
 
--- a pane of glass standing in front of a grid, tilted so it reflects as well as bends
 local function pane(parent, name, x, z, mat)
 	shapes.Box{
 		Name = name .. "_grid",
@@ -310,7 +290,6 @@ local function pane(parent, name, x, z, mat)
 	}
 end
 
--- a sheet like a leaf, one double sided quad (a box would shadow its own far face), its front turned to (facing_x, facing_z)
 local function sheet(parent, name, x, z, mat, yaw)
 	shapes.Polygon{
 		Name = name,
@@ -332,7 +311,6 @@ local function sheet(parent, name, x, z, mat, yaw)
 	}
 end
 
--- a tile with a sphere on it, in a group of its own
 local function tile(parent, name, x, z, tile_mat, sphere_mat)
 	local entity = group(name, parent)
 	shapes.Box{
@@ -429,7 +407,6 @@ sweep(
 	end
 )
 
--- from air (an index of 1 bends nothing and reflects nothing) to 2, a dense flint glass or sapphire; the diamond row is further on
 sweep(
 	sweeps,
 	"refraction_ior",
@@ -446,7 +423,6 @@ sweep(
 	sphere_on_grid
 )
 
--- the surface features, each strength from 0 to 1 along the row
 local features = group("surface_features")
 local FEATURES_Z = 5.6
 
@@ -539,7 +515,6 @@ sweep(
 	end
 )
 
--- glass: frosted spheres, panes from air to dense glass and frosted panes, and diamonds with their dispersion
 local refraction = group("refraction")
 local REFRACTION_Z = 13.4
 local PANE_SPACING = 1.6
@@ -571,7 +546,6 @@ sweep(
 			Metallic = 0,
 			Refraction = 1,
 			IndexOfRefraction = math.lerp(t, 1, 2),
-			-- its real thickness, a rotated pane's bounding box would make it a slab of a third of a meter
 			RefractionThickness = 0.02,
 		}
 	end,
@@ -595,7 +569,6 @@ sweep(
 	pane
 )
 
--- diamonds (index 2.42, brilliant cut), the dispersion from none to far more than the real stone's Abbe number of 55
 sweep(
 	refraction,
 	"diamond_dispersion",
@@ -613,8 +586,6 @@ sweep(
 	gem_on_grid
 )
 
--- diffuse transmission (leaves, cloth): each ring of sheets stands round a point light, so from outside the light comes through
--- them, and from the opening or inside they are lit on their front. one value sweeps round the ring
 local transmission = group("transmission")
 local TRANSMISSION_Z = REFRACTION_Z + PANE_SPACING * 5
 local RING_RADIUS = 1.6
@@ -662,7 +633,6 @@ ring("transmission_scattering", 0, function(t)
 	}
 end)
 
--- from white through to a saturated red
 ring("transmission_color", 5, function(t)
 	return material{
 		Color = Color(0.7, 0.7, 0.7, 1),
@@ -816,7 +786,6 @@ shapes.Box{
 	},
 	RigidBody = STATIC,
 }
--- many tiny shapes, to see how thin things alias
 local aliasing = group("aliasing")
 local ALIAS_X = 9.5
 local bearings = group("bearings", aliasing)

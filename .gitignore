@@ -4,9 +4,3 @@ local_stuff/
 storage/
 test/tmp/
 tmp/
-test/harnesses/**/*.png
-test/harnesses/**/*.jpg
-test/harnesses/**/*.log
-test/harnesses/**/out/
-test/harnesses/**/*.glwp
-test/harnesses/**/*.pgm

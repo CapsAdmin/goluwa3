@@ -23,7 +23,6 @@ function outfit.GetLocalName()
 	return selected:Get()
 end
 
--- the player only tells how far it is crouched (player_avatar.crouch_alpha), what that does to the body is up to the outfit
 outfit.CrouchScript = [[
 local objects = import("goluwa/objects/objects.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters

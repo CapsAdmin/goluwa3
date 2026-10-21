@@ -1,6 +1,3 @@
--- the random numbers of the generators. everything a generator makes comes from one of these, made from the seed of
--- its config, so the same seed and config give the same asset. a stream forks named sub streams, so drawing one more
--- number for the trunk does not change the leaves
 local bit = require("bit")
 local band, bxor, rshift, lshift, tobit = bit.band, bit.bxor, bit.rshift, bit.lshift, bit.tobit
 local Random = {}
@@ -13,14 +10,12 @@ local function mul32(a, b)
 	return tobit(a_lo * b_lo + lshift(band(a_hi * b_lo + a_lo * b_hi, 0xffff), 16))
 end
 
--- murmur3's finalizer, every bit of the input moves every bit of the output
 local function mix(h)
 	h = mul32(bxor(h, rshift(h, 16)), 0x85ebca6b)
 	h = mul32(bxor(h, rshift(h, 13)), 0xc2b2ae35)
 	return bxor(h, rshift(h, 16))
 end
 
--- fnv-1a of the string of the value
 function Random.Hash(value)
 	local str = tostring(value)
 	local h = tobit(2166136261)
@@ -37,13 +32,11 @@ function Random.New(seed)
 	return setmetatable({state = state, origin = state}, Random)
 end
 
--- a stream of its own for a part of the asset, the same name gives the same stream whatever was drawn before
 function Random:Fork(name)
 	local state = mix(bxor(self.origin, Random.Hash(name)))
 	return setmetatable({state = state, origin = state}, Random)
 end
 
--- [0, 1), xorshift32
 function Random:Next()
 	local x = self.state
 
@@ -60,7 +53,6 @@ function Random:Range(min, max)
 	return min + (max - min) * self:Next()
 end
 
--- a number or {min, max}
 function Random:Pick(range)
 	if type(range) == "number" then return range end
 
@@ -75,7 +67,6 @@ function Random:Sign()
 	return self:Next() < 0.5 and -1 or 1
 end
 
--- roughly normal around 0 with a deviation of 1
 function Random:Gaussian()
 	return (self:Next() + self:Next() + self:Next() + self:Next() - 2) * 1.7320508
 end
@@ -84,7 +75,6 @@ function Random:Choose(list)
 	return list[math.floor(self:Next() * #list) + 1]
 end
 
--- a positive 31 bit integer, for the shaders that take a seed
 function Random:Seed()
 	self:Next()
 	return band(self.state, 0x7fffffff)

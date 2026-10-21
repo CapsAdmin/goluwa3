@@ -407,7 +407,6 @@ local function build_displacement_collision_shape(positions, dims)
 	return build_displacement_polygon(points, dims)
 end
 
--- positions is a list of source space points, three of them make a triangle
 local function build_triangle_soup_shape(positions)
 	local poly = Polygon3D.New()
 	local vertices = poly.Vertices

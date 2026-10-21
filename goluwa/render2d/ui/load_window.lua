@@ -62,7 +62,6 @@ local function draw_text(font, text, x, y, color)
 	render2d.PopColor()
 end
 
--- nil while the picture is loading or when it can not be loaded
 local function get_texture(path)
 	local texture = textures[path]
 

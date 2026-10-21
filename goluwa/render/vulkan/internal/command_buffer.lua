@@ -701,7 +701,6 @@ function CommandBuffer:DrawIndexedIndirect(buffer, offset, drawCount, stride)
 	)
 end
 
--- the draw count is read from count_buffer at count_offset when the draw runs, max_draw_count is the most it may be
 function CommandBuffer:DrawIndexedIndirectCount(buffer, offset, count_buffer, count_offset, max_draw_count, stride)
 	if render.stats then render_stats.AddDrawCalls(max_draw_count) end
 

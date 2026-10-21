@@ -93,8 +93,6 @@ do
 		["goluwa/filesystem/watcher.lua"] = true,
 	}
 
-	-- a module whose table stays the same only needs the importers that used it while they loaded,
-	-- anything else is held by value so every importer has to load again
 	local function get_dependents(module_path, kept)
 		local out = {}
 		local strong = import.strong

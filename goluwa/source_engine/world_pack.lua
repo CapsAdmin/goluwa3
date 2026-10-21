@@ -4,7 +4,6 @@ local world_pack = {}
 local float_array_t = ffi.typeof("float[?]")
 local float_ptr_t = ffi.typeof("const float *")
 
--- big numeric tables are stored as float32 strings, plain nested tables would exceed what a luadata chunk can hold
 function world_pack.PackFloats(values)
 	local count = #values
 	local array = float_array_t(count)
@@ -30,7 +29,6 @@ end
 
 local SIDE_FLOATS = 13
 
--- the sides of a brush as {data = packed floats, textures = a texture name per side}
 function world_pack.PackSides(sides)
 	local flat, textures = {}, {}
 

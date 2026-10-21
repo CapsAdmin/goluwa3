@@ -63,7 +63,6 @@ return {
 	Order = 2,
 	View = react.Component(|| -> do
 		local panel = react.UseRef()
-		-- the layout of the last frame, the draw reads it
 		local view = react.UseMemo(|| -> do
 			local font = fonts.New{Path = fonts.GetDefaultSystemFontPath(), Size = 18}
 

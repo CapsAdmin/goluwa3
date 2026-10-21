@@ -1,10 +1,8 @@
 local perf = {}
 local tabs = {}
 
--- how often a tab that polls refreshes its rows, in seconds
 perf.POLL_INTERVAL = 0.1
 
--- view is a react component, the perf window mounts it while its tab is the open one and unmounts it when another is picked
 function perf.RegisterTab(name, order, view)
 	tabs[name] = {name = name, order = order, view = view}
 end

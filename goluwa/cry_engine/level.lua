@@ -13,9 +13,7 @@ local read_u32_le, read_u16_le, read_f32_le
 local sample_terrain_height01_at_world
 local f32_union = ffi.new("union { uint32_t u; float f; }")
 local level = {}
--- decal heights hang below the decal polygon like they do in cryengine, off centers the heights on the polygon
 level.DECAL_HEIGHTMAPS_SINK_INTO_SURFACE = true
--- decal alpha is pushed towards fully transparent or opaque, off blends it by the plain texture alpha like cryengine
 level.DECAL_ALPHA_IS_SHARPENED = true
 
 local function find_child_by_tag(node, tag)
@@ -223,8 +221,6 @@ function level.ConvertCryWorldMatrixToEngineTransform(world_matrix)
 	}
 end
 
--- Cry decals generate their texture coordinates from the matrix: u runs along -y and v along x, the normal is z. The
--- decal frame right, up and back map to those directions.
 function level.ConvertCryDecalMatrixToEngineTransform(world_matrix)
 	local origin = world_matrix:TransformVector(Vec3(0, 0, 0))
 	local cry_x = world_matrix:TransformVector(Vec3(1, 0, 0)) - origin
@@ -1263,9 +1259,6 @@ sample_terrain_height01_at_world = function(terrain, world_x, world_z)
 	local raw = sample_terrain_height_raw(terrain, sample_x, sample_y)
 	return raw / 65535
 end
--- The height of the rendered terrain: the gpu shifts the height texture by half a texel so that texel i is the height at
--- world i * unit, the same as the heightmap data, but it spans world_size / width per texel where the data above uses
--- world_size / (width - 1).
 function level.SampleRenderedTerrainHeight(terrain, world_x, world_z)
 	local world_size = math.max(terrain.world_size or 0, 1)
 	local width = terrain.height_sample_width or terrain.height_samples_width or terrain.height_samples_per_side

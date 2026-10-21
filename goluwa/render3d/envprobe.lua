@@ -37,8 +37,6 @@ envprobe.ENVIRONMENT_SIZE = 512
 envprobe.REFLECTION_SIZE = 128
 envprobe.IRRADIANCE_SIZE = 32
 envprobe.IRRADIANCE_SOURCE_SIZE = 16
--- b10g11r11 has 5 bits of mantissa in blue, and through the cubemap, the equirect and its mips it darkened the clear sky's
--- blue light by 1.4 percent and red by 0.9 (measured against the sky view LUT, test/harnesses/colorchecker)
 envprobe.FORMAT = "r16g16b16a16_sfloat"
 envprobe.REFLECTION_RADIUS = envprobe.REFLECTION_RADIUS or 24
 envprobe.REFLECTION_MIN_SPACING = envprobe.REFLECTION_MIN_SPACING or 4
@@ -249,7 +247,6 @@ local function create_face_views(texture, mip_level)
 	return views
 end
 
--- the poles are the first and last rows, wrapping would blend the sky overhead with the ground below in a lookup straight up or down
 local EQUIRECT_SAMPLER = {wrap_t = "clamp_to_edge"}
 
 local function create_equirect(width, height, format, mip_map_levels, sampler)
@@ -740,6 +737,7 @@ function envprobe.CreatePipelines()
 				]] .. atmosphere.GetGLSLDefines("fragment", "fragment.sun_illuminance") .. atmosphere.GetGLSLCode() .. [[
 			]],
 			shader = [[
+
 				void main() {
 					vec3 sky_color_output;
 					]] .. atmosphere.GetGLSLMainCode(
@@ -808,8 +806,7 @@ function envprobe.CreatePipelines()
 				layout(location = 0) in vec3 in_direction;
 			]],
 			shader = [[
-				// a gradient with a bright soft box overhead and to the side, a dimmer one opposite and
-				// a strip behind, in map units like an hdr file would hold
+
 				float studio_box(vec3 dir, vec3 center, float inner, float outer) {
 					return smoothstep(cos(outer), cos(inner), dot(dir, normalize(center)));
 				}
@@ -830,7 +827,6 @@ function envprobe.CreatePipelines()
 					vec3 color;
 
 					if (fragment.source_tex != -1) {
-						// equirect, the top row is up, same layout as atmosphere.environment_map_path
 						vec2 uv = vec2(atan(dir.z, dir.x) / 6.28318530718 + 0.5, 0.5 - asin(clamp(dir.y, -1.0, 1.0)) / 3.14159265359);
 						color = textureLod(TEXTURE(fragment.source_tex), uv, 0.0).rgb;
 					} else {
@@ -866,6 +862,7 @@ function envprobe.CreatePipelines()
 				},
 			},
 			shader = [[
+
 				void main() {
 					if (probe_capture_copy.source_tex == -1) {
 						set_color(vec4(0.0, 0.0, 0.0, 1.0));
@@ -900,6 +897,7 @@ function envprobe.CreatePipelines()
 				},
 			},
 			shader = [[
+
 			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("probe_depth_data") .. [[
 				void main() {
 					if (probe_depth_data.depth_tex == -1) {
@@ -945,6 +943,7 @@ function envprobe.CreatePipelines()
 			]] .. glsl_common.GetEquirectGLSL() .. [[
 			]],
 			shader = [[
+
 				void main() {
 					if (probe_equirect_depth.source_tex == -1) {
 						set_linear_depth(1000.0);
@@ -986,6 +985,7 @@ function envprobe.CreatePipelines()
 			]] .. glsl_common.GetEquirectGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]],
 			shader = [[
+
 				void main() {
 					vec3 N = equirect_uv_to_dir(in_uv);
 					vec3 R = N;
@@ -1068,6 +1068,7 @@ function envprobe.CreatePipelines()
 				const int IRRADIANCE_SOURCE_SIZE = ]] .. envprobe.IRRADIANCE_SOURCE_SIZE .. [[;
 			]],
 			shader = [[
+
 				vec3 get_cube_texel_direction(int face, vec2 uv) {
 					if (face == 0) return vec3(1.0, uv.y, uv.x);
 					if (face == 1) return vec3(-1.0, uv.y, uv.x);
@@ -1414,8 +1415,6 @@ do
 	local pending = {}
 	local pending_count = 0
 
-	-- a slot released while the frame is still being recorded would be handed to the next probe baked in
-	-- it, and the draws already recorded for this one would sample that probe's cubemap instead
 	function release_texture_index_later(pipeline, texture)
 		pending[pending_count + 1] = pipeline
 		pending[pending_count + 2] = texture
@@ -1427,7 +1426,6 @@ do
 		"envprobe_release_texture_indices",
 		function()
 			for i = 1, pending_count, 2 do
-				-- the pipelines are made again when the renderer is initialized
 				if pending[i]:IsValid() then pending[i]:ReleaseTextureIndex(pending[i + 1]) end
 
 				pending[i] = nil
@@ -1602,9 +1600,6 @@ local function select_probe_to_capture(now, camera_position)
 end
 
 do
-	-- the air thins with height, so the sky is not the same at 120 m (4 to 8 percent dimmer) or at 1000 m (25 to 60 percent) as at
-	-- the ground. The environment is captured at the height of the camera, in steps of a tenth of it (plus 10 m, so
-	-- the steps near the ground are 1 m), and not more than every ALTITUDE_REBAKE_INTERVAL seconds
 	local ALTITUDE_STEP = 1.1
 	local ALTITUDE_OFFSET = 10
 	local ALTITUDE_REBAKE_INTERVAL = 0.25

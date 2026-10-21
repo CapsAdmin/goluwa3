@@ -22,7 +22,6 @@ T.Test("Orbit camera fit looks at the center with the sphere inside the view", f
 	local x, y = ndc(camera, Vec3(2, 1, -3))
 	T(math.abs(x) < 1e-4)["=="](true)
 	T(math.abs(y) < 1e-4)["=="](true)
-	-- a point on the sphere's side, perpendicular to the view, stays inside the view
 	local right = camera:GetRotation():GetRight()
 	local edge_x = ndc(camera, Vec3(2, 1, -3) + right * 2)
 	T(edge_x > 0.5 and edge_x < 1)["=="](true)
@@ -38,7 +37,6 @@ end)
 
 T.Test("Orbit camera view follows the mouse, dragging to the right moves what is behind the model to the right", function()
 	local orbit, camera = create()
-	-- something far away in the middle of the view, like the sky
 	local far = camera:GetPosition() + camera:GetRotation():GetForward() * 1000
 	T(math.abs(ndc(camera, far)) < 1e-3)["=="](true)
 	orbit:Rotate(60, 0)
@@ -55,7 +53,6 @@ T.Test("Orbit camera dragging down moves the view down and the pitch stops short
 	local height = camera:GetPosition().y
 	orbit:Rotate(0, 30)
 	orbit:Apply()
-	-- the camera looks up from lower, the projection's y points down the screen
 	local _, y = ndc(camera, far)
 	T(y > 0.1)["=="](true)
 	T(camera:GetPosition().y < height)["=="](true)
@@ -108,7 +105,6 @@ T.Test("Orbit camera panning drags the model along with the mouse", function()
 	orbit:Reset()
 	orbit:Pan(0, 100, 600)
 	orbit:Apply()
-	-- the projection's y points down the screen
 	local _, y = ndc(camera, Vec3(2, 1, -3))
 	T(y > 0)["=="](true)
 end)

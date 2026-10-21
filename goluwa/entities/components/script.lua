@@ -5,7 +5,6 @@ META.Network = {
 	Source = {"string", 0.5, "reliable"},
 	Values = {"table", 0.5, "reliable"},
 }
--- these are called by the engine around the component itself, every other On function is a local event of the owner
 local LIFECYCLE = {
 	OnConstruct = true,
 	OnCreate = true,
@@ -29,13 +28,11 @@ META:GetSet(
 		end,
 	}
 )
--- the storable properties of the component the source defines that differ from their default
 META:GetSet("Values", nil, {callback = "OnValuesChanged", Hidden = true})
 META:EndStorable()
 local classes = {}
 local scope_counter = 0
 
--- a script that failed stays off until its source changes
 local function call(script, fn, ...)
 	if script.Error then return end
 
@@ -59,7 +56,6 @@ local function call(script, fn, ...)
 	return result
 end
 
--- the source defines a component class, classes are shared by every script with the same source like they are for a normal component
 local function acquire_class(source, name)
 	local class = classes[source]
 
@@ -83,7 +79,6 @@ local function acquire_class(source, name)
 		return nil, "the script must return the component it defines (return META:Register())"
 	end
 
-	-- errors inside the hooks the engine calls turn the script off instead of breaking the frame
 	for key, fn in pairs(meta) do
 		if type(fn) == "function" and (key == "Initialize" or key:starts_with("On")) then
 			meta[key] = function(self, ...)
@@ -249,7 +244,6 @@ function META:OnValuesChanged()
 	self:ApplyValues()
 end
 
--- a property of the component changed, what is stored with the script follows and the editor row is refreshed
 function META.OnInstancePropertyChanged(instance, var_name, new_value, old_value, info)
 	local script = instance.ScriptComponent
 

@@ -66,19 +66,14 @@ function META.OnSelect(node, key, path) end
 
 function META.OnAction(node, key, path) end
 
--- extra right click items for a property of an object, a list of {Text, OnClick} or nothing
 function META.OnContextActions(object, info) end
 
--- a small label for the header of a component, {Text, Color, HeaderColor, Tooltip} or nothing
 function META.OnGetCategoryBadge(object, name) end
 
--- right click on the header of a component, a list of menu items or nothing
 function META.OnCategoryContextMenu(object, name, owner) end
 
--- a small label and a label color for a property of an object, {Text, Color, Tooltip} or nothing
 function META.OnGetPropertyBadge(object, info) end
 
--- after a value was written to the object, set(target, info, value) is what wrote it
 function META.OnPropertyEdited(target, info, old_value, new_value, set) end
 
 function META.OnPropertyChangeStart() end
@@ -107,7 +102,6 @@ local function get_node_children(node)
 	return node.Children or {}
 end
 
--- keeps the rows whose label, search text or titles above them hold every word of the filter, groups are copied with only their kept rows
 local function filter_nodes(nodes, tokens, scope)
 	local out = {}
 
@@ -1066,7 +1060,6 @@ function META:build_category_panel(node, path, key)
 		}
 	end
 
-	-- a badge that only says which tab the category is on has nothing to add once the tabs are shown
 	local badge = node.Badge
 
 	if badge and badge.HideWithTabs and self._tabs_visible then badge = nil end
@@ -1106,7 +1099,6 @@ function META:GetActiveTab()
 	return self._active_tab
 end
 
--- categories can name a Tab, with more than one name the tabs are shown above and only the categories of the active one are listed
 function META:update_tabs(items)
 	local tabs = {}
 	local seen = {}
@@ -1125,7 +1117,6 @@ function META:update_tabs(items)
 		return nil
 	end
 
-	-- the tab that was chosen last is kept for the next object that has it, until then the first one is shown
 	local active = seen[self._active_tab] and self._active_tab or tabs[1]
 	self._tab_bar:SetTabs(tabs)
 	self._tab_bar:SetValue(active)
@@ -1227,7 +1218,6 @@ do
 		group.Children[#group.Children + 1] = node
 	end
 
-	-- an info can list extra right click items as {Text, action = function(target)}, the editor can add more
 	local function build_context_actions(editor, info, target)
 		local out
 

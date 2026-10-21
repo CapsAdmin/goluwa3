@@ -5,8 +5,6 @@ local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local event = import("goluwa/event.lua")
 local render3d = nil
--- what the culling of the scene store (scene/draw.lua) shares: the switch for it, the depth pyramid of the last frame it
--- tests against, and the frustum planes
 local gpu_culling = {}
 gpu_culling.culling_enabled = true
 gpu_culling.drawn_cull_frame = gpu_culling.drawn_cull_frame or -1
@@ -102,7 +100,6 @@ function gpu_culling.Initialize()
 				ivec2 src_base = pos * 2;
 				ivec2 src_last = src_base + 1;
 
-				// mips are floor sized, the last texel of a row or column also covers the odd remainder
 				if (pos.x == dst_size.x - 1) src_last.x = src_size.x - 1;
 				if (pos.y == dst_size.y - 1) src_last.y = src_size.y - 1;
 
@@ -307,13 +304,10 @@ function gpu_culling.PrepareMainViewHiZ(cmd)
 end
 
 
--- the frame the scene was in when the main view culling that is drawn was dispatched: a visual that was added or shown
--- in frame N is drawn once this is N or more
 function gpu_culling.GetDrawnCullFrame()
 	return gpu_culling.drawn_cull_frame
 end
 
--- the main view's draws have been recorded from this frame's culling
 function gpu_culling.MarkMainViewDrawn()
 	gpu_culling.drawn_cull_frame = system.GetFrameNumber()
 end

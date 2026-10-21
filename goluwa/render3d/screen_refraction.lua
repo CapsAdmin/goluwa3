@@ -6,9 +6,7 @@ screen_refraction.WAVELENGTH_RGB = {0.61, 0.55, 0.465}
 
 function screen_refraction.GetGLSL(block_name)
 	return [[
-		// the index of refraction at the red, green and blue wavelengths from the one at the
-		// d line and the Abbe number V = (n_d - 1) / (n_F - n_C), by Cauchy's n = A + B / l^2.
-		// an Abbe number of 0 is a medium without dispersion
+
 		vec3 screen_refraction_dispersed_ior(float ior, float abbe) {
 			if (abbe <= 0.0) return vec3(ior);
 			float b = (ior - 1.0) / abbe / (1.0 / (]] .. screen_refraction.WAVELENGTH_C .. [[ * ]] .. screen_refraction.WAVELENGTH_C .. [[) - 1.0 / (]] .. screen_refraction.WAVELENGTH_F .. [[ * ]] .. screen_refraction.WAVELENGTH_F .. [[));
@@ -18,7 +16,6 @@ function screen_refraction.GetGLSL(block_name)
 		}
 
 
-		// xy = uv, z = clip depth. uv is negative behind the camera
 		vec3 screen_refraction_project(vec3 world_pos) {
 			vec4 clip = ]] .. block_name .. [[.projection * (]] .. block_name .. [[.view * vec4(world_pos, 1.0));
 			if (clip.w <= 1e-5) return vec3(-1.0);
@@ -29,8 +26,6 @@ function screen_refraction.GetGLSL(block_name)
 			return all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)));
 		}
 
-		// false when target is off screen, or when the scene there is in front of
-		// the surface
 		bool screen_refraction_uv(vec3 surface_pos, vec3 target_pos, out vec2 uv) {
 			vec3 target = screen_refraction_project(target_pos);
 			uv = target.xy;
@@ -40,21 +35,11 @@ function screen_refraction.GetGLSL(block_name)
 			return texture(TEXTURE(]] .. block_name .. [[.depth_tex), uv).r <= screen_refraction_project(surface_pos).z;
 		}
 
-		// is the point at p (projected) behind the opaque scene, and is what it
-		// is behind itself behind the surface
 		bool screen_refraction_behind(vec3 p, float surface_depth) {
 			float scene_depth = texture(TEXTURE(]] .. block_name .. [[.depth_tex), p.xy).r;
 			return scene_depth <= surface_depth && p.z <= scene_depth;
 		}
 
-		// marches from origin along dir, in steps that grow towards
-		// max_distance. hit_distance is how far along the ray the scene was met.
-		// a ray that meets nothing goes on to the sky where the depth is empty;
-		// otherwise it slipped past something thin between steps and takes what
-		// is where it stopped. false when the ray leaves the screen first, uv is then
-		// where it left (outside 0..1) and hit_distance how far it had gone.
-		// jitter (0..1) shifts the steps; varied per pixel and frame, taa turns
-		// the steps' stairs into a smooth result
 		bool screen_refraction_trace(vec3 surface_pos, vec3 origin, vec3 dir, float max_distance, float jitter, out vec2 uv, out float hit_distance) {
 			float surface_depth = screen_refraction_project(surface_pos).z;
 			float previous = 0.0;
@@ -65,7 +50,6 @@ function screen_refraction.GetGLSL(block_name)
 				vec3 p = screen_refraction_project(origin + dir * t);
 
 				if (!screen_refraction_on_screen(p.xy)) {
-					// left the screen: where it went, so a caller can clamp it, and how far along it was
 					uv = p.xy;
 					hit_distance = t;
 					return false;

@@ -408,8 +408,6 @@ end
 
 local registered_bitmap_fonts = {}
 
--- a pixel font as {name, width, advance, height, descent, fallback = rows, glyphs = {[codepoint] = rows}, shade = function(x, y) return brightness end}
--- where rows are bytes with the leftmost pixel in the high bit. Use it with the font path "bitmap:name:scale"
 function glyphs.RegisterBitmapFont(def)
 	registered_bitmap_fonts[def.name] = def
 end

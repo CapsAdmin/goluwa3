@@ -27,7 +27,6 @@ function BatchTable.New(config)
 		write_animated = config.write_animated,
 		animation_version = config.animation_version,
 		versions = {},
-		-- what each index was written from, weak because the batch and its material belong to whoever draws them
 		batch_at = setmetatable({}, WEAK_VALUES),
 		material_at = setmetatable({}, WEAK_VALUES),
 		written_count = 0,
@@ -51,7 +50,6 @@ function BatchTable:OnRemove()
 	self:RemoveBuffers()
 end
 
--- writes a batch's record in full and notes what the record was written from
 local function write_batch_record(self, pipeline, context, index, batch, serial)
 	local record = self.records[index - 1]
 	local addresses = ffi.cast(UInt64Ptr, record.addresses)
@@ -63,8 +61,6 @@ local function write_batch_record(self, pipeline, context, index, batch, serial)
 		local sources = self.shared_records and material and self.copy_sources[material]
 		local source = sources and sources[mesh]
 
-		-- with shared_records the record only depends on the mesh, the material and the first polygon of the batch, so
-		-- the rows of the same mesh and material (every instance of a plant) copy the record that was written first
 		if
 			source and
 			self.batch_at[source] and
@@ -123,7 +119,6 @@ local function write_batch_record(self, pipeline, context, index, batch, serial)
 	self.animated_batches[index] = material ~= nil and material:HasVertexAnimation() or nil
 end
 
--- the record of an index that is past the end of the batches now
 local function forget_batch_record(self, index)
 	local old_material = self.material_at[index]
 	local set = old_material and self.material_batches[old_material]
@@ -136,13 +131,6 @@ local function forget_batch_record(self, index)
 	self.animated_batches[index] = nil
 end
 
--- a record is written when its batch is new or the material of the batch changed, found in the log of the objects
--- that were stamped since the last update. when the batches changed (batch_serial) the indices in the change log of
--- the list are looked at if it has one that reaches back far enough, and when a buffer that has an address was freed
--- (or without a log) every index is looked at and only those whose batch is another one, or whose mesh has other addresses, are
--- written. a batch of an animated material only has the part that moves written when animation_version() changed since
--- the last update, and a few records get written in full each update in case something changed that no property
--- version saw. each frame's buffer gets the records that changed since it was last written, kept mapped
 function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	local slot = self.per_frame and render.GetCurrentFrame() or 1
 	local version = objects.version_counter
@@ -195,7 +183,6 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 		self.written_count > 0 and
 		batch_serial - self.batch_serial < changes.size
 	then
-		-- the batches that changed are in the log of the list, so the rest of it is not looked at
 		local batch_at = self.batch_at
 		local log = changes.log
 		local size = changes.size
@@ -215,7 +202,6 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 		local addresses = ffi.cast(UInt64Ptr, self.records)
 		local stride = self.record_size / 8
 		local offset = ffi.offsetof(self.record_type, "addresses") / 8
-		-- the instances of a mesh are many rows, its addresses are asked once
 		local expected = {}
 
 		for i = 1, count do
@@ -255,7 +241,6 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	end
 
 	if version - self.material_version >= objects.VERSION_LOG_SIZE then
-		-- too many materials changed to follow them in the log
 		for i = 1, count do
 			local batch = batches[i]
 			local material = batch.material

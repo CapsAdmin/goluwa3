@@ -10,9 +10,6 @@ local view_resolve = import("goluwa/render3d/view_resolve.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local META = objects.CreateTemplate("render3d_scene_view")
--- a preset is the passes a view runs, and the render context that makes them see what the view
--- should see instead of the world. views of a size share one set of pipelines per preset, so a
--- preset that keeps history between frames needs a set of its own per view
 local presets = {
 	model_preview = {
 		include_names = {
@@ -49,7 +46,6 @@ META:GetSet("AutoRender", false, {callback = "Invalidate"})
 
 function META.OnDrawGeometry(cmd, self) end
 
--- draws what a visual has for the gbuffer, whether it is visible in the world or not
 function META.DrawVisual(visual)
 	local previous_world = render3d.GetWorldMatrix()
 	local previous_material = render3d.GetMaterial()
@@ -84,8 +80,6 @@ function META:GetCamera()
 	return self.camera
 end
 
--- with AutoRender the view is drawn in the next frame, by the frame's own command buffer, so what
--- changed it doesn't have to wait for the gpu
 function META:Invalidate()
 	if self.AutoRender then invalidated[self] = true end
 end
@@ -110,7 +104,6 @@ function META.GetBundleCount()
 	return count
 end
 
--- false until the first render, before that the texture holds nothing to show
 function META:HasRendered()
 	return self.rendered
 end
@@ -165,8 +158,6 @@ function release_bundle(bundle)
 	if bundle.users == 0 then bundle.idle_since = system.GetElapsedTime() end
 end
 
--- records the view into cmd. false when it can't be drawn yet, because the environment is still
--- loading
 function META:Render(cmd)
 	local environment = self.Environment or Environment.GetShared()
 
@@ -212,8 +203,6 @@ function META:Render(cmd)
 	return true
 end
 
--- for callers that need the result right away, like reading the pixels back. every call records
--- into a new command buffer, compute passes hand out their descriptor sets per command buffer
 function META:RenderNow()
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd.gpu_timing_disabled = true

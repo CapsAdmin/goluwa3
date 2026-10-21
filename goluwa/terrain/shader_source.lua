@@ -44,7 +44,6 @@ layout(push_constant, scalar) uniform TerrainBakeConstants {
 	int texture1;
 	int texture2;
 	int texture3;
-	// source specific ids of the chunk's layers, see SelectChunkLayers
 	int layer0;
 	int layer1;
 	int layer2;
@@ -53,7 +52,6 @@ layout(push_constant, scalar) uniform TerrainBakeConstants {
 	int layer5;
 	int layer6;
 	int layer7;
-	// the height field of the chunk (FIELD_BAKE), what the other textures are derived from
 	int field_texture;
 	float field_origin_x;
 	float field_origin_z;
@@ -72,8 +70,6 @@ vec2 terrain_bake_world_pos() {
 	return vec2(terrain_bake.origin_x, terrain_bake.origin_z) + pixel * vec2(terrain_bake.step_x, terrain_bake.step_z);
 }
 
-// the height at a world position from the baked height field instead of evaluating terrain_height again, exact at the
-// field's texels and bilinear between them
 float terrain_bake_field(vec2 p) {
 	vec2 t = (p - vec2(terrain_bake.field_origin_x, terrain_bake.field_origin_z)) / terrain_bake.field_step;
 	ivec2 i0 = ivec2(floor(t));
@@ -187,7 +183,6 @@ end
 
 do
 	local bake = {field_origin_x = 0, field_origin_z = 0, field_step = 1, field_size = 0}
-	-- the source's textures and the height field of the chunk, for the passes that read it
 	local shade_textures = {}
 
 	local function get_bake_constants(_, _, pipeline)
@@ -223,8 +218,6 @@ do
 	local NO_LAYER_IDS = {}
 	local push_constants = {size = ffi.sizeof(BakeConstants), get_data = get_bake_constants}
 
-	-- `size` texels of `step` meters starting at `origin_x`, `origin_z`. `field` is the chunk's height field, for the
-	-- passes that are derived from it
 	local function record_bake(self, batch, size, format, glsl, origin_x, origin_z, step, layer_ids, field, nearest)
 		local texture = make_bake_texture(self, size, format, batch.cmd, nearest)
 		local source_textures = self.Textures
@@ -298,12 +291,9 @@ do
 		local wants_color = request.color_size and self.HasColor
 		local field
 
-		-- the height function is evaluated once per texel of the finest texture, with a texel more around it for the
-		-- normals at its edges, and the normals, the weights and the colors are read from that
 		if request.detail_size or wants_splat or wants_color then
 			local cells = math.max(request.detail_size or 0, wants_splat and request.splat_size or 0, wants_color and request.color_size or 0)
 			local step = size / cells
-			-- texel i is at min + (i - 0.5) * step, the first one is the apron
 			bake.field_origin_x = min_x - step * 0.5
 			bake.field_origin_z = min_z - step * 0.5
 			bake.field_step = step
@@ -343,7 +333,6 @@ do
 			)
 		end
 
-		-- the layers after the fourth have their weights in a second texture
 		if wants_splat2 then
 			local step = size / request.splat_size
 			chunk.splat2_texture = record_bake(
@@ -381,8 +370,6 @@ do
 	end
 end
 
--- allocating and freeing the memory of a chunk's textures costs more than baking into them, and the textures of a chunk
--- are the same few sizes. a texture is only recycled when nothing can draw with it any more (Terrain.ReleaseFrames)
 local MAX_POOLED = 128
 local CHUNK_TEXTURES = {"normal_texture", "splat_texture", "splat2_texture", "color_texture"}
 

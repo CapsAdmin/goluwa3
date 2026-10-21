@@ -49,8 +49,6 @@ local function find_by_distance(previous, previous_count, claimed, c)
 	return matched
 end
 
--- Replaces the manifold's contacts with the freshly collided ones. Contacts that match an old
--- one (same feature, else close in both bodies' space) inherit its accumulated impulses.
 function manifold.RebuildContacts(body_a, body_b, manifold_data, contacts)
 	local count = #contacts
 	local rebuilt = contact_store.GetSpare(manifold_data, count)

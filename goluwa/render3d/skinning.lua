@@ -29,7 +29,6 @@ local queue = {}
 local queued_count = 0
 local buffers = nil
 local pipeline = nil
--- the destination vertex buffers (by address) that were skinned in the last dispatch, ray tracing refits their structures
 skinning.updated = {}
 local job_base = 0
 local job_count = 0
@@ -95,8 +94,6 @@ local function get_pipeline()
 			};
 			layout(buffer_reference, scalar) readonly buffer SkinBones { SkinBone b[]; };
 			layout(buffer_reference, scalar) readonly buffer SkinMatrices { float m[]; };
-			// the morph entries of a vertex are the ones from range.x to range.x + range.y. a weight is picked between the two
-			// weights of the flex by the side of the vertex
 			layout(buffer_reference, scalar) readonly buffer MorphRanges { uvec2 r[]; };
 			struct MorphEntry {
 				vec3 delta;
@@ -120,7 +117,6 @@ local function get_pipeline()
 				SkinJob jobs[];
 			};
 
-			// polygon_3d's vertex: position 0, normal 3, uv 6, tangent 8, blend 12, color 13
 			#define SKIN_VERTEX_FLOATS 17u
 
 			mat4x3 skin_matrix(SkinMatrices matrices, uint bone) {
@@ -137,7 +133,6 @@ local function get_pipeline()
 
 				if (flat_group >= uint(compute.group_count)) return;
 
-				// the last job that starts at or before this workgroup
 				uint low = 0u;
 				uint high = uint(compute.job_count);
 
@@ -184,7 +179,6 @@ local function get_pipeline()
 					}
 				}
 
-				// the position this vertex had when the pass last ran, if it ran on it before
 				vec3 previous = position;
 				bool had_previous = destination.v[o + 16u] < ]] .. skinning.MOTION_THRESHOLD .. [[.0;
 				position = m * vec4(position, 1.0);

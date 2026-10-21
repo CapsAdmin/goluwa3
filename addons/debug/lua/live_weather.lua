@@ -5,19 +5,16 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local climate = import("goluwa/render3d/climate.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local live_weather = {}
--- the observation that gives the cloud bases, the closest airport to Bac Ninh
 live_weather.METAR_STATION = "VVNB"
 local FEET_TO_METERS = 0.3048
 local METAR_COVERAGE = {FEW = 0.2, SCT = 0.4, BKN = 0.7, OVC = 1}
 local CLEAN = atmosphere.DEFAULT_AEROSOL
 local SMOG = {angstrom = 1.8, albedo = 0.88, g = 0.62, scale_height = 0.7}
--- the cloud layers of the cumulus preset, by the altitude class they stand for, bottom and coverage are replaced
 local CLOUD_CLASSES = {
 	{name = "low", max_base = 2500, default_bottom = 1400, template = climate.presets.cumulus.clouds[1]},
 	{name = "mid", max_base = 6000, default_bottom = 4800, template = climate.presets.cumulus.clouds[3]},
 	{name = "high", max_base = math.huge, default_bottom = 9000, template = climate.presets.cumulus.clouds[2]},
 }
--- the extra optical depth the thin haze above the boundary layer adds, in km of boundary layer (atmosphere.lua mie_density)
 local UPPER_HAZE_KM = 0.56
 
 local function get_class(base)
@@ -43,7 +40,6 @@ local function build_clouds(metar, cover_percent)
 		end
 	end
 
-	-- a ceilometer does not see above 12000 feet, and without an observation the model's cover is all there is
 	for _, class in ipairs(CLOUD_CLASSES) do
 		if not found[class.name] and (class.name == "high" or not metar) then
 			local coverage = cover_percent[class.name] / 100
@@ -71,16 +67,12 @@ local function build_clouds(metar, cover_percent)
 	return layers
 end
 
--- the weather as a climate preset: `forecast` and `air` are the decoded open-meteo answers, `metar` the decoded
--- observation or nil
 function live_weather.BuildPreset(forecast, air, metar)
 	local current = forecast.current
 	local interval = current.interval
 	local preset = {temperature = current.temperature_2m}
-	-- the direction is where the wind comes from, in degrees clockwise from north. -z is north and +x is east
 	local bearing = math.rad(current.wind_direction_10m + 180)
 	preset.wind = Vec3(math.sin(bearing), 0, -math.cos(bearing)) * current.wind_speed_10m
-	-- the precipitation is the sum over the last interval
 	local rain = current.rain * 3600 / interval
 	local snow = (current.precipitation - current.rain) * 3600 / interval
 
@@ -111,8 +103,6 @@ function live_weather.BuildPreset(forecast, air, metar)
 		preset.aerosol_albedo = math.lerp(smog, CLEAN.albedo, SMOG.albedo)
 		preset.aerosol_g = math.lerp(smog, CLEAN.g, SMOG.g)
 		preset.aerosol_height = math.lerp(smog, CLEAN.scale_height, SMOG.scale_height)
-		-- the optical depth of the column spread over the layer is the extinction at the ground, and the visibility is
-		-- how far that sees, the model's own visibility is the other estimate
 		local extinction = air.current.aerosol_optical_depth / (preset.aerosol_height + UPPER_HAZE_KM)
 		local derived = extinction > 0 and 3912 / extinction or math.huge
 		preset.aerosol_visibility = math.clamp(math.min(derived, current.visibility), 500, 200000)
@@ -123,7 +113,6 @@ function live_weather.BuildPreset(forecast, air, metar)
 	return preset
 end
 
--- fetches the weather at the weather's location and blends into it, `on_done(preset or nil, error)` is called after
 function live_weather.Apply(on_done)
 	local latitude, longitude = weather.GetLocation()
 	local position = string.format("latitude=%.4f&longitude=%.4f", latitude, longitude)

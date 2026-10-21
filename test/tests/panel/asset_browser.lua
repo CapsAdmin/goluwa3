@@ -91,7 +91,6 @@ T.Test2D("asset browser navigates folders, keeps the tree, the breadcrumb and th
 	T(has_text(window, "test_browser"))["=="](true)
 	T(has_text(window, "2 folders, 1 assets") or has_text(window, "1 folders, 1 assets"))["=="](true)
 	local sub = grid:GetItems()[1]
-	-- selecting a folder highlights it in the grid but there are no asset details for it
 	grid.OnSelect(sub, 1)
 	react.Flush()
 	T(has_text(window, "Select an asset to see details."))["=="](true)

@@ -3,7 +3,6 @@ local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local kit = {}
 
--- a page is a column, its sections are the children that come after the header
 function kit.Page(props)
 	return ui.Column{
 		layout = {
@@ -47,7 +46,6 @@ do
 		ChildGap = "M",
 	}
 
-	-- a title, a description and a stage the children go in, framed unless Framed = false
 	kit.Section = react.Component(|props| -> do
 		local stage
 
@@ -132,7 +130,6 @@ function kit.Paragraph(text, props)
 	}
 end
 
--- a label, a slider and the rounded value with an optional suffix, OnChange gets the rounded value
 kit.SliderRow = react.Component(|props| -> do
 	local value, set_value = react.UseState(props.Value)
 

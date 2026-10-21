@@ -393,8 +393,6 @@ function tasks.Panic()
 end
 
 do
-	-- a task runs its first slice when it is started, outside of the thinker budget of the timers, so starting all the
-	-- waiting tasks of a frame (up to tasks.max of them) shares one budget too, the rest are started the next frame
 	local START_BUDGET = 1 / 30
 	local start_spent = 0
 

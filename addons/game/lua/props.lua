@@ -4,7 +4,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local props = {}
--- the visual of a prop is a node, the body is the rigid_body of the instance and sits on the center of mass of the model, so the node is moved back by Offset
 prefab.Register(
 	"prop_physics",
 	{
@@ -36,7 +35,6 @@ prefab.Register(
 
 local CLEARANCE = 0.02
 
--- the y of the lowest collision vertex of a body whose rotation is given, relative to its center of mass
 local function get_lowest(physics, rotation)
 	local lowest = math.huge
 
@@ -49,7 +47,6 @@ local function get_lowest(physics, rotation)
 	return lowest
 end
 
--- places a physics prop of a model once its collision data has loaded, resting on the position: the center of mass over it and the lowest point of the collision shape just above it. Models without collision data are not spawned
 function props.Spawn(model_path, position, rotation, on_spawn)
 	local done = false
 

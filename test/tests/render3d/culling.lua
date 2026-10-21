@@ -197,7 +197,6 @@ do
 		return entity
 	end
 
-	-- the level of detail the scene store draws in the main view: red is the fine level, green the coarse one
 	local function drawn_level(draw)
 		configure_camera()
 

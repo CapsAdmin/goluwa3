@@ -6,7 +6,6 @@ local use = import("goluwa/entities/use.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local MESSAGE = "entity_use"
 
--- an entity is addressed by the nearest entity every process knows, its network id or guid, and the prefab node ids below it
 local function get_address(entity)
 	local path = {}
 	local current = entity

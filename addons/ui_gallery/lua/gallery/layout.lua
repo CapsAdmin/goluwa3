@@ -55,7 +55,6 @@ return {
 		for index = 1, count do
 			local tile_size = size + (index % 3) * 8
 
-			-- Size is turned into the min and max size when a swatch is made, a new size needs a new swatch
 			tiles[index] = Swatch{
 				Key = index .. " " .. tile_size,
 				Token = tokens[index % #tokens + 1],

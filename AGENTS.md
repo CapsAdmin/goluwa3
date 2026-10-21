@@ -35,7 +35,7 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 
 - `--cli` scripts keep the engine running after the script finishes (`--validate` only ends it on a Lua error). End scratch scripts run with `--cli` with `os.exit(0)`, or use `--one-frame` in 2d/3d mode. A hung run blocks the call until its timeout.
 
-- Scratch scripts that flip a pvar must use `pvars.SetSession`; `pvars.Set` writes the user's `pvars.txt` for good. Pvars that shaders and passes are built from ("build time" ones like `r_rt_hit_*`, `reflection_reorder`) are read when the passes are made, before a script runs, so a script's `SetSession` comes too late for them: put `GOLUWA_PVARS="key=value key=value"` in the environment instead (the `esther_gpu_run.sh` style harnesses pass it for you).
+- Scratch scripts that flip a pvar must use `pvars.SetSession`; `pvars.Set` writes the user's `pvars.txt` for good. Pvars that shaders and passes are built from ("build time" ones like `r_rt_hit_*`, `reflection_reorder`) are read when the passes are made, before a script runs, so a script's `SetSession` comes too late for them: put `GOLUWA_PVARS="key=value key=value"` in the environment instead.
 
 - Never edit files under `goluwa/` or `addons/` while a benchmark or scene run is going in the background if `--hot-reload` is on; the reload crashes the run.
 
@@ -58,20 +58,7 @@ If you see code that does the below, consider refactoring if relevant to the tas
 
 - Favor fixing underlying issues rather than patching symptoms.
 
-- Don't add unnesseceary comments that just repeat what the code obviously does.
-```lua
--- ShutDown function
-local function ShutDown(code)
-    -- call os.exit
-    os.exit(code)
-end
-```
-do this instead
-```lua
-local function ShutDown(code)
-    os.exit(code)
-end
-```
+- Do not write comments by default. The code is the source of truth; name things so it reads on its own. A comment is allowed only for a hack or workaround (driver/GLSL/Vulkan quirk, ordering constraint, a non-obvious invariant that looks wrong but is required), kept to a line or two, right where the hack is. Never write comments that restate code, narrate a change, record history or measurements, or explain how a system works. If it is generally useful to know about a system, put it in `docs/` instead.
 
 - Do not write backwards-compatible code unless asked to. This repository is the only consumer of the APIs you write, so if you change an API, update every consumer in this repository, don't preserve the old signature or add shims.
 
@@ -130,16 +117,16 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 
 - [docs/screenshots-and-cameras.md](docs/screenshots-and-cameras.md): `Screenshot`, `Shot`, moving the camera
 - [docs/debugging-and-profiling.md](docs/debugging-and-profiling.md): print helpers, the JIT profiler, optimization notes
-- [docs/performance.md](docs/performance.md): measuring CPU/GPU time correctly, benchmarks, JIT pitfalls, baselines and past optimization passes, startup time (the STARTUP tab and the `startup` timers)
+- [docs/performance.md](docs/performance.md): measuring CPU/GPU time correctly, benchmarks, JIT pitfalls, startup time (the STARTUP tab and the `startup` timers)
 - [docs/render3d-lighting.md](docs/render3d-lighting.md): DDGI/GI, fog, sky, clouds, water, shadows, exposure, material and shading pitfalls
-- [docs/render3d-pipeline.md](docs/render3d-pipeline.md): surface features and the auto packed gbuffer, Vulkan/GLSL pitfalls, GPU culling, instancing, LOD, scene view, Test3D harness
+- [docs/render3d-pipeline.md](docs/render3d-pipeline.md): surface features and the auto packed gbuffer, Vulkan/GLSL pitfalls, GPU culling, instancing, LOD, scene view, Test3D
 - [docs/particles.md](docs/particles.md): the particle system (gpu pools, one compute pass, lit by the sun, local lights and DDGI or the sky), the particle_emitter_gpu and particle_emitter_cpu (gbuffer instancing) components, rain, snow, collision, measuring
 - [docs/scatter.md](docs/scatter.md): scatter sets, models (grass, rocks, trees) grown on surfaces on the gpu: set rules, passes, pitfalls
 - [docs/foliage.md](docs/foliage.md): procedural trees, grass, rocks and plants (addons/foliage), their textures, model assets and scatter sets
 - [docs/terrain-streaming.md](docs/terrain-streaming.md): the Limcore Terrain project (heightmap clipmap, tessellation) and what was taken from it for tiles
 - [docs/crysis.md](docs/crysis.md): Crysis level loading, terrain, vegetation, water, performance
 - [docs/navigation-and-npcs.md](docs/navigation-and-npcs.md): Source `.nav` meshes, pathfinding, NPC prefabs that walk with Source animations, simulation LOD
-- [docs/physics.md](docs/physics.md): solver, stress harnesses, buoyancy, Source props
+- [docs/physics.md](docs/physics.md): solver, stress testing, buoyancy, Source props
 - [docs/animation-and-source.md](docs/animation-and-source.md): skeletal animation, Source content, threaded codecs
 - [docs/networking.md](docs/networking.md): server/client, replication, players, visibility, ownership and permissions
 - [docs/hot-reload.md](docs/hot-reload.md): how `--hot-reload` reloads modules, the import graph, state that survives, pipeline rebuilds, limits
@@ -147,6 +134,9 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/ui.md](docs/ui.md): render2d/ui widgets, entity construction, input history, autocomplete, undo, icons, asset browser
 - [docs/wrappers.md](docs/wrappers.md): macos notes, Love2D and Garrysmod wrappers
 - [docs/vulkan-raytrace.md](docs/vulkan-raytrace.md): hardware ray tracing facts and gotchas
-- [test/harnesses/](test/harnesses/README.md): scratch pad of measurement and repro scripts the docs refer to; anything in it may be created, edited or thrown away freely
+
+Harnesses, benchmarks and repro scripts for one specific purpose go in `./tmp/` (git-ignored), never in the repo. Promote only generic, reusable parts into the engine or `test/`.
+
+Docs in `docs/` are for LLMs: keep them short, general and timeless (concepts, durable pitfalls as rules, how to measure). No diary entries, dated findings, session measurements or per-function summaries; the source is the source of truth.
 
 Only rules that apply to everything belong in this file. System specific lessons (what broke, why, how to measure it) go in the matching doc, not in the assistant's memory. Add new notes to the matching file in `docs/` (or a new one) and add at most a one-line entry here.

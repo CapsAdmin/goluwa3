@@ -36,7 +36,6 @@ local function create_table(per_frame)
 	}
 end
 
--- frees a buffer that had an address, which is what makes a batch table look at the addresses of its meshes
 local function release_a_buffer()
 	local buffer = render.CreateBuffer{
 		byte_size = 16,
@@ -109,7 +108,6 @@ T.Test3D("Graphics render3d batch table zeroes the addresses of removed meshes",
 	batch_table:Remove()
 end)
 
--- a material of the batches: its versioned properties stamp it, which is how a batch table finds out it changed
 local Material = objects.CreateTemplate("test_batch_table_material")
 Material:StartStorable({versioned = true})
 Material:GetSet("Animated", false)
@@ -149,7 +147,6 @@ T.Test3D("Graphics render3d batch table copies the record of rows with the same 
 		T(read_record(batch_table.buffers[1], i).value)["=="](7)
 	end
 
-	-- growing keeps the records that were written
 	local more = create_batches(40)
 
 	for i = 1, 40 do
@@ -186,37 +183,29 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 
 	T(update(1, 1))["=="](300)
 	T(update(1, 1))["=="](0)
-	-- a few records are written in full every update in case something changed that no version saw
 	T(update(1, 2))["=="](4)
 	T(update(1, 3))["=="](4)
-	-- the batches are the same ones after the list changed, so only the window is written
 	T(update(2, 4))["=="](4)
-	-- a batch that is another one is written, and only that
 	batches[50] = {mesh = batches[50].mesh, first_polygon3d = batches[50].first_polygon3d, value = 5000}
 	T(update(3, 5))["=="](1 + 4)
 	T(read_record(batch_table.buffers[1], 50).value)["=="](5000)
 	local release_serial = Buffer.address_release_serial
 	release_a_buffer()
 	T(Buffer.address_release_serial > release_serial)["=="](true)
-	-- the meshes have the addresses they were written with
 	T(update(3, 6))["=="](4)
-	-- what a batch holds changes without its material saying so, which it only finds out by the window
 	batches[100].value = 1000
 	T(update(3, 7))["=="](4)
 	T(read_record(batch_table.buffers[1], 100).value)["=="](100)
-	-- the batches of a material that changed are written
 	material:SetOther(1)
 	T(update(3, 8))["=="](2 + 4)
 	T(read_record(batch_table.buffers[1], 100).value)["=="](1000)
 	batches[101].value = 2000
-	-- a material that did not change since is left alone, also when it is the same value
 	material:SetOther(1)
 	T(update(3, 9))["=="](4)
 	T(read_record(batch_table.buffers[1], 101).value)["=="](101)
 	material:SetOther(2)
 	T(update(3, 10))["=="](2 + 4)
 	T(read_record(batch_table.buffers[1], 101).value)["=="](2000)
-	-- a batch given another material is found by the new one
 	local other = create_material()
 	batches[101] = {mesh = batches[101].mesh, first_polygon3d = batches[101].first_polygon3d, material = other, value = 3000}
 	T(update(4, 11))["=="](1 + 4)
@@ -227,7 +216,6 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 	other:SetOther(1)
 	T(update(4, 13))["=="](1 + 4)
 	T(read_record(batch_table.buffers[1], 101).value)["=="](3500)
-	-- a mesh that is freed after its record was written has the addresses of the record zeroed when the release is seen
 	local doomed = Polygon3D.New()
 	shapes.BuildCube(doomed, 3)
 	doomed:Upload()
@@ -323,7 +311,6 @@ T.Test3D("Graphics render3d batch table only copies the records a frame's buffer
 		frame = 1
 		batch_table:Update(pipeline, batches, 1, 3, context)
 		T(read_record(batch_table.buffers[1], 8).value)["=="](80)
-		-- the other frame's buffer has not been written yet, but still gets the change when its turn comes
 		T(read_record(batch_table.buffers[2], 8).value)["=="](8)
 		frame = 2
 		batch_table:Update(pipeline, batches, 1, 4, context)

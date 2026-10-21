@@ -95,8 +95,6 @@ ddgi.HALF_PRECISION_RAYS = true
 ddgi.ALPHA_TEST = true
 pvars.EndGroup()
 pvars.StartGroup("Rendering", "Ray traced hit shading", {store = false})
--- what a ray that hits something reads and traces to be lit, for the probes' rays, the reflections and the translucent
--- surfaces. these are built into the shaders, so they are read when the pipelines are made
 local hit_textures = pvars.Setup2{
 	key = "r_rt_hit_textures",
 	default = true,
@@ -379,6 +377,7 @@ end
 
 function ddgi.GetScreenSampleGLSL(block_name)
 	return [[
+
 		vec4 ddgi_screen_sample_texture(int screen_tex, vec2 uv, vec3 N, float view_depth) {
 			ivec2 size = textureSize(TEXTURE(screen_tex), 0);
 			vec2 position = uv * vec2(size) - 0.5;
@@ -386,7 +385,6 @@ function ddgi.GetScreenSampleGLSL(block_name)
 			vec2 fraction = position - vec2(base);
 			vec4 sum = vec4(0.0);
 			float total = 0.0;
-			// a texel covers more pixels of thin geometry the further away it is, so its stand-in is matched less strictly
 			float far = smoothstep(20.0, 200.0, view_depth);
 
 			for (int i = 0; i < 4; i++) {
@@ -411,7 +409,6 @@ function ddgi.GetScreenSampleGLSL(block_name)
 				return ddgi_screen_sample_texture(]] .. block_name .. [[.gi_screen_tex, uv, N, view_depth);
 				}
 				
-				// the gi along the reflection direction of a rough surface (see ddgi_resolve)
 				vec4 ddgi_screen_specular_sample(vec2 uv, vec3 N, float view_depth) {
 				return ddgi_screen_sample_texture(]] .. block_name .. [[.gi_screen_specular_tex, uv, N, view_depth);
 				}
@@ -552,8 +549,6 @@ do
 		local threshold = change_threshold:Get()
 		local reference = state.sun_reference
 
-		-- what the probes hold was lit by a sun that is gone (the sun moved or changed brightness by the same
-		-- measure as above since a few frames ago), so their history gives way to the new rays for a short while
 		if not reference or frame - reference.frame >= 8 then
 			if reference and threshold > 0 then
 				local luma_change = math.abs(sun_luma - reference.luma) / math.max(sun_luma, reference.luma, 1e-3)
@@ -693,42 +688,32 @@ end
 function ddgi.GetDefinesGLSL()
 	return (
 		[[
+
 		#define DDGI_P %d
 		#define DDGI_CASCADES %d
 		#define DDGI_RAYS %d
 		#define DDGI_EMITTER_SAMPLES %d
 		#define DDGI_EMITTER_CANDIDATES 16
-		// ddgi_emitter.triangle: the soup index, and the material's double sidedness
 		#define DDGI_EMITTER_DOUBLE_SIDED 0x80000000u
-		// a probe's uniform rays followed by its emitter samples
 		#define DDGI_RAY_STRIDE (DDGI_RAYS + DDGI_EMITTER_SAMPLES)
 		#define DDGI_IRRADIANCE_TEXELS %d
 		#define DDGI_DISTANCE_TEXELS %d
 		#define DDGI_MISS_DISTANCE %.1e
-		// what the ray texture can hold, and the bits per octahedral axis of an
-		// emitter sample's direction, which has to sit exactly in one of its floats
 		#define DDGI_RAY_MAX %.1e
 		#define DDGI_DIRECTION_BITS %du
 		#define DDGI_DIRECTION_OFFSET %.1f
 		#define DDGI_SUN_VISIBLE_BIT 0x80000000u
 		#define DDGI_SHADOW_OFFSET 0.02
-		// how far behind a probe its rays start, in the spacing of its cascade
 		#define DDGI_ORIGIN_PULL 0.001
 		#define DDGI_LIGHT_SAMPLES %d
 		#define DDGI_BACKFACE_SCALE 0.2
 		// GLSL leaves %% undefined for negative operands (NVIDIA treats them
 		// as unsigned), so shift into the positive range before wrapping
 		#define DDGI_WRAP(v, n) (((v) + (n) * 65536) %% (n))
-		// the instances a probe's visibility ray can hit, which leaves out foliage and refractive surfaces with ddgi.ALPHA_TEST
 		#define DDGI_VISIBILITY_MASK %d
-		// a settled probe inside geometry has nothing to light and is retraced about once in
-		// DDGI_DISABLED_PROBE_FRAMES frames, to notice the geometry around it changing, whatever its
-		// cascade's own update interval is. data_w is the probe data's w. neighbouring probes are
-		// retraced together, so that the warps that work on them are idle or not as a whole
 		#define DDGI_DISABLED_PROBE_FRAMES 8u
 
 		bool ddgi_probe_idle(float data_w, bool current, int probe, int c, uint frame) {
-			// disabled and not moved
 			if (!current || (int((data_w - 1.0) * 0.5) & 3) != 2) return false;
 
 			uint h = uint(probe >> 5) * 747796405u + uint(c) * 2891336453u + frame * 277803737u;
@@ -757,22 +742,15 @@ function ddgi.GetRayDirectionGLSL()
 	return glsl_common.GetOctahedralGLSL() .. [[
 		#define DDGI_GUIDE_TEXELS 8
 		#define DDGI_GUIDE_CELLS 64
-		// how much of its previous value a guide cell keeps each frame
 		#define DDGI_GUIDE_HISTORY 0.9
-		// the cell that holds the probe's stamp in its cumulative probability, the search for a cell never reads that of the last
 		#define DDGI_GUIDE_STAMP_CELL 63
-		// Rays are spread over a cell, and the part of them a bright cell aims at the brightest spot of it, a square this many
-		// cell widths wide, at most this share of the cell's rays. A small bright patch is a fraction of a percent of a cell,
-		// the rays that spread over it find it once in a few frames, and each time it is the whole probe's flicker
 		#define DDGI_AIM_SIZE 0.125
 		#define DDGI_AIM_SHARE ]] .. string.format("%.3f", aim_share:Get()) .. [[
-		// what reads the guide texel of a probe's tile, so that the ray generation
-		// shader and the guide pass can use their own bindings
+
 		#ifndef DDGI_GUIDE_FETCH
 		#define DDGI_GUIDE_FETCH(texel) texelFetch(TEXTURE(ddgi_data.ddgi_guide_tex), texel, 0)
 		#endif
 
-		// index of count spherical fibonacci points, rotated by q
 		vec3 ddgi_fibonacci(uint index, uint count, vec4 q) {
 			const float golden = 0.61803398875;
 			float phi = 6.28318530718 * fract(float(index) * golden);
@@ -782,13 +760,6 @@ function ddgi.GetRayDirectionGLSL()
 			return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
 		}
 
-		// The guide is one 8x8 octahedral tile per probe, in world space. Per
-		// cell: r = mean radiance luminance, g = the probability a guided ray
-		// picks the cell, b = cumulative probability up to and including it (in
-		// the last cell the stamp of the probe that wrote the tile instead),
-		// a = where the cell aims (the spot's x and y in the cell, and how much
-		// of the cell's rays go there, 8 bits each). A slot that a different probe
-		// scrolled into has a stamp that does not match, and its rays are uniform.
 		float ddgi_guide_stamp(ivec3 world, int c) {
 			uint h = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u ^ uint(c + 1) * 2654435761u;
 			return float(h & 0xFFFFFFu) + 1.0;
@@ -802,8 +773,6 @@ function ddgi.GetRayDirectionGLSL()
 			return DDGI_GUIDE_FETCH(ddgi_guide_texel(tile, DDGI_GUIDE_STAMP_CELL)).b == ddgi_guide_stamp(world, c);
 		}
 
-		// what a guide texel's aim is: xy the centre of the spot in the cell (kept inside it), z how much of the cell's rays
-		// go there, as stored (0 to 1)
 		vec3 ddgi_guide_aim_stored(float stored) {
 			uint v = uint(stored);
 			return vec3(float(v & 255u), float((v >> 8u) & 255u), float((v >> 16u) & 255u)) / 255.0;
@@ -814,10 +783,6 @@ function ddgi.GetRayDirectionGLSL()
 			return vec3(clamp(aim.xy, vec2(DDGI_AIM_SIZE * 0.5), vec2(1.0 - DDGI_AIM_SIZE * 0.5)), aim.z * DDGI_AIM_SHARE);
 		}
 
-		// The first uniform_count rays of a probe are uniform, the rest are drawn
-		// from the guide: stratified along its cumulative probability, then
-		// anywhere in the cell. The jitter is derived from the frame's random
-		// rotation.
 		vec3 ddgi_ray_direction(uint index, uint uniform_count, vec4 q, ivec2 tile, bool guided) {
 			if (index < uniform_count) return ddgi_fibonacci(index, uniform_count, q);
 
@@ -850,11 +815,6 @@ function ddgi.GetRayDirectionGLSL()
 			return oct_decode(p);
 		}
 
-		// What a ray of direction d counts for: the inverse of the density it was
-		// drawn with (the uniform rays' and the guide's mixed by their share of
-		// the rays), scaled so that uniform rays alone weigh 1. A cell's
-		// probability spreads over its share of the octahedron's plane, and a
-		// unit of that plane covers |d|_1^3 steradians.
 		float ddgi_ray_weight(vec3 d, uint uniform_count, ivec2 tile, bool guided) {
 			if (!guided || uniform_count >= uint(DDGI_RAYS)) return 1.0;
 
@@ -863,7 +823,6 @@ function ddgi.GetRayDirectionGLSL()
 			vec4 texel = DDGI_GUIDE_FETCH(tile * DDGI_GUIDE_TEXELS + cell);
 			vec3 aim = ddgi_guide_aim(texel.a);
 			vec2 offset = abs(clamp(scaled - vec2(cell), 0.0, 1.0) - aim.xy);
-			// the density of the rays inside the cell: spread evenly, plus the aimed ones on their spot
 			float in_cell = (1.0 - aim.z) + (all(lessThanEqual(offset, vec2(DDGI_AIM_SIZE * 0.5))) ? aim.z / (DDGI_AIM_SIZE * DDGI_AIM_SIZE) : 0.0);
 			vec3 a = abs(d);
 			float l1 = a.x + a.y + a.z;
@@ -880,9 +839,7 @@ ddgi.MIN_WEIGHT = MIN_WEIGHT
 function ddgi.GetEmitterDeclarationsGLSL(binding)
 	return (
 		[[
-		// The emitters as words, built on the gpu by scene/emitters.lua: 0 total power (float), 1
-		// emitter count, then the emitters, 4 words each: the instance, the primitive (and the
-		// double sided bit), the cdf over all emitters (float), the power (float).
+
 		layout(set = 0, binding = %d) readonly buffer DDGIEmitters {
 			uint ddgi_grid[];
 		};
@@ -892,51 +849,39 @@ end
 
 function ddgi.GetMaterialDeclarationsGLSL(binding)
 	return [[
+
 		struct ddgi_material {
 			vec3 albedo;
 			int albedo_tex;
 			int double_sided;
-			// terrain: the layer weights texture, -1 for other materials
 			int terrain_tex;
 			ivec4 terrain_layer_tex;
-			// min x, min z, 1 / size of the square terrain_tex covers
 			vec3 terrain_bounds;
 			vec4 terrain_detail;
 			vec4 terrain_additive_detail;
-			// layers 5 to 8 of a chunk that has more than four, -1 without
 			int terrain_tex2;
 			ivec4 terrain_layer_tex2;
 			vec4 terrain_detail2;
 			vec4 terrain_additive_detail2;
 			float alpha;
 			float alpha_cutoff;
-			// 0 solid, 1 alpha tested by alpha alone, 2 by the albedo texture's alpha times alpha
 			int alpha_test;
-			// the sun's shadow ray passes through it and lights are tinted by it (see glass_light.lua)
 			int glass;
-			// displacement blending: the second albedo and the blend modulate texture, -1 without
 			int albedo2_tex;
 			int blend_tex;
-			// translucent or refractive, reflections look through it
 			int transparent;
-			// refracts, adds to or modulates what is behind it, so probe rays go on through
 			int refractive;
-			// what a glass lets through: the share refracted through the albedo, and how much of the rest is covered
 			float glass_refraction;
 			float glass_covering;
-			// metals have no diffuse: the multiplier, and the texture it scales (-1 without) with the channel to read
 			float metallic;
 			int metallic_tex;
 			int metallic_channel;
-			// perceptual roughness: the multiplier alone, or with a texture (-1 without) its channel mixed between min and max and scaled by it
 			float roughness;
 			float roughness_min;
 			float roughness_max;
 			int roughness_tex;
 			int roughness_channel;
-			// what the surface emits
 			vec3 emissive;
-			// the albedo's alpha is the emission mask, so the average emission is scaled by the average alpha
 			int emissive_alpha;
 			};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
@@ -947,9 +892,7 @@ end
 
 function ddgi.GetMaterialGLSL()
 	return [[
-		// no uvs at a hit, so textured surfaces use the texture's average
-		// colour from its smallest mip. terrain finds its uv from where it was
-		// hit and blends its layers' averages like the gbuffer blends the layers
+
 		vec3 ddgi_albedo(ddgi_material material, vec3 P) {
 			if (material.terrain_tex >= 0) {
 				vec2 uv = (P.xz - material.terrain_bounds.xy) * material.terrain_bounds.z;
@@ -983,7 +926,6 @@ function ddgi.GetMaterialGLSL()
 						} else if (additive > 0.0) {
 							layer = pow(max(pow(base, vec3(1.0 / 2.2)) + (average - 0.5) * detail, vec3(0.0)), vec3(2.2)) * additive;
 						}
-						// a non additive detail layer only varies around base
 					}
 
 					albedo += layer * weight;
@@ -1001,8 +943,6 @@ function ddgi.GetMaterialGLSL()
 			return albedo;
 		}
 
-		// the share of the albedo a hit bounces. a metal has no diffuse, but a rough one scatters its colour over
-// a lobe as wide as a diffuse surface's, a mirror one sends it one way, which a probe cannot hold
 float ddgi_bounce_share(ddgi_material material) {
 	float metallic = material.metallic;
 
@@ -1046,6 +986,7 @@ function ddgi.GetHitAlbedoGLSL()
 	end
 
 	return [[
+
 		#define DDGI_ALBEDO_UV_TEXELS ]] .. string.format("%.1f", hit_texels:Get()) .. [[
 
 		vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint instance, uint primitive) {
@@ -1071,7 +1012,6 @@ function ddgi.GetHitAlbedoGLSL()
 				float blend = uv.blend.x * (1.0 - v - w) + uv.blend.y * v + uv.blend.z * w;
 
 				if (material.blend_tex >= 0) {
-					// source blendmodulate: g is the transition center, r its half width
 					vec2 modulate = textureLod(TEXTURE(material.blend_tex), coord, lod).rg;
 					blend = smoothstep(clamp(modulate.g - modulate.r, 0.0, 1.0), clamp(modulate.g + modulate.r, 0.0, 1.0), blend);
 				}
@@ -1090,6 +1030,7 @@ end
 
 function ddgi.GetAlphaTestGLSL()
 	return [[
+
 		bool ddgi_alpha_passes(uint instance, uint primitive, vec2 barycentrics) {
 			ddgi_material material = ddgi_materials[scene_instance_material(instance)];
 
@@ -1145,14 +1086,6 @@ function ddgi.GetEmitterGLSL()
 			return tri.v0 + tri.e1 * u.x + tri.e2 * u.y;
 		}
 
-		// An emitter sample seen from origin: an emitter drawn by its power, a point on its
-		// triangle. Returns the light it would bring unshadowed, facing / distance^2 (inside
-		// radius flattened like the local lights), over the density it was drawn with, which
-		// times the emitter's colour over its luminance is the estimate; which emitter and
-		// where it was drawn is written to emitter and point, the shade pass rebuilds
-		// its point from the same random numbers.
-		// The light one drawn candidate would bring unshadowed: facing / distance^2 (flattened
-		// inside radius), over the density it was drawn with (the emitter's share of the power)
 		float ddgi_emitter_candidate_weight(uint index, uint frame, uint candidate, int emitter_count, vec3 origin, float radius) {
 			vec4 u = ddgi_emitter_random(index, frame, candidate);
 			int picked = ddgi_pick_emitter(u.x, emitter_count);
@@ -1160,7 +1093,6 @@ function ddgi.GetEmitterGLSL()
 			scene_triangle tri = scene_hit_tri(ddgi_emitter_instance(picked), triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
 			vec3 to_point = ddgi_emitter_point(tri, u.yz) - origin;
 			float dist2 = dot(to_point, to_point);
-			// tri.normal points away from the visible side
 			float facing = dot(tri.normal, to_point) * inversesqrt(dist2);
 
 			if ((triangle & DDGI_EMITTER_DOUBLE_SIDED) != 0u) facing = abs(facing);
@@ -1168,13 +1100,6 @@ function ddgi.GetEmitterGLSL()
 			return max(facing, 0.0) / max(dist2, radius * radius) * uintBitsToFloat(ddgi_grid[0]);
 		}
 
-		// An emitter sample seen from origin, by resampled importance sampling: DDGI_EMITTER_CANDIDATES
-		// emitters drawn by their power, one kept by the light it would bring at origin. Drawing by
-		// power alone gives a probe next to a small emitter a single huge weight (a firefly), this
-		// spends the weight on the emitters that matter to the probe. Returns the mean candidate
-		// weight, which times the emitter's colour over its luminance is the estimate. emitter is
-		// the emitter and, in its top 6 bits, the candidate it came from, the shade pass rebuilds
-		// the point from that candidate's random numbers.
 		float ddgi_pick_emitter_sample(uint index, uint frame, int emitter_count, vec3 origin, float radius, out int emitter, out vec3 point) {
 			float weights[DDGI_EMITTER_CANDIDATES];
 			float total = 0.0;
@@ -1213,7 +1138,7 @@ end
 
 function ddgi.GetCommonGLSL()
 	return ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
-		// atmosphere.lua's ground_fog_sun_transmittance, for the probes, which have no atmosphere code of their own
+
 		float ddgi_ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction) {
 			const float scale_height = ]]..string.format("%.17g", atmosphere.GROUND_FOG_SCALE_HEIGHT)..[[;
 			const float top = ]]..string.format("%.17g", atmosphere.GROUND_FOG_TOP_HEIGHT)..[[;
@@ -1233,7 +1158,6 @@ function ddgi.GetCommonGLSL()
 			return ddgi_data.ddgi_cascades[c].w;
 		}
 
-		// probes along each axis
 		ivec3 ddgi_volume_size(int c) {
 			return ivec3(ddgi_data.ddgi_cascade_size[c].xyz);
 		}
@@ -1247,7 +1171,6 @@ function ddgi.GetCommonGLSL()
 			return DDGI_WRAP(world, ddgi_volume_size(c));
 		}
 
-		// index of a slot within its cascade
 		int ddgi_probe_index(ivec3 slot, int c) {
 			ivec3 n = ddgi_volume_size(c);
 			return slot.x + n.x * (slot.y + n.y * slot.z);
@@ -1258,12 +1181,10 @@ function ddgi.GetCommonGLSL()
 			return ivec3(index % n.x, (index / n.x) % n.y, index / (n.x * n.y));
 		}
 
-		// a ray's texel in the shade pass output: one column block per cascade
 		ivec2 ddgi_ray_texel(uint ray, ivec3 slot, int c) {
 			return ivec2(int(ray) + DDGI_RAY_STRIDE * c, ddgi_probe_index(slot, c));
 		}
 
-		// the probe of this frame's volume that is stored in slot
 		ivec3 ddgi_world_from_slot(ivec3 slot, int c) {
 			ivec3 base = ddgi_volume_base(c);
 			return base + DDGI_WRAP(slot - ddgi_slot(base, c), ddgi_volume_size(c));
@@ -1277,7 +1198,6 @@ function ddgi.GetCommonGLSL()
 			return ddgi_tile_from_index(ddgi_probe_index(slot, c), c);
 		}
 
-		// inside the outermost cascade in use
 		bool ddgi_in_volume(vec3 P) {
 			if (ddgi_data.ddgi_cascade_count == 0) return false;
 
@@ -1298,9 +1218,6 @@ function ddgi.GetCommonGLSL()
 			return oct_decode(vec2(v & mask, v >> DDGI_DIRECTION_BITS) / float(mask) * 2.0 - 1.0);
 		}
 
-		// direction of texel (x, y) in a bordered octahedral tile; border texels
-		// mirror the interior texel they duplicate so bilinear filtering across
-		// an octahedron edge reads the right neighbour
 		vec3 ddgi_texel_direction(ivec2 texel, int texels) {
 			int last = texels - 1;
 			ivec2 src = texel;
@@ -1326,9 +1243,6 @@ function ddgi.GetCommonGLSL()
 			return pixel / atlas_size;
 		}
 
-		// xyz = world coordinate last written into the slot plus the probe's
-		// relocation offset in spacings (under 0.5, so rounding recovers the
-		// coordinate), w = 1 + back face ray fraction (0 when never written)
 		vec4 ddgi_probe_data(ivec3 slot, int c) {
 			return texelFetch(TEXTURE(ddgi_data.ddgi_probe_data_tex), ddgi_tile(slot, c), 0);
 		}
@@ -1337,9 +1251,6 @@ function ddgi.GetCommonGLSL()
 			return data.w >= 1.0 && ivec3(round(data.xyz)) == world;
 		}
 
-		// w is 1 + the smoothed fraction of back face hits, plus 2 when the update
-		// moved the probe (the rays it was last integrated from started somewhere
-		// else), plus 4 when the probe is disabled (inside geometry)
 		int ddgi_probe_flags(vec4 data) {
 			return int((data.w - 1.0) * 0.5);
 		}
@@ -1356,8 +1267,6 @@ function ddgi.GetCommonGLSL()
 			return data.w - 1.0 - 2.0 * float(ddgi_probe_flags(data));
 		}
 
-		// where the probe's rays start; one that just scrolled into its slot
-		// sits on its grid point
 		vec3 ddgi_probe_origin(ivec3 slot, int c, ivec3 world) {
 			vec4 data = ddgi_probe_data(slot, c);
 			return (ddgi_probe_is_current(data, world) ? data.xyz : vec3(world)) * ddgi_spacing(c);
@@ -1375,13 +1284,11 @@ function ddgi.GetCommonGLSL()
 			return (ddgi_data.ddgi_reset_mask & (1 << c)) != 0;
 		}
 
-		// see ddgi_probe_idle
 		bool ddgi_probe_is_idle(ivec3 slot, ivec3 world, int probe, int c) {
 			vec4 data = ddgi_probe_data(slot, c);
 			return ddgi_probe_idle(data.w, !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world), probe, c, uint(ddgi_data.ddgi_frame));
 		}
 
-		// a probe's ray index, from its tile and whether its guide is usable
 		vec3 ddgi_ray(uint index, ivec2 tile, bool guided) {
 			return ddgi_ray_direction(index, uint(ddgi_data.ddgi_uniform_rays), ddgi_data.ddgi_rotation, tile, guided);
 		}
@@ -1390,24 +1297,13 @@ function ddgi.GetCommonGLSL()
 			return ddgi_ray_weight(d, uint(ddgi_data.ddgi_uniform_rays), tile, guided);
 		}
 
-		// a probe's visibility is traced if its weight in the blend is at least visibility_min_weight,
-		// or if what it adds to the blend so far is more than DDGI_VISIBILITY_MIN_SHARE of it. A faint
-		// probe outside a wall can still be many times brighter than the dark room it leaks into
 		#define DDGI_VISIBILITY_MIN_WEIGHT 0.02
 		#define DDGI_VISIBILITY_MIN_SHARE 0.02
 		#define DDGI_NO_VISIBILITY_RAYS 1e30
-		// for the many lookups of the probe rays' hits and the reflections, which cannot afford a ray for each probe: a ray goes
-		// only to a probe that is much brighter than what the point is compared to (ddgi_contrast_reference) and adds a share of what
-		// the probes so far add up to. Probes that are alike cannot leak into each other, and a thin wall that lets one through is
-		// a probe thousands of times brighter than what it leaks into
 		#define DDGI_CONTRAST_VISIBILITY_RAYS 1e29
 		#define DDGI_CONTRAST_SHARE 0.002
-		// what a probe is compared to in such a lookup: the brightness of a probe that sees the point (the one whose
-		// ray found it), set before the lookup by whoever has one. 0 compares to nothing, every probe that adds a share is checked
 		float ddgi_contrast_reference = 0.0;
 
-		// Whether the probe is behind something as seen from P, by a ray query. The probe's position can be
-		// right on a surface, so the ray is cast from P along the normal
 		bool ddgi_probe_hidden(vec3 P, vec3 N, vec3 probe_pos, float spacing) {
 			#ifdef DDGI_VISIBILITY_RAYS
 			vec3 origin = P + N * (0.02 * spacing);
@@ -1432,8 +1328,6 @@ function ddgi.GetCommonGLSL()
 			return ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && probe_position != vec3(world));
 		}
 
-		// What a probe of a lookup counts for at P, 0 when it cannot be used, and the irradiance it holds along L.
-		// biased is P pushed off its surface. kernel is the probe's share of the interpolation
 		float ddgi_probe_weight(int c, ivec3 world, float kernel, vec3 P, vec3 N, vec3 L, vec3 biased, float spacing, out vec4 irradiance, out vec3 probe_position) {
 			ivec3 slot = ddgi_slot(world, c);
 			vec4 data = ddgi_probe_data(slot, c);
@@ -1466,7 +1360,6 @@ function ddgi.GetCommonGLSL()
 			w *= max(0.05, chebyshev);
 			w = max(1e-6, w);
 
-			// crush tiny weights so a barely visible probe cannot tint the result
 			if (w < 0.2) w *= w * w / 0.04;
 
 			w *= kernel;
@@ -1490,7 +1383,6 @@ function ddgi.GetCommonGLSL()
 			vec3 biased = P + (N * ddgi_data.ddgi_normal_bias + V * ddgi_data.ddgi_view_bias) * spacing;
 			vec3 grid = biased / spacing;
 			int side = smooth_blend ? 3 : 2;
-			// the B-spline's lowest probe is one below the nearest
 			ivec3 base_world = smooth_blend ? ivec3(floor(grid + 0.5)) - 1 : ivec3(floor(grid));
 			vec3 alpha = grid - vec3(base_world) - (smooth_blend ? 1.0 : 0.0);
 			vec3 below = 0.5 * (0.5 - alpha) * (0.5 - alpha);
@@ -1524,18 +1416,9 @@ function ddgi.GetCommonGLSL()
 				weight += w;
 			}
 
-			// When every probe is all but hidden (a point inside geometry, or
-			// on an edge where the reconstructed position slips behind a wall)
-			// dividing by the tiny total would blow up whichever hidden probe
-			// is least hidden, often one outside. Such points fade out instead,
-			// the next cascade takes over (see ddgi_sample_irradiance_unscaled).
 			return sum / max(weight, ]] .. MIN_WEIGHT .. [[);
 		}
 
-		// 1 deep inside cascade c, falling to 0 a cell (the B-spline reaches
-		// half a cell further) before its edge where the biased lookup would
-		// start missing probes. An edge past the end of
-		// the scene has nothing beyond it, so it does not fade.
 		float ddgi_cascade_blend(int c, vec3 P, bool smooth_blend) {
 			vec3 grid = P / ddgi_spacing(c) - vec3(ddgi_volume_base(c));
 			vec3 edge = min(grid, vec3(ddgi_volume_size(c) - 1) - grid);
@@ -1550,10 +1433,6 @@ function ddgi.GetCommonGLSL()
 			return clamp((min(edge.x, min(edge.y, edge.z)) - (smooth_blend ? 1.5 : 1.0)) / ddgi_data.ddgi_cascade_blend, 0.0, 1.0);
 		}
 
-		// Irradiance at P with normal N, seen from direction V (towards the
-		// viewer), looked up along L, which is N unless something knows the
-		// open side to be elsewhere. rgb = irradiance, a = sky visibility.
-		// weight is 0 when no probe could contribute.
 		vec4 ddgi_sample_irradiance_unscaled(vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
 			weight = 0.0;
 
@@ -1570,10 +1449,6 @@ function ddgi.GetCommonGLSL()
 
 				float keep = fine;
 
-				// A cascade whose probes barely see the point (disabled, hidden, or
-				// not yet written) hands over to the next one like its edge does.
-				// That is only safe with the visibility rays, the coarser probes
-				// are further apart and leak through thin walls without them.
 				#ifdef DDGI_VISIBILITY_RAYS
 				if (visibility_min_weight < DDGI_NO_VISIBILITY_RAYS) keep *= smoothstep(0.0, ]] .. MIN_WEIGHT .. [[, weight);
 				#endif
@@ -1583,7 +1458,6 @@ function ddgi.GetCommonGLSL()
 				float coarse_weight;
 				vec4 coarse = ddgi_sample_cascade(c + 1, P, N, L, V, smooth_blend, visibility_min_weight, coarse_weight);
 
-				// fitted cascades are not always nested
 				if (coarse_weight <= 0.0) return result;
 
 				weight = mix(coarse_weight, weight, keep);
@@ -1593,7 +1467,6 @@ function ddgi.GetCommonGLSL()
 			return vec4(0.0);
 		}
 
-		// the probes' own bounces (the shade pass defines DDGI_UNSCALED) are not scaled, that would compound
 		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
 			vec4 result = ddgi_sample_irradiance_unscaled(P, N, L, V, smooth_blend, visibility_min_weight, weight);
 			#ifndef DDGI_UNSCALED
@@ -1611,7 +1484,6 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_rotation", "vec4"},
 		{"ddgi_sun_direction", "vec4"},
 		{"ddgi_sun_radiance", "vec4"},
-		-- x the ground fog's extinction per km at the ground, y the precipitation's
 		{"ddgi_ground_fog", "vec4"},
 		{"ddgi_max_distance", "float"},
 		{"ddgi_cascade_update", "vec4", ddgi.CASCADES},
@@ -1785,7 +1657,6 @@ function ddgi.GetEmitters()
 	return scene_emitters.Get(additive_emitters:Get())
 end
 
--- the emitter words, built on the gpu in cmd
 function ddgi.GetEmitterBuffer(cmd)
 	return scene_emitters.Build(cmd, additive_emitters:Get())
 end
@@ -2085,7 +1956,6 @@ struct Payload
     float hit_t;
     uint instance;
     uint primitive;
-    // 1 for the sun's shadow ray, which passes through glass (see ddgi_material.glass)
     uint sun;
 };
 ]]
@@ -2098,13 +1968,12 @@ local raygen_glsl = [[
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_nonuniform_qualifier : require
 ]] .. ddgi.SCENE_FLAGS_GLSL .. ddgi.GetDefinesGLSL() .. [[
-// see ddgi_guide_texel
+
 layout(set = 0, binding = 4) uniform sampler2D guide;
 #define DDGI_GUIDE_FETCH(texel) texelFetch(guide, texel, 0)
 ]] .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_hit.GetGLSL(10) .. ddgi.GetEmitterDeclarationsGLSL(6) .. ddgi.GetEmitterGLSL() .. [[
 layout(set = 0, binding = 0) uniform Params
 {
-    // see ddgi_cascades and ddgi_cascade_size
     vec4 cascades[DDGI_CASCADES];
     vec4 size[DDGI_CASCADES];
     vec4 rotation;
@@ -2113,13 +1982,9 @@ layout(set = 0, binding = 0) uniform Params
     float tmin;
     int emitter_count;
     uint frame;
-    // in spacings, see ddgi_light_radius
     float light_radius;
-    // bit c: cascade c traces this frame
     int update_mask;
-    // rays of a probe that are not aimed by its guide
     int uniform_rays;
-    // bit c: cascade c starts over
     int reset_mask;
 } params;
 layout(set = 0, binding = 1) writeonly buffer Hits
@@ -2127,7 +1992,6 @@ layout(set = 0, binding = 1) writeonly buffer Hits
     uvec4 hits[];
 };
 layout(set = 0, binding = 2) uniform accelerationStructureEXT scene;
-// see ddgi_probe_data
 layout(set = 0, binding = 3) uniform sampler2D probe_data;
 layout(location = 0) rayPayloadEXT Payload payload;
 
@@ -2156,8 +2020,6 @@ void main()
     uint index = uint(probe + DDGI_P * DDGI_P * DDGI_P * c) * uint(DDGI_RAY_STRIDE) + ray;
     const uint shadow_flags = DDGI_SCENE_FLAGS | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT;
 
-    // An emitter sample (see ddgi_pick_emitter_sample). Stores its weight and the
-    // emitter, or a negative weight when it is blocked.
     if (ray >= DDGI_RAYS) {
         uvec4 result = uvec4(floatBitsToUint(-1.0), 0u, 0u, 0u);
 
@@ -2183,10 +2045,6 @@ void main()
 
     vec3 dir = ddgi_ray_direction(ray, uint(params.uniform_rays), params.rotation, tile, ddgi_guide_valid(tile, world, c));
     payload.sun = 0u;
-    // The ray starts a hair behind the probe. A probe that lies on a surface (a wall without thickness on the
-    // grid, a floor) has that surface exactly at its origin, which a ray does not reliably hit, so the probe saw
-    // both sides of it and lit one with the other. Now every direction hits it right away, the back face half
-    // of them mark the probe as inside the surface, and a double sided one gives it a distance of nothing
     float pull = DDGI_ORIGIN_PULL * params.cascades[c].w;
     traceRayEXT(scene, DDGI_SCENE_FLAGS, 0xFF, 0, 0, 0, origin - dir * pull, params.tmin, dir, params.max_ray_distance + pull, 0);
     float hit_t = payload.hit_t >= 0.0 ? max(payload.hit_t - pull, 1e-5) : payload.hit_t;
@@ -2194,19 +2052,13 @@ void main()
     uint primitive = payload.primitive;
     uint sun_visible = 0u;
 
-    // The sun's visibility from the hit, exact rather than from shadow maps
-    // that only cover the view. The local lights get theirs in the shade pass
-    // (see ddgi_direct_light). The shadow rays skip the closest hit shader, so
-    // only a miss changes the payload.
     if (hit_t >= 0.0 && params.sun_direction.w > 0.0) {
-        // the shade pass' normal, flipped to face the ray (a back face of a single sided material is discarded there anyway)
         vec3 hit_normal = -scene_hit_tri(instance, primitive).normal;
 
         if (dot(dir, hit_normal) > 0.0) hit_normal = -hit_normal;
 
         vec3 sun_direction = normalize(params.sun_direction.xyz);
 
-        // a surface facing away from the sun gets no direct light, so no ray
         if (dot(hit_normal, sun_direction) > 0.0) {
             payload.hit_t = 1.0;
             payload.sun = 1u;
@@ -2235,6 +2087,7 @@ void main()
 
 local function build_anyhit_glsl()
 	return [[
+
 #version 460
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_scalar_block_layout : require
@@ -2251,10 +2104,8 @@ void main()
     uint instance = uint(gl_InstanceCustomIndexEXT);
     uint material = scene_instance_material(instance);
 
-    // the sun's light goes on through glass, tinted by the lookup in the shade pass
     if (payload.sun != 0u && ddgi_materials[material].glass != 0) ignoreIntersectionEXT;
 
-    // probe and emitter rays see what is behind refractive surfaces
     if (payload.sun == 0u && ddgi_materials[material].refractive != 0) ignoreIntersectionEXT;
 
     if (!ddgi_alpha_passes(instance, uint(gl_PrimitiveID), barycentrics)) ignoreIntersectionEXT;

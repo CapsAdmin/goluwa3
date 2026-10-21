@@ -19,11 +19,6 @@ local function clear_from(registers, base)
 	end
 end
 
--- A module that reads from another one while it loads, by calling it (a glsl builder) or taking a
--- value out of it, has consumed what it had. That shows in the bytecode as a table read from the
--- register an import() result went into, in the main chunk or in a local function the main chunk
--- calls on the way. Functions that are only called later look the module up again every time.
--- Returns the set of module paths that were used.
 return function(chunk, importer)
 	local uses = {}
 	local aliases = {}

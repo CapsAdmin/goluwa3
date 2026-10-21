@@ -545,10 +545,6 @@ local function collect_shapes(node, parent_paint, out)
 	end
 end
 
--- style = {StrokeWidth, LineCap, LineJoin, MiterLimit} replaces what the document says about strokes.
--- A shape is filled or stroked, a stroked shape only gets a fill if it asks for one and that fill
--- must not overlap its stroke, the distance field is built from non overlapping contours.
--- Strokes of all shapes that share their stroke settings are one line graph, see math2d.StrokePolylines
 function svg.Decode(data, curve_steps, style)
 	curve_steps = curve_steps or 12
 	style = style or {}

@@ -12,7 +12,6 @@ local MATRIX_SIZE = ffi.sizeof(Matrix44)
 local attachment_matrix = Matrix44()
 local rotation_matrix = Matrix44()
 
--- the armature of the nearest ancestor that has one, an attachment goes through containers
 local function find_armature(entity)
 	local parent = entity:GetParent()
 
@@ -318,7 +317,6 @@ function META:GetLocalMatrix()
 	return self.LocalMatrix
 end
 
--- the matrix of the bone this transform is attached to, nil for root or when no ancestor has such a bone
 function META:GetAttachedBone()
 	if self.Attachment == "root" then return nil end
 
@@ -326,7 +324,6 @@ function META:GetAttachedBone()
 	return armature and armature:GetBoneMatrix(self.Attachment) or nil
 end
 
--- the rotation of the bone this transform is attached to without its scale, nil for root
 function META:GetAttachedBoneRotation()
 	local bone = self:GetAttachedBone()
 
@@ -343,7 +340,6 @@ function META:GetAttachedBoneRotation()
 	return m:GetRotation()
 end
 
--- the matrix the local transform is relative to, the world matrix of the parent with the bone of the attachment in between
 function META:GetParentWorldMatrix()
 	local parent = self.Owner:GetParent()
 
@@ -357,8 +353,6 @@ function META:GetParentWorldMatrix()
 	return bone:GetMultiplied(parent_world, Matrix44())
 end
 
--- where the parent puts the origin of this transform's local space, physics bodies simulate in the world and a map
--- placed at an offset is a parent of its props. Rotation and scale of the parent are not part of it
 function META:GetParentOffset()
 	local parent = self.Owner:GetParent()
 
@@ -367,7 +361,6 @@ function META:GetParentOffset()
 	return parent.transform:GetWorldMatrix():GetTranslation()
 end
 
--- a position in the world as a local position of this transform
 function META:WorldToLocalPosition(world_position)
 	local parent = self.Owner:GetParent()
 
@@ -423,7 +416,6 @@ function META:GetWorldMatrix()
 	return self.WorldMatrix
 end
 
--- the world matrix of this frame is kept for the next one, in two matrices that take turns
 function META:GetPreviousWorldMatrix()
 	local world = self:GetWorldMatrix()
 	local frame = system.GetFrameNumber()
@@ -473,9 +465,7 @@ do
 	local FOLLOW_RATE = 12
 	local MAX_GAP = 0.25
 
-	-- measured from the world position of the last frames, so it is the same for bodies the client simulates and for
-	-- replicated ones (rigid_body does not replicate velocity), smoothed, shared by every caller of the frame
-	-- and zero when nobody asked for a while. Do not modify the returned vector.
+	-- shared vector, do not modify
 	function META:GetRenderVelocity()
 		local frame = system.GetFrameNumber()
 		local velocity = self.RenderVelocity

@@ -7,9 +7,6 @@ local meshes = import("goluwa/render3d/scene/meshes.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local scatter_rt = {}
--- scatter in the ray traced scene: the lists scatter keeps for the shadow maps (what is baked and in range, in view or not,
--- the model near and its billboard beyond the billboard's distance) are turned into instances of the top level structure
--- on the gpu every frame, so what the rays see is what the real scene draws and there is nothing to copy to the host
 local Segment = ffi.typeof([[struct {
 	uint32_t first_record;
 	uint32_t record_count;
@@ -220,9 +217,6 @@ local definitions = {}
 local MIN_RESERVED = 256
 local RESERVE_MARGIN = 1.5
 
--- what the sources are: the prototypes that are in and the parts of their models, which decides how the structure's
--- rows are laid out. how many instances their lists have room for changes all the time, so the rows are reserved with
--- a margin and only laid out again when a list outgrows them
 local function get_signature(sources)
 	local signature = {}
 
@@ -257,7 +251,6 @@ local function get_segments(sources)
 	return list
 end
 
--- the parts of the models, the segments and the rows of the structure for all of them
 local function rebuild(segment_list)
 	scatter_rt.rebuilds = (scatter_rt.rebuilds or 0) + 1
 	local segments, parts = get_tables()
@@ -309,7 +302,6 @@ local function rebuild(segment_list)
 	range_base = total > 0 and instances.AllocRange(total) or nil
 end
 
--- true when a list has outgrown what is reserved for it
 local function refresh(segment_list)
 	local index = 0
 
@@ -377,7 +369,6 @@ local function produce(cmd)
 		local tlas_buffer, data_buffer, mesh_buffer = tlas_table:GetBuffer(), data_table:GetBuffer(), meshes.GetTable():GetBuffer()
 		local segments_buffer, parts_buffer = segments:GetBuffer(), parts:GetBuffer()
 
-		-- the descriptors only change when a buffer was replaced, a set that a frame in flight uses cannot be written
 		if
 			not bound or
 			bound[1] ~= tlas_buffer or

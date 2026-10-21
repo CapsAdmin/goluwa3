@@ -1,4 +1,3 @@
--- prebuilt binaries are built from the pinned upstream refs by .github/workflows/build-binaries.yml
 -- after a run, paste the sha256 values from the job summary here
 local release_url = "https://github.com/CapsAdmin/goluwa3/releases/download/"
 return {

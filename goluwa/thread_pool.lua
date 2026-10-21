@@ -228,7 +228,6 @@ function job_meta:Await()
 	return self.meta, self.blob
 end
 
--- waits on the calling thread without yielding to the task scheduler, for callers that cannot continue
 function job_meta:Block()
 	while not self.done do
 		thread_pool.Update()

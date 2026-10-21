@@ -101,7 +101,6 @@ T.Test3D("Terrain shader source derives the splat and color from the baked heigh
 	end)
 
 	source:Finish()
-	-- the splat texel (4, 4) is at x = 9 and the color texel (4, 4) at x = 18
 	local r, g = chunk.splat_texture:Download():GetPixel(4, 4)
 	T(math.abs(r - (10 + 9 * 0.5) * 2.55))["<="](1.5)
 	local expected_ny = 1 / math.sqrt(1 + 0.25)

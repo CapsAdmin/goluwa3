@@ -21,14 +21,12 @@ function META:Initialize()
 	self.next_secondary = 0
 end
 
--- the node of the weapon prefab that holds the model prefab
 function META:GetModel()
 	local instance = self.Owner.prefab
 
 	return instance and instance:GetNode("model")
 end
 
--- the node of the model prefab that is named muzzle
 function META:GetMuzzle()
 	return self:GetModel().prefab:GetNode("muzzle")
 end

@@ -1172,8 +1172,6 @@ do
 		end
 	end
 
-	-- walks a closed loop of vertices with the stroke on its left and returns the outline that
-	-- runs half a width to the left of it, uturn[i] marks a vertex where the loop turns back on itself
 	local function offset_cycle(xs, ys, uturn, n, half, cap, join, miter_limit)
 		local out = {}
 		local dx, dy, length = {}, {}, {}
@@ -1229,8 +1227,6 @@ do
 		return out
 	end
 
-	-- an inner join between short segments goes through the vertex and leaves a small loop behind,
-	-- cut the smaller side out where the outline crosses itself
 	local function remove_loop(out)
 		local m = #out / 2
 
@@ -1269,12 +1265,6 @@ do
 		end
 	end
 
-	-- polylines is a list of flat {x1, y1, x2, y2, ...}, a polyline that ends where it started is closed.
-	-- Polylines that share a point are one stroke, a junction is a shared point and strokes must not
-	-- cross anywhere else. Returns non overlapping outline contours: the faces of the line graph are
-	-- walked and each is offset into itself, so crossings, T junctions and rings come out as one
-	-- outline per boundary instead of overlapping pieces. cap is butt | round | square, join is
-	-- miter | round | bevel
 	function math2d.StrokePolylines(polylines, width, cap, join, miter_limit)
 		local half = width / 2
 		local vertex_ids, vx, vy, vertex_count = {}, {}, {}, 0

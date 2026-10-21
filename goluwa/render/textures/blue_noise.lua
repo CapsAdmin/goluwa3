@@ -17,6 +17,7 @@ tex:Shade(
 		]],
 	{
 		header = [[
+
 				// https://www.shadertoy.com/view/tllcR2
 				// no sell :-)
 
@@ -32,7 +33,7 @@ tex:Shade(
 					float v = 0.;
 					for (int k=0; k<9; k++)
 						v += hash12( U + vec2(k%3-1,k/3-1) ); 
-					return .9 *( 1.125*hash12(U)- v/8.) + .5; // 
+					return .9 *( 1.125*hash12(U)- v/8.) + .5;
 				}
 			]],
 	}

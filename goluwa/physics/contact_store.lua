@@ -1,7 +1,5 @@
 local ffi = require("ffi")
 local contact_store = {}
--- Persistent per-contact state of a manifold. The first block survives between steps (warm start
--- impulses, anchors in body space), the rest is rewritten by contact_solver.Prepare every substep.
 contact_store.Contact = ffi.typeof([[struct {
 	double lax, lay, laz, lbx, lby, lbz;
 	double jn, jt1, jt2, rest_total, static_active, v_pre;
@@ -23,7 +21,6 @@ function contact_store.New(capacity)
 	return Array(capacity), capacity
 end
 
--- Returns an array of at least `count` contacts for the manifold's spare buffer.
 function contact_store.GetSpare(manifold_data, count)
 	local spare = manifold_data.spare_cs
 
@@ -36,7 +33,6 @@ function contact_store.GetSpare(manifold_data, count)
 	return spare
 end
 
--- Makes the spare buffer (filled by manifold.RebuildContacts) the current one.
 function contact_store.Swap(manifold_data, count)
 	manifold_data.cs, manifold_data.spare_cs = manifold_data.spare_cs, manifold_data.cs
 	manifold_data.capacity, manifold_data.spare_capacity = manifold_data.spare_capacity, manifold_data.capacity or 0

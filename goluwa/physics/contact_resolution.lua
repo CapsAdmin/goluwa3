@@ -125,8 +125,6 @@ local function compute_finish_points(manifold, body_a, body_b, cs, count)
 	end
 end
 
--- A body not yet grounded by the pair normal may still stand on the other body when a contact sits
--- low on it and high on the other one.
 local function try_mark_body_grounded_from_contacts(self_body, other_body, self_offset, other_offset, count, rolling_friction)
 	if self_body.Grounded then return end
 

@@ -35,8 +35,6 @@ local function box(name, position, size, material)
 	}
 end
 
--- an open room, no ceiling: a white floor and four walls of different colours, so what a sphere reflects is told apart
--- the floor is crysis grass ground (the grass shader is left off, it is in no reflection or gi)
 local floor_material = shapes.Material{
 	Roughness = 0.7,
 	Metallic = 0,
@@ -51,7 +49,6 @@ box("reflection_wall_blue", Vec3(W / 2 + T / 2, H / 2, 0), Vec3(T, H, D), matte(
 box("reflection_wall_yellow", Vec3(0, H / 2, D / 2 + T / 2), Vec3(W, H, T), matte(0.9, 0.75, 0.1))
 box("reflection_wall_green", Vec3(0, H / 2, -D / 2 - T / 2), Vec3(W, H, T), matte(0.1, 0.65, 0.2))
 
--- one sphere in the middle, pageup and pagedown (held) change its roughness
 local sphere_material = shapes.Material{Roughness = 0.15, Metallic = 1, ColorMultiplier = Color(0.95, 0.95, 0.95, 1)}
 shapes.Sphere{
 	Name = "reflection_sphere",
@@ -61,13 +58,10 @@ shapes.Sphere{
 	Collision = false,
 	RigidBody = false,
 }
--- a metal plane lying on the ground in front of it, on the open way in, it follows the sphere's roughness
 local plane_material = shapes.Material{Roughness = 0, Metallic = 1, ColorMultiplier = Color(1, 1, 1, 1)}
 box("reflection_mirror", Vec3(0, 0.01, -3.4), Vec3(3, 0.02, 3), plane_material)
 local ROUGHNESS_SPEED = 0.5
 local roughness = 0.15
--- the end key toggles the light computed from the gi in the reflections off (reflection_gi_threshold 1, never) and back
--- to the threshold it had, whatever it was set to
 local gi_blend = true
 local gi_threshold = 0.5
 local end_was_down = false
@@ -110,8 +104,6 @@ event.AddListener("Draw2D", "reflection_sphere_roughness_text", function()
 	}, 16, 16, {title_color = Color(1, 1, 1, 1), text_color = Color(0.8, 0.8, 0.85, 1)})
 end)
 
--- vegetation densely around the sphere, what it has to reflect. it may stick out of the room and through
--- itself. the way to the start position is left open. hill and river trees have canopies about 12 m wide
 local kinds = {
 	"Bushes/RoundLeafBush/Round_Leaf_Bush_med_bright_green.cgf",
 	"Bushes/RoundLeafBush/Round_Leaf_Bush_big_bright_green.cgf",
@@ -128,7 +120,6 @@ local kinds = {
 local COUNT = 70
 local golden = math.pi * (3 - math.sqrt(5))
 
--- crysis grass patches all over the floor, kept off the sphere and the way to the start position
 local grass_kinds = {
 	"Plants/jungle_grass/junglegrass_big_a.cgf",
 	"Plants/jungle_grass/junglegrass_big_b.cgf",

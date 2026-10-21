@@ -10,25 +10,21 @@ mdl.returns_blob = true
 local scale = source.meters
 local header = [[
 	string id[4]; // Model format ID, such as "IDST" (0x49 0x44 0x53 0x54)
-	int version; // Format version number, such as 48 (0x30,0x00,0x00,0x00)
+	int version;
 	int checksum;
-	char name[64]; 	// The internal name of the model, padding with null bytes.
-					// Typically "my_model.mdl" will have an internal name of "my_model"
+	char name[64];
 
-	int file_size; // Data size of MDL file in bytes.
+	int file_size;
 
-	// A vector is 12 bytes, three 4-byte float-values in a row.
 
-	vec3 eye_position; // Position of player viewpoint relative to model origin
-	vec3 illumination_position;	// ?? Presumably the point used for lighting when per-vertex lighting is not enabled.
-	vec3 hull_min; // Corner of model hull box with the least X/Y/Z values
-	vec3 hull_max; // Opposite corner of model hull box
+	vec3 eye_position;
+	vec3 illumination_position;
+	vec3 hull_min;
+	vec3 hull_max;
 	vec3 view_bbmin;
 	vec3 view_bbmax;
 
-	int flags; 	// Binary flags in little-endian order.
-				// ex (00000001,00000000,00000000,11000000) means flags for position 0, 30, and 31 are set.
-				// Set model flags section for more information
+	int flags;
 
 	/*
 	 * After this point, the header contains many references to offsets
@@ -39,83 +35,59 @@ local header = [[
 	 * Note that indexes/counts are not always paired and ordered consistently.
 	 */
 
-	 // mstudiobone_t
-	int bone_count;	// Number of data sections (of type mstudiobone_t)
-	int bone_offset; // Offset of first data section
+	int bone_count;
+	int bone_offset;
 
-	// mstudiobonecontroller_t
 	int bonecontroller_count;
 	int bonecontroller_offset;
 
-	// mstudiohitboxset_t
 	int hitbox_count;
 	int hitbox_offset;
 
-	// mstudioanimdesc_t
 	int localanim_count;
 	int localanim_offset;
 
-	// mstudioseqdesc_t
 	int localseq_count;
 	int localseq_offset;
 
-	int activitylistversion; // initialization flag - have the sequences been indexed?
-	int eventsindexed;	// ??
+	int activitylistversion;
+	int eventsindexed;
 
-	// VMT material filenames
-	// mstudiotexture_t
 	int material_count;
 	int material_offset;
 
-	// This offset points to a series of ints.
-	// Each int value, in turn, is an offset relative to the start of this header/the-file,
-	// At which there is a null-terminated string.
 	int texturedir_count;
 	int texturedir_offset;
 
-	// Each skin-family assigns a texture-id to a skin location
 	int skinreference_count;
 	int skinrfamily_count;
 	int skinreference_offset;
 
-	// mstudiobodyparts_t
 	int bodypart_count;
 	int bodypart_offset;
 
-	// Local attachment points
-	// mstudioattachment_t
 	int attachment_count;
 	int attachment_offset;
 
-	// Node values appear to be single bytes, while their names are null-terminated strings.
 	int localnode_count;
 	int localnode_offset;
 	int localnode_name_offset;
 
-	// mstudioflexdesc_t
 	int flexdesc_count;
 	int flexdesc_offset;
 
-	// mstudioflexcontroller_t
 	int flexcontroller_count;
 	int flexcontroller_offset;
 
-	// mstudioflexrule_t
 	int flexrules_count;
 	int flexrules_offset;
 
-	// IK probably referse to inverse kinematics
-	// mstudioikchain_t
 	int ikchain_count;
 	int ikchain_offset;
 
-	// Information about any "mouth" on the model for speech animation
-	// More than one sounds pretty creepy.
-	// mstudiomouth_t
 	int mouths_count;
 	int mouths_offset;
 
-	// mstudioposeparamdesc_t
 	int localposeparam_count;
 	int localposeparam_offset;
 
@@ -125,60 +97,44 @@ local header = [[
 	 * from the start of the file.
 	 */
 
-	// Surface property value (single null-terminated string)
-	//int render2dprop_count;
 	int render2dprop_offset;
 
-	// Unusual: In this one index comes first, then count.
-	// Key-value data is a series of strings. If you can't find
-	// what you're interested in, check the associated PHY file as well.
 	int keyvalue_offset;
 	int keyvalue_size;
 
-	// More inverse-kinematics
-	// mstudioiklock_t
 	int iklock_count;
 	int iklock_offset;
 
 
-	float mass; 		// Mass of object (4-bytes)
-	int contents;	// ??
+	float mass;
+	int contents;
 
-	// Other models can be referenced for re-used sequences and animations
-	// (See also: The $includemodel QC option.)
 
-	// mstudiomodelgroup_t
 	int includemodel_count;
 	int includemodel_offset;
 
-	int virtualModel;	// Placeholder for mutable-void*
+	int virtualModel;
 
-	// mstudioanimblock_t
 	int animblocks_name_offset;
 	int animblocks_count;
 	int animblocks_offset;
 
-	int animblockModel; // Placeholder for mutable-void*
+	int animblockModel;
 
-	// Points to a series of bytes?
 	int bonetablename_offset;
 
-	int vertex_base;	// Placeholder for void*
-	int offset_base;	// Placeholder for void*
+	int vertex_base;
+	int offset_base;
 
-	// Used with $constantdirectionallight from the QC
-	// Model should have flag #13 set if enabled
 	byte directionaldotproduct;
 
-	byte rootLod;	// Preferred rather than clamped
+	byte rootLod;
 
-	// 0 means any allowed, N means Lod 0 -> (N-1)
 	byte numAllowedRootLods;
 
-	byte unused; // ??
-	int unused; // ??
+	byte unused;
+	int unused;
 
-	// mstudioflexcontrollerui_t
 	int flexcontrollerui_count;
 	int flexcontrollerui_offset;
 
@@ -187,10 +143,9 @@ local header = [[
 	 * May be zero if not present, or also 408 if it immediately
 	 * follows this studiohdr_t
 	 */
-	// studiohdr2_t
 	int studiohdr2index;
 
-	int unused; // ??
+	int unused;
 
 	int source_bone_transform_count;
 	int source_bone_transform_offset;

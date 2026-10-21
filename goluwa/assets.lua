@@ -795,7 +795,6 @@ if RENDER_2D then
 	)
 end
 
--- a virtual model asset's load returns what a lua model file would: the model, or a function of the config making it
 assets.RegisterCategory(
 	"models",
 	{
@@ -904,7 +903,6 @@ assets.RegisterCategory("scenes", {
 	extensions = {".lua"},
 	load = false,
 })
--- a prefab is identified by its name, the file stem, so properties and pickers hold the name and not the path
 assets.RegisterCategory(
 	"prefabs",
 	{
@@ -923,7 +921,6 @@ assets.RegisterCategory(
 	}
 )
 
--- a component is identified by its name, the entries are virtual and registered for the object that is being edited
 assets.RegisterCategory(
 	"components",
 	{

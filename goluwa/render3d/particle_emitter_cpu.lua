@@ -11,12 +11,6 @@ local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local Color = import("goluwa/structs/color.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
--- the cpu backend of particle emitters (the particle_emitter_cpu component): the particles are simulated here, in lua, over ffi arrays, and
--- every one is an instance of a mesh with a material, queued for the gbuffer's instancing path each frame like any
--- model. They get the scene's lighting, fog, AO, TAA and motion vectors (the previous matrix is the previous position),
--- and cost what a model instance costs plus the simulation, so keep them to hundreds. They do not cast shadows.
--- the look is its Material (a render3d_material, white and matte when it has none), alpha is not drawn (a particle shrinks to SizeEnd instead). Collision is "none" or "rays": a ray through the scene for each particle, at most
--- RAY_BUDGET of them in a frame
 local cpu = {}
 cpu.MAX_PARTICLES = particle_emitter.CPU_MAX_PARTICLES
 cpu.RAY_BUDGET = 256
@@ -52,7 +46,6 @@ local function get_polygon(kind)
 	return polygon
 end
 
--- xorshift32, a number in 0..1 from the state in the table
 local function random(state)
 	local x = state.rng
 	x = bit.bxor(x, bit.lshift(x, 13))
@@ -80,7 +73,6 @@ local function get_runtime(emitter)
 	return runtime
 end
 
--- the material of the emitter, white and matte when it has none
 local default_material
 
 local function get_material(emitter)
@@ -97,7 +89,6 @@ local function spawn(emitter, state, runtime)
 	runtime.count = runtime.count + 1
 	local axis = state.axis
 	local ax, ay, az = axis.x, axis.y, axis.z
-	-- two directions across the axis
 	local tx, ty, tz
 
 	if math.abs(ay) < 0.99 then tx, ty, tz = -az, 0, ax else tx, ty, tz = 0, az, -ay end
@@ -148,7 +139,6 @@ local function spawn(emitter, state, runtime)
 	p.stuck = 0
 end
 
--- ray state kept so a step does not allocate more than it must
 local ray_origin = Vec3()
 local ray_direction = Vec3()
 
@@ -238,7 +228,6 @@ event.AddListener("Update", "particle_emitter_cpu", function(dt)
 end)
 
 do
-	-- the instance matrix of a particle: its axes scaled by its size, at its position (or the one it had)
 	local function write_matrix(m, x, y, z, size, ax, ay, az, bx, by, bz, cx, cy, cz)
 		m.m00, m.m01, m.m02 = ax * size, ay * size, az * size
 		m.m10, m.m11, m.m12 = bx * size, by * size, bz * size
@@ -248,7 +237,6 @@ do
 
 	event.AddListener("Draw3DGeometry", "particle_emitter_cpu", function()
 		local view = render3d.GetCamera():BuildViewMatrix()
-		-- the camera's axes in the world, for the quads that face it
 		local rx, ry, rz = view.m00, view.m10, view.m20
 		local ux, uy, uz = view.m01, view.m11, view.m21
 		local bx, by, bz = view.m02, view.m12, view.m22

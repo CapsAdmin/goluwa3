@@ -55,7 +55,6 @@ function Buffer.New(config)
 	local usage = config.usage
 	local properties = config.properties
 
-	-- geometry buffers are the input of the bottom level builds of the scene
 	if device.ray_tracing_supported and type(usage) == "table" then
 		for _, u in ipairs(usage) do
 			if u == "vertex_buffer" or u == "index_buffer" then
@@ -230,7 +229,6 @@ function Buffer:Map(offset, size)
 		if allocation then
 			local block = allocation.block
 
-			-- a block is mapped once, as a whole, and stays mapped
 			if not block.mapped then
 				local data = ffi.new("void*[1]")
 				vulkan.lib.vkMapMemory(self.device.ptr[0], block.memory.ptr[0], 0, block.memory.size, 0, data)

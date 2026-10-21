@@ -47,7 +47,6 @@ local function Heading(text)
 	return Text{Key = text, Text = text, Font = "heading XS", IgnoreMouseInput = true}
 end
 
--- the pixel under the mouse changes on every mouse move, so it renders on its own and nothing else does
 local PixelRow = react.Component(|props| -> do
 	local text, set_text = react.UseState(props.Idle)
 	props.View.set_pixel_text = set_text
@@ -99,7 +98,6 @@ local TextureView = react.Component(|props| -> do
 			idle = can_read and "-" or unavailable,
 		}
 	end, {})
-	-- the canvas reads this while drawing, the mouse changes it, none of it is a reason to render again
 	local view = react.UseMemo(|| -> {
 		zoom = 1,
 		pan = Vec2(0, 0),

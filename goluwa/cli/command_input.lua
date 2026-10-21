@@ -73,7 +73,6 @@ function command_input.IsCommand(text)
 	return text:sub(1, #command_input.Prefix) == command_input.Prefix
 end
 
--- GetQuery for an autocomplete session: text starting with the prefix completes commands and variables, then shows the syntax and values of what was typed
 function command_input.GetQuery(text)
 	if not command_input.IsCommand(text) then return "", text end
 
@@ -116,7 +115,6 @@ function command_input.NewSession(config)
 	return autocomplete.NewSession(config)
 end
 
--- runs every line of text (with the prefix), returns what was logged, whether it worked and the error message
 function command_input.Run(text)
 	local output = {}
 	local ok = true

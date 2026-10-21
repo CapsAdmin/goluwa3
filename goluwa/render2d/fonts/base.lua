@@ -391,7 +391,6 @@ function META:GetTextSize(str)
 	return w, h
 end
 
--- shortens a text to fit max_width, keeping the start and the end around a "..."
 function META:ElideText(text, max_width)
 	if self:GetTextSize(text) <= max_width then return text end
 

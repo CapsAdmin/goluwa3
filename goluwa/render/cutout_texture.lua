@@ -1,12 +1,8 @@
 local ffi = require("ffi")
 local Texture = import("goluwa/render/texture.lua")
--- textures for alpha testing: leaves, grass and the baked billboards
 local cutout_texture = {}
 cutout_texture.DILATE_PASSES = 8
 
--- spreads the colors of the opaque texels into the transparent ones around them, passes texels far, so filtering
--- and the mips do not bleed the background into the edges. what is left gets the mean color. a texel only takes
--- from its own tile, tile_width texels wide, for atlases of pictures that must not run into each other
 function cutout_texture.Dilate(pixels, width, height, tile_width, passes)
 	local count = width * height
 	local filled = ffi.new("uint8_t[?]", count)
@@ -71,9 +67,6 @@ function cutout_texture.Dilate(pixels, width, height, tile_width, passes)
 	end
 end
 
--- the mips of an alpha tested texture, with the alpha of each level scaled so the share of texels passing the
--- cutoff is the same as in the first level, so a cutout keeps its coverage in the distance instead of thinning
--- away. returns the data of all levels, the levels and the size
 function cutout_texture.BuildMipChain(pixels, width, height, cutoff)
 	local levels = {{width = width, height = height, offset = 0, size = width * height * 4}}
 	local total = width * height * 4
@@ -154,8 +147,6 @@ function cutout_texture.BuildMipChain(pixels, width, height, cutoff)
 	return data, levels, total
 end
 
--- a texture with mips made by BuildMipChain from rgba8 pixels (which are dilated in place). config: cutoff (0.5),
--- tile_width (width), dilate_passes, srgb (true), sampler
 function cutout_texture.New(pixels, width, height, config)
 	config = config or {}
 	cutout_texture.Dilate(

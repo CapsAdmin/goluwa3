@@ -23,7 +23,6 @@ T.Test3D("model_pipeline upload keys follow the material as its properties chang
 	T(model_pipeline.GetPBRAuxUploadKey())["=="](material)
 	material:SetAdditive(false)
 	T(model_pipeline.GetPBRAuxUploadKey())["=="](aux_default)
-	-- params of the features that are in the factor block count too
 	material:SetClearcoat(0.5)
 	T(model_pipeline.GetPBRFactorUploadKey())["=="](material)
 	material:SetClearcoat(0)

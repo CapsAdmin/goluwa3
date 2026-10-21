@@ -155,7 +155,6 @@ return {
 		local _, _, node = find_location(items, selected)
 		local children = #(node and node.Children or {})
 
-		-- new items or a new selection open the path to the selected row
 		react.UseEffect(|| -> tree.current:ExpandToKey(selected), {items, selected})
 
 		return kit.Page{

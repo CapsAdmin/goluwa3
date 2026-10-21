@@ -15,7 +15,6 @@ local function on_context_action(item)
 	item.Action.OnClick(item.Control)
 end
 
--- an action is {Text, Icon, OnClick} or {Text, Icon, Items = {actions}} for a submenu
 local function build_action_item(control, action)
 	if action.Items then
 		return MenuItem{
@@ -76,7 +75,6 @@ return function(control)
 	}
 	local actions = control.Node and control.Node.ContextActions
 
-	-- what only this property can do, a node lists them as {Text, OnClick}
 	if actions then
 		items[#items + 1] = MenuSpacer{}
 

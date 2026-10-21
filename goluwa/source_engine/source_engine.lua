@@ -102,8 +102,6 @@ function source_engine.GetChangeLevels(entities)
 	return changes
 end
 
--- the map and the maps of its group that are reachable through its trigger_changelevel entities, each with the offset
--- that puts the landmark it shares with the map it was reached from in the same place
 function source_engine.FindChain(name, path)
 	local group = name:match("^(.-)_%d+%a*$") or name
 	local chain = {{name = name, path = path, offset = Vec3(0, 0, 0)}}
@@ -146,8 +144,6 @@ function source_engine.FindChain(name, path)
 	return chain
 end
 
--- spawns the map and the maps chained to it. The 3D skybox is only kept when there is no chain, the skyboxes of
--- maps placed next to each other do not belong in the same world
 function source_engine.SpawnChain(name, path)
 	local chain = source_engine.FindChain(name, path)
 

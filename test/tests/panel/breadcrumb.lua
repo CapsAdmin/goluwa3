@@ -10,7 +10,6 @@ T.Test2D("breadcrumb makes every crumb but the last one clickable and reports it
 		end,
 	}
 	local children = bar:GetChildren()
-	-- crumb, separator, crumb, separator, label
 	T(#children)["=="](5)
 	children[1]:CallLocalEvent("OnClick")
 	children[3]:CallLocalEvent("OnClick")

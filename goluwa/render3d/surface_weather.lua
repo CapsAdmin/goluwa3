@@ -140,7 +140,6 @@ do
 			const float SPLASH_RADIUS = %f;
 			const float SPLASH_WIDTH = %f;
 			const float SPLASH_SLOPE = %f;
-			// three crests across a ring
 			const float SPLASH_CRESTS = 3.0 * 3.14159265;
 
 			vec3 rain_hash(vec3 p) {
@@ -149,7 +148,6 @@ do
 				return fract((p.xxy + p.yxx) * p.zyx);
 			}
 
-			// gradient noise, the value in x and its gradient in yzw (Quilez)
 			vec4 rain_noise(vec3 x) {
 				vec3 i = floor(x);
 				vec3 f = fract(x);
@@ -178,9 +176,6 @@ do
 				);
 			}
 
-			// the slope of the churning film at p, as the gradient of its height in world space
-			// on the surface with normal N: it runs downhill, gravity along the surface, and churns in place by
-			// moving through the noise along N
 			vec3 get_rain_agitation_slope(vec3 p, vec3 N) {
 				vec3 scale = vec3(1.0, AGITATION_STREAK, 1.0) / AGITATION_SIZE;
 				vec3 downhill = N * N.y - vec3(0.0, 1.0, 0.0);
@@ -189,21 +184,17 @@ do
 
 				for (int copy = 0; copy < 2; copy++) {
 					float cycle = fract(BLOCK.rain_time / FLOW_PERIOD + float(copy) * 0.5);
-					// faded out as it starts over
 					float weight = 1.0 - abs(cycle * 2.0 - 1.0);
 					float t = cycle * FLOW_PERIOD;
 					vec3 moved = p - downhill * (FLOW_SPEED * t) - N * (AGITATION_SPEED * AGITATION_SIZE * t);
-					// each copy a different stretch of the noise, and each period too
 					vec3 q = moved * scale + vec3(float(copy) * 31.7 + floor(BLOCK.rain_time / FLOW_PERIOD + float(copy) * 0.5) * 7.3);
 					gradient += (rain_noise(q).yzw + 0.6 * rain_noise(q * 2.3 + 17.1).yzw) * weight;
 					weight_sum += weight * weight;
 				}
 
-				// two unrelated noises mixed lose contrast, as much as their weights' length falls below 1
 				return gradient * inversesqrt(max(weight_sum, 1e-4)) * vec3(1.0, AGITATION_STREAK, 1.0) * BLOCK.rain_agitation;
 			}
 
-			// the slope of the big drops' rings at p in world xz
 			vec2 get_rain_splash_slope(vec2 p) {
 				vec2 slope = vec2(0.0);
 
@@ -214,7 +205,6 @@ do
 					for (int y = -1; y <= 1; y++) {
 						for (int x = -1; x <= 1; x++) {
 							vec2 c = cell + vec2(x, y);
-							// each cell's drops come at its own phase, and land somewhere else each lifetime
 							float t = BLOCK.rain_time / SPLASH_LIFETIME + rain_hash(vec3(c, float(layer))).x;
 							vec3 drop = rain_hash(vec3(c + floor(t) * 17.13, float(layer) + 7.0));
 
@@ -223,12 +213,10 @@ do
 							float age = fract(t);
 							vec2 delta = (q - c - drop.xy) * SPLASH_CELL;
 							float d = length(delta);
-							// across the ring's crests, -1 to 1
 							float r = (d - age * SPLASH_RADIUS) / SPLASH_WIDTH;
 
 							if (abs(r) >= 1.0 || d < 1e-5) continue;
 
-							// three crests under a smooth window, their slope across the ring, fading as it spreads
 							float w = 1.0 - r * r;
 							float wave = SPLASH_CRESTS * cos(SPLASH_CRESTS * r) * w * w - 4.0 * r * w * sin(SPLASH_CRESTS * r);
 							float fade = (1.0 - age) * (1.0 - age);
@@ -246,7 +234,6 @@ do
 				vec3 N = coat_N;
 				vec3 slope = vec3(0.0);
 				float spread = 0.0;
-				// resolved while the waves are a few pixels across
 				float resolved = 1.0 - smoothstep(AGITATION_SIZE * 0.3, AGITATION_SIZE, footprint);
 
 				if (resolved > 0.0) {
@@ -255,7 +242,6 @@ do
 
 				spread += BLOCK.rain_agitation * (1.0 - resolved);
 
-				// the rings only show where the water lies still, on flat ground
 				float flatness = smoothstep(0.9, 0.98, N.y);
 
 				if (BLOCK.splash_chance > 0.0 && flatness > 0.0) {
@@ -269,7 +255,6 @@ do
 					spread = length(vec2(spread, BLOCK.splash_alpha * flatness * (1.0 - splash_resolved)));
 				}
 
-				// only the part of the slope along the surface tilts it
 				slope -= N * dot(slope, N);
 				coat_N = normalize(N - slope * rain);
 				spread *= rain;
@@ -295,30 +280,19 @@ end
 
 function surface_weather.GetGLSL(block_name)
 	return surface_features.GetSurfaceGLSL() .. [[
-		// an occluder has to be this far up the precipitation from a surface to shelter it, so a surface
-		// doesn't shelter itself and pebbles don't leave dry spots
+
 		const float SHELTER_MIN_HEIGHT = 0.3;
-		// how far the dry edge right under an occluder is smeared, the splashes and the drops that bounce
 		const float SHELTER_BLUR = 0.3;
-		// m, the widest the edge of a shelter gets, and so how far around a point occluders are looked for
 		const float SHELTER_MAX_BLUR = 8.0;
-		// m of snow that hides flat open ground completely, less of it lies in patches
 		const float SNOW_FULL_COVER_DEPTH = 0.05;
-		// the up component of a surface's normal where the rain starts to pool into a film (about 12
-		// degrees), and below which it only runs off (about 45). a run off film covers this much, and is
-		// this rough, perceptual
 		const float RAIN_POOL_SLOPE = 0.98;
 		const float RAIN_RUNOFF_SLOPE = 0.7;
 		const float RAIN_RUNOFF_FILM = 0.35;
 		const float RAIN_RUNOFF_ROUGHNESS = 0.3;
 		const vec2 SHELTER_TAPS[4] = vec2[4](vec2(0.2, 0.55), vec2(-0.55, 0.2), vec2(-0.2, -0.55), vec2(0.55, -0.2));
 
-		// how much of the falling rain or snow reaches this surface, 0 in a sheltered or downward facing spot.
-		// it falls within a cone around its direction, so an occluder shelters what is right under it and the
-		// edge of its shelter widens the higher above it is, as a soft shadow's does (Fernando 2005)
 		float get_precipitation_exposure(vec3 world_pos, vec3 normal) {
 			vec3 dir = ]] .. block_name .. [[.precipitation_direction;
-			// rain runs down walls a little, but never wets a ceiling
 			float facing = smoothstep(-0.3, 0.2, dot(normal, dir));
 
 			if (facing <= 0.0 || ]] .. block_name .. [[.shelter_texture == -1) return facing;
@@ -336,23 +310,13 @@ function surface_weather.GetGLSL(block_name)
 			vec3 row_z = vec3(m[0].z, m[1].z, m[2].z);
 			float depth_per_meter = length(row_z);
 			vec2 meters_to_uv = 1.0 / (texel * vec2(textureSize(TEXTURE(]] .. block_name .. [[.shelter_texture), 0)));
-			// the surface's plane in the map, as meters it rises up the precipitation per meter across it.
-			// the precipitation mostly comes in slanted, so even flat ground is tilted in the map, and the taps
-			// around a point are compared with the plane there rather than with the point
 			vec3 g = vec3(dot(row_x, normal) / dot(row_x, row_x), dot(row_y, normal) / dot(row_y, row_y), dot(row_z, normal) / dot(row_z, row_z));
 			vec2 slope = -2.0 * g.xy * meters_to_uv / (g.z * depth_per_meter);
 			slope *= min(1.0, 4.0 / max(length(slope), 1e-6));
-			// what is less than this far up the precipitation from the plane doesn't shelter it, and the texels
-			// a gather reads are up to one away
 			float receiver = coords.z - (SHELTER_MIN_HEIGHT + length(slope) * texel) * depth_per_meter;
-			// interleaved gradient noise, a different rotation of the few taps each frame, the taa averages
-			// them into a smooth edge
 			vec2 pixel = gl_FragCoord.xy + 5.588238 * float(]] .. block_name .. [[.surface_frame);
 			float angle = fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715)))) * 6.2831853;
 			mat2 rotation = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
-			// how far up the precipitation the occluder is, what is right above the surface if anything is, or
-			// else the average of the occluders around it. the nearest texel, a filtered depth at a silhouette
-			// would be an occluder at every height in between
 			float blocker = texelFetch(TEXTURE(]] .. block_name .. [[.shelter_texture), ivec2(coords.xy * vec2(textureSize(TEXTURE(]] .. block_name .. [[.shelter_texture), 0))), 0).r;
 
 			if (blocker >= receiver) {
@@ -394,7 +358,6 @@ function surface_weather.GetGLSL(block_name)
 			return vec2(cos(angle), sin(angle));
 		}
 
-		// gradient noise, about -0.7 to 0.7
 		float snow_noise(vec2 p) {
 			vec2 i = floor(p);
 			vec2 f = fract(p);
@@ -406,7 +369,6 @@ function surface_weather.GetGLSL(block_name)
 			);
 		}
 
-		// 0 to 1, rotated octaves so no grid shows
 		float snow_patches(vec2 p) {
 			const mat2 ROTATE = mat2(0.8, 0.6, -0.6, 0.8);
 			float n = snow_noise(p * 0.5) * 0.55;
@@ -417,9 +379,6 @@ function surface_weather.GetGLSL(block_name)
 			return clamp(n + 0.5, 0.0, 1.0);
 		}
 
-		// rain and snow change the base color, roughness, metallic and normal of the surface, and leave what the
-		// features react to in w, see surface_features.lua. w holds what the features asked for
-		// (prepare_surface_weather), returns how much snow covers it
 		float apply_surface_weather(inout Surface s, inout SurfaceWeather w) {
 			float wetness = ]] .. block_name .. [[.surface_wetness;
 			float snow_depth = ]] .. block_name .. [[.surface_snow_depth;
@@ -432,14 +391,9 @@ function surface_weather.GetGLSL(block_name)
 
 			float exposure = get_precipitation_exposure(s.world_pos, s.geometric_N);
 
-			// water in the pores scatters less light back out, so a porous surface darkens (Lagarde 2013,
-			// "Water drop 3b - Physically based wet surfaces"), and a film of it lies on top, a smooth
-			// reflection over the rough surface under it
 			if (wetness > 0.0) {
 				float wet = wetness * exposure * w.wet_scale;
 				s.albedo *= mix(1.0, mix(1.0, 0.2, w.porosity), wet);
-				// the water pools into a film on flat ground. down a slope it runs off, thinner the steeper it
-				// is, too thin to fill in the surface's roughness: a patchy, blurred sheen
 				float pooling = smoothstep(RAIN_RUNOFF_SLOPE, RAIN_POOL_SLOPE, s.geometric_N.y);
 				float film = wet * ]] .. block_name .. [[.rain_clearcoat * mix(RAIN_RUNOFF_FILM, 1.0, pooling);
 
@@ -451,32 +405,23 @@ function surface_weather.GetGLSL(block_name)
 
 			if (snow_depth <= 0.0) return 0.0;
 
-			// thin snow lies in drifts and patches, the noise decides where the ground shows through first
 			float patches = snow_patches(s.world_pos.xz);
-			// snow slides off slopes steeper than about 60 degrees and lies evenly below about 30, however
-			// deep it is, with a ragged edge between
 			float hold = smoothstep(0.5, 0.87, s.geometric_N.y + (patches - 0.5) * 0.3);
-			// and it settles on the upward facing bumps of a surface first
 			float amount = snow_depth / SNOW_FULL_COVER_DEPTH * exposure * w.snow_scale - (1.0 - clamp(s.N.y, 0.0, 1.0)) * 0.3;
 			float cover = smoothstep(patches * 0.7, patches * 0.7 + 0.3, amount) * hold;
 
 			if (cover <= 0.0) return 0.0;
 
-			// fresh dry snow reflects ~90% of visible light, wet snow holds water between coarser grains
-			// and drops to ~60%, and is smoother
 			float snow_wetness = ]] .. block_name .. [[.surface_snow_wetness;
 			vec3 snow_albedo = vec3(0.9);
 			float snow_roughness = 0.75;
-			// the snow fills in the surface's detail
 			vec3 snow_normal = s.geometric_N;
 
 			if (]] .. block_name .. [[.snow_albedo_tex >= 0) {
-				// projected from above, u along +x and v along -z so the tangent frame is right handed
 				vec2 uv = vec2(s.world_pos.x, -s.world_pos.z) * ]] .. block_name .. [[.snow_texture_scale;
 				snow_albedo = texture(TEXTURE(]] .. block_name .. [[.snow_albedo_tex), uv).rgb;
 				snow_roughness = texture(TEXTURE(]] .. block_name .. [[.snow_roughness_tex), uv).r;
 				vec3 t = texture(TEXTURE(]] .. block_name .. [[.snow_normal_tex), uv).rgb * 2.0 - 1.0;
-				// the grains' normal against straight up, tilted along with the surface under the snow
 				snow_normal = normalize(vec3(t.x, t.z, -t.y) + s.geometric_N - vec3(0.0, 1.0, 0.0));
 			}
 
@@ -486,7 +431,6 @@ function surface_weather.GetGLSL(block_name)
 			s.roughness_alpha = mix(s.roughness_alpha, snow_roughness * snow_roughness, cover);
 			s.metallic *= 1.0 - cover;
 			s.N = normalize(mix(s.N, snow_normal, cover));
-			// the snow covers the water
 			w.rain *= 1.0 - cover;
 			w.snow = cover;
 			return cover;

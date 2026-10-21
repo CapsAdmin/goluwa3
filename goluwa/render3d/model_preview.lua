@@ -95,7 +95,6 @@ function META:SetTarget(visual)
 	self.targets = nil
 end
 
--- something made of several visuals, a prefab has one on every node that shows something
 function META:SetTargets(visuals)
 	self.targets = visuals
 	self.target = nil

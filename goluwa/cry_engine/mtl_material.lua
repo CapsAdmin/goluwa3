@@ -9,7 +9,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local bit = require("bit")
 local Material = import("goluwa/render3d/material.lua")
 local mtl_material = {}
--- cryengine modulates the texture by twice the diffuse color, so the 0.5 grey that most materials have leaves it as it is
 mtl_material.DIFFUSE_COLOR_SCALE = 2
 local cry_mtl_document_cache = {}
 local cry_mtl_material_cache = {}
@@ -290,7 +289,6 @@ local function apply_cry_material_node(self, material_node, material_path)
 	do
 		local r, g, b = unpack_csv_numbers(attrs.Diffuse)
 
-		-- the terrain layers use their diffuse color as it is, see TerrainLayerAdditiveDetail
 		if shader ~= "Terrain.Layer" then
 			local scale = mtl_material.DIFFUSE_COLOR_SCALE
 			r, g, b = (r or 1) * scale, (g or 1) * scale, (b or 1) * scale
@@ -306,7 +304,6 @@ local function apply_cry_material_node(self, material_node, material_path)
 		self:SetTranslucent(true)
 	end
 
-	-- illum's decal variant blends by the diffuse alpha over what it lies on and casts no shadows
 	if has_gen("DECAL") then
 		self:SetTranslucent(true)
 		self:SetDecal(true)
@@ -434,16 +431,11 @@ local function apply_cry_material_node(self, material_node, material_path)
 		end
 	end
 
-	-- cryengine shades a phong lobe of power $Shininess and tints it with the
-	-- specular color times a gloss mask, the diffuse alpha or the Specular map.
-	-- the lobe becomes a roughness, the mask a roughness lerp from fully rough to
-	-- the lobe, and only metals reach a specular color that no dielectric has
 	do
 		local specular = self.cry_specular_color
 		local intensity = specular.r * 0.2126 + specular.g * 0.7152 + specular.b * 0.0722
 		local is_metal = intensity > 0 and
 			(shader == "Metal" or (attrs.SurfaceType or ""):find("metal", 1, true) ~= nil)
-		-- a dielectric's specular map stays below ~0.3 (paint, plastic, stone), a bare metal's reaches 0.7
 		local metal_low, metal_high = 0.4, 0.7
 		local metallic = is_metal and math.smoothstep(metal_low, metal_high, intensity) or 0
 		local lobe = math.lerp(

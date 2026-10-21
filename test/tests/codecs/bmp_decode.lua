@@ -27,7 +27,6 @@ local function pack_bmp(width, height, rows)
 end
 
 T.Test("BMP decode 24 bit rows and padding", function()
-	-- stored bottom row first, bgr: the bottom row is red then green, the top row is blue then white
 	local img = bmp.Decode(pack_bmp(2, 2, {"\0\0\255\0\255\0", "\255\0\0\255\255\255"}))
 	T(img.width)["=="](2)
 	T(img.height)["=="](2)
@@ -48,7 +47,6 @@ end)
 T.Test("BMP decode top down", function()
 	local img = bmp.Decode(pack_bmp(1, -2, {"\255\0\0", "\0\0\255"}))
 	T(img.height)["=="](2)
-	-- the first row of the file is the top row, which comes out last
 	T(img.data[0])["=="](255)
 	T(img.data[2])["=="](0)
 	T(img.data[4])["=="](0)

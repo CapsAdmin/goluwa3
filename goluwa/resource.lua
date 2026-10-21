@@ -345,7 +345,6 @@ local function download_from_providers(path, callback, on_fail, check_etag)
 			path
 		)
 
-		-- TODO
 		if not gmod and client.socket then client.socket.url = provider .. path end
 	end
 end

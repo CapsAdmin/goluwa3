@@ -83,7 +83,6 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 	return entry
 end
 
--- what the alpha test reads besides the albedo: the normal texture's alpha for coverage, and the transforms of the uvs
 local function write_shadow_uv_data(data, material, normal_texture_index)
 	data.normal_texture_index = normal_texture_index
 
@@ -106,7 +105,6 @@ local function sample_shadow_texture(texture, uv)
 	return "textureLod(textures[nonuniformEXT(" .. texture .. ")], " .. uv .. ", 0.0)"
 end
 
--- block is the GLSL expression of the struct with the material's texture indices and transforms
 local function build_shadow_alpha_glsl(block)
 	return (
 		[[
@@ -181,7 +179,6 @@ local function build_shadow_pipeline_config(
 	return config
 end
 
--- the smallest step the stored depth can tell apart, in the 0 to 1 of the map's depth range
 function ShadowMap:GetDepthQuantum(cascade_index)
 	return self.cascade[cascade_index].format == "d16_unorm" and 1 / 65535 or 1 / 16777216
 end
@@ -315,7 +312,6 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 			#define SHADOW_VERTEX_FLOATS ]] .. SHADOW_VERTEX_FLOAT_COUNT .. [[u
 
 			void main() {
-				// the scene's draws are packed, the row is the first instance. the scatter ones are one for each batch
 				uint batch_index = pc.indexed != 0 ? uint(gl_InstanceIndex) : uint(gl_DrawID);
 				uvec4 addresses = SHADOW_BATCH[batch_index].addresses;
 
@@ -324,8 +320,6 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 					return;
 				}
 
-				// the store's rows are drawn indexed through the index pool, so the vertex cache works and gl_VertexIndex is the
-				// vertex. other lists (scatter's) are drawn by vertex count and fetch their indices here
 				uint index = uint(gl_VertexIndex);
 				uint64_t index_address = packUint2x32(addresses.zw);
 
@@ -597,9 +591,6 @@ local function update_local_directional_perspective(self, light_position, light_
 	)
 end
 
--- the cascades and cube faces of a shadow map draw the rows of the scene store: a pass writes a draw per slot (scene/draw.lua)
--- and the multi draw pipeline pulls the vertices of the batch of the slot
--- records the pass that writes the draws of a cascade, outside of its render pass
 function ShadowMap:CullScene(cascade_index)
 	local cascade = self.cascade[cascade_index]
 	cascade.scene_shadow_buffers = cascade.scene_shadow_buffers or scene_draw.NewShadowBuffers()
@@ -614,7 +605,6 @@ function ShadowMap:CullScene(cascade_index)
 	)
 end
 
--- draws what CullScene wrote, in the render pass of the cascade
 function ShadowMap:DrawScene(cascade_index)
 	local cascade = self.cascade[cascade_index]
 
@@ -1432,9 +1422,6 @@ local function write_shadow_batch_animation(self, pipeline, record, batch)
 	model_pipeline.FillVertexAnimationData(record.anim, batch.material)
 end
 
--- draws a list of {mesh, material, first_polygon3d} batches with the multi draw pipeline, from
--- VkDrawIndirectCommands (VkDrawIndexedIndirectCommands over the index pool when indexed, those are the scene's: packed, the
--- count of them in counts, and a row is its first instance), one for each batch. key tells the batch tables of different lists apart
 function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instances_address, commands, stride, indexed, counts)
 	local pipeline = self.mode == "point" and
 		self.multi_draw_pipeline or
@@ -1590,7 +1577,6 @@ function ShadowMap:SetUpdatePolicy(policy)
 	self.policy = policy or {}
 end
 
--- every cascade is drawn again on the next update, for when a setting changed what a cached one would show
 function ShadowMap:Invalidate()
 	for _, cascade in ipairs(self.cascade) do
 		cascade.last_rendered_frame = nil

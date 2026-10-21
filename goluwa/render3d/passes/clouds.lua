@@ -73,7 +73,7 @@ end
 
 local function cloud_glsl()
 	return atmosphere.GetGLSLDefines("cloud_data", SUN_ILLUMINANCE_EXPR) .. atmosphere.GetAerialPerspectiveGLSLCode() .. clouds.GetGLSL("cloud_data") .. [[
-		// interleaved gradient noise, a different pattern each frame
+
 		float cloud_ign(vec2 pixel, int frame) {
 			pixel += 5.588238 * float(frame % 64);
 			return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
@@ -130,7 +130,6 @@ local noise_pass = {
 		const int DETAIL_SIZE = ]] .. clouds.DETAIL_NOISE_SIZE .. [[;
 		const int WEATHER_SIZE = ]] .. clouds.WEATHER_SIZE .. [[;
 
-		// the fbms stretched from where most of their values lie to 0-1
 		float worley_channel(vec3 p, int freq, uint seed) {
 			return saturate((cloud_worley_fbm(p, ivec3(freq), seed) - 0.32) / 0.32);
 		}
@@ -142,7 +141,6 @@ local noise_pass = {
 
 			{
 				vec3 p = (vec3(id) + 0.5) / float(BASE_SIZE);
-				// perlin-worley: billowy perlin whose low parts are cut into round cells
 				float perlin = saturate(0.5 + 0.8 * cloud_perlin_fbm(p, ivec3(4), 6, 0u));
 				float worley = cloud_worley_fbm(p, ivec3(4), 10u);
 				float perlin_worley = saturate(remap(perlin, worley - 1.0, 1.0, 0.0, 1.0));
@@ -164,19 +162,15 @@ local noise_pass = {
 				));
 			}
 
-			// the weather map's pixels spread over the first slices
 			int tiles = WEATHER_SIZE / BASE_SIZE;
 
 			if (id.z < tiles * tiles) {
 				ivec2 pixel = id.xy + ivec2(id.z % tiles, id.z / tiles) * BASE_SIZE;
 				vec3 p = vec3((vec2(pixel) + 0.5) / float(WEATHER_SIZE), 0.0);
-				// where clouds gather: broad patches of more and less, clumped into cells
 				float patches = saturate(0.5 + 0.9 * cloud_perlin_fbm(p, ivec3(3, 3, 1), 5, 80u));
 				float cells = cloud_worley_fbm(p, ivec3(6, 6, 1), 90u);
 				float coverage = saturate(mix(patches, cells, 0.35) * 1.15 - 0.075);
-				// how tall the heaps grow
 				float height = saturate(0.5 + 0.9 * cloud_perlin_fbm(p, ivec3(5, 5, 1), 3, 100u));
-				// cirrus: fibres stretched along x, bent by a slow warp, in patches
 				vec3 warp = vec3(
 					cloud_perlin_fbm(p, ivec3(3, 3, 1), 3, 110u),
 					cloud_perlin_fbm(p, ivec3(3, 3, 1), 3, 120u),
@@ -184,7 +178,6 @@ local noise_pass = {
 				) * 0.06;
 				float fibres = saturate(0.5 + 1.1 * cloud_perlin_fbm(p + warp, ivec3(3, 28, 1), 4, 130u));
 				float veil = saturate(0.5 + 1.0 * cloud_perlin_fbm(p, ivec3(4, 4, 1), 3, 140u));
-				// where the base sits within the layer's base_variation, drifting over a few kilometers
 				float base = saturate(0.5 + 1.1 * cloud_perlin_fbm(p, ivec3(8, 8, 1), 3, 150u));
 				imageStore(out_weather, pixel, vec4(coverage, height, fibres * mix(0.4, 1.0, veil), base));
 			}
@@ -311,7 +304,6 @@ local sky_pass = {
 
 			if (any(greaterThanEqual(id, size))) return;
 
-			// get_cloud_sky_uv inverted
 			vec2 uv = (vec2(id) + 0.5) / vec2(size);
 			float azimuth = (uv.x - 0.5) * 2.0 * PI;
 			float s = (uv.y - 0.5) * 2.0;
@@ -326,7 +318,6 @@ local sky_pass = {
 				return;
 			}
 
-			// the air in front of the clouds
 			vec3 air_transmittance;
 			vec3 air = integrate_scattering(get_atmosphere_camera_origin(origin), dir, 0.0, depth * 0.001, ATMOSPHERE_SKY_SUN_DIRECTION, 8, vec2(1.0), 1.0, air_transmittance);
 			imageStore(out_sky, id, vec4(((1.0 - c.a) * air + air_transmittance * c.rgb) * CLOUD_RADIANCE_SCALE, c.a));
@@ -402,8 +393,6 @@ local trace_pass = {
 			vec2 uv = (vec2(pixel) + 0.5) / cloud_data.view_size;
 			vec3 view_dir = get_view_dir(uv);
 			vec3 dir = normalize(mat3(cloud_data.inv_view) * view_dir);
-			// the farthest surface of the pixels this one covers, clouds in front of the nearer ones are
-			// dropped when they are composited
 			vec2 full_size = vec2(textureSize(TEXTURE(cloud_data.depth_tex), 0));
 			float depth = 1.0;
 
@@ -513,7 +502,6 @@ local reconstruct_pass = {
 			ivec2 trace_id = min(pixel / 2, trace_size - 1);
 			bool traced = all(equal(pixel & 1, reconstruct_data.trace_offset));
 			vec2 uv = (vec2(pixel) + 0.5) / reconstruct_data.view_size;
-			// this frame's samples around the pixel, which the history is clamped to
 			vec4 low = vec4(1e30);
 			vec4 high = vec4(-1e30);
 
@@ -529,7 +517,6 @@ local reconstruct_pass = {
 			float result_depth = current_depth;
 
 			if (reconstruct_data.history_valid != 0) {
-				// where what the pixel sees was last frame
 				vec3 view_dir = get_view_dir(uv);
 				vec3 world = reconstruct_data.camera_position.xyz + normalize(mat3(reconstruct_data.inv_view) * view_dir) * current_depth;
 				vec4 clip = reconstruct_data.prev_projection * reconstruct_data.prev_view * vec4(world, 1.0);
@@ -542,7 +529,6 @@ local reconstruct_pass = {
 					if (traced) {
 						result = mix(clamp(history, low, high), current, reconstruct_data.trace_blend);
 					} else {
-						// the pixels traced in the last frames, unless the clouds moved away from them
 						result = clamp(history, low - 0.05 * (high - low), high + 0.05 * (high - low));
 						result_depth = history_depth;
 					}

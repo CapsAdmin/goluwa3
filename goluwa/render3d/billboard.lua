@@ -21,7 +21,6 @@ billboard.NORMAL_TILT = 0.4
 billboard.PADDING = 1.02
 billboard.BAKE_TIMEOUT_FRAMES = 600
 billboard.DILATE_PASSES = 8
--- seconds a frame may spend baking, a bake is not interrupted so one that starts before the budget is spent finishes after it
 billboard.BAKE_BUDGET = 0.1
 local cache = {}
 local pending = {}
@@ -84,8 +83,6 @@ function billboard.Bake(visual)
 		ConfigureCamera = configure_camera,
 	}
 
-	-- the ground color is sampled at the world position of what is drawn, which is nowhere in a preview. the picture is
-	-- made from copies of the materials without it, and the billboard blends it itself, where it stands
 	local ground
 	local previous_slots = visual.MaterialSlotOverrides
 	local slots = {}

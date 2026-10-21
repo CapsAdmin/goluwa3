@@ -1,10 +1,5 @@
 if not RENDER_2D then return end
 
--- the STARTUP tab of the PERF window: where the time from opening the engine to a ready scene went. The top part is
--- the timeline of the coarse spans (`startup.Begin/End`), the bottom part the main thread work that added up over many
--- small pieces (`startup.Start/Add`), grouped by the part of the name before the colon. Those overlap each other and the
--- spans (a frame contains its render passes), the bar shows when in the startup that work happened.
--- `startup_stats` prints the same rows
 local Vec2 = import("goluwa/structs/vec2.lua")
 local commands = import("goluwa/cli/commands.lua")
 local startup = import("goluwa/startup.lua")
@@ -171,7 +166,6 @@ end
 
 local ready_rows
 
--- once the scene is ready nothing changes anymore, the same rows are not a new state
 local function poll_rows()
 	if ready_rows then return ready_rows end
 

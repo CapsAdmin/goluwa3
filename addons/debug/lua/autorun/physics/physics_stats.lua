@@ -8,7 +8,6 @@ local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local perf = import("lua/perf.lua")
 local WINDOW = 0.5
--- the newest window the open tab took, the physics_stats command prints it
 local latest = {snapshot_frames = 0, frame_time = 0}
 
 local function timing_row(rows, label, seconds, per, total, indent, color)
@@ -112,7 +111,6 @@ local function build_rows(s, snapshot_frames, frame_time)
 	return rows
 end
 
--- stats are only collected while the tab is open, a window of WINDOW seconds at a time
 perf.RegisterTab(
 	"PHYSICS",
 	4,

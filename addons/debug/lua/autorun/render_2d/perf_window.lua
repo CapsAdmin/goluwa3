@@ -8,7 +8,6 @@ local ui = import("goluwa/render2d/ui/react_ui.lua")
 local desktop = import("goluwa/render2d/ui/desktop.lua")
 local perf = import("lua/perf.lua")
 local WIDTH, HEIGHT = 700, 580
--- only the open tab of a window that is shown is mounted, closing the window only hides it, a tab that collects something collects while it is on screen
 local PerfView = react.Component(|props| -> do
 	local tabs = react.UseMemo(perf.GetTabs, {})
 	local hud, set_hud = react.UseState(false)

@@ -2,8 +2,6 @@ local prefab = import("goluwa/entities/prefab.lua")
 local weapons = {}
 weapons.Definitions = {}
 
--- the entity of a weapon is the prefab of its name, the weapon component holds what every weapon has and the weapon_* component what it does
--- its model is an instance of a model prefab, a node of the weapon that sits on the right hand and is shown while the weapon is held
 function weapons.Register(name, values, model_prefab)
 	weapons.Definitions[name] = {DisplayName = values.DisplayName, Model = model_prefab}
 	prefab.Register(

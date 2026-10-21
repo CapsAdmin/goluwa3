@@ -42,12 +42,9 @@ do
 
 		if (any(lessThan(cell, vec2(0.0))) || any(greaterThanEqual(cell, vec2(1.0)))) discard;
 
-		// cry's tex2DTerrain: red and green are the color's share of r + g + b, blue is its brightness.
-		// the red tweak compensates for 565 red only reaching 30/31 for a perfect gray
 		vec4 texel = texture(TEXTURE(atlas_node.source), cell);
 		float red = (texel.r + 0.001012) * (31.0 / 30.0);
 		vec3 color = vec3(red, texel.g, 1.0 - red - texel.g) * 3.0 * texel.b;
-		// opinionated for goluwa
 		color = pow(color, vec3(1.5)) * 0.5;
 		return vec4(color, 1.0);
 	]]
@@ -276,8 +273,8 @@ local function build_cry_terrain_source(terrain)
 		},
 		HeightGLSL = string.format(
 			[[
+
 			vec2 cry_terrain_uv(vec2 world) {
-				// texture columns run along cry +y (engine -z), rows along cry +x (engine +x)
 				return clamp(vec2(-world.y / %.6f, world.x / %.6f), vec2(0.0), vec2(1.0));
 			}
 
@@ -286,7 +283,6 @@ local function build_cry_terrain_source(terrain)
 
 				if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
 
-				// heights sit on the vertices, texel i is the height at world i * unit, not at its centre
 				return texture(TEXTURE(terrain_bake.texture0), uv + vec2(%.9f, %.9f)).r * %.6f;
 			}
 		]],
@@ -300,7 +296,7 @@ local function build_cry_terrain_source(terrain)
 		),
 		SplatGLSL = has_layers and
 			[[
-			// which of the chunk's eight layers a surface id is, slot 0 also takes the ids the chunk has no room for
+
 			int cry_terrain_slot(int id) {
 				if (id == terrain_bake.layer1) return 1;
 				if (id == terrain_bake.layer2) return 2;
@@ -312,7 +308,6 @@ local function build_cry_terrain_source(terrain)
 				return 0;
 			}
 
-			// the weights of the four slots from first_slot on
 			vec4 cry_terrain_slot_weights(vec2 world, int first_slot) {
 				ivec2 size = textureSize(TEXTURE(terrain_bake.texture2), 0);
 				vec2 p = cry_terrain_uv(world) * vec2(size) - 0.5;
@@ -340,6 +335,7 @@ local function build_cry_terrain_source(terrain)
 			nil,
 		Splat2GLSL = has_layers and
 			[[
+
 			vec4 terrain_splat2(vec2 world, float h, vec3 n) {
 				return cry_terrain_slot_weights(world, 4);
 			}
@@ -439,8 +435,6 @@ function terrain.ApplyVegetationMaterialState(level_data)
 			if prototype.use_terrain_color then
 				for _, material_path in ipairs(prototype.material_paths) do
 					for _, material in ipairs(mtl_material.FromCryMTLList(material_path)) do
-						-- grass sets its own amount from blendWithTerrainAmount. cry fades the other vegetation
-						-- to half terrain color with distance, here it is always half
 						if material:GetGroundColorBlend() == 0 then
 							material:SetGroundColorBlend(0.5)
 						end

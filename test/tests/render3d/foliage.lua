@@ -13,7 +13,6 @@ local function raises(fn, text)
 	T(tostring(err))["contains"](text)
 end
 
--- a hash of every vertex and index of the parts, the same for the same geometry
 local function checksum(parts)
 	local h = 0
 
@@ -33,7 +32,6 @@ local function checksum(parts)
 	return h
 end
 
--- made fresh, without the cache of foliage.Build
 local function build(name, config)
 	local resolved, generator = foliage.Resolve(name, config)
 	return generator.build(resolved, Random.New(resolved.seed))
@@ -52,7 +50,6 @@ T.Test("foliage random numbers come from the seed alone", function()
 
 	T(same)["=="](true)
 	T(different)["=="](true)
-	-- a fork is the same stream whatever was drawn from its parent
 	local first = Random.New(3):Fork("leaves"):Next()
 	local parent = Random.New(3)
 	parent:Next()
@@ -88,9 +85,7 @@ T.Test3D("foliage assets are the same for the same seed and config and differ fo
 		T(checksum(build(name, {seed = 5, blades = config.blades, resolution = config.resolution})) ~= first)["=="](true)
 	end
 
-	-- a config key changes it too
 	T(checksum(build("boulder", {seed = 4, resolution = 6, noise = 0.4})) ~= checksum(build("boulder", {seed = 4, resolution = 6})))["=="](true)
-	-- and foliage.Build makes a config once
 	T(foliage.Build("boulder", {seed = 9, resolution = 4}) == foliage.Build("boulder", {resolution = 4, seed = 9}))["=="](true)
 end)
 
@@ -105,13 +100,10 @@ T.Test3D("foliage trees bend in the wind and their leaves let light through", fu
 	T(leaves.material:GetDiffuseTransmission())[">"](0)
 	T(leaves.material:GetAlphaTest())["=="](true)
 	T(leaves.material:GetDoubleSided())["=="](true)
-	-- the veins and the twigs let less through than the leaf
 	T(leaves.material:GetTransmissionTexture() ~= nil)["=="](true)
 	local grass = foliage.Build("grass_meadow", {seed = 1, blades = 10})[1]
 	T(grass.material:GetDetailBending())["=="]("grass")
 	T(grass.material:GetDiffuseTransmission())[">"](0)
-	-- the detail bending is meters and its phase changes over the position: a blade a few centimeters wide must not
-	-- move a tree branch's 0.2 m up and down or have its two edges flutter apart
 	T(grass.material:GetBendDetailBranchAmplitude())["<="](0.05)
 	T(grass.material:GetBendDetailPhase())["<="](2)
 end)
@@ -125,12 +117,10 @@ T.Test("foliage branches measure how far out they reach", function()
 	T(up[#up].reach)["~"](0)
 	T(out[#out].reach)["~"](4)
 	T(trees.Stiffness(out[#out].reach, 0.1))["~"](0.6)
-	-- something going straight up from a point is as stiff as the point, it is moved with it and not stretched
 	T(trees.StiffnessAlong(0.7, Vec3(0, 2, 0), 0.1))["~"](0.7)
 	T(trees.StiffnessAlong(0.7, Vec3(1, 2, 0), 0.1))["~"](0.6)
 end)
 
--- the bending colors of a part's vertices: r flutter, g phase, b stiffness
 local function colors(part)
 	local packed = part.mesh.packed
 	local out = {}
@@ -144,16 +134,12 @@ local function colors(part)
 end
 
 T.Test3D("foliage trunks only sway in the wind and what grows on them turns about where it is held", function()
-	-- the trunk (and the limbs it splits into) moves with the sway of the whole and not up and down along itself
 	for _, name in ipairs{"pine", "oak", "birch", "willow", "bush"} do
 		for _, v in ipairs(colors(build(name, {seed = 1, levels = {}})[1])) do
 			T(v.b)["=="](1)
 		end
 	end
 
-	-- a branch is held where it leaves the trunk, its stiffness falls with how far out it reaches from there and not with
-	-- how high up the trunk it is. the pine's trunk is near the middle and its crown starts 3.7 m up, a branch reaches at
-	-- most 2 m further along its own wander than it is from the middle
 	local pine = foliage.generators.pine.defaults
 
 	for _, v in ipairs(colors(build("pine", {seed = 1, levels = {pine.levels[1]}})[1])) do
@@ -163,7 +149,6 @@ T.Test3D("foliage trunks only sway in the wind and what grows on them turns abou
 	for _, name in ipairs{"pine", "oak", "birch", "willow"} do
 		local parts = build(name, {seed = 1})
 
-		-- a leaf card is held at its bottom edge and does not flutter there, its top is no stiffer
 		local leaves = colors(parts[2])
 
 		for i = 1, #leaves, 4 do
@@ -179,7 +164,6 @@ T.Test3D("foliage trunks only sway in the wind and what grows on them turns abou
 		T(v.b)["=="](1)
 	end
 
-	-- the fronds are held at the crown, the same as the trunk's top
 	local top = palm[1].mesh:GetAABB().max_y
 
 	for _, v in ipairs(colors(palm[2])) do
@@ -206,8 +190,6 @@ T.Test3D("foliage leaves have their normals lean away from the trunk", function(
 	local packed = parts[2].mesh.packed
 	local checked = 0
 
-	-- next to the straight trunk of a pine, away from it is level and out from the middle (the trunk leans and wanders
-	-- up to 0.6 m from the middle, so only what is further out than that is compared with the middle)
 	for i = 0, packed.vertex_count - 1 do
 		local v = packed.vertices[i]
 		local x, y, z = v.position[0], v.position[1], v.position[2]
@@ -227,7 +209,6 @@ T.Test3D("foliage grass and flowers are held at their roots", function()
 	for _, name in ipairs{"grass_meadow", "grass_tussock", "daisies", "reeds"} do
 		for _, part in ipairs(build(name, {seed = 1})) do
 			for _, v in ipairs(colors(part)) do
-				-- what is at the ground is the root
 				if v.y < 0 then
 					T(v.b)["~"](1)
 					T(v.r)["=="](0)
@@ -251,7 +232,6 @@ T.Test3D("foliage models load by their asset path", function()
 
 	T(loaded ~= nil)["=="](true)
 	T(loaded[1].mesh)["=="](foliage.Build("boulder", {seed = 1})[1].mesh)
-	-- the options of a model component are keys over the preset's config
 	local options = entry.value.create_primitives{seed = 2}
 	T(options[1].mesh)["=="](foliage.Build("boulder", {seed = 2})[1].mesh)
 	local ent = Entity.New{Name = "foliage_test_rock"}
@@ -263,7 +243,6 @@ T.Test3D("foliage models load by their asset path", function()
 end)
 
 T.Test3D("foliage textures and materials are assets and draw the same from the same seed", function()
-	-- every material has a color, a normal and a roughness map, whatever it is made of
 	for _, name in ipairs{"oak_leaves", "oak_bark", "rock_granite", "grass_meadow", "flower_poppy", "mushroom_amanita"} do
 		local material = assets.GetMaterial(foliage.GetMaterialPath(name))
 		T(material:GetAlbedoTexture() ~= nil)["=="](true)
@@ -283,7 +262,6 @@ T.Test3D("foliage textures and materials are assets and draw the same from the s
 	local c = textures.Build("bark", "albedo", {seed = 4, width = 32, height = 32}):Download()
 	T(ffi.string(a.pixels, a.size) == ffi.string(b.pixels, b.size))["=="](true)
 	T(ffi.string(a.pixels, a.size) ~= ffi.string(c.pixels, c.size))["=="](true)
-	-- the leaves are cut out, some of the card is see through and some is not
 	local leaves = textures.Build("leaves", "albedo", {seed = 3, width = 128, height = 32}):Download()
 	local clear, solid = 0, 0
 
@@ -293,8 +271,6 @@ T.Test3D("foliage textures and materials are assets and draw the same from the s
 
 	T(clear)[">"](0)
 	T(solid)[">"](0)
-	-- the roughness maps change over the texture: the crevices of bark are rougher than its plates and berries are
-	-- glossier than the leaves around them. they are one channel
 	local function roughness_range(downloaded)
 		local low, high = 255, 0
 

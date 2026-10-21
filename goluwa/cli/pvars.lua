@@ -9,8 +9,6 @@ local mode = "luadata"
 pvars.vars = pvars.vars or {}
 pvars.infos = pvars.infos or {}
 pvars.session = pvars.session or {}
--- "key=value key=value" in the environment, applied for the session as each pvar is registered so that pvars the
--- shaders are built from can be set before the passes are made
 local env_overrides = {}
 
 for key, value in (os.getenv("GOLUWA_PVARS") or ""):gmatch("(%S+)=(%S+)") do

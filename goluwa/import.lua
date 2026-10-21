@@ -88,7 +88,6 @@ function import:__call(path)
 	if self.tracking then
 		local importer = self.loading_stack[#self.loading_stack]
 
-		-- imports made after a module has loaded fetch the module again every time, so they can't go stale
 		if importer and importer ~= path then add_edge(importer, path) end
 	end
 
@@ -139,7 +138,6 @@ do
 	end
 end
 
--- the functions a module defined itself, as opposed to ones other files added to its table
 function get_own_functions(module, path)
 	local own = {}
 	local source = "@" .. path
@@ -155,8 +153,6 @@ function get_own_functions(module, path)
 	return count > 0 and own or nil
 end
 
--- a module that returns a fresh table still has to be the table everyone already holds,
--- so its closures are pointed at the old one and the contents moved over
 local function adopt_table(old, new)
 	local function rebind(value)
 		if type(value) ~= "function" then return end
@@ -191,8 +187,6 @@ local function adopt_table(old, new)
 	setmetatable(old, getmetatable(new))
 end
 
--- every closure of a module's own functions, including the local helpers they call. a slot names
--- an upvalue by the path of functions leading to it, so the same variable is found again after a reload
 local function walk_upvalues(module, own, source, callback)
 	local function visit(func, prefix, visited)
 		visited[func] = true
@@ -225,7 +219,6 @@ local function walk_upvalues(module, own, source, callback)
 	end
 end
 
--- small tables get copied so that changes made in place can be told from what the file set up
 local function shallow_copy(value)
 	if type(value) ~= "table" then return nil end
 
@@ -255,7 +248,6 @@ local function table_mutated(copy, current)
 	return false
 end
 
--- what the module looked like right after it loaded, to tell what it did itself from what happened later
 function take_snapshot(module, path, own)
 	local snapshot = {values = {}, copies = {}, upvalues = {}, upvalue_copies = {}}
 
@@ -284,7 +276,6 @@ local function is_live_object(value)
 	return kind == "table" or kind == "userdata" or kind == "thread"
 end
 
--- state is whatever changed after the module loaded, and it survives unless the file now sets something different
 local function keep_current(loaded, loaded_copy, current, new)
 	if type(current) == "function" then return false end
 
@@ -318,8 +309,6 @@ function import:IsNamespace(path)
 		get_own_functions(module, path) ~= nil
 end
 
--- returns true when the module is still the same value everyone else holds, false when
--- importers are holding a stale value, nil and an error when it did not load
 function import:Reload(path)
 	local chunk, err = self.loadfile(path)
 
@@ -411,8 +400,6 @@ function import:Reload(path)
 			walk_upvalues(module, new_own, "@" .. path, function(slot, func, i, value)
 				local current = current_upvalues[slot]
 
-				-- only live objects survive. a string or number is as likely to be a cache of what the
-				-- edited code produces, or to belong to a buffer that was just made again at its default size
 				if
 					current ~= nil and
 					is_live_object(current) and

@@ -198,7 +198,6 @@ T.Test("Terrain keeps a replaced tile until its replacements are drawn", functio
 
 	frame = frame + 1
 	terrain:RetireTiles()
-	-- everything is built, the old tiles are still there, the new ones are shown over them
 	local _, retiring = count_tiles(terrain)
 	T(retiring > 0)["=="](true)
 	local swapping = 0

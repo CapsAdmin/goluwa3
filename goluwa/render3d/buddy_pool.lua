@@ -1,8 +1,4 @@
 local bit = require("bit")
--- a pool of slots handed out as rooms of 2^class, at an offset that is a multiple of their size. a room is made by
--- splitting a free one of a bigger class (or a fresh block of the biggest, from where Top has not reached yet), and a freed room
--- joins its buddy, the room next to it that it was split from, when that one is free too. a free list per class could not do
--- this: the free rooms of one class were no use to a request for another, so a pool that was mostly free held up requests for good
 local BuddyPool = {}
 BuddyPool.__index = BuddyPool
 
@@ -12,7 +8,6 @@ function BuddyPool.New(size, min_class, max_class)
 	self.Size = size
 	self.MinClass = min_class
 	self.MaxClass = max_class
-	-- how far the pool has been handed out for the first time
 	self.Top = 0
 	self.free_rooms = {}
 	self.free_index = {}
@@ -41,7 +36,6 @@ function BuddyPool:RemoveFree(offset, class)
 	index[offset] = nil
 end
 
--- the offset of a room of 2^class slots, nil when there is none
 function BuddyPool:Alloc(class)
 	local max_class = self.MaxClass
 	local from = class
@@ -86,7 +80,6 @@ function BuddyPool:Free(offset, class)
 	self:PushFree(offset, class)
 end
 
--- how many slots are free in rooms that were handed out and given back, and how many rooms of each class
 function BuddyPool:GetFree()
 	local total, by_class = 0, {}
 

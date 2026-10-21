@@ -171,8 +171,6 @@ local function barrier_between_builds(cmd)
 	}
 end
 
--- a job is a mesh: {vertex_address, vertex_stride, vertex_count, index_address (0 for none), index_is_32, triangle_count,
--- allow_update}. blas, address, pool, offset, units and scratch_size are written to it
 function accel.BuildBLASes(cmd, jobs, count)
 	local device = render.GetDevice()
 	scratch_alignment = scratch_alignment or
@@ -195,7 +193,6 @@ function accel.BuildBLASes(cmd, jobs, count)
 		local geometry = geometries[i - 1]
 		geometry.sType = vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR
 		geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES
-		-- the instance flags decide opaqueness, not the geometry
 		local triangles = geometry.geometry.triangles
 		triangles.sType = vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR
 		triangles.vertexFormat = vk.e.VkFormat("r32g32b32_sfloat")
@@ -303,7 +300,6 @@ function accel.BuildBLASes(cmd, jobs, count)
 		if first < count then barrier_between_builds(cmd) end
 	end
 
-	-- the builds of the meshes are read by the tlas build and by ray queries
 	cmd:PipelineBarrier{
 		srcStage = "acceleration_structure_build_khr",
 		dstStage = {"acceleration_structure_build_khr", "ray_tracing_shader_khr", "compute", "fragment"},
@@ -338,10 +334,6 @@ end
 local swapped = {}
 local copying = {}
 
--- copies the structures whose compacted size the gpu has written into smaller ones. a copy is not used until the frames
--- recorded before it are done (the mesh rows are read by frames in flight), then the record takes the copy and the
--- original is released. returns the records that now have another structure and how many there are, the caller writes
--- the new addresses where the shaders read them
 function accel.CompactBLASes(cmd)
 	local count = 0
 	local frame = system.GetFrameNumber()
@@ -472,7 +464,6 @@ local function get_free_tlas_slot(frame, count)
 		local slot = tlas_slots[i]
 
 		if not slot or (slot ~= current_slot and slot.last_used <= frame - delay) then
-			-- a structure is sized for its most instances, it follows the count down too
 			if slot and (slot.capacity < count or slot.capacity > math.max(count, 1024) * 2) then
 				remove_tlas_slot(slot)
 				slot = nil
@@ -495,8 +486,6 @@ do
 	local compact
 	local compact_rows = 0
 
-	-- copies runs of records of an instance buffer (first record and length pairs in `spans`, `rows` records in all) one after the
-	-- other into a buffer of their own, so a structure built from it is as big as the records it holds and not the ones it spans
 	function accel.CompactInstances(cmd, buffer, spans, span_count, rows)
 		if rows > compact_rows or compact_rows > math.max(rows, 1024) * 2 then
 			if compact then compact:Remove() end
@@ -535,7 +524,6 @@ do
 	end
 end
 
--- builds the top level structure from `count` records of an instance buffer. an unused record has a zero blas reference
 function accel.BuildTLAS(cmd, instance_buffer, count)
 	local frame = system.GetFrameNumber()
 	local slot = get_free_tlas_slot(frame, count)
@@ -569,7 +557,6 @@ function accel.BuildTLAS(cmd, instance_buffer, count)
 	return slot.tlas
 end
 
--- the structure a frame traces against stays unwritten until the frames that may still use it are done
 function accel.MarkTLASUsed()
 	if current_slot then current_slot.last_used = system.GetFrameNumber() end
 end

@@ -2,8 +2,6 @@ local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local ray = "InvalidateRayMaterial"
--- a second albedo and normal blended in, a detail texture over the first, a texture that tints the ground,
--- and the uv transforms of the textures. a material with none of them doesn't upload any
 return {
 	name = "detail",
 	category = "Detail",

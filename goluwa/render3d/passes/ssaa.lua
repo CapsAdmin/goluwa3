@@ -120,9 +120,6 @@ return {
 				}
 
 				float exposure = ssaa_data.pre_exposure_tex != -1 ? ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : 1.0;
-				// the history was pre-exposed for last frame. the average is of what is
-				// shown, the exposed and compressed colour, so a bright sample can't
-				// outweigh the rest
 				history *= get_pre_exposure() / get_previous_pre_exposure();
 				vec3 result = mix(compress(history, exposure), compress(current.rgb, exposure), ssaa_data.weight);
 				set_color(vec4(decompress(result, exposure), current.a));

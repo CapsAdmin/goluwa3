@@ -6,7 +6,6 @@ local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local MenuSpacer = import("goluwa/render2d/ui/elements/menu_spacer.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
 
--- the items of a menu are made when it opens, they are real entities and not part of the tree
 local function build_file_menu(report)
 	local function leaf(text, path)
 		return MenuItem{Text = text, OnClick = || -> report(path)}
@@ -87,7 +86,6 @@ return {
 	View = react.Component(|| -> do
 		local status, set_status = react.UseState("Open a menu and pick an item.")
 		local report = react.UseCallback(|path| -> set_status("Selected: " .. path), {})
-		-- built once, a new function every render would rebuild the bar
 		local bar_items = react.UseMemo(|| -> {
 			{Text = "File", Items = || -> build_file_menu(report)},
 			{Text = "Edit", Items = || -> build_edit_menu(report)},

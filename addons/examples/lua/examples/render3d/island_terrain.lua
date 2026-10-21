@@ -1,7 +1,3 @@
--- a tropical island like the one in Crysis: a mountain on a big island with beaches around it, small islands
--- scattered in the sea, and the dense jungle scatter set (crysis_jungle, scatter_presets.lua) growing over all of it
--- luajit glw --3d lua "import('addons/examples/lua/examples/render3d/island_terrain.lua')"
--- `island_view N` goes to one of the views below (0 lists them)
 local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local noise = import("goluwa/terrain/noise.lua")
@@ -21,8 +17,6 @@ local scatter_set = presets[_G.SCATTER_SET or "crysis_jungle"] or ScatterSet.Get
 scatter_set:SetDensityMultiplier(_G.SCATTER_DENSITY or 2)
 scatter_set:SetDistanceMultiplier(_G.SCATTER_DISTANCE or 10)
 
--- the shape: the sea level is 0, `s` is the distance in meters from the shore, inland positive. a shore profile
--- (shallow beach, slowly deepening sea floor) is the same for all islands, what is inland of it differs
 local HEIGHT_GLSL = [=[
 const vec2 MOUNTAIN_PEAK = vec2(-180.0, 140.0);
 
@@ -37,15 +31,12 @@ vec2 island_warp(vec2 p, float scale, float amount, float bake_step) {
 	return vec2(pn_fbm_lod(q + vec2(2.0, 5.0), 4, scale, bake_step), pn_fbm_lod(q + vec2(-7.0, 1.0), 4, scale, bake_step)) * amount;
 }
 
-// the big island, the distance to its shore
 float island_main_shore(vec2 p, float bake_step) {
 	vec2 q = p + island_warp(p, 900.0, 520.0, bake_step) + island_warp(p + 40.0, 260.0, 90.0, bake_step);
 	float radius = 1900.0 + 300.0 * pn_fbm_lod(p / 2500.0 + SEED_OFFSET + vec2(4.0, 4.0), 2, 2500.0, bake_step);
 	return radius - length(q * vec2(0.85, 1.0));
 }
 
-// the small islands: a grid of cells, each maybe holding one. x is the distance to the shore of the nearest, y how
-// high it rises in the middle
 vec2 island_satellite(vec2 p, float bake_step) {
 	const float CELL = 650.0;
 	vec2 cell = floor(p / CELL);
@@ -78,12 +69,10 @@ float terrain_height(vec2 world) {
 	float hills = pn_fbm_lod(p / 700.0 + SEED_OFFSET + vec2(5.0, 1.5), 5, 700.0, bake_step);
 	float detail = pn_fbm_lod(p / 45.0 + SEED_OFFSET, 3, 45.0, bake_step);
 	float h = island_shore_profile(s) + inland * (20.0 + 22.0 * hills) + land * detail * 1.6;
-	// the mountain: a broad cone, ridged toward the top
 	vec2 mq = p - MOUNTAIN_PEAK + island_warp(p, 500.0, 160.0, bake_step);
 	float cone = pow(1.0 - smoothstep(0.0, 1300.0, length(mq)), 1.5);
 	float ridges = pn_ridged_lod(p / 420.0 + SEED_OFFSET + vec2(8.0, 3.0), 6, 1.0, 2.0, 420.0, bake_step);
 	h += cone * (230.0 + 560.0 * ridges) * inland;
-	// the small islands
 	vec2 sat = island_satellite(p, bake_step);
 	float bump = pn_fbm_lod(p / 90.0 + SEED_OFFSET + vec2(1.0, 7.0), 3, 90.0, bake_step);
 	float h_sat = island_shore_profile(sat.x) + sat.y * smoothstep(20.0, 110.0, sat.x) * (0.75 + 0.5 * bump);
@@ -175,8 +164,6 @@ _G.island_terrain = Terrain.New{
 }:Start()
 render3d.SetOceanEnabled(true)
 render3d.SetOceanLevel(0)
--- a view with `ground` is that many meters above the ground, which is only known once the terrain around it has
--- colliders: go there high, trace down (see tmp/island or the harness) and lower the camera. without it y is the height above the sea
 island.views = {
 	{name = "map", position = Vec3(0, 3200, 0), angles = QuatDeg3(-90, 0, 0), fov = 60},
 	{name = "from the sea", position = Vec3(-5200, 90, -1500), angles = QuatDeg3(-4, -75, 0), fov = 65},
@@ -210,8 +197,6 @@ commands.Add("island_view=number[0]", function(index)
 	island.view = View.New(table.merge({Priority = 100}, island.GetView(index))):Activate()
 end)
 
--- `island_fly kmh radius height` flies around the mountain over the jungle, following the ground by tracing down a
--- little ahead of the camera (the terrain only has colliders close to the camera). `island_fly 0` stops
 do
 	local PEAK = Vec3(-180, 0, 140)
 	local LOOKAHEAD = 1.2

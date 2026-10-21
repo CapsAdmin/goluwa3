@@ -342,7 +342,6 @@ function META:GetSelectedItem()
 	return self._selected_index and self._items[self._selected_index]
 end
 
--- unlike SetSelectedIndex this one is silent (no OnSelect) and remembered: SetItems selects the item again for as long as the list holds it. nil clears it
 function META:SetSelectedItem(item)
 	self._wanted_item = item
 	local index = self:find_index(item)

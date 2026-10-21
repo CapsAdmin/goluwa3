@@ -136,8 +136,6 @@ return {
 
 ]] .. screen_reconstruct.GetViewDepthGLSL("taa_data") .. screen_reconstruct.GetViewPosGLSL("taa_data") .. [[
 
-			// 5 bilinear taps covering the 4x4 Catmull-Rom footprint, with the
-			// corners dropped (Jimenez, "Filmic SMAA")
 			vec3 sample_history(vec2 uv, vec2 size) {
 				vec2 position = uv * size;
 				vec2 center = floor(position - 0.5) + 0.5;
@@ -159,7 +157,6 @@ return {
 				return max(result.rgb / result.a, vec3(0.0));
 			}
 
-			// pulls q toward the box's center until it is inside
 			vec3 clip_to_box(vec3 box_min, vec3 box_max, vec3 q) {
 				vec3 center = 0.5 * (box_max + box_min);
 				vec3 extent = 0.5 * (box_max - box_min) + 1e-5;
@@ -180,13 +177,8 @@ return {
 					return;
 				}
 
-				// the scene is pre-exposed at last frame's exposure over the headroom
 				float exposure = taa_data.pre_exposure_tex != -1 ? ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : 1.0;
 
-				// the neighbourhood's colour spread, the closest depth (so edges
-				// move with the object in front), and this pixel's colour at its
-				// unjittered center: sample p shows the scene at p - jitter, so its
-				// distance from this pixel's center is offset - jitter
 				vec3 m1 = vec3(0.0);
 				vec3 m2 = vec3(0.0);
 				vec3 c_min = vec3(1e9);
@@ -223,13 +215,8 @@ return {
 				}
 
 				current /= current_weight;
-				// stored with the history. the closest depth of the neighbourhood, not
-				// this pixel's own: a sub-pixel detail covers the pixel's center only on
-				// some jitter phases, and its depth would alternate with the background's
 				float view_depth = get_view_depth(uv, closest_depth);
 
-				// where the surface was last frame. the sky and a disabled
-				// velocity buffer go through the cameras instead
 				vec2 prev_uv;
 				float expected_depth = -1.0;
 
@@ -243,9 +230,6 @@ return {
 					prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
 				}
 
-				// the water is drawn by its own pass, with no velocity and no depth in the
-				// gbuffer, so it would move like whatever is behind it. it knows how far
-				// the surface is, which is enough to reproject it
 				float water_distance = taa_data.ocean_distance_tex != -1 ? texelFetch(TEXTURE(taa_data.ocean_distance_tex), pixel, 0).r : -1.0;
 
 				if (water_distance > 0.0) {
@@ -254,10 +238,6 @@ return {
 					expected_depth = -1.0;
 				}
 
-				// translucent surfaces move on their own. the history follows
-				// whichever of them and what is behind them makes up most of the
-				// pixel, and where they move apart, the part that doesn't
-				// reproject is let go
 				float reactive = 0.0;
 
 				if (taa_data.translucent_motion_tex != -1) {
@@ -280,8 +260,6 @@ return {
 					return;
 				}
 
-				// a surface that was hidden last frame has a history of whatever
-				// was in front of it, which sits at a different depth
 				float depth_weight = 1.0;
 
 				if (expected_depth > 0.0) {
@@ -293,17 +271,9 @@ return {
 
 				vec3 mean = m1 / 9.0;
 				vec3 sigma = sqrt(max(m2 / 9.0 - mean * mean, vec3(0.0)));
-				// the largest motion around, not only the closest surface's: the background
-				// beside a moving thin object is still next to it
 				float motion = max(length((prev_uv - uv) * vec2(size)), neighbour_motion);
 				float history_scale = get_pre_exposure() / get_previous_pre_exposure();
-				// the history was pre-exposed for last frame
 				vec3 history = compress(sample_history(prev_uv, vec2(size)) * history_scale, exposure);
-				// a sub-pixel detail (a distant fence) covers the pixel's center on only
-				// some jitter phases, so on the others the neighbourhood and the depth
-				// both disagree with a history that is right. a wrong history, such as
-				// what a moving object left behind, is wide and matches the history two
-				// pixels away, while the detail is a line that stands out from it
 				vec2 texel = 2.0 / vec2(size);
 				vec3 ring = (
 					compress(textureLod(TEXTURE(taa_data.history_color_tex), prev_uv + vec2(texel.x, 0.0), 0.0).rgb * history_scale, exposure) +
@@ -313,18 +283,12 @@ return {
 				) * 0.25;
 				float isolated = smoothstep(0.008, 0.035, length(history - ring));
 				float history_weight = mix(depth_weight, 1.0, isolated);
-				// a surface that hasn't moved, with a history that is right, is seeing
-				// the same thing every frame, so a jitter sample that misses a detail
-				// must not erase what the earlier samples found. the box is wide and the
-				// clip is only partly applied
 				float still = (1.0 - smoothstep(0.0, 0.75, motion)) * history_weight * (1.0 - reactive);
-				// the two frame mode averages the frame with the one before it, whose own jitter is the opposite half pixel, so it takes the pixel's own sample and clamps the history a little tighter
 				float thin = taa_data.max_feedback > 0.0 ? 0.0 : still * isolated;
 				float gamma = taa_data.max_feedback > 0.0 ? 2.0 : mix(1.5, 3.0, thin);
 				vec3 box_min = mix(max(mean - gamma * sigma, c_min), mean - gamma * sigma, thin);
 				vec3 box_max = mix(min(mean + gamma * sigma, c_max), mean + gamma * sigma, thin);
 				vec3 clipped = mix(clip_to_box(box_min, box_max, history), history, 0.6 * thin);
-				// the further the history had to move, the less it is trusted
 				float clip_amount = length(clipped - history) / (length(history - mean) + 1e-4);
 				float feedback = taa_data.max_feedback > 0.0 ? taa_data.max_feedback : mix(0.85, 0.94, thin) * (1.0 - 0.5 * clip_amount);
 				vec3 result = mix(current, clipped, feedback * history_weight * (1.0 - reactive));
@@ -373,7 +337,6 @@ return {
 				vec3 s = compress(texelFetch(TEXTURE(sharpen_data.source_tex), clamp(pixel + ivec2(0, 1), ivec2(0), size - 1), 0).rgb, exposure);
 				vec3 w = compress(texelFetch(TEXTURE(sharpen_data.source_tex), clamp(pixel + ivec2(-1, 0), ivec2(0), size - 1), 0).rgb, exposure);
 				vec3 e = compress(texelFetch(TEXTURE(sharpen_data.source_tex), clamp(pixel + ivec2(1, 0), ivec2(0), size - 1), 0).rgb, exposure);
-				// clamped to the cross so it adds no ringing
 				vec3 sharpened = clamp(
 					c + sharpen_data.strength * (c - 0.25 * (n + s + w + e)),
 					min(c, min(min(n, s), min(w, e))),

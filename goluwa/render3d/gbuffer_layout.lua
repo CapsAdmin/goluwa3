@@ -5,20 +5,8 @@ local glsl_common = import("goluwa/render3d/glsl_common.lua")
 -- the guaranteed minimum of vulkan's maxColorAttachments
 local MAX_TARGETS = 8
 gbuffer_layout.DEPTH_FORMAT = "d32_sfloat"
--- fields are what the gbuffer stores per pixel. features declare theirs (features/*.lua), no layout
--- needs editing, and they are packed into as few targets as fit.
--- kind: unorm8 (one 8 bit channel), unorm4 (half of an 8 bit channel, a value in 16 steps), unorm16
---   (one 16 bit channel) or octa (a unit vector in two 16 bit channels)
--- default: the value written when a pass doesn't write the field, before encode
--- encode, decode: GLSL on v, the field's value and what is stored. encode becomes
---   gbuffer_encode_<name>, decode is what gbuffer_<accessor> returns
--- sheet: the gbuffer_inspect sheet the field belongs to (its own name by default), fields of one sheet are shown together
--- max: the largest decoded value, what gbuffer_inspect shows as white (1 by default)
--- readers: the passes that read it. fields with the same readers sit next to each other, so a
---   pass binds fewer textures. no readers means all of them
 gbuffer_layout.fields = surface_features.GetFields()
 
--- fixed targets: their formats are chosen for what they hold
 local ALBEDO_TARGET = {
 	texture = "albedo",
 	format = "r8g8b8a8_srgb",
@@ -34,7 +22,6 @@ local VELOCITY_TARGET = {
 	format = "r16g16b16a16_sfloat",
 	channels = {{"velocity", "rg"}, {"prev_view_depth", "b"}},
 }
--- the class is the kind of target the field goes in, the width is in channels
 local KINDS = {
 	unorm8 = {class = "8", width = 1},
 	unorm4 = {class = "8", width = 0.5},
@@ -42,10 +29,6 @@ local KINDS = {
 	octa = {class = "16", width = 2},
 }
 
--- a field is stored in the first free channels of its class, in the order of its readers, so
--- the fields one pass reads end up next to each other and share as few textures as possible.
--- sets field.target, field.swizzle and for a unorm4 field field.nibble (0 low, 1 high), and
--- returns the targets
 function gbuffer_layout.Pack(fields)
 	local keyed = {}
 
@@ -105,7 +88,6 @@ function gbuffer_layout.Pack(fields)
 			if kind.width == 0.5 then
 				field.nibble = 0
 				class.open = {target = target, swizzle = swizzle}
-				-- named once the target is, see below
 				table.insert(target.channels, {false, swizzle, packed = true})
 			else
 				field.nibble = nil
@@ -186,16 +168,11 @@ do
 			return oct_encode(N) * 0.5 + 0.5;
 		}
 
-		// cd/m2 in. b10g11r11 stops at 64512, a frosted bulb is ~1e5 and a clear
-		// filament ~1e7; scaled down it reaches 1.7e7 (render3d.EMISSIVE_MAX_LUMINANCE)
-		// and keeps full precision down to 0.016
 		vec3 gbuffer_encode_emissive(vec3 luminance) {
 			return luminance * (1.0 / 256.0);
 		}
 ]]
 	local defaults = {"void gbuffer_set_defaults() {"}
-	-- two unorm4 fields share a channel, so they are set into variables and the channel is
-	-- written by gbuffer_flush_packed
 	local flush = {"void gbuffer_flush_packed() {"}
 
 	for _, field in ipairs(gbuffer_layout.fields) do
@@ -260,8 +237,6 @@ do
 	table.insert(lines, handwritten)
 	table.insert(lines, surface_features.GetEncodersGLSL())
 	table.insert(lines, table.concat(defaults, "\n"))
-	-- every pass that writes the gbuffer calls gbuffer_set_defaults first, so a field
-	-- it doesn't know about reads as its default instead of garbage
 	function gbuffer_layout.GetEncodeGLSL()
 		return table.concat(lines, "\n") .. surface_features.GetSurfaceGLSL() .. surface_features.GetDefaultFunctionGLSL() .. surface_features.GetPrepareWeatherFunctionGLSL() .. surface_features.GetWeatherFunctionGLSL() .. surface_features.GetWriteFunctionGLSL()
 	end
@@ -282,7 +257,6 @@ do
 		local fetch = string.format("GBUFFER.%s_tex", field.target.texture)
 
 		if field.kind == "octa" then
-			-- never filtered, texels on either side of the octahedral fold don't blend
 			table.insert(
 				decoders,
 				string.format(
@@ -297,7 +271,6 @@ do
 				)
 			)
 		elseif field.nibble then
-			-- never filtered, a filtered code is a blend of two others
 			table.insert(
 				decoders,
 				string.format(
@@ -364,7 +337,6 @@ do
 	}
 	gbuffer_layout.FORMAT_BYTES = FORMAT_BYTES
 
-	-- the targets, what is stored in each channel and how much is left
 	function gbuffer_layout.Describe()
 		local lines = {}
 		local total = 0

@@ -117,8 +117,6 @@ function screen_reconstruct.GetGeometricNormalGLSL(block_name, options)
 					float negative_error = abs(2.0 * e1 - e2 - depth);
 					bool positive = positive_error < negative_error;
 
-					// the tolerance is relative to the step itself, so it holds at any
-					// distance, plus the rounding of depths near 0
 					if (min(positive_error, negative_error) > 0.25 * abs((positive ? d1 : e1) - depth) + 4e-7 * depth) return fallback;
 
 					steps[axis] = positive ?
@@ -133,8 +131,6 @@ function screen_reconstruct.GetGeometricNormalGLSL(block_name, options)
 
 				n *= inversesqrt(len_sq);
 				n = dot(n, V) < 0.0 ? -n : n;
-				// two pixels of a blade in front can still line up with this one by
-				// chance. no normal map bends a surface this far from its geometry
 				return dot(n, fallback) < 0.5 ? fallback : n;
 			}
 	]]

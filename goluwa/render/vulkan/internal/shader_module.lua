@@ -22,8 +22,6 @@ end
 
 local shaders_disk_cache_dir = "./storage/cache/shaders/"
 local shaders_disk_cache_dir_ready = false
--- a cache file is a header, the spir-v and then the glsl it was compiled from, so a hit is only
--- used when it is for exactly this source. the filename only has to be unlikely to collide
 local CACHE_MAGIC = "GLWSPV01"
 local CACHE_HEADER = ffi.typeof("struct { char magic[8]; uint32_t spirv_size; uint32_t glsl_size; }")
 local CACHE_HEADER_PTR = ffi.typeof("const $ *", CACHE_HEADER)
@@ -37,7 +35,6 @@ local function ensure_disk_cache_dir()
 	shaders_disk_cache_dir_ready = true
 end
 
--- the glsl and the shaderc build it was compiled by, a file only counts when it holds this
 local function get_source_key(glsl)
 	return shaderc.identity .. "\0" .. glsl
 end
@@ -47,7 +44,6 @@ local function disk_cache_path(glsl, shader_type)
 	return shaders_disk_cache_dir .. crypto.CRC32(key) .. "_" .. #key .. ".spv"
 end
 
--- returns the spir-v and its size, or nil and why there is none
 local function load_disk_cache(path, glsl)
 	if not fs.is_file(path) then return nil, "not cached" end
 
@@ -86,7 +82,6 @@ local function load_disk_cache(path, glsl)
 	return copy, spirv_size
 end
 
--- the files of the old format, named by a crc32 alone and holding only spir-v
 local legacy_removed = false
 
 local function remove_legacy_files()
@@ -113,7 +108,6 @@ local function save_disk_cache(path, glsl, spirv_data, spirv_size)
 	ffi.copy(header.magic, CACHE_MAGIC, 8)
 	header.spirv_size = spirv_size
 	header.glsl_size = #get_source_key(glsl)
-	-- the address makes the name unique among threads, which share a process and a clock
 	local temp_path = path .. "." .. tostring(spirv_data):gsub("%W", "") .. ".tmp"
 	local ok = fs.write_file(temp_path, ffi.string(header, CACHE_HEADER_SIZE) .. ffi.string(spirv_data, spirv_size) .. get_source_key(glsl))
 
@@ -139,8 +133,6 @@ local function get_or_create_cached_module(device, glsl, type)
 	local spirv_data, spirv_size = load_disk_cache(path, glsl)
 
 	if not spirv_data then
-		-- spirv_size holds the reason. not being cached is the normal first run, anything else
-		-- is a cache that can't be trusted
 		local reason = spirv_size
 		local start = os.clock()
 		local started = startup.Start()

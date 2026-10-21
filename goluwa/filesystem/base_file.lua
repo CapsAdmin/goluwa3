@@ -47,7 +47,6 @@ do
 	vfs.call_cache = cache
 end
 
--- starts what a later Open of the path would spend time on (an archive entry's decompression) on a worker thread and calls callback when it is done
 function CONTEXT:Prefetch(path_info, callback)
 	callback()
 end

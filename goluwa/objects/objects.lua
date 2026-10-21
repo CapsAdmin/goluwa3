@@ -773,9 +773,6 @@ do
 		return lookup
 	end
 
-	-- every version stamped on an object by a versioned property is a slot in a ring of the objects that were stamped, so
-	-- whatever keeps something for objects can find the ones that changed since it last looked, as long as that
-	-- was less than VERSION_LOG_SIZE stamps ago
 	objects.version_counter = objects.version_counter or 0
 	objects.VERSION_LOG_SIZE = 65536
 	objects.version_log = objects.version_log or setmetatable({}, {__mode = "v"})
@@ -854,7 +851,6 @@ do
 		local var_name = info.var_name
 
 		if not meta[get_name] then
-			-- code that knows it is this one can read the field instead
 			info.default_getter = function(self)
 				return self[var_name]
 			end

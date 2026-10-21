@@ -8,8 +8,6 @@ local instances = import("goluwa/render3d/scene/instances.lua")
 local rt = {}
 local frame_state = {frame = -1}
 
--- the top level structure of the scene for this frame, built once per frame by whichever pass asks first. a scene
--- without instances gets an empty one so ray queries have something to bind
 function rt.GetTLAS(cmd)
 	local frame = system.GetFrameNumber()
 

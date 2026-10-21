@@ -57,7 +57,6 @@ function META:Rebuild()
 	end
 end
 
--- the meshes do not depend on the material, so the primitives that use the model's material just get the new one
 function META:OnMaterialChanged()
 	if not (self.initialized and self.children) then return end
 

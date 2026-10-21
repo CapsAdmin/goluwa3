@@ -515,8 +515,6 @@ do
 	end
 end
 
--- skip_physics leaves the physics geometry out, skip_visuals the meshes. Returns the meshes, the physics geometry and
--- whether the file has any (also when it was skipped)
 function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 	local entries = {}
 	local physics = {}
@@ -648,8 +646,6 @@ function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 
 				if is_proxy then positions, indices, subsets = {}, {}, {subsets = {}} end
 
-				-- the colors are the vegetation bending (see model_pipeline.lua): without them a mesh is held still, no edge
-				-- flutters and nothing bends but the whole
 				if not colors[1] then
 					for index = 1, #positions do
 						colors[index] = RIGID_COLOR
@@ -794,9 +790,6 @@ function cgf.GetMaterialPaths(path)
 	return out
 end
 
--- The decode runs on a worker thread (model_loader.AddThreadedDecoder): the main thread reads the bytes of the file and
--- of its _lodN siblings, the worker extracts the meshes and packs them (tangents included), the main thread makes the
--- materials and uploads the packed meshes.
 cgf.Decoder = {}
 cgf.Decoder.job = [=[
 	local input = ...
@@ -835,7 +828,6 @@ function cgf.Decoder.Gather(path, full_path)
 	return input, size
 end
 
--- worker side
 function cgf.PackModel(input)
 	local entries, _, has_physics = cgf.ExtractStaticMeshData(cgf.OpenData(input.data), true, not input.meshes)
 	local meta = {has_physics = has_physics}
@@ -892,7 +884,6 @@ function cgf.PackModel(input)
 	return meta, builder:Finish()
 end
 
--- the physics geometry is made when something asks for it (a rigid body), most models are only drawn
 function cgf.ExtractPhysics(data)
 	local _, physics = cgf.ExtractStaticMeshData(cgf.OpenData(data), false, true)
 	return physics
@@ -946,7 +937,6 @@ function cgf.Decoder.Finish(path, full_path, input, meta, blob_table, mesh_callb
 		local vertices, indices = packed_mesh.Unpack(info, blob_table)
 		local diffuse = material and material.cry_texture_maps and material.cry_texture_maps.Diffuse
 
-		-- the tiling changes the uvs the tangents are made from, the worker made them from the plain uvs
 		if
 			diffuse and
 			(

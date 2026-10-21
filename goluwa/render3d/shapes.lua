@@ -152,18 +152,12 @@ do
 	end
 end
 
--- a surface of revolution around the y axis: profile is a list of {radius, y} read in the direction that has the outside
--- on its right hand (a cylinder's side goes up, its top cap goes in towards the axis), so a closed solid is one list
--- from the bottom's middle round to the top's. a point where the profile turns by more than 35 degrees is a hard edge
--- (it gets a normal for each side), smaller turns are smooth. uv: u once around, v by the length along the profile.
--- scale stretches the result along the axes (a boat is a bowl of revolution made long)
 function shapes.BuildLathe(poly, profile, segments, texture_scale, scale)
 	segments = math.max(math.floor(segments or 24), 3)
 	texture_scale = texture_scale or 1
 	scale = scale or Vec3(1, 1, 1)
 	local count = #profile
 	local lengths = {0}
-	-- the direction of each segment of the profile
 	local directions = {}
 
 	for i = 2, count do
@@ -177,8 +171,6 @@ function shapes.BuildLathe(poly, profile, segments, texture_scale, scale)
 	local total = math.max(lengths[count], 1e-6)
 	local smooth_cos = math.cos(math.rad(35))
 
-	-- the direction at the end of segment k, which is point k (at_start) or k + 1, averaged with the neighbouring
-	-- segment unless the profile turns sharply there
 	local function direction_at(k, at_start)
 		local own = directions[k]
 		local other = directions[at_start and k - 1 or k + 1]
@@ -526,7 +518,6 @@ function shapes.BuildModelAsset(ent, path, material, asset_options)
 	return shared_material, children
 end
 
--- material configs go through the prefab inputs, a material object is not data so it is handed to the model afterwards
 local function create_shape(config, prefab_name, inputs)
 	local material = get(config, "Material")
 

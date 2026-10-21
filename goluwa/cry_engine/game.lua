@@ -63,7 +63,6 @@ function game.ListLevels()
 	return levels
 end
 
--- LevelStart.bmp is the 16:9 picture the game shows in its level list, a few levels only have the loading screen
 function game.GetLevelThumbnail(level)
 	local level_dir = game.ResolveLevelDirectory(level)
 

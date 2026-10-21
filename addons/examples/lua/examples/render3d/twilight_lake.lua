@@ -1,9 +1,3 @@
--- a mountain lake at the last of the sun: snow capped ridges over a lake of calm water, forest on the western hills,
--- a meadow in the east, and a camp on the south shore with a pier, a glass pavilion, lanterns and a fire. the sun is a
--- few degrees above the ridge behind the camera, the clouds are lit from below and the valley is hazy.
--- luajit glw --3d lua "import('addons/examples/lua/examples/render3d/twilight_lake.lua')"
--- `twilight_view N` goes to a view (0 lists them and gives the camera back), `twilight_tour` flies through them,
--- `twilight_sun` and `twilight_weather` change the sky (docs/twilight-lake.md)
 local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local noise = import("goluwa/terrain/noise.lua")
@@ -26,7 +20,6 @@ local Color = import("goluwa/structs/color.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 local sets = import("lua/foliage/scatter_sets.lua")
 local twilight = {}
--- the layout in meters, x east, z south, the camera looks north (-z) over the lake. the same numbers are in the glsl
 local LAKE = Vec3(0, 0, -330)
 local LAKE_RADII = {330, 250}
 local CAMP = Vec3(0, 0, -25)
@@ -48,7 +41,6 @@ float lake_distance(vec2 p) {
 	return length((p - LAKE) / LAKE_RADII);
 }
 
-// low ground round the lake, rolling away from it, the wooded hills in the west and the meadow rise in the east
 float land_height(vec2 p) {
 	float d = lake_distance(p);
 	float rolling = 2.5 * sin(p.x * 0.011 + 0.7) * cos(p.y * 0.013) + 1.5 * sin(p.x * 0.027 + p.y * 0.019 + 1.3);
@@ -59,7 +51,6 @@ float land_height(vec2 p) {
 	return h + 16.0 * smoothstep(1.2, 2.8, d);
 }
 
-// the ridges that close the valley, rising from 2.2 lake radii out, lower behind the camp
 float mountain_height(vec2 p, float bake_step) {
 	float ring = smoothstep(2.2, 6.0, lake_distance(p));
 	float behind = mix(0.45, 1.0, smoothstep(250.0, -500.0, p.y));
@@ -94,7 +85,6 @@ float terrain_height(vec2 p) {
 	HILLS_EAST.x,
 	HILLS_EAST.z
 )
--- the layers: x the meadow, y the forest floor, z rock, w the camp's short lawn, and then sand on the beach
 local SPLAT_GLSL = [=[
 float forest_amount(vec2 p, float breakup) {
 	float west = smoothstep(1.0, 0.45, length((p - HILLS_WEST) / vec2(520.0, 420.0)) + breakup * 0.5);
@@ -118,7 +108,6 @@ vec4 terrain_splat(vec2 p, float h, vec3 n) {
 	return w / max(dot(w, vec4(1.0)), 0.0001);
 }
 ]=]
--- layers five and six: sand on the beach, and the snow, which is laid over the rest by its cover rule
 local SPLAT2_GLSL = [=[
 vec4 terrain_splat2(vec2 p, float h, vec3 n) {
 	float fine = pn_fbm(p * 0.03 + vec2(9.0, -4.0), 3) * 0.5;
@@ -139,7 +128,6 @@ vec3 terrain_color(vec2 world, float h, vec3 n) {
 }
 ]=]
 
--- the height without the glsl's small noise (at most 0.8 m off), and exactly the camp's on its plateau
 function twilight.GetHeight(x, z)
 	local lake_d = math.sqrt(((x - LAKE.x) / LAKE_RADII[1]) ^ 2 + ((z - LAKE.z) / LAKE_RADII[2]) ^ 2)
 	local rolling = 2.5 * math.sin(x * 0.011 + 0.7) * math.cos(z * 0.013) + 1.5 * math.sin(x * 0.027 + z * 0.019 + 1.3)
@@ -155,7 +143,6 @@ function twilight.GetHeight(x, z)
 	return math.lerp(camp, h, CAMP_HEIGHT)
 end
 
--- the foliage sets in one, each growing on its own layer. the camp's lawn only gets the grass, flowers and pebbles, shorter
 local function build_scatter_set()
 	local prototypes = {}
 
@@ -215,8 +202,6 @@ end
 
 if _G.twilight_lake then _G.twilight_lake.Remove() end
 
--- more than four layers need SelectChunkLayers: it hands each chunk the layers and their ids, and the ids of a fifth
--- layer is what makes the source bake the second weight texture
 local LAYERS = {
 	layer("grass", 3, {scatter = 1, anti_tiling = 1, far_scale = 29, far_distance = 240}),
 	layer("dirt", 3, {scatter = 1, anti_tiling = 1}),
@@ -268,7 +253,6 @@ twilight.terrain = Terrain.New{
 }:Start()
 twilight.root = Entity.New{Name = "twilight_lake", Parent = Entity.World}
 twilight.root:AddComponent("transform")
--- sun, sky, water
 local sun_elevation = math.rad(SUN_ELEVATION)
 local sun_azimuth = math.rad(SUN_AZIMUTH)
 weather.SetTimeScale(0)
@@ -321,8 +305,6 @@ water.SetOcean{
 	Absorption = water.presets.lake.Absorption:Copy(),
 	ParticleScattering = water.presets.lake.ParticleScattering:Copy(),
 }
--- the camp: a pier down to a torii in the lake, a glass pavilion, a fire and its seats, lanterns, a pair of
--- pedestals at the head of the pier with a gold sphere and a glass one, crystals on the shore
 local ground = twilight.GetHeight
 local root = twilight.root
 local DECK_X = 0
@@ -332,7 +314,6 @@ local PIER_WIDTH = 2.6
 local TORII_Z = -116
 local PAVILION = Vec3(-15, CAMP_HEIGHT, -63)
 local FIRE = Vec3(15, CAMP_HEIGHT, -34)
--- a glsl header for the wood: value noise, and boards laid along u and stacked along v
 local WOOD_HEADER = [=[
 float hash11(float p) {
 	p = fract(p * 0.1031);
@@ -367,7 +348,6 @@ float fbm(vec2 p) {
 	return sum;
 }
 
-// x: how far down the grooves are (0 is a gap between boards), y: the board's own tone, z: the grain
 vec3 boards(vec2 uv, float rows, float length_units) {
 	float row = floor(uv.y * rows);
 	float row_hash = hash11(row * 7.13);
@@ -521,7 +501,6 @@ local function box(name, position, size, material, rotation, static)
 	}
 end
 
--- a solid of revolution standing on position, the profile is {radius, height} from the bottom's middle round to the top's
 local function lathe(name, position, profile, material, segments, texture_scale)
 	return shapes.Polygon{
 		Name = name,
@@ -573,7 +552,6 @@ end
 local LANTERN_COLOR = Color(1, 0.6, 0.26, 1)
 twilight.lanterns = {}
 
--- a lantern standing at position: iron foot and cap, a glowing body, and its light
 local function lantern(position, lumen)
 	cylinder("lantern_foot", position, 0.17, 0.05, materials.iron, 12)
 	lathe(
@@ -605,11 +583,9 @@ local function lantern(position, lumen)
 	twilight.lanterns[#twilight.lanterns + 1] = {component = component, base = lumen}
 end
 
--- the pier: boards across, in sections that follow the ground, on posts down to the lake bed
 local sections = 0
 local section_length = 4
 
--- the top of the deck at z: the ground and a little over it, but never under 1.4 m, where the lake begins
 local function deck_top(z)
 	return math.max(ground(DECK_X, z) + 0.3, DECK_TOP_LOW)
 end
@@ -640,7 +616,6 @@ for z0 = RAMP_START, PIER_END + section_length, -section_length do
 			materials.frame,
 			10
 		)
-		-- the rails between this post and the last
 		box(
 			"pier_rail",
 			Vec3(x, (y0 + y1) / 2 + 0.88, (z0 + z1) / 2),
@@ -664,7 +639,6 @@ for z0 = RAMP_START, PIER_END + section_length, -section_length do
 	sections = sections + 1
 end
 
--- the torii, standing in the lake: two posts down to the bed, a tie beam, two lintels and the plaque
 do
 	local half = 5.2
 	local top = 9.6
@@ -734,7 +708,6 @@ do
 	)
 end
 
--- the pavilion: a raised plank floor, a gabled roof of dark shingles on posts, glass between them to the north, east and west
 do
 	local size_x, size_z = 9, 6.5
 	local wall_height = 3
@@ -795,7 +768,6 @@ do
 		Vec3(0.3, 0.28, size_z),
 		materials.frame
 	)
-	-- glass between the posts, 2.5 m of it above a low sill
 	local pane_height = wall_height - 0.45
 	local pane_y = 0.55 + 0.1 + pane_height / 2
 
@@ -831,7 +803,6 @@ do
 		)
 	end
 
-	-- the south wall is planks, with a doorway
 	box(
 		"pavilion_wall_south_a",
 		PAVILION + Vec3(-2.9, pane_y, size_z / 2),
@@ -850,7 +821,6 @@ do
 		Vec3(2.7, 0.7, 0.14),
 		materials.floor
 	)
-	-- the roof, two slabs and a ridge
 	local rise, run = 2.1, size_z / 2 + 1.1
 	local slope = math.deg(math.atan2(rise, run))
 	local slab = math.sqrt(rise ^ 2 + run ^ 2)
@@ -871,7 +841,6 @@ do
 		Vec3(size_x + 2.4, 0.22, 0.34),
 		materials.black_lacquer
 	)
-	-- inside: a low table, cushions, and a paper lantern
 	box(
 		"table",
 		PAVILION + Vec3(1.2, 0.6 + 0.2, -0.4),
@@ -930,7 +899,6 @@ do
 	)
 end
 
--- a rowboat tied to the pier, rocking on the water: a bowl of revolution made long, and two seats
 do
 	local steps, wall = 12, 0.07
 	local outer = {}
@@ -978,7 +946,6 @@ do
 	twilight.boat_rocks = true
 end
 
--- the head of the pier: two stone pedestals with a gold sphere and a glass one on them
 do
 	local function pedestal(x, top_material, radius)
 		local position = Vec3(x, CAMP_HEIGHT, RAMP_START + 4)
@@ -1014,11 +981,8 @@ do
 	pedestal(3.2, materials.glass_orb, 0.42)
 end
 
--- a path of cobbles from the camp to the head of the pier, parallax mapped: the stones stand up from the mortar
 do
 	local COBBLE_HEADER = WOOD_HEADER .. [=[
-// periodic voronoi with `period` cells across: x the distance to the nearest center, y to the second nearest, zw the
-// nearest cell's id
 vec4 cells(vec2 p, float period) {
 	vec2 i = floor(p);
 	vec2 f = fract(p);
@@ -1046,7 +1010,6 @@ vec4 cells(vec2 p, float period) {
 	return vec4(d1, d2, id);
 }
 
-// 0 in the mortar, the stones domed
 float cobble_height(vec2 uv) {
 	vec4 c = cells(uv * 7.0, 7.0);
 	float edge = smoothstep(0.0, 0.2, c.y - c.x);
@@ -1100,8 +1063,6 @@ float cobble_height(vec2 uv) {
 	end
 end
 
--- a stone basin by the pier with a little water in it: a water volume, with its own caustics on the floor, and a cool
--- light under the surface
 do
 	local center = Vec3(11, CAMP_HEIGHT, -58)
 	local size = Vec3(6, 0, 4)
@@ -1115,7 +1076,6 @@ do
 		nil,
 		true
 	)
-	-- a ring of boulders round it, sunk into the ground
 	local perimeter = {}
 
 	for i = 0, 6 do
@@ -1161,7 +1121,6 @@ do
 	)
 end
 
--- the fire: stones round it, logs to sit on, the light of it
 do
 	local stones = 9
 
@@ -1191,7 +1150,6 @@ do
 	twilight.fire = FIRE
 end
 
--- crystals on a rock by the shore, glowing blue, and the light they give
 do
 	local base = Vec3(24, ground(24, -64), -64)
 	model("models/foliage/rocks/crag_a.lua", base + Vec3(0, -0.3, 0), 0.6, 30)
@@ -1217,7 +1175,6 @@ do
 	twilight.crystal_light = light("crystal_light", base + Vec3(0, 1.1, 0), Color(0.3, 0.5, 1, 1), 380, 0.1)
 end
 
--- a sail of cloth over the seats, on three poles
 do
 	local poles = {Vec3(11.5, 0, -39), Vec3(20, 0, -37), Vec3(16.4, 0, -29)}
 	local heights = {5.2, 4.8, 6.1}
@@ -1254,7 +1211,6 @@ do
 				}
 			end
 
-			-- a flat sheet drooping to the middle: three triangles around it, drawn from both sides by DoubleSided
 			vertex(a, 0, 0)
 			vertex(mid, 0.5, 0.5)
 			vertex(b, 1, 0)
@@ -1271,7 +1227,6 @@ do
 	}
 end
 
--- particles: the fire (flames, sparks, smoke) and the fireflies over the meadow
 local function emitter(name, kind, position, direction)
 	local entity = Entity.New{Name = name, Parent = root}
 	local transform = entity:AddComponent("transform")
@@ -1340,7 +1295,6 @@ do
 	smoke:SetColorEnd(Color(0.45, 0.44, 0.44, 0))
 	twilight.fireflies = {}
 
-	-- three swarms with soft edges: round the fire, over the east meadow and by the willows on the west shore
 	for _, swarm in ipairs{
 		{position = Vec3(14, CAMP_HEIGHT + 1.6, -30), radius = 20, rate = 22},
 		{position = Vec3(46, CAMP_HEIGHT + 1.4, -48), radius = 26, rate = 30},
@@ -1370,7 +1324,6 @@ do
 	twilight.emitters = {flames = flames, sparks = sparks, smoke = smoke}
 end
 
--- the fire and the lanterns flicker
 do
 	local fire_light = twilight.fire_light
 	local FIRE_LUMEN = fire_light:GetLumen()
@@ -1409,8 +1362,6 @@ do
 	end)
 end
 
--- the sun's height, in degrees above the horizon. under it the image is exposed like an eye (a dim scene stays dim and the
--- lights read) and not like a camera that would lift the night to a mid grey
 function twilight.SetSunElevation(degrees)
 	pvars.SetSession("r_eye", degrees < 0)
 	local elevation = math.rad(degrees)
@@ -1448,7 +1399,6 @@ local spawn = Entity.New{Name = "twilight_spawn", Parent = twilight.root}
 spawn:AddComponent("transform"):SetPosition(Vec3(CAMP.x + 6, CAMP_HEIGHT + 0.1, CAMP.z + 14))
 spawn:AddComponent("spawn_point", {Group = "start"})
 
--- a rotation looking from one point at another
 local function look(from, to)
 	local dir = (to - from):GetNormalized()
 	local rotation = Quat()
@@ -1462,7 +1412,6 @@ local function on_ground(x, z, above)
 	return Vec3(x, twilight.GetHeight(x, z) + above, z)
 end
 
--- in the order of the tour, each leg is a straight flight from one to the next
 twilight.views = {
 	{
 		name = "down the pier to the torii",
@@ -1543,7 +1492,6 @@ commands.Add("twilight_view=number[0]", function(index)
 	twilight.SetView(index)
 end)
 
--- a slow camera tour through the views, seconds is how long each leg takes, 0 stops it
 function twilight.SetTour(seconds)
 	event.RemoveListener("Update", "twilight_lake_tour")
 	twilight.SetView(nil)
@@ -1574,7 +1522,6 @@ commands.Add("twilight_tour=number[14]", function(seconds)
 	twilight.SetTour(seconds)
 end)
 
--- the look of the image: a warmer, richer grade, kept for this session only
 local LOOK = {
 	r_grade_warmth = 12,
 	r_grade_contrast = 8,

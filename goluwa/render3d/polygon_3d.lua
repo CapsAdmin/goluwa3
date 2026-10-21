@@ -28,8 +28,6 @@ Polygon3D:GetSet("MaterialSlot", nil)
 Polygon3D:GetSet("LODLevel", 0)
 Polygon3D:GetSet("LODDistance", 0)
 Polygon3D:GetSet("LODBillboard", false)
--- cells per side when the first cells * cells * 2 triangles of the indices are a regular grid, two per cell in z major
--- order (x fastest): the scene bvh builds those from the grid instead of sorting them
 Polygon3D:GetSet("GridCells", nil)
 Polygon3D:GetSet(
 	"AABB",
@@ -101,8 +99,6 @@ local VERTEX_ATTRIBUTES = {
 	},
 }
 
--- `mode` is for vertices and indices that are not used by anything else (see Mesh.New): "owned" or "host". without it
--- the mesh is deduplicated against meshes with the same content. `aabb` is the bounds when the caller knows them
 function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed, mode, aabb)
 	if not aabb then
 		aabb = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
@@ -179,7 +175,6 @@ function Polygon3D:GetVertices()
 	return self.Vertices
 end
 
--- returns self when no triangle lies inside the box, nil when every triangle does
 function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
 	local packed = self.packed
 	local vertices = packed.vertices
@@ -294,8 +289,6 @@ local function pack_vertices(polygon, vertex_count)
 	return vertices
 end
 
--- builds what the vertices lack (uvs, normals, tangents, the tangents need self.indices) and packs them, nothing here
--- needs the gpu so a worker thread can do it
 function Polygon3D:PackVertices()
 	local vertex_count = #self.Vertices
 
@@ -346,8 +339,6 @@ function Polygon3D:Upload(indices)
 	end
 end
 
--- Rewrites the vertices of the uploaded mesh in place when the vertex count did not change, returns false when it did
--- and Upload has to be used. The mesh keeps its buffers, so nothing that references it has to be updated.
 function Polygon3D:UpdateVertices()
 	local mesh = self.mesh
 	local vertex_count = #self.Vertices
@@ -501,7 +492,6 @@ do
 		end
 	end
 
-	-- first and last limit it to a range of vertices (whole triangles of an unindexed polygon), by default every vertex
 	function Polygon3D:BuildTangents(first, last)
 		local tan1 = {}
 		local tan2 = {}

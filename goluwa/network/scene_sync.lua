@@ -72,7 +72,6 @@ local function send_chunk(blob)
 	return blob.offset > #blob.payload
 end
 
--- a paced blob is streamed a few chunks per frame, otherwise it is sent at once so it stays ordered with the packets sent after it
 local function send_blob(target, kind, payload, parent_guid, paced, owner)
 	local blob = {target = target, id = next_id, payload = payload, offset = 1}
 	next_id = next_id + 1
@@ -219,7 +218,6 @@ if SERVER then
 		help = "run script components that clients send to the server, scripts have full access to the engine",
 	}
 
-	-- scripts from clients are removed unless the server allows them, everything that is forwarded must be the stripped version
 	local function strip_scripts(records, sender)
 		if client_scripts_allowed:Get() then return false end
 
@@ -331,14 +329,12 @@ if SERVER then
 					attach_listeners(root)
 				end
 
-				-- the snapshot spawns instances, their definitions have to be there first
 				for name, definition in pairs(prefab.definitions) do
 					if is_shared(definition) then
 						send_blob(client, "prefab", prefab.Encode(definition), name)
 					end
 				end
 
-				-- the snapshot carries no owners, the clients put them on once it is spawned
 				local owners = {}
 
 				for _, root in ipairs(scene.GetRoots()) do
@@ -482,7 +478,6 @@ if CLIENT and not SERVER then
 	local pending_owners = {}
 	local waiting = {}
 
-	-- the client that owns an entity can be created after the entity
 	local function set_owner(entity, uid)
 		local owner = clients.GetByUniqueID(uid)
 
@@ -589,7 +584,6 @@ if CLIENT and not SERVER then
 		if entity and entity:IsValid() then entity:Remove() end
 	end)
 
-	-- removes the entity on the server, which tells every client including this one
 	function scene_sync.RemoveOnServer(entity)
 		assert(not entity:GetTransient(), "transient entities do not exist on the server")
 		local buffer = packet.CreateBuffer()
@@ -598,7 +592,6 @@ if CLIENT and not SERVER then
 		note("remove request %s", entity:GetGUID())
 	end
 
-	-- as_name sends the definition under another name, a player's own outfit is a local file that the others know by the player
 	function scene_sync.PushPrefab(name, as_name)
 		send_blob(nil, "prefab", prefab.Encode(prefab.Get(name)), as_name or name)
 		note("push prefab %s", as_name or name)
@@ -610,7 +603,6 @@ if CLIENT and not SERVER then
 		end
 	end
 
-	-- sends the entity and everything below it once, the server applies it and passes it on to the other clients
 	function scene_sync.Push(entity)
 		local data = scene.SerializeEntities({entity})
 		assert(#data.entities > 0, "transient entities cannot be sent to the server")

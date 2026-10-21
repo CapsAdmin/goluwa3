@@ -100,7 +100,6 @@ return {
 					{AlignmentY = "end"}
 				),
 				ui.Column{layout = {ChildGap = "XS", AlignmentX = "stretch"}}{
-					-- AlignX and TextLayout are only read when a button is made, so a change of any of the three remounts the buttons
 					list.map(
 						colors,
 						|color| -> ui.Button{

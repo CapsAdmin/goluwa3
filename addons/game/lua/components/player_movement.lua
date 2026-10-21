@@ -59,7 +59,6 @@ function META:Initialize()
 	self:ApplyMode(self.Mode)
 end
 
--- what decides where the body goes, the controller of a player or the brain of an npc
 function META:GetCommandSource()
 	return self.Owner.player_controller or self.Owner.npc
 end
@@ -83,7 +82,6 @@ function META:Reset(mode)
 	self:ApplyMode(mode)
 end
 
--- the origin of a player is where it stands, the eye is above it in both modes
 function META:GetViewOffset()
 	local _, _, eye_height = self:GetDimensions()
 	return Vec3(0, eye_height, 0)
@@ -185,7 +183,6 @@ end
 
 local UP = Vec3(0, 1, 0)
 
--- the body turns with the view in yaw only, the capsule stays upright and its pose comes from the command on both sides
 function META:SetBodyYaw(view)
 	local body = self.Owner.rigid_body
 	local forward = view:GetForward()

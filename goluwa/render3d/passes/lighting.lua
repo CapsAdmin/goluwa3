@@ -151,7 +151,6 @@ return {
 					block.gi_debug = ddgi.IsDebugGI() and 1 or 0
 					block.direct_debug = debug_direct:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
-					-- the volumetric fog pass adds the air to the sky of the main view
 					block.sky_air = (render3d.GetActiveRenderContext() or not render3d.IsPassEnabled("volumetric_fog")) and 1 or 0
 					block.sky_alpha = render3d.IsSkyTransparent() and 0 or 1
 					block.sky_from_environment = render3d.IsSkyFromProbe() and 1 or 0
@@ -216,21 +215,14 @@ return {
 
 			#define SHADOW_SCREEN_SPACE
 
-			// the least visibility any light got from the march, for the debug view
 			float screen_shadow_term = 1.0;
 
-			// marches the depth buffer from the surface towards a light, reach meters long. what the
-			// gbuffer holds, grass and other detail the shadow maps are too coarse for included,
-			// shadows it. what is off screen doesn't. occluders cover a step partially at their
-			// edges, so shadows end soft and the jitter resolves through the taa. the ray fades out
-			// towards its end unless that is where the light is
 			float screen_space_shadow_visibility(vec3 world_pos, vec3 normal, vec3 light_dir, float reach, bool reach_is_light) {
 				vec3 start_vs = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
 				float view_fade = 1.0 - smoothstep(60.0, 120.0, -start_vs.z);
 
 				if (view_fade <= 0.0) return 1.0;
 
-				// off the surface by more than the depth reconstruction's error, which grows with distance
 				start_vs += mat3(lighting_data.view) * normal * (0.004 + 0.001 * -start_vs.z);
 				vec3 dir_vs = mat3(lighting_data.view) * light_dir;
 				float ray_len = reach;
@@ -256,7 +248,6 @@ return {
 				vec2 delta_px = (p1 - p0) * vec2(depth_size);
 				int steps = clamp(int(max(abs(delta_px.x), abs(delta_px.y)) / ]] .. string.format("%.2f", SCREEN_SHADOW_STRIDE) .. [[), 2, lighting_data.screen_shadow_steps);
 				float dt = 1.0 / float(steps);
-				// interleaved gradient noise, moved on every frame while the aa is temporal, so it resolves the banding of the steps. the two frame mode alternates by half a step so its frames interleave
 				float jitter = fract(52.9829189 * fract(dot(gl_GlobalInvocationID.xy, vec2(0.06711056, 0.00583715))) + lighting_data.noise_phase);
 				float step_z = abs(dir_vs.z) * ray_len * dt;
 				float depth_a = lighting_data.inv_projection[2][2];
@@ -300,13 +291,10 @@ return {
 
 			]] .. ibl.GetReflectionQuadGLSL() .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
-			// reflection_uv is where the screen space reflection is read, moved off the pixel by what the reflection buffer can't
-			// resolve, like the rain's waves
 			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback, vec2 reflection_uv) {
 				vec3 raw_R = reflect(-V, normal);
 				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
 				vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
-				// the fallback is the gi, which holds the sky already, so a rough surface (a blur of it) would count the sky twice
 				float sky_weight = sky_visibility * (1.0 - smoothstep(0.25, max(lighting_data.rough_sky, 0.26), roughness));
 				vec3 global_reflection = mix(gi_reflection_fallback, sky_reflection, sky_weight);
 				vec3 env_reflection = blend_probe_reflections(global_reflection, R, roughness, world_pos);
@@ -328,7 +316,6 @@ return {
 				return gi.rgb;
 			}
 
-			// rgb is the bounce light that came in through what the occlusion covers, a the occlusion
 			vec4 get_ambient_occlusion(vec2 uv) {
 				if (lighting_data.ambient_occlusion_tex < 0) return vec4(0.0, 0.0, 0.0, 1.0);
 				return texture(TEXTURE(lighting_data.ambient_occlusion_tex), uv);
@@ -359,9 +346,6 @@ return {
 
 			]] .. surface_features.GetDecodeFunctionGLSL() .. [[
 
-			// 1 where the pixel is a surface less than two pixels wide, both neighbours along an axis are
-			// another surface. a thin glossy surface (a step's tread at a grazing angle) reflects the
-			// environment at a high fresnel into one pixel, which the jitter covers and uncovers
 			float get_thin_feature(float view_depth, vec3 N) {
 				ivec2 size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
 				float thin = 0.0;
@@ -399,7 +383,6 @@ return {
 				vec3 bounce = screen_gi.rgb / get_pre_exposure();
 
 				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
-				// the directional albedo of the specular for this view, what the diffuse base under it does not get
 				vec3 specular_albedo = (s.F0 * envBRDF.x + F90(s.F0) * envBRDF.y) * GGXEnergyCompensation(s.F0, envBRDF);
 				vec3 kD_ambient = max(1.0 - specular_albedo, vec3(0.0)) * (1.0 - s.metallic);
 				vec3 ambient_diffuse = kD_ambient * (irradiance * ambient_occlusion + bounce) * s.albedo;
@@ -451,9 +434,6 @@ return {
 				in_view_depth = -(lighting_data.inv_projection[2][2] * depth + lighting_data.inv_projection[3][2]) / (lighting_data.inv_projection[2][3] * depth + lighting_data.inv_projection[3][3]);
 				vec3 world_pos = get_world_pos(depth);
 				vec3 V = get_view_normal(world_pos);
-				// a normal map can turn a pixel away from the camera; shading it
-				// like that zeroes both the diffuse (fresnel -> 1) and the
-				// specular (grazing brdf) terms and leaves a black rim
 				vec3 N = bend_normal_to_view(gbuffer_normal(in_uv), V);
 
 
@@ -542,8 +522,6 @@ return {
 
 				vec2 uv = get_screen_uv(pos, size);
 
-				// the background as bright as a mid grey surface, so the exposure doesn't chase a black frame
-				// without the exposure pass (which is the blit pass) nothing scales the scene down
 				float scale = fallback_data.pre_exposure_tex == -1 ? fallback_data.unexposed_scale : ]] .. string.format("%.1f", render3d.EMISSIVE_REFERENCE_LUMINANCE) .. [[ * get_pre_exposure();
 
 				if (gbuffer_depth(uv) == 0.0) {

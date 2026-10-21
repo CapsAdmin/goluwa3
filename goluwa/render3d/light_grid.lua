@@ -50,9 +50,7 @@ local function declarations(binding, access)
 		#define LIGHT_GRID_DIM %d
 		#define LIGHT_GRID_WORDS %d
 		layout(std430, set = 0, binding = %d) %s buffer LightGrid {
-			// xyz = the level's minimum corner, w = its cell size
 			vec4 light_grid_levels[LIGHT_GRID_LEVELS];
-			// x = levels built, 0 before the first build
 			ivec4 light_grid_info;
 			uint light_grid_cells[];
 		};
@@ -80,7 +78,6 @@ function light_grid.GetGLSL(binding)
 			return -1;
 		}
 
-		// only the words that hold lights, so a high MAX_LIGHTS costs nothing
 		int light_grid_words(int light_count) {
 			return min((light_count + 31) / 32, LIGHT_GRID_WORDS);
 		}
@@ -188,7 +185,6 @@ light_grid.pass = {
 
 					lights_t light = light_grid_data.lights[i];
 					int type = int(light.position.w);
-					// only the sun reaches everywhere; local directional lights have a range
 					bool reaches = type == 0;
 
 					if (!reaches) {

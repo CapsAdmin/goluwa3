@@ -5,7 +5,6 @@ nav.file_extensions = {"nav"}
 nav.magic_headers = {"\xCE\xFA\xED\xFE"}
 nav.MAGIC = 0xFEEDFACE
 nav.VERSION = 16
--- source directions: north is -y, east is +x, south is +y, west is -x
 nav.NORTH = 0
 nav.EAST = 1
 nav.SOUTH = 2
@@ -124,11 +123,9 @@ local function read_area(r, version)
 	area.hiding_spots = hiding_spots
 
 	if version < 15 then
-		-- approach areas: here, prev, how, next, how
 		r:Skip(r:U8() * 14)
 	end
 
-	-- encounter paths: from id, direction, to id, direction, then spots of an id and a position along the path
 	for _ = 1, r:U32() do
 		r:Skip(10)
 		r:Skip(r:U8() * 5)
@@ -141,13 +138,11 @@ local function read_area(r, version)
 		area.ladders[direction] = read_ids(r)
 	end
 
-	-- earliest occupy times of both teams and the light intensity at the corners
 	r:Skip(8)
 
 	if version >= 11 then r:Skip(16) end
 
 	if version >= 16 then
-		-- visible areas, an id and an attribute byte each, and the area visibility is inherited from
 		r:Skip(r:U32() * 5)
 		area.inherit_visibility_from = r:U32()
 	end
@@ -231,7 +226,6 @@ local function write_ids(out, ids)
 	end
 end
 
--- the current version, without hiding spots, encounter paths or visibility
 function nav.Encode(data)
 	local out = buffer.new()
 	write_u32(out, nav.MAGIC)

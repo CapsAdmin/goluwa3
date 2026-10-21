@@ -1,6 +1,3 @@
--- an open sea with a plain beach, for looking at the waves and the foam. the wind blows towards the shore
--- luajit glw --3d lua "import('addons/examples/lua/examples/render3d/ocean_shore.lua')"
--- page up and page down change the wind speed, `ocean_wind N` sets it, `ocean_shore_view N` goes to a view (0 lists them)
 local Terrain = import("goluwa/terrain/terrain.lua")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -15,8 +12,6 @@ local SHORE_X = 140
 local WIND_STEP = 1
 local MAX_WIND = 30
 local HEIGHT_GLSL = [=[
-// the beach runs along z, the sea is at smaller x. a wavy waterline, a shallow sloping beach and a sea floor that
-// keeps falling away
 float terrain_height(vec2 p) {
 	float s = p.x - ]=] .. SHORE_X .. [=[.0 + 18.0 * sin(p.y / 83.0) + 7.0 * sin(p.y / 29.0 + 1.0);
 	float sea = -40.0 * (1.0 - exp(min(s, 0.0) / 240.0));
@@ -69,7 +64,6 @@ weather.SetTimeScale(0)
 weather.SetSunDirection(Vec3(-0.5, 0.55, 0.35):GetNormalized())
 render3d.SetOceanEnabled(true)
 render3d.SetOceanLevel(0)
--- a wind direction of 0 degrees blows along +x, at the shore
 water.SetOcean{WindSpeed = 12, WindDirection = 0, SwellHeight = 0.3, SwellWavelength = 100, SwellDirection = 0}
 
 function shore.SetWind(speed)

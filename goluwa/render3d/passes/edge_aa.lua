@@ -51,7 +51,6 @@ return {
 			ivec2 size;
 			float exposure;
 
-			// perceived brightness, the exposed and compressed luma with a gamma on it
 			float get_brightness(ivec2 p) {
 				p = clamp(p, ivec2(0), size - 1);
 				return sqrt(max(compress(texelFetch(TEXTURE(edge_data.source_tex), p, 0).rgb, exposure).x, 0.0));
@@ -75,8 +74,6 @@ return {
 					return;
 				}
 
-				// an edge has to stand out from the strongest one around it, or a
-				// texture's fine detail turns into a net of edges
 				float ll = get_brightness(pixel + ivec2(-2, 0));
 				float tt = get_brightness(pixel + ivec2(0, -2));
 				float max_delta = max(max(delta.x, delta.y), max(max(abs(c - r), abs(c - b)), max(abs(l - ll), abs(t - tt))));
@@ -118,8 +115,6 @@ return {
 				return texelFetch(TEXTURE(weights_data.edges_tex), q, 0).rg;
 			}
 
-			// the part of a linear segment's height above zero and below it,
-			// averaged over a width of 1
 			vec2 split_area(float h0, float h1) {
 				if (h0 >= 0.0 && h1 >= 0.0) return vec2(0.5 * (h0 + h1), 0.0);
 
@@ -130,11 +125,6 @@ return {
 				return vec2(hp * hp, hn * hn) * 0.5 / (hp + hn);
 			}
 
-			// the line the pixels' colours stand for, as the height it is displaced
-			// toward the negative side at x along a run of len pixels. each end of
-			// the run either stops flat (0) or turns toward the negative (-1) or
-			// positive (1) side, a flat end sits on the edge and a turn is half a
-			// pixel off it
 			float line_height(float x, float len, int left, int right) {
 				float start = -0.5 * float(left);
 				float finish = -0.5 * float(right);
@@ -148,8 +138,6 @@ return {
 				return start * (1.0 - 2.0 * x / len);
 			}
 
-			// x/y: how much this pixel takes of its neighbour on the negative side,
-			// and how much that neighbour takes of this one
 			vec2 line_weights(ivec2 p, bool horizontal) {
 				ivec2 along = horizontal ? ivec2(1, 0) : ivec2(0, 1);
 				ivec2 negative = horizontal ? ivec2(0, -1) : ivec2(-1, 0);
@@ -208,8 +196,6 @@ return {
 					area = split_area(line_height(x0, len, left, right), line_height(x1, len, left, right));
 				}
 
-				// above zero is the line displaced toward the negative side, which
-				// is the negative side's pixels taking from this one
 				return vec2(area.y, area.x);
 			}
 
@@ -276,7 +262,6 @@ return {
 				float down = get_weights(pixel + ivec2(0, 1)).y;
 				float right = get_weights(pixel + ivec2(1, 0)).w;
 
-				// only the stronger direction, or a corner is blurred twice
 				if (up + down >= left + right) {
 					left = 0.0;
 					right = 0.0;

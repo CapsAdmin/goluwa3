@@ -26,7 +26,6 @@ local SNOW_FALL_SPEED = 1
 local RAIN_SPREAD = 0.05
 local SNOW_SPREAD = 0.3
 local WIND_TURBULENCE = 0.25
--- the farthest the shelter of an obstacle reaches downwind, in its heights
 local MAX_SHELTER_SLANT = 4
 local SHELTER_SIZE = 1024
 local SHELTER_HALF_SIZE = 96
@@ -285,10 +284,7 @@ function weather.SetSunRotation(rotation)
 	weather.SetSunDirection(rotation:GetBackward())
 end
 
--- a rotation whose backward axis is dir: the shortest arc from up, then up turned to the back axis. It is undefined only
--- for a sun straight down. The shortest arc from the back axis itself (the old light rotation) is undefined at the horizon
--- the default sun azimuth sets and rises in, and the rotation's roll (the shadow maps' orientation) turned up to 50
--- degrees in a 0.005 degree step within 0.01 degrees of it; yaw and pitch (the old GetSunRotation) are undefined at the zenith
+-- undefined for a sun straight down, so the shortest arc from up is used
 local UP = Vec3(0, 1, 0)
 local BACK_TO_UP = QuatFromAxis(-math.pi / 2, Vec3(1, 0, 0))
 
@@ -508,9 +504,6 @@ commands.Add("envmap=string|nil,number|nil", function(path, intensity)
 	weather.SetEnvironmentMap(path)
 end)
 
--- the sun's shadow maps are two sets: the cascades, which follow the camera's frustum out to a distance, and the inset,
--- a small one close to the camera. cascade i is fitted to the frustum slice up to its split (zoom shrinks the fitted
--- sphere so a cascade covers only the nearest part of its slice and the next one covers the rest)
 local SUN_SHADOW_DEFAULTS = {
 	cascades = {
 		enabled = true,
@@ -536,7 +529,6 @@ local SUN_SHADOW_DEFAULTS = {
 	},
 	bias = {normal = 1, light = 1},
 }
--- a change of these needs other textures, the rest is written into the maps that exist
 local SUN_SHADOW_STRUCTURE = {enabled = true, count = true, size = true, format = true}
 weather.sun_shadow = table.copy(SUN_SHADOW_DEFAULTS)
 
@@ -579,7 +571,6 @@ local function apply_sun_shadow()
 	end
 end
 
--- destroys the sun's shadow maps and makes them again from the settings
 function weather.BuildSunShadows()
 	for _, shadow_map in pairs(weather.shadow_maps) do
 		shadow_map:Remove()
@@ -614,8 +605,6 @@ function weather.BuildSunShadows()
 	weather.UpdateSky()
 end
 
--- changes some settings of "cascades" or "inset" (see SUN_SHADOW_DEFAULTS for the names). Whether the shadow maps are
--- made again or only written to depends on what changed
 function weather.SetSunShadow(category, changes)
 	local defaults = SUN_SHADOW_DEFAULTS[category]
 	local settings = weather.sun_shadow[category]
@@ -704,11 +693,6 @@ function weather.Initialize()
 				SNOW_SPREAD or
 				RAIN_SPREAD
 			) + WIND_TURBULENCE * math.sqrt(wind.x * wind.x + wind.z * wind.z) / fall_speed
-		-- the precipitation moves with the wind and falls at fall_speed, so it comes in at a slant of wind / fall_speed.
-		-- in a strong wind that is nearly flat (40:1 for snow at 40 m/s) and a tree would keep the rain off a strip
-		-- hundreds of meters long, but the air behind an obstacle is turbulent and slowed and brings it down again
-		-- within a few of its heights. the slant the shelter is cast at is held to MAX_SHELTER_SLANT (calibrated, not
-		-- sourced: a snow fence's lee drift, the longest, reaches 10 to 15 heights)
 		local wind_speed = math.sqrt(wind.x * wind.x + wind.z * wind.z)
 		local slant = math.min(wind_speed / fall_speed, MAX_SHELTER_SLANT) / math.max(wind_speed, 0.0001)
 		local dir = Vec3(-wind.x * slant, 1, -wind.z * slant):GetNormalized()

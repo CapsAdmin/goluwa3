@@ -17,9 +17,6 @@ META:StartStorable()
 META:GetSet("Pak", "", {ReadOnly = true})
 META:GetSet("Colliders", true, {callback = "RefreshColliders"})
 META:EndStorable()
--- A static world gathers the brush and displacement components below it, batches their triangles per material and
--- visibility group and, with Colliders on, builds one static rigid body from them. Sources register themselves
--- and tell the world when they changed, the world applies changes at most every FLUSH_INTERVAL seconds.
 local FLUSH_INTERVAL = 0.1
 local COLLISION_SETTLE_TIME = 0.3
 local EDIT_SETTLE_TIME = 0.5
@@ -29,7 +26,6 @@ function META.GetActive()
 	return META.active
 end
 
--- the nearest static world above an entity
 function META.Find(entity)
 	local parent = entity:GetParent()
 
@@ -49,7 +45,6 @@ function META:Initialize()
 	self:ResetRuntime()
 end
 
--- everything that is rebuilt by Build, the registered sources stay
 function META:ResetRuntime()
 	self.dirty = {}
 	self.removed = {}
@@ -115,7 +110,6 @@ function META:Reload()
 	end)
 end
 
--- the visibility group entity a source belongs to, nil when it is not inside of one
 function META:GetGroup(entity)
 	local parent = entity:GetParent()
 
@@ -168,7 +162,6 @@ function META:RemoveSource(component)
 	end
 end
 
--- Appends the triangles of a record to the batches of state.
 function META:EmitRecord(state, record)
 	if record.kind == "brush" then
 		static_geometry.EmitBrush(state, record)
@@ -179,9 +172,6 @@ function META:EmitRecord(state, record)
 	end
 end
 
--- A source changed. Sources that are already in the batches are edited: their triangles leave the shared batches
--- and are drawn from a small mesh of their own that is rebuilt every frame, once nothing changed for a while
--- they go back into the shared batches. Sources without a record yet are emitted on the next flush.
 function META:MarkDirty(component)
 	if not self.built then return end
 
@@ -294,7 +284,6 @@ function META:UpdateEdit(component, edit)
 	end
 end
 
--- The culling bounds of an edit mesh are padded so moving it does not change them every frame.
 function META:PadEditBounds(primitive, aabb)
 	local bounds = AABB(
 		aabb.min_x - EDIT_BOUNDS_PADDING,
@@ -392,7 +381,6 @@ function META:OnRemove()
 	if RENDER_3D then VisibilityGroup.ShowAll() end
 end
 
--- the entity drawing the batches of a visibility group
 function META:GetBatchVisual(batch)
 	local container = batch.visibility_group or self.Owner
 	local visual_entity = self.visual_entities[container]
@@ -418,7 +406,6 @@ function META:AttachBatch(batch)
 	)
 end
 
--- Frees the vertices of spans. Spans at the end of their batch are cut off, others are collapsed to a point.
 function META:ReleaseSpans(spans, touched)
 	for i = #spans, 1, -1 do
 		local span = spans[i]
@@ -465,9 +452,6 @@ function META:RefreshBatches(touched)
 	end
 end
 
--- Replaces the triangles of a decal. fragments is a list of {group, cell, polygon of {pos, u, v, normal}}, group is a
--- visibility group and cell splits the decals of one material into spatial batches. touched collects the changed
--- batches instead of refreshing them right away, the caller then has to call RefreshBatches.
 function META:SetDecalFragments(owner, fragments, touched)
 	local refresh = not touched
 	touched = touched or {}
@@ -560,7 +544,6 @@ function META:RefreshColliders()
 	if self.Colliders then self:BuildColliders() end
 end
 
--- brings the collision of one record in line with its current shape
 function META:UpdateCollider(record)
 	local model = self.collision_model
 

@@ -1,9 +1,3 @@
--- the ZSNES gui "screensavers" (snow, water a, water b, burning, smoke) ported from effects/*.c and gui/c_gui.c
--- the 288x224 8 bit index buffer, the gui palette and every integer step are kept, only the presentation is scaled.
--- Start(index) runs one of EFFECTS (it is stepped from PreFrame until Stop), Draw(x, y, w, h) shows its 256x224 picture.
--- what lives on the gpu: the burn flame buffer, the water height pages and the smoke buffer (ping pong feedback images).
--- the picture behind them is the last frame of the render3d output when it runs (--3d), else a generated one
--- what stays on the cpu: the random number driven roots (flame root, smoke hotspots, water blobs, snow flakes)
 local ffi = require("ffi")
 local bit = require("bit")
 local event = import("goluwa/event.lua")
@@ -46,9 +40,6 @@ local common = [[
 local background_glsl = [[
 	layout(set = 0, binding = 8) uniform sampler2D scene_tex;
 
-	// the picture behind the gui (the game in zsnes): the last frame of the render3d output, or a stand in when
-	// there is none, as a 5 bit per channel colour image turned into the 1..31 gray index the gui keeps in vidbuffer
-	// (GUISetPal16's conversion)
 	int background(ivec2 p) {
 		if (p.x < 16 || p.x >= 272 || p.y < 0 || p.y >= H) return 0;
 
@@ -124,7 +115,6 @@ local function get_pipelines()
 				layout(set = 0, binding = 0, r32ui) uniform readonly uimage2D idx;
 				layout(set = 0, binding = 1, rgba8) uniform writeonly image2D out_tex;
 
-				// GUISetPal16: GUICPC[idx] = r >> 1 << 11 | g << 5 | b >> 1, stored in a u2
 				uint pal16(uint i) {
 					int r = 0, g = 0, b = 0;
 
@@ -155,7 +145,6 @@ local function get_pipelines()
 					uint c;
 
 					if (n < W) {
-						// vidpastecopyscr converts from the second row on, so the first row is the raw index bytes read as 565
 						int o = n * 2;
 						uint lo = imageLoad(idx, ivec2(o % W, o / W)).r & 255u;
 						o++;
@@ -212,7 +201,6 @@ local function get_pipelines()
 						}
 					}
 
-					// flake i is aux[i] (its buffer offset, or 0xFFFFFFFF while hidden) and aux[200 + i] (its colour), later flakes win
 					for (int i = 0; i < 200; i++) {
 						if (aux[i] == uint(n)) v = aux[200 + i];
 					}
@@ -243,7 +231,6 @@ local function get_pipelines()
 				// value one row up and one column left, straight or right (or clears it). The cell the whole frame ends
 				// with is the last writer in that order: column c + 1, then column c, then column c - 1.
 
-				// randint(3): 0 moves right, 1 straight, 2 left
 				int scatter(int c, int j) {
 					return int(hash4(uint(compute.frame), uint(c), uint(j), 0u) % 3u);
 				}
@@ -365,7 +352,6 @@ local function get_pipelines()
 					if (p.y == 223) {
 						v = line;
 					} else {
-						// the bottom row is the new fire line, every other row takes the row below it, one darker
 						v = p.y == 222 ? line : int(imageLoad(fire_in, ivec2(p.x, p.y + 1)).r);
 						if (v > 0) v--;
 					}
@@ -395,7 +381,6 @@ local function get_pipelines()
 				layout(set = 0, binding = 2, r32ui) uniform writeonly uimage2D idx_out;
 				layout(set = 0, binding = 3, std430) readonly buffer Aux { int aux[]; };
 
-				// SineBlob: header aux[0] blobs, then 8 ints each: x, y, left, right, top, bottom, table offset, radius squared
 				int blob(ivec2 q) {
 					int s = 0;
 
@@ -413,7 +398,6 @@ local function get_pipelines()
 					return s;
 				}
 
-				// the height with this frame's blobs added, which CalcWater reads
 				int height(ivec2 q) {
 					return int(imageLoad(page_cur, q).r) + blob(q);
 				}
@@ -422,11 +406,9 @@ local function get_pipelines()
 					ivec2 p = ivec2(gl_GlobalInvocationID.xy);
 					if (p.x >= W || p.y >= H) return;
 
-					// only columns 1..286 of rows 1..222 are drawn, the rest of vscr stays 0
 					int c = 0;
 
 					if (p.x >= 1 && p.x <= 286 && p.y >= 1 && p.y <= 222) {
-						// DrawWaterWithLight: refract the picture by the slope of the surface
 						int a = int(imageLoad(page_cur, p).r);
 						int dx = a - int(imageLoad(page_cur, p + ivec2(1, 0)).r);
 						int dy = a - int(imageLoad(page_cur, p + ivec2(0, 1)).r);
@@ -438,7 +420,6 @@ local function get_pipelines()
 
 						c = clamp(background_linear(q) - (dx >> 1), 1, 31);
 
-						// CalcWater: next = (sum of the 8 neighbours >> 2) - next, damped by >> 5
 						int sum = height(p + ivec2(0, 1)) + height(p + ivec2(0, -1)) + height(p + ivec2(1, 0)) + height(p + ivec2(-1, 0))
 							+ height(p + ivec2(-1, -1)) + height(p + ivec2(1, -1)) + height(p + ivec2(-1, 1)) + height(p + ivec2(1, 1));
 						int newh = (sum >> 2) - int(imageLoad(page_next, p).r);
@@ -517,7 +498,6 @@ local function clear(cmd, image)
 	barrier(cmd)
 end
 
--- the tables and counters of effects/fixsin.h and gui/c_gui.c
 local FSIN, FCOS = {}, {}
 
 for i = 0, 2047 do
@@ -528,7 +508,6 @@ for i = 0, 2047 do
 end
 
 local effects = {}
--- snow: gui/c_gui.c ProcessSnowVelocity and DrawSnow
 do
 	local snow_data = {
 		161, 251, 115, 211, 249, 87, 128, 101, 232, 176, 51, 180, 108, 193, 224, 112, 254, 159, 102, 238,
@@ -643,7 +622,6 @@ do
 	end
 end
 
--- burning: effects/burn.c
 do
 	local xstart, xend = 0, 287
 	local flame
@@ -676,7 +654,6 @@ do
 		barrier(cmd)
 		page_a, page_b = page_b, page_a
 
-		-- match
 		if math.random(0, 149) == 0 then
 			local start = xstart + math.random(0, xend - xstart - 6)
 
@@ -685,7 +662,6 @@ do
 			end
 		end
 
-		-- the root of the flames
 		for i = xstart, xend do
 			local x = flame[i]
 
@@ -707,7 +683,6 @@ do
 	end
 end
 
--- smoke: effects/smoke.c
 do
 	local HOTSPOTS = 80
 	local hotspot
@@ -746,7 +721,6 @@ do
 		clear(cmd, page_b)
 		local p = get_pipelines()
 
-		-- init_fire: H rounds of a new line and a shift
 		for round = 0, H - 1 do
 			draw_bottom_line_of_fire()
 
@@ -783,7 +757,6 @@ do
 	end
 end
 
--- water: effects/water.c
 do
 	local f32 = ffi.new("float[1]")
 	local PHEIGHT, RADIUS = 400, 30
@@ -805,7 +778,6 @@ do
 		clear(cmd, page_a)
 		clear(cmd, page_b)
 
-		-- one table per blob size: what SineBlob adds at squared distance s from its centre
 		local offset = LUT_BASE
 
 		for _, blob in ipairs(BLOB_TYPES) do
@@ -871,7 +843,6 @@ do
 		aux_data[0] = blobs
 		upload_aux(0, 1 + blobs * 8)
 		local p = get_pipelines()
-		-- render the current page, then add the blobs to it and compute the next one from it
 		p.water:Bind(cmd, {storage = {page_a, page_b, idx_image}, buffers = {aux_buffer}, sampled = {scene_texture}})
 		p.water:DispatchForSize(cmd, W, H, 1)
 		barrier(cmd)
@@ -919,7 +890,6 @@ event.AddListener("PreFrame", "zsnes_screensaver", function(dt)
 
 	if not idx_image then create_resources() end
 
-	-- the picture behind the effects is the previous frame of the render3d output, when there is one
 	local pipeline = render3d.pipelines and render3d.pipelines.blit_compute
 	local framebuffer = pipeline and pipeline:GetFramebuffer()
 	scene_texture = framebuffer and framebuffer:GetAttachment(1)

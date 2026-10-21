@@ -34,9 +34,7 @@ return {
 	Section = "Containers",
 	Order = 2,
 	View = react.Component(|| -> do
-		-- nil until the checkbox is used, only the last panel starts with arrow buttons
 		local arrow_buttons, set_arrow_buttons = react.UseState()
-		-- the panels and the children the jump buttons scroll to, filled in as they are made
 		local panels = react.UseRef({})
 		local targets = react.UseRef({})
 		local grid_items = react.UseMemo(|| -> do

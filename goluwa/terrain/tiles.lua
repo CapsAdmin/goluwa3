@@ -14,9 +14,6 @@ local IndexBuffer = RENDER_2D and import("goluwa/render/index_buffer.lua")
 local VertexSize = ffi.sizeof(VertexType(1))
 local templates = {[false] = {}, [true] = {}}
 
--- every tile with the same cells and spacing has the same x, z, uvs, tangents and indices (a grid with a skirt around it),
--- and only the heights and the normals differ. the vertices are copied from a template, and the indices are the same
--- index buffer for all of them: one in the index pool instead of one per tile, which is a copy of 50k indices each
 local function get_template(cells, step, host)
 	local by_step = templates[host][cells]
 
@@ -139,7 +136,6 @@ local function get_template(cells, step, host)
 	return template
 end
 
--- `stride` takes every stride:th sample, for a coarser mesh. `mode` is for the mesh, see Polygon3D:UploadVertexArray
 function tiles.BuildPolygon(chunk, skirt_depth, stride, mode)
 	local request = chunk.request
 	local full_samples = request.samples
@@ -224,8 +220,6 @@ local function resolve_layer_texture(value)
 	return value
 end
 
--- the per layer values, vec4 colors named TerrainLayer<Name> for layers 1 to 4 and TerrainLayer<Name>2 for 5 to 8. Scatter
--- only has the first set, the scatter pass does not know about the other layers
 local LAYER_VALUES = {
 	{"Scales", "scale", 1},
 	{"Roughness", "roughness", 1},

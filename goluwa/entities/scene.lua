@@ -113,7 +113,6 @@ local function is_transient_entity(entity, own_flag_only)
 	return false
 end
 
--- entities a component builds itself, they come back when the component rebuilds so they are never saved
 local function get_generated_children(entity)
 	local model = entity.model
 
@@ -128,7 +127,6 @@ local function get_generated_children(entity)
 	return generated
 end
 
--- components a prefab instance builds from its definition are not saved with the instance, include_owned keeps them for the prefab itself
 local function serialize_record(entity, guid, parent_guid, include_owned)
 	local record = {
 		guid = guid,
@@ -220,7 +218,6 @@ function scene.GetRoots()
 	return roots
 end
 
--- what other players added to the session is not part of the scene this client saves
 function scene.Serialize()
 	local local_client = import("goluwa/network/clients.lua").GetLocalClient()
 	local roots = {}
@@ -240,7 +237,6 @@ function scene.Clear()
 	end
 end
 
--- with skip_equal a value the object already has is not set again, a table is a new object every time so setting it would count as a change and run the callbacks of the property, a model would rebuild
 local function apply_properties(object, properties, what, skip_equal)
 	if not properties then return end
 
@@ -283,7 +279,6 @@ local function sorted_component_names(components)
 	return names
 end
 
--- components this process cannot create, a headless server has no render components, are kept as plain data so the scene stays whole
 local function split_available(components, valid_components)
 	local available = {}
 	local unavailable
@@ -383,7 +378,6 @@ function scene.Deserialize(data, parent, options)
 end
 
 do
-	-- properties missing from the record go back to their default, with reset_unset that includes the ones whose default is nil
 	local function sync_state(object, properties, what, reset_unset)
 		for _, info in ipairs(objects.GetStorableVariables(object)) do
 			if
@@ -748,7 +742,6 @@ do
 		return buffer:ReadU32()
 	end
 
-	-- scene blobs carry their checksum, any other payload (a prefab) gets one computed over all of it
 	function scene.GetPayloadChecksum(str)
 		if str:sub(1, #MAGIC) == MAGIC then return scene.GetChecksum(str) end
 

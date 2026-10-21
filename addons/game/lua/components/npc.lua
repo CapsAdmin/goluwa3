@@ -25,26 +25,19 @@ META:GetSet("WanderMinDelay", 1)
 META:GetSet("WanderMaxDelay", 6)
 META:GetSet("PhysicsDistance", 15)
 META:EndStorable()
--- a waypoint is reached this close, the last one is the place the npc was asked to go to
 local WAYPOINT_RADIUS = 0.5
 local GOAL_RADIUS = 0.3
--- above this angle between where it faces and where it goes the npc turns on the spot first, until it is under the second
 local TURN_FIRST = math.rad(100)
 local TURN_RESUME = math.rad(50)
--- not getting this far in this time is being stuck, after this many times in a row the goal is given up, and what is
--- in the way is looked for this far ahead and stays out of the next paths for the block time
 local STUCK_INTERVAL = 1
 local STUCK_DISTANCE = 0.2
 local STUCK_LIMIT = 3
 local STUCK_PROBE = 0.6
 local BLOCK_TIME = 10
--- an npc that is not above the mesh for this long is put back on it, it was pushed or fell off
 local LOST_INTERVAL = 0.5
 local LOST_TIME = 5
 local LOST_HEIGHT = 2
 local LOST_DISTANCE = 60
--- an npc farther than PhysicsDistance from everything that watches, or not among the nearest MaxSimulated, has no body
--- simulated, it follows the mesh, and gets one back when it is among them again
 META.MaxSimulated = 12
 local PHYSICS_HYSTERESIS = 8
 local RANK_INTERVAL = 4
@@ -55,7 +48,6 @@ local WANDER_TRIES = 4
 local observers, observer_count, observer_step = {}, 0, nil
 local ranked = {}
 
--- the camera and the players, an npc that none of them is near does not need a body
 local function refresh_observers()
 	observer_count = 0
 
@@ -78,8 +70,6 @@ local function sort_by_distance(a, b)
 	return a.observer_distance < b.observer_distance
 end
 
--- the npcs nearest to a camera or a player are simulated, up to MaxSimulated of them, and only within their PhysicsDistance,
--- the rest follow the navigation mesh. Done every few physics ticks for all of them at once
 local function update_simulation()
 	local step = physics.StepIndex
 
@@ -140,7 +130,6 @@ function META:Initialize()
 	self.cmd.mode = "walk"
 	self.cmd.buttons = BUTTON.ACTIVE
 
-	-- only where the npc is simulated, everywhere else its transform is replicated
 	if network.HasAuthority() then
 		owner:AddComponent(
 			"player_movement",
@@ -181,7 +170,6 @@ function META:IsMoving()
 	return self.goal ~= nil
 end
 
--- walks to a position over the navigation mesh, the path is found on the next tick
 function META:MoveTo(position, running)
 	self.goal = position:Copy()
 	self.path = nil
@@ -202,7 +190,6 @@ function META:Finish(event_name)
 	self.Owner:CallLocalEvent(event_name)
 end
 
--- what the navigation mesh needs to know about this npc to find a way it can walk
 function META:GetPathOptions()
 	local blocked = {}
 
@@ -230,8 +217,6 @@ function META:FindPath(position, mesh)
 	self.stuck_time = 0
 end
 
--- something is in the way where the npc is headed, the next path does not use the connection it was on its way through and
--- stays out of the area ahead of it, if that is not the one it is in
 function META:OnStuck(position)
 	self.stuck_failures = self.stuck_failures + 1
 
@@ -259,7 +244,6 @@ function META:OnStuck(position)
 	self.path = nil
 end
 
--- the direction to walk in and how far away the point it is walking to is
 function META:Steer(position)
 	local points = self.path.points
 	local count = #points
@@ -353,7 +337,6 @@ function META:Think(dt, position)
 	end
 end
 
--- far from everything that watches, the body is not simulated, the npc walks over the surface of the navigation mesh
 function META:Advance(position, dir_x, dir_z, distance)
 	local mesh = nav_mesh.GetMesh()
 	local x, z = position.x + dir_x * distance, position.z + dir_z * distance
@@ -369,7 +352,6 @@ function META:IsSimulated()
 	return not self.far
 end
 
--- called by player_movement once per physics tick, the walk to a point is a command like the keys of a player
 function META:NextCommand(dt)
 	local owner = self.Owner
 	local position = owner.rigid_body:GetOriginPosition()

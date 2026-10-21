@@ -21,7 +21,7 @@ function physics.Initialize(config)
 	config.FixedTimeStep = config.FixedTimeStep or 1 / tickrate:Get()
 	physics.instance = Physics.New(config)
 
-	do -- TODO
+	do
 		local world_step = import("goluwa/physics/world_step.lua")
 		physics.instance.Step = function(dt)
 			return world_step.Step(physics.instance, dt)

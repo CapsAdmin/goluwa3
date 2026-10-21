@@ -1,12 +1,3 @@
--- The light the air scatters more than once (orders 2 and up), tabulated for every camera height, view direction, sun
--- elevation and angle between the view and the sun (Bruneton and Neyret's precomputed scattering). The single scattering is
--- marched at runtime with the real clouds, fog and phase functions; everything after it is smooth enough for a table, and
--- unlike an isotropic estimate of it, the table follows the sun, the viewer's height and the aerosol without a fit.
---
--- One 2D atlas holds the four axes: x = sun * SC_A + azimuth, y = radius * 2 * SC_V + half * SC_V + elevation. The elevation
--- axis is split at the horizon of the radius (rays that hit the ground, rays that leave) and both halves are spaced with a
--- square root away from it. Interpolation is done by hand across the radius and the sun, the hardware bilinear takes the
--- azimuth and the elevation inside a block.
 local ffi = require("ffi")
 local Texture = import("goluwa/render/texture.lua")
 local scattering = {}
@@ -35,8 +26,6 @@ local DECLARATIONS = [[
 		int tables[5];
 	} sc_pc;
 ]]
--- sc_lookup(table, r, mu, mu_s, nu): r is the radius, mu the cosine of the view's angle from the zenith (the sine of
--- its elevation), mu_s the sun's, nu the cosine of the angle between the view and the sun
 scattering.LOOKUP_GLSL = [[
 	const int SC_R = ]] .. scattering.RADIUS_COUNT .. [[;
 	const int SC_V = ]] .. scattering.ELEVATION_COUNT .. [[;
@@ -56,8 +45,6 @@ scattering.LOOKUP_GLSL = [[
 		return textureLod(TEXTURE(table), uv, 0.0).rgb;
 	}
 
-	// The sky above a point seen from the tabulated ambient (the mean radiance of the upper hemisphere, uniform in solid
-	// angle, and the irradiance on a surface facing up): sun elevation across the columns of each half, radius down the rows
 	void sc_ambient(int table, float r, float mu_s, out vec3 mean_radiance, out vec3 irradiance) {
 		float fr = pow(clamp((r - PLANET_RADIUS) / (ATMOSPHERE_RADIUS - PLANET_RADIUS), 0.0, 1.0), 1.0 / SC_RADIUS_POWER) * float(SC_R - 1);
 		float v = (fr + 0.5) / float(SC_R);
@@ -118,7 +105,6 @@ local PASSES_GLSL = [[
 		view = vec3(cos(e) * cos(phi), sin(e), cos(e) * sin(phi));
 	}
 
-	// the transmittance of the air between o and o + dir * length, for the short paths down to the ground
 	vec3 sc_path_transmittance(vec3 o, vec3 dir, float path_length) {
 		float rayleigh_od = 0.0;
 		float mie_od = 0.0;
@@ -176,7 +162,6 @@ local SINGLE_GLSL = [[
 		return vec4(total, 1.0);
 	}
 ]]
--- tables: 1 single scattering by the air's molecules, 2 by the aerosol, 3 the previous order, 4 the ground's indirect irradiance
 local DENSITY_GLSL = [[
 	vec4 shade(vec2 uv, vec3 _cube_dir) {
 		vec3 p;
@@ -229,7 +214,6 @@ local DENSITY_GLSL = [[
 		return vec4(total * (4.0 * PI / float(SC_THETA * SC_PSI)), 1.0);
 	}
 ]]
--- tables: 3 the scattering density
 local MULTI_GLSL = [[
 	vec4 shade(vec2 uv, vec3 _cube_dir) {
 		vec3 p0;
@@ -267,7 +251,6 @@ local MULTI_GLSL = [[
 		return vec4(total, 1.0);
 	}
 ]]
--- tables: 1, 2 single scattering when the order is 1, otherwise 3 the scattering of that order
 local IRRADIANCE_GLSL = [[
 	vec4 shade(vec2 uv, vec3 _cube_dir) {
 		float mu_s = SC_MU_S_MIN + (1.0 - SC_MU_S_MIN) * floor(uv.x * float(SC_IRRADIANCE_SIZE)) / float(SC_IRRADIANCE_SIZE - 1);
@@ -297,8 +280,6 @@ local IRRADIANCE_GLSL = [[
 		return vec4(total * (2.0 * PI / float(SC_THETA * SC_PSI)), 1.0);
 	}
 ]]
--- tables: 1, 2 single scattering, 3 the light of orders 2 and up. One texel per radius and sun elevation, the mean
--- radiance of the sky above in the first half of the columns, the irradiance in the second
 local AMBIENT_GLSL = [[
 	vec4 shade(vec2 uv, vec3 _cube_dir) {
 		ivec2 px = clamp(ivec2(floor(uv * vec2(float(2 * SC_S), float(SC_R)))), ivec2(0), ivec2(2 * SC_S - 1, SC_R - 1));
@@ -351,10 +332,6 @@ local function create_table(width, height)
 	}
 end
 
--- build_prelude(extra, prefix) wraps a shader in the atmosphere's constants; the tables' atmosphere is the one the
--- transmittance texture was baked for. Returns three tables for a unit sun: the light of orders 2 to ORDERS that arrives
--- along a ray, the scattering density of those orders (per km, the source the air adds to a ray at a point) and the
--- ambient of the sky above a point (`sc_ambient`)
 function scattering.Create(build_prelude, transmittance_texture, aerosol_extinction, aerosol_shape)
 	local single_r = create_table(scattering.WIDTH, scattering.HEIGHT)
 	local single_m = create_table(scattering.WIDTH, scattering.HEIGHT)
@@ -392,7 +369,6 @@ function scattering.Create(build_prelude, transmittance_texture, aerosol_extinct
 	shade(single_m, SINGLE_GLSL, {transmittance_texture}, 0, 1)
 	shade(total, ZERO_GLSL, {transmittance_texture})
 	shade(source, ZERO_GLSL, {transmittance_texture})
-	-- the ground's indirect irradiance of the light of order k, the density of order k + 2 reflects it
 	local irradiance = {}
 	irradiance[1] = create_table(IRRADIANCE_SIZE, 1)
 	shade(irradiance[1], IRRADIANCE_GLSL, {transmittance_texture, single_r, single_m}, 1)

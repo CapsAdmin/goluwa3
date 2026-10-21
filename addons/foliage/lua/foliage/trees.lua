@@ -1,16 +1,3 @@
--- trees and bushes: a trunk (or a few stems), levels of branches grown off it and cards of leaves on the outer
--- branches, in the way of weber and penn's "creation and rendering of realistic trees". a branch is a curve of
--- points grown in steps that curve, wander, droop and reach up, the children of a level are spread along their
--- parent by a golden angle or in whorls, and the crown shape says how long the branches off the trunk are at each height
---
--- the wind: everything sways around the root by its height (the polygon's BendHeight and the material's Bending), and
--- the detail bending of model_pipeline.lua moves a vertex up and down by 1 - its stiffness (the vertex color's blue).
--- a part moving up and down by the same amount everywhere moves rigidly, one whose stiffness falls along it turns
--- about where it is stiff. so the trunk is rigid (it only sways), a branch is as stiff where it leaves the trunk and
--- loses `flex` a meter of horizontal reach out from there: a branch going out turns about where it is attached, one
--- going up or hanging down moves with its attachment and is not stretched along itself. each big limb has its own
--- phase, which its branches and leaves share so they move together. leaves turn about their twig and flutter at their
--- far edge
 local Vec3 = import("goluwa/structs/vec3.lua")
 local MeshBuilder = import("lua/foliage/mesh_builder.lua")
 local foliage = import("lua/foliage/foliage.lua")
@@ -25,7 +12,6 @@ end
 
 trees.perpendicular = perpendicular
 
--- how long the branches off the trunk are at a height in the crown (0 its bottom, 1 its top)
 local CROWN_SHAPES = {
 	conical = function(r)
 		return 0.15 + 0.85 * (1 - r)
@@ -51,9 +37,6 @@ local CROWN_SHAPES = {
 }
 trees.CROWN_SHAPES = CROWN_SHAPES
 
--- the points of a branch from start along dir: {pos, dir, radius, t, reach}, reach the horizontal distance along it
--- from the start. spec: curve (degrees over the length, up is positive), noise (degrees of wander a step), gravity and
--- up (a pull a meter), taper (how much thinner the tip is)
 function trees.Grow(rng, start, dir, length, radius, spec, segments, floor_height)
 	local points = {}
 	local pos = start
@@ -84,7 +67,6 @@ function trees.Grow(rng, start, dir, length, radius, spec, segments, floor_heigh
 
 			dir = (dir + Vec3(0, up - gravity, 0)):GetNormalized()
 
-			-- nothing grows into the ground
 			if floor_height and pos.y < floor_height and dir.y < 0.2 then
 				dir = (dir + Vec3(0, 0.4, 0)):GetNormalized()
 			end
@@ -94,7 +76,6 @@ function trees.Grow(rng, start, dir, length, radius, spec, segments, floor_heigh
 	return points
 end
 
--- the point at t along a branch (0 to 1), interpolated: position, direction, radius and reach
 function trees.Sample(points, t)
 	local f = t * (#points - 1)
 	local i = min(floor(f), #points - 2)
@@ -106,24 +87,19 @@ function trees.Sample(points, t)
 	a.reach + (b.reach - a.reach) * k
 end
 
--- the stiffness of what is reach meters of horizontal distance out from where it is held
 function trees.Stiffness(reach, flex)
 	return max(1 - reach * flex, 0)
 end
 
--- the stiffness at the top of something that goes up from a point of stiffness `stiffness` along a vector, its
--- horizontal part bends it
 function trees.StiffnessAlong(stiffness, vector, flex)
 	return max(stiffness - sqrt(vector.x * vector.x + vector.z * vector.z) * flex, 0)
 end
 
--- the points as a tube in wood, the bark repeats every tile meters. stiffness(t) and phase are the bending colors
 function trees.AddTube(wood, points, sides, tile, phase, stiffness, cap, v_offset)
 	local ring = {}
 	local circumference = math.pi * 2 * points[1].radius
 	local u_repeat = circumference / tile
 
-	-- a whole number of repeats where it can be, so there is no seam
 	if u_repeat >= 1 then u_repeat = floor(u_repeat + 0.5) end
 
 	for i, point in ipairs(points) do
@@ -133,13 +109,10 @@ function trees.AddTube(wood, points, sides, tile, phase, stiffness, cap, v_offse
 	return wood:Tube(ring, {sides = sides, u_repeat = u_repeat, v_length = tile, v_offset = v_offset, cap = cap})
 end
 
--- leaf cards of a tree, collected first so their normals can lean out from the middle of the crown. a card is its
--- bottom middle, its up and its preferred facing
 function trees.NewCards()
 	return {}
 end
 
--- stiffness is at the bottom of the card, where the twig is held, the top loses flex over the card's horizontal extent
 function trees.AddCard(cards, rng, base, up, facing, size, roll, phase, stiffness, flex, atlas, aspect)
 	up = up:GetNormalized()
 	local side = up:GetCross(facing)
@@ -161,11 +134,7 @@ function trees.AddCard(cards, rng, base, up, facing, size, roll, phase, stiffnes
 	}
 end
 
--- the cards into a mesh. their normals lean away from the trunk by bend (0 to 1): towards the direction from the
--- nearest point of the trunk's center line (and the limbs it splits into, or a bush's stems), so a crown is lit like
--- the shape of its tree around its trunk, a cone for a pine, rather than each card by its own facing
 do
-	-- the nearest point to p on the segments of the lines
 	local function nearest_on(lines, p)
 		local best, nearest = math.huge, nil
 
@@ -193,7 +162,6 @@ do
 			local uv = card.uv
 			local out = c - nearest_on(trunk, c)
 
-			-- the front faces out of the crown, the back is only seen from inside it, where a mirrored bend is wrong
 			if n:GetDot(out) < 0 then
 				r, n = -r, -n
 			end
@@ -205,7 +173,6 @@ do
 				local out = p - nearest_on(trunk, p)
 				out = out:GetLength() > 0.001 and out:GetNormalized() or n
 				local normal = n * (1 - bend) + out * bend
-				-- the bottom edge is held by the twig, the top flutters
 				mesh:SetColor(sy > 0 and 1 or 0, card.phase, sy > 0 and card.top_stiffness or card.stiffness)
 				mesh:Vertex(p.x, p.y, p.z, normal.x, normal.y, normal.z, sx > 0 and uv[3] or uv[1], sy > 0 and uv[4] or uv[2])
 			end
@@ -228,7 +195,6 @@ end
 
 local add_branch
 
--- the children of a branch, the next level's spec says how many, where and how
 local function add_children(state, level, points, length, phase, reach)
 	local spec = state.config.levels[level + 1]
 
@@ -268,33 +234,28 @@ local function add_children(state, level, points, length, phase, reach)
 			local out = around:GetRotated(dir, azimuth)
 			local angle = rad(rng:Pick(spec.angle))
 
-			-- the lower branches of a whorled tree hang more
 			if spec.angle_by_height then
 				angle = angle + rad(spec.angle_by_height) * (1 - min(pos.y / state.height, 1))
 			end
 
 			local child_dir = (dir * cos(angle) + out * sin(angle)):GetNormalized()
 			local child_phase = level == 0 and rng:Next() or phase
-			-- the trunk is rigid, what grows off it is held stiff where it leaves it
 			add_branch(state, level + 1, pos, child_dir, child_length, radius * spec.radius, child_phase, level == 0 and 0 or reach + along)
 		end
 	end
 end
 
--- reach is how far out horizontally from where its limb leaves the trunk the branch starts
 function add_branch(state, level, start, dir, length, radius, phase, reach, root)
 	local config = state.config
 	local spec = level == 0 and config.trunk or config.levels[level]
 	local segments = max(2, floor(spec.segments * min(length / max(state.reference[level], 0.01), 1) + 0.5))
 	local points = trees.Grow(state.rng, start, dir, length, radius, spec, segments, level > 0 and min(0.4, state.height * 0.15) or nil)
-	-- the trunk (and its limbs) only sway
 	local flex = level == 0 and 0 or config.flex
 
 	local function stiffness(point)
 		return trees.Stiffness(reach + point.reach, flex)
 	end
 
-	-- the trunk flares at its root
 	if root and config.flare > 0 then
 		for _, point in ipairs(points) do
 			local y = point.pos.y - start.y
@@ -302,7 +263,6 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 		end
 	end
 
-	-- what the normals of the leaves lean away from
 	if level == 0 then state.trunk[#state.trunk + 1] = points end
 
 	if radius >= config.min_radius then
@@ -334,12 +294,10 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 			end
 
 			local size = rng:Pick(leaves.size)
-			-- the twig on the card starts a little inside the branch
 			local base = pos - up * (size * 0.05)
 			local held = trees.Stiffness(reach + along, flex)
 			trees.AddCard(state.cards, rng, base, up, facing, size, leaves.roll, phase, held, config.flex, leaves.atlas, leaves.aspect)
 
-			-- and a second one across it, for sprays that are seen from every side
 			if leaves.cross then
 				trees.AddCard(state.cards, rng, base, up, facing:GetRotated(up, math.pi * 0.5), size, leaves.roll, phase, held, config.flex, leaves.atlas, leaves.aspect)
 			end
@@ -366,8 +324,6 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 	add_children(state, level, points, length, phase, reach)
 end
 
--- the reference length of each level, what a branch of it is at full length, the counts of the children are
--- scaled by how long their parent is against it
 local function build_references(config, height)
 	local reference = {[0] = height}
 
@@ -390,7 +346,6 @@ function trees.BuildTree(config, rng)
 		crown_shape = assert(CROWN_SHAPES[config.crown_shape], "unknown crown shape " .. tostring(config.crown_shape)),
 		reference = build_references(config, height),
 		center = Vec3(0, 0, 0),
-		-- the center lines of the trunk, its limbs or a bush's stems
 		trunk = {},
 	}
 	local trunk_rng = rng:Fork("trunk")
@@ -430,26 +385,21 @@ function trees.BuildTree(config, rng)
 	return parts
 end
 
--- the keys every tree has, a species gives the ones that differ
 local function species(overrides)
 	local out = {
 		height = {10, 13},
-		-- of the height, at the root above the flare
 		trunk_radius = 0.025,
 		flare = 0.5,
-		-- of the height
 		flare_height = 0.03,
 		lean = {0, 4},
 		sink = 0.3,
 		stems = 1,
 		stem_spread = 0,
-		-- the trunk splits into limbs: {height = share of the height, count, angle, length = share of the height, radius}
 		split = false,
 		crown_start = 0.3,
 		crown_shape = "spherical",
 		trunk = {segments = 14, sides = 12, taper = 0.7, curve = 0, noise = 3, gravity = 0, up = 0},
 		levels = {},
-		-- how much less stiff a meter away from the trunk is
 		flex = 0.1,
 		min_radius = 0.004,
 		bark = "oak_bark",
@@ -495,9 +445,7 @@ end
 local function leaves(overrides)
 	local out = {
 		material = "oak_leaves",
-		-- the lowest level that has leaves
 		level = 3,
-		-- cards a meter of branch
 		density = 3,
 		start = 0.2,
 		size = {0.6, 0.8},
@@ -505,11 +453,9 @@ local function leaves(overrides)
 		lift = 0.3,
 		droop = 0,
 		roll = 35,
-		-- a second card across each one
 		cross = false,
 		atlas = 4,
 		aspect = 1,
-		-- how far the normals lean away from the trunk, 0 to 1
 		bend = 0.55,
 	}
 
@@ -536,7 +482,6 @@ local function add_species(name, category, defaults)
 end
 
 trees.AddSpecies = add_species
--- broad and spreading, a short thick trunk that splits into crooked limbs
 add_species(
 	"oak",
 	"trees",
@@ -557,7 +502,6 @@ add_species(
 		leaves = leaves{material = "oak_leaves", level = 2, density = 2.2, start = 0.45, size = {0.6, 0.85}},
 	}
 )
--- tall and narrow, a straight trunk with whorls of branches that hang lower down, the needles in flat sprays
 add_species(
 	"pine",
 	"trees",
@@ -579,7 +523,6 @@ add_species(
 		leaves = leaves{material = "pine_needles", level = 1, density = 3.5, start = 0.1, size = {0.8, 1.1}, orientation = "flat", roll = 30, cross = true, atlas = 2, bend = 0.4},
 	}
 )
--- slender, white, with arching branches and hanging twigs of small leaves
 add_species(
 	"birch",
 	"trees",
@@ -602,7 +545,6 @@ add_species(
 		leaves = leaves{material = "birch_leaves", level = 2, density = 3, start = 0.3, size = {0.45, 0.6}, orientation = "hang", droop = 0.6, bend = 0.5},
 	}
 )
--- a short thick trunk splitting into limbs that arch out, and curtains of long thin hanging strands
 add_species(
 	"willow",
 	"trees",
@@ -625,7 +567,6 @@ add_species(
 		leaves = leaves{material = "willow_leaves", level = 2, density = 2.8, start = 0.15, size = {0.5, 0.7}, orientation = "hang", droop = 2, bend = 0.4, roll = 60},
 	}
 )
--- bare and grey, crooked and broken
 add_species(
 	"dead_tree",
 	"trees",
@@ -645,7 +586,6 @@ add_species(
 		bark = "dead_bark",
 	}
 )
--- bushes: many stems from the ground and leaves all over
 add_species(
 	"bush",
 	"plants",
@@ -719,10 +659,6 @@ add_species(
 	}
 )
 
--- a frond: a strip along a drooping rachis, folded up along it in a v, with the frond texture across it (u 0 to 1,
--- the rachis in the middle) and along it (v from the base). width is of the length, fold in degrees. it is held at
--- its base and loses flex of its stiffness a meter of horizontal reach. its normals lean away from center (where the
--- plant's fronds grow from, the top of a palm's trunk) by bend, like the leaves of a tree from its trunk
 function trees.AddFrond(mesh, rng, base, dir, length, width, fold, gravity, curve, segments, phase, flex, center, bend)
 	local points = trees.Grow(rng, base, dir, length, 0, {taper = 0, curve = curve, noise = 3, gravity = gravity}, segments, nil)
 	local half = length * width * 0.5
@@ -743,7 +679,6 @@ function trees.AddFrond(mesh, rng, base, dir, length, width, fold, gravity, curv
 			side = side * -1
 		end
 
-		-- the leaflets lift towards the edges, the v of the fold
 		local left = point.pos - side * (half * cos(fold_angle)) + up * (half * sin(fold_angle))
 		local right = point.pos + side * (half * cos(fold_angle)) + up * (half * sin(fold_angle))
 		local normal_left = (up * cos(fold_angle) + side * sin(fold_angle) + UP * 0.3):GetNormalized()
@@ -765,7 +700,6 @@ function trees.AddFrond(mesh, rng, base, dir, length, width, fold, gravity, curv
 	for i = 0, #points - 2 do
 		local a = first + i * 3
 		local b = a + 3
-		-- facing up, u grows to the right of the rachis
 		mesh:Quad(a, a + 1, b + 1, b)
 		mesh:Quad(a + 1, a + 2, b + 2, b + 1)
 	end
@@ -773,7 +707,6 @@ function trees.AddFrond(mesh, rng, base, dir, length, width, fold, gravity, curv
 	return points
 end
 
--- a low poly ball, for fruit
 function trees.AddBall(mesh, center, radius, rings, sides, phase, stiffness)
 	local first = mesh:GetVertexCount()
 	mesh:SetColor(0, phase, stiffness)
@@ -797,8 +730,6 @@ function trees.AddBall(mesh, center, radius, rings, sides, phase, stiffness)
 	end
 end
 
--- a palm: a ringed trunk that leans and curves back up, a crown of fronds from upright to drooping, a few dead ones
--- hanging under it and coconuts
 function trees.BuildPalm(config, rng)
 	local height = rng:Pick(config.height)
 	local trunk_rng = rng:Fork("trunk")
@@ -810,14 +741,12 @@ function trees.BuildPalm(config, rng)
 	local lean = rad(trunk_rng:Pick(config.lean))
 	local dir = Vec3(sin(lean) * cos(azimuth), cos(lean), sin(lean) * sin(azimuth))
 	local radius = height * config.trunk_radius
-	-- curving back up against the lean
 	local points = trees.Grow(trunk_rng, Vec3(0, -0.3, 0), dir, height, radius, {taper = config.taper, curve = trunk_rng:Pick(config.curve), noise = 2}, 16)
 
 	for _, point in ipairs(points) do
 		point.radius = point.radius * (1 + config.flare * math.exp(-(point.pos.y + 0.3) / 0.6))
 	end
 
-	-- the trunk only sways
 	trees.AddTube(
 		wood,
 		points,
@@ -886,20 +815,16 @@ foliage.AddGenerator(
 			taper = 0.35,
 			flare = 0.6,
 			lean = {5, 18},
-			-- degrees over the trunk, against the lean
 			curve = {6, 18},
 			bark = "palm_bark",
 			bark_tile = 0.9,
 			fronds = {14, 18},
-			-- degrees from upright, the first frond to the last
 			pitch = {15, 105},
 			frond_length = {3.2, 4.2},
 			frond_width = 0.5,
 			fold = 22,
 			droop = 0.28,
-			-- how much less stiff a meter of a frond's reach out of the crown is
 			frond_flex = 0.2,
-			-- how far the normals of the fronds lean away from the top of the trunk
 			frond_bend = 0.35,
 			frond_material = "palm_frond",
 			dead_fronds = {2, 4},

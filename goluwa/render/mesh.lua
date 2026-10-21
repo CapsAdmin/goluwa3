@@ -118,8 +118,6 @@ local function assert_indices_reach_vertices(self)
 	end
 end
 
--- `mode` "owned" is for vertices and indices nothing else uses, they are kept instead of copied. "host" also has no gpu
--- buffers, for meshes that only the cpu reads. `indices` can be an IndexBuffer that meshes of the same topology share
 function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count, name, mode)
 	local self = Mesh:CreateObject()
 	self.debug_name = name
@@ -195,7 +193,6 @@ function Mesh:CloneDynamic(vertex_buffer)
 	return clone
 end
 
--- call after changing the vertex data in place, the mesh no longer matches the content it was cached under
 function Mesh:ForgetContent()
 	if self.content_key then
 		mesh_content_cache[self.content_key] = nil

@@ -22,56 +22,8 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
 local particles = {}
--- a particle system is a pool of particles that live on the gpu. every frame one compute pass spawns, moves and
--- lights every live particle of every active system, and the translucent passes draw them as capsules (a streak
--- with a round end each) that the order independent transparency blends with the models.
---
--- a system is registered with particles.Register{...}:
---   name: its glsl functions are <name>_spawn, <name>_update and <name>_visibility, its uniforms <name>_data
---   max_count: the size of its pool
---   IsActive(): whether it simulates and draws this frame
---   GetCount(): how many of its pool are alive, and how many particles each one stands for (the coverage
---     scale, a thinned out crowd of 1000 particles shown as 100 makes each ten times as opaque)
---   block, WriteBlock(self, block): its own uniforms, a list of fields like any block and the function that fills it
---   declarations: glsl in front of its functions
---   spawn: the body of void <name>_spawn(uint index, uint generation, inout Particle p). p is zero but for
---     p.user.x (the generation, 1 the first time), it sets what it needs of position, velocity, width (meters, the
---     diameter of the capsule), life (seconds, a particle past it is spawned again) and the user fields
---   update: the body of void <name>_update(uint index, float dt, inout Particle p). p.age is already advanced
---   visibility: the body of float <name>_visibility(Particle p), 0 hides the particle, 1 shows it
---   scatter_g: the Henyey-Greenstein asymmetry of how it scatters light
---   streak_time: seconds of its motion drawn as a streak, the exposure time
---   fade_time: seconds it fades in after its spawn and out before its life ends
---   fade_near, fade_far: meters, it fades out closer than the first and from 70% of the second away
---   depth_near, depth_far: the range of distances to the camera the translucent passes have to cover
---   lit: false for a system that sets p.radiance itself (a glowing spark), it is not lit then. Default true
---   shade: the body of void <name>_shade(inout Particle p), every frame a particle is visible, after its light (p.light,
---     the light that scatters towards the viewer, refreshed every few frames) is known. It sets p.radiance, what is drawn.
---     Default p.radiance = p.light (nothing if lit is false)
---   should_spawn: the body of bool <name>_should_spawn(uint index). A system that has it spawns a slot only when it says
---     so (a dead slot stays dead otherwise, and an alive one is spawned again, its generation up), which is how an
---     emitter spawns a number of particles a frame: the cpu picks slots in a ring and the shader tests it. The slots
---     do not start at a random age either
---   UsesRays(): for a system with per particle collision, whether any particle may use "rays" (the scene bvh is only
---     built and bound while something does)
---   collision_mode: with collision = "per_particle", the body of int <name>_collision_mode(Particle p), 0 for nothing and
---     1 shelter_map, 2 scene_depth, 3 rays
---   collision: what the particle's step from where it was to where it is is tested against, read every frame so it
---     can change while the game runs. nil is nothing, "shelter_map" the depth map of the world from above that keeps
---     the weather off what is under a roof (one texture read, it only sees the top of things, and it is what rain and
---     snow use), "scene_depth" the depth buffer of the view (cheap and sees walls, but only what is on screen and in
---     front of something thin enough), "rays" a ray along the step through the scene bvh (sees everything solid, one
---     ray per particle). A hit calls collide
---   collide: the body of void <name>_collide(uint index, inout Particle p, vec3 previous, vec3 hit, vec3 normal),
---     with the point the step hit and the surface's normal, facing the particle. particle_stick, particle_bounce and
---     p.life = 0.0 (it dies) are what it usually does. A system that moves a particle by other means than its step
---     (the box around the camera wrapping it) sets particle_previous = p.position after
---
--- the light of a particle is the primary light's shadowed beam, the local lights and the light around it: the
--- ddgi probes where there are some, the sky's environment where there are none, like the translucent pass
 particles.MAX_SYSTEMS = 8
 particles.LOCAL_SIZE = 64
--- a particle is lit every this many frames, and when it appears
 particles.RELIGHT_INTERVAL = 4
 local LOCAL_LIGHT_LIMIT = 8
 local BINDING_DDGI = 1
@@ -104,8 +56,6 @@ local pools_and_systems = {
 	{"system_count", "int"},
 }
 
--- the share of what a particle scatters that comes from the light behind it (the hemisphere around the direction
--- the viewer looks in), the integral of the Henyey-Greenstein phase over that half of the sphere
 local function get_forward_fraction(g)
 	if math.abs(g) < 1e-4 then return 0.5 end
 
@@ -115,7 +65,6 @@ end
 function particles.Register(def)
 	local index = #particles.systems + 1
 
-	-- a module that loads again takes over the place and the pool of what it registered before
 	for i, other in ipairs(particles.systems) do
 		if other.name == def.name then
 			index = i
@@ -183,7 +132,6 @@ do
 	local RecordArray = ffi.typeof("$[?]", Record)
 	local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
 
-	-- the live particles of a system as an array of records with the fields of Particle, for tests and debugging
 	function particles.Download(def)
 		local size = def.pool:GetSize()
 		local readback = render.CreateBuffer{
@@ -213,7 +161,6 @@ do
 	end
 end
 
--- the pools and what is alive of every system, in the order the draw's instances run
 function particles.WriteSystems(block)
 	local first = 0
 
@@ -245,21 +192,16 @@ end
 
 function particles.GetParticleGLSL()
 	return [[
+
 		struct Particle {
 			vec3 position;
-			// seconds since it spawned
 			float age;
 			vec3 velocity;
-			// seconds it lives, a particle that is out of life or has none spawns
 			float life;
-			// what is drawn, a system sets it in shade or in update
 			vec3 radiance;
-			// 0 hidden, 1 shown, written by the simulation
 			float visibility;
-			// the light that scatters towards the camera, written by the simulation for lit systems
 			vec3 light;
 			float width;
-			// x is the generation, how often the slot spawned
 			uvec3 user;
 			uint spare;
 		};
@@ -269,14 +211,11 @@ function particles.GetParticleGLSL()
 	]]
 end
 
--- what a step from a to b of a particle of this radius hits, for the collision modes of a system. hit is where, normal is
--- the surface's and faces the particle
 function particles.GetCollisionGLSL()
 	return [[
-		// where the particle was before its update, a system that moves it by other means sets this after
+
 		vec3 particle_previous;
 
-		// whether pos is under what the shelter map sees from above, and the surface there and its normal
 		bool particle_probe_shelter_map(vec3 pos, out vec3 surface, out vec3 normal) {
 			surface = pos;
 			normal = vec3(0.0, 1.0, 0.0);
@@ -290,7 +229,6 @@ function particles.GetCollisionGLSL()
 
 			if (any(lessThan(coords, vec3(0.0))) || any(greaterThan(coords, vec3(1.0)))) return false;
 
-			// the depth grows along the gradient, away from where the precipitation comes from
 			vec3 gradient = vec3(m[0].z, m[1].z, m[2].z);
 			float stored = textureLod(TEXTURE(particle_data.shelter_texture), coords.xy, 0.0).r;
 
@@ -306,7 +244,6 @@ function particles.GetCollisionGLSL()
 			return (particle_data.inv_view * vec4(view_pos.xyz / view_pos.w, 1.0)).xyz;
 		}
 
-		// the particle is behind what the view sees at b, by less than a thickness, and was in front of it at a
 		bool particle_trace_scene_depth(vec3 a, vec3 b, out vec3 hit, out vec3 normal) {
 			vec4 clip = particle_data.projection * particle_data.view * vec4(b, 1.0);
 
@@ -362,8 +299,6 @@ function particles.GetCollisionGLSL()
 			return particle_trace_rays(a, b, radius, hit, normal);
 		}
 
-		// what a hit usually does: the particle lies on the surface, or comes off it with its speed along the normal
-		// reversed and scaled by restitution and across it by friction
 		void particle_stick(inout Particle p, vec3 hit, vec3 normal) {
 			p.position = hit + normal * p.width * 0.5;
 			p.velocity = vec3(0.0);
@@ -443,8 +378,7 @@ function particles.GetSimulationGLSL()
 	end
 
 	return particles.GetCollisionGLSL() .. table.concat(functions, "\n") .. [[
-		// the irradiance divided by pi at P from the side N faces: the probes' where there are probes that can see P, the
-		// sky's environment where there are none
+
 		vec3 get_particle_irradiance(vec3 P, vec3 N) {
 			vec3 environment = sample_environment_irradiance(particle_data.env_irradiance_tex, N);
 
@@ -452,18 +386,14 @@ function particles.GetSimulationGLSL()
 
 			float weight;
 			vec4 probes = ddgi_sample_irradiance(P, N, N, vec3(0.0), ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
-			// where the probes are all but hidden the sample fades to nothing, which gives way to the sky as smoothly
 			return mix(environment, probes.rgb, saturate(weight / ]] .. ddgi.MIN_WEIGHT .. [[));
 		}
 
-		// the light a particle scatters towards the viewer. view_dir points from the viewer to it
 		vec3 get_particle_radiance(vec3 P, vec3 view_dir, float g, float forward_fraction) {
 			vec3 sun_dir = get_current_primary_sun_direction();
 			vec3 point = get_atmosphere_camera_origin(P);
 			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(point, sun_dir) * get_ground_fog_sun_transmittance(point, sun_dir) * get_particle_sun_visibility(P, sun_dir);
 			vec3 radiance = sun * phase_henyey_greenstein(dot(view_dir, sun_dir), g);
-			// the light around it, from the side the particle is seen against (forward scattered) and from the side
-			// facing the viewer (scattered back), as much of each as the phase function scatters from that half
 			radiance += get_particle_irradiance(P, view_dir) * forward_fraction + get_particle_irradiance(P, -view_dir) * (1.0 - forward_fraction);
 			return radiance + get_local_light_scattering(view_dir, P, g);
 		}
@@ -489,7 +419,6 @@ function particles.GetSimulationGLSL()
 					]] .. table.concat(should_spawns, "\n") .. [[
 				}
 
-				// a slot that is not asked for stays dead
 				if (!alive && !forced) {
 					if (p.visibility > 0.0) {
 						p.visibility = 0.0;
@@ -511,7 +440,6 @@ function particles.GetSimulationGLSL()
 					]] .. table.concat(spawns, "\n") .. [[
 				}
 
-				// the first spawn of a slot starts it somewhere in its life, or they all end at the same time
 				if (generation == 1u && system.scheduled == 0) p.age = pcg3d_unorm(uvec3(index, system_index, 977u)).x * p.life;
 			} else {
 				p.age += dt;
@@ -571,7 +499,6 @@ function particles.GetSimulationGLSL()
 end
 
 function particles.BuildSimulationPasses()
-	-- whether the scene is traced this frame
 	local bvh_ready = false
 	local uniform_buffers = {
 		{
@@ -619,8 +546,6 @@ function particles.BuildSimulationPasses()
 			end,
 		},
 	}
-	-- the barriers around the dispatch, the one before makes the last frame's draw and the other passes that read the pools done
-	-- with them, the one after hands what the dispatch wrote to the draw and the next frame
 	local before, after = {}, {}
 	local pooled_before, pooled_after = {}, {}
 
@@ -714,8 +639,6 @@ function particles.BuildSimulationPasses()
 	}
 end
 
--- the seconds the simulation advances this frame, a frame that took long (a stall, a breakpoint) does not
--- throw particles across the world
 function particles.GetStepTime()
 	return math.clamp(system.GetElapsedTime() - render3d.GetPreviousElapsedTime(), 0, 0.1)
 end
@@ -767,7 +690,6 @@ local function get_vertex_glsl()
 		}
 
 		void main() {
-			// the instances run through the systems one after the other, an empty system starts where the next does
 			int system_index = 0;
 
 			while (system_index + 1 < particle_draw.system_count && gl_InstanceIndex >= particle_draw.systems[system_index + 1].first) system_index++;
@@ -786,18 +708,14 @@ local function get_vertex_glsl()
 			vec3 to_particle = head - camera;
 			float dist = length(to_particle);
 			float width = p.width;
-			// at least a pixel and a half wide, fainter by as much
 			float pixel = dist * 2.0 / (abs(particle_draw.projection[1][1]) * particle_draw.render_size.y);
 			float drawn_width = max(width, pixel * 1.5);
 			vec3 axis = head - tail;
 			float path = length(axis);
 			vec3 along_dir = path > 1e-6 ? axis / path : normalize(mat3(particle_draw.inv_view)[0]);
 			vec3 side = normalize(cross(along_dir, to_particle));
-			// the path with a round particle at each end, core is the straight part's share of its length
 			float core = path / (path + drawn_width);
-			// the coverage profile's average over the quad, so rounding the ends doesn't change the total
 			float profile_average = core * (2.0 / 3.0) + (1.0 - core) * 0.39269908;
-			// a point on the path is covered while the particle passes it, its width of the path's length
 			float alpha = width / (path + width) * (width / drawn_width) * system.coverage_scale * p.visibility;
 			int corner = gl_VertexIndex;
 			float across = float(corner & 1) * 2.0 - 1.0;
@@ -915,7 +833,6 @@ function particles.BuildPasses()
 						);
 						float alpha = get_particle_alpha();
 						set_color(vec4(min(in_radiance * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
-						// streaks are thin and fast, a pixel with one follows it, or taa would average it away
 						set_motion(vec4(in_motion, 1.0, 0.0) * transmittance);
 						set_additive(vec4(0.0));
 						set_modulate(vec4(1.0));

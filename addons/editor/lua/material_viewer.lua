@@ -20,12 +20,10 @@ local ViewerWindow = kit.ViewerWindow
 local Canvas = kit.Canvas
 local PREVIEW_SIZE = 512
 local WINDOW_SIZE = Vec2(1000, 680)
--- edits a copy of the material on a sphere, the material it was opened from is never changed
 local MaterialView = react.Component(|props| -> do
 	local source = props.Source
 	local material, set_material = react.UseState(|| -> source:Copy())
 	local editor = react.UseRef()
-	-- what the preview and the mouse change every frame lives here, none of it is a reason to render again, the preview goes with the window
 	local view = react.UseResource(|| -> {
 		orbit = OrbitCamera.New(),
 		preview = ModelPreview.New{Width = PREVIEW_SIZE, Height = PREVIEW_SIZE, Padding = 1.1},

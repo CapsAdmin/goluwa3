@@ -52,9 +52,6 @@ float pn_ridged(vec2 p, int octaves, float offset, float gain) {
 	return sum / norm;
 }
 
-// fbm and ridged variants whose octaves fade out as their wavelength approaches
-// the bake sample step, so coarse LOD bakes do not alias into per texel noise.
-// `wavelength` is the world size of the first octave, `step` the sample spacing.
 float pn_octave_fade(float wavelength, float step) {
 	return 1.0 - smoothstep(wavelength * 0.2, wavelength * 0.5, step);
 }
@@ -122,7 +119,6 @@ vec2 tile_hash2(vec2 p) {
 	return vec2(tile_hash(p), tile_hash(p + 17.0));
 }
 
-// value noise, repeats every `period` cells (per axis)
 float tile_noise(vec2 p, vec2 period) {
 	vec2 i = floor(p);
 	vec2 f = fract(p);
@@ -138,7 +134,6 @@ float tile_noise(vec2 p, float period) {
 	return tile_noise(p, vec2(period));
 }
 
-// gradient noise in -1..1, repeats every `period` cells
 float tile_gradient(vec2 p, float period) {
 	vec2 i = floor(p);
 	vec2 f = fract(p);
@@ -154,7 +149,6 @@ float tile_gradient(vec2 p, float period) {
 	) * 1.4;
 }
 
-// uv is 0..1, result is 0..1, period may differ per axis for streaky noise
 float tile_fbm(vec2 uv, vec2 period, int octaves, float gain) {
 	float sum = 0.0;
 	float amp = 0.5;
@@ -176,12 +170,10 @@ float tile_fbm(vec2 uv, float period, int octaves, float gain) {
 	return tile_fbm(uv, vec2(period), octaves, gain);
 }
 
-// offsets uv by a tileable noise field, so cell and band patterns lose their regularity
 vec2 tile_warp(vec2 uv, float period, float amount) {
 	return uv + vec2(tile_gradient(uv * period, period), tile_gradient(uv * period + vec2(37.0, 11.0), period)) * amount;
 }
 
-// gradient fbm, result is roughly -1..1
 float tile_gfbm(vec2 uv, float period, int octaves, float gain) {
 	float sum = 0.0;
 	float amp = 0.5;
@@ -199,7 +191,6 @@ float tile_gfbm(vec2 uv, float period, int octaves, float gain) {
 	return sum / norm;
 }
 
-// result is 0..1 with sharp creases at 1
 float tile_ridged(vec2 uv, float period, int octaves, float gain) {
 	float sum = 0.0;
 	float amp = 0.5;
@@ -221,7 +212,6 @@ float tile_ridged(vec2 uv, float period, int octaves, float gain) {
 	return sum / norm;
 }
 
-// distance to the closest feature point (0..~1) and the id of that cell
 vec3 tile_cells(vec2 uv, float period) {
 	vec2 p = uv * period;
 	vec2 i = floor(p);
@@ -246,7 +236,6 @@ vec3 tile_cells(vec2 uv, float period) {
 	return vec3(sqrt(best), best_id);
 }
 
-// distance to the closest and second closest feature point
 vec2 tile_cells2(vec2 uv, float period) {
 	vec2 p = uv * period;
 	vec2 i = floor(p);

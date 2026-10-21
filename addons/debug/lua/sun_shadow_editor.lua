@@ -2,7 +2,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local weather = import("goluwa/render3d/weather.lua")
--- how often the editor looks at the settings, seconds
 local POLL_INTERVAL = 0.1
 local nodes = {}
 local SIZE_OPTIONS = {}
@@ -15,7 +14,6 @@ local FORMAT_OPTIONS = {
 	{Text = "d16_unorm", Value = "d16_unorm"},
 	{Text = "d32_sfloat", Value = "d32_sfloat"},
 }
--- {setting, text, node type, help, node fields, index into a list setting}
 local SHADOW_GROUPS = {
 	{
 		category = "cascades",
@@ -63,7 +61,6 @@ local SHADOW_GROUPS = {
 	},
 }
 
--- the shadow maps keep their own fit of the view, what they came to is shown next to the settings
 local function describe_cascade(category, i)
 	local map = weather.shadow_maps[category]
 
@@ -156,7 +153,6 @@ local function build_items()
 	return items
 end
 
--- the values of every node, the same table while nothing changed so that a poll that finds nothing is not a render
 local last_values = {}
 
 local function read_values()
@@ -176,8 +172,6 @@ local function read_values()
 	return values
 end
 
--- the editor follows the weather's sun shadow settings while it is mounted, whoever changes them. props.Height is its height, a
--- page of tabs has no height of its own for it to grow into
 return react.Component(|props| -> do
 	local editor = react.UseRef()
 	local items = react.UseMemo(build_items, {})

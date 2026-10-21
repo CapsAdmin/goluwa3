@@ -168,7 +168,6 @@ table.insert(
 		upload_scope = "frame",
 	}
 )
--- what the surface pipelines read besides their own uniforms: the light grid, the occlusion map, the fog and the scene
 local function bind_surface(surface, cmd)
 	if not surface then return end
 
@@ -259,7 +258,6 @@ local passes = {
 
 					if (AlphaTest && alpha < factor_model.AlphaCutoff) discard;
 
-					// an additive surface only adds light, the scene behind it stays
 					float absorbance = (Additive || Modulate) ? 0.0 : -log(max(1.0 - alpha, 1e-3));
 					float depth = moments_warp_depth(distance(in_position, translucent_camera.camera_position), moments_data.depth_warp);
 					float depth2 = depth * depth;
@@ -346,7 +344,6 @@ local passes = {
 					write = function(self, block)
 						local material = render3d.GetMaterial()
 						block.amount = material:GetRefraction()
-						-- an index under 1 is not a medium light slows down in, and 0 divides by zero in the refraction
 						block.ior = math.max(material:GetIndexOfRefraction(), 1)
 						block.abbe = material:GetAbbeNumber()
 						block.thickness = render3d.translucent_thickness
@@ -377,10 +374,7 @@ local passes = {
 					return calculateShadow(world_pos, sun_dir, sun_dir) * get_cloud_shadow(world_pos);
 				}
 			]] .. froxel_fog.GetGLSL("lighting_data") .. [[
-				// the gi at the surface itself, from the probes, for the side the
-				// viewer is on. the gbuffer's screen space gi is the light of the
-				// opaque surface behind, which is another place with another
-				// normal, and only stands in where there are no probes
+
 				vec3 get_gi_irradiance(vec2 screen_uv, vec3 world_pos, vec3 facing_N, vec3 V, bool use_probes, out float sky_visibility) {
 					vec3 irradiance;
 					bool behind_is_sky = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r <= 0.0;
@@ -398,14 +392,11 @@ local passes = {
 
 					float weight;
 					vec4 probes = ddgi_sample_irradiance(world_pos, facing_N, facing_N, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
-					// where the probes are all but hidden the sample fades to nothing,
-					// which gives way to the fallback just as smoothly
 					float confidence = saturate(weight / ]] .. ddgi.MIN_WEIGHT .. [[);
 					sky_visibility = mix(sky_visibility, probes.a, confidence);
 					return mix(irradiance, probes.rgb, confidence);
 				}
 
-				// how far the surface moved on screen since last frame
 				vec2 get_screen_motion(vec3 world_pos, vec3 prev_world_pos) {
 					vec4 clip = translucent_camera.projection * translucent_camera.view * vec4(world_pos, 1.0);
 					vec4 prev_clip = translucent_camera.prev_projection * translucent_camera.prev_view * vec4(prev_world_pos, 1.0);
@@ -417,13 +408,6 @@ local passes = {
 
 ]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_scene_pos"}) .. [[
 
-				// the radiance behind the surface arriving along dir: the scene
-				// where the ray meets it, blurred by how far roughness has spread
-				// it by then, or the environment when it leaves the screen.
-				// reach is how far to look, a few times how far behind the
-				// surface the scene is along the view ray
-				// what a ray that leaves a refracting surface finds where the screen and the scene do not say: the sky and the probes'
-				// light. Only a ray that misses needs it, so it is worked out there, with the surface's values kept here
 				bool exit_gi_known;
 				bool exit_use_probes;
 				vec3 exit_irradiance;
@@ -450,23 +434,17 @@ local passes = {
 				}
 
 				vec3 get_refracted_background(vec3 surface_pos, vec3 exit_pos, vec3 exit_normal, vec3 dir, float reach, float roughness) {
-					// per pixel and frame noise for the step jitter and the cone's rotation; a hash, because the
-					// gradient noise has diagonal structure that slides along as the frame moves
 					vec3 hash_state = pcg3d_unorm(uvec3(uvec2(gl_FragCoord.xy), uint(lighting_data.time * 60.0)));
 					float spin = hash_state.x;
 					float jitter = hash_state.y;
 
 					if (lighting_data.refraction_tex < 0) return get_exit_environment(dir);
 
-					// a rough interface spreads the ray into a cone. One ray lands on one object, so a blurred lookup
-					// at where it landed keeps the hard edge of whatever it met; several rays across the cone average
-					// the objects they meet instead, and the lookup only has to fill what lies between them
 					int samples = roughness < 0.04 ? 1 : 4;
 					vec3 tangent = normalize(cross(dir, abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
 					vec3 bitangent = cross(dir, tangent);
 					vec3 sum = vec3(0.0);
 
-					// the fogged scene is pre-exposed, the shading here is absolute
 					float to_absolute = 1.0 / get_pre_exposure();
 
 					for (int s = 0; s < samples; s++) {
@@ -482,18 +460,12 @@ local passes = {
 						float travel;
 
 						if (!screen_refraction_trace(surface_pos, exit_pos, ray_dir, reach, jitter, uv, travel)) {
-							// the ray left the screen, where the opaque scene is not known. With ray queries the scene
-							// there is traced, without them the edge of the screen it left through stands in for it
-							// (smeared and blurred more the further outside it went) and fades to the probes' light
-							// only when far outside, a probe is dark where the scene is not
 							#ifdef SCENE_REFLECTION
 							if (scene_reflection_ready()) {
 								float traced_t;
 								// a ray that leaves a solid nearly along its surface must start outside it, or it meets the solid again
 								vec3 traced = trace_scene_reflection(exit_pos + exit_normal * 0.05 + ray_dir * 0.02, ray_dir, ray_dir, roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
 
-								// a ray that hit nothing got the raw sky back, which is not what the surroundings (an enclosed place,
-								// the probes) say is there: those are what the screen would have used, so only a hit is taken
 								sum += traced_t < SCENE_REFLECTION_MAX_DISTANCE ? traced : get_exit_environment(dir);
 								continue;
 							}
@@ -518,8 +490,6 @@ local passes = {
 							continue;
 						}
 
-						// four taps a level finer than the blur, so the box filtered
-						// mips don't show as blocks
 						vec2 spread = vec2(blur_pixels * 0.5) / lighting_data.render_size;
 						float lod = log2(blur_pixels * 0.5);
 						sum += (
@@ -540,7 +510,6 @@ local passes = {
 
 					vec2 screen_uv = gl_FragCoord.xy / lighting_data.render_size;
 					vec3 world_pos = in_position;
-					// how much of this surface is seen through those in front of it
 					ivec2 pixel = ivec2(gl_FragCoord.xy);
 					float transmittance = moments_transmittance(
 						texelFetch(TEXTURE(lighting_data.b0_tex), pixel, 0).r,
@@ -551,8 +520,6 @@ local passes = {
 					vec3 fog_scattered = lighting_data.fog != 0 ? get_volumetric_fog(screen_uv, distance(world_pos, lighting_data.camera_position.xyz), fog_transmittance) : vec3(0.0);
 					vec2 motion = get_screen_motion(world_pos, in_prev_position);
 					vec3 geometric_N = get_vertex_normal();
-					// how fast the surface bends, from how the interpolated normal
-					// turns across the pixel. 0 on a flat face
 					float curvature = max(
 						length(dFdx(geometric_N)) / max(length(dFdx(world_pos)), 1e-6),
 						length(dFdy(geometric_N)) / max(length(dFdy(world_pos)), 1e-6)
@@ -566,18 +533,10 @@ local passes = {
 					float perceptual_roughness = sqrt(roughness);
 					float diffuse_transmission = get_transmission(in_uv);
 					bool refractive = refraction.amount > 0.0;
-					// one roughness for the surface, what it reflects and what it lets through: the same microfacets scatter both
 					float refraction_roughness = roughness;
-					// a refracting surface reflects what its index of refraction
-					// says, and scatters diffusely only what it doesn't transmit
 					float ior_f0 = (refraction.ior - 1.0) / (refraction.ior + 1.0);
 					vec3 F0 = mix(vec3(refractive ? ior_f0 * ior_f0 : get_specular(in_uv) * 0.04), albedo, metallic);
 					float NdotV = max(dot(N, V), 0.001);
-					// alpha is how much of the pixel the surface covers. a surface
-					// that doesn't refract uses it as its opacity, scaling what it
-					// scatters itself: its diffuse and emission. reflection comes off
-					// the covered and the clear parts alike, but not off texels that
-					// hold no surface at all
 					vec3 diffuse_albedo = albedo * (refractive ? 1.0 - refraction.amount : alpha);
 					float specular_coverage = refractive ? 1.0 : smoothstep(0.0, 0.1, alpha);
 
@@ -597,22 +556,14 @@ local passes = {
 					finish_surface_features(surface);
 					vec3 direct_diffuse = get_direct_light(surface, direct_specular);
 
-					// a surface reflects what the scene holds, a rough one traces several rays over its lobe like the reflection
-					// pass (the temporal anti aliasing averages them over the frames), fading into the probes as the
-					// reflection pvars say
 					bool traced_only = false;
 					#ifdef SCENE_REFLECTION
 					float traced_weight = 1.0 - smoothstep(lighting_data.reflection_gi_start, lighting_data.reflection_gi_end, clamp(perceptual_roughness, 0.0, 1.0));
 					traced_only = traced_weight >= 1.0 && scene_reflection_ready();
 					#endif
-					// the light of the probes is the surface's own diffuse and what it reflects where nothing is traced. A
-					// surface that transmits all, and reflects only what it traces, needs it only where a refracted ray misses
 					float sky_visibility = 1.0;
 					vec3 irradiance = vec3(0.0);
 					bool gi_known = !(refractive && refraction.amount >= 1.0 && traced_only);
-					// a surface that transmits all of the light has no diffuse of its own, the light only reaches its reflection:
-					// the opaque scene's light behind it and the sky stand in for the probes' (8 probes with a visibility
-					// test per pixel and layer)
 					bool use_probes = !(refractive && refraction.amount >= 1.0);
 
 					if (gi_known) irradiance = get_gi_irradiance(screen_uv, world_pos, dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N, V, use_probes, sky_visibility);
@@ -668,10 +619,6 @@ local passes = {
 					vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
 					vec3 ambient_diffuse = (1.0 - F_ambient) * (1.0 - metallic) * irradiance * diffuse_albedo * get_ao(in_uv);
 					vec3 ambient_specular = reflection * (F0 * env_brdf.x + F90(F0) * env_brdf.y) * GGXEnergyCompensation(F0, env_brdf);
-					// what a refracting surface reflects and lets through. A thin wall is a pane, two surfaces with the light
-					// bouncing between them (what it reflects is 2F / (1 + F), twice what one surface does), and what it
-					// carries is the tint once. A solid has its front surface here and its far one where the ray leaves.
-					// The split sum above is built on Schlick, so the exact reflectance scales it by the ratio of the two
 					float fresnel_front = fresnel_dielectric(NdotV, 1.0 / refraction.ior);
 					vec3 pane_reflectance = vec3(fresnel_front);
 					vec3 pane_transmittance = vec3(1.0 - fresnel_front);
@@ -687,9 +634,6 @@ local passes = {
 					set_modulate(vec4(1.0));
 
 					if (Modulate) {
-						// source's decalmodulate: the scene behind is multiplied by twice the
-						// texture, and source does that in gamma space, which in linear is
-						// a factor of 2^2.2 times the linear albedo
 						vec3 factor = 4.5948 * albedo * color_model.ColorMultiplier.rgb;
 						set_color(vec4(0.0));
 						set_motion(vec4(0.0));
@@ -699,11 +643,6 @@ local passes = {
 					}
 
 					if (Additive) {
-						// source's $additive: the albedo is added to the scene, nothing
-						// of it is taken away, and it lights nothing but its reflection
-						// an unlit source material adds its color to the picture as it is
-						// displayed, so it follows the exposure instead of glowing at a fixed
-						// luminance. the pre exposed scene is the displayed one over the headroom
 						vec3 emission = DisplayReferred ? get_albedo_uv(in_uv) * color_model.ColorMultiplier.a / ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : get_emissive(in_uv) * color_model.ColorMultiplier.a * get_pre_exposure();
 						vec3 added = emission + (direct_specular + ambient_specular) * specular_coverage * get_pre_exposure();
 						set_color(vec4(0.0));
@@ -715,7 +654,6 @@ local passes = {
 					if (!refractive) {
 						vec3 emissive = get_emissive(in_uv) * alpha;
 						vec3 color = direct_diffuse + ambient_diffuse + (direct_specular + ambient_specular) * specular_coverage + emissive;
-						// the fog in front of the surface covers what the surface covers
 						color = color * fog_transmittance + fog_scattered * alpha;
 						set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha) * transmittance);
 						set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance);
@@ -725,12 +663,9 @@ local passes = {
 
 					vec3 I = -V;
 					vec3 facing_N = dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N;
-					// a dispersive medium bends each wavelength by its own index, so red, green and
-					// blue are followed separately and each takes its own channel of the background
 					vec3 channel_ior = screen_refraction_dispersed_ior(refraction.ior, refraction.abbe);
 					int channel_count = refraction.abbe > 0.0 ? 3 : 1;
 					vec3 background = vec3(0.0);
-					// the light that gets out through the far surface of a solid and how far it went inside
 					float exit_transmitted = 0.0;
 					float path_length = 0.0;
 					float flat_exit = 0.0;
@@ -744,10 +679,6 @@ local passes = {
 						vec3 exit_outward = facing_N;
 
 						if (refraction.thickness > 0.0) {
-							// a solid. locally the surface is a sphere as curved as it is
-							// here, or a slab with a parallel far side when it is flat;
-							// the ray leaves through whichever it reaches first
-							// no rounder than a sphere as wide as the object is thin
 							float radius = max(1.0 / max(curvature, 1e-4), refraction.thickness * 0.5);
 							float cos_in = max(-dot(T, facing_N), 0.05);
 							float sphere_length = 2.0 * radius * cos_in;
@@ -760,7 +691,6 @@ local passes = {
 							path_length += min(sphere_length, slab_length);
 							flat_exit += sphere_length < slab_length ? 0.0 : 1.0;
 
-							// totally reflected inside; it leaves somewhere, roughly on
 							if (dot(exit_dir, exit_dir) < 1e-6) {
 								exit_dir = T;
 								exit_transmitted += 1.0;
@@ -768,8 +698,6 @@ local passes = {
 								exit_transmitted += 1.0 - fresnel_dielectric(dot(T, exit_N), ior);
 							}
 						} else {
-							// a thin wall leaves the ray parallel to how it came in, so
-							// only the normal map's slopes bend it
 							exit_dir = normalize(I + T - refract(I, facing_N, eta));
 						}
 
@@ -778,9 +706,6 @@ local passes = {
 						if (lighting_data.refraction_tex < 0) {
 							channel_background = get_exit_environment(exit_dir);
 						} else if (refraction.thickness > 0.0) {
-							// how far behind the surface the opaque scene is along the view
-							// ray sets how far the refracted ray is followed. with only sky
-							// behind, as far as the surface is from the camera, again
 							float scene_depth = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r;
 							float surface_distance = distance(lighting_data.camera_position.xyz, exit_pos);
 							float reach = 2.0 * surface_distance;
@@ -805,23 +730,15 @@ local passes = {
 						}
 					}
 
-					// the fraction of the background that comes through. the fogged
-					// scene it is taken from already holds the fog in front of the
-					// surface, so of that fog only what covers the rest is added,
-					// and taa follows the background there
 					vec3 transmission = pane_transmittance;
 					vec3 reflectance = pane_reflectance;
 
 					if (refraction.thickness > 0.0) {
-						// through the glass: absorbed along the path (the tint is the color at the attenuation distance,
-						// without one it is taken once), and out through the far surface
 						float inside = path_length / float(channel_count);
 						vec3 absorbed = refraction.attenuation > 0.0 ? pow(max(albedo, vec3(1e-3)), vec3(inside / refraction.attenuation)) : albedo;
 						transmission = (1.0 - fresnel_front) * absorbed * (exit_transmitted / float(channel_count));
 						reflectance = vec3(fresnel_front);
 
-						// where the far side is flat it is parallel to the near one: a slab, which reflects and
-						// transmits as a pane does, the light bouncing between the two surfaces
 						float slab = flat_exit / float(channel_count);
 
 						if (slab > 0.0) {
@@ -833,7 +750,6 @@ local passes = {
 						}
 					}
 
-					// the split sum is built on Schlick: the exact reflectance scales it by the ratio of the two
 					float schlick_front = F0.x + (1.0 - F0.x) * pow(1.0 - NdotV, 5.0);
 					vec3 reflectance_scale = reflectance / max(schlick_front, 1e-4);
 					ambient_specular *= reflectance_scale;
@@ -961,8 +877,6 @@ local passes = {
 	},
 }
 
--- the two surface passes again for the rows of the scene store: the vertices come from the mesh buffers by address, the
--- material of a draw from a record of its batch, and what refracts brings its thickness along per instance
 local multi_draw_block = {
 	name = "translucent_draw",
 	block = {

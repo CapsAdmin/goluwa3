@@ -46,7 +46,6 @@ function camera.GetRotation()
 	return camera.rotation
 end
 
--- looks at a point from the front of an entity (its forward vector points at the camera), upright
 function camera.ViewFromFront(center, distance, entity_rotation)
 	local turn = Quat():Identity()
 	turn:RotateYaw(math.pi)

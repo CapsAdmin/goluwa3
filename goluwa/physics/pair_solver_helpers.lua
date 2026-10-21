@@ -764,9 +764,6 @@ end
 
 local POINT_SWEEP_EXACT_RADIUS = 0.0005
 
--- Clips the segment start + movement * t (t in 0..max_t) against the face planes of a convex
--- polyhedron inflated by `inflate`. Returns the first t inside it and the face entered (the
--- closest face when the segment starts inside), or nil.
 function pair_solver_helpers.ClipSegmentAgainstPolyhedron(polyhedron, start_world, movement_world, position, rotation, inflate, max_t)
 	local qx, qy, qz, qw = -rotation.x, -rotation.y, -rotation.z, rotation.w
 	local px, py, pz = start_world.x - position.x, start_world.y - position.y, start_world.z - position.z

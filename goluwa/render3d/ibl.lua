@@ -18,7 +18,6 @@ local gi_fade = pvars.Setup2{
 }
 pvars.EndGroup()
 
--- the roughness the reflections stop being traced and the roughness from which they are all the gi's
 function ibl.GetReflectionGIRange()
 	local start = gi_threshold:Get()
 	return start, start + gi_fade:Get()
@@ -51,11 +50,8 @@ function ibl.GetBRDFGLSLCode()
 				return 0.5 / (lambdaV + lambdaL);
 			}
 
-			// a clearcoat is water, a lacquer's would be 0.04
 			const float CLEARCOAT_F0 = 0.02;
 
-			// the visibility of a smooth coat, whose lobe is too narrow for the full smith term to matter
-			// (Kelemen 2001)
 			float V_Kelemen(float LoH) {
 				return 0.25 / max(LoH * LoH, 1e-4);
 			}
@@ -65,9 +61,6 @@ function ibl.GetBRDFGLSLCode()
 				return f0 + (1.0 - f0) * f;
 			}
 
-			// the reflectance at grazing angles. no real material has an F0 below 0.02, so a lower one means
-			// the surface barely reflects at all, like a fine or dusty one, and its grazing reflection fades
-			// with it. otherwise a specular multiplier of 0 would still leave a white sheen at grazing angles
 			float F90(vec3 f0) {
 				return clamp(dot(f0, vec3(50.0 * 0.33)), 0.0, 1.0);
 			}
@@ -82,10 +75,6 @@ function ibl.GetBRDFGLSLCode()
 				return f0 + (max(vec3((1.0 - perceptual_roughness) * F90(f0)), f0) - f0) * f;
 			}
 
-			// EON, Portsmouth, Kutz and Hill 2024 (JCGT 2025): the energy preserving Oren-Nayar rough diffuse. A single scatter
-			// term (Fujii's Oren-Nayar, with the retro reflection of a rough surface at a grazing light) and the light that
-			// scatters again between the facets, so a white surface sends back all of the light at every roughness and view.
-			// The result is the BRDF, with the 1 / pi in it. NoL, NoV and LoV are cosines
 			vec3 Fd_EON(vec3 albedo, float roughness, float NoL, float NoV, float LoV) {
 				float A = 1.0 / (1.0 + (0.5 - 2.0 / (3.0 * PI)) * roughness);
 				float B = roughness * A;
@@ -107,11 +96,6 @@ function ibl.GetBRDFGLSLCode()
 				return saturate(pow(NoV + ambient_occlusion, exponent) - 1.0 + ambient_occlusion);
 			}
 
-			// what the microfacets' multiple scattering adds to the single scatter lobe (Fdez-Aguera 2019): the light the lobe
-			// does not send back, 1 - E, is reflected again with the average Fresnel, as a geometric series. For F0 = 1 that is
-			// 1 / E (Kulla and Conty, Filament's 1 + F0 (1 / E - 1)), but the average Fresnel of a darker metal is lower than its
-			// F0 gives and the old form was up to 41 percent too bright for a rough one (iron at roughness 1, against the random
-			// walk reference of test/harnesses/brdf/environment.lua), this is within 9
 			vec3 GGXEnergyCompensation(vec3 f0, vec2 env_brdf) {
 				vec3 average_fresnel = f0 + (vec3(F90(f0)) - f0) / 21.0;
 				return 1.0 / (1.0 - (1.0 - min(env_brdf.x + env_brdf.y, 1.0)) * average_fresnel);
@@ -183,10 +167,6 @@ function ibl.GetEnvironmentGLSLCode()
 
 ]] .. glsl_common.GetEquirectGLSL() .. [[
 
-			// Mip that holds perceptual roughness 1. The chain stops at mips whose
-			// equivalent cube face would be ENVIRONMENT_ROUGHEST_MIP_FACE_SIZE
-			// texels because coarser levels cannot represent the wide GGX lobe
-			// without visible seams.
 			float get_environment_max_mip(int env_tex) {
 				if (env_tex == -1) return 0.0;
 				return max(float(textureQueryLevels(TEXTURE(env_tex)) - 1 - ENVIRONMENT_ROUGHEST_MIP_SKIP), 0.0);
@@ -196,15 +176,11 @@ function ibl.GetEnvironmentGLSLCode()
 				return normalize(vec3(-dir.x, dir.y, dir.z));
 			}
 
-			// a normal mapped normal can face away from the viewer, and reflecting
-			// about it would point into the surface. nudge it until it faces V
 			vec3 bend_normal_to_view(vec3 normal, vec3 V) {
 				float NoV = dot(normal, V);
 				return NoV < 0.01 ? normalize(normal + V * (0.01 - NoV)) : normal;
 			}
 
-			// Frostbite's fit of the direction the GGX lobe is centered on:
-			// rough surfaces reflect closer to the normal than the mirror direction.
 			vec3 get_specular_dominant_direction(vec3 reflection_dir, vec3 normal, float perceptual_roughness) {
 				float alpha = perceptual_roughness * perceptual_roughness;
 				float lerp_factor = (1.0 - alpha) * (sqrt(1.0 - alpha) + alpha);
@@ -219,9 +195,6 @@ function ibl.GetEnvironmentGLSLCode()
 				return textureLod(TEXTURE(env_tex), dir_to_equirect_uv(sample_dir), perceptual_roughness * max_mip).rgb * horizon * horizon;
 			}
 
-			// irradiance_tex is a cosine convolved equirect texture already
-			// divided by pi, so the result times albedo is the diffuse outgoing
-			// radiance.
 			vec3 sample_environment_irradiance(int irradiance_tex, vec3 normal) {
 				if (irradiance_tex == -1) return vec3(0.0);
 				return texture(TEXTURE(irradiance_tex), dir_to_equirect_uv(correct_environment_lookup_dir(normal))).rgb;
@@ -247,7 +220,6 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				return mix(global_env, local_env, clamp(local_weight, 0.0, 1.0));
 			}
 
-			// how much of the reflection is what was traced, the rest is the gi's light (reflection_gi_threshold)
 			float get_reflection_blend_weight(float perceptual_roughness) {
 				return 1.0 - smoothstep(]] .. uniform_name .. [[.reflection_gi_start, ]] .. uniform_name .. [[.reflection_gi_end, clamp(perceptual_roughness, 0.0, 1.0));
 			}
@@ -299,7 +271,6 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 					float roughness_weight = 1.0 - clamp(abs(tap_roughness - center_roughness) * 8.0, 0.0, 1.0);
 					float weight = bilinear_weight * (depth_weight * normal_weight * roughness_weight + 1e-4);
 					vec4 tap = texelFetch(TEXTURE(]] .. uniform_name .. [[.reflection_tex), reflection_pos, 0);
-					// a tap's colour only counts as much as its ray found something
 					color_accum += tap.rgb * (weight * tap.a);
 					color_weight += weight * tap.a;
 					alpha_accum += tap.a * weight;
@@ -405,9 +376,6 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 				return normalize(exit_pos);
 			}
 
-			// Blends global_env (sky/GI/whatever the caller already resolved
-			// for a total miss) with any reflection probes near world_pos,
-			// weighted by depth-based coverage confidence.
 			vec3 blend_probe_reflections(vec3 global_env, vec3 R, float roughness, vec3 world_pos) {
 				vec3 probes_env = vec3(0.0);
 				float total_weight = 0.0;

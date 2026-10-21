@@ -53,18 +53,12 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		fragment = {
 			uniform_buffers = uniform_buffers,
 			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data") .. surface_weather.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
-					// both endpoints go through their own frame's camera, so a still
-					// object under a moving camera and a moving object under a still
-					// camera come out of the same subtraction. the divide by w is
-					// what makes it a screen offset rather than a world one
+
 					vec3 get_screen_velocity(vec3 world_pos, vec3 prev_world_pos) {
 						vec4 clip = gbuffer_data.projection * gbuffer_data.view * vec4(world_pos, 1.0);
 						vec4 prev_view_pos = gbuffer_data.prev_view * vec4(prev_world_pos, 1.0);
 						vec4 prev_clip = gbuffer_data.prev_projection * prev_view_pos;
 
-						// behind the eye either frame there is no honest offset to
-						// give, and a reprojection is better off treating the pixel
-						// as new than following a mirrored one
 						if (clip.w <= 0.0001 || prev_clip.w <= 0.0001) {
 							return vec3(0.0, 0.0, -prev_view_pos.z);
 						}
@@ -74,16 +68,10 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 						return vec3(uv - prev_uv, -prev_view_pos.z);
 					}
 
-					// where a level of detail hands over to the next, both draw dithered with patterns that
-					// complement each other. a positive fade is how much of the pattern is gone from an
-					// outgoing level, a negative one how much of an incoming level is not there yet
 					void discard_lod_fade() {
 						float fade = in_lod_fade;
 						float t = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
 
-						// the quads of a billboard stand along three perpendicular axes, so their squared facings
-						// add up to one. a quad that is not the one facing the camera most is dithered away, with
-						// the other two as the worst case for what the best one might be
 						if (Billboard) {
 							float facing = abs(dot(normalize(in_normal), normalize(gbuffer_data.camera_position.xyz - in_position)));
 							float own = facing * facing;
@@ -240,21 +228,14 @@ local function build_ssdm_fragment_shader(write_depth)
 			return clamp(clip_pos.z / clip_w, 0.0, 1.0);
 		}
 
-		// a decal's depth is pulled towards the camera by a bit of its distance and a bit in meters, so it
-		// wins the depth test against what it lies on at any distance, like cryengine's decal z fighting remedy
 		const float DECAL_DEPTH_BIAS_RELATIVE = 0.002;
 		const float DECAL_DEPTH_BIAS_ABSOLUTE = 0.002;
 
-		// parallax occlusion mapping (Tatarchuk 2006). the height field is a slab around the polygon, from
-		// (1 - HeightMidlevel) above it to HeightMidlevel below it, HeightScale texture units thick. the view
-		// ray is marched from where it enters the slab's top down to its bottom in layers, and the uv, height
-		// and world position are where it first goes below the height field
 		SSDMData get_ssdm_data(mat3 tbn) {
 			SSDMData data;
 			data.uv = in_uv;
 			data.height = 0.0;
 			data.world_pos = in_position;
-			// the derivatives before any branch, they need the whole quad
 			vec3 dp1 = dFdx(in_position);
 			vec3 dp2 = dFdy(in_position);
 			vec2 duv1 = dFdx(in_uv);
@@ -264,8 +245,6 @@ local function build_ssdm_fragment_shader(write_depth)
 				return data;
 			}
 
-			// how u and v change per meter across the surface, from the screen derivatives (Schüler 2013),
-			// so the march doesn't depend on how the uv or the tangents were made
 			vec3 N = tbn[2];
 			vec3 dp2perp = cross(dp2, N);
 			vec3 dp1perp = cross(N, dp1);
@@ -277,22 +256,17 @@ local function build_ssdm_fragment_shader(write_depth)
 
 			vec3 grad_u = (dp2perp * duv1.x + dp1perp * duv2.x) / det;
 			vec3 grad_v = (dp2perp * duv1.y + dp1perp * duv2.y) / det;
-			// the slab's thickness in meters, one texture unit being this many meters across
 			float thickness = displacement_model.HeightScale / sqrt(max(length(grad_u) * length(grad_v), 1e-12));
 			vec3 V = get_view_dir_world(in_position);
 			float view_n = max(dot(V, N), 0.05);
-			// the uv the ray moves per meter it goes down
 			vec2 uv_per_depth = -vec2(dot(grad_u, V), dot(grad_v, V)) / view_n;
 			float midlevel = displacement_model.HeightMidlevel;
 			int layer_count = get_height_layers();
 			float layer_height = 1.0 / float(layer_count);
-			// the ray starts at the slab's top, above the polygon by the part of the heights above the midlevel
 			vec2 top_uv = in_uv - uv_per_depth * (1.0 - midlevel) * thickness;
 			vec2 uv_step = uv_per_depth * thickness * layer_height;
 			float level = 1.0;
 			vec2 current_uv = top_uv;
-			// with the pixel's own gradients, a march that stops early in some pixels of a quad would
-			// otherwise pick the wrong mip
 			float current_height = textureGrad(TEXTURE(displacement_model.HeightTexture), current_uv, duv1, duv2).r;
 			float previous_level = level;
 			float previous_height = current_height;
@@ -309,16 +283,12 @@ local function build_ssdm_fragment_shader(write_depth)
 				current_height = textureGrad(TEXTURE(displacement_model.HeightTexture), current_uv, duv1, duv2).r;
 			}
 
-			// between the last layer above the height field and the first below it, where the ray crosses it
 			float after = current_height - level;
 			float before = previous_height - previous_level;
 			float weight = abs(after - before) > 0.0001 ? clamp(after / (after - before), 0.0, 1.0) : 0.0;
 			float hit_level = mix(level, previous_level, weight);
 			data.uv = top_uv + uv_per_depth * (1.0 - hit_level) * thickness;
-			// meters above the polygon
 			data.height = (hit_level - midlevel) * thickness;
-			// what is below the polygon stays on it: the shadow maps only see the polygon, and would shadow
-			// everything under it
 			data.world_pos = in_position + V * (max(data.height, 0.0) / view_n);
 			return data;
 		}
@@ -330,8 +300,6 @@ local function build_ssdm_fragment_shader(write_depth)
 			SSDMData displacement = get_ssdm_data(tbn);
 			float alpha = get_alpha_uv(displacement.uv);
 
-			// the texture blend of a decal made by the decal component is how much of its alpha is gone, a negative one asks for
-			// the falloff towards the edge of the decal's uv square
 			if (Decal && DecalFade) {
 				float fade = in_texture_blend;
 
@@ -365,9 +333,6 @@ local function build_ssdm_fragment_shader(write_depth)
 			}
 
 			write_surface_features(surface);
-			// the undisplaced position on both sides. parallax shifts the surface
-			// by the same amount in both frames when the view barely changed, so
-			// including it would mostly add noise to the offset
 			write_velocity(in_position, in_prev_position);
 			]] .. (
 			write_depth and

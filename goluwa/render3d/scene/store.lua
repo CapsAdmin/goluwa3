@@ -5,7 +5,6 @@ local vk = import("goluwa/bindings/vk.lua")
 local store = {}
 local Table = {}
 Table.__index = Table
--- buffers that were replaced by a bigger one stay alive until the frames in flight that may read them are done
 local retired = {}
 local tables = setmetatable({}, {__mode = "k"})
 local RETIRE_FRAMES = 4
@@ -21,7 +20,6 @@ function store.CreateTable(config)
 	self.staged = config.staged
 
 	if self.staged then
-		-- the gpu's copy is written by copies in the command buffers, in order with the work that reads it
 		self.usage = {unpack(self.usage)}
 		self.usage[#self.usage + 1] = "transfer_dst"
 		self.ptr_ctype = ffi.typeof("$*", self.ctype)
@@ -62,7 +60,6 @@ function Table:Reserve(capacity)
 	end
 
 	if self.buffer then
-		-- the descriptors that point at the old buffer are rewritten by the next bind, which a frame in flight does not allow
 		render.GetDevice():WaitIdle()
 		ffi.copy(ptr, self.ptr, self.capacity * self.row_size)
 		retired[#retired + 1] = {buffer = self.buffer, frame = system.GetFrameNumber()}
@@ -75,8 +72,6 @@ function Table:Reserve(capacity)
 	self.generation = self.generation + 1
 
 	if self.staged then
-		-- what a gpu pass writes of the rows (the update pass, producers) is written again every frame, so the new buffer
-		-- only needs what the cpu holds
 		self.dirty_flags = ffi.new("uint8_t[?]", capacity)
 		ffi.fill(self.dirty_flags, capacity, 1)
 		self.dirty_min = 0
@@ -86,7 +81,6 @@ function Table:Reserve(capacity)
 	if self.on_grow then self.on_grow(self) end
 end
 
--- a staged table has to be told which rows the cpu wrote, they are copied to the gpu at the next store.FlushStaged
 function Table:Touch(row)
 	local flags = self.dirty_flags
 
@@ -112,7 +106,6 @@ do
 	local regions = BufferCopy(1024)
 	local region_capacity = 1024
 
-	-- space in the staging buffer of this frame. the buffers take turns by frame in flight, a bigger one replaces a full one
 	local function reserve_upload(bytes)
 		local serial = render.frame_serial or 0
 		local slot = serial % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
@@ -153,7 +146,6 @@ do
 		return upload.buffer, upload.ptr + offset, offset
 	end
 
-	-- a buffer that grew for a burst (the first upload of a big table) is given back once nothing uses much of it
 	function store.TrimUploads(frame)
 		for _, upload in pairs(uploads) do
 			if upload.buffer and upload.size > 8 * 1024 * 1024 and frame - upload.busy_frame > 600 then
@@ -164,7 +156,6 @@ do
 		end
 	end
 
-	-- the rows written since the last flush as runs of consecutive rows in `runs`, returns the number of runs and bytes
 	local function collect_runs(rows)
 		local flags = rows.dirty_flags
 		local row = rows.dirty_min
@@ -200,10 +191,6 @@ do
 		return count
 	end
 
-	-- copies what the cpu wrote of the staged tables since the last call to the gpu, in the command buffer, outside of a
-	-- render pass. the copy comes after all work submitted before it and before all work submitted after it, so a frame in
-	-- flight still reads the rows it was recorded with, and a command buffer recorded before this one in the same frame (a
-	-- shadow map's) is also covered when the call was made in it
 	function store.FlushStaged(cmd)
 		local barriered = false
 
@@ -253,7 +240,6 @@ do
 	end
 end
 
--- a freed row keeps what it held until the frames that may still read it are done, then it is zeroed and can be given out again
 function Table:Alloc()
 	local row
 
@@ -278,7 +264,6 @@ function Table:Alloc()
 	return row
 end
 
--- n rows in a row of their own, for what a gpu pass writes a range of
 function Table:AllocRange(n)
 	local ranges = self.free_ranges
 
@@ -305,8 +290,6 @@ function Table:AllocRange(n)
 	return base
 end
 
--- the free ranges are sorted by their first row. one joins the ranges next to it, and one that ends at the last row lowers the
--- count (a producer's range that was replaced by a smaller one would otherwise keep the count at its biggest size)
 local function release_range(self, base, n)
 	ffi.fill(self.ptr + base, n * self.row_size)
 
@@ -349,7 +332,6 @@ local function release_range(self, base, n)
 	end
 end
 
--- `immediate` is for a caller that waited for the device, no frame in flight reads the rows
 function Table:FreeRange(base, n, immediate)
 	self.live = self.live - n
 
@@ -408,8 +390,6 @@ function Table:Update(frame)
 	self.pending_free = keep
 end
 
--- the runs of rows that are not in a free range, as first row and length pairs in `spans`. returns how many rows they hold
--- and how many runs there are
 function Table:GetSpans(spans)
 	local position = 0
 	local rows = 0
@@ -442,7 +422,6 @@ function Table:Get()
 	return self.ptr
 end
 
--- every row is unused again, for a table that is rewritten as a whole
 function Table:Clear()
 	ffi.fill(self.ptr, self.capacity * self.row_size)
 
@@ -493,7 +472,6 @@ end
 do
 	local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
 
-	-- the first size bytes of a gpu buffer on the host. it stalls until the gpu is done, so it is for tests and debugging
 	function store.Download(buffer, size)
 		local readback = render.CreateBuffer{
 			byte_size = size,

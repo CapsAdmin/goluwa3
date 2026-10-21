@@ -242,7 +242,6 @@ local function build_trace_pipeline()
 
 				if (p.x >= size || p.y >= size) return;
 
-				// a ray that hits nothing counts as a hit at the range
 				vec2 moments = vec2(0.0);
 				vec2 uv0 = vec2(p) / float(size);
 				vec2 uv_step = vec2(1.0) / (float(size) * float(LIGHT_OCCL_SUBS));
@@ -697,8 +696,6 @@ function light_occlusion.GetSamplingGLSL(data_block)
 
 			vec2 moments = texture(light_oct_map, vec3(oct_encode(to_pos / max(dist, 1e-5)) * 0.5 + 0.5, float(slot))).rg;
 
-			// 0 means the map was never traced (it is zero initialized) and is
-			// assumed clear, it will be traced on the next dispatch
 			if (moments.x <= 0.0) return 1.0;
 
 			float bias = ]] .. data_block .. [[.bvh_oct_bias;

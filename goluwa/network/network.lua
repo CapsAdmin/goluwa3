@@ -40,7 +40,6 @@ function network.IsStarted()
 	return network.socket:IsValid()
 end
 
--- true everywhere but on a client that is connected to a server, a standalone game decides for itself
 function network.HasAuthority()
 	return not (CLIENT and network.IsConnected())
 end
@@ -206,7 +205,6 @@ do
 		event.Call("NetworkPacketReceived", str, client, type)
 	end)
 
-	-- TODO
 	function network.PingServer(ip, cb)
 		local lol = io.popen("ping " .. ip .. (WINDOWS and "-n 1" or " -c 1"))
 

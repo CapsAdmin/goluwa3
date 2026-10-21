@@ -1,15 +1,3 @@
--- procedural foliage: trees, grass, rocks, flowers, bushes and the rest, made from a seed and a config, with
--- procedural textures. the same seed and config give the same asset
---
--- a generator makes one kind of thing (generators.oak, generators.boulder...) from a config with every key in its
--- defaults, so a config is only the keys that differ. foliage.Build(name, config) returns the parts, a list of
--- {mesh = polygon3d, material = material}, made once for each config
---
--- the assets: every material is registered as materials/foliage/<name>.lua and its textures as
--- textures/foliage/<name>_<channel>.lua (textures.lua), every preset of a generator as a model asset
--- models/foliage/<category>/<preset>.lua, which loads anywhere a model path does (Visual:SetModelPath, the model
--- component, a scatter prototype and its billboard). foliage.RegisterModel(path, generator, config) adds more, and the
--- model component's ModelOptions are keys over the preset's config
 local assets = import("goluwa/assets.lua")
 local Material = import("goluwa/render3d/material.lua")
 local textures = import("lua/foliage/textures.lua")
@@ -22,7 +10,6 @@ foliage.cache = {}
 foliage.Random = Random
 foliage.textures = textures
 
--- name: {category = "trees", defaults = {...}, build = function(config, rng) return parts end}
 function foliage.AddGenerator(name, generator)
 	assert(generator.category and generator.defaults and generator.build, name .. " needs a category, defaults and build")
 	generator.defaults.seed = generator.defaults.seed or 1
@@ -76,7 +63,6 @@ do
 
 	foliage.Serialize = serialize
 
-	-- the parts of a generator's asset for a config, made once
 	function foliage.Build(name, config)
 		local resolved, generator = foliage.Resolve(name, config)
 		local key = name .. serialize(resolved)
@@ -91,9 +77,6 @@ do
 	end
 end
 
--- materials: name -> {textures = {channel = {kind, config}}, material = {Material.New keys}}. the textures are
--- registered as their own assets and given to the material as AlbedoTexture, NormalTexture, RoughnessTexture and
--- TransmissionTexture. every material has the first three
 do
 	local TEXTURE_KEYS = {
 		albedo = "AlbedoTexture",
@@ -157,7 +140,6 @@ do
 	end
 end
 
--- a model asset of a generator with a config, the options a model component gives are keys over it
 function foliage.RegisterModel(path, name, config)
 	foliage.Resolve(name, config)
 	foliage.models[path] = {generator = name, config = config}
@@ -195,7 +177,6 @@ function foliage.GetModelPath(category, preset)
 	return "models/foliage/" .. category .. "/" .. preset .. ".lua"
 end
 
--- the presets of the generators, {category = {preset = {generator, config}}}, registered by RegisterAll
 foliage.presets = {}
 
 function foliage.AddPreset(category, preset, generator, config)
@@ -211,7 +192,6 @@ function foliage.RegisterAll()
 	end
 end
 
--- the paths of a category's presets, sorted
 function foliage.GetModelPaths(category)
 	local out = {}
 

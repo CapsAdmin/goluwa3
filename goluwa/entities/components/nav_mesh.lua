@@ -6,15 +6,12 @@ META:StartStorable()
 META:GetSet("Path", "", {callback = "Load"})
 META:EndStorable()
 
--- the navigation mesh of the world, there is one active at a time
 function META.GetActive()
 	return META.active
 end
 
--- a character wades through this much water, any more and the area is not walkable
 local WADE_DEPTH = 0.6
 
--- areas that are deeper under water than a character wades through are blocked, the mesh was made for a dry world
 function META:BlockFlooded()
 	local mesh = self.mesh
 	local volumes = fluid.volumes
@@ -49,7 +46,6 @@ function META:BlockFlooded()
 	end
 end
 
--- the water volumes of a map are made after its navigation mesh, so areas are blocked once there are volumes
 function META.GetMesh()
 	local active = META.active
 
@@ -80,7 +76,6 @@ function META:Load()
 	logn("loaded navigation mesh ", self.Path, " with ", #self.mesh:GetAreas(), " areas")
 end
 
--- for a mesh that was made in code
 function META:SetMesh(mesh)
 	self.mesh = mesh
 	self.flooded_volumes = nil

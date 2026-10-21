@@ -1,7 +1,6 @@
 local glsl_common = {}
 glsl_common.LUMINANCE_WEIGHTS = "vec3(0.2126, 0.7152, 0.0722)"
 
--- every block is guarded so a shader that gets one twice through different includes still compiles
 function glsl_common.GetLuminanceGLSL()
 	return [[
 		#ifndef GLSL_COMMON_LUMINANCE
@@ -17,7 +16,6 @@ function glsl_common.GetPQGLSL()
 	return [[
 		#ifndef GLSL_COMMON_PQ
 		#define GLSL_COMMON_PQ
-		// SMPTE ST 2084 (PQ) of absolute luminance in nits
 		vec3 pq_encode(vec3 nits) {
 			vec3 y = pow(clamp(nits / 10000.0, 0.0, 1.0), vec3(0.1593017578125));
 			return pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), vec3(78.84375));
@@ -36,7 +34,6 @@ function glsl_common.GetOctahedralGLSL()
 	return [[
 		#ifndef GLSL_COMMON_OCTAHEDRAL
 		#define GLSL_COMMON_OCTAHEDRAL
-		// a unit vector to the octahedral square [-1, 1]^2 and back
 		vec2 oct_encode(vec3 n) {
 			n /= abs(n.x) + abs(n.y) + abs(n.z);
 			vec2 p = n.xy;
@@ -61,7 +58,6 @@ function glsl_common.GetRaySphereGLSL()
 	return [[
 		#ifndef GLSL_COMMON_RAY_SPHERE
 		#define GLSL_COMMON_RAY_SPHERE
-		// the distances along a normalized ray to where it enters and leaves a sphere around the origin, both -1 on a miss
 		vec2 ray_sphere_intersect(vec3 ray_origin, vec3 ray_dir, float sphere_radius) {
 			float b = dot(ray_origin, ray_dir);
 			float c = dot(ray_origin, ray_origin) - sphere_radius * sphere_radius;
@@ -98,7 +94,6 @@ function glsl_common.GetPhaseGLSL()
 			return 3.0 / (16.0 * PI) * (1.0 + mu * mu);
 		}
 
-		// mu is the cosine between the direction light travels and the direction it scatters to
 		float phase_henyey_greenstein(float mu, float g) {
 			float gg = g * g;
 			return (1.0 - gg) / (4.0 * PI * pow(max(1.0 + gg - 2.0 * g * mu, 1e-4), 1.5));
@@ -111,12 +106,10 @@ function glsl_common.GetBlueNoiseGLSL()
 	return [[
 		#ifndef GLSL_COMMON_BLUE_NOISE
 		#define GLSL_COMMON_BLUE_NOISE
-		// the blue noise texture tiled over the screen
 		vec4 blue_noise_texel(sampler2D tex, ivec2 pixel) {
 			return texelFetch(tex, pixel % textureSize(tex, 0), 0);
 		}
 
-		// moves a blue noise value on by steps of the R2 sequence, a different pattern per step for taa to average
 		vec2 blue_noise_r2(vec2 xi, float steps) {
 			return fract(xi + steps * vec2(0.7548776662, 0.5698402910));
 		}
@@ -135,7 +128,6 @@ function glsl_common.GetRemapGLSL()
 	]]
 end
 
--- equirect_uv_to_dir and dir_to_equirect_uv are inverses, a direction written through one reads back through the other
 function glsl_common.GetEquirectGLSL()
 	return [[
 		#ifndef GLSL_COMMON_EQUIRECT
@@ -171,7 +163,6 @@ function glsl_common.GetFresnelGLSL()
 	return [[
 		#ifndef GLSL_COMMON_FRESNEL
 		#define GLSL_COMMON_FRESNEL
-		// unpolarized Fresnel reflectance of a dielectric interface, eta is the index the light comes from over the one it enters
 		float fresnel_dielectric(float cos_i, float eta) {
 			cos_i = clamp(cos_i, 0.0, 1.0);
 			float sin_t2 = eta * eta * (1.0 - cos_i * cos_i);
@@ -189,7 +180,6 @@ function glsl_common.GetHashGLSL()
 	return [[
 		#ifndef GLSL_COMMON_HASH
 		#define GLSL_COMMON_HASH
-		// pcg3d and pcg4d (Jarzynski and Olano 2020)
 		uvec3 pcg3d(uvec3 v) {
 			v = v * 1664525u + 1013904223u;
 			v.x += v.y * v.z;
@@ -216,7 +206,6 @@ function glsl_common.GetHashGLSL()
 			return v;
 		}
 
-		// 24 random bits as a float in [0, 1)
 		float pcg_unorm(uint h) {
 			return float(h >> 8u) * (1.0 / 16777216.0);
 		}

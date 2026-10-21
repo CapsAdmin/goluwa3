@@ -13,7 +13,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local ffi = require("ffi")
--- the culling of the scene store against a reference done on the cpu, from what the passes wrote (see draw.ReadBackCull)
 local cube
 
 local function get_cube()
@@ -37,7 +36,6 @@ local function configure_camera()
 	return camera
 end
 
--- a cube of the given half size in the scene, the row of its one instance
 local function spawn(position, scale, polygon3d, material)
 	local entity = Entity.New{Name = "scene_cull_cube"}
 	entity:AddComponent("transform")
@@ -78,7 +76,6 @@ local function is_drawn(result, entity)
 	return false
 end
 
--- the planes the cull tests against, the same box test the shader does
 local function box_inside(planes, aabb)
 	for i = 0, 5 do
 		local a, b, c, d = planes[i * 4], planes[i * 4 + 1], planes[i * 4 + 2], planes[i * 4 + 3]
@@ -102,7 +99,6 @@ T.Test3D("Graphics render3d the main view cull keeps what the frustum holds and 
 		return seed / 2147483648
 	end
 
-	-- big enough to be seen from anywhere in the range, spread over a volume that reaches past the frustum on every side
 	for i = 1, 60 do
 		entities[i] = spawn(Vec3((random() - 0.5) * 240, (random() - 0.5) * 240, -random() * 200 + 40), 1 + random() * 2)
 	end
@@ -148,7 +144,6 @@ T.Test3D("Graphics render3d the main view cull honors the cull distance and the 
 	local result = scene_draw.ReadBackCull(0)
 	T(is_drawn(result, near_limited))["=="](true)
 	T(is_drawn(result, far_limited))["=="](false)
-	-- under a pixel at 90 m, over a pixel at 2 m, and a big one stays
 	T(is_drawn(result, tiny))["=="](false)
 	T(is_drawn(result, small_near))["=="](true)
 	T(is_drawn(result, big_far))["=="](true)
@@ -237,7 +232,6 @@ T.Test3D("Graphics render3d the main view cull hides what the depth of the last 
 	local result = scene_draw.ReadBackCull(0)
 	T(is_drawn(result, occluder))["=="](true)
 	T(is_drawn(result, hidden))["=="](false)
-	-- not tested for occlusion, drawn although behind it
 	T(is_drawn(result, plain))["=="](true)
 	Visual.Library.SetOcclusionCulling(false)
 	draw_frames(draw, 8)
@@ -259,7 +253,6 @@ T.Test3D("Graphics render3d a shadow cull keeps what is in the box of the cascad
 	local no_shadow = spawn(Vec3(-3, 0, -5), 1)
 	no_shadow.visual:SetCastShadows(false)
 	draw_frames(draw)
-	-- planes (x, y, z, d) with dot + d >= 0 inside: x and y within 10, z down to -30, the near plane is not tested
 	local planes = ffi.new("float[24]")
 	local function set(i, x, y, z, d)
 		planes[i * 4], planes[i * 4 + 1], planes[i * 4 + 2], planes[i * 4 + 3] = x, y, z, d
@@ -281,9 +274,7 @@ T.Test3D("Graphics render3d a shadow cull keeps what is in the box of the cascad
 	T(is_drawn(result, side))["=="](false)
 	T(is_drawn(result, above))["=="](false)
 	T(is_drawn(result, behind_far))["=="](false)
-	-- under the extent a cascade's texel is worth
 	T(is_drawn(result, tiny))["=="](false)
-	-- the near plane is left out, whatever is on the light's side casts
 	T(is_drawn(result, before_near))["=="](true)
 	T(is_drawn(result, no_shadow))["=="](false)
 	scene_draw.RemoveShadowBuffers(buffers)
@@ -322,7 +313,6 @@ T.Test3D("Graphics render3d the main view cull tests the box of each part of a v
 		drawn[item.entry.entity] = result.by_id[item.id] ~= nil
 	end
 
-	-- the box of the whole visual holds the frustum, the box of the part at -60 does not
 	T(drawn[parts[1]])["=="](true)
 	T(drawn[parts[2]])["=="](false)
 	entity:Remove()
@@ -333,7 +323,6 @@ T.Test3D("Graphics render3d the visibility estimate sees a row in front of anoth
 
 	local visibility = import("goluwa/render3d/scene/visibility.lua")
 	configure_camera()
-	-- nothing here is occlusion culled, so the cull draws the row behind as well
 	local occluder = spawn(Vec3(0, 0, -5), 1)
 	occluder.transform:SetScale(Vec3(8, 8, 1))
 	local behind = spawn(Vec3(0, 0, -12), 1)

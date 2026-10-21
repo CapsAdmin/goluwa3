@@ -59,19 +59,15 @@ local common_glsl = compute_helpers.GetScreenHelpersGLSL() .. [[
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
 
 	#ifdef ADAPT
-		// set by main, what the scene is exposed with and the exposure texture
 		float adapt_exposure;
 		vec4 adapt_exposure_sample;
 	#endif
 
-	// the attachments wrap, which would pull the opposite edge in
 	vec3 bloom_sample(vec2 uv) {
 		vec2 half_texel = 0.5 / vec2(textureSize(source_tex, 0));
 		uv = clamp(uv, half_texel, 1.0 - half_texel);
 		vec3 c = textureLod(source_tex, uv, 0.0).rgb;
 		#ifdef ADAPT
-			// glare comes from the light as the eye adapted to it: a region it
-			// adapted down scatters that much less. lifted shadows don't add any
 			if (compute.has_grid_tex != 0) {
 				c *= exp2(min(get_local_adaptation(uv, luminance(c) * adapt_exposure, adapt_exposure_sample), 0.0));
 			}
@@ -94,7 +90,6 @@ local downsample_glsl = [[
 		vec2 uv = get_screen_uv(pos, size);
 		#ifdef ADAPT
 			adapt_exposure_sample = texture(exposure_tex, vec2(0.5));
-			// the scene is pre-exposed with last frame's exposure
 			adapt_exposure = adapt_exposure_sample.r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 		#endif
 		vec2 t = 1.0 / vec2(textureSize(source_tex, 0));
@@ -120,7 +115,6 @@ local downsample_glsl = [[
 		);
 		vec3 result = (box[0] * 0.5 + (box[1] + box[2] + box[3] + box[4]) * 0.125);
 
-		// a NaN or inf from the scene would spread over the whole pyramid
 		if (any(isnan(result)) || any(isinf(result))) result = vec3(0.0);
 
 		imageStore(out_bloom, pos, vec4(result, 1.0));

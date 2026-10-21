@@ -108,7 +108,6 @@ function META:CanHoldBody(body)
 		body:IsDynamic()
 end
 
--- a dynamic body can always be grabbed, a static one (frozen, or a static prop of a scene) only when its entity is not transient: transient entities are what code made and keeps, saved ones are what players and levels placed. World geometry never
 function META:CanGrabBody(body)
 	return body and
 		body.IsValid and

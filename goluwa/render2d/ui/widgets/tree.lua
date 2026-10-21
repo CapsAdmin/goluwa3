@@ -125,7 +125,6 @@ function META.OnGetDynamicChildren() end
 
 function META.OnGetTextColor() end
 
--- true for a node that is drawn faded, like a file that was cut
 function META.OnIsNodeDimmed(node, path, key) end
 
 function META.OnSelect() end
@@ -136,7 +135,6 @@ function META.OnDrop() end
 
 function META.OnNodeHover() end
 
--- return true when the double click was handled, the row then does not expand or collapse
 function META.OnNodeDoubleClick(node, key, path) end
 
 function META.OnNodeContextMenu() end
@@ -1343,7 +1341,6 @@ do
 		}
 	end
 
-	-- node.Icon is an icon name or a function(node, expanded) that returns one, node.IconColor a color token
 	function META:make_icon(node, path, key)
 		local tree = self
 		local size = theme.active:GetSize("icon")

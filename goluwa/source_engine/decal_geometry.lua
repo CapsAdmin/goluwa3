@@ -16,7 +16,6 @@ local function weld_key(position)
 		) * 131072 + math.floor(position.z * 4 + 0.5) + 65536
 end
 
--- polygon is a list of {x, y, pos}, clips it to the decal rectangle and appends {group, polygon of {pos, u, v}} with engine space positions
 local function add_fragment(fragments, polygon, group, frame)
 	for _, edge in ipairs(EDGES) do
 		local axis, sign = edge[1], edge[2]
@@ -300,7 +299,6 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 			local v1, v2, v3 = tri[1], tri[2], tri[3]
 			local x1, x2, x3, y1, y2, y3 = v1.x, v2.x, v3.x, v1.y, v2.y, v3.y
 
-			-- a triangle that lies wholly beyond one side of the decal rectangle is clipped away
 			if
 				not (
 					(
@@ -376,7 +374,6 @@ local function get_overlay_axes(normal, points)
 	return (axis_a * points[3] + axis_b * points[6]):GetNormalized()
 end
 
--- the orientation of an imported decal from the stored world data, returns normal, u_axis in source space
 function decal_geometry.GetInitialAxes(decal, world)
 	if decal.Mode == "overlay" then
 		return decal.Normal, get_overlay_axes(decal.Normal, decal.UVPoints)
@@ -402,7 +399,6 @@ end
 do
 	local matrix = Matrix44()
 
-	-- the decal frame is u, v = normal x u, normal as the transform's right, up, backward axes
 	function decal_geometry.AxesToRotation(normal, u_axis)
 		local right = units.PositionToEngine(u_axis):GetNormalized()
 		local backward = units.PositionToEngine(normal):GetNormalized()
@@ -433,7 +429,6 @@ local function get_frame(decal)
 	}
 end
 
--- decal fields: Frame (min x, min y, max x, max y), URange, VRange, and the derived Origin, Normal, UAxis, Targets. Returns a list of {group, polygon}.
 function decal_geometry.Project(decal)
 	local fragments = {}
 	local origin, normal = decal.Origin, decal.Normal
@@ -471,7 +466,6 @@ end
 do
 	local SURFACE_DEPTH = 8
 
-	-- finds the surfaces the decal rectangle lies on, returns a target list like the importer produces
 	function decal_geometry.FindTargets(decal, brush_records, displacement_records)
 		local frame = get_frame(decal)
 		local origin, normal = decal.Origin, decal.Normal

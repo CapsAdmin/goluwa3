@@ -11,14 +11,12 @@ local prefabs_category = assets.categories.prefabs
 local ROOT = "root"
 local VERSION = 1
 local SAVE_DELAY = 0.5
--- the root of an instance is the entity that was placed, it keeps its own transform, physics and network state
 local INSTANCE_COMPONENTS = {transform = true, prefab = true, network = true, rigid_body = true}
 local dirty = {}
 local dirty_properties = {}
 local pending_saves = {}
 local building = 0
 local previewing = false
--- what a thumbnail needs, lights, scripts and colliders would act on the real scene
 local PREVIEW_COMPONENTS = {transform = true, model = true, visual = true, prefab = true}
 local after_build = {}
 local suppressed = 0
@@ -52,7 +50,6 @@ local function get_input_value(component, input)
 	return value
 end
 
--- a key addresses a field of a table valued property, ModelOptions.size for example
 local function bind_value(base, key, value)
 	if key == nil then return copy_value(value) end
 
@@ -61,7 +58,6 @@ local function bind_value(base, key, value)
 	return out
 end
 
--- the record's values with every input bound to this object laid over them
 local function get_properties(component, record, name)
 	local properties = name == "entity" and record.properties or record.components[name]
 	local out = properties and copy_value(properties) or {}
@@ -134,7 +130,6 @@ local function check_name(name)
 	assert(name:find("^[%w_%-%. ]+$"), "invalid prefab name: " .. name)
 end
 
--- where a prefab is saved, it is read back through the asset path so prefabs from addons are found as well
 function prefab.GetPath(name)
 	check_name(name)
 	return prefab.GetDirectory() .. name .. ".prefab"
@@ -154,7 +149,6 @@ function prefab.Decode(str)
 	return data
 end
 
--- data is {inputs = {...}, entities = {...}}, entities use the scene record format with parents before children and the root first
 function prefab.Register(name, data)
 	check_name(name)
 	local inputs = data.inputs or {}
@@ -178,7 +172,6 @@ function prefab.Register(name, data)
 			objects.NotifyPropertyListeners(component, {var_name = "DynamicProperties"})
 		end
 	else
-		-- a definition that is not a file still shows up in the asset browser
 		local asset_path = prefabs_category.get_path(name)
 
 		if not (vfs.IsFile(asset_path) or assets.virtual_assets[asset_path]) then
@@ -227,7 +220,6 @@ function prefab.Save(name)
 	return path
 end
 
--- a copy of what the definition holds, Restore puts it back and brings every instance along
 function prefab.Snapshot(name)
 	local definition = prefab.Get(name)
 	return {inputs = copy_value(definition.inputs), entities = copy_value(definition.entities)}
@@ -304,7 +296,6 @@ function prefab.AddInput(name, input)
 	event.Call("PrefabInputsChanged", definition)
 end
 
--- the nodes the input pushed into go back to the values the definition holds
 function prefab.RemoveInput(name, input_name)
 	local definition = prefab.Get(name)
 
@@ -340,7 +331,6 @@ function prefab.RemoveInput(name, input_name)
 	event.Call("PrefabInputsChanged", definition)
 end
 
--- the property follows the input from now on, its instances take the input's value
 function prefab.AddTarget(name, input_name, target)
 	local definition = prefab.Get(name)
 
@@ -373,7 +363,6 @@ function prefab.AddTarget(name, input_name, target)
 	error(("prefab %s has no input %s"):format(name, tostring(input_name)), 2)
 end
 
--- the input that pushes into this property, or into this key of a table valued property
 function prefab.FindInput(name, node, component_name, property, key)
 	for _, input in ipairs(prefab.Get(name).inputs) do
 		for _, target in ipairs(input.Targets) do
@@ -393,7 +382,6 @@ function prefab.IsExposed(name, node, component_name, property, key)
 	return prefab.FindInput(name, node, component_name, property, key) ~= nil
 end
 
--- takes a property out of every input that pushes into it, an input that loses its last target goes with it
 function prefab.Unlink(name, node, component_name, property, key)
 	local definition = prefab.Get(name)
 	local emptied = {}
@@ -441,7 +429,6 @@ function prefab.Unlink(name, node, component_name, property, key)
 	event.Call("PrefabInputsChanged", definition)
 end
 
--- instances that never set the input follow the new default
 function prefab.SetInputDefault(name, input_name, value)
 	local definition = prefab.Get(name)
 
@@ -471,7 +458,6 @@ function prefab.SetInputDefault(name, input_name, value)
 	error(("prefab %s has no input %s"):format(name, tostring(input_name)), 2)
 end
 
--- the prefabs that nodes of this one are instances of, at any depth
 function prefab.GetDependencies(name, out)
 	out = out or {}
 
@@ -515,7 +501,6 @@ local function apply_record(component, entity, record, is_root)
 		scene.SyncProperties(entity, get_properties(component, record, "entity"), "prefab entity", true)
 	end
 
-	-- components this process cannot create, a headless server has no render components, are left out
 	for _, name in ipairs(scene.SortedComponentNames(record.components)) do
 		if
 			valid_components[name] and
@@ -553,7 +538,6 @@ local function apply_record(component, entity, record, is_root)
 	end
 end
 
--- makes the instance match its definition, nodes whose record did not change since they were applied are left alone
 local function sync_nodes(component)
 	local definition = component.definition
 	local nodes = component.nodes
@@ -613,7 +597,6 @@ function prefab.Sync(component)
 	if not ok then error(err, 0) end
 end
 
--- runs now, or once the outermost instance being built is complete, scripts use it so every node exists when they start
 function prefab.WhenBuilt(callback)
 	if building == 0 then
 		callback()
@@ -622,7 +605,6 @@ function prefab.WhenBuilt(callback)
 	end
 end
 
--- changes made while this is on come from code, not from someone editing, and are not written back
 function prefab.Suppress()
 	suppressed = suppressed + 1
 end
@@ -668,7 +650,6 @@ function prefab.Release(component)
 	component.applied = {}
 end
 
--- turns the instance into plain entities, they are saved with the scene from now on
 function prefab.Unpack(entity)
 	local component = entity.prefab
 	assert(component and component.definition, "entity is not a prefab instance")
@@ -688,8 +669,6 @@ function prefab.Unpack(entity)
 	event.Call("PrefabInstanceChanged", entity)
 end
 
--- the instance whose definition holds this entity or component, nil when it belongs to the entity itself
--- the name of the component an object is on its entity, "entity" for the entity itself, and that entity
 function prefab.GetComponentName(object)
 	if object.component_map then return "entity", object end
 
@@ -745,7 +724,6 @@ do
 
 		for _, child in ipairs(entity:GetChildren()) do
 			local foreign = child.prefab_owner and child.prefab_owner ~= component
-			-- a child that is not a node yet is a patch of the scene unless this instance is the one being edited
 			local unknown_patch = not child.prefab_node and
 				component and
 				(
@@ -768,7 +746,6 @@ do
 		end
 	end
 
-	-- the root and every node below it as records, children the instance generated for another prefab stay with that prefab
 	function prefab.Capture(root, component)
 		local state = {component = component, records = {}, nodes = {}, owned = {}}
 		capture_entity(state, root, ROOT, nil)
@@ -776,7 +753,6 @@ do
 	end
 end
 
--- an input cannot keep pointing at a node or component the editor removed
 local function prune_targets(definition, records)
 	local by_id = {}
 	local pruned = false
@@ -806,7 +782,6 @@ local function prune_targets(definition, records)
 	return pruned
 end
 
--- the editor changed a property of an object that belongs to an instance, only this property is written to the definition
 function prefab.MarkDirty(object, var_name)
 	if suppressed > 0 then return end
 
@@ -831,8 +806,6 @@ function prefab.MarkDirty(object, var_name)
 	names[var_name] = true
 end
 
--- the instance whose definition the editor is editing (prefab mode), or nil when the scene is edited
--- children added to an instance in the scene are patches and never written to a definition, children added while the instance is edited become nodes
 prefab.editing = nil
 
 function prefab.SetEditing(component)
@@ -847,7 +820,6 @@ function prefab.SetEditing(component)
 	end
 end
 
--- for entities that gained or lost components or children, the instance they belong to, or are the root of, is captured again
 function prefab.MarkStructureDirty(entity)
 	local editing = prefab.editing
 	local component = editing and entity == editing.Owner and editing or entity.prefab_owner or entity.prefab
@@ -855,7 +827,6 @@ function prefab.MarkStructureDirty(entity)
 	if component and component.definition then dirty[component] = true end
 end
 
--- writes what the instance looks like now into the definition and brings every other instance along
 function prefab.Commit(component)
 	local definition = component.definition
 	local state = prefab.Capture(component.Owner, component)
@@ -871,7 +842,6 @@ function prefab.Commit(component)
 		local old = previous[record.guid]
 
 		if old then
-			-- only the structure of a node that is already there is taken from the entities, its values were written when they were edited
 			local merged = {guid = record.guid, parent = record.parent, properties = old.properties, components = {}}
 
 			for name, properties in pairs(record.components) do
@@ -891,7 +861,6 @@ function prefab.Commit(component)
 
 	if prune_targets(definition, state.records) then changed = true end
 
-	-- a node that was moved out of the instance is a plain entity again, whatever it was moved into captures it on its own
 	for id, entity in pairs(component.nodes) do
 		if id ~= ROOT and not state.nodes[id] and entity:IsValid() then
 			entity.prefab_owner = nil
@@ -946,7 +915,6 @@ local function copy_record(old)
 	return record
 end
 
--- the input that pushes into the whole property, or the inputs that push into keys of it
 local function get_bindings(definition, node, component_name, property)
 	local whole
 	local keyed = {}
@@ -970,7 +938,6 @@ local function get_bindings(definition, node, component_name, property)
 	return whole, keyed
 end
 
--- writes the properties that were edited into the records of their nodes and nothing else, what scripts or physics changed on the instance is not an edit
 function prefab.CommitProperties(component, edited)
 	local definition = component.definition
 	local by_id = {}
@@ -993,7 +960,6 @@ function prefab.CommitProperties(component, edited)
 					local input = prefab.FindInput(component.Path, node, component_name, name)
 
 					if input then
-						-- a linked property shows its input, changing it changes the input of this instance and so every property that follows it
 						if not scene.ValuesEqual(value, get_input_value(component, input)) then
 							component:SetInput(input.Name, copy_value(value))
 						end
@@ -1001,7 +967,6 @@ function prefab.CommitProperties(component, edited)
 						local whole, keyed = get_bindings(definition, node, component_name, name)
 
 						if keyed[1] and type(value) == "table" then
-							-- a keyed link shows its input, the keys without one are written to the definition
 							value = copy_value(value)
 
 							for _, binding in ipairs(keyed) do
@@ -1093,7 +1058,6 @@ function prefab.CommitProperties(component, edited)
 	return true
 end
 
--- what was marked since the last time is written to the definitions
 function prefab.Flush()
 	if next(dirty) ~= nil then
 		local pending = dirty
@@ -1129,7 +1093,6 @@ event.AddListener("Update", "prefab_commit", function()
 	end
 end)
 
--- an instance that only has what is drawn, for thumbnails, it is transient and the caller removes it
 function prefab.CreatePreview(name)
 	previewing = true
 	local ok, entity = pcall(Entity.New, {Name = name, Transient = true, prefab = {Path = name}})
@@ -1140,7 +1103,6 @@ function prefab.CreatePreview(name)
 	return entity
 end
 
--- a plain summary of a definition for the asset browser
 function prefab.Describe(name)
 	local definition = prefab.Get(name)
 	local used = {}
@@ -1186,7 +1148,6 @@ function prefab.Describe(name)
 	}
 end
 
--- the entity and everything below it becomes a prefab and the entity becomes an instance of it
 function prefab.CreateFromEntity(entity, name)
 	assert(not entity.prefab, "unpack the instance before making a prefab of it")
 	assert(not entity.prefab_owner, "a prefab cannot be made from inside another instance")

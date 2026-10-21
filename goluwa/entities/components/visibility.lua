@@ -4,11 +4,6 @@ Visibility:StartStorable()
 Visibility:GetSet("Visible", true)
 Visibility:EndStorable()
 
--- an entity is hidden when it hides itself (Visible off, or any hider added by name) or any entity above it does, like a part in pac3:
--- hiding a root hides what is below it, and what is below keeps its own state for when the root shows again.
--- Entities without this component only inherit, entity.visibility_hidden is the state of every entity, kept up to date as
--- the hierarchy and the components change, and OnHide / OnShow are local events of the entity when it changes
--- (components and scripts receive them, a visual follows them).
 local function propagate(entity, parent_hidden)
 	local component = entity.visibility
 	local hidden = parent_hidden or (component ~= nil and component:IsSelfHidden())
@@ -23,7 +18,6 @@ local function propagate(entity, parent_hidden)
 	end
 end
 
--- called when an entity is built or moved in the hierarchy, and by the component when its own state changes
 function Visibility.Refresh(entity)
 	local parent = entity:GetParent()
 	propagate(entity, parent:IsValid() and parent.visibility_hidden or false)
@@ -44,12 +38,10 @@ function Visibility:IsSelfHidden()
 	return not self.Visible or self.hider_count > 0
 end
 
--- hidden by itself or by anything above it
 function Visibility:IsHidden()
 	return self.Owner.visibility_hidden == true
 end
 
--- a named reason to hide, several can be active at once (first person, an editor, a script) and each is removed on its own
 function Visibility:AddHider(key)
 	if self.hiders[key] then return end
 
@@ -70,7 +62,6 @@ function Visibility:HasHider(key)
 	return self.hiders[key] == true
 end
 
--- entity -> why it hides, for this entity and the ones above it
 function Visibility:GetReasonsHidden()
 	local reasons = {}
 

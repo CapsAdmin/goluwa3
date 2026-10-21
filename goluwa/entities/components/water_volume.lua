@@ -30,7 +30,6 @@ function WaterVolume:SetPreset(name)
 	self:SetParticleScattering(preset.ParticleScattering:Copy())
 end
 
--- a volume is in the water simulation while it is Visible and its entity is not hidden (visibility component)
 function WaterVolume:RefreshRegistration()
 	local active = self.Visible and not self.Owner.visibility_hidden or false
 

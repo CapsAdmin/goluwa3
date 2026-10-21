@@ -107,7 +107,6 @@ T.Test("Vec3 GetRotated turns around the axis", function()
 	T(v.x)["~"](0)
 	T(v.y)["~"](0)
 	T(v.z)["~"](-1)
-	-- the part along the axis stays
 	v = Vec3(1, 2, 0):GetRotated(Vec3(0, 1, 0), math.pi)
 	T(v.x)["~"](-1)
 	T(v.y)["~"](2)

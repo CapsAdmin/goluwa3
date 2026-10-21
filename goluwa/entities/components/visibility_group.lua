@@ -50,7 +50,6 @@ function VisibilityGroup:SetBoxes(boxes)
 	VisibilityGroup.has_boxes = true
 end
 
--- the boxes are in the space of the map root, a map placed at an offset moves them with it
 local function get_offset(group)
 	local root = group.Owner:GetParent()
 
@@ -96,9 +95,6 @@ local function inside(group, position, margin)
 	return false
 end
 
--- every group that holds the position goes into found, a position can be inside of several: groups that are nested
--- in each other, or the groups of different maps that overlap where they are joined. All of them are shown, picking one
--- would hide what can be seen from the others
 function VisibilityGroup.Locate(position, found)
 	local count = 0
 
@@ -112,7 +108,6 @@ function VisibilityGroup.Locate(position, found)
 	return count
 end
 
--- the groups that are shown, nil when all of them are
 VisibilityGroup.active = nil
 
 local function set_shown(target)

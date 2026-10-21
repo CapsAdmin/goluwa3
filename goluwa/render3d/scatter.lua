@@ -20,10 +20,6 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 import("goluwa/render3d/scatter_rt.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local ViewPriority = import("goluwa/render3d/view_priority.lua")
--- models grown on surfaces, see scatter_set.lua for what a surface asks for. a compute pass finds where
--- on the surface's triangles instances go, and writes their matrices. they are drawn by the gbuffer's
--- multi draw pipeline, with indirect draws whose instance counts the compute passes filled in, so a
--- scattered model looks like any other model in the scene
 local scatter = {}
 scatter.name = "gbuffer_multi_draw"
 scatter.MAX_SURFACES = 512
@@ -33,25 +29,18 @@ scatter.JOB_ROW = 2 ^ 15
 scatter.TILE_GROUPS_PER_ROW = 2 ^ 15
 scatter.MAX_INSTANCES = 2 ^ 21
 scatter.MIN_ROOM = 256
--- the sizes of the cells units are made of, a cell is split into the 16 of the size under it while the camera is
--- closer than BAKE_SPLIT times its size, so a unit a kilometer away is not one of 64 meters
 scatter.BAKE_CELLS = {64, 256, 1024}
 scatter.BAKE_SPLIT = 1.5
--- units of the bigger cells that the density rules say hold more than PROBE_ABOVE instances are first baked into a room
--- of PROBE_ROOM
 scatter.PROBE_ABOVE = 2048
 scatter.PROBE_ROOM = 1024
 scatter.BAND_FIRST = 16
 scatter.BAND_RATIO = 1.6
 scatter.BAKE_BUDGET = 8
--- what to bake first: what the camera sees, and where it is going, before what is behind it (the terrain ranks its tiles the same way)
 scatter.view_priority = ViewPriority.New()
 scatter.MAX_UNITS = 16384
 scatter.MAX_BAKED = 2 ^ 21
 scatter.GROW_MARGIN = 1.5
 scatter.MAX_BATCHES = 1024
--- the value of r_scatter_billboard_distance at which a billboard reaches max_distance, a prototype with one reaches that much farther
--- the higher it is (it only scaled where the model gives way to the billboard before, at 0.25)
 scatter.BILLBOARD_REACH_UNIT = 0.25
 scatter.TILE_CELLS = 32
 scatter.MAX_LEVEL = 4
@@ -75,7 +64,6 @@ local billboard_scale = pvars.Setup2{
 }
 pvars.EndGroup()
 local MAX_PROTOTYPES = ScatterSet.MAX_PROTOTYPES
--- the material's per layer rules and the fields of the surface they go in
 local LAYER_RULES = {
 	{"SlopeMin", "slope_min"},
 	{"SlopeMax", "slope_max"},
@@ -131,8 +119,6 @@ local ScatterBatch = ffi.typeof("struct { uint32_t index_count, first_index, pro
 local uint64_ptr = ffi.typeof("uint64_t *")
 local int32_ptr = ffi.typeof("int32_t *")
 local DRAW_COMMAND_SIZE = ffi.sizeof(vk.VkDrawIndexedIndirectCommand)
--- dispatch arguments, the job counter, then how many instances each prototype got
--- four counters for each prototype, its model, its billboard, and what casts shadows with its model and with its billboard
 local ARGS_WORDS = 4 + 4 * MAX_PROTOTYPES
 local ARGS_RESET = ffi.new("uint32_t[?]", ARGS_WORDS)
 ARGS_RESET[1] = 1
@@ -277,19 +263,14 @@ glsl_common.GetLuminanceGLSL() .. [[
 
 	struct ScatterSurface {
 		mat4 world;
-		// vertex buffer address, index buffer address (0 when not indexed)
 		uvec4 addresses;
-		// triangle count, 32 bit indices, albedo texture, layer mask texture
 		uvec4 info;
 		vec4 color;
-		// how much each channel of the layer mask grows
 		vec4 layers;
-		// the layers' albedo textures and how the terrain applies them, see TerrainLayer* in material.lua
 		ivec4 layer_textures;
 		vec4 layer_scales;
 		vec4 layer_detail;
 		vec4 layer_additive_detail;
-		// where the layers are by the slope and the height of the ground, see terrain_layer_rules.lua
 		vec4 slope_min;
 		vec4 slope_max;
 		vec4 slope_blend;
@@ -298,48 +279,30 @@ glsl_common.GetLuminanceGLSL() .. [[
 		vec4 cover_range;
 		vec4 cover_power;
 		vec4 cover_blend;
-		// grows on the first texture of a displacement blend: 1 when the material blends two, and its blend modulate texture
 		ivec4 blend;
-		// first prototype, prototype count
 		ivec4 set;
-		// density multiplier
 		vec4 params;
 	};
 
 	struct ScatterPrototype {
-		// density, max distance, full density distance, how much the size grows as the density thins
 		vec4 placement;
-		// scale, amount, tint scale, tint amount
 		vec4 cluster;
-		// min, max, fade, align
 		vec4 slope;
-		// min, max, fade, tilt
 		vec4 altitude;
-		// scale min, max, height min, max
 		vec4 scale;
-		// sink min, max, yaw
 		vec4 sink;
-		// surface, saturation, brightness, variation
 		vec4 color;
 		vec4 tint_a;
 		vec4 tint_b;
-		// how much each channel of the layer mask grows it
 		vec4 layers;
-		// radius, height, billboard distance (0 for none), billboard fade
 		vec4 bounds;
-		// first instance, capacity, loaded, casts shadows
 		uvec4 info;
-		// first billboard instance, billboard capacity
 		uvec4 info2;
-		// first shadow instance, shadow capacity
 		uvec4 info3;
-		// first instance of the billboard that casts shadows, its capacity
 		uvec4 info4;
-		// unused, animation distance, footprint to conform to the ground with (0 for not), the share of align left on steep slopes
 		vec4 limits;
 	};
 
-	// the counters of a prototype: its model, its billboard, what casts shadows with its model and with its billboard
 	uint scatter_counter(uint proto_index, uint kind) {
 		return proto_index * 4u + kind;
 	}
@@ -354,29 +317,22 @@ glsl_common.GetLuminanceGLSL() .. [[
 		return scatter_pcg(uint(c.x) ^ scatter_pcg(uint(c.y) + 0x9e3779b9u));
 	}
 
-	// non harmonic octaves so the pattern never visibly repeats
 	float scatter_fbm(vec2 p) {
 		return value_noise2(p) * 0.55 +
 			value_noise2(p * 2.13 + vec2(17.1, -3.7)) * 0.3 +
 			value_noise2(p * 4.37 + vec2(-9.3, 21.4)) * 0.15;
 	}
 
-	// 1 inside [lo, hi], falling to 0 over fade outside of it
 	float scatter_range(float x, float lo, float hi, float fade) {
 		if (fade <= 0.0) return x >= lo && x <= hi ? 1.0 : 0.0;
 
 		return smoothstep(lo - fade, lo, x) * (1.0 - smoothstep(hi, hi + fade, x));
 	}
 
-	// how far a cell's point may be moved off its corner, in cells at most 2^level. the levels are what thins
-	// a field out with distance, but a sparse prototype (cells of meters) has no use for them, and the further an
-	// instance can move off its cell the more cells a triangle has to look at to know it has none
 	int scatter_max_level(float cell_size) {
 		return cell_size > 2.0 ? 0 : (cell_size > 0.7 ? 2 : SCATTER_MAX_LEVEL);
 	}
 
-	// the point of a cell, its priority (the cell is kept when it is under the density), and the hash the rest of
-	// its random numbers come from. every prototype has a stream of its own, or two of them would grow in the same places
 	vec2 scatter_cell_point(ivec2 cell, uint proto_index, float cell_size, int max_level, out float priority, out uint h) {
 		int lx = cell.x == 0 ? max_level : findLSB(cell.x);
 		int lz = cell.y == 0 ? max_level : findLSB(cell.y);
@@ -391,7 +347,6 @@ glsl_common.GetLuminanceGLSL() .. [[
 		return (vec2(cell) + jitter * float(1 << cell_level)) * cell_size;
 	}
 
-	// the density that is left at a distance, 1 up to the full density distance and then thinning
 	float scatter_keep(ScatterPrototype proto, float d) {
 		float r = proto.placement.z / max(d, 0.001);
 		return min(r * r, 1.0) * (1.0 - smoothstep(proto.placement.y * 0.7, proto.placement.y, d));
@@ -402,10 +357,6 @@ local PROTOTYPES_GLSL = [[
 		ScatterPrototype scatter_prototypes[];
 	};
 ]]
--- the ground under a footprint, for what conforms to it, packed in the corner of the instance matrix: a conforming one
--- has the sign bit set, the radius it was measured at (6 bits, log scale) and the height of the ground over the plane
--- through its root at the four edges of the footprint (5 bits each, in radii and along its up axis), see the vertex
--- stage. 1.0 is what a scene instance has there
 local CONFORM_GLSL = RAY_QUERY and
 	[[
 	float scatter_conform_word(ScatterPrototype proto, vec3 root, vec3 x_axis, vec3 z_axis, vec3 up, float size, float size_y) {
@@ -437,8 +388,6 @@ local CONFORM_GLSL = RAY_QUERY and
 				offsets |= uint(int(clamp(round(height / (radius * size_y) * 15.0), -15.0, 15.0)) + 16) << uint(i * 5);
 			}
 
-			// ground that far off under the footprint (the foot of a cliff, a rock) is more than a patch bends to, it
-			// would arch over it instead
 			if (worst < 0.6) conform_word = uintBitsToFloat(0x80000000u | (radius_code << 24) | offsets);
 		}
 
@@ -461,7 +410,6 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 	};
 
 	layout(std430, set = 0, binding = ]] .. BINDING_JOBS .. [[) buffer ScatterJobs {
-		// surface | prototype << 12 | level << 24, triangle, tile x, tile z
 		uvec4 scatter_jobs[];
 	};
 
@@ -497,7 +445,6 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 		vec3 blend;
 	};
 
-	// polygon_3d's vertex: position, normal, uv, tangent, texture blend, color
 	#define SCATTER_VERTEX_FLOATS 17u
 
 	ScatterTriangle scatter_load_triangle(ScatterSurface s, uint tri) {
@@ -519,19 +466,14 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 		return t;
 	}
 
-	// a surface with a layer mask (terrain splat weights) only grows where its layers are, and
-	// blends the amount across the transitions to other layers
 	]] .. terrain_layer_rules .. [[
 
-	// the layers' rules (slope, cover) apply like they do to the terrain's own layers, with the ground's normal and height
-	// at the point
 	vec4 scatter_layer_weights(ScatterSurface s, int mask_texture, vec2 uv, vec3 normal, float height) {
 		vec4 weights = max(textureLod(TEXTURE(mask_texture), uv, 0.0), vec4(0.0));
 		float steepness = 1.0 - (normal.y * 0.5 + 0.5);
 		return apply_terrain_layer_rules(weights, steepness, height, s.slope_min, s.slope_max, s.slope_blend, s.cover_slope, s.cover_start, s.cover_range, s.cover_power, s.cover_blend);
 	}
 
-	// how much of the surface's first texture shows at a point of a displacement blend, like get_texture_blend_uv in model_pipeline.lua
 	float scatter_blend_amount(ScatterSurface s, vec2 uv, float blend) {
 		if (s.blend.x == 0) return 1.0;
 
@@ -543,8 +485,6 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 		return 1.0 - smoothstep(0.1, 0.6, blend);
 	}
 
-	// the terrain's albedo under an instance from one layer, like get_terrain_layer_sample in model_pipeline.lua
-	// but from a blurrier mip, since an instance covers more ground than a texel
 	vec3 scatter_terrain_layer_albedo(ScatterSurface s, int layer, vec3 base, vec2 xz) {
 		int tex = s.layer_textures[layer];
 
@@ -565,7 +505,6 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 		return base * mix(vec3(1.0), albedo / max(average, vec3(0.01)), detail);
 	}
 
-	// two vectors that with n make an orthonormal basis (Duff et al.)
 	void scatter_basis(vec3 n, out vec3 b1, out vec3 b2) {
 		float sign_z = n.z >= 0.0 ? 1.0 : -1.0;
 		float a = -1.0 / (sign_z + n.z);
@@ -574,7 +513,6 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 		b2 = vec3(b, sign_z + n.y * n.y * a, -n.y);
 	}
 ]]
--- the bake passes work on one unit of a surface at a time
 local bake_block = {
 	{"surface_index", "int"},
 	{"triangle_count", "int"},
@@ -675,9 +613,6 @@ function create_compute_passes()
 			shader = COMPUTE_GLSL .. [[
 				shared uint scatter_hit;
 
-				// a workgroup is a triangle, which its invocations share the tiles of. a big triangle covers
-				// thousands of tiles, which one invocation would go through one after the other. the tiles
-				// become jobs for the instance pass, one for each prototype of the surface's set
 				void main() {
 					uint tri = gl_WorkGroupID.y * SCATTER_TILE_GROUPS_PER_ROW + gl_WorkGroupID.x;
 
@@ -691,8 +626,6 @@ function create_compute_passes()
 
 					bool masked = compute.mask_texture >= 0;
 
-					// the skirts under terrain tiles are vertical strips that copy the edge vertices, normals included, so by
-					// those they read as flat ground. no heightfield triangle is vertical, so by the face they are known
 					if (masked) {
 						vec3 face = cross(t.p1 - t.p0, t.p2 - t.p0);
 
@@ -711,7 +644,6 @@ function create_compute_passes()
 						weights[6] = scatter_layer_weights(s, compute.mask_texture, (t.uv2 + t.uv0) * 0.5, normalize(t.n2 + t.n0), (t.p2.y + t.p0.y) * 0.5);
 					}
 
-					// the flattest and the steepest the triangle gets
 					float flattest = acos(clamp(max(max(t.n0.y, t.n1.y), t.n2.y), -1.0, 1.0));
 					float steepest = acos(clamp(min(min(t.n0.y, t.n1.y), t.n2.y), -1.0, 1.0));
 					vec3 bmin = min(min(t.p0, t.p1), t.p2);
@@ -741,10 +673,7 @@ function create_compute_passes()
 						float cell = 1.0 / sqrt(proto.placement.x * s.params.x);
 						float tile_size = cell * float(SCATTER_TILE_CELLS);
 						int max_level = scatter_max_level(cell);
-						// instances jitter up to 2^max_level cells past their cell's
-						// corner, so cells that far before the triangle can land in it
 						float reach = cell * float(1 << max_level);
-						// what the unit is baked for: every instance that any distance in its band keeps
 						float keep = scatter_keep(proto, compute.band_distance);
 
 						if (keep <= 0.0) continue;
@@ -754,9 +683,6 @@ function create_compute_passes()
 
 						if (any(greaterThan(lo, hi))) continue;
 
-						// a triangle of a sparse prototype mostly has no cell point in it, and a job for each would
-						// fill the job buffer, so the cells a point can come from are looked at first. the whole
-						// workgroup is here or none of it is, so the barriers are fine
 						if (max_level == 0) {
 							vec2 a = t.p0.xz;
 							vec2 e0 = t.p1.xz - a;
@@ -821,13 +747,13 @@ function create_compute_passes()
 			shader = (
 					RAY_QUERY and
 					[[
+
 				#extension GL_EXT_ray_query : require
 				layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT scatter_scene;
 			]] or
 					""
 				) .. COMPUTE_GLSL .. CONFORM_GLSL .. [[
-				// what is baked of a unit stays where it is until the unit is baked again. the instance matrix has
-				// the number a cell needs the density to be over to exist in the bottom row, with the tint and the prototype
+
 				layout(std430, set = 0, binding = ]] .. BINDING_INSTANCES .. [[) writeonly buffer ScatterBaked {
 					mat4 scatter_baked[];
 				};
@@ -871,7 +797,6 @@ function create_compute_passes()
 						uint h;
 						vec2 xz = scatter_cell_point(cell, proto_index, cell_size, max_level, priority, h);
 
-						// a point belongs to the unit it is in
 						if (any(lessThan(xz, compute.unit_min)) || any(greaterThanEqual(xz, compute.unit_max))) continue;
 						vec2 q = xz - a;
 						float w1 = (q.x * e1.y - e1.x * q.y) * inv_det;
@@ -883,10 +808,8 @@ function create_compute_passes()
 						vec3 root = t.p0 * w0 + t.p1 * w1 + t.p2 * w2;
 						float lod_keep = scatter_keep(proto, compute.band_distance);
 
-						// the cheapest reasons to drop a cell first, the texture reads come last
 						if (lod_keep <= 0.0 || priority >= lod_keep) continue;
 
-						// low frequency patches, so a uniform density doesn't read as a carpet
 						float patches = scatter_fbm(xz / max(proto.cluster.x, 0.01));
 						float clustering = mix(1.0, smoothstep(0.25, 0.65, patches), proto.cluster.y);
 
@@ -927,9 +850,7 @@ function create_compute_passes()
 						]] .. (
 					RAY_QUERY and
 					[[
-						// a brush over the ground, like a road laid on a displacement, would have instances poking through it.
-						// not for terrain (a layer mask), whose tiles of different levels of detail overlap while they are
-						// swapped, and would cover each other
+
 						if (mask_texture < 0) {
 							rayQueryEXT cover;
 							rayQueryInitializeEXT(cover, scatter_scene, gl_RayFlagsOpaqueEXT, 0xFF, root + vec3(0.0, 0.005, 0.0), 0.0, vec3(0.0, 1.0, 0.0), proto.bounds.y * size_y);
@@ -952,7 +873,6 @@ function create_compute_passes()
 						vec3 x_axis = b1 * cos(yaw) + b2 * sin(yaw);
 						vec3 z_axis = cross(x_axis, up);
 						vec3 position = root - up * mix(proto.sink.x, proto.sink.y, r_sink) * size;
-						// 1.0 is what a scene instance has in the corner of its matrix, see scatter_conform_word
 						float conform_word = ]] .. (RAY_QUERY and "scatter_conform_word(proto, root, x_axis, z_axis, up, size, size_y)" or "1.0") .. [[;
 
 						vec3 color = albedo_texture >= 0 ? textureLod(TEXTURE(albedo_texture), uv, 3.0).rgb : vec3(1.0);
@@ -970,7 +890,6 @@ function create_compute_passes()
 						}
 
 						color *= s.color.rgb;
-						// the ground's color without its brightness, pushed away from grey, and some of the brightness back
 						float color_luma = luminance(color);
 						vec3 chroma = color_luma > 0.0001 ? color / color_luma : vec3(1.0);
 						chroma = max(mix(vec3(1.0), chroma, proto.color.y), vec3(0.0));
@@ -980,8 +899,6 @@ function create_compute_passes()
 						tint *= 1.0 + (r_variation * 2.0 - 1.0) * proto.color.w;
 						uint tint_bits = packUnorm4x8(vec4(clamp(tint * 0.5, 0.0, 1.0), 1.0));
 
-						// priority / ground_amount is what the density at the camera's distance has to be over for the instance
-						// to be there, the frame's cull pass reads it from the matrix' bottom row
 						uint slot = atomicAdd(scatter_unit_counts[uint(compute.unit_slot)], 1u);
 
 						if (slot < uint(compute.unit_capacity)) {
@@ -996,8 +913,6 @@ function create_compute_passes()
 				}
 			]],
 		},
-		-- measures the ground under the instances that were given to the set (they were not grown on a surface, so no bake
-		-- measured it), it runs again now and then, since the terrain streams in under them
 		conform = RAY_QUERY and
 			EasyPipeline.Compute{
 				name = "scatter_conform",
@@ -1071,12 +986,10 @@ function create_compute_passes()
 					mat4 scatter_output[];
 				};
 
-				// offset, capacity and the counter of a unit
 				layout(std430, set = 0, binding = ]] .. BINDING_UNITS .. [[) readonly buffer ScatterUnits {
 					uvec4 scatter_units[];
 				};
 
-				// the unit of a block of 64 instances, and which block of it
 				layout(std430, set = 0, binding = ]] .. BINDING_BLOCKS .. [[) readonly buffer ScatterBlocks {
 					uvec2 scatter_blocks[];
 				};
@@ -1115,8 +1028,6 @@ function create_compute_passes()
 	}
 
 
-				// every frame, what is baked is thinned by the distance, culled by the view and sorted into the regions
-				// the draws read: a prototype's model, or its billboard, with the fade between them
 				void main() {
 					uint block = gl_WorkGroupID.x;
 
@@ -1141,27 +1052,20 @@ function create_compute_passes()
 
 					if (lod_keep <= need) return;
 
-					// thinner with distance, so what is left is wider
 					float widen = mix(1.0, clamp(inversesqrt(lod_keep), 1.0, 4.0), proto.placement.w);
 					float size_xz = length(world[0].xyz) * widen;
 					float size_y = length(world[1].xyz);
 					world[0].xyz *= widen;
 					world[2].xyz *= widen;
-					// the prototype's index was in the corner, a drawn instance leaves it zero
 					world[2][3] = 0.0;
 					bool in_view = scatter_sphere_visible(position + vec3(0.0, proto.bounds.y * size_y * 0.5, 0.0), proto.bounds.x * max(size_xz, size_y));
 
-					// only the thinning with distance fades instances, they come and go as the camera moves
 					float lod_fade = lod_keep >= 0.999 ? 0.0 : 1.0 - clamp((lod_keep - need) / (lod_keep * 0.3), 0.0, 1.0);
-					// the model gives way to the billboard over a band around the billboard's distance, the two dither
-					// into each other with patterns that complement
 					float switch_distance = proto.bounds.z;
 					float band = proto.bounds.w;
 					float blend = switch_distance > 0.0 ? clamp((d - switch_distance * (1.0 - band)) / (2.0 * switch_distance * band), 0.0, 1.0) : 0.0;
 
-					// the shadow maps have their own list, of what is near enough, in view or not
 					if (proto.info.w != 0u) {
-						// the model up close, the billboard further out when there is one
 						bool billboard_shadow = switch_distance > 0.0 && d >= switch_distance;
 						uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, billboard_shadow ? 3u : 2u)], 1u);
 
@@ -1173,7 +1077,6 @@ function create_compute_passes()
 
 					if (!in_view) return;
 
-					// the fade and the tint are in the bottom row that the vertex stage reads them from
 					if (switch_distance == 0.0 || blend < 1.0) {
 						uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 0u)], 1u);
 
@@ -1217,7 +1120,6 @@ function create_compute_passes()
 					uint scatter_counts[];
 				};
 
-				// index count, first index, prototype, double sided
 				layout(std430, set = 0, binding = ]] .. BINDING_BATCHES .. [[) readonly buffer ScatterBatches {
 					uvec4 scatter_batches[];
 				};
@@ -1234,13 +1136,10 @@ function create_compute_passes()
 					ScatterDrawCommand scatter_commands[];
 				};
 
-				// the shadow maps draw without indices through the index buffer's address, vertex count and all
 				layout(std430, set = 0, binding = ]] .. BINDING_SHADOW_COMMANDS .. [[) writeonly buffer ScatterShadowCommands {
 					uvec4 scatter_shadow_commands[];
 				};
 
-				// one draw for each batch, the single sided ones in the first half of the commands and the double
-				// sided in the second, the other half's get no instances
 				void main() {
 					uint id = gl_GlobalInvocationID.x;
 					uint batch_count = uint(compute.batch_count);
@@ -1249,7 +1148,6 @@ function create_compute_passes()
 
 					uint batch = id % batch_count;
 					uvec4 info = scatter_batches[batch];
-					// the counter of a batch is its prototype's, or its billboard's
 					ScatterPrototype proto = scatter_prototypes[info.z >> 1u];
 					bool billboard = (info.z & 1u) != 0u;
 					uint first = billboard ? proto.info2.x : proto.info.x;
@@ -1282,12 +1180,8 @@ local surfaces = {}
 local surfaces_key = nil
 local surface_count = 0
 
--- a component that is not shown yet (a terrain tile that waits for the one it replaces) can have its surfaces looked at
--- anyway: the units are baked and kept, but not drawn until the component is visible
 scatter.preloaded = setmetatable({}, {__mode = "k"})
 scatter.preload_version = 0
--- components that are about to be replaced (a terrain tile that is retiring): what they would grow is not worth baking
--- before what is wanted
 scatter.retiring = setmetatable({}, {__mode = "k"})
 
 function scatter.SetRetiring(component, retiring)
@@ -1469,13 +1363,11 @@ local function write_prototype(out, proto, instance_base, far_base, shadow_base,
 	out.info4[0] = shadow_billboard_base
 	out.info4[1] = proto.shadow_billboard_room
 	out.limits[3] = proto.align_steep
-	-- the footprint is measured when the model has loaded
 	out.limits[2] = RAY_QUERY and proto.conform and proto.state == "ready" and proto.footprint > 0.02 and proto.footprint or 0
 	out.info[2] = proto.state == "ready" and 1 or 0
 	out.info[3] = proto.shadow and 1 or 0
 end
 
--- what the draws are made of, rebuilt when a prototype is added or its model arrives
 local draw_batches = {}
 local batch_table = nil
 local batch_serial = 0
@@ -1491,16 +1383,12 @@ local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
 local demand_copy = BufferCopy()
 local demand_versions = {}
 
--- how many times farther than its max_distance a prototype reaches: one with a billboard that is baked (and the pvar allows it)
--- is drawn as the billboard from where its model gives way, so it is cheap to take far
 local function get_reach(proto)
 	if proto.placed or not (billboards_enabled:Get() and proto.billboard_part) then return 1 end
 
 	return billboard_scale:Get() / scatter.BILLBOARD_REACH_UNIT
 end
 
--- where a prototype's model gives way to its billboard, 0 for never: when it has one that is baked, the pvar
--- allows it and it is nearer than the end of the prototype
 local function get_switch(proto)
 	if not (billboards_enabled:Get() and proto.billboard_part) then return 0 end
 
@@ -1510,9 +1398,6 @@ local function get_switch(proto)
 	)
 end
 
--- how many instances of a prototype are about to be in view between two distances, from its rules: the density
--- over the ground that is left after the thinning with distance and the clusters, the part of the circle that is in
--- view (all of it for what casts shadows) and a margin. the gpu's own counts correct it from then on
 local function estimate_room(proto, from, to, view)
 	local set = proto.set
 	local far = proto.max_distance * proto.distance_multiplier * proto.reach
@@ -1541,10 +1426,8 @@ local function size_prototype(proto)
 	proto.sized_reach = proto.reach
 	proto.sized_scale = billboard_scale:Get()
 	proto.sized_switch = switch
-	-- the model reaches a little past the billboard's distance, and the billboard from a little before it
 	local model_end = switch > 0 and math.min(switch * (1 + proto.billboard_fade), far) or far
 
-	-- a placed prototype has no density to estimate from, all of its instances are the most any list can get
 	local placed_room = proto.placed and math.max(proto.placed_count or 0, scatter.MIN_ROOM)
 
 	if proto.max_instances then
@@ -1578,8 +1461,6 @@ local function size_prototype(proto)
 	layout_dirty = true
 end
 
--- the prototypes' room one after the other in the instance buffer, a model's and then its billboard's. when they want
--- more than there is the ones that are not held fixed are scaled down together
 local function assign_bases()
 	local protos = ScatterSet.GetPrototypes()
 	local fixed, dynamic = 0, 0
@@ -1614,8 +1495,6 @@ local function assign_bases()
 	layout_version = layout_version + 1
 end
 
--- the counters the gpu counted past the room with, from the frame this slot was last written. a prototype that
--- peaked above its room grows, one that has been far under it for a long while shrinks
 local function adjust_rooms(slot)
 	if demand_versions[slot] ~= draw_version then return end
 
@@ -1727,12 +1606,6 @@ local function barrier(cmd, buffer, src_stage, dst_stage, src_access, dst_access
 	}
 end
 
--- what the surfaces grow is baked in units, the cells of a world grid of a surface (BAKE_CELLS, bigger cells far from the camera), and
--- stays baked: placing instances on the surface is the expensive part and it does not depend on the camera
--- but for how thin the field is at a distance. a unit is baked for the band of distances its nearest point is in,
--- keeping every instance that the band's nearest distance keeps, and baked again when the camera comes into a
--- nearer band (or when what it was baked from changed). each frame a cull pass thins what is baked by the exact
--- distance, culls it by the view and sorts it into what the draws read
 local units = {}
 local surface_states = setmetatable({}, {__mode = "k"})
 local bake_epoch = 1
@@ -1759,7 +1632,6 @@ local function next_class(count)
 	return class
 end
 
--- the memory goes back after the frames in flight that could still read it
 local function pool_release(unit)
 	if not unit.offset then return end
 
@@ -1790,7 +1662,6 @@ local function band_distance(band)
 	return scatter.BAND_FIRST * scatter.BAND_RATIO ^ (band - 1)
 end
 
--- the share of a prototype's density that is left at a distance, the same as scatter_keep in the shaders
 local function cpu_keep(proto, distance)
 	local set = proto.set
 	local far = proto.max_distance * proto.distance_multiplier * proto.reach
@@ -1803,7 +1674,6 @@ local function cpu_keep(proto, distance)
 	return math.min(ratio * ratio, 1) * (1 - fade * fade * (3 - 2 * fade))
 end
 
--- how many instances a unit holds when baked for a distance, from the rules of the set
 local function estimate_unit(set, material_density, distance, size)
 	local total = 0
 
@@ -1831,8 +1701,6 @@ local function acquire_slot()
 	return next_slot - 1
 end
 
--- the counts of the units the gpu got, from the frame this ring slot was written: a unit that has more than
--- it has room for is baked again with room, one with far less is baked again with less
 local function apply_unit_counts(b, slot)
 	local frame = unit_readback_frames[slot]
 
@@ -1846,7 +1714,6 @@ local function apply_unit_counts(b, slot)
 			unit.count = counts[unit.slot]
 
 			if unit.count > 2 ^ unit.class then
-				-- at the biggest there is, it just stays over
 				unit.hint = unit.class < MAX_CLASS and unit.count * 1.25 or nil
 			elseif unit.class > 8 and unit.count * 4 < 2 ^ unit.class then
 				unit.hint = math.max(unit.count * 1.5, 64)
@@ -1861,11 +1728,8 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 	local wanted = unit.hint
 
 	if not wanted and unit.count then
-		-- baked before, for another band: what it held then is the best guess
 		wanted = unit.count * 2
 	elseif not wanted then
-		-- from the density rules alone a cell of open sea gets as much room as one of jungle, so a big cell with a big
-		-- estimate only gets a probe's room: the gpu counts what there is (past the room), and the unit is baked again to fit
 		wanted = estimate_unit(surface.set, material_density, distance, unit.size)
 
 		if unit.tier > 1 and wanted > scatter.PROBE_ABOVE then wanted = scatter.PROBE_ROOM end
@@ -1875,8 +1739,6 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 	local offset = pool:Alloc(class)
 
 	if not unit.hint then
-		-- the room is a guess and the pool cannot spare it: the biggest it can spare down to a probe's room, the unit
-		-- is baked again to fit once the gpu has counted what it holds
 		local probe_class = next_class(scatter.PROBE_ROOM)
 
 		while not offset and class > probe_class do
@@ -1885,8 +1747,6 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 		end
 	end
 
-	-- the pool cannot hold the unit's old room and a new one: the old one goes (it is free after the frames in flight) and the
-	-- unit is empty until it has a new one. keeping it would deadlock a pool full of rooms that are waiting to be baked smaller
 	if not offset then pool_release(unit) end
 
 	while not offset do
@@ -1909,13 +1769,11 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 
 		pool_release(farthest)
 		pool_collect()
-		-- what is released waits for the frames in flight, so it may not be there yet
 		offset = pool:Alloc(class)
 
 		if not offset then return false end
 	end
 
-	-- the old room is only given up now that there is a new one, a unit that can't be baked again keeps what it had
 	pool_release(unit)
 	unit.offset = offset
 	unit.class = class
@@ -1971,9 +1829,6 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 	return true
 end
 
--- the units a surface wants this frame, found from the biggest cells down: a cell the camera is far from is a unit, a
--- cell it is near is the 16 cells under it. a unit that is not baked yet is drawn as whatever was baked of the
--- cells it covers (or of the cell around it) until it is
 local visit_surface, visit_state, visit_frame, visit_dy, visit_camera_x, visit_camera_z, visit_reach
 local visit_min_x, visit_max_x, visit_min_z, visit_max_z
 
@@ -2050,11 +1905,9 @@ local function visit_cell(tier, cx, cz)
 
 	local band = band_of(distance)
 	local priority
-	-- inside a class the ranking is the view's: the nearer of where the camera is and where it will be, farther the more it is out of view
 	local rank = scatter.view_priority:Rank(x0, state.min_y, z0, x0 + size, state.max_y, z0 + size)
 
 	if not unit.offset or unit.epoch ~= bake_epoch or unit.stamp ~= state.stamp or unit.hint then
-		-- new or changed units first, what a surface that is about to go would grow after them, then a unit that is only baked for a nearer band
 		priority = state.retiring and 1e6 + rank or rank
 	elseif band < unit.baked_band then
 		priority = 2e6 + rank
@@ -2071,7 +1924,6 @@ local function by_priority(a, b)
 	return a.priority < b.priority
 end
 
--- how many units a surface wanted this frame (or the one before) and how many of them were baked, nil when it was not looked at
 function scatter.GetSurfaceStatus(entry)
 	local state = surface_states[entry]
 
@@ -2080,8 +1932,6 @@ function scatter.GetSurfaceStatus(entry)
 	return state.wanted, state.baked
 end
 
--- a surface is ready when scatter looked at it this frame or the one before and all the units it wants are baked, or when scatter is
--- off. a surface that has no set is never looked at, ask only for those that have one
 function scatter.IsSurfaceReady(entry)
 	if not enabled:Get() then return true end
 
@@ -2092,11 +1942,6 @@ function scatter.IsSurfaceReady(entry)
 	return state.baked == state.wanted
 end
 
--- instances that were given to a placed prototype instead of grown on a surface (the scatter_placements component does
--- it). they are cut into units by the cells they are in and kept on the host, a unit is copied into the baked pool when the
--- camera is within its prototype's reach (the nearest first, a few a frame), and the cull pass goes through them like
--- any other unit: the bottom row of a matrix has the need (0, they are never thinned but by the end of the reach), the
--- tint, the prototype's index and the conform word
 local placed_units = {}
 local active_placed = {}
 local placed_staging = {}
@@ -2107,7 +1952,6 @@ scatter.PLACED_UPLOADS = 4
 scatter.PLACED_CONFORMS = 2
 scatter.PLACED_CONFORM_INTERVAL = 300
 
--- matrices is a float array of 16 for each instance, the world matrix as the cull pass reads it, count of them
 function scatter.AddPlacements(proto, matrices, count)
 	assert(proto.placed, proto.name .. " is not a placed prototype")
 	local cell = scatter.PLACED_CELL
@@ -2192,7 +2036,6 @@ function scatter.RemovePlacements(handle)
 	end
 end
 
--- for whoever measures: how many placed units there are, how many are in the baked pool, how many the cull pass goes through
 function scatter.GetPlacedStatus()
 	local uploaded = 0
 
@@ -2203,9 +2046,6 @@ function scatter.GetPlacedStatus()
 	return #placed_units, uploaded, #active_placed
 end
 
--- for whoever measures: where the baked pool went. top is how far it has been handed out, live the rooms units hold, used what
--- is in them, free the rooms that were handed back (by class, a room of a class is made from a bigger one) and pending the ones
--- that wait for the frames in flight
 function scatter.GetPoolStatus()
 	local live, used, rooms = 0, 0, 0
 	local free, free_by_class = pool:GetFree()
@@ -2289,13 +2129,11 @@ local function upload_placed(cmd, b, unit, proto, frame)
 	barrier(cmd, b.unit_counts, "compute", "transfer", {"shader_read", "shader_write"}, "transfer_write")
 	cmd:UpdateBuffer(b.unit_counts, unit.slot * 4, 4, COUNT_WORD)
 	barrier(cmd, b.unit_counts, "transfer", "compute", "transfer_write", {"shader_read", "shader_write"})
-	-- the copy is in the command buffer that is being recorded, the staging buffer goes after the frames in flight
 	placed_staging[#placed_staging + 1] = {buffer = staging, frame = frame}
 	unit.conform_frame = nil
 	return true
 end
 
--- fills active_placed with the units the cull pass goes through this frame
 local function update_placed(cmd, b, passes, frame, camera)
 	list.clear(active_placed)
 
@@ -2379,7 +2217,6 @@ local function update_placed(cmd, b, passes, frame, camera)
 	end
 end
 
--- fills bake_list with the units that want baking (which are wanted, or wanted in another band)
 local function collect_bakes(candidates, camera, reach, frame)
 	list.clear(bake_list)
 
@@ -2405,7 +2242,6 @@ local function collect_bakes(candidates, camera, reach, frame)
 			state.min_y, state.max_y = aabb.min_y, aabb.max_y
 
 			if min_x <= max_x and min_z <= max_z and camera.y > aabb.min_y - reach and camera.y < aabb.max_y + reach then
-				-- what a unit is baked from, besides the set
 				local signature = aabb.min_x + aabb.max_x * 3 + aabb.min_z * 7 + aabb.max_z * 11 + aabb.min_y * 13 + aabb.max_y * 17 + surface.material:GetScatterDensity() * 19
 
 				if state.signature ~= signature then
@@ -2430,15 +2266,12 @@ local function collect_bakes(candidates, camera, reach, frame)
 
 end
 
--- the units and the blocks of 64 instances that the cull pass goes through, written into the ring slot's part of the
--- buffers. returns the unit base and the block base and how many blocks there are
 local function write_cull_tables(b, ring, frame)
 	local unit_base = ring * scatter.MAX_UNITS
 	local block_base = ring * (scatter.MAX_BAKED / 64)
 	local unit_count, block_count = 0, 0
 
 	for _, unit in ipairs(units) do
-		-- a unit nothing wants this frame (its surface is gone or hidden) is not drawn, it is kept a while in case it is back
 		if unit.offset and unit.seen == frame and not unit.state.preload then
 			local capacity = 2 ^ unit.class
 			local blocks = math.ceil((unit.count and math.min(unit.count, capacity) or capacity) / 64)
@@ -2501,7 +2334,6 @@ function scatter.PreDraw(cmd)
 
 		signature = table.concat(signature, ",")
 
-		-- what is baked has the index of the prototype in it
 		if signature ~= last_signature then
 			last_signature = signature
 			bake_epoch = bake_epoch + 1
@@ -2555,7 +2387,6 @@ function scatter.PreDraw(cmd)
 
 	collect_bakes(candidates, camera, reach, frame)
 	table.sort(bake_list, by_priority)
-	-- for whoever measures: nothing is loading when this is zero
 	scatter.pending_new, scatter.pending_nearer, scatter.pending_farther = 0, 0, 0
 
 	for _, entry in ipairs(bake_list) do
@@ -2572,7 +2403,6 @@ function scatter.PreDraw(cmd)
 	scatter.unit_count = #units
 	scatter.pool_top = pool.Top
 
-	-- the baking of this frame
 	if bake_list[1] then
 		if RAY_QUERY then
 			passes.instances:UpdateDescriptorSet(
@@ -2609,7 +2439,6 @@ function scatter.PreDraw(cmd)
 
 
 	update_placed(cmd, b, passes, frame, camera)
-	-- the units nothing wanted for a while go
 	local kept = 0
 
 	for _, unit in ipairs(units) do
@@ -2680,9 +2509,6 @@ function scatter.PreDraw(cmd)
 	barrier(cmd, b.instances, "compute", "vertex", "shader_write", "shader_read")
 end
 
--- what ray tracing is made of: the lists of what casts shadows, which hold every instance in range, in view or not,
--- the model near and the billboard beyond its distance. returns the sources with the buffers of the instances and of
--- the counters, and a version that changes when the layout of the lists does
 function scatter.GetRTSources()
 	if not buffers or layout_dirty or draw_version ~= ScatterSet.version then return nil end
 
@@ -2722,8 +2548,6 @@ function scatter.Draw(pipeline, cmd)
 	cmd:DrawIndexedIndirect(b.commands, #draw_batches * DRAW_COMMAND_SIZE, #draw_batches, DRAW_COMMAND_SIZE)
 end
 
--- the shadow maps draw what the last PreDraw wrote. the shadow pass may run before this frame's PreDraw,
--- in which case the commands are the last frame's, and there is nothing to draw yet in the first frame
 event.AddListener("DrawAllShadows", "scatter", function(shadow_map, cascade_index)
 	if not enabled:Get() or not draw_batches[1] or not first_commands_frame or first_commands_frame >= system.GetFrameNumber() then
 		return

@@ -116,7 +116,6 @@ local decode_job_source = [=[
 do
 	local entity_cache = {}
 
-	-- the entities of a map without reading the rest of it
 	function bsp.LoadEntities(path)
 		path = assert(R(path) or nil)
 
@@ -132,7 +131,6 @@ do
 	end
 end
 
--- skybox keeps the 3D skybox. Without it everything that belongs to it is left out
 function bsp.Load(path, skybox)
 	path = assert(R(path) or nil)
 	local SKYBOX = skybox
@@ -448,8 +446,6 @@ function bsp.Load(path, skybox)
 		end
 	end
 
-	-- the playable air of the map: leaves that are not solid and not part of the 3D skybox. Geometry of the 3D skybox is
-	-- placed over the map, what lies in or touches this air has to go, otherwise it z fights with the map or floats in rooms
 	local near_map_air, is_map_air
 
 	do
@@ -479,7 +475,6 @@ function bsp.Load(path, skybox)
 		end
 	end
 
-	-- cuts the 3D skybox geometry away where it is inside of the map's air
 	local sky_clipper = sky_origin and
 		bsp_clip.New(
 			nodes,
@@ -643,8 +638,6 @@ function bsp.Load(path, skybox)
 	local meshes = {}
 	local face_meshes = {}
 
-	-- Cuts a displacement of the 3D skybox against the map's air. Returns nil when nothing had to be cut, otherwise the
-	-- remaining triangles as a mesh {Texinfo, Vertices} with 9 floats per vertex: position, uv, blend and normal
 	local function clip_sky_displacement(dims, scaled, scaled_flats, alphas, texinfo_index)
 		local vecs = texinfos[texinfo_index].vecs
 		local normals = static_geometry.ComputeDisplacementNormals{dims = dims, positions = scaled}
@@ -924,8 +917,6 @@ function bsp.Load(path, skybox)
 
 					local texinfo_index = side.texinfo
 
-					-- a nodraw face takes the texture of the face opposite of it, or of the most opposed face that is drawn when the
-					-- opposite one is nodraw too. There is nothing to look at otherwise now that the whole map can be seen from the outside
 					if
 						bsp.ReplaceNodraw and
 						polygon and
@@ -1027,12 +1018,10 @@ function bsp.Load(path, skybox)
 
 				if hull then
 
-				-- a brush with a skybox face closes off the map or the 3D skybox, it is invisible and would only be a wall
 				elseif sky and not SKYBOX then
 
 				elseif sky and not has_geometry then
 
-				-- nothing of it is drawn, such a brush only bounds the 3D skybox and has no use as collision
 				elseif sky then
 					local brush_sides = {}
 
@@ -1050,8 +1039,6 @@ function bsp.Load(path, skybox)
 						local piece_flat = {}
 						local visible = false
 
-						-- The faces are cut against the map like everything else. A face that is partly cut, for instance one
-						-- that lies on a wall of the map, is drawn by a mesh of what is left of it instead of by the brush.
 						for side_index, side in ipairs(piece) do
 							local polygon = side.visible == 1 and brush_geometry.ClipSide(piece, side_index)
 

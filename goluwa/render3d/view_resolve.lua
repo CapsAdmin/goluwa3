@@ -65,8 +65,6 @@ local function get_pipeline()
 	return pipeline
 end
 
--- exposes the scene color of an offscreen view, tonemaps it and averages ratio x ratio samples into
--- each pixel of framebuffer. alpha stays straight, the sky of a transparent view being 0
 function view_resolve.Draw(cmd, framebuffer, texture, ratio, exposure)
 	source_texture = texture
 	source_ratio = ratio

@@ -6,14 +6,12 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local bit = require("bit")
 local nav_mesh = {}
 nav_mesh.AVOID_COST = 5
--- walking characters stand upright and do not jump
 local BLOCKED_ATTRIBUTES = bit.bor(nav.ATTRIBUTE.JUMP, nav.ATTRIBUTE.CROUCH)
 
 function nav_mesh.GetPath(map_name)
 	return "maps/" .. map_name .. ".nav"
 end
 
--- CNavArea::GetZ, a bilinear surface over the four corners
 local function get_height(area, x, y)
 	local nw, se = area.nw, area.se
 	local width, depth = se[1] - nw[1], se[2] - nw[2]
@@ -28,7 +26,6 @@ local function to_engine(x, y, z)
 	return Vec3(-y * units.meters, z * units.meters, -x * units.meters)
 end
 
--- the edge an area shares with its neighbour in a direction, as two points in source coordinates
 local function get_portal(area, direction, other)
 	local first, last, fixed
 

@@ -3,7 +3,6 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local DIRECTORIES = {"elements", "widgets"}
 local ALIASES = {MenuItem = "goluwa/render2d/ui/elements/context_menu_item.lua"}
--- ui.Button{...}{children} is react.Element of the template in elements/ or widgets/ named button.lua, ui.Panel is the plain panel
 local ui = {Panel = react.Element(Panel)}
 
 setmetatable(

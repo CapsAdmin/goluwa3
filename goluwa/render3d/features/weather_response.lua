@@ -1,6 +1,3 @@
--- how much of the rain and snow a material takes, a roof under shelter that snow shouldn't settle on,
--- glass that stays dry. 1 is what the weather gives it, no gbuffer data, the weather runs as the
--- gbuffer is written
 return {
 	name = "weather_response",
 	category = "Weather",

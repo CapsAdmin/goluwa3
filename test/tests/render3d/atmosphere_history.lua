@@ -69,7 +69,6 @@ T.Test("wind version changes with the wind vector and only then", function()
 	atmosphere.SetWind(wind)
 	local second = atmosphere.GetWindVersion()
 	T(second)["~="](first)
-	-- the same object changed in place and set again is another wind
 	wind.x = 5
 	atmosphere.SetWind(wind)
 	T(atmosphere.GetWindVersion())["~="](second)

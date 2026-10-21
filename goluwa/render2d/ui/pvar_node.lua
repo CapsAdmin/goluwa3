@@ -10,7 +10,6 @@ function pvar_node.IsSupported(info)
 	return node_types[info.type] ~= nil
 end
 
--- a property editor node for a pvar, on_change gets the value the user set
 function pvar_node.Build(info, on_change)
 	local node = {
 		Key = info.key,

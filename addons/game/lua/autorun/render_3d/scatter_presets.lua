@@ -1,13 +1,3 @@
--- scatter sets made of Crysis 1 vegetation, for materials to have as their ScatterSet. this returns them by name,
--- and only has them when the game is installed. ScatterSet.GetGrass() does not need it
---
---   crysis_meadow: grass, flowers, small rocks, a few bushes and trees, for flat green ground
---   crysis_forest: ferns, fallen leaves, mushrooms, branches, mossy rocks and trees
---   crysis_jungle: ground patches, bushes, palms, jungle and hill trees and rocks, as dense as the core of the island level
---   crysis_rocky: dry grass, scrub and rocks of all sizes, for stony ground
---
--- the layers of each prototype are for a terrain whose first layer is the grass, the second dirt, the
--- third rock and the fourth snow or sand
 local steam = import("goluwa/steam/steam.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local presets = {}
@@ -20,7 +10,6 @@ if not info then return presets end
 local root = info.game_dir .. "Game/Objects.pak/Objects/Natural/"
 local GREEN = {0.7, 1.15, 0.5}
 local DRY = {1.45, 1.05, 0.55}
--- what kind of thing a prototype is, the classes are the defaults and the call the exceptions
 local classes = {
 	ground_cover = {
 		conform = true,
@@ -300,21 +289,6 @@ presets.crysis_forest = ScatterSet.New{
 			proto("tree", "Trees/Twisted_Tree/twisted_tree_a", {density = 0.0004}),
 	},
 }
--- sized from the painted vegetation of the island level (38k instances, vegetationinstancesarray.editor_data),
--- measured in its dense core around the spawn points: the 100 m cells with 150 or more land instances, 0.64 km2
--- that hold 77% of all of them, 0.0425 instances per m2 together. over the whole land it is about 0.0025, so this
--- set is the jungle interior, and its DensityMultiplier is the way to thin it out
---
--- per m2 in the core (spacing between neighbours of the same kind, and the share of 25 m cells that hold any, which
--- would be nearly all of them if spread evenly, the painters put things in blobs):
---   ground patches: bigpatch_medium 0.0075 (11 m, 37%), leaf litter 0.0056 (13 m, 40%)
---   round leaf bushes 0.0051 (14 m, 25%), junglebush 0.0023 (21 m, 17%), ferns 0.0017 (24 m, 23%), cliff bushes 0.0017
---   palms 0.0038 (16 m, 45%), jungle trees 0.0019 (23 m, 22%), hill trees 0.0023 (21 m, 26%)
---   jungle rocks 0.0039, 1.2 to 3.7 times the model's size, branches 0.0015
--- the river rocks (dry_pattern) were left out, they sit in a few river beds (1% of the cells)
---
--- the noise patches of a cluster keep about half the ground at amount 1, so the density of a prototype is
--- the one measured divided by what the patches leave
 local function clustered(target, amount)
 	return target / (1 - 0.5 * amount)
 end

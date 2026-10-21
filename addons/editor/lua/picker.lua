@@ -62,7 +62,6 @@ do
 	Entity.World:AddLocalListener("OnEntityComponentChanged", mark_dirty)
 end
 
--- an entity that is, or is below, one of the opts.entity_blacklist entities
 local function is_blacklisted(entity)
 	local blacklist = picker.entity_blacklist
 
@@ -134,7 +133,6 @@ local function find_nonvisual_entity_hit(mouse_pos, ray_origin, ray_direction, m
 	return best_hit
 end
 
--- the cursor, or the middle of the screen while the mouse is trapped and the crosshair is what aims
 function picker.GetPickPosition()
 	local window = system.GetWindow()
 
@@ -230,7 +228,6 @@ local function in_prefab(entity)
 	return false
 end
 
--- the model path of an entity, or of the closest entity around it that has one
 local function find_model_path(entity)
 	local candidates = {entity}
 
@@ -259,8 +256,6 @@ local function find_prefab_path(entity)
 	end
 end
 
--- entity modes hover and highlight an entity, resolve turns it into what the mode picks and nothing means there is nothing to pick there
--- hit modes pick the surface under the cursor
 local MODES = {
 	entity = {},
 	model = {world_only = true, filter = has_model, resolve = find_model_path},
@@ -269,7 +264,6 @@ local MODES = {
 	texture = {hit = true},
 }
 
--- choosing a texture of the picked material is part of the pick, it ends once one is chosen or the menu is dismissed
 local function open_texture_menu(material)
 	local mine = session
 	local items = {}
@@ -314,7 +308,6 @@ local function update_menu()
 	open_texture_menu(session.menu_material)
 end
 
--- whatever came back under the cursor comes back after the release, or the release lands on it
 local function update_finish()
 	if input.IsMouseDown("button_1") then return end
 
@@ -407,9 +400,6 @@ local function on_hit_click(button, press)
 	return true
 end
 
--- opts.mode is one of MODES, entity_blacklist is a list of entities that and what is below them can not be picked, on_pick(entity, resolved), on_pick(material, hit) or on_pick(texture, name) depending on it,
--- on_pick returning false keeps picking, on_stop runs when picking ends, hide_desktop hides the desktop meanwhile and shows it again
--- once the mouse is released, then on_done runs, returns the function that cancels
 function picker.Start(opts)
 	if session then return end
 
@@ -514,7 +504,6 @@ function picker.MouseInput(button, press)
 	picker.Stop()
 end
 
--- most categories are identified by their path, a category can say its value is something else (a prefab is its name)
 function picker.PickAsset(category, current_value, callback)
 	local config = category and assets.categories[category] or {}
 	local selected = current_value

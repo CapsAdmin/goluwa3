@@ -395,7 +395,6 @@ local function step_model(state, now, budget)
 	return true
 end
 
--- a prefab has a visual on every node that shows something
 function previews.CollectVisuals(entity, out)
 	out = out or {}
 
@@ -420,7 +419,6 @@ function previews.CreatePrefabEntity(name)
 	return entity, visuals
 end
 
--- false while a visual still loads, and whether any of them has something to draw
 function previews.ArePrefabVisualsReady(visuals)
 	local ready = true
 	local drawable = false
@@ -515,7 +513,6 @@ function previews.LoadMaterial(entry)
 	return assets.GetMaterial(entry.path)
 end
 
--- the asset paths a loaded material came from, empty for a material built at runtime
 function previews.GetMaterialPaths(material)
 	local paths = {}
 
