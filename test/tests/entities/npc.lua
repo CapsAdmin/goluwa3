@@ -12,9 +12,9 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
-Entity.RegisterComponent("npc", import("lua/components/npc.lua"))
+Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
 Entity.RegisterComponent("locomotion", import("lua/components/locomotion.lua"))
-local npc_component = import("lua/components/npc.lua")
+local npc_component = import("lua/components/ai_controller.lua")
 local npcs = import("lua/npcs.lua")
 
 local function rectangle(mesh, id, x1, z1, x2, z2)
@@ -55,11 +55,11 @@ local function create_npc(position, values)
 	values.Wander = values.Wander or false
 	values.WalkSpeed = values.WalkSpeed or 3
 	local entity = Entity.New{
-		ComponentSet = {"transform", "npc"},
+		ComponentSet = {"transform", "ai_controller"},
 		transform = {Position = position:Copy()},
-		npc = values,
+		ai_controller = values,
 	}
-	entity.npc:Teleport(position, 0)
+	entity.ai_controller:Teleport(position, 0)
 	return entity
 end
 
@@ -77,7 +77,7 @@ T.TestPhysics("npc has a body and walks the path to a goal around a bend", funct
 	create_ground()
 	create_mesh_entity(create_bend())
 	local entity = create_npc(Vec3(1, 0.05, 1))
-	local npc = entity.npc
+	local npc = entity.ai_controller
 	T(entity.rigid_body ~= nil)["=="](true)
 	T(entity.character_movement ~= nil)["=="](true)
 	local arrived = 0
@@ -114,7 +114,7 @@ T.TestPhysics("npc turns to face where it walks", function()
 	rectangle(mesh, 1, -20, -20, 20, 20)
 	create_mesh_entity(mesh)
 	local entity = create_npc(Vec3(0, 0.05, 0))
-	entity.npc:MoveTo(Vec3(10, 0, 0))
+	entity.ai_controller:MoveTo(Vec3(10, 0, 0))
 	run(3)
 	local forward = entity.transform:GetRotation():GetForward()
 	T(forward.x > 0.9)["=="](true)
@@ -135,11 +135,11 @@ T.TestPhysics("npc reports a goal it cannot reach", function()
 		failed = failed + 1
 	end)
 
-	entity.npc:MoveTo(Vec3(25, 0, 5))
+	entity.ai_controller:MoveTo(Vec3(25, 0, 5))
 	run(1)
 	T(failed)["=="](1)
-	T(entity.npc:IsMoving())["=="](false)
-	entity.npc:MoveTo(Vec3(80, 0, 5))
+	T(entity.ai_controller:IsMoving())["=="](false)
+	entity.ai_controller:MoveTo(Vec3(80, 0, 5))
 	run(1)
 	T(failed)["=="](2)
 end)
@@ -171,11 +171,11 @@ T.TestPhysics("npc goes around an area it cannot get through", function()
 		arrived = true
 	end)
 
-	entity.npc:MoveTo(Vec3(10, 0, 2))
+	entity.ai_controller:MoveTo(Vec3(10, 0, 2))
 	T(run(40, function()
 		return arrived
 	end))["=="](true)
-	T(next(entity.npc.blocked) ~= nil)["=="](true)
+	T(next(entity.ai_controller.blocked) ~= nil)["=="](true)
 	T(math.abs(entity.transform:GetPosition().x - 10) < 0.6)["=="](true)
 end)
 
@@ -192,10 +192,10 @@ T.TestPhysics("npc wanders to places on the mesh it can walk to", function()
 	local goals = 0
 	T(
 		run(30, function()
-			if entity.npc:GetGoal() then
+			if entity.ai_controller:GetGoal() then
 				goals = goals + 1
-				T(math.abs(entity.npc:GetGoal().x) <= 15)["=="](true)
-				T(math.abs(entity.npc:GetGoal().z) <= 15)["=="](true)
+				T(math.abs(entity.ai_controller:GetGoal().x) <= 15)["=="](true)
+				T(math.abs(entity.ai_controller:GetGoal().z) <= 15)["=="](true)
 			end
 
 			return goals > 0 and entity.transform:GetPosition():Distance(Vec3(0, 0, 0)) > 3
@@ -209,7 +209,7 @@ T.TestPhysics("npc that is off the mesh for a while is put back on it", function
 	rectangle(mesh, 1, 0, 0, 10, 10)
 	create_mesh_entity(mesh)
 	local entity = create_npc(Vec3(5, 0.05, 5))
-	entity.npc:Teleport(Vec3(30, 0.05, 5), 0)
+	entity.ai_controller:Teleport(Vec3(30, 0.05, 5), 0)
 	T(mesh:GetAreaAt(entity.transform:GetPosition(), 2))["=="](nil)
 	T(
 		run(10, function()
@@ -227,7 +227,7 @@ T.TestPhysics("npc far from every camera follows the mesh and gets a body back w
 	local camera_position = camera:GetPosition():Copy()
 	camera:SetPosition(Vec3(0, 1, 0))
 	local entity = create_npc(Vec3(40, 0.05, 40))
-	local npc = entity.npc
+	local npc = entity.ai_controller
 	run(1)
 	T(npc:IsSimulated())["=="](false)
 	T(entity.character_movement.mode)["=="]("fly")
@@ -271,10 +271,10 @@ T.TestPhysics("npc keeps the bodies of the nearest ones up to the budget", funct
 	end
 
 	run(1)
-	T(npcs_near[1].npc:IsSimulated())["=="](true)
-	T(npcs_near[2].npc:IsSimulated())["=="](true)
-	T(npcs_near[3].npc:IsSimulated())["=="](false)
-	T(npcs_near[4].npc:IsSimulated())["=="](false)
+	T(npcs_near[1].ai_controller:IsSimulated())["=="](true)
+	T(npcs_near[2].ai_controller:IsSimulated())["=="](true)
+	T(npcs_near[3].ai_controller:IsSimulated())["=="](false)
+	T(npcs_near[4].ai_controller:IsSimulated())["=="](false)
 	npc_component.MaxSimulated = budget
 	camera:SetPosition(camera_position)
 end)
@@ -293,7 +293,7 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	end
 
 	local instance = Entity.New{prefab = {Path = npcs.GetPrefabName("zombie")}, transform = {}}
-	local npc = instance.npc
+	local npc = instance.ai_controller
 	T(npc ~= nil)["=="](true)
 	T(instance.locomotion.WalkSequence)["=="]("walk")
 	T(instance.model.ModelPath)["=="]("models/zombie/classic.mdl")

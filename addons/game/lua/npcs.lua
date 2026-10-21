@@ -80,7 +80,7 @@ local function input(name, type, default, property)
 		Name = name,
 		Type = type,
 		Default = default,
-		Targets = {{Node = "root", Component = "npc", Property = property or name}},
+		Targets = {{Node = "root", Component = "ai_controller", Property = property or name}},
 	}
 end
 
@@ -114,7 +114,7 @@ function npcs.Register(name, info)
 						model = {ModelPath = info.Model},
 						animator = {},
 						locomotion = {IdleSequence = info.Idle, WalkSequence = info.Walk, RunSequence = info.Run},
-						npc = npc,
+						ai_controller = npc,
 						health = {Health = info.Health or 50, MaxHealth = info.Health or 50, RemoveOnDeath = true},
 					},
 				},
@@ -131,7 +131,7 @@ function npcs.Spawn(name, position, yaw)
 		network = SERVER and {} or nil,
 	}
 
-	if entity.npc:HasAuthority() then entity.npc:Teleport(position, yaw) end
+	if entity.ai_controller:HasAuthority() then entity.ai_controller:Teleport(position, yaw) end
 
 	return entity
 end

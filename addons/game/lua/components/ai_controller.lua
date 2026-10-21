@@ -8,7 +8,7 @@ local UNIT = import("goluwa/source_engine/units.lua").meters
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local PlayerController = import("lua/components/player_controller.lua")
 local BUTTON = usercmd.BUTTON
-local META = objects.CreateTemplate("npc")
+local META = objects.CreateTemplate("ai_controller")
 META:StartStorable()
 META:GetSet("WalkSpeed", 80 * UNIT)
 META:GetSet("RunSpeed", 210 * UNIT)

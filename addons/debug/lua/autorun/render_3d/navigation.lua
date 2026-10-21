@@ -60,7 +60,7 @@ do
 			return
 		end
 
-		local npc_component = import("lua/components/npc.lua")
+		local npc_component = import("lua/components/ai_controller.lua")
 
 		event.AddListener("Update", "npc_path_debug", function()
 			for index, npc in ipairs(npc_component.Instances) do
