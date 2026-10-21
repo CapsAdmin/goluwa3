@@ -14,8 +14,8 @@ local UNIT = import("goluwa/source_engine/units.lua").meters
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
 Entity.RegisterComponent("locomotion", import("lua/components/locomotion.lua"))
-local npc_component = import("lua/components/ai_controller.lua")
 local npcs = import("lua/npcs.lua")
+local simulation_lod = import("lua/simulation_lod.lua")
 
 local function rectangle(mesh, id, x1, z1, x2, z2)
 	return mesh:AddArea{
@@ -262,8 +262,8 @@ T.TestPhysics("npc keeps the bodies of the nearest ones up to the budget", funct
 	local camera = render3d.GetCamera()
 	local camera_position = camera:GetPosition():Copy()
 	camera:SetPosition(Vec3(0, 1, 0))
-	local budget = npc_component.MaxSimulated
-	npc_component.MaxSimulated = 2
+	local budget = simulation_lod.MaxSimulated
+	simulation_lod.MaxSimulated = 2
 	local npcs_near = {}
 
 	for i = 1, 4 do
@@ -275,7 +275,7 @@ T.TestPhysics("npc keeps the bodies of the nearest ones up to the budget", funct
 	T(npcs_near[2].ai_controller:IsSimulated())["=="](true)
 	T(npcs_near[3].ai_controller:IsSimulated())["=="](false)
 	T(npcs_near[4].ai_controller:IsSimulated())["=="](false)
-	npc_component.MaxSimulated = budget
+	simulation_lod.MaxSimulated = budget
 	camera:SetPosition(camera_position)
 end)
 

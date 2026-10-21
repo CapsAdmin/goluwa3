@@ -1,13 +1,11 @@
 local objects = import("goluwa/objects/objects.lua")
 local network = import("goluwa/network/network.lua")
-local physics = import("goluwa/physics.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local nav_mesh = import("goluwa/entities/components/nav_mesh.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local CharacterMovement = import("lua/components/character_movement.lua")
-local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
-local PlayerController = import("lua/components/player_controller.lua")
+local simulation_lod = import("lua/simulation_lod.lua")
 local BUTTON = usercmd.BUTTON
 local META = objects.CreateTemplate("ai_controller")
 META:StartStorable()
@@ -39,83 +37,10 @@ local LOST_INTERVAL = 0.5
 local LOST_TIME = 5
 local LOST_HEIGHT = 2
 local LOST_DISTANCE = 60
-META.MaxSimulated = 12
-local PHYSICS_HYSTERESIS = 8
-local RANK_INTERVAL = 4
 -- friction takes a fixed share of the stop speed every tick, a slow walker has to be able to out accelerate it
 local STOP_SPEED_SHARE = 0.5
 local WANDER_MIN_DISTANCE = 4
 local WANDER_TRIES = 4
-local observers, observer_count, observer_step = {}, 0, nil
-local ranked = {}
-
-local function refresh_observers()
-	observer_count = 0
-
-	if render3d then
-		local position = render3d.GetCamera():GetPosition()
-		observers[1], observers[2], observers[3] = position.x, position.y, position.z
-		observer_count = 3
-	end
-
-	for _, controller in ipairs(PlayerController.Instances or {}) do
-		local position = controller.Owner.transform:GetPosition()
-		observers[observer_count + 1], observers[observer_count + 2], observers[observer_count + 3] = position.x, position.y, position.z
-		observer_count = observer_count + 3
-	end
-end
-
-local function sort_by_distance(a, b)
-	return a.observer_distance < b.observer_distance
-end
-
-local function update_simulation()
-	local step = physics.StepIndex
-
-	if observer_step and step >= observer_step and step - observer_step < RANK_INTERVAL then
-		return
-	end
-
-	observer_step = step
-	refresh_observers()
-	local count = 0
-
-	for _, npc in ipairs(META.Instances) do
-		if npc.Owner.character_movement then
-			local position = npc.Owner.transform:GetPosition()
-			local nearest = math.huge
-
-			for i = 1, observer_count, 3 do
-				local dx, dy, dz = observers[i] - position.x,
-				observers[i + 1] - position.y,
-				observers[i + 2] - position.z
-				nearest = math.min(nearest, dx * dx + dy * dy + dz * dz)
-			end
-
-			npc.observer_distance = math.sqrt(nearest)
-			count = count + 1
-			ranked[count] = npc
-		end
-	end
-
-	for i = #ranked, count + 1, -1 do
-		ranked[i] = nil
-	end
-
-	table.sort(ranked, sort_by_distance)
-
-	for rank, npc in ipairs(ranked) do
-		npc.far = observer_count > 0 and
-			(
-				rank > META.MaxSimulated or
-				npc.observer_distance > npc.PhysicsDistance + (
-					npc.far and
-					0 or
-					PHYSICS_HYSTERESIS
-				)
-			)
-	end
-end
 
 function META:Initialize()
 	-- an npc in a prefab is added while its entity is being built and initialized once more when the build ends
@@ -371,7 +296,7 @@ function META:NextCommand(dt)
 	local owner = self.Owner
 	local position = owner.rigid_body:GetOriginPosition()
 	local cmd = self.cmd
-	update_simulation()
+	simulation_lod.Update(META.Instances)
 	local far = self.far
 	self.dir_x, self.dir_z = nil, nil
 	self:Think(dt, position)
