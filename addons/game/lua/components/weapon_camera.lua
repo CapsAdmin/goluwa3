@@ -7,6 +7,7 @@ function META:WeaponMouseLook(player_input, mouse_delta)
 
 	local rotation = player_input:GetRotation():Copy()
 	rotation:RotateRoll(mouse_delta.x)
+	self.roll = (self.roll or 0) + mouse_delta.x
 	player_input:SetRotation(rotation)
 	player_input:SetFOV(
 		math.clamp(
@@ -16,6 +17,20 @@ function META:WeaponMouseLook(player_input, mouse_delta)
 		)
 	)
 	return true
+end
+
+function META:WeaponReset(player_input)
+	player_input:ResetFOV()
+	return true
+end
+
+function META:WeaponHolster()
+	local player_input = self.Owner:GetParent().player_input
+	local rotation = player_input:GetRotation():Copy()
+	rotation:RotateRoll(-(self.roll or 0))
+	player_input:SetRotation(rotation)
+	self.roll = 0
+	player_input:ResetFOV()
 end
 
 return META:Register()

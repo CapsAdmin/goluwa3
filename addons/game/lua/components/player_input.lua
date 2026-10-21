@@ -80,7 +80,11 @@ function META:KeyInput(key, press)
 	if key == "v" then
 		self:OnCameraToggleMode()
 	elseif key == "r" then
-		self:Reset()
+		local weapon = self.Owner.weapon_holder:GetActiveWeapon()
+
+		if not (weapon and weapon:CallLocalEvent("WeaponReset", self)) then
+			self:Reset()
+		end
 	end
 end
 
@@ -115,10 +119,14 @@ function META:SetMode(mode)
 	self.Mode = mode
 end
 
+function META:ResetFOV()
+	self.FOV = math.rad(90)
+end
+
 function META:Reset()
 	self:SetRotation(Quat():Identity())
 	self.Pitch = 0
-	self.FOV = math.rad(90)
+	self:ResetFOV()
 end
 
 function META:SyncFromCamera(camera)
