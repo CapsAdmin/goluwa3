@@ -118,6 +118,7 @@ commands.Add("copyview", function()
 	local weather = import("goluwa/render3d/weather.lua")
 	local clipboard = import("goluwa/bindings/clipboard.lua")
 	local engines = import("goluwa/engines.lua")
+	local raycast = import("goluwa/render3d/raycast.lua")
 	local cam = active[1]
 	local str = ""
 
@@ -127,6 +128,15 @@ commands.Add("copyview", function()
 	str = str .. "ang = " .. tostring(cam.Rotation:GetAngles()) .. "\n"
 	str = str .. "fov = " .. tostring(cam.FOV) .. "\n"
 	str = str .. "sun = " .. tostring(weather.GetSunRotation()) .. "\n"
+	local hit = raycast.CastClosestFromCamera(render3d.GetCamera())
+
+	if hit and hit.primitive then
+		local visual = hit.primitive.entity.VisualOwner
+		local material = visual.MaterialOverride or hit.primitive.material or render3d.GetDefaultMaterial()
+		str = str .. "entity = " .. tostring(visual.Owner) .. "\n"
+		str = str .. "model = " .. visual:GetModelPath() .. "\n"
+		str = str .. "material = " .. material:GetName() .. "\n"
+	end
 	clipboard.Set(str)
 end)
 

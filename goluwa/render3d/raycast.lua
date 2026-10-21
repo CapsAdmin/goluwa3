@@ -1,4 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
 local BVH = import("goluwa/physics/bvh.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local raycast = {}
@@ -1014,6 +1016,24 @@ function raycast.CastClosest(origin, direction, max_distance, filter_fn, a, b, c
 	max_distance = max_distance or math.huge
 	local ray = create_ray(origin, direction, max_distance)
 	return find_closest_hit(ray, filter_fn, a, b, c, d, e, f)
+end
+
+function raycast.CastClosestFromCamera(camera, filter_fn)
+	local width, height = render2d.GetSize()
+	local origin = camera:GetPosition()
+	lod_camera_position = origin
+	local ok, hit = pcall(
+		raycast.CastClosest,
+		origin,
+		camera:ScreenToWorldDirection(Vec2(width / 2, height / 2), width, height),
+		math.huge,
+		filter_fn
+	)
+	lod_camera_position = nil
+
+	if not ok then error(hit, 0) end
+
+	return hit
 end
 
 function raycast.CreateModelSource(models)
