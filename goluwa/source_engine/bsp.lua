@@ -501,12 +501,15 @@ function bsp.Load(path, skybox)
 		for _, ent in ipairs(header.entities) do
 			if ent.origin then
 				local area = 0
+				local is_sun = ent.classname:find("light_environment") or
+					ent.classname == "env_sun" or
+					ent.classname == "env_skypaint"
 
 				if
 					not ENTITIES and
 					not ent.skyname and
 					ent.classname ~= "env_fog_controller" and
-					not ent.classname:find("light_environment")
+					not is_sun
 				then
 					ent.dropped = true
 				end
@@ -541,7 +544,7 @@ function bsp.Load(path, skybox)
 					ent.origin = (ent.origin - sky_origin) * sky_scale
 					ent.model_size_mult = sky_scale
 					ent.sky_clip = sky_clip_aabb
-					ent.dropped = ent.dropped or not SKYBOX or near_map_air(ent.origin)
+					ent.dropped = ent.dropped or not is_sun and (not SKYBOX or near_map_air(ent.origin))
 				end
 			end
 		end
