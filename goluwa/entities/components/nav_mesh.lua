@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local nav_mesh = import("goluwa/source_engine/nav_mesh.lua")
 local fluid = import("goluwa/physics/fluid.lua")
+local network = import("goluwa/network/network.lua")
 local META = objects.CreateTemplate("nav_mesh")
 META:StartStorable()
 META:GetSet("Path", "", {callback = "Load"})
@@ -69,7 +70,7 @@ function META:Load()
 
 	if META.active == self then META.active = nil end
 
-	if self.Path == "" then return end
+	if self.Path == "" or not network.HasAuthority() then return end
 
 	self.mesh = nav_mesh.Load(self.Path)
 	META.active = self
