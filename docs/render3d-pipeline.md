@@ -23,6 +23,10 @@ How the 3D frame is put together and the invariants that are easy to break. Pass
 - Weather asks the surface what it wants (`weather_input`), then `apply_surface_weather` changes base color, roughness, metallic and normal and leaves snow and rain film in a `SurfaceWeather` that the `weather` snippets react to.
 - `gbuffer_layout.lua` packs `fields` into targets (`unorm8`, `unorm4`, `unorm16`, `octa`), ordered by their `readers`, and errors past 8 targets. Decoders (`gbuffer_<name>`), encoders (`gbuffer_encode_<name>`) and `gbuffer_set_defaults()` are generated. `gbuffer_inspect.SetView{...}` shows entries, targets and fields decoded (`SetNormalSource`, `SetTerrainOnly` change what the scene is lit with while a view is active); a new field shows up by itself.
 
+## Beams
+
+`goluwa/render3d/beam.lua` is a tube along a fixed number of points (ropes, lasers, tethers). `Beam.New{Points, Radius, RadiusEnd, Sides, Material}` then `beam:SetPoints(points)` each frame (`Beam.NewPoints`, `Beam.Line`, `Beam.Quadratic` fill a point list in place). It is one visual primitive whose Polygon3D is `Dynamic` (never content deduped) and rewritten with `UpdateVertices`; the primitive is created on the first `SetPoints` because the scene registers a mesh's buffers when the primitive is created. The mesh has no shadows, scene BVH or occlusion culling. Glow is an emissive material (`Beam.CreateMaterial(color, strength)`) plus bloom, it is not a light.
+
 ## Materials and caching
 
 - `Material.New{...}`: unknown keys are errors; `Color`/`Albedo = Color` set `ColorMultiplier`, `Emissive` sets `EmissiveMultiplier`, numbers set the multipliers with no texture; only strings (glsl) and textures become textures (colors on a property without a multiplier use `Material.ResolveTexture`'s cached constant). **A raw `Material.New{}` is fully metallic** (`MetallicMultiplier` defaults to 1), which renders a tinted mirror; `shapes.Material` (in `goluwa/render3d/shapes.lua`) adds matte defaults (metallic 0, roughness 0.6). Set metallic to 0 explicitly in scratch and test scenes before judging shading.

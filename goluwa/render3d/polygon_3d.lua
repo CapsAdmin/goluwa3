@@ -335,7 +335,7 @@ function Polygon3D:Upload(indices)
 	end
 
 	if Mesh then
-		self.mesh = Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index_count)
+		self.mesh = (self.Dynamic and Mesh.New or Mesh.NewDeduped)(vertex_attributes, vertices, indices, index_type, index_count)
 	end
 end
 
