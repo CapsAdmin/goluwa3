@@ -16,7 +16,7 @@ function engines.Find(name)
 
 		if not id then error(err, 0) end
 
-		return registered[engine_name], id
+		return registered[engine_name], id, engine_name
 	end
 
 	local found
@@ -38,11 +38,12 @@ function engines.Find(name)
 
 	if not found then error("could not find map " .. name, 0) end
 
-	return found.engine, found.id
+	return found.engine, found.id, found.name
 end
 
 function engines.Load(name)
-	local engine, id = engines.Find(name)
+	local engine, id, engine_name = engines.Find(name)
+	engines.loaded_map = engine_name .. ":" .. id
 	event.Call("SceneLoad", name)
 	return engine.Load(id)
 end

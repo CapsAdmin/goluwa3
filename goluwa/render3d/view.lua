@@ -117,8 +117,12 @@ event.AddListener(
 commands.Add("copyview", function()
 	local weather = import("goluwa/render3d/weather.lua")
 	local clipboard = import("goluwa/bindings/clipboard.lua")
+	local engines = import("goluwa/engines.lua")
 	local cam = active[1]
 	local str = ""
+
+	if engines.loaded_map then str = str .. "map = " .. engines.loaded_map .. "\n" end
+
 	str = str .. "pos = " .. tostring(cam.Position) .. "\n"
 	str = str .. "ang = " .. tostring(cam.Rotation:GetAngles()) .. "\n"
 	str = str .. "fov = " .. tostring(cam.FOV) .. "\n"
