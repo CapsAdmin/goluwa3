@@ -283,7 +283,7 @@ function META:OnPreUpdate(dt)
 end
 
 function META:OnCameraInputUpdate(dt)
-	if not self.mouse_trapped then return end
+	if not self.mouse_trapped or self.Owner.health:IsDead() then return end
 
 	local rotation = self:GetRotation():Copy()
 	local mouse_delta = (self.look_delta + self.look_nudge * self.ArrowLookSpeed) * self.MouseSensitivity

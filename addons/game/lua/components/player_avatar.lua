@@ -178,7 +178,18 @@ function META:OnUpdate(dt)
 	local height = math.lerp(self.crouch_alpha, HEIGHT, CROUCH_HEIGHT)
 	local transform = owner.transform
 	local _, entity_rotation = transform:GetRenderPositionRotation()
-	local pitch = (entity_rotation or transform:GetRotation()):GetConjugated() * rotation
+	local pitch
+
+	local movement = owner.player_movement
+
+	if movement and movement.dead then
+		self.dead_pitch = self.dead_pitch or self.pitch
+		pitch = self.dead_pitch
+	else
+		self.dead_pitch = nil
+		pitch = (entity_rotation or transform:GetRotation()):GetConjugated() * rotation
+	end
+
 	self.pitch = pitch
 
 	if not self.bones_driven then

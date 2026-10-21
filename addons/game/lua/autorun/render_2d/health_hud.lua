@@ -9,6 +9,7 @@ local Health = import("lua/components/health.lua")
 local PLAYER_WIDTH = 260
 local PLAYER_HEIGHT = 18
 local PLAYER_MARGIN = 28
+local DEATH_SIZE = 32
 local NPC_WIDTH = 80
 local NPC_HEIGHT = 7
 local NPC_LIFT = 0.25
@@ -57,6 +58,17 @@ event.AddListener("DrawHUD", "health_hud", function()
 			local y = screen_h - PLAYER_MARGIN - PLAYER_HEIGHT - 48
 			draw_bar(x, y, PLAYER_WIDTH, PLAYER_HEIGHT, health:GetFraction(), 1)
 
+			if health:IsDead() then
+				local text = "you died, click to respawn"
+				local w, h = render2d.GetTextSize(text, nil, DEATH_SIZE)
+				render2d.DrawText{
+					text = text,
+					x = (screen_w - w) / 2,
+					y = (screen_h - h) / 2,
+					size = DEATH_SIZE,
+					foreground_color = TEXT,
+				}
+			end
 			render2d.DrawText{
 				text = math.ceil(health.Health) .. " / " .. health.MaxHealth,
 				x = x + 10,

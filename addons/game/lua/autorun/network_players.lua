@@ -6,9 +6,7 @@ local clients = import("goluwa/network/clients.lua")
 local timer = import("goluwa/timer.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
-local Quat = import("goluwa/structs/quat.lua")
-local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
+local spawning = import("lua/spawning.lua")
 local PlayerMovement = import("lua/components/player_movement.lua")
 local outfit = import("lua/outfit.lua")
 import("lua/weapons.lua")
@@ -49,7 +47,6 @@ if RENDER_3D then
 end
 
 local ACK_INTERVAL = 1 / 20
-local SPAWN_POSITION = Vec3(0, 3, 0)
 local RELAY_BATCH = 4
 local OUTFIT_PUSH_DELAY = 0.2
 
@@ -67,11 +64,7 @@ if SERVER then
 
 		if players[uid] and players[uid]:IsValid() then return end
 
-		local position = SPAWN_POSITION:Copy()
-		local rotation = Quat():Identity()
-		local spawn = SpawnPoint.Pick("deathmatch", "start") or SpawnPoint.Pick()
-
-		if spawn then position, rotation = spawn:GetPlacement(0) end
+		local position, rotation = spawning.Pick()
 
 		players[uid] = Entity.New{
 			Name = client:GetNick(),
@@ -82,10 +75,7 @@ if SERVER then
 			network = {NetworkOwner = uid},
 		}
 		players[uid].weapon_holder:GiveLoadout()
-		local start = packet.CreateBuffer()
-		start:WriteVec3(position)
-		start:WriteQuat(rotation)
-		packet.Send("player_start", start, client, "reliable")
+		spawning.SendStart(client, position, rotation)
 	end)
 
 	event.AddListener("EntityPermission", "network_players", function(client, action, name)

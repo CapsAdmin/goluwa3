@@ -123,6 +123,12 @@ function META:Drop(weapon)
 	end
 end
 
+function META:OnDeath()
+	for _, weapon in ipairs(self:GetWeapons()) do
+		weapon:Remove()
+	end
+end
+
 function META:GiveLoadout()
 	for _, name in ipairs(import("lua/weapons.lua").Loadout) do
 		self:Give(name)

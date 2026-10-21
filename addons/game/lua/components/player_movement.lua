@@ -50,6 +50,10 @@ META:IsSet("Swimming", false)
 META:GetSet("BodyDensity", 1060)
 META:GetSet("SafeFallSpeed", 7)
 META:GetSet("FatalFallSpeed", 20)
+META:GetSet("RespawnDelay", 1)
+META:GetSet("DeadFriction", 0.5)
+META:GetSet("DeadRollingFriction", 8)
+META:GetSet("DeadTipSpeed", 1.2)
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
@@ -58,6 +62,7 @@ function META:Initialize()
 	self.crouch_alpha = self:IsCrouching() and 1 or 0
 	self.previous_velocity = Vec3()
 	self.previous_valid = false
+	self.dead = false
 	self.fly_speed_multiplier = 1
 	self.Owner.transform.RenderOffset = Vec3()
 	self:AddGlobalEvent("PhysicsUpdate")
@@ -72,6 +77,7 @@ end
 
 function META:Reset(mode)
 	self.mode = nil
+	self.dead = false
 	self.previous_valid = false
 	self.Crouching = false
 	self.crouch_alpha = 0
@@ -375,6 +381,30 @@ end
 do
 	local UP = Vec3(0, 1, 0)
 
+	function META:Die()
+		local body = self.Owner.rigid_body
+		local velocity = body:GetVelocity()
+		local direction = Vec3(velocity.x, 0, velocity.z)
+
+		if direction:GetLength() < 0.5 then
+			local angle = math.random() * math.pi * 2
+			direction = Vec3(math.cos(angle), 0, math.sin(angle))
+		else
+			direction = direction:GetNormalized()
+		end
+
+		self.dead = true
+		self.death_time = system.GetElapsedTime()
+		self.Swimming = false
+		body:SetCollisionEnabled(true)
+		body:SetGravityScale(self.Gravity / body:GetPhysics().Gravity:GetLength())
+		body:SetLockRotation(false)
+		body:SetFriction(self.DeadFriction)
+		body:SetRollingFriction(self.DeadRollingFriction)
+		body:SetRollingFrictionCombineMode("max")
+		body:SetAngularVelocity(UP:GetCross(direction) * self.DeadTipSpeed)
+	end
+
 	function META:Impact(speed)
 		local owner = self.Owner
 		local health = owner.health
@@ -422,6 +452,8 @@ function META:ApplyMode(mode)
 	body:SetLockRotation(true)
 	body:SetBuoyancyDensity(self.BodyDensity)
 	body:SetFriction(0)
+	body:SetRollingFriction(0)
+	body:SetRollingFrictionCombineMode(nil)
 	body:SetCollisionMask(bit.bnot(usercmd.HELD_COLLISION_GROUP))
 	self:ResetBodyRotation()
 	self.Owner.transform.RenderOffset:Set(0, 0, 0)
@@ -482,6 +514,25 @@ do
 	function META:OnPhysicsUpdate(dt)
 		local body = self.Owner.rigid_body
 		local cmd = self:GetCommandSource():NextCommand(dt)
+		local health = self.Owner.health
+
+		if health and health:IsDead() then
+			if not self.dead then self:Die() end
+
+			if
+				network.HasAuthority() and
+				system.GetElapsedTime() - self.death_time >= self.RespawnDelay and
+				usercmd.HasButton(cmd, BUTTON.ACTIVE) and
+				usercmd.WasPressed(cmd, BUTTON.ATTACK1)
+			then
+				event.Call("PlayerRespawn", self.Owner)
+			end
+
+			return
+		elseif self.dead then
+			self:Reset(cmd.mode)
+		end
+
 		if cmd.mode ~= self.mode then self:ApplyMode(cmd.mode) end
 
 		self:SetBodyYaw(cmd.view)

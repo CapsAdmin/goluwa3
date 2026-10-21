@@ -97,6 +97,20 @@ function META:OnLateUpdate(dt)
 		view:SetRotation(transform:GetRotation():Copy())
 	end
 
+	if movement and movement.dead and look and not third_person.IsEnabled() then
+		local body_position, body_rotation = transform:GetRenderPositionRotation()
+
+		if not body_position then
+			body_position, body_rotation = transform:GetPosition(), transform:GetRotation()
+		end
+
+		self.death_view = self.death_view or body_rotation:GetConjugated() * look:GetRotation()
+		position = body_position + body_rotation:VecMul(self.ViewOffset)
+		view:SetRotation(body_rotation * self.death_view)
+	else
+		self.death_view = nil
+	end
+
 	view:SetPosition(position:Copy())
 end
 
