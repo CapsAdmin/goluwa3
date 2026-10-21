@@ -37,6 +37,7 @@ local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "RoughnessMax", getter = "GetRoughnessMax"},
 	{type = "float", name = "MetallicMaskMin", getter = "GetMetallicMaskMin"},
 	{type = "float", name = "MetallicMaskMax", getter = "GetMetallicMaskMax"},
+	{type = "float", name = "EmissiveAlphaFloor", getter = "GetEmissiveAlphaFloor"},
 	{type = "float", name = "SpecularMultiplier", getter = "GetSpecularMultiplier"},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
 	{type = "float", name = "NormalMapMultiplier", getter = "GetNormalMapMultiplier"},
@@ -799,10 +800,11 @@ do
 		"GetRoughnessMax",
 		"GetMetallicMaskMin",
 		"GetMetallicMaskMax",
+		"GetEmissiveAlphaFloor",
 		"GetSpecularMultiplier",
 		"GetAlphaCutoff",
 	}
-	local SCALAR_DEFAULTS = {1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.5}
+	local SCALAR_DEFAULTS = {1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.5}
 	local FEATURE_GETTERS = {}
 	local FEATURE_DEFAULTS = {}
 
@@ -2163,7 +2165,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				} else if (AlbedoAlphaIsEmissive) {
 					float mask = 1.0;
 					if (model.AlbedoTexture != -1) {
-						mask = texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a;
+						mask = clamp((texture(TEXTURE(model.AlbedoTexture), base_uv(uv)).a - factor_model.EmissiveAlphaFloor) / (1.0 - factor_model.EmissiveAlphaFloor), 0.0, 1.0);
 					}
 					emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
 				} else if (aux_model.EmissiveTexture != -1) {

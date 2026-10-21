@@ -289,6 +289,7 @@ local MICRO_DETAIL_NORMAL = 3
 local DERIVED_ROUGHNESS_METAL = 2
 local DERIVED_SPECULAR_CAVITY = 0.8
 local METAL_ROUGHNESS_BIAS = 0.25
+local SELFILLUM_ALPHA_FLOOR = 0.1
 local PARALLAX_DEFAULT_SCALE = 0.025
 local PARALLAX_DEFAULT_CENTER = 0.5
 local on_load_vmt
@@ -808,6 +809,7 @@ do
 				self:SetAlbedoAlphaIsEmissive(false)
 			else
 				self:SetAlbedoAlphaIsEmissive(true)
+				self:SetEmissiveAlphaFloor(SELFILLUM_ALPHA_FLOOR)
 			end
 		end
 
