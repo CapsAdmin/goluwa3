@@ -159,3 +159,19 @@ T.Test("A transform measures its render velocity from its world position, smooth
 	parent:Remove()
 	system.GetFrameNumber, system.GetElapsedTime = frame_number, elapsed
 end)
+
+T.Test("A socket is a bone with an offset and the attachment names list it", function()
+	local owner = Entity.New{
+		transform = {Position = Vec3(10, 0, 0)},
+		armature = {Skeleton = "armature_test"},
+	}
+	owner.armature:SetSocket("grip", "hand", Vec3(0, 0, 2))
+	local child = Entity.New{Parent = owner, transform = {Attachment = "grip"}}
+	set_bone(owner, "hand", 3, 1, 0)
+	T((world_position(child) - Vec3(13, 1, 2)):GetLength())["<"](0.0001)
+	set_bone(owner, "hand", 0, 4, 0)
+	T((world_position(child) - Vec3(10, 4, 2)):GetLength())["<"](0.0001)
+	T(owner.armature:GetSocketNames()[1])["=="]("grip")
+	T(owner.armature:GetBoneMatrix("missing") == nil)["=="](true)
+	owner:Remove()
+end)

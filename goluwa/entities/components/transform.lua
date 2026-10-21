@@ -78,6 +78,10 @@ META:GetSet(
 				for _, name in ipairs(armature:GetBoneNames()) do
 					if name ~= "root" then names[#names + 1] = name end
 				end
+
+				for _, name in ipairs(armature:GetSocketNames()) do
+					names[#names + 1] = name
+				end
 			end
 
 			return names

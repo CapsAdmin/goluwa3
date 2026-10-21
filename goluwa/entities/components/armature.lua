@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local Skeleton = import("goluwa/render3d/skeleton.lua")
 local Rig = import("goluwa/render3d/rig.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
 local META = objects.CreateTemplate("armature")
 META.Is3D = true
 META.Skeletons = META.Skeletons or {}
@@ -57,6 +58,7 @@ META:EndStorable()
 
 function META:Initialize()
 	self.initialized = true
+	self.sockets = {}
 	self:Rebuild()
 end
 
@@ -71,6 +73,8 @@ function META:Rebuild()
 	if self.Skeleton ~= "" then
 		self.rig = Rig.New(assert(META.Skeletons[self.Skeleton], "unknown skeleton " .. self.Skeleton), {})
 	end
+
+	if self.rig then self.Owner:CallLocalEvent("OnArmatureRebuild", self) end
 
 	objects.NotifyPropertyListeners(self, {var_name = "DynamicProperties"})
 end
@@ -92,18 +96,52 @@ function META:SetBone(name, matrix, space)
 	self.matrices = {}
 end
 
+function META:SetSocket(name, bone, offset, rotation)
+	local matrix = Matrix44():Identity()
+
+	if rotation then matrix:SetRotation(rotation) end
+
+	if offset then matrix:SetTranslation(offset.x, offset.y, offset.z) end
+
+	self.sockets[name] = {bone = bone, matrix = matrix}
+	self.matrices = {}
+end
+
+function META:GetSocketNames()
+	local names = {}
+
+	for name in pairs(self.sockets) do
+		names[#names + 1] = name
+	end
+
+	table.sort(names)
+	return names
+end
+
 function META:GetBoneMatrix(name)
 	local rig = self.rig
 
-	if not rig or not rig.bone_indices[name:lower()] then return nil end
+	if not rig then return nil end
 
 	local matrix = self.matrices[name]
 
-	if not matrix then
+	if matrix then return matrix end
+
+	local socket = self.sockets[name]
+
+	if socket then
+		local bone = self:GetBoneMatrix(socket.bone)
+
+		if not bone then return nil end
+
+		matrix = socket.matrix:GetMultiplied(bone)
+	elseif rig.bone_indices[name:lower()] then
 		matrix = rig:GetBone(name)
-		self.matrices[name] = matrix
+	else
+		return nil
 	end
 
+	self.matrices[name] = matrix
 	return matrix
 end
 
