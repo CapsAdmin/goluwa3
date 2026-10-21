@@ -130,13 +130,20 @@ function CONTEXT:GetFileTree(path_info)
 		return get_cache(cache_key), relative, archive_path
 	end
 
-	if not vfs.IsFile(archive_path) then
+	never = not self.NestedArchives
+	local archive_exists = vfs.IsFile(archive_path)
+	never = false
+
+	if not archive_exists then
 		return false, "not a valid archive path: " .. archive_path
 	end
 
 	local cache_path = "os:cache/archive/" .. crypto.CRC32(cache_key)
+	never = true
+	local cache_exists = vfs.IsFile(cache_path)
+	never = false
 
-	if vfs.IsFile(cache_path) then
+	if cache_exists then
 		local codec = import("goluwa/codec.lua")
 		never = true
 		local tree_data, err, what = codec.ReadFile("msgpack", cache_path)
