@@ -62,7 +62,11 @@ do
 		local directories = {}
 
 		for key, lib in pairs(import.loaded) do
-			if key:starts_with("goluwa/") and type(lib) == "table" and rawget(lib, "Type") == nil then
+			if
+				key:starts_with("goluwa/") and
+				type(lib) == "table" and
+				rawget(lib, "Type") == nil
+			then
 				local parts = key:strip_prefix("goluwa/"):strip_suffix(".lua"):split("/")
 				local node = out.libs
 

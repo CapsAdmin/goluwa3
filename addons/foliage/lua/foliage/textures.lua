@@ -253,6 +253,7 @@ vec4 shade(vec2 uv, vec3 dir) {
 }
 ]],
 }
+
 function textures.AddKind(name, kind)
 	assert(kind.glsl and kind.defaults, name .. " needs glsl and defaults")
 	textures.kinds[name] = kind
@@ -266,8 +267,12 @@ local BUILTIN_KEYS = {seed = true, width = true, height = true}
 
 local function build_constants(kind_name, kind, config)
 	local lines = {
-		("const uint SEED = %uu;"):format(config.seed % 2147483648),
-		("const vec2 SIZE = vec2(%d.0, %d.0);"):format(config.width, config.height),
+		(
+			"const uint SEED = %uu;"
+		):format(config.seed % 2147483648),
+		(
+			"const vec2 SIZE = vec2(%d.0, %d.0);"
+		):format(config.width, config.height),
 	}
 	local keys = {}
 
@@ -325,7 +330,8 @@ end
 
 function textures.GetSource(kind_name, config)
 	local resolved, kind = textures.Resolve(kind_name, config)
-	return build_constants(kind_name, kind, resolved) .. COMMON .. kind.glsl .. NORMAL, resolved
+	return build_constants(kind_name, kind, resolved) .. COMMON .. kind.glsl .. NORMAL,
+	resolved
 end
 
 do
@@ -370,14 +376,21 @@ do
 				pixels,
 				width,
 				height,
-				{tile_width = width / (resolved.atlas or 1), sampler = kind.wrap and REPEAT or CLAMP}
+				{
+					tile_width = width / (resolved.atlas or 1),
+					sampler = kind.wrap and REPEAT or CLAMP,
+				}
 			)
 		end
 
 		local texture = Texture.New{
 			width = width,
 			height = height,
-			format = srgb and "r8g8b8a8_srgb" or channel == "roughness" and "r8_unorm" or "r8g8b8a8_unorm",
+			format = srgb and
+				"r8g8b8a8_srgb" or
+				channel == "roughness" and
+				"r8_unorm" or
+				"r8g8b8a8_unorm",
 			mip_map_levels = "auto",
 			sampler = kind.wrap and REPEAT or CLAMP,
 		}
@@ -388,6 +401,7 @@ end
 
 function textures.Register(path, kind_name, channel, config)
 	textures.Resolve(kind_name, config)
+
 	assets.RegisterVirtualTexture(path, function(_, options)
 		local request = options and options.config
 		local merged = {}
@@ -404,9 +418,9 @@ function textures.Register(path, kind_name, channel, config)
 
 		return textures.Build(kind_name, channel, merged)
 	end)
+
 	return path
 end
-
 
 textures.AddKind(
 	"bark",

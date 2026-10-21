@@ -25,11 +25,16 @@ function cry_engine.Load(name, options)
 	if options.sync then
 		scene.Deserialize(scene_data, Entity.World)
 	else
-		scene.SpawnAsync(scene_data, Entity.World, nil, function(...)
-			startup.End("cry scene spawn")
+		scene.SpawnAsync(
+			scene_data,
+			Entity.World,
+			nil,
+			function(...)
+				startup.End("cry scene spawn")
 
-			if options.done then options.done(...) end
-		end)
+				if options.done then options.done(...) end
+			end
+		)
 	end
 
 	return data

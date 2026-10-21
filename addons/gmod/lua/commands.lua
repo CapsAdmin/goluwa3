@@ -23,15 +23,36 @@ if CLIENT then
 				audio.SetListenerGain(val)
 			end,
 		}
-
-		pvars.Setup2{key = "snd_mute_losefocus", category = "Game", group = "Garry's Mod", default = 0, store = false}
+		pvars.Setup2{
+			key = "snd_mute_losefocus",
+			category = "Game",
+			group = "Garry's Mod",
+			default = 0,
+			store = false,
+		}
 	end
 
-	pvars.Setup2{key = "cl_timeout", category = "Game", group = "Garry's Mod", default = 30, store = false}
-
-	pvars.Setup2{key = "r_radiosity", category = "Game", group = "Garry's Mod", default = 0, store = false}
-
-	pvars.Setup2{key = "developer", category = "Game", group = "Garry's Mod", default = 0, store = false}
+	pvars.Setup2{
+		key = "cl_timeout",
+		category = "Game",
+		group = "Garry's Mod",
+		default = 30,
+		store = false,
+	}
+	pvars.Setup2{
+		key = "r_radiosity",
+		category = "Game",
+		group = "Garry's Mod",
+		default = 0,
+		store = false,
+	}
+	pvars.Setup2{
+		key = "developer",
+		category = "Game",
+		group = "Garry's Mod",
+		default = 0,
+		store = false,
+	}
 end
 
 if SERVER then

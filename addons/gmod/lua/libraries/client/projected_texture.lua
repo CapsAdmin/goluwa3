@@ -1,11 +1,14 @@
 local META = gine.EnsureMetaTable("ProjectedTexture")
 
 function gine.env.ProjectedTexture()
-	return gine.WrapObject({
-		IsValid = function(self)
-			return not self.removed
-		end,
-	}, "ProjectedTexture")
+	return gine.WrapObject(
+		{
+			IsValid = function(self)
+				return not self.removed
+			end,
+		},
+		"ProjectedTexture"
+	)
 end
 
 function META:IsValid()

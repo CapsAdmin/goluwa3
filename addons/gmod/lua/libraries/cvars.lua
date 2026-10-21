@@ -2,7 +2,17 @@ local gine = ... or _G.gine
 local pvars = import("goluwa/cli/pvars.lua")
 
 function gine.env.CreateConVar(name, def, flags, help)
-	return gine.WrapObject(pvars.Setup2{key = name, category = "Game", group = "Garry's Mod convars", default = tostring(def), help = help, store = false}, "ConVar")
+	return gine.WrapObject(
+		pvars.Setup2{
+			key = name,
+			category = "Game",
+			group = "Garry's Mod convars",
+			default = tostring(def),
+			help = help,
+			store = false,
+		},
+		"ConVar"
+	)
 end
 
 function gine.env.GetConVar_Internal(name)

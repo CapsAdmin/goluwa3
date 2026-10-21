@@ -60,7 +60,12 @@ T.Test3D("vmt_material.Apply is idempotent and a changed vmt leaves nothing behi
 	local plain = snapshot(Material.New{})
 
 	for key, value in pairs(snapshot(material)) do
-		if key ~= "OriginalMaterial" and key ~= "SpecularMultiplier" and key ~= "RoughnessMultiplier" and key ~= "MetallicMultiplier" then
+		if
+			key ~= "OriginalMaterial" and
+			key ~= "SpecularMultiplier" and
+			key ~= "RoughnessMultiplier" and
+			key ~= "MetallicMultiplier"
+		then
 			T(plain[key])["=="](value)
 		end
 	end

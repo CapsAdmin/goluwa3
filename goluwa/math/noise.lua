@@ -324,7 +324,11 @@ do
 		if t < 0 then return 0 end
 
 		local index = Perms12[ix + Perms[iy + Perms[iz]]]
-		return (t * t) * (t * t) * (
+		return (
+				t * t
+			) * (
+				t * t
+			) * (
 				Grads3[index][0] * x + Grads3[index][1] * y + Grads3[index][2] * z
 			)
 	end
@@ -411,7 +415,11 @@ do
 		if t < 0 then return 0 end
 
 		local index = band(Perms[ix + Perms[iy + Perms[iz + Perms[iw]]]], 0x1F)
-		return (t * t) * (t * t) * (
+		return (
+				t * t
+			) * (
+				t * t
+			) * (
 				Grads4[index][0] * x + Grads4[index][1] * y + Grads4[index][2] * z + Grads4[index][3] * w
 			)
 	end

@@ -572,7 +572,9 @@ local function end_drag()
 
 	if drag and state.brush.Owner:IsValid() then
 		editor_history.RecordBrush(
-			drag.kind == "push_pull" and "push or pull face of" or drag.kind .. " brush points of",
+			drag.kind == "push_pull" and
+				"push or pull face of" or
+				drag.kind .. " brush points of",
 			state.brush,
 			drag.history_before
 		)

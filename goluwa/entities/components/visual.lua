@@ -115,7 +115,8 @@ end
 visual.MaterialDrawsInGBuffer = material_draws_in_gbuffer
 
 function visual.MaterialDrawsTranslucent(material)
-	return material_is_translucent(material) and render3d.pipelines.translucent_surface ~= nil
+	return material_is_translucent(material) and
+		render3d.pipelines.translucent_surface ~= nil
 end
 
 local function invalidate_scene_acceleration()
@@ -519,7 +520,6 @@ local function patch_scene_acceleration(acceleration)
 		if component:IsValid() then
 			local main_kind, shadow_kind, bounds = classify_scene_component(component)
 			set_component_scene_items(acceleration, component, main_kind, shadow_kind, bounds)
-
 			-- a component whose bounds arrive after its render entries (a streamed terrain tile) joins the scene
 			-- without a structure change, and its materials would never know about it
 			local in_scene = (main_kind or shadow_kind) and true or false
@@ -820,7 +820,11 @@ function Visual:SetVisible(visible)
 end
 
 function Visual:RefreshVisible()
-	self:ApplyVisible(self.OwnVisible ~= false and not self.Owner.visibility_hidden and not self:IsDebugHidden())
+	self:ApplyVisible(
+		self.OwnVisible ~= false and
+			not self.Owner.visibility_hidden and
+			not self:IsDebugHidden()
+	)
 end
 
 Visual.OnHide = Visual.RefreshVisible
@@ -1146,10 +1150,12 @@ function Visual:RebuildRenderEntries()
 			if
 				rank == 1 and
 				self:GetResolvedMaterial(entry):GetDecal() and
-				not slot_has_lower_detail[entry.polygon3d:GetMaterialSlot() or -1]
+				not slot_has_lower_detail[entry.polygon3d:GetMaterialSlot() or
+				-1]
 			then
 				entry.lod_far = lod.NEVER
 			end
+
 			entry.lod_last = #sorted - 1
 			entry.lod_billboard = entry.polygon3d.LODBillboard
 			entry.lod_before_billboard = has_billboard and rank == #sorted - 1
@@ -2070,7 +2076,6 @@ do
 		local frustum_planes = get_frustum_planes()
 		local out = acceleration.visible_components or {}
 		table.clear(out)
-
 		collect_visible_static_components(out, frustum_planes)
 
 		for _, component in ipairs(acceleration.dynamic_components or {}) do
@@ -2190,7 +2195,6 @@ do
 		if visual.occlusion_culling_enabled == enabled then return end
 
 		visual.occlusion_culling_enabled = enabled
-
 		gpu_culling.SetOcclusionMode(enabled and "hiz" or "disabled")
 
 		for _, component in ipairs(Visual.Instances or {}) do
@@ -2436,20 +2440,24 @@ end
 
 function Visual:OnFirstCreated()
 	local main_visible_components = {}
-
 	local store_pipelines = {}
 
 	event.AddListener("Draw3DGeometry", "visual_geometry_draw", function()
 		store_pipelines[1] = render3d.pipelines.gbuffer_multi_draw
 		store_pipelines[2] = render3d.pipelines.gbuffer_multi_draw_height_map
-
 		local camera_position = render3d.GetCamera():GetPosition()
 
-		if not visual.noculling and store_pipelines[2] and scene_draw.Draw(gbuffer_instancing, store_pipelines) then
+		if
+			not visual.noculling and
+			store_pipelines[2] and
+			scene_draw.Draw(gbuffer_instancing, store_pipelines)
+		then
 			for component in pairs(scene_bridge.GetCPUDrawnVisuals()) do
 				if component.Visible and not component:IsCulled() then
 					for _, entry in ipairs(component:GetLODEntriesAt(camera_position)) do
-						if not scene_bridge.IsRasterEntry(component, entry) then draw_geometry_entry(component, entry) end
+						if not scene_bridge.IsRasterEntry(component, entry) then
+							draw_geometry_entry(component, entry)
+						end
 					end
 				end
 			end
@@ -2559,7 +2567,9 @@ function Visual:OnFirstCreated()
 
 		local function get_item_matrix(component, item)
 			local entry = item.entry
-			local world_matrix = entry.transform and entry.transform:GetWorldMatrix() or component:GetWorldMatrix()
+			local world_matrix = entry.transform and
+				entry.transform:GetWorldMatrix() or
+				component:GetWorldMatrix()
 
 			if not world_matrix then return nil end
 
@@ -2574,7 +2584,9 @@ function Visual:OnFirstCreated()
 			local radius = math.huge
 
 			if aabb then
-				x, y, z = (aabb.min_x + aabb.max_x) * 0.5, (aabb.min_y + aabb.max_y) * 0.5, (aabb.min_z + aabb.max_z) * 0.5
+				x, y, z = (aabb.min_x + aabb.max_x) * 0.5,
+				(aabb.min_y + aabb.max_y) * 0.5,
+				(aabb.min_z + aabb.max_z) * 0.5
 				local m = world_matrix
 				local dx, dy, dz = aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z
 				radius = 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz) * math.sqrt(
@@ -2588,7 +2600,9 @@ function Visual:OnFirstCreated()
 
 			item.center_x, item.center_y, item.center_z = world_matrix:TransformVectorUnpacked(x, y, z)
 			item.radius = radius
-			item.thickness = item.refractive and get_refraction_thickness(item.material, entry, world_matrix) or 0
+			item.thickness = item.refractive and
+				get_refraction_thickness(item.material, entry, world_matrix) or
+				0
 			return world_matrix
 		end
 
@@ -2696,7 +2710,6 @@ function Visual:OnFirstCreated()
 	end)
 
 	event.AddListener("DrawAllShadows", "visual_shadow_draw", function(shadow_map, cascade_idx)
-
 		shadow_map:DrawScene(cascade_idx)
 	end)
 end

@@ -365,6 +365,7 @@ function vfs.Prefetch(path, callback)
 
 	local file = data.context:CreateObject()
 	file:SetMode("read")
+
 	file:Prefetch(data.path_info, function()
 		file:Remove()
 		callback()

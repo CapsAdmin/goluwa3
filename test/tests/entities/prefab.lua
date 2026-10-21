@@ -418,7 +418,12 @@ T.Test("Prefab inputs without targets can gain and lose them", function()
 	T(prefab.IsExposed(name, "child", "spawn_point", "Enabled"))["=="](false)
 	T(child.spawn_point:GetEnabled())["=="](false)
 	T(a.prefab.Inputs.Switch)["=="](nil)
-	local ok = pcall(prefab.AddTarget, name, "Group", {Node = "nowhere", Component = "entity", Property = "Name"})
+	local ok = pcall(
+		prefab.AddTarget,
+		name,
+		"Group",
+		{Node = "nowhere", Component = "entity", Property = "Name"}
+	)
 	T(ok)["=="](false)
 	T(#prefab.Get(name).inputs[1].Targets)["=="](2)
 	a:Remove()
@@ -489,9 +494,11 @@ T.Test("Prefab syncing does not set properties that already have their value", f
 	local part_a = a.prefab:GetNode("part")
 	local part_b = b.prefab:GetNode("part")
 	local notified = 0
+
 	part_b.prefab:AddPropertyListener(function()
 		notified = notified + 1
 	end, "test")
+
 	part_a.transform:SetPosition(Vec3(1, 2, 3))
 	prefab.MarkDirty(part_a.transform, "Position")
 	prefab.Flush()

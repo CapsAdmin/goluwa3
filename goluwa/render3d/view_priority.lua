@@ -72,7 +72,6 @@ function ViewPriority:Rank(min_x, min_y, min_z, max_x, max_y, max_z)
 	local cos = (center_x * self.look_x + center_z * self.look_z) / center_length
 	local angle = math.acos(math.min(math.max(cos, -1), 1))
 	local outside = math.max(angle - self.half_angle - math.asin(radius / center_length), 0)
-
 	return distance * (1 + outside / math.pi * self.OutsidePenalty)
 end
 

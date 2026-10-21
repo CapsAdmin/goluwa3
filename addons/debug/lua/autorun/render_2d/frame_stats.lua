@@ -45,7 +45,12 @@ function FrameGraph:OnDraw()
 		local height = math.min(ms / GRAPH_MS_MAX, 1) * graph_h
 		local over = ms > GRID_MS[2] and 1 or ms > GRID_MS[1] and 0.5 or 0
 		render2d.SetColor(0.35 + over * 0.65, 0.8 - over * 0.5, 0.45 - over * 0.2, 0.9)
-		render2d.DrawRect(graph_x + (stats.history_size - count + i) * bar_w, graph_y + graph_h - height, math.max(bar_w - 1, 1), height)
+		render2d.DrawRect(
+			graph_x + (stats.history_size - count + i) * bar_w,
+			graph_y + graph_h - height,
+			math.max(bar_w - 1, 1),
+			height
+		)
 	end
 end
 
@@ -66,21 +71,23 @@ end
 local FrameGraphElement = react.Element(FrameGraph)
 local render_rows = rows_of(true)
 local other_rows = rows_of(false)
-
 perf.RegisterTab(
 	"FRAME",
 	0,
-	react.Component(|| -> ui.Column{layout = {ChildGap = "S", AlignmentX = "center"}}{
-		FrameGraphElement{Size = Vec2(WIDTH, GRAPH_HEIGHT)},
-		ui.StatTable{Size = Vec2(WIDTH, 316), Rows = react.UsePoll(render_rows, perf.POLL_INTERVAL)},
-	})
+	react.Component(
+		||->ui.Column{layout = {ChildGap = "S", AlignmentX = "center"}}{
+			FrameGraphElement{Size = Vec2(WIDTH, GRAPH_HEIGHT)},
+			ui.StatTable{Size = Vec2(WIDTH, 316), Rows = react.UsePoll(render_rows, perf.POLL_INTERVAL)},
+		}
+	)
 )
 perf.RegisterTab(
 	"RENDER",
 	3,
-	react.Component(|| -> ui.StatTable{Size = Vec2(WIDTH, 470), Rows = react.UsePoll(other_rows, perf.POLL_INTERVAL)})
+	react.Component(
+		||->ui.StatTable{Size = Vec2(WIDTH, 470), Rows = react.UsePoll(other_rows, perf.POLL_INTERVAL)}
+	)
 )
-
 local counting = false
 
 event.AddListener("Update", "perf_counters", function()

@@ -68,18 +68,18 @@ T.Test("autocomplete prefix match mode skips inner matches", function()
 end)
 
 T.Test("autocomplete supports table entries and function sources", function()
-	with_lists(
+	with_lists({
+		{"a", {{val = "alpha"}, "alps"}},
 		{
-			{"a", {{val = "alpha"}, "alps"}},
-			{"b", function(text)
+			"b",
+			function(text)
 				return {text .. "bet", "other"}
-			end},
+			end,
 		},
-		function()
-			T(values(autocomplete.Search("al")))["=="]("alps,alpha,albet")
-			T(values(autocomplete.Search("zz")))["=="]("zzbet")
-		end
-	)
+	}, function()
+		T(values(autocomplete.Search("al")))["=="]("alps,alpha,albet")
+		T(values(autocomplete.Search("zz")))["=="]("zzbet")
+	end)
 end)
 
 T.Test("autocomplete filters by list id and respects the maximum", function()
@@ -119,9 +119,11 @@ end)
 T.Test("autocomplete list names resolve functions", function()
 	autocomplete.SetListName("test_named", "plain")
 	T(autocomplete.GetListName("test_named"))["=="]("plain")
+
 	autocomplete.SetListName("test_named", function()
 		return "dynamic"
 	end)
+
 	T(autocomplete.GetListName("test_named"))["=="]("dynamic")
 	autocomplete.SetListName("test_named", nil)
 end)
@@ -230,7 +232,16 @@ T.Test("autocomplete random picks distinct entries from table lists and is seede
 		words[i] = "word" .. i
 	end
 
-	with_lists({{"a", words}, {"b", {"other1", "other2"}}, {"c", function() return {"x"} end}}, function()
+	with_lists({
+		{"a", words},
+		{"b", {"other1", "other2"}},
+		{
+			"c",
+			function()
+				return {"x"}
+			end,
+		},
+	}, function()
 		local first = autocomplete.Random(20, {Seed = 5})
 		T(#first)["=="](20)
 		local seen = {}

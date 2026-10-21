@@ -1165,7 +1165,11 @@ function RigidBody:WriteToTransform()
 	local transform_position = transform:GetPosition()
 	local transform_rotation = transform:GetRotation()
 
-	if transform_position.x ~= x or transform_position.y ~= y or transform_position.z ~= z then
+	if
+		transform_position.x ~= x or
+		transform_position.y ~= y or
+		transform_position.z ~= z
+	then
 		transform:SetPosition(Vec3(x, y, z))
 	end
 

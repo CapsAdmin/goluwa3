@@ -132,7 +132,9 @@ function MeshBuilder:BuildNormals(first_vertex, first_index)
 		local n = vertices[i].normal
 		local length = sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2])
 
-		if length > 0 then n[0], n[1], n[2] = n[0] / length, n[1] / length, n[2] / length end
+		if length > 0 then
+			n[0], n[1], n[2] = n[0] / length, n[1] / length, n[2] / length
+		end
 	end
 end
 
@@ -186,7 +188,16 @@ do
 				local c, s = cos(angle), sin(angle)
 				local nx, ny, nz = rx * c + ux * s, ry * c + uy * s, rz * c + uz * s
 				local radius = point[4]
-				self:Vertex(point[1] + nx * radius, point[2] + ny * radius, point[3] + nz * radius, nx, ny, nz, side / sides * u_repeat, v)
+				self:Vertex(
+					point[1] + nx * radius,
+					point[2] + ny * radius,
+					point[3] + nz * radius,
+					nx,
+					ny,
+					nz,
+					side / sides * u_repeat,
+					v
+				)
 			end
 		end
 
@@ -202,7 +213,16 @@ do
 			local last = points[count]
 			local prev = points[count - 1]
 			local dx, dy, dz = normalize(last[1] - prev[1], last[2] - prev[2], last[3] - prev[3])
-			local tip = self:Vertex(last[1] + dx * last[4], last[2] + dy * last[4], last[3] + dz * last[4], dx, dy, dz, 0.5 * u_repeat, v + last[4] / v_length)
+			local tip = self:Vertex(
+				last[1] + dx * last[4],
+				last[2] + dy * last[4],
+				last[3] + dz * last[4],
+				dx,
+				dy,
+				dz,
+				0.5 * u_repeat,
+				v + last[4] / v_length
+			)
 			local a = ring_first[count]
 
 			for side = 0, sides - 1 do

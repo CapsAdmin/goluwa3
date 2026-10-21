@@ -224,7 +224,11 @@ local function build_diamond(poly, radius)
 		n = n:GetNormalized()
 
 		for _, v in ipairs{a, c, b} do
-			poly:AddVertex{pos = v, uv = Vec2(v.x / radius * 0.5 + 0.5, v.z / radius * 0.5 + 0.5), normal = n}
+			poly:AddVertex{
+				pos = v,
+				uv = Vec2(v.x / radius * 0.5 + 0.5, v.z / radius * 0.5 + 0.5),
+				normal = n,
+			}
 		end
 	end
 
@@ -297,7 +301,12 @@ local function sheet(parent, name, x, z, mat, yaw)
 		Position = Vec3(x, 0.6, z),
 		Rotation = QuatDeg3(0, yaw, 0),
 		Polygon = function(poly)
-			local corners = {Vec3(-0.45, -0.45, 0), Vec3(0.45, -0.45, 0), Vec3(0.45, 0.45, 0), Vec3(-0.45, 0.45, 0)}
+			local corners = {
+				Vec3(-0.45, -0.45, 0),
+				Vec3(0.45, -0.45, 0),
+				Vec3(0.45, 0.45, 0),
+				Vec3(-0.45, 0.45, 0),
+			}
 			local uvs = {Vec2(0, 0), Vec2(1, 0), Vec2(1, 1), Vec2(0, 1)}
 
 			for _, triangle in ipairs{{1, 3, 2}, {1, 4, 3}} do

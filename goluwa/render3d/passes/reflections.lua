@@ -104,6 +104,7 @@ local shared_glsl = [[
 
 ]]
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
+
 local function get_uniform_buffers(with_ddgi)
 	return {
 		{
@@ -157,7 +158,6 @@ local function get_uniform_buffers(with_ddgi)
 				local viewport = camera:GetViewport()
 				block.jitter_shift[0] = (render3d.previous_jitter.x - camera:GetJitter().x) / viewport.w
 				block.jitter_shift[1] = (render3d.previous_jitter.y - camera:GetJitter().y) / viewport.h
-
 				local reflections = render3d.pipelines.reflections
 
 				if reflections.reflection_history_framebuffers ~= reflections.framebuffers then
@@ -168,7 +168,10 @@ local function get_uniform_buffers(with_ddgi)
 				block.raw_tex = self:GetTextureIndex(render3d.pipelines.reflections_trace:GetFramebuffer(1):GetAttachment(1))
 				block.raw_distance_tex = self:GetTextureIndex(render3d.pipelines.reflections_trace:GetFramebuffer(1):GetAttachment(2))
 
-				if render3d.ShouldUseLastFrameHistory() and frame > reflections.reflection_history_reset_frame then
+				if
+					render3d.ShouldUseLastFrameHistory() and
+					frame > reflections.reflection_history_reset_frame
+				then
 					local history_fb = reflections:GetFramebuffer((frame + 1) % 2 + 1)
 					block.history_tex = self:GetTextureIndex(history_fb:GetAttachment(1))
 					block.history_depth_tex = self:GetTextureIndex(history_fb:GetAttachment(2))
@@ -203,9 +206,13 @@ local function get_uniform_buffers(with_ddgi)
 				return block
 			end,
 		},
-		with_ddgi and RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
+		with_ddgi and
+		RAY_QUERY and
+		scene_reflection.GetDDGIUniformBuffer(8) or
+		nil,
 	}
 end
+
 return {
 	{
 		name = "reflections_trace",
@@ -261,7 +268,8 @@ return {
 		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("reflection_data") .. (
 				RAY_QUERY and
-				atmosphere.GetGLSLDefines("reflection_data", "reflection_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("reflection_data") or
+				atmosphere.GetGLSLDefines("reflection_data", "reflection_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("reflection_data")
+				or
 				""
 			) .. [[
 		]] .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. [[

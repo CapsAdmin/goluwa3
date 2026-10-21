@@ -20,6 +20,7 @@ local function is_shown(panel)
 
 	return true
 end
+
 local META = Panel:CreateTemplate("scrollable_panel")
 META.Slot = "Viewport"
 META.CMP.transform = {}
@@ -217,7 +218,12 @@ function META:get_collapsed_width()
 end
 
 function META:get_scrollbar_reserve()
-	return theme.active:ResolveSize(self.ScrollbarReserve or (self:get_collapsed_width() + theme.active:GetScrollbarMargin()))
+	return theme.active:ResolveSize(
+		self.ScrollbarReserve or
+			(
+				self:get_collapsed_width() + theme.active:GetScrollbarMargin()
+			)
+	)
 end
 
 function META:update_expand()
@@ -299,14 +305,13 @@ function META:OnCreate()
 
 	self:update_key_scrolling()
 
-	for _, part in ipairs({self.TrackY, self.TrackX, self.HandleY, self.HandleX}) do
+	for _, part in ipairs{self.TrackY, self.TrackX, self.HandleY, self.HandleX} do
 		part.Expand = 0
 	end
 
 	self:apply_scroll_configuration()
 	self:AddGlobalEvent("Update")
 end
-
 
 local function autoscroll_velocity(distance)
 	local past = math.abs(distance) - AUTOSCROLL_DEAD_ZONE
@@ -350,7 +355,11 @@ function META:release_autoscroll()
 	self.autoscroll_sticky = true
 	self:AddGlobalEvent(
 		"ScrollableAutoscrollKey",
-		{event_name = "KeyInput", func_name = "OnAutoscrollKeyInput", priority = math.huge}
+		{
+			event_name = "KeyInput",
+			func_name = "OnAutoscrollKeyInput",
+			priority = math.huge,
+		}
 	)
 end
 
@@ -428,7 +437,9 @@ function META:OnUpdate()
 			self:release_autoscroll()
 		end
 
-		if self.autoscroll_origin and not is_shown(self.Viewport) then self:end_autoscroll() end
+		if self.autoscroll_origin and not is_shown(self.Viewport) then
+			self:end_autoscroll()
+		end
 	end
 
 	local button = self.repeat_button
@@ -437,7 +448,8 @@ function META:OnUpdate()
 
 	if
 		not button:IsValid() or
-		not input.IsMouseDown("button_1") or
+		not input.IsMouseDown("button_1")
+		or
 		not button.mouse_input:GetHovered()
 	then
 		self.repeat_button = nil
@@ -488,7 +500,9 @@ end
 function META:scroll_to_extent(axis, far)
 	local viewport = self.Viewport
 	local scroll = viewport.transform:GetScroll():Copy()
-	scroll[axis] = far and math.max(0, viewport.layout.content_size[axis] - self:get_view_length(axis)) or 0
+	scroll[axis] = far and
+		math.max(0, viewport.layout.content_size[axis] - self:get_view_length(axis)) or
+		0
 	viewport.transform:SetScroll(scroll)
 end
 
@@ -537,7 +551,11 @@ function META:step_scroll(axis, direction, amount)
 	local state = self:compute_scrollbar_state(content_size, view_size)
 	local available = axis == "y" and state.available_h or state.available_w
 	local scroll = viewport.transform:GetScroll():Copy()
-	scroll[axis] = math.clamp(scroll[axis] + direction * (amount or LINE_SCROLL), 0, math.max(0, content_size[axis] - available))
+	scroll[axis] = math.clamp(
+		scroll[axis] + direction * (amount or LINE_SCROLL),
+		0,
+		math.max(0, content_size[axis] - available)
+	)
 	viewport.transform:SetScroll(scroll)
 end
 

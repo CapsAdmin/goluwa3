@@ -1,6 +1,5 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local translucent_moments = {}
-
 translucent_moments.GLSL = [[
 	float moments_warp_depth(float distance, vec2 warp) {
 		return clamp(log(max(distance, 1e-4)) * warp.x + warp.y, -1.0, 1.0);
@@ -69,5 +68,4 @@ translucent_moments.MULTIPLY = {
 	dst_alpha_blend_factor = "one",
 	alpha_blend_op = "add",
 }
-
 return translucent_moments

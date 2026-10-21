@@ -259,7 +259,6 @@ function stats.UnregisterGroup(id)
 			break
 		end
 	end
-
 end
 
 function stats.RegisterField(id, field)
@@ -301,7 +300,6 @@ function stats.UnregisterField(id)
 			break
 		end
 	end
-
 end
 
 function stats.FormatBytes(value)
@@ -319,7 +317,11 @@ function stats.GetRows()
 	local function add_field(id)
 		local field = registered_fields[id]
 		local label = field.label_getter and field.label_getter(field) or field.label
-		rows[#rows + 1] = {group = field.group, label = label:lower(), value = build_field_text(field, bucket)}
+		rows[#rows + 1] = {
+			group = field.group,
+			label = label:lower(),
+			value = build_field_text(field, bucket),
+		}
 	end
 
 	for _, id in ipairs(registered_field_order) do

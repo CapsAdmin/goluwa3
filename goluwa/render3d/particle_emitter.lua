@@ -44,7 +44,12 @@ particle_emitter.common = {
 	{"Friction", 0.2, ranged(0, 1), "Collision"},
 }
 particle_emitter.gpu = {
-	{"MaxParticles", 1000, {validate = "integer", min = 1, max = particle_emitter.GPU_MAX_PARTICLES}, "Emission"},
+	{
+		"MaxParticles",
+		1000,
+		{validate = "integer", min = 1, max = particle_emitter.GPU_MAX_PARTICLES},
+		"Emission",
+	},
 	{"ColorStart", Color(1, 1, 1, 1), nil, "Look"},
 	{"ColorEnd", Color(1, 1, 1, 0), nil, "Look"},
 	{"Lit", true, boolean, "Look"},
@@ -52,7 +57,12 @@ particle_emitter.gpu = {
 	{"Collision", "none", particle_emitter.GPU_COLLISIONS, "Collision"},
 }
 particle_emitter.cpu = {
-	{"MaxParticles", 100, {validate = "integer", min = 1, max = particle_emitter.CPU_MAX_PARTICLES}, "Emission"},
+	{
+		"MaxParticles",
+		100,
+		{validate = "integer", min = 1, max = particle_emitter.CPU_MAX_PARTICLES},
+		"Emission",
+	},
 	{"Mesh", "quad", particle_emitter.MESHES, "Look"},
 	{"Material", nil, {type = "render3d_material"}, "Look"},
 	{"Spin", 0, ranged(-720, 720), "Motion"},
@@ -61,7 +71,14 @@ particle_emitter.cpu = {
 
 function particle_emitter.Add(emitter, backend)
 	emitter.particle_backend = backend
-	emitter.particle_state = {time = 0, carry = 0, burst = 0, position = Vec3(), axis = Vec3(0, 1, 0), velocity = Vec3()}
+	emitter.particle_state = {
+		time = 0,
+		carry = 0,
+		burst = 0,
+		position = Vec3(),
+		axis = Vec3(0, 1, 0),
+		velocity = Vec3(),
+	}
 	list.insert(particle_emitter.instances, emitter)
 end
 

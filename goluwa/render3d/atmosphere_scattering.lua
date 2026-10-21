@@ -352,7 +352,7 @@ function scattering.Create(build_prelude, transmittance_texture, aerosol_extinct
 				fragment_push_constants = {
 					size = ffi.sizeof(Constants),
 					get_data = function(_, _, pipeline)
-						local data = Constants({aerosol_shape, aerosol_extinction, species or 0, order or 0, {}})
+						local data = Constants{aerosol_shape, aerosol_extinction, species or 0, order or 0, {}}
 
 						for i, texture in ipairs(textures) do
 							data.tables[i - 1] = pipeline:GetTextureIndex(texture)
@@ -375,7 +375,19 @@ function scattering.Create(build_prelude, transmittance_texture, aerosol_extinct
 	local previous = single_r
 
 	for order = 2, scattering.ORDERS do
-		shade(density, DENSITY_GLSL, {transmittance_texture, single_r, single_m, previous, irradiance[order - 2] or single_r}, order)
+		shade(
+			density,
+			DENSITY_GLSL,
+			{
+				transmittance_texture,
+				single_r,
+				single_m,
+				previous,
+				irradiance[order - 2] or
+				single_r,
+			},
+			order
+		)
 		shade(delta, MULTI_GLSL, {transmittance_texture, density}, order)
 		shade(source_next, ADD_GLSL, {transmittance_texture, source, density}, 0)
 		source, source_next = source_next, source
@@ -385,7 +397,12 @@ function scattering.Create(build_prelude, transmittance_texture, aerosol_extinct
 
 		if order + 2 <= scattering.ORDERS then
 			irradiance[order] = create_table(IRRADIANCE_SIZE, 1)
-			shade(irradiance[order], IRRADIANCE_GLSL, {transmittance_texture, single_r, single_m, delta}, order)
+			shade(
+				irradiance[order],
+				IRRADIANCE_GLSL,
+				{transmittance_texture, single_r, single_m, delta},
+				order
+			)
 		end
 	end
 

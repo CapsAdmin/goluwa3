@@ -47,7 +47,12 @@ end)
 T.Test3D("Entity tree lists the material of a shape under it", function()
 	local shapes = import("goluwa/render3d/shapes.lua")
 	local root = Entity.New{Name = "tree_material_root"}
-	local sphere = shapes.Sphere{Name = "ball", Parent = root, Material = {Color = Color(1, 0, 0, 1)}, RigidBody = false}
+	local sphere = shapes.Sphere{
+		Name = "ball",
+		Parent = root,
+		Material = {Color = Color(1, 0, 0, 1)},
+		RigidBody = false,
+	}
 	local tree = EntityTree{RootEntities = {root}, ShowVirtualChildren = true}
 	tree:ExpandToEntity(sphere)
 	tree:Refresh(true)

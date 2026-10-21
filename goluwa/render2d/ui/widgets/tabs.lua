@@ -42,7 +42,13 @@ function META:OnCreate()
 	self._content = Column{
 		Parent = self,
 		IsInternal = true,
-		layout = {ChildGap = 0, AlignmentX = "stretch", GrowWidth = 1, GrowHeight = 1, FitHeight = false},
+		layout = {
+			ChildGap = 0,
+			AlignmentX = "stretch",
+			GrowWidth = 1,
+			GrowHeight = 1,
+			FitHeight = false,
+		},
 	}
 end
 

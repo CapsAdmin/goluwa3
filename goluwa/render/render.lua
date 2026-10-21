@@ -277,7 +277,6 @@ local function start_saving_pipeline_cache(path, saved_size)
 		if time - changed_at < 2 then return end
 
 		saved_generation = generation
-
 		local size = vulkan_instance:GetPipelineCacheDataSize()
 
 		if size == saved_size then return end
@@ -297,7 +296,6 @@ end
 function render.Initialize(config)
 	config = config or {}
 	local is_headless = config.headless
-
 	startup.Begin("locate shaderc")
 
 	if not shaderc.initialized then
@@ -389,7 +387,6 @@ function render.Initialize(config)
 				startup.Add("render.Draw: EndFrame, present", end_started)
 			end
 		end
-
 	end
 
 	event.AddListener("Render", "window_update", render.Draw)

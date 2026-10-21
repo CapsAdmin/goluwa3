@@ -48,7 +48,14 @@ function META:OnUpdate(dt)
 		if run and run ~= walk then
 			local walk_speed = walk and walk:GetGroundSpeed(params) or 0
 			local middle = (walk_speed + run:GetGroundSpeed(params)) / 2
-			state = speed > middle * (state == "run" and 1 / RUN_MARGIN or RUN_MARGIN) and "run" or "walk"
+			state = speed > middle * (
+					state == "run" and
+					1 / RUN_MARGIN or
+					RUN_MARGIN
+				)
+				and
+				"run" or
+				"walk"
 		else
 			state = "walk"
 		end
@@ -72,7 +79,9 @@ function META:OnUpdate(dt)
 	if state ~= "idle" and clip then
 		local ground_speed = clip:GetGroundSpeed(params)
 
-		if ground_speed > 0 then rate = math.clamp(speed / ground_speed, MIN_RATE, MAX_RATE) end
+		if ground_speed > 0 then
+			rate = math.clamp(speed / ground_speed, MIN_RATE, MAX_RATE)
+		end
 	end
 
 	animator:SetSpeed(rate)

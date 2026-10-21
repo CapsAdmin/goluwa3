@@ -9,7 +9,6 @@ local outfit = {}
 outfit.VisorDistance = 16 * UNIT * 0.9
 outfit.BodyRadius = 16 * UNIT
 outfit.BodyHeight = 72 * UNIT
-
 outfit.DefaultName = "player_outfit"
 local selected = pvars.Setup2{
 	key = "cl_outfit",

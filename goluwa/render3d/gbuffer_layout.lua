@@ -6,7 +6,6 @@ local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local MAX_TARGETS = 8
 gbuffer_layout.DEPTH_FORMAT = "d32_sfloat"
 gbuffer_layout.fields = surface_features.GetFields()
-
 local ALBEDO_TARGET = {
 	texture = "albedo",
 	format = "r8g8b8a8_srgb",
@@ -117,7 +116,10 @@ do
 	local packed = gbuffer_layout.Pack(gbuffer_layout.fields)
 
 	if #packed + 3 > MAX_TARGETS then
-		error("the gbuffer needs " .. (#packed + 3) .. " targets, the limit is " .. MAX_TARGETS, 2)
+		error(
+			"the gbuffer needs " .. (#packed + 3) .. " targets, the limit is " .. MAX_TARGETS,
+			2
+		)
 	end
 
 	gbuffer_layout.targets = {ALBEDO_TARGET}
@@ -188,7 +190,10 @@ do
 		for _, channel in ipairs(target.channels) do
 			if channel.packed then
 				local variable = "gbuffer_" .. channel[1]
-				table.insert(lines, string.format("float %s_low = 0.0;\nfloat %s_high = 0.0;", variable, variable))
+				table.insert(
+					lines,
+					string.format("float %s_low = 0.0;\nfloat %s_high = 0.0;", variable, variable)
+				)
 				table.insert(
 					flush,
 					string.format(
@@ -237,6 +242,7 @@ do
 	table.insert(lines, handwritten)
 	table.insert(lines, surface_features.GetEncodersGLSL())
 	table.insert(lines, table.concat(defaults, "\n"))
+
 	function gbuffer_layout.GetEncodeGLSL()
 		return table.concat(lines, "\n") .. surface_features.GetSurfaceGLSL() .. surface_features.GetDefaultFunctionGLSL() .. surface_features.GetPrepareWeatherFunctionGLSL() .. surface_features.GetWeatherFunctionGLSL() .. surface_features.GetWriteFunctionGLSL()
 	end
@@ -351,7 +357,10 @@ do
 		for i, target in ipairs(gbuffer_layout.targets) do
 			local bytes = FORMAT_BYTES[target.format]
 			total = total + bytes
-			table.insert(lines, string.format("%d %s %s, %d bytes per pixel", i, target.texture, target.format, bytes))
+			table.insert(
+				lines,
+				string.format("%d %s %s, %d bytes per pixel", i, target.texture, target.format, bytes)
+			)
 
 			for _, channel in ipairs(target.channels) do
 				local fields = by_channel[target.texture .. "." .. channel[2]]
@@ -363,7 +372,12 @@ do
 					for _, field in ipairs(fields) do
 						table.insert(
 							names,
-							string.format("%s (%s%s)", field.name, field.kind, field.readers and ", read by " .. table.concat(field.readers, " ") or "")
+							string.format(
+								"%s (%s%s)",
+								field.name,
+								field.kind,
+								field.readers and ", read by " .. table.concat(field.readers, " ") or ""
+							)
 						)
 					end
 

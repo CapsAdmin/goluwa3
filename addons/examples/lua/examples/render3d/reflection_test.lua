@@ -42,25 +42,84 @@ local function box(name, pos, size, mat)
 end
 
 local function grid_wall(name, z, half_width, base, height, spacing, line, panel_mat, line_mat)
-	box(name .. "_panel", Vec3(0, base + height / 2, z - line), Vec3(half_width * 2, height, line), panel_mat)
+	box(
+		name .. "_panel",
+		Vec3(0, base + height / 2, z - line),
+		Vec3(half_width * 2, height, line),
+		panel_mat
+	)
 
 	for x = -half_width, half_width, spacing do
-		box(name .. "_v" .. x, Vec3(x, base + height / 2, z), Vec3(line, height, line), line_mat)
+		box(
+			name .. "_v" .. x,
+			Vec3(x, base + height / 2, z),
+			Vec3(line, height, line),
+			line_mat
+		)
 	end
 
 	for y = 0, height, spacing do
-		box(name .. "_h" .. y, Vec3(0, base + y, z), Vec3(half_width * 2, line, line), line_mat)
+		box(
+			name .. "_h" .. y,
+			Vec3(0, base + y, z),
+			Vec3(half_width * 2, line, line),
+			line_mat
+		)
 	end
 end
 
-grid_wall("near", NEAR_Z, 120, 0, 4, 1, 0.08, material(0.02, 0.03, 0.05), material(0.1, 0.8, 0.9))
-grid_wall("far", FAR_Z, 60000, 3000, 9000, 1000, 80, material(0.05, 0.02, 0.04), material(1, 0.1, 0.6))
-box("glass_floor", Vec3(PLATE_X.glass, -1.2, 0), Vec3(PLATE, 0.2, PLATE), material(0.04, 0.04, 0.05))
-box("mirror_floor", Vec3(PLATE_X.mirror, -1.2, 0), Vec3(PLATE, 0.2, PLATE), material(0.04, 0.04, 0.05))
-
+grid_wall(
+	"near",
+	NEAR_Z,
+	120,
+	0,
+	4,
+	1,
+	0.08,
+	material(0.02, 0.03, 0.05),
+	material(0.1, 0.8, 0.9)
+)
+grid_wall(
+	"far",
+	FAR_Z,
+	60000,
+	3000,
+	9000,
+	1000,
+	80,
+	material(0.05, 0.02, 0.04),
+	material(1, 0.1, 0.6)
+)
+box(
+	"glass_floor",
+	Vec3(PLATE_X.glass, -1.2, 0),
+	Vec3(PLATE, 0.2, PLATE),
+	material(0.04, 0.04, 0.05)
+)
+box(
+	"mirror_floor",
+	Vec3(PLATE_X.mirror, -1.2, 0),
+	Vec3(PLATE, 0.2, PLATE),
+	material(0.04, 0.04, 0.05)
+)
 test.mirror_material = material(0.95, 0.95, 1, {Metallic = 1, Roughness = 1})
-test.mirror = box("mirror", Vec3(PLATE_X.mirror, -0.1, 0), Vec3(PLATE, 0.2, PLATE), test.mirror_material)
-test.glass_material = material(1, 1, 1, {Roughness = 1, Refraction = 1, IndexOfRefraction = 1.5, RefractionThickness = 0.02})
+test.mirror = box(
+	"mirror",
+	Vec3(PLATE_X.mirror, -0.1, 0),
+	Vec3(PLATE, 0.2, PLATE),
+	test.mirror_material
+)
+test.glass_material = material(
+	1,
+	1,
+	1,
+	{
+		Roughness = 1,
+		Refraction = 1,
+		IndexOfRefraction = 1.5,
+		RefractionThickness = 0.02,
+	}
+)
 test.glass = box("glass", Vec3(PLATE_X.glass, 0, 0), Vec3(PLATE, 0.02, PLATE), test.glass_material)
 test.water = Entity.New{
 	Name = "reflection_test_water",
@@ -74,12 +133,21 @@ test.water = Entity.New{
 		Foam = 0,
 	},
 }
-box("pool_floor", Vec3(PLATE_X.water, -3.6, 0), Vec3(PLATE + 0.4, 0.2, PLATE + 0.4), material(0.5, 0.45, 0.35))
-
+box(
+	"pool_floor",
+	Vec3(PLATE_X.water, -3.6, 0),
+	Vec3(PLATE + 0.4, 0.2, PLATE + 0.4),
+	material(0.5, 0.45, 0.35)
+)
 local strip_material = material(0.15, 0.3, 0.1)
 
 for i = -16, 16 do
-	box("strip" .. i, Vec3(i * 1.1 + 0.3 * math.sin(i * 1.7), 6, 12), Vec3(0.03 + 0.015 * (i % 3), 7, 0.02), strip_material)
+	box(
+		"strip" .. i,
+		Vec3(i * 1.1 + 0.3 * math.sin(i * 1.7), 6, 12),
+		Vec3(0.03 + 0.015 * (i % 3), 7, 0.02),
+		strip_material
+	)
 end
 
 function test.SetRoughness(roughness)
@@ -112,7 +180,6 @@ test.views = {
 function test.GetView(index)
 	local view = test.views[index]
 	local dir = (view.target - view.pos):GetNormalized()
-
 	return {
 		Position = view.pos,
 		Rotation = QuatDeg3(math.deg(math.asin(dir.y)), math.deg(math.atan2(-dir.x, -dir.z)), 0),

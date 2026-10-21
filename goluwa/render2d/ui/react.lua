@@ -55,19 +55,21 @@ react.ErrorBoundary = react.Component(nil)
 react.ErrorBoundary.is_boundary = true
 
 function react.Memo(component)
-	return setmetatable({render = component.render, is_component = true, memo = true}, getmetatable(component))
+	return setmetatable(
+		{render = component.render, is_component = true, memo = true},
+		getmetatable(component)
+	)
 end
 
 function react.CreateContext(default)
 	local context = {default = default}
-	context.Provider = react.Component(|props| -> props.children)
+	context.Provider = react.Component(|props|->props.children)
 	context.Provider.context = context
 	return context
 end
 
-react.Portal = react.Component(|props| -> props.children)
+react.Portal = react.Component(|props|->props.children)
 react.Portal.is_portal = true
-
 react.Foreign = setmetatable(
 	{is_foreign = true},
 	{
@@ -76,7 +78,7 @@ react.Foreign = setmetatable(
 		end,
 	}
 )
-react.Fragment = react.Component(|props| -> props.children)
+react.Fragment = react.Component(|props|->props.children)
 
 local function flatten(items, out)
 	for i = 1, table.maxn(items) do
@@ -87,7 +89,10 @@ local function flatten(items, out)
 		elseif type(item) == "table" then
 			flatten(item, out)
 		elseif item and item ~= true then
-			error("a child must be an element, a list of elements, nil or a boolean, got " .. tostring(item), 0)
+			error(
+				"a child must be an element, a list of elements, nil or a boolean, got " .. tostring(item),
+				0
+			)
 		end
 	end
 
@@ -129,7 +134,9 @@ end
 local function props_equal(a, b)
 	for key, value in pairs(a) do
 		if key == "children" then
-			if flatten(value, {})[1] ~= nil or flatten(b.children, {})[1] ~= nil then return false end
+			if flatten(value, {})[1] ~= nil or flatten(b.children, {})[1] ~= nil then
+				return false
+			end
 		elseif value ~= b[key] then
 			return false
 		end
@@ -228,9 +235,11 @@ local function guard(boundary, fn, a)
 	boundary.created = previous
 
 	if ok then
-		if previous then for _, inst in ipairs(created) do
-			previous[#previous + 1] = inst
-		end end
+		if previous then
+			for _, inst in ipairs(created) do
+				previous[#previous + 1] = inst
+			end
+		end
 
 		return true, result
 	end
@@ -317,7 +326,6 @@ end
 local function reset_prop(entity, key, old_value, valid_components)
 	if key:starts_with("On") then
 		entity[key] = nil
-
 		return
 	end
 
@@ -329,17 +337,18 @@ local function reset_prop(entity, key, old_value, valid_components)
 		end
 
 		entity:SetProp(key, reset)
-
 		return
 	end
 
 	local info = objects.GetPropertyInfo(getmetatable(entity), key)
 
-	if not info then for _, component in ipairs(entity.component_list) do
-		info = objects.GetPropertyInfo(getmetatable(component), key)
+	if not info then
+		for _, component in ipairs(entity.component_list) do
+			info = objects.GetPropertyInfo(getmetatable(component), key)
 
-		if info then break end
-	end end
+			if info then break end
+		end
+	end
 
 	entity:SetProp(key, info and info.default)
 end
@@ -427,7 +436,9 @@ function update(inst, desc)
 		end
 	end
 
-	if type_.memo and not inst.dirty and props_equal(inst.props, desc.props) then return end
+	if type_.memo and not inst.dirty and props_equal(inst.props, desc.props) then
+		return
+	end
 
 	inst.props = desc.props
 	render_component(inst)
@@ -457,7 +468,6 @@ function mount(desc, parent_entity, parent)
 	if type_.is_foreign then
 		inst.entity = desc.props.Create(parent_entity)
 		parent_entity:AddChild(inst.entity)
-
 		return inst
 	end
 
@@ -476,7 +486,6 @@ function mount(desc, parent_entity, parent)
 		end
 
 		render_component(inst)
-
 		return inst
 	end
 
@@ -554,7 +563,10 @@ function reconcile(old, descs, parent_entity, parent)
 			not used[inst] and
 			not inst.unmounted and
 			inst.type == desc.type and
-			(not inst.entity or inst.entity:IsValid())
+			(
+				not inst.entity or
+				inst.entity:IsValid()
+			)
 		then
 			used[inst] = true
 			matched[i] = inst
@@ -636,7 +648,6 @@ do
 			if type(initial) == "function" then initial = initial() end
 
 			hook.value = initial
-
 			hook.set = function(value)
 				if type(value) == "function" then value = value(hook.value) end
 
@@ -656,7 +667,7 @@ do
 
 		if not hook.dispatch then
 			hook.dispatch = function(action)
-				set(|current| -> reducer(current, action))
+				set(|current|->reducer(current, action))
 			end
 		end
 
@@ -683,18 +694,20 @@ do
 	end
 
 	function react.UseCallback(callback, deps)
-		return react.UseMemo(|| -> callback, deps)
+		return react.UseMemo(||->callback, deps)
 	end
 
 	function react.UseStable(callback)
 		local latest = react.UseRef()
 		latest.current = callback
-
-		return react.UseMemo(function()
-			return function(...)
-				return latest.current(...)
-			end
-		end, {})
+		return react.UseMemo(
+			function()
+				return function(...)
+					return latest.current(...)
+				end
+			end,
+			{}
+		)
 	end
 
 	local DRAG_THRESHOLD = 3
@@ -702,57 +715,61 @@ do
 	function react.UseDrag(handlers)
 		local latest = react.UseRef()
 		latest.current = handlers
+		return react.UseMemo(
+			function()
+				local state = {active = false}
+				local drag = {}
 
-		return react.UseMemo(function()
-			local state = {active = false}
-			local drag = {}
+				function drag.OnMouseInput(self, button, press, local_position)
+					if button ~= "button_1" then return end
 
-			function drag.OnMouseInput(self, button, press, local_position)
-				if button ~= "button_1" then return end
+					if press then
+						state.active = true
+						state.moved = false
+						state.x, state.y = system.GetWindow():GetMousePosition():Unpack()
+						state.press_x, state.press_y = state.x, state.y
 
-				if press then
-					state.active = true
-					state.moved = false
-					state.x, state.y = system.GetWindow():GetMousePosition():Unpack()
-					state.press_x, state.press_y = state.x, state.y
-
-					if latest.current.OnDrag then
-						latest.current.OnDrag(local_position, self.transform:GetSize(), 0, 0, false)
+						if latest.current.OnDrag then
+							latest.current.OnDrag(local_position, self.transform:GetSize(), 0, 0, false)
+						end
 					end
-				end
-
-				return true
-			end
-
-			function drag.OnGlobalMouseMove(self, position)
-				if not state.active then return end
-
-				local dx, dy = position.x - state.x, position.y - state.y
-				state.x, state.y = position.x, position.y
-
-				if math.abs(position.x - state.press_x) + math.abs(position.y - state.press_y) >= DRAG_THRESHOLD then
-					state.moved = true
-				end
-
-				if latest.current.OnDrag then
-					latest.current.OnDrag(self.transform:GlobalToLocal(position), self.transform:GetSize(), dx, dy, state.moved)
-				end
-
-				return true
-			end
-
-			function drag.OnGlobalMouseInput(self, button, press)
-				if button == "button_1" and not press and state.active then
-					state.active = false
-
-					if latest.current.OnEnd then latest.current.OnEnd(state.moved) end
 
 					return true
 				end
-			end
 
-			return drag
-		end, {})
+				function drag.OnGlobalMouseMove(self, position)
+					if not state.active then return end
+
+					local dx, dy = position.x - state.x, position.y - state.y
+					state.x, state.y = position.x, position.y
+
+					if
+						math.abs(position.x - state.press_x) + math.abs(position.y - state.press_y) >= DRAG_THRESHOLD
+					then
+						state.moved = true
+					end
+
+					if latest.current.OnDrag then
+						latest.current.OnDrag(self.transform:GlobalToLocal(position), self.transform:GetSize(), dx, dy, state.moved)
+					end
+
+					return true
+				end
+
+				function drag.OnGlobalMouseInput(self, button, press)
+					if button == "button_1" and not press and state.active then
+						state.active = false
+
+						if latest.current.OnEnd then latest.current.OnEnd(state.moved) end
+
+						return true
+					end
+				end
+
+				return drag
+			end,
+			{}
+		)
 	end
 
 	local opened = {}
@@ -762,14 +779,15 @@ do
 
 		if existing and existing:IsValid() then
 			existing:BringToFront()
-
 			return existing
 		end
 
 		local root
-		local component_props = {Close = function()
-			root:Unmount()
-		end}
+		local component_props = {
+			Close = function()
+				root:Unmount()
+			end,
+		}
 
 		for name, value in pairs(props or {}) do
 			component_props[name] = value
@@ -808,17 +826,20 @@ do
 		local latest = react.UseRef()
 		latest.current = callback
 
-		react.UseEffect(function()
-			local id = {}
+		react.UseEffect(
+			function()
+				local id = {}
 
-			event.AddListener(event_name, id, function(...)
-				return latest.current(...)
-			end)
+				event.AddListener(event_name, id, function(...)
+					return latest.current(...)
+				end)
 
-			return function()
-				event.RemoveListener(event_name, id)
-			end
-		end, {event_name})
+				return function()
+					event.RemoveListener(event_name, id)
+				end
+			end,
+			{event_name}
+		)
 	end
 
 	function react.UseResource(create, dispose, deps)
@@ -863,9 +884,12 @@ do
 		local debounced, set_debounced = react.UseState(value)
 		local pending = react.UseRef()
 
-		react.UseEffect(function()
-			pending.current = {value = value, deadline = system.GetElapsedTime() + delay}
-		end, {value})
+		react.UseEffect(
+			function()
+				pending.current = {value = value, deadline = system.GetElapsedTime() + delay}
+			end,
+			{value}
+		)
 
 		react.UseEvent("Update", function()
 			local change = pending.current
@@ -954,7 +978,9 @@ function react.Flush()
 	while dirty[1] or pending_layout_effects[1] or pending_effects[1] or removed_hosts[1] do
 		passes = passes + 1
 
-		if passes > 50 then error("too many re-renders, a state update keeps triggering itself", 0) end
+		if passes > 50 then
+			error("too many re-renders, a state update keeps triggering itself", 0)
+		end
 
 		local removed = removed_hosts
 		removed_hosts = {}

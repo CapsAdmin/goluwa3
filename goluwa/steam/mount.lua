@@ -103,7 +103,10 @@ return function(steam)
 		if jit.os == "Windows" then
 			path = system.GetRegistryValue("CurrentUser/Software/Valve/Steam/SteamPath") or
 				(
-					(os.getenv("ProgramFiles(x86)") or "C:\\Program Files (x86)") .. "\\Steam"
+					(
+						os.getenv("ProgramFiles(x86)") or
+						"C:\\Program Files (x86)"
+					) .. "\\Steam"
 				)
 		elseif jit.os == "OSX" then
 			path = os.getenv("HOME") .. "/Library/Application Support/Steam"
@@ -214,7 +217,6 @@ return function(steam)
 				for _, folder in ipairs(dirs) do
 					if vfs.IsFile("os:" .. folder .. name) then
 						cache[key] = folder .. name
-
 						return cache[key]
 					end
 				end

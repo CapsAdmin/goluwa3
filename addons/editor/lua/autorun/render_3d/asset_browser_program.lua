@@ -1,5 +1,4 @@
 local desktop = import("goluwa/render2d/ui/desktop.lua")
-
 desktop.RegisterProgram{
 	Name = "Assets",
 	Icon = "folder",

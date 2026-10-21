@@ -251,8 +251,7 @@ local BINDING_UNITS = 14
 local BINDING_BLOCKS = 15
 local BINDING_UNIT_COUNTS = 16
 local RAY_QUERY = render.GetDevice().ray_query_supported
-local COMMON_GLSL = glsl_common.GetNoiseGLSL() ..
-glsl_common.GetLuminanceGLSL() .. [[
+local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 	#define SCATTER_TILE_CELLS ]] .. scatter.TILE_CELLS .. [[
 
 	#define SCATTER_MAX_LEVEL ]] .. scatter.MAX_LEVEL .. [[
@@ -395,7 +394,6 @@ local CONFORM_GLSL = RAY_QUERY and
 	}
 ]] or
 	""
-
 local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 	layout(std430, set = 0, binding = ]] .. BINDING_SURFACES .. [[) readonly buffer ScatterSurfaces {
 		ScatterSurface scatter_surfaces[];
@@ -531,7 +529,6 @@ local cull_block = {
 	{"unit_base", "int"},
 	{"block_base", "int"},
 }
-
 local conform_block = {
 	{"unit_offset", "int"},
 	{"unit_count", "int"},
@@ -573,7 +570,6 @@ local function write_cull_block(self, block)
 end
 
 local compute_passes = nil
-
 local create_compute_passes
 
 local function get_compute_passes()
@@ -873,7 +869,11 @@ function create_compute_passes()
 						vec3 x_axis = b1 * cos(yaw) + b2 * sin(yaw);
 						vec3 z_axis = cross(x_axis, up);
 						vec3 position = root - up * mix(proto.sink.x, proto.sink.y, r_sink) * size;
-						float conform_word = ]] .. (RAY_QUERY and "scatter_conform_word(proto, root, x_axis, z_axis, up, size, size_y)" or "1.0") .. [[;
+						float conform_word = ]] .. (
+					RAY_QUERY and
+					"scatter_conform_word(proto, root, x_axis, z_axis, up, size, size_y)" or
+					"1.0"
+				) .. [[;
 
 						vec3 color = albedo_texture >= 0 ? textureLod(TEXTURE(albedo_texture), uv, 3.0).rgb : vec3(1.0);
 
@@ -1179,7 +1179,6 @@ end
 local surfaces = {}
 local surfaces_key = nil
 local surface_count = 0
-
 scatter.preloaded = setmetatable({}, {__mode = "k"})
 scatter.preload_version = 0
 scatter.retiring = setmetatable({}, {__mode = "k"})
@@ -1296,6 +1295,7 @@ local function write_surface(out, surface, pipeline)
 	out.layer_additive_detail[1] = additive_detail.g
 	out.layer_additive_detail[2] = additive_detail.b
 	out.layer_additive_detail[3] = additive_detail.a
+
 	for _, rule in ipairs(LAYER_RULES) do
 		local value = material["GetTerrainLayer" .. rule[1]](material)
 		out[rule[2]][0] = value.r
@@ -1363,7 +1363,12 @@ local function write_prototype(out, proto, instance_base, far_base, shadow_base,
 	out.info4[0] = shadow_billboard_base
 	out.info4[1] = proto.shadow_billboard_room
 	out.limits[3] = proto.align_steep
-	out.limits[2] = RAY_QUERY and proto.conform and proto.state == "ready" and proto.footprint > 0.02 and proto.footprint or 0
+	out.limits[2] = RAY_QUERY and
+		proto.conform and
+		proto.state == "ready" and
+		proto.footprint > 0.02 and
+		proto.footprint or
+		0
 	out.info[2] = proto.state == "ready" and 1 or 0
 	out.info[3] = proto.shadow and 1 or 0
 end
@@ -1384,7 +1389,9 @@ local demand_copy = BufferCopy()
 local demand_versions = {}
 
 local function get_reach(proto)
-	if proto.placed or not (billboards_enabled:Get() and proto.billboard_part) then return 1 end
+	if proto.placed or not (billboards_enabled:Get() and proto.billboard_part) then
+		return 1
+	end
 
 	return billboard_scale:Get() / scatter.BILLBOARD_REACH_UNIT
 end
@@ -1409,10 +1416,18 @@ local function estimate_room(proto, from, to, view)
 		local d = from + (i - 0.5) / steps * (to - from)
 		local ratio = full / d
 		local fade = math.clamp((d - far * 0.7) / (far * 0.3), 0, 1)
-		area = area + math.min(ratio * ratio, 1) * (1 - fade * fade * (3 - 2 * fade)) * 2 * math.pi * d * (to - from) / steps
+		area = area + math.min(ratio * ratio, 1) * (
+				1 - fade * fade * (
+					3 - 2 * fade
+				)
+			) * 2 * math.pi * d * (
+				to - from
+			) / steps
 	end
 
-	local count = area * view * proto.density * proto.density_multiplier * (1 - 0.5 * proto.cluster_amount)
+	local count = area * view * proto.density * proto.density_multiplier * (
+			1 - 0.5 * proto.cluster_amount
+		)
 	return math.max(math.ceil(count * scatter.GROW_MARGIN), scatter.MIN_ROOM)
 end
 
@@ -1427,7 +1442,6 @@ local function size_prototype(proto)
 	proto.sized_scale = billboard_scale:Get()
 	proto.sized_switch = switch
 	local model_end = switch > 0 and math.min(switch * (1 + proto.billboard_fade), far) or far
-
 	local placed_room = proto.placed and math.max(proto.placed_count or 0, scatter.MIN_ROOM)
 
 	if proto.max_instances then
@@ -1440,7 +1454,8 @@ local function size_prototype(proto)
 	proto.far_capacity = scatter.MIN_ROOM
 
 	if switch > 0 then
-		proto.far_capacity = placed_room or estimate_room(proto, switch * (1 - proto.billboard_fade), far, 0.5)
+		proto.far_capacity = placed_room or
+			estimate_room(proto, switch * (1 - proto.billboard_fade), far, 0.5)
 	end
 
 	proto.far_peak = proto.far_capacity / scatter.GROW_MARGIN
@@ -1476,11 +1491,16 @@ local function assign_bases()
 	end
 
 	local scale = dynamic > 0 and math.min((scatter.MAX_INSTANCES - fixed) / dynamic, 1) or 1
-	assert(scale > 0, "the fixed scatter prototypes alone want more instances than the " .. scatter.MAX_INSTANCES .. " there is room for")
+	assert(
+		scale > 0,
+		"the fixed scatter prototypes alone want more instances than the " .. scatter.MAX_INSTANCES .. " there is room for"
+	)
 	local total = 0
 
 	for i, proto in ipairs(protos) do
-		proto.room = proto.max_instances and proto.capacity or math.max(math.floor(proto.capacity * scale), 1)
+		proto.room = proto.max_instances and
+			proto.capacity or
+			math.max(math.floor(proto.capacity * scale), 1)
 		proto.far_room = math.max(math.floor(proto.far_capacity * scale), 1)
 		proto.shadow_room = math.max(math.floor(proto.shadow_capacity * scale), 1)
 		instance_bases[i] = total
@@ -1531,7 +1551,10 @@ local function adjust_rooms(slot)
 		proto.shadow_billboard_peak = math.max(counts[proto.index * 4 + 3], proto.shadow_billboard_peak * 0.995)
 		target = math.max(math.ceil(proto.shadow_billboard_peak * scatter.GROW_MARGIN), scatter.MIN_ROOM)
 
-		if target > proto.shadow_billboard_capacity or target * 3 < proto.shadow_billboard_capacity then
+		if
+			target > proto.shadow_billboard_capacity or
+			target * 3 < proto.shadow_billboard_capacity
+		then
 			proto.shadow_billboard_capacity = target
 			layout_dirty = true
 		end
@@ -1679,7 +1702,9 @@ local function estimate_unit(set, material_density, distance, size)
 
 	for _, proto in ipairs(set.protos) do
 		if proto.state == "ready" then
-			total = total + proto.density * proto.density_multiplier * material_density * cpu_keep(proto, distance) * (1 - 0.5 * proto.cluster_amount) * size ^ 2
+			total = total + proto.density * proto.density_multiplier * material_density * cpu_keep(proto, distance) * (
+					1 - 0.5 * proto.cluster_amount
+				) * size ^ 2
 		end
 	end
 
@@ -1732,7 +1757,9 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 	elseif not wanted then
 		wanted = estimate_unit(surface.set, material_density, distance, unit.size)
 
-		if unit.tier > 1 and wanted > scatter.PROBE_ABOVE then wanted = scatter.PROBE_ROOM end
+		if unit.tier > 1 and wanted > scatter.PROBE_ABOVE then
+			wanted = scatter.PROBE_ROOM
+		end
 	end
 
 	local class = next_class(math.max(wanted, 1))
@@ -1753,7 +1780,15 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 		local farthest
 
 		for _, other in ipairs(units) do
-			if other.offset and other.bake_frame ~= system.GetFrameNumber() and (not farthest or other.dist > farthest.dist) then
+			if
+				other.offset and
+				other.bake_frame ~= system.GetFrameNumber()
+				and
+				(
+					not farthest or
+					other.dist > farthest.dist
+				)
+			then
 				farthest = other
 			end
 		end
@@ -1785,6 +1820,7 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 	unit.bake_frame = system.GetFrameNumber()
 	unit.count = nil
 	unit.count_for = nil
+
 	for _, pass in ipairs{passes.tiles, passes.instances} do
 		pass.surface_index = surface_index
 		pass.mask_texture = pass:GetTextureIndex(surface.material:GetTerrainMaterialTexture())
@@ -1799,12 +1835,40 @@ local function bake_unit(cmd, b, passes, unit, surface, surface_index, band)
 		pass.band_distance = distance
 	end
 
-	barrier(cmd, b.args, "compute", "transfer", {"shader_read", "shader_write"}, "transfer_write")
-	barrier(cmd, b.unit_counts, "compute", "transfer", {"shader_read", "shader_write"}, "transfer_write")
+	barrier(
+		cmd,
+		b.args,
+		"compute",
+		"transfer",
+		{"shader_read", "shader_write"},
+		"transfer_write"
+	)
+	barrier(
+		cmd,
+		b.unit_counts,
+		"compute",
+		"transfer",
+		{"shader_read", "shader_write"},
+		"transfer_write"
+	)
 	cmd:UpdateBuffer(b.args, 0, 16, JOB_RESET)
 	cmd:UpdateBuffer(b.unit_counts, unit.slot * 4, 4, ZERO_WORD)
-	barrier(cmd, b.args, "transfer", "compute", "transfer_write", {"shader_read", "shader_write"})
-	barrier(cmd, b.unit_counts, "transfer", "compute", "transfer_write", {"shader_read", "shader_write"})
+	barrier(
+		cmd,
+		b.args,
+		"transfer",
+		"compute",
+		"transfer_write",
+		{"shader_read", "shader_write"}
+	)
+	barrier(
+		cmd,
+		b.unit_counts,
+		"transfer",
+		"compute",
+		"transfer_write",
+		{"shader_read", "shader_write"}
+	)
 
 	if passes.tiles.triangle_count > 0 then
 		passes.tiles:Dispatch(
@@ -1840,7 +1904,14 @@ local function visit_cell(tier, cx, cz)
 	local size = scatter.BAKE_CELLS[tier]
 	local x0, z0 = cx * size, cz * size
 
-	if x0 > visit_max_x or x0 + size <= visit_min_x or z0 > visit_max_z or z0 + size <= visit_min_z then return end
+	if
+		x0 > visit_max_x or
+		x0 + size <= visit_min_x or
+		z0 > visit_max_z or
+		z0 + size <= visit_min_z
+	then
+		return
+	end
 
 	local dx = math.max(x0 - visit_camera_x, 0, visit_camera_x - (x0 + size))
 	local dz = math.max(z0 - visit_camera_z, 0, visit_camera_z - (z0 + size))
@@ -1863,7 +1934,15 @@ local function visit_cell(tier, cx, cz)
 	local unit = state.units[key]
 
 	if not unit then
-		unit = {state = state, key = key, tier = tier, size = size, min_x = x0, min_z = z0, slot = acquire_slot()}
+		unit = {
+			state = state,
+			key = key,
+			tier = tier,
+			size = size,
+			min_x = x0,
+			min_z = z0,
+			slot = acquire_slot(),
+		}
 		scatter.units_created = (scatter.units_created or 0) + 1
 		state.units[key] = unit
 		units[#units + 1] = unit
@@ -1907,7 +1986,12 @@ local function visit_cell(tier, cx, cz)
 	local priority
 	local rank = scatter.view_priority:Rank(x0, state.min_y, z0, x0 + size, state.max_y, z0 + size)
 
-	if not unit.offset or unit.epoch ~= bake_epoch or unit.stamp ~= state.stamp or unit.hint then
+	if
+		not unit.offset or
+		unit.epoch ~= bake_epoch or
+		unit.stamp ~= state.stamp or
+		unit.hint
+	then
 		priority = state.retiring and 1e6 + rank or rank
 	elseif band < unit.baked_band then
 		priority = 2e6 + rank
@@ -1958,7 +2042,9 @@ function scatter.AddPlacements(proto, matrices, count)
 	local groups, order = {}, {}
 
 	for i = 0, count - 1 do
-		local key = (math.floor(matrices[i * 16 + 12] / cell) + 32768) * 65536 + math.floor(matrices[i * 16 + 14] / cell) + 32768
+		local key = (
+				math.floor(matrices[i * 16 + 12] / cell) + 32768
+			) * 65536 + math.floor(matrices[i * 16 + 14] / cell) + 32768
 		local group = groups[key]
 
 		if not group then
@@ -2040,7 +2126,9 @@ function scatter.GetPlacedStatus()
 	local uploaded = 0
 
 	for _, unit in ipairs(placed_units) do
-		if unit.offset and unit.index_written == unit.proto.index then uploaded = uploaded + 1 end
+		if unit.offset and unit.index_written == unit.proto.index then
+			uploaded = uploaded + 1
+		end
 	end
 
 	return #placed_units, uploaded, #active_placed
@@ -2122,13 +2210,41 @@ local function upload_placed(cmd, b, unit, proto, frame)
 	placed_copy[0].srcOffset = 0
 	placed_copy[0].dstOffset = unit.offset * 64
 	placed_copy[0].size = size
-	barrier(cmd, b.baked, "compute", "transfer", {"shader_read", "shader_write"}, "transfer_write")
+	barrier(
+		cmd,
+		b.baked,
+		"compute",
+		"transfer",
+		{"shader_read", "shader_write"},
+		"transfer_write"
+	)
 	cmd:CopyBuffer(staging, b.baked, placed_copy, 1)
-	barrier(cmd, b.baked, "transfer", "compute", "transfer_write", {"shader_read", "shader_write"})
+	barrier(
+		cmd,
+		b.baked,
+		"transfer",
+		"compute",
+		"transfer_write",
+		{"shader_read", "shader_write"}
+	)
 	COUNT_WORD[0] = unit.n
-	barrier(cmd, b.unit_counts, "compute", "transfer", {"shader_read", "shader_write"}, "transfer_write")
+	barrier(
+		cmd,
+		b.unit_counts,
+		"compute",
+		"transfer",
+		{"shader_read", "shader_write"},
+		"transfer_write"
+	)
 	cmd:UpdateBuffer(b.unit_counts, unit.slot * 4, 4, COUNT_WORD)
-	barrier(cmd, b.unit_counts, "transfer", "compute", "transfer_write", {"shader_read", "shader_write"})
+	barrier(
+		cmd,
+		b.unit_counts,
+		"transfer",
+		"compute",
+		"transfer_write",
+		{"shader_read", "shader_write"}
+	)
 	placed_staging[#placed_staging + 1] = {buffer = staging, frame = frame}
 	unit.conform_frame = nil
 	return true
@@ -2179,7 +2295,12 @@ local function update_placed(cmd, b, passes, frame, camera)
 	for _, unit in ipairs(placed_units) do
 		local proto = unit.proto
 
-		if not unit.handle.hidden and unit.offset and proto.index and unit.index_written == proto.index then
+		if
+			not unit.handle.hidden and
+			unit.offset and
+			proto.index and
+			unit.index_written == proto.index
+		then
 			local dx = math.max(unit.min_x - camera.x, 0, camera.x - unit.max_x)
 			local dy = math.max(unit.min_y - camera.y, 0, camera.y - unit.max_y)
 			local dz = math.max(unit.min_z - camera.z, 0, camera.z - unit.max_z)
@@ -2192,7 +2313,10 @@ local function update_placed(cmd, b, passes, frame, camera)
 					passes.conform and
 					proto.conform and
 					conforms < scatter.PLACED_CONFORMS and
-					(not unit.conform_frame or frame - unit.conform_frame > scatter.PLACED_CONFORM_INTERVAL)
+					(
+						not unit.conform_frame or
+						frame - unit.conform_frame > scatter.PLACED_CONFORM_INTERVAL
+					)
 				then
 					if not tlas_set then
 						tlas_set = true
@@ -2210,7 +2334,14 @@ local function update_placed(cmd, b, passes, frame, camera)
 					passes.conform.unit_offset = unit.offset
 					passes.conform.unit_count = unit.n
 					passes.conform:Dispatch(cmd, math.ceil(unit.n / 64), 1, 1, render.GetCurrentFrame())
-					barrier(cmd, b.baked, "compute", "compute", "shader_write", {"shader_read", "shader_write"})
+					barrier(
+						cmd,
+						b.baked,
+						"compute",
+						"compute",
+						"shader_write",
+						{"shader_read", "shader_write"}
+					)
 				end
 			end
 		end
@@ -2222,7 +2353,6 @@ local function collect_bakes(candidates, camera, reach, frame)
 
 	for _, surface in ipairs(candidates) do
 		local mesh = surface.entry.polygon3d:GetMesh()
-
 		local visible = surface.component:GetVisible()
 
 		if mesh:IsValid() and (visible or scatter.preloaded[surface.component]) then
@@ -2241,7 +2371,12 @@ local function collect_bakes(candidates, camera, reach, frame)
 			state.retiring = scatter.retiring[surface.component]
 			state.min_y, state.max_y = aabb.min_y, aabb.max_y
 
-			if min_x <= max_x and min_z <= max_z and camera.y > aabb.min_y - reach and camera.y < aabb.max_y + reach then
+			if
+				min_x <= max_x and
+				min_z <= max_z and
+				camera.y > aabb.min_y - reach and
+				camera.y < aabb.max_y + reach
+			then
 				local signature = aabb.min_x + aabb.max_x * 3 + aabb.min_z * 7 + aabb.max_z * 11 + aabb.min_y * 13 + aabb.max_y * 17 + surface.material:GetScatterDensity() * 19
 
 				if state.signature ~= signature then
@@ -2263,7 +2398,6 @@ local function collect_bakes(candidates, camera, reach, frame)
 			end
 		end
 	end
-
 end
 
 local function write_cull_tables(b, ring, frame)
@@ -2360,7 +2494,8 @@ function scatter.PreDraw(cmd)
 			proto.sized_density ~= proto.density_multiplier or
 			proto.sized_distance ~= proto.distance_multiplier or
 			proto.sized_reach ~= wanted_reach or
-			proto.sized_scale ~= billboard_scale:Get() or
+			proto.sized_scale ~= billboard_scale:Get()
+			or
 			proto.sized_switch ~= get_switch(proto)
 		then
 			size_prototype(proto)
@@ -2370,19 +2505,32 @@ function scatter.PreDraw(cmd)
 	if layout_dirty then assign_bases() end
 
 	for i, proto in ipairs(protos) do
-		write_prototype(b.prototype_data[i - 1], proto, instance_bases[i], far_bases[i], shadow_bases[i], shadow_billboard_bases[i])
+		write_prototype(
+			b.prototype_data[i - 1],
+			proto,
+			instance_bases[i],
+			far_bases[i],
+			shadow_bases[i],
+			shadow_billboard_bases[i]
+		)
 	end
 
 	pool_collect()
 	local frame = system.GetFrameNumber()
 	local camera_object = render3d.GetCamera()
 	local camera = camera_object:GetPosition()
-	scatter.view_priority:Update(camera, camera_object:GetRotation():GetForward(), scatter.view_priority.GetHalfAngle(camera_object))
+	scatter.view_priority:Update(
+		camera,
+		camera_object:GetRotation():GetForward(),
+		scatter.view_priority.GetHalfAngle(camera_object)
+	)
 	local surface_base = ring * scatter.MAX_SURFACES
 	local reach = 0
 
 	for _, proto in ipairs(protos) do
-		if not proto.placed then reach = math.max(reach, proto.max_distance * proto.distance_multiplier * proto.reach) end
+		if not proto.placed then
+			reach = math.max(reach, proto.max_distance * proto.distance_multiplier * proto.reach)
+		end
 	end
 
 	collect_bakes(candidates, camera, reach, frame)
@@ -2437,7 +2585,6 @@ function scatter.PreDraw(cmd)
 		barrier(cmd, b.unit_counts, "compute", "compute", "shader_write", "shader_read")
 	end
 
-
 	update_placed(cmd, b, passes, frame, camera)
 	local kept = 0
 
@@ -2474,8 +2621,22 @@ function scatter.PreDraw(cmd)
 		{"shader_read", "shader_write"}
 	)
 	barrier(cmd, b.instances, "vertex", "compute", "shader_read", "shader_write")
-	barrier(cmd, b.commands, "draw_indirect", "compute", "indirect_command_read", "shader_write")
-	barrier(cmd, b.shadow_commands, "draw_indirect", "compute", "indirect_command_read", "shader_write")
+	barrier(
+		cmd,
+		b.commands,
+		"draw_indirect",
+		"compute",
+		"indirect_command_read",
+		"shader_write"
+	)
+	barrier(
+		cmd,
+		b.shadow_commands,
+		"draw_indirect",
+		"compute",
+		"indirect_command_read",
+		"shader_write"
+	)
 
 	if block_count > 0 then
 		passes.cull.block_count = block_count
@@ -2489,8 +2650,22 @@ function scatter.PreDraw(cmd)
 	if draw_batches[1] then
 		passes.commands.batch_count = #draw_batches
 		passes.commands:Dispatch(cmd, math.ceil(#draw_batches * 2 / 64), 1, 1, 1)
-		barrier(cmd, b.commands, "compute", "draw_indirect", "shader_write", "indirect_command_read")
-		barrier(cmd, b.shadow_commands, "compute", "draw_indirect", "shader_write", "indirect_command_read")
+		barrier(
+			cmd,
+			b.commands,
+			"compute",
+			"draw_indirect",
+			"shader_write",
+			"indirect_command_read"
+		)
+		barrier(
+			cmd,
+			b.shadow_commands,
+			"compute",
+			"draw_indirect",
+			"shader_write",
+			"indirect_command_read"
+		)
 		first_commands_frame = first_commands_frame or system.GetFrameNumber()
 	end
 
@@ -2510,7 +2685,9 @@ function scatter.PreDraw(cmd)
 end
 
 function scatter.GetRTSources()
-	if not buffers or layout_dirty or draw_version ~= ScatterSet.version then return nil end
+	if not buffers or layout_dirty or draw_version ~= ScatterSet.version then
+		return nil
+	end
 
 	local sources = {}
 
@@ -2549,7 +2726,12 @@ function scatter.Draw(pipeline, cmd)
 end
 
 event.AddListener("DrawAllShadows", "scatter", function(shadow_map, cascade_index)
-	if not enabled:Get() or not draw_batches[1] or not first_commands_frame or first_commands_frame >= system.GetFrameNumber() then
+	if
+		not enabled:Get() or
+		not draw_batches[1] or
+		not first_commands_frame or
+		first_commands_frame >= system.GetFrameNumber()
+	then
 		return
 	end
 

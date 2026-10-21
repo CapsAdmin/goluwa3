@@ -57,7 +57,9 @@ end)
 
 function META:OnAdd()
 	local network = self.Owner.network
-	local client = network and clients.GetByUniqueID(network:GetNetworkOwner()) or clients.GetLocalClient()
+	local client = network and
+		clients.GetByUniqueID(network:GetNetworkOwner()) or
+		clients.GetLocalClient()
 
 	if client:IsValid() then self.Owner:SetOwnedBy(client) end
 end
@@ -142,7 +144,6 @@ function META:OnUpdate(dt)
 	end
 
 	self:ApplyShotHidden()
-
 	local camera = owner.camera
 	local rotation
 

@@ -320,11 +320,21 @@ do
 		uniform.triangle_count = count
 		uniform.block_count = blocks
 		uniform.sums_base = sums_base
-		local slot = ((render.GetCurrentFrame() or 1) - 1) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
+		local slot = (
+				(
+					render.GetCurrentFrame() or
+					1
+				) - 1
+			) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 		local buffers = {sources_buffer, words_buffer}
-
 		cmd:PipelineBarrier{
-			srcStage = {"host", "transfer", "compute", "acceleration_structure_build_khr", "ray_tracing_shader_khr"},
+			srcStage = {
+				"host",
+				"transfer",
+				"compute",
+				"acceleration_structure_build_khr",
+				"ray_tracing_shader_khr",
+			},
 			dstStage = "compute",
 			memoryBarrier = true,
 		}

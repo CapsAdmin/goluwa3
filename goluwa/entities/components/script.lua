@@ -76,7 +76,8 @@ local function acquire_class(source, name)
 	if not ok then return nil, meta end
 
 	if type(meta) ~= "table" or not meta.RegistryKey then
-		return nil, "the script must return the component it defines (return META:Register())"
+		return nil,
+		"the script must return the component it defines (return META:Register())"
 	end
 
 	for key, fn in pairs(meta) do

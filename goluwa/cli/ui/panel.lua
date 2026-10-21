@@ -64,13 +64,9 @@ end
 
 sync_terminal_size()
 
-event.AddListener(
-	"LateUpdate",
-	"tui_panel_world_size",
-	function()
-		sync_terminal_size()
-	end
-)
+event.AddListener("LateUpdate", "tui_panel_world_size", function()
+	sync_terminal_size()
+end)
 
 function TuiPanel.Draw(term)
 	if TuiPanel.World.tui_element then
@@ -121,34 +117,30 @@ do
 		last_term_w, last_term_h = w, h
 	end)
 
-	event.AddListener(
-		"Render",
-		"tui_panel_draw",
-		function()
-			local ok, err = pcall(function()
-				if repl.GetEnabled() then return end
+	event.AddListener("Render", "tui_panel_draw", function()
+		local ok, err = pcall(function()
+			if repl.GetEnabled() then return end
 
-				if not needs_redraw then return end
+			if not needs_redraw then return end
 
-				local term = repl.GetTerminal()
+			local term = repl.GetTerminal()
 
-				if not term then return end
+			if not term then return end
 
-				needs_redraw = false
-				term:BeginFrame()
-				term:Clear()
-				TuiPanel.Draw(term)
-				term:EndFrame()
-				term:Flush()
-			end)
+			needs_redraw = false
+			term:BeginFrame()
+			term:Clear()
+			TuiPanel.Draw(term)
+			term:EndFrame()
+			term:Flush()
+		end)
 
-			if not ok then
-				repl.SetEnabled(true)
-				teardown()
-				print("Error in draw loop:", err)
-			end
+		if not ok then
+			repl.SetEnabled(true)
+			teardown()
+			print("Error in draw loop:", err)
 		end
-	)
+	end)
 end
 
 do

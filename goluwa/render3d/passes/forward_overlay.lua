@@ -13,6 +13,7 @@ local overlay_matrix = Matrix44()
 local function get_overlay_matrix()
 	return render3d.GetUnjitteredProjectionViewWorldMatrix():GetMultiplied(standard_depth, overlay_matrix)
 end
+
 return {
 	{
 		name = "forward_overlay",

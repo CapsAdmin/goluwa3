@@ -64,12 +64,18 @@ local function load_disk_cache(path, glsl)
 		return nil, "file is truncated"
 	end
 
-	if spirv_size < 20 or spirv_size % 4 ~= 0 then return nil, "invalid spir-v size" end
+	if spirv_size < 20 or spirv_size % 4 ~= 0 then
+		return nil, "invalid spir-v size"
+	end
 
 	local source_key = get_source_key(glsl)
 
-	if glsl_size ~= #source_key or data:sub(CACHE_HEADER_SIZE + spirv_size + 1) ~= source_key then
-		return nil, "made from other glsl or by another shaderc, a hash collision or a stale file"
+	if
+		glsl_size ~= #source_key or
+		data:sub(CACHE_HEADER_SIZE + spirv_size + 1) ~= source_key
+	then
+		return nil,
+		"made from other glsl or by another shaderc, a hash collision or a stale file"
 	end
 
 	local copy = ffi.new("uint8_t[?]", spirv_size)
@@ -96,7 +102,9 @@ local function remove_legacy_files()
 		end
 	end
 
-	if count > 0 then logf("[shader] removed %d cached shaders of the old format\n", count) end
+	if count > 0 then
+		logf("[shader] removed %d cached shaders of the old format\n", count)
+	end
 end
 
 -- written to a temporary file and renamed, so a reader (another process, a test worker) never
@@ -109,7 +117,10 @@ local function save_disk_cache(path, glsl, spirv_data, spirv_size)
 	header.spirv_size = spirv_size
 	header.glsl_size = #get_source_key(glsl)
 	local temp_path = path .. "." .. tostring(spirv_data):gsub("%W", "") .. ".tmp"
-	local ok = fs.write_file(temp_path, ffi.string(header, CACHE_HEADER_SIZE) .. ffi.string(spirv_data, spirv_size) .. get_source_key(glsl))
+	local ok = fs.write_file(
+		temp_path,
+		ffi.string(header, CACHE_HEADER_SIZE) .. ffi.string(spirv_data, spirv_size) .. get_source_key(glsl)
+	)
 
 	if ok and os.rename(temp_path, path) then return end
 

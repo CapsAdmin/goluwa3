@@ -856,6 +856,7 @@ do
 			end
 			meta[get_name] = info.default_getter
 		end
+
 		meta[info.var_name] = info.default
 		info.type = info.type or get_type(info.default)
 

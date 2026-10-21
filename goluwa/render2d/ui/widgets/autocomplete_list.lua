@@ -47,7 +47,6 @@ function META:rebuild_rows(session, width)
 	table.clear(rows)
 	local last_id
 	local selected_row = 1
-
 	local results = session:GetResults()
 
 	for index, result in ipairs(results) do
@@ -133,7 +132,15 @@ function META:OnUpdate()
 	local above = y - height - 2
 	local placement = self.Placement
 
-	if placement == "above" or (placement == "auto" and below + height > Panel.World.transform:GetHeight() and above >= 0) then
+	if
+		placement == "above" or
+		(
+			placement == "auto" and
+			below + height > Panel.World.transform:GetHeight()
+			and
+			above >= 0
+		)
+	then
 		y = above
 	else
 		y = below

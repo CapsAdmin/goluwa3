@@ -620,7 +620,6 @@ function weather.SetSunShadow(category, changes)
 
 	if not weather.light then
 		apply_sun_shadow()
-
 		return
 	end
 

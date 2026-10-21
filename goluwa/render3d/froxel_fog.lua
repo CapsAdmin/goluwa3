@@ -23,7 +23,6 @@ function froxel_fog.EnsureResources()
 		if froxels[key] then froxels[key]:Remove() end
 
 		local depth = key == "raw" and 2 * froxel_fog.SLICES or froxel_fog.SLICES
-
 		froxels[key] = Texture.New{
 			width = width,
 			height = height,

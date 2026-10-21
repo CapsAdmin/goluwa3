@@ -42,18 +42,14 @@ T.Test("logging capture collects output and restores the logger", function()
 end)
 
 T.Test("commands usage shows arguments, defaults, optional arguments and flags", function()
-	with_command(
-		"test_usage_command=string,number[3],boolean|nil",
-		function(name, count, enabled) end,
-		function()
-			T(commands.GetUsage(commands.added.test_usage_command))["=="](
-				"test_usage_command <name: string> [count: number = 3] [enabled: boolean]"
-			)
-		end
-	)
+	with_command("test_usage_command=string,number[3],boolean|nil", function(name, count, enabled) end, function()
+		T(commands.GetUsage(commands.added.test_usage_command))["=="]("test_usage_command <name: string> [count: number = 3] [enabled: boolean]")
+	end)
+
 	with_command({name = "test_usage_flags", flags = {verbose = "boolean"}}, function(flags) end, function()
 		T(commands.GetUsage(commands.added.test_usage_flags))["=="]("test_usage_flags [--verbose]")
 	end)
+
 	with_command("test_usage_plain", function() end, function()
 		T(commands.GetUsage(commands.added.test_usage_plain))["=="]("test_usage_plain")
 	end)
@@ -87,8 +83,16 @@ end)
 
 T.Test("autocomplete accepts inline entries, no filter lists, details and hints", function()
 	local entries = {
-		{id = "inline_a", source = {{val = "alpha", detail = "first"}, "beta"}, options = {}},
-		{id = "inline_hint", source = {{val = "", detail = "usage here", hint = true}}, options = {NoFilter = true}},
+		{
+			id = "inline_a",
+			source = {{val = "alpha", detail = "first"}, "beta"},
+			options = {},
+		},
+		{
+			id = "inline_hint",
+			source = {{val = "", detail = "usage here", hint = true}},
+			options = {NoFilter = true},
+		},
 	}
 	local results = autocomplete.Search("alp", {Lists = entries, MatchEmpty = true})
 	T(values(results))["=="]("alpha,")
@@ -98,7 +102,11 @@ T.Test("autocomplete accepts inline entries, no filter lists, details and hints"
 end)
 
 T.Test("autocomplete alphabetical lists sort matches by name", function()
-	local entry = {id = "alpha_list", source = {"zed", "bob", "amy", "cat"}, options = {Alphabetical = true}}
+	local entry = {
+		id = "alpha_list",
+		source = {"zed", "bob", "amy", "cat"},
+		options = {Alphabetical = true},
+	}
 	T(values(autocomplete.Search("", {Lists = {entry}, MatchEmpty = true})))["=="]("amy,bob,cat,zed")
 end)
 
@@ -108,7 +116,11 @@ T.Test("autocomplete sessions skip hints for selection and completion", function
 			return text,
 			"",
 			{
-				{id = "hint", source = {{val = "", detail = "syntax", hint = true}}, options = {NoFilter = true}},
+				{
+					id = "hint",
+					source = {{val = "", detail = "syntax", hint = true}},
+					options = {NoFilter = true},
+				},
 				{id = "values", source = {"one", "two"}, options = {}},
 			},
 			true
@@ -124,7 +136,16 @@ T.Test("autocomplete sessions skip hints for selection and completion", function
 	T(session:GetSelectedIndex())["=="](2)
 	local hint_only = autocomplete.NewSession{
 		GetQuery = function(text)
-			return text, "", {{id = "hint", source = {{val = "", detail = "x", hint = true}}, options = {NoFilter = true}}}, true
+			return text,
+			"",
+			{
+				{
+					id = "hint",
+					source = {{val = "", detail = "x", hint = true}},
+					options = {NoFilter = true},
+				},
+			},
+			true
 		end,
 	}
 	hint_only:SetText("cmd ")
@@ -168,7 +189,13 @@ T.Test("command input shows the syntax after a command name and values after a v
 		T(session:GetResults()[1].detail)["=="]("test_hint_cmd <name: string> [count: number = 3]")
 		T(session:HasSelectable())["=="](false)
 	end)
-	pvars.Setup2{key = "test_hint_mode", default = "fast", enums = {"fast", "slow", "safe"}, store = false}
+
+	pvars.Setup2{
+		key = "test_hint_mode",
+		default = "fast",
+		enums = {"fast", "slow", "safe"},
+		store = false,
+	}
 	local session = command_input.NewSession()
 	session:SetText("!test_hint_mode s")
 	T(values(session:GetResults()))["=="](",slow,safe,fast")
@@ -193,6 +220,7 @@ T.Test("command input runs commands and reports output and errors", function()
 	T(output)["=="]("")
 	T(ok)["=="](false)
 	T(message:find("could not find command", nil, true) ~= nil)["=="](true)
+
 	with_command("test_input_multi", function()
 		logn("line")
 	end, function()

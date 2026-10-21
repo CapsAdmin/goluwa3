@@ -880,25 +880,60 @@ end
 do
 	local tag_help = {
 		click = {description = "Opens the wrapped text as a url when clicked", sample = "link"},
-		console = {description = "Runs the wrapped text as a console command when clicked", sample = "command"},
-		nolinebreak = {description = "Keeps the wrapped words together on one line", sample = "together"},
+		console = {
+			description = "Runs the wrapped text as a console command when clicked",
+			sample = "command",
+		},
+		nolinebreak = {
+			description = "Keeps the wrapped words together on one line",
+			sample = "together",
+		},
 		wrong = {description = "Squiggly red underline", sample = "typo"},
-		background = {description = "Color behind the text (r,g,b,a)", args = "1,0.9,0.4,1", sample = "highlight"},
+		background = {
+			description = "Color behind the text (r,g,b,a)",
+			args = "1,0.9,0.4,1",
+			sample = "highlight",
+		},
 		mark = {description = "Yellow highlighter", sample = "marked"},
-		hsv = {description = "Text color from hue, saturation, value", args = "0.6,1,1", sample = "hue"},
+		hsv = {
+			description = "Text color from hue, saturation, value",
+			args = "0.6,1,1",
+			sample = "hue",
+		},
 		color = {description = "Text color (r,g,b,a)", args = "1,0.4,0.4,1", sample = "colored"},
 		alpha = {description = "Text opacity", args = "0.5", sample = "faded"},
-		blackhole = {description = "Pulls everything towards the tag", args = "1", sample = "a black hole"},
-		physics = {description = "Bouncing text inside the message (gravity y, gravity x, vel x, vel y, drag, random)", args = "1,0,120,0,1,0", sample = "bounce", height = 48},
+		blackhole = {
+			description = "Pulls everything towards the tag",
+			args = "1",
+			sample = "a black hole",
+		},
+		physics = {
+			description = "Bouncing text inside the message (gravity y, gravity x, vel x, vel y, drag, random)",
+			args = "1,0,120,0,1,0",
+			sample = "bounce",
+			height = 48,
+		},
 		font = {description = "System font name and size", args = "dejavu,20", sample = "font"},
 		circle = {description = "Filled circle, size in pixels", args = "16", void = true},
-		texture = {description = "Inline texture (path, width, height)", args = "error,32", void = true},
+		texture = {
+			description = "Inline texture (path, width, height)",
+			args = "error,32",
+			void = true,
+		},
 		translate = {description = "Moves the text (x,y)", args = "0,-4", sample = "raised"},
 		scale = {description = "Scales the text (x,y)", args = "2,1", sample = "wide"},
 		size = {description = "Scales the text uniformly", args = "1.5", sample = "big"},
 		rotate = {description = "Rotates the text in degrees", args = "15", sample = "tilted"},
-		matrixez = {description = "Offset, scale and rotation (x,y,scale x,scale y,degrees)", args = "0,0,1,1,15", sample = "twisted"},
-		matrix = {description = "Arbitrary 2x2 matrix and offset (a11,a12,a21,a22,dx,dy)", args = "1,0.3,0,1,0,0", sample = "sheared"},
+		matrixez = {
+			description = "Offset, scale and rotation (x,y,scale x,scale y,degrees)",
+			args = "0,0,1,1,15",
+			sample = "twisted",
+		},
+		matrix = {
+			description = "Arbitrary 2x2 matrix and offset (a11,a12,a21,a22,dx,dy)",
+			args = "1,0.3,0,1,0,0",
+			sample = "sheared",
+		},
 		anime = {description = "Anime-fies the wrapped text", sample = "anime"},
 	}
 	local tag_list

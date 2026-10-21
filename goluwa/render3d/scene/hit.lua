@@ -8,7 +8,11 @@ function hit.GetDescriptorSets(binding, stage, tlas_binding)
 	local sets = {}
 
 	if tlas_binding then
-		sets[1] = {type = "acceleration_structure_khr", binding_index = tlas_binding, stageFlags = stage}
+		sets[1] = {
+			type = "acceleration_structure_khr",
+			binding_index = tlas_binding,
+			stageFlags = stage,
+		}
 	end
 
 	for i = 0, hit.BINDING_COUNT - 1 do
@@ -125,7 +129,8 @@ function hit.GetCoreGLSL()
 end
 
 function hit.GetGLSL(binding)
-	return hit.GetCoreGLSL() .. ([[
+	return hit.GetCoreGLSL() .. (
+			[[
 		layout(scalar, set = 0, binding = %d) readonly buffer SceneMeshes {
 			scene_mesh scene_meshes[];
 		};
@@ -191,7 +196,8 @@ function hit.GetGLSL(binding)
 			uv.blend = vec3(vertices.v[a + 12u], vertices.v[b + 12u], vertices.v[c + 12u]);
 			return uv;
 		}
-	]]):format(binding, binding + 1, binding + 2)
+	]]
+		):format(binding, binding + 1, binding + 2)
 end
 
 function hit.GetTraceGLSL(tlas_name)

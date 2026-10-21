@@ -24,12 +24,24 @@ function gbuffer_inspect.GetEntries()
 	for _, field in ipairs(gbuffer_layout.fields) do
 		local accessor = "gbuffer_" .. (field.accessor or field.name)
 		local glsl = field.kind == "octa" and
-			(accessor .. "(pixel) * 0.5 + 0.5") or
+			(
+				accessor .. "(pixel) * 0.5 + 0.5"
+			)
+			or
 			string.format("vec3(%s(pixel) / %.6f)", accessor, field.max or 1)
-		entries[#entries + 1] = {name = field.name, sheet = field.sheet or field.name, glsl = glsl, field = field}
+		entries[#entries + 1] = {
+			name = field.name,
+			sheet = field.sheet or field.name,
+			glsl = glsl,
+			field = field,
+		}
 	end
 
-	entries[#entries + 1] = {name = "emissive", sheet = "emissive", glsl = "1.0 - exp(-gbuffer_emissive(pixel) / 16.0)"}
+	entries[#entries + 1] = {
+		name = "emissive",
+		sheet = "emissive",
+		glsl = "1.0 - exp(-gbuffer_emissive(pixel) / 16.0)",
+	}
 	entries[#entries + 1] = {
 		name = "depth",
 		sheet = "depth",
@@ -102,7 +114,10 @@ function gbuffer_inspect.GetPreview()
 end
 
 function gbuffer_inspect.SetNormalSource(source)
-	assert(table.has_value(gbuffer_inspect.NORMAL_SOURCES, source), "no normal source " .. tostring(source))
+	assert(
+		table.has_value(gbuffer_inspect.NORMAL_SOURCES, source),
+		"no normal source " .. tostring(source)
+	)
 	normal_source = source
 end
 
@@ -144,7 +159,9 @@ function gbuffer_inspect.GetSheetEntries(names)
 	local list = {}
 
 	for _, entry in ipairs(gbuffer_inspect.GetEntries()) do
-		if not names or table.has_value(names, entry.name) then list[#list + 1] = entry end
+		if not names or table.has_value(names, entry.name) then
+			list[#list + 1] = entry
+		end
 	end
 
 	return list
@@ -184,7 +201,10 @@ end
 
 function gbuffer_inspect.GetEntryIndex()
 	local rendered = get_rendered()
-	return rendered and rendered.mode == "field" and gbuffer_inspect.GetEntry(rendered.name).index or 0
+	return rendered and
+		rendered.mode == "field" and
+		gbuffer_inspect.GetEntry(rendered.name).index or
+		0
 end
 
 function gbuffer_inspect.GetTargetIndex()

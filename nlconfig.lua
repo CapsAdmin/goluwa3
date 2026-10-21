@@ -7,9 +7,6 @@ config.ignorefiles = {
 	"^%./goluwa/nattlua/",
 	"^%./local_stuff/",
 }
-config.emitter = {
-	strip_comments = {"TODO", "hack", "HOTRELOAD"},
-}
 config.commands["build"] = {
 	cb = function()
 		local nl = require("nattlua")

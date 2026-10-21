@@ -1,6 +1,5 @@
 local T = import("test/environment.lua")
 local process = import("goluwa/bindings/process.lua")
-
 local luajit = process.get_executable_path()
 
 local function read_all_stdout(proc)
@@ -68,11 +67,13 @@ T.Test("try_wait non-blocking check", function()
 end)
 
 T.Test("multi line output", function()
-	local proc = assert(process.spawn{
-		command = luajit,
-		args = {"-e", "print('a') print('b')"},
-		stdout = "pipe",
-	})
+	local proc = assert(
+		process.spawn{
+			command = luajit,
+			args = {"-e", "print('a') print('b')"},
+			stdout = "pipe",
+		}
+	)
 	local ls_output = read_all_stdout(proc)
 	local lines = {}
 

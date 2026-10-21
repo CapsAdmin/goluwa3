@@ -21,7 +21,10 @@ T.Test("render3d sun shadow settings are changed by category and handed out as c
 end)
 
 T.Test("render3d sun shadow settings reject names that do not exist", function()
-	attest.fails(function()
-		weather.SetSunShadow("cascades", {sizee = 1})
-	end, "no sun shadow setting cascades.sizee")
+	attest.fails(
+		function()
+			weather.SetSunShadow("cascades", {sizee = 1})
+		end,
+		"no sun shadow setting cascades.sizee"
+	)
 end)

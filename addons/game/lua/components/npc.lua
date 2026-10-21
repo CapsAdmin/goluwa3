@@ -59,9 +59,7 @@ local function refresh_observers()
 
 	for _, controller in ipairs(PlayerController.Instances or {}) do
 		local position = controller.Owner.transform:GetPosition()
-		observers[observer_count + 1], observers[observer_count + 2], observers[observer_count + 3] = position.x,
-		position.y,
-		position.z
+		observers[observer_count + 1], observers[observer_count + 2], observers[observer_count + 3] = position.x, position.y, position.z
 		observer_count = observer_count + 3
 	end
 end
@@ -73,7 +71,9 @@ end
 local function update_simulation()
 	local step = physics.StepIndex
 
-	if observer_step and step >= observer_step and step - observer_step < RANK_INTERVAL then return end
+	if observer_step and step >= observer_step and step - observer_step < RANK_INTERVAL then
+		return
+	end
 
 	observer_step = step
 	refresh_observers()
@@ -105,7 +105,11 @@ local function update_simulation()
 		npc.far = observer_count > 0 and
 			(
 				rank > META.MaxSimulated or
-				npc.observer_distance > npc.PhysicsDistance + (npc.far and 0 or PHYSICS_HYSTERESIS)
+				npc.observer_distance > npc.PhysicsDistance + (
+					npc.far and
+					0 or
+					PHYSICS_HYSTERESIS
+				)
 			)
 	end
 end
@@ -201,7 +205,12 @@ function META:GetPathOptions()
 		end
 	end
 
-	return {Radius = self.Radius, MaxClimb = self.MaxClimb, MaxDrop = self.MaxDrop, Blocked = blocked}
+	return {
+		Radius = self.Radius,
+		MaxClimb = self.MaxClimb,
+		MaxDrop = self.MaxDrop,
+		Blocked = blocked,
+	}
 end
 
 function META:FindPath(position, mesh)
@@ -220,7 +229,9 @@ end
 function META:OnStuck(position)
 	self.stuck_failures = self.stuck_failures + 1
 
-	if self.stuck_failures > STUCK_LIMIT then return self:Finish("OnNPCPathFailed") end
+	if self.stuck_failures > STUCK_LIMIT then
+		return self:Finish("OnNPCPathFailed")
+	end
 
 	local mesh = nav_mesh.GetMesh()
 	local path = self.path

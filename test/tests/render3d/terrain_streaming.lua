@@ -4,7 +4,6 @@ local Terrain = import("goluwa/terrain/terrain.lua")
 local TerrainSource = import("goluwa/terrain/source.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
-
 local FORWARD = Vec3(0, 0, 1)
 local HALF_ANGLE = math.pi
 
@@ -48,7 +47,9 @@ local function create_terrain()
 	}
 	terrain.Root = fake_entity()
 	terrain.CreateTile = function(self, want, chunk)
-		return {entity = fake_entity(), material = {GetScatterSet = function() end}}
+		return {entity = fake_entity(), material = {
+			GetScatterSet = function() end,
+		}}
 	end
 	terrain.CreateBVHEntity = function() end
 	return terrain

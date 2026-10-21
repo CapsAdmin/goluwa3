@@ -360,7 +360,11 @@ local function load_windows_tls()
 			while offset < #data do
 				local chunk_len = math.min(#data - offset, stream_sizes.cbMaximumMessage)
 				local msg_buffer = ffi.new("uint8_t[?]", stream_sizes.cbHeader + chunk_len + stream_sizes.cbTrailer)
-				ffi.copy(msg_buffer + stream_sizes.cbHeader, ffi.cast("const uint8_t *", data) + offset, chunk_len)
+				ffi.copy(
+					msg_buffer + stream_sizes.cbHeader,
+					ffi.cast("const uint8_t *", data) + offset,
+					chunk_len
+				)
 				local buffers = ffi.new(SecBuffer4)
 				buffers[0].BufferType = SECBUFFER_STREAM_HEADER
 				buffers[0].cbBuffer = stream_sizes.cbHeader

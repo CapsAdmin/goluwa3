@@ -1026,7 +1026,9 @@ function META:materialize_row(row_info)
 
 			tree:set_selected(node, path, key)
 
-			if is_double_click and tree.OnNodeDoubleClick(node, key, path) then return true end
+			if is_double_click and tree.OnNodeDoubleClick(node, key, path) then
+				return true
+			end
 
 			if has_children then
 				if tree.ToggleOnRowClick or is_double_click then
@@ -1371,10 +1373,7 @@ do
 						name,
 						self.Owner.transform:GetSize(),
 						{
-							color = theme.active:ResolveColor(
-								node.IconColor or self.Owner.style:GetResolvedForegroundColor(),
-								"text"
-							),
+							color = theme.active:ResolveColor(node.IconColor or self.Owner.style:GetResolvedForegroundColor(), "text"),
 						}
 					)
 

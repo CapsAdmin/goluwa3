@@ -54,6 +54,7 @@ function bin_download.Fetch(url, label)
 	local socket_pool = import("goluwa/sockets/socket_pool.lua")
 	local body, err
 	local next_percent = 0
+
 	http.DownloadSocket(
 		url,
 		function(data)
@@ -69,6 +70,7 @@ function bin_download.Fetch(url, label)
 			end
 		end
 	)
+
 	local start = system.GetTime()
 
 	while not body and not err do
@@ -97,7 +99,8 @@ function bin_download.Download(release, asset, directory)
 	local hash = import("goluwa/crypto.lua").SHA256(data)
 
 	if hash ~= asset.sha256 then
-		return nil, "sha256 mismatch for " .. asset.file .. ": expected " .. asset.sha256 .. " got " .. hash
+		return nil,
+		"sha256 mismatch for " .. asset.file .. ": expected " .. asset.sha256 .. " got " .. hash
 	end
 
 	local path = directory .. asset.file

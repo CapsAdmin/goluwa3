@@ -5,34 +5,33 @@ local model_loader = import("goluwa/render3d/model_loader.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local props = {}
 prefab.Register(
-	"prop_physics",
-	{
-		inputs = {
-			{
-				Name = "Model",
-				Type = "string",
-				Default = "",
-				Targets = {{Node = "visual", Component = "visual", Property = "ModelPath"}},
+		"prop_physics",
+		{
+			inputs = {
+				{
+					Name = "Model",
+					Type = "string",
+					Default = "",
+					Targets = {{Node = "visual", Component = "visual", Property = "ModelPath"}},
+				},
+				{
+					Name = "Offset",
+					Type = "vec3",
+					Default = Vec3(),
+					Targets = {{Node = "visual", Component = "transform", Property = "Position"}},
+				},
 			},
-			{
-				Name = "Offset",
-				Type = "vec3",
-				Default = Vec3(),
-				Targets = {{Node = "visual", Component = "transform", Property = "Position"}},
+			entities = {
+				{guid = "root", components = {}},
+				{
+					guid = "visual",
+					parent = "root",
+					properties = {Name = "visual"},
+					components = {transform = {}, visual = {}},
+				},
 			},
-		},
-		entities = {
-			{guid = "root", components = {}},
-			{
-				guid = "visual",
-				parent = "root",
-				properties = {Name = "visual"},
-				components = {transform = {}, visual = {}},
-			},
-		},
-	}
-).builtin = true
-
+		}
+	).builtin = true
 local CLEARANCE = 0.02
 
 local function get_lowest(physics, rotation)

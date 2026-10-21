@@ -51,7 +51,6 @@ local vdf = import("goluwa/codecs/vdf.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local vmt = {}
 vmt.ConvertTypedValues = convert_typed_values
-
 local DX_LEVEL = 95
 local DX_COMPARE = {
 	[">="] = function(a, b)

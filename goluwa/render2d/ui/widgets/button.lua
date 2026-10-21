@@ -71,9 +71,7 @@ function META:OnCreate()
 end
 
 function META:OnDraw()
-	if self.Backed then
-		theme.active:DrawSurface(self.transform:GetSize())
-	end
+	if self.Backed then theme.active:DrawSurface(self.transform:GetSize()) end
 
 	theme.active:Draw(self)
 end

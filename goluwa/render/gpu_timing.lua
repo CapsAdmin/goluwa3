@@ -300,6 +300,7 @@ do
 				end
 
 				::found::
+
 				local entry = by_id[id]
 
 				if not entry then
@@ -369,7 +370,12 @@ do
 		local by_name = {}
 
 		for name, sum in pairs(capture.sums) do
-			local entry = {name = name, ms = sum / frames, share = frame_ms > 0 and sum / frames / frame_ms or 0, info = infos[name]}
+			local entry = {
+				name = name,
+				ms = sum / frames,
+				share = frame_ms > 0 and sum / frames / frame_ms or 0,
+				info = infos[name],
+			}
 			result.scopes[#result.scopes + 1] = entry
 			by_name[name] = entry
 		end
@@ -381,7 +387,12 @@ do
 				ms = ms + (by_name[name] and by_name[name].ms or 0)
 			end
 
-			result.groups[#result.groups + 1] = {id = group.id, label = group.label, ms = ms, share = frame_ms > 0 and ms / frame_ms or 0}
+			result.groups[#result.groups + 1] = {
+				id = group.id,
+				label = group.label,
+				ms = ms,
+				share = frame_ms > 0 and ms / frame_ms or 0,
+			}
 		end
 
 		local function larger(a, b)

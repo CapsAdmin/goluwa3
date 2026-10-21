@@ -23,7 +23,6 @@ end
 
 function META:GetModel()
 	local instance = self.Owner.prefab
-
 	return instance and instance:GetNode("model")
 end
 

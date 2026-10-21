@@ -1457,7 +1457,6 @@ commands.Add({
 		end
 
 		pcall(import("goluwa/render/vulkan/loader_locator.lua").Locate)
-
 		local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 		local keepalive_instance = require("ffi").typeof("$[1]", vulkan.vk.VkInstance)()
 		vulkan.assert(

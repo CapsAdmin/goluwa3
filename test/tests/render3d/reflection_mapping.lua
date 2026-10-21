@@ -24,22 +24,39 @@ local mapping_pass = {
 }
 
 T.Test3D("Graphics render3d reflection sampling covers resized odd dimensions", function(draw)
-	render3d.Initialize{passes = {import("goluwa/render3d/passes/gbuffer.lua"), mapping_pass, import("goluwa/render3d/passes/blit.lua")}}
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			mapping_pass,
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
 	local ok, err = pcall(draw)
-	local downloaded = ok and render3d.pipelines.reflection_mapping_test:GetFramebuffer(1):GetAttachment(1):Download()
-	render3d.Initialize{passes = {import("goluwa/render3d/passes/gbuffer.lua"), import("goluwa/render3d/passes/blit.lua")}}
+	local downloaded = ok and
+		render3d.pipelines.reflection_mapping_test:GetFramebuffer(1):GetAttachment(1):Download()
+	render3d.Initialize{
+		passes = {
+			import("goluwa/render3d/passes/gbuffer.lua"),
+			import("goluwa/render3d/passes/blit.lua"),
+		},
+	}
+
 	if not ok then error(err, 0) end
+
 	local offsets = {{0, 0}, {1, 1}, {1, 0}, {0, 1}}
+
 	for index, size in ipairs(sizes) do
 		for phase = 0, 3 do
 			for sample = 0, 8 do
 				local x, y, sx, sy = downloaded:GetPixelFloat(sample, (index - 1) * 4 + phase)
+
 				for axis, value in ipairs({x, y}) do
 					local half_size = math.floor((size[axis] + 1) / 2)
 					local pos = axis == 1 and sx or sy
 					local first = math.floor(pos * size[axis] / half_size)
 					local last = math.floor((pos + 1) * size[axis] / half_size)
 					T(value)["=="](first + math.min(offsets[phase + 1][axis], last - first - 1))
+
 					if sample == 8 and phase == 1 then T(value)["=="](size[axis] - 1) end
 				end
 			end

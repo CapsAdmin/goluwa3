@@ -38,10 +38,12 @@ local function inspect(draw, material, view)
 	entity.visual:BuildAABB()
 	gbuffer_inspect.SetView(view)
 	local ok, err = pcall(draw)
-	local framebuffer = render3d.pipelines.gbuffer_inspect and render3d.pipelines.gbuffer_inspect:GetFramebuffer()
+	local framebuffer = render3d.pipelines.gbuffer_inspect and
+		render3d.pipelines.gbuffer_inspect:GetFramebuffer()
 	local downloaded = ok and framebuffer and framebuffer:GetAttachment(1):Download()
 	local size = render3d.GetRenderSize()
-	local center = downloaded and {downloaded:GetPixelFloat(math.floor(size.x / 2), math.floor(size.y / 2))}
+	local center = downloaded and
+		{downloaded:GetPixelFloat(math.floor(size.x / 2), math.floor(size.y / 2))}
 	gbuffer_inspect.SetView(nil)
 	entity:Remove()
 	polygon3d:Remove()

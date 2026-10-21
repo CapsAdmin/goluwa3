@@ -135,7 +135,14 @@ function grade.WriteBlock(block)
 	block.grade_gain_r = gain_r:Get()
 	block.grade_gain_g = gain_g:Get()
 	block.grade_gain_b = gain_b:Get()
-	block.grade_tone = (block.grade_ambiance ~= 0 or block.grade_highlights ~= 0 or block.grade_shadows ~= 0) and 1 or 0
+	block.grade_tone = (
+			block.grade_ambiance ~= 0 or
+			block.grade_highlights ~= 0 or
+			block.grade_shadows ~= 0
+		)
+		and
+		1 or
+		0
 	block.grade_local = 0
 	block.grade_on = (
 			block.grade_brightness ~= 0 or
@@ -159,7 +166,9 @@ function grade.WriteBlock(block)
 end
 
 function grade.GetGLSL(block_name)
-	return (([[
+	return (
+		(
+			[[
 		vec3 grade_display(vec3 c, float base) {
 			if (BLOCK.grade_on == 0) return c;
 
@@ -206,7 +215,9 @@ function grade.GetGLSL(block_name)
 			vec3 sdr = min(c, vec3(1.0));
 			return grade_display(sdr, base) + (c - sdr);
 		}
-	]]):gsub("BLOCK", block_name))
+	]]
+		):gsub("BLOCK", block_name)
+	)
 end
 
 local fields = {

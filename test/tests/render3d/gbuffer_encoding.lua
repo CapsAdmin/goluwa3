@@ -137,7 +137,6 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 	T(transmission[2])["~"](0.6 / lum, 0.07)
 	T(transmission[3])["~"](0.2 / lum, 0.07)
 	T(transmission[4])["~"](0.4, 0.01)
-
 	local coat, coat_normal = texels[5], texels[6]
 	T(coat[1])["~"](0.7, 0.01)
 	T(coat[2])["~"](0.09, 0.005)
@@ -145,7 +144,6 @@ T.Test3D("Graphics render3d gbuffer decodes what the gbuffer pass encoded", func
 	T(coat_normal[1])["~"](0, 0.01)
 	T(coat_normal[2])["~"](0, 0.01)
 	T(coat_normal[3])["~"](1, 0.01)
-
 	local lobe, tint = texels[7], texels[8]
 	T(lobe[1])["~"](0.6, 0.01)
 	T(lobe[2])["~"](0.25, 0.005)

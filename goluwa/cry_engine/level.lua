@@ -342,7 +342,9 @@ local function extract_road_object(node, world_matrix, layer, group)
 	local attrs = node.attrs
 	local points = extract_spline_points(node, world_matrix)
 
-	if not points[2] or not attrs.Material or attrs.Material == "" then return nil end
+	if not points[2] or not attrs.Material or attrs.Material == "" then
+		return nil
+	end
 
 	return {
 		name = attrs.Name,
@@ -378,7 +380,6 @@ function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, 
 
 	if attrs.EntityClass == "SpawnPoint" then
 		list.insert(extra.spawns, {name = attrs.Name, world_matrix = world_matrix})
-
 		return out
 	end
 
@@ -1259,10 +1260,16 @@ sample_terrain_height01_at_world = function(terrain, world_x, world_z)
 	local raw = sample_terrain_height_raw(terrain, sample_x, sample_y)
 	return raw / 65535
 end
+
 function level.SampleRenderedTerrainHeight(terrain, world_x, world_z)
 	local world_size = math.max(terrain.world_size or 0, 1)
-	local width = terrain.height_sample_width or terrain.height_samples_width or terrain.height_samples_per_side
-	local height = terrain.height_sample_height or terrain.height_samples_height or terrain.height_samples_per_side or width
+	local width = terrain.height_sample_width or
+		terrain.height_samples_width or
+		terrain.height_samples_per_side
+	local height = terrain.height_sample_height or
+		terrain.height_samples_height or
+		terrain.height_samples_per_side or
+		width
 	local u = -world_z / world_size
 	local v = world_x / world_size
 

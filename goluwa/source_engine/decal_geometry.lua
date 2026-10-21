@@ -201,7 +201,9 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 	local seeds = {}
 
 	for _, tri in ipairs(tris) do
-		if tri.normal_x * normal.x + tri.normal_y * normal.y + tri.normal_z * normal.z >= 0.2 then
+		if
+			tri.normal_x * normal.x + tri.normal_y * normal.y + tri.normal_z * normal.z >= 0.2
+		then
 			local v1, v2, v3 = tri[1], tri[2], tri[3]
 			local dx = (v1.x0 + v2.x0 + v3.x0) / 3 - center_x
 			local dy = (v1.y0 + v2.y0 + v3.y0) / 3 - center_y
@@ -245,7 +247,9 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 				if not tri.visited then
 					tri.visited = true
 
-					if tri.normal_x * normal.x + tri.normal_y * normal.y + tri.normal_z * normal.z < -0.2 then
+					if
+						tri.normal_x * normal.x + tri.normal_y * normal.y + tri.normal_z * normal.z < -0.2
+					then
 						tri.skip = true
 					else
 						local vc
@@ -302,19 +306,27 @@ local function project_displacements(fragments, records, origin, normal, u_axis,
 			if
 				not (
 					(
-						x1 < min_x and x2 < min_x and x3 < min_x
+						x1 < min_x and
+						x2 < min_x and
+						x3 < min_x
 					)
 					or
 					(
-						x1 > max_x and x2 > max_x and x3 > max_x
+						x1 > max_x and
+						x2 > max_x and
+						x3 > max_x
 					)
 					or
 					(
-						y1 < min_y and y2 < min_y and y3 < min_y
+						y1 < min_y and
+						y2 < min_y and
+						y3 < min_y
 					)
 					or
 					(
-						y1 > max_y and y2 > max_y and y3 > max_y
+						y1 > max_y and
+						y2 > max_y and
+						y3 > max_y
 					)
 				)
 			then

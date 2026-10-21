@@ -13,10 +13,8 @@ local trace = import("goluwa/physics/trace.lua")
 local SEED = 77
 local island = {}
 local scatter_set = presets[_G.SCATTER_SET or "crysis_jungle"] or ScatterSet.GetGrass()
-
 scatter_set:SetDensityMultiplier(_G.SCATTER_DENSITY or 2)
 scatter_set:SetDistanceMultiplier(_G.SCATTER_DISTANCE or 10)
-
 local HEIGHT_GLSL = [=[
 const vec2 MOUNTAIN_PEAK = vec2(-180.0, 140.0);
 
@@ -165,19 +163,60 @@ _G.island_terrain = Terrain.New{
 render3d.SetOceanEnabled(true)
 render3d.SetOceanLevel(0)
 island.views = {
-	{name = "map", position = Vec3(0, 3200, 0), angles = QuatDeg3(-90, 0, 0), fov = 60},
-	{name = "from the sea", position = Vec3(-5200, 90, -1500), angles = QuatDeg3(-4, -75, 0), fov = 65},
-	{name = "from a small island", position = Vec3(3000, 25, 700), angles = QuatDeg3(-2, 100, 0), fov = 70},
-	{name = "above the coast", position = Vec3(2300, 220, 0), angles = QuatDeg3(-9, 95, 0), fov = 70},
-	{name = "over the jungle", position = Vec3(1500, 120, -200), angles = QuatDeg3(-6, 100, 0), fov = 75},
-	{name = "in the jungle", position = Vec3(1200, 0, 0), ground = 1.7, angles = QuatDeg3(-2, 90, 0), fov = 75},
-	{name = "on the beach", position = Vec3(2050, 0, 0), ground = 1.7, angles = QuatDeg3(-1, 90, 0), fov = 75},
+	{
+		name = "map",
+		position = Vec3(0, 3200, 0),
+		angles = QuatDeg3(-90, 0, 0),
+		fov = 60,
+	},
+	{
+		name = "from the sea",
+		position = Vec3(-5200, 90, -1500),
+		angles = QuatDeg3(-4, -75, 0),
+		fov = 65,
+	},
+	{
+		name = "from a small island",
+		position = Vec3(3000, 25, 700),
+		angles = QuatDeg3(-2, 100, 0),
+		fov = 70,
+	},
+	{
+		name = "above the coast",
+		position = Vec3(2300, 220, 0),
+		angles = QuatDeg3(-9, 95, 0),
+		fov = 70,
+	},
+	{
+		name = "over the jungle",
+		position = Vec3(1500, 120, -200),
+		angles = QuatDeg3(-6, 100, 0),
+		fov = 75,
+	},
+	{
+		name = "in the jungle",
+		position = Vec3(1200, 0, 0),
+		ground = 1.7,
+		angles = QuatDeg3(-2, 90, 0),
+		fov = 75,
+	},
+	{
+		name = "on the beach",
+		position = Vec3(2050, 0, 0),
+		ground = 1.7,
+		angles = QuatDeg3(-1, 90, 0),
+		fov = 75,
+	},
 }
 
 function island.GetView(index)
 	local view = island.views[index]
-
-	return {Position = view.position, Rotation = view.angles, FOV = math.rad(view.fov), Ground = view.ground}
+	return {
+		Position = view.position,
+		Rotation = view.angles,
+		FOV = math.rad(view.fov),
+		Ground = view.ground,
+	}
 end
 
 commands.Add("island_view=number[0]", function(index)
@@ -216,7 +255,9 @@ do
 		if hit then fly.ground = math.max(hit.position.y, 0) end
 
 		fly.y = math.lerp(1 - 0.5 ^ (dt * 2), fly.y, fly.ground + fly.height)
-		fly.view:SetPosition(Vec3(PEAK.x + math.cos(angle) * fly.radius, fly.y, PEAK.z + math.sin(angle) * fly.radius))
+		fly.view:SetPosition(
+			Vec3(PEAK.x + math.cos(angle) * fly.radius, fly.y, PEAK.z + math.sin(angle) * fly.radius)
+		)
 		fly.view:SetRotation(QuatDeg3(-8, -math.deg(angle) - 25, 0))
 	end
 

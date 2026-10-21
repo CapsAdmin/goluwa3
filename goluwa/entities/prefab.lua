@@ -76,9 +76,7 @@ end
 local function validate(definition)
 	local entities = definition.entities
 	assert(
-		entities[1] and
-			entities[1].guid == ROOT and
-			entities[1].parent == nil,
+		entities[1] and entities[1].guid == ROOT and entities[1].parent == nil,
 		"the first prefab record must be the root with the guid " .. ROOT
 	)
 	local records = {}
@@ -94,7 +92,10 @@ local function validate(definition)
 	local names = {}
 
 	for _, input in ipairs(definition.inputs) do
-		assert(input.Name and input.Type and input.Targets, "prefab input needs Name, Type and Targets")
+		assert(
+			input.Name and input.Type and input.Targets,
+			"prefab input needs Name, Type and Targets"
+		)
 		assert(not names[input.Name], "duplicate prefab input " .. input.Name)
 		assert(
 			input.Name ~= "Path" and input.Name ~= "Inputs",
@@ -104,11 +105,18 @@ local function validate(definition)
 
 		for _, target in ipairs(input.Targets) do
 			local record = records[target.Node]
-			assert(record, ("prefab input %s targets the missing node %s"):format(input.Name, tostring(target.Node)))
+			assert(
+				record,
+				(
+					"prefab input %s targets the missing node %s"
+				):format(input.Name, tostring(target.Node))
+			)
 			assert(target.Property, "prefab input target needs a Property")
 			assert(
 				target.Component == "entity" or record.components[target.Component],
-				("prefab input %s targets the missing component %s"):format(input.Name, tostring(target.Component))
+				(
+					"prefab input %s targets the missing component %s"
+				):format(input.Name, tostring(target.Component))
 			)
 			assert(
 				target.Node ~= ROOT or
@@ -136,11 +144,11 @@ function prefab.GetPath(name)
 end
 
 function prefab.Encode(definition)
-	return scene.EncodeValue({
+	return scene.EncodeValue{
 		version = VERSION,
 		inputs = definition.inputs,
 		entities = definition.entities,
-	})
+	}
 end
 
 function prefab.Decode(str)
@@ -152,7 +160,7 @@ end
 function prefab.Register(name, data)
 	check_name(name)
 	local inputs = data.inputs or {}
-	validate({inputs = inputs, entities = data.entities})
+	validate{inputs = inputs, entities = data.entities}
 	local definition = prefab.definitions[name]
 	local existing = definition ~= nil
 	definition = definition or {
@@ -222,7 +230,10 @@ end
 
 function prefab.Snapshot(name)
 	local definition = prefab.Get(name)
-	return {inputs = copy_value(definition.inputs), entities = copy_value(definition.entities)}
+	return {
+		inputs = copy_value(definition.inputs),
+		entities = copy_value(definition.entities),
+	}
 end
 
 function prefab.Restore(name, snapshot)
@@ -260,7 +271,13 @@ local function push_input(component, input)
 
 	for _, target in ipairs(input.Targets) do
 		local entity = component.nodes[target.Node]
-		local object = entity and entity:IsValid() and (target.Component == "entity" and entity or entity[target.Component])
+		local object = entity and
+			entity:IsValid() and
+			(
+				target.Component == "entity" and
+				entity or
+				entity[target.Component]
+			)
 
 		if object then
 			objects.SetProperty(
@@ -276,7 +293,6 @@ function prefab.AddInput(name, input)
 	local definition = prefab.Get(name)
 	local inputs = definition.inputs
 	inputs[#inputs + 1] = input
-
 	local ok, err = pcall(validate, definition)
 
 	if not ok then
@@ -354,8 +370,7 @@ function prefab.AddTarget(name, input_name, target)
 			if definition.saved then prefab.Save(name) end
 
 			event.Call("PrefabChanged", definition)
-	event.Call("PrefabInputsChanged", definition)
-
+			event.Call("PrefabInputsChanged", definition)
 			return
 		end
 	end
@@ -449,8 +464,7 @@ function prefab.SetInputDefault(name, input_name, value)
 			if definition.saved then prefab.Save(name) end
 
 			event.Call("PrefabChanged", definition)
-	event.Call("PrefabInputsChanged", definition)
-
+			event.Call("PrefabInputsChanged", definition)
 			return
 		end
 	end
@@ -815,14 +829,20 @@ function prefab.SetEditing(component)
 
 	for _, node in pairs(component.nodes) do
 		for _, child in ipairs(node:GetChildren()) do
-			if not child.prefab_node and not child.prefab_owner then child.prefab_patch = true end
+			if not child.prefab_node and not child.prefab_owner then
+				child.prefab_patch = true
+			end
 		end
 	end
 end
 
 function prefab.MarkStructureDirty(entity)
 	local editing = prefab.editing
-	local component = editing and entity == editing.Owner and editing or entity.prefab_owner or entity.prefab
+	local component = editing and
+		entity == editing.Owner and
+		editing or
+		entity.prefab_owner or
+		entity.prefab
 
 	if component and component.definition then dirty[component] = true end
 end
@@ -842,7 +862,12 @@ function prefab.Commit(component)
 		local old = previous[record.guid]
 
 		if old then
-			local merged = {guid = record.guid, parent = record.parent, properties = old.properties, components = {}}
+			local merged = {
+				guid = record.guid,
+				parent = record.parent,
+				properties = old.properties,
+				components = {},
+			}
 
 			for name, properties in pairs(record.components) do
 				merged.components[name] = old.components[name] or properties
@@ -899,7 +924,6 @@ function prefab.Commit(component)
 	end
 
 	event.Call("PrefabChanged", definition)
-
 	return true
 end
 
@@ -986,33 +1010,33 @@ function prefab.CommitProperties(component, edited)
 						end
 
 						if not whole then
-						local record = replaced[node]
+							local record = replaced[node]
 
-						if not record then
-							record = copy_record(by_id[node])
-							replaced[node] = record
-						end
-
-						local container
-
-						if component_name == "entity" then
-							record.properties = record.properties or {}
-							container = record.properties
-						else
-							container = record.components[component_name]
-						end
-
-						if container then
-							if
-								value == nil or
-								scene.ValuesEqual(value, info.default) or
-								not scene.IsSerializable(value)
-							then
-								container[name] = nil
-							else
-								container[name] = copy_value(value)
+							if not record then
+								record = copy_record(by_id[node])
+								replaced[node] = record
 							end
-						end
+
+							local container
+
+							if component_name == "entity" then
+								record.properties = record.properties or {}
+								container = record.properties
+							else
+								container = record.components[component_name]
+							end
+
+							if container then
+								if
+									value == nil or
+									scene.ValuesEqual(value, info.default) or
+									not scene.IsSerializable(value)
+								then
+									container[name] = nil
+								else
+									container[name] = copy_value(value)
+								end
+							end
 						end
 					end
 				end
@@ -1054,7 +1078,6 @@ function prefab.CommitProperties(component, edited)
 	end
 
 	event.Call("PrefabChanged", definition)
-
 	return true
 end
 
@@ -1151,7 +1174,10 @@ end
 function prefab.CreateFromEntity(entity, name)
 	assert(not entity.prefab, "unpack the instance before making a prefab of it")
 	assert(not entity.prefab_owner, "a prefab cannot be made from inside another instance")
-	assert(not list.has_value(prefab.GetNames(), name), "a prefab named " .. name .. " already exists")
+	assert(
+		not list.has_value(prefab.GetNames(), name),
+		"a prefab named " .. name .. " already exists"
+	)
 	local state = prefab.Capture(entity)
 	local definition = prefab.Register(name, {inputs = {}, entities = state.records})
 	prefab.Save(name)
@@ -1170,7 +1196,6 @@ function prefab.CreateFromEntity(entity, name)
 	event.Call("PrefabChanged", definition)
 	event.Call("PrefabInputsChanged", definition)
 	event.Call("PrefabInstanceChanged", entity)
-
 	return definition
 end
 

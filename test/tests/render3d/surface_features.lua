@@ -12,8 +12,20 @@ end
 
 T.Test("surface features splice a stage in feature order and keep the stages apart", function()
 	local registry = surface_features.New{
-		{name = "a", direct_layer = "LAYER_A;", direct = "DIRECT_A;", indirect = "INDIRECT_A;", indirect_layer = "COAT_A;"},
-		{name = "b", direct_layer = "LAYER_B;", direct = "DIRECT_B;", indirect = "INDIRECT_B;", indirect_layer = "COAT_B;"},
+		{
+			name = "a",
+			direct_layer = "LAYER_A;",
+			direct = "DIRECT_A;",
+			indirect = "INDIRECT_A;",
+			indirect_layer = "COAT_A;",
+		},
+		{
+			name = "b",
+			direct_layer = "LAYER_B;",
+			direct = "DIRECT_B;",
+			indirect = "INDIRECT_B;",
+			indirect_layer = "COAT_B;",
+		},
 	}
 	local layer = registry.GetDirectLayerGLSL()
 	T(position(layer, "LAYER_A;") < position(layer, "LAYER_B;"))["=="](true)
@@ -23,7 +35,9 @@ T.Test("surface features splice a stage in feature order and keep the stages apa
 	T(has(direct, "LAYER_A;"))["=="](false)
 	T(has(registry.GetIndirectGLSL(), "COAT_A;"))["=="](false)
 	T(has(registry.GetIndirectLayerGLSL(), "INDIRECT_A;"))["=="](false)
-	T(position(registry.GetIndirectLayerGLSL(), "COAT_A;") < position(registry.GetIndirectLayerGLSL(), "COAT_B;"))["=="](true)
+	T(
+		position(registry.GetIndirectLayerGLSL(), "COAT_A;") < position(registry.GetIndirectLayerGLSL(), "COAT_B;")
+	)["=="](true)
 end)
 
 T.Test("surface features generate what a field needs", function()
@@ -31,7 +45,14 @@ T.Test("surface features generate what a field needs", function()
 		name = "fake",
 		fields = {
 			{name = "gloss", kind = "unorm4", default = "0.25", material = "get_gloss()"},
-			{name = "gloss_width", member = "width", kind = "unorm8", default = "1.0", encode = "sqrt(v)", decode = "v * v"},
+			{
+				name = "gloss_width",
+				member = "width",
+				kind = "unorm8",
+				default = "1.0",
+				encode = "sqrt(v)",
+				decode = "v * v",
+			},
 			{name = "gloss_skip", kind = "unorm8", default = "0.0", member = false},
 			{name = "gloss_normal", kind = "octa", default = "0.0"},
 		},
@@ -69,7 +90,12 @@ T.Test("surface features generate the getter of a param", function()
 			name = "fake",
 			params = {
 				{name = "Gloss", default = 0.0, getter = "get_gloss"},
-				{name = "GlossSize", default = 0.5, getter = "get_gloss_size", getter_expression = "clamp(v, 0.1, 1.0)"},
+				{
+					name = "GlossSize",
+					default = 0.5,
+					getter = "get_gloss_size",
+					getter_expression = "clamp(v, 0.1, 1.0)",
+				},
 				{name = "Unread", default = 0.0},
 			},
 		},

@@ -30,8 +30,20 @@ return {
 			decode = "v * v",
 			readers = {"lighting", "reflections"},
 		},
-		{name = "clearcoat_rain", sheet = "clearcoat", kind = "unorm8", default = "0.0", readers = {"lighting", "reflections"}},
-		{name = "clearcoat_normal", sheet = "clearcoat", kind = "octa", member = false, readers = {"lighting", "reflections"}},
+		{
+			name = "clearcoat_rain",
+			sheet = "clearcoat",
+			kind = "unorm8",
+			default = "0.0",
+			readers = {"lighting", "reflections"},
+		},
+		{
+			name = "clearcoat_normal",
+			sheet = "clearcoat",
+			kind = "octa",
+			member = false,
+			readers = {"lighting", "reflections"},
+		},
 	},
 	surface_members = [[
 

@@ -148,7 +148,13 @@ do
 		cmd:PipelineBarrier{
 			srcStage = "compute",
 			dstStage = "transfer",
-			bufferBarriers = {{buffer = def.pool, srcAccessMask = "shader_write", dstAccessMask = "transfer_read"}},
+			bufferBarriers = {
+				{
+					buffer = def.pool,
+					srcAccessMask = "shader_write",
+					dstAccessMask = "transfer_read",
+				},
+			},
 		}
 		cmd:CopyBuffer(def.pool, readback, copy, 1)
 		cmd:End()
@@ -180,7 +186,9 @@ function particles.WriteSystems(block)
 		entry.fade_time = def.fade_time
 		entry.fade_near = def.fade_near
 		entry.fade_far = def.fade_far
-		entry.collision = def.collision and assert(COLLISION_MODES[def.collision], "unknown collision " .. def.collision) or 0
+		entry.collision = def.collision and
+			assert(COLLISION_MODES[def.collision], "unknown collision " .. def.collision) or
+			0
 		entry.lit = def.lit == false and 0 or 1
 		entry.scheduled = def.should_spawn and 1 or 0
 		first = first + count
@@ -373,7 +381,11 @@ function particles.GetSimulationGLSL()
 		shades[#shades + 1] = string.format("case %du: %s_shade(p); break;", i - 1, def.name)
 		should_spawns[#should_spawns + 1] = string.format("case %du: forced = %s_should_spawn(index); break;", i - 1, def.name)
 		collision_modes[#collision_modes + 1] = string.format("case %du: mode = %s_collision_mode(p); break;", i - 1, def.name)
-		collides[#collides + 1] = string.format("case %du: %s_collide(index, p, particle_previous, hit, normal); break;", i - 1, def.name)
+		collides[#collides + 1] = string.format(
+			"case %du: %s_collide(index, p, particle_previous, hit, normal); break;",
+			i - 1,
+			def.name
+		)
 		visibilities[#visibilities + 1] = string.format("case %du: visibility *= %s_visibility(p); break;", i - 1, def.name)
 	end
 
@@ -582,13 +594,17 @@ function particles.BuildSimulationPasses()
 			storage_buffers = {
 				{binding_index = BINDING_LIGHT_GRID},
 			},
-			descriptor_sets = hit.IsSupported() and hit.GetDescriptorSets(BINDING_HIT, "compute", BINDING_TLAS) or nil,
+			descriptor_sets = hit.IsSupported() and
+				hit.GetDescriptorSets(BINDING_HIT, "compute", BINDING_TLAS) or
+				nil,
 			on_pre_draw = function(self, cmd, frame, desc)
 				light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
 				local wants_rays = false
 
 				for _, def in ipairs(particles.systems) do
-					if def.IsActive() and (def.collision == "rays" or def.UsesRays and def.UsesRays()) then wants_rays = true end
+					if def.IsActive() and (def.collision == "rays" or def.UsesRays and def.UsesRays()) then
+						wants_rays = true
+					end
 				end
 
 				bvh_ready = wants_rays and hit.IsSupported()
@@ -620,21 +636,30 @@ function particles.BuildSimulationPasses()
 					if def.IsActive() then widest = math.max(widest, (def.GetCount())) end
 				end
 
-				cmd:PipelineBarrier{srcStage = {"vertex", "compute"}, dstStage = "compute", bufferBarriers = pooled_before}
+				cmd:PipelineBarrier{
+					srcStage = {"vertex", "compute"},
+					dstStage = "compute",
+					bufferBarriers = pooled_before,
+				}
 				self:UploadConstants()
 				self.pipeline:DispatchForSize(cmd, widest, #particles.systems, 1, desc, self.dynamic_offsets)
-				cmd:PipelineBarrier{srcStage = "compute", dstStage = {"vertex", "compute"}, bufferBarriers = pooled_after}
+				cmd:PipelineBarrier{
+					srcStage = "compute",
+					dstStage = {"vertex", "compute"},
+					bufferBarriers = pooled_after,
+				}
 			end,
 			custom_declarations = particles.GetParticleGLSL() .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. (
-				hit.IsSupported() and
-				hit.GetSceneGLSL("particle_scene", BINDING_TLAS) .. hit.GetGLSL(BINDING_HIT) or
-				""
-			),
+					hit.IsSupported() and
+					hit.GetSceneGLSL("particle_scene", BINDING_TLAS) .. hit.GetGLSL(BINDING_HIT)
+					or
+					""
+				),
 			shader = glsl_common.GetHashGLSL() .. glsl_common.GetPhaseGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("particle_data") .. screen_reconstruct.GetViewDepthGLSL("particle_data") .. (
-				hit.IsSupported() and
-				hit.GetTraceGLSL("particle_scene") or
-				hit.GetStubTraceGLSL()
-			) .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("particle_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("particle_data") .. atmosphere.GetGLSLDefines("particle_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("particle_data", "get_particle_sun_visibility") .. scene_lights.GetPointShadowGLSL("particle_data") .. medium_lighting.GetLocalLightsGLSL("particle_data", LOCAL_LIGHT_LIMIT) .. particles.GetSimulationGLSL(),
+					hit.IsSupported() and
+					hit.GetTraceGLSL("particle_scene") or
+					hit.GetStubTraceGLSL()
+				) .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("particle_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("particle_data") .. atmosphere.GetGLSLDefines("particle_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("particle_data", "get_particle_sun_visibility") .. scene_lights.GetPointShadowGLSL("particle_data") .. medium_lighting.GetLocalLightsGLSL("particle_data", LOCAL_LIGHT_LIMIT) .. particles.GetSimulationGLSL(),
 		},
 	}
 end
@@ -740,7 +765,10 @@ local coverage_glsl = [[
 particles.name = "particles"
 
 function particles.IsActive()
-	if not render3d.IsPassEnabled("particles") or not render3d.IsPassEnabled("translucent") then
+	if
+		not render3d.IsPassEnabled("particles") or
+		not render3d.IsPassEnabled("translucent")
+	then
 		return false
 	end
 
@@ -847,7 +875,14 @@ function particles.BuildPasses()
 			SrcAlphaBlendFactor = "one",
 			DstAlphaBlendFactor = "one",
 			AlphaBlendOp = "add",
-			color_blend = {attachments = {{}, translucent_moments.ADDITIVE, translucent_moments.ADDITIVE, translucent_moments.MULTIPLY}},
+			color_blend = {
+				attachments = {
+					{},
+					translucent_moments.ADDITIVE,
+					translucent_moments.ADDITIVE,
+					translucent_moments.MULTIPLY,
+				},
+			},
 			DepthTest = true,
 			DepthWrite = false,
 			DepthCompareOp = "greater_or_equal",

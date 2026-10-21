@@ -41,7 +41,12 @@ return {
 			type = "render_texture",
 			requires = "AlbedoTexture",
 		},
-		{name = "DetailTiling", kind = "vec2", default = Vec2(1.0, 1.0), requires = "DetailTexture"},
+		{
+			name = "DetailTiling",
+			kind = "vec2",
+			default = Vec2(1.0, 1.0),
+			requires = "DetailTexture",
+		},
 		{name = "DetailBumpScale", default = 1.0, requires = "DetailTexture"},
 		{name = "DetailBlendAmount", default = 0.0, requires = "DetailTexture"},
 		{
@@ -78,9 +83,24 @@ return {
 			callback = ray,
 			category = "Texture Transforms",
 		},
-		{name = "BaseTextureTransformV", kind = "vec4", default = Vec4(0, 1, 0, 0), callback = ray},
-		{name = "BumpTransformU", kind = "vec4", default = Vec4(1, 0, 0, 0), callback = ray},
-		{name = "BumpTransformV", kind = "vec4", default = Vec4(0, 1, 0, 0), callback = ray},
+		{
+			name = "BaseTextureTransformV",
+			kind = "vec4",
+			default = Vec4(0, 1, 0, 0),
+			callback = ray,
+		},
+		{
+			name = "BumpTransformU",
+			kind = "vec4",
+			default = Vec4(1, 0, 0, 0),
+			callback = ray,
+		},
+		{
+			name = "BumpTransformV",
+			kind = "vec4",
+			default = Vec4(0, 1, 0, 0),
+			callback = ray,
+		},
 		{
 			name = "Texture2TransformU",
 			kind = "vec4",

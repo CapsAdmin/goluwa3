@@ -311,7 +311,11 @@ if SERVER then
 	end)
 
 	flush_prefab = function(name)
-		local item = {kind = "prefab", payload = prefab.Encode(prefab.definitions[name]), parent = name}
+		local item = {
+			kind = "prefab",
+			payload = prefab.Encode(prefab.definitions[name]),
+			parent = name,
+		}
 
 		for _, client in ipairs(clients.GetAll()) do
 			if not client:IsBot() then queue_or_send(client, item) end
@@ -446,7 +450,6 @@ if SERVER then
 			if other ~= client and not other:IsBot() then queue_or_send(other, item) end
 		end
 	end
-
 	handlers.prefab = function(client, payload, blob)
 		if not push_allowed:Get() then
 			wlog("%s tried to send prefab %s but sv_scene_push is off", client, blob.parent)
@@ -504,7 +507,6 @@ if CLIENT and not SERVER then
 	handlers.owners = function(_, payload)
 		pending_owners = scene.DecodeValue(payload)
 	end
-
 	handlers.snapshot = function(_, payload, blob)
 		local stats = scene_sync.stats
 		local data = scene.Decode(payload)
@@ -539,6 +541,7 @@ if CLIENT and not SERVER then
 	handlers.apply = function(_, payload, blob)
 		local data = scene.Decode(payload)
 		local roots = scene.Apply(data, resolve_parent(blob.parent), {skip_unavailable = not RENDER_3D})
+
 		if blob.owner ~= "" then
 			for _, root in ipairs(roots) do
 				set_owner(root, blob.owner)

@@ -62,12 +62,20 @@ T.Test("foliage generators refuse keys they do not have", function()
 	raises(function()
 		foliage.Resolve("oak", {sede = 1})
 	end, "unknown oak key sede")
-	raises(function()
-		foliage.Resolve("no_such_tree", {})
-	end, "unknown foliage generator")
-	raises(function()
-		textures.GetSource("bark", {colour = {1, 1, 1}})
-	end, "unknown bark texture key colour")
+
+	raises(
+		function()
+			foliage.Resolve("no_such_tree", {})
+		end,
+		"unknown foliage generator"
+	)
+
+	raises(
+		function()
+			textures.GetSource("bark", {colour = {1, 1, 1}})
+		end,
+		"unknown bark texture key colour"
+	)
 end)
 
 T.Test3D("foliage assets are the same for the same seed and config and differ for another seed", function()
@@ -82,11 +90,17 @@ T.Test3D("foliage assets are the same for the same seed and config and differ fo
 		local name, config = case[1], case[2]
 		local first = checksum(build(name, config))
 		T(checksum(build(name, config)))["=="](first)
-		T(checksum(build(name, {seed = 5, blades = config.blades, resolution = config.resolution})) ~= first)["=="](true)
+		T(
+			checksum(build(name, {seed = 5, blades = config.blades, resolution = config.resolution})) ~= first
+		)["=="](true)
 	end
 
-	T(checksum(build("boulder", {seed = 4, resolution = 6, noise = 0.4})) ~= checksum(build("boulder", {seed = 4, resolution = 6})))["=="](true)
-	T(foliage.Build("boulder", {seed = 9, resolution = 4}) == foliage.Build("boulder", {resolution = 4, seed = 9}))["=="](true)
+	T(
+		checksum(build("boulder", {seed = 4, resolution = 6, noise = 0.4})) ~= checksum(build("boulder", {seed = 4, resolution = 6}))
+	)["=="](true)
+	T(
+		foliage.Build("boulder", {seed = 9, resolution = 4}) == foliage.Build("boulder", {resolution = 4, seed = 9})
+	)["=="](true)
 end)
 
 T.Test3D("foliage trees bend in the wind and their leaves let light through", function()
@@ -127,7 +141,14 @@ local function colors(part)
 
 	for i = 0, packed.vertex_count - 1 do
 		local v = packed.vertices[i]
-		out[i + 1] = {y = v.position[1], x = v.position[0], z = v.position[2], r = v.vertex_color[0], g = v.vertex_color[1], b = v.vertex_color[2]}
+		out[i + 1] = {
+			y = v.position[1],
+			x = v.position[0],
+			z = v.position[2],
+			r = v.vertex_color[0],
+			g = v.vertex_color[1],
+			b = v.vertex_color[2],
+		}
 	end
 
 	return out
@@ -148,7 +169,6 @@ T.Test3D("foliage trunks only sway in the wind and what grows on them turns abou
 
 	for _, name in ipairs{"pine", "oak", "birch", "willow"} do
 		local parts = build(name, {seed = 1})
-
 		local leaves = colors(parts[2])
 
 		for i = 1, #leaves, 4 do
@@ -243,7 +263,14 @@ T.Test3D("foliage models load by their asset path", function()
 end)
 
 T.Test3D("foliage textures and materials are assets and draw the same from the same seed", function()
-	for _, name in ipairs{"oak_leaves", "oak_bark", "rock_granite", "grass_meadow", "flower_poppy", "mushroom_amanita"} do
+	for _, name in ipairs{
+		"oak_leaves",
+		"oak_bark",
+		"rock_granite",
+		"grass_meadow",
+		"flower_poppy",
+		"mushroom_amanita",
+	} do
 		local material = assets.GetMaterial(foliage.GetMaterialPath(name))
 		T(material:GetAlbedoTexture() ~= nil)["=="](true)
 		T(material:GetNormalTexture() ~= nil)["=="](true)
@@ -271,6 +298,7 @@ T.Test3D("foliage textures and materials are assets and draw the same from the s
 
 	T(clear)[">"](0)
 	T(solid)[">"](0)
+
 	local function roughness_range(downloaded)
 		local low, high = 255, 0
 
@@ -286,7 +314,9 @@ T.Test3D("foliage textures and materials are assets and draw the same from the s
 	T(bark.size)["=="](64 * 64)
 	local low, high = roughness_range(bark)
 	T(high - low)[">"](25)
-	low = roughness_range(textures.Build("leaves", "roughness", {seed = 3, width = 256, height = 64, berries = 6}):Download())
+	low = roughness_range(
+		textures.Build("leaves", "roughness", {seed = 3, width = 256, height = 64, berries = 6}):Download()
+	)
 	T(low)["<"](100)
 end)
 

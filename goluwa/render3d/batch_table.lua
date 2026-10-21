@@ -54,7 +54,6 @@ local function write_batch_record(self, pipeline, context, index, batch, serial)
 	local record = self.records[index - 1]
 	local addresses = ffi.cast(UInt64Ptr, record.addresses)
 	local mesh = batch.mesh
-
 	local material = batch.material
 
 	if mesh:IsValid() then
@@ -65,7 +64,11 @@ local function write_batch_record(self, pipeline, context, index, batch, serial)
 			source and
 			self.batch_at[source] and
 			self.batch_at[source].first_polygon3d == batch.first_polygon3d and
-			self.versions[source] == (material.property_version or -1) and
+			self.versions[source] == (
+				material.property_version or
+				-1
+			)
+			and
 			source ~= index
 		then
 			ffi.copy(record, self.records[source - 1], self.record_size)
@@ -136,7 +139,8 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	local version = objects.version_counter
 	local animation_version = self.animation_version()
 	local release_serial = Buffer.address_release_serial
-	local resync = self.batch_serial ~= batch_serial or self.address_release_serial ~= release_serial
+	local resync = self.batch_serial ~= batch_serial or
+		self.address_release_serial ~= release_serial
 
 	if
 		not resync and
@@ -172,7 +176,6 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	local animated_batches = self.animated_batches
 	local serial = self.write_serial + 1
 	self.write_serial = serial
-
 	local changes = self.changes
 
 	if
@@ -191,7 +194,9 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 			local i = log[change % size]
 			local batch = batches[i]
 
-			if batch_at[i] ~= batch then write_batch_record(self, pipeline, context, i, batch, serial) end
+			if batch_at[i] ~= batch then
+				write_batch_record(self, pipeline, context, i, batch, serial)
+			end
 		end
 
 		self.written_count = count

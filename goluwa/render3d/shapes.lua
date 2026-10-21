@@ -175,7 +175,9 @@ function shapes.BuildLathe(poly, profile, segments, texture_scale, scale)
 		local own = directions[k]
 		local other = directions[at_start and k - 1 or k + 1]
 
-		if not other or own[1] * other[1] + own[2] * other[2] < smooth_cos then return own end
+		if not other or own[1] * other[1] + own[2] * other[2] < smooth_cos then
+			return own
+		end
 
 		local dr, dy = own[1] + other[1], own[2] + other[2]
 		local length = math.max(math.sqrt(dr * dr + dy * dy), 1e-9)

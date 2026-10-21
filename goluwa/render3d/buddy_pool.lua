@@ -3,7 +3,10 @@ local BuddyPool = {}
 BuddyPool.__index = BuddyPool
 
 function BuddyPool.New(size, min_class, max_class)
-	assert(size % 2 ^ max_class == 0, "the size of a buddy pool is a whole number of rooms of its biggest class")
+	assert(
+		size % 2 ^ max_class == 0,
+		"the size of a buddy pool is a whole number of rooms of its biggest class"
+	)
 	local self = setmetatable({}, BuddyPool)
 	self.Size = size
 	self.MinClass = min_class

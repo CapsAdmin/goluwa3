@@ -165,7 +165,6 @@ T.Test3D("Graphics render3d batch table copies the record of rows with the same 
 	batch_table:Remove()
 end)
 
-
 T.Test3D("Graphics render3d batch table rewrites records when needed", function()
 	local batch_table = create_table()
 	local batches = create_batches(300)
@@ -186,7 +185,11 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 	T(update(1, 2))["=="](4)
 	T(update(1, 3))["=="](4)
 	T(update(2, 4))["=="](4)
-	batches[50] = {mesh = batches[50].mesh, first_polygon3d = batches[50].first_polygon3d, value = 5000}
+	batches[50] = {
+		mesh = batches[50].mesh,
+		first_polygon3d = batches[50].first_polygon3d,
+		value = 5000,
+	}
 	T(update(3, 5))["=="](1 + 4)
 	T(read_record(batch_table.buffers[1], 50).value)["=="](5000)
 	local release_serial = Buffer.address_release_serial
@@ -207,7 +210,12 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 	T(update(3, 10))["=="](2 + 4)
 	T(read_record(batch_table.buffers[1], 101).value)["=="](2000)
 	local other = create_material()
-	batches[101] = {mesh = batches[101].mesh, first_polygon3d = batches[101].first_polygon3d, material = other, value = 3000}
+	batches[101] = {
+		mesh = batches[101].mesh,
+		first_polygon3d = batches[101].first_polygon3d,
+		material = other,
+		value = 3000,
+	}
 	T(update(4, 11))["=="](1 + 4)
 	batches[101].value = 3500
 	material:SetOther(3)

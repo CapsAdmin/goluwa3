@@ -11,7 +11,6 @@ local function perpendicular(v)
 end
 
 trees.perpendicular = perpendicular
-
 local CROWN_SHAPES = {
 	conical = function(r)
 		return 0.15 + 0.85 * (1 - r)
@@ -50,7 +49,13 @@ function trees.Grow(rng, start, dir, length, radius, spec, segments, floor_heigh
 
 	for i = 0, segments do
 		local t = i / segments
-		points[i + 1] = {pos = pos, dir = dir, radius = radius + (tip_radius - radius) * t, t = t, reach = reach}
+		points[i + 1] = {
+			pos = pos,
+			dir = dir,
+			radius = radius + (tip_radius - radius) * t,
+			t = t,
+			reach = reach,
+		}
 
 		if i < segments then
 			reach = reach + sqrt(dir.x * dir.x + dir.z * dir.z) * step
@@ -62,7 +67,10 @@ function trees.Grow(rng, start, dir, length, radius, spec, segments, floor_heigh
 			dir = dir:GetRotated(across:GetNormalized(), curve)
 
 			if noise > 0 then
-				dir = dir:GetRotated(perpendicular(dir):GetRotated(dir, rng:Next() * math.pi * 2), rng:Gaussian() * noise)
+				dir = dir:GetRotated(
+					perpendicular(dir):GetRotated(dir, rng:Next() * math.pi * 2),
+					rng:Gaussian() * noise
+				)
 			end
 
 			dir = (dir + Vec3(0, up - gravity, 0)):GetNormalized()
@@ -106,7 +114,16 @@ function trees.AddTube(wood, points, sides, tile, phase, stiffness, cap, v_offse
 		ring[i] = {point.pos.x, point.pos.y, point.pos.z, point.radius, 0, phase, stiffness(point)}
 	end
 
-	return wood:Tube(ring, {sides = sides, u_repeat = u_repeat, v_length = tile, v_offset = v_offset, cap = cap})
+	return wood:Tube(
+		ring,
+		{
+			sides = sides,
+			u_repeat = u_repeat,
+			v_length = tile,
+			v_offset = v_offset,
+			cap = cap,
+		}
+	)
 end
 
 function trees.NewCards()
@@ -162,9 +179,7 @@ do
 			local uv = card.uv
 			local out = c - nearest_on(trunk, c)
 
-			if n:GetDot(out) < 0 then
-				r, n = -r, -n
-			end
+			if n:GetDot(out) < 0 then r, n = -r, -n end
 
 			for k = 0, 3 do
 				local sx = (k == 1 or k == 2) and 1 or -1
@@ -174,7 +189,16 @@ do
 				out = out:GetLength() > 0.001 and out:GetNormalized() or n
 				local normal = n * (1 - bend) + out * bend
 				mesh:SetColor(sy > 0 and 1 or 0, card.phase, sy > 0 and card.top_stiffness or card.stiffness)
-				mesh:Vertex(p.x, p.y, p.z, normal.x, normal.y, normal.z, sx > 0 and uv[3] or uv[1], sy > 0 and uv[4] or uv[2])
+				mesh:Vertex(
+					p.x,
+					p.y,
+					p.z,
+					normal.x,
+					normal.y,
+					normal.z,
+					sx > 0 and uv[3] or uv[1],
+					sy > 0 and uv[4] or uv[2]
+				)
 			end
 
 			mesh:Quad(first, first + 1, first + 2, first + 3)
@@ -213,7 +237,16 @@ local function add_children(state, level, points, length, phase, reach)
 
 	for i = 0, count - 1 do
 		local slot = whorl and floor(i / whorl) or i
-		local t = spec.start + (spec.stop - spec.start) * (slot + 0.5 + (rng:Next() - 0.5) * (spec.jitter or 0.6)) / positions
+		local t = spec.start + (
+				spec.stop - spec.start
+			) * (
+				slot + 0.5 + (
+					rng:Next() - 0.5
+				) * (
+					spec.jitter or
+					0.6
+				)
+			) / positions
 		local pos, dir, radius, along = trees.Sample(points, t)
 		local child_length
 
@@ -225,9 +258,15 @@ local function add_children(state, level, points, length, phase, reach)
 
 		if child_length > (spec.min_length or 0.05) then
 			if whorl then
-				azimuth = (i % whorl) / whorl * math.pi * 2 + slot * rad(spec.rotate) + (rng:Next() - 0.5) * 0.4
+				azimuth = (
+						i % whorl
+					) / whorl * math.pi * 2 + slot * rad(spec.rotate) + (
+						rng:Next() - 0.5
+					) * 0.4
 			else
-				azimuth = azimuth + rad(spec.rotate) + (rng:Next() - 0.5) * rad(spec.rotate_variation or 20)
+				azimuth = azimuth + rad(spec.rotate) + (
+						rng:Next() - 0.5
+					) * rad(spec.rotate_variation or 20)
 			end
 
 			local around = perpendicular(dir)
@@ -240,7 +279,16 @@ local function add_children(state, level, points, length, phase, reach)
 
 			local child_dir = (dir * cos(angle) + out * sin(angle)):GetNormalized()
 			local child_phase = level == 0 and rng:Next() or phase
-			add_branch(state, level + 1, pos, child_dir, child_length, radius * spec.radius, child_phase, level == 0 and 0 or reach + along)
+			add_branch(
+				state,
+				level + 1,
+				pos,
+				child_dir,
+				child_length,
+				radius * spec.radius,
+				child_phase,
+				level == 0 and 0 or reach + along
+			)
 		end
 	end
 end
@@ -248,8 +296,20 @@ end
 function add_branch(state, level, start, dir, length, radius, phase, reach, root)
 	local config = state.config
 	local spec = level == 0 and config.trunk or config.levels[level]
-	local segments = max(2, floor(spec.segments * min(length / max(state.reference[level], 0.01), 1) + 0.5))
-	local points = trees.Grow(state.rng, start, dir, length, radius, spec, segments, level > 0 and min(0.4, state.height * 0.15) or nil)
+	local segments = max(
+		2,
+		floor(spec.segments * min(length / max(state.reference[level], 0.01), 1) + 0.5)
+	)
+	local points = trees.Grow(
+		state.rng,
+		start,
+		dir,
+		length,
+		radius,
+		spec,
+		segments,
+		level > 0 and min(0.4, state.height * 0.15) or nil
+	)
 	local flex = level == 0 and 0 or config.flex
 
 	local function stiffness(point)
@@ -259,7 +319,9 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 	if root and config.flare > 0 then
 		for _, point in ipairs(points) do
 			local y = point.pos.y - start.y
-			point.radius = point.radius * (1 + config.flare * math.exp(-y / (config.flare_height * state.height)))
+			point.radius = point.radius * (
+					1 + config.flare * math.exp(-y / (config.flare_height * state.height))
+				)
 		end
 	end
 
@@ -279,7 +341,9 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 			local t = leaves.start + (1 - leaves.start) * rng:Next()
 			local pos, branch_dir, _, along = trees.Sample(points, t)
 			local outward = Vec3(pos.x - state.center.x, 0, pos.z - state.center.z)
-			outward = outward:GetLength() > 0.01 and outward:GetNormalized() or perpendicular(branch_dir)
+			outward = outward:GetLength() > 0.01 and
+				outward:GetNormalized() or
+				perpendicular(branch_dir)
 			local up, facing
 
 			if leaves.orientation == "hang" then
@@ -289,17 +353,45 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 				up = (branch_dir + outward * 0.3):GetNormalized()
 				facing = UP
 			else
-				up = (branch_dir * 0.6 + outward * 0.5 + UP * leaves.lift + perpendicular(branch_dir):GetRotated(branch_dir, rng:Next() * 6.28) * 0.5):GetNormalized()
+				up = (
+					branch_dir * 0.6 + outward * 0.5 + UP * leaves.lift + perpendicular(branch_dir):GetRotated(branch_dir, rng:Next() * 6.28) * 0.5
+				):GetNormalized()
 				facing = (outward + UP * 0.6):GetNormalized()
 			end
 
 			local size = rng:Pick(leaves.size)
 			local base = pos - up * (size * 0.05)
 			local held = trees.Stiffness(reach + along, flex)
-			trees.AddCard(state.cards, rng, base, up, facing, size, leaves.roll, phase, held, config.flex, leaves.atlas, leaves.aspect)
+			trees.AddCard(
+				state.cards,
+				rng,
+				base,
+				up,
+				facing,
+				size,
+				leaves.roll,
+				phase,
+				held,
+				config.flex,
+				leaves.atlas,
+				leaves.aspect
+			)
 
 			if leaves.cross then
-				trees.AddCard(state.cards, rng, base, up, facing:GetRotated(up, math.pi * 0.5), size, leaves.roll, phase, held, config.flex, leaves.atlas, leaves.aspect)
+				trees.AddCard(
+					state.cards,
+					rng,
+					base,
+					up,
+					facing:GetRotated(up, math.pi * 0.5),
+					size,
+					leaves.roll,
+					phase,
+					held,
+					config.flex,
+					leaves.atlas,
+					leaves.aspect
+				)
 			end
 		end
 	end
@@ -317,7 +409,16 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 			local angle = rad(state.rng:Pick(split.angle))
 			local limb_dir = (tip.dir * cos(angle) + out * sin(angle)):GetNormalized()
 			local limb_length = state.height * state.rng:Pick(split.length)
-			add_branch(state, 0, tip.pos - tip.dir * (tip.radius * 0.5), limb_dir, limb_length, tip.radius * split.radius, state.rng:Next(), 0)
+			add_branch(
+				state,
+				0,
+				tip.pos - tip.dir * (tip.radius * 0.5),
+				limb_dir,
+				limb_length,
+				tip.radius * split.radius,
+				state.rng:Next(),
+				0
+			)
 		end
 	end
 
@@ -351,18 +452,28 @@ function trees.BuildTree(config, rng)
 	local trunk_rng = rng:Fork("trunk")
 	local stems = config.stems
 
-	if config.split then
-		state.split = config.split
-	end
+	if config.split then state.split = config.split end
 
 	for i = 1, stems do
 		local azimuth = (i - 1) / stems * math.pi * 2 + trunk_rng:Next()
 		local lean = rad(trunk_rng:Pick(config.lean))
 		local dir = Vec3(sin(lean) * cos(azimuth), cos(lean), sin(lean) * sin(azimuth))
 		local length = config.split and height * config.split.height or height
-		local offset = stems > 1 and Vec3(cos(azimuth), 0, sin(azimuth)) * config.stem_spread or Vec3(0, 0, 0)
+		local offset = stems > 1 and
+			Vec3(cos(azimuth), 0, sin(azimuth)) * config.stem_spread or
+			Vec3(0, 0, 0)
 		state.split_done = false
-		add_branch(state, 0, offset + Vec3(0, -config.sink, 0), dir, length * trunk_rng:Range(0.9, 1.1), height * config.trunk_radius, trunk_rng:Next(), 0, true)
+		add_branch(
+			state,
+			0,
+			offset + Vec3(0, -config.sink, 0),
+			dir,
+			length * trunk_rng:Range(0.9, 1.1),
+			height * config.trunk_radius,
+			trunk_rng:Next(),
+			0,
+			true
+		)
 	end
 
 	local parts = {}
@@ -398,7 +509,15 @@ local function species(overrides)
 		split = false,
 		crown_start = 0.3,
 		crown_shape = "spherical",
-		trunk = {segments = 14, sides = 12, taper = 0.7, curve = 0, noise = 3, gravity = 0, up = 0},
+		trunk = {
+			segments = 14,
+			sides = 12,
+			taper = 0.7,
+			curve = 0,
+			noise = 3,
+			gravity = 0,
+			up = 0,
+		},
 		levels = {},
 		flex = 0.1,
 		min_radius = 0.004,
@@ -492,14 +611,59 @@ add_species(
 		split = {height = 0.38, count = 3, angle = {28, 45}, length = {0.5, 0.62}, radius = 0.72},
 		crown_start = 0.3,
 		crown_shape = "dome",
-		trunk = {segments = 10, sides = 14, taper = 0.35, curve = 0, noise = 6, gravity = 0, up = 0.02},
+		trunk = {
+			segments = 10,
+			sides = 14,
+			taper = 0.35,
+			curve = 0,
+			noise = 6,
+			gravity = 0,
+			up = 0.02,
+		},
 		levels = {
-			level{count = 9, start = 0.2, length = {0.3, 0.42}, angle = {50, 75}, curve = -10, noise = 14, up = 0.05, radius = 0.5, segments = 8, sides = 8},
-			level{count = 8, start = 0.15, length = {0.45, 0.6}, angle = {35, 60}, noise = 18, up = 0.08, radius = 0.55, segments = 6, sides = 5},
-			level{count = 6, start = 0.25, length = {0.4, 0.55}, angle = {35, 55}, noise = 15, up = 0.1, radius = 0.6, segments = 3, sides = 3},
+			level{
+				count = 9,
+				start = 0.2,
+				length = {0.3, 0.42},
+				angle = {50, 75},
+				curve = -10,
+				noise = 14,
+				up = 0.05,
+				radius = 0.5,
+				segments = 8,
+				sides = 8,
+			},
+			level{
+				count = 8,
+				start = 0.15,
+				length = {0.45, 0.6},
+				angle = {35, 60},
+				noise = 18,
+				up = 0.08,
+				radius = 0.55,
+				segments = 6,
+				sides = 5,
+			},
+			level{
+				count = 6,
+				start = 0.25,
+				length = {0.4, 0.55},
+				angle = {35, 55},
+				noise = 15,
+				up = 0.1,
+				radius = 0.6,
+				segments = 3,
+				sides = 3,
+			},
 		},
 		bark = "oak_bark",
-		leaves = leaves{material = "oak_leaves", level = 2, density = 2.2, start = 0.45, size = {0.6, 0.85}},
+		leaves = leaves{
+			material = "oak_leaves",
+			level = 2,
+			density = 2.2,
+			start = 0.45,
+			size = {0.6, 0.85},
+		},
 	}
 )
 add_species(
@@ -512,15 +676,62 @@ add_species(
 		lean = {0, 2},
 		crown_start = 0.22,
 		crown_shape = "conical",
-		trunk = {segments = 18, sides = 10, taper = 0.95, curve = 0, noise = 1.5, gravity = 0, up = 0},
+		trunk = {
+			segments = 18,
+			sides = 10,
+			taper = 0.95,
+			curve = 0,
+			noise = 1.5,
+			gravity = 0,
+			up = 0,
+		},
 		levels = {
-			level{count = 60, whorl = 5, start = 0.22, stop = 0.98, length = {0.24, 0.3}, angle = {75, 95}, angle_by_height = 20, rotate = 30, curve = 18, noise = 6, gravity = 0.03, radius = 0.45, segments = 7, sides = 5, jitter = 0.2},
-			level{count = 14, start = 0.1, length = {0.35, 0.5}, angle = {50, 70}, rotate = 180, rotate_variation = 30, noise = 10, gravity = 0.1, radius = 0.5, segments = 3, sides = 3},
+			level{
+				count = 60,
+				whorl = 5,
+				start = 0.22,
+				stop = 0.98,
+				length = {0.24, 0.3},
+				angle = {75, 95},
+				angle_by_height = 20,
+				rotate = 30,
+				curve = 18,
+				noise = 6,
+				gravity = 0.03,
+				radius = 0.45,
+				segments = 7,
+				sides = 5,
+				jitter = 0.2,
+			},
+			level{
+				count = 14,
+				start = 0.1,
+				length = {0.35, 0.5},
+				angle = {50, 70},
+				rotate = 180,
+				rotate_variation = 30,
+				noise = 10,
+				gravity = 0.1,
+				radius = 0.5,
+				segments = 3,
+				sides = 3,
+			},
 		},
 		flex = 0.15,
 		bark = "pine_bark",
 		bark_tile = 0.7,
-		leaves = leaves{material = "pine_needles", level = 1, density = 3.5, start = 0.1, size = {0.8, 1.1}, orientation = "flat", roll = 30, cross = true, atlas = 2, bend = 0.4},
+		leaves = leaves{
+			material = "pine_needles",
+			level = 1,
+			density = 3.5,
+			start = 0.1,
+			size = {0.8, 1.1},
+			orientation = "flat",
+			roll = 30,
+			cross = true,
+			atlas = 2,
+			bend = 0.4,
+		},
 	}
 )
 add_species(
@@ -533,16 +744,64 @@ add_species(
 		lean = {1, 6},
 		crown_start = 0.3,
 		crown_shape = "flame",
-		trunk = {segments = 16, sides = 10, taper = 0.9, curve = 0, noise = 4, gravity = 0, up = 0.01},
+		trunk = {
+			segments = 16,
+			sides = 10,
+			taper = 0.9,
+			curve = 0,
+			noise = 4,
+			gravity = 0,
+			up = 0.01,
+		},
 		levels = {
-			level{count = 26, start = 0.3, length = {0.25, 0.35}, angle = {30, 45}, curve = -30, noise = 10, gravity = 0.02, radius = 0.5, segments = 8, sides = 5},
-			level{count = 10, start = 0.2, length = {0.45, 0.6}, angle = {40, 60}, noise = 12, gravity = 0.25, radius = 0.5, segments = 5, sides = 3},
-			level{count = 5, start = 0.3, length = {0.4, 0.55}, angle = {30, 45}, noise = 10, gravity = 0.5, radius = 0.6, segments = 3, sides = 3},
+			level{
+				count = 26,
+				start = 0.3,
+				length = {0.25, 0.35},
+				angle = {30, 45},
+				curve = -30,
+				noise = 10,
+				gravity = 0.02,
+				radius = 0.5,
+				segments = 8,
+				sides = 5,
+			},
+			level{
+				count = 10,
+				start = 0.2,
+				length = {0.45, 0.6},
+				angle = {40, 60},
+				noise = 12,
+				gravity = 0.25,
+				radius = 0.5,
+				segments = 5,
+				sides = 3,
+			},
+			level{
+				count = 5,
+				start = 0.3,
+				length = {0.4, 0.55},
+				angle = {30, 45},
+				noise = 10,
+				gravity = 0.5,
+				radius = 0.6,
+				segments = 3,
+				sides = 3,
+			},
 		},
 		flex = 0.14,
 		bark = "birch_bark",
 		bark_tile = 0.5,
-		leaves = leaves{material = "birch_leaves", level = 2, density = 3, start = 0.3, size = {0.45, 0.6}, orientation = "hang", droop = 0.6, bend = 0.5},
+		leaves = leaves{
+			material = "birch_leaves",
+			level = 2,
+			density = 3,
+			start = 0.3,
+			size = {0.45, 0.6},
+			orientation = "hang",
+			droop = 0.6,
+			bend = 0.5,
+		},
 	}
 )
 add_species(
@@ -556,15 +815,58 @@ add_species(
 		split = {height = 0.3, count = 4, angle = {30, 50}, length = {0.45, 0.55}, radius = 0.68},
 		crown_start = 0.3,
 		crown_shape = "dome",
-		trunk = {segments = 8, sides = 14, taper = 0.4, curve = 0, noise = 8, gravity = 0, up = 0.03},
+		trunk = {
+			segments = 8,
+			sides = 14,
+			taper = 0.4,
+			curve = 0,
+			noise = 8,
+			gravity = 0,
+			up = 0.03,
+		},
 		levels = {
-			level{count = 8, start = 0.3, length = {0.28, 0.38}, angle = {40, 65}, curve = -25, noise = 10, up = 0.04, radius = 0.5, segments = 8, sides = 6},
-			level{count = 10, start = 0.25, stop = 1, length = {1.2, 1.7}, shorten = 0.2, angle = {20, 40}, noise = 4, gravity = 0.9, radius = 0.35, taper = 0.6, segments = 10, sides = 3, min_length = 0.5},
+			level{
+				count = 8,
+				start = 0.3,
+				length = {0.28, 0.38},
+				angle = {40, 65},
+				curve = -25,
+				noise = 10,
+				up = 0.04,
+				radius = 0.5,
+				segments = 8,
+				sides = 6,
+			},
+			level{
+				count = 10,
+				start = 0.25,
+				stop = 1,
+				length = {1.2, 1.7},
+				shorten = 0.2,
+				angle = {20, 40},
+				noise = 4,
+				gravity = 0.9,
+				radius = 0.35,
+				taper = 0.6,
+				segments = 10,
+				sides = 3,
+				min_length = 0.5,
+			},
 		},
 		flex = 0.12,
 		bark = "willow_bark",
 		bark_tile = 0.7,
-		leaves = leaves{material = "willow_leaves", level = 2, density = 2.8, start = 0.15, size = {0.5, 0.7}, orientation = "hang", droop = 2, bend = 0.4, roll = 60},
+		leaves = leaves{
+			material = "willow_leaves",
+			level = 2,
+			density = 2.8,
+			start = 0.15,
+			size = {0.5, 0.7},
+			orientation = "hang",
+			droop = 2,
+			bend = 0.4,
+			roll = 60,
+		},
 	}
 )
 add_species(
@@ -577,11 +879,47 @@ add_species(
 		lean = {0, 8},
 		crown_start = 0.35,
 		crown_shape = "tapered",
-		trunk = {segments = 12, sides = 10, taper = 0.85, curve = 0, noise = 7, gravity = 0, up = 0},
+		trunk = {
+			segments = 12,
+			sides = 10,
+			taper = 0.85,
+			curve = 0,
+			noise = 7,
+			gravity = 0,
+			up = 0,
+		},
 		levels = {
-			level{count = 16, start = 0.25, length = {0.2, 0.42}, angle = {40, 75}, noise = 22, up = 0.02, radius = 0.5, segments = 6, sides = 6},
-			level{count = 7, start = 0.15, length = {0.3, 0.55}, angle = {30, 60}, noise = 25, radius = 0.5, segments = 4, sides = 4},
-			level{count = 4, start = 0.3, length = {0.3, 0.5}, angle = {30, 60}, noise = 25, radius = 0.55, segments = 2, sides = 3},
+			level{
+				count = 16,
+				start = 0.25,
+				length = {0.2, 0.42},
+				angle = {40, 75},
+				noise = 22,
+				up = 0.02,
+				radius = 0.5,
+				segments = 6,
+				sides = 6,
+			},
+			level{
+				count = 7,
+				start = 0.15,
+				length = {0.3, 0.55},
+				angle = {30, 60},
+				noise = 25,
+				radius = 0.5,
+				segments = 4,
+				sides = 4,
+			},
+			level{
+				count = 4,
+				start = 0.3,
+				length = {0.3, 0.5},
+				angle = {30, 60},
+				noise = 25,
+				radius = 0.55,
+				segments = 2,
+				sides = 3,
+			},
 		},
 		bark = "dead_bark",
 	}
@@ -599,16 +937,52 @@ add_species(
 		stem_spread = 0.12,
 		crown_start = 0.05,
 		crown_shape = "spherical",
-		trunk = {segments = 6, sides = 5, taper = 0.8, curve = -15, noise = 10, gravity = 0, up = 0},
+		trunk = {
+			segments = 6,
+			sides = 5,
+			taper = 0.8,
+			curve = -15,
+			noise = 10,
+			gravity = 0,
+			up = 0,
+		},
 		levels = {
-			level{count = 7, start = 0.15, length = {0.4, 0.6}, angle = {35, 60}, noise = 18, up = 0.2, radius = 0.6, segments = 4, sides = 3},
-			level{count = 4, start = 0.2, length = {0.4, 0.6}, angle = {30, 50}, noise = 15, up = 0.1, radius = 0.6, segments = 2, sides = 3},
+			level{
+				count = 7,
+				start = 0.15,
+				length = {0.4, 0.6},
+				angle = {35, 60},
+				noise = 18,
+				up = 0.2,
+				radius = 0.6,
+				segments = 4,
+				sides = 3,
+			},
+			level{
+				count = 4,
+				start = 0.2,
+				length = {0.4, 0.6},
+				angle = {30, 50},
+				noise = 15,
+				up = 0.1,
+				radius = 0.6,
+				segments = 2,
+				sides = 3,
+			},
 		},
 		flex = 0.4,
 		min_radius = 0.003,
 		bark = "twig_bark",
 		bark_tile = 0.3,
-		leaves = leaves{material = "bush_leaves", level = 1, density = 7, start = 0.15, size = {0.3, 0.42}, bend = 0.6, lift = 0.4},
+		leaves = leaves{
+			material = "bush_leaves",
+			level = 1,
+			density = 7,
+			start = 0.15,
+			size = {0.3, 0.42},
+			bend = 0.6,
+			lift = 0.4,
+		},
 	}
 )
 add_species(
@@ -624,16 +998,51 @@ add_species(
 		stem_spread = 0.1,
 		crown_start = 0.05,
 		crown_shape = "dome",
-		trunk = {segments = 6, sides = 5, taper = 0.8, curve = -25, noise = 10, gravity = 0, up = 0},
+		trunk = {
+			segments = 6,
+			sides = 5,
+			taper = 0.8,
+			curve = -25,
+			noise = 10,
+			gravity = 0,
+			up = 0,
+		},
 		levels = {
-			level{count = 6, start = 0.2, length = {0.4, 0.6}, angle = {35, 60}, noise = 18, up = 0.15, radius = 0.6, segments = 4, sides = 3},
-			level{count = 3, start = 0.3, length = {0.4, 0.6}, angle = {30, 50}, noise = 15, radius = 0.6, segments = 2, sides = 3},
+			level{
+				count = 6,
+				start = 0.2,
+				length = {0.4, 0.6},
+				angle = {35, 60},
+				noise = 18,
+				up = 0.15,
+				radius = 0.6,
+				segments = 4,
+				sides = 3,
+			},
+			level{
+				count = 3,
+				start = 0.3,
+				length = {0.4, 0.6},
+				angle = {30, 50},
+				noise = 15,
+				radius = 0.6,
+				segments = 2,
+				sides = 3,
+			},
 		},
 		flex = 0.4,
 		min_radius = 0.003,
 		bark = "twig_bark",
 		bark_tile = 0.3,
-		leaves = leaves{material = "berry_leaves", level = 1, density = 8, start = 0.15, size = {0.28, 0.38}, bend = 0.6, lift = 0.4},
+		leaves = leaves{
+			material = "berry_leaves",
+			level = 1,
+			density = 8,
+			start = 0.15,
+			size = {0.28, 0.38},
+			bend = 0.6,
+			lift = 0.4,
+		},
 	}
 )
 add_species(
@@ -650,17 +1059,62 @@ add_species(
 		crown_shape = "flame",
 		trunk = {segments = 8, sides = 6, taper = 0.9, curve = 0, noise = 6, gravity = 0, up = 0},
 		levels = {
-			level{count = 40, start = 0.05, length = {0.3, 0.45}, angle = {35, 55}, curve = 10, noise = 10, up = 0.1, radius = 0.5, segments = 4, sides = 3},
+			level{
+				count = 40,
+				start = 0.05,
+				length = {0.3, 0.45},
+				angle = {35, 55},
+				curve = 10,
+				noise = 10,
+				up = 0.1,
+				radius = 0.5,
+				segments = 4,
+				sides = 3,
+			},
 		},
 		flex = 0.3,
 		bark = "pine_bark",
 		bark_tile = 0.4,
-		leaves = leaves{material = "pine_needles", level = 1, density = 9, start = 0.1, size = {0.3, 0.4}, roll = 70, atlas = 2, bend = 0.6, lift = 0.6},
+		leaves = leaves{
+			material = "pine_needles",
+			level = 1,
+			density = 9,
+			start = 0.1,
+			size = {0.3, 0.4},
+			roll = 70,
+			atlas = 2,
+			bend = 0.6,
+			lift = 0.6,
+		},
 	}
 )
 
-function trees.AddFrond(mesh, rng, base, dir, length, width, fold, gravity, curve, segments, phase, flex, center, bend)
-	local points = trees.Grow(rng, base, dir, length, 0, {taper = 0, curve = curve, noise = 3, gravity = gravity}, segments, nil)
+function trees.AddFrond(
+	mesh,
+	rng,
+	base,
+	dir,
+	length,
+	width,
+	fold,
+	gravity,
+	curve,
+	segments,
+	phase,
+	flex,
+	center,
+	bend
+)
+	local points = trees.Grow(
+		rng,
+		base,
+		dir,
+		length,
+		0,
+		{taper = 0, curve = curve, noise = 3, gravity = gravity},
+		segments,
+		nil
+	)
 	local half = length * width * 0.5
 	local fold_angle = rad(fold)
 	local first = mesh:GetVertexCount()
@@ -683,7 +1137,9 @@ function trees.AddFrond(mesh, rng, base, dir, length, width, fold, gravity, curv
 		local right = point.pos + side * (half * cos(fold_angle)) + up * (half * sin(fold_angle))
 		local normal_left = (up * cos(fold_angle) + side * sin(fold_angle) + UP * 0.3):GetNormalized()
 		local normal_right = (up * cos(fold_angle) - side * sin(fold_angle) + UP * 0.3):GetNormalized()
-		local away_left, away_right, away = (left - center):GetNormalized(), (right - center):GetNormalized(), point.pos - center
+		local away_left, away_right, away = (left - center):GetNormalized(),
+		(right - center):GetNormalized(),
+		point.pos - center
 		away = away:GetLength() > 0.001 and away:GetNormalized() or up
 		normal_left = normal_left * (1 - bend) + away_left * bend
 		normal_right = normal_right * (1 - bend) + away_right * bend
@@ -717,7 +1173,16 @@ function trees.AddBall(mesh, center, radius, rings, sides, phase, stiffness)
 		for side = 0, sides do
 			local phi = side / sides * math.pi * 2
 			local nx, ny, nz = sin(theta) * cos(phi), cos(theta), sin(theta) * sin(phi)
-			mesh:Vertex(center.x + nx * radius, center.y + ny * radius * 1.1, center.z + nz * radius, nx, ny, nz, side / sides, ring / rings)
+			mesh:Vertex(
+				center.x + nx * radius,
+				center.y + ny * radius * 1.1,
+				center.z + nz * radius,
+				nx,
+				ny,
+				nz,
+				side / sides,
+				ring / rings
+			)
 		end
 	end
 
@@ -741,7 +1206,15 @@ function trees.BuildPalm(config, rng)
 	local lean = rad(trunk_rng:Pick(config.lean))
 	local dir = Vec3(sin(lean) * cos(azimuth), cos(lean), sin(lean) * sin(azimuth))
 	local radius = height * config.trunk_radius
-	local points = trees.Grow(trunk_rng, Vec3(0, -0.3, 0), dir, height, radius, {taper = config.taper, curve = trunk_rng:Pick(config.curve), noise = 2}, 16)
+	local points = trees.Grow(
+		trunk_rng,
+		Vec3(0, -0.3, 0),
+		dir,
+		height,
+		radius,
+		{taper = config.taper, curve = trunk_rng:Pick(config.curve), noise = 2},
+		16
+	)
 
 	for _, point in ipairs(points) do
 		point.radius = point.radius * (1 + config.flare * math.exp(-(point.pos.y + 0.3) / 0.6))
@@ -758,6 +1231,7 @@ function trees.BuildPalm(config, rng)
 		end,
 		true
 	)
+
 	local top = points[#points]
 	local frond_rng = rng:Fork("fronds")
 	local count = frond_rng:Int(config.fronds[1], config.fronds[2])
@@ -766,40 +1240,90 @@ function trees.BuildPalm(config, rng)
 
 	for i = 1, count do
 		local k = (i - 1) / max(count - 1, 1)
-		local pitch = rad(config.pitch[1] + (config.pitch[2] - config.pitch[1]) * k + (frond_rng:Next() - 0.5) * 12)
+		local pitch = rad(
+			config.pitch[1] + (
+					config.pitch[2] - config.pitch[1]
+				) * k + (
+					frond_rng:Next() - 0.5
+				) * 12
+		)
 		local yaw = spin + i * golden
 		local out = Vec3(cos(yaw), 0, sin(yaw))
 		local frond_dir = (UP * cos(pitch) + out * sin(pitch)):GetNormalized()
 		local length = frond_rng:Pick(config.frond_length) * (0.75 + 0.25 * k)
-		trees.AddFrond(fronds, frond_rng, top.pos + out * (top.radius * 0.5), frond_dir, length, config.frond_width, config.fold, config.droop * (0.5 + k), -10, 12, frond_rng:Next(), config.frond_flex, top.pos, config.frond_bend)
+		trees.AddFrond(
+			fronds,
+			frond_rng,
+			top.pos + out * (top.radius * 0.5),
+			frond_dir,
+			length,
+			config.frond_width,
+			config.fold,
+			config.droop * (0.5 + k),
+			-10,
+			12,
+			frond_rng:Next(),
+			config.frond_flex,
+			top.pos,
+			config.frond_bend
+		)
 	end
 
 	for _ = 1, frond_rng:Int(config.dead_fronds[1], config.dead_fronds[2]) do
 		local yaw = frond_rng:Next() * math.pi * 2
 		local out = Vec3(cos(yaw), 0, sin(yaw))
 		local frond_dir = (UP * -0.9 + out * 0.35):GetNormalized()
-		trees.AddFrond(dry, frond_rng, top.pos - UP * 0.1 + out * top.radius, frond_dir, frond_rng:Pick(config.frond_length) * 0.6, config.frond_width * 0.6, 10, 0.05, 0, 6, frond_rng:Next(), config.frond_flex, top.pos, config.frond_bend)
+		trees.AddFrond(
+			dry,
+			frond_rng,
+			top.pos - UP * 0.1 + out * top.radius,
+			frond_dir,
+			frond_rng:Pick(config.frond_length) * 0.6,
+			config.frond_width * 0.6,
+			10,
+			0.05,
+			0,
+			6,
+			frond_rng:Next(),
+			config.frond_flex,
+			top.pos,
+			config.frond_bend
+		)
 	end
 
 	local fruit_rng = rng:Fork("fruit")
 
 	for _ = 1, fruit_rng:Int(config.fruit[1], config.fruit[2]) do
 		local yaw = fruit_rng:Next() * math.pi * 2
-		local offset = Vec3(cos(yaw), 0, sin(yaw)) * (top.radius + 0.08) - UP * fruit_rng:Range(0.1, 0.35)
+		local offset = Vec3(cos(yaw), 0, sin(yaw)) * (
+				top.radius + 0.08
+			) - UP * fruit_rng:Range(0.1, 0.35)
 		trees.AddBall(fruit, top.pos + offset, fruit_rng:Range(0.09, 0.12), 6, 8, 0, 1)
 	end
 
 	local parts = {
-		{mesh = wood:Build{bend_height = height, name = "foliage_palm_trunk"}, material = foliage.GetMaterial(config.bark)},
-		{mesh = fronds:Build{bend_height = height, name = "foliage_palm_fronds"}, material = foliage.GetMaterial(config.frond_material)},
+		{
+			mesh = wood:Build{bend_height = height, name = "foliage_palm_trunk"},
+			material = foliage.GetMaterial(config.bark),
+		},
+		{
+			mesh = fronds:Build{bend_height = height, name = "foliage_palm_fronds"},
+			material = foliage.GetMaterial(config.frond_material),
+		},
 	}
 
 	if not dry:IsEmpty() then
-		parts[#parts + 1] = {mesh = dry:Build{bend_height = height, name = "foliage_palm_dry"}, material = foliage.GetMaterial(config.dry_material)}
+		parts[#parts + 1] = {
+			mesh = dry:Build{bend_height = height, name = "foliage_palm_dry"},
+			material = foliage.GetMaterial(config.dry_material),
+		}
 	end
 
 	if not fruit:IsEmpty() then
-		parts[#parts + 1] = {mesh = fruit:Build{bend_height = height, name = "foliage_palm_fruit"}, material = foliage.GetMaterial("coconut")}
+		parts[#parts + 1] = {
+			mesh = fruit:Build{bend_height = height, name = "foliage_palm_fruit"},
+			material = foliage.GetMaterial("coconut"),
+		}
 	end
 
 	return parts
@@ -834,7 +1358,6 @@ foliage.AddGenerator(
 		build = trees.BuildPalm,
 	}
 )
-
 foliage.AddPreset("trees", "oak_a", "oak", {seed = 1})
 foliage.AddPreset("trees", "oak_b", "oak", {seed = 2})
 foliage.AddPreset("trees", "oak_c", "oak", {seed = 3})

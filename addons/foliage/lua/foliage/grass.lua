@@ -78,11 +78,47 @@ function grass.AddCrossedCards(mesh, base, up, size, aspect, tile, atlas, phase,
 		local u = up * (size * 0.5)
 		local first = mesh:GetVertexCount()
 		mesh:SetColor(0, phase, stiffness)
-		mesh:Vertex(center.x - r.x - u.x, center.y - r.y - u.y, center.z - r.z - u.z, normal.x, normal.y, normal.z, u0, 0)
-		mesh:Vertex(center.x + r.x - u.x, center.y + r.y - u.y, center.z + r.z - u.z, normal.x, normal.y, normal.z, u1, 0)
+		mesh:Vertex(
+			center.x - r.x - u.x,
+			center.y - r.y - u.y,
+			center.z - r.z - u.z,
+			normal.x,
+			normal.y,
+			normal.z,
+			u0,
+			0
+		)
+		mesh:Vertex(
+			center.x + r.x - u.x,
+			center.y + r.y - u.y,
+			center.z + r.z - u.z,
+			normal.x,
+			normal.y,
+			normal.z,
+			u1,
+			0
+		)
 		mesh:SetColor(0.8, phase, top_stiffness)
-		mesh:Vertex(center.x + r.x + u.x, center.y + r.y + u.y, center.z + r.z + u.z, normal.x, normal.y, normal.z, u1, 1)
-		mesh:Vertex(center.x - r.x + u.x, center.y - r.y + u.y, center.z - r.z + u.z, normal.x, normal.y, normal.z, u0, 1)
+		mesh:Vertex(
+			center.x + r.x + u.x,
+			center.y + r.y + u.y,
+			center.z + r.z + u.z,
+			normal.x,
+			normal.y,
+			normal.z,
+			u1,
+			1
+		)
+		mesh:Vertex(
+			center.x - r.x + u.x,
+			center.y - r.y + u.y,
+			center.z - r.z + u.z,
+			normal.x,
+			normal.y,
+			normal.z,
+			u0,
+			1
+		)
 		mesh:Quad(first, first + 1, first + 2, first + 3)
 	end
 end
@@ -145,15 +181,36 @@ function grass.BuildPatch(config, rng)
 			local stem_top = root + dir * (height - size * 0.6)
 			local phase = stem_rng:Next()
 			tallest = max(tallest, height)
-			local held = grass.AddBlade(blades, root - UP * 0.02, Vec3(cos(yaw), 0, sin(yaw)), stem_top.y - root.y + 0.02, config.stem_width, sin(lean), 0, 0, 3, 0, 1 / config.atlas, phase)
+			local held = grass.AddBlade(
+				blades,
+				root - UP * 0.02,
+				Vec3(cos(yaw), 0, sin(yaw)),
+				stem_top.y - root.y + 0.02,
+				config.stem_width,
+				sin(lean),
+				0,
+				0,
+				3,
+				0,
+				1 / config.atlas,
+				phase
+			)
 			grass.AddCrossedCards(heads, stem_top, dir, size, 0.5, stem_rng:Int(0, 1), 2, phase, held, stem_rng)
 		end
 	end
 
-	local parts = {{mesh = blades:Build{bend_height = tallest, name = "foliage_grass"}, material = foliage.GetMaterial(config.material)}}
+	local parts = {
+		{
+			mesh = blades:Build{bend_height = tallest, name = "foliage_grass"},
+			material = foliage.GetMaterial(config.material),
+		},
+	}
 
 	if not heads:IsEmpty() then
-		parts[2] = {mesh = heads:Build{bend_height = tallest, name = "foliage_grass_heads"}, material = foliage.GetMaterial(config.head_material)}
+		parts[2] = {
+			mesh = heads:Build{bend_height = tallest, name = "foliage_grass_heads"},
+			material = foliage.GetMaterial(config.head_material),
+		}
 	end
 
 	return parts
@@ -194,12 +251,106 @@ local function patch(name, overrides)
 	foliage.AddGenerator(name, {category = "grass", defaults = defaults, build = grass.BuildPatch})
 end
 
-patch("grass_lawn", {radius = 0.3, tufts = 4, blades = 140, clump = 0.5, height = {0.07, 0.15}, width = {0.006, 0.01}, lean = {0.05, 0.3}, material = "grass_lawn"})
-patch("grass_meadow", {radius = 0.45, tufts = 3, blades = 90, height = {0.25, 0.5}, width = {0.009, 0.015}, lean = {0.2, 0.6}, arch = {0, 0.2}, material = "grass_meadow"})
-patch("grass_wild", {radius = 0.5, tufts = 2, blades = 60, height = {0.4, 0.75}, width = {0.008, 0.013}, lean = {0.25, 0.8}, arch = {0.05, 0.3}, material = "grass_wild", stems = 9, stem_height = {0.75, 1.05}, head_size = {0.24, 0.32}, head_material = "seed_oat"})
-patch("grass_dry", {radius = 0.45, tufts = 3, blades = 70, height = {0.25, 0.55}, width = {0.007, 0.011}, lean = {0.4, 1.0}, arch = {0.1, 0.5}, twist = 120, material = "grass_dry", stems = 5, stem_height = {0.5, 0.8}, head_size = {0.18, 0.24}, head_material = "seed_timothy"})
-patch("grass_tussock", {radius = 0.18, tufts = 1, blades = 110, clump = 1.5, spread = 0.6, height = {0.45, 0.8}, width = {0.007, 0.012}, lean = {0.5, 1.1}, arch = {0.3, 0.75}, twist = 40, segments = 6, material = "grass_sedge"})
-patch("reeds", {radius = 0.35, tufts = 2, blades = 36, clump = 1, spread = 0.8, height = {1.2, 1.8}, width = {0.014, 0.022}, lean = {0.05, 0.3}, arch = {0, 0.1}, twist = 30, segments = 5, material = "grass_reed", stems = 6, stem_height = {1.6, 2.1}, stem_width = 0.006, head_size = {0.4, 0.5}, head_material = "seed_plume"})
+patch(
+	"grass_lawn",
+	{
+		radius = 0.3,
+		tufts = 4,
+		blades = 140,
+		clump = 0.5,
+		height = {0.07, 0.15},
+		width = {0.006, 0.01},
+		lean = {0.05, 0.3},
+		material = "grass_lawn",
+	}
+)
+patch(
+	"grass_meadow",
+	{
+		radius = 0.45,
+		tufts = 3,
+		blades = 90,
+		height = {0.25, 0.5},
+		width = {0.009, 0.015},
+		lean = {0.2, 0.6},
+		arch = {0, 0.2},
+		material = "grass_meadow",
+	}
+)
+patch(
+	"grass_wild",
+	{
+		radius = 0.5,
+		tufts = 2,
+		blades = 60,
+		height = {0.4, 0.75},
+		width = {0.008, 0.013},
+		lean = {0.25, 0.8},
+		arch = {0.05, 0.3},
+		material = "grass_wild",
+		stems = 9,
+		stem_height = {0.75, 1.05},
+		head_size = {0.24, 0.32},
+		head_material = "seed_oat",
+	}
+)
+patch(
+	"grass_dry",
+	{
+		radius = 0.45,
+		tufts = 3,
+		blades = 70,
+		height = {0.25, 0.55},
+		width = {0.007, 0.011},
+		lean = {0.4, 1.0},
+		arch = {0.1, 0.5},
+		twist = 120,
+		material = "grass_dry",
+		stems = 5,
+		stem_height = {0.5, 0.8},
+		head_size = {0.18, 0.24},
+		head_material = "seed_timothy",
+	}
+)
+patch(
+	"grass_tussock",
+	{
+		radius = 0.18,
+		tufts = 1,
+		blades = 110,
+		clump = 1.5,
+		spread = 0.6,
+		height = {0.45, 0.8},
+		width = {0.007, 0.012},
+		lean = {0.5, 1.1},
+		arch = {0.3, 0.75},
+		twist = 40,
+		segments = 6,
+		material = "grass_sedge",
+	}
+)
+patch(
+	"reeds",
+	{
+		radius = 0.35,
+		tufts = 2,
+		blades = 36,
+		clump = 1,
+		spread = 0.8,
+		height = {1.2, 1.8},
+		width = {0.014, 0.022},
+		lean = {0.05, 0.3},
+		arch = {0, 0.1},
+		twist = 30,
+		segments = 5,
+		material = "grass_reed",
+		stems = 6,
+		stem_height = {1.6, 2.1},
+		stem_width = 0.006,
+		head_size = {0.4, 0.5},
+		head_material = "seed_plume",
+	}
+)
 
 for _, name in ipairs{"grass_lawn", "grass_meadow", "grass_wild", "grass_dry", "grass_tussock"} do
 	foliage.AddPreset("grass", name:gsub("^grass_", "") .. "_a", name, {seed = 1})

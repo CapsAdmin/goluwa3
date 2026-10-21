@@ -64,7 +64,13 @@ weather.SetTimeScale(0)
 weather.SetSunDirection(Vec3(-0.5, 0.55, 0.35):GetNormalized())
 render3d.SetOceanEnabled(true)
 render3d.SetOceanLevel(0)
-water.SetOcean{WindSpeed = 12, WindDirection = 0, SwellHeight = 0.3, SwellWavelength = 100, SwellDirection = 0}
+water.SetOcean{
+	WindSpeed = 12,
+	WindDirection = 0,
+	SwellHeight = 0.3,
+	SwellWavelength = 100,
+	SwellDirection = 0,
+}
 
 function shore.SetWind(speed)
 	speed = math.clamp(speed, 0, MAX_WIND)
@@ -94,7 +100,6 @@ shore.views = {
 function shore.GetView(index)
 	local view = shore.views[index]
 	local dir = (view.target - view.pos):GetNormalized()
-
 	return {
 		Position = view.pos,
 		Rotation = QuatDeg3(math.deg(math.asin(dir.y)), math.deg(math.atan2(-dir.x, -dir.z)), 0),

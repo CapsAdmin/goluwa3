@@ -66,7 +66,11 @@ function scene_reflection.GetDescriptorSets(bindings, stage)
 	sets[#sets + 1] = {type = "storage_buffer", binding_index = bindings.materials, stageFlags = stage}
 
 	if bindings.light_grid then
-		sets[#sets + 1] = {type = "storage_buffer", binding_index = bindings.light_grid, stageFlags = stage}
+		sets[#sets + 1] = {
+			type = "storage_buffer",
+			binding_index = bindings.light_grid,
+			stageFlags = stage,
+		}
 	end
 
 	return sets
@@ -86,7 +90,9 @@ do
 			bound[self][desc] = last
 		end
 
-		if bindings.light_grid then light_grid.Bind(self, cmd, desc, bindings.light_grid) end
+		if bindings.light_grid then
+			light_grid.Bind(self, cmd, desc, bindings.light_grid)
+		end
 
 		if last.materials ~= materials then
 			self:UpdateDescriptorSet("storage_buffer", desc, bindings.materials, 0, materials, materials:GetSize())
@@ -104,7 +110,11 @@ end
 
 function scene_reflection.GetDeclarationGLSL(bindings, shared)
 	return [[
-		]] .. (shared and "" or "#define DDGI_VISIBILITY_RAYS") .. [[
+		]] .. (
+			shared and
+			"" or
+			"#define DDGI_VISIBILITY_RAYS"
+		) .. [[
 
 		#define SCENE_REFLECTION
 		#define SCENE_REFLECTION_CONE 0.0017
@@ -246,7 +256,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			"" or
 			glass_light.GetGLSL("ddgi_scene")
 		) .. glsl_common.GetHashGLSL() .. [[
-		#define SCENE_REFLECTION_MAX_DISTANCE (]]..block_name..[[.reflection_max_distance)
+		#define SCENE_REFLECTION_MAX_DISTANCE (]] .. block_name .. [[.reflection_max_distance)
 
 		#define SCENE_REFLECTION_FLAGS (RT_HIT_ANY_HIT != 0 ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT)
 		#define SCENE_REFLECTION_LIGHT_FULL_RADIANCE 0.02
@@ -268,7 +278,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 		}
 
 		bool scene_reflection_screen_first(float roughness) {
-			return roughness < ]]..block_name..[[.reflection_screenspace_roughness;
+			return roughness < ]] .. block_name .. [[.reflection_screenspace_roughness;
 		}
 
 		#define SCENE_REFLECTION_PROCEED(query) \
@@ -381,7 +391,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			if (RT_HIT_SUN != 0 && sun_NoL > 0.0 && (RT_HIT_SHADOWS == 0 || scene_reflection_visible(surface, sun_L, SCENE_REFLECTION_MAX_DISTANCE))) {
 				vec3 sun_radiance = albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359);
 
-				if (]]..block_name..[[.glass_light != 0) sun_radiance *= get_glass_light(surface, sun_L, GLASS_SUN_DISTANCE, 0.0);
+				if (]] .. block_name .. [[.glass_light != 0) sun_radiance *= get_glass_light(surface, sun_L, GLASS_SUN_DISTANCE, 0.0);
 
 				radiance += sun_radiance;
 			}
@@ -450,7 +460,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 					vec3 contribution = picked_light[k];
 
-					if (]]..block_name..[[.glass_light != 0) contribution *= get_glass_light(surface, picked_ray[k].xyz, max(dist - 0.05, 0.0), 0.0);
+					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light(surface, picked_ray[k].xyz, max(dist - 0.05, 0.0), 0.0);
 
 					radiance += contribution * (total / (picked_weight[k] * float(RT_HIT_LIGHT_SAMPLES)));
 				}
@@ -487,7 +497,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 					if (RT_HIT_SHADOWS != 0 && dist > 0.05 && !scene_reflection_visible(surface, L, dist - 0.05)) continue;
 
-					if (]]..block_name..[[.glass_light != 0) contribution *= get_glass_light(surface, L, max(dist - 0.05, 0.0), 0.0);
+					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light(surface, L, max(dist - 0.05, 0.0), 0.0);
 
 					radiance += contribution * light_weight;
 				}
@@ -523,9 +533,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			vec3 radiance = trace_scene_reflection_hit(origin, dir, N, roughness, max_distance, hit_t);
 
-			if (]]..block_name..[[.glass_light != 0) radiance *= get_glass_light(origin, dir, hit_t, 0.0);
+			if (]] .. block_name .. [[.glass_light != 0) radiance *= get_glass_light(origin, dir, hit_t, 0.0);
 
-			if (]]..block_name..[[.reflection_fog != 0 && hit_t < max_distance) {
+			if (]] .. block_name .. [[.reflection_fog != 0 && hit_t < max_distance) {
 				float fog_sky = 1.0;
 				vec3 fog_gi = vec3(0.0);
 
@@ -539,7 +549,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 					}
 				}
 
-				radiance = apply_ground_fog_ray(radiance, dir, ATMOSPHERE_SKY_SUN_DIRECTION, origin, hit_t * ]]..string.format("%.17g", atmosphere.METERS_TO_UNITS)..[[, fog_sky, fog_gi, fog_sky);
+				radiance = apply_ground_fog_ray(radiance, dir, ATMOSPHERE_SKY_SUN_DIRECTION, origin, hit_t * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[, fog_sky, fog_gi, fog_sky);
 			}
 
 			return radiance;

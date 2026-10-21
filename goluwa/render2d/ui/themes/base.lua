@@ -841,7 +841,12 @@ do
 				ring_alpha = 1
 			elseif state.mode == "tab" then
 				background_token = "surface"
-				foreground_token = (state.hovered or state.pressed or state.active) and
+				foreground_token = (
+						state.hovered or
+						state.pressed or
+						state.active
+					)
+					and
 					(
 						state.button_color or
 						"primary"
@@ -1757,7 +1762,10 @@ function BaseTheme:DrawAutoscrollChevron(name, center_x, center_y, icon_size, co
 
 	for pass = -1, 1, 2 do
 		render2d.PushMatrix()
-		render2d.Translate(center_x - icon_size / 2 + spread_x * pass, center_y - icon_size / 2 + spread_y * pass)
+		render2d.Translate(
+			center_x - icon_size / 2 + spread_x * pass,
+			center_y - icon_size / 2 + spread_y * pass
+		)
 		self:DrawSVGIcon(name, Vec2(icon_size, icon_size), {size = icon_size, inset = 0, color = color})
 		render2d.PopMatrix()
 	end
@@ -1778,7 +1786,13 @@ function BaseTheme:DrawAutoscrollMarker(size, vertical, horizontal)
 		}
 	)
 	local dot = math.max(2, math.floor(math.min(w, h) * 0.1))
-	self:DrawBoxShape((w - dot) / 2, (h - dot) / 2, dot, dot, {fill = color, radius = self:GetRadius("full")})
+	self:DrawBoxShape(
+		(w - dot) / 2,
+		(h - dot) / 2,
+		dot,
+		dot,
+		{fill = color, radius = self:GetRadius("full")}
+	)
 	local both = vertical and horizontal
 	local icon = math.floor(math.min(w, h) * (both and 0.36 or 0.46))
 	local near = both and 0.2 or 0.25
@@ -1861,7 +1875,16 @@ function BaseTheme:OnEntitySetProperty(obj, key, val)
 		if type(val) == "string" then return self:GetColor(val) end
 	elseif key == "ChildGap" then
 		if type(val) == "string" then return self:GetSize(val) end
-	elseif (key == "Size" and obj.Is2D ~= false) or key == "IconSize" or key == "MinSize" or key == "MaxSize" then
+	elseif
+		(
+			key == "Size" and
+			obj.Is2D ~= false
+		)
+		or
+		key == "IconSize" or
+		key == "MinSize" or
+		key == "MaxSize"
+	then
 		if type(val) == "string" then
 			return Vec2() + self:GetSize(val)
 		elseif type(val) == "number" then

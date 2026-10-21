@@ -100,7 +100,10 @@ T.Test3D("Graphics render3d the main view cull keeps what the frustum holds and 
 	end
 
 	for i = 1, 60 do
-		entities[i] = spawn(Vec3((random() - 0.5) * 240, (random() - 0.5) * 240, -random() * 200 + 40), 1 + random() * 2)
+		entities[i] = spawn(
+			Vec3((random() - 0.5) * 240, (random() - 0.5) * 240, -random() * 200 + 40),
+			1 + random() * 2
+		)
 	end
 
 	draw_frames(draw)
@@ -118,7 +121,18 @@ T.Test3D("Graphics render3d the main view cull keeps what the frustum holds and 
 
 		if inside ~= drawn then
 			local aabb = entity.visual:GetWorldAABB()
-			mismatches[#mismatches + 1] = string.format("%d inside=%s drawn=%s box=%.1f,%.1f,%.1f..%.1f,%.1f,%.1f", i, tostring(inside), tostring(drawn), aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z)
+			mismatches[#mismatches + 1] = string.format(
+				"%d inside=%s drawn=%s box=%.1f,%.1f,%.1f..%.1f,%.1f,%.1f",
+				i,
+				tostring(inside),
+				tostring(drawn),
+				aabb.min_x,
+				aabb.min_y,
+				aabb.min_z,
+				aabb.max_x,
+				aabb.max_y,
+				aabb.max_z
+			)
 		end
 	end
 
@@ -186,7 +200,9 @@ T.Test3D("Graphics render3d the main view cull picks one level of detail and fad
 		local drawn = {}
 
 		for i, item in ipairs(entity.visual.scene_instances) do
-			if result.by_id[item.id] then drawn[#drawn + 1] = {level = item.level, fade = result.by_id[item.id].fade} end
+			if result.by_id[item.id] then
+				drawn[#drawn + 1] = {level = item.level, fade = result.by_id[item.id].fade}
+			end
 		end
 
 		return drawn
@@ -207,7 +223,9 @@ T.Test3D("Graphics render3d the main view cull picks one level of detail and fad
 	draw_frames(draw)
 	local between = levels(entity, scene_draw.ReadBackCull(0))
 	T(#between)["=="](2)
-	T(between[1].fade * between[2].fade < 0 or between[1].fade == 0 or between[2].fade == 0)["=="](true)
+	T(between[1].fade * between[2].fade < 0 or
+		between[1].fade == 0 or
+		between[2].fade == 0)["=="](true)
 	pvars.SetSession("lod_level", 1)
 	draw_frames(draw)
 	local forced = levels(entity, scene_draw.ReadBackCull(0))
@@ -254,9 +272,11 @@ T.Test3D("Graphics render3d a shadow cull keeps what is in the box of the cascad
 	no_shadow.visual:SetCastShadows(false)
 	draw_frames(draw)
 	local planes = ffi.new("float[24]")
+
 	local function set(i, x, y, z, d)
 		planes[i * 4], planes[i * 4 + 1], planes[i * 4 + 2], planes[i * 4 + 3] = x, y, z, d
 	end
+
 	set(0, 1, 0, 0, 10)
 	set(1, -1, 0, 0, 10)
 	set(2, 0, 1, 0, 10)

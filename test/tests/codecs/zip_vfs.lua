@@ -48,7 +48,9 @@ T.Test("ZIP VFS prefetch inflates on a worker and reads the same bytes", functio
 		local size = file:GetSize()
 		file:Close()
 
-		if not biggest or size > biggest.size then biggest = {path = info.full_path, size = size} end
+		if not biggest or size > biggest.size then
+			biggest = {path = info.full_path, size = size}
+		end
 	end
 
 	local thread_pool = import("goluwa/thread_pool.lua")
@@ -56,12 +58,15 @@ T.Test("ZIP VFS prefetch inflates on a worker and reads the same bytes", functio
 	thread_pool.inline_threshold = 0
 	local expected = assert(vfs.Read(biggest.path))
 	local done = false
+
 	vfs.Prefetch(biggest.path, function()
 		done = true
 	end)
+
 	T.WaitUntil(function()
 		return done
 	end, 10)
+
 	thread_pool.inline_threshold = inline_threshold
 	T(done)["=="](true)
 	local read = assert(vfs.Read(biggest.path))

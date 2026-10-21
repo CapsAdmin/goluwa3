@@ -39,7 +39,9 @@ function meshes.Get(mesh, dynamic)
 
 	local vertex_buffer = mesh.vertex_buffer
 
-	if not (vertex_buffer.buffer and mesh.mode == "triangle_list") then return nil end
+	if not (vertex_buffer.buffer and mesh.mode == "triangle_list") then
+		return nil
+	end
 
 	local index_buffer = mesh.index_buffer
 	local triangle_count = index_buffer and
@@ -82,6 +84,7 @@ function meshes.Get(mesh, dynamic)
 	pending[#pending + 1] = record
 
 	if dynamic then dynamic_records[record.vertex_address] = record end
+
 	triangle_total = triangle_total + triangle_count
 	return row
 end
@@ -124,7 +127,6 @@ end
 function meshes.Build(cmd, updated)
 	if not render.GetDevice().ray_tracing_supported then
 		table.clear(pending)
-
 		return false
 	end
 
@@ -142,9 +144,7 @@ function meshes.Build(cmd, updated)
 		end
 	end
 
-	if refit_count > 0 then
-		accel.BuildBLASes(cmd, refit, refit_count)
-	end
+	if refit_count > 0 then accel.BuildBLASes(cmd, refit, refit_count) end
 
 	local compacted, compacted_count = accel.CompactBLASes(cmd)
 
@@ -166,7 +166,11 @@ function meshes.Build(cmd, updated)
 	for i = 1, #pending do
 		local record = pending[i]
 
-		if records[record.row] == record and mesh_of_row[record.row] and mesh_of_row[record.row]:IsValid() then
+		if
+			records[record.row] == record and
+			mesh_of_row[record.row] and
+			mesh_of_row[record.row]:IsValid()
+		then
 			if count > 0 and budget < record.triangle_count then break end
 
 			budget = budget - record.triangle_count

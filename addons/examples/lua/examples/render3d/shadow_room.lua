@@ -28,7 +28,6 @@ plane("room_front", Vec3(0, HEIGHT / 2, HALF), Vec3(0, 0, -1), HALF, HEIGHT / 2,
 plane("room_left", Vec3(-HALF, HEIGHT / 2, 0), Vec3(1, 0, 0), HALF, HEIGHT / 2, grey)
 plane("room_right", Vec3(HALF, HEIGHT / 2, 0), Vec3(-1, 0, 0), HALF, HEIGHT / 2, grey)
 plane("ground", Vec3(0, -0.02, 0), Vec3(0, 1, 0), 200, 200, outside)
-
 weather.SetSolarHours(16)
 
 do

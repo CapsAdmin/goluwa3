@@ -177,7 +177,10 @@ function pvars.Setup2(info)
 		end
 	end
 
-	assert(info.category and info.group, info.key .. ": a pvar needs an explicit category and group")
+	assert(
+		info.category and info.group,
+		info.key .. ": a pvar needs an explicit category and group"
+	)
 
 	if info.default == nil then
 		assert(info.type, info.key .. ": a pvar without a default needs a type")
@@ -213,12 +216,13 @@ function pvars.Setup2(info)
 	local previous = pvars.infos[info.key]
 	pvars.order_count = (pvars.order_count or 0) + 1
 	info.order = previous and previous.order or pvars.order_count
-
 	pvars.infos[info.key] = info
 	info.object = META:CreateObject({key = info.key})
 	load(info.key, info.store and pvars.vars[info.key] or nil)
 
-	if env_overrides[info.key] then pvars.SetStringSession(info.key, env_overrides[info.key]) end
+	if env_overrides[info.key] then
+		pvars.SetStringSession(info.key, env_overrides[info.key])
+	end
 
 	if info.callback then
 		timer.Delay(function()

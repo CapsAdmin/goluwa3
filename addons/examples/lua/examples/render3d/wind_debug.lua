@@ -31,7 +31,13 @@ local BRANCH_COLORS = {
 	Color(0.25, 0.45, 0.95, 1),
 	Color(0.95, 0.8, 0.2, 1),
 }
-local PARAMS = {"Bending", "BendDetailFrequency", "BendDetailLeafAmplitude", "BendDetailBranchAmplitude", "BendDetailPhase"}
+local PARAMS = {
+	"Bending",
+	"BendDetailFrequency",
+	"BendDetailLeafAmplitude",
+	"BendDetailBranchAmplitude",
+	"BendDetailPhase",
+}
 
 if _G.wind_debug then _G.wind_debug.Remove() end
 
@@ -65,7 +71,14 @@ local function material(config)
 end
 
 local function tree_material(color, double_sided)
-	return material{ColorMultiplier = color, DoubleSided = double_sided, Bending = 1, DetailBending = "leaves", BendDetailPhase = 1, BendDetailFrequency = 1}
+	return material{
+		ColorMultiplier = color,
+		DoubleSided = double_sided,
+		Bending = 1,
+		DetailBending = "leaves",
+		BendDetailPhase = 1,
+		BendDetailFrequency = 1,
+	}
 end
 
 local grass_material = material{
@@ -98,7 +111,10 @@ local function build_tree(height)
 		},
 		{sides = 10, cap = true}
 	)
-	parts[1] = {mesh = mesh:Build{bend_height = height, name = "wind_debug_pole"}, material = pole_material}
+	parts[1] = {
+		mesh = mesh:Build{bend_height = height, name = "wind_debug_pole"},
+		material = pole_material,
+	}
 
 	for i = 1, #BRANCH_COLORS do
 		local angle = (i - 1) * math.pi * 0.5
@@ -115,7 +131,9 @@ local function build_tree(height)
 				p.x,
 				branch_height,
 				p.z,
-				height / 150 * (1 - t * 0.5),
+				height / 150 * (
+					1 - t * 0.5
+				),
 				0,
 				phase,
 				trees.Stiffness(t * branch_length, FLEX),
@@ -123,7 +141,10 @@ local function build_tree(height)
 		end
 
 		branch:Tube(points, {sides = 8, cap = true})
-		parts[#parts + 1] = {mesh = branch:Build{bend_height = height, name = "wind_debug_branch_" .. i}, material = branch_materials[i]}
+		parts[#parts + 1] = {
+			mesh = branch:Build{bend_height = height, name = "wind_debug_branch_" .. i},
+			material = branch_materials[i],
+		}
 		local planes = MeshBuilder.New()
 
 		for k = 1, 4 do
@@ -143,7 +164,10 @@ local function build_tree(height)
 			planes:Quad(first, first + 1, first + 2, first + 3)
 		end
 
-		parts[#parts + 1] = {mesh = planes:Build{bend_height = height, name = "wind_debug_planes_" .. i}, material = plane_materials[i]}
+		parts[#parts + 1] = {
+			mesh = planes:Build{bend_height = height, name = "wind_debug_planes_" .. i},
+			material = plane_materials[i],
+		}
 	end
 
 	return parts
@@ -172,7 +196,12 @@ local function build_grass(size, count, seed)
 		)
 	end
 
-	return {{mesh = mesh:Build{bend_height = 0.6, name = "wind_debug_grass"}, material = grass_material}}
+	return {
+		{
+			mesh = mesh:Build{bend_height = 0.6, name = "wind_debug_grass"},
+			material = grass_material,
+		},
+	}
 end
 
 local function spawn(name, parts, position, yaw, scale, label)
@@ -203,7 +232,16 @@ do
 	polygon:SetName("wind_debug_ground")
 	spawn(
 		"wind_debug_ground",
-		{{mesh = polygon, material = Material.New{ColorMultiplier = Color(0.4, 0.4, 0.42, 1), MetallicMultiplier = 0, RoughnessMultiplier = 0.9}}},
+		{
+			{
+				mesh = polygon,
+				material = Material.New{
+					ColorMultiplier = Color(0.4, 0.4, 0.42, 1),
+					MetallicMultiplier = 0,
+					RoughnessMultiplier = 0.9,
+				},
+			},
+		},
 		Vec3(0, 0, 0),
 		0,
 		1,
@@ -214,7 +252,14 @@ end
 local tree_6 = build_tree(6)
 spawn("wind_debug_tree", tree_6, Vec3(-6, 0, -6), 0, 1, "6 m")
 spawn("wind_debug_tree_turned", tree_6, Vec3(6, 0, -6), 45, 1, "6 m, turned 45")
-spawn("wind_debug_tree_scaled", tree_6, Vec3(-6, 0, 6), 120, 1.5, "6 m x1.5, turned 120")
+spawn(
+	"wind_debug_tree_scaled",
+	tree_6,
+	Vec3(-6, 0, 6),
+	120,
+	1.5,
+	"6 m x1.5, turned 120"
+)
 spawn("wind_debug_tree_small", tree_6, Vec3(6, 0, 6), -30, 0.6, "6 m x0.6, turned -30")
 spawn("wind_debug_tree_short", build_tree(3), Vec3(-15, 0, 0), 0, 1, "3 m")
 spawn("wind_debug_tree_tall", build_tree(12), Vec3(15, 0, 0), 0, 1, "12 m")
@@ -230,7 +275,10 @@ do
 
 		for i, model in ipairs{
 			{"Trees/Palm_Tree/Palm_Tree_large_a.cgf", Vec3(-30, 0, -8)},
-			{"Trees/Jungle_Tree_Large/Jungle_Tree_Large_small_bright_green.cgf", Vec3(-30, 0, 10)},
+			{
+				"Trees/Jungle_Tree_Large/Jungle_Tree_Large_small_bright_green.cgf",
+				Vec3(-30, 0, 10),
+			},
 			{"Trees/Twisted_Tree/twisted_tree_a.cgf", Vec3(30, 0, -8)},
 			{"Bushes/palm_bush/palmbush_med_a.cgf", Vec3(30, 0, 10)},
 		} do
@@ -286,7 +334,9 @@ do
 
 	local function height(x, z)
 		local edge = math.min(1, (half - math.max(math.abs(x), math.abs(z))) / 4)
-		return (1.5 + math.sin(x * 0.45) * 0.9 + math.sin(z * 0.6 + x * 0.2) * 0.7) * math.max(edge, 0)
+		return (
+				1.5 + math.sin(x * 0.45) * 0.9 + math.sin(z * 0.6 + x * 0.2) * 0.7
+			) * math.max(edge, 0)
 	end
 
 	for row = 0, cells do
@@ -310,7 +360,12 @@ do
 		{
 			{
 				mesh = mesh:Build{name = "wind_debug_scatter_ground"},
-				material = Material.New{ColorMultiplier = Color(0.35, 0.33, 0.3, 1), MetallicMultiplier = 0, RoughnessMultiplier = 0.9, ScatterSet = scene.scatter_set},
+				material = Material.New{
+					ColorMultiplier = Color(0.35, 0.33, 0.3, 1),
+					MetallicMultiplier = 0,
+					RoughnessMultiplier = 0.9,
+					ScatterSet = scene.scatter_set,
+				},
 			},
 		},
 		SCATTER_CENTER,
@@ -368,9 +423,30 @@ event.AddListener("Update", "wind_debug", function()
 	local to = Vec3(0, 7, 0) + dir * math.min(scene.speed * 0.25, 10)
 	local side = Vec3(-dir.z, 0, dir.x) * 0.4
 	local color = Color(0.3, 0.8, 1, 1)
-	debug_draw.DrawLine{id = "wind_debug_arrow", from = from, to = to, color = color, line_width = 3, time = 0.1}
-	debug_draw.DrawLine{id = "wind_debug_arrow_l", from = to, to = to - dir * 0.6 + side, color = color, line_width = 3, time = 0.1}
-	debug_draw.DrawLine{id = "wind_debug_arrow_r", from = to, to = to - dir * 0.6 - side, color = color, line_width = 3, time = 0.1}
+	debug_draw.DrawLine{
+		id = "wind_debug_arrow",
+		from = from,
+		to = to,
+		color = color,
+		line_width = 3,
+		time = 0.1,
+	}
+	debug_draw.DrawLine{
+		id = "wind_debug_arrow_l",
+		from = to,
+		to = to - dir * 0.6 + side,
+		color = color,
+		line_width = 3,
+		time = 0.1,
+	}
+	debug_draw.DrawLine{
+		id = "wind_debug_arrow_r",
+		from = to,
+		to = to - dir * 0.6 - side,
+		color = color,
+		line_width = 3,
+		time = 0.1,
+	}
 
 	for i, label in ipairs(scene.labels) do
 		if label.text then
@@ -388,7 +464,6 @@ end)
 local panel = NULL
 scene.controls_shown = false
 local readout
-
 local BEAUFORT = {
 	{0.5, "0 calm"},
 	{1.5, "1 light air"},
@@ -466,6 +541,7 @@ end
 local function show()
 	if not panel:IsValid() then
 		local children = {}
+
 		slider(
 			children,
 			"direction",
@@ -477,6 +553,7 @@ local function show()
 				scene.direction = math.floor(value + 0.5)
 			end
 		)
+
 		slider(
 			children,
 			"speed",
@@ -488,6 +565,7 @@ local function show()
 				scene.speed = value
 			end
 		)
+
 		slider(
 			children,
 			"time scale (0 stops them)",
@@ -499,6 +577,7 @@ local function show()
 				scene.time_scale = value
 			end
 		)
+
 		multiplier(children, "bending", "Bending")
 		multiplier(children, "detail frequency", "BendDetailFrequency")
 		multiplier(children, "leaf amplitude", "BendDetailLeafAmplitude")

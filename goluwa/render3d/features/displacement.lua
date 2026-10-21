@@ -18,7 +18,16 @@ return {
 			callback = "InvalidateHeightMap",
 			requires = "HeightTexture",
 		},
-		{name = "HeightMidlevel", default = 1.0, requires = {"HeightTexture", "HeightScale"}},
-		{name = "HeightLayers", kind = "int", default = 24, requires = {"HeightTexture", "HeightScale"}},
+		{
+			name = "HeightMidlevel",
+			default = 1.0,
+			requires = {"HeightTexture", "HeightScale"},
+		},
+		{
+			name = "HeightLayers",
+			kind = "int",
+			default = 24,
+			requires = {"HeightTexture", "HeightScale"},
+		},
 	},
 }

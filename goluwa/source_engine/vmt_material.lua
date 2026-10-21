@@ -247,11 +247,37 @@ local ALBEDO_TARGETS = {
 }
 local OVERBRIGHT_SHADERS = {lightmappedgeneric = true, worldvertextransition = true}
 local MAX_ALBEDO = 0.9
-local CLOTH_WORDS = {"cloth", "fabric", "carpet", "upholster", "mattress", "couch", "curtain", "blanket"}
+local CLOTH_WORDS = {
+	"cloth",
+	"fabric",
+	"carpet",
+	"upholster",
+	"mattress",
+	"couch",
+	"curtain",
+	"blanket",
+}
 local SHEEN_CLOTH = 0.3
 local SHEEN_ROUGHNESS = 0.5
 local SHEEN_RIMLIGHT = 0.1
-local THIN_WORDS = {"leaf", "leaves", "foliage", "plant", "bush", "tree", "vine", "grass", "shade", "paper", "curtain", "flag", "palm", "fern", "ivy", "weed"}
+local THIN_WORDS = {
+	"leaf",
+	"leaves",
+	"foliage",
+	"plant",
+	"bush",
+	"tree",
+	"vine",
+	"grass",
+	"shade",
+	"paper",
+	"curtain",
+	"flag",
+	"palm",
+	"fern",
+	"ivy",
+	"weed",
+}
 local THIN_TRANSMISSION = 0.4
 local CHROME_ROUGHNESS = 0.05
 local SSBUMP_MASK_ROUGHNESS = 0.25
@@ -392,7 +418,13 @@ do
 				local lum = refl[1] * 0.2126 + refl[2] * 0.7152 + refl[3] * 0.0722
 				local high, low = math.max(refl[1], refl[2], refl[3]), math.min(refl[1], refl[2], refl[3])
 				local saturation = high > 0 and (high - low) / high or 0
-				gate = (voted and 1 or 1 - math.smoothstep(0.05, 0.15, lum)) * (1 - math.smoothstep(voted and 0.3 or 0.2, voted and 0.6 or 0.45, saturation))
+				gate = (
+						voted and
+						1 or
+						1 - math.smoothstep(0.05, 0.15, lum)
+					) * (
+						1 - math.smoothstep(voted and 0.3 or 0.2, voted and 0.6 or 0.45, saturation)
+					)
 			end
 
 			self:SetMetallicMultiplier(math.max(phong_metal, envmap_metal * gate))
@@ -878,7 +910,9 @@ do
 			apply_albedo_gain(self, ctx)
 		end
 
-		if FEATURES.derived_roughness and not is_glass then apply_derived_roughness(self) end
+		if FEATURES.derived_roughness and not is_glass then
+			apply_derived_roughness(self)
+		end
 
 		do
 			local name = (class or "") .. " " .. (self.vmt_path or "")

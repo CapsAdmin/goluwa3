@@ -25,11 +25,9 @@ do
 	function logging.Capture(callback, ...)
 		local lines = {}
 		local original = logging.RawLog
-
 		logging.RawLog = function(str)
 			lines[#lines + 1] = str
 		end
-
 		return finish(original, lines, pcall(callback, ...))
 	end
 end

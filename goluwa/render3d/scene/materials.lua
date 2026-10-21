@@ -21,7 +21,9 @@ function materials.GetEmissive(material)
 		material:GetEmissiveTexture() ~= nil
 	then
 		local multiplier = material:GetEmissiveMultiplier()
-		return multiplier.r * multiplier.a, multiplier.g * multiplier.a, multiplier.b * multiplier.a
+		return multiplier.r * multiplier.a,
+		multiplier.g * multiplier.a,
+		multiplier.b * multiplier.a
 	end
 
 	return 0, 0, 0

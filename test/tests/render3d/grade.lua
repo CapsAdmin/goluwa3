@@ -30,7 +30,10 @@ end
 
 local function reference(c, p, base)
 	local brightness, contrast, saturation = (p.brightness or 0) / 100, (p.contrast or 0) / 100, (p.saturation or 0) / 100
-	local ambiance, highlights, shadows, warmth = (p.ambiance or 0) / 100, (p.highlights or 0) / 100, (p.shadows or 0) / 100, (p.warmth or 0) / 100
+	local ambiance, highlights, shadows, warmth = (p.ambiance or 0) / 100,
+	(p.highlights or 0) / 100,
+	(p.shadows or 0) / 100,
+	(p.warmth or 0) / 100
 	local lift, gain = p.lift or {0, 0, 0}, p.gain or {1, 1, 1}
 	local x = {}
 
@@ -42,7 +45,19 @@ local function reference(c, p, base)
 		local b = base or luma(x)
 		local s = clamp(shadows + 0.5 * ambiance, -1, 1)
 		local h = clamp(highlights - 0.5 * ambiance, -1, 1)
-		local factor = 1 + s * (s > 0 and 3.5 or 1) * (1 - b) ^ 6 + h * (h < 0 and 3.5 or 1) * b ^ 5 * (1 - b)
+		local factor = 1 + s * (
+				s > 0 and
+				3.5 or
+				1
+			) * (
+				1 - b
+			) ^ 6 + h * (
+				h < 0 and
+				3.5 or
+				1
+			) * b ^ 5 * (
+				1 - b
+			)
 
 		for i = 1, 3 do
 			x[i] = x[i] * factor
@@ -51,7 +66,17 @@ local function reference(c, p, base)
 		if ambiance ~= 0 then
 			local grey = luma(x)
 			local surroundings = b * factor
-			local ratio = clamp((surroundings + (grey - surroundings) * (1 + 0.8 * ambiance)) / math.max(grey, 1e-3), 0, 4)
+			local ratio = clamp(
+				(
+						surroundings + (
+							grey - surroundings
+						) * (
+							1 + 0.8 * ambiance
+						)
+					) / math.max(grey, 1e-3),
+				0,
+				4
+			)
 
 			for i = 1, 3 do
 				x[i] = x[i] * ratio
@@ -98,7 +123,15 @@ local function reference_hdr(c, p, base)
 end
 
 local function set(p)
-	for _, name in ipairs{"brightness", "contrast", "saturation", "ambiance", "highlights", "shadows", "warmth"} do
+	for _, name in ipairs{
+		"brightness",
+		"contrast",
+		"saturation",
+		"ambiance",
+		"highlights",
+		"shadows",
+		"warmth",
+	} do
 		if p[name] then pvars.SetSession("r_grade_" .. name, p[name]) end
 	end
 
@@ -120,7 +153,11 @@ T.Test("Graphics render3d grade a preset leaves out what the defaults give", fun
 end)
 
 T.Test("Graphics render3d grade blends numbers and moves a temperature in mired", function()
-	grade.Blend({r_grade_saturation = -50, r_camera_compensation = -1}, {r_grade_saturation = 50, r_camera_compensation = 1}, 0.25)
+	grade.Blend(
+		{r_grade_saturation = -50, r_camera_compensation = -1},
+		{r_grade_saturation = 50, r_camera_compensation = 1},
+		0.25
+	)
 	T(pvars.Get("r_grade_saturation"))["~"](-25, 1e-6)
 	T(pvars.Get("r_camera_compensation"))["~"](-0.5, 1e-6)
 	grade.Blend({r_camera_white_balance = 5000}, {r_camera_white_balance = 10000}, 0.5)
@@ -251,7 +288,13 @@ local INPUTS = [[
 	vec3 inputs[5] = vec3[5](vec3(0.5), vec3(1.0, 0.0, 0.0), SRGBToLinear(vec3(0.25)), vec3(0.2), vec3(2.0, 0.5, 0.5));
 	float bases[5] = float[5](-1.0, 0.5, 0.7, 0.1, -1.0);
 ]]
-local inputs = {{0.5, 0.5, 0.5}, {1, 0, 0}, {srgb_to_linear(0.25), srgb_to_linear(0.25), srgb_to_linear(0.25)}, {0.2, 0.2, 0.2}, {2, 0.5, 0.5}}
+local inputs = {
+	{0.5, 0.5, 0.5},
+	{1, 0, 0},
+	{srgb_to_linear(0.25), srgb_to_linear(0.25), srgb_to_linear(0.25)},
+	{0.2, 0.2, 0.2},
+	{2, 0.5, 0.5},
+}
 local bases = {false, 0.5, 0.7, 0.1, false}
 local grade_pass = {
 	name = "grade_test",
@@ -337,7 +380,15 @@ T.Test3D("Graphics render3d grade shader grades the tonemapped colour like the r
 			{warmth = 100},
 			{warmth = -60},
 			{lift = {0.1, 0, -0.05}, gain = {1.2, 0.8, 1}},
-			{brightness = 20, contrast = 30, saturation = -20, ambiance = 25, highlights = -40, shadows = 35, warmth = 15},
+			{
+				brightness = 20,
+				contrast = 30,
+				saturation = -20,
+				ambiance = 25,
+				highlights = -40,
+				shadows = 35,
+				warmth = 15,
+			},
 		}
 
 		for _, p in ipairs(cases) do

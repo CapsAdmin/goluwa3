@@ -612,9 +612,7 @@ function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 				local physics_chunk_id = mesh.physics_data_chunk_ids[1]
 				local physics_chunk = physics_chunk_id > 0 and parsed.chunks_by_id[physics_chunk_id]
 
-				if physics_chunk and not lod_level then
-					has_physics = true
-				end
+				if physics_chunk and not lod_level then has_physics = true end
 
 				if physics_chunk and not lod_level and not skip_physics then
 					if physics_chunk.type ~= cgf.CHUNK_MESH_PHYSICS_DATA then

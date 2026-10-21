@@ -199,7 +199,11 @@ function META:Project(receivers, layer)
 
 	if projection == "road" then
 		local height = assert(self.world.TerrainHeight, "road without terrain height")
-		return decal_projection.Road(self:BuildRoad(), height, PROJECTION_OFFSETS.road + self.SortPriority * PRIORITY_OFFSET)
+		return decal_projection.Road(
+			self:BuildRoad(),
+			height,
+			PROJECTION_OFFSETS.road + self.SortPriority * PRIORITY_OFFSET
+		)
 	end
 
 	local frame = self:BuildFrame(layer)
@@ -258,7 +262,11 @@ do
 						touched_by_world[world] = touched
 					end
 
-					world:SetDecalFragments(decal, decal:Project(receivers, decal.Projection ~= "road" and decal:TakeLayer(placed) or 0), touched)
+					world:SetDecalFragments(
+						decal,
+						decal:Project(receivers, decal.Projection ~= "road" and decal:TakeLayer(placed) or 0),
+						touched
+					)
 				else
 					pending[#pending + 1] = decal
 				end

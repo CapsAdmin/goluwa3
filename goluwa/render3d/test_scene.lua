@@ -61,9 +61,13 @@ function test_scene.Reset(config)
 	weather.SetSnow(0)
 	weather.SetWetness(0)
 
-	if config.aerosol_visibility then weather.SetAerosolVisibility(config.aerosol_visibility) end
+	if config.aerosol_visibility then
+		weather.SetAerosolVisibility(config.aerosol_visibility)
+	end
 
-	if config.ground_fog_visibility then weather.SetGroundFogVisibility(config.ground_fog_visibility) end
+	if config.ground_fog_visibility then
+		weather.SetGroundFogVisibility(config.ground_fog_visibility)
+	end
 end
 
 function test_scene.Matte(value, roughness)

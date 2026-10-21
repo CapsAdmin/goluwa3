@@ -44,7 +44,6 @@ function import:ResolvePath(path)
 end
 
 import.loadfile = _G.loadfile
-
 local source_paths = {}
 
 function import.SourceToPath(source)
@@ -259,10 +258,15 @@ function take_snapshot(module, path, own)
 	end
 
 	if own then
-		walk_upvalues(module, own, "@" .. path, function(slot, _, _, value)
-			snapshot.upvalues[slot] = value
-			snapshot.upvalue_copies[slot] = shallow_copy(value)
-		end)
+		walk_upvalues(
+			module,
+			own,
+			"@" .. path,
+			function(slot, _, _, value)
+				snapshot.upvalues[slot] = value
+				snapshot.upvalue_copies[slot] = shallow_copy(value)
+			end
+		)
 	end
 
 	import.snapshots[path] = snapshot
@@ -303,7 +307,6 @@ end
 
 function import:IsNamespace(path)
 	local module = self.loaded[path]
-
 	return type(module) == "table" and
 		module.Type == nil and
 		get_own_functions(module, path) ~= nil
@@ -326,9 +329,14 @@ function import:Reload(path)
 			if type(value) ~= "function" then current_fields[key] = value end
 		end
 
-		walk_upvalues(old, own, "@" .. path, function(slot, _, _, value)
-			current_upvalues[slot] = value
-		end)
+		walk_upvalues(
+			old,
+			own,
+			"@" .. path,
+			function(slot, _, _, value)
+				current_upvalues[slot] = value
+			end
+		)
 
 		for key in pairs(own) do
 			old[key] = nil
@@ -385,34 +393,27 @@ function import:Reload(path)
 
 		if snapshot and new_own then
 			for key, value in pairs(current_fields) do
-				if
-					keep_current(
-						snapshot.values[key],
-						snapshot.copies[key],
-						value,
-						module[key]
-					)
-				then
+				if keep_current(snapshot.values[key], snapshot.copies[key], value, module[key]) then
 					module[key] = value
 				end
 			end
 
-			walk_upvalues(module, new_own, "@" .. path, function(slot, func, i, value)
-				local current = current_upvalues[slot]
+			walk_upvalues(
+				module,
+				new_own,
+				"@" .. path,
+				function(slot, func, i, value)
+					local current = current_upvalues[slot]
 
-				if
-					current ~= nil and
-					is_live_object(current) and
-					keep_current(
-						snapshot.upvalues[slot],
-						snapshot.upvalue_copies[slot],
-						current,
-						value
-					)
-				then
-					debug.setupvalue(func, i, current)
+					if
+						current ~= nil and
+						is_live_object(current) and
+						keep_current(snapshot.upvalues[slot], snapshot.upvalue_copies[slot], current, value)
+					then
+						debug.setupvalue(func, i, current)
+					end
 				end
-			end)
+			)
 		end
 	elseif type(module) == "table" and module.Type == nil then
 		take_snapshot(module, path, get_own_functions(module, path))

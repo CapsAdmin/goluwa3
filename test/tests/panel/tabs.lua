@@ -98,7 +98,13 @@ T.Test2D("property editor lists the categories of the active tab only", function
 	T(editor._row_infos["a/x"] == nil)["=="](true)
 	T(editor._row_infos["b/x"] ~= nil)["=="](true)
 	T(editor._tab_bar:GetChildren()[2] == buttons[2])["=="](true)
-	editor:SetItems({{Key = "c", Text = "C", Children = {{Key = "c/x", Text = "X", Type = "number", Value = 3}}}})
+	editor:SetItems{
+		{
+			Key = "c",
+			Text = "C",
+			Children = {{Key = "c/x", Text = "X", Type = "number", Value = 3}},
+		},
+	}
 	T(editor._tab_bar.visual:GetVisible())["=="](false)
 	editor:Remove()
 end)
@@ -113,7 +119,13 @@ T.Test2D("property editor filter keeps matching rows, expands their groups and d
 				Collapsed = true,
 				Children = {
 					{Key = "a/shafts", Text = "shafts", Type = "boolean", Value = true},
-					{Key = "a/ripples", Text = "ripples", Type = "boolean", Value = true, Search = "r_water_ripples"},
+					{
+						Key = "a/ripples",
+						Text = "ripples",
+						Type = "boolean",
+						Value = true,
+						Search = "r_water_ripples",
+					},
 				},
 			},
 			{
@@ -151,7 +163,10 @@ T.Test2D("tabs take BarHidden as a prop and apply it once the bar exists", funct
 	T(hidden._bar.visual:GetVisible())["=="](true)
 	hidden:SetBarHidden(true)
 	T(hidden._bar.visual:GetVisible())["=="](false)
-	local shown = Tabs{}{Column{Tab = "One"}{Text{Text = "one"}}, Column{Tab = "Two"}{Text{Text = "two"}}}
+	local shown = Tabs{}{
+		Column{Tab = "One"}{Text{Text = "one"}},
+		Column{Tab = "Two"}{Text{Text = "two"}},
+	}
 	T(shown._bar.visual:GetVisible())["=="](true)
 	hidden:Remove()
 	shown:Remove()

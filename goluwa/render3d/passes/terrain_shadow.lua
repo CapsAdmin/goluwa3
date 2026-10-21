@@ -9,7 +9,6 @@ local sun_marched = {0, 0, 0}
 
 local function sun_moved(sun)
 	local dx, dy, dz = sun.x - sun_marched[1], sun.y - sun_marched[2], sun.z - sun_marched[3]
-
 	return dx * dx + dy * dy + dz * dz > SUN_EPSILON * SUN_EPSILON
 end
 
@@ -23,7 +22,6 @@ return {
 		LocalSize = {x = 8, y = 8, z = 1},
 		is_enabled = function()
 			local field = terrain_shadow.field
-
 			return field ~= nil and
 				(
 					terrain_shadow.dirty or

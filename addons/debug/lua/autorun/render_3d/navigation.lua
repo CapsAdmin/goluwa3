@@ -72,7 +72,11 @@ do
 					for i = npc.path_index, #points do
 						debug_draw.DrawLine{
 							id = "npc_path_" .. index .. "_" .. i,
-							from = (i == npc.path_index and npc.Owner.transform:GetPosition() or points[i - 1]) + lift,
+							from = (
+									i == npc.path_index and
+									npc.Owner.transform:GetPosition() or
+									points[i - 1]
+								) + lift,
 							to = points[i] + lift,
 							color = npc.Running and Color(1, 0.4, 0.1, 1) or Color(0.2, 0.8, 1, 1),
 							width = 3,

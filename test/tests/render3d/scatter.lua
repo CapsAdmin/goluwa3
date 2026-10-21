@@ -72,13 +72,19 @@ T.Test("scatter set prototypes reject what they do not know", function()
 		build_prototype{densty = 3}
 	end, "unknown prototype key densty")
 
-	raises(function()
-		build_prototype{color = {surfce = 1}}
-	end, "unknown color key surfce")
+	raises(
+		function()
+			build_prototype{color = {surfce = 1}}
+		end,
+		"unknown color key surfce"
+	)
 
-	raises(function()
-		build_prototype{cluster = {size = 1}}
-	end, "unknown cluster key size")
+	raises(
+		function()
+			build_prototype{cluster = {size = 1}}
+		end,
+		"unknown cluster key size"
+	)
 
 	raises(function()
 		build_prototype{scale = "big"}
@@ -88,17 +94,26 @@ T.Test("scatter set prototypes reject what they do not know", function()
 		build_prototype{density = 0}
 	end, "density must be above zero")
 
-	raises(function()
-		ScatterSet.New{Name = "test_registry", Prototypes = {{density = 1}}}
-	end, "has no model")
+	raises(
+		function()
+			ScatterSet.New{Name = "test_registry", Prototypes = {{density = 1}}}
+		end,
+		"has no model"
+	)
 
-	raises(function()
-		ScatterSet.New{Name = "test_registry", Prototypes = {}}
-	end, "has no prototypes")
+	raises(
+		function()
+			ScatterSet.New{Name = "test_registry", Prototypes = {}}
+		end,
+		"has no prototypes"
+	)
 
-	raises(function()
-		ScatterSet.New{Name = "test_registry", Prototyps = {}}
-	end, "unknown scatter set key Prototyps")
+	raises(
+		function()
+			ScatterSet.New{Name = "test_registry", Prototyps = {}}
+		end,
+		"unknown scatter set key Prototyps"
+	)
 end)
 
 T.Test("scatter sets in use have their prototypes indexed", function()
@@ -133,7 +148,11 @@ T.Test("scatter sets in use have their prototypes indexed", function()
 end)
 
 T.Test("scatter set multipliers default to one and can be changed", function()
-	local set = ScatterSet.New{Name = "test_multipliers", Prototypes = {{model = "unused.cgf"}}, DistanceMultiplier = 2}
+	local set = ScatterSet.New{
+		Name = "test_multipliers",
+		Prototypes = {{model = "unused.cgf"}},
+		DistanceMultiplier = 2,
+	}
 	T(set:GetDensityMultiplier())["=="](1)
 	T(set:GetDistanceMultiplier())["=="](2)
 	T(set.protos[1].set)["=="](set)
@@ -141,15 +160,22 @@ T.Test("scatter set multipliers default to one and can be changed", function()
 	T(set:GetDensityMultiplier())["=="](3)
 	T(set:GetDistanceMultiplier())["=="](2)
 	T(set.protos[1].density_multiplier)["=="](3)
-	raises(function()
-		ScatterSet.New{Name = "test_multipliers", Prototypes = {{model = "unused.cgf"}}, density = 2}
-	end, "unknown scatter set key density")
+
+	raises(
+		function()
+			ScatterSet.New{Name = "test_multipliers", Prototypes = {{model = "unused.cgf"}}, density = 2}
+		end,
+		"unknown scatter set key density"
+	)
 end)
 
 T.Test("scatter prototypes take part of the set's distance multiplier by their response", function()
 	local set = ScatterSet.New{
 		Name = "test_response",
-		Prototypes = {{model = "unused.cgf"}, {model = "unused.cgf", distance_response = 0.1, density_response = 3}},
+		Prototypes = {
+			{model = "unused.cgf"},
+			{model = "unused.cgf", distance_response = 0.1, density_response = 3},
+		},
 		DistanceMultiplier = 10,
 		DensityMultiplier = 2,
 	}
@@ -175,12 +201,25 @@ T.Test("scatter set billboards are normalized and need a path", function()
 	T(proto.billboard_distance)["=="](80)
 	T(proto.billboard_fade)["=="](0.3)
 	T(build_prototype().billboard_distance)["=="](0)
-	raises(function()
-		build_prototype{model = function() return {} end, billboard = true}
-	end, "model is not a path")
-	raises(function()
-		build_prototype{billboard = {fade = 1}}
-	end, "needs a distance and a fade")
+
+	raises(
+		function()
+			build_prototype{
+				model = function()
+					return {}
+				end,
+				billboard = true,
+			}
+		end,
+		"model is not a path"
+	)
+
+	raises(
+		function()
+			build_prototype{billboard = {fade = 1}}
+		end,
+		"needs a distance and a fade"
+	)
 end)
 
 T.Test("the builtin grass set is one object", function()
@@ -255,7 +294,6 @@ local function draw_red_share(draw, set, tilt)
 			draw()
 		end
 	end)
-
 	local red, total = 0, 0
 	local texture = gbuffer_layout.GetTexture("albedo")
 	local size = render.GetRenderImageSize()
@@ -288,7 +326,6 @@ T.Test3D("Graphics render3d scatter keeps off slopes it is not set to grow on", 
 	T(draw_red_share(draw, set, 50))["=="](0)
 	set:Remove()
 end)
-
 
 local function place_red_cubes(grid, spacing)
 	local set = create_red_cubes{placed = true}

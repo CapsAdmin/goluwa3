@@ -1,6 +1,5 @@
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
-return glsl_common.GetNoiseGLSL() ..
-glsl_common.GetLuminanceGLSL() .. [[
+return glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 
 	const float STAR_MAX_MAGNITUDE = 7.5;
 	const float STAR_FACE_CELLS = 64.0;

@@ -70,7 +70,9 @@ end
 function InputHistory:Add(text)
 	self:Reset()
 
-	if not text:find("%S") or self.entries[#self.entries] == text then return false end
+	if not text:find("%S") or self.entries[#self.entries] == text then
+		return false
+	end
 
 	for i = #self.entries, 1, -1 do
 		if self.entries[i] == text then table.remove(self.entries, i) end

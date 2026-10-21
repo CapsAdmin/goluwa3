@@ -128,7 +128,13 @@ function Mesh.New(vertex_attributes, vertices, indices, index_type, index_count,
 		if is_index_buffer(indices) then
 			self.index_buffer = indices
 		elseif type(indices) == "cdata" and index_count then
-			self.index_buffer = IndexBuffer.FromPointer(indices, index_count, index_type, build_mesh_buffer_name(name, "indices"), mode == "host")
+			self.index_buffer = IndexBuffer.FromPointer(
+				indices,
+				index_count,
+				index_type,
+				build_mesh_buffer_name(name, "indices"),
+				mode == "host"
+			)
 		else
 			self.index_buffer = IndexBuffer.New(indices, index_type, build_mesh_buffer_name(name, "indices"))
 		end

@@ -11,7 +11,6 @@ local last_version
 local quiet_since
 local snapshot
 local normal_gc_pause
-
 pvars.StartGroup("Engine", "Loading", {prefix = "loading_"})
 pvars.Setup2{
 	key = "r_loading_gc_pause",
@@ -33,7 +32,11 @@ event.AddListener("Update", "startup_ready", function(dt)
 
 	local now = startup.GetTime()
 
-	if scene_loading.IsLoading() or scene.IsSpawning() or instances.version ~= last_version then
+	if
+		scene_loading.IsLoading() or
+		scene.IsSpawning() or
+		instances.version ~= last_version
+	then
 		last_version = instances.version
 		quiet_since = now
 		snapshot = startup.Snapshot()

@@ -20,5 +20,4 @@ function pool.Update()
 end
 
 event.AddListener("Update", "sockets", pool.Update)
-
 return pool

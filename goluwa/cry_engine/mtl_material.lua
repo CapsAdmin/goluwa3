@@ -435,7 +435,13 @@ local function apply_cry_material_node(self, material_node, material_path)
 		local specular = self.cry_specular_color
 		local intensity = specular.r * 0.2126 + specular.g * 0.7152 + specular.b * 0.0722
 		local is_metal = intensity > 0 and
-			(shader == "Metal" or (attrs.SurfaceType or ""):find("metal", 1, true) ~= nil)
+			(
+				shader == "Metal" or
+				(
+					attrs.SurfaceType or
+					""
+				):find("metal", 1, true) ~= nil
+			)
 		local metal_low, metal_high = 0.4, 0.7
 		local metallic = is_metal and math.smoothstep(metal_low, metal_high, intensity) or 0
 		local lobe = math.lerp(

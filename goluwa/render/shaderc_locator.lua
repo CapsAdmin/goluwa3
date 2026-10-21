@@ -114,6 +114,7 @@ local function get_candidates()
 			table.insert(candidates, {path = vulkan_sdk .. "/Bin/shaderc_shared.dll"})
 		else
 			local versions = fs.get_files("C:/VulkanSDK/") or {}
+
 			table.sort(versions, function(a, b)
 				return a > b
 			end)
@@ -133,7 +134,10 @@ local function get_candidates()
 		end
 
 		if home then
-			table.insert(candidates, {path = home .. "/VulkanSDK/1.4.328.1/macOS/lib/libshaderc_shared.dylib"})
+			table.insert(
+				candidates,
+				{path = home .. "/VulkanSDK/1.4.328.1/macOS/lib/libshaderc_shared.dylib"}
+			)
 		end
 
 		table.insert(candidates, {path = "/opt/homebrew/lib/libshaderc_shared.dylib"})
@@ -156,7 +160,11 @@ local function copy_into_directory(source)
 	local target = locator.GetDirectory() .. bin_download.GetFileName(source)
 
 	if #list_directory() > 0 then
-		logf("[shaderc] %s already contains a library, not copying %s\n", locator.GetDirectory(), source)
+		logf(
+			"[shaderc] %s already contains a library, not copying %s\n",
+			locator.GetDirectory(),
+			source
+		)
 		return
 	end
 
@@ -229,7 +237,9 @@ end
 local function copy_from_steam()
 	local found = locator.FindInSteam()
 
-	if #found == 0 then return nil, "no shaderc library found in the Steam installation" end
+	if #found == 0 then
+		return nil, "no shaderc library found in the Steam installation"
+	end
 
 	if #found > 1 then
 		logf("[shaderc] found %s libraries in Steam, using the first:\n", #found)
@@ -301,7 +311,9 @@ function locator.Prompt(reason)
 		if key == "1" then
 			ok, err = copy_from_steam()
 		elseif key == "2" then
-			logn("This downloads a prebuilt shaderc from this repository's releases and verifies its sha256.")
+			logn(
+				"This downloads a prebuilt shaderc from this repository's releases and verifies its sha256."
+			)
 			logn("Download from " .. locator.download_url .. " ? [y/N]")
 
 			if bin_download.ReadKey() == "y" then
@@ -343,9 +355,10 @@ function locator.Locate()
 	fs.create_directory_recursive(locator.GetDirectory())
 
 	if os.getenv("GOLUWA_FORCE_DOWNLOAD") == "1" then
-		logn("[shaderc] GOLUWA_FORCE_DOWNLOAD is set, skipping local libraries and downloading shaderc")
+		logn(
+			"[shaderc] GOLUWA_FORCE_DOWNLOAD is set, skipping local libraries and downloading shaderc"
+		)
 		assert(download())
-
 		return
 	end
 

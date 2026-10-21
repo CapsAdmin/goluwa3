@@ -6,6 +6,7 @@ local startup = import("goluwa/startup.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local perf = import("lua/perf.lua")
+
 local function format_seconds(seconds)
 	if seconds >= 1 then return string.format("%.2f s", seconds) end
 
@@ -43,7 +44,6 @@ local function get_rows()
 		},
 		{label = "timeline", color = "head"},
 	}
-
 	local tree = startup.GetTree()
 	local last_stop = 0
 
@@ -70,10 +70,21 @@ local function get_rows()
 	end
 
 	if startup.ready_time and startup.ready_time - last_stop > total * MIN_SPAN_FRACTION then
-		add_entry(rows, total, "until ready (streaming, first frames)", startup.ready_time - last_stop, last_stop, total, "warn")
+		add_entry(
+			rows,
+			total,
+			"until ready (streaming, first frames)",
+			startup.ready_time - last_stop,
+			last_stop,
+			total,
+			"warn"
+		)
 	end
 
-	rows[#rows + 1] = {label = "main thread work, adds up many small pieces, overlaps the above", color = "head"}
+	rows[#rows + 1] = {
+		label = "main thread work, adds up many small pieces, overlaps the above",
+		color = "head",
+	}
 	local groups = {}
 	local group_list = {}
 	local singles = {}
@@ -179,7 +190,9 @@ end
 perf.RegisterTab(
 	"STARTUP",
 	9,
-	react.Component(|| -> ui.StatTable{Size = Vec2(660, 430), Timeline = true, Rows = react.UsePoll(poll_rows, WINDOW)})
+	react.Component(
+		||->ui.StatTable{Size = Vec2(660, 430), Timeline = true, Rows = react.UsePoll(poll_rows, WINDOW)}
+	)
 )
 
 commands.Add("startup_stats", function()

@@ -76,7 +76,12 @@ weapon_models.Register(
 	"weapon_pistol_model",
 	{
 		box("barrel", Vec3(0.055, 0.07, 0.34), FORWARD * 0.29 + Vec3(0, 0.03, 0), DARK_METAL),
-		box("muzzle_block", Vec3(0.04, 0.04, 0.12), FORWARD * 0.4 - Vec3(0, 0.01, 0), DARK_METAL),
+		box(
+			"muzzle_block",
+			Vec3(0.04, 0.04, 0.12),
+			FORWARD * 0.4 - Vec3(0, 0.01, 0),
+			DARK_METAL
+		),
 		box("grip", Vec3(0.05, 0.14, 0.07), FORWARD * 0.16 - Vec3(0, 0.08, 0), GRIP),
 		muzzle(0.46),
 	}

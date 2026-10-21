@@ -115,7 +115,10 @@ end)
 
 T.Test("hotreload loads modules again that used another one while loading", function()
 	with_tracking(function()
-		write("helper", "local helper = {}\nfunction helper.Text() return 'v1' end\nreturn helper")
+		write(
+			"helper",
+			"local helper = {}\nfunction helper.Text() return 'v1' end\nreturn helper"
+		)
 		write(
 			"consumer",
 			[[
@@ -140,7 +143,10 @@ return bystander
 		local consumer = load("consumer")
 		local bystander = load("bystander")
 		T(consumer.Baked())["=="]("v1")
-		reload("helper", "local helper = {}\nfunction helper.Text() return 'v2' end\nreturn helper")
+		reload(
+			"helper",
+			"local helper = {}\nfunction helper.Text() return 'v2' end\nreturn helper"
+		)
 		T(load("consumer"))["=="](consumer)
 		T(consumer.Baked())["=="]("v2")
 		T(bystander.Text())["=="]("v2")

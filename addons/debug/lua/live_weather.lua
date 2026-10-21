@@ -11,9 +11,24 @@ local METAR_COVERAGE = {FEW = 0.2, SCT = 0.4, BKN = 0.7, OVC = 1}
 local CLEAN = atmosphere.DEFAULT_AEROSOL
 local SMOG = {angstrom = 1.8, albedo = 0.88, g = 0.62, scale_height = 0.7}
 local CLOUD_CLASSES = {
-	{name = "low", max_base = 2500, default_bottom = 1400, template = climate.presets.cumulus.clouds[1]},
-	{name = "mid", max_base = 6000, default_bottom = 4800, template = climate.presets.cumulus.clouds[3]},
-	{name = "high", max_base = math.huge, default_bottom = 9000, template = climate.presets.cumulus.clouds[2]},
+	{
+		name = "low",
+		max_base = 2500,
+		default_bottom = 1400,
+		template = climate.presets.cumulus.clouds[1],
+	},
+	{
+		name = "mid",
+		max_base = 6000,
+		default_bottom = 4800,
+		template = climate.presets.cumulus.clouds[3],
+	},
+	{
+		name = "high",
+		max_base = math.huge,
+		default_bottom = 9000,
+		template = climate.presets.cumulus.clouds[2],
+	},
 }
 local UPPER_HAZE_KM = 0.56
 
@@ -76,7 +91,9 @@ function live_weather.BuildPreset(forecast, air, metar)
 	local rain = current.rain * 3600 / interval
 	local snow = (current.precipitation - current.rain) * 3600 / interval
 
-	if current.temperature_2m < 1 then rain, snow = 0, current.precipitation * 3600 / interval end
+	if current.temperature_2m < 1 then
+		rain, snow = 0, current.precipitation * 3600 / interval
+	end
 
 	preset.rain = rain
 	preset.snow = snow
@@ -158,7 +175,10 @@ function live_weather.Apply(on_done)
 		"air",
 		"https://air-quality-api.open-meteo.com/v1/air-quality?" .. position .. "&current=pm2_5,aerosol_optical_depth"
 	)
-	fetch("metar", "https://aviationweather.gov/api/data/metar?format=json&ids=" .. live_weather.METAR_STATION)
+	fetch(
+		"metar",
+		"https://aviationweather.gov/api/data/metar?format=json&ids=" .. live_weather.METAR_STATION
+	)
 end
 
 return live_weather

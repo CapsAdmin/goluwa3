@@ -94,47 +94,51 @@ do
 	end)
 
 	local function build_rows()
-	local counts = collect_culling_state()
-	local occlusion_stats = visual.GetOcclusionStats()
-	local rows = {
-		{
-			label = "frustum",
-			value = (visual.noculling or not gpu_culling.culling_enabled) and "disabled" or "enabled",
-		},
-		{
-			label = "occlusion",
-			value = string.format(
-				"%s (%s)",
-				visual.IsOcclusionCullingEnabled() and "enabled" or "disabled",
-				get_occlusion_mode_label()
-			),
-		},
-	}
+		local counts = collect_culling_state()
+		local occlusion_stats = visual.GetOcclusionStats()
+		local rows = {
+			{
+				label = "frustum",
+				value = (visual.noculling or not gpu_culling.culling_enabled) and "disabled" or "enabled",
+			},
+			{
+				label = "occlusion",
+				value = string.format(
+					"%s (%s)",
+					visual.IsOcclusionCullingEnabled() and "enabled" or "disabled",
+					get_occlusion_mode_label()
+				),
+			},
+		}
 
-	if visual.freeze_frustum_planes then
-		rows[#rows + 1] = {label = "frustum planes frozen", color = "warn"}
-	end
+		if visual.freeze_frustum_planes then
+			rows[#rows + 1] = {label = "frustum planes frozen", color = "warn"}
+		end
 
-	rows[#rows + 1] = {
-		label = "decided by",
-		value = scene_draw.debug_result and "the gpu (r_scene_draw_debug)" or "the cpu (set r_scene_draw_debug to see the gpu's)",
-		color = scene_draw.debug_result and nil or "dim",
-	}
-	rows[#rows + 1] = {label = "submitted visuals", value = counts.submitted .. " / " .. counts.total}
-	rows[#rows + 1] = {label = "culled visuals", value = tostring(counts.culled), color = "warn"}
-	rows[#rows + 1] = {label = "occlusion managed visuals", value = tostring(counts.conditional)}
-	rows[#rows + 1] = {
-		label = "submitted with conditional rendering",
-		value = tostring(occlusion_stats.submitted_with_conditional or 0),
-		color = "dim",
-	}
+		rows[#rows + 1] = {
+			label = "decided by",
+			value = scene_draw.debug_result and
+				"the gpu (r_scene_draw_debug)" or
+				"the cpu (set r_scene_draw_debug to see the gpu's)",
+			color = scene_draw.debug_result and nil or "dim",
+		}
+		rows[#rows + 1] = {label = "submitted visuals", value = counts.submitted .. " / " .. counts.total}
+		rows[#rows + 1] = {label = "culled visuals", value = tostring(counts.culled), color = "warn"}
+		rows[#rows + 1] = {label = "occlusion managed visuals", value = tostring(counts.conditional)}
+		rows[#rows + 1] = {
+			label = "submitted with conditional rendering",
+			value = tostring(occlusion_stats.submitted_with_conditional or 0),
+			color = "dim",
+		}
 		return rows
 	end
 
 	perf.RegisterTab(
 		"CULLING",
 		5,
-		react.Component(|| -> ui.StatTable{Size = Vec2(660, 470), Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL)})
+		react.Component(
+			||->ui.StatTable{Size = Vec2(660, 470), Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL)}
+		)
 	)
 
 	event.AddListener(
@@ -175,7 +179,6 @@ commands.Add("scene_draw_dump", function(count)
 	for _, component in ipairs(visual_module.Instances or {}) do
 		for _, item in ipairs(component.scene_instances or {}) do
 			by_id[item.id] = {component = component, item = item}
-
 		end
 	end
 
@@ -193,7 +196,8 @@ commands.Add("scene_draw_dump", function(count)
 				totals.unknown = totals.unknown + 1
 			else
 				local component = owner.component
-				local box = scene_bridge.GetEntryBox(owner.item.entry, owner.item.matrix) or component:GetWorldAABB()
+				local box = scene_bridge.GetEntryBox(owner.item.entry, owner.item.matrix) or
+					component:GetWorldAABB()
 				local contains = box and
 					camera.x >= box.min_x and
 					camera.x <= box.max_x and
@@ -204,7 +208,6 @@ commands.Add("scene_draw_dump", function(count)
 				local size = box and
 					math.max(box.max_x - box.min_x, box.max_y - box.min_y, box.max_z - box.min_z) or
 					0
-
 				local behind_eye = false
 
 				if box and not contains then
@@ -223,7 +226,9 @@ commands.Add("scene_draw_dump", function(count)
 					end
 				end
 
-				if behind_eye then totals.reaches_behind_eye = (totals.reaches_behind_eye or 0) + 1 end
+				if behind_eye then
+					totals.reaches_behind_eye = (totals.reaches_behind_eye or 0) + 1
+				end
 
 				if contains then totals.contains_camera = totals.contains_camera + 1 end
 
@@ -240,7 +245,13 @@ commands.Add("scene_draw_dump", function(count)
 						owner.item.level or 0,
 						(scene_meshes.GetRecord(owner.item.mesh_row) or {}).triangle_count or 0,
 						size,
-						contains and "  holds the camera" or (behind_eye and "  reaches behind the eye" or ""),
+						contains and
+							"  holds the camera" or
+							(
+								behind_eye and
+								"  reaches behind the eye" or
+								""
+							),
 						component.UseOcclusionCulling and "" or "  no occlusion test"
 					),
 				}

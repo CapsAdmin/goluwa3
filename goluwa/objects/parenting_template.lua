@@ -214,7 +214,10 @@ return function(META)
 		local slot_name = self.Slot
 
 		if slot_name and obj and not obj.IsInternal then
-			local slot = assert(self[slot_name], "slot " .. slot_name .. " does not exist yet, children can only be added after OnCreate")
+			local slot = assert(
+				self[slot_name],
+				"slot " .. slot_name .. " does not exist yet, children can only be added after OnCreate"
+			)
 			local added = slot:AddChild(obj, pos)
 
 			if added then self:CallLocalEvent("OnChildAdd", obj) end

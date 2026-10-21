@@ -229,7 +229,13 @@ local function collect(self, min_x, min_z, max_x, max_z)
 end
 
 function navmesh:GetAreasNear(position, radius)
-	local count = collect(self, position.x - radius, position.z - radius, position.x + radius, position.z + radius)
+	local count = collect(
+		self,
+		position.x - radius,
+		position.z - radius,
+		position.x + radius,
+		position.z + radius
+	)
 	local out = {}
 
 	for i = 1, count do
@@ -328,7 +334,6 @@ function navmesh:GetRandomPoint(around, radius, allowed)
 
 		local p = area.points
 		local x, z
-
 		local weights, sum = {}, 0
 
 		for i = 2, area.count - 1 do
@@ -374,7 +379,8 @@ end
 
 function navmesh:GetReachableAreas(from, options)
 	options = options or EMPTY
-	local start = self:GetAreaAt(from) or self:GetNearestArea(from, options.SnapDistance or navmesh.SNAP_DISTANCE)
+	local start = self:GetAreaAt(from) or
+		self:GetNearestArea(from, options.SnapDistance or navmesh.SNAP_DISTANCE)
 
 	if not start then return nil end
 
@@ -471,7 +477,11 @@ local function pull_string(points, count)
 
 		if triangle_area(apex_x, apex_z, right_x, right_z, new_right_x, new_right_z) <= 0 then
 			if
-				(apex_x == right_x and apex_z == right_z) or
+				(
+					apex_x == right_x and
+					apex_z == right_z
+				)
+				or
 				triangle_area(apex_x, apex_z, left_x, left_z, new_right_x, new_right_z) > 0
 			then
 				right_x, right_y, right_z = new_right_x, portal_right_y[i], new_right_z
@@ -491,7 +501,11 @@ local function pull_string(points, count)
 		if not restarted then
 			if triangle_area(apex_x, apex_z, left_x, left_z, new_left_x, new_left_z) >= 0 then
 				if
-					(apex_x == left_x and apex_z == left_z) or
+					(
+						apex_x == left_x and
+						apex_z == left_z
+					)
+					or
 					triangle_area(apex_x, apex_z, right_x, right_z, new_left_x, new_left_z) < 0
 				then
 					left_x, left_y, left_z = new_left_x, portal_left_y[i], new_left_z

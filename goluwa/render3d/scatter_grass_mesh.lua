@@ -10,7 +10,6 @@ local SEGMENTS = 4
 local GRADIENT_WIDTH = 8
 local GRADIENT_HEIGHT = 16
 local material
-
 local NORMAL_UP = 0.6
 
 local function get_material()

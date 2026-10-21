@@ -494,7 +494,7 @@ function SequenceEditor:Indent(back)
 			local tab = self.Buffer:GetTab()
 
 			if col > 1 and self.Buffer:Sub(pos - 1, pos - 1) == tab then
-						self.Buffer:RemoveRange(pos - 1, pos)
+				self.Buffer:RemoveRange(pos - 1, pos)
 				self.Cursor = pos - 1
 				self:NotifyChanged()
 			end
@@ -504,7 +504,6 @@ function SequenceEditor:Indent(back)
 
 		return
 	end
-
 
 	for i = start_line, stop_line do
 		self.Buffer:IndentLine(i, back)

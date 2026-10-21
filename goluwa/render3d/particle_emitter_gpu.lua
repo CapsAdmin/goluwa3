@@ -10,7 +10,6 @@ local free_slots = {}
 local next_uid = 1
 local high_water = 0
 local last_sync_frame
-
 local SHAPES = {point = 0, sphere = 1, cone = 2, box = 3, disc = 4}
 local COLLISIONS = {none = 0, shelter_map = 1, scene_depth = 2, rays = 3}
 local ON_HIT = {bounce = 0, stick = 1, kill = 2}
@@ -26,7 +25,6 @@ end
 
 local function allocate(count)
 	table.sort(ranges, by_first)
-
 	local first = 0
 
 	for _, range in ipairs(ranges) do
@@ -53,7 +51,8 @@ local function sync()
 		if
 			emitter.particle_removed or
 			emitter.particle_backend ~= "gpu" or
-			not particle_emitter.IsShown(emitter) or
+			not particle_emitter.IsShown(emitter)
+			or
 			emitter.MaxParticles ~= range.count
 		then
 			release(range)
@@ -61,7 +60,11 @@ local function sync()
 	end
 
 	for _, emitter in ipairs(particle_emitter.instances) do
-		if not emitter.gpu_range and emitter.particle_backend == "gpu" and particle_emitter.IsShown(emitter) then
+		if
+			not emitter.gpu_range and
+			emitter.particle_backend == "gpu" and
+			particle_emitter.IsShown(emitter)
+		then
 			assert(#ranges < gpu.MAX_EMITTERS, "too many gpu particle emitters")
 			local slot = 0
 			local taken = {}
@@ -188,7 +191,12 @@ gpu.system = particles.Register{
 			write_vec3(entry.position, state.position.x, state.position.y, state.position.z)
 			write_vec3(entry.axis, state.axis.x, state.axis.y, state.axis.z)
 			local inherit = emitter.InheritVelocity
-			write_vec3(entry.velocity, state.velocity.x * inherit, state.velocity.y * inherit, state.velocity.z * inherit)
+			write_vec3(
+				entry.velocity,
+				state.velocity.x * inherit,
+				state.velocity.y * inherit,
+				state.velocity.z * inherit
+			)
 			local size = emitter.ShapeSize
 			write_vec3(entry.shape_size, size.x, size.y, size.z)
 			write_color(entry.color_start, emitter.ColorStart)

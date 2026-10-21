@@ -193,7 +193,7 @@ T.Test3D("Model preview is upright and not mirrored", function()
 	shapes.BuildCube(foot, 0.2, 1.0)
 
 	for _, vertex in ipairs(foot.Vertices) do
-		poly:AddVertex({pos = vertex.pos + Vec3(0.6, -0.7, 0), uv = vertex.uv, normal = vertex.normal})
+		poly:AddVertex{pos = vertex.pos + Vec3(0.6, -0.7, 0), uv = vertex.uv, normal = vertex.normal}
 	end
 
 	poly:BuildBoundingBox()
@@ -209,12 +209,20 @@ T.Test3D("Model preview is upright and not mirrored", function()
 	local ok, err = xpcall(
 		function()
 			local tex = preview:RenderTarget(entity.visual)
-			T.AssertTexturePixel{tex = tex, pos = {130, 40}, color = function(r, g, b, a)
-				return a > 0.9
-			end}
-			T.AssertTexturePixel{tex = tex, pos = {210, 270}, color = function(r, g, b, a)
-				return a > 0.9
-			end}
+			T.AssertTexturePixel{
+				tex = tex,
+				pos = {130, 40},
+				color = function(r, g, b, a)
+					return a > 0.9
+				end,
+			}
+			T.AssertTexturePixel{
+				tex = tex,
+				pos = {210, 270},
+				color = function(r, g, b, a)
+					return a > 0.9
+				end,
+			}
 			T.AssertTexturePixel{tex = tex, pos = {280, 40}, color = {0, 0, 0, 0}, tolerance = 0.05}
 			T.AssertTexturePixel{tex = tex, pos = {30, 290}, color = {0, 0, 0, 0}, tolerance = 0.05}
 		end,
@@ -252,9 +260,13 @@ T.Test3D("Model preview fills the background from the environment when the sky i
 		function()
 			preview:GetView():SetTransparentSky(false)
 			local tex = preview:RenderTarget(entity.visual)
-			T.AssertTexturePixel{tex = tex, pos = {4, 4}, color = function(r, g, b, a)
-				return a > 0.9 and luma(r, g, b) > 0.02
-			end}
+			T.AssertTexturePixel{
+				tex = tex,
+				pos = {4, 4},
+				color = function(r, g, b, a)
+					return a > 0.9 and luma(r, g, b) > 0.02
+				end,
+			}
 		end,
 		debug.traceback
 	)

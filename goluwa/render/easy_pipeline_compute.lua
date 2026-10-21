@@ -254,7 +254,8 @@ do
 			ray_generation and
 				{
 					"#extension GL_EXT_ray_tracing : require",
-					ray_generation.extension or "",
+					ray_generation.extension or
+					"",
 					"#define texture(s, uv) textureLod(s, uv, 0.0)",
 					"#define gl_GlobalInvocationID gl_LaunchIDEXT",
 				} or
@@ -410,7 +411,10 @@ do
 				closesthit = "#version 460\n#extension GL_EXT_ray_tracing : require\nlayout(location = 0) rayPayloadInEXT int payload;\nvoid main() {}\n",
 				miss = "#version 460\n#extension GL_EXT_ray_tracing : require\nlayout(location = 0) rayPayloadInEXT int payload;\nvoid main() {}\n",
 				anyhit = ray_generation.anyhit and
-					shader_header .. (config.custom_declarations or "") .. uniform_buffer_glsl .. ray_generation.anyhit or
+					shader_header .. (
+						config.custom_declarations or
+						""
+					) .. uniform_buffer_glsl .. ray_generation.anyhit or
 					nil,
 			}
 		end
@@ -436,7 +440,11 @@ do
 					code = shader_header .. (
 							config.custom_declarations or
 							""
-						) .. (ray_generation and ray_generation.declarations or "") .. local_size_glsl .. push_constant_glsl .. uniform_buffer_glsl .. (
+						) .. (
+							ray_generation and
+							ray_generation.declarations or
+							""
+						) .. local_size_glsl .. push_constant_glsl .. uniform_buffer_glsl .. (
 							config.shader or
 							""
 						),
@@ -683,7 +691,11 @@ do
 		end
 
 		if self.config.ray_generation then
-			cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "ray_tracing_shader_khr", memoryBarrier = true}
+			cmd:PipelineBarrier{
+				srcStage = "all_commands",
+				dstStage = "ray_tracing_shader_khr",
+				memoryBarrier = true,
+			}
 		end
 
 		if self.on_draw then

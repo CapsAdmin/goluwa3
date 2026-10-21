@@ -150,12 +150,16 @@ do
 			local previous, following = samples[i - 1] or sample, samples[i + 1] or sample
 			local tangent = Vec3(following.pos.x - previous.pos.x, 0, following.pos.z - previous.pos.z)
 
-			if tangent:GetLength() < 1e-5 then tangent = i > 1 and samples[i - 1].tangent or Vec3(1, 0, 0) end
+			if tangent:GetLength() < 1e-5 then
+				tangent = i > 1 and samples[i - 1].tangent or Vec3(1, 0, 0)
+			end
 
 			sample.tangent = tangent:GetNormalized()
 			sample.side = Vec3(sample.tangent.z, 0, -sample.tangent.x)
 
-			if i > 1 then distance = distance + (sample.pos - samples[i - 1].pos):GetLength() end
+			if i > 1 then
+				distance = distance + (sample.pos - samples[i - 1].pos):GetLength()
+			end
 
 			sample.distance = distance
 			across_cells = math.max(
@@ -170,9 +174,9 @@ do
 		for i, sample in ipairs(samples) do
 			local row = {}
 			local fade = 1 - math.min(
-				math.min(sample.distance / road.fade_length, 1),
-				math.min((total_distance - sample.distance) / road.fade_length, 1)
-			)
+					math.min(sample.distance / road.fade_length, 1),
+					math.min((total_distance - sample.distance) / road.fade_length, 1)
+				)
 
 			for k = 0, across_cells do
 				local across = k / across_cells - 0.5

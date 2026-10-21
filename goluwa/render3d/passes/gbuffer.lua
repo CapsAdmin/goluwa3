@@ -21,7 +21,6 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 	return {
 		name = "gbuffer",
 		on_pre_draw = function(self, cmd)
-
 			for _, extra in ipairs(gbuffer_extras) do
 				if render3d.pipelines[extra.name] then extra.PreDraw(cmd) end
 			end
@@ -31,7 +30,6 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 
 			if draw_geometry then
 				draw_geometry(cmd)
-
 				return
 			end
 
@@ -39,7 +37,6 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			event.Call("PreDraw3D", dt)
 			event.Call("Draw3DGeometry", dt)
 			gbuffer_instancing.Flush()
-
 
 			for _, extra in ipairs(gbuffer_extras) do
 				local pipeline = render3d.pipelines[extra.name]

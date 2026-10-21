@@ -102,7 +102,11 @@ function META:open_menu()
 					TextLayout = {GrowWidth = 0, FitWidth = true, FitHeight = true},
 					layout = {ChildGap = "none"},
 				}{
-					MarkupLabel{Text = entry.example, ContentMinHeight = entry.height or 0, IgnoreMouseInput = true},
+					MarkupLabel{
+						Text = entry.example,
+						ContentMinHeight = entry.height or 0,
+						IgnoreMouseInput = true,
+					},
 				},
 			}
 		)

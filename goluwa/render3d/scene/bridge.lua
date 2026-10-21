@@ -19,7 +19,6 @@ local dirty_all = false
 local function mark_dirty(aabb)
 	if not aabb then
 		dirty_all = true
-
 		return
 	end
 
@@ -28,7 +27,6 @@ local function mark_dirty(aabb)
 	if #dirty_boxes >= MAX_DIRTY_BOXES then
 		dirty_all = true
 		table.clear(dirty_boxes)
-
 		return
 	end
 
@@ -87,7 +85,6 @@ local function grow_bounds(box)
 		bounds_min[0], bounds_min[1], bounds_min[2] = box.min_x, box.min_y, box.min_z
 		bounds_max[0], bounds_max[1], bounds_max[2] = box.max_x, box.max_y, box.max_z
 		bounds_valid = true
-
 		return
 	end
 
@@ -104,7 +101,9 @@ local function set_lod_bounds(visual, list)
 
 	if not box then return end
 
-	local x, y, z = (box.min_x + box.max_x) * 0.5, (box.min_y + box.max_y) * 0.5, (box.min_z + box.max_z) * 0.5
+	local x, y, z = (box.min_x + box.max_x) * 0.5,
+	(box.min_y + box.max_y) * 0.5,
+	(box.min_z + box.max_z) * 0.5
 	local ex, ey, ez = box.max_x - box.min_x, box.max_y - box.min_y, box.max_z - box.min_z
 	local radius = math.sqrt(ex * ex + ey * ey + ez * ez) * 0.5
 
@@ -131,7 +130,6 @@ local function release(visual)
 		dynamic[visual] = nil
 		tracked[visual] = nil
 		emissive_visuals[visual] = nil
-
 		return
 	end
 
@@ -206,7 +204,9 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	if translucent then
 		flags = flags + instances.RASTER_TRANSLUCENT
 
-		if material:GetDoubleSided() then flags = flags + instances.RASTER_DOUBLE_SIDED end
+		if material:GetDoubleSided() then
+			flags = flags + instances.RASTER_DOUBLE_SIDED
+		end
 
 		if visual.UseOcclusionCulling then flags = flags + instances.RASTER_OCCLUSION end
 	end
@@ -214,12 +214,16 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	if drawn then
 		flags = flags + instances.RASTER_DRAW
 
-		if material:GetDoubleSided() then flags = flags + instances.RASTER_DOUBLE_SIDED end
+		if material:GetDoubleSided() then
+			flags = flags + instances.RASTER_DOUBLE_SIDED
+		end
 
 		if visual.UseOcclusionCulling then flags = flags + instances.RASTER_OCCLUSION end
 	end
 
-	if flags ~= 0 and material:HasHeightMap() then flags = flags + instances.RASTER_HEIGHT_MAP end
+	if flags ~= 0 and material:HasHeightMap() then
+		flags = flags + instances.RASTER_HEIGHT_MAP
+	end
 
 	local transform = entry.transform
 	instances.SetRaster(
@@ -229,7 +233,10 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 		flags,
 		transform and transform:GetPreviousWorldMatrix() or matrix,
 		entry.source_aabb,
-		translucent and material:GetRefraction() > 0 and material:GetRefractionThickness() or 0
+		translucent and
+			material:GetRefraction() > 0 and
+			material:GetRefractionThickness() or
+			0
 	)
 
 	if flags ~= 0 then
@@ -246,7 +253,6 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	if not visual:IsValid() or visual.scene_removed then
 		cpu_drawn[visual] = nil
 		release(visual)
-
 		return
 	end
 
@@ -260,7 +266,9 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 	for _, entry in ipairs(visual:GetLODRenderEntries()) do
 		local mesh = entry.polygon3d.mesh
-		local mesh_row = mesh and mesh.Type ~= "null" and meshes.Get(mesh, entry.polygon3d.Dynamic == true)
+		local mesh_row = mesh and
+			mesh.Type ~= "null" and
+			meshes.Get(mesh, entry.polygon3d.Dynamic == true)
 
 		if mesh_row then
 			count = count + 1
@@ -281,7 +289,9 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 			if entry.lod_billboard then flags = flags + instances.FLAG_BILLBOARD end
 
-			if entry.lod_before_billboard then flags = flags + instances.FLAG_BEFORE_BILLBOARD end
+			if entry.lod_before_billboard then
+				flags = flags + instances.FLAG_BEFORE_BILLBOARD
+			end
 
 			if item and item.mesh_row == mesh_row then
 				if item.matrix ~= matrix then
@@ -343,7 +353,6 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 	if count == 0 then
 		release(visual)
-
 		return
 	end
 

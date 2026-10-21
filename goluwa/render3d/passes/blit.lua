@@ -229,7 +229,9 @@ do
 			curve[i] = math.min(curve[i], curve[i + 1])
 		end
 
-		local anchor = curve[(ADAPTATION_CURVE_ANCHOR_EV - ADAPTATION_CURVE_EV_MIN) / ADAPTATION_CURVE_EV_STEP + 1]
+		local anchor = curve[(
+			ADAPTATION_CURVE_ANCHOR_EV - ADAPTATION_CURVE_EV_MIN
+		) / ADAPTATION_CURVE_EV_STEP + 1]
 
 		for i = 1, ADAPTATION_CURVE_COUNT do
 			curve[i] = curve[i] - anchor
@@ -302,7 +304,6 @@ local WHITE_BALANCE_GLSL = [[
 		return xyz.xy / max(xyz.x + xyz.y + xyz.z, 1e-6);
 	}
 ]]
-
 local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 	layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_exposure;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
@@ -483,13 +484,21 @@ local exposure_feedback_pass = {
 			meter = exposure_model.camera
 			min_ev, max_ev = exposure_model.GetCameraRange()
 
-			if not lock and exposure_model.GetCameraMode() == "manual" then lock = exposure_model.GetManualEV() end
+			if not lock and exposure_model.GetCameraMode() == "manual" then
+				lock = exposure_model.GetManualEV()
+			end
 		end
 
 		block.dt = get_exposure_dt()
 		block.lock = lock and 1 or 0
 		block.lock_ev = lock or 0
-		block.compensation = view and view.ExposureCompensation or (eye and eye_compensation:Get() or exposure_model.GetCameraCompensation())
+		block.compensation = view and
+			view.ExposureCompensation or
+			(
+				eye and
+				eye_compensation:Get() or
+				exposure_model.GetCameraCompensation()
+			)
 		block.eye = eye and 1 or 0
 		block.rod_adaptation = exposure_rod_adaptation:Get()
 		block.min_ev = min_ev
@@ -501,7 +510,6 @@ local exposure_feedback_pass = {
 	end,
 	shader = exposure_feedback_shader,
 }
-
 local GRID_X, GRID_Y, GRID_Z = 64, 36, 48
 local GRID_GLSL = (
 	[[

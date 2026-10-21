@@ -14,7 +14,12 @@ local function apply(vmt, path)
 end
 
 T.Test3D("source materials: chrome, matte and the pbr shader", function()
-	local chrome = apply{shader = "vertexlitgeneric", envmap = "env_cubemap", envmapsphere = 1, envmapmode = 1}
+	local chrome = apply{
+		shader = "vertexlitgeneric",
+		envmap = "env_cubemap",
+		envmapsphere = 1,
+		envmapmode = 1,
+	}
 	T(chrome:IsMetallic())["=="](true)
 	T(chrome:GetRoughnessMultiplier())["=="](0.05)
 	local matte = apply{shader = "vertexlitgeneric"}
@@ -28,7 +33,11 @@ T.Test3D("source materials: a colored envmap tint is a metal and a wood surfacep
 	T(gold:IsMetallic())["=="](true)
 	local panel = {shader = "vertexlitgeneric", surfaceprop = {surfaceprop_name = "metalpanel"}}
 	T(apply(panel):IsMetallic())["=="](true)
-	panel = {shader = "vertexlitgeneric", surfaceprop = {surfaceprop_name = "metalpanel"}, translucent = 1}
+	panel = {
+		shader = "vertexlitgeneric",
+		surfaceprop = {surfaceprop_name = "metalpanel"},
+		translucent = 1,
+	}
 	T(apply(panel):IsMetallic())["=="](false)
 	local wood = apply{
 		shader = "vertexlitgeneric",
@@ -40,19 +49,43 @@ T.Test3D("source materials: a colored envmap tint is a metal and a wood surfacep
 end)
 
 local vmts = {
-	{"models/props_combine/breendesk_sheet", false, "dark brown wood with a metal surfaceprop and a strong envmap tint"},
-	{"models/props_combine/breenglobe_sheet", false, "wood surfaceprop with a warm envmap tint"},
+	{
+		"models/props_combine/breendesk_sheet",
+		false,
+		"dark brown wood with a metal surfaceprop and a strong envmap tint",
+	},
+	{
+		"models/props_combine/breenglobe_sheet",
+		false,
+		"wood surfaceprop with a warm envmap tint",
+	},
 	{"models/props_c17/furnituretable001a", false, "dark wood"},
 	{"models/props_wasteland/wood_fence01a", false, "wood"},
 	{"models/props_c17/lockers001a", true, "no surfaceprop, a metal detail texture"},
 	{"models/props_junk/metalbucket01a", true, "gray metal"},
 	{"models/props_c17/metalladder001", true, "gray metal"},
-	{"models/props_combine/combine_barricade_short01a", true, "dark metal, a bluish envmap tint"},
-	{"models/props_combine/combine_interface001", true, "metal surfaceprop with an envmap tint of 0.1"},
+	{
+		"models/props_combine/combine_barricade_short01a",
+		true,
+		"dark metal, a bluish envmap tint",
+	},
+	{
+		"models/props_combine/combine_interface001",
+		true,
+		"metal surfaceprop with an envmap tint of 0.1",
+	},
 }
 local models = {
-	{"models/props_lab/blastdoor001a.mdl", "materials/models/props_lab/blastdoor_sheet.vmt", true},
-	{"models/props_lab/workspace004.mdl", "materials/models/props_lab/workspace_wires.vmt", false},
+	{
+		"models/props_lab/blastdoor001a.mdl",
+		"materials/models/props_lab/blastdoor_sheet.vmt",
+		true,
+	},
+	{
+		"models/props_lab/workspace004.mdl",
+		"materials/models/props_lab/workspace_wires.vmt",
+		false,
+	},
 }
 
 T.Test3D("source materials: metallic estimate on gmod content", function()
@@ -69,13 +102,18 @@ T.Test3D("source materials: metallic estimate on gmod content", function()
 	local model_materials = {}
 
 	for i, info in ipairs(models) do
-		model_loader.LoadModel(info[1], function() end, function(entry)
-			if entry.material and entry.material:GetName() == info[2] then
-				model_materials[i] = entry.material
+		model_loader.LoadModel(
+			info[1],
+			function() end,
+			function(entry)
+				if entry.material and entry.material:GetName() == info[2] then
+					model_materials[i] = entry.material
+				end
+			end,
+			function(err)
+				error(info[1] .. ": " .. tostring(err))
 			end
-		end, function(err)
-			error(info[1] .. ": " .. tostring(err))
-		end)
+		)
 	end
 
 	local function ready(material)
@@ -121,15 +159,29 @@ T.Test3D("source materials: cloth gets a sheen and foliage cards let light throu
 	T(apply{shader = "vertexlitgeneric"}:GetSheen())["=="](0)
 	local carpet = apply{shader = "vertexlitgeneric", surfaceprop = {surfaceprop_name = "carpet"}}
 	T(carpet:GetSheen() > 0)["=="](true)
-	local couch = apply({shader = "vertexlitgeneric"}, "materials/models/props_c17/furniturecouch001a.vmt")
+	local couch = apply(
+		{shader = "vertexlitgeneric"},
+		"materials/models/props_c17/furniturecouch001a.vmt"
+	)
 	T(couch:GetSheen() > 0)["=="](true)
 	T(apply{shader = "vertexlitgeneric", rimlight = 1}:GetSheen() > 0)["=="](true)
-	local leaf = apply({shader = "vertexlitgeneric", alphatest = 1, nocull = 1}, "materials/models/props_foliage/tree_01a.vmt")
+	local leaf = apply(
+		{shader = "vertexlitgeneric", alphatest = 1, nocull = 1},
+		"materials/models/props_foliage/tree_01a.vmt"
+	)
 	T(leaf:GetDiffuseTransmission() > 0)["=="](true)
 	T(leaf:GetTransmissive())["=="](true)
-	local street = apply({shader = "vertexlitgeneric", alphatest = 1, nocull = 1}, "materials/models/props_street/sign001a.vmt")
+	local street = apply(
+		{shader = "vertexlitgeneric", alphatest = 1, nocull = 1},
+		"materials/models/props_street/sign001a.vmt"
+	)
 	T(street:GetDiffuseTransmission())["=="](0)
-	local fence = apply({shader = "vertexlitgeneric", alphatest = 1, nocull = 1}, "materials/metal/metalrail006b.vmt")
+	local fence = apply(
+		{shader = "vertexlitgeneric", alphatest = 1, nocull = 1},
+		"materials/metal/metalrail006b.vmt"
+	)
 	T(fence:GetDiffuseTransmission())["=="](0)
-	T(apply({shader = "vertexlitgeneric"}, "materials/models/props_foliage/tree_01a.vmt"):GetDiffuseTransmission())["=="](0)
+	T(
+		apply({shader = "vertexlitgeneric"}, "materials/models/props_foliage/tree_01a.vmt"):GetDiffuseTransmission()
+	)["=="](0)
 end)

@@ -60,7 +60,7 @@ local function load_bundled()
 	bin_download.WriteBinary(
 		icd_path,
 		string.format(
-			'{"file_format_version": "1.0.1", "ICD": {"library_path": "%s", "api_version": "1.4.0"}}\n',
+			"{\"file_format_version\": \"1.0.1\", \"ICD\": {\"library_path\": \"%s\", \"api_version\": \"1.4.0\"}}\n",
 			driver_path
 		)
 	)
@@ -88,7 +88,10 @@ local function download_bundled(force)
 	handle:close()
 
 	if tonumber(version:match("^(%d+)")) < 26 then
-		error("the bundled vulkan driver (KosmicKrisp) needs macOS 26 or later, this is " .. version, 0)
+		error(
+			"the bundled vulkan driver (KosmicKrisp) needs macOS 26 or later, this is " .. version,
+			0
+		)
 	end
 
 	if force then
@@ -109,13 +112,15 @@ local function download_bundled(force)
 	if not force then
 		logn("")
 		logn("[vulkan] no vulkan loader was found on this system.")
-		logn("  Download the Khronos Vulkan loader and the KosmicKrisp driver (Vulkan on Metal) from")
+		logn(
+			"  Download the Khronos Vulkan loader and the KosmicKrisp driver (Vulkan on Metal) from"
+		)
 		logn("  " .. manifest.release .. " ? [y/N]")
 
 		if bin_download.ReadKey() ~= "y" then error("vulkan download declined", 0) end
 	end
 
-	for _, asset in pairs({assets.loader, assets.driver}) do
+	for _, asset in pairs{assets.loader, assets.driver} do
 		assert(bin_download.Download(manifest.release, asset, locator.GetDirectory()))
 	end
 end
@@ -142,7 +147,6 @@ function locator.Locate()
 
 	if os.getenv("GOLUWA_FORCE_DOWNLOAD") == "1" then
 		download_bundled(true)
-
 		return assert(load_bundled())
 	end
 
@@ -158,7 +162,6 @@ function locator.Locate()
 
 	download_bundled()
 	lib, err = load_bundled()
-
 	return assert(lib, err)
 end
 

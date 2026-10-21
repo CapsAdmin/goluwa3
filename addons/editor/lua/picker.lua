@@ -145,7 +145,9 @@ function picker.GetPickPosition()
 end
 
 local function is_pickable(entity)
-	if not (entity:IsValid() and entity:GetRoot() == Entity.World) then return false end
+	if not (entity:IsValid() and entity:GetRoot() == Entity.World) then
+		return false
+	end
 
 	local owner = entity.VisualOwner and entity.VisualOwner.Owner or entity
 
@@ -160,13 +162,7 @@ function picker.find_3d_pick_target(mouse_pos)
 	local ray_origin = cam:GetPosition()
 	local ray_direction = cam:ScreenToWorldDirection(mouse_pos, screen_width, screen_height)
 	raycast.SetLODCamera(ray_origin)
-	local ok, visual_hit = pcall(
-		raycast.CastClosest,
-		ray_origin,
-		ray_direction,
-		math.huge,
-		is_pickable
-	)
+	local ok, visual_hit = pcall(raycast.CastClosest, ray_origin, ray_direction, math.huge, is_pickable)
 	raycast.SetLODCamera(nil)
 
 	if not ok then error(visual_hit, 0) end
@@ -182,7 +178,11 @@ function picker.find_3d_pick_target(mouse_pos)
 
 		if
 			geometry_entity and
-			(not picker.filter or picker.filter(geometry_entity)) and
+			(
+				not picker.filter or
+				picker.filter(geometry_entity)
+			)
+			and
 			(
 				not visual_hit or
 				geometry_distance <= visual_hit.distance + 0.01
@@ -192,7 +192,9 @@ function picker.find_3d_pick_target(mouse_pos)
 		end
 	end
 
-	if visual_hit and picker.filter then return visual_hit.primitive.entity.VisualOwner.Owner end
+	if visual_hit and picker.filter then
+		return visual_hit.primitive.entity.VisualOwner.Owner
+	end
 
 	if visual_hit then
 		local entity = visual_hit.primitive.entity
@@ -282,7 +284,9 @@ local function open_texture_menu(material)
 		}
 	end
 
-	if not items[1] then items[1] = MenuItem{Text = "no textures", Disabled = true} end
+	if not items[1] then
+		items[1] = MenuItem{Text = "no textures", Disabled = true}
+	end
 
 	mine.menu_open = true
 	Panel.OpenContextMenu(
@@ -291,6 +295,7 @@ local function open_texture_menu(material)
 			mouse_input = {RequestMouse = true},
 			OnClose = function(self)
 				self:Remove()
+
 				-- a click on an item closes the menu too, before or after it runs, so look again next frame
 				timer.Delay(0, function()
 					if session == mine then picker.Stop() end
@@ -318,7 +323,6 @@ local function update_finish()
 	if done.desktop_shown then desktop.Show(true) end
 
 	if done.on_done then done.on_done() end
-
 end
 
 function picker.Stop()
@@ -366,7 +370,9 @@ local function on_hit_click(button, press)
 
 	local hovered = not system.GetWindow():GetMouseTrapped() and MouseInput.GetHoveredObject()
 
-	if hovered and hovered:IsValid() and not desktop.IsBackdrop(hovered) then return end
+	if hovered and hovered:IsValid() and not desktop.IsBackdrop(hovered) then
+		return
+	end
 
 	local cam = render3d.GetCamera()
 	local width, height = render2d.GetSize()
@@ -450,7 +456,8 @@ function picker.Update(dt)
 		for _, entity in ipairs(picker.GetNonvisualCandidates()) do
 			if
 				entity:IsValid() and
-				not is_blacklisted(entity) and
+				not is_blacklisted(entity)
+				and
 				(
 					not picker.filter or
 					picker.filter(entity)
@@ -473,7 +480,9 @@ function picker.Update(dt)
 		end
 	end
 
-	local hovered = not system.GetWindow():GetMouseTrapped() and MouseInput.GetHoveredObject() or NULL
+	local hovered = not system.GetWindow():GetMouseTrapped() and
+		MouseInput.GetHoveredObject() or
+		NULL
 
 	if not hovered:IsValid() then
 		picker.hovered_entity = picker.find_3d_pick_target(picker.GetPickPosition()) or NULL

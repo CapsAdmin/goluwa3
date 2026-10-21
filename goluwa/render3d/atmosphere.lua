@@ -128,12 +128,24 @@ local function get_sky_view_texture_key(cam_pos, sun_dir)
 	local sun = get_normalized_sun_direction(sun_dir)
 	local sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 	local length = math.sqrt(camera.x * camera.x + camera.y * camera.y + camera.z * camera.z)
-	local elevation = math.asin(math.max(-1, math.min(1, (sun.x * camera.x + sun.y * camera.y + sun.z * camera.z) / length)))
+	local elevation = math.asin(
+		math.max(
+			-1,
+			math.min(1, (sun.x * camera.x + sun.y * camera.y + sun.z * camera.z) / length)
+		)
+	)
 	local x = quantize(camera.x, SKY_VIEW_POSITION_QUANTIZATION)
 	local y = quantize(camera.y, SKY_VIEW_HEIGHT_QUANTIZATION)
 	local z = quantize(camera.z, SKY_VIEW_POSITION_QUANTIZATION)
 	elevation = quantize(elevation, SKY_VIEW_ELEVATION_QUANTIZATION)
-	return string.format("%.1f:%.1f:%.1f|%.6f|%.3f", x, y, z, elevation, quantize(sun_illuminance, SKY_VIEW_ILLUMINANCE_QUANTIZATION)),
+	return string.format(
+		"%.1f:%.1f:%.1f|%.6f|%.3f",
+		x,
+		y,
+		z,
+		elevation,
+		quantize(sun_illuminance, SKY_VIEW_ILLUMINANCE_QUANTIZATION)
+	),
 	x,
 	y,
 	z,
@@ -171,7 +183,12 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 	const vec3 RAYLEIGH_BETA = vec3(0.0058, 0.0135, 0.0331);
 	const vec3 OZONE_BETA_ABS = vec3(0.00065, 0.00188, 0.000085);
 	const vec3 GROUND_ALBEDO = vec3(0.30, 0.27, 0.22);
-	const vec3 SUN_COLOR = vec3(]] .. string.format("%.4f, %.4f, %.4f", atmosphere.SUN_COLOR.x, atmosphere.SUN_COLOR.y, atmosphere.SUN_COLOR.z) .. [[);
+	const vec3 SUN_COLOR = vec3(]] .. string.format(
+		"%.4f, %.4f, %.4f",
+		atmosphere.SUN_COLOR.x,
+		atmosphere.SUN_COLOR.y,
+		atmosphere.SUN_COLOR.z
+	) .. [[);
 
 	#ifndef ATMOSPHERE_SUN_ILLUMINANCE
 	#define ATMOSPHERE_SUN_ILLUMINANCE ]] .. string.format("%.1f", DEFAULT_SUN_ILLUMINANCE) .. [[
@@ -426,8 +443,13 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 
 ]] .. glsl_common.GetSunHorizonVisibilityGLSL() .. [[
 ]]
-
-local SPECTRUM = {wavelengths = {}, rayleigh = {}, ozone = {}, aerosol = {}, weights = {{}, {}, {}}}
+local SPECTRUM = {
+	wavelengths = {},
+	rayleigh = {},
+	ozone = {},
+	aerosol = {},
+	weights = {{}, {}, {}},
+}
 
 do
 	local function lobe(l, mu, s1, s2)
@@ -441,7 +463,9 @@ do
 		local i = #SPECTRUM.wavelengths + 1
 		local um = l / 1000
 		SPECTRUM.wavelengths[i] = l
-		SPECTRUM.rayleigh[i] = 0.008569 * um ^ -4 * (1 + 0.0113 * um ^ -2 + 0.00013 * um ^ -4) / RAYLEIGH_SCALE_HEIGHT
+		SPECTRUM.rayleigh[i] = 0.008569 * um ^ -4 * (
+				1 + 0.0113 * um ^ -2 + 0.00013 * um ^ -4
+			) / RAYLEIGH_SCALE_HEIGHT
 		SPECTRUM.ozone[i] = 5.1e-21 * math.exp(-0.5 * ((l - 603) / 58) ^ 2) * 8.06e18 / OZONE_WIDTH
 		SPECTRUM.aerosol[i] = 1
 		local x = 1.056 * lobe(l, 599.8, 37.9, 31.0) + 0.362 * lobe(l, 442.0, 16.0, 26.7) - 0.065 * lobe(l, 501.1, 20.4, 26.2)
@@ -474,18 +498,27 @@ local function glsl_array(name, values)
 		parts[i] = string.format("%.9g", v)
 	end
 
-	return string.format("const float %s[%d] = float[%d](%s);\n", name, #values, #values, table.concat(parts, ", "))
+	return string.format(
+		"const float %s[%d] = float[%d](%s);\n",
+		name,
+		#values,
+		#values,
+		table.concat(parts, ", ")
+	)
 end
 
 local function build_atmosphere_shader_prelude(extra, prefix)
 	return (prefix or "") .. atmosphere_shared_glsl .. "\n" .. extra
 end
 
-local transmittance_glsl = build_atmosphere_shader_prelude([[
+local transmittance_glsl = build_atmosphere_shader_prelude(
+	[[
 	const int TRANSMITTANCE_STEPS = 40;
 	const int SPECTRAL_COUNT = ]] .. #SPECTRUM.wavelengths .. [[;
 	const int SPECTRAL_FIRST_WAVELENGTH = ]] .. SPECTRUM.wavelengths[1] .. [[;
-	const int SPECTRAL_STEP = ]] .. (SPECTRUM.wavelengths[2] - SPECTRUM.wavelengths[1]) .. [[;
+	const int SPECTRAL_STEP = ]] .. (
+			SPECTRUM.wavelengths[2] - SPECTRUM.wavelengths[1]
+		) .. [[;
 
 	]] .. glsl_array("SPECTRAL_RAYLEIGH", SPECTRUM.rayleigh) .. glsl_array("SPECTRAL_OZONE", SPECTRUM.ozone) .. glsl_array("SPECTRAL_WEIGHT_R", SPECTRUM.weights[1]) .. glsl_array("SPECTRAL_WEIGHT_G", SPECTRUM.weights[2]) .. glsl_array("SPECTRAL_WEIGHT_B", SPECTRUM.weights[3]) .. [[
 
@@ -541,7 +574,9 @@ local transmittance_glsl = build_atmosphere_shader_prelude([[
 
 		return vec4(max(transmitted, vec3(0.0)), 1.0);
 	}
-]], "#define ATMOSPHERE_AEROSOL_EXTINCTION aerosol.extinction\n#define ATMOSPHERE_AEROSOL_SHAPE aerosol.shape\n")
+]],
+	"#define ATMOSPHERE_AEROSOL_EXTINCTION aerosol.extinction\n#define ATMOSPHERE_AEROSOL_SHAPE aerosol.shape\n"
+)
 local AerosolConstants = ffi.typeof([[struct {
 	float shape[4];
 	float extinction;
@@ -986,7 +1021,6 @@ local function destroy_transmittance_texture()
 	atmosphere.transmittance_texture = nil
 end
 
-
 local function create_lut_texture(width, height)
 	return Texture.New{
 		width = width,
@@ -1004,10 +1038,15 @@ end
 
 local function create_transmittance_texture()
 	local tex = create_lut_texture(256, 64)
-	tex:Shade(transmittance_glsl, {custom_declarations = AEROSOL_DECLARATIONS, fragment_push_constants = get_aerosol_push_constants()})
+	tex:Shade(
+		transmittance_glsl,
+		{
+			custom_declarations = AEROSOL_DECLARATIONS,
+			fragment_push_constants = get_aerosol_push_constants(),
+		}
+	)
 	return tex
 end
-
 
 local function destroy_sky_view_texture(key)
 	local tex = atmosphere.sky_view_textures[key]
@@ -1061,13 +1100,20 @@ do
 	end
 
 	local function get_aerosol_extinction_550()
-		return math.max(VISIBILITY_OPTICAL_DEPTH / (atmosphere.aerosol_visibility / 1000) - RAYLEIGH_GREEN_EXTINCTION, 0)
+		return math.max(
+			VISIBILITY_OPTICAL_DEPTH / (
+					atmosphere.aerosol_visibility / 1000
+				) - RAYLEIGH_GREEN_EXTINCTION,
+			0
+		)
 	end
 
 	local function get_ground_fog_extinction()
 		if atmosphere.ground_fog_visibility == math.huge then return 0 end
 
-		return VISIBILITY_OPTICAL_DEPTH / (atmosphere.ground_fog_visibility / 1000) / EYE_FALLOFF
+		return VISIBILITY_OPTICAL_DEPTH / (
+				atmosphere.ground_fog_visibility / 1000
+			) / EYE_FALLOFF
 	end
 
 	function atmosphere.SetAerosolVisibility(meters)
@@ -1139,7 +1185,9 @@ do
 
 	function atmosphere.GetVisibility()
 		local ground_fog = get_ground_fog_extinction() * EYE_FALLOFF
-		return VISIBILITY_OPTICAL_DEPTH / (RAYLEIGH_GREEN_EXTINCTION + get_aerosol_extinction_550() + ground_fog + atmosphere.precipitation_extinction) * 1000
+		return VISIBILITY_OPTICAL_DEPTH / (
+				RAYLEIGH_GREEN_EXTINCTION + get_aerosol_extinction_550() + ground_fog + atmosphere.precipitation_extinction
+			) * 1000
 	end
 
 	atmosphere.GetGroundFogExtinction = get_ground_fog_extinction
@@ -1230,7 +1278,6 @@ end
 do
 	local OVERCAST_TRANSMITTANCE = 0.3
 	local CLEAR_SKY_IRRADIANCE_RATIO = 1.15
-
 
 	function atmosphere.GetOvercastLuminance(sun_dir, moon_dir, moon_illuminance)
 		local clear_illuminance = atmosphere.GetSunIlluminance() * atmosphere.GetTransmittance(sun_dir):GetLuminance() * math.max(sun_dir.y, 0)
@@ -1324,7 +1371,11 @@ function atmosphere.GetGroundFogSunTransmittance(sun_up, height_m)
 
 	if altitude >= GROUND_FOG_TOP_HEIGHT then return 1 end
 
-	local depth = atmosphere.GetGroundFogExtinction() * GROUND_FOG_SCALE_HEIGHT * (math.exp(-altitude / GROUND_FOG_SCALE_HEIGHT) - math.exp(-GROUND_FOG_TOP_HEIGHT / GROUND_FOG_SCALE_HEIGHT)) + atmosphere.precipitation_extinction * (GROUND_FOG_TOP_HEIGHT - altitude)
+	local depth = atmosphere.GetGroundFogExtinction() * GROUND_FOG_SCALE_HEIGHT * (
+			math.exp(-altitude / GROUND_FOG_SCALE_HEIGHT) - math.exp(-GROUND_FOG_TOP_HEIGHT / GROUND_FOG_SCALE_HEIGHT)
+		) + atmosphere.precipitation_extinction * (
+			GROUND_FOG_TOP_HEIGHT - altitude
+		)
 	return math.exp(-depth / math.max(sun_up, 0.05))
 end
 
@@ -1378,11 +1429,15 @@ function atmosphere.GetTransmittanceTexture()
 	return atmosphere.transmittance_texture
 end
 
-
 function atmosphere.GetScatteringTexture()
 	if not atmosphere.scattering_texture or not atmosphere.scattering_texture:IsValid() then
 		destroy_scattering_texture()
-		atmosphere.scattering_texture, atmosphere.scattering_source_texture, atmosphere.scattering_ambient_texture = scattering.Create(build_atmosphere_shader_prelude, atmosphere.GetTransmittanceTexture(), aerosol_extinction, aerosol_shape)
+		atmosphere.scattering_texture, atmosphere.scattering_source_texture, atmosphere.scattering_ambient_texture = scattering.Create(
+			build_atmosphere_shader_prelude,
+			atmosphere.GetTransmittanceTexture(),
+			aerosol_extinction,
+			aerosol_shape
+		)
 	end
 
 	return atmosphere.scattering_texture
@@ -1594,7 +1649,10 @@ function atmosphere.GetGLSLMainCode(dir_var, sun_dir_var, cam_pos_var, options)
 				sky_color_output = vec3(0.0);
 			} else {
 				vec4 atmosphere_sample = sample_sky_view_lut(atmos_dir, atmos_cam_pos);
-				vec3 atmosphere_color = (]] .. (options.air or "true") .. [[) ? atmosphere_sample.rgb : vec3(0.0);
+				vec3 atmosphere_color = (]] .. (
+			options.air or
+			"true"
+		) .. [[) ? atmosphere_sample.rgb : vec3(0.0);
 				]] .. disc_code .. [[
 				vec3 space_color;
 
@@ -1623,7 +1681,11 @@ function atmosphere.FoldTransmittance(rayleigh_depth, aerosol_depth, ozone_depth
 	local transmitted = {0, 0, 0}
 
 	for i = 1, #SPECTRUM.wavelengths do
-		local t = math.exp(-(SPECTRUM.rayleigh[i] * rayleigh_depth + MIE_BETA_EXT.y * SPECTRUM.aerosol[i] * aerosol_depth + SPECTRUM.ozone[i] * ozone_depth))
+		local t = math.exp(
+			-(
+				SPECTRUM.rayleigh[i] * rayleigh_depth + MIE_BETA_EXT.y * SPECTRUM.aerosol[i] * aerosol_depth + SPECTRUM.ozone[i] * ozone_depth
+			)
+		)
 
 		for c = 1, 3 do
 			transmitted[c] = transmitted[c] + SPECTRUM.weights[c][i] * t

@@ -528,7 +528,9 @@ do
 
 				local text = name
 
-				if #type_names > 0 then text = text .. ": " .. list.concat(type_names, " or ") end
+				if #type_names > 0 then
+					text = text .. ": " .. list.concat(type_names, " or ")
+				end
 
 				local default = command.defaults and command.defaults[i]
 
@@ -566,7 +568,6 @@ do
 		if str then return str end
 
 		str = commands.GetUsage(command)
-
 		local help = alias .. ":\n"
 		help = help .. "\tusage example:\n\t\t" .. str .. "\n"
 
@@ -910,7 +911,11 @@ do
 
 		if ok then return true end
 
-		local short = (msg:match(".*\n\n(.+)$") or msg):match("^.-:%d+:%s+([^\n]+)") or msg:match("^[^\n]+")
+		local short = (
+				msg:match(".*\n\n(.+)$") or
+				msg
+			):match("^.-:%d+:%s+([^\n]+)") or
+			msg:match("^[^\n]+")
 		return false, msg:match("^.-:%d+:%s+(.+)") or msg, short
 	end
 

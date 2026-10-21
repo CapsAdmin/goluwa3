@@ -210,8 +210,10 @@ function accel.BuildBLASes(cmd, jobs, count)
 		local flags = job.allow_update and
 			BUILD_PREFER_FAST_TRACE + BUILD_ALLOW_UPDATE or
 			BUILD_PREFER_FAST_TRACE
-
-		local compact = not job.allow_update and compact_this_batch and job.blas == nil and #compact_jobs < QUERY_CAPACITY
+		local compact = not job.allow_update and
+			compact_this_batch and
+			job.blas == nil and
+			#compact_jobs < QUERY_CAPACITY
 
 		if compact then flags = flags + BUILD_ALLOW_COMPACTION end
 
@@ -302,7 +304,12 @@ function accel.BuildBLASes(cmd, jobs, count)
 
 	cmd:PipelineBarrier{
 		srcStage = "acceleration_structure_build_khr",
-		dstStage = {"acceleration_structure_build_khr", "ray_tracing_shader_khr", "compute", "fragment"},
+		dstStage = {
+			"acceleration_structure_build_khr",
+			"ray_tracing_shader_khr",
+			"compute",
+			"fragment",
+		},
 		memoryBarrier = true,
 	}
 
@@ -415,7 +422,12 @@ function accel.CompactBLASes(cmd)
 	if copied then
 		cmd:PipelineBarrier{
 			srcStage = "acceleration_structure_build_khr",
-			dstStage = {"acceleration_structure_build_khr", "ray_tracing_shader_khr", "compute", "fragment"},
+			dstStage = {
+				"acceleration_structure_build_khr",
+				"ray_tracing_shader_khr",
+				"compute",
+				"fragment",
+			},
 			memoryBarrier = true,
 		}
 	end
@@ -493,7 +505,11 @@ do
 			compact_rows = math.max(math.ceil(rows * 1.25 / 1024) * 1024, 1024)
 			compact = render.CreateBuffer{
 				byte_size = compact_rows * accel.INSTANCE_BYTE_SIZE,
-				buffer_usage = {"transfer_dst", "shader_device_address", "acceleration_structure_build_input_read_only_khr"},
+				buffer_usage = {
+					"transfer_dst",
+					"shader_device_address",
+					"acceleration_structure_build_input_read_only_khr",
+				},
 				memory_property = {"device_local"},
 				label = "scene_tlas_compact",
 			}
@@ -538,6 +554,7 @@ function accel.BuildTLAS(cmd, instance_buffer, count)
 		dstStage = "acceleration_structure_build_khr",
 		memoryBarrier = true,
 	}
+
 	if checkpoints.enabled then checkpoints.Set(cmd, "build tlas") end
 
 	slot.tlas:Build(cmd, 1, slot.geometry, ranges, BUILD_PREFER_FAST_TRACE)

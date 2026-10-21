@@ -29,7 +29,16 @@ local function add_head(mesh, center, up, radius, cup, tile, atlas, phase, stiff
 			local p = center + (side * x + other * y) * radius + up * (cup * r * r * radius)
 			local normal = (up - (side * x + other * y) * (cup * 1.2)):GetNormalized()
 			mesh:SetColor(r * 0.6, phase, trees.StiffnessAlong(stiffness, p - center, grass.FLEX))
-			mesh:Vertex(p.x, p.y, p.z, normal.x, normal.y, normal.z, u0 + (x * 0.5 + 0.5) / atlas, y * 0.5 + 0.5)
+			mesh:Vertex(
+				p.x,
+				p.y,
+				p.z,
+				normal.x,
+				normal.y,
+				normal.z,
+				u0 + (x * 0.5 + 0.5) / atlas,
+				y * 0.5 + 0.5
+			)
 		end
 	end
 
@@ -55,14 +64,24 @@ function plants.BuildFlowers(config, rng)
 
 	for _ = 1, count do
 		local angle = flower_rng:Next() * pi * 2
-		local root = Vec3(cos(angle), 0, sin(angle)) * (sqrt(flower_rng:Next()) * config.radius) - UP * 0.02
+		local root = Vec3(cos(angle), 0, sin(angle)) * (
+				sqrt(flower_rng:Next()) * config.radius
+			) - UP * 0.02
 		local height = flower_rng:Pick(config.height)
 		local lean = rad(flower_rng:Range(0, config.lean))
 		local yaw = flower_rng:Next() * pi * 2
 		local dir = Vec3(sin(lean) * cos(yaw), cos(lean), sin(lean) * sin(yaw))
 		local phase = flower_rng:Next()
 		tallest = max(tallest, height)
-		local points = trees.Grow(flower_rng, root, dir, height, config.stem_radius, {taper = 0.3, curve = 0, noise = 6}, 5)
+		local points = trees.Grow(
+			flower_rng,
+			root,
+			dir,
+			height,
+			config.stem_radius,
+			{taper = 0.3, curve = 0, noise = 6},
+			5
+		)
 
 		trees.AddTube(
 			stems,
@@ -75,16 +94,38 @@ function plants.BuildFlowers(config, rng)
 			end,
 			false
 		)
+
 		local top = points[#points]
 		local held = trees.Stiffness(top.reach, grass.FLEX)
 		local tile = flower_rng:Int(0, config.atlas - 1)
 
 		if config.spike then
-			grass.AddCrossedCards(heads, top.pos - top.dir * (config.head_size[2] * 0.3), top.dir, flower_rng:Pick(config.head_size), 0.5, tile, config.atlas, phase, held, flower_rng)
+			grass.AddCrossedCards(
+				heads,
+				top.pos - top.dir * (config.head_size[2] * 0.3),
+				top.dir,
+				flower_rng:Pick(config.head_size),
+				0.5,
+				tile,
+				config.atlas,
+				phase,
+				held,
+				flower_rng
+			)
 		else
 			local tilt = rad(flower_rng:Range(0, config.head_tilt))
 			local head_up = top.dir:GetRotated(trees.perpendicular(top.dir), tilt)
-			add_head(heads, top.pos, head_up, flower_rng:Pick(config.head_size), config.cup, tile, config.atlas, phase, held)
+			add_head(
+				heads,
+				top.pos,
+				head_up,
+				flower_rng:Pick(config.head_size),
+				config.cup,
+				tile,
+				config.atlas,
+				phase,
+				held
+			)
 		end
 	end
 
@@ -92,18 +133,42 @@ function plants.BuildFlowers(config, rng)
 
 	for _ = 1, config.leaves do
 		local angle = leaf_rng:Next() * pi * 2
-		local root = Vec3(cos(angle), 0, sin(angle)) * (leaf_rng:Next() * config.radius * 0.8) - UP * 0.01
+		local root = Vec3(cos(angle), 0, sin(angle)) * (
+				leaf_rng:Next() * config.radius * 0.8
+			) - UP * 0.01
 		local facing = Vec3(cos(angle + (leaf_rng:Next() - 0.5)), 0, sin(angle + (leaf_rng:Next() - 0.5)))
-		grass.AddBlade(leaves, root, facing, leaf_rng:Pick(config.leaf_length), leaf_rng:Pick(config.leaf_width), 0.9, 0.5, 0.3, 4, 0, 0.25, leaf_rng:Next())
+		grass.AddBlade(
+			leaves,
+			root,
+			facing,
+			leaf_rng:Pick(config.leaf_length),
+			leaf_rng:Pick(config.leaf_width),
+			0.9,
+			0.5,
+			0.3,
+			4,
+			0,
+			0.25,
+			leaf_rng:Next()
+		)
 	end
 
 	local parts = {
-		{mesh = stems:Build{bend_height = tallest, name = "foliage_flower_stems"}, material = foliage.GetMaterial("plant_stem")},
-		{mesh = heads:Build{bend_height = tallest, name = "foliage_flower_heads"}, material = foliage.GetMaterial(config.material)},
+		{
+			mesh = stems:Build{bend_height = tallest, name = "foliage_flower_stems"},
+			material = foliage.GetMaterial("plant_stem"),
+		},
+		{
+			mesh = heads:Build{bend_height = tallest, name = "foliage_flower_heads"},
+			material = foliage.GetMaterial(config.material),
+		},
 	}
 
 	if not leaves:IsEmpty() then
-		parts[3] = {mesh = leaves:Build{bend_height = tallest, name = "foliage_flower_leaves"}, material = foliage.GetMaterial("plant_stem")}
+		parts[3] = {
+			mesh = leaves:Build{bend_height = tallest, name = "foliage_flower_leaves"},
+			material = foliage.GetMaterial("plant_stem"),
+		}
 	end
 
 	return parts
@@ -141,10 +206,60 @@ local function flower(name, overrides)
 end
 
 flower("daisies", {material = "flower_daisy"})
-flower("poppies", {count = {3, 5}, height = {0.35, 0.6}, head_size = {0.04, 0.055}, cup = 0.6, material = "flower_poppy", leaves = 6, leaf_width = {0.015, 0.025}})
-flower("cornflowers", {count = {4, 8}, height = {0.35, 0.6}, head_size = {0.03, 0.04}, cup = 0.2, material = "flower_cornflower", leaves = 5, leaf_width = {0.006, 0.01}, leaf_length = {0.12, 0.22}})
-flower("buttercups", {count = {5, 9}, height = {0.2, 0.4}, head_size = {0.02, 0.028}, cup = 0.9, stem_radius = 0.002, material = "flower_buttercup", leaves = 10, leaf_length = {0.06, 0.1}, leaf_width = {0.015, 0.025}})
-flower("lupines", {count = {3, 6}, height = {0.35, 0.55}, head_size = {0.3, 0.42}, stem_radius = 0.005, spike = true, material = "flower_lupine", leaves = 12, leaf_length = {0.15, 0.25}, leaf_width = {0.015, 0.025}, radius = 0.2})
+flower(
+	"poppies",
+	{
+		count = {3, 5},
+		height = {0.35, 0.6},
+		head_size = {0.04, 0.055},
+		cup = 0.6,
+		material = "flower_poppy",
+		leaves = 6,
+		leaf_width = {0.015, 0.025},
+	}
+)
+flower(
+	"cornflowers",
+	{
+		count = {4, 8},
+		height = {0.35, 0.6},
+		head_size = {0.03, 0.04},
+		cup = 0.2,
+		material = "flower_cornflower",
+		leaves = 5,
+		leaf_width = {0.006, 0.01},
+		leaf_length = {0.12, 0.22},
+	}
+)
+flower(
+	"buttercups",
+	{
+		count = {5, 9},
+		height = {0.2, 0.4},
+		head_size = {0.02, 0.028},
+		cup = 0.9,
+		stem_radius = 0.002,
+		material = "flower_buttercup",
+		leaves = 10,
+		leaf_length = {0.06, 0.1},
+		leaf_width = {0.015, 0.025},
+	}
+)
+flower(
+	"lupines",
+	{
+		count = {3, 6},
+		height = {0.35, 0.55},
+		head_size = {0.3, 0.42},
+		stem_radius = 0.005,
+		spike = true,
+		material = "flower_lupine",
+		leaves = 12,
+		leaf_length = {0.15, 0.25},
+		leaf_width = {0.015, 0.025},
+		radius = 0.2,
+	}
+)
 
 function plants.BuildFern(config, rng)
 	local mesh = MeshBuilder.New()
@@ -155,18 +270,44 @@ function plants.BuildFern(config, rng)
 
 	for i = 1, count do
 		local k = (i - 1) / max(count - 1, 1)
-		local pitch = rad(config.pitch[1] + (config.pitch[2] - config.pitch[1]) * k + (frond_rng:Next() - 0.5) * 10)
+		local pitch = rad(
+			config.pitch[1] + (
+					config.pitch[2] - config.pitch[1]
+				) * k + (
+					frond_rng:Next() - 0.5
+				) * 10
+		)
 		local yaw = spin + i * rad(137.5)
 		local out = Vec3(cos(yaw), 0, sin(yaw))
 		local length = frond_rng:Pick(config.length)
-		local points = trees.AddFrond(mesh, frond_rng, out * 0.03 - UP * 0.02, (UP * cos(pitch) + out * sin(pitch)):GetNormalized(), length, config.width, config.fold, config.droop, -15, 10, frond_rng:Next(), config.flex, Vec3(0, 0, 0), config.bend)
+		local points = trees.AddFrond(
+			mesh,
+			frond_rng,
+			out * 0.03 - UP * 0.02,
+			(UP * cos(pitch) + out * sin(pitch)):GetNormalized(),
+			length,
+			config.width,
+			config.fold,
+			config.droop,
+			-15,
+			10,
+			frond_rng:Next(),
+			config.flex,
+			Vec3(0, 0, 0),
+			config.bend
+		)
 
 		for _, point in ipairs(points) do
 			tallest = max(tallest, point.pos.y)
 		end
 	end
 
-	return {{mesh = mesh:Build{bend_height = max(tallest, 0.1), name = "foliage_fern"}, material = foliage.GetMaterial(config.material)}}
+	return {
+		{
+			mesh = mesh:Build{bend_height = max(tallest, 0.1), name = "foliage_fern"},
+			material = foliage.GetMaterial(config.material),
+		},
+	}
 end
 
 add_generator(
@@ -195,7 +336,11 @@ function plants.BuildMushrooms(config, rng)
 
 	for i = 1, count do
 		local angle = mushroom_rng:Next() * pi * 2
-		local root = i == 1 and Vec3(0, -0.01, 0) or Vec3(cos(angle), -0.01, sin(angle)) * (sqrt(mushroom_rng:Next()) * config.spread)
+		local root = i == 1 and
+			Vec3(0, -0.01, 0) or
+			Vec3(cos(angle), -0.01, sin(angle)) * (
+				sqrt(mushroom_rng:Next()) * config.spread
+			)
 		local scale = i == 1 and 1 or mushroom_rng:Range(0.45, 0.9)
 		local radius = mushroom_rng:Pick(config.cap_radius) * scale
 		local height = mushroom_rng:Pick(config.height) * scale
@@ -208,20 +353,18 @@ function plants.BuildMushrooms(config, rng)
 
 		for k = 0, 3 do
 			local t = k / 3
-			stem[k + 1] = {pos = root + up * (height * t), dir = up, radius = stem_radius * (1.25 - 0.25 * t), t = t}
+			stem[k + 1] = {
+				pos = root + up * (height * t),
+				dir = up,
+				radius = stem_radius * (1.25 - 0.25 * t),
+				t = t,
+			}
 		end
 
-		trees.AddTube(
-			under,
-			stem,
-			8,
-			0.1,
-			0,
-			function()
-				return 1
-			end,
-			false
-		)
+		trees.AddTube(under, stem, 8, 0.1, 0, function()
+			return 1
+		end, false)
+
 		local side = trees.perpendicular(up)
 		local other = up:GetCross(side)
 		local rings = 6
@@ -237,7 +380,9 @@ function plants.BuildMushrooms(config, rng)
 				local a = s / sides * pi * 2
 				local dir = side * cos(a) + other * sin(a)
 				local p = top + dir * out + up * rise
-				local normal = (dir * sin(t * pi * 0.5) / max(config.dome, 0.2) + up * cos(t * pi * 0.5)):GetNormalized()
+				local normal = (
+					dir * sin(t * pi * 0.5) / max(config.dome, 0.2) + up * cos(t * pi * 0.5)
+				):GetNormalized()
 				caps:SetColor(0, 0, 1)
 				caps:Vertex(p.x, p.y, p.z, normal.x, normal.y, normal.z, s / sides, t)
 			end
@@ -270,8 +415,14 @@ function plants.BuildMushrooms(config, rng)
 	end
 
 	return {
-		{mesh = caps:Build{name = "foliage_mushroom_caps"}, material = foliage.GetMaterial(config.material)},
-		{mesh = under:Build{name = "foliage_mushroom_stems"}, material = foliage.GetMaterial("mushroom_stem")},
+		{
+			mesh = caps:Build{name = "foliage_mushroom_caps"},
+			material = foliage.GetMaterial(config.material),
+		},
+		{
+			mesh = under:Build{name = "foliage_mushroom_stems"},
+			material = foliage.GetMaterial("mushroom_stem"),
+		},
 	}
 end
 
@@ -300,7 +451,16 @@ local function add_end(mesh, center, normal, radius, sides)
 	for s = 0, sides - 1 do
 		local a = s / sides * pi * 2
 		local p = center + (side * cos(a) + other * sin(a)) * radius
-		mesh:Vertex(p.x, p.y, p.z, normal.x, normal.y, normal.z, 0.5 + cos(a) * 0.5, 0.5 + sin(a) * 0.5)
+		mesh:Vertex(
+			p.x,
+			p.y,
+			p.z,
+			normal.x,
+			normal.y,
+			normal.z,
+			0.5 + cos(a) * 0.5,
+			0.5 + sin(a) * 0.5
+		)
 	end
 
 	for s = 0, sides - 1 do
@@ -318,6 +478,7 @@ function plants.BuildLog(config, rng)
 	local dir = Vec3(cos(yaw), log_rng:Range(-0.03, 0.03), sin(yaw))
 	local start = dir * (-length * 0.5) + Vec3(0, radius * (1 - config.sink), 0)
 	local points = trees.Grow(log_rng, start, dir, length, radius, {taper = 0.25, curve = 0, noise = 3}, 10)
+
 	local function stiff()
 		return 1
 	end
@@ -333,13 +494,27 @@ function plants.BuildLog(config, rng)
 
 		if out.y < -0.2 then out = out * -1 end
 
-		local stub = trees.Grow(log_rng, pos, (out + branch_dir * 0.4):GetNormalized(), log_rng:Range(0.3, 0.8), branch_radius * 0.3, {taper = 0.6, noise = 10}, 3)
+		local stub = trees.Grow(
+			log_rng,
+			pos,
+			(out + branch_dir * 0.4):GetNormalized(),
+			log_rng:Range(0.3, 0.8),
+			branch_radius * 0.3,
+			{taper = 0.6, noise = 10},
+			3
+		)
 		trees.AddTube(wood, stub, 6, config.bark_tile, 0, stiff, true)
 	end
 
 	return {
-		{mesh = wood:Build{name = "foliage_log"}, material = foliage.GetMaterial(config.bark)},
-		{mesh = ends:Build{name = "foliage_log_ends"}, material = foliage.GetMaterial("end_grain")},
+		{
+			mesh = wood:Build{name = "foliage_log"},
+			material = foliage.GetMaterial(config.bark),
+		},
+		{
+			mesh = ends:Build{name = "foliage_log_ends"},
+			material = foliage.GetMaterial("end_grain"),
+		},
 	}
 end
 
@@ -363,7 +538,15 @@ function plants.BuildStump(config, rng)
 	local stump_rng = rng:Fork("stump")
 	local radius = stump_rng:Pick(config.radius)
 	local height = stump_rng:Pick(config.height)
-	local points = trees.Grow(stump_rng, Vec3(0, -0.2, 0), UP, height + 0.2, radius, {taper = 0.1, noise = 2}, 5)
+	local points = trees.Grow(
+		stump_rng,
+		Vec3(0, -0.2, 0),
+		UP,
+		height + 0.2,
+		radius,
+		{taper = 0.1, noise = 2},
+		5
+	)
 
 	for _, point in ipairs(points) do
 		point.radius = point.radius * (1 + 0.5 * math.exp(-(point.pos.y + 0.2) / 0.25))
@@ -381,13 +564,27 @@ function plants.BuildStump(config, rng)
 	for i = 1, roots do
 		local angle = (i - 1) / roots * pi * 2 + stump_rng:Range(-0.3, 0.3)
 		local out = Vec3(cos(angle), -0.12, sin(angle)):GetNormalized()
-		local root = trees.Grow(stump_rng, Vec3(cos(angle) * radius * 0.4, 0.12, sin(angle) * radius * 0.4), out, stump_rng:Range(0.7, 1.2), radius * 0.38, {taper = 0.8, noise = 8, gravity = 0.35}, 7)
+		local root = trees.Grow(
+			stump_rng,
+			Vec3(cos(angle) * radius * 0.4, 0.12, sin(angle) * radius * 0.4),
+			out,
+			stump_rng:Range(0.7, 1.2),
+			radius * 0.38,
+			{taper = 0.8, noise = 8, gravity = 0.35},
+			7
+		)
 		trees.AddTube(wood, root, 7, config.bark_tile, 0, stiff, true)
 	end
 
 	return {
-		{mesh = wood:Build{name = "foliage_stump"}, material = foliage.GetMaterial(config.bark)},
-		{mesh = ends:Build{name = "foliage_stump_top"}, material = foliage.GetMaterial("end_grain")},
+		{
+			mesh = wood:Build{name = "foliage_stump"},
+			material = foliage.GetMaterial(config.bark),
+		},
+		{
+			mesh = ends:Build{name = "foliage_stump_top"},
+			material = foliage.GetMaterial("end_grain"),
+		},
 	}
 end
 
@@ -422,10 +619,29 @@ function plants.BuildLitter(config, rng)
 		local tile = leaf_rng:Int(0, config.atlas - 1)
 		mesh:SetColor(0, 0, 1)
 		local r, u = side * (size * 0.5), forward * (size * 0.5)
-		mesh:Card(center.x, center.y, center.z, r.x, r.y, r.z, u.x, u.y, u.z, normal.x, normal.y, normal.z, {tile / config.atlas, 0, (tile + 1) / config.atlas, 1})
+		mesh:Card(
+			center.x,
+			center.y,
+			center.z,
+			r.x,
+			r.y,
+			r.z,
+			u.x,
+			u.y,
+			u.z,
+			normal.x,
+			normal.y,
+			normal.z,
+			{tile / config.atlas, 0, (tile + 1) / config.atlas, 1}
+		)
 	end
 
-	return {{mesh = mesh:Build{name = "foliage_litter"}, material = foliage.GetMaterial(config.material)}}
+	return {
+		{
+			mesh = mesh:Build{name = "foliage_litter"},
+			material = foliage.GetMaterial(config.material),
+		},
+	}
 end
 
 add_generator(
@@ -475,7 +691,12 @@ function plants.BuildBranches(config, rng)
 		grow(start, Vec3(cos(yaw), 0, sin(yaw)), branch_rng:Pick(config.length), radius, 0)
 	end
 
-	return {{mesh = wood:Build{name = "foliage_branches"}, material = foliage.GetMaterial(config.bark)}}
+	return {
+		{
+			mesh = wood:Build{name = "foliage_branches"},
+			material = foliage.GetMaterial(config.bark),
+		},
+	}
 end
 
 add_generator(
@@ -492,15 +713,56 @@ add_generator(
 	plants.BuildBranches
 )
 
-for _, name in ipairs{"daisies", "poppies", "cornflowers", "buttercups", "lupines", "fern", "log", "stump", "leaf_litter", "branches"} do
+for _, name in ipairs{
+	"daisies",
+	"poppies",
+	"cornflowers",
+	"buttercups",
+	"lupines",
+	"fern",
+	"log",
+	"stump",
+	"leaf_litter",
+	"branches",
+} do
 	foliage.AddPreset("plants", name .. "_a", name, {seed = 1})
 	foliage.AddPreset("plants", name .. "_b", name, {seed = 2})
 end
 
 foliage.AddPreset("plants", "fly_agaric_a", "mushrooms", {seed = 1})
 foliage.AddPreset("plants", "fly_agaric_b", "mushrooms", {seed = 2, count = {2, 4}})
-foliage.AddPreset("plants", "boletes_a", "mushrooms", {seed = 3, material = "mushroom_bolete", dome = 0.55, stem = 0.35, cap_radius = {0.06, 0.09}, height = {0.07, 0.1}})
-foliage.AddPreset("plants", "boletes_b", "mushrooms", {seed = 4, material = "mushroom_bolete", dome = 0.55, stem = 0.35, count = {3, 5}, cap_radius = {0.04, 0.07}, height = {0.05, 0.08}})
-foliage.AddPreset("plants", "birch_log_a", "log", {seed = 3, bark = "birch_bark", bark_tile = 0.5, radius = {0.12, 0.18}})
+foliage.AddPreset(
+	"plants",
+	"boletes_a",
+	"mushrooms",
+	{
+		seed = 3,
+		material = "mushroom_bolete",
+		dome = 0.55,
+		stem = 0.35,
+		cap_radius = {0.06, 0.09},
+		height = {0.07, 0.1},
+	}
+)
+foliage.AddPreset(
+	"plants",
+	"boletes_b",
+	"mushrooms",
+	{
+		seed = 4,
+		material = "mushroom_bolete",
+		dome = 0.55,
+		stem = 0.35,
+		count = {3, 5},
+		cap_radius = {0.04, 0.07},
+		height = {0.05, 0.08},
+	}
+)
+foliage.AddPreset(
+	"plants",
+	"birch_log_a",
+	"log",
+	{seed = 3, bark = "birch_bark", bark_tile = 0.5, radius = {0.12, 0.18}}
+)
 foliage.AddPreset("plants", "pine_log_a", "log", {seed = 4, bark = "pine_bark", length = {5, 7}})
 return plants

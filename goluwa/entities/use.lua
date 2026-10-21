@@ -26,7 +26,9 @@ function use.Trace(user, origin, direction)
 	if raycast then
 		local visual = raycast.CastClosest(origin, direction, use.MaxDistance, is_not_user, user)
 
-		if visual and (not best or visual.distance < best.distance) then best = visual end
+		if visual and (not best or visual.distance < best.distance) then
+			best = visual
+		end
 	end
 
 	if not best then return end

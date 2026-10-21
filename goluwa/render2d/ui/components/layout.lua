@@ -64,7 +64,6 @@ META:GetSet("Floating", false)
 META:GetSet("Dock", "none", {enums = {"none", "top", "bottom", "left", "right", "fill"}})
 META:EndStorable()
 META:GetSet("Dirty", false)
-
 local dirty_queue = {}
 local dirty_queue_next = {}
 
@@ -80,6 +79,7 @@ do
 		end
 	end
 end
+
 META:GetSet("LastSize", Vec2(0, 0))
 
 function META:Initialize()

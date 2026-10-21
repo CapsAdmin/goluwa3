@@ -120,7 +120,10 @@ T.Test("Use fires OnUse up the parents until a handler returns true", function()
 	_G.script_test = {order = {}}
 	local outer = Entity.New{
 		script = {
-			Source = component("test_script_use", "function META:OnUse() table.insert(script_test.order, 'outer') end"),
+			Source = component(
+				"test_script_use",
+				"function META:OnUse() table.insert(script_test.order, 'outer') end"
+			),
 		},
 	}
 	local middle = Entity.New{
@@ -135,7 +138,10 @@ T.Test("Use fires OnUse up the parents until a handler returns true", function()
 	local inner = Entity.New{
 		Parent = middle,
 		script = {
-			Source = component("test_script_use", "function META:OnUse() table.insert(script_test.order, 'inner') end"),
+			Source = component(
+				"test_script_use",
+				"function META:OnUse() table.insert(script_test.order, 'inner') end"
+			),
 		},
 	}
 	T(use.Fire(inner, nil, {}))["=="](middle)
@@ -156,7 +162,7 @@ T.Test("A script with the source of a real component does not touch the real com
 	T(getmetatable(controller) ~= real)["=="](true)
 	T(objects.GetRegistered("player_controller"))["=="](real)
 	T(controller:GetQueueSize())["=="](0)
-	controller:PushCommands({{number = 1}, {number = 2}})
+	controller:PushCommands{{number = 1}, {number = 2}}
 	T(controller:GetQueueSize())["=="](2)
 	T(controller.Source)["=="]("local")
 	entity:Remove()
@@ -196,6 +202,7 @@ T.Test("Properties of the component show up on the script and persist in Values"
 	script:AddPropertyListener(function(_, name)
 		seen = name
 	end, "test")
+
 	entity.test_script_props:SetSpeed(5)
 	T(seen)["=="]("properties/Speed")
 	T(script.Values.Speed)["=="](5)
@@ -262,6 +269,7 @@ T.Test("Prefab inputs link to properties of a script component", function()
 	)
 	local a = Entity.New{prefab = {Path = "test_script_linked"}}
 	local b = Entity.New{prefab = {Path = "test_script_linked"}}
+
 	local function get(entity)
 		return entity.prefab:GetNode("child").test_script_linked_component
 	end
@@ -292,7 +300,12 @@ end)
 T.Test("A script has to register for Update like any component, and then the engine calls it", function()
 	_G.script_test = {count = 0}
 	local silent = Entity.New{
-		script = {Source = component("test_script_silent", "function META:OnUpdate() script_test.count = script_test.count + 1 end")},
+		script = {
+			Source = component(
+				"test_script_silent",
+				"function META:OnUpdate() script_test.count = script_test.count + 1 end"
+			),
+		},
 	}
 	event.Call("Update", 0.1)
 	T(script_test.count)["=="](0)

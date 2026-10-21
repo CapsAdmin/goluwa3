@@ -114,7 +114,9 @@ function META:OnUpdate()
 		self._hold_until = now + self.HideDelay
 	end
 
-	if self.Pinned or now < self._reveal_until or now < (self._hold_until or 0) then target = 1 end
+	if self.Pinned or now < self._reveal_until or now < (self._hold_until or 0) then
+		target = 1
+	end
 
 	local previous = self._fraction
 	self._fraction = previous + (

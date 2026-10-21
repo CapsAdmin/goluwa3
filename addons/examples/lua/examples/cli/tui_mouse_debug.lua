@@ -121,45 +121,41 @@ event.AddListener(
 	{priority = 100}
 )
 
-event.AddListener(
-	"Render",
-	"tui_mouse_debug_draw",
-	function()
-		if repl.GetEnabled() then return end
+event.AddListener("Render", "tui_mouse_debug_draw", function()
+	if repl.GetEnabled() then return end
 
-		if not needs_redraw then return end
+	if not needs_redraw then return end
 
-		needs_redraw = false
-		local term = repl.GetTerminal()
+	needs_redraw = false
+	local term = repl.GetTerminal()
 
-		if not term then return end
+	if not term then return end
 
-		term:BeginFrame()
-		term:Clear()
-		TuiPanel.Draw(term)
-		local draw_row = 1
+	term:BeginFrame()
+	term:Clear()
+	TuiPanel.Draw(term)
+	local draw_row = 1
 
-		local function writeln(s)
-			term:SetCaretPosition(1, draw_row)
-			term:Write(s)
-			draw_row = draw_row + 1
-		end
-
-		writeln(string.format("mouse  : %d, %d", mouse_x, mouse_y))
-		writeln("box_a  : " .. info_a)
-		writeln("box_b  : " .. info_b)
-		writeln(
-			"─────────────────────────────"
-		)
-		writeln("events (newest last):")
-
-		for _, l in ipairs(lines) do
-			writeln("  " .. l)
-		end
-
-		term:EndFrame()
-		term:Flush()
+	local function writeln(s)
+		term:SetCaretPosition(1, draw_row)
+		term:Write(s)
+		draw_row = draw_row + 1
 	end
-)
+
+	writeln(string.format("mouse  : %d, %d", mouse_x, mouse_y))
+	writeln("box_a  : " .. info_a)
+	writeln("box_b  : " .. info_b)
+	writeln(
+		"─────────────────────────────"
+	)
+	writeln("events (newest last):")
+
+	for _, l in ipairs(lines) do
+		writeln("  " .. l)
+	end
+
+	term:EndFrame()
+	term:Flush()
+end)
 
 repl.SetEnabled(false)

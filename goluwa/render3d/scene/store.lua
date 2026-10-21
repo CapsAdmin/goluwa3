@@ -141,14 +141,20 @@ do
 
 		upload.used = offset + bytes
 
-		if upload.used * 4 > upload.size then upload.busy_frame = system.GetFrameNumber() end
+		if upload.used * 4 > upload.size then
+			upload.busy_frame = system.GetFrameNumber()
+		end
 
 		return upload.buffer, upload.ptr + offset, offset
 	end
 
 	function store.TrimUploads(frame)
 		for _, upload in pairs(uploads) do
-			if upload.buffer and upload.size > 8 * 1024 * 1024 and frame - upload.busy_frame > 600 then
+			if
+				upload.buffer and
+				upload.size > 8 * 1024 * 1024 and
+				frame - upload.busy_frame > 600
+			then
 				retired[#retired + 1] = {buffer = upload.buffer, frame = frame}
 				upload.buffer = nil
 				upload.size = 0
@@ -277,7 +283,6 @@ function Table:AllocRange(n)
 				if range.n == 0 then table.remove(ranges, i) end
 
 				self.live = self.live + n
-
 				return base
 			end
 		end
@@ -337,7 +342,6 @@ function Table:FreeRange(base, n, immediate)
 
 	if immediate then
 		release_range(self, base, n)
-
 		return
 	end
 
@@ -487,7 +491,13 @@ do
 		cmd:PipelineBarrier{
 			srcStage = {"compute", "transfer"},
 			dstStage = "transfer",
-			bufferBarriers = {{buffer = buffer, srcAccessMask = "shader_write", dstAccessMask = "transfer_read"}},
+			bufferBarriers = {
+				{
+					buffer = buffer,
+					srcAccessMask = "shader_write",
+					dstAccessMask = "transfer_read",
+				},
+			},
 		}
 		cmd:CopyBuffer(buffer, readback, copy, 1)
 		cmd:End()

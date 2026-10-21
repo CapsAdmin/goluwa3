@@ -7,7 +7,6 @@ local VkPipelineCacheBox = ffi.typeof("$[1]", vulkan.vk.VkPipelineCache)
 local SizeBox = ffi.typeof("size_t[1]")
 local ByteArray = ffi.typeof("uint8_t[?]")
 local HeaderPtr = ffi.typeof("const $*", vulkan.vk.VkPipelineCacheHeaderVersionOne)
-
 local SLOW_PIPELINE_SECONDS = 0.05
 
 function PipelineCache.GetTime()
@@ -18,7 +17,11 @@ function PipelineCache.LogIfSlow(kind, start)
 	local seconds = system.GetTime() - start
 
 	if seconds >= SLOW_PIPELINE_SECONDS then
-		logf("[pipeline] the driver compiled a %s pipeline in %.0f ms (not in the pipeline cache)\n", kind, seconds * 1000)
+		logf(
+			"[pipeline] the driver compiled a %s pipeline in %.0f ms (not in the pipeline cache)\n",
+			kind,
+			seconds * 1000
+		)
 	end
 end
 

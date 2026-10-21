@@ -207,7 +207,6 @@ function Terrain:ProcessBuildQueue()
 				stats.built = stats.built + 1
 				stats.latency = stats.latency == 0 and latency or stats.latency * 0.9 + latency * 0.1
 				stats.max_latency = math.max(stats.max_latency, latency)
-
 				entry.chunk = chunk
 				local waiters = entry.waiters
 				entry.waiters = {}
@@ -230,7 +229,8 @@ function Terrain:GetLevelOrigin(level, position)
 	local chunk_size = self:GetLevelChunkSize(level)
 	local snap = chunk_size * 2
 	local offset = (self.GridSize / 2 - 1) * chunk_size
-	return math.floor((position.x - offset) / snap) * snap, math.floor((position.z - offset) / snap) * snap
+	return math.floor((position.x - offset) / snap) * snap,
+	math.floor((position.z - offset) / snap) * snap
 end
 
 function Terrain:GetLevelSkirtDepth(level)
@@ -265,7 +265,6 @@ function Terrain:GatherDesiredTiles(position)
 		local first_z = origin_z / chunk_size
 		self.FirstChunkX[level] = first_x
 		self.FirstChunkZ[level] = first_z
-
 		local grid = self.GridSize
 		local center = (grid - 1) / 2
 
@@ -329,7 +328,9 @@ function Terrain:CreateTile(want, chunk)
 	local primitive = primitive_entity:AddComponent("visual_primitive")
 	local polygon = tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level), 1)
 	primitive:SetPolygon3D(polygon)
-	primitive:SetMaterial(tiles.CreateMaterial(chunk, chunk.layers or self.Source:GetLayers(), self.ScatterSet, self.Source))
+	primitive:SetMaterial(
+		tiles.CreateMaterial(chunk, chunk.layers or self.Source:GetLayers(), self.ScatterSet, self.Source)
+	)
 	visual:BuildAABB()
 	return {
 		key = want.key,
@@ -383,7 +384,10 @@ function Terrain:RemoveTile(tile)
 end
 
 local function tiles_overlap(a, b)
-	return a.min_x < b.max_x and b.min_x < a.max_x and a.min_z < b.max_z and b.min_z < a.max_z
+	return a.min_x < b.max_x and
+		b.min_x < a.max_x and
+		a.min_z < b.max_z and
+		b.min_z < a.max_z
 end
 
 local function set_tile_hidden(self, tile, hidden)
@@ -467,7 +471,9 @@ function Terrain:FindBlockers(tile)
 	for i = 1, #retiring do
 		local other = retiring[i]
 
-		if other ~= tile and tiles_overlap(tile, other) then blockers[#blockers + 1] = other end
+		if other ~= tile and tiles_overlap(tile, other) then
+			blockers[#blockers + 1] = other
+		end
 	end
 
 	tile.blockers = blockers
@@ -479,7 +485,9 @@ function Terrain:IsTileBlocked(tile)
 	for i = 1, #blockers do
 		local other = blockers[i]
 
-		if other.retiring and not other.removed and not other.replaced_frame then return true end
+		if other.retiring and not other.removed and not other.replaced_frame then
+			return true
+		end
 	end
 
 	return false
@@ -514,7 +522,9 @@ function Terrain:RetireTiles()
 			set_tile_hidden(self, tile, false)
 		end
 
-		if tile.bvh_time and not tile.retiring and now >= tile.bvh_time then due[#due + 1] = tile end
+		if tile.bvh_time and not tile.retiring and now >= tile.bvh_time then
+			due[#due + 1] = tile
+		end
 	end
 
 	local min_height, max_height = self.Source.MinHeight, self.Source.MaxHeight
@@ -672,7 +682,6 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 
 		if not tile.entity then
 			local priority = view_priority:Rank(want.min_x, min_height, want.min_z, want.max_x, max_height, want.max_z)
-
 			local under = covered[key]
 
 			for level = want.level + 1, self.Levels - 1 do
@@ -731,6 +740,7 @@ function Terrain:UpdateShadowField(position)
 	local min_x = math.floor(position.x / step + 0.5) * step - extent / 2
 	local min_z = math.floor(position.z / step + 0.5) * step - extent / 2
 	self.shadow_field_loading = true
+
 	self.Source:RequestChunk({min_x = min_x, min_z = min_z, size = extent, samples = self.ShadowSamples}, function(chunk)
 		self.shadow_field_loading = false
 
@@ -739,7 +749,15 @@ function Terrain:UpdateShadowField(position)
 			return
 		end
 
-		terrain_shadow.SetHeightField(chunk.heights, self.ShadowSamples, min_x, min_z, step, chunk.max_height, self.GridSize / 2 * self:GetLevelChunkSize(self.ShadowLevels - 1))
+		terrain_shadow.SetHeightField(
+			chunk.heights,
+			self.ShadowSamples,
+			min_x,
+			min_z,
+			step,
+			chunk.max_height,
+			self.GridSize / 2 * self:GetLevelChunkSize(self.ShadowLevels - 1)
+		)
 		self.shadow_field = {center_x = min_x + extent / 2, center_z = min_z + extent / 2}
 		self.Source:ReleaseChunk(chunk)
 	end)
@@ -787,7 +805,9 @@ function Terrain:GetDebugReport()
 	for key, tile in pairs(self.Tiles) do
 		counts.tiles = counts.tiles + 1
 
-		if tile.entity and tile.entity:IsValid() then counts.with_entity = counts.with_entity + 1 end
+		if tile.entity and tile.entity:IsValid() then
+			counts.with_entity = counts.with_entity + 1
+		end
 
 		if tile.hidden then counts.hidden = counts.hidden + 1 end
 
@@ -799,13 +819,21 @@ function Terrain:GetDebugReport()
 			local visual = tile.entity.visual
 			local problems = {}
 
-			if tile.hidden and not self:IsTileBlocked(tile) then problems[#problems + 1] = "hidden and not blocked" end
+			if tile.hidden and not self:IsTileBlocked(tile) then
+				problems[#problems + 1] = "hidden and not blocked"
+			end
 
-			if not visual.Visible and not tile.hidden then problems[#problems + 1] = "not visible" end
+			if not visual.Visible and not tile.hidden then
+				problems[#problems + 1] = "not visible"
+			end
 
-			if visual.Visible and not visual.main_gpu_entry_offset then problems[#problems + 1] = "not in the gpu dataset" end
+			if visual.Visible and not visual.main_gpu_entry_offset then
+				problems[#problems + 1] = "not in the gpu dataset"
+			end
 
-			if visual.scene_removed then problems[#problems + 1] = "removed from the scene" end
+			if visual.scene_removed then
+				problems[#problems + 1] = "removed from the scene"
+			end
 
 			if problems[1] then
 				lines[#lines + 1] = string.format("  tile %s: %s", key, table.concat(problems, ", "))
@@ -845,10 +873,29 @@ function Terrain:GetStats()
 	local levels = {}
 
 	for level = 0, self.Levels - 1 do
-		levels[level] = {desired = 0, built = 0, drawn = 0, waiting = 0, hidden = 0, retiring = 0, queued = 0, loading = 0}
+		levels[level] = {
+			desired = 0,
+			built = 0,
+			drawn = 0,
+			waiting = 0,
+			hidden = 0,
+			retiring = 0,
+			queued = 0,
+			loading = 0,
+		}
 	end
 
-	local totals = {tiles = 0, built = 0, hidden = 0, retiring = 0, waiting = 0, queued = 0, loading = 0, needed = 0, scatter_waiting = 0}
+	local totals = {
+		tiles = 0,
+		built = 0,
+		hidden = 0,
+		retiring = 0,
+		waiting = 0,
+		queued = 0,
+		loading = 0,
+		needed = 0,
+		scatter_waiting = 0,
+	}
 
 	for key, tile in pairs(self.Tiles) do
 		local row = levels[tile.level]
@@ -884,7 +931,9 @@ function Terrain:GetStats()
 			row.retiring = row.retiring + 1
 			totals.retiring = totals.retiring + 1
 
-			if tile.scatter_wait and not tile.replaced_frame then totals.scatter_waiting = totals.scatter_waiting + 1 end
+			if tile.scatter_wait and not tile.replaced_frame then
+				totals.scatter_waiting = totals.scatter_waiting + 1
+			end
 		end
 	end
 

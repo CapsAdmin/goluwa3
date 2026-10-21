@@ -44,7 +44,6 @@ do
 		end
 
 		projection:ReverseDepth()
-
 		self.UnjitteredProjectionMatrix = projection
 		self.JitterMatrix = Matrix44():Translate(self.Jitter.x * 2 / self.Viewport.w, self.Jitter.y * 2 / self.Viewport.h, 0)
 		self.ProjectionMatrix = projection:GetMultiplied(self.JitterMatrix)
@@ -115,7 +114,6 @@ do
 		self:BuildViewMatrix():GetMultiplied(projection, world_to_screen_matrix)
 		local clip = world_to_screen_matrix:MultiplyVector(position.x, position.y, position.z, 1, world_to_screen_clip)
 		local w = clip.m03
-
 		local ndc_x = clip.m00 / w
 		local ndc_y = clip.m01 / w
 		local ndc_z = clip.m02 / w

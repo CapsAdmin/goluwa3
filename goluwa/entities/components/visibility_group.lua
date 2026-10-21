@@ -53,7 +53,9 @@ end
 local function get_offset(group)
 	local root = group.Owner:GetParent()
 
-	if root:IsValid() and root.transform then return root.transform:GetWorldPosition() end
+	if root:IsValid() and root.transform then
+		return root.transform:GetWorldPosition()
+	end
 end
 
 local function inside(group, position, margin)

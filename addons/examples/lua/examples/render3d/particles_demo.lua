@@ -18,8 +18,18 @@ test_scene.Room{
 	material = test_scene.Matte(0.6),
 	openings = {{wall = "-z", x = 0, y = 1, width = 1.6, height = 2}},
 }
-test_scene.Box{name = "wall", pos = Vec3(0, 1.5, 7), size = Vec3(8, 3, 0.4), material = test_scene.Matte(0.55)}
-test_scene.Box{name = "pillar", pos = Vec3(3, 1.5, 2), size = Vec3(0.6, 3, 0.6), material = test_scene.Matte(0.5)}
+test_scene.Box{
+	name = "wall",
+	pos = Vec3(0, 1.5, 7),
+	size = Vec3(8, 3, 0.4),
+	material = test_scene.Matte(0.55),
+}
+test_scene.Box{
+	name = "pillar",
+	pos = Vec3(3, 1.5, 2),
+	size = Vec3(0.6, 3, 0.6),
+	material = test_scene.Matte(0.5),
+}
 weather.SetRain(1)
 
 local function add_emitter(name, component, position, direction)
@@ -83,9 +93,11 @@ commands.Add("particles_demo_collision=string[cycle]", function(mode)
 
 	demo.SetCollision(mode)
 end)
+
 commands.Add("particles_demo_rain=number", function(rate)
 	weather.SetRain(rate)
 end)
+
 demo.SetCollision(MODES[index])
 local next_switch = system.GetElapsedTime() + 6
 

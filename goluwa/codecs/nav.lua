@@ -122,9 +122,7 @@ local function read_area(r, version)
 
 	area.hiding_spots = hiding_spots
 
-	if version < 15 then
-		r:Skip(r:U8() * 14)
-	end
+	if version < 15 then r:Skip(r:U8() * 14) end
 
 	for _ = 1, r:U32() do
 		r:Skip(10)

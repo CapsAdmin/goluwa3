@@ -503,7 +503,6 @@ local function apply(material, variables)
 		if type(m) == "table" then
 			local u, v = material["Get" .. target .. "TransformU"](material),
 			material["Get" .. target .. "TransformV"](material)
-
 			local ux, uy, uz, vx, vy, vz = u.x, u.y, u.z, v.x, v.y, v.z
 			u.x, u.y, u.z = m[1], m[2], m[3]
 			v.x, v.y, v.z = m[4], m[5], m[6]

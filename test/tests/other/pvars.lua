@@ -134,7 +134,10 @@ end)
 
 test.Test("pvars need an explicit category and group", function()
 	attest.equal(pcall(pvars.Setup2, {key = "__test_pvar_nogroup", default = 1}), false)
-	attest.equal(pcall(pvars.Setup2, {key = "__test_pvar_nogroup", default = 1, category = "x"}), false)
+	attest.equal(
+		pcall(pvars.Setup2, {key = "__test_pvar_nogroup", default = 1, category = "x"}),
+		false
+	)
 end)
 
 test.Test("pvars set errors are raised at the caller and keep the old value", function()
@@ -147,7 +150,12 @@ test.Test("pvars set errors are raised at the caller and keep the old value", fu
 end)
 
 test.Test("pvars session values are not written to disk", function()
-	local var = pvars.Setup2{key = "__test_pvar_session", default = 1, category = "__test", group = "__test_lonely"}
+	local var = pvars.Setup2{
+		key = "__test_pvar_session",
+		default = 1,
+		category = "__test",
+		group = "__test_lonely",
+	}
 	var:Set(2)
 	var:SetSession(9)
 	attest.equal(var:Get(), 9)

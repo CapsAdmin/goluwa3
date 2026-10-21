@@ -74,9 +74,7 @@ if SERVER then
 		local rotation = Quat():Identity()
 		local spawn = SpawnPoint.Pick("deathmatch", "start") or SpawnPoint.Pick()
 
-		if spawn then
-			position, rotation = spawn:GetPlacement(0)
-		end
+		if spawn then position, rotation = spawn:GetPlacement(0) end
 
 		players[uid] = Entity.New{
 			Name = client:GetNick(),

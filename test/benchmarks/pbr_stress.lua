@@ -60,31 +60,84 @@ local function cell(name, add, config)
 end
 
 local function sphere(center, radius, mat)
-	test_scene.GetRoot():AddChild(shapes.Sphere{Position = center, Radius = radius, Material = mat, Collision = false, RigidBody = false})
+	test_scene.GetRoot():AddChild(
+		shapes.Sphere{
+			Position = center,
+			Radius = radius,
+			Material = mat,
+			Collision = false,
+			RigidBody = false,
+		}
+	)
 end
 
 local function build()
 	test_scene.Reset{sun = {elevation = 40, azimuth = 30}, clouds = {}}
 
 	cell("matte plane", function(c)
-		quad("matte", c, 0, 60, 40, material{Color = Color(0.5, 0.45, 0.4, 1), Roughness = ramp, Metallic = 0})
+		quad(
+			"matte",
+			c,
+			0,
+			60,
+			40,
+			material{Color = Color(0.5, 0.45, 0.4, 1), Roughness = ramp, Metallic = 0}
+		)
 	end)
 
 	cell("glossy dielectric ramp", function(c)
-		quad("glossy", c, 0, 60, 40, material{Color = Color(0.7, 0.2, 0.15, 1), Roughness = ramp, Metallic = 0})
+		quad(
+			"glossy",
+			c,
+			0,
+			60,
+			40,
+			material{Color = Color(0.7, 0.2, 0.15, 1), Roughness = ramp, Metallic = 0}
+		)
 	end)
 
 	cell("metal ramp under the sky", function(c)
-		quad("metal", c, 0, 60, 40, material{Color = Color(1, 0.78, 0.34, 1), Roughness = ramp, Metallic = 1})
+		quad(
+			"metal",
+			c,
+			0,
+			60,
+			40,
+			material{Color = Color(1, 0.78, 0.34, 1), Roughness = ramp, Metallic = 1}
+		)
 	end)
 
 	cell("layers: clearcoat, sheen, secondary specular", function(c)
-		quad("layers", c, 0, 60, 40, material{Color = Color(0.1, 0.2, 0.6, 1), Roughness = 0.5, Metallic = 0, Clearcoat = 1, ClearcoatRoughness = 0.1, Sheen = 1, SheenRoughness = 0.4, SecondarySpecular = 1, SecondarySpecularRoughness = 0.3})
+		quad(
+			"layers",
+			c,
+			0,
+			60,
+			40,
+			material{
+				Color = Color(0.1, 0.2, 0.6, 1),
+				Roughness = 0.5,
+				Metallic = 0,
+				Clearcoat = 1,
+				ClearcoatRoughness = 0.1,
+				Sheen = 1,
+				SheenRoughness = 0.4,
+				SecondarySpecular = 1,
+				SecondarySpecularRoughness = 0.3,
+			}
+		)
 	end)
 
 	local function corridor(roughness)
 		return function(c)
-			quad("mirror", c, 0, 60, 40, material{Color = Color(0.95, 0.95, 0.95, 1), Roughness = roughness, Metallic = 1})
+			quad(
+				"mirror",
+				c,
+				0,
+				60,
+				40,
+				material{Color = Color(0.95, 0.95, 0.95, 1), Roughness = roughness, Metallic = 1}
+			)
 			quad("behind", c + Vec3(0, 0, 14), 180, 60, 40, grid)
 		end
 	end
@@ -92,42 +145,98 @@ local function build()
 	cell("smooth metal reflecting geometry", corridor(0.02), {offset = Vec3(0, 0, 7)})
 	cell("rough metal reflecting geometry", corridor(0.3), {offset = Vec3(0, 0, 7)})
 
-	cell("glass panes in front of a wall", function(c)
-		quad("wall", c, 0, 60, 40, grid)
+	cell(
+		"glass panes in front of a wall",
+		function(c)
+			quad("wall", c, 0, 60, 40, grid)
 
-		for i = 1, 3 do
-			quad("pane" .. i, c + Vec3(0, 0, i * 1.2), 0, 60, 40, material{Color = Color(1, 1, 1, 1), Roughness = i == 1 and 0.02 or i == 2 and 0.15 or 0.4, Metallic = 0, Refraction = 1, IndexOfRefraction = 1.5, RefractionThickness = 0.02})
-		end
-	end, {offset = Vec3(0, 0, 6)})
-
-	cell("glass spheres", function(c)
-		quad("wall", c, 0, 60, 40, grid)
-
-		for x = -7, 7 do
-			for y = -3, 3 do
-				sphere(c + Vec3(x * 1.1, y * 1.1, 3), 0.5, material{Color = Color(1, 1, 1, 1), Roughness = (x + 7) / 14 * 0.5, Metallic = 0, Refraction = 1, IndexOfRefraction = 1.2 + (y + 3) / 6 * 0.8})
+			for i = 1, 3 do
+				quad(
+					"pane" .. i,
+					c + Vec3(0, 0, i * 1.2),
+					0,
+					60,
+					40,
+					material{
+						Color = Color(1, 1, 1, 1),
+						Roughness = i == 1 and 0.02 or i == 2 and 0.15 or 0.4,
+						Metallic = 0,
+						Refraction = 1,
+						IndexOfRefraction = 1.5,
+						RefractionThickness = 0.02,
+					}
+				)
 			end
-		end
-	end, {offset = Vec3(0, 0, 8)})
+		end,
+		{offset = Vec3(0, 0, 6)}
+	)
 
-	cell("transmission sheets around a light", function(c)
-		for x = -8, 8 do
-			for y = -4, 4 do
-				quad("sheet", c + Vec3(x * 1.2, y * 1.2, 3), 25, 1.1, 1.1, material{Color = Color(0.45, 0.6, 0.2, 1), Roughness = 1, Metallic = 0, DoubleSided = true, DiffuseTransmission = 0.6, TransmissionScattering = 0.4})
+	cell(
+		"glass spheres",
+		function(c)
+			quad("wall", c, 0, 60, 40, grid)
+
+			for x = -7, 7 do
+				for y = -3, 3 do
+					sphere(
+						c + Vec3(x * 1.1, y * 1.1, 3),
+						0.5,
+						material{
+							Color = Color(1, 1, 1, 1),
+							Roughness = (x + 7) / 14 * 0.5,
+							Metallic = 0,
+							Refraction = 1,
+							IndexOfRefraction = 1.2 + (y + 3) / 6 * 0.8,
+						}
+					)
+				end
 			end
-		end
+		end,
+		{offset = Vec3(0, 0, 8)}
+	)
 
-		local lamp = Entity.New{Name = "bench_lamp"}
-		lamp:AddComponent("transform"):SetPosition(c + Vec3(0, 0, 1))
-		lamp:AddComponent("light_point"):SetLumen(4000)
-		test_scene.GetRoot():AddChild(lamp)
-	end, {offset = Vec3(0, 0, 10)})
+	cell(
+		"transmission sheets around a light",
+		function(c)
+			for x = -8, 8 do
+				for y = -4, 4 do
+					quad(
+						"sheet",
+						c + Vec3(x * 1.2, y * 1.2, 3),
+						25,
+						1.1,
+						1.1,
+						material{
+							Color = Color(0.45, 0.6, 0.2, 1),
+							Roughness = 1,
+							Metallic = 0,
+							DoubleSided = true,
+							DiffuseTransmission = 0.6,
+							TransmissionScattering = 0.4,
+						}
+					)
+				end
+			end
+
+			local lamp = Entity.New{Name = "bench_lamp"}
+			lamp:AddComponent("transform"):SetPosition(c + Vec3(0, 0, 1))
+			lamp:AddComponent("light_point"):SetLumen(4000)
+			test_scene.GetRoot():AddChild(lamp)
+		end,
+		{offset = Vec3(0, 0, 10)}
+	)
 
 	cell("empty sky", function() end, {pitch = 25, offset = Vec3(0, 0, 0)})
+
 	cell("sky with clouds", function() end, {pitch = 25, clouds = "cumulus"})
-	cell("horizon with the ground fog", function(c)
-		quad("ground", c + Vec3(0, -2, 0), 0, 1, 1, grid)
-	end, {pitch = 2, fog = true})
+
+	cell(
+		"horizon with the ground fog",
+		function(c)
+			quad("ground", c + Vec3(0, -2, 0), 0, 1, 1, grid)
+		end,
+		{pitch = 2, fog = true}
+	)
 end
 
 local selected = {}
@@ -195,19 +304,30 @@ if os.getenv("PBR_SHOTS") then
 
 	for i, phase in ipairs(phases) do
 		local position, pitch, yaw = phase.view()
-		properties[i] = {Position = position, Rotation = QuatDeg3(pitch, yaw, 0), FOV = math.rad(70), ExposureLock = 15, LocalExposure = 0}
+		properties[i] = {
+			Position = position,
+			Rotation = QuatDeg3(pitch, yaw, 0),
+			FOV = math.rad(70),
+			ExposureLock = 15,
+			LocalExposure = 0,
+		}
 	end
 
 	test_scene.WhenReady(function()
 		phases[1].enter()
 
-		Shot.Sequence(properties, function(texture, info, i)
-			texture:SaveWithoutAlpha(string.format("tmp/ab/%s_%02d.png", os.getenv("PBR_SHOTS"), i))
+		Shot.Sequence(
+			properties,
+			function(texture, info, i)
+				texture:SaveWithoutAlpha(string.format("tmp/ab/%s_%02d.png", os.getenv("PBR_SHOTS"), i))
 
-			if phases[i + 1] then phases[i + 1].enter() end
-		end, {settle = 3, converge = 0.3, max_settle = 8}, function()
-			system.ShutDown(0)
-		end)
+				if phases[i + 1] then phases[i + 1].enter() end
+			end,
+			{settle = 3, converge = 0.3, max_settle = 8},
+			function()
+				system.ShutDown(0)
+			end
+		)
 	end)
 else
 	frame_benchmark.Run(config)

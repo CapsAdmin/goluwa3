@@ -192,7 +192,12 @@ do
 		local coarse = build_cube_polygon()
 		coarse:SetLODLevel(1)
 		coarse:SetLODDistance(10)
-		add_visual_primitive(entity, coarse, Material.New{ColorMultiplier = Color(0, 1, 0, 1)}, name .. "_coarse")
+		add_visual_primitive(
+			entity,
+			coarse,
+			Material.New{ColorMultiplier = Color(0, 1, 0, 1)},
+			name .. "_coarse"
+		)
 		entity.visual:BuildAABB()
 		return entity
 	end

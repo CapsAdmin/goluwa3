@@ -247,7 +247,9 @@ function META:NextCommand(dt)
 		cmd.pressed = bit.band(cmd.buttons, bit.bnot(previous.buttons))
 		self.cmd = cmd
 
-		if usercmd.WasPressed(cmd, usercmd.BUTTON.TELEPORT) then self:TeleportToAim(cmd) end
+		if usercmd.WasPressed(cmd, usercmd.BUTTON.TELEPORT) then
+			self:TeleportToAim(cmd)
+		end
 
 		local recent = self.recent
 		recent[#recent + 1] = cmd
@@ -266,7 +268,9 @@ function META:NextCommand(dt)
 		cmd.pressed = bit.band(cmd.buttons, bit.bnot(previous.buttons))
 		self.cmd = cmd
 
-		if usercmd.WasPressed(cmd, usercmd.BUTTON.TELEPORT) then self:TeleportToAim(cmd) end
+		if usercmd.WasPressed(cmd, usercmd.BUTTON.TELEPORT) then
+			self:TeleportToAim(cmd)
+		end
 
 		return cmd
 	end

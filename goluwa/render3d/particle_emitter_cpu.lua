@@ -78,12 +78,15 @@ local default_material
 local function get_material(emitter)
 	if emitter.Material then return emitter.Material end
 
-	default_material = default_material or Material.New{Color = Color(1, 1, 1, 1), Roughness = 0.8, Metallic = 0, DoubleSided = true}
+	default_material = default_material or
+		Material.New{Color = Color(1, 1, 1, 1), Roughness = 0.8, Metallic = 0, DoubleSided = true}
 	return default_material
 end
 
 local function spawn(emitter, state, runtime)
-	if runtime.count >= math.min(emitter.MaxParticles, cpu.MAX_PARTICLES) then return end
+	if runtime.count >= math.min(emitter.MaxParticles, cpu.MAX_PARTICLES) then
+		return
+	end
 
 	local p = runtime.particles[runtime.count]
 	runtime.count = runtime.count + 1
@@ -91,7 +94,11 @@ local function spawn(emitter, state, runtime)
 	local ax, ay, az = axis.x, axis.y, axis.z
 	local tx, ty, tz
 
-	if math.abs(ay) < 0.99 then tx, ty, tz = -az, 0, ax else tx, ty, tz = 0, az, -ay end
+	if math.abs(ay) < 0.99 then
+		tx, ty, tz = -az, 0, ax
+	else
+		tx, ty, tz = 0, az, -ay
+	end
 
 	local length = math.sqrt(tx * tx + ty * ty + tz * tz)
 	tx, ty, tz = tx / length, ty / length, tz / length
@@ -115,7 +122,9 @@ local function spawn(emitter, state, runtime)
 		local c, s = math.cos(angle) * distance, math.sin(angle) * distance
 		ox, oy, oz = tx * c + bx * s, ty * c + by * s, tz * c + bz * s
 	elseif shape == "box" then
-		local u, v, w = (random(state) - 0.5) * size.x, (random(state) - 0.5) * size.y, (random(state) - 0.5) * size.z
+		local u, v, w = (random(state) - 0.5) * size.x,
+		(random(state) - 0.5) * size.y,
+		(random(state) - 0.5) * size.z
 		ox, oy, oz = tx * u + ax * v + bx * w, ty * u + ay * v + by * w, tz * u + az * v + bz * w
 	end
 
@@ -123,18 +132,26 @@ local function spawn(emitter, state, runtime)
 	local phi = random(state) * 6.2831853
 	local sin_theta = math.sqrt(1 - cos_theta * cos_theta)
 	local c, s = math.cos(phi) * sin_theta, math.sin(phi) * sin_theta
-	local dx, dy, dz = ax * cos_theta + tx * c + bx * s, ay * cos_theta + ty * c + by * s, az * cos_theta + tz * c + bz * s
+	local dx, dy, dz = ax * cos_theta + tx * c + bx * s,
+	ay * cos_theta + ty * c + by * s,
+	az * cos_theta + tz * c + bz * s
 
 	if radial_x then dx, dy, dz = radial_x, radial_y, radial_z end
 
-	local speed = emitter.SpeedMin + (math.max(emitter.SpeedMax, emitter.SpeedMin) - emitter.SpeedMin) * random(state)
+	local speed = emitter.SpeedMin + (
+			math.max(emitter.SpeedMax, emitter.SpeedMin) - emitter.SpeedMin
+		) * random(state)
 	local inherit = emitter.InheritVelocity
 	local velocity = state.velocity
 	p.x, p.y, p.z = state.position.x + ox, state.position.y + oy, state.position.z + oz
 	p.px, p.py, p.pz = p.x, p.y, p.z
-	p.vx, p.vy, p.vz = dx * speed + velocity.x * inherit, dy * speed + velocity.y * inherit, dz * speed + velocity.z * inherit
+	p.vx, p.vy, p.vz = dx * speed + velocity.x * inherit,
+	dy * speed + velocity.y * inherit,
+	dz * speed + velocity.z * inherit
 	p.age = 0
-	p.life = emitter.LifetimeMin + (math.max(emitter.LifetimeMax, emitter.LifetimeMin) - emitter.LifetimeMin) * random(state)
+	p.life = emitter.LifetimeMin + (
+			math.max(emitter.LifetimeMax, emitter.LifetimeMin) - emitter.LifetimeMin
+		) * random(state)
 	p.angle = random(state) * 6.2831853
 	p.stuck = 0
 end
@@ -186,9 +203,14 @@ local function step(emitter, runtime, dt)
 								local position = hit.position
 								local along = p.vx * normal.x + p.vy * normal.y + p.vz * normal.z
 
-								if along > 0 then normal = normal * -1 along = -along end
+								if along > 0 then
+									normal = normal * -1
+									along = -along
+								end
 
-								p.x, p.y, p.z = position.x + normal.x * radius, position.y + normal.y * radius, position.z + normal.z * radius
+								p.x, p.y, p.z = position.x + normal.x * radius,
+								position.y + normal.y * radius,
+								position.z + normal.z * radius
 
 								if on_hit == "stick" then
 									p.stuck = 1
@@ -196,7 +218,9 @@ local function step(emitter, runtime, dt)
 								else
 									local keep = 1 - emitter.Friction
 									local bounce = -along * (1 + emitter.Restitution)
-									p.vx, p.vy, p.vz = (p.vx + normal.x * bounce) * keep, (p.vy + normal.y * bounce) * keep, (p.vz + normal.z * bounce) * keep
+									p.vx, p.vy, p.vz = (p.vx + normal.x * bounce) * keep,
+									(p.vy + normal.y * bounce) * keep,
+									(p.vz + normal.z * bounce) * keep
 								end
 							end
 						end
@@ -244,7 +268,11 @@ do
 		for _, emitter in ipairs(particle_emitter.instances) do
 			local runtime = emitter.particle_state.cpu
 
-			if emitter.particle_backend == "cpu" and runtime and particle_emitter.IsShown(emitter) then
+			if
+				emitter.particle_backend == "cpu" and
+				runtime and
+				particle_emitter.IsShown(emitter)
+			then
 				local polygon = get_polygon(emitter.Mesh)
 				local material = get_material(emitter)
 				local particles = runtime.particles

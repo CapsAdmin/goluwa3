@@ -377,7 +377,6 @@ function GraphicsPipeline:Wait()
 
 	if job then
 		self.job = nil
-
 		local start = system.GetTime()
 
 		while not job:IsDone() and system.GetTime() - start < SLOW_PIPELINE_SECONDS do
@@ -385,7 +384,9 @@ function GraphicsPipeline:Wait()
 		end
 
 		if not job:IsDone() then
-			logn("[pipeline] the driver is compiling a graphics pipeline, this can take a while...")
+			logn(
+				"[pipeline] the driver is compiling a graphics pipeline, this can take a while..."
+			)
 		end
 
 		local milliseconds = job:Block()
@@ -394,7 +395,10 @@ function GraphicsPipeline:Wait()
 		self.device.pipeline_cache.generation = self.device.pipeline_cache.generation + 1
 
 		if milliseconds >= 50 then
-			logf("[pipeline] the driver compiled a graphics pipeline in %.0f ms (not in the pipeline cache)\n", milliseconds)
+			logf(
+				"[pipeline] the driver compiled a graphics pipeline in %.0f ms (not in the pipeline cache)\n",
+				milliseconds
+			)
 		end
 	end
 end

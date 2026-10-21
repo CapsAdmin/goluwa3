@@ -26,41 +26,37 @@ local function get_page_area(window)
 	return second
 end
 
-T.Test2DFrames(
-	"ui gallery builds every page in every theme",
-	#names * (#vfs.Find("lua/gallery/%.lua$") + 2),
-	function()
-		if theme_index > #names then return end
+T.Test2DFrames("ui gallery builds every page in every theme", #names * (#vfs.Find("lua/gallery/%.lua$") + 2), function()
+	if theme_index > #names then return end
 
-		if not gallery then
-			original = original or theme.active:GetName()
-			theme.LoadTheme(names[theme_index])
-			gallery = Gallery{Size = Vec2(1000, 700), Position = Vec2(0, 0)}
-			items = find_all(gallery, "panel_context_menu_item")
-			T(#items)[">"](10)
-			page_index = 0
-		elseif page_index < #items then
-			page_index = page_index + 1
-			items[page_index]:CallLocalEvent("OnClick")
-			react.Flush()
-			local area = get_page_area(gallery)
-			T(items[page_index].Selected)["=="](true)
-			T(area:GetViewport():HasChildren())["=="](true)
+	if not gallery then
+		original = original or theme.active:GetName()
+		theme.LoadTheme(names[theme_index])
+		gallery = Gallery{Size = Vec2(1000, 700), Position = Vec2(0, 0)}
+		items = find_all(gallery, "panel_context_menu_item")
+		T(#items)[">"](10)
+		page_index = 0
+	elseif page_index < #items then
+		page_index = page_index + 1
+		items[page_index]:CallLocalEvent("OnClick")
+		react.Flush()
+		local area = get_page_area(gallery)
+		T(items[page_index].Selected)["=="](true)
+		T(area:GetViewport():HasChildren())["=="](true)
 
-			for _, child in ipairs(area:GetChildrenList()) do
-				if child.text and child.text:GetText():starts_with("this page failed") then
-					T(child.text:GetText())["=="]("")
-				end
+		for _, child in ipairs(area:GetChildrenList()) do
+			if child.text and child.text:GetText():starts_with("this page failed") then
+				T(child.text:GetText())["=="]("")
 			end
-		else
-			gallery:Remove()
-			gallery = nil
-			theme_index = theme_index + 1
-
-			if theme_index > #names then theme.LoadTheme(original) end
 		end
+	else
+		gallery:Remove()
+		gallery = nil
+		theme_index = theme_index + 1
+
+		if theme_index > #names then theme.LoadTheme(original) end
 	end
-)
+end)
 
 T.Test2D("ui gallery follows theme changes through its dropdown without being rebuilt", function()
 	local first = theme.active:GetName()
@@ -105,11 +101,9 @@ T.Test2D("ui gallery shows an error for a page that throws and recovers on the n
 	end
 
 	local view = page.View
-
 	page.View = react.Component(function()
 		error("page exploded", 0)
 	end)
-
 	target:CallLocalEvent("OnClick")
 	react.Flush()
 	page.View = view

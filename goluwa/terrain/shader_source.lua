@@ -218,7 +218,19 @@ do
 	local NO_LAYER_IDS = {}
 	local push_constants = {size = ffi.sizeof(BakeConstants), get_data = get_bake_constants}
 
-	local function record_bake(self, batch, size, format, glsl, origin_x, origin_z, step, layer_ids, field, nearest)
+	local function record_bake(
+		self,
+		batch,
+		size,
+		format,
+		glsl,
+		origin_x,
+		origin_z,
+		step,
+		layer_ids,
+		field,
+		nearest
+	)
 		local texture = make_bake_texture(self, size, format, batch.cmd, nearest)
 		local source_textures = self.Textures
 		local textures = source_textures
@@ -260,7 +272,14 @@ do
 		if not batch then
 			local cmd = render.GetCommandPool():AllocateCommandBuffer()
 			cmd:Begin()
-			batch = {cmd = cmd, refs = {}, chunks = {}, callbacks = {}, height_textures = {}, fields = {}}
+			batch = {
+				cmd = cmd,
+				refs = {},
+				chunks = {},
+				callbacks = {},
+				height_textures = {},
+				fields = {},
+			}
 			self.batch = batch
 		end
 
@@ -292,12 +311,28 @@ do
 		local field
 
 		if request.detail_size or wants_splat or wants_color then
-			local cells = math.max(request.detail_size or 0, wants_splat and request.splat_size or 0, wants_color and request.color_size or 0)
+			local cells = math.max(
+				request.detail_size or 0,
+				wants_splat and request.splat_size or 0,
+				wants_color and request.color_size or 0
+			)
 			local step = size / cells
 			bake.field_origin_x = min_x - step * 0.5
 			bake.field_origin_z = min_z - step * 0.5
 			bake.field_step = step
-			field = record_bake(self, batch, cells + 2, "r32_sfloat", HEIGHT_BAKE, min_x - step * 0.5, min_z - step * 0.5, step, nil, nil, true)
+			field = record_bake(
+				self,
+				batch,
+				cells + 2,
+				"r32_sfloat",
+				HEIGHT_BAKE,
+				min_x - step * 0.5,
+				min_z - step * 0.5,
+				step,
+				nil,
+				nil,
+				true
+			)
 			batch.fields[#batch.fields + 1] = field
 		end
 

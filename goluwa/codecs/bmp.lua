@@ -3,13 +3,14 @@ local Buffer = import("goluwa/structs/buffer.lua")
 local bmp = {}
 bmp.file_extensions = {"bmp"}
 bmp.magic_headers = {"BM"}
-local header_type = ffi.typeof("struct { uint16_t magic; uint32_t size; uint32_t reserved; uint32_t offset; uint32_t header_size; int32_t width; int32_t height; uint16_t planes; uint16_t bpp; uint32_t compression; } __attribute__((packed))")
+local header_type = ffi.typeof(
+	"struct { uint16_t magic; uint32_t size; uint32_t reserved; uint32_t offset; uint32_t header_size; int32_t width; int32_t height; uint16_t planes; uint16_t bpp; uint32_t compression; } __attribute__((packed))"
+)
 local header_ptr = ffi.typeof("$ *", header_type)
 
 -- uncompressed 24 and 32 bit bitmaps, the alpha of a 32 bit one is ignored. rows come out in file order, bottom row first like the png decoder
 function bmp.Decode(data)
 	local header = ffi.cast(header_ptr, data)
-
 	assert(header.magic == 0x4D42, "not a bmp")
 	assert(header.compression == 0 or header.compression == 3, "compressed bmp is not supported")
 	assert(header.bpp == 24 or header.bpp == 32, "only 24 and 32 bit bmp is supported")

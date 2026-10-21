@@ -221,7 +221,11 @@ local function get_signature(sources)
 	local signature = {}
 
 	for i, source in ipairs(sources) do
-		signature[i] = tostring(source.counter) .. ":" .. #source.parts .. (source.billboard_part and "b" or "")
+		signature[i] = tostring(source.counter) .. ":" .. #source.parts .. (
+				source.billboard_part and
+				"b" or
+				""
+			)
 	end
 
 	return table.concat(signature, ",")
@@ -311,7 +315,10 @@ local function refresh(segment_list)
 		for i = index + 1, #definitions do
 			local candidate = definitions[i]
 
-			if candidate.segment.counter == source.counter and candidate.segment.parts_count == #source.parts then
+			if
+				candidate.segment.counter == source.counter and
+				candidate.segment.parts_count == #source.parts
+			then
 				definition = candidate
 				index = i
 
@@ -321,7 +328,13 @@ local function refresh(segment_list)
 
 		if not definition then return true end
 
-		if source.room * definition.count > definition.reserved or (definition.reserved > MIN_RESERVED * 4 and source.room * definition.count * 4 < definition.reserved) then
+		if
+			source.room * definition.count > definition.reserved or
+			(
+				definition.reserved > MIN_RESERVED * 4 and
+				source.room * definition.count * 4 < definition.reserved
+			)
+		then
 			return true
 		end
 
@@ -337,7 +350,9 @@ local sources, list_buffer, counts_buffer
 local function prepare()
 	sources = nil
 
-	if not enabled:Get() or not render.GetDevice().ray_tracing_supported then return end
+	if not enabled:Get() or not render.GetDevice().ray_tracing_supported then
+		return
+	end
 
 	local version
 	sources, list_buffer, counts_buffer, version = import("goluwa/render3d/scatter.lua").GetRTSources()
@@ -364,30 +379,43 @@ local function produce(cmd)
 	local segments, parts = get_tables()
 	local tlas_table, data_table = instances.GetTables()
 	local pipe = get_pipeline()
-	local slot = ((render.GetCurrentFrame() or 1) - 1) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
-		local bound = bound_buffers[slot]
-		local tlas_buffer, data_buffer, mesh_buffer = tlas_table:GetBuffer(), data_table:GetBuffer(), meshes.GetTable():GetBuffer()
-		local segments_buffer, parts_buffer = segments:GetBuffer(), parts:GetBuffer()
+	local slot = (
+			(
+				render.GetCurrentFrame() or
+				1
+			) - 1
+		) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
+	local bound = bound_buffers[slot]
+	local tlas_buffer, data_buffer, mesh_buffer = tlas_table:GetBuffer(), data_table:GetBuffer(), meshes.GetTable():GetBuffer()
+	local segments_buffer, parts_buffer = segments:GetBuffer(), parts:GetBuffer()
 
-		if
-			not bound or
-			bound[1] ~= tlas_buffer or
-			bound[2] ~= data_buffer or
-			bound[3] ~= mesh_buffer or
-			bound[4] ~= segments_buffer or
-			bound[5] ~= parts_buffer or
-			bound[6] ~= list_buffer or
-			bound[7] ~= counts_buffer
-		then
-			bound_buffers[slot] = {tlas_buffer, data_buffer, mesh_buffer, segments_buffer, parts_buffer, list_buffer, counts_buffer}
-			pipe:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_buffer, tlas_table:GetSize())
-			pipe:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_buffer, data_table:GetSize())
-			pipe:UpdateDescriptorSet("storage_buffer", slot, 2, 0, mesh_buffer, meshes.GetTable():GetSize())
-			pipe:UpdateDescriptorSet("storage_buffer", slot, 3, 0, segments_buffer, segments:GetSize())
-			pipe:UpdateDescriptorSet("storage_buffer", slot, 4, 0, parts_buffer, parts:GetSize())
-			pipe:UpdateDescriptorSet("storage_buffer", slot, 5, 0, list_buffer, list_buffer.size)
-			pipe:UpdateDescriptorSet("storage_buffer", slot, 6, 0, counts_buffer, counts_buffer.size)
-		end
+	if
+		not bound or
+		bound[1] ~= tlas_buffer or
+		bound[2] ~= data_buffer or
+		bound[3] ~= mesh_buffer or
+		bound[4] ~= segments_buffer or
+		bound[5] ~= parts_buffer or
+		bound[6] ~= list_buffer or
+		bound[7] ~= counts_buffer
+	then
+		bound_buffers[slot] = {
+			tlas_buffer,
+			data_buffer,
+			mesh_buffer,
+			segments_buffer,
+			parts_buffer,
+			list_buffer,
+			counts_buffer,
+		}
+		pipe:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_buffer, tlas_table:GetSize())
+		pipe:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_buffer, data_table:GetSize())
+		pipe:UpdateDescriptorSet("storage_buffer", slot, 2, 0, mesh_buffer, meshes.GetTable():GetSize())
+		pipe:UpdateDescriptorSet("storage_buffer", slot, 3, 0, segments_buffer, segments:GetSize())
+		pipe:UpdateDescriptorSet("storage_buffer", slot, 4, 0, parts_buffer, parts:GetSize())
+		pipe:UpdateDescriptorSet("storage_buffer", slot, 5, 0, list_buffer, list_buffer.size)
+		pipe:UpdateDescriptorSet("storage_buffer", slot, 6, 0, counts_buffer, counts_buffer.size)
+	end
 
 	pipe:UploadConstants()
 	cmd:PipelineBarrier{

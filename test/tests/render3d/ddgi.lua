@@ -259,7 +259,11 @@ do
 			{Vec3(-half, height / 2, 0), Vec3(1, 0, 0), half, height / 2},
 			{Vec3(half, height / 2, 0), Vec3(-1, 0, 0), half, height / 2},
 		}
-		local material = Material.New{ColorMultiplier = Color(0.8, 0.8, 0.8, 1), MetallicMultiplier = 0, DoubleSided = double_sided}
+		local material = Material.New{
+			ColorMultiplier = Color(0.8, 0.8, 0.8, 1),
+			MetallicMultiplier = 0,
+			DoubleSided = double_sided,
+		}
 		local ceiling
 
 		for i, plane in ipairs(planes) do
@@ -324,10 +328,34 @@ do
 		end)
 	end
 
-	test_plane_room("Graphics render3d ddgi does not leak into a sealed room of planes on the probe grid", Vec3(0, 0, 0), false, 4, 4)
-	test_plane_room("Graphics render3d ddgi does not leak into a sealed room of planes between the probes", Vec3(0.13, 0.07, -0.21), false, 4, 4)
-	test_plane_room("Graphics render3d ddgi does not leak into a sealed room of double sided planes", Vec3(0.13, 0.07, -0.21), true, 4, 4)
-	test_plane_room("Graphics render3d ddgi does not leak into a big sealed room of double sided planes", Vec3(0.13, 0.07, -0.21), true, 14, 10)
+	test_plane_room(
+		"Graphics render3d ddgi does not leak into a sealed room of planes on the probe grid",
+		Vec3(0, 0, 0),
+		false,
+		4,
+		4
+	)
+	test_plane_room(
+		"Graphics render3d ddgi does not leak into a sealed room of planes between the probes",
+		Vec3(0.13, 0.07, -0.21),
+		false,
+		4,
+		4
+	)
+	test_plane_room(
+		"Graphics render3d ddgi does not leak into a sealed room of double sided planes",
+		Vec3(0.13, 0.07, -0.21),
+		true,
+		4,
+		4
+	)
+	test_plane_room(
+		"Graphics render3d ddgi does not leak into a big sealed room of double sided planes",
+		Vec3(0.13, 0.07, -0.21),
+		true,
+		14,
+		10
+	)
 
 	T.Test3D("Graphics render3d ddgi light behind a thin partition does not light the room next to it", function(draw)
 		local polygon3d = Polygon3D.New()
@@ -429,7 +457,6 @@ do
 			T(default >= slow * 0.7)["=="](true)
 			T(default <= slow * 1.35)["=="](true)
 		end)
-
 		pvars.SetSession("ddgi_hysteresis", 0.99)
 		pvars.SetSession("ddgi_change_power", 4)
 
@@ -551,11 +578,11 @@ T.Test3D("Graphics render3d ddgi material buffer marks materials without an albe
 		material:SetMetallicMultiplier(0.5)
 		ddgi.WriteMaterialBuffer(pipeline)
 		T(entry.metallic)["=="](0.5)
-				T(entry.roughness)["=="](1)
-				T(entry.roughness_tex)["=="](-1)
-				material:SetRoughnessMultiplier(0.25)
-				ddgi.WriteMaterialBuffer(pipeline)
-				T(entry.roughness)["=="](0.25)
+		T(entry.roughness)["=="](1)
+		T(entry.roughness_tex)["=="](-1)
+		material:SetRoughnessMultiplier(0.25)
+		ddgi.WriteMaterialBuffer(pipeline)
+		T(entry.roughness)["=="](0.25)
 		entry.double_sided = 99
 		T(ddgi.WriteMaterialBuffer(pipeline) == buffer)["=="](true)
 		T(entry.double_sided)["=="](99)

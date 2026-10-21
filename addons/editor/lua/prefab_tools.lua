@@ -21,11 +21,41 @@ local EXPOSABLE_TYPES = {
 	color = true,
 }
 local INPUT_TYPES = {
-	{Text = "number", Type = "number", Default = function() return 0 end},
-	{Text = "boolean", Type = "boolean", Default = function() return false end},
-	{Text = "string", Type = "string", Default = function() return "" end},
-	{Text = "vec3", Type = "vec3", Default = function() return Vec3(0, 0, 0) end},
-	{Text = "color", Type = "color", Default = function() return Color(1, 1, 1, 1) end},
+	{
+		Text = "number",
+		Type = "number",
+		Default = function()
+			return 0
+		end,
+	},
+	{
+		Text = "boolean",
+		Type = "boolean",
+		Default = function()
+			return false
+		end,
+	},
+	{
+		Text = "string",
+		Type = "string",
+		Default = function()
+			return ""
+		end,
+	},
+	{
+		Text = "vec3",
+		Type = "vec3",
+		Default = function()
+			return Vec3(0, 0, 0)
+		end,
+	},
+	{
+		Text = "color",
+		Type = "color",
+		Default = function()
+			return Color(1, 1, 1, 1)
+		end,
+	},
 }
 local removers = {}
 
@@ -77,7 +107,12 @@ end
 
 local function get_target(node, component_name, info)
 	if info.link then
-		return {Node = node, Component = component_name, Property = info.link.Property, Key = info.link.Key}
+		return {
+			Node = node,
+			Component = component_name,
+			Property = info.link.Property,
+			Key = info.link.Key,
+		}
 	end
 
 	return {Node = node, Component = component_name, Property = info.var_name}
@@ -101,32 +136,25 @@ local function expose(instance, entity, node, component_name, object, info)
 	end
 
 	local value = get_value(object, info)
-	editor_history.EditPrefab(
-		"expose " .. info.var_name .. " of " .. instance.Path,
-		instance.Path,
-		function()
-			prefab.AddInput(
-				instance.Path,
-				{
-					Name = get_unique_input_name(instance.definition, name),
-					Type = info.type,
-					Default = type(value) == "cdata" and value:Copy() or value,
-					Targets = {get_target(node, component_name, info)},
-				}
-			)
-		end
-	)
+
+	editor_history.EditPrefab("expose " .. info.var_name .. " of " .. instance.Path, instance.Path, function()
+		prefab.AddInput(
+			instance.Path,
+			{
+				Name = get_unique_input_name(instance.definition, name),
+				Type = info.type,
+				Default = type(value) == "cdata" and value:Copy() or value,
+				Targets = {get_target(node, component_name, info)},
+			}
+		)
+	end)
 end
 
 local function unexpose(instance, node, component_name, info)
-	editor_history.EditPrefab(
-		"hide " .. info.var_name .. " from " .. instance.Path,
-		instance.Path,
-		function()
-			local target = get_target(node, component_name, info)
-			prefab.Unlink(instance.Path, node, component_name, target.Property, target.Key)
-		end
-	)
+	editor_history.EditPrefab("hide " .. info.var_name .. " from " .. instance.Path, instance.Path, function()
+		local target = get_target(node, component_name, info)
+		prefab.Unlink(instance.Path, node, component_name, target.Property, target.Key)
+	end)
 end
 
 local function add_input(instance, input_type)
@@ -134,21 +162,17 @@ local function add_input(instance, input_type)
 		Title = "ADD " .. input_type.Text:upper() .. " INPUT",
 		Hint = "input name",
 		OnSubmit = function(name)
-			editor_history.EditPrefab(
-				"add input " .. name .. " to " .. instance.Path,
-				instance.Path,
-				function()
-					prefab.AddInput(
-						instance.Path,
-						{
-							Name = get_unique_input_name(instance.definition, name),
-							Type = input_type.Type,
-							Default = input_type.Default(),
-							Targets = {},
-						}
-					)
-				end
-			)
+			editor_history.EditPrefab("add input " .. name .. " to " .. instance.Path, instance.Path, function()
+				prefab.AddInput(
+					instance.Path,
+					{
+						Name = get_unique_input_name(instance.definition, name),
+						Type = input_type.Type,
+						Default = input_type.Default(),
+						Targets = {},
+					}
+				)
+			end)
 		end,
 	}
 end
@@ -177,8 +201,7 @@ function tools.GetPropertyActions(object, info)
 			)
 			and
 			EXPOSABLE_TYPES[info.type]
-		)
-		or
+		) or
 		not (
 			object.component_map or
 			object.Owner
@@ -193,10 +216,11 @@ function tools.GetPropertyActions(object, info)
 
 	local component_name, entity = prefab.GetComponentName(object)
 	local node = instance == entity.prefab and "root" or entity.prefab_node
-
 	local target = get_target(node, component_name, info)
 
-	if prefab.IsExposed(instance.Path, node, component_name, target.Property, target.Key) then
+	if
+		prefab.IsExposed(instance.Path, node, component_name, target.Property, target.Key)
+	then
 		return {
 			{
 				Text = "Hide from prefab",
@@ -224,13 +248,9 @@ function tools.GetPropertyActions(object, info)
 				Text = "Link to " .. input.Name,
 				Icon = "arrow_right",
 				OnClick = function()
-					editor_history.EditPrefab(
-						"link " .. info.var_name .. " to " .. input.Name,
-						instance.Path,
-						function()
-							prefab.AddTarget(instance.Path, input.Name, target)
-						end
-					)
+					editor_history.EditPrefab("link " .. info.var_name .. " to " .. input.Name, instance.Path, function()
+						prefab.AddTarget(instance.Path, input.Name, target)
+					end)
 				end,
 			}
 		end
@@ -268,7 +288,11 @@ local PREFAB_BADGE = {
 function tools.GetCategoryBadge(object, name)
 	local entity = object.component_map and object or object.Owner
 	local editing = prefab.editing
-	local is_nested_instance = editing and entity and entity ~= editing.Owner and entity.prefab and entity.prefab_owner
+	local is_nested_instance = editing and
+		entity and
+		entity ~= editing.Owner and
+		entity.prefab and
+		entity.prefab_owner
 
 	if name == "script" and object.Error then
 		return {
@@ -290,7 +314,9 @@ function tools.GetCategoryBadge(object, name)
 end
 
 function tools.GetPropertyBadge(object, info)
-	if not ((info.storable or info.link) and (object.component_map or object.Owner)) then return end
+	if not ((info.storable or info.link) and (object.component_map or object.Owner)) then
+		return
+	end
 
 	local instance = prefab.GetOwner(object)
 
@@ -319,6 +345,7 @@ function tools.GetMenuItem(entity, select)
 				editor_history.ReplaceEntity("unpack " .. entity:GetName(), entity, function()
 					prefab.Unpack(entity)
 				end)
+
 				select(entity)
 			end,
 		}
@@ -341,6 +368,7 @@ function tools.GetMenuItem(entity, select)
 						editor_history.ReplaceEntity("make prefab " .. name, entity, function()
 							prefab.CreateFromEntity(entity, (name:gsub("[^%w_%-%. ]", "_")))
 						end)
+
 						select(entity)
 					end,
 				}

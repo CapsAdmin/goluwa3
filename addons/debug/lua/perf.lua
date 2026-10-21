@@ -1,6 +1,5 @@
 local perf = {}
 local tabs = {}
-
 perf.POLL_INTERVAL = 0.1
 
 function perf.RegisterTab(name, order, view)
@@ -23,7 +22,11 @@ end
 
 function perf.PrintRows(rows)
 	for _, row in ipairs(rows) do
-		logn(row.label, row.value and ("  " .. row.value) or "", row.detail and ("  " .. row.detail) or "")
+		logn(
+			row.label,
+			row.value and ("  " .. row.value) or "",
+			row.detail and ("  " .. row.detail) or ""
+		)
 	end
 end
 

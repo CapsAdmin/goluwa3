@@ -7,13 +7,14 @@ command_input.Prefix = "!"
 autocomplete.SetListName("console_commands", "Commands")
 autocomplete.SetListName("console_variables", "Variables")
 autocomplete.SetListName("console_values", "Values")
-
 local scalar_types = {string = true, number = true, boolean = true}
 
 local function describe_variable(key, info)
 	local text = info.type
 
-	if scalar_types[info.type] then text = text .. " = " .. tostring(pvars.Get(key)) end
+	if scalar_types[info.type] then
+		text = text .. " = " .. tostring(pvars.Get(key))
+	end
 
 	if info.help then text = text .. "  " .. info.help end
 
@@ -92,7 +93,6 @@ function command_input.GetQuery(text)
 		if not values and info.type == "boolean" then values = {"true", "false"} end
 
 		local hint = name .. ": " .. describe_variable(name, info)
-
 		return text:sub(1, #text - #token),
 		token,
 		{
@@ -104,7 +104,9 @@ function command_input.GetQuery(text)
 
 	local command = commands.added2[name] or commands.added2[name:lower()]
 
-	if command then return text, "", {create_hint(commands.GetUsage(command))}, true end
+	if command then
+		return text, "", {create_hint(commands.GetUsage(command))}, true
+	end
 
 	return text, "", {}, true
 end

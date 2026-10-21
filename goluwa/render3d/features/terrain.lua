@@ -101,7 +101,6 @@ for layer = 5, 8 do
 end
 
 layer_values("", "TerrainMaterialTexture")
-
 add{
 	name = "TerrainLayerScatter",
 	kind = "vec4",

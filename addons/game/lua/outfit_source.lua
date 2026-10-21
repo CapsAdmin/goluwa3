@@ -22,7 +22,6 @@ outfit_source.Bones = {
 	calf_l = "ValveBiped.Bip01_L_Calf",
 	foot_l = "ValveBiped.Bip01_L_Foot",
 }
-
 outfit_source.Script = [[
 local objects = import("goluwa/objects/objects.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
@@ -176,7 +175,9 @@ function outfit_source.GetDefinition()
 					transform = {},
 					model = {ModelPath = outfit_source.Model},
 					animator = {},
-					script = {Source = "local OUTFIT_BONES = " .. outfit_source.BonesSource() .. "\n" .. outfit_source.Script},
+					script = {
+						Source = "local OUTFIT_BONES = " .. outfit_source.BonesSource() .. "\n" .. outfit_source.Script,
+					},
 				},
 			},
 		},
@@ -201,5 +202,4 @@ end
 
 outfit_source.Name = "player_outfit_source"
 prefab.Register(outfit_source.Name, outfit_source.GetDefinition()).builtin = true
-
 return outfit_source

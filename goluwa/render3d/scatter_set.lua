@@ -169,23 +169,33 @@ local function normalize_prototype(definition, set_name, index)
 	local billboard = get("billboard")
 
 	if billboard then
-		assert(type(proto.model) == "string", name .. " has a billboard but its model is not a path")
+		assert(
+			type(proto.model) == "string",
+			name .. " has a billboard but its model is not a path"
+		)
 		billboard = billboard == true and {} or billboard
 		proto.billboard_radii = billboard.radii
 		proto.billboard_distance = billboard.distance or (billboard.radii and 1) or 150
 		proto.billboard_fade = billboard.fade or 0.15
-		assert(proto.billboard_distance > 0 and proto.billboard_fade > 0 and proto.billboard_fade < 1, name .. ".billboard needs a distance and a fade between 0 and 1")
+		assert(
+			proto.billboard_distance > 0 and
+				proto.billboard_fade > 0 and
+				proto.billboard_fade < 1,
+			name .. ".billboard needs a distance and a fade between 0 and 1"
+		)
 	end
 
 	assert(proto.density > 0, name .. ".density must be above zero")
-	assert(proto.max_instances == nil or proto.max_instances > 0, name .. ".max_instances must be above zero")
+	assert(
+		proto.max_instances == nil or proto.max_instances > 0,
+		name .. ".max_instances must be above zero"
+	)
 	assert(
 		proto.full_density_distance > 0 and proto.max_distance > 0,
 		name .. " distances must be above zero"
 	)
 	return proto
 end
-
 
 ScatterSet:StartStorable()
 ScatterSet:GetSet("DensityMultiplier", 1, {callback = "UpdateMultipliers"})
@@ -301,7 +311,11 @@ local function finish_loading(proto, entries)
 			end
 
 			if level == lod_level then
-				proto.lod_parts[#proto.lod_parts + 1] = {mesh = mesh, polygon = polygon, material = entry.material or render3d.GetDefaultMaterial()}
+				proto.lod_parts[#proto.lod_parts + 1] = {
+					mesh = mesh,
+					polygon = polygon,
+					material = entry.material or render3d.GetDefaultMaterial(),
+				}
 			end
 		end
 	end
@@ -311,7 +325,6 @@ local function finish_loading(proto, entries)
 		logf("scatter prototype %s has no meshes\n", proto.name)
 	else
 		proto.state = "ready"
-
 		proto.height = math.max(max_y, 0.01)
 		proto.footprint = 0.25 * ((max_x - min_x) + (max_z - min_z))
 		proto.radius = math.sqrt(
@@ -402,7 +415,6 @@ local TUFT_VARIANTS = {
 	{blades = 18, height = 0.28, width = 0.02, radius = 0.14, lean = 1.4},
 	{blades = 22, height = 0.5, width = 0.026, radius = 0.2, lean = 1.6},
 }
-
 local grass
 
 function ScatterSet.GetGrass()

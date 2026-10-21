@@ -12,7 +12,13 @@ return {
 		},
 	},
 	fields = {
-		{name = "sheen", kind = "unorm4", default = "0.0", material = "get_sheen()", readers = {"lighting"}},
+		{
+			name = "sheen",
+			kind = "unorm4",
+			default = "0.0",
+			material = "get_sheen()",
+			readers = {"lighting"},
+		},
 		{
 			name = "sheen_roughness",
 			sheet = "sheen",

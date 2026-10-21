@@ -56,6 +56,7 @@ end
 
 function ocean_fft.GetGLSL(block, count)
 	local lines = {}
+
 	local function add(...)
 		lines[#lines + 1] = string.format(...)
 	end
@@ -68,7 +69,12 @@ function ocean_fft.GetGLSL(block, count)
 	add("\tvec2 d = vec2(0.0);")
 
 	for i = 1, count do
-		add("\td += textureLod(TEXTURE(%s.fft_tex[%d]), %s, 0.0).xz;", block, (i - 1) * 2, uv(i))
+		add(
+			"\td += textureLod(TEXTURE(%s.fft_tex[%d]), %s, 0.0).xz;",
+			block,
+			(i - 1) * 2,
+			uv(i)
+		)
 	end
 
 	add("\treturn d;")
@@ -80,15 +86,27 @@ function ocean_fft.GetGLSL(block, count)
 	add("\treturn p;")
 	add("}")
 	add("")
-	add("void fft_surface(vec2 p, float choppiness, out float height, out vec3 normal, out float jacobian) {")
+	add(
+		"void fft_surface(vec2 p, float choppiness, out float height, out vec3 normal, out float jacobian) {"
+	)
 	add("\theight = 0.0;")
 	add("\tvec2 slope = vec2(0.0);")
 	add("\tvec3 folds = vec3(0.0);")
 
 	for i = 1, count do
 		add("\t{")
-		add("\t\tvec4 a = textureLod(TEXTURE(%s.fft_tex[%d]), %s, 0.0);", block, (i - 1) * 2, uv(i))
-		add("\t\tvec4 b = textureLod(TEXTURE(%s.fft_tex[%d]), %s, 0.0);", block, (i - 1) * 2 + 1, uv(i))
+		add(
+			"\t\tvec4 a = textureLod(TEXTURE(%s.fft_tex[%d]), %s, 0.0);",
+			block,
+			(i - 1) * 2,
+			uv(i)
+		)
+		add(
+			"\t\tvec4 b = textureLod(TEXTURE(%s.fft_tex[%d]), %s, 0.0);",
+			block,
+			(i - 1) * 2 + 1,
+			uv(i)
+		)
 		add("\t\theight += a.y;")
 		add("\t\tslope += b.xy;")
 		add("\t\tfolds += vec3(b.zw, a.w);")

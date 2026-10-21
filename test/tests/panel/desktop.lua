@@ -54,9 +54,12 @@ T.Test2D("desktop adds programs and menus registered after it was made to the ro
 			return Window{Title = "LATE"}
 		end,
 	}
-	desktop.RegisterMenu{Text = "TESTMENU", Items = function()
-		return {}
-	end}
+	desktop.RegisterMenu{
+		Text = "TESTMENU",
+		Items = function()
+			return {}
+		end,
+	}
 	react.Flush()
 	T(get_root())["=="](root)
 	T(button_names(root):find("TestLate", 1, true) ~= nil)["=="](true)

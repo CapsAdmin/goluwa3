@@ -1,6 +1,5 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local translucent_extras = {}
-
 translucent_extras.list = {
 	import("goluwa/render3d/particles.lua"),
 }

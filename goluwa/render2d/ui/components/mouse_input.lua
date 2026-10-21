@@ -366,10 +366,11 @@ function META:OnFirstCreated()
 						mouse_input.pressed_entities[button] = hovered
 						mouse_comp.button_states = mouse_comp.button_states or {}
 						mouse_comp.button_states[button] = {press = press, pos = pos}
-
 						local focus_source = is_wheel and NULL or hovered
 
-						while focus_source:IsValid() and not (
+						while
+							focus_source:IsValid() and
+							not (
 								focus_source.mouse_input and
 								focus_source.mouse_input:GetFocusOnClick()
 							)
@@ -392,6 +393,7 @@ function META:OnFirstCreated()
 						local bring_to_front_target = NULL
 
 						if is_wheel then
+
 						elseif mouse_comp:GetBringToFrontOnClick() then
 							bring_to_front_target = hovered
 						else

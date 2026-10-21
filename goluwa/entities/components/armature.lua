@@ -18,7 +18,9 @@ function META.RegisterSkeleton(name, bones)
 	for i, bone in ipairs(bones) do
 		names[i] = bone[1]
 		index[bone[1]] = i - 1
-		parents[i] = bone[2] and assert(index[bone[2]], "bone " .. bone[1] .. " comes before its parent") or -1
+		parents[i] = bone[2] and
+			assert(index[bone[2]], "bone " .. bone[1] .. " comes before its parent") or
+			-1
 		bind_local[(i - 1) * 7 + 6] = 1
 		inverse_bind[(i - 1) * 12] = 1
 		inverse_bind[(i - 1) * 12 + 5] = 1

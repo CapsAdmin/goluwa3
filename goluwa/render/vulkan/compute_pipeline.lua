@@ -356,14 +356,18 @@ function ComputePipeline:Bind(cmd, frame_index, dynamic_offsets)
 end
 
 function ComputePipeline:Dispatch(cmd, group_count_x, group_count_y, group_count_z, frame_index, dynamic_offsets)
-	if checkpoints.enabled then checkpoints.Set(cmd, "dispatch " .. tostring(self.config.name)) end
+	if checkpoints.enabled then
+		checkpoints.Set(cmd, "dispatch " .. tostring(self.config.name))
+	end
 
 	self:Bind(cmd, frame_index, dynamic_offsets)
 	cmd:Dispatch(group_count_x or 1, group_count_y or 1, group_count_z or 1)
 end
 
 function ComputePipeline:DispatchIndirect(cmd, buffer, offset, frame_index, dynamic_offsets)
-	if checkpoints.enabled then checkpoints.Set(cmd, "dispatch indirect " .. tostring(self.config.name)) end
+	if checkpoints.enabled then
+		checkpoints.Set(cmd, "dispatch indirect " .. tostring(self.config.name))
+	end
 
 	self:Bind(cmd, frame_index, dynamic_offsets)
 	cmd:DispatchIndirect(buffer, offset)
@@ -380,7 +384,6 @@ function ComputePipeline:DispatchForSize(cmd, width, height, depth, frame_index,
 			self.descriptor_sets[frame_index or 1] or self.descriptor_sets[1],
 			dynamic_offsets
 		)
-
 		return
 	end
 

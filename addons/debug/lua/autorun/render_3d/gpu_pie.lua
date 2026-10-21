@@ -262,7 +262,9 @@ function META:OnDraw()
 		foreground_color = TEXT_DIM,
 	}
 	render2d.DrawText{
-		text = group and "click the center or right click to go back" or "click a slice to zoom in",
+		text = group and
+			"click the center or right click to go back" or
+			"click a slice to zoom in",
 		x = 16,
 		y = HEIGHT - 24,
 		size = 12,
@@ -310,4 +312,4 @@ end
 
 META:Register()
 local GpuPie = react.Element(META)
-perf.RegisterTab("GPU", 1, react.Component(|| -> GpuPie{Size = Vec2(WIDTH, HEIGHT)}))
+perf.RegisterTab("GPU", 1, react.Component(||->GpuPie{Size = Vec2(WIDTH, HEIGHT)}))

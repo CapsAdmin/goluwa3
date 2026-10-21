@@ -1019,7 +1019,6 @@ do
 		end)
 
 		hook(obj, "OnPostLayout", sync_wrapper_layout)
-
 		obj.gine_w = obj.transform:GetWidth()
 		obj.gine_h = obj.transform:GetHeight()
 
@@ -1072,49 +1071,45 @@ do
 	do
 		local scratch = {}
 
-		event.AddListener(
-			"LateUpdate",
-			"gine_pending_layout",
-			function()
-				for _ = 1, 32 do
-					local count = pending_layout_count
+		event.AddListener("LateUpdate", "gine_pending_layout", function()
+			for _ = 1, 32 do
+				local count = pending_layout_count
 
-					if count == 0 then return end
+				if count == 0 then return end
 
-					for i = 1, count do
-						scratch[i] = pending_layout_panels[i]
-						pending_layout_panels[i] = nil
-					end
+				for i = 1, count do
+					scratch[i] = pending_layout_panels[i]
+					pending_layout_panels[i] = nil
+				end
 
-					pending_layout_count = 0
+				pending_layout_count = 0
 
-					for i = 1, count do
-						local wrapped = scratch[i]
-						scratch[i] = nil
+				for i = 1, count do
+					local wrapped = scratch[i]
+					scratch[i] = nil
 
-						if wrapped.gine_layout and wrapped.__obj:IsValid() then
-							local node = wrapped.__obj
-							local visible = true
+					if wrapped.gine_layout and wrapped.__obj:IsValid() then
+						local node = wrapped.__obj
+						local visible = true
 
-							while node and node:IsValid() do
-								if node.visual and not node.visual:GetVisible() then
-									visible = false
+						while node and node:IsValid() do
+							if node.visual and not node.visual:GetVisible() then
+								visible = false
 
-									break
-								end
-
-								node = node:GetParent()
+								break
 							end
 
-							if visible then
-								wrapped.gine_layout = nil
-								wrapped:InvalidateLayout(true)
-							end
+							node = node:GetParent()
+						end
+
+						if visible then
+							wrapped.gine_layout = nil
+							wrapped:InvalidateLayout(true)
 						end
 					end
 				end
 			end
-		)
+		end)
 	end
 
 	local META = gine.EnsureMetaTable("Panel")
@@ -1213,7 +1208,6 @@ do
 		end
 
 		local wrapped_parent = rawget(new_parent, "gine_pnl")
-
 		request_panel_layout(new_parent)
 	end
 

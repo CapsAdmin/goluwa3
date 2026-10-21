@@ -5,7 +5,6 @@ local Entity = import("goluwa/entities/entity.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local ShadowMap = import("goluwa/render3d/shadow_map.lua")
-
 local static_body = {MotionType = "static", Friction = 0.8, Restitution = 0}
 
 local function mat(color, roughness, metallic)
@@ -426,8 +425,18 @@ do
 	box("emitter_room_front", Vec3(cx, h / 2, cz + d / 2), Vec3(w, h, t), white)
 	box("emitter_room_left", Vec3(cx - w / 2, h / 2, cz), Vec3(t, h, d), white)
 	box("emitter_room_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
-	sphere("emitter_room_chrome", Vec3(cx - 2, 1.5, cz), 1.5, mat(Color(0.95, 0.95, 0.95, 1), 0.02, 1))
-	sphere("emitter_room_rough", Vec3(cx + 2.5, 1, cz + 1), 1, mat(Color(0.9, 0.9, 0.9, 1), 0.4, 1))
+	sphere(
+		"emitter_room_chrome",
+		Vec3(cx - 2, 1.5, cz),
+		1.5,
+		mat(Color(0.95, 0.95, 0.95, 1), 0.02, 1)
+	)
+	sphere(
+		"emitter_room_rough",
+		Vec3(cx + 2.5, 1, cz + 1),
+		1,
+		mat(Color(0.9, 0.9, 0.9, 1), 0.4, 1)
+	)
 	box("emitter_room_box", Vec3(cx, 0.75, cz - 3.5), Vec3(1.5, 1.5, 1.5), white)
 	local palette = {}
 
@@ -454,9 +463,21 @@ do
 		{pos = Vec3(cx, 0.1, cz), u = w / 2, v = d / 2, axis = "y", sign = 1},
 		{pos = Vec3(cx, inner_y, cz), u = w / 2, v = d / 2, axis = "y", sign = -1},
 		{pos = Vec3(cx, h / 2, cz - inner_z), u = w / 2, v = h / 2, axis = "z", sign = 1},
-		{pos = Vec3(cx, h / 2, cz + inner_z), u = w / 2, v = h / 2, axis = "z", sign = -1},
+		{
+			pos = Vec3(cx, h / 2, cz + inner_z),
+			u = w / 2,
+			v = h / 2,
+			axis = "z",
+			sign = -1,
+		},
 		{pos = Vec3(cx - inner_x, h / 2, cz), u = d / 2, v = h / 2, axis = "x", sign = 1},
-		{pos = Vec3(cx + inner_x, h / 2, cz), u = d / 2, v = h / 2, axis = "x", sign = -1},
+		{
+			pos = Vec3(cx + inner_x, h / 2, cz),
+			u = d / 2,
+			v = h / 2,
+			axis = "x",
+			sign = -1,
+		},
 	}
 
 	for i = 1, 240 do
@@ -481,7 +502,12 @@ do
 
 		if position.y < 0.2 then position.y = 0.2 end
 
-		box("emitter_room_emitter_" .. i, position, extent, palette[math.floor(random() * #palette) + 1])
+		box(
+			"emitter_room_emitter_" .. i,
+			position,
+			extent,
+			palette[math.floor(random() * #palette) + 1]
+		)
 	end
 end
 
@@ -491,12 +517,42 @@ do
 	local cornell_white = mat(Color(0.725, 0.71, 0.68, 1), 1)
 	local cornell_red = mat(Color(0.63, 0.065, 0.05, 1), 1)
 	local cornell_green = mat(Color(0.14, 0.45, 0.091, 1), 1)
-	box("cornell_room_floor", Vec3(cx, -t / 2 + 0.1, cz), Vec3(w + 2 * t, t, d + 2 * t), cornell_white)
-	box("cornell_room_ceiling", Vec3(cx, h + 0.1 + t / 2, cz), Vec3(w + 2 * t, t, d + 2 * t), cornell_white)
-	box("cornell_room_back", Vec3(cx, h / 2 + 0.1, cz - d / 2 - t / 2), Vec3(w, h, t), cornell_white)
-	box("cornell_room_front", Vec3(cx, h / 2 + 0.1, cz + d / 2 + t / 2), Vec3(w, h, t), cornell_white)
-	box("cornell_room_left", Vec3(cx - w / 2 - t / 2, h / 2 + 0.1, cz), Vec3(t, h, d), cornell_red)
-	box("cornell_room_right", Vec3(cx + w / 2 + t / 2, h / 2 + 0.1, cz), Vec3(t, h, d), cornell_green)
+	box(
+		"cornell_room_floor",
+		Vec3(cx, -t / 2 + 0.1, cz),
+		Vec3(w + 2 * t, t, d + 2 * t),
+		cornell_white
+	)
+	box(
+		"cornell_room_ceiling",
+		Vec3(cx, h + 0.1 + t / 2, cz),
+		Vec3(w + 2 * t, t, d + 2 * t),
+		cornell_white
+	)
+	box(
+		"cornell_room_back",
+		Vec3(cx, h / 2 + 0.1, cz - d / 2 - t / 2),
+		Vec3(w, h, t),
+		cornell_white
+	)
+	box(
+		"cornell_room_front",
+		Vec3(cx, h / 2 + 0.1, cz + d / 2 + t / 2),
+		Vec3(w, h, t),
+		cornell_white
+	)
+	box(
+		"cornell_room_left",
+		Vec3(cx - w / 2 - t / 2, h / 2 + 0.1, cz),
+		Vec3(t, h, d),
+		cornell_red
+	)
+	box(
+		"cornell_room_right",
+		Vec3(cx + w / 2 + t / 2, h / 2 + 0.1, cz),
+		Vec3(t, h, d),
+		cornell_green
+	)
 	box(
 		"cornell_room_light",
 		Vec3(cx, h + 0.1 - 0.01, cz + 0.5 * k),
@@ -531,7 +587,12 @@ do
 	box("tiny_emitter_room_right", Vec3(cx + w / 2, h / 2, cz), Vec3(t, h, d), white)
 	box("tiny_emitter_room_pillar", Vec3(cx - 1.5, 1.25, cz - 1), Vec3(1, 2.5, 1), blue)
 	box("tiny_emitter_room_crate", Vec3(cx + 2, 0.5, cz + 1.5), Vec3(1, 1, 1), orange)
-	sphere("tiny_emitter_room_ball", Vec3(cx + 1.5, 0.8, cz - 2), 0.8, mat(Color(0.95, 0.95, 0.95, 1), 0.05, 1))
+	sphere(
+		"tiny_emitter_room_ball",
+		Vec3(cx + 1.5, 0.8, cz - 2),
+		0.8,
+		mat(Color(0.95, 0.95, 0.95, 1), 0.05, 1)
+	)
 	box(
 		"tiny_emitter_room_emitter",
 		Vec3(cx, h - t / 2 - 0.05, cz),
@@ -581,6 +642,7 @@ do
 		Collision = false,
 		RigidBody = false,
 	}
+
 	event.AddListener("Update", "gi_reflections_moving_emitter", function()
 		local time = system.GetElapsedTime()
 		emitter.transform:SetPosition(
@@ -616,6 +678,7 @@ do
 		Collision = false,
 		RigidBody = false,
 	}
+
 	event.AddListener("Update", "gi_reflections_spot_mover", function()
 		local time = system.GetElapsedTime()
 		local position = Vec3(

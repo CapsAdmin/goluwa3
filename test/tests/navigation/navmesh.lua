@@ -199,7 +199,9 @@ T.Test("navmesh path reports its links and avoids the ones that are blocked", fu
 	T(#path.links)["=="](#path.areas - 1)
 	T(path.links[1].area)["=="](north)
 	T(path.links[2].area)["=="](goal)
-	local detour = assert(mesh:FindPath(Vec3(2, 0, 2), Vec3(10, 0, 2), {Blocked = {[path.links[2]] = true}}))
+	local detour = assert(
+		mesh:FindPath(Vec3(2, 0, 2), Vec3(10, 0, 2), {Blocked = {[path.links[2]] = true}})
+	)
 	T(detour.areas[2])["=="](south)
 	T(detour.links[1].area)["=="](south)
 end)

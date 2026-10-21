@@ -4,11 +4,12 @@ local noise = import("goluwa/terrain/noise.lua")
 local presets = import("lua/autorun/render_3d/scatter_presets.lua")
 local foliage_sets = import("lua/foliage/scatter_sets.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
-local scatter_set = presets[_G.SCATTER_SET or "crysis_jungle"] or foliage_sets[_G.SCATTER_SET] or foliage_sets.foliage_meadow
-
+local scatter_set = presets[_G.SCATTER_SET or
+	"crysis_jungle"] or
+	foliage_sets[_G.SCATTER_SET] or
+	foliage_sets.foliage_meadow
 scatter_set:SetDensityMultiplier(3)
 scatter_set:SetDistanceMultiplier(10)
-
 local HEIGHT_GLSL = [=[
 float terrain_height(vec2 w) {
 	float h = 8.0 + 3.0 * sin(w.x * 0.045) * cos(w.y * 0.037);
@@ -35,7 +36,13 @@ vec3 terrain_color(vec2 world, float h, vec3 n) {
 
 local function layer(name, scale, scatter)
 	local textures = terrain_textures[name]
-	return {name = name, albedo = textures.albedo, normal = textures.normal, scale = scale, scatter = scatter}
+	return {
+		name = name,
+		albedo = textures.albedo,
+		normal = textures.normal,
+		scale = scale,
+		scatter = scatter,
+	}
 end
 
 if _G.scatter_showcase then _G.scatter_showcase:Stop() end

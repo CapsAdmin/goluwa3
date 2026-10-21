@@ -116,7 +116,11 @@ do
 
 	local function is_kept(module_path)
 		local module = import.loaded[module_path]
-		return type(module) == "table" and (module.Type ~= nil or import:IsNamespace(module_path))
+		return type(module) == "table" and
+			(
+				module.Type ~= nil or
+				import:IsNamespace(module_path)
+			)
 	end
 
 	local function imports_any(module_path, set)
@@ -167,7 +171,6 @@ do
 
 	function hotreload.ReloadModule(module_path)
 		local predicted, count = hotreload.PredictModuleReloads(module_path)
-
 		local cascade = count <= MAX_MODULES
 
 		if not cascade then
@@ -179,7 +182,6 @@ do
 					count - 1,
 					" modules depend on it, restart instead\n"
 				)
-
 				return
 			end
 
@@ -299,6 +301,7 @@ local function on_reload(path, from_terminal)
 		local module_path = hotreload.GetModulePath(path)
 
 		if run_hotreload_config(path, code) then
+
 		elseif module_path then
 			hotreload.ReloadModule(module_path)
 		else

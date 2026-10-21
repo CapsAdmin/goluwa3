@@ -40,9 +40,14 @@ function physics.Initialize(config)
 			physics.instance.UpdateFixed(dt)
 		end
 
-		event.AddListener("Update", "physics", function(dt)
-			physics.instance.UpdateFixed(dt)
-		end, {priority = 50})
+		event.AddListener(
+			"Update",
+			"physics",
+			function(dt)
+				physics.instance.UpdateFixed(dt)
+			end,
+			{priority = 50}
+		)
 	end
 end
 

@@ -84,7 +84,9 @@ function asset_info.GetMaterialSection(material)
 		local size = texture:GetSize()
 		rows[#rows + 1] = {
 			info.name:lower(),
-			("%d x %d  %s"):format(size.x, size.y, tostring(texture.format)),
+			(
+				"%d x %d  %s"
+			):format(size.x, size.y, tostring(texture.format)),
 		}
 	end
 
@@ -152,7 +154,9 @@ function asset_info.Get(entry, material)
 	sections[#sections + 1] = provider_section
 
 	if entry.source == "world" then
-		if material then sections[#sections + 1] = asset_info.GetMaterialSection(material) end
+		if material then
+			sections[#sections + 1] = asset_info.GetMaterialSection(material)
+		end
 
 		return sections
 	end
@@ -216,12 +220,25 @@ function asset_info.Get(entry, material)
 				rows[#rows + 1] = {"contains", table.concat(info.dependencies, ", ")}
 			end
 
-			rows[#rows + 1] = {"saved", info.saved and "yes" or (info.builtin and "built in" or "no, only in memory")}
+			rows[#rows + 1] = {
+				"saved",
+				info.saved and
+				"yes" or
+				(
+					info.builtin and
+					"built in" or
+					"no, only in memory"
+				),
+			}
 
 			for i, input in ipairs(info.inputs) do
 				rows[#rows + 1] = {
-					i == 1 and "inputs" or "",
-					("%s (%s) = %s, %d targets"):format(input.Name, input.Type, tostring(input.Default), #input.Targets),
+					i == 1 and
+					"inputs" or
+					"",
+					(
+						"%s (%s) = %s, %d targets"
+					):format(input.Name, input.Type, tostring(input.Default), #input.Targets),
 				}
 			end
 		else
@@ -243,10 +260,15 @@ function asset_info.Get(entry, material)
 				if default == nil then default = "nil" end
 
 				local kind = info.enums and "enum" or type(info.default)
-
 				rows[#rows + 1] = {
 					info.var_name,
-					(kind == "cdata" or kind == "table") and tostring(default) or kind .. " = " .. tostring(default),
+					(
+						kind == "cdata" or
+						kind == "table"
+					)
+					and
+					tostring(default) or
+					kind .. " = " .. tostring(default),
 				}
 			end
 		end
@@ -275,7 +297,9 @@ function asset_info.Get(entry, material)
 		end
 	end
 
-	if material then sections[#sections + 1] = asset_info.GetMaterialSection(material) end
+	if material then
+		sections[#sections + 1] = asset_info.GetMaterialSection(material)
+	end
 
 	return sections
 end

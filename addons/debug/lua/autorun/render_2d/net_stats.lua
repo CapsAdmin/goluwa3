@@ -151,7 +151,9 @@ end
 perf.RegisterTab(
 	"NETWORK",
 	6,
-	react.Component(|| -> ui.StatTable{Size = Vec2(660, 470), Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL)})
+	react.Component(
+		||->ui.StatTable{Size = Vec2(660, 470), Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL)}
+	)
 )
 
 commands.Add("net_stats", function()

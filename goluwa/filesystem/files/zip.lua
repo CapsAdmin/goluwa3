@@ -185,7 +185,9 @@ function CONTEXT:Prefetch(path_info, callback)
 		},
 		file_info.size
 	):OnDone(function(job)
-		if not job.err then file_info.inflated = ffi.string(job.blob.ptr, job.blob.len) end
+		if not job.err then
+			file_info.inflated = ffi.string(job.blob.ptr, job.blob.len)
+		end
 
 		callback()
 	end)

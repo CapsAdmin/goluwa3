@@ -8,7 +8,12 @@ return {
 	end,
 	params = {
 		{name = "MicroDetailTexture", kind = "texture", type = "render_texture"},
-		{name = "MicroDetailTiling", kind = "vec2", default = Vec2(4.0, 4.0), requires = "MicroDetailTexture"},
+		{
+			name = "MicroDetailTiling",
+			kind = "vec2",
+			default = Vec2(4.0, 4.0),
+			requires = "MicroDetailTexture",
+		},
 		{name = "MicroDetailRoughness", default = 0.0, requires = "MicroDetailTexture"},
 		{name = "MicroDetailNormal", default = 0.0, requires = "MicroDetailTexture"},
 	},

@@ -25,7 +25,8 @@ for i, target in ipairs(gbuffer_layout.targets) do
 	)
 end
 
-local shader = gbuffer_layout.GetDecodeGLSL("debug_data") .. ([[
+local shader = gbuffer_layout.GetDecodeGLSL("debug_data") .. (
+		[[
 	float gbuffer_view_distance(ivec2 pixel) {
 		float depth = gbuffer_depth(pixel);
 		vec2 ndc = (vec2(pixel) + 0.5) / debug_data.render_size * 2.0 - 1.0;
@@ -117,16 +118,17 @@ local shader = gbuffer_layout.GetDecodeGLSL("debug_data") .. ([[
 
 		set_color(vec4(shown, 1.0));
 	}
-]]):format(
-	gbuffer_inspect.GetEntry("depth").index,
-	(table.concat(entry_glsl, "\n\t\t"):gsub("GBUFFER%.", "debug_data.")),
-	table.concat(normal_indices, " || "),
-	(table.concat(target_glsl, "\n\t\t"):gsub("GBUFFER%.", "debug_data.")),
-	gbuffer_inspect.SHEET,
-	gbuffer_inspect.TARGETS,
-	gbuffer_inspect.TARGETS,
-	gbuffer_inspect.FIELD
-)
+]]
+	):format(
+		gbuffer_inspect.GetEntry("depth").index,
+		(table.concat(entry_glsl, "\n\t\t"):gsub("GBUFFER%.", "debug_data.")),
+		table.concat(normal_indices, " || "),
+		(table.concat(target_glsl, "\n\t\t"):gsub("GBUFFER%.", "debug_data.")),
+		gbuffer_inspect.SHEET,
+		gbuffer_inspect.TARGETS,
+		gbuffer_inspect.TARGETS,
+		gbuffer_inspect.FIELD
+	)
 return {
 	{
 		name = "gbuffer_inspect",

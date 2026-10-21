@@ -82,7 +82,6 @@ function billboard.Bake(visual)
 		LightStrength = 0,
 		ConfigureCamera = configure_camera,
 	}
-
 	local ground
 	local previous_slots = visual.MaterialSlotOverrides
 	local slots = {}
@@ -134,7 +133,6 @@ function billboard.Bake(visual)
 	end
 
 	preview:Remove()
-
 	local material = Material.New{
 		Billboard = true,
 		AlphaTest = true,
@@ -167,7 +165,11 @@ function billboard.Bake(visual)
 			atlas,
 			atlas_width,
 			height,
-			{tile_width = width, dilate_passes = billboard.DILATE_PASSES, cutoff = material:GetAlphaCutoff()}
+			{
+				tile_width = width,
+				dilate_passes = billboard.DILATE_PASSES,
+				cutoff = material:GetAlphaCutoff(),
+			}
 		)
 	)
 	local polygon = Polygon3D.New()

@@ -487,7 +487,6 @@ function META:OnCreate()
 		self._hierarchy_listeners,
 		event.AddListener("PostUpdate", self, process_hierarchy_queue)
 	)
-
 	table.insert(
 		self._hierarchy_listeners,
 		event.AddListener("PrefabInstanceChanged", self, function()
@@ -587,7 +586,6 @@ function META:set_expanded(node, path, key, expanded)
 
 		self._pending_expand_animation_key = key
 		self:refresh_branch_children(key)
-
 		return
 	end
 
@@ -688,7 +686,11 @@ function META:prune_empty_groups()
 		for i = #root_item.Children, 1, -1 do
 			local item = root_item.Children[i]
 
-			if item.OwnerGroup and not item.Children[1] and self._expanded_keys[item.Key] ~= false then
+			if
+				item.OwnerGroup and
+				not item.Children[1] and
+				self._expanded_keys[item.Key] ~= false
+			then
 				self:try_incremental_remove(item.Key)
 			end
 		end

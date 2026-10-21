@@ -17,7 +17,12 @@ local gi_strength = pvars.Setup2{
 	max = 4,
 	help = "scale of the screen space bounce light",
 }
-local DEBUG_VIEWS = {off = 0, occlusion = ambient_occlusion.DEBUG_AO, bounce = ambient_occlusion.DEBUG_BOUNCE, bent_normal = ambient_occlusion.DEBUG_BENT_NORMAL}
+local DEBUG_VIEWS = {
+	off = 0,
+	occlusion = ambient_occlusion.DEBUG_AO,
+	bounce = ambient_occlusion.DEBUG_BOUNCE,
+	bent_normal = ambient_occlusion.DEBUG_BENT_NORMAL,
+}
 local debug_view = pvars.Setup2{
 	key = "ambient_occlusion_debug",
 	default = "off",

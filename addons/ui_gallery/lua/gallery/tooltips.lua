@@ -11,31 +11,33 @@ return {
 	Name = "tooltips",
 	Section = "Overlays",
 	Order = 3,
-	View = react.Component(|| -> kit.Page{
-		Title = "Tooltips",
-		Description = "Any panel accepts a Tooltip. Hover for about a second and it follows the cursor, staying inside the window.",
-	}{
-		kit.Section{Title = "Static and dynamic"}{
-			kit.Group{
-				ui.Button{Text = "Static text", Tooltip = "A plain tooltip"},
-				ui.Button{Text = "Computed text", Mode = "outline", Tooltip = elapsed_tooltip},
-				ui.Button{Text = "Wrapped", Mode = "outline", Tooltip = kit.Lorem, TooltipMaxWidth = 240},
-				ui.Button{
-					Text = "Instant",
-					Mode = "outline",
-					Tooltip = "Delay = 0",
-					TooltipOptions = {Delay = 0},
+	View = react.Component(
+		||->kit.Page{
+			Title = "Tooltips",
+			Description = "Any panel accepts a Tooltip. Hover for about a second and it follows the cursor, staying inside the window.",
+		}{
+			kit.Section{Title = "Static and dynamic"}{
+				kit.Group{
+					ui.Button{Text = "Static text", Tooltip = "A plain tooltip"},
+					ui.Button{Text = "Computed text", Mode = "outline", Tooltip = elapsed_tooltip},
+					ui.Button{Text = "Wrapped", Mode = "outline", Tooltip = kit.Lorem, TooltipMaxWidth = 240},
+					ui.Button{
+						Text = "Instant",
+						Mode = "outline",
+						Tooltip = "Delay = 0",
+						TooltipOptions = {Delay = 0},
+					},
 				},
 			},
-		},
-		kit.Section{Title = "On any element"}{
-			ui.Frame{
-				Padding = "L",
-				Tooltip = "Frames and every other panel can have tooltips too",
-				layout = {GrowWidth = 1, FitHeight = true},
-			}{
-				ui.Text{Text = "Hover this frame", Color = "text_disabled", IgnoreMouseInput = true},
+			kit.Section{Title = "On any element"}{
+				ui.Frame{
+					Padding = "L",
+					Tooltip = "Frames and every other panel can have tooltips too",
+					layout = {GrowWidth = 1, FitHeight = true},
+				}{
+					ui.Text{Text = "Hover this frame", Color = "text_disabled", IgnoreMouseInput = true},
+				},
 			},
-		},
-	}),
+		}
+	),
 }

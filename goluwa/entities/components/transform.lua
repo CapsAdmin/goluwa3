@@ -21,6 +21,7 @@ local function find_armature(entity)
 		parent = parent:GetParent()
 	end
 end
+
 local META = objects.CreateTemplate("transform_3d")
 META.Is3D = true
 META.Is2D = false
@@ -364,7 +365,9 @@ end
 function META:WorldToLocalPosition(world_position)
 	local parent = self.Owner:GetParent()
 
-	if not (parent:IsValid() and parent.transform) then return world_position:Copy() end
+	if not (parent:IsValid() and parent.transform) then
+		return world_position:Copy()
+	end
 
 	if self.Attachment == "root" then
 		return parent.transform:GetWorldMatrixInverse():TransformVector(world_position)

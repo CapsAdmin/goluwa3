@@ -733,7 +733,9 @@ return function(META)
 		if self.pending_show then
 			user32.ShowWindow(
 				self.hwnd,
-				os.getenv("GOLUWA_BACKGROUND") == "1" and constants.SW_SHOWMINNOACTIVE or constants.SW_SHOW
+				os.getenv("GOLUWA_BACKGROUND") == "1" and
+					constants.SW_SHOWMINNOACTIVE or
+					constants.SW_SHOW
 			)
 			user32.UpdateWindow(self.hwnd)
 			self.pending_show = false

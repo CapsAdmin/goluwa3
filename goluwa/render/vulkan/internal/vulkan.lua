@@ -25,11 +25,8 @@ function vulkan.assert(result, msg)
 
 		if enum_str == "error_device_lost" then
 			print(full_msg)
-
 			local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
-
 			checkpoints.Report()
-
 			os.realexit(1)
 		end
 

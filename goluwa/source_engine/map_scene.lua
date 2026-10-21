@@ -43,7 +43,6 @@ local SOLID_VPHYSICS = 6
 local SPAWNFLAG_MOTION_DISABLED = 8
 local axis_x = Vec3(1, 0, 0)
 local axis_y = Vec3(0, 1, 0)
-
 local BLACKLISTED_MODEL_PREFIXES = {
 	"models/lostcoast/effects/vollight_stainedglass.mdl",
 	"models/effects/vol_light",
@@ -160,6 +159,7 @@ function map_scene.Translate(data, map_name, map_path, offset)
 			nav_mesh = vfs.IsFile(nav_path) and {Path = nav_path} or nil,
 		},
 	}
+
 	if not offset then
 		add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
 	end

@@ -17,7 +17,9 @@ local function get_pipeline()
 		DescriptorSetCount = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
 		storage_buffers = {{binding_index = 0}, {binding_index = 1}},
-		descriptor_sets = {{type = "acceleration_structure_khr", binding_index = 2, stageFlags = "compute"}},
+		descriptor_sets = {
+			{type = "acceleration_structure_khr", binding_index = 2, stageFlags = "compute"},
+		},
 		block = {{"count", "int"}},
 		write = function(self, block)
 			block.count = visibility.ray_count
@@ -119,7 +121,11 @@ function visibility.Estimate(rays_per_row)
 	compute:UpdateDescriptorSet("storage_buffer", 1, 0, 0, ray_buffer, ray_buffer:GetSize())
 	compute:UpdateDescriptorSet("storage_buffer", 1, 1, 0, result_buffer, result_buffer:GetSize())
 	compute:UpdateDescriptorSet("acceleration_structure_khr", 1, 2, 0, tlas)
-	cmd:PipelineBarrier{srcStage = {"acceleration_structure_build_khr", "host"}, dstStage = "compute", memoryBarrier = true}
+	cmd:PipelineBarrier{
+		srcStage = {"acceleration_structure_build_khr", "host"},
+		dstStage = "compute",
+		memoryBarrier = true,
+	}
 	compute:Dispatch(cmd, math.ceil(count / 64), 1, 1, 1)
 	cmd:PipelineBarrier{srcStage = "compute", dstStage = "host", memoryBarrier = true}
 	cmd:End()
@@ -129,7 +135,8 @@ function visibility.Estimate(rays_per_row)
 
 	for row, id in ipairs(ids) do
 		local entry = {samples = rays_per_row, self = 0, other = 0, sky = 0}
-		entry.solid = bit.band(data[id].mask_lod, 0xFF) ~= 0 and bit.band(data[id].flags, instances.FLAG_NO_OPAQUE) == 0
+		entry.solid = bit.band(data[id].mask_lod, 0xFF) ~= 0 and
+			bit.band(data[id].flags, instances.FLAG_NO_OPAQUE) == 0
 
 		for k = 0, rays_per_row - 1 do
 			local hit = out[(row - 1) * rays_per_row + k]
@@ -145,7 +152,11 @@ function visibility.Estimate(rays_per_row)
 
 		result.by_id[id] = entry
 
-		if entry.self > 0 then result.seen = result.seen + 1 else result.unseen = result.unseen + 1 end
+		if entry.self > 0 then
+			result.seen = result.seen + 1
+		else
+			result.unseen = result.unseen + 1
+		end
 	end
 
 	ray_buffer:Remove()

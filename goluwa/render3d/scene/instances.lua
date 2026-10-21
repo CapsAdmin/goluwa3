@@ -93,7 +93,12 @@ function instances.GetTables()
 			name = "tlas_instances",
 			ctype = TLASInstance,
 			capacity = 16384,
-			usage = {"shader_device_address", "storage_buffer", "transfer_src", "acceleration_structure_build_input_read_only_khr"},
+			usage = {
+				"shader_device_address",
+				"storage_buffer",
+				"transfer_src",
+				"acceleration_structure_build_input_read_only_khr",
+			},
 			staged = true,
 		}
 		data_table = store.CreateTable{name = "instance_data", ctype = InstanceData, capacity = 16384, staged = true}
@@ -356,7 +361,6 @@ do
 	local row_count = 0
 	local spans = {}
 	local bound_buffers = {}
-
 	local create_update_pipeline
 
 	local function get_update_pipeline()
@@ -487,11 +491,21 @@ do
 		if row_count == 0 then return nil end
 
 		local pipeline = get_update_pipeline()
-		local slot = ((render.GetCurrentFrame() or 1) - 1) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
+		local slot = (
+				(
+					render.GetCurrentFrame() or
+					1
+				) - 1
+			) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 		local bound = bound_buffers[slot]
 		local tlas_buffer, data_buffer, mesh_buffer = tlas_table:GetBuffer(), data_table:GetBuffer(), meshes.GetTable():GetBuffer()
 
-		if not bound or bound[1] ~= tlas_buffer or bound[2] ~= data_buffer or bound[3] ~= mesh_buffer then
+		if
+			not bound or
+			bound[1] ~= tlas_buffer or
+			bound[2] ~= data_buffer or
+			bound[3] ~= mesh_buffer
+		then
 			bound_buffers[slot] = {tlas_buffer, data_buffer, mesh_buffer}
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 0, 0, tlas_buffer, tlas_table:GetSize())
 			pipeline:UpdateDescriptorSet("storage_buffer", slot, 1, 0, data_buffer, data_table:GetSize())

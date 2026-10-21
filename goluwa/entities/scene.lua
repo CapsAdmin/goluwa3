@@ -481,10 +481,8 @@ do
 					not present[child:GetGUID()] and
 					not child:GetTransient()
 					and
-					not child.network
-					and
-					not child.prefab_owner
-					and
+					not child.network and
+					not child.prefab_owner and
 					not (
 						generated and
 						generated[child]
@@ -921,7 +919,10 @@ end
 
 function scene.Clone(entity)
 	assert(not entity:GetSingleton(), "cannot clone a singleton entity")
-	assert(not is_transient_entity(entity), "cannot clone a transient entity, it is not saved")
+	assert(
+		not is_transient_entity(entity),
+		"cannot clone a transient entity, it is not saved"
+	)
 	local parent = entity:GetParent()
 	local data = scene.SerializeEntities({entity})
 	local root_properties = data.entities[1].properties or {}

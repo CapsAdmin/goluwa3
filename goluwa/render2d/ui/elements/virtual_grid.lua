@@ -208,7 +208,9 @@ function META:SetItems(items, keep_scroll)
 
 	if not self.Viewport then return self end
 
-	if not (keep_scroll or self.KeepScroll) then self.Viewport.transform:SetScroll(Vec2(0, 0)) end
+	if not (keep_scroll or self.KeepScroll) then
+		self.Viewport.transform:SetScroll(Vec2(0, 0))
+	end
 
 	self:relayout()
 	return self

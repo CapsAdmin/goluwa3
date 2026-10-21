@@ -3,12 +3,15 @@ local Entity = import("goluwa/entities/entity.lua")
 
 local function record(entity)
 	local log = {}
+
 	entity:AddLocalListener("OnHide", function()
 		log[#log + 1] = "hide"
 	end)
+
 	entity:AddLocalListener("OnShow", function()
 		log[#log + 1] = "show"
 	end)
+
 	return log
 end
 
@@ -81,7 +84,9 @@ T.Test("A script gets OnHide and OnShow", function()
 	local entity = Entity.New{
 		transform = {},
 		visibility = {},
-		script = {Source = "local objects = import('goluwa/objects/objects.lua') local META = objects.CreateTemplate('test_visibility_script') function META:OnHide() self.seen = (self.seen or 0) + 1 end function META:OnShow() self.seen = (self.seen or 0) + 10 end return META:Register()"},
+		script = {
+			Source = "local objects = import('goluwa/objects/objects.lua') local META = objects.CreateTemplate('test_visibility_script') function META:OnHide() self.seen = (self.seen or 0) + 1 end function META:OnShow() self.seen = (self.seen or 0) + 10 end return META:Register()",
+		},
 	}
 	entity.visibility:SetVisible(false)
 	T(entity.test_visibility_script.seen)["=="](1)
@@ -95,6 +100,7 @@ T.Test("Lights and water volumes leave the scene while their entity is hidden an
 	local root = Entity.New{transform = {}, visibility = {}}
 	local lamp = Entity.New{Parent = root, transform = {}, light_point = {Lumen = 100}}
 	local light = lamp.light_point
+
 	local function listed()
 		for _, other in ipairs(Light.GetInstances()) do
 			if other == light then return true end
@@ -102,6 +108,7 @@ T.Test("Lights and water volumes leave the scene while their entity is hidden an
 
 		return false
 	end
+
 	T(listed())["=="](true)
 	root.visibility:SetVisible(false)
 	T(listed())["=="](false)

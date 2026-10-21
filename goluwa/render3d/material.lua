@@ -18,10 +18,22 @@ Material:GetSet("ColorMultiplier", Color(1.0, 1.0, 1.0, 1.0), {callback = "Inval
 Material:StartCategory("Surface")
 Material:GetSet("NormalTexture", nil, {type = "render_texture"})
 Material:GetSet("NormalMapMultiplier", 1.0, {requires = "NormalTexture"})
-Material:GetSet("MetallicRoughnessTexture", nil, {type = "render_texture", callback = "InvalidateRayMaterial"})
-Material:GetSet("MetallicTexture", nil, {type = "render_texture", callback = "InvalidateRayMaterial"})
+Material:GetSet(
+	"MetallicRoughnessTexture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
+Material:GetSet(
+	"MetallicTexture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
 Material:GetSet("MetallicMultiplier", 1.0, {callback = "InvalidateRayMaterial"})
-Material:GetSet("RoughnessTexture", nil, {type = "render_texture", callback = "InvalidateRayMaterial"})
+Material:GetSet(
+	"RoughnessTexture",
+	nil,
+	{type = "render_texture", callback = "InvalidateRayMaterial"}
+)
 Material:GetSet("RoughnessMultiplier", 1.0, {callback = "InvalidateRayMaterial"})
 Material:GetSet("RoughnessMin", 0.0, {callback = "InvalidateRayMaterial"})
 Material:GetSet("RoughnessMax", 1.0, {callback = "InvalidateRayMaterial"})
@@ -30,6 +42,7 @@ Material:GetSet("MetallicMaskMax", 1.0)
 Material:GetSet("SpecularMultiplier", 1.0)
 Material:GetSet("AmbientOcclusionTexture", nil, {type = "render_texture"})
 Material:GetSet("AmbientOcclusionMultiplier", 1.0)
+
 for _, feature in ipairs(surface_features.list) do
 	if feature.params then
 		Material:StartCategory(feature.category or feature.name)
@@ -37,7 +50,16 @@ for _, feature in ipairs(surface_features.list) do
 		for _, param in ipairs(feature.params) do
 			if param.category then Material:StartCategory(param.category) end
 
-			Material:GetSet(param.name, param.default, {requires = param.requires, callback = param.callback, type = param.type, enums = param.enums})
+			Material:GetSet(
+				param.name,
+				param.default,
+				{
+					requires = param.requires,
+					callback = param.callback,
+					type = param.type,
+					enums = param.enums,
+				}
+			)
 		end
 	end
 end
@@ -106,8 +128,16 @@ Material:GetSet("SpecularFromRoughnessMask", false, {callback = "InvalidateFlags
 Material:GetSet("RoughnessMaskOnlyScalesSpecular", false, {callback = "InvalidateFlags"})
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("MetallicFromRoughnessMask", false, {callback = "InvalidateFlags"})
-Material:GetSet("MetallicRoughnessIsMRAO", false, {callback = "InvalidateFlags", requires = "MetallicRoughnessTexture"})
-Material:GetSet("HeightTextureIsAlpha", false, {callback = "InvalidateFlags", requires = "HeightTexture"})
+Material:GetSet(
+	"MetallicRoughnessIsMRAO",
+	false,
+	{callback = "InvalidateFlags", requires = "MetallicRoughnessTexture"}
+)
+Material:GetSet(
+	"HeightTextureIsAlpha",
+	false,
+	{callback = "InvalidateFlags", requires = "HeightTexture"}
+)
 Material:StartCategory("Source")
 Material:GetSet("OriginalMaterial", "", {multiline = true})
 Material:EndCategory()
@@ -708,7 +738,6 @@ do
 		logf("material error for %q: %s\n", tostring(self:GetName()), tostring(err))
 		self:SetAlbedoTexture(Texture.GetFallback())
 	end
-
 end
 
 return Material:Register()

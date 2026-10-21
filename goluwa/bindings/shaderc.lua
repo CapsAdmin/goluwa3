@@ -1,6 +1,5 @@
 local ffi = require("ffi")
 local mod = {}
-
 local cdef_done = false
 local lib
 
@@ -87,8 +86,6 @@ function mod.Initialize(shaderc_lib)
 		        const char* const argv[],
 		        int argc);
 		]]
-
-
 	end
 
 	if mod.compiler then lib.shaderc_compiler_release(mod.compiler) end

@@ -20,7 +20,8 @@ local LAKE_X, LAKE_Z, LAKE_RADIUS = 0, -330, 150
 local FOREST_X, FOREST_Z = 330, -80
 local RIDGE_X, RIDGE_Z = -340, -60
 local SCATTER_CEILING = 54
-local HEIGHT_GLSL = ([=[
+local HEIGHT_GLSL = (
+	[=[
 const vec2 MESA = vec2(%f, %f);
 const vec2 MESA_HALF = vec2(%f, %f);
 const float MESA_TOP = %f;
@@ -56,7 +57,21 @@ float terrain_height(vec2 world) {
 	float detail = pn_fbm_lod(world / 40.0, 3, 40.0, bake_step);
 	return mix(world_base(world), MESA_TOP, mesa) + detail * 0.8 * (1.0 - mesa);
 }
-]=]):format(MESA.x, MESA.z, MESA_HALF_X, MESA_HALF_Z, MESA.y, LAKE_X, LAKE_Z, LAKE_RADIUS, FOREST_X, FOREST_Z, RIDGE_X, RIDGE_Z)
+]=]
+):format(
+	MESA.x,
+	MESA.z,
+	MESA_HALF_X,
+	MESA_HALF_Z,
+	MESA.y,
+	LAKE_X,
+	LAKE_Z,
+	LAKE_RADIUS,
+	FOREST_X,
+	FOREST_Z,
+	RIDGE_X,
+	RIDGE_Z
+)
 local SPLAT_GLSL = [=[
 vec4 terrain_splat(vec2 world, float h, vec3 n) {
 	vec2 p = world;
@@ -132,20 +147,29 @@ local function build_scatter_set()
 	add(sets.foliage_meadow, {1, 0, 0, 0}, below_ceiling)
 	add(sets.foliage_forest, {0, 1, 0, 0}, below_ceiling)
 	add(sets.foliage_rocky, {0, 0.2, 1, 0}, below_ceiling)
+
 	add(sets.foliage_tropical, {0, 0, 0, 1}, function()
 		return {0.4, SCATTER_CEILING, 0.5}
 	end)
+
 	add(sets.foliage_wetland, {1, 0.3, 0, 0.3}, function(definition)
 		if definition.model:find("reeds") then return {-0.6, 2, 0.6} end
 
 		return {0, 4.5, 1}
 	end)
+
 	return ScatterSet.New{Name = "foliage_world", Prototypes = prototypes, DistanceMultiplier = 2.5}
 end
 
 local function layer(name, scale)
 	local textures = terrain_textures[name]
-	return {name = name, albedo = textures.albedo, normal = textures.normal, scale = scale, scatter = 1}
+	return {
+		name = name,
+		albedo = textures.albedo,
+		normal = textures.normal,
+		scale = scale,
+		scatter = 1,
+	}
 end
 
 if _G.foliage_world then _G.foliage_world.Remove() end
@@ -200,16 +224,57 @@ local function on_ground(x, z, above)
 end
 
 world.views = {
-	{name = "the gallery on the mesa", from = Vec3(MESA.x, MESA.y + 5, MESA.z + 30), to = Vec3(MESA.x, MESA.y, MESA.z - 2)},
-	{name = "the trees of the gallery", from = Vec3(MESA.x - 30, MESA.y + 7, MESA.z + 12), to = Vec3(MESA.x - 10, MESA.y + 4, MESA.z - 15)},
-	{name = "over the land", from = Vec3(-60, 170, 330), to = Vec3(0, 20, -150), fov = 75},
-	{name = "in the meadow", from = on_ground(-200, 250, 1.7), to = on_ground(-100, 150, 3)},
-	{name = "up the slope of the mesa", from = on_ground(0, 230, 1.7), to = on_ground(0, 60, 1.7)},
-	{name = "in the forest", from = on_ground(300, -40, 1.7), to = on_ground(360, -120, 3)},
-	{name = "on the ridge", from = on_ground(-290, 110, 2), to = on_ground(-340, -60, 8)},
-	{name = "on the beach", from = on_ground(LAKE_X + 165, LAKE_Z + 40, 1.7), to = Vec3(LAKE_X, 1, LAKE_Z)},
-	{name = "by the reeds", from = on_ground(LAKE_X - 160, LAKE_Z + 30, 1.7), to = Vec3(LAKE_X, 1, LAKE_Z)},
-	{name = "from the lake", from = Vec3(LAKE_X, 6, LAKE_Z + 40), to = on_ground(MESA.x, MESA.z, -20)},
+	{
+		name = "the gallery on the mesa",
+		from = Vec3(MESA.x, MESA.y + 5, MESA.z + 30),
+		to = Vec3(MESA.x, MESA.y, MESA.z - 2),
+	},
+	{
+		name = "the trees of the gallery",
+		from = Vec3(MESA.x - 30, MESA.y + 7, MESA.z + 12),
+		to = Vec3(MESA.x - 10, MESA.y + 4, MESA.z - 15),
+	},
+	{
+		name = "over the land",
+		from = Vec3(-60, 170, 330),
+		to = Vec3(0, 20, -150),
+		fov = 75,
+	},
+	{
+		name = "in the meadow",
+		from = on_ground(-200, 250, 1.7),
+		to = on_ground(-100, 150, 3),
+	},
+	{
+		name = "up the slope of the mesa",
+		from = on_ground(0, 230, 1.7),
+		to = on_ground(0, 60, 1.7),
+	},
+	{
+		name = "in the forest",
+		from = on_ground(300, -40, 1.7),
+		to = on_ground(360, -120, 3),
+	},
+	{
+		name = "on the ridge",
+		from = on_ground(-290, 110, 2),
+		to = on_ground(-340, -60, 8),
+	},
+	{
+		name = "on the beach",
+		from = on_ground(LAKE_X + 165, LAKE_Z + 40, 1.7),
+		to = Vec3(LAKE_X, 1, LAKE_Z),
+	},
+	{
+		name = "by the reeds",
+		from = on_ground(LAKE_X - 160, LAKE_Z + 30, 1.7),
+		to = Vec3(LAKE_X, 1, LAKE_Z),
+	},
+	{
+		name = "from the lake",
+		from = Vec3(LAKE_X, 6, LAKE_Z + 40),
+		to = on_ground(MESA.x, MESA.z, -20),
+	},
 }
 
 function world.SetView(index)

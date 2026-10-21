@@ -210,6 +210,7 @@ T.Test2D("autocomplete list shows list headers for searches but not for the rand
 	autocomplete.SetListName(other_id, "second list")
 	session.Lists = {LIST_ID, other_id}
 	local list = AutocompleteList{Target = text_edit, MaxRows = 20}
+
 	local function header_count()
 		local count = 0
 
@@ -250,7 +251,16 @@ T.Test2D("text edit autocomplete lets arrows reach the history while only a hint
 	history:Add("earlier")
 	local session = autocomplete.NewSession{
 		GetQuery = function(text)
-			return text, "", {{id = "hint", source = {{val = "", detail = "usage", hint = true}}, options = {NoFilter = true}}}, true
+			return text,
+			"",
+			{
+				{
+					id = "hint",
+					source = {{val = "", detail = "usage", hint = true}},
+					options = {NoFilter = true},
+				},
+			},
+			true
 		end,
 	}
 	local text_edit = TextEdit{History = history, Autocomplete = session, Text = ""}

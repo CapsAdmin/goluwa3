@@ -379,7 +379,6 @@ function META:OnCreate()
 	self._listeners = {}
 	self._property_change_sync_blocked = 0
 	self._selected_key = self.SelectedKey
-
 	self._tab_bar = TabBar{
 		Parent = self,
 		IsInternal = true,
@@ -1009,14 +1008,11 @@ local function on_category_header_context_menu(category)
 
 	if not items or #items == 0 then return end
 
-	Panel.OpenContextMenu(
-		{
-			OnClose = function(self)
-				self:Remove()
-			end,
-		},
-		items
-	)
+	Panel.OpenContextMenu({
+		OnClose = function(self)
+			self:Remove()
+		end,
+	}, items)
 	return true
 end
 
@@ -1129,7 +1125,9 @@ function META:rebuild_categories()
 	self._category_key_columns = {}
 	self._category_dividers = {}
 	self._content:RemoveChildren()
-	local items = self._filter_tokens and filter_nodes(self._items, self._filter_tokens) or self._items
+	local items = self._filter_tokens and
+		filter_nodes(self._items, self._filter_tokens) or
+		self._items
 	local active_tab = self:update_tabs(items)
 	local visible = {}
 

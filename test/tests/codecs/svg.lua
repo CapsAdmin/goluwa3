@@ -135,7 +135,10 @@ end)
 
 T.Test("svg decode strokes a closed shape into an outer and an inner outline", function()
 	local decoded = svg.Decode(
-		stroked("stroke-width=\"2\" stroke-linejoin=\"round\"", "<circle cx=\"12\" cy=\"12\" r=\"6\"/>")
+		stroked(
+			"stroke-width=\"2\" stroke-linejoin=\"round\"",
+			"<circle cx=\"12\" cy=\"12\" r=\"6\"/>"
+		)
 	)
 	T(#decoded.contours)["=="](2)
 	local outer = contour_area(decoded.contours[1])
@@ -150,22 +153,16 @@ T.Test("svg decode strokes a closed shape into an outer and an inner outline", f
 end)
 
 T.Test("svg decode fills basic shapes", function()
-	local rect = svg.Decode(
-		[[<svg viewBox="0 0 24 24"><rect x="2" y="3" width="10" height="6" fill="currentColor"/></svg>]]
-	)
+	local rect = svg.Decode([[<svg viewBox="0 0 24 24"><rect x="2" y="3" width="10" height="6" fill="currentColor"/></svg>]])
 	T(#rect.contours)["=="](1)
 	T(contour_area(rect.contours[1]))["~"](60, 0.001)
-	local circle = svg.Decode(
-		[[<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/></svg>]]
-	)
+	local circle = svg.Decode([[<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"/></svg>]])
 	T(#circle.contours)["=="](1)
 	T(contour_area(circle.contours[1]))[">"](75)
 	T(contour_area(circle.contours[1]))["<"](78.6)
 end)
 
 T.Test("svg decode draws nothing for fill none without a stroke", function()
-	local decoded = svg.Decode(
-		[[<svg viewBox="0 0 24 24"><path fill="none" d="M0 0H10V10Z"/></svg>]]
-	)
+	local decoded = svg.Decode([[<svg viewBox="0 0 24 24"><path fill="none" d="M0 0H10V10Z"/></svg>]])
 	T(#decoded.contours)["=="](0)
 end)

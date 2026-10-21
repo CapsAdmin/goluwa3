@@ -24,7 +24,6 @@ function META.PropDefaults(_, props)
 	return {layout = {MinSize = props.Size, MaxSize = props.Size}}
 end
 
-
 function META:OnMouseInput(button, press)
 	if not press then return end
 

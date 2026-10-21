@@ -18,7 +18,11 @@ local draw = {}
 local LOCAL_SIZE = 64
 local COMMAND_SIZE = 20
 local GROUPS = 4
-local DEAD_MESH = {IsValid = function() return false end}
+local DEAD_MESH = {
+	IsValid = function()
+		return false
+	end,
+}
 local DEAD_ROW = {mesh = DEAD_MESH}
 local ROW_META = {__mode = "v", __index = DEAD_ROW}
 local rows = {}
@@ -56,7 +60,8 @@ local function write_group(group)
 end
 
 local function acquire_group(mesh, material, polygon3d, mesh_row, set)
-	group_table = group_table or store.CreateTable{name = "draw_groups", ctype = GroupRecord, capacity = 1024}
+	group_table = group_table or
+		store.CreateTable{name = "draw_groups", ctype = GroupRecord, capacity = 1024}
 	local by_mesh = group_lookup[set]
 
 	if not by_mesh then
@@ -83,7 +88,17 @@ local function acquire_group(mesh, material, polygon3d, mesh_row, set)
 	if not group then
 		local id = table.remove(free_group_ids) or #groups + 1
 		group = setmetatable(
-			{id = id, mesh = mesh, material = material, first_polygon3d = polygon3d, mesh_row = mesh_row, set = set, rows = 0, room = 0, base = 0},
+			{
+				id = id,
+				mesh = mesh,
+				material = material,
+				first_polygon3d = polygon3d,
+				mesh_row = mesh_row,
+				set = set,
+				rows = 0,
+				room = 0,
+				base = 0,
+			},
 			ROW_META
 		)
 		groups[id] = group
@@ -131,8 +146,10 @@ local function release_group(group)
 end
 
 function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
-	slot_rows = slot_rows or store.CreateTable{name = "draw_slot_rows", ctype = "uint32_t", capacity = 4096}
-	slot_groups = slot_groups or store.CreateTable{name = "draw_slot_groups", ctype = "uint32_t", capacity = 4096}
+	slot_rows = slot_rows or
+		store.CreateTable{name = "draw_slot_rows", ctype = "uint32_t", capacity = 4096}
+	slot_groups = slot_groups or
+		store.CreateTable{name = "draw_slot_groups", ctype = "uint32_t", capacity = 4096}
 	local slot = slot_of[id]
 	local set = (material:GetDoubleSided() and 1 or 0) + (material:HasHeightMap() and 2 or 0)
 
@@ -144,7 +161,9 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 	if slot then
 		local row = rows[slot + 1]
 
-		if row.mesh == mesh and row.material == material and row.set == set then return end
+		if row.mesh == mesh and row.material == material and row.set == set then
+			return
+		end
 
 		if row.group then release_group(row.group) end
 	else
@@ -157,7 +176,16 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 
 	local group = acquire_group(mesh, material, polygon3d, mesh_row, set)
 	slot_groups:Get()[slot] = group.id - 1
-	rows[slot + 1] = setmetatable({mesh = mesh, material = material, first_polygon3d = polygon3d, set = set, group = group}, ROW_META)
+	rows[slot + 1] = setmetatable(
+		{
+			mesh = mesh,
+			material = material,
+			first_polygon3d = polygon3d,
+			set = set,
+			group = group,
+		},
+		ROW_META
+	)
 	draw.serial = draw.serial + 1
 	changes.log[draw.serial % CHANGE_LOG_SIZE] = slot + 1
 end
@@ -266,11 +294,9 @@ local DRAW_DECLARATIONS = [[
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { draw_args a; };
 			#define ARGS ArgsRef(compute.args).a
 ]]
-
 local cull_pipeline
 local state = {}
 local args_ring
-
 local create_cull_pipeline
 
 local function get_cull_pipeline()
@@ -285,7 +311,12 @@ function create_cull_pipeline()
 		DescriptorSetCount = math.max(render.GetSwapchainImageCount() or 1, 1),
 		LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
 		descriptor_sets = {
-			{type = "combined_image_sampler", binding_index = 0, stageFlags = "compute", set_index = 0},
+			{
+				type = "combined_image_sampler",
+				binding_index = 0,
+				stageFlags = "compute",
+				set_index = 0,
+			},
 		},
 		block = {
 			{"args", "uint64_t"},
@@ -552,7 +583,11 @@ local buffer_sets = {}
 local function ensure_buffers(kind, instance_capacity, group_count)
 	local buffers = buffer_sets[kind]
 
-	if buffers and buffers.capacity >= instance_capacity and buffers.group_capacity >= group_count then
+	if
+		buffers and
+		buffers.capacity >= instance_capacity and
+		buffers.group_capacity >= group_count
+	then
 		return buffers
 	end
 
@@ -570,7 +605,13 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 
 	local capacity = math.ceil(instance_capacity * 1.5)
 	local group_capacity = math.ceil(group_count * 1.5)
-	local usage = {"storage_buffer", "shader_device_address", "indirect_buffer", "transfer_dst", "transfer_src"}
+	local usage = {
+		"storage_buffer",
+		"shader_device_address",
+		"indirect_buffer",
+		"transfer_dst",
+		"transfer_src",
+	}
 	local name = kind == 0 and "scene_draw" or "scene_draw_translucent"
 	buffers = {
 		capacity = capacity,
@@ -635,7 +676,14 @@ end
 
 local frame_state = {frame = -1, counts = {[0] = 0, 0}, group_counts = {[0] = 0, 0}}
 
-function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewport_height, culling_enabled)
+function draw.Cull(
+	cmd,
+	view_projection,
+	frustum_planes,
+	camera_position,
+	viewport_height,
+	culling_enabled
+)
 	local tlas_table, data_table = instances.GetTables()
 	local raster_table = instances.GetRasterTable()
 	local count = #rows
@@ -658,7 +706,17 @@ function draw.Cull(cmd, view_projection, frustum_planes, camera_position, viewpo
 
 	if bound then
 		descriptor_slot = render.frame_serial % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
-		pipeline:UpdateDescriptorSet("combined_image_sampler", descriptor_slot, 0, 0, bound.view, bound.sampler, nil, nil, "general")
+		pipeline:UpdateDescriptorSet(
+			"combined_image_sampler",
+			descriptor_slot,
+			0,
+			0,
+			bound.view,
+			bound.sampler,
+			nil,
+			nil,
+			"general"
+		)
 	end
 
 	for kind = 0, translucent_count > 0 and 1 or 0 do
@@ -738,14 +796,15 @@ function draw.IsCulled()
 end
 
 function draw.Draw(gbuffer_instancing, pipelines)
-	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[0] == 0 then return false end
+	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[0] == 0 then
+		return false
+	end
 
 	local buffers = buffer_sets[0]
 	local cmd = render.GetCommandBuffer()
 	local stride = COMMAND_SIZE
 	local group_size = buffers.group_capacity * stride
 	local count = frame_state.group_counts[0]
-
 	gpu_culling.MarkMainViewDrawn()
 
 	for i, pipeline in ipairs(pipelines) do
@@ -763,16 +822,32 @@ function draw.Draw(gbuffer_instancing, pipelines)
 		pipeline:UploadConstants()
 		cmd:SetCullMode(orientation.CULL_MODE)
 		cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-		cmd:DrawIndexedIndirectCount(buffers.commands, (i - 1) * 2 * group_size, buffers.counts, (i - 1) * 2 * 4, count, stride)
+		cmd:DrawIndexedIndirectCount(
+			buffers.commands,
+			(i - 1) * 2 * group_size,
+			buffers.counts,
+			(i - 1) * 2 * 4,
+			count,
+			stride
+		)
 		cmd:SetCullMode("none")
-		cmd:DrawIndexedIndirectCount(buffers.commands, ((i - 1) * 2 + 1) * group_size, buffers.counts, ((i - 1) * 2 + 1) * 4, count, stride)
+		cmd:DrawIndexedIndirectCount(
+			buffers.commands,
+			((i - 1) * 2 + 1) * group_size,
+			buffers.counts,
+			((i - 1) * 2 + 1) * 4,
+			count,
+			stride
+		)
 	end
 
 	return true
 end
 
 function draw.DrawTranslucent(gbuffer_instancing, pipeline)
-	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[1] == 0 then return false end
+	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[1] == 0 then
+		return false
+	end
 
 	local buffers = buffer_sets[1]
 	local cmd = render.GetCommandBuffer()
@@ -803,7 +878,6 @@ end
 
 local SHADOW_COMMAND_SIZE = COMMAND_SIZE
 local shadow_pipeline
-
 local create_shadow_pipeline
 
 local function get_shadow_pipeline()
@@ -1022,7 +1096,13 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 		}
 		buffers.counts = render.CreateBuffer{
 			byte_size = 4,
-			buffer_usage = {"storage_buffer", "shader_device_address", "indirect_buffer", "transfer_dst", "transfer_src"},
+			buffer_usage = {
+				"storage_buffer",
+				"shader_device_address",
+				"indirect_buffer",
+				"transfer_dst",
+				"transfer_src",
+			},
 			memory_property = {"device_local"},
 			label = "scene_draw.shadow_counts",
 		}
@@ -1079,7 +1159,11 @@ function draw.CullShadow(cmd, buffers, planes, camera_position, min_caster_exten
 	end
 
 	cmd:FillBuffer(buffers.counts, 0, 4, 0)
-	cmd:PipelineBarrier{srcStage = {"host", "transfer", "compute"}, dstStage = "compute", memoryBarrier = true}
+	cmd:PipelineBarrier{
+		srcStage = {"host", "transfer", "compute"},
+		dstStage = "compute",
+		memoryBarrier = true,
+	}
 	pipeline:Dispatch(cmd, math.ceil(count / LOCAL_SIZE), 1, 1, 1)
 	cmd:PipelineBarrier{
 		srcStage = "compute",
@@ -1125,7 +1209,14 @@ do
 						world[i + 1] = worlds[at * 16 + (i % 4) * 4 + math.floor(i / 4)]
 					end
 
-					result.by_id[id] = {slot = slot, group = set, fade = fade, world = world, index_count = command[0], first_index = command[2]}
+					result.by_id[id] = {
+						slot = slot,
+						group = set,
+						fade = fade,
+						world = world,
+						index_count = command[0],
+						first_index = command[2],
+					}
 					result.count = result.count + 1
 				end
 			end
@@ -1163,7 +1254,13 @@ pvars.EndGroup()
 draw.debug_result = nil
 
 event.AddListener("Update", "scene_draw_debug", function()
-	if not debug_mode:Get() or system.GetFrameNumber() % 30 ~= 0 or frame_state.frame < 0 then return end
+	if
+		not debug_mode:Get() or
+		system.GetFrameNumber() % 30 ~= 0 or
+		frame_state.frame < 0
+	then
+		return
+	end
 
 	local opaque = draw.ReadBackCull(0)
 	local translucent = draw.ReadBackCull(1)

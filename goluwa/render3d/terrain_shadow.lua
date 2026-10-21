@@ -73,7 +73,6 @@ function terrain_shadow.WriteShadowBlock(self, block)
 
 	if not field or not terrain_shadow.ready then
 		block.terrain_shadow_tex = -1
-
 		return
 	end
 

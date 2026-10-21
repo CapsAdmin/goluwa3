@@ -16,7 +16,6 @@ if os.getenv("ANIM_NO_LOD") then
 	Animator.LOD_FAR = 2e9
 end
 
-
 local SPACING = 1.2
 local SEQUENCES = {"walk_all", "run_all_01", "run_all_02", "idle_all_01", "cwalk_all"}
 local floor_y = 0

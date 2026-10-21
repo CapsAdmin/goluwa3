@@ -8,7 +8,6 @@ local function mount(name)
 	local page = import("lua/gallery/" .. name .. ".lua")
 	local scroll = ScrollablePanel{Size = Vec2(900, 700), layout = {GrowWidth = 1, GrowHeight = 1}}
 	local root = react.Mount(page.View{}, scroll)
-
 	return root, scroll
 end
 
@@ -162,7 +161,9 @@ T.Test2D("gallery windows page opens windows into the world and closing removes 
 	local opened = {}
 
 	for _, window in ipairs(windows) do
-		if window.Title:starts_with("WINDOW") or window.Title == "CONFIRM" then opened[#opened + 1] = window end
+		if window.Title:starts_with("WINDOW") or window.Title == "CONFIRM" then
+			opened[#opened + 1] = window
+		end
 	end
 
 	T(#opened)["=="](3)
@@ -237,7 +238,15 @@ T.Test2D("gallery tree page moves nodes on a drop, follows the selection and swa
 	local tree = find_all(scroll, "panel_tree")[1]
 	T(has_text(scroll, "tree.lua"))["=="](true)
 	T(tree:GetSelectedKey())["=="]("project/ui/elements/tree.lua")
-	tree.OnSelect({Text = "case_1.lua", Kind = "file", Key = "project/tests/case_1.lua", Description = "A test case #1"}, "project/tests/case_1.lua")
+	tree.OnSelect(
+		{
+			Text = "case_1.lua",
+			Kind = "file",
+			Key = "project/tests/case_1.lua",
+			Description = "A test case #1",
+		},
+		"project/tests/case_1.lua"
+	)
 	react.Flush()
 	T(has_text(scroll, "case_1.lua"))["=="](true)
 	T(has_text(scroll, "A test case #1"))["=="](true)
@@ -253,6 +262,7 @@ T.Test2D("gallery tree page moves nodes on a drop, follows the selection and swa
 	T(has_text(scroll, "Moved case_1.lua into assets."))["=="](true)
 	T(tree:GetSelectedKey())["=="]("project/tests/case_1.lua")
 	local assets
+
 	local function find(nodes, key)
 		for _, node in ipairs(nodes) do
 			if node.Key == key then assets = node end
@@ -260,6 +270,7 @@ T.Test2D("gallery tree page moves nodes on a drop, follows the selection and swa
 			if node.Children then find(node.Children, key) end
 		end
 	end
+
 	find(tree:GetItems(), "project/assets")
 	local moved = false
 
@@ -268,7 +279,9 @@ T.Test2D("gallery tree page moves nodes on a drop, follows the selection and swa
 	end
 
 	T(moved)["=="](true)
-	T(tree.OnDrop{source_key = "missing", target_key = "project/assets", position = "inside"})["=="](false)
+	T(
+		tree.OnDrop{source_key = "missing", target_key = "project/assets", position = "inside"}
+	)["=="](false)
 	local hidden = find_all(scroll, "panel_checkbox")[1]
 	hidden.OnChange(true, hidden)
 	react.Flush()
@@ -357,11 +370,13 @@ T.Test2D("gallery input assist, layout and property editor pages", function()
 	T(has_text(editor_scroll, "Live state"))["=="](true)
 	hand_built:GetItems()[1].Children[1].OnChange(nil, "Renamed Drone")
 	react.Flush()
+
 	local function state_view()
 		for _, edit in ipairs(find_all(editor_scroll, "panel_text_edit")) do
 			if edit.Editable == false then return edit end
 		end
 	end
+
 	T(state_view():GetText():find("name = Renamed Drone", 1, true) ~= nil)["=="](true)
 	hand_built:GetItems()[3].Children[2].OnAction()
 	react.Flush()

@@ -26,7 +26,6 @@ end
 function checkpoints.Instrument(meta, method_names)
 	for _, method in ipairs(method_names) do
 		local original = meta[method]
-
 		meta[method] = function(self, ...)
 			local level = 2
 			local info = debug.getinfo(level, "Sl")
@@ -36,7 +35,10 @@ function checkpoints.Instrument(meta, method_names)
 				info = debug.getinfo(level, "Sl")
 			end
 
-			checkpoints.Set(self, method .. " " .. (info and (info.short_src .. ":" .. info.currentline) or "?"))
+			checkpoints.Set(
+				self,
+				method .. " " .. (info and (info.short_src .. ":" .. info.currentline) or "?")
+			)
 			return original(self, ...)
 		end
 	end
@@ -52,7 +54,6 @@ local function report_fault_info()
 
 	if not get then
 		print("no fault info: the driver does not have VK_EXT_device_fault")
-
 		return
 	end
 
@@ -63,7 +64,6 @@ local function report_fault_info()
 
 	if result ~= 0 then
 		print("vkGetDeviceFaultInfoEXT counts failed: " .. tostring(result))
-
 		return
 	end
 
@@ -77,7 +77,6 @@ local function report_fault_info()
 
 	if result ~= 0 then
 		print("vkGetDeviceFaultInfoEXT failed: " .. tostring(result))
-
 		return
 	end
 
@@ -114,13 +113,19 @@ local function report_fault_info()
 end
 
 local function report_xid()
-	local pipe = io.popen("journalctl -k --no-pager --since '-2min' 2>/dev/null | grep -i 'NVRM: Xid' | tail -n 12")
+	local pipe = io.popen(
+		"journalctl -k --no-pager --since '-2min' 2>/dev/null | grep -i 'NVRM: Xid' | tail -n 12"
+	)
 
 	if not pipe then return end
 
 	local text = pipe:read("*a")
 	pipe:close()
-	print(text ~= "" and "kernel log (nvidia Xid, last 2 minutes):\n" .. text or "no nvidia Xid in the kernel log of the last 2 minutes")
+	print(
+		text ~= "" and
+			"kernel log (nvidia Xid, last 2 minutes):\n" .. text or
+			"no nvidia Xid in the kernel log of the last 2 minutes"
+	)
 end
 
 local function report_checkpoints()
@@ -128,7 +133,6 @@ local function report_checkpoints()
 
 	if not get then
 		print("no checkpoints: the driver does not have VK_NV_device_diagnostic_checkpoints")
-
 		return
 	end
 
@@ -163,7 +167,6 @@ function checkpoints.Report()
 			system.GetTime() - start_time
 		)
 	)
-
 	local parts = {report_fault_info}
 
 	if checkpoints.enabled then table.insert(parts, report_checkpoints) end

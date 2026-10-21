@@ -200,11 +200,23 @@ prefab.Register(
 	{
 		inputs = {
 			{Name = "Open", Type = "boolean", Default = false, Targets = {}},
-			{Name = "Angle", Type = "number", Default = 100, Min = 0, Max = 170, Targets = {}},
+			{
+				Name = "Angle",
+				Type = "number",
+				Default = 100,
+				Min = 0,
+				Max = 170,
+				Targets = {},
+			},
 		},
 		entities = {
 			{guid = "root", components = {script = {Source = DOOR_SCRIPT}}},
-			{guid = "pivot", parent = "root", properties = {Name = "pivot"}, components = {transform = {}}},
+			{
+				guid = "pivot",
+				parent = "root",
+				properties = {Name = "pivot"},
+				components = {transform = {}},
+			},
 			{
 				guid = "leaf",
 				parent = "pivot",

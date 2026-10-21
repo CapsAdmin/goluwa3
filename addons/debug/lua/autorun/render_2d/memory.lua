@@ -154,16 +154,18 @@ do
 			end
 		end
 
-	return rows
+		return rows
 	end
 
 	perf.RegisterTab(
 		"MEMORY",
 		2,
-		react.Component(|| -> ui.StatTable{
-			Size = Vec2(660, 430),
-			Rows = react.UsePoll(|| -> build_rows(take_snapshot()), WINDOW),
-		})
+		react.Component(
+			||->ui.StatTable{
+				Size = Vec2(660, 430),
+				Rows = react.UsePoll(||->build_rows(take_snapshot()), WINDOW),
+			}
+		)
 	)
 
 	commands.Add("vram_dump=number[40]", function(limit)

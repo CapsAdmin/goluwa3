@@ -21,7 +21,9 @@ local function trace(tlas, cmd, results, origin)
 		DescriptorSetCount = 1,
 		LocalSize = {x = 1, y = 1, z = 1},
 		storage_buffers = {{binding_index = 0}},
-		descriptor_sets = {{type = "acceleration_structure_khr", binding_index = 1, stageFlags = "compute"}},
+		descriptor_sets = {
+			{type = "acceleration_structure_khr", binding_index = 1, stageFlags = "compute"},
+		},
 		custom_declarations = [[
 			#extension GL_EXT_ray_query : require
 			layout(set = 0, binding = 0) buffer Results { uint results[]; };
@@ -52,7 +54,11 @@ local function trace(tlas, cmd, results, origin)
 	}
 	pipeline:UpdateDescriptorSet("storage_buffer", 1, 0, 0, results, results:GetSize())
 	pipeline:UpdateDescriptorSet("acceleration_structure_khr", 1, 1, 0, tlas)
-	cmd:PipelineBarrier{srcStage = "acceleration_structure_build_khr", dstStage = "compute", memoryBarrier = true}
+	cmd:PipelineBarrier{
+		srcStage = "acceleration_structure_build_khr",
+		dstStage = "compute",
+		memoryBarrier = true,
+	}
 	pipeline.pipeline:Dispatch(cmd, 1, 1, 1, 1)
 	cmd:PipelineBarrier{srcStage = "compute", dstStage = "host", memoryBarrier = true}
 end

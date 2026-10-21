@@ -487,7 +487,11 @@ local function shape_to_path(node)
 
 		if w <= 0 or h <= 0 then return nil end
 
-		if attrs.rx and not attrs.ry then ry = rx elseif attrs.ry and not attrs.rx then rx = ry end
+		if attrs.rx and not attrs.ry then
+			ry = rx
+		elseif attrs.ry and not attrs.rx then
+			rx = ry
+		end
 
 		rx = math.min(rx, w / 2)
 		ry = math.min(ry, h / 2)

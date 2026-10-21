@@ -76,7 +76,6 @@ local BINDING_TLAS = 2
 local BINDING_HIT = 3
 local BINDING_BLUR_SRC = 1
 local BINDING_BLUR_DST = 2
-
 local MAP_SAMPLER_CONFIG = {
 	min_filter = "linear",
 	mag_filter = "linear",
@@ -173,9 +172,10 @@ local function build_trace_pipeline()
 		storage_images = {
 			{binding_index = BINDING_MAP},
 		},
-		storage_buffers = {
-		},
-		descriptor_sets = hit.IsSupported() and hit.GetDescriptorSets(BINDING_HIT, "compute", BINDING_TLAS) or nil,
+		storage_buffers = {},
+		descriptor_sets = hit.IsSupported() and
+			hit.GetDescriptorSets(BINDING_HIT, "compute", BINDING_TLAS) or
+			nil,
 		uniform_buffers = {
 			{
 				name = "oct_data",
@@ -213,7 +213,8 @@ local function build_trace_pipeline()
 		},
 		custom_declarations = (
 				hit.IsSupported() and
-				hit.GetSceneGLSL("light_occlusion_scene", BINDING_TLAS) .. hit.GetGLSL(BINDING_HIT) or
+				hit.GetSceneGLSL("light_occlusion_scene", BINDING_TLAS) .. hit.GetGLSL(BINDING_HIT)
+				or
 				""
 			) .. (
 				[[
@@ -227,10 +228,10 @@ local function build_trace_pipeline()
 			]] .. glsl_common.GetOctahedralGLSL() .. [[
 
 			]] .. (
-				hit.IsSupported() and
-				hit.GetTraceGLSL("light_occlusion_scene") or
-				hit.GetStubTraceGLSL()
-			) .. [[
+					hit.IsSupported() and
+					hit.GetTraceGLSL("light_occlusion_scene") or
+					hit.GetStubTraceGLSL()
+				) .. [[
 
 			const int LIGHT_OCCL_SUBS = ]] .. subs:Get() .. [[;
 
@@ -387,7 +388,6 @@ function light_occlusion.Draw(cmd)
 	if not (hit.IsSupported() and enabled:Get()) then return end
 
 	local tlas = rt.GetTLAS(cmd)
-
 	local lights = render3d.GetLights()
 	local frame = system.GetFrameNumber()
 	process_geometry_change(lights)

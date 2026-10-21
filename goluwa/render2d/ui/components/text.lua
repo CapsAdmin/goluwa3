@@ -590,6 +590,7 @@ function META:OnTextChanged()
 	end
 
 	if not self.AutoSize then
+
 	elseif not self:GetWrap() and not self:GetElide() then
 		self.Owner.transform:SetSize(Vec2(w, h))
 	else
@@ -786,7 +787,6 @@ function META:OnDraw()
 	render2d.SetTexture(nil)
 	render2d.PushColor(foreground.r, foreground.g, foreground.b)
 	render2d.PushAlphaMultiplier(foreground.a)
-
 	local shadow_x, shadow_y, shadow = theme.active:GetTextShadow(foreground)
 
 	for pass = shadow_x and 0 or 1, 1 do

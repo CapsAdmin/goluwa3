@@ -7,7 +7,10 @@ local function spawn_body()
 	local ent = Entity.New({Name = "force_target"})
 	ent:AddComponent("transform")
 	ent.transform:SetPosition(Vec3(0, 0, 0))
-	local body = ent:AddComponent("rigid_body", {Shape = BoxShape.New(Vec3(1, 1, 1)), GravityScale = 0, CanSleep = false})
+	local body = ent:AddComponent(
+		"rigid_body",
+		{Shape = BoxShape.New(Vec3(1, 1, 1)), GravityScale = 0, CanSleep = false}
+	)
 	return ent, body
 end
 

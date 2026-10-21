@@ -79,7 +79,6 @@ local function draw_map(terrain, x, y)
 	render2d.PopClip()
 end
 
-
 local function build_rows()
 	local rows = {}
 
@@ -98,30 +97,77 @@ local function build_rows()
 		local position = render3d.GetCamera():GetPosition()
 		local batch_count, chunk_count = terrain.Source:GetPendingCount()
 		rows[#rows + 1] = {
-			label = string.format("%s  grid %d  levels %d  %d builds/frame", terrain.Name, terrain.GridSize, terrain.Levels, terrain.BuildsPerFrame),
+			label = string.format(
+				"%s  grid %d  levels %d  %d builds/frame",
+				terrain.Name,
+				terrain.GridSize,
+				terrain.Levels,
+				terrain.BuildsPerFrame
+			),
 			color = "head",
 		}
-		rows[#rows + 1] = {label = string.format("camera %.0f %.0f %.0f", position.x, position.y, position.z), color = "dim"}
+		rows[#rows + 1] = {
+			label = string.format("camera %.0f %.0f %.0f", position.x, position.y, position.z),
+			color = "dim",
+		}
 		rows[#rows + 1] = {label = "build jobs", color = "head"}
 		rows[#rows + 1] = {
 			label = string.format("queue %d  (needed %d, refinement %d)", s.queue, t.needed, s.queue - t.needed),
 			color = s.queue == 0 and "dim" or nil,
 		}
-		rows[#rows + 1] = {label = string.format("gpu jobs %d chunks in %d batches", chunk_count, batch_count)}
-		rows[#rows + 1] = {label = string.format("built %d (%.1f/s)  wasted %d  requested %d", build.built, rate, build.wasted, build.requested)}
 		rows[#rows + 1] = {
-			label = string.format("latency avg %.0f ms  max %.0f ms", build.latency * 1000, build.max_latency * 1000),
+			label = string.format("gpu jobs %d chunks in %d batches", chunk_count, batch_count),
+		}
+		rows[#rows + 1] = {
+			label = string.format(
+				"built %d (%.1f/s)  wasted %d  requested %d",
+				build.built,
+				rate,
+				build.wasted,
+				build.requested
+			),
+		}
+		rows[#rows + 1] = {
+			label = string.format(
+				"latency avg %.0f ms  max %.0f ms",
+				build.latency * 1000,
+				build.max_latency * 1000
+			),
 			color = build.latency > 0.25 and "warn" or nil,
 		}
-		rows[#rows + 1] = {label = string.format("chunks %d  textures waiting to be released %d  colliders %d", s.chunks, s.pending_releases, s.colliders)}
-		rows[#rows + 1] = {label = "tiles", color = "head"}
-		rows[#rows + 1] = {label = string.format("%d tiles  %d built  %d hidden  %d retiring", t.tiles, t.built, t.hidden, t.retiring)}
-		rows[#rows + 1] = {label = string.format("%d built but not drawn yet", t.waiting), color = t.waiting > 0 and "warn" or "dim"}
 		rows[#rows + 1] = {
-			label = string.format("%d retiring tiles wait for the vegetation of their replacements", t.scatter_waiting),
+			label = string.format(
+				"chunks %d  textures waiting to be released %d  colliders %d",
+				s.chunks,
+				s.pending_releases,
+				s.colliders
+			),
+		}
+		rows[#rows + 1] = {label = "tiles", color = "head"}
+		rows[#rows + 1] = {
+			label = string.format(
+				"%d tiles  %d built  %d hidden  %d retiring",
+				t.tiles,
+				t.built,
+				t.hidden,
+				t.retiring
+			),
+		}
+		rows[#rows + 1] = {
+			label = string.format("%d built but not drawn yet", t.waiting),
+			color = t.waiting > 0 and "warn" or "dim",
+		}
+		rows[#rows + 1] = {
+			label = string.format(
+				"%d retiring tiles wait for the vegetation of their replacements",
+				t.scatter_waiting
+			),
 			color = t.scatter_waiting > 0 and "warn" or "dim",
 		}
-		rows[#rows + 1] = {label = "levels: want / built / drawn / wait / hidden / queued / loading / retiring", color = "dim"}
+		rows[#rows + 1] = {
+			label = "levels: want / built / drawn / wait / hidden / queued / loading / retiring",
+			color = "dim",
+		}
 
 		for level = 0, terrain.Levels - 1 do
 			local row = s.levels[level]
@@ -200,10 +246,12 @@ local TerrainMap = react.Element(META)
 perf.RegisterTab(
 	"TERRAIN",
 	7,
-	react.Component(|| -> ui.Row{layout = {ChildGap = 8}}{
-		ui.StatTable{Size = Vec2(440, 470), Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL)},
-		TerrainMap{Size = Vec2(212, 470)},
-	})
+	react.Component(
+		||->ui.Row{layout = {ChildGap = 8}}{
+			ui.StatTable{Size = Vec2(440, 470), Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL)},
+			TerrainMap{Size = Vec2(212, 470)},
+		}
+	)
 )
 
 commands.Add("terrain_stats", function()

@@ -21,19 +21,64 @@ pvars.StartGroup("Environment", "Water", {store = false, prefix = "water_"})
 
 for _, feature in ipairs{
 	{"caustics", "r_water_caustics", "the caustics on the floor under the water"},
-	{"shafts", "r_water_shafts", "the sun shafts, light scattered towards the viewer under the surface"},
+	{
+		"shafts",
+		"r_water_shafts",
+		"the sun shafts, light scattered towards the viewer under the surface",
+	},
 	{"ripples", "r_water_ripples", "the small ripples on top of the wave textures"},
-	{"lights", "r_water_lights", "point lights glinting off the water and scattering in it"},
-	{"reflection_trace", "r_water_reflection_trace", "traced and screen space reflections, off leaves the environment map"},
-	{"shore_foam", "r_water_shore_foam", "the ray that measures the depth for foam along shores and around things"},
-	{"inscatter", "r_water_inscatter", "light scattered in the water between the surface and what is under it (shafts, sky and lights)"},
-	{"refraction", "r_water_refraction", "the scene seen through the surface, the floor under the water"},
-	{"sun_shadows", "r_water_sun_shadows", "shadows of the sun on the water, the floor under it and in the shafts"},
+	{
+		"lights",
+		"r_water_lights",
+		"point lights glinting off the water and scattering in it",
+	},
+	{
+		"reflection_trace",
+		"r_water_reflection_trace",
+		"traced and screen space reflections, off leaves the environment map",
+	},
+	{
+		"shore_foam",
+		"r_water_shore_foam",
+		"the ray that measures the depth for foam along shores and around things",
+	},
+	{
+		"inscatter",
+		"r_water_inscatter",
+		"light scattered in the water between the surface and what is under it (shafts, sky and lights)",
+	},
+	{
+		"refraction",
+		"r_water_refraction",
+		"the scene seen through the surface, the floor under the water",
+	},
+	{
+		"sun_shadows",
+		"r_water_sun_shadows",
+		"shadows of the sun on the water, the floor under it and in the shafts",
+	},
 	{"shaft_caustics", "r_water_shaft_caustics", "the caustics in the light shafts"},
-	{"ambient_gi", "r_water_ambient_gi", "the light from above that the global illumination probes give the water, off is the sky's"},
-	{"waves", "r_water_waves", "the waves, the ripples and the roughness they leave, off is a perfectly flat, smooth mirror surface"},
-	{"roughness", "r_water_roughness", "the roughness the unresolved waves give the sea, off the waves are drawn with a mirror surface", false},
-	{"uniform_roughness", "r_water_uniform_roughness", "the roughness of the sea is what the nearest wave texture leaves unresolved everywhere, off it is what the textures that cover the pixel leave, which steps at the edge of each"},
+	{
+		"ambient_gi",
+		"r_water_ambient_gi",
+		"the light from above that the global illumination probes give the water, off is the sky's",
+	},
+	{
+		"waves",
+		"r_water_waves",
+		"the waves, the ripples and the roughness they leave, off is a perfectly flat, smooth mirror surface",
+	},
+	{
+		"roughness",
+		"r_water_roughness",
+		"the roughness the unresolved waves give the sea, off the waves are drawn with a mirror surface",
+		false,
+	},
+	{
+		"uniform_roughness",
+		"r_water_uniform_roughness",
+		"the roughness of the sea is what the nearest wave texture leaves unresolved everywhere, off it is what the textures that cover the pixel leave, which steps at the edge of each",
+	},
 } do
 	FEATURES[#FEATURES + 1] = {
 		bit = 2 ^ #FEATURES,
@@ -41,10 +86,37 @@ for _, feature in ipairs{
 	}
 end
 
-local screenspace_roughness_pvar = pvars.Setup2{key = "r_water_screenspace_roughness", default = 1, min = 0, max = 1, help = "perceptual roughness below which the water's reflection is the screen first (the last frame, fog and all) and the rays only fill what the screen does not hold, the water's own reflection_screenspace_roughness. 0 is rays only, which have no fog and are blurred by the denoiser"}
-local shaft_samples_pvar = pvars.Setup2{key = "r_water_shaft_samples", default = 8, min = 1, max = 8, integer = true, help = "most samples along the view ray for the sun shafts under the surface (short paths take fewer), fewer is noisier shafts"}
-local ripple_pairs_pvar = pvars.Setup2{key = "r_water_ripple_pairs", default = 6, min = 1, max = 6, integer = true, help = "pairs of ripple waves per octave in the small ripples on top of the wave textures, fewer is a more regular ripple pattern"}
-local trace_steps_pvar = pvars.Setup2{key = "r_water_trace_steps", default = 160, min = 24, max = 160, integer = true, help = "most steps of the trace for the sea's surface from above, too few miss the thin tops of steep waves at grazing angles"}
+local screenspace_roughness_pvar = pvars.Setup2{
+	key = "r_water_screenspace_roughness",
+	default = 1,
+	min = 0,
+	max = 1,
+	help = "perceptual roughness below which the water's reflection is the screen first (the last frame, fog and all) and the rays only fill what the screen does not hold, the water's own reflection_screenspace_roughness. 0 is rays only, which have no fog and are blurred by the denoiser",
+}
+local shaft_samples_pvar = pvars.Setup2{
+	key = "r_water_shaft_samples",
+	default = 8,
+	min = 1,
+	max = 8,
+	integer = true,
+	help = "most samples along the view ray for the sun shafts under the surface (short paths take fewer), fewer is noisier shafts",
+}
+local ripple_pairs_pvar = pvars.Setup2{
+	key = "r_water_ripple_pairs",
+	default = 6,
+	min = 1,
+	max = 6,
+	integer = true,
+	help = "pairs of ripple waves per octave in the small ripples on top of the wave textures, fewer is a more regular ripple pattern",
+}
+local trace_steps_pvar = pvars.Setup2{
+	key = "r_water_trace_steps",
+	default = 160,
+	min = 24,
+	max = 160,
+	integer = true,
+	help = "most steps of the trace for the sea's surface from above, too few miss the thin tops of steep waves at grazing angles",
+}
 pvars.EndGroup()
 local WAVE_TEX_SIZE = 512
 local WAVE_CASCADES = {
@@ -67,7 +139,6 @@ local function write_cascade_origin(ptr, cascade)
 end
 
 local passes = {}
-
 local FOAM_BIAS = 1.03
 local FOAM_SPREAD = 1.5
 local FOAM_GAIN = 2.5
@@ -128,10 +199,35 @@ for cascade_index, fft_cascade in ipairs(water.FFT_CASCADES) do
 			framebuffer_count = 1,
 			LocalSize = {x = 128, y = 1, z = 1},
 			storage_images = {
-				{binding_index = 0, dst_stage = "compute", get_texture = function() ocean_fft.Update() return textures().h0 end},
-				{binding_index = 1, dst_stage = "compute", get_texture = function() return textures().omega end},
-				{binding_index = 2, dst_stage = "compute", get_texture = function() return textures().temp0 end},
-				{binding_index = 3, dst_stage = "compute", get_texture = function() return textures().temp1 end},
+				{
+					binding_index = 0,
+					dst_stage = "compute",
+					get_texture = function()
+						ocean_fft.Update()
+						return textures().h0
+					end,
+				},
+				{
+					binding_index = 1,
+					dst_stage = "compute",
+					get_texture = function()
+						return textures().omega
+					end,
+				},
+				{
+					binding_index = 2,
+					dst_stage = "compute",
+					get_texture = function()
+						return textures().temp0
+					end,
+				},
+				{
+					binding_index = 3,
+					dst_stage = "compute",
+					get_texture = function()
+						return textures().temp1
+					end,
+				},
 			},
 			uniform_buffers = {
 				{
@@ -215,7 +311,6 @@ for cascade_index, fft_cascade in ipairs(water.FFT_CASCADES) do
 			]],
 		}
 	)
-
 	list.insert(
 		passes,
 		{
@@ -226,10 +321,34 @@ for cascade_index, fft_cascade in ipairs(water.FFT_CASCADES) do
 			framebuffer_count = 1,
 			LocalSize = {x = 128, y = 1, z = 1},
 			storage_images = {
-				{binding_index = 0, dst_stage = "compute", get_texture = function() return textures().temp0 end},
-				{binding_index = 1, dst_stage = "compute", get_texture = function() return textures().temp1 end},
-				{binding_index = 2, dst_stage = "fragment", get_texture = function() return textures().displacement end},
-				{binding_index = 3, dst_stage = "fragment", get_texture = function() return textures().derivatives end},
+				{
+					binding_index = 0,
+					dst_stage = "compute",
+					get_texture = function()
+						return textures().temp0
+					end,
+				},
+				{
+					binding_index = 1,
+					dst_stage = "compute",
+					get_texture = function()
+						return textures().temp1
+					end,
+				},
+				{
+					binding_index = 2,
+					dst_stage = "fragment",
+					get_texture = function()
+						return textures().displacement
+					end,
+				},
+				{
+					binding_index = 3,
+					dst_stage = "fragment",
+					get_texture = function()
+						return textures().derivatives
+					end,
+				},
 			},
 			on_draw = function(self, cmd, fb, frame, desc)
 				self:UploadConstants()
@@ -298,7 +417,6 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 		{"wave_choppiness", "float"},
 		{"foam_amount", "float"},
 	}
-
 	list.insert(
 		passes,
 		{
@@ -381,7 +499,6 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 			DepthWrite = false,
 		}
 	)
-
 	list.insert(
 		passes,
 		{
@@ -676,11 +793,13 @@ list.insert(
 						block.trace_steps = trace_steps_pvar:Get()
 						local scale = scene_reflection.RESOLUTION_SCALES[pvars.Get("reflection_resolution")]
 						block.rough_rays = math.max(1, math.floor(scene_reflection.rough_rays:Get() * scale * scale + 0.5))
-						block.last_frame_tex = render3d.ShouldUseLastFrameHistory() and render3d.IsPassEnabled("volumetric_fog") and
+						block.last_frame_tex = render3d.ShouldUseLastFrameHistory() and
+							render3d.IsPassEnabled("volumetric_fog") and
 							self:GetTextureIndex(post_source.GetFoggedOpaqueSceneTexture()) or
 							-1
 						local prev_view = render3d.GetPreviousViewMatrix() or render3d.GetCamera():BuildViewMatrix()
-						local prev_projection = render3d.GetPreviousProjectionMatrix() or render3d.GetCamera():BuildProjectionMatrix()
+						local prev_projection = render3d.GetPreviousProjectionMatrix() or
+							render3d.GetCamera():BuildProjectionMatrix()
 						prev_view:CopyToFloatPointer(block.prev_view)
 						prev_projection:CopyToFloatPointer(block.prev_projection)
 						local _, gi_end = ibl.GetReflectionGIRange()
@@ -697,7 +816,12 @@ list.insert(
 
 						if RAY_QUERY then
 							scene_reflection.WriteBlock(self, block)
-							atmosphere.WriteBlock(self, block, render3d.GetCamera():GetPosition(), directional_shadows.GetPrimarySunDirection(render3d.GetLights()))
+							atmosphere.WriteBlock(
+								self,
+								block,
+								render3d.GetCamera():GetPosition(),
+								directional_shadows.GetPrimarySunDirection(render3d.GetLights())
+							)
 							block.reflection_screenspace_roughness = screenspace_roughness_pvar:Get()
 						end
 

@@ -174,7 +174,6 @@ local function run_game()
 	if RENDER_2D then
 		startup.Begin("render import")
 		local render = import("goluwa/render/render.lua")
-
 		startup.End("render import")
 
 		if not render.available then
@@ -195,7 +194,6 @@ local function run_game()
 			startup.Begin("render2d.Initialize")
 			import("goluwa/render2d/render2d.lua").Initialize()
 			startup.End("render2d.Initialize")
-
 			local input = import("goluwa/input.lua")
 			local desktop = import("goluwa/render2d/ui/desktop.lua")
 			input.Bind("c", "+desktop", desktop.Hold)
@@ -331,7 +329,6 @@ crash_trace.Run(function()
 		end
 
 		run_game()
-
 		startup.Begin("startup command")
 
 		if remaining_args then
@@ -357,7 +354,9 @@ crash_trace.Run(function()
 		local update_start = startup.Start()
 		event.CallUpdate(dt)
 
-		if not startup.ready_time then startup.Add("Update event (all frames)", update_start) end
+		if not startup.ready_time then
+			startup.Add("Update event (all frames)", update_start)
+		end
 
 		event.Call("Render", dt)
 		system.SetInternalFrameTime(system.GetTime() - time)

@@ -815,7 +815,9 @@ assets.RegisterCategory(
 					model, err = load_lua_asset(path)
 				end
 
-				if not model then return nil, err or ("model asset %q returned nil"):format(path) end
+				if not model then
+					return nil, err or ("model asset %q returned nil"):format(path)
+				end
 
 				if type(model) == "function" then
 					local ok, result = xpcall(
@@ -920,7 +922,6 @@ assets.RegisterCategory(
 		end,
 	}
 )
-
 assets.RegisterCategory(
 	"components",
 	{
@@ -986,7 +987,10 @@ function assets.Load(path, options)
 	local key = category.build_cache_key(resolved, options)
 	local cached = assets.cache[key]
 	local virtual_asset = get_virtual_asset(resolved)
-	local load = virtual_asset and not category.loads_virtual and virtual_asset.load or category.load
+	local load = virtual_asset and
+		not category.loads_virtual and
+		virtual_asset.load or
+		category.load
 
 	if cached then
 		if category_name == "models" then

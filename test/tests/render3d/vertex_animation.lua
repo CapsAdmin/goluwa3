@@ -72,7 +72,12 @@ local function create_plate()
 	local corners = {Vec3(-3, 0, 0), Vec3(3, 0, 0), Vec3(3, HEIGHT, 0), Vec3(-3, HEIGHT, 0)}
 
 	for _, i in ipairs{1, 2, 3, 1, 3, 4} do
-		polygon:AddVertex{pos = corners[i], uv = Vec2(corners[i].x, corners[i].y), normal = normal, tangent = Vec3(1, 0, 0)}
+		polygon:AddVertex{
+			pos = corners[i],
+			uv = Vec2(corners[i].x, corners[i].y),
+			normal = normal,
+			tangent = Vec3(1, 0, 0),
+		}
 	end
 
 	polygon:SetBendHeight(HEIGHT)

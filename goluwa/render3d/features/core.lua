@@ -2,7 +2,12 @@ return {
 	name = "core",
 	fields = {
 		{name = "normal", kind = "octa", member = false},
-		{name = "metallic", kind = "unorm8", default = "0.0", material = "get_metallic(uv)"},
+		{
+			name = "metallic",
+			kind = "unorm8",
+			default = "0.0",
+			material = "get_metallic(uv)",
+		},
 		{
 			name = "roughness",
 			member = "roughness_alpha",

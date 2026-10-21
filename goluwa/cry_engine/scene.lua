@@ -330,6 +330,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 	if placement_order[1] then
 		local ScatterPlacements = import("goluwa/entities/components/scatter_placements.lua")
 		local Record, RecordArray = ScatterPlacements.Record, ScatterPlacements.RecordArray
+
 		table.sort(placement_order, function(a, b)
 			return a.id < b.id
 		end)
@@ -350,7 +351,9 @@ function cry_scene.Translate(data, level_name, level_path, options)
 				local r = records[i - 1]
 				local position = units.ToEngine(entry.position)
 				r.x, r.y, r.z, r.scale, r.yaw = position.x, position.y, position.z, entry.scale, entry.yaw
-				local up = not entry.fit_to_terrain and entry.terrain_normal and entry.terrain_normal:GetNormalized()
+				local up = not entry.fit_to_terrain and
+					entry.terrain_normal and
+					entry.terrain_normal:GetNormalized()
 
 				if up then
 					r.nx, r.ny, r.nz = up.x, up.y, up.z
@@ -382,7 +385,10 @@ function cry_scene.Translate(data, level_name, level_path, options)
 			entry.cry_index = index
 		end
 
-		list.insert(leaves, {folder = add_folder(level_guid, "Decals"), items = data.decals, add = add_decal})
+		list.insert(
+			leaves,
+			{folder = add_folder(level_guid, "Decals"), items = data.decals, add = add_decal}
+		)
 	end
 
 	if data.spawns and data.spawns[1] then
@@ -412,7 +418,11 @@ function cry_scene.Translate(data, level_name, level_path, options)
 			local values = {}
 
 			for _, point in ipairs(road.points) do
-				for _, vector in ipairs{units.ToEngine(point.pos), units.ToEngine(point.back), units.ToEngine(point.forw)} do
+				for _, vector in ipairs{
+					units.ToEngine(point.pos),
+					units.ToEngine(point.back),
+					units.ToEngine(point.forw),
+				} do
 					list.insert(values, vector.x)
 					list.insert(values, vector.y)
 					list.insert(values, vector.z)

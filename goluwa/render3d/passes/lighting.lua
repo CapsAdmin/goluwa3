@@ -29,7 +29,11 @@ local debug_direct = pvars.Setup2{
 	default = false,
 	help = "show only the direct light",
 }
-pvars.StartGroup("Lighting", "Screen space shadows", {store = false, prefix = "screen_space_shadow_"})
+pvars.StartGroup(
+	"Lighting",
+	"Screen space shadows",
+	{store = false, prefix = "screen_space_shadow_"}
+)
 local screen_shadows = pvars.Setup2{
 	key = "screen_space_shadows",
 	friendly = "enabled",
@@ -98,13 +102,17 @@ return {
 			},
 		},
 		storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
-		descriptor_sets = glass_light.RAY_QUERY and glass_light.GetDescriptorSets(GLASS_BINDINGS, "compute") or nil,
+		descriptor_sets = glass_light.RAY_QUERY and
+			glass_light.GetDescriptorSets(GLASS_BINDINGS, "compute") or
+			nil,
 		on_pre_draw = function(self, cmd, frame, desc)
 			if not render3d.AreLightsOverridden() then light_occlusion.Draw(cmd) end
 
 			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
 
-			if glass_light.RAY_QUERY then glass_light.Bind(self, cmd, desc, GLASS_BINDINGS) end
+			if glass_light.RAY_QUERY then
+				glass_light.Bind(self, cmd, desc, GLASS_BINDINGS)
+			end
 		end,
 		sampled_images = {
 			{
@@ -142,7 +150,7 @@ return {
 					{"thin_specular", "float"},
 					{"rough_sky", "float"},
 					{"gi_reflection_direction", "int"},
-					},
+				},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
 					gbuffer_layout.WriteBlock(self, block)
@@ -151,7 +159,13 @@ return {
 					block.gi_debug = ddgi.IsDebugGI() and 1 or 0
 					block.direct_debug = debug_direct:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
-					block.sky_air = (render3d.GetActiveRenderContext() or not render3d.IsPassEnabled("volumetric_fog")) and 1 or 0
+					block.sky_air = (
+							render3d.GetActiveRenderContext() or
+							not render3d.IsPassEnabled("volumetric_fog")
+						)
+						and
+						1 or
+						0
 					block.sky_alpha = render3d.IsSkyTransparent() and 0 or 1
 					block.sky_from_environment = render3d.IsSkyFromProbe() and 1 or 0
 					block.screen_shadows = screen_shadows:Get() and 1 or 0

@@ -129,8 +129,12 @@ function META:ConfigureCameraForAll(visuals)
 
 		for _, corner in ipairs(populate_aabb_corners(self:GetLocalAABB(visual))) do
 			local world_pos = world_matrix:TransformVector(corner)
-			min_x, min_y, min_z = math.min(min_x, world_pos.x), math.min(min_y, world_pos.y), math.min(min_z, world_pos.z)
-			max_x, max_y, max_z = math.max(max_x, world_pos.x), math.max(max_y, world_pos.y), math.max(max_z, world_pos.z)
+			min_x, min_y, min_z = math.min(min_x, world_pos.x),
+			math.min(min_y, world_pos.y),
+			math.min(min_z, world_pos.z)
+			max_x, max_y, max_z = math.max(max_x, world_pos.x),
+			math.max(max_y, world_pos.y),
+			math.max(max_z, world_pos.z)
 		end
 	end
 

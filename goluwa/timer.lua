@@ -155,7 +155,6 @@ end
 
 local remove_these = {}
 local updating = 0
-
 local fps_resume
 
 local function run_fps_thinkers(fps_thinkers, count)
@@ -202,7 +201,7 @@ local function run_fps_thinkers(fps_thinkers, count)
 				break
 			elseif res == false then
 				break
-			end
+			end		
 		until iterations >= max_iterations or spent_time >= data.fps
 
 		::continue::

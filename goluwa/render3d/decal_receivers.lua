@@ -39,7 +39,19 @@ function decal_receivers.New()
 	return self
 end
 
-local function visit_polygon(polygon, matrix, mirrored, min_x, min_y, min_z, max_x, max_y, max_z, callback, context)
+local function visit_polygon(
+	polygon,
+	matrix,
+	mirrored,
+	min_x,
+	min_y,
+	min_z,
+	max_x,
+	max_y,
+	max_z,
+	callback,
+	context
+)
 	if polygon.packed then polygon:GetVertices() end
 
 	local vertices, indices = polygon.Vertices, polygon.indices
@@ -77,27 +89,39 @@ local function visit_polygon(polygon, matrix, mirrored, min_x, min_y, min_z, max
 		if
 			not (
 				(
-					ax < min_x and bx < min_x and cx < min_x
+					ax < min_x and
+					bx < min_x and
+					cx < min_x
 				)
 				or
 				(
-					ax > max_x and bx > max_x and cx > max_x
+					ax > max_x and
+					bx > max_x and
+					cx > max_x
 				)
 				or
 				(
-					ay < min_y and by < min_y and cy < min_y
+					ay < min_y and
+					by < min_y and
+					cy < min_y
 				)
 				or
 				(
-					ay > max_y and by > max_y and cy > max_y
+					ay > max_y and
+					by > max_y and
+					cy > max_y
 				)
 				or
 				(
-					az < min_z and bz < min_z and cz < min_z
+					az < min_z and
+					bz < min_z and
+					cz < min_z
 				)
 				or
 				(
-					az > max_z and bz > max_z and cz > max_z
+					az > max_z and
+					bz > max_z and
+					cz > max_z
 				)
 			)
 		then
@@ -158,7 +182,13 @@ function decal_receivers:ForEachTriangle(min_x, min_y, min_z, max_x, max_y, max_
 
 								if not material:IsTransparent() and not material:GetAlphaTest() then
 									local matrix = entry.local_matrix and (entry.local_matrix * world) or world
-									local mirrored = matrix.m00 * (matrix.m11 * matrix.m22 - matrix.m12 * matrix.m21) - matrix.m01 * (matrix.m10 * matrix.m22 - matrix.m12 * matrix.m20) + matrix.m02 * (matrix.m10 * matrix.m21 - matrix.m11 * matrix.m20) < 0
+									local mirrored = matrix.m00 * (
+											matrix.m11 * matrix.m22 - matrix.m12 * matrix.m21
+										) - matrix.m01 * (
+											matrix.m10 * matrix.m22 - matrix.m12 * matrix.m20
+										) + matrix.m02 * (
+											matrix.m10 * matrix.m21 - matrix.m11 * matrix.m20
+										) < 0
 									visit_polygon(
 										entry.polygon3d,
 										matrix,

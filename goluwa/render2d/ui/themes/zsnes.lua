@@ -24,13 +24,20 @@ local function from_565(c)
 end
 
 local function pal16(r, g, b)
-	return from_565(bit.band(bit.bor(bit.lshift(bit.rshift(r, 1), 11), bit.lshift(g, 5), bit.rshift(b, 1)), 0xFFFF))
+	return from_565(
+		bit.band(
+			bit.bor(bit.lshift(bit.rshift(r, 1), 11), bit.lshift(g, 5), bit.rshift(b, 1)),
+			0xFFFF
+		)
+	)
 end
 
 local function window_scale(index, first, last, factor)
 	local steps = last - index
 	local r, g, b = 8 * 2, 8 * 2, 25 * 2
-	r, g, b = r - math.floor(r * factor), g - math.floor(g * factor), b - math.floor(b * factor)
+	r, g, b = r - math.floor(r * factor),
+	g - math.floor(g * factor),
+	b - math.floor(b * factor)
 	return pal16(math.max(r - steps * 4, 0), math.max(g - steps * 4, 0), math.max(b - steps * 4, 0))
 end
 
@@ -51,7 +58,16 @@ local function hex(s)
 	return Color.FromHex(s)
 end
 
-local MENU_BAR = {"#002c88", "#003098", "#0034a8", "#0038b8", "#003cc8", "#0040d8", "#0044e8", "#0048f8"}
+local MENU_BAR = {
+	"#002c88",
+	"#003098",
+	"#0034a8",
+	"#0038b8",
+	"#003cc8",
+	"#0040d8",
+	"#0044e8",
+	"#0048f8",
+}
 local ICON_CLOSE = {
 	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 	{0, 216, 216, 216, 216, 216, 216, 216, 0, 0},
@@ -283,8 +299,14 @@ function ZsnesTheme:Initialize()
 			}
 		)
 	)
-	self:SetRadii({none = 0, XS = 0, S = 0, M = 0, L = 0, full = 0})
-	self:SetIconStyle({StrokeWidth = PX, LineCap = "butt", LineJoin = "miter", MiterLimit = 4, Aliased = true})
+	self:SetRadii{none = 0, XS = 0, S = 0, M = 0, L = 0, full = 0}
+	self:SetIconStyle{
+		StrokeWidth = PX,
+		LineCap = "butt",
+		LineJoin = "miter",
+		MiterLimit = 4,
+		Aliased = true,
+	}
 	local sizes = {XS = 8, S = 8, M = 8, L = 16, XL = 16, XXL = 24, XXXL = 32}
 	self:SetFontSizes(self:MergeTables(self:GetFontSizes(), sizes))
 	self:SetFontStyles(
@@ -302,7 +324,9 @@ function ZsnesTheme:Initialize()
 end
 
 function ZsnesTheme:GetTextShadow(foreground)
-	if foreground.r * 0.3 + foreground.g * 0.59 + foreground.b * 0.11 < 0.4 then return nil end
+	if foreground.r * 0.3 + foreground.g * 0.59 + foreground.b * 0.11 < 0.4 then
+		return nil
+	end
 
 	if math.abs(foreground.r - foreground.b) < 0.04 then
 		return PX, PX, self:GetColor("menu_text_shadow")
@@ -354,7 +378,10 @@ function ZsnesTheme:DrawValueField(size, opts)
 	render2d.SetTexture(nil)
 	local field = self:GetColor("field")
 
-	if opts.state == "hovered" then field = field:Copy() field.b = 0.12 end
+	if opts.state == "hovered" then
+		field = field:Copy()
+		field.b = 0.12
+	end
 
 	self:DrawSunken(0, 0, math.floor(size.x), math.floor(size.y), field)
 end
@@ -472,7 +499,9 @@ function ZsnesTheme:DrawButton(size, state)
 end
 
 function ZsnesTheme:DrawMenuButton(size, state)
-	if not (state.pressed or state.selected or state.active or state.hovered) then return end
+	if not (state.pressed or state.selected or state.active or state.hovered) then
+		return
+	end
 
 	local w, h = math.floor(size.x), math.floor(size.y)
 	local magenta = self:GetColor("highlight")

@@ -137,7 +137,10 @@ end
 function npcs.SpawnOnMesh(name, around, radius)
 	local mesh = nav_mesh.GetMesh()
 	assert(mesh, "there is no navigation mesh, load a map that has a nav file")
-	local position = assert(mesh:GetRandomPoint(around, radius), "no place on the navigation mesh to spawn on")
+	local position = assert(
+		mesh:GetRandomPoint(around, radius),
+		"no place on the navigation mesh to spawn on"
+	)
 	return npcs.Spawn(name, position + Vec3(0, 0.05, 0), math.randomf(-math.pi, math.pi))
 end
 
@@ -153,7 +156,10 @@ function npcs.GetNames()
 end
 
 commands.Add("npc_spawn=string,number|nil", function(name, count)
-	assert(npcs.Definitions[name], "unknown npc " .. name .. ", they are " .. table.concat(npcs.GetNames(), ", "))
+	assert(
+		npcs.Definitions[name],
+		"unknown npc " .. name .. ", they are " .. table.concat(npcs.GetNames(), ", ")
+	)
 
 	for _ = 1, count or 1 do
 		npcs.SpawnOnMesh(name, render3d and render3d.GetCamera():GetPosition(), 30)

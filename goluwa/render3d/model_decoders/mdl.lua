@@ -1099,7 +1099,16 @@ function mdl_decoder.Gather(path, full_path)
 	return input, size
 end
 
-function mdl_decoder.Finish(path, full_path, input, meta, blob_table, mesh_callback, physics_callback, skeleton_callback)
+function mdl_decoder.Finish(
+	path,
+	full_path,
+	input,
+	meta,
+	blob_table,
+	mesh_callback,
+	physics_callback,
+	skeleton_callback
+)
 	local models = {}
 
 	if full_path:ends_with(".mdl") then

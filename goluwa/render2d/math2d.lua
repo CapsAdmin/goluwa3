@@ -1342,7 +1342,7 @@ do
 					count = count + 1
 					walk[count] = h
 					local list = outgoing[to[h]]
-					h = list[slot[h % 2 == 1 and h + 1 or h - 1] - 1] or list[#list]
+					h = list[slot[h % 2 == 1 and h + 1 or h - 1] - 1] or list[#list]				
 				until h == start
 
 				local xs, ys, uturn = {}, {}, {}

@@ -2,7 +2,6 @@ local system = import("goluwa/system.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local desktop = import("goluwa/render2d/ui/desktop.lua")
 local selected_entity_guid = nil
-
 desktop.RegisterProgram{
 	Name = "Editor",
 	Icon = "entity",

@@ -8,7 +8,6 @@ local function create_world()
 	local world = Panel.New{ComponentSet = {"transform", "visual"}}
 	world.transform:SetSize(Vec2(512, 512))
 	Panel.World = world
-
 	return old_world, world
 end
 

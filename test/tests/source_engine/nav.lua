@@ -28,7 +28,15 @@ local function area(id, x1, y1, x2, y2, z, connections, flags)
 end
 
 local function create_data(areas)
-	return {version = nav.VERSION, sub_version = 0, bsp_size = 1234, analyzed = true, places = {}, areas = areas, ladders = {}}
+	return {
+		version = nav.VERSION,
+		sub_version = 0,
+		bsp_size = 1234,
+		analyzed = true,
+		places = {},
+		areas = areas,
+		ladders = {},
+	}
 end
 
 local function to_engine(x, y, z)
@@ -88,12 +96,14 @@ T.Test("nav codec rejects data that is not a nav file or is cut off", function()
 end)
 
 T.Test("nav mesh turns source areas into engine space and connects them in every direction", function()
-	local mesh = nav_mesh.FromData(create_data{
-		area(1, 0, 0, 100, 100, 10, {east = {2}}),
-		area(2, 100, 0, 200, 100, 10, {west = {1}, south = {3}}),
-		area(3, 100, 100, 200, 300, 10, {north = {2}, east = {4}}),
-		area(4, 200, 100, 300, 300, 10, {west = {3}}),
-	})
+	local mesh = nav_mesh.FromData(
+		create_data{
+			area(1, 0, 0, 100, 100, 10, {east = {2}}),
+			area(2, 100, 0, 200, 100, 10, {west = {1}, south = {3}}),
+			area(3, 100, 100, 200, 300, 10, {north = {2}, east = {4}}),
+			area(4, 200, 100, 300, 300, 10, {west = {3}}),
+		}
+	)
 	T(#mesh:GetAreas())["=="](4)
 
 	for id, point in pairs{
@@ -122,16 +132,26 @@ T.Test("nav mesh interpolates the height between the corners of an area", functi
 	ramp.sw_z = 50
 	local mesh = nav_mesh.FromData(create_data{ramp})
 	local middle = mesh:GetArea(1)
-	T(math.abs(mesh:GetHeight(middle, to_engine(50, 50, 0).x, to_engine(50, 50, 0).z) - 50 * units.meters) < 1e-3)["=="](true)
-	T(math.abs(mesh:GetHeight(middle, to_engine(100, 100, 0).x, to_engine(100, 100, 0).z) - 100 * units.meters) < 1e-3)["=="](true)
+	T(
+		math.abs(
+				mesh:GetHeight(middle, to_engine(50, 50, 0).x, to_engine(50, 50, 0).z) - 50 * units.meters
+			) < 1e-3
+	)["=="](true)
+	T(
+		math.abs(
+				mesh:GetHeight(middle, to_engine(100, 100, 0).x, to_engine(100, 100, 0).z) - 100 * units.meters
+			) < 1e-3
+	)["=="](true)
 end)
 
 T.Test("nav mesh blocks areas that need a jump or a crouch and makes avoid areas expensive", function()
-	local mesh = nav_mesh.FromData(create_data{
-		area(1, 0, 0, 100, 100, 0, {east = {2}}),
-		area(2, 100, 0, 200, 100, 0, {west = {1}, east = {3}}, nav.ATTRIBUTE.CROUCH),
-		area(3, 200, 0, 300, 100, 0, {west = {2}}, nav.ATTRIBUTE.AVOID),
-	})
+	local mesh = nav_mesh.FromData(
+		create_data{
+			area(1, 0, 0, 100, 100, 0, {east = {2}}),
+			area(2, 100, 0, 200, 100, 0, {west = {1}, east = {3}}, nav.ATTRIBUTE.CROUCH),
+			area(3, 200, 0, 300, 100, 0, {west = {2}}, nav.ATTRIBUTE.AVOID),
+		}
+	)
 	T(mesh:GetArea(1).Blocked)["=="](false)
 	T(mesh:GetArea(2).Blocked)["=="](true)
 	T(mesh:GetArea(3).Blocked)["=="](false)
@@ -140,7 +160,10 @@ T.Test("nav mesh blocks areas that need a jump or a crouch and makes avoid areas
 end)
 
 T.Test("nav mesh of gm_construct loads and connects the map", function()
-	if not steam.MountSourceGame("gmod", true) or not vfs.IsFile("maps/gm_construct.nav") then
+	if
+		not steam.MountSourceGame("gmod", true) or
+		not vfs.IsFile("maps/gm_construct.nav")
+	then
 		return T.Unavailable("gmod content not mounted")
 	end
 

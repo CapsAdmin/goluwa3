@@ -72,6 +72,7 @@ test.Test("repl input", function()
 		attest.equal(repl.input_buffer, "hello")
 		attest.equal(repl.input_cursor, 3)
 	end
+
 	reset()
 	send_key("a")
 	send_key("enter", {shift = true})

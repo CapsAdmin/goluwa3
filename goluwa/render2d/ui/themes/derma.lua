@@ -110,17 +110,22 @@ function DermaTheme:ConfigurePalette(palette)
 	local function flat_color_of(region)
 		if not image then return WHITE end
 
-		local c = sample(image, math.floor(region[1] + region[3] / 2), math.floor(region[2] + region[4] / 2))
+		local c = sample(
+			image,
+			math.floor(region[1] + region[3] / 2),
+			math.floor(region[2] + region[4] / 2)
+		)
 		return c:Copy():GetLerped(1 - c.a, body)
 	end
 
 	local function readable_on(region)
 		local flat = flat_color_of(region)
-		return flat.r * 0.299 + flat.g * 0.587 + flat.b * 0.114 > 0.5 and Color(0.08, 0.08, 0.08, 1) or text
+		return flat.r * 0.299 + flat.g * 0.587 + flat.b * 0.114 > 0.5 and
+			Color(0.08, 0.08, 0.08, 1) or
+			text
 	end
 
 	self.SkinPanelColor = flat_color_of(REGIONS.white_panel)
-
 	local red = Color(0.82, 0.27, 0.27, 1)
 	local yellow = Color(0.95, 0.76, 0.25, 1)
 	local green = Color(0.31, 0.68, 0.31, 1)
@@ -219,12 +224,15 @@ function DermaTheme:Initialize()
 		self.SkinTexture = Texture.New{decoded = self.SkinImage, sampler = SKIN_SAMPLER}
 	else
 		self.SkinTexture = Texture.New{path = self.SkinPath, sampler = SKIN_SAMPLER}
+
 		resource.Download(self.SkinPath):Then(function(downloaded_path)
 			self.SkinImage = assert(codec.DecodeFile(downloaded_path))
 			self.SkinTexture = Texture.New{decoded = self.SkinImage, sampler = SKIN_SAMPLER}
 			self:SetPalette(self:CreatePalette())
 
-			if import("goluwa/render2d/ui/theme.lua").active == self then event.Call("ThemeChanged") end
+			if import("goluwa/render2d/ui/theme.lua").active == self then
+				event.Call("ThemeChanged")
+			end
 		end)
 	end
 
@@ -249,7 +257,7 @@ function DermaTheme:Initialize()
 			}
 		)
 	)
-	self:SetRadii({none = 0, XS = 0, S = 0, M = 0, L = 0, full = 0})
+	self:SetRadii{none = 0, XS = 0, S = 0, M = 0, L = 0, full = 0}
 	self:SetFontSizes(
 		self:MergeTables(
 			self:GetFontSizes(),
@@ -508,7 +516,9 @@ function DermaTheme:DrawProgressBar(size, state, color)
 	if value > 0 then
 		local tint
 
-		if color ~= nil then tint = self:ResolveSurfaceFill(color, "primary"):Copy():GetLerped(0.3, WHITE) end
+		if color ~= nil then
+			tint = self:ResolveSurfaceFill(color, "primary"):Copy():GetLerped(0.3, WHITE)
+		end
 
 		self:DrawRegion(REGIONS.progress_front, 0, 0, math.max(1, math.floor(w * value)), h, tint)
 	end
@@ -622,7 +632,9 @@ function DermaTheme:Draw(pnl)
 	if pnl:GetState("theme_role") == "collapsible_header" then
 		local size = pnl.transform:GetSize()
 		local state = pnl:GetState()
-		local region = pnl.Collapsible.OpenFraction > 0.5 and REGIONS.category_header_open or REGIONS.category_header
+		local region = pnl.Collapsible.OpenFraction > 0.5 and
+			REGIONS.category_header_open or
+			REGIONS.category_header
 		local tint
 
 		if state.button_color ~= nil then

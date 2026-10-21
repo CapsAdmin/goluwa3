@@ -15,7 +15,9 @@ function buffer_pool.Allocate(device, type_index, flags, size, alignment)
 	size = tonumber(size)
 	alignment = tonumber(alignment)
 
-	if size > buffer_pool.MAX_BUFFER_SIZE or alignment > ALIGNMENT then return nil end
+	if size > buffer_pool.MAX_BUFFER_SIZE or alignment > ALIGNMENT then
+		return nil
+	end
 
 	size = get_class_size(size)
 	local pools = device.buffer_pools

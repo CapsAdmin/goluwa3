@@ -20,7 +20,11 @@ return {
 			default = Color(1.0, 1.0, 1.0, 1.0),
 			requires = "DiffuseTransmission",
 		},
-		{name = "TransmissionScattering", default = 0.5, requires = "DiffuseTransmission"},
+		{
+			name = "TransmissionScattering",
+			default = 0.5,
+			requires = "DiffuseTransmission",
+		},
 	},
 	getters = [[
 		float get_transmission(vec2 uv) {
@@ -47,7 +51,12 @@ return {
 		}
 	]],
 	fields = {
-		{name = "transmission", kind = "unorm8", default = "0.0", material = "get_transmission(uv)"},
+		{
+			name = "transmission",
+			kind = "unorm8",
+			default = "0.0",
+			material = "get_transmission(uv)",
+		},
 		{
 			name = "transmission_scattering",
 			sheet = "transmission",
@@ -55,8 +64,26 @@ return {
 			default = "0.0",
 			material = "get_transmission_scattering()",
 		},
-		{name = "transmission_tint_r", sheet = "transmission", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0", max = 2},
-		{name = "transmission_tint_b", sheet = "transmission", kind = "unorm8", member = false, default = "1.0", encode = "v * 0.5", decode = "v * 2.0", max = 2},
+		{
+			name = "transmission_tint_r",
+			sheet = "transmission",
+			kind = "unorm8",
+			member = false,
+			default = "1.0",
+			encode = "v * 0.5",
+			decode = "v * 2.0",
+			max = 2,
+		},
+		{
+			name = "transmission_tint_b",
+			sheet = "transmission",
+			kind = "unorm8",
+			member = false,
+			default = "1.0",
+			encode = "v * 0.5",
+			decode = "v * 2.0",
+			max = 2,
+		},
 	},
 	thin = "gbuffer_transmission(c) > 0.0",
 	lit_from_behind = "s.transmission > 0.0",

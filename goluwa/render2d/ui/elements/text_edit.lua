@@ -78,7 +78,9 @@ local function on_text_key_input(text, key, press)
 	if press then
 		if text_edit.History and text_edit:history_search_key(key) then return true end
 
-		if text_edit.Autocomplete and text_edit:autocomplete_key(key) then return true end
+		if text_edit.Autocomplete and text_edit:autocomplete_key(key) then
+			return true
+		end
 
 		if text_edit.History and text_edit:navigate_history(key) then return true end
 	end
@@ -91,7 +93,9 @@ local function on_text_key_input_repeat(text, key)
 
 	if text_edit.History and text_edit:history_search_key(key) then return true end
 
-	if text_edit.Autocomplete and text_edit:autocomplete_key(key) then return true end
+	if text_edit.Autocomplete and text_edit:autocomplete_key(key) then
+		return true
+	end
 
 	if text_edit.History and text_edit:navigate_history(key) then return true end
 
@@ -228,7 +232,9 @@ function META:sync_text_changed()
 	if changed then self._last_text = next_text end
 
 	if session then
-		if changed then session:SetText(next_text, self._text_panel.text.editor.Cursor) end
+		if changed then
+			session:SetText(next_text, self._text_panel.text.editor.Cursor)
+		end
 
 		self:update_ghost()
 	end
@@ -334,7 +340,12 @@ function META:history_search_key(key)
 		return
 	end
 
-	if key == "r" and editor.ControlDown and not editor.ShiftDown and self.History:GetCount() > 0 then
+	if
+		key == "r" and
+		editor.ControlDown and
+		not editor.ShiftDown and
+		self.History:GetCount() > 0
+	then
 		self:begin_history_search()
 		return true
 	end
@@ -343,6 +354,7 @@ end
 function META:begin_history_search()
 	local history = self.History
 	local id = "history_search_" .. tostring(self)
+
 	autocomplete.AddList(
 		id,
 		function()
@@ -357,6 +369,7 @@ function META:begin_history_search()
 		end,
 		{KeepOrder = true}
 	)
+
 	autocomplete.SetListName(id, "History search")
 	local session = autocomplete.NewSession{Lists = {id}, MinLength = 0, MatchEmpty = true}
 	local text = self._text_panel.text

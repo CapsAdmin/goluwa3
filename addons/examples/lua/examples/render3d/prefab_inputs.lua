@@ -57,9 +57,21 @@ shapes.Box{
 }
 local instances = {}
 local specs = {
-	{position = Vec3(-3, 0.5, 0), size = Vec3(1, 1, 1), glow = Color(1, 0.55, 0.2, 1)},
-	{position = Vec3(0, 0.75, 0), size = Vec3(1, 1.5, 1), glow = Color(0.3, 0.7, 1, 1)},
-	{position = Vec3(3, 0.25, 0), size = Vec3(2, 0.5, 1), glow = Color(0.6, 1, 0.4, 1)},
+	{
+		position = Vec3(-3, 0.5, 0),
+		size = Vec3(1, 1, 1),
+		glow = Color(1, 0.55, 0.2, 1),
+	},
+	{
+		position = Vec3(0, 0.75, 0),
+		size = Vec3(1, 1.5, 1),
+		glow = Color(0.3, 0.7, 1, 1),
+	},
+	{
+		position = Vec3(3, 0.25, 0),
+		size = Vec3(2, 0.5, 1),
+		glow = Color(0.6, 1, 0.4, 1),
+	},
 }
 
 for i, spec in ipairs(specs) do

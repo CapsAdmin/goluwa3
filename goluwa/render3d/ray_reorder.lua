@@ -9,7 +9,7 @@ function ray_reorder.GetRayGeneration(config)
 	local vendor = render.GetDevice().ray_reorder:upper()
 	local names = {}
 
-	for _, name in ipairs({
+	for _, name in ipairs{
 		"hitObject",
 		"hitObjectTraceRay",
 		"reorderThread",
@@ -19,7 +19,7 @@ function ray_reorder.GetRayGeneration(config)
 		"hitObjectGetPrimitiveIndex",
 		"hitObjectGetAttributes",
 		"hitObjectAttribute",
-	}) do
+	} do
 		names[#names + 1] = "#define SER_" .. name .. " " .. name .. vendor
 	end
 

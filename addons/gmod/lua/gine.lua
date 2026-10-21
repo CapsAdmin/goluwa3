@@ -215,7 +215,7 @@ do
 	end
 
 	local function shell_quote(str)
-		if jit.os == "Windows" then return '"' .. str .. '"' end
+		if jit.os == "Windows" then return "\"" .. str .. "\"" end
 
 		return "'" .. str:gsub("'", "'\"'\"'") .. "'"
 	end
@@ -547,7 +547,13 @@ end
 
 gine.addons = gine.addons or {}
 gine.package_loaders = {}
-pvars.Setup2{key = "gine_local_addons_only", category = "Game", group = "Garry's Mod", prefix = "gine_", default = false}
+pvars.Setup2{
+	key = "gine_local_addons_only",
+	category = "Game",
+	group = "Garry's Mod",
+	prefix = "gine_",
+	default = false,
+}
 
 function gine.Initialize(gamemode, skip_addons)
 	gamemode = gamemode or "sandbox"
@@ -602,7 +608,13 @@ function gine.Initialize(gamemode, skip_addons)
 	if not gine.init then
 		gine.MountGLuaSourceOverlay()
 		steam.MountSourceGame("gmod", skip_addons)
-		pvars.Setup2{key = "sv_allowcslua", category = "Game", group = "Garry's Mod", prefix = "sv_", default = 1}
+		pvars.Setup2{
+			key = "sv_allowcslua",
+			category = "Game",
+			group = "Garry's Mod",
+			prefix = "sv_",
+			default = 1,
+		}
 		gine.dir = R("garrysmod_dir.vpk"):match("(.+/)")
 		gine.AddGLuaPath(gine.dir)
 		import("lua/material.lua")
@@ -687,9 +699,14 @@ function gine.Initialize(gamemode, skip_addons)
 
 		if CLIENT then
 			local properties_escapes = {n = "\n", t = "\t", r = "\r"}
-			setmetatable(properties_escapes, {__index = function(_, char)
-				return char
-			end})
+			setmetatable(
+				properties_escapes,
+				{
+					__index = function(_, char)
+						return char
+					end,
+				}
+			)
 
 			for path in vfs.Iterate("resource/localization/en/", true) do
 				for _, line in ipairs(vfs.Read(path):split("\n")) do

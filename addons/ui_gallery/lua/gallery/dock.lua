@@ -21,7 +21,10 @@ local function dock_piece(label, dock, size, token, children)
 		},
 		visual = true,
 		OnDraw = draw_dock_piece,
-	}{children or ui.Text{Text = label, Color = "text_on_accent", IgnoreMouseInput = true}}
+	}{
+		children or
+		ui.Text{Text = label, Color = "text_on_accent", IgnoreMouseInput = true},
+	}
 end
 
 local function dock_surface(size, children)
@@ -43,47 +46,49 @@ return {
 	Name = "dock",
 	Section = "Layout",
 	Order = 2,
-	View = react.Component(|| -> kit.Page{
-		Title = "Dock",
-		Description = "Children opt in with layout.Dock = top | bottom | left | right | fill. Each one consumes an edge of the remaining rectangle, in child order.",
-	}{
-		kit.Section{
-			Title = "Basic dock",
-			Description = "Top and bottom are placed first, then left and right, and fill takes what is left.",
+	View = react.Component(
+		||->kit.Page{
+			Title = "Dock",
+			Description = "Children opt in with layout.Dock = top | bottom | left | right | fill. Each one consumes an edge of the remaining rectangle, in child order.",
 		}{
-			kit.Group{
-				dock_surface(
-					Vec2(520, 260),
-					{
-						dock_piece("top", "top", Vec2(120, 40), "primary"),
-						dock_piece("bottom", "bottom", Vec2(120, 36), "negative"),
-						dock_piece("left", "left", Vec2(90, 60), "positive"),
-						dock_piece("right", "right", Vec2(84, 60), "neutral"),
-						dock_piece("fill", "fill", Vec2(180, 120), "border_strong"),
-					}
-				),
+			kit.Section{
+				Title = "Basic dock",
+				Description = "Top and bottom are placed first, then left and right, and fill takes what is left.",
+			}{
+				kit.Group{
+					dock_surface(
+						Vec2(520, 260),
+						{
+							dock_piece("top", "top", Vec2(120, 40), "primary"),
+							dock_piece("bottom", "bottom", Vec2(120, 36), "negative"),
+							dock_piece("left", "left", Vec2(90, 60), "positive"),
+							dock_piece("right", "right", Vec2(84, 60), "neutral"),
+							dock_piece("fill", "fill", Vec2(180, 120), "border_strong"),
+						}
+					),
+				},
 			},
-		},
-		kit.Section{Title = "Nested", Description = "A docked child can dock its own children."}{
-			kit.Group{
-				dock_surface(
-					Vec2(520, 280),
-					{
-						dock_piece("top", "top", Vec2(120, 36), "primary"),
-						dock_piece(
-							"workspace",
-							"fill",
-							Vec2(220, 150),
-							"surface",
-							{
-								dock_piece("inspector", "right", Vec2(100, 60), "neutral"),
-								dock_piece("toolbar", "top", Vec2(120, 34), "positive"),
-								dock_piece("canvas", "fill", Vec2(120, 80), "border_strong"),
-							}
-						),
-					}
-				),
+			kit.Section{Title = "Nested", Description = "A docked child can dock its own children."}{
+				kit.Group{
+					dock_surface(
+						Vec2(520, 280),
+						{
+							dock_piece("top", "top", Vec2(120, 36), "primary"),
+							dock_piece(
+								"workspace",
+								"fill",
+								Vec2(220, 150),
+								"surface",
+								{
+									dock_piece("inspector", "right", Vec2(100, 60), "neutral"),
+									dock_piece("toolbar", "top", Vec2(120, 34), "positive"),
+									dock_piece("canvas", "fill", Vec2(120, 80), "border_strong"),
+								}
+							),
+						}
+					),
+				},
 			},
-		},
-	}),
+		}
+	),
 }

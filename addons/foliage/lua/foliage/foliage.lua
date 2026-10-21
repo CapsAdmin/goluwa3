@@ -11,7 +11,10 @@ foliage.Random = Random
 foliage.textures = textures
 
 function foliage.AddGenerator(name, generator)
-	assert(generator.category and generator.defaults and generator.build, name .. " needs a category, defaults and build")
+	assert(
+		generator.category and generator.defaults and generator.build,
+		name .. " needs a category, defaults and build"
+	)
 	generator.defaults.seed = generator.defaults.seed or 1
 	foliage.generators[name] = generator
 end
@@ -19,7 +22,9 @@ end
 function foliage.Resolve(name, config)
 	local generator = foliage.generators[name]
 
-	if not generator then error("unknown foliage generator " .. tostring(name), 3) end
+	if not generator then
+		error("unknown foliage generator " .. tostring(name), 3)
+	end
 
 	local out = {}
 
@@ -106,7 +111,6 @@ do
 		end
 
 		local material
-
 		assets.RegisterVirtualAsset(
 			foliage.GetMaterialPath(name),
 			{
@@ -124,7 +128,6 @@ do
 					for channel in pairs(definition.textures) do
 						config[TEXTURE_KEYS[channel]] = assets.GetTexture(foliage.GetTexturePath(name, channel))
 					end
-
 
 					material = Material.New(config)
 					material:SetName("foliage/" .. name)

@@ -177,7 +177,6 @@ function Buffer:OnRemove()
 		local device_ptr = device.ptr[0]
 		local buffer_ptr = self.ptr[0]
 		self.ptr[0] = nil
-
 		local pool_allocation = self.pool_allocation
 
 		device:DeferRelease(function()

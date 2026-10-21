@@ -106,8 +106,10 @@ event.AddListener("Update", "e2e_observer", function()
 	local avatar_owner = avatar and avatar:GetOwnedBy()
 	checks.avatar_owner = avatar_owner ~= nil and
 		not avatar_owner.component_map and
-		avatar_owner ~= clients.GetLocalClient() and
-		avatar_owner:GetUniqueID() == avatar.network:GetNetworkOwner() and
+		avatar_owner ~= clients.GetLocalClient()
+		and
+		avatar_owner:GetUniqueID() == avatar.network:GetNetworkOwner()
+		and
 		avatar.GetOwnerLabel(avatar_owner) == avatar_owner:GetNick()
 
 	for _, entity in ipairs(Entity.World:GetChildrenList()) do
@@ -141,7 +143,16 @@ event.AddListener("Update", "e2e_observer", function()
 
 	local all = true
 
-	for _, key in ipairs{"ground", "ball", "light", "prop", "child", "outfit", "avatar_owner", "pushed_owner"} do
+	for _, key in ipairs{
+		"ground",
+		"ball",
+		"light",
+		"prop",
+		"child",
+		"outfit",
+		"avatar_owner",
+		"pushed_owner",
+	} do
 		if not checks[key] then all = false end
 	end
 
@@ -155,7 +166,16 @@ local function finish(timed_out)
 	finished = true
 	local lines = {}
 
-	for _, key in ipairs{"ground", "ball", "light", "prop", "child", "outfit", "avatar_owner", "pushed_owner"} do
+	for _, key in ipairs{
+		"ground",
+		"ball",
+		"light",
+		"prop",
+		"child",
+		"outfit",
+		"avatar_owner",
+		"pushed_owner",
+	} do
 		lines[#lines + 1] = string.format("OBSERVER_CHECK %s %s", key, tostring(checks[key]))
 	end
 

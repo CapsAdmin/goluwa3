@@ -151,8 +151,14 @@ function RetroTheme:Initialize()
 			}
 		)
 	)
-	self:SetRadii({none = 0, XS = 0, S = 0, M = 0, L = 0, full = 0})
-	self:SetIconStyle({StrokeWidth = 3, LineCap = "butt", LineJoin = "miter", MiterLimit = 4, Aliased = true})
+	self:SetRadii{none = 0, XS = 0, S = 0, M = 0, L = 0, full = 0}
+	self:SetIconStyle{
+		StrokeWidth = 3,
+		LineCap = "butt",
+		LineJoin = "miter",
+		MiterLimit = 4,
+		Aliased = true,
+	}
 	self:SetFontSizes(
 		self:MergeTables(
 			self:GetFontSizes(),
@@ -200,7 +206,9 @@ function RetroTheme:ResolveButtonStyleContext(state)
 	if context.foreground_token == "text_on_accent" then
 		local c = self:GetColor(context.background_token)
 
-		if c.r * 0.3 + c.g * 0.59 + c.b * 0.11 > 0.5 then context.foreground_token = "ink" end
+		if c.r * 0.3 + c.g * 0.59 + c.b * 0.11 > 0.5 then
+			context.foreground_token = "ink"
+		end
 	elseif context.foreground_token == "primary" then
 		context.foreground_token = "secondary"
 	end
@@ -355,8 +363,22 @@ function RetroTheme:DrawHeader(size, emphasis)
 
 	fill(plate_x + 1, plate_y + 1, plate_w - 2, 1, self:GetColor("bevel_dark"))
 	fill(plate_x + 1, plate_y + 1, 1, plate_h - 2, self:GetColor("bevel_dark"))
-	fill(plate_x + 1, plate_y + plate_h - 2, plate_w - 2, 1, self:GetColor("bevel_light"), 0.8)
-	fill(plate_x + plate_w - 2, plate_y + 1, 1, plate_h - 2, self:GetColor("bevel_light"), 0.8)
+	fill(
+		plate_x + 1,
+		plate_y + plate_h - 2,
+		plate_w - 2,
+		1,
+		self:GetColor("bevel_light"),
+		0.8
+	)
+	fill(
+		plate_x + plate_w - 2,
+		plate_y + 1,
+		1,
+		plate_h - 2,
+		self:GetColor("bevel_light"),
+		0.8
+	)
 end
 
 function RetroTheme:DrawButton(size, state)
@@ -425,7 +447,14 @@ function RetroTheme:DrawTabButton(size, state)
 
 	local y = 3
 	fill(0, y, w, h - y, ink)
-	fill(1, y + 1, w - 2, h - y, self:GetColor("surface_variant"), state.hovered and 1.3 or 1)
+	fill(
+		1,
+		y + 1,
+		w - 2,
+		h - y,
+		self:GetColor("surface_variant"),
+		state.hovered and 1.3 or 1
+	)
 	fill(1, y + 1, w - 2, 1, light, 0.6)
 	fill(1, y + 1, 1, h - y, light, 0.6)
 end
@@ -442,7 +471,9 @@ function RetroTheme:DrawCheckbox(size, state)
 	render2d.SetTexture(nil)
 	self:DrawSunken(0, y, box, box)
 
-	if state.hovered then fill(2, y + 2, box - 4, box - 4, self:GetColor("highlight"), 1, 0.35) end
+	if state.hovered then
+		fill(2, y + 2, box - 4, box - 4, self:GetColor("highlight"), 1, 0.35)
+	end
 
 	if state.value then
 		local inner = box - 4
@@ -450,7 +481,13 @@ function RetroTheme:DrawCheckbox(size, state)
 		local lime = self:GetColor("lime")
 
 		for _, p in ipairs(CHECK_POINTS) do
-			fill(2 + math.floor(p[1] * unit) - 1, y + 2 + math.floor(p[2] * unit) - 1, math.ceil(unit * 2), math.ceil(unit * 2), lime)
+			fill(
+				2 + math.floor(p[1] * unit) - 1,
+				y + 2 + math.floor(p[2] * unit) - 1,
+				math.ceil(unit * 2),
+				math.ceil(unit * 2),
+				lime
+			)
 		end
 	end
 end
@@ -461,7 +498,15 @@ function RetroTheme:DrawButtonRadio(size, state)
 	render2d.SetTexture(nil)
 	octagon(0, y, box, box, self:GetColor("bevel_light"), 0.8, 3)
 	octagon(0, y, box - 1, box - 1, self:GetColor("bevel_dark"), 1, 3)
-	octagon(1, y + 1, box - 2, box - 2, self:GetColor(state.hovered and "highlight" or "field"), 1, 3)
+	octagon(
+		1,
+		y + 1,
+		box - 2,
+		box - 2,
+		self:GetColor(state.hovered and "highlight" or "field"),
+		1,
+		3
+	)
 
 	if state.value then
 		octagon(3, y + 3, box - 6, box - 6, self:GetColor("lime"), 1, 1)
@@ -498,7 +543,15 @@ function RetroTheme:DrawSlider(size, state)
 			fill(tx + 2, y, track_w - 4, TILE, lime)
 		end
 
-		self:DrawSlab(math.floor((size.x - 18) / 2), math.floor(normalized * usable), 18, knob, button, state.pressed, state.hovered)
+		self:DrawSlab(
+			math.floor((size.x - 18) / 2),
+			math.floor(normalized * usable),
+			18,
+			knob,
+			button,
+			state.pressed,
+			state.hovered
+		)
 		return
 	end
 
@@ -511,7 +564,15 @@ function RetroTheme:DrawSlider(size, state)
 		fill(x, ty + 2, TILE, track_h - 4, lime)
 	end
 
-	self:DrawSlab(math.floor(normalized * usable), math.floor((size.y - 18) / 2), knob, 18, button, state.pressed, state.hovered)
+	self:DrawSlab(
+		math.floor(normalized * usable),
+		math.floor((size.y - 18) / 2),
+		knob,
+		18,
+		button,
+		state.pressed,
+		state.hovered
+	)
 end
 
 function RetroTheme:DrawProgressBar(size, state, color)
@@ -559,7 +620,17 @@ function RetroTheme:DrawMenuContainer(size)
 	render2d.SetTexture(nil)
 	fill(0, 0, w, h, self:GetColor("ink"))
 	fill(1, 1, w - 2, h - 2, self:GetColor("surface_variant"))
-	bevel(1, 1, w - 2, h - 2, self:GetColor("bevel_light"), self:GetColor("bevel_dark"), 2, 0.9, 1)
+	bevel(
+		1,
+		1,
+		w - 2,
+		h - 2,
+		self:GetColor("bevel_light"),
+		self:GetColor("bevel_dark"),
+		2,
+		0.9,
+		1
+	)
 end
 
 function RetroTheme:DrawTreeToggle(size, meta, opts)

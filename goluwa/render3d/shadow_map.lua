@@ -107,7 +107,7 @@ end
 
 local function build_shadow_alpha_glsl(block)
 	return (
-		[[
+			[[
 			vec2 base_uv(vec2 uv) {
 				return vec2(dot(%s.base_transform_u.xy, uv) + %s.base_transform_u.z, dot(%s.base_transform_v.xy, uv) + %s.base_transform_v.z);
 			}
@@ -116,13 +116,13 @@ local function build_shadow_alpha_glsl(block)
 				return vec2(dot(%s.bump_transform_u.xy, uv) + %s.bump_transform_u.z, dot(%s.bump_transform_v.xy, uv) + %s.bump_transform_v.z);
 			}
 		]]
-	):format(block, block, block, block, block, block, block, block) .. model_pipeline.BuildAlphaSamplingGlsl{
-		albedo_texture = block .. ".albedo_texture_index",
-		normal_texture = block .. ".normal_texture_index",
-		color_alpha = block .. ".color_multiplier_a",
-		sample = sample_shadow_texture,
-		albedo_rgb = sample_shadow_texture(block .. ".albedo_texture_index", "base_uv(uv)") .. ".rgb",
-	}
+		):format(block, block, block, block, block, block, block, block) .. model_pipeline.BuildAlphaSamplingGlsl{
+			albedo_texture = block .. ".albedo_texture_index",
+			normal_texture = block .. ".normal_texture_index",
+			color_alpha = block .. ".color_multiplier_a",
+			sample = sample_shadow_texture,
+			albedo_rgb = sample_shadow_texture(block .. ".albedo_texture_index", "base_uv(uv)") .. ".rgb",
+		}
 end
 
 local function build_shadow_pipeline_config(
@@ -612,7 +612,17 @@ function ShadowMap:DrawScene(cascade_index)
 
 	local rows, serial = scene_draw.GetRows()
 	local buffers = cascade.scene_shadow_buffers
-	self:DrawBatches(cascade_index, "scene", rows, serial, buffers.worlds_address, buffers.commands, 20, true, buffers.counts)
+	self:DrawBatches(
+		cascade_index,
+		"scene",
+		rows,
+		serial,
+		buffers.worlds_address,
+		buffers.commands,
+		20,
+		true,
+		buffers.counts
+	)
 end
 
 local MAX_SHADOW_PASSES_PER_FRAME = 4
@@ -735,7 +745,6 @@ local function render_shadow_map_pass(self, cascade_index, is_first_in_batch, is
 		camera and camera:GetRotation():GetForward() or nil
 	)
 end
-
 
 function ShadowMap.New(config)
 	config = config or {}
@@ -1412,7 +1421,11 @@ local function write_shadow_batch_record(self, pipeline, record, batch)
 	record.flags = material:GetShadowFlags()
 	record.color_multiplier_a = material:GetShadowOpacity()
 	record.alpha_cutoff = material:GetAlphaCutoff()
-	write_shadow_uv_data(record, material, cache_shadow_material_texture_indices(self, material, pipeline).normal_texture_index)
+	write_shadow_uv_data(
+		record,
+		material,
+		cache_shadow_material_texture_indices(self, material, pipeline).normal_texture_index
+	)
 	render3d.SetCurrentPolygon3D(batch.first_polygon3d)
 	model_pipeline.FillVertexAnimationData(record.anim, material)
 end
@@ -1422,7 +1435,17 @@ local function write_shadow_batch_animation(self, pipeline, record, batch)
 	model_pipeline.FillVertexAnimationData(record.anim, batch.material)
 end
 
-function ShadowMap:DrawBatches(cascade_index, key, batches, batch_serial, instances_address, commands, stride, indexed, counts)
+function ShadowMap:DrawBatches(
+	cascade_index,
+	key,
+	batches,
+	batch_serial,
+	instances_address,
+	commands,
+	stride,
+	indexed,
+	counts
+)
 	local pipeline = self.mode == "point" and
 		self.multi_draw_pipeline or
 		self.multi_draw_pipeline_variants[self.cascade[cascade_index].format]

@@ -92,14 +92,13 @@ T.TestPhysics("npc has a body and walks the path to a goal around a bend", funct
 	run(1)
 	T(npc:IsMoving())["=="](true)
 	T(npc:GetPath() ~= nil)["=="](true)
-
-	T(run(15, function()
-		local position = entity.transform:GetPosition()
-		corner_distance = math.min(corner_distance, position:Distance(Vec3(7, position.y, 3)))
-
-		return arrived > 0
-	end))["=="](true)
-
+	T(
+		run(15, function()
+			local position = entity.transform:GetPosition()
+			corner_distance = math.min(corner_distance, position:Distance(Vec3(7, position.y, 3)))
+			return arrived > 0
+		end)
+	)["=="](true)
 	local position = entity.transform:GetPosition()
 	T(arrived)["=="](1)
 	T(npc:IsMoving())["=="](false)
@@ -186,19 +185,22 @@ T.TestPhysics("npc wanders to places on the mesh it can walk to", function()
 	rectangle(mesh, 1, -15, -15, 15, 15)
 	rectangle(mesh, 2, 40, 40, 50, 50)
 	create_mesh_entity(mesh)
-	local entity = create_npc(Vec3(0, 0.05, 0), {Wander = true, WanderMinDelay = 0, WanderMaxDelay = 0.1, WanderRadius = 20})
+	local entity = create_npc(
+		Vec3(0, 0.05, 0),
+		{Wander = true, WanderMinDelay = 0, WanderMaxDelay = 0.1, WanderRadius = 20}
+	)
 	local goals = 0
+	T(
+		run(30, function()
+			if entity.npc:GetGoal() then
+				goals = goals + 1
+				T(math.abs(entity.npc:GetGoal().x) <= 15)["=="](true)
+				T(math.abs(entity.npc:GetGoal().z) <= 15)["=="](true)
+			end
 
-	T(run(30, function()
-		if entity.npc:GetGoal() then
-			goals = goals + 1
-
-			T(math.abs(entity.npc:GetGoal().x) <= 15)["=="](true)
-			T(math.abs(entity.npc:GetGoal().z) <= 15)["=="](true)
-		end
-
-		return goals > 0 and entity.transform:GetPosition():Distance(Vec3(0, 0, 0)) > 3
-	end))["=="](true)
+			return goals > 0 and entity.transform:GetPosition():Distance(Vec3(0, 0, 0)) > 3
+		end)
+	)["=="](true)
 end)
 
 T.TestPhysics("npc that is off the mesh for a while is put back on it", function()
@@ -209,9 +211,11 @@ T.TestPhysics("npc that is off the mesh for a while is put back on it", function
 	local entity = create_npc(Vec3(5, 0.05, 5))
 	entity.npc:Teleport(Vec3(30, 0.05, 5), 0)
 	T(mesh:GetAreaAt(entity.transform:GetPosition(), 2))["=="](nil)
-	T(run(10, function()
-		return mesh:GetAreaAt(entity.transform:GetPosition(), 2) ~= nil
-	end))["=="](true)
+	T(
+		run(10, function()
+			return mesh:GetAreaAt(entity.transform:GetPosition(), 2) ~= nil
+		end)
+	)["=="](true)
 end)
 
 T.TestPhysics("npc far from every camera follows the mesh and gets a body back when one comes near", function()

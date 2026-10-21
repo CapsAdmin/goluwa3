@@ -55,14 +55,28 @@ _G.terrain_debug = Terrain.New{
 	BuildsPerFrame = 4,
 }:Start()
 debug_terrain.views = {
-	{name = "ground", position = Vec3(0, 40, 0), angles = QuatDeg3(-8, 0, 0), fov = 75},
-	{name = "low horizon", position = Vec3(0, 12, 0), angles = QuatDeg3(0, 45, 0), fov = 90},
-	{name = "high", position = Vec3(0, 350, 0), angles = QuatDeg3(-30, 20, 0), fov = 75},
+	{
+		name = "ground",
+		position = Vec3(0, 40, 0),
+		angles = QuatDeg3(-8, 0, 0),
+		fov = 75,
+	},
+	{
+		name = "low horizon",
+		position = Vec3(0, 12, 0),
+		angles = QuatDeg3(0, 45, 0),
+		fov = 90,
+	},
+	{
+		name = "high",
+		position = Vec3(0, 350, 0),
+		angles = QuatDeg3(-30, 20, 0),
+		fov = 75,
+	},
 }
 
 function debug_terrain.GetView(index)
 	local view = debug_terrain.views[index]
-
 	return {Position = view.position, Rotation = view.angles, FOV = math.rad(view.fov)}
 end
 

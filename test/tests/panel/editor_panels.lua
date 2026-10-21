@@ -86,9 +86,14 @@ T.Test2D("name prompt validates, trims, submits and closes", function()
 	local validate = function(name)
 		if name == "bad" then return "no bad names" end
 	end
-	local window = NamePrompt{Title = "NAME", Text = "abc", Validate = validate, OnSubmit = function(name)
-		submitted = name
-	end}
+	local window = NamePrompt{
+		Title = "NAME",
+		Text = "abc",
+		Validate = validate,
+		OnSubmit = function(name)
+			submitted = name
+		end,
+	}
 	T(NamePrompt{Title = "other"})["=="](window)
 	local edit = find_all(window, "panel_text_edit")[1]
 	T(edit:GetText())["=="]("abc")
@@ -110,9 +115,12 @@ T.Test2D("name prompt validates, trims, submits and closes", function()
 	react.Flush()
 	T(window:IsValid())["=="](false)
 	submitted = nil
-	local again = NamePrompt{Title = "NAME", OnSubmit = function(name)
-		submitted = name
-	end}
+	local again = NamePrompt{
+		Title = "NAME",
+		OnSubmit = function(name)
+			submitted = name
+		end,
+	}
 	T(again ~= window)["=="](true)
 	button(again, "Cancel"):CallLocalEvent("OnClick")
 	react.Flush()

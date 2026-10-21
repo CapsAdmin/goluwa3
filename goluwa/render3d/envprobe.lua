@@ -1617,7 +1617,12 @@ do
 
 		local now = system.GetTime()
 
-		if envprobe.environment_altitude_key and now - probe.last_rendered < ALTITUDE_REBAKE_INTERVAL then return end
+		if
+			envprobe.environment_altitude_key and
+			now - probe.last_rendered < ALTITUDE_REBAKE_INTERVAL
+		then
+			return
+		end
 
 		envprobe.environment_altitude_key = key
 		probe.position.y = ALTITUDE_OFFSET * (ALTITUDE_STEP ^ key - 1)

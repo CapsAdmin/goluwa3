@@ -179,9 +179,7 @@ T.Test2D("scrollbar buttons sit at both ends of the bar and scroll a line when c
 	T(panel.ButtonY2.visual:GetVisible())["=="](true)
 	T(panel.ButtonX1.visual:GetVisible())["=="](false)
 	T(panel.ButtonY1.transform:GetPosition().y)["=="](panel.TrackY.transform:GetPosition().y - width)
-	T(panel.ButtonY2.transform:GetPosition().y)["=="](
-		panel.TrackY.transform:GetPosition().y + panel.TrackY.transform:GetHeight()
-	)
+	T(panel.ButtonY2.transform:GetPosition().y)["=="](panel.TrackY.transform:GetPosition().y + panel.TrackY.transform:GetHeight())
 	panel.ButtonY2:CallLocalEvent("OnStartClick", "button_1", true)
 	panel.repeat_button = nil
 	T(panel.Viewport.transform:GetScroll().y)["=="](40)
@@ -403,7 +401,12 @@ T.Test2D("a focused scroll view does not count as the desktop being edited", fun
 	window.transform:SetSize(Vec2(200, 300))
 	local scroll = ScrollablePanel{}
 	window:AddChild(scroll)
-	desktop.RegisterProgram{Name = "scroll_test_program", Create = function() return window end}
+	desktop.RegisterProgram{
+		Name = "scroll_test_program",
+		Create = function()
+			return window
+		end,
+	}
 	desktop.GetProgram("scroll_test_program").Window = window
 	objects.SetFocusedObject(window)
 	T(desktop.IsEditing())["=="](true)
@@ -621,7 +624,7 @@ T.Test2D("the wheel scrolls while the mouse is over the scrollbar track, handle 
 	end
 	local last = 0
 
-	for _, part in ipairs({panel.HandleY, panel.TrackY, panel.ButtonY1, panel.ButtonY2}) do
+	for _, part in ipairs{panel.HandleY, panel.TrackY, panel.ButtonY1, panel.ButtonY2} do
 		local position = part.transform:GetPosition()
 		local size = part.transform:GetSize()
 		window.GetMousePosition = function()
@@ -676,7 +679,10 @@ T.Test2D("the resize border of a panel is outside it, so a scrollbar at its edge
 	window.GetSize = function()
 		return Vec2(1000, 1000)
 	end
-	local over_handle = Vec2(20 + handle_position.x + handle_size.x / 2, 20 + handle_position.y + handle_size.y / 2)
+	local over_handle = Vec2(
+		20 + handle_position.x + handle_size.x / 2,
+		20 + handle_position.y + handle_size.y / 2
+	)
 	T(over_handle.x > 20 + 300 - 8)["=="](true)
 	window.GetMousePosition = function()
 		return over_handle

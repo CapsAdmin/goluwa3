@@ -41,7 +41,6 @@ local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
 	{type = "float", name = "NormalMapMultiplier", getter = "GetNormalMapMultiplier"},
 }
-
 local FEATURE_BLOCK_FIELDS = {}
 
 for _, feature in ipairs(surface_features.list) do
@@ -49,11 +48,15 @@ for _, feature in ipairs(surface_features.list) do
 		local field = {type = param.kind or "float", name = param.name, getter = "Get" .. param.name}
 
 		if feature.block == "none" or param.block == false then
+
 		elseif feature.block == "own" then
 			FEATURE_BLOCK_FIELDS[feature] = FEATURE_BLOCK_FIELDS[feature] or {}
 			table.insert(FEATURE_BLOCK_FIELDS[feature], field)
 		else
-			assert(field.type == "float", "only a feature with a block of its own can have a " .. field.type .. " param")
+			assert(
+				field.type == "float",
+				"only a feature with a block of its own can have a " .. field.type .. " param"
+			)
 			table.insert(PBR_FACTOR_FIELDS, field)
 		end
 	end
@@ -234,11 +237,11 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 
 	if options.enable_vertex_animation ~= false then
 		local camera = options.camera_block_name
-
 		lines[#lines + 1] = model_pipeline.BuildVertexAnimationGlsl(
 			world_expr,
 			camera and camera .. ".camera_position",
-			camera and string.format("(abs(%s.projection[1][1]) * %s.render_size.y * 0.5)", camera, camera)
+			camera and
+				string.format("(abs(%s.projection[1][1]) * %s.render_size.y * 0.5)", camera, camera)
 		)
 	end
 
@@ -602,7 +605,10 @@ do
 		end
 
 		local main_prologue = [[
-	uint batch_index = ]] .. (options.batch_index_expr or "uint(gl_DrawID)") .. [[;
+	uint batch_index = ]] .. (
+				options.batch_index_expr or
+				"uint(gl_DrawID)"
+			) .. [[;
 	out_batch = batch_index;
 	PBRBatchData batch_data = PBRBatchData(]] .. options.batches_expr .. [[);
 	uvec4 addresses = batch_data.b[batch_index].addresses;
@@ -645,7 +651,12 @@ vec3 multi_draw_instance_tint(float packed) {
 	return bits == 0u ? vec3(1.0) : unpackUnorm4x8(bits).rgb * 2.0;
 }
 ]],
-			shader = build_vertex_shader(options, "multi_draw_instance_world", "multi_draw_instance_prev_world", main_prologue),
+			shader = build_vertex_shader(
+				options,
+				"multi_draw_instance_world",
+				"multi_draw_instance_prev_world",
+				main_prologue
+			),
 		}
 	end
 end
@@ -951,7 +962,9 @@ do
 		local wind_x = wind.x * BEND_RESPONSE
 		local wind_z = wind.z * BEND_RESPONSE
 		local wind_length = math.sqrt(wind_x * wind_x + wind_z * wind_z)
-		local detail_speed = DETAIL_SPEED * wind_length * MAX_DETAIL_BENDING / (MAX_DETAIL_BENDING + wind_length)
+		local detail_speed = DETAIL_SPEED * wind_length * MAX_DETAIL_BENDING / (
+				MAX_DETAIL_BENDING + wind_length
+			)
 		local lean = (wind:GetLength() / BENDING_SPEED) ^ 1.6
 		local bending = MAX_BENDING * lean / (1 + lean)
 		local polygon = render3d.GetCurrentPolygon3D()
@@ -976,7 +989,9 @@ do
 		if block.DetailBending ~= 0 and detail_speed > 0 then
 			local strength = detail_speed * block.DetailFrequency
 
-			if block.DetailBending == 2 then strength = strength * (height > 0 and height or 1) end
+			if block.DetailBending == 2 then
+				strength = strength * (height > 0 and height or 1)
+			end
 
 			local amplitude = strength < 0.5 and strength * 2 or math.sqrt(strength * 2)
 			motion = motion + DETAIL_MOTION * amplitude * math.max(block.DetailLeafAmplitude, block.DetailBranchAmplitude)
@@ -1025,12 +1040,15 @@ end
 
 function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_position_expr, pixel_scale_expr)
 	local still = camera_position_expr and
-		([[
+		(
+			[[
 				mat4 world = ]] .. world_matrix_expr .. [[;
 				float meters = vertex_animation.Motion * length(world[1].xyz);
 				float pixels = meters * ]] .. pixel_scale_expr .. [[ / max(distance(world[3].xyz, ]] .. camera_position_expr .. [[), 0.5);
 				return 1.0 - smoothstep(1.0, 2.0, pixels);
-		]]) or
+		]]
+		)
+		or
 		"return 0.0;"
 	return [[
 
@@ -1924,12 +1942,12 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			}
 
 	]=] .. model_pipeline.BuildAlphaSamplingGlsl{
-		albedo_texture = "model.AlbedoTexture",
-		normal_texture = "model.NormalTexture",
-		color_alpha = "color_model.ColorMultiplier.a",
-		sample = model_pipeline.SampleTextureGlsl,
-		albedo_rgb = "get_albedo_uv(uv)",
-	} .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff", nil, camera_block_name .. ".noise_phase") .. [[
+			albedo_texture = "model.AlbedoTexture",
+			normal_texture = "model.NormalTexture",
+			color_alpha = "color_model.ColorMultiplier.a",
+			sample = model_pipeline.SampleTextureGlsl,
+			albedo_rgb = "get_albedo_uv(uv)",
+		} .. model_pipeline.BuildAlphaDiscardGlsl("factor_model.AlphaCutoff", nil, camera_block_name .. ".noise_phase") .. [[
 
 			vec3 get_back_normal(vec3 N) {
 				if (BentNormals) {

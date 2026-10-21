@@ -39,9 +39,7 @@ T.Test2D("texture viewer shows the texture info and reads the pixel under the mo
 	canvas.OnMouseMove(canvas, Vec2(200, 100))
 	react.Flush()
 
-	if can_read then
-		T(find_text(window, idle) == nil)["=="](true)
-	end
+	if can_read then T(find_text(window, idle) == nil)["=="](true) end
 
 	canvas.OnMouseMove(canvas, Vec2(-50, -50))
 	react.Flush()

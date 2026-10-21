@@ -171,7 +171,16 @@ local function search_source(entry, text, options)
 	local found = {}
 
 	for _, bucket in ipairs{prefix_matches, word_matches, other_matches} do
-		table.sort(bucket, keep_order and compare_index or (alphabetical and compare_alphabetical or compare_matches))
+		table.sort(
+			bucket,
+			keep_order and
+				compare_index or
+				(
+					alphabetical and
+					compare_alphabetical or
+					compare_matches
+				)
+		)
 
 		for _, match in ipairs(bucket) do
 			if #found >= max then return found end
@@ -241,7 +250,15 @@ function autocomplete.Random(count, options)
 	local total = 0
 
 	for _, entry in ipairs(autocomplete.lists) do
-		if type(entry.source) == "table" and (not wanted or wanted[entry.id]) and #entry.source > 0 then
+		if
+			type(entry.source) == "table" and
+			(
+				not wanted or
+				wanted[entry.id]
+			)
+			and
+			#entry.source > 0
+		then
 			pools[#pools + 1] = entry
 			total = total + #entry.source
 		end
@@ -358,7 +375,11 @@ function Session:SetText(text, cursor)
 		self.results = {}
 	end
 
-	while self.results[self.selected] and self.results[self.selected].hint and self.selected < #self.results do
+	while
+		self.results[self.selected] and
+		self.results[self.selected].hint and
+		self.selected < #self.results
+	do
 		self.selected = self.selected + 1
 	end
 
@@ -423,7 +444,13 @@ end
 function Session:GetGhost()
 	local selected = self.results[self.selected]
 
-	if self.dismissed or self.cycling or not selected or selected.hint or selected.start ~= 1 then
+	if
+		self.dismissed or
+		self.cycling or
+		not selected or
+		selected.hint or
+		selected.start ~= 1
+	then
 		return ""
 	end
 
@@ -452,7 +479,9 @@ end
 
 function Session:Cycle(delta)
 	if #self.results == 0 then
-		if self.query ~= "" or self.RandomCount == 0 or self.current_lists then return end
+		if self.query ~= "" or self.RandomCount == 0 or self.current_lists then
+			return
+		end
 
 		self.random_results = self.random_results or
 			autocomplete.Random(self.RandomCount, {Lists = self.Lists, Seed = self.seed})

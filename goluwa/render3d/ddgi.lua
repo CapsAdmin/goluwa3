@@ -60,8 +60,20 @@ local update_interval_max = pvars.Setup2{
 
 function ddgi.GetUpdateInterval(c)
 	local lowest = update_interval_min:Get()
-
-	return math.max(1, math.floor(lowest * (update_interval_max:Get() / lowest) ^ ((c - 1) / (ddgi.CASCADES - 1)) + 0.5))
+	return math.max(
+		1,
+		math.floor(
+			lowest * (
+					update_interval_max:Get() / lowest
+				) ^ (
+					(
+						c - 1
+					) / (
+						ddgi.CASCADES - 1
+					)
+				) + 0.5
+		)
+	)
 end
 
 local min_coverage = pvars.Setup2{
@@ -199,7 +211,6 @@ local guided_ray_fraction = pvars.Setup2{
 	max = 0.75,
 	help = "share of each probe's rays aimed by its own radiance map, 0 is uniform rays only",
 }
-
 local aim_share = pvars.Setup2{
 	key = "ddgi_aim_share",
 	default = 0.5,
@@ -372,7 +383,10 @@ end
 
 function ddgi.GetResolveScale()
 	local size = render.GetRenderImageSize()
-	return math.min(1, math.sqrt(RESOLVE_MEGAPIXELS[resolve_resolution:Get()] * 1000000 / (size.x * size.y)))
+	return math.min(
+		1,
+		math.sqrt(RESOLVE_MEGAPIXELS[resolve_resolution:Get()] * 1000000 / (size.x * size.y))
+	)
 end
 
 function ddgi.GetScreenSampleGLSL(block_name)
@@ -1140,8 +1154,8 @@ function ddgi.GetCommonGLSL()
 	return ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 
 		float ddgi_ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction) {
-			const float scale_height = ]]..string.format("%.17g", atmosphere.GROUND_FOG_SCALE_HEIGHT)..[[;
-			const float top = ]]..string.format("%.17g", atmosphere.GROUND_FOG_TOP_HEIGHT)..[[;
+			const float scale_height = ]] .. string.format("%.17g", atmosphere.GROUND_FOG_SCALE_HEIGHT) .. [[;
+			const float top = ]] .. string.format("%.17g", atmosphere.GROUND_FOG_TOP_HEIGHT) .. [[;
 
 			if (altitude >= top) return 1.0;
 
@@ -1581,7 +1595,9 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_max_distance = max_ray_distance:Get()
 
 	for c = 1, ddgi.CASCADES do
-		block.ddgi_cascade_update[c - 1][0] = hysteresis:Get() ^ (math.min(state.cascades[c].update_time, 0.1 * ddgi.GetUpdateInterval(c)) * 60)
+		block.ddgi_cascade_update[c - 1][0] = hysteresis:Get() ^ (
+				math.min(state.cascades[c].update_time, 0.1 * ddgi.GetUpdateInterval(c)) * 60
+			)
 		block.ddgi_cascade_update[c - 1][1] = (state.sun_fast_until or 0) > state.frame and 1 or 0
 	end
 

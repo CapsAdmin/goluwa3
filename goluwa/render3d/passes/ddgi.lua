@@ -58,7 +58,9 @@ local function record_ray_info(name, state)
 	local updating = 0
 
 	for c = 0, state.cascade_count - 1 do
-		if bit.band(state.update_mask, bit.lshift(1, c)) ~= 0 then updating = updating + 1 end
+		if bit.band(state.update_mask, bit.lshift(1, c)) ~= 0 then
+			updating = updating + 1
+		end
 	end
 
 	local per_cascade = (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) * P ^ 3
@@ -159,7 +161,6 @@ local function pass_shade()
 		{binding_index = BINDING_EMITTERS},
 		{binding_index = BINDING_LIGHT_GRID},
 	}
-
 	return {
 		name = "ddgi_shade",
 		ComputePass = true,
@@ -218,7 +219,11 @@ local function pass_shade()
 				uvec4 ddgi_hits[];
 			};
 		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
-		shader = "#define DDGI_UNSCALED\n" .. ddgi.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (VISIBILITY_RAYS and glass_light.GetGLSL("ddgi_scene") or glass_light.GetStubGLSL()) .. [[
+		shader = "#define DDGI_UNSCALED\n" .. ddgi.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (
+				VISIBILITY_RAYS and
+				glass_light.GetGLSL("ddgi_scene") or
+				glass_light.GetStubGLSL()
+			) .. [[
 
 			void store_ray(ivec2 pos, vec4 ray) {
 				imageStore(out_ray, pos, vec4(min(ray.rgb, vec3(DDGI_RAY_MAX)), ray.a));
@@ -447,7 +452,6 @@ local function pass_update(name, texels, integrate)
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, ]] .. integrate.atlas_format[2] .. [[) uniform image2D atlas;
 		layout(set = 0, binding = ]] .. BINDING_STATE .. [[, rgba16f) uniform image2D state_atlas;
 	]]
-
 	return {
 		name = name,
 		ComputePass = true,
@@ -1037,7 +1041,6 @@ local function pass_scene_debug()
 	local storage_buffers = {
 		{binding_index = BINDING_MATERIALS},
 	}
-
 	local trace_glsl
 
 	if rays then
@@ -1185,7 +1188,7 @@ local function pass_resolve()
 			{"r16g16b16a16_sfloat", {"ddgi_screen", "rgba"}},
 			{"r16g16b16a16_sfloat", {"ddgi_screen_geometry", "rgba"}},
 			{"r16g16b16a16_sfloat", {"ddgi_screen_specular", "rgba"}},
-			},
+		},
 		framebuffer_count = 1,
 		scale = function()
 			return ddgi.GetResolveScale()
@@ -1197,16 +1200,16 @@ local function pass_resolve()
 				binding_index = BINDING_SCREEN_GEOMETRY,
 				attachment = 2,
 				dst_stage = {"compute", "fragment"},
-				},
-				{
+			},
+			{
 				binding_index = BINDING_SCREEN_SPECULAR,
 				attachment = 3,
 				dst_stage = {"compute", "fragment"},
-				},
-				},
-				descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
-				uniform_buffers = {data_uniform()},
-				on_pre_draw = VISIBILITY_RAYS and
+			},
+		},
+		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
+		uniform_buffers = {data_uniform()},
+		on_pre_draw = VISIBILITY_RAYS and
 			function(self, cmd, frame, desc)
 				self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, ddgi.GetFrameState().tlas)
 			end or

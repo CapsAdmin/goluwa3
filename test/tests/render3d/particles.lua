@@ -68,7 +68,11 @@ T.Test3D("Graphics render3d particles snow falls through a box around the camera
 		for i = 0, count - 1 do
 			local p = after[i]
 			T(p.life > 0)["=="](true)
-			T(math.abs(p.position[0] - camera.x) <= 10.01 and math.abs(p.position[1] - camera.y) <= 10.01 and math.abs(p.position[2] - camera.z) <= 10.01)["=="](true)
+			T(
+				math.abs(p.position[0] - camera.x) <= 10.01 and
+					math.abs(p.position[1] - camera.y) <= 10.01 and
+					math.abs(p.position[2] - camera.z) <= 10.01
+			)["=="](true)
 
 			if p.visibility > 0 then
 				visible = visible + 1
@@ -120,7 +124,6 @@ T.Test3D("Graphics render3d particles pick up the light of a lamp", function(dra
 
 			if p.visibility > 0 then
 				local distance = math.sqrt((p.position[0] - 4) ^ 2 + (p.position[1] - 20) ^ 2 + p.position[2] ^ 2)
-
 				local behind = (4 - p.position[0]) / math.max(distance, 1e-4)
 
 				if distance < 2 and behind > 0.9 then
@@ -174,7 +177,9 @@ local function count_alive(records, count)
 	local alive = 0
 
 	for i = 0, count - 1 do
-		if records[i].life > 0 and records[i].age < records[i].life then alive = alive + 1 end
+		if records[i].life > 0 and records[i].age < records[i].life then
+			alive = alive + 1
+		end
 	end
 
 	return alive
@@ -252,7 +257,9 @@ local function fire_at_wall(draw, collision)
 		for i = 0, def.GetCount() - 1 do
 			local p = records[i]
 
-			if p.life > 0 and math.abs(p.position[1]) < 4 then farthest = math.max(farthest, -p.position[2] - 6) end
+			if p.life > 0 and math.abs(p.position[1]) < 4 then
+				farthest = math.max(farthest, -p.position[2] - 6)
+			end
 		end
 	end)
 

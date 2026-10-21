@@ -4,7 +4,6 @@ local react = import("goluwa/render2d/ui/react.lua")
 local DIRECTORIES = {"elements", "widgets"}
 local ALIASES = {MenuItem = "goluwa/render2d/ui/elements/context_menu_item.lua"}
 local ui = {Panel = react.Element(Panel)}
-
 setmetatable(
 	ui,
 	{
@@ -32,5 +31,4 @@ setmetatable(
 		end,
 	}
 )
-
 return ui

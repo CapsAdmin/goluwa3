@@ -425,7 +425,6 @@ function repl.HandleEvent(ev)
 		local keep_cursor_visible = false
 		repl.editor:SetShiftDown(ev.modifiers and ev.modifiers.shift or false)
 		repl.editor:SetControlDown(ev.modifiers and ev.modifiers.ctrl or false)
-
 		local plain_key = not (
 			ev.modifiers and
 			(
@@ -477,7 +476,6 @@ function repl.HandleEvent(ev)
 				end
 
 				logn("> " .. buffer)
-
 				repl.history:Add(buffer)
 
 				if buffer ~= "" then repl.InputLua(buffer) end
@@ -607,7 +605,10 @@ local function draw(term)
 	local session = repl.autocomplete
 	local results = session:HasResults() and session:GetResults() or {}
 	local completion_rows = math.min(MAX_COMPLETION_ROWS, #results)
-	local first_row = math.max(1, math.min(session:GetSelectedIndex() - completion_rows + 1, #results - completion_rows + 1))
+	local first_row = math.max(
+		1,
+		math.min(session:GetSelectedIndex() - completion_rows + 1, #results - completion_rows + 1)
+	)
 	local ghost = repl.GetGhost()
 	local total_display_lines = visible_input_lines + completion_rows
 	local sel_start, sel_stop = repl.editor:GetSelection()
@@ -688,7 +689,6 @@ local function draw(term)
 	for row = first_row, first_row + completion_rows - 1 do
 		local result = results[row]
 		term:Write("\n")
-
 		local selected = row == session:GetSelectedIndex() and not result.hint
 
 		if selected then term:PushBackgroundColor(60, 60, 90) end

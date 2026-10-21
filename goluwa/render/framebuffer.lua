@@ -317,7 +317,8 @@ function Framebuffer:GetExtent()
 end
 
 function Framebuffer:HasStencil()
-	return self.depth_texture ~= nil and self.depth_texture.format:find("s8", nil, true) ~= nil
+	return self.depth_texture ~= nil and
+		self.depth_texture.format:find("s8", nil, true) ~= nil
 end
 
 function Framebuffer:Clear(cmd, key, r, g, b, depth, stencil)

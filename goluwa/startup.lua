@@ -131,7 +131,6 @@ function startup.GetTree()
 	end
 
 	table.sort(list, by_start)
-
 	local stack = {}
 
 	for _, span in ipairs(list) do
@@ -173,15 +172,15 @@ function startup.GetReport()
 		for _, total in ipairs(total_list) do
 			if not total.hidden then
 				lines[#lines + 1] = string.format(
-				"  %-40s %8.3f s  x%-6d  avg %7.3f ms  max %7.3f ms  %6.2f..%6.2f",
-				total.name,
-				total.seconds,
-				total.count,
-				total.seconds / total.count * 1000,
-				total.max * 1000,
-				total.first,
-				total.last
-			)
+					"  %-40s %8.3f s  x%-6d  avg %7.3f ms  max %7.3f ms  %6.2f..%6.2f",
+					total.name,
+					total.seconds,
+					total.count,
+					total.seconds / total.count * 1000,
+					total.max * 1000,
+					total.first,
+					total.last
+				)
 			end
 		end
 	end

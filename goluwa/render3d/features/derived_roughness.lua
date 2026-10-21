@@ -2,11 +2,32 @@ return {
 	name = "derived_roughness",
 	category = "Derived Roughness",
 	params = {
-		{name = "DerivedRoughnessAlbedo", default = 0.0, getter = "get_derived_roughness_albedo"},
-		{name = "DerivedRoughnessAlbedoMean", default = 0.5, requires = "DerivedRoughnessAlbedo", getter = "get_derived_roughness_albedo_mean"},
-		{name = "DerivedRoughnessNormal", default = 0.0, getter = "get_derived_roughness_normal"},
-		{name = "DerivedRoughnessMetal", default = 0.0, getter = "get_derived_roughness_metal"},
-		{name = "DerivedSpecularCavity", default = 0.0, getter = "get_derived_specular_cavity"},
+		{
+			name = "DerivedRoughnessAlbedo",
+			default = 0.0,
+			getter = "get_derived_roughness_albedo",
+		},
+		{
+			name = "DerivedRoughnessAlbedoMean",
+			default = 0.5,
+			requires = "DerivedRoughnessAlbedo",
+			getter = "get_derived_roughness_albedo_mean",
+		},
+		{
+			name = "DerivedRoughnessNormal",
+			default = 0.0,
+			getter = "get_derived_roughness_normal",
+		},
+		{
+			name = "DerivedRoughnessMetal",
+			default = 0.0,
+			getter = "get_derived_roughness_metal",
+		},
+		{
+			name = "DerivedSpecularCavity",
+			default = 0.0,
+			getter = "get_derived_specular_cavity",
+		},
 	},
 	material_init = [[
 		if ((get_derived_roughness_albedo() > 0.0 || get_derived_roughness_normal() > 0.0 || get_derived_specular_cavity() > 0.0) && get_roughness_texel(uv) < 0.0) {

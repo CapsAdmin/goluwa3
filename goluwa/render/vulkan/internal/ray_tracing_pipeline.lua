@@ -254,10 +254,13 @@ function RayTracingPipeline:DispatchRays(cmd, width, height, depth, descriptor_s
 	call[0].stride = 0
 	call[0].size = 0
 	self.trace_rays(cmd.ptr[0], rgs, miss, chs, call, width, height, depth)
-	if checkpoints.enabled then
-		checkpoints.Set(cmd, "trace rays " .. tostring(self.name) .. " " .. width .. "x" .. height .. "x" .. depth)
-	end
 
+	if checkpoints.enabled then
+		checkpoints.Set(
+			cmd,
+			"trace rays " .. tostring(self.name) .. " " .. width .. "x" .. height .. "x" .. depth
+		)
+	end
 end
 
 function RayTracingPipeline:OnRemove()
@@ -275,7 +278,9 @@ function RayTracingPipeline:OnRemove()
 		if module then module:Remove() end
 	end
 
-	if self.pipeline_layout and self.owns_pipeline_layout then self.pipeline_layout:Remove() end
+	if self.pipeline_layout and self.owns_pipeline_layout then
+		self.pipeline_layout:Remove()
+	end
 
 	if self.records_buffer then self.records_buffer:Remove() end
 end

@@ -17,16 +17,20 @@ end
 
 local function chat_window()
 	for _, child in ipairs(Panel.World:GetChildren()) do
-		if child.Type == "panel_window" and child:GetName() == "chatbox" then return child end
+		if child.Type == "panel_window" and child:GetName() == "chatbox" then
+			return child
+		end
 	end
 end
 
 T.Test2D("chatbox mounts when shown, floats its suggestion list and unmounts after enter or escape", function()
 	chatbox.history = InputHistory.New()
 	local submitted = {}
+
 	event.AddListener("ChatBoxInput", "chatbox_test", function(text)
 		submitted[#submitted + 1] = text
 	end)
+
 	T(chatbox.IsVisible())["=="](false)
 	T(chat_window() == nil)["=="](true)
 	chatbox.Show()

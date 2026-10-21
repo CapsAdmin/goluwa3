@@ -1,8 +1,6 @@
 local use_colors = not os.getenv("NO_COLOR")
 
-if jit and jit.os == "Windows" then
-	pcall(os.execute, "")
-end
+if jit and jit.os == "Windows" then pcall(os.execute, "") end
 
 local colors = {
 	reset = "0",

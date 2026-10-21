@@ -260,7 +260,9 @@ local function get_main_view_hiz_state()
 end
 
 function gpu_culling.PrepareMainViewHiZ(cmd)
-	if gpu_culling.GetOcclusionMode() ~= "hiz" or not gpu_culling.culling_enabled then return end
+	if gpu_culling.GetOcclusionMode() ~= "hiz" or not gpu_culling.culling_enabled then
+		return
+	end
 
 	local state, depth_texture = get_main_view_hiz_state()
 	local buffer = state.buffers[state.write_index]
@@ -303,7 +305,6 @@ function gpu_culling.PrepareMainViewHiZ(cmd)
 	state.write_index = (state.write_index % HIZ_BUFFER_COUNT) + 1
 end
 
-
 function gpu_culling.GetDrawnCullFrame()
 	return gpu_culling.drawn_cull_frame
 end
@@ -313,7 +314,9 @@ function gpu_culling.MarkMainViewDrawn()
 end
 
 function gpu_culling.GetMainViewHiZ()
-	if gpu_culling.GetOcclusionMode() ~= "hiz" or not gpu_culling.culling_enabled then return nil end
+	if gpu_culling.GetOcclusionMode() ~= "hiz" or not gpu_culling.culling_enabled then
+		return nil
+	end
 
 	local state = get_main_view_hiz_state()
 	return state.latest, state.buffers[1], state.height
@@ -327,7 +330,6 @@ function gpu_culling.SetOcclusionMode(mode)
 	assert(VALID_OCCLUSION_MODES[mode], "invalid gpu culling occlusion mode: " .. tostring(mode))
 	gpu_culling.occlusion_mode = mode
 end
-
 
 local function extract_frustum_planes(proj_view_matrix, out_planes, side_scale)
 	local m = proj_view_matrix
@@ -373,5 +375,4 @@ local function extract_frustum_planes(proj_view_matrix, out_planes, side_scale)
 end
 
 gpu_culling.ExtractFrustumPlanes = extract_frustum_planes
-
 return gpu_culling

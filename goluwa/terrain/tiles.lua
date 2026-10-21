@@ -9,7 +9,6 @@ local tiles = {}
 local VertexType = Polygon3D.VertexType
 local Index16Array = ffi.typeof("uint16_t[?]")
 local Index32Array = ffi.typeof("uint32_t[?]")
-
 local IndexBuffer = RENDER_2D and import("goluwa/render/index_buffer.lua")
 local VertexSize = ffi.sizeof(VertexType(1))
 local templates = {[false] = {}, [true] = {}}
@@ -157,8 +156,20 @@ function tiles.BuildPolygon(chunk, skirt_depth, stride, mode)
 			local vertex = vertices[z * samples + x]
 			local x0 = math.max(x - 1, 0)
 			local x1 = math.min(x + 1, cells)
-			local nx = (heights[z * stride * full_samples + x0 * stride] - heights[z * stride * full_samples + x1 * stride]) / ((x1 - x0) * step)
-			local nz = (heights[z0 * stride * full_samples + x * stride] - heights[z1 * stride * full_samples + x * stride]) / ((z1 - z0) * step)
+			local nx = (
+					heights[z * stride * full_samples + x0 * stride] - heights[z * stride * full_samples + x1 * stride]
+				) / (
+					(
+						x1 - x0
+					) * step
+				)
+			local nz = (
+					heights[z0 * stride * full_samples + x * stride] - heights[z1 * stride * full_samples + x * stride]
+				) / (
+					(
+						z1 - z0
+					) * step
+				)
 			local inv_length = 1 / math.sqrt(nx * nx + 1 + nz * nz)
 			vertex.position[1] = heights[z * stride * full_samples + x * stride]
 			vertex.normal[0] = nx * inv_length
@@ -203,7 +214,14 @@ function tiles.BuildPolygon(chunk, skirt_depth, stride, mode)
 		template.index_count,
 		false,
 		mode or "owned",
-		AABB(0, chunk.min_height - skirt_depth, 0, request.size, chunk.max_height, request.size)
+		AABB(
+			0,
+			chunk.min_height - skirt_depth,
+			0,
+			request.size,
+			chunk.max_height,
+			request.size
+		)
 	)
 	return polygon
 end
@@ -284,7 +302,9 @@ function tiles.CreateMaterial(chunk, layers, scatter_set, source)
 			material["SetTerrainLayer" .. name .. "2"](material, Color(v[5], v[6], v[7], v[8]))
 		end
 
-		if name == "Scatter" then any_scatter = v[1] > 0 or v[2] > 0 or v[3] > 0 or v[4] > 0 end
+		if name == "Scatter" then
+			any_scatter = v[1] > 0 or v[2] > 0 or v[3] > 0 or v[4] > 0
+		end
 	end
 
 	material:SetScatterSet(any_scatter and scatter_set or nil)

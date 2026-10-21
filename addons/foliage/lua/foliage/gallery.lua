@@ -24,7 +24,11 @@ function gallery.Spawn(parent, origin)
 		for i, path in ipairs(paths) do
 			local column = (i - 1) % columns
 			local row = math.floor((i - 1) / columns)
-			local position = Vec3(origin.x + (column - (columns - 1) / 2) * block.spacing, origin.y, z - row * block.spacing)
+			local position = Vec3(
+				origin.x + (column - (columns - 1) / 2) * block.spacing,
+				origin.y,
+				z - row * block.spacing
+			)
 			local ent = Entity.New{Name = path, Parent = root}
 			ent:AddComponent("transform"):SetPosition(position)
 			ent:AddComponent("visual"):SetModelPath(path)

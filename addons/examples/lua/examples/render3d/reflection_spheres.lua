@@ -43,12 +43,36 @@ local floor_material = shapes.Material{
 	BaseTextureTransformU = Vec4(W / 2, 0, 0, 0),
 	BaseTextureTransformV = Vec4(0, D / 2, 0, 0),
 }
-box("reflection_floor", Vec3(0, -T / 2, 0), Vec3(W + 2 * T, T, D + 2 * T), floor_material)
-box("reflection_wall_red", Vec3(-W / 2 - T / 2, H / 2, 0), Vec3(T, H, D), matte(0.85, 0.08, 0.08))
-box("reflection_wall_blue", Vec3(W / 2 + T / 2, H / 2, 0), Vec3(T, H, D), matte(0.08, 0.15, 0.85))
-box("reflection_wall_yellow", Vec3(0, H / 2, D / 2 + T / 2), Vec3(W, H, T), matte(0.9, 0.75, 0.1))
-box("reflection_wall_green", Vec3(0, H / 2, -D / 2 - T / 2), Vec3(W, H, T), matte(0.1, 0.65, 0.2))
-
+box(
+	"reflection_floor",
+	Vec3(0, -T / 2, 0),
+	Vec3(W + 2 * T, T, D + 2 * T),
+	floor_material
+)
+box(
+	"reflection_wall_red",
+	Vec3(-W / 2 - T / 2, H / 2, 0),
+	Vec3(T, H, D),
+	matte(0.85, 0.08, 0.08)
+)
+box(
+	"reflection_wall_blue",
+	Vec3(W / 2 + T / 2, H / 2, 0),
+	Vec3(T, H, D),
+	matte(0.08, 0.15, 0.85)
+)
+box(
+	"reflection_wall_yellow",
+	Vec3(0, H / 2, D / 2 + T / 2),
+	Vec3(W, H, T),
+	matte(0.9, 0.75, 0.1)
+)
+box(
+	"reflection_wall_green",
+	Vec3(0, H / 2, -D / 2 - T / 2),
+	Vec3(W, H, T),
+	matte(0.1, 0.65, 0.2)
+)
 local sphere_material = shapes.Material{Roughness = 0.15, Metallic = 1, ColorMultiplier = Color(0.95, 0.95, 0.95, 1)}
 shapes.Sphere{
 	Name = "reflection_sphere",
@@ -95,13 +119,21 @@ event.AddListener("Update", "reflection_sphere_roughness", function()
 end)
 
 event.AddListener("Draw2D", "reflection_sphere_roughness_text", function()
-	debug_draw.DrawTextBlock({
-		string.format("roughness %.2f", roughness),
-		"pageup / pagedown to change",
-		gi_blend and
+	debug_draw.DrawTextBlock(
+		{
+			string.format("roughness %.2f", roughness),
+			"pageup / pagedown to change",
+			gi_blend and
 			string.format("gi blend from roughness %.2f (end to toggle)", (ibl.GetReflectionGIRange())) or
-			string.format("gi blend off, traced at every roughness (end to turn it back on at %.2f)", gi_threshold),
-	}, 16, 16, {title_color = Color(1, 1, 1, 1), text_color = Color(0.8, 0.8, 0.85, 1)})
+			string.format(
+				"gi blend off, traced at every roughness (end to turn it back on at %.2f)",
+				gi_threshold
+			),
+		},
+		16,
+		16,
+		{title_color = Color(1, 1, 1, 1), text_color = Color(0.8, 0.8, 0.85, 1)}
+	)
 end)
 
 local kinds = {
@@ -119,7 +151,6 @@ local kinds = {
 }
 local COUNT = 70
 local golden = math.pi * (3 - math.sqrt(5))
-
 local grass_kinds = {
 	"Plants/jungle_grass/junglegrass_big_a.cgf",
 	"Plants/jungle_grass/junglegrass_big_b.cgf",

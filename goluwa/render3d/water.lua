@@ -281,7 +281,9 @@ do
 				local omega = math.sqrt(g * k)
 				local angle = wrap_angle(math.atan2(kz, kx) - wind_angle)
 				local sigma = math.rad(math.clamp(20 + 45 * math.log(omega / peak_omega) / math.log(4), 20, 75)) * 0.5
-				local spectrum = waves.wind_spectrum(k) / k * math.exp(-0.5 * (angle / sigma) ^ 2) / (sigma * math.sqrt(2 * PI))
+				local spectrum = waves.wind_spectrum(k) / k * math.exp(-0.5 * (angle / sigma) ^ 2) / (
+						sigma * math.sqrt(2 * PI)
+					)
 
 				if swell_scale > 0 then
 					local weight = math.exp(-0.5 * ((k - swell_k) / swell_width) ^ 2) * math.exp(-0.5 * (wrap_angle(math.atan2(kz, kx) - swell_angle) / swell_spread) ^ 2)
@@ -352,11 +354,7 @@ do
 		waves.total_slope_variance = 0.003 + 0.00512 * params.WindSpeed * development
 		waves.swell_variance = swell_sigma * swell_sigma
 		waves.swell_k = swell_k
-		waves.detail_slope_variance = slope_variance_between(
-			waves,
-			band_edges[3],
-			2 * PI / water.RIPPLE_WAVELENGTH
-		)
+		waves.detail_slope_variance = slope_variance_between(waves, band_edges[3], 2 * PI / water.RIPPLE_WAVELENGTH)
 		water.spectrum_version = water.spectrum_version + 1
 		water.ocean_waves = waves
 		return waves

@@ -637,7 +637,6 @@ do
 
 		if self.thread_state then
 			self.thread_state:Close()
-
 			self.thread_state = nil
 		end
 	end
@@ -646,7 +645,6 @@ do
 		release_dead_threads()
 		assert(type(worker_source) == "string", "threads.new requires a worker source string")
 		local self = setmetatable({}, meta)
-
 		self.thread_state = LuaState.New()
 		local ptr = self.thread_state:Run(worker_bootstrap, worker_source)
 
@@ -785,7 +783,6 @@ do
 
 		if self.thread_state then
 			self.thread_state:Close()
-
 			self.thread_state = nil
 		end
 

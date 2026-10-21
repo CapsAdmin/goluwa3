@@ -11,7 +11,6 @@ local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 local set_name = os.getenv("SCATTER_SET") or "crysis_meadow"
 local scatter_set = presets[set_name] or ScatterSet.GetGrass()
 set_name = scatter_set:GetName()
-
 local HEIGHT_GLSL = [=[
 float terrain_height(vec2 w) {
 	return 8.0 + 3.0 * sin(w.x * 0.045) * cos(w.y * 0.037) + 1.2 * sin(w.x * 0.31 + w.y * 0.17) * sin(w.y * 0.23);
@@ -44,7 +43,15 @@ frame_benchmark.Run{
 				ColorGLSL = COLOR_GLSL,
 				MinHeight = -20,
 				MaxHeight = 40,
-				Layers = {{name = "grass", albedo = textures.albedo, normal = textures.normal, scale = 3, scatter = 1}},
+				Layers = {
+					{
+						name = "grass",
+						albedo = textures.albedo,
+						normal = textures.normal,
+						scale = 3,
+						scatter = 1,
+					},
+				},
 			},
 			Levels = 5,
 			BaseChunkSize = 64,
