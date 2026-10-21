@@ -19,9 +19,12 @@ return {
 local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local physics = import("goluwa/physics.lua")
+local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local event = import("goluwa/event.lua")
+local Beam = RENDER_3D and import("goluwa/render3d/beam.lua")
 local META = objects.CreateTemplate("weapon_physgun")
 META:GetSet("MinHoldDistance", 1)
 META:GetSet("MaxGrabDistance", 12)
@@ -38,6 +41,10 @@ local function clamp01(x)
 end
 
 local BUTTON = usercmd.BUTTON
+local BEAM_POINTS = 24
+local BEAM_COLOR = Color(0.25, 0.55, 1, 1)
+local beam_owners = table.weak("k")
+local AIM_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 
 local function get_origin(owner)
 	return owner.transform:GetPosition() + owner.player_movement:GetViewOffset()
@@ -91,6 +98,88 @@ function META:Initialize()
 	self.held_distance = self.MinHoldDistance
 	self.held_rotation_offset = Quat():Identity()
 	self.block_grab_until_primary_release = false
+	self.beam_on = false
+	self.beam_aim = Vec3()
+	self.beam_forward = Vec3()
+
+	if RENDER_3D then
+		self.beam_points = Beam.NewPoints(BEAM_POINTS)
+		self.beam_control = Vec3()
+		self.beam_start = Vec3()
+		self.beam_end = Vec3()
+		beam_owners[self] = true
+	end
+end
+
+function META:UpdateBeamAim(origin, forward)
+	local hit = physics.Sweep(origin, forward * self.MaxGrabDistance, 0, self.Owner:GetParent(), nil, AIM_OPTIONS)
+	local point = hit and (hit.point or hit.position) or origin + forward * self.MaxGrabDistance
+	self.beam_aim:Set(point.x, point.y, point.z)
+	self.beam_forward:Set(forward.x, forward.y, forward.z)
+end
+
+function META:UpdateBeam()
+	local beam = self.beam
+	local body = self.held_body
+
+	if not (self.beam_on and self.Owner.weapon:IsActive()) then
+		if beam then beam:SetVisible(false) end
+
+		return
+	end
+
+	local player = self.Owner:GetParent()
+	local camera = player.camera
+
+	if camera and not body then
+		self:UpdateBeamAim(camera:GetViewPosition(), player.player_input:GetRotation():GetForward())
+	elseif camera then
+		self.beam_forward:Set(player.player_input:GetRotation():GetForward():Unpack())
+	end
+
+	local muzzle = self.Owner.weapon:GetMuzzle().transform:GetWorldPosition()
+	local start = self.beam_start
+	start:Set(muzzle.x, muzzle.y, muzzle.z)
+	local finish = self.beam_end
+
+	if body and body:IsValid() then
+		local alpha = physics.GetInterpolationAlpha()
+		local grab = body:LocalToWorld(
+			self.held_local_point,
+			body:GetInterpolatedPosition(alpha),
+			body:GetInterpolatedRotation(alpha)
+		)
+		finish:Set(grab.x, grab.y, grab.z)
+		local forward = self.beam_forward
+		local reach = start:Distance(finish) * 0.5
+		local control = self.beam_control
+		control:Set(start.x + forward.x * reach, start.y + forward.y * reach, start.z + forward.z * reach)
+		Beam.Quadratic(start, control, finish, self.beam_points)
+	else
+		finish:Set(self.beam_aim.x, self.beam_aim.y, self.beam_aim.z)
+		Beam.Line(start, finish, self.beam_points)
+	end
+
+	local muzzle_transform = self.Owner.weapon:GetMuzzle().transform
+
+	if not beam then
+		beam = Beam.New{
+			Parent = muzzle_transform.Owner,
+			Points = BEAM_POINTS,
+			Radius = 0.02,
+			Material = Beam.CreateMaterial(BEAM_COLOR, 40),
+		}
+		self.beam = beam
+	end
+
+	local inverse = muzzle_transform:GetWorldMatrixInverse()
+
+	for _, point in ipairs(self.beam_points) do
+		point:Set(inverse:TransformVectorUnpacked(point.x, point.y, point.z))
+	end
+
+	beam:SetPoints(self.beam_points)
+	beam:SetVisible(true)
 end
 
 function META:Release()
@@ -258,6 +347,7 @@ function META:OnWeaponThink(dt, cmd)
 			self.block_grab_until_primary_release = false
 		end
 
+		self.beam_on = false
 		self:Release()
 		controller:SetHolding(false)
 		return
@@ -278,14 +368,24 @@ function META:OnWeaponThink(dt, cmd)
 	end
 
 	if self.held_body and usercmd.WasPressed(cmd, BUTTON.ATTACK2) then
+		self.beam_on = false
 		self:FreezeHeldBody()
 		controller:SetHolding(false)
 		return
 	end
 
-	if self.block_grab_until_primary_release then return end
+	if self.block_grab_until_primary_release then
+		self.beam_on = false
+		return
+	end
 
-	if not self.held_body and not self:TryAcquireBody(cmd) then return end
+	self.beam_on = true
+	self.beam_forward:Set(cmd.view:GetForward():Unpack())
+
+	if not self.held_body and not self:TryAcquireBody(cmd) then
+		self:UpdateBeamAim(get_origin(self.Owner:GetParent()), cmd.view:GetForward())
+		return
+	end
 
 	if cmd.scroll ~= 0 then self:AdjustHoldDistance(cmd.scroll * self.ScrollStep) end
 
@@ -294,6 +394,7 @@ function META:OnWeaponThink(dt, cmd)
 end
 
 function META:OnWeaponHolster()
+	self.beam_on = false
 	self:Release()
 	self.Owner:GetParent().player_controller:SetHolding(false)
 end
@@ -303,7 +404,24 @@ function META:OnWeaponPlayerModeChanged()
 end
 
 function META:OnRemove()
+	beam_owners[self] = nil
+
+	if self.beam then self.beam:Remove() end
+
 	self:Release()
+end
+
+if RENDER_3D then
+	event.AddListener(
+		"PreFrame",
+		"weapon_physgun_beam",
+		function()
+			for physgun in pairs(beam_owners) do
+				physgun:UpdateBeam()
+			end
+		end,
+		{priority = 200}
+	)
 end
 
 return META:Register()
