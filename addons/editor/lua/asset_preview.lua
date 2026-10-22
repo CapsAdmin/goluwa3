@@ -6,6 +6,7 @@ local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
 local vmt_material = import("goluwa/source_engine/vmt_material.lua")
 local ModelPreview = import("goluwa/render3d/model_preview.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
@@ -122,6 +123,9 @@ function previews.AreModelMaterialsReady(visual)
 
 	return true
 end
+
+local DEFAULT_VIEW_OFFSET = Vec3(1, 1, 1)
+local SOURCE_VIEW_OFFSET = Vec3(1, 1, -1)
 
 local function acquire_render(state)
 	local render
@@ -386,6 +390,7 @@ local function step_model(state, now, budget)
 
 	budget.renders = budget.renders - 1
 	collect_model_info(state, visual)
+	render.preview:SetViewOffset(state.entry.extension == ".mdl" and SOURCE_VIEW_OFFSET or DEFAULT_VIEW_OFFSET)
 	render.preview:SetTarget(visual)
 	render.preview:Refresh()
 	render.preview:SetTarget(nil)
