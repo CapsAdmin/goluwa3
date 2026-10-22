@@ -152,6 +152,79 @@ do
 	end
 end
 
+function shapes.BuildShard(poly, sides, top, bottom, radius)
+	local ring = {}
+
+	for i = 0, sides - 1 do
+		local angle = i / sides * math.pi * 2
+		ring[i] = Vec3(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+	end
+
+	local function face(a, b, c, uv_a, uv_b, uv_c)
+		local normal = (b - a):GetCross(c - a):GetNormalized()
+		local center = (a + b + c) / 3
+
+		if normal:GetDot(center) > 0 then
+			b, c = c, b
+			uv_b, uv_c = uv_c, uv_b
+			normal = normal * -1
+		end
+
+		local edge = (b - a):GetNormalized()
+		local tangent = {x = edge.x, y = edge.y, z = edge.z, w = 1}
+		poly:AddVertex{pos = a, uv = uv_a, normal = normal, tangent = tangent}
+		poly:AddVertex{pos = b, uv = uv_b, normal = normal, tangent = tangent}
+		poly:AddVertex{pos = c, uv = uv_c, normal = normal, tangent = tangent}
+	end
+
+	local tip_top = Vec3(0, top, 0)
+	local tip_bottom = Vec3(0, -bottom, 0)
+
+	for i = 0, sides - 1 do
+		local a, b = ring[i], ring[(i + 1) % sides]
+		local u0, u1 = i / sides, (i + 1) / sides
+		face(tip_top, a, b, Vec2(u0, 1), Vec2(u0, 0.5), Vec2(u1, 0.5))
+		face(tip_bottom, b, a, Vec2(u1, 0), Vec2(u1, 0.5), Vec2(u0, 0.5))
+	end
+end
+
+function shapes.BuildFeather(poly, segments, half_width, fold, curl)
+	local tangent = {x = 1, y = 0, z = 0, w = 1}
+
+	local function point(side, v)
+		local y = v - 0.5
+		return Vec3(side * half_width, y, curl * y * y + (side == 0 and fold or 0))
+	end
+
+	local function triangle(a, uv_a, b, uv_b, c, uv_c)
+		local cross = (b - a):GetCross(c - a)
+		local normal = cross:GetNormalized()
+
+		if normal.z < 0 then normal = normal * -1 end
+
+		if cross:GetDot(normal) > 0 then
+			b, c = c, b
+			uv_b, uv_c = uv_c, uv_b
+		end
+
+		poly:AddVertex{pos = a, uv = uv_a, normal = normal, tangent = tangent}
+		poly:AddVertex{pos = b, uv = uv_b, normal = normal, tangent = tangent}
+		poly:AddVertex{pos = c, uv = uv_c, normal = normal, tangent = tangent}
+	end
+
+	for i = 0, segments - 1 do
+		local v0, v1 = i / segments, (i + 1) / segments
+		local a, b = point(0, v0), point(0, v1)
+
+		for _, side in ipairs{-1, 1} do
+			local u = side < 0 and 0 or 1
+			local c, d = point(side, v0), point(side, v1)
+			triangle(a, Vec2(0.5, v0), c, Vec2(u, v0), d, Vec2(u, v1))
+			triangle(a, Vec2(0.5, v0), d, Vec2(u, v1), b, Vec2(0.5, v1))
+		end
+	end
+end
+
 function shapes.BuildLathe(poly, profile, segments, texture_scale, scale)
 	segments = math.max(math.floor(segments or 24), 3)
 	texture_scale = texture_scale or 1

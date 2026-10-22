@@ -11,7 +11,7 @@ particle_emitter.SHAPES = {"point", "sphere", "cone", "box", "disc"}
 particle_emitter.GPU_COLLISIONS = {"none", "shelter_map", "scene_depth", "rays"}
 particle_emitter.CPU_COLLISIONS = {"none", "rays"}
 particle_emitter.ON_HIT = {"bounce", "stick", "kill"}
-particle_emitter.MESHES = {"quad", "sphere", "cube"}
+particle_emitter.MESHES = {"quad", "sphere", "cube", "shard", "feather"}
 local number = {validate = "number"}
 local integer = {validate = "integer"}
 local boolean = {validate = "boolean"}
@@ -68,6 +68,10 @@ particle_emitter.cpu = {
 	{"Mesh", "quad", particle_emitter.MESHES, "Look"},
 	{"Material", nil, {type = "render3d_material"}, "Look"},
 	{"Spin", 0, ranged(-720, 720), "Motion"},
+	{"FreezeAfter", 0, ranged(0, 60), "Motion"},
+	{"SwayAmount", 0, ranged(0, 10), "Motion"},
+	{"SwayRate", 1, ranged(0, 20), "Motion"},
+	{"RockAngle", 0, ranged(0, 180), "Motion"},
 	{"Collision", "none", particle_emitter.CPU_COLLISIONS, "Collision"},
 }
 

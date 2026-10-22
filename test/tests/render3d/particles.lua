@@ -356,3 +356,40 @@ T.Test("Graphics render3d particle emitters differ by type in what they have", f
 	gpu:Remove()
 	cpu:Remove()
 end)
+
+T.Test3D("Graphics render3d cpu emitter draws refractive materials through the translucent pass", function(draw)
+	init()
+	local entity
+	local ok, err = pcall(function()
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		render3d.GetCamera():SetAngles{x = 0, y = 0, z = 0}
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_cpu", Vec3(0, 0, -3), Vec3(0, 0, -1))
+		emitter:SetMesh("shard")
+		emitter:SetMaterial(
+			import("goluwa/render3d/material.lua").New{Refraction = 1, IndexOfRefraction = 1.3, RefractionThickness = 0.05, DoubleSided = true}
+		)
+		emitter:SetRate(0)
+		emitter:SetPlaying(false)
+		emitter:SetMaxParticles(50)
+		emitter:SetSpeedMin(0)
+		emitter:SetSpeedMax(0.5)
+		emitter:SetLifetimeMin(20)
+		emitter:SetLifetimeMax(20)
+		emitter:SetGravityScale(0)
+		emitter:SetSizeStart(0.3)
+		emitter:SetSizeEnd(0.3)
+		emitter:Burst(20)
+		step_with_update(draw, 5)
+		T(particle_emitter_cpu.GetParticleCount(emitter))["=="](20)
+		T(emitter.particle_state.cpu.translucent)["=="](true)
+		T(gbuffer_instancing.GetStats().queued_instances)["=="](0)
+		T(render3d.translucent_depth_far > 0)["=="](true)
+	end)
+
+	if entity then entity:Remove() end
+
+	restore()
+
+	if not ok then error(err, 0) end
+end)

@@ -14,11 +14,13 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local cpu = {}
 cpu.MAX_PARTICLES = particle_emitter.CPU_MAX_PARTICLES
 cpu.RAY_BUDGET = 256
+local THICKNESS_SCALE = 0.3
 local Particle = ffi.typeof([[struct {
 	float x, y, z;
 	float vx, vy, vz;
 	float px, py, pz;
 	float age, life, angle;
+	float kx, ky, kz, phase;
 	uint32_t stuck;
 }]])
 local ParticleArray = ffi.typeof("$[?]", Particle)
@@ -36,6 +38,10 @@ local function get_polygon(kind)
 		shapes.BuildPlane(polygon, Vec3(0, 0, 0), Vec3(0, 0, 1), 0.5, 0.5)
 	elseif kind == "cube" then
 		shapes.BuildCube(polygon, 1)
+	elseif kind == "feather" then
+		shapes.BuildFeather(polygon, 6, 0.17, 0.03, 0.25)
+	elseif kind == "shard" then
+		shapes.BuildShard(polygon, 6, 0.65, 0.35, 0.16)
 	else
 		shapes.BuildSphere(polygon, 0.5, 12, 8)
 	end
@@ -65,6 +71,7 @@ local function get_runtime(emitter)
 			count = 0,
 			matrices = {},
 			prev_matrices = {},
+			sizes = {},
 		}
 		state.cpu = runtime
 		state.rng = bit.bor(emitter.Seed * 2654435761 % 4294967296, 1)
@@ -153,6 +160,11 @@ local function spawn(emitter, state, runtime)
 			math.max(emitter.LifetimeMax, emitter.LifetimeMin) - emitter.LifetimeMin
 		) * random(state)
 	p.angle = random(state) * 6.2831853
+	local kz = random(state) * 2 - 1
+	local kphi = random(state) * 6.2831853
+	local kring = math.sqrt(1 - kz * kz)
+	p.kx, p.ky, p.kz = kring * math.cos(kphi), kring * math.sin(kphi), kz
+	p.phase = random(state) * 6.2831853
 	p.stuck = 0
 end
 
@@ -177,11 +189,25 @@ local function step(emitter, runtime, dt)
 		else
 			p.px, p.py, p.pz = p.x, p.y, p.z
 
+			if emitter.FreezeAfter > 0 and p.age >= emitter.FreezeAfter and p.stuck == 0 then
+				p.stuck = 1
+				p.vx, p.vy, p.vz = 0, 0, 0
+			end
+
 			if p.stuck == 0 then
 				p.vy = p.vy - gravity * dt
 				p.vx, p.vy, p.vz = p.vx * drag, p.vy * drag, p.vz * drag
 				p.x, p.y, p.z = p.x + p.vx * dt, p.y + p.vy * dt, p.z + p.vz * dt
 				p.angle = p.angle + math.rad(emitter.Spin) * dt
+
+				if emitter.SwayAmount > 0 then
+					local t = p.age * emitter.SwayRate * 6.2831853 * (0.7 + 0.3 * (p.kx + 1))
+					local amount = emitter.SwayAmount * dt
+					local ph = p.phase
+					p.x = p.x + (math.sin(t + ph) + 0.6 * math.sin(t * 2.3 + ph * 1.7) + 0.4 * math.sin(t * 0.43 + ph * 3.1)) * amount
+					p.z = p.z + (math.sin(t * 0.8 + ph * 2.1) + 0.6 * math.sin(t * 1.9 + ph * 0.6) + 0.4 * math.sin(t * 0.37 + ph * 1.3)) * amount
+					p.y = p.y + (math.sin(t * 1.4 + ph * 0.8) + 0.5 * math.sin(t * 3.1 + ph)) * amount * 0.35
+				end
 
 				if collides and rays_left > 0 then
 					local dx, dy, dz = p.x - p.px, p.y - p.py, p.z - p.pz
@@ -259,6 +285,37 @@ do
 		m.m30, m.m31, m.m32 = x, y, z
 	end
 
+	local function write_tumble(m, x, y, z, size, angle, kx, ky, kz)
+		local c, s = math.cos(angle), math.sin(angle)
+		local k = 1 - c
+		write_matrix(
+			m,
+			x,
+			y,
+			z,
+			size,
+			c + kx * kx * k,
+			kz * s + kx * ky * k,
+			-ky * s + kx * kz * k,
+			-kz * s + ky * kx * k,
+			c + ky * ky * k,
+			kx * s + ky * kz * k,
+			ky * s + kz * kx * k,
+			-kx * s + kz * ky * k,
+			c + kz * kz * k
+		)
+	end
+
+	local function write_rocking(m, x, y, z, size, yaw, theta)
+		local c, s = math.cos(yaw), math.sin(yaw)
+		local ct, st = math.cos(theta), math.sin(theta)
+		write_matrix(m, x, y, z, size, c, 0, -s, st * s, ct, st * c, ct * s, -st, ct * c)
+	end
+
+	local function draws_translucent(material)
+		return material:IsTransparent() and render3d.pipelines.translucent_surface ~= nil
+	end
+
 	event.AddListener("Draw3DGeometry", "particle_emitter_cpu", function()
 		local view = render3d.GetCamera():BuildViewMatrix()
 		local rx, ry, rz = view.m00, view.m10, view.m20
@@ -275,10 +332,14 @@ do
 			then
 				local polygon = get_polygon(emitter.Mesh)
 				local material = get_material(emitter)
+				local translucent = draws_translucent(material)
 				local particles = runtime.particles
 				local matrices = runtime.matrices
 				local prev_matrices = runtime.prev_matrices
+				local sizes = runtime.sizes
 				local quad = emitter.Mesh == "quad"
+				local rock = math.rad(emitter.RockAngle)
+				runtime.translucent = translucent
 
 				for i = 0, runtime.count - 1 do
 					local p = particles[i]
@@ -293,17 +354,85 @@ do
 					local t = p.age / p.life
 					local size = emitter.SizeStart + (emitter.SizeEnd - emitter.SizeStart) * t
 					local prev_matrix = prev_matrices[i + 1]
+					sizes[i + 1] = size
 
 					if quad then
 						write_matrix(matrix, p.x, p.y, p.z, size, rx, ry, rz, ux, uy, uz, bx, by, bz)
 						write_matrix(prev_matrix, p.px, p.py, p.pz, size, rx, ry, rz, ux, uy, uz, bx, by, bz)
+					elseif rock > 0 then
+						local t = p.age * emitter.SwayRate * 6.2831853 * (0.7 + 0.3 * (p.kx + 1))
+						local theta = -0.9 + rock * (0.7 * math.sin(t * 1.3 + p.phase) + 0.4 * math.sin(t * 2.9 + p.phase * 2.3) + 0.25 * math.sin(t * 0.51 + p.phase * 0.7))
+						write_rocking(matrix, p.x, p.y, p.z, size, p.angle, theta)
+						write_rocking(prev_matrix, p.px, p.py, p.pz, size, p.angle, theta)
 					else
-						local c, s = math.cos(p.angle), math.sin(p.angle)
-						write_matrix(matrix, p.x, p.y, p.z, size, c, 0, -s, 0, 1, 0, s, 0, c)
-						write_matrix(prev_matrix, p.px, p.py, p.pz, size, c, 0, -s, 0, 1, 0, s, 0, c)
+						write_tumble(matrix, p.x, p.y, p.z, size, p.angle, p.kx, p.ky, p.kz)
+						write_tumble(prev_matrix, p.px, p.py, p.pz, size, p.angle, p.kx, p.ky, p.kz)
 					end
 
-					gbuffer_instancing.Queue(polygon, material, matrix, prev_matrix)
+					if not translucent then
+						gbuffer_instancing.Queue(polygon, material, matrix, prev_matrix)
+					end
+				end
+			end
+		end
+	end)
+
+	event.AddListener("PreDraw3DTranslucent", "particle_emitter_cpu", function()
+		local camera = render3d.GetCamera():GetPosition()
+
+		for _, emitter in ipairs(particle_emitter.instances) do
+			local runtime = emitter.particle_state.cpu
+
+			if
+				emitter.particle_backend == "cpu" and
+				runtime and
+				runtime.translucent and
+				runtime.count > 0 and
+				particle_emitter.IsShown(emitter)
+			then
+				local particles = runtime.particles
+				local near, far = math.huge, 0
+
+				for i = 0, runtime.count - 1 do
+					local p = particles[i]
+					local distance = math.sqrt((p.x - camera.x) ^ 2 + (p.y - camera.y) ^ 2 + (p.z - camera.z) ^ 2)
+					near = math.min(near, distance)
+					far = math.max(far, distance)
+				end
+
+				local radius = math.max(emitter.SizeStart, emitter.SizeEnd)
+				render3d.ExtendTranslucentDepthRange(near - radius, far + radius)
+
+				if get_material(emitter):GetRefraction() > 0 then
+					render3d.RequestRefractionSource()
+				end
+			end
+		end
+	end)
+
+	event.AddListener("Draw3DTranslucent", "particle_emitter_cpu", function()
+		for _, emitter in ipairs(particle_emitter.instances) do
+			local runtime = emitter.particle_state.cpu
+
+			if
+				emitter.particle_backend == "cpu" and
+				runtime and
+				runtime.translucent and
+				particle_emitter.IsShown(emitter)
+			then
+				local polygon = get_polygon(emitter.Mesh)
+				local material = get_material(emitter)
+				local fixed_thickness = material:GetRefractionThickness()
+				local matrices = runtime.matrices
+				local prev_matrices = runtime.prev_matrices
+				local sizes = runtime.sizes
+				render3d.SetCurrentPolygon3D(polygon)
+				render3d.SetMaterial(material)
+
+				for i = 1, runtime.count do
+					render3d.SetWorldMatrix(matrices[i], prev_matrices[i])
+					render3d.UploadTranslucentConstants(fixed_thickness >= 0 and fixed_thickness or sizes[i] * THICKNESS_SCALE)
+					polygon:Draw()
 				end
 			end
 		end
