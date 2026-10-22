@@ -7,6 +7,7 @@ local damage = import("lua/damage.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local actors = import("lua/jrpg/actors.lua")
 local effects = import("lua/jrpg/effects.lua")
+local clips = import("goluwa/render3d/clips.lua")
 local META = objects.CreateTemplate("magic_projectile")
 META.Network = {
 	Types = {"string", 1, "reliable"},
@@ -232,14 +233,18 @@ function META:BuildVisuals()
 
 	self.color = color
 	self.glow = glow
-	self.orb = effects.AcquireOrb(color, LENS_SCALE)
-	self.trail = effects.vfx.AcquireGpuTrail(
-		color,
-		20,
-		TRAIL_POINTS,
-		TRAIL_RADIUS * glow,
-		effects.vfx.GetTexture("orbit_trail"),
-		0
+	self.clip = clips.Play(
+		"jrpg_projectile",
+		{
+			position = Vec3(),
+			color = color,
+			size = 0,
+			fade = 1,
+			flicker = 1,
+			lens_scale = LENS_SCALE,
+			trail_radius = TRAIL_RADIUS * glow,
+		},
+		true
 	)
 	self.emitters = {}
 	self.emitters_playing = true
@@ -283,8 +288,8 @@ function META:BuildVisuals()
 	self.light:SetTransient(true)
 end
 
-function META:UpdateVisuals()
-	if not self.orb then self:BuildVisuals() end
+function META:UpdateVisuals(dt)
+	if not self.clip then self:BuildVisuals() end
 
 	local position = self.Owner.transform:GetPosition()
 	local flicker = 1
@@ -298,9 +303,12 @@ function META:UpdateVisuals()
 	local fade = 1 - math.min(self.fade_time / FADE_TIME, 1)
 	local appear = math.min(self.time * 6, 1) * fade
 	local size = 0.16 * self.glow * appear
-	self.orb:Draw(position, size, fade, flicker)
-	self.trail:ShiftXYZ(position.x, position.y, position.z)
-	self.trail:SetAlpha(fade)
+	local p = self.clip.params
+	p.position:Set(position.x, position.y, position.z)
+	p.size = size
+	p.fade = fade
+	p.flicker = flicker
+	self.clip:Update(0, dt)
 
 	if self.Bounced and self.emitters_playing then
 		self.emitters_playing = false
@@ -331,7 +339,7 @@ function META:OnUpdate(dt)
 
 	if self.Bounced then self.fade_time = self.fade_time + dt end
 
-	if effects.Visual then self:UpdateVisuals() end
+	if effects.Visual then self:UpdateVisuals(dt) end
 
 	if network.HasAuthority() and self.caster then
 		self:Simulate(math.min(dt, 0.05))
@@ -339,9 +347,9 @@ function META:OnUpdate(dt)
 end
 
 function META:OnRemove()
-	if not self.orb then return end
+	if not self.clip then return end
 
-	self.trail:Release()
+	self.clip:Remove()
 	self.light:Remove()
 
 	for _, emitter in ipairs(self.emitters) do

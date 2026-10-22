@@ -72,6 +72,7 @@ local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local damage = import("lua/damage.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local effects = import("lua/jrpg/effects.lua")
+local clips = import("goluwa/render3d/clips.lua")
 local sounds = import("lua/sounds.lua")
 local META = objects.CreateTemplate("weapon_magic")
 META:StartStorable()
@@ -176,10 +177,24 @@ function META:OnUpdate()
 	local orb = self.Owner.prefab:GetNode("orb")
 
 	if not self.orb then
-		self.orb = effects.AcquireOrb(damage_types.Get(self.Element).Color, 1)
+		self.orb = clips.Play(
+			"jrpg_orb",
+			{
+				position = Vec3(),
+				color = damage_types.Get(self.Element).Color,
+				size = ORB_SIZE,
+				alpha = 1,
+				flicker = 1,
+				lens_scale = 1,
+			},
+			true
+		)
 	end
 
-	self.orb:Draw(get_world_position(orb), ORB_SIZE, orb.visibility_hidden and 0 or 1, 1)
+	local p = self.orb.params
+	p.position:Set(get_world_position(orb):Unpack())
+	p.alpha = orb.visibility_hidden and 0 or 1
+	self.orb:Update(0, 0)
 
 	local caster = self:GetCaster()
 
