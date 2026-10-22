@@ -1,7 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local network = import("goluwa/network/network.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
-local physics = import("goluwa/physics.lua")
+local damage = import("lua/damage.lua")
 local nav_mesh = import("goluwa/entities/components/nav_mesh.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
@@ -27,7 +27,7 @@ META:GetSet("WanderMaxDelay", 6)
 META:GetSet("PhysicsDistance", 15)
 META:GetSet("AttackRange", 12)
 META:GetSet("FireInterval", 0.8)
-META:GetSet("AimError", 0.05)
+META:GetSet("AimError", 0.035)
 META:EndStorable()
 local WAYPOINT_RADIUS = 0.5
 local GOAL_RADIUS = 0.3
@@ -48,8 +48,7 @@ local WANDER_MIN_DISTANCE = 4
 local WANDER_TRIES = 4
 local TARGET_INTERVAL = 0.25
 local TARGET_CHEST = 0.6
-local AIM_TOLERANCE = 0.12
-local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
+local AIM_TOLERANCE = 0.04
 
 function META:Initialize()
 	-- an npc in a prefab is added while its entity is being built and initialized once more when the build ends
@@ -334,9 +333,9 @@ function META:UpdateTarget(position)
 					local distance = offset:GetLength()
 
 					if distance < nearest then
-						local hit = physics.Sweep(eye, offset, 0, owner, nil, TRACE_OPTIONS)
+						local hit = damage.Sweep(eye, offset, owner)
 
-						if not hit or hit.entity == candidate then
+						if not hit or (hit.entity and damage.GetVictim(hit.entity) == candidate) then
 							nearest = distance
 							target = candidate
 						end

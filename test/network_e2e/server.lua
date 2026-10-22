@@ -44,10 +44,25 @@ Entity.New{
 }
 import("test/network_e2e/signals.lua").Write("server.ready", "ready")
 local t = 0
+local killed = false
+local damage = import("lua/damage.lua")
+local clients = import("goluwa/network/clients.lua")
 
 event.AddListener("Update", "e2e_server", function(dt)
 	t = t + dt
 	prop.transform:SetPosition(Vec3(math.sin(t * 2) * 2, 2, 3))
+
+	if not killed and import("test/network_e2e/signals.lua").Read("observer.result") then
+		killed = true
+
+		for _, client in ipairs(clients.GetAll()) do
+			local player = _G.GetPlayerEntity(client)
+
+			if player and player:IsValid() then
+				player.health:TakeDamage(damage.Info{Damage = 1000000})
+			end
+		end
+	end
 end)
 
 if os.getenv("E2E_DEBUG") then

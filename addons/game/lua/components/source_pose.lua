@@ -42,7 +42,11 @@ function META:Initialize()
 end
 
 function META:OnRemove()
-	if self.character and self.character:IsValid() then self.character.character_pose.driver = nil end
+	if self.character and self.character:IsValid() then
+		local pose = self.character.character_pose
+
+		if pose then pose.driver = nil end
+	end
 end
 
 local function find_ancestor(entity, component)
@@ -203,6 +207,8 @@ function META:MirrorBones(rig, armature, pose)
 
 		armature:SetBone(name, matrix, "model")
 	end
+	-- reading the pure animation above left the skin matrices without the overrides, and the skin is read after every update
+	rig:Compute()
 end
 
 function META:OnUpdate(dt)
@@ -221,6 +227,13 @@ function META:OnUpdate(dt)
 	end
 
 	local pose = self.character.character_pose
+	local ragdoll = self.character.ragdoll
+
+	if ragdoll and ragdoll:IsReleased() then
+		ragdoll:DriveRig(rig)
+		return
+	end
+
 
 	if self.Profile == "gmod_player" then
 		self:UpdatePlayer(animator, pose, dt)

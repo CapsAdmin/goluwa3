@@ -81,3 +81,15 @@ T.Test("an attachment_points component puts its profile sockets on the armature 
 	T(#early.armature:GetSocketNames())["=="](6)
 	early:Remove()
 end)
+
+T.Test("a source pose can be removed after the pose it drives", function()
+	local character = Entity.New{
+		ComponentSet = {"transform", "character_pose", "source_pose"},
+		transform = {},
+	}
+	character.source_pose.character = character
+	character.character_pose.driver = character.source_pose
+	character:RemoveComponent("character_pose")
+	character:Remove()
+	T(character:IsValid())["=="](false)
+end)

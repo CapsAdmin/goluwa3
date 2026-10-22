@@ -47,6 +47,7 @@ if SERVER then
 				"character_pose",
 				"attachment_points",
 				"procedural_pose",
+				"ragdoll",
 				"weapon_holder",
 				"health",
 			},

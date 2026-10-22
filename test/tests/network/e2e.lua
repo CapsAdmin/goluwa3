@@ -265,9 +265,16 @@ T.Test("network e2e: replication, prediction, reconciliation and relay under goo
 				}
 				local observer_output = wait_for_file(scenario, "observer.result", 60, watched)
 				local bot_output = wait_for_file(scenario, "bot.result", 5, watched)
+				local ragdoll_output = wait_for_file(scenario, "observer.ragdoll", 30, watched)
 
 				for _, message in ipairs(verify(scenario, observer_output, bot_output)) do
 					failures[#failures + 1] = scenario.name .. ": " .. message
+				end
+
+				local parts, expected = ragdoll_output:match("OBSERVER_RAGDOLL parts=(%d+) expected=(%d+)")
+
+				if not parts or parts ~= expected then
+					failures[#failures + 1] = scenario.name .. ": the ragdoll parts of the dead player were not replicated: " .. ragdoll_output
 				end
 			end
 

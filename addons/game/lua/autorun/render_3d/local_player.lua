@@ -29,6 +29,7 @@ local rig = Entity.New{
 		"character_pose",
 		"attachment_points",
 		"procedural_pose",
+		"ragdoll",
 		"weapon_holder",
 		"player_avatar",
 		"health",

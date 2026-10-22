@@ -86,7 +86,9 @@ event.AddListener("Update", "e2e_observer", function()
 	if prop then
 		first_x = first_x or prop.transform:GetPosition().x
 
-		if math.abs(prop.transform:GetPosition().x - first_x) > 0.5 then moved = true end
+		if math.abs(prop.transform:GetPosition().x - first_x) > 0.5 then
+			moved = true
+		end
 
 		checks.prop = moved and
 			prop.transform:GetSize() == 3 and
@@ -222,5 +224,30 @@ event.AddListener("Update", "e2e_observer_finish", function()
 
 	if (avatar.transform:GetPosition() - expected):GetLength() < SETTLE_DISTANCE then
 		finish(false)
+	end
+end)
+
+local ragdoll_done = false
+local RagdollPart = import("lua/components/ragdoll_part.lua")
+local biped = import("lua/biped.lua")
+
+event.AddListener("Update", "e2e_observer_ragdoll", function()
+	if ragdoll_done or not finished then return end
+
+	local avatar = find_avatar()
+	local count = 0
+
+	if avatar and avatar.network and avatar.health:IsDead() then
+		for _, part in ipairs(RagdollPart.Instances or {}) do
+			if part.CharacterId == avatar.network.NetworkId then count = count + 1 end
+		end
+	end
+
+	if count == #biped.Parts or system.GetTime() - started > TIMEOUT + 20 then
+		ragdoll_done = true
+		signals.Write(
+			"observer.ragdoll",
+			string.format("OBSERVER_RAGDOLL parts=%d expected=%d\n", count, #biped.Parts)
+		)
 	end
 end)

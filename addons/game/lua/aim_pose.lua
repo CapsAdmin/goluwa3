@@ -144,6 +144,8 @@ function aim_pose.GetGripMatrix(hand, pitch)
 	return grip
 end
 
+aim_pose.SetBetween = set_between
+
 function aim_pose.GetAim(pose)
 	if pose.recoil <= 0 then return pose.pitch end
 

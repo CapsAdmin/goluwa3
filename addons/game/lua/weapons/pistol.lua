@@ -16,20 +16,18 @@ return {
 	},
 	Source = [=====[
 local objects = import("goluwa/objects/objects.lua")
-local physics = import("goluwa/physics.lua")
 local damage = import("lua/damage.lua")
 local weapon_effects = import("lua/weapon_effects.lua")
 local META = objects.CreateTemplate("weapon_pistol")
 META:GetSet("Range", 50)
 META:GetSet("Damage", 20)
 META:GetSet("Impulse", 6)
-local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 
 function META:OnWeaponPrimary(cmd)
 	local player = self.Owner:GetParent()
 	local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 	local forward = cmd.view:GetForward()
-	local hit = physics.Sweep(origin, forward * self.Range, 0, player, nil, TRACE_OPTIONS)
+	local hit = damage.Sweep(origin, forward * self.Range, player)
 
 	weapon_effects.MuzzleFlash(self.Owner, forward)
 
@@ -37,13 +35,17 @@ function META:OnWeaponPrimary(cmd)
 
 	weapon_effects.Hit(hit.point, hit.normal, forward * self.Impulse)
 
-	if hit.entity and hit.entity.health then
+	local victim, multiplier
+
+	if hit.entity then victim, multiplier = damage.GetVictim(hit.entity) end
+
+	if victim and victim.health then
 		damage.Deal(
-			hit.entity,
+			victim,
 			{
 				Attacker = player,
 				Inflictor = self.Owner,
-				Damage = self.Damage,
+				Damage = self.Damage * multiplier,
 				Position = hit.point,
 				Normal = hit.normal,
 				Force = forward * self.Impulse,

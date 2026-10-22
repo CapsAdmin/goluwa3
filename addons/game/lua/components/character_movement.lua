@@ -119,6 +119,7 @@ function META:Reset(mode)
 	self.Owner.transform.RenderOffset:Set(0, 0, 0)
 	self:InvalidateBodyGeometry()
 	self:ApplyMode(mode)
+	self.Owner:CallLocalEvent("OnCharacterReset")
 end
 
 function META:GetViewOffset()
@@ -421,6 +422,13 @@ do
 		self.dead = true
 		self.death_time = system.GetElapsedTime()
 		self.Swimming = false
+
+		if self.Owner.ragdoll then
+			body:SetCollisionEnabled(false)
+			body:SetMotionType("kinematic")
+			return
+		end
+
 		body:SetCollisionEnabled(true)
 		body:SetGravityScale(self.Gravity / body:GetPhysics().Gravity:GetLength())
 		body:SetLockRotation(false)

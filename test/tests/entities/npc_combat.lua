@@ -42,6 +42,7 @@ local function create_target(position)
 		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "health"},
 		transform = {Position = position:Copy()},
 		player_controller = {Source = "queue"},
+		health = {Health = 1000, MaxHealth = 1000},
 	}
 	player.player_controller.cmd.mode = "walk"
 	player.character_movement:TeleportTo(position)
@@ -52,7 +53,7 @@ T.TestPhysics("npc with a weapon turns to and shoots a player in range", functio
 	create_ground()
 	local gunman = create_gunman(Vec3(0, 0.05, 0))
 	local player = create_target(Vec3(6, 0.05, 0))
-	run(4)
+	run(2)
 	T(player.health.Health < player.health.MaxHealth)["=="](true)
 	local forward = gunman.transform:GetRotation():GetForward()
 	T(forward.x > 0.9)["=="](true)
