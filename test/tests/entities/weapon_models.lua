@@ -6,18 +6,21 @@ local scene = import("goluwa/entities/scene.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 
-T.Test("Weapons are built in prefabs with a model, a muzzle and a loaded script", function()
+T.Test("Weapons are built in prefabs with a model, a loaded script and a muzzle on tools", function()
 	for _, name in ipairs(weapons.GetNames()) do
 		T(prefab.Get(name).builtin)["=="](true)
 		local instance = Entity.New{prefab = {Path = name}}
 		local model = instance.weapon:GetModel()
 		T(model:GetParent())["=="](instance)
 		T(model.transform:GetAttachment())["=="]("root")
-		local muzzle = instance.weapon:GetMuzzle()
-		T(muzzle:GetParent())["=="](model)
-		T(muzzle.transform:GetPosition():GetLength())[">"](0.3)
+		if instance.weapon:GetCategory() == "tools" then
+			local muzzle = instance.weapon:GetMuzzle()
+			T(muzzle:GetParent())["=="](model)
+			T(muzzle.transform:GetPosition():GetLength())[">"](0.3)
+		end
+
 		T(instance.script.Error == nil)["=="](true)
-		T(instance[name] ~= nil)["=="](true)
+		T(instance.script.instance ~= nil)["=="](true)
 		T(model.visibility:GetVisible())["=="](true)
 		instance.weapon:UpdateModel(false)
 		T(model.visibility:GetVisible())["=="](false)
@@ -44,4 +47,10 @@ T.Test("Spawned weapons serialize and come back with their script values", funct
 		T(copy.script.instance ~= nil)["=="](true)
 		copy:Remove()
 	end
+
+	local magic = weapons.Spawn("weapon_magic_ice", Vec3())
+	local copy = scene.Deserialize(scene.SerializeEntities({magic}), Entity.World)[1]
+	magic:Remove()
+	T(copy.weapon_magic:GetElement())["=="]("ice")
+	copy:Remove()
 end)

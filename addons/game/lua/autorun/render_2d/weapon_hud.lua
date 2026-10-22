@@ -16,7 +16,9 @@ local last_change = -math.huge
 event.AddListener("DrawHUD", "weapon_hud", function()
 	local rig = _G.PLAYER_RIG
 
-	if not (rig and rig:IsValid()) or third_person.IsHudHidden() then return end
+	if not (rig and rig:IsValid()) or rig.rpg or third_person.IsHudHidden() then
+		return
+	end
 
 	local holder = rig.weapon_holder
 	local slot = holder:GetActiveSlot()

@@ -179,6 +179,8 @@ function META:BuildCommand(cmd)
 		cmd.up = self.move_local.y
 
 		if self.jump_down then buttons = bit.bor(buttons, BUTTON.JUMP) end
+
+		if input.IsKeyDown("left_alt") then buttons = bit.bor(buttons, BUTTON.BLOCK) end
 	end
 
 	if active then
@@ -190,7 +192,7 @@ function META:BuildCommand(cmd)
 			buttons = bit.bor(buttons, BUTTON.ATTACK2)
 		end
 
-		if input.IsMouseDown("button_3") then
+		if input.IsMouseDown("button_3") and not battlecam.IsEnabled() then
 			buttons = bit.bor(buttons, BUTTON.TELEPORT)
 		end
 
@@ -282,7 +284,7 @@ function META:OnPreUpdate(dt)
 
 	if self.mouse_trapped then
 		third_person.ApplyRelativeMovement(self, dt)
-		battlecam.ApplyMovement(self, dt)
+		battlecam.ApplyMovement(self, dt, input.IsMouseDown("button_1") or input.IsMouseDown("button_2"))
 	end
 end
 

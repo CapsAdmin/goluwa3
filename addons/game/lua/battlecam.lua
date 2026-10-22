@@ -23,6 +23,7 @@ local MAX_ORBIT_PITCH = 1.2
 local FREE_FOV = math.rad(60)
 local TARGET_FOV = math.rad(50)
 local TURN_SPEED = 12
+local AIM_LIFT = 0.15
 local battlecam = {}
 local enabled = false
 pvars.Setup2{
@@ -33,7 +34,7 @@ pvars.Setup2{
 	friendly = "battle camera",
 	help = "jrpg style camera that trails the player and locks on to bodies, client side only",
 	callback = function(value)
-		enabled = value
+		battlecam.SetEnabled(value)
 	end,
 }
 local state = {
@@ -61,17 +62,27 @@ local pending_target
 event.AddListener("KeyInput", "battlecam_target", function(key, press)
 	if not enabled or not press then return end
 
-	if key == "insert" then
+	if key == "insert" or key == "tab" then
 		pending_target = "toggle"
-	elseif key == "home" then
+	elseif key == "home" or key == "right" then
 		pending_target = 1
-	elseif key == "pageup" then
+	elseif key == "pageup" or key == "left" then
 		pending_target = -1
 	end
 end)
 
+event.AddListener("MouseInput", "battlecam_target", function(key, press)
+	if enabled and press and key == "button_3" then pending_target = "toggle" end
+end)
+
 function battlecam.IsEnabled()
 	return enabled
+end
+
+function battlecam.SetEnabled(value)
+	if enabled and not value then battlecam.Disable() end
+
+	enabled = value
 end
 
 function battlecam.IsHudHidden()
@@ -209,7 +220,7 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	return origin, rotation, state.fov, 0.05
 end
 
-function battlecam.ApplyMovement(player_input, dt)
+function battlecam.ApplyMovement(player_input, dt, attacking)
 	state.walking = false
 
 	if not enabled then return end
@@ -217,18 +228,18 @@ function battlecam.ApplyMovement(player_input, dt)
 	local current = player_input:GetRotation()
 	local forward = current:VecMul(FORWARD)
 	local yaw = math.atan2(-forward.x, -forward.z)
+	local pitch = math.asin(math.clamp(forward.y, -1, 1))
 	local target_yaw
-
+	local target_pitch = 0
 	local target = targeting.Get()
+	local move = player_input.move_local
 
 	if target then
 		local to_target = target:GetPosition() - pivot
+		local flat = math.sqrt(to_target.x * to_target.x + to_target.z * to_target.z)
 		target_yaw = math.atan2(-to_target.x, -to_target.z)
-	else
-		local move = player_input.move_local
-
-		if move.z == 0 and move.x == 0 then return end
-
+		target_pitch = math.atan2(to_target.y, math.max(flat, 1e-3))
+	elseif move.z ~= 0 or move.x ~= 0 then
 		state.walking = true
 		local camera_forward = state.rotation:VecMul(FORWARD)
 		local flat = math.sqrt(camera_forward.x * camera_forward.x + camera_forward.z * camera_forward.z)
@@ -237,12 +248,22 @@ function battlecam.ApplyMovement(player_input, dt)
 
 		local fx, fz = camera_forward.x / flat, camera_forward.z / flat
 		target_yaw = math.atan2(-(fx * move.z + -fz * move.x), -(fz * move.z + fx * move.x))
+	elseif attacking then
+		local camera_forward = state.rotation:VecMul(FORWARD)
+		target_yaw = math.atan2(-camera_forward.x, -camera_forward.z)
+		target_pitch = math.asin(math.clamp(camera_forward.y, -1, 1)) + AIM_LIFT
+	else
+		target_yaw = yaw
 	end
 
+	local k = math.min(dt * TURN_SPEED, 1)
 	local difference = (target_yaw - yaw + math.pi) % (math.pi * 2) - math.pi
+	pitch = pitch + (target_pitch - pitch) * k
 	local result = Quat():Identity()
-	result:RotateYaw(yaw + difference * math.min(dt * TURN_SPEED, 1))
+	result:RotateYaw(yaw + difference * k)
+	result:RotatePitch(pitch)
 	player_input:SetRotation(result)
+	player_input:SetPitch(pitch)
 end
 
 function battlecam.AdjustCommand(cmd)

@@ -10,7 +10,7 @@ local SIZE = 14
 local LIFT = Vec3(0, 40 * U, 0)
 
 event.AddListener("DrawHUD", "battlecam", function()
-	if not battlecam.IsEnabled() then return end
+	if not battlecam.IsEnabled() or (_G.PLAYER_RIG and _G.PLAYER_RIG.rpg) then return end
 
 	local target = targeting.Get()
 

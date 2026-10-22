@@ -6,6 +6,7 @@ local Material = import("goluwa/render3d/material.lua")
 local Beam = import("goluwa/render3d/beam.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local visual_bounds = import("lua/visual_bounds.lua")
+local actors = import("lua/jrpg/actors.lua")
 local META = objects.CreateTemplate("item_highlight")
 META:StartStorable()
 META:GetSet("Color", Color(1, 0.75, 0.2, 1))
@@ -109,11 +110,15 @@ end
 function META:OnEntityConstructed()
 	if not self.rim then return end
 
-	self:SetRimVisible(self:IsDropped())
+	self:SetRimVisible(self:IsShown())
 end
 
 function META:IsDropped()
 	return not self.Owner.weapon:IsHeld()
+end
+
+function META:IsShown()
+	return self:IsDropped() and actors.IsLocalRPG()
 end
 
 function META:GetAnchor()
@@ -122,7 +127,7 @@ function META:GetAnchor()
 end
 
 function META:OnUpdate(dt)
-	local dropped = self:IsDropped() and self:GetAnchor() ~= nil
+	local dropped = self:IsShown() and self:GetAnchor() ~= nil
 	self:SetRimVisible(dropped)
 
 	for _, beam in ipairs(self.beams) do

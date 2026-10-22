@@ -135,6 +135,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/ui.md](docs/ui.md): render2d/ui widgets, entity construction, input history, autocomplete, undo, icons, asset browser
 - [docs/wrappers.md](docs/wrappers.md): macos notes, Love2D and Garrysmod wrappers
 - [docs/vulkan-raytrace.md](docs/vulkan-raytrace.md): hardware ray tracing facts and gotchas
+- [docs/jrpg.md](docs/jrpg.md): `!rpg` mode, damage types, status effects, magic, effect pools, pose actions
 
 Harnesses, benchmarks and repro scripts for one specific purpose go in `./tmp/` (git-ignored), never in the repo. Promote only generic, reusable parts into the engine or `test/`.
 

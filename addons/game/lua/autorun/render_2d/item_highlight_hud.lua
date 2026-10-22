@@ -20,7 +20,7 @@ event.AddListener("DrawHUD", "item_highlight_hud", function()
 	local w, h = render2d.GetSize()
 
 	for _, item in ipairs(item_highlight.Instances) do
-		if item.beams and item:IsDropped() and item:GetAnchor() then
+		if item.beams and item:IsShown() and item:GetAnchor() then
 			local center = item:GetAnchor():GetCenter()
 			position:Set(center.x, center.y + 0.4, center.z)
 			local to_item = position - camera_position

@@ -1,4 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
+local Entity = import("goluwa/entities/entity.lua")
 local network = import("goluwa/network/network.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local damage = import("lua/damage.lua")
@@ -28,6 +29,13 @@ META:GetSet("PhysicsDistance", 15)
 META:GetSet("AttackRange", 12)
 META:GetSet("FireInterval", 0.8)
 META:GetSet("AimError", 0.035)
+META:GetSet("MeleeDamage", 0)
+META:GetSet("MeleeRange", 1.5)
+META:GetSet("MeleeInterval", 1.2)
+META:GetSet("MeleeDelay", 0.3)
+META:GetSet("MagicElement", "")
+META:GetSet("MagicDamage", 20)
+META:GetSet("MagicInterval", 2.5)
 META:EndStorable()
 local WAYPOINT_RADIUS = 0.5
 local GOAL_RADIUS = 0.3
@@ -303,6 +311,80 @@ function META:IsSimulated()
 	return not self.far
 end
 
+function META:IsArmed()
+	local holder = self.Owner.weapon_holder
+	return holder ~= nil and holder:GetActiveWeapon() ~= nil
+end
+
+function META:CanFight()
+	return self:IsArmed() or self.MeleeDamage > 0 or self.MagicElement ~= ""
+end
+
+function META:CastAt(target)
+	local owner = self.Owner
+	local eye = owner.rigid_body:GetOriginPosition() + owner.character_movement:GetViewOffset()
+	local aim = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * TARGET_CHEST, 0)
+	local direction = (aim - eye):GetNormalized()
+	local projectile = Entity.New{
+		Name = "magic_projectile",
+		transform = {Position = eye + direction * 0.6},
+		magic_projectile = {Types = self.MagicElement, Damage = self.MagicDamage},
+		network = SERVER and {} or nil,
+	}
+	projectile.magic_projectile:Launch(owner, direction, target)
+end
+
+function META:Fight(target, position)
+	local owner = self.Owner
+	local pose = owner.character_pose
+	local offset = target.transform:GetPosition() - position
+	offset.y = 0
+	local distance = offset:GetLength()
+
+	if self.MagicElement ~= "" then
+		if self.time >= self.next_fire then
+			self.next_fire = self.time + self.MagicInterval * math.randomf(0.8, 1.2)
+			pose:PlayAction("attack", 0.9)
+			self.attack_at = self.time + 0.45
+		end
+
+		if self.attack_at and self.time >= self.attack_at then
+			self.attack_at = nil
+			self:CastAt(target)
+		end
+
+		return
+	end
+
+	if distance > self.MeleeRange then
+		self.dir_x, self.dir_z = offset.x / distance, offset.z / distance
+		self.chasing = true
+	elseif self.time >= self.next_fire then
+		self.next_fire = self.time + self.MeleeInterval
+		pose:PlayAction("attack", self.MeleeInterval * 0.7)
+		self.attack_at = self.time + self.MeleeDelay
+	end
+
+	if self.attack_at and self.time >= self.attack_at then
+		self.attack_at = nil
+
+		if distance <= self.MeleeRange * 1.4 then
+			local direction = distance > 1e-3 and offset / distance or Vec3(0, 0, -1)
+			damage.Deal(
+				target,
+				{
+					Attacker = owner,
+					Inflictor = owner,
+					Damage = self.MeleeDamage,
+					Position = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * TARGET_CHEST, 0),
+					Normal = direction * -1,
+					Force = direction * 3,
+				}
+			)
+		end
+	end
+end
+
 function META:UpdateTarget(position)
 	local owner = self.Owner
 	local target = self.target
@@ -315,9 +397,7 @@ function META:UpdateTarget(position)
 		self.next_target = self.time + TARGET_INTERVAL
 		target = nil
 
-		local holder = owner.weapon_holder
-
-		if holder and holder:GetActiveWeapon() then
+		if self:CanFight() then
 			local eye = position + owner.character_movement:GetViewOffset()
 			local nearest = self.AttackRange
 
@@ -357,11 +437,14 @@ function META:NextCommand(dt)
 	simulation_lod.Update(META.Instances)
 	local far = self.far
 	self.dir_x, self.dir_z = nil, nil
+	self.chasing = false
 	local target = not far and self:UpdateTarget(position)
 
 	if target then
 		self.time = self.time + dt
 		self.stuck_position = nil
+
+		if not self:IsArmed() then self:Fight(target, position) end
 	else
 		self.target = nil
 		self:Think(dt, position)
@@ -372,7 +455,7 @@ function META:NextCommand(dt)
 	cmd.mode = far and "fly" or "walk"
 	cmd.buttons = far and 0 or BUTTON.ACTIVE
 	cmd.forward, cmd.side = 0, 0
-	local speed = self.Running and self.RunSpeed or self.WalkSpeed
+	local speed = (self.Running or self.chasing) and self.RunSpeed or self.WalkSpeed
 
 	if dir_x then
 		local delta = math.normalizeangle(math.atan2(-dir_x, -dir_z) - yaw)

@@ -54,6 +54,11 @@ npcs.Definitions = {
 		Run = "walk",
 		WalkSpeed = 45,
 		RunSpeed = 45,
+		Attack = "attackA",
+		MeleeDamage = 18,
+		MeleeRange = 1.4,
+		MeleeInterval = 1.8,
+		MeleeDelay = 0.6,
 	},
 	vortigaunt = {
 		Model = "models/vortigaunt.mdl",
@@ -64,6 +69,8 @@ npcs.Definitions = {
 		RunSpeed = 140,
 		Radius = 20,
 		Height = 84,
+		Attack = "zapattack1",
+		MagicElement = "lightning",
 	},
 	antlion = {
 		Model = "models/antlion.mdl",
@@ -75,6 +82,9 @@ npcs.Definitions = {
 		Radius = 28,
 		Height = 56,
 		TurnSpeed = 12,
+		Attack = "attack1",
+		MeleeDamage = 12,
+		MeleeRange = 1.8,
 	},
 	headcrab = {
 		Model = "models/headcrab.mdl",
@@ -87,6 +97,9 @@ npcs.Definitions = {
 		Height = 14,
 		TurnSpeed = 14,
 		StepHeight = 8,
+		Attack = "attack",
+		MeleeDamage = 6,
+		MeleeRange = 0.9,
 	},
 }
 
@@ -111,6 +124,11 @@ function npcs.Register(name, info)
 		Radius = info.Radius and info.Radius * UNIT,
 		Height = info.Height and info.Height * UNIT,
 		StepHeight = info.StepHeight and info.StepHeight * UNIT,
+		MeleeDamage = info.MeleeDamage,
+		MeleeRange = info.MeleeRange,
+		MeleeInterval = info.MeleeInterval,
+		MeleeDelay = info.MeleeDelay,
+		MagicElement = info.MagicElement,
 	}
 	return prefab.Register(
 		npcs.GetPrefabName(name),
@@ -134,6 +152,7 @@ function npcs.Register(name, info)
 								IdleSequence = info.Idle,
 								WalkSequence = info.Walk,
 								RunSequence = info.Run,
+								AttackSequence = info.Attack,
 								Mirror = info.Biped,
 								OwnsArmature = info.Biped,
 							} or
