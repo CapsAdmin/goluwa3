@@ -163,7 +163,7 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 
 		if mouse_x ~= 0 or mouse_y ~= 0 then
 			local current_pitch = math.asin(math.clamp(offset.y / math.max(offset:GetLength(), 1e-4), -1, 1))
-			local pitch = math.clamp(current_pitch - mouse_y, -MAX_ORBIT_PITCH, MAX_ORBIT_PITCH) - current_pitch
+			local pitch = math.clamp(current_pitch + mouse_y, -MAX_ORBIT_PITCH, MAX_ORBIT_PITCH) - current_pitch
 			local yaw = Quat():Identity()
 			yaw:RotateYaw(-mouse_x)
 			local right = yaw:VecMul(state.rotation:VecMul(RIGHT))
