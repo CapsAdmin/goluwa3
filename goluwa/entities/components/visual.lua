@@ -63,7 +63,7 @@ local function refresh_shadow_registry(component)
 end
 
 local function refresh_forward_overlay_registry(component)
-	if component.HasIgnoreZRenderEntries or component.OverlayMaterial then
+	if not component.scene_removed and (component.HasIgnoreZRenderEntries or component.OverlayMaterial) then
 		registry_insert(visual.forward_overlay_components, "forward_overlay_registry_index", component)
 	else
 		registry_remove(visual.forward_overlay_components, "forward_overlay_registry_index", component)
@@ -87,6 +87,7 @@ end
 
 local function refresh_visual_registries(component)
 	refresh_shadow_registry(component)
+	refresh_forward_overlay_registry(component)
 	refresh_occlusion_registries(component)
 end
 
