@@ -39,11 +39,17 @@ T.Test3D("A ribbon beam is a strip that faces the camera", function()
 	local points = Beam.NewPoints(5)
 	Beam.Line(Vec3(0, 0, -5), Vec3(0, 4, -5), points)
 	beam:SetRibbonPoints(points, 0.5, 1)
-	local vertices = beam.polygon.Vertices
-	T(#vertices)["=="](10)
-	T(math.abs(vertices[1].pos:Distance(vertices[2].pos) - 0.4))["<"](1e-4)
-	T(vertices[9].pos:Distance(vertices[10].pos))["<"](1e-4)
-	T(vertices[1].uv.y)["=="](0.5)
-	T(math.abs(vertices[1].pos.z - -5))["<"](1e-4)
+	local vertices = beam.vertices
+
+	local function distance(a, b)
+		local p, q = vertices[a].position, vertices[b].position
+		return math.sqrt((p[0] - q[0]) ^ 2 + (p[1] - q[1]) ^ 2 + (p[2] - q[2]) ^ 2)
+	end
+
+	T(beam.point_count * 2)["=="](10)
+	T(math.abs(distance(0, 1) - 0.4))["<"](1e-4)
+	T(distance(8, 9))["<"](0.05)
+	T(vertices[0].uv[1])["=="](0.5)
+	T(math.abs(vertices[0].position[2] - -5))["<"](1e-4)
 	beam:Remove()
 end)

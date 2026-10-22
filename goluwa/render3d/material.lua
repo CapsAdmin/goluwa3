@@ -94,6 +94,7 @@ Material:GetSet("DecalFade", false, {callback = "InvalidateFlags"})
 Material:GetSet("Dithered", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaCutoff", 0.5, {callback = "InvalidateColor", requires = "AlphaTest"})
 Material:GetSet("Additive", false, {callback = "InvalidateFlags"})
+Material:GetSet("VertexTint", false, {callback = "InvalidateFlags"})
 Material:GetSet("Modulate", false, {callback = "InvalidateFlags"})
 Material:GetSet("DisplayReferred", false, {callback = "InvalidateFlags"})
 Material:StartCategory("Rendering")
@@ -178,7 +179,6 @@ do
 		dst_alpha_blend_factor = "zero",
 		alpha_blend_op = "add",
 	}
-
 	local additive = {
 		src_color_blend_factor = "src_alpha",
 		dst_color_blend_factor = "one",
@@ -449,6 +449,7 @@ local FLAGS = {
 	"BentNormals",
 	"MetallicRoughnessIsMRAO",
 	"HeightTextureIsAlpha",
+	"VertexTint",
 }
 Material.FlagBits = {}
 
@@ -617,13 +618,7 @@ do
 
 		local transmittance = REFRACTION_TRANSMITTANCE * color:GetLuminance()
 		local covering = self.Translucent and color.a or 1
-		return 1 - (
-				self.Refraction * transmittance + (
-					1 - self.Refraction
-				) * (
-					1 - covering
-				)
-			)
+		return 1 - (self.Refraction * transmittance + (1 - self.Refraction) * (1 - covering))
 	end
 
 	function Material:GetRayShadowOpacity()

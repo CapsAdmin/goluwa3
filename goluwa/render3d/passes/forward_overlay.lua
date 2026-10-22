@@ -32,6 +32,7 @@ return {
 		vertex = model_pipeline.CreateVertexStage{
 			uv = true,
 			texture_blend = true,
+			vertex_color = true,
 			get_projection_view_world_matrix = get_overlay_matrix,
 		},
 		fragment = {
@@ -78,6 +79,12 @@ return {
 				discard_surface_alpha(color);
 
 				vec3 lit = color.rgb + get_surface_emissive(color.rgb);
+
+				if (VertexTint) {
+					vec3 hue = in_vertex_color.rgb / max(max(in_vertex_color.r, max(in_vertex_color.g, in_vertex_color.b)), 1e-4);
+					lit = color.rgb * (in_vertex_color.rgb + hue);
+					color.a *= in_vertex_color.a;
+				}
 
 				if (model.RimColor.a > 0.0) {
 					vec3 view_dir = normalize(overlay_view.camera_position.xyz - in_position);

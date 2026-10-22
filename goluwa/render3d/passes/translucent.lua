@@ -220,9 +220,7 @@ local passes = {
 			render3d.translucent_depth_far = 0
 			event.Call("PreDraw3DTranslucent")
 
-			if render3d.refraction_source_requested then
-				update_refraction_source(cmd)
-			end
+			if render3d.refraction_source_requested then update_refraction_source(cmd) end
 		end,
 		on_draw = function(self, cmd)
 			if render3d.translucent_depth_far == 0 then return end
@@ -650,7 +648,17 @@ local passes = {
 
 					if (Additive) {
 						vec3 emission = DisplayReferred ? get_albedo_uv(in_uv) * color_model.ColorMultiplier.a / ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : get_emissive(in_uv) * color_model.ColorMultiplier.a * get_pre_exposure();
-						vec3 added = emission + (direct_specular + ambient_specular) * specular_coverage * get_pre_exposure();
+
+						if (VertexTint) {
+							emission = DisplayReferred ? emission * in_vertex_color.rgb * in_vertex_color.a : min(get_emissive(in_uv) * in_vertex_color.rgb, vec3(EMISSIVE_MAX_LUMINANCE)) * in_vertex_color.a * get_pre_exposure();
+						}
+						vec3 specular = (direct_specular + ambient_specular) * specular_coverage * get_pre_exposure();
+
+						if (VertexTint) {
+							specular *= in_vertex_color.rgb / max(max(in_vertex_color.r, max(in_vertex_color.g, in_vertex_color.b)), 1e-4) * in_vertex_color.a;
+						}
+
+						vec3 added = emission + specular;
 						set_color(vec4(0.0));
 						set_motion(vec4(0.0));
 						set_additive(vec4(min(added * fog_transmittance, vec3(65504.0)), 0.0) * transmittance);
