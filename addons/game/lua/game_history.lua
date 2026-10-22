@@ -27,7 +27,10 @@ function game_history.RecordSpawn(name, entity)
 	game_history.history:Push{
 		Name = name,
 		Undo = function()
-			local target = resolve_entity(guid)
+			local target = objects.GetObjectByGUID(guid)
+
+			if not target:IsValid() then return end
+
 			snap = snapshot(target)
 			target:Remove()
 		end,
