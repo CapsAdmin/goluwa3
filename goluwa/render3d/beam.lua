@@ -202,6 +202,8 @@ function Beam.New(config)
 end
 
 do
+	local MIN_PIXEL_RADIUS = 1.5
+
 	local function finish(self)
 		if not self.primitive then
 			self.polygon:BuildBoundingBox()
@@ -220,8 +222,10 @@ do
 		local vertices = self.polygon.Vertices
 		local radius_start = self.Radius
 		local radius_end = self.RadiusEnd or radius_start
-		local camera = render3d.GetCamera():GetPosition()
+		local view = render3d.GetCamera()
+		local camera = view:GetPosition()
 		local cx, cy, cz = camera.x, camera.y, camera.z
+		local min_radius_per_distance = math.tan(view:GetFOV() / 2) / view:GetViewport().h * MIN_PIXEL_RADIUS
 
 		for i = 1, count do
 			local p = points[i]
@@ -236,10 +240,12 @@ do
 				sx, sy, sz, length = 1, 0, 0, 1
 			end
 
-			local radius = radius_start + (radius_end - radius_start) * (i - 1) / (count - 1)
-			local scale = radius / length
-
 			local normal_length = math.sqrt(vx * vx + vy * vy + vz * vz)
+			local radius = math.max(
+				radius_start + (radius_end - radius_start) * (i - 1) / (count - 1),
+				normal_length * min_radius_per_distance
+			)
+			local scale = radius / length
 			local nx, ny, nz = vx / normal_length, vy / normal_length, vz / normal_length
 			local v = (i - 1) / (count - 1) * uv_scale + uv_offset
 
