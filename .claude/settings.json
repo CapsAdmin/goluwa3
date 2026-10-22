@@ -10,6 +10,16 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "(git diff --name-only HEAD; git ls-files --others --exclude-standard) | grep -E '\\.lua$' | sort -u | xargs -r nattlua fmt >/dev/null 2>&1 || true"
+          }
+        ]
+      }
     ]
   }
 }
