@@ -3,7 +3,6 @@ local network = import("goluwa/network/network.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
-local system = import("goluwa/system.lua")
 local damage = import("lua/damage.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local actors = import("lua/jrpg/actors.lua")
@@ -12,22 +11,35 @@ local META = objects.CreateTemplate("magic_projectile")
 META.Network = {
 	Types = {"string", 1, "reliable"},
 	Damage = {"number", 1, "reliable"},
+	Bounced = {"boolean", 1, "reliable"},
 }
 META:GetSet("Types", "generic")
 META:GetSet("Damage", 30)
 META:GetSet("Speed", 11)
 META:GetSet("LifeTime", 6)
 META:GetSet("Radius", 0.12)
+META:GetSet("Bounced", false)
 local CASTER_GRACE = 0.35
+local FADE_TIME = 3
+local BOUNCE_GRAVITY = 0.6
+local BOUNCE_RESTITUTION = 0.65
+local BOUNCE_MIN_SPEED = 1
 local STEER_START = 0.15
 local STEER_RATE = 7
-local TRAIL_POINTS = 14
+local TRAIL_POINTS = 20
+local LENS_SCALE = 0.5
+local TRAIL_RADIUS = 0.012
+local PARTICLE_SIZE = 0.01
 
 function META:Initialize()
 	self.time = 0
 	self.velocity = Vec3()
+	self.fade_time = 0
+	self.pending_hit = nil
+	self.step_velocity = Vec3()
 	self.type_list = {}
 	self:AddGlobalEvent("Update")
+	self:AddGlobalEvent("PhysicsUpdate")
 end
 
 function META:Launch(caster, direction, target, target_point)
@@ -36,6 +48,7 @@ function META:Launch(caster, direction, target, target_point)
 	self.target_point = target_point
 	local side = Vec3(math.randomf(-1, 1), math.randomf(0.2, 1), math.randomf(-1, 1))
 	self.velocity = (direction + side * 0.45):GetNormalized() * self.Speed
+	self.Owner.rigid_body:SetVelocity(self.velocity)
 end
 
 function META:GetTypeList()
@@ -61,8 +74,19 @@ function META:GetTargetPoint()
 	return self.target_point
 end
 
+function META:GetBurstDirection(velocity, normal)
+	local incoming = velocity:GetNormalized()
+	local facing = normal
+
+	if incoming:GetDot(normal) > 0 then facing = normal * -1 end
+
+	local reflected = incoming - facing * (2 * incoming:GetDot(facing))
+	return (normal * 0.35 + reflected * 0.65):GetNormalized()
+end
+
 function META:Explode(position, normal, victim, part)
 	local types = self:GetTypeList()
+	local direction = self:GetBurstDirection(self.velocity, normal)
 
 	if victim and victim.health then
 		for _, type_name in ipairs(types) do
@@ -85,15 +109,98 @@ function META:Explode(position, normal, victim, part)
 	end
 
 	for _, type_name in ipairs(types) do
-		effects.Impact(position, normal, type_name, victim and 1.2 or 0.8)
+		effects.Impact(position, normal, type_name, victim and 1.2 or 0.8, false, direction)
 	end
 
 	self.Owner:Remove()
 end
 
+function META:OnPhysicsUpdate()
+	self.step_velocity = self.Owner.rigid_body:GetVelocity():Copy()
+end
+
+function META:OnCollisionEnter(other, info)
+	if not network.HasAuthority() or other == self.caster and self.time < CASTER_GRACE then
+		return
+	end
+
+	local victim = damage.GetVictim(other)
+
+	if
+		not self.Bounced and
+		victim.health and
+		victim ~= self.caster and
+		not victim.health:IsDead()
+	then
+		if not self.pending_hit then
+			self.pending_hit = {entity = other, normal = info.normal, velocity = self.step_velocity}
+		end
+
+		return
+	end
+
+	local incoming = self.step_velocity
+	local normal = info.normal
+
+	if incoming:GetDot(normal) > 0 then normal = normal * -1 end
+
+	local into = incoming:GetDot(normal)
+	local outward = math.max(-into * BOUNCE_RESTITUTION, BOUNCE_MIN_SPEED)
+	self.Owner.rigid_body:SetVelocity(incoming - normal * into + normal * outward)
+
+	if not self.Bounced and not self.pending_hit then
+		self.pending_hit = {
+			entity = other,
+			body = info.other_body or other.rigid_body,
+			normal = normal,
+			velocity = incoming,
+		}
+	end
+end
+
+function META:ResolveHit(hit)
+	local body = self.Owner.rigid_body
+	local position = body:GetPosition()
+	local victim, part = damage.GetVictim(hit.entity)
+	self.velocity = hit.velocity
+
+	if victim.health and victim ~= self.caster and not victim.health:IsDead() then
+		if hit.entity.ragdoll_part then part = hit.entity.ragdoll_part.Group end
+
+		self:Explode(position, hit.normal, victim, part)
+		return
+	end
+
+	if hit.body and hit.body:IsDynamic() then
+		hit.body:ApplyImpulse(hit.velocity:GetNormalized() * 3, position)
+	end
+
+	local direction = self:GetBurstDirection(hit.velocity, hit.normal)
+	body:SetGravityScale(BOUNCE_GRAVITY)
+	self:SetBounced(true)
+
+	for _, type_name in ipairs(self:GetTypeList()) do
+		effects.Impact(position, hit.normal, type_name, 0.8, false, direction)
+	end
+end
+
 function META:Simulate(dt)
-	local transform = self.Owner.transform
-	local position = transform:GetPosition()
+	local body = self.Owner.rigid_body
+
+	if self.pending_hit then
+		local hit = self.pending_hit
+		self.pending_hit = nil
+		self:ResolveHit(hit)
+		return
+	end
+
+	if self.Bounced then
+		if self.fade_time >= FADE_TIME then self.Owner:Remove() end
+
+		return
+	end
+
+	local position = body:GetPosition()
 	local target_point = self:GetTargetPoint()
 
 	if target_point and self.time > STEER_START then
@@ -107,31 +214,7 @@ function META:Simulate(dt)
 		end
 	end
 
-	local movement = self.velocity * dt
-	local ignore = self.time < CASTER_GRACE and self.caster or nil
-	local hit = damage.Sweep(position, movement, ignore or self.Owner, self.Radius)
-
-	if hit then
-		local victim, part
-
-		if hit.entity then
-			victim = damage.GetVictim(hit.entity)
-			part = hit.entity.ragdoll_part and hit.entity.ragdoll_part.Group
-		end
-
-		if victim and not victim.health then victim = nil end
-
-		local body = hit.rigid_body or (hit.entity and hit.entity.rigid_body)
-
-		if body and body:IsDynamic() and not victim then
-			body:ApplyImpulse(self.velocity:GetNormalized() * 3, hit.point)
-		end
-
-		self:Explode(hit.point, hit.normal, victim, part)
-		return
-	end
-
-	transform:SetPosition(position + movement)
+	body:SetVelocity(self.velocity)
 
 	if self.time > self.LifeTime then
 		self:Explode(position, self.velocity:GetNormalized() * -1)
@@ -149,14 +232,25 @@ function META:BuildVisuals()
 
 	self.color = color
 	self.glow = glow
-	self.core = effects.AcquireSprite(Color(1, 1, 1, 1):GetLerped(0.4, color), 8)
-	self.halo = effects.AcquireSprite(color, 2)
-	self.flare = effects.AcquireSprite(color, 5, effects.GetTexture("flare"))
-	self.trail = effects.AcquireTrail(color, 4, TRAIL_POINTS, 0.12 * glow)
+	self.orb = effects.AcquireOrb(color, LENS_SCALE)
+	self.trail = effects.AcquireTrail(color, 20, TRAIL_POINTS, TRAIL_RADIUS * glow, effects.GetTexture("orbit_trail"))
 	self.emitters = {}
+	self.emitters_playing = true
 
 	for i, type_name in ipairs(types) do
-		local properties = effects.GetParticleProperties(damage_types.Get(type_name), {Rate = 90, Playing = true, MaxParticles = 384, Spread = 180})
+		local properties = effects.GetParticleProperties(
+			damage_types.Get(type_name),
+			{
+				Rate = 90,
+				Playing = true,
+				MaxParticles = 384,
+				Spread = 180,
+				SizeStart = PARTICLE_SIZE,
+				SizeEnd = 0,
+				Sparkle = 1,
+				GravityScale = 0,
+			}
+		)
 		self.emitters[i] = effects.CreateEmitter("magic_projectile_" .. type_name, properties)
 	end
 
@@ -174,10 +268,9 @@ function META:BuildVisuals()
 end
 
 function META:UpdateVisuals()
-	if not self.core then self:BuildVisuals() end
+	if not self.orb then self:BuildVisuals() end
 
 	local position = self.Owner.transform:GetPosition()
-	local now = system.GetElapsedTime()
 	local flicker = 1
 
 	for _, type_name in ipairs(self:GetTypeList()) do
@@ -186,12 +279,20 @@ function META:UpdateVisuals()
 		end
 	end
 
-	local appear = math.min(self.time * 6, 1)
+	local fade = 1 - math.min(self.fade_time / FADE_TIME, 1)
+	local appear = math.min(self.time * 6, 1) * fade
 	local size = 0.16 * self.glow * appear
-	self.core:Draw(position, size * 0.7, 1)
-	self.halo:Draw(position, size * (2.2 + math.sin(now * 9) * 0.2), 0.6 * flicker)
-	self.flare:Draw(position, size * 1.6 * flicker, 0.8)
+	self.orb:Draw(position, size, fade, flicker)
 	self.trail:Push(position)
+	self.trail:SetAlpha(fade)
+
+	if self.Bounced and self.emitters_playing then
+		self.emitters_playing = false
+
+		for _, emitter in ipairs(self.emitters) do
+			emitter.particle_emitter_gpu:SetPlaying(false)
+		end
+	end
 
 	for _, emitter in ipairs(self.emitters) do
 		emitter.transform:SetPosition(position:Copy())
@@ -204,6 +305,8 @@ end
 function META:OnUpdate(dt)
 	self.time = self.time + dt
 
+	if self.Bounced then self.fade_time = self.fade_time + dt end
+
 	if effects.Visual then self:UpdateVisuals() end
 
 	if network.HasAuthority() and self.caster then
@@ -212,11 +315,9 @@ function META:OnUpdate(dt)
 end
 
 function META:OnRemove()
-	if not self.core then return end
+	if not self.orb then return end
 
-	self.core:Release()
-	self.halo:Release()
-	self.flare:Release()
+	self.orb:Release()
 	self.trail:Release()
 	self.light:Remove()
 

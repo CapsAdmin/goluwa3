@@ -27,7 +27,9 @@ local function broadcasting()
 	return SERVER and network.IsStarted()
 end
 
-function effects.Impact(position, normal, type_name, strength, slash)
+function effects.Impact(position, normal, type_name, strength, slash, direction)
+	direction = direction or normal
+
 	if broadcasting() then
 		message.Broadcast(
 			"jrpg_impact",
@@ -39,10 +41,13 @@ function effects.Impact(position, normal, type_name, strength, slash)
 			normal.z,
 			type_name,
 			strength,
-			slash == true
+			slash == true,
+			direction.x,
+			direction.y,
+			direction.z
 		)
 	elseif visual then
-		effects.ShowImpact(position, normal, type_name, strength, slash)
+		effects.ShowImpact(position, normal, type_name, strength, slash, direction)
 	end
 end
 
@@ -89,8 +94,8 @@ function effects.LevelUp(entity, level)
 end
 
 if CLIENT and not SERVER then
-	message.AddListener("jrpg_impact", function(px, py, pz, nx, ny, nz, type_name, strength, slash)
-		effects.ShowImpact(Vec3(px, py, pz), Vec3(nx, ny, nz), type_name, strength, slash)
+	message.AddListener("jrpg_impact", function(px, py, pz, nx, ny, nz, type_name, strength, slash, dx, dy, dz)
+		effects.ShowImpact(Vec3(px, py, pz), Vec3(nx, ny, nz), type_name, strength, slash, Vec3(dx, dy, dz))
 	end)
 
 	message.AddListener("jrpg_damage", function(id, type_name, amount, max_health)
@@ -195,6 +200,16 @@ do
 			float r = length(uv * 2.0 - 1.0);
 			float v = smoothstep(0.55, 0.92, r) * (1.0 - smoothstep(0.92, 1.0, r));
 			return vec4(vec3(v), v);
+		]],
+		lens = [[
+			vec2 p = uv * 2.0 - 1.0;
+			float r = length(p);
+			vec3 n = normalize(vec3(p * (0.6 + 2.0 * r * r), 0.6));
+			return vec4(n * 0.5 + 0.5, 1.0 - smoothstep(0.85, 1.0, r));
+		]],
+		lens_mask = [[
+			float r = length(uv * 2.0 - 1.0);
+			return vec4(1.0, 1.0, 1.0, 1.0 - smoothstep(0.85, 1.0, r));
 		]],
 		flare = [[
 			vec2 p = abs(uv * 2.0 - 1.0);
@@ -325,7 +340,13 @@ do
 				visual:CreatePrimitiveEntity(get_quad(), material, "jrpg_quad_primitive")
 				visual:BuildAABB()
 				object = setmetatable(
-					{key = texture, entity = entity, material = material, emissive = Color(1, 1, 1, 1), color = Color(1, 1, 1, 1)},
+					{
+						key = texture,
+						entity = entity,
+						material = material,
+						emissive = Color(1, 1, 1, 1),
+						color = Color(1, 1, 1, 1),
+					},
 					META
 				)
 			end
@@ -353,19 +374,20 @@ do
 		META.__index = META
 		local points = Beam.NewPoints(2)
 
-		function effects.AcquireSprite(color, strength, texture)
+		function effects.AcquireSprite(color, strength, texture, extra)
 			texture = texture or Beam.GetGlowTexture()
-			local object = acquire(texture)
+			local key = extra or texture
+			local object = acquire(key)
 
 			if not object then
-				local material = new_material(color, texture)
+				local material = new_material(color, texture, extra)
 				object = setmetatable(
 					{
-						key = texture,
+						key = key,
 						material = material,
 						beam = Beam.New{Points = 2, Ribbon = true, Radius = 0.1, Material = material},
 						emissive = Color(1, 1, 1, 1),
-							color = Color(1, 1, 1, 1),
+						color = Color(1, 1, 1, 1),
 					},
 					META
 				)
@@ -389,8 +411,16 @@ do
 			if not visible then return end
 
 			local up = render3d.GetCamera():GetRotation():GetUp()
-			points[1]:Set(position.x - up.x * radius, position.y - up.y * radius, position.z - up.z * radius)
-			points[2]:Set(position.x + up.x * radius, position.y + up.y * radius, position.z + up.z * radius)
+			points[1]:Set(
+				position.x - up.x * radius,
+				position.y - up.y * radius,
+				position.z - up.z * radius
+			)
+			points[2]:Set(
+				position.x + up.x * radius,
+				position.y + up.y * radius,
+				position.z + up.z * radius
+			)
 			self.beam:SetRadius(radius)
 			self.beam:SetRibbonPoints(points, 0, 1)
 			set_emission(self, alpha)
@@ -399,6 +429,58 @@ do
 		function META:Release()
 			self.beam:SetVisible(false)
 			release(self.key, self)
+		end
+	end
+
+	do
+		local META = {}
+		META.__index = META
+		local WHITE = Color(1, 1, 1, 1)
+		local SOFT_HALO = {IgnoreZ = true, OcclusionRadius = 0.3, OcclusionSoftness = 0.25}
+		local LENS
+
+		function effects.AcquireOrb(color, lens_scale)
+			LENS = LENS or
+				{
+					Additive = false,
+					Translucent = true,
+					Roughness = 0.02,
+					Metallic = 0,
+					Refraction = 1,
+					IndexOfRefraction = 1.5,
+					AbbeNumber = 4,
+					RefractionThickness = 0.3,
+					NormalTexture = effects.GetTexture("lens"),
+					NormalMapMultiplier = 6,
+				}
+			return setmetatable(
+				{
+					core = effects.AcquireSprite(WHITE:GetLerped(0.4, color), 8),
+					halo = effects.AcquireSprite(color, 2, nil, SOFT_HALO),
+					flare = effects.AcquireSprite(color, 5, effects.GetTexture("flare")),
+					lens = effects.AcquireSprite(WHITE:GetLerped(0.85, color), 0, effects.GetTexture("lens_mask"), LENS),
+					lens_scale = lens_scale,
+				},
+				META
+			)
+		end
+
+		function META:Draw(position, size, alpha, flicker)
+			self.core:Draw(position, size * 0.7, alpha)
+			self.halo:Draw(
+				position,
+				size * (2.2 + math.sin(system.GetElapsedTime() * 9) * 0.2),
+				0.6 * flicker * alpha
+			)
+			self.flare:Draw(position, size * 1.6 * flicker, 0.8 * alpha)
+			self.lens:Draw(position, size * 2 * self.lens_scale, alpha)
+		end
+
+		function META:Release()
+			self.core:Release()
+			self.halo:Release()
+			self.flare:Release()
+			self.lens:Release()
 		end
 	end
 
@@ -448,7 +530,7 @@ do
 						smooth_b = Beam.NewPoints(count),
 						count = count,
 						emissive = Color(1, 1, 1, 1),
-							color = Color(1, 1, 1, 1),
+						color = Color(1, 1, 1, 1),
 					},
 					META
 				)
@@ -499,7 +581,6 @@ do
 					)
 				end
 			end
-
 		end
 
 		function META:Rebuild()
@@ -548,7 +629,7 @@ do
 						right = Beam.NewPoints(count),
 						count = count,
 						emissive = Color(1, 1, 1, 1),
-							color = Color(1, 1, 1, 1),
+						color = Color(1, 1, 1, 1),
 					},
 					META
 				)
@@ -671,16 +752,26 @@ do
 		entity.particle_emitter_gpu:Burst(count)
 	end
 
-	function effects.BurstType(type_name, position, direction, count, speed_scale)
+	local SPARK_SIZE = 0.012
+	local SPARK_GRAVITY = 0.3
+
+	function effects.BurstType(type_name, position, direction, count, speed_scale, spread)
 		local definition = damage_types.Get(type_name)
-		local key = type_name .. (speed_scale and "_fast" or "")
-		local overrides
+		local color = definition.Color
+		local key = type_name .. (speed_scale and "_fast" or "") .. (spread and "_cone" or "")
+		local overrides = {
+			Spread = spread,
+			SizeStart = SPARK_SIZE,
+			SizeEnd = 0,
+			Sparkle = 1,
+			GravityScale = SPARK_GRAVITY,
+			ColorStart = WHITE:GetLerped(0.4, color),
+			ColorEnd = Color(color.r, color.g, color.b, 0),
+		}
 
 		if speed_scale then
-			overrides = {
-				SpeedMin = definition.Particles.SpeedMin * speed_scale,
-				SpeedMax = definition.Particles.SpeedMax * speed_scale,
-			}
+			overrides.SpeedMin = definition.Particles.SpeedMin * speed_scale
+			overrides.SpeedMax = definition.Particles.SpeedMax * speed_scale
 		end
 
 		effects.Burst(
@@ -784,7 +875,7 @@ do
 	local DARK_MATERIAL = {Additive = false, Translucent = true}
 	local TRAIL_LINGER = 1 / 0.6
 	local TRAIL_STEP_ANGLE = 0.04
-	local TRAIL_POINTS = 540
+	local TRAIL_POINTS = 140
 
 	function META:Update(f, dt)
 		local center = self.position
@@ -797,7 +888,7 @@ do
 		local main = math.min(f * TRAIL_LINGER, 1)
 		local grow = 1 - (1 - math.min(main * 4, 1)) ^ 3
 		local fade = math.sin(main * math.pi) ^ 3
-		local trail_fade = math.sin(f * math.pi) ^ 3
+		local trail_fade = (math.sin(f * math.pi) ^ 3) * 0.5
 		local spin = time * 0.8
 		local size = self.size * 2 * grow
 		local outer = self.outer.transform
@@ -813,7 +904,7 @@ do
 		local glow_size = self.size * 3.2
 		self.glow.transform:SetPosition(Vec3(center.x, center.y + 0.02, center.z))
 		self.glow.transform:SetScale(Vec3(glow_size, 1, glow_size))
-		self.glow:SetAlpha(0.3 * fade)
+		self.glow:SetAlpha(0.1 * fade)
 		local body = actors.GetCenter(self.entity)
 
 		for i, trail in ipairs(self.trails) do
@@ -824,7 +915,12 @@ do
 			for step = 1, steps do
 				local t = time - dt * (steps - step) / steps
 				local ax, ay, az = t * orbit.rate_x, t * orbit.rate_y, t * orbit.rate_z
-				local sx, cx, sy, cy, sz, cz = math.sin(ax), math.cos(ax), math.sin(ay), math.cos(ay), math.sin(az), math.cos(az)
+				local sx, cx, sy, cy, sz, cz = math.sin(ax),
+				math.cos(ax),
+				math.sin(ay),
+				math.cos(ay),
+				math.sin(az),
+				math.cos(az)
 				local y1 = orbit.y * cx - orbit.z * sx
 				local z1 = orbit.y * sx + orbit.z * cx
 				local x2 = orbit.x * cy + z1 * sy
@@ -884,7 +980,6 @@ do
 			},
 			META
 		)
-
 		effect.glow.transform:SetRotation(Quat():Identity())
 
 		for i = 1, 3 do
@@ -937,17 +1032,23 @@ do
 		self.glow:Release()
 	end
 
-	local SLASH_SOUNDS = {"weapons/blade_slice_2.wav", "weapons/blade_slice_3.wav", "weapons/blade_slice_4.wav"}
+	local IMPACT_SPREAD = 55
+	local SLASH_SOUNDS = {
+		"weapons/blade_slice_2.wav",
+		"weapons/blade_slice_3.wav",
+		"weapons/blade_slice_4.wav",
+	}
 
-	function effects.ShowImpact(position, normal, type_name, strength, slash)
+	function effects.ShowImpact(position, normal, type_name, strength, slash, direction)
 		local definition = damage_types.Get(type_name)
 		local color = definition.Color
+		local tint = WHITE:GetLerped(0.4, color)
 		strength = math.clamp(strength or 1, 0.3, 2)
-		local count = math.floor(20 + 30 * strength)
-		effects.BurstType(type_name, position, normal, count)
-		effects.BurstType(type_name, position, normal, math.floor(count * 0.6), 2.5)
+		local count = math.floor(40 + 60 * strength)
+		effects.BurstType(type_name, position, direction, count, nil, IMPACT_SPREAD)
+		effects.BurstType(type_name, position, direction, math.floor(count * 0.6), 2.5, IMPACT_SPREAD)
 		effects.Flash(position + normal * 0.2, color, 30 * strength * definition.Light, 0.35)
-		local ring = effects.AcquireQuad(color, 1.5, effects.GetTexture("ring"))
+		local ring = effects.AcquireQuad(tint, 1.5, effects.GetTexture("ring"))
 		ring.transform:SetPosition(position + normal * 0.02)
 		ring.transform:SetRotation(effects.AimRotation(normal))
 		effects.AddTimed(
@@ -955,14 +1056,15 @@ do
 				{
 					position = position:Copy(),
 					ring = ring,
-					flare = effects.AcquireSprite(color, 3, effects.GetTexture("flare")),
-					glow = effects.AcquireSprite(color, 0.8),
+					flare = effects.AcquireSprite(tint, 3, effects.GetTexture("flare")),
+					glow = effects.AcquireSprite(tint, 0.8),
 					size = 0.35 * strength * definition.Glow,
 					duration = 0.45,
 				},
 				META
 			)
 		)
+
 		if slash then
 			sounds.PlayRandom(SLASH_SOUNDS, position, 0.9, math.randomf(0.9, 1.2))
 
@@ -1028,7 +1130,6 @@ end
 
 event.AddListener("Update", "jrpg_overlays", function(dt)
 	local now = system.GetElapsedTime()
-
 	local rpg = actors.IsLocalRPG()
 
 	for _, component in ipairs(StatusEffects.Instances) do
@@ -1039,7 +1140,11 @@ event.AddListener("Update", "jrpg_overlays", function(dt)
 
 	if rpg then
 		for _, health in ipairs(Health.Instances) do
-			if health.Health > 0 and health:GetFraction() < LOW_HEALTH and not overlays[health.Owner] then
+			if
+				health.Health > 0 and
+				health:GetFraction() < LOW_HEALTH and
+				not overlays[health.Owner]
+			then
 				get_overlay(health.Owner)
 			end
 		end
@@ -1182,7 +1287,9 @@ function effects.ShowBlock(entity, position, normal, broken)
 		broken and 1 or math.randomf(0.9, 1.2)
 	)
 
-	if broken then effects.ShowText(entity, "GUARD BREAK", Color(1, 0.4, 0.3, 1)) end
+	if broken then
+		effects.ShowText(entity, "GUARD BREAK", Color(1, 0.4, 0.3, 1))
+	end
 end
 
 function effects.ShowLevelUp(entity, level)
@@ -1292,7 +1399,11 @@ do
 
 				local top = center + Vec3(
 						0,
-						(entity.character_movement and entity.character_movement:GetHeight() or 1.6) * 0.55,
+						(
+								entity.character_movement and
+								entity.character_movement:GetHeight() or
+								1.6
+							) * 0.55,
 						0
 					)
 

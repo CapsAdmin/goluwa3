@@ -16,17 +16,19 @@ function magic.CreateNodes(color)
 			guid = "orb",
 			parent = "model",
 			properties = {Name = "orb"},
+			components = {transform = {Position = Vec3(0, 0.02, -0.04)}},
+		},
+		{
+			guid = "glow",
+			parent = "orb",
+			properties = {Name = "glow"},
 			components = {
-				transform = {Position = Vec3(0, 0.02, -0.04)},
-				model = {
-					ModelPath = "models/sphere.lua",
-					ModelOptions = {radius = 0.055, segments = 24, rings = 12},
-					MaterialConfig = {
-						Color = Color(color.r, color.g, color.b, 1),
-						Emissive = Color(color.r, color.g, color.b, 6),
-						Roughness = 0.2,
-						Metallic = 0,
-					},
+				transform = {},
+				light_point = {
+					Range = 4,
+					OcclusionMap = false,
+					Lumen = 2,
+					Color = Color(color.r, color.g, color.b, 1),
 				},
 			},
 		},
@@ -44,11 +46,13 @@ function magic.CreateNodes(color)
 					SpeedMax = 0.25,
 					LifetimeMin = 0.3,
 					LifetimeMax = 0.8,
-					SizeStart = 0.018,
+					SizeStart = 0.005,
 					SizeEnd = 0,
 					Drag = 2,
 					GravityScale = -0.15,
 					Lit = false,
+					Sparkle = 1,
+					SaturationJitter = 0.35,
 					Emissive = 2e5,
 					ColorStart = Color(color.r, color.g, color.b, 1),
 					ColorEnd = Color(color.r, color.g, color.b, 0),
@@ -59,10 +63,12 @@ function magic.CreateNodes(color)
 end
 
 magic.Source = [=====[
+local bit = require("bit")
 local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local damage = import("lua/damage.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local effects = import("lua/jrpg/effects.lua")
@@ -78,6 +84,8 @@ META:EndStorable()
 local NO_MANA = Color(0.5, 0.6, 1, 1)
 local HAND_OFFSET = 0.3
 local HAND_DROP = 0.35
+local ORB_SIZE = 0.05
+local PROJECTILE_GROUP = 0x4000
 
 function META:Initialize()
 	self.left = false
@@ -128,6 +136,22 @@ function META:Cast(cmd, self_target)
 	local projectile = Entity.New{
 		Name = "magic_projectile",
 		transform = {Position = origin},
+		rigid_body = {
+			Shape = SphereShape.New(0.12),
+			Mass = 0.05,
+			AutomaticMass = false,
+			GravityScale = 0,
+			Restitution = 1,
+			RestitutionCombineMode = "max",
+			Friction = 0.6,
+			RollingFriction = 0.3,
+			AngularDamping = 2,
+			LinearDamping = 0.2,
+			CCD = true,
+			CanSleep = false,
+			CollisionGroup = PROJECTILE_GROUP,
+			CollisionMask = bit.bnot(PROJECTILE_GROUP),
+		},
 		magic_projectile = {Types = self.Element, Damage = self.Damage},
 		network = SERVER and {} or nil,
 	}
@@ -142,8 +166,20 @@ function META:OnWeaponSecondary(cmd)
 	return self:Cast(cmd, true)
 end
 
+local function get_world_position(node)
+	return Vec3(node.transform:GetWorldMatrix():GetTranslation())
+end
+
 function META:OnUpdate()
 	if not effects.Visual then return end
+
+	local orb = self.Owner.prefab:GetNode("orb")
+
+	if not self.orb then
+		self.orb = effects.AcquireOrb(damage_types.Get(self.Element).Color, 1)
+	end
+
+	self.orb:Draw(get_world_position(orb), ORB_SIZE, orb.visibility_hidden and 0 or 1, 1)
 
 	local caster = self:GetCaster()
 
@@ -172,6 +208,10 @@ function META:OnUpdate()
 			sounds.Play("ambient/levels/citadel/portal_beam_shoot5.wav", caster.transform:GetPosition(), 0.5, 1.6)
 		end
 	end
+end
+
+function META:OnRemove()
+	if self.orb then self.orb:Release() end
 end
 
 return META:Register()
