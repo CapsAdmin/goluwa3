@@ -27,3 +27,23 @@ T.Test3D("A beam follows its points, bends and keeps its radius", function()
 	T(beam.entity.visual:GetVisible())["=="](false)
 	beam:Remove()
 end)
+
+T.Test3D("A ribbon beam is a strip that faces the camera", function()
+	local beam = Beam.New{
+		Points = 5,
+		Ribbon = true,
+		Radius = 0.2,
+		RadiusEnd = 0,
+		Material = Beam.CreateRibbonMaterial(Color(1, 0.7, 0.2), 4),
+	}
+	local points = Beam.NewPoints(5)
+	Beam.Line(Vec3(0, 0, -5), Vec3(0, 4, -5), points)
+	beam:SetRibbonPoints(points, 0.5, 1)
+	local vertices = beam.polygon.Vertices
+	T(#vertices)["=="](10)
+	T(math.abs(vertices[1].pos:Distance(vertices[2].pos) - 0.4))["<"](1e-4)
+	T(vertices[9].pos:Distance(vertices[10].pos))["<"](1e-4)
+	T(vertices[1].uv.y)["=="](0.5)
+	T(math.abs(vertices[1].pos.z - -5))["<"](1e-4)
+	beam:Remove()
+end)

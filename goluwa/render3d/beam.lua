@@ -2,6 +2,8 @@ local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
+local Texture = import("goluwa/render/texture.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -20,6 +22,86 @@ function Beam.CreateMaterial(color, strength)
 		AlbedoAlphaIsEmissive = true,
 		EmissiveMultiplier = Color(1, 1, 1, strength),
 	}
+end
+
+do
+	local streak
+
+	function Beam.GetStreakTexture()
+		if streak then return streak end
+
+		streak = Texture.New{
+			width = 64,
+			height = 256,
+			format = "r8g8b8a8_unorm",
+			mip_map_levels = "auto",
+			image = {
+				usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
+			},
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "repeat",
+			},
+		}
+		streak:Shade[[
+			float edge = 1.0 - abs(uv.x * 2.0 - 1.0);
+			edge = edge * edge * (3.0 - 2.0 * edge);
+			float t = uv.y * 6.2831853;
+			float streaks = 0.5 + 0.5 * sin(uv.x * 23.0 + sin(t) * 2.0) * cos(uv.x * 9.0 - t * 2.0);
+			float a = edge * mix(0.35, 1.0, streaks) * smoothstep(0.0, 0.3, uv.y) * pow(1.0 - clamp(uv.y, 0.0, 1.0), 1.2);
+			return vec4(vec3(a), a);
+		]]
+		return streak
+	end
+end
+
+do
+	local glow
+
+	function Beam.GetGlowTexture()
+		if glow then return glow end
+
+		glow = Texture.New{
+			width = 128,
+			height = 128,
+			format = "r8g8b8a8_unorm",
+			mip_map_levels = "auto",
+			image = {
+				usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
+			},
+			sampler = {
+				min_filter = "linear",
+				mag_filter = "linear",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		}
+		glow:Shade[[
+			float d = length(uv * 2.0 - 1.0);
+			float a = clamp(1.0 - d, 0.0, 1.0);
+			a = a * a * a * 0.8 + exp(-d * d * 14.0) * 0.3;
+			return vec4(vec3(a), a);
+		]]
+		return glow
+	end
+end
+
+function Beam.CreateRibbonMaterial(color, strength, texture, extra)
+	local config = {
+		Additive = true,
+		DoubleSided = true,
+		AlbedoTexture = texture or Beam.GetStreakTexture(),
+		ColorMultiplier = Color(color.r, color.g, color.b, 1),
+		EmissiveMultiplier = Color(1, 1, 1, strength),
+	}
+
+	for key, value in pairs(extra or {}) do
+		config[key] = value
+	end
+
+	return Material.New(config)
 end
 
 function Beam.Line(from, to, points)
@@ -68,7 +150,8 @@ end
 function Beam.New(config)
 	local self = Beam:CreateObject()
 	self.point_count = config.Points
-	self.sides = config.Sides or 6
+	self.ribbon = config.Ribbon
+	self.sides = self.ribbon and 1 or config.Sides or 6
 	self.ring_size = self.sides + 1
 	self:SetRadius(config.Radius or 0.02)
 	self:SetRadiusEnd(config.RadiusEnd)
@@ -115,6 +198,64 @@ function Beam.New(config)
 	visual:SetReceivesDecals(false)
 	self.entity = entity
 	return self
+end
+
+do
+	local function finish(self)
+		if not self.primitive then
+			self.polygon:BuildBoundingBox()
+			self.polygon:Upload(self.indices)
+			self.primitive = self.entity.visual:CreatePrimitiveEntity(self.polygon, self.Material, "beam_primitive")
+			return
+		end
+
+		self.polygon:UpdateVertices()
+		self.primitive.visual_primitive:SetLocalAABB(self.polygon.AABB)
+		self.entity.visual:BuildAABB()
+	end
+
+	function Beam:SetRibbonPoints(points, uv_offset, uv_scale)
+		local count = self.point_count
+		local vertices = self.polygon.Vertices
+		local radius_start = self.Radius
+		local radius_end = self.RadiusEnd or radius_start
+		local camera = render3d.GetCamera():GetPosition()
+		local cx, cy, cz = camera.x, camera.y, camera.z
+
+		for i = 1, count do
+			local p = points[i]
+			local before = points[i > 1 and i - 1 or i]
+			local after = points[i < count and i + 1 or i]
+			local tx, ty, tz = after.x - before.x, after.y - before.y, after.z - before.z
+			local vx, vy, vz = cx - p.x, cy - p.y, cz - p.z
+			local sx, sy, sz = ty * vz - tz * vy, tz * vx - tx * vz, tx * vy - ty * vx
+			local length = math.sqrt(sx * sx + sy * sy + sz * sz)
+
+			if length < 1e-6 then
+				sx, sy, sz, length = 1, 0, 0, 1
+			end
+
+			local radius = radius_start + (radius_end - radius_start) * (i - 1) / (count - 1)
+			local scale = radius / length
+
+			local normal_length = math.sqrt(vx * vx + vy * vy + vz * vz)
+			local nx, ny, nz = vx / normal_length, vy / normal_length, vz / normal_length
+			local v = (i - 1) / (count - 1) * uv_scale + uv_offset
+
+			for side = 0, 1 do
+				local sign = side * 2 - 1
+				local vertex = vertices[(i - 1) * 2 + side + 1]
+				vertex.pos:Set(p.x + sx * scale * sign, p.y + sy * scale * sign, p.z + sz * scale * sign)
+				vertex.normal:Set(nx, ny, nz)
+				vertex.tangent.x, vertex.tangent.y, vertex.tangent.z = sx / length, sy / length, sz / length
+				vertex.uv:Set(side, v)
+			end
+		end
+
+		finish(self)
+	end
+
+	Beam.FinishPoints = finish
 end
 
 function Beam:SetVisible(visible)
@@ -183,16 +324,7 @@ do
 			end
 		end
 
-		if not self.primitive then
-			self.polygon:BuildBoundingBox()
-			self.polygon:Upload(self.indices)
-			self.primitive = self.entity.visual:CreatePrimitiveEntity(self.polygon, self.Material, "beam_primitive")
-			return
-		end
-
-		self.polygon:UpdateVertices()
-		self.primitive.visual_primitive:SetLocalAABB(self.polygon.AABB)
-		self.entity.visual:BuildAABB()
+		Beam.FinishPoints(self)
 	end
 end
 
