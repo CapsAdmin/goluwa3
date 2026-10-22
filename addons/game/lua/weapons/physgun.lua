@@ -128,13 +128,14 @@ function META:UpdateBeam()
 		return
 	end
 
-	local player = self.Owner:GetParent()
-	local camera = player.camera
+	local character = self.Owner:GetParent()
+	local forward = character.character_pose.aim_rotation:GetForward()
 
-	if camera and not body then
-		self:UpdateBeamAim(camera:GetViewPosition(), player.player_input:GetRotation():GetForward())
-	elseif camera then
-		self.beam_forward:Set(player.player_input:GetRotation():GetForward():Unpack())
+	if body then
+		self.beam_forward:Set(forward:Unpack())
+	else
+		local camera = character.camera
+		self:UpdateBeamAim(camera and camera:GetViewPosition() or get_origin(character), forward)
 	end
 
 	local muzzle = self.Owner.weapon:GetMuzzle().transform:GetWorldPosition()
@@ -335,7 +336,7 @@ end
 local rotate_delta = {x = 0, y = 0}
 
 function META:OnWeaponThink(dt, cmd)
-	local controller = self.Owner:GetParent().player_controller
+	local pose = self.Owner:GetParent().character_pose
 
 	if
 		not (
@@ -349,7 +350,7 @@ function META:OnWeaponThink(dt, cmd)
 
 		self.beam_on = false
 		self:Release()
-		controller:SetHolding(false)
+		pose:SetHolding(false)
 		return
 	end
 
@@ -370,7 +371,7 @@ function META:OnWeaponThink(dt, cmd)
 	if self.held_body and usercmd.WasPressed(cmd, BUTTON.ATTACK2) then
 		self.beam_on = false
 		self:FreezeHeldBody()
-		controller:SetHolding(false)
+		pose:SetHolding(false)
 		return
 	end
 
@@ -390,16 +391,16 @@ function META:OnWeaponThink(dt, cmd)
 	if cmd.scroll ~= 0 then self:AdjustHoldDistance(cmd.scroll * self.ScrollStep) end
 
 	self:UpdateHeldBody(dt, cmd)
-	controller:SetHolding(self.held_body ~= nil)
+	pose:SetHolding(self.held_body ~= nil)
 end
 
 function META:OnWeaponHolster()
 	self.beam_on = false
 	self:Release()
-	self.Owner:GetParent().player_controller:SetHolding(false)
+	self.Owner:GetParent().character_pose:SetHolding(false)
 end
 
-function META:OnWeaponPlayerModeChanged()
+function META:OnWeaponCharacterModeChanged()
 	self:Release()
 end
 

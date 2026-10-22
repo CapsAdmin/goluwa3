@@ -3,6 +3,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local physics = import("goluwa/physics.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local usercmd = import("goluwa/network/usercmd.lua")
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
@@ -80,4 +81,28 @@ T.TestPhysics("npc without a weapon does not shoot", function()
 	local player = create_target(Vec3(6, 0.05, 0))
 	run(4)
 	T(player.health.Health)["=="](player.health.MaxHealth)
+end)
+
+T.TestPhysics("a physgun is held by an npc as it is by a player", function()
+	create_ground()
+	local gunman = create_gunman(Vec3(0, 0.05, 0))
+	local physgun = gunman.weapon_holder:Give("weapon_physgun")
+	gunman.weapon_holder:Select(physgun)
+	local crate = Entity.New{
+		transform = {Position = Vec3(0, 1.2, -4)},
+		rigid_body = {Shape = BoxShape.New(Vec3(1, 1, 1))},
+	}
+	local cmd = usercmd.New()
+	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
+
+	for _ = 1, 10 do
+		physics.UpdateFixed(1 / 60)
+		physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	end
+
+	T(physgun.weapon_physgun.held_body == crate.rigid_body)["=="](true)
+	T(gunman.character_pose:IsHolding())["=="](true)
+	cmd.buttons = usercmd.BUTTON.ACTIVE
+	physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	T(gunman.character_pose:IsHolding())["=="](false)
 end)

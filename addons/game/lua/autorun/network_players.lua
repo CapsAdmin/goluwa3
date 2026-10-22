@@ -95,7 +95,7 @@ if SERVER then
 				buffer:WriteU32(processed.number)
 				buffer:WriteVec3(processed.position)
 				buffer:WriteVec3(processed.velocity)
-				buffer:WriteBoolean(ent.player_controller:IsHolding())
+				buffer:WriteBoolean(ent.character_pose:IsHolding())
 				packet.Send("player_ack", buffer, clients.GetByUniqueID(uid), "sequenced")
 			end
 		end
@@ -179,9 +179,8 @@ if CLIENT then
 		local number = buffer:ReadU32()
 		local position = buffer:ReadVec3()
 		local velocity = buffer:ReadVec3()
-		local controller = local_player.player_controller
-		controller:SetHolding(buffer:ReadBoolean())
-		controller:Reconcile(number, position, velocity)
+		local_player.character_pose:SetHolding(buffer:ReadBoolean())
+		local_player.player_controller:Reconcile(number, position, velocity)
 	end)
 
 	packet.AddListener("usercmd_relay", function(buffer)

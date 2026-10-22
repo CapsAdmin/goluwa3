@@ -501,7 +501,7 @@ function META:ApplyMode(mode)
 		self.fly_speed_multiplier = 1
 	end
 
-	self.Owner:CallLocalEvent("OnPlayerModeChanged", mode)
+	self.Owner:CallLocalEvent("OnCharacterModeChanged", mode)
 end
 
 do

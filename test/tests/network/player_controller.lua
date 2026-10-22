@@ -10,6 +10,7 @@ Entity.RegisterComponent("character_movement", import("lua/components/character_
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
 import("lua/weapons.lua")
+import("addons/game/lua/autorun/characters.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 
 local function create_ground()
@@ -326,7 +327,7 @@ end)
 T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies from commands", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "character_movement", "weapon_holder"},
+		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "weapon_holder"},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
@@ -343,7 +344,7 @@ T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies 
 
 	local controller = player.player_controller
 	local physgun = physgun_entity.weapon_physgun
-	T(controller:IsHolding())["=="](false)
+	T(player.character_pose:IsHolding())["=="](false)
 
 	drive(player, 5, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
@@ -351,7 +352,7 @@ T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies 
 	end)
 
 	T(physgun.held_body == crate.rigid_body)["=="](true)
-	T(controller:IsHolding())["=="](true)
+	T(player.character_pose:IsHolding())["=="](true)
 	T(crate.rigid_body:GetCollisionGroup())["=="](usercmd.HELD_COLLISION_GROUP)
 	T(bit.band(player.rigid_body:GetCollisionMask(), usercmd.HELD_COLLISION_GROUP))["=="](0)
 	local distance = physgun.held_distance
@@ -379,7 +380,7 @@ T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies 
 	end)
 
 	T(crate.rigid_body:GetMotionType())["=="]("static")
-	T(controller:IsHolding())["=="](false)
+	T(player.character_pose:IsHolding())["=="](false)
 	T(crate.rigid_body:GetCollisionGroup())["=="](1)
 
 	drive(player, 5, function(cmd)
@@ -396,7 +397,7 @@ end)
 T.TestPhysics("player physgun releases when the primary button is released", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "character_movement", "weapon_holder"},
+		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "weapon_holder"},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
@@ -423,7 +424,7 @@ T.TestPhysics("player physgun releases when the primary button is released", fun
 	end)
 
 	T(physgun_entity.weapon_physgun.held_body == nil)["=="](true)
-	T(player.player_controller:IsHolding())["=="](false)
+	T(player.character_pose:IsHolding())["=="](false)
 	T(ball.rigid_body:GetCollisionGroup())["=="](1)
 	ball:Remove()
 	player:Remove()
@@ -433,7 +434,7 @@ end)
 T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodies", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "character_movement", "weapon_holder"},
+		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "weapon_holder"},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
@@ -476,7 +477,7 @@ T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodi
 
 	T(holder:GetActiveWeapon() == pistol)["=="](true)
 	T(physgun.weapon_physgun.held_body == nil)["=="](true)
-	T(player.player_controller:IsHolding())["=="](false)
+	T(player.character_pose:IsHolding())["=="](false)
 	T(crate.rigid_body:GetCollisionGroup())["=="](1)
 	local eye = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 	crate:Remove()
@@ -527,7 +528,7 @@ end)
 T.TestPhysics("a weapon in the world has a body, is picked up by touch and can be dropped", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "character_movement", "weapon_holder"},
+		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "weapon_holder"},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}

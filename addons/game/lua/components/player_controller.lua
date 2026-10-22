@@ -17,7 +17,6 @@ local SHRINK_INTERVAL = 300
 local CORRECTION_DECAY = 10
 META:GetSet("Source", "local")
 META:GetSet("Networked", false)
-META:IsSet("Holding", false)
 
 function META:Initialize()
 	self.cmd = usercmd.New()

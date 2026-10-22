@@ -211,10 +211,10 @@ function META:OnPhysicsUpdate(dt)
 	if weapon then weapon.weapon:Think(dt, cmd) end
 end
 
-function META:OnPlayerModeChanged(mode)
+function META:OnCharacterModeChanged(mode)
 	local weapon = self:GetActiveWeapon()
 
-	if weapon then weapon:CallLocalEvent("OnWeaponPlayerModeChanged", mode) end
+	if weapon then weapon:CallLocalEvent("OnWeaponCharacterModeChanged", mode) end
 end
 
 return META:Register()

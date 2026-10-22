@@ -10,7 +10,7 @@ local RUN_TIME = 4
 local BUTTON = usercmd.BUTTON
 local ent = Entity.New{
 	Name = "e2e_bot",
-	ComponentSet = {"transform", "player_controller", "character_movement"},
+	ComponentSet = {"transform", "player_controller", "character_movement", "character_pose"},
 	transform = {Position = Vec3(0, 3, 0)},
 	player_controller = {Source = "local", Networked = true},
 }

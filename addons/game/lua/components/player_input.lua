@@ -193,7 +193,7 @@ function META:BuildCommand(cmd)
 			buttons = bit.bor(buttons, BUTTON.TELEPORT)
 		end
 
-		if input.IsKeyDown("e") and not self.Owner.player_controller:IsHolding() then
+		if input.IsKeyDown("e") and not self.Owner.character_pose:IsHolding() then
 			buttons = bit.bor(buttons, BUTTON.USE)
 		end
 
@@ -232,7 +232,7 @@ function META:OnPreUpdate(dt)
 		self.look_nudge.y = self.look_nudge.y + dt
 	end
 
-	local controller = self.Owner.player_controller
+	local pose = self.Owner.character_pose
 
 	for slot = 1, 9 do
 		local down = input.IsKeyDown(SLOT_KEYS[slot])
@@ -246,7 +246,7 @@ function META:OnPreUpdate(dt)
 	self.wheel_accum = 0
 
 	if wheel ~= 0 then
-		if controller and controller:IsHolding() then
+		if pose:IsHolding() then
 			self.scroll_accum = self.scroll_accum + wheel
 		else
 			local holder = self.Owner.weapon_holder
@@ -265,8 +265,7 @@ function META:OnPreUpdate(dt)
 	end
 
 	if
-		controller and
-		controller:IsHolding() and
+		pose:IsHolding() and
 		self.mouse_trapped and
 		input.IsMouseDown("button_1") and
 		input.IsKeyDown("e")

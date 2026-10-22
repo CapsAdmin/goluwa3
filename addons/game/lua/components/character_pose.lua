@@ -22,6 +22,7 @@ local FLINCH_DECAY = 4
 
 function META:Initialize()
 	self.pitch = Quat(0, 0, 0, 1)
+	self.aim_rotation = Quat(0, 0, 0, 1)
 	self.crouch_alpha = 0
 	self.forward_speed = 0
 	self.right_speed = 0
@@ -60,10 +61,6 @@ function META:OnUpdate(dt)
 	if movement then
 		self:SetViewRotation(movement:GetCommand().view:Copy())
 		self:SetCrouching(movement:IsCrouching())
-
-		if owner.player_controller then
-			self:SetHolding(owner.player_controller:IsHolding())
-		end
 	end
 
 	if self.Shots ~= self.seen_shots then
@@ -88,6 +85,7 @@ function META:OnUpdate(dt)
 		self:SetCrouching(usercmd.HasButton(relay, usercmd.BUTTON.CROUCH))
 	end
 
+	self.aim_rotation = rotation
 	self.crouch_alpha = self.crouch_alpha + (
 			(
 				self:IsCrouching() and
