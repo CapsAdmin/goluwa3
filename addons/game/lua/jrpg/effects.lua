@@ -207,6 +207,19 @@ do
 			vec3 n = normalize(vec3(p * (0.6 + 2.0 * r * r), 0.6));
 			return vec4(n * 0.5 + 0.5, 1.0 - smoothstep(0.85, 1.0, r));
 		]],
+		feather = MAGIC_COMMON .. [[
+			vec4 shade(vec2 uv, vec3 _cube_dir) {
+				vec2 p = vec2(uv.x * 2.0 - 1.0, uv.y);
+				float ax = abs(p.x);
+				float width = pow(max(sin(3.14159 * pow(clamp(p.y, 0.0, 1.0), 0.7)), 0.0), 0.6) * 0.92;
+				float ragged = width * (0.82 + 0.18 * hash(floor(p.y * 48.0) + (p.x > 0.0 ? 17.0 : 0.0)));
+				float inside = step(ax, ragged);
+				float spine = step(ax, 0.045);
+				float barb = abs(fract(p.y * 30.0 - ax * 6.0) - 0.5) * 2.0;
+				float shade = mix(0.78, 1.0, barb);
+				return vec4(vec3(mix(shade, 1.0, spine)), inside);
+			}
+		]],
 		lens_mask = [[
 			float r = length(uv * 2.0 - 1.0);
 			return vec4(1.0, 1.0, 1.0, 1.0 - smoothstep(0.85, 1.0, r));
@@ -755,6 +768,53 @@ do
 	local SPARK_SIZE = 0.012
 	local SPARK_GRAVITY = 0.3
 
+	local debris_emitters = {}
+	local debris_materials = {}
+
+	function effects.CreateDebrisEmitter(type_name, settings)
+		local definition = damage_types.Get(type_name)
+
+		if not debris_materials[type_name] then
+			local config = table.merge({Color = definition.Color}, definition.Debris.Material)
+
+			if type(config.AlbedoTexture) == "string" then
+				config.AlbedoTexture = effects.GetTexture(config.AlbedoTexture)
+			end
+
+			debris_materials[type_name] = Material.New(config)
+		end
+
+		local entity = Entity.New{
+			Name = "jrpg_debris_" .. type_name,
+			transform = {},
+			particle_emitter_cpu = table.merge(
+				{
+					Material = debris_materials[type_name],
+					Playing = false,
+					Rate = 0,
+					MaxParticles = 128,
+					Shape = "point",
+				},
+				settings
+			),
+		}
+		entity:SetTransient(true)
+		return entity
+	end
+
+	function effects.BurstDebris(type_name, position, direction, count)
+		local entity = debris_emitters[type_name]
+
+		if not entity or not entity:IsValid() then
+			entity = effects.CreateDebrisEmitter(type_name, damage_types.Get(type_name).Debris.Emitter)
+			debris_emitters[type_name] = entity
+		end
+
+		entity.transform:SetPosition(position:Copy())
+		entity.transform:SetRotation(aim(direction))
+		entity.particle_emitter_cpu:Burst(count)
+	end
+
 	function effects.BurstType(type_name, position, direction, count, speed_scale, spread)
 		local definition = damage_types.Get(type_name)
 		local color = definition.Color
@@ -1047,6 +1107,10 @@ do
 		local count = math.floor(40 + 60 * strength)
 		effects.BurstType(type_name, position, direction, count, nil, IMPACT_SPREAD)
 		effects.BurstType(type_name, position, direction, math.floor(count * 0.6), 2.5, IMPACT_SPREAD)
+
+		if definition.Debris then
+			effects.BurstDebris(type_name, position, direction, math.floor(definition.Debris.Count * strength))
+		end
 		effects.Flash(position + normal * 0.2, color, 30 * strength * definition.Light, 0.35)
 		local ring = effects.AcquireQuad(tint, 1.5, effects.GetTexture("ring"))
 		ring.transform:SetPosition(position + normal * 0.02)

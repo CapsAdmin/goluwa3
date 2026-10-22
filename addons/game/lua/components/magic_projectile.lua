@@ -236,6 +236,7 @@ function META:BuildVisuals()
 	self.trail = effects.AcquireTrail(color, 20, TRAIL_POINTS, TRAIL_RADIUS * glow, effects.GetTexture("orbit_trail"))
 	self.emitters = {}
 	self.emitters_playing = true
+	self.debris_emitters = {}
 
 	for i, type_name in ipairs(types) do
 		local properties = effects.GetParticleProperties(
@@ -252,6 +253,14 @@ function META:BuildVisuals()
 			}
 		)
 		self.emitters[i] = effects.CreateEmitter("magic_projectile_" .. type_name, properties)
+	end
+
+	for _, type_name in ipairs(types) do
+		local debris = damage_types.Get(type_name).Debris
+
+		if debris and debris.Trail then
+			self.debris_emitters[#self.debris_emitters + 1] = effects.CreateDebrisEmitter(type_name, debris.Trail)
+		end
 	end
 
 	self.light = Entity.New{
@@ -292,9 +301,17 @@ function META:UpdateVisuals()
 		for _, emitter in ipairs(self.emitters) do
 			emitter.particle_emitter_gpu:SetPlaying(false)
 		end
+
+		for _, emitter in ipairs(self.debris_emitters) do
+			emitter.particle_emitter_cpu:SetPlaying(false)
+		end
 	end
 
 	for _, emitter in ipairs(self.emitters) do
+		emitter.transform:SetPosition(position:Copy())
+	end
+
+	for _, emitter in ipairs(self.debris_emitters) do
 		emitter.transform:SetPosition(position:Copy())
 	end
 
@@ -324,6 +341,11 @@ function META:OnRemove()
 	for _, emitter in ipairs(self.emitters) do
 		emitter.particle_emitter_gpu:SetPlaying(false)
 		effects.RemoveDelayed(emitter, 1.5)
+	end
+
+	for _, emitter in ipairs(self.debris_emitters) do
+		emitter.particle_emitter_cpu:SetPlaying(false)
+		effects.RemoveDelayed(emitter, 4)
 	end
 end
 
