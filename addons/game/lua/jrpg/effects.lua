@@ -249,20 +249,20 @@ do
 		pool[#pool + 1] = object
 	end
 
-	local function set_color(material, color)
-		local current = material:GetColorMultiplier()
-
-		if current.r ~= color.r or current.g ~= color.g or current.b ~= color.b then
-			material:SetColorMultiplier(Color(color.r, color.g, color.b, 1))
-		end
+	local function set_color(object, color, alpha)
+		object.color:Set(color.r, color.g, color.b, alpha)
+		object.emissive.a = object.strength
+		object.material:SetEmissiveMultiplier(object.emissive)
+		object.material:SetColorMultiplier(object.color)
+		object.material:Touch()
 	end
 
 	local function set_emission(object, alpha)
 		if math.abs(alpha - object.alpha) < 0.002 then return end
 
 		object.alpha = alpha
-		object.emissive.a = object.strength * alpha
-		object.material:SetEmissiveMultiplier(object.emissive)
+		object.color.a = alpha
+		object.material:SetColorMultiplier(object.color)
 		object.material:Touch()
 	end
 
@@ -304,7 +304,7 @@ do
 				visual:CreatePrimitiveEntity(get_quad(), material, "jrpg_quad_primitive")
 				visual:BuildAABB()
 				object = setmetatable(
-					{key = texture, entity = entity, material = material, emissive = Color(1, 1, 1, 1)},
+					{key = texture, entity = entity, material = material, emissive = Color(1, 1, 1, 1), color = Color(1, 1, 1, 1)},
 					META
 				)
 			end
@@ -312,7 +312,7 @@ do
 			object.strength = strength
 			object.alpha = -1
 			object.transform = object.entity.transform
-			set_color(object.material, color)
+			set_color(object, color, 0)
 			object.entity.visual:SetVisible(true)
 			return object
 		end
@@ -344,6 +344,7 @@ do
 						material = material,
 						beam = Beam.New{Points = 2, Ribbon = true, Radius = 0.1, Material = material},
 						emissive = Color(1, 1, 1, 1),
+							color = Color(1, 1, 1, 1),
 					},
 					META
 				)
@@ -351,12 +352,12 @@ do
 
 			object.strength = strength
 			object.alpha = -1
-			set_color(object.material, color)
+			set_color(object, color, 0)
 			return object
 		end
 
 		function META:SetColor(color)
-			set_color(self.material, color)
+			set_color(self, color, self.color.a)
 		end
 
 		function META:Draw(position, radius, alpha)
@@ -410,6 +411,7 @@ do
 						points = Beam.NewPoints(count),
 						count = count,
 						emissive = Color(1, 1, 1, 1),
+							color = Color(1, 1, 1, 1),
 					},
 					META
 				)
@@ -420,7 +422,7 @@ do
 			object.primed = false
 			object.beam:SetRadius(0)
 			object.beam:SetRadiusEnd(radius)
-			set_color(object.material, color)
+			set_color(object, color, 0)
 			set_emission(object, 1)
 			return object
 		end
@@ -473,6 +475,7 @@ do
 						right = Beam.NewPoints(count),
 						count = count,
 						emissive = Color(1, 1, 1, 1),
+							color = Color(1, 1, 1, 1),
 					},
 					META
 				)
@@ -481,7 +484,7 @@ do
 			object.strength = strength
 			object.alpha = -1
 			object.primed = false
-			set_color(object.material, color)
+			set_color(object, color, 0)
 			set_emission(object, 1)
 			return object
 		end
