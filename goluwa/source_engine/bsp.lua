@@ -514,6 +514,12 @@ function bsp.Load(path, skybox)
 					ent.dropped = true
 				end
 
+				if ent.classname == "func_reflective_glass" then
+					local model = header.models[tonumber(ent.model:sub(2)) + 1]
+					ent.brush_center = (model.mins + model.maxs) / 2
+					ent.brush_size = model.maxs - model.mins
+				end
+
 				if ent.classname == "static_entity" and ent.leaf_count > 0 then
 					for i = 1, ent.leaf_count do
 						local leaf_area = leafs[header.static_prop_leafs[ent.first_leaf + i] + 1].area

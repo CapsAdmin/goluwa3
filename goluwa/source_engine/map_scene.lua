@@ -9,6 +9,7 @@ local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Color = import("goluwa/structs/color.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local units = import("goluwa/source_engine/units.lua")
 local static_geometry = import("goluwa/source_engine/static_geometry.lua")
@@ -334,6 +335,9 @@ function map_scene.Translate(data, map_name, map_path, offset)
 		elseif info.classname:lower():find("light") and (info._lightHDR or info._light) then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
 			entries[#entries + 1] = {kind = "light", info = info, index = index}
+		elseif info.classname == "func_reflective_glass" then
+			handled[info.classname] = (handled[info.classname] or 0) + 1
+			entries[#entries + 1] = {kind = "mirror", info = info, index = index}
 		elseif info.classname == "env_fog_controller" then
 			if
 				bit.band(tonumber(info.spawnflags) or 0, 1) ~= 0 and
@@ -425,6 +429,26 @@ function map_scene.Translate(data, map_name, map_path, offset)
 					transform = {Position = position, Rotation = rotation},
 					[is_spot and "light_spot" or "light_point"] = light,
 					source_light = {Info = light_info},
+				},
+			}
+		elseif entry.kind == "mirror" then
+			local position, rotation = get_transform(info)
+			add{
+				guid = guid,
+				parent = get_sub_group(get_container(info.visibility_group), info.classname),
+				properties = {Name = "mirror"},
+				components = {
+					transform = {
+						Position = position + rotation:VecMul(units.PositionToEngine(info.brush_center)),
+						Rotation = rotation,
+					},
+					prefab = {
+						Path = "box",
+						Inputs = {
+							Size = Vec3(info.brush_size.y, info.brush_size.z, info.brush_size.x) * units.meters,
+							Material = {Color = Color(1, 1, 1, 1), MetallicMultiplier = 1, RoughnessMultiplier = 0},
+						},
+					},
 				},
 			}
 		elseif entry.kind == "spawn" then
