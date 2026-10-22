@@ -133,7 +133,7 @@ function META:OnUpdate(dt)
 		glow:SetVisible(dropped)
 	end
 
-	self.emitter.particle_emitter_gpu:SetPlaying(dropped)
+	self.emitter.particle_emitter_gpu:SetVisible(dropped)
 
 	if not dropped then
 		self.fade = 0
