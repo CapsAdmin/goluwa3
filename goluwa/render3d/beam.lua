@@ -255,6 +255,37 @@ do
 		finish(self)
 	end
 
+	function Beam:SetStripPoints(left, right, uv_offset, uv_scale)
+		local count = self.point_count
+		local vertices = self.polygon.Vertices
+		local camera = render3d.GetCamera():GetPosition()
+
+		for i = 1, count do
+			local a, b = left[i], right[i]
+			local tx, ty, tz = b.x - a.x, b.y - a.y, b.z - a.z
+			local length = math.sqrt(tx * tx + ty * ty + tz * tz)
+
+			if length < 1e-6 then
+				tx, ty, tz, length = 1, 0, 0, 1
+			end
+
+			local nx, ny, nz = camera.x - a.x, camera.y - a.y, camera.z - a.z
+			local normal_length = math.sqrt(nx * nx + ny * ny + nz * nz)
+			local v = (i - 1) / (count - 1) * uv_scale + uv_offset
+
+			for side = 0, 1 do
+				local p = side == 0 and a or b
+				local vertex = vertices[(i - 1) * 2 + side + 1]
+				vertex.pos:Set(p.x, p.y, p.z)
+				vertex.normal:Set(nx / normal_length, ny / normal_length, nz / normal_length)
+				vertex.tangent.x, vertex.tangent.y, vertex.tangent.z = tx / length, ty / length, tz / length
+				vertex.uv:Set(side, v)
+			end
+		end
+
+		finish(self)
+	end
+
 	Beam.FinishPoints = finish
 end
 
