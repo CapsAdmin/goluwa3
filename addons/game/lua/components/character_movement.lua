@@ -244,6 +244,8 @@ end
 local MOVE = {
 	velocity = Vec3(),
 	position = Vec3(),
+	move = Vec3(),
+	wish_speed = 0,
 	grounded = false,
 	jump_pressed = false,
 	jump_down = false,
@@ -709,8 +711,13 @@ do
 			MOVE.jump_down = jump_down
 			MOVE.pitch = math.asin(math.clamp(view:GetForward().y, -1, 1))
 			MOVE.dt = dt
+			MOVE.move:Set(move.x, move.y, move.z)
+			MOVE.wish_speed = wish_speed
 			event.Call("PlayerMove", self.Owner, MOVE)
 			x, y, z = MOVE.velocity.x, MOVE.velocity.y, MOVE.velocity.z
+			move = MOVE.move:Copy()
+			wish_speed = MOVE.wish_speed
+			jump_requested = MOVE.jump_pressed
 
 			if grounded and not MOVE.grounded then body:SetGrounded(false) end
 
