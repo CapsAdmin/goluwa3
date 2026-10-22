@@ -144,6 +144,7 @@ local function collect_mesh_body_point_sweep_hit(v0, v1, v2, triangle_index, con
 		local entry = context.entry
 		context.best_hit = {
 			t = hit.t,
+			point = hit.position,
 			position = hit.position,
 			normal = hit.normal,
 			face_normal = hit.normal,

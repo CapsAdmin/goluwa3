@@ -113,7 +113,7 @@ end
 
 function META:UpdateBeamAim(origin, forward)
 	local hit = physics.Sweep(origin, forward * self.MaxGrabDistance, 0, self.Owner:GetParent(), nil, AIM_OPTIONS)
-	local point = hit and (hit.point or hit.position) or origin + forward * self.MaxGrabDistance
+	local point = hit and hit.point or origin + forward * self.MaxGrabDistance
 	self.beam_aim:Set(point.x, point.y, point.z)
 	self.beam_forward:Set(forward.x, forward.y, forward.z)
 end
@@ -294,7 +294,7 @@ function META:TryAcquireBody(cmd)
 				hit.entity.rigid_body
 			)
 		)
-	local grab_point = hit and (hit.point or hit.position) or nil
+	local grab_point = hit and hit.point or nil
 
 	if not self:CanGrabBody(body) or not grab_point then return false end
 
