@@ -21,8 +21,8 @@ local function is_target(entity)
 	return entity.ragdoll_part ~= nil or not entity.ragdoll
 end
 
-function damage.Sweep(origin, movement, attacker)
-	return physics.Sweep(origin, movement, 0, attacker, is_target, TRACE_OPTIONS)
+function damage.Sweep(origin, movement, attacker, radius)
+	return physics.Sweep(origin, movement, radius or 0, attacker, is_target, TRACE_OPTIONS)
 end
 
 function damage.GetVictim(entity)
@@ -37,6 +37,9 @@ function damage.Deal(victim, info)
 	assert(network.HasAuthority(), "damage is only dealt by the authority")
 	damage.Info(info)
 	event.Call("ModifyDamage", victim, info)
+
+	if info.Cancel then return 0 end
+
 	victim.health:TakeDamage(info)
 	return info.Damage
 end
