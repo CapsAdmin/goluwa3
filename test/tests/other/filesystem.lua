@@ -222,3 +222,14 @@ T.Test("filesystem shared path utility helpers", function()
 		T(file_path.IsPathAbsolutePath("/tmp/test"))["=="](true)
 	end
 end)
+
+T.Test("vfs writes into new folders under data", function()
+	local vfs = import("goluwa/filesystem/vfs.lua")
+	local folder = vfs.GetStorageDirectory("userdata") .. "test_vfs_data_folder/"
+	T(vfs.Write("data/test_vfs_data_folder/nested/file.txt", "x"))["~="](nil)
+	T(vfs.Read("data/test_vfs_data_folder/nested/file.txt"))["=="]("x")
+	T(fs.is_file(folder .. "nested/file.txt"))["=="](true)
+	fs.remove_file(folder .. "nested/file.txt")
+	fs.remove_directory(folder .. "nested")
+	fs.remove_directory(folder)
+end)

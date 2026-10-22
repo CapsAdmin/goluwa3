@@ -334,13 +334,7 @@ add_helper(
 					if path:starts_with("os:") then path = path:sub(4) end
 
 					path = path:sub(#(dir .. "/") + 1)
-					local base = vfs.GetStorageDirectory("storage")
-
-					if dir == "cache" then
-						base = vfs.GetStorageDirectory("cache")
-					elseif dir == "shared" then
-						base = vfs.GetStorageDirectory("shared")
-					end
+					local base = vfs.GetStorageDirectory(dir == "data" and "userdata" or dir)
 
 					local dir = ""
 
