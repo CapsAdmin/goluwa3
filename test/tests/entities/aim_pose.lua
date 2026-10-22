@@ -35,7 +35,7 @@ local function position(bones, name)
 end
 
 local function pose(pitch, recoil, flinch)
-	return {pitch = pitch, recoil = recoil or 0, flinch = flinch or 0}
+	return {pitch = pitch, recoil = recoil or 0, flinch = flinch or 0, block_alpha = 0}
 end
 
 T.Test("aiming up rotates the bones above the spine about their joints by the shares of the pitch", function()

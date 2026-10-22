@@ -6,16 +6,24 @@ local META = objects.CreateTemplate("character_pose")
 META.Network = {
 	Crouching = {"boolean", 0.1, "reliable"},
 	Holding = {"boolean", 0.1, "reliable"},
+	Blocking = {"boolean", 0.05, "reliable"},
 	ViewRotation = {"quat", 1 / 20, "sequenced", true},
 	Shots = {"number", 0.05, "reliable"},
 	Hits = {"number", 0.05, "reliable"},
+	Action = {"string", 0.05, "reliable"},
+	ActionDuration = {"number", 0.05, "reliable"},
+	Actions = {"number", 0.05, "reliable"},
 }
 META:IsSet("Crouching", false)
 META:IsSet("Holding", false)
+META:IsSet("Blocking", false)
 META:IsSet("FirstPerson", false)
 META:GetSet("ViewRotation", Quat(0, 0, 0, 1))
 META:GetSet("Shots", 0)
 META:GetSet("Hits", 0)
+META:GetSet("Action", "")
+META:GetSet("ActionDuration", 0)
+META:GetSet("Actions", 0)
 local RELAY_FRESH = 0.3
 local RECOIL_DECAY = 8
 local FLINCH_DECAY = 4
@@ -32,7 +40,24 @@ function META:Initialize()
 	self.flinch = 0
 	self.seen_shots = self.Shots
 	self.seen_hits = self.Hits
+	self.seen_actions = self.Actions
+	self.action = nil
+	self.action_time = 0
+	self.action_fraction = 0
+	self.action_rolls = false
+	self.block_alpha = 0
+	self.animation_speed = 1
 	self:AddGlobalEvent("Update")
+end
+
+function META:PlayAction(name, duration)
+	self:SetAction(name)
+	self:SetActionDuration(duration)
+	self:SetActions(self.Actions + 1)
+end
+
+function META:GetActiveAction()
+	return self.action, self.action_fraction
 end
 
 function META:RegisterShot()
@@ -73,6 +98,24 @@ function META:OnUpdate(dt)
 		self.flinch = 1
 	end
 
+	if self.Actions ~= self.seen_actions then
+		self.seen_actions = self.Actions
+		self.action = self.Action
+		self.action_time = 0
+		self.action_rolls = self.Action:starts_with("roll")
+	end
+
+	if self.action then
+		self.action_time = self.action_time + dt
+		self.action_fraction = math.min(self.action_time / math.max(self.ActionDuration, 0.001), 1)
+
+		if self.action_time >= self.ActionDuration then
+			self.action = nil
+			self.action_rolls = false
+		end
+	end
+
+	self.block_alpha = self.block_alpha + ((self:IsBlocking() and 1 or 0) - self.block_alpha) * math.min(dt * 14, 1)
 	self.recoil = math.max(self.recoil - dt * RECOIL_DECAY, 0)
 	self.flinch = math.max(self.flinch - dt * FLINCH_DECAY, 0)
 	local rotation = self:GetViewRotation()
@@ -88,7 +131,11 @@ function META:OnUpdate(dt)
 	self.aim_rotation = rotation
 	self.crouch_alpha = self.crouch_alpha + (
 			(
-				self:IsCrouching() and
+				(
+					self:IsCrouching() or
+					self.action_rolls
+				)
+				and
 				1 or
 				0
 			) - self.crouch_alpha

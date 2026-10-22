@@ -20,6 +20,7 @@ eye_pose.Grips = {
 	weapon_camera = {right = Vec3(0.11, -0.01, -0.22), left = Vec3(-0.11, -0.01, -0.22)},
 }
 eye_pose.DefaultGrip = {right = Vec3(0, 0, 0)}
+eye_pose.BlockGrip = Vec3(-0.05, 0.08, -0.28)
 local EYE_RADIUS = eye_pose.EyeRadius
 local ARM_LENGTH = eye_pose.ArmLength
 local LEG_LENGTH = eye_pose.LegLength
@@ -91,6 +92,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local active = holder and holder:GetActiveWeapon()
 	local eye_height = math.lerp(crouch, eye_pose.EyeHeight, eye_pose.CrouchEyeHeight)
 	local grips, hold
+	local blocking = pose.block_alpha > 0.5
 
 	if active then
 		grips = eye_pose.Grips[active.prefab.Path] or eye_pose.DefaultGrip
@@ -101,6 +103,10 @@ function eye_pose.Compute(state, bones, owner, dt)
 		else
 			hold = Vec3(0, math.lerp(crouch, HEIGHT, CROUCH_HEIGHT) * 0.5 + WEAPON_RAISE, 0) + forward * WEAPON_FORWARD
 		end
+	end
+
+	if blocking and not hold then
+		hold = Vec3(0, math.lerp(crouch, HEIGHT, CROUCH_HEIGHT) * 0.5 + WEAPON_RAISE, 0) + view:GetForward() * WEAPON_FORWARD
 	end
 
 	local smoothed = state.velocity
@@ -141,6 +147,8 @@ function eye_pose.Compute(state, bones, owner, dt)
 		local hip = center + rotation:VecMul(Vec3(sign * 0.4 * EYE_RADIUS, -0.75 * EYE_RADIUS, 0.52 * EYE_RADIUS))
 		local hang = (rotation:VecMul(Vec3(sign * 0.7, -0.5, 0.3)) + Vec3(sign * 0.35, -0.9, 0.1)):GetNormalized()
 		local grip = grips and (sign == 1 and grips.right or grips.left)
+
+		if blocking and sign == -1 then grip = eye_pose.BlockGrip end
 		local target
 		local follow = 14
 

@@ -8,6 +8,7 @@ META:GetSet("Profile", "creature")
 META:GetSet("IdleSequence", "")
 META:GetSet("WalkSequence", "")
 META:GetSet("RunSequence", "")
+META:GetSet("AttackSequence", "")
 META:IsSet("Mirror", false)
 META:IsSet("OwnsArmature", false)
 META:GetSet("SocketProfile", "source_humanoid")
@@ -60,6 +61,19 @@ local function find_ancestor(entity, component)
 end
 
 function META:UpdateCreature(animator, skeleton, pose, dt)
+	if pose.action == "attack" and self.AttackSequence ~= "" then
+		if self.attack_actions ~= pose.Actions then
+			self.attack_actions = pose.Actions
+			self.sequence = self.AttackSequence
+			animator:SetLoop(false)
+			animator:SetSequence(self.AttackSequence)
+			animator:Restart()
+		end
+
+		animator:SetSpeed(pose.animation_speed)
+		return
+	end
+
 	local forward_speed = pose.forward_speed
 	local left_speed = -pose.right_speed
 	local speed = math.sqrt(forward_speed * forward_speed + left_speed * left_speed)
@@ -97,6 +111,7 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 
 	if sequence ~= self.sequence then
 		self.sequence = sequence
+		animator:SetLoop(true)
 		animator:SetSequence(sequence)
 	end
 
@@ -111,7 +126,7 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 		end
 	end
 
-	animator:SetSpeed(rate)
+	animator:SetSpeed(rate * pose.animation_speed)
 	local range = skeleton.PoseParameterRanges.move_yaw
 
 	if range and state ~= "idle" then
@@ -169,7 +184,7 @@ function META:UpdatePlayer(animator, pose, dt)
 		rate = math.clamp(speed / reference, 0.4, 2)
 	end
 
-	animator:SetSpeed(rate)
+	animator:SetSpeed(rate * pose.animation_speed)
 	local follow = math.min(dt * 10, 1)
 	self.move_x = self.move_x + (forward_speed / reference - self.move_x) * follow
 	self.move_y = self.move_y + (right_speed / reference - self.move_y) * follow

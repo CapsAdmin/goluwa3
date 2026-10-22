@@ -64,7 +64,7 @@ function META:OnUpdate(dt)
 	if not armature and not (ragdoll and ragdoll.Profile == "eye") then return end
 
 	self.computed = true
-	eye_pose.Compute(self.state, self.bones, owner, dt)
+	eye_pose.Compute(self.state, self.bones, owner, dt * owner.character_pose.animation_speed)
 	self:CopyDisplay()
 
 	if not armature then return end

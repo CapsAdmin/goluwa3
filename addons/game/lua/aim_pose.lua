@@ -10,6 +10,18 @@ aim_pose.HandOffset = Vec3(-0.08, -0.1, 0)
 aim_pose.SupportOffset = Vec3(-0.06, -0.12, 0)
 aim_pose.SupportReach = 0.2
 aim_pose.ElbowPole = Vec3(0.6, -1, 0.2)
+aim_pose.BlockOffset = Vec3(0.12, -0.02, 0)
+aim_pose.BlockReach = -0.18
+aim_pose.Actions = {
+	slash_r = {{0, 0, 0}, {0.3, -1.2, 0.5}, {0.5, 1.1, -0.4}, {1, 0, 0}},
+	slash_l = {{0, 0, 0}, {0.3, 1.2, 0.5}, {0.5, -1.1, -0.4}, {1, 0, 0}},
+	thrust = {{0, 0, 0}, {0.35, -0.3, 0.6}, {0.55, 0, -0.15}, {1, 0, 0}},
+	slash_down = {{0, 0, 0}, {0.4, 0, 1.4}, {0.6, 0, -0.9}, {1, 0, 0}},
+	heavy = {{0, 0, 0}, {0.45, -1.6, 1}, {0.65, 1, -0.6}, {1, 0, 0}},
+	cast_r = {{0, 0, 0}, {0.3, -0.3, 0.35}, {0.55, 0.1, -0.05}, {1, 0, 0}},
+	cast_l = {{0, 0, 0}, {0.3, 0.3, 0.35}, {0.55, -0.1, -0.05}, {1, 0, 0}},
+	drink = {{0, 0, 0}, {0.35, 0.2, 1.35}, {0.8, 0.2, 1.35}, {1, 0, 0}},
+}
 local ARMS = {
 	"clavicle_r",
 	"upperarm_r",
@@ -146,10 +158,33 @@ end
 
 aim_pose.SetBetween = set_between
 
-function aim_pose.GetAim(pose)
-	if pose.recoil <= 0 then return pose.pitch end
+local function sample_action(keys, f)
+	for i = 2, #keys do
+		local key = keys[i]
 
-	return pose.pitch:Copy():RotatePitch(aim_pose.RecoilAngle * pose.recoil)
+		if f <= key[1] then
+			local previous = keys[i - 1]
+			local t = (f - previous[1]) / (key[1] - previous[1])
+			t = t * t * (3 - 2 * t)
+			return previous[2] + (key[2] - previous[2]) * t, previous[3] + (key[3] - previous[3]) * t
+		end
+	end
+
+	return 0, 0
+end
+
+function aim_pose.GetAim(pose)
+	local aim = pose.pitch
+	local keys = pose.action and aim_pose.Actions[pose.action]
+
+	if keys then
+		local yaw, pitch = sample_action(keys, pose.action_fraction)
+		aim = Quat():Identity():RotateYaw(yaw) * aim:Copy():RotatePitch(pitch)
+	end
+
+	if pose.recoil <= 0 then return aim end
+
+	return aim:Copy():RotatePitch(aim_pose.RecoilAngle * pose.recoil)
 end
 
 function aim_pose.Apply(bones, pose, armed, two_handed)
@@ -169,11 +204,11 @@ function aim_pose.Apply(bones, pose, armed, two_handed)
 		rotate_chain(bones, joint[2], #joint[2], bones[name], rotation)
 	end
 
-	if not armed then return end
+	if armed then solve_arm(bones, RIGHT, pitch, aim_pose.HandOffset, 0, 1) end
 
-	solve_arm(bones, RIGHT, pitch, aim_pose.HandOffset, 0, 1)
-
-	if two_handed then
+	if pose.block_alpha > 0.5 then
+		solve_arm(bones, LEFT, pose.pitch, aim_pose.BlockOffset, aim_pose.BlockReach, -1)
+	elseif armed and two_handed then
 		solve_arm(bones, LEFT, pitch, aim_pose.SupportOffset, aim_pose.SupportReach, -1)
 	end
 end
