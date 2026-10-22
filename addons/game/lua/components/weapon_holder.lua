@@ -22,7 +22,10 @@ function META:OnUpdate()
 		local weapon = child.weapon
 
 		if weapon then
-			weapon:UpdateModel(weapon:IsActive() and not (first_person and weapon:IsHiddenInFirstPerson()))
+			weapon:UpdateModel(
+				(weapon:IsActive() or weapon:IsOffhand()) and
+				not (first_person and weapon:IsHiddenInFirstPerson())
+			)
 		end
 	end
 end
@@ -42,11 +45,25 @@ do
 		local weapons = {}
 
 		for _, child in ipairs(self.Owner:GetChildren()) do
-			if child.weapon then weapons[#weapons + 1] = child end
+			if child.weapon and not child.weapon:IsOffhand() then
+				weapons[#weapons + 1] = child
+			end
 		end
 
 		table.sort(weapons, by_slot)
 		return weapons
+	end
+end
+
+function META:GetOffhandWeapon()
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		if child.weapon and child.weapon:IsOffhand() then return child end
+	end
+end
+
+function META:FindWeapon(name)
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		if child.weapon and child:GetName() == name then return child end
 	end
 end
 
@@ -86,7 +103,9 @@ function META:Give(weapon_name)
 		network = owner.network and {NetworkOwner = owner.network:GetNetworkOwner()} or nil,
 	}
 
-	if not self:GetActiveWeapon() then self:Select(weapon) end
+	if not self:GetActiveWeapon() and not weapon.weapon:IsOffhand() then
+		self:Select(weapon)
+	end
 
 	return weapon
 end
@@ -94,9 +113,7 @@ end
 function META:Pickup(weapon)
 	local owner = self.Owner
 
-	for _, held in ipairs(self:GetWeapons()) do
-		if held:GetName() == weapon:GetName() then return false end
-	end
+	if self:FindWeapon(weapon:GetName()) then return false end
 
 	weapon.transform:SetPosition(Vec3())
 	weapon.transform:SetRotation(Quat():Identity())
@@ -107,7 +124,9 @@ function META:Pickup(weapon)
 
 	owner:AddChild(weapon)
 
-	if not self:GetActiveWeapon() then self:Select(weapon) end
+	if not self:GetActiveWeapon() and not weapon.weapon:IsOffhand() then
+		self:Select(weapon)
+	end
 
 	return true
 end
@@ -138,8 +157,8 @@ function META:Drop(weapon)
 end
 
 function META:OnDeath()
-	for _, weapon in ipairs(self:GetWeapons()) do
-		weapon:Remove()
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		if child.weapon then child:Remove() end
 	end
 end
 
@@ -209,6 +228,10 @@ function META:OnPhysicsUpdate(dt)
 	end
 
 	if weapon then weapon.weapon:Think(dt, cmd) end
+
+	local offhand = self:GetOffhandWeapon()
+
+	if offhand then offhand:CallLocalEvent("OnWeaponThink", dt, cmd) end
 end
 
 function META:OnCharacterModeChanged(mode)
