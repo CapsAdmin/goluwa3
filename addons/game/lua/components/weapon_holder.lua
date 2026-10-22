@@ -157,14 +157,16 @@ function META:Drop(weapon)
 end
 
 function META:OnDeath()
-	for _, child in ipairs(self.Owner:GetChildren()) do
-		if child.weapon then child:Remove() end
+	local children = self.Owner:GetChildren()
+
+	for i = #children, 1, -1 do
+		if children[i].weapon then children[i]:Remove() end
 	end
 end
 
 function META:GiveLoadout()
 	for _, name in ipairs(import("lua/weapons.lua").Loadout) do
-		self:Give(name)
+		if not self:FindWeapon(name) then self:Give(name) end
 	end
 end
 
