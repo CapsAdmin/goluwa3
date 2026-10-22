@@ -168,7 +168,7 @@ function META:UpdatePlayer(animator, pose, dt)
 	animator:SetSpeed(rate)
 	local follow = math.min(dt * 10, 1)
 	self.move_x = self.move_x + (forward_speed / reference - self.move_x) * follow
-	self.move_y = self.move_y + (-right_speed / reference - self.move_y) * follow
+	self.move_y = self.move_y + (right_speed / reference - self.move_y) * follow
 	animator:SetPoseParameterByName("move_x", math.clamp(self.move_x, -1, 1))
 	animator:SetPoseParameterByName("move_y", math.clamp(self.move_y, -1, 1))
 	animator:SetPoseParameterByName("vertical_velocity", math.clamp(pose.vertical_speed / 4, -1, 1))
