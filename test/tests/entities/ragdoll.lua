@@ -52,7 +52,7 @@ T.TestPhysics("a character has kinematic body parts that follow its pose and are
 	local character = create_character()
 	run(character, 1)
 	local ragdoll = character.ragdoll
-	T(#ragdoll.parts)["=="](#biped.Parts)
+	T(#ragdoll.parts)["=="](#biped.Profiles.humanoid.Parts)
 
 	for _, part in ipairs(ragdoll.parts) do
 		T(part.body:IsKinematic())["=="](true)
@@ -86,7 +86,7 @@ T.TestPhysics("dying lets the body parts go as a ragdoll and reviving takes them
 	local ragdoll = character.ragdoll
 	character.health:TakeDamage(damage.Info{Damage = 1000})
 	T(ragdoll.released)["=="](true)
-	T(#ragdoll.joints)["=="](#biped.Joints)
+	T(#ragdoll.joints)["=="](#biped.Profiles.humanoid.Joints)
 
 	for _, part in ipairs(ragdoll.parts) do
 		T(part.body:IsDynamic())["=="](true)
@@ -141,7 +141,7 @@ T.TestPhysics("a ragdoll thrown at a wall comes to rest on a floor without frict
 	run(character, 1)
 	T(ragdoll.part_by_name.pelvis.body.Position:Distance(rest) < 0.05)["=="](true)
 
-	for _, joint in ipairs(biped.Joints) do
+	for _, joint in ipairs(biped.Profiles.humanoid.Joints) do
 		local parent, child = ragdoll.part_by_name[joint.Parent].body, ragdoll.part_by_name[joint.Child].body
 		T(parent.Position:Distance(child.Position) < 0.6)["=="](true)
 	end

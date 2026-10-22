@@ -15,14 +15,9 @@ local META = objects.CreateTemplate("ragdoll")
 META.Network = {}
 META:StartStorable()
 META:GetSet("CorpseTime", 0)
+META:GetSet("Profile", "humanoid")
 META:EndStorable()
 local PART_FRICTION = 0.8
-local PART_BONES = {}
-
-for _, definition in ipairs(biped.Parts) do
-	PART_BONES[definition.Bone] = true
-end
-
 local PART_LINEAR_DAMPING = 0.1
 local PART_ANGULAR_DAMPING = 1
 local PART_ROLLING_FRICTION = 6
@@ -67,6 +62,14 @@ function META:ComputePose()
 		return
 	end
 
+	if self.Profile == "eye" then
+		for name, matrix in pairs(owner.procedural_pose:GetBones()) do
+			self.bones[name] = matrix
+		end
+
+		return
+	end
+
 	local holder = owner.weapon_holder
 	local active = holder and holder:GetActiveWeapon()
 	biped_pose.Compute(
@@ -84,7 +87,11 @@ end
 function META:BuildFrames()
 	local frames = {}
 
-	for _, definition in ipairs(biped.Parts) do
+	local profile = biped.Profiles[self.Profile]
+	local part_bones = {}
+
+	for _, definition in ipairs(profile.Parts) do
+		part_bones[definition.Bone] = true
 		local bone = self.bones[definition.Bone]
 		local from, to = self.bones[definition.From], self.bones[definition.To]
 		local offset = definition.ToOffset
@@ -100,6 +107,22 @@ function META:BuildFrames()
 		frames[definition.Name] = {rotation = rotation, center = center}
 	end
 
+	local attached = {}
+
+	for _, entry in ipairs(biped.Bones) do
+		local name = entry[1]
+		local parent = profile.Attach and profile.Attach[name] or entry[2]
+
+		if not part_bones[name] and parent and self.bones[name] and self.bones[parent] then
+			attached[#attached + 1] = {
+				name = name,
+				parent = parent,
+				matrix = self.bones[name]:GetMultiplied(self.bones[parent]:GetInverse()),
+			}
+		end
+	end
+
+	self.attached = attached
 	self.frames = frames
 end
 
@@ -152,17 +175,12 @@ end
 
 function META:Build()
 	local owner = self.Owner
-	local height = owner.character_movement:GetHeight()
 	self:ComputePose()
 
-	for _, definition in ipairs(biped.Parts) do
-		local from, to = biped.Rest[definition.From], biped.Rest[definition.To]
+	for _, definition in ipairs(biped.Profiles[self.Profile].Parts) do
+		local from, to = self.bones[definition.From], self.bones[definition.To]
 		local offset = definition.ToOffset or Vec3()
-		local length = Vec3(
-			(to[1] - from[1]) * height + offset.x,
-			(to[2] - from[2]) * height + offset.y,
-			(to[3] - from[3]) * height + offset.z
-		):GetLength()
+		local length = Vec3(to.m30 - from.m30 + offset.x, to.m31 - from.m31 + offset.y, to.m32 - from.m32 + offset.z):GetLength()
 		local position, rotation = self:GetPartTarget(definition)
 		local entity = Entity.New{
 			Name = "ragdoll_" .. definition.Name,
@@ -210,7 +228,7 @@ function META:BuildJoints()
 	local joints = self.joints
 	local axis = Vec3()
 
-	for _, definition in ipairs(biped.Joints) do
+	for _, definition in ipairs(biped.Profiles[self.Profile].Joints) do
 		local parent, child = self.part_by_name[definition.Parent], self.part_by_name[definition.Child]
 		local bone = self.bones[definition.Anchor]
 		local anchor = self.Owner.transform:GetPosition() + rotation:VecMul(Vec3(bone.m30, bone.m31, bone.m32))
@@ -402,7 +420,7 @@ function META:IsReleased()
 
 	local parts = {}
 
-	for _, definition in ipairs(biped.Parts) do
+	for _, definition in ipairs(biped.Profiles[self.Profile].Parts) do
 		local entity = by_group[definition.Name]
 
 		if not entity then return false end
@@ -431,7 +449,7 @@ function META:ClearRig()
 			rig:ClearBone(biped.SourceBones[name])
 		end
 
-		for _, part in ipairs(biped.Parts) do
+		for _, part in ipairs(biped.Profiles[self.Profile].Parts) do
 			rig:ClearBone(biped.SourceBones[part.Bone])
 		end
 	end
@@ -439,43 +457,80 @@ function META:ClearRig()
 	self.driven_rig = nil
 end
 
-function META:DriveRig(rig)
-	local owner_transform = self.Owner.transform
-	local entity_position, entity_rotation = owner_transform:GetRenderPositionRotation()
-	entity_position = entity_position or owner_transform:GetPosition()
-	entity_rotation = entity_rotation or owner_transform:GetRotation()
-	local inverse = entity_rotation:GetConjugated()
+do
+	local entity_position = Vec3()
 
-	if not self.frames then
-		for name, source in pairs(biped.SourceBones) do
-			self.bones[name] = rig:GetBone(source)
-		end
-
-		self:BuildFrames()
+	local function get_entity_frame(self)
+		local owner_transform = self.Owner.transform
+		local position, rotation = owner_transform:GetRenderPositionRotation()
+		entity_position = position or owner_transform:GetPosition()
+		return rotation or owner_transform:GetRotation()
 	end
 
-	for _, part in ipairs(self.parts) do
+	local function get_part_bone(self, part, entity_rotation, out)
 		local transform = part.entity.transform
 		local position, rotation = transform:GetRenderPositionRotation()
 		position = position or transform:GetPosition()
 		rotation = rotation or transform:GetRotation()
 		local frame = self.frames[part.definition.Name]
+		local inverse = entity_rotation:GetConjugated()
 		local bone_rotation = inverse * rotation * frame.rotation:GetConjugated()
 		local local_position = inverse:VecMul(position - entity_position) - bone_rotation:VecMul(frame.center)
-		part_matrix:Identity()
-		part_matrix:SetRotation(bone_rotation)
-		part_matrix:SetTranslation(local_position.x, local_position.y, local_position.z)
-		rig:SetBone(biped.SourceBones[part.definition.Bone], part_matrix, "model")
+		out:Identity()
+		out:SetRotation(bone_rotation)
+		out:SetTranslation(local_position.x, local_position.y, local_position.z)
+		return out
 	end
 
-	if not self.driven_rig then
-		for _, name in ipairs(aim_pose.Bones) do
-			if not PART_BONES[name] then rig:ClearBone(biped.SourceBones[name]) end
+	function META:ReadBones(out)
+		if not self.frames then
+			self:ComputePose()
+			self:BuildFrames()
+		end
+
+		local entity_rotation = get_entity_frame(self)
+
+		for _, part in ipairs(self.parts) do
+			get_part_bone(self, part, entity_rotation, out[part.definition.Bone])
+		end
+
+		for _, attached in ipairs(self.attached) do
+			attached.matrix:GetMultiplied(out[attached.parent], out[attached.name])
 		end
 	end
 
-	rig:Compute()
-	self.driven_rig = rig
+	function META:DriveRig(rig)
+		local entity_rotation = get_entity_frame(self)
+
+		if not self.frames then
+			for name, source in pairs(biped.SourceBones) do
+				self.bones[name] = rig:GetBone(source)
+			end
+
+			self:BuildFrames()
+		end
+
+		local profile = biped.Profiles[self.Profile]
+
+		for _, part in ipairs(self.parts) do
+			rig:SetBone(biped.SourceBones[part.definition.Bone], get_part_bone(self, part, entity_rotation, part_matrix), "model")
+		end
+
+		if not self.driven_rig then
+			local part_bones = {}
+
+			for _, definition in ipairs(profile.Parts) do
+				part_bones[definition.Bone] = true
+			end
+
+			for _, name in ipairs(aim_pose.Bones) do
+				if not part_bones[name] then rig:ClearBone(biped.SourceBones[name]) end
+			end
+		end
+
+		rig:Compute()
+		self.driven_rig = rig
+	end
 end
 
 function META:OnRemove()

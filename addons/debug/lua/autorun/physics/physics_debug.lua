@@ -806,7 +806,7 @@ local function draw_character_overlay()
 
 	for _, ragdoll in ipairs(Ragdoll.Instances or {}) do
 		if ragdoll.released then
-			for _, joint in ipairs(biped.Joints) do
+			for _, joint in ipairs(biped.Profiles[ragdoll.Profile].Joints) do
 				local parent, child = ragdoll.part_by_name[joint.Parent], ragdoll.part_by_name[joint.Child]
 
 				debug_draw.DrawLine{

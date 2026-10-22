@@ -3,6 +3,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local vfs = import("goluwa/vfs.lua")
 local outfit = import("lua/outfit.lua")
+local eye_pose = import("lua/eye_pose.lua")
 
 T.Test("The local outfit is saved with the default body and visor, stays local and keeps edits", function()
 	local name = outfit.CustomName
@@ -36,10 +37,21 @@ T.Test("Outfit names of other players are valid prefab names", function()
 	T(outfit.GetName("127.0.0.1:5000"))["=="]("outfit_127.0.0.1_5000")
 end)
 
-T.Test("The default outfit swings the eye around the pupil point and keeps the feet planted", function()
-	local Vec3 = import("goluwa/structs/vec3.lua")
+T.Test("The default outfit places the eye and limbs where the pose bones are", function()
+	local Matrix44 = import("goluwa/structs/matrix44.lua")
+	local biped = import("lua/biped.lua")
+	local bones = {}
+
+	for _, entry in ipairs(biped.Bones) do
+		bones[entry[1]] = Matrix44()
+	end
+
+	bones.neck:SetTranslation(0, 1, 0.1)
+	bones.upperarm_l:SetTranslation(0.3, 1, 0)
+	bones.forearm_l:SetTranslation(0.3, 0.6, 0)
+	bones.foot_r:SetTranslation(-0.2, 0.05, 0)
 	local player = Entity.New{transform = {}}
-	player.character_pose = {crouch_alpha = 0}
+	player.procedural_pose = {GetBones = function() return bones end}
 	player.player_avatar = {
 		SetOutfitFirstPersonVisible = function(self, visible)
 			self.visible = visible
@@ -51,48 +63,15 @@ T.Test("The default outfit swings the eye around the pupil point and keeps the f
 	T(rig.script.Error)["=="](nil)
 	rig.outfit_eye:OnUpdate(0.016)
 	T(player.player_avatar.visible)["=="](true)
-	local eye = instance.prefab:GetNode("eye").transform
-	T(eye:GetPosition().y)["~"](outfit.EyeHeight, 1e-5)
-	T(eye:GetPosition().z)["~"](outfit.EyeRadius, 1e-5)
-	local foot = instance.prefab:GetNode("foot_l").transform:GetPosition()
-	T(foot.y)["~"](outfit.FootHeight, 2e-2)
-	player.character_pose.crouch_alpha = 1
-	rig.outfit_eye:OnUpdate(0.016)
-	T(eye:GetPosition().y)["~"](outfit.CrouchEyeHeight, 1e-5)
+	local eye = instance.prefab:GetNode("eye").transform:GetPosition()
+	T(eye.y)["~"](1, 1e-5)
+	T(eye.z)["~"](0.1, 1e-5)
+	local upper = instance.prefab:GetNode("arm_upper_l").transform:GetPosition()
+	T(upper.x)["~"](0.3, 1e-5)
+	T(upper.y)["~"](0.8, 1e-5)
+	T(instance.prefab:GetNode("foot_r").transform:GetPosition().x)["~"](-0.2, 1e-5)
 	instance:Remove()
 	T(player.player_avatar.visible)["=="](false)
 	player:Remove()
 	prefab.definitions.test_outfit_eye = nil
-end)
-
-T.TestPhysics("The default outfit plants its feet on the ground found by a physics ray within a bound", function()
-	local Vec3 = import("goluwa/structs/vec3.lua")
-	local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
-	local physics = import("goluwa/physics.lua")
-	local test_helpers = import("test/tests/physics/test_helpers.lua")
-	prefab.Register("test_outfit_ground", outfit.GetDefault())
-	local player = Entity.New{transform = {}}
-	player.character_pose = {crouch_alpha = 0}
-	player.player_avatar = {SetOutfitFirstPersonVisible = function() end}
-	local expected = outfit.FootHeight - outfit.FootSink
-	local cases = {{0, expected}, {outfit.GroundBound * 0.5, expected + outfit.GroundBound * 0.5}, {outfit.GroundBound * 3, expected}}
-
-	for _, case in ipairs(cases) do
-		local ground = Entity.New{Name = "outfit_foot_ground"}
-		ground:AddComponent("transform")
-		local poly = Polygon3D.New()
-		local height = case[1]
-		test_helpers.AddTriangle(poly, Vec3(-8, height, -8), Vec3(8, height, -8), Vec3(0, height, 8))
-		poly:BuildBoundingBox()
-		test_helpers.AttachWorldGeometryBody(ground, poly)
-		local instance = Entity.New{Parent = player, prefab = {Path = "test_outfit_ground"}}
-		instance.prefab:GetNode("rig").outfit_eye:OnUpdate(0.016)
-		T(instance.prefab:GetNode("foot_l").transform:GetPosition().y)["~"](case[2], 1e-3)
-		instance:Remove()
-		ground:Remove()
-		physics.Update(1 / 60)
-	end
-
-	player:Remove()
-	prefab.definitions.test_outfit_ground = nil
 end)

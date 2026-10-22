@@ -243,11 +243,11 @@ event.AddListener("Update", "e2e_observer_ragdoll", function()
 		end
 	end
 
-	if count == #biped.Parts or system.GetTime() - started > TIMEOUT + 20 then
+	if count == #biped.Profiles.humanoid.Parts or system.GetTime() - started > TIMEOUT + 20 then
 		ragdoll_done = true
 		signals.Write(
 			"observer.ragdoll",
-			string.format("OBSERVER_RAGDOLL parts=%d expected=%d\n", count, #biped.Parts)
+			string.format("OBSERVER_RAGDOLL parts=%d expected=%d\n", count, #biped.Profiles.humanoid.Parts)
 		)
 	end
 end)
