@@ -624,6 +624,7 @@ do
 			Lit = false,
 			Collision = "none",
 			Emissive = 2.5e5,
+			SaturationJitter = 0.35,
 			ColorStart = Color(definition.Color.r, definition.Color.g, definition.Color.b, 1),
 			ColorEnd = Color(
 				(definition.EndColor or definition.Color).r,

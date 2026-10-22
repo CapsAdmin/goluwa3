@@ -54,6 +54,8 @@ particle_emitter.gpu = {
 	{"ColorEnd", Color(1, 1, 1, 0), nil, "Look"},
 	{"Lit", true, boolean, "Look"},
 	{"Emissive", 0, ranged(0, 1e7), "Look"},
+	{"Sparkle", 0, ranged(0, 1), "Look"},
+	{"SaturationJitter", 0, ranged(0, 1), "Look"},
 	{"Collision", "none", particle_emitter.GPU_COLLISIONS, "Collision"},
 }
 particle_emitter.cpu = {

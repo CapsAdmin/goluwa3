@@ -158,6 +158,8 @@ gpu.system = particles.Register{
 				{"restitution", "float"},
 				{"friction", "float"},
 				{"emissive", "float"},
+				{"sparkle", "float"},
+				{"saturation_jitter", "float"},
 				{"shape", "int"},
 				{"collision", "int"},
 				{"on_hit", "int"},
@@ -213,6 +215,8 @@ gpu.system = particles.Register{
 			entry.restitution = emitter.Restitution
 			entry.friction = emitter.Friction
 			entry.emissive = emitter.Emissive
+			entry.sparkle = emitter.Sparkle
+			entry.saturation_jitter = emitter.SaturationJitter
 			entry.shape = SHAPES[emitter.Shape]
 			entry.collision = COLLISIONS[emitter.Collision]
 			entry.on_hit = ON_HIT[emitter.OnHit]
@@ -329,7 +333,9 @@ gpu.system = particles.Register{
 		if (!get_particle_emitter(p, slot)) return 0.0;
 
 		emitters_t e = emitters_data.emitters[slot];
-		return mix(e.color_start.a, e.color_end.a, clamp(p.age / p.life, 0.0, 1.0));
+		float seed = fract(sin(p.life * 12345.678) * 43758.5453);
+		float twinkle = 0.5 + 0.5 * sin(p.age * mix(18.0, 60.0, seed) + seed * 6.2831853);
+		return mix(e.color_start.a, e.color_end.a, clamp(p.age / p.life, 0.0, 1.0)) * mix(1.0, twinkle * twinkle, e.sparkle);
 	]],
 	shade = [[
 		uint slot;
@@ -338,6 +344,9 @@ gpu.system = particles.Register{
 
 		emitters_t e = emitters_data.emitters[slot];
 		vec3 tint = mix(e.color_start.rgb, e.color_end.rgb, clamp(p.age / p.life, 0.0, 1.0));
+		float luma = dot(tint, vec3(0.2126, 0.7152, 0.0722));
+		float jitter = fract(sin(p.life * 4321.987 + 3.7) * 24634.6345);
+		tint = max(mix(vec3(luma), tint, 1.0 + (jitter - 0.5) * 2.0 * e.saturation_jitter), vec3(0.0));
 		p.radiance = tint * ((e.lit != 0 ? p.light : vec3(0.0)) + e.emissive);
 	]],
 	collision_mode = [[
