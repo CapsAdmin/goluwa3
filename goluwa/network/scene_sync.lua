@@ -595,8 +595,12 @@ if CLIENT and not SERVER then
 		note("remove request %s", entity:GetGUID())
 	end
 
-	function scene_sync.PushPrefab(name, as_name)
-		send_blob(nil, "prefab", prefab.Encode(prefab.Get(name)), as_name or name)
+	function scene_sync.PushPrefab(name, as_name, inputs)
+		local definition = prefab.Get(name)
+
+		if inputs then definition = prefab.WithDefaults(definition, inputs) end
+
+		send_blob(nil, "prefab", prefab.Encode(definition), as_name or name)
 		note("push prefab %s", as_name or name)
 	end
 

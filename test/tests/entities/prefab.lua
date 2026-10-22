@@ -360,6 +360,18 @@ T.Test("Prefab inputs can get a new default and be removed", function()
 	b:Remove()
 end)
 
+T.Test("Prefab previews take temporary inputs and defaults can be overridden without editing", function()
+	local name = "test_prefab_preview_inputs"
+	register(name)
+	local preview = prefab.CreatePreview(name, {Group = "temp"})
+	T(preview.prefab:GetInput("Group"))["=="]("temp")
+	T(prefab.Get(name).inputs[1].Default)["=="]("a")
+	preview:Remove()
+	local overridden = prefab.WithDefaults(prefab.Get(name), {Group = "pushed"})
+	T(overridden.inputs[1].Default)["=="]("pushed")
+	T(prefab.Get(name).inputs[1].Default)["=="]("a")
+end)
+
 T.Test("Prefabs are assets, registered ones are virtual until they are saved", function()
 	local name = "test_prefab_asset"
 	register(name)

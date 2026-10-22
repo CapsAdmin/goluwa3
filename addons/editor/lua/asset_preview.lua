@@ -407,8 +407,8 @@ function previews.CollectVisuals(entity, out)
 	return out
 end
 
-function previews.CreatePrefabEntity(name)
-	local entity = prefab.CreatePreview(name)
+function previews.CreatePrefabEntity(name, inputs)
+	local entity = prefab.CreatePreview(name, inputs)
 	local visuals = previews.CollectVisuals(entity)
 
 	for _, visual in ipairs(visuals) do
@@ -440,7 +440,7 @@ local function step_prefab(state, now, budget)
 	if not state.entity then
 		if loading.model_count >= previews.MAX_LOADING then return false end
 
-		local ok, entity, visuals = pcall(previews.CreatePrefabEntity, entry.name)
+		local ok, entity, visuals = pcall(previews.CreatePrefabEntity, entry.name, entry.inputs)
 
 		if not ok then
 			fail(state, entity)

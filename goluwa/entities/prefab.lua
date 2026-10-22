@@ -143,6 +143,16 @@ function prefab.GetPath(name)
 	return prefab.GetDirectory() .. name .. ".prefab"
 end
 
+function prefab.WithDefaults(definition, values)
+	local inputs = copy_value(definition.inputs)
+
+	for _, input in ipairs(inputs) do
+		if values[input.Name] ~= nil then input.Default = values[input.Name] end
+	end
+
+	return {inputs = inputs, entities = definition.entities}
+end
+
 function prefab.Encode(definition)
 	return scene.EncodeValue{
 		version = VERSION,
@@ -1116,9 +1126,9 @@ event.AddListener("Update", "prefab_commit", function()
 	end
 end)
 
-function prefab.CreatePreview(name)
+function prefab.CreatePreview(name, inputs)
 	previewing = true
-	local ok, entity = pcall(Entity.New, {Name = name, Transient = true, prefab = {Path = name}})
+	local ok, entity = pcall(Entity.New, {Name = name, Transient = true, prefab = {Inputs = inputs, Path = name}})
 	previewing = false
 
 	if not ok then error(entity, 0) end
