@@ -3,7 +3,7 @@ local system = import("goluwa/system.lua")
 local particles = import("goluwa/render3d/particles.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local gpu = {}
-gpu.MAX_EMITTERS = 32
+gpu.MAX_EMITTERS = 128
 gpu.POOL_SIZE = 65536
 local ranges = {}
 local free_slots = {}
@@ -230,18 +230,18 @@ gpu.system = particles.Register{
 		block.emitter_count = slots
 		return block
 	end,
-	declarations = [[
+	declarations = "#define GPU_EMITTER_COUNT " .. gpu.MAX_EMITTERS .. "u\n" .. [[
 
 		uint find_emitter(uint index) {
 			for (int i = 0; i < emitters_data.emitter_count; i++) {
 				if (emitters_data.emitters[i].enabled != 0 && index >= uint(emitters_data.emitters[i].first) && index < uint(emitters_data.emitters[i].first + emitters_data.emitters[i].count)) return uint(i);
 			}
 
-			return 32u;
+			return GPU_EMITTER_COUNT;
 		}
 
 		bool get_particle_emitter(Particle p, out uint slot) {
-			slot = min(p.user.y, 31u);
+			slot = min(p.user.y, GPU_EMITTER_COUNT - 1u);
 			return emitters_data.emitters[slot].enabled != 0 && uint(emitters_data.emitters[slot].uid) == p.user.z;
 		}
 
@@ -254,7 +254,7 @@ gpu.system = particles.Register{
 	should_spawn = [[
 		uint slot = find_emitter(index);
 
-		if (slot == 32u) return false;
+		if (slot == GPU_EMITTER_COUNT) return false;
 
 		emitters_t e = emitters_data.emitters[slot];
 		uint local_index = index - uint(e.first);
@@ -263,7 +263,7 @@ gpu.system = particles.Register{
 	spawn = [[
 		uint slot = find_emitter(index);
 
-		if (slot == 32u) {
+		if (slot == GPU_EMITTER_COUNT) {
 			p.life = 0.0;
 			return;
 		}
