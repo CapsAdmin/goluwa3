@@ -3,7 +3,6 @@ local network = import("goluwa/network/network.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local use = import("goluwa/entities/use.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
-local system = import("goluwa/system.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("weapon_holder")
@@ -126,7 +125,6 @@ function META:Drop(weapon)
 	weapon:UnParent()
 	weapon.transform:SetPosition(position)
 	weapon.transform:SetRotation(owner.character_movement:GetCommand().view:Copy())
-	weapon.weapon.pickup_time = system.GetElapsedTime() + weapon.weapon.PickupDelay
 
 	if weapon.network then weapon.network:SetNetworkOwner("") end
 

@@ -1,6 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
-local system = import("goluwa/system.lua")
 local network = import("goluwa/network/network.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
@@ -22,7 +21,6 @@ META:GetSet("Automatic", false)
 META:GetSet("WorldSize", Vec3(0.2, 0.2, 0.6))
 META:GetSet("WorldCenter", Vec3())
 META:GetSet("WorldMass", 3)
-META:GetSet("PickupDelay", 1)
 META:EndStorable()
 META:IsSet("Active", false)
 
@@ -30,7 +28,6 @@ function META:Initialize()
 	self.time = 0
 	self.next_primary = 0
 	self.next_secondary = 0
-	self.pickup_time = 0
 end
 
 function META:OnEntityConstructed()
@@ -87,12 +84,10 @@ function META:OnUnParent()
 	self:RefreshWorldState()
 end
 
-function META:OnCollisionEnter(other)
+function META:OnUsed(user)
 	if self:IsHeld() or not network.HasAuthority() then return end
 
-	local holder = other.weapon_holder
-
-	if holder and system.GetElapsedTime() >= self.pickup_time then holder:Pickup(self.Owner) end
+	return user.weapon_holder:Pickup(self.Owner)
 end
 
 function META:GetModel()
