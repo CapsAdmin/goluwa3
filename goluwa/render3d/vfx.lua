@@ -526,6 +526,38 @@ do
 end
 
 do
+	local emitters = {}
+	local definitions = {}
+
+	function vfx.DefineDebris(key, material, properties)
+		properties.Material = Material.New(material)
+		properties.Playing = false
+		properties.Rate = 0
+		definitions[key] = properties
+	end
+
+	function vfx.HasDebris(key)
+		return definitions[key] ~= nil
+	end
+
+	function vfx.Debris(key, position, direction, count)
+		local entity = emitters[key]
+
+		if not entity or not entity:IsValid() then
+			entity = Entity.New{
+				Name = "vfx_debris_" .. key,
+				transform = {},
+				particle_emitter_cpu = definitions[key],
+			}
+			entity:SetTransient(true)
+			emitters[key] = entity
+		end
+
+		entity.particle_emitter_cpu:BurstAt(count, position, direction)
+	end
+end
+
+do
 	local LIGHT_COUNT = 6
 	local lights = {}
 

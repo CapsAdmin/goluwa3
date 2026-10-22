@@ -237,7 +237,16 @@ do
 		state.data = {}
 
 		for i = 1, layer.Count or 1 do
-			state.trails[i] = vfx.AcquireGpuTrail(color, strength, layer.Points, radius, texture, layer.Drift or 0)
+			state.trails[i] = vfx.AcquireGpuTrail(
+				color,
+				strength,
+				layer.Points,
+				radius,
+				texture,
+				layer.Drift or 0,
+				layer.EndColor and layer.EndColor(p),
+				layer.Flicker
+			)
 
 			if layer.Init then state.data[i] = layer.Init(p, i) end
 		end
@@ -280,6 +289,12 @@ local function make_burst_event(key, count, direction)
 	end
 end
 
+local function make_debris_event(key, count, direction)
+	return function(p)
+		vfx.Debris(key, p.position, p[direction], count)
+	end
+end
+
 function clips.Define(name, definition)
 	local tracks = {}
 	local names = {}
@@ -295,8 +310,14 @@ function clips.Define(name, definition)
 		vfx.DefineBurst(key, properties)
 	end
 
+	for key, debris in pairs(definition.Debris or {}) do
+		vfx.DefineDebris(key, debris.Material, debris.Emitter)
+	end
+
 	for i, entry in ipairs(definition.Events or {}) do
-		if entry.Burst then
+		if entry.Debris then
+			entry = {entry[1], make_debris_event(entry.Debris, entry.Count, entry.Direction)}
+		elseif entry.Burst then
 			entry = {entry[1], make_burst_event(entry.Burst, entry.Count, entry.Direction)}
 		end
 
