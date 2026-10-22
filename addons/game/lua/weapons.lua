@@ -6,7 +6,7 @@ weapons.Definitions = {}
 function weapons.Register(name, values, nodes, source)
 	weapons.Definitions[name] = {DisplayName = values.DisplayName}
 	local entities = {
-		{guid = "root", components = {weapon = values, usable = {Prompt = "pick up"}, script = {Source = source}}},
+		{guid = "root", components = {weapon = values, usable = {Prompt = "pick up"}, item_highlight = {}, script = {Source = source}}},
 		{
 			guid = "model",
 			parent = "root",
