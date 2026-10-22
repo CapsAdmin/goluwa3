@@ -332,6 +332,8 @@ function bridge.UpdateVisual(visual, is_dynamic)
 				list[count] = item
 			end
 
+			if item.hidden ~= hidden then emitter_changed = true end
+
 			item.entry = entry
 			item.material = material
 			item.hidden = hidden
