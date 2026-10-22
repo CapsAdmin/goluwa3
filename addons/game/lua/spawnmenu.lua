@@ -16,6 +16,7 @@ local previews = import("lua/asset_preview.lua")
 local spawnlists = import("lua/spawnlists.lua")
 local weapons = import("lua/weapons.lua")
 local npcs = import("lua/npcs.lua")
+local interactives = import("lua/interactives.lua")
 local props = import("lua/props.lua")
 local game_history = import("lua/game_history.lua")
 local clients = import("goluwa/network/clients.lua")
@@ -33,7 +34,7 @@ local PAGE_LAYOUT = {
 local SPAWN_RANGE = 40
 local DEFAULT_DISTANCE = 3
 local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
-local LEFT_TABS = {"Spawnlists", "Weapons", "NPCs"}
+local LEFT_TABS = {"Spawnlists", "Weapons", "Interactive", "NPCs"}
 local root = NULL
 local shown_setter
 local colors = {}
@@ -81,6 +82,23 @@ local function make_weapon_entries()
 	return entries
 end
 
+local function make_interactive_entries()
+	local entries = {}
+
+	for _, name in ipairs(interactives.Names) do
+		entries[#entries + 1] = {
+			category = "prefabs",
+			name = interactives.GetPrefabName(name),
+			path = interactives.GetPrefabName(name),
+			label = name,
+			spawn_name = name,
+			kind = "interactive",
+		}
+	end
+
+	return entries
+end
+
 local function make_npc_entries()
 	local entries = {}
 
@@ -112,6 +130,13 @@ function spawnmenu.Spawn(entry)
 		weapon:SetOwnedBy(clients.GetLocalClient())
 		game_history.RecordSpawn("spawn " .. entry.spawn_name, weapon)
 		return weapon
+	end
+
+	if entry.kind == "interactive" then
+		local interactive = interactives.Spawn(entry.spawn_name, position, yaw)
+		interactive:SetOwnedBy(clients.GetLocalClient())
+		game_history.RecordSpawn("spawn " .. entry.spawn_name, interactive)
+		return interactive
 	end
 
 	if entry.kind == "npc" then
@@ -404,6 +429,7 @@ local UtilitiesPage = react.Component(
 local LEFT_PAGES = {
 	Spawnlists = ||->SpawnlistsPage{},
 	Weapons = ||->ListPage{Make = make_weapon_entries},
+	Interactive = ||->ListPage{Make = make_interactive_entries},
 	NPCs = ||->ListPage{Make = make_npc_entries},
 }
 local SpawnMenu = react.Component(
