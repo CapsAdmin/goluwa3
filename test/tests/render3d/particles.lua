@@ -232,6 +232,50 @@ T.Test3D("Graphics render3d particle emitter spawns the number its rate and burs
 	if not ok then error(err, 0) end
 end)
 
+T.Test3D("Graphics render3d particle emitter bursts at each queued position", function(draw)
+	init()
+	local entity
+	local ok, err = pcall(function()
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 0, -1))
+		emitter:SetRate(0)
+		emitter:SetMaxParticles(200)
+		emitter:SetShape("point")
+		emitter:SetSpeedMin(0)
+		emitter:SetSpeedMax(0)
+		emitter:SetGravityScale(0)
+		emitter:SetLifetimeMin(30)
+		emitter:SetLifetimeMax(30)
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		step(draw, 3)
+		emitter:BurstAt(20, Vec3(-10, 0, -5), Vec3(0, 1, 0))
+		emitter:BurstAt(30, Vec3(10, 0, -5), Vec3(0, 1, 0))
+		step(draw, 4)
+		local def = particle_emitter_gpu.system
+		local records = particles.Download(def)
+		local left, right = 0, 0
+
+		for i = 0, def.GetCount() - 1 do
+			local p = records[i]
+
+			if p.life > 0 then
+				if math.abs(p.position[0] + 10) < 0.5 then left = left + 1 end
+
+				if math.abs(p.position[0] - 10) < 0.5 then right = right + 1 end
+			end
+		end
+
+		T(left)["=="](20)
+		T(right)["=="](30)
+	end)
+
+	if entity then entity:Remove() end
+
+	restore()
+
+	if not ok then error(err, 0) end
+end)
+
 local function fire_at_wall(draw, collision)
 	local farthest
 	local entity
@@ -367,7 +411,12 @@ T.Test3D("Graphics render3d cpu emitter draws refractive materials through the t
 		emitter, entity = add_emitter("particle_emitter_cpu", Vec3(0, 0, -3), Vec3(0, 0, -1))
 		emitter:SetMesh("shard")
 		emitter:SetMaterial(
-			import("goluwa/render3d/material.lua").New{Refraction = 1, IndexOfRefraction = 1.3, RefractionThickness = 0.05, DoubleSided = true}
+			import("goluwa/render3d/material.lua").New{
+				Refraction = 1,
+				IndexOfRefraction = 1.3,
+				RefractionThickness = 0.05,
+				DoubleSided = true,
+			}
 		)
 		emitter:SetRate(0)
 		emitter:SetPlaying(false)

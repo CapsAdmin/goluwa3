@@ -21,6 +21,10 @@ function ParticleEmitter:Burst(count)
 	particle_emitter.Burst(self, count)
 end
 
+function ParticleEmitter:BurstAt(count, position, direction)
+	particle_emitter.BurstAt(self, count, position, direction)
+end
+
 function ParticleEmitter:Restart()
 	particle_emitter.Restart(self)
 end

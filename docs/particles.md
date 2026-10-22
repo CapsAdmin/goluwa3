@@ -35,6 +35,8 @@ Plain `GetSet` properties (storable, prefab friendly): rate, bursts, loop/durati
 
 A `particle_emitter_cpu` whose `Material` is transparent (refractive, translucent, additive) is drawn by single draws in the translucent passes instead of the gbuffer instances: it extends the translucent depth range and requests the refraction source in `PreDraw3DTranslucent`, and thickness is `RefractionThickness` or 0.3 x the particle size. Meshes tumble around a per particle axis (`Spin` is the rate); `shard` is a faceted bipyramid. `Sparkle` (gpu) twinkles each particle's alpha. Damage types can list `Debris` (material, `Trail` for projectiles, `Emitter` for impacts; `Mesh` per emitter) and the impact effect bursts it. `SwayAmount`/`SwayRate` push cpu particles sideways with a per particle phase and `RockAngle` rocks a mesh back and forth instead of tumbling (feathers).
 
+`emitter:BurstAt(count, position, direction)` queues a burst with its own origin (one is consumed per frame, the emitter does not move), so a shared emitter can serve many bursts a frame; `Burst(count)` spawns at the emitter's transform. A gpu emitter past `MAX_EMITTERS` simply gets no range and draws nothing, it does not error.
+
 They run different code: a shape or force change that belongs in both has to be made in `particle_emitter_gpu.lua` (glsl) and `particle_emitter_cpu.lua`.
 
 ## Pitfalls

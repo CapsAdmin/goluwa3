@@ -65,7 +65,8 @@ local function sync()
 			emitter.particle_backend == "gpu" and
 			particle_emitter.IsShown(emitter)
 		then
-			assert(#ranges < gpu.MAX_EMITTERS, "too many gpu particle emitters")
+			if #ranges >= gpu.MAX_EMITTERS then break end
+
 			local slot = 0
 			local taken = {}
 

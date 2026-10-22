@@ -81,6 +81,9 @@ function particle_emitter.Add(emitter, backend)
 		time = 0,
 		carry = 0,
 		burst = 0,
+		queue = {},
+		queue_head = 1,
+		queue_tail = 1,
 		position = Vec3(),
 		axis = Vec3(0, 1, 0),
 		velocity = Vec3(),
@@ -99,6 +102,20 @@ end
 
 function particle_emitter.Burst(emitter, count)
 	emitter.particle_state.burst = emitter.particle_state.burst + count
+end
+
+function particle_emitter.BurstAt(emitter, count, position, direction)
+	local state = emitter.particle_state
+	local queue = state.queue
+	local tail = state.queue_tail
+	queue[tail] = count
+	queue[tail + 1] = position.x
+	queue[tail + 2] = position.y
+	queue[tail + 3] = position.z
+	queue[tail + 4] = direction.x
+	queue[tail + 5] = direction.y
+	queue[tail + 6] = direction.z
+	state.queue_tail = tail + 7
 end
 
 function particle_emitter.Restart(emitter)
@@ -128,6 +145,23 @@ end
 
 function particle_emitter.Sample(emitter, dt)
 	local state = emitter.particle_state
+
+	if state.queue_head < state.queue_tail then
+		local queue = state.queue
+		local head = state.queue_head
+		state.burst = state.burst + queue[head]
+		state.position:Set(queue[head + 1], queue[head + 2], queue[head + 3])
+		state.axis:Set(queue[head + 4], queue[head + 5], queue[head + 6])
+		state.velocity:Set(0, 0, 0)
+		state.sampled = false
+		head = head + 7
+		state.queue_head = head
+
+		if head == state.queue_tail then state.queue_head, state.queue_tail = 1, 1 end
+
+		return state
+	end
+
 	local matrix = emitter.Owner.transform:GetWorldMatrix()
 	local x, y, z = matrix:GetTranslation()
 	local position = state.position
