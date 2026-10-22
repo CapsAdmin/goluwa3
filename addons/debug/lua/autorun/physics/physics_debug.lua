@@ -805,14 +805,12 @@ local function draw_character_overlay()
 	end
 
 	for _, ragdoll in ipairs(Ragdoll.Instances or {}) do
-		if ragdoll.released then
-			for _, joint in ipairs(biped.Profiles[ragdoll.Profile].Joints) do
-				local parent, child = ragdoll.part_by_name[joint.Parent], ragdoll.part_by_name[joint.Child]
-
+		for _, part in ipairs(ragdoll.parts) do
+			if part.joint then
 				debug_draw.DrawLine{
-					id = "physics_debug_joint_" .. get_body_debug_id(child.body),
-					from = parent.body.Position,
-					to = child.body.Position,
+					id = "physics_debug_joint_" .. get_body_debug_id(part.body),
+					from = part.parent.body.Position,
+					to = part.body.Position,
 					color = {1.0, 1.0, 0.3, 0.9},
 					width = 2,
 					ignore_z = true,

@@ -189,6 +189,12 @@ function META:Release()
 			self.held_body:SetCollisionGroup(self.held_original_group)
 		end
 
+		local character = self.held_character
+
+		if character and character:IsValid() then character.ragdoll:Ungrab(self.held_body) end
+
+		self.held_character = nil
+
 		if self:CanHoldBody(self.held_body) then
 			sync_body_rotation_to_transform(self.held_body)
 		end
@@ -235,6 +241,12 @@ function META:FreezeHeldBody()
 		return
 	end
 
+	if body.Owner.ragdoll_part then
+		self.block_grab_until_primary_release = true
+		self:Release()
+		return
+	end
+
 	if body.SetVelocity then body:SetVelocity(Vec3()) end
 
 	if body.SetAngularVelocity then body:SetAngularVelocity(Vec3()) end
@@ -259,12 +271,14 @@ function META:TryAcquireBody(cmd)
 		player,
 		function(entity)
 			local body = entity and entity.rigid_body
-			return self:CanGrabBody(body)
+
+			if not self:CanGrabBody(body) then return false end
+
+			if entity.ragdoll_part then return true end
+
+			return not entity.ragdoll and not body:IsKinematic()
 		end,
-		{
-			IgnoreRigidBodies = false,
-			IgnoreKinematicBodies = true,
-		}
+		AIM_OPTIONS
 	)
 	local body = hit and
 		(
@@ -285,6 +299,13 @@ function META:TryAcquireBody(cmd)
 	if not self:CanGrabBody(body) or not grab_point then return false end
 
 	if body:IsStatic() then body:SetMotionType("dynamic") end
+
+	local part = body.Owner.ragdoll_part
+
+	if part then
+		self.held_character = part.Character
+		part.Character.ragdoll:Grab(body)
+	end
 
 	self.held_body = body
 	self.held_original_group = body:GetCollisionGroup()
@@ -322,11 +343,14 @@ function META:UpdateHeldBody(dt, cmd)
 	local linear_response = clamp01(dt * self.VelocityResponse)
 	local current_velocity = body:GetVelocity():Copy()
 	body:SetVelocity(current_velocity + (target_velocity - current_velocity) * linear_response)
-	local target_rotation = (cmd.view * self.held_rotation_offset):GetNormalized()
-	body:SetRotation(target_rotation)
-	body.PreviousRotation = target_rotation:Copy()
-	sync_body_rotation_to_transform(body)
-	body:SetAngularVelocity(Vec3())
+
+	if not self.held_character then
+		local target_rotation = (cmd.view * self.held_rotation_offset):GetNormalized()
+		body:SetRotation(target_rotation)
+		body.PreviousRotation = target_rotation:Copy()
+		sync_body_rotation_to_transform(body)
+		body:SetAngularVelocity(Vec3())
+	end
 
 	if body.SetGrounded then body:SetGrounded(false) end
 

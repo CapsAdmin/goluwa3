@@ -229,11 +229,9 @@ function META:OnUpdate(dt)
 	local pose = self.character.character_pose
 	local ragdoll = self.character.ragdoll
 
-	if ragdoll and ragdoll:IsReleased() then
-		ragdoll:DriveRig(rig)
-		return
-	end
+	local host = self.Mirror and find_ancestor(owner, "armature")
 
+	if ragdoll and ragdoll.driven_rig then ragdoll:ClearRig() end
 
 	if self.Profile == "gmod_player" then
 		self:UpdatePlayer(animator, pose, dt)
@@ -241,17 +239,19 @@ function META:OnUpdate(dt)
 		self:UpdateCreature(animator, animator.skeleton, pose, dt)
 	end
 
-	local host = self.Mirror and find_ancestor(owner, "armature")
+	if host then
+		local points = host.attachment_points
 
-	if not host then return end
+		if points and points.Profile ~= self.SocketProfile then
+			points:SetProfile(self.SocketProfile)
+		end
 
-	local points = host.attachment_points
-
-	if points and points.Profile ~= self.SocketProfile then
-		points:SetProfile(self.SocketProfile)
+		self:MirrorBones(rig, host.armature, pose)
 	end
 
-	self:MirrorBones(rig, host.armature, pose)
+	if ragdoll and ragdoll:HasLimp() then
+		ragdoll:DriveRig(rig, host and host.armature)
+	end
 end
 
 return META:Register()

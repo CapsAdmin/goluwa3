@@ -97,14 +97,20 @@ for _, side in ipairs{"r", "l"} do
 	table.insert(humanoid.Joints, {Parent = "torso", Child = "upperarm_" .. side, Anchor = "upperarm_" .. side, Twist = 1, Swing = 1.5})
 	table.insert(
 		humanoid.Joints,
-		{Parent = "upperarm_" .. side, Child = "forearm_" .. side, Anchor = "forearm_" .. side, Hinge = {-2.4, 0}}
+		{Parent = "upperarm_" .. side, Child = "forearm_" .. side, Anchor = "forearm_" .. side, Hinge = {0, 2.4}}
 	)
 	table.insert(humanoid.Joints, {Parent = "pelvis", Child = "thigh_" .. side, Anchor = "thigh_" .. side, Twist = 0.4, Swing = 1})
 	table.insert(
 		humanoid.Joints,
-		{Parent = "thigh_" .. side, Child = "calf_" .. side, Anchor = "calf_" .. side, Hinge = {0, 2.4}}
+		{Parent = "thigh_" .. side, Child = "calf_" .. side, Anchor = "calf_" .. side, Hinge = {-2.4, 0}}
 	)
 end
+
+humanoid.Hits = {
+	pelvis = {Amount = 0.6, Hold = 0.1, Recover = 0.3, Impulse = 0.5},
+	torso = {Amount = 0.6, Hold = 0.1, Recover = 0.3, Impulse = 0.5},
+	head = {Amount = 0.6, Hold = 0.1, Recover = 0.3, Impulse = 0.5},
+}
 
 local eye_joints = {}
 local eye_parts = {
@@ -140,13 +146,23 @@ for _, side in ipairs{"r", "l"} do
 	table.insert(eye_joints, {Parent = "head", Child = "upperarm_" .. side, Anchor = "upperarm_" .. side, Twist = 1, Swing = 1.5})
 	table.insert(
 		eye_joints,
-		{Parent = "upperarm_" .. side, Child = "forearm_" .. side, Anchor = "forearm_" .. side, Hinge = {-2.4, 0}}
+		{Parent = "upperarm_" .. side, Child = "forearm_" .. side, Anchor = "forearm_" .. side, Hinge = {0, 2.4}}
 	)
 	table.insert(eye_joints, {Parent = "head", Child = "thigh_" .. side, Anchor = "thigh_" .. side, Twist = 0.4, Swing = 1})
 	table.insert(
 		eye_joints,
-		{Parent = "thigh_" .. side, Child = "calf_" .. side, Anchor = "calf_" .. side, Hinge = {0, 2.4}}
+		{Parent = "thigh_" .. side, Child = "calf_" .. side, Anchor = "calf_" .. side, Hinge = {-2.4, 0}}
 	)
+end
+
+local limb_hit = {Amount = 0.9, Hold = 1, Recover = 0.4, Impulse = 1}
+local eye_hits = {head = {Amount = 0.6, Hold = 0.1, Recover = 0.3, Impulse = 0.5}}
+
+for _, side in ipairs{"r", "l"} do
+	for _, name in ipairs{"upperarm_", "forearm_", "thigh_", "calf_"} do
+		humanoid.Hits[name .. side] = limb_hit
+		eye_hits[name .. side] = limb_hit
+	end
 end
 
 biped.Profiles = {
@@ -154,6 +170,7 @@ biped.Profiles = {
 	eye = {
 		Parts = eye_parts,
 		Joints = eye_joints,
+		Hits = eye_hits,
 		Attach = {
 			body = "neck",
 			spine = "neck",

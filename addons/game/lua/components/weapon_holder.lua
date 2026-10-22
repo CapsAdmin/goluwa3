@@ -185,6 +185,8 @@ function META:OnPhysicsUpdate(dt)
 
 	if not self:HasAuthority() then return end
 
+	if self.Owner.ragdoll and self.Owner.ragdoll.Limp then return end
+
 	if
 		usercmd.WasPressed(cmd, usercmd.BUTTON.USE) and
 		usercmd.HasButton(cmd, usercmd.BUTTON.ACTIVE)

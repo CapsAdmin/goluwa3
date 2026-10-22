@@ -10,6 +10,9 @@ local damage = import("lua/damage.lua")
 import("addons/game/lua/autorun/characters.lua")
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
+Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
+Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
+import("lua/weapons.lua")
 
 local function create_ground()
 	return Entity.New{
@@ -36,8 +39,10 @@ local function create_character(position)
 	return character
 end
 
-local function run(character, seconds)
+local function run(character, seconds, forward)
 	for _ = 1, seconds * 60 do
+		character.player_controller.starved = 0
+		character.player_controller.cmd.forward = forward or 0
 		physics.UpdateFixed(1 / 60)
 		character.character_pose:OnUpdate(1 / 60)
 	end
@@ -85,8 +90,8 @@ T.TestPhysics("dying lets the body parts go as a ragdoll and reviving takes them
 	run(character, 1)
 	local ragdoll = character.ragdoll
 	character.health:TakeDamage(damage.Info{Damage = 1000})
-	T(ragdoll.released)["=="](true)
-	T(#ragdoll.joints)["=="](#biped.Profiles.humanoid.Joints)
+	T(ragdoll.global_active)["=="](true)
+	T(#ragdoll:GetJoints())["=="](#biped.Profiles.humanoid.Joints)
 
 	for _, part in ipairs(ragdoll.parts) do
 		T(part.body:IsDynamic())["=="](true)
@@ -102,8 +107,8 @@ T.TestPhysics("dying lets the body parts go as a ragdoll and reviving takes them
 	character.health:Revive()
 	character.character_movement:Reset("walk")
 	character.character_movement:TeleportTo(Vec3(2, 0.05, 0))
-	T(ragdoll.released)["=="](false)
-	T(#ragdoll.joints)["=="](0)
+	T(ragdoll.global_active)["=="](false)
+	T(#ragdoll:GetJoints())["=="](0)
 	run(character, 1)
 
 	for _, part in ipairs(ragdoll.parts) do
@@ -146,5 +151,183 @@ T.TestPhysics("a ragdoll thrown at a wall comes to rest on a floor without frict
 		T(parent.Position:Distance(child.Position) < 0.6)["=="](true)
 	end
 
+	character:Remove()
+end)
+
+T.TestPhysics("a held limb puts the character in a limp ragdoll that stands back up when let go", function()
+	create_ground()
+	local character = create_character()
+	run(character, 1)
+	local ragdoll = character.ragdoll
+	local hand = ragdoll.part_by_name.forearm_r.body
+	ragdoll:Grab(hand)
+	T(ragdoll.Limp)["=="](true)
+	T(#ragdoll:GetJoints())["=="](#biped.Profiles.humanoid.Joints)
+	T(character.health:IsDead())["=="](false)
+
+	for _, part in ipairs(ragdoll.parts) do
+		T(part.body:IsDynamic())["=="](true)
+	end
+
+	local pelvis = ragdoll.part_by_name.pelvis.body
+
+	for _ = 1, 60 do
+		hand:SetVelocity(Vec3(0, 1.5, 0))
+		run(character, 1 / 60, 1)
+	end
+
+	T(pelvis.Position.y > 1)["=="](true)
+	T(math.abs(pelvis.Position.z) < 0.3)["=="](true)
+	T(ragdoll.part_by_name.head.body.Position:Distance(pelvis.Position) < 0.9)["=="](true)
+	ragdoll:Ungrab(hand)
+	T(ragdoll.Limp)["=="](true)
+	run(character, 0.9)
+	T(ragdoll.global_active)["=="](true)
+	T(character.rigid_body:IsDynamic())["=="](false)
+	run(character, 5)
+	T(ragdoll.global_active)["=="](false)
+	T(ragdoll.Limp)["=="](false)
+	run(character, 1)
+	T(ragdoll:HasLimp())["=="](false)
+
+	for _, part in ipairs(ragdoll.parts) do
+		T(part.body:IsKinematic())["=="](true)
+	end
+
+	T(#ragdoll:GetJoints())["=="](0)
+	T(ragdoll.part_by_name.head.body.Position.y > 1.1)["=="](true)
+	T(character.rigid_body:IsDynamic())["=="](true)
+	local before = character.transform:GetPosition():Copy()
+	run(character, 1, 1)
+	T(character.transform:GetPosition():Distance(before) > 0.5)["=="](true)
+	character:Remove()
+end)
+
+T.TestPhysics("a physgun grabs the limb it points at and a dead body stays a ragdoll when let go", function()
+	create_ground()
+	local target = create_character(Vec3(0, 0.05, -3))
+	run(target, 1)
+	local holder = Entity.New{
+		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "weapon_holder", "health"},
+		transform = {Position = Vec3(0, 0.05, 0)},
+		player_controller = {Source = "queue"},
+	}
+	holder.player_controller.cmd.mode = "walk"
+	local physgun = holder.weapon_holder:Give("weapon_physgun")
+	holder.weapon_holder:Select(physgun)
+	local cmd = usercmd.New()
+	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
+
+	for _ = 1, 20 do
+		physics.UpdateFixed(1 / 60)
+		target.character_pose:OnUpdate(1 / 60)
+		physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	end
+
+	local held = physgun.weapon_physgun.held_body
+	T(held ~= nil and held.Owner.ragdoll_part ~= nil)["=="](true)
+	T(target.ragdoll.Limp)["=="](true)
+	target.health:TakeDamage(damage.Info{Damage = 1000})
+	cmd.buttons = usercmd.BUTTON.ACTIVE
+	physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	run(target, 1)
+	T(target.ragdoll.global_active)["=="](true)
+	T(target.ragdoll.blend == nil)["=="](true)
+	target:Remove()
+	holder:Remove()
+end)
+
+T.TestPhysics("a limp character still takes fall damage", function()
+	create_ground()
+	local character = create_character(Vec3(0, 8, 0))
+	run(character, 0.1)
+	local ragdoll = character.ragdoll
+	local hand = ragdoll.part_by_name.forearm_r.body
+	ragdoll:Grab(hand)
+	ragdoll:Ungrab(hand)
+	local health = character.health.Health
+	run(character, 2)
+	T(character.health.Health < health)["=="](true)
+	character:Remove()
+end)
+
+T.TestPhysics("elbows bend forward and knees backward in a ragdoll", function()
+	local character = create_character(Vec3(0, 50, 0))
+	run(character, 0.1)
+	local ragdoll = character.ragdoll
+	character.health:TakeDamage(damage.Info{Damage = 1000})
+
+	for _, part in ipairs(ragdoll.parts) do
+		part.body:SetGravityScale(0)
+		part.body:SetVelocity(Vec3())
+		part.body:SetAngularVelocity(Vec3())
+	end
+
+	local forearm, calf = ragdoll.part_by_name.forearm_l.body, ragdoll.part_by_name.calf_l.body
+
+	for _ = 1, 20 do
+		forearm:SetAngularVelocity(Vec3(3, 0, 0))
+		calf:SetAngularVelocity(Vec3(3, 0, 0))
+		physics.UpdateFixed(1 / 60)
+	end
+
+	for _, joint in ipairs(ragdoll:GetJoints()) do
+		if joint.Body1 == forearm then T(joint.Angle > 0.2)["=="](true) end
+
+		if joint.Body1 == calf then T(joint.Angle < 0.1)["=="](true) end
+	end
+
+	character:Remove()
+end)
+
+T.TestPhysics("a shot arm goes limp for a while with its child parts while the rest of the body carries on", function()
+	create_ground()
+	local character = create_character()
+	run(character, 1)
+	local ragdoll = character.ragdoll
+	local arm = ragdoll.part_by_name.upperarm_r
+	character.health:TakeDamage(
+		damage.Info{
+			Damage = 5,
+			Part = "upperarm_r",
+			Force = Vec3(0, 0, -6),
+			Position = arm.body.Position:Copy(),
+		}
+	)
+	run(character, 0.2, 1)
+	T(arm.dynamic)["=="](true)
+	T(ragdoll.part_by_name.forearm_r.dynamic)["=="](true)
+	T(ragdoll.part_by_name.torso.dynamic)["=="](false)
+	T(ragdoll.part_by_name.forearm_l.dynamic)["=="](false)
+	T(ragdoll.Limp)["=="](false)
+	T(ragdoll:GetLimp("forearm_r") > 0.5)["=="](true)
+	T(#ragdoll:GetJoints())["=="](2)
+	local before = character.transform:GetPosition():Copy()
+	run(character, 0.5, 1)
+	T(character.transform:GetPosition():Distance(before) > 0.3)["=="](true)
+	local torso = ragdoll.part_by_name.torso.body.Position
+	T(arm.body.Position:Distance(torso) < 0.6)["=="](true)
+	run(character, 2.5, 1)
+	T(arm.dynamic)["=="](false)
+	T(ragdoll.part_by_name.forearm_r.dynamic)["=="](false)
+	T(ragdoll:HasLimp())["=="](false)
+	T(#ragdoll:GetJoints())["=="](0)
+	T(ragdoll:GetLimp("forearm_r"))["=="](0)
+	character:Remove()
+end)
+
+T.TestPhysics("a hit on the torso only flinches the upper body for a moment", function()
+	create_ground()
+	local character = create_character()
+	run(character, 1)
+	local ragdoll = character.ragdoll
+	character.health:TakeDamage(damage.Info{Damage = 5, Part = "torso", Force = Vec3(0, 0, -6), Position = ragdoll.part_by_name.torso.body.Position:Copy()})
+	run(character, 0.1, 1)
+	T(ragdoll.part_by_name.torso.dynamic)["=="](true)
+	T(ragdoll.part_by_name.head.dynamic)["=="](true)
+	T(ragdoll.part_by_name.pelvis.dynamic)["=="](false)
+	T(ragdoll.part_by_name.thigh_l.dynamic)["=="](false)
+	run(character, 1.5, 1)
+	T(ragdoll:HasLimp())["=="](false)
 	character:Remove()
 end)

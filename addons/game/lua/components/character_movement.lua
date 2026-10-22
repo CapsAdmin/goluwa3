@@ -566,6 +566,8 @@ do
 			self:Reset(cmd.mode)
 		end
 
+		if self.Owner.ragdoll and self.Owner.ragdoll.Limp then return end
+
 		if cmd.mode ~= self.mode then self:ApplyMode(cmd.mode) end
 
 		self:SetBodyYaw(cmd.view)

@@ -58,8 +58,8 @@ T.TestPhysics("the physics rig of an eye npc follows the eye pose and falls apar
 	local hit = damage.Sweep(Vec3(5, head.y, head.z), Vec3(-5, 0, 0), nil)
 	T(hit.entity.ragdoll_part.Group)["=="]("head")
 	npc.health:TakeDamage(damage.Info{Damage = 1000})
-	T(ragdoll.released)["=="](true)
-	T(#ragdoll.joints)["=="](#profile.Joints)
+	T(ragdoll.global_active)["=="](true)
+	T(#ragdoll:GetJoints())["=="](#profile.Joints)
 	run(npc, 3)
 
 	for _, joint in ipairs(profile.Joints) do
