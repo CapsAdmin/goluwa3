@@ -30,7 +30,9 @@ end
 function META:TakeDamage(info)
 	if self.Health <= 0 then return end
 
+	local before = self.Health
 	self:SetHealth(math.clamp(self.Health - info.Damage, 0, self.MaxHealth))
+	event.Call("HealthDamaged", self.Owner, before - self.Health, self.MaxHealth)
 	self.Owner:CallLocalEvent("OnTakeDamage", info)
 
 	if self.Health > 0 then return end
