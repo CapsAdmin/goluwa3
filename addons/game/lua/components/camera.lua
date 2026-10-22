@@ -3,6 +3,7 @@ local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local third_person = import("lua/third_person.lua")
 local battlecam = import("lua/battlecam.lua")
+local screen_shake = import("lua/screen_shake.lua")
 
 local META = objects.CreateTemplate("camera")
 META:GetSet("Active", false)
@@ -126,6 +127,14 @@ function META:OnLateUpdate(dt)
 		view:SetRotation(body_rotation * self.death_view)
 	else
 		self.death_view = nil
+	end
+
+	local shake, roll = screen_shake.Get()
+
+	if shake then
+		local rotation = view:GetRotation()
+		position = position + rotation:VecMul(shake)
+		view:SetRotation(rotation:Copy():RotateRoll(roll))
 	end
 
 	view:SetPosition(position:Copy())
