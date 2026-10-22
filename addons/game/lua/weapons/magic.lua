@@ -210,10 +210,6 @@ function META:OnUpdate()
 	end
 end
 
-function META:OnRemove()
-	if self.orb then self.orb:Release() end
-end
-
 return META:Register()
 ]=====]
 return magic

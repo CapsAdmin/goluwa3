@@ -233,7 +233,13 @@ function META:BuildVisuals()
 	self.color = color
 	self.glow = glow
 	self.orb = effects.AcquireOrb(color, LENS_SCALE)
-	self.trail = effects.AcquireTrail(color, 20, TRAIL_POINTS, TRAIL_RADIUS * glow, effects.GetTexture("orbit_trail"))
+	self.trail = effects.vfx.AcquireTrail(
+		color,
+		20,
+		TRAIL_POINTS,
+		TRAIL_RADIUS * glow,
+		effects.vfx.GetTexture("orbit_trail")
+	)
 	self.emitters = {}
 	self.emitters_playing = true
 	self.debris_emitters = {}
@@ -252,7 +258,7 @@ function META:BuildVisuals()
 				GravityScale = 0,
 			}
 		)
-		self.emitters[i] = effects.CreateEmitter("magic_projectile_" .. type_name, properties)
+		self.emitters[i] = effects.vfx.CreateEmitter("magic_projectile_" .. type_name, properties)
 	end
 
 	for _, type_name in ipairs(types) do
@@ -334,18 +340,17 @@ end
 function META:OnRemove()
 	if not self.orb then return end
 
-	self.orb:Release()
 	self.trail:Release()
 	self.light:Remove()
 
 	for _, emitter in ipairs(self.emitters) do
 		emitter.particle_emitter_gpu:SetPlaying(false)
-		effects.RemoveDelayed(emitter, 1.5)
+		effects.vfx.RemoveDelayed(emitter, 1.5)
 	end
 
 	for _, emitter in ipairs(self.debris_emitters) do
 		emitter.particle_emitter_cpu:SetPlaying(false)
-		effects.RemoveDelayed(emitter, 4)
+		effects.vfx.RemoveDelayed(emitter, 4)
 	end
 end
 

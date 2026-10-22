@@ -266,7 +266,7 @@ function META:OnUpdate(dt)
 
 	if not self.trail then
 		local color = self.Element ~= "" and damage_types.Get(self.Element).Color or Color(0.85, 0.92, 1, 1)
-		self.trail = effects.AcquireSlashTrail(color, 3, TRAIL_POINTS)
+		self.trail = effects.vfx.AcquireSlashTrail(color, 3, TRAIL_POINTS)
 	end
 
 	self.trail_fade = 1
