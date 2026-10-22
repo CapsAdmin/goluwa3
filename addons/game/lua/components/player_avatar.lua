@@ -10,6 +10,7 @@ local third_person = import("lua/third_person.lua")
 local META = objects.CreateTemplate("player_avatar")
 -- an empty Network table is what makes the component part of the spawn packet
 META.Network = {}
+META:GetSet("Outfit", nil)
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
@@ -25,6 +26,8 @@ event.AddListener("RemotePlayerCommands", "player_avatar", function(owner, comma
 end)
 
 function META:OnAdd()
+	if self.Outfit then return end
+
 	local network = self.Owner.network
 	local client = network and
 		clients.GetByUniqueID(network:GetNetworkOwner()) or
@@ -77,7 +80,9 @@ function META:UpdateOutfit()
 	local network = self.Owner.network
 	local name, inputs
 
-	if network then
+	if self.Outfit then
+		name = self.Outfit
+	elseif network then
 		name = outfit.GetName(network:GetNetworkOwner())
 	else
 		name, inputs = outfit.LoadLocal()

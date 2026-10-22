@@ -322,6 +322,8 @@ T.Test3D("npc speeds are the ground speeds of the sequences they play", function
 	end
 
 	for name, info in pairs(npcs.Definitions) do
+		if not info.Model then goto continue end
+
 		local skeleton
 
 		model_loader.LoadModel(info.Model, function(data)
@@ -345,5 +347,7 @@ T.Test3D("npc speeds are the ground speeds of the sequences they play", function
 			local ground_speed = skeleton.ClipsByName[sequence]:GetGroundSpeed(params) / UNIT
 			T(math.abs(ground_speed - speed) / speed < 0.03)["=="](true)
 		end
+
+		::continue::
 	end
 end)

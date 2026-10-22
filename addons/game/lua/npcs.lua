@@ -6,6 +6,7 @@ local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 import("lua/damage.lua")
+local outfit = import("lua/outfit.lua")
 local npcs = {}
 npcs.Definitions = {
 	citizen = {
@@ -37,6 +38,14 @@ npcs.Definitions = {
 		Run = "RunALL",
 		WalkSpeed = 78,
 		RunSpeed = 215,
+	},
+	eye = {
+		Weapon = "weapon_pistol",
+		Biped = true,
+		Outfit = outfit.DefaultName,
+		Ragdoll = "eye",
+		WalkSpeed = 80,
+		RunSpeed = 210,
 	},
 	zombie = {
 		Model = "models/zombie/classic.mdl",
@@ -117,20 +126,24 @@ function npcs.Register(name, info)
 				{
 					guid = "root",
 					components = {
-						model = {ModelPath = info.Model},
-						animator = {},
+						model = info.Model and {ModelPath = info.Model} or nil,
+						animator = info.Model and {} or nil,
 						character_pose = {},
-						source_pose = {
-							IdleSequence = info.Idle,
-							WalkSequence = info.Walk,
-							RunSequence = info.Run,
-							Mirror = info.Biped,
-							OwnsArmature = info.Biped,
-						},
+						source_pose = info.Model and
+							{
+								IdleSequence = info.Idle,
+								WalkSequence = info.Walk,
+								RunSequence = info.Run,
+								Mirror = info.Biped,
+								OwnsArmature = info.Biped,
+							} or
+							nil,
+						procedural_pose = info.Outfit and {} or nil,
+						player_avatar = info.Outfit and {Outfit = info.Outfit} or nil,
 						attachment_points = info.Biped and {} or nil,
 						ai_controller = npc,
 						weapon_holder = info.Weapon and {} or nil,
-						ragdoll = info.Biped and {CorpseTime = 20} or nil,
+						ragdoll = info.Biped and {CorpseTime = 20, Profile = info.Ragdoll} or nil,
 						health = {Health = info.Health or 50, MaxHealth = info.Health or 50, RemoveOnDeath = not info.Biped},
 					},
 				},
