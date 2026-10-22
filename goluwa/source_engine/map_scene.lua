@@ -83,7 +83,7 @@ local function get_prop_motion_type(info)
 end
 
 local function get_transform(info, is_light)
-	local rotation = Quat()
+	local rotation = Quat(0, 0, 0, 1)
 	local angles = info.angles
 
 	if is_light then
