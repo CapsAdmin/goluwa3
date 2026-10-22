@@ -17,16 +17,26 @@ return {
 	Source = [=====[
 local objects = import("goluwa/objects/objects.lua")
 local damage = import("lua/damage.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local weapon_effects = import("lua/weapon_effects.lua")
 local META = objects.CreateTemplate("weapon_pistol")
 META:GetSet("Range", 50)
 META:GetSet("Damage", 20)
 META:GetSet("Impulse", 6)
+META:GetSet("LimpSpread", 0.3)
 
 function META:OnWeaponPrimary(cmd)
 	local player = self.Owner:GetParent()
 	local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 	local forward = cmd.view:GetForward()
+	local ragdoll = player.ragdoll
+	local limp = ragdoll and math.max(ragdoll:GetLimp("upperarm_r"), ragdoll:GetLimp("forearm_r")) or 0
+
+	if limp > 0 then
+		local spread = self.LimpSpread * limp
+		forward = (forward + Vec3(math.randomf(-spread, spread), math.randomf(-spread, spread), math.randomf(-spread, spread))):GetNormalized()
+	end
+
 	local hit = damage.Sweep(origin, forward * self.Range, player)
 
 	weapon_effects.MuzzleFlash(self.Owner, forward)
@@ -49,6 +59,7 @@ function META:OnWeaponPrimary(cmd)
 				Position = hit.point,
 				Normal = hit.normal,
 				Force = forward * self.Impulse,
+				Part = hit.entity.ragdoll_part and hit.entity.ragdoll_part.Group,
 			}
 		)
 	end
