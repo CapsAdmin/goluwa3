@@ -7,6 +7,8 @@ aim_pose.RecoilAngle = math.rad(6)
 aim_pose.FlinchAngle = math.rad(10)
 aim_pose.ArmReach = 0.85
 aim_pose.HandOffset = Vec3(-0.08, -0.1, 0)
+aim_pose.SupportOffset = Vec3(-0.06, -0.12, 0)
+aim_pose.SupportReach = 0.2
 aim_pose.ElbowPole = Vec3(0.6, -1, 0.2)
 local ARMS = {
 	"clavicle_r",
@@ -24,8 +26,20 @@ local JOINTS = {
 	{"neck", {"neck", "head"}},
 	{"head", {"head"}},
 }
-local RIGHT_ARM = {"upperarm_r", "forearm_r", "hand_r"}
-local RIGHT_FOREARM = {"forearm_r", "hand_r"}
+local RIGHT = {
+	upper = "upperarm_r",
+	lower = "forearm_r",
+	hand = "hand_r",
+	chain = {"upperarm_r", "forearm_r", "hand_r"},
+	forearm_chain = {"forearm_r", "hand_r"},
+}
+local LEFT = {
+	upper = "upperarm_l",
+	lower = "forearm_l",
+	hand = "hand_l",
+	chain = {"upperarm_l", "forearm_l", "hand_l"},
+	forearm_chain = {"forearm_l", "hand_l"},
+}
 local identity = Quat(0, 0, 0, 1)
 local rotation = Matrix44()
 local grip = Matrix44()
@@ -68,46 +82,13 @@ local function set_between(out, ax, ay, az, bx, by, bz)
 	return out:Set(cx * s, cy * s, cz * s, math.cos(half))
 end
 
-aim_pose.Bones = {"spine", "chest", "neck", "head", unpack(ARMS)}
-
-function aim_pose.GetGripMatrix(hand, pitch)
-	grip:Identity()
-	grip:SetRotation(pitch)
-	grip:SetTranslation(hand.m30, hand.m31, hand.m32)
-	return grip
-end
-
-function aim_pose.GetAim(pose)
-	if pose.recoil <= 0 then return pose.pitch end
-
-	return pose.pitch:Copy():RotatePitch(aim_pose.RecoilAngle * pose.recoil)
-end
-
-function aim_pose.Apply(bones, pose, armed)
-	local pitch = aim_pose.GetAim(pose)
-	local flinch = pose.flinch * aim_pose.FlinchAngle
-
-	for _, joint in ipairs(JOINTS) do
-		local name = joint[1]
-		local share = aim_pose.Shares[name]
-		local angle_pitch = pitch
-
-		if flinch > 0 and (name == "spine" or name == "chest") then
-			angle_pitch = pitch:Copy():RotatePitch(flinch / share)
-		end
-
-		rotation:SetRotation(identity:GetLerped(share, angle_pitch):Normalize())
-		rotate_chain(bones, joint[2], #joint[2], bones[name], rotation)
-	end
-
-	if not armed then return end
-
-	local upper, lower, hand = bones.upperarm_r, bones.forearm_r, bones.hand_r
+local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side)
+	local upper, lower, hand = bones[arm.upper], bones[arm.lower], bones[arm.hand]
 	shoulder:Set(upper.m30, upper.m31, upper.m32)
 	local upper_length = math.sqrt((lower.m30 - upper.m30) ^ 2 + (lower.m31 - upper.m31) ^ 2 + (lower.m32 - upper.m32) ^ 2)
 	local lower_length = math.sqrt((hand.m30 - lower.m30) ^ 2 + (hand.m31 - lower.m31) ^ 2 + (hand.m32 - lower.m32) ^ 2)
-	local reach = (upper_length + lower_length) * aim_pose.ArmReach
-	offset:Set(aim_pose.HandOffset.x, aim_pose.HandOffset.y, -reach)
+	local reach = (upper_length + lower_length) * aim_pose.ArmReach + extra_reach
+	offset:Set(hand_offset.x * side, hand_offset.y, -reach)
 	Quat.SetVecMul(hand_target, pitch, offset)
 	hand_target:Set(hand_target.x + shoulder.x, hand_target.y + shoulder.y, hand_target.z + shoulder.z)
 	local dx, dy, dz = hand_target.x - shoulder.x, hand_target.y - shoulder.y, hand_target.z - shoulder.z
@@ -117,7 +98,8 @@ function aim_pose.Apply(bones, pose, armed)
 	local along = (upper_length * upper_length - lower_length * lower_length + clamped * clamped) / (2 * clamped)
 	local height = math.sqrt(math.max(upper_length * upper_length - along * along, 0))
 	dx, dy, dz = dx / distance, dy / distance, dz / distance
-	Quat.SetVecMul(direction, pitch, aim_pose.ElbowPole)
+	offset:Set(aim_pose.ElbowPole.x * side, aim_pose.ElbowPole.y, aim_pose.ElbowPole.z)
+	Quat.SetVecMul(direction, pitch, offset)
 	local pole_along = direction.x * dx + direction.y * dy + direction.z * dz
 	local bx, by, bz = direction.x - dx * pole_along, direction.y - dy * pole_along, direction.z - dz * pole_along
 	local bend = math.sqrt(bx * bx + by * by + bz * bz)
@@ -138,7 +120,7 @@ function aim_pose.Apply(bones, pose, armed)
 		elbow.z - shoulder.z
 	)
 	rotation:SetRotation(between)
-	rotate_chain(bones, RIGHT_ARM, 3, upper, rotation)
+	rotate_chain(bones, arm.chain, 3, upper, rotation)
 	set_between(
 		between,
 		hand.m30 - lower.m30,
@@ -149,8 +131,49 @@ function aim_pose.Apply(bones, pose, armed)
 		hand_target.z - elbow.z
 	)
 	rotation:SetRotation(between)
-	rotate_chain(bones, RIGHT_FOREARM, 2, lower, rotation)
+	rotate_chain(bones, arm.forearm_chain, 2, lower, rotation)
 	hand:SetTranslation(hand_target.x, hand_target.y, hand_target.z)
+end
+
+aim_pose.Bones = {"spine", "chest", "neck", "head", unpack(ARMS)}
+
+function aim_pose.GetGripMatrix(hand, pitch)
+	grip:Identity()
+	grip:SetRotation(pitch)
+	grip:SetTranslation(hand.m30, hand.m31, hand.m32)
+	return grip
+end
+
+function aim_pose.GetAim(pose)
+	if pose.recoil <= 0 then return pose.pitch end
+
+	return pose.pitch:Copy():RotatePitch(aim_pose.RecoilAngle * pose.recoil)
+end
+
+function aim_pose.Apply(bones, pose, armed, two_handed)
+	local pitch = aim_pose.GetAim(pose)
+	local flinch = pose.flinch * aim_pose.FlinchAngle
+
+	for _, joint in ipairs(JOINTS) do
+		local name = joint[1]
+		local share = aim_pose.Shares[name]
+		local angle_pitch = pitch
+
+		if flinch > 0 and (name == "spine" or name == "chest") then
+			angle_pitch = pitch:Copy():RotatePitch(flinch / share)
+		end
+
+		rotation:SetRotation(identity:GetLerped(share, angle_pitch):Normalize())
+		rotate_chain(bones, joint[2], #joint[2], bones[name], rotation)
+	end
+
+	if not armed then return end
+
+	solve_arm(bones, RIGHT, pitch, aim_pose.HandOffset, 0, 1)
+
+	if two_handed then
+		solve_arm(bones, LEFT, pitch, aim_pose.SupportOffset, aim_pose.SupportReach, -1)
+	end
 end
 
 return aim_pose

@@ -176,7 +176,8 @@ end
 
 function META:MirrorBones(rig, armature, pose)
 	local holder = pose.Owner.weapon_holder
-	local armed = holder ~= nil and holder:GetActiveWeapon() ~= nil
+	local active = holder and holder:GetActiveWeapon()
+	local armed = active ~= nil
 	local bones = self.bones
 
 	for _, name in ipairs(aim_pose.Bones) do
@@ -187,7 +188,7 @@ function META:MirrorBones(rig, armature, pose)
 		bones[name] = rig:GetBone(source)
 	end
 
-	aim_pose.Apply(bones, pose, armed)
+	aim_pose.Apply(bones, pose, armed, armed and active.weapon:IsTwoHanded())
 
 	for _, name in ipairs(aim_pose.Bones) do
 		rig:SetBone(biped.SourceBones[name], bones[name], "model")
