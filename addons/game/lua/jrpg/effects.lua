@@ -298,6 +298,7 @@ do
 				local visual = entity.visual
 				visual:SetCastShadows(false)
 				visual:SetInSceneBVH(false)
+				visual:SetRaycast(false)
 				visual:SetUseOcclusionCulling(false)
 				visual:SetReceivesDecals(false)
 				visual:CreatePrimitiveEntity(get_quad(), material, "jrpg_quad_primitive")

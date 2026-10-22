@@ -21,6 +21,7 @@ do
 		local model = {
 			Owner = ent,
 			Visible = true,
+			Raycast = true,
 			AABB = aabb,
 			GetAABB = get_local_aabb,
 			GetRenderEntries = get_render_entries,
@@ -237,6 +238,7 @@ do
 			{
 				Owner = ent,
 				Visible = true,
+				Raycast = true,
 				WorldSpaceVertices = true,
 				GetWorldAABB = get_local_aabb,
 				GetAABB = get_local_aabb,
@@ -265,6 +267,7 @@ do
 			{
 				Owner = ent,
 				Visible = true,
+				Raycast = true,
 				WorldSpaceVertices = true,
 				GetWorldAABB = get_local_aabb,
 				GetAABB = get_local_aabb,
@@ -301,6 +304,7 @@ do
 			{
 				Owner = ent,
 				Visible = true,
+				Raycast = true,
 				WorldSpaceVertices = true,
 				GetWorldAABB = get_local_aabb,
 				GetAABB = get_local_aabb,
@@ -359,6 +363,7 @@ T.Test3D("Raycast reads one based polygon indices", function()
 		{
 			Owner = ent,
 			Visible = true,
+			Raycast = true,
 			AABB = poly.AABB,
 			GetWorldAABB = function()
 				return poly.AABB

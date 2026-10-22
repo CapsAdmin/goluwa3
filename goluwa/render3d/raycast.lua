@@ -715,7 +715,7 @@ local function test_model_closest(
 
 	local primitives = get_spatial_primitives(model)
 
-	if not model.Visible or not (primitives and primitives[1]) then return nil end
+	if not model.Visible or not model.Raycast or not (primitives and primitives[1]) then return nil end
 
 	local world_to_local, local_to_world = get_model_transforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
@@ -798,7 +798,7 @@ local function collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits,
 
 	local primitives = get_spatial_primitives(model)
 
-	if not model.Visible or not (primitives and primitives[1]) then return end
+	if not model.Visible or not model.Raycast or not (primitives and primitives[1]) then return end
 
 	local world_to_local, local_to_world = get_model_transforms(model)
 	local local_ray = transform_ray(ray, world_to_local)

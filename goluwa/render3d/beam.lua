@@ -194,6 +194,7 @@ function Beam.New(config)
 	local visual = entity.visual
 	visual:SetCastShadows(false)
 	visual:SetInSceneBVH(false)
+	visual:SetRaycast(false)
 	visual:SetUseOcclusionCulling(false)
 	visual:SetReceivesDecals(false)
 	self.entity = entity
