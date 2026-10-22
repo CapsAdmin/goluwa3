@@ -138,16 +138,17 @@ local WHITE = Color(1, 1, 1, 1)
 
 do
 	local textures = {}
+	local MAGIC_COMMON = [[
+		float line(float d, float w) {
+			return 1.0 - smoothstep(0.0, w, abs(d));
+		}
+
+		float hash(float n) {
+			return fract(sin(n * 12.9898) * 43758.5453);
+		}
+	]]
 	local GLSL = {
-		magic_circle = [[
-			float line(float d, float w) {
-				return 1.0 - smoothstep(0.0, w, abs(d));
-			}
-
-			float hash(float n) {
-				return fract(sin(n * 12.9898) * 43758.5453);
-			}
-
+		magic_outer = MAGIC_COMMON .. [[
 			vec4 shade(vec2 uv, vec3 _cube_dir) {
 				vec2 p = uv * 2.0 - 1.0;
 				float r = length(p);
@@ -155,13 +156,21 @@ do
 				float v = line(r - 0.97, 0.014);
 				v += line(r - 0.91, 0.008);
 				v += line(r - 0.64, 0.008);
-				v += line(r - 0.58, 0.006) * 0.8;
-				v += line(r - 0.22, 0.006) * 0.7;
 				v += step(0.91, r) * step(r, 0.97) * smoothstep(0.38, 0.48, abs(fract(a * 72.0) - 0.5));
 				float fa = fract(a * 32.0);
 				float fr = fract((r - 0.68) / 0.06);
 				float lit = step(0.45, hash(floor(a * 32.0) * 7.0 + floor((r - 0.68) / 0.06) * 31.0));
 				v += step(0.68, r) * step(r, 0.86) * lit * step(0.18, fa) * step(fa, 0.82) * step(0.2, fr) * step(fr, 0.8) * 0.85;
+				v = clamp(v, 0.0, 1.0) * (1.0 - smoothstep(0.98, 1.0, r));
+				return vec4(vec3(v), v);
+			}
+		]],
+		magic_inner = MAGIC_COMMON .. [[
+			vec4 shade(vec2 uv, vec3 _cube_dir) {
+				vec2 p = uv * 2.0 - 1.0;
+				float r = length(p);
+				float v = line(r - 0.58, 0.006) * 0.8;
+				v += line(r - 0.22, 0.006) * 0.7;
 
 				for (int i = 0; i < 6; i++) {
 					float a0 = float(i) * 1.0471976;
@@ -173,9 +182,14 @@ do
 				}
 
 				v += exp(-r * r * 10.0) * 0.35;
-				v = clamp(v, 0.0, 1.0) * (1.0 - smoothstep(0.98, 1.0, r));
+				v = clamp(v, 0.0, 1.0) * (1.0 - smoothstep(0.62, 0.66, r));
 				return vec4(vec3(v), v);
 			}
+		]],
+		glow = [[
+			float r = length(uv * 2.0 - 1.0);
+			float v = exp(-r * r * 5.0) * (1.0 - smoothstep(0.75, 1.0, r));
+			return vec4(vec3(v), v);
 		]],
 		ring = [[
 			float r = length(uv * 2.0 - 1.0);
@@ -186,6 +200,13 @@ do
 			vec2 p = abs(uv * 2.0 - 1.0);
 			float v = exp(-p.x * 30.0) * (1.0 - p.y) + exp(-p.y * 30.0) * (1.0 - p.x);
 			v = clamp(v * 0.7 + exp(-dot(p, p) * 10.0), 0.0, 1.0);
+			return vec4(vec3(v), v);
+		]],
+		orbit_trail = [[
+			float d = abs(uv.x * 2.0 - 1.0);
+			float edge = max(step(d, 1.0 / 256.0), exp(-d * 14.0) * (1.0 - d));
+			float y = clamp(uv.y, 0.0, 1.0);
+			float v = edge * pow(y, 1.5) * (1.0 - smoothstep(0.8, 1.0, y));
 			return vec4(vec3(v), v);
 		]],
 		trail = [[
@@ -266,8 +287,8 @@ do
 		object.material:Touch()
 	end
 
-	local function new_material(color, texture)
-		return Beam.CreateRibbonMaterial(color, 1, texture)
+	local function new_material(color, texture, extra)
+		return Beam.CreateRibbonMaterial(color, 1, texture, extra)
 	end
 
 	do
@@ -286,11 +307,11 @@ do
 		local META = {}
 		META.__index = META
 
-		function effects.AcquireQuad(color, strength, texture)
+		function effects.AcquireQuad(color, strength, texture, extra)
 			local object = acquire(texture)
 
 			if not object then
-				local material = new_material(color, texture)
+				local material = new_material(color, texture, extra)
 				local entity = Entity.New{Name = "jrpg_quad"}
 				entity:SetTransient(true)
 				entity:AddComponent("transform")
@@ -381,6 +402,20 @@ do
 		end
 	end
 
+	local function smooth_pass(from, to, count)
+		to[1]:CopyFrom(from[1])
+		to[count]:CopyFrom(from[count])
+
+		for i = 2, count - 1 do
+			local a, b, c = from[i - 1], from[i], from[i + 1]
+			to[i]:Set(
+				(a.x + b.x * 2 + c.x) * 0.25,
+				(a.y + b.y * 2 + c.y) * 0.25,
+				(a.z + b.z * 2 + c.z) * 0.25
+			)
+		end
+	end
+
 	local function shift(points, count, position)
 		local oldest = points[1]
 
@@ -409,6 +444,8 @@ do
 						material = material,
 						beam = Beam.New{Points = count, Ribbon = true, Radius = 0, Material = material},
 						points = Beam.NewPoints(count),
+						smooth_a = Beam.NewPoints(count),
+						smooth_b = Beam.NewPoints(count),
 						count = count,
 						emissive = Color(1, 1, 1, 1),
 							color = Color(1, 1, 1, 1),
@@ -427,7 +464,7 @@ do
 			return object
 		end
 
-		function META:Push(position)
+		function META:Shift(position, drift_dt)
 			if not self.primed then
 				for i = 1, self.count do
 					self.points[i]:CopyFrom(position)
@@ -438,7 +475,43 @@ do
 			end
 
 			shift(self.points, self.count, position)
-			self.beam:SetRibbonPoints(self.points, 0, 1)
+
+			if drift_dt then
+				local points = self.points
+				local count = self.count
+				local cx, cy, cz = 0, 0, 0
+
+				for i = 1, count do
+					local point = points[i]
+					cx = cx + point.x
+					cy = cy + point.y
+					cz = cz + point.z
+				end
+
+				cx, cy, cz = cx / count, cy / count, cz / count
+
+				for i = 1, count do
+					local point = points[i]
+					point:Set(
+						point.x + (point.x - cx) * drift_dt,
+						point.y + (point.y - cy) * drift_dt,
+						point.z + (point.z - cz) * drift_dt
+					)
+				end
+			end
+
+		end
+
+		function META:Rebuild()
+			smooth_pass(self.points, self.smooth_a, self.count)
+			smooth_pass(self.smooth_a, self.smooth_b, self.count)
+			smooth_pass(self.smooth_b, self.smooth_a, self.count)
+			self.beam:SetRibbonPoints(self.smooth_a, 0, 1)
+		end
+
+		function META:Push(position, drift_dt)
+			self:Shift(position, drift_dt)
+			self:Rebuild()
 		end
 
 		function META:SetPoints(points)
@@ -706,31 +779,74 @@ end)
 do
 	local META = {}
 	META.__index = META
+	local BLACK = Color(0, 0, 0, 1)
+	local DARK_MATERIAL = {Additive = false, Translucent = true}
+	local TRAIL_LINGER = 1 / 0.6
+	local TRAIL_STEP_ANGLE = 0.04
+	local TRAIL_POINTS = 540
 
-	function META:Update(f)
+	function META:Update(f, dt)
 		local center = self.position
 
 		if self.entity and self.entity:IsValid() then
 			center = self.entity.transform:GetPosition()
 		end
 
-		local grow = 1 - (1 - math.min(f * 4, 1)) ^ 3
-		local fade = f < 0.7 and 1 or 1 - (f - 0.7) / 0.3
-		local transform = self.circle.transform
-		transform:SetPosition(Vec3(center.x, center.y + 0.03, center.z))
-		transform:SetRotation(Quat():Identity():RotateYaw(self.spin + f * self.duration * 0.8))
-		transform:SetScale(Vec3(self.size * grow, 1, self.size * grow))
-		self.circle:SetAlpha(fade)
-		local ring_size = self.size * (0.6 + f * 1.4)
-		self.ring.transform:SetPosition(Vec3(center.x, center.y + 0.04, center.z))
-		self.ring.transform:SetScale(Vec3(ring_size, 1, ring_size))
-		self.ring:SetAlpha(0.25 * (1 - f) ^ 2)
+		local time = f * self.duration
+		local main = math.min(f * TRAIL_LINGER, 1)
+		local grow = 1 - (1 - math.min(main * 4, 1)) ^ 3
+		local fade = math.sin(main * math.pi) ^ 3
+		local trail_fade = math.sin(f * math.pi) ^ 3
+		local spin = time * 0.8
+		local size = self.size * 2 * grow
+		local outer = self.outer.transform
+		outer:SetPosition(Vec3(center.x, center.y + 0.03, center.z))
+		outer:SetRotation(Quat():Identity():RotateYaw(self.spin + spin))
+		outer:SetScale(Vec3(size, 1, size))
+		self.outer:SetAlpha(fade)
+		local inner = self.inner.transform
+		inner:SetPosition(Vec3(center.x, center.y + 0.035, center.z))
+		inner:SetRotation(Quat():Identity():RotateYaw(self.spin - spin * 1.6))
+		inner:SetScale(Vec3(size, 1, size))
+		self.inner:SetAlpha(fade)
+		local glow_size = self.size * 3.2
+		self.glow.transform:SetPosition(Vec3(center.x, center.y + 0.02, center.z))
+		self.glow.transform:SetScale(Vec3(glow_size, 1, glow_size))
+		self.glow:SetAlpha(0.3 * fade)
+		local body = actors.GetCenter(self.entity)
+
+		for i, trail in ipairs(self.trails) do
+			local orbit = self.orbits[i]
+			local radius = self.size * orbit.radius * 2 * grow
+			local steps = math.clamp(math.ceil(orbit.speed * dt / TRAIL_STEP_ANGLE), 1, 16)
+
+			for step = 1, steps do
+				local t = time - dt * (steps - step) / steps
+				local ax, ay, az = t * orbit.rate_x, t * orbit.rate_y, t * orbit.rate_z
+				local sx, cx, sy, cy, sz, cz = math.sin(ax), math.cos(ax), math.sin(ay), math.cos(ay), math.sin(az), math.cos(az)
+				local y1 = orbit.y * cx - orbit.z * sx
+				local z1 = orbit.y * sx + orbit.z * cx
+				local x2 = orbit.x * cy + z1 * sy
+				local z2 = -orbit.x * sy + z1 * cy
+				trail:Shift(
+					Vec3(
+						center.x + (x2 * cz - y1 * sz) * radius,
+						body.y + (x2 * sz + y1 * cz) * radius,
+						center.z + z2 * radius
+					),
+					dt * 0.6 / steps
+				)
+			end
+
+			trail:Rebuild()
+			trail:SetAlpha(trail_fade)
+		end
 
 		if self.pillar then
 			local height = 3 * grow
 			self.pillar_points[1]:Set(center.x, center.y, center.z)
 			self.pillar_points[2]:Set(center.x, center.y + height, center.z)
-			self.pillar.beam:SetRadius(self.size * 0.35 * (1 - f * 0.5))
+			self.pillar.beam:SetRadius(self.size * 0.35 * (1 - main * 0.5))
 			self.pillar.beam:SetRadiusEnd(nil)
 			self.pillar:SetPoints(self.pillar_points)
 			self.pillar:SetAlpha(fade * 0.4)
@@ -740,8 +856,13 @@ do
 	end
 
 	function META:Remove()
-		self.circle:Release()
-		self.ring:Release()
+		self.outer:Release()
+		self.inner:Release()
+		self.glow:Release()
+
+		for _, trail in ipairs(self.trails) do
+			trail:Release()
+		end
 
 		if self.pillar then self.pillar:Release() end
 	end
@@ -751,17 +872,42 @@ do
 			{
 				entity = entity,
 				position = entity.transform:GetPosition():Copy(),
-				circle = effects.AcquireQuad(color, strength, effects.GetTexture("magic_circle")),
-				ring = effects.AcquireQuad(color, strength, effects.GetTexture("ring")),
+				outer = effects.AcquireQuad(BLACK, 0, effects.GetTexture("magic_outer"), DARK_MATERIAL),
+				inner = effects.AcquireQuad(BLACK, 0, effects.GetTexture("magic_inner"), DARK_MATERIAL),
+				trails = {},
+				orbits = {},
+				glow = effects.AcquireQuad(color, strength * 60, effects.GetTexture("glow")),
 				size = size,
-				duration = duration,
+				duration = duration * TRAIL_LINGER,
 				spin = math.random() * math.pi * 2,
 			},
 			META
 		)
 
+		effect.glow.transform:SetRotation(Quat():Identity())
+
+		for i = 1, 3 do
+			local phase = i / 8 * math.pi * 2
+			local x = math.sin(phase + math.randomf(-1, 1))
+			local y = math.cos(phase + math.randomf(-1, 1))
+			local z = math.sin(-phase + math.randomf(-1, 1))
+			local length = math.sqrt(x * x + y * y + z * z)
+			local speed = math.randomf(3, 7.5)
+			effect.trails[i] = effects.AcquireTrail(color, strength * 150, TRAIL_POINTS, 0.05, effects.GetTexture("orbit_trail"))
+			effect.orbits[i] = {
+				x = x / length,
+				y = y / length,
+				z = z / length,
+				speed = speed,
+				rate_x = speed * math.randomf(0.3, 1) * (math.random() < 0.5 and -1 or 1),
+				rate_y = speed * math.randomf(0.3, 1) * (math.random() < 0.5 and -1 or 1),
+				rate_z = speed * math.randomf(0.3, 1) * (math.random() < 0.5 and -1 or 1),
+				radius = math.randomf(0.45, 0.75),
+			}
+		end
+
 		if pillar then
-			effect.pillar = effects.AcquireTrail(color, strength * 0.5, 2, 1, effects.GetTexture("beam"))
+			effect.pillar = effects.AcquireTrail(color, strength * 30, 2, 1, effects.GetTexture("beam"))
 			effect.pillar_points = Beam.NewPoints(2)
 		end
 

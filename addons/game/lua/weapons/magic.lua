@@ -157,7 +157,7 @@ function META:OnUpdate()
 	local pose = caster.character_pose
 
 	if active and not self.was_active then
-		effects.ShowMagicCircle(caster, definition.Color, 0.85, 1.4, 1.2, true)
+		effects.ShowMagicCircle(caster, definition.Color, 0.85, 2, 1.2, true)
 		sounds.Play("ambient/water/distant_drip2.wav", caster.transform:GetPosition(), 0.8, 0.75)
 	end
 
@@ -168,7 +168,7 @@ function META:OnUpdate()
 		local action = pose:GetActiveAction()
 
 		if action == "cast_l" or action == "cast_r" then
-			effects.ShowMagicCircle(caster, definition.Color, 0.55, 0.6, 1, false)
+			effects.ShowMagicCircle(caster, definition.Color, 0.55, 1, 1, false)
 			sounds.Play("ambient/levels/citadel/portal_beam_shoot5.wav", caster.transform:GetPosition(), 0.5, 1.6)
 		end
 	end
