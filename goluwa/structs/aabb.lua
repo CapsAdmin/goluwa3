@@ -186,6 +186,14 @@ function META:GetMax()
 	return Vec3(self.max_x, self.max_y, self.max_z)
 end
 
+function META:GetCenter()
+	return Vec3(
+		(self.min_x + self.max_x) * 0.5,
+		(self.min_y + self.max_y) * 0.5,
+		(self.min_z + self.max_z) * 0.5
+	)
+end
+
 function META.FromSegment(start_pos, end_pos, radius)
 	radius = math.max(radius or 0, 0)
 	return CTOR(
