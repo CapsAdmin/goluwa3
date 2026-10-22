@@ -225,7 +225,7 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	state.roll = state.roll + (roll - state.roll) * k
 	local rotation = state.rotation:Copy()
 	rotation:RotateRoll(state.roll)
-	return origin, rotation, state.fov, 0.05
+	return origin, rotation, state.fov, 0.1
 end
 
 function battlecam.ApplyMovement(player_input, dt, attacking)
