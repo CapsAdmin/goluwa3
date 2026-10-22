@@ -11,6 +11,15 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
+local AABB = import("goluwa/structs/aabb.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local damage = import("lua/damage.lua")
+local RagdollPart = import("lua/components/ragdoll_part.lua")
+local AiController = import("lua/components/ai_controller.lua")
+local Ragdoll = import("lua/components/ragdoll.lua")
+local biped = import("lua/biped.lua")
 local debug_enabled = false
 local identity_rotation = Quat(0, 0, 0, 1)
 local zero_vec = Vec3(0, 0, 0)
@@ -19,6 +28,7 @@ local body_overlay_states = setmetatable({}, {__mode = "k"})
 local rigid_body_component
 local get_debug_snapshot
 local focused_body
+local focused_hit
 local locked_body
 local overlay_config = {
 	contact_marker_radius = 4,
@@ -380,18 +390,15 @@ local function get_look_body_hit()
 	if not cam then return nil, nil end
 
 	local origin = cam:GetPosition()
+	local forward = cam:GetRotation():GetForward()
 	local ignore_entity = get_local_player_entity()
-	local hit = physics.RayCast(
-		origin,
-		cam:GetRotation():GetForward(),
-		4096,
-		ignore_entity,
-		nil,
-		{
-			IgnoreRigidBodies = false,
-			IgnoreKinematicBodies = false,
-		}
-	)
+	local hit = damage.Sweep(origin, forward * 300, ignore_entity)
+
+	if hit then
+		hit.position = hit.position or hit.point
+		hit.normal = hit.normal or hit.face_normal
+	end
+
 	local body = hit and (hit.rigid_body or hit.entity and hit.entity.rigid_body) or nil
 	return body, hit
 end
@@ -433,6 +440,23 @@ local function build_focus_overlay_lines(body, snapshot, hit, contacts)
 			yes_no(snapshot.collision_enabled)
 		),
 	}
+
+	local owner = body.Owner
+	local part = owner and owner.ragdoll_part
+
+	if part then
+		lines[#lines + 1] = string.format(
+			"hitbox %s x%s of %s | %s",
+			part.Group,
+			format_number(part.Multiplier),
+			tostring(part.Character and part.Character.Name or "?"),
+			body:IsDynamic() and "ragdoll" or "following pose"
+		)
+	elseif owner and owner.character_movement then
+		lines[#lines + 1] = owner.ragdoll and
+			"movement capsule (weapons skip it, hitboxes are used)" or
+			"movement capsule (a hit target, no hitboxes)"
+	end
 
 	if hit and hit.distance then
 		lines[#lines + 1] = "distance " .. format_number(hit.distance)
@@ -680,10 +704,218 @@ local function draw_body_summary()
 	debug_draw.DrawTextBlock(lines, 16, 16, {padding = 8, line_gap = 3, background_alpha = 0.74})
 end
 
+local HITBOX_COLORS = {
+	head = {1.0, 0.25, 0.25},
+	torso = {1.0, 0.6, 0.2},
+	pelvis = {1.0, 0.8, 0.2},
+}
+local ALIVE_COLOR = {0.3, 0.7, 1.0}
+local RAGDOLL_COLOR = {0.35, 1.0, 0.45}
+local DISABLED_COLOR = {0.6, 0.6, 0.6}
+local CHARACTER_DRAW_DISTANCE = 40
+
+local function get_capsule_segment(body)
+	local shape = body:GetPhysicsShape()
+	local radius = shape:GetRadius()
+	local half = math.max(shape:GetHeight() - radius * 2, 0) * 0.5
+	local position, rotation = get_body_render_position_rotation(body)
+	local center = body.CenterOffset and position + rotation:VecMul(body.CenterOffset) or position
+	local up = rotation:GetUp()
+	return center - up * half, center + up * half, radius, rotation
+end
+
+local function draw_capsule(id, body, color, alpha)
+	local bottom, top, radius, rotation = get_capsule_segment(body)
+	local right = rotation:GetRight() * radius
+	local forward = rotation:GetForward() * radius
+	local rgba = {color[1], color[2], color[3], alpha}
+	local sphere_rgba = {color[1], color[2], color[3], alpha * 0.5}
+
+	for index, point in ipairs{bottom, top} do
+		debug_draw.DrawSphere{
+			id = id .. "_cap" .. index,
+			position = point,
+			radius = radius,
+			color = sphere_rgba,
+			translucent = true,
+			ignore_z = true,
+			time = overlay_config.debug_draw_time,
+		}
+	end
+
+	for index, offset in ipairs{right, right * -1, forward, forward * -1} do
+		debug_draw.DrawLine{
+			id = id .. "_line" .. index,
+			from = bottom + offset,
+			to = top + offset,
+			color = rgba,
+			width = 2,
+			ignore_z = true,
+			time = overlay_config.debug_draw_time,
+		}
+	end
+end
+
+local function draw_character_overlay()
+	local camera_position = render3d.GetCamera():GetPosition()
+	local local_player = get_local_player_entity()
+
+	for _, component in ipairs(RagdollPart.Instances or {}) do
+		local entity = component.Owner
+		local body = entity.rigid_body
+
+		if
+			body and
+			body:IsValid() and
+			component.Character ~= local_player and
+			(
+				get_body_render_position_rotation(body) - camera_position
+			):GetLength() < CHARACTER_DRAW_DISTANCE
+		then
+			local color = body:IsDynamic() and RAGDOLL_COLOR or ALIVE_COLOR
+
+			if not body.CollisionEnabled then color = DISABLED_COLOR end
+
+			draw_capsule(
+				"physics_debug_hitbox_" .. get_body_debug_id(body),
+				body,
+				HITBOX_COLORS[component.Group] and body:IsDynamic() == false and HITBOX_COLORS[component.Group] or color,
+				body == focused_body and 1 or 0.6
+			)
+		end
+	end
+
+	for _, body in ipairs(RigidBody.Instances) do
+		local owner = body.Owner
+
+		if
+			owner and
+			owner ~= local_player and
+			owner.character_movement and
+			body:GetShapeType() == "capsule" and
+			(get_body_render_position_rotation(body) - camera_position):GetLength() < CHARACTER_DRAW_DISTANCE
+		then
+			draw_capsule(
+				"physics_debug_capsule_" .. get_body_debug_id(body),
+				body,
+				body.CollisionEnabled and {0.9, 0.9, 0.9} or DISABLED_COLOR,
+				owner.ragdoll and 0.15 or 0.5
+			)
+		end
+	end
+
+	for _, ragdoll in ipairs(Ragdoll.Instances or {}) do
+		if ragdoll.released then
+			for _, joint in ipairs(biped.Joints) do
+				local parent, child = ragdoll.part_by_name[joint.Parent], ragdoll.part_by_name[joint.Child]
+
+				debug_draw.DrawLine{
+					id = "physics_debug_joint_" .. get_body_debug_id(child.body),
+					from = parent.body.Position,
+					to = child.body.Position,
+					color = {1.0, 1.0, 0.3, 0.9},
+					width = 2,
+					ignore_z = true,
+					time = overlay_config.debug_draw_time,
+				}
+			end
+		end
+	end
+
+	for _, controller in ipairs(AiController.Instances or {}) do
+		local target = controller.target
+		local owner = controller.Owner
+
+		if target and target:IsValid() and owner.character_movement then
+			local eye = owner.transform:GetPosition() + owner.character_movement:GetViewOffset()
+			local aim = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * 0.6, 0)
+			debug_draw.DrawLine{
+				id = "physics_debug_ai_target_" .. get_body_debug_id(controller),
+				from = eye,
+				to = aim,
+				color = {1.0, 0.3, 0.3, 0.9},
+				width = 2,
+				ignore_z = true,
+				time = overlay_config.debug_draw_time,
+			}
+		end
+	end
+end
+
+local function draw_weapon_trace()
+	local player = get_local_player_entity()
+
+	if not (player and player.character_movement) then return end
+
+	local cam = render3d.GetCamera()
+	local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
+	local forward = cam:GetRotation():GetForward()
+	local hit = damage.Sweep(origin, forward * 50, player)
+	local finish = hit and (hit.point or hit.position) or origin + forward * 50
+	local victim, multiplier
+
+	if hit and hit.entity then victim, multiplier = damage.GetVictim(hit.entity) end
+
+	local color = {0.5, 0.5, 0.5, 0.6}
+
+	if victim and victim.health then
+		color = {0.3, 1.0, 0.3, 0.9}
+	elseif hit then
+		color = {1.0, 0.55, 0.2, 0.9}
+	end
+
+	debug_draw.DrawLine{
+		id = "physics_debug_weapon_trace",
+		from = origin + cam:GetRotation():GetRight() * 0.12 - Vec3(0, 0.1, 0),
+		to = finish,
+		color = color,
+		width = 2,
+		ignore_z = true,
+		time = overlay_config.debug_draw_time,
+	}
+
+	if not hit then return end
+
+	debug_draw.DrawSphere{
+		id = "physics_debug_weapon_hit",
+		position = finish,
+		radius = 0.04,
+		color = color,
+		ignore_z = true,
+		time = overlay_config.debug_draw_time,
+	}
+	local screen = cam:WorldPositionToScreenUnjittered(finish)
+
+	if not screen then return end
+
+	local lines = {}
+
+	if victim and victim.health then
+		local part = hit.entity.ragdoll_part
+		lines[1] = string.format(
+			"%s%s",
+			tostring(victim.Name or "character"),
+			part and (" | " .. part.Group .. " x" .. format_number(multiplier)) or " | capsule"
+		)
+		lines[2] = string.format(
+			"health %s/%s | damage x%s",
+			format_number(victim.health.Health),
+			format_number(victim.health.MaxHealth),
+			format_number(multiplier)
+		)
+	else
+		lines[1] = tostring(hit.entity and hit.entity.Name or "world")
+	end
+
+	debug_draw.DrawTextBlock(lines, screen.x + 14, screen.y + 10, {padding = 6, line_gap = 2, background_alpha = 0.7})
+end
+
 local function draw_hovered_body_info()
 	if not debug_enabled then return end
 
 	draw_body_summary()
+	draw_character_overlay()
+	draw_weapon_trace()
 	local body, hit = get_look_body_hit()
 
 	if locked_body then body, hit = locked_body, nil end
@@ -729,6 +961,9 @@ local function add_primitive(model, polygon3d, shape_type, local_matrix)
 	if not polygon3d then return end
 
 	if not (polygon3d.mesh and polygon3d.mesh.vertex_buffer) then
+		-- collision meshes of some worlds are plain triangle data, not drawable polygons
+		if not polygon3d.Upload then return end
+
 		polygon3d:Upload(polygon3d.indices)
 	end
 
@@ -821,7 +1056,7 @@ local function sync_debug_transform(body, debug_ent)
 	debug_ent.transform:SetScale(Vec3(1, 1, 1))
 end
 
-local function rebuild_debug_model(body, entry)
+local function rebuild_debug_model(body, entry, region_polygon)
 	local owner = body.Owner
 
 	if not (owner and owner.IsValid and owner:IsValid()) then return end
@@ -848,30 +1083,180 @@ local function rebuild_debug_model(body, entry)
 		child:Remove()
 	end
 
-	for _, collider in ipairs(body:GetColliders()) do
-		append_shape(
-			debug_ent.visual,
-			collider,
-			collider:GetPhysicsShape(),
-			debug_draw.MakeMatrix(collider:GetLocalPosition(), collider:GetLocalRotation())
-		)
+	if region_polygon ~= nil then
+		if region_polygon then
+			add_primitive(debug_ent.visual, region_polygon, "mesh", debug_draw.MakeMatrix(zero_vec, identity_rotation))
+		end
+	else
+		for _, collider in ipairs(body:GetColliders()) do
+			append_shape(
+				debug_ent.visual,
+				collider,
+				collider:GetPhysicsShape(),
+				debug_draw.MakeMatrix(collider:GetLocalPosition(), collider:GetLocalRotation())
+			)
+		end
 	end
 
 	debug_ent.visual:BuildAABB()
 	debug_ent.visual:SetVisible(debug_enabled and body == focused_body)
-	entry.shape, entry.shape_type, entry.hull, entry.child_count = get_shape_signature(body)
 	entry.owner = owner
+
+	if region_polygon ~= nil then
+		entry.shape, entry.shape_type, entry.hull, entry.child_count = nil, "mesh", nil, 0
+	else
+		entry.shape, entry.shape_type, entry.hull, entry.child_count = get_shape_signature(body)
+	end
 end
 
 local function update_debug_visibility()
 	for body, entry in pairs(debug_entries) do
 		if entry.entity and entry.entity.IsValid and entry.entity:IsValid() then
-			entry.entity.visual:SetVisible(debug_enabled and body == focused_body)
+			local visible = debug_enabled and body == focused_body
+
+			if entry.entity.visual:GetVisible() ~= visible then
+				entry.entity.visual:SetVisible(visible)
+			end
 		end
 	end
 end
 
+local REGION_RADIUS = 1.5
+local REGION_MOVE = 0.5
+local REGION_TRIANGLE_LIMIT = 4000
+local REGION_COLLIDER_LIMIT = 24
+local region_builder
+local region_triangle_count = 0
+local region_local_position = Vec3()
+local region_local_rotation = Quat(0, 0, 0, 1)
+local region_is_identity = true
+
+local function add_region_triangle(v0, v1, v2)
+	if region_triangle_count >= REGION_TRIANGLE_LIMIT then return true end
+
+	if not region_is_identity then
+		v0 = region_local_rotation:VecMul(v0) + region_local_position
+		v1 = region_local_rotation:VecMul(v1) + region_local_position
+		v2 = region_local_rotation:VecMul(v2) + region_local_position
+	end
+
+	region_triangle_count = region_triangle_count + 1
+	local normal = (v1 - v0):GetCross(v2 - v0):GetNormalized()
+	region_builder:AddVertex{pos = v0, uv = Vec2(0, 0), normal = normal}
+	region_builder:AddVertex{pos = v1, uv = Vec2(1, 0), normal = normal}
+	region_builder:AddVertex{pos = v2, uv = Vec2(0.5, 1), normal = normal}
+end
+
+local function add_hull_region(hull, bounds)
+	for i = 1, #hull.indices, 3 do
+		local v0, v1, v2 = hull.vertices[hull.indices[i]], hull.vertices[hull.indices[i + 1]], hull.vertices[hull.indices[i + 2]]
+
+		if
+			v0 and
+			v1 and
+			v2 and
+			math.max(v0.x, v1.x, v2.x) >= bounds.min_x and
+			math.min(v0.x, v1.x, v2.x) <= bounds.max_x and
+			math.max(v0.y, v1.y, v2.y) >= bounds.min_y and
+			math.min(v0.y, v1.y, v2.y) <= bounds.max_y and
+			math.max(v0.z, v1.z, v2.z) >= bounds.min_z and
+			math.min(v0.z, v1.z, v2.z) <= bounds.max_z
+		then
+			if add_region_triangle(v0, v1, v2) then return end
+		end
+	end
+end
+
+local function build_region(body, center)
+	region_builder = Polygon3D.New()
+	region_triangle_count = 0
+
+	for _, collider in ipairs(body:GetColliders()) do
+		local shape = collider:GetPhysicsShape()
+		local position, rotation = collider:GetPosition(), collider:GetRotation()
+		local local_center = rotation:GetConjugated():VecMul(center - position)
+		local bounds = AABB(
+			local_center.x - REGION_RADIUS,
+			local_center.y - REGION_RADIUS,
+			local_center.z - REGION_RADIUS,
+			local_center.x + REGION_RADIUS,
+			local_center.y + REGION_RADIUS,
+			local_center.z + REGION_RADIUS
+		)
+		local body_rotation = body:GetRotation()
+		region_local_rotation = body_rotation:GetConjugated() * rotation
+		region_local_position = body_rotation:GetConjugated():VecMul(position - body:GetPosition())
+		region_is_identity = region_local_position:GetLength() < 1e-6 and
+			math.abs(region_local_rotation.w) > 0.999999
+
+		if shape:GetTypeName() == "mesh" then
+			for _, polygon in ipairs(shape:GetMeshPolygons(collider)) do
+				triangle_mesh.ForEachOverlappingTriangle(polygon, bounds, add_region_triangle)
+			end
+		elseif shape.GetResolvedHull then
+			local hull = shape:GetResolvedHull(collider)
+
+			if hull and hull.vertices and hull.indices then add_hull_region(hull, bounds) end
+		end
+
+		if region_triangle_count >= REGION_TRIANGLE_LIMIT then break end
+	end
+
+	local polygon = region_builder
+	region_builder = nil
+
+	if region_triangle_count == 0 then return nil end
+
+	polygon:BuildBoundingBox()
+	polygon:Upload()
+	return polygon
+end
+
+local function is_region_body(body)
+	return body.WorldGeometry == true or
+		body:GetShapeType() == "mesh" or
+		#body:GetColliders() > REGION_COLLIDER_LIMIT
+end
+
+-- a world is far too big to preview whole: only the triangles around the point being looked at are drawn
+local function ensure_region_model(body, hit)
+	local center = hit and (hit.position or hit.point)
+
+	if not center then return end
+
+	local entry = debug_entries[body]
+
+	if not entry then
+		entry = {}
+		debug_entries[body] = entry
+	end
+
+	local debug_ent = entry.entity
+
+	if
+		debug_ent and
+		debug_ent.IsValid and
+		debug_ent:IsValid() and
+		entry.region_center and
+		entry.region_center:Distance(center) < REGION_MOVE
+	then
+		local visible = debug_enabled and body == focused_body
+
+		if debug_ent.visual:GetVisible() ~= visible then debug_ent.visual:SetVisible(visible) end
+
+		return
+	end
+
+	entry.region_center = center:Copy()
+	rebuild_debug_model(body, entry, build_region(body, center) or false)
+end
+
 local function ensure_debug_model(body)
+	if is_region_body(body) then
+		ensure_region_model(body, focused_hit)
+		return
+	end
+
 	local entry = debug_entries[body]
 
 	if not entry then
@@ -948,7 +1333,11 @@ input.Bind("n", "physics_debug", function()
 				locked_body = nil
 			end
 
-			focused_body = locked_body or get_look_body_hit()
+			if locked_body then
+				focused_body = locked_body
+			else
+				focused_body, focused_hit = get_look_body_hit()
+			end
 
 			if
 				focused_body and
