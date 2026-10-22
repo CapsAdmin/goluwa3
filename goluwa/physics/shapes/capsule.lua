@@ -731,7 +731,89 @@ function META:ShouldUseGroundedVelocityConstraints(body, stable)
 	return normal_speed <= 0.8 and tangent_speed <= 3.5
 end
 
+do
+	local function ray_sphere(origin, direction, center, radius)
+		local ox, oy, oz = origin.x - center.x, origin.y - center.y, origin.z - center.z
+		local b = ox * direction.x + oy * direction.y + oz * direction.z
+		local c = ox * ox + oy * oy + oz * oz - radius * radius
+		local discriminant = b * b - c
+
+		if discriminant < 0 then return nil end
+
+		local t = -b - math.sqrt(discriminant)
+
+		if t < 0 then return nil end
+
+		return t
+	end
+
+	function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_radius)
+		if direction:GetLength() <= EPSILON then return nil end
+
+		local ray = direction:GetNormalized()
+		local bottom, top, radius = capsule_geometry.GetSegmentWorld(collider)
+		trace_radius = math.max(trace_radius or 0, 0)
+		radius = radius + trace_radius
+		local axis = top - bottom
+		local length = axis:GetLength()
+		local best = ray_sphere(origin, ray, bottom, radius)
+		local other = ray_sphere(origin, ray, top, radius)
+
+		if other and (not best or other < best) then best = other end
+
+		if length > EPSILON then
+			axis = axis / length
+			local offset = origin - bottom
+			local ray_along = ray:Dot(axis)
+			local offset_along = offset:Dot(axis)
+			local d = ray - axis * ray_along
+			local o = offset - axis * offset_along
+			local a = d:Dot(d)
+	
+			if a > EPSILON then
+				local b = o:Dot(d)
+				local discriminant = b * b - a * (o:Dot(o) - radius * radius)
+
+				if discriminant >= 0 then
+					local t = (-b - math.sqrt(discriminant)) / a
+					local along = offset_along + ray_along * t
+
+					if t >= 0 and along >= 0 and along <= length and (not best or t < best) then
+						best = t
+					end
+				end
+			end
+		end
+
+		if not best or best > (max_distance or math.huge) then return nil end
+
+		local expanded = origin + ray * best
+		local along = length > EPSILON and math.clamp((expanded - bottom):Dot(axis), 0, length) or 0
+		local center = length > EPSILON and bottom + axis * along or bottom
+		local normal = (expanded - center):GetNormalized()
+		return {
+			entity = collider:GetOwner(),
+			distance = best,
+			position = expanded - normal * trace_radius,
+			normal = normal,
+			rigid_body = collider:GetBody(),
+		}
+	end
+end
+
 function META:SweepPointAgainstBody(collider, origin, movement, radius, target_state, max_fraction)
+	if radius <= 0.001 then
+		local length = movement:GetLength()
+
+		if length <= EPSILON then return nil end
+
+		local hit = self:TraceAgainstBody(collider, origin, movement, length * max_fraction, 0)
+
+		if not hit then return nil end
+
+		return {t = hit.distance / length, position = hit.position, point = hit.position, normal = hit.normal}
+	end
+
 	local capsule_radius = self:GetRadius()
 	return sweep_helpers.SweepSampledPointAgainstMovingTarget(
 		origin,

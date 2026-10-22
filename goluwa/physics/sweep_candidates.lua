@@ -11,7 +11,9 @@ local function should_skip_rigid_body(body, ignore_entity, filter_fn, options)
 
 	local owner = body.Owner
 
-	if not owner or owner == ignore_entity then return true end
+	if not owner or owner == ignore_entity or (ignore_entity and body.TraceOwner == ignore_entity) then
+		return true
+	end
 
 	if
 		(

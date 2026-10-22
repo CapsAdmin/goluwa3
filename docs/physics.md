@@ -18,6 +18,8 @@ Collide once, soft contacts: broadphase and islands only on substep 1 (`BeginSte
 - Soft bias selection must be branch free with an effectively exact step (`gap * 1e30`); branches bring back trace aborts.
 - Never iterate `pairs()` over tables keyed by bodies in order-sensitive code (address order follows ASLR): use ordered arrays (`island.bodies`, `dynamic_bodies`). A flaky physics test is a real nondeterminism bug.
 - Kinematic bodies: use `HasSolverMass()` not `not IsStatic()` for CCD pair decisions; `kinematic_controller.UpdateBody` interpolates across substeps.
+- Sampled sweeps (`GetPointSweepSampleSteps`, at most 40 samples) alias on long sweeps: a 50 m point sweep samples every 1.25 m and steps over anything thinner. Shapes that can answer analytically do so for point sweeps (sphere, capsule); a thin new shape needs the same or weapons will miss it.
+- `physics.RayCast` asks each shape for `TraceAgainstBody`; a shape without one (the base returns nil) cannot be hit by rays, only by sweeps. Capsules, spheres, boxes, convex, mesh and heightmap have it. `body.TraceOwner` makes a trace that ignores an entity ignore the body too (ragdoll parts set it to their character).
 - Removed bodies are cleared on the next Update (`objects.MakeNULL`): use `body:IsValid()`, not a `.Removed` flag. Use `SetWorldGeometry(true)` so `RigidBody.WorldGeometryBodies` stays correct; `physics.RayCast` only sees world geometry unless `{IncludeRigidBodies = true}`.
 - `ffi.copy` can miscompile in a trace followed by reads of the same vector (see `RigidBody:SynchronizeFromTransform`): write fields one by one.
 - Allocation/GC spikes in a step are usually one GC cycle of a large heap: pool EPA faces, cache velocity refs per call, no Vec3 allocation in per-pair code.
@@ -38,6 +40,8 @@ Collide once, soft contacts: broadphase and islands only on substep 1 (`BeginSte
 - Ground is Source's check, not the contact flag: `FindGround` sweeps down (falls back to a ray at stair nosings). Steps follow Source StepMove; a rigid capsule cannot roll over ledges higher than about its radius, so `TryStepUp` sweeps forward/up/forward/down and teleports onto walkable ground.
 
 ## Stats
+
+The physics debug (`N`) previews the focused body's shape as a translucent model, except for world bodies (`WorldGeometry`, mesh shapes, more than 24 colliders): drawing a whole map costs more than the map render, so only the triangles within 1.5 m of the point looked at (at most 4000, rebuilt when the point moves 0.5 m) are drawn. Never recreate or re-show that model every frame; set visibility and transforms only when they change.
 
 The PHYSICS tab of PERF (`perf physics`, `physics_stats` prints it) shows `goluwa/physics/stats.lua` snapshots. `autorun/physics/` only loads with `--3d` or `--physics`. Draw2D listeners get `(dt)` in 2D but `(cmd, dt)` in 3D.
 

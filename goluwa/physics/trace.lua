@@ -44,7 +44,9 @@ function ray_cast(origin, direction, max_distance, ignore_entity, filter_fn, opt
 		RigidBodyComponent.WorldGeometryBodies
 
 	for _, body in ipairs(bodies) do
-		if body.Owner == ignore_entity then goto continue end
+		if body.Owner == ignore_entity or (ignore_entity and body.TraceOwner == ignore_entity) then
+			goto continue
+		end
 
 		if body.WorldGeometry == true and options.IgnoreWorld == true then
 			goto continue
