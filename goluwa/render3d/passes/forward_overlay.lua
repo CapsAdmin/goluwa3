@@ -4,6 +4,8 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Material = import("goluwa/render3d/material.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
+local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local standard_depth = Matrix44()
 standard_depth.m22 = -1
@@ -35,6 +37,15 @@ return {
 		fragment = {
 			uniform_buffers = {
 				{
+					name = "overlay_view",
+					block = {render3d.camera_block, {"depth_tex", "int"}},
+					write = function(self, block)
+						render3d.WriteCameraBlock(self, block)
+						block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
+						return block
+					end,
+				},
+				{
 					name = "clip_plane",
 					block = {
 						{"Enabled", "int"},
@@ -55,7 +66,7 @@ return {
 				},
 			},
 			shader = [[
-			]] .. model_pipeline.BuildSurfaceSamplingGlsl() .. [[
+			]] .. model_pipeline.BuildSurfaceSamplingGlsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("overlay_view", {function_name = "get_scene_pos"}) .. [[
 
 			layout(location = 0) out vec4 frag_color;
 
@@ -66,7 +77,28 @@ return {
 
 				discard_surface_alpha(color);
 
-				frag_color = vec4(color.rgb + get_surface_emissive(color.rgb), color.a);
+				vec3 lit = color.rgb + get_surface_emissive(color.rgb);
+
+				if (model.RimColor.a > 0.0) {
+					vec3 view_dir = normalize(overlay_view.camera_position.xyz - in_position);
+					float rim = clamp(pow(1.0 - abs(dot(normalize(in_normal), view_dir)), model.RimPower) * model.RimColor.a, 0.0, 1.0);
+					float alpha = max(color.a, rim);
+					lit = (lit * color.a + model.RimColor.rgb * rim) / max(alpha, 0.0001);
+					color.a = alpha;
+				}
+
+				if (model.OcclusionRadius > 0.0) {
+					vec2 screen_uv = gl_FragCoord.xy / overlay_view.render_size;
+					float scene_depth = texture(TEXTURE(overlay_view.depth_tex), screen_uv).r;
+
+					if (scene_depth > 0.0) {
+						float gap = distance(overlay_view.camera_position.xyz, in_position) - distance(overlay_view.camera_position.xyz, get_scene_pos(screen_uv, scene_depth));
+						float soft = min(model.OcclusionSoftness, model.OcclusionRadius);
+						color.a *= 1.0 - smoothstep(model.OcclusionRadius - soft, model.OcclusionRadius, gap);
+					}
+				}
+
+				frag_color = vec4(lit, color.a);
 			}
 		]],
 		},

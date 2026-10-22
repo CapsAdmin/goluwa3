@@ -21,6 +21,10 @@ local SURFACE_MATERIAL_FIELDS = {
 	{type = "float", name = "MetallicMultiplier", getter = "GetMetallicMultiplier"},
 	{type = "float", name = "RoughnessMultiplier", getter = "GetRoughnessMultiplier"},
 	{type = "float", name = "NormalMapMultiplier", getter = "GetNormalMapMultiplier"},
+	{type = "vec4", name = "RimColor", getter = "GetRimColor"},
+	{type = "float", name = "RimPower", getter = "GetRimPower"},
+	{type = "float", name = "OcclusionRadius", getter = "GetOcclusionRadius"},
+	{type = "float", name = "OcclusionSoftness", getter = "GetOcclusionSoftness"},
 }
 local PBR_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},

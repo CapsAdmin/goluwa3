@@ -81,6 +81,10 @@ Material:GetSet(
 	false,
 	{callback = "InvalidateFlags", requires = "EmissiveTexture"}
 )
+Material:GetSet("RimColor", Color(0.0, 0.0, 0.0, 0.0), {callback = "InvalidateEmission"})
+Material:GetSet("RimPower", 3.0, {callback = "InvalidateEmission"})
+Material:GetSet("OcclusionRadius", 0.0, {callback = "InvalidateEmission"})
+Material:GetSet("OcclusionSoftness", 0.25, {callback = "InvalidateEmission"})
 Material:StartCategory("Blending")
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})

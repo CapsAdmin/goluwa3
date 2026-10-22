@@ -63,7 +63,7 @@ local function refresh_shadow_registry(component)
 end
 
 local function refresh_forward_overlay_registry(component)
-	if component.HasIgnoreZRenderEntries then
+	if component.HasIgnoreZRenderEntries or component.OverlayMaterial then
 		registry_insert(visual.forward_overlay_components, "forward_overlay_registry_index", component)
 	else
 		registry_remove(visual.forward_overlay_components, "forward_overlay_registry_index", component)
@@ -657,6 +657,7 @@ Visual:GetSet(
 )
 Visual:EndStorable()
 Visual:GetSet("MaterialOverride", nil)
+Visual:GetSet("OverlayMaterial", nil)
 Visual:GetSet("MaterialSlotOverrides", nil)
 Visual:GetSet("AABB", create_empty_aabb())
 Visual:GetSet("ClipWorldAABB", nil)
@@ -730,6 +731,11 @@ end
 function Visual:SetMaterialOverride(material)
 	objects.CommitProperty(self, "MaterialOverride", material)
 	self:InvalidateRenderEntries()
+end
+
+function Visual:SetOverlayMaterial(material)
+	objects.CommitProperty(self, "OverlayMaterial", material)
+	refresh_forward_overlay_registry(self)
 end
 
 function Visual:SetMaterialSlotOverrides(slots)
@@ -2394,11 +2400,32 @@ function Visual:DrawForwardOverlayPass(render_entries, skip_visibility)
 
 	if not render_entries[1] then return end
 
-	if not self:HasRenderEntriesForPass(true, render_entries) then return end
+	local overlay = self.OverlayMaterial
+
+	if not overlay and not self:HasRenderEntriesForPass(true, render_entries) then
+		return
+	end
 
 	if not skip_visibility and not self:IsAABBVisibleLocal() then return end
 
-	self:DrawEntriesForPass(true, render3d.UploadForwardOverlayConstants, render_entries)
+	if self.HasIgnoreZRenderEntries or self.MaterialOverride then
+		self:DrawEntriesForPass(true, render3d.UploadForwardOverlayConstants, render_entries)
+	end
+
+	if not overlay then return end
+
+	for _, entry in ipairs(render_entries) do
+		local transform = entry.transform
+		local world_matrix = transform and transform:GetWorldMatrix() or self:GetWorldMatrix()
+
+		if world_matrix then
+			render3d.SetWorldMatrix(world_matrix, world_matrix)
+			render3d.SetCurrentPolygon3D(entry.polygon3d)
+			render3d.SetMaterial(overlay)
+			render3d.UploadForwardOverlayConstants()
+			entry.polygon3d:Draw()
+		end
+	end
 end
 
 function Visual:OnDraw3DForwardOverlay()
