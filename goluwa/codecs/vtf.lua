@@ -145,6 +145,7 @@ local function vtf_to_vulkan_format(format)
 		[VTF_IMAGE_FORMAT.ARGB8888] = "b8g8r8a8_unorm",
 		[VTF_IMAGE_FORMAT.RGB888] = "r8g8b8a8_unorm",
 		[VTF_IMAGE_FORMAT.BGR888] = "b8g8r8a8_unorm",
+		[VTF_IMAGE_FORMAT.I8] = "r8g8b8a8_unorm",
 		[VTF_IMAGE_FORMAT.RGBA16161616F] = "r16g16b16a16_sfloat",
 		[VTF_IMAGE_FORMAT.RGBA32323232F] = "r32g32b32a32_sfloat",
 		[VTF_IMAGE_FORMAT.RGB323232F] = "r32g32b32_sfloat",
@@ -216,7 +217,13 @@ vtf.thread_job = [[
 function vtf.ThreadCost(str)
 	local header = parse_header(Buffer.New(str, #str))
 
-	if header and get_bytes_per_pixel(header.image_format) == 3 then
+	if
+		header and
+		(
+			get_bytes_per_pixel(header.image_format) == 3 or
+			header.image_format == VTF_IMAGE_FORMAT.I8
+		)
+	then
 		return #str * 4
 	end
 
@@ -286,7 +293,8 @@ function vtf.DecodeBuffer(input_buffer)
 	local frame_data_size = total_size
 	local data_pos = input_buffer:GetPosition()
 	local bpp = get_bytes_per_pixel(format)
-	local needs_conversion_to_32bit = (bpp == 3)
+	local is_i8 = format == VTF_IMAGE_FORMAT.I8
+	local needs_conversion_to_32bit = bpp == 3 or is_i8
 	local data_buffer
 	local actual_data_size = total_size
 
@@ -311,12 +319,23 @@ function vtf.DecodeBuffer(input_buffer)
 				mip.source_size = source_size
 				local src = input_buffer:GetBuffer() + data_pos + mip.file_offset + frame * face_count * source_size
 
-				for j = 0, mip_pixel_count - 1 do
-					dst[dst_idx] = src[j * 3]
-					dst[dst_idx + 1] = src[j * 3 + 1]
-					dst[dst_idx + 2] = src[j * 3 + 2]
-					dst[dst_idx + 3] = 255
-					dst_idx = dst_idx + 4
+				if is_i8 then
+					for j = 0, mip_pixel_count - 1 do
+						local v = src[j]
+						dst[dst_idx] = v
+						dst[dst_idx + 1] = v
+						dst[dst_idx + 2] = v
+						dst[dst_idx + 3] = 255
+						dst_idx = dst_idx + 4
+					end
+				else
+					for j = 0, mip_pixel_count - 1 do
+						dst[dst_idx] = src[j * 3]
+						dst[dst_idx + 1] = src[j * 3 + 1]
+						dst[dst_idx + 2] = src[j * 3 + 2]
+						dst[dst_idx + 3] = 255
+						dst_idx = dst_idx + 4
+					end
 				end
 
 				if frame == 0 then
