@@ -25,6 +25,7 @@ end
 function weapons.Spawn(name, position, rotation)
 	return Entity.New{
 		Name = name,
+		Transient = false,
 		transform = {Position = position, Rotation = rotation},
 		network = SERVER and {} or nil,
 		prefab = {Path = name},

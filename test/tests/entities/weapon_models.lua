@@ -2,6 +2,8 @@ local T = import("test/environment.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local weapons = import("lua/weapons.lua")
+local scene = import("goluwa/entities/scene.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 
 T.Test("Weapons are built in prefabs with a model, a muzzle and a loaded script", function()
@@ -29,4 +31,17 @@ T.Test("A weapon holds its values in the weapon component", function()
 	T(instance.weapon:GetSlot())["=="](2)
 	T(instance.weapon:GetFireRate())["=="](0.25)
 	instance:Remove()
+end)
+
+T.Test("Spawned weapons serialize and come back with their script values", function()
+	for _, name in ipairs(weapons.GetNames()) do
+		local weapon = weapons.Spawn(name, Vec3(0, 1, 0))
+		local data = scene.SerializeEntities({weapon})
+		T(#data.entities)[">"](0)
+		weapon:Remove()
+		local copy = scene.Deserialize(data, Entity.World)[1]
+		T(copy:GetName())["=="](name)
+		T(copy.script.instance ~= nil)["=="](true)
+		copy:Remove()
+	end
 end)
