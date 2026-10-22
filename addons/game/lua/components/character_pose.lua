@@ -109,7 +109,7 @@ function META:OnUpdate(dt)
 		self.pitch = self.dead_pitch
 	else
 		self.dead_pitch = nil
-		self.pitch = entity_rotation:GetConjugated() * rotation
+		self.pitch:Identity():RotatePitch(math.asin(math.clamp(rotation:GetForward().y, -1, 1)))
 	end
 end
 

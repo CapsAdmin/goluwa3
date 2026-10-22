@@ -44,6 +44,16 @@ T.TestPhysics("character pose follows the pitch of the command view and not its 
 	T(forward.y)["~"](math.sin(math.rad(30)), 0.01)
 	T(math.abs(forward.x) < 0.01)["=="](true)
 	T(character.character_pose.crouch_alpha)["=="](0)
+	character.player_controller.cmd.view = Quat(0, 0, 0, 1):RotateYaw(math.rad(110)):RotatePitch(math.rad(30))
+
+	for _ = 1, 30 do
+		physics.UpdateFixed(1 / 60)
+		character.character_pose:OnUpdate(1 / 60)
+	end
+
+	forward = character.character_pose.pitch:GetForward()
+	T(forward.y)["~"](math.sin(math.rad(30)), 0.01)
+	T(math.abs(forward.x) < 0.01)["=="](true)
 	character.player_controller.cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.CROUCH
 
 	for _ = 1, 30 do
