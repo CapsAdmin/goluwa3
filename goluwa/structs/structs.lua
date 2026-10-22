@@ -278,9 +278,9 @@ operators.set = function(META, operator)
 	codegen.run(
 		[==[
 			local META, structs = ...
-			META["Set"] = function(a, {{ARG}})
-				a.{{KEY}} = {{KEY}}
-				return a
+			META["Set"] = function(self, {{ARG}})
+				self.{{KEY}} = {{KEY}}
+				return self
 			end
 		]==],
 		"operator " .. operator,
