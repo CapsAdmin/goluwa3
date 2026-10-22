@@ -3,6 +3,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local vfs = import("goluwa/vfs.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local outfit_source = import("lua/outfit_source.lua")
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local outfit = {}
@@ -15,17 +16,31 @@ outfit.FootHeight = 2.5 * UNIT
 outfit.FootSink = 1 * UNIT
 outfit.GroundBound = 12 * UNIT
 outfit.LimbRadius = 1.5 * UNIT
-outfit.DefaultName = "player_outfit"
+outfit.CustomName = "player_outfit"
+outfit.DefaultName = "player_outfit_default"
 local selected = pvars.Setup2{
 	key = "cl_outfit",
 	category = "Game",
 	group = "Player",
-	default = outfit.DefaultName,
-	help = "prefab used as your player outfit, player_outfit_source is the gmod player model",
+	default = outfit.CustomName,
+	help = "prefab used as your player outfit: player_outfit is the editable custom one, player_outfit_default the generated eye, player_outfit_source a source player model",
+}
+local selected_model = pvars.Setup2{
+	key = "cl_outfit_model",
+	category = "Game",
+	group = "Player",
+	default = outfit_source.Model,
+	help = "source player model used when cl_outfit is player_outfit_source",
 }
 
 function outfit.GetLocalName()
 	return selected:Get()
+end
+
+function outfit.GetLocalInputs()
+	if selected:Get() == outfit_source.Name then
+		return {Model = selected_model:Get()}
+	end
 end
 
 outfit.EyeScript = [=[
@@ -396,16 +411,21 @@ function outfit.GetDefault()
 	return {inputs = {}, entities = entities}
 end
 
-function outfit.LoadLocal()
-	local name = outfit.GetLocalName()
-
+function outfit.Ensure(name)
 	if not outfit.Exists(name) then
 		prefab.Register(name, outfit.GetDefault())
 		prefab.Save(name)
 	end
 
 	prefab.Get(name).local_only = true
-	return name
 end
+
+function outfit.LoadLocal()
+	local name = outfit.GetLocalName()
+	outfit.Ensure(name)
+	return name, outfit.GetLocalInputs()
+end
+
+prefab.Register(outfit.DefaultName, outfit.GetDefault()).builtin = true
 
 return outfit

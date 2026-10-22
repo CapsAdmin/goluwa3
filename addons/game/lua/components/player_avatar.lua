@@ -75,12 +75,22 @@ end
 
 function META:UpdateOutfit()
 	local network = self.Owner.network
+	local name, inputs
 
-	if not self.outfit_name then
-		self.outfit_name = network and outfit.GetName(network:GetNetworkOwner()) or outfit.LoadLocal()
+	if network then
+		name = outfit.GetName(network:GetNetworkOwner())
+	else
+		name, inputs = outfit.LoadLocal()
 	end
 
-	local definition = prefab.definitions[self.outfit_name]
+	local model = inputs and inputs.Model
+
+	if self.outfit and (self.outfit_name ~= name or self.outfit_model ~= model) then
+		self.outfit:Remove()
+		self.outfit = nil
+	end
+
+	local definition = prefab.definitions[name]
 
 	if not definition then return end
 
@@ -88,9 +98,11 @@ function META:UpdateOutfit()
 		self.outfit = Entity.New{
 			Name = "outfit",
 			Parent = self.Owner,
-			prefab = {Path = self.outfit_name},
+			prefab = {Inputs = inputs, Path = name},
 			visibility = {},
 		}
+		self.outfit_name = name
+		self.outfit_model = model
 	elseif self.outfit_revision == definition.revision then
 		return
 	end

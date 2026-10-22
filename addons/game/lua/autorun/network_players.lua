@@ -117,6 +117,12 @@ if CLIENT and not SERVER then
 	end)
 
 	-- the unique id is only known once the server has created the local client
+	event.AddListener("PersistentVariableChanged", "network_players_outfit", function(key)
+		if network.IsConnected() and (key == "cl_outfit" or key == "cl_outfit_model") then
+			outfit_due = system.GetElapsedTime() + OUTFIT_PUSH_DELAY
+		end
+	end)
+
 	event.AddListener("Update", "network_players_outfit", function()
 		if not outfit_due or system.GetElapsedTime() < outfit_due then return end
 
@@ -125,7 +131,8 @@ if CLIENT and not SERVER then
 		if uid == "unconnected" then return end
 
 		outfit_due = nil
-		scene_sync.PushPrefab(outfit.LoadLocal(), outfit.GetName(uid))
+		local name, inputs = outfit.LoadLocal()
+		scene_sync.PushPrefab(name, outfit.GetName(uid), inputs)
 	end)
 end
 

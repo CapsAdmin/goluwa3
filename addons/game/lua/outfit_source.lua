@@ -1,11 +1,29 @@
 local prefab = import("goluwa/entities/prefab.lua")
+local steam = import("goluwa/steam/steam.lua")
 local outfit_source = {}
-outfit_source.Model = "models/player/kleiner.mdl"
+outfit_source.Models = {
+	"models/player/zombie_classic.mdl",
+	"models/player/combine_soldier.mdl",
+	"models/player/kleiner.mdl",
+	"models/player/eli.mdl",
+}
+outfit_source.Model = outfit_source.Models[3]
 outfit_source.Name = "player_outfit_source"
+
+function outfit_source.IsAvailable()
+	return steam.IsSourceGameMounted("gmod") == true
+end
 
 function outfit_source.GetDefinition()
 	return {
-		inputs = {},
+		inputs = {
+			{
+				Name = "Model",
+				Type = "string",
+				Default = outfit_source.Model,
+				Targets = {{Node = "model", Component = "model", Property = "ModelPath"}},
+			},
+		},
 		entities = {
 			{guid = "root", components = {}},
 			{

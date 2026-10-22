@@ -5,7 +5,7 @@ local vfs = import("goluwa/vfs.lua")
 local outfit = import("lua/outfit.lua")
 
 T.Test("The local outfit is saved with the default body and visor, stays local and keeps edits", function()
-	local name = outfit.DefaultName
+	local name = outfit.CustomName
 	local path = prefab.GetPath(name)
 	local backup = vfs.Read(path)
 	prefab.definitions[name] = nil
