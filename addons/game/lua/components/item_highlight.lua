@@ -94,12 +94,22 @@ function META:Initialize()
 	self.emitter:SetTransient(true)
 end
 
+function META:SetRimVisible(visible)
+	if self.rim_visible == visible then return end
+
+	self.rim_visible = visible
+
+	for _, child in ipairs(self.Owner:GetChildrenList()) do
+		if child.visual then
+			child.visual:SetOverlayMaterial(visible and self.rim or nil)
+		end
+	end
+end
+
 function META:OnEntityConstructed()
 	if not self.rim then return end
 
-	for _, child in ipairs(self.Owner:GetChildrenList()) do
-		if child.visual then child.visual:SetOverlayMaterial(self.rim) end
-	end
+	self:SetRimVisible(self:IsDropped())
 end
 
 function META:IsDropped()
@@ -113,6 +123,7 @@ end
 
 function META:OnUpdate(dt)
 	local dropped = self:IsDropped() and self:GetAnchor() ~= nil
+	self:SetRimVisible(dropped)
 
 	for _, beam in ipairs(self.beams) do
 		beam:SetVisible(dropped)
