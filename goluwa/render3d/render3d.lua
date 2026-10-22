@@ -810,7 +810,8 @@ function render3d.UploadForwardOverlayConstants()
 	local material = render3d.GetMaterial()
 	render3d.pipelines.forward_overlay:UploadConstantsBound()
 	cmd:SetCullMode(material:GetCullMode())
-	cmd:SetColorBlendEnable(0, material:GetTranslucent())
+	cmd:SetDepthWriteEnable(not material:GetBlendEnabled())
+	cmd:SetColorBlendEnable(0, material:GetBlendEnabled())
 	cmd:SetColorBlendEquation(0, material:GetBlendEquation())
 end
 

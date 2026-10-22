@@ -52,7 +52,7 @@ local function upload_preview_constants(pipeline)
 	local material = render3d.GetMaterial()
 	pipeline:UploadConstants()
 	cmd:SetCullMode(material:GetCullMode())
-	cmd:SetColorBlendEnable(0, material:GetTranslucent())
+	cmd:SetColorBlendEnable(0, material:GetBlendEnabled())
 	cmd:SetColorBlendEquation(0, material:GetBlendEquation())
 end
 

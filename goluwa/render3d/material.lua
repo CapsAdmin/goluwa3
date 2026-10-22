@@ -175,8 +175,23 @@ do
 		alpha_blend_op = "add",
 	}
 
+	local additive = {
+		src_color_blend_factor = "src_alpha",
+		dst_color_blend_factor = "one",
+		color_blend_op = "add",
+		src_alpha_blend_factor = "one",
+		dst_alpha_blend_factor = "zero",
+		alpha_blend_op = "add",
+	}
+
 	function Material:GetBlendEquation()
+		if self.Additive then return additive end
+
 		return self.Translucent and translucent or opaque
+	end
+
+	function Material:GetBlendEnabled()
+		return self.Translucent or self.Additive
 	end
 end
 
