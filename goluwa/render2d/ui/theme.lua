@@ -27,8 +27,11 @@ function theme.LoadTheme(name)
 	if theme.active and theme.active.Name == name then return end
 
 	local theme_class = find_theme_class(name)
+	if theme.active then theme.active:Deactivate() end
+
 	local object = theme_class:CreateObject()
 	object:Initialize()
+	object:Activate()
 	theme.active = object
 	event.Call("ThemeChanged")
 	return object

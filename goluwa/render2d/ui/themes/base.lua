@@ -154,10 +154,17 @@ function BaseTheme:CreatePalette()
 	return semantic_palette
 end
 
-function BaseTheme:Initialize()
+function BaseTheme:Activate()
 	self:AddGlobalEvent("OnEntitySetProperty", {func_name = "OnEntitySetProperty"})
 	self:AddGlobalEvent("OnEntityStateChanged", {func_name = "OnEntityStateChanged"})
+end
 
+function BaseTheme:Deactivate()
+	self:RemoveEvent("OnEntitySetProperty")
+	self:RemoveEvent("OnEntityStateChanged")
+end
+
+function BaseTheme:Initialize()
 	if self:GetDefaultFontPath() == "" then
 		self:SetDefaultFontPath(fonts.GetDefaultSystemFontPath())
 	end
