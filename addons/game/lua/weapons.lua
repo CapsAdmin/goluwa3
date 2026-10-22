@@ -53,7 +53,7 @@ end
 
 weapons.Loadout = {"weapon_camera", "weapon_physgun", "weapon_pistol"}
 
-for _, name in ipairs{"camera", "physgun", "pistol", "sword", "shield"} do
+for _, name in ipairs{"camera", "physgun", "pistol", "sword", "shield", "grenade"} do
 	local definition = import("lua/weapons/" .. name .. ".lua")
 	weapons.Register("weapon_" .. name, definition.Values, definition.Nodes, definition.Source)
 end
@@ -67,7 +67,13 @@ do
 		local values = table.shallow_copy(magic.Values)
 		values.Slot = magic.Values.Slot + i - 1
 		values.DisplayName = definition.DisplayName
-		weapons.Register("weapon_magic_" .. name, values, magic.CreateNodes(definition.Color), magic.Source, {Element = name})
+		weapons.Register(
+			"weapon_magic_" .. name,
+			values,
+			magic.CreateNodes(definition.Color),
+			magic.Source,
+			{Element = name}
+		)
 	end
 
 	local potion = import("lua/weapons/potion.lua")
@@ -76,7 +82,13 @@ do
 		local values = table.shallow_copy(potion.Values)
 		values.Slot = potion.Values.Slot + i - 1
 		values.DisplayName = kind.DisplayName
-		weapons.Register("weapon_potion_" .. kind.Name, values, potion.CreateNodes(kind.Color), potion.Source, {Kind = kind.Name})
+		weapons.Register(
+			"weapon_potion_" .. kind.Name,
+			values,
+			potion.CreateNodes(kind.Color),
+			potion.Source,
+			{Kind = kind.Name}
+		)
 	end
 end
 
