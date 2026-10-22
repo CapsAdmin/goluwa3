@@ -478,7 +478,7 @@ do
 			local z = math.sin(-phase + math.randomf(-1, 1))
 			local length = math.sqrt(x * x + y * y + z * z)
 			local speed = math.randomf(3, 7.5)
-			effect.trails[i] = vfx.AcquireTrail(color, strength * 150, TRAIL_POINTS, 0.05, vfx.GetTexture("orbit_trail"))
+			effect.trails[i] = vfx.AcquireGpuTrail(color, strength * 150, TRAIL_POINTS, 0.05, vfx.GetTexture("orbit_trail"), 0.6)
 			effect.orbits[i] = {
 				x = x / length,
 				y = y / length,

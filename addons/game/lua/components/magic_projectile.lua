@@ -233,12 +233,13 @@ function META:BuildVisuals()
 	self.color = color
 	self.glow = glow
 	self.orb = effects.AcquireOrb(color, LENS_SCALE)
-	self.trail = effects.vfx.AcquireTrail(
+	self.trail = effects.vfx.AcquireGpuTrail(
 		color,
 		20,
 		TRAIL_POINTS,
 		TRAIL_RADIUS * glow,
-		effects.vfx.GetTexture("orbit_trail")
+		effects.vfx.GetTexture("orbit_trail"),
+		0
 	)
 	self.emitters = {}
 	self.emitters_playing = true
@@ -298,7 +299,7 @@ function META:UpdateVisuals()
 	local appear = math.min(self.time * 6, 1) * fade
 	local size = 0.16 * self.glow * appear
 	self.orb:Draw(position, size, fade, flicker)
-	self.trail:Push(position)
+	self.trail:ShiftXYZ(position.x, position.y, position.z)
 	self.trail:SetAlpha(fade)
 
 	if self.Bounced and self.emitters_playing then
