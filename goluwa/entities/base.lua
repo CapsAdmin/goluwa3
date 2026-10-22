@@ -6,6 +6,7 @@ local BaseEntity = objects.CreateTemplate("base_entity")
 function BaseEntity:__tostring2()
 	return self.GUID ~= "" and (" " .. self.GUID) or ""
 end
+
 objects.ParentingTemplate(BaseEntity)
 BaseEntity:GetSet("Transient", nil, {type = "boolean"})
 
