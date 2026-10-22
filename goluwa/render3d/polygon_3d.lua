@@ -176,14 +176,12 @@ function Polygon3D:GetVertices()
 end
 
 function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
-	local packed = self.packed
-	local vertices = packed.vertices
-	local indices = packed.indices
+	local vertices = self:GetVertices()
+	local indices = self.indices
 	local inside = {}
 
-	for i = 0, packed.vertex_count - 1 do
-		local position = vertices[i].position
-		local world = world_matrix:TransformVector(Vec3(position[0], position[1], position[2]))
+	for i = 1, #vertices do
+		local world = world_matrix:TransformVector(vertices[i].pos)
 		inside[i] = world.x >= aabb.min_x and
 			world.x <= aabb.max_x and
 			world.y >= aabb.min_y and
@@ -195,21 +193,15 @@ function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
 	local copy = Polygon3D.New()
 	local removed = 0
 
-	for i = 0, packed.index_count - 3, 3 do
+	for i = 1, #indices - 2, 3 do
 		local a, b, c = indices[i], indices[i + 1], indices[i + 2]
 
 		if inside[a] and inside[b] and inside[c] then
 			removed = removed + 1
 		else
-			for _, index in ipairs({a, b, c}) do
-				local v = vertices[index]
-				copy:AddVertex{
-					pos = Vec3(v.position[0], v.position[1], v.position[2]),
-					normal = Vec3(v.normal[0], v.normal[1], v.normal[2]),
-					uv = Vec2(v.uv[0], v.uv[1]),
-					tangent = {x = v.tangent[0], y = v.tangent[1], z = v.tangent[2], w = v.tangent[3]},
-				}
-			end
+			copy:AddVertex(vertices[a])
+			copy:AddVertex(vertices[b])
+			copy:AddVertex(vertices[c])
 		end
 	end
 
