@@ -498,7 +498,12 @@ function BaseEntity:OnConstruct(config)
 		self:AddChild(child)
 	end
 
-	for _, component in ipairs(self.component_list) do
+	local constructed = self.component_list
+
+	-- fixed bound: components added by an Initialize here (prefab) are already initialized by AddComponent
+	for i = 1, #constructed do
+		local component = constructed[i]
+
 		if component.Initialize then component:Initialize() end
 
 		if component.OnAdd then component:OnAdd() end

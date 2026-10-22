@@ -1,5 +1,6 @@
 local T = import("test/environment.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local objects = import("goluwa/objects/objects.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local scene = import("goluwa/entities/scene.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -518,4 +519,27 @@ T.Test("Prefab syncing does not set properties that already have their value", f
 	T(notified)["=="](0)
 	a:Remove()
 	b:Remove()
+end)
+
+T.Test("Components added by a prefab are initialized once", function()
+	local META = objects.CreateTemplate("test_prefab_init_count")
+	local initialized, added = 0, 0
+
+	function META:Initialize()
+		initialized = initialized + 1
+	end
+
+	function META:OnAdd()
+		added = added + 1
+	end
+
+	Entity.RegisterComponent("test_prefab_init_count", META:Register())
+	prefab.Register(
+		"test_prefab_init_once",
+		{inputs = {}, entities = {{guid = "root", components = {test_prefab_init_count = {}}}}}
+	)
+	local root = instance("test_prefab_init_once")
+	T(initialized)["=="](1)
+	T(added)["=="](1)
+	root:Remove()
 end)
