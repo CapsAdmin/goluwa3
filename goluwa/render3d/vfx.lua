@@ -8,6 +8,7 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local trails = import("goluwa/render3d/trails.lua")
 local vfx = {}
 local UP = Vec3(0, 1, 0)
 local WHITE = Color(1, 1, 1, 1)
@@ -360,6 +361,64 @@ do
 			self.beam:SetVisible(false)
 			release(self.key, self)
 		end
+	end
+end
+
+do
+	local META = {}
+	META.__index = META
+
+	function vfx.AcquireGpuTrail(color, strength, count, radius, texture, drift, end_color, flicker)
+		end_color = end_color or color
+		return setmetatable(
+			{
+				trail = trails.Acquire{
+					r = color.r * strength,
+					g = color.g * strength,
+					b = color.b * strength,
+					alpha = 1,
+					points = count,
+					radius_start = 0,
+					radius_end = radius,
+					texture = texture,
+					drift = drift,
+					r_end = end_color.r * strength,
+					g_end = end_color.g * strength,
+					b_end = end_color.b * strength,
+					flicker = flicker,
+				},
+				end_color = end_color,
+				color_r = color.r,
+				color_g = color.g,
+				color_b = color.b,
+				strength = strength,
+			},
+			META
+		)
+	end
+
+	function META:ShiftXYZ(x, y, z)
+		self.trail:Push(x, y, z)
+	end
+
+	function META:Rebuild() end
+
+	function META:SetAlpha(alpha)
+		local strength = self.strength
+		local end_color = self.end_color
+		self.trail:SetColor(
+			self.color_r * strength,
+			self.color_g * strength,
+			self.color_b * strength,
+			alpha * alpha,
+			end_color.r * strength,
+			end_color.g * strength,
+			end_color.b * strength
+		)
+	end
+
+	function META:Release()
+		self.trail:Release()
 	end
 end
 
