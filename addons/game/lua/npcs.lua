@@ -245,6 +245,7 @@ function npcs.Register(name, info)
 						player_avatar = info.Outfit and {Outfit = info.Outfit} or nil,
 						attachment_points = info.Biped and {} or nil,
 						ai_controller = npc,
+						usable = info.Faction == "friend" and {Prompt = "follow"} or nil,
 						weapon_holder = info.Weapon and {} or nil,
 						ragdoll = info.Biped and {CorpseTime = 20, Profile = info.Ragdoll} or nil,
 						health = {

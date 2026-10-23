@@ -58,6 +58,11 @@ local TARGET_INTERVAL = 0.25
 local TARGET_CHEST = 0.6
 local AIM_TOLERANCE = 0.04
 local PLAYER_FACTION = "friend"
+local FOLLOW_START_DISTANCE = 4
+local FOLLOW_STAND_DISTANCE = 2
+local FOLLOW_RUN_DISTANCE = 9
+local FOLLOW_REPATH_DISTANCE = 3.5
+local FOLLOW_PATH_INTERVAL = 0.5
 local NO_CONTROLLERS = {}
 local target_sources = {}
 
@@ -83,6 +88,7 @@ function META:Initialize()
 	self.turning = false
 	self.next_target = 0
 	self.next_fire = 0
+	self.next_follow_path = 0
 	self.aim_direction = Vec3()
 	self.cmd = usercmd.New()
 	self.cmd.mode = "walk"
@@ -139,6 +145,57 @@ function META:Stop()
 	self.goal = nil
 	self.path = nil
 	self.search = nil
+end
+
+function META:GetLeader()
+	return self.leader
+end
+
+function META:SetLeader(leader)
+	self.leader = leader
+	self.next_follow_path = 0
+	self:Stop()
+
+	if not leader then self:SetRunning(false) end
+
+	local usable = self.Owner.usable
+
+	if usable then usable:SetPrompt(leader and "stay" or "follow") end
+end
+
+function META:OnUsed(user)
+	if self.Faction ~= PLAYER_FACTION or not self:HasAuthority() then return end
+
+	self:SetLeader(self.leader ~= user and user or nil)
+	return true
+end
+
+function META:FollowLeader(position, leader)
+	local leader_position = leader.transform:GetPosition()
+	local dx, dz = position.x - leader_position.x, position.z - leader_position.z
+	local distance = math.sqrt(dx * dx + dz * dz)
+	local goal = self.goal
+
+	if not goal then
+		if distance < FOLLOW_START_DISTANCE then return false end
+	else
+		local gx, gz = goal.x - leader_position.x, goal.z - leader_position.z
+
+		if
+			self.time < self.next_follow_path or
+			gx * gx + gz * gz < FOLLOW_REPATH_DISTANCE * FOLLOW_REPATH_DISTANCE
+		then
+			return true
+		end
+	end
+
+	self.next_follow_path = self.time + FOLLOW_PATH_INTERVAL
+	local scale = distance > 1e-3 and FOLLOW_STAND_DISTANCE / distance or 0
+	self:MoveTo(
+		Vec3(leader_position.x + dx * scale, leader_position.y, leader_position.z + dz * scale),
+		distance > FOLLOW_RUN_DISTANCE
+	)
+	return true
 end
 
 function META:Finish(event_name)
@@ -231,8 +288,18 @@ end
 
 function META:Think(dt, position)
 	self.time = self.time + dt
+	local leader = self.leader
+
+	if leader then
+		if leader:IsValid() and not leader.health:IsDead() then
+			if not self:FollowLeader(position, leader) then return end
+		else
+			self:SetLeader(nil)
+		end
+	end
+
 	if not self.goal then
-		if self.Wander and self.time >= self.wander_time then
+		if self.Wander and not self.leader and self.time >= self.wander_time then
 			self.wander_time = self.time + 1
 			local point = self:GetNav():GetRandomPoint(position, self.WanderRadius, WANDER_TRIES)
 

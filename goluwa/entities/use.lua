@@ -15,6 +15,10 @@ function use.Fire(entity, user, hit)
 	end
 end
 
+function use.Resolve(entity)
+	return event.Call("ResolveUseTarget", entity) or entity
+end
+
 local function is_not_user(entity, user)
 	return entity ~= user and not entity:ContainsParent(user)
 end
@@ -34,7 +38,7 @@ function use.Trace(user, origin, direction)
 	if not best then return end
 
 	return {
-		entity = best.entity,
+		entity = use.Resolve(best.entity),
 		point = best.point or best.position or origin + direction * best.distance,
 		distance = best.distance,
 	}

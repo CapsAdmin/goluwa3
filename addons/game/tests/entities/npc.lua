@@ -11,6 +11,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
+Entity.RegisterComponent("usable", import("lua/components/usable.lua"))
 import("addons/game/lua/autorun/characters.lua")
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
@@ -129,6 +130,51 @@ T.TestPhysics("npc paths ignore the hitboxes and bodies of characters but not ot
 		rigid_body = {MotionType = "static", Shape = BoxShape.New(Vec3(1, 1, 1))},
 	}
 	T(#nav:CollectObstacles())["=="](count + 1)
+end)
+
+T.TestPhysics("a friendly npc follows whoever uses it until it is used again", function()
+	create_ground()
+	local entity = create_npc(Vec3(0, 0.05, 0), {Faction = "friend"})
+	local npc = entity.ai_controller
+	local leader = Entity.New{
+		ComponentSet = {"transform", "health"},
+		transform = {Position = Vec3(0, 0, 0)},
+	}
+	run(1)
+	T(npc:OnUsed(leader))["=="](true)
+	T(npc:GetLeader() == leader)["=="](true)
+	leader.transform:SetPosition(Vec3(20, 0, 0))
+	T(
+		run(30, function()
+			return entity.transform:GetPosition():Distance(Vec3(20, 0, 0)) < 3
+		end)
+	)["=="](true)
+	leader.transform:SetPosition(Vec3(20, 0, 15))
+	T(
+		run(30, function()
+			return entity.transform:GetPosition():Distance(Vec3(20, 0, 15)) < 3
+		end)
+	)["=="](true)
+	T(npc:OnUsed(leader))["=="](true)
+	T(npc:GetLeader())["=="](nil)
+	T(npc:IsMoving())["=="](false)
+end)
+
+T.TestPhysics("using a ragdoll hitbox uses the character it belongs to", function()
+	local use = import("goluwa/entities/use.lua")
+	local character = Entity.New{transform = {}}
+	local part = Entity.New{transform = {}, ragdoll_part = {}}
+	part.ragdoll_part.Character = character
+	T(use.Resolve(part) == character)["=="](true)
+	T(use.Resolve(character) == character)["=="](true)
+end)
+
+T.TestPhysics("an enemy npc cannot be told to follow", function()
+	create_ground()
+	local entity = create_npc(Vec3(0, 0.05, 0), {Faction = "enemy"})
+	local leader = Entity.New{ComponentSet = {"transform", "health"}, transform = {}}
+	T(entity.ai_controller:OnUsed(leader))["=="](nil)
+	T(entity.ai_controller:GetLeader())["=="](nil)
 end)
 
 T.TestPhysics("npc turns to face where it walks", function()
@@ -269,6 +315,7 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	local npc = instance.ai_controller
 	T(npc ~= nil)["=="](true)
 	T(npc.Faction)["=="]("enemy")
+	T(instance.usable == nil)["=="](true)
 	T(instance.source_pose.WalkSequence)["=="]("walk")
 	T(instance.model.ModelPath)["=="]("models/zombie/classic.mdl")
 	T(math.abs(npc.WalkSpeed - 45 * UNIT) < 1e-6)["=="](true)
@@ -283,6 +330,7 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	local armed = npcs.Spawn("barney", Vec3(0, 0.05, 0), 0)
 	T(armed.weapon_holder:GetActiveWeapon().weapon:GetDisplayName())["=="]("Pistol")
 	T(armed.ai_controller.Faction)["=="]("friend")
+	T(armed.usable ~= nil)["=="](true)
 	armed:Remove()
 end)
 
