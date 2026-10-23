@@ -18,7 +18,6 @@ View:GetSet("HideAvatars", false)
 View:GetSet("HideHud", false)
 View:GetSet("ExposureLock", false)
 View:GetSet("ExposureCompensation", false)
-View:GetSet("LocalExposure", false)
 
 local function sort_active(a, b)
 	if a.Priority ~= b.Priority then return a.Priority > b.Priority end

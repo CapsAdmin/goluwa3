@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local exposure_model = import("goluwa/render3d/exposure.lua")
 local grade = {}
 grade.BLEND_TIME = 2
 pvars.StartGroup("Post", "Grade", {store = false, prefix = "grade_"})
@@ -24,27 +25,6 @@ local saturation = pvars.Setup2{
 	min = -100,
 	max = 100,
 	help = "colourfulness, -100 is grey and 100 twice the colour",
-}
-local ambiance = pvars.Setup2{
-	key = "r_grade_ambiance",
-	default = 0,
-	min = -100,
-	max = 100,
-	help = "above 0 lifts the shadows, brings the highlights down, adds detail and colour, below 0 flattens and softens. Works on a pixel against its surroundings",
-}
-local highlights = pvars.Setup2{
-	key = "r_grade_highlights",
-	default = 0,
-	min = -100,
-	max = 100,
-	help = "brightens (above 0) or recovers (below 0) the bright regions, white stays where it is surrounded by white",
-}
-local shadows = pvars.Setup2{
-	key = "r_grade_shadows",
-	default = 0,
-	min = -100,
-	max = 100,
-	help = "lifts (above 0) or deepens (below 0) the dark regions, black stays",
 }
 local warmth = pvars.Setup2{
 	key = "r_grade_warmth",
@@ -100,14 +80,9 @@ local gain_b = pvars.Setup2{
 pvars.EndGroup()
 grade.block = {
 	{"grade_on", "int"},
-	{"grade_tone", "int"},
-	{"grade_local", "int"},
 	{"grade_brightness", "float"},
 	{"grade_contrast", "float"},
 	{"grade_saturation", "float"},
-	{"grade_ambiance", "float"},
-	{"grade_highlights", "float"},
-	{"grade_shadows", "float"},
 	{"grade_warmth", "float"},
 	{"grade_lift_r", "float"},
 	{"grade_lift_g", "float"},
@@ -117,17 +92,10 @@ grade.block = {
 	{"grade_gain_b", "float"},
 }
 
-function grade.NeedsLocal()
-	return ambiance:Get() ~= 0 or highlights:Get() ~= 0 or shadows:Get() ~= 0
-end
-
 function grade.WriteBlock(block)
 	block.grade_brightness = brightness:Get() / 100
 	block.grade_contrast = contrast:Get() / 100
 	block.grade_saturation = saturation:Get() / 100
-	block.grade_ambiance = ambiance:Get() / 100
-	block.grade_highlights = highlights:Get() / 100
-	block.grade_shadows = shadows:Get() / 100
 	block.grade_warmth = warmth:Get() / 100
 	block.grade_lift_r = lift_r:Get()
 	block.grade_lift_g = lift_g:Get()
@@ -135,22 +103,10 @@ function grade.WriteBlock(block)
 	block.grade_gain_r = gain_r:Get()
 	block.grade_gain_g = gain_g:Get()
 	block.grade_gain_b = gain_b:Get()
-	block.grade_tone = (
-			block.grade_ambiance ~= 0 or
-			block.grade_highlights ~= 0 or
-			block.grade_shadows ~= 0
-		)
-		and
-		1 or
-		0
-	block.grade_local = 0
 	block.grade_on = (
 			block.grade_brightness ~= 0 or
 			block.grade_contrast ~= 0 or
 			block.grade_saturation ~= 0 or
-			block.grade_ambiance ~= 0 or
-			block.grade_highlights ~= 0 or
-			block.grade_shadows ~= 0 or
 			block.grade_warmth ~= 0 or
 			block.grade_lift_r ~= 0 or
 			block.grade_lift_g ~= 0 or
@@ -169,31 +125,10 @@ function grade.GetGLSL(block_name)
 	return (
 		(
 			[[
-		vec3 grade_display(vec3 c, float base) {
+		vec3 grade_display(vec3 c) {
 			if (BLOCK.grade_on == 0) return c;
 
 			vec3 x = LinearToSRGB(clamp(c, 0.0, 1.0));
-
-			if (BLOCK.grade_tone != 0) {
-				const vec3 luma_weights = vec3(0.2126, 0.7152, 0.0722);
-				float b = base < 0.0 ? dot(x, luma_weights) : base;
-				float s = clamp(BLOCK.grade_shadows + 0.5 * BLOCK.grade_ambiance, -1.0, 1.0);
-				float h = clamp(BLOCK.grade_highlights - 0.5 * BLOCK.grade_ambiance, -1.0, 1.0);
-				float lower = (1.0 - b) * (1.0 - b);
-				lower = lower * lower * lower;
-				float upper = b * b;
-				upper = upper * upper * b * (1.0 - b);
-				float gain = 1.0 + s * (s > 0.0 ? 3.5 : 1.0) * lower + h * (h < 0.0 ? 3.5 : 1.0) * upper;
-				x *= gain;
-
-				if (BLOCK.grade_ambiance != 0.0) {
-					float luma = dot(x, luma_weights);
-					float surroundings = b * gain;
-					x *= clamp((surroundings + (luma - surroundings) * (1.0 + 0.8 * BLOCK.grade_ambiance)) / max(luma, 1e-3), 0.0, 4.0);
-				}
-
-				x = clamp(x, 0.0, 1.0);
-			}
 
 			if (BLOCK.grade_brightness != 0.0) x = pow(max(x, vec3(0.0)), vec3(exp2(-0.8 * BLOCK.grade_brightness)));
 
@@ -204,16 +139,16 @@ function grade.GetGLSL(block_name)
 				x = a / (a + b);
 			}
 
-			float saturation = max(1.0 + BLOCK.grade_saturation + 0.25 * BLOCK.grade_ambiance, 0.0);
+			float saturation = max(1.0 + BLOCK.grade_saturation, 0.0);
 			x = mix(vec3(dot(x, vec3(0.2126, 0.7152, 0.0722))), x, saturation);
 			x *= vec3(1.0 + 0.15 * BLOCK.grade_warmth, 1.0, 1.0 - 0.15 * BLOCK.grade_warmth);
 			x = x * vec3(BLOCK.grade_gain_r, BLOCK.grade_gain_g, BLOCK.grade_gain_b) + vec3(BLOCK.grade_lift_r, BLOCK.grade_lift_g, BLOCK.grade_lift_b);
 			return SRGBToLinear(clamp(x, 0.0, 1.0));
 		}
 
-		vec3 grade_display_hdr(vec3 c, float base) {
+		vec3 grade_display_hdr(vec3 c) {
 			vec3 sdr = min(c, vec3(1.0));
-			return grade_display(sdr, base) + (c - sdr);
+			return grade_display(sdr) + (c - sdr);
 		}
 	]]
 		):gsub("BLOCK", block_name)
@@ -224,9 +159,6 @@ local fields = {
 	{key = "r_grade_brightness"},
 	{key = "r_grade_contrast"},
 	{key = "r_grade_saturation"},
-	{key = "r_grade_ambiance"},
-	{key = "r_grade_highlights"},
-	{key = "r_grade_shadows"},
 	{key = "r_grade_warmth"},
 	{key = "r_grade_lift_r"},
 	{key = "r_grade_lift_g"},
@@ -234,9 +166,8 @@ local fields = {
 	{key = "r_grade_gain_r"},
 	{key = "r_grade_gain_g"},
 	{key = "r_grade_gain_b"},
-	{key = "r_camera_compensation"},
-	{key = "r_camera_white_balance", white_balance = true},
-	{key = "r_camera_white_balance_tint"},
+	{key = "camera.white_balance", exposure = true, white_balance = true},
+	{key = "camera.white_balance_tint", exposure = true},
 	{key = "r_tonemapper"},
 	{key = "r_bloom_strength"},
 }
@@ -250,11 +181,11 @@ end
 grade.presets = {
 	neutral = {},
 	warm = {
-		r_camera_white_balance = 7500,
+		["camera.white_balance"] = 7500,
 		r_grade_saturation = 5,
 	},
 	cool = {
-		r_camera_white_balance = 5200,
+		["camera.white_balance"] = 5200,
 		r_grade_saturation = -5,
 	},
 	muted = {
@@ -262,7 +193,6 @@ grade.presets = {
 		r_grade_contrast = 10,
 	},
 	soft = {
-		r_grade_ambiance = 40,
 		r_grade_contrast = -10,
 		r_grade_warmth = 10,
 	},
@@ -270,11 +200,37 @@ grade.presets = {
 grade.blend_time = 0
 grade.blend_elapsed = 0
 
+function grade.GetValue(field)
+	if field.exposure then return exposure_model.Get(field.key) end
+
+	return pvars.Get(field.key)
+end
+
+function grade.SetValue(field, value)
+	if field.exposure then
+		exposure_model.Set(field.key, value)
+	else
+		pvars.SetSession(field.key, value)
+	end
+end
+
+function grade.GetInfo(field)
+	if field.exposure then return exposure_model.fields[field.key] end
+
+	return pvars.GetObject(field.key):GetInfo()
+end
+
+local function get_default(field)
+	if field.exposure then return exposure_model.GetDefault(field.key) end
+
+	return pvars.GetObject(field.key):GetDefault()
+end
+
 local function get_state()
 	local state = {}
 
 	for _, field in ipairs(fields) do
-		state[field.key] = pvars.Get(field.key)
+		state[field.key] = grade.GetValue(field)
 	end
 
 	return state
@@ -294,7 +250,7 @@ local function resolve(preset)
 	for _, field in ipairs(fields) do
 		local value = preset[field.key]
 
-		if value == nil then value = pvars.GetObject(field.key):GetDefault() end
+		if value == nil then value = get_default(field) end
 
 		state[field.key] = value
 	end
@@ -319,7 +275,7 @@ local function apply(a, b, t)
 			value = math.lerp(t, from, to)
 		end
 
-		if value ~= pvars.Get(field.key) then pvars.SetSession(field.key, value) end
+		if value ~= grade.GetValue(field) then grade.SetValue(field, value) end
 	end
 end
 

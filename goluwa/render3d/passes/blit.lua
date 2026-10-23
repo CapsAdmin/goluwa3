@@ -10,52 +10,14 @@ local grade = import("goluwa/render3d/grade.lua")
 local assets = import("goluwa/assets.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
-local KEY = 0.18
-local LOG_EXPOSURE_AT_EV0 = math.log(KEY * 8) / math.log(2)
-render3d.LOG_EXPOSURE_AT_EV0 = LOG_EXPOSURE_AT_EV0
-pvars.StartGroup("Post", "Eye", {store = false, prefix = "eye_"})
-local eye_enabled = pvars.Setup2{
-	key = "r_eye",
+local LOG_EXPOSURE_AT_EV0 = exposure_model.LOG_EXPOSURE_AT_EV0
+pvars.StartGroup("Post", "Camera effects", {store = false})
+local grain_enabled = pvars.Setup2{
+	key = "r_grain",
 	default = false,
-	help = "expose like an eye, which shows what a person would see (dim scenes stay dim, local adaptation, rod vision). Off exposes like a camera (r_camera_*), which shows every scene's average at the same brightness",
-}
-local exposure_rod_adaptation = pvars.Setup2{
-	key = "r_eye_rod_adaptation",
-	default = 0.5,
-	min = 0,
-	max = 1,
-	help = "how bright a night is for the eye, from the cones alone (0) to the full rod response (1)",
-}
-local eye_compensation = pvars.Setup2{
-	key = "r_eye_compensation",
-	default = 0,
-	min = -10,
-	max = 10,
-	help = "stops added to what the eye sees, to tune how bright the eye mode is",
+	help = "film grain that grows with the ISO the camera would pick for the exposure",
 }
 pvars.EndGroup()
-pvars.StartGroup("Post", "Eye", {store = false, prefix = "eye_local_"})
-local local_exposure_shadows = pvars.Setup2{
-	key = "r_eye_local_shadows",
-	default = 0.23,
-	min = 0,
-	max = 1,
-	help = "how much dark regions are exposed for their surroundings, 0 is off",
-}
-local local_exposure_highlights = pvars.Setup2{
-	key = "r_eye_local_highlights",
-	default = 0.23,
-	min = 0,
-	max = 1,
-	help = "how much bright regions are exposed for their surroundings, 0 is off",
-}
-pvars.EndGroup()
-render3d.local_exposure = {
-	max_stops = 4,
-	headroom = 2.5,
-	slope = 0.2,
-	ceiling = 1e5,
-}
 local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, neutral = 4}
 pvars.StartGroup("Post", "Display", {store = false})
 local tonemapper = pvars.Setup2{
@@ -92,26 +54,6 @@ local dither = pvars.Setup2{
 	key = "r_dither",
 	default = true,
 	help = "dither the output to hide banding",
-}
-pvars.EndGroup()
-pvars.StartGroup("Post", "Eye", {store = false, prefix = "eye_"})
-local night_vision_enabled = pvars.Setup2{
-	key = "r_eye_night_vision",
-	default = true,
-	help = "rod vision in dim light",
-}
-local night_vision_threshold = pvars.Setup2{
-	key = "r_eye_night_vision_threshold",
-	default = 0.03,
-	min = 0.0001,
-	help = "luminance in cd/m2 at which half the colour is gone",
-}
-local night_vision_tint = pvars.Setup2{
-	key = "r_eye_night_vision_tint",
-	default = 0.5,
-	min = 0,
-	max = 1,
-	help = "how blue what the rods see is shown, 0 neutral grey",
 }
 pvars.EndGroup()
 
@@ -164,90 +106,69 @@ local function get_previous_exposure_texture()
 	return post_source.GetExposureTexture(true)
 end
 
-local MESOPIC_LOG10_MIN = -2.3
-local MESOPIC_LOG10_MAX = 0.7
-local ADAPTATION_CURVE_EV_MIN = -10
-local ADAPTATION_CURVE_EV_STEP = 0.5
-local ADAPTATION_CURVE_COUNT = 65
-local ADAPTATION_CURVE_ANCHOR_EV = 15
-local ADAPTATION_CURVE_RODS_GLSL
-local ADAPTATION_CURVE_CONES_GLSL
+local ROD_RESPONSE_GLSL = "const vec3 ROD_RESPONSE = vec3(0.0329, 0.7652, 0.2017);\n"
+local ADAPTATION_GLSL = [[
+	const float ADAPTATION_EV_MIN = -10.0;
+	const float ADAPTATION_EV_MAX = 22.0;
+	const float ADAPTATION_ANCHOR_EV = 15.0;
+	const float ADAPTATION_REFERENCE = 64.0;
+	const float MESOPIC_LOG10_MIN = -2.3;
+	const float MESOPIC_LOG10_MAX = 0.7;
+	const float SCOTOPIC_PER_PHOTOPIC_D65 = 2.3;
 
-do
-	local function log10(x)
-		return math.log(x) / math.log(10)
-	end
+	float log10_of(float x) {
+		return log2(x) * 0.30102999566;
+	}
 
-	local function cone_threshold(L)
-		local l = log10(L)
+	float cone_threshold(float L) {
+		float l = log10_of(L);
 
-		if l <= -2.6 then return 10 ^ -0.72 end
+		if (l <= -2.6) return pow(10.0, -0.72);
 
-		if l >= 1.9 then return 10 ^ (l - 1.255) end
+		if (l >= 1.9) return pow(10.0, l - 1.255);
 
-		return 10 ^ ((0.249 * l + 0.65) ^ 2.7 - 0.72)
-	end
+		return pow(10.0, pow(0.249 * l + 0.65, 2.7) - 0.72);
+	}
 
-	local function rod_threshold(L)
-		local l = log10(L)
+	float rod_threshold(float L) {
+		float l = log10_of(L);
 
-		if l <= -3.94 then return 10 ^ -2.86 end
+		if (l <= -3.94) return pow(10.0, -2.86);
 
-		if l >= -1.44 then return 10 ^ (l - 0.395) end
+		if (l >= -1.44) return pow(10.0, l - 0.395);
 
-		return 10 ^ ((0.405 * l + 1.6) ^ 2.18 - 2.86)
-	end
+		return pow(10.0, pow(0.405 * l + 1.6, 2.18) - 2.86);
+	}
 
-	local function eye(L)
-		local cones = math.smoothstep(MESOPIC_LOG10_MIN, MESOPIC_LOG10_MAX, log10(L))
-		return cones * L / cone_threshold(L) + (1 - cones) * L / rod_threshold(L)
-	end
+	float ward_response(float L) {
+		return pow((1.219 + pow(50.0, 0.4)) / (1.219 + pow(L, 0.4)), 2.5) * L;
+	}
 
-	local function ward(L)
-		return ((1.219 + 50 ^ 0.4) / (1.219 + L ^ 0.4)) ^ 2.5 * L
-	end
+	float eye_response(float photopic, float scotopic) {
+		float cones = smoothstep(MESOPIC_LOG10_MIN, MESOPIC_LOG10_MAX, log10_of(photopic));
+		return cones * photopic / cone_threshold(photopic) + (1.0 - cones) * scotopic / rod_threshold(scotopic);
+	}
 
-	local function cones(L)
-		return L / cone_threshold(L)
-	end
+	float adaptation_raw(float ev, float scotopic_ratio) {
+		float L = exp2(ev - 3.0);
 
-	local reference = 2 ^ (9 - 3)
+		if (ev >= 9.0) return log2(ward_response(L) / ward_response(ADAPTATION_REFERENCE));
 
-	local function build(response)
-		local curve = {}
+		return log2(eye_response(L, L * scotopic_ratio) / (ADAPTATION_REFERENCE / cone_threshold(ADAPTATION_REFERENCE)));
+	}
 
-		for i = 1, ADAPTATION_CURVE_COUNT do
-			local ev = ADAPTATION_CURVE_EV_MIN + (i - 1) * ADAPTATION_CURVE_EV_STEP
-			local L = 2 ^ (ev - 3)
-			curve[i] = ev >= 9 and
-				math.log(ward(L) / ward(reference)) / math.log(2)
-				or
-				math.log(response(L) / response(reference)) / math.log(2)
-		end
+	float adaptation_monotone(float ev, float scotopic_ratio) {
+		float stops = adaptation_raw(ev, scotopic_ratio);
 
-		for i = ADAPTATION_CURVE_COUNT - 1, 1, -1 do
-			curve[i] = math.min(curve[i], curve[i + 1])
-		end
+		for (float e = ev + 0.25; e <= ADAPTATION_EV_MAX; e += 0.25) stops = min(stops, adaptation_raw(e, scotopic_ratio));
 
-		local anchor = curve[(
-			ADAPTATION_CURVE_ANCHOR_EV - ADAPTATION_CURVE_EV_MIN
-		) / ADAPTATION_CURVE_EV_STEP + 1]
+		return stops;
+	}
 
-		for i = 1, ADAPTATION_CURVE_COUNT do
-			curve[i] = curve[i] - anchor
-		end
-
-		for i, stops in ipairs(curve) do
-			curve[i] = string.format("%.5f", stops)
-		end
-
-		return table.concat(curve, ", ")
-	end
-
-	ADAPTATION_CURVE_RODS_GLSL = build(eye)
-	ADAPTATION_CURVE_CONES_GLSL = build(cones)
-end
-
+	float adaptation_stops(float ev, float scotopic_ratio) {
+		return adaptation_monotone(clamp(ev, ADAPTATION_EV_MIN, ADAPTATION_EV_MAX), scotopic_ratio) - adaptation_monotone(ADAPTATION_ANCHOR_EV, scotopic_ratio);
+	}
+]]
 local WHITE_BALANCE_GLSL = [[
 
 	vec2 illuminant_xy(float t) {
@@ -320,28 +241,21 @@ local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 	shared float clamp_luma;
 	shared float partial_light[256];
 	shared float partial_weight[256];
+	shared float partial_log[256];
+	shared float partial_log_scotopic[256];
 
 	float log2_to_ev(float log_luma) {
 		return log_luma + 3.0;
 	}
 
-	const float ADAPTATION_CURVE_RODS[]] .. ADAPTATION_CURVE_COUNT .. [[] = float[](]] .. ADAPTATION_CURVE_RODS_GLSL .. [[);
-	const float ADAPTATION_CURVE_CONES[]] .. ADAPTATION_CURVE_COUNT .. [[] = float[](]] .. ADAPTATION_CURVE_CONES_GLSL .. [[);
+	]] .. ROD_RESPONSE_GLSL .. ADAPTATION_GLSL .. [[
 
-	float adaptation_stops(float ev) {
-		float x = clamp((ev - ]] .. string.format("%.1f", ADAPTATION_CURVE_EV_MIN) .. [[) / ]] .. string.format("%.2f", ADAPTATION_CURVE_EV_STEP) .. [[, 0.0, ]] .. string.format("%.1f", ADAPTATION_CURVE_COUNT - 1) .. [[);
-		int i = min(int(x), ]] .. (
-		ADAPTATION_CURVE_COUNT - 2
-	) .. [[);
-		float rods = mix(ADAPTATION_CURVE_RODS[i], ADAPTATION_CURVE_RODS[i + 1], x - float(i));
-		float cones = mix(ADAPTATION_CURVE_CONES[i], ADAPTATION_CURVE_CONES[i + 1], x - float(i));
-		return mix(cones, rods, compute.rod_adaptation);
-	}
-
-	float sample_luma(int n, float to_absolute, out float weight) {
+	float sample_luma(int n, float to_absolute, out float weight, out float scotopic) {
 		vec2 uv = (vec2(n % GRID_X, n / GRID_X) + 0.5) / vec2(GRID_X, GRID_Y);
 		weight = 1.0 + 3.0 * (1.0 - smoothstep(0.2, 1.0, length(uv * 2.0 - 1.0)));
-		return luminance(textureLod(source_tex, uv, 0.0).rgb) * to_absolute;
+		vec3 rgb = textureLod(source_tex, uv, 0.0).rgb * to_absolute;
+		scotopic = SCOTOPIC_PER_PHOTOPIC_D65 * dot(rgb, ROD_RESPONSE);
+		return luminance(rgb);
 	}
 
 	void main() {
@@ -354,7 +268,8 @@ local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 
 		for (int n = int(id); n < GRID_X * GRID_Y; n += 256) {
 			float weight;
-			float luma = sample_luma(n, to_absolute, weight);
+			float scotopic;
+			float luma = sample_luma(n, to_absolute, weight, scotopic);
 			float bin = clamp((log2(max(luma, 1e-6)) - LOG_MIN) / (LOG_MAX - LOG_MIN) * float(BINS), 0.0, float(BINS - 1));
 			atomicAdd(bins[int(bin)], uint(weight));
 		}
@@ -386,30 +301,51 @@ local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 
 		float light = 0.0;
 		float light_weight = 0.0;
+		float log_light = 0.0;
+		float log_scotopic = 0.0;
 
 		for (int n = int(id); n < GRID_X * GRID_Y; n += 256) {
 			float weight;
-			light += min(sample_luma(n, to_absolute, weight), clamp_luma) * weight;
+			float scotopic;
+			float luma = sample_luma(n, to_absolute, weight, scotopic);
+			light += min(luma, clamp_luma) * weight;
 			light_weight += weight;
+			log_light += log2(max(luma, 1e-6));
+			log_scotopic += log2(max(scotopic, 1e-6));
 		}
 
 		partial_light[id] = light;
 		partial_weight[id] = light_weight;
+		partial_log[id] = log_light;
+		partial_log_scotopic[id] = log_scotopic;
 		barrier();
 
 		if (id != 0u) return;
 
 		float light_sum = 0.0;
 		float weight_sum = 0.0;
+		float log_sum = 0.0;
+		float log_scotopic_sum = 0.0;
 
 		for (int i = 0; i < 256; i++) {
 			light_sum += partial_light[i];
 			weight_sum += partial_weight[i];
+			log_sum += partial_log[i];
+			log_scotopic_sum += partial_log_scotopic[i];
 		}
 
-		float metered_ev = log2_to_ev(log2(max(light_sum / max(weight_sum, 1.0), 1e-6)));
-		float ev = compute.eye != 0 ? metered_ev - adaptation_stops(metered_ev) : metered_ev;
-		ev = clamp(ev - compute.compensation, compute.min_ev, compute.max_ev);
+		float metered_ev = compute.eye != 0 ?
+			log2_to_ev(log_sum / float(GRID_X * GRID_Y)) :
+			log2_to_ev(log2(max(light_sum / max(weight_sum, 1.0), 1e-6)));
+		float ev;
+
+		if (compute.eye != 0) {
+			float adapting_ev = clamp(metered_ev, compute.min_ev, compute.max_ev);
+			float scotopic_ratio = exp2((log_scotopic_sum - log_sum) / float(GRID_X * GRID_Y));
+			ev = adapting_ev - adaptation_stops(adapting_ev, scotopic_ratio) - compute.compensation;
+		} else {
+			ev = clamp(metered_ev - compute.compensation, compute.min_ev, compute.max_ev);
+		}
 
 		if (compute.lock != 0) ev = compute.lock_ev - compute.compensation;
 
@@ -464,7 +400,6 @@ local exposure_feedback_pass = {
 		{"lock_ev", "float"},
 		{"compensation", "float"},
 		{"eye", "int"},
-		{"rod_adaptation", "float"},
 		{"min_ev", "float"},
 		{"max_ev", "float"},
 		{"high_percent", "float"},
@@ -473,34 +408,15 @@ local exposure_feedback_pass = {
 	},
 	write = function(self, block)
 		local view = View.GetActive()
-		local eye = eye_enabled:Get()
-		local lock = view and view.ExposureLock
-		local min_ev, max_ev, meter
-
-		if eye then
-			meter = exposure_model.eye
-			min_ev, max_ev = meter.min_ev, meter.max_ev
-		else
-			meter = exposure_model.camera
-			min_ev, max_ev = exposure_model.GetCameraRange()
-
-			if not lock and exposure_model.GetCameraMode() == "manual" then
-				lock = exposure_model.GetManualEV()
-			end
-		end
-
+		local eye = exposure_model.IsEye()
+		local lock = view and view.ExposureLock or exposure_model.GetManualEV()
+		local meter = eye and exposure_model.eye or exposure_model.camera
+		local min_ev, max_ev = exposure_model.GetRange()
 		block.dt = get_exposure_dt()
 		block.lock = lock and 1 or 0
 		block.lock_ev = lock or 0
-		block.compensation = view and
-			view.ExposureCompensation or
-			(
-				eye and
-				eye_compensation:Get() or
-				exposure_model.GetCameraCompensation()
-			)
+		block.compensation = view and view.ExposureCompensation or exposure_model.GetCompensation()
 		block.eye = eye and 1 or 0
-		block.rod_adaptation = exposure_rod_adaptation:Get()
 		block.min_ev = min_ev
 		block.max_ev = max_ev
 		block.high_percent = meter.high_percent
@@ -510,28 +426,6 @@ local exposure_feedback_pass = {
 	end,
 	shader = exposure_feedback_shader,
 }
-local GRID_X, GRID_Y, GRID_Z = 64, 36, 48
-local GRID_GLSL = (
-	[[
-	#define GRID_X %d
-	#define GRID_Y %d
-	#define GRID_Z %d
-	#define GRID_LOG_MIN -12.0
-	#define GRID_LOG_MAX 20.0
-	#define LOG_KEY %.7g
-
-	float get_frame_log_level(vec4 exposure) {
-		return exposure.r > 0.0 ? exposure.b - (%.7g - log2(exposure.r)) + LOG_KEY : LOG_KEY;
-	}
-]]
-):format(GRID_X, GRID_Y, GRID_Z, math.log(KEY) / math.log(2), LOG_EXPOSURE_AT_EV0)
-
-local function get_pipeline_texture(name)
-	return function()
-		local pipeline = render3d.pipelines[name]
-		return pipeline and pipeline:GetFramebuffer():GetAttachment(1) or nil
-	end
-end
 
 local function get_bloom_texture()
 	local pipeline = render3d.pipelines.bloom_up1
@@ -542,179 +436,6 @@ local function get_bloom_strength()
 	return get_bloom_texture() and
 		math.min(select(2, render3d.GetBloomWeights()) * render3d.bloom_strength:Get(), 1) or
 		0
-end
-
-local function is_eye_mode()
-	return eye_enabled:Get()
-end
-
-local function needs_local_grid()
-	return is_eye_mode() or grade.NeedsLocal()
-end
-
-local local_exposure_grid_pass = {
-	name = "local_exposure_grid",
-	is_enabled = needs_local_grid,
-	ComputePass = true,
-	ColorFormat = {{"r32g32_sfloat", {"grid", "rg"}}},
-	FramebufferSize = {x = GRID_X * GRID_Z, y = GRID_Y},
-	framebuffer_count = 1,
-	LocalSize = {x = 16, y = 16, z = 1},
-	storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
-	sampled_images = {
-		{
-			binding_index = 1,
-			get_texture = function()
-				return post_source.GetSceneSourceTexture({name = "local_exposure_grid"})
-			end,
-		},
-		{binding_index = 2, get_texture = get_exposure_feedback_texture},
-		{binding_index = 3, get_texture = get_previous_exposure_texture},
-	},
-	block = {
-		{"unused", "int"},
-	},
-	write = function(self, block)
-		return block
-	end,
-	on_draw = function(self, cmd, fb, frame, desc)
-		self:UploadConstants()
-		self.pipeline:DispatchForSize(cmd, GRID_X * 16, GRID_Y * 16, 1, desc, self.dynamic_offsets)
-	end,
-	shader = glsl_common.GetLuminanceGLSL() .. GRID_GLSL .. [[
-		layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_grid;
-		layout(set = 0, binding = 1) uniform sampler2D source_tex;
-		layout(set = 0, binding = 2) uniform sampler2D exposure_tex;
-		layout(set = 0, binding = 3) uniform sampler2D prev_exposure_tex;
-		]] .. post_source.GetPreExposureFromExposureGLSL() .. [[
-
-		#define FIXED 256.0
-		shared uint cell_sum[GRID_Z];
-		shared uint cell_count[GRID_Z];
-
-		void main() {
-			uint id = gl_LocalInvocationIndex;
-
-			if (id < uint(GRID_Z)) {
-				cell_sum[id] = 0u;
-				cell_count[id] = 0u;
-			}
-
-			barrier();
-			ivec2 tile = ivec2(gl_WorkGroupID.xy);
-			vec2 uv = (vec2(tile) + (vec2(gl_LocalInvocationID.xy) + 0.5) / 16.0) / vec2(GRID_X, GRID_Y);
-			float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
-			float luma = luminance(textureLod(source_tex, uv, 0.0).rgb) * exposure;
-			float l = clamp(log2(max(luma, 1e-6)) - get_frame_log_level(texture(exposure_tex, vec2(0.5))), GRID_LOG_MIN, GRID_LOG_MAX);
-			int z = min(int((l - GRID_LOG_MIN) / (GRID_LOG_MAX - GRID_LOG_MIN) * float(GRID_Z)), GRID_Z - 1);
-			atomicAdd(cell_sum[z], uint((l - GRID_LOG_MIN) * FIXED));
-			atomicAdd(cell_count[z], 1u);
-			barrier();
-
-			if (id < uint(GRID_Z)) {
-				float count = float(cell_count[id]);
-				float sum = float(cell_sum[id]) / FIXED + GRID_LOG_MIN * count;
-				imageStore(out_grid, ivec2(tile.x + int(id) * GRID_X, tile.y), vec4(sum, count, 0.0, 0.0));
-			}
-		}
-	]],
-}
-local local_exposure_blur_pass = {
-	name = "local_exposure_blur",
-	is_enabled = needs_local_grid,
-	ComputePass = true,
-	ColorFormat = {{"r32g32_sfloat", {"grid", "rg"}}},
-	FramebufferSize = {x = GRID_X * GRID_Z, y = GRID_Y},
-	framebuffer_count = 1,
-	LocalSize = {x = 8, y = 8, z = 1},
-	storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
-	sampled_images = {
-		{binding_index = 1, get_texture = get_pipeline_texture("local_exposure_grid")},
-	},
-	block = {
-		{"unused", "int"},
-	},
-	write = function(self, block)
-		return block
-	end,
-	shader = glsl_common.GetLuminanceGLSL() .. GRID_GLSL .. [[
-		layout(set = 0, binding = 0, rg32f) uniform writeonly image2D out_grid;
-		layout(set = 0, binding = 1) uniform sampler2D grid_tex;
-
-		void main() {
-			ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-
-			if (pos.x >= GRID_X * GRID_Z || pos.y >= GRID_Y) return;
-
-			ivec3 cell = ivec3(pos.x % GRID_X, pos.y, pos.x / GRID_X);
-			const float w5[5] = float[5](1.0, 4.0, 6.0, 4.0, 1.0);
-			const float w3[3] = float[3](1.0, 2.0, 1.0);
-			vec2 sum = vec2(0.0);
-
-			for (int dz = -1; dz <= 1; dz++) {
-				int z = cell.z + dz;
-
-				if (z < 0 || z >= GRID_Z) continue;
-
-				for (int dy = -2; dy <= 2; dy++) {
-					for (int dx = -2; dx <= 2; dx++) {
-						ivec2 xy = clamp(cell.xy + ivec2(dx, dy), ivec2(0), ivec2(GRID_X - 1, GRID_Y - 1));
-						sum += texelFetch(grid_tex, ivec2(xy.x + z * GRID_X, xy.y), 0).rg * w5[dx + 2] * w5[dy + 2] * w3[dz + 1];
-					}
-				}
-			}
-
-			imageStore(out_grid, pos, vec4(sum / 1024.0, 0.0, 0.0));
-		}
-	]],
-}
-local LOCAL_ADAPTATION_GLSL = [[
-
-	float local_log_luma(vec2 uv, float l) {
-		float z = clamp((l - GRID_LOG_MIN) / (GRID_LOG_MAX - GRID_LOG_MIN) * float(GRID_Z) - 0.5, 0.0, float(GRID_Z - 1));
-		int z0 = int(z);
-		int z1 = min(z0 + 1, GRID_Z - 1);
-		vec2 xy = clamp(uv * vec2(GRID_X, GRID_Y), vec2(0.5), vec2(GRID_X, GRID_Y) - 0.5);
-		vec2 size = vec2(GRID_X * GRID_Z, GRID_Y);
-		vec2 a = texture(grid_tex, (xy + vec2(z0 * GRID_X, 0.0)) / size).rg;
-		vec2 b = texture(grid_tex, (xy + vec2(z1 * GRID_X, 0.0)) / size).rg;
-		vec2 cell = mix(a, b, z - float(z0));
-		return (cell.x + l) / (cell.y + 1.0);
-	}
-
-
-	float get_local_adaptation(vec2 uv, float exposed_luma, vec4 exposure) {
-		float l = log2(max(exposed_luma, 1e-6)) - get_frame_log_level(exposure);
-		float local_l = local_log_luma(uv, l);
-
-		if (local_l <= 0.0) return min(-local_l * compute.local_shadows, compute.local_max_stops);
-
-		float region_luminance = exp2(exposure.b + local_l) * 0.125;
-		float adaptable = clamp((log2(compute.local_ceiling) - log2(region_luminance)) / 5.0, 0.0, 1.0);
-		float fixation = compute.local_highlights > 0.0 ? (local_l - compute.local_headroom) * (1.0 - compute.local_slope) : 0.0;
-		return -max(local_l * compute.local_highlights, fixation) * adaptable;
-	}
-]]
-local local_exposure_block = {
-	{"has_grid_tex", "int"},
-	{"local_shadows", "float"},
-	{"local_highlights", "float"},
-	{"local_max_stops", "float"},
-	{"local_headroom", "float"},
-	{"local_slope", "float"},
-	{"local_ceiling", "float"},
-}
-
-local function write_local_exposure_block(block)
-	block.has_grid_tex = is_eye_mode() and render3d.pipelines.local_exposure_blur and 1 or 0
-	local view = View.GetActive()
-	local local_exposure = view and view.LocalExposure
-	block.local_shadows = local_exposure or local_exposure_shadows:Get()
-	block.local_highlights = local_exposure or local_exposure_highlights:Get()
-	block.local_max_stops = render3d.local_exposure.max_stops
-	block.local_headroom = render3d.local_exposure.headroom
-	block.local_slope = render3d.local_exposure.slope
-	block.local_ceiling = render3d.local_exposure.ceiling
 end
 
 local glare_pass
@@ -803,11 +524,10 @@ local compute_shader = [[
 	layout(set = 0, binding = 2) uniform sampler2D bloom_tex;
 	layout(set = 0, binding = 3) uniform sampler2D glare_tex;
 	layout(set = 0, binding = 4) uniform sampler2D exposure_tex;
-	layout(set = 0, binding = 5) uniform sampler2D grid_tex;
-	layout(set = 0, binding = 6) uniform sampler2D prev_exposure_tex;
-	layout(set = 0, binding = 7) uniform sampler2D blue_noise_tex;
-	layout(set = 0, binding = 8) uniform sampler2D white_balance_tex;
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute") .. WHITE_BALANCE_GLSL .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL .. [[
+	layout(set = 0, binding = 5) uniform sampler2D prev_exposure_tex;
+	layout(set = 0, binding = 6) uniform sampler2D blue_noise_tex;
+	layout(set = 0, binding = 7) uniform sampler2D white_balance_tex;
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute") .. WHITE_BALANCE_GLSL .. [[
 
 	vec3 tonemap_hdr(vec3 x, float peak, int tonemapper) {
 		x = max(x, vec3(0.0));
@@ -830,8 +550,15 @@ local compute_shader = [[
 		return mix(x * (mapped / m), vec3(mapped), compressed * compressed);
 	}
 
-	const vec3 ROD_RESPONSE = vec3(0.0329, 0.7652, 0.2017);
-	const vec3 ROD_TINT = vec3(0.7062, 0.9899, 1.9657);
+	]] .. ROD_RESPONSE_GLSL .. [[
+
+	]] .. exposure_model.GetCameraSettingsGLSL("compute") .. [[
+
+	uint pcg_hash(uint v) {
+		uint state = v * 747796405u + 2891336453u;
+		uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+		return (word >> 22u) ^ word;
+	}
 
 	vec3 blue_noise(ivec2 pos) {
 		vec3 noise = vec3(blue_noise_texel(blue_noise_tex, pos).rg, blue_noise_texel(blue_noise_tex, pos + ivec2(37, 19)).r);
@@ -851,7 +578,6 @@ local compute_shader = [[
 
 		vec2 uv = get_screen_uv(pos, size);
 		vec3 col = texture(source_tex, uv).rgb;
-		float scene_luma = compute.grade_local != 0 ? luminance(col) : 0.0;
 
 		if (compute.white_balance_on != 0) {
 			vec2 illuminant = vec2(0.3127, 0.3290);
@@ -871,38 +597,31 @@ local compute_shader = [[
 		float pre_exposure = pre_exposure_from_exposure(compute.has_exposure_tex != 0 ? texture(prev_exposure_tex, vec2(0.5)).r : 0.0);
 		exposure /= pre_exposure;
 
-		float grade_base = -1.0;
-
-		if (compute.grade_local != 0) {
-			vec4 exposure_state = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)) : vec4(0.0);
-			float frame_level = get_frame_log_level(exposure_state);
-			float local_l = local_log_luma(uv, log2(max(scene_luma * exposure, 1e-6)) - frame_level);
-			vec3 surroundings = vec3(exp2(local_l + frame_level));
-			surroundings = compute.output_mode == 0 ? tonemap(surroundings, compute.tonemapper) : min(tonemap_hdr(surroundings, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper), vec3(1.0));
-			grade_base = LinearToSRGB(clamp(surroundings, 0.0, 1.0)).g;
-		}
 		float adapted_ev = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).b : 10.0;
 		float pixel_log10 = log(max(luminance(col) / pre_exposure, 1e-9)) * 0.4342945;
 		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
-
-		if (compute.has_grid_tex != 0) {
-			col *= exp2(get_local_adaptation(uv, luminance(col) * exposure, texture(exposure_tex, vec2(0.5))));
-		}
 
 		if (compute.has_bloom_tex != 0) {
 			col = col * (1.0 - compute.bloom_strength) + texelFetch(glare_tex, pos, 0).rgb / exposure;
 		}
 
-		col = mix(col, mix(vec3(1.0), ROD_TINT, compute.night_vision_tint) * dot(max(col, vec3(0.0)), ROD_RESPONSE), (1.0 - cones) * compute.night_vision);
+		col = mix(col, vec3(dot(max(col, vec3(0.0)), ROD_RESPONSE)), (1.0 - cones) * compute.night_vision);
+
+		if (compute.grain != 0 && compute.has_exposure_tex != 0) {
+			float iso = camera_settings(texture(exposure_tex, vec2(0.5)).r).x;
+			uint h = pcg_hash(uint(pos.x) + pcg_hash(uint(pos.y) + pcg_hash(uint(compute.frame))));
+			float grain = float(h & 0xffffu) / 65535.0 + float(h >> 16) / 65535.0 - 1.0;
+			col *= 1.0 + 0.006 * sqrt(max(iso / 100.0 - 1.0, 0.0)) * grain;
+		}
 
 		if (compute.output_mode == 0) {
-			col = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) : grade_display(clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0), grade_base);
+			col = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) : grade_display(clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0));
 
 			col = SRGBToLinear(dither(LinearToSRGB(col), blue_noise(pos), compute.dither_steps));
 
 			if (compute.requires_manual_gamma == 1) col = LinearToSRGB(col);
 		} else {
-			vec3 nits = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) * compute.hdr_paper_white : grade_display_hdr(tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper), grade_base) * compute.hdr_paper_white;
+			vec3 nits = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) * compute.hdr_paper_white : grade_display_hdr(tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper)) * compute.hdr_paper_white;
 
 			if (compute.output_mode == 1) {
 				col = pq_decode(dither(pq_encode(nits), blue_noise(pos), compute.dither_steps)) / 80.0;
@@ -968,7 +687,7 @@ local white_balance_feedback_pass = {
 	name = "white_balance_feedback",
 	ComputePass = true,
 	is_enabled = function()
-		return not eye_enabled:Get() and exposure_model.GetCameraWhiteBalance() == 0
+		return not exposure_model.IsEye() and exposure_model.Get("camera.white_balance") == 0
 	end,
 	ColorFormat = {{"r32g32b32a32_sfloat", {"white_balance", "rgba"}}},
 	FramebufferSize = {x = 1, y = 1},
@@ -1003,26 +722,9 @@ local white_balance_feedback_pass = {
 local r = {
 	exposure_feedback_pass,
 	white_balance_feedback_pass,
-	local_exposure_grid_pass,
-	local_exposure_blur_pass,
 }
 
-for _, pass in ipairs(
-	import("goluwa/render3d/passes/bloom.lua"){
-		glsl = [[
-				layout(set = 0, binding = 2) uniform sampler2D grid_tex;
-				layout(set = 0, binding = 3) uniform sampler2D exposure_tex;
-				layout(set = 0, binding = 4) uniform sampler2D prev_exposure_tex;
-			]] .. glsl_common.GetLuminanceGLSL() .. post_source.GetPreExposureFromExposureGLSL() .. GRID_GLSL .. LOCAL_ADAPTATION_GLSL,
-		sampled_images = {
-			{binding_index = 2, get_texture = get_pipeline_texture("local_exposure_blur")},
-			{binding_index = 3, get_texture = get_exposure_feedback_texture},
-			{binding_index = 4, get_texture = get_previous_exposure_texture},
-		},
-		block = local_exposure_block,
-		write = write_local_exposure_block,
-	}
-) do
+for _, pass in ipairs(import("goluwa/render3d/passes/bloom.lua")()) do
 	r[#r + 1] = pass
 end
 
@@ -1060,19 +762,15 @@ for _, pass in ipairs{
 			},
 			{
 				binding_index = 5,
-				get_texture = get_pipeline_texture("local_exposure_blur"),
-			},
-			{
-				binding_index = 6,
 				get_texture = get_previous_exposure_texture,
 			},
 			{
-				binding_index = 7,
+				binding_index = 6,
 				get_texture = function()
 					return assets.GetTexture("textures/render/blue_noise.lua")
 				end,
 			},
-			{binding_index = 8, get_texture = get_white_balance_texture},
+			{binding_index = 7, get_texture = get_white_balance_texture},
 		},
 		block = {
 			{"has_source_tex", "int"},
@@ -1088,13 +786,13 @@ for _, pass in ipairs{
 			{"bloom_strength", "float"},
 			{"night_vision", "float"},
 			{"night_vision_log10_threshold", "float"},
-			{"night_vision_tint", "float"},
 			{"debug_passthrough", "int"},
 			{"white_balance_on", "int"},
 			{"white_balance", "float"},
 			{"white_balance_tint", "float"},
+			{"grain", "int"},
+			exposure_model.camera_block,
 			grade.block,
-			local_exposure_block,
 		},
 		write = function(self, block)
 			block.has_source_tex = get_scene_source_texture() and 1 or 0
@@ -1116,24 +814,21 @@ for _, pass in ipairs{
 			block.dither_steps = dither:Get() and 2 ^ bits - 1 or 0
 			block.tonemapper = render3d.GetTonemapperIndex()
 			block.bloom_strength = get_bloom_strength()
-			block.night_vision = eye_enabled:Get() and night_vision_enabled:Get() and 1 or 0
-			block.night_vision_log10_threshold = math.log(night_vision_threshold:Get()) / math.log(10)
-			block.night_vision_tint = night_vision_tint:Get()
-			write_local_exposure_block(block)
+			block.night_vision = exposure_model.IsEye() and exposure_model.Get("eye.night_vision") and 1 or 0
+			block.night_vision_log10_threshold = math.log(exposure_model.Get("eye.night_vision_threshold")) / math.log(10)
 			block.debug_passthrough = post_source.GetDebugTexture() and 1 or 0
-			block.white_balance_on = not eye_enabled:Get() and 1 or 0
-			block.white_balance = exposure_model.GetCameraWhiteBalance()
-			block.white_balance_tint = exposure_model.GetCameraWhiteBalanceTint()
+			block.white_balance_on = not exposure_model.IsEye() and 1 or 0
+			block.white_balance = exposure_model.Get("camera.white_balance")
+			block.white_balance_tint = exposure_model.Get("camera.white_balance_tint")
+			block.grain = grain_enabled:Get() and 1 or 0
+			exposure_model.WriteCameraBlock(block)
 			grade.WriteBlock(block)
-			block.grade_local = block.grade_tone == 1 and render3d.pipelines.local_exposure_blur and 1 or 0
 
 			if block.debug_passthrough == 1 then
 				block.has_bloom_tex = 0
-				block.has_grid_tex = 0
 				block.night_vision = 0
 				block.white_balance_on = 0
 				block.grade_on = 0
-				block.grade_local = 0
 			end
 
 			return block

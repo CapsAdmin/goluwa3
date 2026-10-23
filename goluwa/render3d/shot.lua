@@ -135,7 +135,6 @@ commands.Add({
 		ang = {type = "string", description = "Camera angles in degrees as pitch,yaw,roll"},
 		fov = {type = "number", description = "Vertical field of view in degrees"},
 		ev = {type = "number", description = "Lock exposure at this EV100"},
-		["local-exposure"] = {type = "number", description = "Local exposure strength, 0 for none"},
 		settle = {type = "number", description = "Seconds to hold the view before capturing (2)"},
 		converge = {
 			type = "number",
@@ -161,10 +160,6 @@ commands.Add({
 	if flags.fov then properties.FOV = math.rad(flags.fov) end
 
 	if flags.ev then properties.ExposureLock = flags.ev end
-
-	if flags["local-exposure"] then
-		properties.LocalExposure = flags["local-exposure"]
-	end
 
 	Shot.Capture(
 		properties,

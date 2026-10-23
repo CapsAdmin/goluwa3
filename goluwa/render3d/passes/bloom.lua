@@ -58,21 +58,10 @@ local common_glsl = compute_helpers.GetScreenHelpersGLSL() .. [[
 	layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_bloom;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
 
-	#ifdef ADAPT
-		float adapt_exposure;
-		vec4 adapt_exposure_sample;
-	#endif
-
 	vec3 bloom_sample(vec2 uv) {
 		vec2 half_texel = 0.5 / vec2(textureSize(source_tex, 0));
 		uv = clamp(uv, half_texel, 1.0 - half_texel);
-		vec3 c = textureLod(source_tex, uv, 0.0).rgb;
-		#ifdef ADAPT
-			if (compute.has_grid_tex != 0) {
-				c *= exp2(min(get_local_adaptation(uv, luminance(c) * adapt_exposure, adapt_exposure_sample), 0.0));
-			}
-		#endif
-		return c;
+		return textureLod(source_tex, uv, 0.0).rgb;
 	}
 ]]
 local downsample_glsl = [[
@@ -88,10 +77,6 @@ local downsample_glsl = [[
 		}
 
 		vec2 uv = get_screen_uv(pos, size);
-		#ifdef ADAPT
-			adapt_exposure_sample = texture(exposure_tex, vec2(0.5));
-			adapt_exposure = adapt_exposure_sample.r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
-		#endif
 		vec2 t = 1.0 / vec2(textureSize(source_tex, 0));
 		vec3 a = bloom_sample(uv + t * vec2(-2.0, 2.0));
 		vec3 b = bloom_sample(uv + t * vec2(0.0, 2.0));
@@ -158,7 +143,7 @@ local block = {
 	{"merge_weight", "float"},
 }
 
-local function build_pass(name, scale, shader, sampled_images, write, extra_block)
+local function build_pass(name, scale, shader, sampled_images, write)
 	return {
 		name = name,
 		ComputePass = true,
@@ -167,7 +152,7 @@ local function build_pass(name, scale, shader, sampled_images, write, extra_bloc
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
 		sampled_images = sampled_images,
-		block = extra_block and {block, extra_block} or block,
+		block = block,
 		write = function(self, block)
 			block.has_source_tex = sampled_images[1].get_texture() and 1 or 0
 
@@ -179,31 +164,23 @@ local function build_pass(name, scale, shader, sampled_images, write, extra_bloc
 	}
 end
 
-return function(adaptation)
+return function()
 	local r = {}
 
 	for i = 1, LEVELS do
 		if i == 1 then
-			local sampled_images = {
-				{
-					binding_index = 1,
-					get_texture = function()
-						return post_source.GetRawSceneSourceTexture()
-					end,
-				},
-			}
-
-			for _, info in ipairs(adaptation.sampled_images) do
-				sampled_images[#sampled_images + 1] = info
-			end
-
 			r[#r + 1] = build_pass(
 				"bloom_down1",
 				0.5,
-				"#define ADAPT\n" .. adaptation.glsl .. common_glsl .. downsample_glsl,
-				sampled_images,
-				adaptation.write,
-				adaptation.block
+				common_glsl .. downsample_glsl,
+				{
+					{
+						binding_index = 1,
+						get_texture = function()
+							return post_source.GetRawSceneSourceTexture()
+						end,
+					},
+				}
 			)
 		else
 			r[#r + 1] = build_pass(

@@ -223,10 +223,6 @@ function test_scene.Run(config)
 		}
 
 		if view.fov then properties[i].FOV = math.rad(view.fov) end
-
-		if view.local_exposure then
-			properties[i].LocalExposure = view.local_exposure
-		end
 	end
 
 	test_scene.WhenReady(function()

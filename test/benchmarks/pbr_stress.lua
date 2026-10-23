@@ -309,7 +309,6 @@ if os.getenv("PBR_SHOTS") then
 			Rotation = QuatDeg3(pitch, yaw, 0),
 			FOV = math.rad(70),
 			ExposureLock = 15,
-			LocalExposure = 0,
 		}
 	end
 

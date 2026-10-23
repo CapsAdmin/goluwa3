@@ -6,6 +6,7 @@ local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local water = import("goluwa/render3d/water.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local exposure = import("goluwa/render3d/exposure.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local climate = import("goluwa/render3d/climate.lua")
 local commands = import("goluwa/cli/commands.lua")
@@ -1363,7 +1364,7 @@ do
 end
 
 function twilight.SetSunElevation(degrees)
-	pvars.SetSession("r_eye", degrees < 0)
+	exposure.Set("eye.enabled", degrees < 0)
 	local elevation = math.rad(degrees)
 	weather.SetSunDirection(
 		Vec3(
@@ -1526,7 +1527,6 @@ local LOOK = {
 	r_grade_warmth = 12,
 	r_grade_contrast = 8,
 	r_grade_saturation = 10,
-	r_eye = false,
 }
 twilight.previous_look = {}
 
@@ -1535,11 +1535,15 @@ for key, value in pairs(LOOK) do
 	pvars.SetSession(key, value)
 end
 
+twilight.previous_eye = exposure.Get("eye.enabled")
+exposure.Set("eye.enabled", false)
+
 function twilight.Remove()
 	for key, value in pairs(twilight.previous_look) do
 		pvars.SetSession(key, value)
 	end
 
+	exposure.Set("eye.enabled", twilight.previous_eye)
 	event.RemoveListener("Update", "twilight_lake_flicker")
 	event.RemoveListener("Update", "twilight_lake_tour")
 	twilight.SetView(nil)
