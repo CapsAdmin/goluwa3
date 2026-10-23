@@ -947,19 +947,6 @@ end
 function islands.RemoveBody(body)
 	if not body then return end
 
-	local island = body_island[body]
-
-	if is_dynamic_body(body) then
-		if not island then return end
-
-		body_island[body] = nil
-		detach_body_from_island(island, body)
-
-		if #island.dynamic_bodies == 0 then destroy_island(island) end
-
-		return
-	end
-
 	body_island[body] = nil
 
 	for i = #active_islands, 1, -1 do
