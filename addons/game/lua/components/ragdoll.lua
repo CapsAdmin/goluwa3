@@ -37,6 +37,9 @@ local SETTLE_MAX_TIME = 8
 local SETTLE_SPEED = 0.35
 local SETTLE_SPIN = 2
 local NETWORK_LINGER = 1
+local REST_SPEED = 0.15
+local REST_SPIN = 0.5
+local REST_TIME = 1.5
 local GROUND_PROBE = 4
 local STAND_HEIGHT = 0.05
 local PART_LINEAR_DAMPING = 0.1
@@ -70,6 +73,7 @@ function META:Initialize()
 	self.global_active = false
 	self.previous_velocities = {}
 	self.dead_time = 0
+	self.rest_time = 0
 	self.time = 0
 	self.walking = nil
 	self:AddGlobalEvent("PhysicsUpdate")
@@ -517,6 +521,28 @@ function META:IsSettled()
 	return true
 end
 
+function META:UpdateRest(dt)
+	for _, part in ipairs(self.parts) do
+		local body = part.body
+
+		if
+			body.Velocity:GetLength() > REST_SPEED or
+			body.AngularVelocity:GetLength() > REST_SPIN
+		then
+			self.rest_time = 0
+			return
+		end
+	end
+
+	self.rest_time = self.rest_time + dt
+
+	if self.rest_time < REST_TIME then return end
+
+	for _, part in ipairs(self.parts) do
+		part.body:Sleep()
+	end
+end
+
 function META:GetLimp(name)
 	local part = self.part_by_name[name]
 	return part and part.limp or 0
@@ -549,6 +575,7 @@ function META:Capture()
 	self.global_active = false
 	self.previous_velocities = {}
 	self.dead_time = 0
+	self.rest_time = 0
 	self:SetLimp(false)
 	self:UpdateTargets(0)
 
@@ -979,6 +1006,7 @@ function META:OnPhysicsUpdate(dt)
 
 			if self.global_active then
 				self:FollowHead()
+				self:UpdateRest(dt)
 
 				if self.CorpseTime > 0 then
 					self.dead_time = self.dead_time + dt
