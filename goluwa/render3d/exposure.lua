@@ -166,6 +166,56 @@ define(
 	}
 )
 define(
+	"eye.afterimage_intensity",
+	1.2,
+	{
+		group = "Eye",
+		min = 0,
+		max = 4,
+		help = "the overall strength of afterimages: it scales the coloured glow and the darker complementary patch together. 1 is the modelled level, 0 turns the afterimage off (its passes do not run)",
+	}
+)
+define(
+	"eye.afterimage_source_seconds",
+	0.17,
+	{
+		group = "Eye",
+		min = 0.01,
+		max = 3,
+		help = "how long the first stage of an afterimage lasts, in seconds: right after a light the afterimage is close to the light's own colour, and only as that drains away does the cone colour cycle (green, blue, purple, red) show. Real eyes take about 0.3 s. It is not scaled by the time scale",
+	}
+)
+define(
+	"eye.afterimage_time_scale",
+	0.027,
+	{
+		group = "Eye",
+		min = 0.0005,
+		max = 1,
+		help = "how long afterimages last: it scales how long the hue sequence (white, yellow, green, blue, purple, red) takes, and the recovery of the darker patch with it. 1 is a few seconds per hue, 0.02 is a fraction of that for a game",
+	}
+)
+define(
+	"eye.afterimage_falloff",
+	-1.45,
+	{
+		group = "Eye",
+		min = -2,
+		max = 3,
+		help = "the shape of an afterimage's fade. 0 is a plain exponential decay (a fast drop that never quite ends). Below 0 the decay speeds up as it fades, so the tail is cut off and it ends in a finite time: -1 fades linearly in light, -2 holds and then drops away. Above 0 the decay slows as it fades and leaves a long soft tail (1 is hyperbolic), which makes it last longer. To make it last less long overall lower the time scale",
+	}
+)
+define(
+	"eye.afterimage_adaptation_ratio",
+	80,
+	{
+		group = "Eye",
+		min = 1,
+		max = 1000,
+		help = "how many times brighter than the adapting luminance a light has to be to leave an afterimage. Low makes a bright sky or wall burn in, high leaves only the sun and its glints",
+	}
+)
+define(
 	"eye.night_vision",
 	true,
 	{

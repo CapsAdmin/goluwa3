@@ -7,6 +7,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
 local exposure_model = import("goluwa/render3d/exposure.lua")
 local grade = import("goluwa/render3d/grade.lua")
+local afterimage = import("goluwa/render3d/passes/afterimage.lua")
 local assets = import("goluwa/assets.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
@@ -525,7 +526,10 @@ local compute_shader = [[
 	layout(set = 0, binding = 5) uniform sampler2D prev_exposure_tex;
 	layout(set = 0, binding = 6) uniform sampler2D blue_noise_tex;
 	layout(set = 0, binding = 7) uniform sampler2D white_balance_tex;
-	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute") .. WHITE_BALANCE_GLSL .. [[
+	layout(set = 0, binding = 8) uniform sampler2D afterimage_tex;
+	layout(set = 0, binding = 9) uniform sampler2D afterimage_bleach_tex;
+	layout(set = 0, binding = 10) uniform sampler2D afterimage_source_tex;
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute") .. afterimage.GetApplyGLSL() .. WHITE_BALANCE_GLSL .. [[
 
 	float effective_paper_white;
 
@@ -629,6 +633,8 @@ local compute_shader = [[
 		if (compute.has_bloom_tex != 0) {
 			col = max(col * (1.0 - compute.bloom_strength.rgb) + texelFetch(glare_tex, pos, 0).rgb / exposure, vec3(0.0));
 		}
+
+		if (compute.has_afterimage != 0) col = apply_afterimage(col, texture_catmull_rom(afterimage_tex, uv).rgb, texture_catmull_rom(afterimage_bleach_tex, uv).rgb, texture_catmull_rom(afterimage_source_tex, uv), exposure, compute.afterimage_intensity);
 
 		col = mix(col, vec3(dot(max(col, vec3(0.0)), ROD_RESPONSE)), (1.0 - cones) * compute.night_vision);
 
@@ -768,6 +774,10 @@ end
 
 r[#r + 1] = glare_pass
 
+for _, pass in ipairs(afterimage.passes) do
+	r[#r + 1] = pass
+end
+
 for _, pass in ipairs{
 	{
 		name = "blit_compute",
@@ -809,9 +819,29 @@ for _, pass in ipairs{
 				end,
 			},
 			{binding_index = 7, get_texture = get_white_balance_texture},
+			{
+				binding_index = 8,
+				get_texture = function()
+					return afterimage.GetTexture(1)
+				end,
+			},
+			{
+				binding_index = 9,
+				get_texture = function()
+					return afterimage.GetTexture(2)
+				end,
+			},
+			{
+				binding_index = 10,
+				get_texture = function()
+					return afterimage.GetTexture(3)
+				end,
+			},
 		},
 		block = {
 			{"has_source_tex", "int"},
+			{"has_afterimage", "int"},
+			{"afterimage_intensity", "float"},
 			{"frame", "int"},
 			{"has_bloom_tex", "int"},
 			{"requires_manual_gamma", "int"},
@@ -838,6 +868,8 @@ for _, pass in ipairs{
 		},
 		write = function(self, block)
 			block.has_source_tex = get_scene_source_texture() and 1 or 0
+			block.has_afterimage = afterimage.GetTexture(1) and 1 or 0
+			block.afterimage_intensity = exposure_model.Get("eye.afterimage_intensity")
 			block.frame = system.GetFrameNumber()
 			block.has_bloom_tex = get_bloom_texture() and 1 or 0
 			block.has_exposure_tex = get_exposure_feedback_texture() and 1 or 0
