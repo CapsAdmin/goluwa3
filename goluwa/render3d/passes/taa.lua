@@ -140,6 +140,10 @@ return {
 
 ]] .. screen_reconstruct.GetViewDepthGLSL("taa_data") .. screen_reconstruct.GetViewPosGLSL("taa_data") .. [[
 
+			vec2 clamp_history_uv(vec2 uv, vec2 size) {
+				return clamp(uv, vec2(0.5) / size, vec2(1.0) - vec2(0.5) / size);
+			}
+
 			vec3 sample_history(vec2 uv, vec2 size) {
 				vec2 position = uv * size;
 				vec2 center = floor(position - 0.5) + 0.5;
@@ -149,9 +153,9 @@ return {
 				vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
 				vec2 w3 = f * f * (-0.5 + 0.5 * f);
 				vec2 w12 = w1 + w2;
-				vec2 tc0 = (center - 1.0) / size;
-				vec2 tc3 = (center + 2.0) / size;
-				vec2 tc12 = (center + w2 / w12) / size;
+				vec2 tc0 = clamp_history_uv((center - 1.0) / size, size);
+				vec2 tc3 = clamp_history_uv((center + 2.0) / size, size);
+				vec2 tc12 = clamp_history_uv((center + w2 / w12) / size, size);
 				vec4 result =
 					vec4(textureLod(TEXTURE(taa_data.history_color_tex), vec2(tc12.x, tc0.y), 0.0).rgb, 1.0) * (w12.x * w0.y) +
 					vec4(textureLod(TEXTURE(taa_data.history_color_tex), vec2(tc0.x, tc12.y), 0.0).rgb, 1.0) * (w0.x * w12.y) +
@@ -269,7 +273,7 @@ return {
 				float depth_weight = 1.0;
 
 				if (expected_depth > 0.0) {
-					vec4 history_depths = textureGather(TEXTURE(taa_data.history_tex), prev_uv, 3);
+					vec4 history_depths = textureGather(TEXTURE(taa_data.history_tex), clamp_history_uv(prev_uv, vec2(size)), 3);
 					vec4 difference = abs(history_depths - expected_depth) / expected_depth;
 					float closest = min(min(difference.x, difference.y), min(difference.z, difference.w));
 					depth_weight = 1.0 - smoothstep(0.02, 0.1, closest);
@@ -282,10 +286,10 @@ return {
 				vec3 history = compress(sample_history(prev_uv, vec2(size)) * history_scale, exposure);
 				vec2 texel = 2.0 / vec2(size);
 				vec3 ring = (
-					compress(textureLod(TEXTURE(taa_data.history_color_tex), prev_uv + vec2(texel.x, 0.0), 0.0).rgb * history_scale, exposure) +
-					compress(textureLod(TEXTURE(taa_data.history_color_tex), prev_uv - vec2(texel.x, 0.0), 0.0).rgb * history_scale, exposure) +
-					compress(textureLod(TEXTURE(taa_data.history_color_tex), prev_uv + vec2(0.0, texel.y), 0.0).rgb * history_scale, exposure) +
-					compress(textureLod(TEXTURE(taa_data.history_color_tex), prev_uv - vec2(0.0, texel.y), 0.0).rgb * history_scale, exposure)
+					compress(textureLod(TEXTURE(taa_data.history_color_tex), clamp_history_uv(prev_uv + vec2(texel.x, 0.0), vec2(size)), 0.0).rgb * history_scale, exposure) +
+					compress(textureLod(TEXTURE(taa_data.history_color_tex), clamp_history_uv(prev_uv - vec2(texel.x, 0.0), vec2(size)), 0.0).rgb * history_scale, exposure) +
+					compress(textureLod(TEXTURE(taa_data.history_color_tex), clamp_history_uv(prev_uv + vec2(0.0, texel.y), vec2(size)), 0.0).rgb * history_scale, exposure) +
+					compress(textureLod(TEXTURE(taa_data.history_color_tex), clamp_history_uv(prev_uv - vec2(0.0, texel.y), vec2(size)), 0.0).rgb * history_scale, exposure)
 				) * 0.25;
 				float isolated = smoothstep(0.008, 0.035, length(history - ring));
 				float history_weight = mix(depth_weight, 1.0, isolated);
