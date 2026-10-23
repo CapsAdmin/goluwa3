@@ -2,6 +2,7 @@ local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local climate = import("goluwa/render3d/climate.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local water = import("goluwa/render3d/water.lua")
 local META = objects.CreateTemplate("atmosphere_controller")
@@ -23,15 +24,12 @@ local function copy_ocean_settings()
 	return out
 end
 
-local default_aerosol_visibility = atmosphere.GetAerosolVisibility()
-local default_ground_fog_visibility = atmosphere.GetGroundFogVisibility()
 local default_ocean_enabled = render3d.IsOceanEnabled()
 local default_ocean_settings = copy_ocean_settings()
 local default_environment_map_intensity = atmosphere.GetEnvironmentMapIntensity()
 META:StartStorable()
 META:GetSet("SunRotation", nil, {type = "quat"})
-META:GetSet("AerosolVisibility", default_aerosol_visibility)
-META:GetSet("GroundFogVisibility", default_ground_fog_visibility)
+META:GetSet("Climate", {})
 META:GetSet("FogColor", nil, {type = "vec3"})
 META:GetSet("OceanEnabled", default_ocean_enabled)
 META:GetSet("OceanLevel", nil, {type = "number"})
@@ -68,20 +66,9 @@ function META:SetSunDirection(direction)
 	weather.SetSunDirection(direction)
 end
 
-function META:GetAerosolVisibility()
-	return atmosphere.GetAerosolVisibility()
-end
-
-function META:SetAerosolVisibility(meters)
-	weather.SetAerosolVisibility(meters)
-end
-
-function META:GetGroundFogVisibility()
-	return atmosphere.GetGroundFogVisibility()
-end
-
-function META:SetGroundFogVisibility(meters)
-	weather.SetGroundFogVisibility(meters)
+function META:SetClimate(config)
+	self.Climate = config
+	climate.SetPreset(config, 0)
 end
 
 function META:GetFogColor()
@@ -137,8 +124,7 @@ function META:OnDeserialized()
 end
 
 function META:ResetProperties()
-	self:SetAerosolVisibility(default_aerosol_visibility)
-	self:SetGroundFogVisibility(default_ground_fog_visibility)
+	self:SetClimate({})
 	self:SetFogColor(nil)
 	self:SetOceanEnabled(default_ocean_enabled)
 	self:SetOceanLevel(nil)

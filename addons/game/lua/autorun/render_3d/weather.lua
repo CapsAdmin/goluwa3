@@ -1,9 +1,8 @@
 local weather = import("goluwa/render3d/weather.lua")
-import("goluwa/render3d/climate.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
+local climate = import("goluwa/render3d/climate.lua")
 local date = import("goluwa/date.lua")
 weather.Initialize()
-weather.SetWind(Vec3(1, 0, 0.35):GetNormalized() * 4)
+climate.SetPreset({}, 0)
 
 local function parse_time(str, utc_offset)
 	local y, m, d, h, min = str:match("(%d+)-(%d+)-(%d+) (%d+):(%d+)")
@@ -12,6 +11,4 @@ local function parse_time(str, utc_offset)
 end
 
 weather.SetLocation(21.1777703, 106.070245)
-weather.SetTime(
-	date.diff(date(os.date("!%Y-%m-%d") .. " 10:00 +07:00"), date.epoch()):spanseconds()
-)
+weather.SetTime(date.diff(date(os.date("!%Y-%m-%d") .. " 10:00 +07:00"), date.epoch()):spanseconds())

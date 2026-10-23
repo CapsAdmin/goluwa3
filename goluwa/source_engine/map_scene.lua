@@ -171,7 +171,7 @@ function map_scene.Translate(data, map_name, map_path, offset)
 	end
 
 	startup.Begin("translate world geometry")
-	local atmosphere = {OceanLevel = data.ocean_level - 2}
+	local atmosphere = {OceanLevel = data.ocean_level - 2, Climate = {}}
 	local nav_path = nav_mesh.GetPath(map_name)
 	add{
 		guid = root_guid,
@@ -320,7 +320,11 @@ function map_scene.Translate(data, map_name, map_path, offset)
 		then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
 			entries[#entries + 1] = {kind = "spawn", info = info, index = index}
-		elseif info.classname == "env_sun" or info.classname == "env_skypaint" or info.classname:find("light_environment") then
+		elseif
+			info.classname == "env_sun" or
+			info.classname == "env_skypaint" or
+			info.classname:find("light_environment")
+		then
 			handled[info.classname] = (handled[info.classname] or 0) + 1
 			local priority = sun_priority[info.classname] or sun_priority.light_environment
 
@@ -344,7 +348,7 @@ function map_scene.Translate(data, map_name, map_path, offset)
 				tonumber(info.fogenable) == 1
 			then
 				local color = info.fogcolor
-				atmosphere.GroundFogVisibility = info.fogend * units.meters * FOG_DISTANCE_SCALE
+				atmosphere.Climate.ground_fog_visibility = info.fogend * units.meters * FOG_DISTANCE_SCALE
 				atmosphere.FogColor = Vec3(color.r ^ 2.2, color.g ^ 2.2, color.b ^ 2.2) / math.max(color.r, color.g, color.b, 1e-4) ^ 2.2 * FOG_TINT_STRENGTH
 			end
 		end

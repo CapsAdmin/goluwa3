@@ -72,7 +72,9 @@ local function build_atmosphere_record(data)
 	end
 
 	if editor_level and editor_level.fog_density then
-		properties.GroundFogVisibility = -math.log(0.02) / (editor_level.fog_density * 0.0025)
+		properties.Climate = {
+			ground_fog_visibility = -math.log(0.02) / (editor_level.fog_density * 0.0025),
+		}
 	end
 
 	if editor_level and editor_level.sun_direction then
