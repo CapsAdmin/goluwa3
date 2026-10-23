@@ -335,7 +335,7 @@ end
 
 function list.get_index(tbl, val)
 	for i, v in ipairs(tbl) do
-		if i == v then return i end
+		if v == val then return i end
 	end
 
 	return nil
