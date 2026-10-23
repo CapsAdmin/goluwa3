@@ -1,5 +1,4 @@
 local objects = import("goluwa/objects/objects.lua")
-local Entity = import("goluwa/entities/entity.lua")
 local network = import("goluwa/network/network.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local damage = import("lua/damage.lua")
@@ -384,13 +383,15 @@ function META:CastAt(target)
 	local eye = owner.rigid_body:GetOriginPosition() + owner.character_movement:GetViewOffset()
 	local aim = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * TARGET_CHEST, 0)
 	local direction = (aim - eye):GetNormalized()
-	local projectile = Entity.New{
-		Name = "magic_projectile",
-		transform = {Position = eye + direction * 0.6},
-		magic_projectile = {Types = self.MagicElement, Damage = self.MagicDamage},
-		network = SERVER and {} or nil,
-	}
-	projectile.magic_projectile:Launch(owner, direction, target)
+	import("lua/components/magic_projectile.lua").Cast(
+		eye + direction * 0.6,
+		owner,
+		direction,
+		target,
+		nil,
+		self.MagicElement,
+		self.MagicDamage
+	)
 end
 
 function META:Fight(target, position)
@@ -459,7 +460,6 @@ function META:UpdateTarget(position)
 		if self:CanFight() then
 			local eye = position + owner.character_movement:GetViewOffset()
 			local nearest = self.AttackRange
-
 			target_sources[1] = PlayerController.Instances or NO_CONTROLLERS
 			target_sources[2] = META.Instances
 
@@ -469,17 +469,17 @@ function META:UpdateTarget(position)
 
 					if
 						controller ~= self and
-						(source_index == 1 and PLAYER_FACTION or controller.Faction) ~= self.Faction and
+						(
+							source_index == 1 and
+							PLAYER_FACTION or
+							controller.Faction
+						) ~= self.Faction and
 						candidate.health and
 						candidate.character_movement and
 						not controller.far and
 						not candidate.health:IsDead()
 					then
-						local offset = candidate.transform:GetPosition() + Vec3(
-								0,
-								candidate.character_movement:GetHeight() * TARGET_CHEST,
-								0
-							) - eye
+						local offset = candidate.transform:GetPosition() + Vec3(0, candidate.character_movement:GetHeight() * TARGET_CHEST, 0) - eye
 						local distance = offset:GetLength()
 
 						if distance < nearest then

@@ -65,10 +65,9 @@ end
 magic.Source = [=====[
 local bit = require("bit")
 local objects = import("goluwa/objects/objects.lua")
-local Entity = import("goluwa/entities/entity.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local magic_projectile = import("lua/components/magic_projectile.lua")
 local damage = import("lua/damage.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local effects = import("lua/jrpg/effects.lua")
@@ -86,7 +85,6 @@ local NO_MANA = Color(0.5, 0.6, 1, 1)
 local HAND_OFFSET = 0.3
 local HAND_DROP = 0.35
 local ORB_SIZE = 0.05
-local PROJECTILE_GROUP = 0x4000
 
 function META:Initialize()
 	self.left = false
@@ -134,29 +132,7 @@ function META:Cast(cmd, self_target)
 		end
 	end
 
-	local projectile = Entity.New{
-		Name = "magic_projectile",
-		transform = {Position = origin},
-		rigid_body = {
-			Shape = SphereShape.New(0.12),
-			Mass = 0.05,
-			AutomaticMass = false,
-			GravityScale = 0,
-			Restitution = 1,
-			RestitutionCombineMode = "max",
-			Friction = 0.6,
-			RollingFriction = 0.3,
-			AngularDamping = 2,
-			LinearDamping = 0.2,
-			CCD = true,
-			CanSleep = false,
-			CollisionGroup = PROJECTILE_GROUP,
-			CollisionMask = bit.bnot(PROJECTILE_GROUP),
-		},
-		magic_projectile = {Types = self.Element, Damage = self.Damage},
-		network = SERVER and {} or nil,
-	}
-	projectile.magic_projectile:Launch(caster, forward, target, target_point)
+	magic_projectile.Cast(origin, caster, forward, target, target_point, self.Element, self.Damage)
 end
 
 function META:OnWeaponPrimary(cmd)

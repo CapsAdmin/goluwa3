@@ -3,6 +3,7 @@ local network = import("goluwa/network/network.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local damage = import("lua/damage.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local actors = import("lua/actors.lua")
@@ -31,6 +32,7 @@ local TRAIL_POINTS = 20
 local LENS_SCALE = 0.5
 local TRAIL_RADIUS = 0.012
 local PARTICLE_SIZE = 0.01
+local PROJECTILE_GROUP = 0x4000
 
 function META:Initialize()
 	self.time = 0
@@ -41,6 +43,33 @@ function META:Initialize()
 	self.type_list = {}
 	self:AddGlobalEvent("Update")
 	self:AddGlobalEvent("PhysicsUpdate")
+end
+
+function META.Cast(position, caster, direction, target, target_point, types, amount)
+	local projectile = Entity.New{
+		Name = "magic_projectile",
+		transform = {Position = position},
+		rigid_body = {
+			Shape = SphereShape.New(0.12),
+			Mass = 0.05,
+			AutomaticMass = false,
+			GravityScale = 0,
+			Restitution = 1,
+			RestitutionCombineMode = "max",
+			Friction = 0.6,
+			RollingFriction = 0.3,
+			AngularDamping = 2,
+			LinearDamping = 0.2,
+			CCD = true,
+			CanSleep = false,
+			CollisionGroup = PROJECTILE_GROUP,
+			CollisionMask = bit.bnot(PROJECTILE_GROUP),
+		},
+		magic_projectile = {Types = types, Damage = amount},
+		network = SERVER and {} or nil,
+	}
+	projectile.magic_projectile:Launch(caster, direction, target, target_point)
+	return projectile
 end
 
 function META:Launch(caster, direction, target, target_point)
