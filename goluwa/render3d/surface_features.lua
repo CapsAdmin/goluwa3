@@ -204,6 +204,7 @@ function surface_features.New(source_list)
 		#define GOLUWA_SURFACE_STRUCT
 		struct SurfaceWeather {
 			float snow;
+			float wet;
 			float film;
 			float film_alpha;
 			float rain;

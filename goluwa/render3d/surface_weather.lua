@@ -6,6 +6,7 @@ local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_weather = {}
 surface_weather.wetness = 0
 surface_weather.snow_depth = 0
+surface_weather.rain_rate = 0
 surface_weather.precipitation_direction = Vec3(0, 1, 0)
 surface_weather.precipitation_spread = 0.2
 surface_weather.shelter_map = nil
@@ -14,6 +15,10 @@ surface_weather.SNOW_TEXTURE_SIZE = 2.4
 surface_weather.snow_material = nil
 surface_weather.RAIN_MATERIAL = "materials/examples/rain.lua"
 surface_weather.rain_material = nil
+surface_weather.FILM_CLEARCOAT = 1
+surface_weather.FILM_ROUGHNESS = 0.08
+surface_weather.SNOW_FULL_COVER_DEPTH = 0.05
+surface_weather.RAIN_FULL_RATE = 8
 surface_weather.rain_impact_rate = 0
 surface_weather.splash_rate = 0
 surface_weather.AGITATION_MIN_DIAMETER = 0.5
@@ -36,12 +41,27 @@ surface_weather.block = {
 	{"shelter_matrix", "mat4"},
 }
 
+function surface_weather.GetWetness()
+	if not atmosphere.IsEnabled() then return 0 end
+
+	return math.min(
+		math.max(surface_weather.wetness, surface_weather.rain_rate / surface_weather.RAIN_FULL_RATE),
+		1
+	)
+end
+
+function surface_weather.GetSnowCover()
+	if not atmosphere.IsEnabled() then return 0 end
+
+	return math.min(surface_weather.snow_depth / surface_weather.SNOW_FULL_COVER_DEPTH, 1)
+end
+
 function surface_weather.GetSnowWetness()
 	return math.smoothstep(-2, 0.5, atmosphere.GetTemperature())
 end
 
 function surface_weather.WriteBlock(self, block)
-	block.surface_wetness = atmosphere.IsEnabled() and surface_weather.wetness or 0
+	block.surface_wetness = surface_weather.GetWetness()
 	block.surface_snow_depth = atmosphere.IsEnabled() and surface_weather.snow_depth or 0
 	block.surface_snow_wetness = surface_weather.GetSnowWetness()
 	local map = surface_weather.shelter_map
@@ -83,8 +103,8 @@ function surface_weather.WriteBlock(self, block)
 		block.rain_clearcoat = rain:GetClearcoat()
 		block.rain_clearcoat_roughness = rain:GetClearcoatRoughness()
 	else
-		block.rain_clearcoat = 0
-		block.rain_clearcoat_roughness = 1
+		block.rain_clearcoat = surface_weather.FILM_CLEARCOAT
+		block.rain_clearcoat_roughness = surface_weather.FILM_ROUGHNESS
 	end
 
 	surface_weather.precipitation_direction:CopyToFloatPointer(block.precipitation_direction)
@@ -114,10 +134,7 @@ do
 	function surface_weather.WriteRainSurfaceBlock(self, block)
 		block.rain_time = system.GetElapsedTime() % (SPLASH_LIFETIME * 4096)
 		block.rain_agitation = AGITATION_SLOPE * math.sqrt(surface_weather.rain_impact_rate / 1000)
-		local chance = math.min(
-			surface_weather.splash_rate * SPLASH_LIFETIME * SPLASH_CELL * SPLASH_CELL / SPLASH_LAYERS,
-			1
-		)
+		local chance = math.min(surface_weather.splash_rate * SPLASH_LIFETIME * SPLASH_CELL * SPLASH_CELL / SPLASH_LAYERS, 1)
 		block.splash_chance = chance
 		local coverage = math.min(
 			chance * SPLASH_LAYERS * math.pi * SPLASH_RADIUS * 2 * SPLASH_WIDTH / (
@@ -287,7 +304,9 @@ function surface_weather.GetGLSL(block_name)
 		const float SHELTER_MIN_HEIGHT = 0.3;
 		const float SHELTER_BLUR = 0.3;
 		const float SHELTER_MAX_BLUR = 8.0;
-		const float SNOW_FULL_COVER_DEPTH = 0.05;
+		const float SNOW_FULL_COVER_DEPTH = ]] .. (
+			"%f"
+		):format(surface_weather.SNOW_FULL_COVER_DEPTH) .. [[;
 		const float RAIN_POOL_SLOPE = 0.98;
 		const float RAIN_RUNOFF_SLOPE = 0.7;
 		const float RAIN_RUNOFF_FILM = 0.35;
@@ -382,10 +401,29 @@ function surface_weather.GetGLSL(block_name)
 			return clamp(n + 0.5, 0.0, 1.0);
 		}
 
+		void add_surface_film(inout SurfaceWeather w, float film, float film_alpha) {
+			if (film <= w.film) return;
+
+			w.film_alpha = mix(w.film_alpha, film_alpha, (film - w.film) / film);
+			w.film = film;
+		}
+
+		void apply_surface_wetness(inout Surface s, inout SurfaceWeather w, float wet) {
+			if (wet <= w.wet) return;
+
+			float darkest = mix(1.0, 0.2, w.porosity);
+			s.albedo *= mix(1.0, darkest, wet) / mix(1.0, darkest, w.wet);
+			w.wet = wet;
+			float pooling = smoothstep(RAIN_RUNOFF_SLOPE, RAIN_POOL_SLOPE, s.geometric_N.y);
+			float film_roughness = mix(RAIN_RUNOFF_ROUGHNESS, ]] .. block_name .. [[.rain_clearcoat_roughness, pooling);
+			add_surface_film(w, wet * ]] .. block_name .. [[.rain_clearcoat * mix(RAIN_RUNOFF_FILM, 1.0, pooling), film_roughness * film_roughness);
+		}
+
 		float apply_surface_weather(inout Surface s, inout SurfaceWeather w) {
 			float wetness = ]] .. block_name .. [[.surface_wetness;
 			float snow_depth = ]] .. block_name .. [[.surface_snow_depth;
 			w.snow = 0.0;
+			w.wet = 0.0;
 			w.film = 0.0;
 			w.film_alpha = 1.0;
 			w.rain = 0.0;
@@ -395,14 +433,7 @@ function surface_weather.GetGLSL(block_name)
 			float exposure = get_precipitation_exposure(s.world_pos, s.geometric_N);
 
 			if (wetness > 0.0) {
-				float wet = wetness * exposure * w.wet_scale;
-				s.albedo *= mix(1.0, mix(1.0, 0.2, w.porosity), wet);
-				float pooling = smoothstep(RAIN_RUNOFF_SLOPE, RAIN_POOL_SLOPE, s.geometric_N.y);
-				float film = wet * ]] .. block_name .. [[.rain_clearcoat * mix(RAIN_RUNOFF_FILM, 1.0, pooling);
-
-				float film_roughness = mix(RAIN_RUNOFF_ROUGHNESS, ]] .. block_name .. [[.rain_clearcoat_roughness, pooling);
-				w.film = film;
-				w.film_alpha = film_roughness * film_roughness;
+				apply_surface_wetness(s, w, wetness * exposure * w.wet_scale);
 				w.rain = exposure;
 			}
 

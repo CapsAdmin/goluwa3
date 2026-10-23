@@ -38,6 +38,7 @@ return {
 		w.wet_scale = 1.0;
 		w.snow_scale = 1.0;
 		w.snow = 0.0;
+		w.wet = 0.0;
 		w.film = 0.0;
 		w.film_alpha = 1.0;
 		w.rain = 0.0;
