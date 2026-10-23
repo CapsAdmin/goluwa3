@@ -4,6 +4,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
+local objects = import("goluwa/objects/objects.lua")
 local sphere_shape = SphereShape.New
 local box_shape = BoxShape.New
 local create_flat_ground = test_helpers.CreateFlatGround
@@ -204,5 +205,36 @@ T.TestPhysics("Static body moved through its transform is collided at its new po
 	T(sphere_ent.transform:GetPosition().y)[">="](1.95)
 	sphere_ent:Remove()
 	box_ent:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("Sleeping body wakes and falls when the body it rests on is removed", function()
+	local ground = create_flat_ground("removed_support_ground")
+	local box_ent = Entity.New({Name = "removed_support_box"})
+	box_ent:AddComponent("transform")
+	box_ent.transform:SetPosition(Vec3(0, 1, 0))
+	box_ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = box_shape(Vec3(2, 1, 2)),
+			Size = Vec3(2, 1, 2),
+			MotionType = "static",
+		}
+	)
+	local sphere_ent = Entity.New({Name = "removed_support_sphere"})
+	sphere_ent:AddComponent("transform")
+	sphere_ent.transform:SetPosition(Vec3(0, 3, 0))
+	local sphere = sphere_ent:AddComponent("rigid_body", {
+		Shape = sphere_shape(0.5),
+		Radius = 0.5,
+	})
+	test_helpers.SimulateSettled(sphere, 600)
+	T(sphere:GetAwake())["=="](false)
+	T(sphere:GetGrounded())["=="](true)
+	box_ent:Remove()
+	objects.CheckRemovedObjects()
+	test_helpers.Simulate(120)
+	T(sphere_ent.transform:GetPosition().y)["<"](1)
+	sphere_ent:Remove()
 	ground:Remove()
 end)

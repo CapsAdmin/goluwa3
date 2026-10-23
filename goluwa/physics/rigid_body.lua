@@ -491,6 +491,17 @@ function RigidBody:OnRemove()
 	self:OnActivityChanged()
 	islands.RemoveBody(self)
 	remove_world_geometry_body(self)
+	local bodies = RigidBody.Instances
+
+	for i = 1, #bodies do
+		local body = bodies[i]
+		local ground_body = body.GroundBody
+
+		if ground_body and (ground_body == self or ground_body.Body == self) then
+			body:SetGrounded(false)
+			body:Wake()
+		end
+	end
 end
 
 function RigidBody:LoadShapeModel()
