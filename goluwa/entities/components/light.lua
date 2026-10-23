@@ -47,13 +47,6 @@ function Light:RefreshRegistration()
 	if active then list.insert(Light.instances, self) else remove_instance(self) end
 end
 
-function Light:OnCreate()
-	if self.Visible then
-		self.registered = true
-		list.insert(Light.instances, self)
-	end
-end
-
 function Light:OnRemove()
 	self.registered = false
 	remove_instance(self)
@@ -68,6 +61,7 @@ end
 
 Light.OnHide = Light.RefreshRegistration
 Light.OnShow = Light.RefreshRegistration
+Light.OnAdd = Light.RefreshRegistration
 Light.OnEntityConstructed = Light.RefreshRegistration
 
 function Light.GetInstances()
