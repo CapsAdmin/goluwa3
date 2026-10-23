@@ -75,6 +75,7 @@ return {
 						{"depth_tex", "int"},
 						{"velocity_tex", "int"},
 						{"translucent_motion_tex", "int"},
+						{"translucent_additive_tex", "int"},
 						post_source.pre_exposure_block,
 						{"history_valid", "int"},
 						{"max_feedback", "float"},
@@ -106,6 +107,9 @@ return {
 							-1
 						block.translucent_motion_tex = render3d.IsPassEnabled("translucent") and
 							self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(2)) or
+							-1
+						block.translucent_additive_tex = render3d.IsPassEnabled("translucent") and
+							self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(3)) or
 							-1
 						post_source.WritePreExposureBlock(self, block)
 
@@ -243,10 +247,12 @@ return {
 				if (taa_data.translucent_motion_tex != -1) {
 					vec4 translucent = texelFetch(TEXTURE(taa_data.translucent_motion_tex), pixel, 0);
 					float coverage = min(translucent.b, 1.0);
+					float emission = dot(texelFetch(TEXTURE(taa_data.translucent_additive_tex), pixel, 0).rgb, vec3(1.0));
+					reactive = max(smoothstep(0.0, 0.02, emission), 0.6 * smoothstep(0.0, 0.2, coverage));
 
 					if (coverage > 0.0) {
 						vec2 translucent_prev_uv = uv - translucent.rg / translucent.b;
-						reactive = 2.0 * min(coverage, 1.0 - coverage) * smoothstep(0.5, 2.0, length((translucent_prev_uv - prev_uv) * vec2(size)));
+						reactive = max(reactive, 2.0 * min(coverage, 1.0 - coverage) * smoothstep(0.5, 2.0, length((translucent_prev_uv - prev_uv) * vec2(size))));
 
 						if (coverage > 0.5) {
 							prev_uv = translucent_prev_uv;
@@ -317,9 +323,7 @@ return {
 						post_source.pre_exposure_block,
 					},
 					write = function(self, block)
-						block.source_tex = self:GetTextureIndex(
-							render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
-						)
+						block.source_tex = self:GetTextureIndex(render3d.pipelines.taa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1))
 						block.strength = strength:Get()
 						post_source.WritePreExposureBlock(self, block)
 						return block
