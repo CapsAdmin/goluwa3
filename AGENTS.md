@@ -127,7 +127,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/foliage.md](docs/foliage.md): procedural trees, grass, rocks and plants (addons/foliage), their textures, model assets and scatter sets
 - [docs/terrain-streaming.md](docs/terrain-streaming.md): the Limcore Terrain project (heightmap clipmap, tessellation) and what was taken from it for tiles
 - [docs/crysis.md](docs/crysis.md): Crysis level loading, terrain, vegetation, water, performance
-- [docs/navigation-and-npcs.md](docs/navigation-and-npcs.md): Source `.nav` meshes, pathfinding, NPC prefabs that walk with Source animations, simulation LOD
+- [docs/navigation-and-npcs.md](docs/navigation-and-npcs.md): probed-grid pathfinding, NPC prefabs that walk with Source animations, simulation LOD
 - [docs/physics.md](docs/physics.md): solver, stress testing, buoyancy, Source props, physgun, toolgun and constraint entities, game undo history
 - [docs/characters.md](docs/characters.md): the shared character (controller, pose state, biped skeleton, drivers, sockets)
 - [docs/animation-and-source.md](docs/animation-and-source.md): skeletal animation, Source content, threaded codecs

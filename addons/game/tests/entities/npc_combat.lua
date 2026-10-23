@@ -16,7 +16,7 @@ import("addons/game/lua/autorun/characters.lua")
 local function create_ground()
 	return Entity.New{
 		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(300, 1, 300)},
-		rigid_body = {MotionType = "static", Shape = BoxShape.New(Vec3(1, 1, 1))},
+		rigid_body = {MotionType = "static", WorldGeometry = true, Shape = BoxShape.New(Vec3(1, 1, 1))},
 	}
 end
 
@@ -82,6 +82,27 @@ T.TestPhysics("npc without a weapon does not shoot", function()
 	local player = create_target(Vec3(6, 0.05, 0))
 	run(4)
 	T(player.health.Health)["=="](player.health.MaxHealth)
+end)
+
+T.TestPhysics("an armed npc with nothing to shoot at wanders", function()
+	create_ground()
+	local gunman = create_gunman(Vec3(0, 0.05, 0))
+	gunman.ai_controller:SetWander(true)
+	gunman.ai_controller:SetWanderMinDelay(0)
+	gunman.ai_controller:SetWanderMaxDelay(0.1)
+	local moved = false
+
+	for _ = 1, 30 * 60 do
+		physics.UpdateFixed(1 / 60)
+
+		if gunman.transform:GetPosition():Distance(Vec3(0, 0, 0)) > 3 then
+			moved = true
+
+			break
+		end
+	end
+
+	T(moved)["=="](true)
 end)
 
 T.TestPhysics("a physgun is held by an npc as it is by a player", function()

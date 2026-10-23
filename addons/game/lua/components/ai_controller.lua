@@ -3,7 +3,8 @@ local Entity = import("goluwa/entities/entity.lua")
 local network = import("goluwa/network/network.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local damage = import("lua/damage.lua")
-local nav_mesh = import("goluwa/entities/components/nav_mesh.lua")
+local physics = import("goluwa/physics.lua")
+local GridNav = import("goluwa/navigation/grid_nav.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local CharacterMovement = import("lua/components/character_movement.lua")
@@ -18,8 +19,7 @@ META:GetSet("TurnSpeed", 8)
 META:GetSet("Radius", 16 * UNIT)
 META:GetSet("Height", 72 * UNIT)
 META:GetSet("StepHeight", 18 * UNIT)
-META:GetSet("MaxClimb", 0.45)
-META:GetSet("MaxDrop", 3)
+META:GetSet("MaxDrop", 1.2)
 META:IsSet("Running", false)
 META:IsSet("Wander", true)
 META:GetSet("WanderRadius", 30)
@@ -46,17 +46,21 @@ local STUCK_DISTANCE = 0.2
 local STUCK_LIMIT = 3
 local STUCK_PROBE = 0.6
 local BLOCK_TIME = 10
-local LOST_INTERVAL = 0.5
-local LOST_TIME = 5
-local LOST_HEIGHT = 2
-local LOST_DISTANCE = 60
+local SEARCH_SLICE = 0.001
+local SEARCH_STEP_BUDGET = 0.004
+local PARTIAL_LIMIT = 4
 -- friction takes a fixed share of the stop speed every tick, a slow walker has to be able to out accelerate it
 local STOP_SPEED_SHARE = 0.5
 local WANDER_MIN_DISTANCE = 4
-local WANDER_TRIES = 4
+local WANDER_TRIES = 6
 local TARGET_INTERVAL = 0.25
 local TARGET_CHEST = 0.6
 local AIM_TOLERANCE = 0.04
+
+function GridNav.IsObstacle(body)
+	local owner = body.Owner
+	return not owner.ragdoll_part and not owner.character_movement
+end
 
 function META:Initialize()
 	-- an npc in a prefab is added while its entity is being built and initialized once more when the build ends
@@ -69,7 +73,6 @@ function META:Initialize()
 	self.yaw = math.atan2(-forward.x, -forward.z)
 	self.time = 0
 	self.wander_time = 0
-	self.lost_check = 0
 	self.blocked = {}
 	self.stuck_failures = 0
 	self.stuck_time = 0
@@ -121,6 +124,8 @@ end
 function META:MoveTo(position, running)
 	self.goal = position:Copy()
 	self.path = nil
+	self.search = nil
+	self.partial_count = 0
 	self.stuck_failures = 0
 
 	if running ~= nil then self:SetRunning(running) end
@@ -129,40 +134,61 @@ end
 function META:Stop()
 	self.goal = nil
 	self.path = nil
+	self.search = nil
 end
 
 function META:Finish(event_name)
 	self.goal = nil
 	self.path = nil
+	self.search = nil
 	self.wander_time = self.time + math.randomf(self.WanderMinDelay, self.WanderMaxDelay)
 	self.Owner:CallLocalEvent(event_name)
 end
 
-function META:GetPathOptions()
-	local blocked = {}
-
-	for area, expires in pairs(self.blocked) do
-		if expires > self.time then
-			blocked[area] = true
-		else
-			self.blocked[area] = nil
-		end
-	end
-
-	return {
-		Radius = self.Radius,
-		MaxClimb = self.MaxClimb,
-		MaxDrop = self.MaxDrop,
-		Blocked = blocked,
-	}
+function META:GetNav()
+	return GridNav.Get(self.Radius, self.Height, self.StepHeight, self.MaxDrop)
 end
 
-function META:FindPath(position, mesh)
-	if not mesh then return self:Finish("OnNPCPathFailed") end
+do
+	local budget_step, budget_left = -1, 0
 
-	local path = mesh:FindPath(position, self.goal, self:GetPathOptions())
+	function META:StepSearch()
+		local step = physics.instance.StepIndex
 
-	if not path then return self:Finish("OnNPCPathFailed") end
+		if step ~= budget_step then
+			budget_step, budget_left = step, SEARCH_STEP_BUDGET
+		end
+
+		if budget_left <= 0 then return false end
+
+		local started = os.clock()
+		local done = self:GetNav():Step(self.search, math.min(SEARCH_SLICE, budget_left))
+		budget_left = budget_left - (os.clock() - started)
+		return done
+	end
+end
+
+function META:BeginSearch(position)
+	local blocked = self.blocked
+
+	for key, expires in pairs(blocked) do
+		if expires <= self.time then blocked[key] = nil end
+	end
+
+	self.search = self:GetNav():BeginSearch(position, self.goal, self.Owner, blocked)
+end
+
+function META:FinishSearch()
+	local path = self.search.path
+	self.search = nil
+
+	if #path.points < 2 and not path.complete then
+		return self:Finish("OnNPCPathFailed")
+	end
+
+	if path.exhausted and not path.complete then
+		return self:Finish("OnNPCPathFailed")
+	end
 
 	self.path = path
 	self.path_index = 2
@@ -177,29 +203,8 @@ function META:OnStuck(position)
 		return self:Finish("OnNPCPathFailed")
 	end
 
-	local mesh = nav_mesh.GetMesh()
-	local path = self.path
-	local current = mesh:GetAreaAt(position)
-	local expires = self.time + BLOCK_TIME
-
-	for i, link in ipairs(path.links) do
-		if path.areas[i] == current then
-			self.blocked[link] = expires
-
-			break
-		end
-	end
-
-	local ahead = mesh:GetAreaAt(
-		Vec3(
-			position.x + self.dir_x * STUCK_PROBE,
-			position.y,
-			position.z + self.dir_z * STUCK_PROBE
-		)
-	)
-
-	if ahead and ahead ~= current then self.blocked[ahead] = expires end
-
+	local ix, iz = self:GetNav():GetColumn(position.x + self.dir_x * STUCK_PROBE, position.z + self.dir_z * STUCK_PROBE)
+	self.blocked[GridNav.ColumnKey(ix, iz)] = self.time + BLOCK_TIME
 	self.path = nil
 end
 
@@ -220,59 +225,45 @@ function META:Steer(position)
 	end
 end
 
-function META:ReturnToMesh(mesh, position)
-	local area, x, y, z = mesh:GetNearestArea(position, LOST_DISTANCE)
-	self.lost_since = nil
-
-	if area then self:Teleport(Vec3(x, y + 0.1, z)) end
-end
-
 function META:Think(dt, position)
 	self.time = self.time + dt
-	local mesh = nav_mesh.GetMesh()
-
-	if mesh and self.time >= self.lost_check then
-		self.lost_check = self.time + LOST_INTERVAL
-
-		if mesh:GetAreaAt(position, LOST_HEIGHT) then
-			self.lost_since = nil
-		else
-			self.lost_since = self.lost_since or self.time
-
-			if self.time - self.lost_since >= LOST_TIME then
-				return self:ReturnToMesh(mesh, position)
-			end
-		end
-	end
-
 	if not self.goal then
 		if self.Wander and self.time >= self.wander_time then
 			self.wander_time = self.time + 1
-			local reachable = mesh and mesh:GetReachableAreas(position, self:GetPathOptions())
+			local point = self:GetNav():GetRandomPoint(position, self.WanderRadius, WANDER_TRIES)
 
-			if reachable then
-				for _ = 1, WANDER_TRIES do
-					local point = mesh:GetRandomPoint(position, self.WanderRadius, reachable)
-
-					if point and point:Distance(position) >= WANDER_MIN_DISTANCE then
-						self:MoveTo(point)
-
-						break
-					end
-				end
+			if point and point:Distance(position) >= WANDER_MIN_DISTANCE then
+				self:MoveTo(point)
 			end
 		end
 
 		return
 	end
 
-	if not self.path then self:FindPath(position, mesh) end
+	if not self.path then
+		if not self.search then self:BeginSearch(position) end
+
+		if not self:StepSearch() then return end
+
+		self:FinishSearch()
+	end
 
 	if not self.path then return end
 
 	self.dir_x, self.dir_z = self:Steer(position)
 
-	if not self.dir_x then return self:Finish("OnNPCArrived") end
+	if not self.dir_x then
+		if self.path.complete then return self:Finish("OnNPCArrived") end
+
+		self.partial_count = self.partial_count + 1
+
+		if self.partial_count > PARTIAL_LIMIT then
+			return self:Finish("OnNPCPathFailed")
+		end
+
+		self.path = nil
+		return
+	end
 
 	local stuck_position = self.stuck_position
 
@@ -297,13 +288,10 @@ function META:Think(dt, position)
 end
 
 function META:Advance(position, dir_x, dir_z, distance)
-	local mesh = nav_mesh.GetMesh()
 	local x, z = position.x + dir_x * distance, position.z + dir_z * distance
-	local y = position.y
-	local area = mesh:GetAreaAt(Vec3(x, y, z), self.MaxDrop)
-
-	if area then y = mesh:GetHeight(area, x, z) end
-
+	local nav = self:GetNav()
+	local ix, iz = nav:GetColumn(x, z)
+	local y = nav:GetGround(ix, iz, position.y) or position.y
 	self.Owner.character_movement:MoveBodyBy(self.Owner.rigid_body, Vec3(x - position.x, y - position.y, z - position.z))
 end
 
@@ -512,5 +500,4 @@ function META:NextCommand(dt)
 end
 
 CharacterMovement.RegisterController("ai_controller")
-
 return META:Register()

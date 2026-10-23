@@ -22,7 +22,6 @@ function Entity.GetValidComponents()
 		valid_components.spawn_point = import("goluwa/entities/components/spawn_point.lua")
 		valid_components.visibility = import("goluwa/entities/components/visibility.lua")
 		valid_components.source_light = import("goluwa/entities/components/source_light.lua")
-		valid_components.nav_mesh = import("goluwa/entities/components/nav_mesh.lua")
 
 		if RENDER_3D then
 			valid_components.visual = import("goluwa/entities/components/visual.lua")

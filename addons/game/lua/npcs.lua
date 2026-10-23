@@ -1,6 +1,6 @@
 local prefab = import("goluwa/entities/prefab.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local nav_mesh = import("goluwa/entities/components/nav_mesh.lua")
+local GridNav = import("goluwa/navigation/grid_nav.lua")
 local commands = import("goluwa/cli/commands.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -163,7 +163,11 @@ function npcs.Register(name, info)
 						ai_controller = npc,
 						weapon_holder = info.Weapon and {} or nil,
 						ragdoll = info.Biped and {CorpseTime = 20, Profile = info.Ragdoll} or nil,
-						health = {Health = info.Health or 50, MaxHealth = info.Health or 50, RemoveOnDeath = not info.Biped},
+						health = {
+							Health = info.Health or 50,
+							MaxHealth = info.Health or 50,
+							RemoveOnDeath = not info.Biped,
+						},
 					},
 				},
 			},
@@ -181,7 +185,6 @@ function npcs.Spawn(name, position, yaw)
 
 	if entity.ai_controller:HasAuthority() then
 		entity.ai_controller:Teleport(position, yaw)
-
 		local weapon = npcs.Definitions[name].Weapon
 
 		if weapon then entity.weapon_holder:Give(weapon) end
@@ -190,12 +193,10 @@ function npcs.Spawn(name, position, yaw)
 	return entity
 end
 
-function npcs.SpawnOnMesh(name, around, radius)
-	local mesh = nav_mesh.GetMesh()
-	assert(mesh, "there is no navigation mesh, load a map that has a nav file")
+function npcs.SpawnNear(name, around, radius)
 	local position = assert(
-		mesh:GetRandomPoint(around, radius),
-		"no place on the navigation mesh to spawn on"
+		GridNav.Get(0.3, 1.4, 0.35, 1.2):GetRandomPoint(around, radius, 30),
+		"no ground to spawn on near that position"
 	)
 	return npcs.Spawn(name, position + Vec3(0, 0.05, 0), math.randomf(-math.pi, math.pi))
 end
@@ -218,7 +219,7 @@ commands.Add("npc_spawn=string,number|nil", function(name, count)
 	)
 
 	for _ = 1, count or 1 do
-		npcs.SpawnOnMesh(name, render3d and render3d.GetCamera():GetPosition(), 30)
+		npcs.SpawnNear(name, render3d and render3d.GetCamera():GetPosition(), 30)
 	end
 end)
 
