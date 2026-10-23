@@ -4,20 +4,15 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
-local SAMPLES = 16
-local PROBES = 8
+local exposure_model = import("goluwa/render3d/exposure.lua")
+local MIN_SAMPLES = 8
+local MAX_SAMPLES = 48
+local PROBES = 16
 pvars.StartGroup("Post", "Motion blur", {store = false, prefix = "motion_blur_"})
 render3d.motion_blur_enabled = pvars.Setup2{
 	key = "r_motion_blur",
 	default = true,
 	help = "blur along each pixel's screen motion, from the velocity buffer",
-}
-local shutter = pvars.Setup2{
-	key = "r_motion_blur_shutter",
-	default = 1 / 60,
-	min = 0.002,
-	max = 0.1,
-	help = "how long the virtual shutter stays open in seconds. the blur is the motion over the frame times shutter / frame time, so a low framerate smears each step instead of showing it",
 }
 local max_length = pvars.Setup2{
 	key = "r_motion_blur_max",
@@ -25,6 +20,11 @@ local max_length = pvars.Setup2{
 	min = 4,
 	max = 160,
 	help = "the longest blur in pixels",
+}
+local trailing = pvars.Setup2{
+	key = "r_motion_blur_trailing",
+	default = true,
+	help = "blur only behind what moves, like a shutter that closes on the frame, so the leading edge stays at its true position. Off blurs both ways around the frame, which stretches things ahead of where they are",
 }
 pvars.EndGroup()
 return {
@@ -45,9 +45,12 @@ return {
 						{"source_tex", "int"},
 						{"depth_tex", "int"},
 						{"velocity_tex", "int"},
+						{"translucent_motion_tex", "int"},
 						post_source.pre_exposure_block,
-						{"blur_scale", "float"},
+						exposure_model.camera_block,
+						{"frame_time", "float"},
 						{"max_length", "float"},
+						{"trailing", "int"},
 						{"frame", "int"},
 					},
 					write = function(self, block)
@@ -58,26 +61,33 @@ return {
 						block.velocity_tex = render3d.velocity_enabled:Get() and
 							self:GetTextureIndex(gbuffer_layout.GetTexture("velocity")) or
 							-1
+						block.translucent_motion_tex = render3d.IsPassEnabled("translucent") and
+							self:GetTextureIndex(render3d.pipelines.translucent_accumulate:GetFramebuffer():GetAttachment(2)) or
+							-1
 						post_source.WritePreExposureBlock(self, block)
-						block.blur_scale = shutter:Get() / math.max(system.GetFrameTime(), 0.0001)
+						exposure_model.WriteCameraBlock(block)
+						block.frame_time = math.max(system.GetFrameTime(), 0.0001)
 						block.max_length = max_length:Get()
+						block.trailing = trailing:Get() and 1 or 0
 						block.frame = system.GetFrameNumber()
 						return block
 					end,
 				},
 			},
 			shader = [[
-]] .. post_source.GetCompressGLSL() .. post_source.GetPreExposureGLSL("mb_data") .. [[
+]] .. post_source.GetCompressGLSL() .. post_source.GetPreExposureGLSL("mb_data") .. exposure_model.GetCameraSettingsGLSL("mb_data") .. [[
 
 ]] .. screen_reconstruct.GetViewRayFromUVGLSL("mb_data") .. [[
 
 ]] .. screen_reconstruct.GetViewDepthGLSL("mb_data") .. screen_reconstruct.GetViewPosGLSL("mb_data") .. [[
 
-			const int SAMPLES = ]] .. SAMPLES .. [[;
+			const int MIN_SAMPLES = ]] .. MIN_SAMPLES .. [[;
+			const int MAX_SAMPLES = ]] .. MAX_SAMPLES .. [[;
 			const int PROBES = ]] .. PROBES .. [[;
 
 			ivec2 size;
 			float exposure;
+			float blur_scale;
 
 			vec2 get_blur(ivec2 pixel, float depth) {
 				pixel = clamp(pixel, ivec2(0), size - 1);
@@ -96,12 +106,17 @@ return {
 						prev_clip = mb_data.prev_projection * mat4(mat3(mb_data.prev_view)) * vec4(get_view_ray(uv), 1.0);
 					}
 
-					if (prev_clip.w <= 0.0001) return vec2(0.0);
-
-					motion = uv - (prev_clip.xy / prev_clip.w * 0.5 + 0.5);
+					motion = prev_clip.w <= 0.0001 ? vec2(0.0) : uv - (prev_clip.xy / prev_clip.w * 0.5 + 0.5);
 				}
 
-				vec2 blur = motion * vec2(size) * mb_data.blur_scale;
+				if (mb_data.translucent_motion_tex != -1) {
+					vec4 translucent = texelFetch(TEXTURE(mb_data.translucent_motion_tex), pixel, 0);
+					float coverage = min(translucent.b, 1.0);
+
+					if (coverage > 0.0) motion = mix(motion, translucent.rg / translucent.b, coverage);
+				}
+
+				vec2 blur = motion * vec2(size) * blur_scale;
 				float len = length(blur);
 				float keep = smoothstep(1.0, 2.5, len) * min(mb_data.max_length / max(len, 1e-4), 1.0);
 				return blur * keep;
@@ -117,6 +132,7 @@ return {
 
 			void main() {
 				size = textureSize(TEXTURE(mb_data.source_tex), 0);
+				blur_scale = mb_data.pre_exposure_tex != -1 ? camera_settings(get_exposure()).z / mb_data.frame_time : 1.0;
 				ivec2 pixel = ivec2(gl_FragCoord.xy);
 				vec2 uv = (vec2(pixel) + 0.5) / vec2(size);
 				exposure = mb_data.pre_exposure_tex != -1 ? ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : 1.0;
@@ -125,16 +141,19 @@ return {
 				vec2 center_blur = get_blur(pixel, center_depth);
 				float center_z = get_view_depth(uv, center_depth);
 
+				float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)) + float(mb_data.frame % 8) * 0.618034));
+				float reach_scale = mb_data.trailing != 0 ? 1.0 : 2.0;
 				vec2 direction = center_blur;
-				float probe_radius = 0.5 * mb_data.max_length;
 
 				for (int i = 0; i < PROBES; i++) {
-					float angle = 6.2831853 * (float(i) + 0.5) / float(PROBES);
-					vec2 offset = vec2(cos(angle), sin(angle)) * probe_radius;
-					ivec2 p = clamp(pixel + ivec2(offset), ivec2(0), size - 1);
+					float f = (float(i) + 0.5) / float(PROBES);
+					float angle = 2.39996323 * float(i) + 6.2831853 * jitter;
+					float dist = mb_data.max_length * f * f;
+					ivec2 p = clamp(pixel + ivec2(vec2(cos(angle), sin(angle)) * dist), ivec2(0), size - 1);
 					vec2 blur = get_blur(p, texelFetch(TEXTURE(mb_data.depth_tex), p, 0).r);
+					float blur_len = length(blur);
 
-					if (length(blur) > length(direction) && length(blur) > probe_radius) direction = blur;
+					if (blur_len > length(direction) && dist * reach_scale <= blur_len) direction = blur;
 				}
 
 				float len = length(direction);
@@ -144,17 +163,19 @@ return {
 					return;
 				}
 
-				float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)) + float(mb_data.frame % 8) * 0.618034)) - 0.5;
+				int count = clamp(int(ceil(len * 0.5)), MIN_SAMPLES, MAX_SAMPLES);
+				float shift = mb_data.trailing != 0 ? 0.0 : 0.5;
+				float noise = jitter - 0.5;
 				vec3 sum = vec3(0.0);
 				float total = 0.0;
-				float center_weight = float(SAMPLES) / max(len, 1.0);
+				float center_weight = float(count) / max(len, 1.0);
 				sum += compress(center.rgb, exposure) * center_weight;
 				total += center_weight;
 
-				for (int i = 0; i < SAMPLES; i++) {
-					float t = (float(i) + 0.5 + noise) / float(SAMPLES) - 0.5;
+				for (int i = 0; i < count; i++) {
+					float t = (float(i) + 0.5 + noise) / float(count) - shift;
 					ivec2 p = clamp(pixel + ivec2(round(direction * t)), ivec2(0), size - 1);
-					float dist = abs(t) * len;
+					float dist = abs(t) * len * reach_scale;
 					float depth = texelFetch(TEXTURE(mb_data.depth_tex), p, 0).r;
 					float z = get_view_depth((vec2(p) + 0.5) / vec2(size), depth);
 					float extent = 0.1 * center_z + 0.1;
