@@ -8,6 +8,8 @@ local model_loader = import("goluwa/render3d/model_loader.lua")
 local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local render = import("goluwa/render/render.lua")
+local raycast = import("goluwa/render3d/raycast.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local ffi = require("ffi")
 
 local function create_skeleton()
@@ -90,6 +92,43 @@ T.Test3D("animator skins a primitive on the gpu without touching the shared mesh
 	T(bind[1])["=="](y)
 	animator:Unbind()
 	T(primitive:GetPolygon3D())["=="](poly)
+	entity:Remove()
+end)
+
+T.Test3D("raycasts hit an animated primitive where it is posed and not where it was bound", function(draw)
+	local skeleton = create_skeleton()
+	local entity, primitive, poly = create_animated_entity(skeleton)
+	local animator = entity:AddComponent("animator")
+	local count = poly.mesh.vertex_buffer:GetVertexCount()
+	local bind = ffi.cast("float*", poly.mesh.vertex_buffer.data)
+	local bind_x, bind_y = 0, 0
+
+	for i = 0, count - 1 do
+		bind_x = bind_x + bind[i * 17] / count
+		bind_y = bind_y + bind[i * 17 + 1] / count
+	end
+
+	animator:Bind(skeleton)
+	animator:SetSequence("swing")
+	animator:SetPlaying(false)
+	animator:SetTime(0.5)
+	animator:Animate(0)
+	draw()
+	render.GetDevice():WaitIdle()
+	local skinned = ffi.cast("float*", primitive:GetPolygon3D().mesh.vertex_buffer:GetBuffer():Map())
+	local posed_x, posed_y = 0, 0
+
+	for i = 0, count - 1 do
+		posed_x = posed_x + skinned[i * 17] / count
+		posed_y = posed_y + skinned[i * 17 + 1] / count
+	end
+
+	T(math.abs(posed_x - bind_x) + math.abs(posed_y - bind_y))[">"](0.5)
+	local at_pose = raycast.CastClosest(Vec3(posed_x, posed_y, 10), Vec3(0, 0, -1), 100)
+	T(at_pose ~= nil)["=="](true)
+	T(at_pose.entity)["=="](entity)
+	T(raycast.CastClosest(Vec3(bind_x, bind_y, 10), Vec3(0, 0, -1), 100))["=="](nil)
+	animator:Unbind()
 	entity:Remove()
 end)
 

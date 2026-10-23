@@ -327,7 +327,11 @@ function Polygon3D:Upload(indices)
 	end
 
 	if Mesh then
-		self.mesh = (self.Dynamic and Mesh.New or Mesh.NewDeduped)(vertex_attributes, vertices, indices, index_type, index_count)
+		self.mesh = (
+			self.Dynamic and
+			Mesh.New or
+			Mesh.NewDeduped
+		)(vertex_attributes, vertices, indices, index_type, index_count)
 	end
 end
 
@@ -358,6 +362,7 @@ function Polygon3D:CloneDynamic(vertex_buffer)
 	clone:SetLODBillboard(self.LODBillboard)
 	clone.indices = self.indices
 	clone.Skin = self.Skin
+	clone.SkinSource = self
 	clone.Dynamic = true
 	clone.mesh = self.mesh:CloneDynamic(vertex_buffer)
 	return clone

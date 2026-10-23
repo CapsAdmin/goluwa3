@@ -241,6 +241,56 @@ function skinning.GetBoneBuffer(skin, vertex_count)
 	return skin.GpuBuffer
 end
 
+function skinning.PosePositions(skin, matrices, vertices, count, out)
+	local indices, weights = skin.BoneIndices, skin.BoneWeights
+
+	for i = 0, count - 1 do
+		local s = i * 4
+		local pos = vertices[i + 1].pos
+		local x, y, z = pos.x, pos.y, pos.z
+		local w = weights[s]
+		local o = indices[s] * 12
+		local px = (matrices[o] * x + matrices[o + 1] * y + matrices[o + 2] * z + matrices[o + 3]) * w
+		local py = (matrices[o + 4] * x + matrices[o + 5] * y + matrices[o + 6] * z + matrices[o + 7]) * w
+		local pz = (matrices[o + 8] * x + matrices[o + 9] * y + matrices[o + 10] * z + matrices[o + 11]) * w
+
+		if w < 0.9999 then
+			w = weights[s + 1]
+
+			if w > 0 then
+				o = indices[s + 1] * 12
+				px = px + (
+						matrices[o] * x + matrices[o + 1] * y + matrices[o + 2] * z + matrices[o + 3]
+					) * w
+				py = py + (
+						matrices[o + 4] * x + matrices[o + 5] * y + matrices[o + 6] * z + matrices[o + 7]
+					) * w
+				pz = pz + (
+						matrices[o + 8] * x + matrices[o + 9] * y + matrices[o + 10] * z + matrices[o + 11]
+					) * w
+			end
+
+			w = weights[s + 2]
+
+			if w > 0 then
+				o = indices[s + 2] * 12
+				px = px + (
+						matrices[o] * x + matrices[o + 1] * y + matrices[o + 2] * z + matrices[o + 3]
+					) * w
+				py = py + (
+						matrices[o + 4] * x + matrices[o + 5] * y + matrices[o + 6] * z + matrices[o + 7]
+					) * w
+				pz = pz + (
+						matrices[o + 8] * x + matrices[o + 9] * y + matrices[o + 10] * z + matrices[o + 11]
+					) * w
+			end
+		end
+
+		local d = i * 3
+		out[d], out[d + 1], out[d + 2] = px, py, pz
+	end
+end
+
 function skinning.GetMorphData(skin, vertex_count)
 	if skin.GpuMorph ~= nil then return skin.GpuMorph end
 

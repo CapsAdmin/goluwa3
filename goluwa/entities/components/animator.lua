@@ -199,6 +199,10 @@ function Animator:Bind(skeleton)
 	end
 
 	self.rig = Rig.New(skeleton, parts)
+
+	for _, target in ipairs(self.targets) do
+		target.primitive:GetPolygon3D().SkinRig = self.rig
+	end
 end
 
 function Animator:OnRemove()

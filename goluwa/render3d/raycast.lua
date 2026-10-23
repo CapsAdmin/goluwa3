@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
@@ -6,6 +7,7 @@ local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local raycast = {}
 import.loaded["goluwa/render3d/raycast.lua"] = raycast
 local Visual = import("goluwa/entities/components/visual.lua")
+local skinning = import("goluwa/render3d/skinning.lua")
 local BVH_BUILD_TRIANGLE_THRESHOLD = 8
 local BVH_LEAF_TRIANGLE_COUNT = 8
 local MODEL_BVH_LEAF_ITEM_COUNT = 8
@@ -504,52 +506,20 @@ local function visit_triangle_bvh_leaf(node, context, best_hit, best_distance)
 	return best_hit, best_distance
 end
 
-local function test_primitive_with_limit(
-	ray,
-	local_ray,
+local function test_static_polygon(
 	primitive,
+	poly3d,
+	primitive_ray,
 	primitive_idx,
 	entity,
-	local_to_world,
-	max_hit_distance
+	max_hit_distance,
+	cull_back
 )
-	if primitive.aabb then
-		local aabb_hit = BVH.RayAABBIntersection(local_ray, primitive.aabb)
-
-		if not aabb_hit then return nil end
-	end
-
-	if primitive.brush_planes then
-		local brush_hit = test_convex_plane_primitive(
-			local_ray,
-			primitive.brush_planes,
-			primitive_idx,
-			entity,
-			max_hit_distance
-		)
-
-		if brush_hit then brush_hit.primitive = primitive end
-
-		return brush_hit
-	end
-
-	local poly3d = primitive.polygon3d
-
-	if not poly3d then return nil end
-
-	local primitive_ray = local_ray
-
-	if primitive.local_matrix_inverse then
-		primitive_ray = transform_ray(local_ray, primitive.local_matrix_inverse)
-	end
-
 	local vertices = get_mesh_vertices(poly3d)
 
 	if not vertices then return nil end
 
 	local closest_hit = nil
-	local material = primitive.material
-	local cull_back = material ~= nil and not material:GetDoubleSided()
 	local indices, triangle_count = get_index_buffer(poly3d, vertices, poly3d.indices)
 	local acceleration = get_triangle_acceleration(primitive, vertices, indices, triangle_count)
 
@@ -593,6 +563,145 @@ local function test_primitive_with_limit(
 		end
 	end
 
+	return closest_hit
+end
+
+local function test_skinned_polygon(ray, poly3d, primitive_idx, entity, max_hit_distance, cull_back)
+	local source = poly3d.SkinSource
+	local vertices = get_mesh_vertices(source)
+
+	if not vertices then return nil end
+
+	local rig = poly3d.SkinRig
+	local count = #vertices
+	local posed = poly3d.raycast_posed
+
+	if not posed or posed.count ~= count then
+		posed = {version = -1, count = count, positions = ffi.new("float[?]", count * 3)}
+		poly3d.raycast_posed = posed
+	end
+
+	if posed.version ~= rig.version then
+		skinning.PosePositions(poly3d.Skin, rig.matrices, vertices, count, posed.positions)
+		posed.version = rig.version
+	end
+
+	local indices, triangle_count = get_index_buffer(source, vertices, source.indices)
+	local positions = posed.positions
+	local origin, direction = ray.origin, ray.direction
+	local ox, oy, oz = origin.x, origin.y, origin.z
+	local dx, dy, dz = direction.x, direction.y, direction.z
+	local best_t = max_hit_distance or math.huge
+	local best_tri, best_nx, best_ny, best_nz
+
+	for tri = 0, triangle_count - 1 do
+		local base = tri * 3
+		local a = (indices[base + 1] - 1) * 3
+		local b = (indices[base + 2] - 1) * 3
+		local c = (indices[base + 3] - 1) * 3
+		local ax, ay, az = positions[a], positions[a + 1], positions[a + 2]
+		local e1x, e1y, e1z = positions[b] - ax, positions[b + 1] - ay, positions[b + 2] - az
+		local e2x, e2y, e2z = positions[c] - ax, positions[c + 1] - ay, positions[c + 2] - az
+		local px, py, pz = dy * e2z - dz * e2y, dz * e2x - dx * e2z, dx * e2y - dy * e2x
+		local det = e1x * px + e1y * py + e1z * pz
+
+		if det > 1e-12 or det < -1e-12 then
+			local inv = 1 / det
+			local tx, ty, tz = ox - ax, oy - ay, oz - az
+			local u = (tx * px + ty * py + tz * pz) * inv
+
+			if u >= 0 and u <= 1 then
+				local qx, qy, qz = ty * e1z - tz * e1y, tz * e1x - tx * e1z, tx * e1y - ty * e1x
+				local v = (dx * qx + dy * qy + dz * qz) * inv
+
+				if v >= 0 and u + v <= 1 then
+					local t = (e2x * qx + e2y * qy + e2z * qz) * inv
+
+					if t > 0 and t < best_t then
+						local nx, ny, nz = e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x
+						local length = math.sqrt(nx * nx + ny * ny + nz * nz)
+						nx, ny, nz = nx / length, ny / length, nz / length
+
+						if not cull_back or nx * dx + ny * dy + nz * dz > 0 then
+							best_t, best_tri, best_nx, best_ny, best_nz = t, tri, nx, ny, nz
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if not best_tri then return nil end
+
+	local face_normal = Vec3(best_nx, best_ny, best_nz)
+	return {
+		entity = entity,
+		distance = best_t,
+		position = origin + direction * best_t,
+		primitive_index = primitive_idx,
+		triangle_index = best_tri,
+		face_normal = face_normal,
+		normal = face_normal,
+	}
+end
+
+local function test_primitive_with_limit(
+	ray,
+	local_ray,
+	primitive,
+	primitive_idx,
+	entity,
+	local_to_world,
+	max_hit_distance
+)
+	if primitive.aabb then
+		local aabb_hit = BVH.RayAABBIntersection(local_ray, primitive.aabb)
+
+		if not aabb_hit then return nil end
+	end
+
+	if primitive.brush_planes then
+		local brush_hit = test_convex_plane_primitive(
+			local_ray,
+			primitive.brush_planes,
+			primitive_idx,
+			entity,
+			max_hit_distance
+		)
+
+		if brush_hit then brush_hit.primitive = primitive end
+
+		return brush_hit
+	end
+
+	local poly3d = primitive.polygon3d
+
+	if not poly3d then return nil end
+
+	local primitive_ray = local_ray
+
+	if primitive.local_matrix_inverse then
+		primitive_ray = transform_ray(local_ray, primitive.local_matrix_inverse)
+	end
+
+	local material = primitive.material
+	local cull_back = material ~= nil and not material:GetDoubleSided()
+	local closest_hit
+
+	if poly3d.SkinRig then
+		closest_hit = test_skinned_polygon(primitive_ray, poly3d, primitive_idx, entity, max_hit_distance, cull_back)
+	else
+		closest_hit = test_static_polygon(
+			primitive,
+			poly3d,
+			primitive_ray,
+			primitive_idx,
+			entity,
+			max_hit_distance,
+			cull_back
+		)
+	end
+
 	if closest_hit then
 		closest_hit.poly = poly3d
 		closest_hit.primitive = primitive
@@ -604,9 +713,7 @@ local function test_primitive_with_limit(
 			primitive.local_matrix:TransformVectorUnpacked(local_position.x, local_position.y, local_position.z)
 		)
 		local normal_end = local_position + closest_hit.normal
-		local transformed_normal_end = Vec3(
-			primitive.local_matrix:TransformVectorUnpacked(normal_end.x, normal_end.y, normal_end.z)
-		)
+		local transformed_normal_end = Vec3(primitive.local_matrix:TransformVectorUnpacked(normal_end.x, normal_end.y, normal_end.z))
 		closest_hit.normal = (transformed_normal_end - closest_hit.position):GetNormalized()
 
 		if closest_hit.face_normal then
@@ -715,7 +822,9 @@ local function test_model_closest(
 
 	local primitives = get_spatial_primitives(model)
 
-	if not model.Visible or not model.Raycast or not (primitives and primitives[1]) then return nil end
+	if not model.Visible or not model.Raycast or not (primitives and primitives[1]) then
+		return nil
+	end
 
 	local world_to_local, local_to_world = get_model_transforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
@@ -798,7 +907,9 @@ local function collect_model_hits(ray, model, filter_fn, a, b, c, d, e, f, hits,
 
 	local primitives = get_spatial_primitives(model)
 
-	if not model.Visible or not model.Raycast or not (primitives and primitives[1]) then return end
+	if not model.Visible or not model.Raycast or not (primitives and primitives[1]) then
+		return
+	end
 
 	local world_to_local, local_to_world = get_model_transforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
@@ -1018,7 +1129,7 @@ function raycast.CastClosest(origin, direction, max_distance, filter_fn, a, b, c
 	return find_closest_hit(ray, filter_fn, a, b, c, d, e, f)
 end
 
-function raycast.CastClosestFromCamera(camera, filter_fn)
+function raycast.CastClosestFromCamera(camera, filter_fn, a)
 	local width, height = render2d.GetSize()
 	local origin = camera:GetPosition()
 	lod_camera_position = origin
@@ -1027,7 +1138,8 @@ function raycast.CastClosestFromCamera(camera, filter_fn)
 		origin,
 		camera:ScreenToWorldDirection(Vec2(width / 2, height / 2), width, height),
 		math.huge,
-		filter_fn
+		filter_fn,
+		a
 	)
 	lod_camera_position = nil
 
