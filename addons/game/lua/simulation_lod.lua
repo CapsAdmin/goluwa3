@@ -29,7 +29,7 @@ local function sort_by_distance(a, b)
 end
 
 function simulation_lod.Update(controllers)
-	local step = physics.StepIndex
+	local step = physics.instance.StepIndex
 
 	if observer_step and step >= observer_step and step - observer_step < RANK_INTERVAL then
 		return

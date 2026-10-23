@@ -15,7 +15,6 @@ Pathfinding probed out of the physics world, and NPC prefabs that walk a map wit
 - Only world geometry (`WorldGeometry` bodies, so the map, terrain heightmaps) is probed. Other rigid bodies taller than the step height are collected as inflated boxes once per search and tested per edge, so they are never cached and cost no physics query. Bodies are obstacles only, never ground. `GridNav.IsObstacle(body)` filters them; `ai_controller` excludes bodies of characters and ragdoll hitboxes (an npc's own hitboxes surround its start and would block every edge).  Geometry without collision (Crysis objects that have no collision mesh yet) is invisible to it.
 - A search stops after `max_nodes` (3000, roughly a 40 m radius). `path.complete` false with `path.exhausted` true means the reachable area ran out (the goal is unreachable); without `exhausted` it is the best partial path and the npc repaths when it reaches its end (`PARTIAL_LIMIT` times).
 - Cold cost is about 0.3 ms per node, a warm cache is almost free. `ai_controller` slices searches (1 ms per npc, 4 ms per physics step across all npcs), so a long first path takes a few seconds. Water is not detected.
-- `physics.StepIndex` is only set on `physics.instance`.
 
 ## NPCs
 
