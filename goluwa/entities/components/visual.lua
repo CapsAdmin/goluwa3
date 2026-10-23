@@ -63,7 +63,13 @@ local function refresh_shadow_registry(component)
 end
 
 local function refresh_forward_overlay_registry(component)
-	if not component.scene_removed and (component.HasIgnoreZRenderEntries or component.OverlayMaterial) then
+	if
+		not component.scene_removed and
+		(
+			component.HasIgnoreZRenderEntries or
+			component.OverlayMaterial
+		)
+	then
 		registry_insert(visual.forward_overlay_components, "forward_overlay_registry_index", component)
 	else
 		registry_remove(visual.forward_overlay_components, "forward_overlay_registry_index", component)
@@ -163,6 +169,8 @@ local function is_visual_dynamic(component)
 	local transform = owner and owner.transform
 	return transform and transform.IsFrameDynamic and transform:IsFrameDynamic() or false
 end
+
+visual.IsVisualDynamic = is_visual_dynamic
 
 local function add_scene_acceleration_item(items, component, bounds)
 	if not bounds or bounds.min_x > bounds.max_x then return nil end
@@ -427,7 +435,7 @@ local function rebuild_scene_tree_if_stale(acceleration, tree_field, pending_fie
 	local count = tree and #tree.components or 0
 
 	if
-		#pending <= math.max(256, count * 0.1) and
+		#pending <= math.max(32, count * 0.1) and
 		acceleration[dead_field] <= math.max(256, count * 0.25)
 	then
 		return
@@ -1294,9 +1302,7 @@ function Visual:GetLODEntriesAt(camera_position)
 	local center_x, center_y, center_z = (aabb.min_x + aabb.max_x) * 0.5,
 	(aabb.min_y + aabb.max_y) * 0.5,
 	(aabb.min_z + aabb.max_z) * 0.5
-	local dx, dy, dz = camera_position.x - center_x,
-	camera_position.y - center_y,
-	camera_position.z - center_z
+	local dx, dy, dz = camera_position.x - center_x, camera_position.y - center_y, camera_position.z - center_z
 	local extent_x, extent_y, extent_z = aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z
 	local radius = math.sqrt(extent_x * extent_x + extent_y * extent_y + extent_z * extent_z) * 0.5
 	local ratio = math.sqrt(dx * dx + dy * dy + dz * dz) / (
@@ -1570,10 +1576,7 @@ do
 		if not gpu_culling.culling_enabled then return true end
 
 		for i = 0, 20, 4 do
-			local a, b, c, d = frustum_planes[i],
-			frustum_planes[i + 1],
-			frustum_planes[i + 2],
-			frustum_planes[i + 3]
+			local a, b, c, d = frustum_planes[i], frustum_planes[i + 1], frustum_planes[i + 2], frustum_planes[i + 3]
 			local px = a > 0 and aabb.max_x or aabb.min_x
 			local py = b > 0 and aabb.max_y or aabb.min_y
 			local pz = c > 0 and aabb.max_z or aabb.min_z
