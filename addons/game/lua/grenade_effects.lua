@@ -9,7 +9,9 @@ local UP = Vec3(0, 1, 0)
 local TRAIL_COUNT = 10
 local GRAVITY = 9.8
 local SOUNDS = {"weapons/explode3.wav", "weapons/explode4.wav", "weapons/explode5.wav"}
-local clips, vfx, screen_shake, sounds, render3d
+local SCORCH_RADIUS = 0.35
+local SCORCH_AMOUNT = 0.35
+local clips, vfx, screen_shake, sounds, render3d, surface_effects
 
 local function enabled()
 	return RENDER_3D and import("goluwa/render/render.lua").IsInitialized()
@@ -32,6 +34,7 @@ local function init()
 	screen_shake = import("lua/screen_shake.lua")
 	sounds = import("lua/sounds.lua")
 	render3d = import("goluwa/render3d/render3d.lua")
+	surface_effects = import("goluwa/render3d/surface_effects.lua")
 	clips.Define(
 		"grenade_fuse",
 		{
@@ -307,6 +310,7 @@ grenade_effects.Explode = new_event(
 			"grenade_explosion",
 			{position = position:Copy(), normal = normal, color = FIRE, size = radius}
 		)
+		surface_effects.Apply("fire", position, radius * SCORCH_RADIUS, SCORCH_AMOUNT, normal)
 	end,
 	enabled
 )
