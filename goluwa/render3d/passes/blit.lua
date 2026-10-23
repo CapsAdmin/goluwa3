@@ -18,6 +18,20 @@ local grain_enabled = pvars.Setup2{
 	help = "film grain that grows with the ISO the camera would pick for the exposure",
 }
 pvars.EndGroup()
+pvars.StartGroup("Post", "Eye effects", {store = false})
+local eye_noise = pvars.Setup2{
+	key = "r_eye_noise",
+	default = 0.25,
+	min = 0,
+	max = 8,
+	help = "in eye mode the retina's own noise, the grain of a dark adapted eye: a floor of grey grain even in black plus photon noise that grows with the brightness shown, fading out as the eye adapts to brighter light (gone above a few cd/m2). It is relative to the picture shown, not the scene's absolute luminance, so it is seen. it is tinted purple, as the dark adapted eye sees it. 0 is off, 0.25 the default, 1 is a clear grain (about 2 of 255 frame to frame in a dark scene), 8 is heavy",
+}
+local eye_defocus = pvars.Setup2{
+	key = "r_eye_chromatic_defocus",
+	default = true,
+	help = "in eye mode the eye focuses green, so red and blue are slightly out of focus by the pupil's size, which blurs saturated lights at night",
+}
+pvars.EndGroup()
 local tonemappers = {agx = 0, agx_punchy = 1, aces = 2, gt7 = 3, neutral = 4}
 pvars.StartGroup("Post", "Display", {store = false})
 local tonemapper = pvars.Setup2{
@@ -549,6 +563,29 @@ local compute_shader = [[
 		vec2 uv = get_screen_uv(pos, size);
 		vec3 col = texture(source_tex, uv).rgb;
 
+		if (compute.eye_defocus != 0 && compute.has_exposure_tex != 0) {
+			float pupil_mm = 4.9 - 3.0 * tanh(0.4 * (log((exp2(texture(exposure_tex, vec2(0.5)).b - 3.0))) * 0.4342945 + 1.0));
+			vec2 radius = 0.5 * pupil_mm * 1e-3 * vec2(0.35, 0.9) * (180.0 / 3.14159265) * compute.pixels_per_degree;
+			vec2 texel = 1.0 / vec2(textureSize(source_tex, 0));
+			vec2 sum = vec2(col.r, col.b);
+			float angle_offset = 6.2831853 * fract(52.9829189 * fract(dot(vec2(pos), vec2(0.06711056, 0.00583715))));
+
+			if (max(radius.x, radius.y) > 0.3) {
+				for (int i = 0; i < 8; i++) {
+					float f = (float(i) + 0.5) / 8.0;
+					float angle = 2.39996323 * float(i) + angle_offset;
+					vec2 offset = vec2(cos(angle), sin(angle)) * sqrt(f) * texel;
+					sum += vec2(
+						texture(source_tex, clamp(uv + offset * radius.x, 0.5 * texel, 1.0 - 0.5 * texel)).r,
+						texture(source_tex, clamp(uv + offset * radius.y, 0.5 * texel, 1.0 - 0.5 * texel)).b
+					);
+				}
+
+				col.r = sum.x / 9.0;
+				col.b = sum.y / 9.0;
+			}
+		}
+
 		if (compute.white_balance_on != 0) {
 			vec2 illuminant = vec2(0.3127, 0.3290);
 
@@ -578,6 +615,15 @@ local compute_shader = [[
 		}
 
 		col = mix(col, vec3(dot(max(col, vec3(0.0)), ROD_RESPONSE)), (1.0 - cones) * compute.night_vision);
+
+		if (compute.eye_noise > 0.0) {
+			float shown = max(luminance(col) * exposure, 0.0);
+			float dark_adapted = 1.0 - smoothstep(-2.0, 0.5, (adapted_ev - 3.0) * 0.30103);
+			uint h = pcg_hash(uint(pos.x / 2) + pcg_hash(uint(pos.y / 2) + pcg_hash(uint(compute.frame) + 7919u)));
+			float noise = float(h & 0xffffu) / 65535.0 + float(h >> 16) / 65535.0 - 1.0;
+			float deviation = compute.eye_noise * dark_adapted * (0.0025 + 0.015 * sqrt(shown));
+			col = max(col + vec3(0.75, 0.35, 1.0) * (noise * deviation / max(exposure * display_scale, 1e-6)), vec3(0.0));
+		}
 
 		if (compute.grain != 0 && compute.has_exposure_tex != 0) {
 			float iso = camera_settings(texture(exposure_tex, vec2(0.5)).r).x;
@@ -764,6 +810,9 @@ for _, pass in ipairs{
 			{"white_balance", "float"},
 			{"white_balance_tint", "float"},
 			{"grain", "int"},
+			{"eye_noise", "float"},
+			{"eye_defocus", "int"},
+			{"pixels_per_degree", "float"},
 			exposure_model.camera_block,
 			grade.block,
 		},
@@ -795,6 +844,9 @@ for _, pass in ipairs{
 			block.white_balance = exposure_model.Get("camera.white_balance")
 			block.white_balance_tint = exposure_model.Get("camera.white_balance_tint")
 			block.grain = grain_enabled:Get() and 1 or 0
+			block.eye_noise = exposure_model.IsEye() and eye_noise:Get() or 0
+			block.eye_defocus = exposure_model.IsEye() and eye_defocus:Get() and 1 or 0
+			block.pixels_per_degree = exposure_model.GetPixelsPerDegree(render.GetRenderImageSize().y)
 			exposure_model.WriteCameraBlock(block)
 			grade.WriteBlock(block)
 
