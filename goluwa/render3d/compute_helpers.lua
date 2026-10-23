@@ -14,6 +14,35 @@ function compute_helpers.GetScreenHelpersGLSL()
 		vec2 get_screen_uv(ivec2 pos, ivec2 size) {
 			return (vec2(pos) + vec2(0.5)) / vec2(size);
 		}
+
+		vec2 edge_clamp_uv(vec2 uv, ivec2 texture_size) {
+			vec2 half_texel = vec2(0.5) / vec2(texture_size);
+			return clamp(uv, half_texel, vec2(1.0) - half_texel);
+		}
+
+		vec4 texture_catmull_rom(sampler2D tex, vec2 uv) {
+			ivec2 texture_size = textureSize(tex, 0);
+			vec2 size = vec2(texture_size);
+			vec2 position = uv * size;
+			vec2 center = floor(position - 0.5) + 0.5;
+			vec2 f = position - center;
+			vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+			vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+			vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+			vec2 w3 = f * f * (-0.5 + 0.5 * f);
+			vec2 w12 = w1 + w2;
+			vec2 tc0 = edge_clamp_uv((center - 1.0) / size, texture_size);
+			vec2 tc3 = edge_clamp_uv((center + 2.0) / size, texture_size);
+			vec2 tc12 = edge_clamp_uv((center + w2 / w12) / size, texture_size);
+			vec4 result =
+				textureLod(tex, vec2(tc12.x, tc0.y), 0.0) * (w12.x * w0.y) +
+				textureLod(tex, vec2(tc0.x, tc12.y), 0.0) * (w0.x * w12.y) +
+				textureLod(tex, vec2(tc12.x, tc12.y), 0.0) * (w12.x * w12.y) +
+				textureLod(tex, vec2(tc3.x, tc12.y), 0.0) * (w3.x * w12.y) +
+				textureLod(tex, vec2(tc12.x, tc3.y), 0.0) * (w12.x * w3.y);
+			float total = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+			return max(result / total, vec4(0.0));
+		}
 	]]
 end
 
