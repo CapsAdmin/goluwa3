@@ -433,7 +433,13 @@ function world_step.UpdateRigidBodies(physics, dt)
 			for island_index = 1, #simulation_islands do
 				local island = simulation_islands[island_index]
 
-				if not islands.IsSleepingIsland(island) then
+				if
+					not islands.IsSleepingIsland(island) and
+					(
+						relax_index == 1 or
+						not island.has_constraints
+					)
+				then
 					local has_constraints = island.has_constraints
 					solver:RelaxRigidBodyPairs(
 						island,
