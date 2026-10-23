@@ -10,19 +10,20 @@ function pvar_node.IsSupported(info)
 	return node_types[info.type] ~= nil
 end
 
-function pvar_node.Build(info, on_change)
+function pvar_node.Build(info, on_change, get)
 	local node = {
 		Key = info.key,
 		Text = info.friendly,
 		Description = info.help and (info.key .. ": " .. info.help) or info.key,
 		Search = info.key,
 		Type = node_types[info.type],
-		Value = pvars.Get(info.key),
 		Default = info.default,
 		OnChange = function(_, value)
 			on_change(value)
 		end,
 	}
+
+	if get then node.Value = get() else node.Value = pvars.Get(info.key) end
 
 	if info.enums then
 		node.Type = "enum"
