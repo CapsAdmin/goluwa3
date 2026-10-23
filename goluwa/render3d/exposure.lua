@@ -146,6 +146,16 @@ define(
 	}
 )
 define(
+	"eye.viewer_adaptation",
+	0.33,
+	{
+		group = "Eye",
+		min = 0,
+		max = 1,
+		help = "how much the viewer's own adaptation to the screen dims the display in dim scenes: displayed white is the paper white times (adapting luminance / 64 cd/m2) to this power, up to 1. 0 keeps the display white fixed, 0.33 is Stevens' brightness exponent",
+	}
+)
+define(
 	"eye.night_vision",
 	true,
 	{

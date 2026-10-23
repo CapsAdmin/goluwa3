@@ -529,11 +529,13 @@ local compute_shader = [[
 	layout(set = 0, binding = 7) uniform sampler2D white_balance_tex;
 	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. compute_helpers.GetColorHelpersGLSL() .. grade.GetGLSL("compute") .. WHITE_BALANCE_GLSL .. [[
 
+	float effective_paper_white;
+
 	vec3 tonemap_hdr(vec3 x, float peak, int tonemapper) {
 		x = max(x, vec3(0.0));
 
 		if (tonemapper == 3) {
-			float paper_white = compute.hdr_paper_white / 100.0;
+			float paper_white = effective_paper_white / 100.0;
 			return gt7(x * paper_white, peak * paper_white) / paper_white;
 		}
 
@@ -598,6 +600,8 @@ local compute_shader = [[
 		exposure /= pre_exposure;
 
 		float adapted_ev = compute.has_exposure_tex != 0 ? texture(exposure_tex, vec2(0.5)).b : 10.0;
+		float display_scale = pow(min(exp2(adapted_ev - 3.0) / 64.0, 1.0), compute.viewer_adaptation);
+		effective_paper_white = compute.hdr_paper_white * display_scale;
 		float pixel_log10 = log(max(luminance(col) / pre_exposure, 1e-9)) * 0.4342945;
 		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
 
@@ -615,13 +619,13 @@ local compute_shader = [[
 		}
 
 		if (compute.output_mode == 0) {
-			col = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) : grade_display(clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0));
+			col = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) : grade_display(clamp(tonemap(col * exposure, compute.tonemapper), 0.0, 1.0)) * display_scale;
 
 			col = SRGBToLinear(dither(LinearToSRGB(col), blue_noise(pos), compute.dither_steps));
 
 			if (compute.requires_manual_gamma == 1) col = LinearToSRGB(col);
 		} else {
-			vec3 nits = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) * compute.hdr_paper_white : grade_display_hdr(tonemap_hdr(col * exposure, compute.hdr_peak / compute.hdr_paper_white, compute.tonemapper)) * compute.hdr_paper_white;
+			vec3 nits = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) * compute.hdr_paper_white : grade_display_hdr(tonemap_hdr(col * exposure, compute.hdr_peak / effective_paper_white, compute.tonemapper)) * effective_paper_white;
 
 			if (compute.output_mode == 1) {
 				col = pq_decode(dither(pq_encode(nits), blue_noise(pos), compute.dither_steps)) / 80.0;
@@ -779,6 +783,7 @@ for _, pass in ipairs{
 			{"requires_manual_gamma", "int"},
 			{"output_mode", "int"},
 			{"hdr_paper_white", "float"},
+			{"viewer_adaptation", "float"},
 			{"hdr_peak", "float"},
 			{"dither_steps", "float"},
 			{"has_exposure_tex", "int"},
@@ -806,6 +811,7 @@ for _, pass in ipairs{
 				2 or
 				0
 			block.hdr_paper_white = hdr_paper_white:Get()
+			block.viewer_adaptation = exposure_model.IsEye() and exposure_model.Get("eye.viewer_adaptation") or 0
 			block.hdr_peak = hdr_peak:Get()
 			local bits = render.target:GetColorBits()
 
