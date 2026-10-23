@@ -435,6 +435,12 @@ function META:navigate_history(key)
 	end
 
 	self:apply_text(next_text)
+
+	if self.Autocomplete then
+		self.Autocomplete:Dismiss()
+		self:update_ghost()
+	end
+
 	self.OnHistoryNavigate(self, history:GetIndex(), history:GetCount())
 	return true
 end
