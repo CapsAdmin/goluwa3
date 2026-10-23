@@ -37,47 +37,44 @@ function vfs.MountAddons(dir)
 end
 
 function vfs.SortAddonsAfterPriority()
-	local vfs_loaded_addons = copy
-	local found = {}
-	local not_found = {}
-	local done = {}
-
-	local function sort_dependencies(info)
-		if done[info] then return end
-
-		done[info] = true
-		local found_addon = false
-
-		if info.dependencies then
-			for _, name in ipairs(info.dependencies) do
-				for _, info in ipairs(vfs.loaded_addons) do
-					if info.name == name and info.dependencies then
-						sort_dependencies(info)
-						found_addon = true
-
-						break
-					end
-				end
-			end
-		end
-
-		if found_addon then
-			list.insert(found, info)
-		else
-			list.insert(not_found, info)
-		end
-	end
+	local by_name = {}
 
 	for _, info in ipairs(vfs.loaded_addons) do
-		sort_dependencies(info)
+		by_name[info.name] = info
 	end
 
-	list.sort(not_found, function(a, b)
-		return a.priority > b.priority
+	local pending = {}
+
+	for i, info in ipairs(vfs.loaded_addons) do
+		pending[i] = info
+	end
+
+	list.sort(pending, function(a, b)
+		if a.priority ~= b.priority then return a.priority > b.priority end
+
+		return a.name < b.name
 	end)
 
-	table.add(found, not_found)
-	vfs.loaded_addons = found
+	local sorted = {}
+	local visited = {}
+
+	local function visit(info)
+		if visited[info] then return end
+
+		visited[info] = true
+
+		for _, name in ipairs(info.dependencies or {}) do
+			if by_name[name] then visit(by_name[name]) end
+		end
+
+		list.insert(sorted, info)
+	end
+
+	for _, info in ipairs(pending) do
+		visit(info)
+	end
+
+	vfs.loaded_addons = sorted
 end
 
 function vfs.GetAddonInfo(addon)
@@ -168,8 +165,6 @@ function vfs.AutorunAddon(addon, folder, force)
 		end
 
 		_G.INFO = nil
-	else
-
 	end
 end
 
@@ -213,10 +208,6 @@ function vfs.MountAddon(path, force)
 
 	if not info.startup and vfs.IsFile(path .. "lua/init.lua") then
 		info.startup = path .. "lua/init.lua"
-	end
-
-	if info.dependencies and type(info.dependencies) == "string" then
-		info.dependencies = {info.dependencies}
 	end
 
 	list.insert(vfs.loaded_addons, info)
