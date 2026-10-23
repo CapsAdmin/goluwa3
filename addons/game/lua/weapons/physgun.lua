@@ -7,7 +7,13 @@ local BLUE = {Color = Color(0.1, 0.35, 1, 1), Roughness = 0.4, Metallic = 0.3}
 local box = nodes.Box
 local muzzle = nodes.Muzzle
 return {
-	Values = {WorldSize = Vec3(0.12, 0.2, 0.7), WorldCenter = FORWARD * 0.32, Slot = 1, DisplayName = "Physgun", TwoHanded = true},
+	Values = {
+		WorldSize = Vec3(0.12, 0.2, 0.7),
+		WorldCenter = FORWARD * 0.32,
+		Slot = 1,
+		DisplayName = "Physgun",
+		TwoHanded = true,
+	},
 	Nodes = {
 		box("body", Vec3(0.1, 0.1, 0.36), FORWARD * 0.32, METAL),
 		box("coil", Vec3(0.12, 0.05, 0.2), FORWARD * 0.28 + Vec3(0, 0.07, 0), BLUE),
@@ -35,6 +41,7 @@ META:GetSet("MaxHoldLinearSpeed", 45)
 META:GetSet("RotationStrength", 16)
 META:GetSet("AngularResponse", 16)
 META:GetSet("RotateSensitivity", 1)
+META:GetSet("SnapAngle", math.rad(45))
 
 local function clamp01(x)
 	return math.min(math.max(x or 0, 0), 1)
@@ -346,6 +353,16 @@ function META:UpdateHeldBody(dt, cmd)
 
 	if not self.held_character then
 		local target_rotation = (cmd.view * self.held_rotation_offset):GetNormalized()
+
+		if usercmd.HasButton(cmd, BUTTON.SPRINT) then
+			local angles = target_rotation:GetAngles()
+			local step = self.SnapAngle
+			angles.x = math.round(angles.x / step) * step
+			angles.y = math.round(angles.y / step) * step
+			angles.z = math.round(angles.z / step) * step
+			target_rotation = Quat():SetAngles(angles)
+		end
+
 		body:SetRotation(target_rotation)
 		body.PreviousRotation = target_rotation:Copy()
 		sync_body_rotation_to_transform(body)
