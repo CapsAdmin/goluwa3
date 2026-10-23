@@ -441,13 +441,13 @@ function world_step.UpdateRigidBodies(physics, dt)
 					)
 				then
 					local has_constraints = island.has_constraints
+					solver:SolveConstraints(sub_dt, island.constraints, true)
 					solver:RelaxRigidBodyPairs(
 						island,
 						sub_dt,
 						relax_index == 1 or has_constraints,
 						relax_index == relax_iterations or has_constraints
 					)
-					solver:SolveConstraints(sub_dt, island.constraints, true)
 				end
 			end
 		end
