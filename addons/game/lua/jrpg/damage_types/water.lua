@@ -2,6 +2,7 @@ local Color = import("goluwa/structs/color.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 return {
 	Name = "water",
+	Surface = {Kind = "water", Radius = 1.6, Amount = 1},
 	Color = Color(0.25, 0.55, 1, 1),
 	EndColor = Color(0.6, 0.85, 1, 1),
 	Adjectives = {"soggy", "doused", "soaked", "rainy", "misty", "wet"},

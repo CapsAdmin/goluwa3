@@ -2,6 +2,7 @@ local Color = import("goluwa/structs/color.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 return {
 	Name = "poison",
+	Surface = {Kind = "poison", Radius = 1.2, Amount = 0.8},
 	Color = Color(0.4, 1, 0.35, 1),
 	EndColor = Color(0.15, 0.45, 0.05, 1),
 	Adjectives = {"poisonous", "venomous", "toxic", "infected", "diseased"},
