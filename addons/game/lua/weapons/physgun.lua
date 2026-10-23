@@ -105,6 +105,7 @@ function META:Initialize()
 	self.held_distance = self.MinHoldDistance
 	self.held_rotation_offset = Quat():Identity()
 	self.block_grab_until_primary_release = false
+	self.frozen_bodies = table.weak("k")
 	self.beam_on = false
 	self.beam_aim = Vec3()
 	self.beam_forward = Vec3()
@@ -236,6 +237,7 @@ function META:CanGrabBody(body)
 		body.WorldGeometry ~= true and
 		(
 			not body:IsStatic() or
+			body.Owner.ragdoll_part or
 			not body.Owner:GetTransient()
 		)
 end
@@ -249,8 +251,11 @@ function META:FreezeHeldBody()
 	end
 
 	if body.Owner.ragdoll_part then
+		local ragdoll = self.held_character.ragdoll
 		self.block_grab_until_primary_release = true
 		self:Release()
+		ragdoll:Freeze(body)
+		self.frozen_bodies[body] = true
 		return
 	end
 
@@ -263,8 +268,26 @@ function META:FreezeHeldBody()
 	if body.Sleep then body:Sleep() end
 
 	sync_body_rotation_to_transform(body)
+	self.frozen_bodies[body] = true
 	self.block_grab_until_primary_release = true
 	self:Release()
+end
+
+function META:UnfreezeAll()
+	for body in pairs(self.frozen_bodies) do
+		if body:IsValid() then
+			local part = body.Owner.ragdoll_part
+
+			if part then
+				part.Character.ragdoll:Unfreeze(body)
+			else
+				body:SetMotionType("dynamic")
+				body:Wake()
+			end
+		end
+	end
+
+	self.frozen_bodies = table.weak("k")
 end
 
 function META:TryAcquireBody(cmd)
@@ -305,13 +328,14 @@ function META:TryAcquireBody(cmd)
 
 	if not self:CanGrabBody(body) or not grab_point then return false end
 
-	if body:IsStatic() then body:SetMotionType("dynamic") end
-
 	local part = body.Owner.ragdoll_part
 
 	if part then
 		self.held_character = part.Character
+		part.Character.ragdoll:Unfreeze(body)
 		part.Character.ragdoll:Grab(body)
+	elseif body:IsStatic() then
+		body:SetMotionType("dynamic")
 	end
 
 	self.held_body = body
@@ -378,6 +402,10 @@ local rotate_delta = {x = 0, y = 0}
 function META:OnWeaponThink(dt, cmd)
 	local pose = self.Owner:GetParent().character_pose
 
+	if usercmd.HasButton(cmd, BUTTON.ACTIVE) and usercmd.WasPressed(cmd, BUTTON.RELOAD) then
+		self:UnfreezeAll()
+	end
+
 	if
 		not (
 			usercmd.HasButton(cmd, BUTTON.ACTIVE) and
@@ -438,6 +466,10 @@ function META:OnWeaponHolster()
 	self.beam_on = false
 	self:Release()
 	self.Owner:GetParent().character_pose:SetHolding(false)
+end
+
+function META:OnWeaponReset()
+	return true
 end
 
 function META:OnWeaponCharacterModeChanged()

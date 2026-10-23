@@ -70,6 +70,7 @@ function META:Initialize()
 	self.held = {}
 	self.grabs = 0
 	self.dynamic_count = 0
+	self.frozen_count = 0
 	self.global_active = false
 	self.previous_velocities = {}
 	self.dead_time = 0
@@ -570,6 +571,7 @@ function META:Capture()
 
 	self.held = {}
 	self.grabs = 0
+	self.frozen_count = 0
 	self.hold = nil
 	self.blend = nil
 	self.global_active = false
@@ -588,6 +590,7 @@ function META:Capture()
 		end
 
 		part.limp = 0
+		part.frozen = false
 		part.entity.ragdoll_part:SetLimp(false)
 
 		if part.entity.network then part.entity:RemoveComponent("network") end
@@ -635,6 +638,36 @@ function META:Ungrab(body)
 	self.hold.held = false
 	self.hold.timer = 0
 	self.hold.target = SETTLE_LIMP
+end
+
+do
+	local function find_part(self, body)
+		for _, part in ipairs(self.parts) do
+			if part.body == body then return part end
+		end
+	end
+
+	-- a frozen part is static and left alone by the pose, the body stays limp while any part is frozen
+	function META:Freeze(body)
+		local part = find_part(self, body)
+		part.frozen = true
+		self.frozen_count = self.frozen_count + 1
+		body:SetVelocity(Vec3())
+		body:SetAngularVelocity(Vec3())
+		body:SetMotionType("static")
+	end
+
+	function META:Unfreeze(body)
+		local part = find_part(self, body)
+
+		if not part.frozen then return end
+
+		part.frozen = false
+		self.frozen_count = self.frozen_count - 1
+		body:SetMotionType("dynamic")
+		body:Wake()
+		self.hold = self.hold or {value = SETTLE_LIMP, held = false, timer = 0, target = SETTLE_LIMP}
+	end
 end
 
 function META:AddSource(part, policy)
@@ -889,6 +922,8 @@ function META:UpdateLimp(dt)
 		if hold then global = math.max(global, hold.value) end
 	end
 
+	if self.frozen_count > 0 then global = math.max(global, SETTLE_LIMP) end
+
 	if global >= ROOT_LIMP and not self.global_active then
 		self:EnterGlobal(dead)
 	elseif global < ROOT_LIMP and self.global_active then
@@ -1034,7 +1069,9 @@ function META:OnPhysicsUpdate(dt)
 	self:UpdateLimp(dt)
 
 	for _, part in ipairs(self.parts) do
-		if part.dynamic then self:DrivePose(part, dt) else self:DrivePart(part) end
+		if not part.frozen then
+			if part.dynamic then self:DrivePose(part, dt) else self:DrivePart(part) end
+		end
 	end
 end
 

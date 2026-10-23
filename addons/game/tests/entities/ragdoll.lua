@@ -75,10 +75,27 @@ T.TestPhysics("a character has kinematic body parts that follow its pose and are
 	T(multiplier)[">"](1)
 	local leg = sweep_at(5, 0.2)
 	T(leg.entity.ragdoll_part.Group:find("calf", 1, true) ~= nil)["=="](true)
-	T(damage.Sweep(Vec3(5, head.y, 0), Vec3(-5, 0, 0), character) == nil or damage.Sweep(Vec3(5, head.y, 0), Vec3(-5, 0, 0), character).entity.ragdoll_part == nil)["=="](true)
-	local own = physics.Sweep(Vec3(0, head.y, 0), Vec3(5, 0, 0), 0, character, nil, {IgnoreRigidBodies = false, IgnoreKinematicBodies = false})
+	T(
+		damage.Sweep(Vec3(5, head.y, 0), Vec3(-5, 0, 0), character) == nil or
+			damage.Sweep(Vec3(5, head.y, 0), Vec3(-5, 0, 0), character).entity.ragdoll_part == nil
+	)["=="](true)
+	local own = physics.Sweep(
+		Vec3(0, head.y, 0),
+		Vec3(5, 0, 0),
+		0,
+		character,
+		nil,
+		{IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
+	)
 	T(own == nil or own.entity.ragdoll_part == nil)["=="](true)
-	local ray = physics.RayCast(Vec3(0, head.y, 0), Vec3(1, 0, 0), 5, character, nil, {IgnoreRigidBodies = false, IgnoreKinematicBodies = false})
+	local ray = physics.RayCast(
+		Vec3(0, head.y, 0),
+		Vec3(1, 0, 0),
+		5,
+		character,
+		nil,
+		{IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
+	)
 	T(ray == nil or ray.entity == nil or ray.entity.ragdoll_part == nil)["=="](true)
 	character:Remove()
 	T(#physics.GetConstraints())["=="](0)
@@ -208,7 +225,14 @@ T.TestPhysics("a physgun grabs the limb it points at and a dead body stays a rag
 	local target = create_character(Vec3(0, 0.05, -3))
 	run(target, 1)
 	local holder = Entity.New{
-		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "weapon_holder", "health"},
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"weapon_holder",
+			"health",
+		},
 		transform = {Position = Vec3(0, 0.05, 0)},
 		player_controller = {Source = "queue"},
 	}
@@ -233,6 +257,78 @@ T.TestPhysics("a physgun grabs the limb it points at and a dead body stays a rag
 	run(target, 1)
 	T(target.ragdoll.global_active)["=="](true)
 	T(target.ragdoll.blend == nil)["=="](true)
+	target:Remove()
+	holder:Remove()
+end)
+
+T.TestPhysics("a physgun freezes only the held limb, grabbing or reload thaws it", function()
+	create_ground()
+	local target = create_character(Vec3(0, 0.05, -3))
+	run(target, 1)
+	local holder = Entity.New{
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"weapon_holder",
+			"health",
+		},
+		transform = {Position = Vec3(0, 0.05, 0)},
+		player_controller = {Source = "queue"},
+	}
+	holder.player_controller.cmd.mode = "walk"
+	local physgun = holder.weapon_holder:Give("weapon_physgun")
+	holder.weapon_holder:Select(physgun)
+	local cmd = usercmd.New()
+	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
+
+	for _ = 1, 20 do
+		physics.UpdateFixed(1 / 60)
+		target.character_pose:OnUpdate(1 / 60)
+		physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	end
+
+	local ragdoll = target.ragdoll
+	local held = physgun.weapon_physgun.held_body
+	T(held ~= nil)["=="](true)
+	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1 + usercmd.BUTTON.ATTACK2
+	cmd.pressed = usercmd.BUTTON.ATTACK2
+	physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	cmd.buttons = usercmd.BUTTON.ACTIVE
+	cmd.pressed = 0
+	physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	T(held:IsStatic())["=="](true)
+	local other
+
+	for _, part in ipairs(ragdoll.parts) do
+		if part.body ~= held and part.dynamic then other = part.body end
+	end
+
+	T(other:IsDynamic())["=="](true)
+	local position = held.Position:Copy()
+	run(target, 3)
+	T(held:IsStatic())["=="](true)
+	T(held.Position:Distance(position) < 0.001)["=="](true)
+	T(ragdoll.global_active)["=="](true)
+	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
+
+	for _ = 1, 3 do
+		physics.UpdateFixed(1 / 60)
+		physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	end
+
+	T(physgun.weapon_physgun.held_body ~= nil)["=="](true)
+	T(held:IsStatic())["=="](false)
+	T(ragdoll.frozen_count)["=="](0)
+	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1 + usercmd.BUTTON.ATTACK2
+	cmd.pressed = usercmd.BUTTON.ATTACK2
+	physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.RELOAD
+	cmd.pressed = usercmd.BUTTON.RELOAD
+	physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	T(ragdoll.frozen_count)["=="](0)
+	T(held:IsDynamic())["=="](true)
 	target:Remove()
 	holder:Remove()
 end)
@@ -321,7 +417,14 @@ T.TestPhysics("a hit on the torso only flinches the upper body for a moment", fu
 	local character = create_character()
 	run(character, 1)
 	local ragdoll = character.ragdoll
-	character.health:TakeDamage(damage.Info{Damage = 5, Part = "torso", Force = Vec3(0, 0, -6), Position = ragdoll.part_by_name.torso.body.Position:Copy()})
+	character.health:TakeDamage(
+		damage.Info{
+			Damage = 5,
+			Part = "torso",
+			Force = Vec3(0, 0, -6),
+			Position = ragdoll.part_by_name.torso.body.Position:Copy(),
+		}
+	)
 	run(character, 0.1, 1)
 	T(ragdoll.part_by_name.torso.dynamic)["=="](true)
 	T(ragdoll.part_by_name.head.dynamic)["=="](true)

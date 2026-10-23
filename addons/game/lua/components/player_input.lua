@@ -201,6 +201,8 @@ function META:BuildCommand(cmd)
 		end
 
 		if input.IsKeyDown("b") then buttons = bit.bor(buttons, BUTTON.DROP) end
+
+		if input.IsKeyDown("r") then buttons = bit.bor(buttons, BUTTON.RELOAD) end
 	end
 
 	third_person.AdjustCommand(cmd)
@@ -297,7 +299,6 @@ function META:OnCameraInputUpdate(dt)
 
 	if battlecam.IsEnabled() then
 		battlecam.AddMouse(mouse_delta)
-
 		return
 	end
 
