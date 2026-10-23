@@ -122,21 +122,29 @@ commands.Add("copyview", function()
 	local cam = active[1]
 	local str = ""
 
-	if engines.loaded_map then str = str .. "map = " .. engines.loaded_map .. "\n" end
+	if engines.loaded_map then
+		str = str .. "map = " .. engines.loaded_map .. "\n"
+	end
 
 	str = str .. "pos = " .. tostring(cam.Position) .. "\n"
 	str = str .. "ang = " .. tostring(cam.Rotation:GetAngles()) .. "\n"
 	str = str .. "fov = " .. tostring(cam.FOV) .. "\n"
 	str = str .. "sun = " .. tostring(weather.GetSunRotation()) .. "\n"
+	str = str .. string.format("time = %.4f\n", weather.GetTime())
+	local latitude, longitude = weather.GetLocation()
+	str = str .. string.format("latitude = %.6f\nlongitude = %.6f\n", latitude, longitude)
 	local hit = raycast.CastClosestFromCamera(render3d.GetCamera())
 
 	if hit and hit.primitive then
 		local visual = hit.primitive.entity.VisualOwner
-		local material = visual.MaterialOverride or hit.primitive.material or render3d.GetDefaultMaterial()
+		local material = visual.MaterialOverride or
+			hit.primitive.material or
+			render3d.GetDefaultMaterial()
 		str = str .. "entity = " .. tostring(visual.Owner) .. "\n"
 		str = str .. "model = " .. visual:GetModelPath() .. "\n"
 		str = str .. "material = " .. material:GetName() .. "\n"
 	end
+
 	clipboard.Set(str)
 end)
 
