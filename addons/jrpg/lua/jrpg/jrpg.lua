@@ -10,9 +10,10 @@ local UNIT = import("goluwa/source_engine/units.lua").meters
 local damage_types = import("lua/jrpg/damage_types.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 local attributes = import("lua/jrpg/attributes.lua")
-local actors = import("lua/jrpg/actors.lua")
+local actors = import("lua/actors.lua")
 local effects = import("lua/jrpg/effects.lua")
 local battlecam = import("lua/battlecam.lua")
+local Rpg = import("lua/components/rpg.lua")
 local jrpg = {}
 jrpg.Colors = {
 	health = Color.FromHex("#3fd68f"),
@@ -48,7 +49,7 @@ function jrpg.IsEnabled(entity)
 end
 
 function jrpg.IsLocalEnabled()
-	return actors.IsLocalRPG()
+	return Rpg.IsLocal()
 end
 
 function jrpg.GiveLoadout(entity)

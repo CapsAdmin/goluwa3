@@ -2,11 +2,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Health = import("lua/components/health.lua")
 local actors = {}
 
-function actors.IsLocalRPG()
-	local rig = _G.PLAYER_RIG
-	return rig ~= nil and rig:IsValid() and rig.rpg ~= nil
-end
-
 function actors.IsAlive(entity)
 	return entity:IsValid() and entity.health ~= nil and not entity.health:IsDead()
 end

@@ -6,7 +6,7 @@ local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
-local actors = import("lua/jrpg/actors.lua")
+local actors = import("lua/actors.lua")
 local surface_hazards = import("lua/jrpg/surface_hazards.lua")
 local effects = {}
 local visual = RENDER_3D and import("goluwa/render/render.lua").IsInitialized()
@@ -82,6 +82,7 @@ local screen_shake = import("lua/screen_shake.lua")
 local sounds = import("lua/sounds.lua")
 local StatusEffects = import("lua/components/status_effects.lua")
 local Health = import("lua/components/health.lua")
+local Rpg = import("lua/components/rpg.lua")
 local WHITE = Color(1, 1, 1, 1)
 
 do
@@ -728,7 +729,7 @@ do
 	)
 
 	event.AddListener("Update", "jrpg_low_health", function()
-		local rpg = actors.IsLocalRPG()
+		local rpg = Rpg.IsLocal()
 
 		for health, clip in pairs(low_health_clips) do
 			if not health:IsValid() then
@@ -754,7 +755,7 @@ end
 function effects.ShowDamage(entity, type_name, amount, max_health)
 	if not entity:IsValid() then return end
 
-	if not actors.IsLocalRPG() then return end
+	if not Rpg.IsLocal() then return end
 
 	local definition = damage_types.Get(type_name)
 	local fraction = math.abs(amount) / math.max(max_health, 1)

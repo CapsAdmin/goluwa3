@@ -38,6 +38,11 @@ local MANA_REGEN = 3
 local MANA_IDLE_REGEN = 8
 local SAVE_PATH = "data/jrpg/%s.txt"
 
+function META.IsLocal()
+	local rig = _G.PLAYER_RIG
+	return rig ~= nil and rig:IsValid() and rig.rpg ~= nil
+end
+
 function META:Initialize()
 	self.stats = attributes.GetDefaults()
 	self.regen_delay = 0

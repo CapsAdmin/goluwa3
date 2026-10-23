@@ -6,7 +6,6 @@ local Material = import("goluwa/render3d/material.lua")
 local Beam = import("goluwa/render3d/beam.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local visual_bounds = import("lua/visual_bounds.lua")
-local actors = import("lua/jrpg/actors.lua")
 local META = objects.CreateTemplate("item_highlight")
 META:StartStorable()
 META:GetSet("Color", Color(1, 0.75, 0.2, 1))
@@ -118,7 +117,7 @@ function META:IsDropped()
 end
 
 function META:IsShown()
-	return self:IsDropped() and actors.IsLocalRPG()
+	return self:IsDropped()
 end
 
 function META:GetAnchor()

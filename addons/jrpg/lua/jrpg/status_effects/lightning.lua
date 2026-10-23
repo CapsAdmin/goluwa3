@@ -1,7 +1,7 @@
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local damage = import("lua/damage.lua")
-local actors = import("lua/jrpg/actors.lua")
+local actors = import("lua/actors.lua")
 return {
 	Name = "lightning",
 	Label = "SHK",

@@ -16,7 +16,7 @@ local last_change = -math.huge
 event.AddListener("DrawHUD", "weapon_hud", function()
 	local rig = _G.PLAYER_RIG
 
-	if not (rig and rig:IsValid()) or rig.rpg or third_person.IsHudHidden() then
+	if not (rig and rig:IsValid()) or third_person.IsDefaultHudReplaced(rig) or third_person.IsHudHidden() then
 		return
 	end
 

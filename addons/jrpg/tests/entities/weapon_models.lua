@@ -1,0 +1,15 @@
+local T = import("test/environment.lua")
+local Entity = import("goluwa/entities/entity.lua")
+local weapons = import("lua/weapons.lua")
+local scene = import("goluwa/entities/scene.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
+import("addons/jrpg/lua/autorun/weapons.lua")
+
+T.Test("Magic weapons come back with their element after serializing", function()
+	local magic = weapons.Spawn("weapon_magic_ice", Vec3())
+	local copy = scene.Deserialize(scene.SerializeEntities({magic}), Entity.World)[1]
+	magic:Remove()
+	T(copy.weapon_magic:GetElement())["=="]("ice")
+	copy:Remove()
+end)

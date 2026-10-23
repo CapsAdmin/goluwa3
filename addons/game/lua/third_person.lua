@@ -371,6 +371,10 @@ function third_person.IsEnabled()
 	return settings.enabled
 end
 
+function third_person.IsDefaultHudReplaced(rig)
+	return false
+end
+
 function third_person.IsHudHidden()
 	return settings.enabled and settings.hide_hud
 end

@@ -47,10 +47,4 @@ T.Test("Spawned weapons serialize and come back with their script values", funct
 		T(copy.script.instance ~= nil)["=="](true)
 		copy:Remove()
 	end
-
-	local magic = weapons.Spawn("weapon_magic_ice", Vec3())
-	local copy = scene.Deserialize(scene.SerializeEntities({magic}), Entity.World)[1]
-	magic:Remove()
-	T(copy.weapon_magic:GetElement())["=="]("ice")
-	copy:Remove()
 end)

@@ -1,6 +1,6 @@
 local Color = import("goluwa/structs/color.lua")
 local damage = import("lua/damage.lua")
-local actors = import("lua/jrpg/actors.lua")
+local actors = import("lua/actors.lua")
 return {
 	Name = "decay",
 	Label = "DCY",

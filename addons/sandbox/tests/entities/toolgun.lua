@@ -14,6 +14,7 @@ Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
 import("lua/damage.lua")
 import("lua/weapons.lua")
+import("addons/sandbox/lua/autorun/weapons.lua")
 local toolgun = import("lua/toolgun.lua")
 local history = import("lua/game_history.lua").history
 

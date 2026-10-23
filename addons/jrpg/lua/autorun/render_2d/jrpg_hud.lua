@@ -13,6 +13,10 @@ local damage_types = import("lua/jrpg/damage_types.lua")
 local hitmarkers = import("lua/hitmarkers.lua")
 local targeting = import("lua/targeting.lua")
 local third_person = import("lua/third_person.lua")
+
+function third_person.IsDefaultHudReplaced(rig)
+	return rig.rpg ~= nil
+end
 local visual_bounds = import("lua/visual_bounds.lua")
 local Health = import("lua/components/health.lua")
 local HEADING = "Orbitron"
