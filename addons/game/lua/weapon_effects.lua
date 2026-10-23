@@ -5,8 +5,12 @@ local FLASH_LUMEN = 40
 local FLASH_TIME = 0.06
 local FORCE_SPEED_SCALE = 0.3
 local FLASH_COLOR = Color(1, 0.65, 0.3, 1)
+local TOOL_COLOR = Color(0.3, 0.7, 1, 1)
+local TOOL_TRACE_TIME = 0.15
+local TOOL_TRACE_RADIUS = 0.012
 local vfx
 local clips
+local Beam
 
 local function burst(properties)
 	properties.Lit = false
@@ -25,6 +29,23 @@ local function init()
 
 	vfx = import("goluwa/render3d/vfx.lua")
 	clips = import("goluwa/render3d/clips.lua")
+	Beam = import("goluwa/render3d/beam.lua")
+	vfx.DefineBurst(
+		"tool_hit",
+		burst{
+			Spread = 50,
+			SpeedMin = 0.5,
+			SpeedMax = 2.5,
+			LifetimeMin = 0.15,
+			LifetimeMax = 0.35,
+			SizeStart = 0.02,
+			SizeEnd = 0,
+			Drag = 3,
+			Emissive = 2e5,
+			ColorStart = Color(0.5, 0.85, 1, 1),
+			ColorEnd = Color(0.2, 0.5, 1, 0),
+		}
+	)
 	vfx.DefineBurst(
 		"muzzle_flash",
 		burst{
@@ -137,4 +158,47 @@ weapon_effects.Hit = new_event(
 	end,
 	enabled
 )
+
+do
+	local pool = {}
+	local Trace = {}
+	Trace.__index = Trace
+
+	function Trace:Update(f)
+		self.beam:SetRadius(TOOL_TRACE_RADIUS * (1 - f))
+		self.beam:SetPoints(self.points)
+		return true
+	end
+
+	function Trace:Remove()
+		self.beam:SetVisible(false)
+		pool[#pool + 1] = self
+	end
+
+	weapon_effects.ToolTrace = new_event(
+		"weapon_tool_trace",
+		function(weapon, position, normal)
+			init()
+			local trace = table.remove(pool) or
+				setmetatable(
+					{
+						beam = Beam.New{
+							Points = 2,
+							Radius = TOOL_TRACE_RADIUS,
+							Material = Beam.CreateMaterial(TOOL_COLOR, 40),
+						},
+						points = Beam.NewPoints(2),
+					},
+					Trace
+				)
+			Beam.Line(weapon.weapon:GetMuzzle().transform:GetWorldPosition(), position, trace.points)
+			trace.duration = TOOL_TRACE_TIME
+			trace.beam:SetVisible(true)
+			vfx.AddTimed(trace)
+			vfx.Burst("tool_hit", position, normal, 14)
+		end,
+		enabled
+	)
+end
+
 return weapon_effects

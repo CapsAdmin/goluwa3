@@ -51,9 +51,9 @@ function weapons.GetNames()
 	return names
 end
 
-weapons.Loadout = {"weapon_camera", "weapon_physgun", "weapon_pistol"}
+weapons.Loadout = {"weapon_camera", "weapon_physgun", "weapon_pistol", "weapon_toolgun"}
 
-for _, name in ipairs{"camera", "physgun", "pistol", "sword", "shield", "grenade"} do
+for _, name in ipairs{"camera", "physgun", "pistol", "sword", "shield", "grenade", "toolgun"} do
 	local definition = import("lua/weapons/" .. name .. ".lua")
 	weapons.Register("weapon_" .. name, definition.Values, definition.Nodes, definition.Source)
 end
