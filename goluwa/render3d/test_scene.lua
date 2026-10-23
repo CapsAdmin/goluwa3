@@ -3,6 +3,7 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local weather = import("goluwa/render3d/weather.lua")
+local climate = import("goluwa/render3d/climate.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Shot = import("goluwa/render3d/shot.lua")
@@ -56,18 +57,14 @@ function test_scene.Reset(config)
 	end
 
 	weather.SetSunDirection(sun)
-	weather.SetCloudLayers(config.clouds or {})
-	weather.SetRain(0)
-	weather.SetSnow(0)
-	weather.SetWetness(0)
-
-	if config.aerosol_visibility then
-		weather.SetAerosolVisibility(config.aerosol_visibility)
-	end
-
-	if config.ground_fog_visibility then
-		weather.SetGroundFogVisibility(config.ground_fog_visibility)
-	end
+	climate.SetPreset(
+		{
+			clouds = config.clouds,
+			aerosol_visibility = config.aerosol_visibility,
+			ground_fog_visibility = config.ground_fog_visibility,
+		},
+		0
+	)
 end
 
 function test_scene.Matte(value, roughness)
