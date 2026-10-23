@@ -2,6 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local targeting = import("lua/targeting.lua")
+local camera_modes = import("lua/camera_modes.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local event = import("goluwa/event.lua")
 local raycast = RENDER_3D and import("goluwa/render3d/raycast.lua")
@@ -281,4 +282,5 @@ function battlecam.AdjustCommand(cmd)
 	cmd.side = 0
 end
 
+camera_modes.Register(battlecam)
 return battlecam

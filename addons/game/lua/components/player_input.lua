@@ -7,7 +7,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local third_person = import("lua/third_person.lua")
-local battlecam = import("lua/battlecam.lua")
+local camera_modes = import("lua/camera_modes.lua")
 local META = objects.CreateTemplate("player_input")
 META:GetSet("Mode", "fly")
 META:GetSet("Rotation", Quat(0, 0, 0, 1))
@@ -192,7 +192,7 @@ function META:BuildCommand(cmd)
 			buttons = bit.bor(buttons, BUTTON.ATTACK2)
 		end
 
-		if input.IsMouseDown("button_3") and not battlecam.IsEnabled() then
+		if input.IsMouseDown("button_3") and not camera_modes.GetActive() then
 			buttons = bit.bor(buttons, BUTTON.TELEPORT)
 		end
 
@@ -206,7 +206,7 @@ function META:BuildCommand(cmd)
 	end
 
 	third_person.AdjustCommand(cmd)
-	battlecam.AdjustCommand(cmd)
+	camera_modes.AdjustCommand(cmd)
 	cmd.buttons = buttons
 	cmd.scroll = self.scroll_accum
 	cmd.rotate_x = self.rotate_accum.x
@@ -286,7 +286,7 @@ function META:OnPreUpdate(dt)
 
 	if self.mouse_trapped then
 		third_person.ApplyRelativeMovement(self, dt)
-		battlecam.ApplyMovement(self, dt, input.IsMouseDown("button_1") or input.IsMouseDown("button_2"))
+		camera_modes.ApplyMovement(self, dt, input.IsMouseDown("button_1") or input.IsMouseDown("button_2"))
 	end
 end
 
@@ -297,8 +297,10 @@ function META:OnCameraInputUpdate(dt)
 	local mouse_delta = (self.look_delta + self.look_nudge * self.ArrowLookSpeed) * self.MouseSensitivity
 	mouse_delta = mouse_delta * (self.FOV / 175)
 
-	if battlecam.IsEnabled() then
-		battlecam.AddMouse(mouse_delta)
+	local mode = camera_modes.GetActive()
+
+	if mode then
+		mode.AddMouse(mouse_delta)
 		return
 	end
 

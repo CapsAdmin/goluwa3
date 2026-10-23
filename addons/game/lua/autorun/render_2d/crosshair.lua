@@ -2,7 +2,7 @@ local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local third_person = import("lua/third_person.lua")
-local battlecam = import("lua/battlecam.lua")
+local camera_modes = import("lua/camera_modes.lua")
 local RADIUS = 2.5
 local settings = third_person.Settings
 
@@ -11,7 +11,7 @@ event.AddListener("DrawHUD", "crosshair", function()
 
 	if not (rig and rig:IsValid()) then return end
 
-	if battlecam.IsEnabled() then return end
+	if camera_modes.GetActive() then return end
 
 	local w, h = render2d.GetSize()
 	local x, y = w / 2, h / 2

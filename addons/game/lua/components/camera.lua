@@ -2,7 +2,7 @@ local objects = import("goluwa/objects/objects.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local third_person = import("lua/third_person.lua")
-local battlecam = import("lua/battlecam.lua")
+local camera_modes = import("lua/camera_modes.lua")
 local screen_shake = import("lua/screen_shake.lua")
 
 local META = objects.CreateTemplate("camera")
@@ -74,10 +74,12 @@ function META:OnLateUpdate(dt)
 	if look then
 		local rotation = look:GetRotation()
 
-		if battlecam.IsEnabled() then
+		local mode = camera_modes.GetActive()
+
+		if mode then
 			local velocity = self.Owner.rigid_body:GetVelocity()
 			local fov, near_z
-			position, rotation, fov, near_z = battlecam.Update(
+			position, rotation, fov, near_z = mode.Update(
 				self.Owner,
 				position,
 				self.ViewOffset,
@@ -105,7 +107,7 @@ function META:OnLateUpdate(dt)
 			view:SetNearZ(near_z)
 			view:SetRotation(rotation:Copy())
 		else
-			battlecam.Disable()
+			camera_modes.Disable()
 			third_person.Disable()
 			view:SetNearZ(self.default_near_z)
 			view:SetRotation(rotation:Copy())
@@ -115,7 +117,7 @@ function META:OnLateUpdate(dt)
 		view:SetRotation(transform:GetRotation():Copy())
 	end
 
-	if movement and movement.dead and look and not third_person.IsEnabled() and not battlecam.IsEnabled() then
+	if movement and movement.dead and look and not third_person.IsEnabled() and not camera_modes.GetActive() then
 		local body_position, body_rotation = transform:GetRenderPositionRotation()
 
 		if not body_position then

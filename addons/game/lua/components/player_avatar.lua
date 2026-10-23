@@ -7,7 +7,7 @@ local biped = import("lua/biped.lua")
 local clients = import("goluwa/network/clients.lua")
 local View = import("goluwa/render3d/view.lua")
 local third_person = import("lua/third_person.lua")
-local battlecam = import("lua/battlecam.lua")
+local camera_modes = import("lua/camera_modes.lua")
 local META = objects.CreateTemplate("player_avatar")
 -- an empty Network table is what makes the component part of the spawn packet
 META.Network = {}
@@ -128,7 +128,7 @@ function META:OnUpdate()
 	local camera = self.Owner.camera
 
 	if camera then
-		self:SetFirstPerson(not (third_person.IsEnabled() or battlecam.IsEnabled()) and camera:IsRendered())
+		self:SetFirstPerson(not (third_person.IsEnabled() or camera_modes.GetActive() ~= nil) and camera:IsRendered())
 	end
 
 	self:UpdateOutfit()
