@@ -26,6 +26,7 @@ local InstanceData = ffi.typeof([[struct {
 }]])
 instances.MASK_SOLID = 0x01
 instances.MASK_SEE_THROUGH = 0x02
+instances.MASK_DECAL = 0x04
 instances.FLAG_DOUBLE_SIDED = 1
 instances.FLAG_ALPHA_TEST = 2
 instances.FLAG_EMISSIVE = 4
@@ -295,6 +296,11 @@ end
 function instances.GetMaterialFlags(material)
 	local flags = 0
 	local see_through = material:GetAlphaTest() or material:IsSeeThrough()
+	local mask = material:GetDecal() and
+		instances.MASK_DECAL or
+		see_through and
+		instances.MASK_SEE_THROUGH or
+		instances.MASK_SOLID
 
 	if material:GetDoubleSided() then
 		flags = flags + instances.FLAG_DOUBLE_SIDED
@@ -310,7 +316,7 @@ function instances.GetMaterialFlags(material)
 		flags = flags + instances.FLAG_NO_OPAQUE
 	end
 
-	return flags, see_through and instances.MASK_SEE_THROUGH or instances.MASK_SOLID
+	return flags, mask
 end
 
 function instances.GetRecordFlags(flags)
