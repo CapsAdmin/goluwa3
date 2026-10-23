@@ -26,11 +26,12 @@ local function run(seconds)
 	end
 end
 
-local function create_gunman(position)
+local function create_gunman(position, faction)
 	local entity = Entity.New{
 		ComponentSet = {"transform", "ai_controller", "character_pose", "weapon_holder", "health"},
 		transform = {Position = position:Copy()},
-		ai_controller = {Wander = false, WalkSpeed = 3},
+		ai_controller = {Wander = false, WalkSpeed = 3, Faction = faction},
+		health = {Health = 1000, MaxHealth = 1000},
 	}
 	entity.ai_controller:Teleport(position, 0)
 	entity.weapon_holder:Give("weapon_pistol")
@@ -84,9 +85,35 @@ T.TestPhysics("npc without a weapon does not shoot", function()
 	T(player.health.Health)["=="](player.health.MaxHealth)
 end)
 
+T.TestPhysics("a friendly npc does not shoot a player", function()
+	create_ground()
+	create_gunman(Vec3(0, 0.05, 0), "friend")
+	local player = create_target(Vec3(6, 0.05, 0))
+	run(4)
+	T(player.health.Health)["=="](player.health.MaxHealth)
+end)
+
+T.TestPhysics("friendly and enemy npcs shoot each other", function()
+	create_ground()
+	local friend = create_gunman(Vec3(0, 0.05, 0), "friend")
+	local enemy = create_gunman(Vec3(6, 0.05, 0), "enemy")
+	run(4)
+	T(friend.health.Health < friend.health.MaxHealth)["=="](true)
+	T(enemy.health.Health < enemy.health.MaxHealth)["=="](true)
+end)
+
+T.TestPhysics("npcs of the same faction leave each other alone", function()
+	create_ground()
+	local first = create_gunman(Vec3(0, 0.05, 0), "enemy")
+	local second = create_gunman(Vec3(6, 0.05, 0), "enemy")
+	run(4)
+	T(first.health.Health)["=="](first.health.MaxHealth)
+	T(second.health.Health)["=="](second.health.MaxHealth)
+end)
+
 T.TestPhysics("an armed npc with nothing to shoot at wanders", function()
 	create_ground()
-	local gunman = create_gunman(Vec3(0, 0.05, 0))
+	local gunman = create_gunman(Vec3(0, 0.05, 0), "friend")
 	gunman.ai_controller:SetWander(true)
 	gunman.ai_controller:SetWanderMinDelay(0)
 	gunman.ai_controller:SetWanderMaxDelay(0.1)

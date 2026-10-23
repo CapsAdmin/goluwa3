@@ -100,10 +100,10 @@ local function make_interactive_entries()
 	return entries
 end
 
-local function make_npc_entries()
+local function make_npc_entries(faction)
 	local entries = {}
 
-	for _, name in ipairs(npcs.GetNames()) do
+	for _, name in ipairs(npcs.GetNamesByFaction(faction)) do
 		entries[#entries + 1] = {
 			category = "prefabs",
 			name = npcs.GetPrefabName(name),
@@ -354,6 +354,50 @@ local SpawnlistsPage = react.Component(
 		}
 	end
 )
+local LEFT_PANE_SHARE = 0.54
+local LEFT_PANE_INSET = 118
+local NPC_GRID_GAP = 4
+local NPC_GRID_PADDING = 4
+local FactionGrid = react.Component(
+	|props|-> do
+		local items = react.UseMemo(||->make_npc_entries(props.Faction), {props.Faction})
+		local columns = math.max(
+			math.floor((Panel.World.transform:GetSize().x * LEFT_PANE_SHARE - LEFT_PANE_INSET) / (LABELED_TILE_SIZE + NPC_GRID_GAP)),
+			1
+		)
+		local height = math.ceil(#items / columns) * (LABELED_TILE_SIZE + NPC_GRID_GAP * 2) + NPC_GRID_PADDING * 2 + NPC_GRID_GAP * 2
+		return ui.VirtualGrid{
+			Items = items,
+			CellWidth = LABELED_TILE_SIZE,
+			ExtraHeight = 0,
+			Gap = NPC_GRID_GAP,
+			ContentPadding = NPC_GRID_PADDING,
+			OnDrawItem = draw_tile,
+			OnClick = spawnmenu.Spawn,
+			Size = Vec2(0, height),
+			MinSize = Vec2(0, height),
+			MaxSize = Vec2(0, height),
+			layout = {GrowWidth = 1},
+		}
+	end
+)
+local NpcsPage = react.Component(
+	||->ui.ScrollablePanel{
+		Padding = "XS",
+		ScrollX = false,
+		ScrollY = true,
+		layout = {GrowWidth = 1, GrowHeight = 1},
+	}{
+		ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XS", AlignmentX = "stretch"}}{
+			list.map(
+				npcs.Factions,
+				|faction|->ui.Collapsible{Key = faction, Title = faction:sub(1, 1):upper() .. faction:sub(2), HeaderMode = "text"}{
+					FactionGrid{Faction = faction},
+				}
+			),
+		},
+	}
+)
 local ListPage = react.Component(
 	|props|-> do
 		local items = react.UseMemo(props.Make, {})
@@ -539,7 +583,7 @@ local LEFT_PAGES = {
 	Spawnlists = ||->SpawnlistsPage{},
 	Weapons = ||->ListPage{Make = make_weapon_entries},
 	Interactive = ||->ListPage{Make = make_interactive_entries},
-	NPCs = ||->ListPage{Make = make_npc_entries},
+	NPCs = ||->NpcsPage{},
 }
 local SpawnMenu = react.Component(
 	||-> do

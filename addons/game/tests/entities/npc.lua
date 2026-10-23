@@ -268,6 +268,7 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	local instance = Entity.New{prefab = {Path = npcs.GetPrefabName("zombie")}, transform = {}}
 	local npc = instance.ai_controller
 	T(npc ~= nil)["=="](true)
+	T(npc.Faction)["=="]("enemy")
 	T(instance.source_pose.WalkSequence)["=="]("walk")
 	T(instance.model.ModelPath)["=="]("models/zombie/classic.mdl")
 	T(math.abs(npc.WalkSpeed - 45 * UNIT) < 1e-6)["=="](true)
@@ -281,6 +282,7 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	instance:Remove()
 	local armed = npcs.Spawn("barney", Vec3(0, 0.05, 0), 0)
 	T(armed.weapon_holder:GetActiveWeapon().weapon:GetDisplayName())["=="]("Pistol")
+	T(armed.ai_controller.Faction)["=="]("friend")
 	armed:Remove()
 end)
 

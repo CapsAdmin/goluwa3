@@ -8,8 +8,10 @@ local UNIT = import("goluwa/source_engine/units.lua").meters
 import("lua/damage.lua")
 local outfit = import("lua/outfit.lua")
 local npcs = {}
+npcs.Factions = {"friend", "enemy"}
 npcs.Definitions = {
 	citizen = {
+		Faction = "friend",
 		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/humans/group01/male_01.mdl",
@@ -20,6 +22,7 @@ npcs.Definitions = {
 		RunSpeed = 210,
 	},
 	barney = {
+		Faction = "friend",
 		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/barney.mdl",
@@ -30,6 +33,7 @@ npcs.Definitions = {
 		RunSpeed = 210,
 	},
 	combine_soldier = {
+		Faction = "enemy",
 		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/combine_soldier.mdl",
@@ -40,6 +44,7 @@ npcs.Definitions = {
 		RunSpeed = 215,
 	},
 	eye = {
+		Faction = "friend",
 		Weapon = "weapon_pistol",
 		Biped = true,
 		Outfit = outfit.DefaultName,
@@ -48,6 +53,7 @@ npcs.Definitions = {
 		RunSpeed = 210,
 	},
 	zombie = {
+		Faction = "enemy",
 		Model = "models/zombie/classic.mdl",
 		Idle = "Idle01",
 		Walk = "walk",
@@ -61,6 +67,7 @@ npcs.Definitions = {
 		MeleeDelay = 0.6,
 	},
 	vortigaunt = {
+		Faction = "enemy",
 		Model = "models/vortigaunt.mdl",
 		Idle = "Idle01",
 		Walk = "Walk_all",
@@ -73,6 +80,7 @@ npcs.Definitions = {
 		MagicElement = "lightning",
 	},
 	antlion = {
+		Faction = "enemy",
 		Model = "models/antlion.mdl",
 		Idle = "Idle",
 		Walk = "walk_all",
@@ -87,6 +95,7 @@ npcs.Definitions = {
 		MeleeRange = 1.8,
 	},
 	headcrab = {
+		Faction = "enemy",
 		Model = "models/headcrab.mdl",
 		Idle = "Idle01",
 		Walk = "Run1",
@@ -100,6 +109,80 @@ npcs.Definitions = {
 		Attack = "attack",
 		MeleeDamage = 6,
 		MeleeRange = 0.9,
+	},
+	citizen_female = {
+		Faction = "friend",
+		Weapon = "weapon_pistol",
+		Biped = true,
+		Model = "models/humans/group01/female_01.mdl",
+		Idle = "idle_subtle",
+		Walk = "walk_all",
+		Run = "run_all",
+		WalkSpeed = 80,
+		RunSpeed = 210,
+	},
+	rebel = {
+		Faction = "friend",
+		Weapon = "weapon_pistol",
+		Biped = true,
+		Model = "models/humans/group03/male_01.mdl",
+		Idle = "idle_subtle",
+		Walk = "walk_all",
+		Run = "run_all",
+		WalkSpeed = 80,
+		RunSpeed = 210,
+	},
+	alyx = {
+		Faction = "friend",
+		Weapon = "weapon_pistol",
+		Biped = true,
+		Model = "models/alyx.mdl",
+		Idle = "idle_subtle",
+		Walk = "walk_all",
+		Run = "run_all",
+		WalkSpeed = 80,
+		RunSpeed = 210,
+	},
+	combine_elite = {
+		Faction = "enemy",
+		Weapon = "weapon_pistol",
+		Biped = true,
+		Model = "models/combine_super_soldier.mdl",
+		Idle = "Idle_Unarmed",
+		Walk = "WalkEasy_all",
+		Run = "RunALL",
+		WalkSpeed = 78,
+		RunSpeed = 215,
+		Health = 80,
+	},
+	zombie_fast = {
+		Faction = "enemy",
+		Model = "models/zombie/fast.mdl",
+		Idle = "idle",
+		Walk = "walk_all",
+		Run = "Run",
+		WalkSpeed = 55,
+		RunSpeed = 218,
+		Attack = "BR2_Attack",
+		MeleeDamage = 10,
+		MeleeRange = 1.3,
+		MeleeInterval = 1,
+		MeleeDelay = 0.3,
+	},
+	zombie_poison = {
+		Faction = "enemy",
+		Model = "models/zombie/poison.mdl",
+		Idle = "Idle01",
+		Walk = "Walk",
+		Run = "Run",
+		WalkSpeed = 56,
+		RunSpeed = 154,
+		Attack = "melee_01",
+		MeleeDamage = 25,
+		MeleeRange = 1.5,
+		MeleeInterval = 2,
+		MeleeDelay = 0.5,
+		Health = 120,
 	},
 }
 
@@ -129,6 +212,7 @@ function npcs.Register(name, info)
 		MeleeInterval = info.MeleeInterval,
 		MeleeDelay = info.MeleeDelay,
 		MagicElement = info.MagicElement,
+		Faction = info.Faction,
 	}
 	return prefab.Register(
 		npcs.GetPrefabName(name),
@@ -199,6 +283,17 @@ function npcs.SpawnNear(name, around, radius)
 		"no ground to spawn on near that position"
 	)
 	return npcs.Spawn(name, position + Vec3(0, 0.05, 0), math.randomf(-math.pi, math.pi))
+end
+
+function npcs.GetNamesByFaction(faction)
+	local names = {}
+
+	for name, info in pairs(npcs.Definitions) do
+		if info.Faction == faction then names[#names + 1] = name end
+	end
+
+	table.sort(names)
+	return names
 end
 
 function npcs.GetNames()

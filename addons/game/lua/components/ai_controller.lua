@@ -35,6 +35,7 @@ META:GetSet("MeleeInterval", 1.2)
 META:GetSet("MeleeDelay", 0.3)
 META:GetSet("MagicElement", "")
 META:GetSet("MagicDamage", 20)
+META:GetSet("Faction", "enemy")
 META:GetSet("MagicInterval", 2.5)
 META:EndStorable()
 local WAYPOINT_RADIUS = 0.5
@@ -56,6 +57,9 @@ local WANDER_TRIES = 6
 local TARGET_INTERVAL = 0.25
 local TARGET_CHEST = 0.6
 local AIM_TOLERANCE = 0.04
+local PLAYER_FACTION = "friend"
+local NO_CONTROLLERS = {}
+local target_sources = {}
 
 function GridNav.IsObstacle(body)
 	local owner = body.Owner
@@ -389,23 +393,35 @@ function META:UpdateTarget(position)
 			local eye = position + owner.character_movement:GetViewOffset()
 			local nearest = self.AttackRange
 
-			for _, controller in ipairs(PlayerController.Instances or {}) do
-				local candidate = controller.Owner
+			target_sources[1] = PlayerController.Instances or NO_CONTROLLERS
+			target_sources[2] = META.Instances
 
-				if not candidate.health:IsDead() then
-					local offset = candidate.transform:GetPosition() + Vec3(
-							0,
-							candidate.character_movement:GetHeight() * TARGET_CHEST,
-							0
-						) - eye
-					local distance = offset:GetLength()
+			for source_index = 1, 2 do
+				for _, controller in ipairs(target_sources[source_index]) do
+					local candidate = controller.Owner
 
-					if distance < nearest then
-						local hit = damage.Sweep(eye, offset, owner)
+					if
+						controller ~= self and
+						(source_index == 1 and PLAYER_FACTION or controller.Faction) ~= self.Faction and
+						candidate.health and
+						candidate.character_movement and
+						not controller.far and
+						not candidate.health:IsDead()
+					then
+						local offset = candidate.transform:GetPosition() + Vec3(
+								0,
+								candidate.character_movement:GetHeight() * TARGET_CHEST,
+								0
+							) - eye
+						local distance = offset:GetLength()
 
-						if not hit or (hit.entity and damage.GetVictim(hit.entity) == candidate) then
-							nearest = distance
-							target = candidate
+						if distance < nearest then
+							local hit = damage.Sweep(eye, offset, owner)
+
+							if not hit or (hit.entity and damage.GetVictim(hit.entity) == candidate) then
+								nearest = distance
+								target = candidate
+							end
 						end
 					end
 				end
