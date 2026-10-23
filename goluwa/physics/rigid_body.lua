@@ -464,6 +464,7 @@ function RigidBody:OnAdd()
 end
 
 RigidBody.WorldGeometryBodies = {}
+RigidBody.WorldGeometryVersion = 0
 
 local function remove_world_geometry_body(body)
 	local bodies = RigidBody.WorldGeometryBodies
@@ -471,6 +472,7 @@ local function remove_world_geometry_body(body)
 	for i = 1, #bodies do
 		if bodies[i] == body then
 			table.remove(bodies, i)
+			RigidBody.WorldGeometryVersion = RigidBody.WorldGeometryVersion + 1
 			return
 		end
 	end
@@ -482,6 +484,7 @@ function RigidBody:OnWorldGeometryChanged()
 	if self.WorldGeometry == true then
 		local bodies = RigidBody.WorldGeometryBodies
 		bodies[#bodies + 1] = self
+		RigidBody.WorldGeometryVersion = RigidBody.WorldGeometryVersion + 1
 	end
 end
 
