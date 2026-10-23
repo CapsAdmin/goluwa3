@@ -689,14 +689,15 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 		local constraint = constraints[i]
 
 		if constraint and constraint.Enabled ~= false and constraint:IsValid() then
-			curr_constraints[constraint] = true
-
-			if prev_constraints[constraint] == nil then
+			if prev_constraints[constraint] ~= nil then
+				curr_constraints[constraint] = true
+			else
 				local body_a = constraint.Body0
 				local body_b = constraint.Body1
 				local bodies_valid = (not body_a or body_a:IsValid()) and (not body_b or body_b:IsValid())
 
 				if bodies_valid and (is_dynamic_body(body_a) or is_dynamic_body(body_b)) then
+					curr_constraints[constraint] = true
 					local island = link_bodies(body_a, body_b)
 
 					if island and not island.constraint_set[constraint] then
