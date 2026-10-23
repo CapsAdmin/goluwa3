@@ -245,6 +245,35 @@ local ALBEDO_TARGETS = {
 	plastic = 0.4,
 	rubber = 0.1,
 }
+local FLAMMABILITY = {
+	wood = 1,
+	paper = 1,
+	cardboard = 1,
+	foliage = 1,
+	cloth = 1,
+	upholstery = 1,
+	mattress = 1,
+	carpet = 0.9,
+	tree = 0.9,
+	grass = 0.8,
+	rubber = 0.6,
+	plastic = 0.5,
+	flesh = 0.3,
+	dirt = 0.1,
+	plaster = 0.05,
+	asphalt = 0.05,
+	concrete = 0.02,
+	brick = 0.02,
+	tile = 0.02,
+	rock = 0.02,
+	stone = 0.02,
+	gravel = 0.02,
+	sand = 0,
+	snow = 0,
+	metal = 0,
+	glass = 0,
+	water = 0,
+}
 local OVERBRIGHT_SHADERS = {lightmappedgeneric = true, worldvertextransition = true}
 local MAX_ALBEDO = 0.9
 local CLOTH_WORDS = {
@@ -770,6 +799,7 @@ do
 		}
 		local shader = ctx.shader
 		self:SetMetallicMultiplier(0)
+		self:SetFlammability(FLAMMABILITY[class] or FLAMMABILITY[ctx.family] or 0.3)
 		load_textures(self, vmt, ctx)
 
 		if shader == "pbr" then

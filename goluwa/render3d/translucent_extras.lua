@@ -3,6 +3,7 @@ local translucent_extras = {}
 translucent_extras.list = {
 	import("goluwa/render3d/particles.lua"),
 	import("goluwa/render3d/trails.lua"),
+	import("goluwa/render3d/surface_effect_sheets.lua"),
 }
 
 function translucent_extras.Draw(stage, cmd)

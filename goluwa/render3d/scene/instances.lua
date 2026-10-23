@@ -21,8 +21,8 @@ local InstanceData = ffi.typeof([[struct {
 	float radius;
 	float lod_near;
 	float lod_far;
-	float pad0;
-	float pad1;
+	float effect0;
+	float effect1;
 }]])
 instances.MASK_SOLID = 0x01
 instances.MASK_SEE_THROUGH = 0x02
@@ -244,6 +244,15 @@ function instances.SetMaterial(id, material_row)
 	return true
 end
 
+function instances.SetEffects(id, a, b)
+	local data = data_table:Get()[id]
+
+	if data.effect0 == a and data.effect1 == b then return end
+
+	data.effect0, data.effect1 = a, b
+	data_table:Touch(id)
+end
+
 function instances.SetMask(id, mask, flags)
 	local record = tlas_table:Get()[id]
 	local data = data_table:Get()[id]
@@ -287,7 +296,9 @@ function instances.GetMaterialFlags(material)
 	local flags = 0
 	local see_through = material:GetAlphaTest() or material:IsSeeThrough()
 
-	if material:GetDoubleSided() then flags = flags + instances.FLAG_DOUBLE_SIDED end
+	if material:GetDoubleSided() then
+		flags = flags + instances.FLAG_DOUBLE_SIDED
+	end
 
 	if material:GetAlphaTest() then flags = flags + instances.FLAG_ALPHA_TEST end
 
@@ -416,7 +427,7 @@ do
 					uint mask_lod;
 					vec4 bounds;
 					vec2 lod;
-					vec2 pad;
+					vec2 effects;
 				};
 
 				struct mesh_row {

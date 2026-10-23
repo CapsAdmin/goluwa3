@@ -1,4 +1,5 @@
 local particles = import("goluwa/render3d/particles.lua")
 import("goluwa/render3d/precipitation.lua")
 import("goluwa/render3d/particle_emitter_gpu.lua")
+import("goluwa/render3d/surface_effect_particles.lua")
 return particles.BuildSimulationPasses()
