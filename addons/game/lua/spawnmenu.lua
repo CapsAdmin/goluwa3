@@ -19,6 +19,7 @@ local npcs = import("lua/npcs.lua")
 local interactives = import("lua/interactives.lua")
 local props = import("lua/props.lua")
 local game_history = import("lua/game_history.lua")
+local toolgun = import("lua/toolgun.lua")
 local clients = import("goluwa/network/clients.lua")
 local spawnmenu = {}
 local TILE_SIZE = 84
@@ -426,6 +427,114 @@ local UtilitiesPage = react.Component(
 		}
 	end
 )
+local function select_tool(name)
+	toolgun.Select(name)
+	local holder = _G.PLAYER_RIG.weapon_holder
+	local weapon = holder:FindWeapon("weapon_toolgun")
+
+	if weapon then holder:Select(weapon) end
+end
+
+local function build_tool_items(tool, on_change)
+	local children = {}
+
+	for i, setting in ipairs(tool.Settings) do
+		children[i] = {
+			Key = setting.Key,
+			Text = setting.Text,
+			Type = setting.Type,
+			Value = toolgun.GetSetting(_G.PLAYER_RIG, tool.Name, setting.Key),
+			Default = setting.Default,
+			Min = setting.Min,
+			Max = setting.Max,
+			Precision = setting.Precision,
+			ShowSlider = setting.Min ~= nil and setting.Max ~= nil,
+			Options = setting.Options,
+			Description = setting.Description,
+			OnChange = |_,value|->on_change(setting.Key, value),
+		}
+	end
+
+	return {{Key = tool.Name, Text = "Settings", Expanded = true, Children = children}}
+end
+
+local ToolsPage = react.Component(
+	||-> do
+		local selected, set_selected = react.UseState(toolgun.GetSelected(_G.PLAYER_RIG))
+		local revision, set_revision = react.UseState(0)
+		local editing = react.UseRef(false)
+		local tool = toolgun.Tools[selected]
+		react.UseEvent(
+			"ToolgunChanged",
+			|name,key|-> do
+				if not key then
+					set_selected(name)
+				elseif not editing.current then
+					set_revision(|current|->current + 1)
+				end
+			end
+		)
+		local on_change = react.UseCallback(
+			|key,value|-> do
+				editing.current = true
+				toolgun.SetSetting(selected, key, value)
+				editing.current = false
+			end,
+			{selected}
+		)
+		local items = react.UseMemo(||->build_tool_items(tool, on_change), {selected, revision})
+		return ui.Splitter{InitialSize = 190, layout = {GrowWidth = 1, GrowHeight = 1}}{
+			ui.ScrollablePanel{
+				Padding = "XS",
+				ScrollX = false,
+				ScrollY = true,
+				layout = {GrowWidth = 1, GrowHeight = 1},
+			}{
+				ui.Column{
+					layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XXS", AlignmentX = "stretch"},
+				}{
+					list.map(
+						toolgun.Categories,
+						|category|->ui.Collapsible{Key = category, Title = category, HeaderMode = "text"}{
+							list.map(
+								toolgun.GetTools(category),
+								|candidate|->ui.MenuItem{
+									Key = candidate.Name,
+									Text = candidate.DisplayName,
+									Padding = "S",
+									Selected = candidate.Name == selected,
+									OnClick = ||->select_tool(candidate.Name),
+								}
+							),
+						}
+					),
+				},
+			},
+			ui.ScrollablePanel{
+				Padding = "M",
+				ScrollX = false,
+				ScrollY = true,
+				layout = {GrowWidth = 1, GrowHeight = 1},
+			}{
+				ui.Column{
+					layout = {GrowWidth = 1, FitHeight = true, ChildGap = "S", AlignmentX = "stretch"},
+				}{
+					ui.Text{Key = "title", Text = tool.DisplayName, Font = "heading L", IgnoreMouseInput = true},
+					ui.Text{
+						Key = "description",
+						Text = tool.Description,
+						Color = "text_disabled",
+						Wrap = true,
+						IgnoreMouseInput = true,
+						layout = {GrowWidth = 1, FitWidth = false},
+					},
+					tool.Settings[1] and
+					ui.PropertyEditor{Key = selected .. revision, Items = items, layout = {GrowWidth = 1}},
+				},
+			},
+		}
+	end
+)
 local LEFT_PAGES = {
 	Spawnlists = ||->SpawnlistsPage{},
 	Weapons = ||->ListPage{Make = make_weapon_entries},
@@ -436,6 +545,7 @@ local SpawnMenu = react.Component(
 	||-> do
 		local shown, set_shown = react.UseState(false)
 		local tab, set_tab = react.UseState("Spawnlists")
+		local right_tab, set_right_tab = react.UseState("Tools")
 		local width = react.UseMemo(||->Panel.World.transform:GetSize().x, {})
 		react.UseEffect(
 			||-> do
@@ -473,10 +583,12 @@ local SpawnMenu = react.Component(
 					),
 				},
 				ui.Tabs{
-					Value = "Utilities",
+					Value = right_tab,
+					OnChange = set_right_tab,
 					Backed = true,
 					layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false},
 				}{
+					ui.Frame{Key = "tools", Tab = "Tools", Padding = "S", layout = PAGE_LAYOUT}{ToolsPage{}},
 					ui.Frame{Key = "utilities", Tab = "Utilities", Padding = "S", layout = PAGE_LAYOUT}{
 						UtilitiesPage{Shown = shown},
 					},
