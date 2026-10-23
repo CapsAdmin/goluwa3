@@ -3,9 +3,11 @@ return glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 
 	const float STAR_MAX_MAGNITUDE = 7.5;
 	const float STAR_FACE_CELLS = 64.0;
+	const uint STARS_PER_CELL = 4u;
+	const float STAR_EDGE = 0.25;
 	const float STAR_SIGMA = 0.0007;
 	const float NIGHT_GLOW_ZENITH_LUMINANCE = 1.5e-4;
-	const float MILKY_WAY_LUMINANCE = 1.0e-3;
+	const float MILKY_WAY_LUMINANCE = 1.2e-4;
 	const vec3 GALACTIC_NORTH_POLE = vec3(-0.8677, -0.1981, 0.4560);
 	const vec3 GALACTIC_CENTER = vec3(-0.0549, -0.8734, -0.4838);
 	const float MOON_FULL_LUMINANCE = 4098.0;
@@ -55,26 +57,44 @@ return glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 			uv = eq.xy / a.z;
 		}
 
-		vec2 cell = min(floor((uv * 0.5 + 0.5) * STAR_FACE_CELLS), STAR_FACE_CELLS - 1.0);
-		vec3 r = pcg3d_unorm(uvec3(uvec2(cell), face));
-		vec3 r2 = pcg3d_unorm(uvec3(uvec2(cell) + 7919u, face + 17u));
-		vec2 star_uv = (cell + 0.15 + 0.7 * r.xy) / STAR_FACE_CELLS * 2.0 - 1.0;
+		vec2 scaled = (uv * 0.5 + 0.5) * STAR_FACE_CELLS;
+		vec2 home = min(floor(scaled), STAR_FACE_CELLS - 1.0);
+		vec2 fraction = scaled - home;
+		ivec2 low = ivec2(fraction.x < STAR_EDGE ? -1 : 0, fraction.y < STAR_EDGE ? -1 : 0);
+		ivec2 high = ivec2(fraction.x > 1.0 - STAR_EDGE ? 1 : 0, fraction.y > 1.0 - STAR_EDGE ? 1 : 0);
+		vec3 sum = vec3(0.0);
 
-		if (r2.x > pow(1.0 + dot(star_uv, star_uv), -1.5)) return vec3(0.0);
+		for (int oy = low.y; oy <= high.y; oy++) {
+			for (int ox = low.x; ox <= high.x; ox++) {
+				vec2 cell = home + vec2(ox, oy);
 
-		vec3 star = face < 2u ? vec3(face == 0u ? 1.0 : -1.0, star_uv) :
-			face < 4u ? vec3(star_uv.x, face == 2u ? 1.0 : -1.0, star_uv.y) :
-			vec3(star_uv, face == 4u ? 1.0 : -1.0);
-		star = normalize(star);
-		float magnitude = STAR_MAX_MAGNITUDE + 2.0 * log(max(r.z, 1e-7)) * 0.4342945;
+				if (any(lessThan(cell, vec2(0.0))) || any(greaterThanEqual(cell, vec2(STAR_FACE_CELLS)))) continue;
 
-		if (magnitude > 4.0 && r2.y > mix(1.0, 0.45, smoothstep(0.0, 0.5, abs(dot(star, GALACTIC_NORTH_POLE))))) {
-			return vec3(0.0);
+				for (uint k = 0u; k < STARS_PER_CELL; k++) {
+					vec3 r = pcg3d_unorm(uvec3(uvec2(cell) + k * 104729u, face + k * 31u));
+					vec3 r2 = pcg3d_unorm(uvec3(uvec2(cell) + 7919u + k * 104729u, face + 17u + k * 31u));
+					vec2 star_uv = (cell + r.xy) / STAR_FACE_CELLS * 2.0 - 1.0;
+
+					if (r2.x > pow(1.0 + dot(star_uv, star_uv), -1.5)) continue;
+
+					vec3 star = face < 2u ? vec3(face == 0u ? 1.0 : -1.0, star_uv) :
+						face < 4u ? vec3(star_uv.x, face == 2u ? 1.0 : -1.0, star_uv.y) :
+						vec3(star_uv, face == 4u ? 1.0 : -1.0);
+					star = normalize(star);
+					float magnitude = STAR_MAX_MAGNITUDE + 2.0 * log(max(r.z, 1e-7)) * 0.4342945;
+
+					if (magnitude > 4.0 && r2.y > mix(1.0, 0.45, smoothstep(0.0, 0.5, abs(dot(star, GALACTIC_NORTH_POLE))))) {
+						continue;
+					}
+
+					vec3 d = eq - star;
+					float glow = exp(-dot(d, d) / (2.0 * STAR_SIGMA * STAR_SIGMA)) / (2.0 * PI * STAR_SIGMA * STAR_SIGMA);
+					sum += night_star_color(r2.z) * (2.08e-6 * pow(10.0, -0.4 * magnitude) * glow);
+				}
+			}
 		}
 
-		vec3 d = eq - star;
-		float glow = exp(-dot(d, d) / (2.0 * STAR_SIGMA * STAR_SIGMA)) / (2.0 * PI * STAR_SIGMA * STAR_SIGMA);
-		return night_star_color(r2.z) * (2.08e-6 * pow(10.0, -0.4 * magnitude) * glow);
+		return sum;
 	}
 
 	vec3 get_milky_way(vec3 eq) {
