@@ -8,7 +8,15 @@ local ACCENT = {Color = Color(0.7, 0.7, 0.72, 1), Roughness = 0.4, Metallic = 0.
 local box = nodes.Box
 local muzzle = nodes.Muzzle
 return {
-	Values = {WorldSize = Vec3(0.16, 0.1, 0.34), WorldCenter = FORWARD * 0.2, Slot = 3, DisplayName = "Camera", TwoHanded = true, HiddenInFirstPerson = true, HeldAtEye = true},
+	Values = {
+		WorldSize = Vec3(0.16, 0.1, 0.34),
+		WorldCenter = FORWARD * 0.2,
+		Slot = 3,
+		DisplayName = "Camera",
+		TwoHanded = true,
+		HiddenInFirstPerson = true,
+		HeldAtEye = true,
+	},
 	Nodes = {
 		box("body", Vec3(0.16, 0.1, 0.12), FORWARD * 0.22, CAMERA_BODY),
 		box("lens", Vec3(0.075, 0.075, 0.09), FORWARD * 0.33, GLASS),
@@ -26,8 +34,8 @@ function META:OnWeaponMouseLook(player_input, mouse_delta)
 	if not input.IsMouseDown("button_2") then return end
 
 	local rotation = player_input:GetRotation():Copy()
-	rotation:RotateRoll(mouse_delta.x)
-	self.roll = (self.roll or 0) + mouse_delta.x
+	rotation:RotateRoll(-mouse_delta.x)
+	self.roll = (self.roll or 0) - mouse_delta.x
 	player_input:SetRotation(rotation)
 	player_input:SetFOV(
 		math.clamp(
@@ -40,8 +48,11 @@ function META:OnWeaponMouseLook(player_input, mouse_delta)
 end
 
 function META:OnWeaponReset(player_input)
+	local rotation = player_input:GetRotation():Copy()
+	rotation:RotateRoll(-(self.roll or 0))
+	player_input:SetRotation(rotation)
+	self.roll = 0
 	player_input:ResetFOV()
-	return true
 end
 
 function META:OnWeaponEquip()

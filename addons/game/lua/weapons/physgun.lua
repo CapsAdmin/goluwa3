@@ -468,10 +468,6 @@ function META:OnWeaponHolster()
 	self.Owner:GetParent().character_pose:SetHolding(false)
 end
 
-function META:OnWeaponReset()
-	return true
-end
-
 function META:OnWeaponCharacterModeChanged()
 	self:Release()
 end

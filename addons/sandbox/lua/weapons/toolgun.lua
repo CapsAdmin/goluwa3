@@ -51,10 +51,6 @@ function META:OnWeaponThink(dt, cmd)
 	end
 end
 
-function META:OnWeaponReset()
-	return true
-end
-
 function META:OnWeaponHolster()
 	self.context:ClearTargets()
 end

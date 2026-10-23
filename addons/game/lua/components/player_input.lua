@@ -84,9 +84,7 @@ function META:KeyInput(key, press)
 	elseif key == "r" then
 		local weapon = self.Owner.weapon_holder:GetActiveWeapon()
 
-		if not (weapon and weapon:CallLocalEvent("OnWeaponReset", self)) then
-			self:Reset()
-		end
+		if weapon then weapon:CallLocalEvent("OnWeaponReset", self) end
 	end
 end
 
@@ -296,7 +294,6 @@ function META:OnCameraInputUpdate(dt)
 	local rotation = self:GetRotation():Copy()
 	local mouse_delta = (self.look_delta + self.look_nudge * self.ArrowLookSpeed) * self.MouseSensitivity
 	mouse_delta = mouse_delta * (self.FOV / 175)
-
 	local mode = camera_modes.GetActive()
 
 	if mode then
