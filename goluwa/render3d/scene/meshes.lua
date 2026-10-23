@@ -83,7 +83,16 @@ function meshes.Get(mesh, dynamic)
 	records[row] = record
 	pending[#pending + 1] = record
 
-	if dynamic then dynamic_records[record.vertex_address] = record end
+	if dynamic then
+		local list = dynamic_records[record.vertex_address]
+
+		if not list then
+			list = {}
+			dynamic_records[record.vertex_address] = list
+		end
+
+		list[#list + 1] = record
+	end
 
 	triangle_total = triangle_total + triangle_count
 	return row
@@ -135,11 +144,17 @@ function meshes.Build(cmd, updated)
 
 	if updated then
 		for address in pairs(updated) do
-			local record = dynamic_records[address]
+			local list = dynamic_records[address]
 
-			if record and record.blas then
-				refit_count = refit_count + 1
-				refit[refit_count] = record
+			if list then
+				for i = 1, #list do
+					local record = list[i]
+
+					if record.blas then
+						refit_count = refit_count + 1
+						refit[refit_count] = record
+					end
+				end
 			end
 		end
 	end
@@ -222,7 +237,20 @@ function meshes.Update()
 
 		if record and not mesh_of_row[row] then
 			accel.ReleaseBLAS(record)
-			dynamic_records[record.vertex_address] = nil
+			local list = dynamic_records[record.vertex_address]
+
+			if list then
+				for i = 1, #list do
+					if list[i] == record then
+						table.remove(list, i)
+
+						break
+					end
+				end
+
+				if not list[1] then dynamic_records[record.vertex_address] = nil end
+			end
+
 			triangle_total = triangle_total - record.triangle_count
 			records[row] = nil
 			rows:Free(row)
