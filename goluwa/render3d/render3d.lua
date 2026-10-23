@@ -314,6 +314,7 @@ local default_passes = {
 	{"taa", "goluwa/render3d/passes/taa.lua"},
 	{"ssaa", "goluwa/render3d/passes/ssaa.lua"},
 	{"fxaa", "goluwa/render3d/passes/fxaa.lua"},
+	{"dof", "goluwa/render3d/passes/dof.lua"},
 	{"motion_blur", "goluwa/render3d/passes/motion_blur.lua"},
 	{"ambient_occlusion_debug", "goluwa/render3d/passes/ambient_occlusion_debug.lua"},
 	{"gbuffer_inspect", "goluwa/render3d/passes/gbuffer_inspect.lua"},

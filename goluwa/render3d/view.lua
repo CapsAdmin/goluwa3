@@ -15,6 +15,7 @@ end
 
 View:GetSet("Priority", 0, {callback = "OnPriorityChanged"})
 View:GetSet("HideAvatars", false)
+View:GetSet("Ignore", nil)
 View:GetSet("HideHud", false)
 View:GetSet("ExposureLock", false)
 View:GetSet("ExposureCompensation", false)

@@ -73,11 +73,21 @@ function post_source.GetSceneSourceTexture(self)
 
 	if
 		self.name ~= "taa" and
+		self.name ~= "dof" and
 		self.name ~= "motion_blur" and
 		render3d.IsPassEnabled("motion_blur") and
 		render3d.motion_blur_enabled:Get()
 	then
 		return render3d.pipelines.motion_blur:GetFramebuffer():GetAttachment(1)
+	end
+
+	if
+		self.name ~= "taa" and
+		self.name ~= "dof" and
+		render3d.IsPassEnabled("dof") and
+		render3d.dof_enabled:Get()
+	then
+		return render3d.pipelines.dof:GetFramebuffer():GetAttachment(1)
 	end
 
 	if self.name == "taa" and render3d.IsAntiAliasingEnabled("edge_aa_t") then

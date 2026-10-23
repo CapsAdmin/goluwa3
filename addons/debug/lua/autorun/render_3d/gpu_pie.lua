@@ -31,6 +31,7 @@ gpu_timing.RegisterGroup("bloom", "bloom", "^bloom_", "^glare$")
 gpu_timing.RegisterGroup(
 	"post",
 	"post processing",
+	"^dof$",
 	"^motion_blur$",
 	"^exposure_feedback$",
 	"^blit",

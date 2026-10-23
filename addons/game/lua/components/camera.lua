@@ -4,7 +4,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local third_person = import("lua/third_person.lua")
 local camera_modes = import("lua/camera_modes.lua")
 local screen_shake = import("lua/screen_shake.lua")
-
 local META = objects.CreateTemplate("camera")
 META:GetSet("Active", false)
 META:GetSet("Priority", 0)
@@ -55,7 +54,7 @@ end
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
 	self:SetViewOffset(self.ViewOffset)
-	self.view = View.New{Priority = self.Priority}
+	self.view = View.New{Priority = self.Priority, Ignore = self.Owner}
 	self.default_near_z = self.view:GetNearZ()
 	self:AddGlobalEvent("LateUpdate")
 	self:SetActive(self.Active)
@@ -73,7 +72,6 @@ function META:OnLateUpdate(dt)
 
 	if look then
 		local rotation = look:GetRotation()
-
 		local mode = camera_modes.GetActive()
 
 		if mode then
@@ -117,7 +115,14 @@ function META:OnLateUpdate(dt)
 		view:SetRotation(transform:GetRotation():Copy())
 	end
 
-	if movement and movement.dead and look and not third_person.IsEnabled() and not camera_modes.GetActive() then
+	if
+		movement and
+		movement.dead and
+		look and
+		not third_person.IsEnabled()
+		and
+		not camera_modes.GetActive()
+	then
 		local body_position, body_rotation = transform:GetRenderPositionRotation()
 
 		if not body_position then
