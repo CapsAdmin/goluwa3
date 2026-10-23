@@ -23,6 +23,7 @@ Collide once, soft contacts: broadphase and islands only on substep 1 (`BeginSte
 - Removed bodies are cleared on the next Update (`objects.MakeNULL`): use `body:IsValid()`, not a `.Removed` flag. Use `SetWorldGeometry(true)` so `RigidBody.WorldGeometryBodies` stays correct; `physics.RayCast` only sees world geometry unless `{IncludeRigidBodies = true}`.
 - `ffi.copy` can miscompile in a trace followed by reads of the same vector (see `RigidBody:SynchronizeFromTransform`): write fields one by one.
 - Allocation/GC spikes in a step are usually one GC cycle of a large heap: pool EPA faces, cache velocity refs per call, no Vec3 allocation in per-pair code.
+- Anything compared against a per-pass stamp must be compared with `== stamp` (`moved_anchor_seen` in `islands.lua`), a truthy check wakes sleepers forever once an anchor has moved once.
 - `Vec3` is float32: far from the origin fixed epsilons reject valid hits; `get_sweep_epsilon` in `sweep_mesh.lua` scales with coordinate magnitude.
 
 ## Meshes and the map

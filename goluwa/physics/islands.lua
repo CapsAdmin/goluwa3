@@ -822,7 +822,7 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 				is_dynamic_body(body_a) and
 				not body_a:GetAwake()
 				and
-				moved_anchor_seen[body_b]
+				moved_anchor_seen[body_b] == stamp
 			then
 				if wake_dynamic_body(body_a, awake_dynamic_bodies, newly_awoken_bodies) then
 					stats:Count("wake_anchor")
@@ -835,7 +835,7 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 				is_dynamic_body(body_b) and
 				not body_b:GetAwake()
 				and
-				moved_anchor_seen[body_a]
+				moved_anchor_seen[body_a] == stamp
 			then
 				if wake_dynamic_body(body_b, awake_dynamic_bodies, newly_awoken_bodies) then
 					stats:Count("wake_anchor")

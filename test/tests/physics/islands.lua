@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local islands = import("goluwa/physics/islands.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local next_entry_id = 0
 
 local function create_mock_body(name, motion_type)
@@ -136,10 +137,8 @@ T.Test("Simulation islands cache dynamic bodies separately from anchors and cons
 	T(#built[1].dynamic_bodies)["=="](2)
 	T(#built[1].constraint_dynamic_bodies)["=="](2)
 	T(built[1].has_constraints)["=="](true)
-	T(
-		built[1].dynamic_bodies[1] == static_anchor or
-			built[1].dynamic_bodies[2] == static_anchor
-	)["=="](false)
+	T(built[1].dynamic_bodies[1] == static_anchor or
+		built[1].dynamic_bodies[2] == static_anchor)["=="](false)
 end)
 
 T.Test("Simulation islands stay marked sleeping when all connected dynamics are asleep", function()
@@ -345,4 +344,16 @@ T.Test("Simulation islands do not force sleep single dynamic bodies constrained 
 	T(islands.IsSleepingIsland(built[1]))["=="](false)
 	T(dynamic:GetAwake())["=="](true)
 	T(dynamic.SleepCount)["=="](0)
+end)
+
+T.Test("Simulation islands only wake sleeping bodies for anchors that moved this step", function()
+	local dynamic = create_mock_body("dynamic", "dynamic")
+	local anchor = create_mock_body("anchor", "kinematic")
+	local built = build_islands({dynamic, anchor}, {create_pair(dynamic, anchor)}, nil)
+	anchor.Position = Vec3(1, 0, 0)
+	islands.PrepareSimulationIslands(built)
+	dynamic.Awake = false
+	anchor.PreviousPosition = anchor.Position:Copy()
+	islands.PrepareSimulationIslands(built)
+	T(dynamic:GetAwake())["=="](false)
 end)
