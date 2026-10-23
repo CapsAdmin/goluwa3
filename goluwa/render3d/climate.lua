@@ -3,6 +3,7 @@ local commands = import("goluwa/cli/commands.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local climate = {}
 climate.BLEND_TIME = 2
 climate.DEFAULTS = {
@@ -11,6 +12,10 @@ climate.DEFAULTS = {
 	snow = 0,
 	wetness = 0,
 	snow_depth = 0,
+	temperature = 15,
+	wind = Vec3(1, 0, 0.35):GetNormalized() * 4,
+	aerosol_visibility = atmosphere.DEFAULT_AEROSOL_VISIBILITY,
+	ground_fog_visibility = atmosphere.DEFAULT_GROUND_FOG_VISIBILITY,
 	aerosol_angstrom = atmosphere.DEFAULT_AEROSOL.angstrom,
 	aerosol_albedo = atmosphere.DEFAULT_AEROSOL.albedo,
 	aerosol_g = atmosphere.DEFAULT_AEROSOL.g,
@@ -408,25 +413,21 @@ local function get_state()
 	}
 end
 
-local function resolve(preset, current)
+local function resolve(preset)
 	if type(preset) == "string" then
 		preset = climate.presets[preset] or error("unknown climate preset " .. preset, 3)
 	end
 
 	local state = {}
 
-	for k, v in pairs(preset) do
-		if current[k] == nil then error("unknown climate field " .. tostring(k), 3) end
+	for k in pairs(preset) do
+		if climate.DEFAULTS[k] == nil then
+			error("unknown climate field " .. tostring(k), 3)
+		end
 	end
 
-	for k, v in pairs(current) do
-		if preset[k] ~= nil then
-			state[k] = preset[k]
-		elseif climate.DEFAULTS[k] ~= nil then
-			state[k] = climate.DEFAULTS[k]
-		else
-			state[k] = v
-		end
+	for k, v in pairs(climate.DEFAULTS) do
+		if preset[k] ~= nil then state[k] = preset[k] else state[k] = v end
 	end
 
 	state.clouds = fill_layers(state.clouds)
@@ -507,10 +508,9 @@ local function update(dt)
 end
 
 function climate.SetPreset(preset, seconds)
-	local current = get_state()
 	climate.preset = preset
-	climate.from = current
-	climate.to = resolve(preset, current)
+	climate.from = get_state()
+	climate.to = resolve(preset)
 	climate.blend_time = seconds or climate.BLEND_TIME
 	climate.blend_elapsed = 0
 
@@ -537,9 +537,8 @@ function climate.Stop()
 end
 
 function climate.Blend(a, b, t)
-	local current = get_state()
 	climate.Stop()
-	apply(resolve(a, current), resolve(b, current), t)
+	apply(resolve(a), resolve(b), t)
 end
 
 commands.Add("climate=string", function(name)
