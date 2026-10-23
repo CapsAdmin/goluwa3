@@ -156,6 +156,16 @@ define(
 	}
 )
 define(
+	"eye.display_fov",
+	90,
+	{
+		group = "Eye",
+		min = 10,
+		max = 170,
+		help = "the vertical angle in degrees the screen takes up at the viewer's eye, which sets how many pixels one degree of glare, defocus and starburst covers. It does not follow the game camera's field of view, because zooming the picture does not zoom the viewer's eye",
+	}
+)
+define(
 	"eye.night_vision",
 	true,
 	{
@@ -215,6 +225,10 @@ function exposure.GetCompensation()
 	if state["eye.enabled"] then return 0 end
 
 	return log2(state["camera.grey"] / (KEY * 100))
+end
+
+function exposure.GetPixelsPerDegree(height)
+	return height / 2 / math.tan(math.rad(state["eye.display_fov"]) / 2) * math.pi / 180
 end
 
 function exposure.GetRange()

@@ -53,3 +53,10 @@ T.Test("Graphics render3d exposure only manual mode locks the exposure", functio
 	T(exposure.GetManualEV())["~"](10, 1e-9)
 	reset()
 end)
+
+T.Test("Graphics render3d exposure glare pixels per degree follow the display, not the camera", function()
+	T(exposure.GetPixelsPerDegree(1080))["~"](1080 / 2 * math.pi / 180, 1e-9)
+	exposure.Set("eye.display_fov", 60)
+	T(exposure.GetPixelsPerDegree(1080))["~"](1080 / 2 / math.tan(math.rad(30)) * math.pi / 180, 1e-9)
+	reset()
+end)

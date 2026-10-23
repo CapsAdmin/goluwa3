@@ -4,6 +4,8 @@ local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
+local exposure_model = import("goluwa/render3d/exposure.lua")
+local eye_glare = import("goluwa/render3d/eye_glare.lua")
 local LEVELS = 10
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local ENERGY_PER_OCTAVE = 0.0191 * math.log(2)
@@ -16,41 +18,64 @@ render3d.bloom_strength = pvars.Setup2{
 	min = 0,
 	help = "scales the share of the light the glare takes",
 }
-render3d.bloom_smear = pvars.Setup2{
-	key = "r_bloom_smear",
-	default = 0,
-	min = 0,
-	help = "seconds a bright highlight's glare lingers on screen, 0 is off",
+render3d.eye_chromatic_halo = pvars.Setup2{
+	key = "r_eye_chromatic_halo",
+	default = true,
+	help = "in eye mode the glare depends on wavelength: the core spreads in proportion to it (diffraction) and the wide veil scatters more for blue (1/wavelength^4), which leaves a coloured fringe around white lights",
 }
 pvars.EndGroup()
 
 do
-	local weights = {}
-	local total = 0
+	local weights = {{}, {}, {}}
+	local totals = {0, 0, 0}
 	local last_frame = -1
 
 	function render3d.GetBloomWeights()
 		local frame = system.GetFrameNumber()
 
-		if frame == last_frame then return weights, total end
+		if frame == last_frame then return weights, totals end
 
 		last_frame = frame
-		local pixels_per_degree = render.GetRenderImageSize().y / 2 / math.tan(render3d.GetCamera():GetFOV() / 2) * math.pi / 180
-		total = 0
+		local pixels_per_degree = exposure_model.GetPixelsPerDegree(render.GetRenderImageSize().y)
+		local eye = exposure_model.IsEye()
+		local chromatic = eye and render3d.eye_chromatic_halo:Get()
+		local sums = {0, 0, 0}
 
 		for i = 1, LEVELS do
 			local degrees = 2 ^ i / pixels_per_degree
 			local low = math.log(math.max(degrees / math.sqrt(2), MIN_DEGREES)) / math.log(2)
 			local high = math.log(math.min(degrees * math.sqrt(2), MAX_DEGREES)) / math.log(2)
-			weights[i] = math.max(high - low, 0) * ENERGY_PER_OCTAVE
-			total = total + weights[i]
+
+			for channel = 1, 3 do
+				local weight = 0
+
+				if high > low then
+					if eye then
+						weight = eye_glare.GetBandEnergy(
+							low,
+							high,
+							chromatic and
+								eye_glare.CHANNEL_WAVELENGTH[channel] / eye_glare.REFERENCE_WAVELENGTH or
+								1
+						)
+					else
+						weight = (high - low) * ENERGY_PER_OCTAVE
+					end
+				end
+
+				weights[channel][i] = weight
+				sums[channel] = sums[channel] + weight
+			end
 		end
 
-		for i = 1, LEVELS do
-			weights[i] = weights[i] / total
+		for channel = 1, 3 do
+			for i = 1, LEVELS do
+				weights[channel][i] = weights[channel][i] / sums[channel]
+			end
 		end
 
-		return weights, total
+		totals[1], totals[2], totals[3] = sums[1], sums[2], sums[3]
+		return weights, totals
 	end
 end
 
@@ -127,7 +152,7 @@ local upsample_glsl = [[
 			bloom_sample(uv + t * vec2(1.0, -1.0)) +
 			bloom_sample(uv + t * vec2(-1.0, 1.0)) +
 			bloom_sample(uv + t * vec2(1.0, 1.0));
-		imageStore(out_bloom, pos, vec4(sum / 16.0 * compute.source_weight + texelFetch(merge_tex, pos, 0).rgb * compute.merge_weight, 1.0));
+		imageStore(out_bloom, pos, vec4(sum / 16.0 * compute.source_weight.rgb + texelFetch(merge_tex, pos, 0).rgb * compute.merge_weight.rgb, 1.0));
 	}
 ]]
 
@@ -139,8 +164,8 @@ end
 
 local block = {
 	{"has_source_tex", "int"},
-	{"source_weight", "float"},
-	{"merge_weight", "float"},
+	{"source_weight", "vec4"},
+	{"merge_weight", "vec4"},
 }
 
 local function build_pass(name, scale, shader, sampled_images, write)
@@ -211,8 +236,11 @@ return function()
 			},
 			function(block)
 				local weights = render3d.GetBloomWeights()
-				block.source_weight = i == LEVELS - 1 and weights[LEVELS] or 1
-				block.merge_weight = weights[i]
+
+				for channel = 0, 2 do
+					block.source_weight[channel] = i == LEVELS - 1 and weights[channel + 1][LEVELS] or 1
+					block.merge_weight[channel] = weights[channel + 1][i]
+				end
 			end
 		)
 	end

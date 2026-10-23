@@ -432,90 +432,58 @@ local function get_bloom_texture()
 	return pipeline and pipeline:GetFramebuffer():GetAttachment(1) or nil
 end
 
-local function get_bloom_strength()
-	return get_bloom_texture() and
-		math.min(select(2, render3d.GetBloomWeights()) * render3d.bloom_strength:Get(), 1) or
-		0
+local function write_bloom_strength(strength)
+	local totals = get_bloom_texture() and select(2, render3d.GetBloomWeights())
+
+	for channel = 0, 2 do
+		strength[channel] = totals and math.min(totals[channel + 1] * render3d.bloom_strength:Get(), 1) or 0
+	end
 end
 
 local glare_pass
 
-do
-	local last_frame = -1
-	local last_width, last_height = 0, 0
+glare_pass = {
+	name = "glare",
+	ComputePass = true,
+	ColorFormat = {{"r16g16b16a16_sfloat", {"glare", "rgba"}}},
+	LocalSize = COMPUTE_LOCAL_SIZE,
+	storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
+	sampled_images = {
+		{binding_index = 1, get_texture = get_bloom_texture},
+		{binding_index = 2, get_texture = get_exposure_feedback_texture},
+		{binding_index = 3, get_texture = get_previous_exposure_texture},
+	},
+	block = {
+		{"bloom_strength", "vec4"},
+	},
+	write = function(self, block)
+		write_bloom_strength(block.bloom_strength)
+		return block
+	end,
+	shader = [[
+		layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_glare;
+		layout(set = 0, binding = 1) uniform sampler2D bloom_tex;
+		layout(set = 0, binding = 2) uniform sampler2D exposure_tex;
+		layout(set = 0, binding = 3) uniform sampler2D prev_exposure_tex;
+	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. [[
+		void main() {
+			ivec2 pos = get_screen_pos();
+			ivec2 size = imageSize(out_glare);
 
-	local function get_history_texture()
-		return render3d.pipelines.glare:GetFramebuffer((system.GetFrameNumber() + 1) % 2 + 1):GetAttachment(1)
-	end
+			if (!is_screen_pos_in_bounds(pos, size)) return;
 
-	glare_pass = {
-		name = "glare",
-		ComputePass = true,
-		ColorFormat = {{"r16g16b16a16_sfloat", {"glare", "rgba"}}},
-		framebuffer_count = 2,
-		LocalSize = COMPUTE_LOCAL_SIZE,
-		storage_images = {{binding_index = 0, attachment = 1, dst_stage = "compute"}},
-		sampled_images = {
-			{binding_index = 1, get_texture = get_bloom_texture},
-			{binding_index = 2, get_texture = get_history_texture},
-			{binding_index = 3, get_texture = get_exposure_feedback_texture},
-			{binding_index = 4, get_texture = get_previous_exposure_texture},
-		},
-		block = {
-			{"bloom_strength", "float"},
-			{"history_valid", "int"},
-			{"persistence", "float"},
-		},
-		write = function(self, block)
-			local frame = system.GetFrameNumber()
-			local size = render.GetRenderImageSize()
-			block.bloom_strength = get_bloom_strength()
-			block.history_valid = (
-					render3d.bloom_smear:Get() > 0 and
-					last_frame == frame - 1 and
-					last_width == size.x and
-					last_height == size.y
-				)
-				and
-				1 or
-				0
-			block.persistence = render3d.bloom_smear:Get() > 0 and
-				math.exp(-system.GetFrameTime() / render3d.bloom_smear:Get()) or
-				0
-			last_frame = frame
-			last_width, last_height = size.x, size.y
-			return block
-		end,
-		shader = [[
-			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_glare;
-			layout(set = 0, binding = 1) uniform sampler2D bloom_tex;
-			layout(set = 0, binding = 2) uniform sampler2D history_tex;
-			layout(set = 0, binding = 3) uniform sampler2D exposure_tex;
-			layout(set = 0, binding = 4) uniform sampler2D prev_exposure_tex;
-		]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. [[
-			void main() {
-				ivec2 pos = get_screen_pos();
-				ivec2 size = imageSize(out_glare);
+			vec2 uv = get_screen_uv(pos, size);
+			vec2 half_texel = 0.5 / vec2(textureSize(bloom_tex, 0));
+			float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
+			vec3 glare = textureLod(bloom_tex, clamp(uv, half_texel, 1.0 - half_texel), 0.0).rgb * compute.bloom_strength.rgb * exposure;
 
-				if (!is_screen_pos_in_bounds(pos, size)) return;
-
-				vec2 uv = get_screen_uv(pos, size);
-				vec2 half_texel = 0.5 / vec2(textureSize(bloom_tex, 0));
-				float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
-				vec3 glare = textureLod(bloom_tex, clamp(uv, half_texel, 1.0 - half_texel), 0.0).rgb * compute.bloom_strength * exposure;
-
-				if (compute.history_valid != 0) {
-					glare = mix(glare, texelFetch(history_tex, pos, 0).rgb, compute.persistence);
-				}
-
-				imageStore(out_glare, pos, vec4(glare, 1.0));
-			}
-		]],
-	}
-end
+			imageStore(out_glare, pos, vec4(glare, 1.0));
+		}
+	]],
+}
 
 local function get_glare_texture()
-	return render3d.pipelines.glare:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
+	return render3d.pipelines.glare:GetFramebuffer():GetAttachment(1)
 end
 
 local compute_shader = [[
@@ -606,7 +574,7 @@ local compute_shader = [[
 		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
 
 		if (compute.has_bloom_tex != 0) {
-			col = col * (1.0 - compute.bloom_strength) + texelFetch(glare_tex, pos, 0).rgb / exposure;
+			col = max(col * (1.0 - compute.bloom_strength.rgb) + texelFetch(glare_tex, pos, 0).rgb / exposure, vec3(0.0));
 		}
 
 		col = mix(col, vec3(dot(max(col, vec3(0.0)), ROD_RESPONSE)), (1.0 - cones) * compute.night_vision);
@@ -788,7 +756,7 @@ for _, pass in ipairs{
 			{"dither_steps", "float"},
 			{"has_exposure_tex", "int"},
 			{"tonemapper", "int"},
-			{"bloom_strength", "float"},
+			{"bloom_strength", "vec4"},
 			{"night_vision", "float"},
 			{"night_vision_log10_threshold", "float"},
 			{"debug_passthrough", "int"},
@@ -819,7 +787,7 @@ for _, pass in ipairs{
 
 			block.dither_steps = dither:Get() and 2 ^ bits - 1 or 0
 			block.tonemapper = render3d.GetTonemapperIndex()
-			block.bloom_strength = get_bloom_strength()
+			write_bloom_strength(block.bloom_strength)
 			block.night_vision = exposure_model.IsEye() and exposure_model.Get("eye.night_vision") and 1 or 0
 			block.night_vision_log10_threshold = math.log(exposure_model.Get("eye.night_vision_threshold")) / math.log(10)
 			block.debug_passthrough = post_source.GetDebugTexture() and 1 or 0
