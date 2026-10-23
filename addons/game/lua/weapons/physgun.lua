@@ -38,8 +38,8 @@ META:GetSet("ScrollStep", 0.75)
 META:GetSet("PositionStrength", 22)
 META:GetSet("VelocityResponse", 18)
 META:GetSet("MaxHoldLinearSpeed", 45)
-META:GetSet("RotationStrength", 16)
-META:GetSet("AngularResponse", 16)
+META:GetSet("RotationStrength", 24)
+META:GetSet("AngularResponse", 32)
 META:GetSet("RotateSensitivity", 1)
 META:GetSet("SnapAngle", math.rad(45))
 
@@ -363,10 +363,9 @@ function META:UpdateHeldBody(dt, cmd)
 			target_rotation = Quat():SetAngles(angles)
 		end
 
-		body:SetRotation(target_rotation)
-		body.PreviousRotation = target_rotation:Copy()
-		sync_body_rotation_to_transform(body)
-		body:SetAngularVelocity(Vec3())
+		local target_angular = get_angular_target(body:GetRotation(), target_rotation, self.RotationStrength)
+		local current_angular = body:GetAngularVelocity():Copy()
+		body:SetAngularVelocity(current_angular + (target_angular - current_angular) * clamp01(dt * self.AngularResponse))
 	end
 
 	if body.SetGrounded then body:SetGrounded(false) end
