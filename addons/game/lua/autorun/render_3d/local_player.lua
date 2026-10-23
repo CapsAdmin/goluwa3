@@ -86,8 +86,8 @@ event.AddListener("Update", "flashlight", function()
 	f_was_down = f_down
 end)
 
--- the player exists before the map does, so it is placed once on the first spawn point that shows up, unless a server decides that
-event.AddListener("Update", "player_spawn_point", function()
+-- the player exists before the map does, so it is placed once per scene load on the first spawn point that shows up, unless a server decides that
+local function place_on_first_spawn_point()
 	local spawn = SpawnPoint.Pick("deathmatch", "start") or SpawnPoint.Pick()
 
 	if not spawn then return end
@@ -97,4 +97,10 @@ event.AddListener("Update", "player_spawn_point", function()
 	if network.IsConnected() then return end
 
 	rig.player_controller:Spawn(spawn:GetPlacement(0))
+end
+
+event.AddListener("Update", "player_spawn_point", place_on_first_spawn_point)
+
+event.AddListener("SceneCleared", "player_spawn_point", function()
+	event.AddListener("Update", "player_spawn_point", place_on_first_spawn_point)
 end)

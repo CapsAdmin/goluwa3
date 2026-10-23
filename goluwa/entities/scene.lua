@@ -1,5 +1,6 @@
 local Entity = import("goluwa/entities/entity.lua")
 local objects = import("goluwa/objects/objects.lua")
+local event = import("goluwa/event.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local crypto = import("goluwa/crypto.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -235,6 +236,8 @@ function scene.Clear()
 	for _, root in ipairs(scene.GetRoots()) do
 		if not root:GetSingleton() then root:Remove() end
 	end
+
+	event.Call("SceneCleared")
 end
 
 local function apply_properties(object, properties, what, skip_equal)
