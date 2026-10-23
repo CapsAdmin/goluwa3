@@ -456,6 +456,16 @@ end
 
 local glare_pass
 
+local function get_star_texture()
+	if not render3d.IsStarburstEnabled() then return nil end
+
+	local pipeline = render3d.pipelines.starburst
+
+	if not pipeline or not pipeline.framebuffers then return nil end
+
+	return pipeline:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
+end
+
 glare_pass = {
 	name = "glare",
 	ComputePass = true,
@@ -466,12 +476,15 @@ glare_pass = {
 		{binding_index = 1, get_texture = get_bloom_texture},
 		{binding_index = 2, get_texture = get_exposure_feedback_texture},
 		{binding_index = 3, get_texture = get_previous_exposure_texture},
+		{binding_index = 4, get_texture = get_star_texture},
 	},
 	block = {
 		{"bloom_strength", "vec4"},
+		{"has_star", "int"},
 	},
 	write = function(self, block)
 		write_bloom_strength(block.bloom_strength)
+		block.has_star = get_star_texture() and 1 or 0
 		return block
 	end,
 	shader = [[
@@ -479,6 +492,7 @@ glare_pass = {
 		layout(set = 0, binding = 1) uniform sampler2D bloom_tex;
 		layout(set = 0, binding = 2) uniform sampler2D exposure_tex;
 		layout(set = 0, binding = 3) uniform sampler2D prev_exposure_tex;
+		layout(set = 0, binding = 4) uniform sampler2D star_tex;
 	]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. [[
 		void main() {
 			ivec2 pos = get_screen_pos();
@@ -490,6 +504,8 @@ glare_pass = {
 			vec2 half_texel = 0.5 / vec2(textureSize(bloom_tex, 0));
 			float exposure = texture(exposure_tex, vec2(0.5)).r / pre_exposure_from_exposure(texture(prev_exposure_tex, vec2(0.5)).r);
 			vec3 glare = textureLod(bloom_tex, clamp(uv, half_texel, 1.0 - half_texel), 0.0).rgb * compute.bloom_strength.rgb * exposure;
+
+			if (compute.has_star != 0) glare += texture(star_tex, edge_clamp_uv(uv, textureSize(star_tex, 0))).rgb * exposure;
 
 			imageStore(out_glare, pos, vec4(glare, 1.0));
 		}
@@ -743,6 +759,10 @@ local r = {
 }
 
 for _, pass in ipairs(import("goluwa/render3d/passes/bloom.lua")()) do
+	r[#r + 1] = pass
+end
+
+for _, pass in ipairs(import("goluwa/render3d/passes/starburst.lua")) do
 	r[#r + 1] = pass
 end
 
