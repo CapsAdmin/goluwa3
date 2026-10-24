@@ -144,9 +144,9 @@ do
 				poly:AddVertex{pos = p1, uv = uv1, normal = normal, tangent = tangent}
 				poly:AddVertex{pos = p3, uv = uv3, normal = normal, tangent = tangent}
 				poly:AddVertex{pos = p2, uv = uv2, normal = normal, tangent = tangent}
-				poly:AddVertex{pos = p1, uv = uv1, normal = normal, tangent = tangent}
+				poly:AddVertex{pos = p1:Copy(), uv = uv1, normal = normal, tangent = tangent}
 				poly:AddVertex{pos = p4, uv = uv4, normal = normal, tangent = tangent}
-				poly:AddVertex{pos = p3, uv = uv3, normal = normal, tangent = tangent}
+				poly:AddVertex{pos = p3:Copy(), uv = uv3, normal = normal, tangent = tangent}
 			end
 		end
 	end
