@@ -27,6 +27,7 @@ Screenshot A/B: freeze time-driven things (`system.SetElapsedTime` from a high p
 
 ## LuaJIT
 
+- Trace aborts and what to do about them: jit-trace-aborts.md.
 - Fewer live locals, no alias locals, direct field access in hot code. Judge by trace abort counts (`-jv`, `jit.attach` logger), not one timing: you need 6+ alternating runs to see anything under 15%.
 - "NYI: register coalescing too complex" only aborts side traces. At a side exit ALL locals in scope (including params and inlined caller frames, even dead ones) are snapshot values. Fixes: wrap temporaries in `do ... end`, `param = nil` after last use, tail calls, keep long-lived scalars in a plain scratch table (not Vec3, which is float32), split fused loops, hoist loop-invariant calls, guarantee number fields so `or 0` branches vanish. Check it is the real bottleneck first.
 - No nested row loops in hot solver code: LuaJIT unrolls short inner loops into the outer trace until "too many spill slots" and blacklists the loop (bimodal step times). Use one flat task list.
