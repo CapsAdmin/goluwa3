@@ -17,25 +17,33 @@ function triangle_scalar.TriangleNormalRaw(v0, v1, v2)
 end
 
 function triangle_scalar.PointToTriangleSq(px, py, pz, a, b, c)
-	local abx = b.x - a.x
-	local aby = b.y - a.y
-	local abz = b.z - a.z
-	local acx = c.x - a.x
-	local acy = c.y - a.y
-	local acz = c.z - a.z
-	local apx = px - a.x
-	local apy = py - a.y
-	local apz = pz - a.z
-	local d1 = abx * apx + aby * apy + abz * apz
-	local d2 = acx * apx + acy * apy + acz * apz
+	local d1, d2, d3, d4, d5, d6
 
-	if d1 <= 0 and d2 <= 0 then
-		return apx * apx + apy * apy + apz * apz, a.x, a.y, a.z
+	do
+		local abx = b.x - a.x
+		local aby = b.y - a.y
+		local abz = b.z - a.z
+		local acx = c.x - a.x
+		local acy = c.y - a.y
+		local acz = c.z - a.z
+		local apx = px - a.x
+		local apy = py - a.y
+		local apz = pz - a.z
+		d1 = abx * apx + aby * apy + abz * apz
+		d2 = acx * apx + acy * apy + acz * apz
+		local abac = abx * acx + aby * acy + abz * acz
+		d3 = d1 - (abx * abx + aby * aby + abz * abz)
+		d4 = d2 - abac
+		d5 = d1 - abac
+		d6 = d2 - (acx * acx + acy * acy + acz * acz)
 	end
 
-	local abac = abx * acx + aby * acy + abz * acz
-	local d3 = d1 - (abx * abx + aby * aby + abz * abz)
-	local d4 = d2 - abac
+	if d1 <= 0 and d2 <= 0 then
+		local apx = px - a.x
+		local apy = py - a.y
+		local apz = pz - a.z
+		return apx * apx + apy * apy + apz * apz, a.x, a.y, a.z
+	end
 
 	if d3 >= 0 and d4 <= d3 then
 		local bpx = px - b.x
@@ -43,9 +51,6 @@ function triangle_scalar.PointToTriangleSq(px, py, pz, a, b, c)
 		local bpz = pz - b.z
 		return bpx * bpx + bpy * bpy + bpz * bpz, b.x, b.y, b.z
 	end
-
-	local d5 = d1 - abac
-	local d6 = d2 - (acx * acx + acy * acy + acz * acz)
 
 	if d6 >= 0 and d5 <= d6 then
 		local cpx = px - c.x
@@ -61,18 +66,18 @@ function triangle_scalar.PointToTriangleSq(px, py, pz, a, b, c)
 
 	if vc <= 0 and d1 >= 0 and d3 <= 0 then
 		local v = d1 / (d1 - d3)
-		qx, qy, qz = a.x + abx * v, a.y + aby * v, a.z + abz * v
+		qx, qy, qz = a.x + (b.x - a.x) * v, a.y + (b.y - a.y) * v, a.z + (b.z - a.z) * v
 	elseif vb <= 0 and d2 >= 0 and d6 <= 0 then
 		local w = d2 / (d2 - d6)
-		qx, qy, qz = a.x + acx * w, a.y + acy * w, a.z + acz * w
+		qx, qy, qz = a.x + (c.x - a.x) * w, a.y + (c.y - a.y) * w, a.z + (c.z - a.z) * w
 	elseif va <= 0 and d4 - d3 >= 0 and d5 - d6 >= 0 then
 		local w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
 		qx, qy, qz = b.x + (c.x - b.x) * w, b.y + (c.y - b.y) * w, b.z + (c.z - b.z) * w
 	else
 		local denom = va + vb + vc
-		qx, qy, qz = a.x + (vb * abx + vc * acx) / denom,
-		a.y + (vb * aby + vc * acy) / denom,
-		a.z + (vb * abz + vc * acz) / denom
+		qx, qy, qz = a.x + (vb * (b.x - a.x) + vc * (c.x - a.x)) / denom,
+		a.y + (vb * (b.y - a.y) + vc * (c.y - a.y)) / denom,
+		a.z + (vb * (b.z - a.z) + vc * (c.z - a.z)) / denom
 	end
 
 	local ddx = px - qx
