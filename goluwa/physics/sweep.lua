@@ -24,7 +24,6 @@ local evaluate_point_against_capsule_segment = sweep_mesh.EvaluatePointAgainstCa
 local collect_mesh_body_point_sweep_hit = sweep_mesh.CollectMeshBodyPointSweepHit
 local collect_mesh_body_collider_sweep_hit = sweep_mesh.CollectMeshBodyColliderSweepHit
 local build_capsule_sweep_invariants = sweep_mesh.BuildCapsuleSweepInvariants
-local get_polyhedron_contact_for_point_at_pose
 local evaluate_polyhedron_pair_contact
 local should_skip_rigid_body = sweep_candidates.ShouldSkipRigidBody
 local get_rigid_body_candidate_aabb = sweep_candidates.GetRigidBodyCandidateAABB
@@ -553,42 +552,6 @@ local function get_capsule_contact_for_point_at_pose(collider, point, radius, po
 		normal = normal,
 		position = closest + normal * capsule_radius,
 		point = point - normal * radius,
-	}
-end
-
-function get_polyhedron_contact_for_point_at_pose(collider, polyhedron, point, radius, position, rotation, movement_world)
-	local scratch = collider.point_polyhedron_contact_scratch or {}
-	collider.point_polyhedron_contact_scratch = scratch
-	local vertices = polyhedron_cache.FillPolyhedronWorldVertices(polyhedron, position, rotation, scratch.vertices)
-	scratch.vertices = vertices
-	local best_distance = -math.huge
-	local best_normal = nil
-
-	for _, face in ipairs(polyhedron.faces or {}) do
-		local plane_point = vertices[face.indices[1]]
-		local normal = rotation:VecMul(face.normal):GetNormalized()
-		local distance = normal:Dot(point - plane_point)
-
-		if distance > radius + EPSILON then return nil end
-
-		if distance > best_distance then
-			best_distance = distance
-			best_normal = normal
-		end
-	end
-
-	if not best_normal then return nil end
-
-	if best_normal:GetLength() <= EPSILON then
-		best_normal = ensure_normal_faces_motion((point - position):GetNormalized(), movement_world)
-	end
-
-	if not best_normal then return nil end
-
-	return {
-		normal = best_normal,
-		position = get_support_point(vertices, best_normal),
-		point = point - best_normal * radius,
 	}
 end
 

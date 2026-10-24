@@ -6,6 +6,7 @@ local pair_solver_helpers = import("goluwa/physics/pair_solver_helpers.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local segment_geometry = import("goluwa/physics/segment_geometry.lua")
 local toi = import("goluwa/physics/toi.lua")
+local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local helpers = {}
 local EPSILON = physics_constants.EPSILON
@@ -559,40 +560,101 @@ function helpers.SweepCapsuleAgainstTargetPolyhedron(
 	return hit
 end
 
-function helpers.GetPolyhedronContactForPointAtPose(collider, polyhedron, point, radius, position, rotation, movement_world)
-	local scratch = collider.point_polyhedron_contact_scratch or {}
-	collider.point_polyhedron_contact_scratch = scratch
-	local vertices = polyhedron_cache.FillPolyhedronWorldVertices(polyhedron, position, rotation, scratch.vertices)
-	scratch.vertices = vertices
-	local best_distance = -math.huge
-	local best_normal = nil
+do
+	local PROJECTED_POINT = Vec3()
 
-	for _, face in ipairs(polyhedron.faces or {}) do
-		local plane_point = vertices[face.indices[1]]
-		local normal = rotation:VecMul(face.normal):GetNormalized()
-		local distance = normal:Dot(point - plane_point)
+	function helpers.GetPolyhedronContactForPointAtPose(collider, polyhedron, point, radius, position, rotation, movement_world)
+		local scratch = collider.point_polyhedron_contact_scratch or {}
+		collider.point_polyhedron_contact_scratch = scratch
+		local vertices = polyhedron_cache.FillPolyhedronWorldVertices(polyhedron, position, rotation, scratch.vertices)
+		scratch.vertices = vertices
+		local faces = polyhedron.faces
+		local best_distance = -math.huge
+		local best_normal = nil
+		local best_face = nil
 
-		if distance > radius + EPSILON then return nil end
+		for _, face in ipairs(faces or {}) do
+			local plane_point = vertices[face.indices[1]]
+			local normal = rotation:VecMul(face.normal):GetNormalized()
+			local distance = normal:Dot(point - plane_point)
 
-		if distance > best_distance then
-			best_distance = distance
-			best_normal = normal
+			if distance > radius + EPSILON then return nil end
+
+			if distance > best_distance then
+				best_distance = distance
+				best_normal = normal
+				best_face = face
+			end
 		end
+
+		if not best_normal then return nil end
+
+		if best_distance > 0 then
+			PROJECTED_POINT:CopyFrom(point):Sub(best_normal * best_distance)
+			local indices = best_face.indices
+			local first = vertices[indices[1]]
+			local over_face = false
+
+			for i = 2, #indices - 1 do
+				if
+					triangle_geometry.PointInTriangle(
+						PROJECTED_POINT,
+						first,
+						vertices[indices[i]],
+						vertices[indices[i + 1]],
+						best_normal
+					)
+				then
+					over_face = true
+
+					break
+				end
+			end
+
+			if not over_face then
+				local closest_distance = math.huge
+				local closest
+
+				for _, face in ipairs(faces) do
+					local face_indices = face.indices
+					local face_first = vertices[face_indices[1]]
+
+					for i = 2, #face_indices - 1 do
+						local candidate = triangle_geometry.ClosestPointOnTriangle(
+							point,
+							face_first,
+							vertices[face_indices[i]],
+							vertices[face_indices[i + 1]]
+						)
+						local candidate_distance = (point - candidate):GetLength()
+
+						if candidate_distance < closest_distance then
+							closest_distance = candidate_distance
+							closest = candidate
+						end
+					end
+				end
+
+				if closest_distance > radius + EPSILON then return nil end
+
+				if closest_distance > EPSILON then
+					best_normal = (point - closest) / closest_distance
+				end
+			end
+		end
+
+		if best_normal:GetLength() <= EPSILON then
+			best_normal = helpers.EnsureNormalFacesMotion((point - position):GetNormalized(), movement_world)
+		end
+
+		if not best_normal then return nil end
+
+		return {
+			normal = best_normal,
+			position = helpers.GetSupportPoint(vertices, best_normal),
+			point = point - best_normal * radius,
+		}
 	end
-
-	if not best_normal then return nil end
-
-	if best_normal:GetLength() <= EPSILON then
-		best_normal = helpers.EnsureNormalFacesMotion((point - position):GetNormalized(), movement_world)
-	end
-
-	if not best_normal then return nil end
-
-	return {
-		normal = best_normal,
-		position = helpers.GetSupportPoint(vertices, best_normal),
-		point = point - best_normal * radius,
-	}
 end
 
 function helpers.GetCapsuleContactForPointAtPose(collider, point, radius, position, rotation, movement_world)

@@ -10,6 +10,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 
 local function create_brush_box_body(name, mins, maxs)
 	local ent = Entity.New({Name = name or "sweep_world_brush"})
@@ -532,4 +533,46 @@ T.TestPhysics("Point sweep hits triangles far from the origin", function()
 		T(hit)["~="](nil)
 		T(math.abs(hit.t - 0.5))["<"](0.01)
 	end
+end)
+
+T.TestPhysics("Sphere sweep point contact with a tilted box follows the rounded corner, not the end face plane", function()
+	local rad = math.rad(10)
+	local length = 8
+	local thickness = 0.5
+	local corner = Vec3(0, 2.5, 0)
+	local direction = Vec3(0, math.sin(rad), -math.cos(rad))
+	local normal = Vec3(0, math.cos(rad), math.sin(rad))
+	local ramp = Entity.New({Name = "point_contact_ramp"})
+	ramp:AddComponent("transform")
+	ramp.transform:SetPosition(corner - direction * (length / 2) - normal * (thickness / 2))
+	ramp.transform:SetRotation(Quat(math.sin(rad / 2), 0, 0, math.cos(rad / 2)))
+	local body = ramp:AddComponent(
+		"rigid_body",
+		{Shape = BoxShape.New(Vec3(8, thickness, length)), MotionType = "static", GravityScale = 0}
+	)
+	local collider = body:GetColliders()[1]
+	local polyhedron = collider:GetPhysicsShape():GetPolyhedron(body)
+	local radius = 0.305
+	local movement = Vec3(0, 0, 0.06)
+
+	local function contact(point)
+		return sweep_helpers.GetPolyhedronContactForPointAtPose(
+			collider,
+			polyhedron,
+			point,
+			radius,
+			body:GetPosition(),
+			body:GetRotation(),
+			movement
+		)
+	end
+
+	T(contact(Vec3(0, 2.825, -0.2)))["=="](nil)
+	local over_corner = contact(Vec3(0, 2.5 + 0.2, 0.1))
+	T(over_corner)["~="](nil)
+	T(over_corner.normal.y)[">"](0.9)
+	local over_face = contact(corner + normal * 0.2 - direction * 1)
+	T(over_face)["~="](nil)
+	T(over_face.normal:Dot(normal))[">"](0.999)
+	ramp:Remove()
 end)
