@@ -1,6 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local triangle_scalar = {}
 local face_point = Vec3()
+local best = {0, 0, 0, 0, 0, 0}
 
 local function point_in_triangle_fast_path(p, a, b, c, n, epsilon)
 	local nx, ny, nz = n.x, n.y, n.z
@@ -206,23 +207,24 @@ do
 			return apx * apx + apy * apy + apz * apz, a.x, a.y, a.z
 		end
 
-		local bpx = p.x - b.x
-		local bpy = p.y - b.y
-		local bpz = p.z - b.z
-		local d3 = abx * bpx + aby * bpy + abz * bpz
-		local d4 = acx * bpx + acy * bpy + acz * bpz
+		local abac = abx * acx + aby * acy + abz * acz
+		local d3 = d1 - (abx * abx + aby * aby + abz * abz)
+		local d4 = d2 - abac
 
 		if d3 >= 0 and d4 <= d3 then
+			local bpx = p.x - b.x
+			local bpy = p.y - b.y
+			local bpz = p.z - b.z
 			return bpx * bpx + bpy * bpy + bpz * bpz, b.x, b.y, b.z
 		end
 
-		local cpx = p.x - c.x
-		local cpy = p.y - c.y
-		local cpz = p.z - c.z
-		local d5 = abx * cpx + aby * cpy + abz * cpz
-		local d6 = acx * cpx + acy * cpy + acz * cpz
+		local d5 = d1 - abac
+		local d6 = d2 - (acx * acx + acy * acy + acz * acz)
 
 		if d6 >= 0 and d5 <= d6 then
+			local cpx = p.x - c.x
+			local cpy = p.y - c.y
+			local cpz = p.z - c.z
 			return cpx * cpx + cpy * cpy + cpz * cpz, c.x, c.y, c.z
 		end
 
@@ -256,54 +258,45 @@ function triangle_scalar.SegmentToTriangleSq(a, b, v0, v1, v2, face_normal, epsi
 					pz,
 					px - nx * signed,
 					py - ny * signed,
-					pz - nz * signed,
-					"face"
+					pz - nz * signed
 				end
 			end
 		end
 	end
 
-	local best_sq = math.huge
-	local best_sx, best_sy, best_sz, best_qx, best_qy, best_qz, best_feature
 	local sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(a, v0, v1, v2)
-
-	if sq < best_sq then
-		best_sq, best_sx, best_sy, best_sz, best_qx, best_qy, best_qz, best_feature = sq, a.x, a.y, a.z, qx, qy, qz, "point"
-	end
-
+	local best_sq = sq
+	best[1], best[2], best[3], best[4], best[5], best[6] = a.x, a.y, a.z, qx, qy, qz
 	sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(b, v0, v1, v2)
 
 	if sq < best_sq then
-		best_sq, best_sx, best_sy, best_sz, best_qx, best_qy, best_qz, best_feature = sq, b.x, b.y, b.z, qx, qy, qz, "point"
+		best_sq = sq
+		best[1], best[2], best[3], best[4], best[5], best[6] = b.x, b.y, b.z, qx, qy, qz
 	end
 
 	local px, py, pz
 	sq, px, py, pz, qx, qy, qz = triangle_scalar.SegmentSegmentSq(a, b, v0, v1)
 
 	if sq < best_sq then
-		best_sq, best_sx, best_sy, best_sz, best_qx, best_qy, best_qz, best_feature = sq, px, py, pz, qx, qy, qz, "edge"
+		best_sq = sq
+		best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
 	end
 
 	sq, px, py, pz, qx, qy, qz = triangle_scalar.SegmentSegmentSq(a, b, v1, v2)
 
 	if sq < best_sq then
-		best_sq, best_sx, best_sy, best_sz, best_qx, best_qy, best_qz, best_feature = sq, px, py, pz, qx, qy, qz, "edge"
+		best_sq = sq
+		best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
 	end
 
 	sq, px, py, pz, qx, qy, qz = triangle_scalar.SegmentSegmentSq(a, b, v2, v0)
 
 	if sq < best_sq then
-		best_sq, best_sx, best_sy, best_sz, best_qx, best_qy, best_qz, best_feature = sq, px, py, pz, qx, qy, qz, "edge"
+		best_sq = sq
+		best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
 	end
 
-	return best_sq,
-	best_sx,
-	best_sy,
-	best_sz,
-	best_qx,
-	best_qy,
-	best_qz,
-	best_feature
+	return best_sq, best[1], best[2], best[3], best[4], best[5], best[6]
 end
 
 return triangle_scalar
