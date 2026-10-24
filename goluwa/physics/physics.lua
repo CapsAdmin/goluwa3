@@ -39,7 +39,9 @@ function Physics.New(config)
 	RigidBody.Physics = self
 
 	do
-		self.RayCast = trace.RayCast
+		self.RayCast = function(...)
+			return trace.RayCast(self, ...)
+		end
 		self.GetHitNormal = trace.GetHitNormal
 		self.GetHitSurfaceContact = trace.GetHitSurfaceContact
 		self.SweepCollider = function(...)

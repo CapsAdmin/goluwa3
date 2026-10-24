@@ -3,7 +3,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Terrain = import("goluwa/terrain/terrain.lua")
 local TerrainSource = import("goluwa/terrain/source.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
-local trace = import("goluwa/physics/trace.lua")
+local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
@@ -90,7 +90,7 @@ T.TestPhysics("Terrain colliders trace at the source height", function()
 	end
 
 	for _, probe in ipairs{{3.5, 7.25}, {-12, 20}, {25, -9}, {-30, -30}} do
-		local hit = trace.RayCast(Vec3(probe[1], 100, probe[2]), Vec3(0, -1, 0), 200)
+		local hit = physics.RayCast(Vec3(probe[1], 100, probe[2]), Vec3(0, -1, 0), 200)
 		T(hit ~= nil)["=="](true)
 		T(math.abs(hit.position.y - analytic_height(probe[1], probe[2])))["<"](0.35)
 	end

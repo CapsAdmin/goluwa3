@@ -9,7 +9,7 @@ local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local terrain_textures = import("lua/autorun/render_3d/terrain_textures.lua")
 local event = import("goluwa/event.lua")
-local trace = import("goluwa/physics/trace.lua")
+local physics = import("goluwa/physics.lua")
 local SEED = 77
 local island = {}
 local scatter_set = presets[_G.SCATTER_SET or "crysis_jungle"] or ScatterSet.GetGrass()
@@ -250,7 +250,7 @@ do
 		origin.x = PEAK.x + math.cos(ahead) * fly.radius
 		origin.y = 1500
 		origin.z = PEAK.z + math.sin(ahead) * fly.radius
-		local hit = trace.RayCast(origin, DOWN, 2000)
+		local hit = physics.RayCast(origin, DOWN, 2000)
 
 		if hit then fly.ground = math.max(hit.position.y, 0) end
 

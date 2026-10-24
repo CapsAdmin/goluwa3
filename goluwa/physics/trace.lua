@@ -1,10 +1,13 @@
 local mesh_surface_contact = import("goluwa/physics/mesh_surface_contact.lua")
-local RigidBodyComponent = import("goluwa/physics/rigid_body.lua")
+local sweep_candidates = import("goluwa/physics/sweep_candidates.lua")
+local collider_index = import("goluwa/physics/collider_index.lua")
 local stats = import("goluwa/physics/stats.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local trace = {}
+local EMPTY_OPTIONS = {}
 
 local function normalize_query_options(options)
-	options = options or {}
+	if options == nil then return EMPTY_OPTIONS end
 
 	if options.IncludeRigidBodies ~= nil and options.IgnoreRigidBodies == nil then
 		options.IgnoreRigidBodies = not options.IncludeRigidBodies
@@ -21,60 +24,55 @@ local function normalize_query_options(options)
 	return options
 end
 
-local ray_cast
+local MAX_RAY_EXTENT = 1e6
+local MIN_DIRECTION_LENGTH = 0.00001
+local ray_aabb = AABB(0, 0, 0, 0, 0, 0)
+local ray_bodies = {}
+local ray_colliders = {}
 
-function trace.RayCast(origin, direction, max_distance, ignore_entity, filter_fn, options)
+function trace.RayCast(physics, origin, direction, max_distance, ignore_entity, filter_fn, options)
 	stats:PushTime("trace")
 	stats:Count("traces")
-	local hit = ray_cast(origin, direction, max_distance, ignore_entity, filter_fn, options)
-	stats:PopTime()
-	return hit
-end
-
-function ray_cast(origin, direction, max_distance, ignore_entity, filter_fn, options)
 	options = normalize_query_options(options)
-	local allow_rigid = options.IgnoreRigidBodies == false
+	local dx, dy, dz = direction.x, direction.y, direction.z
+	local length = math.sqrt(dx * dx + dy * dy + dz * dz)
 	local best_hit = nil
 
-	if not (allow_rigid or options.IgnoreWorld ~= true) then return nil end
+	if length > MIN_DIRECTION_LENGTH then
+		local trace_radius = options.TraceRadius or 0
+		local scale = math.min(max_distance or math.huge, MAX_RAY_EXTENT) / length
+		local end_x = origin.x + dx * scale
+		local end_y = origin.y + dy * scale
+		local end_z = origin.z + dz * scale
+		ray_aabb.min_x = math.min(origin.x, end_x) - trace_radius
+		ray_aabb.min_y = math.min(origin.y, end_y) - trace_radius
+		ray_aabb.min_z = math.min(origin.z, end_z) - trace_radius
+		ray_aabb.max_x = math.max(origin.x, end_x) + trace_radius
+		ray_aabb.max_y = math.max(origin.y, end_y) + trace_radius
+		ray_aabb.max_z = math.max(origin.z, end_z) + trace_radius
+		table.clear(ray_bodies)
+		sweep_candidates.CollectRigidBodyCandidates(physics, ray_aabb, ignore_entity, filter_fn, options, ray_bodies)
+		local ignore_world = options.IgnoreWorld == true
 
-	local trace_radius = options.TraceRadius or 0
-	local bodies = allow_rigid and
-		RigidBodyComponent.Instances or
-		RigidBodyComponent.WorldGeometryBodies
+		for i = 1, #ray_bodies do
+			local body = ray_bodies[i]
 
-	for _, body in ipairs(bodies) do
-		if body.Owner == ignore_entity or (ignore_entity and body.TraceOwner == ignore_entity) then
-			goto continue
-		end
+			if not (ignore_world and body.WorldGeometry == true) then
+				local colliders, count = collider_index.Query(body, ray_aabb, ray_colliders)
 
-		if body.WorldGeometry == true and options.IgnoreWorld == true then
-			goto continue
-		end
+				for j = 1, count do
+					local collider = colliders[j]
+					local hit = collider:GetPhysicsShape():TraceAgainstBody(collider, origin, direction, max_distance, trace_radius)
 
-		if not body.CollisionEnabled then goto continue end
-
-		if
-			options.IgnoreKinematicBodies ~= false and
-			body.WorldGeometry ~= true and
-			body:IsKinematic()
-		then
-			goto continue
-		end
-
-		if filter_fn and not filter_fn(body.Owner) then goto continue end
-
-		for _, collider in ipairs(body:GetColliders() or {}) do
-			local hit = collider:GetPhysicsShape():TraceAgainstBody(collider, origin, direction, max_distance, trace_radius)
-
-			if hit and (not best_hit or hit.distance < best_hit.distance) then
-				best_hit = hit
+					if hit and (not best_hit or hit.distance < best_hit.distance) then
+						best_hit = hit
+					end
+				end
 			end
 		end
-
-		::continue::
 	end
 
+	stats:PopTime()
 	return best_hit
 end
 
