@@ -318,7 +318,9 @@ function META:TryStepUp(direction, distance)
 		flat_distance = low_length * low.fraction
 	end
 
-	if flat_distance - STEP_PROBE_BACKOFF > distance * 2 + STEP_IMMINENT_MARGIN then return false end
+	if flat_distance - STEP_PROBE_BACKOFF > distance * 2 + STEP_IMMINENT_MARGIN then
+		return false
+	end
 
 	local up = Vec3(0, self.StepHeight + gap - STEP_PROBE_LIFT, 0)
 	local up_hit = physics.SweepCollider(collider, start, up, owner, filter, STEP_OPTIONS)
@@ -333,7 +335,11 @@ function META:TryStepUp(direction, distance)
 
 	for i = 1, 2 do
 		local landing_distance = math.min(
-			flat_distance + (i == 1 and self.Radius + STEP_LANDING_MARGIN or self.Radius * 0.5),
+			flat_distance + (
+					i == 1 and
+					self.Radius + STEP_LANDING_MARGIN or
+					self.Radius * 0.5
+				),
 			across_distance
 		)
 		local landing = raised + direction * landing_distance
@@ -409,7 +415,9 @@ function META:FindGround(reach)
 
 	if not ray or ray.normal.y < self.MinGroundNormalY then return false end
 
-	return true, math.max(ray.distance - GROUND_RAY_LIFT - resting_gap, 0), ray.normal
+	return true,
+	math.max(ray.distance - GROUND_RAY_LIFT - resting_gap, 0),
+	ray.normal
 end
 
 function META:SetCrouch(b)
@@ -465,6 +473,7 @@ do
 		body:SetCollisionEnabled(true)
 		body:SetGravityScale(self.Gravity / body:GetPhysics().Gravity:GetLength())
 		body:SetLockRotation(false)
+		body:SetGroundedSettling(true)
 		body:SetFriction(self.DeadFriction)
 		body:SetRollingFriction(self.DeadRollingFriction)
 		body:SetRollingFrictionCombineMode("max")
@@ -486,7 +495,11 @@ do
 			{
 				Attacker = owner,
 				Inflictor = Entity.World,
-				Damage = health:GetMaxHealth() * (speed * speed - safe * safe) / (fatal * fatal - safe * safe),
+				Damage = health:GetMaxHealth() * (
+						speed * speed - safe * safe
+					) / (
+						fatal * fatal - safe * safe
+					),
 				Position = owner.transform:GetPosition(),
 				Normal = UP,
 				Force = Vec3(0, -speed, 0),
@@ -516,6 +529,7 @@ function META:ApplyMode(mode)
 	body:SetAngularDamping(0)
 	body:SetAirAngularDamping(0)
 	body:SetLockRotation(true)
+	body:SetGroundedSettling(false)
 	body:SetBuoyancyDensity(self.BodyDensity)
 	body:SetFriction(0)
 	body:SetRollingFriction(0)
