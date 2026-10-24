@@ -12,7 +12,10 @@ local support_contacts = import("goluwa/physics/shapes/support_contacts.lua")
 local stats = import("goluwa/physics/stats.lua")
 local fluid = import("goluwa/physics/fluid.lua")
 local buoyancy = import("goluwa/physics/buoyancy.lua")
+local slow_step = import("goluwa/physics/slow_step.lua")
 local world_step = {}
+local get_time = system.GetTime
+local island_times = slow_step.IslandTimes
 local NEWLY_AWOKEN_BODIES = {}
 local ACTIVE_BODIES = {}
 local SYNCED_BODIES = {}
@@ -189,13 +192,30 @@ function world_step.UpdateFixed(physics, dt)
 	local accumulator = (physics.FrameAccumulator or 0) + dt
 	local steps = 0
 	local game_time = system.GetGameTime()
+	local slow_limit = physics.SlowStepTime or math.huge
+	local time_budget = physics.MaxFrameStepTime or math.huge
+	local frame_start = get_time()
 
 	while steps < max_steps and accumulator >= fixed_dt do
 		physics.Time = game_time - accumulator
+		local tick_start = get_time()
 		event.Call("PhysicsUpdate", fixed_dt)
+		local listeners_end = get_time()
 		physics.Step(fixed_dt)
+		local tick_end = get_time()
 		accumulator = accumulator - fixed_dt
 		steps = steps + 1
+
+		if tick_end - tick_start > slow_limit then
+			slow_step.Report(physics, listeners_end - tick_start, tick_end - listeners_end)
+		elseif physics.TimeIslands then
+			slow_step.Relax(physics)
+		end
+
+		if tick_end - frame_start > time_budget and accumulator >= fixed_dt then
+			slow_step.Drop(physics, accumulator)
+			accumulator = 0
+		end
 	end
 
 	if steps == max_steps then accumulator = 0 end
@@ -217,6 +237,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 	local iterations = math.max(1, physics.RigidBodyIterations or 1)
 	local relax_iterations = math.max(1, physics.RigidBodyRelaxIterations or 1)
 	local sub_dt = dt / substeps
+	local time_islands = physics.TimeIslands
 	solver.StepDt = dt
 	physics.candidate_pairs = physics.candidate_pairs or {}
 	physics.collision_pairs:BeginCollisionFrame()
@@ -269,6 +290,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 	local rigid_body_pairs
 	local simulation_islands
 	local constraints = physics.GetConstraints()
+
+	if time_islands then table.clear(island_times) end
 
 	for substep = 1, substeps do
 		local collide = substep == 1
@@ -397,6 +420,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 				local island = simulation_islands[island_index]
 
 				if not islands.IsSleepingIsland(island) then
+					local island_start = time_islands and get_time()
 					stats:PushTime("solve_pairs")
 					solver:SolveRigidBodyPairs(island, sub_dt, iter)
 					stats:PopTime()
@@ -414,6 +438,10 @@ function world_step.UpdateRigidBodies(physics, dt)
 					stats:PushTime("constraints")
 					solver:SolveConstraints(sub_dt, island.constraints)
 					stats:PopTime()
+
+					if time_islands then
+						island_times[island_index] = (island_times[island_index] or 0) + get_time() - island_start
+					end
 				end
 			end
 		end
@@ -441,6 +469,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 					)
 				then
 					local has_constraints = island.has_constraints
+					local island_start = time_islands and get_time()
 					solver:SolveConstraints(sub_dt, island.constraints, true)
 					solver:RelaxRigidBodyPairs(
 						island,
@@ -448,6 +477,10 @@ function world_step.UpdateRigidBodies(physics, dt)
 						relax_index == 1 or has_constraints,
 						relax_index == relax_iterations or has_constraints
 					)
+
+					if time_islands then
+						island_times[island_index] = (island_times[island_index] or 0) + get_time() - island_start
+					end
 				end
 			end
 		end
@@ -498,6 +531,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 	constraint.RemoveBroken()
 	stats:PopTime()
 	stats:PopTime()
+
+	if time_islands then slow_step.Islands = simulation_islands end
 end
 
 return world_step

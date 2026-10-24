@@ -21,7 +21,8 @@ Temporary print logging and code edits are fine for finding causes; remove them 
 
 - Profile N update frames then exit: `luajit glw --2d --background lua "PROF.Start('id', {frames = 1000}) import('tmp/script.lua')"`.
 - Profile a one-off action: `luajit glw --2d --background lua "PROF.Start('id', {shutdown = false}) work() PROF.Stop() system.ShutDown(0)"`.
-- Captures are saved to `storage/logs/jit_profile_<id>.glwp`.
+- Captures are saved to `storage/logs/jit_profile_<id>.glwp`. `PROF.Summary(path, opts)` takes that capture path, prints to stdout, and with the trace recorder on ends with "top aborts by source" (reason, line, count): look there for the files you changed. "error thrown or hook called during recording" entries with a count of 1 come from the profiler itself.
+- Headless physics runs: `--cli` and `--server` sleep 33 ms every Update (`--fps=N` changes it), so wall frame time there is meaningless. Use `--headless --fps=60`, call `physics.Initialize()` yourself, and time `physics.instance.UpdateFixed`; without a limiter a frame takes microseconds and the fixed step never accumulates a tick. Headless profiles are much steadier than ones with the renderer.
 
 # Desktop and the PERF window
 
