@@ -647,11 +647,6 @@ local function build_capsule_sweep_invariants(collider, start_position, rotation
 	return out
 end
 
-local function get_capsule_sweep_sample_steps(invariants, max_fraction)
-	local scaled_length = math_max(0, invariants.movement_length * math_max(max_fraction or 1, 0))
-	return math_max(4, math_min(64, math.ceil(scaled_length / invariants.distance_scale) * 2))
-end
-
 local function is_capsule_moving_away_from_triangle(invariants, v0, nx, ny, nz, normal_len_sq)
 	local d_a = (
 			invariants.segment_a.x - v0.x
@@ -739,6 +734,8 @@ local function is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2)
 	return t_lo ~= nil
 end
 
+local MAX_ADVANCES = 40
+local ADVANCE_TOLERANCE = 1e-5
 local SWEEP_STATS = {
 	candidate_triangles = 0,
 	plane_rejected = 0,
@@ -940,16 +937,25 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 		) * invariants.movement.y + (
 			low_sz - low_qz
 		) * invariants.movement.z
-	local steps = get_capsule_sweep_sample_steps(invariants, max_fraction)
 	local low = 0
 	local hit_t = nil
 	local distance_sq, sx, sy, sz, qx, qy, qz
 	local closing
+	local touch_radius = invariants.radius + epsilon + ADVANCE_TOLERANCE
+	local touch_radius_sq = touch_radius * touch_radius
 
-	for i = 1, steps do
-		local t = max_fraction * (i / steps)
+	for _ = 1, MAX_ADVANCES do
+		if low_closing >= -1e-9 then return nil end
+
+		local t = low + (low_distance_sq - hit_radius_sq) / (-2 * low_closing)
+
+		if t > max_fraction then return nil end
+
 		SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
 		distance_sq, sx, sy, sz, qx, qy, qz = eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face_normal)
+
+		if not distance_sq then return nil end
+
 		closing = (
 				sx - qx
 			) * invariants.movement.x + (
@@ -958,7 +964,7 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 				sz - qz
 			) * invariants.movement.z
 
-		if distance_sq and distance_sq <= hit_radius_sq then
+		if distance_sq <= touch_radius_sq then
 			hit_t = t
 
 			break
