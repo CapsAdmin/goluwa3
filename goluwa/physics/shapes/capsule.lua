@@ -68,9 +68,7 @@ local function collect_capsule_support_contact(context, collider, point, fallbac
 	end
 
 	local margin = collider:GetCollisionMargin() or 0
-	local depth = (
-		fallback_hit.position + fallback_hit.normal * margin - point
-	):Dot(fallback_hit.normal)
+	local depth = (fallback_hit.position + fallback_hit.normal * margin - point):Dot(fallback_hit.normal)
 	local support_tolerance = (collider:GetCollisionProbeDistance() or 0) + margin
 
 	if depth < -support_tolerance then return end
@@ -393,7 +391,18 @@ end
 local settle_grounded_linear_velocity
 
 do
-	local function damp_grounded_angular_velocity(body, axis, dt, friction, support_coverage, tangent_speed, normal_speed, has_support, stable_support, allow_full_settling)
+	local function damp_grounded_angular_velocity(
+		body,
+		axis,
+		dt,
+		friction,
+		support_coverage,
+		tangent_speed,
+		normal_speed,
+		has_support,
+		stable_support,
+		allow_full_settling
+	)
 		local angular_velocity = body.AngularVelocity
 		local spin_scale = angular_velocity.x * axis.x + angular_velocity.y * axis.y + angular_velocity.z * axis.z
 		local sx, sy, sz = axis.x * spin_scale, axis.y * spin_scale, axis.z * spin_scale
@@ -428,7 +437,21 @@ do
 		body.AngularVelocity = Vec3(ox + sx, oy + sy, oz + sz)
 	end
 
-	function settle_grounded_linear_velocity(body, axis, ground_normal, dt, friction, support_coverage, tangent_speed, normal_speed, has_support, stable_support, flat_ground, zero_normal_velocity, allow_full_settling)
+	function settle_grounded_linear_velocity(
+		body,
+		axis,
+		ground_normal,
+		dt,
+		friction,
+		support_coverage,
+		tangent_speed,
+		normal_speed,
+		has_support,
+		stable_support,
+		flat_ground,
+		zero_normal_velocity,
+		allow_full_settling
+	)
 		if
 			tangent_speed > 0.0001 and
 			allow_full_settling and
@@ -449,7 +472,18 @@ do
 			body.Velocity = Vec3(nx + tx, ny + ty, nz + tz)
 		end
 
-		return damp_grounded_angular_velocity(body, axis, dt, friction, support_coverage, tangent_speed, normal_speed, has_support, stable_support, allow_full_settling)
+		return damp_grounded_angular_velocity(
+			body,
+			axis,
+			dt,
+			friction,
+			support_coverage,
+			tangent_speed,
+			normal_speed,
+			has_support,
+			stable_support,
+			allow_full_settling
+		)
 	end
 end
 
@@ -729,18 +763,24 @@ function META:ShouldUseGroundedVelocityConstraints(body, stable)
 		return tangent_speed <= 3.5 and normal_speed <= 2.5
 	end
 
-	local metrics = self:GetSupportFootprintMetrics(body, ground_normal)
-	local support = metrics.support or {count = 0, overhang_length = math.huge}
+	local support_count, overhang_length, tolerance
+
+	do
+		local metrics = self:GetSupportFootprintMetrics(body, ground_normal)
+		local support = metrics.support or {count = 0, overhang_length = math.huge}
+		support_count = support.count or 0
+		overhang_length = support.overhang_length or math.huge
+		tolerance = metrics.tolerance or 0.1
+	end
+
 	local normal_speed = math.abs(body:GetVelocity():Dot(ground_normal))
 	local tangent_velocity = body:GetVelocity() - ground_normal * body:GetVelocity():Dot(ground_normal)
 	local tangent_speed = tangent_velocity:GetLength()
 
-	if (support.count or 0) <= 0 then return false end
+	if support_count <= 0 then return false end
 
 	if is_world_geometry then
-		local max_overhang = (metrics.tolerance or 0.1) * 4
-
-		if (support.overhang_length or math.huge) <= max_overhang then
+		if overhang_length <= tolerance * 4 then
 			return tangent_speed <= 3.5 and normal_speed <= 6.0
 		end
 
@@ -788,7 +828,7 @@ do
 			local d = ray - axis * ray_along
 			local o = offset - axis * offset_along
 			local a = d:Dot(d)
-	
+
 			if a > EPSILON then
 				local b = o:Dot(d)
 				local discriminant = b * b - a * (o:Dot(o) - radius * radius)
@@ -830,7 +870,12 @@ function META:SweepPointAgainstBody(collider, origin, movement, radius, target_s
 
 		if not hit then return nil end
 
-		return {t = hit.distance / length, position = hit.position, point = hit.position, normal = hit.normal}
+		return {
+			t = hit.distance / length,
+			position = hit.position,
+			point = hit.position,
+			normal = hit.normal,
+		}
 	end
 
 	local capsule_radius = self:GetRadius()
