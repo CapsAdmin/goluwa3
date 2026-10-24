@@ -491,6 +491,241 @@ do
 	end
 end
 
+local settle_free_grounded
+
+do
+	local math_abs, math_exp, math_max, math_min, math_sqrt = math.abs, math.exp, math.max, math.min, math.sqrt
+	local TOPPLE_AXIS = {0, 0, 0}
+	local ANGULAR_SPLIT = {0, 0, 0, 0, 0, 0}
+
+	local function find_topple_axis(axis, ground_normal, velocity)
+		local ax, ay, az = axis.x, axis.y, axis.z
+		local vx, vy, vz = velocity.x, velocity.y, velocity.z
+		local along = vx * ax + vy * ay + vz * az
+		local tx, ty, tz = vx - ax * along, vy - ay * along, vz - az * along
+
+		if math_sqrt(tx * tx + ty * ty + tz * tz) <= EPSILON then
+			local gx, gy, gz = ground_normal.x, ground_normal.y, ground_normal.z
+			tx, ty, tz = gy * az - gz * ay, gz * ax - gx * az, gx * ay - gy * ax
+		end
+
+		local length = math_sqrt(tx * tx + ty * ty + tz * tz)
+
+		if length <= EPSILON then return false end
+
+		local inverse_length = 1 / length
+		TOPPLE_AXIS[1], TOPPLE_AXIS[2], TOPPLE_AXIS[3] = tx * inverse_length, ty * inverse_length, tz * inverse_length
+		return true
+	end
+
+	local function apply_topple(body, velocity, friction, upright_alignment, height_ratio, angular_speed)
+		local sine = math_sqrt(math_max(0, 1 - upright_alignment * upright_alignment))
+		local instability = math_max(
+			sine * math_max(upright_alignment, 0.35),
+			math_max(0, (upright_alignment - 0.84) / 0.15)
+		)
+		local topple_speed = math_min(
+			friction * instability * math_max(height_ratio - 1, 0) * 1.6,
+			0.45 + sine * 0.4 + (upright_alignment >= 0.9 and 0.1 or 0)
+		)
+		local vx, vy, vz = velocity.x, velocity.y, velocity.z
+		local topple_component = vx * TOPPLE_AXIS[1] + vy * TOPPLE_AXIS[2] + vz * TOPPLE_AXIS[3]
+
+		if topple_component < topple_speed then
+			local delta = topple_speed - topple_component
+			vx, vy, vz = vx + TOPPLE_AXIS[1] * delta,
+			vy + TOPPLE_AXIS[2] * delta,
+			vz + TOPPLE_AXIS[3] * delta
+			body.AngularVelocity = Vec3(vx, vy, vz)
+			return math_sqrt(vx * vx + vy * vy + vz * vz)
+		end
+
+		return angular_speed
+	end
+
+	local function damp_spin(
+		body,
+		upright_alignment,
+		friction,
+		dt,
+		tangent_speed,
+		angular_speed,
+		nearly_stationary
+	)
+		local split = ANGULAR_SPLIT
+		local sx, sy, sz = split[4], split[5], split[6]
+
+		if nearly_stationary then
+			local damping = math_exp(-(friction * (3.0 + upright_alignment * 5.5)) * dt)
+			sx, sy, sz = sx * damping, sy * damping, sz * damping
+
+			if math_sqrt(sx * sx + sy * sy + sz * sz) < 0.025 then sx, sy, sz = 0, 0, 0 end
+		elseif tangent_speed <= 0.4 and (upright_alignment >= 0.9 or angular_speed <= 0.2) then
+			local damping = math_exp(-(friction * (2.0 + upright_alignment * 4.0)) * dt)
+			sx, sy, sz = sx * damping, sy * damping, sz * damping
+
+			if math_sqrt(sx * sx + sy * sy + sz * sz) < 0.04 then sx, sy, sz = 0, 0, 0 end
+		end
+
+		body.AngularVelocity = Vec3(split[1] + sx, split[2] + sy, split[3] + sz)
+	end
+
+	local function damp_free_angular_velocity(
+		body,
+		axis,
+		upright_alignment,
+		friction,
+		dt,
+		normal_speed,
+		tangent_speed,
+		angular_speed,
+		allow_full_settling
+	)
+		local split = ANGULAR_SPLIT
+		local velocity = body.AngularVelocity
+		local spin = velocity.x * axis.x + velocity.y * axis.y + velocity.z * axis.z
+		split[4], split[5], split[6] = axis.x * spin, axis.y * spin, axis.z * spin
+		local ox, oy, oz = velocity.x - split[4], velocity.y - split[5], velocity.z - split[6]
+		local nearly_stationary = tangent_speed <= 0.08 and math_abs(normal_speed) <= 0.08
+		local off_axis_length = math_sqrt(ox * ox + oy * oy + oz * oz)
+
+		if off_axis_length > 0.0001 and allow_full_settling then
+			local damping = math_exp(-(friction * (1.2 + upright_alignment * 4.8)) * dt)
+			ox, oy, oz = ox * damping, oy * damping, oz * damping
+
+			if math_sqrt(ox * ox + oy * oy + oz * oz) < 0.03 then ox, oy, oz = 0, 0, 0 end
+		elseif nearly_stationary and off_axis_length > 0.0001 then
+			local damping = math_exp(
+				-(
+						friction * (
+							0.7 + math_sqrt(math_max(0, 1 - upright_alignment * upright_alignment)) * 1.8
+						)
+					) * dt
+			)
+			ox, oy, oz = ox * damping, oy * damping, oz * damping
+
+			if math_sqrt(ox * ox + oy * oy + oz * oz) < 0.02 then ox, oy, oz = 0, 0, 0 end
+		end
+
+		split[1], split[2], split[3] = ox, oy, oz
+		return damp_spin(
+			body,
+			upright_alignment,
+			friction,
+			dt,
+			tangent_speed,
+			angular_speed,
+			nearly_stationary
+		)
+	end
+
+	local function damp_free_linear_velocity(
+		body,
+		axis,
+		ground_normal,
+		upright_alignment,
+		friction,
+		dt,
+		normal_speed,
+		tangent_speed,
+		angular_speed,
+		flat_ground,
+		terrain_like_ground,
+		zero_normal_velocity
+	)
+		local allow_full_settling = angular_speed <= 0.35 or (upright_alignment >= 0.9 and tangent_speed <= 0.3)
+
+		if
+			terrain_like_ground and
+			upright_alignment > 0.35 and
+			upright_alignment < 0.98 and
+			tangent_speed <= 0.75
+		then
+			allow_full_settling = false
+		end
+
+		if
+			tangent_speed > 0.0001 and
+			allow_full_settling and
+			(
+				flat_ground or
+				tangent_speed <= 0.25
+			)
+		then
+			local nx, ny, nz = ground_normal.x * normal_speed, ground_normal.y * normal_speed, ground_normal.z * normal_speed
+			local velocity = body.Velocity
+			local damping = math_exp(-(friction * (1.5 + upright_alignment * 3.5)) * dt)
+			local tx, ty, tz = (velocity.x - nx) * damping, (velocity.y - ny) * damping, (velocity.z - nz) * damping
+
+			if math_sqrt(tx * tx + ty * ty + tz * tz) < 0.02 then tx, ty, tz = 0, 0, 0 end
+
+			if zero_normal_velocity then nx, ny, nz = 0, 0, 0 end
+
+			body.Velocity = Vec3(nx + tx, ny + ty, nz + tz)
+		end
+
+		return damp_free_angular_velocity(
+			body,
+			axis,
+			upright_alignment,
+			friction,
+			dt,
+			normal_speed,
+			tangent_speed,
+			angular_speed,
+			allow_full_settling
+		)
+	end
+
+	function settle_free_grounded(
+		body,
+		axis,
+		ground_normal,
+		dt,
+		friction,
+		normal_speed,
+		tangent_speed,
+		angular_speed,
+		flat_ground,
+		terrain_like_ground,
+		height_ratio
+	)
+		trace_break()
+		local upright_alignment = math_abs(axis.x * ground_normal.x + axis.y * ground_normal.y + axis.z * ground_normal.z)
+		local zero_normal_velocity = flat_ground and upright_alignment >= 0.88 and math_abs(normal_speed) <= 0.18
+
+		if
+			terrain_like_ground and
+			flat_ground and
+			upright_alignment > 0.45 and
+			upright_alignment < 0.995 and
+			height_ratio >= 2.2 and
+			tangent_speed <= 0.75
+		then
+			local velocity = body.AngularVelocity
+
+			if find_topple_axis(axis, ground_normal, velocity) then
+				angular_speed = apply_topple(body, velocity, friction, upright_alignment, height_ratio, angular_speed)
+			end
+		end
+
+		return damp_free_linear_velocity(
+			body,
+			axis,
+			ground_normal,
+			upright_alignment,
+			friction,
+			dt,
+			normal_speed,
+			tangent_speed,
+			angular_speed,
+			flat_ground,
+			terrain_like_ground,
+			zero_normal_velocity
+		)
+	end
+end
+
 function META:OnGroundedVelocityUpdate(body, dt)
 	if not dt or dt <= 0 then return end
 
@@ -529,123 +764,23 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	local flat_ground = ground_normal.y >= math.max(body:GetMinGroundNormalY() or 0, 0.75)
 
 	if not is_heightmap_ground then
-		local upright_alignment = math.abs(axis:Dot(ground_normal))
-		local terrain_like_ground = ground_body and
-			(
-				ground_body.WorldGeometry == true or
-				ground_body:GetShapeType() == "mesh"
-			)
-
-		if flat_ground and upright_alignment >= 0.88 and math.abs(normal_speed) <= 0.18 then
-			zero_normal_velocity = true
-		end
-
-		if
-			terrain_like_ground and
-			flat_ground and
-			upright_alignment > 0.45 and
-			upright_alignment < 0.995 and
-			self:GetHeight() / math.max(self:GetRadius() * 2, EPSILON) >= 2.2 and
-			tangent_speed <= 0.75
-		then
-			local topple_axis = body.AngularVelocity - axis * body.AngularVelocity:Dot(axis)
-
-			if topple_axis:GetLength() <= EPSILON then
-				topple_axis = ground_normal:GetCross(axis)
-			end
-
-			if topple_axis:GetLength() > EPSILON then
-				topple_axis = topple_axis:GetNormalized()
-				local instability = math.max(
-					math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment)) * math.max(upright_alignment, 0.35),
-					math.max(0, (upright_alignment - 0.84) / 0.15)
-				)
-				local topple_speed = friction * instability * math.max(self:GetHeight() / math.max(self:GetRadius() * 2, EPSILON) - 1, 0) * 1.6
-				topple_speed = math.min(
-					topple_speed,
-					0.45 + math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment)) * 0.4 + (
-							upright_alignment >= 0.9 and
-							0.1 or
-							0
-						)
-				)
-				local topple_component = body.AngularVelocity:Dot(topple_axis)
-
-				if topple_component < topple_speed then
-					body.AngularVelocity = body.AngularVelocity + topple_axis * (topple_speed - topple_component)
-					angular_speed = body.AngularVelocity:GetLength()
-				end
-			end
-		end
-
-		local allow_full_settling = angular_speed <= 0.35 or (upright_alignment >= 0.9 and tangent_speed <= 0.3)
-
-		if
-			terrain_like_ground and
-			upright_alignment > 0.35 and
-			upright_alignment < 0.98 and
-			tangent_speed <= 0.75
-		then
-			allow_full_settling = false
-		end
-
-		if
-			tangent_speed > 0.0001 and
-			allow_full_settling and
-			(
-				flat_ground or
-				tangent_speed <= 0.25
-			)
-		then
-			local normal_velocity = ground_normal * normal_speed
-			local tangent_velocity = (
-					body.Velocity - normal_velocity
-				) * math.exp(-(friction * (1.5 + upright_alignment * 3.5)) * dt)
-
-			if tangent_velocity:GetLength() < 0.02 then tangent_velocity = Vec3(0, 0, 0) end
-
-			if zero_normal_velocity then normal_velocity = Vec3(0, 0, 0) end
-
-			body.Velocity = normal_velocity + tangent_velocity
-		end
-
-		local angular_velocity = body.AngularVelocity
-		local axis_spin = axis * angular_velocity:Dot(axis)
-		local off_axis_angular = angular_velocity - axis_spin
-		local nearly_stationary = tangent_speed <= 0.08 and math.abs(normal_speed) <= 0.08
-
-		if off_axis_angular:GetLength() > 0.0001 and allow_full_settling then
-			local off_axis_damping = math.exp(-(friction * (1.2 + upright_alignment * 4.8)) * dt)
-			off_axis_angular = off_axis_angular * off_axis_damping
-
-			if off_axis_angular:GetLength() < 0.03 then off_axis_angular = Vec3(0, 0, 0) end
-		elseif nearly_stationary and off_axis_angular:GetLength() > 0.0001 then
-			local off_axis_damping = math.exp(
-				-(
-						friction * (
-							0.7 + math.sqrt(math.max(0, 1 - upright_alignment * upright_alignment)) * 1.8
-						)
-					) * dt
-			)
-			off_axis_angular = off_axis_angular * off_axis_damping
-
-			if off_axis_angular:GetLength() < 0.02 then off_axis_angular = Vec3(0, 0, 0) end
-		end
-
-		if nearly_stationary then
-			local axis_spin_damping = math.exp(-(friction * (3.0 + upright_alignment * 5.5)) * dt)
-			axis_spin = axis_spin * axis_spin_damping
-
-			if axis_spin:GetLength() < 0.025 then axis_spin = Vec3(0, 0, 0) end
-		elseif tangent_speed <= 0.4 and (upright_alignment >= 0.9 or angular_speed <= 0.2) then
-			local axis_spin_damping = math.exp(-(friction * (2.0 + upright_alignment * 4.0)) * dt)
-			axis_spin = axis_spin * axis_spin_damping
-
-			if axis_spin:GetLength() < 0.04 then axis_spin = Vec3(0, 0, 0) end
-		end
-
-		body.AngularVelocity = off_axis_angular + axis_spin
-		return
+		return settle_free_grounded(
+			body,
+			axis,
+			ground_normal,
+			dt,
+			friction,
+			normal_speed,
+			tangent_speed,
+			angular_speed,
+			flat_ground,
+			ground_body and
+				(
+					ground_body.WorldGeometry == true or
+					ground_body:GetShapeType() == "mesh"
+				),
+			self:GetHeight() / math.max(self:GetRadius() * 2, EPSILON)
+		)
 	end
 
 	local stable_support = support_metrics.stable == true and (support.count or 0) > 0
@@ -804,9 +939,9 @@ function META:ShouldUseGroundedVelocityConstraints(body, stable)
 end
 
 do
-	local function ray_sphere(origin, direction, center, radius)
+	local function ray_sphere(origin, rx, ry, rz, center, radius)
 		local ox, oy, oz = origin.x - center.x, origin.y - center.y, origin.z - center.z
-		local b = ox * direction.x + oy * direction.y + oz * direction.z
+		local b = ox * rx + oy * ry + oz * rz
 		local c = ox * ox + oy * oy + oz * oz - radius * radius
 		local discriminant = b * b - c
 
@@ -819,57 +954,119 @@ do
 		return t
 	end
 
-	function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_radius)
-		if direction:GetLength() <= EPSILON then return nil end
+	local TRACE = {0, 0, 0, 0, 0, 0, 0, 0}
+	local TRACE_BOTTOM = Vec3()
+	local TRACE_TOP = Vec3()
 
-		local ray = direction:GetNormalized()
-		local bottom, top, radius = capsule_geometry.GetSegmentWorld(collider)
-		trace_radius = math.max(trace_radius or 0, 0)
-		radius = radius + trace_radius
-		local axis = top - bottom
-		local length = axis:GetLength()
-		local best = ray_sphere(origin, ray, bottom, radius)
-		local other = ray_sphere(origin, ray, top, radius)
+	local function ray_cylinder(origin, bottom, best)
+		local a, b, offset_square, ray_along, offset_along
 
-		if other and (not best or other < best) then best = other end
+		do
+			local rx, ry, rz, ax, ay, az = TRACE[1], TRACE[2], TRACE[3], TRACE[4], TRACE[5], TRACE[6]
+			local offset_x, offset_y, offset_z = origin.x - bottom.x, origin.y - bottom.y, origin.z - bottom.z
+			ray_along = rx * ax + ry * ay + rz * az
+			offset_along = offset_x * ax + offset_y * ay + offset_z * az
+			local dx, dy, dz = rx - ax * ray_along, ry - ay * ray_along, rz - az * ray_along
+			local ox, oy, oz = offset_x - ax * offset_along,
+			offset_y - ay * offset_along,
+			offset_z - az * offset_along
+			a = dx * dx + dy * dy + dz * dz
+			b = ox * dx + oy * dy + oz * dz
+			offset_square = ox * ox + oy * oy + oz * oz
+		end
 
-		if length > EPSILON then
-			axis = axis / length
-			local offset = origin - bottom
-			local ray_along = ray:Dot(axis)
-			local offset_along = offset:Dot(axis)
-			local d = ray - axis * ray_along
-			local o = offset - axis * offset_along
-			local a = d:Dot(d)
+		if a > EPSILON then
+			local radius = TRACE[8]
+			local discriminant = b * b - a * (offset_square - radius * radius)
 
-			if a > EPSILON then
-				local b = o:Dot(d)
-				local discriminant = b * b - a * (o:Dot(o) - radius * radius)
+			if discriminant >= 0 then
+				local t = (-b - math.sqrt(discriminant)) / a
+				local along = offset_along + ray_along * t
 
-				if discriminant >= 0 then
-					local t = (-b - math.sqrt(discriminant)) / a
-					local along = offset_along + ray_along * t
-
-					if t >= 0 and along >= 0 and along <= length and (not best or t < best) then
-						best = t
-					end
+				if t >= 0 and along >= 0 and along <= TRACE[7] and (not best or t < best) then
+					return t
 				end
 			end
 		end
 
+		return best
+	end
+
+	local function finish_trace(collider, origin, bottom, best, max_distance, trace_radius)
 		if not best or best > (max_distance or math.huge) then return nil end
 
-		local expanded = origin + ray * best
-		local along = length > EPSILON and math.clamp((expanded - bottom):Dot(axis), 0, length) or 0
-		local center = length > EPSILON and bottom + axis * along or bottom
-		local normal = (expanded - center):GetNormalized()
+		local rx, ry, rz = TRACE[1], TRACE[2], TRACE[3]
+		local axis_x, axis_y, axis_z, length = TRACE[4], TRACE[5], TRACE[6], TRACE[7]
+		local ex, ey, ez = origin.x + rx * best, origin.y + ry * best, origin.z + rz * best
+		local cx, cy, cz = bottom.x, bottom.y, bottom.z
+
+		if length > EPSILON then
+			local along = math.clamp(
+				(ex - bottom.x) * axis_x + (ey - bottom.y) * axis_y + (ez - bottom.z) * axis_z,
+				0,
+				length
+			)
+			cx, cy, cz = bottom.x + axis_x * along, bottom.y + axis_y * along, bottom.z + axis_z * along
+		end
+
+		local nx, ny, nz = ex - cx, ey - cy, ez - cz
+		local normal_length_sq = nx * nx + ny * ny + nz * nz
+
+		if normal_length_sq == 0 then
+			nx, ny, nz = 0, 0, 0
+		else
+			local inverse_length = 1 / math.sqrt(normal_length_sq)
+			nx, ny, nz = nx * inverse_length, ny * inverse_length, nz * inverse_length
+		end
+
 		return {
 			entity = collider:GetOwner(),
 			distance = best,
-			position = expanded - normal * trace_radius,
-			normal = normal,
+			position = Vec3(ex - nx * trace_radius, ey - ny * trace_radius, ez - nz * trace_radius),
+			normal = Vec3(nx, ny, nz),
 			rigid_body = collider:GetBody(),
 		}
+	end
+
+	local function trace_cylinder(collider, origin, bottom, best, max_distance, trace_radius)
+		if TRACE[7] > EPSILON then best = ray_cylinder(origin, bottom, best) end
+
+		return finish_trace(collider, origin, bottom, best, max_distance, trace_radius)
+	end
+
+	function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_radius)
+		do
+			local direction_length_sq = direction.x * direction.x + direction.y * direction.y + direction.z * direction.z
+
+			if math.sqrt(direction_length_sq) <= EPSILON then return nil end
+
+			local inverse_direction_length = 1 / math.sqrt(direction_length_sq)
+			TRACE[1], TRACE[2], TRACE[3] = direction.x * inverse_direction_length,
+			direction.y * inverse_direction_length,
+			direction.z * inverse_direction_length
+		end
+
+		local bottom, top, radius = capsule_geometry.GetSegmentWorld(collider, nil, nil, TRACE_BOTTOM, TRACE_TOP)
+		trace_radius = math.max(trace_radius or 0, 0)
+		radius = radius + trace_radius
+		TRACE[8] = radius
+
+		do
+			local axis_x, axis_y, axis_z = top.x - bottom.x, top.y - bottom.y, top.z - bottom.z
+			local length = math.sqrt(axis_x * axis_x + axis_y * axis_y + axis_z * axis_z)
+			TRACE[7] = length
+
+			if length > EPSILON then
+				TRACE[4], TRACE[5], TRACE[6] = axis_x / length, axis_y / length, axis_z / length
+			end
+		end
+
+		local best = ray_sphere(origin, TRACE[1], TRACE[2], TRACE[3], bottom, radius)
+		local other = ray_sphere(origin, TRACE[1], TRACE[2], TRACE[3], top, radius)
+
+		if other and (not best or other < best) then best = other end
+
+		return trace_cylinder(collider, origin, bottom, best, max_distance, trace_radius)
 	end
 end
 
