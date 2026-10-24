@@ -390,6 +390,69 @@ function META:SolveSupportContacts(body, dt, support_contacts, substep_id)
 	)
 end
 
+local settle_grounded_linear_velocity
+
+do
+	local function damp_grounded_angular_velocity(body, axis, dt, friction, support_coverage, tangent_speed, normal_speed, has_support, stable_support, allow_full_settling)
+		local angular_velocity = body.AngularVelocity
+		local spin_scale = angular_velocity.x * axis.x + angular_velocity.y * axis.y + angular_velocity.z * axis.z
+		local sx, sy, sz = axis.x * spin_scale, axis.y * spin_scale, axis.z * spin_scale
+		local ox, oy, oz = angular_velocity.x - sx, angular_velocity.y - sy, angular_velocity.z - sz
+		local nearly_stationary = tangent_speed <= 0.08 and math.abs(normal_speed) <= 0.08
+		local off_length = math.sqrt(ox * ox + oy * oy + oz * oz)
+
+		if off_length > 0.0001 and allow_full_settling then
+			local damping = math.exp(-(friction * (1.25 + support_coverage * 5.25)) * dt)
+			ox, oy, oz = ox * damping, oy * damping, oz * damping
+
+			if math.sqrt(ox * ox + oy * oy + oz * oz) < 0.03 then ox, oy, oz = 0, 0, 0 end
+		elseif nearly_stationary and has_support and off_length > 0.0001 then
+			local damping = math.exp(-(friction * (1.6 + support_coverage * 4.5)) * dt)
+			ox, oy, oz = ox * damping, oy * damping, oz * damping
+
+			if math.sqrt(ox * ox + oy * oy + oz * oz) < 0.015 then ox, oy, oz = 0, 0, 0 end
+		end
+
+		if nearly_stationary and has_support then
+			local damping = math.exp(-(friction * (2.8 + support_coverage * 5.8)) * dt)
+			sx, sy, sz = sx * damping, sy * damping, sz * damping
+
+			if math.sqrt(sx * sx + sy * sy + sz * sz) < 0.025 then sx, sy, sz = 0, 0, 0 end
+		elseif tangent_speed <= 0.4 and stable_support then
+			local damping = math.exp(-(friction * (1.75 + support_coverage * 3.6)) * dt)
+			sx, sy, sz = sx * damping, sy * damping, sz * damping
+
+			if math.sqrt(sx * sx + sy * sy + sz * sz) < 0.04 then sx, sy, sz = 0, 0, 0 end
+		end
+
+		body.AngularVelocity = Vec3(ox + sx, oy + sy, oz + sz)
+	end
+
+	function settle_grounded_linear_velocity(body, axis, ground_normal, dt, friction, support_coverage, tangent_speed, normal_speed, has_support, stable_support, flat_ground, zero_normal_velocity, allow_full_settling)
+		if
+			tangent_speed > 0.0001 and
+			allow_full_settling and
+			(
+				flat_ground or
+				tangent_speed <= 0.25
+			)
+		then
+			local nx, ny, nz = ground_normal.x * normal_speed, ground_normal.y * normal_speed, ground_normal.z * normal_speed
+			local velocity = body.Velocity
+			local damping = math.exp(-(friction * (1.35 + support_coverage * 3.65)) * dt)
+			local tx, ty, tz = (velocity.x - nx) * damping, (velocity.y - ny) * damping, (velocity.z - nz) * damping
+
+			if math.sqrt(tx * tx + ty * ty + tz * tz) < 0.02 then tx, ty, tz = 0, 0, 0 end
+
+			if zero_normal_velocity then nx, ny, nz = 0, 0, 0 end
+
+			body.Velocity = Vec3(nx + tx, ny + ty, nz + tz)
+		end
+
+		return damp_grounded_angular_velocity(body, axis, dt, friction, support_coverage, tangent_speed, normal_speed, has_support, stable_support, allow_full_settling)
+	end
+end
+
 function META:OnGroundedVelocityUpdate(body, dt)
 	if not dt or dt <= 0 then return end
 
@@ -587,65 +650,21 @@ function META:OnGroundedVelocityUpdate(body, dt)
 		end
 	end
 
-	local allow_full_settling = stable_support and support_coverage >= 0.14 and angular_speed <= 0.45
-
-	if
-		tangent_speed > 0.0001 and
-		allow_full_settling and
-		(
-			flat_ground or
-			tangent_speed <= 0.25
-		)
-	then
-		local normal_velocity = ground_normal * normal_speed
-		local tangent_velocity = (
-				body.Velocity - normal_velocity
-			) * math.exp(-(friction * (1.35 + support_coverage * 3.65)) * dt)
-
-		if tangent_velocity:GetLength() < 0.02 then tangent_velocity = Vec3(0, 0, 0) end
-
-		if zero_normal_velocity then normal_velocity = Vec3(0, 0, 0) end
-
-		body.Velocity = normal_velocity + tangent_velocity
-	end
-
-	local angular_velocity = body.AngularVelocity
-	local axis_spin = axis * angular_velocity:Dot(axis)
-	local off_axis_angular = angular_velocity - axis_spin
-	local nearly_stationary = tangent_speed <= 0.08 and math.abs(normal_speed) <= 0.08
-
-	if off_axis_angular:GetLength() > 0.0001 and allow_full_settling then
-		local off_axis_damping = math.exp(-(friction * (1.25 + support_coverage * 5.25)) * dt)
-		off_axis_angular = off_axis_angular * off_axis_damping
-
-		if off_axis_angular:GetLength() < 0.03 then off_axis_angular = Vec3(0, 0, 0) end
-	elseif
-		nearly_stationary and
-		(
-			support.count or
-			0
-		) > 0 and
-		off_axis_angular:GetLength() > 0.0001
-	then
-		local off_axis_damping = math.exp(-(friction * (1.6 + support_coverage * 4.5)) * dt)
-		off_axis_angular = off_axis_angular * off_axis_damping
-
-		if off_axis_angular:GetLength() < 0.015 then off_axis_angular = Vec3(0, 0, 0) end
-	end
-
-	if nearly_stationary and (support.count or 0) > 0 then
-		local axis_spin_damping = math.exp(-(friction * (2.8 + support_coverage * 5.8)) * dt)
-		axis_spin = axis_spin * axis_spin_damping
-
-		if axis_spin:GetLength() < 0.025 then axis_spin = Vec3(0, 0, 0) end
-	elseif tangent_speed <= 0.4 and stable_support then
-		local axis_spin_damping = math.exp(-(friction * (1.75 + support_coverage * 3.6)) * dt)
-		axis_spin = axis_spin * axis_spin_damping
-
-		if axis_spin:GetLength() < 0.04 then axis_spin = Vec3(0, 0, 0) end
-	end
-
-	body.AngularVelocity = off_axis_angular + axis_spin
+	return settle_grounded_linear_velocity(
+		body,
+		axis,
+		ground_normal,
+		dt,
+		friction,
+		support_coverage,
+		tangent_speed,
+		normal_speed,
+		(support.count or 0) > 0,
+		stable_support,
+		flat_ground,
+		zero_normal_velocity,
+		stable_support and support_coverage >= 0.14 and angular_speed <= 0.45
+	)
 end
 
 function META:ShouldForceGroundedSleep(body)
