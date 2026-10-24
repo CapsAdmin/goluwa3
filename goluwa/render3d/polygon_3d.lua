@@ -489,6 +489,42 @@ do
 		end
 	end
 
+	local function triangle_tangents(a, b, c, epsilon)
+		local x1 = b.pos.x - a.pos.x
+		local x2 = c.pos.x - a.pos.x
+		local y1 = b.pos.y - a.pos.y
+		local y2 = c.pos.y - a.pos.y
+		local z1 = b.pos.z - a.pos.z
+		local z2 = c.pos.z - a.pos.z
+		local s1 = b.uv.x - a.uv.x
+		local s2 = c.uv.x - a.uv.x
+		local t1 = b.uv.y - a.uv.y
+		local t2 = c.uv.y - a.uv.y
+		local denom = (s1 * t2 - s2 * t1)
+
+		if not (math.abs(denom) > epsilon) then return nil end
+
+		local r = 1 / denom
+		return (t2 * x1 - t1 * x2) * r,
+		(t2 * y1 - t1 * y2) * r,
+		(t2 * z1 - t1 * z2) * r,
+		(s1 * x2 - s2 * x1) * r,
+		(s1 * y2 - s2 * y1) * r,
+		(s1 * z2 - s2 * z1) * r
+	end
+
+	local function accumulate_direction(directions, index, x, y, z)
+		local sum = directions[index]
+
+		if sum then
+			sum.x = sum.x + x
+			sum.y = sum.y + y
+			sum.z = sum.z + z
+		else
+			directions[index] = Vec3(x, y, z)
+		end
+	end
+
 	function Polygon3D:BuildTangents(first, last)
 		local tan1 = {}
 		local tan2 = {}
@@ -516,36 +552,15 @@ do
 			local c = self.Vertices[ci]
 
 			if a and b and c and a.uv and b.uv and c.uv then
-				local x1 = b.pos.x - a.pos.x
-				local x2 = c.pos.x - a.pos.x
-				local y1 = b.pos.y - a.pos.y
-				local y2 = c.pos.y - a.pos.y
-				local z1 = b.pos.z - a.pos.z
-				local z2 = c.pos.z - a.pos.z
-				local s1 = b.uv.x - a.uv.x
-				local s2 = c.uv.x - a.uv.x
-				local t1 = b.uv.y - a.uv.y
-				local t2 = c.uv.y - a.uv.y
-				local denom = (s1 * t2 - s2 * t1)
+				local sx, sy, sz, tx, ty, tz = triangle_tangents(a, b, c, tangent_epsilon)
 
-				if math.abs(denom) > tangent_epsilon then
-					local r = 1 / denom
-					local sdir = Vec3(
-						(t2 * x1 - t1 * x2) * r,
-						(t2 * y1 - t1 * y2) * r,
-						(t2 * z1 - t1 * z2) * r
-					)
-					local tdir = Vec3(
-						(s1 * x2 - s2 * x1) * r,
-						(s1 * y2 - s2 * y1) * r,
-						(s1 * z2 - s2 * z1) * r
-					)
-					tan1[ai] = (tan1[ai] or Vec3()) + sdir
-					tan1[bi] = (tan1[bi] or Vec3()) + sdir
-					tan1[ci] = (tan1[ci] or Vec3()) + sdir
-					tan2[ai] = (tan2[ai] or Vec3()) + tdir
-					tan2[bi] = (tan2[bi] or Vec3()) + tdir
-					tan2[ci] = (tan2[ci] or Vec3()) + tdir
+				if sx then
+					accumulate_direction(tan1, ai, sx, sy, sz)
+					accumulate_direction(tan1, bi, sx, sy, sz)
+					accumulate_direction(tan1, ci, sx, sy, sz)
+					accumulate_direction(tan2, ai, tx, ty, tz)
+					accumulate_direction(tan2, bi, tx, ty, tz)
+					accumulate_direction(tan2, ci, tx, ty, tz)
 				end
 			end
 		end
