@@ -728,7 +728,7 @@ end
 -- A sweep is a flat list of tasks instead of nested loops over manifolds and rows: LuaJIT unrolls
 -- short inner loops into the outer trace, which overflowed its spill slots for large contact patches
 -- and left the whole solver interpreted.
-local TASK_BEGIN, TASK_NORMAL, TASK_NORMAL_EXTRA, TASK_FRICTION, TASK_TWIST, TASK_COMMIT = 0, 1, 2, 3, 4, 5
+local TASK_BEGIN, TASK_NORMAL, TASK_NORMAL_EXTRA, TASK_FRICTION, TASK_TWIST = 0, 1, 2, 3, 4
 
 local function add_task(m_index, k, kind, pass)
 	if task_count >= task_capacity then
@@ -762,8 +762,6 @@ local function build_tasks(group)
 		end
 
 		if m.twist_mass > 0 and m.dyn > 0 then add_task(i, 0, TASK_TWIST, 0) end
-
-		add_task(i, 0, TASK_COMMIT, 0)
 	end
 
 	group.task_end = task_count
@@ -786,12 +784,17 @@ local function solve_tasks(first, last, relax)
 		elseif kind == TASK_BEGIN then
 			m.pcorr = -math.huge
 			m.passes = get_passes(m, bodies[m.a], bodies[m.b])
-		elseif kind == TASK_TWIST then
-			solve_twist(m, bodies[m.a], bodies[m.b], m.rows - 1)
 		else
-			bodies[m.a].pc = math_max(bodies[m.a].pc, m.pcorr)
-			bodies[m.b].pc = math_max(bodies[m.b].pc, m.pcorr)
+			solve_twist(m, bodies[m.a], bodies[m.b], m.rows - 1)
 		end
+	end
+end
+
+local function commit_position_corrections(first, last)
+	for i = first, last do
+		local m = mans[i]
+		bodies[m.a].pc = math_max(bodies[m.a].pc, m.pcorr)
+		bodies[m.b].pc = math_max(bodies[m.b].pc, m.pcorr)
 	end
 end
 
@@ -849,6 +852,7 @@ end
 function contact_solver.Solve(group, relax)
 	if group.task_end > group.first_task then
 		solve_tasks(group.first_task, group.task_end - 1, relax and 1 or 0)
+		commit_position_corrections(group.first_man, group.man_end - 1)
 	end
 end
 
