@@ -118,6 +118,7 @@ function META:Reset(mode)
 	self.Swimming = false
 	self.ground_x = nil
 	self.ground_z = nil
+	self.ground_body = nil
 	self.jump_requested = nil
 	self.fly_speed_multiplier = 1
 	self.Owner.transform.RenderOffset:Set(0, 0, 0)
@@ -231,7 +232,7 @@ end
 
 local UP = Vec3(0, 1, 0)
 local DOWN = Vec3(0, -1, 0)
-local GROUND_RAY_OPTIONS = {IncludeRigidBodies = true}
+local GROUND_RAY_OPTIONS = {IncludeRigidBodies = true, IgnoreKinematicBodies = false}
 
 function META:SetBodyYaw(view)
 	local body = self.Owner.rigid_body
@@ -276,7 +277,37 @@ local FLAT_GROUND_MEMORY = 0.15
 local STEP_HOLD_TIME = 0.12
 local STEP_SMOOTH_SPEED = 8
 local STEP_SMOOTH_MIN_SPEED = 1
-local STEP_OPTIONS = {Rotation = nil, IgnoreRigidBodies = false}
+local STEP_OPTIONS = {Rotation = nil, IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
+
+local function ignore_ragdoll_parts(owner)
+	return owner.ragdoll_part == nil
+end
+
+local CARRY = Vec3()
+
+local function get_carry_velocity(carrier, point, dt)
+	local velocity = carrier.Velocity
+	local angular = carrier.AngularVelocity
+	local speed = angular:GetLength()
+
+	if speed < 0.0001 then
+		CARRY:CopyFrom(velocity)
+		return CARRY
+	end
+
+	local center = carrier.Position
+	local rx, ry, rz = point.x - center.x, point.y - center.y, point.z - center.z
+	local kx, ky, kz = angular.x / speed, angular.y / speed, angular.z / speed
+	local cos, sin = math.cos(speed * dt), math.sin(speed * dt)
+	local dot = (kx * rx + ky * ry + kz * rz) * (1 - cos)
+	local cx, cy, cz = ky * rz - kz * ry, kz * rx - kx * rz, kx * ry - ky * rx
+	CARRY:Set(
+		velocity.x + (rx * (cos - 1) + cx * sin + kx * dot) / dt,
+		velocity.y + (ry * (cos - 1) + cy * sin + ky * dot) / dt,
+		velocity.z + (rz * (cos - 1) + cz * sin + kz * dot) / dt
+	)
+	return CARRY
+end
 
 function META:MoveBodyBy(body, offset)
 	local velocity = body:GetVelocity():Copy()
@@ -428,14 +459,15 @@ function META:FindGround(reach)
 			normal = ray.distance - GROUND_RAY_LIFT <= ground_distance + rolled and ray.normal or UP
 		end
 
-		return true, math.max(ground_distance - resting_gap, 0), normal
+		return true, math.max(ground_distance - resting_gap, 0), normal, hit.rigid_body
 	end
 
 	if not ray or ray.normal.y < self.MinGroundNormalY then return false end
 
 	return true,
 	math.max(ray.distance - GROUND_RAY_LIFT - resting_gap, 0),
-	ray.normal
+	ray.normal,
+	ray.rigid_body
 end
 
 function META:SetCrouch(b)
@@ -548,6 +580,7 @@ function META:ApplyMode(mode)
 	body:SetAirAngularDamping(0)
 	body:SetLockRotation(true)
 	body:SetGroundedSettling(false)
+	body:SetFilterFunction(ignore_ragdoll_parts)
 	body:SetBuoyancyDensity(self.BodyDensity)
 	body:SetFriction(0)
 	body:SetRollingFriction(0)
@@ -674,6 +707,7 @@ do
 				self.was_grounded = false
 				self.ground_x = nil
 				self.ground_z = nil
+				self.ground_body = nil
 			end
 
 			if self.Swimming then
@@ -720,7 +754,15 @@ do
 
 			local wish_speed = move:GetLength() > 0.0001 and self.GroundSpeed * speed_multiplier or 0
 			local velocity = body:GetVelocity()
-			local x, y, z = velocity.x, velocity.y, velocity.z
+			local carrier = self.ground_body
+			local base_x, base_y, base_z = 0, 0, 0
+
+			if carrier and carrier:IsValid() then
+				local carry = get_carry_velocity(carrier, body:GetOriginPosition(), dt)
+				base_x, base_y, base_z = carry.x, carry.y, carry.z
+			end
+
+			local x, y, z = velocity.x - base_x, velocity.y - base_y, velocity.z - base_z
 			local grounded = body:GetGrounded()
 			local impact = 0
 
@@ -741,6 +783,7 @@ do
 			self.step_hold_time = self.step_hold_time - dt
 			local rising = y > self.LeaveGroundSpeed
 			local ground_normal
+			local ground_body
 
 			if rising or self.jumping then
 				grounded = false
@@ -754,11 +797,12 @@ do
 					and
 					self.StepHeight or
 					self.GroundReach
-				local found, gap, normal = self:FindGround(reach)
+				local found, gap, normal, found_body = self:FindGround(reach)
 				grounded = found or grounded
 
 				if found then
 					ground_normal = normal
+					ground_body = found_body
 
 					if normal.y >= FLAT_GROUND_NORMAL_Y then
 						self.flat_ground_time = FLAT_GROUND_MEMORY
@@ -850,7 +894,14 @@ do
 				end
 			end
 
-			body:ApplyImpulse(Vec3(x - velocity.x, y - velocity.y, z - velocity.z) / body.InverseMass)
+			if ground_body then
+				local carry = get_carry_velocity(ground_body, body:GetOriginPosition(), dt)
+				base_x, base_y, base_z = carry.x, carry.y, carry.z
+			end
+
+			body:ApplyImpulse(
+				Vec3(x + base_x - velocity.x, y + base_y - velocity.y, z + base_z - velocity.z) / body.InverseMass
+			)
 
 			if grounded and ground_normal then
 				local ny = ground_normal.y
@@ -859,6 +910,7 @@ do
 			end
 
 			self.was_grounded = grounded
+			self.ground_body = grounded and ground_body or nil
 			self.ground_x = grounded and x or nil
 			self.ground_z = grounded and z or nil
 			return

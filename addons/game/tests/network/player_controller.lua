@@ -247,6 +247,40 @@ T.TestPhysics("player stands up under a ceiling that leaves room", function()
 	ground:Remove()
 end)
 
+T.TestPhysics("player rides a moving platform and keeps its momentum when jumping off", function()
+	local ground = create_ground()
+	local platform = Entity.New{
+		transform = {Position = Vec3(0, 0.25, 0), Scale = Vec3(6, 0.5, 6)},
+		rigid_body = {MotionType = "kinematic", Shape = BoxShape.New(Vec3(1, 1, 1)), Friction = 1},
+	}
+	local player = create_player(Vec3(0, 0.6, 0))
+	local x = 0
+
+	local function step(ticks, setup)
+		for _ = 1, ticks do
+			x = x + 2 / 60
+			platform.transform:SetPosition(Vec3(x, 0.25, 0))
+			drive(player, 1, setup)
+		end
+	end
+
+	step(120)
+	T(player.rigid_body:GetGrounded())["=="](true)
+	T(math.abs(player.rigid_body:GetPosition().x - x))["<"](0.3)
+	local offset = player.rigid_body:GetPosition().x - x
+	step(60)
+	T(math.abs(player.rigid_body:GetPosition().x - x - offset))["<"](0.15)
+
+	step(6, function(cmd)
+		cmd.buttons = bit.bor(cmd.buttons, BUTTON.JUMP)
+	end)
+
+	T(player.rigid_body:GetVelocity().x)[">"](1.5)
+	player:Remove()
+	platform:Remove()
+	ground:Remove()
+end)
+
 T.TestPhysics("a body with a center offset keeps its entity origin and stays stable", function()
 	local entity = Entity.New{
 		transform = {Position = Vec3(1, 2, 3)},
