@@ -6,6 +6,8 @@ local polyhedron_face_contacts = import("goluwa/physics/polyhedron/face_contacts
 local polyhedron_sat = import("goluwa/physics/polyhedron/sat.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
+-- a builtin LuaJIT cannot record ends the trace so the side traces after it do not inherit the locals of the axis loop
+local trace_break = coroutine.running
 local polyhedron_triangle_contacts = {}
 local DEFAULT_EPSILON = 0.00001
 local DEFAULT_TRIANGLE_SLOP = 0.05
@@ -128,6 +130,7 @@ local function build_polyhedron_face_candidate(context, face_index)
 end
 
 local function get_grounded_margin_overlap(context, axis)
+	trace_break()
 	return math.abs(axis.y) >= context.support_axis_y and context.margin_overlap or 0
 end
 

@@ -1,4 +1,6 @@
 local ffi = require("ffi")
+-- a builtin LuaJIT cannot record ends the trace so the side traces of the traversal do not inherit the locals of its callers
+local trace_break = coroutine.running
 local bvh = {}
 bvh.DefaultLeafItemCount = bvh.DefaultLeafItemCount or 8
 
@@ -399,6 +401,7 @@ end
 function bvh.TraverseAABB(bounds, node, visit_leaf, context, result)
 	if not (bounds and node and visit_leaf) then return result end
 
+	trace_break()
 	local intersects = bvh.AABBIntersects
 
 	if not intersects(bounds, node.aabb) then return result end

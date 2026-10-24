@@ -289,6 +289,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 
 	if inverse_mass_sum <= 0 then return end
 
+	trace_break()
 	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
 	local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 	local normal_speed = relative_velocity:Dot(normal)

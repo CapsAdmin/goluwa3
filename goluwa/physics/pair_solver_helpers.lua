@@ -7,6 +7,8 @@ local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local stats = import("goluwa/physics/stats.lua")
 local collider_index = import("goluwa/physics/collider_index.lua")
+-- a builtin LuaJIT cannot record ends the trace so the side traces of a pair handler do not inherit the dispatch loop locals
+local trace_break = coroutine.running
 local pair_solver_helpers = {}
 local EPSILON = physics_constants.EPSILON
 local axis_data = {
@@ -155,6 +157,7 @@ function pair_solver_helpers.TryInvokePairHandler(solver, body_a, body_b, entry_
 
 	if handler then
 		stats:Count(handler.name)
+		trace_break()
 		return handler.callback(body_a, body_b, entry_a, entry_b, dt), true
 	end
 
@@ -765,21 +768,26 @@ end
 local POINT_SWEEP_EXACT_RADIUS = 0.0005
 
 function pair_solver_helpers.ClipSegmentAgainstPolyhedron(polyhedron, start_world, movement_world, position, rotation, inflate, max_t)
-	local qx, qy, qz, qw = -rotation.x, -rotation.y, -rotation.z, rotation.w
-	local px, py, pz = start_world.x - position.x, start_world.y - position.y, start_world.z - position.z
-	local tx = 2 * (qy * pz - qz * py)
-	local ty = 2 * (qz * px - qx * pz)
-	local tz = 2 * (qx * py - qy * px)
-	local sx, sy, sz = px + qw * tx + (qy * tz - qz * ty),
-	py + qw * ty + (qz * tx - qx * tz),
-	pz + qw * tz + (qx * ty - qy * tx)
-	px, py, pz = movement_world.x, movement_world.y, movement_world.z
-	tx = 2 * (qy * pz - qz * py)
-	ty = 2 * (qz * px - qx * pz)
-	tz = 2 * (qx * py - qy * px)
-	local dx, dy, dz = px + qw * tx + (qy * tz - qz * ty),
-	py + qw * ty + (qz * tx - qx * tz),
-	pz + qw * tz + (qx * ty - qy * tx)
+	local sx, sy, sz, dx, dy, dz
+
+	do
+		local qx, qy, qz, qw = -rotation.x, -rotation.y, -rotation.z, rotation.w
+		local px, py, pz = start_world.x - position.x, start_world.y - position.y, start_world.z - position.z
+		local tx = 2 * (qy * pz - qz * py)
+		local ty = 2 * (qz * px - qx * pz)
+		local tz = 2 * (qx * py - qy * px)
+		sx, sy, sz = px + qw * tx + (qy * tz - qz * ty),
+		py + qw * ty + (qz * tx - qx * tz),
+		pz + qw * tz + (qx * ty - qy * tx)
+		px, py, pz = movement_world.x, movement_world.y, movement_world.z
+		tx = 2 * (qy * pz - qz * py)
+		ty = 2 * (qz * px - qx * pz)
+		tz = 2 * (qx * py - qy * px)
+		dx, dy, dz = px + qw * tx + (qy * tz - qz * ty),
+		py + qw * ty + (qz * tx - qx * tz),
+		pz + qw * tz + (qx * ty - qy * tx)
+	end
+
 	local vertices = polyhedron.vertices
 	local faces = polyhedron.faces
 	local t_enter, t_exit = -math.huge, math.huge

@@ -2,6 +2,8 @@ local physics_constants = import("goluwa/physics/constants.lua")
 local contact_store = import("goluwa/physics/contact_store.lua")
 local motion = import("goluwa/physics/motion.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+-- a builtin LuaJIT cannot record ends the trace so the side traces of the restitution loop do not inherit the locals of the pair loop
+local trace_break = coroutine.running
 local manifold = {}
 local EPSILON = physics_constants.EPSILON
 local LOCAL_POINT = Vec3()
@@ -114,6 +116,7 @@ function manifold.ApplyRestitution(body_a, body_b, normal, manifold_data, dt)
 		math.sqrt(gravity.x * gravity.x + gravity.y * gravity.y + gravity.z * gravity.z) * dt * 2
 	)
 	local cs = manifold_data.cs
+	trace_break()
 
 	for contact_index = 0, manifold_data.n - 1 do
 		local contact = cs[contact_index]

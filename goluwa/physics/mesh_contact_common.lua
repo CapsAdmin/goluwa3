@@ -8,6 +8,8 @@ local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
+-- a builtin LuaJIT cannot record ends the trace so the fields of the removed query result are not inherited by the side traces after it
+local trace_break = coroutine.running
 local mesh_contact_common = {}
 local EPSILON = physics_constants.EPSILON
 local SPHERE_TRIANGLE_CONTACT_HANDLERS = {}
@@ -153,6 +155,7 @@ local function evaluate_triangle_contact(
 
 	local normal = mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, fallback_delta, fallback_normal)
 	local overlap = combined_margin - result.surface_distance
+	trace_break()
 
 	if not normal or overlap < -handlers.speculative_distance then return nil end
 

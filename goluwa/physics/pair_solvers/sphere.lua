@@ -5,6 +5,8 @@ local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
+-- a builtin LuaJIT cannot record ends the trace so the removed vectors above are not inherited by the side traces of the branches below
+local trace_break = coroutine.running
 local sphere = {}
 local EPSILON = physics_constants.EPSILON
 local SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT = {
@@ -205,6 +207,7 @@ local function resolve_top_face_hit(sphere_body, box_body, dt, local_center, ext
 	local top_distance = top_delta:GetLength()
 	local top_overlap = sphere_body:GetSphereRadius() - top_distance
 	local top_normal
+	trace_break()
 
 	if
 		local_center.y < extents.y and

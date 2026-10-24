@@ -2,8 +2,11 @@ local objects = import("goluwa/objects/objects.lua")
 local stats = import("goluwa/physics/stats.lua")
 local CollisionPairs = objects.CreateTemplate("physics_collision_pairs")
 import.loaded["goluwa/physics/collision_pairs.lua"] = CollisionPairs
+-- a builtin LuaJIT cannot record ends the trace so the side traces after it do not inherit the caller locals
+local trace_break = coroutine.running
 
 local function get_nested_entry(store, key_a, key_b)
+	trace_break()
 	local row = store[key_a]
 
 	if not row then return nil end

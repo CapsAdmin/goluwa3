@@ -8,6 +8,8 @@ local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
+-- a builtin LuaJIT cannot record ends the trace so the removed vectors of the parallel test are not inherited by the side traces of its branches
+local trace_break = coroutine.running
 local capsule = {}
 local EPSILON = physics_constants.EPSILON
 local CAPSULE_POLYHEDRON_SPECULATIVE = physics_constants.DEFAULT_COLLISION_MARGIN
@@ -857,6 +859,7 @@ local function build_capsule_capsule_parallel_contacts(a0, a1, b0, b1, radius_a,
 		local u = axis_a / length_a
 		local s0 = (b0 - a0):Dot(u)
 		local sw = axis_b:Dot(u)
+		trace_break()
 
 		if sw > 0 then
 			t_enter = math.max(t_enter, (0 - s0) / sw)
@@ -878,6 +881,7 @@ local function build_capsule_capsule_parallel_contacts(a0, a1, b0, b1, radius_a,
 	local distance_1 = delta_1:GetLength()
 	local delta_2 = point_b_2 - closest_2
 	local distance_2 = delta_2:GetLength()
+	trace_break()
 
 	if
 		distance_1 > min_distance or
