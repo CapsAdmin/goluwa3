@@ -63,6 +63,7 @@ function META:Initialize()
 	self.previous_velocity = Vec3()
 	self.previous_valid = false
 	self.dead = false
+	self.flat_ground_time = 0
 	self.step_hold_time = 0
 	self.fly_speed_multiplier = 1
 	self.Owner.transform.RenderOffset = Vec3()
@@ -111,6 +112,7 @@ function META:Reset(mode)
 	self.CrouchAnchorMode = nil
 	self.CrouchAnchorPosition = nil
 	self.was_grounded = false
+	self.flat_ground_time = 0
 	self.step_hold_time = 0
 	self.jumping = false
 	self.Swimming = false
@@ -224,6 +226,8 @@ function META:ResetBodyRotation()
 end
 
 local UP = Vec3(0, 1, 0)
+local DOWN = Vec3(0, -1, 0)
+local GROUND_RAY_OPTIONS = {IncludeRigidBodies = true}
 
 function META:SetBodyYaw(view)
 	local body = self.Owner.rigid_body
@@ -263,6 +267,8 @@ local STEP_MIN_RISE = 0.002
 local STEP_LOW_PROBE_EXTRA = 0.15
 local STEP_LANDING_MARGIN = 0.02
 local GROUND_RAY_LIFT = 0.02
+local FLAT_GROUND_NORMAL_Y = 0.98
+local FLAT_GROUND_MEMORY = 0.15
 local STEP_HOLD_TIME = 0.12
 local STEP_SMOOTH_SPEED = 8
 local STEP_SMOOTH_MIN_SPEED = 1
@@ -372,28 +378,34 @@ function META:FindGround(reach)
 		body:GetFilterFunction(),
 		STEP_OPTIONS
 	)
-	local ground_distance
+	local _, height = self:GetDimensions()
+	local origin = body:GetPosition() - Vec3(0, height * 0.5 - GROUND_RAY_LIFT, 0)
+	local ray = physics.RayCast(
+		origin,
+		DOWN,
+		sweep_length + GROUND_RAY_LIFT,
+		self.Owner,
+		body:GetFilterFunction(),
+		GROUND_RAY_OPTIONS
+	)
 
 	if hit and hit.normal.y >= self.MinGroundNormalY then
-		ground_distance = sweep_length * hit.fraction
-	else
-		local _, height = self:GetDimensions()
-		local origin = body:GetPosition() - Vec3(0, height * 0.5 - GROUND_RAY_LIFT, 0)
-		local ray = physics.RayCast(
-			origin,
-			Vec3(0, -1, 0),
-			sweep_length + GROUND_RAY_LIFT,
-			self.Owner,
-			body:GetFilterFunction()
-		)
+		local ground_distance = sweep_length * hit.fraction
+		local normal = hit.normal
 
-		if not ray or ray.normal.y < self.MinGroundNormalY then return false end
+		if not ray then
+			normal = UP
+		elseif ray.normal.y >= self.MinGroundNormalY then
+			local rolled = self.Radius * (1 / ray.normal.y - 1) + GROUND_RAY_LIFT
+			normal = ray.distance - GROUND_RAY_LIFT <= ground_distance + rolled and ray.normal or UP
+		end
 
-		ground_distance = ray.distance - GROUND_RAY_LIFT
-		return true, math.max(ground_distance - resting_gap, 0), ray.normal
+		return true, math.max(ground_distance - resting_gap, 0), normal
 	end
 
-	return true, math.max(ground_distance - resting_gap, 0), hit.normal
+	if not ray or ray.normal.y < self.MinGroundNormalY then return false end
+
+	return true, math.max(ray.distance - GROUND_RAY_LIFT - resting_gap, 0), ray.normal
 end
 
 function META:SetCrouch(b)
@@ -678,6 +690,7 @@ do
 
 			if y <= 0 then self.jumping = false end
 
+			self.flat_ground_time = self.flat_ground_time - dt
 			self.step_hold_time = self.step_hold_time - dt
 			local rising = y > self.LeaveGroundSpeed
 			local ground_normal
@@ -688,7 +701,8 @@ do
 				local reach = self.was_grounded and
 					(
 						y > 0 or
-						self:IsStickToGround()
+						self:IsStickToGround() or
+						self.flat_ground_time > 0
 					)
 					and
 					self.StepHeight or
@@ -698,6 +712,10 @@ do
 
 				if found then
 					ground_normal = normal
+
+					if normal.y >= FLAT_GROUND_NORMAL_Y then
+						self.flat_ground_time = FLAT_GROUND_MEMORY
+					end
 
 					if gap > 0 and reach > self.GroundReach and self.step_hold_time <= 0 then
 						self:MoveBodyBy(body, Vec3(0, -gap, 0))
@@ -786,6 +804,12 @@ do
 			end
 
 			body:ApplyImpulse(Vec3(x - velocity.x, y - velocity.y, z - velocity.z) / body.InverseMass)
+
+			if grounded and ground_normal then
+				local ny = ground_normal.y
+				local weight = self.Gravity / body.InverseMass
+				body:ApplyForce(Vec3(ground_normal.x * ny, -(1 - ny * ny), ground_normal.z * ny) * -weight)
+			end
 
 			self.was_grounded = grounded
 			self.ground_x = grounded and x or nil
