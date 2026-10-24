@@ -170,25 +170,20 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 		resync = true
 	end
 
-	local versions = self.versions
-	local written = self.written
-	local material_batches = self.material_batches
-	local animated_batches = self.animated_batches
 	local serial = self.write_serial + 1
 	self.write_serial = serial
-	local changes = self.changes
 
 	if
 		resync and
-		changes and
+		self.changes and
 		not grown and
 		self.address_release_serial == release_serial and
 		self.written_count > 0 and
-		batch_serial - self.batch_serial < changes.size
+		batch_serial - self.batch_serial < self.changes.size
 	then
 		local batch_at = self.batch_at
-		local log = changes.log
-		local size = changes.size
+		local log = self.changes.log
+		local size = self.changes.size
 
 		for change = self.batch_serial + 1, batch_serial do
 			local i = log[change % size]
@@ -250,7 +245,7 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 			local batch = batches[i]
 			local material = batch.material
 
-			if versions[i] ~= (material and material.property_version or -1) then
+			if self.versions[i] ~= (material and material.property_version or -1) then
 				write_batch_record(self, pipeline, context, i, batch, serial)
 			end
 		end
@@ -260,11 +255,11 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 
 		for log_version = self.material_version + 1, version do
 			local material = log[log_version % log_size]
-			local set = material and material_batches[material]
+			local set = material and self.material_batches[material]
 
 			if set then
 				for i in pairs(set) do
-					if versions[i] ~= material.property_version then
+					if self.versions[i] ~= material.property_version then
 						write_batch_record(self, pipeline, context, i, batches[i], serial)
 					end
 				end
@@ -287,14 +282,14 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	if self.written_animation_version ~= animation_version then
 		local write_animated = self.write_animated
 
-		for i in pairs(animated_batches) do
+		for i in pairs(self.animated_batches) do
 			if write_animated then
 				write_animated(context, pipeline, self.records[i - 1], batches[i])
 			else
 				write_batch_record(self, pipeline, context, i, batches[i], serial)
 			end
 
-			written[i] = serial
+			self.written[i] = serial
 		end
 
 		self.written_animation_version = animation_version
@@ -314,6 +309,7 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 		synced = 0
 	end
 
+	local written = self.written
 	local record_size = self.record_size
 	local mapped = buffer:Map()
 	local bytes = ffi.cast("uint8_t *", self.records)
