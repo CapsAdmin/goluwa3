@@ -350,7 +350,7 @@ function LayoutView:OnDraw()
 end
 
 LayoutView:Register()
-local PASS_NAMES = {"ambient_occlusion", "reflections", "ssgi_filter_1", "ssgi_filter_2", "ssgi"}
+local PASS_NAMES = {"ambient_occlusion", "reflections", "ssgi_filter_1", "ssgi_filter_2", "ssgi", "ddgi_resolve"}
 local SWIZZLES = {r = "rrr", g = "ggg", b = "bbb", a = "aaa", rgb = "rgb"}
 
 local function show_fullscreen(spec)

@@ -29,6 +29,7 @@ local BINDING_SCENE = 10
 local BINDING_LIGHT_GRID = 11
 local BINDING_SCREEN_GEOMETRY = 13
 local BINDING_SCREEN_SPECULAR = 14
+local BINDING_SCREEN_VISIBILITY = 15
 local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
 local SCENE_DESCRIPTOR = scene_hit.GetDescriptorSets(BINDING_HIT, "compute", VISIBILITY_RAYS and BINDING_SCENE or nil)
 local SCENE_GLSL = VISIBILITY_RAYS and
@@ -1219,6 +1220,7 @@ local function pass_resolve()
 			{"r16g16b16a16_sfloat", {"ddgi_screen", "rgba"}},
 			{"r16g16b16a16_sfloat", {"ddgi_screen_geometry", "rgba"}},
 			{"r16g16b16a16_sfloat", {"ddgi_screen_specular", "rgba"}},
+			{"r8g8b8a8_unorm", {"ddgi_visibility", "rgb"}},
 		},
 		framebuffer_count = 1,
 		scale = function()
@@ -1237,6 +1239,11 @@ local function pass_resolve()
 				attachment = 3,
 				dst_stage = {"compute", "fragment"},
 			},
+			{
+				binding_index = BINDING_SCREEN_VISIBILITY,
+				attachment = 4,
+				dst_stage = {"compute", "fragment"},
+			},
 		},
 		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
 		uniform_buffers = {data_uniform()},
@@ -1248,9 +1255,10 @@ local function pass_resolve()
 		custom_declarations = SCENE_GLSL .. [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = ]] .. BINDING_SCREEN_GEOMETRY .. [[, rgba16f) uniform writeonly image2D out_geometry;
- layout(set = 0, binding = ]] .. BINDING_SCREEN_SPECULAR .. [[, rgba16f) uniform writeonly image2D out_specular;
- ]],
-		shader = common_glsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
+			layout(set = 0, binding = ]] .. BINDING_SCREEN_SPECULAR .. [[, rgba16f) uniform writeonly image2D out_specular;
+			layout(set = 0, binding = ]] .. BINDING_SCREEN_VISIBILITY .. [[, rgba8) uniform writeonly image2D out_visibility;
+		]],
+		shader = "#define DDGI_VISIBILITY_STATS\n" .. common_glsl() .. screen_reconstruct.GetWorldPosFromUVGLSL("ddgi_data") .. [[
 
 			void main() {
 				ivec2 pos = get_screen_pos();
@@ -1297,6 +1305,7 @@ local function pass_resolve()
 					imageStore(out_color, pos, vec4(0.0, 0.0, 0.0, 1.0));
 					imageStore(out_geometry, pos, vec4(0.0, 0.0, 0.0, 1e30));
 					imageStore(out_specular, pos, vec4(0.0, 0.0, 0.0, 1.0));
+					imageStore(out_visibility, pos, vec4(0.0, 0.0, 0.0, 1.0));
 					return;
 				}
 
@@ -1311,6 +1320,10 @@ local function pass_resolve()
 				float weight;
 				vec4 specular;
 				vec4 gi = ddgi_sample_irradiance_pair(P, N, L, R, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight, specular);
+				float with_rays = luminance(gi.rgb);
+				float without_rays = luminance(ddgi_stats_unoccluded);
+				float change = (without_rays - with_rays) / max(max(without_rays, with_rays), 1e-6);
+				imageStore(out_visibility, pos, ddgi_in_volume(P) ? vec4(max(change, 0.0), ddgi_stats_hidden_share, max(-change, 0.0), 1.0) : vec4(0.0, 0.0, 0.0, 1.0));
 
 				if (weight <= 0.0 && !ddgi_in_volume(P)) {
 					gi = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, N) * ddgi_data.ddgi_strength, 1.0);

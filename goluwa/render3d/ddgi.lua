@@ -1380,6 +1380,11 @@ function ddgi.GetCommonGLSL()
 			return w * kernel;
 		}
 
+		#ifdef DDGI_VISIBILITY_STATS
+		float ddgi_stats_hidden_share = 0.0;
+		vec3 ddgi_stats_unoccluded = vec3(0.0);
+		#endif
+
 		bool ddgi_probe_needs_trace(float w, float luma, vec4 sum, float visibility_min_weight) {
 			return visibility_min_weight == DDGI_CONTRAST_VISIBILITY_RAYS ?
 				luma > ddgi_data.ddgi_contrast_ratio * ddgi_contrast_reference && w * luma > DDGI_CONTRAST_SHARE * luminance(sum.rgb) :
@@ -1389,6 +1394,13 @@ function ddgi.GetCommonGLSL()
 		vec4 ddgi_sample_cascade_pair(int c, vec3 P, vec3 N, vec3 L, vec3 L2, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight, out vec4 second) {
 			weight = 0.0;
 			second = vec4(0.0);
+			#ifdef DDGI_VISIBILITY_STATS
+			float stats_total = 0.0;
+			float stats_hidden = 0.0;
+			vec3 stats_sum = vec3(0.0);
+			ddgi_stats_hidden_share = 0.0;
+			ddgi_stats_unoccluded = vec3(0.0);
+			#endif
 
 			if (ddgi_cascade_reset(c)) return vec4(0.0);
 
@@ -1423,12 +1435,26 @@ function ddgi.GetCommonGLSL()
 				vec4 irradiance2 = textureLod(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, L2, DDGI_IRRADIANCE_TEXELS), 0.0);
 				bool trace = ddgi_probe_needs_trace(w, luminance(irradiance.rgb), sum, visibility_min_weight) || ddgi_probe_needs_trace(w, luminance(irradiance2.rgb), sum, visibility_min_weight);
 
-				if (trace && ddgi_probe_can_be_traced(probe_position, world) && ddgi_probe_hidden(P, N, probe_position * spacing, spacing)) continue;
+				bool hidden = trace && ddgi_probe_can_be_traced(probe_position, world) && ddgi_probe_hidden(P, N, probe_position * spacing, spacing);
+
+				#ifdef DDGI_VISIBILITY_STATS
+				stats_total += w;
+				stats_sum += irradiance.rgb * w;
+
+				if (hidden) stats_hidden += w;
+				#endif
+
+				if (hidden) continue;
 
 				sum += irradiance * w;
 				second_sum += irradiance2 * w;
 				weight += w;
 			}
+
+			#ifdef DDGI_VISIBILITY_STATS
+			ddgi_stats_hidden_share = stats_hidden / max(stats_total, 1e-6);
+			ddgi_stats_unoccluded = stats_sum / max(stats_total, ]] .. MIN_WEIGHT .. [[);
+			#endif
 
 			second = second_sum / max(weight, ]] .. MIN_WEIGHT .. [[);
 			return sum / max(weight, ]] .. MIN_WEIGHT .. [[);
@@ -1471,9 +1497,19 @@ function ddgi.GetCommonGLSL()
 
 				if (keep >= 1.0) break;
 
+				#ifdef DDGI_VISIBILITY_STATS
+				float fine_hidden_share = ddgi_stats_hidden_share;
+				vec3 fine_unoccluded = ddgi_stats_unoccluded;
+				#endif
+
 				float coarse_weight;
 				vec4 coarse_second;
 				vec4 coarse = ddgi_sample_cascade_pair(c + 1, P, N, L, L2, V, smooth_blend, visibility_min_weight, coarse_weight, coarse_second);
+
+				#ifdef DDGI_VISIBILITY_STATS
+				ddgi_stats_hidden_share = coarse_weight > 0.0 ? mix(ddgi_stats_hidden_share, fine_hidden_share, keep) : fine_hidden_share;
+				ddgi_stats_unoccluded = coarse_weight > 0.0 ? mix(ddgi_stats_unoccluded, fine_unoccluded, keep) : fine_unoccluded;
+				#endif
 
 				if (coarse_weight > 0.0) {
 					weight = mix(coarse_weight, weight, keep);
@@ -1487,6 +1523,9 @@ function ddgi.GetCommonGLSL()
 			#ifndef DDGI_UNSCALED
 			result.rgb *= ddgi_data.ddgi_strength;
 			second.rgb *= ddgi_data.ddgi_strength;
+			#ifdef DDGI_VISIBILITY_STATS
+			ddgi_stats_unoccluded *= ddgi_data.ddgi_strength;
+			#endif
 			#endif
 			return result;
 		}
