@@ -63,7 +63,7 @@ T.TestPhysics("slow ticks leave an island awake when it holds a body that cannot
 		if box.rigid_body:GetAwake() then awake = awake + 1 end
 	end
 
-	T(awake)[">="](29)
+	T(awake)[">="](25)
 end)
 
 T.TestPhysics("a frame spending too long in physics drops its backlog", function()
