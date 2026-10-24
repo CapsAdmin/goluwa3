@@ -190,15 +190,18 @@ function triangle_contact_queries.BuildCapsuleTrianglePairWithin(
 	fallback_normal,
 	max_distance
 )
-	local nx, ny, nz, normal_length_squared = triangle_scalar.TriangleNormalRaw(v0, v1, v2)
-	local normal_length = math.sqrt(normal_length_squared)
 	local face_normal = nil
 
-	if normal_length > epsilon then
-		SCRATCH_FACE_NORMAL.x = nx / normal_length
-		SCRATCH_FACE_NORMAL.y = ny / normal_length
-		SCRATCH_FACE_NORMAL.z = nz / normal_length
-		face_normal = SCRATCH_FACE_NORMAL
+	do
+		local nx, ny, nz, normal_length_squared = triangle_scalar.TriangleNormalRaw(v0, v1, v2)
+		local normal_length = math.sqrt(normal_length_squared)
+
+		if normal_length > epsilon then
+			SCRATCH_FACE_NORMAL.x = nx / normal_length
+			SCRATCH_FACE_NORMAL.y = ny / normal_length
+			SCRATCH_FACE_NORMAL.z = nz / normal_length
+			face_normal = SCRATCH_FACE_NORMAL
+		end
 	end
 
 	local distance_squared, sx, sy, sz, tx, ty, tz = triangle_scalar.SegmentToTriangleSq(
