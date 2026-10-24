@@ -100,7 +100,7 @@ local function apply_text_layout(text)
 
 	local max_width = get_max_width(state.options)
 	local min_width = get_min_width(state.options)
-	local measured_width = select(1, state.text_panel.text:Measure(max_width, 0))
+	local measured_width = state.text_panel.text:Measure(max_width, 0)
 	local content_width = math.max(min_width, math.min(max_width, measured_width))
 
 	if state.text_panel.layout then

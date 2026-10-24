@@ -1004,7 +1004,7 @@ function level.LoadTerrainData(level_dir)
 	if not terrain then return nil, parse_err end
 
 	terrain.level_dir = level_dir
-	local cry_game = select(1, game.FindCryGame())
+	local cry_game = game.FindCryGame()
 
 	do
 		local cover_path = level_dir .. "level.pak/terrain/cover.ctc"
@@ -1360,7 +1360,7 @@ function level.Load(level_dir)
 
 	startup.End("extract visual objects")
 	startup.Begin("load terrain data")
-	local terrain = select(1, level.LoadTerrainData(level_dir))
+	local terrain = level.LoadTerrainData(level_dir)
 	startup.End("load terrain data")
 	startup.Begin("vegetation instances")
 	local vegetation_entries = {}

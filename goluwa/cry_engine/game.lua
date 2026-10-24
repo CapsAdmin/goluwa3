@@ -106,7 +106,7 @@ end
 local function resolve_model_path_impl(level_dir, model_path)
 	local normalized = file_path.FixPathSlashes(model_path)
 	local candidates = {normalized}
-	local cry_game = select(1, game.FindCryGame())
+	local cry_game = game.FindCryGame()
 	local root, rest = normalized:match("^([^/]+)/(.+)$")
 	local root_lower = root and root:lower() or nil
 	local mounted_root = root_lower == "objects" and

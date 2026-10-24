@@ -350,7 +350,7 @@ do
 		render2d.PushColor(txt_r, txt_g, txt_b, txt_a)
 		current_font:DrawText(str, text_pos.x - min_x, text_pos.y - min_y)
 		render2d.PopColor()
-		local w = select(1, get_text_bounds(str))
+		local w = get_text_bounds(str)
 		text_pos = Vec2(text_pos.x + w, text_pos.y)
 	end
 

@@ -1456,13 +1456,13 @@ do
 					return line_height
 				end,
 				GetSpaceAdvance = function(_)
-					return select(1, get_text_size(self, " "))
+					return (get_text_size(self, " "))
 				end,
 				GetTabAdvance = function(_, space_width, tab_size)
 					return (space_width or 0) * (tab_size or 4)
 				end,
 				GetGlyphAdvance = function(_, text)
-					return select(1, get_text_size(self, text))
+					return (get_text_size(self, text))
 				end,
 			}
 		)

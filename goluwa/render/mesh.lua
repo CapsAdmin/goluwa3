@@ -385,7 +385,7 @@ function Mesh:SetVertex(index, name, ...)
 	local argc = select("#", ...)
 
 	if argc == 1 then
-		local value = select(1, ...)
+		local value = ...
 
 		if type(value) == "table" then
 			for i = 0, get_attribute_component_count(attribute) - 1 do

@@ -112,7 +112,9 @@ function measure.prepare(analyzed, measurer, options)
 	local shared = {
 		line_height = line_height,
 		space_width = get_space_width(measurer),
-		select(1, measure_text(measurer, "-")),
+		(
+			measure_text(measurer, "-")
+		),
 	}
 	shared.hyphen_width = shared[1] or 0
 	shared[1] = nil

@@ -531,16 +531,13 @@ local function test_static_polygon(
 		traversal_context.primitive_idx = primitive_idx
 		traversal_context.entity = entity
 		traversal_context.cull_back = cull_back
-		closest_hit = select(
-			1,
-			BVH.TraverseRay(
-				primitive_ray,
-				acceleration.root,
-				visit_triangle_bvh_leaf,
-				traversal_context,
-				nil,
-				max_hit_distance or math.huge
-			)
+		closest_hit = BVH.TraverseRay(
+			primitive_ray,
+			acceleration.root,
+			visit_triangle_bvh_leaf,
+			traversal_context,
+			nil,
+			max_hit_distance or math.huge
 		)
 	else
 		for tri_idx = 0, triangle_count - 1 do

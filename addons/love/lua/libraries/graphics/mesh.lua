@@ -121,7 +121,7 @@ function love.graphics.newMesh(...)
 	local texture
 
 	if
-		type(select(1, ...)) == "table" and
+		type((...)) == "table" and
 		(
 			line.Type(select(2, ...)) == "Image" or
 			line.Type(select(2, ...)) == "Canvas"
@@ -129,14 +129,14 @@ function love.graphics.newMesh(...)
 	then
 		vertices, texture, mode = ...
 		vertex_count = #vertices
-	elseif is_vertex_format_table(select(1, ...)) and type(select(2, ...)) == "table" then
+	elseif is_vertex_format_table((...)) and type(select(2, ...)) == "table" then
 		vertex_format, vertices, mode, usage = ...
 		vertex_count = #vertices
-	elseif is_vertex_format_table(select(1, ...)) and type(select(2, ...)) == "number" then
+	elseif is_vertex_format_table((...)) and type(select(2, ...)) == "number" then
 		vertex_format, vertex_count, mode, usage = ...
-	elseif type(select(1, ...)) == "number" then
+	elseif type((...)) == "number" then
 		vertex_count, mode, usage = ...
-	elseif type(select(1, ...)) == "table" then
+	elseif type((...)) == "table" then
 		vertices, mode, usage = ...
 		vertex_count = #vertices
 	end

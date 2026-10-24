@@ -163,12 +163,12 @@ local function build_elided_text(self, font, text, available_width)
 
 	if max_width <= 0 then return "" end
 
-	local full_width = select(1, font:GetTextSize(text))
+	local full_width = font:GetTextSize(text)
 
 	if full_width <= max_width then return text end
 
 	local elide = self:GetElideString() or "..."
-	local elide_width = select(1, font:GetTextSize(elide))
+	local elide_width = font:GetTextSize(elide)
 
 	if elide_width >= max_width then return "" end
 
@@ -177,7 +177,7 @@ local function build_elided_text(self, font, text, available_width)
 	local current_width = 0
 
 	for i, char in ipairs(chars) do
-		local char_width = select(1, font:GetTextSize(char))
+		local char_width = font:GetTextSize(char)
 
 		if current_width + char_width + elide_width > max_width then break end
 

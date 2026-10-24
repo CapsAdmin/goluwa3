@@ -81,7 +81,7 @@ T.Test("pretext measure_line_stats matches wrapped geometry", function()
 	local stats = pretext.measure_line_stats(prepared, 40)
 	T(stats.line_count)["=="](3)
 	T(stats.max_line_width)["=="](40)
-	T(pretext.measure_natural_width(prepared))["=="](select(1, mock_measurer:MeasureText("hello world again")))
+	T(pretext.measure_natural_width(prepared))["=="]((mock_measurer:MeasureText("hello world again")))
 end)
 
 T.Test2D("pretext wraps ttf fonts", function()
@@ -90,7 +90,7 @@ T.Test2D("pretext wraps ttf fonts", function()
 	if not path then return T.Unavailable("system font path unavailable") end
 
 	local font = fonts.New{Path = path, Size = 16}
-	local wrapped = font:WrapString("hello world again", select(1, font:GetTextSize("hello world")))
+	local wrapped = font:WrapString("hello world again", (font:GetTextSize("hello world")))
 	local lines = split_lines(wrapped)
 	assert(#lines >= 2, "expected font wrapping to produce at least two lines")
 	assert(
@@ -103,9 +103,9 @@ T.Test2D("pretext wraps ttf fonts", function()
 	)
 
 	for i = 1, #lines do
-		local width = select(1, font:GetTextSize(lines[i]))
+		local width = font:GetTextSize(lines[i])
 		assert(
-			width <= select(1, font:GetTextSize("hello world")),
+			width <= font:GetTextSize("hello world"),
 			"wrapped line exceeded requested width"
 		)
 	end

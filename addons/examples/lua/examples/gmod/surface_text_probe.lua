@@ -41,7 +41,7 @@ local function measure_layout(text, font)
 	local _, line_h = surface.GetTextSize("|")
 
 	for _, line in ipairs(lines) do
-		local line_w = select(1, surface.GetTextSize(line))
+		local line_w = surface.GetTextSize(line)
 		max_w = math.max(max_w, line_w)
 	end
 
@@ -64,7 +64,7 @@ local function draw_text_block(x, y, title, font, text)
 
 	for index, line in ipairs(lines) do
 		local line_y = y + (index - 1) * line_h
-		local line_w = select(1, surface.GetTextSize(line))
+		local line_w = surface.GetTextSize(line)
 		outline_rect(x, line_y, line_w, line_h, Color(120, 255, 160))
 		surface.SetFont(font)
 		surface.SetTextColor(220, 230, 245, 255)
@@ -80,7 +80,7 @@ local function draw_text_block(x, y, title, font, text)
 			math.floor(measured_h),
 			#lines,
 			math.floor(line_h),
-			math.floor(select(1, surface.GetTextSize(lines[1] or ""))),
+			math.floor((surface.GetTextSize(lines[1] or ""))),
 			math.floor(select(2, surface.GetTextSize(lines[1] or "")))
 		),
 		x,

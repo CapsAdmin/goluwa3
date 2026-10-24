@@ -137,10 +137,10 @@ function META:DrawText(str, x, y, spacing, align_x, align_y, extra_space_advance
 end
 
 function META:GetSpaceAdvance()
-	local width = select(1, self:GetTextSize(" "))
+	local width = self:GetTextSize(" ")
 
 	if width == 0 then
-		width = select(1, self:GetTextSize("| |")) - select(1, self:GetTextSize("||"))
+		width = self:GetTextSize("| |") - self:GetTextSize("||")
 	end
 
 	return width
@@ -155,7 +155,7 @@ function META:GetTabAdvance(space_width, tab_size, current_width)
 end
 
 function META:GetGlyphAdvance(char)
-	return select(1, self:GetTextSize(char))
+	return (self:GetTextSize(char))
 end
 
 function META:MeasureText(str)
