@@ -1235,16 +1235,16 @@ function ddgi.GetCommonGLSL()
 
 		vec3 ddgi_texel_direction(ivec2 texel, int texels) {
 			int last = texels - 1;
+			bool border_x = texel.x == 0 || texel.x == last;
+			bool border_y = texel.y == 0 || texel.y == last;
 			ivec2 src = texel;
 
-			if (texel.y == 0 || texel.y == last) {
-				src.x = last - texel.x;
-				src.y = texel.y == 0 ? 1 : last - 1;
-			}
-
-			if (texel.x == 0 || texel.x == last) {
-				src.y = last - src.y;
-				src.x = texel.x == 0 ? 1 : last - 1;
+			if (border_x && border_y) {
+				src = ivec2(texel.x == 0 ? last - 1 : 1, texel.y == 0 ? last - 1 : 1);
+			} else if (border_y) {
+				src = ivec2(last - texel.x, texel.y == 0 ? 1 : last - 1);
+			} else if (border_x) {
+				src = ivec2(texel.x == 0 ? 1 : last - 1, last - texel.y);
 			}
 
 			vec2 uv = (vec2(src - 1) + 0.5) / float(texels - 2);
