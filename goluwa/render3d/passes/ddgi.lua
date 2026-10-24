@@ -699,6 +699,7 @@ local function pass_probe_data()
 				float closest_back = 1e30;
 				vec3 closest_back_dir = vec3(0.0);
 				float short_back = 0.0;
+				vec3 short_back_sum = vec3(0.0);
 				float min_distance = ddgi_data.ddgi_relocation_distance * spacing;
 				ivec2 tile = ddgi_tile(slot, c);
 
@@ -708,14 +709,27 @@ local function pass_probe_data()
 					if (a < 0.0) {
 						backfaces += 1.0;
 						float d = -a / DDGI_BACKFACE_SCALE;
+						vec3 dir = ddgi_ray(uint(r), tile, false);
 
-						if (d < min_distance * 2.0) short_back += 1.0;
+						if (d < min_distance * 2.0) {
+							short_back += 1.0;
+							short_back_sum += dir;
+						}
 
 						if (d < closest_back) {
 							closest_back = d;
-							closest_back_dir = ddgi_ray(uint(r), tile, false);
+							closest_back_dir = dir;
 						}
 					}
+				}
+
+				vec3 surface_side = short_back_sum / max(length(short_back_sum), 1e-6);
+				bool resting = short_back > 0.0 && length(short_back_sum) > 0.3 * short_back;
+
+				for (int r = 0; r < ddgi_data.ddgi_uniform_rays && resting; r++) {
+					float a = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(r), slot, c), 0).a;
+
+					if (a < 0.0 && -a / DDGI_BACKFACE_SCALE < min_distance * 2.0 && dot(ddgi_ray(uint(r), tile, false), surface_side) < -0.25) resting = false;
 				}
 
 				bool settled = !ddgi_cascade_reset(c) && ddgi_probe_is_current(previous, world) && !ddgi_probe_moved(previous);
@@ -725,9 +739,10 @@ local function pass_probe_data()
 				vec3 previous_offset = offset;
 				vec3 moved = offset;
 
-				if (min_distance > 0.0 && disabled && short_back < backfaces * 0.8) {
-					vec3 axis = abs(closest_back_dir);
-					vec3 move_dir = sign(closest_back_dir) * vec3(axis.x >= axis.y && axis.x >= axis.z, axis.y > axis.x && axis.y >= axis.z, axis.z > axis.x && axis.z > axis.y);
+				if (min_distance > 0.0 && disabled && (resting || short_back < backfaces * 0.8)) {
+					vec3 move_from = resting ? surface_side : closest_back_dir;
+					vec3 axis = abs(move_from);
+					vec3 move_dir = sign(move_from) * vec3(axis.x >= axis.y && axis.x >= axis.z, axis.y > axis.x && axis.y >= axis.z, axis.z > axis.x && axis.z > axis.y);
 					moved += move_dir * (closest_back + min_distance * 0.5);
 				}
 
