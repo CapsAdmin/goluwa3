@@ -1,6 +1,8 @@
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local convex_sat = import("goluwa/physics/convex_sat.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local polyhedron_face_contacts = import("goluwa/physics/polyhedron/face_contacts.lua")
 local polyhedron_sat = import("goluwa/physics/polyhedron/sat.lua")
@@ -36,6 +38,33 @@ local POLYHEDRON_EDGE_CANDIDATE_CONTEXT = {
 	margin_overlap = 0,
 	support_axis_y = 0,
 }
+local BOX_AXIS = Vec3()
+local UNIT_X, UNIT_Y, UNIT_Z = Vec3(1, 0, 0), Vec3(0, 1, 0), Vec3(0, 0, 1)
+
+do
+	local function face_axis_gap(rotation, unit, cx, cy, cz, half, v0, v1, v2)
+		local axis = Quat.SetVecMul(BOX_AXIS, rotation, unit)
+		local ax, ay, az = axis.x, axis.y, axis.z
+		local center = cx * ax + cy * ay + cz * az
+		local p0 = v0.x * ax + v0.y * ay + v0.z * az
+		local p1 = v1.x * ax + v1.y * ay + v1.z * az
+		local p2 = v2.x * ax + v2.y * ay + v2.z * az
+		local low = math.min(p0, p1, p2)
+		local high = math.max(p0, p1, p2)
+		return math.max(low - (center + half), (center - half) - high)
+	end
+
+	function polyhedron_triangle_contacts.IsBoxSeparatedByFaceAxis(box_body, v0, v1, v2, threshold)
+		trace_break()
+		local center = box_body:GetPosition()
+		local half = box_body:GetHalfExtents()
+		local rotation = box_body:GetRotation()
+		local cx, cy, cz = center.x, center.y, center.z
+		return face_axis_gap(rotation, UNIT_X, cx, cy, cz, half.x, v0, v1, v2) > threshold or
+			face_axis_gap(rotation, UNIT_Y, cx, cy, cz, half.y, v0, v1, v2) > threshold or
+			face_axis_gap(rotation, UNIT_Z, cx, cy, cz, half.z, v0, v1, v2) > threshold
+	end
+end
 
 local function fill_triangle_vertices(out, v0, v1, v2)
 	out = out or {}
@@ -404,6 +433,19 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 		polyhedron_cache.GetPolyhedronWorldVertices(collider, polyhedron)
 
 	if not poly_vertices[1] then return nil end
+
+	if
+		collider:GetShapeType() == "box" and
+		polyhedron_triangle_contacts.IsBoxSeparatedByFaceAxis(
+			collider,
+			v0,
+			v1,
+			v2,
+			math.max(collider:GetCollisionMargin() or 0, options.collider_margin or 0) + triangle_slop + 0.01
+		)
+	then
+		return nil
+	end
 
 	local penetration = polyhedron_triangle_contacts.FindPenetration(collider, polyhedron, v0, v1, v2, options)
 
