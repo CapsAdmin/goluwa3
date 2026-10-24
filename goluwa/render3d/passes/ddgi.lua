@@ -481,6 +481,8 @@ local function pass_update(name, texels, integrate)
 			shared vec4 s_ray[DDGI_RAYS];
 			shared vec3 s_dir[DDGI_RAYS];
 			shared float s_q[DDGI_RAYS];
+			shared float s_mean[DDGI_RAYS];
+			shared float s_keep;
 
 			void main() {
 				ivec2 tile = ivec2(gl_WorkGroupID.xy);
@@ -502,6 +504,7 @@ local function pass_update(name, texels, integrate)
 					s_ray[r] = texelFetch(TEXTURE(ddgi_data.ddgi_ray_tex), ddgi_ray_texel(uint(r), slot, c), 0);
 					s_dir[r] = ddgi_ray(uint(r), tile, guided);
 					s_q[r] = ddgi_ray_q(s_dir[r], tile, guided);
+					s_mean[r] = s_ray[r].a < 0.0 ? 0.0 : sqrt(luminance(s_ray[r].rgb)) * s_q[r];
 				}
 
 				barrier();
@@ -530,38 +533,36 @@ local function pass_update(name, texels, integrate)
 				""
 			) .. [[
 
-				vec4 data = ddgi_probe_data(slot, c);
-				bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && !ddgi_probe_disabled(data) && !ddgi_probe_moved(data);
-				vec4 state = current ? imageLoad(state_atlas, tile) : vec4(0.0);
-				float probe_mean = 0.0;
-				float probe_weight = 0.0;
+				if (local == ivec2(0)) {
+					vec4 data = ddgi_probe_data(slot, c);
+					bool current = !ddgi_cascade_reset(c) && ddgi_probe_is_current(data, world) && !ddgi_probe_disabled(data) && !ddgi_probe_moved(data);
+					vec4 state = current ? imageLoad(state_atlas, tile) : vec4(0.0);
+					float probe_mean = 0.0;
+					float probe_weight = 0.0;
 
-				for (int r = 0; r < DDGI_RAYS; r++) {
-					if (s_ray[r].a < 0.0) continue;
+					for (int r = 0; r < DDGI_RAYS; r++) {
+						probe_mean += s_mean[r];
+						probe_weight += s_ray[r].a < 0.0 ? 0.0 : s_q[r];
+					}
 
-					probe_mean += sqrt(luminance(s_ray[r].rgb)) * s_q[r];
-					probe_weight += s_q[r];
+					probe_mean /= max(probe_weight, 1e-4);
+					float change = abs(state.z);
+					float direction = probe_mean > state.y ? 1.0 : -1.0;
+					float side = probe_mean > state.y * DDGI_CHANGE_MARGIN ? 1.0 : (probe_mean < state.y / DDGI_CHANGE_MARGIN ? -1.0 : 0.0);
+					float average = state.w;
+					state.z = state.x > 0.0 ? mix(side, state.z, 0.8) : 0.0;
+					state.y = state.x > 0.0 ? (direction > 0.0 ? state.y + 0.01 * max(average, 1e-3) : state.y * 0.99) : probe_mean;
+					state.w = state.x > 0.0 ? mix(probe_mean, average, 0.97) : probe_mean;
+					float keep = ddgi_data.ddgi_cascade_update[c].x;
+					keep = mix(keep, pow(keep, ddgi_data.ddgi_change_power), clamp((change - 0.6) / 0.3, 0.0, 1.0));
+					if (ddgi_data.ddgi_cascade_update[c].y > 0.0) keep = min(keep, 0.4);
+					s_keep = min(keep, state.x / (state.x + 1.0));
+					state.x = min(state.x + 1.0, 1024.0);
+					imageStore(state_atlas, tile, state);
 				}
 
-				probe_mean /= max(probe_weight, 1e-4);
-				float change = abs(state.z);
-				float direction = probe_mean > state.y ? 1.0 : -1.0;
-				float side = probe_mean > state.y * DDGI_CHANGE_MARGIN ? 1.0 : (probe_mean < state.y / DDGI_CHANGE_MARGIN ? -1.0 : 0.0);
-				float average = state.w;
-				state.z = state.x > 0.0 ? mix(side, state.z, 0.8) : 0.0;
-				state.y = state.x > 0.0 ? (direction > 0.0 ? state.y + 0.01 * max(average, 1e-3) : state.y * 0.99) : probe_mean;
-				state.w = state.x > 0.0 ? mix(probe_mean, average, 0.97) : probe_mean;
-				float keep = ddgi_data.ddgi_cascade_update[c].x;
-				keep = mix(keep, pow(keep, ddgi_data.ddgi_change_power), clamp((change - 0.6) / 0.3, 0.0, 1.0));
-				if (ddgi_data.ddgi_cascade_update[c].y > 0.0) keep = min(keep, 0.4);
-				keep = min(keep, state.x / (state.x + 1.0));
-				state.x = min(state.x + 1.0, 1024.0);
-				memoryBarrierImage();
 				barrier();
-
-				if (local == ivec2(0)) imageStore(state_atlas, tile, state);
-
-				imageStore(atlas, texel, mix(result, imageLoad(atlas, texel), keep));
+				imageStore(atlas, texel, mix(result, imageLoad(atlas, texel), s_keep));
 			}
 		]],
 	}
