@@ -233,6 +233,7 @@ local light_radius = pvars.Setup2{
 ddgi.DISTANCE_EXPONENT = 50.0
 ddgi.NORMAL_BIAS = 0.1
 ddgi.VIEW_BIAS = 0.3
+ddgi.BIAS_MAX_SPACING = 1
 ddgi.BACKFACE_THRESHOLD = 0.25
 local relocation = pvars.Setup2{
 	key = "ddgi_relocation",
@@ -1392,7 +1393,7 @@ function ddgi.GetCommonGLSL()
 			if (ddgi_cascade_reset(c)) return vec4(0.0);
 
 			float spacing = ddgi_spacing(c);
-			vec3 biased = P + (N * ddgi_data.ddgi_normal_bias + V * ddgi_data.ddgi_view_bias) * spacing;
+			vec3 biased = P + (N * ddgi_data.ddgi_normal_bias + V * ddgi_data.ddgi_view_bias) * min(spacing, ]] .. string.format("%.17g", ddgi.BIAS_MAX_SPACING) .. [[);
 			vec3 grid = biased / spacing;
 			int side = smooth_blend ? 3 : 2;
 			ivec3 base_world = smooth_blend ? ivec3(floor(grid + 0.5)) - 1 : ivec3(floor(grid));
