@@ -219,6 +219,8 @@ function META:GetSupportFootprintMetrics(body, ground_normal)
 		axis = get_capsule_axis_world(body),
 		tolerance = get_ground_support_tolerance(body, radius),
 	}
+	-- escaping keeps the allocation from being sunk: its fields would all become inputs of every side trace
+	self.last_support_metrics = metrics
 
 	do
 		local axis = metrics.axis
