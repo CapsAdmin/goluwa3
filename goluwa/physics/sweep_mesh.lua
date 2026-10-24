@@ -903,7 +903,8 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 	local face_normal = nil
 
 	if not is_degenerate then
-		face_normal = Vec3(nx, ny, nz) * (1 / math.sqrt(normal_len_sq))
+		local inverse_length = 1 / math.sqrt(normal_len_sq)
+		face_normal = Vec3(nx * inverse_length, ny * inverse_length, nz * inverse_length)
 	end
 
 	local hit_radius_sq = (invariants.radius + epsilon) * (invariants.radius + epsilon)
