@@ -373,6 +373,24 @@ function META:SweepHull(direction, length)
 	)
 end
 
+function META:CanStand()
+	local body = self.Owner.rigid_body
+	local _, current_height = self:GetDimensions()
+	local extra = self.Height - current_height
+
+	if extra <= 0.001 then return true end
+
+	STEP_OPTIONS.Rotation = body:GetRotation()
+	return not body:GetPhysics().SweepCollider(
+		body:GetColliders()[1],
+		body:GetPosition(),
+		Vec3(0, extra, 0),
+		self.Owner,
+		body:GetFilterFunction(),
+		STEP_OPTIONS
+	)
+end
+
 function META:FindGround(reach)
 	local body = self.Owner.rigid_body
 	local physics = body:GetPhysics()
@@ -621,6 +639,17 @@ do
 		local view = cmd.view
 		local active = usercmd.HasButton(cmd, BUTTON.ACTIVE)
 		local crouching = usercmd.HasButton(cmd, BUTTON.CROUCH)
+
+		if
+			self.mode == "walk" and
+			not self.Swimming and
+			not crouching and
+			self:IsCrouching() and
+			not self:CanStand()
+		then
+			crouching = true
+		end
+
 		local sprinting = usercmd.HasButton(cmd, BUTTON.SPRINT)
 		local speed_multiplier = 1
 

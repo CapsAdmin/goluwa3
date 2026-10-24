@@ -199,6 +199,54 @@ T.TestPhysics("player origin is at the feet and the eye is above it", function()
 	ground:Remove()
 end)
 
+T.TestPhysics("player cannot stand up under a ceiling lower than its height", function()
+	local ground = create_ground()
+	local player = create_player()
+	local movement = player.character_movement
+	drive(player, 120)
+
+	drive(player, 30, function(cmd)
+		cmd.buttons = bit.bor(cmd.buttons, BUTTON.CROUCH)
+	end)
+
+	T(movement:IsCrouching())["=="](true)
+	local ceiling = Entity.New{
+		transform = {Position = Vec3(0, 1.0 + 0.5, 0), Scale = Vec3(10, 1, 10)},
+		rigid_body = {MotionType = "static", Shape = BoxShape.New(Vec3(1, 1, 1))},
+	}
+	drive(player, 40)
+	T(movement:IsCrouching())["=="](true)
+	T(math.abs(movement:GetViewOffset().y - 0.5334))["<"](0.001)
+	T(player.rigid_body:GetPosition().y + 0.3429)["<"](1.0)
+	ceiling:Remove()
+	drive(player, 40)
+	T(movement:IsCrouching())["=="](false)
+	T(math.abs(movement:GetViewOffset().y - 1.2192))["<"](0.001)
+	player:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("player stands up under a ceiling that leaves room", function()
+	local ground = create_ground()
+	local player = create_player()
+	local movement = player.character_movement
+	drive(player, 120)
+
+	drive(player, 30, function(cmd)
+		cmd.buttons = bit.bor(cmd.buttons, BUTTON.CROUCH)
+	end)
+
+	local ceiling = Entity.New{
+		transform = {Position = Vec3(0, 1.6 + 0.5, 0), Scale = Vec3(10, 1, 10)},
+		rigid_body = {MotionType = "static", Shape = BoxShape.New(Vec3(1, 1, 1))},
+	}
+	drive(player, 40)
+	T(movement:IsCrouching())["=="](false)
+	player:Remove()
+	ceiling:Remove()
+	ground:Remove()
+end)
+
 T.TestPhysics("a body with a center offset keeps its entity origin and stays stable", function()
 	local entity = Entity.New{
 		transform = {Position = Vec3(1, 2, 3)},
@@ -327,7 +375,13 @@ end)
 T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies from commands", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "weapon_holder"},
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"weapon_holder",
+		},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
@@ -397,7 +451,13 @@ end)
 T.TestPhysics("player physgun releases when the primary button is released", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "weapon_holder"},
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"weapon_holder",
+		},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
@@ -434,7 +494,13 @@ end)
 T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodies", function()
 	local ground = create_ground()
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "weapon_holder"},
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"weapon_holder",
+		},
 		transform = {Position = Vec3(0, 3, 0)},
 		player_controller = {Source = "queue"},
 	}
