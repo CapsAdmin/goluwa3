@@ -337,6 +337,8 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 end
 
 local rebuild_manifold
+-- a builtin LuaJIT cannot record ends the trace so the rebuild's side traces do not inherit the cluster loop locals
+local trace_break = coroutine.running
 
 local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts, options, solver)
 	manifold.last_seen_step = solver.StepStamp
@@ -353,6 +355,7 @@ local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts
 end
 
 function rebuild_manifold(manifold, normal, overlap, contacts, solver)
+	trace_break()
 	manifolds.RebuildContacts(manifold.solve_a, manifold.solve_b, manifold, contacts)
 	local deepest = -math.huge
 	local normal_x, normal_y, normal_z = normal.x, normal.y, normal.z

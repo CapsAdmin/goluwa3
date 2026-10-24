@@ -14,6 +14,8 @@ META.Base = BaseShape
 META:GetSet("Radius", 0.5)
 META:GetSet("Height", 2)
 local EPSILON = physics_constants.EPSILON
+-- a builtin LuaJIT cannot record ends the trace so the toppling block does not inherit the grounded velocity locals
+local trace_break = coroutine.running
 local CAPSULE_CAPSULE_SWEEP_CONTEXT = {
 	start_a = nil,
 	start_b = nil,
@@ -659,6 +661,7 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	end
 
 	if toppling_support and flat_ground and tangent_speed <= 0.9 then
+		trace_break()
 		local overhang = support.overhang
 		local overhang_length = support.overhang_length or 0
 
@@ -668,7 +671,6 @@ function META:OnGroundedVelocityUpdate(body, dt)
 			local tz = ground_normal.x * overhang.y - ground_normal.y * overhang.x
 
 			if math.sqrt(tx * tx + ty * ty + tz * tz) > EPSILON then
-
 				do
 					local inverse_length = 1 / math.sqrt(tx * tx + ty * ty + tz * tz)
 					tx, ty, tz = tx * inverse_length, ty * inverse_length, tz * inverse_length
