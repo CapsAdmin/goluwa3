@@ -49,6 +49,10 @@ end
 local function cache_shadow_material_texture_indices(self, material, pipeline)
 	if not material or not pipeline then return nil end
 
+	local albedo_texture = material:GetAlbedoTexture()
+	local albedo_view = albedo_texture and albedo_texture:GetView() or nil
+	local normal_texture = material:GetNormalTexture()
+	local normal_view = normal_texture and normal_texture:GetView() or nil
 	local cache = get_shadow_material_texture_cache(self)
 	local material_cache = cache[material]
 
@@ -58,10 +62,6 @@ local function cache_shadow_material_texture_indices(self, material, pipeline)
 	end
 
 	local entry = material_cache[pipeline]
-	local albedo_texture = material:GetAlbedoTexture()
-	local albedo_view = albedo_texture and albedo_texture:GetView() or nil
-	local normal_texture = material:GetNormalTexture()
-	local normal_view = normal_texture and normal_texture:GetView() or nil
 
 	if
 		not entry or
