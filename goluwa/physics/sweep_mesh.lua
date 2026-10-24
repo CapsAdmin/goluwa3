@@ -782,9 +782,6 @@ local function get_capsule_triangle_separation_sq(invariants, t, v0, v1, v2, fac
 	return result.segment_point, result.position, distance * distance, result.normal
 end
 
-local CAPSULE_EVAL_A = Vec3()
-local CAPSULE_EVAL_B = Vec3()
-
 local function eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face_normal)
 	local movement = invariants.movement
 	local dx = movement.x * t
@@ -792,9 +789,19 @@ local function eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face
 	local dz = movement.z * t
 	local segment_a = invariants.segment_a
 	local segment_b = invariants.segment_b
-	CAPSULE_EVAL_A.x, CAPSULE_EVAL_A.y, CAPSULE_EVAL_A.z = segment_a.x + dx, segment_a.y + dy, segment_a.z + dz
-	CAPSULE_EVAL_B.x, CAPSULE_EVAL_B.y, CAPSULE_EVAL_B.z = segment_b.x + dx, segment_b.y + dy, segment_b.z + dz
-	local distance_sq, sx, sy, sz, qx, qy, qz = triangle_scalar.SegmentToTriangleSq(CAPSULE_EVAL_A, CAPSULE_EVAL_B, v0, v1, v2, face_normal, EPSILON)
+	local distance_sq, sx, sy, sz, qx, qy, qz = triangle_scalar.SegmentToTriangleSq(
+		segment_a.x + dx,
+		segment_a.y + dy,
+		segment_a.z + dz,
+		segment_b.x + dx,
+		segment_b.y + dy,
+		segment_b.z + dz,
+		v0,
+		v1,
+		v2,
+		face_normal,
+		EPSILON
+	)
 
 	if distance_sq then return distance_sq, sx, sy, sz, qx, qy, qz end
 
@@ -1172,7 +1179,19 @@ do
 			face_normal.x, face_normal.y, face_normal.z = nx * inverse_length, ny * inverse_length, nz * inverse_length
 		end
 
-		local reject_sq = segment_triangle_sq(start_position, end_position, v0, v1, v2, face_normal, epsilon)
+		local reject_sq = segment_triangle_sq(
+			start_position.x,
+			start_position.y,
+			start_position.z,
+			end_position.x,
+			end_position.y,
+			end_position.z,
+			v0,
+			v1,
+			v2,
+			face_normal,
+			epsilon
+		)
 
 		if reject_sq and reject_sq > reach * reach then return nil end
 
@@ -1182,7 +1201,6 @@ end
 
 local point_triangle_sq = triangle_scalar.PointToTriangleSq
 local BISECT_FRACTION_TOLERANCE = 1e-6
-local BISECT_POINT = Vec3()
 
 function sweep_sphere_against_triangle_slow(start_position, movement, radius, v0, v1, v2, max_fraction, epsilon, end_position)
 	local start_closest, start_distance, start_normal = get_point_triangle_separation(start_position, v0, v1, v2, movement)
@@ -1243,10 +1261,14 @@ function sweep_sphere_against_triangle_slow(start_position, movement, radius, v0
 		if hi - lo <= width_limit then break end
 
 		local mid = (lo + hi) * 0.5
-		BISECT_POINT.x, BISECT_POINT.y, BISECT_POINT.z = start_position.x + movement.x * mid,
-		start_position.y + movement.y * mid,
-		start_position.z + movement.z * mid
-		local distance_sq = point_triangle_sq(BISECT_POINT, v0, v1, v2)
+		local distance_sq = point_triangle_sq(
+			start_position.x + movement.x * mid,
+			start_position.y + movement.y * mid,
+			start_position.z + movement.z * mid,
+			v0,
+			v1,
+			v2
+		)
 
 		if distance_sq <= reach_sq then hi = mid else lo = mid end
 	end

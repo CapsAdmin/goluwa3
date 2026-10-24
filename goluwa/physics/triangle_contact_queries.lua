@@ -5,7 +5,6 @@ local triangle_scalar = import("goluwa/physics/triangle_scalar.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local triangle_contact_queries = {}
 local SCRATCH_FACE_NORMAL = Vec3()
-local SCRATCH_MID_POINT = Vec3()
 local polyhedron_triangle_contacts = nil
 
 function triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon)
@@ -202,7 +201,19 @@ function triangle_contact_queries.BuildCapsuleTrianglePairWithin(
 		face_normal = SCRATCH_FACE_NORMAL
 	end
 
-	local distance_squared, sx, sy, sz, tx, ty, tz = triangle_scalar.SegmentToTriangleSq(start_point, end_point, v0, v1, v2, face_normal, epsilon)
+	local distance_squared, sx, sy, sz, tx, ty, tz = triangle_scalar.SegmentToTriangleSq(
+		start_point.x,
+		start_point.y,
+		start_point.z,
+		end_point.x,
+		end_point.y,
+		end_point.z,
+		v0,
+		v1,
+		v2,
+		face_normal,
+		epsilon
+	)
 	local distance = math.sqrt(distance_squared)
 
 	if distance > max_distance then return nil end
@@ -211,8 +222,7 @@ function triangle_contact_queries.BuildCapsuleTrianglePairWithin(
 		local mx = (start_point.x + end_point.x) * 0.5
 		local my = (start_point.y + end_point.y) * 0.5
 		local mz = (start_point.z + end_point.z) * 0.5
-		SCRATCH_MID_POINT.x, SCRATCH_MID_POINT.y, SCRATCH_MID_POINT.z = mx, my, mz
-		local mid_squared, qx, qy, qz = triangle_scalar.PointToTriangleSq(SCRATCH_MID_POINT, v0, v1, v2)
+		local mid_squared, qx, qy, qz = triangle_scalar.PointToTriangleSq(mx, my, mz, v0, v1, v2)
 		local mid_distance = math.sqrt(mid_squared)
 
 		if mid_distance <= distance + PARALLEL_CONTACT_TOLERANCE then
