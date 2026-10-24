@@ -693,3 +693,47 @@ T.TestPhysics("Capsule held on a world geometry slope stays put when GroundedSet
 	T(drift[true])[">"](0.05)
 	T(drift[false])["<"](0.01)
 end)
+
+T.TestPhysics("Capsule resting on a descending kinematic platform stays in contact with it", function()
+	local platform = Entity.New({Name = "descending_platform"})
+	platform:AddComponent("transform")
+	platform.transform:SetPosition(Vec3(0, 10, 0))
+	platform:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(6, 0.4, 6)),
+			MotionType = "kinematic",
+			Friction = 1,
+		}
+	)
+	local ent = Entity.New({Name = "platform_rider"})
+	ent:AddComponent("transform")
+	ent.transform:SetPosition(Vec3(0, 10.2 + 0.72, 0))
+	local body = ent:AddComponent(
+		"rigid_body",
+		{
+			Shape = CapsuleShape.New(0.3, 1.4),
+			LockRotation = true,
+			GroundedSettling = false,
+			CanSleep = false,
+			Friction = 0,
+		}
+	)
+	local top = 10.2
+	local widest = 0
+
+	for step = 1, 240 do
+		if step > 60 then top = top - 1.2 / 60 end
+
+		platform.transform:SetPosition(Vec3(0, top - 0.2, 0))
+		physics.Update(1 / 60)
+
+		if step > 80 then
+			widest = math.max(widest, body:GetPosition().y - 0.7 - top)
+		end
+	end
+
+	ent:Remove()
+	platform:Remove()
+	T(widest)["<"](0.06)
+end)

@@ -1448,6 +1448,10 @@ function RigidBody:UpdateVelocities(dt)
 
 		local normal_speed = self.Velocity:Dot(self.GroundNormal)
 
+		if ground_body then
+			normal_speed = normal_speed - ground_body.Velocity:Dot(self.GroundNormal)
+		end
+
 		if use_grounded_velocity_constraints and normal_speed < 0 then
 			self.Velocity:AddScaled(self.GroundNormal, -normal_speed)
 		end
