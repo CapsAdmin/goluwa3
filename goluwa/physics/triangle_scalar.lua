@@ -119,20 +119,18 @@ do
 	end
 
 	local function segment_segment_sq(ax, ay, az, bx, by, bz, c, d)
-		local ux = bx - ax
-		local uy = by - ay
-		local uz = bz - az
-		local wx = d.x - c.x
-		local wy = d.y - c.y
-		local wz = d.z - c.z
-		local vx = c.x - ax
-		local vy = c.y - ay
-		local vz = c.z - az
-		local acoef = ux * ux + uy * uy + uz * uz
-		local bcoef = ux * vx + uy * vy + uz * vz
-		local dcoef = ux * wx + uy * wy + uz * wz
-		local ecoef = wx * wx + wy * wy + wz * wz
-		local fcoef = wx * vx + wy * vy + wz * vz
+		local acoef, bcoef, dcoef, ecoef, fcoef
+
+		do
+			local ux, uy, uz = bx - ax, by - ay, bz - az
+			local wx, wy, wz = d.x - c.x, d.y - c.y, d.z - c.z
+			local vx, vy, vz = c.x - ax, c.y - ay, c.z - az
+			acoef = ux * ux + uy * uy + uz * uz
+			bcoef = ux * vx + uy * vy + uz * vz
+			dcoef = ux * wx + uy * wy + uz * wz
+			ecoef = wx * wx + wy * wy + wz * wz
+			fcoef = wx * vx + wy * vy + wz * vz
+		end
 
 		if acoef <= 1e-12 then
 			local sq, qx, qy, qz = point_to_segment_sq(ax, ay, az, c.x, c.y, c.z, d.x, d.y, d.z)
@@ -156,16 +154,31 @@ do
 		local s = math_min(math_max((bcoef * ecoef - dcoef * fcoef) / (acoef * ecoef - dcoef * dcoef), 0), 1)
 		local t = math_min(math_max((s * dcoef - fcoef) / ecoef, 0), 1)
 		s = math_min(math_max((t * dcoef + bcoef) / acoef, 0), 1)
-		local p1x = ax + ux * s
-		local p1y = ay + uy * s
-		local p1z = az + uz * s
-		local p2x = c.x + wx * t
-		local p2y = c.y + wy * t
-		local p2z = c.z + wz * t
-		local pxd = p1x - p2x
-		local pyd = p1y - p2y
-		local pzdz = p1z - p2z
-		return pxd * pxd + pyd * pyd + pzdz * pzdz, p1x, p1y, p1z, p2x, p2y, p2z
+		local p1x = ax + (bx - ax) * s
+		local p1y = ay + (by - ay) * s
+		local p1z = az + (bz - az) * s
+		local p2x = c.x + (d.x - c.x) * t
+		local p2y = c.y + (d.y - c.y) * t
+		local p2z = c.z + (d.z - c.z) * t
+		return (p1x - p2x) * (p1x - p2x) + (p1y - p2y) * (p1y - p2y) + (p1z - p2z) * (p1z - p2z),
+		p1x,
+		p1y,
+		p1z,
+		p2x,
+		p2y,
+		p2z
+	end
+
+	local function edge_side(px, py, pz, from, to, normal)
+		local pax, pay, paz = px - from.x, py - from.y, pz - from.z
+		local ex, ey, ez = to.x - from.x, to.y - from.y, to.z - from.z
+		return (
+				ey * paz - ez * pay
+			) * normal.x + (
+				ez * pax - ex * paz
+			) * normal.y + (
+				ex * pay - ey * pax
+			) * normal.z
 	end
 
 	function triangle_scalar.SegmentToTriangleSq(ax, ay, az, bx, by, bz, v0, v1, v2, face_normal, epsilon)
@@ -195,70 +208,26 @@ do
 					local px = ax + (bx - ax) * t
 					local py = ay + (by - ay) * t
 					local pz = az + (bz - az) * t
-					local pax = px - v0.x
-					local pay = py - v0.y
-					local paz = pz - v0.z
-					local ex = v1.x - v0.x
-					local ey = v1.y - v0.y
-					local ez = v1.z - v0.z
 
 					if
-						(
-							ey * paz - ez * pay
-						) * face_normal.x + (
-							ez * pax - ex * paz
-						) * face_normal.y + (
-							ex * pay - ey * pax
-						) * face_normal.z >= -epsilon
+						edge_side(px, py, pz, v0, v1, face_normal) >= -epsilon and
+						edge_side(px, py, pz, v1, v2, face_normal) >= -epsilon and
+						edge_side(px, py, pz, v2, v0, face_normal) >= -epsilon
 					then
-						pax = px - v1.x
-						pay = py - v1.y
-						paz = pz - v1.z
-						ex = v2.x - v1.x
-						ey = v2.y - v1.y
-						ez = v2.z - v1.z
-
-						if
-							(
-								ey * paz - ez * pay
+						local signed = (
+								ax - v0.x
 							) * face_normal.x + (
-								ez * pax - ex * paz
+								ay - v0.y
 							) * face_normal.y + (
-								ex * pay - ey * pax
-							) * face_normal.z >= -epsilon
-						then
-							pax = px - v2.x
-							pay = py - v2.y
-							paz = pz - v2.z
-							ex = v0.x - v2.x
-							ey = v0.y - v2.y
-							ez = v0.z - v2.z
-
-							if
-								(
-									ey * paz - ez * pay
-								) * face_normal.x + (
-									ez * pax - ex * paz
-								) * face_normal.y + (
-									ex * pay - ey * pax
-								) * face_normal.z >= -epsilon
-							then
-								local signed = (
-										ax - v0.x
-									) * face_normal.x + (
-										ay - v0.y
-									) * face_normal.y + (
-										az - v0.z
-									) * face_normal.z + den * t
-								return signed * signed,
-								px,
-								py,
-								pz,
-								px - face_normal.x * signed,
-								py - face_normal.y * signed,
-								pz - face_normal.z * signed
-							end
-						end
+								az - v0.z
+							) * face_normal.z + den * t
+						return signed * signed,
+						px,
+						py,
+						pz,
+						px - face_normal.x * signed,
+						py - face_normal.y * signed,
+						pz - face_normal.z * signed
 					end
 				end
 			end
