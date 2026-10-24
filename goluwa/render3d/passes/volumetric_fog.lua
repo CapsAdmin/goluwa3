@@ -251,8 +251,9 @@ local scatter_pass = {
 			return h.x ^ h.y ^ h.z;
 		}
 
-		vec3 get_ambient(vec3 P, vec2 uv, vec3 ray_origin, uint seed, out float open_sky, out vec3 probe_ambient) {
-			vec3 sky = get_ground_fog_sky_ambient(ray_origin);
+		shared vec3 shared_sky_ambient;
+
+		vec3 get_ambient(vec3 P, vec2 uv, vec3 sky, uint seed, out float open_sky, out vec3 probe_ambient) {
 			open_sky = 1.0;
 			probe_ambient = sky;
 
@@ -285,6 +286,10 @@ local scatter_pass = {
 		void main() {
 			ivec3 id = ivec3(gl_GlobalInvocationID);
 
+			if (gl_LocalInvocationIndex == 0u) shared_sky_ambient = get_ground_fog_sky_ambient(get_atmosphere_camera_origin(froxel_data.camera_position.xyz));
+
+			barrier();
+
 			if (any(greaterThanEqual(id.xy, ivec2(froxel_data.froxel_size)))) return;
 
 			if (ATMOSPHERE_ENABLED == 0 || froxel_is_hidden(id, texelFetch(tile_depth, id.xy, 0).r)) {
@@ -303,7 +308,6 @@ local scatter_pass = {
 			if (air_pos.y < world_pos.y) air_pos = world_pos;
 			vec3 ray_dir = normalize(mat3(froxel_data.inv_view) * view_dir);
 			vec3 sun_dir = get_current_primary_sun_direction();
-			vec3 fog_origin = get_atmosphere_camera_origin(froxel_data.camera_position.xyz);
 			vec3 fog_point = get_atmosphere_camera_origin(air_pos);
 			float per_meter = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
 			float fog_extinction = ground_fog_extinction(fog_point) * per_meter;
@@ -315,7 +319,7 @@ local scatter_pass = {
 			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * sun_visibility;
 			float open_sky;
 			vec3 probe_ambient;
-			vec3 ambient = get_ambient(world_pos, uv, fog_origin, froxel_hash(uvec3(seed, id.z, 7u)), open_sky, probe_ambient);
+			vec3 ambient = get_ambient(world_pos, uv, shared_sky_ambient, froxel_hash(uvec3(seed, id.z, 7u)), open_sky, probe_ambient);
 			vec3 scattering = get_ground_fog_in_scatter(fog_point, ray_dir, sun_dir, sun_visibility, ambient) * per_meter;
 			scattering += sun * (RAYLEIGH_BETA * (density_r * phase_rayleigh(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
 			vec3 air_up = fog_point / length(fog_point);
