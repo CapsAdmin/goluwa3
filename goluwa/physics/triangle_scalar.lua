@@ -4,6 +4,7 @@ local math_max = math.max
 local trace_break = jit.status
 local triangle_scalar = {}
 local best = {0, 0, 0, 0, 0, 0, 0}
+local region = {0, 0, 0, 0, 0, 0}
 local seg = {0, 0, 0, 0, 0, 0}
 
 function triangle_scalar.TriangleNormalRaw(v0, v1, v2)
@@ -20,8 +21,6 @@ function triangle_scalar.TriangleNormalRaw(v0, v1, v2)
 end
 
 function triangle_scalar.PointToTriangleSq(px, py, pz, a, b, c)
-	local d1, d2, d3, d4, d5, d6
-
 	do
 		local abx = b.x - a.x
 		local aby = b.y - a.y
@@ -32,30 +31,32 @@ function triangle_scalar.PointToTriangleSq(px, py, pz, a, b, c)
 		local apx = px - a.x
 		local apy = py - a.y
 		local apz = pz - a.z
-		d1 = abx * apx + aby * apy + abz * apz
-		d2 = acx * apx + acy * apy + acz * apz
+		local d1 = abx * apx + aby * apy + abz * apz
+		local d2 = acx * apx + acy * apy + acz * apz
 		local abac = abx * acx + aby * acy + abz * acz
-		d3 = d1 - (abx * abx + aby * aby + abz * abz)
-		d4 = d2 - abac
-		d5 = d1 - abac
-		d6 = d2 - (acx * acx + acy * acy + acz * acz)
+		region[1] = d1
+		region[2] = d2
+		region[3] = d1 - (abx * abx + aby * aby + abz * abz)
+		region[4] = d2 - abac
+		region[5] = d1 - abac
+		region[6] = d2 - (acx * acx + acy * acy + acz * acz)
 	end
 
-	if d1 <= 0 and d2 <= 0 then
+	if region[1] <= 0 and region[2] <= 0 then
 		local apx = px - a.x
 		local apy = py - a.y
 		local apz = pz - a.z
 		return apx * apx + apy * apy + apz * apz, a.x, a.y, a.z
 	end
 
-	if d3 >= 0 and d4 <= d3 then
+	if region[3] >= 0 and region[4] <= region[3] then
 		local bpx = px - b.x
 		local bpy = py - b.y
 		local bpz = pz - b.z
 		return bpx * bpx + bpy * bpy + bpz * bpz, b.x, b.y, b.z
 	end
 
-	if d6 >= 0 and d5 <= d6 then
+	if region[6] >= 0 and region[5] <= region[6] then
 		local cpx = px - c.x
 		local cpy = py - c.y
 		local cpz = pz - c.z
@@ -63,24 +64,33 @@ function triangle_scalar.PointToTriangleSq(px, py, pz, a, b, c)
 	end
 
 	local qx, qy, qz
-	local vc = d1 * d4 - d3 * d2
-	local vb = d5 * d2 - d1 * d6
-	local va = d3 * d6 - d5 * d4
 
-	if vc <= 0 and d1 >= 0 and d3 <= 0 then
-		local v = d1 / (d1 - d3)
-		qx, qy, qz = a.x + (b.x - a.x) * v, a.y + (b.y - a.y) * v, a.z + (b.z - a.z) * v
-	elseif vb <= 0 and d2 >= 0 and d6 <= 0 then
-		local w = d2 / (d2 - d6)
-		qx, qy, qz = a.x + (c.x - a.x) * w, a.y + (c.y - a.y) * w, a.z + (c.z - a.z) * w
-	elseif va <= 0 and d4 - d3 >= 0 and d5 - d6 >= 0 then
-		local w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-		qx, qy, qz = b.x + (c.x - b.x) * w, b.y + (c.y - b.y) * w, b.z + (c.z - b.z) * w
-	else
-		local denom = va + vb + vc
-		qx, qy, qz = a.x + (vb * (b.x - a.x) + vc * (c.x - a.x)) / denom,
-		a.y + (vb * (b.y - a.y) + vc * (c.y - a.y)) / denom,
-		a.z + (vb * (b.z - a.z) + vc * (c.z - a.z)) / denom
+	do
+		local vc = region[1] * region[4] - region[3] * region[2]
+
+		if vc <= 0 and region[1] >= 0 and region[3] <= 0 then
+			local v = region[1] / (region[1] - region[3])
+			qx, qy, qz = a.x + (b.x - a.x) * v, a.y + (b.y - a.y) * v, a.z + (b.z - a.z) * v
+		else
+			local vb = region[5] * region[2] - region[1] * region[6]
+
+			if vb <= 0 and region[2] >= 0 and region[6] <= 0 then
+				local w = region[2] / (region[2] - region[6])
+				qx, qy, qz = a.x + (c.x - a.x) * w, a.y + (c.y - a.y) * w, a.z + (c.z - a.z) * w
+			else
+				local va = region[3] * region[6] - region[5] * region[4]
+
+				if va <= 0 and region[4] - region[3] >= 0 and region[5] - region[6] >= 0 then
+					local w = (region[4] - region[3]) / ((region[4] - region[3]) + (region[5] - region[6]))
+					qx, qy, qz = b.x + (c.x - b.x) * w, b.y + (c.y - b.y) * w, b.z + (c.z - b.z) * w
+				else
+					local denom = va + vb + vc
+					qx, qy, qz = a.x + (vb * (b.x - a.x) + vc * (c.x - a.x)) / denom,
+					a.y + (vb * (b.y - a.y) + vc * (c.y - a.y)) / denom,
+					a.z + (vb * (b.z - a.z) + vc * (c.z - a.z)) / denom
+				end
+			end
+		end
 	end
 
 	local ddx = px - qx
