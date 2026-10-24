@@ -564,16 +564,20 @@ local temporal_pass = {
 			vec4 blurred = current;
 			float blurred_weight = 1.0;
 
-			for (int i = 1; i <= SUN_BLUR_SAMPLES; i++) {
-				for (int side = -1; side <= 1; side += 2) {
-					vec4 line_clip = froxel_data.projection * froxel_data.view * vec4(center + sun_step * float(i * side), 1.0);
-					vec3 line_coord = vec3(line_clip.xy / line_clip.w * 0.5 + 0.5, froxel_slice_coord(line_clip.w) / FROXEL_SLICES);
+			if (line_fade > 0.0) {
+				mat4 view_projection = froxel_data.projection * froxel_data.view;
 
-					if (line_clip.w > 0.0 && all(greaterThanEqual(line_coord, vec3(0.0))) && all(lessThanEqual(line_coord, vec3(1.0)))) {
-						vec4 v = textureLod(raw_scatter, line_coord, 0.0);
-						float weight = line_fade * v.a * exp(-0.5 * float(i * i) / float(SUN_BLUR_SAMPLES * SUN_BLUR_SAMPLES) * 4.0);
-						blurred += v * weight;
-						blurred_weight += weight;
+				for (int i = 1; i <= SUN_BLUR_SAMPLES; i++) {
+					for (int side = -1; side <= 1; side += 2) {
+						vec4 line_clip = view_projection * vec4(center + sun_step * float(i * side), 1.0);
+						vec3 line_coord = vec3(line_clip.xy / line_clip.w * 0.5 + 0.5, froxel_slice_coord(line_clip.w) / FROXEL_SLICES);
+
+						if (line_clip.w > 0.0 && all(greaterThanEqual(line_coord, vec3(0.0))) && all(lessThanEqual(line_coord, vec3(1.0)))) {
+							vec4 v = textureLod(raw_scatter, line_coord, 0.0);
+							float weight = line_fade * v.a * exp(-0.5 * float(i * i) / float(SUN_BLUR_SAMPLES * SUN_BLUR_SAMPLES) * 4.0);
+							blurred += v * weight;
+							blurred_weight += weight;
+						}
 					}
 				}
 			}
