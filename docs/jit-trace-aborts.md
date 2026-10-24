@@ -15,6 +15,9 @@ What counts as live at an exit:
 Fixes, in order of preference:
 
 - Move computation into a module-level local function that returns only what the caller still needs. The callee's temporaries die at return. Keep the callee branch-free so it has no exits of its own. This is the one case where extracting a helper is right even though nothing else uses it: put it with its single caller in a `do ... end` block.
+- A tail call (`return f(...)`) replaces the caller's frame, so the caller's locals are not inherited by exits inside `f`. Chain stages of a long function with tail calls and pass only what the next stage needs.
+- A table that never leaves the trace is removed by allocation sinking and every one of its fields becomes a separate input of every side trace (the `pval:OP` entries). Storing it into a longer lived table (`self.last_result = t`) keeps the allocation, and its fields stay in memory.
+- Locals that stay in scope are inherited, but a value that is only read back from a table or a nil-ed local is not. Moving the long lived inputs of a multi step computation into a scratch table (and nil-ing the locals) keeps them out of the side traces of the steps.
 - Split a recursive function into a decision part (small frame) and the work part, so the recursive call holds few locals.
 - Call getters and other polymorphic calls before creating locals that are only needed later.
 - Read a table field from `self` where it is used instead of aliasing it in a local at the top of a long function, when the alias is only needed in one phase.
@@ -24,10 +27,18 @@ Fixes, in order of preference:
 
 ## Other reasons
 
+- Spill slots are allocated per spilled value and never reused inside a trace, so what counts is how many distinct numbers a trace ever spills, not how many are live at once. One inlined function with five long arithmetic tests can exceed it. Calling a builtin LuaJIT does not record (`jit.status()` is cheap and has no effects) ends the trace there and starts a new one after the call (trace stitching), so a long function can be cut into pieces that each fit. The locals live across the cut are written to and read from the Lua stack.
+- "Too many spill slots (...)" lists how many values were spilled (the limit is 256 slots, so 128 numbers), their types, the Lua lines nearest where they were defined (found through the nearest snapshot, so only approximate) and the IR ops that produced most of them. A trace with many guards keeps every in-scope local alive in its snapshots; large inlined bodies (several triangle tests, Vec3 copies) hit this limit.
 - "Closure creation (FNEW)" and "closing captured locals (UCLO)": a closure is created in hot code (the log gives the closure's first line and the captured local). Hoist it out of the loop. Both abort the trace.
 - "Loop unroll limit reached by tail calls", "too many spill slots", "NYI: return to lower frame", "root trace hit compiled inner loop (trace N)": the trace includes more than it should; the abort site and Lua location show which call chain. Long inlined chains and short inner loops that get unrolled into an outer trace are the usual cause.
 - "Too many exit stubs for N snapshots" is a hard assembler limit of 512 snapshots on x86-64 (32 stubs per group, 16 groups). `maxsnap` above 512 only makes such traces fail later, after full recording and assembly.
 - "Blacklisted": the function aborted repeatedly and is interpreted from then on. Fix the aborts that came before it.
+
+## Exits and what runs interpreted
+
+- The log counts exits that leave compiled code without a side trace (per trace and exit, with the Lua location and the guard that exits, e.g. `GE.NUM` a float comparison, `SLOAD.INT` a type guard). The reader prints them as "top exits out of compiled code", with how many side traces for that exit compiled or aborted.
+- Fewer exits is not the goal. Exits are short, and a restructuring that removes them can make a surrounding loop trace exceed the spill limit or get blacklisted, which leaves much more code interpreted. Judge a change by the interpreter share (`I`), the compiled share, and step time on a steady-state run (thousands of steps), together with the exit and abort counts; warm-up compile time dominates short runs.
+- `pval:OP` entries in a register failure are values of the parent trace that are not Lua locals (the fields of allocations the compiler removed, held in registers) and `OP` is the instruction that produced each. A table built in a hot path and returned or passed on is the usual source.
 
 ## Retries and compile time
 
