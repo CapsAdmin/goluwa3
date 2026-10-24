@@ -669,21 +669,14 @@ local function is_capsule_moving_away_from_triangle(invariants, v0, nx, ny, nz, 
 		) * nz
 	local movement_dot = invariants.movement.x * nx + invariants.movement.y * ny + invariants.movement.z * nz
 	local threshold = (invariants.radius * invariants.radius) * normal_len_sq
-	return (
-			d_a > 0 and
-			d_a * d_a > threshold and
-			d_b > 0 and
-			d_b * d_b > threshold and
-			movement_dot >= 0
-		)
-		or
-		(
-			d_a < 0 and
-			d_a * d_a > threshold and
-			d_b < 0 and
-			d_b * d_b > threshold and
-			movement_dot <= 0
-		)
+	local lowest = math_min(d_a, d_b)
+	local highest = math_max(d_a, d_b)
+	return lowest > 0 and
+		lowest * lowest > threshold and
+		movement_dot >= 0 or
+		highest < 0 and
+		highest * highest > threshold and
+		movement_dot <= 0
 end
 
 local function narrow_reach_interval(t_lo, t_hi, c0, e, v, smin, smax)
