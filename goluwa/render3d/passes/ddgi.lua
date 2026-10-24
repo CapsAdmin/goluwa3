@@ -620,10 +620,15 @@ local IRRADIANCE_INTEGRATE = {
 }
 local DISTANCE_INTEGRATE = {
 	atlas_format = {"r16g16_sfloat", "rg16f"},
+	declare = [[
+		float min_cos = exp2(-16.6 / ddgi_data.ddgi_distance_exponent);
+	]],
 	loop = [[
-		float w = pow(max(0.0, dot(texel_dir, s_dir[r])), ddgi_data.ddgi_distance_exponent) * s_q[r];
+		float cos_angle = dot(texel_dir, s_dir[r]);
 
-		if (w <= 0.0) continue;
+		if (cos_angle < min_cos) continue;
+
+		float w = pow(cos_angle, ddgi_data.ddgi_distance_exponent) * s_q[r];
 
 		float d = min(abs(ray.a), spacing * 2.6);
 		sum += vec4(d, d * d, 0.0, 0.0) * w;
