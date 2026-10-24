@@ -7,6 +7,8 @@ local motion = import("goluwa/physics/motion.lua")
 local stats = import("goluwa/physics/stats.lua")
 local contact_resolution = {}
 local Vec3 = import("goluwa/structs/vec3.lua")
+-- a builtin LuaJIT cannot record ends the trace so the side traces after it do not inherit the caller loop locals
+local trace_break = coroutine.running
 local EPSILON = physics_constants.EPSILON
 local TANGENT_VELOCITY = Vec3()
 local TANGENT = Vec3()
@@ -241,6 +243,7 @@ function contact_resolution.FinishManifold(solver, body_a, body_b, manifold)
 		return
 	end
 
+	trace_break()
 	local cs = manifold.cs
 	local count = manifold.n
 	local normal = manifold.normal
@@ -337,8 +340,6 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 end
 
 local rebuild_manifold
--- a builtin LuaJIT cannot record ends the trace so the rebuild's side traces do not inherit the cluster loop locals
-local trace_break = coroutine.running
 
 local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts, options, solver)
 	manifold.last_seen_step = solver.StepStamp
