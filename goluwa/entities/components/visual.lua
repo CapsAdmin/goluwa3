@@ -588,10 +588,10 @@ local function expand_point(matrix, target, x, y, z)
 	if transformed_z > target.max_z then target.max_z = transformed_z end
 end
 
-local function expand_aabb_with_transformed(source, matrix, target)
-	if not source then return end
+local expand_aabb_with_transformed
 
-	if matrix.m03 == 0 and matrix.m13 == 0 and matrix.m23 == 0 and matrix.m33 == 1 then
+do
+	local function affine_bounds(source, matrix)
 		local center_x = (source.min_x + source.max_x) * 0.5
 		local center_y = (source.min_y + source.max_y) * 0.5
 		local center_z = (source.min_z + source.max_z) * 0.5
@@ -602,36 +602,44 @@ local function expand_aabb_with_transformed(source, matrix, target)
 		local world_extent_x = math.abs(matrix.m00) * extent_x + math.abs(matrix.m10) * extent_y + math.abs(matrix.m20) * extent_z
 		local world_extent_y = math.abs(matrix.m01) * extent_x + math.abs(matrix.m11) * extent_y + math.abs(matrix.m21) * extent_z
 		local world_extent_z = math.abs(matrix.m02) * extent_x + math.abs(matrix.m12) * extent_y + math.abs(matrix.m22) * extent_z
-		local min_x = world_x - world_extent_x
-		local min_y = world_y - world_extent_y
-		local min_z = world_z - world_extent_z
-		local max_x = world_x + world_extent_x
-		local max_y = world_y + world_extent_y
-		local max_z = world_z + world_extent_z
-
-		if min_x < target.min_x then target.min_x = min_x end
-
-		if min_y < target.min_y then target.min_y = min_y end
-
-		if min_z < target.min_z then target.min_z = min_z end
-
-		if max_x > target.max_x then target.max_x = max_x end
-
-		if max_y > target.max_y then target.max_y = max_y end
-
-		if max_z > target.max_z then target.max_z = max_z end
-
-		return
+		return world_x - world_extent_x,
+		world_y - world_extent_y,
+		world_z - world_extent_z,
+		world_x + world_extent_x,
+		world_y + world_extent_y,
+		world_z + world_extent_z
 	end
 
-	expand_point(matrix, target, source.min_x, source.min_y, source.min_z)
-	expand_point(matrix, target, source.min_x, source.min_y, source.max_z)
-	expand_point(matrix, target, source.min_x, source.max_y, source.min_z)
-	expand_point(matrix, target, source.min_x, source.max_y, source.max_z)
-	expand_point(matrix, target, source.max_x, source.min_y, source.min_z)
-	expand_point(matrix, target, source.max_x, source.min_y, source.max_z)
-	expand_point(matrix, target, source.max_x, source.max_y, source.min_z)
-	expand_point(matrix, target, source.max_x, source.max_y, source.max_z)
+	function expand_aabb_with_transformed(source, matrix, target)
+		if not source then return end
+
+		if matrix.m03 == 0 and matrix.m13 == 0 and matrix.m23 == 0 and matrix.m33 == 1 then
+			local min_x, min_y, min_z, max_x, max_y, max_z = affine_bounds(source, matrix)
+
+			if min_x < target.min_x then target.min_x = min_x end
+
+			if min_y < target.min_y then target.min_y = min_y end
+
+			if min_z < target.min_z then target.min_z = min_z end
+
+			if max_x > target.max_x then target.max_x = max_x end
+
+			if max_y > target.max_y then target.max_y = max_y end
+
+			if max_z > target.max_z then target.max_z = max_z end
+
+			return
+		end
+
+		expand_point(matrix, target, source.min_x, source.min_y, source.min_z)
+		expand_point(matrix, target, source.min_x, source.min_y, source.max_z)
+		expand_point(matrix, target, source.min_x, source.max_y, source.min_z)
+		expand_point(matrix, target, source.min_x, source.max_y, source.max_z)
+		expand_point(matrix, target, source.max_x, source.min_y, source.min_z)
+		expand_point(matrix, target, source.max_x, source.min_y, source.max_z)
+		expand_point(matrix, target, source.max_x, source.max_y, source.min_z)
+		expand_point(matrix, target, source.max_x, source.max_y, source.max_z)
+	end
 end
 
 local function build_transformed_aabb(source, matrix)
