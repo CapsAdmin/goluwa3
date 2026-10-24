@@ -662,6 +662,12 @@ local function pass_probe_data()
 			},
 		},
 		uniform_buffers = {data_uniform()},
+		descriptor_sets = VISIBILITY_RAYS and SCENE_DESCRIPTOR or nil,
+		on_pre_draw = VISIBILITY_RAYS and
+			function(self, cmd, frame, desc)
+				self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, ddgi.GetFrameState().tlas)
+			end or
+			nil,
 		on_draw = function(self, cmd, fb, frame, desc)
 			self:UploadConstants()
 			self.pipeline:DispatchForSize(
@@ -673,10 +679,22 @@ local function pass_probe_data()
 				self.dynamic_offsets
 			)
 		end,
-		custom_declarations = [[
+		custom_declarations = SCENE_GLSL .. [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba32f) uniform image2D out_data;
 		]],
 		shader = common_glsl() .. [[
+			bool ddgi_relocation_clear(vec3 from, vec3 dir, float distance) {
+				#ifdef DDGI_VISIBILITY_RAYS
+				rayQueryEXT query;
+				rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, DDGI_VISIBILITY_MASK, from, 0.0, dir, distance);
+
+				while (rayQueryProceedEXT(query)) {}
+
+				return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+				#else
+				return false;
+				#endif
+			}
 			void main() {
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(out_data);
@@ -740,12 +758,17 @@ local function pass_probe_data()
 				vec3 previous_offset = offset;
 				vec3 moved = offset;
 
-				if (min_distance > 0.0 && disabled && (resting || short_back < backfaces * 0.8)) {
-					vec3 move_from = resting ? surface_side : closest_back_dir;
-					vec3 axis = abs(move_from);
-					vec3 move_dir = sign(move_from) * vec3(axis.x >= axis.y && axis.x >= axis.z, axis.y > axis.x && axis.y >= axis.z, axis.z > axis.x && axis.z > axis.y);
-					moved += move_dir * (closest_back + min_distance * 0.5);
+				bool inside = short_back < backfaces * 0.8;
+				vec3 move_from = inside ? closest_back_dir : surface_side;
+				vec3 axis = abs(move_from);
+				vec3 move_dir = sign(move_from) * vec3(axis.x >= axis.y && axis.x >= axis.z, axis.y > axis.x && axis.y >= axis.z, axis.z > axis.x && axis.z > axis.y);
+				float move_length = closest_back + min_distance * 0.5;
+
+				if (min_distance > 0.0 && disabled && !inside && resting) {
+					resting = ddgi_relocation_clear(vec3(world) * spacing + offset + move_dir * (DDGI_ORIGIN_PULL * spacing), move_dir, move_length + min_distance * 0.5);
 				}
+
+				if (min_distance > 0.0 && disabled && (inside || resting)) moved += move_dir * move_length;
 
 				if (min_distance <= 0.0) {
 					offset = vec3(0.0);
