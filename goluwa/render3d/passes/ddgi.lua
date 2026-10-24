@@ -39,6 +39,11 @@ local SCENE_GLSL = VISIBILITY_RAYS and
 ]] or
 	""
 
+local GUIDE_SHARED_GLSL = [[
+	shared vec4 s_guide[]] .. ddgi.GUIDE_TEXELS * ddgi.GUIDE_TEXELS .. [[];
+	#define DDGI_GUIDE_FETCH(texel) s_guide[((texel).y % DDGI_GUIDE_TEXELS) * DDGI_GUIDE_TEXELS + (texel).x % DDGI_GUIDE_TEXELS]
+]]
+
 local function data_uniform()
 	return {
 		name = "ddgi_data",
@@ -473,7 +478,7 @@ local function pass_update(name, texels, integrate)
 			)
 		end,
 		custom_declarations = declarations,
-		shader = common_glsl() .. [[
+		shader = GUIDE_SHARED_GLSL .. common_glsl() .. [[
 			#define TEXELS ]] .. texels .. [[
 
 			#define DDGI_CHANGE_MARGIN 1.15
@@ -497,6 +502,11 @@ local function pass_update(name, texels, integrate)
 
 				if (ddgi_probe_is_idle(slot, world, probe, c)) return;
 
+				for (int i = local.y * TEXELS + local.x; i < DDGI_GUIDE_CELLS; i += TEXELS * TEXELS) {
+					s_guide[i] = texelFetch(TEXTURE(ddgi_data.ddgi_guide_tex), ddgi_guide_texel(tile, i), 0);
+				}
+
+				barrier();
 				float spacing = ddgi_spacing(c);
 				bool guided = ddgi_guide_valid(tile, world, c);
 
@@ -739,7 +749,7 @@ local function pass_guide()
 		name = "ddgi_guide",
 		ComputePass = true,
 		ColorFormat = {{"r32g32b32a32_sfloat", {"ddgi_guide", "rgba"}}},
-		FramebufferSize = {x = P * P * 8, y = P * 8 * CASCADES},
+		FramebufferSize = {x = P * P * ddgi.GUIDE_TEXELS, y = P * ddgi.GUIDE_TEXELS * CASCADES},
 		framebuffer_count = 1,
 		LocalSize = {x = 8, y = 8, z = 1},
 		storage_images = {
@@ -754,7 +764,7 @@ local function pass_guide()
 			self.pipeline:DispatchForSize(
 				cmd,
 				fb.width,
-				P * 8 * ddgi.GetFrameState().cascade_count,
+				P * ddgi.GUIDE_TEXELS * ddgi.GetFrameState().cascade_count,
 				1,
 				desc,
 				self.dynamic_offsets
@@ -763,9 +773,7 @@ local function pass_guide()
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba32f) uniform image2D guide_atlas;
 		]],
-		shader = [[
-			#define DDGI_GUIDE_FETCH(texel) imageLoad(guide_atlas, texel)
-		]] .. common_glsl() .. [[
+		shader = GUIDE_SHARED_GLSL .. common_glsl() .. [[
 			shared vec4 s_ray[DDGI_RAYS];
 			shared vec3 s_dir[DDGI_RAYS];
 			shared float s_q[DDGI_RAYS];
@@ -786,10 +794,12 @@ local function pass_guide()
 
 				ivec3 slot = ddgi_slot_from_index(probe, c);
 				ivec3 world = ddgi_world_from_slot(slot, c);
-				bool guided = ddgi_guide_valid(tile, world, c);
-				bool has_history = guided && !ddgi_cascade_reset(c);
 				int cell = local.y * DDGI_GUIDE_TEXELS + local.x;
 				vec4 previous_texel = imageLoad(guide_atlas, tile * DDGI_GUIDE_TEXELS + local);
+				s_guide[cell] = previous_texel;
+				barrier();
+				bool guided = ddgi_guide_valid(tile, world, c);
+				bool has_history = guided && !ddgi_cascade_reset(c);
 				float previous = previous_texel.r;
 
 				for (int r = cell; r < DDGI_RAYS; r += DDGI_GUIDE_CELLS) {

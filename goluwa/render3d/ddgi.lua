@@ -184,6 +184,7 @@ local additive_emitters = pvars.Setup2{
 }
 ddgi.LIGHT_SAMPLES = 2
 ddgi.IRRADIANCE_TEXELS = 8
+ddgi.GUIDE_TEXELS = 8
 ddgi.DISTANCE_TEXELS = 16
 local hysteresis = pvars.Setup2{
 	key = "ddgi_hysteresis",
@@ -753,9 +754,7 @@ function ddgi.GetDefinesGLSL()
 end
 
 function ddgi.GetRayDirectionGLSL()
-	return glsl_common.GetOctahedralGLSL() .. [[
-		#define DDGI_GUIDE_TEXELS 8
-		#define DDGI_GUIDE_CELLS 64
+	return glsl_common.GetOctahedralGLSL() .. "\t\t#define DDGI_GUIDE_TEXELS " .. ddgi.GUIDE_TEXELS .. "\n\t\t#define DDGI_GUIDE_CELLS " .. ddgi.GUIDE_TEXELS * ddgi.GUIDE_TEXELS .. "\n" .. [[
 		#define DDGI_GUIDE_HISTORY 0.9
 		#define DDGI_GUIDE_STAMP_CELL 63
 		#define DDGI_AIM_SIZE 0.125
