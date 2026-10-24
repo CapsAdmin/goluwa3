@@ -87,7 +87,11 @@ local row_count = 9
 track(
 	shapes.Box{
 		Name = "gym_floor",
-		Position = Vec3(LANE_SPACING * (#STEP_HEIGHTS - 1) / 2, -0.5, ROW_SPACING * (row_count - 1) / 2 - 8),
+		Position = Vec3(
+			LANE_SPACING * (#STEP_HEIGHTS - 1) / 2,
+			-0.5,
+			ROW_SPACING * (row_count - 1) / 2 - 8
+		),
 		Size = Vec3(LANE_SPACING * #STEP_HEIGHTS + 20, 1, ROW_SPACING * row_count + 20),
 		Material = floor_material,
 		RigidBody = {MotionType = "static", WorldGeometry = true, Friction = 0.8},
@@ -104,7 +108,9 @@ end
 
 for row, kind in ipairs{"box", "convex", "mesh"} do
 	local z0 = row_z(row)
-	local title = ({box = "Box stairs up", convex = "Convex stairs up", mesh = "Mesh stairs up"})[kind]
+	local title = (
+		{box = "Box stairs up", convex = "Convex stairs up", mesh = "Mesh stairs up"}
+	)[kind]
 
 	for lane, height in ipairs(STEP_HEIGHTS) do
 		local x = lane_x(lane)
@@ -112,7 +118,9 @@ for row, kind in ipairs{"box", "convex", "mesh"} do
 			kind .. "_stairs_" .. lane,
 			Vec3(x, 0, z0 + 1),
 			title,
-			{string.format("rise %.2f m, %d steps, depth %.1f m", height, STEP_COUNT, STEP_DEPTH)}
+			{
+				string.format("rise %.2f m, %d steps, depth %.1f m", height, STEP_COUNT, STEP_DEPTH),
+			}
 		)
 
 		for i = 1, STEP_COUNT do
@@ -160,7 +168,9 @@ do
 			"descent_" .. lane,
 			Vec3(x, top, z0 + 3),
 			"Box stairs down",
-			{string.format("drop %.2f m per step, %d steps, walk and run -z", height, STEP_COUNT)}
+			{
+				string.format("drop %.2f m per step, %d steps, walk and run -z", height, STEP_COUNT),
+			}
 		)
 
 		for i = 1, STEP_COUNT - 1 do
@@ -200,7 +210,9 @@ do
 			Vec3(x, 0, z0 + 2),
 			"Ramp " .. angle .. " deg",
 			{
-				angle > 45 and "steeper than MinGroundNormalY, not walkable" or "walkable",
+				angle > 45 and
+				"steeper than MinGroundNormalY, not walkable" or
+				"walkable",
 				"stand still on it, walk up and down",
 			}
 		)
@@ -213,8 +225,18 @@ do
 	for lane, height in ipairs(LEDGE_HEIGHTS) do
 		local x = lane_x(lane)
 		box("ledge_wide", Vec3(x, height / 2, z0 - 2), Vec3(LANE_WIDTH, height, 4))
-		box("ledge_lip", Vec3(x, height / 2, z0 - 8), Vec3(LANE_WIDTH, height, 0.05), hazard_material)
-		box("ledge_curb", Vec3(x, height / 2, z0 - 12), Vec3(LANE_WIDTH, height, 0.4), step_material)
+		box(
+			"ledge_lip",
+			Vec3(x, height / 2, z0 - 8),
+			Vec3(LANE_WIDTH, height, 0.05),
+			hazard_material
+		)
+		box(
+			"ledge_curb",
+			Vec3(x, height / 2, z0 - 12),
+			Vec3(LANE_WIDTH, height, 0.4),
+			step_material
+		)
 		station(
 			"ledge_" .. lane,
 			Vec3(x, 0, z0 + 3),
@@ -257,7 +279,11 @@ do
 			2 * e,
 			height_at(px, pz - e) - height_at(px, pz + e)
 		):GetNormalized()
-		poly:AddVertex{pos = Vec3(px, height_at(px, pz), pz), uv = Vec2(px / 4, pz / 4), normal = normal}
+		poly:AddVertex{
+			pos = Vec3(px, height_at(px, pz), pz),
+			uv = Vec2(px / 4, pz / 4),
+			normal = normal,
+		}
 	end
 
 	for i = 0, cells - 1 do
@@ -287,9 +313,11 @@ do
 		"mesh_terrain",
 		Vec3(x, 1.5, z0 + 2),
 		"Mesh terrain",
-		{"smooth triangle mesh bumps, like displacements", "stand still, walk, sprint across"}
+		{
+			"smooth triangle mesh bumps, like displacements",
+			"stand still, walk, sprint across",
+		}
 	)
-
 	local rubble_x = lane_x(2)
 
 	for i = 1, 140 do
@@ -298,7 +326,11 @@ do
 		local depth = 0.1 + rand(i * 7) * 0.35
 		box(
 			"rubble",
-			Vec3(rubble_x + (rand(i * 11) - 0.5) * 16, height / 2 - 0.01, z0 - 2 - rand(i * 13) * 16),
+			Vec3(
+				rubble_x + (rand(i * 11) - 0.5) * 16,
+				height / 2 - 0.01,
+				z0 - 2 - rand(i * 13) * 16
+			),
 			Vec3(width, height, depth),
 			hazard_material,
 			Quat(0, math.sin(rand(i * 17) * math.pi), 0, math.cos(rand(i * 17) * math.pi))
@@ -309,9 +341,11 @@ do
 		"rubble",
 		Vec3(rubble_x, 0, z0 + 2),
 		"Rubble field",
-		{"140 small blocks under 16 cm", "the detail scale a character should glide over"}
+		{
+			"140 small blocks under 16 cm",
+			"the detail scale a character should glide over",
+		}
 	)
-
 	local gap_x = lane_x(3)
 	local gap_z = z0 - 1
 
@@ -327,14 +361,28 @@ do
 		"Gap jumps",
 		{"platforms 3 m long, gaps grow by 0.5 m", "0, 0.5, 1.0 ... 2.5 m"}
 	)
-
 	local tunnel_x = lane_x(4)
 
 	for i, ceiling in ipairs{0.9, 1.1, 1.5} do
 		local tx = tunnel_x + (i - 2) * 6
-		box("tunnel_wall", Vec3(tx - 1.5, ceiling / 2, z0 - 5), Vec3(0.3, ceiling, 8), hazard_material)
-		box("tunnel_wall", Vec3(tx + 1.5, ceiling / 2, z0 - 5), Vec3(0.3, ceiling, 8), hazard_material)
-		box("tunnel_roof", Vec3(tx, ceiling + 0.15, z0 - 5), Vec3(3.3, 0.3, 8), hazard_material)
+		box(
+			"tunnel_wall",
+			Vec3(tx - 1.5, ceiling / 2, z0 - 5),
+			Vec3(0.3, ceiling, 8),
+			hazard_material
+		)
+		box(
+			"tunnel_wall",
+			Vec3(tx + 1.5, ceiling / 2, z0 - 5),
+			Vec3(0.3, ceiling, 8),
+			hazard_material
+		)
+		box(
+			"tunnel_roof",
+			Vec3(tx, ceiling + 0.15, z0 - 5),
+			Vec3(3.3, 0.3, 8),
+			hazard_material
+		)
 	end
 
 	station(
@@ -343,13 +391,22 @@ do
 		"Low ceilings",
 		{"0.9, 1.1, 1.5 m clearance", "crouch is 0.69 m, standing 1.37 m"}
 	)
-
 	local crease_x = lane_x(5)
 
 	for i, width in ipairs{0.45, 0.55, 0.65, 0.8, 1.0} do
 		local cx = crease_x + (i - 3) * 4
-		box("crease_wall", Vec3(cx - width / 2 - 1, 1.5, z0 - 4), Vec3(2, 3, 6), step_material)
-		box("crease_wall", Vec3(cx + width / 2 + 1, 1.5, z0 - 4), Vec3(2, 3, 6), step_material)
+		box(
+			"crease_wall",
+			Vec3(cx - width / 2 - 1, 1.5, z0 - 4),
+			Vec3(2, 3, 6),
+			step_material
+		)
+		box(
+			"crease_wall",
+			Vec3(cx + width / 2 + 1, 1.5, z0 - 4),
+			Vec3(2, 3, 6),
+			step_material
+		)
 	end
 
 	for i, angle in ipairs{20, 45, 90} do
@@ -373,14 +430,23 @@ do
 		"Narrow gaps and wedges",
 		{"gaps 0.45 .. 1.0 m (body is 0.61 m)", "wedges of 20, 45, 90 degrees"}
 	)
-
 	local beam_x = lane_x(6)
 
 	for i, width in ipairs{0.3, 0.5, 0.8, 1.2} do
-		box("beam", Vec3(beam_x + (i - 2.5) * 3, 0.5, z0 - 6), Vec3(width, 1, 12), step_material)
+		box(
+			"beam",
+			Vec3(beam_x + (i - 2.5) * 3, 0.5, z0 - 6),
+			Vec3(width, 1, 12),
+			step_material
+		)
 	end
 
-	station("beams", Vec3(beam_x, 0, z0 + 2), "Beams", {"1 m high, 0.3 .. 1.2 m wide", "walk the edge, fall off"})
+	station(
+		"beams",
+		Vec3(beam_x, 0, z0 + 2),
+		"Beams",
+		{"1 m high, 0.3 .. 1.2 m wide", "walk the edge, fall off"}
+	)
 end
 
 do
@@ -401,14 +467,36 @@ do
 		)
 	end
 
-	box("spiral_column", Vec3(x, rise * steps / 2, z0 - 8), Vec3(2, rise * steps, 2), convex_material)
-	station("spiral", Vec3(x + 3, 0, z0 - 4), "Spiral stairs", {"18 steps, 0.18 m rise, turning"})
-
+	box(
+		"spiral_column",
+		Vec3(x, rise * steps / 2, z0 - 8),
+		Vec3(2, rise * steps, 2),
+		convex_material
+	)
+	station(
+		"spiral",
+		Vec3(x + 3, 0, z0 - 4),
+		"Spiral stairs",
+		{"18 steps, 0.18 m rise, turning"}
+	)
 	local mover_x = lane_x(2)
 
 	for i, mover in ipairs{
-		{axis = Vec3(1, 0, 0), amplitude = 6, period = 6, base = Vec3(mover_x, 0.25, z0 - 4), size = Vec3(4, 0.5, 4)},
-		{axis = Vec3(0, 1, 0), amplitude = 2, period = 8, base = Vec3(mover_x, 2.2, z0 - 14), size = Vec3(4, 0.4, 4)},
+		{
+			axis = Vec3(1, 0, 0),
+			amplitude = 6,
+			period = 6,
+			base = Vec3(mover_x, 0.25, z0 - 4),
+			size = Vec3(4, 0.5, 4),
+		},
+		{
+			axis = Vec3(0, 1, 0),
+			amplitude = 2,
+			period = 8,
+			base = Vec3(mover_x, 2.2, z0 - 14),
+			size = Vec3(4, 0.4, 4),
+		},
+		{rate = 0.6, base = Vec3(mover_x, 0.3, z0 - 25), size = Vec3(8, 0.6, 8)},
 	} do
 		local ent = track(
 			shapes.Box{
@@ -425,6 +513,7 @@ do
 			axis = mover.axis,
 			amplitude = mover.amplitude,
 			period = mover.period,
+			rate = mover.rate,
 		}
 	end
 
@@ -432,9 +521,11 @@ do
 		"movers",
 		Vec3(mover_x, 0.5, z0 - 4),
 		"Moving platforms",
-		{"sideways platform and an elevator", "does the character ride along?"}
+		{
+			"sideways platform, an elevator and a turntable",
+			"does the character ride along?",
+		}
 	)
-
 	local prop_x = lane_x(3)
 
 	for i, mass in ipairs{2, 10, 50, 250} do
@@ -477,17 +568,23 @@ do
 		"props",
 		Vec3(prop_x, 0, z0 + 2),
 		"Dynamic props",
-		{"crates of 2, 10, 50, 250 kg, a stack and a ball", "walk into them, stand on them"}
+		{
+			"crates of 2, 10, 50, 250 kg, a stack and a ball",
+			"walk into them, stand on them",
+		}
 	)
-
 	local jump_x = lane_x(4)
 
 	for i, height in ipairs{0.3, 0.45, 0.55, 0.65, 0.8, 1.0} do
 		box("jump_block", Vec3(jump_x, height / 2, z0 - 3 - (i - 1) * 3), Vec3(3, height, 2))
 	end
 
-	station("jumps", Vec3(jump_x, 0, z0 + 1), "Jump heights", {"0.30 .. 1.0 m blocks every 3 m", "jump apex is about 0.6 m"})
-
+	station(
+		"jumps",
+		Vec3(jump_x, 0, z0 + 1),
+		"Jump heights",
+		{"0.30 .. 1.0 m blocks every 3 m", "jump apex is about 0.6 m"}
+	)
 	local launch_x = lane_x(5)
 	local rad = math.rad(20)
 	local length = 6
@@ -501,14 +598,18 @@ do
 		Quat(math.sin(rad / 2), 0, 0, math.cos(rad / 2))
 	)
 	local lip = length * math.sin(rad)
-	box("launch_landing", Vec3(launch_x, lip / 2 - 0.5, z0 - length * math.cos(rad) - 14), Vec3(6, lip + 1, 8), step_material)
+	box(
+		"launch_landing",
+		Vec3(launch_x, lip / 2 - 0.5, z0 - length * math.cos(rad) - 14),
+		Vec3(6, lip + 1, 8),
+		step_material
+	)
 	station(
 		"launch",
 		Vec3(launch_x, 0, z0 + 4),
 		"Ramp launch",
 		{"20 degree ramp ending in a gap", "sprint up: you should leave the ground"}
 	)
-
 	local wall_x = lane_x(6)
 
 	for i, angle in ipairs{35, 45, 55, 65, 75} do
@@ -527,7 +628,10 @@ do
 		"slope_limit",
 		Vec3(wall_x, 0, z0 + 2),
 		"Slope limit",
-		{"35, 45, 55, 65, 75 degree slabs", "where does walking up stop and sliding start"}
+		{
+			"35, 45, 55, 65, 75 degree slabs",
+			"where does walking up stop and sliding start",
+		}
 	)
 end
 
@@ -536,8 +640,13 @@ event.AddListener("PhysicsUpdate", "gym_movers", function(dt)
 
 	for _, mover in ipairs(gym.movers) do
 		if mover.entity:IsValid() then
-			local offset = math.sin(gym.clock * math.pi * 2 / mover.period) * mover.amplitude
-			mover.entity.transform:SetPosition(mover.base + mover.axis * offset)
+			if mover.rate then
+				local half = gym.clock * mover.rate / 2
+				mover.entity.transform:SetRotation(Quat(0, math.sin(half), 0, math.cos(half)))
+			else
+				local offset = math.sin(gym.clock * math.pi * 2 / mover.period) * mover.amplitude
+				mover.entity.transform:SetPosition(mover.base + mover.axis * offset)
+			end
 		end
 	end
 end)
@@ -595,16 +704,32 @@ event.AddListener("Draw2D", "gym_overlay", function()
 
 	local lines = {
 		"Character",
-		string.format("mode %s%s%s", movement.Mode, movement.Swimming and " swimming" or "", movement.Crouching and " crouching" or ""),
+		string.format(
+			"mode %s%s%s",
+			movement.Mode,
+			movement.Swimming and " swimming" or "",
+			movement.Crouching and " crouching" or ""
+		),
 		string.format("feet %.2f %.2f %.2f", feet.x, feet.y, feet.z),
-		string.format("speed %.2f m/s  vertical %.2f", math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z), velocity.y),
+		string.format(
+			"speed %.2f m/s  vertical %.2f",
+			math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z),
+			velocity.y
+		),
 		"",
 		"Ground",
-		string.format("movement grounded %s  jumping %s", tostring(movement:GetGrounded()), tostring(movement.jumping or false)),
+		string.format(
+			"movement grounded %s  jumping %s",
+			tostring(movement:GetGrounded()),
+			tostring(movement.jumping or false)
+		),
 		string.format("solver contact %s", tostring(body:GetGrounded())),
 		string.format(
 			"ground %s",
-			body.GroundEntity and body.GroundEntity:IsValid() and body.GroundEntity.Name or "none"
+			body.GroundEntity and
+				body.GroundEntity:IsValid() and
+				body.GroundEntity.Name or
+				"none"
 		),
 		string.format(
 			"normal %.2f %.2f %.2f  slope %.1f deg  (walkable above %.2f)",
@@ -614,7 +739,11 @@ event.AddListener("Draw2D", "gym_overlay", function()
 			math.deg(math.acos(math.clamp(normal.y, -1, 1))),
 			movement.MinGroundNormalY
 		),
-		string.format("flat ground memory %.2f s  step height %.2f m", math.max(movement.flat_ground_time or 0, 0), movement.StepHeight),
+		string.format(
+			"flat ground memory %.2f s  step height %.2f m",
+			math.max(movement.flat_ground_time or 0, 0),
+			movement.StepHeight
+		),
 		string.format("render offset %.3f", rig.transform.RenderOffset.y),
 	}
 
