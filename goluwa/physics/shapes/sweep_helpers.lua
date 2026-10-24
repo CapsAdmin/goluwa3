@@ -391,14 +391,11 @@ function helpers.SweepPolyhedronAgainstTargetPolyhedron(
 		point, position = helpers.GetPolyhedronPairContactPositions(contact_result, scratch)
 	end
 
-	local normal = select(
-		1,
-		pair_solver_helpers.GetSafeCollisionNormal(
-			point and position and (point - position) or nil,
-			relative_movement,
-			hit_result.delta,
-			contact_result.normal or scratch.last_normal
-		)
+	local normal = pair_solver_helpers.GetSafeCollisionNormal(
+		point and position and (point - position) or nil,
+		relative_movement,
+		hit_result.delta,
+		contact_result.normal or scratch.last_normal
 	)
 	normal = helpers.EnsureNormalFacesMotion(normal and normal * -1 or nil, movement)
 

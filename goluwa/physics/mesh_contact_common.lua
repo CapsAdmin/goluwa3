@@ -151,10 +151,7 @@ local function evaluate_triangle_contact(
 		fallback_normal = local_vector_to_world(mesh_body, fallback_normal)
 	end
 
-	local normal = select(
-		1,
-		mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, fallback_delta, fallback_normal)
-	)
+	local normal = mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, fallback_delta, fallback_normal)
 	local overlap = combined_margin - result.surface_distance
 
 	if not normal or overlap < -handlers.speculative_distance then return nil end
@@ -406,14 +403,11 @@ function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shap
 end
 
 function mesh_contact_common.SelectTriangleNormal(mesh_body, other_body, delta, fallback_delta, fallback_normal)
-	local normal = select(
-		1,
-		pair_solver_helpers.GetSafeCollisionNormal(
-			delta,
-			other_body:GetVelocity() - mesh_body:GetVelocity(),
-			fallback_delta,
-			fallback_normal or pair_solver_helpers.GetCachedPairNormal(mesh_body, other_body)
-		)
+	local normal = pair_solver_helpers.GetSafeCollisionNormal(
+		delta,
+		other_body:GetVelocity() - mesh_body:GetVelocity(),
+		fallback_delta,
+		fallback_normal or pair_solver_helpers.GetCachedPairNormal(mesh_body, other_body)
 	)
 	local shape = mesh_body and mesh_body.GetPhysicsShape and mesh_body:GetPhysicsShape()
 

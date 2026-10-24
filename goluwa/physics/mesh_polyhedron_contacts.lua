@@ -203,15 +203,12 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 			local face_normal = use_local_space and
 				mesh_body:GetRotation():VecMul(result.face_normal):GetNormalized() or
 				result.face_normal
-			local normal = select(
-				1,
-				mesh_contact_common.SelectTriangleNormal(
-					mesh_body,
-					poly_body,
-					sample.point - position,
-					poly_body:GetPosition() - triangle_center_world,
-					face_normal
-				)
+			local normal = mesh_contact_common.SelectTriangleNormal(
+				mesh_body,
+				poly_body,
+				sample.point - position,
+				poly_body:GetPosition() - triangle_center_world,
+				face_normal
 			)
 			local overlap = combined_margin - result.surface_distance
 

@@ -305,8 +305,7 @@ find_distance_swept_polyhedron_pair_hit = function(body_a, body_b, poly_a, poly_
 	if not hit or hit.distance > hit_distance + EPSILON then return nil end
 
 	hit.normal = hit.normal or
-		select(
-			1,
+		(
 			pair_solver_helpers.GetSafeCollisionNormal(hit.delta, relative_movement, scratch.last_normal)
 		)
 
