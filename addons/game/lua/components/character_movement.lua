@@ -126,6 +126,10 @@ function META:Reset(mode)
 	self.Owner:CallLocalEvent("OnCharacterReset")
 end
 
+function META:GetGrounded()
+	return self.was_grounded == true and not self.dead
+end
+
 function META:GetViewOffset()
 	local _, _, eye_height = self:GetDimensions()
 	return Vec3(0, eye_height, 0)

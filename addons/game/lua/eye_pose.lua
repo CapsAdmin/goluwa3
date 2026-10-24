@@ -87,7 +87,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local body = owner.rigid_body
 	local _, render_rotation = transform:GetRenderPositionRotation()
 	local velocity = (render_rotation or transform:GetRotation()):GetConjugated():VecMul(body and body:GetVelocity() or transform:GetRenderVelocity())
-	local grounded = not body or body:GetGrounded()
+	local grounded = not body or pose.grounded
 	local holder = owner.weapon_holder
 	local active = holder and holder:GetActiveWeapon()
 	local eye_height = math.lerp(crouch, eye_pose.EyeHeight, eye_pose.CrouchEyeHeight)

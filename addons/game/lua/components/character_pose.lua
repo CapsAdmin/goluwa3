@@ -147,7 +147,7 @@ function META:OnUpdate(dt)
 	self.forward_speed = velocity:Dot(entity_rotation:GetForward())
 	self.right_speed = velocity:Dot(entity_rotation:GetRight())
 	self.vertical_speed = velocity.y
-	self.grounded = body ~= nil and body:GetGrounded()
+	self.grounded = movement and movement:GetGrounded() or body ~= nil and body:GetGrounded()
 
 	if movement and movement.dead then
 		self.dead_pitch = self.dead_pitch or self.pitch
