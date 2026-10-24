@@ -240,25 +240,31 @@ local function handle_simplex(simplex)
 	local b = simplex[3]
 	local c = simplex[2]
 	local d = simplex[1]
-	local ao = TEMP_NEG:CopyFrom(a.point):Scale(-1)
-	local ab = Vec3.SetSub(TEMP_A, b.point, a.point)
-	local ac = Vec3.SetSub(TEMP_B, c.point, a.point)
-	local ad = Vec3.SetSub(TEMP_C, d.point, a.point)
-	local abc = Vec3.SetCross(TEMP_D, ab, ac)
-	local acd = Vec3.SetCross(TEMP_E, ac, ad)
-	local adb = Vec3.SetCross(TEMP_F, ad, ab)
+	TEMP_NEG:CopyFrom(a.point):Scale(-1)
+	Vec3.SetSub(TEMP_A, b.point, a.point)
+	Vec3.SetSub(TEMP_B, c.point, a.point)
+	Vec3.SetSub(TEMP_C, d.point, a.point)
+	Vec3.SetCross(TEMP_D, TEMP_A, TEMP_B)
+	Vec3.SetCross(TEMP_E, TEMP_B, TEMP_C)
+	Vec3.SetCross(TEMP_F, TEMP_C, TEMP_A)
 
-	if abc:Dot(ad) > 0 then abc:Scale(-1) end
+	if TEMP_D:Dot(TEMP_C) > 0 then TEMP_D:Scale(-1) end
 
-	if acd:Dot(ab) > 0 then acd:Scale(-1) end
+	if TEMP_E:Dot(TEMP_A) > 0 then TEMP_E:Scale(-1) end
 
-	if adb:Dot(ac) > 0 then adb:Scale(-1) end
+	if TEMP_F:Dot(TEMP_B) > 0 then TEMP_F:Scale(-1) end
 
-	if same_direction(abc, ao) then return solve_triangle(simplex, a, b, c) end
+	if same_direction(TEMP_D, TEMP_NEG) then
+		return solve_triangle(simplex, a, b, c)
+	end
 
-	if same_direction(acd, ao) then return solve_triangle(simplex, a, c, d) end
+	if same_direction(TEMP_E, TEMP_NEG) then
+		return solve_triangle(simplex, a, c, d)
+	end
 
-	if same_direction(adb, ao) then return solve_triangle(simplex, a, d, b) end
+	if same_direction(TEMP_F, TEMP_NEG) then
+		return solve_triangle(simplex, a, d, b)
+	end
 
 	return true, simplex, nil
 end
