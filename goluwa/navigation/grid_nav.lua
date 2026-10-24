@@ -50,6 +50,10 @@ function grid_nav.Get(radius, height, step, drop)
 	return nav
 end
 
+function grid_nav.GetAll()
+	return shared
+end
+
 function grid_nav.IsObstacle(body)
 	return true
 end

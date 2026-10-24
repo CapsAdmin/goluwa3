@@ -6,6 +6,7 @@ Pathfinding probed out of the physics world, and NPC prefabs that walk a map wit
 
 - `goluwa/navigation/grid_nav.lua`: pathfinding on a grid probed out of the physics world, no baked data. `GridNav.Get(radius, height, step, drop)` returns a shared instance per agent size (the cache is the point of sharing). `BeginSearch(from, to, ignore_entity, blocked)` + `Step(search, seconds)` (true when done, result in `search.path`), or `FindPath(...)` for one go. `GetRandomPoint(around, radius, tries)`, `GetGround(ix, iz, from_y)`, `GetColumn(x, z)`, `Invalidate()`.
 - `addons/game/lua/components/ai_controller.lua` (the npc brain: a command source for `character_movement`, like `player_controller`), `source_pose.lua` (animation from movement, see characters.md), `addons/game/lua/npcs.lua` (prefabs: `npcs.Definitions`, `Register`, `Spawn(name, position, yaw)`, `SpawnNear(name, around, radius)`). Example: `addons/examples/lua/examples/render3d/npc_walkers.lua`.
+- `addons/game/lua/nav_overlay.lua`: console `nav_debug` toggles an overlay of the probed ground cells cached in every shared `GridNav` (`GridNav.GetAll()`; only cells a search has visited exist) and the paths and goals of npcs.
 - Tests: `luajit glw test navigation/grid_nav.lua`, `entities/npc.lua`, `entities/npc_combat.lua` (one file per call).
 
 ## Pathfinding
