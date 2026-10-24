@@ -3,6 +3,7 @@ local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
@@ -637,4 +638,58 @@ T.TestPhysics("Parallel capsules overlapping side by side settle stably", functi
 	T(velocity:GetLength())["<"](0.05)
 	capsule_ent:Remove()
 	blocker_ent:Remove()
+end)
+
+T.TestPhysics("Capsule held on a world geometry slope stays put when GroundedSettling is off", function()
+	local rad = math.rad(20)
+	local normal = Vec3(0, math.cos(rad), math.sin(rad))
+	local ground = Entity.New({Name = "settling_slope"})
+	ground:AddComponent("transform")
+	ground.transform:SetPosition(Vec3(0, -0.5, 0))
+	ground.transform:SetRotation(Quat(math.sin(rad / 2), 0, 0, math.cos(rad / 2)))
+	ground:AddComponent(
+		"rigid_body",
+		{
+			Shape = BoxShape.New(Vec3(40, 1, 40)),
+			MotionType = "static",
+			WorldGeometry = true,
+			Friction = 0.8,
+		}
+	)
+	local drift = {}
+
+	for _, settling in ipairs{true, false} do
+		local ent = Entity.New({Name = "settling_capsule"})
+		ent:AddComponent("transform")
+		ent.transform:SetPosition(Vec3(0, 1.2, 0))
+		local body = ent:AddComponent(
+			"rigid_body",
+			{
+				Shape = CapsuleShape.New(0.3, 1.4),
+				LockRotation = true,
+				GroundedSettling = settling,
+				CanSleep = false,
+				Friction = 0,
+			}
+		)
+		local weight = body:GetPhysics().Gravity:GetLength() / body.InverseMass
+		local hold = Vec3(0, -(1 - normal.y * normal.y), normal.z * normal.y) * -weight
+
+		local function step(count)
+			for _ = 1, count do
+				body:ApplyForce(hold)
+				physics.Update(1 / 60)
+			end
+		end
+
+		step(90)
+		local start = body:GetPosition():Copy()
+		step(120)
+		drift[settling] = (body:GetPosition() - start):GetLength()
+		ent:Remove()
+	end
+
+	ground:Remove()
+	T(drift[true])[">"](0.05)
+	T(drift[false])["<"](0.01)
 end)

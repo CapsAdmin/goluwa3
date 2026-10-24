@@ -57,6 +57,7 @@ RigidBody:GetSet("AirLinearDamping", 0)
 RigidBody:GetSet("AirAngularDamping", 0)
 RigidBody:GetSet("CollisionEnabled", true, {callback = "OnCollisionEnabledChanged"})
 RigidBody:GetSet("WorldGeometry", false, {callback = "OnWorldGeometryChanged"})
+RigidBody:GetSet("GroundedSettling", true)
 RigidBody:GetSet("CollisionGroup", 1, {validate = "integer"})
 RigidBody:GetSet("CenterOffset", nil)
 RigidBody:GetSet("CollisionMask", -1, {validate = "integer"})
@@ -1451,7 +1452,11 @@ function RigidBody:UpdateVelocities(dt)
 			self.Velocity:AddScaled(self.GroundNormal, -normal_speed)
 		end
 
-		if use_grounded_velocity_constraints and not islands.IsConstrainedBody(self) then
+		if
+			use_grounded_velocity_constraints and
+			self.GroundedSettling and
+			not islands.IsConstrainedBody(self)
+		then
 			for _, collider in ipairs(self:GetColliders()) do
 				collider:GetPhysicsShape():OnGroundedVelocityUpdate(self, dt)
 			end
