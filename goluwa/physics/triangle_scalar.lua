@@ -1,3 +1,5 @@
+local math_min = math.min
+local math_max = math.max
 local Vec3 = import("goluwa/structs/vec3.lua")
 local triangle_scalar = {}
 local face_point = Vec3()
@@ -76,8 +78,8 @@ function triangle_scalar.PointToSegmentSq(p, a, b)
 	local dy = b.y - a.y
 	local dz = b.z - a.z
 	local l2 = dx * dx + dy * dy + dz * dz
-	local lambda = math.min(
-		math.max(((p.x - a.x) * dx + (p.y - a.y) * dy + (p.z - a.z) * dz) / math.max(l2, 1e-30), 0),
+	local lambda = math_min(
+		math_max(((p.x - a.x) * dx + (p.y - a.y) * dy + (p.z - a.z) * dz) / math_max(l2, 1e-30), 0),
 		1
 	)
 	local qx = a.x + dx * lambda
@@ -124,9 +126,9 @@ function triangle_scalar.SegmentSegmentSq(a, b, c, d)
 		return sq2, qx2, qy2, qz2, c.x, c.y, c.z
 	end
 
-	local s = math.min(math.max((bcoef * ecoef - dcoef * fcoef) / (acoef * ecoef - dcoef * dcoef), 0), 1)
-	local t = math.min(math.max((s * dcoef - fcoef) / ecoef, 0), 1)
-	s = math.min(math.max((t * dcoef + bcoef) / acoef, 0), 1)
+	local s = math_min(math_max((bcoef * ecoef - dcoef * fcoef) / (acoef * ecoef - dcoef * dcoef), 0), 1)
+	local t = math_min(math_max((s * dcoef - fcoef) / ecoef, 0), 1)
+	s = math_min(math_max((t * dcoef + bcoef) / acoef, 0), 1)
 	local p1x = a.x + ux * s
 	local p1y = a.y + uy * s
 	local p1z = a.z + uz * s

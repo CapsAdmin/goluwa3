@@ -12,12 +12,14 @@ local triangle_scalar = import("goluwa/physics/triangle_scalar.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local math_min = math.min
+local math_max = math.max
 local sweep_mesh = {}
 local EPSILON = physics_constants.EPSILON
 local FLOAT_COORDINATE_ERROR = 4.8e-7
 
 local function get_sweep_epsilon(start_position, movement)
-	return EPSILON + FLOAT_COORDINATE_ERROR * math.max(
+	return EPSILON + FLOAT_COORDINATE_ERROR * math_max(
 			math.abs(start_position.x),
 			math.abs(start_position.y),
 			math.abs(start_position.z),
@@ -348,8 +350,8 @@ function sweep_polyhedron_against_triangle(
 	local triangle_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, EPSILON)
 
 	if triangle_normal then
-		local sweep_fraction = math.max(0, max_fraction or 1)
-		local hit_distance = math.max(
+		local sweep_fraction = math_max(0, max_fraction or 1)
+		local hit_distance = math_max(
 			(collider:GetCollisionMargin() or 0),
 			(physics_constants.DEFAULT_COLLISION_MARGIN or 0) * 0.5,
 			0.0005
@@ -360,7 +362,7 @@ function sweep_polyhedron_against_triangle(
 			v1,
 			v2,
 			triangle_normal,
-			math.max(
+			math_max(
 				(collider:GetCollisionMargin() or 0) * 0.5,
 				(physics_constants.DEFAULT_COLLISION_MARGIN or 0) * 0.5,
 				0.0005
@@ -548,7 +550,7 @@ local function sweep_polyhedron_against_planes(
 		local start_distance = -math.huge
 
 		for _, vertex in ipairs(start_local_vertices) do
-			start_distance = math.max(start_distance, vertex:Dot(plane.normal) - plane.dist)
+			start_distance = math_max(start_distance, vertex:Dot(plane.normal) - plane.dist)
 		end
 
 		local delta_distance = movement_local:Dot(plane.normal)
@@ -620,7 +622,7 @@ local function sweep_polyhedron_against_planes(
 		transform_direction(local_to_world, local_normal) or
 		local_normal
 	return {
-		t = math.max(0, hit_t),
+		t = math_max(0, hit_t),
 		point = point_world,
 		position = contact_world,
 		normal = normal_world,
@@ -637,7 +639,7 @@ local function build_capsule_sweep_invariants(collider, start_position, rotation
 	out.start_position = start_position
 	out.movement = movement
 	out.movement_length = movement:GetLength()
-	out.distance_scale = math.max(radius * 0.5 + segment_length * 0.25, 0.2)
+	out.distance_scale = math_max(radius * 0.5 + segment_length * 0.25, 0.2)
 	out.fallback_normal = out.movement_length > EPSILON and
 		(
 			movement * -1
@@ -647,8 +649,8 @@ local function build_capsule_sweep_invariants(collider, start_position, rotation
 end
 
 local function get_capsule_sweep_sample_steps(invariants, max_fraction)
-	local scaled_length = math.max(0, invariants.movement_length * math.max(max_fraction or 1, 0))
-	return math.max(4, math.min(64, math.ceil(scaled_length / invariants.distance_scale) * 2))
+	local scaled_length = math_max(0, invariants.movement_length * math_max(max_fraction or 1, 0))
+	return math_max(4, math_min(64, math.ceil(scaled_length / invariants.distance_scale) * 2))
 end
 
 local function is_capsule_moving_away_from_triangle(invariants, v0, nx, ny, nz, normal_len_sq)
@@ -684,11 +686,11 @@ local function narrow_reach_interval(t_lo, t_hi, c0, e, v, smin, smax)
 	end
 
 	if v > 0 then
-		t_hi = math.min(t_hi, (smax - c0 + e) / v)
-		t_lo = math.max(t_lo, (smin - c0 - e) / v)
+		t_hi = math_min(t_hi, (smax - c0 + e) / v)
+		t_lo = math_max(t_lo, (smin - c0 - e) / v)
 	else
-		t_lo = math.max(t_lo, (smax - c0 + e) / v)
-		t_hi = math.min(t_hi, (smin - c0 - e) / v)
+		t_lo = math_max(t_lo, (smax - c0 + e) / v)
+		t_hi = math_min(t_hi, (smin - c0 - e) / v)
 	end
 
 	if t_lo >= t_hi then return nil end
@@ -710,8 +712,8 @@ local function is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2)
 		(segment_a.x + segment_b.x) * 0.5,
 		extx,
 		movement.x,
-		math.min(v0.x, v1.x, v2.x),
-		math.max(v0.x, v1.x, v2.x)
+		math_min(v0.x, v1.x, v2.x),
+		math_max(v0.x, v1.x, v2.x)
 	)
 
 	if not t_lo then return false end
@@ -722,8 +724,8 @@ local function is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2)
 		(segment_a.y + segment_b.y) * 0.5,
 		exty,
 		movement.y,
-		math.min(v0.y, v1.y, v2.y),
-		math.max(v0.y, v1.y, v2.y)
+		math_min(v0.y, v1.y, v2.y),
+		math_max(v0.y, v1.y, v2.y)
 	)
 
 	if not t_lo then return false end
@@ -734,8 +736,8 @@ local function is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2)
 		(segment_a.z + segment_b.z) * 0.5,
 		extz,
 		movement.z,
-		math.min(v0.z, v1.z, v2.z),
-		math.max(v0.z, v1.z, v2.z)
+		math_min(v0.z, v1.z, v2.z),
+		math_max(v0.z, v1.z, v2.z)
 	)
 	return t_lo ~= nil
 end
@@ -1075,8 +1077,8 @@ local function sweep_capsule_against_planes(
 	local nearest_inside_distance = -math.huge
 
 	for _, plane in ipairs(planes) do
-		local start_distance = math.max(start_local_a:Dot(plane.normal), start_local_b:Dot(plane.normal)) - plane.dist - radius
-		local delta_distance = math.max(delta_a:Dot(plane.normal), delta_b:Dot(plane.normal))
+		local start_distance = math_max(start_local_a:Dot(plane.normal), start_local_b:Dot(plane.normal)) - plane.dist - radius
+		local delta_distance = math_max(delta_a:Dot(plane.normal), delta_b:Dot(plane.normal))
 
 		if start_distance > epsilon then
 			origin_inside = false
@@ -1130,7 +1132,7 @@ local function sweep_capsule_against_planes(
 		local_normal
 	local contact_local = point_local - local_normal * (point_local:Dot(local_normal) - planes[1].dist)
 	return {
-		t = math.max(0, hit_t),
+		t = math_max(0, hit_t),
 		point = point_world - normal_world * radius,
 		position = local_to_world and local_to_world:TransformVector(contact_local) or contact_local,
 		normal = normal_world,
@@ -1235,7 +1237,7 @@ function sweep_sphere_against_triangle_slow(start_position, movement, radius, v0
 	local lo = 0
 	local reach = radius + epsilon
 	local reach_sq = reach * reach
-	local width_limit = BISECT_FRACTION_TOLERANCE / math.max(math.sqrt(movement:Dot(movement)), 1e-9)
+	local width_limit = BISECT_FRACTION_TOLERANCE / math_max(math.sqrt(movement:Dot(movement)), 1e-9)
 	local sx, sy, sz = start_position.x, start_position.y, start_position.z
 	local mx, my, mz = movement.x, movement.y, movement.z
 
@@ -1320,7 +1322,7 @@ local function sweep_sphere_against_planes(start_position, movement, radius, pla
 	end
 
 	return {
-		t = math.max(0, hit_t),
+		t = math_max(0, hit_t),
 		position = position,
 		normal = normal,
 	}
