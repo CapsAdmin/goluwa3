@@ -131,6 +131,14 @@ function META:GetGrounded()
 	return self.was_grounded == true and not self.dead
 end
 
+function META:GetGroundYawVelocity()
+	local carrier = self.ground_body
+
+	if carrier and carrier:IsValid() then return carrier.AngularVelocity.y end
+
+	return 0
+end
+
 function META:GetViewOffset()
 	local _, _, eye_height = self:GetDimensions()
 	return Vec3(0, eye_height, 0)
@@ -500,6 +508,7 @@ do
 
 	function META:Die()
 		local body = self.Owner.rigid_body
+		self.ground_body = nil
 		local velocity = body:GetVelocity()
 		local direction = Vec3(velocity.x, 0, velocity.z)
 
@@ -561,6 +570,7 @@ end
 function META:ApplyMode(mode)
 	local body = self.Owner.rigid_body
 	self.mode = mode
+	self.ground_body = nil
 	self.previous_valid = false
 	self.Swimming = false
 	self.Mode = mode

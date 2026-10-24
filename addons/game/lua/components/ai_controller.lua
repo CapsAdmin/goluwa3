@@ -522,6 +522,7 @@ function META:NextCommand(dt)
 	end
 
 	local dir_x, dir_z = self.dir_x, self.dir_z
+	self.yaw = self.yaw + owner.character_movement:GetGroundYawVelocity() * dt
 	local yaw = self.yaw
 	cmd.mode = far and "fly" or "walk"
 	cmd.buttons = far and 0 or BUTTON.ACTIVE

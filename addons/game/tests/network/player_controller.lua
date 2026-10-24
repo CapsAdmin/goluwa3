@@ -281,6 +281,58 @@ T.TestPhysics("player rides a moving platform and keeps its momentum when jumpin
 	ground:Remove()
 end)
 
+T.TestPhysics("ground yaw velocity follows a turntable only while grounded on it", function()
+	local ground = create_ground()
+	local turntable = Entity.New{
+		transform = {Position = Vec3(0, 0.25, 0), Scale = Vec3(8, 0.5, 8)},
+		rigid_body = {MotionType = "kinematic", Shape = BoxShape.New(Vec3(1, 1, 1)), Friction = 1},
+	}
+	local player = create_player(Vec3(2.5, 0.6, 0))
+	local movement = player.character_movement
+	local rate = 0.6
+	local angle = 0
+
+	local function step(ticks, setup)
+		for _ = 1, ticks do
+			angle = angle + rate / 60
+			turntable.transform:SetRotation(QuatFromAxis(angle, Vec3(0, 1, 0)))
+			drive(player, 1, setup)
+		end
+	end
+
+	step(90)
+	T(movement:GetGrounded())["=="](true)
+	T(math.abs(movement:GetGroundYawVelocity() - rate))["<"](0.05)
+	local view_yaw = 0
+
+	for _ = 1, 60 do
+		step(1)
+		view_yaw = view_yaw + movement:GetGroundYawVelocity() / 60
+	end
+
+	T(math.abs(view_yaw - rate))["<"](0.05)
+
+	step(6, function(cmd)
+		cmd.buttons = bit.bor(cmd.buttons, BUTTON.JUMP)
+	end)
+
+	T(movement:GetGrounded())["=="](false)
+	T(movement:GetGroundYawVelocity())["=="](0)
+	player:Remove()
+	turntable:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("ground yaw velocity is zero on static ground", function()
+	local ground = create_ground()
+	local player = create_player()
+	drive(player, 90)
+	T(player.character_movement:GetGrounded())["=="](true)
+	T(player.character_movement:GetGroundYawVelocity())["=="](0)
+	player:Remove()
+	ground:Remove()
+end)
+
 T.TestPhysics("a body with a center offset keeps its entity origin and stays stable", function()
 	local entity = Entity.New{
 		transform = {Position = Vec3(1, 2, 3)},

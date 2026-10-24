@@ -58,6 +58,33 @@ local function run(seconds, until_done)
 	return false
 end
 
+T.TestPhysics("npc heading turns with the platform it stands on", function()
+	create_ground()
+	local turntable = Entity.New{
+		transform = {Position = Vec3(0, 0.25, 0), Scale = Vec3(8, 0.5, 8)},
+		rigid_body = {
+			MotionType = "kinematic",
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+			Friction = 1,
+		},
+	}
+	local entity = create_npc(Vec3(2.5, 0.55, 0))
+	local npc = entity.ai_controller
+	local rate = 0.6
+	local angle = 0
+	run(1)
+	local start_yaw = npc.yaw
+
+	for _ = 1, 120 do
+		angle = angle + rate / 60
+		turntable.transform:SetRotation(QuatFromAxis(angle, Vec3(0, 1, 0)))
+		physics.UpdateFixed(1 / 60)
+	end
+
+	T(entity.character_movement:GetGrounded())["=="](true)
+	T(math.abs(math.normalizeangle(npc.yaw - start_yaw) - rate * 2))["<"](0.15)
+end)
+
 T.TestPhysics("npc has a body and walks around a wall to a goal", function()
 	create_ground()
 	create_box(Vec3(5, 1, 0), Vec3(0.4, 2, 8), true)
