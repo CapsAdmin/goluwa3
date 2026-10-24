@@ -6,7 +6,6 @@ local DOWN_LOOK_PITCH = math.rad(89)
 local DOWN_LOOK_MIN = 0.3
 local DOWN_LOOK_SPEED_GAIN = 0.3
 local DOWN_LOOK_HORIZONTAL_KEEP = 0.5
-local MAX_SPEED = 300
 pvars.StartGroup("Game", "Bhop", {store = true, prefix = "bhop_"})
 local multiplier = pvars.Setup2{
 	key = "bhop_multiplier",
@@ -18,24 +17,13 @@ local multiplier = pvars.Setup2{
 pvars.EndGroup()
 local players = table.weak("k")
 
-local function setup_player(entity)
-	local movement = entity.character_movement
-	movement:SetAirAcceleration(1000000)
-	movement:SetStickToGround(false)
-	movement:SetWalkMaxLinearSpeed(MAX_SPEED)
-
-	if movement:GetMode() == "walk" then
-		entity.rigid_body:SetMaxLinearSpeed(MAX_SPEED)
-	end
-
-	return {}
-end
-
 event.AddListener("PlayerMove", "bhop", function(entity, move)
+	if not entity.player_controller then return end
+
 	local player = players[entity]
 
 	if not player then
-		player = setup_player(entity)
+		player = {}
 		players[entity] = player
 	end
 
