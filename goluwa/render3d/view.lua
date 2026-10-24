@@ -137,12 +137,15 @@ commands.Add("copyview", function()
 
 	if hit and hit.primitive then
 		local visual = hit.primitive.entity.VisualOwner
-		local material = visual.MaterialOverride or
-			hit.primitive.material or
-			render3d.GetDefaultMaterial()
-		str = str .. "entity = " .. tostring(visual.Owner) .. "\n"
-		str = str .. "model = " .. visual:GetModelPath() .. "\n"
-		str = str .. "material = " .. material:GetName() .. "\n"
+
+		if visual then
+			local material = visual.MaterialOverride or
+				hit.primitive.material or
+				render3d.GetDefaultMaterial()
+			str = str .. "entity = " .. tostring(visual.Owner) .. "\n"
+			str = str .. "model = " .. visual:GetModelPath() .. "\n"
+			str = str .. "material = " .. material:GetName() .. "\n"
+		end
 	end
 
 	clipboard.Set(str)
