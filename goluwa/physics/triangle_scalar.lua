@@ -1,7 +1,7 @@
 local math_min = math.min
 local math_max = math.max
--- a call to a builtin LuaJIT cannot record splits the trace there, which keeps one segment-triangle query from overflowing the 128 number spill slots of a trace
-local trace_break = jit.status
+-- calling a builtin LuaJIT cannot record splits the trace there, which keeps one segment-triangle query from overflowing the 128 number spill slots of a trace
+local trace_break = coroutine.running
 local triangle_scalar = {}
 local best = {0, 0, 0, 0, 0, 0, 0}
 local region = {0, 0, 0, 0, 0, 0}
