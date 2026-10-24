@@ -653,12 +653,21 @@ local function get_capsule_sweep_sample_steps(invariants, max_fraction)
 end
 
 local function is_capsule_moving_away_from_triangle(invariants, v0, nx, ny, nz, normal_len_sq)
-	local segment_a = invariants.segment_a
-	local segment_b = invariants.segment_b
-	local movement = invariants.movement
-	local d_a = (segment_a.x - v0.x) * nx + (segment_a.y - v0.y) * ny + (segment_a.z - v0.z) * nz
-	local d_b = (segment_b.x - v0.x) * nx + (segment_b.y - v0.y) * ny + (segment_b.z - v0.z) * nz
-	local movement_dot = movement.x * nx + movement.y * ny + movement.z * nz
+	local d_a = (
+			invariants.segment_a.x - v0.x
+		) * nx + (
+			invariants.segment_a.y - v0.y
+		) * ny + (
+			invariants.segment_a.z - v0.z
+		) * nz
+	local d_b = (
+			invariants.segment_b.x - v0.x
+		) * nx + (
+			invariants.segment_b.y - v0.y
+		) * ny + (
+			invariants.segment_b.z - v0.z
+		) * nz
+	local movement_dot = invariants.movement.x * nx + invariants.movement.y * ny + invariants.movement.z * nz
 	local threshold = (invariants.radius * invariants.radius) * normal_len_sq
 	return (
 			d_a > 0 and
@@ -698,19 +707,15 @@ local function narrow_reach_interval(t_lo, t_hi, c0, e, v, smin, smax)
 end
 
 local function is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2)
-	local radius = invariants.radius
-	local segment_a = invariants.segment_a
-	local segment_b = invariants.segment_b
-	local movement = invariants.movement
-	local extx = math.abs(segment_b.x - segment_a.x) * 0.5 + radius
-	local exty = math.abs(segment_b.y - segment_a.y) * 0.5 + radius
-	local extz = math.abs(segment_b.z - segment_a.z) * 0.5 + radius
+	local extx = math.abs(invariants.segment_b.x - invariants.segment_a.x) * 0.5 + invariants.radius
+	local exty = math.abs(invariants.segment_b.y - invariants.segment_a.y) * 0.5 + invariants.radius
+	local extz = math.abs(invariants.segment_b.z - invariants.segment_a.z) * 0.5 + invariants.radius
 	local t_lo, t_hi = narrow_reach_interval(
 		0,
 		max_fraction,
-		(segment_a.x + segment_b.x) * 0.5,
+		(invariants.segment_a.x + invariants.segment_b.x) * 0.5,
 		extx,
-		movement.x,
+		invariants.movement.x,
 		math_min(v0.x, v1.x, v2.x),
 		math_max(v0.x, v1.x, v2.x)
 	)
@@ -720,9 +725,9 @@ local function is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2)
 	t_lo, t_hi = narrow_reach_interval(
 		t_lo,
 		t_hi,
-		(segment_a.y + segment_b.y) * 0.5,
+		(invariants.segment_a.y + invariants.segment_b.y) * 0.5,
 		exty,
-		movement.y,
+		invariants.movement.y,
 		math_min(v0.y, v1.y, v2.y),
 		math_max(v0.y, v1.y, v2.y)
 	)
@@ -732,9 +737,9 @@ local function is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2)
 	t_lo, t_hi = narrow_reach_interval(
 		t_lo,
 		t_hi,
-		(segment_a.z + segment_b.z) * 0.5,
+		(invariants.segment_a.z + invariants.segment_b.z) * 0.5,
 		extz,
-		movement.z,
+		invariants.movement.z,
 		math_min(v0.z, v1.z, v2.z),
 		math_max(v0.z, v1.z, v2.z)
 	)
@@ -783,19 +788,16 @@ local function get_capsule_triangle_separation_sq(invariants, t, v0, v1, v2, fac
 end
 
 local function eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face_normal)
-	local movement = invariants.movement
-	local dx = movement.x * t
-	local dy = movement.y * t
-	local dz = movement.z * t
-	local segment_a = invariants.segment_a
-	local segment_b = invariants.segment_b
+	local dx = invariants.movement.x * t
+	local dy = invariants.movement.y * t
+	local dz = invariants.movement.z * t
 	local distance_sq, sx, sy, sz, qx, qy, qz = triangle_scalar.SegmentToTriangleSq(
-		segment_a.x + dx,
-		segment_a.y + dy,
-		segment_a.z + dz,
-		segment_b.x + dx,
-		segment_b.y + dy,
-		segment_b.z + dz,
+		invariants.segment_a.x + dx,
+		invariants.segment_a.y + dy,
+		invariants.segment_a.z + dz,
+		invariants.segment_b.x + dx,
+		invariants.segment_b.y + dy,
+		invariants.segment_b.z + dz,
 		v0,
 		v1,
 		v2,
@@ -859,17 +861,14 @@ end
 
 local function build_capsule_triangle_sweep_hit(invariants, face_normal, t, sp_x, sp_y, sp_z, tp_x, tp_y, tp_z, distance_sq)
 	local epsilon = EPSILON
-	local radius = invariants.radius
 	local normal
 
 	if distance_sq > epsilon * epsilon then
 		local distance = math.sqrt(distance_sq)
 		normal = Vec3((sp_x - tp_x) / distance, (sp_y - tp_y) / distance, (sp_z - tp_z) / distance)
 	else
-		local movement = invariants.movement
-
 		if
-			face_normal.x * movement.x + face_normal.y * movement.y + face_normal.z * movement.z > 0
+			face_normal.x * invariants.movement.x + face_normal.y * invariants.movement.y + face_normal.z * invariants.movement.z > 0
 		then
 			normal = face_normal * -1
 		else
@@ -879,7 +878,11 @@ local function build_capsule_triangle_sweep_hit(invariants, face_normal, t, sp_x
 
 	return {
 		t = t,
-		point = Vec3(sp_x - normal.x * radius, sp_y - normal.y * radius, sp_z - normal.z * radius),
+		point = Vec3(
+			sp_x - normal.x * invariants.radius,
+			sp_y - normal.y * invariants.radius,
+			sp_z - normal.z * invariants.radius
+		),
 		position = Vec3(tp_x, tp_y, tp_z),
 		normal = normal,
 	}
@@ -887,8 +890,6 @@ end
 
 function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 	local epsilon = EPSILON
-	local radius = invariants.radius
-	local movement = invariants.movement
 	local nx, ny, nz, normal_len_sq = triangle_scalar.TriangleNormalRaw(v0, v1, v2)
 	local is_degenerate = normal_len_sq <= epsilon * epsilon
 	SWEEP_STATS.candidate_triangles = SWEEP_STATS.candidate_triangles + 1
@@ -912,7 +913,7 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 		face_normal = Vec3(nx, ny, nz) * (1 / math.sqrt(normal_len_sq))
 	end
 
-	local hit_radius_sq = (radius + epsilon) * (radius + epsilon)
+	local hit_radius_sq = (invariants.radius + epsilon) * (invariants.radius + epsilon)
 	SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
 	local low_distance_sq, low_sx, low_sy, low_sz, low_qx, low_qy, low_qz = eval_capsule_triangle_distance_sq(invariants, 0, v0, v1, v2, face_normal)
 
@@ -940,11 +941,11 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 
 	local low_closing = (
 			low_sx - low_qx
-		) * movement.x + (
+		) * invariants.movement.x + (
 			low_sy - low_qy
-		) * movement.y + (
+		) * invariants.movement.y + (
 			low_sz - low_qz
-		) * movement.z
+		) * invariants.movement.z
 	local steps = get_capsule_sweep_sample_steps(invariants, max_fraction)
 	local low = 0
 	local hit_t = nil
@@ -955,7 +956,13 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 		local t = max_fraction * (i / steps)
 		SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
 		distance_sq, sx, sy, sz, qx, qy, qz = eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face_normal)
-		closing = (sx - qx) * movement.x + (sy - qy) * movement.y + (sz - qz) * movement.z
+		closing = (
+				sx - qx
+			) * invariants.movement.x + (
+				sy - qy
+			) * invariants.movement.y + (
+				sz - qz
+			) * invariants.movement.z
 
 		if distance_sq and distance_sq <= hit_radius_sq then
 			hit_t = t
@@ -1005,7 +1012,13 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 
 		SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
 		distance_sq, sx, sy, sz, qx, qy, qz = eval_capsule_triangle_distance_sq(invariants, next_t, v0, v1, v2, face_normal)
-		closing = (sx - qx) * movement.x + (sy - qy) * movement.y + (sz - qz) * movement.z
+		closing = (
+				sx - qx
+			) * invariants.movement.x + (
+				sy - qy
+			) * invariants.movement.y + (
+				sz - qz
+			) * invariants.movement.z
 
 		if distance_sq <= hit_radius_sq then
 			high = next_t
