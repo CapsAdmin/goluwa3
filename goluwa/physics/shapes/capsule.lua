@@ -519,7 +519,6 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	local support_metrics = self:GetSupportFootprintMetrics(body, ground_normal)
 	local is_heightmap_ground = ground_shape and ground_shape.IsHeightmap
 	local axis = get_capsule_axis_world(body)
-	local upright_alignment = math.abs(axis:Dot(ground_normal))
 	local support = support_metrics.support or {count = 0, overhang_length = math.huge}
 	local normal_speed = body.Velocity:Dot(ground_normal)
 	local tangent_speed = (body.Velocity - ground_normal * normal_speed):GetLength()
@@ -528,6 +527,7 @@ function META:OnGroundedVelocityUpdate(body, dt)
 	local flat_ground = ground_normal.y >= math.max(body:GetMinGroundNormalY() or 0, 0.75)
 
 	if not is_heightmap_ground then
+		local upright_alignment = math.abs(axis:Dot(ground_normal))
 		local terrain_like_ground = ground_body and
 			(
 				ground_body.WorldGeometry == true or
@@ -663,23 +663,32 @@ function META:OnGroundedVelocityUpdate(body, dt)
 		local overhang_length = support.overhang_length or 0
 
 		if overhang and overhang_length > (support_metrics.tolerance or 0) then
-			local topple_axis = ground_normal:GetCross(overhang)
+			local tx = ground_normal.y * overhang.z - ground_normal.z * overhang.y
+			local ty = ground_normal.z * overhang.x - ground_normal.x * overhang.z
+			local tz = ground_normal.x * overhang.y - ground_normal.y * overhang.x
 
-			if topple_axis:GetLength() > EPSILON then
-				topple_axis = topple_axis:GetNormalized()
-				local lever_arm = math.max((support_metrics.minor_footprint_span or 0) * 0.5, self:GetRadius() * 0.5, EPSILON)
-				local instability = math.min(1, overhang_length / lever_arm)
-				local gravity_strength = physics.Gravity:GetLength() or 28
+			if math.sqrt(tx * tx + ty * ty + tz * tz) > EPSILON then
+
+				do
+					local inverse_length = 1 / math.sqrt(tx * tx + ty * ty + tz * tz)
+					tx, ty, tz = tx * inverse_length, ty * inverse_length, tz * inverse_length
+				end
+
 				local desired_topple = math.min(
-					gravity_strength * body:GetGravityScale() * dt * instability * (
+					physics.Gravity:GetLength() * body:GetGravityScale() * dt * math.min(
+							1,
+							overhang_length / math.max((support_metrics.minor_footprint_span or 0) * 0.5, self:GetRadius() * 0.5, EPSILON)
+						) * (
 							0.45 + support_coverage * 0.75
 						),
 					0.65
 				)
-				local topple_component = body.AngularVelocity:Dot(topple_axis)
+				local velocity = body.AngularVelocity
+				local topple_component = velocity.x * tx + velocity.y * ty + velocity.z * tz
 
 				if topple_component < desired_topple then
-					body.AngularVelocity = body.AngularVelocity + topple_axis * (desired_topple - topple_component)
+					local delta = desired_topple - topple_component
+					body.AngularVelocity = Vec3(velocity.x + tx * delta, velocity.y + ty * delta, velocity.z + tz * delta)
 					angular_speed = body.AngularVelocity:GetLength()
 				end
 			end
