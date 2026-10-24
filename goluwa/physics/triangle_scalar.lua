@@ -1,7 +1,10 @@
 local math_min = math.min
 local math_max = math.max
+-- a call to a builtin LuaJIT cannot record splits the trace there, which keeps one segment-triangle query from overflowing the 128 number spill slots of a trace
+local trace_break = jit.status
 local triangle_scalar = {}
-local best = {0, 0, 0, 0, 0, 0}
+local best = {0, 0, 0, 0, 0, 0, 0}
+local seg = {0, 0, 0, 0, 0, 0}
 
 function triangle_scalar.TriangleNormalRaw(v0, v1, v2)
 	local abx = v1.x - v0.x
@@ -252,51 +255,57 @@ do
 		end
 
 		face_normal = nil
-		local best_sq
+		-- the segment lives in memory from here on so side traces of the candidate tests do not inherit it
+		seg[1], seg[2], seg[3], seg[4], seg[5], seg[6] = ax, ay, az, bx, by, bz
+		ax, ay, az, bx, by, bz = nil, nil, nil, nil, nil, nil
 
 		do
-			local sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(ax, ay, az, v0, v1, v2)
-			best_sq = sq
-			best[1], best[2], best[3], best[4], best[5], best[6] = ax, ay, az, qx, qy, qz
+			local sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(seg[1], seg[2], seg[3], v0, v1, v2)
+			best[7] = sq
+			best[1], best[2], best[3], best[4], best[5], best[6] = seg[1], seg[2], seg[3], qx, qy, qz
 		end
 
 		do
-			local sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(bx, by, bz, v0, v1, v2)
+			local sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(seg[4], seg[5], seg[6], v0, v1, v2)
 
-			if sq < best_sq then
-				best_sq = sq
-				best[1], best[2], best[3], best[4], best[5], best[6] = bx, by, bz, qx, qy, qz
+			if sq < best[7] then
+				best[7] = sq
+				best[1], best[2], best[3], best[4], best[5], best[6] = seg[4], seg[5], seg[6], qx, qy, qz
 			end
 		end
 
-		do
-			local sq, px, py, pz, qx, qy, qz = segment_segment_sq(ax, ay, az, bx, by, bz, v0, v1)
+		trace_break()
 
-			if sq < best_sq then
-				best_sq = sq
+		do
+			local sq, px, py, pz, qx, qy, qz = segment_segment_sq(seg[1], seg[2], seg[3], seg[4], seg[5], seg[6], v0, v1)
+
+			if sq < best[7] then
+				best[7] = sq
 				best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
 			end
 		end
 
 		do
-			local sq, px, py, pz, qx, qy, qz = segment_segment_sq(ax, ay, az, bx, by, bz, v1, v2)
+			local sq, px, py, pz, qx, qy, qz = segment_segment_sq(seg[1], seg[2], seg[3], seg[4], seg[5], seg[6], v1, v2)
 
-			if sq < best_sq then
-				best_sq = sq
+			if sq < best[7] then
+				best[7] = sq
 				best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
 			end
 		end
+
+		trace_break()
 
 		do
-			local sq, px, py, pz, qx, qy, qz = segment_segment_sq(ax, ay, az, bx, by, bz, v2, v0)
+			local sq, px, py, pz, qx, qy, qz = segment_segment_sq(seg[1], seg[2], seg[3], seg[4], seg[5], seg[6], v2, v0)
 
-			if sq < best_sq then
-				best_sq = sq
+			if sq < best[7] then
+				best[7] = sq
 				best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
 			end
 		end
 
-		return best_sq, best[1], best[2], best[3], best[4], best[5], best[6]
+		return best[7], best[1], best[2], best[3], best[4], best[5], best[6]
 	end
 end
 
