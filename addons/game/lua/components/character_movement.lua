@@ -63,6 +63,7 @@ function META:Initialize()
 	self.previous_velocity = Vec3()
 	self.previous_valid = false
 	self.dead = false
+	self.step_hold_time = 0
 	self.fly_speed_multiplier = 1
 	self.Owner.transform.RenderOffset = Vec3()
 	self:AddGlobalEvent("PhysicsUpdate")
@@ -110,6 +111,7 @@ function META:Reset(mode)
 	self.CrouchAnchorMode = nil
 	self.CrouchAnchorPosition = nil
 	self.was_grounded = false
+	self.step_hold_time = 0
 	self.jumping = false
 	self.Swimming = false
 	self.ground_x = nil
@@ -254,11 +256,14 @@ local MOVE = {
 }
 local STEP_PROBE_LIFT = 0.04
 local STEP_REACH_MARGIN = 0.03
+local STEP_IMMINENT_MARGIN = 0.08
 local STEP_PROBE_BACKOFF = 0.05
 local STEP_MIN_GAIN = 0.005
 local STEP_MIN_RISE = 0.002
 local STEP_LOW_PROBE_EXTRA = 0.15
+local STEP_LANDING_MARGIN = 0.02
 local GROUND_RAY_LIFT = 0.02
+local STEP_HOLD_TIME = 0.12
 local STEP_SMOOTH_SPEED = 8
 local STEP_SMOOTH_MIN_SPEED = 1
 local STEP_OPTIONS = {Rotation = nil, IgnoreRigidBodies = false}
@@ -281,19 +286,18 @@ function META:TryStepUp(direction, distance)
 	STEP_OPTIONS.Rotation = body:GetRotation()
 	local gap = body:GetCollisionMargin() * 2
 	local start = position + Vec3(0, STEP_PROBE_LIFT, 0) - direction * STEP_PROBE_BACKOFF
-	local reach_length = STEP_PROBE_BACKOFF + math.max(distance + STEP_REACH_MARGIN, self.Radius * 0.5)
-	local reach = direction * reach_length
-	local flat = physics.SweepCollider(collider, start, reach, owner, filter, STEP_OPTIONS)
+	local reach_length = STEP_PROBE_BACKOFF + self.Radius + STEP_REACH_MARGIN + distance
+	local flat = physics.SweepCollider(collider, start, direction * reach_length, owner, filter, STEP_OPTIONS)
 	local flat_distance
 
 	if flat then
 		flat_distance = reach_length * flat.fraction
 	else
-		local low_start = position - direction * STEP_PROBE_BACKOFF
+		local low_length = reach_length + STEP_LOW_PROBE_EXTRA
 		local low = physics.SweepCollider(
 			collider,
-			low_start,
-			direction * (reach_length + STEP_LOW_PROBE_EXTRA),
+			position - direction * STEP_PROBE_BACKOFF,
+			direction * low_length,
 			owner,
 			filter,
 			STEP_OPTIONS
@@ -301,32 +305,43 @@ function META:TryStepUp(direction, distance)
 
 		if not low then return false end
 
-		flat_distance = 0
+		flat_distance = low_length * low.fraction
 	end
+
+	if flat_distance - STEP_PROBE_BACKOFF > distance * 2 + STEP_IMMINENT_MARGIN then return false end
 
 	local up = Vec3(0, self.StepHeight + gap - STEP_PROBE_LIFT, 0)
 	local up_hit = physics.SweepCollider(collider, start, up, owner, filter, STEP_OPTIONS)
 	local raised = start + up * (up_hit and up_hit.fraction or 1)
-	local across = physics.SweepCollider(collider, raised, reach, owner, filter, STEP_OPTIONS)
-	local across_distance = reach_length * (across and across.fraction or 1)
+	local across_length = flat_distance + self.Radius + STEP_LANDING_MARGIN
+	local across = physics.SweepCollider(collider, raised, direction * across_length, owner, filter, STEP_OPTIONS)
+	local across_distance = across_length * (across and across.fraction or 1)
 
 	if across_distance <= flat_distance + STEP_MIN_GAIN then return false end
 
-	local landing = raised + reach * (across and across.fraction or 1)
 	local drop = Vec3(0, -(self.StepHeight + gap + STEP_PROBE_LIFT), 0)
-	local down = physics.SweepCollider(collider, landing, drop, owner, filter, STEP_OPTIONS)
 
-	if not down or down.normal.y < self.MinGroundNormalY then return false end
+	for i = 1, 2 do
+		local landing_distance = math.min(
+			flat_distance + (i == 1 and self.Radius + STEP_LANDING_MARGIN or self.Radius * 0.5),
+			across_distance
+		)
+		local landing = raised + direction * landing_distance
+		local down = physics.SweepCollider(collider, landing, drop, owner, filter, STEP_OPTIONS)
 
-	local lift = landing.y + drop.y * down.fraction + gap - position.y
+		if down and down.normal.y >= self.MinGroundNormalY then
+			local lift = landing.y + drop.y * down.fraction + gap - position.y
 
-	if lift - gap <= STEP_MIN_RISE or lift > self.StepHeight + gap + STEP_MIN_GAIN then
-		return false
+			if lift - gap > STEP_MIN_RISE and lift <= self.StepHeight + gap + STEP_MIN_GAIN then
+				self:MoveBodyBy(body, Vec3(0, lift, 0))
+				self.Owner.transform.RenderOffset.y = self.Owner.transform.RenderOffset.y - lift
+				self.step_hold_time = STEP_HOLD_TIME
+				return true
+			end
+		end
 	end
 
-	self:MoveBodyBy(body, Vec3(0, lift, 0))
-	self.Owner.transform.RenderOffset.y = self.Owner.transform.RenderOffset.y - lift
-	return true
+	return false
 end
 
 function META:SweepHull(direction, length)
@@ -663,6 +678,7 @@ do
 
 			if y <= 0 then self.jumping = false end
 
+			self.step_hold_time = self.step_hold_time - dt
 			local rising = y > self.LeaveGroundSpeed
 			local ground_normal
 
@@ -683,14 +699,12 @@ do
 				if found then
 					ground_normal = normal
 
-					if gap > 0 and reach > self.GroundReach then
+					if gap > 0 and reach > self.GroundReach and self.step_hold_time <= 0 then
 						self:MoveBodyBy(body, Vec3(0, -gap, 0))
 						self.Owner.transform.RenderOffset.y = self.Owner.transform.RenderOffset.y + gap
 					end
 				end
 			end
-
-			local along = x * move.x + z * move.z
 
 			if grounded then
 				if self.was_grounded and y > 0 and self.ground_x then
@@ -763,17 +777,19 @@ do
 				y = -(x * ground_normal.x + z * ground_normal.z) / ground_normal.y
 			end
 
-			body:ApplyImpulse(Vec3(x - velocity.x, y - velocity.y, z - velocity.z) / body.InverseMass)
-			self.was_grounded = grounded
-			self.ground_x = grounded and x or nil
-			self.ground_z = grounded and z or nil
-
 			if grounded and wish_speed > 0 then
-				if along < wish_speed * 0.85 then
-					self:TryStepUp(move, math.sqrt(x * x + z * z) * dt)
+				local speed = math.sqrt(x * x + z * z)
+
+				if speed > 0.0001 then
+					self:TryStepUp(Vec3(x / speed, 0, z / speed), speed * dt)
 				end
 			end
 
+			body:ApplyImpulse(Vec3(x - velocity.x, y - velocity.y, z - velocity.z) / body.InverseMass)
+
+			self.was_grounded = grounded
+			self.ground_x = grounded and x or nil
+			self.ground_z = grounded and z or nil
 			return
 		end
 
