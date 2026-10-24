@@ -1341,11 +1341,10 @@ function ddgi.GetCommonGLSL()
 			return ddgi_data.ddgi_rt_ready != 0 && (ddgi_data.ddgi_visibility_rays == 2 || ddgi_data.ddgi_visibility_rays == 1 && probe_position != vec3(world));
 		}
 
-		float ddgi_probe_weight(int c, ivec3 world, float kernel, vec3 P, vec3 N, vec3 L, vec3 biased, float spacing, out vec4 irradiance, out vec3 probe_position) {
-			ivec3 slot = ddgi_slot(world, c);
+		float ddgi_probe_weight(int c, ivec3 world, float kernel, vec3 P, vec3 N, vec3 biased, float spacing, out ivec3 slot, out vec3 probe_position) {
+			slot = ddgi_slot(world, c);
 			vec4 data = ddgi_probe_data(slot, c);
 			probe_position = data.xyz;
-			irradiance = vec4(0.0);
 
 			if (!ddgi_probe_is_current(data, world) || ddgi_probe_disabled(data)) return 0.0;
 
@@ -1375,20 +1374,18 @@ function ddgi.GetCommonGLSL()
 
 			if (w < 0.2) w *= w * w / 0.04;
 
-			w *= kernel;
-
-			if (w <= 0.0) return 0.0;
-
-			irradiance = textureLod(
-				TEXTURE(ddgi_data.ddgi_irradiance_tex),
-				ddgi_atlas_uv(slot, c, L, DDGI_IRRADIANCE_TEXELS),
-				0.0
-			);
-			return w;
+			return w * kernel;
 		}
 
-		vec4 ddgi_sample_cascade(int c, vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
+		bool ddgi_probe_needs_trace(float w, float luma, vec4 sum, float visibility_min_weight) {
+			return visibility_min_weight == DDGI_CONTRAST_VISIBILITY_RAYS ?
+				luma > ddgi_data.ddgi_contrast_ratio * ddgi_contrast_reference && w * luma > DDGI_CONTRAST_SHARE * luminance(sum.rgb) :
+				visibility_min_weight < DDGI_NO_VISIBILITY_RAYS && (w >= visibility_min_weight || w * luma > DDGI_VISIBILITY_MIN_SHARE * luminance(sum.rgb));
+		}
+
+		vec4 ddgi_sample_cascade_pair(int c, vec3 P, vec3 N, vec3 L, vec3 L2, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight, out vec4 second) {
 			weight = 0.0;
+			second = vec4(0.0);
 
 			if (ddgi_cascade_reset(c)) return vec4(0.0);
 
@@ -1404,6 +1401,7 @@ function ddgi.GetCommonGLSL()
 			ivec3 volume_min = ddgi_volume_base(c);
 			ivec3 volume_max = volume_min + ddgi_volume_size(c) - 1;
 			vec4 sum = vec4(0.0);
+			vec4 second_sum = vec4(0.0);
 
 			for (int i = 0; i < side * side * side; i++) {
 				ivec3 offset = ivec3(i % side, (i / side) % side, i / (side * side));
@@ -1412,23 +1410,24 @@ function ddgi.GetCommonGLSL()
 				if (any(lessThan(world, volume_min)) || any(greaterThan(world, volume_max))) continue;
 
 				vec3 kernel = smooth_blend ? mix(mix(below, middle, equal(offset, ivec3(1))), above, equal(offset, ivec3(2))) : mix(1.0 - alpha, alpha, vec3(offset));
-				vec4 irradiance;
+				ivec3 slot;
 				vec3 probe_position;
-				float w = ddgi_probe_weight(c, world, kernel.x * kernel.y * kernel.z, P, N, L, biased, spacing, irradiance, probe_position);
+				float w = ddgi_probe_weight(c, world, kernel.x * kernel.y * kernel.z, P, N, biased, spacing, slot, probe_position);
 
 				if (w <= 0.0) continue;
 
-				float luma = luminance(irradiance.rgb);
-				bool trace = visibility_min_weight == DDGI_CONTRAST_VISIBILITY_RAYS ?
-					luma > ddgi_data.ddgi_contrast_ratio * ddgi_contrast_reference && w * luma > DDGI_CONTRAST_SHARE * luminance(sum.rgb) :
-					visibility_min_weight < DDGI_NO_VISIBILITY_RAYS && (w >= visibility_min_weight || w * luma > DDGI_VISIBILITY_MIN_SHARE * luminance(sum.rgb));
+				vec4 irradiance = textureLod(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, L, DDGI_IRRADIANCE_TEXELS), 0.0);
+				vec4 irradiance2 = textureLod(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, L2, DDGI_IRRADIANCE_TEXELS), 0.0);
+				bool trace = ddgi_probe_needs_trace(w, luminance(irradiance.rgb), sum, visibility_min_weight) || ddgi_probe_needs_trace(w, luminance(irradiance2.rgb), sum, visibility_min_weight);
 
 				if (trace && ddgi_probe_can_be_traced(probe_position, world) && ddgi_probe_hidden(P, N, probe_position * spacing, spacing)) continue;
 
 				sum += irradiance * w;
+				second_sum += irradiance2 * w;
 				weight += w;
 			}
 
+			second = second_sum / max(weight, ]] .. MIN_WEIGHT .. [[);
 			return sum / max(weight, ]] .. MIN_WEIGHT .. [[);
 		}
 
@@ -1446,9 +1445,10 @@ function ddgi.GetCommonGLSL()
 			return clamp((min(edge.x, min(edge.y, edge.z)) - (smooth_blend ? 1.5 : 1.0)) / ddgi_data.ddgi_cascade_blend, 0.0, 1.0);
 		}
 
-		vec4 ddgi_sample_irradiance_unscaled(vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
+		vec4 ddgi_sample_irradiance_pair(vec3 P, vec3 N, vec3 L, vec3 L2, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight, out vec4 second) {
 			weight = 0.0;
-
+			second = vec4(0.0);
+			vec4 result = vec4(0.0);
 			int count = ddgi_data.ddgi_cascade_count;
 
 			for (int c = 0; c < count; c++) {
@@ -1456,9 +1456,9 @@ function ddgi.GetCommonGLSL()
 
 				if (fine <= 0.0) continue;
 
-				vec4 result = ddgi_sample_cascade(c, P, N, L, V, smooth_blend, visibility_min_weight, weight);
+				result = ddgi_sample_cascade_pair(c, P, N, L, L2, V, smooth_blend, visibility_min_weight, weight, second);
 
-				if (c == count - 1) return result;
+				if (c == count - 1) break;
 
 				float keep = fine;
 
@@ -1466,26 +1466,31 @@ function ddgi.GetCommonGLSL()
 				if (visibility_min_weight < DDGI_NO_VISIBILITY_RAYS) keep *= smoothstep(0.0, ]] .. MIN_WEIGHT .. [[, weight);
 				#endif
 
-				if (keep >= 1.0) return result;
+				if (keep >= 1.0) break;
 
 				float coarse_weight;
-				vec4 coarse = ddgi_sample_cascade(c + 1, P, N, L, V, smooth_blend, visibility_min_weight, coarse_weight);
+				vec4 coarse_second;
+				vec4 coarse = ddgi_sample_cascade_pair(c + 1, P, N, L, L2, V, smooth_blend, visibility_min_weight, coarse_weight, coarse_second);
 
-				if (coarse_weight <= 0.0) return result;
+				if (coarse_weight > 0.0) {
+					weight = mix(coarse_weight, weight, keep);
+					result = mix(coarse, result, keep);
+					second = mix(coarse_second, second, keep);
+				}
 
-				weight = mix(coarse_weight, weight, keep);
-				return mix(coarse, result, keep);
+				break;
 			}
 
-			return vec4(0.0);
+			#ifndef DDGI_UNSCALED
+			result.rgb *= ddgi_data.ddgi_strength;
+			second.rgb *= ddgi_data.ddgi_strength;
+			#endif
+			return result;
 		}
 
 		vec4 ddgi_sample_irradiance(vec3 P, vec3 N, vec3 L, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight) {
-			vec4 result = ddgi_sample_irradiance_unscaled(P, N, L, V, smooth_blend, visibility_min_weight, weight);
-			#ifndef DDGI_UNSCALED
-			result.rgb *= ddgi_data.ddgi_strength;
-			#endif
-			return result;
+			vec4 second;
+			return ddgi_sample_irradiance_pair(P, N, L, L, V, smooth_blend, visibility_min_weight, weight, second);
 		}
 	]]
 end

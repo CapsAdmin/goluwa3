@@ -1291,8 +1291,11 @@ local function pass_resolve()
 				vec3 V = normalize(ddgi_data.camera_position - P);
 				float roughness = roughness_sum / count;
 				imageStore(out_geometry, pos, vec4(N, depth_sum / count));
+				bool rough = roughness > 0.25;
+				vec3 R = rough ? get_specular_dominant_direction(reflect(-V, N), N, roughness) : L;
 				float weight;
-				vec4 gi = ddgi_sample_irradiance(P, N, L, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
+				vec4 specular;
+				vec4 gi = ddgi_sample_irradiance_pair(P, N, L, R, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight, specular);
 
 				if (weight <= 0.0 && !ddgi_in_volume(P)) {
 					gi = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, N) * ddgi_data.ddgi_strength, 1.0);
@@ -1300,15 +1303,10 @@ local function pass_resolve()
 
 				imageStore(out_color, pos, gi);
 
-				vec4 specular = gi;
-
-				if (roughness > 0.25) {
-					vec3 R = get_specular_dominant_direction(reflect(-V, N), N, roughness);
-					specular = ddgi_sample_irradiance(P, N, R, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
-
-					if (weight <= 0.0 && !ddgi_in_volume(P)) {
-						specular = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, R) * ddgi_data.ddgi_strength, 1.0);
-					}
+				if (!rough) {
+					specular = gi;
+				} else if (weight <= 0.0 && !ddgi_in_volume(P)) {
+					specular = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, R) * ddgi_data.ddgi_strength, 1.0);
 				}
 
 				imageStore(out_specular, pos, specular);
