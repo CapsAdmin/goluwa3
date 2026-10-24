@@ -336,6 +336,8 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	impulse_motion.CommitPairMotion(state_a, state_b, dt)
 end
 
+local rebuild_manifold
+
 local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts, options, solver)
 	manifold.last_seen_step = solver.StepStamp
 	manifold.idle = false
@@ -346,27 +348,30 @@ local function fill_manifold(manifold, body_a, body_b, normal, overlap, contacts
 	manifold.resolve_options = options
 
 	if manifold.last_rebuild_step ~= solver.StepStamp then
-		manifolds.RebuildContacts(body_a, body_b, manifold, contacts)
-		body_a, body_b, options = nil, nil, nil
-		local deepest = -math.huge
-		local normal_x, normal_y, normal_z = normal.x, normal.y, normal.z
-
-		for i = 1, #contacts do
-			local depth = (
-					contacts[i].point_a.x - contacts[i].point_b.x
-				) * normal_x + (
-					contacts[i].point_a.y - contacts[i].point_b.y
-				) * normal_y + (
-					contacts[i].point_a.z - contacts[i].point_b.z
-				) * normal_z
-
-			if depth > deepest then deepest = depth end
-		end
-
-		manifold.depth_offset = overlap - deepest
-		manifold.last_rebuild_step = solver.StepStamp
-		stats:Count("contact_points", #contacts)
+		return rebuild_manifold(manifold, normal, overlap, contacts, solver)
 	end
+end
+
+function rebuild_manifold(manifold, normal, overlap, contacts, solver)
+	manifolds.RebuildContacts(manifold.solve_a, manifold.solve_b, manifold, contacts)
+	local deepest = -math.huge
+	local normal_x, normal_y, normal_z = normal.x, normal.y, normal.z
+
+	for i = 1, #contacts do
+		local depth = (
+				contacts[i].point_a.x - contacts[i].point_b.x
+			) * normal_x + (
+				contacts[i].point_a.y - contacts[i].point_b.y
+			) * normal_y + (
+				contacts[i].point_a.z - contacts[i].point_b.z
+			) * normal_z
+
+		if depth > deepest then deepest = depth end
+	end
+
+	manifold.depth_offset = overlap - deepest
+	manifold.last_rebuild_step = solver.StepStamp
+	stats:Count("contact_points", #contacts)
 end
 
 local function store_rebuild_pose(manifold, body_a, body_b)
