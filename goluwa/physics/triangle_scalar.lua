@@ -3,60 +3,6 @@ local math_max = math.max
 local triangle_scalar = {}
 local best = {0, 0, 0, 0, 0, 0}
 
-local function point_in_triangle_fast_path(px, py, pz, a, b, c, n, epsilon)
-	local pax = px - a.x
-	local pay = py - a.y
-	local paz = pz - a.z
-	local ex = b.x - a.x
-	local ey = b.y - a.y
-	local ez = b.z - a.z
-
-	if
-		(
-			ey * paz - ez * pay
-		) * n.x + (
-			ez * pax - ex * paz
-		) * n.y + (
-			ex * pay - ey * pax
-		) * n.z < -epsilon
-	then
-		return false
-	end
-
-	pax = px - b.x
-	pay = py - b.y
-	paz = pz - b.z
-	ex = c.x - b.x
-	ey = c.y - b.y
-	ez = c.z - b.z
-
-	if
-		(
-			ey * paz - ez * pay
-		) * n.x + (
-			ez * pax - ex * paz
-		) * n.y + (
-			ex * pay - ey * pax
-		) * n.z < -epsilon
-	then
-		return false
-	end
-
-	pax = px - c.x
-	pay = py - c.y
-	paz = pz - c.z
-	ex = a.x - c.x
-	ey = a.y - c.y
-	ez = a.z - c.z
-	return (
-			ey * paz - ez * pay
-		) * n.x + (
-			ez * pax - ex * paz
-		) * n.y + (
-			ex * pay - ey * pax
-		) * n.z >= -epsilon
-end
-
 function triangle_scalar.TriangleNormalRaw(v0, v1, v2)
 	local abx = v1.x - v0.x
 	local aby = v1.y - v0.y
@@ -259,22 +205,70 @@ do
 					local px = a.x + (b.x - a.x) * t
 					local py = a.y + (b.y - a.y) * t
 					local pz = a.z + (b.z - a.z) * t
+					local pax = px - v0.x
+					local pay = py - v0.y
+					local paz = pz - v0.z
+					local ex = v1.x - v0.x
+					local ey = v1.y - v0.y
+					local ez = v1.z - v0.z
 
-					if point_in_triangle_fast_path(px, py, pz, v0, v1, v2, face_normal, epsilon) then
-						local signed = (
-								a.x - v0.x
+					if
+						(
+							ey * paz - ez * pay
+						) * face_normal.x + (
+							ez * pax - ex * paz
+						) * face_normal.y + (
+							ex * pay - ey * pax
+						) * face_normal.z >= -epsilon
+					then
+						pax = px - v1.x
+						pay = py - v1.y
+						paz = pz - v1.z
+						ex = v2.x - v1.x
+						ey = v2.y - v1.y
+						ez = v2.z - v1.z
+
+						if
+							(
+								ey * paz - ez * pay
 							) * face_normal.x + (
-								a.y - v0.y
+								ez * pax - ex * paz
 							) * face_normal.y + (
-								a.z - v0.z
-							) * face_normal.z + den * t
-						return signed * signed,
-						px,
-						py,
-						pz,
-						px - face_normal.x * signed,
-						py - face_normal.y * signed,
-						pz - face_normal.z * signed
+								ex * pay - ey * pax
+							) * face_normal.z >= -epsilon
+						then
+							pax = px - v2.x
+							pay = py - v2.y
+							paz = pz - v2.z
+							ex = v0.x - v2.x
+							ey = v0.y - v2.y
+							ez = v0.z - v2.z
+
+							if
+								(
+									ey * paz - ez * pay
+								) * face_normal.x + (
+									ez * pax - ex * paz
+								) * face_normal.y + (
+									ex * pay - ey * pax
+								) * face_normal.z >= -epsilon
+							then
+								local signed = (
+										a.x - v0.x
+									) * face_normal.x + (
+										a.y - v0.y
+									) * face_normal.y + (
+										a.z - v0.z
+									) * face_normal.z + den * t
+								return signed * signed,
+								px,
+								py,
+								pz,
+								px - face_normal.x * signed,
+								py - face_normal.y * signed,
+								pz - face_normal.z * signed
+							end
+						end
 					end
 				end
 			end
