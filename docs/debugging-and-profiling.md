@@ -24,6 +24,16 @@ Temporary print logging and code edits are fine for finding causes; remove them 
 - Captures are saved to `storage/logs/jit_profile_<id>.glwp`. `PROF.Summary(path, opts)` takes that capture path, prints to stdout, and with the trace recorder on ends with "top aborts by source" (reason, line, count): look there for the files you changed. "error thrown or hook called during recording" entries with a count of 1 come from the profiler itself.
 - Headless physics runs: `--cli` and `--server` sleep 33 ms every Update (`--fps=N` changes it), so wall frame time there is meaningless. Use `--headless --fps=60`, call `physics.Initialize()` yourself, and time `physics.instance.UpdateFixed`; without a limiter a frame takes microseconds and the fixed step never accumulates a tick. Headless profiles are much steadier than ones with the renderer.
 
+# jit.log (streaming trace and profile log)
+
+A LuaJIT fork in `local_stuff/LuaJIT-Profiler` (pinned to the flake's rev) adds `require("jit.log")`, which writes trace start/stop/abort/flush and profiler samples as binary records straight from C, with no Lua callbacks. Run the engine with `local_stuff/LuaJIT-Profiler/src/luajit glw ...` to use it.
+
+- Build: `nix-shell -p gcc gnumake --run 'make amalg XCFLAGS="-DLUAJIT_ENABLE_LUA52COMPAT" BUILDMODE=static'` in the fork. Run `make clean` first when switching between amalg and non-amalg builds.
+- API: `log.start(path, {traces, profile, interval, mode, depth})`, `log.stop()`, `log.flush()`, `log.status()`, `log.string(s)`, `log.section_ptr()` (address of the uint32 section id every sample snapshots; set it through ffi, a C call inside traced code would abort the trace).
+- Read it outside the engine with `tools/log_reader.lua` in the fork: `local_stuff/LuaJIT-Profiler/src/luajit local_stuff/LuaJIT-Profiler/tools/log_reader.lua file.gljl` prints a summary, or `dofile` it for `Reader.New(path)`, `:Poll()` (incremental, works while the log is still being written), `:GetLiveTraces()`, `:Summary()`, `.events`. Aborts carry the C source site and a description of the live values; side trace head register failures name the Lua locals.
+- The log is process-wide but only follows the Lua state that started it. Worker threads have their own VM and JIT and are ignored.
+- Format: `u8 type, 3 byte padded varint length, payload`, payload starts with a varint ns delta. Strings, protos and stacks are defined once before first use; unknown record types can be skipped.
+
 # Desktop and the PERF window
 
 - `goluwa/render2d/ui/desktop.lua` is the desktop (keys bound in `goluwa/main.lua`): hold `c` for program buttons and a free cursor, Escape toggles it dimmed and sticky. Add programs with `desktop.RegisterProgram{...}`, menus with `desktop.RegisterMenu`, backdrops with `desktop.RegisterBackdrop`; read the register functions for the fields. A pinned window stays on screen in HUD mode when the desktop hides.
