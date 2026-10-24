@@ -14,7 +14,7 @@ for _, name in ipairs{"Position", "Rotation", "FOV", "NearZ", "FarZ", "OrthoMode
 end
 
 View:GetSet("Priority", 0, {callback = "OnPriorityChanged"})
-View:GetSet("HideAvatars", false)
+View:GetSet("HidePlayer", true)
 View:GetSet("Ignore", nil)
 View:GetSet("HideHud", false)
 View:GetSet("ExposureLock", false)

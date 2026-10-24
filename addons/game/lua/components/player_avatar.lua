@@ -66,14 +66,15 @@ function META:ApplyFirstPerson()
 	end
 end
 
-function META:ApplyShotHidden()
+function META:ApplyViewHidden()
 	local view = View.GetActive()
+	local camera = self.Owner.camera
 	local visibility = self.Owner:EnsureComponent("visibility")
 
-	if view and view:GetHideAvatars() then
-		visibility:AddHider("shot")
+	if camera and view and view:GetHidePlayer() and not camera:IsRendered() then
+		visibility:AddHider("view")
 	else
-		visibility:RemoveHider("shot")
+		visibility:RemoveHider("view")
 	end
 end
 
@@ -124,7 +125,7 @@ function META:OnUpdate()
 		self:Build()
 	end
 
-	self:ApplyShotHidden()
+	self:ApplyViewHidden()
 	local camera = self.Owner.camera
 
 	if camera then

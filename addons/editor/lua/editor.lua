@@ -527,7 +527,7 @@ local Editor = react.Component(
 		local applied_search = react.UseDebounce(search, 0.25)
 		local picking = react.UsePoll(picker.IsActive)
 		local size = react.UseMemo(||->Vec2(400, Panel.World.transform:GetSize().y), {})
-		local view = react.UseResource(||->View.New{Priority = 10}:Activate(), |view|->view:Remove(), {})
+		local view = react.UseResource(||->View.New{Priority = 10, HidePlayer = false}:Activate(), |view|->view:Remove(), {})
 		local h = react.UseMemo(
 			||-> do
 				local f = flags.current
