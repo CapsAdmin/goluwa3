@@ -168,7 +168,7 @@ do
 	end
 
 	local function to_unit(x)
-		return ((x < 0 and x + 4294967296 or x) + 0.5) / 4294967296
+		return (x % 4294967296 + 0.5) / 4294967296
 	end
 
 	local function pierson_moskowitz(omega, peak_omega)
