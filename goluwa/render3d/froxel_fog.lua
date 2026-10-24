@@ -61,6 +61,28 @@ function froxel_fog.EnsureResources()
 	}
 	froxels.depth:SetDebugName("render3d froxels depth")
 	froxels.depth_sampler = render.CreateSampler(froxels.depth:GetSamplerConfig())
+	if froxels.gi then froxels.gi:Remove() end
+
+	froxels.gi = Texture.New{
+		width = math.ceil(width / 2),
+		height = math.ceil(height / 2),
+		format = "r16g16b16a16_sfloat",
+		image = {
+			image_type = "3d",
+			depth = froxel_fog.SLICES,
+			usage = {"storage", "sampled"},
+		},
+		view = {view_type = "3d"},
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+			wrap_r = "clamp_to_edge",
+		},
+	}
+	froxels.gi:SetDebugName("render3d froxels gi")
+	froxels.gi_sampler = render.CreateSampler(froxels.gi:GetSamplerConfig())
 	froxels.integrated = froxels.raw
 	froxels.integrated_sampler = froxels.raw_sampler
 	froxels.width = width

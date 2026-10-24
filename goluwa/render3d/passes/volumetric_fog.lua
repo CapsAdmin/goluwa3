@@ -30,6 +30,7 @@ local BINDING_RAW = 6
 local BINDING_LIGHT_GRID = 7
 local BINDING_SCENE = 8
 local BINDING_TILE_DEPTH = 9
+local BINDING_GI = 10
 local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
 local froxels = froxel_fog.froxels
 local FROXEL_SLICES = froxel_fog.SLICES
@@ -134,8 +135,8 @@ local depth_pass = {
 		}
 	]],
 }
-local scatter_pass = {
-	name = "volumetric_froxel_scatter",
+local gi_pass = {
+	name = "volumetric_froxel_gi",
 	ComputePass = true,
 	ColorFormat = {{"r8_unorm", {"froxel_dummy", "r"}}},
 	FramebufferSize = {x = 1, y = 1},
@@ -146,15 +147,11 @@ local scatter_pass = {
 			binding_index = BINDING_OUTPUT,
 			dst_stage = "compute",
 			get_texture = function()
-				return froxels.raw
+				return froxels.gi
 			end,
 		},
 	},
 	sampled_images = {
-		{
-			binding_index = BINDING_OCCLUSION,
-			get_descriptor = light_occlusion.GetOcclusionDescriptor,
-		},
 		{
 			binding_index = BINDING_TILE_DEPTH,
 			get_descriptor = function()
@@ -186,11 +183,6 @@ local scatter_pass = {
 				{"frame", "int"},
 				{"gi_screen_tex", "int"},
 				{"ocean_distance_tex", "int"},
-				{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
-				{"light_count", "int"},
-				{"shadows", scene_lights.BuildShadowsBlockLayout()},
-				atmosphere.GetBlockLayout(),
-				unpack(light_occlusion.GetBlockLayout()),
 			},
 			write = function(self, block)
 				render3d.WriteCameraBlock(self, block)
@@ -200,12 +192,10 @@ local scatter_pass = {
 				block.frame = system.GetFrameNumber()
 				write_gi_screen_texture(self, block, "gi_screen_tex")
 				write_ocean_distance_texture(self, block, "ocean_distance_tex")
-				light_occlusion.WriteOcclusionBlock(block, medium_lighting.WriteLightsBlock(self, block))
 				return block
 			end,
 		},
 	},
-	storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
 	descriptor_sets = VISIBILITY_RAYS and
 		{
 			{
@@ -217,7 +207,6 @@ local scatter_pass = {
 		nil,
 	on_pre_draw = function(self, cmd, frame, desc)
 		froxel_fog.EnsureResources()
-		light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
 
 		if VISIBILITY_RAYS then
 			self:UpdateDescriptorSet(
@@ -231,7 +220,14 @@ local scatter_pass = {
 	end,
 	on_draw = function(self, cmd, fb, frame, desc)
 		self:UploadConstants()
-		self.pipeline:DispatchForSize(cmd, froxels.width, froxels.height, FROXEL_SLICES, desc, self.dynamic_offsets)
+		self.pipeline:DispatchForSize(
+			cmd,
+			froxels.gi:GetWidth(),
+			froxels.gi:GetHeight(),
+			FROXEL_SLICES,
+			desc,
+			self.dynamic_offsets
+		)
 	end,
 	custom_declarations = (
 			VISIBILITY_RAYS and
@@ -242,43 +238,155 @@ local scatter_pass = {
 	]] or
 			""
 		) .. [[
+		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_gi;
+		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
+	]],
+	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. ddgi.GetMediumGLSL() .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
+		uint froxel_hash(uvec3 v) {
+			uvec3 h = pcg3d(v);
+			return h.x ^ h.y ^ h.z;
+		}
+
+		void main() {
+			ivec3 quad = ivec3(gl_GlobalInvocationID);
+			ivec2 size = ivec2(froxel_data.froxel_size);
+
+			if (any(greaterThanEqual(quad.xy * 2, size))) return;
+
+			uint start = froxel_hash(uvec3(quad.xy, uint(quad.z) + uint(froxel_data.frame) * 128u));
+			ivec3 id = ivec3(-1);
+
+			for (uint i = 0u; i < 4u; i++) {
+				uint k = (start + i) & 3u;
+				ivec3 candidate = ivec3(quad.xy * 2 + ivec2(k & 1u, k >> 1u), quad.z);
+
+				if (all(lessThan(candidate.xy, size)) && !froxel_is_hidden(candidate, texelFetch(tile_depth, candidate.xy, 0).r)) {
+					id = candidate;
+					break;
+				}
+			}
+
+			if (id.x < 0) {
+				imageStore(out_gi, quad, vec4(0.0));
+				return;
+			}
+
+			uint seed = froxel_hash(uvec3(id.xy, uint(id.z) + uint(froxel_data.frame) * 128u));
+			vec3 jitter = vec3(uvec3(seed, seed >> 10u, seed >> 20u) & 1023u) / 1023.0 - 0.5;
+			vec2 uv;
+			float depth = froxel_point(id, (vec2(id.xy) + 0.5 + jitter.xy) / froxel_data.froxel_size, froxel_slice_depth(float(id.z) + 0.5 + jitter.z), float((seed >> 12u) & 1023u) / 1024.0, uv);
+			vec3 P = (froxel_data.inv_view * vec4(get_view_dir(uv) * depth, 1.0)).xyz;
+			if (ddgi_data.ddgi_cascade_count > 0) {
+				if (!ddgi_in_volume(P)) {
+					imageStore(out_gi, quad, vec4(-1.0));
+					return;
+				}
+
+				uint n = froxel_hash(uvec3(seed, id.z, 7u));
+				float z = float(n & 0xffffu) / 32768.0 - 1.0;
+				float phi = float(n >> 16u) * (6.28318530718 / 65536.0);
+				float weight;
+				vec4 gi = ddgi_sample_medium(P, vec3(sqrt(max(1.0 - z * z, 0.0)) * vec2(cos(phi), sin(phi)), z), weight);
+
+				if (weight > 0.0) {
+					imageStore(out_gi, quad, vec4(gi.rgb / PI, saturate(gi.a)));
+					return;
+				}
+			}
+
+			if (froxel_data.gi_screen_tex < 0) {
+				imageStore(out_gi, quad, vec4(-1.0));
+				return;
+			}
+
+			vec4 gi = texture(TEXTURE(froxel_data.gi_screen_tex), uv);
+			imageStore(out_gi, quad, vec4(gi.rgb / PI, saturate(gi.a)));
+		}
+	]],
+}
+local scatter_pass = {
+	name = "volumetric_froxel_scatter",
+	ComputePass = true,
+	ColorFormat = {{"r8_unorm", {"froxel_dummy", "r"}}},
+	FramebufferSize = {x = 1, y = 1},
+	framebuffer_count = 1,
+	LocalSize = {x = 8, y = 8, z = 1},
+	storage_images = {
+		{
+			binding_index = BINDING_OUTPUT,
+			dst_stage = "compute",
+			get_texture = function()
+				return froxels.raw
+			end,
+		},
+	},
+	sampled_images = {
+		{
+			binding_index = BINDING_OCCLUSION,
+			get_descriptor = light_occlusion.GetOcclusionDescriptor,
+		},
+		{
+			binding_index = BINDING_TILE_DEPTH,
+			get_descriptor = function()
+				return {froxels.depth:GetView(), froxels.depth_sampler}
+			end,
+		},
+		{
+			binding_index = BINDING_GI,
+			get_descriptor = function()
+				return {froxels.gi:GetView(), froxels.gi_sampler}
+			end,
+		},
+	},
+	uniform_buffers = {
+		{
+			name = "froxel_data",
+			binding_index = BINDING_FROXEL,
+			block = {
+				render3d.camera_block,
+				gbuffer_layout.block,
+				{"froxel_size", "vec2"},
+				{"frame", "int"},
+				{"ocean_distance_tex", "int"},
+				{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
+				{"light_count", "int"},
+				{"shadows", scene_lights.BuildShadowsBlockLayout()},
+				atmosphere.GetBlockLayout(),
+				unpack(light_occlusion.GetBlockLayout()),
+			},
+			write = function(self, block)
+				render3d.WriteCameraBlock(self, block)
+				gbuffer_layout.WriteBlock(self, block)
+				block.froxel_size[0] = froxels.width
+				block.froxel_size[1] = froxels.height
+				block.frame = system.GetFrameNumber()
+				write_ocean_distance_texture(self, block, "ocean_distance_tex")
+				light_occlusion.WriteOcclusionBlock(block, medium_lighting.WriteLightsBlock(self, block))
+				return block
+			end,
+		},
+	},
+	storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
+	on_pre_draw = function(self, cmd, frame, desc)
+		froxel_fog.EnsureResources()
+		light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
+	end,
+	on_draw = function(self, cmd, fb, frame, desc)
+		self:UploadConstants()
+		self.pipeline:DispatchForSize(cmd, froxels.width, froxels.height, FROXEL_SLICES, desc, self.dynamic_offsets)
+	end,
+	custom_declarations = [[
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_scatter;
 		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
+		layout(set = 0, binding = ]] .. BINDING_GI .. [[) uniform sampler3D froxel_gi;
 	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID),
-	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. ddgi.GetMediumGLSL() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. medium_lighting.GetLocalLightsGLSL("froxel_data", LOCAL_LIGHT_LIMIT) .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
+	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. medium_lighting.GetLocalLightsGLSL("froxel_data", LOCAL_LIGHT_LIMIT) .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {
 			uvec3 h = pcg3d(v);
 			return h.x ^ h.y ^ h.z;
 		}
 
 		shared vec3 shared_sky_ambient;
-
-		vec3 get_ambient(vec3 P, vec2 uv, vec3 sky, uint seed, out float open_sky, out vec3 probe_ambient) {
-			open_sky = 1.0;
-			probe_ambient = sky;
-
-			if (ddgi_data.ddgi_cascade_count > 0) {
-				if (!ddgi_in_volume(P)) return sky;
-
-				float z = float(seed & 0xffffu) / 32768.0 - 1.0;
-				float phi = float(seed >> 16u) * (6.28318530718 / 65536.0);
-				float weight;
-				vec4 gi = ddgi_sample_medium(P, vec3(sqrt(max(1.0 - z * z, 0.0)) * vec2(cos(phi), sin(phi)), z), weight);
-
-				if (weight > 0.0) {
-					open_sky = saturate(gi.a);
-					probe_ambient = gi.rgb / PI;
-					return mix(probe_ambient, sky, open_sky);
-				}
-			}
-
-			if (froxel_data.gi_screen_tex < 0) return sky;
-
-			vec4 gi = texture(TEXTURE(froxel_data.gi_screen_tex), uv);
-			open_sky = saturate(gi.a);
-			probe_ambient = gi.rgb / PI;
-			return mix(probe_ambient, sky, open_sky);
-		}
 
 		void main() {
 			ivec3 id = ivec3(gl_GlobalInvocationID);
@@ -314,9 +422,10 @@ local scatter_pass = {
 			float mu = dot(ray_dir, sun_dir);
 			float sun_visibility = get_fog_sun_visibility(world_pos, sun_dir);
 			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * sun_visibility;
-			float open_sky;
-			vec3 probe_ambient;
-			vec3 ambient = get_ambient(world_pos, uv, shared_sky_ambient, froxel_hash(uvec3(seed, id.z, 7u)), open_sky, probe_ambient);
+			vec4 gi = texelFetch(froxel_gi, ivec3(id.xy >> 1, id.z), 0);
+			float open_sky = gi.a < 0.0 ? 1.0 : gi.a;
+			vec3 probe_ambient = gi.a < 0.0 ? shared_sky_ambient : gi.rgb;
+			vec3 ambient = mix(probe_ambient, shared_sky_ambient, open_sky);
 			vec3 scattering = get_ground_fog_in_scatter(fog_point, ray_dir, sun_dir, sun_visibility, ambient) * per_meter;
 			scattering += sun * (RAYLEIGH_BETA * (density_r * phase_rayleigh(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
 			vec3 air_up = fog_point / length(fog_point);
@@ -750,4 +859,4 @@ local composite_pass = {
 	DepthTest = false,
 	DepthWrite = false,
 }
-return {depth_pass, scatter_pass, temporal_pass, integrate_pass, composite_pass}
+return {depth_pass, gi_pass, scatter_pass, temporal_pass, integrate_pass, composite_pass}
