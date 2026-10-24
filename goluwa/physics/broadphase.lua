@@ -481,8 +481,18 @@ function Broadphase:QueryAABB(aabb, out)
 	local stamp = self.QueryStamp
 	local min_x, min_y, min_z, max_x, max_y, max_z = get_cell_range(aabb, self.CellSize)
 	local count = 0
+	local entries = self.Entries
 
-	if
+	if get_cell_span_count(min_x, min_y, min_z, max_x, max_y, max_z) > #entries then
+		for i = 1, #entries do
+			local entry = entries[i]
+
+			if not entry.is_overflow and entry.bounds:IsBoxIntersecting(aabb) then
+				count = count + 1
+				out[count] = entry
+			end
+		end
+	elseif
 		min_x >= -CELL_KEY_RANGE and
 		min_x < CELL_KEY_RANGE and
 		min_y >= -CELL_KEY_RANGE and

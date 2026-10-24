@@ -163,3 +163,40 @@ T.Test("Broadphase refreshes bounds when a body is mutated in place", function()
 	bp:TrackBodies({body}, mock_physics)
 	T(entry.bounds.max_x)["~"](6 + pad, 0.000001)
 end)
+
+T.Test("Broadphase queries over huge boxes scan the entries instead of every cell", function()
+	local phase = broadphase.New{physics = mock_physics, cell_size = 1}
+	local unit = {min_x = 0, min_y = 0, min_z = 0, max_x = 1, max_y = 1, max_z = 1}
+	local near = create_mock_body("huge_query_near", unit, unit)
+	local far = create_mock_body(
+		"huge_query_far",
+		{min_x = 100, min_y = 0, min_z = 0, max_x = 101, max_y = 1, max_z = 1},
+		{min_x = 100, min_y = 0, min_z = 0, max_x = 101, max_y = 1, max_z = 1}
+	)
+	local giant = create_mock_body(
+		"huge_query_giant",
+		{min_x = -10, min_y = -10, min_z = -10, max_x = 10, max_y = 10, max_z = 10},
+		{min_x = -10, min_y = -10, min_z = -10, max_x = 10, max_y = 10, max_z = 10}
+	)
+	phase:TrackBodies({near, far, giant}, mock_physics)
+
+	local function bodies_in(aabb)
+		local found = {}
+
+		for _, entry in ipairs(phase:QueryAABB(aabb)) do
+			found[entry.body] = true
+		end
+
+		return found
+	end
+
+	local wide = bodies_in(AABB(-50, -5, -5, 50, 5, 5))
+	T(wide[near])["=="](true)
+	T(wide[far])["=="](nil)
+	T(wide[giant])["=="](nil)
+	local everything = bodies_in(AABB(-1e7, -1e7, -1e7, 1e7, 1e7, 1e7))
+	T(everything[near])["=="](true)
+	T(everything[far])["=="](true)
+	T(everything[giant])["=="](nil)
+	T(bodies_in(AABB(1e5, 1e5, 1e5, 1e7, 1e7, 1e7))[near])["=="](nil)
+end)
