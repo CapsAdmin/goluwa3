@@ -3,7 +3,7 @@ local ffi = require("ffi")
 local istype = ffi.istype
 local typeof = ffi.typeof
 local tostring = tostring
-structs.NumberType = "float"
+structs.NumberType = "double"
 local codegen = import("goluwa/codegen.lua")
 
 function structs.Template(class_name)
@@ -44,11 +44,7 @@ function structs.Register(META)
 	end
 
 	function META:__newindex(key, value)
-		if lookup[key] then
-			self[lookup[key]] = value
-		else
-			self[key] = value
-		end
+		if lookup[key] then self[lookup[key]] = value else self[key] = value end
 	end
 
 	META.CType = ffi.typeof(cdecl)
