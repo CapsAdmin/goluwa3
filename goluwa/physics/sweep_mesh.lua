@@ -929,21 +929,24 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 		)
 	end
 
+	local low_closing = (
+			low_sx - low_qx
+		) * movement.x + (
+			low_sy - low_qy
+		) * movement.y + (
+			low_sz - low_qz
+		) * movement.z
 	local steps = get_capsule_sweep_sample_steps(invariants, max_fraction)
 	local low = 0
 	local hit_t = nil
-	local segment_x
-	local segment_y
-	local segment_z
-	local triangle_x
-	local triangle_y
-	local triangle_z
-	local distance_sq
+	local distance_sq, sx, sy, sz, qx, qy, qz
+	local closing
 
 	for i = 1, steps do
 		local t = max_fraction * (i / steps)
 		SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
-		distance_sq, segment_x, segment_y, segment_z, triangle_x, triangle_y, triangle_z = eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face_normal)
+		distance_sq, sx, sy, sz, qx, qy, qz = eval_capsule_triangle_distance_sq(invariants, t, v0, v1, v2, face_normal)
+		closing = (sx - qx) * movement.x + (sy - qy) * movement.y + (sz - qz) * movement.z
 
 		if distance_sq and distance_sq <= hit_radius_sq then
 			hit_t = t
@@ -953,24 +956,14 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 
 		low = t
 		low_distance_sq = distance_sq
-		low_sx = segment_x
-		low_sy = segment_y
-		low_sz = segment_z
-		low_qx = triangle_x
-		low_qy = triangle_y
-		low_qz = triangle_z
+		low_closing = closing
 	end
 
 	if not hit_t then return nil end
 
 	SWEEP_STATS.hits = SWEEP_STATS.hits + 1
 	local high = hit_t
-	local high_sx = segment_x
-	local high_sy = segment_y
-	local high_sz = segment_z
-	local high_qx = triangle_x
-	local high_qy = triangle_y
-	local high_qz = triangle_z
+	local high_closing = closing
 	local high_distance_sq = distance_sq
 	local consecutive_bisects = 0
 	local tol_width = (high - low) * 2.4e-4
@@ -981,32 +974,14 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 		local next_t = nil
 
 		if consecutive_bisects < 3 then
-			local closing = (
-					low_sx - low_qx
-				) * movement.x + (
-					low_sy - low_qy
-				) * movement.y + (
-					low_sz - low_qz
-				) * movement.z
-
-			if closing < -1e-9 then
+			if low_closing < -1e-9 then
 				SWEEP_STATS.low_newton_available = SWEEP_STATS.low_newton_available + 1
-				next_t = low - (low_distance_sq - hit_radius_sq) / (2 * closing)
+				next_t = low - (low_distance_sq - hit_radius_sq) / (2 * low_closing)
 			end
 
-			if not next_t or next_t <= low or next_t >= high then
-				closing = (
-						high_sx - high_qx
-					) * movement.x + (
-						high_sy - high_qy
-					) * movement.y + (
-						high_sz - high_qz
-					) * movement.z
-
-				if closing < -1e-9 then
-					SWEEP_STATS.high_newton_available = SWEEP_STATS.high_newton_available + 1
-					next_t = high - (high_distance_sq - hit_radius_sq) / (2 * closing)
-				end
+			if (not next_t or next_t <= low or next_t >= high) and high_closing < -1e-9 then
+				SWEEP_STATS.high_newton_available = SWEEP_STATS.high_newton_available + 1
+				next_t = high - (high_distance_sq - hit_radius_sq) / (2 * high_closing)
 			end
 		end
 
@@ -1020,39 +995,22 @@ function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 		end
 
 		SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
-		distance_sq, segment_x, segment_y, segment_z, triangle_x, triangle_y, triangle_z = eval_capsule_triangle_distance_sq(invariants, next_t, v0, v1, v2, face_normal)
+		distance_sq, sx, sy, sz, qx, qy, qz = eval_capsule_triangle_distance_sq(invariants, next_t, v0, v1, v2, face_normal)
+		closing = (sx - qx) * movement.x + (sy - qy) * movement.y + (sz - qz) * movement.z
 
 		if distance_sq <= hit_radius_sq then
 			high = next_t
-			high_sx = segment_x
-			high_sy = segment_y
-			high_sz = segment_z
-			high_qx = triangle_x
-			high_qy = triangle_y
-			high_qz = triangle_z
+			high_closing = closing
 			high_distance_sq = distance_sq
 		else
 			low = next_t
-			low_sx = segment_x
-			low_sy = segment_y
-			low_sz = segment_z
-			low_qx = triangle_x
-			low_qy = triangle_y
-			low_qz = triangle_z
+			low_closing = closing
 			low_distance_sq = distance_sq
 		end
 	end
 
-	local closing = (
-			high_sx - high_qx
-		) * movement.x + (
-			high_sy - high_qy
-		) * movement.y + (
-			high_sz - high_qz
-		) * movement.z
-
-	if closing < -1e-9 then
-		local polish_t = high - (high_distance_sq - hit_radius_sq) / (2 * closing)
+	if high_closing < -1e-9 then
+		local polish_t = high - (high_distance_sq - hit_radius_sq) / (2 * high_closing)
 
 		if polish_t > low and polish_t < high then
 			SWEEP_STATS.distance_calls = SWEEP_STATS.distance_calls + 1
