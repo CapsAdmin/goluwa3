@@ -1077,8 +1077,10 @@ function ddgi.GetEmitterGLSL()
 		}
 
 		int ddgi_pick_emitter(float u, int count) {
-			int lo = 0;
-			int hi = count - 1;
+			uint guide = 2u + uint(count) * 4u;
+			uint bucket = min(uint(u * float(count)), uint(count) - 1u);
+			int lo = int(ddgi_grid[guide + bucket]);
+			int hi = int(ddgi_grid[guide + bucket + 1u]);
 
 			while (lo < hi) {
 				int mid = (lo + hi) / 2;

@@ -237,6 +237,33 @@ do
 				}
 			]]
 			),
+			guide = create(
+				"scene_emitter_guide",
+				[[
+				void main() {
+					uint k = gl_GlobalInvocationID.x;
+					uint count = uint(emitter_data.triangle_count);
+
+					if (k > count) return;
+
+					float u = float(k) / float(count);
+					uint lo = 0u;
+					uint hi = count - 1u;
+
+					while (lo < hi) {
+						uint mid = (lo + hi) >> 1u;
+
+						if (uintBitsToFloat(words[2u + mid * 4u + 2u]) <= u) {
+							lo = mid + 1u;
+						} else {
+							hi = mid;
+						}
+					}
+
+					words[2u + count * 4u + k] = lo;
+				}
+			]]
+			),
 		}
 	end
 
@@ -276,7 +303,7 @@ do
 
 		local count = emitter_list.count
 		local blocks = math.ceil(count / SCAN_SIZE)
-		local words = HEADER_WORDS + count * EMITTER_WORDS
+		local words = HEADER_WORDS + count * EMITTER_WORDS + count + 1
 		local needed = (words + blocks) * 4
 
 		if not words_buffer or words_buffer:GetSize() < needed then
@@ -339,20 +366,20 @@ do
 			memoryBarrier = true,
 		}
 
-		for i, name in ipairs({"power", "blocks", "cdf"}) do
+		for i, name in ipairs({"power", "blocks", "cdf", "guide"}) do
 			local pipeline = pipelines[name]
 			bind(pipeline, slot, buffers)
 			pipeline:UploadConstants()
 			pipeline.pipeline:Dispatch(
 				cmd,
-				name == "blocks" and 1 or blocks,
+				name == "blocks" and 1 or name == "guide" and math.ceil((count + 1) / SCAN_SIZE) or blocks,
 				1,
 				1,
 				slot,
 				pipeline.dynamic_offsets
 			)
 
-			if i < 3 then
+			if i < 4 then
 				cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
 			end
 		end
