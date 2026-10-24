@@ -285,7 +285,6 @@ local bind_mesh_immediate
 local draw_rect_immediate
 local apply_scissor_to_command_buffer
 local float_size = ffi.sizeof("float")
-local rect_batch_matrix_copy_size = float_size * 16
 local vec_spec_by_component_count = {
 	[1] = {type = "float", format = "r32_sfloat"},
 	[3] = {type = "vec3", format = "r32g32b32_sfloat"},
@@ -785,7 +784,7 @@ function render2d.FlushBatches(reason)
 					off_y = off_y - (margin / entry.h) * entry.state.rect_state_snapshot.sdf_uv_scale[1]
 				end
 
-				ffi.copy(vertices[i - 1].pvw, entry.draw_matrix, rect_batch_matrix_copy_size)
+				entry.draw_matrix:CopyToFloatPointer(vertices[i - 1].pvw)
 
 				for _, field in ipairs(rect_batch_fragment_passthrough_fields) do
 					field.write(
@@ -963,7 +962,7 @@ function render2d.Initialize()
 					storage = "push",
 					block = vertex_push_constant_fields,
 					write = function(self, block)
-						block.projection_view_world = ffi.cast(block.projection_view_world, render2d.GetMatrix():GetFloatPointer())
+						render2d.GetMatrix():CopyToFloatPointer(block.projection_view_world)
 					end,
 				},
 			},
@@ -2561,22 +2560,13 @@ do
 			16000
 		)
 		render2d.state.runtime.camera.view:Identity()
-		local x, y = render2d.state.runtime.camera.viewport.w / 2,
-		render2d.state.runtime.camera.viewport.h / 2
+		local x, y = render2d.state.runtime.camera.viewport.w / 2, render2d.state.runtime.camera.viewport.h / 2
 		render2d.state.runtime.camera.view:Translate(x, y, 0)
 		render2d.state.runtime.camera.view:Rotate(render2d.state.runtime.camera.view_angle, 0, 0, 1)
 		render2d.state.runtime.camera.view:Translate(-x, -y, 0)
-		render2d.state.runtime.camera.view:Translate(
-			render2d.state.runtime.camera.view_pos.x,
-			render2d.state.runtime.camera.view_pos.y,
-			0
-		)
+		render2d.state.runtime.camera.view:Translate(render2d.state.runtime.camera.view_pos.x, render2d.state.runtime.camera.view_pos.y, 0)
 		render2d.state.runtime.camera.view:Translate(x, y, 0)
-		render2d.state.runtime.camera.view:Scale(
-			render2d.state.runtime.camera.view_zoom.x,
-			render2d.state.runtime.camera.view_zoom.y,
-			1
-		)
+		render2d.state.runtime.camera.view:Scale(render2d.state.runtime.camera.view_zoom.x, render2d.state.runtime.camera.view_zoom.y, 1)
 		render2d.state.runtime.camera.view:Translate(-x, -y, 0)
 		render2d.state.runtime.camera.projection_view = render2d.state.runtime.camera.view * render2d.state.runtime.camera.projection
 	end
@@ -2593,10 +2583,7 @@ do
 	end
 
 	function render2d.GetMatrix()
-		render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos]:GetMultiplied(
-			render2d.state.runtime.camera.projection_view,
-			render2d.state.runtime.camera.projection_view_world
-		)
+		render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos]:GetMultiplied(render2d.state.runtime.camera.projection_view, render2d.state.runtime.camera.projection_view_world)
 		return render2d.state.runtime.camera.projection_view_world
 	end
 
@@ -2616,10 +2603,7 @@ do
 		if dont_multiply then
 			mat:Identity()
 		else
-			Matrix44.CopyFrom(
-				render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos - 1],
-				mat
-			)
+			Matrix44.CopyFrom(render2d.state.runtime.camera.world_matrix_stack[render2d.state.runtime.camera.world_matrix_stack_pos - 1], mat)
 		end
 	end
 
@@ -2748,11 +2732,7 @@ function render2d.CaptureRectDrawState(world_matrix)
 end
 
 function render2d.RestoreRectDrawState(state)
-	ffi.copy(
-		render2d.state.render.fragment.constants,
-		state.rect_state_snapshot,
-		constants_size
-	)
+	ffi.copy(render2d.state.render.fragment.constants, state.rect_state_snapshot, constants_size)
 	render2d.state.render.fragment.alpha_multiplier = state.alpha_multiplier
 	render2d.state.render.textures.texture = state.texture
 	render2d.state.render.textures.sdf_texture = state.sdf_texture
@@ -2771,17 +2751,9 @@ function render2d.RestoreRectDrawState(state)
 	render2d.state.render.pipeline.depth.write = snapshot.depth_write == 1
 	render2d.state.render.pipeline.stencil.mode = stencil_mode_names[snapshot.stencil_mode_id]
 	render2d.state.render.pipeline.stencil.ref = snapshot.stencil_ref
-	scissor.x, scissor.y, scissor.w, scissor.h = snapshot.scissor[0],
-	snapshot.scissor[1],
-	snapshot.scissor[2],
-	snapshot.scissor[3]
+	scissor.x, scissor.y, scissor.w, scissor.h = snapshot.scissor[0], snapshot.scissor[1], snapshot.scissor[2], snapshot.scissor[3]
 	render2d.MarkPipelineStateDirty()
-	apply_scissor_to_command_buffer(
-		snapshot.scissor[0],
-		snapshot.scissor[1],
-		snapshot.scissor[2],
-		snapshot.scissor[3]
-	)
+	apply_scissor_to_command_buffer(snapshot.scissor[0], snapshot.scissor[1], snapshot.scissor[2], snapshot.scissor[3])
 	Matrix44.CopyFrom(state.world_matrix, render2d.GetWorldMatrix())
 end
 
@@ -2974,10 +2946,8 @@ draw_rect_immediate = function(x, y, w, h, a, ox, oy, margin, use_float)
 
 	if not bind_mesh_immediate(render2d.rect_mesh) then return false end
 
-	local old_off_x, old_off_y = render2d.state.render.fragment.constants.sdf_uv_offset[0],
-	render2d.state.render.fragment.constants.sdf_uv_offset[1]
-	local old_scale_x, old_scale_y = render2d.state.render.fragment.constants.sdf_uv_scale[0],
-	render2d.state.render.fragment.constants.sdf_uv_scale[1]
+	local old_off_x, old_off_y = render2d.state.render.fragment.constants.sdf_uv_offset[0], render2d.state.render.fragment.constants.sdf_uv_offset[1]
+	local old_scale_x, old_scale_y = render2d.state.render.fragment.constants.sdf_uv_scale[0], render2d.state.render.fragment.constants.sdf_uv_scale[1]
 	render2d.PushWorldMatrix()
 
 	if x and y then
