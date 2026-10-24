@@ -1,14 +1,12 @@
 local math_min = math.min
 local math_max = math.max
-local Vec3 = import("goluwa/structs/vec3.lua")
 local triangle_scalar = {}
-local face_point = Vec3()
 local best = {0, 0, 0, 0, 0, 0}
 
-local function point_in_triangle_fast_path(p, a, b, c, n, epsilon)
-	local pax = p.x - a.x
-	local pay = p.y - a.y
-	local paz = p.z - a.z
+local function point_in_triangle_fast_path(px, py, pz, a, b, c, n, epsilon)
+	local pax = px - a.x
+	local pay = py - a.y
+	local paz = pz - a.z
 	local ex = b.x - a.x
 	local ey = b.y - a.y
 	local ez = b.z - a.z
@@ -25,9 +23,9 @@ local function point_in_triangle_fast_path(p, a, b, c, n, epsilon)
 		return false
 	end
 
-	pax = p.x - b.x
-	pay = p.y - b.y
-	paz = p.z - b.z
+	pax = px - b.x
+	pay = py - b.y
+	paz = pz - b.z
 	ex = c.x - b.x
 	ey = c.y - b.y
 	ez = c.z - b.z
@@ -44,9 +42,9 @@ local function point_in_triangle_fast_path(p, a, b, c, n, epsilon)
 		return false
 	end
 
-	pax = p.x - c.x
-	pay = p.y - c.y
-	paz = p.z - c.z
+	pax = px - c.x
+	pay = py - c.y
+	paz = pz - c.z
 	ex = a.x - c.x
 	ey = a.y - c.y
 	ez = a.z - c.z
@@ -261,9 +259,8 @@ do
 					local px = a.x + (b.x - a.x) * t
 					local py = a.y + (b.y - a.y) * t
 					local pz = a.z + (b.z - a.z) * t
-					face_point.x, face_point.y, face_point.z = px, py, pz
 
-					if point_in_triangle_fast_path(face_point, v0, v1, v2, face_normal, epsilon) then
+					if point_in_triangle_fast_path(px, py, pz, v0, v1, v2, face_normal, epsilon) then
 						local signed = (
 								a.x - v0.x
 							) * face_normal.x + (
