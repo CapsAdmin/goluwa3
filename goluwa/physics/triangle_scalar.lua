@@ -16,97 +16,69 @@ function triangle_scalar.TriangleNormalRaw(v0, v1, v2)
 	return nx, ny, nz, nx * nx + ny * ny + nz * nz
 end
 
-do
-	local function closest_on_edges_or_face(px, py, pz, a, b, c, d1, d2, d3, d4, d5, d6)
-		local vc = d1 * d4 - d3 * d2
+function triangle_scalar.PointToTriangleSq(px, py, pz, a, b, c)
+	local abx = b.x - a.x
+	local aby = b.y - a.y
+	local abz = b.z - a.z
+	local acx = c.x - a.x
+	local acy = c.y - a.y
+	local acz = c.z - a.z
+	local apx = px - a.x
+	local apy = py - a.y
+	local apz = pz - a.z
+	local d1 = abx * apx + aby * apy + abz * apz
+	local d2 = acx * apx + acy * apy + acz * apz
 
-		if vc <= 0 and d1 >= 0 and d3 <= 0 then
-			local v = d1 / (d1 - d3)
-			local qx = a.x + (b.x - a.x) * v
-			local qy = a.y + (b.y - a.y) * v
-			local qz = a.z + (b.z - a.z) * v
-			local ddx = px - qx
-			local ddy = py - qy
-			local ddz = pz - qz
-			return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
-		end
+	if d1 <= 0 and d2 <= 0 then
+		return apx * apx + apy * apy + apz * apz, a.x, a.y, a.z
+	end
 
-		local vb = d5 * d2 - d1 * d6
+	local abac = abx * acx + aby * acy + abz * acz
+	local d3 = d1 - (abx * abx + aby * aby + abz * abz)
+	local d4 = d2 - abac
 
-		if vb <= 0 and d2 >= 0 and d6 <= 0 then
-			local w = d2 / (d2 - d6)
-			local qx = a.x + (c.x - a.x) * w
-			local qy = a.y + (c.y - a.y) * w
-			local qz = a.z + (c.z - a.z) * w
-			local ddx = px - qx
-			local ddy = py - qy
-			local ddz = pz - qz
-			return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
-		end
+	if d3 >= 0 and d4 <= d3 then
+		local bpx = px - b.x
+		local bpy = py - b.y
+		local bpz = pz - b.z
+		return bpx * bpx + bpy * bpy + bpz * bpz, b.x, b.y, b.z
+	end
 
-		local va = d3 * d6 - d5 * d4
+	local d5 = d1 - abac
+	local d6 = d2 - (acx * acx + acy * acy + acz * acz)
 
-		if va <= 0 and d4 - d3 >= 0 and d5 - d6 >= 0 then
-			local w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
-			local qx = b.x + (c.x - b.x) * w
-			local qy = b.y + (c.y - b.y) * w
-			local qz = b.z + (c.z - b.z) * w
-			local ddx = px - qx
-			local ddy = py - qy
-			local ddz = pz - qz
-			return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
-		end
+	if d6 >= 0 and d5 <= d6 then
+		local cpx = px - c.x
+		local cpy = py - c.y
+		local cpz = pz - c.z
+		return cpx * cpx + cpy * cpy + cpz * cpz, c.x, c.y, c.z
+	end
 
+	local qx, qy, qz
+	local vc = d1 * d4 - d3 * d2
+	local vb = d5 * d2 - d1 * d6
+	local va = d3 * d6 - d5 * d4
+
+	if vc <= 0 and d1 >= 0 and d3 <= 0 then
+		local v = d1 / (d1 - d3)
+		qx, qy, qz = a.x + abx * v, a.y + aby * v, a.z + abz * v
+	elseif vb <= 0 and d2 >= 0 and d6 <= 0 then
+		local w = d2 / (d2 - d6)
+		qx, qy, qz = a.x + acx * w, a.y + acy * w, a.z + acz * w
+	elseif va <= 0 and d4 - d3 >= 0 and d5 - d6 >= 0 then
+		local w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+		qx, qy, qz = b.x + (c.x - b.x) * w, b.y + (c.y - b.y) * w, b.z + (c.z - b.z) * w
+	else
 		local denom = va + vb + vc
-		local qx = a.x + (vb * (b.x - a.x) + vc * (c.x - a.x)) / denom
-		local qy = a.y + (vb * (b.y - a.y) + vc * (c.y - a.y)) / denom
-		local qz = a.z + (vb * (b.z - a.z) + vc * (c.z - a.z)) / denom
-		local ddx = px - qx
-		local ddy = py - qy
-		local ddz = pz - qz
-		return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
+		qx, qy, qz = a.x + (vb * abx + vc * acx) / denom,
+		a.y + (vb * aby + vc * acy) / denom,
+		a.z + (vb * abz + vc * acz) / denom
 	end
 
-	function triangle_scalar.PointToTriangleSq(px, py, pz, a, b, c)
-		local abx = b.x - a.x
-		local aby = b.y - a.y
-		local abz = b.z - a.z
-		local acx = c.x - a.x
-		local acy = c.y - a.y
-		local acz = c.z - a.z
-		local apx = px - a.x
-		local apy = py - a.y
-		local apz = pz - a.z
-		local d1 = abx * apx + aby * apy + abz * apz
-		local d2 = acx * apx + acy * apy + acz * apz
-
-		if d1 <= 0 and d2 <= 0 then
-			return apx * apx + apy * apy + apz * apz, a.x, a.y, a.z
-		end
-
-		local abac = abx * acx + aby * acy + abz * acz
-		local d3 = d1 - (abx * abx + aby * aby + abz * abz)
-		local d4 = d2 - abac
-
-		if d3 >= 0 and d4 <= d3 then
-			local bpx = px - b.x
-			local bpy = py - b.y
-			local bpz = pz - b.z
-			return bpx * bpx + bpy * bpy + bpz * bpz, b.x, b.y, b.z
-		end
-
-		local d5 = d1 - abac
-		local d6 = d2 - (acx * acx + acy * acy + acz * acz)
-
-		if d6 >= 0 and d5 <= d6 then
-			local cpx = px - c.x
-			local cpy = py - c.y
-			local cpz = pz - c.z
-			return cpx * cpx + cpy * cpy + cpz * cpz, c.x, c.y, c.z
-		end
-
-		return closest_on_edges_or_face(px, py, pz, a, b, c, d1, d2, d3, d4, d5, d6)
-	end
+	local ddx = px - qx
+	local ddy = py - qy
+	local ddz = pz - qz
+	return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
 end
 
 do
