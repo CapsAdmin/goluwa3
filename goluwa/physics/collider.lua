@@ -397,7 +397,7 @@ end
 function META:LocalToWorld(local_pos, position, rotation, out)
 	position = position or self:GetPosition()
 	rotation = rotation or self:GetRotation()
-	out = rotation:VecMul(local_pos, out)
+	out = rotation.SetVecMul(out or Vec3(), rotation, local_pos)
 	out.x = out.x + position.x
 	out.y = out.y + position.y
 	out.z = out.z + position.z
