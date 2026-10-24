@@ -251,36 +251,49 @@ do
 			end
 		end
 
-		local sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(ax, ay, az, v0, v1, v2)
-		local best_sq = sq
-		best[1], best[2], best[3], best[4], best[5], best[6] = ax, ay, az, qx, qy, qz
-		sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(bx, by, bz, v0, v1, v2)
+		face_normal = nil
+		local best_sq
 
-		if sq < best_sq then
+		do
+			local sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(ax, ay, az, v0, v1, v2)
 			best_sq = sq
-			best[1], best[2], best[3], best[4], best[5], best[6] = bx, by, bz, qx, qy, qz
+			best[1], best[2], best[3], best[4], best[5], best[6] = ax, ay, az, qx, qy, qz
 		end
 
-		local px, py, pz
-		sq, px, py, pz, qx, qy, qz = segment_segment_sq(ax, ay, az, bx, by, bz, v0, v1)
+		do
+			local sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(bx, by, bz, v0, v1, v2)
 
-		if sq < best_sq then
-			best_sq = sq
-			best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
+			if sq < best_sq then
+				best_sq = sq
+				best[1], best[2], best[3], best[4], best[5], best[6] = bx, by, bz, qx, qy, qz
+			end
 		end
 
-		sq, px, py, pz, qx, qy, qz = segment_segment_sq(ax, ay, az, bx, by, bz, v1, v2)
+		do
+			local sq, px, py, pz, qx, qy, qz = segment_segment_sq(ax, ay, az, bx, by, bz, v0, v1)
 
-		if sq < best_sq then
-			best_sq = sq
-			best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
+			if sq < best_sq then
+				best_sq = sq
+				best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
+			end
 		end
 
-		sq, px, py, pz, qx, qy, qz = segment_segment_sq(ax, ay, az, bx, by, bz, v2, v0)
+		do
+			local sq, px, py, pz, qx, qy, qz = segment_segment_sq(ax, ay, az, bx, by, bz, v1, v2)
 
-		if sq < best_sq then
-			best_sq = sq
-			best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
+			if sq < best_sq then
+				best_sq = sq
+				best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
+			end
+		end
+
+		do
+			local sq, px, py, pz, qx, qy, qz = segment_segment_sq(ax, ay, az, bx, by, bz, v2, v0)
+
+			if sq < best_sq then
+				best_sq = sq
+				best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
+			end
 		end
 
 		return best_sq, best[1], best[2], best[3], best[4], best[5], best[6]
