@@ -3,6 +3,8 @@ local capsule_geometry = import("goluwa/physics/capsule_geometry.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local triangle_scalar = import("goluwa/physics/triangle_scalar.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+-- a builtin LuaJIT cannot record ends the trace so the side traces of the bounds test do not inherit the locals of the triangle callback chain
+local trace_break = coroutine.running
 local triangle_contact_queries = {}
 local SCRATCH_FACE_NORMAL = Vec3()
 local polyhedron_triangle_contacts = nil
@@ -190,6 +192,31 @@ function triangle_contact_queries.BuildCapsuleTrianglePairWithin(
 	fallback_normal,
 	max_distance
 )
+	trace_break()
+
+	do
+		local sx0, sy0, sz0, sx1, sy1, sz1 = start_point.x, start_point.y, start_point.z, end_point.x, end_point.y, end_point.z
+
+		if
+			math.max(
+				math.max(
+					math.min(v0.x, v1.x, v2.x) - math.max(sx0, sx1),
+					math.min(sx0, sx1) - math.max(v0.x, v1.x, v2.x)
+				),
+				math.max(
+					math.min(v0.y, v1.y, v2.y) - math.max(sy0, sy1),
+					math.min(sy0, sy1) - math.max(v0.y, v1.y, v2.y)
+				),
+				math.max(
+					math.min(v0.z, v1.z, v2.z) - math.max(sz0, sz1),
+					math.min(sz0, sz1) - math.max(v0.z, v1.z, v2.z)
+				)
+			) > max_distance + 1e-6
+		then
+			return nil
+		end
+	end
+
 	local face_normal = nil
 
 	do
