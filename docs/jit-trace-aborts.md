@@ -24,6 +24,8 @@ Fixes, in order of preference:
 - A data-dependent branch that flips often (a sign test on a hash, a nil-or-table result) makes a hot exit. Prefer branch-free arithmetic (`x % 2^32` for an unsigned wrap) where the result is identical.
 - Vec3 operators allocate and run through generated operator functions that get blacklisted after repeated aborts; scalar math in hot loops avoids both.
 - `do ... end` around a local and its only use is the minimal fix when no helper fits.
+- A `trace_break()` (see below) placed before a block or at the start of a function cuts the inherited locals without restructuring: slots the segment after the cut never touches are not in its snapshots, so exits inside it do not inherit them. Put it in front of the code whose exits fail, on a rarely taken branch when the branch is rare, and note that a hot call site pays the stitch on every call.
+- A dispatch loop over task kinds (`if kind == A ... elseif kind == B`) chains side traces: the side trace of one kind keeps recording into the next iteration and can exceed the snapshot limit. Move kinds that are order independent (a final max or commit) out into their own loop after the sweep.
 
 ## Other reasons
 
@@ -33,12 +35,21 @@ Fixes, in order of preference:
 - "Loop unroll limit reached by tail calls", "too many spill slots", "NYI: return to lower frame", "root trace hit compiled inner loop (trace N)": the trace includes more than it should; the abort site and Lua location show which call chain. Long inlined chains and short inner loops that get unrolled into an outer trace are the usual cause.
 - "Too many exit stubs for N snapshots" is a hard assembler limit of 512 snapshots on x86-64 (32 stubs per group, 16 groups). `maxsnap` above 512 only makes such traces fail later, after full recording and assembly.
 - "Blacklisted": the function aborted repeatedly and is interpreted from then on. Fix the aborts that came before it.
+- `select(1, f(...))` is a builtin LuaJIT cannot always record and stitches the trace. `(f(...))` truncates to the first value without a call, and a plain `local x = f(...)` already does.
+- "Loop unroll limit reached by tail calls": the counter is the number of `return f(...)` executed anywhere in the trace (builtins included, returns do not reset it) and shares the `loopunroll` limit. It is a proxy for a trace that records too far, typically a stitched continuation that follows returns up through its callers. Rewriting the getters does not help, the trace needs a boundary or a smaller scope.
 
 ## Exits and what runs interpreted
 
 - The log counts exits that leave compiled code without a side trace (per trace and exit, with the Lua location and the guard that exits, e.g. `GE.NUM` a float comparison, `SLOAD.INT` a type guard). The reader prints them as "top exits out of compiled code", with how many side traces for that exit compiled or aborted.
 - Fewer exits is not the goal. Exits are short, and a restructuring that removes them can make a surrounding loop trace exceed the spill limit or get blacklisted, which leaves much more code interpreted. Judge a change by the interpreter share (`I`), the compiled share, and step time on a steady-state run (thousands of steps), together with the exit and abort counts; warm-up compile time dominates short runs.
 - `pval:OP` entries in a register failure are values of the parent trace that are not Lua locals (the fields of allocations the compiler removed, held in registers) and `OP` is the instruction that produced each. A table built in a hot path and returned or passed on is the usual source.
+
+## Root traces, stitching and links to the interpreter
+
+- A root trace starts at a hot loop head, a hot function entry, or right after a stitched builtin call (a continuation). Only a root that starts at its own loop head can loop back to itself. A continuation in the middle of a body cannot link into a loop that is already compiled ("root trace hit compiled inner loop") and aborts at the back edge of one that is not ("hit an inner loop that is not compiled yet", "ran past the end of the loop body"). A `trace_break()` inside a loop body therefore does not make the loop a root. Code after a loop is compiled as a side trace of the loop's exit, which is where the inherited locals come from.
+- There is no way to start a trace at a chosen place. `hotloop` and `hotexit` did not change which traces form; leave them at the defaults.
+- A side trace that links to the interpreter with a few instructions is a stub. It is created when `tryside` attempts are used up, when the root already has `maxside` side traces, or after a failed recording of that exit. Every execution of such a branch leaves compiled code, which shows as C state samples (exit handling) on the line plus interpreter samples. Count side traces per root against `maxside`; stubs count as side traces, and a root at the limit gets stubs for every new hot exit. Keep `maxside` above the largest root.
+- The side trace limits that matter in `goluwa/jit/options.lua`: `tryside` needs to be at least 1 (at 0 every side trace becomes a stub immediately), `loopunroll` limits both loop unrolling and the tail call counter and lower values cost more tail call aborts than they save in stub aborts, `minstitch` has to stay 0 or the small traces between `trace_break()` calls are discarded, `maxsnap` above 512 only delays the failure, and `maxrecord` only bounds recording work of traces that fail anyway.
 
 ## Retries and compile time
 
@@ -50,3 +61,6 @@ Fixes, in order of preference:
 
 - Which exits become hot depends on timing, so the set of failing sites changes between runs. Compare several runs of each variant and judge by named sites and compile time, not by one total. Startup runs have 0.3-0.5 s of noise.
 - A fix is verified by the site no longer appearing and by the output being identical to the old function on random inputs (compare with `==`).
+- JIT state does not change numerical results, so a hash of the final simulation state is identical across runs and across fixes; use it to prove a restructuring is neutral.
+- A speed-up that is too good usually means the code stopped doing work (a scratch buffer that is never filled, a pooled object that is never written). Run the test suite before trusting a number.
+- Judge a change from several runs of the same seeded scene (`LUAJIT_SEED`), looking at the abort reasons by site, the interpreter share and the step time together.
