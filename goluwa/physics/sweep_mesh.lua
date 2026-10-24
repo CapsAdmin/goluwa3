@@ -55,11 +55,10 @@ end
 local function transform_direction(matrix, direction)
 	if not matrix then return direction end
 
-	local dx, dy, dz = direction.x, direction.y, direction.z
 	return Vec3(
-		matrix.m00 * dx + matrix.m10 * dy + matrix.m20 * dz,
-		matrix.m01 * dx + matrix.m11 * dy + matrix.m21 * dz,
-		matrix.m02 * dx + matrix.m12 * dy + matrix.m22 * dz
+		matrix.m00 * direction.x + matrix.m10 * direction.y + matrix.m20 * direction.z,
+		matrix.m01 * direction.x + matrix.m11 * direction.y + matrix.m21 * direction.z,
+		matrix.m02 * direction.x + matrix.m12 * direction.y + matrix.m22 * direction.z
 	):GetNormalized()
 end
 
@@ -860,10 +859,11 @@ local function build_capsule_triangle_sweep_hit(invariants, face_normal, t, sp_x
 		local distance = math.sqrt(distance_sq)
 		normal = Vec3((sp_x - tp_x) / distance, (sp_y - tp_y) / distance, (sp_z - tp_z) / distance)
 	else
-		local nx, ny, nz = face_normal.x, face_normal.y, face_normal.z
 		local movement = invariants.movement
 
-		if nx * movement.x + ny * movement.y + nz * movement.z > 0 then
+		if
+			face_normal.x * movement.x + face_normal.y * movement.y + face_normal.z * movement.z > 0
+		then
 			normal = face_normal * -1
 		else
 			normal = face_normal
@@ -1238,14 +1238,14 @@ function sweep_sphere_against_triangle_slow(start_position, movement, radius, v0
 	local reach = radius + epsilon
 	local reach_sq = reach * reach
 	local width_limit = BISECT_FRACTION_TOLERANCE / math_max(math.sqrt(movement:Dot(movement)), 1e-9)
-	local sx, sy, sz = start_position.x, start_position.y, start_position.z
-	local mx, my, mz = movement.x, movement.y, movement.z
 
 	for _ = 1, 24 do
 		if hi - lo <= width_limit then break end
 
 		local mid = (lo + hi) * 0.5
-		BISECT_POINT.x, BISECT_POINT.y, BISECT_POINT.z = sx + mx * mid, sy + my * mid, sz + mz * mid
+		BISECT_POINT.x, BISECT_POINT.y, BISECT_POINT.z = start_position.x + movement.x * mid,
+		start_position.y + movement.y * mid,
+		start_position.z + movement.z * mid
 		local distance_sq = point_triangle_sq(BISECT_POINT, v0, v1, v2)
 
 		if distance_sq <= reach_sq then hi = mid else lo = mid end

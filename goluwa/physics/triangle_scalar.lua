@@ -6,7 +6,6 @@ local face_point = Vec3()
 local best = {0, 0, 0, 0, 0, 0}
 
 local function point_in_triangle_fast_path(p, a, b, c, n, epsilon)
-	local nx, ny, nz = n.x, n.y, n.z
 	local pax = p.x - a.x
 	local pay = p.y - a.y
 	local paz = p.z - a.z
@@ -17,11 +16,11 @@ local function point_in_triangle_fast_path(p, a, b, c, n, epsilon)
 	if
 		(
 			ey * paz - ez * pay
-		) * nx + (
+		) * n.x + (
 			ez * pax - ex * paz
-		) * ny + (
+		) * n.y + (
 			ex * pay - ey * pax
-		) * nz < -epsilon
+		) * n.z < -epsilon
 	then
 		return false
 	end
@@ -36,11 +35,11 @@ local function point_in_triangle_fast_path(p, a, b, c, n, epsilon)
 	if
 		(
 			ey * paz - ez * pay
-		) * nx + (
+		) * n.x + (
 			ez * pax - ex * paz
-		) * ny + (
+		) * n.y + (
 			ex * pay - ey * pax
-		) * nz < -epsilon
+		) * n.z < -epsilon
 	then
 		return false
 	end
@@ -53,11 +52,11 @@ local function point_in_triangle_fast_path(p, a, b, c, n, epsilon)
 	ez = a.z - c.z
 	return (
 			ey * paz - ez * pay
-		) * nx + (
+		) * n.x + (
 			ez * pax - ex * paz
-		) * ny + (
+		) * n.y + (
 			ex * pay - ey * pax
-		) * nz >= -epsilon
+		) * n.z >= -epsilon
 end
 
 function triangle_scalar.TriangleNormalRaw(v0, v1, v2)
@@ -238,13 +237,10 @@ function triangle_scalar.SegmentToTriangleSq(a, b, v0, v1, v2, face_normal, epsi
 	epsilon = epsilon or 0.00001
 
 	if face_normal then
-		local nx = face_normal.x
-		local ny = face_normal.y
-		local nz = face_normal.z
-		local den = nx * (b.x - a.x) + ny * (b.y - a.y) + nz * (b.z - a.z)
+		local den = face_normal.x * (b.x - a.x) + face_normal.y * (b.y - a.y) + face_normal.z * (b.z - a.z)
 
 		if math.abs(den) > epsilon then
-			local t = (nx * (v0.x - a.x) + ny * (v0.y - a.y) + nz * (v0.z - a.z)) / den
+			local t = (face_normal.x * (v0.x - a.x) + face_normal.y * (v0.y - a.y) + face_normal.z * (v0.z - a.z)) / den
 
 			if t >= 0 and t <= 1 then
 				local px = a.x + (b.x - a.x) * t
@@ -253,14 +249,14 @@ function triangle_scalar.SegmentToTriangleSq(a, b, v0, v1, v2, face_normal, epsi
 				face_point.x, face_point.y, face_point.z = px, py, pz
 
 				if point_in_triangle_fast_path(face_point, v0, v1, v2, face_normal, epsilon) then
-					local signed = (a.x - v0.x) * nx + (a.y - v0.y) * ny + (a.z - v0.z) * nz + den * t
+					local signed = (a.x - v0.x) * face_normal.x + (a.y - v0.y) * face_normal.y + (a.z - v0.z) * face_normal.z + den * t
 					return signed * signed,
 					px,
 					py,
 					pz,
-					px - nx * signed,
-					py - ny * signed,
-					pz - nz * signed
+					px - face_normal.x * signed,
+					py - face_normal.y * signed,
+					pz - face_normal.z * signed
 				end
 			end
 		end
