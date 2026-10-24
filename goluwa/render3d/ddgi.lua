@@ -1491,6 +1491,117 @@ function ddgi.GetCommonGLSL()
 	]]
 end
 
+function ddgi.GetMediumGLSL()
+	return [[
+		vec4 ddgi_medium_cascade(int c, vec3 P, vec3 N, out float weight) {
+			weight = 0.0;
+
+			if (ddgi_cascade_reset(c)) return vec4(0.0);
+
+			float spacing = ddgi_spacing(c);
+			vec3 grid = P / spacing;
+			ivec3 base_world = ivec3(floor(grid));
+			vec3 alpha = grid - vec3(base_world);
+			ivec3 volume_min = ddgi_volume_base(c);
+			ivec3 volume_max = volume_min + ddgi_volume_size(c) - 1;
+			vec4 sum = vec4(0.0);
+
+			for (int i = 0; i < 8; i++) {
+				ivec3 offset = ivec3(i & 1, (i >> 1) & 1, i >> 2);
+				ivec3 world = base_world + offset;
+
+				if (any(lessThan(world, volume_min)) || any(greaterThan(world, volume_max))) continue;
+
+				ivec3 slot = ddgi_slot(world, c);
+				vec4 data = ddgi_probe_data(slot, c);
+
+				if (!ddgi_probe_is_current(data, world) || ddgi_probe_disabled(data)) continue;
+
+				vec3 probe_pos = data.xyz * spacing;
+				vec3 probe_to_point = P - probe_pos;
+				float dist = length(probe_to_point);
+				vec2 moments = textureLod(
+					TEXTURE(ddgi_data.ddgi_distance_tex),
+					ddgi_atlas_uv(slot, c, probe_to_point / max(dist, 1e-4), DDGI_DISTANCE_TEXELS),
+					0.0
+				).rg;
+				float chebyshev = 1.0;
+
+				if (dist > moments.x) {
+					float variance = abs(moments.x * moments.x - moments.y);
+					float d = dist - moments.x;
+					chebyshev = variance / (variance + d * d);
+					chebyshev = chebyshev * chebyshev * chebyshev;
+				}
+
+				float w = max(1e-6, 0.5333 * max(0.05, chebyshev));
+
+				if (w < 0.2) w *= w * w / 0.04;
+
+				vec3 kernel = mix(1.0 - alpha, alpha, vec3(offset));
+				w *= kernel.x * kernel.y * kernel.z;
+
+				if (w <= 0.0) continue;
+
+				vec4 lit = vec4(
+					0.5 * (
+						textureLod(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, N, DDGI_IRRADIANCE_TEXELS), 0.0).rgb +
+						textureLod(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, -N, DDGI_IRRADIANCE_TEXELS), 0.0).rgb
+					),
+					textureLod(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, vec3(0.0, 1.0, 0.0), DDGI_IRRADIANCE_TEXELS), 0.0).a
+				);
+				bool trace = w >= DDGI_VISIBILITY_MIN_WEIGHT || w * luminance(lit.rgb) > DDGI_VISIBILITY_MIN_SHARE * luminance(sum.rgb);
+
+				if (trace && ddgi_probe_can_be_traced(data.xyz, world) && ddgi_probe_hidden(P, vec3(0.0), probe_pos, spacing)) continue;
+
+				sum += lit * w;
+				weight += w;
+			}
+
+			return sum / max(weight, ]] .. MIN_WEIGHT .. [[);
+		}
+
+		vec4 ddgi_sample_medium(vec3 P, vec3 N, out float weight) {
+			weight = 0.0;
+			int count = ddgi_data.ddgi_cascade_count;
+			vec4 result = vec4(0.0);
+
+			for (int c = 0; c < count; c++) {
+				float fine = c == count - 1 ? 1.0 : ddgi_cascade_blend(c, P, false);
+
+				if (fine <= 0.0) continue;
+
+				result = ddgi_medium_cascade(c, P, N, weight);
+
+				if (c == count - 1) break;
+
+				float keep = fine;
+
+				#ifdef DDGI_VISIBILITY_RAYS
+				keep *= smoothstep(0.0, ]] .. MIN_WEIGHT .. [[, weight);
+				#endif
+
+				if (keep >= 1.0) break;
+
+				float coarse_weight;
+				vec4 coarse = ddgi_medium_cascade(c + 1, P, N, coarse_weight);
+
+				if (coarse_weight > 0.0) {
+					weight = mix(coarse_weight, weight, keep);
+					result = mix(coarse, result, keep);
+				}
+
+				break;
+			}
+
+			#ifndef DDGI_UNSCALED
+			result.rgb *= ddgi_data.ddgi_strength;
+			#endif
+			return result;
+		}
+	]]
+end
+
 function ddgi.GetProbeBlockLayout()
 	return {
 		{"ddgi_cascades", "vec4", ddgi.CASCADES},
