@@ -72,74 +72,6 @@ function triangle_scalar.TriangleNormalRaw(v0, v1, v2)
 	return nx, ny, nz, nx * nx + ny * ny + nz * nz
 end
 
-function triangle_scalar.PointToSegmentSq(p, a, b)
-	local dx = b.x - a.x
-	local dy = b.y - a.y
-	local dz = b.z - a.z
-	local l2 = dx * dx + dy * dy + dz * dz
-	local lambda = math_min(
-		math_max(((p.x - a.x) * dx + (p.y - a.y) * dy + (p.z - a.z) * dz) / math_max(l2, 1e-30), 0),
-		1
-	)
-	local qx = a.x + dx * lambda
-	local qy = a.y + dy * lambda
-	local qz = a.z + dz * lambda
-	local ddx = p.x - qx
-	local ddy = p.y - qy
-	local ddz = p.z - qz
-	return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
-end
-
-function triangle_scalar.SegmentSegmentSq(a, b, c, d)
-	local ux = b.x - a.x
-	local uy = b.y - a.y
-	local uz = b.z - a.z
-	local wx = d.x - c.x
-	local wy = d.y - c.y
-	local wz = d.z - c.z
-	local vx = c.x - a.x
-	local vy = c.y - a.y
-	local vz = c.z - a.z
-	local acoef = ux * ux + uy * uy + uz * uz
-	local bcoef = ux * vx + uy * vy + uz * vz
-	local dcoef = ux * wx + uy * wy + uz * wz
-	local ecoef = wx * wx + wy * wy + wz * wz
-	local fcoef = wx * vx + wy * vy + wz * vz
-
-	if acoef <= 1e-12 then
-		local sq, qx, qy, qz = triangle_scalar.PointToSegmentSq(a, c, d)
-		return sq, a.x, a.y, a.z, qx, qy, qz
-	end
-
-	if ecoef <= 1e-12 then
-		local sq, qx, qy, qz = triangle_scalar.PointToSegmentSq(c, a, b)
-		return sq, qx, qy, qz, c.x, c.y, c.z
-	end
-
-	if acoef * ecoef <= dcoef * dcoef then
-		local sq1, qx1, qy1, qz1 = triangle_scalar.PointToSegmentSq(a, c, d)
-		local sq2, qx2, qy2, qz2 = triangle_scalar.PointToSegmentSq(c, a, b)
-
-		if sq1 < sq2 then return sq1, a.x, a.y, a.z, qx1, qy1, qz1 end
-
-		return sq2, qx2, qy2, qz2, c.x, c.y, c.z
-	end
-
-	local s = math_min(math_max((bcoef * ecoef - dcoef * fcoef) / (acoef * ecoef - dcoef * dcoef), 0), 1)
-	local t = math_min(math_max((s * dcoef - fcoef) / ecoef, 0), 1)
-	s = math_min(math_max((t * dcoef + bcoef) / acoef, 0), 1)
-	local p1x = a.x + ux * s
-	local p1y = a.y + uy * s
-	local p1z = a.z + uz * s
-	local p2x = c.x + wx * t
-	local p2y = c.y + wy * t
-	local p2z = c.z + wz * t
-	local pxd = p1x - p2x
-	local pyd = p1y - p2y
-	local pzdz = p1z - p2z
-	return pxd * pxd + pyd * pyd + pzdz * pzdz, p1x, p1y, p1z, p2x, p2y, p2z
-end
-
 do
 	local function closest_on_edges_or_face(p, a, b, c, d1, d2, d3, d4, d5, d6)
 		local vc = d1 * d4 - d3 * d2
@@ -233,68 +165,158 @@ do
 	end
 end
 
-function triangle_scalar.SegmentToTriangleSq(a, b, v0, v1, v2, face_normal, epsilon)
-	epsilon = epsilon or 0.00001
+do
+	local function point_to_segment_sq(p, a, b)
+		local dx = b.x - a.x
+		local dy = b.y - a.y
+		local dz = b.z - a.z
+		local l2 = dx * dx + dy * dy + dz * dz
+		local lambda = math_min(
+			math_max(((p.x - a.x) * dx + (p.y - a.y) * dy + (p.z - a.z) * dz) / math_max(l2, 1e-30), 0),
+			1
+		)
+		local qx = a.x + dx * lambda
+		local qy = a.y + dy * lambda
+		local qz = a.z + dz * lambda
+		local ddx = p.x - qx
+		local ddy = p.y - qy
+		local ddz = p.z - qz
+		return ddx * ddx + ddy * ddy + ddz * ddz, qx, qy, qz
+	end
 
-	if face_normal then
-		local den = face_normal.x * (b.x - a.x) + face_normal.y * (b.y - a.y) + face_normal.z * (b.z - a.z)
+	local function segment_segment_sq(a, b, c, d)
+		local ux = b.x - a.x
+		local uy = b.y - a.y
+		local uz = b.z - a.z
+		local wx = d.x - c.x
+		local wy = d.y - c.y
+		local wz = d.z - c.z
+		local vx = c.x - a.x
+		local vy = c.y - a.y
+		local vz = c.z - a.z
+		local acoef = ux * ux + uy * uy + uz * uz
+		local bcoef = ux * vx + uy * vy + uz * vz
+		local dcoef = ux * wx + uy * wy + uz * wz
+		local ecoef = wx * wx + wy * wy + wz * wz
+		local fcoef = wx * vx + wy * vy + wz * vz
 
-		if math.abs(den) > epsilon then
-			local t = (face_normal.x * (v0.x - a.x) + face_normal.y * (v0.y - a.y) + face_normal.z * (v0.z - a.z)) / den
+		if acoef <= 1e-12 then
+			local sq, qx, qy, qz = point_to_segment_sq(a, c, d)
+			return sq, a.x, a.y, a.z, qx, qy, qz
+		end
 
-			if t >= 0 and t <= 1 then
-				local px = a.x + (b.x - a.x) * t
-				local py = a.y + (b.y - a.y) * t
-				local pz = a.z + (b.z - a.z) * t
-				face_point.x, face_point.y, face_point.z = px, py, pz
+		if ecoef <= 1e-12 then
+			local sq, qx, qy, qz = point_to_segment_sq(c, a, b)
+			return sq, qx, qy, qz, c.x, c.y, c.z
+		end
 
-				if point_in_triangle_fast_path(face_point, v0, v1, v2, face_normal, epsilon) then
-					local signed = (a.x - v0.x) * face_normal.x + (a.y - v0.y) * face_normal.y + (a.z - v0.z) * face_normal.z + den * t
-					return signed * signed,
-					px,
-					py,
-					pz,
-					px - face_normal.x * signed,
-					py - face_normal.y * signed,
-					pz - face_normal.z * signed
+		if acoef * ecoef <= dcoef * dcoef then
+			local sq1, qx1, qy1, qz1 = point_to_segment_sq(a, c, d)
+			local sq2, qx2, qy2, qz2 = point_to_segment_sq(c, a, b)
+
+			if sq1 < sq2 then return sq1, a.x, a.y, a.z, qx1, qy1, qz1 end
+
+			return sq2, qx2, qy2, qz2, c.x, c.y, c.z
+		end
+
+		local s = math_min(math_max((bcoef * ecoef - dcoef * fcoef) / (acoef * ecoef - dcoef * dcoef), 0), 1)
+		local t = math_min(math_max((s * dcoef - fcoef) / ecoef, 0), 1)
+		s = math_min(math_max((t * dcoef + bcoef) / acoef, 0), 1)
+		local p1x = a.x + ux * s
+		local p1y = a.y + uy * s
+		local p1z = a.z + uz * s
+		local p2x = c.x + wx * t
+		local p2y = c.y + wy * t
+		local p2z = c.z + wz * t
+		local pxd = p1x - p2x
+		local pyd = p1y - p2y
+		local pzdz = p1z - p2z
+		return pxd * pxd + pyd * pyd + pzdz * pzdz, p1x, p1y, p1z, p2x, p2y, p2z
+	end
+
+	function triangle_scalar.SegmentToTriangleSq(a, b, v0, v1, v2, face_normal, epsilon)
+		epsilon = epsilon or 0.00001
+
+		if face_normal then
+			local den = face_normal.x * (
+					b.x - a.x
+				) + face_normal.y * (
+					b.y - a.y
+				) + face_normal.z * (
+					b.z - a.z
+				)
+
+			if math.abs(den) > epsilon then
+				local t = (
+						face_normal.x * (
+							v0.x - a.x
+						) + face_normal.y * (
+							v0.y - a.y
+						) + face_normal.z * (
+							v0.z - a.z
+						)
+					) / den
+
+				if t >= 0 and t <= 1 then
+					local px = a.x + (b.x - a.x) * t
+					local py = a.y + (b.y - a.y) * t
+					local pz = a.z + (b.z - a.z) * t
+					face_point.x, face_point.y, face_point.z = px, py, pz
+
+					if point_in_triangle_fast_path(face_point, v0, v1, v2, face_normal, epsilon) then
+						local signed = (
+								a.x - v0.x
+							) * face_normal.x + (
+								a.y - v0.y
+							) * face_normal.y + (
+								a.z - v0.z
+							) * face_normal.z + den * t
+						return signed * signed,
+						px,
+						py,
+						pz,
+						px - face_normal.x * signed,
+						py - face_normal.y * signed,
+						pz - face_normal.z * signed
+					end
 				end
 			end
 		end
+
+		local sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(a, v0, v1, v2)
+		local best_sq = sq
+		best[1], best[2], best[3], best[4], best[5], best[6] = a.x, a.y, a.z, qx, qy, qz
+		sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(b, v0, v1, v2)
+
+		if sq < best_sq then
+			best_sq = sq
+			best[1], best[2], best[3], best[4], best[5], best[6] = b.x, b.y, b.z, qx, qy, qz
+		end
+
+		local px, py, pz
+		sq, px, py, pz, qx, qy, qz = segment_segment_sq(a, b, v0, v1)
+
+		if sq < best_sq then
+			best_sq = sq
+			best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
+		end
+
+		sq, px, py, pz, qx, qy, qz = segment_segment_sq(a, b, v1, v2)
+
+		if sq < best_sq then
+			best_sq = sq
+			best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
+		end
+
+		sq, px, py, pz, qx, qy, qz = segment_segment_sq(a, b, v2, v0)
+
+		if sq < best_sq then
+			best_sq = sq
+			best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
+		end
+
+		return best_sq, best[1], best[2], best[3], best[4], best[5], best[6]
 	end
-
-	local sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(a, v0, v1, v2)
-	local best_sq = sq
-	best[1], best[2], best[3], best[4], best[5], best[6] = a.x, a.y, a.z, qx, qy, qz
-	sq, qx, qy, qz = triangle_scalar.PointToTriangleSq(b, v0, v1, v2)
-
-	if sq < best_sq then
-		best_sq = sq
-		best[1], best[2], best[3], best[4], best[5], best[6] = b.x, b.y, b.z, qx, qy, qz
-	end
-
-	local px, py, pz
-	sq, px, py, pz, qx, qy, qz = triangle_scalar.SegmentSegmentSq(a, b, v0, v1)
-
-	if sq < best_sq then
-		best_sq = sq
-		best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
-	end
-
-	sq, px, py, pz, qx, qy, qz = triangle_scalar.SegmentSegmentSq(a, b, v1, v2)
-
-	if sq < best_sq then
-		best_sq = sq
-		best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
-	end
-
-	sq, px, py, pz, qx, qy, qz = triangle_scalar.SegmentSegmentSq(a, b, v2, v0)
-
-	if sq < best_sq then
-		best_sq = sq
-		best[1], best[2], best[3], best[4], best[5], best[6] = px, py, pz, qx, qy, qz
-	end
-
-	return best_sq, best[1], best[2], best[3], best[4], best[5], best[6]
 end
 
 return triangle_scalar
