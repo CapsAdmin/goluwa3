@@ -1900,107 +1900,125 @@ local function unit_key(tier, cx, cz)
 	return tier * 2 ^ 41 + (cx + 524288) * 1048576 + cz + 524288
 end
 
-local function visit_cell(tier, cx, cz)
-	local size = scatter.BAKE_CELLS[tier]
-	local x0, z0 = cx * size, cz * size
+local visit_cell
 
-	if
-		x0 > visit_max_x or
-		x0 + size <= visit_min_x or
-		z0 > visit_max_z or
-		z0 + size <= visit_min_z
-	then
-		return
+do
+	local function cell_distance(tier, cx, cz)
+		local size = scatter.BAKE_CELLS[tier]
+		local x0, z0 = cx * size, cz * size
+
+		if
+			x0 > visit_max_x or
+			x0 + size <= visit_min_x or
+			z0 > visit_max_z or
+			z0 + size <= visit_min_z
+		then
+			return nil
+		end
+
+		local dx = math.max(x0 - visit_camera_x, 0, visit_camera_x - (x0 + size))
+		local dz = math.max(z0 - visit_camera_z, 0, visit_camera_z - (z0 + size))
+		local distance = math.sqrt(dx * dx + visit_dy * visit_dy + dz * dz)
+
+		if distance > visit_reach then return nil end
+
+		return distance
 	end
 
-	local dx = math.max(x0 - visit_camera_x, 0, visit_camera_x - (x0 + size))
-	local dz = math.max(z0 - visit_camera_z, 0, visit_camera_z - (z0 + size))
-	local distance = math.sqrt(dx * dx + visit_dy * visit_dy + dz * dz)
+	local function visit_leaf(tier, cx, cz, distance)
+		local size = scatter.BAKE_CELLS[tier]
+		local x0, z0 = cx * size, cz * size
+		local state = visit_state
+		local key = unit_key(tier, cx, cz)
+		local unit = state.units[key]
 
-	if distance > visit_reach then return end
+		if not unit then
+			unit = {
+				state = state,
+				key = key,
+				tier = tier,
+				size = size,
+				min_x = x0,
+				min_z = z0,
+				slot = acquire_slot(),
+			}
+			scatter.units_created = (scatter.units_created or 0) + 1
+			state.units[key] = unit
+			units[#units + 1] = unit
+			local fallbacks = {}
 
-	if tier > 1 and distance < size * scatter.BAKE_SPLIT then
-		for i = 0, 3 do
-			for j = 0, 3 do
-				visit_cell(tier - 1, cx * 4 + i, cz * 4 + j)
+			for t = tier + 1, #scatter.BAKE_CELLS do
+				local f = 4 ^ (t - tier)
+				local other = state.units[unit_key(t, math.floor(cx / f), math.floor(cz / f))]
+
+				if other then fallbacks[#fallbacks + 1] = other end
 			end
-		end
 
-		return
-	end
+			for t = tier - 1, 1, -1 do
+				local f = 4 ^ (tier - t)
 
-	local state = visit_state
-	local key = unit_key(tier, cx, cz)
-	local unit = state.units[key]
+				for i = 0, f - 1 do
+					for j = 0, f - 1 do
+						local other = state.units[unit_key(t, cx * f + i, cz * f + j)]
 
-	if not unit then
-		unit = {
-			state = state,
-			key = key,
-			tier = tier,
-			size = size,
-			min_x = x0,
-			min_z = z0,
-			slot = acquire_slot(),
-		}
-		scatter.units_created = (scatter.units_created or 0) + 1
-		state.units[key] = unit
-		units[#units + 1] = unit
-		local fallbacks = {}
-
-		for t = tier + 1, #scatter.BAKE_CELLS do
-			local f = 4 ^ (t - tier)
-			local other = state.units[unit_key(t, math.floor(cx / f), math.floor(cz / f))]
-
-			if other then fallbacks[#fallbacks + 1] = other end
-		end
-
-		for t = tier - 1, 1, -1 do
-			local f = 4 ^ (tier - t)
-
-			for i = 0, f - 1 do
-				for j = 0, f - 1 do
-					local other = state.units[unit_key(t, cx * f + i, cz * f + j)]
-
-					if other then fallbacks[#fallbacks + 1] = other end
+						if other then fallbacks[#fallbacks + 1] = other end
+					end
 				end
 			end
+
+			unit.fallbacks = fallbacks
 		end
 
-		unit.fallbacks = fallbacks
-	end
+		unit.seen = visit_frame
+		unit.dist = distance
+		state.wanted = state.wanted + 1
 
-	unit.seen = visit_frame
-	unit.dist = distance
-	state.wanted = state.wanted + 1
+		if unit.offset then state.baked = state.baked + 1 end
 
-	if unit.offset then state.baked = state.baked + 1 end
+		if not unit.offset then
+			for _, other in ipairs(unit.fallbacks) do
+				if other.offset and not other.dead then other.seen = visit_frame end
+			end
+		end
 
-	if not unit.offset then
-		for _, other in ipairs(unit.fallbacks) do
-			if other.offset and not other.dead then other.seen = visit_frame end
+		local band = band_of(distance)
+		local priority
+		local rank = scatter.view_priority:Rank(x0, state.min_y, z0, x0 + size, state.max_y, z0 + size)
+
+		if
+			not unit.offset or
+			unit.epoch ~= bake_epoch or
+			unit.stamp ~= state.stamp or
+			unit.hint
+		then
+			priority = state.retiring and 1e6 + rank or rank
+		elseif band < unit.baked_band then
+			priority = 2e6 + rank
+		elseif band > unit.baked_band + 1 then
+			priority = 3e6 + rank
+		end
+
+		if priority then
+			bake_list[#bake_list + 1] = {unit = unit, surface = visit_surface, band = band, priority = priority}
 		end
 	end
 
-	local band = band_of(distance)
-	local priority
-	local rank = scatter.view_priority:Rank(x0, state.min_y, z0, x0 + size, state.max_y, z0 + size)
+	function visit_cell(tier, cx, cz)
+		local distance = cell_distance(tier, cx, cz)
 
-	if
-		not unit.offset or
-		unit.epoch ~= bake_epoch or
-		unit.stamp ~= state.stamp or
-		unit.hint
-	then
-		priority = state.retiring and 1e6 + rank or rank
-	elseif band < unit.baked_band then
-		priority = 2e6 + rank
-	elseif band > unit.baked_band + 1 then
-		priority = 3e6 + rank
-	end
+		if not distance then return end
 
-	if priority then
-		bake_list[#bake_list + 1] = {unit = unit, surface = visit_surface, band = band, priority = priority}
+		if tier > 1 and distance < scatter.BAKE_CELLS[tier] * scatter.BAKE_SPLIT then
+			for i = 0, 3 do
+				for j = 0, 3 do
+					visit_cell(tier - 1, cx * 4 + i, cz * 4 + j)
+				end
+			end
+
+			return
+		end
+
+		visit_leaf(tier, cx, cz, distance)
 	end
 end
 
