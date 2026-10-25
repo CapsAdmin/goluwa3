@@ -12,7 +12,7 @@ local position = Vec3()
 local white = Color(1, 1, 1, 1)
 
 event.AddListener("DrawHUD", "item_highlight_hud", function()
-	if third_person.IsHudHidden() then return end
+	if not item_highlight.Instances[1] or third_person.IsHudHidden() then return end
 
 	local camera = render3d.GetMainCamera()
 	local camera_position = camera:GetPosition()
