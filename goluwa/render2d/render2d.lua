@@ -3082,6 +3082,7 @@ event.AddListener("WindowFramebufferResized", "render2d", function(wnd, size)
 	if render.target:IsValid() and render.target.config.offscreen then return end
 
 	render2d.SetScreenSize(size.x, size.y)
+	render2d.SetScissor(0, 0, size.x, size.y)
 end)
 
 if HOTRELOAD then
