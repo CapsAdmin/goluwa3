@@ -71,7 +71,14 @@ T.Test("commands run line returns failures instead of printing them", function()
 end)
 
 T.Test("commands run line sets and shows pvars", function()
-	pvars.Setup2{key = "test_run_line_var", default = 2, store = false, help = "a test var"}
+	pvars.Setup2{
+		key = "test_run_line_var",
+		category = "Test",
+		group = "Command input",
+		default = 2,
+		store = false,
+		help = "a test var",
+	}
 	local output, ok = logging.Capture(commands.RunLine, "test_run_line_var 5")
 	T(ok)["=="](true)
 	T(output:find("test_run_line_var (number) = 5", nil, true) ~= nil)["=="](true)
@@ -166,7 +173,14 @@ end)
 
 T.Test("command input completes command and variable names with their syntax", function()
 	with_command("test_complete_cmd=string,number[3]", function(name, count) end, function()
-		pvars.Setup2{key = "test_complete_var", default = true, store = false, help = "toggles it"}
+		pvars.Setup2{
+			key = "test_complete_var",
+			category = "Test",
+			group = "Command input",
+			default = true,
+			store = false,
+			help = "toggles it",
+		}
 		local session = command_input.NewSession()
 		session:SetText("!test_comp")
 		local results = session:GetResults()
@@ -192,6 +206,8 @@ T.Test("command input shows the syntax after a command name and values after a v
 
 	pvars.Setup2{
 		key = "test_hint_mode",
+		category = "Test",
+		group = "Command input",
 		default = "fast",
 		enums = {"fast", "slow", "safe"},
 		store = false,
@@ -200,7 +216,13 @@ T.Test("command input shows the syntax after a command name and values after a v
 	session:SetText("!test_hint_mode s")
 	T(values(session:GetResults()))["=="](",slow,safe,fast")
 	T(session:GetCompletion())["=="]("!test_hint_mode slow")
-	pvars.Setup2{key = "test_hint_flag", default = false, store = false}
+	pvars.Setup2{
+		key = "test_hint_flag",
+		category = "Test",
+		group = "Command input",
+		default = false,
+		store = false,
+	}
 	session:SetText("!test_hint_flag ")
 	T(values(session:GetResults()))["=="](",true,false")
 	session:SetText("!unknown_thing ")
