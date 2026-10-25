@@ -334,6 +334,8 @@ function META:MirrorBones(rig, armature, pose)
 
 		if armed and (name == "hand_r" or name == "hand_l") then
 			matrix = aim_pose.GetGripMatrix(matrix, aim_pose.GetAim(pose))
+		elseif active and (name == "hand_r" or name == "hand_l") then
+			matrix = aim_pose.GetFollowGripMatrix(matrix, name == "hand_r")
 		end
 
 		armature:SetBone(name, matrix, "model")

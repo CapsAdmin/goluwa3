@@ -215,6 +215,19 @@ function aim_pose.GetGripMatrix(hand, pitch)
 	return grip
 end
 
+function aim_pose.GetFollowGripMatrix(hand, is_right)
+	hand_rotation:SetMul(hand:GetRotation(), is_right and right_roll or identity)
+	grip:Identity()
+	grip:SetRotation(hand_rotation)
+	local p = aim_pose.PalmOffset
+	grip:SetTranslation(
+		hand.m30 + p.x * hand.m00 + p.y * hand.m10 + p.z * hand.m20,
+		hand.m31 + p.x * hand.m01 + p.y * hand.m11 + p.z * hand.m21,
+		hand.m32 + p.x * hand.m02 + p.y * hand.m12 + p.z * hand.m22
+	)
+	return grip
+end
+
 aim_pose.SetBetween = set_between
 
 local function sample_action(keys, f)
