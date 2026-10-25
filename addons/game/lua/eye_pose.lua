@@ -107,6 +107,8 @@ function eye_pose.Compute(state, bones, owner, dt)
 
 		if active.weapon:IsHeldAtEye() then
 			hold = Vec3(0, eye_height, 0) - forward * EYE_HOLD_BACK
+		elseif active.weapon:IsHoldFromHead() then
+			hold = Vec3(0, eye_height, 0) + aim:VecMul(active.weapon:GetHoldOffset())
 		else
 			hold = Vec3(0, eye_height, 0) + aim:VecMul(WEAPON_OFFSET) + active.weapon:GetHoldOffset()
 		end

@@ -47,6 +47,9 @@ local function weapon(two_handed)
 		GetHoldOffset = function()
 			return Vec3()
 		end,
+		IsHoldFromHead = function()
+			return false
+		end,
 		IsTwoHanded = function()
 			return two_handed == true
 		end,

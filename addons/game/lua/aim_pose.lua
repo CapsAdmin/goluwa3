@@ -158,13 +158,20 @@ local function compute_shift(bones, pitch, weapon)
 	local right_lower = get_length(bones.forearm_r, bones.hand_r)
 	local hold_offset = weapon:GetHoldOffset()
 	shoulder_r:Set(upper_r.m30, upper_r.m31, upper_r.m32)
-	offset:Set(aim_pose.HandOffset.x, aim_pose.HandOffset.y, -(right_upper + right_lower) * aim_pose.ArmReach)
-	Quat.SetVecMul(wrist_r, pitch, offset)
-	wrist_r:Set(
-		wrist_r.x + shoulder_r.x + hold_offset.x,
-		wrist_r.y + shoulder_r.y + hold_offset.y,
-		wrist_r.z + shoulder_r.z + hold_offset.z
-	)
+
+	if weapon:IsHoldFromHead() then
+		local head = bones.head
+		Quat.SetVecMul(wrist_r, pitch, hold_offset)
+		wrist_r:Set(head.m30 + wrist_r.x, head.m31 + wrist_r.y, head.m32 + wrist_r.z)
+	else
+		offset:Set(aim_pose.HandOffset.x, aim_pose.HandOffset.y, -(right_upper + right_lower) * aim_pose.ArmReach)
+		Quat.SetVecMul(wrist_r, pitch, offset)
+		wrist_r:Set(
+			wrist_r.x + shoulder_r.x + hold_offset.x,
+			wrist_r.y + shoulder_r.y + hold_offset.y,
+			wrist_r.z + shoulder_r.z + hold_offset.z
+		)
+	end
 
 	if two_handed then
 		Quat.SetVecMul(wrist_l, pitch, weapon:GetSupportGrip())
@@ -205,7 +212,18 @@ local function compute_shift(bones, pitch, weapon)
 	end
 end
 
-local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side, hold_offset, support, roll)
+local function solve_arm(
+	bones,
+	arm,
+	pitch,
+	hand_offset,
+	extra_reach,
+	side,
+	hold_offset,
+	support,
+	roll,
+	head_hold
+)
 	local upper, lower, hand = bones[arm.upper], bones[arm.lower], bones[arm.hand]
 	shoulder:Set(upper.m30, upper.m31, upper.m32)
 	local upper_length = math.sqrt((lower.m30 - upper.m30) ^ 2 + (lower.m31 - upper.m31) ^ 2 + (lower.m32 - upper.m32) ^ 2)
@@ -218,6 +236,15 @@ local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side, hold
 			hand_target.y + grip_target.y,
 			hand_target.z + grip_target.z
 		)
+	elseif head_hold then
+		local head = bones.head
+		Quat.SetVecMul(hand_target, pitch, hold_offset)
+		hand_target:Set(
+			head.m30 + hand_target.x + shift.x,
+			head.m31 + hand_target.y + shift.y,
+			head.m32 + hand_target.z + shift.z
+		)
+		grip_target:Set(hand_target.x, hand_target.y, hand_target.z)
 	else
 		local reach = (upper_length + lower_length) * aim_pose.ArmReach + extra_reach
 		offset:Set(hand_offset.x * side, hand_offset.y, -reach)
@@ -419,7 +446,8 @@ function aim_pose.Apply(bones, pose, weapon)
 			1,
 			weapon:GetHoldOffset(),
 			nil,
-			right_roll
+			right_roll,
+			weapon:IsHoldFromHead()
 		)
 		shift:Set(0, 0, 0)
 	end

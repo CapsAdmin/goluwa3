@@ -181,7 +181,7 @@ local function verify(scenario, observer_output, bot_output)
 	)
 	local list, saw_physgun, active = observer_output:match("OBSERVER_WEAPONS list=([%w_,]+) physgun=(%a+) active=([%w_]+)")
 	check(
-		list == "weapon_camera,weapon_physgun,weapon_pistol,weapon_toolgun",
+		list == "weapon_camera,weapon_hands,weapon_physgun,weapon_pistol,weapon_toolgun",
 		"the weapon children were not replicated: " .. tostring(list)
 	)
 	check(saw_physgun == "true", "the physgun was never the replicated active weapon")
