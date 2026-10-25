@@ -912,7 +912,7 @@ list.insert(
 					RAY_QUERY and
 					render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("ocean_data", "ocean_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("ocean_data") .. scene_reflection.GetDirectionGLSL()
 					or
-					""
+					scene_reflection.CONSTANTS_GLSL .. "#define DDGI_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
 				) .. [[
 
 			float get_blue_noise() {
