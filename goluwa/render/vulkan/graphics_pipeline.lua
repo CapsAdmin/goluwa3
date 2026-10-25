@@ -1146,33 +1146,36 @@ do
 			color_blend.src_alpha_blend_factor,
 			color_blend.dst_alpha_blend_factor,
 			color_blend.alpha_blend_op,
-			normalize_color_write_mask(color_blend.color_write_mask),
+			color_blend.color_write_mask ~= nil and
+			normalize_color_write_mask(color_blend.color_write_mask) or
+			nil,
 			color_blend.logic_op_enabled,
 			color_blend.logic_op,
 			color_blend.constants,
 			attachment_count,
 		}
+		local count = 12
 
-		if attachment_count > 0 then
-			for i = 1, attachment_count do
-				local a = attachments[i]
+		for i = 1, attachment_count do
+			local a = attachments[i]
 
-				if type(a) == "table" then
-					table.insert(args, a.blend)
-					table.insert(args, a.src_color_blend_factor)
-					table.insert(args, a.dst_color_blend_factor)
-					table.insert(args, a.color_blend_op)
-					table.insert(args, a.src_alpha_blend_factor)
-					table.insert(args, a.dst_alpha_blend_factor)
-					table.insert(args, a.alpha_blend_op)
-					table.insert(args, normalize_color_write_mask(a.color_write_mask))
-				else
-					table.insert(args, nil)
-				end
+			if type(a) == "table" then
+				args[count + 1] = a.blend
+				args[count + 2] = a.src_color_blend_factor
+				args[count + 3] = a.dst_color_blend_factor
+				args[count + 4] = a.color_blend_op
+				args[count + 5] = a.src_alpha_blend_factor
+				args[count + 6] = a.dst_alpha_blend_factor
+				args[count + 7] = a.alpha_blend_op
+				args[count + 8] = a.color_write_mask ~= nil and
+					normalize_color_write_mask(a.color_write_mask) or
+					nil
 			end
+
+			count = count + 8
 		end
 
-		return self.color_blend_state_interner:intern(args)
+		return self.color_blend_state_interner:intern(args, count)
 	end
 
 	local function has_static_override_change(self, section, key, value)
