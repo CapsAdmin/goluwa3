@@ -425,6 +425,14 @@ function aim_pose.Apply(bones, pose, weapon)
 		rotate_chain(bones, joint[2], #joint[2], bones[name], rotation)
 	end
 
+	if not weapon then
+		local shares = aim_pose.Shares
+		local torso_share = shares.waist + shares.spine + shares.chest + shares.back
+		rotation:SetRotation(identity:GetLerped(torso_share, pitch):Normalize():Conjugate())
+		rotate_chain(bones, RIGHT.shoulder_chain, 4, bones.clavicle_r, rotation)
+		rotate_chain(bones, LEFT.shoulder_chain, 4, bones.clavicle_l, rotation)
+	end
+
 	pose_variation.GetLean(lean, pose.lean_side, pose.lean_forward)
 	rotation:SetRotation(lean)
 	rotate_chain(bones, LEAN_BONES, #LEAN_BONES, origin, rotation)
