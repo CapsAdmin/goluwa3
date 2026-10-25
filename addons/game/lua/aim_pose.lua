@@ -6,6 +6,7 @@ local aim_pose = {}
 local ZERO = Vec3()
 aim_pose.Shares = {waist = 0.08, spine = 0.12, chest = 0.15, back = 0.15, neck = 0.2, head = 0.3}
 aim_pose.ClavicleShare = 0.25
+aim_pose.ElbowFlexion = 2.4
 aim_pose.RecoilAngle = math.rad(6)
 aim_pose.FlinchAngle = math.rad(10)
 aim_pose.ArmReach = 0.85
@@ -71,6 +72,8 @@ local rotation = Matrix44()
 local grip = Matrix44()
 local grip_target = Vec3()
 local hand_rotation = Quat()
+local shift = Vec3()
+local wrist_r, wrist_l, shoulder_r, shoulder_l = Vec3(), Vec3(), Vec3(), Vec3()
 local palm = Vec3()
 local right_roll = Quat(0, 0, 1, 0)
 local left_roll = Quat()
@@ -119,6 +122,88 @@ local function set_between(out, ax, ay, az, bx, by, bz)
 	return out:Set(cx * s, cy * s, cz * s, math.cos(half))
 end
 
+local function get_fold(upper_length, lower_length)
+	return math.sqrt(
+		upper_length * upper_length + lower_length * lower_length + 2 * upper_length * lower_length * math.cos(aim_pose.ElbowFlexion)
+	)
+end
+
+local function get_length(a, b)
+	return math.sqrt((a.m30 - b.m30) ^ 2 + (a.m31 - b.m31) ^ 2 + (a.m32 - b.m32) ^ 2)
+end
+
+local function get_correction(wrist, shoulder_position, upper_length, lower_length)
+	local dx, dy, dz = wrist.x - shoulder_position.x,
+	wrist.y - shoulder_position.y,
+	wrist.z - shoulder_position.z
+	local distance = math.max(math.sqrt(dx * dx + dy * dy + dz * dz), 1e-3)
+	local fold = get_fold(upper_length, lower_length)
+	local limit = (upper_length + lower_length) * 0.999
+	local scale = 0
+
+	if distance < fold then
+		scale = (fold - distance) / distance
+	elseif distance > limit then
+		scale = (limit - distance) / distance
+	end
+
+	return dx * scale, dy * scale, dz * scale
+end
+
+local function compute_shift(bones, pitch, weapon)
+	local two_handed = weapon:IsTwoHanded()
+	local upper_r, upper_l = bones.upperarm_r, bones.upperarm_l
+	local right_upper = get_length(upper_r, bones.forearm_r)
+	local right_lower = get_length(bones.forearm_r, bones.hand_r)
+	local hold_offset = weapon:GetHoldOffset()
+	shoulder_r:Set(upper_r.m30, upper_r.m31, upper_r.m32)
+	offset:Set(aim_pose.HandOffset.x, aim_pose.HandOffset.y, -(right_upper + right_lower) * aim_pose.ArmReach)
+	Quat.SetVecMul(wrist_r, pitch, offset)
+	wrist_r:Set(
+		wrist_r.x + shoulder_r.x + hold_offset.x,
+		wrist_r.y + shoulder_r.y + hold_offset.y,
+		wrist_r.z + shoulder_r.z + hold_offset.z
+	)
+
+	if two_handed then
+		Quat.SetVecMul(wrist_l, pitch, weapon:GetSupportGrip())
+		wrist_l:Set(wrist_l.x + wrist_r.x, wrist_l.y + wrist_r.y, wrist_l.z + wrist_r.z)
+	end
+
+	hand_rotation:SetMul(pitch, right_roll)
+	Quat.SetVecMul(palm, hand_rotation, aim_pose.PalmOffset)
+	wrist_r:Set(wrist_r.x - palm.x, wrist_r.y - palm.y, wrist_r.z - palm.z)
+	local left_upper, left_lower
+
+	if two_handed then
+		left_upper = get_length(upper_l, bones.forearm_l)
+		left_lower = get_length(bones.forearm_l, bones.hand_l)
+		shoulder_l:Set(upper_l.m30, upper_l.m31, upper_l.m32)
+		local half = weapon:GetSupportRoll() / 2
+		left_roll:Set(0, 0, math.sin(half), math.cos(half))
+		hand_rotation:SetMul(pitch, left_roll)
+		Quat.SetVecMul(palm, hand_rotation, aim_pose.PalmOffset)
+		wrist_l:Set(wrist_l.x - palm.x, wrist_l.y - palm.y, wrist_l.z - palm.z)
+	end
+
+	local weight = two_handed and 0.5 or 1
+	local sx, sy, sz = 0, 0, 0
+
+	for _ = 1, 4 do
+		wrist_r:Set(wrist_r.x + sx, wrist_r.y + sy, wrist_r.z + sz)
+		local rx, ry, rz = get_correction(wrist_r, shoulder_r, right_upper, right_lower)
+		local lx, ly, lz = 0, 0, 0
+
+		if two_handed then
+			wrist_l:Set(wrist_l.x + sx, wrist_l.y + sy, wrist_l.z + sz)
+			lx, ly, lz = get_correction(wrist_l, shoulder_l, left_upper, left_lower)
+		end
+
+		sx, sy, sz = (rx + lx) * weight, (ry + ly) * weight, (rz + lz) * weight
+		shift:Set(shift.x + sx, shift.y + sy, shift.z + sz)
+	end
+end
+
 local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side, hold_offset, support, roll)
 	local upper, lower, hand = bones[arm.upper], bones[arm.lower], bones[arm.hand]
 	shoulder:Set(upper.m30, upper.m31, upper.m32)
@@ -137,9 +222,9 @@ local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side, hold
 		offset:Set(hand_offset.x * side, hand_offset.y, -reach)
 		Quat.SetVecMul(hand_target, pitch, offset)
 		hand_target:Set(
-			hand_target.x + shoulder.x + hold_offset.x,
-			hand_target.y + shoulder.y + hold_offset.y,
-			hand_target.z + shoulder.z + hold_offset.z
+			hand_target.x + shoulder.x + hold_offset.x + shift.x,
+			hand_target.y + shoulder.y + hold_offset.y + shift.y,
+			hand_target.z + shoulder.z + hold_offset.z + shift.z
 		)
 		grip_target:Set(hand_target.x, hand_target.y, hand_target.z)
 	end
@@ -166,7 +251,8 @@ local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side, hold
 	local dx, dy, dz = hand_target.x - shoulder.x, hand_target.y - shoulder.y, hand_target.z - shoulder.z
 	local distance = math.max(math.sqrt(dx * dx + dy * dy + dz * dz), 1e-3)
 	local limit = (upper_length + lower_length) * 0.999
-	local clamped = math.min(distance, limit)
+	local fold = get_fold(upper_length, lower_length)
+	local clamped = math.clamp(distance, fold, limit)
 	local along = (
 			upper_length * upper_length - lower_length * lower_length + clamped * clamped
 		) / (
@@ -188,6 +274,10 @@ local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side, hold
 		shoulder.z + dz * along + bz * height
 	)
 	hand_target:Set(shoulder.x + dx * clamped, shoulder.y + dy * clamped, shoulder.z + dz * clamped)
+
+	if roll and not support then
+		grip_target:Set(hand_target.x + palm.x, hand_target.y + palm.y, hand_target.z + palm.z)
+	end
 
 	set_between(
 		between,
@@ -318,6 +408,7 @@ function aim_pose.Apply(bones, pose, weapon)
 	end
 
 	if weapon then
+		compute_shift(bones, pitch, weapon)
 		solve_arm(
 			bones,
 			RIGHT,
@@ -329,6 +420,7 @@ function aim_pose.Apply(bones, pose, weapon)
 			nil,
 			right_roll
 		)
+		shift:Set(0, 0, 0)
 	end
 
 	if pose.block_alpha > 0.5 then
