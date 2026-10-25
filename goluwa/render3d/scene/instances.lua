@@ -98,7 +98,7 @@ function instances.GetTables()
 				"shader_device_address",
 				"storage_buffer",
 				"transfer_src",
-				"acceleration_structure_build_input_read_only_khr",
+				render.GetDevice().ray_tracing_supported and "acceleration_structure_build_input_read_only_khr" or nil,
 			},
 			staged = true,
 		}
