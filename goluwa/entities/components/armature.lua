@@ -130,7 +130,7 @@ function META:GetBoneMatrix(name)
 	local socket = self.sockets[name]
 
 	if socket then
-		local bone = self:GetBoneMatrix(socket.bone)
+		local bone = socket.bone == name and rig:GetBone(name) or self:GetBoneMatrix(socket.bone)
 
 		if not bone then return nil end
 
