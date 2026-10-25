@@ -201,6 +201,7 @@ local FEATURES = {
 	sheen_cloth = true,
 	sheen_rimlight = true,
 	thin_transmission = true,
+	skin_subsurface = true,
 }
 local FAMILIES = {
 	"concrete",
@@ -308,6 +309,9 @@ local THIN_WORDS = {
 	"weed",
 }
 local THIN_TRANSMISSION = 0.4
+local NOT_SKIN_WORDS = {"eye", "teeth"}
+local SKIN_CLASSES = {flesh = true, player = true, bloodyflesh = true, zombieflesh = true}
+local SKIN_SUBSURFACE = 1
 local CHROME_ROUGHNESS = 0.05
 local SSBUMP_MASK_ROUGHNESS = 0.25
 local DERIVED_ROUGHNESS_ALBEDO = 1.5
@@ -986,6 +990,18 @@ do
 				has_word(name, THIN_WORDS, true)
 			then
 				self:SetDiffuseTransmission(THIN_TRANSMISSION)
+			end
+
+			if
+				FEATURES.skin_subsurface and
+				SKIN_CLASSES[class] and
+				not is_glass and
+				not has_word(name, CLOTH_WORDS)
+				and
+				not has_word(self.vmt_path or "", NOT_SKIN_WORDS)
+			then
+				self:SetSubsurface(SKIN_SUBSURFACE)
+				self:SetSubsurfaceSkinTone(1)
 			end
 		end
 
