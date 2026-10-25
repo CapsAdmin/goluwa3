@@ -105,7 +105,7 @@ function Swapchain:GetImages()
 			width = self.width,
 			height = self.height,
 			dont_destroy = true,
-			is_swapchain = true,
+			frame_target = true,
 		}
 	end
 

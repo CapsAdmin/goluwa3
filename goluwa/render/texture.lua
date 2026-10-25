@@ -1843,7 +1843,7 @@ do
 			properties = {"host_visible", "host_coherent"},
 			name = build_texture_debug_name(self.debug_name or self.config.path or "texture", "download staging"),
 		}
-		local use_current_cmd = image.is_swapchain and render.GetCommandBuffer() ~= nil
+		local use_current_cmd = image.frame_target and render.GetCommandBuffer() ~= nil
 		local copy_cmd = use_current_cmd and
 			render.GetCommandBuffer() or
 			render.GetCommandPool():AllocateCommandBuffer()
