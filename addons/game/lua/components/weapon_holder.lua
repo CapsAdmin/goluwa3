@@ -36,6 +36,12 @@ function META:GetActiveWeapon()
 	end
 end
 
+function META:GetPosedWeapon()
+	local active = self:GetActiveWeapon()
+
+	if active and active.weapon:IsPoseArms() then return active end
+end
+
 do
 	local function by_slot(a, b)
 		return a.weapon:GetSlot() < b.weapon:GetSlot()

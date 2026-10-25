@@ -9,6 +9,7 @@ local BUTTON = usercmd.BUTTON
 META.Network = {
 	Slot = {"number", 0.5, "reliable"},
 	Active = {"boolean", 0.5, "reliable"},
+	PoseArms = {"boolean", 0.1, "reliable"},
 }
 META:StartStorable()
 META:GetSet("Slot", 1)
@@ -18,6 +19,7 @@ META:IsSet("HiddenInFirstPerson", false)
 META:IsSet("HeldAtEye", false)
 META:IsSet("HidesPlayer", false)
 META:IsSet("TwoHanded", false)
+META:IsSet("PoseArms", true)
 META:GetSet("SupportGrip", Vec3())
 META:GetSet("SupportRoll", 0)
 META:IsSet("Offhand", false)
