@@ -42,6 +42,7 @@ Animator:GetSet(
 )
 Animator:GetSet("PoseParameterValue", 0)
 Animator:EndStorable()
+Animator:GetSet("ViewHiddenBone", "")
 
 function Animator:Initialize()
 	self.targets = {}
@@ -202,6 +203,62 @@ function Animator:Bind(skeleton)
 
 	for _, target in ipairs(self.targets) do
 		target.primitive:GetPolygon3D().SkinRig = self.rig
+	end
+
+	self:ApplyViewHiddenBone()
+end
+
+function Animator:SetViewHiddenBone(name)
+	self.ViewHiddenBone = name
+	self:ApplyViewHiddenBone()
+end
+
+function Animator:ApplyViewHiddenBone()
+	local rig = self.rig
+
+	if not rig then return end
+
+	local root = rig.bone_indices[self.ViewHiddenBone:lower()]
+	local parents = self.skeleton.parents
+	local subtree = {}
+
+	if root then
+		for bone = 0, self.skeleton.BoneCount - 1 do
+			local ancestor = bone
+
+			while ancestor >= 0 and ancestor ~= root do
+				ancestor = parents[ancestor]
+			end
+
+			subtree[bone] = ancestor == root
+		end
+	end
+
+	for _, target in ipairs(self.targets) do
+		local skin = target.original.Skin
+		local indices, weights = skin.BoneIndices, skin.BoneWeights
+		local seen = {}
+		local total, inside = 0, 0
+
+		if root then
+			for _, vertex in ipairs(target.original:GetIndices()) do
+				if not seen[vertex] then
+					seen[vertex] = true
+					local first = (vertex - 1) * 4
+					local best, best_weight = 0, -1
+
+					for i = first, first + 3 do
+						if weights[i] > best_weight then best, best_weight = indices[i], weights[i] end
+					end
+
+					total = total + 1
+
+					if subtree[best] then inside = inside + 1 end
+				end
+			end
+		end
+
+		target.primitive:SetViewHidden(total > 0 and inside * 2 >= total)
 	end
 end
 

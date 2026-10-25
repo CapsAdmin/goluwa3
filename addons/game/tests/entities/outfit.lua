@@ -51,18 +51,19 @@ T.Test("The default outfit places the eye and limbs where the pose bones are", f
 	bones.forearm_l:SetTranslation(0.3, 0.6, 0)
 	bones.foot_r:SetTranslation(-0.2, 0.05, 0)
 	local player = Entity.New{transform = {}}
-	player.procedural_pose = {GetBones = function() return bones end}
-	player.player_avatar = {
-		SetOutfitFirstPersonVisible = function(self, visible)
-			self.visible = visible
+	player.procedural_pose = {
+		GetBones = function()
+			return bones
 		end,
+	}
+	player.player_avatar = {
+		first_person = false,
 	}
 	prefab.Register("test_outfit_eye", outfit.GetDefault())
 	local instance = Entity.New{Parent = player, prefab = {Path = "test_outfit_eye"}}
 	local rig = instance.prefab:GetNode("rig")
 	T(rig.script.Error)["=="](nil)
 	rig.outfit_eye:OnUpdate(0.016)
-	T(player.player_avatar.visible)["=="](true)
 	local eye = instance.prefab:GetNode("eye").transform:GetPosition()
 	T(eye.y)["~"](1, 1e-5)
 	T(eye.z)["~"](0.1, 1e-5)
@@ -70,8 +71,17 @@ T.Test("The default outfit places the eye and limbs where the pose bones are", f
 	T(upper.x)["~"](0.3, 1e-5)
 	T(upper.y)["~"](0.8, 1e-5)
 	T(instance.prefab:GetNode("foot_r").transform:GetPosition().x)["~"](-0.2, 1e-5)
+	local pupil = instance.prefab:GetNode("pupil")
+	T(pupil.visual.ViewHidden)["=="](false)
+	player.player_avatar.first_person = true
+	rig.outfit_eye:OnUpdate(0.016)
+	T(pupil.visual.ViewHidden)["=="](true)
+	T(instance.prefab:GetNode("eye").visual.ViewHidden)["=="](true)
+	T(instance.prefab:GetNode("arm_upper_l").visual.ViewHidden)["=="](false)
+	player.player_avatar.first_person = false
+	rig.outfit_eye:OnUpdate(0.016)
+	T(pupil.visual.ViewHidden)["=="](false)
 	instance:Remove()
-	T(player.player_avatar.visible)["=="](false)
 	player:Remove()
 	prefab.definitions.test_outfit_eye = nil
 end)

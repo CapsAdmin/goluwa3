@@ -23,7 +23,6 @@ local selected_model = pvars.Setup2{
 	default = outfit_source.Model,
 	help = "source player model used when cl_outfit is player_outfit_source",
 }
-
 function outfit.GetLocalName()
 	return selected:Get()
 end
@@ -53,6 +52,7 @@ end
 function META:Initialize()
 	local prefab = self.Owner:GetParent().prefab
 	local nodes = {eye = prefab:GetNode("eye")}
+	self.head_visuals = {nodes.eye.visual, prefab:GetNode("iris").visual, prefab:GetNode("pupil").visual}
 	self.sides = {}
 
 	for i, name in ipairs({"l", "r"}) do
@@ -67,12 +67,6 @@ function META:Initialize()
 	self:AddGlobalEvent("Update")
 end
 
-function META:OnRemove()
-	local avatar = self.player and self.player:IsValid() and self.player.player_avatar
-
-	if avatar then avatar:SetOutfitFirstPersonVisible(false) end
-end
-
 function META:OnUpdate()
 	if not self.player then
 		local node = self.Owner:GetParent():GetParent()
@@ -84,7 +78,6 @@ function META:OnUpdate()
 		if not node:IsValid() then return end
 
 		self.player = node
-		node.player_avatar:SetOutfitFirstPersonVisible(true)
 	end
 
 	local player = self.player
@@ -96,6 +89,14 @@ function META:OnUpdate()
 	nodes.eye.transform:SetRotation(neck:GetRotation())
 	local weapon = avatar.armature and player.weapon_holder and player.weapon_holder:GetActiveWeapon()
 	local hide_arms = weapon and avatar.first_person and weapon.weapon:IsHeldAtEye() or false
+
+	if self.head_hidden ~= avatar.first_person then
+		self.head_hidden = avatar.first_person
+
+		for _, visual in ipairs(self.head_visuals) do
+			visual:SetViewHidden(avatar.first_person)
+		end
+	end
 
 	for _, name in ipairs(self.sides) do
 		local upperarm, forearm, hand = bones["upperarm_" .. name], bones["forearm_" .. name], bones["hand_" .. name]
@@ -256,5 +257,4 @@ function outfit.LoadLocal()
 end
 
 prefab.Register(outfit.DefaultName, outfit.GetDefault()).builtin = true
-
 return outfit

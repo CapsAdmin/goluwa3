@@ -52,17 +52,11 @@ function META:SetFirstPerson(first_person)
 	if self.outfit then self:ApplyFirstPerson() end
 end
 
-function META:SetOutfitFirstPersonVisible(visible)
-	self.outfit_first_person_visible = visible
-
-	if self.outfit then self:ApplyFirstPerson() end
-end
-
 function META:ApplyFirstPerson()
-	if self.first_person and not self.outfit_first_person_visible then
-		self.outfit.visibility:AddHider("first_person")
-	else
-		self.outfit.visibility:RemoveHider("first_person")
+	for _, child in ipairs(self.outfit:GetChildrenList()) do
+		if child.animator then
+			child.animator:SetViewHiddenBone(self.first_person and biped.SourceBones.head or "")
+		end
 	end
 end
 
@@ -129,7 +123,13 @@ function META:OnUpdate()
 	local camera = self.Owner.camera
 
 	if camera then
-		self:SetFirstPerson(not (third_person.IsEnabled() or camera_modes.GetActive() ~= nil) and camera:IsRendered())
+		self:SetFirstPerson(
+			not (
+					third_person.IsEnabled() or
+					camera_modes.GetActive() ~= nil
+				) and
+				camera:IsRendered()
+		)
 	end
 
 	self:UpdateOutfit()
