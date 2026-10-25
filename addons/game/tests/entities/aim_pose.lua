@@ -6,8 +6,10 @@ local biped = import("lua/biped.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local POSITIONS = {
 	body = Vec3(0, 0.9, 0),
+	waist = Vec3(0, 0.95, 0),
 	spine = Vec3(0, 1, 0),
-	chest = Vec3(0, 1.2, 0),
+	chest = Vec3(0, 1.1, 0),
+	back = Vec3(0, 1.25, 0),
 	neck = Vec3(0, 1.4, 0),
 	head = Vec3(0, 1.5, 0),
 	clavicle_r = Vec3(0.1, 1.38, 0),
@@ -73,7 +75,7 @@ T.Test("aiming up rotates the bones above the spine about their joints by the sh
 	local bones = create_bones()
 	aim_pose.Apply(bones, pose(pitch))
 	T(position(bones, "body"):Distance(POSITIONS.body))["<"](1e-6)
-	T(position(bones, "spine"):Distance(POSITIONS.spine))["<"](1e-6)
+	T(position(bones, "waist"):Distance(POSITIONS.waist))["<"](1e-6)
 	T(position(bones, "head"):Distance(POSITIONS.head) > 0.01)["=="](true)
 	local total = 0
 

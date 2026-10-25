@@ -4,7 +4,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local pose_variation = import("lua/pose_variation.lua")
 local aim_pose = {}
 local ZERO = Vec3()
-aim_pose.Shares = {spine = 0.15, chest = 0.2, neck = 0.25, head = 0.4}
+aim_pose.Shares = {waist = 0.08, spine = 0.12, chest = 0.15, back = 0.15, neck = 0.2, head = 0.3}
 aim_pose.RecoilAngle = math.rad(6)
 aim_pose.FlinchAngle = math.rad(10)
 aim_pose.ArmReach = 0.85
@@ -33,12 +33,19 @@ local ARMS = {
 	"forearm_l",
 	"hand_l",
 }
-local JOINTS = {
-	{"spine", {"spine", "chest", "neck", "head", unpack(ARMS)}},
-	{"chest", {"chest", "neck", "head", unpack(ARMS)}},
-	{"neck", {"neck", "head"}},
-	{"head", {"head"}},
-}
+local SPINE = {"waist", "spine", "chest", "back", "neck", "head"}
+local JOINTS = {}
+
+for i, name in ipairs(SPINE) do
+	local chain = {unpack(SPINE, i)}
+
+	for _, arm in ipairs(ARMS) do
+		chain[#chain + 1] = arm
+	end
+
+	JOINTS[i] = {name, chain}
+end
+
 local RIGHT = {
 	upper = "upperarm_r",
 	lower = "forearm_r",
@@ -163,6 +170,7 @@ local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side, hold
 		shoulder.z + dz * along + bz * height
 	)
 	hand_target:Set(shoulder.x + dx * clamped, shoulder.y + dy * clamped, shoulder.z + dz * clamped)
+
 	set_between(
 		between,
 		lower.m30 - upper.m30,
@@ -194,7 +202,11 @@ end
 local LOWER = {"body", "thigh_r", "calf_r", "foot_r", "thigh_l", "calf_l", "foot_l"}
 local FEET = {"foot_r", "foot_l"}
 local LEAN_BONES = {unpack(JOINTS[1][2])}
-aim_pose.Bones = {"spine", "chest", "neck", "head", unpack(ARMS)}
+aim_pose.Bones = {unpack(SPINE)}
+
+for _, name in ipairs(ARMS) do
+	aim_pose.Bones[#aim_pose.Bones + 1] = name
+end
 
 for _, name in ipairs(LOWER) do
 	LEAN_BONES[#LEAN_BONES + 1] = name
