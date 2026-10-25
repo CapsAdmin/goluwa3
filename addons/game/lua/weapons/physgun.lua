@@ -11,6 +11,7 @@ return {
 		Slot = 1,
 		DisplayName = "Physgun",
 		TwoHanded = true,
+		AlwaysPose = true,
 		SupportGrip = Vec3(0, 0, -0.3),
 		HoldOffset = Vec3(0.09, -0.21, 0.25),
 	},

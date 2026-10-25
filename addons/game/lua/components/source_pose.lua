@@ -309,7 +309,12 @@ end
 function META:MirrorBones(rig, armature, pose)
 	local holder = pose.Owner.weapon_holder
 	local active = holder and holder:GetPosedWeapon()
-	local armed = active ~= nil and not self.sprinting and not self.airborne
+	local armed = active ~= nil and
+		(
+			active.weapon:IsAlwaysPose() or
+			not self.sprinting and
+			not self.airborne
+		)
 	local bones = self.bones
 
 	for _, name in ipairs(aim_pose.Bones) do

@@ -11,6 +11,7 @@ return {
 		DisplayName = "Hands",
 		TwoHanded = true,
 		HoldFromHead = true,
+		AlwaysPose = true,
 		PoseArms = false,
 		HoldOffset = Vec3(0.18, -0.3, -0.4),
 		SupportGrip = Vec3(-0.36, 0, 0),
