@@ -18,6 +18,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local quality = import("goluwa/render3d/quality.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
+local BINDING_OUTPUT_DIFFUSE = 1
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
@@ -92,6 +93,7 @@ return {
 		ComputePass = true,
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+			{"r16g16b16a16_sfloat", {"subsurface_diffuse", "rgba"}},
 		},
 		framebuffer_count = 1,
 		LocalSize = COMPUTE_LOCAL_SIZE,
@@ -100,6 +102,11 @@ return {
 				binding_index = BINDING_OUTPUT,
 				attachment = 1,
 				dst_stage = "fragment",
+			},
+			{
+				binding_index = BINDING_OUTPUT_DIFFUSE,
+				attachment = 2,
+				dst_stage = "compute",
 			},
 		},
 		storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
@@ -202,6 +209,7 @@ return {
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT_DIFFUSE .. [[, rgba16f) uniform writeonly image2D out_subsurface_diffuse;
 			]] .. surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. (
 				glass_light.RAY_QUERY and
 				glass_light.GetDeclarationGLSL(GLASS_BINDINGS) or
@@ -217,6 +225,9 @@ return {
 			ivec2 in_pixel;
 			float in_view_depth;
 
+			vec4 subsurface_diffuse_out = vec4(0.0);
+			vec3 indirect_diffuse_light = vec3(0.0);
+
 			void set_color(vec4 value) {
 				if (lighting_data.gi_overlay_tex >= 0) {
 					vec4 overlay = texture(TEXTURE(lighting_data.gi_overlay_tex), in_uv);
@@ -224,6 +235,7 @@ return {
 				}
 
 				imageStore(out_color, get_screen_pos(), value);
+				imageStore(out_subsurface_diffuse, get_screen_pos(), subsurface_diffuse_out);
 			}
 
 			]] .. gbuffer_layout.GetDecodeGLSL("lighting_data") .. surface_weather.GetRainSurfaceGLSL("lighting_data") .. [[
@@ -410,6 +422,8 @@ return {
 
 				]] .. surface_features.GetIndirectLayerGLSL() .. [[
 
+				indirect_diffuse_light = ambient_diffuse;
+
 				return ambient_diffuse + ambient_specular;
 			}
 
@@ -466,8 +480,8 @@ return {
 
 				vec3 direct_specular;
 				screen_shadow_term = 1.0;
-				vec3 direct = get_direct_light(surface, direct_specular);
-				direct += direct_specular;
+				vec3 direct_diffuse = get_direct_light(surface, direct_specular);
+				vec3 direct = direct_diffuse + direct_specular;
 
 				if (lighting_data.screen_shadows_debug != 0) {
 					set_color(vec4(vec3(screen_shadow_term * 0.1 * lighting_data.primary_sun_illuminance * get_pre_exposure()), 1.0));
@@ -481,6 +495,11 @@ return {
 
 				vec3 indirect = get_indirect_light(surface);
 				vec3 color = direct + indirect + surface.emissive;
+
+				if (surface.subsurface > 0.0) {
+					vec3 diffuse_albedo = max(surface.albedo, vec3(]] .. string.format("%.3f", render3d.SUBSURFACE_MIN_ALBEDO) .. [[));
+					subsurface_diffuse_out = vec4(min((direct_diffuse + indirect_diffuse_light) * get_pre_exposure() / diffuse_albedo, vec3(65504.0)), surface.subsurface);
+				}
 
 				if (lighting_data.gi_debug != 0) {
 					float debug_sky_visibility;

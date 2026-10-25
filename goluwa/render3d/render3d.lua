@@ -125,6 +125,7 @@ render3d.velocity_enabled = pvars.Setup2{
 pvars.EndGroup()
 render3d.EMISSIVE_REFERENCE_LUMINANCE = 2000.0
 render3d.EMISSIVE_MAX_LUMINANCE = 64512.0 * 256.0
+render3d.SUBSURFACE_MIN_ALBEDO = 0.05
 
 function render3d.GetEmissiveGLSL()
 	return (
@@ -306,6 +307,7 @@ local default_passes = {
 	{"ddgi", "goluwa/render3d/passes/ddgi.lua"},
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
+	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},
 	{"ocean", "goluwa/render3d/passes/ocean.lua"},
 	{"volumetric_fog", "goluwa/render3d/passes/volumetric_fog.lua"},
 	{"particles", "goluwa/render3d/passes/particles.lua"},

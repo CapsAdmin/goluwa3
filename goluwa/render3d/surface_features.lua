@@ -4,6 +4,8 @@ surface_features.default_list = {
 	import("goluwa/render3d/features/core.lua"),
 	import("goluwa/render3d/features/specular.lua"),
 	import("goluwa/render3d/features/transmission.lua"),
+	import("goluwa/render3d/features/subsurface.lua"),
+	import("goluwa/render3d/features/subsurface_color.lua"),
 	import("goluwa/render3d/features/clearcoat.lua"),
 	import("goluwa/render3d/features/secondary_specular.lua"),
 	import("goluwa/render3d/features/sheen.lua"),
