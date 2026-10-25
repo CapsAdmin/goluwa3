@@ -357,6 +357,8 @@ function META:TryStepUp(direction, distance)
 	local flat_distance
 
 	if flat then
+		if flat.normal.y >= self.MinGroundNormalY then return false end
+
 		flat_distance = reach_length * flat.fraction
 	else
 		local low_length = reach_length + STEP_LOW_PROBE_EXTRA
@@ -369,7 +371,7 @@ function META:TryStepUp(direction, distance)
 			STEP_OPTIONS
 		)
 
-		if not low then return false end
+		if not low or low.normal.y >= self.MinGroundNormalY then return false end
 
 		flat_distance = low_length * low.fraction
 	end
