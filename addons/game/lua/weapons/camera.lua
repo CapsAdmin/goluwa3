@@ -1,32 +1,28 @@
 local nodes = import("lua/weapon_nodes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
-local CAMERA_BODY = {Color = Color(0.1, 0.1, 0.11, 1), Roughness = 0.5, Metallic = 0.3}
-local GLASS = {Color = Color(0.1, 0.25, 0.4, 1), Roughness = 0.05, Metallic = 0.9}
-local ACCENT = {Color = Color(0.7, 0.7, 0.72, 1), Roughness = 0.4, Metallic = 0.8}
-local box = nodes.Box
-local muzzle = nodes.Muzzle
+local BODY = {Color = Color(0.08, 0.08, 0.09, 1), Roughness = 0.5, Metallic = 0.3}
+local HANDLE = {Color = Color(0.2, 0.2, 0.22, 1), Roughness = 0.9, Metallic = 0}
+local LENS = {Color = Color(0.1, 0.25, 0.4, 1), Roughness = 0.05, Metallic = 0.9}
 return {
 	Values = {
-		WorldSize = Vec3(0.16, 0.1, 0.34),
-		WorldCenter = FORWARD * 0.2,
+		WorldSize = Vec3(0.2, 0.14, 0.21),
+		WorldCenter = Vec3(-0.075, 0.015, -0.06),
 		Slot = 3,
 		DisplayName = "Camera",
 		TwoHanded = true,
+		SupportGrip = Vec3(-0.1, 0, -0.115),
+		SupportRoll = math.pi / 2,
 		HiddenInFirstPerson = true,
 		HeldAtEye = true,
 		HidesPlayer = true,
 	},
 	Nodes = {
-		box("body", Vec3(0.16, 0.1, 0.12), FORWARD * 0.22, CAMERA_BODY),
-		box("lens", Vec3(0.075, 0.075, 0.09), FORWARD * 0.33, GLASS),
-		box("ring", Vec3(0.09, 0.09, 0.03), FORWARD * 0.385, ACCENT),
-		box("button", Vec3(0.05, 0.03, 0.05), FORWARD * 0.2 + Vec3(0, 0.065, 0), ACCENT),
-		muzzle(0.4),
+		nodes.Handle("handle", 0.025, 0.11, Vec3(0, 0, 0), HANDLE),
+		nodes.Box("body", Vec3(0.15, 0.09, 0.09), Vec3(-0.1, 0.04, -0.02), BODY),
+		nodes.Muzzle(0.04, 0.1, Vec3(-0.1, 0.04, -0.165), LENS),
 	},
-	Source = [=====[
-local objects = import("goluwa/objects/objects.lua")
+	Source = [=====[local objects = import("goluwa/objects/objects.lua")
 local input = import("goluwa/input.lua")
 local render2d = RENDER_2D and import("goluwa/render2d/render2d.lua")
 local META = objects.CreateTemplate("weapon_camera")

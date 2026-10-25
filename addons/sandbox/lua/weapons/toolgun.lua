@@ -1,29 +1,23 @@
 local nodes = import("lua/weapon_nodes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
-local METAL = {Color = Color(0.55, 0.57, 0.6, 1), Roughness = 0.35, Metallic = 0.85}
-local DARK = {Color = Color(0.1, 0.1, 0.12, 1), Roughness = 0.6, Metallic = 0.2}
-local SCREEN = {Color = Color(0.2, 0.6, 1, 1), Roughness = 0.2, Metallic = 0}
-local box = nodes.Box
-local muzzle = nodes.Muzzle
+local BODY = {Color = Color(0.8, 0.82, 0.85, 1), Roughness = 0.35, Metallic = 0.7}
+local HANDLE = {Color = Color(0.1, 0.1, 0.12, 1), Roughness = 0.6, Metallic = 0.2}
+local MUZZLE = {Color = Color(0.1, 0.8, 0.5, 1), Roughness = 0.2, Metallic = 0.3}
 return {
 	Values = {
-		WorldSize = Vec3(0.08, 0.22, 0.42),
-		WorldCenter = FORWARD * 0.26,
+		WorldSize = Vec3(0.05, 0.18, 0.32),
+		WorldCenter = Vec3(0, 0.03, -0.14),
 		Slot = 6,
 		DisplayName = "Tool gun",
 		FireRate = 0.2,
 	},
 	Nodes = {
-		box("body", Vec3(0.07, 0.09, 0.3), FORWARD * 0.27 + Vec3(0, 0.03, 0), METAL),
-		box("screen", Vec3(0.075, 0.05, 0.08), FORWARD * 0.2 + Vec3(0, 0.08, 0), SCREEN),
-		box("barrel", Vec3(0.035, 0.035, 0.14), FORWARD * 0.46 + Vec3(0, 0.04, 0), DARK),
-		box("grip", Vec3(0.05, 0.14, 0.07), FORWARD * 0.16 - Vec3(0, 0.08, 0), DARK),
-		muzzle(0.54),
+		nodes.Handle("handle", 0.022, 0.12, Vec3(0, 0, 0), HANDLE),
+		nodes.Box("body", Vec3(0.045, 0.06, 0.2), Vec3(0, 0.09, -0.08), BODY),
+		nodes.Muzzle(0.015, 0.12, Vec3(0, 0.09, -0.3), MUZZLE),
 	},
-	Source = [=====[
-local objects = import("goluwa/objects/objects.lua")
+	Source = [=====[local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local toolgun = import("lua/toolgun.lua")
 local META = objects.CreateTemplate("weapon_toolgun")

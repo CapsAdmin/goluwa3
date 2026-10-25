@@ -37,7 +37,13 @@ function weapons.Register(name, values, nodes, source, script_values)
 	weapons.Definitions[name] = {DisplayName = values.DisplayName, Entities = entities}
 
 	for _, node in ipairs(nodes) do
-		entities[#entities + 1] = node
+		if node.guid then
+			entities[#entities + 1] = node
+		else
+			for _, child in ipairs(node) do
+				entities[#entities + 1] = child
+			end
+		end
 	end
 
 	prefab.Register(name, {inputs = {}, entities = entities}).builtin = true

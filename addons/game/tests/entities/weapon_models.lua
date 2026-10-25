@@ -13,10 +13,11 @@ T.Test("Weapons are built in prefabs with a model, a loaded script and a muzzle 
 		local model = instance.weapon:GetModel()
 		T(model:GetParent())["=="](instance)
 		T(model.transform:GetAttachment())["=="]("root")
+
 		if instance.weapon:GetCategory() == "tools" then
 			local muzzle = instance.weapon:GetMuzzle()
 			T(muzzle:GetParent())["=="](model)
-			T(muzzle.transform:GetPosition():GetLength())[">"](0.3)
+			T(muzzle.transform:GetPosition():GetLength())[">"](0.15)
 		end
 
 		T(instance.script.Error == nil)["=="](true)

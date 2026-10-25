@@ -1,28 +1,26 @@
 local nodes = import("lua/weapon_nodes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
-local METAL = {Color = Color(0.25, 0.27, 0.3, 1), Roughness = 0.35, Metallic = 0.8}
-local BLUE = {Color = Color(0.1, 0.35, 1, 1), Roughness = 0.4, Metallic = 0.3}
-local box = nodes.Box
-local muzzle = nodes.Muzzle
+local BODY = {Color = Color(0.3, 0.32, 0.36, 1), Roughness = 0.35, Metallic = 0.8}
+local HANDLE = {Color = Color(1, 0.45, 0.05, 1), Roughness = 0.6, Metallic = 0.1}
+local MUZZLE = {Color = Color(0.1, 0.35, 1, 1), Roughness = 0.3, Metallic = 0.3}
 return {
 	Values = {
-		WorldSize = Vec3(0.12, 0.2, 0.7),
-		WorldCenter = FORWARD * 0.32,
+		WorldSize = Vec3(0.07, 0.19, 0.62),
+		WorldCenter = Vec3(0, 0.035, -0.26),
 		Slot = 1,
 		DisplayName = "Physgun",
 		TwoHanded = true,
+		SupportGrip = Vec3(0, 0, -0.3),
+		HoldOffset = Vec3(0.09, -0.21, 0.25),
 	},
 	Nodes = {
-		box("body", Vec3(0.1, 0.1, 0.36), FORWARD * 0.32, METAL),
-		box("coil", Vec3(0.12, 0.05, 0.2), FORWARD * 0.28 + Vec3(0, 0.07, 0), BLUE),
-		box("tip", Vec3(0.06, 0.06, 0.1), FORWARD * 0.59, BLUE),
-		box("grip", Vec3(0.06, 0.13, 0.08), FORWARD * 0.16 - Vec3(0, 0.09, 0), METAL),
-		muzzle(0.64),
+		nodes.Handle("handle", 0.022, 0.12, Vec3(0, 0, 0), HANDLE),
+		nodes.Handle("support_handle", 0.022, 0.12, Vec3(0, 0, -0.3), HANDLE),
+		nodes.Box("body", Vec3(0.07, 0.07, 0.5), Vec3(0, 0.095, -0.2), BODY),
+		nodes.Muzzle(0.035, 0.12, Vec3(0, 0.095, -0.57), MUZZLE),
 	},
-	Source = [=====[
-local objects = import("goluwa/objects/objects.lua")
+	Source = [=====[local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local physics = import("goluwa/physics.lua")
 local Color = import("goluwa/structs/color.lua")
