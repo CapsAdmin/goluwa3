@@ -1,7 +1,6 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local PipelineCache = import("goluwa/render/vulkan/internal/pipeline_cache.lua")
 local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
 local render = import("goluwa/render/render.lua")
 local ShaderModule = import("goluwa/render/vulkan/internal/shader_module.lua")
@@ -9,6 +8,7 @@ local DescriptorSetLayout = import("goluwa/render/vulkan/internal/descriptor_set
 local PipelineLayout = import("goluwa/render/vulkan/internal/pipeline_layout.lua")
 local RayTracingPipeline = objects.CreateTemplate("vulkan_ray_tracing_pipeline")
 local VkPipelineBox = ffi.typeof("$[1]", vulkan.vk.VkPipeline)
+local VkRayTracingPipelineCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkRayTracingPipelineCreateInfoKHR)
 local VkRayTracingShaderGroupCreateInfoArray = ffi.typeof("$[?]", vulkan.vk.VkRayTracingShaderGroupCreateInfoKHR)
 local VkPipelineShaderStageCreateInfoArray = ffi.typeof("$[?]", vulkan.vk.VkPipelineShaderStageCreateInfo)
 
@@ -142,20 +142,44 @@ function RayTracingPipeline.New(device, config)
 		basePipelineHandle = nil,
 		basePipelineIndex = -1,
 	}
-	local create_pipelines = device:GetExtension("vkCreateRayTracingPipelinesKHR")
 	local ptr = VkPipelineBox()
-	local start = PipelineCache.GetTime()
-	vulkan.assert(
-		create_pipelines(device.ptr[0], nil, device.pipeline_cache.ptr[0], 1, create_info, nil, ptr),
-		"failed to create ray tracing pipeline"
-	)
-	PipelineCache.LogIfSlow("ray tracing", config.name, start)
-	device.pipeline_cache.generation = device.pipeline_cache.generation + 1
+	local info_box = VkRayTracingPipelineCreateInfoBox()
+	info_box[0] = create_info
+	local job = device.pipeline_cache:RunCreate(device:GetExtension("vkCreateRayTracingPipelinesKHR"), info_box, ptr, true)
+	local self = RayTracingPipeline:CreateObject{
+		name = config.name,
+		device = device,
+		ptr = ptr,
+		job = job,
+		keep = {create_info, info_box, stages, groups, stage_modules},
+		group_count = group_count,
+		shader_modules = shader_modules,
+		pipeline_layout = pipeline_layout,
+		owns_pipeline_layout = not config.pipeline_layout,
+		set_layouts = layouts,
+		stage_count = stage_count,
+		stage_index = stage_index,
+		trace_rays = device:TryGetExtension("vkCmdTraceRaysKHR"),
+	}
+	return self
+end
 
-	for i = 1, stage_count do
-		stage_modules[i]:Remove()
+function RayTracingPipeline:Wait()
+	local job = self.job
+
+	if not job then return end
+
+	self.job = nil
+	local device = self.device
+	local group_count = self.group_count
+	device.pipeline_cache:WaitForJob(job, "ray tracing", self.name)
+
+	for _, module in ipairs(self.keep[5]) do
+		module:Remove()
 	end
 
+	self.keep = nil
+	local ptr = self.ptr
 	local get_handle_size = device:TryGetExtension("vkGetRayTracingShaderGroupHandleSizeKHR")
 	local handle_size = get_handle_size and get_handle_size(device.ptr[0]) or 32
 	local get_handles = device:GetExtension("vkGetRayTracingShaderGroupHandlesKHR")
@@ -186,28 +210,15 @@ function RayTracingPipeline.New(device, config)
 		)
 	end
 
-	local records_buffer = render.CreateBuffer{
+	self.records_buffer = render.CreateBuffer{
 		byte_size = total_size,
 		buffer_usage = {"shader_device_address", "shader_binding_table_khr", "transfer_src"},
 		memory_property = {"host_visible", "host_coherent"},
 		label = "ray_tracing_shader_binding_table",
 		data = sbt,
 	}
-	local self = RayTracingPipeline:CreateObject{
-		name = config.name,
-		device = device,
-		pipeline = ptr[0],
-		records_buffer = records_buffer,
-		record_stride = record_stride,
-		shader_modules = shader_modules,
-		pipeline_layout = pipeline_layout,
-		owns_pipeline_layout = not config.pipeline_layout,
-		set_layouts = layouts,
-		stage_count = stage_count,
-		stage_index = stage_index,
-		trace_rays = device:TryGetExtension("vkCmdTraceRaysKHR"),
-	}
-	return self
+	self.record_stride = record_stride
+	self.pipeline = ptr[0]
 end
 
 local function shader_record_region(self, name)
@@ -232,6 +243,7 @@ end
 local region_t = ffi.typeof("$[1]", vulkan.vk.VkStridedDeviceAddressRegionKHR)
 
 function RayTracingPipeline:DispatchRays(cmd, width, height, depth, descriptor_sets, dynamic_offsets)
+	self:Wait()
 	vulkan.lib.vkCmdBindPipeline(cmd.ptr[0], vulkan.vk.e.VkPipelineBindPoint("ray_tracing_khr"), self.pipeline)
 	cmd:BindDescriptorSets("ray_tracing_khr", self.pipeline_layout, descriptor_sets, dynamic_offsets, 0)
 	local rgs = region_t()
@@ -264,6 +276,8 @@ function RayTracingPipeline:DispatchRays(cmd, width, height, depth, descriptor_s
 end
 
 function RayTracingPipeline:OnRemove()
+	pcall(self.Wait, self)
+
 	if self.pipeline and self.device:IsValid() then
 		local device = self.device
 		local pipeline = self.pipeline

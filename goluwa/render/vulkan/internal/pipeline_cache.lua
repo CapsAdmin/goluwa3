@@ -41,6 +41,13 @@ local CREATE_JOB = [[
 	local input = ...
 	local create = ffi.cast("int (*)(void *, void *, uint32_t, const void *, const void *, void *)", input.create)
 
+	if input.ray_tracing then
+		local create_ray_tracing = ffi.cast("int (*)(void *, void *, void *, uint32_t, const void *, const void *, void *)", input.create)
+		create = function(device, cache, count, info, allocator, out)
+			return create_ray_tracing(device, nil, cache, count, info, allocator, out)
+		end
+	end
+
 	local function handle(text)
 		return ffi.cast("void *", loadstring("return " .. text)())
 	end
@@ -53,7 +60,7 @@ local CREATE_JOB = [[
 	return (os.clock() - start) * 1000
 ]]
 
-function PipelineCache:RunCreate(create, info, out)
+function PipelineCache:RunCreate(create, info, out, ray_tracing)
 	local job = thread_pool.Run(
 		CREATE_JOB,
 		{
@@ -62,6 +69,7 @@ function PipelineCache:RunCreate(create, info, out)
 			cache = address(self.ptr[0]),
 			info = address(info),
 			out = address(out),
+			ray_tracing = ray_tracing,
 		},
 		math.huge
 	)
