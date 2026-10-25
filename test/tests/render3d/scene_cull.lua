@@ -95,8 +95,8 @@ T.Test3D("Graphics render3d the main view cull keeps what the frustum holds and 
 	local seed = 7
 
 	local function random()
-		seed = (seed * 1103515245 + 12345) % 2147483648
-		return seed / 2147483648
+		seed = seed * 16807 % 2147483647
+		return seed / 2147483647
 	end
 
 	for i = 1, 60 do
@@ -223,11 +223,9 @@ T.Test3D("Graphics render3d the main view cull picks one level of detail and fad
 	draw_frames(draw)
 	local between = levels(entity, scene_draw.ReadBackCull(0))
 	T(#between)["=="](2)
-	T(
-		between[1].fade * between[2].fade < 0 or
-			between[1].fade == 0 or
-			between[2].fade == 0
-	)["=="](true)
+	T(between[1].fade * between[2].fade < 0 or
+		between[1].fade == 0 or
+		between[2].fade == 0)["=="](true)
 	pvars.SetSession("lod_level", 1)
 	draw_frames(draw)
 	local forced = levels(entity, scene_draw.ReadBackCull(0))

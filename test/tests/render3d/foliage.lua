@@ -18,10 +18,11 @@ local function checksum(parts)
 
 	for _, part in ipairs(parts) do
 		local packed = part.mesh.packed
-		local bytes = ffi.cast("const uint8_t *", packed.vertices)
+		local floats = ffi.cast("const float *", packed.vertices)
 
-		for i = 0, ffi.sizeof(packed.vertices) - 1, 7 do
-			h = (h * 31 + bytes[i]) % 4294967291
+		-- the jit fuses multiply-adds on arm64, so a jitted rebuild differs in the last bits
+		for i = 0, ffi.sizeof(packed.vertices) / 4 - 1 do
+			h = (h * 31 + math.floor(floats[i] * 10000 + 0.5)) % 4294967291
 		end
 
 		for i = 0, packed.index_count - 1 do

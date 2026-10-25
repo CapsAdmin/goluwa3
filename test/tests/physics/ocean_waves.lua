@@ -12,8 +12,9 @@ T.Test("Ocean waves are a pure function of position and game time", function()
 	water.SampleOcean(12.5, -7.25, 123.4, 0, sample)
 	local height, velocity_y = sample.height, sample.velocity_y
 	water.SampleOcean(12.5, -7.25, 123.4, 0, sample)
-	T(sample.height)["=="](height)
-	T(sample.velocity_y)["=="](velocity_y)
+	-- the jit fuses multiply-adds on arm64, so a jitted call can differ from an interpreted one in the last bits
+	T(math.abs(sample.height - height))["<"](1e-9)
+	T(math.abs(sample.velocity_y - velocity_y))["<"](1e-9)
 end)
 
 T.Test("Ocean waves repeat after the wave period", function()

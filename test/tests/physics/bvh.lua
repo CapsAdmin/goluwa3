@@ -5,8 +5,8 @@ local function make_items(count, seed)
 	local items = {}
 
 	local function random()
-		seed = (seed * 1103515245 + 12345) % 2147483648
-		return seed / 2147483648
+		seed = seed * 16807 % 2147483647
+		return seed / 2147483647
 	end
 
 	for i = 1, count do
