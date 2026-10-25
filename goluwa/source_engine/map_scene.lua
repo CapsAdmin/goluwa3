@@ -46,6 +46,8 @@ local axis_y = Vec3(0, 1, 0)
 local BLACKLISTED_MODEL_PREFIXES = {
 	"models/lostcoast/effects/vollight_stainedglass.mdl",
 	"models/effects/vol_light",
+	"models/props/de_port/clouds",
+	"models/props/de_port/clouds2",
 }
 
 local function is_blacklisted(path)
@@ -117,7 +119,9 @@ local function get_sun_direction(info)
 		local angles = info.angles
 		local pitch = math.rad(info.pitch or angles and angles.x or 0)
 		local yaw = math.rad(angles and angles.y or 0)
-		x, y, z = math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), -math.sin(pitch)
+		x, y, z = math.cos(pitch) * math.cos(yaw),
+		math.cos(pitch) * math.sin(yaw),
+		-math.sin(pitch)
 	end
 
 	return Vec3(-y, z, -x):GetNormalized()
