@@ -1251,7 +1251,8 @@ local colors = import("goluwa/cli/colors.lua")
 local commands = import("goluwa/cli/commands.lua")
 local json = import("goluwa/codecs/json.lua")
 local vfs = import("goluwa/vfs.lua")
-local MAX_PARALLEL_FILES = 8
+-- eight render test processes at once trip the metal command queue timeout on apple integrated gpus
+local MAX_PARALLEL_FILES = jit.os == "OSX" and 4 or 8
 local MIN_MEMORY_HEADROOM = 4 * 1024 ^ 3
 local UNKNOWN_FILE_DURATION = 5
 
@@ -1277,7 +1278,7 @@ commands.Add({
 		},
 		jobs = {
 			type = "number",
-			description = "Maximum number of test files running at once (default 8)",
+			description = "Maximum number of test files running at once (default 8, 4 on macOS)",
 		},
 		["no-parallel"] = {
 			type = "boolean",
