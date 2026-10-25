@@ -377,6 +377,7 @@ function aim_pose.GetFollowGripMatrix(hand, is_right)
 end
 
 aim_pose.SetBetween = set_between
+aim_pose.RotateChain = rotate_chain
 
 local function sample_action(keys, f)
 	for i = 2, #keys do

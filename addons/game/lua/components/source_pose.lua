@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local biped = import("lua/biped.lua")
 local aim_pose = import("lua/aim_pose.lua")
+local leg_pose = import("lua/leg_pose.lua")
 local pose_variation = import("lua/pose_variation.lua")
 local system = import("goluwa/system.lua")
 local physics = import("goluwa/physics.lua")
@@ -32,6 +33,13 @@ local SINK_PROBE = 0.1
 local SINK_FOLLOW = 20
 local DOWN = Vec3(0, -1, 0)
 local SINK_OPTIONS = {IncludeRigidBodies = true}
+local LEG_PROBE = 0.5
+local LEG_RISE = 0.35
+local LEG_DROP = 0.45
+local LEG_FOLLOW = 60
+local PELVIS_FOLLOW = 12
+local PELVIS_RISE_FOLLOW = 4
+local UP = Vec3(0, 1, 0)
 local SPRINT_MAX_RATE = 1.5
 local GAIT_SPEED = {
 	crouch = PLAYER_WALK_SPEED * 0.6,
@@ -57,7 +65,9 @@ local WEAPON_SUFFIX = {weapon_camera = "camera", weapon_physgun = "physgun", wea
 
 function META:Initialize()
 	-- a source_pose in a prefab is initialized once more when the build of its entity ends
-	if self.initialized then return end
+	if self.initialized then
+		return
+	end
 
 	self.initialized = true
 	self.state = "idle"
@@ -67,6 +77,12 @@ function META:Initialize()
 	self.sequence = ""
 	self.bones = {}
 	self.ground_sink = 0
+	self.leg_shift = {0, 0}
+	self.leg_ground = {0, 0}
+	self.pelvis_ground = 0
+	self.pelvis_mean = 0
+	self.pelvis_rise = 0
+	self.leg_normals = {Vec3(0, 1, 0), Vec3(0, 1, 0)}
 
 	if RENDER_3D and self.OwnsArmature then
 		self.Owner:EnsureComponent("armature", {Skeleton = biped.SkeletonName})
@@ -306,7 +322,74 @@ function META:UpdateGroundSink(character, pose, dt)
 	self.ground_sink = self.ground_sink + (target - self.ground_sink) * math.min(dt * SINK_FOLLOW, 1)
 end
 
-function META:MirrorBones(rig, armature, pose)
+local FEET = {"foot_r", "foot_l"}
+
+function META:UpdateLegs(character, pose, dt, bones)
+	local world = self.Owner.transform:GetWorldMatrix()
+	local position = character.transform:GetRenderPositionRotation() or
+		character.transform:GetPosition()
+	local plane = position.y - self.ground_sink
+	local grounded = pose.grounded and physics.instance
+	local follow = math.min(dt * LEG_FOLLOW, 1)
+	local rotation = world:GetRotation():GetConjugated()
+	local ground = self.leg_ground
+	local mean = 0
+
+	if not self.leg_ready then
+		self.leg_ready = true
+		ground[1], ground[2], self.pelvis_ground, self.pelvis_mean = plane, plane, plane, plane
+	end
+
+	for i, name in ipairs(FEET) do
+		local foot = bones[name]
+		local x, y, z = world:TransformVectorUnpacked(foot.m30, foot.m31, foot.m32)
+		local hit = grounded and
+			physics.RayCast(
+				Vec3(x, y + LEG_PROBE, z),
+				DOWN,
+				LEG_PROBE + LEG_DROP,
+				character,
+				nil,
+				SINK_OPTIONS
+			)
+		local target = grounded and ground[i] or plane
+		local normal = UP
+
+		if hit then
+			target = math.clamp(hit.position.y, plane - LEG_DROP, plane + LEG_RISE)
+			normal = rotation:VecMul(hit.normal or UP)
+		end
+
+		ground[i] = ground[i] + (target - ground[i]) * follow
+		local current = self.leg_normals[i]
+		current:Set(
+			current.x + (normal.x - current.x) * follow,
+			current.y + (normal.y - current.y) * follow,
+			current.z + (normal.z - current.z) * follow
+		)
+		self.leg_shift[i] = math.clamp(ground[i] - plane, -LEG_DROP, LEG_RISE)
+		mean = mean + ground[i] * 0.5
+	end
+
+	local rise = (mean - self.pelvis_mean) / dt
+	self.pelvis_mean = mean
+	self.pelvis_rise = self.pelvis_rise + (
+			rise - self.pelvis_rise
+		) * math.min(dt * PELVIS_RISE_FOLLOW, 1)
+	self.pelvis_ground = self.pelvis_ground + (
+			mean + self.pelvis_rise / PELVIS_FOLLOW - self.pelvis_ground
+		) * math.min(dt * PELVIS_FOLLOW, 1)
+	local shift = self.leg_shift
+	leg_pose.Apply(
+		bones,
+		shift[1],
+		shift[2],
+		math.clamp(self.pelvis_ground - plane, -LEG_DROP, LEG_RISE),
+		self.leg_normals
+	)
+end
+
+function META:MirrorBones(rig, armature, pose, dt)
 	local holder = pose.Owner.weapon_holder
 	local active = holder and holder:GetPosedWeapon()
 	local armed = active ~= nil and
@@ -327,6 +410,8 @@ function META:MirrorBones(rig, armature, pose)
 	for _, name in ipairs(aim_pose.Bones) do
 		bones[name].m31 = bones[name].m31 - self.ground_sink
 	end
+
+	self:UpdateLegs(pose.Owner, pose, dt, bones)
 
 	for _, name in ipairs(aim_pose.Bones) do
 		if biped.HasBone(rig, name) then
@@ -385,7 +470,7 @@ function META:OnUpdate(dt)
 		end
 
 		self:UpdateGroundSink(self.character, pose, dt)
-		self:MirrorBones(rig, host.armature, pose)
+		self:MirrorBones(rig, host.armature, pose, dt)
 	end
 
 	if ragdoll and ragdoll:HasLimp() then
