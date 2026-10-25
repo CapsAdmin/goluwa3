@@ -243,7 +243,11 @@ T.TestPhysics = function(name, cb)
 		if not physics.instance then physics.Initialize() end
 
 		local Entity = import("goluwa/entities/entity.lua")
+		-- a slow tick (jit warmup, validation layers, other test files) would put islands to sleep and make results depend on machine speed
+		local slow_step_time = physics.instance.SlowStepTime
+		physics.instance.SlowStepTime = math.huge
 		cb()
+		physics.instance.SlowStepTime = slow_step_time
 
 		for _, ent in ipairs(Entity.World:GetChildrenList()) do
 			if ent:IsValid() then ent:Remove() end
