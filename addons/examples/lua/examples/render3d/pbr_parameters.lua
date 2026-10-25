@@ -654,6 +654,125 @@ ring("transmission_color", 5, function(t)
 	}
 end)
 
+local subsurface = group("subsurface")
+local SUBSURFACE_Z = TRANSMISSION_Z + 4.8
+local SKIN_RADIUS = 0.12
+
+local function skin_sphere(parent, name, x, z, mat)
+	shapes.Sphere{
+		Name = name,
+		Parent = parent,
+		Position = Vec3(x, SKIN_RADIUS, z),
+		Radius = SKIN_RADIUS,
+		Material = mat,
+		RigidBody = STATIC,
+	}
+end
+
+local bar = material{Color = Color(0.05, 0.05, 0.05, 1), Roughness = 0.8, Metallic = 0}
+
+local function skin_slab(parent, name, x, z, mat)
+	shapes.Box{
+		Name = name,
+		Parent = parent,
+		Position = Vec3(x, 0.02, z),
+		Size = Vec3(1, 0.04, 1),
+		Material = mat,
+		RigidBody = STATIC,
+	}
+	shapes.Box{
+		Name = name .. "_bar",
+		Parent = parent,
+		Position = Vec3(x + 0.3, 0.3, z),
+		Size = Vec3(0.06, 0.6, 1),
+		Material = bar,
+		RigidBody = STATIC,
+	}
+end
+
+sweep(
+	subsurface,
+	"subsurface",
+	SUBSURFACE_Z,
+	function(t)
+		return material{
+			Color = Color(0.8, 0.45, 0.35, 1),
+			Roughness = 0.55,
+			Metallic = 0,
+			SpecularMultiplier = 0.5,
+			Subsurface = t,
+		}
+	end,
+	skin_slab
+)
+
+sweep(
+	subsurface,
+	"subsurface_skin_tone",
+	SUBSURFACE_Z + 1.2,
+	function(t)
+		return material{
+			Color = [[
+				vec3 bands[4] = vec3[4](vec3(0.8, 0.45, 0.35), vec3(0.33, 0.18, 0.12), vec3(0.15, 0.3, 0.45), vec3(0.85, 0.8, 0.6));
+				return vec4(bands[int(fract(uv.x * 2.0) * 4.0)], 1.0);
+			]],
+			Roughness = 0.55,
+			Metallic = 0,
+			SpecularMultiplier = 0.5,
+			Subsurface = 1,
+			SubsurfaceSkinTone = t,
+		}
+	end,
+	skin_sphere
+)
+
+local TRANSLUCENT_RADIUS = 0.25
+
+local function translucent_sphere(parent, name, x, z, mat)
+	shapes.Sphere{
+		Name = name,
+		Parent = parent,
+		Position = Vec3(x, TRANSLUCENT_RADIUS, z),
+		Radius = TRANSLUCENT_RADIUS,
+		Material = mat,
+		RigidBody = STATIC,
+	}
+end
+
+sweep(
+	subsurface,
+	"subsurface_radius_wax",
+	SUBSURFACE_Z + 2.4,
+	function(t)
+		return material{
+			Color = Color(0.9, 0.78, 0.5, 1),
+			Roughness = 0.4,
+			Metallic = 0,
+			Subsurface = 1,
+			SubsurfaceColor = Color(1, 0.7, 0.35, 1),
+			SubsurfaceRadius = math.lerp(t, 1, 16),
+		}
+	end,
+	translucent_sphere
+)
+
+sweep(
+	subsurface,
+	"subsurface_radius_marble",
+	SUBSURFACE_Z + 3.6,
+	function(t)
+		return material{
+			Color = Color(0.9, 0.9, 0.88, 1),
+			Roughness = 0.2,
+			Metallic = 0,
+			Subsurface = 1,
+			SubsurfaceColor = Color(1, 0.9, 0.85, 1),
+			SubsurfaceRadius = math.lerp(t, 1, 16),
+		}
+	end,
+	translucent_sphere
+)
+
 swatch(
 	"roughness_gradient",
 	-8.75,
