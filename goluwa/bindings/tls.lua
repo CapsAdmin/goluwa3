@@ -854,6 +854,15 @@ local function load_openssl()
 
 	if not lib_ssl then error("Could not load OpenSSL") end
 
+	if jit.os == "OSX" then
+		-- homebrew's openssl does not pin itself like the linux builds, so a worker thread's lua state closing unloads it before the finalizers of its sockets free their contexts
+		pcall(ffi.cdef, "void *dlopen(const char *path, int mode);")
+
+		for _, path in ipairs{crypto_libs[1], ssl_libs[1]} do
+			ffi.C.dlopen(path, 2)
+		end
+	end
+
 	ffi.cdef([[
 		typedef struct ssl_st SSL;
 		typedef struct ssl_ctx_st SSL_CTX;
