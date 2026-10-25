@@ -498,7 +498,22 @@ else
 		}, meta)
 	end
 
+	if ffi.os == "OSX" then
+		ffi.cdef("int _NSGetExecutablePath(char *buf, uint32_t *bufsize);")
+	end
+
 	function process.get_executable_path()
+		if ffi.os == "OSX" then
+			local buffer = ffi.new("char[?]", 4096)
+			local size = ffi.new("uint32_t[1]", 4096)
+
+			if ffi.C._NSGetExecutablePath(buffer, size) ~= 0 then
+				return nil, "executable path does not fit in 4096 bytes"
+			end
+
+			return ffi.string(buffer)
+		end
+
 		if ffi.os ~= "Linux" then
 			return nil, "executable path is not implemented for " .. ffi.os
 		end
