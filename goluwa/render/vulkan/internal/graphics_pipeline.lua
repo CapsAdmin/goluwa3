@@ -345,6 +345,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 		},
 		math.huge
 	)
+	device.pipeline_cache:AddJob(job)
 	-- the worker reads these through raw pointers
 	local keep = {
 		shaderStagesArray,
@@ -392,7 +393,6 @@ function GraphicsPipeline:Wait()
 		local milliseconds = job:Block()
 		startup.Add("pipeline: graphics wait", start)
 		self.keep = nil
-		self.device.pipeline_cache.generation = self.device.pipeline_cache.generation + 1
 
 		if milliseconds >= 50 then
 			logf(

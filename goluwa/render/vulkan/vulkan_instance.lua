@@ -233,6 +233,10 @@ function VulkanInstance:GetPipelineCacheDataSize()
 	return self.device.pipeline_cache:GetDataSize()
 end
 
+function VulkanInstance:HasPipelineJobsInFlight()
+	return self.device.pipeline_cache:HasJobsInFlight()
+end
+
 function VulkanInstance:GetPipelineCacheGeneration()
 	return self.device.pipeline_cache.generation
 end

@@ -216,6 +216,7 @@ function render.Shutdown()
 	render.shutting_down = true
 	event.RemoveListener("WindowFramebufferResized", "window_resized")
 	event.RemoveListener("Update", "save_pipeline_cache")
+	event.RemoveListener("PipelineCompiled", "save_pipeline_cache")
 	event.RemoveListener("Render", "window_update")
 
 	if render.target:IsValid() then render.target:Remove() end
@@ -258,25 +259,21 @@ end
 
 local function start_saving_pipeline_cache(path, saved_size)
 	local saved_generation = vulkan_instance:GetPipelineCacheGeneration()
-	local seen_generation = saved_generation
-	local changed_at = 0
+	local saved_time = -math.huge
 
-	event.AddListener("Update", "save_pipeline_cache", function()
+	local function save()
 		local generation = vulkan_instance:GetPipelineCacheGeneration()
 
 		if generation == saved_generation then return end
 
 		local time = system.GetTime()
 
-		if generation ~= seen_generation then
-			seen_generation = generation
-			changed_at = time
+		if time - saved_time < 2 and vulkan_instance:HasPipelineJobsInFlight() then
 			return
 		end
 
-		if time - changed_at < 2 then return end
-
 		saved_generation = generation
+		saved_time = time
 		local size = vulkan_instance:GetPipelineCacheDataSize()
 
 		if size == saved_size then return end
@@ -290,7 +287,10 @@ local function start_saving_pipeline_cache(path, saved_size)
 			assert(fs.write_file(temp_path, vulkan_instance:GetPipelineCacheData()))
 			assert(os.rename(temp_path, path))
 		end
-	end)
+	end
+
+	event.AddListener("Update", "save_pipeline_cache", save)
+	event.AddListener("PipelineCompiled", "save_pipeline_cache", save)
 end
 
 function render.Initialize(config)

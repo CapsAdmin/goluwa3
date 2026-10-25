@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
 local PipelineCache = objects.CreateTemplate("vulkan_pipeline_cache")
 local VkPipelineCacheBox = ffi.typeof("$[1]", vulkan.vk.VkPipelineCache)
 local SizeBox = ffi.typeof("size_t[1]")
@@ -63,7 +64,31 @@ function PipelineCache.New(device, initial_data)
 		ptr = ptr,
 		initial_data = initial_data,
 		generation = 0,
+		jobs = {},
 	}
+end
+
+do
+	local function on_job_done(job)
+		job.pipeline_cache.generation = job.pipeline_cache.generation + 1
+		event.Call("PipelineCompiled")
+	end
+
+	function PipelineCache:AddJob(job)
+		job.pipeline_cache = self
+		table.insert(self.jobs, job)
+		job:OnDone(on_job_done)
+	end
+end
+
+function PipelineCache:HasJobsInFlight()
+	local jobs = self.jobs
+
+	for i = #jobs, 1, -1 do
+		if jobs[i]:IsDone() then table.remove(jobs, i) end
+	end
+
+	return #jobs > 0
 end
 
 function PipelineCache:GetDataSize()
