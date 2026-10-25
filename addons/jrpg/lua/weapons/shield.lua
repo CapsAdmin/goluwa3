@@ -37,7 +37,7 @@ end
 function META:OnWeaponThink(dt, cmd)
 	local holder = self:GetHolder()
 	local rpg = holder.rpg
-	local wants = usercmd.HasButton(cmd, BUTTON.BLOCK) and usercmd.HasButton(cmd, BUTTON.ACTIVE)
+	local wants = usercmd.HasButton(cmd, BUTTON.WALK) and usercmd.HasButton(cmd, BUTTON.ACTIVE)
 	local able = not rpg or (rpg:GetStamina() > 0 and not rpg:IsStunned() and not rpg:IsRolling())
 	holder.character_pose:SetBlocking(wants and able)
 end

@@ -1,4 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local eye_pose = import("lua/eye_pose.lua")
 local biped = {}
@@ -46,45 +47,104 @@ local rest_meters = {
 biped.Rest = {}
 
 for name, position in pairs(rest_meters) do
-	biped.Rest[name] = {position[1] / biped.Height, position[2] / biped.Height, position[3] / biped.Height}
+	biped.Rest[name] = {
+		position[1] / biped.Height,
+		position[2] / biped.Height,
+		position[3] / biped.Height,
+	}
 
 	if name:sub(-2) == "_r" then
-		biped.Rest[name:sub(1, -3) .. "_l"] = {-position[1] / biped.Height, position[2] / biped.Height, position[3] / biped.Height}
+		biped.Rest[name:sub(1, -3) .. "_l"] = {
+			-position[1] / biped.Height,
+			position[2] / biped.Height,
+			position[3] / biped.Height,
+		}
 	end
 end
 
-local humanoid = {Parts = {
-	{Name = "pelvis", From = "body", To = "spine", Radius = 0.17, Mass = 8, Multiplier = 1, Bone = "body"},
-	{Name = "torso", From = "spine", To = "chest", ToOffset = Vec3(0, 0.1, 0), Radius = 0.19, Mass = 14, Multiplier = 1, Bone = "spine"},
-	{
-		Name = "head",
-		From = "head",
-		To = "head",
-		ToOffset = Vec3(0, 0.08, 0),
-		Radius = 0.13,
-		Mass = 4,
-		Multiplier = 2.5,
-		Bone = "head",
+local humanoid = {
+	Parts = {
+		{
+			Name = "pelvis",
+			From = "body",
+			To = "spine",
+			Radius = 0.17,
+			Mass = 8,
+			Multiplier = 1,
+			Bone = "body",
+		},
+		{
+			Name = "torso",
+			From = "spine",
+			To = "chest",
+			ToOffset = Vec3(0, 0.1, 0),
+			Radius = 0.19,
+			Mass = 14,
+			Multiplier = 1,
+			Bone = "spine",
+		},
+		{
+			Name = "head",
+			From = "head",
+			To = "head",
+			ToOffset = Vec3(0, 0.08, 0),
+			Radius = 0.13,
+			Mass = 4,
+			Multiplier = 2.5,
+			Bone = "head",
+		},
 	},
-}}
+}
 local parts = humanoid.Parts
 
 for _, side in ipairs{"r", "l"} do
 	table.insert(
 		parts,
-		{Name = "upperarm_" .. side, From = "upperarm_" .. side, To = "forearm_" .. side, Radius = 0.065, Mass = 2, Multiplier = 0.7, Bone = "upperarm_" .. side}
+		{
+			Name = "upperarm_" .. side,
+			From = "upperarm_" .. side,
+			To = "forearm_" .. side,
+			Radius = 0.065,
+			Mass = 2,
+			Multiplier = 0.7,
+			Bone = "upperarm_" .. side,
+		}
 	)
 	table.insert(
 		parts,
-		{Name = "forearm_" .. side, From = "forearm_" .. side, To = "hand_" .. side, Radius = 0.055, Mass = 1.5, Multiplier = 0.7, Bone = "forearm_" .. side}
+		{
+			Name = "forearm_" .. side,
+			From = "forearm_" .. side,
+			To = "hand_" .. side,
+			Radius = 0.055,
+			Mass = 1.5,
+			Multiplier = 0.7,
+			Bone = "forearm_" .. side,
+		}
 	)
 	table.insert(
 		parts,
-		{Name = "thigh_" .. side, From = "thigh_" .. side, To = "calf_" .. side, Radius = 0.095, Mass = 5, Multiplier = 0.7, Bone = "thigh_" .. side}
+		{
+			Name = "thigh_" .. side,
+			From = "thigh_" .. side,
+			To = "calf_" .. side,
+			Radius = 0.095,
+			Mass = 5,
+			Multiplier = 0.7,
+			Bone = "thigh_" .. side,
+		}
 	)
 	table.insert(
 		parts,
-		{Name = "calf_" .. side, From = "calf_" .. side, To = "foot_" .. side, Radius = 0.075, Mass = 3, Multiplier = 0.6, Bone = "calf_" .. side}
+		{
+			Name = "calf_" .. side,
+			From = "calf_" .. side,
+			To = "foot_" .. side,
+			Radius = 0.075,
+			Mass = 3,
+			Multiplier = 0.6,
+			Bone = "calf_" .. side,
+		}
 	)
 end
 
@@ -94,15 +154,43 @@ humanoid.Joints = {
 }
 
 for _, side in ipairs{"r", "l"} do
-	table.insert(humanoid.Joints, {Parent = "torso", Child = "upperarm_" .. side, Anchor = "upperarm_" .. side, Twist = 1, Swing = 1.5})
 	table.insert(
 		humanoid.Joints,
-		{Parent = "upperarm_" .. side, Child = "forearm_" .. side, Anchor = "forearm_" .. side, Hinge = {0, 2.4}}
+		{
+			Parent = "torso",
+			Child = "upperarm_" .. side,
+			Anchor = "upperarm_" .. side,
+			Twist = 1,
+			Swing = 1.5,
+		}
 	)
-	table.insert(humanoid.Joints, {Parent = "pelvis", Child = "thigh_" .. side, Anchor = "thigh_" .. side, Twist = 0.4, Swing = 1})
 	table.insert(
 		humanoid.Joints,
-		{Parent = "thigh_" .. side, Child = "calf_" .. side, Anchor = "calf_" .. side, Hinge = {-2.4, 0}}
+		{
+			Parent = "upperarm_" .. side,
+			Child = "forearm_" .. side,
+			Anchor = "forearm_" .. side,
+			Hinge = {0, 2.4},
+		}
+	)
+	table.insert(
+		humanoid.Joints,
+		{
+			Parent = "pelvis",
+			Child = "thigh_" .. side,
+			Anchor = "thigh_" .. side,
+			Twist = 0.4,
+			Swing = 1,
+		}
+	)
+	table.insert(
+		humanoid.Joints,
+		{
+			Parent = "thigh_" .. side,
+			Child = "calf_" .. side,
+			Anchor = "calf_" .. side,
+			Hinge = {-2.4, 0},
+		}
 	)
 end
 
@@ -111,7 +199,6 @@ humanoid.Hits = {
 	torso = {Amount = 0.6, Hold = 0.1, Recover = 0.3, Impulse = 0.5},
 	head = {Amount = 0.6, Hold = 0.1, Recover = 0.3, Impulse = 0.5},
 }
-
 local eye_joints = {}
 local eye_parts = {
 	{
@@ -129,29 +216,89 @@ local eye_parts = {
 for _, side in ipairs{"r", "l"} do
 	table.insert(
 		eye_parts,
-		{Name = "upperarm_" .. side, From = "upperarm_" .. side, To = "forearm_" .. side, Radius = 0.05, Mass = 2, Multiplier = 0.7, Bone = "upperarm_" .. side}
+		{
+			Name = "upperarm_" .. side,
+			From = "upperarm_" .. side,
+			To = "forearm_" .. side,
+			Radius = 0.05,
+			Mass = 2,
+			Multiplier = 0.7,
+			Bone = "upperarm_" .. side,
+		}
 	)
 	table.insert(
 		eye_parts,
-		{Name = "forearm_" .. side, From = "forearm_" .. side, To = "hand_" .. side, Radius = 0.045, Mass = 1.5, Multiplier = 0.7, Bone = "forearm_" .. side}
+		{
+			Name = "forearm_" .. side,
+			From = "forearm_" .. side,
+			To = "hand_" .. side,
+			Radius = 0.045,
+			Mass = 1.5,
+			Multiplier = 0.7,
+			Bone = "forearm_" .. side,
+		}
 	)
 	table.insert(
 		eye_parts,
-		{Name = "thigh_" .. side, From = "thigh_" .. side, To = "calf_" .. side, Radius = 0.06, Mass = 4, Multiplier = 0.7, Bone = "thigh_" .. side}
+		{
+			Name = "thigh_" .. side,
+			From = "thigh_" .. side,
+			To = "calf_" .. side,
+			Radius = 0.06,
+			Mass = 4,
+			Multiplier = 0.7,
+			Bone = "thigh_" .. side,
+		}
 	)
 	table.insert(
 		eye_parts,
-		{Name = "calf_" .. side, From = "calf_" .. side, To = "foot_" .. side, Radius = 0.05, Mass = 3, Multiplier = 0.6, Bone = "calf_" .. side}
+		{
+			Name = "calf_" .. side,
+			From = "calf_" .. side,
+			To = "foot_" .. side,
+			Radius = 0.05,
+			Mass = 3,
+			Multiplier = 0.6,
+			Bone = "calf_" .. side,
+		}
 	)
-	table.insert(eye_joints, {Parent = "head", Child = "upperarm_" .. side, Anchor = "upperarm_" .. side, Twist = 1, Swing = 1.5})
 	table.insert(
 		eye_joints,
-		{Parent = "upperarm_" .. side, Child = "forearm_" .. side, Anchor = "forearm_" .. side, Hinge = {0, 2.4}}
+		{
+			Parent = "head",
+			Child = "upperarm_" .. side,
+			Anchor = "upperarm_" .. side,
+			Twist = 1,
+			Swing = 1.5,
+		}
 	)
-	table.insert(eye_joints, {Parent = "head", Child = "thigh_" .. side, Anchor = "thigh_" .. side, Twist = 0.4, Swing = 1})
 	table.insert(
 		eye_joints,
-		{Parent = "thigh_" .. side, Child = "calf_" .. side, Anchor = "calf_" .. side, Hinge = {-2.4, 0}}
+		{
+			Parent = "upperarm_" .. side,
+			Child = "forearm_" .. side,
+			Anchor = "forearm_" .. side,
+			Hinge = {0, 2.4},
+		}
+	)
+	table.insert(
+		eye_joints,
+		{
+			Parent = "head",
+			Child = "thigh_" .. side,
+			Anchor = "thigh_" .. side,
+			Twist = 0.4,
+			Swing = 1,
+		}
+	)
+	table.insert(
+		eye_joints,
+		{
+			Parent = "thigh_" .. side,
+			Child = "calf_" .. side,
+			Anchor = "calf_" .. side,
+			Hinge = {-2.4, 0},
+		}
 	)
 end
 
@@ -180,7 +327,6 @@ biped.Profiles = {
 		},
 	},
 }
-
 biped.SourceBones = {
 	body = "ValveBiped.Bip01_Pelvis",
 	spine = "ValveBiped.Bip01_Spine1",
@@ -202,6 +348,25 @@ biped.SourceBones = {
 	calf_l = "ValveBiped.Bip01_L_Calf",
 	foot_l = "ValveBiped.Bip01_L_Foot",
 }
+local IDENTITY = Matrix44():Identity()
+
+function biped.HasBone(rig, name)
+	local source = biped.SourceBones[name]
+	return source ~= nil and rig.bone_indices[source:lower()] ~= nil
+end
+
+function biped.ReadBones(rig, bones)
+	for _, entry in ipairs(biped.Bones) do
+		local name, parent = entry[1], entry[2]
+
+		if biped.HasBone(rig, name) then
+			bones[name] = rig:GetBone(biped.SourceBones[name])
+		elseif parent then
+			bones[name] = IDENTITY:GetMultiplied(bones[parent])
+		end
+	end
+end
+
 biped.SocketProfiles = {}
 biped.SocketProfiles.biped = {
 	grip_r = {Bone = "hand_r"},
@@ -211,7 +376,6 @@ biped.SocketProfiles.biped = {
 	center = {Bone = "spine"},
 	feet = {Bone = "root"},
 }
-
 biped.SocketProfiles.source_humanoid = {
 	grip_r = {Bone = "hand_r", Offset = Vec3(0, 0.08, 0.16)},
 	grip_l = {Bone = "hand_l"},

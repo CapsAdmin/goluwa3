@@ -25,6 +25,34 @@ local MIN_RATE = 0.3
 local MAX_RATE = 2.5
 local PLAYER_WALK_SPEED = 100 * UNIT
 local PLAYER_RUN_SPEED = 200 * UNIT
+local SPRINT_START = 1.5
+local AIR_SPEED = 0.8
+local MAX_SINK = 2.5 * UNIT
+local SINK_PROBE = 0.1
+local SINK_FOLLOW = 20
+local DOWN = Vec3(0, -1, 0)
+local SINK_OPTIONS = {IncludeRigidBodies = true}
+local SPRINT_MAX_RATE = 1.5
+local GAIT_SPEED = {
+	crouch = PLAYER_WALK_SPEED * 0.6,
+	walk = PLAYER_WALK_SPEED,
+	run = PLAYER_RUN_SPEED,
+	sprint = PLAYER_RUN_SPEED * 2,
+}
+local FORWARD_PARAMETERS = {move_x = 1, move_y = 0}
+local native_speeds = setmetatable({}, {__mode = "k"})
+
+local function get_native_speed(clip)
+	local speed = native_speeds[clip]
+
+	if not speed then
+		speed = clip:GetGroundSpeed(FORWARD_PARAMETERS)
+		native_speeds[clip] = speed
+	end
+
+	return speed
+end
+
 local WEAPON_SUFFIX = {weapon_camera = "camera", weapon_physgun = "physgun", weapon_pistol = "pistol"}
 
 function META:Initialize()
@@ -38,6 +66,7 @@ function META:Initialize()
 	self.move_y = 0
 	self.sequence = ""
 	self.bones = {}
+	self.ground_sink = 0
 
 	if RENDER_3D and self.OwnsArmature then
 		self.Owner:EnsureComponent("armature", {Skeleton = biped.SkeletonName})
@@ -163,34 +192,57 @@ function META:UpdatePlayer(animator, pose, dt)
 	local right_speed = pose.right_speed
 	local speed = math.sqrt(forward_speed * forward_speed + right_speed * right_speed)
 	local crouching = pose:IsCrouching()
-	local air = math.abs(pose.vertical_speed) > 0.8 and not pose.grounded
+	local air = not pose.grounded and
+		(
+			self.airborne or
+			math.abs(pose.vertical_speed) > AIR_SPEED
+		)
+	self.airborne = air
 	local holder = pose.Owner.weapon_holder
 	local weapon = holder and holder:GetActiveWeapon()
 	local suffix = weapon and WEAPON_SUFFIX[weapon.prefab.Path] or "all"
 	local sequence
-	local reference = crouching and
-		PLAYER_WALK_SPEED * 0.6 or
+	local sprinting = not crouching and not air and speed > PLAYER_RUN_SPEED * SPRINT_START
+	self.sprinting = sprinting
+	local gait = crouching and
+		"crouch" or
 		(
-			speed > PLAYER_WALK_SPEED * 1.4 and
-			PLAYER_RUN_SPEED or
-			PLAYER_WALK_SPEED
+			sprinting and
+			"sprint" or
+			(
+				speed > PLAYER_WALK_SPEED * 1.4 and
+				"run" or
+				"walk"
+			)
 		)
 	local rate = 1
 
 	if air then
-		sequence = "jump_" .. suffix
+		sequence = "jump_" .. (suffix == "all" and "passive" or suffix)
 	elseif speed < 0.15 then
 		sequence = (crouching and "cidle_" or "idle_") .. suffix
 
 		if suffix == "all" then
 			sequence = crouching and "cidle_all" or "idle_all_01"
 		end
-	elseif crouching then
+	elseif gait == "crouch" then
 		sequence = "cwalk_" .. suffix
-	elseif reference == PLAYER_RUN_SPEED then
+	elseif gait == "sprint" then
+		sequence = "run_all_02"
+	elseif gait == "run" then
 		sequence = suffix == "all" and "run_all_01" or "run_" .. suffix
 	else
 		sequence = "walk_" .. suffix
+	end
+
+	local clip = animator.skeleton.ClipsByName[sequence]
+	local reference = GAIT_SPEED[gait]
+	local native = clip and not air and get_native_speed(clip) or 0
+
+	if native > 0 then reference = native end
+
+	if gait == "sprint" then
+		reference = math.max(reference, GAIT_SPEED.sprint / SPRINT_MAX_RATE)
 	end
 
 	if sequence ~= self.sequence then
@@ -225,7 +277,6 @@ function META:UpdatePlayer(animator, pose, dt)
 		end
 	end
 
-	animator:SetSpeed(rate * pose.animation_speed)
 	local follow = math.min(dt * 10, 1)
 	self.move_x = self.move_x + (forward_speed / reference - self.move_x) * follow
 	self.move_y = self.move_y + (right_speed / reference - self.move_y) * follow
@@ -234,24 +285,48 @@ function META:UpdatePlayer(animator, pose, dt)
 	animator:SetPoseParameterByName("vertical_velocity", math.clamp(pose.vertical_speed / 4, -1, 1))
 end
 
+function META:UpdateGroundSink(character, pose, dt)
+	local target = 0
+
+	if pose.grounded and physics.instance then
+		local transform = character.transform
+		local position = transform:GetRenderPositionRotation() or transform:GetPosition()
+		local hit = physics.RayCast(
+			Vec3(position.x, position.y + SINK_PROBE, position.z),
+			DOWN,
+			SINK_PROBE + MAX_SINK * 2,
+			character,
+			nil,
+			SINK_OPTIONS
+		)
+
+		if hit then target = math.clamp(position.y - hit.position.y, 0, MAX_SINK) end
+	end
+
+	self.ground_sink = self.ground_sink + (target - self.ground_sink) * math.min(dt * SINK_FOLLOW, 1)
+end
+
 function META:MirrorBones(rig, armature, pose)
 	local holder = pose.Owner.weapon_holder
 	local active = holder and holder:GetActiveWeapon()
-	local armed = active ~= nil
+	local armed = active ~= nil and not self.sprinting and not self.airborne
 	local bones = self.bones
 
 	for _, name in ipairs(aim_pose.Bones) do
-		rig:ClearBone(biped.SourceBones[name])
+		if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
 	end
 
-	for name, source in pairs(biped.SourceBones) do
-		bones[name] = rig:GetBone(source)
-	end
-
+	biped.ReadBones(rig, bones)
 	aim_pose.Apply(bones, pose, armed, armed and active.weapon:IsTwoHanded())
 
 	for _, name in ipairs(aim_pose.Bones) do
-		rig:SetBone(biped.SourceBones[name], bones[name], "model")
+		bones[name].m31 = bones[name].m31 - self.ground_sink
+	end
+
+	for _, name in ipairs(aim_pose.Bones) do
+		if biped.HasBone(rig, name) then
+			rig:SetBone(biped.SourceBones[name], bones[name], "model")
+		end
 	end
 
 	for name in pairs(biped.SourceBones) do
@@ -263,6 +338,7 @@ function META:MirrorBones(rig, armature, pose)
 
 		armature:SetBone(name, matrix, "model")
 	end
+
 	-- reading the pure animation above left the skin matrices without the overrides, and the skin is read after every update
 	rig:Compute()
 end
@@ -284,7 +360,6 @@ function META:OnUpdate(dt)
 
 	local pose = self.character.character_pose
 	local ragdoll = self.character.ragdoll
-
 	local host = self.Mirror and find_ancestor(owner, "armature")
 
 	if ragdoll and ragdoll.driven_rig then ragdoll:ClearRig() end
@@ -302,6 +377,7 @@ function META:OnUpdate(dt)
 			points:SetProfile(self.SocketProfile)
 		end
 
+		self:UpdateGroundSink(self.character, pose, dt)
 		self:MirrorBones(rig, host.armature, pose)
 	end
 

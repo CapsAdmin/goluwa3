@@ -443,7 +443,7 @@ end)
 T.TestPhysics("player controller ignores acknowledgements it has no history for", function()
 	local player = create_player()
 	local controller = player.player_controller
-	T(controller:Reconcile(999, Vec3(100, 100, 100), Vec3()))["=="](0)
+	T(controller:Reconcile(999, Vec3(100, 100, 100), Vec3(), 0))["=="](0)
 	T((player.transform:GetPosition() - Vec3(0, 3, 0)):GetLength())["<"](0.001)
 end)
 
@@ -707,6 +707,93 @@ T.TestPhysics("the view offset follows the head of a command within two capsule 
 	T(math.abs(movement:GetHeadOffset():GetLength() - movement:GetRadius() * 2))["<"](0.0001)
 	drive(player, 5)
 	T(movement:GetViewOffset():Distance(eye))["<"](0.0001)
+	player:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("the distance walked follows the ground speed and a reconcile pulls it to the server value", function()
+	local ground = create_ground()
+	local player = create_player()
+	drive(player, 120)
+	local movement = player.character_movement
+	local controller = player.player_controller
+	T(movement.distance < 0.5)["=="](true)
+	local start_position = player.transform:GetPosition():Copy()
+	local start_distance = movement.distance
+
+	drive(player, 120, function(cmd)
+		cmd.forward = 1
+	end)
+
+	local walked = (player.transform:GetPosition() - start_position):GetLength()
+	T(movement.distance - start_distance)["~"](walked, 0.25)
+	T(movement.distance - start_distance > 1)["=="](true)
+	local number = controller.number - 10
+	local entry = controller:GetHistory(number)
+	local before = movement.distance
+	controller:Reconcile(number, entry.position:Copy(), entry.velocity:Copy(), entry.distance + 0.5)
+	T(movement.distance)["~"](before + 0.5, 1e-6)
+	controller:Reconcile(number, entry.position:Copy(), entry.velocity:Copy(), entry.distance)
+	T(movement.distance)["~"](before + 0.5, 1e-6)
+	player:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("alt walks at half speed, shift sprints at double speed, and walking wins over sprinting", function()
+	local ground = create_ground()
+	local player = create_player()
+	drive(player, 120)
+	local movement = player.character_movement
+	local body = player.rigid_body
+
+	local function speed_with(buttons)
+		drive(player, 120, function(cmd)
+			cmd.forward = 1
+			cmd.buttons = bit.bor(cmd.buttons, buttons)
+		end)
+
+		local velocity = body:GetVelocity()
+		local speed = math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z)
+		drive(player, 60)
+		return speed
+	end
+
+	local run = speed_with(0)
+	local walk = speed_with(BUTTON.WALK)
+	local sprint = speed_with(BUTTON.SPRINT)
+	local both = speed_with(bit.bor(BUTTON.WALK, BUTTON.SPRINT))
+	T(run)["~"](movement:GetGroundSpeed(), 0.3)
+	T(walk)["~"](run * movement:GetWalkMultiplier(), 0.3)
+	T(sprint)["~"](run * movement:GetSprintMultiplier(), 0.6)
+	T(both)["~"](walk, 0.3)
+	player:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("the stride odometer runs faster while strafing than while walking forward", function()
+	local ground = create_ground()
+	local player = create_player()
+	drive(player, 120)
+	local movement = player.character_movement
+
+	local function measure(setup)
+		drive(player, 60, setup)
+		local before_distance = movement.distance
+		local before_position = player.transform:GetPosition():Copy()
+		drive(player, 60, setup)
+		local walked = (player.transform:GetPosition() - before_position):GetLength()
+		return (movement.distance - before_distance) / walked
+	end
+
+	local forward = measure(function(cmd)
+		cmd.forward = 1
+	end)
+	drive(player, 60)
+	local side = measure(function(cmd)
+		cmd.side = 1
+	end)
+	T(forward)["~"](1, 0.05)
+	T(side)["~"](1 / 0.7, 0.07)
 	player:Remove()
 	ground:Remove()
 end)

@@ -97,6 +97,53 @@ T.Test("a source pose can be removed after the pose it drives", function()
 	character:Remove()
 	T(character:IsValid())["=="](false)
 end)
+
+T.TestPhysics("a character leans into its acceleration and stands up again at a steady speed", function()
+	create_ground()
+	local character = create_character()
+	local pose = character.character_pose
+	local controller = character.player_controller
+	local number = 0
+
+	local function run(frames, forward)
+		for _ = 1, frames do
+			number = number + 1
+			local cmd = usercmd.New()
+			cmd.number = number
+			cmd.mode = "walk"
+			cmd.buttons = usercmd.BUTTON.ACTIVE
+			cmd.forward = forward
+			controller:PushCommands({cmd})
+			physics.UpdateFixed(1 / 60)
+			pose:OnUpdate(1 / 60)
+		end
+	end
+
+	run(30, 0)
+	T(math.abs(pose.lean_forward))["<"](0.01)
+	T(math.abs(pose.lean_side))["<"](0.01)
+	local peak = 0
+
+	for _ = 1, 30 do
+		run(1, 1)
+		peak = math.max(peak, pose.lean_forward)
+	end
+
+	T(peak)[">"](0.02)
+	T(peak)["<="](pose_variation.MaxLean + 1e-6)
+	run(240, 1)
+	T(math.abs(pose.lean_forward))["<"](0.02)
+	local lowest = 0
+
+	for _ = 1, 30 do
+		run(1, 0)
+		lowest = math.min(lowest, pose.lean_forward)
+	end
+
+	T(lowest)["<"](-0.02)
+	character:Remove()
+end)
+
 T.Test("a character without a movement follows the replicated lean and takes its seed from its network identity", function()
 	local entity = Entity.New{ComponentSet = {"transform", "character_pose"}, transform = {}}
 	local pose = entity.character_pose

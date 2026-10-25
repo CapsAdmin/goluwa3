@@ -40,6 +40,7 @@ META:GetSet("FlySpeedMaxMultiplier", 500)
 META:GetSet("WalkMaxLinearSpeed", 240)
 META:GetSet("SprintMultiplier", 2)
 META:GetSet("CrouchMultiplier", 1 / 3)
+META:GetSet("WalkMultiplier", 0.5)
 META:GetSet("SuperMultiplier", 3)
 META:GetSet("Mode", "fly")
 META:GetSet("SwimSpeed", 3)
@@ -719,14 +720,17 @@ do
 		end
 
 		local sprinting = usercmd.HasButton(cmd, BUTTON.SPRINT)
+		local walking = usercmd.HasButton(cmd, BUTTON.WALK)
 		local speed_multiplier = 1
 
 		if sprinting and crouching then
 			speed_multiplier = self.SuperMultiplier
-		elseif sprinting then
-			speed_multiplier = self.SprintMultiplier
 		elseif crouching then
 			speed_multiplier = self.CrouchMultiplier
+		elseif walking then
+			speed_multiplier = self.WalkMultiplier
+		elseif sprinting then
+			speed_multiplier = self.SprintMultiplier
 		end
 
 		local jump_requested = active and usercmd.WasPressed(cmd, BUTTON.JUMP)

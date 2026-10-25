@@ -11,7 +11,7 @@ usercmd.BUTTON = {
 	ACTIVE = 64,
 	TELEPORT = 128,
 	DROP = 256,
-	BLOCK = 512,
+	WALK = 512,
 	RELOAD = 1024,
 }
 usercmd.MODE = {fly = 0, walk = 1}

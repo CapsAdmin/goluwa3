@@ -166,6 +166,13 @@ local FEET = {"foot_r", "foot_l"}
 local LEAN_BONES = {unpack(JOINTS[1][2])}
 aim_pose.Bones = {"spine", "chest", "neck", "head", unpack(ARMS)}
 
+for _, name in ipairs(LOWER) do
+	LEAN_BONES[#LEAN_BONES + 1] = name
+	aim_pose.Bones[#aim_pose.Bones + 1] = name
+end
+
+local origin = Matrix44():Identity()
+
 function aim_pose.GetGripMatrix(hand, pitch)
 	grip:Identity()
 	grip:SetRotation(pitch)

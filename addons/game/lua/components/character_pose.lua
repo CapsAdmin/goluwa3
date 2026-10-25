@@ -185,6 +185,64 @@ function META:OnUpdate(dt)
 	self.right_speed = velocity:Dot(entity_rotation:GetRight())
 	self.vertical_speed = velocity.y
 	self.grounded = movement and movement:GetGrounded() or body ~= nil and body:GetGrounded()
+	local dead = movement and movement.dead
+	local speed = math.sqrt(self.forward_speed ^ 2 + self.right_speed ^ 2)
+
+	if movement then
+		self:SetDistance(movement.distance)
+		local last_velocity = self.last_velocity
+
+		if last_velocity and dt > 0 then
+			local forward = entity_rotation:GetForward()
+			local right = entity_rotation:GetRight()
+			local ax = (velocity.x - last_velocity.x) / dt
+			local az = (velocity.z - last_velocity.z) / dt
+			local limit = pose_variation.MaxAcceleration
+			local follow = math.min(dt * pose_variation.AccelerationFollow, 1)
+			self.acceleration_forward = self.acceleration_forward + (
+					math.clamp(ax * forward.x + az * forward.z, -limit, limit) - self.acceleration_forward
+				) * follow
+			self.acceleration_right = self.acceleration_right + (
+					math.clamp(ax * right.x + az * right.z, -limit, limit) - self.acceleration_right
+				) * follow
+			last_velocity:Set(velocity.x, velocity.y, velocity.z)
+		elseif not last_velocity then
+			self.last_velocity = Vec3(velocity.x, velocity.y, velocity.z)
+		end
+
+		local target_side, target_forward = 0, 0
+
+		if not dead and self.grounded then
+			local max_lean = pose_variation.MaxLean
+			target_side = math.clamp(
+				math.atan(self.acceleration_right / pose_variation.Gravity) * pose_variation.LeanSideGain,
+				-max_lean,
+				max_lean
+			)
+			target_forward = math.clamp(
+				math.atan(self.acceleration_forward / pose_variation.Gravity) * pose_variation.LeanForwardGain,
+				-max_lean,
+				max_lean
+			)
+		end
+
+		self:SetLeanSide(target_side)
+		self:SetLeanForward(target_forward)
+	end
+
+	local lean_follow = math.min(dt * pose_variation.LeanFollow, 1)
+	self.lean_side = self.lean_side + (self.LeanSide - self.lean_side) * lean_follow
+	self.lean_forward = self.lean_forward + (self.LeanForward - self.lean_forward) * lean_follow
+	self:UpdateSeed()
+	local time = system.GetGameTime()
+	local stillness = 1 - (
+			1 - pose_variation.SwayWalkAmount
+		) * math.clamp(speed / pose_variation.SwaySpeed, 0, 1)
+	self.sway_pitch = pose_variation.Noise(self.seed, 1, time) * pose_variation.SwayPitch * stillness
+	self.sway_yaw = pose_variation.Noise(self.seed, 2, time) * pose_variation.SwayYaw * stillness
+	self.rate_variation = self.rate_scale * (
+			1 + pose_variation.Noise(self.seed, 3, time) * pose_variation.RateDrift
+		)
 
 	if dead then
 		self.dead_pitch = self.dead_pitch or self.pitch

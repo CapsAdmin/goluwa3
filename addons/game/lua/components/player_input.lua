@@ -179,7 +179,7 @@ function META:BuildCommand(cmd)
 
 		if self.jump_down then buttons = bit.bor(buttons, BUTTON.JUMP) end
 
-		if input.IsKeyDown("left_alt") then buttons = bit.bor(buttons, BUTTON.BLOCK) end
+		if input.IsKeyDown("left_alt") then buttons = bit.bor(buttons, BUTTON.WALK) end
 	end
 
 	if active then

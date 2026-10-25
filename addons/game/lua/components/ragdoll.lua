@@ -91,9 +91,7 @@ function META:ComputePose()
 		if next(driver.bones) then
 			self.bones = driver.bones
 		else
-			for name, source in pairs(biped.SourceBones) do
-				self.bones[name] = rig:GetBone(source)
-			end
+			biped.ReadBones(rig, self.bones)
 		end
 
 		if not self.frames then self:BuildFrames() end
@@ -1143,11 +1141,13 @@ function META:ClearRig()
 
 	if rig then
 		for _, name in ipairs(aim_pose.Bones) do
-			rig:ClearBone(biped.SourceBones[name])
+			if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
 		end
 
 		for _, part in ipairs(biped.Profiles[self.Profile].Parts) do
-			rig:ClearBone(biped.SourceBones[part.Bone])
+			if biped.HasBone(rig, part.Bone) then
+				rig:ClearBone(biped.SourceBones[part.Bone])
+			end
 		end
 	end
 
@@ -1208,10 +1208,7 @@ do
 		local entity_rotation = get_entity_frame(self)
 
 		if not self.frames then
-			for name, source in pairs(biped.SourceBones) do
-				self.bones[name] = rig:GetBone(source)
-			end
-
+			biped.ReadBones(rig, self.bones)
 			self:BuildFrames()
 		end
 
@@ -1220,16 +1217,23 @@ do
 		for _, part in ipairs(self:GetPresentParts()) do
 			if self:IsDriven(part) then
 				limp[part.definition.Name] = true
-				rig:SetBone(
-					biped.SourceBones[part.definition.Bone],
-					get_part_bone(self, part, entity_rotation, part_matrix),
-					"model"
-				)
+
+				if biped.HasBone(rig, part.definition.Bone) then
+					rig:SetBone(
+						biped.SourceBones[part.definition.Bone],
+						get_part_bone(self, part, entity_rotation, part_matrix),
+						"model"
+					)
+				end
 			end
 		end
 
 		for _, name in ipairs(aim_pose.Bones) do
-			if limp[self.owner_of[name]] and not self.part_bones[name] then
+			if
+				limp[self.owner_of[name]] and
+				not self.part_bones[name] and
+				biped.HasBone(rig, name)
+			then
 				rig:ClearBone(biped.SourceBones[name])
 			end
 		end
@@ -1239,7 +1243,7 @@ do
 
 		if armature then
 			for name, source in pairs(biped.SourceBones) do
-				if limp[self.owner_of[name]] then
+				if limp[self.owner_of[name]] and biped.HasBone(rig, name) then
 					armature:SetBone(name, rig:GetBone(source), "model")
 				end
 			end
