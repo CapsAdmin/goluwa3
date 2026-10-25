@@ -1,7 +1,7 @@
 # Screenshots and cameras
 
 - `luajit glw --2d --background --validate --screenshot lua "./tmp/script.lua"` runs one frame and saves a screenshot. For more control use the `Screenshot(cb, opt)` global (`goluwa/screenshot.lua`): `cb(texture)` receives a `TextureDownloaded` with ready pixels (`:SaveWithoutAlpha(path)`, `:Save(path)` keeps alpha, `:GetPixel(x, y)`).
-- `opt.update_events = n` runs n Update events first (use for UI so layout resolves). `opt.midframe = true` captures immediately mid-frame; call it from inside a Draw/Draw2D listener.
+- `opt.update_events = n` runs n Update events first (use for UI so layout resolves). With `--hdr` the capture is the encoded HDR layer, so it matches an SDR screenshot and clips at UI white. `opt.midframe = true` captures immediately mid-frame; call it from inside a Draw/Draw2D listener.
 
 ```lua
 Screenshot(function(texture)

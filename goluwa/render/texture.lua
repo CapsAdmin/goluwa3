@@ -1765,7 +1765,7 @@ do
 
 					v = math.clamp(v, 0, 1)
 
-					if c < 3 then
+					if c < 3 and not self.gamma_encoded then
 						v = v <= 0.0031308 and v * 12.92 or 1.055 * v ^ (1 / 2.4) - 0.055
 					end
 
@@ -1782,9 +1782,7 @@ do
 				end
 			end
 		else
-			error(
-				string.format("TextureDownloaded:ToPNG: unsupported format '%s'", tostring(format))
-			)
+			error(string.format("TextureDownloaded:ToPNG: unsupported format '%s'", tostring(format)))
 		end
 
 		local png_file = png.Encode(w, h, without_alpha and "rgb" or "rgba")
@@ -1898,6 +1896,7 @@ do
 				width = width,
 				height = height,
 				format = format,
+				gamma_encoded = self.gamma_encoded,
 				base_array_layer = base_array_layer,
 				bytes_per_pixel = bytes_per_pixel,
 				size = width * height * bytes_per_pixel,
@@ -1908,6 +1907,7 @@ do
 				width = width,
 				height = height,
 				format = format,
+				gamma_encoded = self.gamma_encoded,
 				base_array_layer = base_array_layer,
 				bytes_per_pixel = bytes_per_pixel,
 				size = width * height * bytes_per_pixel,

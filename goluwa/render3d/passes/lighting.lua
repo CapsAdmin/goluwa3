@@ -518,7 +518,7 @@ return {
 					{"unexposed_scale", "float"},
 				},
 				write = function(self, block)
-					block.unexposed_scale = render.target:IsHDR() and 1 or post_source.UNEXPOSED_SDR_WHITE
+					block.unexposed_scale = post_source.UNEXPOSED_SDR_WHITE
 					gbuffer_layout.WriteBlock(self, block)
 					post_source.WritePreExposureBlock(self, block)
 					return block

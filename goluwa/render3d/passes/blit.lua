@@ -10,6 +10,7 @@ local grade = import("goluwa/render3d/grade.lua")
 local afterimage = import("goluwa/render3d/passes/afterimage.lua")
 local assets = import("goluwa/assets.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local hdr_output = import("goluwa/render/hdr_output.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local LOG_EXPOSURE_AT_EV0 = exposure_model.LOG_EXPOSURE_AT_EV0
 pvars.StartGroup("Post", "Camera effects", {store = false})
@@ -664,15 +665,17 @@ local compute_shader = [[
 			vec3 nits = compute.debug_passthrough != 0 ? clamp(col, 0.0, 1.0) * compute.hdr_paper_white : grade_display_hdr(tonemap_hdr(col * exposure, compute.hdr_peak / effective_paper_white, compute.tonemapper)) * effective_paper_white;
 
 			if (compute.output_mode == 1) {
-				col = pq_decode(dither(pq_encode(nits), blue_noise(pos), compute.dither_steps)) / 80.0;
+				nits = pq_decode(dither(pq_encode(nits), blue_noise(pos), compute.dither_steps));
 			} else {
 				const mat3 bt709_to_bt2020 = mat3(
 					0.6274, 0.0691, 0.0164,
 					0.3293, 0.9195, 0.0880,
 					0.0433, 0.0114, 0.8956
 				);
-				col = dither(pq_encode(bt709_to_bt2020 * nits), blue_noise(pos), compute.dither_steps);
+				nits = inverse(bt709_to_bt2020) * pq_decode(dither(pq_encode(bt709_to_bt2020 * nits), blue_noise(pos), compute.dither_steps));
 			}
+
+			col = LinearToSRGB(nits / compute.hdr_white);
 		}
 
 		imageStore(out_color, pos, vec4(col, 1.0));
@@ -847,6 +850,7 @@ for _, pass in ipairs{
 			{"requires_manual_gamma", "int"},
 			{"output_mode", "int"},
 			{"hdr_paper_white", "float"},
+			{"hdr_white", "float"},
 			{"viewer_adaptation", "float"},
 			{"hdr_peak", "float"},
 			{"dither_steps", "float"},
@@ -880,6 +884,7 @@ for _, pass in ipairs{
 				2 or
 				0
 			block.hdr_paper_white = hdr_paper_white:Get()
+			block.hdr_white = hdr_output.GetWhiteNits()
 			block.viewer_adaptation = exposure_model.IsEye() and exposure_model.Get("eye.viewer_adaptation") or 0
 			block.hdr_peak = hdr_peak:Get()
 			local bits = render.target:GetColorBits()
@@ -992,7 +997,7 @@ for _, pass in ipairs{
 					},
 					write = function(self, block)
 						block.source_tex = self._scene_tex
-						block.scale = render.target:IsHDR() and 1 or 1 / post_source.UNEXPOSED_SDR_WHITE
+						block.scale = 1 / post_source.UNEXPOSED_SDR_WHITE
 						return block
 					end,
 				},

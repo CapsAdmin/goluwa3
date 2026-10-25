@@ -16,6 +16,7 @@ local event = import("goluwa/event.lua")
 local RENDER_NOOP = _G.RENDER_NOOP or false
 local render = import("goluwa/render/render.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
+local hdr_output = import("goluwa/render/hdr_output.lua")
 local ImageRenderTarget = objects.CreateTemplate("render_image_rendertarget")
 local default_config = {
 	offscreen = false,
@@ -143,7 +144,7 @@ local function choose_format(self)
 
 	self.depth_format = "d32_sfloat_s8_uint"
 	self.surface_format = self.surface_formats[chosen_format_index]
-	self.color_format = self.surface_format.format
+	self.color_format = self:IsHDR() and "r16g16b16a16_sfloat" or self.surface_format.format
 end
 
 local function create_swapchain(self)
@@ -174,9 +175,7 @@ local function create_swapchain(self)
 
 	local supported_present_modes = {}
 
-	for _, mode in ipairs(
-		self.vulkan_instance.physical_device:GetPresentModes(self.vulkan_instance.surface)
-	) do
+	for _, mode in ipairs(self.vulkan_instance.physical_device:GetPresentModes(self.vulkan_instance.surface)) do
 		supported_present_modes[vulkan.vk.str.VkPresentModeKHR(mode)] = true
 	end
 
@@ -257,11 +256,35 @@ local function create_depth_buffer(self)
 	}
 end
 
+local function create_hdr_layer(self)
+	if not self:IsHDR() then
+		self.hdr_layer = nil
+		return
+	end
+
+	local extent = self.surface_capabilities.currentExtent
+	self.hdr_layer = Texture.New{
+		width = extent.width,
+		height = extent.height,
+		format = self.color_format,
+		image = {
+			usage = {"color_attachment", "sampled", "transfer_src"},
+			properties = "device_local",
+		},
+		sampler = {
+			min_filter = "nearest",
+			mag_filter = "nearest",
+		},
+	}
+	self.hdr_layer.gamma_encoded = true
+	self.hdr_layer:GetImage().frame_target = true
+end
+
 local function create_msaa_buffer(self)
 	local extent = self.config.offscreen and self.extent or self.surface_capabilities.currentExtent
 
 	if self.samples ~= "1" then
-		local format = self.config.offscreen and self.color_format or self.surface_format.format
+		local format = self.color_format
 		self.msaa_image = Texture.New{
 			width = extent.width,
 			height = extent.height,
@@ -344,6 +367,7 @@ function ImageRenderTarget.New(vulkan_instance, config)
 	self.texture_index = 1
 	choose_format(self)
 	create_swapchain(self)
+	create_hdr_layer(self)
 	create_depth_buffer(self)
 	create_msaa_buffer(self)
 	create_per_frame_resources(self)
@@ -353,12 +377,12 @@ function ImageRenderTarget.New(vulkan_instance, config)
 	return self
 end
 
-function ImageRenderTarget:GetImage()
-	return self.textures[self.texture_index]:GetImage()
+function ImageRenderTarget:GetTexture()
+	return self.hdr_layer or self.textures[self.texture_index]
 end
 
-function ImageRenderTarget:GetTexture()
-	return self.textures[self.texture_index]
+function ImageRenderTarget:GetImage()
+	return self:GetTexture():GetImage()
 end
 
 function ImageRenderTarget:GetColorFormat()
@@ -374,6 +398,8 @@ function ImageRenderTarget:GetSamples()
 end
 
 function ImageRenderTarget:RequiresManualGamma()
+	if self.hdr_layer then return true end
+
 	if self.color_format:ends_with("_srgb") then return false end
 
 	if self.color_format:ends_with("_sfloat") then return false end
@@ -410,7 +436,7 @@ function ImageRenderTarget:SetHDRMetadata(t)
 end
 
 function ImageRenderTarget:GetImageView()
-	return self.textures[self.texture_index]:GetView()
+	return self:GetTexture():GetView()
 end
 
 function ImageRenderTarget:GetMSAAImageView()
@@ -441,7 +467,11 @@ local function transition_render_attachments(self, cmd)
 		"color_attachment_optimal",
 		{
 			cmd = cmd,
-			srcStage = self.config.offscreen and "top_of_pipe" or "color_attachment_output",
+			srcStage = self.config.offscreen and
+				"top_of_pipe" or
+				self.hdr_layer and
+				"fragment" or
+				"color_attachment_output",
 			srcAccess = "none",
 			dstStage = "color_attachment_output",
 			dstAccess = "color_attachment_write",
@@ -558,11 +588,17 @@ function ImageRenderTarget:EndFrame()
 	local command_buffer = self.command_buffers[self.current_frame]
 	command_buffer:EndRendering()
 	event.Call("PostRenderPass", command_buffer)
+	local output = self.textures[self.texture_index]
+
+	if self.hdr_layer then
+		hdr_output.Resolve(command_buffer, self.hdr_layer, output, self:GetColorSpace())
+	end
+
 	local final_layout = self.config.offscreen and self.final_layout or "present_src_khr"
 	local dst_stage = self.config.offscreen and "transfer" or "color_attachment_output"
 	local dst_access = self.config.offscreen and "transfer_read" or "none"
 	render.TransitionResourceFrom(
-		self:GetImage(),
+		output:GetImage(),
 		final_layout,
 		{
 			cmd = command_buffer,
@@ -680,6 +716,7 @@ function ImageRenderTarget:Capture()
 		width = width,
 		height = height,
 		format = format,
+		gamma_encoded = self.hdr_layer ~= nil,
 		base_array_layer = 0,
 		bytes_per_pixel = bytes_per_pixel,
 		size = byte_size,
@@ -705,12 +742,15 @@ function ImageRenderTarget:RebuildFramebuffers()
 		end
 	end
 
+	if self.hdr_layer then self.hdr_layer:Remove() end
+
 	if self.depth_texture then self.depth_texture:Remove() end
 
 	if self.msaa_image then self.msaa_image:Remove() end
 
 	choose_format(self)
 	create_swapchain(self)
+	create_hdr_layer(self)
 	create_depth_buffer(self)
 	create_msaa_buffer(self)
 	create_per_frame_resources(self)
