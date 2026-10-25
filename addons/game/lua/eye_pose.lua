@@ -150,7 +150,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local step_duration = math.max(0.1, 0.22 - speed * 0.015)
 	local lead = smoothed * (step_duration * 0.5)
 	local trigger = 0.35 * EYE_RADIUS + lead:GetLength() * 1.6
-	local swing_amount = math.min(speed / 3, 1) * ARM_LENGTH * 0.7
+	local swing_amount = active and 0 or math.min(speed / 3, 1) * ARM_LENGTH * 0.7
 
 	if knee_pole:GetLength() < 1e-3 then knee_pole = Vec3(0, 0, -1) end
 

@@ -11,6 +11,7 @@ aim_pose.RecoilAngle = math.rad(6)
 aim_pose.FlinchAngle = math.rad(10)
 aim_pose.ArmReach = 0.85
 aim_pose.HandOffset = Vec3(-0.08, -0.1, 0)
+aim_pose.NeutralHand = Vec3(0.02, -0.36, -0.12)
 aim_pose.PalmOffset = Vec3(0.02, 0, -0.04)
 aim_pose.ElbowPole = Vec3(0.6, -1, 0.2)
 aim_pose.BlockOffset = Vec3(0.12, -0.02, 0)
@@ -429,6 +430,11 @@ function aim_pose.Apply(bones, pose, weapon)
 		local half = weapon:GetSupportRoll() / 2
 		left_roll:Set(0, 0, math.sin(half), math.cos(half))
 		solve_arm(bones, LEFT, pitch, nil, nil, -1, nil, weapon:GetSupportGrip(), left_roll)
+	elseif weapon then
+		local upper = bones.upperarm_l
+		local neutral = aim_pose.NeutralHand
+		grip_target:Set(upper.m30 - neutral.x, upper.m31 + neutral.y, upper.m32 + neutral.z)
+		solve_arm(bones, LEFT, identity, nil, nil, -1, nil, ZERO)
 	end
 end
 
