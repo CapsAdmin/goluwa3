@@ -4,12 +4,14 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
+local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 local eye_pose = {}
 eye_pose.EyeRadius = 16 * UNIT
+eye_pose.BodyDrop = 8 * UNIT
 eye_pose.EyeHeight = 64 * UNIT
 eye_pose.CrouchEyeHeight = 28 * UNIT
-eye_pose.ArmLength = 50 * UNIT
-eye_pose.LegLength = 68 * UNIT
+eye_pose.ArmLength = 38 * UNIT
+eye_pose.LegLength = 50 * UNIT
 eye_pose.FootHeight = 2.5 * UNIT
 eye_pose.FootSink = 1 * UNIT
 eye_pose.GroundBound = 12 * UNIT
@@ -29,8 +31,8 @@ local FOOT_SINK = eye_pose.FootSink
 local GROUND_BOUND = eye_pose.GroundBound
 local HEIGHT = 72 * UNIT
 local CROUCH_HEIGHT = 36 * UNIT
-local WEAPON_RAISE = 0.12
 local WEAPON_FORWARD = 0.12
+local WEAPON_RAISE = 0.12
 local EYE_HOLD_BACK = 0.14
 local STEP_TIME = 0.2
 local STEP_LIFT = 4 * UNIT
@@ -38,6 +40,11 @@ local UP = Vec3(0, 1, 0)
 local DOWN = Vec3(0, -1, 0)
 local ZERO = Vec3(0, 0, 0)
 local scratch = Quat()
+local torso = Quat()
+local WEAPON_OFFSET = Vec3(0.2, -0.22, -0.15)
+local TORSO_PITCH = 0.35
+local HIP_OFFSET = Vec3(0.4 * EYE_RADIUS, -0.4 * EYE_RADIUS, 0.2 * EYE_RADIUS)
+local BODY_DROP = eye_pose.BodyDrop
 
 local function solve(root, target, length_a, length_b, pole)
 	local delta = target - root
@@ -86,7 +93,10 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local crouch = pose.crouch_alpha
 	local body = owner.rigid_body
 	local _, render_rotation = transform:GetRenderPositionRotation()
-	local velocity = (render_rotation or transform:GetRotation()):GetConjugated():VecMul(body and body:GetVelocity() or transform:GetRenderVelocity())
+	local velocity = (
+		render_rotation or
+		transform:GetRotation()
+	):GetConjugated():VecMul(body and body:GetVelocity() or transform:GetRenderVelocity())
 	local grounded = not body or pose.grounded
 	local holder = owner.weapon_holder
 	local active = holder and holder:GetActiveWeapon()
@@ -101,7 +111,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 		if active.weapon:IsHeldAtEye() then
 			hold = Vec3(0, eye_height, 0) - forward * EYE_HOLD_BACK
 		else
-			hold = Vec3(0, math.lerp(crouch, HEIGHT, CROUCH_HEIGHT) * 0.5 + WEAPON_RAISE, 0) + forward * WEAPON_FORWARD
+			hold = Vec3(0, eye_height, 0) + aim:VecMul(WEAPON_OFFSET)
 		end
 	end
 
@@ -113,14 +123,17 @@ function eye_pose.Compute(state, bones, owner, dt)
 	smoothed = smoothed + (Vec3(velocity.x, 0, velocity.z) - smoothed) * math.min(dt * 6, 1)
 	state.velocity = smoothed
 	local speed = smoothed:GetLength()
-	state.roll = state.roll + (math.clamp(-smoothed.x * 0.12, -0.6, 0.6) - state.roll) * math.min(dt * 6, 1)
+	state.roll = state.roll + (
+			math.clamp(-smoothed.x * 0.12, -0.6, 0.6) - state.roll
+		) * math.min(dt * 6, 1)
 	state.phase = state.phase + dt * speed * 1.5
 	local look = view:GetForward()
 	local lean = (look + smoothed * 0.05):GetNormalized()
 	aim_pose.SetBetween(scratch, look.x, look.y, look.z, lean.x, lean.y, lean.z)
 	local rotation = QuatFromAxis(state.roll, lean) * scratch * view
-	local pupil = Vec3(0, eye_height, 0)
-	local center = pupil - lean * EYE_RADIUS
+	torso:Identity():RotatePitch(math.asin(math.clamp(look.y, -1, 1)) * TORSO_PITCH)
+	local center = Vec3(0, eye_height - BODY_DROP, 0) - FORWARD * EYE_RADIUS
+	local pupil = center + lean * EYE_RADIUS
 	write(bones.root, ZERO, scratch:Identity())
 	write(bones.neck, center, rotation)
 	write(bones.body, center, rotation)
@@ -143,12 +156,15 @@ function eye_pose.Compute(state, bones, owner, dt)
 		local side = state.sides[i]
 		local sign = side.sign
 		local name = side.name
-		local shoulder = center + rotation:VecMul(Vec3(sign * 0.8 * EYE_RADIUS, 0.2 * EYE_RADIUS, 0.56 * EYE_RADIUS))
-		local hip = center + rotation:VecMul(Vec3(sign * 0.4 * EYE_RADIUS, -0.75 * EYE_RADIUS, 0.52 * EYE_RADIUS))
-		local hang = (rotation:VecMul(Vec3(sign * 0.7, -0.5, 0.3)) + Vec3(sign * 0.35, -0.9, 0.1)):GetNormalized()
+		local shoulder = center + torso:VecMul(Vec3(sign * 0.85 * EYE_RADIUS, 0, 0.1 * EYE_RADIUS))
+		local hip = center + Vec3(sign * HIP_OFFSET.x, HIP_OFFSET.y, HIP_OFFSET.z)
+		local hang = (
+			torso:VecMul(Vec3(sign * 0.7, -0.5, 0.3)) + Vec3(sign * 0.35, -0.9, 0.1)
+		):GetNormalized()
 		local grip = grips and (sign == 1 and grips.right or grips.left)
 
 		if blocking and sign == -1 then grip = eye_pose.BlockGrip end
+
 		local target
 		local follow = 14
 
@@ -156,16 +172,35 @@ function eye_pose.Compute(state, bones, owner, dt)
 			target = hold + aim:VecMul(grip)
 			follow = sign == 1 and 1e6 or 40
 		else
-			target = shoulder + hang * (ARM_LENGTH * 0.85) + move_dir * (math.sin(state.phase) * -sign * swing_amount)
+			target = shoulder + hang * (
+					ARM_LENGTH * 0.85
+				) + move_dir * (
+					math.sin(state.phase) * -sign * swing_amount
+				)
 		end
 
-		side.hand = side.hand and side.hand + (target - side.hand) * math.min(dt * follow, 1) or target
-		local elbow, hand = solve(shoulder, side.hand, ARM_LENGTH * 0.5, ARM_LENGTH * 0.5, rotation:VecMul(Vec3(sign * 0.7, -0.2, 0.7)))
+		side.hand = side.hand and
+			side.hand + (
+				target - side.hand
+			) * math.min(dt * follow, 1)
+			or
+			target
+		local elbow, hand = solve(
+			shoulder,
+			side.hand,
+			ARM_LENGTH * 0.5,
+			ARM_LENGTH * 0.5,
+			torso:VecMul(Vec3(sign * 0.6, -0.7, 0.4))
+		)
 		write(bones["clavicle_" .. name], shoulder, rotation)
 		write_limb(bones["upperarm_" .. name], shoulder, elbow)
 		write_limb(bones["forearm_" .. name], elbow, hand)
 
-		if grip then write(bones["hand_" .. name], hand, aim) else write_limb(bones["hand_" .. name], hand, hand + hand - elbow) end
+		if grip then
+			write(bones["hand_" .. name], hand, aim)
+		else
+			write_limb(bones["hand_" .. name], hand, hand + hand - elbow)
+		end
 
 		local home_local = Vec3(sign * 0.55 * EYE_RADIUS, FOOT_HEIGHT, 0.2 * EYE_RADIUS)
 		local home = world:TransformVector(home_local)
@@ -204,7 +239,13 @@ function eye_pose.Compute(state, bones, owner, dt)
 			end
 		end
 
-		local knee, ankle = solve(hip, world_inverse:TransformVector(foot), LEG_LENGTH * 0.5, LEG_LENGTH * 0.5, knee_pole)
+		local knee, ankle = solve(
+			hip,
+			world_inverse:TransformVector(foot),
+			LEG_LENGTH * 0.5,
+			LEG_LENGTH * 0.5,
+			knee_pole
+		)
 		write_limb(bones["thigh_" .. name], hip, knee)
 		write_limb(bones["calf_" .. name], knee, ankle)
 		write(bones["foot_" .. name], ankle, foot_yaw)

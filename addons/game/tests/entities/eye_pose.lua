@@ -36,7 +36,7 @@ T.TestPhysics("the eye pose puts the eye at the pupil point and plants the feet 
 	npc.ai_controller:SetWander(false)
 	run(npc, 1)
 	local bones = npc.procedural_pose:GetBones()
-	T(bones.head.m31)["~"](eye_pose.EyeHeight, 1e-3)
+	T(bones.head.m31)["~"](eye_pose.EyeHeight - eye_pose.BodyDrop, 1e-3)
 	T(bones.foot_l.m31)["~"](eye_pose.FootHeight - eye_pose.FootSink, 0.02)
 	T(bones.foot_r.m31)["~"](eye_pose.FootHeight - eye_pose.FootSink, 0.02)
 	npc:Remove()
@@ -55,7 +55,7 @@ T.TestPhysics("the physics rig of an eye npc follows the eye pose and falls apar
 	T(head.y)["~"](bones.neck.m31, 0.02)
 	local foot = ragdoll.part_by_name.calf_l.body.Position
 	T(foot.y < 0.5)["=="](true)
-	local hit = damage.Sweep(Vec3(5, head.y, head.z), Vec3(-5, 0, 0), nil)
+	local hit = damage.Sweep(Vec3(head.x, head.y + 5, head.z), Vec3(0, -5, 0), nil)
 	T(hit.entity.ragdoll_part.Group)["=="]("head")
 	npc.health:TakeDamage(damage.Info{Damage = 1000})
 	T(ragdoll.global_active)["=="](true)
