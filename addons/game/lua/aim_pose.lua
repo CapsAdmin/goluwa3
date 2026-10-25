@@ -5,6 +5,7 @@ local pose_variation = import("lua/pose_variation.lua")
 local aim_pose = {}
 local ZERO = Vec3()
 aim_pose.Shares = {waist = 0.08, spine = 0.12, chest = 0.15, back = 0.15, neck = 0.2, head = 0.3}
+aim_pose.ClavicleShare = 0.25
 aim_pose.RecoilAngle = math.rad(6)
 aim_pose.FlinchAngle = math.rad(10)
 aim_pose.ArmReach = 0.85
@@ -50,6 +51,8 @@ local RIGHT = {
 	upper = "upperarm_r",
 	lower = "forearm_r",
 	hand = "hand_r",
+	clavicle = "clavicle_r",
+	shoulder_chain = {"clavicle_r", "upperarm_r", "forearm_r", "hand_r"},
 	chain = {"upperarm_r", "forearm_r", "hand_r"},
 	forearm_chain = {"forearm_r", "hand_r"},
 }
@@ -57,6 +60,8 @@ local LEFT = {
 	upper = "upperarm_l",
 	lower = "forearm_l",
 	hand = "hand_l",
+	clavicle = "clavicle_l",
+	shoulder_chain = {"clavicle_l", "upperarm_l", "forearm_l", "hand_l"},
 	chain = {"upperarm_l", "forearm_l", "hand_l"},
 	forearm_chain = {"forearm_l", "hand_l"},
 }
@@ -145,6 +150,19 @@ local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side, hold
 		hand_target:Set(hand_target.x - palm.x, hand_target.y - palm.y, hand_target.z - palm.z)
 	end
 
+	local clavicle = bones[arm.clavicle]
+	set_between(
+		between,
+		upper.m30 - clavicle.m30,
+		upper.m31 - clavicle.m31,
+		upper.m32 - clavicle.m32,
+		hand_target.x - clavicle.m30,
+		hand_target.y - clavicle.m31,
+		hand_target.z - clavicle.m32
+	)
+	rotation:SetRotation(identity:GetLerped(aim_pose.ClavicleShare, between):Normalize())
+	rotate_chain(bones, arm.shoulder_chain, 4, clavicle, rotation)
+	shoulder:Set(upper.m30, upper.m31, upper.m32)
 	local dx, dy, dz = hand_target.x - shoulder.x, hand_target.y - shoulder.y, hand_target.z - shoulder.z
 	local distance = math.max(math.sqrt(dx * dx + dy * dy + dz * dz), 1e-3)
 	local limit = (upper_length + lower_length) * 0.999
