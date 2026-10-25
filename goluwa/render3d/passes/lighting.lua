@@ -15,6 +15,7 @@ local ddgi = import("goluwa/render3d/ddgi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local quality = import("goluwa/render3d/quality.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local BINDING_OUTPUT = 0
 local BINDING_UNIFORM = 3
@@ -168,10 +169,10 @@ return {
 						0
 					block.sky_alpha = render3d.IsSkyTransparent() and 0 or 1
 					block.sky_from_environment = render3d.IsSkyFromProbe() and 1 or 0
-					block.screen_shadows = screen_shadows:Get() and 1 or 0
+					block.screen_shadows = screen_shadows:Get() and quality.Get().screen_shadow_step_scale > 0 and 1 or 0
 					block.screen_shadows_debug = screen_shadows_debug:Get() and 1 or 0
 					block.screen_shadow_length = screen_shadow_length:Get()
-					block.screen_shadow_steps = screen_shadow_steps:Get()
+					block.screen_shadow_steps = math.max(math.floor(screen_shadow_steps:Get() * quality.Get().screen_shadow_step_scale), 2)
 					block.thin_specular = thin_specular:Get()
 					block.rough_sky = rough_sky:Get()
 					block.gi_reflection_direction = gi_reflection_direction:Get() and 1 or 0

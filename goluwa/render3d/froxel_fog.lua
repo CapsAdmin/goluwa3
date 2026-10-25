@@ -1,8 +1,8 @@
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
+local quality = import("goluwa/render3d/quality.lua")
 local froxel_fog = {}
-froxel_fog.TILE = 6
 froxel_fog.MAX_WIDTH = 480
 froxel_fog.MAX_HEIGHT = 270
 froxel_fog.SLICES = 96
@@ -13,7 +13,7 @@ froxel_fog.froxels = froxels
 
 function froxel_fog.EnsureResources()
 	local size = render.GetRenderImageSize()
-	local tile = math.max(froxel_fog.TILE, size.x / froxel_fog.MAX_WIDTH, size.y / froxel_fog.MAX_HEIGHT)
+	local tile = math.max(quality.Get().froxel_tile, size.x / froxel_fog.MAX_WIDTH, size.y / froxel_fog.MAX_HEIGHT)
 	local width = math.ceil(size.x / tile)
 	local height = math.ceil(size.y / tile)
 
@@ -61,6 +61,7 @@ function froxel_fog.EnsureResources()
 	}
 	froxels.depth:SetDebugName("render3d froxels depth")
 	froxels.depth_sampler = render.CreateSampler(froxels.depth:GetSamplerConfig())
+
 	if froxels.gi then froxels.gi:Remove() end
 
 	froxels.gi = Texture.New{

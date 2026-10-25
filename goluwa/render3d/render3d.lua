@@ -13,6 +13,7 @@ local Rect = import("goluwa/structs/rect.lua")
 local Camera3D = import("goluwa/render3d/camera3d.lua")
 local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local quality = import("goluwa/render3d/quality.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local envprobe = import("goluwa/render3d/envprobe.lua")
@@ -341,7 +342,9 @@ end
 pvars.EndGroup()
 
 function render3d.IsBundlePassEnabled(bundle, name)
-	return bundle.passes[name] == true and pass_vars[name]:Get()
+	return bundle.passes[name] == true and
+		pass_vars[name]:Get() and
+		not quality.Get().disabled_passes[name]
 end
 
 function render3d.HasPass(name)
@@ -457,7 +460,14 @@ local function fill_pipeline_bundle(bundle)
 				local is_fallback = config.fallback == true
 				bundle.passes[pass_name] = true
 				config.is_enabled = function()
-					return enabled_var:Get() ~= is_fallback and (not is_enabled or is_enabled())
+					return (
+							enabled_var:Get() and
+							not quality.Get().disabled_passes[pass_name]
+						) ~= is_fallback and
+						(
+							not is_enabled or
+							is_enabled()
+						)
 				end
 			end
 

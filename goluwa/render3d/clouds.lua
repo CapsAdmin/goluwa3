@@ -5,6 +5,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local quality = import("goluwa/render3d/quality.lua")
 local clouds = {}
 pvars.StartGroup("Environment", "Clouds", {store = false, prefix = "cloud_"})
 local detail_min_mip = pvars.Setup2{
@@ -538,7 +539,7 @@ function clouds.WriteBlock(self, block)
 	block.cloud_weather_tex = self:GetTextureIndex(clouds.EnsureResources().weather)
 	block.cloud_frame = clouds.frame or 0
 	block.cloud_detail_min_mip = detail_min_mip:Get()
-	block.cloud_layer_steps = layer_steps:Get()
+	block.cloud_layer_steps = math.max(math.floor(layer_steps:Get() * quality.Get().cloud_step_scale), 1)
 	block.cloud_mean_transmittance = clouds.GetMeanTransmittance(clouds.light_direction)
 
 	for i, layer in ipairs(layers) do

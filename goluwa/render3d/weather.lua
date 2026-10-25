@@ -13,6 +13,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local precipitation = import("goluwa/render3d/precipitation.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
+local quality = import("goluwa/render3d/quality.lua")
 local weather = {}
 local SUN_TOA_ILLUMINANCE = atmosphere.DEFAULT_SUN_ILLUMINANCE
 local SHADOW_CUTOFF_TRANSMITTANCE = 1e-5
@@ -585,7 +586,7 @@ function weather.BuildSunShadows()
 		weather.shadow_maps.cascades = ShadowMap.New{
 			mode = "sun",
 			light = weather.light,
-			size = Vec2() + cascades.size,
+			size = Vec2() + cascades.size * quality.Get().shadow_size_scale,
 			format = cascades.format,
 			cascade_count = cascades.count,
 		}
@@ -595,7 +596,7 @@ function weather.BuildSunShadows()
 		weather.shadow_maps.inset = ShadowMap.New{
 			mode = "sun",
 			light = weather.light,
-			size = Vec2() + inset.size,
+			size = Vec2() + inset.size * quality.Get().shadow_size_scale,
 			format = inset.format,
 			cascade_count = 1,
 			role = "inset",
@@ -632,6 +633,10 @@ function weather.ResetSunShadow()
 
 	if weather.light then weather.BuildSunShadows() else apply_sun_shadow() end
 end
+
+event.AddListener("RenderQualityChanged", "weather_sun_shadows", function()
+	if weather.light then weather.BuildSunShadows() end
+end)
 
 function weather.Initialize()
 	if weather.light and weather.light:IsValid() then return end
