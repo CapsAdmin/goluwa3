@@ -7,7 +7,6 @@ local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("procedural_pose")
 -- an empty Network table is what makes the component part of the spawn packet
 META.Network = {}
-
 local LIMP_GRIP_ROTATION = Quat(0, 0, 0, 1):Rotate(math.pi / 2, 1, 0, 0)
 
 function META:Initialize()
@@ -40,7 +39,6 @@ end
 -- the pose with the limp parts put where their bodies are, which is what is shown
 function META:GetBones()
 	self:GetPoseBones()
-
 	return self.display
 end
 
@@ -64,7 +62,12 @@ function META:OnUpdate(dt)
 	if not armature and not (ragdoll and ragdoll.Profile == "eye") then return end
 
 	self.computed = true
-	eye_pose.Compute(self.state, self.bones, owner, dt * owner.character_pose.animation_speed)
+	eye_pose.Compute(
+		self.state,
+		self.bones,
+		owner,
+		dt * owner.character_pose.animation_speed * owner.character_pose.rate_variation
+	)
 	self:CopyDisplay()
 
 	if not armature then return end
@@ -88,7 +91,12 @@ function META:OnUpdate(dt)
 		if not grip then
 			armature:SetSocket("grip_r", "hand_r")
 		elseif limp then
-			armature:SetSocket("grip_r", "forearm_r", Vec3(0, eye_pose.ArmLength * 0.5, 0) - LIMP_GRIP_ROTATION:VecMul(grip), LIMP_GRIP_ROTATION)
+			armature:SetSocket(
+				"grip_r",
+				"forearm_r",
+				Vec3(0, eye_pose.ArmLength * 0.5, 0) - LIMP_GRIP_ROTATION:VecMul(grip),
+				LIMP_GRIP_ROTATION
+			)
 		else
 			armature:SetSocket("grip_r", "hand_r", grip * -1)
 		end

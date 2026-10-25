@@ -9,6 +9,7 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local network = import("goluwa/network/network.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local damage = import("lua/damage.lua")
+local pose_variation = import("lua/pose_variation.lua")
 local META = objects.CreateTemplate("character_movement")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 META:IsSet("Crouching", false)
@@ -60,6 +61,7 @@ function META:Initialize()
 	self.Owner:EnsureComponent("rigid_body")
 	assert(self.Owner.rigid_body)
 	self.crouch_alpha = self:IsCrouching() and 1 or 0
+	self.distance = 0
 	self.previous_velocity = Vec3()
 	self.previous_valid = false
 	self.dead = false
@@ -670,6 +672,15 @@ do
 		local body = self.Owner.rigid_body
 		local cmd = self:GetController():NextCommand(dt)
 		local health = self.Owner.health
+
+		if self.was_grounded then
+			local velocity = body:GetVelocity()
+			local rotation = self.Owner.transform:GetRotation()
+			local forward, right = rotation:GetForward(), rotation:GetRight()
+			local along = velocity.x * forward.x + velocity.z * forward.z
+			local across = velocity.x * right.x + velocity.z * right.z
+			self.distance = self.distance + math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) * dt * pose_variation.GetStrideScale(along, across, self:IsCrouching())
+		end
 
 		if health and health:IsDead() then
 			if not self.dead then self:Die() end

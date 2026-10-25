@@ -1,6 +1,7 @@
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local pose_variation = import("lua/pose_variation.lua")
 local aim_pose = {}
 aim_pose.Shares = {spine = 0.15, chest = 0.2, neck = 0.25, head = 0.4}
 aim_pose.RecoilAngle = math.rad(6)
@@ -53,6 +54,7 @@ local LEFT = {
 	forearm_chain = {"forearm_l", "hand_l"},
 }
 local identity = Quat(0, 0, 0, 1)
+local lean = Quat(0, 0, 0, 1)
 local rotation = Matrix44()
 local grip = Matrix44()
 local offset = Vec3()
@@ -65,11 +67,17 @@ local function rotate_about(m, px, py, pz, r)
 	m.m31 = py + x * r.m01 + y * r.m11 + z * r.m21
 	m.m32 = pz + x * r.m02 + y * r.m12 + z * r.m22
 	local a, b, c = m.m00, m.m01, m.m02
-	m.m00, m.m01, m.m02 = a * r.m00 + b * r.m10 + c * r.m20, a * r.m01 + b * r.m11 + c * r.m21, a * r.m02 + b * r.m12 + c * r.m22
+	m.m00, m.m01, m.m02 = a * r.m00 + b * r.m10 + c * r.m20,
+	a * r.m01 + b * r.m11 + c * r.m21,
+	a * r.m02 + b * r.m12 + c * r.m22
 	a, b, c = m.m10, m.m11, m.m12
-	m.m10, m.m11, m.m12 = a * r.m00 + b * r.m10 + c * r.m20, a * r.m01 + b * r.m11 + c * r.m21, a * r.m02 + b * r.m12 + c * r.m22
+	m.m10, m.m11, m.m12 = a * r.m00 + b * r.m10 + c * r.m20,
+	a * r.m01 + b * r.m11 + c * r.m21,
+	a * r.m02 + b * r.m12 + c * r.m22
 	a, b, c = m.m20, m.m21, m.m22
-	m.m20, m.m21, m.m22 = a * r.m00 + b * r.m10 + c * r.m20, a * r.m01 + b * r.m11 + c * r.m21, a * r.m02 + b * r.m12 + c * r.m22
+	m.m20, m.m21, m.m22 = a * r.m00 + b * r.m10 + c * r.m20,
+	a * r.m01 + b * r.m11 + c * r.m21,
+	a * r.m02 + b * r.m12 + c * r.m22
 end
 
 local function rotate_chain(bones, names, count, pivot, r)
@@ -107,13 +115,19 @@ local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side)
 	local distance = math.max(math.sqrt(dx * dx + dy * dy + dz * dz), 1e-3)
 	local limit = (upper_length + lower_length) * 0.999
 	local clamped = math.min(distance, limit)
-	local along = (upper_length * upper_length - lower_length * lower_length + clamped * clamped) / (2 * clamped)
+	local along = (
+			upper_length * upper_length - lower_length * lower_length + clamped * clamped
+		) / (
+			2 * clamped
+		)
 	local height = math.sqrt(math.max(upper_length * upper_length - along * along, 0))
 	dx, dy, dz = dx / distance, dy / distance, dz / distance
 	offset:Set(aim_pose.ElbowPole.x * side, aim_pose.ElbowPole.y, aim_pose.ElbowPole.z)
 	Quat.SetVecMul(direction, pitch, offset)
 	local pole_along = direction.x * dx + direction.y * dy + direction.z * dz
-	local bx, by, bz = direction.x - dx * pole_along, direction.y - dy * pole_along, direction.z - dz * pole_along
+	local bx, by, bz = direction.x - dx * pole_along,
+	direction.y - dy * pole_along,
+	direction.z - dz * pole_along
 	local bend = math.sqrt(bx * bx + by * by + bz * bz)
 	bx, by, bz = bx / bend, by / bend, bz / bend
 	elbow:Set(
@@ -147,6 +161,9 @@ local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side)
 	hand:SetTranslation(hand_target.x, hand_target.y, hand_target.z)
 end
 
+local LOWER = {"body", "thigh_r", "calf_r", "foot_r", "thigh_l", "calf_l", "foot_l"}
+local FEET = {"foot_r", "foot_l"}
+local LEAN_BONES = {unpack(JOINTS[1][2])}
 aim_pose.Bones = {"spine", "chest", "neck", "head", unpack(ARMS)}
 
 function aim_pose.GetGripMatrix(hand, pitch)
@@ -166,7 +183,8 @@ local function sample_action(keys, f)
 			local previous = keys[i - 1]
 			local t = (f - previous[1]) / (key[1] - previous[1])
 			t = t * t * (3 - 2 * t)
-			return previous[2] + (key[2] - previous[2]) * t, previous[3] + (key[3] - previous[3]) * t
+			return previous[2] + (key[2] - previous[2]) * t,
+			previous[3] + (key[3] - previous[3]) * t
 		end
 	end
 
@@ -202,6 +220,16 @@ function aim_pose.Apply(bones, pose, armed, two_handed)
 
 		rotation:SetRotation(identity:GetLerped(share, angle_pitch):Normalize())
 		rotate_chain(bones, joint[2], #joint[2], bones[name], rotation)
+	end
+
+	pose_variation.GetLean(lean, pose.lean_side, pose.lean_forward)
+	rotation:SetRotation(lean)
+	rotate_chain(bones, LEAN_BONES, #LEAN_BONES, origin, rotation)
+	rotation:SetRotation(lean:Conjugate())
+
+	for _, name in ipairs(FEET) do
+		local foot = bones[name]
+		rotate_about(foot, foot.m30, foot.m31, foot.m32, rotation)
 	end
 
 	if armed then solve_arm(bones, RIGHT, pitch, aim_pose.HandOffset, 0, 1) end

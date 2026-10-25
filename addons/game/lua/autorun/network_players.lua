@@ -17,7 +17,6 @@ Entity.RegisterComponent("player_controller", import("lua/components/player_cont
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
-
 local ACK_INTERVAL = 1 / 20
 local RELAY_BATCH = 4
 local OUTFIT_PUSH_DELAY = 0.2
@@ -37,7 +36,6 @@ if SERVER then
 		if players[uid] and players[uid]:IsValid() then return end
 
 		local position, rotation = spawning.Pick()
-
 		players[uid] = Entity.New{
 			Name = client:GetNick(),
 			ComponentSet = {
@@ -97,6 +95,7 @@ if SERVER then
 				buffer:WriteVec3(processed.position)
 				buffer:WriteVec3(processed.velocity)
 				buffer:WriteBoolean(ent.character_pose:IsHolding())
+				buffer:WriteDouble(processed.distance)
 				packet.Send("player_ack", buffer, clients.GetByUniqueID(uid), "sequenced")
 			end
 		end
@@ -181,7 +180,8 @@ if CLIENT then
 		local position = buffer:ReadVec3()
 		local velocity = buffer:ReadVec3()
 		local_player.character_pose:SetHolding(buffer:ReadBoolean())
-		local_player.player_controller:Reconcile(number, position, velocity)
+		local distance = buffer:ReadDouble()
+		local_player.player_controller:Reconcile(number, position, velocity, distance)
 	end)
 
 	packet.AddListener("usercmd_relay", function(buffer)

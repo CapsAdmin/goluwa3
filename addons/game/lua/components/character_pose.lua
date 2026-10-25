@@ -2,6 +2,8 @@ local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local pose_variation = import("lua/pose_variation.lua")
 local META = objects.CreateTemplate("character_pose")
 META.Network = {
 	Crouching = {"boolean", 0.1, "reliable"},
@@ -13,6 +15,9 @@ META.Network = {
 	Action = {"string", 0.05, "reliable"},
 	ActionDuration = {"number", 0.05, "reliable"},
 	Actions = {"number", 0.05, "reliable"},
+	LeanSide = {"number", 1 / 20, "sequenced", true},
+	LeanForward = {"number", 1 / 20, "sequenced", true},
+	Distance = {"number", 1 / 20, "sequenced", true},
 }
 META:IsSet("Crouching", false)
 META:IsSet("Holding", false)
@@ -47,6 +52,16 @@ function META:Initialize()
 	self.action_rolls = false
 	self.block_alpha = 0
 	self.animation_speed = 1
+	self.seed = math.random()
+	self.rate_scale = pose_variation.GetRateScale(self.seed)
+	self.rate_variation = self.rate_scale
+	self.last_velocity = nil
+	self.acceleration_forward = 0
+	self.acceleration_right = 0
+	self.lean_forward = 0
+	self.lean_side = 0
+	self.sway_pitch = 0
+	self.sway_yaw = 0
 	self:AddGlobalEvent("Update")
 end
 
@@ -76,6 +91,22 @@ function META:ApplyRelayedCommands(commands)
 			self.relay_time = system.GetTime()
 		end
 	end
+end
+
+function META:UpdateSeed()
+	local network = self.Owner.network
+
+	if not network then return end
+
+	local key = network:GetNetworkOwner()
+
+	if key == "" then key = network:GetNetworkId() end
+
+	if key == -1 or key == self.seed_key then return end
+
+	self.seed_key = key
+	self.seed = pose_variation.HashSeed(key)
+	self.rate_scale = pose_variation.GetRateScale(self.seed)
 end
 
 function META:OnUpdate(dt)
@@ -115,7 +146,13 @@ function META:OnUpdate(dt)
 		end
 	end
 
-	self.block_alpha = self.block_alpha + ((self:IsBlocking() and 1 or 0) - self.block_alpha) * math.min(dt * 14, 1)
+	self.block_alpha = self.block_alpha + (
+			(
+				self:IsBlocking() and
+				1 or
+				0
+			) - self.block_alpha
+		) * math.min(dt * 14, 1)
 	self.recoil = math.max(self.recoil - dt * RECOIL_DECAY, 0)
 	self.flinch = math.max(self.flinch - dt * FLINCH_DECAY, 0)
 	local rotation = self:GetViewRotation()
@@ -149,12 +186,12 @@ function META:OnUpdate(dt)
 	self.vertical_speed = velocity.y
 	self.grounded = movement and movement:GetGrounded() or body ~= nil and body:GetGrounded()
 
-	if movement and movement.dead then
+	if dead then
 		self.dead_pitch = self.dead_pitch or self.pitch
 		self.pitch = self.dead_pitch
 	else
 		self.dead_pitch = nil
-		self.pitch:Identity():RotatePitch(math.asin(math.clamp(rotation:GetForward().y, -1, 1)))
+		self.pitch:Identity():RotatePitch(math.asin(math.clamp(rotation:GetForward().y, -1, 1)) + self.sway_pitch):RotateYaw(self.sway_yaw)
 	end
 end
 

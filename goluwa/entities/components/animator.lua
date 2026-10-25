@@ -7,6 +7,8 @@ local Rig = import("goluwa/render3d/rig.lua")
 local Animator = objects.CreateTemplate("animator")
 Animator.Is3D = true
 local BOUNDS_MARGIN = 0.5
+local SYNC_SNAP = 0.25
+local SYNC_FOLLOW = 10
 Animator.LOD_NEAR = 15
 Animator.LOD_FAR = 80
 Animator.LOD_MIN_RATE = 5
@@ -297,6 +299,19 @@ function Animator:ResolveClip()
 	end
 
 	self.clip = clip
+end
+
+function Animator:SyncCycle(cycle, dt)
+	if self.clip_dirty then self:ResolveClip() end
+
+	local clip = self.clip
+
+	if not clip or clip.Duration <= 0 then return end
+
+	local current = self.time / clip.Duration % 1
+	local error = (cycle - current + 0.5) % 1 - 0.5
+	local fraction = math.abs(error) > SYNC_SNAP and 1 or math.min(dt * SYNC_FOLLOW, 1)
+	self.time = (current + error * fraction) % 1 * clip.Duration
 end
 
 function Animator:Settle()

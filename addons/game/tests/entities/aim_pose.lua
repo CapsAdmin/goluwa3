@@ -18,6 +18,12 @@ local POSITIONS = {
 	upperarm_l = Vec3(-0.2, 1.35, 0),
 	forearm_l = Vec3(-0.2, 1.1, 0),
 	hand_l = Vec3(-0.2, 0.85, 0),
+	thigh_r = Vec3(0.1, 0.85, 0),
+	calf_r = Vec3(0.1, 0.45, 0),
+	foot_r = Vec3(0.1, 0.08, 0),
+	thigh_l = Vec3(-0.1, 0.85, 0),
+	calf_l = Vec3(-0.1, 0.45, 0),
+	foot_l = Vec3(-0.1, 0.08, 0),
 }
 
 local function create_bones()
@@ -35,7 +41,14 @@ local function position(bones, name)
 end
 
 local function pose(pitch, recoil, flinch)
-	return {pitch = pitch, recoil = recoil or 0, flinch = flinch or 0, block_alpha = 0}
+	return {
+		pitch = pitch,
+		recoil = recoil or 0,
+		flinch = flinch or 0,
+		block_alpha = 0,
+		lean_side = 0,
+		lean_forward = 0,
+	}
 end
 
 T.Test("aiming up rotates the bones above the spine about their joints by the shares of the pitch", function()
@@ -69,7 +82,9 @@ T.Test("an armed arm reaches out along the aim and the hand takes the aim rotati
 	T(elbow:Distance(hand))["~"](lower, 1e-4)
 	local out = (hand - shoulder)
 	T(out:GetNormalized():Dot(pitch:GetForward()) > 0.9)["=="](true)
-	T(aim_pose.GetGripMatrix(bones.hand_r, pitch):GetRotation():GetForward():Dot(pitch:GetForward()))["~"](1, 1e-3)
+	T(
+		aim_pose.GetGripMatrix(bones.hand_r, pitch):GetRotation():GetForward():Dot(pitch:GetForward())
+	)["~"](1, 1e-3)
 	T(bones.upperarm_r:GetRotation():GetForward():Dot(Vec3(0, 0, -1)) < 0.999)["=="](true)
 end)
 
@@ -99,4 +114,29 @@ T.Test("a two handed weapon puts the support arm out along the aim without stret
 	local one_handed = create_bones()
 	aim_pose.Apply(one_handed, pose(pitch), true, false)
 	T(position(one_handed, "hand_l"):Distance(hand) > 0.1)["=="](true)
+end)
+
+T.Test("leaning tilts the whole body about the ground and keeps the feet flat", function()
+	local level, leaning = create_bones(), create_bones()
+	local pitch = Quat(0, 0, 0, 1)
+	aim_pose.Apply(level, pose(pitch), false)
+	local tilted = pose(pitch)
+	tilted.lean_side = 0.2
+	aim_pose.Apply(leaning, tilted, false)
+	T(position(leaning, "body").x - position(level, "body").x > 0.05)["=="](true)
+	T(position(leaning, "head").x - position(level, "head").x > 0.1)["=="](true)
+	T(position(leaning, "upperarm_l").x - position(level, "upperarm_l").x > 0.05)["=="](true)
+	T(position(leaning, "calf_r").x - position(level, "calf_r").x > 0.02)["=="](true)
+	T(position(leaning, "foot_r"):Distance(position(level, "foot_r")) < 0.03)["=="](true)
+	local up = leaning.foot_r:GetRotation():GetUp()
+	T(up.x)["~"](0, 1e-4)
+	T(up.y)["~"](1, 1e-4)
+	T(leaning.thigh_r:GetRotation():GetUp().x > 0.1)["=="](true)
+	local forward = create_bones()
+	tilted.lean_side = 0
+	tilted.lean_forward = 0.2
+	aim_pose.Apply(forward, tilted, false)
+	T(position(forward, "head").z - position(level, "head").z < -0.1)["=="](true)
+	T(position(forward, "body").z - position(level, "body").z < -0.05)["=="](true)
+	T(forward.foot_l:GetRotation():GetUp().z)["~"](0, 1e-4)
 end)

@@ -420,10 +420,17 @@ T.TestPhysics("player controller reconciliation corrects mispredictions and shif
 	drive(player, 100)
 	local number = controller.number
 	local entry = controller:GetHistory(number - 10)
-	T(controller:Reconcile(number - 10, entry.position:Copy(), entry.velocity:Copy()))["=="](0)
+	T(
+		controller:Reconcile(number - 10, entry.position:Copy(), entry.velocity:Copy(), entry.distance)
+	)["=="](0)
 	local before = body:GetPosition():Copy()
 	local later_before = controller:GetHistory(number - 5).position:Copy()
-	local magnitude = controller:Reconcile(number - 10, entry.position + Vec3(1.5, 0, 0), entry.velocity:Copy())
+	local magnitude = controller:Reconcile(
+		number - 10,
+		entry.position + Vec3(1.5, 0, 0),
+		entry.velocity:Copy(),
+		entry.distance
+	)
 	T(math.abs(magnitude - 1.5))["<"](0.0001)
 	T(math.abs(body:GetPosition().x - (before.x + 1.5)))["<"](0.0001)
 	T(math.abs(controller:GetHistory(number - 5).position.x - (later_before.x + 1.5)))["<"](0.0001)

@@ -3,6 +3,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local aim_pose = import("lua/aim_pose.lua")
+local pose_variation = import("lua/pose_variation.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 local eye_pose = {}
@@ -41,6 +42,8 @@ local DOWN = Vec3(0, -1, 0)
 local ZERO = Vec3(0, 0, 0)
 local scratch = Quat()
 local torso = Quat()
+local tilt = Quat()
+local tilted_torso = Quat()
 local WEAPON_OFFSET = Vec3(0.2, -0.22, -0.15)
 local TORSO_PITCH = 0.35
 local HIP_OFFSET = Vec3(0.4 * EYE_RADIUS, -0.4 * EYE_RADIUS, 0.2 * EYE_RADIUS)
@@ -126,13 +129,16 @@ function eye_pose.Compute(state, bones, owner, dt)
 	state.roll = state.roll + (
 			math.clamp(-smoothed.x * 0.12, -0.6, 0.6) - state.roll
 		) * math.min(dt * 6, 1)
-	state.phase = state.phase + dt * speed * 1.5
+	state.phase = pose.Distance * 1.5 + pose.seed * math.pi * 2
 	local look = view:GetForward()
 	local lean = (look + smoothed * 0.05):GetNormalized()
 	aim_pose.SetBetween(scratch, look.x, look.y, look.z, lean.x, lean.y, lean.z)
-	local rotation = QuatFromAxis(state.roll, lean) * scratch * view
+	pose_variation.GetLean(tilt, pose.lean_side, pose.lean_forward)
+	local rotation = tilt * QuatFromAxis(state.roll, lean) * scratch * view
 	torso:Identity():RotatePitch(math.asin(math.clamp(look.y, -1, 1)) * TORSO_PITCH)
-	local center = Vec3(0, eye_height - BODY_DROP, 0) - FORWARD * EYE_RADIUS
+	tilted_torso:SetMul(tilt, torso)
+	local upright = Vec3(0, eye_height - BODY_DROP, 0) - FORWARD * EYE_RADIUS
+	local center = tilt:VecMul(upright)
 	local pupil = center + lean * EYE_RADIUS
 	write(bones.root, ZERO, scratch:Identity())
 	write(bones.neck, center, rotation)
@@ -156,10 +162,10 @@ function eye_pose.Compute(state, bones, owner, dt)
 		local side = state.sides[i]
 		local sign = side.sign
 		local name = side.name
-		local shoulder = center + torso:VecMul(Vec3(sign * 0.85 * EYE_RADIUS, 0, 0.1 * EYE_RADIUS))
-		local hip = center + Vec3(sign * HIP_OFFSET.x, HIP_OFFSET.y, HIP_OFFSET.z)
+		local shoulder = tilt:VecMul(upright + torso:VecMul(Vec3(sign * 0.85 * EYE_RADIUS, 0, 0.1 * EYE_RADIUS)))
+		local hip = tilt:VecMul(upright + Vec3(sign * HIP_OFFSET.x, HIP_OFFSET.y, HIP_OFFSET.z))
 		local hang = (
-			torso:VecMul(Vec3(sign * 0.7, -0.5, 0.3)) + Vec3(sign * 0.35, -0.9, 0.1)
+			tilted_torso:VecMul(Vec3(sign * 0.7, -0.5, 0.3)) + Vec3(sign * 0.35, -0.9, 0.1)
 		):GetNormalized()
 		local grip = grips and (sign == 1 and grips.right or grips.left)
 
@@ -190,7 +196,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 			side.hand,
 			ARM_LENGTH * 0.5,
 			ARM_LENGTH * 0.5,
-			torso:VecMul(Vec3(sign * 0.6, -0.7, 0.4))
+			tilted_torso:VecMul(Vec3(sign * 0.6, -0.7, 0.4))
 		)
 		write(bones["clavicle_" .. name], shoulder, rotation)
 		write_limb(bones["upperarm_" .. name], shoulder, elbow)

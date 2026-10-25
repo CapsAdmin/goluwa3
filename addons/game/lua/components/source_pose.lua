@@ -1,6 +1,10 @@
 local objects = import("goluwa/objects/objects.lua")
 local biped = import("lua/biped.lua")
 local aim_pose = import("lua/aim_pose.lua")
+local pose_variation = import("lua/pose_variation.lua")
+local system = import("goluwa/system.lua")
+local physics = import("goluwa/physics.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local META = objects.CreateTemplate("source_pose")
 META:StartStorable()
@@ -70,7 +74,7 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 			animator:Restart()
 		end
 
-		animator:SetSpeed(pose.animation_speed)
+		animator:SetSpeed(pose.animation_speed * pose.rate_variation)
 		return
 	end
 
@@ -126,7 +130,24 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 		end
 	end
 
-	animator:SetSpeed(rate * pose.animation_speed)
+	animator:SetSpeed(rate * pose.animation_speed * pose.rate_variation)
+
+	if clip and clip.Duration > 0 and pose.animation_speed == 1 then
+		local ground_speed = clip:GetGroundSpeed(params)
+
+		if state == "idle" then
+			animator:SyncCycle(
+				pose_variation.GetClockCycle(pose.seed, pose.rate_scale, system.GetGameTime(), clip.Duration),
+				dt
+			)
+		elseif ground_speed > 0 then
+			animator:SyncCycle(
+				pose_variation.GetStrideCycle(pose.seed, pose.rate_scale, pose.Distance, ground_speed * clip.Duration),
+				dt
+			)
+		end
+	end
+
 	local range = skeleton.PoseParameterRanges.move_yaw
 
 	if range and state ~= "idle" then
@@ -181,7 +202,27 @@ function META:UpdatePlayer(animator, pose, dt)
 	end
 
 	if speed >= 0.15 and not air then
-		rate = math.clamp(speed / reference, 0.4, 2)
+		rate = math.clamp(
+			speed * pose_variation.GetStrideScale(forward_speed, right_speed, crouching) / reference,
+			0.4,
+			2
+		)
+	end
+
+	animator:SetSpeed(rate * pose.animation_speed * pose.rate_variation)
+
+	if clip and clip.Duration > 0 and not air and pose.animation_speed == 1 then
+		if speed < 0.15 then
+			animator:SyncCycle(
+				pose_variation.GetClockCycle(pose.seed, pose.rate_scale, system.GetGameTime(), clip.Duration),
+				dt
+			)
+		else
+			animator:SyncCycle(
+				pose_variation.GetStrideCycle(pose.seed, pose.rate_scale, pose.Distance, reference * clip.Duration),
+				dt
+			)
+		end
 	end
 
 	animator:SetSpeed(rate * pose.animation_speed)

@@ -15,6 +15,7 @@ local BACKLOG_SLACK = 12
 local MAX_REPEATS = 15
 local SHRINK_INTERVAL = 300
 local CORRECTION_DECAY = 10
+local DISTANCE_TOLERANCE = 0.01
 META:GetSet("Source", "local")
 META:GetSet("Networked", false)
 
@@ -29,7 +30,13 @@ function META:Initialize()
 	self.buffer_target = START_BUFFER
 	self.consumed = 0
 	self.history = {}
-	self.processed = {number = 0, position = Vec3(), velocity = Vec3(), grounded = false}
+	self.processed = {
+		number = 0,
+		position = Vec3(),
+		velocity = Vec3(),
+		grounded = false,
+		distance = 0,
+	}
 	self.correction_offset = Vec3()
 	self.corrections = 0
 	self.recent = {}
@@ -56,13 +63,20 @@ function META:RecordState()
 	local entry = self.history[self.number % HISTORY_SIZE]
 
 	if not entry or entry.number ~= self.number then
-		entry = {number = self.number, position = Vec3(), velocity = Vec3(), grounded = false}
+		entry = {
+			number = self.number,
+			position = Vec3(),
+			velocity = Vec3(),
+			grounded = false,
+			distance = 0,
+		}
 		self.history[self.number % HISTORY_SIZE] = entry
 	end
 
 	entry.position:CopyFrom(body:GetPosition())
 	entry.velocity:CopyFrom(body:GetVelocity())
 	entry.grounded = body:GetGrounded()
+	entry.distance = self.Owner.character_movement.distance
 	self.processed = entry
 end
 
@@ -154,12 +168,24 @@ function META:TeleportToAim(cmd)
 	movement:TeleportTo(hit.position + hit.normal * movement.Radius + Vec3(0, 0.05, 0))
 end
 
-function META:Reconcile(number, position, velocity)
+function META:Reconcile(number, position, velocity, distance)
 	local body = self.Owner.rigid_body
 	local movement = self.Owner.character_movement
 	local entry = self:GetHistory(number)
 
 	if not entry then return 0 end
+
+	local distance_error = distance - entry.distance
+
+	if math.abs(distance_error) > DISTANCE_TOLERANCE then
+		movement.distance = movement.distance + distance_error
+
+		for n = number, self.number do
+			local later = self:GetHistory(n)
+
+			if later then later.distance = later.distance + distance_error end
+		end
+	end
 
 	local position_error = position - entry.position
 	local velocity_error = velocity - entry.velocity
@@ -286,5 +312,4 @@ function META:NextCommand(dt)
 end
 
 CharacterMovement.RegisterController("player_controller")
-
 return META:Register()

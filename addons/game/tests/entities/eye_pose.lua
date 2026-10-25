@@ -5,6 +5,9 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local biped = import("lua/biped.lua")
 local eye_pose = import("lua/eye_pose.lua")
+local pose_variation = import("lua/pose_variation.lua")
+pose_variation.SwayPitch = 0
+pose_variation.SwayYaw = 0
 local damage = import("lua/damage.lua")
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
@@ -67,5 +70,24 @@ T.TestPhysics("the physics rig of an eye npc follows the eye pose and falls apar
 		T(parent.Position:Distance(child.Position) < 1.6)["=="](true)
 	end
 
+	npc:Remove()
+end)
+
+T.TestPhysics("the eye body leans about the ground to the side of its acceleration", function()
+	create_ground()
+	local npc = npcs.Spawn("eye", Vec3(0, 0.05, 0), 0)
+	npc.ai_controller:SetWander(false)
+	run(npc, 1)
+	local upright = npc.procedural_pose:GetBones().neck.m30
+	local pose = npc.character_pose
+	local update = pose.OnUpdate
+	pose.OnUpdate = function(self, dt)
+		update(self, dt)
+		self.lean_side = 0.2
+	end
+	run(npc, 1)
+	local bones = npc.procedural_pose:GetBones()
+	T(bones.neck.m30 - upright > 0.1)["=="](true)
+	T(bones.foot_l.m31 < 0.12)["=="](true)
 	npc:Remove()
 end)

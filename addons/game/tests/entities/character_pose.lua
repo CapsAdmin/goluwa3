@@ -7,6 +7,7 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local biped = import("lua/biped.lua")
+local pose_variation = import("lua/pose_variation.lua")
 import("addons/game/lua/autorun/characters.lua")
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
@@ -28,6 +29,9 @@ local function create_character()
 	entity.player_controller.cmd.buttons = usercmd.BUTTON.ACTIVE
 	return entity
 end
+
+pose_variation.SwayPitch = 0
+pose_variation.SwayYaw = 0
 
 T.TestPhysics("character pose follows the pitch of the command view and not its yaw", function()
 	create_ground()
@@ -92,4 +96,56 @@ T.Test("a source pose can be removed after the pose it drives", function()
 	character:RemoveComponent("character_pose")
 	character:Remove()
 	T(character:IsValid())["=="](false)
+end)
+T.Test("a character without a movement follows the replicated lean and takes its seed from its network identity", function()
+	local entity = Entity.New{ComponentSet = {"transform", "character_pose"}, transform = {}}
+	local pose = entity.character_pose
+	T(pose.Network.LeanSide ~= nil)["=="](true)
+	T(pose.Network.LeanForward ~= nil)["=="](true)
+	pose:SetLeanSide(0.15)
+	pose:SetLeanForward(-0.1)
+
+	for _ = 1, 120 do
+		pose:OnUpdate(1 / 60)
+	end
+
+	T(pose.lean_side)["~"](0.15, 0.005)
+	T(pose.lean_forward)["~"](-0.1, 0.005)
+	local network = {owner = "uid-1", id = -1}
+	entity.network = {
+		GetNetworkOwner = function()
+			return network.owner
+		end,
+		GetNetworkId = function()
+			return network.id
+		end,
+	}
+	pose:OnUpdate(1 / 60)
+	local seed = pose.seed
+	T(seed)["=="](pose_variation.HashSeed("uid-1"))
+	T(pose.rate_scale)["=="](pose_variation.GetRateScale(seed))
+	network.owner = ""
+	pose:OnUpdate(1 / 60)
+	T(pose.seed)["=="](seed)
+	network.id = 7
+	pose:OnUpdate(1 / 60)
+	T(pose.seed)["=="](pose_variation.HashSeed(7))
+	entity.network = nil
+	entity:Remove()
+end)
+
+T.TestPhysics("the pose of a simulated character takes its distance from the movement and a remote one follows the replicated distance", function()
+	create_ground()
+	local character = create_character()
+	local pose = character.character_pose
+	character.character_movement.distance = 12.5
+	pose:OnUpdate(1 / 60)
+	T(pose.Distance)["=="](12.5)
+	character:Remove()
+	local remote = Entity.New{ComponentSet = {"transform", "character_pose"}, transform = {}}
+	remote.character_pose:SetDistance(33)
+	remote.character_pose:OnUpdate(1 / 60)
+	T(remote.character_pose.Distance)["=="](33)
+	T(remote.character_pose.Network.Distance ~= nil)["=="](true)
+	remote:Remove()
 end)
