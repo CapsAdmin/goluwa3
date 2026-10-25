@@ -317,6 +317,7 @@ local function build_ssdm_fragment_shader(write_depth)
 			Surface surface;
 			surface.world_pos = displacement.world_pos;
 			surface.geometric_N = tbn[2];
+			prepare_terrain_layers(displacement.uv, displacement.world_pos);
 			init_surface_features(surface, displacement.uv);
 			surface.alpha = alpha;
 			surface.albedo = get_albedo_world(displacement.uv, displacement.world_pos) * in_instance_tint;

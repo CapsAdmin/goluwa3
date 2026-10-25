@@ -530,6 +530,7 @@ local passes = {
 					);
 					vec3 V = normalize(lighting_data.camera_position.xyz - world_pos);
 					mat3 tbn = get_tbn();
+					prepare_terrain_layers(in_uv, in_position);
 					vec3 N = bend_normal_to_view(get_normal(in_uv, tbn), V);
 					vec3 albedo = get_albedo();
 					float metallic = get_metallic(in_uv);

@@ -1744,7 +1744,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			}
 
 			TerrainLayerSample terrain_layer_cache;
-			bool terrain_layer_cache_valid = false;
 
 			void accumulate_terrain_layer(inout TerrainLayerSample s, vec3 base, int albedo_tex, int normal_tex, int height_tex, vec3 world_pos, vec3 blend, vec3 N, vec3 V, float distance_to_camera, float weight, float scale, float detail_strength, float additive_detail, float displacement, vec4 far, float fade_distance, float anti_tiling) {
 				if (weight <= 0.001) {
@@ -1813,11 +1812,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				}
 			}
 
-			TerrainLayerSample get_terrain_layer_sample(vec2 uv, vec3 world_pos) {
-				if (terrain_layer_cache_valid) {
-					return terrain_layer_cache;
-				}
-
+			void compute_terrain_layer_sample(vec2 uv, vec3 world_pos) {
 				TerrainLayerSample s;
 				s.albedo = vec3(0.0);
 				s.roughness = 0.0;
@@ -1839,8 +1834,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					s.normal = N;
 					s.ao = 1.0;
 					terrain_layer_cache = s;
-					terrain_layer_cache_valid = true;
-					return s;
+					return;
 				}
 
 				vec3 to_camera = get_surface_camera_position() - world_pos;
@@ -1914,8 +1908,10 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				}
 
 				terrain_layer_cache = s;
-				terrain_layer_cache_valid = true;
-				return s;
+			}
+
+			void prepare_terrain_layers(vec2 uv, vec3 world_pos) {
+				if (terrain_model.TerrainMaterialTexture != -1) compute_terrain_layer_sample(uv, world_pos);
 			}
 
 			float get_terrain_weighted_value(vec2 uv, vec4 values, vec4 values2) {
@@ -1936,7 +1932,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					return color_model.ColorMultiplier.rgb;
 				}
 
-				return get_terrain_layer_sample(uv, world_pos).albedo * color_model.ColorMultiplier.rgb;
+				return terrain_layer_cache.albedo * color_model.ColorMultiplier.rgb;
 			}
 
 			vec3 blend_ground_color(vec3 albedo, vec3 world_pos) {
@@ -2091,7 +2087,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec3 N = get_combined_normal(uv, tbn);
 
 				if (terrain_model.TerrainMaterialTexture != -1) {
-					return get_terrain_layer_sample(uv, in_position).normal;
+					return terrain_layer_cache.normal;
 				}
 
 				return N;
@@ -2180,7 +2176,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				if (val < 0.0) {
 					if (terrain_model.TerrainMaterialTexture != -1) {
-						val = get_terrain_weighted_value(uv, terrain_model.TerrainLayerRoughness, terrain_model.TerrainLayerRoughness2) * get_terrain_layer_sample(uv, in_position).roughness;
+						val = get_terrain_weighted_value(uv, terrain_model.TerrainLayerRoughness, terrain_model.TerrainLayerRoughness2) * terrain_layer_cache.roughness;
 					} else {
 						val = factor_model.RoughnessMultiplier;
 						return clamp(val * val, 0.002, 1.0);
@@ -2251,7 +2247,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					}
 
 					if (terrain_model.TerrainMaterialTexture != -1) {
-						return get_terrain_weighted_value(uv, terrain_model.TerrainLayerAmbientOcclusion, terrain_model.TerrainLayerAmbientOcclusion2) * get_terrain_layer_sample(uv, in_position).ao * aux_model.AmbientOcclusionMultiplier;
+						return get_terrain_weighted_value(uv, terrain_model.TerrainLayerAmbientOcclusion, terrain_model.TerrainLayerAmbientOcclusion2) * terrain_layer_cache.ao * aux_model.AmbientOcclusionMultiplier;
 					}
 
 					return 1.0 * aux_model.AmbientOcclusionMultiplier;
