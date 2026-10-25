@@ -242,6 +242,8 @@ function RigidBody:Initialize()
 
 	if self.Owner and self.Owner.transform then
 		self:SynchronizeFromTransform()
+		self.StepStartPosition:CopyFrom(self.Position)
+		self.StepStartRotation:CopyFrom(self.Rotation)
 	end
 
 	self:MarkTransformDirty()
@@ -461,7 +463,11 @@ function RigidBody:OnAdd()
 		self:SetMotionType("kinematic")
 	end
 
-	if self.Owner.transform then self:SynchronizeFromTransform() end
+	if self.Owner.transform then
+		self:SynchronizeFromTransform()
+		self.StepStartPosition:CopyFrom(self.Position)
+		self.StepStartRotation:CopyFrom(self.Rotation)
+	end
 end
 
 RigidBody.WorldGeometryBodies = {}
