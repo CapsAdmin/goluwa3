@@ -598,9 +598,9 @@ function META:OnTextChanged()
 	if not self.AutoSize then
 
 	elseif not self:GetWrap() and not self:GetElide() then
-		self.Owner.transform:SetSize(Vec2(w, h))
+		self.Owner.transform:SetSize(Vec2(math.ceil(w), math.ceil(h)))
 	else
-		self.Owner.transform:SetHeight(h)
+		self.Owner.transform:SetHeight(math.ceil(h))
 	end
 end
 
