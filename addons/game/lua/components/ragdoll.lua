@@ -725,7 +725,7 @@ function META:FollowHead()
 	local owner = self.Owner
 	local head = self.part_by_name.head.body
 	local rotation = head.Rotation
-	local view = owner.character_movement:GetViewOffset()
+	local view = owner.character_movement:GetEyeOffset()
 	Quat.SetVecMul(world_offset, rotation, view)
 	owner.transform:SetPosition(
 		Vec3(

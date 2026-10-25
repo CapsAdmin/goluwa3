@@ -23,6 +23,34 @@ local selected_model = pvars.Setup2{
 	default = outfit_source.Model,
 	help = "source player model used when cl_outfit is player_outfit_source",
 }
+local head_camera = pvars.Setup2{
+	key = "cl_outfit_head_camera",
+	category = "Game",
+	group = "Player",
+	default = false,
+	help = "the view and the aim origin follow the head of a source outfit instead of the eye point of the capsule, within two capsule radii of it",
+}
+local head_vertical = pvars.Setup2{
+	key = "cl_outfit_head_vertical",
+	category = "Game",
+	group = "Player",
+	default = true,
+	help = "the head camera follows the vertical movement of the head too (crouching, walking, idle sway), off keeps the height of the capsule eye",
+}
+local head_smoothing = pvars.Setup2{
+	key = "cl_outfit_head_smoothing",
+	category = "Game",
+	group = "Player",
+	default = 0.05,
+	min = 0,
+	max = 0.5,
+	help = "time constant in seconds that smooths the head camera, 0 follows the head exactly",
+}
+
+function outfit.GetHeadCamera()
+	return head_camera:Get(), head_vertical:Get(), head_smoothing:Get()
+end
+
 function outfit.GetLocalName()
 	return selected:Get()
 end

@@ -3,6 +3,8 @@ local event = import("goluwa/event.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local outfit = import("lua/outfit.lua")
+local outfit_source = import("lua/outfit_source.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local biped = import("lua/biped.lua")
 local clients = import("goluwa/network/clients.lua")
 local View = import("goluwa/render3d/view.lua")
@@ -15,6 +17,7 @@ META:GetSet("Outfit", nil)
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
+	self.head_offset = Vec3()
 	self:AddGlobalEvent("Update")
 end
 
@@ -23,6 +26,12 @@ event.AddListener("RemotePlayerCommands", "player_avatar", function(owner, comma
 		if avatar.Owner.network and avatar.Owner.network:GetNetworkOwner() == owner then
 			avatar.Owner.character_pose:ApplyRelayedCommands(commands)
 		end
+	end
+end)
+
+event.AddListener("CreateMove", "player_avatar_head", function(owner, cmd)
+	if owner.player_avatar then
+		cmd.head:CopyFrom(owner.player_avatar:GetHeadOffset())
 	end
 end)
 
@@ -58,6 +67,43 @@ function META:ApplyFirstPerson()
 			child.animator:SetViewHiddenBone(self.first_person and biped.SourceBones.head or "")
 		end
 	end
+end
+
+function META:GetHeadOffset()
+	return self.head_offset
+end
+
+function META:UpdateHeadOffset(dt)
+	local owner = self.Owner
+	local offset = self.head_offset
+	local active, vertical, smoothing = outfit.GetHeadCamera()
+	local x, y, z = 0, 0, 0
+	local head = active and
+		owner.player_input and
+		self.outfit_name == outfit_source.Name and
+		self.armature:GetBoneMatrix("head")
+
+	if head then
+		local movement = owner.character_movement
+		local _, rotation = owner.transform:GetRenderPositionRotation()
+		local world = (
+				rotation or
+				owner.transform:GetRotation()
+			):VecMul(Vec3(head.m30, head.m31, head.m32)) - movement:GetEyeOffset()
+		local limit = movement:GetRadius() * 2
+		local length = world:GetLength()
+
+		if length > limit then world = world * (limit / length) end
+
+		x, y, z = world.x, vertical and world.y or 0, world.z
+	end
+
+	local alpha = smoothing > 0 and 1 - math.exp(-dt / smoothing) or 1
+	offset:Set(
+		offset.x + (x - offset.x) * alpha,
+		offset.y + (y - offset.y) * alpha,
+		offset.z + (z - offset.z) * alpha
+	)
 end
 
 function META:ApplyViewHidden()
@@ -112,7 +158,7 @@ function META:UpdateOutfit()
 	self:ApplyFirstPerson()
 end
 
-function META:OnUpdate()
+function META:OnUpdate(dt)
 	if not self.armature then
 		if not (CLIENT and RENDER_3D) then return end
 
@@ -133,6 +179,7 @@ function META:OnUpdate()
 	end
 
 	self:UpdateOutfit()
+	self:UpdateHeadOffset(dt)
 end
 
 return META:Register()

@@ -139,13 +139,27 @@ function META:GetGroundYawVelocity()
 	return 0
 end
 
-function META:GetViewOffset()
+function META:GetEyeOffset()
 	local _, _, eye_height = self:GetDimensions()
 	return Vec3(0, eye_height, 0)
 end
 
+function META:GetHeadOffset()
+	local head = self:GetCommand().head
+	local limit = self.Radius * 2
+	local length = head:GetLength()
+
+	if length > limit then return head * (limit / length) end
+
+	return head:Copy()
+end
+
+function META:GetViewOffset()
+	return self:GetEyeOffset() + self:GetHeadOffset()
+end
+
 function META:SetEyePosition(position)
-	self.Owner.transform:SetPosition(position - self:GetViewOffset())
+	self.Owner.transform:SetPosition(position - self:GetEyeOffset())
 end
 
 function META:GetDimensions(alpha)

@@ -1,4 +1,5 @@
 local Quat = import("goluwa/structs/quat.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local usercmd = {}
 usercmd.BUTTON = {
 	JUMP = 1,
@@ -17,11 +18,13 @@ usercmd.MODE = {fly = 0, walk = 1}
 usercmd.MODE_NAME = {[0] = "fly", [1] = "walk"}
 usercmd.MAX_BATCH = 8
 usercmd.HELD_COLLISION_GROUP = 2
+usercmd.HEAD_RANGE = 2
 
 function usercmd.New()
 	return {
 		number = 0,
 		view = Quat(0, 0, 0, 1),
+		head = Vec3(0, 0, 0),
 		forward = 0,
 		side = 0,
 		up = 0,
@@ -40,6 +43,7 @@ function usercmd.Copy(cmd)
 	local out = usercmd.New()
 	out.number = cmd.number
 	out.view:CopyFrom(cmd.view)
+	out.head:CopyFrom(cmd.head)
 	out.forward = cmd.forward
 	out.side = cmd.side
 	out.up = cmd.up
@@ -70,9 +74,16 @@ local function read_axis(buffer)
 	return (buffer:ReadByte() - 128) / 127
 end
 
+local function write_head(buffer, value)
+	buffer:WriteI16(math.floor(math.clamp(value, -usercmd.HEAD_RANGE, usercmd.HEAD_RANGE) * 10000 + 0.5))
+end
+
 function usercmd.Write(buffer, cmd)
 	buffer:WriteU32(cmd.number)
 	buffer:WriteQuat(cmd.view)
+	write_head(buffer, cmd.head.x)
+	write_head(buffer, cmd.head.y)
+	write_head(buffer, cmd.head.z)
 	write_axis(buffer, cmd.forward)
 	write_axis(buffer, cmd.side)
 	write_axis(buffer, cmd.up)
@@ -89,6 +100,7 @@ function usercmd.Read(buffer, out)
 	out = out or usercmd.New()
 	out.number = buffer:ReadU32()
 	out.view = buffer:ReadQuat()
+	out.head:Set(buffer:ReadI16() / 10000, buffer:ReadI16() / 10000, buffer:ReadI16() / 10000)
 	out.forward = read_axis(buffer)
 	out.side = read_axis(buffer)
 	out.up = read_axis(buffer)

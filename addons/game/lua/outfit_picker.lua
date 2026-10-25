@@ -7,7 +7,13 @@ local pvars = import("goluwa/cli/pvars.lua")
 local previews = import("lua/asset_preview.lua")
 local outfit = import("lua/outfit.lua")
 local outfit_source = import("lua/outfit_source.lua")
+local Rect = import("goluwa/structs/rect.lua")
 local Window = react.Element(import("goluwa/render2d/ui/widgets/window.lua"))
+local Column = react.Element(import("goluwa/render2d/ui/elements/column.lua"))
+local Row = react.Element(import("goluwa/render2d/ui/elements/row.lua"))
+local Text = react.Element(import("goluwa/render2d/ui/elements/text.lua"))
+local Checkbox = react.Element(import("goluwa/render2d/ui/elements/checkbox.lua"))
+local Slider = react.Element(import("goluwa/render2d/ui/elements/slider.lua"))
 local VirtualGrid = react.Element(import("goluwa/render2d/ui/elements/virtual_grid.lua"))
 local LABEL_HEIGHT = 24
 local picker = {}
@@ -93,17 +99,45 @@ local Content = react.Component(
 			end,
 			{}
 		)
-		return VirtualGrid{
-			Ref = grid,
-			Items = items,
-			SelectedItem = picker.GetSelected(items),
-			CellWidth = 128,
-			ExtraHeight = LABEL_HEIGHT,
-			Gap = 8,
-			ContentPadding = 8,
-			OnDrawItem = draw_item,
-			OnSelect = picker.Select,
-			layout = {GrowWidth = 1, GrowHeight = 1},
+		return Column{
+			layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch", ChildGap = 6},
+		}{
+			VirtualGrid{
+				Ref = grid,
+				Items = items,
+				SelectedItem = picker.GetSelected(items),
+				CellWidth = 128,
+				ExtraHeight = LABEL_HEIGHT,
+				Gap = 8,
+				ContentPadding = 8,
+				OnDrawItem = draw_item,
+				OnSelect = picker.Select,
+				layout = {GrowWidth = 1, GrowHeight = 1},
+			},
+			Row{layout = {GrowWidth = 1, ChildGap = 10, AlignmentY = "center", Padding = Rect() + 6}}{
+				Checkbox{
+					Text = "Head camera",
+					Value = pvars.Get("cl_outfit_head_camera"),
+					OnChange = |value|->pvars.Set("cl_outfit_head_camera", value),
+					Tooltip = pvars.GetObject("cl_outfit_head_camera").help,
+				},
+				Checkbox{
+					Text = "Vertical",
+					Value = pvars.Get("cl_outfit_head_vertical"),
+					OnChange = |value|->pvars.Set("cl_outfit_head_vertical", value),
+					Tooltip = pvars.GetObject("cl_outfit_head_vertical").help,
+				},
+				Text{Text = "Smoothing", Color = "text_disabled", layout = {FitWidth = true}},
+				Slider{
+					Mode = "horizontal",
+					Min = 0,
+					Max = 0.5,
+					Value = pvars.Get("cl_outfit_head_smoothing"),
+					OnChange = |value|->pvars.Set("cl_outfit_head_smoothing", value),
+					Tooltip = pvars.GetObject("cl_outfit_head_smoothing").help,
+					layout = {MinSize = Vec2(120, 16), MaxSize = Vec2(120, 16), FitWidth = false},
+				},
+			},
 		}
 	end
 )

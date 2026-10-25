@@ -676,3 +676,30 @@ T.TestPhysics("player body turns with the view in yaw only and stays upright", f
 	player:Remove()
 	ground:Remove()
 end)
+
+T.TestPhysics("the view offset follows the head of a command within two capsule radii", function()
+	local ground = create_ground()
+	local player = create_player()
+	drive(player, 120)
+	local movement = player.character_movement
+	local eye = movement:GetEyeOffset()
+
+	drive(player, 5, function(cmd)
+		cmd.head:Set(0.1, -0.2, 0.05)
+	end)
+
+	local view = movement:GetViewOffset()
+	T(math.abs(view.x - 0.1))["<"](0.0001)
+	T(math.abs(view.y - (eye.y - 0.2)))["<"](0.0001)
+	T(math.abs(view.z - 0.05))["<"](0.0001)
+
+	drive(player, 5, function(cmd)
+		cmd.head:Set(0, 5, 0)
+	end)
+
+	T(math.abs(movement:GetHeadOffset():GetLength() - movement:GetRadius() * 2))["<"](0.0001)
+	drive(player, 5)
+	T(movement:GetViewOffset():Distance(eye))["<"](0.0001)
+	player:Remove()
+	ground:Remove()
+end)
