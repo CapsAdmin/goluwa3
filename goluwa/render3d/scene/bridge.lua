@@ -196,8 +196,9 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	local flags = 0
 	local module = import("goluwa/entities/components/visual.lua").Library
 	local shown = not visual.RaysOnly and visual.Visible
-	local drawn = shown and module.MaterialDrawsInGBuffer(material)
-	local translucent = shown and module.MaterialDrawsTranslucent(material)
+	local in_view = shown and not visual.ViewHidden and not entry.primitive.ViewHidden
+	local drawn = in_view and module.MaterialDrawsInGBuffer(material)
+	local translucent = in_view and module.MaterialDrawsTranslucent(material)
 
 	if shown and visual.CastShadows then flags = instances.RASTER_SHADOW end
 

@@ -674,6 +674,7 @@ Visual:GetSet(
 	{callback = "LoadMaterialOverride", asset = "materials"}
 )
 Visual:EndStorable()
+Visual:GetSet("ViewHidden", false)
 Visual:GetSet("MaterialOverride", nil)
 Visual:GetSet("OverlayMaterial", nil)
 Visual:GetSet("MaterialSlotOverrides", nil)
@@ -773,6 +774,13 @@ function Visual:SetInSceneBVH(enabled)
 	if self.InSceneBVH == enabled then return end
 
 	objects.CommitProperty(self, "InSceneBVH", enabled)
+	mark_scene_component_dirty(self, true)
+end
+
+function Visual:SetViewHidden(enabled)
+	if self.ViewHidden == enabled then return end
+
+	objects.CommitProperty(self, "ViewHidden", enabled)
 	mark_scene_component_dirty(self, true)
 end
 
@@ -2671,7 +2679,13 @@ function Visual:OnFirstCreated()
 					for i = 1, #items do
 						local item = items[i]
 
-						if item.translucent then
+						if
+							item.translucent and
+							not (
+								component.ViewHidden or
+								item.entry.primitive.ViewHidden
+							)
+						then
 							local world_matrix = get_item_matrix(component, item)
 
 							if world_matrix then

@@ -15,7 +15,7 @@ Meshes have their own bottom level acceleration structure, instances point at th
 - `draw.lua`: the main view draw (below).
 - `visibility.lua` / `scene_draw_visibility`: estimates which drawn rows are actually visible by tracing rays from the camera into the scene.
 
-Visuals with `InSceneBVH = false` are not ray traced (mask 0) but are still drawn; `RaysOnly` visuals are traced and never drawn. Without ray queries (`ray_tracing_supported`) nothing is built and shaders use stubs; `GOLUWA_NO_RAY_TRACING=1` tests this.
+Visuals with `InSceneBVH = false` are not ray traced (mask 0) but are still drawn; `RaysOnly` visuals are traced and never drawn. `ViewHidden` visuals are traced and cast shadows but are not drawn in the gbuffer (a first person head: gone from the camera, still in reflections). Without ray queries (`ray_tracing_supported`) nothing is built and shaders use stubs; `GOLUWA_NO_RAY_TRACING=1` tests this.
 
 ## Drawing from the store
 
