@@ -44,7 +44,7 @@ Animator:GetSet(
 )
 Animator:GetSet("PoseParameterValue", 0)
 Animator:EndStorable()
-Animator:GetSet("ViewHiddenBone", "")
+Animator:GetSet("ViewHiddenBones", {})
 
 function Animator:Initialize()
 	self.targets = {}
@@ -207,20 +207,27 @@ function Animator:Bind(skeleton)
 		target.primitive:GetPolygon3D().SkinRig = self.rig
 	end
 
-	self:ApplyViewHiddenBone()
+	self:ApplyViewHiddenBones()
 end
 
-function Animator:SetViewHiddenBone(name)
-	self.ViewHiddenBone = name
-	self:ApplyViewHiddenBone()
+function Animator:SetViewHiddenBones(names)
+	self.ViewHiddenBones = names
+	self:ApplyViewHiddenBones()
 end
 
-function Animator:ApplyViewHiddenBone()
+function Animator:ApplyViewHiddenBones()
 	local rig = self.rig
 
 	if not rig then return end
 
-	local root = rig.bone_indices[self.ViewHiddenBone:lower()]
+	local root
+
+	for _, name in ipairs(self.ViewHiddenBones) do
+		root = rig.bone_indices[name:lower()]
+
+		if root then break end
+	end
+
 	local parents = self.skeleton.parents
 	local subtree = {}
 

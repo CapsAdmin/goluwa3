@@ -16,6 +16,7 @@ return {
 		TwoHanded = true,
 		HiddenInFirstPerson = true,
 		HeldAtEye = true,
+		HidesPlayer = true,
 	},
 	Nodes = {
 		box("body", Vec3(0.16, 0.1, 0.12), FORWARD * 0.22, CAMERA_BODY),

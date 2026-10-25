@@ -46,6 +46,28 @@ local head_smoothing = pvars.Setup2{
 	max = 0.5,
 	help = "time constant in seconds that smooths the head camera, 0 follows the head exactly",
 }
+local head_forward = pvars.Setup2{
+	key = "cl_outfit_head_forward",
+	category = "Game",
+	group = "Player",
+	default = 0.08,
+	min = 0,
+	max = 0.3,
+	help = "meters the head camera sits in front of the head bone along the view, the bone is the middle of the head and the eyes are in front of it",
+}
+local head_near = pvars.Setup2{
+	key = "cl_outfit_head_near",
+	category = "Game",
+	group = "Player",
+	default = 0.05,
+	min = 0.001,
+	max = 0.3,
+	help = "near plane in meters while the head camera is on, it replaces the normal one so it can be much closer, what is closer than this to the camera is not drawn",
+}
+
+function outfit.GetHeadEye()
+	return head_forward:Get(), head_near:Get()
+end
 
 function outfit.GetHeadCamera()
 	return head_camera:Get(), head_vertical:Get(), head_smoothing:Get()
@@ -66,7 +88,6 @@ local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local aim_pose = import("lua/aim_pose.lua")
-local LIMB_PARTS = {"arm_upper", "arm_lower", "hand"}
 local META = objects.CreateTemplate("outfit_eye")
 local scratch = Quat(0, 0, 0, 1)
 
@@ -115,9 +136,6 @@ function META:OnUpdate()
 	local neck = bones.neck
 	nodes.eye.transform:SetPosition(Vec3(neck.m30, neck.m31, neck.m32))
 	nodes.eye.transform:SetRotation(neck:GetRotation())
-	local weapon = avatar.armature and player.weapon_holder and player.weapon_holder:GetActiveWeapon()
-	local hide_arms = weapon and avatar.first_person and weapon.weapon:IsHeldAtEye() or false
-
 	if self.head_hidden ~= avatar.first_person then
 		self.head_hidden = avatar.first_person
 
@@ -128,14 +146,6 @@ function META:OnUpdate()
 
 	for _, name in ipairs(self.sides) do
 		local upperarm, forearm, hand = bones["upperarm_" .. name], bones["forearm_" .. name], bones["hand_" .. name]
-
-		if self["arms_hidden_" .. name] ~= hide_arms then
-			self["arms_hidden_" .. name] = hide_arms
-
-			for _, part in ipairs(LIMB_PARTS) do
-				nodes[part .. "_" .. name].visibility:SetVisible(not hide_arms)
-			end
-		end
 
 		place(nodes["arm_upper_" .. name], upperarm, forearm)
 		place(nodes["arm_lower_" .. name], forearm, hand)
@@ -227,7 +237,6 @@ function outfit.GetDefault()
 				properties = {Name = part[1] .. "_" .. side},
 				components = {
 					transform = {},
-					visibility = {},
 					model = {
 						ModelPath = "models/capsule.lua",
 						ModelOptions = {radius = eye_pose.LimbRadius, height = part[2] + eye_pose.LimbRadius * 2},
@@ -243,7 +252,6 @@ function outfit.GetDefault()
 			properties = {Name = "hand_" .. side},
 			components = {
 				transform = {},
-				visibility = {},
 				model = {
 					ModelPath = "models/sphere.lua",
 					ModelOptions = {radius = eye_pose.LimbRadius * 2.2},

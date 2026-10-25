@@ -29,6 +29,9 @@ META:GetSet("Hits", 0)
 META:GetSet("Action", "")
 META:GetSet("ActionDuration", 0)
 META:GetSet("Actions", 0)
+META:GetSet("LeanSide", 0)
+META:GetSet("LeanForward", 0)
+META:GetSet("Distance", 0)
 local RELAY_FRESH = 0.3
 local RECOIL_DECAY = 8
 local FLINCH_DECAY = 4

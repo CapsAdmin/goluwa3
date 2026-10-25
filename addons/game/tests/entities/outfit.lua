@@ -85,3 +85,48 @@ T.Test("The default outfit places the eye and limbs where the pose bones are", f
 	player:Remove()
 	prefab.definitions.test_outfit_eye = nil
 end)
+
+T.Test("a weapon that hides the player hides the whole outfit in first person and puts the head camera back at the eye", function()
+	Entity.RegisterComponent("player_avatar", import("lua/components/player_avatar.lua"))
+	local holds = {value = false}
+	local player = Entity.New{transform = {}, player_avatar = {}}
+	player.weapon_holder = {
+		GetActiveWeapon = function()
+			return {weapon = {
+				IsHidesPlayer = function()
+					return holds.value
+				end,
+			}}
+		end,
+	}
+	local avatar = player.player_avatar
+	avatar.outfit = Entity.New{Parent = player, visibility = {}}
+	avatar.first_person = true
+	avatar:UpdateWeaponHidden()
+	T(avatar.outfit.visibility:HasHider("weapon"))["=="](false)
+	T(avatar.outfit.visibility_hidden or false)["=="](false)
+	holds.value = true
+	avatar:UpdateWeaponHidden()
+	T(avatar.outfit.visibility:HasHider("weapon"))["=="](true)
+	T(avatar.outfit.visibility_hidden)["=="](true)
+	T(avatar.player_hidden)["=="](true)
+	avatar.first_person = false
+	avatar:UpdateWeaponHidden()
+	T(avatar.outfit.visibility:HasHider("weapon"))["=="](false)
+	T(avatar.player_hidden)["=="](false)
+	player.weapon_holder = nil
+	avatar.outfit:Remove()
+	avatar.outfit = nil
+	player:Remove()
+end)
+
+T.Test("the camera weapon hides the player", function()
+	import("lua/weapons.lua")
+	Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
+	local instance = Entity.New{prefab = {Path = "weapon_camera"}}
+	T(instance.weapon:IsHidesPlayer())["=="](true)
+	instance:Remove()
+	local pistol = Entity.New{prefab = {Path = "weapon_pistol"}}
+	T(pistol.weapon:IsHidesPlayer())["=="](false)
+	pistol:Remove()
+end)

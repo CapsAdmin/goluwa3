@@ -5,7 +5,10 @@ local system = import("goluwa/system.lua")
 local vfs = import("goluwa/vfs.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local physics = import("goluwa/physics.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
 local outfit_source = import("lua/outfit_source.lua")
+local outfit = import("lua/outfit.lua")
 import("addons/game/lua/autorun/network_players.lua")
 import("addons/game/lua/autorun/characters.lua")
 Entity.RegisterComponent("player_input", import("lua/components/player_input.lua"))
@@ -57,8 +60,9 @@ T.Test3D("the source outfit animates a gmod player model from the movement of th
 	T(standing)[">"](1)
 	step(1, Vec3(0, 0, -1.5))
 	T(animator:GetSequence())["=="]("walk_all")
+	T(animator:GetSpeed())["~"](1, 0.15)
 	T(animator:GetPoseParameterByName("move_x"))[">"](0.5)
-	step(1, Vec3(0, 0, -7))
+	step(1, Vec3(0, 0, -4))
 	T(animator:GetSequence())["=="]("run_all_01")
 	T(model.source_pose.sprinting)["=="](false)
 	T(animator:GetSpeed())["<"](1.3)
@@ -102,6 +106,7 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 
 	pvars.SetSession("cl_outfit", outfit_source.Name)
 	pvars.SetSession("cl_outfit_head_smoothing", 0)
+	pvars.SetSession("cl_outfit_head_forward", 0)
 	local player = Entity.New{
 		transform = {Position = Vec3(0, 0, 0)},
 		player_avatar = {},
@@ -126,6 +131,12 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 
 	avatar:UpdateHeadOffset(1 / 60)
 	T(avatar:GetHeadOffset():GetLength())["=="](0)
+	player.character_pose.grounded = true
+
+	for _ = 1, 5 do
+		avatar.outfit:GetChildren()[1].source_pose:OnUpdate(1 / 60)
+	end
+
 	pvars.SetSession("cl_outfit_head_camera", true)
 	avatar:UpdateHeadOffset(1 / 60)
 	local head = avatar.armature:GetBoneMatrix("head")
@@ -134,12 +145,28 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 	local limit = player.character_movement:GetRadius() * 2
 	T(offset:GetLength())["<="](limit + 1e-5)
 	T(offset:GetLength())["~"](math.min(expected:GetLength(), limit), 1e-4)
+	T(avatar:IsHeadCameraActive())["=="](true)
+	avatar.player_hidden = true
+	avatar:UpdateHeadOffset(1 / 60)
+	T(avatar:GetHeadOffset():GetLength())["=="](0)
+	T(avatar:IsHeadCameraActive())["=="](false)
+	avatar.player_hidden = false
+	avatar:UpdateHeadOffset(1 / 60)
+	local plain = avatar:GetHeadOffset():Copy()
+	pvars.SetSession("cl_outfit_head_forward", 0.08)
+	avatar:UpdateHeadOffset(1 / 60)
+	local view_forward = player.player_input:GetRotation():GetForward()
+	T((avatar:GetHeadOffset() - plain):Dot(view_forward))["~"](0.08, 1e-4)
+	pvars.SetSession("cl_outfit_head_forward", 0)
 	pvars.SetSession("cl_outfit_head_vertical", false)
 	avatar:UpdateHeadOffset(1 / 60)
 	T(avatar:GetHeadOffset().y)["=="](0)
 	pvars.SetSession("cl_outfit_head_camera", false)
+	avatar:UpdateHeadOffset(1 / 60)
+	T(avatar:IsHeadCameraActive())["=="](false)
 	pvars.SetSession("cl_outfit_head_vertical", true)
 	pvars.SetSession("cl_outfit_head_smoothing", 0.05)
+	pvars.SetSession("cl_outfit_head_forward", 0.08)
 	player:Remove()
 	pvars.SetSession("cl_outfit", "player_outfit")
 end)

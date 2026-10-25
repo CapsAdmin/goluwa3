@@ -3,6 +3,7 @@ local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local third_person = import("lua/third_person.lua")
 local camera_modes = import("lua/camera_modes.lua")
+local outfit = import("lua/outfit.lua")
 local screen_shake = import("lua/screen_shake.lua")
 local META = objects.CreateTemplate("camera")
 META:GetSet("Active", false)
@@ -107,7 +108,14 @@ function META:OnLateUpdate(dt)
 		else
 			camera_modes.Disable()
 			third_person.Disable()
-			view:SetNearZ(self.default_near_z)
+			local avatar = self.Owner.player_avatar
+			local near = self.default_near_z
+
+			if avatar and avatar:IsHeadCameraActive() then
+				near = select(2, outfit.GetHeadEye())
+			end
+
+			view:SetNearZ(near)
 			view:SetRotation(rotation:Copy())
 			view:SetFOV(look:GetFOV())
 		end

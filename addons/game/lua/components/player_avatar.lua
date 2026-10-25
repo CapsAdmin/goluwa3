@@ -11,6 +11,8 @@ local View = import("goluwa/render3d/view.lua")
 local third_person = import("lua/third_person.lua")
 local camera_modes = import("lua/camera_modes.lua")
 local META = objects.CreateTemplate("player_avatar")
+local HEAD_BONES = {biped.SourceBones.head, biped.SourceBones.neck, biped.SourceBones.chest}
+local NO_BONES = {}
 -- an empty Network table is what makes the component part of the spawn packet
 META.Network = {}
 META:GetSet("Outfit", nil)
@@ -18,6 +20,8 @@ META:GetSet("Outfit", nil)
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
 	self.head_offset = Vec3()
+	self.head_camera_active = false
+	self.player_hidden = false
 	self:AddGlobalEvent("Update")
 end
 
@@ -64,8 +68,21 @@ end
 function META:ApplyFirstPerson()
 	for _, child in ipairs(self.outfit:GetChildrenList()) do
 		if child.animator then
-			child.animator:SetViewHiddenBone(self.first_person and biped.SourceBones.head or "")
+			child.animator:SetViewHiddenBones(self.first_person and HEAD_BONES or NO_BONES)
 		end
+	end
+end
+
+function META:UpdateWeaponHidden()
+	local holder = self.Owner.weapon_holder
+	local weapon = holder and holder:GetActiveWeapon()
+	local hidden = self.first_person and weapon ~= nil and weapon.weapon:IsHidesPlayer()
+	self.player_hidden = hidden
+
+	if hidden then
+		self.outfit.visibility:AddHider("weapon")
+	else
+		self.outfit.visibility:RemoveHider("weapon")
 	end
 end
 
@@ -73,23 +90,30 @@ function META:GetHeadOffset()
 	return self.head_offset
 end
 
+function META:IsHeadCameraActive()
+	return self.head_camera_active
+end
+
 function META:UpdateHeadOffset(dt)
 	local owner = self.Owner
 	local offset = self.head_offset
 	local active, vertical, smoothing = outfit.GetHeadCamera()
+	active = active and not self.player_hidden
 	local x, y, z = 0, 0, 0
 	local head = active and
 		owner.player_input and
 		self.outfit_name == outfit_source.Name and
 		self.armature:GetBoneMatrix("head")
+	self.head_camera_active = head and true or false
 
 	if head then
 		local movement = owner.character_movement
 		local _, rotation = owner.transform:GetRenderPositionRotation()
+		local forward = outfit.GetHeadEye()
 		local world = (
 				rotation or
 				owner.transform:GetRotation()
-			):VecMul(Vec3(head.m30, head.m31, head.m32)) - movement:GetEyeOffset()
+			):VecMul(Vec3(head.m30, head.m31, head.m32)) - movement:GetEyeOffset() + owner.player_input:GetRotation():GetForward() * forward
 		local limit = movement:GetRadius() * 2
 		local length = world:GetLength()
 
@@ -179,6 +203,9 @@ function META:OnUpdate(dt)
 	end
 
 	self:UpdateOutfit()
+
+	if self.outfit then self:UpdateWeaponHidden() end
+
 	self:UpdateHeadOffset(dt)
 end
 
