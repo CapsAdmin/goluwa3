@@ -317,7 +317,7 @@ function META:MirrorBones(rig, armature, pose)
 	end
 
 	biped.ReadBones(rig, bones)
-	aim_pose.Apply(bones, pose, armed, armed and active.weapon:IsTwoHanded())
+	aim_pose.Apply(bones, pose, armed and active.weapon or nil)
 
 	for _, name in ipairs(aim_pose.Bones) do
 		bones[name].m31 = bones[name].m31 - self.ground_sink

@@ -40,6 +40,23 @@ local function position(bones, name)
 	return Vec3(bones[name].m30, bones[name].m31, bones[name].m32)
 end
 
+local function weapon(two_handed)
+	return {
+		GetHoldOffset = function()
+			return Vec3()
+		end,
+		IsTwoHanded = function()
+			return two_handed == true
+		end,
+		GetSupportGrip = function()
+			return Vec3(0, 0, -0.3)
+		end,
+		GetSupportRoll = function()
+			return 0
+		end,
+	}
+end
+
 local function pose(pitch, recoil, flinch)
 	return {
 		pitch = pitch,
@@ -54,7 +71,7 @@ end
 T.Test("aiming up rotates the bones above the spine about their joints by the shares of the pitch", function()
 	local pitch = Quat(0, 0, 0, 1):RotatePitch(math.rad(40))
 	local bones = create_bones()
-	aim_pose.Apply(bones, pose(pitch), false)
+	aim_pose.Apply(bones, pose(pitch))
 	T(position(bones, "body"):Distance(POSITIONS.body))["<"](1e-6)
 	T(position(bones, "spine"):Distance(POSITIONS.spine))["<"](1e-6)
 	T(position(bones, "head"):Distance(POSITIONS.head) > 0.01)["=="](true)
@@ -74,7 +91,7 @@ T.Test("an armed arm reaches out along the aim and the hand takes the aim rotati
 	local bones = create_bones()
 	local upper = (POSITIONS.upperarm_r - POSITIONS.forearm_r):GetLength()
 	local lower = (POSITIONS.forearm_r - POSITIONS.hand_r):GetLength()
-	aim_pose.Apply(bones, pose(pitch), true)
+	aim_pose.Apply(bones, pose(pitch), weapon())
 	local shoulder = position(bones, "upperarm_r")
 	local elbow = position(bones, "forearm_r")
 	local hand = position(bones, "hand_r")
@@ -93,8 +110,8 @@ T.Test("recoil kicks the aim up and flinch leans the torso", function()
 	local kicked = aim_pose.GetAim(pose(Quat(0, 0, 0, 1), 1))
 	T(kicked:GetForward().y > still:GetForward().y)["=="](true)
 	local rest, leaning = create_bones(), create_bones()
-	aim_pose.Apply(rest, pose(Quat(0, 0, 0, 1)), false)
-	aim_pose.Apply(leaning, pose(Quat(0, 0, 0, 1), 0, 1), false)
+	aim_pose.Apply(rest, pose(Quat(0, 0, 0, 1)))
+	aim_pose.Apply(leaning, pose(Quat(0, 0, 0, 1), 0, 1))
 	T(position(leaning, "head"):Distance(position(rest, "head")) > 0.01)["=="](true)
 	T(position(leaning, "spine"):Distance(position(rest, "spine")))["<"](1e-6)
 end)
@@ -104,7 +121,7 @@ T.Test("a two handed weapon puts the support arm out along the aim without stret
 	local bones = create_bones()
 	local upper = (POSITIONS.upperarm_l - POSITIONS.forearm_l):GetLength()
 	local lower = (POSITIONS.forearm_l - POSITIONS.hand_l):GetLength()
-	aim_pose.Apply(bones, pose(pitch), true, true)
+	aim_pose.Apply(bones, pose(pitch), weapon(true))
 	local shoulder = position(bones, "upperarm_l")
 	local elbow = position(bones, "forearm_l")
 	local hand = position(bones, "hand_l")
@@ -112,17 +129,17 @@ T.Test("a two handed weapon puts the support arm out along the aim without stret
 	T(elbow:Distance(hand))["~"](lower, 1e-4)
 	T((hand - shoulder):GetNormalized():Dot(pitch:GetForward()) > 0.9)["=="](true)
 	local one_handed = create_bones()
-	aim_pose.Apply(one_handed, pose(pitch), true, false)
+	aim_pose.Apply(one_handed, pose(pitch), weapon())
 	T(position(one_handed, "hand_l"):Distance(hand) > 0.1)["=="](true)
 end)
 
 T.Test("leaning tilts the whole body about the ground and keeps the feet flat", function()
 	local level, leaning = create_bones(), create_bones()
 	local pitch = Quat(0, 0, 0, 1)
-	aim_pose.Apply(level, pose(pitch), false)
+	aim_pose.Apply(level, pose(pitch))
 	local tilted = pose(pitch)
 	tilted.lean_side = 0.2
-	aim_pose.Apply(leaning, tilted, false)
+	aim_pose.Apply(leaning, tilted)
 	T(position(leaning, "body").x - position(level, "body").x > 0.05)["=="](true)
 	T(position(leaning, "head").x - position(level, "head").x > 0.1)["=="](true)
 	T(position(leaning, "upperarm_l").x - position(level, "upperarm_l").x > 0.05)["=="](true)
@@ -135,7 +152,7 @@ T.Test("leaning tilts the whole body about the ground and keeps the feet flat", 
 	local forward = create_bones()
 	tilted.lean_side = 0
 	tilted.lean_forward = 0.2
-	aim_pose.Apply(forward, tilted, false)
+	aim_pose.Apply(forward, tilted)
 	T(position(forward, "head").z - position(level, "head").z < -0.1)["=="](true)
 	T(position(forward, "body").z - position(level, "body").z < -0.05)["=="](true)
 	T(forward.foot_l:GetRotation():GetUp().z)["~"](0, 1e-4)

@@ -86,19 +86,11 @@ function META:OnUpdate(dt)
 
 	if key ~= self.grip_weapon then
 		self.grip_weapon = key
-		local grip = path and (eye_pose.Grips[path] or eye_pose.DefaultGrip).right
 
-		if not grip then
-			armature:SetSocket("grip_r", "hand_r")
-		elseif limp then
-			armature:SetSocket(
-				"grip_r",
-				"forearm_r",
-				Vec3(0, eye_pose.ArmLength * 0.5, 0) - LIMP_GRIP_ROTATION:VecMul(grip),
-				LIMP_GRIP_ROTATION
-			)
+		if path and limp then
+			armature:SetSocket("grip_r", "forearm_r", Vec3(0, eye_pose.ArmLength * 0.5, 0), LIMP_GRIP_ROTATION)
 		else
-			armature:SetSocket("grip_r", "hand_r", grip * -1)
+			armature:SetSocket("grip_r", "hand_r")
 		end
 	end
 end

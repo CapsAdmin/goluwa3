@@ -111,8 +111,7 @@ function META:ComputePose()
 		owner.character_movement:GetHeight(),
 		pose.crouch_alpha,
 		pose,
-		active ~= nil,
-		active ~= nil and active.weapon:IsTwoHanded()
+		active and active.weapon
 	)
 end
 

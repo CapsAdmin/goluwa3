@@ -377,7 +377,7 @@ biped.SocketProfiles.biped = {
 	feet = {Bone = "root"},
 }
 biped.SocketProfiles.source_humanoid = {
-	grip_r = {Bone = "hand_r", Offset = Vec3(0, 0.08, 0.16)},
+	grip_r = {Bone = "hand_r"},
 	grip_l = {Bone = "hand_l"},
 	eye = {Bone = "head"},
 	head = {Bone = "head"},

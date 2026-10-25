@@ -3,13 +3,13 @@ local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local pose_variation = import("lua/pose_variation.lua")
 local aim_pose = {}
+local ZERO = Vec3()
 aim_pose.Shares = {spine = 0.15, chest = 0.2, neck = 0.25, head = 0.4}
 aim_pose.RecoilAngle = math.rad(6)
 aim_pose.FlinchAngle = math.rad(10)
 aim_pose.ArmReach = 0.85
 aim_pose.HandOffset = Vec3(-0.08, -0.1, 0)
-aim_pose.SupportOffset = Vec3(-0.06, -0.12, 0)
-aim_pose.SupportReach = 0.2
+aim_pose.PalmOffset = Vec3(0.02, 0, -0.04)
 aim_pose.ElbowPole = Vec3(0.6, -1, 0.2)
 aim_pose.BlockOffset = Vec3(0.12, -0.02, 0)
 aim_pose.BlockReach = -0.18
@@ -57,6 +57,11 @@ local identity = Quat(0, 0, 0, 1)
 local lean = Quat(0, 0, 0, 1)
 local rotation = Matrix44()
 local grip = Matrix44()
+local grip_target = Vec3()
+local hand_rotation = Quat()
+local palm = Vec3()
+local right_roll = Quat(0, 0, 1, 0)
+local left_roll = Quat()
 local offset = Vec3()
 local shoulder, elbow, hand_target, direction = Vec3(), Vec3(), Vec3(), Vec3()
 local between = Quat()
@@ -102,15 +107,37 @@ local function set_between(out, ax, ay, az, bx, by, bz)
 	return out:Set(cx * s, cy * s, cz * s, math.cos(half))
 end
 
-local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side)
+local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side, hold_offset, support, roll)
 	local upper, lower, hand = bones[arm.upper], bones[arm.lower], bones[arm.hand]
 	shoulder:Set(upper.m30, upper.m31, upper.m32)
 	local upper_length = math.sqrt((lower.m30 - upper.m30) ^ 2 + (lower.m31 - upper.m31) ^ 2 + (lower.m32 - upper.m32) ^ 2)
 	local lower_length = math.sqrt((hand.m30 - lower.m30) ^ 2 + (hand.m31 - lower.m31) ^ 2 + (hand.m32 - lower.m32) ^ 2)
-	local reach = (upper_length + lower_length) * aim_pose.ArmReach + extra_reach
-	offset:Set(hand_offset.x * side, hand_offset.y, -reach)
-	Quat.SetVecMul(hand_target, pitch, offset)
-	hand_target:Set(hand_target.x + shoulder.x, hand_target.y + shoulder.y, hand_target.z + shoulder.z)
+
+	if support then
+		Quat.SetVecMul(hand_target, pitch, support)
+		hand_target:Set(
+			hand_target.x + grip_target.x,
+			hand_target.y + grip_target.y,
+			hand_target.z + grip_target.z
+		)
+	else
+		local reach = (upper_length + lower_length) * aim_pose.ArmReach + extra_reach
+		offset:Set(hand_offset.x * side, hand_offset.y, -reach)
+		Quat.SetVecMul(hand_target, pitch, offset)
+		hand_target:Set(
+			hand_target.x + shoulder.x + hold_offset.x,
+			hand_target.y + shoulder.y + hold_offset.y,
+			hand_target.z + shoulder.z + hold_offset.z
+		)
+		grip_target:Set(hand_target.x, hand_target.y, hand_target.z)
+	end
+
+	if roll then
+		hand_rotation:SetMul(pitch, roll)
+		Quat.SetVecMul(palm, hand_rotation, aim_pose.PalmOffset)
+		hand_target:Set(hand_target.x - palm.x, hand_target.y - palm.y, hand_target.z - palm.z)
+	end
+
 	local dx, dy, dz = hand_target.x - shoulder.x, hand_target.y - shoulder.y, hand_target.z - shoulder.z
 	local distance = math.max(math.sqrt(dx * dx + dy * dy + dz * dz), 1e-3)
 	local limit = (upper_length + lower_length) * 0.999
@@ -158,6 +185,9 @@ local function solve_arm(bones, arm, pitch, hand_offset, extra_reach, side)
 	)
 	rotation:SetRotation(between)
 	rotate_chain(bones, arm.forearm_chain, 2, lower, rotation)
+
+	if roll then hand:SetRotation(hand_rotation) end
+
 	hand:SetTranslation(hand_target.x, hand_target.y, hand_target.z)
 end
 
@@ -174,9 +204,14 @@ end
 local origin = Matrix44():Identity()
 
 function aim_pose.GetGripMatrix(hand, pitch)
+	local p = aim_pose.PalmOffset
 	grip:Identity()
 	grip:SetRotation(pitch)
-	grip:SetTranslation(hand.m30, hand.m31, hand.m32)
+	grip:SetTranslation(
+		hand.m30 + p.x * hand.m00 + p.y * hand.m10 + p.z * hand.m20,
+		hand.m31 + p.x * hand.m01 + p.y * hand.m11 + p.z * hand.m21,
+		hand.m32 + p.x * hand.m02 + p.y * hand.m12 + p.z * hand.m22
+	)
 	return grip
 end
 
@@ -212,7 +247,7 @@ function aim_pose.GetAim(pose)
 	return aim:Copy():RotatePitch(aim_pose.RecoilAngle * pose.recoil)
 end
 
-function aim_pose.Apply(bones, pose, armed, two_handed)
+function aim_pose.Apply(bones, pose, weapon)
 	local pitch = aim_pose.GetAim(pose)
 	local flinch = pose.flinch * aim_pose.FlinchAngle
 
@@ -239,12 +274,26 @@ function aim_pose.Apply(bones, pose, armed, two_handed)
 		rotate_about(foot, foot.m30, foot.m31, foot.m32, rotation)
 	end
 
-	if armed then solve_arm(bones, RIGHT, pitch, aim_pose.HandOffset, 0, 1) end
+	if weapon then
+		solve_arm(
+			bones,
+			RIGHT,
+			pitch,
+			aim_pose.HandOffset,
+			0,
+			1,
+			weapon:GetHoldOffset(),
+			nil,
+			right_roll
+		)
+	end
 
 	if pose.block_alpha > 0.5 then
-		solve_arm(bones, LEFT, pose.pitch, aim_pose.BlockOffset, aim_pose.BlockReach, -1)
-	elseif armed and two_handed then
-		solve_arm(bones, LEFT, pitch, aim_pose.SupportOffset, aim_pose.SupportReach, -1)
+		solve_arm(bones, LEFT, pose.pitch, aim_pose.BlockOffset, aim_pose.BlockReach, -1, ZERO)
+	elseif weapon and weapon:IsTwoHanded() then
+		local half = weapon:GetSupportRoll() / 2
+		left_roll:Set(0, 0, math.sin(half), math.cos(half))
+		solve_arm(bones, LEFT, pitch, nil, nil, -1, nil, weapon:GetSupportGrip(), left_roll)
 	end
 end
 

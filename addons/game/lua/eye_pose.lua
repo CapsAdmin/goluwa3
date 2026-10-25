@@ -17,12 +17,6 @@ eye_pose.FootHeight = 2.5 * UNIT
 eye_pose.FootSink = 1 * UNIT
 eye_pose.GroundBound = 12 * UNIT
 eye_pose.LimbRadius = 1.5 * UNIT
-eye_pose.Grips = {
-	weapon_pistol = {right = Vec3(0, -0.07, -0.16)},
-	weapon_physgun = {right = Vec3(0, -0.09, -0.16), left = Vec3(0, -0.07, -0.38)},
-	weapon_camera = {right = Vec3(0.11, -0.01, -0.22), left = Vec3(-0.11, -0.01, -0.22)},
-}
-eye_pose.DefaultGrip = {right = Vec3(0, 0, 0)}
 eye_pose.BlockGrip = Vec3(-0.05, 0.08, -0.28)
 local EYE_RADIUS = eye_pose.EyeRadius
 local ARM_LENGTH = eye_pose.ArmLength
@@ -104,17 +98,17 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local holder = owner.weapon_holder
 	local active = holder and holder:GetActiveWeapon()
 	local eye_height = math.lerp(crouch, eye_pose.EyeHeight, eye_pose.CrouchEyeHeight)
-	local grips, hold
+	local support, hold
 	local blocking = pose.block_alpha > 0.5
 
 	if active then
-		grips = eye_pose.Grips[active.prefab.Path] or eye_pose.DefaultGrip
+		support = active.weapon:IsTwoHanded() and active.weapon:GetSupportGrip() or nil
 		local forward = aim:GetForward()
 
 		if active.weapon:IsHeldAtEye() then
 			hold = Vec3(0, eye_height, 0) - forward * EYE_HOLD_BACK
 		else
-			hold = Vec3(0, eye_height, 0) + aim:VecMul(WEAPON_OFFSET)
+			hold = Vec3(0, eye_height, 0) + aim:VecMul(WEAPON_OFFSET) + active.weapon:GetHoldOffset()
 		end
 	end
 
@@ -167,7 +161,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 		local hang = (
 			tilted_torso:VecMul(Vec3(sign * 0.7, -0.5, 0.3)) + Vec3(sign * 0.35, -0.9, 0.1)
 		):GetNormalized()
-		local grip = grips and (sign == 1 and grips.right or grips.left)
+		local grip = active and (sign == 1 and ZERO or support)
 
 		if blocking and sign == -1 then grip = eye_pose.BlockGrip end
 
