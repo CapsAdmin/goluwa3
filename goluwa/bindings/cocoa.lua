@@ -778,6 +778,7 @@ function meta:Initialize()
 	self.content_view_ptr = pointer_key(self.content_view)
 	close_flags[self.window_ptr] = false
 	drop_queues[self.content_view_ptr] = drop_queues[self.content_view_ptr] or {}
+	self.last_width, self.last_height = self:GetSize()
 end
 
 function meta:SetTitle(str)
@@ -921,10 +922,7 @@ function meta:ReadEvents()
 
 	local current_width, current_height = self:GetSize()
 
-	if self.last_width == nil then
-		self.last_width = current_width
-		self.last_height = current_height
-	elseif current_width ~= self.last_width or current_height ~= self.last_height then
+	if current_width ~= self.last_width or current_height ~= self.last_height then
 		table.insert(
 			events,
 			{
