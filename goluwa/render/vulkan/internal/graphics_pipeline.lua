@@ -2,40 +2,13 @@ local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local PipelineCache = import("goluwa/render/vulkan/internal/pipeline_cache.lua")
-local thread_pool = import("goluwa/thread_pool.lua")
-local system = import("goluwa/system.lua")
 local GraphicsPipeline = objects.CreateTemplate("vulkan_graphics_pipeline")
-local SLOW_PIPELINE_SECONDS = 0.05
 local EnumArray = ffi.typeof("uint32_t[?]")
 local VkVertexInputBindingDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputBindingDescription)
 local VkVertexInputAttributeDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputAttributeDescription)
 local VkPipelineColorBlendAttachmentStateArray = ffi.typeof("$[?]", vulkan.vk.VkPipelineColorBlendAttachmentState)
 local VkGraphicsPipelineCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkGraphicsPipelineCreateInfo)
 local VkPipelineBox = ffi.typeof("$[1]", vulkan.vk.VkPipeline)
-
-local function address(pointer)
-	return tostring(ffi.cast("uint64_t", ffi.cast("uintptr_t", pointer)))
-end
-
--- vkCreateGraphicsPipelines blocks for as long as the driver compiles, which is tens of seconds for the
--- lighting shaders on a cold start, so it runs on a worker thread and the pipeline is waited for when it is bound
-local CREATE_JOB = [[
-	local ffi = require("ffi")
-	local input = ...
-	local create = ffi.cast("int (*)(void *, void *, uint32_t, const void *, const void *, void *)", input.create)
-
-	local function handle(text)
-		return ffi.cast("void *", loadstring("return " .. text)())
-	end
-
-	local start = os.clock()
-	local result = create(handle(input.device), handle(input.cache), 1, handle(input.info), nil, handle(input.out))
-
-	if result ~= 0 then error("failed to create graphics pipeline: VkResult " .. result) end
-
-	return (os.clock() - start) * 1000
-]]
 
 function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	local stageArrayType = ffi.typeof("$ [" .. #config.shaderModules .. "]", vulkan.vk.VkPipelineShaderStageCreateInfo)
@@ -334,18 +307,7 @@ function GraphicsPipeline.New(device, config, render_passes, pipelineLayout)
 	local info_box = VkGraphicsPipelineCreateInfoBox()
 	info_box[0] = pipelineInfo
 	local ptr = VkPipelineBox()
-	local job = thread_pool.Run(
-		CREATE_JOB,
-		{
-			create = tonumber(ffi.cast("uintptr_t", ffi.cast("void *", vulkan.lib.vkCreateGraphicsPipelines))),
-			device = address(device.ptr[0]),
-			cache = address(device.pipeline_cache.ptr[0]),
-			info = address(info_box),
-			out = address(ptr),
-		},
-		math.huge
-	)
-	device.pipeline_cache:AddJob(job)
+	local job = device.pipeline_cache:RunCreate(vulkan.lib.vkCreateGraphicsPipelines, info_box, ptr)
 	-- the worker reads these through raw pointers
 	local keep = {
 		shaderStagesArray,
@@ -378,29 +340,8 @@ function GraphicsPipeline:Wait()
 
 	if job then
 		self.job = nil
-		local start = system.GetTime()
-
-		while not job:IsDone() and system.GetTime() - start < SLOW_PIPELINE_SECONDS do
-			thread_pool.Update()
-		end
-
-		if not job:IsDone() then
-			logn(
-				"[pipeline] the driver is compiling graphics pipeline " .. tostring(self.config.name) .. ", this can take a while..."
-			)
-		end
-
-		local milliseconds = job:Block()
-		startup.Add("pipeline: graphics wait", start)
+		self.device.pipeline_cache:WaitForJob(job, "graphics", self.config.name)
 		self.keep = nil
-
-		if milliseconds >= 50 then
-			logf(
-				"[pipeline] the driver compiled graphics pipeline %s in %.0f ms (not in the pipeline cache)\n",
-				tostring(self.config.name),
-				milliseconds
-			)
-		end
 	end
 end
 

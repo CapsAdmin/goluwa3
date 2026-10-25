@@ -2,6 +2,8 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local system = import("goluwa/system.lua")
+local startup = import("goluwa/startup.lua")
+local thread_pool = import("goluwa/thread_pool.lua")
 local event = import("goluwa/event.lua")
 local PipelineCache = objects.CreateTemplate("vulkan_pipeline_cache")
 local VkPipelineCacheBox = ffi.typeof("$[1]", vulkan.vk.VkPipelineCache)
@@ -23,6 +25,74 @@ function PipelineCache.LogIfSlow(kind, name, start)
 			kind,
 			tostring(name),
 			seconds * 1000
+		)
+	end
+end
+
+local function address(pointer)
+	return tostring(ffi.cast("uint64_t", ffi.cast("uintptr_t", pointer)))
+end
+
+-- vkCreateGraphicsPipelines and vkCreateComputePipelines block for as long as the driver compiles, which
+-- is tens of seconds for the lighting shaders on a cold start, so they run on a worker thread and the
+-- pipeline is waited for when it is bound
+local CREATE_JOB = [[
+	local ffi = require("ffi")
+	local input = ...
+	local create = ffi.cast("int (*)(void *, void *, uint32_t, const void *, const void *, void *)", input.create)
+
+	local function handle(text)
+		return ffi.cast("void *", loadstring("return " .. text)())
+	end
+
+	local start = os.clock()
+	local result = create(handle(input.device), handle(input.cache), 1, handle(input.info), nil, handle(input.out))
+
+	if result ~= 0 then error("failed to create pipeline: VkResult " .. result) end
+
+	return (os.clock() - start) * 1000
+]]
+
+function PipelineCache:RunCreate(create, info, out)
+	local job = thread_pool.Run(
+		CREATE_JOB,
+		{
+			create = tonumber(ffi.cast("uintptr_t", ffi.cast("void *", create))),
+			device = address(self.device.ptr[0]),
+			cache = address(self.ptr[0]),
+			info = address(info),
+			out = address(out),
+		},
+		math.huge
+	)
+	self:AddJob(job)
+	return job
+end
+
+function PipelineCache:WaitForJob(job, kind, name)
+	local start = system.GetTime()
+
+	while not job:IsDone() and system.GetTime() - start < SLOW_PIPELINE_SECONDS do
+		thread_pool.Update()
+	end
+
+	if not job:IsDone() then
+		logf(
+			"[pipeline] the driver is compiling %s pipeline %s, this can take a while...\n",
+			kind,
+			tostring(name)
+		)
+	end
+
+	local milliseconds = job:Block()
+	startup.Add("pipeline: " .. kind .. " wait", start)
+
+	if milliseconds >= 50 then
+		logf(
+			"[pipeline] the driver compiled %s pipeline %s in %.0f ms (not in the pipeline cache)\n",
+			kind,
+			tostring(name),
+			milliseconds
 		)
 	end
 end

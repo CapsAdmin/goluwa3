@@ -335,7 +335,10 @@ end
 function ComputePipeline:Bind(cmd, frame_index, dynamic_offsets)
 	frame_index = frame_index or 1
 
-	if not self.ray_tracing then cmd:BindPipeline(self.pipeline, "compute") end
+	if not self.ray_tracing then
+		self.pipeline:Wait()
+		cmd:BindPipeline(self.pipeline, "compute")
+	end
 
 	if self.descriptor_sets and #self.descriptor_sets > 0 then
 		local dirty = self.bindless_descriptor_sets_dirty
