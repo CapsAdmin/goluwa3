@@ -39,7 +39,6 @@ local SCENE_GLSL = VISIBILITY_RAYS and
 	layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT ddgi_scene;
 ]] or
 	""
-
 local GUIDE_SHARED_GLSL = [[
 	shared vec4 s_guide[]] .. ddgi.GUIDE_TEXELS * ddgi.GUIDE_TEXELS .. [[];
 	#define DDGI_GUIDE_FETCH(texel) s_guide[((texel).y % DDGI_GUIDE_TEXELS) * DDGI_GUIDE_TEXELS + (texel).x % DDGI_GUIDE_TEXELS]
@@ -1366,7 +1365,10 @@ local function pass_resolve()
 	}
 end
 
-local passes = {
+if not ddgi.RTSupported() then return {} end
+
+return {
+	pass_trace(),
 	pass_shade(),
 	pass_update("ddgi_irradiance", ddgi.IRRADIANCE_TEXELS, IRRADIANCE_INTEGRATE),
 	pass_update("ddgi_distance", ddgi.DISTANCE_TEXELS, DISTANCE_INTEGRATE),
@@ -1376,7 +1378,3 @@ local passes = {
 	pass_probe_debug(),
 	pass_scene_debug(),
 }
-
-if ddgi.RTSupported() then table.insert(passes, 1, pass_trace()) end
-
-return passes

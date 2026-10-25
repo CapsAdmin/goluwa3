@@ -25,7 +25,7 @@ local function gi_mean()
 	return sum[1] / count, sum[2] / count, sum[3] / count, sum[4] / count
 end
 
-T.Test3D("Graphics render3d ddgi produces a screen gi texture", function(draw)
+T.Test3DRayTracing("Graphics render3d ddgi produces a screen gi texture", function(draw)
 	local polygon3d = Polygon3D.New()
 	shapes.BuildCube(polygon3d, 1)
 	polygon3d:BuildBoundingBox()
@@ -67,9 +67,7 @@ T.Test3D("Graphics render3d ddgi produces a screen gi texture", function(draw)
 		created[#created + 1] = p
 		p:AddComponent("transform")
 		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
-		p.visual_primitive:SetMaterial(
-			Material.New{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.9, MetallicMultiplier = 0}
-		)
+		p.visual_primitive:SetMaterial(Material.New{Color = Color(0.8, 0.8, 0.8, 1), Roughness = 0.9, MetallicMultiplier = 0})
 		ent.visual:BuildAABB()
 		T(render3d.IsPassEnabled("ddgi"))["=="](true)
 		T(render3d.pipelines.ddgi_irradiance ~= nil)["=="](true)
@@ -119,7 +117,7 @@ do
 		ent.visual:BuildAABB()
 	end
 
-	T.Test3D("Graphics render3d ddgi rays hit scene geometry", function(draw)
+	T.Test3DRayTracing("Graphics render3d ddgi rays hit scene geometry", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
@@ -158,7 +156,7 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	T.Test3D("Graphics render3d ddgi does not leak into a sealed box", function(draw)
+	T.Test3DRayTracing("Graphics render3d ddgi does not leak into a sealed box", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
@@ -202,7 +200,7 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	T.Test3D("Graphics render3d ddgi point light outside a sealed room does not light it", function(draw)
+	T.Test3DRayTracing("Graphics render3d ddgi point light outside a sealed room does not light it", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
@@ -292,7 +290,7 @@ do
 	end
 
 	local function test_plane_room(name, center, double_sided, half, height)
-		T.Test3D(name, function(draw)
+		T.Test3DRayTracing(name, function(draw)
 			local created, polygons = {}, {}
 			use_ddgi()
 			render3d.camera:SetPosition(center + Vec3(0, 2, 2))
@@ -359,7 +357,7 @@ do
 		10
 	)
 
-	T.Test3D("Graphics render3d ddgi light behind a thin partition does not light the room next to it", function(draw)
+	T.Test3DRayTracing("Graphics render3d ddgi light behind a thin partition does not light the room next to it", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
@@ -411,7 +409,7 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	T.Test3D("Graphics render3d ddgi a room lit through a pinhole is as bright as its slow average", function(draw)
+	T.Test3DRayTracing("Graphics render3d ddgi a room lit through a pinhole is as bright as its slow average", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
@@ -472,7 +470,7 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	T.Test3D("Graphics render3d ddgi small emitter lights a sealed room", function(draw)
+	T.Test3DRayTracing("Graphics render3d ddgi small emitter lights a sealed room", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()
@@ -545,7 +543,7 @@ do
 	end)
 end
 
-T.Test3D("Graphics render3d ddgi material buffer marks materials without an albedo texture", function(draw)
+T.Test3DRayTracing("Graphics render3d ddgi material buffer marks materials without an albedo texture", function(draw)
 	local ffi = require("ffi")
 	local polygon3d = Polygon3D.New()
 	shapes.BuildCube(polygon3d, 1)

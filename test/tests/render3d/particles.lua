@@ -317,7 +317,9 @@ local function fire_at_wall(draw, collision)
 end
 
 for _, collision in ipairs{"rays", "scene_depth"} do
-	T.Test3D("Graphics render3d particle emitter bounces off a wall with " .. collision, function(draw)
+	local test = collision == "rays" and T.Test3DRayTracing or T.Test3D
+
+	test("Graphics render3d particle emitter bounces off a wall with " .. collision, function(draw)
 		init()
 		local ok, err = pcall(function()
 			T(fire_at_wall(draw, "none") > 0.5)["=="](true)

@@ -221,6 +221,21 @@ T.Test3D = function(name, cb)
 		test_render.Draw3D(cb)
 	end)
 end
+T.Test3DRayTracing = function(name, cb)
+	if not has_rendering then
+		return T.Unavailable("Vulkan library not available, skipping render3d tests.")
+	end
+
+	return T.Test(name, function()
+		test_render.Init()
+
+		if not import("goluwa/render/render.lua").GetDevice().ray_tracing_supported then
+			return T.Unavailable("the device has no ray tracing")
+		end
+
+		test_render.Draw3D(cb)
+	end)
+end
 T.TestPhysics = function(name, cb)
 	return T.Test(name, function()
 		local physics = import("goluwa/physics.lua")
