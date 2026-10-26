@@ -210,6 +210,9 @@ end
 
 local load_skeleton
 local get_root_offset
+local add_animations
+local open_source_by_path
+local add_donor_animations
 
 do
 	local band, bor, lshift, rshift = bit.band, bit.bor, bit.lshift, bit.rshift
@@ -650,6 +653,168 @@ do
 		return movement[8] * SCALE, movement[9] * SCALE
 	end
 
+	open_source_by_path = open_source
+
+	add_animations = function(skeleton, root, filter)
+		local bone_index_by_name = {}
+
+		for i, name in ipairs(skeleton.BoneNames) do
+			bone_index_by_name[name:lower()] = i - 1
+		end
+
+		local visited = {}
+
+		local function add_clips(source)
+			if visited[source] then return end
+
+			visited[source] = true
+			local shdr = source.header
+			local bone_map = ffi.new("int32_t[?]", math.max(shdr.bone_count, 1))
+
+			for i = 0, shdr.bone_count - 1 do
+				bone_map[i] = bone_index_by_name[source.bone_names[i + 1]:lower()] or -1
+			end
+
+			for i = 0, shdr.localseq_count - 1 do
+				local seq = source.data + shdr.localseq_offset + i * SEQDESC_SIZE
+				local seq_i32 = ffi.cast(I32, seq)
+				local name = ffi.string(seq + seq_i32[1])
+				local flags = seq_i32[3]
+				local blend_count = seq_i32[14]
+
+				if
+					band(flags, SEQ_DELTA) == 0 and
+					blend_count > 0 and
+					not skeleton.ClipsByName[name] and
+					(not filter or filter(name))
+				then
+					local anims = {}
+					local usable = true
+					local indices = ffi.cast(I16, seq + seq_i32[15])
+
+					for b = 0, blend_count - 1 do
+						local index = indices[b]
+						local desc = source.data + shdr.localanim_offset + index * ANIMDESC_SIZE
+						local desc_flags = ffi.cast(I32, desc + 12)[0]
+
+						if
+							band(desc_flags, ANIMDESC_DELTA) ~= 0 or
+							band(desc_flags, ANIMDESC_FRAMEANIM) ~= 0 or
+							(
+								ffi.cast(I32, desc + 52)[0] ~= 0 and
+								shdr.animblocks_count == 0
+							)
+						then
+							usable = false
+
+							break
+						end
+
+						anims[b + 1] = desc
+					end
+
+					if usable then
+						local movement_x, movement_y, anim_durations = {}, {}, {}
+
+						for b, desc in ipairs(anims) do
+							movement_x[b], movement_y[b] = get_anim_movement(desc)
+							local anim_frames = ffi.cast(I32, desc + 16)[0]
+							local anim_fps = ffi.cast(F32, desc + 8)[0]
+							anim_durations[b] = anim_frames > 1 and anim_fps > 0 and (anim_frames - 1) / anim_fps or 0
+						end
+
+						local first = anims[1]
+						local frames = ffi.cast(I32, first + 16)[0]
+						local fps = ffi.cast(F32, first + 8)[0]
+						local group_size = {math.max(seq_i32[17], 1), math.max(seq_i32[18], 1)}
+						local param_names = {}
+						local param_start = {}
+						local param_end = {}
+
+						for axis = 1, 2 do
+							local param = seq_i32[18 + axis]
+							param_names[axis] = param >= 0 and source.pose_parameter_names[param] or nil
+							param_start[axis] = ffi.cast(F32, seq + 84)[axis - 1]
+							param_end[axis] = ffi.cast(F32, seq + 92)[axis - 1]
+
+							if param_names[axis] and not skeleton.PoseParameterRanges[param_names[axis]] then
+								skeleton.PoseParameterNames[#skeleton.PoseParameterNames + 1] = param_names[axis]
+								skeleton.PoseParameterRanges[param_names[axis]] = {param_start[axis], param_end[axis]}
+							end
+						end
+
+						skeleton:AddClip{
+							Name = name,
+							Duration = frames > 1 and fps > 0 and (frames - 1) / fps or 0,
+							Loop = band(flags, SEQ_LOOPING) ~= 0,
+							Sample = sample_sequence,
+							GetGroundSpeed = get_ground_speed,
+							movement_x = movement_x,
+							movement_y = movement_y,
+							anim_durations = anim_durations,
+							skeleton = skeleton,
+							source = source,
+							bone_map = bone_map,
+							anims = anims,
+							group_size = group_size,
+							param_names = param_names,
+							param_start = param_start,
+							param_end = param_end,
+						}
+					end
+				end
+			end
+
+			for _, include in ipairs(source.includes) do
+				local ok, included = pcall(open_source, include)
+
+				if ok then
+					add_clips(included)
+				else
+					llog("%s includes %s, its animations are skipped: %s", source.path, include, included)
+				end
+			end
+		end
+
+		add_clips(root)
+	end
+
+	add_donor_animations = function(skeleton, path, filter, check_bones)
+		local donor = open_source_by_path(path)
+
+		if check_bones then
+			local index_by_name = {}
+
+			for i, name in ipairs(donor.bone_names) do
+				index_by_name[name:lower()] = i - 1
+			end
+
+			for i, name in ipairs(skeleton.BoneNames) do
+				local donor_index = index_by_name[name:lower()]
+
+				if check_bones[name:lower()] and donor_index then
+					local o = donor_index * 16
+					local b = skeleton.BindLocal
+					local k = (i - 1) * 7
+					local dx, dy, dz = -donor.bones[o + 1] * SCALE, donor.bones[o + 2] * SCALE, -donor.bones[o] * SCALE
+					local dot = b[k + 3] * -donor.bones[o + 13] + b[k + 4] * donor.bones[o + 14] + b[k + 5] * -donor.bones[o + 12] + b[k + 6] * donor.bones[o + 15]
+
+					if
+						math.abs(b[k] - dx) > 0.01 or
+						math.abs(b[k + 1] - dy) > 0.01 or
+						math.abs(b[k + 2] - dz) > 0.01 or
+						math.abs(dot) < 0.9999
+					then
+						return false
+					end
+				end
+			end
+		end
+
+		add_animations(skeleton, donor, filter)
+		return true
+	end
+
 	load_skeleton = function(path, eyes)
 		local main = open_source(path)
 		local hdr = main.header
@@ -748,126 +913,7 @@ do
 			}
 		end
 
-		local bone_index_by_name = {}
-
-		for i, name in ipairs(main.bone_names) do
-			bone_index_by_name[name:lower()] = i - 1
-		end
-
-		local visited = {}
-
-		local function add_clips(source)
-			if visited[source] then return end
-
-			visited[source] = true
-			local shdr = source.header
-			local bone_map = ffi.new("int32_t[?]", math.max(shdr.bone_count, 1))
-
-			for i = 0, shdr.bone_count - 1 do
-				bone_map[i] = bone_index_by_name[source.bone_names[i + 1]:lower()] or -1
-			end
-
-			for i = 0, shdr.localseq_count - 1 do
-				local seq = source.data + shdr.localseq_offset + i * SEQDESC_SIZE
-				local seq_i32 = ffi.cast(I32, seq)
-				local name = ffi.string(seq + seq_i32[1])
-				local flags = seq_i32[3]
-				local blend_count = seq_i32[14]
-
-				if
-					band(flags, SEQ_DELTA) == 0 and
-					blend_count > 0 and
-					not skeleton.ClipsByName[name]
-				then
-					local anims = {}
-					local usable = true
-					local indices = ffi.cast(I16, seq + seq_i32[15])
-
-					for b = 0, blend_count - 1 do
-						local index = indices[b]
-						local desc = source.data + shdr.localanim_offset + index * ANIMDESC_SIZE
-						local desc_flags = ffi.cast(I32, desc + 12)[0]
-
-						if
-							band(desc_flags, ANIMDESC_DELTA) ~= 0 or
-							band(desc_flags, ANIMDESC_FRAMEANIM) ~= 0 or
-							(
-								ffi.cast(I32, desc + 52)[0] ~= 0 and
-								shdr.animblocks_count == 0
-							)
-						then
-							usable = false
-
-							break
-						end
-
-						anims[b + 1] = desc
-					end
-
-					if usable then
-						local movement_x, movement_y, anim_durations = {}, {}, {}
-
-						for b, desc in ipairs(anims) do
-							movement_x[b], movement_y[b] = get_anim_movement(desc)
-							local anim_frames = ffi.cast(I32, desc + 16)[0]
-							local anim_fps = ffi.cast(F32, desc + 8)[0]
-							anim_durations[b] = anim_frames > 1 and anim_fps > 0 and (anim_frames - 1) / anim_fps or 0
-						end
-
-						local first = anims[1]
-						local frames = ffi.cast(I32, first + 16)[0]
-						local fps = ffi.cast(F32, first + 8)[0]
-						local group_size = {math.max(seq_i32[17], 1), math.max(seq_i32[18], 1)}
-						local param_names = {}
-						local param_start = {}
-						local param_end = {}
-
-						for axis = 1, 2 do
-							local param = seq_i32[18 + axis]
-							param_names[axis] = param >= 0 and source.pose_parameter_names[param] or nil
-							param_start[axis] = ffi.cast(F32, seq + 84)[axis - 1]
-							param_end[axis] = ffi.cast(F32, seq + 92)[axis - 1]
-
-							if param_names[axis] and not skeleton.PoseParameterRanges[param_names[axis]] then
-								skeleton.PoseParameterNames[#skeleton.PoseParameterNames + 1] = param_names[axis]
-								skeleton.PoseParameterRanges[param_names[axis]] = {param_start[axis], param_end[axis]}
-							end
-						end
-
-						skeleton:AddClip{
-							Name = name,
-							Duration = frames > 1 and fps > 0 and (frames - 1) / fps or 0,
-							Loop = band(flags, SEQ_LOOPING) ~= 0,
-							Sample = sample_sequence,
-							GetGroundSpeed = get_ground_speed,
-							movement_x = movement_x,
-							movement_y = movement_y,
-							anim_durations = anim_durations,
-							skeleton = skeleton,
-							source = source,
-							bone_map = bone_map,
-							anims = anims,
-							group_size = group_size,
-							param_names = param_names,
-							param_start = param_start,
-							param_end = param_end,
-						}
-					end
-				end
-			end
-
-			for _, include in ipairs(source.includes) do
-				local ok, included = pcall(open_source, include)
-
-				if ok then
-					add_clips(included)
-				else
-					llog("%s includes %s, its animations are skipped: %s", source.path, include, included)
-				end
-			end
-		end
-
-		add_clips(main)
+		add_animations(skeleton, main)
 		return skeleton
 	end
 	get_root_offset = function(path)
@@ -1300,6 +1346,8 @@ end
 
 local mdl_decoder = {job = job_source}
 
+mdl_decoder.AddAnimations = add_donor_animations
+
 function mdl_decoder.Gather(path, full_path)
 	local companion_path = path
 
@@ -1486,3 +1534,5 @@ function mdl_decoder.Finish(
 end
 
 model_loader.AddThreadedDecoder("mdl", mdl_decoder)
+
+return mdl_decoder
