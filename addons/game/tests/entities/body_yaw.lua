@@ -46,3 +46,24 @@ T.TestPhysics("the body yaw reaches the render rotation at once without waiting 
 	character:Remove()
 	ground:Remove()
 end)
+
+T.TestPhysics("a head offset is clamped to two capsule radii and left alone below that", function()
+	local character = Entity.New{
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"health",
+		},
+		transform = {Position = Vec3(0, 0.05, 0)},
+		player_controller = {Source = "queue"},
+	}
+	local movement = character.character_movement
+	local limit = movement:GetRadius() * 2
+	T(movement:ClampHeadOffset(Vec3(limit * 3, 0, 0)):GetLength())["~"](limit, 1e-6)
+	local small = movement:ClampHeadOffset(Vec3(limit * 0.4, 0.01, 0))
+	T(small.x)["~"](limit * 0.4, 1e-9)
+	T(small.y)["~"](0.01, 1e-9)
+	character:Remove()
+end)

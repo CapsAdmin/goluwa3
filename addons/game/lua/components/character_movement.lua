@@ -173,14 +173,17 @@ function META:GetEyeOffset()
 	return Vec3(0, eye_height, 0)
 end
 
-function META:GetHeadOffset()
-	local head = self:GetCommand().head
+function META:ClampHeadOffset(head)
 	local limit = self.Radius * 2
 	local length = head:GetLength()
 
 	if length > limit then return head * (limit / length) end
 
 	return head:Copy()
+end
+
+function META:GetHeadOffset()
+	return self:ClampHeadOffset(self:GetCommand().head)
 end
 
 function META:GetViewOffset()

@@ -66,7 +66,11 @@ function META:OnLateUpdate(dt)
 	local view = self.view
 	local movement = self.Owner.character_movement
 
-	if movement then self:SetViewOffset(movement:GetViewOffset()) end
+	if movement then
+		local avatar = self.Owner.player_avatar
+		avatar:UpdateHeadOffset(dt)
+		self:SetViewOffset(movement:GetEyeOffset() + movement:ClampHeadOffset(avatar:GetHeadOffset()))
+	end
 
 	local position = self:GetViewPosition()
 	local look = self.Owner.player_input
@@ -146,7 +150,13 @@ function META:OnLateUpdate(dt)
 
 	local pose = self.Owner.character_pose
 
-	if pose and pose.viewing and not third_person.IsEnabled() and not camera_modes.GetActive() then
+	if
+		pose and
+		pose.viewing and
+		not third_person.IsEnabled()
+		and
+		not camera_modes.GetActive()
+	then
 		local rotation = view:GetRotation():Copy()
 		pose:ApplyView(rotation)
 		view:SetRotation(rotation)

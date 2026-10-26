@@ -205,8 +205,6 @@ function META:OnUpdate(dt)
 	self:UpdateOutfit()
 
 	if self.outfit then self:UpdateWeaponHidden() end
-
-	self:UpdateHeadOffset(dt)
 end
 
 return META:Register()
