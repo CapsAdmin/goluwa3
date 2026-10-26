@@ -1,6 +1,8 @@
 local render2d = import("goluwa/render2d/render2d.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local render = import("goluwa/render/render.lua")
 
 function render2d.CreateGradient(config)
