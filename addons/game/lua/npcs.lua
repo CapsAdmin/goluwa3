@@ -7,6 +7,9 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 import("lua/damage.lua")
 local outfit = import("lua/outfit.lua")
+local PlayerController = import("lua/components/player_controller.lua")
+local AIController = import("lua/components/ai_controller.lua")
+local eyes = RENDER_3D and import("goluwa/entities/components/eyes.lua")
 local npcs = {}
 npcs.Factions = {"friend", "enemy"}
 npcs.Definitions = {
@@ -230,6 +233,7 @@ function npcs.Register(name, info)
 					components = {
 						model = info.Model and {ModelPath = info.Model} or nil,
 						animator = info.Model and {} or nil,
+						eyes = info.Model and {AutoBlink = true, AutoLook = true} or nil,
 						character_pose = {},
 						source_pose = info.Model and
 							{
@@ -258,6 +262,35 @@ function npcs.Register(name, info)
 			},
 		}
 	)
+end
+
+if eyes then
+	local fallback = eyes.GetTargetPosition
+
+	function eyes.GetTargetPosition(entity)
+		local movement = entity.character_movement
+
+		if movement and not entity.eyes then
+			return entity.transform:GetPosition() + movement:GetViewOffset()
+		end
+
+		return fallback(entity)
+	end
+
+	eyes.AddTargetSource(function(out, count)
+		for _, list in ipairs{PlayerController.Instances or {}, AIController.Instances or {}} do
+			for _, controller in ipairs(list) do
+				local owner = controller.Owner
+
+				if owner.health and not owner.health:IsDead() then
+					count = count + 1
+					out[count] = owner
+				end
+			end
+		end
+
+		return count
+	end)
 end
 
 function npcs.Spawn(name, position, yaw)
