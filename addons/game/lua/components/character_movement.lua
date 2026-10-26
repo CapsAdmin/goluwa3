@@ -79,7 +79,7 @@ function META:IsRolling()
 end
 
 function META:GetRollKind()
-	return self:IsRolling() and self.roll.kind or ""
+	return self:IsRolling() and self.roll.kind or nil
 end
 
 function META:Initialize()

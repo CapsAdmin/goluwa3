@@ -3,6 +3,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local aim_pose = import("lua/aim_pose.lua")
+local animations = import("lua/animations.lua")
 local pose_variation = import("lua/pose_variation.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
@@ -99,7 +100,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local active = holder and holder:GetPosedWeapon()
 	local eye_height = math.lerp(crouch, eye_pose.EyeHeight, eye_pose.CrouchEyeHeight)
 	local support, hold
-	local blocking = pose.block_alpha > 0.5
+	local blocking = animations.GetWeight(pose, "block") > 0.5
 
 	if active then
 		support = active.weapon:IsTwoHanded() and active.weapon:GetSupportGrip() or nil

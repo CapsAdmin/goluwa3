@@ -4,13 +4,13 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local pose_variation = import("lua/pose_variation.lua")
-local UNIT = import("goluwa/source_engine/units.lua").meters
+local animations = import("lua/animations/definitions.lua")
 local META = objects.CreateTemplate("character_pose")
 META.Network = {
 	Crouching = {"boolean", 0.1, "reliable"},
 	Holding = {"boolean", 0.1, "reliable"},
 	Blocking = {"boolean", 0.05, "reliable"},
-	Roll = {"string", 0.05, "reliable"},
+	States = {"string", 0.05, "reliable"},
 	ViewRotation = {"quat", 1 / 20, "sequenced", true},
 	Shots = {"number", 0.05, "reliable"},
 	Hits = {"number", 0.05, "reliable"},
@@ -28,56 +28,48 @@ META:IsSet("FirstPerson", false)
 META:GetSet("ViewRotation", Quat(0, 0, 0, 1))
 META:GetSet("Shots", 0)
 META:GetSet("Hits", 0)
-META:GetSet("Roll", "")
+META:GetSet("States", "")
 META:GetSet("Action", "")
 META:GetSet("ActionDuration", 0)
 META:GetSet("Actions", 0)
 META:GetSet("LeanSide", 0)
 META:GetSet("LeanForward", 0)
 META:GetSet("Distance", 0)
-local PIVOT = 0.4
-local PIVOT_FORWARD = 0.2
-local PIVOT_HEIGHT = 0.15
-local TURN = math.pi * 2
-local ROLL_RATE = 13
-local ROLL_REFERENCE_SPEED = 220 * UNIT
-local ROLL_SURGE = 0.3
-local ROLL_DRIFT = 0.12
-local ROLL_EASE = math.pi / 2
-local ROLLS = {
-	forward = {"RotatePitch", -1},
-	back = {"RotatePitch", 1},
-	left = {"RotateRoll", 1},
-	right = {"RotateRoll", -1},
-}
-local pivot = Vec3(0, PIVOT, 0) + Quat(0, 0, 0, 1):GetForward() * PIVOT_FORWARD
+local AIR_SPEED = 0.8
+local LAND_SPEED = 8
+local LAND_MIN = 0.2
+local function find_instance(anims, def)
+	for i = 1, #anims do
+		if anims[i].def == def then return anims[i] end
+	end
+end
+
+local body_position = Vec3()
+local body_rotation = Quat()
 local RELAY_FRESH = 0.3
-local RECOIL_DECAY = 8
-local FLINCH_DECAY = 4
 
 function META:Initialize()
 	self.pitch = Quat(0, 0, 0, 1)
 	self.aim_rotation = Quat(0, 0, 0, 1)
 	self.crouch_alpha = 0
+	self.crouch_base = 0
 	self.forward_speed = 0
 	self.right_speed = 0
 	self.vertical_speed = 0
 	self.grounded = false
-	self.recoil = 0
-	self.flinch = 0
 	self.seen_shots = self.Shots
 	self.seen_hits = self.Hits
 	self.seen_actions = self.Actions
-	self.action = nil
-	self.action_time = 0
-	self.action_fraction = 0
-	self.rolling = false
-	self.roll_kind = nil
-	self.roll_angle = 0
-	self.roll_time = 0
-	self.roll_end = nil
-	self.block_alpha = 0
-	self.roll_alpha = 0
+	self.anims = {}
+	self.state_args = {}
+	self.seen_states = ""
+	self.crouch_weight = 0
+	self.forced_crouch = false
+	self.locomotion = true
+	self.legs = true
+	self.viewing = false
+	self.airborne = false
+	self.fall_speed = 0
 	self.animation_speed = 1
 	self.seed = math.random()
 	self.rate_scale = pose_variation.GetRateScale(self.seed)
@@ -99,12 +91,220 @@ function META:PlayAction(name, duration)
 end
 
 function META:GetActiveAction()
-	return self.action, self.action_fraction
+	local anims = self.anims
+
+	for i = #anims, 1, -1 do
+		if anims[i].def.Kind == "action" then return anims[i].def.Name, anims[i].phase end
+	end
 end
 
-function META:ApplyRollTurn(rotation)
-	local roll = ROLLS[self.roll_kind]
-	rotation[roll[1]](rotation, roll[2] * self.roll_angle)
+function META:IsPlaying(name)
+	local anims = self.anims
+
+	for i = 1, #anims do
+		if anims[i].def.Name == name then return true end
+	end
+
+	return false
+end
+
+function META:GetWeight(name)
+	return animations.GetWeight(self, name)
+end
+
+function META:SetState(name, arg)
+	if self.state_args[name] == arg then return end
+
+	self.state_args[name] = arg
+	local names = {}
+
+	for key in pairs(self.state_args) do
+		names[#names + 1] = key
+	end
+
+	table.sort(names)
+
+	for i, key in ipairs(names) do
+		names[i] = key .. "=" .. self.state_args[key]
+	end
+
+	self.seen_states = table.concat(names, ";")
+	self:SetStates(self.seen_states)
+end
+
+function META:Trigger(name, weight)
+	local inst = find_instance(self.anims, animations.Get(name))
+
+	if inst then
+		inst.weight = math.max(inst.weight, weight)
+		inst.strength = math.max(inst.strength, weight)
+	else
+		self.anims[#self.anims + 1] = animations.NewInstance(name, weight)
+	end
+end
+
+function META:EnableState(name, arg)
+	local inst = find_instance(self.anims, animations.Get(name))
+
+	if not inst then
+		inst = animations.NewInstance(name, 0)
+		self.anims[#self.anims + 1] = inst
+	end
+
+	inst.on = true
+	inst.arg = arg
+end
+
+function META:UpdateAirborne()
+	local air = not self.grounded and
+		(
+			self.airborne or
+			math.abs(self.vertical_speed) > AIR_SPEED
+		)
+
+	if air then
+		self.fall_speed = math.min(self.fall_speed, self.vertical_speed)
+	elseif self.airborne then
+		local strength = math.clamp(-self.fall_speed / LAND_SPEED, 0, 1)
+
+		if strength > LAND_MIN then self:Trigger("land", strength) end
+
+		self.fall_speed = 0
+	end
+
+	self.airborne = air
+end
+
+function META:ApplyView(rotation)
+	local anims = self.anims
+
+	for i = 1, #anims do
+		local view = anims[i].def.View
+
+		if view then view(anims[i], rotation) end
+	end
+end
+
+function META:UpdateAnimations(dt)
+	local anims = self.anims
+
+	if self.States ~= self.seen_states then
+		self.seen_states = self.States
+		table.clear(self.state_args)
+
+		for name, arg in self.States:gmatch("([^=;]+)=([^;]*)") do
+			self.state_args[name] = arg
+		end
+	end
+
+	if self.Actions ~= self.seen_actions then
+		self.seen_actions = self.Actions
+		local inst = animations.NewInstance(self.Action)
+		inst.duration = math.max(self.ActionDuration, 0.001)
+		anims[#anims + 1] = inst
+	end
+
+	for _, trigger in ipairs(animations.Triggers) do
+		if self[trigger.Counter] ~= self[trigger.Seen] then
+			self[trigger.Seen] = self[trigger.Counter]
+
+			for _, def in ipairs(trigger.Defs) do
+				self:Trigger(def.Name, 1)
+			end
+		end
+	end
+
+	for i = 1, #anims do
+		local inst = anims[i]
+
+		if inst.def.Kind == "state" then inst.on = false end
+	end
+
+	for name, arg in pairs(self.state_args) do
+		self:EnableState(name, arg)
+	end
+
+	if self:IsBlocking() then self:EnableState("block") end
+
+	if self.airborne then self:EnableState("air") end
+
+	local crouch_weight = 0
+	local forced_crouch = false
+	local locomotion = true
+	local legs = true
+	local viewing = false
+
+	for i = #anims, 1, -1 do
+		local inst = anims[i]
+		local def = inst.def
+		local kind = def.Kind
+		inst.time = inst.time + dt
+
+		if kind == "action" then
+			inst.phase = math.min(inst.time / inst.duration, 1)
+
+			if def.Exit then
+				local fade = math.clamp((inst.duration - inst.time) / def.Exit, 0, 1)
+				inst.weight = inst.strength * fade * fade * (3 - 2 * fade)
+			end
+
+			if inst.time >= inst.duration then inst.dead = true end
+		elseif kind == "impulse" then
+			inst.weight = inst.weight - dt * def.Decay
+
+			if inst.weight <= 0 then inst.dead = true end
+		elseif inst.on then
+			inst.end_cycle = nil
+			inst.settled = false
+
+			if def.Advance then inst.cycle = inst.cycle + def.Advance(inst, self, dt) end
+
+			inst.raw = math.min(inst.raw + dt / def.Enter, 1)
+		else
+			if def.Period and not inst.settled then
+				inst.end_cycle = inst.end_cycle or math.ceil(inst.cycle / def.Period) * def.Period
+				inst.cycle = inst.cycle + def.Advance(inst, self, dt)
+
+				if inst.cycle >= inst.end_cycle then
+					inst.cycle = inst.end_cycle
+					inst.settled = true
+				end
+			else
+				inst.settled = true
+			end
+
+			if inst.settled then
+				inst.raw = math.max(inst.raw - dt / def.Exit, 0)
+
+				if inst.raw == 0 then inst.dead = true end
+			else
+				inst.raw = math.min(inst.raw + dt / def.Enter, 1)
+			end
+		end
+
+		if kind == "state" then inst.weight = inst.raw * inst.raw * (3 - 2 * inst.raw) end
+
+		if inst.dead then
+			table.remove(anims, i)
+		else
+			if def.Crouch then
+				crouch_weight = math.max(crouch_weight, inst.weight)
+				forced_crouch = forced_crouch or inst.weight > 0.5
+			end
+
+			if def.Locomotion == false and inst.weight > 0.5 then locomotion = false end
+
+			if def.Legs == false and inst.weight > 0.001 then legs = false end
+
+			if def.View then viewing = true end
+		end
+	end
+
+	self.crouch_weight = crouch_weight
+	self.forced_crouch = forced_crouch
+	self.locomotion = locomotion
+	self.legs = legs
+	self.viewing = viewing
 end
 
 function META:RegisterShot()
@@ -149,103 +349,43 @@ function META:OnUpdate(dt)
 	if movement then
 		self:SetViewRotation(movement:GetCommand().view:Copy())
 		self:SetCrouching(movement:IsCrouching())
-		self:SetRoll(movement:GetRollKind())
+		self:SetState("roll", movement:GetRollKind())
 	end
 
-	if self.Shots ~= self.seen_shots then
-		self.seen_shots = self.Shots
-		self.recoil = 1
-	end
+	self:UpdateAnimations(dt)
+	local anims = self.anims
+	local applied = false
 
-	if self.Hits ~= self.seen_hits then
-		self.seen_hits = self.Hits
-		self.flinch = 1
-	end
+	for i = 1, #anims do
+		local body = anims[i].def.Body
 
-	if self.Actions ~= self.seen_actions then
-		self.seen_actions = self.Actions
-		self.action = self.Action
-		self.action_time = 0
-	end
+		if body then
+			if not applied then
+				applied = true
+				local position, rotation = transform:GetRenderPositionRotation()
 
-	if self.action then
-		self.action_time = self.action_time + dt
-		self.action_fraction = math.min(self.action_time / math.max(self.ActionDuration, 0.001), 1)
+				if not position then
+					position, rotation = transform:GetPosition(), transform:GetRotation()
+				end
 
-		if self.action_time >= self.ActionDuration then self.action = nil end
-	end
+				body_position:Set(position.x, position.y, position.z)
+				body_rotation:Set(rotation.x, rotation.y, rotation.z, rotation.w)
+			end
 
-	if self.Roll ~= "" then
-		if not self.roll_kind then
-			self.roll_angle = 0
-			self.roll_time = 0
-		end
-
-		self.roll_kind = self.Roll
-		self.roll_end = nil
-	elseif self.roll_kind and not self.roll_end then
-		self.roll_end = math.ceil(self.roll_angle / TURN) * TURN
-	end
-
-	if self.roll_kind then
-		self.roll_time = self.roll_time + dt
-		local speed = math.clamp(math.sqrt(self.forward_speed ^ 2 + self.right_speed ^ 2) / ROLL_REFERENCE_SPEED, 0.4, 2)
-		self.roll_angle = self.roll_angle + ROLL_RATE * speed * dt * (
-				1 - ROLL_SURGE * math.cos(self.roll_angle) + ROLL_DRIFT * math.sin(self.roll_time * 3 + self.seed * TURN)
-			)
-
-		if self.roll_end and self.roll_angle >= self.roll_end then
-			self.roll_kind = nil
-			self.roll_end = nil
-			self.roll_angle = 0
+			body(anims[i], self, body_position, body_rotation)
 		end
 	end
 
-	self.rolling = self.roll_kind ~= nil
-
-	if self.rolling then
-		local position, rotation = transform:GetRenderPositionRotation()
-
-		if not position then
-			position, rotation = transform:GetPosition(), transform:GetRotation()
-		end
-
-		local turned = rotation:Copy()
-		self:ApplyRollTurn(turned)
-		local blend = math.min(self.roll_angle / ROLL_EASE, 1)
-
-		if self.roll_end then
-			blend = math.min(blend, (self.roll_end - self.roll_angle) / ROLL_EASE)
-		end
-
-		local height = math.lerp(math.clamp(blend, 0, 1), PIVOT, PIVOT_HEIGHT)
-		transform:SetOverridePosition(
-			position + rotation:VecMul(pivot) + Vec3(0, height - PIVOT, 0) - turned:VecMul(pivot)
-		)
-		transform:SetOverrideRotation(turned)
-		self.roll_override = true
-	elseif self.roll_override then
-		self.roll_override = false
+	if applied then
+		transform:SetOverridePosition(body_position:Copy())
+		transform:SetOverrideRotation(body_rotation:Copy())
+		self.body_override = true
+	elseif self.body_override then
+		self.body_override = false
 		transform:SetOverridePosition(nil)
 		transform:SetOverrideRotation(nil)
 	end
 
-	self.block_alpha = self.block_alpha + (
-			(
-				self:IsBlocking() and
-				1 or
-				0
-			) - self.block_alpha
-		) * math.min(dt * 14, 1)
-	self.roll_alpha = self.roll_alpha + (
-			(
-				self.rolling and
-				1 or
-				0
-			) - self.roll_alpha
-		) * math.min(dt * 10, 1)
-	self.recoil = math.max(self.recoil - dt * RECOIL_DECAY, 0)
-	self.flinch = math.max(self.flinch - dt * FLINCH_DECAY, 0)
 	local rotation = self:GetViewRotation()
 	local relay = self.relay_cmd
 
@@ -256,23 +396,20 @@ function META:OnUpdate(dt)
 		self:SetCrouching(usercmd.HasButton(relay, usercmd.BUTTON.CROUCH))
 	end
 
-	if self.rolling then
+	if self.viewing then
 		rotation = rotation:Copy()
-		self:ApplyRollTurn(rotation)
+		self:ApplyView(rotation)
 	end
 
 	self.aim_rotation = rotation
-	self.crouch_alpha = self.crouch_alpha + (
+	self.crouch_base = self.crouch_base + (
 			(
-				(
-					self:IsCrouching() or
-					self.rolling
-				)
-				and
+				self:IsCrouching() and
 				1 or
 				0
-			) - self.crouch_alpha
+			) - self.crouch_base
 		) * math.min(dt * 12, 1)
+	self.crouch_alpha = math.max(self.crouch_base, self.crouch_weight)
 	local _, entity_rotation = transform:GetRenderPositionRotation()
 	entity_rotation = entity_rotation or transform:GetRotation()
 	local body = owner.rigid_body
@@ -281,6 +418,7 @@ function META:OnUpdate(dt)
 	self.right_speed = velocity:Dot(entity_rotation:GetRight())
 	self.vertical_speed = velocity.y
 	self.grounded = movement and movement:GetGrounded() or body ~= nil and body:GetGrounded()
+	self:UpdateAirborne()
 	local dead = movement and movement.dead
 	local speed = math.sqrt(self.forward_speed ^ 2 + self.right_speed ^ 2)
 

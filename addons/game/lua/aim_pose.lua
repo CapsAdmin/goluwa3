@@ -2,14 +2,12 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local pose_variation = import("lua/pose_variation.lua")
+local animations = import("lua/animations.lua")
 local aim_pose = {}
 local ZERO = Vec3()
 aim_pose.Shares = {waist = 0.08, spine = 0.12, chest = 0.15, back = 0.15, neck = 0.2, head = 0.3}
 aim_pose.ClavicleShare = 0.25
-aim_pose.RollPitch = -1.1
 aim_pose.ElbowFlexion = 2.4
-aim_pose.RecoilAngle = math.rad(6)
-aim_pose.FlinchAngle = math.rad(10)
 aim_pose.ArmReach = 0.85
 aim_pose.HandOffset = Vec3(-0.08, -0.1, 0)
 aim_pose.NeutralHand = Vec3(0.02, -0.36, -0.12)
@@ -17,16 +15,6 @@ aim_pose.PalmOffset = Vec3(0.02, 0, -0.04)
 aim_pose.ElbowPole = Vec3(0.6, -1, 0.2)
 aim_pose.BlockOffset = Vec3(0.12, -0.02, 0)
 aim_pose.BlockReach = -0.18
-aim_pose.Actions = {
-	slash_r = {{0, 0, 0}, {0.3, -1.2, 0.5}, {0.5, 1.1, -0.4}, {1, 0, 0}},
-	slash_l = {{0, 0, 0}, {0.3, 1.2, 0.5}, {0.5, -1.1, -0.4}, {1, 0, 0}},
-	thrust = {{0, 0, 0}, {0.35, -0.3, 0.6}, {0.55, 0, -0.15}, {1, 0, 0}},
-	slash_down = {{0, 0, 0}, {0.4, 0, 1.4}, {0.6, 0, -0.9}, {1, 0, 0}},
-	heavy = {{0, 0, 0}, {0.45, -1.6, 1}, {0.65, 1, -0.6}, {1, 0, 0}},
-	cast_r = {{0, 0, 0}, {0.3, -0.3, 0.35}, {0.55, 0.1, -0.05}, {1, 0, 0}},
-	cast_l = {{0, 0, 0}, {0.3, 0.3, 0.35}, {0.55, -0.1, -0.05}, {1, 0, 0}},
-	drink = {{0, 0, 0}, {0.35, 0.2, 1.35}, {0.8, 0.2, 1.35}, {1, 0, 0}},
-}
 local ARMS = {
 	"clavicle_r",
 	"upperarm_r",
@@ -396,31 +384,34 @@ local function sample_action(keys, f)
 	return 0, 0
 end
 
-local roll_look = Quat()
-
 function aim_pose.GetAim(pose)
 	local aim = pose.pitch
+	local anims = pose.anims
 
-	if pose.roll_alpha > 0.001 then
-		roll_look:Identity():RotatePitch(aim_pose.RollPitch)
-		aim = aim:GetLerped(pose.roll_alpha, roll_look)
+	for i = 1, #anims do
+		local inst = anims[i]
+		local def = inst.def
+
+		if def.AimKeys then
+			local yaw, pitch = sample_action(def.AimKeys, inst.phase)
+			aim = Quat():Identity():RotateYaw(yaw) * aim:Copy():RotatePitch(pitch)
+		elseif def.Aim then
+			aim = def.Aim(inst, aim)
+		end
 	end
 
-	local keys = pose.action and aim_pose.Actions[pose.action]
-
-	if keys then
-		local yaw, pitch = sample_action(keys, pose.action_fraction)
-		aim = Quat():Identity():RotateYaw(yaw) * aim:Copy():RotatePitch(pitch)
-	end
-
-	if pose.recoil <= 0 then return aim end
-
-	return aim:Copy():RotatePitch(aim_pose.RecoilAngle * pose.recoil)
+	return aim
 end
 
 function aim_pose.Apply(bones, pose, weapon)
 	local pitch = aim_pose.GetAim(pose)
-	local flinch = pose.flinch * aim_pose.FlinchAngle
+	local flinch = 0
+
+	for i = 1, #pose.anims do
+		local torso = pose.anims[i].def.Torso
+
+		if torso then flinch = flinch + torso(pose.anims[i]) end
+	end
 
 	for _, joint in ipairs(JOINTS) do
 		local name = joint[1]
@@ -470,7 +461,7 @@ function aim_pose.Apply(bones, pose, weapon)
 		shift:Set(0, 0, 0)
 	end
 
-	if pose.block_alpha > 0.5 then
+	if animations.GetWeight(pose, "block") > 0.5 then
 		solve_arm(bones, LEFT, pose.pitch, aim_pose.BlockOffset, aim_pose.BlockReach, -1, ZERO)
 	elseif weapon and weapon:IsTwoHanded() then
 		local half = weapon:GetSupportRoll() / 2

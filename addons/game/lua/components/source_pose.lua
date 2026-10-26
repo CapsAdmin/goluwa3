@@ -2,7 +2,7 @@ local objects = import("goluwa/objects/objects.lua")
 local biped = import("lua/biped.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local leg_pose = import("lua/leg_pose.lua")
-local roll_pose = import("lua/roll_pose.lua")
+local bone_keys = import("lua/bone_keys.lua")
 local pose_variation = import("lua/pose_variation.lua")
 local system = import("goluwa/system.lua")
 local physics = import("goluwa/physics.lua")
@@ -28,7 +28,6 @@ local MAX_RATE = 2.5
 local PLAYER_WALK_SPEED = 100 * UNIT
 local PLAYER_RUN_SPEED = 200 * UNIT
 local SPRINT_START = 1.5
-local AIR_SPEED = 0.8
 local MAX_SINK = 2.5 * UNIT
 local SINK_PROBE = 0.1
 local SINK_FOLLOW = 20
@@ -49,7 +48,24 @@ local GAIT_SPEED = {
 	sprint = PLAYER_RUN_SPEED * 2,
 }
 local FORWARD_PARAMETERS = {move_x = 1, move_y = 0}
+local DONOR_MALE = "models/humans/male_shared"
+local DONOR_FEMALE = "models/humans/female_shared"
+local FEMALE_MARKS = {"female", "alyx", "mossman", "chell"}
+local DONOR_BIND_BONES = {
+	["valvebiped.bip01_pelvis"] = true,
+	["valvebiped.bip01_spine"] = true,
+	["valvebiped.bip01_head1"] = true,
+	["valvebiped.bip01_l_thigh"] = true,
+	["valvebiped.bip01_l_calf"] = true,
+	["valvebiped.bip01_l_foot"] = true,
+	["valvebiped.bip01_l_upperarm"] = true,
+	["valvebiped.bip01_l_forearm"] = true,
+}
 local native_speeds = setmetatable({}, {__mode = "k"})
+
+local function is_donor_clip(name)
+	return name:starts_with("jump_holding_")
+end
 
 local function get_native_speed(clip)
 	local speed = native_speeds[clip]
@@ -66,9 +82,7 @@ local WEAPON_SUFFIX = {weapon_camera = "camera", weapon_physgun = "physgun", wea
 
 function META:Initialize()
 	-- a source_pose in a prefab is initialized once more when the build of its entity ends
-	if self.initialized then
-		return
-	end
+	if self.initialized then return end
 
 	self.initialized = true
 	self.state = "idle"
@@ -78,7 +92,6 @@ function META:Initialize()
 	self.sequence = ""
 	self.bones = {}
 	self.ground_sink = 0
-	self.roll_curl = 0
 	self.leg_shift = {0, 0}
 	self.leg_ground = {0, 0}
 	self.pelvis_ground = 0
@@ -112,7 +125,7 @@ local function find_ancestor(entity, component)
 end
 
 function META:UpdateCreature(animator, skeleton, pose, dt)
-	if pose.action == "attack" and self.AttackSequence ~= "" then
+	if pose:IsPlaying("attack") and self.AttackSequence ~= "" then
 		if self.attack_actions ~= pose.Actions then
 			self.attack_actions = pose.Actions
 			self.sequence = self.AttackSequence
@@ -205,23 +218,49 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 	end
 end
 
+function META:AddDonorClips(skeleton)
+	if skeleton.donor_checked then return end
+
+	skeleton.donor_checked = true
+	local path = self.Owner.model:GetModelPath():lower()
+	local donor = DONOR_MALE
+
+	for _, mark in ipairs(FEMALE_MARKS) do
+		if path:find(mark, 1, true) then
+			donor = DONOR_FEMALE
+
+			break
+		end
+	end
+
+	import("goluwa/render3d/model_decoders/mdl.lua").AddAnimations(skeleton, donor, is_donor_clip, DONOR_BIND_BONES)
+end
+
 function META:UpdatePlayer(animator, pose, dt)
-	local rolling = pose.rolling
-	local forward_speed = rolling and 0 or pose.forward_speed
-	local right_speed = rolling and 0 or pose.right_speed
+	local forward_speed = pose.locomotion and pose.forward_speed or 0
+	local right_speed = pose.locomotion and pose.right_speed or 0
 	local speed = math.sqrt(forward_speed * forward_speed + right_speed * right_speed)
-	local crouching = pose:IsCrouching() or rolling
-	local air = not pose.grounded and
-		(
-			self.airborne or
-			math.abs(pose.vertical_speed) > AIR_SPEED
-		)
-	self.airborne = air
+	local crouching = pose:IsCrouching() or pose.forced_crouch
+	local override, sequence
+	local clips = animator.skeleton.ClipsByName
 	local holder = pose.Owner.weapon_holder
 	local weapon = holder and holder:GetActiveWeapon()
 	local suffix = weapon and WEAPON_SUFFIX[weapon.prefab.Path] or "all"
-	local sequence
-	local sprinting = not crouching and not air and speed > PLAYER_RUN_SPEED * SPRINT_START
+
+	for i = #pose.anims, 1, -1 do
+		local inst = pose.anims[i]
+
+		if inst.def.Sequence and inst.weight > 0.5 then
+			sequence = inst.def.Sequence(inst, suffix, clips)
+
+			if sequence then
+				override = inst
+				break
+			end
+		end
+	end
+
+	local sprinting = not crouching and not override and speed > PLAYER_RUN_SPEED * SPRINT_START
 	self.sprinting = sprinting
 	local gait = crouching and
 		"crouch" or
@@ -236,8 +275,7 @@ function META:UpdatePlayer(animator, pose, dt)
 		)
 	local rate = 1
 
-	if air then
-		sequence = "jump_" .. (suffix == "all" and "passive" or suffix)
+	if override then
 	elseif speed < 0.15 then
 		sequence = (crouching and "cidle_" or "idle_") .. suffix
 
@@ -256,7 +294,7 @@ function META:UpdatePlayer(animator, pose, dt)
 
 	local clip = animator.skeleton.ClipsByName[sequence]
 	local reference = GAIT_SPEED[gait]
-	local native = clip and not air and get_native_speed(clip) or 0
+	local native = clip and not override and get_native_speed(clip) or 0
 
 	if native > 0 then reference = native end
 
@@ -266,13 +304,13 @@ function META:UpdatePlayer(animator, pose, dt)
 
 	if sequence ~= self.sequence then
 		self.sequence = sequence
-		animator:SetLoop(not air)
+		animator:SetLoop(not override or override.def.Loop ~= false)
 		animator:SetSequence(sequence)
 
-		if air then animator:Restart() end
+		if override and override.def.Loop == false then animator:Restart() end
 	end
 
-	if speed >= 0.15 and not air then
+	if speed >= 0.15 and not override then
 		rate = math.clamp(
 			speed * pose_variation.GetStrideScale(forward_speed, right_speed, crouching) / reference,
 			0.4,
@@ -280,9 +318,9 @@ function META:UpdatePlayer(animator, pose, dt)
 		)
 	end
 
-	animator:SetSpeed(rate * pose.animation_speed * pose.rate_variation)
+	animator:SetSpeed(rate * (override and override.def.Speed or 1) * pose.animation_speed * pose.rate_variation)
 
-	if clip and clip.Duration > 0 and not air and pose.animation_speed == 1 then
+	if clip and clip.Duration > 0 and not override and pose.animation_speed == 1 then
 		if speed < 0.15 then
 			animator:SyncCycle(
 				pose_variation.GetClockCycle(pose.seed, pose.rate_scale, system.GetGameTime(), clip.Duration),
@@ -399,7 +437,7 @@ function META:MirrorBones(rig, armature, pose, dt)
 		(
 			active.weapon:IsAlwaysPose() or
 			not self.sprinting and
-			not self.airborne
+			not pose.airborne
 		)
 	local bones = self.bones
 
@@ -414,19 +452,16 @@ function META:MirrorBones(rig, armature, pose, dt)
 		bones[name].m31 = bones[name].m31 - self.ground_sink
 	end
 
-	self.roll_curl = self.roll_curl + (
-			(
-				pose.rolling and
-				1 or
-				0
-			) - self.roll_curl
-		) * math.min(dt * 5, 1)
+	for i = 1, #pose.anims do
+		local inst = pose.anims[i]
+		local def = inst.def
 
-	if self.roll_curl > 0.001 then
-		roll_pose.Apply(bones, self.roll_curl, pose.roll_angle, pose.seed)
-	else
-		self:UpdateLegs(pose.Owner, pose, dt, bones)
+		if def.BoneKeys then bone_keys.Apply(bones, def.BoneKeys, inst, pose.seed) end
+
+		if def.Bones then def.Bones(bones, inst, pose) end
 	end
+
+	if pose.legs then self:UpdateLegs(pose.Owner, pose, dt, bones) end
 
 	for _, name in ipairs(aim_pose.Bones) do
 		if biped.HasBone(rig, name) then
@@ -472,6 +507,7 @@ function META:OnUpdate(dt)
 	if ragdoll and ragdoll.driven_rig then ragdoll:ClearRig() end
 
 	if self.Profile == "gmod_player" then
+		self:AddDonorClips(animator.skeleton)
 		self:UpdatePlayer(animator, pose, dt)
 	else
 		self:UpdateCreature(animator, animator.skeleton, pose, dt)

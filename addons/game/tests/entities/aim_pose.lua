@@ -4,6 +4,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local biped = import("lua/biped.lua")
 local aim_pose = import("lua/aim_pose.lua")
+local animations = import("lua/animations/definitions.lua")
 local POSITIONS = {
 	body = Vec3(0, 0.9, 0),
 	waist = Vec3(0, 0.95, 0),
@@ -63,12 +64,15 @@ local function weapon(two_handed)
 end
 
 local function pose(pitch, recoil, flinch)
+	local anims = {}
+
+	if recoil then anims[#anims + 1] = animations.NewInstance("recoil", recoil) end
+
+	if flinch then anims[#anims + 1] = animations.NewInstance("flinch", flinch) end
+
 	return {
 		pitch = pitch,
-		recoil = recoil or 0,
-		roll_alpha = 0,
-		flinch = flinch or 0,
-		block_alpha = 0,
+		anims = anims,
 		lean_side = 0,
 		lean_forward = 0,
 	}

@@ -146,9 +146,9 @@ function META:OnLateUpdate(dt)
 
 	local pose = self.Owner.character_pose
 
-	if pose and pose.rolling and not third_person.IsEnabled() and not camera_modes.GetActive() then
+	if pose and pose.viewing and not third_person.IsEnabled() and not camera_modes.GetActive() then
 		local rotation = view:GetRotation():Copy()
-		pose:ApplyRollTurn(rotation)
+		pose:ApplyView(rotation)
 		view:SetRotation(rotation)
 	end
 

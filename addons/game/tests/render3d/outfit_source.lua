@@ -80,19 +80,29 @@ T.Test3D("the source outfit animates a gmod player model from the movement of th
 		restarts = restarts + 1
 		return restart(...)
 	end
+	player.transform.RenderVelocity = Vec3(0, 6, 0)
+	player.transform.RenderVelocityFrame = system.GetFrameNumber()
+
+	for _ = 1, 12 do
+		player.character_pose:OnUpdate(1 / 60)
+		model.source_pose:OnUpdate(1 / 60)
+	end
+
+	T(animator:GetSequence())["=="]("jump_holding_jump")
+	T(player.character_pose.airborne)["=="](true)
 	step(1, Vec3(0, 6, 0))
-	T(animator:GetSequence())["=="]("jump_passive")
-	T(model.source_pose.airborne)["=="](true)
+	T(animator:GetSequence())["=="]("jump_holding_glide")
 	step(1, Vec3(0, 0.3, 0))
-	T(animator:GetSequence())["=="]("jump_passive")
+	T(animator:GetSequence())["=="]("jump_holding_glide")
 	step(1, Vec3(0, -3, 0))
-	T(animator:GetSequence())["=="]("jump_passive")
-	T(restarts)["=="](1)
+	T(animator:GetSequence())["=="]("jump_holding_glide")
+	T(restarts)["=="](2)
 	animator.Restart = restart
 	player.character_pose.grounded = true
 	player.character_pose.vertical_speed = 0
+	player.character_pose:UpdateAirborne()
 	model.source_pose:OnUpdate(1 / 60)
-	T(model.source_pose.airborne)["=="](false)
+	T(player.character_pose.airborne)["=="](false)
 	player:Remove()
 	pvars.SetSession("cl_outfit", "player_outfit")
 end)
@@ -385,4 +395,41 @@ T.Test3D("source models without a head or a foot bone still pose, mirror and rag
 	T(table.has_value(checked["models/player/zombie_classic.mdl"], "head") ~= nil)["=="](true)
 	pvars.SetSession("cl_outfit_model", outfit_source.Model)
 	pvars.SetSession("cl_outfit", "player_outfit")
+end)
+
+T.Test3D("citizen jump clips are added to player models with a matching bind pose only", function()
+	steam.MountSourceGame("gmod")
+
+	if not vfs.IsFile(outfit_source.Model) then
+		return T.Unavailable("gmod content not mounted")
+	end
+
+	local mdl_decoder = import("goluwa/render3d/model_decoders/mdl.lua")
+	local bones = {
+		["valvebiped.bip01_pelvis"] = true,
+		["valvebiped.bip01_l_thigh"] = true,
+		["valvebiped.bip01_l_upperarm"] = true,
+	}
+
+	local function is_jump(name)
+		return name:starts_with("jump_holding_")
+	end
+
+	local function skeleton_of(path)
+		local entity = Entity.New{transform = {Position = Vec3(0, 0, 0)}, model = {ModelPath = path}, animator = {}}
+		T.WaitUntil(function()
+			return entity.animator and entity.animator:GetRig() and entity.animator.skeleton
+		end, 30)
+		return entity.animator.skeleton, entity
+	end
+
+	local kleiner, kleiner_entity = skeleton_of("models/player/kleiner.mdl")
+	T(mdl_decoder.AddAnimations(kleiner, "models/humans/male_shared", is_jump, bones))["=="](true)
+	T(kleiner.ClipsByName.jump_holding_jump.Duration)["~"](0.433, 0.01)
+	T(kleiner.ClipsByName.jump_holding_land ~= nil)["=="](true)
+	kleiner_entity:Remove()
+	local zombie, zombie_entity = skeleton_of("models/player/zombie_classic.mdl")
+	T(mdl_decoder.AddAnimations(zombie, "models/humans/male_shared", is_jump, bones))["=="](false)
+	T(zombie.ClipsByName.jump_holding_jump)["=="](nil)
+	zombie_entity:Remove()
 end)
