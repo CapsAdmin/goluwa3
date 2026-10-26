@@ -33,6 +33,7 @@ local INTERP_DELAY = 0.1
 local MAX_SAMPLES = 16
 local SNAP_DISTANCE = 50
 local get_time = system.GetTime
+local EMPTY_TABLE = {}
 
 function META.GetByNetworkId(id)
 	return spawned[id]
@@ -381,6 +382,15 @@ if SERVER then
 					var.next_send = now + var.rate
 					local target = self:GetTarget(var.component)
 					local value = target[var.get_name](target)
+
+					if
+						value == nil and
+						var.type == "table" and
+						var.last ~= nil and
+						var.last ~= EMPTY_TABLE
+					then
+						value = EMPTY_TABLE
+					end
 
 					if value ~= nil and value ~= var.last then
 						if var.owner_excluded then
