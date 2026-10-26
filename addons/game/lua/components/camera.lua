@@ -73,7 +73,7 @@ function META:OnLateUpdate(dt)
 		if third_person.IsEnabled() or camera_modes.GetActive() then
 			self:SetViewOffset(movement:GetEyeOffset())
 		else
-			self:SetViewOffset(movement:GetEyeOffset() + movement:ClampHeadOffset(avatar:GetHeadOffset()))
+			self:SetViewOffset(movement:GetEyeOffset() + avatar:GetHeadOffset())
 		end
 	end
 

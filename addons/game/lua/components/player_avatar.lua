@@ -11,6 +11,7 @@ local View = import("goluwa/render3d/view.lua")
 local third_person = import("lua/third_person.lua")
 local camera_modes = import("lua/camera_modes.lua")
 local META = objects.CreateTemplate("player_avatar")
+local HEAD_MAX_LAG = 0.04
 local HEAD_BONES = {biped.SourceBones.head, biped.SourceBones.neck, biped.SourceBones.chest}
 local NO_BONES = {}
 -- an empty Network table is what makes the component part of the spawn packet
@@ -121,7 +122,18 @@ function META:UpdateHeadOffset(dt)
 	local owner = self.Owner
 	local offset = self.head_offset
 	local active, vertical, smoothing = outfit.GetHeadCamera()
-	active = active and not self.player_hidden
+	local ragdoll = owner.ragdoll
+	active = active and
+		not self.player_hidden and
+		not (
+			owner.character_movement and
+			owner.character_movement.dead
+		)
+		and
+		not (
+			ragdoll and
+			ragdoll.Limp
+		)
 	local x, y, z = 0, 0, 0
 	local rig = active and
 		owner.player_input and
@@ -144,20 +156,16 @@ function META:UpdateHeadOffset(dt)
 				rotation or
 				owner.transform:GetRotation()
 			):VecMul(Vec3(sum_x / #eyes, sum_y / #eyes, sum_z / #eyes)) - movement:GetEyeOffset()
-		local limit = movement:GetRadius() * 2
-		local length = world:GetLength()
-
-		if length > limit then world = world * (limit / length) end
-
 		x, y, z = world.x, vertical and world.y or 0, world.z
 	end
 
 	local alpha = smoothing > 0 and 1 - math.exp(-dt / smoothing) or 1
-	offset:Set(
-		offset.x + (x - offset.x) * alpha,
-		offset.y + (y - offset.y) * alpha,
-		offset.z + (z - offset.z) * alpha
-	)
+	local dx, dy, dz = x - offset.x, y - offset.y, z - offset.z
+	local lag = math.sqrt(dx * dx + dy * dy + dz * dz) * (1 - alpha)
+
+	if lag > HEAD_MAX_LAG then alpha = 1 - HEAD_MAX_LAG / (lag / (1 - alpha)) end
+
+	offset:Set(offset.x + dx * alpha, offset.y + dy * alpha, offset.z + dz * alpha)
 end
 
 function META:ApplyViewHidden()

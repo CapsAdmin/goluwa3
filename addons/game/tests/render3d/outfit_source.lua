@@ -163,8 +163,8 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 	local expected = middle - player.character_movement:GetEyeOffset()
 	local offset = avatar:GetHeadOffset()
 	local limit = player.character_movement:GetRadius() * 2
-	T(offset:GetLength())["<="](limit + 1e-5)
-	T(offset:GetLength())["~"](math.min(expected:GetLength(), limit), 1e-4)
+	T(offset:GetLength())["~"](expected:GetLength(), 1e-4)
+	T(player.character_movement:ClampHeadOffset(offset):GetLength())["<="](limit + 1e-5)
 	T(avatar:IsHeadCameraActive())["=="](true)
 	avatar.player_hidden = true
 	avatar:UpdateHeadOffset(1 / 60)
@@ -182,6 +182,19 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 	pvars.SetSession("cl_outfit_head_camera", true)
 	pvars.SetSession("cl_outfit_head_smoothing", 0)
 	avatar:UpdateHeadOffset(1 / 60)
+	T(avatar:IsHeadCameraActive())["=="](true)
+	player.character_movement.dead = true
+	avatar:UpdateHeadOffset(1 / 60)
+	T(avatar:IsHeadCameraActive())["=="](false)
+	T(avatar:GetHeadOffset():GetLength())["=="](0)
+	player.character_movement.dead = false
+	avatar:UpdateHeadOffset(1 / 60)
+	local target = avatar:GetHeadOffset():Copy()
+	avatar.head_offset:Set(target.x + 0.5, target.y - 0.5, target.z)
+	pvars.SetSession("cl_outfit_head_smoothing", 0.5)
+	avatar:UpdateHeadOffset(1 / 60)
+	T(avatar:GetHeadOffset():Distance(target))["<="](0.04 + 1e-6)
+	T(avatar:GetHeadOffset():Distance(target) > 0.03)["=="](true)
 	pvars.SetSession("cl_outfit_head_smoothing", 0.05)
 	player:Remove()
 	pvars.SetSession("cl_outfit", "player_outfit")
