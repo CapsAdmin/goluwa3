@@ -234,13 +234,24 @@ local function draw_status_icons(component, x, y, size, alpha, align_right)
 	end
 end
 
-local RING_RANGE = 6
+local RING_RANGE = 8
 local RING_INNER = 72
-local RING_OUTER = 235
-local RING_GAP = 2
+local RING_OUTER = 175
+local RING_TEXT_START = 92
 local RING_FEATHER = 1
+local RING_SCALE_FALLOFF = 0.93
 local ring_poly = Polygon2D.New(4096)
 ring_poly.WorldMatrixMultiply = true
+local ring_fade = render2d.CreateGradient{
+	width = 256,
+	height = 1,
+	angle = 90,
+	stops = {
+		{pos = 0, color = Color(1, 1, 1, 0)},
+		{pos = 0.45, color = Color(1, 1, 1, 0.35)},
+		{pos = 1, color = Color(1, 1, 1, 1)},
+	},
+}
 
 local function draw_ring(holder, cx, cy, S, dt)
 	local theme = get_style()
@@ -322,7 +333,7 @@ local function draw_ring(holder, cx, cy, S, dt)
 	end
 
 	render2d.PopBlendMode()
-	local step = math.pi * 2 / math.max(count, 25)
+	local step = math.pi * 2 / math.max(count, 34)
 	local tan_half = math.tan(step / 2)
 	local cos_half = math.cos(step / 2)
 	local ring_vertex = 0
@@ -345,29 +356,29 @@ local function draw_ring(holder, cx, cy, S, dt)
 						color = damage_types.GetColor(weapon.weapon_magic.Element)
 					end
 
-					local size = math.floor((is_selected and 20 or 15) * S)
+					local size = math.floor((is_selected and 17 or 13) * S)
 					render2d.PushWorldMatrix()
 					render2d.Translatef(cx, cy)
 					render2d.Rotate(offset * step)
+					local scale = RING_SCALE_FALLOFF ^ math.abs(offset)
+					local mid = (RING_INNER + RING_OUTER) * S / 2
+					render2d.Translatef(mid, 0)
+					render2d.Scalef(scale, scale)
+					render2d.Translatef(-mid, 0)
 					local _, h = render2d.GetTextSize(name, HEADING, size, BOLD)
 					local category = weapon_categories.Get(info:GetCategory())
 					local previous = weapons[(i - 2) % count + 1].weapon:GetCategory()
-					local following = weapons[i % count + 1].weapon:GetCategory()
-					local gap_up = previous == info:GetCategory() and RING_GAP * S or 0
-					local gap_down = following == info:GetCategory() and RING_GAP * S or 0
 
 					if pass == 1 then
 						local rim = RING_OUTER * S / cos_half
-						local gap_up_angle = gap_up / rim
-						local gap_down_angle = gap_down / rim
 						ring_vertex = ring_poly:SetArc(
 							ring_vertex,
 							0,
 							0,
 							RING_INNER * S / cos_half,
 							rim,
-							-step / 2 + gap_up_angle,
-							step / 2 - gap_down_angle,
+							-step / 2,
+							step / 2,
 							1,
 							RING_FEATHER,
 							INK.r,
@@ -381,8 +392,8 @@ local function draw_ring(holder, cx, cy, S, dt)
 							0,
 							RING_INNER * S / cos_half,
 							rim,
-							-step / 2 + gap_up_angle,
-							step / 2 - gap_down_angle,
+							-step / 2,
+							step / 2,
 							1,
 							RING_FEATHER,
 							category.Color.r,
@@ -410,17 +421,17 @@ local function draw_ring(holder, cx, cy, S, dt)
 						render2d.PushBlendPreset("additive")
 						render2d.SetTexture(theme.GlowLineTexture)
 						set_color(ring_color, 0.8)
-						render2d.DrawRect(76 * S, -10 * S, 220 * S, 20 * S)
+						render2d.DrawRect(RING_INNER * S, -10 * S, (296 - RING_INNER) * S, 20 * S)
 						render2d.SetTexture(nil)
 						set_color(GOLD, 1)
-						theme:DrawDiamond(76 * S, 0, 7 * S)
+						theme:DrawDiamond(RING_INNER * S, 0, 7 * S)
 						render2d.PopBlendMode()
 					end
 
 					if pass == 3 then
 						text(
 							name,
-							88 * S,
+							RING_TEXT_START * S,
 							-h / 2,
 							HEADING,
 							size,
@@ -439,15 +450,25 @@ local function draw_ring(holder, cx, cy, S, dt)
 		end
 
 		if pass == 1 and ring_vertex > 0 then
-			render2d.SetTexture(nil)
+			render2d.SetTexture(ring_fade)
 			render2d.SetColor(1, 1, 1, 1)
 			ring_poly:Draw(ring_vertex)
+			render2d.SetTexture(nil)
 		end
 	end
 
 	if active then
 		local category = weapon_categories.Get(active.weapon:GetCategory())
-		text(category.Label, cx, cy - 9 * S, HEADING, math.floor(13 * S), category.Color, 1, 0.5)
+		text(
+			category.Label,
+			cx,
+			cy - 9 * S,
+			HEADING,
+			math.floor(13 * S),
+			category.Color,
+			1,
+			0.5
+		)
 	end
 end
 
