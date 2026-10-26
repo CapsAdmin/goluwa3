@@ -199,10 +199,17 @@ function BATCH:Add(x, y, z, radius, r, g, b, a)
 	)
 end
 
-function BATCH:AddFlat(x, y, z, nx, ny, nz, radius, r, g, b, a)
+function BATCH:AddFlat(x, y, z, nx, ny, nz, radius, r, g, b, a, ux, uy, uz)
 	local rx, ry, rz = ny, -nx, 0
 
-	if rx * rx + ry * ry < 1e-6 then rx, ry = 1, 0 end
+	if ux then
+		local d = ux * nx + uy * ny + uz * nz
+		local ax, ay, az = ux - nx * d, uy - ny * d, uz - nz * d
+
+		if ax * ax + ay * ay + az * az > 1e-6 then rx, ry, rz = ax, ay, az end
+	end
+
+	if rx * rx + ry * ry + rz * rz < 1e-6 then rx, ry = 1, 0 end
 
 	local length = math.sqrt(rx * rx + ry * ry + rz * rz)
 	rx, ry, rz = rx / length * radius, ry / length * radius, rz / length * radius

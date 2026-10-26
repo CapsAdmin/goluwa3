@@ -63,6 +63,7 @@ do
 
 		if layer.Flat then
 			local normal = p.normal
+			local axis = layer.Axis and p[layer.Axis] or nil
 			state.batch:AddFlat(
 				position.x + ox + normal.x * lift,
 				position.y + oy + normal.y * lift,
@@ -74,7 +75,10 @@ do
 				state.r * brightness,
 				state.g * brightness,
 				state.b * brightness,
-				alpha
+				alpha,
+				axis and axis.x,
+				axis and axis.y,
+				axis and axis.z
 			)
 		else
 			state.batch:Add(
