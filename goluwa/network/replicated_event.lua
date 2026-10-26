@@ -12,7 +12,7 @@ return function(name, handler, is_enabled, get_predicted_client)
 
 	return function(...)
 		if SERVER and network.IsStarted() then
-			local predicted = get_predicted_client and get_predicted_client(...)
+			local predicted = get_predicted_client and network.IsPredicting() and get_predicted_client(...)
 
 			if predicted and predicted:IsValid() then
 				message.Send(name, clients.CreateFilter():AddAllExcept(predicted), ...)

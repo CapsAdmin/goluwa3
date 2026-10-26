@@ -295,7 +295,13 @@ if SERVER then
 		local names = {}
 
 		for name in pairs(self.known_components) do
-			if not (to_owner and self:GetTarget(name).NetworkOwnerExcluded) then
+			if
+				not (
+					to_owner and
+					self:GetTarget(name).NetworkOwnerExcluded and
+					network.IsPredicting()
+				)
+			then
 				names[#names + 1] = name
 			end
 		end
@@ -318,7 +324,7 @@ if SERVER then
 		packet.Send(
 			PACKET,
 			buffer,
-			self:GetSendFilter(self:GetTarget(name).NetworkOwnerExcluded),
+			self:GetSendFilter(self:GetTarget(name).NetworkOwnerExcluded and network.IsPredicting()),
 			"reliable",
 			self.NetworkChannel
 		)
@@ -393,7 +399,7 @@ if SERVER then
 					end
 
 					if value ~= nil and value ~= var.last then
-						if var.owner_excluded then
+						if var.owner_excluded and network.IsPredicting() then
 							if var.flags == "reliable" then
 								reliable_others_count = reliable_others_count + 1
 								reliable_others[reliable_others_count * 2 - 1] = var

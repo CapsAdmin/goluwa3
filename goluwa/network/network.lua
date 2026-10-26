@@ -36,6 +36,19 @@ function network.Initialize()
 	end)
 end
 
+local prediction = pvars.Setup2{
+	key = "net_prediction",
+	category = "Network",
+	group = "Debug",
+	prefix = "net_",
+	default = true,
+	help = "the owner predicts its own effects and the server does not send them back; turn off at startup to see exactly what other players get",
+}
+
+function network.IsPredicting()
+	return prediction:Get()
+end
+
 function network.IsStarted()
 	return network.socket:IsValid()
 end
