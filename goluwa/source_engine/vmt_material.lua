@@ -202,6 +202,8 @@ local FEATURES = {
 	sheen_rimlight = true,
 	thin_transmission = true,
 	skin_subsurface = true,
+	skin_roughness_floor = true,
+	hair_specular = true,
 }
 local FAMILIES = {
 	"concrete",
@@ -289,7 +291,7 @@ local CLOTH_WORDS = {
 }
 local SHEEN_CLOTH = 0.3
 local SHEEN_ROUGHNESS = 0.5
-local SHEEN_RIMLIGHT = 0.1
+local SHEEN_RIMLIGHT = 0.05
 local THIN_WORDS = {
 	"leaf",
 	"leaves",
@@ -310,8 +312,13 @@ local THIN_WORDS = {
 }
 local THIN_TRANSMISSION = 0.4
 local NOT_SKIN_WORDS = {"eye", "teeth"}
+local HAIR_WORDS = {"hair"}
+local HAIR_SPECULAR = 0.3
+local HAIR_ROUGHNESS = 0.9
 local SKIN_CLASSES = {flesh = true, player = true, bloodyflesh = true, zombieflesh = true}
 local SKIN_SUBSURFACE = 1
+local SKIN_ROUGHNESS_FLOOR = 0.7
+local SKIN_SPECULAR = 0.6
 local CHROME_ROUGHNESS = 0.05
 local SSBUMP_MASK_ROUGHNESS = 0.25
 local DERIVED_ROUGHNESS_ALBEDO = 1.5
@@ -972,7 +979,7 @@ do
 			if FEATURES.sheen_cloth and has_word(name, CLOTH_WORDS) then
 				self:SetSheen(SHEEN_CLOTH)
 				self:SetSheenRoughness(SHEEN_ROUGHNESS)
-			elseif FEATURES.sheen_rimlight and vmt.rimlight == 1 then
+			elseif FEATURES.sheen_rimlight and vmt.rimlight == 1 and vmt.rimmask ~= 1 then
 				self:SetSheen(math.clamp(SHEEN_RIMLIGHT * (tonumber(vmt.rimlightboost) or 1), 0, 1))
 				self:SetSheenRoughness(SHEEN_ROUGHNESS)
 			end
@@ -996,12 +1003,28 @@ do
 				FEATURES.skin_subsurface and
 				SKIN_CLASSES[class] and
 				not is_glass and
+				not self.Translucent and
+				not self.AlphaTest and
 				not has_word(name, CLOTH_WORDS)
 				and
 				not has_word(self.vmt_path or "", NOT_SKIN_WORDS)
 			then
 				self:SetSubsurface(SKIN_SUBSURFACE)
 				self:SetSubsurfaceSkinTone(1)
+
+				if FEATURES.skin_roughness_floor and ctx.family ~= "metal" then
+					self:SetRoughnessMin(math.max(self.RoughnessMin, SKIN_ROUGHNESS_FLOOR))
+					self:SetRoughnessMax(math.max(self.RoughnessMax, SKIN_ROUGHNESS_FLOOR))
+					self:SetRoughnessMultiplier(math.max(self.RoughnessMultiplier, SKIN_ROUGHNESS_FLOOR))
+					self:SetSpecularMultiplier(SKIN_SPECULAR)
+				end
+			end
+
+			if FEATURES.hair_specular and has_word(name, HAIR_WORDS) then
+				self:SetSpecularMultiplier(HAIR_SPECULAR)
+				self:SetRoughnessMin(math.max(self.RoughnessMin, HAIR_ROUGHNESS))
+				self:SetRoughnessMax(math.max(self.RoughnessMax, HAIR_ROUGHNESS))
+				self:SetRoughnessMultiplier(math.max(self.RoughnessMultiplier, HAIR_ROUGHNESS))
 			end
 		end
 
