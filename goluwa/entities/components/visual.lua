@@ -24,6 +24,7 @@ local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local system = import("goluwa/system.lua")
+local vfs = import("goluwa/vfs.lua")
 local ffi = require("ffi")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local memcmp = import("goluwa/bindings/memory.lua").memcmp
@@ -993,6 +994,28 @@ function Visual:SetBillboard(enabled)
 	end
 end
 
+local failed_models = setmetatable({}, {__mode = "k"})
+local retry_models = {}
+local seen_mount_generation = vfs.mount_generation
+
+event.AddListener("Update", "visual_retry_failed_models", function()
+	if vfs.mount_generation == seen_mount_generation then return end
+
+	seen_mount_generation = vfs.mount_generation
+
+	for component in pairs(failed_models) do
+		retry_models[#retry_models + 1] = component
+	end
+
+	for i = #retry_models, 1, -1 do
+		local component = retry_models[i]
+		retry_models[i] = nil
+		failed_models[component] = nil
+
+		if component:IsValid() then component:SetModelPath(component.ModelPath) end
+	end
+end)
+
 function Visual:SetModelPath(path)
 	self.LoadGeneration = (self.LoadGeneration or 0) + 1
 	local load_generation = self.LoadGeneration
@@ -1055,6 +1078,7 @@ function Visual:SetModelPath(path)
 
 			logf("%s failed to load model %q: %s\n", self, path, err)
 			self:MakeError()
+			failed_models[self] = true
 		end
 	)
 end
