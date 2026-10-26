@@ -7,6 +7,7 @@ local Rig = import("goluwa/render3d/rig.lua")
 local Animator = objects.CreateTemplate("animator")
 Animator.Is3D = true
 local BOUNDS_MARGIN = 0.5
+local MODEL_BOUNDS_MARGIN = 0.1
 local SYNC_SNAP = 0.25
 local SYNC_FOLLOW = 10
 Animator.LOD_NEAR = 15
@@ -164,6 +165,24 @@ function Animator:Bind(skeleton)
 	self.fade_pose = skeleton:NewPose()
 	local parts = {}
 	local by_skin = {}
+	local model_extent = 0
+
+	for _, child in ipairs(self.Owner:GetChildrenList()) do
+		local primitive = child.visual_primitive
+		local polygon = primitive and primitive:GetPolygon3D()
+
+		if polygon and polygon.Skin then
+			local aabb = polygon.AABB
+			model_extent = math.max(
+				model_extent,
+				aabb.max_x - aabb.min_x,
+				aabb.max_y - aabb.min_y,
+				aabb.max_z - aabb.min_z
+			)
+		end
+	end
+
+	local min_margin = model_extent * MODEL_BOUNDS_MARGIN
 
 	for _, child in ipairs(self.Owner:GetChildrenList()) do
 		local primitive = child.visual_primitive
@@ -173,9 +192,9 @@ function Animator:Bind(skeleton)
 			local shared = by_skin[polygon.Skin]
 			local clone = polygon:CloneDynamic(shared and shared.vertex_buffer)
 			local aabb = polygon.AABB
-			local margin_x = (aabb.max_x - aabb.min_x) * BOUNDS_MARGIN
-			local margin_y = (aabb.max_y - aabb.min_y) * BOUNDS_MARGIN
-			local margin_z = (aabb.max_z - aabb.min_z) * BOUNDS_MARGIN
+			local margin_x = math.max((aabb.max_x - aabb.min_x) * BOUNDS_MARGIN, min_margin)
+			local margin_y = math.max((aabb.max_y - aabb.min_y) * BOUNDS_MARGIN, min_margin)
+			local margin_z = math.max((aabb.max_z - aabb.min_z) * BOUNDS_MARGIN, min_margin)
 			clone:SetAABB(
 				AABB(
 					aabb.min_x - margin_x,
