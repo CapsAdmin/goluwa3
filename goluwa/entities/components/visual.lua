@@ -1071,8 +1071,6 @@ function Visual:SetModelPath(path)
 		end,
 		function(err)
 			if not self:IsValid() or self.LoadGeneration ~= load_generation then
-				print("visual became invalid while loading: " .. err)
-				error(err)
 				return
 			end
 
