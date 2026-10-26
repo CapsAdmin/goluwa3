@@ -82,6 +82,12 @@ local take_snapshot
 local find_load_time_uses
 
 function import:__call(path)
+	if not self.tracking then
+		local loaded = self.loaded[path]
+
+		if loaded then return loaded end
+	end
+
 	path = self:ResolvePath(path)
 
 	if self.tracking then
