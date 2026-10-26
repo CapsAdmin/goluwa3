@@ -35,7 +35,7 @@ function META:Aim(cmd)
 	local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 	local forward = cmd.view:GetForward()
 	local ragdoll = player.ragdoll
-	local limp = ragdoll and math.max(ragdoll:GetLimp("upperarm_r"), ragdoll:GetLimp("forearm_r")) or 0
+	local limp = ragdoll and math.max(ragdoll:GetPartLimp("upperarm_r"), ragdoll:GetPartLimp("forearm_r")) or 0
 
 	if limp > 0 then
 		local spread = self.LimpSpread * limp

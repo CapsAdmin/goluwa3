@@ -544,7 +544,7 @@ function META:UpdateRest(dt)
 	end
 end
 
-function META:GetLimp(name)
+function META:GetPartLimp(name)
 	local part = self.part_by_name[name]
 	return part and part.limp or 0
 end
