@@ -91,8 +91,6 @@ local function get_native_speed(clip)
 	return speed
 end
 
-local WEAPON_SUFFIX = {weapon_camera = "camera", weapon_physgun = "physgun", weapon_pistol = "pistol"}
-
 function META:Initialize()
 	-- a source_pose in a prefab is initialized once more when the build of its entity ends
 	if self.initialized then return end
@@ -263,7 +261,7 @@ function META:UpdatePlayer(animator, pose, dt)
 	local clips = animator.skeleton.ClipsByName
 	local holder = pose.Owner.weapon_holder
 	local weapon = holder and holder:GetWeapon("right")
-	local suffix = weapon and WEAPON_SUFFIX[weapon.prefab.Path] or "all"
+	local suffix = weapon and weapon.weapon:GetStance() or "all"
 
 	for i = #pose.anims, 1, -1 do
 		local inst = pose.anims[i]

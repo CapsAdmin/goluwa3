@@ -8,6 +8,7 @@ return {
 	Values = {
 		WorldSize = Vec3(0.07, 0.19, 0.62),
 		WorldCenter = Vec3(0, 0.035, -0.26),
+		Stance = "physgun",
 		Slot = 1,
 		DisplayName = "Physgun",
 		TwoHanded = true,

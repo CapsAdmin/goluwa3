@@ -8,6 +8,7 @@ return {
 	Values = {
 		WorldSize = Vec3(0.05, 0.18, 0.32),
 		WorldCenter = Vec3(0, 0.03, -0.14),
+		Stance = "pistol",
 		Slot = 2,
 		DisplayName = "Pistol",
 		FireRate = 0.25,
