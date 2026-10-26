@@ -6,6 +6,7 @@ local clients = import("goluwa/network/clients.lua")
 local timer = import("goluwa/timer.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local NetworkComponent = import("goluwa/entities/components/network.lua")
 local spawning = import("lua/spawning.lua")
 local CharacterMovement = import("lua/components/character_movement.lua")
 local outfit = import("lua/outfit.lua")
@@ -54,8 +55,8 @@ if SERVER then
 			player_avatar = {},
 			network = {NetworkOwner = uid},
 		}
+		spawning.SendStart(client, players[uid], position, rotation)
 		players[uid].weapon_holder:GiveLoadout()
-		spawning.SendStart(client, position, rotation)
 	end)
 
 	event.AddListener("EntityPermission", "network_players", function(client, action, name)
@@ -159,17 +160,31 @@ if CLIENT then
 	end)
 
 	packet.AddListener("player_start", function(buffer)
+		local id = buffer:ReadI32()
 		local position = buffer:ReadVec3()
 		local rotation = buffer:ReadQuat()
 
 		for _, controller in ipairs(import("lua/components/player_controller.lua").Instances or {}) do
-			if controller:GetNetworked() then controller:Spawn(position, rotation) end
+			if controller:GetNetworked() then
+				local rig = controller.Owner
+
+				if not rig.network then
+					rig.weapon_holder:RemoveWeapons()
+					NetworkComponent.Link(rig, id, clients.GetLocalClient():GetUniqueID())
+				end
+
+				controller:Spawn(position, rotation)
+			end
 		end
 	end)
 
 	event.AddListener("Disconnected", "network_players", function()
 		for _, controller in ipairs(import("lua/components/player_controller.lua").Instances or {}) do
 			controller.synced = false
+
+			if controller:GetNetworked() then
+				controller.Owner.weapon_holder:GiveLoadout()
+			end
 		end
 	end)
 

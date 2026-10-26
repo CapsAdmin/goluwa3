@@ -110,7 +110,10 @@ function META:GetSavePath()
 	if not self.Owner.player_controller then return end
 
 	local network_component = self.Owner.network
-	local key = network_component and network_component:GetNetworkOwner() or ""
+	local key = network_component and
+		not network_component.linked and
+		network_component:GetNetworkOwner() or
+		""
 	return SAVE_PATH:format(key == "" and "local" or key)
 end
 
@@ -210,7 +213,9 @@ function META:Stun(duration)
 end
 
 function META:OnCanAttack()
-	if self.Stunned or self.Owner.character_movement:IsRolling() then return false end
+	if self.Stunned or self.Owner.character_movement:IsRolling() then
+		return false
+	end
 
 	local pose = self.Owner.character_pose
 

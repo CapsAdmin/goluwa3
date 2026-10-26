@@ -128,7 +128,7 @@ event.AddListener("Update", "e2e_observer", function()
 			if child.weapon then
 				weapon_names[#weapon_names + 1] = child:GetName()
 
-				if child.weapon:IsActive() then active = child end
+				if child.weapon.Equipped == "right" then active = child end
 			end
 		end
 
@@ -243,7 +243,10 @@ event.AddListener("Update", "e2e_observer_ragdoll", function()
 		end
 	end
 
-	if count == #biped.Profiles.humanoid.Parts or system.GetTime() - started > TIMEOUT + 20 then
+	if
+		count == #biped.Profiles.humanoid.Parts or
+		system.GetTime() - started > TIMEOUT + 20
+	then
 		ragdoll_done = true
 		signals.Write(
 			"observer.ragdoll",

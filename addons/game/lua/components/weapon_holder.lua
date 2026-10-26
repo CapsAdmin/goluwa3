@@ -171,7 +171,10 @@ function META:Give(weapon_name)
 		Parent = owner,
 		Name = weapon_name,
 		prefab = {Path = weapon_name},
-		network = owner.network and {NetworkOwner = owner.network:GetNetworkOwner()} or nil,
+		network = SERVER and
+			owner.network and
+			{NetworkOwner = owner.network:GetNetworkOwner(), SendToOwner = true} or
+			nil,
 	}
 	self:EquipDefault(weapon)
 	return weapon
@@ -187,6 +190,7 @@ function META:Pickup(weapon)
 
 	if owner.network and weapon.network then
 		weapon.network:SetNetworkOwner(owner.network:GetNetworkOwner())
+		weapon.network:SetSendToOwner(true)
 	end
 
 	owner:AddChild(weapon)
@@ -203,7 +207,10 @@ function META:Drop(weapon)
 	weapon.transform:SetPosition(position)
 	weapon.transform:SetRotation(owner.character_movement:GetCommand().view:Copy())
 
-	if weapon.network then weapon.network:SetNetworkOwner("") end
+	if weapon.network then
+		weapon.network:SetNetworkOwner("")
+		weapon.network:SetSendToOwner(false)
+	end
 
 	weapon.rigid_body:SetVelocity(forward * 6)
 
@@ -211,6 +218,10 @@ function META:Drop(weapon)
 end
 
 function META:OnDeath()
+	self:RemoveWeapons()
+end
+
+function META:RemoveWeapons()
 	local children = self.Owner:GetChildren()
 
 	for i = #children, 1, -1 do

@@ -13,8 +13,9 @@ function spawning.Pick()
 	return FALLBACK_POSITION:Copy(), Quat():Identity()
 end
 
-function spawning.SendStart(client, position, rotation)
+function spawning.SendStart(client, entity, position, rotation)
 	local start = packet.CreateBuffer()
+	start:WriteI32(entity.network.NetworkId)
 	start:WriteVec3(position)
 	start:WriteQuat(rotation)
 	packet.Send("player_start", start, client, "reliable")

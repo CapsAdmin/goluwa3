@@ -14,5 +14,5 @@ event.AddListener("PlayerRespawn", "player_respawn", function(entity)
 	end
 
 	controller:Start(position)
-	spawning.SendStart(clients.GetByUniqueID(entity.network:GetNetworkOwner()), position, rotation)
+	spawning.SendStart(clients.GetByUniqueID(entity.network:GetNetworkOwner()), entity, position, rotation)
 end)

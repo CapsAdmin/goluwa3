@@ -474,7 +474,7 @@ function META:MakeDynamic(part, keep_pose, jitter)
 	part.network_until = nil
 	self.dynamic_count = self.dynamic_count + 1
 	part.entity.ragdoll_part:SetLimp(true)
-	local character_id = self.Owner.network and self.Owner.network.NetworkId or -1
+	local character_id = SERVER and self.Owner.network and self.Owner.network.NetworkId or -1
 
 	if character_id ~= -1 then
 		part.entity.ragdoll_part:SetCharacterId(character_id)

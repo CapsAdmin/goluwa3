@@ -1,5 +1,6 @@
 local prefab = import("goluwa/entities/prefab.lua")
 local Entity = import("goluwa/entities/entity.lua")
+Entity.RegisterComponent("tool_beam", import("lua/components/tool_beam.lua"))
 local weapons = {}
 weapons.Definitions = {}
 weapons.RootComponents = {}
@@ -12,7 +13,7 @@ function weapons.AddRootComponent(name, config)
 	end
 end
 
-function weapons.Register(name, values, nodes, source, script_values)
+function weapons.Register(name, values, nodes, source, script_values, components)
 	local entities = {
 		{
 			guid = "root",
@@ -31,6 +32,10 @@ function weapons.Register(name, values, nodes, source, script_values)
 	}
 
 	for component, config in pairs(weapons.RootComponents) do
+		entities[1].components[component] = config
+	end
+
+	for component, config in pairs(components or {}) do
 		entities[1].components[component] = config
 	end
 
@@ -81,7 +86,14 @@ weapons.Loadout = {
 
 for _, name in ipairs{"camera", "physgun", "pistol", "grenade", "hands", "flashlight", "sword"} do
 	local definition = import("lua/weapons/" .. name .. ".lua")
-	weapons.Register("weapon_" .. name, definition.Values, definition.Nodes, definition.Source)
+	weapons.Register(
+		"weapon_" .. name,
+		definition.Values,
+		definition.Nodes,
+		definition.Source,
+		nil,
+		definition.Components
+	)
 end
 
 return weapons

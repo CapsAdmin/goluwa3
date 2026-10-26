@@ -179,9 +179,14 @@ local function verify(scenario, observer_output, bot_output)
 			tonumber(crate_distance) < 6,
 		"the held crate was " .. tostring(crate_distance) .. " m from the player"
 	)
+	local linked, own_weapons = bot_output:match("BOT_OWN_WEAPONS linked=(%a+) replicated=(%d+)")
+	check(
+		linked == "true" and tonumber(own_weapons) == 7,
+		"the owner did not get its player linked and its weapons replicated: " .. tostring(linked) .. " " .. tostring(own_weapons)
+	)
 	local list, saw_physgun, active = observer_output:match("OBSERVER_WEAPONS list=([%w_,]+) physgun=(%a+) active=([%w_]+)")
 	check(
-		list == "weapon_camera,weapon_hands,weapon_physgun,weapon_pistol,weapon_toolgun",
+		list == "weapon_camera,weapon_flashlight,weapon_hands,weapon_physgun,weapon_pistol,weapon_sword,weapon_toolgun",
 		"the weapon children were not replicated: " .. tostring(list)
 	)
 	check(saw_physgun == "true", "the physgun was never the replicated active weapon")

@@ -14,6 +14,7 @@ META.Network = {
 META:GetSet("NetworkId", -1)
 META:GetSet("NetworkChannel", 0)
 META:GetSet("NetworkOwner", "", {callback = "OnNetworkOwnerChanged"})
+META:IsSet("SendToOwner", false, {callback = "OnSendToOwnerChanged"})
 META:GetSet("Debug", false)
 local spawned = {}
 local queued_packets = {}
@@ -66,6 +67,10 @@ do
 			if component:IsValid() then component.Owner:SetOwnedBy(client) end
 		end
 	end)
+end
+
+function META:OnSendToOwnerChanged()
+	client_version = client_version + 1
 end
 
 function META:GetTarget(component_name)
@@ -204,7 +209,11 @@ if SERVER then
 					and
 					not needs_scene(client)
 					and
-					client:GetUniqueID() ~= self.NetworkOwner and
+					(
+						self.SendToOwner or
+						client:GetUniqueID() ~= self.NetworkOwner
+					)
+					and
 					not self.pending_clients[client]
 				then
 					filter:Add(client)
@@ -380,7 +389,9 @@ if SERVER then
 	end
 
 	function META:QueueSpawn(client)
-		if client:IsBot() or self:IsOwnedBy(client) then return end
+		if client:IsBot() or (self:IsOwnedBy(client) and not self.SendToOwner) then
+			return
+		end
 
 		self.pending_clients[client] = true
 		client_version = client_version + 1
@@ -741,9 +752,18 @@ if CLIENT then
 		end
 	end)
 
+	function META.Link(entity, id, owner)
+		entity:AddComponent("network", {NetworkId = id, NetworkOwner = owner})
+		entity.network.linked = true
+	end
+
 	event.AddListener("Disconnected", "network_component", function()
 		for _, component in pairs(spawned) do
-			component.Owner:Remove()
+			if component.linked then
+				component.Owner:RemoveComponent("network")
+			else
+				component.Owner:Remove()
+			end
 		end
 
 		queued_packets = {}

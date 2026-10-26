@@ -186,7 +186,7 @@ function META:UpdateOutfit()
 
 	if self.Outfit then
 		name = self.Outfit
-	elseif network then
+	elseif network and not network.linked then
 		name = outfit.GetName(network:GetNetworkOwner())
 	else
 		name, inputs = outfit.LoadLocal()

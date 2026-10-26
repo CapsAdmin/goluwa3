@@ -5,6 +5,7 @@ local BODY = {Color = Color(0.3, 0.32, 0.36, 1), Roughness = 0.35, Metallic = 0.
 local HANDLE = {Color = Color(1, 0.45, 0.05, 1), Roughness = 0.6, Metallic = 0.1}
 local MUZZLE = {Color = Color(0.1, 0.35, 1, 1), Roughness = 0.3, Metallic = 0.3}
 return {
+	Components = {tool_beam = {}},
 	Values = {
 		WorldSize = Vec3(0.07, 0.19, 0.62),
 		WorldCenter = Vec3(0, 0.035, -0.26),
@@ -24,6 +25,7 @@ return {
 	},
 	Source = [=====[local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
+local network = import("goluwa/network/network.lua")
 local physics = import("goluwa/physics.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -126,11 +128,27 @@ function META:UpdateBeamAim(origin, forward)
 	self.beam_forward:Set(forward.x, forward.y, forward.z)
 end
 
+function META:SyncBeam()
+	if not network.HasAuthority() then return end
+
+	local tool = self.Owner.tool_beam
+	local body = self.held_body
+	tool:SetActive(self.beam_on)
+	tool:SetTarget(body and body:IsValid() and body.Owner:GetGUID() or "")
+	tool:SetTargetPoint(self.held_local_point:Copy())
+end
+
 function META:UpdateBeam()
 	local beam = self.beam
-	local body = self.held_body
+	local tool = self.Owner.tool_beam
+	local body
 
-	if not (self.beam_on and self.Owner.weapon:IsEquipped()) then
+	if tool.Target ~= "" then
+		local target = objects.GetObjectByGUID(tool.Target)
+		body = target:IsValid() and target.rigid_body or nil
+	end
+
+	if not (tool.Active and self.Owner.weapon:IsEquipped()) then
 		if beam then beam:SetVisible(false) end
 
 		return
@@ -154,7 +172,7 @@ function META:UpdateBeam()
 	if body and body:IsValid() then
 		local alpha = physics.GetInterpolationAlpha()
 		local grab = body:LocalToWorld(
-			self.held_local_point,
+			tool.TargetPoint,
 			body:GetInterpolatedPosition(alpha),
 			body:GetInterpolatedRotation(alpha)
 		)
@@ -400,6 +418,11 @@ end
 local rotate_delta = {x = 0, y = 0}
 
 function META:OnWeaponThink(dt, cmd)
+	self:Think(dt, cmd)
+	self:SyncBeam()
+end
+
+function META:Think(dt, cmd)
 	local weapon = self.Owner.weapon
 	local pose = self.Owner:GetParent().character_pose
 
@@ -461,6 +484,7 @@ end
 function META:OnWeaponHolster()
 	self.beam_on = false
 	self:Release()
+	self:SyncBeam()
 	self.Owner:GetParent().character_pose:SetHolding(false)
 end
 

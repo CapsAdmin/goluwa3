@@ -10,7 +10,13 @@ local RUN_TIME = 4
 local BUTTON = usercmd.BUTTON
 local ent = Entity.New{
 	Name = "e2e_bot",
-	ComponentSet = {"transform", "player_controller", "character_movement", "character_pose"},
+	ComponentSet = {
+		"transform",
+		"player_controller",
+		"character_movement",
+		"character_pose",
+		"weapon_holder",
+	},
 	transform = {Position = Vec3(0, 3, 0)},
 	player_controller = {Source = "local", Networked = true},
 }
@@ -141,10 +147,16 @@ event.AddListener("Update", "e2e_bot_report", function()
 
 	finished = true
 	local p = ent.transform:GetPosition()
+	local own_weapons = 0
+
+	for _, weapon in ipairs(ent.weapon_holder:GetWeapons()) do
+		if weapon.network then own_weapons = own_weapons + 1 end
+	end
+
 	signals.Write(
 		"bot.result",
 		string.format(
-			"BOT_RESULT x=%.3f y=%.3f z=%.3f corrections=%d max_error=%.4f cmds=%d\nBOT_RELAYS_RECEIVED %d\nBOT_RECONCILE_CALLS %d\n",
+			"BOT_RESULT x=%.3f y=%.3f z=%.3f corrections=%d max_error=%.4f cmds=%d\nBOT_RELAYS_RECEIVED %d\nBOT_RECONCILE_CALLS %d\nBOT_OWN_WEAPONS linked=%s replicated=%d\n",
 			p.x,
 			p.y,
 			p.z,
@@ -152,7 +164,9 @@ event.AddListener("Update", "e2e_bot_report", function()
 			max_error,
 			controller.number,
 			own_relays,
-			calls
+			calls,
+			tostring(ent.network ~= nil and ent.network.linked == true),
+			own_weapons
 		)
 	)
 end)

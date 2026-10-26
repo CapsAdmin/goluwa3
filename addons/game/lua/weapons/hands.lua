@@ -65,11 +65,15 @@ function META:Initialize()
 end
 
 function META:Release(velocity)
+	self:DropBody(velocity)
+	self.Owner.weapon:SetPoseArms(false)
+end
+
+function META:DropBody(velocity)
 	local body = self.held_body
 	self.held_body = nil
 	self.held_entity = nil
 	self.throw_left = 0
-	self.Owner.weapon:SetPoseArms(false)
 
 	if body and body:IsValid() then
 		body:SetCollisionGroup(self.held_original_group)
@@ -248,7 +252,7 @@ function META:OnWeaponCharacterModeChanged()
 end
 
 function META:OnRemove()
-	self:Release()
+	self:DropBody()
 end
 
 return META:Register()
