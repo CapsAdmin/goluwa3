@@ -101,4 +101,14 @@ function animations.GetWeight(pose, name)
 	return 0
 end
 
+function animations.PosesWeapon(pose)
+	local anims = pose.anims
+
+	for i = 1, #anims do
+		if anims[i].def.PoseWeapon then return true end
+	end
+
+	return false
+end
+
 return animations

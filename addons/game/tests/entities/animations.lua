@@ -90,6 +90,19 @@ T.Test("an action of a group replaces the running one", function()
 	entity:Remove()
 end)
 
+T.Test("an action with PoseWeapon asks for the weapon pose while it plays", function()
+	animations.Register("pose_weapon_test", {Kind = "action", PoseWeapon = true})
+	local entity = create()
+	local pose = entity.character_pose
+	T(animations.PosesWeapon(pose))["=="](false)
+	pose:PlayAction("pose_weapon_test", 0.3)
+	step(pose, 0.1)
+	T(animations.PosesWeapon(pose))["=="](true)
+	step(pose, 0.5)
+	T(animations.PosesWeapon(pose))["=="](false)
+	entity:Remove()
+end)
+
 T.Test("states replicate through the states string", function()
 	local entity = create()
 	local pose = entity.character_pose

@@ -482,7 +482,8 @@ do
 				left.weapon:IsAlwaysPose()
 				or
 				not self.sprinting and
-				not pose.airborne
+				not pose.airborne or
+				animations.PosesWeapon(pose)
 			)
 		local bones = self.bones
 		pose.hold_wanted = armed and true or false
