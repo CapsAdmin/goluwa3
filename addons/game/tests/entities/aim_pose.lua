@@ -66,6 +66,7 @@ local function pose(pitch, recoil, flinch)
 	return {
 		pitch = pitch,
 		recoil = recoil or 0,
+		roll_alpha = 0,
 		flinch = flinch or 0,
 		block_alpha = 0,
 		lean_side = 0,

@@ -6,6 +6,7 @@ local aim_pose = {}
 local ZERO = Vec3()
 aim_pose.Shares = {waist = 0.08, spine = 0.12, chest = 0.15, back = 0.15, neck = 0.2, head = 0.3}
 aim_pose.ClavicleShare = 0.25
+aim_pose.RollPitch = -1.1
 aim_pose.ElbowFlexion = 2.4
 aim_pose.RecoilAngle = math.rad(6)
 aim_pose.FlinchAngle = math.rad(10)
@@ -395,8 +396,16 @@ local function sample_action(keys, f)
 	return 0, 0
 end
 
+local roll_look = Quat()
+
 function aim_pose.GetAim(pose)
 	local aim = pose.pitch
+
+	if pose.roll_alpha > 0.001 then
+		roll_look:Identity():RotatePitch(aim_pose.RollPitch)
+		aim = aim:GetLerped(pose.roll_alpha, roll_look)
+	end
+
 	local keys = pose.action and aim_pose.Actions[pose.action]
 
 	if keys then
