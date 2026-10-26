@@ -78,6 +78,16 @@ function META:IsRolling()
 	return self.roll ~= nil and not self.roll.leaving
 end
 
+function META:Lunge(direction, distance, delay, duration)
+	self.lunge = {
+		direction = direction:Copy(),
+		distance = distance,
+		delay = delay,
+		time = duration,
+		elapsed = 0,
+	}
+end
+
 function META:GetRollKind()
 	return self:IsRolling() and self.roll.kind or nil
 end
@@ -959,6 +969,24 @@ do
 			move = MOVE.move:Copy()
 			wish_speed = MOVE.wish_speed
 			jump_requested = MOVE.jump_pressed
+			local lunge = self.lunge
+
+			if lunge then
+				if lunge.delay > 0 then
+					lunge.delay = lunge.delay - dt
+				else
+					local from = lunge.elapsed / lunge.time
+					lunge.elapsed = lunge.elapsed + dt
+					local to = math.min(lunge.elapsed / lunge.time, 1)
+
+					if not self:IsRolling() then
+						move = lunge.direction:Copy()
+						wish_speed = lunge.distance * (math.cos(math.pi * from) - math.cos(math.pi * to)) / 2 / dt
+					end
+
+					if to >= 1 - 1e-6 then self.lunge = nil end
+				end
+			end
 
 			if grounded and not MOVE.grounded then body:SetGrounded(false) end
 
