@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
+local network = import("goluwa/network/network.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local pose_variation = import("lua/pose_variation.lua")
@@ -396,13 +397,13 @@ function META:ApplyRelayedCommands(commands)
 end
 
 function META:UpdateSeed()
-	local network = self.Owner.network
+	local link = self.Owner.network
 
-	if not network then return end
+	if not link then return end
 
-	local key = network:GetNetworkOwner()
+	local key = link:GetNetworkOwner()
 
-	if key == "" then key = network:GetNetworkId() end
+	if key == "" then key = link:GetNetworkId() end
 
 	if key == -1 or key == self.seed_key then return end
 
@@ -413,7 +414,14 @@ end
 
 function META:OnUpdate(dt)
 	local owner = self.Owner
-	local movement = owner.character_movement
+	local link = owner.network
+	local movement = not (
+			link and
+			link.linked and
+			not network.IsPredicting()
+		) and
+		owner.character_movement or
+		nil
 	local transform = owner.transform
 
 	if movement then
