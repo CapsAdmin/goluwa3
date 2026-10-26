@@ -2,8 +2,9 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
+local CompoundShape = import("goluwa/physics/shapes/compound.lua")
 local shape_description = {}
-local NONE, BOX, SPHERE, CAPSULE = 0, 1, 2, 3
+local NONE, BOX, SPHERE, CAPSULE, COMPOUND = 0, 1, 2, 3, 4
 
 function shape_description.Write(buffer, shape)
 	if not shape then
@@ -23,6 +24,16 @@ function shape_description.Write(buffer, shape)
 		buffer:WriteByte(CAPSULE)
 		buffer:WriteFloat(shape:GetRadius())
 		buffer:WriteFloat(shape:GetHeight())
+	elseif name == "compound" then
+		local children = shape:GetChildren()
+		buffer:WriteByte(COMPOUND)
+		buffer:WriteU16(#children)
+
+		for _, child in ipairs(children) do
+			shape_description.Write(buffer, child.Shape)
+			buffer:WriteVec3(child.Position)
+			buffer:WriteQuat(child.Rotation)
+		end
 	else
 		error("physics shape " .. name .. " cannot be replicated", 2)
 	end
@@ -39,6 +50,18 @@ function shape_description.Read(buffer)
 		return SphereShape.New(buffer:ReadFloat())
 	elseif kind == CAPSULE then
 		return CapsuleShape.New(buffer:ReadFloat(), buffer:ReadFloat())
+	elseif kind == COMPOUND then
+		local children = {}
+
+		for i = 1, buffer:ReadU16() do
+			children[i] = {
+				Shape = shape_description.Read(buffer),
+				Position = buffer:ReadVec3(),
+				Rotation = buffer:ReadQuat(),
+			}
+		end
+
+		return CompoundShape.New(children)
 	end
 
 	error("unknown replicated shape kind " .. tostring(kind))

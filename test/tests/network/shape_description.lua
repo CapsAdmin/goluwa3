@@ -6,6 +6,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
+local CompoundShape = import("goluwa/physics/shapes/compound.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 
@@ -27,6 +28,23 @@ T.Test("shape description round trips primitive shapes", function()
 	T(capsule:GetTypeName())["=="]("capsule")
 	T(capsule:GetHeight())["=="](3)
 	T(round_trip(nil))["=="](nil)
+end)
+
+T.Test("shape description round trips compound shapes of primitives", function()
+	local compound = round_trip(
+		CompoundShape.New{
+			{Shape = BoxShape.New(Vec3(1, 2, 3)), Position = Vec3(0.5, 1, 0)},
+			{Shape = SphereShape.New(0.25), Position = Vec3(0, 2, 0)},
+		}
+	)
+	local children = compound:GetChildren()
+	T(compound:GetTypeName())["=="]("compound")
+	T(#children)["=="](2)
+	T(children[1].Shape:GetTypeName())["=="]("box")
+	T(children[1].Shape:GetSize().y)["=="](2)
+	T(children[1].Position.x)["=="](0.5)
+	T(children[2].Shape:GetRadius())["=="](0.25)
+	T(children[2].Position.y)["=="](2)
 end)
 
 T.Test("shape description refuses mesh shapes", function()
