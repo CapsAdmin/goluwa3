@@ -253,6 +253,7 @@ function META:NextCommand(dt)
 		idle.up = 0
 		idle.pressed = 0
 		idle.buttons = 0
+		idle.select = 0
 		self.cmd = idle
 		return idle
 	end
@@ -299,6 +300,7 @@ function META:NextCommand(dt)
 	self.starved = self.starved + 1
 	local repeated = usercmd.Copy(previous)
 	repeated.pressed = 0
+	repeated.select = 0
 
 	if self.starved > MAX_REPEATS then
 		repeated.forward = 0
