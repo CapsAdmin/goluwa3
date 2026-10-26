@@ -120,6 +120,7 @@ local function solve_leg(bones, leg, target_x, target_y, target_z, normal_x, nor
 end
 
 leg_pose.FootYawFollow = 0.6
+leg_pose.HeadHold = 0.8
 local pelvis = {0, 0, 0, 0, 0, 0}
 local pelvis_sample = {0, 0, 0, 0, 0, 0}
 local pelvis_rotation = Quat()
@@ -128,6 +129,8 @@ local foot_yaw = Quat()
 local pelvis_matrix = Matrix44()
 local FEET = {"foot_r", "foot_l"}
 local FOOT_CHAINS = {{"foot_r"}, {"foot_l"}}
+local HEAD_CHAINS = {{"neck"}, {"head"}}
+local head_hold = Quat()
 
 function leg_pose.NewState()
 	return {{x = 0, y = 0, z = 0}, {x = 0, y = 0, z = 0}, active = false}
@@ -146,6 +149,14 @@ function leg_pose.ApplyKeys(bones, pose, side, state)
 
 		if def.PelvisKeys then
 			animations.SampleKeys(def.PelvisKeys, inst.phase, pelvis_sample, 6)
+
+			for j = 1, 6 do
+				pelvis[j] = pelvis[j] + pelvis_sample[j] * inst.weight
+			end
+		end
+
+		if def.Pelvis then
+			def.Pelvis(inst, pose, pelvis_sample)
 
 			for j = 1, 6 do
 				pelvis[j] = pelvis[j] + pelvis_sample[j] * inst.weight
@@ -186,6 +197,13 @@ function leg_pose.ApplyKeys(bones, pose, side, state)
 
 	for i = 1, 2 do
 		aim_pose.RotateChain(bones, FOOT_CHAINS[i], 1, bones[FEET[i]], pelvis_matrix)
+	end
+
+	aim_pose.ScaleRotation(head_hold, pelvis_inverse, leg_pose.HeadHold)
+	pelvis_matrix:SetRotation(head_hold)
+
+	for i = 1, 2 do
+		aim_pose.RotateChain(bones, HEAD_CHAINS[i], 1, bones[HEAD_CHAINS[i][1]], pelvis_matrix)
 	end
 end
 

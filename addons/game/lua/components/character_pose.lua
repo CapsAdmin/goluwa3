@@ -15,6 +15,8 @@ META.Network = {
 	Shots = {"number", 0.05, "reliable"},
 	Hits = {"number", 0.05, "reliable"},
 	Reacts = {"number", 0.05, "reliable"},
+	ReactDirection = {"vec3", 0.05, "reliable"},
+	ReactIntensity = {"number", 0.05, "reliable"},
 	Action = {"string", 0.05, "reliable"},
 	ActionDuration = {"number", 0.05, "reliable"},
 	Actions = {"number", 0.05, "reliable"},
@@ -30,6 +32,8 @@ META:GetSet("ViewRotation", Quat(0, 0, 0, 1))
 META:GetSet("Shots", 0)
 META:GetSet("Hits", 0)
 META:GetSet("Reacts", 0)
+META:GetSet("ReactDirection", Vec3(0, 0, -1))
+META:GetSet("ReactIntensity", 1)
 META:GetSet("States", "")
 META:GetSet("Action", "")
 META:GetSet("ActionDuration", 0)
@@ -143,7 +147,7 @@ function META:SetState(name, arg)
 	self:SetStates(self.seen_states)
 end
 
-function META:Trigger(name, weight, variant)
+function META:Trigger(name, weight)
 	local def = animations.Get(name)
 
 	if def.Restart then
@@ -158,7 +162,10 @@ function META:Trigger(name, weight, variant)
 		inst.weight = math.max(inst.weight, weight)
 		inst.strength = math.max(inst.strength, weight)
 	else
-		self.anims[#self.anims + 1] = animations.NewInstance(name, weight, variant)
+		inst = animations.NewInstance(name, weight)
+		self.anims[#self.anims + 1] = inst
+
+		if def.Init then def.Init(inst, self) end
 	end
 end
 
@@ -235,7 +242,7 @@ function META:UpdateAnimations(dt)
 			self[trigger.Seen] = self[trigger.Counter]
 
 			for _, def in ipairs(trigger.Defs) do
-				self:Trigger(def.Name, 1, self[trigger.Counter])
+				self:Trigger(def.Name, 1)
 			end
 		end
 	end
@@ -362,11 +369,20 @@ function META:RegisterShot()
 end
 
 function META:OnTakeDamage(info)
-	if info.Reaction then
-		self:SetReacts(self.Reacts + 1)
-	else
+	if not info.Reaction then
 		self:SetHits(self.Hits + 1)
+		return
 	end
+
+	local direction = info.Direction
+
+	if not direction then
+		direction = info.Force:GetLength() > 0.01 and info.Force or info.Normal * -1
+	end
+
+	self:SetReactDirection(direction:GetNormalized())
+	self:SetReactIntensity(info.Reaction == true and 1 or info.Reaction)
+	self:SetReacts(self.Reacts + 1)
 end
 
 function META:ApplyRelayedCommands(commands)

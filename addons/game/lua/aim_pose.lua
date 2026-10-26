@@ -575,6 +575,8 @@ local function scale_rotation(out, q, t)
 	return out:Set(x * k, y * k, z * k, math.cos(half))
 end
 
+aim_pose.ScaleRotation = scale_rotation
+
 local function follow_state(pose, key, target, rate, dt, snap)
 	local state = pose[key]
 

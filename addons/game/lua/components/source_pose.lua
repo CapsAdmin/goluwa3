@@ -52,8 +52,6 @@ local GAIT_SPEED = {
 local FORWARD_PARAMETERS = {move_x = 1, move_y = 0}
 local DONOR_MALE = "models/humans/male_shared"
 local DONOR_FEMALE = "models/humans/female_shared"
-local ANIMATION_MALE = "models/m_anm"
-local ANIMATION_FEMALE = "models/f_anm"
 local FEMALE_MARKS = {"female", "alyx", "mossman", "chell"}
 local DONOR_BIND_BONES = {
 	["valvebiped.bip01_pelvis"] = true,
@@ -66,7 +64,6 @@ local DONOR_BIND_BONES = {
 	["valvebiped.bip01_l_forearm"] = true,
 }
 local SWITCH_TIME = 0.2
-local DEFAULT_BLEND = 0.2
 local ARM_BONES = {
 	"clavicle_r",
 	"upperarm_r",
@@ -158,28 +155,10 @@ end
 
 function META:SwitchSequence(animator, sequence, override)
 	self.sequence = sequence
-	animator:SetBlendTime(
-		override and
-			override.def.BlendIn or
-			(
-				self.override_def and
-				self.override_def.BlendOut
-			)
-			or
-			DEFAULT_BLEND
-	)
-	self.override_def = override and override.def
 	animator:SetLoop(not override or override.def.Loop ~= false)
 	animator:SetSequence(sequence)
 
 	if override and override.def.Loop == false then animator:Restart() end
-
-	local start = override and override.def.Variants and animations.GetVariant(override).Start
-
-	if start then
-		animator:ResolveClip()
-		animator:SetTime(start * animator.skeleton.ClipsByName[sequence].Duration)
-	end
 end
 
 function META:UpdateCreature(animator, skeleton, pose, dt)
@@ -193,19 +172,6 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 		end
 
 		animator:SetSpeed(pose.animation_speed * pose.rate_variation)
-		return
-	end
-
-	if self.Mirror then self:AddReactionClips(skeleton) end
-
-	local override_sequence, override = self:GetOverride(pose, "all", skeleton.ClipsByName)
-
-	if override then
-		if override_sequence ~= self.sequence then
-			self:SwitchSequence(animator, override_sequence, override)
-		end
-
-		animator:SetSpeed((override.def.Speed or 1) * pose.animation_speed * pose.rate_variation)
 		return
 	end
 
@@ -301,36 +267,6 @@ function META:AddDonorClips(skeleton)
 	end
 
 	import("goluwa/render3d/model_decoders/mdl.lua").AddAnimations(skeleton, donor, is_donor_clip, DONOR_BIND_BONES)
-end
-
-function META:AddReactionClips(skeleton)
-	if skeleton.reaction_checked then return end
-
-	skeleton.reaction_checked = true
-	local wanted = {}
-	local missing = false
-
-	for _, variant in ipairs(animations.Get("hit_react").Variants) do
-		wanted[variant.Clip] = true
-		missing = missing or not skeleton.ClipsByName[variant.Clip]
-	end
-
-	if not missing then return end
-
-	local path = self.Owner.model:GetModelPath():lower()
-	local donor = ANIMATION_MALE
-
-	for _, mark in ipairs(FEMALE_MARKS) do
-		if path:find(mark, 1, true) then
-			donor = ANIMATION_FEMALE
-
-			break
-		end
-	end
-
-	import("goluwa/render3d/model_decoders/mdl.lua").AddAnimations(skeleton, donor, function(name)
-		return wanted[name]
-	end, DONOR_BIND_BONES)
 end
 
 function META:UpdatePlayer(animator, pose, dt)
@@ -697,7 +633,6 @@ function META:OnUpdate(dt)
 
 	if self.Profile == "gmod_player" then
 		self:AddDonorClips(animator.skeleton)
-		self:AddReactionClips(animator.skeleton)
 		self:UpdatePlayer(animator, pose, dt)
 	else
 		self:UpdateCreature(animator, animator.skeleton, pose, dt)

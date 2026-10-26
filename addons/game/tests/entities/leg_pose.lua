@@ -147,3 +147,24 @@ T.Test("a planted foot follows part of the pelvis yaw", function()
 	local forward = bones.foot_r:GetRotation():VecMul(Vec3(0, 0, -1))
 	T(math.atan2(-forward.x, -forward.z))["~"](0.5 * leg_pose.FootYawFollow, 1e-4)
 end)
+
+T.Test("a pelvis hook moves the body and the head holds most of the pelvis rotation", function()
+	local animations = import("lua/animations.lua")
+	animations.Register(
+		"pelvis_hook_test",
+		{
+			Kind = "action",
+			Pelvis = function(inst, pose, out)
+				out[1], out[2], out[3], out[4], out[5], out[6] = 0.1, 0, 0, 0, 0.5, 0
+			end,
+		}
+	)
+	local bones = create_bones()
+	local inst = animations.NewInstance("pelvis_hook_test", 1)
+	local state = leg_pose.NewState()
+	leg_pose.ApplyKeys(bones, {anims = {inst}}, 1, state)
+	leg_pose.Apply(bones, 0, 0, 0, NORMALS, state)
+	T(bones.chest:GetRotation():GetForward().y > 0.4)["=="](true)
+	T(bones.head:GetRotation():GetForward().y)["~"](math.sin(0.5 * (1 - leg_pose.HeadHold)), 0.03)
+	T(position(bones, "foot_r"):Distance(POSITIONS.foot_r) < 0.02)["=="](true)
+end)
