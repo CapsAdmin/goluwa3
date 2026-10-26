@@ -270,14 +270,18 @@ function META:HasAuthority()
 end
 
 function META:OnPhysicsUpdate(dt)
+	local authority = self:HasAuthority()
+	local link = self.Owner.network
+	local own_rig = link and link.linked
+
+	if not authority and not own_rig then return end
+
 	local cmd = self.Owner.character_movement:GetCommand()
 
 	if cmd.select ~= 0 then self:ApplySelection(cmd) end
 
-	if not self:HasAuthority() then
-		local link = self.Owner.network
-
-		if link and link.linked and network.IsPredicting() then
+	if not authority then
+		if network.IsPredicting() then
 			for _, child in ipairs(self.Owner:GetChildren()) do
 				if child.weapon and child.weapon:IsEquipped() then
 					child.weapon:Predict(dt, cmd, self:GetButtons(child))
