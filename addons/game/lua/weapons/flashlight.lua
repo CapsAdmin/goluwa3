@@ -6,6 +6,7 @@ local BODY = {Color = Color(0.12, 0.12, 0.13, 1), Roughness = 0.55, Metallic = 0
 local STRAP = {Color = Color(0.2, 0.16, 0.12, 1), Roughness = 0.9, Metallic = 0}
 local LENS = {Color = Color(0.85, 0.88, 0.9, 1), Roughness = 0.05, Metallic = 0.2}
 return {
+	Components = {weapon_switch = {}},
 	Values = {
 		WorldSize = Vec3(0.07, 0.07, 0.14),
 		WorldCenter = Vec3(),
@@ -69,7 +70,6 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local META = objects.CreateTemplate("weapon_flashlight")
 META:StartStorable()
-META:GetSet("On", false)
 META:GetSet("Lumen", 600)
 META:EndStorable()
 local SHADOW = {Size = Vec2(1024, 1024), PerspectiveFov = 60, NearPlane = 0.1, FarPlane = 250}
@@ -80,13 +80,23 @@ function META:Initialize()
 	self:AddGlobalEvent("Update")
 end
 
+function META:Toggle()
+	local switch = self.Owner.weapon_switch
+	switch:SetOn(not switch.On)
+end
+
 function META:OnWeaponPrimary()
-	self:SetOn(not self.On)
+	self:Toggle()
+	return false
+end
+
+function META:OnWeaponPredictPrimary()
+	self:Toggle()
 	return false
 end
 
 function META:OnWeaponHolster()
-	self:SetOn(false)
+	self.Owner.weapon_switch:SetOn(false)
 end
 
 function META:OnUpdate()
@@ -94,7 +104,7 @@ function META:OnUpdate()
 
 	local instance = self.Owner.prefab
 	local lamp = instance:GetNode("lamp")
-	local lit = self.On and self.Owner.weapon:IsEquipped()
+	local lit = self.Owner.weapon_switch.On and self.Owner.weapon:IsEquipped()
 	prefab.Suppress()
 
 	if lit ~= self.lit then

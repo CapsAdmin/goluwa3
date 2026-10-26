@@ -1,6 +1,7 @@
 local prefab = import("goluwa/entities/prefab.lua")
 local Entity = import("goluwa/entities/entity.lua")
 Entity.RegisterComponent("tool_beam", import("lua/components/tool_beam.lua"))
+Entity.RegisterComponent("weapon_switch", import("lua/components/weapon_switch.lua"))
 local weapons = {}
 weapons.Definitions = {}
 weapons.RootComponents = {}
