@@ -298,8 +298,10 @@ function META:SetBodyYaw(view)
 	end
 
 	self.Owner.transform:SetRotation(yaw:Copy())
+	self.Owner.transform.InterpolatedFrame = nil
 	body:SetRotation(yaw)
 	body.PreviousRotation = yaw:Copy()
+	body.StepStartRotation:CopyFrom(yaw)
 	body:SetAngularVelocity(Vec3())
 end
 
@@ -732,7 +734,8 @@ do
 
 		if cmd.mode ~= self.mode then self:ApplyMode(cmd.mode) end
 
-		self:SetBodyYaw(cmd.view)
+		if not self.frame_body_yaw then self:SetBodyYaw(cmd.view) end
+
 		local view = cmd.view
 		local active = usercmd.HasButton(cmd, BUTTON.ACTIVE)
 		local crouching = usercmd.HasButton(cmd, BUTTON.CROUCH)

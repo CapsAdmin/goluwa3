@@ -306,6 +306,20 @@ function META:OnPreUpdate(dt)
 		third_person.ApplyRelativeMovement(self, dt)
 		camera_modes.ApplyMovement(self, dt, input.IsMouseDown("button_1") or input.IsMouseDown("button_2"))
 	end
+
+	local movement = self.Owner.character_movement
+	local ragdoll = self.Owner.ragdoll
+	movement.frame_body_yaw = not movement.dead and
+		not third_person.IsEnabled()
+		and
+		not camera_modes.GetActive()
+		and
+		not (
+			ragdoll and
+			ragdoll.Limp
+		)
+
+	if movement.frame_body_yaw then movement:SetBodyYaw(self.Rotation) end
 end
 
 function META:OnCameraInputUpdate(dt)
