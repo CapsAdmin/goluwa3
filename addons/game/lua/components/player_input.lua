@@ -41,6 +41,8 @@ function META:Initialize()
 	self.scroll_accum = 0
 	self.rotate_accum = Vec2()
 	self.select_slot = 0
+	self.wheel_slot = nil
+	self.wheel_slot_time = 0
 	self.select_down = {}
 	self.wheel_accum = 0
 	self:RefreshKeys()
@@ -247,7 +249,10 @@ function META:OnPreUpdate(dt)
 	for slot = 1, 9 do
 		local down = input.IsKeyDown(SLOT_KEYS[slot])
 
-		if down and not self.select_down[slot] then self.select_slot = slot end
+		if down and not self.select_down[slot] then
+			self.select_slot = slot
+			self.wheel_slot = nil
+		end
 
 		self.select_down[slot] = down
 	end
@@ -260,17 +265,26 @@ function META:OnPreUpdate(dt)
 			self.scroll_accum = self.scroll_accum + wheel
 		else
 			local holder = self.Owner.weapon_holder
+			local now = system.GetElapsedTime()
 			local slot = self.select_slot
 
-			if slot == 0 then slot = holder:GetActiveSlot() end
+			if slot == 0 then
+				if self.wheel_slot and now - self.wheel_slot_time < 0.5 then
+					slot = self.wheel_slot
+				else
+					slot = holder:GetActiveSlot()
+				end
+			end
 
-			local direction = wheel > 0 and 1 or -1
+			local direction = wheel > 0 and -1 or 1
 
 			for _ = 1, math.abs(wheel) do
 				slot = holder:CycleSlot(slot, direction)
 			end
 
 			self.select_slot = slot
+			self.wheel_slot = slot
+			self.wheel_slot_time = now
 		end
 	end
 

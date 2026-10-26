@@ -20,7 +20,7 @@ return {
 	Values = {
 		WorldSize = Vec3(0.2, 0.05, 1.1),
 		WorldCenter = FORWARD * 0.4,
-		Slot = 4,
+		Slot = 4.5,
 		DisplayName = "Sword",
 		Category = "melee",
 		FireRate = 0.05,
