@@ -69,7 +69,12 @@ function META:OnLateUpdate(dt)
 	if movement then
 		local avatar = self.Owner.player_avatar
 		avatar:UpdateHeadOffset(dt)
-		self:SetViewOffset(movement:GetEyeOffset() + movement:ClampHeadOffset(avatar:GetHeadOffset()))
+
+		if third_person.IsEnabled() or camera_modes.GetActive() then
+			self:SetViewOffset(movement:GetEyeOffset())
+		else
+			self:SetViewOffset(movement:GetEyeOffset() + movement:ClampHeadOffset(avatar:GetHeadOffset()))
+		end
 	end
 
 	local position = self:GetViewPosition()
