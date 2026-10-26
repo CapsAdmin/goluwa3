@@ -13,12 +13,14 @@ usercmd.BUTTON = {
 	DROP = 256,
 	WALK = 512,
 	RELOAD = 1024,
+	ATTACK3 = 2048,
 }
 usercmd.MODE = {fly = 0, walk = 1}
 usercmd.MODE_NAME = {[0] = "fly", [1] = "walk"}
 usercmd.MAX_BATCH = 8
 usercmd.HELD_COLLISION_GROUP = 2
 usercmd.HEAD_RANGE = 2
+usercmd.SELECT_EMPTY = 255
 
 function usercmd.New()
 	return {
@@ -36,6 +38,7 @@ function usercmd.New()
 		rotate_x = 0,
 		rotate_y = 0,
 		select = 0,
+		select_left = false,
 	}
 end
 
@@ -55,6 +58,7 @@ function usercmd.Copy(cmd)
 	out.rotate_x = cmd.rotate_x
 	out.rotate_y = cmd.rotate_y
 	out.select = cmd.select
+	out.select_left = cmd.select_left
 	return out
 end
 
@@ -94,6 +98,7 @@ function usercmd.Write(buffer, cmd)
 	buffer:WriteI16(math.floor(math.clamp(cmd.rotate_x, -30, 30) * 1000 + 0.5))
 	buffer:WriteI16(math.floor(math.clamp(cmd.rotate_y, -30, 30) * 1000 + 0.5))
 	buffer:WriteByte(cmd.select)
+	buffer:WriteByte(cmd.select_left and 1 or 0)
 end
 
 function usercmd.Read(buffer, out)
@@ -111,6 +116,7 @@ function usercmd.Read(buffer, out)
 	out.rotate_x = buffer:ReadI16() / 1000
 	out.rotate_y = buffer:ReadI16() / 1000
 	out.select = buffer:ReadByte()
+	out.select_left = buffer:ReadByte() == 1
 	return out
 end
 

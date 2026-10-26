@@ -105,7 +105,7 @@ function META:ComputePose()
 	end
 
 	local holder = owner.weapon_holder
-	local active = holder and holder:GetPosedWeapon()
+	local active = holder and holder:GetPosedWeapon("right")
 	biped_pose.Compute(
 		self.bones,
 		owner.character_movement:GetHeight(),

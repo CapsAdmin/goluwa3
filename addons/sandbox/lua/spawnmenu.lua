@@ -124,7 +124,9 @@ function spawnmenu.Spawn(entry)
 		local holder = _G.PLAYER_RIG.weapon_holder
 
 		for _, weapon in ipairs(holder:GetWeapons()) do
-			if weapon:GetName() == entry.spawn_name then return holder:Select(weapon) end
+			if weapon:GetName() == entry.spawn_name then
+				return holder:Equip(weapon, weapon.weapon:GetDefaultPlace())
+			end
 		end
 
 		local weapon = weapons.Spawn(entry.spawn_name, position + Vec3(0, 0.3, 0), QuatFromAxis(yaw, Vec3(0, 1, 0)))
@@ -476,7 +478,7 @@ local function select_tool(name)
 	local holder = _G.PLAYER_RIG.weapon_holder
 	local weapon = holder:FindWeapon("weapon_toolgun")
 
-	if weapon then holder:Select(weapon) end
+	if weapon then holder:Equip(weapon, "right") end
 end
 
 local function build_tool_items(tool, on_change)

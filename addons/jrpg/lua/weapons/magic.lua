@@ -106,7 +106,16 @@ function META:Cast(cmd, self_target)
 		return false
 	end
 
-	self.left = not self.left
+	local equipped = self.Owner.weapon:GetEquipped()
+
+	if equipped == "left" then
+		self.left = true
+	elseif caster.weapon_holder:GetWeapon("left") then
+		self.left = false
+	else
+		self.left = not self.left
+	end
+
 	caster.character_pose:PlayAction(self.left and "cast_l" or "cast_r", self.CastTime)
 	local view = cmd.view
 	local forward = view:GetForward()
@@ -179,7 +188,7 @@ function META:OnUpdate()
 		return
 	end
 
-	local active = self.Owner.weapon:IsActive()
+	local active = self.Owner.weapon:IsEquipped()
 	local definition = damage_types.Get(self.Element)
 	local pose = caster.character_pose
 

@@ -57,7 +57,8 @@ function jrpg.GiveLoadout(entity)
 		if not holder:FindWeapon(name) then holder:Give(name) end
 	end
 
-	holder:Select(holder:FindWeapon("weapon_sword"))
+	holder:Equip(holder:FindWeapon("weapon_sword"), "right")
+	holder:Equip(holder:FindWeapon("weapon_shield"), "left")
 end
 
 function jrpg.RemoveLoadout(entity)
@@ -69,11 +70,7 @@ function jrpg.RemoveLoadout(entity)
 		if weapon then weapon:Remove() end
 	end
 
-	if not holder:GetActiveWeapon() then
-		local weapon = holder:GetWeapons()[1]
-
-		if weapon then holder:Select(weapon) end
-	end
+	if not holder:GetWeapon("right") then holder:EquipFirst() end
 end
 
 function jrpg.SetEnabled(entity, enabled, cheat)
@@ -213,7 +210,12 @@ event.AddListener("ModifyDamage", "jrpg", function(victim, info)
 	elseif rpg then
 		info.Damage = info.Damage / rpg:GetStat(magic and "magic_defense" or "physical_defense")
 
-		if victim.character_movement:IsRolling() and not magic and attacker ~= victim and not info.Status then
+		if
+			victim.character_movement:IsRolling() and
+			not magic and
+			attacker ~= victim and
+			not info.Status
+		then
 			info.Cancel = true
 			effects.Text(victim, "DODGE", jrpg.Colors.neon)
 			return
@@ -315,7 +317,8 @@ event.AddListener("CanRoll", "jrpg", function(entity)
 	if not rpg then return end
 
 	return not entity.character_pose:IsBlocking() and
-		not rpg:IsStunned() and
+		not rpg:IsStunned()
+		and
 		status_effects.GetSpeedScale(entity) > 0 and
 		rpg:DrainStamina(ROLL_COST)
 end)

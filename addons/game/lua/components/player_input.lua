@@ -40,9 +40,11 @@ function META:Initialize()
 	self.sprint_down = false
 	self.scroll_accum = 0
 	self.rotate_accum = Vec2()
-	self.select_slot = 0
-	self.wheel_slot = nil
-	self.wheel_slot_time = 0
+	self.select_index = 0
+	self.select_left = false
+	self.wheel_index = nil
+	self.wheel_left = false
+	self.wheel_time = 0
 	self.select_down = {}
 	self.wheel_accum = 0
 	self:RefreshKeys()
@@ -85,7 +87,7 @@ function META:KeyInput(key, press)
 	if key == "v" then
 		self:OnCameraToggleMode()
 	elseif key == "r" then
-		local weapon = self.Owner.weapon_holder:GetActiveWeapon()
+		local weapon = self.Owner.weapon_holder:GetWeapon("right")
 
 		if weapon then weapon:CallLocalEvent("OnWeaponReset", self) end
 	end
@@ -204,6 +206,8 @@ function META:BuildCommand(cmd)
 		if input.IsKeyDown("b") then buttons = bit.bor(buttons, BUTTON.DROP) end
 
 		if input.IsKeyDown("r") then buttons = bit.bor(buttons, BUTTON.RELOAD) end
+
+		if input.IsKeyDown("f") then buttons = bit.bor(buttons, BUTTON.ATTACK3) end
 	end
 
 	third_person.AdjustCommand(cmd)
@@ -212,11 +216,111 @@ function META:BuildCommand(cmd)
 	cmd.scroll = self.scroll_accum
 	cmd.rotate_x = self.rotate_accum.x
 	cmd.rotate_y = self.rotate_accum.y
-	cmd.select = self.select_slot
-	self.select_slot = 0
+	cmd.select = self.select_index
+	cmd.select_left = self.select_left
+	self.select_index = 0
 	self.scroll_accum = 0
 	self.rotate_accum.x = 0
 	self.rotate_accum.y = 0
+end
+
+do
+	-- choices are indices into holder:GetWeapons(), which is what a command carries; the left hand can also be emptied
+	local function get_choices(weapons, where, slot, skip)
+		local choices = {}
+
+		for i, weapon in ipairs(weapons) do
+			if
+				weapon ~= skip and
+				weapon.weapon:CanEquip(where) and
+				(
+					not slot or
+					math.floor(weapon.weapon:GetSlot()) == slot
+				)
+			then
+				choices[#choices + 1] = i
+			end
+		end
+
+		if where == "left" and choices[1] then
+			choices[#choices + 1] = usercmd.SELECT_EMPTY
+		end
+
+		return choices
+	end
+
+	local function step(choices, current, direction)
+		local count = #choices
+
+		for i, index in ipairs(choices) do
+			if index == current then return choices[(i - 1 + direction) % count + 1] end
+		end
+
+		return direction > 0 and choices[1] or choices[count]
+	end
+
+	function META:GetSelectedIndex(weapons, left)
+		if self.select_index ~= 0 and self.select_left == left then
+			return self.select_index
+		end
+
+		if
+			self.wheel_index and
+			self.wheel_left == left and
+			system.GetElapsedTime() - self.wheel_time < 0.5
+		then
+			return self.wheel_index
+		end
+
+		local holder = self.Owner.weapon_holder
+		local weapon = holder:GetWeapon(left and "left" or "right")
+
+		if left and weapon == holder:GetWeapon("right") then weapon = nil end
+
+		for i, other in ipairs(weapons) do
+			if other == weapon then return i end
+		end
+
+		return left and usercmd.SELECT_EMPTY or 0
+	end
+
+	function META:Select(index, left)
+		self.select_index = index
+		self.select_left = left
+	end
+
+	function META:SelectSlot(slot, left)
+		local weapons = self.Owner.weapon_holder:GetWeapons()
+		local choices = get_choices(weapons, left and "left" or "right", slot)
+
+		if not choices[1] then return end
+
+		self:Select(step(choices, self:GetSelectedIndex(weapons, left), 1), left)
+		self.wheel_index = nil
+	end
+
+	function META:ScrollWeapons(direction, steps, left)
+		local holder = self.Owner.weapon_holder
+		local weapons = holder:GetWeapons()
+		local other = holder:GetWeapon(left and "right" or "left")
+
+		if other and other.weapon:IsTwoHanded() then other = nil end
+
+		local choices = get_choices(weapons, left and "left" or "right", nil, other)
+
+		if not choices[1] then return end
+
+		local index = self:GetSelectedIndex(weapons, left)
+
+		for _ = 1, steps do
+			index = step(choices, index, direction)
+		end
+
+		self:Select(index, left)
+		self.wheel_index = index
+		self.wheel_left = left
+		self.wheel_time = system.GetElapsedTime()
+	end
 end
 
 function META:OnPreUpdate(dt)
@@ -245,14 +349,12 @@ function META:OnPreUpdate(dt)
 	end
 
 	local pose = self.Owner.character_pose
+	local left = input.IsKeyDown("left_alt")
 
 	for slot = 1, 9 do
 		local down = input.IsKeyDown(SLOT_KEYS[slot])
 
-		if down and not self.select_down[slot] then
-			self.select_slot = slot
-			self.wheel_slot = nil
-		end
+		if down and not self.select_down[slot] then self:SelectSlot(slot, left) end
 
 		self.select_down[slot] = down
 	end
@@ -264,27 +366,7 @@ function META:OnPreUpdate(dt)
 		if pose:IsHolding() then
 			self.scroll_accum = self.scroll_accum + wheel
 		else
-			local holder = self.Owner.weapon_holder
-			local now = system.GetElapsedTime()
-			local slot = self.select_slot
-
-			if slot == 0 then
-				if self.wheel_slot and now - self.wheel_slot_time < 0.5 then
-					slot = self.wheel_slot
-				else
-					slot = holder:GetActiveSlot()
-				end
-			end
-
-			local direction = wheel > 0 and -1 or 1
-
-			for _ = 1, math.abs(wheel) do
-				slot = holder:CycleSlot(slot, direction)
-			end
-
-			self.select_slot = slot
-			self.wheel_slot = slot
-			self.wheel_slot_time = now
+			self:ScrollWeapons(wheel > 0 and -1 or 1, math.abs(wheel), left)
 		end
 	end
 
@@ -327,7 +409,7 @@ function META:OnCameraInputUpdate(dt)
 		return
 	end
 
-	local weapon = self.Owner.weapon_holder:GetActiveWeapon()
+	local weapon = self.Owner.weapon_holder:GetWeapon("right")
 
 	if weapon and weapon:CallLocalEvent("OnWeaponMouseLook", self, mouse_delta) then
 		return

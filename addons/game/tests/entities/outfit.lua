@@ -91,7 +91,7 @@ T.Test("a weapon that hides the player hides the whole outfit in first person an
 	local holds = {value = false}
 	local player = Entity.New{transform = {}, player_avatar = {}}
 	player.weapon_holder = {
-		GetActiveWeapon = function()
+		GetWeapon = function()
 			return {weapon = {
 				IsHidesPlayer = function()
 					return holds.value

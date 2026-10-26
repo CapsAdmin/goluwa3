@@ -16,7 +16,11 @@ import("addons/game/lua/autorun/characters.lua")
 local function create_ground()
 	return Entity.New{
 		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(300, 1, 300)},
-		rigid_body = {MotionType = "static", WorldGeometry = true, Shape = BoxShape.New(Vec3(1, 1, 1))},
+		rigid_body = {
+			MotionType = "static",
+			WorldGeometry = true,
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+		},
 	}
 end
 
@@ -40,7 +44,13 @@ end
 
 local function create_target(position)
 	local player = Entity.New{
-		ComponentSet = {"transform", "player_controller", "character_movement", "character_pose", "health"},
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"health",
+		},
 		transform = {Position = position:Copy()},
 		player_controller = {Source = "queue"},
 		health = {Health = 1000, MaxHealth = 1000},
@@ -79,7 +89,7 @@ end)
 T.TestPhysics("npc without a weapon does not shoot", function()
 	create_ground()
 	local gunman = create_gunman(Vec3(0, 0.05, 0))
-	gunman.weapon_holder:GetActiveWeapon():Remove()
+	gunman.weapon_holder:GetWeapon("right"):Remove()
 	local player = create_target(Vec3(6, 0.05, 0))
 	run(4)
 	T(player.health.Health)["=="](player.health.MaxHealth)
@@ -136,7 +146,7 @@ T.TestPhysics("a physgun is held by an npc as it is by a player", function()
 	create_ground()
 	local gunman = create_gunman(Vec3(0, 0.05, 0))
 	local physgun = gunman.weapon_holder:Give("weapon_physgun")
-	gunman.weapon_holder:Select(physgun)
+	gunman.weapon_holder:Equip(physgun, "right")
 	local crate = Entity.New{
 		transform = {Position = Vec3(0, 1.2, -4)},
 		rigid_body = {Shape = BoxShape.New(Vec3(1, 1, 1))},

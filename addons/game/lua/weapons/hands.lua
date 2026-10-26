@@ -221,18 +221,20 @@ end
 function META:OnWeaponThink(dt, cmd)
 	if not usercmd.HasButton(cmd, BUTTON.ACTIVE) then return end
 
+	local weapon = self.Owner.weapon
+
 	if self.held_body then
-		if usercmd.WasPressed(cmd, BUTTON.ATTACK2) then
+		if weapon:WasSecondaryPressed(cmd) then
 			self:Release()
 			return
 		end
 
-		if usercmd.WasPressed(cmd, BUTTON.ATTACK1) and self.throw_left <= 0 then
+		if weapon:WasPrimaryPressed(cmd) and self.throw_left <= 0 then
 			self.throw_left = self.ThrowTime
 		end
 
 		self:UpdateHeldBody(dt, cmd)
-	elseif usercmd.WasPressed(cmd, BUTTON.ATTACK1) then
+	elseif weapon:WasPrimaryPressed(cmd) then
 		self:TryAcquireBody(cmd)
 	end
 end

@@ -131,6 +131,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/navigation-and-npcs.md](docs/navigation-and-npcs.md): probed-grid pathfinding, NPC prefabs that walk with Source animations, simulation LOD
 - [docs/physics.md](docs/physics.md): solver, stress testing, buoyancy, Source props, physgun, toolgun and constraint entities, game undo history
 - [docs/characters.md](docs/characters.md): the shared character (controller, pose state, biped skeleton, drivers, sockets)
+- [docs/weapons.md](docs/weapons.md): weapons in the right and left hand and on body mounts, button routing, selection
 - [docs/animation-and-source.md](docs/animation-and-source.md): skeletal animation, Source content, threaded codecs
 - [docs/networking.md](docs/networking.md): server/client, replication, players, visibility, ownership and permissions
 - [docs/addons.md](docs/addons.md): how addons mount, depend on each other and autorun; the `game` base and the `sandbox` and `jrpg` gamemode addons

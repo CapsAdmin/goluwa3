@@ -76,7 +76,7 @@ end
 
 function META:UpdateWeaponHidden()
 	local holder = self.Owner.weapon_holder
-	local weapon = holder and holder:GetActiveWeapon()
+	local weapon = holder and holder:GetWeapon("right")
 	local hidden = self.first_person and weapon ~= nil and weapon.weapon:IsHidesPlayer()
 	self.player_hidden = hidden
 

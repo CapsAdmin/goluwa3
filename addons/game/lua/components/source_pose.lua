@@ -262,7 +262,7 @@ function META:UpdatePlayer(animator, pose, dt)
 	local override, sequence
 	local clips = animator.skeleton.ClipsByName
 	local holder = pose.Owner.weapon_holder
-	local weapon = holder and holder:GetActiveWeapon()
+	local weapon = holder and holder:GetWeapon("right")
 	local suffix = weapon and WEAPON_SUFFIX[weapon.prefab.Path] or "all"
 
 	for i = #pose.anims, 1, -1 do
@@ -458,7 +458,7 @@ end
 
 function META:MirrorBones(rig, armature, pose, dt)
 	local holder = pose.Owner.weapon_holder
-	local active = holder and holder:GetPosedWeapon()
+	local active = holder and holder:GetPosedWeapon("right")
 	local armed = active ~= nil and
 		(
 			active.weapon:IsAlwaysPose() or

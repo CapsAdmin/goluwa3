@@ -371,7 +371,7 @@ end
 
 function META:IsArmed()
 	local holder = self.Owner.weapon_holder
-	return holder ~= nil and holder:GetActiveWeapon() ~= nil
+	return holder ~= nil and holder:GetWeapon("right") ~= nil
 end
 
 function META:CanFight()

@@ -515,7 +515,7 @@ T.Test3D("the source outfit eases its arms into a weapon and between two weapons
 	local held = hand()
 	T(idle:Distance(held) > 0.2)["=="](true)
 	T(rising:Distance(idle) > 0.02 and rising:Distance(held) > 0.05)["=="](true)
-	player.weapon_holder:Select(player.weapon_holder:Give("weapon_physgun"))
+	player.weapon_holder:Equip(player.weapon_holder:Give("weapon_physgun"), "right")
 	tick(6)
 	local middle = hand()
 	T(model.source_pose.prev_held ~= nil)["=="](true)

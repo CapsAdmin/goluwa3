@@ -6,6 +6,7 @@ local system = import("goluwa/system.lua")
 local third_person = import("lua/third_person.lua")
 local toolgun = import("lua/toolgun.lua")
 local spawnmenu = RENDER_3D and import("lua/spawnmenu.lua")
+local BUTTON = import("goluwa/network/usercmd.lua").BUTTON
 local MARGIN = 24
 local WIDTH = 360
 local PADDING = 14
@@ -14,6 +15,7 @@ local KEY_WIDTH = 46
 local fonts = {}
 local keys = {}
 local texts = {}
+local MOUSE_LABELS = {[BUTTON.ATTACK1] = "LMB", [BUTTON.ATTACK2] = "RMB"}
 
 event.AddListener("DrawHUD", "toolgun_hud", function()
 	local rig = _G.PLAYER_RIG
@@ -22,10 +24,16 @@ event.AddListener("DrawHUD", "toolgun_hud", function()
 		return
 	end
 
-	local weapon = rig.weapon_holder:GetActiveWeapon()
+	local holder = rig.weapon_holder
+	local weapon = holder:GetWeapon("right")
+
+	if not (weapon and weapon.weapon_toolgun) then
+		weapon = holder:GetWeapon("left")
+	end
 
 	if not (weapon and weapon.weapon_toolgun) then return end
 
+	local primary, secondary = holder:GetButtons(weapon)
 	local context = weapon.weapon_toolgun:GetContext()
 	context:Refresh()
 	local tool = context:GetTool()
@@ -45,12 +53,12 @@ event.AddListener("DrawHUD", "toolgun_hud", function()
 
 	if left then
 		count = count + 1
-		keys[count], texts[count] = "LMB", left
+		keys[count], texts[count] = MOUSE_LABELS[primary], left
 	end
 
-	if instructions.Right then
+	if instructions.Right and secondary ~= 0 then
 		count = count + 1
-		keys[count], texts[count] = "RMB", instructions.Right
+		keys[count], texts[count] = MOUSE_LABELS[secondary], instructions.Right
 	end
 
 	if instructions.Reload then

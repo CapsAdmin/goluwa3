@@ -55,7 +55,7 @@ local function create_holder()
 	holder.player_controller.cmd.mode = "walk"
 	local gun = holder.weapon_holder:FindWeapon("weapon_toolgun") or
 		holder.weapon_holder:Give("weapon_toolgun")
-	holder.weapon_holder:Select(gun)
+	holder.weapon_holder:Equip(gun, "right")
 	return holder, gun.weapon_toolgun:GetContext()
 end
 
@@ -215,17 +215,17 @@ T.TestPhysics("switching tools drops a half made constraint and the primary atta
 	toolgun.Select("axis")
 	context:Refresh()
 	T(context:GetStage())["=="](0)
-	local gun = holder.weapon_holder:GetActiveWeapon()
+	local gun = holder.weapon_holder:GetWeapon("right")
 	local eye = holder.transform:GetPosition() + holder.character_movement:GetViewOffset()
 	local cmd = usercmd.New()
 	cmd.view = Quat():SetLookDirection((Vec3(-1, 0.25, -3) - eye):GetNormalized())
 	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
 	cmd.pressed = usercmd.BUTTON.ATTACK1
-	gun.weapon:Think(1, cmd)
+	gun.weapon:Think(1, cmd, usercmd.BUTTON.ATTACK1, usercmd.BUTTON.ATTACK2)
 	T(context:GetStage())["=="](1)
 	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.RELOAD
 	cmd.pressed = usercmd.BUTTON.RELOAD
-	gun.weapon:Think(1, cmd)
+	gun.weapon:Think(1, cmd, usercmd.BUTTON.ATTACK1, usercmd.BUTTON.ATTACK2)
 	T(context:GetStage())["=="](0)
 end)
 

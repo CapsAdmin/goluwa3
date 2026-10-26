@@ -6,9 +6,10 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local META = objects.CreateTemplate("weapon")
 local BUTTON = usercmd.BUTTON
+local SOCKETS = {[""] = "grip_r", right = "grip_r", left = "grip_l", chest = "chest"}
 META.Network = {
 	Slot = {"number", 0.5, "reliable"},
-	Active = {"boolean", 0.5, "reliable"},
+	Equipped = {"string", 0.5, "reliable"},
 	PoseArms = {"boolean", 0.1, "reliable"},
 	HoldOffset = {"vec3", 0.1, "reliable"},
 	SupportGrip = {"vec3", 0.1, "reliable"},
@@ -17,6 +18,7 @@ META:StartStorable()
 META:GetSet("Slot", 1)
 META:GetSet("DisplayName", "")
 META:GetSet("Category", "tools")
+META:GetSet("Mount", "hand")
 META:IsSet("HiddenInFirstPerson", false)
 META:IsSet("HeldAtEye", false)
 META:IsSet("HidesPlayer", false)
@@ -35,7 +37,9 @@ META:GetSet("WorldSize", Vec3(0.2, 0.2, 0.6))
 META:GetSet("WorldCenter", Vec3())
 META:GetSet("WorldMass", 3)
 META:EndStorable()
-META:IsSet("Active", false)
+META:GetSet("Equipped", "")
+META:GetSet("PrimaryButton", BUTTON.ATTACK1)
+META:GetSet("SecondaryButton", BUTTON.ATTACK2)
 
 function META:Initialize()
 	self.time = 0
@@ -56,6 +60,31 @@ function META:IsHeld()
 	return self:GetHolder() ~= nil
 end
 
+function META:IsEquipped()
+	return self.Equipped ~= ""
+end
+
+function META:SetEquipped(where)
+	if self.Equipped == where then return end
+
+	self.Equipped = where
+	self:RefreshWorldState()
+end
+
+function META:GetDefaultPlace()
+	if self.Mount ~= "hand" then return self.Mount end
+
+	return self.Offhand and "left" or "right"
+end
+
+function META:CanEquip(where)
+	if self.Mount ~= "hand" then return where == self.Mount end
+
+	if where == "right" then return not self.Offhand end
+
+	return where == "left" and not self.TwoHanded
+end
+
 function META:RefreshWorldState()
 	local owner = self.Owner
 	local held = self:IsHeld()
@@ -63,7 +92,7 @@ function META:RefreshWorldState()
 
 	if model then
 		prefab.Suppress()
-		model.transform:SetAttachment(held and (self.Offhand and "grip_l" or "grip_r") or "root")
+		model.transform:SetAttachment(held and SOCKETS[self.Equipped] or "root")
 		model.transform:SetPosition(held and Vec3() or self.WorldCenter * -1)
 		model.visibility:SetVisible(not held)
 		prefab.Unsuppress()
@@ -116,9 +145,31 @@ function META:UpdateModel(visible)
 	self:GetModel().visibility:SetVisible(visible)
 end
 
-function META:Think(dt, cmd)
+function META:IsPrimaryDown(cmd)
+	return usercmd.HasButton(cmd, BUTTON.ACTIVE) and
+		usercmd.HasButton(cmd, self.PrimaryButton)
+end
+
+function META:WasPrimaryPressed(cmd)
+	return usercmd.HasButton(cmd, BUTTON.ACTIVE) and
+		usercmd.WasPressed(cmd, self.PrimaryButton)
+end
+
+function META:IsSecondaryDown(cmd)
+	return usercmd.HasButton(cmd, BUTTON.ACTIVE) and
+		usercmd.HasButton(cmd, self.SecondaryButton)
+end
+
+function META:WasSecondaryPressed(cmd)
+	return usercmd.HasButton(cmd, BUTTON.ACTIVE) and
+		usercmd.WasPressed(cmd, self.SecondaryButton)
+end
+
+function META:Think(dt, cmd, primary, secondary)
 	local owner = self.Owner
 	self.time = self.time + dt
+	self.PrimaryButton = primary
+	self.SecondaryButton = secondary
 	owner:CallLocalEvent("OnWeaponThink", dt, cmd)
 
 	if not usercmd.HasButton(cmd, BUTTON.ACTIVE) then return end
@@ -128,9 +179,9 @@ function META:Think(dt, cmd)
 	if
 		self.time >= self.next_primary and
 		(
-			usercmd.WasPressed(cmd, BUTTON.ATTACK1) or
+			usercmd.WasPressed(cmd, primary) or
 			automatic and
-			usercmd.HasButton(cmd, BUTTON.ATTACK1)
+			usercmd.HasButton(cmd, primary)
 		)
 		and
 		owner:CallLocalEvent("OnWeaponPrimary", cmd) ~= false
@@ -144,9 +195,9 @@ function META:Think(dt, cmd)
 	if
 		self.time >= self.next_secondary and
 		(
-			usercmd.WasPressed(cmd, BUTTON.ATTACK2) or
+			usercmd.WasPressed(cmd, secondary) or
 			automatic and
-			usercmd.HasButton(cmd, BUTTON.ATTACK2)
+			usercmd.HasButton(cmd, secondary)
 		)
 		and
 		owner:CallLocalEvent("OnWeaponSecondary", cmd) ~= false

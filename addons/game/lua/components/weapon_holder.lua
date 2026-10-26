@@ -6,6 +6,7 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("weapon_holder")
+local BUTTON = usercmd.BUTTON
 
 function META:Initialize()
 	self:AddGlobalEvent("PhysicsUpdate")
@@ -22,48 +23,54 @@ function META:OnUpdate()
 		local weapon = child.weapon
 
 		if weapon then
-			weapon:UpdateModel(
-				(weapon:IsActive() or weapon:IsOffhand()) and
-				not (first_person and weapon:IsHiddenInFirstPerson())
-			)
+			weapon:UpdateModel(weapon:IsEquipped() and not (first_person and weapon:IsHiddenInFirstPerson()))
 		end
 	end
 end
 
-function META:GetActiveWeapon()
+-- a two handed weapon is in the right hand and also answers for the left
+function META:GetWeapon(where)
 	for _, child in ipairs(self.Owner:GetChildren()) do
-		if child.weapon and child.weapon:IsActive() then return child end
+		local weapon = child.weapon
+
+		if
+			weapon and
+			(
+				weapon.Equipped == where or
+				where == "left" and
+				weapon.Equipped == "right" and
+				weapon.TwoHanded
+			)
+		then
+			return child
+		end
 	end
 end
 
-function META:GetPosedWeapon()
-	local active = self:GetActiveWeapon()
+function META:GetPosedWeapon(where)
+	local weapon = self:GetWeapon(where)
 
-	if active and active.weapon:IsPoseArms() then return active end
+	if weapon and weapon.weapon:IsPoseArms() then return weapon end
 end
 
 do
 	local function by_slot(a, b)
-		return a.weapon:GetSlot() < b.weapon:GetSlot()
+		local x, y = a.weapon:GetSlot(), b.weapon:GetSlot()
+
+		if x ~= y then return x < y end
+
+		return a:GetName() < b:GetName()
 	end
 
 	function META:GetWeapons()
 		local weapons = {}
 
 		for _, child in ipairs(self.Owner:GetChildren()) do
-			if child.weapon and not child.weapon:IsOffhand() then
-				weapons[#weapons + 1] = child
-			end
+			if child.weapon then weapons[#weapons + 1] = child end
 		end
 
 		table.sort(weapons, by_slot)
 		return weapons
-	end
-end
-
-function META:GetOffhandWeapon()
-	for _, child in ipairs(self.Owner:GetChildren()) do
-		if child.weapon and child.weapon:IsOffhand() then return child end
 	end
 end
 
@@ -73,31 +80,89 @@ function META:FindWeapon(name)
 	end
 end
 
-function META:GetActiveSlot()
-	local weapon = self:GetActiveWeapon()
+function META:Unequip(weapon)
+	if not weapon.weapon:IsEquipped() then return end
 
-	if weapon then return weapon.weapon:GetSlot() end
-
-	return 0
+	weapon.weapon:SetEquipped("")
+	weapon:CallLocalEvent("OnWeaponHolster")
 end
 
-function META:CycleSlot(slot, direction)
-	local weapons = self:GetWeapons()
-	local count = #weapons
+function META:Equip(weapon, where)
+	local info = weapon.weapon
+	local from = info.Equipped
 
-	if count == 0 then return 0 end
+	if from == where then return end
 
-	local index = 1
+	assert(info:CanEquip(where), weapon:GetName() .. " cannot be equipped in " .. where)
+	self:Unequip(weapon)
+	local current = self:GetWeapon(where)
 
-	for i, weapon in ipairs(weapons) do
-		if weapon.weapon:GetSlot() == slot then
-			index = i
+	if current then self:Unequip(current) end
 
-			break
+	if where == "right" or where == "left" then
+		local other_side = where == "right" and "left" or "right"
+
+		if info.TwoHanded then
+			local other = self:GetWeapon(other_side)
+
+			if other then self:Unequip(other) end
+		elseif from == other_side and current and current.weapon:CanEquip(other_side) then
+			current.weapon:SetEquipped(other_side)
+			current:CallLocalEvent("OnWeaponEquip")
 		end
 	end
 
-	return weapons[(index - 1 + direction) % count + 1].weapon:GetSlot()
+	info:SetEquipped(where)
+	weapon:CallLocalEvent("OnWeaponEquip")
+
+	if where == "right" and not info.TwoHanded and not self:GetWeapon("left") then
+		local choice = self.left_choice
+
+		if
+			choice and
+			choice ~= weapon and
+			choice:IsValid() and
+			choice:GetParent() == self.Owner
+		then
+			choice.weapon:SetEquipped("left")
+			choice:CallLocalEvent("OnWeaponEquip")
+		end
+	end
+
+	local left = self:GetWeapon("left")
+
+	if left and left ~= self:GetWeapon("right") then
+		self.left_choice = left
+	elseif self.left_choice == weapon then
+		self.left_choice = nil
+	end
+end
+
+function META:EmptyLeftHand()
+	local left = self:GetWeapon("left")
+
+	if left and not left.weapon:IsTwoHanded() then self:Unequip(left) end
+
+	self.left_choice = nil
+end
+
+function META:EquipDefault(weapon)
+	local where = weapon.weapon:GetDefaultPlace()
+
+	if not self:GetWeapon(where) then
+		self:Equip(weapon, where)
+	elseif where == "left" and not self.left_choice then
+		self.left_choice = weapon
+	end
+end
+
+function META:EquipFirst()
+	for _, weapon in ipairs(self:GetWeapons()) do
+		if weapon.weapon:CanEquip("right") then
+			self:Equip(weapon, "right")
+			return
+		end
+	end
 end
 
 function META:Give(weapon_name)
@@ -108,11 +173,7 @@ function META:Give(weapon_name)
 		prefab = {Path = weapon_name},
 		network = owner.network and {NetworkOwner = owner.network:GetNetworkOwner()} or nil,
 	}
-
-	if not self:GetActiveWeapon() and not weapon.weapon:IsOffhand() then
-		self:Select(weapon)
-	end
-
+	self:EquipDefault(weapon)
 	return weapon
 end
 
@@ -129,23 +190,14 @@ function META:Pickup(weapon)
 	end
 
 	owner:AddChild(weapon)
-
-	if not self:GetActiveWeapon() and not weapon.weapon:IsOffhand() then
-		self:Select(weapon)
-	end
-
+	self:EquipDefault(weapon)
 	return true
 end
 
 function META:Drop(weapon)
 	local owner = self.Owner
 	local forward = owner.character_movement:GetCommand().view:GetForward()
-
-	if weapon.weapon:IsActive() then
-		weapon.weapon:SetActive(false)
-		weapon:CallLocalEvent("OnWeaponHolster")
-	end
-
+	self:Unequip(weapon)
 	local position = owner.transform:GetPosition() + owner.character_movement:GetViewOffset() + forward * 0.6
 	weapon:UnParent()
 	weapon.transform:SetPosition(position)
@@ -155,11 +207,7 @@ function META:Drop(weapon)
 
 	weapon.rigid_body:SetVelocity(forward * 6)
 
-	if not self:GetActiveWeapon() then
-		local weapons = self:GetWeapons()
-
-		if weapons[1] then self:Select(weapons[1]) end
-	end
+	if not self:GetWeapon("right") then self:EquipFirst() end
 end
 
 function META:OnDeath()
@@ -168,6 +216,8 @@ function META:OnDeath()
 	for i = #children, 1, -1 do
 		if children[i].weapon then children[i]:Remove() end
 	end
+
+	self.left_choice = nil
 end
 
 function META:GiveLoadout()
@@ -176,27 +226,32 @@ function META:GiveLoadout()
 	end
 end
 
-function META:Select(weapon)
-	local old = self:GetActiveWeapon()
-
-	if old == weapon then return end
-
-	if old then
-		old.weapon:SetActive(false)
-		old:CallLocalEvent("OnWeaponHolster")
+function META:ApplySelection(cmd)
+	if cmd.select == usercmd.SELECT_EMPTY then
+		self:EmptyLeftHand()
+		return
 	end
 
-	weapon.weapon:SetActive(true)
-	weapon:CallLocalEvent("OnWeaponEquip")
+	local weapon = self:GetWeapons()[cmd.select]
+	local where = cmd.select_left and "left" or "right"
+
+	if weapon and weapon.weapon:CanEquip(where) then self:Equip(weapon, where) end
 end
 
-function META:SelectSlot(slot)
-	for _, weapon in ipairs(self:GetWeapons()) do
-		if weapon.weapon:GetSlot() == slot then
-			self:Select(weapon)
-			return
+function META:GetButtons(weapon)
+	local equipped = weapon.weapon.Equipped
+
+	if equipped == "right" or equipped == "left" then
+		local other = self:GetWeapon(equipped == "right" and "left" or "right")
+
+		if other and other ~= weapon then
+			return equipped == "left" and BUTTON.ATTACK1 or BUTTON.ATTACK2, 0
 		end
+
+		return BUTTON.ATTACK1, BUTTON.ATTACK2
 	end
+
+	return BUTTON.ATTACK3, 0
 end
 
 function META:HasAuthority()
@@ -206,16 +261,13 @@ end
 function META:OnPhysicsUpdate(dt)
 	local cmd = self.Owner.character_movement:GetCommand()
 
-	if cmd.select ~= 0 then self:SelectSlot(cmd.select) end
+	if cmd.select ~= 0 then self:ApplySelection(cmd) end
 
 	if not self:HasAuthority() then return end
 
 	if self.Owner.ragdoll and self.Owner.ragdoll.Limp then return end
 
-	if
-		usercmd.WasPressed(cmd, usercmd.BUTTON.USE) and
-		usercmd.HasButton(cmd, usercmd.BUTTON.ACTIVE)
-	then
+	if usercmd.WasPressed(cmd, BUTTON.USE) and usercmd.HasButton(cmd, BUTTON.ACTIVE) then
 		local owner = self.Owner
 		use.Press(
 			owner,
@@ -224,28 +276,33 @@ function META:OnPhysicsUpdate(dt)
 		)
 	end
 
-	local weapon = self:GetActiveWeapon()
+	local right = self:GetWeapon("right")
+	local left = self:GetWeapon("left")
 
-	if
-		weapon and
-		usercmd.WasPressed(cmd, usercmd.BUTTON.DROP) and
-		usercmd.HasButton(cmd, usercmd.BUTTON.ACTIVE)
-	then
-		self:Drop(weapon)
-		return
+	if left == right then left = nil end
+
+	if usercmd.WasPressed(cmd, BUTTON.DROP) and usercmd.HasButton(cmd, BUTTON.ACTIVE) then
+		local dropped = right or left
+
+		if dropped then
+			self:Drop(dropped)
+			return
+		end
 	end
 
-	if weapon then weapon.weapon:Think(dt, cmd) end
-
-	local offhand = self:GetOffhandWeapon()
-
-	if offhand then offhand:CallLocalEvent("OnWeaponThink", dt, cmd) end
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		if child.weapon and child.weapon:IsEquipped() then
+			child.weapon:Think(dt, cmd, self:GetButtons(child))
+		end
+	end
 end
 
 function META:OnCharacterModeChanged(mode)
-	local weapon = self:GetActiveWeapon()
-
-	if weapon then weapon:CallLocalEvent("OnWeaponCharacterModeChanged", mode) end
+	for _, child in ipairs(self.Owner:GetChildren()) do
+		if child.weapon and child.weapon:IsEquipped() then
+			child:CallLocalEvent("OnWeaponCharacterModeChanged", mode)
+		end
+	end
 end
 
 return META:Register()

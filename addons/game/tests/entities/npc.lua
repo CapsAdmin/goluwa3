@@ -355,7 +355,7 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	T(instance.weapon_holder == nil)["=="](true)
 	instance:Remove()
 	local armed = npcs.Spawn("barney", Vec3(0, 0.05, 0), 0)
-	T(armed.weapon_holder:GetActiveWeapon().weapon:GetDisplayName())["=="]("Pistol")
+	T(armed.weapon_holder:GetWeapon("right").weapon:GetDisplayName())["=="]("Pistol")
 	T(armed.ai_controller.Faction)["=="]("friend")
 	T(armed.usable ~= nil)["=="](true)
 	armed:Remove()

@@ -79,7 +79,7 @@ function META:OnUpdate(dt)
 	end
 
 	local holder = owner.weapon_holder
-	local active = holder and holder:GetActiveWeapon()
+	local active = holder and holder:GetWeapon("right")
 	local path = active and active.prefab.Path
 	local limp = ragdoll ~= nil and ragdoll:IsPartLimp("forearm_r")
 	local key = path and (path .. (limp and "_limp" or ""))

@@ -2,7 +2,7 @@
 
 A port of the gmod jrpg addon, in the `jrpg` addon (`addons/jrpg/lua/jrpg/` plus its components in `addons/jrpg/lua/components/`), which depends on `game`. `!rpg` toggles it on the local player (`!rpg cheat` pins mana and stamina), `!level <attribute>` spends attribute points (no argument lists them), `!status <name> <amount>` applies a status to yourself.
 
-- Being in rpg mode is having the `rpg` component (mana, stamina, xp, level, attributes; stats persist per player in `data/jrpg/`). `jrpg.SetEnabled(entity, on)` adds it, gives the loadout (sword, offhand shield, one `weapon_magic_<type>` per damage type, potions) and puts the old max health, speeds and weapons back when removed. `RPGEnabled`/`RPGDisabled` events turn the battlecam on and off for the local player.
+- Being in rpg mode is having the `rpg` component (mana, stamina, xp, level, attributes; stats persist per player in `data/jrpg/`). `jrpg.SetEnabled(entity, on)` adds it, gives the loadout (sword in the right hand on right mouse, shield in the left raised with left mouse, one `weapon_magic_<type>` per damage type, potions) and puts the old max health, speeds and weapons back when removed. `RPGEnabled`/`RPGDisabled` events turn the battlecam on and off for the local player.
 - Everything that is only presentation (jrpg HUD, damage numbers, npc bars, item highlights, damage flashes) checks `actors.IsLocalRPG()`; the plain HUD hides itself while it is on. Gameplay (statuses, projectiles, npc fights) runs regardless.
 
 ## Damage

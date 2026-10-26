@@ -238,7 +238,7 @@ T.TestPhysics("a physgun grabs the limb it points at and a dead body stays a rag
 	}
 	holder.player_controller.cmd.mode = "walk"
 	local physgun = holder.weapon_holder:Give("weapon_physgun")
-	holder.weapon_holder:Select(physgun)
+	holder.weapon_holder:Equip(physgun, "right")
 	local cmd = usercmd.New()
 	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
 
@@ -279,7 +279,7 @@ T.TestPhysics("a physgun freezes only the held limb, grabbing or reload thaws it
 	}
 	holder.player_controller.cmd.mode = "walk"
 	local physgun = holder.weapon_holder:Give("weapon_physgun")
-	holder.weapon_holder:Select(physgun)
+	holder.weapon_holder:Equip(physgun, "right")
 	local cmd = usercmd.New()
 	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
 

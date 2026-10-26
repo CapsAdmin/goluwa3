@@ -576,13 +576,22 @@ local function draw_ring_backdrop(theme, cx, cy, S, spin)
 	render2d.PopBlendMode()
 end
 
+local ring_weapons = {}
+
 local function draw_ring(holder, cx, cy, S, dt)
-	local weapons = holder:GetWeapons()
+	local weapons = ring_weapons
+	table.clear(weapons)
+
+	for _, weapon in ipairs(holder:GetWeapons()) do
+		if weapon.weapon:CanEquip("right") then weapons[#weapons + 1] = weapon end
+	end
+
 	local count = #weapons
 
 	if count == 0 then return end
 
-	local active = holder:GetActiveWeapon()
+	local active = holder:GetWeapon("right")
+	local left = holder:GetWeapon("left")
 	local selected = 1
 
 	for i, weapon in ipairs(weapons) do
@@ -612,6 +621,19 @@ local function draw_ring(holder, cx, cy, S, dt)
 			HEADING,
 			math.floor(13 * S),
 			category.Color,
+			1,
+			0.5
+		)
+	end
+
+	if left and left ~= active then
+		text(
+			left.weapon:GetDisplayName():upper(),
+			cx,
+			cy + 8 * S,
+			HEADING,
+			math.floor(9 * S),
+			weapon_element_color(left) or MUTED,
 			1,
 			0.5
 		)

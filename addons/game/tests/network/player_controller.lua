@@ -614,13 +614,13 @@ T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodi
 	T(#holder:GetWeapons())["=="](3)
 	T(camera.rigid_body == nil)["=="](true)
 	T(camera.weapon:GetModel().transform:GetAttachment())["=="]("grip_r")
-	T(holder:GetActiveWeapon() == camera)["=="](true)
+	T(holder:GetWeapon("right") == camera)["=="](true)
 
 	drive(player, 1, function(cmd)
 		cmd.select = 1
 	end)
 
-	T(holder:GetActiveWeapon() == physgun)["=="](true)
+	T(holder:GetWeapon("right") == physgun)["=="](true)
 
 	drive(player, 5, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
@@ -634,7 +634,7 @@ T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodi
 		cmd.select = 2
 	end)
 
-	T(holder:GetActiveWeapon() == pistol)["=="](true)
+	T(holder:GetWeapon("right") == pistol)["=="](true)
 	T(physgun.weapon_physgun.held_body == nil)["=="](true)
 	T(player.character_pose:IsHolding())["=="](false)
 	T(crate.rigid_body:GetCollisionGroup())["=="](1)

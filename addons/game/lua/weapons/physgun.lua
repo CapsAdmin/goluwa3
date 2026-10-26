@@ -129,7 +129,7 @@ function META:UpdateBeam()
 	local beam = self.beam
 	local body = self.held_body
 
-	if not (self.beam_on and self.Owner.weapon:IsActive()) then
+	if not (self.beam_on and self.Owner.weapon:IsEquipped()) then
 		if beam then beam:SetVisible(false) end
 
 		return
@@ -399,19 +399,15 @@ end
 local rotate_delta = {x = 0, y = 0}
 
 function META:OnWeaponThink(dt, cmd)
+	local weapon = self.Owner.weapon
 	local pose = self.Owner:GetParent().character_pose
 
 	if usercmd.HasButton(cmd, BUTTON.ACTIVE) and usercmd.WasPressed(cmd, BUTTON.RELOAD) then
 		self:UnfreezeAll()
 	end
 
-	if
-		not (
-			usercmd.HasButton(cmd, BUTTON.ACTIVE) and
-			usercmd.HasButton(cmd, BUTTON.ATTACK1)
-		)
-	then
-		if not usercmd.HasButton(cmd, BUTTON.ATTACK1) then
+	if not weapon:IsPrimaryDown(cmd) then
+		if not usercmd.HasButton(cmd, weapon:GetPrimaryButton()) then
 			self.block_grab_until_primary_release = false
 		end
 
@@ -435,7 +431,7 @@ function META:OnWeaponThink(dt, cmd)
 		self.held_rotation_offset = rotate_offset_relative_to_camera(self.held_rotation_offset, cmd.view, rotate_delta)
 	end
 
-	if self.held_body and usercmd.WasPressed(cmd, BUTTON.ATTACK2) then
+	if self.held_body and weapon:WasSecondaryPressed(cmd) then
 		self.beam_on = false
 		self:FreezeHeldBody()
 		pose:SetHolding(false)

@@ -145,7 +145,7 @@ function META:OnUpdate()
 
 	self.seen_actions = pose.Actions
 
-	if pose:GetActiveAction() == "drink" and self.Owner.weapon:IsActive() then
+	if pose:GetActiveAction() == "drink" and self.Owner.weapon:IsEquipped() then
 		sounds.PlayRandom(DRINK_SOUNDS, holder.transform:GetPosition(), 0.7, 1)
 	end
 end
