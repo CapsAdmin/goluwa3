@@ -877,27 +877,22 @@ end
 
 function sweep_capsule_against_triangle(invariants, v0, v1, v2, max_fraction)
 	local face_normal = nil
+	SWEEP_STATS.candidate_triangles = SWEEP_STATS.candidate_triangles + 1
+
+	if not is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2) then
+		SWEEP_STATS.reach_rejected = SWEEP_STATS.reach_rejected + 1
+		return nil
+	end
 
 	do
-		local epsilon = EPSILON
 		local nx, ny, nz, normal_len_sq = triangle_scalar.TriangleNormalRaw(v0, v1, v2)
-		local is_degenerate = normal_len_sq <= epsilon * epsilon
-		SWEEP_STATS.candidate_triangles = SWEEP_STATS.candidate_triangles + 1
 
-		if
-			not is_degenerate and
-			is_capsule_moving_away_from_triangle(invariants, v0, nx, ny, nz, normal_len_sq)
-		then
-			SWEEP_STATS.plane_rejected = SWEEP_STATS.plane_rejected + 1
-			return nil
-		end
+		if normal_len_sq > EPSILON * EPSILON then
+			if is_capsule_moving_away_from_triangle(invariants, v0, nx, ny, nz, normal_len_sq) then
+				SWEEP_STATS.plane_rejected = SWEEP_STATS.plane_rejected + 1
+				return nil
+			end
 
-		if not is_capsule_sweep_reachable(invariants, max_fraction, v0, v1, v2) then
-			SWEEP_STATS.reach_rejected = SWEEP_STATS.reach_rejected + 1
-			return nil
-		end
-
-		if not is_degenerate then
 			local inverse_length = 1 / math.sqrt(normal_len_sq)
 			face_normal = Vec3(nx * inverse_length, ny * inverse_length, nz * inverse_length)
 		end
@@ -1180,10 +1175,7 @@ do
 	local segment_triangle_sq = triangle_scalar.SegmentToTriangleSq
 	local triangle_normal_raw = triangle_scalar.TriangleNormalRaw
 
-	function sweep_sphere_against_triangle(start_position, movement, radius, v0, v1, v2, max_fraction)
-		local epsilon = get_sweep_epsilon(start_position, movement)
-		local end_position = start_position + movement * max_fraction
-		local reach = radius + epsilon
+	local function get_segment_reject_sq(start_position, end_position, v0, v1, v2, epsilon)
 		local nx, ny, nz, normal_len_sq = triangle_normal_raw(v0, v1, v2)
 		local face_normal = nil
 
@@ -1193,7 +1185,7 @@ do
 			face_normal.x, face_normal.y, face_normal.z = nx * inverse_length, ny * inverse_length, nz * inverse_length
 		end
 
-		local reject_sq = segment_triangle_sq(
+		return segment_triangle_sq(
 			start_position.x,
 			start_position.y,
 			start_position.z,
@@ -1206,8 +1198,16 @@ do
 			face_normal,
 			epsilon
 		)
+	end
 
-		if reject_sq and reject_sq > reach * reach then return nil end
+	function sweep_sphere_against_triangle(start_position, movement, radius, v0, v1, v2, max_fraction)
+		local epsilon = get_sweep_epsilon(start_position, movement)
+		local end_position = start_position + movement * max_fraction
+		local reject_sq = get_segment_reject_sq(start_position, end_position, v0, v1, v2, epsilon)
+
+		if reject_sq and reject_sq > (radius + epsilon) * (radius + epsilon) then
+			return nil
+		end
 
 		return sweep_sphere_against_triangle_slow(start_position, movement, radius, v0, v1, v2, max_fraction, epsilon, end_position)
 	end
