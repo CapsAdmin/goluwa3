@@ -32,7 +32,9 @@ local function get_distance(a, b)
 	return math.sqrt((a.m30 - b.m30) ^ 2 + (a.m31 - b.m31) ^ 2 + (a.m32 - b.m32) ^ 2)
 end
 
-local function solve_leg(bones, leg, target_x, target_y, target_z, normal_x, normal_y, normal_z)
+local knee_solution = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
+local function solve_reach(bones, leg, target_x, target_y, target_z)
 	local thigh, calf, foot = bones[leg.thigh], bones[leg.calf], bones[leg.foot]
 	local upper_length = get_distance(thigh, calf)
 	local lower_length = get_distance(calf, foot)
@@ -48,12 +50,26 @@ local function solve_leg(bones, leg, target_x, target_y, target_z, normal_x, nor
 		) / (
 			2 * clamped
 		)
-	local height = math.sqrt(math.max(upper_length * upper_length - along * along, 0))
-	dx, dy, dz = dx / distance, dy / distance, dz / distance
-	local kx, ky, kz = calf.m30 - tx, calf.m31 - ty, calf.m32 - tz
-	local pole_along = kx * dx + ky * dy + kz * dz
-	local bx, by, bz = kx - dx * pole_along, ky - dy * pole_along, kz - dz * pole_along
-	local bend = math.sqrt(bx * bx + by * by + bz * bz)
+	local ks = knee_solution
+	ks[1], ks[2], ks[3] = tx, ty, tz
+	ks[10], ks[11], ks[12] = dx / distance, dy / distance, dz / distance
+	ks[13], ks[14] = along, math.sqrt(math.max(upper_length * upper_length - along * along, 0))
+	ks[15] = clamped
+end
+
+local function solve_knee(bones, leg)
+	local ks = knee_solution
+	local calf = bones[leg.calf]
+	local dx, dy, dz = ks[10], ks[11], ks[12]
+	local bx, by, bz, bend
+
+	do
+		local kx, ky, kz = calf.m30 - ks[1], calf.m31 - ks[2], calf.m32 - ks[3]
+		local pole_along = kx * dx + ky * dy + kz * dz
+		bx, by, bz = kx - dx * pole_along, ky - dy * pole_along, kz - dz * pole_along
+		bend = math.sqrt(bx * bx + by * by + bz * bz)
+	end
+
 	local fx, fy, fz = dx * dz, dy * dz, dz * dz - 1
 	local forward_length = math.sqrt(fx * fx + fy * fy + fz * fz)
 
@@ -85,19 +101,36 @@ local function solve_leg(bones, leg, target_x, target_y, target_z, normal_x, nor
 		bx, by, bz = 0, 0, -1
 	end
 
-	local knee_x, knee_y, knee_z = tx + dx * along + bx * height,
+	local along, height, clamped = ks[13], ks[14], ks[15]
+	local tx, ty, tz = ks[1], ks[2], ks[3]
+	ks[4], ks[5], ks[6] = tx + dx * along + bx * height,
 	ty + dy * along + by * height,
 	tz + dz * along + bz * height
-	local foot_x, foot_y, foot_z = tx + dx * clamped, ty + dy * clamped, tz + dz * clamped
+	ks[7], ks[8], ks[9] = tx + dx * clamped, ty + dy * clamped, tz + dz * clamped
+end
+
+local function solve_leg(bones, leg, foot, planted, target_y, normal)
+	local ks = knee_solution
+	solve_reach(
+		bones,
+		leg,
+		planted and planted.x or foot.m30,
+		target_y,
+		planted and planted.z or foot.m32
+	)
+	solve_knee(bones, leg)
+	planted = nil
+	target_y = nil
+	local thigh, calf = bones[leg.thigh], bones[leg.calf]
 	local original = foot:GetRotation()
 	aim_pose.SetBetween(
 		between,
-		calf.m30 - tx,
-		calf.m31 - ty,
-		calf.m32 - tz,
-		knee_x - tx,
-		knee_y - ty,
-		knee_z - tz
+		calf.m30 - ks[1],
+		calf.m31 - ks[2],
+		calf.m32 - ks[3],
+		ks[4] - ks[1],
+		ks[5] - ks[2],
+		ks[6] - ks[3]
 	)
 	rotation:SetRotation(between)
 	aim_pose.RotateChain(bones, leg.chain, 3, thigh, rotation)
@@ -106,17 +139,17 @@ local function solve_leg(bones, leg, target_x, target_y, target_z, normal_x, nor
 		foot.m30 - calf.m30,
 		foot.m31 - calf.m31,
 		foot.m32 - calf.m32,
-		foot_x - knee_x,
-		foot_y - knee_y,
-		foot_z - knee_z
+		ks[7] - ks[4],
+		ks[8] - ks[5],
+		ks[9] - ks[6]
 	)
 	rotation:SetRotation(between)
 	aim_pose.RotateChain(bones, leg.lower_chain, 2, calf, rotation)
-	aim_pose.SetBetween(between, 0, 1, 0, normal_x, normal_y, normal_z)
+	aim_pose.SetBetween(between, 0, 1, 0, normal.x, normal.y, normal.z)
 	local angle = 2 * math.acos(math.clamp(between.w, -1, 1))
 	local share = angle > leg_pose.MaxTilt and leg_pose.MaxTilt / angle or 1
 	foot:SetRotation(identity:GetLerped(share, between):Normalize() * original)
-	foot:SetTranslation(foot_x, foot_y, foot_z)
+	foot:SetTranslation(ks[7], ks[8], ks[9])
 end
 
 leg_pose.FootYawFollow = 0.6
@@ -208,20 +241,17 @@ function leg_pose.ApplyKeys(bones, pose, side, state)
 end
 
 function leg_pose.Apply(bones, shift_r, shift_l, pelvis_shift, normals, state)
-	local foot_r, foot_l = bones.foot_r, bones.foot_l
-	local planted_r = state and state.active and state[1]
-	local planted_l = state and state.active and state[2]
-	local target_r = (planted_r and planted_r.y or foot_r.m31) + shift_r
-	local target_l = (planted_l and planted_l.y or foot_l.m31) + shift_l
-	local x_r, z_r = planted_r and planted_r.x or foot_r.m30, planted_r and planted_r.z or foot_r.m32
-	local x_l, z_l = planted_l and planted_l.x or foot_l.m30, planted_l and planted_l.z or foot_l.m32
+	local active = state and state.active
+	local planted_r, planted_l = active and state[1], active and state[2]
+	local target_r = (planted_r and planted_r.y or bones.foot_r.m31) + shift_r
+	local target_l = (planted_l and planted_l.y or bones.foot_l.m31) + shift_l
 
 	for _, name in ipairs(aim_pose.Bones) do
 		bones[name].m31 = bones[name].m31 + pelvis_shift
 	end
 
-	solve_leg(bones, LEGS[1], x_r, target_r, z_r, normals[1].x, normals[1].y, normals[1].z)
-	solve_leg(bones, LEGS[2], x_l, target_l, z_l, normals[2].x, normals[2].y, normals[2].z)
+	solve_leg(bones, LEGS[1], bones.foot_r, planted_r, target_r, normals[1])
+	solve_leg(bones, LEGS[2], bones.foot_l, planted_l, target_l, normals[2])
 
 	if state then state.active = false end
 end
