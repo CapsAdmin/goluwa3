@@ -11,7 +11,14 @@ local function should_skip_rigid_body(body, ignore_entity, filter_fn, options)
 
 	local owner = body.Owner
 
-	if not owner or owner == ignore_entity or (ignore_entity and body.TraceOwner == ignore_entity) then
+	if
+		not owner or
+		owner == ignore_entity or
+		(
+			ignore_entity and
+			body.TraceOwner == ignore_entity
+		)
+	then
 		return true
 	end
 
@@ -366,25 +373,20 @@ local function get_untracked_bodies(broadphase)
 	return bodies
 end
 
-local function append_rigid_body_candidate(
-	entry,
-	world_aabb,
-	ignore_entity,
-	filter_fn,
-	options,
-	effective_options,
-	out
-)
+local candidate_query = {}
+
+local function append_rigid_body_candidate(entry)
 	local body = entry.body
+	local query = candidate_query
 	local include_body = (
-			effective_options.IgnoreRigidBodies == false
+			query.effective_options.IgnoreRigidBodies == false
 		)
 		or
-		should_query_body_as_world(body, effective_options)
+		should_query_body_as_world(body, query.effective_options)
 
 	if
 		include_body and
-		not should_skip_rigid_body(body, ignore_entity, filter_fn, options)
+		not should_skip_rigid_body(body, query.ignore_entity, query.filter_fn, query.options)
 	then
 		local bounds = entry.bounds
 		local position = body.Position
@@ -393,8 +395,8 @@ local function append_rigid_body_candidate(
 			bounds = get_rigid_body_candidate_aabb(body) or bounds
 		end
 
-		if bounds and AABB.IsBoxIntersecting(world_aabb, bounds) then
-			out[#out + 1] = body
+		if bounds and AABB.IsBoxIntersecting(query.world_aabb, bounds) then
+			query.out[#query.out + 1] = body
 		end
 	end
 end
@@ -426,23 +428,17 @@ local function collect_rigid_body_candidates(physics, world_aabb, ignore_entity,
 
 	if broadphase then
 		local entries = broadphase:QueryAABB(world_aabb, query_entry_cache)
+		local query = candidate_query
+		query.world_aabb, query.ignore_entity, query.filter_fn, query.options, query.effective_options, query.out = world_aabb, ignore_entity, filter_fn, options, effective_options, out
 
 		for i = 1, #entries do
-			append_rigid_body_candidate(entries[i], world_aabb, ignore_entity, filter_fn, options, effective_options, out)
+			append_rigid_body_candidate(entries[i])
 		end
 
 		local overflow_entries = broadphase.OverflowEntries
 
 		for i = 1, #overflow_entries do
-			append_rigid_body_candidate(
-				overflow_entries[i],
-				world_aabb,
-				ignore_entity,
-				filter_fn,
-				options,
-				effective_options,
-				out
-			)
+			append_rigid_body_candidate(overflow_entries[i])
 		end
 
 		local untracked = get_untracked_bodies(broadphase)
