@@ -950,6 +950,7 @@ do
 
 		local is_glass = FEATURES.glass_override and
 			self.Translucent and
+			not self.Additive and
 			(
 				file_name:find("glass", 1, true) or
 				(
