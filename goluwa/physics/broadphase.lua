@@ -425,6 +425,8 @@ function Broadphase:ResetState()
 	return self
 end
 
+local trace_break = coroutine.running
+
 local function query_cell_entries(cell, stamp, out, count)
 	for i = 1, #cell.entries do
 		local entry = cell.entries[i]
@@ -440,6 +442,7 @@ local function query_cell_entries(cell, stamp, out, count)
 end
 
 local function query_packed_range(cells, stamp, out, count, min_x, min_y, min_z, max_x, max_y, max_z)
+	trace_break()
 	local z_span = max_z - min_z
 
 	for cell_x = min_x, max_x do
@@ -461,6 +464,8 @@ local function query_packed_range(cells, stamp, out, count, min_x, min_y, min_z,
 end
 
 local function query_cell_range(cells, stamp, out, count, min_x, min_y, min_z, max_x, max_y, max_z)
+	trace_break()
+
 	for cell_x = min_x, max_x do
 		for cell_y = min_y, max_y do
 			for cell_z = min_z, max_z do
