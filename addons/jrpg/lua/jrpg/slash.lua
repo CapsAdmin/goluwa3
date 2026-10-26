@@ -57,7 +57,7 @@ function slash.Strike(holder, inflictor, cut_local, amount, scale, range, elemen
 					Type = "slash",
 					Position = point,
 					Normal = normal,
-					Force = forward * 5 * scale,
+					Force = cut * 5 * scale,
 					Part = part,
 					Direction = cut,
 					Reaction = scale,
