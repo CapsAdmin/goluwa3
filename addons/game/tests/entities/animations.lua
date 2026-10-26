@@ -122,7 +122,7 @@ T.Test("the air state follows the airborne flag and a hard landing triggers the 
 	local entity = create()
 	local pose = entity.character_pose
 	pose.grounded = false
-	pose.vertical_speed = -7.5
+	pose.vertical_speed = -6.75
 	pose:UpdateAirborne()
 	T(pose.airborne)["=="](true)
 	pose:UpdateAnimations(1 / 60)
@@ -237,8 +237,8 @@ T.Test("the landing strength follows the fall speed and cuts the land clip short
 		return weight
 	end
 
-	T(land_with(3))["=="](0)
-	T(land_with(5))["~"](0.1875, 1e-6)
+	T(land_with(1.5))["=="](0)
+	T(land_with(5))["~"](3 / 9.5, 1e-6)
 	T(land_with(11.5))["=="](1)
 	T(land_with(30))["=="](1)
 	entity:Remove()
