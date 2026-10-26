@@ -7,6 +7,8 @@ local pose_variation = import("lua/pose_variation.lua")
 local system = import("goluwa/system.lua")
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
+local animations = import("lua/animations.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local META = objects.CreateTemplate("source_pose")
 META:StartStorable()
@@ -61,6 +63,17 @@ local DONOR_BIND_BONES = {
 	["valvebiped.bip01_l_upperarm"] = true,
 	["valvebiped.bip01_l_forearm"] = true,
 }
+local SWITCH_TIME = 0.2
+local ARM_BONES = {
+	"clavicle_r",
+	"upperarm_r",
+	"forearm_r",
+	"hand_r",
+	"clavicle_l",
+	"upperarm_l",
+	"forearm_l",
+	"hand_l",
+}
 local native_speeds = setmetatable({}, {__mode = "k"})
 
 local function is_donor_clip(name)
@@ -92,6 +105,11 @@ function META:Initialize()
 	self.sequence = ""
 	self.bones = {}
 	self.ground_sink = 0
+	self.idle_bones = {}
+	self.prev_bones = {}
+	self.switch = 1
+	self.grip_follow = Matrix44():Identity()
+	self.grip_blend = Matrix44():Identity()
 	self.leg_shift = {0, 0}
 	self.leg_ground = {0, 0}
 	self.pelvis_ground = 0
@@ -448,13 +466,73 @@ function META:MirrorBones(rig, armature, pose, dt)
 			not pose.airborne
 		)
 	local bones = self.bones
+	pose.hold_wanted = armed
+
+	if armed and self.held ~= active then
+		if self.held and self.held:IsValid() then
+			self.prev_held = self.held
+			self.switch = 0
+		end
+
+		self.held = active
+	end
+
+	if self.prev_held then
+		self.switch = math.min(self.switch + dt / SWITCH_TIME, 1)
+
+		if self.switch >= 1 or not self.prev_held:IsValid() then self.prev_held = nil end
+	end
+
+	local hold = animations.GetWeight(pose, "hold")
+	local weapon = hold > 0.001 and self.held and self.held:IsValid() and self.held.weapon or nil
+	local prev = weapon and self.prev_held and self.prev_held.weapon or nil
+	local idle = self.idle_bones
+	local before = self.prev_bones
 
 	for _, name in ipairs(aim_pose.Bones) do
 		if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
 	end
 
 	biped.ReadBones(rig, bones)
-	aim_pose.Apply(bones, pose, armed and active.weapon or nil)
+
+	if weapon and hold < 0.999 then
+		for name, matrix in pairs(bones) do
+			if not idle[name] then idle[name] = Matrix44():Identity() end
+
+			aim_pose.CopyMatrix(idle[name], matrix)
+		end
+	end
+
+	if prev then
+		for name, matrix in pairs(bones) do
+			if not before[name] then before[name] = Matrix44():Identity() end
+
+			aim_pose.CopyMatrix(before[name], matrix)
+		end
+	end
+
+	aim_pose.Apply(bones, pose, weapon)
+
+	if prev then
+		aim_pose.Apply(before, pose, prev)
+
+		for _, name in ipairs(ARM_BONES) do
+			aim_pose.BlendMatrix(
+				bones[name],
+				before[name],
+				bones[name],
+				self.switch * self.switch * (3 - 2 * self.switch)
+			)
+		end
+	end
+
+	if weapon and hold < 0.999 then
+		aim_pose.Apply(idle, pose, nil)
+
+		for _, name in ipairs(ARM_BONES) do
+			aim_pose.BlendMatrix(bones[name], idle[name], bones[name], hold)
+		end
+	end
 
 	for _, name in ipairs(aim_pose.Bones) do
 		bones[name].m31 = bones[name].m31 - self.ground_sink
@@ -480,10 +558,23 @@ function META:MirrorBones(rig, armature, pose, dt)
 	for name in pairs(biped.SourceBones) do
 		local matrix = bones[name]
 
-		if armed and (name == "hand_r" or name == "hand_l") then
-			matrix = aim_pose.GetGripMatrix(matrix, aim_pose.GetAim(pose))
-		elseif active and (name == "hand_r" or name == "hand_l") then
-			matrix = aim_pose.GetFollowGripMatrix(matrix, name == "hand_r")
+		if name == "hand_r" or name == "hand_l" then
+			local is_right = name == "hand_r"
+
+			if weapon then
+				local follow = active and aim_pose.GetFollowGripMatrix(matrix, is_right) or matrix
+				aim_pose.CopyMatrix(self.grip_follow, follow)
+				local gripped = aim_pose.GetGripMatrix(matrix, aim_pose.GetAim(pose))
+
+				if hold < 0.999 then
+					aim_pose.BlendMatrix(self.grip_blend, self.grip_follow, gripped, hold)
+					gripped = self.grip_blend
+				end
+
+				matrix = gripped
+			elseif active then
+				matrix = aim_pose.GetFollowGripMatrix(matrix, is_right)
+			end
 		end
 
 		armature:SetBone(name, matrix, "model")

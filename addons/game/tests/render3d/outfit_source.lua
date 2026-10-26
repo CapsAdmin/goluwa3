@@ -14,6 +14,9 @@ import("addons/game/lua/autorun/characters.lua")
 Entity.RegisterComponent("player_input", import("lua/components/player_input.lua"))
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
+Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
+Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
+import("lua/weapons.lua")
 
 T.Test3D("the source outfit animates a gmod player model from the movement of the player", function()
 	steam.MountSourceGame("gmod")
@@ -416,10 +419,19 @@ T.Test3D("citizen jump clips are added to player models with a matching bind pos
 	end
 
 	local function skeleton_of(path)
-		local entity = Entity.New{transform = {Position = Vec3(0, 0, 0)}, model = {ModelPath = path}, animator = {}}
-		T.WaitUntil(function()
-			return entity.animator and entity.animator:GetRig() and entity.animator.skeleton
-		end, 30)
+		local entity = Entity.New{
+			transform = {Position = Vec3(0, 0, 0)},
+			model = {ModelPath = path},
+			animator = {},
+		}
+
+		T.WaitUntil(
+			function()
+				return entity.animator and entity.animator:GetRig() and entity.animator.skeleton
+			end,
+			30
+		)
+
 		return entity.animator.skeleton, entity
 	end
 
@@ -432,4 +444,69 @@ T.Test3D("citizen jump clips are added to player models with a matching bind pos
 	T(mdl_decoder.AddAnimations(zombie, "models/humans/male_shared", is_jump, bones))["=="](false)
 	T(zombie.ClipsByName.jump_holding_jump)["=="](nil)
 	zombie_entity:Remove()
+end)
+
+T.Test3D("the source outfit eases its arms into a weapon and between two weapons", function()
+	steam.MountSourceGame("gmod")
+
+	if not vfs.IsFile(outfit_source.Model) then
+		return T.Unavailable("gmod content not mounted")
+	end
+
+	pvars.SetSession("cl_outfit", outfit_source.Name)
+	local player = Entity.New{
+		transform = {Position = Vec3(0, 0, 0)},
+		player_avatar = {},
+		character_pose = {},
+		weapon_holder = {},
+	}
+	local model
+
+	T.WaitUntil(
+		function()
+			local outfit = player.player_avatar.outfit
+			model = outfit and outfit:GetChildren()[1]
+			return model and
+				model.animator and
+				model.animator:GetRig() and
+				model.source_pose and
+				player.player_avatar.armature
+		end,
+		30
+	)
+
+	local pose = player.character_pose
+
+	local function tick(frames)
+		for _ = 1, frames do
+			pose:OnUpdate(1 / 60)
+			model.source_pose:OnUpdate(1 / 60)
+		end
+	end
+
+	local function hand()
+		local m = player.player_avatar.armature:GetBoneMatrix("hand_r")
+		return Vec3(m.m30, m.m31, m.m32)
+	end
+
+	tick(20)
+	local idle = hand()
+	player.weapon_holder:Give("weapon_pistol")
+	tick(6)
+	local rising = hand()
+	tick(60)
+	local held = hand()
+	T(idle:Distance(held) > 0.2)["=="](true)
+	T(rising:Distance(idle) > 0.02 and rising:Distance(held) > 0.05)["=="](true)
+	player.weapon_holder:Select(player.weapon_holder:Give("weapon_physgun"))
+	tick(6)
+	local middle = hand()
+	T(model.source_pose.prev_held ~= nil)["=="](true)
+	tick(60)
+	local second = hand()
+	T(model.source_pose.prev_held)["=="](nil)
+	T(held:Distance(second) > 0.1)["=="](true)
+	T(middle:Distance(held) > 0.005 and middle:Distance(second) > 0.02)["=="](true)
+	player:Remove()
+	pvars.SetSession("cl_outfit", "player_outfit")
 end)

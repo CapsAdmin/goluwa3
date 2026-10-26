@@ -167,3 +167,38 @@ T.Test("leaning tilts the whole body about the ground and keeps the feet flat", 
 	T(position(forward, "body").z - position(level, "body").z < -0.05)["=="](true)
 	T(forward.foot_l:GetRotation():GetUp().z)["~"](0, 1e-4)
 end)
+
+T.Test("a matrix blend moves the translation and the rotation by the fraction", function()
+	local a = Matrix44():Identity():SetTranslation(0, 0, 0)
+	local b = Matrix44():Identity()
+	b:SetRotation(Quat(0, 0, 0, 1):RotateYaw(math.rad(90)))
+	b:SetTranslation(2, 4, 6)
+	local out = Matrix44():Identity()
+	aim_pose.BlendMatrix(out, a, b, 0.5)
+	T(out.m30)["~"](1, 1e-9)
+	T(out.m31)["~"](2, 1e-9)
+	T(out.m32)["~"](3, 1e-9)
+	local expected = Quat(0, 0, 0, 1):RotateYaw(math.rad(45))
+	T(out:GetRotation():GetForward():Dot(expected:GetForward()))["~"](1, 1e-3)
+end)
+
+T.Test("the block arm blends in with the block weight instead of switching at half", function()
+	local function left_hand(weight)
+		local bones = create_bones()
+		local p = pose(Quat(0, 0, 0, 1))
+
+		if weight then
+			p.anims[#p.anims + 1] = animations.NewInstance("block", weight)
+		end
+
+		aim_pose.Apply(bones, p, weapon(false))
+		return position(bones, "hand_l")
+	end
+
+	local free, blocked, half = left_hand(nil), left_hand(1), left_hand(0.5)
+	T(free:Distance(blocked) > 0.05)["=="](true)
+	T(half:Distance(free) > 0.005)["=="](true)
+	T(half:Distance(blocked) > 0.005)["=="](true)
+	T(left_hand(0.499):Distance(half))["<"](0.01)
+	T(left_hand(0.0005):Distance(free))["<"](1e-6)
+end)

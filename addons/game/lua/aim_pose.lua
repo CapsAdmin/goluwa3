@@ -339,6 +339,38 @@ for _, name in ipairs(LOWER) do
 end
 
 local origin = Matrix44():Identity()
+local MATRIX_FIELDS = {}
+
+for row = 0, 3 do
+	for column = 0, 3 do
+		MATRIX_FIELDS[#MATRIX_FIELDS + 1] = "m" .. row .. column
+	end
+end
+
+local blend_a, blend_b = Quat(), Quat()
+
+function aim_pose.CopyMatrix(dst, src)
+	for i = 1, 16 do
+		local field = MATRIX_FIELDS[i]
+		dst[field] = src[field]
+	end
+end
+
+function aim_pose.BlendMatrix(out, a, b, t)
+	a:GetRotation(blend_a)
+	b:GetRotation(blend_b)
+
+	if blend_a:Dot(blend_b) < 0 then
+		blend_b:Set(-blend_b.x, -blend_b.y, -blend_b.z, -blend_b.w)
+	end
+
+	out:SetRotation(blend_a:Lerp(t, blend_b):Normalize())
+	out:SetTranslation(
+		a.m30 + (b.m30 - a.m30) * t,
+		a.m31 + (b.m31 - a.m31) * t,
+		a.m32 + (b.m32 - a.m32) * t
+	)
+end
 
 function aim_pose.GetGripMatrix(hand, pitch)
 	local p = aim_pose.PalmOffset
@@ -403,6 +435,26 @@ function aim_pose.GetAim(pose)
 	return aim
 end
 
+local left_start, left_hold = {}, {}
+
+for i = 1, 4 do
+	left_start[i] = Matrix44():Identity()
+	left_hold[i] = Matrix44():Identity()
+end
+
+local function solve_left_hold(bones, pitch, weapon)
+	if weapon and weapon:IsTwoHanded() then
+		local half = weapon:GetSupportRoll() / 2
+		left_roll:Set(0, 0, math.sin(half), math.cos(half))
+		solve_arm(bones, LEFT, pitch, nil, nil, -1, nil, weapon:GetSupportGrip(), left_roll)
+	elseif weapon then
+		local upper = bones.upperarm_l
+		local neutral = aim_pose.NeutralHand
+		grip_target:Set(upper.m30 - neutral.x, upper.m31 + neutral.y, upper.m32 + neutral.z)
+		solve_arm(bones, LEFT, identity, nil, nil, -1, nil, ZERO)
+	end
+end
+
 function aim_pose.Apply(bones, pose, weapon)
 	local pitch = aim_pose.GetAim(pose)
 	local flinch = 0
@@ -461,17 +513,29 @@ function aim_pose.Apply(bones, pose, weapon)
 		shift:Set(0, 0, 0)
 	end
 
-	if animations.GetWeight(pose, "block") > 0.5 then
+	local block = animations.GetWeight(pose, "block")
+
+	if block >= 0.999 then
 		solve_arm(bones, LEFT, pose.pitch, aim_pose.BlockOffset, aim_pose.BlockReach, -1, ZERO)
-	elseif weapon and weapon:IsTwoHanded() then
-		local half = weapon:GetSupportRoll() / 2
-		left_roll:Set(0, 0, math.sin(half), math.cos(half))
-		solve_arm(bones, LEFT, pitch, nil, nil, -1, nil, weapon:GetSupportGrip(), left_roll)
-	elseif weapon then
-		local upper = bones.upperarm_l
-		local neutral = aim_pose.NeutralHand
-		grip_target:Set(upper.m30 - neutral.x, upper.m31 + neutral.y, upper.m32 + neutral.z)
-		solve_arm(bones, LEFT, identity, nil, nil, -1, nil, ZERO)
+	elseif block > 0.001 then
+		for i, name in ipairs(LEFT.shoulder_chain) do
+			aim_pose.CopyMatrix(left_start[i], bones[name])
+		end
+
+		solve_left_hold(bones, pitch, weapon)
+
+		for i, name in ipairs(LEFT.shoulder_chain) do
+			aim_pose.CopyMatrix(left_hold[i], bones[name])
+			aim_pose.CopyMatrix(bones[name], left_start[i])
+		end
+
+		solve_arm(bones, LEFT, pose.pitch, aim_pose.BlockOffset, aim_pose.BlockReach, -1, ZERO)
+
+		for i, name in ipairs(LEFT.shoulder_chain) do
+			aim_pose.BlendMatrix(bones[name], left_hold[i], bones[name], block)
+		end
+	else
+		solve_left_hold(bones, pitch, weapon)
 	end
 end
 

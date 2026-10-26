@@ -71,6 +71,7 @@ function META:Initialize()
 	self.viewing = false
 	self.airborne = false
 	self.fall_speed = 0
+	self.hold_wanted = false
 	self.animation_speed = 1
 	self.seed = math.random()
 	self.rate_scale = pose_variation.GetRateScale(self.seed)
@@ -228,6 +229,8 @@ function META:UpdateAnimations(dt)
 	end
 
 	if self:IsBlocking() then self:EnableState("block") end
+
+	if self.hold_wanted then self:EnableState("hold") end
 
 	if self.airborne then self:EnableState("air") end
 

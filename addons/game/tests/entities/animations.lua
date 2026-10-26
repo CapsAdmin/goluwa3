@@ -243,3 +243,21 @@ T.Test("the landing strength follows the fall speed and cuts the land clip short
 	T(land_with(30))["=="](1)
 	entity:Remove()
 end)
+
+T.Test("the hold weight eases in and out with the wanted flag", function()
+	local entity = create()
+	local pose = entity.character_pose
+	pose.hold_wanted = true
+	step(pose, 0.1)
+	local rising = pose:GetWeight("hold")
+	T(rising > 0 and rising < 1)["=="](true)
+	step(pose, 0.3)
+	T(pose:GetWeight("hold"))["=="](1)
+	pose.hold_wanted = false
+	step(pose, 0.1)
+	local falling = pose:GetWeight("hold")
+	T(falling > 0 and falling < 1)["=="](true)
+	step(pose, 0.3)
+	T(pose:IsPlaying("hold"))["=="](false)
+	entity:Remove()
+end)
