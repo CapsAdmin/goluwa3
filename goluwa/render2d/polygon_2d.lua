@@ -227,6 +227,8 @@ do
 		for ring = 1, rings - 1 do
 			local r0, r1 = ring_radius[ring], ring_radius[ring + 1]
 			local k0, k1 = ring_alpha[ring], ring_alpha[ring + 1]
+			local u0 = math.clamp((r0 - inner) / (outer - inner), 0, 1)
+			local u1 = math.clamp((r1 - inner) / (outer - inner), 0, 1)
 
 			for station = 1, stations - 1 do
 				local t0, t1 = station_angle[station], station_angle[station + 1]
@@ -235,12 +237,12 @@ do
 				local x00, y00, x01, y01 = x + c0 * r0, y + s0 * r0, x + c1 * r0, y + s1 * r0
 				local x10, y10, x11, y11 = x + c0 * r1, y + s0 * r1, x + c1 * r1, y + s1 * r1
 				local a00, a01, a10, a11 = a * k0 * m0, a * k0 * m1, a * k1 * m0, a * k1 * m1
-				self:SetVertex(vertex, x10, y10, 0, 0, r, g, b, a10)
-				self:SetVertex(vertex + 1, x00, y00, 0, 0, r, g, b, a00)
-				self:SetVertex(vertex + 2, x11, y11, 0, 0, r, g, b, a11)
-				self:SetVertex(vertex + 3, x11, y11, 0, 0, r, g, b, a11)
-				self:SetVertex(vertex + 4, x00, y00, 0, 0, r, g, b, a00)
-				self:SetVertex(vertex + 5, x01, y01, 0, 0, r, g, b, a01)
+				self:SetVertex(vertex, x10, y10, u1, 0.5, r, g, b, a10)
+				self:SetVertex(vertex + 1, x00, y00, u0, 0.5, r, g, b, a00)
+				self:SetVertex(vertex + 2, x11, y11, u1, 0.5, r, g, b, a11)
+				self:SetVertex(vertex + 3, x11, y11, u1, 0.5, r, g, b, a11)
+				self:SetVertex(vertex + 4, x00, y00, u0, 0.5, r, g, b, a00)
+				self:SetVertex(vertex + 5, x01, y01, u0, 0.5, r, g, b, a01)
 				vertex = vertex + 6
 			end
 		end
