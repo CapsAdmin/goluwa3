@@ -39,6 +39,7 @@ function Polygon2D.FromTriangleCoordinates(triangles, map)
 	return self
 end
 
+Polygon2D.batch_vertex = 0
 Polygon2D.X, Polygon2D.Y = 0, 0
 Polygon2D.ROT = 0
 Polygon2D.R, Polygon2D.G, Polygon2D.B, Polygon2D.A = 1, 1, 1, 1
@@ -248,6 +249,17 @@ do
 		end
 
 		return vertex
+	end
+end
+
+function Polygon2D:BatchArc(x, y, inner, outer, a0, a1, segments, feather, r, g, b, a)
+	self.batch_vertex = self:SetArc(self.batch_vertex, x, y, inner, outer, a0, a1, segments, feather, r, g, b, a)
+end
+
+function Polygon2D:FlushBatch()
+	if self.batch_vertex > 0 then
+		self:Draw(self.batch_vertex)
+		self.batch_vertex = 0
 	end
 end
 
