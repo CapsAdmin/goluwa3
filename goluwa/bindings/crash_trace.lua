@@ -181,7 +181,9 @@ end
 
 function crash_trace.Run(func, ...)
 	local std_err = io.stderr
-	crash_trace.Install()
+
+	if not rawget(_G, "_WORKER_THREAD") then crash_trace.Install() end
+
 	local args = {...}
 	local result = {
 		xpcall(function()

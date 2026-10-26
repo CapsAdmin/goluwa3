@@ -3,7 +3,9 @@ local startup = import("goluwa/startup.lua")
 startup.Begin("engine start")
 startup.Begin("core modules")
 local crash_trace = import("goluwa/bindings/crash_trace.lua")
-crash_trace.Install()
+
+if not rawget(_G, "_WORKER_THREAD") then crash_trace.Install() end
+
 local event = import("goluwa/event.lua")
 
 if false then
@@ -45,6 +47,10 @@ commands.Add{
 		},
 		cli = {type = "boolean", description = "Run in CLI mode (no graphics, limited FPS)"},
 		server = {type = "boolean", description = "Run as a dedicated server"},
+		["server-client"] = {
+			type = "boolean",
+			description = "Run the server in a separate lua state and connect to it; chat commands run on the server",
+		},
 		["one-frame"] = {type = "boolean", description = "Shut down after the first frame"},
 		renderdoc = {type = "boolean", description = "Attach RenderDoc for debugging"},
 		["no-audio"] = {type = "boolean", description = "Disable audio"},
@@ -71,6 +77,7 @@ commands.Add{
 		_G.AUDIO = not flags["no-audio"]
 		_G.SERVER = flags.server
 		_G.CLIENT = not SERVER
+		_G.SERVER_CLIENT = flags["server-client"]
 		_G.RENDER_NOOP = false
 		_G.RENDER_2D = not flags.headless and not flags.cli and not flags.server
 		_G.RENDER_3D = flags["3d"]
@@ -160,16 +167,20 @@ local function run_game()
 	startup.Begin("run_game")
 	startup.Begin("pvars and repl")
 	import("goluwa/cli/pvars.lua").Initialize()
-	import("goluwa/cli/repl.lua").Initialize()
+
+	if not _WORKER_THREAD then import("goluwa/cli/repl.lua").Initialize() end
+
 	startup.End("pvars and repl")
 
 	if HOT_RELOAD then import("goluwa/filesystem/watcher.lua").Start() end
 
-	fs.write_file(".running_pid", tostring(process.current:get_id()))
+	if not _WORKER_THREAD then
+		fs.write_file(".running_pid", tostring(process.current:get_id()))
 
-	event.AddListener("ShutDown", function()
-		fs.remove_file(".running_pid")
-	end)
+		event.AddListener("ShutDown", function()
+			fs.remove_file(".running_pid")
+		end)
+	end
 
 	if RENDER_2D then
 		startup.Begin("render import")
@@ -284,6 +295,16 @@ local function run_game()
 		import("goluwa/network/network.lua").Initialize()
 		startup.End("network")
 
+		if SERVER_CLIENT then
+			local arguments = {"--server"}
+
+			if os.getenv("GOLUWA_VALIDATE") == "1" then
+				table.insert(arguments, "--validate")
+			end
+
+			import("goluwa/network/server_process.lua").Start(tonumber(os.getenv("GOLUWA_PORT")) or 1234, arguments)
+		end
+
 		if SERVER then
 			local ok, err = commands.ExecuteCommandString("host")
 
@@ -291,6 +312,8 @@ local function run_game()
 				io.stderr:write(err, "\n")
 				system.ShutDown(1)
 			end
+
+			import("goluwa/network/server_process.lua").NotifyReady()
 		end
 	end
 

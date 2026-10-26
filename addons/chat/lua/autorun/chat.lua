@@ -7,6 +7,7 @@ local Markup = import("goluwa/render2d/markup.lua")
 local message = import("goluwa/network/message.lua")
 local network = import("goluwa/network/network.lua")
 local command_input = import("goluwa/cli/command_input.lua")
+local server_process = import("goluwa/network/server_process.lua")
 local chat = {}
 
 local function getnick(client)
@@ -140,7 +141,12 @@ end
 if CLIENT then
 	event.AddListener("ChatBoxInput", "chat", function(str)
 		if command_input.IsCommand(str) then
-			chat.RunCommand(str)
+			if server_process.IsActive() then
+				event.Call("Chat", "command", str, NULL)
+				server_process.RunCommand(str)
+			else
+				chat.RunCommand(str)
+			end
 		else
 			chat.Say(str)
 		end
