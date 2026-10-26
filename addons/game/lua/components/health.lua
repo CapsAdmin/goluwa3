@@ -2,8 +2,8 @@ local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local META = objects.CreateTemplate("health")
 META.Network = {
-	Health = {"number", 0.1, "reliable"},
-	MaxHealth = {"number", 0.5, "reliable"},
+	Health = {"number", 0.1, "reliable", to_owner = true},
+	MaxHealth = {"number", 0.5, "reliable", to_owner = true},
 }
 META:StartStorable()
 META:GetSet("Health", 100)

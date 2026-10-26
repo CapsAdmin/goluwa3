@@ -123,6 +123,7 @@ local function create_var(name, key, info, target, owner_excluded)
 		interp = info[4],
 		client = info.client,
 		owner_excluded = owner_excluded,
+		to_owner = info.to_owner,
 		next_send = 0,
 	}
 end
@@ -205,11 +206,12 @@ if SERVER then
 		if not client:IsBot() then awaiting_world[client] = true end
 	end)
 
-	function META:GetSendFilter(without_owner)
+	function META:GetSendFilter(mode)
 		if self.filter_version ~= client_version then
 			self.filter_version = client_version
 			local filter = clients.CreateFilter()
 			local others = clients.CreateFilter()
+			local everyone = clients.CreateFilter()
 			self.owner_in_filter = false
 
 			for _, client in ipairs(clients.GetAll()) do
@@ -221,6 +223,8 @@ if SERVER then
 					and
 					not self.pending_clients[client]
 				then
+					everyone:Add(client)
+
 					if client:GetUniqueID() ~= self.NetworkOwner then
 						filter:Add(client)
 						others:Add(client)
@@ -233,9 +237,14 @@ if SERVER then
 
 			self.filter = filter
 			self.filter_others = others
+			self.filter_everyone = everyone
 		end
 
-		return without_owner and self.filter_others or self.filter
+		if mode == "others" then return self.filter_others end
+
+		if mode == "everyone" then return self.filter_everyone end
+
+		return self.filter
 	end
 
 	function META:IsOwnedBy(client)
@@ -279,7 +288,7 @@ if SERVER then
 			return
 		end
 
-		self:SendSpawnPacket(self:GetSendFilter(true), false)
+		self:SendSpawnPacket(self:GetSendFilter("others"), false)
 
 		if self.owner_in_filter then
 			self:SendSpawnPacket(clients.GetByUniqueID(self.NetworkOwner), true)
@@ -324,7 +333,10 @@ if SERVER then
 		packet.Send(
 			PACKET,
 			buffer,
-			self:GetSendFilter(self:GetTarget(name).NetworkOwnerExcluded and network.IsPredicting()),
+			self:GetSendFilter(self:GetTarget(name).NetworkOwnerExcluded and
+				network.IsPredicting() and
+				"others" or
+				nil),
 			"reliable",
 			self.NetworkChannel
 		)
@@ -340,10 +352,12 @@ if SERVER then
 	end
 
 	do
-		local reliable = {}
-		local sequenced = {}
-		local reliable_others = {}
-		local sequenced_others = {}
+		local buckets = {}
+		local modes = {"base", "others", "everyone"}
+
+		for i = 1, 3 do
+			buckets[i] = {reliable = {}, sequenced = {}, reliable_count = 0, sequenced_count = 0}
+		end
 
 		local function send_batch(self, batch, count, flags, filter)
 			if count == 0 then return end
@@ -378,10 +392,7 @@ if SERVER then
 			end
 
 			local now = get_time()
-			local reliable_count = 0
-			local sequenced_count = 0
-			local reliable_others_count = 0
-			local sequenced_others_count = 0
+			local predicting = network.IsPredicting()
 
 			for _, var in ipairs(self.vars) do
 				if now >= var.next_send then
@@ -399,24 +410,18 @@ if SERVER then
 					end
 
 					if value ~= nil and value ~= var.last then
-						if var.owner_excluded and network.IsPredicting() then
-							if var.flags == "reliable" then
-								reliable_others_count = reliable_others_count + 1
-								reliable_others[reliable_others_count * 2 - 1] = var
-								reliable_others[reliable_others_count * 2] = value
-							else
-								sequenced_others_count = sequenced_others_count + 1
-								sequenced_others[sequenced_others_count * 2 - 1] = var
-								sequenced_others[sequenced_others_count * 2] = value
-							end
-						elseif var.flags == "reliable" then
-							reliable_count = reliable_count + 1
-							reliable[reliable_count * 2 - 1] = var
-							reliable[reliable_count * 2] = value
+						local bucket = buckets[(var.owner_excluded and predicting) and 2 or var.to_owner and 3 or 1]
+
+						if var.flags == "reliable" then
+							local count = bucket.reliable_count + 1
+							bucket.reliable_count = count
+							bucket.reliable[count * 2 - 1] = var
+							bucket.reliable[count * 2] = value
 						else
-							sequenced_count = sequenced_count + 1
-							sequenced[sequenced_count * 2 - 1] = var
-							sequenced[sequenced_count * 2] = value
+							local count = bucket.sequenced_count + 1
+							bucket.sequenced_count = count
+							bucket.sequenced[count * 2 - 1] = var
+							bucket.sequenced[count * 2] = value
 						end
 
 						var.last = copy_value(value)
@@ -424,18 +429,26 @@ if SERVER then
 				end
 			end
 
-			if
-				reliable_count + sequenced_count + reliable_others_count + sequenced_others_count == 0
-			then
-				return
-			end
+			for i = 1, 3 do
+				local bucket = buckets[i]
 
-			local filter = self:GetSendFilter()
-			send_batch(self, reliable, reliable_count, "reliable", filter)
-			send_batch(self, sequenced, sequenced_count, "sequenced", filter)
-			local others = self:GetSendFilter(true)
-			send_batch(self, reliable_others, reliable_others_count, "reliable", others)
-			send_batch(self, sequenced_others, sequenced_others_count, "sequenced", others)
+				if bucket.reliable_count + bucket.sequenced_count > 0 then
+					local filter = self:GetSendFilter(modes[i])
+					send_batch(self, bucket.reliable, bucket.reliable_count, "reliable", filter)
+					send_batch(self, bucket.sequenced, bucket.sequenced_count, "sequenced", filter)
+					bucket.reliable_count = 0
+					bucket.sequenced_count = 0
+				end
+			end
+		end
+
+		function META:ResendOwnerVars()
+			for _, var in ipairs(self.vars) do
+				if var.to_owner then
+					var.last = nil
+					var.next_send = 0
+				end
+			end
 		end
 	end
 

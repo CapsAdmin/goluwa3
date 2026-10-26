@@ -7,15 +7,15 @@ local attributes = import("lua/jrpg/attributes.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local META = objects.CreateTemplate("rpg")
 META.Network = {
-	Mana = {"number", 0.1, "reliable"},
-	MaxMana = {"number", 0.5, "reliable"},
-	Stamina = {"number", 0.1, "reliable"},
-	MaxStamina = {"number", 0.5, "reliable"},
-	XP = {"number", 0.25, "reliable"},
-	Level = {"number", 0.25, "reliable"},
-	AttributePoints = {"number", 0.25, "reliable"},
-	Cheat = {"boolean", 0.5, "reliable"},
-	Stunned = {"boolean", 0.1, "reliable"},
+	Mana = {"number", 0.1, "reliable", to_owner = true},
+	MaxMana = {"number", 0.5, "reliable", to_owner = true},
+	Stamina = {"number", 0.1, "reliable", to_owner = true},
+	MaxStamina = {"number", 0.5, "reliable", to_owner = true},
+	XP = {"number", 0.25, "reliable", to_owner = true},
+	Level = {"number", 0.25, "reliable", to_owner = true},
+	AttributePoints = {"number", 0.25, "reliable", to_owner = true},
+	Cheat = {"boolean", 0.5, "reliable", to_owner = true},
+	Stunned = {"boolean", 0.1, "reliable", to_owner = true},
 }
 META:GetSet("Mana", 125)
 META:GetSet("MaxMana", 125)

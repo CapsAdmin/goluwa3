@@ -3,7 +3,7 @@ local network = import("goluwa/network/network.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 local META = objects.CreateTemplate("status_effects")
 META.Network = {
-	Encoded = {"string", 0.1, "reliable"},
+	Encoded = {"string", 0.1, "reliable", to_owner = true},
 }
 META:GetSet("Encoded", "")
 local SMOOTH_SPEED = 6

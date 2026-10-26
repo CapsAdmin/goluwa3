@@ -14,7 +14,7 @@ local RagdollPart = import("lua/components/ragdoll_part.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local META = objects.CreateTemplate("ragdoll")
 -- an empty Network table is what makes the component part of the spawn packet
-META.Network = {Limp = {"boolean", 0.1, "reliable"}}
+META.Network = {Limp = {"boolean", 0.1, "reliable", to_owner = true}}
 META:IsSet("Limp", false)
 META:StartStorable()
 META:GetSet("CorpseTime", 0)

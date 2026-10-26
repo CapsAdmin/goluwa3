@@ -16,6 +16,7 @@ end
 function spawning.SendStart(client, entity, position, rotation)
 	local start = packet.CreateBuffer()
 	start:WriteI32(entity.network.NetworkId)
+	entity.network:ResendOwnerVars()
 	start:WriteVec3(position)
 	start:WriteQuat(rotation)
 	packet.Send("player_start", start, client, "reliable")
