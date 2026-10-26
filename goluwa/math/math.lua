@@ -80,6 +80,19 @@ function math.lerp(m, a, b)
 	return (b - a) * m + a
 end
 
+function math.wrapped_delta(from, to, count)
+	local delta = (to - from) % count
+
+	if delta > count / 2 then delta = delta - count end
+
+	return delta
+end
+
+function math.wrapped_offset(index, scroll, count, range)
+	local base = (index - scroll) % count
+	return base - count * math.floor((base + range) / count)
+end
+
 function math.len(x)
 	local len = 1
 
