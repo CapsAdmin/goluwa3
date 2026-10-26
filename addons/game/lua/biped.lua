@@ -1,4 +1,5 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local eye_pose = import("lua/eye_pose.lua")
@@ -383,6 +384,7 @@ biped.SocketProfiles.biped = {
 	head = {Bone = "head"},
 	center = {Bone = "spine"},
 	feet = {Bone = "root"},
+	chest = {Bone = "chest", Offset = Vec3(0, -0.6, -0.8) * (eye_pose.EyeRadius + 0.02)},
 }
 biped.SocketProfiles.source_humanoid = {
 	grip_r = {Bone = "hand_r"},
@@ -391,6 +393,12 @@ biped.SocketProfiles.source_humanoid = {
 	head = {Bone = "head"},
 	center = {Bone = "spine"},
 	feet = {Bone = "root"},
+	-- ValveBiped Spine2 points x back, y left and z down, the socket faces forward with y up
+	chest = {
+		Bone = "chest",
+		Offset = Vec3(-0.17, 0, -0.1),
+		Rotation = Quat(-0.5, 0.5, -0.5, 0.5),
+	},
 }
 
 if RENDER_3D then

@@ -4,11 +4,12 @@ A weapon is a prefab whose root has the `weapon` component plus a `script` with 
 
 ## Places
 
-A held weapon is either stowed (`Equipped == ""`, hidden) or equipped in a place: `right`, `left`, or a body mount named by its `Mount` (such as `chest`). `Equipped` replicates and decides the socket the model attaches to (`grip_r`, `grip_l`, `chest`).
+A held weapon is either stowed (`Equipped == ""`, hidden) or equipped in a place: `right`, `left`, or a body mount named by its `Mount` (`chest`, the flashlight). `Equipped` replicates and decides the socket the model attaches to (`grip_r`, `grip_l`, `chest`).
 
 - `Mount = "hand"` (default) weapons go in a hand. `TwoHanded` ones are equipped `right` and take the left hand too (`holder:GetWeapon("left")` returns them as well), `Offhand` ones (the shield) only go `left`. `weapon:CanEquip(place)` is the rule, `weapon:GetDefaultPlace()` where a given or picked up weapon goes when that place is free (`holder:EquipDefault`).
 - `holder:Equip(weapon, place)` is the only way to change places. It stows what was there; moving a weapon to the other hand swaps the two when the displaced one fits; a two handed weapon stows the left hand weapon, which is remembered and comes back when a one handed weapon is equipped right again (`left_choice`, cleared by `holder:EmptyLeftHand()`).
 - `OnWeaponEquip` / `OnWeaponHolster` fire on the weapon entity whenever it enters or leaves a place, including hand swaps.
+- The flashlight's lamp model sits on the chest, but its spot light (real lumens, a lazily created shadow map) starts just in front of the eyes and follows the aim: a light below the view lets the held weapons throw shadows into the beam.
 
 ## Buttons
 

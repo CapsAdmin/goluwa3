@@ -75,14 +75,14 @@ T.Test("an attachment_points component puts its profile sockets on the armature 
 	T(owner.armature == nil)["=="](true)
 	owner:AddComponent("armature")
 	owner.armature:SetSkeleton(biped.SkeletonName)
-	T(#owner.armature:GetSocketNames())["=="](6)
+	T(#owner.armature:GetSocketNames())["=="](7)
 	T(owner.armature:GetBoneMatrix("grip_r") ~= nil)["=="](true)
 	owner:Remove()
 	local early = Entity.New{transform = {}}
 	early:AddComponent("armature")
 	early.armature:SetSkeleton(biped.SkeletonName)
 	early:AddComponent("attachment_points")
-	T(#early.armature:GetSocketNames())["=="](6)
+	T(#early.armature:GetSocketNames())["=="](7)
 	early:Remove()
 end)
 
