@@ -280,6 +280,7 @@ function META:UpdatePlayer(animator, pose, dt)
 	local weapon = holder and holder:GetWeapon("right")
 	local suffix = weapon and weapon.weapon:GetStance() or "all"
 	sequence, override = self:GetOverride(pose, suffix, clips)
+	local air_crouch = crouching and pose.airborne and override and override.def.Kind == "state"
 	local sprinting = not crouching and not pose.airborne and speed > PLAYER_RUN_SPEED * SPRINT_START
 	self.sprinting = sprinting
 	local gait = crouching and
@@ -295,7 +296,10 @@ function META:UpdatePlayer(animator, pose, dt)
 		)
 	local rate = 1
 
-	if override then
+	if air_crouch then
+		sequence = suffix == "all" and "cidle_all" or "cidle_" .. suffix
+		override = nil
+	elseif override then
 
 	elseif speed < 0.15 then
 		sequence = (crouching and "cidle_" or "idle_") .. suffix
@@ -327,7 +331,7 @@ function META:UpdatePlayer(animator, pose, dt)
 		self:SwitchSequence(animator, sequence, override)
 	end
 
-	if speed >= 0.15 and not override then
+	if speed >= 0.15 and not override and not air_crouch then
 		rate = math.clamp(
 			speed * pose_variation.GetStrideScale(forward_speed, right_speed, crouching) / reference,
 			0.4,
