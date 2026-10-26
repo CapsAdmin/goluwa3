@@ -545,7 +545,9 @@ function render2d.DrawTextureCover(texture, x, y, w, h, radius, r, g, b, a, flip
 	local texture_width, texture_height = texture:GetWidth(), texture:GetHeight()
 	local crop_x1, crop_y1, crop_x2, crop_y2 = 0, 0, 1, 1
 
-	if crop then crop_x1, crop_y1, crop_x2, crop_y2 = crop[1], crop[2], crop[3], crop[4] end
+	if crop then
+		crop_x1, crop_y1, crop_x2, crop_y2 = crop[1], crop[2], crop[3], crop[4]
+	end
 
 	local scale = math.max(
 		w / ((crop_x2 - crop_x1) * texture_width),
@@ -687,7 +689,7 @@ do
 		end
 
 		if softness > 0 then
-			local bg_alpha = background_color.a * (foreground_color.a ^ 2) * 0.67
+			local bg_alpha = background_color.a * (alpha ^ 2) * 0.67
 			render2d.PushColor(
 				background_color.r,
 				background_color.g,
@@ -701,7 +703,7 @@ do
 		end
 
 		if outline_width then
-			render2d.PushColor(outline_color.r, outline_color.g, outline_color.b, outline_color.a)
+			render2d.PushColor(outline_color.r, outline_color.g, outline_color.b, outline_color.a * alpha)
 			render2d.PushOutlineWidth(outline_width)
 			font:DrawText(text, x, y, spacing, align_x, align_y)
 			render2d.PopOutlineWidth()
