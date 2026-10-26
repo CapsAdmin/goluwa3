@@ -6,10 +6,12 @@ local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Polygon2D = import("goluwa/render2d/polygon_2d.lua")
 local JRPGTheme = import("goluwa/render2d/ui/themes/jrpg.lua")
 local jrpg = import("lua/jrpg/jrpg.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
+local weapon_categories = import("lua/weapon_categories.lua")
 local hitmarkers = import("lua/hitmarkers.lua")
 local targeting = import("lua/targeting.lua")
 local third_person = import("lua/third_person.lua")
@@ -40,14 +42,6 @@ local BARS = {
 	{key = "health", label = "HP", color = jrpg.Colors.health},
 	{key = "mana", label = "MP", color = jrpg.Colors.mana},
 	{key = "stamina", label = "SP", color = jrpg.Colors.stamina},
-}
-local CATEGORY_LABELS = {
-	melee = "MELEE",
-	magic = "MAGIC",
-	tools = "TOOL",
-	weapons = "RANGE",
-	defense = "GUARD",
-	items = "ITEMS",
 }
 local BAR_HEIGHT = 15
 local BAR_GAP = 5
@@ -124,6 +118,9 @@ local function text(str, x, y, font, size, color, alpha, align_x, glow)
 		foreground_color = color,
 		background_color = glow or INK,
 		softness = glow and 5 or 3,
+		blur_intensity = 2.5,
+		outline_width = math.max(size * 0.08, 1.5),
+		outline_color = glow or INK,
 		alpha = alpha or 1,
 	}
 	return w, h
@@ -222,11 +219,28 @@ local function draw_status_icons(component, x, y, size, alpha, align_right)
 			render2d.SetTexture(nil)
 			set_color(GOLD, fade)
 			theme:DrawDiamond2(cx, cy, size * 1.05)
-			text(definition.Label, cx, cy + size * 0.55, HEADING, math.floor(size * 0.36), WHITE, fade, 0.5)
+			text(
+				definition.Label,
+				cx,
+				cy + size * 0.55,
+				HEADING,
+				math.floor(size * 0.36),
+				WHITE,
+				fade,
+				0.5
+			)
 			x = align_right and x - size - 4 or x + size + 4
 		end
 	end
 end
+
+local RING_RANGE = 6
+local RING_INNER = 72
+local RING_OUTER = 235
+local RING_GAP = 2
+local RING_FEATHER = 1
+local ring_poly = Polygon2D.New(4096)
+ring_poly.WorldMatrixMultiply = true
 
 local function draw_ring(holder, cx, cy, S, dt)
 	local theme = get_style()
@@ -243,7 +257,20 @@ local function draw_ring(holder, cx, cy, S, dt)
 		if weapon == active then selected = i end
 	end
 
-	local scroll = smooth("ring_scroll", selected, dt, 10)
+	local last_selected = smoothed.ring_last or selected
+	local scroll_target = smoothed.ring_target or selected
+
+	if selected ~= last_selected then
+		local delta = (selected - last_selected) % count
+
+		if delta > count / 2 then delta = delta - count end
+
+		scroll_target = scroll_target + delta
+	end
+
+	smoothed.ring_last = selected
+	smoothed.ring_target = scroll_target
+	local scroll = smooth("ring_scroll", scroll_target, dt, 10)
 	local accent = NEON
 
 	if active and active.weapon:GetCategory() == "magic" then
@@ -295,59 +322,132 @@ local function draw_ring(holder, cx, cy, S, dt)
 	end
 
 	render2d.PopBlendMode()
-	local step = math.pi * 2 / math.max(count, 12)
+	local step = math.pi * 2 / math.max(count, 25)
+	local tan_half = math.tan(step / 2)
+	local cos_half = math.cos(step / 2)
+	local ring_vertex = 0
 
-	for i, weapon in ipairs(weapons) do
-		local offset = i - scroll
-		local angle = offset * step
-		local fade = math.max(1 - math.abs(offset) / 3.2, 0) ^ 2
+	for pass = 1, 3 do
+		for i, weapon in ipairs(weapons) do
+			local base = (i - scroll) % count
+			local offset = base - count * math.floor((base + RING_RANGE) / count)
 
-		if fade > 0.01 then
-			local info = weapon.weapon
-			local is_selected = weapon == active
-			local name = info:GetDisplayName():upper()
-			local color = is_selected and WHITE or MUTED
+			while offset < RING_RANGE do
+				local fade = math.max(1 - math.abs(offset) / RING_RANGE, 0) ^ 2
 
-			if info:GetCategory() == "magic" and weapon.weapon_magic then
-				color = damage_types.GetColor(weapon.weapon_magic.Element)
+				if fade > 0.01 then
+					local info = weapon.weapon
+					local is_selected = weapon == active and math.abs(offset) < 0.5
+					local name = info:GetDisplayName():upper()
+					local color = is_selected and WHITE or MUTED
+
+					if info:GetCategory() == "magic" and weapon.weapon_magic then
+						color = damage_types.GetColor(weapon.weapon_magic.Element)
+					end
+
+					local size = math.floor((is_selected and 20 or 15) * S)
+					render2d.PushWorldMatrix()
+					render2d.Translatef(cx, cy)
+					render2d.Rotate(offset * step)
+					local _, h = render2d.GetTextSize(name, HEADING, size, BOLD)
+					local category = weapon_categories.Get(info:GetCategory())
+					local previous = weapons[(i - 2) % count + 1].weapon:GetCategory()
+					local following = weapons[i % count + 1].weapon:GetCategory()
+					local gap_up = previous == info:GetCategory() and RING_GAP * S or 0
+					local gap_down = following == info:GetCategory() and RING_GAP * S or 0
+
+					if pass == 1 then
+						local rim = RING_OUTER * S / cos_half
+						local gap_up_angle = gap_up / rim
+						local gap_down_angle = gap_down / rim
+						ring_vertex = ring_poly:SetArc(
+							ring_vertex,
+							0,
+							0,
+							RING_INNER * S / cos_half,
+							rim,
+							-step / 2 + gap_up_angle,
+							step / 2 - gap_down_angle,
+							1,
+							RING_FEATHER,
+							INK.r,
+							INK.g,
+							INK.b,
+							0.5 * fade
+						)
+						ring_vertex = ring_poly:SetArc(
+							ring_vertex,
+							0,
+							0,
+							RING_INNER * S / cos_half,
+							rim,
+							-step / 2 + gap_up_angle,
+							step / 2 - gap_down_angle,
+							1,
+							RING_FEATHER,
+							category.Color.r,
+							category.Color.g,
+							category.Color.b,
+							(is_selected and 0.55 or 0.3) * fade
+						)
+					elseif pass == 2 and previous ~= info:GetCategory() then
+						local other = weapon_categories.Get(previous).Color
+						render2d.PushWorldMatrix()
+						render2d.Rotate(-step / 2)
+						render2d.PushBlendPreset("additive")
+						render2d.SetColor(
+							(category.Color.r + other.r) * 0.5 + 0.25,
+							(category.Color.g + other.g) * 0.5 + 0.25,
+							(category.Color.b + other.b) * 0.5 + 0.25,
+							1.5 * fade
+						)
+						theme:DrawGlowLine(RING_INNER * S / cos_half, 0, RING_OUTER * S / cos_half, 0, 4 * S)
+						render2d.PopBlendMode()
+						render2d.PopWorldMatrix()
+					end
+
+					if pass == 3 and is_selected then
+						render2d.PushBlendPreset("additive")
+						render2d.SetTexture(theme.GlowLineTexture)
+						set_color(ring_color, 0.8)
+						render2d.DrawRect(76 * S, -10 * S, 220 * S, 20 * S)
+						render2d.SetTexture(nil)
+						set_color(GOLD, 1)
+						theme:DrawDiamond(76 * S, 0, 7 * S)
+						render2d.PopBlendMode()
+					end
+
+					if pass == 3 then
+						text(
+							name,
+							88 * S,
+							-h / 2,
+							HEADING,
+							size,
+							color,
+							fade,
+							0,
+							is_selected and Color(color.r * 0.4, color.g * 0.4, color.b * 0.4, 1) or nil
+						)
+					end
+
+					render2d.PopWorldMatrix()
+				end
+
+				offset = offset + count
 			end
+		end
 
-			local size = math.floor((is_selected and 20 or 15) * S)
-			render2d.PushWorldMatrix()
-			render2d.Translatef(cx, cy)
-			render2d.Rotate(angle)
-			local _, h = render2d.GetTextSize(name, HEADING, size, BOLD)
-
-			if is_selected then
-				render2d.PushBlendPreset("additive")
-				render2d.SetTexture(theme.GlowLineTexture)
-				set_color(ring_color, 0.8)
-				render2d.DrawRect(76 * S, -10 * S, 220 * S, 20 * S)
-				render2d.SetTexture(nil)
-				set_color(GOLD, 1)
-				theme:DrawDiamond(76 * S, 0, 7 * S)
-				render2d.PopBlendMode()
-			end
-
-			text(
-				name,
-				88 * S,
-				-h / 2,
-				HEADING,
-				size,
-				color,
-				fade,
-				0,
-				is_selected and Color(color.r * 0.4, color.g * 0.4, color.b * 0.4, 1) or nil
-			)
-			render2d.PopWorldMatrix()
+		if pass == 1 and ring_vertex > 0 then
+			render2d.SetTexture(nil)
+			render2d.SetColor(1, 1, 1, 1)
+			ring_poly:Draw(ring_vertex)
 		end
 	end
 
 	if active then
-		local category = CATEGORY_LABELS[active.weapon:GetCategory()] or
-			active.weapon:GetCategory():upper()
-		text(category, cx, cy - 9 * S, HEADING, math.floor(13 * S), GOLD, 1, 0.5)
+		local category = weapon_categories.Get(active.weapon:GetCategory())
+		text(category.Label, cx, cy - 9 * S, HEADING, math.floor(13 * S), category.Color, 1, 0.5)
 	end
 end
 
@@ -570,7 +670,11 @@ local function update_record(record, health, now, dt)
 		)
 
 	if box then
-		record.anchor:Set((box.min_x + box.max_x) * 0.5, box.max_y + NPC_LIFT, (box.min_z + box.max_z) * 0.5)
+		record.anchor:Set(
+			(box.min_x + box.max_x) * 0.5,
+			box.max_y + NPC_LIFT,
+			(box.min_z + box.max_z) * 0.5
+		)
 	end
 
 	if health.Health < record.health then
