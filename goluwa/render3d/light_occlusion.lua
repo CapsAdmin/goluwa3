@@ -146,7 +146,7 @@ local function process_geometry_change(lights)
 			local stale = dirty_all
 
 			if not stale then
-				local pos = light.Owner.transform:GetPosition()
+				local pos = light.Owner.transform:GetWorldPosition()
 				local range = light:GetEffectiveRange()
 				local radius_sq = range * range
 
@@ -192,7 +192,7 @@ local function build_trace_pipeline()
 						local light = lights[i + 1]
 
 						if is_occlusion_light(light) then
-							light.Owner.transform:GetPosition():CopyToFloatPointer(block.oct_positions[i])
+							light.Owner.transform:GetWorldPosition():CopyToFloatPointer(block.oct_positions[i])
 							block.oct_positions[i][3] = light:GetEffectiveRange()
 						else
 							block.oct_positions[i][0] = 0
@@ -403,7 +403,7 @@ function light_occlusion.Draw(cmd)
 			geom_stale[light_index] = nil
 			slot_at_z[light_index] = nil
 		else
-			local pos = light.Owner.transform:GetPosition()
+			local pos = light.Owner.transform:GetWorldPosition()
 			local range = light:GetEffectiveRange()
 
 			if render3d.SphereInFrustum(pos.x, pos.y, pos.z, range) then
@@ -556,7 +556,7 @@ function light_occlusion.Draw(cmd)
 	for i = 1, dirty_count do
 		local light_index = slot_at_z[i] + 1
 		local light = lights[light_index]
-		local pos = light.Owner.transform:GetPosition()
+		local pos = light.Owner.transform:GetWorldPosition()
 		state[light_index] = {
 			light = light,
 			x = pos.x,
@@ -600,7 +600,7 @@ function light_occlusion.GetDebugState()
 		if is_occlusion_light(light) then
 			local info = state[light_index]
 			local stamp = stamps[light_index] or 0
-			local pos = light.Owner.transform:GetPosition()
+			local pos = light.Owner.transform:GetWorldPosition()
 			local range = light:GetEffectiveRange()
 			out.lights[#out.lights + 1] = {
 				index = light_index - 1,

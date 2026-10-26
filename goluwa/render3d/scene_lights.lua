@@ -178,11 +178,12 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 		local light = lights[i + 1]
 
 		if light then
-			local rotation = light.Owner.transform:GetRotation()
+			local transform = light.Owner.transform
+			local rotation = transform:GetWorldRotation()
 			local direction = light.Type == "light_directional" and
 				rotation:GetBackward() or
 				rotation:GetForward()
-			light.Owner.transform:GetPosition():CopyToFloatPointer(data.position)
+			transform:GetWorldPosition():CopyToFloatPointer(data.position)
 			direction:CopyToFloatPointer(data.direction)
 			data.falloff[0] = light.SourceRadius ^ 2 + light.ConstantFalloff
 			data.falloff[1] = light.LinearFalloff
@@ -371,7 +372,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 			for _, shadow_map in ipairs(light_maps) do
 				if shadow_map.mode ~= "point" then goto continue_light end
 
-				local position = light.Owner.transform:GetPosition()
+				local position = light.Owner.transform:GetWorldPosition()
 				local distance_score = 0
 
 				if camera_position then
@@ -415,7 +416,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 
 		point_shadow_count = point_shadow_count + 1
 		shadow_block.point_shadow_map_indices[point_shadow_count - 1] = self:GetCubeMapTextureIndex(shadow_map:GetDepthTexture())
-		light.Owner.transform:GetPosition():CopyToFloatPointer(shadow_block.point_shadow_positions[point_shadow_count - 1])
+		light.Owner.transform:GetWorldPosition():CopyToFloatPointer(shadow_block.point_shadow_positions[point_shadow_count - 1])
 		shadow_block.point_shadow_positions[point_shadow_count - 1][3] = shadow_map:GetFarPlane()
 		shadow_block.point_shadow_light_indices[point_shadow_count - 1] = candidate.light_index
 

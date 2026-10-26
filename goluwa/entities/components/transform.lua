@@ -468,6 +468,10 @@ function META:GetWorldPosition()
 	return Vec3(self:GetWorldMatrix():GetTranslation())
 end
 
+function META:GetWorldRotation()
+	return self:GetWorldMatrix():GetRotation()
+end
+
 do
 	local FOLLOW_RATE = 12
 	local MAX_GAP = 0.25

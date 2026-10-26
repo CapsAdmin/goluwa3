@@ -700,7 +700,10 @@ local function build_shadow_cascade_update_mask(self)
 		return mask
 	end
 
-	local light_rotation = self.light and self.light.transform and self.light.transform:GetRotation() or nil
+	local light_rotation = self.light and
+		self.light.transform and
+		self.light.transform:GetWorldRotation() or
+		nil
 
 	if
 		rotation_changed(light_rotation, self.last_rotation, policy.shadow_rotation_epsilon or 0)
@@ -1669,7 +1672,7 @@ local function geometry_changed_for(self, transform)
 		return true
 	end
 
-	local pos = transform:GetPosition()
+	local pos = transform:GetWorldPosition()
 	local radius_sq = self.far_plane * self.far_plane
 	local boxes = library.AABB_CHANGED_BOXES
 
@@ -1706,12 +1709,12 @@ function ShadowMap:PrepareFrameUpdate()
 		if transform then
 			restart = restart or
 				position_changed(
-					transform:GetPosition(),
+					transform:GetWorldPosition(),
 					self.last_position,
 					policy.shadow_position_epsilon or 0
 				) or
 				rotation_changed(
-					transform:GetRotation(),
+					transform:GetWorldRotation(),
 					self.last_rotation,
 					policy.shadow_rotation_epsilon or 0
 				)
@@ -1735,7 +1738,7 @@ function ShadowMap:PrepareFrameUpdate()
 	end
 
 	if self.mode == "point" and transform then
-		local position = transform:GetPosition()
+		local position = transform:GetWorldPosition()
 
 		if not render3d.SphereInFrustum(position.x, position.y, position.z, self.far_plane) then
 			return nil
@@ -1781,8 +1784,8 @@ function ShadowMap:FinishFrameUpdate(complete, rendered, rendered_cascades)
 			self.next_cascade = 1
 
 			if self.light and self.light.transform then
-				self.last_position = self.light.transform:GetPosition():Copy()
-				self.last_rotation = self.light.transform:GetRotation():Copy()
+				self.last_position = self.light.transform:GetWorldPosition()
+				self.last_rotation = self.light.transform:GetWorldRotation()
 			end
 		else
 			self.next_cascade = self.next_cascade + (rendered_cascades or 0)
@@ -1872,8 +1875,8 @@ end
 
 function ShadowMap:UpdateMatrices(update_mask)
 	local transform = self.light and self.light.transform
-	local position = transform and transform:GetPosition()
-	local rotation = transform and transform:GetRotation()
+	local position = transform and transform:GetWorldPosition()
+	local rotation = transform and transform:GetWorldRotation()
 
 	if self.mode == "point" then
 		self:UpdatePointLightMatrices(position)
