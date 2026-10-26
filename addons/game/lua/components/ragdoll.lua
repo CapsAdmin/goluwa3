@@ -708,7 +708,7 @@ function META:OnTakeDamage(info)
 	end
 end
 
-function META:OnDeath()
+function META:OnDeath(info)
 	if not network.HasAuthority() then return end
 
 	if not self.parts[1] then self:Build() end
@@ -717,6 +717,14 @@ function META:OnDeath()
 	self.blend = nil
 	self:UpdateLimp(0)
 	self.keep_pose = false
+	local part = self.part_by_name[info.Part]
+
+	if not info.Force or not info.Position or not part or not part.dynamic then
+		return
+	end
+
+	part.body:ApplyImpulse(info.Force * part.body:GetMass(), info.Position)
+	part.body:Wake()
 end
 
 function META:OnCharacterReset()
