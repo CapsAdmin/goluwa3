@@ -109,6 +109,7 @@ function META:Initialize()
 	self.grip_follow = Matrix44():Identity()
 	self.grip_blend = Matrix44():Identity()
 	self.leg_shift = {0, 0}
+	self.leg_state = leg_pose.NewState()
 	self.leg_ground = {0, 0}
 	self.pelvis_ground = 0
 	self.pelvis_mean = 0
@@ -445,12 +446,14 @@ function META:UpdateLegs(character, pose, dt, bones)
 			mean + self.pelvis_rise / PELVIS_FOLLOW - self.pelvis_ground
 		) * math.min(dt * PELVIS_FOLLOW, 1)
 	local shift = self.leg_shift
+	leg_pose.ApplyKeys(bones, pose, self.held_l and not self.held_r and -1 or 1, self.leg_state)
 	leg_pose.Apply(
 		bones,
 		shift[1],
 		shift[2],
 		math.clamp(self.pelvis_ground - plane, -LEG_DROP, LEG_RISE),
-		self.leg_normals
+		self.leg_normals,
+		self.leg_state
 	)
 end
 
@@ -584,7 +587,10 @@ do
 				if weapon then
 					local follow = (right or left) and aim_pose.GetFollowGripMatrix(matrix, is_right) or matrix
 					aim_pose.CopyMatrix(self.grip_follow, follow)
-					local gripped = aim_pose.GetGripMatrix(matrix, aim_pose.GetHoldAim(pose, aim_pose.GetAim(pose)))
+					local gripped = aim_pose.GetGripMatrix(
+						matrix,
+						aim_pose.GetGripAim(pose, aim_pose.GetHoldAim(pose, aim_pose.GetAim(pose)), is_right and 1 or -1)
+					)
 
 					if hold < 0.999 then
 						aim_pose.BlendMatrix(self.grip_blend, self.grip_follow, gripped, hold)

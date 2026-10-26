@@ -2,6 +2,7 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local aim_pose = import("lua/aim_pose.lua")
+local animations = import("lua/animations.lua")
 local leg_pose = {}
 leg_pose.MaxTilt = math.rad(35)
 leg_pose.KneeFlexion = 2.4
@@ -31,12 +32,12 @@ local function get_distance(a, b)
 	return math.sqrt((a.m30 - b.m30) ^ 2 + (a.m31 - b.m31) ^ 2 + (a.m32 - b.m32) ^ 2)
 end
 
-local function solve_leg(bones, leg, target_y, normal_x, normal_y, normal_z)
+local function solve_leg(bones, leg, target_x, target_y, target_z, normal_x, normal_y, normal_z)
 	local thigh, calf, foot = bones[leg.thigh], bones[leg.calf], bones[leg.foot]
 	local upper_length = get_distance(thigh, calf)
 	local lower_length = get_distance(calf, foot)
 	local tx, ty, tz = thigh.m30, thigh.m31, thigh.m32
-	local dx, dy, dz = foot.m30 - tx, target_y - ty, foot.m32 - tz
+	local dx, dy, dz = target_x - tx, target_y - ty, target_z - tz
 	local distance = math.max(math.sqrt(dx * dx + dy * dy + dz * dz), 1e-3)
 	local fold = math.sqrt(
 		upper_length * upper_length + lower_length * lower_length + 2 * upper_length * lower_length * math.cos(leg_pose.KneeFlexion)
@@ -118,16 +119,93 @@ local function solve_leg(bones, leg, target_y, normal_x, normal_y, normal_z)
 	foot:SetTranslation(foot_x, foot_y, foot_z)
 end
 
-function leg_pose.Apply(bones, shift_r, shift_l, pelvis_shift, normals)
+leg_pose.FootYawFollow = 0.6
+local pelvis = {0, 0, 0, 0, 0, 0}
+local pelvis_sample = {0, 0, 0, 0, 0, 0}
+local pelvis_rotation = Quat()
+local pelvis_inverse = Quat()
+local foot_yaw = Quat()
+local pelvis_matrix = Matrix44()
+local FEET = {"foot_r", "foot_l"}
+local FOOT_CHAINS = {{"foot_r"}, {"foot_l"}}
+
+function leg_pose.NewState()
+	return {{x = 0, y = 0, z = 0}, {x = 0, y = 0, z = 0}, active = false}
+end
+
+function leg_pose.ApplyKeys(bones, pose, side, state)
+	local anims = pose.anims
+
+	for i = 1, 6 do
+		pelvis[i] = 0
+	end
+
+	for i = 1, #anims do
+		local inst = anims[i]
+		local def = inst.def
+
+		if def.PelvisKeys then
+			animations.SampleKeys(def.PelvisKeys, inst.phase, pelvis_sample, 6)
+
+			for j = 1, 6 do
+				pelvis[j] = pelvis[j] + pelvis_sample[j] * inst.weight
+			end
+		end
+	end
+
+	for i = 1, 2 do
+		local foot = bones[FEET[i]]
+		local planted = state[i]
+		planted.x, planted.y, planted.z = foot.m30, foot.m31, foot.m32
+	end
+
+	state.active = true
+	local body = bones.body
+	local all = aim_pose.Bones
+	aim_pose.SetWrist(pelvis_rotation, pelvis[5], pelvis[4] * side, pelvis[6] * side)
+	pelvis_matrix:SetRotation(pelvis_rotation)
+	aim_pose.RotateChain(bones, all, #all, body, pelvis_matrix)
+
+	for i = 1, #all do
+		local matrix = bones[all[i]]
+		matrix.m30 = matrix.m30 + pelvis[1] * side
+		matrix.m31 = matrix.m31 + pelvis[2]
+		matrix.m32 = matrix.m32 + pelvis[3]
+	end
+
+	pelvis_inverse:Set(-pelvis_rotation.x, -pelvis_rotation.y, -pelvis_rotation.z, pelvis_rotation.w)
+	pelvis_matrix:SetRotation(pelvis_inverse)
+	local half = pelvis[4] * side * leg_pose.FootYawFollow / 2
+	foot_yaw:Set(0, math.sin(half), 0, math.cos(half))
+
+	for i = 1, 2 do
+		aim_pose.RotateChain(bones, FOOT_CHAINS[i], 1, bones[FEET[i]], pelvis_matrix)
+	end
+
+	pelvis_matrix:SetRotation(foot_yaw)
+
+	for i = 1, 2 do
+		aim_pose.RotateChain(bones, FOOT_CHAINS[i], 1, bones[FEET[i]], pelvis_matrix)
+	end
+end
+
+function leg_pose.Apply(bones, shift_r, shift_l, pelvis_shift, normals, state)
 	local foot_r, foot_l = bones.foot_r, bones.foot_l
-	local target_r, target_l = foot_r.m31 + shift_r, foot_l.m31 + shift_l
+	local planted_r = state and state.active and state[1]
+	local planted_l = state and state.active and state[2]
+	local target_r = (planted_r and planted_r.y or foot_r.m31) + shift_r
+	local target_l = (planted_l and planted_l.y or foot_l.m31) + shift_l
+	local x_r, z_r = planted_r and planted_r.x or foot_r.m30, planted_r and planted_r.z or foot_r.m32
+	local x_l, z_l = planted_l and planted_l.x or foot_l.m30, planted_l and planted_l.z or foot_l.m32
 
 	for _, name in ipairs(aim_pose.Bones) do
 		bones[name].m31 = bones[name].m31 + pelvis_shift
 	end
 
-	solve_leg(bones, LEGS[1], target_r, normals[1].x, normals[1].y, normals[1].z)
-	solve_leg(bones, LEGS[2], target_l, normals[2].x, normals[2].y, normals[2].z)
+	solve_leg(bones, LEGS[1], x_r, target_r, z_r, normals[1].x, normals[1].y, normals[1].z)
+	solve_leg(bones, LEGS[2], x_l, target_l, z_l, normals[2].x, normals[2].y, normals[2].z)
+
+	if state then state.active = false end
 end
 
 return leg_pose

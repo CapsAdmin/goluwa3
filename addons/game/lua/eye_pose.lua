@@ -78,6 +78,8 @@ local SWITCH_TIME = 0.2
 local LOWER_DROP = 0.3
 local hand_free = Quat()
 local hand_grip = Quat()
+local hand_keys = {0, 0, 0, 0, 0, 0}
+local hand_shift = Vec3()
 
 local function get_weapon_hold(weapon, aim, eye_height, sign)
 	if weapon:IsHeldAtEye() then
@@ -90,7 +92,12 @@ local function get_weapon_hold(weapon, aim, eye_height, sign)
 		return Vec3(0, eye_height, 0) + aim:VecMul(Vec3(offset.x * sign, offset.y, offset.z))
 	end
 
-	return Vec3(0, eye_height, 0) + aim:VecMul(Vec3(WEAPON_OFFSET.x * sign, WEAPON_OFFSET.y, WEAPON_OFFSET.z)) + Vec3(offset.x * sign, offset.y, offset.z)
+	hand_shift:Set(
+		WEAPON_OFFSET.x * sign + hand_keys[1] * sign,
+		WEAPON_OFFSET.y + hand_keys[2],
+		WEAPON_OFFSET.z + hand_keys[3]
+	)
+	return Vec3(0, eye_height, 0) + aim:VecMul(hand_shift) + Vec3(offset.x * sign, offset.y, offset.z)
 end
 
 -- the second result is true when the hand is the support hand of a two handed weapon
@@ -135,6 +142,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local view = pose.pitch
 	local aim = aim_pose.GetAim(pose)
 	local hold_aim = aim_pose.GetHoldAim(pose, aim)
+	aim_pose.GetHand(pose, hand_keys)
 	local crouch = pose.crouch_alpha
 	local body = owner.rigid_body
 	local _, render_rotation = transform:GetRenderPositionRotation()
@@ -282,10 +290,11 @@ function eye_pose.Compute(state, bones, owner, dt)
 		aim_pose.SetBetween(hand_free, 0, 1, 0, hand.x - elbow.x, hand.y - elbow.y, hand.z - elbow.z)
 
 		if grip_weight > 0.001 then
-			hand_grip:Set(hold_aim.x, hold_aim.y, hold_aim.z, hold_aim.w)
+			local grip_aim = aim_pose.GetGripAim(pose, hold_aim, sign)
+			hand_grip:Set(grip_aim.x, grip_aim.y, grip_aim.z, grip_aim.w)
 
 			if hand_free:Dot(hand_grip) < 0 then
-				hand_grip:Set(-hold_aim.x, -hold_aim.y, -hold_aim.z, -hold_aim.w)
+				hand_grip:Set(-grip_aim.x, -grip_aim.y, -grip_aim.z, -grip_aim.w)
 			end
 
 			hand_free:Lerp(grip_weight, hand_grip):Normalize()

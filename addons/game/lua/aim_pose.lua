@@ -3,11 +3,14 @@ local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local pose_variation = import("lua/pose_variation.lua")
 local animations = import("lua/animations.lua")
+local system = import("goluwa/system.lua")
 local aim_pose = {}
 local ZERO = Vec3()
 local lowered = Quat()
 aim_pose.Shares = {waist = 0.08, spine = 0.12, chest = 0.15, back = 0.15, neck = 0.2, head = 0.3}
 aim_pose.ClavicleShare = 0.25
+aim_pose.HeadLag = 14
+aim_pose.HeadTrail = 0.6
 aim_pose.ElbowFlexion = 2.4
 aim_pose.LoweredPitch = -0.8
 aim_pose.ArmReach = 0.85
@@ -28,6 +31,7 @@ local ARMS = {
 	"hand_l",
 }
 local SPINE = {"waist", "spine", "chest", "back", "neck", "head"}
+local HEAD_ONLY = {"head"}
 local JOINTS = {}
 
 for i, name in ipairs(SPINE) do
@@ -400,22 +404,7 @@ end
 
 aim_pose.SetBetween = set_between
 aim_pose.RotateChain = rotate_chain
-
-local function sample_action(keys, f)
-	for i = 2, #keys do
-		local key = keys[i]
-
-		if f <= key[1] then
-			local previous = keys[i - 1]
-			local t = (f - previous[1]) / (key[1] - previous[1])
-			t = t * t * (3 - 2 * t)
-			return previous[2] + (key[2] - previous[2]) * t,
-			previous[3] + (key[3] - previous[3]) * t
-		end
-	end
-
-	return 0, 0
-end
+local aim_sample = {0, 0}
 
 function aim_pose.GetAim(pose)
 	local aim = pose.pitch
@@ -426,14 +415,59 @@ function aim_pose.GetAim(pose)
 		local def = inst.def
 
 		if def.AimKeys then
-			local yaw, pitch = sample_action(def.AimKeys, inst.phase)
-			aim = Quat():Identity():RotateYaw(yaw) * aim:Copy():RotatePitch(pitch)
+			animations.SampleKeys(def.AimKeys, inst.phase, aim_sample, 2)
+			aim = Quat():Identity():RotateYaw(aim_sample[1]) * aim:Copy():RotatePitch(aim_sample[2])
 		elseif def.Aim then
 			aim = def.Aim(inst, aim)
 		end
 	end
 
 	return aim
+end
+
+local hand_sample = {0, 0, 0, 0, 0, 0}
+local wrist_x, wrist_y, wrist_z, wrist = Quat(), Quat(), Quat(), Quat()
+local wrist_mirrored = Quat()
+local shift_right, shift_left, shift_aim = Vec3(), Vec3(), Vec3()
+
+function aim_pose.GetHand(pose, out)
+	local anims = pose.anims
+
+	for i = 1, 6 do
+		out[i] = 0
+	end
+
+	for i = 1, #anims do
+		local inst = anims[i]
+		local keys = inst.def.HandKeys
+
+		if keys then
+			animations.SampleKeys(keys, inst.phase, hand_sample, 6)
+
+			for j = 1, 6 do
+				out[j] = out[j] + hand_sample[j] * inst.weight
+			end
+		end
+	end
+
+	return out
+end
+
+function aim_pose.SetWrist(out, pitch, yaw, roll)
+	wrist_x:Set(math.sin(pitch / 2), 0, 0, math.cos(pitch / 2))
+	wrist_y:Set(0, math.sin(yaw / 2), 0, math.cos(yaw / 2))
+	wrist_z:Set(0, 0, math.sin(roll / 2), math.cos(roll / 2))
+	wrist:SetMul(wrist_y, wrist_x)
+	return out:SetMul(wrist, wrist_z)
+end
+
+local grip_aim = Quat()
+local grip_hand = {0, 0, 0, 0, 0, 0}
+
+function aim_pose.GetGripAim(pose, aim, side)
+	aim_pose.GetHand(pose, grip_hand)
+	aim_pose.SetWrist(wrist_mirrored, grip_hand[4], grip_hand[5] * side, grip_hand[6] * side)
+	return grip_aim:SetMul(aim, wrist_mirrored)
 end
 
 function aim_pose.GetHoldAim(pose, aim)
@@ -453,11 +487,17 @@ for i = 1, 4 do
 end
 
 local mirrored = Vec3()
+local hold_roll_right, hold_roll_left = Quat(), Quat()
 
 local function solve_hold(bones, pitch, weapon, arm, side)
 	local hold_offset = weapon:GetHoldOffset()
-	local roll = side == 1 and right_roll or identity
-	mirrored:Set(hold_offset.x * side, hold_offset.y, hold_offset.z)
+	local roll = side == 1 and hold_roll_right or hold_roll_left
+	local hand_shift = side == 1 and shift_right or shift_left
+	mirrored:Set(
+		hold_offset.x * side + hand_shift.x,
+		hold_offset.y + hand_shift.y,
+		hold_offset.z + hand_shift.z
+	)
 	compute_shift(bones, pitch, weapon, arm, side, mirrored, roll)
 	solve_arm(
 		bones,
@@ -493,6 +533,109 @@ local function solve_left_hold(bones, pitch, right, left)
 	end
 end
 
+local head_sample = {1, 0, 0, 0}
+local head_keys = {1, 0, 0, 0}
+
+function aim_pose.GetHead(pose)
+	local anims = pose.anims
+	local follow, nod, turn, tilt = 1, 0, 0, 0
+
+	for i = 1, #anims do
+		local inst = anims[i]
+		local keys = inst.def.HeadKeys
+
+		if keys then
+			animations.SampleKeys(keys, inst.phase, head_sample, 4)
+			follow = follow + (head_sample[1] - 1) * inst.weight
+			nod = nod + head_sample[2] * inst.weight
+			turn = turn + head_sample[3] * inst.weight
+			tilt = tilt + head_sample[4] * inst.weight
+		end
+	end
+
+	return follow, nod, turn, tilt
+end
+
+local head_delta, head_want, head_error, neck_target, head_target = Quat(), Quat(), Quat(), Quat(), Quat()
+local neck_rest, neck_now, neck_accum, view_conjugate, accum_conjugate = Quat(), Quat(), Quat(), Quat(), Quat()
+local head_offset = Quat()
+local NECK_CHAIN = {"neck", "head"}
+
+local function scale_rotation(out, q, t)
+	local w, x, y, z = q.w, q.x, q.y, q.z
+
+	if w < 0 then w, x, y, z = -w, -x, -y, -z end
+
+	local sine = math.sqrt(x * x + y * y + z * z)
+
+	if sine < 1e-6 then return out:Set(0, 0, 0, 1) end
+
+	local half = math.atan2(sine, w) * t
+	local k = math.sin(half) / sine
+	return out:Set(x * k, y * k, z * k, math.cos(half))
+end
+
+local function follow_state(pose, key, target, rate, dt, snap)
+	local state = pose[key]
+
+	if not state then
+		state = Quat(target.x, target.y, target.z, target.w)
+		pose[key] = state
+		return state
+	end
+
+	if snap then
+		state:Set(target.x, target.y, target.z, target.w)
+	elseif dt > 0 then
+		if state:Dot(target) < 0 then
+			target:Set(-target.x, -target.y, -target.z, -target.w)
+		end
+
+		state:Lerp(math.min(dt * rate, 1), target):Normalize()
+	end
+
+	return state
+end
+
+local function stabilize_head(bones, pose, aim, follow)
+	local shares = aim_pose.Shares
+	local view = pose.pitch
+	view_conjugate:Set(-view.x, -view.y, -view.z, view.w)
+	head_delta:SetMul(aim, view_conjugate)
+	scale_rotation(head_error, head_delta, follow)
+	head_want:SetMul(head_error, view)
+	bones.neck:GetRotation(neck_now)
+	neck_accum:SetMul(
+		neck_now,
+		accum_conjugate:Set(-neck_rest.x, -neck_rest.y, -neck_rest.z, neck_rest.w)
+	)
+	accum_conjugate:Set(-neck_accum.x, -neck_accum.y, -neck_accum.z, neck_accum.w)
+	head_error:SetMul(head_want, accum_conjugate)
+	local neck_part = shares.neck / (shares.neck + shares.head)
+	scale_rotation(neck_target, head_error, neck_part)
+	scale_rotation(head_target, head_error, 1 - neck_part)
+	local now = system.GetElapsedTime()
+	local dt = 0
+
+	if pose.head_time ~= now then
+		dt = math.clamp(now - (pose.head_time or now), 0, 0.1)
+		pose.head_time = now
+	end
+
+	local snap = not pose.head_stabilized
+	pose.head_stabilized = true
+	local neck = follow_state(pose, "neck_state", neck_target, aim_pose.HeadLag, dt, snap)
+	local head = follow_state(pose, "head_state", head_target, aim_pose.HeadLag * aim_pose.HeadTrail, dt, snap)
+	rotation:SetRotation(neck)
+	rotate_chain(bones, NECK_CHAIN, 2, bones.neck, rotation)
+	rotation:SetRotation(head)
+	rotate_chain(bones, HEAD_ONLY, 1, bones.head, rotation)
+	pose.head_lag = follow ~= 1 or neck:Dot(neck_target) < 0.99999 or head:Dot(head_target) < 0.99999
+end
+
+local apply_hand = {0, 0, 0, 0, 0, 0}
+local torso_sample = {0}
+
 function aim_pose.Apply(bones, pose, right, left)
 	if right and right:IsTwoHanded() then left = nil end
 
@@ -504,6 +647,20 @@ function aim_pose.Apply(bones, pose, right, left)
 		local torso = pose.anims[i].def.Torso
 
 		if torso then flinch = flinch + torso(pose.anims[i]) end
+
+		if pose.anims[i].def.TorsoKeys then
+			animations.SampleKeys(pose.anims[i].def.TorsoKeys, pose.anims[i].phase, torso_sample, 1)
+			flinch = flinch + torso_sample[1] * pose.anims[i].weight
+		end
+	end
+
+	local head_follow, head_nod, head_turn, head_tilt = aim_pose.GetHead(pose)
+	local stabilize = head_follow ~= 1 or pose.head_lag
+
+	if stabilize then
+		bones.neck:GetRotation(neck_rest)
+	else
+		pose.head_stabilized = false
 	end
 
 	for _, joint in ipairs(JOINTS) do
@@ -511,12 +668,14 @@ function aim_pose.Apply(bones, pose, right, left)
 		local share = aim_pose.Shares[name]
 		local angle_pitch = pitch
 
-		if flinch > 0 and (name == "spine" or name == "chest") then
+		if flinch ~= 0 and (name == "spine" or name == "chest") then
 			angle_pitch = pitch:Copy():RotatePitch(flinch / share)
 		end
 
-		rotation:SetRotation(identity:GetLerped(share, angle_pitch):Normalize())
-		rotate_chain(bones, joint[2], #joint[2], bones[name], rotation)
+		if not (stabilize and (name == "neck" or name == "head")) then
+			rotation:SetRotation(identity:GetLerped(share, angle_pitch):Normalize())
+			rotate_chain(bones, joint[2], #joint[2], bones[name], rotation)
+		end
 	end
 
 	if not armed then
@@ -537,7 +696,23 @@ function aim_pose.Apply(bones, pose, right, left)
 		rotate_about(foot, foot.m30, foot.m31, foot.m32, rotation)
 	end
 
+	if stabilize then stabilize_head(bones, pose, pitch, head_follow) end
+
+	if head_nod ~= 0 or head_turn ~= 0 or head_tilt ~= 0 then
+		aim_pose.SetWrist(head_offset, head_nod, head_turn, head_tilt)
+		rotation:SetRotation(head_offset)
+		rotate_chain(bones, HEAD_ONLY, 1, bones.head, rotation)
+	end
+
 	local hold_aim = armed and aim_pose.GetHoldAim(pose, pitch) or pitch
+	aim_pose.GetHand(pose, apply_hand)
+	shift_aim:Set(apply_hand[1], apply_hand[2], apply_hand[3])
+	Quat.SetVecMul(shift_right, hold_aim, shift_aim)
+	shift_aim:Set(-apply_hand[1], apply_hand[2], apply_hand[3])
+	Quat.SetVecMul(shift_left, hold_aim, shift_aim)
+	aim_pose.SetWrist(hold_roll_right, apply_hand[4], apply_hand[5], apply_hand[6])
+	hold_roll_right:SetMul(hold_roll_right, right_roll)
+	aim_pose.SetWrist(hold_roll_left, apply_hand[4], -apply_hand[5], -apply_hand[6])
 
 	if right then
 		solve_hold(bones, hold_aim, right, RIGHT, 1)

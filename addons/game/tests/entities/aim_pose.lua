@@ -218,3 +218,68 @@ T.Test("the held weapon points down while the ready weight is low and along the 
 	T(half.y < raised.y and half.y > lowered.y)["=="](true)
 	T(right_hand(1):Distance(raised))["<"](1e-9)
 end)
+
+T.Test("a head follow below one keeps the head nearer the view than the twisting torso", function()
+	local system = import("goluwa/system.lua")
+	local registry = import("lua/animations.lua")
+	registry.Register(
+		"head_free_test",
+		{
+			Kind = "action",
+			AimKeys = {{0, 0.6, 0}, {1, 0.6, 0}},
+			HeadKeys = {{0, 0.3}, {1, 0.3}},
+		}
+	)
+	registry.Register("head_locked_test", {Kind = "action", AimKeys = {{0, 0.6, 0}, {1, 0.6, 0}}})
+
+	local function head_yaw(name)
+		local p = pose(Quat(0, 0, 0, 1))
+		p.anims[#p.anims + 1] = registry.NewInstance(name, 1)
+		p.anims[#p.anims].phase = 0.5
+		p.head_time = system.GetElapsedTime() - 1
+		local bones = create_bones()
+		aim_pose.Apply(bones, p)
+		local forward = bones.head:GetRotation():GetForward()
+		return math.atan2(-forward.x, -forward.z)
+	end
+
+	T(math.abs(head_yaw("head_locked_test")))["~"](0.6, 0.02)
+	T(math.abs(head_yaw("head_free_test")))["~"](0.18, 0.02)
+end)
+
+T.Test("head keys nod, turn and tilt the head alone", function()
+	local registry = import("lua/animations.lua")
+	registry.Register(
+		"head_nod_test",
+		{Kind = "action", HeadKeys = {{0, 1, 0.3, 0, 0}, {1, 1, 0.3, 0, 0}}}
+	)
+	local p = pose(Quat(0, 0, 0, 1))
+	p.anims[#p.anims + 1] = registry.NewInstance("head_nod_test", 1)
+	p.anims[#p.anims].phase = 0.5
+	local bones = create_bones()
+	aim_pose.Apply(bones, p)
+	T(bones.head:GetRotation():GetForward().y)["~"](math.sin(0.3), 0.02)
+	T(bones.neck:GetRotation():GetForward().y)["~"](0, 1e-4)
+	T(position(bones, "head"):Distance(POSITIONS.head))["<"](1e-6)
+end)
+
+T.Test("the head stays on the view while the torso arches when its follow is zero", function()
+	local registry = import("lua/animations.lua")
+	registry.Register(
+		"arch_free_test",
+		{Kind = "action", TorsoKeys = {{0, 0.5}, {1, 0.5}}, HeadKeys = {{0, 0}, {1, 0}}}
+	)
+	registry.Register("arch_locked_test", {Kind = "action", TorsoKeys = {{0, 0.5}, {1, 0.5}}})
+
+	local function head_pitch(name)
+		local p = pose(Quat(0, 0, 0, 1))
+		p.anims[#p.anims + 1] = registry.NewInstance(name, 1)
+		p.anims[#p.anims].phase = 0.5
+		local bones = create_bones()
+		aim_pose.Apply(bones, p)
+		return bones.head:GetRotation():GetForward().y
+	end
+
+	T(math.abs(head_pitch("arch_locked_test")) > 0.1)["=="](true)
+	T(head_pitch("arch_free_test"))["~"](0, 0.02)
+end)

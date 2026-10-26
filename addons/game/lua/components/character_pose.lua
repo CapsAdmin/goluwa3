@@ -209,6 +209,13 @@ function META:UpdateAnimations(dt)
 		self.seen_actions = self.Actions
 		local inst = animations.NewInstance(self.Action)
 		inst.duration = math.max(self.ActionDuration, 0.001)
+
+		if inst.def.Group then
+			for i = #anims, 1, -1 do
+				if anims[i].def.Group == inst.def.Group then table.remove(anims, i) end
+			end
+		end
+
 		anims[#anims + 1] = inst
 	end
 

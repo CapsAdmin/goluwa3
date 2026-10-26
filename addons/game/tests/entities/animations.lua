@@ -67,6 +67,29 @@ T.Test("actions and impulses play at the same time as a state and expire", funct
 	entity:Remove()
 end)
 
+T.Test("key sampling eases per segment and holds the ends", function()
+	local out = {}
+	local keys = {{0, 0}, {1, 1, ease = "in"}, {2, 3, ease = "linear"}}
+	T(animations.SampleKeys(keys, 0.5, out, 1)[1])["~"](0.125, 1e-9)
+	T(animations.SampleKeys(keys, 1.5, out, 1)[1])["~"](2, 1e-9)
+	T(animations.SampleKeys(keys, -1, out, 1)[1])["=="](0)
+	T(animations.SampleKeys(keys, 5, out, 1)[1])["=="](3)
+end)
+
+T.Test("an action of a group replaces the running one", function()
+	animations.Register("group_a", {Kind = "action", Group = "test_group"})
+	animations.Register("group_b", {Kind = "action", Group = "test_group"})
+	local entity = create()
+	local pose = entity.character_pose
+	pose:PlayAction("group_a", 1)
+	step(pose, 0.1)
+	pose:PlayAction("group_b", 1)
+	step(pose, 0.1)
+	T(pose:IsPlaying("group_a"))["=="](false)
+	T(pose:IsPlaying("group_b"))["=="](true)
+	entity:Remove()
+end)
+
 T.Test("states replicate through the states string", function()
 	local entity = create()
 	local pose = entity.character_pose

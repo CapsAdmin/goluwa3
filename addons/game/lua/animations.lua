@@ -22,6 +22,57 @@ function animations.Register(name, def)
 	end
 end
 
+do
+	local EASES = {
+		smooth = function(t)
+			return t * t * (3 - 2 * t)
+		end,
+		linear = function(t)
+			return t
+		end,
+		["in"] = function(t)
+			return t * t * t
+		end,
+		out = function(t)
+			return 1 - (1 - t) ^ 3
+		end,
+	}
+
+	function animations.SampleKeys(keys, f, out, count)
+		local last = #keys
+
+		if f <= keys[1][1] then
+			for i = 1, count do
+				out[i] = keys[1][i + 1] or 0
+			end
+
+			return out
+		end
+
+		for k = 2, last do
+			local key = keys[k]
+
+			if f <= key[1] then
+				local previous = keys[k - 1]
+				local t = EASES[key.ease or "smooth"]((f - previous[1]) / (key[1] - previous[1]))
+
+				for i = 1, count do
+					local a = previous[i + 1] or 0
+					out[i] = a + ((key[i + 1] or 0) - a) * t
+				end
+
+				return out
+			end
+		end
+
+		for i = 1, count do
+			out[i] = keys[last][i + 1] or 0
+		end
+
+		return out
+	end
+end
+
 function animations.Get(name)
 	return assert(animations.Definitions[name], "unknown animation " .. name)
 end

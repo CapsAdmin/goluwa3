@@ -1,26 +1,13 @@
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local aim_pose = import("lua/aim_pose.lua")
+local animations = import("lua/animations.lua")
 local bone_keys = {}
 local TURN = math.pi * 2
 local rotation = Matrix44():Identity()
+local one = {0}
 
 local function sample(keys, t)
-	local count = #keys
-
-	if t <= keys[1][1] then return keys[1][2] end
-
-	for i = 2, count do
-		local key = keys[i]
-
-		if t <= key[1] then
-			local previous = keys[i - 1]
-			local f = (t - previous[1]) / (key[1] - previous[1])
-			f = f * f * (3 - 2 * f)
-			return previous[2] + (key[2] - previous[2]) * f
-		end
-	end
-
-	return keys[count][2]
+	return animations.SampleKeys(keys, t, one, 1)[1]
 end
 
 local function get_value(value, t, inst, pose)

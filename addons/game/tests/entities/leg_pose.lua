@@ -108,3 +108,42 @@ T.Test("a nearly straight leg has no stable knee direction and bends forward", f
 	local forward = (Vec3(0, 0, -1) - axis * Vec3(0, 0, -1):Dot(axis)):GetNormalized()
 	T(bend:Dot(forward))[">"](0.95)
 end)
+
+T.Test("pelvis keys move the body over planted feet and the legs keep their bone lengths", function()
+	local animations = import("lua/animations.lua")
+	animations.Register(
+		"leg_keys_test",
+		{
+			Kind = "action",
+			PelvisKeys = {{0, 0, 0, 0, 0, 0, 0}, {1, 0.1, -0.1, 0.2, 0.5, 0, 0}},
+		}
+	)
+	local inst = animations.NewInstance("leg_keys_test", 1)
+	inst.phase = 1
+
+	for _, side in ipairs{1, -1} do
+		local bones = create_bones()
+		local state = leg_pose.NewState()
+		leg_pose.ApplyKeys(bones, {anims = {inst}}, side, state)
+		leg_pose.Apply(bones, 0, 0, 0, NORMALS, state)
+		T(position(bones, "head").y)["~"](POSITIONS.head.y - 0.1, 1e-5)
+		T(position(bones, "foot_r"):Distance(POSITIONS.foot_r))["~"](0, 1e-4)
+		T(position(bones, "foot_l"):Distance(POSITIONS.foot_l))["~"](0, 1e-4)
+
+		for _, leg in ipairs{"r", "l"} do
+			T(position(bones, "thigh_" .. leg):Distance(position(bones, "calf_" .. leg)))["~"](POSITIONS.thigh_r:Distance(POSITIONS.calf_r), 1e-4)
+			T(position(bones, "calf_" .. leg):Distance(position(bones, "foot_" .. leg)))["~"](POSITIONS.calf_r:Distance(POSITIONS.foot_r), 1e-4)
+		end
+	end
+end)
+
+T.Test("a planted foot follows part of the pelvis yaw", function()
+	local animations = import("lua/animations.lua")
+	local inst = animations.NewInstance("leg_keys_test", 1)
+	inst.phase = 1
+	local bones = create_bones()
+	local state = leg_pose.NewState()
+	leg_pose.ApplyKeys(bones, {anims = {inst}}, 1, state)
+	local forward = bones.foot_r:GetRotation():VecMul(Vec3(0, 0, -1))
+	T(math.atan2(-forward.x, -forward.z))["~"](0.5 * leg_pose.FootYawFollow, 1e-4)
+end)
