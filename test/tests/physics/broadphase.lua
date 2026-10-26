@@ -200,3 +200,16 @@ T.Test("Broadphase queries over huge boxes scan the entries instead of every cel
 	T(everything[giant])["=="](nil)
 	T(bodies_in(AABB(1e5, 1e5, 1e5, 1e7, 1e7, 1e7))[near])["=="](nil)
 end)
+
+T.Test("Persistent broadphase pairs bodies with a collision mask only while the mask is not zero", function()
+	local phase = broadphase.New{physics = mock_physics, cell_size = 1}
+	local box = AABB(-0.5, -0.5, -0.5, 0.5, 0.5, 0.5)
+	local body_a = create_mock_body("mask_a", box, box)
+	local body_b = create_mock_body("mask_b", box, box)
+	body_b.CollisionMask = 0
+	T(#phase:BuildCandidatePairs({body_a, body_b}))["=="](0)
+	body_b.CollisionMask = -1
+	T(#phase:BuildCandidatePairs({body_a, body_b}))["=="](1)
+	body_b.CollisionMask = 0
+	T(#phase:BuildCandidatePairs({body_a, body_b}))["=="](0)
+end)

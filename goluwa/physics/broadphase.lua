@@ -175,6 +175,8 @@ local function is_pair_candidate(entry_a, entry_b)
 			entry_a.static and
 			entry_b.static
 		) and
+		not entry_a.pairless and
+		not entry_b.pairless and
 		entry_a.bounds:IsBoxIntersecting(entry_b.bounds)
 end
 
@@ -199,7 +201,7 @@ local function set_pair_active(self, pair, active)
 end
 
 local function register_pair(self, entry_a, entry_b)
-	if entry_a == entry_b then return end
+	if entry_a == entry_b or entry_a.pairless or entry_b.pairless then return end
 
 	local key = get_pair_key(entry_a, entry_b)
 	local pair = self.Pairs[key]
@@ -353,6 +355,7 @@ local function create_entry(self, body)
 		last_seen_step = self.StepStamp,
 		overflow_dirty = true,
 		static = body.MotionType == "static",
+		pairless = body.CollisionMask == 0,
 	}
 	self.Entries[entry.index] = entry
 	self.BodyEntries[body] = entry
@@ -567,6 +570,13 @@ function Broadphase:TrackBodies(bodies, physics_override, incremental)
 				changed[#changed + 1] = entry
 			end
 
+			if entry and entry.pairless ~= (body.CollisionMask == 0) then
+				entry.pairless = not entry.pairless
+				entry.overflow_dirty = true
+				changed[#changed + 1] = entry
+				assign_entry_cells(self, entry, entry.bounds)
+			end
+
 			if entry and is_entry_pose_current(entry, body) then
 				entry.last_seen_step = self.StepStamp
 			else
@@ -635,7 +645,7 @@ function Broadphase:GetCandidatePairs(out)
 				if other ~= entry then
 					local pair = pairs_by_key[get_pair_key(entry, other)]
 
-					if pair.eval_stamp ~= eval_stamp then
+					if pair and pair.eval_stamp ~= eval_stamp then
 						pair.eval_stamp = eval_stamp
 						set_pair_active(self, pair, is_pair_candidate(pair.entry_a, pair.entry_b))
 					end
