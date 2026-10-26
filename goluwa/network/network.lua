@@ -534,7 +534,7 @@ do
 		}
 
 		commands.Add("host=string|nil,number|nil", function(ip, port)
-			ip = ip or ip_cvar:Get()
+			ip = ip or os.getenv("GOLUWA_IP") or ip_cvar:Get()
 			port = tonumber(port) or tonumber(os.getenv("GOLUWA_PORT")) or port_cvar:Get()
 			local ok, err = pcall(network.Host, ip, port)
 
