@@ -139,7 +139,7 @@ function META:Explode(position, normal, victim, part)
 	end
 
 	for _, type_name in ipairs(types) do
-		effects.Impact(position, normal, type_name, victim and 1.2 or 0.8, false, direction)
+		effects.Impact(position, normal, type_name, victim and 1.2 or 0.8, nil, direction)
 	end
 
 	self.Owner:Remove()
@@ -210,7 +210,7 @@ function META:ResolveHit(hit)
 	self:SetBounced(true)
 
 	for _, type_name in ipairs(self:GetTypeList()) do
-		effects.Impact(position, hit.normal, type_name, 0.8, false, direction)
+		effects.Impact(position, hit.normal, type_name, 0.8, nil, direction)
 	end
 end
 

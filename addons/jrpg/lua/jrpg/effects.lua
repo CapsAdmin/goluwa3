@@ -18,14 +18,14 @@ end
 
 local fire_impact = new_event(
 	"jrpg_impact",
-	function(position, normal, type_name, strength, slash, direction)
-		effects.ShowImpact(position, normal, type_name, strength, slash, direction)
+	function(position, normal, type_name, strength, cut, direction)
+		effects.ShowImpact(position, normal, type_name, strength, cut, direction)
 	end,
 	enabled
 )
 
-function effects.Impact(position, normal, type_name, strength, slash, direction)
-	fire_impact(position, normal, type_name, strength, slash == true, direction or normal)
+function effects.Impact(position, normal, type_name, strength, cut, direction)
+	fire_impact(position, normal, type_name, strength, cut or false, direction or normal)
 	local surface = damage_types.Get(type_name).Surface
 
 	if surface then
@@ -255,7 +255,15 @@ do
 	end
 
 	function effects.BurstType(type_name, position, direction, count, speed_scale, spread)
-		local key = type_name .. (speed_scale and "_fast" or "") .. (spread and "_cone" or "")
+		local key = type_name .. (
+				speed_scale and
+				"_fast" or
+				""
+			) .. (
+				spread and
+				"_cone" .. spread or
+				""
+			)
 
 		if not vfx.HasBurst(key) then
 			local definition = damage_types.Get(type_name)
@@ -488,11 +496,30 @@ function effects.ShowMagicCircle(entity, color, size, duration, strength, pillar
 end
 
 local IMPACT_SPREAD = 55
+local SLASH_SPREAD = 6
+local SLASH_RADIUS = 2.6
 local SLASH_SOUNDS = {
 	"weapons/blade_slice_2.wav",
 	"weapons/blade_slice_3.wav",
 	"weapons/blade_slice_4.wav",
 }
+vfx.RegisterTexture(
+	"slash_arc",
+	[[
+	vec4 shade(vec2 uv, vec3 _cube_dir) {
+		vec2 p = uv * 2.0 - 1.0;
+		float x = p.x;
+		float taper = pow(max(1.0 - x * x, 0.0), 1.3);
+		float center = 0.32 * x * x - 0.16;
+		float width = 0.1 * taper;
+		float d = abs(p.y - center) / max(width, 0.0001);
+		float body = 1.0 - smoothstep(0.55, 1.0, d);
+		float core = (1.0 - smoothstep(0.0, 0.35, d)) * 0.8;
+		float v = clamp(body * 0.7 + core, 0.0, 1.0) * step(abs(x), 1.0) * smoothstep(0.0, 0.04, taper);
+		return vec4(vec3(v), v);
+	}
+]]
+)
 clips.Define(
 	"jrpg_impact",
 	{
@@ -511,6 +538,7 @@ clips.Define(
 			},
 			glow = {{0, 0.45}, {1, 1.35}},
 			fade = {{0, 1, "outQuart"}, {1, 0}},
+			slash_fade = {{0, 1}, {0.25, 0.85}, {1, 0}},
 			glow_fade = {
 				{
 					0,
@@ -526,14 +554,15 @@ clips.Define(
 			{
 				0,
 				function(p)
-					effects.BurstType(p.type_name, p.position, p.direction, p.count, nil, IMPACT_SPREAD)
+					local spread = p.cut and SLASH_SPREAD or IMPACT_SPREAD
+					effects.BurstType(p.type_name, p.position, p.direction, p.count, nil, spread)
 					effects.BurstType(
 						p.type_name,
 						p.position,
 						p.direction,
 						math.floor(p.count * 0.6),
 						2.5,
-						IMPACT_SPREAD
+						spread
 					)
 
 					if p.debris then
@@ -554,7 +583,23 @@ clips.Define(
 				Radius = "ring",
 				ScaleBy = "size",
 				Brightness = 1.5,
-				Alpha = "fade",
+				Alpha = function(p, v)
+					return p.cut and 0 or v.fade
+				end,
+			},
+			{
+				Type = "sprite",
+				Texture = "slash_arc",
+				Flat = true,
+				Axis = "cut",
+				Lift = 0.03,
+				Tint = 0.5,
+				Radius = SLASH_RADIUS,
+				ScaleBy = "size",
+				Brightness = 2.5,
+				Alpha = function(p, v)
+					return p.cut and v.slash_fade or 0
+				end,
 			},
 			{
 				Type = "sprite",
@@ -578,7 +623,7 @@ clips.Define(
 	}
 )
 
-function effects.ShowImpact(position, normal, type_name, strength, slash, direction)
+function effects.ShowImpact(position, normal, type_name, strength, cut, direction)
 	local definition = damage_types.Get(type_name)
 	strength = math.clamp(strength or 1, 0.3, 2)
 	clips.Play(
@@ -587,6 +632,7 @@ function effects.ShowImpact(position, normal, type_name, strength, slash, direct
 			position = position:Copy(),
 			normal = normal,
 			direction = direction,
+			cut = cut or nil,
 			type_name = type_name,
 			color = definition.Color,
 			size = 0.35 * strength * definition.Glow,
@@ -596,10 +642,10 @@ function effects.ShowImpact(position, normal, type_name, strength, slash, direct
 		}
 	)
 
-	if slash then
+	if cut then
 		sounds.PlayRandom(SLASH_SOUNDS, position, 0.9, math.randomf(0.9, 1.2))
 
-		if type_name == "generic" then return end
+		if definition.Physical or type_name == "generic" then return end
 	end
 
 	sounds.PlayRandom(definition.HitSounds, position, 0.8, 1)

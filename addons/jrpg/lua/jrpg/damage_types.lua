@@ -55,7 +55,8 @@ function damage_types.Get(name)
 end
 
 function damage_types.IsMagic(name)
-	return name ~= nil and name ~= "generic" and damage_types.Registered[name] ~= nil
+	local definition = damage_types.Registered[name]
+	return definition ~= nil and name ~= "generic" and not definition.Physical
 end
 
 function damage_types.GetColor(name)
@@ -80,8 +81,12 @@ function damage_types.RandomName(name)
 	return table.random(definition.Adjectives), table.random(definition.Names)
 end
 
-for _, name in ipairs(damage_types.Names) do
-	damage_types.Register(import("lua/jrpg/damage_types/" .. name .. ".lua"))
+damage_types.Physical = {"slash"}
+
+for _, list in ipairs{damage_types.Names, damage_types.Physical} do
+	for _, name in ipairs(list) do
+		damage_types.Register(import("lua/jrpg/damage_types/" .. name .. ".lua"))
+	end
 end
 
 return damage_types

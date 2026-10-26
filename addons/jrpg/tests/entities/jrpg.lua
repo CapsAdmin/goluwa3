@@ -55,6 +55,17 @@ T.Test("every damage type and status effect is registered", function()
 	end
 end)
 
+T.Test("slash is a registered physical type that is not magic and has no spell", function()
+	T(damage_types.Get("slash").Name)["=="]("slash")
+	T(damage_types.IsMagic("slash"))["=="](false)
+	T(damage_types.IsMagic("generic"))["=="](false)
+	T(damage_types.IsMagic("fire"))["=="](true)
+
+	for _, name in ipairs(damage_types.Names) do
+		T(name ~= "slash")["=="](true)
+	end
+end)
+
 T.Test("fire damage sets the victim burning until the burn decays", function()
 	local victim = create_dummy(200)
 	damage.Deal(victim, {Damage = 50, Type = "fire"})
