@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
@@ -148,6 +149,9 @@ function Animator:Unbind()
 
 	self.targets = {}
 	self.rig = nil
+	self.bone_bounds = nil
+	self.bound_bones = nil
+	self.core_bones = nil
 	self.skeleton = nil
 	self.clip = nil
 end
@@ -221,12 +225,127 @@ function Animator:Bind(skeleton)
 	end
 
 	self.rig = Rig.New(skeleton, parts)
+	local bone_bounds = ffi.new("double[?]", skeleton.BoneCount * 6)
+
+	for bone = 0, skeleton.BoneCount - 1 do
+		local o = bone * 6
+		bone_bounds[o], bone_bounds[o + 1], bone_bounds[o + 2] = math.huge, math.huge, math.huge
+		bone_bounds[o + 3], bone_bounds[o + 4], bone_bounds[o + 5] = -math.huge, -math.huge, -math.huge
+	end
+
+	for _, target in ipairs(self.targets) do
+		local polygon = target.original
+		local indices, weights = polygon.Skin.BoneIndices, polygon.Skin.BoneWeights
+
+		for i, vertex in ipairs(polygon:GetVertices()) do
+			local first = (i - 1) * 4
+			local bone, best_weight = indices[first], weights[first]
+
+			for j = first + 1, first + 3 do
+				if weights[j] > best_weight then bone, best_weight = indices[j], weights[j] end
+			end
+
+			local o = bone * 6
+			local pos = vertex.pos
+
+			if pos.x < bone_bounds[o] then bone_bounds[o] = pos.x end
+
+			if pos.y < bone_bounds[o + 1] then bone_bounds[o + 1] = pos.y end
+
+			if pos.z < bone_bounds[o + 2] then bone_bounds[o + 2] = pos.z end
+
+			if pos.x > bone_bounds[o + 3] then bone_bounds[o + 3] = pos.x end
+
+			if pos.y > bone_bounds[o + 4] then bone_bounds[o + 4] = pos.y end
+
+			if pos.z > bone_bounds[o + 5] then bone_bounds[o + 5] = pos.z end
+		end
+	end
+
+	self.bone_bounds = bone_bounds
+	self.bound_bones = {}
+	self.core_bones = {}
+	local top_bone, top = nil, -math.huge
+
+	for bone = 0, skeleton.BoneCount - 1 do
+		local o = bone * 6
+
+		if bone_bounds[o] <= bone_bounds[o + 3] then
+			table.insert(self.bound_bones, bone)
+
+			if bone_bounds[o + 4] > top then top_bone, top = bone, bone_bounds[o + 4] end
+		end
+	end
+
+	local bone = top_bone
+
+	while bone and bone >= 0 do
+		if bone_bounds[bone * 6] <= bone_bounds[bone * 6 + 3] then
+			table.insert(self.core_bones, bone)
+		end
+
+		bone = skeleton.parents[bone]
+	end
 
 	for _, target in ipairs(self.targets) do
 		target.primitive:GetPolygon3D().SkinRig = self.rig
 	end
 
 	self:ApplyViewHiddenBones()
+end
+
+function Animator:GetWorldAABB(out, core)
+	local rig = self.rig
+
+	if rig.dirty then rig:Compute() end
+
+	local m = self.Owner.transform:GetWorldMatrix()
+	local m00, m01, m02 = m.m00, m.m01, m.m02
+	local m10, m11, m12 = m.m10, m.m11, m.m12
+	local m20, m21, m22 = m.m20, m.m21, m.m22
+	local matrices, bounds = rig.matrices, self.bone_bounds
+	local min_x, min_y, min_z = math.huge, math.huge, math.huge
+	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+
+	for _, bone in ipairs(core and self.core_bones or self.bound_bones) do
+		local b, s = bone * 6, bone * 12
+		local cx, cy, cz = (bounds[b] + bounds[b + 3]) * 0.5,
+		(bounds[b + 1] + bounds[b + 4]) * 0.5,
+		(bounds[b + 2] + bounds[b + 5]) * 0.5
+		local ex, ey, ez = (bounds[b + 3] - bounds[b]) * 0.5,
+		(bounds[b + 4] - bounds[b + 1]) * 0.5,
+		(bounds[b + 5] - bounds[b + 2]) * 0.5
+		local s00, s01, s02 = matrices[s], matrices[s + 1], matrices[s + 2]
+		local s10, s11, s12 = matrices[s + 4], matrices[s + 5], matrices[s + 6]
+		local s20, s21, s22 = matrices[s + 8], matrices[s + 9], matrices[s + 10]
+		local px = s00 * cx + s01 * cy + s02 * cz + matrices[s + 3]
+		local py = s10 * cx + s11 * cy + s12 * cz + matrices[s + 7]
+		local pz = s20 * cx + s21 * cy + s22 * cz + matrices[s + 11]
+		local wx = m00 * px + m10 * py + m20 * pz + m.m30
+		local wy = m01 * px + m11 * py + m21 * pz + m.m31
+		local wz = m02 * px + m12 * py + m22 * pz + m.m32
+		local extent_x = math.abs(m00 * s00 + m10 * s10 + m20 * s20) * ex + math.abs(m00 * s01 + m10 * s11 + m20 * s21) * ey + math.abs(m00 * s02 + m10 * s12 + m20 * s22) * ez
+		local extent_y = math.abs(m01 * s00 + m11 * s10 + m21 * s20) * ex + math.abs(m01 * s01 + m11 * s11 + m21 * s21) * ey + math.abs(m01 * s02 + m11 * s12 + m21 * s22) * ez
+		local extent_z = math.abs(m02 * s00 + m12 * s10 + m22 * s20) * ex + math.abs(m02 * s01 + m12 * s11 + m22 * s21) * ey + math.abs(m02 * s02 + m12 * s12 + m22 * s22) * ez
+
+		if wx - extent_x < min_x then min_x = wx - extent_x end
+
+		if wy - extent_y < min_y then min_y = wy - extent_y end
+
+		if wz - extent_z < min_z then min_z = wz - extent_z end
+
+		if wx + extent_x > max_x then max_x = wx + extent_x end
+
+		if wy + extent_y > max_y then max_y = wy + extent_y end
+
+		if wz + extent_z > max_z then max_z = wz + extent_z end
+	end
+
+	if min_x > max_x then return nil end
+
+	out.min_x, out.min_y, out.min_z = min_x, min_y, min_z
+	out.max_x, out.max_y, out.max_z = max_x, max_y, max_z
+	return out
 end
 
 function Animator:SetViewHiddenBones(names)

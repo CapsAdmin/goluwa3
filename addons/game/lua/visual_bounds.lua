@@ -1,13 +1,8 @@
 local AABB = import("goluwa/structs/aabb.lua")
 local visual_bounds = {}
+local animated_box = AABB(0, 0, 0, 0, 0, 0)
 
-local function expand(out, entity)
-	local visual = entity.visual
-
-	if not visual then return end
-
-	local box = visual:GetWorldAABB()
-
+local function expand(out, box)
 	if not box or box.min_x > box.max_x then return end
 
 	if box.min_x < out.min_x then out.min_x = box.min_x end
@@ -23,19 +18,37 @@ local function expand(out, entity)
 	if box.max_z > out.max_z then out.max_z = box.max_z end
 end
 
-function visual_bounds.Get(entity, out)
+local function expand_entity(out, entity, core)
+	local animator = entity.animator
+
+	if animator and animator.rig then
+		expand(out, animator:GetWorldAABB(animated_box, core))
+	elseif not core and entity.visual and entity.visual.Visible then
+		expand(out, entity.visual:GetWorldAABB())
+	end
+end
+
+local function build(entity, out, core)
 	out = out or AABB(0, 0, 0, 0, 0, 0)
 	out.min_x, out.min_y, out.min_z = math.huge, math.huge, math.huge
 	out.max_x, out.max_y, out.max_z = -math.huge, -math.huge, -math.huge
-	expand(out, entity)
+	expand_entity(out, entity, core)
 
 	for _, child in ipairs(entity:GetChildrenList()) do
-		expand(out, child)
+		expand_entity(out, child, core)
 	end
 
 	if out.min_x > out.max_x then return nil end
 
 	return out
+end
+
+function visual_bounds.Get(entity, out)
+	return build(entity, out, false)
+end
+
+function visual_bounds.GetCore(entity, out)
+	return build(entity, out, true)
 end
 
 return visual_bounds
