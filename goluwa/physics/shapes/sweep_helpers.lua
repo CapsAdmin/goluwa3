@@ -479,15 +479,20 @@ local function evaluate_capsule_polyhedron_target_contact(context, t)
 			context.end_sample - context.start_sample
 		) * helpers.GetSweepAlpha(t, context.max_fraction)
 	local position, rotation_t = helpers.GetTargetPose(context.target_state, t, context.max_fraction)
-	return helpers.GetPolyhedronContactForPointAtPose(
+	local movement = context.end_sample - context.start_sample
+	local contact = helpers.GetPolyhedronContactForPointAtPose(
 		context.target_collider,
 		context.target_polyhedron,
 		point,
 		context.radius,
 		position,
 		rotation_t,
-		context.end_sample - context.start_sample
+		movement
 	)
+
+	if contact and contact.normal:Dot(movement) > EPSILON then return nil end
+
+	return contact
 end
 
 local function select_capsule_polyhedron_body_hit(context, start_sample, end_sample)
