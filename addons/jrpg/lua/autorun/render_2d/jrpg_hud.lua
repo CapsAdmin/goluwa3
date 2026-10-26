@@ -17,6 +17,7 @@ local third_person = import("lua/third_person.lua")
 function third_person.IsDefaultHudReplaced(rig)
 	return rig.rpg ~= nil
 end
+
 local visual_bounds = import("lua/visual_bounds.lua")
 local Health = import("lua/components/health.lua")
 local HEADING = "Orbitron"
@@ -561,7 +562,8 @@ local function update_record(record, health, now, dt)
 	local owner = health.Owner
 	record.name = owner:GetName()
 	record.status = owner.status_effects
-	local box = visual_bounds.Get(owner, bounds) or
+	local box = visual_bounds.GetCore(owner, bounds) or
+		visual_bounds.Get(owner, bounds) or
 		(
 			owner.rigid_body and
 			owner.rigid_body:GetBroadphaseAABB(nil, nil, bounds)
