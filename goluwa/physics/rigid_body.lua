@@ -1560,6 +1560,29 @@ function RigidBody:_ApplyAngularCorrection(world_angle_impulse)
 	motion.IntegrateRotation(self.Rotation, self:GetAngularVelocityDelta(world_angle_impulse), 1)
 end
 
+local function apply_body_correction(body, impulse, pos)
+	local prev_pos = CORRECTION_PREV_POS
+	local prev_rot = CORRECTION_PREV_ROT
+	prev_pos.x, prev_pos.y, prev_pos.z = body.Position.x, body.Position.y, body.Position.z
+	prev_rot.x, prev_rot.y, prev_rot.z, prev_rot.w = body.Rotation.x, body.Rotation.y, body.Rotation.z, body.Rotation.w
+	body:_ApplyCorrection(impulse, pos)
+	Vec3.SetSub(CORRECTION_DIFF, body.Position, prev_pos)
+
+	if not body.Awake and CORRECTION_DIFF:GetLength() > 0.001 then body:Wake() end
+
+	body.PreviousPosition.x = body.PreviousPosition.x + CORRECTION_DIFF.x
+	body.PreviousPosition.y = body.PreviousPosition.y + CORRECTION_DIFF.y
+	body.PreviousPosition.z = body.PreviousPosition.z + CORRECTION_DIFF.z
+	Quat.SetConjugated(CORRECTION_DELTA_ROT, prev_rot)
+	Quat.SetMul(CORRECTION_DELTA_ROT, body.Rotation, CORRECTION_DELTA_ROT)
+	Quat.SetMul(prev_rot, CORRECTION_DELTA_ROT, body.PreviousRotation)
+	prev_rot:Normalize()
+	body.PreviousRotation.x = prev_rot.x
+	body.PreviousRotation.y = prev_rot.y
+	body.PreviousRotation.z = prev_rot.z
+	body.PreviousRotation.w = prev_rot.w
+end
+
 function RigidBody:ApplyCorrection(compliance, correction, pos, other_body, other_pos, dt)
 	local length = correction:GetLength()
 
@@ -1581,65 +1604,19 @@ function RigidBody:ApplyCorrection(compliance, correction, pos, other_body, othe
 
 	if inverse_mass == 0 then return 0 end
 
-	local alpha = (compliance or 0) / (dt * dt)
-	local lambda = -length / (inverse_mass + alpha)
+	local lambda = -length / (inverse_mass + (compliance or 0) / (dt * dt))
 	local impulse = CORRECTION_IMPULSE_A
-	local impulse_scale = -lambda
-	impulse.x = normal.x * impulse_scale
-	impulse.y = normal.y * impulse_scale
-	impulse.z = normal.z * impulse_scale
-	local prev_pos = CORRECTION_PREV_POS
-	local prev_rot = CORRECTION_PREV_ROT
-	prev_pos.x, prev_pos.y, prev_pos.z = self.Position.x, self.Position.y, self.Position.z
-	prev_rot.x, prev_rot.y, prev_rot.z, prev_rot.w = self.Rotation.x, self.Rotation.y, self.Rotation.z, self.Rotation.w
-	self:_ApplyCorrection(impulse, pos)
-	Vec3.SetSub(CORRECTION_DIFF, self.Position, prev_pos)
-	local dx = CORRECTION_DIFF.x
-	local dy = CORRECTION_DIFF.y
-	local dz = CORRECTION_DIFF.z
-
-	if not self.Awake and CORRECTION_DIFF:GetLength() > 0.001 then self:Wake() end
-
-	self.PreviousPosition.x = self.PreviousPosition.x + dx
-	self.PreviousPosition.y = self.PreviousPosition.y + dy
-	self.PreviousPosition.z = self.PreviousPosition.z + dz
-	Quat.SetConjugated(CORRECTION_DELTA_ROT, prev_rot)
-	Quat.SetMul(CORRECTION_DELTA_ROT, self.Rotation, CORRECTION_DELTA_ROT)
-	Quat.SetMul(prev_rot, CORRECTION_DELTA_ROT, self.PreviousRotation)
-	prev_rot:Normalize()
-	self.PreviousRotation.x = prev_rot.x
-	self.PreviousRotation.y = prev_rot.y
-	self.PreviousRotation.z = prev_rot.z
-	self.PreviousRotation.w = prev_rot.w
+	impulse.x = normal.x * -lambda
+	impulse.y = normal.y * -lambda
+	impulse.z = normal.z * -lambda
+	apply_body_correction(self, impulse, pos)
 
 	if other_body then
 		local impulse_b = CORRECTION_IMPULSE_B
 		impulse_b.x = -impulse.x
 		impulse_b.y = -impulse.y
 		impulse_b.z = -impulse.z
-		prev_pos.x, prev_pos.y, prev_pos.z = other_body.Position.x, other_body.Position.y, other_body.Position.z
-		prev_rot.x, prev_rot.y, prev_rot.z, prev_rot.w = other_body.Rotation.x, other_body.Rotation.y, other_body.Rotation.z, other_body.Rotation.w
-		other_body:_ApplyCorrection(impulse_b, other_pos)
-		Vec3.SetSub(CORRECTION_DIFF, other_body.Position, prev_pos)
-		dx = CORRECTION_DIFF.x
-		dy = CORRECTION_DIFF.y
-		dz = CORRECTION_DIFF.z
-
-		if not other_body.Awake and CORRECTION_DIFF:GetLength() > 0.001 then
-			other_body:Wake()
-		end
-
-		other_body.PreviousPosition.x = other_body.PreviousPosition.x + dx
-		other_body.PreviousPosition.y = other_body.PreviousPosition.y + dy
-		other_body.PreviousPosition.z = other_body.PreviousPosition.z + dz
-		Quat.SetConjugated(CORRECTION_DELTA_ROT, prev_rot)
-		Quat.SetMul(CORRECTION_DELTA_ROT, other_body.Rotation, CORRECTION_DELTA_ROT)
-		Quat.SetMul(prev_rot, CORRECTION_DELTA_ROT, other_body.PreviousRotation)
-		prev_rot:Normalize()
-		other_body.PreviousRotation.x = prev_rot.x
-		other_body.PreviousRotation.y = prev_rot.y
-		other_body.PreviousRotation.z = prev_rot.z
-		other_body.PreviousRotation.w = prev_rot.w
+		apply_body_correction(other_body, impulse_b, other_pos)
 	end
 
 	return lambda / (dt * dt)
