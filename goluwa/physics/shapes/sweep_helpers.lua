@@ -564,6 +564,7 @@ end
 
 do
 	local PROJECTED_POINT = Vec3()
+	local FACE_NORMAL = Vec3()
 
 	function helpers.GetPolyhedronContactForPointAtPose(collider, polyhedron, point, radius, position, rotation, movement_world)
 		local scratch = collider.point_polyhedron_contact_scratch or {}
@@ -574,19 +575,37 @@ do
 		local best_distance = -math.huge
 		local best_normal = nil
 		local best_face = nil
+		local best_x, best_y, best_z = 0, 0, 0
 
-		for _, face in ipairs(faces or {}) do
-			local plane_point = vertices[face.indices[1]]
-			local normal = rotation:VecMul(face.normal):GetNormalized()
-			local distance = normal:Dot(point - plane_point)
+		if faces then
+			local px, py, pz = point.x, point.y, point.z
+			local limit = radius + EPSILON
 
-			if distance > radius + EPSILON then return nil end
+			for i = 1, #faces do
+				local face = faces[i]
+				local plane_point = vertices[face.indices[1]]
+				local normal = rotation.SetVecMul(FACE_NORMAL, rotation, face.normal)
+				local length = math.sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z)
+				local distance = (
+						(
+							px - plane_point.x
+						) * normal.x + (
+							py - plane_point.y
+						) * normal.y + (
+							pz - plane_point.z
+						) * normal.z
+					) / length
 
-			if distance > best_distance then
-				best_distance = distance
-				best_normal = normal
-				best_face = face
+				if distance > limit then return nil end
+
+				if distance > best_distance then
+					best_distance = distance
+					best_face = face
+					best_x, best_y, best_z = normal.x / length, normal.y / length, normal.z / length
+				end
 			end
+
+			if best_face then best_normal = Vec3(best_x, best_y, best_z) end
 		end
 
 		if not best_normal then return nil end
@@ -684,35 +703,39 @@ function helpers.GetCapsuleContactForPointAtPose(collider, point, radius, positi
 	}
 end
 
-function helpers.SweepPointAgainstPolyhedronBody(collider, polyhedron, origin, movement, radius, target_state, max_fraction)
-	if not (polyhedron and polyhedron.vertices and polyhedron.faces) then
-		return nil
+do
+	local function evaluate_polyhedron_contact(context, point, position, rotation, relative_movement)
+		return helpers.GetPolyhedronContactForPointAtPose(
+			context.collider,
+			context.polyhedron,
+			point,
+			context.radius,
+			position,
+			rotation,
+			relative_movement
+		)
 	end
 
-	return helpers.SweepSampledPointAgainstMovingTarget(
-		origin,
-		movement,
-		radius,
-		target_state,
-		max_fraction,
-		helpers.GetPointSweepSampleSteps(movement:GetLength(), radius, max_fraction),
-		function(context, point, position, rotation, relative_movement)
-			return helpers.GetPolyhedronContactForPointAtPose(
-				context.collider,
-				context.polyhedron,
-				point,
-				context.radius,
-				position,
-				rotation,
-				relative_movement
-			)
-		end,
-		{
-			collider = collider,
-			polyhedron = polyhedron,
-			radius = radius,
-		}
-	)
+	function helpers.SweepPointAgainstPolyhedronBody(collider, polyhedron, origin, movement, radius, target_state, max_fraction)
+		if not (polyhedron and polyhedron.vertices and polyhedron.faces) then
+			return nil
+		end
+
+		return helpers.SweepSampledPointAgainstMovingTarget(
+			origin,
+			movement,
+			radius,
+			target_state,
+			max_fraction,
+			helpers.GetPointSweepSampleSteps(movement:GetLength(), radius, max_fraction),
+			evaluate_polyhedron_contact,
+			{
+				collider = collider,
+				polyhedron = polyhedron,
+				radius = radius,
+			}
+		)
+	end
 end
 
 return helpers
