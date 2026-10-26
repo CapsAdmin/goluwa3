@@ -163,7 +163,7 @@ commands.Add("lua=string", function(code, ...)
 	return lrun.Execute(code, {log_error = false, arguments = {...}})
 end)
 
-local function run_game()
+local function run_game(startup_command)
 	startup.Begin("run_game")
 	startup.Begin("pvars and repl")
 	import("goluwa/cli/pvars.lua").Initialize()
@@ -302,6 +302,12 @@ local function run_game()
 				table.insert(arguments, "--validate")
 			end
 
+			if startup_command then
+				for _, argument in ipairs(startup_command) do
+					table.insert(arguments, argument)
+				end
+			end
+
 			import("goluwa/network/server_process.lua").Start(tonumber(os.getenv("GOLUWA_PORT")) or 1234, arguments)
 		end
 
@@ -312,8 +318,6 @@ local function run_game()
 				io.stderr:write(err, "\n")
 				system.ShutDown(1)
 			end
-
-			import("goluwa/network/server_process.lua").NotifyReady()
 		end
 	end
 
@@ -351,14 +355,16 @@ crash_trace.Run(function()
 			commands.RunArguments({"global_flags", "--3d"})
 		end
 
-		run_game()
+		run_game(remaining_args)
 		startup.Begin("startup command")
 
-		if remaining_args then
+		if remaining_args and not SERVER_CLIENT then
 			if not commands.RunArguments(remaining_args) then system.ShutDown(1) end
 		end
 
 		startup.End("startup command")
+
+		if SERVER then import("goluwa/network/server_process.lua").NotifyReady() end
 	end
 
 	system.KeepAlive("game")
