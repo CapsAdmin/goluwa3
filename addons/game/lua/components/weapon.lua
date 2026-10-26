@@ -166,17 +166,7 @@ function META:WasSecondaryPressed(cmd)
 		usercmd.WasPressed(cmd, self.SecondaryButton)
 end
 
-local function run(
-	self,
-	dt,
-	cmd,
-	primary,
-	secondary,
-	think,
-	press_primary,
-	press_secondary,
-	authority
-)
+local function run(self, dt, cmd, primary, secondary, think, press_primary, press_secondary)
 	local owner = self.Owner
 	self.time = self.time + dt
 	self.PrimaryButton = primary
@@ -198,12 +188,9 @@ local function run(
 		owner:CallLocalEvent(press_primary, cmd) ~= false
 	then
 		self.next_primary = self.time + self.FireRate
+		local pose = self:GetHolder().Owner.character_pose
 
-		if authority then
-			local pose = self:GetHolder().Owner.character_pose
-
-			if pose then pose:RegisterShot() end
-		end
+		if pose then pose:RegisterShot() end
 	end
 
 	if
@@ -229,8 +216,7 @@ function META:Think(dt, cmd, primary, secondary)
 		secondary,
 		"OnWeaponThink",
 		"OnWeaponPrimary",
-		"OnWeaponSecondary",
-		true
+		"OnWeaponSecondary"
 	)
 end
 
@@ -243,8 +229,7 @@ function META:Predict(dt, cmd, primary, secondary)
 		secondary,
 		"OnWeaponPredictThink",
 		"OnWeaponPredictPrimary",
-		"OnWeaponPredictSecondary",
-		false
+		"OnWeaponPredictSecondary"
 	)
 end
 
