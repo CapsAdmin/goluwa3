@@ -36,8 +36,9 @@ META:GetSet("LeanSide", 0)
 META:GetSet("LeanForward", 0)
 META:GetSet("Distance", 0)
 local AIR_SPEED = 0.8
-local LAND_SPEED = 8
-local LAND_MIN = 0.2
+local LAND_SOFT_SPEED = 2
+local LAND_HARD_SPEED = 11.5
+
 local function find_instance(anims, def)
 	for i = 1, #anims do
 		if anims[i].def == def then return anims[i] end
@@ -94,7 +95,9 @@ function META:GetActiveAction()
 	local anims = self.anims
 
 	for i = #anims, 1, -1 do
-		if anims[i].def.Kind == "action" then return anims[i].def.Name, anims[i].phase end
+		if anims[i].def.Kind == "action" then
+			return anims[i].def.Name, anims[i].phase
+		end
 	end
 end
 
@@ -165,9 +168,9 @@ function META:UpdateAirborne()
 	if air then
 		self.fall_speed = math.min(self.fall_speed, self.vertical_speed)
 	elseif self.airborne then
-		local strength = math.clamp(-self.fall_speed / LAND_SPEED, 0, 1)
+		local strength = math.clamp((-self.fall_speed - LAND_SOFT_SPEED) / (LAND_HARD_SPEED - LAND_SOFT_SPEED), 0, 1)
 
-		if strength > LAND_MIN then self:Trigger("land", strength) end
+		if strength > 0 then self:Trigger("land", strength) end
 
 		self.fall_speed = 0
 	end
@@ -244,7 +247,7 @@ function META:UpdateAnimations(dt)
 			inst.phase = math.min(inst.time / inst.duration, 1)
 
 			if def.Exit then
-				local fade = math.clamp((inst.duration - inst.time) / def.Exit, 0, 1)
+				local fade = math.clamp((inst.duration - inst.time) / math.min(def.Exit, inst.duration * 0.5), 0, 1)
 				inst.weight = inst.strength * fade * fade * (3 - 2 * fade)
 			end
 
@@ -282,7 +285,9 @@ function META:UpdateAnimations(dt)
 			end
 		end
 
-		if kind == "state" then inst.weight = inst.raw * inst.raw * (3 - 2 * inst.raw) end
+		if kind == "state" then
+			inst.weight = inst.raw * inst.raw * (3 - 2 * inst.raw)
+		end
 
 		if inst.dead then
 			table.remove(anims, i)

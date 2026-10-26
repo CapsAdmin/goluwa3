@@ -23,7 +23,9 @@ local function sample(keys, t)
 	return keys[count][2]
 end
 
-local function get_value(value, t)
+local function get_value(value, t, inst, pose)
+	if type(value) == "function" then return value(inst, pose) end
+
 	if type(value) == "table" then return sample(value, t) end
 
 	return value
@@ -44,7 +46,7 @@ local function rotate(bones, entry, axis, angle)
 	aim_pose.RotateChain(bones, entry.Chain, #entry.Chain, bones[entry.Pivot], rotation)
 end
 
-function bone_keys.Apply(bones, keys, inst, seed)
+function bone_keys.Apply(bones, keys, inst, pose)
 	local def = inst.def
 	local t = 0
 	local wave = inst.phase * TURN
@@ -56,21 +58,29 @@ function bone_keys.Apply(bones, keys, inst, seed)
 		wave = inst.cycle
 	end
 
-	local phase = seed * TURN
+	local phase = pose.seed * TURN
 
 	for i = 1, #keys do
 		local entry = keys[i]
 		local scale = inst.weight
 
 		if entry.Wobble then
-			scale = scale * (1 + entry.Wobble * math.sin(wave * entry.Frequency + entry.Offset + phase))
+			scale = scale * (
+					1 + entry.Wobble * math.sin(wave * entry.Frequency + entry.Offset + phase)
+				)
 		end
 
-		if entry.Pitch then rotate(bones, entry, 1, get_value(entry.Pitch, t) * scale) end
+		if entry.Pitch then
+			rotate(bones, entry, 1, get_value(entry.Pitch, t, inst, pose) * scale)
+		end
 
-		if entry.Yaw then rotate(bones, entry, 2, get_value(entry.Yaw, t) * scale) end
+		if entry.Yaw then
+			rotate(bones, entry, 2, get_value(entry.Yaw, t, inst, pose) * scale)
+		end
 
-		if entry.Roll then rotate(bones, entry, 3, get_value(entry.Roll, t) * scale) end
+		if entry.Roll then
+			rotate(bones, entry, 3, get_value(entry.Roll, t, inst, pose) * scale)
+		end
 	end
 end
 

@@ -250,11 +250,12 @@ function META:UpdatePlayer(animator, pose, dt)
 	for i = #pose.anims, 1, -1 do
 		local inst = pose.anims[i]
 
-		if inst.def.Sequence and inst.weight > 0.5 then
+		if inst.def.Sequence then
 			sequence = inst.def.Sequence(inst, suffix, clips)
 
 			if sequence then
 				override = inst
+
 				break
 			end
 		end
@@ -276,6 +277,7 @@ function META:UpdatePlayer(animator, pose, dt)
 	local rate = 1
 
 	if override then
+
 	elseif speed < 0.15 then
 		sequence = (crouching and "cidle_" or "idle_") .. suffix
 
@@ -318,7 +320,13 @@ function META:UpdatePlayer(animator, pose, dt)
 		)
 	end
 
-	animator:SetSpeed(rate * (override and override.def.Speed or 1) * pose.animation_speed * pose.rate_variation)
+	animator:SetSpeed(
+		rate * (
+				override and
+				override.def.Speed or
+				1
+			) * pose.animation_speed * pose.rate_variation
+	)
 
 	if clip and clip.Duration > 0 and not override and pose.animation_speed == 1 then
 		if speed < 0.15 then
@@ -456,7 +464,7 @@ function META:MirrorBones(rig, armature, pose, dt)
 		local inst = pose.anims[i]
 		local def = inst.def
 
-		if def.BoneKeys then bone_keys.Apply(bones, def.BoneKeys, inst, pose.seed) end
+		if def.BoneKeys then bone_keys.Apply(bones, def.BoneKeys, inst, pose) end
 
 		if def.Bones then def.Bones(bones, inst, pose) end
 	end

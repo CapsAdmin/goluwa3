@@ -36,7 +36,7 @@ function animations.NewInstance(name, weight)
 		time = 0,
 		phase = 0,
 		cycle = 0,
-		duration = def.Duration,
+		duration = def.Duration and def.Duration * (def.Cutoff and def.Cutoff(weight or 1) or 1),
 	}
 end
 

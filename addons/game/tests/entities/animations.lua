@@ -99,7 +99,7 @@ local function tip_after(entry, phase)
 	local bones = chain_bones()
 	local inst = animations.NewInstance("slash_r", 1)
 	inst.phase = phase
-	bone_keys.Apply(bones, {Time = "phase", entry}, inst, 0)
+	bone_keys.Apply(bones, {Time = "phase", entry}, inst, {seed = 0})
 	return bones.tip
 end
 
@@ -122,10 +122,11 @@ T.Test("the air state follows the airborne flag and a hard landing triggers the 
 	local entity = create()
 	local pose = entity.character_pose
 	pose.grounded = false
-	pose.vertical_speed = -6
+	pose.vertical_speed = -7.5
 	pose:UpdateAirborne()
 	T(pose.airborne)["=="](true)
 	pose:UpdateAnimations(1 / 60)
+
 	for _ = 1, 20 do
 		pose:UpdateAnimations(1 / 60)
 	end
@@ -144,13 +145,14 @@ T.Test("the air state follows the airborne flag and a hard landing triggers the 
 	pose.vertical_speed = 0
 	pose:UpdateAirborne()
 	T(pose.airborne)["=="](false)
-	T(pose:GetWeight("land"))["~"](0.75, 1e-6)
+	T(pose:GetWeight("land"))["~"](0.5, 1e-6)
 	T(animations.Get("land").Sequence(pose.anims[#pose.anims], "all", {jump_holding_land = {}}))["=="]("jump_holding_land")
-	for _ = 1, 22 do
+
+	for _ = 1, 12 do
 		pose:UpdateAnimations(1 / 60)
 	end
 
-	T(pose:GetWeight("land") > 0 and pose:GetWeight("land") < 0.75)["=="](true)
+	T(pose:GetWeight("land") > 0 and pose:GetWeight("land") < 0.5)["=="](true)
 
 	for _ = 1, 30 do
 		pose:UpdateAnimations(1 / 60)
@@ -164,5 +166,80 @@ T.Test("the air state follows the airborne flag and a hard landing triggers the 
 	pose.grounded = true
 	pose:UpdateAirborne()
 	T(pose:IsPlaying("land"))["=="](false)
+	entity:Remove()
+end)
+
+T.Test("the air state tilts the body with the ground speeds while rising and the other way while falling", function()
+	local def = animations.Get("air")
+	local inst = animations.NewInstance("air", 1)
+	local entry = def.BoneKeys[1]
+
+	local function pose(forward, right, vertical)
+		return {
+			forward_speed = forward,
+			right_speed = right,
+			vertical_speed = vertical,
+			seed = 0,
+		}
+	end
+
+	T(entry.Pitch(inst, pose(0, 0, 5)))["=="](0)
+	T(entry.Pitch(inst, pose(5, 0, 5)) < 0)["=="](true)
+	T(entry.Pitch(inst, pose(5, 0, -5)) > 0)["=="](true)
+	T(entry.Pitch(inst, pose(5, 0, 5)))["~"](-entry.Pitch(inst, pose(5, 0, -5)), 1e-9)
+	T(entry.Pitch(inst, pose(5, 0, 0)))["=="](0)
+	T(entry.Pitch(inst, pose(50, 0, 50)) >= -0.46)["=="](true)
+	T(entry.Roll(inst, pose(0, 5, 5)) < 0)["=="](true)
+	T(entry.Roll(inst, pose(0, 5, -5)) > 0)["=="](true)
+
+	local function head_after(p)
+		local bones = {}
+
+		for _, name in ipairs(entry.Chain) do
+			bones[name] = Matrix44():Identity()
+			bones[name]:SetTranslation(0, name == "head" and 1.2 or 0.7, 0)
+		end
+
+		bone_keys.Apply(bones, def.BoneKeys, inst, p)
+		return bones.head
+	end
+
+	T(head_after(pose(5, 0, 5)).m32 < -0.05)["=="](true)
+	T(head_after(pose(5, 0, -5)).m32 > 0.05)["=="](true)
+	T(head_after(pose(0, 5, 5)).m30 > 0.05)["=="](true)
+	T(head_after(pose(0, 5, -5)).m30 < -0.05)["=="](true)
+end)
+
+T.Test("the landing strength follows the fall speed and cuts the land clip short", function()
+	local land = animations.Get("land")
+	local clips = {jump_holding_land = {}}
+	local soft = animations.NewInstance("land", 0.1)
+	local hard = animations.NewInstance("land", 1)
+	T(hard.duration)["~"](land.Duration, 1e-9)
+	T(soft.duration < land.Duration * 0.4)["=="](true)
+	T(soft.duration < animations.NewInstance("land", 0.4).duration)["=="](true)
+	T(land.Sequence(soft, "all", clips))["=="]("jump_holding_land")
+	soft.weight = soft.strength * 0.1
+	T(land.Sequence(soft, "all", clips))["=="](nil)
+	local entity = create()
+	local pose = entity.character_pose
+
+	local function land_with(speed)
+		pose.grounded = false
+		pose.vertical_speed = -speed
+		pose.fall_speed = 0
+		pose.airborne = false
+		pose:UpdateAirborne()
+		pose.grounded = true
+		pose:UpdateAirborne()
+		local weight = pose:GetWeight("land")
+		pose.anims = {}
+		return weight
+	end
+
+	T(land_with(3))["=="](0)
+	T(land_with(5))["~"](0.1875, 1e-6)
+	T(land_with(11.5))["=="](1)
+	T(land_with(30))["=="](1)
 	entity:Remove()
 end)
