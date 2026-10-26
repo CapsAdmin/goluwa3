@@ -59,6 +59,7 @@ META:GetSet("DeadRollingFriction", 8)
 META:GetSet("DeadTipSpeed", 1.2)
 local ROLL_ENTRY = 0.9
 local ROLL_HOLD = 0.5
+local ROLL_MIN = 0.5
 local ROLL_DECAY = 0.6
 local ROLL_EXIT = 0.25
 local ROLL_FLOOR = 0.3
@@ -913,7 +914,15 @@ do
 			local roll = self.roll
 			local crouch_down = usercmd.HasButton(cmd, BUTTON.CROUCH)
 
-			if roll and not roll.leaving and not (crouch_down and grounded) then
+			if
+				roll and
+				not roll.leaving and
+				roll.time >= ROLL_MIN and
+				not (
+					crouch_down and
+					grounded
+				)
+			then
 				roll.leaving = 0
 			end
 
