@@ -140,7 +140,6 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_collider = collider
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_position = target_position
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_rotation = target_rotation
-	MESH_BODY_POINT_SWEEP_CONTEXT.wv_cache = {}
 	MESH_BODY_POINT_SWEEP_CONTEXT.best_hit = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.entry = nil
 
@@ -153,7 +152,6 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 		MESH_BODY_POINT_SWEEP_CONTEXT.target_collider = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.target_position = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.target_rotation = nil
-		MESH_BODY_POINT_SWEEP_CONTEXT.wv_cache = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.entry = nil
 		MESH_BODY_POINT_SWEEP_CONTEXT.best_hit = nil
 		return nil
@@ -174,7 +172,6 @@ local function test_mesh_body_point_sweep(origin, movement, radius, body, collid
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_collider = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_position = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.target_rotation = nil
-	MESH_BODY_POINT_SWEEP_CONTEXT.wv_cache = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.entry = nil
 	MESH_BODY_POINT_SWEEP_CONTEXT.best_hit = nil
 	return best_hit

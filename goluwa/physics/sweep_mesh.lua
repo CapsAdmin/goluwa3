@@ -62,7 +62,6 @@ local MESH_BODY_POINT_SWEEP_CONTEXT = {
 	target_collider = nil,
 	target_position = nil,
 	target_rotation = nil,
-	wv_cache = nil,
 	entry = nil,
 	best_hit = nil,
 }
@@ -118,17 +117,19 @@ local function get_cached_world_vertex(context, v)
 	return wv
 end
 
+local point_sweep_vertices = {Vec3(), Vec3(), Vec3()}
+
 local function collect_mesh_body_point_sweep_hit(v0, v1, v2, triangle_index, context)
-	local wv0 = get_cached_world_vertex(context, v0)
-	local wv1 = get_cached_world_vertex(context, v1)
-	local wv2 = get_cached_world_vertex(context, v2)
+	local collider = context.target_collider
+	local position = context.target_position
+	local rotation = context.target_rotation
 	local hit = sweep_sphere_against_triangle(
 		context.origin,
 		context.movement,
 		context.radius,
-		wv0,
-		wv1,
-		wv2,
+		collider:LocalToWorld(v0, position, rotation, point_sweep_vertices[1]),
+		collider:LocalToWorld(v1, position, rotation, point_sweep_vertices[2]),
+		collider:LocalToWorld(v2, position, rotation, point_sweep_vertices[3]),
 		context.max_fraction
 	)
 
