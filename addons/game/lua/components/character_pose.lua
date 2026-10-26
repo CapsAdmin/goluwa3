@@ -4,11 +4,13 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local pose_variation = import("lua/pose_variation.lua")
+local UNIT = import("goluwa/source_engine/units.lua").meters
 local META = objects.CreateTemplate("character_pose")
 META.Network = {
 	Crouching = {"boolean", 0.1, "reliable"},
 	Holding = {"boolean", 0.1, "reliable"},
 	Blocking = {"boolean", 0.05, "reliable"},
+	Roll = {"string", 0.05, "reliable"},
 	ViewRotation = {"quat", 1 / 20, "sequenced", true},
 	Shots = {"number", 0.05, "reliable"},
 	Hits = {"number", 0.05, "reliable"},
@@ -26,12 +28,29 @@ META:IsSet("FirstPerson", false)
 META:GetSet("ViewRotation", Quat(0, 0, 0, 1))
 META:GetSet("Shots", 0)
 META:GetSet("Hits", 0)
+META:GetSet("Roll", "")
 META:GetSet("Action", "")
 META:GetSet("ActionDuration", 0)
 META:GetSet("Actions", 0)
 META:GetSet("LeanSide", 0)
 META:GetSet("LeanForward", 0)
 META:GetSet("Distance", 0)
+local PIVOT = 0.4
+local PIVOT_FORWARD = 0.2
+local PIVOT_HEIGHT = 0.15
+local TURN = math.pi * 2
+local ROLL_RATE = 13
+local ROLL_REFERENCE_SPEED = 220 * UNIT
+local ROLL_SURGE = 0.3
+local ROLL_DRIFT = 0.12
+local ROLL_EASE = math.pi / 2
+local ROLLS = {
+	forward = {"RotatePitch", -1},
+	back = {"RotatePitch", 1},
+	left = {"RotateRoll", 1},
+	right = {"RotateRoll", -1},
+}
+local pivot = Vec3(0, PIVOT, 0) + Quat(0, 0, 0, 1):GetForward() * PIVOT_FORWARD
 local RELAY_FRESH = 0.3
 local RECOIL_DECAY = 8
 local FLINCH_DECAY = 4
@@ -52,8 +71,13 @@ function META:Initialize()
 	self.action = nil
 	self.action_time = 0
 	self.action_fraction = 0
-	self.action_rolls = false
+	self.rolling = false
+	self.roll_kind = nil
+	self.roll_angle = 0
+	self.roll_time = 0
+	self.roll_end = nil
 	self.block_alpha = 0
+	self.roll_alpha = 0
 	self.animation_speed = 1
 	self.seed = math.random()
 	self.rate_scale = pose_variation.GetRateScale(self.seed)
@@ -76,6 +100,11 @@ end
 
 function META:GetActiveAction()
 	return self.action, self.action_fraction
+end
+
+function META:ApplyRollTurn(rotation)
+	local roll = ROLLS[self.roll_kind]
+	rotation[roll[1]](rotation, roll[2] * self.roll_angle)
 end
 
 function META:RegisterShot()
@@ -120,6 +149,7 @@ function META:OnUpdate(dt)
 	if movement then
 		self:SetViewRotation(movement:GetCommand().view:Copy())
 		self:SetCrouching(movement:IsCrouching())
+		self:SetRoll(movement:GetRollKind())
 	end
 
 	if self.Shots ~= self.seen_shots then
@@ -136,17 +166,68 @@ function META:OnUpdate(dt)
 		self.seen_actions = self.Actions
 		self.action = self.Action
 		self.action_time = 0
-		self.action_rolls = self.Action:starts_with("roll")
 	end
 
 	if self.action then
 		self.action_time = self.action_time + dt
 		self.action_fraction = math.min(self.action_time / math.max(self.ActionDuration, 0.001), 1)
 
-		if self.action_time >= self.ActionDuration then
-			self.action = nil
-			self.action_rolls = false
+		if self.action_time >= self.ActionDuration then self.action = nil end
+	end
+
+	if self.Roll ~= "" then
+		if not self.roll_kind then
+			self.roll_angle = 0
+			self.roll_time = 0
 		end
+
+		self.roll_kind = self.Roll
+		self.roll_end = nil
+	elseif self.roll_kind and not self.roll_end then
+		self.roll_end = math.ceil(self.roll_angle / TURN) * TURN
+	end
+
+	if self.roll_kind then
+		self.roll_time = self.roll_time + dt
+		local speed = math.clamp(math.sqrt(self.forward_speed ^ 2 + self.right_speed ^ 2) / ROLL_REFERENCE_SPEED, 0.4, 2)
+		self.roll_angle = self.roll_angle + ROLL_RATE * speed * dt * (
+				1 - ROLL_SURGE * math.cos(self.roll_angle) + ROLL_DRIFT * math.sin(self.roll_time * 3 + self.seed * TURN)
+			)
+
+		if self.roll_end and self.roll_angle >= self.roll_end then
+			self.roll_kind = nil
+			self.roll_end = nil
+			self.roll_angle = 0
+		end
+	end
+
+	self.rolling = self.roll_kind ~= nil
+
+	if self.rolling then
+		local position, rotation = transform:GetRenderPositionRotation()
+
+		if not position then
+			position, rotation = transform:GetPosition(), transform:GetRotation()
+		end
+
+		local turned = rotation:Copy()
+		self:ApplyRollTurn(turned)
+		local blend = math.min(self.roll_angle / ROLL_EASE, 1)
+
+		if self.roll_end then
+			blend = math.min(blend, (self.roll_end - self.roll_angle) / ROLL_EASE)
+		end
+
+		local height = math.lerp(math.clamp(blend, 0, 1), PIVOT, PIVOT_HEIGHT)
+		transform:SetOverridePosition(
+			position + rotation:VecMul(pivot) + Vec3(0, height - PIVOT, 0) - turned:VecMul(pivot)
+		)
+		transform:SetOverrideRotation(turned)
+		self.roll_override = true
+	elseif self.roll_override then
+		self.roll_override = false
+		transform:SetOverridePosition(nil)
+		transform:SetOverrideRotation(nil)
 	end
 
 	self.block_alpha = self.block_alpha + (
@@ -156,6 +237,13 @@ function META:OnUpdate(dt)
 				0
 			) - self.block_alpha
 		) * math.min(dt * 14, 1)
+	self.roll_alpha = self.roll_alpha + (
+			(
+				self.rolling and
+				1 or
+				0
+			) - self.roll_alpha
+		) * math.min(dt * 10, 1)
 	self.recoil = math.max(self.recoil - dt * RECOIL_DECAY, 0)
 	self.flinch = math.max(self.flinch - dt * FLINCH_DECAY, 0)
 	local rotation = self:GetViewRotation()
@@ -168,12 +256,17 @@ function META:OnUpdate(dt)
 		self:SetCrouching(usercmd.HasButton(relay, usercmd.BUTTON.CROUCH))
 	end
 
+	if self.rolling then
+		rotation = rotation:Copy()
+		self:ApplyRollTurn(rotation)
+	end
+
 	self.aim_rotation = rotation
 	self.crouch_alpha = self.crouch_alpha + (
 			(
 				(
 					self:IsCrouching() or
-					self.action_rolls
+					self.rolling
 				)
 				and
 				1 or

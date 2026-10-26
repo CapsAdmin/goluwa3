@@ -40,6 +40,7 @@ META:GetSet("FlySpeedMaxMultiplier", 500)
 META:GetSet("WalkMaxLinearSpeed", 240)
 META:GetSet("SprintMultiplier", 2)
 META:GetSet("CrouchMultiplier", 1 / 3)
+META:GetSet("RollSpeed", 220 * UNIT)
 META:GetSet("WalkMultiplier", 0.5)
 META:GetSet("SuperMultiplier", 3)
 META:GetSet("Mode", "fly")
@@ -56,6 +57,30 @@ META:GetSet("RespawnDelay", 1)
 META:GetSet("DeadFriction", 0.5)
 META:GetSet("DeadRollingFriction", 8)
 META:GetSet("DeadTipSpeed", 1.2)
+local ROLL_ENTRY = 0.9
+local ROLL_HOLD = 0.5
+local ROLL_DECAY = 0.6
+local ROLL_EXIT = 0.25
+local ROLL_FLOOR = 0.3
+
+local function classify_roll(direction, rotation)
+	local forward = rotation:GetForward()
+	local right = rotation:GetRight()
+	local f = direction.x * forward.x + direction.z * forward.z
+	local r = direction.x * right.x + direction.z * right.z
+
+	if math.abs(f) >= math.abs(r) then return f >= 0 and "forward" or "back" end
+
+	return r >= 0 and "right" or "left"
+end
+
+function META:IsRolling()
+	return self.roll ~= nil and not self.roll.leaving
+end
+
+function META:GetRollKind()
+	return self:IsRolling() and self.roll.kind or ""
+end
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
@@ -118,6 +143,7 @@ function META:Reset(mode)
 	self.flat_ground_time = 0
 	self.step_hold_time = 0
 	self.jumping = false
+	self.roll = nil
 	self.Swimming = false
 	self.ground_x = nil
 	self.ground_z = nil
@@ -868,6 +894,51 @@ do
 			end
 
 			local position = body:GetPosition()
+			local roll = self.roll
+			local crouch_down = usercmd.HasButton(cmd, BUTTON.CROUCH)
+
+			if roll and not roll.leaving and not (crouch_down and grounded) then
+				roll.leaving = 0
+			end
+
+			if roll then
+				roll.time = roll.time + dt
+				local fade = 1
+
+				if roll.leaving then
+					roll.leaving = roll.leaving + dt
+					local out = math.clamp(roll.leaving / ROLL_EXIT, 0, 1)
+					fade = 1 - out * out * (3 - 2 * out)
+				end
+
+				if roll.leaving and roll.leaving >= ROLL_EXIT then
+					self.roll = nil
+				else
+					move = flatten_direction(view:GetForward(), Vec3(0, 0, -1)) * roll.forward + flatten_direction(view:GetRight(), Vec3(1, 0, 0)) * roll.side
+					local decay = math.clamp((roll.time - ROLL_HOLD) / ROLL_DECAY, 0, 1)
+					wish_speed = math.lerp(decay * decay * (3 - 2 * decay), roll.speed, self.RollSpeed) * math.lerp(fade, ROLL_FLOOR, 1)
+					jump_requested = false
+				end
+			elseif
+				active and
+				grounded and
+				usercmd.WasPressed(cmd, BUTTON.CROUCH) and
+				wish_speed > 0 and
+				event.Call("CanRoll", self.Owner) ~= false
+			then
+				local forward, side = cmd.forward, cmd.side
+				local length = math.sqrt(forward * forward + side * side)
+				forward, side = forward / length, side / length
+				local direction = flatten_direction(view:GetForward(), Vec3(0, 0, -1)) * forward + flatten_direction(view:GetRight(), Vec3(1, 0, 0)) * side
+				self.roll = {
+					time = 0,
+					speed = math.max(self.RollSpeed, math.sqrt(x * x + z * z) * ROLL_ENTRY),
+					forward = forward,
+					side = side,
+					kind = classify_roll(direction, self.Owner.transform:GetRotation()),
+				}
+			end
+
 			MOVE.velocity:Set(x, y, z)
 			MOVE.position:Set(position.x, position.y, position.z)
 			MOVE.grounded = grounded
@@ -1001,7 +1072,9 @@ do
 				speed_multiplier * self.FlySpeed * self.fly_speed_multiplier or
 				0
 			)
-		local rate = target:GetLength() < velocity:GetLength() and self.FlyBrake or self.FlyAccelerate
+		local rate = target:GetLength() < velocity:GetLength() and
+			self.FlyBrake or
+			self.FlyAccelerate
 		body:SetVelocity(velocity + (target - velocity) * (1 - math.exp(-rate * dt)))
 		body:SetAngularVelocity(Vec3())
 	end

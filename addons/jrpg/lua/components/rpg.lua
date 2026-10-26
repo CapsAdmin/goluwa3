@@ -204,17 +204,13 @@ function META:DrainMana(amount)
 	return true
 end
 
-function META:IsRolling()
-	return self.roll ~= nil
-end
-
 function META:Stun(duration)
 	self.stun_time = duration
 	self:SetStunned(true)
 end
 
 function META:OnCanAttack()
-	if self.Stunned or self.roll then return false end
+	if self.Stunned or self.Owner.character_movement:IsRolling() then return false end
 
 	local pose = self.Owner.character_pose
 

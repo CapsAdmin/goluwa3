@@ -144,6 +144,14 @@ function META:OnLateUpdate(dt)
 		self.death_view = nil
 	end
 
+	local pose = self.Owner.character_pose
+
+	if pose and pose.rolling and not third_person.IsEnabled() and not camera_modes.GetActive() then
+		local rotation = view:GetRotation():Copy()
+		pose:ApplyRollTurn(rotation)
+		view:SetRotation(rotation)
+	end
+
 	local shake, roll = screen_shake.Get()
 
 	if shake then

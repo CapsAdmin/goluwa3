@@ -35,8 +35,6 @@ for _, name in ipairs{"health", "mana", "stamina"} do
 end
 
 local ROLL_COST = 30
-local ROLL_TIME = 0.55
-local ROLL_SPEED = 240 * UNIT
 local BLOCK_SPEED = 0.45
 local BLOCK_ANGLE = 0.2
 local SHIELD_PHYSICAL = 1
@@ -215,7 +213,7 @@ event.AddListener("ModifyDamage", "jrpg", function(victim, info)
 	elseif rpg then
 		info.Damage = info.Damage / rpg:GetStat(magic and "magic_defense" or "physical_defense")
 
-		if rpg:IsRolling() and not magic and attacker ~= victim and not info.Status then
+		if victim.character_movement:IsRolling() and not magic and attacker ~= victim and not info.Status then
 			info.Cancel = true
 			effects.Text(victim, "DODGE", jrpg.Colors.neon)
 			return
@@ -311,16 +309,16 @@ event.AddListener("RPGLevelUp", "jrpg", function(entity, level)
 	if network.HasAuthority() then effects.LevelUp(entity, level) end
 end)
 
-local function classify(direction, rotation)
-	local forward = rotation:GetForward()
-	local right = rotation:GetRight()
-	local f = direction.x * forward.x + direction.z * forward.z
-	local r = direction.x * right.x + direction.z * right.z
+event.AddListener("CanRoll", "jrpg", function(entity)
+	local rpg = entity.rpg
 
-	if math.abs(f) >= math.abs(r) then return f >= 0 and "forward" or "back" end
+	if not rpg then return end
 
-	return r >= 0 and "right" or "left"
-end
+	return not entity.character_pose:IsBlocking() and
+		not rpg:IsStunned() and
+		status_effects.GetSpeedScale(entity) > 0 and
+		rpg:DrainStamina(ROLL_COST)
+end)
 
 event.AddListener("PlayerMove", "jrpg", function(entity, move)
 	local scale = status_effects.GetSpeedScale(entity)
@@ -339,37 +337,6 @@ event.AddListener("PlayerMove", "jrpg", function(entity, move)
 			scale = scale * BLOCK_SPEED
 		end
 
-		local roll = rpg.roll
-
-		if roll then
-			roll.time = roll.time + move.dt
-
-			if roll.time >= ROLL_TIME then
-				rpg.roll = nil
-			else
-				move.move:CopyFrom(roll.direction)
-				move.wish_speed = ROLL_SPEED * (math.sin(roll.time / ROLL_TIME * math.pi) + 0.5)
-				move.jump_pressed = false
-			end
-		elseif
-			move.grounded and
-			usercmd.WasPressed(cmd, usercmd.BUTTON.CROUCH) and
-			move.move:GetLength() > 0.1 and
-			not pose:IsBlocking()
-			and
-			not rpg:IsStunned()
-			and
-			scale > 0 and
-			rpg:DrainStamina(ROLL_COST)
-		then
-			local direction = move.move:GetNormalized()
-			rpg.roll = {time = 0, direction = direction}
-
-			if network.HasAuthority() then
-				pose:PlayAction("roll_" .. classify(direction, entity.transform:GetRotation()), ROLL_TIME)
-			end
-		end
-
 		local lunge = rpg.lunge
 
 		if lunge then
@@ -377,7 +344,7 @@ event.AddListener("PlayerMove", "jrpg", function(entity, move)
 
 			if lunge.time <= 0 then
 				rpg.lunge = nil
-			elseif not rpg.roll then
+			elseif not entity.character_movement:IsRolling() then
 				move.move:CopyFrom(lunge.direction)
 				move.wish_speed = lunge.speed
 			end

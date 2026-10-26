@@ -6,4 +6,3 @@ Entity.RegisterComponent("magic_projectile", import("lua/components/magic_projec
 import("lua/jrpg/jrpg.lua")
 import("lua/jrpg/surface_hazards.lua")
 
-if RENDER_3D then import("lua/jrpg/animation.lua") end

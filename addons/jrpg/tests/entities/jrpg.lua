@@ -134,7 +134,7 @@ T.TestPhysics("attributes scale damage, a raised shield blocks and a roll dodges
 	T(victim.health:GetHealth())["=="](180)
 	T(victim.rpg:GetStamina())["=="](stamina - 30)
 	victim.character_pose:SetBlocking(false)
-	victim.rpg.roll = {time = 0, direction = Vec3(1, 0, 0)}
+	victim.character_movement.roll = {time = 0, forward = 1, side = 0, kind = "forward"}
 	damage.Deal(victim, {Attacker = attacker, Damage = 30})
 	T(victim.health:GetHealth())["=="](180)
 	damage.Deal(victim, {Attacker = attacker, Damage = 10, Type = "fire"})

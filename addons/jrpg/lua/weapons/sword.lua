@@ -235,7 +235,7 @@ function META:OnUpdate(dt)
 	local holder = self:GetHolder()
 	local pose = holder:IsValid() and holder.character_pose
 	local action = pose and self.Owner.weapon:IsActive() and pose:GetActiveAction()
-	local swinging = action and action ~= "cast_l" and action ~= "cast_r" and not action:starts_with("roll")
+	local swinging = action and action ~= "cast_l" and action ~= "cast_r"
 
 	if pose and self.seen_actions ~= pose.Actions then
 		self.seen_actions = pose.Actions
