@@ -77,8 +77,15 @@ function animations.Get(name)
 	return assert(animations.Definitions[name], "unknown animation " .. name)
 end
 
-function animations.NewInstance(name, weight)
+function animations.NewInstance(name, weight, variant)
 	local def = animations.Get(name)
+	local duration = def.Duration and def.Duration * (def.Cutoff and def.Cutoff(weight or 1) or 1)
+
+	if def.Variants then
+		variant = variant or 1
+		duration = def.Variants[(variant - 1) % #def.Variants + 1].Duration
+	end
+
 	return {
 		def = def,
 		weight = weight or 1,
@@ -87,8 +94,13 @@ function animations.NewInstance(name, weight)
 		time = 0,
 		phase = 0,
 		cycle = 0,
-		duration = def.Duration and def.Duration * (def.Cutoff and def.Cutoff(weight or 1) or 1),
+		variant = variant,
+		duration = duration,
 	}
+end
+
+function animations.GetVariant(inst)
+	return inst.def.Variants[(inst.variant - 1) % #inst.def.Variants + 1]
 end
 
 function animations.GetWeight(pose, name)

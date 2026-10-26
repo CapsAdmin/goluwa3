@@ -103,6 +103,50 @@ T.Test("an action with PoseWeapon asks for the weapon pose while it plays", func
 	entity:Remove()
 end)
 
+T.Test("a reaction restarts on every hit, alternates its clip and only plays a part of it", function()
+	local entity = create()
+	local pose = entity.character_pose
+	local clips = {death_02 = true, death_04 = true}
+
+	local function current()
+		for _, inst in ipairs(pose.anims) do
+			if inst.def.Name == "hit_react" then
+				return inst.def.Sequence(inst, "all", clips), inst.time, inst.duration
+			end
+		end
+	end
+
+	pose:SetReacts(pose.Reacts + 1)
+	step(pose, 0.05)
+	local first, _, first_duration = current()
+	T(first)["=="]("death_02")
+	T(first_duration)["~"](0.2, 1e-6)
+	step(pose, 0.1)
+	pose:SetReacts(pose.Reacts + 1)
+	step(pose, 0.02)
+	local second, restarted, second_duration = current()
+	T(second)["=="]("death_04")
+	T(restarted < 0.05)["=="](true)
+	T(second_duration)["~"](0.59, 1e-6)
+	T(pose:GetWeight("hit_flinch") > 0.5)["=="](true)
+	step(pose, 0.7)
+	T(pose:IsPlaying("hit_react"))["=="](false)
+	T(pose:IsPlaying("flinch"))["=="](false)
+	T(pose:IsPlaying("hit_flinch"))["=="](false)
+	entity:Remove()
+end)
+
+T.Test("a damage with a reaction triggers the reaction and not the flinch", function()
+	local entity = create()
+	local pose = entity.character_pose
+	pose:OnTakeDamage({Reaction = true})
+	T(pose.Reacts)["=="](1)
+	T(pose.Hits)["=="](0)
+	pose:OnTakeDamage({})
+	T(pose.Hits)["=="](1)
+	entity:Remove()
+end)
+
 T.Test("states replicate through the states string", function()
 	local entity = create()
 	local pose = entity.character_pose

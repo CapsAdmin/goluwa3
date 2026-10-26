@@ -52,6 +52,8 @@ local GAIT_SPEED = {
 local FORWARD_PARAMETERS = {move_x = 1, move_y = 0}
 local DONOR_MALE = "models/humans/male_shared"
 local DONOR_FEMALE = "models/humans/female_shared"
+local ANIMATION_MALE = "models/m_anm"
+local ANIMATION_FEMALE = "models/f_anm"
 local FEMALE_MARKS = {"female", "alyx", "mossman", "chell"}
 local DONOR_BIND_BONES = {
 	["valvebiped.bip01_pelvis"] = true,
@@ -64,6 +66,7 @@ local DONOR_BIND_BONES = {
 	["valvebiped.bip01_l_forearm"] = true,
 }
 local SWITCH_TIME = 0.2
+local DEFAULT_BLEND = 0.2
 local ARM_BONES = {
 	"clavicle_r",
 	"upperarm_r",
@@ -141,6 +144,44 @@ local function find_ancestor(entity, component)
 	end
 end
 
+function META:GetOverride(pose, suffix, clips)
+	for i = #pose.anims, 1, -1 do
+		local inst = pose.anims[i]
+
+		if inst.def.Sequence then
+			local sequence = inst.def.Sequence(inst, suffix, clips)
+
+			if sequence then return sequence, inst end
+		end
+	end
+end
+
+function META:SwitchSequence(animator, sequence, override)
+	self.sequence = sequence
+	animator:SetBlendTime(
+		override and
+			override.def.BlendIn or
+			(
+				self.override_def and
+				self.override_def.BlendOut
+			)
+			or
+			DEFAULT_BLEND
+	)
+	self.override_def = override and override.def
+	animator:SetLoop(not override or override.def.Loop ~= false)
+	animator:SetSequence(sequence)
+
+	if override and override.def.Loop == false then animator:Restart() end
+
+	local start = override and override.def.Variants and animations.GetVariant(override).Start
+
+	if start then
+		animator:ResolveClip()
+		animator:SetTime(start * animator.skeleton.ClipsByName[sequence].Duration)
+	end
+end
+
 function META:UpdateCreature(animator, skeleton, pose, dt)
 	if pose:IsPlaying("attack") and self.AttackSequence ~= "" then
 		if self.attack_actions ~= pose.Actions then
@@ -152,6 +193,19 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 		end
 
 		animator:SetSpeed(pose.animation_speed * pose.rate_variation)
+		return
+	end
+
+	if self.Mirror then self:AddReactionClips(skeleton) end
+
+	local override_sequence, override = self:GetOverride(pose, "all", skeleton.ClipsByName)
+
+	if override then
+		if override_sequence ~= self.sequence then
+			self:SwitchSequence(animator, override_sequence, override)
+		end
+
+		animator:SetSpeed((override.def.Speed or 1) * pose.animation_speed * pose.rate_variation)
 		return
 	end
 
@@ -190,11 +244,7 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 		self.WalkSequence or
 		self.IdleSequence
 
-	if sequence ~= self.sequence then
-		self.sequence = sequence
-		animator:SetLoop(true)
-		animator:SetSequence(sequence)
-	end
+	if sequence ~= self.sequence then self:SwitchSequence(animator, sequence) end
 
 	local clip = skeleton.ClipsByName[sequence]
 	local rate = 1
@@ -253,6 +303,36 @@ function META:AddDonorClips(skeleton)
 	import("goluwa/render3d/model_decoders/mdl.lua").AddAnimations(skeleton, donor, is_donor_clip, DONOR_BIND_BONES)
 end
 
+function META:AddReactionClips(skeleton)
+	if skeleton.reaction_checked then return end
+
+	skeleton.reaction_checked = true
+	local wanted = {}
+	local missing = false
+
+	for _, variant in ipairs(animations.Get("hit_react").Variants) do
+		wanted[variant.Clip] = true
+		missing = missing or not skeleton.ClipsByName[variant.Clip]
+	end
+
+	if not missing then return end
+
+	local path = self.Owner.model:GetModelPath():lower()
+	local donor = ANIMATION_MALE
+
+	for _, mark in ipairs(FEMALE_MARKS) do
+		if path:find(mark, 1, true) then
+			donor = ANIMATION_FEMALE
+
+			break
+		end
+	end
+
+	import("goluwa/render3d/model_decoders/mdl.lua").AddAnimations(skeleton, donor, function(name)
+		return wanted[name]
+	end, DONOR_BIND_BONES)
+end
+
 function META:UpdatePlayer(animator, pose, dt)
 	local forward_speed = pose.locomotion and pose.forward_speed or 0
 	local right_speed = pose.locomotion and pose.right_speed or 0
@@ -263,21 +343,7 @@ function META:UpdatePlayer(animator, pose, dt)
 	local holder = pose.Owner.weapon_holder
 	local weapon = holder and holder:GetWeapon("right")
 	local suffix = weapon and weapon.weapon:GetStance() or "all"
-
-	for i = #pose.anims, 1, -1 do
-		local inst = pose.anims[i]
-
-		if inst.def.Sequence then
-			sequence = inst.def.Sequence(inst, suffix, clips)
-
-			if sequence then
-				override = inst
-
-				break
-			end
-		end
-	end
-
+	sequence, override = self:GetOverride(pose, suffix, clips)
 	local sprinting = not crouching and not pose.airborne and speed > PLAYER_RUN_SPEED * SPRINT_START
 	self.sprinting = sprinting
 	local gait = crouching and
@@ -322,11 +388,7 @@ function META:UpdatePlayer(animator, pose, dt)
 	end
 
 	if sequence ~= self.sequence then
-		self.sequence = sequence
-		animator:SetLoop(not override or override.def.Loop ~= false)
-		animator:SetSequence(sequence)
-
-		if override and override.def.Loop == false then animator:Restart() end
+		self:SwitchSequence(animator, sequence, override)
 	end
 
 	if speed >= 0.15 and not override then
@@ -635,6 +697,7 @@ function META:OnUpdate(dt)
 
 	if self.Profile == "gmod_player" then
 		self:AddDonorClips(animator.skeleton)
+		self:AddReactionClips(animator.skeleton)
 		self:UpdatePlayer(animator, pose, dt)
 	else
 		self:UpdateCreature(animator, animator.skeleton, pose, dt)

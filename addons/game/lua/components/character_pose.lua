@@ -14,6 +14,7 @@ META.Network = {
 	ViewRotation = {"quat", 1 / 20, "sequenced", true},
 	Shots = {"number", 0.05, "reliable"},
 	Hits = {"number", 0.05, "reliable"},
+	Reacts = {"number", 0.05, "reliable"},
 	Action = {"string", 0.05, "reliable"},
 	ActionDuration = {"number", 0.05, "reliable"},
 	Actions = {"number", 0.05, "reliable"},
@@ -28,6 +29,7 @@ META:IsSet("FirstPerson", false)
 META:GetSet("ViewRotation", Quat(0, 0, 0, 1))
 META:GetSet("Shots", 0)
 META:GetSet("Hits", 0)
+META:GetSet("Reacts", 0)
 META:GetSet("States", "")
 META:GetSet("Action", "")
 META:GetSet("ActionDuration", 0)
@@ -62,6 +64,7 @@ function META:Initialize()
 	self.grounded = false
 	self.seen_shots = self.Shots
 	self.seen_hits = self.Hits
+	self.seen_reacts = self.Reacts
 	self.seen_actions = self.Actions
 	self.seen_ready_shots = self.Shots
 	self.anims = {}
@@ -140,14 +143,22 @@ function META:SetState(name, arg)
 	self:SetStates(self.seen_states)
 end
 
-function META:Trigger(name, weight)
-	local inst = find_instance(self.anims, animations.Get(name))
+function META:Trigger(name, weight, variant)
+	local def = animations.Get(name)
+
+	if def.Restart then
+		for i = #self.anims, 1, -1 do
+			if self.anims[i].def == def then table.remove(self.anims, i) end
+		end
+	end
+
+	local inst = find_instance(self.anims, def)
 
 	if inst then
 		inst.weight = math.max(inst.weight, weight)
 		inst.strength = math.max(inst.strength, weight)
 	else
-		self.anims[#self.anims + 1] = animations.NewInstance(name, weight)
+		self.anims[#self.anims + 1] = animations.NewInstance(name, weight, variant)
 	end
 end
 
@@ -224,7 +235,7 @@ function META:UpdateAnimations(dt)
 			self[trigger.Seen] = self[trigger.Counter]
 
 			for _, def in ipairs(trigger.Defs) do
-				self:Trigger(def.Name, 1)
+				self:Trigger(def.Name, 1, self[trigger.Counter])
 			end
 		end
 	end
@@ -350,8 +361,12 @@ function META:RegisterShot()
 	self:SetShots(self.Shots + 1)
 end
 
-function META:OnTakeDamage()
-	self:SetHits(self.Hits + 1)
+function META:OnTakeDamage(info)
+	if info.Reaction then
+		self:SetReacts(self.Reacts + 1)
+	else
+		self:SetHits(self.Hits + 1)
+	end
 end
 
 function META:ApplyRelayedCommands(commands)
