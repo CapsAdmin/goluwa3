@@ -66,6 +66,18 @@ T.Test("slash is a registered physical type that is not magic and has no spell",
 	end
 end)
 
+T.Test("the cut directions of a slash are in the actor's own right, up and forward", function()
+	local actors = import("lua/actors.lua")
+	local entity = create_dummy(10)
+	local right, forward = actors.GetRight(entity), actors.GetForward(entity)
+	T(right.x)["~"](1, 1e-6)
+	T(forward.z)["~"](-1, 1e-6)
+	entity.transform:SetRotation(import("goluwa/structs/quat.lua")():Identity():RotateYaw(math.pi / 2))
+	right, forward = actors.GetRight(entity), actors.GetForward(entity)
+	T(right:Dot(forward))["~"](0, 1e-6)
+	T(forward:GetCross(Vec3(0, 1, 0)):Dot(right))["~"](1, 1e-6)
+end)
+
 T.Test("fire damage sets the victim burning until the burn decays", function()
 	local victim = create_dummy(200)
 	damage.Deal(victim, {Damage = 50, Type = "fire"})

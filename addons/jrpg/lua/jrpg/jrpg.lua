@@ -24,7 +24,7 @@ jrpg.Colors = {
 	neon = Color.FromHex("#3fd3e6"),
 	danger = Color.FromHex("#e04a33"),
 }
-jrpg.Loadout = {"weapon_sword", "weapon_shield"}
+jrpg.Loadout = {"weapon_sword", "weapon_shield", "weapon_slash_debug"}
 
 for _, name in ipairs(damage_types.Names) do
 	jrpg.Loadout[#jrpg.Loadout + 1] = "weapon_magic_" .. name
@@ -339,19 +339,6 @@ event.AddListener("PlayerMove", "jrpg", function(entity, move)
 		if pose:IsBlocking() or rpg:IsStunned() or pose:GetActiveAction() == "drink" then
 			scale = scale * BLOCK_SPEED
 		end
-
-		local lunge = rpg.lunge
-
-		if lunge then
-			lunge.time = lunge.time - move.dt
-
-			if lunge.time <= 0 then
-				rpg.lunge = nil
-			elseif not entity.character_movement:IsRolling() then
-				move.move:CopyFrom(lunge.direction)
-				move.wish_speed = lunge.speed
-			end
-		end
 	end
 
 	local confused = status_effects.Get(entity, "confused")
@@ -368,11 +355,5 @@ event.AddListener("PlayerMove", "jrpg", function(entity, move)
 
 	if scale <= 0 then move.jump_pressed = false end
 end)
-
-function jrpg.Lunge(entity, direction, speed, duration)
-	if entity.rpg then
-		entity.rpg.lunge = {direction = direction:Copy(), speed = speed, time = duration}
-	end
-end
 
 return jrpg

@@ -19,6 +19,11 @@ function actors.GetForward(entity)
 	return Vec3(forward.x, 0, forward.z):GetNormalized()
 end
 
+function actors.GetRight(entity)
+	local right = entity.transform:GetRotation():GetRight()
+	return Vec3(right.x, 0, right.z):GetNormalized()
+end
+
 function actors.Find(position, radius, ignore)
 	local found = {}
 

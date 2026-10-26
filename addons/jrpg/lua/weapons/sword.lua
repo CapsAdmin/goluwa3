@@ -5,12 +5,19 @@ local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 local STEEL = {Color = Color(0.78, 0.8, 0.84, 1), Roughness = 0.22, Metallic = 1}
 local GOLD = {Color = Color(0.85, 0.62, 0.25, 1), Roughness = 0.3, Metallic = 1}
 local LEATHER = {Color = Color(0.22, 0.12, 0.07, 1), Roughness = 0.85, Metallic = 0}
-local box = nodes.Box
+local Quat = import("goluwa/structs/quat.lua")
+local STANCE_TILT = math.rad(65)
+
+local function box(name, size, position, material)
+	local node = nodes.Box(name, size, position, material)
+	node.parent = "sword"
+	return node
+end
 
 local function marker(name, distance)
 	return {
 		guid = name,
-		parent = "model",
+		parent = "sword",
 		properties = {Name = name},
 		components = {transform = {Position = FORWARD * distance}},
 	}
@@ -23,9 +30,17 @@ return {
 		Slot = 4.5,
 		DisplayName = "Sword",
 		Category = "melee",
+		Stance = "melee",
+		HoldOffset = Vec3(0.1, -0.05, 0),
 		FireRate = 0.05,
 	},
 	Nodes = {
+		{
+			guid = "sword",
+			parent = "model",
+			properties = {Name = "sword"},
+			components = {transform = {Rotation = Quat():SetAngles(Vec3(STANCE_TILT, 0, 0))}},
+		},
 		box("pommel", Vec3(0.045, 0.045, 0.045), FORWARD * -0.11, GOLD),
 		box("handle", Vec3(0.032, 0.032, 0.18), FORWARD * -0.01, LEATHER),
 		box("guard", Vec3(0.22, 0.035, 0.04), FORWARD * 0.09, GOLD),
@@ -38,12 +53,10 @@ return {
 local objects = import("goluwa/objects/objects.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local RigidBody = import("goluwa/physics/rigid_body.lua")
-local damage = import("lua/damage.lua")
+local slash = import("lua/jrpg/slash.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local actors = import("lua/actors.lua")
 local effects = import("lua/jrpg/effects.lua")
-local jrpg = import("lua/jrpg/jrpg.lua")
 local sounds = import("lua/sounds.lua")
 local META = objects.CreateTemplate("weapon_sword")
 META:StartStorable()
@@ -52,12 +65,69 @@ META:GetSet("Range", 1.7)
 META:GetSet("Element", "")
 META:EndStorable()
 local ATTACKS = {
-	light_1 = {action = "slash_r", duration = 0.42, hit = 0.47, damage = 1, stamina = 10, lunge = 2},
-	light_2 = {action = "slash_l", duration = 0.42, hit = 0.47, damage = 1, stamina = 10, lunge = 2},
-	light_3 = {action = "thrust", duration = 0.5, hit = 0.52, damage = 1.6, stamina = 14, lunge = 5},
-	jump = {action = "slash_down", duration = 0.55, hit = 0.55, damage = 2, stamina = 18, lunge = 1},
-	heavy = {action = "heavy", duration = 0.85, hit = 0.6, damage = 2.6, stamina = 28, lunge = 3},
+	light_1 = {
+		cut = Vec3(-0.94, -0.33, 0),
+		action = "sword_light_1",
+		duration = 0.5,
+		hit = 0.5,
+		swing = {0.36, 0.56},
+		cancel = 0.8,
+		damage = 1,
+		stamina = 10,
+		lunge = {0.45, 0.25, 0.5},
+	},
+	light_2 = {
+		cut = Vec3(0.93, 0.37, 0),
+		action = "sword_light_2",
+		duration = 0.5,
+		hit = 0.5,
+		swing = {0.36, 0.56},
+		cancel = 0.8,
+		damage = 1,
+		stamina = 10,
+		lunge = {0.45, 0.25, 0.5},
+	},
+	light_3 = {
+		cut = Vec3(0, 0, 1),
+		action = "sword_light_3",
+		duration = 0.65,
+		hit = 0.57,
+		swing = {0.46, 0.62},
+		cancel = 0.85,
+		damage = 1.6,
+		stamina = 14,
+		lunge = {1, 0.35, 0.57},
+	},
+	jump = {
+		cut = Vec3(0, -0.95, 0.3),
+		action = "sword_jump",
+		duration = 0.6,
+		hit = 0.45,
+		swing = {0.3, 0.5},
+		cancel = 0.85,
+		damage = 2,
+		stamina = 18,
+		lunge = {0.4, 0.2, 0.45},
+	},
+	heavy = {
+		cut = Vec3(0, -0.97, 0.25),
+		action = "sword_heavy",
+		duration = 1,
+		hit = 0.66,
+		swing = {0.56, 0.72},
+		cancel = 0.9,
+		damage = 2.6,
+		stamina = 28,
+		lunge = {0.9, 0.5, 0.66},
+	},
 }
+local BY_ACTION = {}
+
+for _, attack in pairs(ATTACKS) do
+	BY_ACTION[attack.action] = attack
+end
+
+local LUNGE_STOP_GAP = 1
 local COMBO_WINDOW = 0.5
 local NO_STAMINA = Color(1, 0.8, 0.3, 1)
 local TRAIL_POINTS = 12
@@ -88,8 +158,36 @@ function META:StartAttack(name)
 	self.attack_hit = false
 	self.queued = false
 	holder.character_pose:PlayAction(attack.action, attack.duration)
-	jrpg.Lunge(holder, actors.GetForward(holder), attack.lunge, attack.duration * attack.hit)
+	local forward = actors.GetForward(holder)
+	local lunge = attack.lunge
+	local distance = self:GetLungeDistance(holder, forward, lunge[1])
+
+	if distance > 0 then
+		holder.character_movement:Lunge(
+			forward,
+			distance,
+			attack.duration * lunge[2],
+			attack.duration * (lunge[3] - lunge[2])
+		)
+	end
+
 	return true
+end
+
+function META:GetLungeDistance(holder, forward, distance)
+	local center = actors.GetCenter(holder)
+
+	for _, victim in ipairs(actors.Find(center, distance + LUNGE_STOP_GAP + 1, holder)) do
+		local to_victim = actors.GetCenter(victim) - center
+		to_victim.y = 0
+		local gap = to_victim:GetLength()
+
+		if gap > 0.01 and to_victim:GetNormalized():Dot(forward) > 0.5 then
+			distance = math.min(distance, math.max(gap - LUNGE_STOP_GAP, 0))
+		end
+	end
+
+	return distance
 end
 
 function META:OnWeaponPrimary(cmd)
@@ -119,78 +217,15 @@ function META:OnWeaponSecondary(cmd)
 end
 
 function META:Hit(attack)
-	local holder = self:GetHolder()
-	local center = actors.GetCenter(holder)
-	local forward = actors.GetForward(holder)
-	local strike = center + forward * (self.Range * 0.55)
-	local amount = self.Damage * attack.damage
-	local element = self.Element
-	local hit_any = false
-
-	for _, victim in ipairs(actors.Find(strike, self.Range, holder)) do
-		local victim_center = actors.GetCenter(victim)
-		local to_victim = victim_center - center
-		to_victim.y = 0
-
-		if to_victim:GetLength() < 0.7 or to_victim:GetNormalized():Dot(forward) > 0.15 then
-			local point, normal, part = victim_center, forward * -1, nil
-			local trace = damage.Sweep(center, victim_center - center, holder)
-
-			if trace and trace.entity and damage.GetVictim(trace.entity) == victim then
-				point, normal = trace.point, trace.normal
-				part = trace.entity.ragdoll_part and trace.entity.ragdoll_part.Group
-			end
-
-			damage.Deal(
-				victim,
-				{
-					Attacker = holder,
-					Inflictor = self.Owner,
-					Damage = amount,
-					Type = "generic",
-					Position = point,
-					Normal = normal,
-					Force = forward * 5 * attack.damage,
-					Part = part,
-				}
-			)
-
-			if element ~= "" and victim.health and not victim.health:IsDead() then
-				damage.Deal(
-					victim,
-					{
-						Attacker = holder,
-						Inflictor = self.Owner,
-						Damage = amount * 0.5,
-						Type = element,
-						Position = point,
-						Normal = normal,
-					}
-				)
-			end
-
-			effects.Impact(point, normal, element ~= "" and element or "generic", attack.damage, true)
-			hit_any = true
-		end
-	end
-
-	for _, body in ipairs(RigidBody.Instances) do
-		local owner = body.Owner
-
-		if
-			body:IsDynamic() and
-			not owner.health and
-			not owner.ragdoll_part and
-			(
-				body:GetPosition() - strike
-			):GetLength() < self.Range
-		then
-			body:ApplyImpulse(forward * 4 * attack.damage / body.InverseMass ^ 0.5, body:GetPosition())
-			hit_any = true
-		end
-	end
-
-	return hit_any
+	return slash.Strike(
+		self:GetHolder(),
+		self.Owner,
+		attack.cut,
+		self.Damage * attack.damage,
+		attack.damage,
+		self.Range,
+		self.Element
+	)
 end
 
 function META:OnWeaponThink(dt)
@@ -209,7 +244,7 @@ function META:OnWeaponThink(dt)
 		self:Hit(attack)
 	end
 
-	if f >= 1 then
+	if f >= (self.queued and attack.cancel or 1) then
 		self.attack = nil
 		self.idle = 0
 
@@ -234,16 +269,18 @@ function META:OnUpdate(dt)
 
 	local holder = self:GetHolder()
 	local pose = holder:IsValid() and holder.character_pose
-	local action = pose and self.Owner.weapon:IsEquipped() and pose:GetActiveAction()
-	local swinging = action and action ~= "cast_l" and action ~= "cast_r"
+	local name, phase
 
-	if pose and self.seen_actions ~= pose.Actions then
-		self.seen_actions = pose.Actions
+	if pose and self.Owner.weapon:IsEquipped() then name, phase = pose:GetActiveAction() end
 
-		if swinging then
-			sounds.PlayRandom(SWING_SOUNDS, holder.transform:GetPosition(), 0.7, math.randomf(1, 1.3))
-		end
+	local attack = BY_ACTION[name]
+	local swinging = attack and phase >= attack.swing[1] and phase <= attack.swing[2]
+
+	if swinging and not self.swinging then
+		sounds.PlayRandom(SWING_SOUNDS, holder.transform:GetPosition(), 0.7, math.randomf(1, 1.3))
 	end
+
+	self.swinging = swinging
 
 	if not swinging then
 		if self.trail then

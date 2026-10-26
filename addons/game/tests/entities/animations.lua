@@ -51,17 +51,17 @@ T.Test("actions and impulses play at the same time as a state and expire", funct
 	local entity = create()
 	local pose = entity.character_pose
 	pose:SetState("roll", "left")
-	pose:PlayAction("slash_r", 0.4)
+	pose:PlayAction("cast_r", 0.4)
 	pose:SetHits(pose.Hits + 1)
 	step(pose, 0.1)
 	T(pose:IsPlaying("roll"))["=="](true)
-	T(pose:IsPlaying("slash_r"))["=="](true)
+	T(pose:IsPlaying("cast_r"))["=="](true)
 	T(pose:GetWeight("flinch") > 0)["=="](true)
 	local name, phase = pose:GetActiveAction()
-	T(name)["=="]("slash_r")
+	T(name)["=="]("cast_r")
 	T(phase > 0 and phase < 1)["=="](true)
 	step(pose, 0.5)
-	T(pose:IsPlaying("slash_r"))["=="](false)
+	T(pose:IsPlaying("cast_r"))["=="](false)
 	T(pose:IsPlaying("flinch"))["=="](false)
 	T(pose:IsPlaying("roll"))["=="](true)
 	entity:Remove()
@@ -177,7 +177,7 @@ end
 
 local function tip_after(entry, phase)
 	local bones = chain_bones()
-	local inst = animations.NewInstance("slash_r", 1)
+	local inst = animations.NewInstance("cast_r", 1)
 	inst.phase = phase
 	bone_keys.Apply(bones, {Time = "phase", entry}, inst, {seed = 0})
 	return bones.tip

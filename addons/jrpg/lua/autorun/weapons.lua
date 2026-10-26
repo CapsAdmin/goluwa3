@@ -1,8 +1,13 @@
 local weapons = import("lua/weapons.lua")
+local animations = import("lua/animations.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 weapons.AddRootComponent("item_highlight", {})
 
-for _, name in ipairs{"sword", "shield"} do
+for name, def in pairs(import("lua/animations/sword.lua")) do
+	animations.Register(name, def)
+end
+
+for _, name in ipairs{"sword", "shield", "slash_debug"} do
 	local definition = import("lua/weapons/" .. name .. ".lua")
 	weapons.Register("weapon_" .. name, definition.Values, definition.Nodes, definition.Source)
 end
