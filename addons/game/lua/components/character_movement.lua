@@ -938,7 +938,14 @@ do
 			elseif
 				active and
 				grounded and
-				usercmd.WasPressed(cmd, BUTTON.CROUCH) and
+				(
+					usercmd.WasPressed(cmd, BUTTON.CROUCH) or
+					(
+						crouch_down and
+						not self.was_grounded
+					)
+				)
+				and
 				wish_speed > 0 and
 				event.Call("CanRoll", self.Owner) ~= false
 			then
