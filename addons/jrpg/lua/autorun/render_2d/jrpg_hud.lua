@@ -39,10 +39,26 @@ local NPC_LOW = Color(0.95, 0.75, 0.2, 1)
 local DEFEAT_COLOR = Color(1, 0.35, 0.3, 1)
 local DEFEAT_GLOW = Color(0.4, 0, 0, 1)
 local BARS = {
-	{key = "health", label = "HP", color = jrpg.Colors.health},
-	{key = "mana", label = "MP", color = jrpg.Colors.mana},
-	{key = "stamina", label = "SP", color = jrpg.Colors.stamina},
+	{
+		key = "health",
+		label = "HP",
+		color = jrpg.Colors.health,
+		trail = Color(1, 0.3, 0.28, 1),
+	},
+	{
+		key = "mana",
+		label = "MP",
+		color = jrpg.Colors.mana,
+		trail = Color(0.55, 0.8, 1, 1),
+	},
+	{
+		key = "stamina",
+		label = "SP",
+		color = jrpg.Colors.stamina,
+		trail = Color(1, 0.92, 0.55, 1),
+	},
 }
+local NPC_TRAIL = Color(1, 0.3, 0.28, 1)
 local BAR_HEIGHT = 15
 local BAR_GAP = 5
 local BAR_SKEW = 10
@@ -130,7 +146,17 @@ local function set_color(color, alpha)
 	render2d.SetColor(color.r, color.g, color.b, alpha)
 end
 
-local function draw_skewed_bar(x, y, w, h, skew, fraction, ghost, color, alpha, segments)
+local TRAIL_FADE = render2d.CreateGradient{
+	width = 64,
+	height = 1,
+	angle = 90,
+	stops = {
+		{pos = 0, color = Color(1, 1, 1, 1)},
+		{pos = 1, color = Color(1, 1, 1, 0.3)},
+	},
+}
+
+local function draw_skewed_bar(x, y, w, h, skew, fraction, ghost, ghost_color, color, alpha, segments)
 	local theme = get_style()
 	render2d.PushWorldMatrix()
 	render2d.Translatef(x, y + h)
@@ -139,35 +165,34 @@ local function draw_skewed_bar(x, y, w, h, skew, fraction, ghost, color, alpha, 
 	render2d.SetTexture(nil)
 	set_color(INK, 0.82 * alpha)
 	render2d.DrawRect(-2, -2, w + 4, h + 4)
-
-	if ghost > fraction + 0.001 then
-		render2d.SetColor(1, 0.92, 0.8, 0.55 * alpha)
-		render2d.DrawRect(0, 0, w * math.min(ghost, 1), h)
-	end
-
+	render2d.SetColor(1, 1, 1, 0.05 * alpha)
+	render2d.DrawRect(0, 0, w, h * 0.5)
 	local fill = w * math.clamp(fraction, 0, 1)
 
+	if ghost > fraction + 0.001 then
+		set_color(ghost_color, 0.8 * alpha)
+		render2d.SetTexture(TRAIL_FADE)
+		render2d.DrawRect(fill, 0, w * math.min(ghost, 1) - fill, h)
+		render2d.SetTexture(nil)
+	end
+
 	if fill > 0.5 then
-		render2d.DrawShape{
-			x = 0,
-			y = 0,
-			w = fill,
-			h = h,
-			color = color,
-			alpha = alpha,
-			texture = theme.Textures.Gradient,
-			color_uv = {x = 0, y = 0, w = 0.5, h = 1},
-		}
+		set_color(color, alpha)
+		render2d.DrawRect(0, 0, fill, h)
+		render2d.SetColor(0, 0, 0, 0.18 * alpha)
+		render2d.DrawRect(0, h * 0.55, fill, h * 0.45)
 		render2d.SetTexture(nil)
 		render2d.SetColor(1, 1, 1, 0.35 * alpha)
 		render2d.DrawRect(0, 0, fill, math.max(h * 0.18, 1))
 	end
 
 	if segments then
-		render2d.SetColor(0, 0, 0, 0.35 * alpha)
-
 		for i = 1, segments - 1 do
-			render2d.DrawRect(math.floor(w * i / segments), 1, 1, h - 2)
+			local tick_x = math.floor(w * i / segments)
+			render2d.SetColor(0, 0, 0, 0.35 * alpha)
+			render2d.DrawRect(tick_x, 1, 1, h - 2)
+			render2d.SetColor(1, 1, 1, 0.22 * alpha)
+			render2d.DrawRect(tick_x, 1, 1, math.max(h * 0.25, 2) - 1)
 		end
 	end
 
@@ -176,17 +201,18 @@ local function draw_skewed_bar(x, y, w, h, skew, fraction, ghost, color, alpha, 
 	render2d.DrawRect(-2, h + 1, w + 4, 1)
 	render2d.DrawRect(-2, -2, 1, h + 4)
 	render2d.DrawRect(w + 1, -2, 1, h + 4)
+	render2d.PushBlendPreset("additive")
+	set_color(color, 0.3 * alpha)
+	theme:DrawGlowLine(-8, -2, w + 8, -2, 3)
+	theme:DrawGlowLine(-8, h + 2, w + 8, h + 2, 3)
+	render2d.PopBlendMode()
 
 	if fill > 0.5 then
 		render2d.PushBlendPreset("additive")
 		set_color(color, 0.9 * alpha)
-		render2d.SetTexture(theme.GlowLineTexture)
-		render2d.DrawRect(fill - 6, -h * 0.8, 12, h * 2.6)
-		render2d.SetTexture(nil)
-		set_color(color, alpha)
-		theme:DrawDiamond(fill, h / 2, h * 0.7)
+		theme:DrawGlowLine(fill, -h * 0.6, fill, h * 1.6, math.max(h * 0.5, 3))
 		render2d.SetColor(1, 1, 1, 0.9 * alpha)
-		theme:DrawDiamond(fill, h / 2, h * 0.3)
+		theme:DrawGlowLine(fill, -h * 0.2, fill, h * 1.2, math.max(h * 0.18, 1.5))
 		render2d.PopBlendMode()
 	end
 
@@ -452,45 +478,101 @@ local weapon_wheel = radial_wheel.New{
 	},
 }
 local ring_color = Color(1, 1, 1, 1)
+local backdrop_poly = Polygon2D.New(8192)
+backdrop_poly.WorldMatrixMultiply = true
+local backdrop_white = Color(1, 1, 1, 1)
+
+local function batch_arcs(cx, cy, r_in, r_out, count, sweep, rotation, color, alpha)
+	local segments = math.max(1, math.ceil(sweep / 0.1))
+
+	for i = 0, count - 1 do
+		local start = rotation + i / count * math.pi * 2
+		backdrop_poly:BatchArc(
+			cx,
+			cy,
+			r_in,
+			r_out,
+			start,
+			start + sweep,
+			segments,
+			1,
+			color.r,
+			color.g,
+			color.b,
+			alpha
+		)
+	end
+end
 
 local function draw_ring_backdrop(theme, cx, cy, S, spin)
+	local outer = (weapon_wheel.Outer + 6) * S
+	local inner = (weapon_wheel.Inner - 2) * S
 	render2d.SetTexture(theme.Textures.GlowPoint)
 	render2d.SetColor(0, 0, 0, 0.75)
 	render2d.DrawRect(cx - 260 * S, cy - 260 * S, 520 * S, 520 * S)
-	render2d.SetTexture(nil)
 	render2d.PushBlendPreset("additive")
-	set_color(ring_color, 0.75)
+	set_color(ring_color, 0.28)
+	render2d.DrawRect(cx - 110 * S, cy - 110 * S, 220 * S, 220 * S)
+	render2d.SetTexture(nil)
+	set_color(ring_color, 0.8)
 	theme:DrawCircle(cx, cy, 58 * S, 2, 1)
-	set_color(ring_color, 0.35)
-	theme:DrawCircle(cx, cy, 66 * S, 1, 1)
-	theme:DrawCircle(cx, cy, 148 * S, 1, 1)
+	set_color(ring_color, 0.3)
+	theme:DrawCircle(cx, cy, 50 * S, 1, 1)
+	theme:DrawCircle(cx, cy, inner, 1, 1)
+	theme:DrawCircle(cx, cy, outer, 1, 1)
+	set_color(GOLD, 0.35)
+	theme:DrawCircle(cx, cy, outer + 6 * S, 1, 1)
 
-	for i = 1, 24 do
-		local a = spin + i / 24 * math.pi * 2
-		local r1 = (i % 3 == 0 and 136 or 141) * S
-		local r2 = 148 * S
-		set_color(ring_color, i % 3 == 0 and 0.6 or 0.25)
+	for i = 1, 36 do
+		local a = spin * 0.5 + i / 36 * math.pi * 2
+		local long = i % 3 == 0
+		local r1 = outer - (long and 12 or 6) * S
+		local r2 = outer
+		set_color(long and GOLD or ring_color, long and 0.7 or 0.3)
 		theme:DrawGlowLine(
 			cx + math.cos(a) * r1,
 			cy + math.sin(a) * r1,
 			cx + math.cos(a) * r2,
 			cy + math.sin(a) * r2,
-			1
+			long and 1.5 or 1
 		)
 	end
 
-	for i = 1, 6 do
-		local a = -spin * 1.7 + i / 6 * math.pi * 2
-		set_color(ring_color, 0.18)
-		theme:DrawGlowLine(cx, cy, cx + math.cos(a) * 52 * S, cy + math.sin(a) * 52 * S, 2)
+	for triangle = 0, 1 do
+		for i = 0, 2 do
+			local a1 = -spin * 1.3 + (i / 3 + triangle * 0.5) * math.pi * 2
+			local a2 = -spin * 1.3 + ((i + 1) / 3 + triangle * 0.5) * math.pi * 2
+			set_color(ring_color, 0.3)
+			theme:DrawGlowLine(
+				cx + math.cos(a1) * 50 * S,
+				cy + math.sin(a1) * 50 * S,
+				cx + math.cos(a2) * 50 * S,
+				cy + math.sin(a2) * 50 * S,
+				1.5
+			)
+		end
 	end
 
 	for i = 1, 8 do
 		local a = spin * -0.6 + i / 8 * math.pi * 2 + math.pi / 8
-		set_color(GOLD, 0.8)
+		set_color(GOLD, 0.9)
 		theme:DrawDiamond(cx + math.cos(a) * 66 * S, cy + math.sin(a) * 66 * S, 5 * S)
 	end
 
+	for i = 0, 3 do
+		local a = spin * 0.35 + i / 4 * math.pi * 2
+		set_color(backdrop_white, 0.9)
+		theme:DrawDiamond(cx + math.cos(a) * outer, cy + math.sin(a) * outer, 8 * S)
+		set_color(GOLD, 0.9)
+		theme:DrawDiamond(cx + math.cos(a) * outer, cy + math.sin(a) * outer, 12 * S)
+	end
+
+	batch_arcs(cx, cy, outer - 2 * S, outer + 2 * S, 3, 1.1, spin * 0.8, ring_color, 0.6)
+	batch_arcs(cx, cy, inner - 1.5 * S, inner + 1.5 * S, 14, 0.2, -spin * 0.7, GOLD, 0.6)
+	batch_arcs(cx, cy, 63 * S, 69 * S, 2, 2, spin * 1.5, ring_color, 0.5)
+	batch_arcs(cx, cy, 55 * S, 57 * S, 6, 0.6, -spin * 2, backdrop_white, 0.35)
+	render2d.SetColor(1, 1, 1, 1)
+	backdrop_poly:FlushBatch()
 	render2d.PopBlendMode()
 end
 
@@ -628,7 +710,7 @@ local function draw_player(rig, w, h, dt)
 			color = color:GetLerped(0.5 + 0.5 * math.sin(now * 14), DANGER)
 		end
 
-		draw_skewed_bar(bx, by, width, bar_h, skew, shown, ghost, color, 1, 10)
+		draw_skewed_bar(bx, by, width, bar_h, skew, shown, ghost, bar.trail, color, 1, 10)
 		text(
 			bar.label,
 			bx - 34 * S,
@@ -666,6 +748,7 @@ local function draw_player(rig, w, h, dt)
 		skew * 0.5,
 		xp_fraction,
 		xp_fraction,
+		jrpg.Colors.xp,
 		jrpg.Colors.xp,
 		1
 	)
@@ -727,6 +810,7 @@ local function draw_npc_bar(camera, record, alpha, is_target, w, h, S)
 		6 * S,
 		record.shown,
 		record.trail,
+		NPC_TRAIL,
 		color,
 		alpha,
 		is_target and 8 or nil
