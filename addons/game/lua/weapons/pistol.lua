@@ -12,6 +12,7 @@ return {
 		DisplayName = "Pistol",
 		FireRate = 0.25,
 		HoldOffset = Vec3(0.16, 0, 0),
+		Holster = true,
 	},
 	Nodes = {
 		nodes.Handle("handle", 0.022, 0.12, Vec3(0, 0, 0), HANDLE),

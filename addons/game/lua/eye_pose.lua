@@ -75,6 +75,7 @@ local function ground_foot(foot, owner)
 end
 
 local SWITCH_TIME = 0.2
+local LOWER_DROP = 0.3
 local hand_free = Quat()
 local hand_grip = Quat()
 
@@ -106,6 +107,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local transform = owner.transform
 	local view = pose.pitch
 	local aim = aim_pose.GetAim(pose)
+	local hold_aim = aim_pose.GetHoldAim(pose, aim)
 	local crouch = pose.crouch_alpha
 	local body = owner.rigid_body
 	local _, render_rotation = transform:GetRenderPositionRotation()
@@ -136,14 +138,15 @@ function eye_pose.Compute(state, bones, owner, dt)
 
 	local hold_weight = animations.GetWeight(pose, "hold")
 	local block_weight = animations.GetWeight(pose, "block")
+	local ready_weight = animations.GetWeight(pose, "ready")
 	local held = hold_weight > 0.001 and state.held and state.held:IsValid() and state.held or nil
 	local hold, support, prev_hold, prev_support
 
 	if held then
-		hold, support = get_weapon_hold(held, aim, eye_height)
+		hold, support = get_weapon_hold(held, hold_aim, eye_height - (1 - ready_weight) * LOWER_DROP)
 
 		if state.prev then
-			prev_hold, prev_support = get_weapon_hold(state.prev, aim, eye_height)
+			prev_hold, prev_support = get_weapon_hold(state.prev, hold_aim, eye_height - (1 - ready_weight) * LOWER_DROP)
 		end
 	end
 
@@ -210,13 +213,13 @@ function eye_pose.Compute(state, bones, owner, dt)
 
 		if held then
 			local grip = sign == 1 and ZERO or support
-			local new_target = grip and hold + aim:VecMul(grip) or free
+			local new_target = grip and hold + hold_aim:VecMul(grip) or free
 			local new_grip = grip and 1 or 0
 			local mixed, mixed_grip = new_target, new_grip
 
 			if prev_hold then
 				local prev_grip = sign == 1 and ZERO or prev_support
-				local prev_target = prev_grip and prev_hold + aim:VecMul(prev_grip) or free
+				local prev_target = prev_grip and prev_hold + hold_aim:VecMul(prev_grip) or free
 				local eased = state.switch * state.switch * (3 - 2 * state.switch)
 				mixed = prev_target + (new_target - prev_target) * eased
 				mixed_grip = (prev_grip and 1 or 0) + (new_grip - (prev_grip and 1 or 0)) * eased
@@ -255,10 +258,10 @@ function eye_pose.Compute(state, bones, owner, dt)
 		aim_pose.SetBetween(hand_free, 0, 1, 0, hand.x - elbow.x, hand.y - elbow.y, hand.z - elbow.z)
 
 		if grip_weight > 0.001 then
-			hand_grip:Set(aim.x, aim.y, aim.z, aim.w)
+			hand_grip:Set(hold_aim.x, hold_aim.y, hold_aim.z, hold_aim.w)
 
 			if hand_free:Dot(hand_grip) < 0 then
-				hand_grip:Set(-aim.x, -aim.y, -aim.z, -aim.w)
+				hand_grip:Set(-hold_aim.x, -hold_aim.y, -hold_aim.z, -hold_aim.w)
 			end
 
 			hand_free:Lerp(grip_weight, hand_grip):Normalize()

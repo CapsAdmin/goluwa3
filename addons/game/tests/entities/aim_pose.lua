@@ -64,7 +64,7 @@ local function weapon(two_handed)
 end
 
 local function pose(pitch, recoil, flinch)
-	local anims = {}
+	local anims = {animations.NewInstance("ready", 1)}
 
 	if recoil then anims[#anims + 1] = animations.NewInstance("recoil", recoil) end
 
@@ -201,4 +201,20 @@ T.Test("the block arm blends in with the block weight instead of switching at ha
 	T(half:Distance(blocked) > 0.005)["=="](true)
 	T(left_hand(0.499):Distance(half))["<"](0.01)
 	T(left_hand(0.0005):Distance(free))["<"](1e-6)
+end)
+
+T.Test("the held weapon points down while the ready weight is low and along the aim when it is full", function()
+	local function right_hand(weight)
+		local bones = create_bones()
+		local p = pose(Quat(0, 0, 0, 1))
+		p.anims[1].weight = weight or 1
+		aim_pose.Apply(bones, p, weapon(false))
+		return position(bones, "hand_r")
+	end
+
+	local raised, lowered, half = right_hand(nil), right_hand(0), right_hand(0.5)
+	T(raised.y - lowered.y > 0.1)["=="](true)
+	T(math.abs(raised.z) > math.abs(lowered.z) - 0.2)["=="](true)
+	T(half.y < raised.y and half.y > lowered.y)["=="](true)
+	T(right_hand(1):Distance(raised))["<"](1e-9)
 end)

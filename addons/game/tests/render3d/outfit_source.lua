@@ -491,6 +491,7 @@ T.Test3D("the source outfit eases its arms into a weapon and between two weapons
 
 	tick(20)
 	local idle = hand()
+	pose.ready_time = 1e9
 	player.weapon_holder:Give("weapon_pistol")
 	tick(6)
 	local rising = hand()

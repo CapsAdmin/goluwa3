@@ -564,7 +564,7 @@ function META:MirrorBones(rig, armature, pose, dt)
 			if weapon then
 				local follow = active and aim_pose.GetFollowGripMatrix(matrix, is_right) or matrix
 				aim_pose.CopyMatrix(self.grip_follow, follow)
-				local gripped = aim_pose.GetGripMatrix(matrix, aim_pose.GetAim(pose))
+				local gripped = aim_pose.GetGripMatrix(matrix, aim_pose.GetHoldAim(pose, aim_pose.GetAim(pose)))
 
 				if hold < 0.999 then
 					aim_pose.BlendMatrix(self.grip_blend, self.grip_follow, gripped, hold)

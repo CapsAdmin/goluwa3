@@ -36,6 +36,8 @@ META:GetSet("LeanSide", 0)
 META:GetSet("LeanForward", 0)
 META:GetSet("Distance", 0)
 local AIR_SPEED = 0.8
+local READY_MIN = 2
+local READY_MAX = 3
 local LAND_SOFT_SPEED = 2
 local LAND_HARD_SPEED = 11.5
 
@@ -61,6 +63,7 @@ function META:Initialize()
 	self.seen_shots = self.Shots
 	self.seen_hits = self.Hits
 	self.seen_actions = self.Actions
+	self.seen_ready_shots = self.Shots
 	self.anims = {}
 	self.state_args = {}
 	self.seen_states = ""
@@ -72,6 +75,7 @@ function META:Initialize()
 	self.airborne = false
 	self.fall_speed = 0
 	self.hold_wanted = false
+	self.ready_time = 0
 	self.animation_speed = 1
 	self.seed = math.random()
 	self.rate_scale = pose_variation.GetRateScale(self.seed)
@@ -147,11 +151,11 @@ function META:Trigger(name, weight)
 	end
 end
 
-function META:EnableState(name, arg)
+function META:EnableState(name, arg, weight)
 	local inst = find_instance(self.anims, animations.Get(name))
 
 	if not inst then
-		inst = animations.NewInstance(name, 0)
+		inst = animations.NewInstance(name, weight or 0)
 		self.anims[#self.anims + 1] = inst
 	end
 
@@ -231,6 +235,25 @@ function META:UpdateAnimations(dt)
 	if self:IsBlocking() then self:EnableState("block") end
 
 	if self.hold_wanted then self:EnableState("hold") end
+
+	if self.Shots ~= self.seen_ready_shots then
+		self.seen_ready_shots = self.Shots
+		self.ready_time = READY_MIN + (
+				math.sin(self.seed * 12.9898 + self.Shots * 78.233) * 43758.5453
+			) % 1 * (
+				READY_MAX - READY_MIN
+			)
+	end
+
+	self.ready_time = math.max(self.ready_time - dt, 0)
+	local holder = self.Owner.weapon_holder
+	local posed = holder and holder:GetPosedWeapon()
+
+	if posed and not posed.weapon:IsHolster() then
+		self:EnableState("ready", nil, 1)
+	elseif self.ready_time > 0 then
+		self:EnableState("ready")
+	end
 
 	if self.airborne then self:EnableState("air") end
 

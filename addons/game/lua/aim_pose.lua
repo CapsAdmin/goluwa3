@@ -5,9 +5,11 @@ local pose_variation = import("lua/pose_variation.lua")
 local animations = import("lua/animations.lua")
 local aim_pose = {}
 local ZERO = Vec3()
+local lowered = Quat()
 aim_pose.Shares = {waist = 0.08, spine = 0.12, chest = 0.15, back = 0.15, neck = 0.2, head = 0.3}
 aim_pose.ClavicleShare = 0.25
 aim_pose.ElbowFlexion = 2.4
+aim_pose.LoweredPitch = -0.8
 aim_pose.ArmReach = 0.85
 aim_pose.HandOffset = Vec3(-0.08, -0.1, 0)
 aim_pose.NeutralHand = Vec3(0.02, -0.36, -0.12)
@@ -435,6 +437,15 @@ function aim_pose.GetAim(pose)
 	return aim
 end
 
+function aim_pose.GetHoldAim(pose, aim)
+	local ready = animations.GetWeight(pose, "ready")
+
+	if ready >= 0.999 then return aim end
+
+	lowered:Identity():RotatePitch(aim_pose.LoweredPitch)
+	return lowered:GetLerped(ready, aim):Normalize()
+end
+
 local left_start, left_hold = {}, {}
 
 for i = 1, 4 do
@@ -496,12 +507,14 @@ function aim_pose.Apply(bones, pose, weapon)
 		rotate_about(foot, foot.m30, foot.m31, foot.m32, rotation)
 	end
 
+	local hold_aim = weapon and aim_pose.GetHoldAim(pose, pitch) or pitch
+
 	if weapon then
-		compute_shift(bones, pitch, weapon)
+		compute_shift(bones, hold_aim, weapon)
 		solve_arm(
 			bones,
 			RIGHT,
-			pitch,
+			hold_aim,
 			aim_pose.HandOffset,
 			0,
 			1,
@@ -522,7 +535,7 @@ function aim_pose.Apply(bones, pose, weapon)
 			aim_pose.CopyMatrix(left_start[i], bones[name])
 		end
 
-		solve_left_hold(bones, pitch, weapon)
+		solve_left_hold(bones, hold_aim, weapon)
 
 		for i, name in ipairs(LEFT.shoulder_chain) do
 			aim_pose.CopyMatrix(left_hold[i], bones[name])
@@ -535,7 +548,7 @@ function aim_pose.Apply(bones, pose, weapon)
 			aim_pose.BlendMatrix(bones[name], left_hold[i], bones[name], block)
 		end
 	else
-		solve_left_hold(bones, pitch, weapon)
+		solve_left_hold(bones, hold_aim, weapon)
 	end
 end
 
