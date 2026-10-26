@@ -9,6 +9,7 @@ META:StartStorable()
 META:GetSet("Health", 100)
 META:GetSet("MaxHealth", 100)
 META:IsSet("RemoveOnDeath", false)
+META:IsSet("Refill", false)
 META:EndStorable()
 
 function META:IsDead()
@@ -36,6 +37,11 @@ function META:TakeDamage(info)
 	self.Owner:CallLocalEvent("OnTakeDamage", info)
 
 	if self.Health > 0 then return end
+
+	if self.Refill then
+		self:SetHealth(self.MaxHealth)
+		return
+	end
 
 	self.Owner:CallLocalEvent("OnDeath", info)
 	event.Call("EntityKilled", self.Owner, info)

@@ -158,6 +158,18 @@ npcs.Definitions = {
 		RunSpeed = 215,
 		Health = 80,
 	},
+	breen = {
+		Faction = "friend",
+		Dummy = true,
+		Biped = true,
+		Model = "models/breen.mdl",
+		Idle = "idle_subtle",
+		Walk = "walk_all",
+		Run = "run_all",
+		WalkSpeed = 80,
+		RunSpeed = 210,
+		Health = 1000,
+	},
 	zombie_fast = {
 		Faction = "enemy",
 		Model = "models/zombie/fast.mdl",
@@ -221,7 +233,7 @@ function npcs.Register(name, info)
 		npcs.GetPrefabName(name),
 		{
 			inputs = {
-				input("Wander", "boolean", true),
+				input("Wander", "boolean", not info.Dummy),
 				input("WanderRadius", "number", 30),
 				input("Running", "boolean", false),
 				input("WalkSpeed", "number", npc.WalkSpeed),
@@ -249,13 +261,14 @@ function npcs.Register(name, info)
 						player_avatar = info.Outfit and {Outfit = info.Outfit} or nil,
 						attachment_points = info.Biped and {} or nil,
 						ai_controller = npc,
-						usable = info.Faction == "friend" and {Prompt = "follow"} or nil,
+						usable = info.Faction == "friend" and not info.Dummy and {Prompt = "follow"} or nil,
 						weapon_holder = info.Weapon and {} or nil,
 						ragdoll = info.Biped and {CorpseTime = 20, Profile = info.Ragdoll} or nil,
 						health = {
 							Health = info.Health or 50,
 							MaxHealth = info.Health or 50,
 							RemoveOnDeath = not info.Biped,
+							Refill = info.Dummy,
 						},
 					},
 				},
