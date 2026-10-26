@@ -308,7 +308,7 @@ function META:UnfreezeAll()
 	self.frozen_bodies = table.weak("k")
 end
 
-function META:TryAcquireBody(cmd)
+function META:FindBody(cmd)
 	local player = self.Owner:GetParent()
 	local origin = get_origin(player)
 	local movement = cmd.view:GetForward() * self.MaxGrabDistance
@@ -344,7 +344,15 @@ function META:TryAcquireBody(cmd)
 		)
 	local grab_point = hit and hit.point or nil
 
-	if not self:CanGrabBody(body) or not grab_point then return false end
+	if not self:CanGrabBody(body) or not grab_point then return nil end
+
+	return body, grab_point, hit
+end
+
+function META:TryAcquireBody(cmd)
+	local body, grab_point, hit = self:FindBody(cmd)
+
+	if not body then return false end
 
 	local part = body.Owner.ragdoll_part
 
@@ -416,6 +424,49 @@ function META:UpdateHeldBody(dt, cmd)
 end
 
 local rotate_delta = {x = 0, y = 0}
+
+function META:OnWeaponPredictThink(dt, cmd)
+	local weapon = self.Owner.weapon
+	local tool = self.Owner.tool_beam
+	local held = tool.Target ~= ""
+
+	if not weapon:IsPrimaryDown(cmd) then
+		if not usercmd.HasButton(cmd, weapon:GetPrimaryButton()) then
+			self.block_grab_until_primary_release = false
+		end
+
+		tool:SetActive(false)
+		tool:SetTarget("")
+		return
+	end
+
+	if held and weapon:WasSecondaryPressed(cmd) then
+		self.block_grab_until_primary_release = true
+	end
+
+	if self.block_grab_until_primary_release then
+		tool:SetActive(false)
+		tool:SetTarget("")
+		return
+	end
+
+	tool:SetActive(true)
+
+	if held then
+		local target = objects.GetObjectByGUID(tool.Target)
+
+		if not target:IsValid() then tool:SetTarget("") end
+
+		return
+	end
+
+	local body, grab_point = self:FindBody(cmd)
+
+	if body then
+		tool:SetTarget(body.Owner:GetGUID())
+		tool:SetTargetPoint(body:WorldToLocal(grab_point))
+	end
+end
 
 function META:OnWeaponThink(dt, cmd)
 	self:Think(dt, cmd)

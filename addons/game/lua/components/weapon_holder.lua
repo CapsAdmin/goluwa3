@@ -274,7 +274,19 @@ function META:OnPhysicsUpdate(dt)
 
 	if cmd.select ~= 0 then self:ApplySelection(cmd) end
 
-	if not self:HasAuthority() then return end
+	if not self:HasAuthority() then
+		local network = self.Owner.network
+
+		if network and network.linked then
+			for _, child in ipairs(self.Owner:GetChildren()) do
+				if child.weapon and child.weapon:IsEquipped() then
+					child.weapon:Predict(dt, cmd, self:GetButtons(child))
+				end
+			end
+		end
+
+		return
+	end
 
 	if self.Owner.ragdoll and self.Owner.ragdoll.Limp then return end
 

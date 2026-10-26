@@ -1,5 +1,6 @@
 local new_event = import("goluwa/network/replicated_event.lua")
 local Color = import("goluwa/structs/color.lua")
+local clients = import("goluwa/network/clients.lua")
 local weapon_effects = {}
 local FLASH_LUMEN = 40
 local FLASH_TIME = 0.06
@@ -18,6 +19,12 @@ local function burst(properties)
 	properties.GravityScale = 0
 	properties.MaxParticles = 256
 	return properties
+end
+
+local function get_owner_client(weapon)
+	return weapon.network and
+		clients.GetByUniqueID(weapon.network:GetNetworkOwner()) or
+		NULL
 end
 
 local function enabled()
@@ -139,11 +146,12 @@ weapon_effects.MuzzleFlash = new_event(
 		vfx.Burst("muzzle_flash", position, direction, 18)
 		vfx.Flash(position, FLASH_COLOR, FLASH_LUMEN, FLASH_TIME)
 	end,
-	enabled
+	enabled,
+	get_owner_client
 )
 weapon_effects.Hit = new_event(
 	"weapon_hit",
-	function(position, normal, force)
+	function(weapon, position, normal, force)
 		init()
 		local length = force:GetLength()
 		clips.Play(
@@ -156,7 +164,8 @@ weapon_effects.Hit = new_event(
 			}
 		)
 	end,
-	enabled
+	enabled,
+	get_owner_client
 )
 
 do
@@ -197,7 +206,8 @@ do
 			vfx.AddTimed(trace)
 			vfx.Burst("tool_hit", position, normal, 14)
 		end,
-		enabled
+		enabled,
+		get_owner_client
 	)
 end
 

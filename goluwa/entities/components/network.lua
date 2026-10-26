@@ -108,7 +108,7 @@ local function get_component_definition(name)
 	return Entity.GetValidComponents()[name].Network
 end
 
-local function create_var(name, key, info, target)
+local function create_var(name, key, info, target, owner_excluded)
 	local key2 = name .. key
 	return {
 		component = name,
@@ -121,6 +121,7 @@ local function create_var(name, key, info, target)
 		flags = info[3],
 		interp = info[4],
 		client = info.client,
+		owner_excluded = owner_excluded,
 		next_send = 0,
 	}
 end
@@ -150,7 +151,13 @@ function META:RefreshVars()
 				local key2 = name .. key
 
 				if not self.var_map[key2] then
-					local var = create_var(name, key, info, component == self and owner or component)
+					local var = create_var(
+						name,
+						key,
+						info,
+						component == self and owner or component,
+						component.NetworkOwnerExcluded
+					)
 
 					if SERVER then network.AddString(key2) end
 
@@ -197,10 +204,12 @@ if SERVER then
 		if not client:IsBot() then awaiting_world[client] = true end
 	end)
 
-	function META:GetSendFilter()
+	function META:GetSendFilter(without_owner)
 		if self.filter_version ~= client_version then
 			self.filter_version = client_version
 			local filter = clients.CreateFilter()
+			local others = clients.CreateFilter()
+			self.owner_in_filter = false
 
 			for _, client in ipairs(clients.GetAll()) do
 				if
@@ -209,21 +218,23 @@ if SERVER then
 					and
 					not needs_scene(client)
 					and
-					(
-						self.SendToOwner or
-						client:GetUniqueID() ~= self.NetworkOwner
-					)
-					and
 					not self.pending_clients[client]
 				then
-					filter:Add(client)
+					if client:GetUniqueID() ~= self.NetworkOwner then
+						filter:Add(client)
+						others:Add(client)
+					elseif self.SendToOwner then
+						filter:Add(client)
+						self.owner_in_filter = true
+					end
 				end
 			end
 
 			self.filter = filter
+			self.filter_others = others
 		end
 
-		return self.filter
+		return without_owner and self.filter_others or self.filter
 	end
 
 	function META:IsOwnedBy(client)
@@ -262,6 +273,19 @@ if SERVER then
 	end
 
 	function META:SendSpawn(client)
+		if client then
+			self:SendSpawnPacket(client, client:GetUniqueID() == self.NetworkOwner)
+			return
+		end
+
+		self:SendSpawnPacket(self:GetSendFilter(true), false)
+
+		if self.owner_in_filter then
+			self:SendSpawnPacket(clients.GetByUniqueID(self.NetworkOwner), true)
+		end
+	end
+
+	function META:SendSpawnPacket(target, to_owner)
 		local buffer = packet.CreateBuffer()
 		buffer:WriteNetString(SPAWN)
 		buffer:WriteI32(self.NetworkId)
@@ -270,7 +294,9 @@ if SERVER then
 		local names = {}
 
 		for name in pairs(self.known_components) do
-			names[#names + 1] = name
+			if not (to_owner and self:GetTarget(name).NetworkOwnerExcluded) then
+				names[#names + 1] = name
+			end
 		end
 
 		table.sort(names)
@@ -280,7 +306,7 @@ if SERVER then
 			self:WriteComponent(buffer, name)
 		end
 
-		packet.Send(PACKET, buffer, client or self:GetSendFilter(), "reliable", self.NetworkChannel)
+		packet.Send(PACKET, buffer, target, "reliable", self.NetworkChannel)
 	end
 
 	function META:SendComponentAdded(name)
@@ -288,7 +314,13 @@ if SERVER then
 		buffer:WriteNetString(COMPONENT_ADDED)
 		buffer:WriteI32(self.NetworkId)
 		self:WriteComponent(buffer, name)
-		packet.Send(PACKET, buffer, self:GetSendFilter(), "reliable", self.NetworkChannel)
+		packet.Send(
+			PACKET,
+			buffer,
+			self:GetSendFilter(self:GetTarget(name).NetworkOwnerExcluded),
+			"reliable",
+			self.NetworkChannel
+		)
 		self:SnapshotLast(name)
 	end
 
@@ -303,6 +335,8 @@ if SERVER then
 	do
 		local reliable = {}
 		local sequenced = {}
+		local reliable_others = {}
+		local sequenced_others = {}
 
 		local function send_batch(self, batch, count, flags, filter)
 			if count == 0 then return end
@@ -339,6 +373,8 @@ if SERVER then
 			local now = get_time()
 			local reliable_count = 0
 			local sequenced_count = 0
+			local reliable_others_count = 0
+			local sequenced_others_count = 0
 
 			for _, var in ipairs(self.vars) do
 				if now >= var.next_send then
@@ -347,7 +383,17 @@ if SERVER then
 					local value = target[var.get_name](target)
 
 					if value ~= nil and value ~= var.last then
-						if var.flags == "reliable" then
+						if var.owner_excluded then
+							if var.flags == "reliable" then
+								reliable_others_count = reliable_others_count + 1
+								reliable_others[reliable_others_count * 2 - 1] = var
+								reliable_others[reliable_others_count * 2] = value
+							else
+								sequenced_others_count = sequenced_others_count + 1
+								sequenced_others[sequenced_others_count * 2 - 1] = var
+								sequenced_others[sequenced_others_count * 2] = value
+							end
+						elseif var.flags == "reliable" then
 							reliable_count = reliable_count + 1
 							reliable[reliable_count * 2 - 1] = var
 							reliable[reliable_count * 2] = value
@@ -362,11 +408,18 @@ if SERVER then
 				end
 			end
 
-			if reliable_count + sequenced_count == 0 then return end
+			if
+				reliable_count + sequenced_count + reliable_others_count + sequenced_others_count == 0
+			then
+				return
+			end
 
 			local filter = self:GetSendFilter()
 			send_batch(self, reliable, reliable_count, "reliable", filter)
 			send_batch(self, sequenced, sequenced_count, "sequenced", filter)
+			local others = self:GetSendFilter(true)
+			send_batch(self, reliable_others, reliable_others_count, "reliable", others)
+			send_batch(self, sequenced_others, sequenced_others_count, "sequenced", others)
 		end
 	end
 

@@ -166,12 +166,22 @@ function META:WasSecondaryPressed(cmd)
 		usercmd.WasPressed(cmd, self.SecondaryButton)
 end
 
-function META:Think(dt, cmd, primary, secondary)
+local function run(
+	self,
+	dt,
+	cmd,
+	primary,
+	secondary,
+	think,
+	press_primary,
+	press_secondary,
+	authority
+)
 	local owner = self.Owner
 	self.time = self.time + dt
 	self.PrimaryButton = primary
 	self.SecondaryButton = secondary
-	owner:CallLocalEvent("OnWeaponThink", dt, cmd)
+	owner:CallLocalEvent(think, dt, cmd)
 
 	if not usercmd.HasButton(cmd, BUTTON.ACTIVE) then return end
 
@@ -185,12 +195,15 @@ function META:Think(dt, cmd, primary, secondary)
 			usercmd.HasButton(cmd, primary)
 		)
 		and
-		owner:CallLocalEvent("OnWeaponPrimary", cmd) ~= false
+		owner:CallLocalEvent(press_primary, cmd) ~= false
 	then
 		self.next_primary = self.time + self.FireRate
-		local pose = self:GetHolder().Owner.character_pose
 
-		if pose then pose:RegisterShot() end
+		if authority then
+			local pose = self:GetHolder().Owner.character_pose
+
+			if pose then pose:RegisterShot() end
+		end
 	end
 
 	if
@@ -201,10 +214,38 @@ function META:Think(dt, cmd, primary, secondary)
 			usercmd.HasButton(cmd, secondary)
 		)
 		and
-		owner:CallLocalEvent("OnWeaponSecondary", cmd) ~= false
+		owner:CallLocalEvent(press_secondary, cmd) ~= false
 	then
 		self.next_secondary = self.time + self.FireRate
 	end
+end
+
+function META:Think(dt, cmd, primary, secondary)
+	run(
+		self,
+		dt,
+		cmd,
+		primary,
+		secondary,
+		"OnWeaponThink",
+		"OnWeaponPrimary",
+		"OnWeaponSecondary",
+		true
+	)
+end
+
+function META:Predict(dt, cmd, primary, secondary)
+	run(
+		self,
+		dt,
+		cmd,
+		primary,
+		secondary,
+		"OnWeaponPredictThink",
+		"OnWeaponPredictPrimary",
+		"OnWeaponPredictSecondary",
+		false
+	)
 end
 
 return META:Register()

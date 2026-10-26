@@ -20,6 +20,7 @@ return {
 	Source = [=====[local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local toolgun = import("lua/toolgun.lua")
+local weapon_effects = import("lua/weapon_effects.lua")
 local META = objects.CreateTemplate("weapon_toolgun")
 local BUTTON = usercmd.BUTTON
 
@@ -37,6 +38,22 @@ end
 
 function META:OnWeaponSecondary(cmd)
 	return toolgun.Fire(self.context, cmd, "RightClick")
+end
+
+function META:PredictTrace(cmd)
+	local trace = toolgun.Trace(self.Owner:GetParent(), cmd.view)
+
+	if trace then
+		weapon_effects.ToolTrace(self.Owner, trace.position, trace.normal)
+	end
+end
+
+function META:OnWeaponPredictPrimary(cmd)
+	self:PredictTrace(cmd)
+end
+
+function META:OnWeaponPredictSecondary(cmd)
+	self:PredictTrace(cmd)
 end
 
 function META:OnWeaponThink(dt, cmd)

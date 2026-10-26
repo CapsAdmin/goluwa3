@@ -30,7 +30,7 @@ META:GetSet("Damage", 20)
 META:GetSet("Impulse", 6)
 META:GetSet("LimpSpread", 0.3)
 
-function META:OnWeaponPrimary(cmd)
+function META:Aim(cmd)
 	local player = self.Owner:GetParent()
 	local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 	local forward = cmd.view:GetForward()
@@ -42,13 +42,27 @@ function META:OnWeaponPrimary(cmd)
 		forward = (forward + Vec3(math.randomf(-spread, spread), math.randomf(-spread, spread), math.randomf(-spread, spread))):GetNormalized()
 	end
 
-	local hit = damage.Sweep(origin, forward * self.Range, player)
+	return damage.Sweep(origin, forward * self.Range, player), forward
+end
+
+function META:OnWeaponPredictPrimary(cmd)
+	local hit, forward = self:Aim(cmd)
+	weapon_effects.MuzzleFlash(self.Owner, forward)
+
+	if hit then
+		weapon_effects.Hit(self.Owner, hit.point, hit.normal, forward * self.Impulse)
+	end
+end
+
+function META:OnWeaponPrimary(cmd)
+	local player = self.Owner:GetParent()
+	local hit, forward = self:Aim(cmd)
 
 	weapon_effects.MuzzleFlash(self.Owner, forward)
 
 	if not hit then return end
 
-	weapon_effects.Hit(hit.point, hit.normal, forward * self.Impulse)
+	weapon_effects.Hit(self.Owner, hit.point, hit.normal, forward * self.Impulse)
 
 	local victim, multiplier
 
