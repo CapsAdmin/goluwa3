@@ -511,7 +511,7 @@ vfx.RegisterTexture(
 		float x = p.x;
 		float taper = pow(max(1.0 - x * x, 0.0), 1.3);
 		float center = 0.32 * x * x - 0.16;
-		float width = 0.1 * taper;
+		float width = 0.14 * taper;
 		float d = abs(p.y - center) / max(width, 0.0001);
 		float body = 1.0 - smoothstep(0.55, 1.0, d);
 		float core = (1.0 - smoothstep(0.0, 0.35, d)) * 0.8;
@@ -590,13 +590,11 @@ clips.Define(
 			{
 				Type = "sprite",
 				Texture = "slash_arc",
-				Flat = true,
-				Axis = "cut",
-				Lift = 0.03,
+				Axial = "cut",
 				Tint = 0.5,
 				Radius = SLASH_RADIUS,
 				ScaleBy = "size",
-				Brightness = 2.5,
+				Brightness = 5,
 				Alpha = function(p, v)
 					return p.cut and v.slash_fade or 0
 				end,

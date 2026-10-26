@@ -219,6 +219,23 @@ function BATCH:AddFlat(x, y, z, nx, ny, nz, radius, r, g, b, a, ux, uy, uz)
 	write(self, x, y, z, rx, ry, rz, bx, by, bz, nx, ny, nz, radius * 1.5, r, g, b, a)
 end
 
+function BATCH:AddAxial(x, y, z, ux, uy, uz, radius, r, g, b, a)
+	if not frame_ready then begin_frame() end
+
+	local length = math.sqrt(ux * ux + uy * uy + uz * uz)
+	ux, uy, uz = ux / length, uy / length, uz / length
+	local vx, vy, vz = camera_x - x, camera_y - y, camera_z - z
+	local distance = math.sqrt(vx * vx + vy * vy + vz * vz)
+	local along = vx * ux + vy * uy + vz * uz
+	local nx, ny, nz = vx - ux * along, vy - uy * along, vz - uz * along
+	local side = math.sqrt(nx * nx + ny * ny + nz * nz)
+	local face = math.clamp((side / distance - 0.1) / 0.4, 0, 1)
+
+	if face <= 0 then return end
+
+	self:AddFlat(x, y, z, nx / side, ny / side, nz / side, radius, r, g, b, a * face, ux, uy, uz)
+end
+
 event.AddListener("LateUpdate", "sprite_batches", function()
 	frame_ready = false
 

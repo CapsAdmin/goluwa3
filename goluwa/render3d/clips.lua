@@ -61,9 +61,23 @@ do
 
 		if layer.Offset then ox, oy, oz = layer.Offset(p, v) end
 
-		if layer.Flat then
+		if layer.Axial then
+			local axis = p[layer.Axial]
+			state.batch:AddAxial(
+				position.x + ox,
+				position.y + oy,
+				position.z + oz,
+				axis.x,
+				axis.y,
+				axis.z,
+				radius,
+				state.r * brightness,
+				state.g * brightness,
+				state.b * brightness,
+				alpha
+			)
+		elseif layer.Flat then
 			local normal = p.normal
-			local axis = layer.Axis and p[layer.Axis] or nil
 			state.batch:AddFlat(
 				position.x + ox + normal.x * lift,
 				position.y + oy + normal.y * lift,
@@ -75,10 +89,7 @@ do
 				state.r * brightness,
 				state.g * brightness,
 				state.b * brightness,
-				alpha,
-				axis and axis.x,
-				axis and axis.y,
-				axis and axis.z
+				alpha
 			)
 		else
 			state.batch:Add(
