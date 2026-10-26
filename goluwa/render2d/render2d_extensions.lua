@@ -154,6 +154,12 @@ function render2d.DrawTriangle(x, y, w, h, a)
 	render2d.PopMatrix()
 end
 
+function render2d.ScaleAround(sx, sy, ox, oy)
+	render2d.Translatef(ox, oy)
+	render2d.Scalef(sx, sy)
+	render2d.Translatef(-ox, -oy)
+end
+
 function render2d.DrawFilledCircle(x, y, radius)
 	render2d.PushBorderRadius(radius)
 	render2d.DrawRect(x - radius, y - radius, radius * 2, radius * 2)
