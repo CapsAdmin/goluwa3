@@ -239,6 +239,8 @@ local int32_ptr_t = ffi.typeof("const int32_t *")
 local float_ptr_t = ffi.typeof("const float *")
 local uint8_ptr_t = ffi.typeof("const uint8_t *")
 local VERT_ANIM_SIZE = 16
+local EYEBALL_SIZE = 172
+local BONE_SIZE = 216
 local VERT_ANIM_WRINKLE_SIZE = 18
 
 function mdl.Decode(str)
@@ -311,6 +313,8 @@ function mdl.Decode(str)
 		meta.texturedir[i] = {path = "materials/" .. file_path.FixPathSlashes(cstring(offset))}
 	end
 
+	local eye_bone_count = 0
+
 	for bodypart_i = 1, header.bodypart_count do
 		local bodypart_pos = header.bodypart_offset + (bodypart_i - 1) * 16
 		local model_count = i32(bodypart_pos + 4)
@@ -321,7 +325,58 @@ function mdl.Decode(str)
 			local model_pos = models_pos + (model_i - 1) * 148
 			local mesh_count = i32(model_pos + 72)
 			local meshes_pos = model_pos + i32(model_pos + 76)
-			local model = {vertex_start = i32(model_pos + 84) / 48, meshes = {}, flexes = {}}
+			local model = {
+				vertex_start = i32(model_pos + 84) / 48,
+				meshes = {},
+				flexes = {},
+				eyeballs = {},
+			}
+			local eyeballs_pos = model_pos + i32(model_pos + 104)
+
+			for eye_i = 1, i32(model_pos + 100) do
+				local eye_pos = eyeballs_pos + (eye_i - 1) * EYEBALL_SIZE
+				local bone_pos = header.bone_offset + i32(eye_pos + 4) * BONE_SIZE
+				local m = {}
+
+				for k = 0, 11 do
+					m[k] = f32(bone_pos + 96 + k * 4)
+				end
+
+				local function to_model(x, y, z, translate)
+					local bx = m[0] * x + m[4] * y + m[8] * z
+					local by = m[1] * x + m[5] * y + m[9] * z
+					local bz = m[2] * x + m[6] * y + m[10] * z
+
+					if translate then
+						bx = bx - (m[0] * m[3] + m[4] * m[7] + m[8] * m[11])
+						by = by - (m[1] * m[3] + m[5] * m[7] + m[9] * m[11])
+						bz = bz - (m[2] * m[3] + m[6] * m[7] + m[10] * m[11])
+					end
+
+					return -by, bz, -bx
+				end
+
+				local ox, oy, oz = to_model(f32(eye_pos + 8), f32(eye_pos + 12), f32(eye_pos + 16), true)
+				local ux, uy, uz = to_model(f32(eye_pos + 28), f32(eye_pos + 32), f32(eye_pos + 36))
+				local fx, fy, fz = to_model(f32(eye_pos + 40), f32(eye_pos + 44), f32(eye_pos + 48))
+				model.eyeballs[eye_i] = {
+					bone = i32(eye_pos + 4),
+					virtual_bone = header.bone_count + eye_bone_count,
+					material = i32(eye_pos + 52),
+					radius = f32(eye_pos + 24) * scale,
+					iris_scale = f32(eye_pos + 60),
+					origin = {ox * scale, oy * scale, oz * scale},
+					up = {ux, uy, uz},
+					forward = {fx, fy, fz},
+					upper_descs = {i32(eye_pos + 68), i32(eye_pos + 72), i32(eye_pos + 76)},
+					lower_descs = {i32(eye_pos + 80), i32(eye_pos + 84), i32(eye_pos + 88)},
+					upper_targets = {f32(eye_pos + 92), f32(eye_pos + 96), f32(eye_pos + 100)},
+					lower_targets = {f32(eye_pos + 104), f32(eye_pos + 108), f32(eye_pos + 112)},
+					upper_lid_desc = i32(eye_pos + 116),
+					lower_lid_desc = i32(eye_pos + 120),
+				}
+				eye_bone_count = eye_bone_count + 1
+			end
 
 			for mesh_i = 1, mesh_count do
 				local mesh_pos = meshes_pos + (mesh_i - 1) * 116

@@ -650,16 +650,18 @@ do
 		return movement[8] * SCALE, movement[9] * SCALE
 	end
 
-	load_skeleton = function(path)
+	load_skeleton = function(path, eyes)
 		local main = open_source(path)
 		local hdr = main.header
 
 		if hdr.bone_count < 2 then return end
 
 		local count = hdr.bone_count
-		local bind_local = ffi.new("float[?]", count * 7)
-		local inverse_bind = ffi.new("float[?]", count * 12)
+		local total = count + #eyes
+		local bind_local = ffi.new("float[?]", total * 7)
+		local inverse_bind = ffi.new("float[?]", total * 12)
 		local parents = {}
+		local bone_names = table.copy(main.bone_names)
 
 		for i = 0, count - 1 do
 			local o = i * 16
@@ -684,12 +686,68 @@ do
 			end
 		end
 
+		for k, eye in ipairs(eyes) do
+			local i = count + k - 1
+			local parent = inverse_bind + eye.bone * 12
+			local ox, oy, oz = eye.origin[1], eye.origin[2], eye.origin[3]
+			local m00, m01, m02, m10, m11, m12, m20, m21, m22 = parent[0],
+			parent[1],
+			parent[2],
+			parent[4],
+			parent[5],
+			parent[6],
+			parent[8],
+			parent[9],
+			parent[10]
+			local trace = m00 + m11 + m22
+			local qx, qy, qz, qw
+
+			if trace > 0 then
+				local k2 = math.sqrt(trace + 1) * 2
+				qw, qx, qy, qz = k2 / 4, (m21 - m12) / k2, (m02 - m20) / k2, (m10 - m01) / k2
+			elseif m00 > m11 and m00 > m22 then
+				local k2 = math.sqrt(1 + m00 - m11 - m22) * 2
+				qw, qx, qy, qz = (m21 - m12) / k2, k2 / 4, (m01 + m10) / k2, (m02 + m20) / k2
+			elseif m11 > m22 then
+				local k2 = math.sqrt(1 + m11 - m00 - m22) * 2
+				qw, qx, qy, qz = (m02 - m20) / k2, (m01 + m10) / k2, k2 / 4, (m12 + m21) / k2
+			else
+				local k2 = math.sqrt(1 + m22 - m00 - m11) * 2
+				qw, qx, qy, qz = (m10 - m01) / k2, (m02 + m20) / k2, (m12 + m21) / k2, k2 / 4
+			end
+
+			bind_local[i * 7] = m00 * ox + m01 * oy + m02 * oz + parent[3]
+			bind_local[i * 7 + 1] = m10 * ox + m11 * oy + m12 * oz + parent[7]
+			bind_local[i * 7 + 2] = m20 * ox + m21 * oy + m22 * oz + parent[11]
+			bind_local[i * 7 + 3], bind_local[i * 7 + 4], bind_local[i * 7 + 5], bind_local[i * 7 + 6] = qx, qy, qz, qw
+			inverse_bind[i * 12], inverse_bind[i * 12 + 5], inverse_bind[i * 12 + 10] = 1, 1, 1
+			inverse_bind[i * 12 + 3], inverse_bind[i * 12 + 7], inverse_bind[i * 12 + 11] = -ox, -oy, -oz
+			parents[i + 1] = eye.bone
+			bone_names[i + 1] = "eye_" .. k
+		end
+
 		local skeleton = Skeleton.New{
-			BoneNames = main.bone_names,
+			BoneNames = bone_names,
 			Parents = parents,
 			BindLocal = bind_local,
 			InverseBind = inverse_bind,
 		}
+		skeleton.Eyes = {}
+
+		for k, eye in ipairs(eyes) do
+			skeleton.Eyes[k] = {
+				name = "eye_" .. k,
+				up = eye.up,
+				forward = eye.forward,
+				upper_descs = eye.upper_descs,
+				lower_descs = eye.lower_descs,
+				upper_targets = eye.upper_targets,
+				lower_targets = eye.lower_targets,
+				upper_lid_desc = eye.upper_lid_desc,
+				lower_lid_desc = eye.lower_lid_desc,
+			}
+		end
+
 		local bone_index_by_name = {}
 
 		for i, name in ipairs(main.bone_names) do
@@ -812,7 +870,6 @@ do
 		add_clips(main)
 		return skeleton
 	end
-
 	get_root_offset = function(path)
 		local main = open_source(path)
 		local hdr = main.header
@@ -847,10 +904,7 @@ do
 		local rotation = Quat(pose[3], pose[4], pose[5], pose[6]) * bind_rotation:GetConjugated()
 		local position = Vec3(pose[0], pose[1], pose[2]) - rotation:VecMul(bind_position)
 
-		if
-			math.abs(rotation.w) > 0.99999 and
-			position:GetLength() < 1e-6
-		then
+		if math.abs(rotation.w) > 0.99999 and position:GetLength() < 1e-6 then
 			return
 		end
 
@@ -987,6 +1041,55 @@ local job_source = [=[
 			return set
 		end
 
+		local EYE_MAX_INDICES = 1500
+		local EYE_IRIS_RADIUS = 1.015
+		local EYE_SCLERA_RADIUS = 1
+		local EYE_SCLERA_ANGLE = math.rad(100)
+
+		local function build_eye_sphere(eye, rings, segments, max_angle, radius_scale, uv_scale)
+			local ox, oy, oz = eye.origin[1], eye.origin[2], eye.origin[3]
+			local fx, fy, fz = eye.forward[1], eye.forward[2], eye.forward[3]
+			local ux, uy, uz = eye.up[1], eye.up[2], eye.up[3]
+			local rx, ry, rz = uy * fz - uz * fy, uz * fx - ux * fz, ux * fy - uy * fx
+			local count = (rings + 1) * (segments + 1)
+			local packed = vertex_math.VertexType(count)
+			local radius = eye.radius * radius_scale
+
+			for i = 0, rings do
+				local theta = max_angle * i / rings
+				local st, ct = math.sin(theta), math.cos(theta)
+
+				for j = 0, segments do
+					local phi = math.pi * 2 * j / segments
+					local cp, sp = math.cos(phi) * st, math.sin(phi) * st
+					local nx = ct * fx + cp * rx + sp * ux
+					local ny = ct * fy + cp * ry + sp * uy
+					local nz = ct * fz + cp * rz + sp * uz
+					local v = packed[i * (segments + 1) + j]
+					v.position[0], v.position[1], v.position[2] = ox + nx * radius, oy + ny * radius, oz + nz * radius
+					v.normal[0], v.normal[1], v.normal[2] = nx, ny, nz
+					v.uv[0], v.uv[1] = 0.5 + cp * uv_scale, 0.5 - sp * uv_scale
+				end
+			end
+
+			local index_count = rings * segments * 6
+			local indices = ffi.new("uint16_t[?]", index_count)
+			local n = 0
+
+			for i = 0, rings - 1 do
+				for j = 0, segments - 1 do
+					local a = i * (segments + 1) + j
+					local b = a + segments + 1
+					indices[n], indices[n + 1], indices[n + 2] = a, a + 1, b
+					indices[n + 3], indices[n + 4], indices[n + 5] = a + 1, b + 1, b
+					n = n + 6
+				end
+			end
+
+			vertex_math.BuildTangents(packed, count, indices, index_count)
+			return packed, count, indices, index_count
+		end
+
 		for body_part_i, body_part in ipairs(vtx_meta.body_parts) do
 			for model_i, model in ipairs(body_part.models) do
 				local model_info = mdl_meta.bodypart_models[body_part_i][model_i]
@@ -1045,8 +1148,101 @@ local job_source = [=[
 						for mesh_i, mesh_data in ipairs(lod.meshes) do
 							local mesh_info = model_info.meshes[mesh_i]
 							local index_count = mesh_data.count
+							local eye
 
-							if index_count > 0 or lod_i == 1 then
+							if index_count > 0 and index_count <= EYE_MAX_INDICES and model_info.eyeballs[1] then
+								local first = set.rank[model_info.vertex_start + mesh_info.vertex_offset]
+								local ids = ffi.cast("const uint16_t *", vtx_blob + mesh_data.offset)
+								local lo_x, lo_y, lo_z = math.huge, math.huge, math.huge
+								local hi_x, hi_y, hi_z = -math.huge, -math.huge, -math.huge
+								local sum_nx, sum_ny, sum_nz = 0, 0, 0
+
+								for i = 0, index_count - 1 do
+									local vertex = base_packed[ids[i] + first]
+									local position, normal = vertex.position, vertex.normal
+									sum_nx, sum_ny, sum_nz = sum_nx + normal[0], sum_ny + normal[1], sum_nz + normal[2]
+									lo_x, hi_x = math.min(lo_x, position[0]), math.max(hi_x, position[0])
+									lo_y, hi_y = math.min(lo_y, position[1]), math.max(hi_y, position[1])
+									lo_z, hi_z = math.min(lo_z, position[2]), math.max(hi_z, position[2])
+								end
+
+								local extent = math.max(hi_x - lo_x, hi_y - lo_y, hi_z - lo_z)
+								local cx, cy, cz = (lo_x + hi_x) / 2, (lo_y + hi_y) / 2, (lo_z + hi_z) / 2
+
+								for _, candidate in ipairs(model_info.eyeballs) do
+									local o = candidate.origin
+									local dx, dy, dz = cx - o[1], cy - o[2], cz - o[3]
+
+									if
+										extent < candidate.radius * 6 and
+										math.sqrt(dx * dx + dy * dy + dz * dz) < candidate.radius * 2.5
+									then
+										eye = candidate
+									end
+								end
+
+								if eye and not eye.oriented then
+									local f = eye.forward
+									eye.oriented = true
+
+									if f[1] * sum_nx + f[2] * sum_ny + f[3] * sum_nz < 0 then
+										f[1], f[2], f[3] = -f[1], -f[2], -f[3]
+									end
+								end
+							end
+
+							if eye and (index_count > 0 or lod_i == 1) then
+								local rings, segments = 12, 24
+
+								if lod_i > 2 then rings, segments = 6, 12 end
+
+								local iris_angle = math.asin(math.min(0.845 / eye.iris_scale, 0.9))
+
+								for _, iris in ipairs{false, true} do
+									local packed, count, indices, indices_count = build_eye_sphere(
+										eye,
+										rings,
+										segments,
+										iris and iris_angle or EYE_SCLERA_ANGLE,
+										iris and EYE_IRIS_RADIUS or EYE_SCLERA_RADIUS,
+										iris and 0.5 / math.sin(iris_angle) or 0.5
+									)
+									local eye_skin_key
+
+									if skinned then
+										eye_skin_key = "eye:" .. body_part_i .. ":" .. model_i .. ":" .. lod_index .. ":" .. tostring(iris) .. ":" .. eye.virtual_bone
+										local bone_indices = ffi.new("uint8_t[?]", count * 4)
+										local bone_weights = ffi.new("float[?]", count * 4)
+
+										for i = 0, count - 1 do
+											bone_indices[i * 4] = eye.virtual_bone
+											bone_weights[i * 4] = 1
+										end
+
+										result.skins[eye_skin_key] = {
+											bone_indices = builder:Add(bone_indices),
+											bone_weights = builder:Add(bone_weights),
+											vertex_count = count,
+											flexes = false,
+										}
+									end
+
+									result.meshes[#result.meshes + 1] = {
+										body_part = body_part_i,
+										model = model_i,
+										lod = lod_index,
+										switch_point = lod.switch_point,
+										skin = eye_skin_key,
+										material = mesh_info.material,
+										eye_iris = iris,
+										vertex_count = count,
+										index_size = 2,
+										index_count = indices_count,
+										vertex_offset = builder:Add(packed),
+										index_offset = builder:Add(indices, indices_count * 2),
+									}
+								end
+							elseif index_count > 0 or lod_i == 1 then
 								local vertex_offset = set.rank[model_info.vertex_start + mesh_info.vertex_offset]
 								local ids = ffi.cast("const uint16_t *", vtx_blob + mesh_data.offset)
 								local indices = ffi.new(index_ctype .. "[?]", math.max(index_count, 1))
@@ -1197,10 +1393,22 @@ function mdl_decoder.Finish(
 		}
 	end
 
-	local skeleton = load_skeleton(full_path)
+	local eyes = {}
+
+	for _, body_part in ipairs(mdl.bodypart_models) do
+		for _, model in ipairs(body_part) do
+			for _, eye in ipairs(model.eyeballs) do
+				eyes[#eyes + 1] = eye
+			end
+		end
+	end
+
+	local skeleton = load_skeleton(full_path, eyes)
 	local root_rotation, root_position
 
-	if not skeleton then root_rotation, root_position = get_root_offset(full_path) end
+	if not skeleton then
+		root_rotation, root_position = get_root_offset(full_path)
+	end
 
 	if skeleton then
 		if mdl.flex then mdl.flex.Compute = run_flex_rules end
@@ -1265,7 +1473,7 @@ function mdl_decoder.Finish(
 				end
 			end
 
-			material = vmt_material.FromVMT(material_path)
+			material = vmt_material.FromVMT(material_path, nil, mesh_info.eye_iris and "iris" or nil)
 			vmt_material.SetModelSurfaceProperty(material, meta.physics and meta.physics.surface_property)
 		end
 

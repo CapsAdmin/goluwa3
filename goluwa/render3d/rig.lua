@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local skinning = import("goluwa/render3d/skinning.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local Rig = {}
 Rig.__index = Rig
 
@@ -12,6 +13,10 @@ local function flex_ramp(weight, target0, target1, target2, target3)
 	if weight <= target2 then return 1 end
 
 	return (target3 - weight) / (target3 - target2)
+end
+
+local function lid_position(descriptors, descs, targets, pitch)
+	return pitch + descriptors[descs[1]] * targets[1] + descriptors[descs[2]] * targets[2] + descriptors[descs[3]] * targets[3]
 end
 
 local function write_matrix(m, out, o)
@@ -79,6 +84,7 @@ function Rig.New(skeleton, parts)
 		self.flex_dirty = true
 	end
 
+	self.eye_pitch = {}
 	return self
 end
 
@@ -177,10 +183,40 @@ function Rig:SetFlex(name, value)
 	self.dirty = true
 end
 
+function Rig:SetEyeAngles(index, yaw, pitch)
+	local eye = self.skeleton.Eyes[index]
+	local up = Vec3(eye.up[1], eye.up[2], eye.up[3])
+	local right = Vec3(eye.forward[1], eye.forward[2], eye.forward[3]):GetCross(up)
+	self:SetBone(
+		eye.name,
+		Matrix44():SetRotation(QuatFromAxis(yaw, up) * QuatFromAxis(pitch, right)),
+		"local"
+	)
+	self.eye_pitch[index] = pitch
+
+	if self.skeleton.Flex then
+		self.flex_dirty = true
+		self.dirty = true
+	end
+end
+
 function Rig:ComputeFlex()
 	self.flex_dirty = false
 	self.skeleton.Flex:Compute(self.flex_controllers, self.flex_descriptors)
 	local descriptors = self.flex_descriptors
+
+	for index, eye in ipairs(self.skeleton.Eyes or {}) do
+		local pitch = self.eye_pitch[index] or 0
+
+		if eye.upper_lid_desc >= 0 then
+			descriptors[eye.upper_lid_desc] = lid_position(descriptors, eye.upper_descs, eye.upper_targets, pitch)
+		end
+
+		if eye.lower_lid_desc >= 0 then
+			descriptors[eye.lower_lid_desc] = lid_position(descriptors, eye.lower_descs, eye.lower_targets, pitch)
+		end
+	end
+
 	local weights = self.morph_weights
 
 	for _, skinned in ipairs(self.skinned) do

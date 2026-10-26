@@ -84,3 +84,20 @@ T.Pending("mdl rendering", function(draw)
 	ent:Remove()
 	sun:Remove()
 end)
+
+T.Test("mdl eyeballs come out in model space as engine units", function()
+	steam.MountSourceGame("gmod")
+	local meta = import("goluwa/codecs/mdl.lua").Decode(vfs.Read("models/player/alyx.mdl"))
+	local eyeballs = meta.bodypart_models[1][1].eyeballs
+	T(#eyeballs)["=="](2)
+
+	for _, eye in ipairs(eyeballs) do
+		T(eye.radius)[">"](0.005)
+		T(eye.radius)["<"](0.02)
+		T(eye.origin[2])[">"](1)
+		T(math.abs(eye.origin[3]))["<"](0.05)
+		T(eye.forward[1])[">"](0.9)
+	end
+
+	T(eyeballs[1].origin[3] * eyeballs[2].origin[3])["<"](0)
+end)

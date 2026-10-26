@@ -319,6 +319,7 @@ local SKIN_CLASSES = {flesh = true, player = true, bloodyflesh = true, zombiefle
 local SKIN_SUBSURFACE = 1
 local SKIN_ROUGHNESS_FLOOR = 0.7
 local SKIN_SPECULAR = 0.6
+local EYE_ROUGHNESS = 0.08
 local CHROME_ROUGHNESS = 0.05
 local SSBUMP_MASK_ROUGHNESS = 0.25
 local DERIVED_ROUGHNESS_ALBEDO = 1.5
@@ -813,7 +814,14 @@ do
 		self:SetFlammability(FLAMMABILITY[class] or FLAMMABILITY[ctx.family] or 0.3)
 		load_textures(self, vmt, ctx)
 
-		if shader == "pbr" then
+		if shader == "eyes" then
+			self:SetRoughnessMultiplier(EYE_ROUGHNESS)
+
+			if self.vmt_variant == "iris" then
+				self:SetAlbedoTexture(srgb(vmt.iris))
+				self:SetAlphaTest(true)
+			end
+		elseif shader == "pbr" then
 			apply_pbr(self, vmt, ctx)
 		elseif ctx.envmap or ctx.phong then
 			if FEATURES.reflection then apply_reflection(self, vmt, ctx) end
@@ -969,7 +977,7 @@ do
 			apply_albedo_gain(self, ctx)
 		end
 
-		if FEATURES.derived_roughness and not is_glass then
+		if FEATURES.derived_roughness and not is_glass and shader ~= "eyes" then
 			apply_derived_roughness(self)
 		end
 
@@ -1149,14 +1157,15 @@ function vmt_material.SetModelSurfaceProperty(material, name)
 	end
 end
 
-function vmt_material.FromVMT(path, private_prefix)
+function vmt_material.FromVMT(path, private_prefix, variant)
 	local cache_key = get_vmt_cache_key(path)
+	local material_key = variant and cache_key .. "|" .. variant or cache_key
 
 	if not private_prefix then
-		local cached_material = vmt_material_cache[cache_key]
+		local cached_material = vmt_material_cache[material_key]
 
 		if cached_material then
-			Material.RecordCacheRequest("vmt", cache_key, cached_material)
+			Material.RecordCacheRequest("vmt", material_key, cached_material)
 			return cached_material
 		end
 	end
@@ -1164,11 +1173,12 @@ function vmt_material.FromVMT(path, private_prefix)
 	local self = Material.New()
 	self:SetName(path)
 	self.vmt_path = cache_key
+	self.vmt_variant = variant
 	self.private_prefix = private_prefix
 
 	if not private_prefix then
-		self.upload_cache_key = cache_key
-		vmt_material_cache[cache_key] = self
+		self.upload_cache_key = material_key
+		vmt_material_cache[material_key] = self
 	end
 
 	live_materials[self] = true
@@ -1182,7 +1192,7 @@ function vmt_material.FromVMT(path, private_prefix)
 	if tasks.GetActiveTask() then cb:TryGet() end
 
 	if not private_prefix then
-		Material.RecordCacheRequest("vmt", cache_key, self)
+		Material.RecordCacheRequest("vmt", material_key, self)
 	end
 
 	return self

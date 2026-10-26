@@ -121,6 +121,7 @@ do
 		emissiontexture = true,
 		parallaxmap = true,
 		detail = true,
+		iris = true,
 	}
 	local optional_textures = {
 		parallaxmap = true,
