@@ -121,7 +121,7 @@ function META:OnLateUpdate(dt)
 			local near = self.default_near_z
 
 			if avatar and avatar:IsHeadCameraActive() then
-				near = select(2, outfit.GetHeadEye())
+				near = outfit.GetHeadNear()
 			end
 
 			view:SetNearZ(near)

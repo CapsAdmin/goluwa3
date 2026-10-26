@@ -94,26 +94,56 @@ function META:IsHeadCameraActive()
 	return self.head_camera_active
 end
 
+function META:GetEyeRig()
+	local outfit_entity = self.outfit
+
+	if self.eye_rig_outfit ~= outfit_entity then
+		self.eye_rig_outfit = outfit_entity
+		self.eye_rig = nil
+	end
+
+	if not self.eye_rig and outfit_entity then
+		for _, child in ipairs(outfit_entity:GetChildrenList()) do
+			local rig = child.animator and child.animator:GetRig()
+
+			if rig and rig.skeleton.Eyes and #rig.skeleton.Eyes > 0 then
+				self.eye_rig = rig
+
+				break
+			end
+		end
+	end
+
+	return self.eye_rig
+end
+
 function META:UpdateHeadOffset(dt)
 	local owner = self.Owner
 	local offset = self.head_offset
 	local active, vertical, smoothing = outfit.GetHeadCamera()
 	active = active and not self.player_hidden
 	local x, y, z = 0, 0, 0
-	local head = active and
+	local rig = active and
 		owner.player_input and
 		self.outfit_name == outfit_source.Name and
-		self.armature:GetBoneMatrix("head")
-	self.head_camera_active = head and true or false
+		self:GetEyeRig()
+	self.head_camera_active = rig and true or false
 
-	if head then
+	if rig then
 		local movement = owner.character_movement
 		local _, rotation = owner.transform:GetRenderPositionRotation()
-		local forward = outfit.GetHeadEye()
+		local eyes = rig.skeleton.Eyes
+		local sum_x, sum_y, sum_z = 0, 0, 0
+
+		for _, eye in ipairs(eyes) do
+			local ex, ey, ez = rig:GetBonePosition(eye.name)
+			sum_x, sum_y, sum_z = sum_x + ex, sum_y + ey, sum_z + ez
+		end
+
 		local world = (
 				rotation or
 				owner.transform:GetRotation()
-			):VecMul(Vec3(head.m30, head.m31, head.m32)) - movement:GetEyeOffset() + owner.player_input:GetRotation():GetForward() * forward
+			):VecMul(Vec3(sum_x / #eyes, sum_y / #eyes, sum_z / #eyes)) - movement:GetEyeOffset()
 		local limit = movement:GetRadius() * 2
 		local length = world:GetLength()
 

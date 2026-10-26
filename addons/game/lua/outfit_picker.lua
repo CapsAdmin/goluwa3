@@ -115,16 +115,6 @@ local Content = react.Component(
 				layout = {GrowWidth = 1, GrowHeight = 1},
 			},
 			Row{layout = {GrowWidth = 1, ChildGap = 10, AlignmentY = "center", Padding = Rect() + 6}}{
-				Text{Text = "Forward", Color = "text_disabled", layout = {FitWidth = true}},
-				Slider{
-					Mode = "horizontal",
-					Min = 0,
-					Max = 0.3,
-					Value = pvars.Get("cl_outfit_head_forward"),
-					OnChange = |value|->pvars.Set("cl_outfit_head_forward", value),
-					Tooltip = pvars.GetObject("cl_outfit_head_forward").help,
-					layout = {MinSize = Vec2(120, 16), MaxSize = Vec2(120, 16), FitWidth = false},
-				},
 				Text{Text = "Near", Color = "text_disabled", layout = {FitWidth = true}},
 				Slider{
 					Mode = "horizontal",

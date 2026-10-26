@@ -119,7 +119,6 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 
 	pvars.SetSession("cl_outfit", outfit_source.Name)
 	pvars.SetSession("cl_outfit_head_smoothing", 0)
-	pvars.SetSession("cl_outfit_head_forward", 0)
 	local player = Entity.New{
 		transform = {Position = Vec3(0, 0, 0)},
 		player_avatar = {},
@@ -152,8 +151,16 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 
 	pvars.SetSession("cl_outfit_head_camera", true)
 	avatar:UpdateHeadOffset(1 / 60)
-	local head = avatar.armature:GetBoneMatrix("head")
-	local expected = Vec3(head.m30, head.m31, head.m32) - player.character_movement:GetEyeOffset()
+	local rig = avatar:GetEyeRig()
+	T(#rig.skeleton.Eyes)[">="](1)
+	local middle = Vec3()
+
+	for _, eye in ipairs(rig.skeleton.Eyes) do
+		middle = middle + Vec3(rig:GetBonePosition(eye.name))
+	end
+
+	middle = middle / #rig.skeleton.Eyes
+	local expected = middle - player.character_movement:GetEyeOffset()
 	local offset = avatar:GetHeadOffset()
 	local limit = player.character_movement:GetRadius() * 2
 	T(offset:GetLength())["<="](limit + 1e-5)
@@ -165,12 +172,6 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 	T(avatar:IsHeadCameraActive())["=="](false)
 	avatar.player_hidden = false
 	avatar:UpdateHeadOffset(1 / 60)
-	local plain = avatar:GetHeadOffset():Copy()
-	pvars.SetSession("cl_outfit_head_forward", 0.08)
-	avatar:UpdateHeadOffset(1 / 60)
-	local view_forward = player.player_input:GetRotation():GetForward()
-	T((avatar:GetHeadOffset() - plain):Dot(view_forward))["~"](0.08, 1e-4)
-	pvars.SetSession("cl_outfit_head_forward", 0)
 	pvars.SetSession("cl_outfit_head_vertical", false)
 	avatar:UpdateHeadOffset(1 / 60)
 	T(avatar:GetHeadOffset().y)["=="](0)
@@ -178,8 +179,10 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 	avatar:UpdateHeadOffset(1 / 60)
 	T(avatar:IsHeadCameraActive())["=="](false)
 	pvars.SetSession("cl_outfit_head_vertical", true)
+	pvars.SetSession("cl_outfit_head_camera", true)
+	pvars.SetSession("cl_outfit_head_smoothing", 0)
+	avatar:UpdateHeadOffset(1 / 60)
 	pvars.SetSession("cl_outfit_head_smoothing", 0.05)
-	pvars.SetSession("cl_outfit_head_forward", 0.08)
 	player:Remove()
 	pvars.SetSession("cl_outfit", "player_outfit")
 end)

@@ -28,14 +28,14 @@ local head_camera = pvars.Setup2{
 	category = "Game",
 	group = "Player",
 	default = false,
-	help = "the view and the aim origin follow the head of a source outfit instead of the eye point of the capsule, within two capsule radii of it",
+	help = "the view and the aim origin follow the middle of the eyes of a source outfit instead of the eye point of the capsule",
 }
 local head_vertical = pvars.Setup2{
 	key = "cl_outfit_head_vertical",
 	category = "Game",
 	group = "Player",
 	default = true,
-	help = "the head camera follows the vertical movement of the head too (crouching, walking, idle sway), off keeps the height of the capsule eye",
+	help = "the head camera follows the vertical movement of the eyes too (crouching, walking, idle sway), off keeps the height of the capsule eye",
 }
 local head_smoothing = pvars.Setup2{
 	key = "cl_outfit_head_smoothing",
@@ -45,15 +45,6 @@ local head_smoothing = pvars.Setup2{
 	min = 0,
 	max = 0.5,
 	help = "time constant in seconds that smooths the head camera, 0 follows the head exactly",
-}
-local head_forward = pvars.Setup2{
-	key = "cl_outfit_head_forward",
-	category = "Game",
-	group = "Player",
-	default = 0.08,
-	min = 0,
-	max = 0.3,
-	help = "meters the head camera sits in front of the head bone along the view, the bone is the middle of the head and the eyes are in front of it",
 }
 local head_near = pvars.Setup2{
 	key = "cl_outfit_head_near",
@@ -65,8 +56,8 @@ local head_near = pvars.Setup2{
 	help = "near plane in meters while the head camera is on, it replaces the normal one so it can be much closer, what is closer than this to the camera is not drawn",
 }
 
-function outfit.GetHeadEye()
-	return head_forward:Get(), head_near:Get()
+function outfit.GetHeadNear()
+	return head_near:Get()
 end
 
 function outfit.GetHeadCamera()

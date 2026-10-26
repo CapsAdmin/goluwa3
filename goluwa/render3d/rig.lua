@@ -146,6 +146,16 @@ do
 		self.dirty = true
 	end
 
+	function Rig:GetBonePosition(name)
+		local index = get_index(self, name)
+
+		if self.dirty then self:Compute() end
+
+		local w = self.world
+		local o = index * 12
+		return w[o + 3], w[o + 7], w[o + 11]
+	end
+
 	function Rig:GetBone(name)
 		local index = get_index(self, name)
 
