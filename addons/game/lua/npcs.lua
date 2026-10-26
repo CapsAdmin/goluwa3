@@ -34,6 +34,7 @@ npcs.Definitions = {
 		Run = "run_all",
 		WalkSpeed = 80,
 		RunSpeed = 210,
+		Health = 200,
 	},
 	combine_soldier = {
 		Faction = "enemy",
@@ -145,6 +146,7 @@ npcs.Definitions = {
 		Run = "run_all",
 		WalkSpeed = 80,
 		RunSpeed = 210,
+		Health = 300,
 	},
 	combine_elite = {
 		Faction = "enemy",
