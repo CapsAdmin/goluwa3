@@ -1,31 +1,59 @@
 local convex_manifold = import("goluwa/physics/convex_manifold.lua")
 local triangle_geometry = {}
 
-function triangle_geometry.RayIntersection(ray, v0, v1, v2)
-	local epsilon = 0.0000001
-	local edge1 = v1 - v0
-	local edge2 = v2 - v0
-	local h = ray.direction:GetCross(edge2)
-	local a = edge1:Dot(h)
+do
+	local m = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
-	if a > -epsilon and a < epsilon then return false end
+	function triangle_geometry.RayIntersection(ray, v0, v1, v2)
+		local epsilon = 0.0000001
+		local f
 
-	local f = 1.0 / a
-	local s = ray.origin - v0
-	local u = f * s:Dot(h)
+		do
+			m[1], m[2], m[3] = v1.x - v0.x, v1.y - v0.y, v1.z - v0.z
+			m[4], m[5], m[6] = v2.x - v0.x, v2.y - v0.y, v2.z - v0.z
+			local dx, dy, dz = ray.direction.x, ray.direction.y, ray.direction.z
+			local hx = dy * m[6] - dz * m[5]
+			local hy = dz * m[4] - dx * m[6]
+			local hz = dx * m[5] - dy * m[4]
+			local a = m[1] * hx + m[2] * hy + m[3] * hz
 
-	if u < 0.0 or u > 1.0 then return false end
+			if a > -epsilon and a < epsilon then return false end
 
-	local q = s:GetCross(edge1)
-	local v = f * ray.direction:Dot(q)
+			m[7], m[8], m[9] = hx, hy, hz
+			m[10], m[11], m[12] = v0.x, v0.y, v0.z
+			f = 1.0 / a
+		end
 
-	if v < 0.0 or u + v > 1.0 then return false end
+		v0, v1, v2 = nil, nil, nil
+		local u
 
-	local t = f * edge2:Dot(q)
+		do
+			local o = ray.origin
+			u = f * ((o.x - m[10]) * m[7] + (o.y - m[11]) * m[8] + (o.z - m[12]) * m[9])
 
-	if t > epsilon and t <= ray.max_distance then return true, t, u, v end
+			if u < 0.0 or u > 1.0 then return false end
+		end
 
-	return false
+		local v, t
+
+		do
+			local o = ray.origin
+			local sx, sy, sz = o.x - m[10], o.y - m[11], o.z - m[12]
+			local qx = sy * m[3] - sz * m[2]
+			local qy = sz * m[1] - sx * m[3]
+			local qz = sx * m[2] - sy * m[1]
+			local d = ray.direction
+			v = f * (d.x * qx + d.y * qy + d.z * qz)
+
+			if v < 0.0 or u + v > 1.0 then return false end
+
+			t = f * (m[4] * qx + m[5] * qy + m[6] * qz)
+		end
+
+		if t > epsilon and t <= ray.max_distance then return true, t, u, v end
+
+		return false
+	end
 end
 
 function triangle_geometry.GetTriangleNormal(a, b, c)

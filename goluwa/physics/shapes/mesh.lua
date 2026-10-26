@@ -6,6 +6,7 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BaseShape = import("goluwa/physics/shapes/base.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
+local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local META = objects.CreateTemplate("physics_shape_mesh")
 META.Base = BaseShape
 local MESH_POLYGON_BVH_THRESHOLD = 12
@@ -151,33 +152,6 @@ local function create_ray(origin, direction, max_distance)
 	return ray
 end
 
-local function ray_triangle_intersection(ray, v0, v1, v2)
-	local epsilon = 0.0000001
-	local edge1 = v1 - v0
-	local edge2 = v2 - v0
-	local h = ray.direction:GetCross(edge2)
-	local a = edge1:Dot(h)
-
-	if a > -epsilon and a < epsilon then return false end
-
-	local f = 1.0 / a
-	local s = ray.origin - v0
-	local u = f * s:Dot(h)
-
-	if u < 0.0 or u > 1.0 then return false end
-
-	local q = s:GetCross(edge1)
-	local v = f * ray.direction:Dot(q)
-
-	if v < 0.0 or u + v > 1.0 then return false end
-
-	local t = f * edge2:Dot(q)
-
-	if t > epsilon and t <= ray.max_distance then return true, t end
-
-	return false
-end
-
 local function build_triangle_hit(collider, entry, ray_origin, ray_direction, distance, trace_radius, triangle)
 	local face_normal_local = (triangle.v1 - triangle.v0):Cross(triangle.v2 - triangle.v0):GetNormalized()
 
@@ -209,7 +183,7 @@ local function build_triangle_hit(collider, entry, ray_origin, ray_direction, di
 end
 
 local function test_triangle_hit(context, triangle)
-	local hit, distance = ray_triangle_intersection(context.local_ray, triangle.v0, triangle.v1, triangle.v2)
+	local hit, distance = triangle_geometry.RayIntersection(context.local_ray, triangle.v0, triangle.v1, triangle.v2)
 
 	if not hit or distance > context.best_distance then return end
 
@@ -232,7 +206,7 @@ end
 local function visit_triangle_leaf(node, context, best_hit, best_distance)
 	for i = node.first, node.last do
 		local triangle = context.acceleration.triangles[i]
-		local hit, distance = ray_triangle_intersection(context.local_ray, triangle.v0, triangle.v1, triangle.v2)
+		local hit, distance = triangle_geometry.RayIntersection(context.local_ray, triangle.v0, triangle.v1, triangle.v2)
 
 		if hit and distance < best_distance then
 			local candidate = build_triangle_hit(
