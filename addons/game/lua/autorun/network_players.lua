@@ -53,7 +53,7 @@ if SERVER then
 			transform = {Position = position:Copy(), Rotation = rotation:Copy()},
 			player_controller = {Source = "queue"},
 			player_avatar = {},
-			network = {NetworkOwner = uid},
+			network = {NetworkOwner = uid, Predicted = true},
 		}
 		spawning.SendStart(client, players[uid], position, rotation)
 		players[uid].weapon_holder:GiveLoadout()
@@ -174,6 +174,10 @@ if CLIENT then
 				end
 
 				controller:Spawn(position, rotation)
+
+				if not network.IsPredicting() then
+					rig.rigid_body:SetMotionType("kinematic")
+				end
 			end
 		end
 	end)
@@ -183,6 +187,7 @@ if CLIENT then
 			controller.synced = false
 
 			if controller:GetNetworked() then
+				controller.Owner.rigid_body:SetMotionType("dynamic")
 				controller.Owner.weapon_holder:GiveLoadout()
 			end
 		end
@@ -196,7 +201,10 @@ if CLIENT then
 		local velocity = buffer:ReadVec3()
 		local_player.character_pose:SetHolding(buffer:ReadBoolean())
 		local distance = buffer:ReadDouble()
-		local_player.player_controller:Reconcile(number, position, velocity, distance)
+
+		if network.IsPredicting() then
+			local_player.player_controller:Reconcile(number, position, velocity, distance)
+		end
 	end)
 
 	packet.AddListener("usercmd_relay", function(buffer)

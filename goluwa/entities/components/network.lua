@@ -15,6 +15,7 @@ META:GetSet("NetworkId", -1)
 META:GetSet("NetworkChannel", 0)
 META:GetSet("NetworkOwner", "", {callback = "OnNetworkOwnerChanged"})
 META:IsSet("SendToOwner", false, {callback = "OnSendToOwnerChanged"})
+META:IsSet("Predicted", false, {callback = "OnSendToOwnerChanged"})
 META:GetSet("Debug", false)
 local spawned = {}
 local queued_packets = {}
@@ -231,6 +232,8 @@ if SERVER then
 					elseif self.SendToOwner then
 						filter:Add(client)
 						self.owner_in_filter = true
+					elseif self.Predicted and not network.IsPredicting() then
+						filter:Add(client)
 					end
 				end
 			end

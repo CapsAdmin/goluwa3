@@ -716,6 +716,10 @@ do
 	function META:OnPhysicsUpdate(dt)
 		local body = self.Owner.rigid_body
 		local cmd = self:GetController():NextCommand(dt)
+		local link = self.Owner.network
+
+		if link and link.linked and not network.IsPredicting() then return end
+
 		local health = self.Owner.health
 
 		if self.was_grounded then
