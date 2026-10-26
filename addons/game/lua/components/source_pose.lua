@@ -279,7 +279,7 @@ function META:UpdatePlayer(animator, pose, dt)
 		end
 	end
 
-	local sprinting = not crouching and not override and speed > PLAYER_RUN_SPEED * SPRINT_START
+	local sprinting = not crouching and not pose.airborne and speed > PLAYER_RUN_SPEED * SPRINT_START
 	self.sprinting = sprinting
 	local gait = crouching and
 		"crouch" or

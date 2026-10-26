@@ -510,3 +510,69 @@ T.Test3D("the source outfit eases its arms into a weapon and between two weapons
 	player:Remove()
 	pvars.SetSession("cl_outfit", "player_outfit")
 end)
+
+T.Test3D("landing from a sprint jump does not raise the weapon arms for a moment", function()
+	steam.MountSourceGame("gmod")
+
+	if not vfs.IsFile(outfit_source.Model) then
+		return T.Unavailable("gmod content not mounted")
+	end
+
+	pvars.SetSession("cl_outfit", outfit_source.Name)
+	local player = Entity.New{
+		transform = {Position = Vec3(0, 0, 0)},
+		player_avatar = {},
+		character_pose = {},
+		weapon_holder = {},
+	}
+	local model
+
+	T.WaitUntil(
+		function()
+			local outfit = player.player_avatar.outfit
+			model = outfit and outfit:GetChildren()[1]
+			return model and
+				model.animator and
+				model.animator:GetRig() and
+				model.source_pose and
+				player.player_avatar.armature
+		end,
+		30
+	)
+
+	local pose = player.character_pose
+	player.weapon_holder:Give("weapon_pistol")
+
+	local function step(grounded, vertical)
+		player.transform.RenderVelocity = Vec3(0, 0, -10)
+		player.transform.RenderVelocityFrame = system.GetFrameNumber()
+		pose.grounded = grounded
+		pose.vertical_speed = vertical
+		pose.forward_speed = 10
+		pose:UpdateAirborne()
+		pose:UpdateAnimations(1 / 60)
+		model.source_pose:OnUpdate(1 / 60)
+	end
+
+	for _ = 1, 40 do
+		step(true, 0)
+	end
+
+	local vertical = 5
+
+	while vertical > -5 do
+		vertical = vertical - 9.8 / 60
+		step(false, vertical)
+	end
+
+	local highest = 0
+
+	for _ = 1, 50 do
+		step(true, 0)
+		highest = math.max(highest, pose:GetWeight("hold"))
+	end
+
+	T(highest)["<"](0.01)
+	player:Remove()
+	pvars.SetSession("cl_outfit", "player_outfit")
+end)
