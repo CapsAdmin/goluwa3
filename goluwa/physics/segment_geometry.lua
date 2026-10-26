@@ -1,4 +1,5 @@
 local segment_geometry = {}
+local trace_break = coroutine.running
 
 function segment_geometry.ClosestPointOnSegment(a, b, point, epsilon)
 	epsilon = epsilon or 0.000001
@@ -11,108 +12,53 @@ function segment_geometry.ClosestPointOnSegment(a, b, point, epsilon)
 	return a + ab * t, t
 end
 
-function segment_geometry.ClosestPointsBetweenSegments(p1, q1, p2, q2, epsilon)
-	epsilon = epsilon or 0.000001
-	local a = (
-			q1.x - p1.x
-		) * (
-			q1.x - p1.x
-		) + (
-			q1.y - p1.y
-		) * (
-			q1.y - p1.y
-		) + (
-			q1.z - p1.z
-		) * (
-			q1.z - p1.z
-		)
-	local e = (
-			q2.x - p2.x
-		) * (
-			q2.x - p2.x
-		) + (
-			q2.y - p2.y
-		) * (
-			q2.y - p2.y
-		) + (
-			q2.z - p2.z
-		) * (
-			q2.z - p2.z
-		)
-	local f = (
-			q2.x - p2.x
-		) * (
-			p1.x - p2.x
-		) + (
-			q2.y - p2.y
-		) * (
-			p1.y - p2.y
-		) + (
-			q2.z - p2.z
-		) * (
-			p1.z - p2.z
-		)
-	local s
-	local t
+do
+	local m = {0, 0, 0, 0, 0, 0, 0, 0, 0}
 
-	if a <= epsilon and e <= epsilon then return p1, p2 end
+	local function solve_segment_parameters(epsilon)
+		local a = m[1] * m[1] + m[2] * m[2] + m[3] * m[3]
+		local e = m[4] * m[4] + m[5] * m[5] + m[6] * m[6]
 
-	if a <= epsilon then
-		s = 0
-		t = math.clamp(f / e, 0, 1)
-	else
-		local c = (
-				q1.x - p1.x
-			) * (
-				p1.x - p2.x
-			) + (
-				q1.y - p1.y
-			) * (
-				p1.y - p2.y
-			) + (
-				q1.z - p1.z
-			) * (
-				p1.z - p2.z
-			)
+		if a <= epsilon and e <= epsilon then return nil end
 
-		if e <= epsilon then
-			t = 0
-			s = math.clamp(-c / a, 0, 1)
-		else
-			local b = (
-					q1.x - p1.x
-				) * (
-					q2.x - p2.x
-				) + (
-					q1.y - p1.y
-				) * (
-					q2.y - p2.y
-				) + (
-					q1.z - p1.z
-				) * (
-					q2.z - p2.z
-				)
-			local denom = a * e - b * b
+		local f = m[4] * m[7] + m[5] * m[8] + m[6] * m[9]
 
-			if math.abs(denom) > epsilon then
-				s = math.clamp((b * f - c * e) / denom, 0, 1)
-			else
-				s = 0
-			end
+		if a <= epsilon then return 0, math.clamp(f / e, 0, 1) end
 
-			t = (b * s + f) / e
+		local c = m[1] * m[7] + m[2] * m[8] + m[3] * m[9]
 
-			if t < 0 then
-				t = 0
-				s = math.clamp(-c / a, 0, 1)
-			elseif t > 1 then
-				t = 1
-				s = math.clamp((b - c) / a, 0, 1)
-			end
+		if e <= epsilon then return math.clamp(-c / a, 0, 1), 0 end
+
+		local b = m[1] * m[4] + m[2] * m[5] + m[3] * m[6]
+		local denom = a * e - b * b
+		local s = 0
+
+		if math.abs(denom) > epsilon then
+			s = math.clamp((b * f - c * e) / denom, 0, 1)
 		end
+
+		local t = (b * s + f) / e
+
+		if t < 0 then
+			return math.clamp(-c / a, 0, 1), 0
+		elseif t > 1 then
+			return math.clamp((b - c) / a, 0, 1), 1
+		end
+
+		return s, t
 	end
 
-	return p1 + (q1 - p1) * s, p2 + (q2 - p2) * t
+	function segment_geometry.ClosestPointsBetweenSegments(p1, q1, p2, q2, epsilon)
+		m[1], m[2], m[3] = q1.x - p1.x, q1.y - p1.y, q1.z - p1.z
+		m[4], m[5], m[6] = q2.x - p2.x, q2.y - p2.y, q2.z - p2.z
+		m[7], m[8], m[9] = p1.x - p2.x, p1.y - p2.y, p1.z - p2.z
+		trace_break()
+		local s, t = solve_segment_parameters(epsilon or 0.000001)
+
+		if not s then return p1, p2 end
+
+		return p1 + (q1 - p1) * s, p2 + (q2 - p2) * t
+	end
 end
 
 return segment_geometry
