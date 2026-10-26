@@ -37,16 +37,7 @@ local ensure_normal_faces_motion = sweep_helpers.EnsureNormalFacesMotion
 local sweep_polyhedron_against_triangle
 local sweep_capsule_against_triangle
 local sweep_sphere_against_triangle
-local sweep_sphere_against_triangle_slow
 local get_average_contact_positions = sweep_helpers.GetAverageContactPositions
-
-local function get_segment_fraction(start_position, movement, point)
-	local movement_length_sq = movement:Dot(movement)
-
-	if movement_length_sq <= EPSILON * EPSILON then return 0 end
-
-	return math.clamp((point - start_position):Dot(movement) / movement_length_sq, 0, 1)
-end
 
 local function get_capsule_segment_world(collider, position, rotation)
 	return capsule_geometry.GetSegmentWorld(collider, position, rotation)
@@ -1155,20 +1146,8 @@ local function sweep_capsule_against_planes(
 	}
 end
 
-local function get_point_triangle_separation(center, v0, v1, v2, movement)
-	local result = triangle_contact_queries.GetPointTriangleSeparation(
-		center,
-		v0,
-		v1,
-		v2,
-		{
-			epsilon = EPSILON,
-			fallback_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, EPSILON), movement),
-			fallback_direction = movement and movement * -1 or nil,
-		}
-	)
-	return result.position, result.distance, result.normal
-end
+local point_triangle_sq = triangle_scalar.PointToTriangleSq
+local BISECT_FRACTION_TOLERANCE = 1e-6
 
 do
 	local face_normal_scratch = Vec3()
@@ -1200,100 +1179,146 @@ do
 		)
 	end
 
+	local function get_sphere_contact(px, py, pz, v0, v1, v2, movement)
+		local sq, qx, qy, qz = point_triangle_sq(px, py, pz, v0, v1, v2)
+		local distance = math.sqrt(sq)
+
+		if distance > EPSILON then
+			return qx, qy, qz, (px - qx) / distance, (py - qy) / distance, (pz - qz) / distance
+		end
+
+		local nx, ny, nz, normal_len_sq = triangle_normal_raw(v0, v1, v2)
+
+		if normal_len_sq > EPSILON * EPSILON then
+			local inverse_length = 1 / math.sqrt(normal_len_sq)
+			return qx, qy, qz, nx * inverse_length, ny * inverse_length, nz * inverse_length
+		end
+
+		local movement_length = math.sqrt(movement.x * movement.x + movement.y * movement.y + movement.z * movement.z)
+
+		if movement_length > EPSILON then
+			return qx,
+			qy,
+			qz,
+			-movement.x / movement_length,
+			-movement.y / movement_length,
+			-movement.z / movement_length
+		end
+
+		return qx, qy, qz, 0, 1, 0
+	end
+
+	local function find_sphere_contact_fraction(start_position, movement, reach, v0, v1, v2, max_fraction, segment_x, segment_y, segment_z)
+		local reach_sq = reach * reach
+		local movement_length_sq = movement.x * movement.x + movement.y * movement.y + movement.z * movement.z
+		local hi = 0
+
+		if movement_length_sq > EPSILON * EPSILON then
+			hi = math.clamp(
+				(
+						(
+							segment_x - start_position.x
+						) * movement.x + (
+							segment_y - start_position.y
+						) * movement.y + (
+							segment_z - start_position.z
+						) * movement.z
+					) / movement_length_sq,
+				0,
+				1
+			)
+		end
+
+		if hi > max_fraction then hi = max_fraction end
+
+		if hi > 0 then
+			local sq = point_triangle_sq(
+				start_position.x + movement.x * hi,
+				start_position.y + movement.y * hi,
+				start_position.z + movement.z * hi,
+				v0,
+				v1,
+				v2
+			)
+
+			if sq > reach_sq then hi = max_fraction end
+		else
+			hi = max_fraction
+		end
+
+		if hi == max_fraction then
+			local sq = point_triangle_sq(
+				start_position.x + movement.x * hi,
+				start_position.y + movement.y * hi,
+				start_position.z + movement.z * hi,
+				v0,
+				v1,
+				v2
+			)
+
+			if sq > reach_sq then return nil end
+		end
+
+		local lo = 0
+		local width_limit = BISECT_FRACTION_TOLERANCE / math_max(math.sqrt(movement_length_sq), 1e-9)
+
+		for _ = 1, 24 do
+			if hi - lo <= width_limit then break end
+
+			local mid = (lo + hi) * 0.5
+			local distance_sq = point_triangle_sq(
+				start_position.x + movement.x * mid,
+				start_position.y + movement.y * mid,
+				start_position.z + movement.z * mid,
+				v0,
+				v1,
+				v2
+			)
+
+			if distance_sq <= reach_sq then hi = mid else lo = mid end
+		end
+
+		return hi
+	end
+
 	function sweep_sphere_against_triangle(start_position, movement, radius, v0, v1, v2, max_fraction)
 		local epsilon = get_sweep_epsilon(start_position, movement)
 		local end_position = start_position + movement * max_fraction
-		local reject_sq = get_segment_reject_sq(start_position, end_position, v0, v1, v2, epsilon)
+		local reject_sq, segment_x, segment_y, segment_z = get_segment_reject_sq(start_position, end_position, v0, v1, v2, epsilon)
+		local reach = radius + epsilon
 
-		if reject_sq and reject_sq > (radius + epsilon) * (radius + epsilon) then
-			return nil
+		if reject_sq and reject_sq > reach * reach then return nil end
+
+		local start_sq = point_triangle_sq(start_position.x, start_position.y, start_position.z, v0, v1, v2)
+
+		if start_sq <= reach * reach then
+			local qx, qy, qz, nx, ny, nz = get_sphere_contact(
+				start_position.x,
+				start_position.y,
+				start_position.z,
+				v0,
+				v1,
+				v2,
+				movement
+			)
+			return {t = 0, position = Vec3(qx, qy, qz), normal = Vec3(nx, ny, nz)}
 		end
 
-		return sweep_sphere_against_triangle_slow(start_position, movement, radius, v0, v1, v2, max_fraction, epsilon, end_position)
-	end
-end
+		local hi = find_sphere_contact_fraction(start_position, movement, reach, v0, v1, v2, max_fraction, segment_x, segment_y, segment_z)
 
-local point_triangle_sq = triangle_scalar.PointToTriangleSq
-local BISECT_FRACTION_TOLERANCE = 1e-6
+		if not hi then return nil end
 
-function sweep_sphere_against_triangle_slow(start_position, movement, radius, v0, v1, v2, max_fraction, epsilon, end_position)
-	local start_closest, start_distance, start_normal = get_point_triangle_separation(start_position, v0, v1, v2, movement)
-
-	if start_distance <= radius + epsilon then
-		return {
-			t = 0,
-			position = start_closest,
-			normal = start_normal,
-		}
-	end
-
-	local segment_separation = triangle_contact_queries.GetSegmentTriangleSeparation(
-		start_position,
-		end_position,
-		v0,
-		v1,
-		v2,
-		{
-			epsilon = epsilon,
-			fallback_normal = ensure_normal_faces_motion(triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon), movement),
-		}
-	)
-	local segment_point = segment_separation and segment_separation.segment_point or nil
-	local min_distance = segment_separation and segment_separation.distance or nil
-
-	if not segment_point or min_distance > radius + epsilon then return nil end
-
-	local hi = get_segment_fraction(start_position, movement, segment_point)
-	local hi_closest
-	local hi_distance
-	local hi_normal
-
-	if hi > max_fraction then hi = max_fraction end
-
-	if hi <= 0 then
-		hi = max_fraction
-		hi_closest, hi_distance, hi_normal = get_point_triangle_separation(start_position + movement * hi, v0, v1, v2, movement)
-
-		if hi_distance > radius + epsilon then return nil end
-	else
-		hi_closest, hi_distance, hi_normal = get_point_triangle_separation(start_position + movement * hi, v0, v1, v2, movement)
-
-		if hi_distance > radius + epsilon then
-			hi = max_fraction
-			hi_closest, hi_distance, hi_normal = get_point_triangle_separation(start_position + movement * hi, v0, v1, v2, movement)
-
-			if hi_distance > radius + epsilon then return nil end
-		end
-	end
-
-	local lo = 0
-	local reach = radius + epsilon
-	local reach_sq = reach * reach
-	local width_limit = BISECT_FRACTION_TOLERANCE / math_max(math.sqrt(movement:Dot(movement)), 1e-9)
-
-	for _ = 1, 24 do
-		if hi - lo <= width_limit then break end
-
-		local mid = (lo + hi) * 0.5
-		local distance_sq = point_triangle_sq(
-			start_position.x + movement.x * mid,
-			start_position.y + movement.y * mid,
-			start_position.z + movement.z * mid,
+		local qx, qy, qz, nx, ny, nz = get_sphere_contact(
+			start_position.x + movement.x * hi,
+			start_position.y + movement.y * hi,
+			start_position.z + movement.z * hi,
 			v0,
 			v1,
-			v2
+			v2,
+			movement
 		)
-
-		if distance_sq <= reach_sq then hi = mid else lo = mid end
+		return {t = hi, position = Vec3(qx, qy, qz), normal = Vec3(nx, ny, nz)}
 	end
-
-	local center = start_position + movement * hi
-	local position, _, normal = get_point_triangle_separation(center, v0, v1, v2, movement)
-	return {
-		t = hi,
-		position = position,
-		normal = normal,
-	}
 end
 
 local function sweep_sphere_against_planes(start_position, movement, radius, planes, max_fraction)
