@@ -747,8 +747,16 @@ if CLIENT then
 		if what == COMPONENT_ADDED then
 			local name, values = read_component(buffer)
 
-			if values and not self.Owner:HasComponent(name) then
-				self.Owner:AddComponent(name, values)
+			if values then
+				if self.Owner:HasComponent(name) then
+					local component = self.Owner[name]
+
+					for var_name, var_value in pairs(values) do
+						component["Set" .. var_name](component, var_value)
+					end
+				else
+					self.Owner:AddComponent(name, values)
+				end
 			end
 
 			return true
