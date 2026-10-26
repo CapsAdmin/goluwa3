@@ -456,132 +456,155 @@ function META:UpdateLegs(character, pose, dt, bones)
 	)
 end
 
-function META:MirrorBones(rig, armature, pose, dt)
-	local holder = pose.Owner.weapon_holder
-	local active = holder and holder:GetPosedWeapon("right")
-	local armed = active ~= nil and
-		(
-			active.weapon:IsAlwaysPose() or
-			not self.sprinting and
-			not pose.airborne
-		)
-	local bones = self.bones
-	pose.hold_wanted = armed
-
-	if armed and self.held ~= active then
-		if self.held and self.held:IsValid() then
-			self.prev_held = self.held
-			self.switch = 0
-		end
-
-		self.held = active
+do
+	local function get_weapon(entity)
+		return entity and entity:IsValid() and entity.weapon or nil
 	end
 
-	if self.prev_held then
-		self.switch = math.min(self.switch + dt / SWITCH_TIME, 1)
-
-		if self.switch >= 1 or not self.prev_held:IsValid() then self.prev_held = nil end
+	local function is_gone(entity)
+		return entity and not entity:IsValid()
 	end
 
-	local hold = animations.GetWeight(pose, "hold")
-	local weapon = hold > 0.001 and self.held and self.held:IsValid() and self.held.weapon or nil
-	local prev = weapon and self.prev_held and self.prev_held.weapon or nil
-	local idle = self.idle_bones
-	local before = self.prev_bones
-
-	for _, name in ipairs(aim_pose.Bones) do
-		if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
-	end
-
-	biped.ReadBones(rig, bones)
-
-	if weapon and hold < 0.999 then
-		for name, matrix in pairs(bones) do
-			if not idle[name] then idle[name] = Matrix44():Identity() end
-
-			aim_pose.CopyMatrix(idle[name], matrix)
-		end
-	end
-
-	if prev then
-		for name, matrix in pairs(bones) do
-			if not before[name] then before[name] = Matrix44():Identity() end
-
-			aim_pose.CopyMatrix(before[name], matrix)
-		end
-	end
-
-	aim_pose.Apply(bones, pose, weapon)
-
-	if prev then
-		aim_pose.Apply(before, pose, prev)
-
-		for _, name in ipairs(ARM_BONES) do
-			aim_pose.BlendMatrix(
-				bones[name],
-				before[name],
-				bones[name],
-				self.switch * self.switch * (3 - 2 * self.switch)
+	function META:MirrorBones(rig, armature, pose, dt)
+		local holder = pose.Owner.weapon_holder
+		local right = holder and holder:GetPosedWeapon("right") or false
+		local left = holder and holder:GetPosedWeapon("left") or false
+		local armed = (
+				right or
+				left
 			)
+			and
+			(
+				right and
+				right.weapon:IsAlwaysPose() or
+				left and
+				left.weapon:IsAlwaysPose()
+				or
+				not self.sprinting and
+				not pose.airborne
+			)
+		local bones = self.bones
+		pose.hold_wanted = armed and true or false
+
+		if armed and (self.held_r ~= right or self.held_l ~= left) then
+			if self.held_r ~= nil then
+				self.prev_r, self.prev_l = self.held_r, self.held_l
+				self.switch = 0
+			end
+
+			self.held_r, self.held_l = right, left
 		end
-	end
 
-	if weapon and hold < 0.999 then
-		aim_pose.Apply(idle, pose, nil)
+		if self.prev_r ~= nil then
+			self.switch = math.min(self.switch + dt / SWITCH_TIME, 1)
 
-		for _, name in ipairs(ARM_BONES) do
-			aim_pose.BlendMatrix(bones[name], idle[name], bones[name], hold)
-		end
-	end
-
-	for _, name in ipairs(aim_pose.Bones) do
-		bones[name].m31 = bones[name].m31 - self.ground_sink
-	end
-
-	for i = 1, #pose.anims do
-		local inst = pose.anims[i]
-		local def = inst.def
-
-		if def.BoneKeys then bone_keys.Apply(bones, def.BoneKeys, inst, pose) end
-
-		if def.Bones then def.Bones(bones, inst, pose) end
-	end
-
-	if pose.legs then self:UpdateLegs(pose.Owner, pose, dt, bones) end
-
-	for _, name in ipairs(aim_pose.Bones) do
-		if biped.HasBone(rig, name) then
-			rig:SetBone(biped.SourceBones[name], bones[name], "model")
-		end
-	end
-
-	for name in pairs(biped.SourceBones) do
-		local matrix = bones[name]
-
-		if name == "hand_r" or name == "hand_l" then
-			local is_right = name == "hand_r"
-
-			if weapon then
-				local follow = active and aim_pose.GetFollowGripMatrix(matrix, is_right) or matrix
-				aim_pose.CopyMatrix(self.grip_follow, follow)
-				local gripped = aim_pose.GetGripMatrix(matrix, aim_pose.GetHoldAim(pose, aim_pose.GetAim(pose)))
-
-				if hold < 0.999 then
-					aim_pose.BlendMatrix(self.grip_blend, self.grip_follow, gripped, hold)
-					gripped = self.grip_blend
-				end
-
-				matrix = gripped
-			elseif active then
-				matrix = aim_pose.GetFollowGripMatrix(matrix, is_right)
+			if self.switch >= 1 or is_gone(self.prev_r) or is_gone(self.prev_l) then
+				self.prev_r, self.prev_l = nil, nil
 			end
 		end
 
-		armature:SetBone(name, matrix, "model")
-	end
+		local hold = animations.GetWeight(pose, "hold")
+		local weapon_r = hold > 0.001 and get_weapon(self.held_r) or nil
+		local weapon_l = hold > 0.001 and get_weapon(self.held_l) or nil
+		local weapon = weapon_r or weapon_l
+		local prev = weapon and self.prev_r ~= nil
+		local idle = self.idle_bones
+		local before = self.prev_bones
 
-	-- reading the pure animation above left the skin matrices without the overrides, and the skin is read after every update
-	rig:Compute()
+		for _, name in ipairs(aim_pose.Bones) do
+			if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
+		end
+
+		biped.ReadBones(rig, bones)
+
+		if weapon and hold < 0.999 then
+			for name, matrix in pairs(bones) do
+				if not idle[name] then idle[name] = Matrix44():Identity() end
+
+				aim_pose.CopyMatrix(idle[name], matrix)
+			end
+		end
+
+		if prev then
+			for name, matrix in pairs(bones) do
+				if not before[name] then before[name] = Matrix44():Identity() end
+
+				aim_pose.CopyMatrix(before[name], matrix)
+			end
+		end
+
+		aim_pose.Apply(bones, pose, weapon_r, weapon_l)
+
+		if prev then
+			aim_pose.Apply(before, pose, get_weapon(self.prev_r), get_weapon(self.prev_l))
+
+			for _, name in ipairs(ARM_BONES) do
+				aim_pose.BlendMatrix(
+					bones[name],
+					before[name],
+					bones[name],
+					self.switch * self.switch * (3 - 2 * self.switch)
+				)
+			end
+		end
+
+		if weapon and hold < 0.999 then
+			aim_pose.Apply(idle, pose, nil, nil)
+
+			for _, name in ipairs(ARM_BONES) do
+				aim_pose.BlendMatrix(bones[name], idle[name], bones[name], hold)
+			end
+		end
+
+		for _, name in ipairs(aim_pose.Bones) do
+			bones[name].m31 = bones[name].m31 - self.ground_sink
+		end
+
+		for i = 1, #pose.anims do
+			local inst = pose.anims[i]
+			local def = inst.def
+
+			if def.BoneKeys then bone_keys.Apply(bones, def.BoneKeys, inst, pose) end
+
+			if def.Bones then def.Bones(bones, inst, pose) end
+		end
+
+		if pose.legs then self:UpdateLegs(pose.Owner, pose, dt, bones) end
+
+		for _, name in ipairs(aim_pose.Bones) do
+			if biped.HasBone(rig, name) then
+				rig:SetBone(biped.SourceBones[name], bones[name], "model")
+			end
+		end
+
+		for name in pairs(biped.SourceBones) do
+			local matrix = bones[name]
+
+			if name == "hand_r" or name == "hand_l" then
+				local is_right = name == "hand_r"
+
+				if weapon then
+					local follow = (right or left) and aim_pose.GetFollowGripMatrix(matrix, is_right) or matrix
+					aim_pose.CopyMatrix(self.grip_follow, follow)
+					local gripped = aim_pose.GetGripMatrix(matrix, aim_pose.GetHoldAim(pose, aim_pose.GetAim(pose)))
+
+					if hold < 0.999 then
+						aim_pose.BlendMatrix(self.grip_blend, self.grip_follow, gripped, hold)
+						gripped = self.grip_blend
+					end
+
+					matrix = gripped
+				elseif right or left then
+					matrix = aim_pose.GetFollowGripMatrix(matrix, is_right)
+				end
+			end
+
+			armature:SetBone(name, matrix, "model")
+		end
+
+		-- reading the pure animation above left the skin matrices without the overrides, and the skin is read after every update
+		rig:Compute()
+	end
 end
 
 function META:OnUpdate(dt)

@@ -65,7 +65,7 @@ local grip = Matrix44()
 local grip_target = Vec3()
 local hand_rotation = Quat()
 local shift = Vec3()
-local wrist_r, wrist_l, shoulder_r, shoulder_l = Vec3(), Vec3(), Vec3(), Vec3()
+local wrist_main, wrist_support, shoulder_main, shoulder_support = Vec3(), Vec3(), Vec3(), Vec3()
 local palm = Vec3()
 local right_roll = Quat(0, 0, 1, 0)
 local left_roll = Quat()
@@ -142,63 +142,62 @@ local function get_correction(wrist, shoulder_position, upper_length, lower_leng
 	return dx * scale, dy * scale, dz * scale
 end
 
-local function compute_shift(bones, pitch, weapon)
+local function compute_shift(bones, pitch, weapon, arm, side, hold_offset, roll)
 	local two_handed = weapon:IsTwoHanded()
-	local upper_r, upper_l = bones.upperarm_r, bones.upperarm_l
-	local right_upper = get_length(upper_r, bones.forearm_r)
-	local right_lower = get_length(bones.forearm_r, bones.hand_r)
-	local hold_offset = weapon:GetHoldOffset()
-	shoulder_r:Set(upper_r.m30, upper_r.m31, upper_r.m32)
+	local main_arm, support_arm = bones[arm.upper], bones.upperarm_l
+	local main_upper = get_length(main_arm, bones[arm.lower])
+	local main_lower = get_length(bones[arm.lower], bones[arm.hand])
+	shoulder_main:Set(main_arm.m30, main_arm.m31, main_arm.m32)
 
 	if weapon:IsHoldFromHead() then
 		local head = bones.head
-		Quat.SetVecMul(wrist_r, pitch, hold_offset)
-		wrist_r:Set(head.m30 + wrist_r.x, head.m31 + wrist_r.y, head.m32 + wrist_r.z)
+		Quat.SetVecMul(wrist_main, pitch, hold_offset)
+		wrist_main:Set(head.m30 + wrist_main.x, head.m31 + wrist_main.y, head.m32 + wrist_main.z)
 	else
-		offset:Set(aim_pose.HandOffset.x, aim_pose.HandOffset.y, -(right_upper + right_lower) * aim_pose.ArmReach)
-		Quat.SetVecMul(wrist_r, pitch, offset)
-		wrist_r:Set(
-			wrist_r.x + shoulder_r.x + hold_offset.x,
-			wrist_r.y + shoulder_r.y + hold_offset.y,
-			wrist_r.z + shoulder_r.z + hold_offset.z
+		offset:Set(aim_pose.HandOffset.x * side, aim_pose.HandOffset.y, -(main_upper + main_lower) * aim_pose.ArmReach)
+		Quat.SetVecMul(wrist_main, pitch, offset)
+		wrist_main:Set(
+			wrist_main.x + shoulder_main.x + hold_offset.x,
+			wrist_main.y + shoulder_main.y + hold_offset.y,
+			wrist_main.z + shoulder_main.z + hold_offset.z
 		)
 	end
 
 	if two_handed then
-		Quat.SetVecMul(wrist_l, pitch, weapon:GetSupportGrip())
-		wrist_l:Set(wrist_l.x + wrist_r.x, wrist_l.y + wrist_r.y, wrist_l.z + wrist_r.z)
+		Quat.SetVecMul(wrist_support, pitch, weapon:GetSupportGrip())
+		wrist_support:Set(wrist_support.x + wrist_main.x, wrist_support.y + wrist_main.y, wrist_support.z + wrist_main.z)
 	end
 
-	hand_rotation:SetMul(pitch, right_roll)
+	hand_rotation:SetMul(pitch, roll)
 	Quat.SetVecMul(palm, hand_rotation, aim_pose.PalmOffset)
-	wrist_r:Set(wrist_r.x - palm.x, wrist_r.y - palm.y, wrist_r.z - palm.z)
-	local left_upper, left_lower
+	wrist_main:Set(wrist_main.x - palm.x, wrist_main.y - palm.y, wrist_main.z - palm.z)
+	local support_upper, support_lower
 
 	if two_handed then
-		left_upper = get_length(upper_l, bones.forearm_l)
-		left_lower = get_length(bones.forearm_l, bones.hand_l)
-		shoulder_l:Set(upper_l.m30, upper_l.m31, upper_l.m32)
+		support_upper = get_length(support_arm, bones.forearm_l)
+		support_lower = get_length(bones.forearm_l, bones.hand_l)
+		shoulder_support:Set(support_arm.m30, support_arm.m31, support_arm.m32)
 		local half = weapon:GetSupportRoll() / 2
 		left_roll:Set(0, 0, math.sin(half), math.cos(half))
 		hand_rotation:SetMul(pitch, left_roll)
 		Quat.SetVecMul(palm, hand_rotation, aim_pose.PalmOffset)
-		wrist_l:Set(wrist_l.x - palm.x, wrist_l.y - palm.y, wrist_l.z - palm.z)
+		wrist_support:Set(wrist_support.x - palm.x, wrist_support.y - palm.y, wrist_support.z - palm.z)
 	end
 
 	local weight = two_handed and 0.5 or 1
 	local sx, sy, sz = 0, 0, 0
 
 	for _ = 1, 4 do
-		wrist_r:Set(wrist_r.x + sx, wrist_r.y + sy, wrist_r.z + sz)
-		local rx, ry, rz = get_correction(wrist_r, shoulder_r, right_upper, right_lower)
+		wrist_main:Set(wrist_main.x + sx, wrist_main.y + sy, wrist_main.z + sz)
+		local mx, my, mz = get_correction(wrist_main, shoulder_main, main_upper, main_lower)
 		local lx, ly, lz = 0, 0, 0
 
 		if two_handed then
-			wrist_l:Set(wrist_l.x + sx, wrist_l.y + sy, wrist_l.z + sz)
-			lx, ly, lz = get_correction(wrist_l, shoulder_l, left_upper, left_lower)
+			wrist_support:Set(wrist_support.x + sx, wrist_support.y + sy, wrist_support.z + sz)
+			lx, ly, lz = get_correction(wrist_support, shoulder_support, support_upper, support_lower)
 		end
 
-		sx, sy, sz = (rx + lx) * weight, (ry + ly) * weight, (rz + lz) * weight
+		sx, sy, sz = (mx + lx) * weight, (my + ly) * weight, (mz + lz) * weight
 		shift:Set(shift.x + sx, shift.y + sy, shift.z + sz)
 	end
 end
@@ -453,20 +452,51 @@ for i = 1, 4 do
 	left_hold[i] = Matrix44():Identity()
 end
 
-local function solve_left_hold(bones, pitch, weapon)
-	if weapon and weapon:IsTwoHanded() then
-		local half = weapon:GetSupportRoll() / 2
+local mirrored = Vec3()
+
+local function solve_hold(bones, pitch, weapon, arm, side)
+	local hold_offset = weapon:GetHoldOffset()
+	local roll = side == 1 and right_roll or identity
+	mirrored:Set(hold_offset.x * side, hold_offset.y, hold_offset.z)
+	compute_shift(bones, pitch, weapon, arm, side, mirrored, roll)
+	solve_arm(
+		bones,
+		arm,
+		pitch,
+		aim_pose.HandOffset,
+		0,
+		side,
+		mirrored,
+		nil,
+		roll,
+		weapon:IsHoldFromHead()
+	)
+	shift:Set(0, 0, 0)
+end
+
+local function solve_neutral(bones, arm, side)
+	local upper = bones[arm.upper]
+	local neutral = aim_pose.NeutralHand
+	grip_target:Set(upper.m30 + neutral.x * side, upper.m31 + neutral.y, upper.m32 + neutral.z)
+	solve_arm(bones, arm, identity, nil, nil, side, nil, ZERO)
+end
+
+local function solve_left_hold(bones, pitch, right, left)
+	if right and right:IsTwoHanded() then
+		local half = right:GetSupportRoll() / 2
 		left_roll:Set(0, 0, math.sin(half), math.cos(half))
-		solve_arm(bones, LEFT, pitch, nil, nil, -1, nil, weapon:GetSupportGrip(), left_roll)
-	elseif weapon then
-		local upper = bones.upperarm_l
-		local neutral = aim_pose.NeutralHand
-		grip_target:Set(upper.m30 - neutral.x, upper.m31 + neutral.y, upper.m32 + neutral.z)
-		solve_arm(bones, LEFT, identity, nil, nil, -1, nil, ZERO)
+		solve_arm(bones, LEFT, pitch, nil, nil, -1, nil, right:GetSupportGrip(), left_roll)
+	elseif left then
+		solve_hold(bones, pitch, left, LEFT, -1)
+	elseif right then
+		solve_neutral(bones, LEFT, -1)
 	end
 end
 
-function aim_pose.Apply(bones, pose, weapon)
+function aim_pose.Apply(bones, pose, right, left)
+	if right and right:IsTwoHanded() then left = nil end
+
+	local armed = right or left
 	local pitch = aim_pose.GetAim(pose)
 	local flinch = 0
 
@@ -489,7 +519,7 @@ function aim_pose.Apply(bones, pose, weapon)
 		rotate_chain(bones, joint[2], #joint[2], bones[name], rotation)
 	end
 
-	if not weapon then
+	if not armed then
 		local shares = aim_pose.Shares
 		local torso_share = shares.waist + shares.spine + shares.chest + shares.back
 		rotation:SetRotation(identity:GetLerped(torso_share, pitch):Normalize():Conjugate())
@@ -507,23 +537,12 @@ function aim_pose.Apply(bones, pose, weapon)
 		rotate_about(foot, foot.m30, foot.m31, foot.m32, rotation)
 	end
 
-	local hold_aim = weapon and aim_pose.GetHoldAim(pose, pitch) or pitch
+	local hold_aim = armed and aim_pose.GetHoldAim(pose, pitch) or pitch
 
-	if weapon then
-		compute_shift(bones, hold_aim, weapon)
-		solve_arm(
-			bones,
-			RIGHT,
-			hold_aim,
-			aim_pose.HandOffset,
-			0,
-			1,
-			weapon:GetHoldOffset(),
-			nil,
-			right_roll,
-			weapon:IsHoldFromHead()
-		)
-		shift:Set(0, 0, 0)
+	if right then
+		solve_hold(bones, hold_aim, right, RIGHT, 1)
+	elseif left then
+		solve_neutral(bones, RIGHT, 1)
 	end
 
 	local block = animations.GetWeight(pose, "block")
@@ -535,7 +554,7 @@ function aim_pose.Apply(bones, pose, weapon)
 			aim_pose.CopyMatrix(left_start[i], bones[name])
 		end
 
-		solve_left_hold(bones, hold_aim, weapon)
+		solve_left_hold(bones, hold_aim, right, left)
 
 		for i, name in ipairs(LEFT.shoulder_chain) do
 			aim_pose.CopyMatrix(left_hold[i], bones[name])
@@ -548,7 +567,7 @@ function aim_pose.Apply(bones, pose, weapon)
 			aim_pose.BlendMatrix(bones[name], left_hold[i], bones[name], block)
 		end
 	else
-		solve_left_hold(bones, hold_aim, weapon)
+		solve_left_hold(bones, hold_aim, right, left)
 	end
 end
 

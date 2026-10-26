@@ -8,6 +8,10 @@ local META = objects.CreateTemplate("procedural_pose")
 -- an empty Network table is what makes the component part of the spawn packet
 META.Network = {}
 local LIMP_GRIP_ROTATION = Quat(0, 0, 0, 1):Rotate(math.pi / 2, 1, 0, 0)
+local GRIP_SIDES = {
+	{where = "right", socket = "grip_r", forearm = "forearm_r", hand = "hand_r"},
+	{where = "left", socket = "grip_l", forearm = "forearm_l", hand = "hand_l"},
+}
 
 function META:Initialize()
 	if self.initialized then return end
@@ -16,6 +20,7 @@ function META:Initialize()
 	self.state = eye_pose.New()
 	self.bones = {}
 	self.display = {}
+	self.grip_keys = {}
 
 	for _, entry in ipairs(biped.Bones) do
 		self.bones[entry[1]] = Matrix44()
@@ -49,7 +54,7 @@ function META:CopyDisplay()
 end
 
 function META:OnArmatureRebuild()
-	self.grip_weapon = nil
+	self.grip_keys = {}
 end
 
 function META:OnUpdate(dt)
@@ -79,18 +84,21 @@ function META:OnUpdate(dt)
 	end
 
 	local holder = owner.weapon_holder
-	local active = holder and holder:GetWeapon("right")
-	local path = active and active.prefab.Path
-	local limp = ragdoll ~= nil and ragdoll:IsPartLimp("forearm_r")
-	local key = path and (path .. (limp and "_limp" or ""))
 
-	if key ~= self.grip_weapon then
-		self.grip_weapon = key
+	for _, side in ipairs(GRIP_SIDES) do
+		local weapon = holder and holder:GetWeapon(side.where)
+		local path = weapon and weapon.prefab.Path
+		local limp = ragdoll ~= nil and ragdoll:IsPartLimp(side.forearm)
+		local key = path and (path .. (limp and "_limp" or ""))
 
-		if path and limp then
-			armature:SetSocket("grip_r", "forearm_r", Vec3(0, eye_pose.ArmLength * 0.5, 0), LIMP_GRIP_ROTATION)
-		else
-			armature:SetSocket("grip_r", "hand_r")
+		if key ~= self.grip_keys[side.socket] then
+			self.grip_keys[side.socket] = key
+
+			if path and limp then
+				armature:SetSocket(side.socket, side.forearm, Vec3(0, eye_pose.ArmLength * 0.5, 0), LIMP_GRIP_ROTATION)
+			else
+				armature:SetSocket(side.socket, side.hand)
+			end
 		end
 	end
 end

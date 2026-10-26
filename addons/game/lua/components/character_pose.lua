@@ -247,9 +247,10 @@ function META:UpdateAnimations(dt)
 
 	self.ready_time = math.max(self.ready_time - dt, 0)
 	local holder = self.Owner.weapon_holder
-	local posed = holder and holder:GetPosedWeapon("right")
+	local right = holder and holder:GetPosedWeapon("right")
+	local left = holder and holder:GetPosedWeapon("left")
 
-	if posed and not posed.weapon:IsHolster() then
+	if right and not right.weapon:IsHolster() or left and not left.weapon:IsHolster() then
 		self:EnableState("ready", nil, 1)
 	elseif self.ready_time > 0 then
 		self:EnableState("ready")

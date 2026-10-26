@@ -3,7 +3,7 @@ local biped = import("lua/biped.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local biped_pose = {}
 
-function biped_pose.Compute(bones, height, crouch_alpha, pose, weapon)
+function biped_pose.Compute(bones, height, crouch_alpha, pose, right, left)
 	local crouch = math.lerp(crouch_alpha, 1, biped.CrouchScale)
 
 	for name, rest in pairs(biped.Rest) do
@@ -18,7 +18,7 @@ function biped_pose.Compute(bones, height, crouch_alpha, pose, weapon)
 		matrix:SetTranslation(rest[1] * height, rest[2] * height * crouch, rest[3] * height)
 	end
 
-	aim_pose.Apply(bones, pose, weapon)
+	aim_pose.Apply(bones, pose, right, left)
 	return bones
 end
 

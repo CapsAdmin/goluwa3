@@ -79,18 +79,45 @@ local LOWER_DROP = 0.3
 local hand_free = Quat()
 local hand_grip = Quat()
 
-local function get_weapon_hold(entity, aim, eye_height)
-	local weapon = entity.weapon
-	local support = weapon:IsTwoHanded() and weapon:GetSupportGrip() or nil
-
+local function get_weapon_hold(weapon, aim, eye_height, sign)
 	if weapon:IsHeldAtEye() then
-		return Vec3(0, eye_height, 0) - aim:GetForward() * EYE_HOLD_BACK, support
-	elseif weapon:IsHoldFromHead() then
-		return Vec3(0, eye_height, 0) + aim:VecMul(weapon:GetHoldOffset()), support
+		return Vec3(0, eye_height, 0) - aim:GetForward() * EYE_HOLD_BACK
 	end
 
-	return Vec3(0, eye_height, 0) + aim:VecMul(WEAPON_OFFSET) + weapon:GetHoldOffset(),
-	support
+	local offset = weapon:GetHoldOffset()
+
+	if weapon:IsHoldFromHead() then
+		return Vec3(0, eye_height, 0) + aim:VecMul(Vec3(offset.x * sign, offset.y, offset.z))
+	end
+
+	return Vec3(0, eye_height, 0) + aim:VecMul(Vec3(WEAPON_OFFSET.x * sign, WEAPON_OFFSET.y, WEAPON_OFFSET.z)) + Vec3(offset.x * sign, offset.y, offset.z)
+end
+
+-- the second result is true when the hand is the support hand of a two handed weapon
+local function get_hand_target(entity, sign, aim, eye_height)
+	if not (entity and entity:IsValid()) then return end
+
+	local weapon = entity.weapon
+
+	if not weapon:IsTwoHanded() then
+		return get_weapon_hold(weapon, aim, eye_height, sign)
+	end
+
+	local hold = get_weapon_hold(weapon, aim, eye_height, 1)
+
+	if sign == 1 then return hold end
+
+	return hold + aim:VecMul(weapon:GetSupportGrip()), true
+end
+
+local function track_weapon(side, weapon)
+	if side.held == nil then
+		side.held = weapon
+	elseif side.held ~= weapon then
+		side.prev = side.held
+		side.switch = 0
+		side.held = weapon
+	end
 end
 
 function eye_pose.New()
@@ -117,40 +144,35 @@ function eye_pose.Compute(state, bones, owner, dt)
 	):GetConjugated():VecMul(body and body:GetVelocity() or transform:GetRenderVelocity())
 	local grounded = not body or pose.grounded
 	local holder = owner.weapon_holder
-	local active = holder and holder:GetPosedWeapon("right")
+	local posed_right = holder and holder:GetPosedWeapon("right")
+	local posed_left = holder and holder:GetPosedWeapon("left")
 	local eye_height = math.lerp(crouch, eye_pose.EyeHeight, eye_pose.CrouchEyeHeight)
-	pose.hold_wanted = active ~= nil
+	local sides = state.sides
+	pose.hold_wanted = posed_right ~= nil or posed_left ~= nil
 
-	if active and state.held ~= active then
-		if state.held and state.held:IsValid() then
-			state.prev = state.held
-			state.switch = 0
-		end
-
-		state.held = active
+	if pose.hold_wanted then
+		track_weapon(sides[1], posed_left or false)
+		track_weapon(sides[2], posed_right or false)
 	end
 
-	if state.prev then
-		state.switch = math.min(state.switch + dt / SWITCH_TIME, 1)
+	for i = 1, 2 do
+		local side = sides[i]
 
-		if state.switch >= 1 or not state.prev:IsValid() then state.prev = nil end
+		if side.prev ~= nil then
+			side.switch = math.min(side.switch + dt / SWITCH_TIME, 1)
+
+			if side.switch >= 1 or side.prev and not side.prev:IsValid() then
+				side.prev = nil
+			end
+		end
 	end
 
 	local hold_weight = animations.GetWeight(pose, "hold")
 	local block_weight = animations.GetWeight(pose, "block")
 	local ready_weight = animations.GetWeight(pose, "ready")
-	local held = hold_weight > 0.001 and state.held and state.held:IsValid() and state.held or nil
-	local hold, support, prev_hold, prev_support
-
-	if held then
-		hold, support = get_weapon_hold(held, hold_aim, eye_height - (1 - ready_weight) * LOWER_DROP)
-
-		if state.prev then
-			prev_hold, prev_support = get_weapon_hold(state.prev, hold_aim, eye_height - (1 - ready_weight) * LOWER_DROP)
-		end
-	end
-
-	local block_hold = hold
+	local holding = hold_weight > 0.001
+	local hold_height = eye_height - (1 - ready_weight) * LOWER_DROP
+	local block_hold = holding and get_hand_target(sides[2].held, 1, hold_aim, hold_height) or nil
 
 	if block_weight > 0.001 and not block_hold then
 		block_hold = Vec3(0, math.lerp(crouch, HEIGHT, CROUCH_HEIGHT) * 0.5 + WEAPON_RAISE, 0) + view:GetForward() * WEAPON_FORWARD
@@ -210,19 +232,21 @@ function eye_pose.Compute(state, bones, owner, dt)
 			)
 		local target = free
 		local grip_weight = 0
+		local supporting = false
 
-		if held then
-			local grip = sign == 1 and ZERO or support
-			local new_target = grip and hold + hold_aim:VecMul(grip) or free
-			local new_grip = grip and 1 or 0
-			local mixed, mixed_grip = new_target, new_grip
+		if holding then
+			local new_target, new_support = get_hand_target(side.held, sign, hold_aim, hold_height)
+			local mixed = new_target or free
+			local mixed_grip = new_target and 1 or 0
+			supporting = new_support
 
-			if prev_hold then
-				local prev_grip = sign == 1 and ZERO or prev_support
-				local prev_target = prev_grip and prev_hold + hold_aim:VecMul(prev_grip) or free
-				local eased = state.switch * state.switch * (3 - 2 * state.switch)
-				mixed = prev_target + (new_target - prev_target) * eased
-				mixed_grip = (prev_grip and 1 or 0) + (new_grip - (prev_grip and 1 or 0)) * eased
+			if side.prev ~= nil then
+				local prev_target = get_hand_target(side.prev, sign, hold_aim, hold_height)
+				local prev_grip = prev_target and 1 or 0
+				prev_target = prev_target or free
+				local eased = side.switch * side.switch * (3 - 2 * side.switch)
+				mixed = prev_target + (mixed - prev_target) * eased
+				mixed_grip = prev_grip + (mixed_grip - prev_grip) * eased
 			end
 
 			target = free + (mixed - free) * hold_weight
@@ -237,7 +261,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 
 		local follow = 14
 
-		if grip_weight > 0.001 then follow = sign == 1 and 1e6 or 40 end
+		if grip_weight > 0.001 then follow = supporting and 40 or 1e6 end
 
 		side.hand = side.hand and
 			side.hand + (

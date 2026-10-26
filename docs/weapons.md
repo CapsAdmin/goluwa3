@@ -18,3 +18,6 @@ The holder thinks every equipped weapon on the authority with the buttons `holde
 
 A command carries `select` (an index into `holder:GetWeapons()`, sorted by `Slot` then name, or `usercmd.SELECT_EMPTY`) and `select_left`; the holder applies it on the client and the authority alike. `player_input` builds it: number keys and the wheel pick the right hand (a number key picks the weapons whose `Slot` floors to it, pressing again cycles them), holding left alt does the same for the left hand, whose cycle also has an empty stop. The wheel skips the weapon held in the other hand; a number key does not, so it moves (or swaps) a weapon between hands.
 
+## Posing
+
+Drivers pose `holder:GetPosedWeapon("right")` and `("left")` (equipped weapons with `PoseArms`). A left hand weapon mirrors the right hand hold (`HoldOffset.x` and the hand offset flip sign); a two handed weapon puts the left hand on its `SupportGrip`; a free hand next to a held weapon takes the neutral pose. The shield does not pose (`PoseArms = false`), blocking raises the left arm instead. A change of either hand blends both arms over the switch time.
