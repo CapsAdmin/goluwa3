@@ -25,6 +25,14 @@ function permissions.Can(client, action, entity)
 	return owned_by == client
 end
 
+function permissions.CanSpawn(client, kind, name)
+	local result = event.Call("EntityPermission", client, "spawn", kind .. ":" .. name)
+
+	if result ~= nil then return result end
+
+	return true
+end
+
 function permissions.CanPushPrefab(client, name)
 	local result = event.Call("EntityPermission", client, "prefab", name)
 

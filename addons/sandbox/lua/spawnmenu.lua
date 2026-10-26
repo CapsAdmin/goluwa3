@@ -17,10 +17,8 @@ local spawnlists = import("lua/spawnlists.lua")
 local weapons = import("lua/weapons.lua")
 local npcs = import("lua/npcs.lua")
 local interactives = import("lua/interactives.lua")
-local props = import("lua/props.lua")
-local game_history = import("lua/game_history.lua")
+local spawn_requests = import("lua/spawn_requests.lua")
 local toolgun = import("lua/toolgun.lua")
-local clients = import("goluwa/network/clients.lua")
 local spawnmenu = {}
 local TILE_SIZE = 84
 local LABELED_TILE_SIZE = 120
@@ -119,46 +117,10 @@ end
 
 function spawnmenu.Spawn(entry)
 	local position, yaw = get_aim()
-
-	if entry.kind == "weapon" then
-		local holder = _G.PLAYER_RIG.weapon_holder
-
-		for _, weapon in ipairs(holder:GetWeapons()) do
-			if weapon:GetName() == entry.spawn_name then
-				return holder:Equip(weapon, weapon.weapon:GetDefaultPlace())
-			end
-		end
-
-		local weapon = weapons.Spawn(entry.spawn_name, position + Vec3(0, 0.3, 0), QuatFromAxis(yaw, Vec3(0, 1, 0)))
-		weapon:SetOwnedBy(clients.GetLocalClient())
-		game_history.RecordSpawn("spawn " .. entry.spawn_name, weapon)
-		return weapon
-	end
-
-	if entry.kind == "interactive" then
-		local interactive = interactives.Spawn(entry.spawn_name, position, yaw)
-		interactive:SetOwnedBy(clients.GetLocalClient())
-		game_history.RecordSpawn("spawn " .. entry.spawn_name, interactive)
-		return interactive
-	end
-
-	if entry.kind == "npc" then
-		local npc = npcs.Spawn(entry.spawn_name, position, yaw)
-		npc:SetTransient(false)
-		npc:SetOwnedBy(clients.GetLocalClient())
-		game_history.RecordSpawn("spawn " .. entry.spawn_name, npc)
-		return npc
-	end
-
-	props.Spawn(
-		entry.path,
-		position,
-		QuatFromAxis(yaw, Vec3(0, 1, 0)),
-		function(entity)
-			entity:SetOwnedBy(clients.GetLocalClient())
-			game_history.RecordSpawn("spawn " .. entity:GetName(), entity)
-		end
-	)
+	local kind = entry.kind or "prop"
+	local name = kind == "prop" and entry.path or entry.spawn_name
+	local label = kind == "prop" and (entry.path:match("([^/]+)%.%w+$") or entry.path) or name
+	spawn_requests.Spawn("spawn " .. label, kind, name, position, yaw)
 end
 
 local function draw_tile(item, index, x, y, w, h, selected, hovered)
