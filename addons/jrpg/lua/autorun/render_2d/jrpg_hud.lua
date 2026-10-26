@@ -234,72 +234,231 @@ local function draw_status_icons(component, x, y, size, alpha, align_right)
 	end
 end
 
-local RING_RANGE = 8
-local RING_INNER = 72
-local RING_OUTER = 175
-local RING_TEXT_START = 92
-local RING_FEATHER = 1
-local RING_SCALE_FALLOFF = 0.93
-local ring_poly = Polygon2D.New(4096)
-ring_poly.WorldMatrixMultiply = true
-local ring_fade = render2d.CreateGradient{
-	width = 256,
-	height = 1,
-	angle = 90,
-	stops = {
-		{pos = 0, color = Color(1, 1, 1, 0)},
-		{pos = 0.45, color = Color(1, 1, 1, 0.35)},
-		{pos = 1, color = Color(1, 1, 1, 1)},
+local radial_wheel = {}
+radial_wheel.__index = radial_wheel
+
+function radial_wheel.New(config)
+	local self = setmetatable(table.shallow_copy(config), radial_wheel)
+	self.poly = Polygon2D.New(4096)
+	self.poly.WorldMatrixMultiply = true
+	self.visible = {}
+	self.visible_count = 0
+	self.scroll_key = self.Name .. "_scroll"
+	return self
+end
+
+function radial_wheel:Scroll(selected, count, dt)
+	local last = self.last_selected or selected
+	local target = self.scroll_target or selected
+
+	if selected ~= last then
+		target = target + math.wrapped_delta(last, selected, count)
+	end
+
+	self.last_selected = selected
+	self.scroll_target = target
+	return smooth(self.scroll_key, target, dt, 10)
+end
+
+function radial_wheel:Collect(items, count, scroll, selected)
+	local visible = self.visible
+	local range = self.Range
+	local n = 0
+
+	for i = 1, count do
+		local offset = math.wrapped_offset(i, scroll, count, range)
+
+		while offset < range do
+			local fade = math.max(1 - math.abs(offset) / range, 0) ^ 2
+
+			if fade > 0.01 then
+				n = n + 1
+				local entry = visible[n]
+
+				if not entry then
+					entry = {}
+					visible[n] = entry
+				end
+
+				entry.offset = offset
+				entry.fade = fade
+				entry.scale = self.ScaleFalloff ^ math.abs(offset)
+				entry.selected = i == selected and math.abs(offset) < 0.5
+				self.FillEntry(entry, items, i, count)
+			end
+
+			offset = offset + count
+		end
+	end
+
+	self.visible_count = n
+end
+
+function radial_wheel:PushEntry(entry, cx, cy, step, mid)
+	render2d.PushWorldMatrix()
+	render2d.Translatef(cx, cy)
+	render2d.Rotate(entry.offset * step)
+	render2d.ScaleAround(entry.scale, entry.scale, mid, 0)
+end
+
+function radial_wheel:Draw(items, count, scroll, selected, cx, cy, S, theme, accent)
+	self:Collect(items, count, scroll, selected)
+	local visible = self.visible
+	local step = math.pi * 2 / math.max(count, self.MinSlots)
+	local cos_half = math.cos(step / 2)
+	local inner = self.Inner * S
+	local outer = self.Outer * S
+	local mid = (inner + outer) / 2
+
+	for n = 1, self.visible_count do
+		local entry = visible[n]
+		self:PushEntry(entry, cx, cy, step, mid)
+		local color = entry.wedge_color
+		self.poly:BatchArc(
+			0,
+			0,
+			inner / cos_half,
+			outer / cos_half,
+			-step / 2,
+			step / 2,
+			1,
+			self.Feather,
+			INK.r,
+			INK.g,
+			INK.b,
+			0.5 * entry.fade
+		)
+		self.poly:BatchArc(
+			0,
+			0,
+			inner / cos_half,
+			outer / cos_half,
+			-step / 2,
+			step / 2,
+			1,
+			self.Feather,
+			color.r,
+			color.g,
+			color.b,
+			(entry.selected and 0.55 or 0.3) * entry.fade
+		)
+		render2d.PopWorldMatrix()
+	end
+
+	render2d.SetTexture(self.FadeTexture)
+	render2d.SetColor(1, 1, 1, 1)
+	self.poly:FlushBatch()
+	render2d.SetTexture(nil)
+
+	for n = 1, self.visible_count do
+		local entry = visible[n]
+
+		if entry.group ~= entry.previous_group then
+			self:PushEntry(entry, cx, cy, step, mid)
+			render2d.Rotate(-step / 2)
+			render2d.PushBlendPreset("additive")
+			local r, g, b = self.DividerColor(entry.previous_group, entry.group)
+			render2d.SetColor(r, g, b, 1.5 * entry.fade)
+			theme:DrawGlowLine(inner / cos_half, 0, outer / cos_half, 0, 4 * S)
+			render2d.PopBlendMode()
+			render2d.PopWorldMatrix()
+		end
+	end
+
+	for n = 1, self.visible_count do
+		local entry = visible[n]
+		self:PushEntry(entry, cx, cy, step, mid)
+
+		if entry.selected then
+			render2d.PushBlendPreset("additive")
+			render2d.SetTexture(theme.GlowLineTexture)
+			set_color(accent, 0.8)
+			render2d.DrawRect(inner, -10 * S, (self.BarEnd - self.Inner) * S, 20 * S)
+			render2d.SetTexture(nil)
+			set_color(self.MarkerColor, 1)
+			theme:DrawDiamond(inner, 0, 7 * S)
+			render2d.PopBlendMode()
+		end
+
+		local size = math.floor((entry.selected and self.SelectedSize or self.Size) * S)
+		local _, h = render2d.GetTextSize(entry.label, HEADING, size, BOLD)
+		text(
+			entry.label,
+			self.TextStart * S,
+			-h / 2,
+			HEADING,
+			size,
+			entry.text_color,
+			entry.fade,
+			0,
+			entry.glow
+		)
+		render2d.PopWorldMatrix()
+	end
+end
+
+local function weapon_element_color(weapon)
+	if weapon.weapon:GetCategory() == "magic" and weapon.weapon_magic then
+		return damage_types.GetColor(weapon.weapon_magic.Element)
+	end
+end
+
+local function fill_weapon_entry(entry, weapons, i, count)
+	local weapon = weapons[i]
+	local info = weapon.weapon
+	local category = info:GetCategory()
+	local element_color = weapon_element_color(weapon)
+	entry.label = info:GetDisplayName():upper()
+	entry.text_color = element_color or (entry.selected and WHITE or MUTED)
+	entry.wedge_color = weapon_categories.Get(category).Color
+	entry.group = category
+	entry.previous_group = weapons[(i - 2) % count + 1].weapon:GetCategory()
+
+	if entry.selected then
+		local glow = entry.glow_color or Color()
+		local color = entry.text_color
+		glow.r, glow.g, glow.b, glow.a = color.r * 0.4, color.g * 0.4, color.b * 0.4, 1
+		entry.glow_color = glow
+		entry.glow = glow
+	else
+		entry.glow = nil
+	end
+end
+
+local weapon_wheel = radial_wheel.New{
+	Name = "weapon_wheel",
+	Range = 8,
+	MinSlots = 34,
+	Inner = 72,
+	Outer = 175,
+	TextStart = 92,
+	BarEnd = 296,
+	Size = 13,
+	SelectedSize = 17,
+	Feather = 1,
+	ScaleFalloff = 0.93,
+	MarkerColor = GOLD,
+	FillEntry = fill_weapon_entry,
+	DividerColor = weapon_categories.GetDividerColor,
+	FadeTexture = render2d.CreateGradient{
+		width = 256,
+		height = 1,
+		angle = 90,
+		stops = {
+			{pos = 0, color = Color(1, 1, 1, 0)},
+			{pos = 0.45, color = Color(1, 1, 1, 0.35)},
+			{pos = 1, color = Color(1, 1, 1, 1)},
+		},
 	},
 }
+local ring_color = Color(1, 1, 1, 1)
 
-local function draw_ring(holder, cx, cy, S, dt)
-	local theme = get_style()
-	local now = system.GetElapsedTime()
-	local weapons = holder:GetWeapons()
-	local count = #weapons
-
-	if count == 0 then return end
-
-	local active = holder:GetActiveWeapon()
-	local selected = 1
-
-	for i, weapon in ipairs(weapons) do
-		if weapon == active then selected = i end
-	end
-
-	local last_selected = smoothed.ring_last or selected
-	local scroll_target = smoothed.ring_target or selected
-
-	if selected ~= last_selected then
-		local delta = (selected - last_selected) % count
-
-		if delta > count / 2 then delta = delta - count end
-
-		scroll_target = scroll_target + delta
-	end
-
-	smoothed.ring_last = selected
-	smoothed.ring_target = scroll_target
-	local scroll = smooth("ring_scroll", scroll_target, dt, 10)
-	local accent = NEON
-
-	if active and active.weapon:GetCategory() == "magic" then
-		accent = damage_types.GetColor(active.weapon_magic and active.weapon_magic.Element or "generic")
-	end
-
-	local ring_color = Color(
-		smooth("ring_r", accent.r, dt, 6),
-		smooth("ring_g", accent.g, dt, 6),
-		smooth("ring_b", accent.b, dt, 6),
-		1
-	)
+local function draw_ring_backdrop(theme, cx, cy, S, spin)
 	render2d.SetTexture(theme.Textures.GlowPoint)
 	render2d.SetColor(0, 0, 0, 0.75)
 	render2d.DrawRect(cx - 260 * S, cy - 260 * S, 520 * S, 520 * S)
 	render2d.SetTexture(nil)
 	render2d.PushBlendPreset("additive")
-	local spin = now * 0.15 + scroll * 0.4
 	set_color(ring_color, 0.75)
 	theme:DrawCircle(cx, cy, 58 * S, 2, 1)
 	set_color(ring_color, 0.35)
@@ -333,129 +492,34 @@ local function draw_ring(holder, cx, cy, S, dt)
 	end
 
 	render2d.PopBlendMode()
-	local step = math.pi * 2 / math.max(count, 34)
-	local tan_half = math.tan(step / 2)
-	local cos_half = math.cos(step / 2)
-	local ring_vertex = 0
+end
 
-	for pass = 1, 3 do
-		for i, weapon in ipairs(weapons) do
-			local base = (i - scroll) % count
-			local offset = base - count * math.floor((base + RING_RANGE) / count)
+local function draw_ring(holder, cx, cy, S, dt)
+	local weapons = holder:GetWeapons()
+	local count = #weapons
 
-			while offset < RING_RANGE do
-				local fade = math.max(1 - math.abs(offset) / RING_RANGE, 0) ^ 2
+	if count == 0 then return end
 
-				if fade > 0.01 then
-					local info = weapon.weapon
-					local is_selected = weapon == active and math.abs(offset) < 0.5
-					local name = info:GetDisplayName():upper()
-					local color = is_selected and WHITE or MUTED
+	local active = holder:GetActiveWeapon()
+	local selected = 1
 
-					if info:GetCategory() == "magic" and weapon.weapon_magic then
-						color = damage_types.GetColor(weapon.weapon_magic.Element)
-					end
-
-					local size = math.floor((is_selected and 17 or 13) * S)
-					render2d.PushWorldMatrix()
-					render2d.Translatef(cx, cy)
-					render2d.Rotate(offset * step)
-					local scale = RING_SCALE_FALLOFF ^ math.abs(offset)
-					local mid = (RING_INNER + RING_OUTER) * S / 2
-					render2d.Translatef(mid, 0)
-					render2d.Scalef(scale, scale)
-					render2d.Translatef(-mid, 0)
-					local _, h = render2d.GetTextSize(name, HEADING, size, BOLD)
-					local category = weapon_categories.Get(info:GetCategory())
-					local previous = weapons[(i - 2) % count + 1].weapon:GetCategory()
-
-					if pass == 1 then
-						local rim = RING_OUTER * S / cos_half
-						ring_vertex = ring_poly:SetArc(
-							ring_vertex,
-							0,
-							0,
-							RING_INNER * S / cos_half,
-							rim,
-							-step / 2,
-							step / 2,
-							1,
-							RING_FEATHER,
-							INK.r,
-							INK.g,
-							INK.b,
-							0.5 * fade
-						)
-						ring_vertex = ring_poly:SetArc(
-							ring_vertex,
-							0,
-							0,
-							RING_INNER * S / cos_half,
-							rim,
-							-step / 2,
-							step / 2,
-							1,
-							RING_FEATHER,
-							category.Color.r,
-							category.Color.g,
-							category.Color.b,
-							(is_selected and 0.55 or 0.3) * fade
-						)
-					elseif pass == 2 and previous ~= info:GetCategory() then
-						local other = weapon_categories.Get(previous).Color
-						render2d.PushWorldMatrix()
-						render2d.Rotate(-step / 2)
-						render2d.PushBlendPreset("additive")
-						render2d.SetColor(
-							(category.Color.r + other.r) * 0.5 + 0.25,
-							(category.Color.g + other.g) * 0.5 + 0.25,
-							(category.Color.b + other.b) * 0.5 + 0.25,
-							1.5 * fade
-						)
-						theme:DrawGlowLine(RING_INNER * S / cos_half, 0, RING_OUTER * S / cos_half, 0, 4 * S)
-						render2d.PopBlendMode()
-						render2d.PopWorldMatrix()
-					end
-
-					if pass == 3 and is_selected then
-						render2d.PushBlendPreset("additive")
-						render2d.SetTexture(theme.GlowLineTexture)
-						set_color(ring_color, 0.8)
-						render2d.DrawRect(RING_INNER * S, -10 * S, (296 - RING_INNER) * S, 20 * S)
-						render2d.SetTexture(nil)
-						set_color(GOLD, 1)
-						theme:DrawDiamond(RING_INNER * S, 0, 7 * S)
-						render2d.PopBlendMode()
-					end
-
-					if pass == 3 then
-						text(
-							name,
-							RING_TEXT_START * S,
-							-h / 2,
-							HEADING,
-							size,
-							color,
-							fade,
-							0,
-							is_selected and Color(color.r * 0.4, color.g * 0.4, color.b * 0.4, 1) or nil
-						)
-					end
-
-					render2d.PopWorldMatrix()
-				end
-
-				offset = offset + count
-			end
-		end
-
-		if pass == 1 and ring_vertex > 0 then
-			render2d.SetTexture(ring_fade)
-			render2d.SetColor(1, 1, 1, 1)
-			ring_poly:Draw(ring_vertex)
-			render2d.SetTexture(nil)
-		end
+	for i, weapon in ipairs(weapons) do
+		if weapon == active then selected = i end
 	end
+
+	local scroll = weapon_wheel:Scroll(selected, count, dt)
+	local accent = NEON
+
+	if active and active.weapon:GetCategory() == "magic" then
+		accent = damage_types.GetColor(active.weapon_magic and active.weapon_magic.Element or "generic")
+	end
+
+	ring_color.r = smooth("ring_r", accent.r, dt, 6)
+	ring_color.g = smooth("ring_g", accent.g, dt, 6)
+	ring_color.b = smooth("ring_b", accent.b, dt, 6)
+	local theme = get_style()
+	draw_ring_backdrop(theme, cx, cy, S, system.GetElapsedTime() * 0.15 + scroll * 0.4)
+	weapon_wheel:Draw(weapons, count, scroll, selected, cx, cy, S, theme, ring_color)
 
 	if active then
 		local category = weapon_categories.Get(active.weapon:GetCategory())
