@@ -381,6 +381,7 @@ T.TestPhysics("a shot arm goes limp for a while with its child parts while the r
 	local character = create_character()
 	run(character, 1)
 	local ragdoll = character.ragdoll
+	ragdoll:SetHitLimp(true)
 	local arm = ragdoll.part_by_name.upperarm_r
 	character.health:TakeDamage(
 		damage.Info{
@@ -417,6 +418,7 @@ T.TestPhysics("a hit on the torso only flinches the upper body for a moment", fu
 	local character = create_character()
 	run(character, 1)
 	local ragdoll = character.ragdoll
+	ragdoll:SetHitLimp(true)
 	character.health:TakeDamage(
 		damage.Info{
 			Damage = 5,
@@ -432,5 +434,23 @@ T.TestPhysics("a hit on the torso only flinches the upper body for a moment", fu
 	T(ragdoll.part_by_name.thigh_l.dynamic)["=="](false)
 	run(character, 1.5, 1)
 	T(ragdoll:HasLimp())["=="](false)
+	character:Remove()
+end)
+
+T.TestPhysics("a hit does not make a part limp unless HitLimp is on", function()
+	create_ground()
+	local character = create_character()
+	run(character, 1)
+	local ragdoll = character.ragdoll
+	character.health:TakeDamage(
+		damage.Info{
+			Damage = 1,
+			Part = "upperarm_r",
+			Force = Vec3(0, 0, -5),
+			Position = ragdoll.part_by_name.upperarm_r.body:GetPosition():Copy(),
+		}
+	)
+	run(character, 0.1)
+	T(ragdoll:GetLimp("upperarm_r"))["=="](0)
 	character:Remove()
 end)

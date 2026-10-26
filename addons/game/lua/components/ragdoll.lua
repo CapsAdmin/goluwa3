@@ -18,6 +18,7 @@ META.Network = {Limp = {"boolean", 0.1, "reliable"}}
 META:IsSet("Limp", false)
 META:StartStorable()
 META:GetSet("CorpseTime", 0)
+META:IsSet("HitLimp", false)
 META:GetSet("Profile", "humanoid")
 META:EndStorable()
 local PART_FRICTION = 0.8
@@ -682,7 +683,9 @@ end
 
 function META:OnTakeDamage(info)
 	if
-		not network.HasAuthority() or
+		not self.HitLimp or
+		not network.HasAuthority()
+		or
 		not info.Part or
 		not self.parts[1] or
 		self.global_active or
