@@ -5,7 +5,8 @@ local aim_pose = import("lua/aim_pose.lua")
 local leg_pose = {}
 leg_pose.MaxTilt = math.rad(35)
 leg_pose.KneeFlexion = 2.4
-leg_pose.KneeForward = 0.5
+leg_pose.KneeForward = 0.8
+leg_pose.KneeTrust = 0.05
 local LEGS = {
 	{
 		thigh = "thigh_r",
@@ -52,15 +53,23 @@ local function solve_leg(bones, leg, target_y, normal_x, normal_y, normal_z)
 	local pole_along = kx * dx + ky * dy + kz * dz
 	local bx, by, bz = kx - dx * pole_along, ky - dy * pole_along, kz - dz * pole_along
 	local bend = math.sqrt(bx * bx + by * by + bz * bz)
-
-	if bend < 1e-4 then bx, by, bz, bend = 0, 0, -1, 1 end
-
-	bx, by, bz = bx / bend, by / bend, bz / bend
 	local fx, fy, fz = dx * dz, dy * dz, dz * dz - 1
 	local forward_length = math.sqrt(fx * fx + fy * fy + fz * fz)
 
 	if forward_length > 1e-4 then
 		fx, fy, fz = fx / forward_length, fy / forward_length, fz / forward_length
+
+		if bend < 1e-4 then
+			bx, by, bz, bend = fx, fy, fz, 1
+		else
+			local trust = math.clamp(bend / leg_pose.KneeTrust, 0, 1)
+			bx = bx / bend * trust + fx * (1 - trust)
+			by = by / bend * trust + fy * (1 - trust)
+			bz = bz / bend * trust + fz * (1 - trust)
+			bend = math.sqrt(bx * bx + by * by + bz * bz)
+		end
+
+		bx, by, bz = bx / bend, by / bend, bz / bend
 		local facing = bx * fx + by * fy + bz * fz
 
 		if facing < leg_pose.KneeForward then
@@ -71,6 +80,8 @@ local function solve_leg(bones, leg, target_y, normal_x, normal_y, normal_z)
 			by = fy * leg_pose.KneeForward + sy * side * rest
 			bz = fz * leg_pose.KneeForward + sz * side * rest
 		end
+	else
+		bx, by, bz = 0, 0, -1
 	end
 
 	local knee_x, knee_y, knee_z = tx + dx * along + bx * height,
