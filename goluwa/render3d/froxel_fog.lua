@@ -157,31 +157,16 @@ function froxel_fog.GetPointGLSL(block)
 			return air_distance >= 0.0 ? min(view_depth, air_distance / length(get_view_dir(uv))) : view_depth;
 		}
 
-		float froxel_point(ivec3 id, vec2 uv, float depth, float pick, out vec2 point_uv) {
-			point_uv = uv;
+		float froxel_point(ivec3 id, vec2 uv, float depth, out bool covered) {
 			float surface_depth = froxel_surface_depth(uv);
 
-			if (depth > surface_depth && pick >= 0.0) {
-				int i = int(pick * 4.0);
-				vec2 corner_uv = (vec2(id.xy) + vec2(i & 1, i >> 1) * 0.8 + 0.1) / ]] .. block .. [[.froxel_size;
-				float corner_depth = froxel_surface_depth(corner_uv);
-
-				if (corner_depth > surface_depth) {
-					surface_depth = corner_depth;
-					point_uv = corner_uv;
-				}
-			} else if (depth > surface_depth) {
+			if (depth > surface_depth) {
 				for (int i = 0; i < 4; i++) {
-					vec2 corner_uv = (vec2(id.xy) + vec2(i & 1, i >> 1) * 0.8 + 0.1) / ]] .. block .. [[.froxel_size;
-					float corner_depth = froxel_surface_depth(corner_uv);
-
-					if (corner_depth > surface_depth) {
-						surface_depth = corner_depth;
-						point_uv = corner_uv;
-					}
+					surface_depth = max(surface_depth, froxel_surface_depth((vec2(id.xy) + vec2(i & 1, i >> 1) * 0.8 + 0.1) / ]] .. block .. [[.froxel_size));
 				}
 			}
 
+			covered = froxel_slice_depth(float(id.z) - 2.0) > surface_depth * 1.1;
 			return min(depth, froxel_surface_limit(surface_depth));
 		}
 	]]

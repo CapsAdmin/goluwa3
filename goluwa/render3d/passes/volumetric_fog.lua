@@ -52,9 +52,7 @@ local function write_ocean_distance_texture(self, block, key)
 		render3d.IsPassEnabled("ocean") and
 		render3d.pipelines.ocean.framebuffers
 	then
-		block[key] = self:GetTextureIndex(
-			render3d.pipelines.ocean:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(2)
-		)
+		block[key] = self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(2))
 	else
 		block[key] = -1
 	end
@@ -273,8 +271,9 @@ local gi_pass = {
 
 			uint seed = froxel_hash(uvec3(id.xy, uint(id.z) + uint(froxel_data.frame) * 128u));
 			vec3 jitter = vec3(uvec3(seed, seed >> 10u, seed >> 20u) & 1023u) / 1023.0 - 0.5;
-			vec2 uv;
-			float depth = froxel_point(id, (vec2(id.xy) + 0.5 + jitter.xy) / froxel_data.froxel_size, froxel_slice_depth(float(id.z) + 0.5 + jitter.z), float((seed >> 12u) & 1023u) / 1024.0, uv);
+			vec2 uv = (vec2(id.xy) + 0.5 + jitter.xy) / froxel_data.froxel_size;
+			bool covered;
+			float depth = froxel_point(id, uv, froxel_slice_depth(float(id.z) + 0.5 + jitter.z), covered);
 			vec3 P = (froxel_data.inv_view * vec4(get_view_dir(uv) * depth, 1.0)).xyz;
 			if (ddgi_data.ddgi_cascade_count > 0) {
 				if (!ddgi_in_volume(P)) {
@@ -404,9 +403,10 @@ local scatter_pass = {
 
 			uint seed = froxel_hash(uvec3(id.xy, uint(id.z) + uint(froxel_data.frame) * 128u));
 			vec3 jitter = vec3(uvec3(seed, seed >> 10u, seed >> 20u) & 1023u) / 1023.0 - 0.5;
-			vec2 uv;
 			float slice_depth = froxel_slice_depth(float(id.z) + 0.5 + jitter.z);
-			float depth = froxel_point(id, (vec2(id.xy) + 0.5 + jitter.xy) / froxel_data.froxel_size, slice_depth, float((seed >> 12u) & 1023u) / 1024.0, uv);
+			vec2 uv = (vec2(id.xy) + 0.5 + jitter.xy) / froxel_data.froxel_size;
+			bool covered;
+			float depth = froxel_point(id, uv, slice_depth, covered);
 			vec3 view_dir = get_view_dir(uv);
 			vec3 world_pos = (froxel_data.inv_view * vec4(view_dir * depth, 1.0)).xyz;
 			vec3 air_pos = (froxel_data.inv_view * vec4(view_dir * slice_depth, 1.0)).xyz;
@@ -436,7 +436,7 @@ local scatter_pass = {
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction;
 
-			imageStore(out_scatter, id, vec4(scattering, 1.0));
+			imageStore(out_scatter, id, vec4(scattering, covered ? 0.0 : 1.0));
 		}
 	]],
 }
@@ -541,6 +541,11 @@ local temporal_pass = {
 
 			vec4 current = texelFetch(raw_scatter, id, 0);
 
+			if (current.a == 0.0) {
+				imageStore(out_scatter, id, vec4(0.0));
+				return;
+			}
+
 			if (froxel_data.history <= 0.0) {
 				imageStore(out_scatter, id, current);
 				return;
@@ -551,12 +556,16 @@ local temporal_pass = {
 
 			for (int i = 0; i < 27; i++) {
 				vec4 v = texelFetch(raw_scatter, clamp(id + ivec3(i % 3, (i / 3) % 3, i / 9) - 1, ivec3(0), size - 1), 0);
-				low = min(low, v);
-				high = max(high, v);
+
+				if (v.a > 0.0) {
+					low = min(low, v);
+					high = max(high, v);
+				}
 			}
 
-			vec2 uv;
-			float depth = froxel_point(id, (vec2(id.xy) + 0.5) / froxel_data.froxel_size, froxel_slice_depth(float(id.z) + 0.5), -1.0, uv);
+			vec2 uv = (vec2(id.xy) + 0.5) / froxel_data.froxel_size;
+			bool covered;
+			float depth = froxel_point(id, uv, froxel_slice_depth(float(id.z) + 0.5), covered);
 			vec3 center = (froxel_data.inv_view * vec4(get_view_dir(uv) * depth, 1.0)).xyz;
 
 			vec3 sun_step = 1.5 * froxel_data.sun_direction.xyz * depth * length(get_view_dir(uv + vec2(0.0, 1.0 / froxel_data.froxel_size.y)) - get_view_dir(uv));
@@ -863,4 +872,11 @@ local composite_pass = {
 	DepthTest = false,
 	DepthWrite = false,
 }
-return {depth_pass, gi_pass, scatter_pass, temporal_pass, integrate_pass, composite_pass}
+return {
+	depth_pass,
+	gi_pass,
+	scatter_pass,
+	temporal_pass,
+	integrate_pass,
+	composite_pass,
+}
