@@ -137,8 +137,7 @@ function spawnmenu.Spawn(entry)
 	local position, yaw = get_aim()
 	local kind = entry.kind or "prop"
 	local name = kind == "prop" and entry.path or entry.spawn_name
-	local label = kind == "prop" and (entry.path:match("([^/]+)%.%w+$") or entry.path) or name
-	spawn_requests.Spawn("spawn " .. label, kind, name, position, yaw)
+	spawn_requests.Spawn(kind, name, position, yaw)
 end
 
 local function draw_tile(item, index, x, y, w, h, selected, hovered)

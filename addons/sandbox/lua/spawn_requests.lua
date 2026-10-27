@@ -1,4 +1,3 @@
-local objects = import("goluwa/objects/objects.lua")
 local message = import("goluwa/network/message.lua")
 local network = import("goluwa/network/network.lua")
 local clients = import("goluwa/network/clients.lua")
@@ -80,14 +79,17 @@ function spawn_requests.IsValid(kind, name)
 	return validator ~= nil and validator(name)
 end
 
+function spawn_requests.GetLabel(kind, name)
+	return "spawn " .. (kind == "prop" and name:match("([^/]+)%.%w+$") or name)
+end
+
 if SERVER then
-	message.AddListener("sandbox_spawn", function(client, id, kind, name, position, yaw)
+	message.AddListener("sandbox_spawn", function(client, kind, name, position, yaw)
 		local player = _G.GetPlayerEntity(client)
 
 		if not (player and player:IsValid()) then return end
 
 		if
-			type(id) ~= "number" or
 			type(kind) ~= "string" or
 			type(name) ~= "string" or
 			#name > MAX_NAME_LENGTH or
@@ -121,38 +123,16 @@ if SERVER then
 			yaw,
 			function(entity)
 				entity:SetOwnedBy(client)
-				message.Send("sandbox_spawned", client, id, entity:GetGUID())
+				game_history.GetHistory(client):Push(game_history.Spawned(spawn_requests.GetLabel(kind, name), entity))
 			end
 		)
-	end)
-
-	message.AddListener("sandbox_remove", function(client, guid)
-		if type(guid) ~= "string" then return end
-
-		local entity = objects.GetObjectByGUID(guid)
-
-		if entity:IsValid() and permissions.Can(client, "remove", entity) then
-			entity:Remove()
-		end
 	end)
 end
 
 if CLIENT then
-	local pending = {}
-	local next_id = 0
-
-	message.AddListener("sandbox_spawned", function(id, guid)
-		local callback = pending[id]
-		pending[id] = nil
-
-		if callback then callback(guid) end
-	end)
-
-	local function request(kind, name, position, yaw, on_spawn)
+	function spawn_requests.Spawn(kind, name, position, yaw)
 		if network.IsConnected() then
-			next_id = next_id + 1
-			pending[next_id] = on_spawn
-			message.Send("sandbox_spawn", next_id, kind, name, position, yaw)
+			message.Send("sandbox_spawn", kind, name, position, yaw)
 			return
 		end
 
@@ -163,34 +143,7 @@ if CLIENT then
 			yaw,
 			function(entity)
 				entity:SetOwnedBy(clients.GetLocalClient())
-				on_spawn(entity:GetGUID(), entity)
-			end
-		)
-	end
-
-	function spawn_requests.Spawn(label, kind, name, position, yaw)
-		request(
-			kind,
-			name,
-			position,
-			yaw,
-			function(guid, entity)
-				if entity then
-					game_history.RecordSpawn(label, entity)
-					return
-				end
-
-				game_history.history:Push{
-					Name = label,
-					Undo = function()
-						message.Send("sandbox_remove", guid)
-					end,
-					Redo = function()
-						request(kind, name, position, yaw, function(new_guid)
-							guid = new_guid
-						end)
-					end,
-				}
+				game_history.RecordSpawn(spawn_requests.GetLabel(kind, name), entity)
 			end
 		)
 	end

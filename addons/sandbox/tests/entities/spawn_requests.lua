@@ -22,7 +22,7 @@ T.Test("spawn requests spawn locally when there is no server and can be undone",
 	local player = Entity.New{ComponentSet = {"transform", "weapon_holder"}}
 	_G.PLAYER_RIG = player
 	local before = #history:GetEntries()
-	spawn_requests.Spawn("spawn grenade", "weapon", "weapon_grenade", Vec3(0, 0, 3), 0)
+	spawn_requests.Spawn("weapon", "weapon_grenade", Vec3(0, 0, 3), 0)
 	local weapon = find("weapon_grenade")
 	T(weapon:IsValid())["=="](true)
 	T(#history:GetEntries())["=="](before + 1)
