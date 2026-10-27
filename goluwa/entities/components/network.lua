@@ -30,7 +30,8 @@ local PACKET = "ecs_network"
 local CALL = "ecs_network_call_on_client"
 local MAX_QUEUED_PACKETS = 512
 local SPAWNS_PER_FRAME = 32
-local INTERP_DELAY = 0.1
+local INTERP_DELAY = 0.075
+local CLOCK_OFFSET_RISE = 0.005
 local MAX_SAMPLES = 16
 local SNAP_DISTANCE = 50
 local get_time = system.GetTime
@@ -362,12 +363,13 @@ if SERVER then
 			buckets[i] = {reliable = {}, sequenced = {}, reliable_count = 0, sequenced_count = 0}
 		end
 
-		local function send_batch(self, batch, count, flags, filter)
+		local function send_batch(self, batch, count, flags, filter, now)
 			if count == 0 then return end
 
 			local buffer = packet.CreateBuffer()
 			buffer:WriteNetString(UPDATE)
 			buffer:WriteI32(self.NetworkId)
+			buffer:WriteDouble(now)
 			buffer:WriteByte(count)
 
 			for i = 1, count do
@@ -440,8 +442,8 @@ if SERVER then
 
 				if bucket.reliable_count + bucket.sequenced_count > 0 then
 					local filter = self:GetSendFilter(modes[i])
-					send_batch(self, bucket.reliable, bucket.reliable_count, "reliable", filter)
-					send_batch(self, bucket.sequenced, bucket.sequenced_count, "sequenced", filter)
+					send_batch(self, bucket.reliable, bucket.reliable_count, "reliable", filter, now)
+					send_batch(self, bucket.sequenced, bucket.sequenced_count, "sequenced", filter, now)
 					bucket.reliable_count = 0
 					bucket.sequenced_count = 0
 				end
@@ -573,6 +575,8 @@ if SERVER then
 end
 
 if CLIENT then
+	local clock_offset
+
 	function META:OnAdd()
 		assert(self.NetworkId ~= -1, "networked entities can only be created by the server")
 		spawned[self.NetworkId] = self
@@ -584,7 +588,7 @@ if CLIENT then
 		if spawned[self.NetworkId] == self then spawned[self.NetworkId] = nil end
 	end
 
-	function META:ApplyVar(var, value)
+	function META:ApplyVar(var, value, server_time)
 		if var.client then value = var.client(value) end
 
 		if var.interp and type(value) ~= "string" and type(value) ~= "boolean" then
@@ -605,7 +609,7 @@ if CLIENT then
 				snap = (value - last.value):GetLength() > SNAP_DISTANCE
 			end
 
-			samples[#samples + 1] = {t = get_time(), value = copy_value(value), snap = snap}
+			samples[#samples + 1] = {t = server_time, value = copy_value(value), snap = snap}
 
 			if #samples > MAX_SAMPLES then table.remove(samples, 1) end
 		else
@@ -617,7 +621,7 @@ if CLIENT then
 	end
 
 	function META:OnUpdate()
-		local render_time = get_time() - INTERP_DELAY
+		local render_time = get_time() - (clock_offset or 0) - INTERP_DELAY
 
 		for _, var in ipairs(self.vars) do
 			local samples = var.samples
@@ -813,13 +817,23 @@ if CLIENT then
 
 		if what == UPDATE then
 			self:RefreshVars()
+			local server_time = buffer:ReadDouble()
+			local offset = get_time() - server_time
+
+			if not clock_offset or not buffer.queued_retries and offset < clock_offset then
+				clock_offset = offset
+			elseif not buffer.queued_retries then
+				clock_offset = clock_offset + (offset - clock_offset) * CLOCK_OFFSET_RISE
+			end
 
 			for _ = 1, buffer:ReadByte() do
 				local key2 = buffer:ReadNetString()
 				local data = buffer:ReadBytes(buffer:ReadU16())
 				local var = self.var_map[key2]
 
-				if var then self:ApplyVar(var, packet.CreateBuffer(data):ReadType(var.type)) end
+				if var then
+					self:ApplyVar(var, packet.CreateBuffer(data):ReadType(var.type), server_time)
+				end
 			end
 
 			return true
@@ -869,6 +883,7 @@ if CLIENT then
 		end
 
 		queued_packets = {}
+		clock_offset = nil
 	end)
 
 	message.AddListener(CALL, function(id, component, name, ...)
