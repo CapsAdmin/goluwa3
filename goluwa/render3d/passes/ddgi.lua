@@ -1308,9 +1308,12 @@ local function pass_resolve()
 					vec2 uv = (vec2(pixel) + 0.5) / vec2(depth_size);
 					vec3 N = normalize(gbuffer_normal(pixel));
 					normal_sum += N;
-					bent_sum += N;
 
-					if (ddgi_data.ddgi_bent_normal_tex >= 0) {
+					if (gbuffer_is_thin(pixel)) {
+						bent_sum += vec3(N.x, abs(N.y), N.z);
+					} else bent_sum += N;
+
+					if (ddgi_data.ddgi_bent_normal_tex >= 0 && !gbuffer_is_thin(pixel)) {
 						vec3 bent = texture(TEXTURE(ddgi_data.ddgi_bent_normal_tex), uv).xyz;
 						float bent_length = length(bent);
 
