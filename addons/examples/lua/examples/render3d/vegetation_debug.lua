@@ -6,6 +6,7 @@ local Material = import("goluwa/render3d/material.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local weather = import("goluwa/render3d/weather.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -22,6 +23,13 @@ local Random = import("lua/foliage/random.lua")
 local trees = import("lua/foliage/trees.lua")
 local grass = import("lua/foliage/grass.lua")
 local FLEX = 0.1
+local POLE_FLEX = 0.2
+local PUSH_FLEX = 0.25
+local PUSH_HEIGHT = 3
+local PUSH_BRANCH_Y = 2.8
+local PUSH_BRANCH_LENGTH = 3.2
+local PUSH_ROW = Vec3(0, 0, -13)
+local PUSH_RANGE = 10
 local MAX_SPEED = 100
 local SCATTER_CENTER = Vec3(0, 0, -34)
 local SCATTER_SIZE = 32
@@ -39,11 +47,11 @@ local PARAMS = {
 	"BendDetailPhase",
 }
 
-if _G.wind_debug then _G.wind_debug.Remove() end
+if _G.vegetation_debug then _G.vegetation_debug.Remove() end
 
 local scene = {}
-_G.wind_debug = scene
-scene.root = Entity.New{Name = "wind_debug", Parent = Entity.World}
+_G.vegetation_debug = scene
+scene.root = Entity.New{Name = "vegetation_debug", Parent = Entity.World}
 scene.root:AddComponent("transform")
 scene.materials = {}
 scene.tracked = {}
@@ -102,7 +110,14 @@ end
 local function build_tree(height)
 	local parts = {}
 	local branch_height, branch_length, plane_size = height * 0.75, height / 3, height / 15
+	local root = {
+		pivot = {0, 0, 0},
+		mid = {0, height * 0.5, 0},
+		tip = {0, height, 0},
+		flex = POLE_FLEX,
+	}
 	local mesh = MeshBuilder.New()
+	mesh:SetChain(0, 0, 0, 0, height * 0.5, 0, 0, height, 0)
 	mesh:Tube(
 		{
 			{0, 0, 0, height / 75, 0, 0, 1},
@@ -112,8 +127,9 @@ local function build_tree(height)
 		{sides = 10, cap = true}
 	)
 	parts[1] = {
-		mesh = mesh:Build{bend_height = height, name = "wind_debug_pole"},
+		mesh = mesh:Build{bend_height = height, name = "vegetation_debug_pole", root_chain = root},
 		material = pole_material,
+		collide = true,
 	}
 
 	for i = 1, #BRANCH_COLORS do
@@ -123,6 +139,18 @@ local function build_tree(height)
 		local phase = (i - 1) / 4
 		local branch = MeshBuilder.New()
 		local points = {}
+		local chain = {
+			0,
+			branch_height,
+			0,
+			dir.x * branch_length * 0.5,
+			branch_height,
+			dir.z * branch_length * 0.5,
+			dir.x * branch_length,
+			branch_height,
+			dir.z * branch_length,
+		}
+		branch:SetChain(unpack(chain))
 
 		for k = 0, 4 do
 			local t = k / 4
@@ -142,10 +170,11 @@ local function build_tree(height)
 
 		branch:Tube(points, {sides = 8, cap = true})
 		parts[#parts + 1] = {
-			mesh = branch:Build{bend_height = height, name = "wind_debug_branch_" .. i},
+			mesh = branch:Build{bend_height = height, name = "vegetation_debug_branch_" .. i, root_chain = root},
 			material = branch_materials[i],
 		}
 		local planes = MeshBuilder.New()
+		planes:SetChain(unpack(chain))
 
 		for k = 1, 4 do
 			local reach = branch_length * k / 4
@@ -165,7 +194,7 @@ local function build_tree(height)
 		end
 
 		parts[#parts + 1] = {
-			mesh = planes:Build{bend_height = height, name = "wind_debug_planes_" .. i},
+			mesh = planes:Build{bend_height = height, name = "vegetation_debug_planes_" .. i, root_chain = root},
 			material = plane_materials[i],
 		}
 	end
@@ -198,10 +227,142 @@ local function build_grass(size, count, seed)
 
 	return {
 		{
-			mesh = mesh:Build{bend_height = 0.6, name = "wind_debug_grass"},
+			mesh = mesh:Build{bend_height = 0.6, name = "vegetation_debug_grass"},
 			material = grass_material,
 		},
 	}
+end
+
+local push_wood = tree_material(Color(0.55, 0.35, 0.2, 1))
+local push_leaf = tree_material(Color(0.2, 0.7, 0.25, 1), true)
+
+local function build_push_stick()
+	local mesh = MeshBuilder.New()
+	local points = {}
+
+	for k = 0, 12 do
+		local t = k / 12
+		points[#points + 1] = {0, PUSH_HEIGHT * t, 0, 0.035, 0, 0, 1 - t}
+	end
+
+	mesh:SetChain(0, 0, 0, 0, PUSH_HEIGHT * 0.5, 0, 0, PUSH_HEIGHT, 0)
+	mesh:Tube(points, {sides = 8, cap = true})
+	return {
+		{
+			mesh = mesh:Build{bend_height = PUSH_HEIGHT, name = "vegetation_debug_push_stick"},
+			material = pole_material,
+		},
+	}
+end
+
+local function build_push_branch(name, leaflets, flutter_gradient)
+	local root = {
+		pivot = {0, 0, 0},
+		mid = {0, PUSH_BRANCH_Y * 0.5, 0},
+		tip = {0, PUSH_BRANCH_Y, 0},
+		flex = POLE_FLEX,
+	}
+	local pole = MeshBuilder.New()
+	pole:SetChain(0, 0, 0, 0, PUSH_BRANCH_Y * 0.5, 0, 0, PUSH_BRANCH_Y, 0)
+	pole:Tube(
+		{
+			{0, 0, 0, 0.06, 0, 0, 1},
+			{0, PUSH_BRANCH_Y, 0, 0.05, 0, 0, 1},
+		},
+		{sides = 8, cap = true}
+	)
+	local branch_chain = {
+		0,
+		PUSH_BRANCH_Y,
+		0,
+		PUSH_BRANCH_LENGTH * 0.5,
+		PUSH_BRANCH_Y,
+		0,
+		PUSH_BRANCH_LENGTH,
+		PUSH_BRANCH_Y,
+		0,
+	}
+	local branch = MeshBuilder.New()
+	branch:SetChain(unpack(branch_chain))
+	local points = {}
+
+	for k = 0, 16 do
+		local t = k / 16
+		points[#points + 1] = {
+			t * PUSH_BRANCH_LENGTH,
+			PUSH_BRANCH_Y,
+			0,
+			0.04 * (
+				1 - t * 0.5
+			),
+			0,
+			0,
+			trees.Stiffness(t * PUSH_BRANCH_LENGTH, PUSH_FLEX),
+		}
+	end
+
+	branch:Tube(points, {sides = 8, cap = true})
+	local parts = {
+		{
+			mesh = pole:Build{bend_height = PUSH_HEIGHT, name = name .. "_pole", root_chain = root},
+			material = push_wood,
+			collide = true,
+		},
+		{
+			mesh = branch:Build{bend_height = PUSH_HEIGHT, name = name .. "_branch", root_chain = root},
+			material = push_wood,
+		},
+	}
+
+	if leaflets then
+		local mesh = MeshBuilder.New()
+		mesh:SetChain(unpack(branch_chain))
+		local rows, columns, length, width = 5, 3, 0.8, 0.22
+
+		for reach = 0.25, PUSH_BRANCH_LENGTH, 0.25 do
+			for _, side in ipairs{-1, 1} do
+				local first = mesh:GetVertexCount()
+
+				for row = 0, rows do
+					local f = row / rows
+
+					for column = 0, columns do
+						mesh:SetColor(
+							flutter_gradient and f or 1,
+							0,
+							trees.Stiffness(reach + f * length, PUSH_FLEX)
+						)
+						mesh:Vertex(
+							reach + (column / columns - 0.5) * width,
+							PUSH_BRANCH_Y - f * length * 0.35,
+							side * f * length,
+							0,
+							1,
+							0,
+							column / columns,
+							f
+						)
+					end
+				end
+
+				for row = 0, rows - 1 do
+					for column = 0, columns - 1 do
+						local a = first + row * (columns + 1) + column
+						local b, c, d = a + 1, a + columns + 2, a + columns + 1
+
+						if side > 0 then mesh:Quad(a, b, c, d) else mesh:Quad(d, c, b, a) end
+					end
+				end
+			end
+		end
+
+		parts[#parts + 1] = {
+			mesh = mesh:Build{bend_height = PUSH_HEIGHT, name = name .. "_leaflets", root_chain = root},
+			material = push_leaf,
+		}
+	end
+
+	return parts
 end
 
 local function spawn(name, parts, position, yaw, scale, label)
@@ -217,6 +378,13 @@ local function spawn(name, parts, position, yaw, scale, label)
 		child:AddComponent("transform")
 		child:AddComponent("visual_primitive"):SetPolygon3D(part.mesh)
 		child.visual_primitive:SetMaterial(part.material)
+
+		if part.collide then
+			child:AddComponent(
+				"rigid_body",
+				{Shape = MeshShape.New(part.mesh), MotionType = "static", WorldGeometry = true, Friction = 0.8}
+			)
+		end
 	end
 
 	ent.visual:BuildAABB()
@@ -229,9 +397,9 @@ do
 	shapes.BuildPlane(polygon, Vec3(0, 0, 0), Vec3(0, 1, 0), 120, 120, 10, 12, 12, Vec3(0, 0, -1))
 	polygon:BuildBoundingBox()
 	polygon:Upload()
-	polygon:SetName("wind_debug_ground")
+	polygon:SetName("vegetation_debug_ground")
 	spawn(
-		"wind_debug_ground",
+		"vegetation_debug_ground",
 		{
 			{
 				mesh = polygon,
@@ -240,6 +408,7 @@ do
 					MetallicMultiplier = 0,
 					RoughnessMultiplier = 0.9,
 				},
+				collide = true,
 			},
 		},
 		Vec3(0, 0, 0),
@@ -250,19 +419,99 @@ do
 end
 
 local tree_6 = build_tree(6)
-spawn("wind_debug_tree", tree_6, Vec3(-6, 0, -6), 0, 1, "6 m")
-spawn("wind_debug_tree_turned", tree_6, Vec3(6, 0, -6), 45, 1, "6 m, turned 45")
+spawn("vegetation_debug_tree", tree_6, Vec3(-6, 0, -6), 0, 1, "6 m")
+spawn("vegetation_debug_tree_turned", tree_6, Vec3(6, 0, -6), 45, 1, "6 m, turned 45")
 spawn(
-	"wind_debug_tree_scaled",
+	"vegetation_debug_tree_scaled",
 	tree_6,
 	Vec3(-6, 0, 6),
 	120,
 	1.5,
 	"6 m x1.5, turned 120"
 )
-spawn("wind_debug_tree_small", tree_6, Vec3(6, 0, 6), -30, 0.6, "6 m x0.6, turned -30")
-spawn("wind_debug_tree_short", build_tree(3), Vec3(-15, 0, 0), 0, 1, "3 m")
-spawn("wind_debug_tree_tall", build_tree(12), Vec3(15, 0, 0), 0, 1, "12 m")
+spawn("vegetation_debug_tree_small", tree_6, Vec3(6, 0, 6), -30, 0.6, "6 m x0.6, turned -30")
+spawn("vegetation_debug_tree_short", build_tree(3), Vec3(-15, 0, 0), 0, 1, "3 m")
+spawn("vegetation_debug_tree_tall", build_tree(12), Vec3(15, 0, 0), 0, 1, "12 m")
+spawn(
+	"vegetation_debug_push_stick",
+	build_push_stick(),
+	PUSH_ROW + Vec3(-9, 0, 0),
+	0,
+	1,
+	"stick, stiffness 1 to 0"
+)
+spawn(
+	"vegetation_debug_push_branch",
+	build_push_branch("vegetation_debug_push_branch", false),
+	PUSH_ROW + Vec3(-4, 0, 0),
+	0,
+	1,
+	"branch, stiffness falls along it"
+)
+spawn(
+	"vegetation_debug_push_leaves",
+	build_push_branch("vegetation_debug_push_leaves", true, true),
+	PUSH_ROW + Vec3(2, 0, 0),
+	0,
+	1,
+	"leaflets, flutter 0 at the stem to 1 at the edge"
+)
+spawn(
+	"vegetation_debug_push_uniform",
+	build_push_branch("vegetation_debug_push_uniform", true, false),
+	PUSH_ROW + Vec3(8, 0, 0),
+	0,
+	1,
+	"leaflets, flutter 1 everywhere"
+)
+scene.labels[#scene.labels + 1] = {
+	position = PUSH_ROW + Vec3(0, 4.5, 0),
+	text = "push test, hold Q for the pusher controls",
+}
+scene.pusher = {shape = 0, size = 0.6, x = 0, y = 2.4, z = 0, sweep = 0.5, time = 0}
+local pusher_material = Material.New{
+	ColorMultiplier = Color(1, 0.35, 0.25, 0.4),
+	Translucent = true,
+	MetallicMultiplier = 0,
+	RoughnessMultiplier = 0.8,
+}
+local pusher_ent = NULL
+
+local function build_pusher()
+	if pusher_ent:IsValid() then pusher_ent:Remove() end
+
+	local p = scene.pusher
+	local config = {
+		Name = "vegetation_debug_pusher",
+		Parent = scene.root,
+		Position = PUSH_ROW + Vec3(p.x, p.y, p.z),
+		Material = pusher_material,
+		RigidBody = {MotionType = "kinematic"},
+	}
+
+	if p.shape == 0 then
+		config.Radius = p.size
+		pusher_ent = shapes.Sphere(config)
+	elseif p.shape == 1 then
+		config.Size = Vec3(p.size * 4, p.size * 0.4, p.size * 3)
+		pusher_ent = shapes.Box(config)
+	else
+		config.Radius = p.size * 0.5
+		config.Height = p.size * 3.4
+		pusher_ent = shapes.Capsule(config)
+	end
+end
+
+build_pusher()
+local ball_position = Vec3(0, 1.5, 20)
+shapes.Sphere{
+	Name = "vegetation_debug_ball",
+	Parent = scene.root,
+	Radius = 0.5,
+	Position = ball_position,
+	Material = pusher_material,
+}
+scene.labels[#scene.labels + 1] = {position = ball_position + Vec3(0, 1, 0), text = "dynamic sphere, pick it up with the physgun"}
 scene.pending = {}
 
 do
@@ -282,7 +531,7 @@ do
 			{"Trees/Twisted_Tree/twisted_tree_a.cgf", Vec3(30, 0, -8)},
 			{"Bushes/palm_bush/palmbush_med_a.cgf", Vec3(30, 0, 10)},
 		} do
-			local ent = Entity.New{Name = "wind_debug_crysis_" .. i, Parent = scene.root}
+			local ent = Entity.New{Name = "vegetation_debug_crysis_" .. i, Parent = scene.root}
 			ent:AddComponent("transform"):SetPosition(model[2])
 			ent:AddComponent("visual"):SetModelPath(root .. model[1])
 			scene.pending[#scene.pending + 1] = ent.visual
@@ -292,11 +541,11 @@ do
 end
 
 local grass_patch = build_grass(1.5, 120, 1)
-spawn("wind_debug_grass", grass_patch, Vec3(-3, 0, 14), 0, 1, "grass")
-spawn("wind_debug_grass_turned", grass_patch, Vec3(0, 0, 14), 60, 1, "grass, turned 60")
-spawn("wind_debug_grass_scaled", grass_patch, Vec3(3, 0, 14), 0, 2, "grass x2")
+spawn("vegetation_debug_grass", grass_patch, Vec3(-3, 0, 14), 0, 1, "grass")
+spawn("vegetation_debug_grass_turned", grass_patch, Vec3(0, 0, 14), 60, 1, "grass, turned 60")
+spawn("vegetation_debug_grass_scaled", grass_patch, Vec3(3, 0, 14), 0, 2, "grass x2")
 scene.scatter_set = ScatterSet.New{
-	Name = "wind_debug",
+	Name = "vegetation_debug",
 	Prototypes = {
 		{
 			model = function()
@@ -356,16 +605,17 @@ do
 	end
 
 	spawn(
-		"wind_debug_scatter_ground",
+		"vegetation_debug_scatter_ground",
 		{
 			{
-				mesh = mesh:Build{name = "wind_debug_scatter_ground"},
+				mesh = mesh:Build{name = "vegetation_debug_scatter_ground"},
 				material = Material.New{
 					ColorMultiplier = Color(0.35, 0.33, 0.3, 1),
 					MetallicMultiplier = 0,
 					RoughnessMultiplier = 0.9,
 					ScatterSet = scene.scatter_set,
 				},
+				collide = true,
 			},
 		},
 		SCATTER_CENTER,
@@ -375,7 +625,7 @@ do
 	)
 end
 
-local spawn_point = Entity.New{Name = "wind_debug_spawn", Parent = scene.root}
+local spawn_point = Entity.New{Name = "vegetation_debug_spawn", Parent = scene.root}
 spawn_point:AddComponent("transform"):SetPosition(Vec3(0, 3, 26))
 spawn_point:AddComponent("spawn_point", {Group = "start"})
 scene.direction = 0
@@ -402,7 +652,16 @@ end
 
 apply_wind()
 
-event.AddListener("Update", "wind_debug", function()
+event.AddListener("Update", "vegetation_debug", function(dt)
+	local p = scene.pusher
+
+	if p.sweep > 0 then
+		p.time = p.time + dt * p.sweep
+		p.x = math.sin(p.time) * PUSH_RANGE
+	end
+
+	pusher_ent.transform:SetPosition(PUSH_ROW + Vec3(p.x, p.y, p.z))
+
 	for i = #scene.pending, 1, -1 do
 		local visual = scene.pending[i]
 		local entries = visual:GetRenderEntries()
@@ -424,7 +683,7 @@ event.AddListener("Update", "wind_debug", function()
 	local side = Vec3(-dir.z, 0, dir.x) * 0.4
 	local color = Color(0.3, 0.8, 1, 1)
 	debug_draw.DrawLine{
-		id = "wind_debug_arrow",
+		id = "vegetation_debug_arrow",
 		from = from,
 		to = to,
 		color = color,
@@ -432,7 +691,7 @@ event.AddListener("Update", "wind_debug", function()
 		time = 0.1,
 	}
 	debug_draw.DrawLine{
-		id = "wind_debug_arrow_l",
+		id = "vegetation_debug_arrow_l",
 		from = to,
 		to = to - dir * 0.6 + side,
 		color = color,
@@ -440,7 +699,7 @@ event.AddListener("Update", "wind_debug", function()
 		time = 0.1,
 	}
 	debug_draw.DrawLine{
-		id = "wind_debug_arrow_r",
+		id = "vegetation_debug_arrow_r",
 		from = to,
 		to = to - dir * 0.6 - side,
 		color = color,
@@ -451,7 +710,7 @@ event.AddListener("Update", "wind_debug", function()
 	for i, label in ipairs(scene.labels) do
 		if label.text then
 			debug_draw.DrawText{
-				id = "wind_debug_label_" .. i,
+				id = "vegetation_debug_label_" .. i,
 				position = label.position + Vec3(0, 0.4, 0),
 				text = label.text,
 				time = 0.1,
@@ -509,10 +768,10 @@ local function update_readout()
 	)
 end
 
-local function slider(children, label, max, get, set)
+local function slider(children, label, max, get, set, min)
 	children[#children + 1] = Text{Text = label, IgnoreMouseInput = true}
 	children[#children + 1] = Slider{
-		Min = 0,
+		Min = min or 0,
 		Max = max,
 		Value = get(),
 		OnChange = function(value)
@@ -583,6 +842,88 @@ local function show()
 		multiplier(children, "leaf amplitude", "BendDetailLeafAmplitude")
 		multiplier(children, "branch amplitude", "BendDetailBranchAmplitude")
 		multiplier(children, "detail phase", "BendDetailPhase")
+
+		slider(
+			children,
+			"pusher shape (0 sphere, 1 slab, 2 capsule)",
+			2,
+			function()
+				return scene.pusher.shape
+			end,
+			function(value)
+				local shape = math.floor(value + 0.5)
+
+				if shape ~= scene.pusher.shape then
+					scene.pusher.shape = shape
+					build_pusher()
+				end
+			end
+		)
+
+		slider(
+			children,
+			"pusher size",
+			2,
+			function()
+				return scene.pusher.size
+			end,
+			function(value)
+				scene.pusher.size = value
+				build_pusher()
+			end,
+			0.2
+		)
+
+		slider(
+			children,
+			"pusher sweep speed (0 stops it)",
+			3,
+			function()
+				return scene.pusher.sweep
+			end,
+			function(value)
+				scene.pusher.sweep = value
+			end
+		)
+
+		slider(
+			children,
+			"pusher x (when not sweeping)",
+			PUSH_RANGE + 2,
+			function()
+				return scene.pusher.x
+			end,
+			function(value)
+				scene.pusher.x = value
+			end,
+			-PUSH_RANGE - 2
+		)
+
+		slider(
+			children,
+			"pusher height",
+			5,
+			function()
+				return scene.pusher.y
+			end,
+			function(value)
+				scene.pusher.y = value
+			end
+		)
+
+		slider(
+			children,
+			"pusher depth",
+			4,
+			function()
+				return scene.pusher.z
+			end,
+			function(value)
+				scene.pusher.z = value
+			end,
+			-4
+		)
+
 		children[#children + 1] = Text{
 			Ref = function(self)
 				readout = self
@@ -593,8 +934,8 @@ local function show()
 		}
 		panel = Panel.World:Ensure(
 			Window{
-				Key = "WindDebugWindow",
-				Title = "WIND",
+				Key = "VegetationDebugWindow",
+				Title = "VEGETATION",
 				RequestMouse = true,
 				Closable = false,
 				Minimizable = false,
@@ -611,7 +952,7 @@ local function show()
 	panel.visual:SetVisible(true)
 end
 
-event.AddListener("Update", "wind_debug_controls", function()
+event.AddListener("Update", "vegetation_debug_controls", function()
 	local down = input.IsKeyDown("q")
 
 	if down == scene.controls_shown then return end
@@ -626,8 +967,8 @@ event.AddListener("Update", "wind_debug_controls", function()
 end)
 
 function scene.Remove()
-	event.RemoveListener("Update", "wind_debug")
-	event.RemoveListener("Update", "wind_debug_controls")
+	event.RemoveListener("Update", "vegetation_debug")
+	event.RemoveListener("Update", "vegetation_debug_controls")
 	weather.SetWindTimeScale(1)
 
 	for _, entry in ipairs(scene.materials) do
@@ -640,7 +981,7 @@ function scene.Remove()
 
 	scene.scatter_set:Remove()
 	scene.root:Remove()
-	_G.wind_debug = nil
+	_G.vegetation_debug = nil
 end
 
 return scene
