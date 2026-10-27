@@ -9,15 +9,15 @@ local system = import("goluwa/system.lua")
 local raycast = RENDER_3D and import("goluwa/render3d/raycast.lua")
 local META = objects.CreateTemplate("player_controller")
 local HISTORY_SIZE = 256
-local MIN_BUFFER = 4
+local MIN_BUFFER = 2
 local START_BUFFER = 6
 local MAX_BUFFER = 14
 local BACKLOG_SLACK = 12
-local DRAIN_SLACK = 2
+local DRAIN_SLACK = 1
 local DRAIN_INTERVAL = 30
 local REST_SPEED = 0.05
 local MAX_REPEATS = 15
-local SHRINK_INTERVAL = 300
+local SHRINK_WINDOW = 120
 local CORRECTION_DECAY = 10
 local DISTANCE_TOLERANCE = 0.01
 local POSITION_TOLERANCE = 0.002
@@ -38,6 +38,7 @@ function META:Initialize()
 	self.drain_ticks = 0
 	self.skipped = 0
 	self.consumed = 0
+	self.window_spare = math.huge
 	self.history = {}
 	self.processed = {
 		number = 0,
@@ -153,6 +154,7 @@ local function next_queued(self)
 		self.buffering = true
 		self.buffer_target = math.min(self.buffer_target + 2, MAX_BUFFER)
 		self.consumed = 0
+		self.window_spare = math.huge
 		return nil
 	end
 
@@ -175,10 +177,15 @@ local function next_queued(self)
 	queue[self.queue_head] = false
 	self.queue_head = self.queue_head + 1
 	self.consumed = self.consumed + 1
+	self.window_spare = math.min(self.window_spare, #queue - self.queue_head + 1)
 
-	if self.consumed >= SHRINK_INTERVAL then
+	if self.consumed >= SHRINK_WINDOW then
+		if self.window_spare > 1 then
+			self.buffer_target = math.max(self.buffer_target - (self.window_spare - 1), MIN_BUFFER)
+		end
+
 		self.consumed = 0
-		self.buffer_target = math.max(self.buffer_target - 1, MIN_BUFFER)
+		self.window_spare = math.huge
 	end
 
 	if self.queue_head > #queue then

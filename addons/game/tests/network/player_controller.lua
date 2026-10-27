@@ -85,7 +85,7 @@ T.TestPhysics("player controller computes pressed edges from consecutive command
 	local controller = player.player_controller
 	local commands = {}
 
-	for number = 1, controller.buffer_target + 3 do
+	for number = 1, controller.buffer_target + 1 do
 		commands[number] = make_command(number, function(cmd)
 			if number >= 3 and number <= 5 then
 				cmd.buttons = bit.bor(cmd.buttons, BUTTON.JUMP)
@@ -200,6 +200,27 @@ T.TestPhysics("player controller drains a surplus of moving commands slowly", fu
 	drive(player, 59, forward)
 	T(controller.skipped)["=="](1)
 	T(controller:GetQueueSize())["=="](11)
+	player:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("player controller lowers its buffer target to the slack it does not need", function()
+	local ground = create_ground()
+	local player = create_player(Vec3(0, 1, 0))
+	local controller = player.player_controller
+	settle(player)
+	controller.buffer_target = 10
+	local number = controller.last_queued
+	local commands = {}
+
+	for i = 1, 8 do
+		commands[i] = make_command(number + i)
+	end
+
+	controller:PushCommands(commands)
+	drive(player, 240)
+	T(controller.buffer_target)["<"](10)
+	T(controller:GetQueueSize())["<="](controller.buffer_target + 1)
 	player:Remove()
 	ground:Remove()
 end)
