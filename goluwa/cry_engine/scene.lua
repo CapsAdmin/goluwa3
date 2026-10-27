@@ -353,9 +353,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 				local r = records[i - 1]
 				local position = units.ToEngine(entry.position)
 				r.x, r.y, r.z, r.scale, r.yaw = position.x, position.y, position.z, entry.scale, entry.yaw
-				local up = not entry.fit_to_terrain and
-					entry.terrain_normal and
-					entry.terrain_normal:GetNormalized()
+				local up = entry.terrain_normal
 
 				if up then
 					r.nx, r.ny, r.nz = up.x, up.y, up.z
