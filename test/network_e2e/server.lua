@@ -24,6 +24,16 @@ shapes.Box{
 	Network = true,
 }
 Entity.New{
+	Name = "e2e_center_offset",
+	transform = {Position = Vec3(20, 0, 20)},
+	rigid_body = {
+		MotionType = "static",
+		Shape = import("goluwa/physics/shapes/box.lua").New(Vec3(1, 1, 1)),
+		CenterOffset = Vec3(0, 0.5, 0),
+	},
+	network = {},
+}
+Entity.New{
 	Name = "e2e_light",
 	transform = {Position = Vec3(0, 5, 0)},
 	light_point = {Color = Color(1, 0.5, 0.2, 1), Lumen = 500, Range = 20},

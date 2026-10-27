@@ -56,6 +56,11 @@ event.AddListener("Update", "e2e_observer", function()
 		ground.model:GetModelPath() == "models/box.lua" and
 		ground.rigid_body:GetMotionType() == "static" and
 		ground.rigid_body:GetPhysicsShape():GetSize().x == 200
+	local offset_body = find("e2e_center_offset")
+	checks.center_offset = offset_body ~= nil and
+		offset_body.rigid_body.CenterOffset ~= nil and
+		math.abs(offset_body.rigid_body.CenterOffset.y - 0.5) < 0.001 and
+		math.abs(offset_body.rigid_body:GetPosition().y - 0.5) < 0.001
 	local ball = find("e2e_ball")
 
 	if ball then
@@ -153,6 +158,7 @@ event.AddListener("Update", "e2e_observer", function()
 		"prop",
 		"child",
 		"guid",
+		"center_offset",
 		"outfit",
 		"avatar_owner",
 		"pushed_owner",
@@ -177,6 +183,7 @@ local function finish(timed_out)
 		"prop",
 		"child",
 		"guid",
+		"center_offset",
 		"outfit",
 		"avatar_owner",
 		"pushed_owner",
