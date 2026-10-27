@@ -1053,7 +1053,7 @@ function Visual:SetModelPath(path)
 
 			local mesh = data.mesh
 
-			if not mesh.mesh then return end
+			if not mesh.mesh:IsValid() then return end
 
 			primitive_index = primitive_index + 1
 

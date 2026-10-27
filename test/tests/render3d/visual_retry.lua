@@ -61,3 +61,31 @@ T.Test3D("a visual keeps the load of a model requested while its entity is built
 	T(ent.visual.LoadGeneration)["=="](1)
 	ent:Remove()
 end)
+
+T.Test3D("a visual skips model polygons that never got a mesh", function()
+	local dir = "tmp/visual_empty_content/"
+	fs.create_directory_recursive(dir .. "models/")
+	fs.write_file(
+		dir .. "models/visual_empty_polygon.lua",
+		[[
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+return {
+	name = "visual_empty_polygon",
+	kind = "procedural_model",
+	create_primitives = function()
+		return {{mesh = Polygon3D.New()}}
+	end,
+}
+]]
+	)
+	T(vfs.Mount(dir) ~= false)["=="](true)
+	local ent = Entity.New{transform = {}, visual = {ModelPath = "models/visual_empty_polygon.lua"}}
+
+	T.WaitUntil(function()
+		return not ent.visual:IsLoading()
+	end, 5)
+
+	T(#ent:GetChildren())["=="](0)
+	ent:Remove()
+	vfs.Unmount(dir)
+end)
