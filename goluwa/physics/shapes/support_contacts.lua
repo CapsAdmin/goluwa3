@@ -226,6 +226,9 @@ function support_contacts.SweepCollider(body, dt)
 	return hit
 end
 
+-- the sweep is narrower than the sphere so a wall or curb the sphere leans on does not start it overlapped and hide the floor
+local SUPPORT_SWEEP_SHARE = 0.5
+
 function support_contacts.SweepSphere(body, dt, radius)
 	local physics = body:GetPhysics()
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
@@ -234,7 +237,13 @@ function support_contacts.SweepSphere(body, dt, radius)
 	sweep_origin.x = center.x + cast_origin_offset.x
 	sweep_origin.y = center.y + cast_origin_offset.y
 	sweep_origin.z = center.z + cast_origin_offset.z
-	local hit = physics.Sweep(sweep_origin, cast_delta, radius, body:GetOwner(), body:GetFilterFunction())
+	local hit = physics.Sweep(
+		sweep_origin,
+		cast_delta,
+		radius * SUPPORT_SWEEP_SHARE,
+		body:GetOwner(),
+		body:GetFilterFunction()
+	)
 	stats:Count("sweeps_support_sphere")
 	return hit
 end
