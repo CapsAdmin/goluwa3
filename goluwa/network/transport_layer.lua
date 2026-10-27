@@ -92,7 +92,18 @@ function transport_layer.Update()
 	end
 end
 
+function transport_layer.Flush()
+	local sockets = transport_layer.sockets
+
+	for i = #sockets, 1, -1 do
+		local peer = sockets[i]
+
+		if peer and peer.conn then peer.conn:Flush() end
+	end
+end
+
 event.AddListener("Update", "transport_layer", transport_layer.Update)
+event.AddListener("PostUpdate", "transport_layer", transport_layer.Flush, {priority = -100})
 
 do
 	local PeerClient = objects.CreateTemplate("peer_client")
@@ -214,6 +225,9 @@ do
 	local ffi_string = ffi.string
 	local TYPE_CONNECT = packet_header.TYPE_CONNECT
 	local REQUEST = handshake.PACKET_TYPE.CONNECT_REQUEST
+	local IsDatagram = packet_header.IsDatagram
+	local DecodeRecord = packet_header.DecodeRecord
+	local FIRST_RECORD = packet_header.PrefixSize + 1
 
 	function PeerServer:OnReceive(peer, str, flags, channel) end
 
@@ -296,9 +310,11 @@ do
 		local peer = self.peers[key]
 
 		if not peer then
-			local type_, _, _, _, _, _, payload = packet_header.Decode(chunk)
+			if not IsDatagram(chunk) then return end
 
-			if type_ ~= TYPE_CONNECT or payload:byte(1) ~= REQUEST then return end
+			local type_, _, _, _, _, _, start = DecodeRecord(chunk, FIRST_RECORD)
+
+			if type_ ~= TYPE_CONNECT or chunk:byte(start) ~= REQUEST then return end
 
 			peer = self:CreatePeer(key, address)
 		end

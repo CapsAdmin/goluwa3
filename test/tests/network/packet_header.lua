@@ -1,229 +1,69 @@
 local T = import("test/environment.lua")
 local packet_header = import("goluwa/network/packet_header.lua")
-local packet = import("goluwa/network/packet.lua")
+local TYPE_DATA = packet_header.TYPE_DATA
+local FLAG_RELIABLE = packet_header.FLAG_RELIABLE
 
-T.Test("Header constants are defined", function()
-	T(packet_header.Magic)["=="](0x474C)
-	T(packet_header.Version)["=="](1)
-	T(packet_header.HeaderSize)["=="](11)
-	T(packet_header.MaxPayload)[">"](0)
-	T(packet_header.TYPE_DATA)["=="](0)
-	T(packet_header.TYPE_ACK)["=="](1)
-	T(packet_header.TYPE_CONNECT)["=="](2)
-	T(packet_header.TYPE_DISCONNECT)["=="](3)
-	T(packet_header.TYPE_PING)["=="](4)
-	T(packet_header.TYPE_PONG)["=="](5)
+T.Test("Datagram prefix is recognized", function()
+	T(#packet_header.Prefix)["=="](packet_header.PrefixSize)
+	T(packet_header.IsDatagram(packet_header.Prefix))["=="](true)
+	T(packet_header.IsDatagram("GL\1"))["=="](false)
+	T(packet_header.IsDatagram("not a goluwa packet"))["=="](false)
+	T(packet_header.IsDatagram(""))["=="](false)
 end)
 
-T.Test("WriteHeader and ReadHeader roundtrip — data packet", function()
-	local buf = packet.CreateBuffer()
-	packet_header.WriteHeader(buf, packet_header.TYPE_DATA, 0, 42, 3, 1, 1)
-	buf:SetPosition(1)
-	local header = packet_header.ReadHeader(buf)
-	T(header.version)["=="](1)
-	T(header.type)["=="](packet_header.TYPE_DATA)
-	T(header.flags)["=="](0)
-	T(header.packet_id)["=="](42)
-	T(header.channel)["=="](3)
-	T(header.fragment_id)["=="](0)
-	T(header.total_fragments)["=="](1)
+T.Test("Record roundtrip without fragment fields", function()
+	local record = packet_header.EncodeRecord(TYPE_DATA, FLAG_RELIABLE, 3, 42, "hello")
+	T(#record)["=="](packet_header.RecordHeaderSize + 5)
+	local type_, flags, channel, id, fragment_id, total, start, stop = packet_header.DecodeRecord(record, 1)
+	local payload = record:sub(start, stop)
+	local next_pos = stop + 1
+	T(type_)["=="](TYPE_DATA)
+	T(flags)["=="](FLAG_RELIABLE)
+	T(channel)["=="](3)
+	T(id)["=="](42)
+	T(fragment_id)["=="](1)
+	T(total)["=="](1)
+	T(payload)["=="]("hello")
+	T(next_pos)["=="](#record + 1)
 end)
 
-T.Test("WriteHeader and ReadHeader roundtrip — reliable sequenced", function()
-	local buf = packet.CreateBuffer()
-	local flags = bit.bor(packet_header.FLAG_RELIABLE, packet_header.FLAG_UNRELIABLE_SEQUENCED)
-	packet_header.WriteHeader(buf, packet_header.TYPE_DATA, flags, 100, 0, 1, 1)
-	buf:SetPosition(1)
-	local header = packet_header.ReadHeader(buf)
-	T(header.type)["=="](packet_header.TYPE_DATA)
-	T(header.flags)["=="](flags)
-	T(header.packet_id)["=="](100)
-	T(header.channel)["=="](0)
+T.Test("Record roundtrip with fragment fields", function()
+	local record = packet_header.EncodeRecord(TYPE_DATA, FLAG_RELIABLE, 0, 65535, "part", 300, 65535)
+	T(#record)["=="](packet_header.FragmentRecordHeaderSize + 4)
+	local _, flags, _, id, fragment_id, total, start, stop = packet_header.DecodeRecord(record, 1)
+	local payload = record:sub(start, stop)
+	T(bit.band(flags, FLAG_RELIABLE))["=="](FLAG_RELIABLE)
+	T(id)["=="](65535)
+	T(fragment_id)["=="](300)
+	T(total)["=="](65535)
+	T(payload)["=="]("part")
 end)
 
-T.Test("ReadHeader rejects bad magic", function()
-	local buf = packet.CreateBuffer()
-	buf:WriteByte(0xFF)
-	buf:WriteByte(0xFF)
-	buf:WriteByte(1)
-	buf:WriteByte(0)
-	buf:WriteByte(0)
-	buf:WriteI16(0)
-	buf:WriteByte(0)
-	buf:WriteI16(0)
-	buf:WriteByte(1)
-	T(function()
-		packet_header.ReadHeader(buf)
-	end)["~="](nil)
-end)
+T.Test("Records decode in order from one datagram", function()
+	local datagram = packet_header.Prefix .. packet_header.EncodeRecord(TYPE_DATA, 0, 1, 0, "a") .. packet_header.EncodeRecord(packet_header.TYPE_ACK, 0, 2, 0, "") .. packet_header.EncodeRecord(TYPE_DATA, 0, 3, 7, string.rep("z", 1000))
+	local pos = packet_header.PrefixSize + 1
+	local seen = {}
 
-T.Test("Frame produces correct size for empty payload", function()
-	local framed = packet_header.Frame({})
-	T(#framed)["=="](packet_header.HeaderSize)
-end)
-
-T.Test("Frame produces correct size for small payload", function()
-	local payload = {1, 2, 3, 4, 5}
-	local framed = packet_header.Frame(payload)
-	T(#framed)["=="](packet_header.HeaderSize + 5)
-end)
-
-T.Test("Unframe returns header and payload", function()
-	local payload = {10, 20, 30}
-	local framed = packet_header.Frame(payload)
-	local header, received_payload = packet_header.Unframe(framed)
-	T(header.type)["=="](packet_header.TYPE_DATA)
-	T(header.flags)["=="](0)
-	T(header.packet_id)["=="](0)
-	T(received_payload[1])["=="](10)
-	T(received_payload[2])["=="](20)
-	T(received_payload[3])["=="](30)
-end)
-
-T.Test("Frame + Unframe roundtrip preserves arbitrary bytes", function()
-	local payload = {}
-
-	for i = 1, 256 do
-		payload[i] = i % 256
+	while pos <= #datagram do
+		local type_, _, channel, id, _, _, start, stop = packet_header.DecodeRecord(datagram, pos)
+		seen[#seen + 1] = {type_, channel, id, stop - start + 1}
+		pos = stop + 1
 	end
 
-	local framed = packet_header.Frame(payload)
-	local _, received = packet_header.Unframe(framed)
-	T(#received)["=="](#payload)
-
-	for i = 1, #payload do
-		T(received[i])["=="](payload[i])
-	end
+	T(#seen)["=="](3)
+	T(seen[1][2])["=="](1)
+	T(seen[2][1])["=="](packet_header.TYPE_ACK)
+	T(seen[2][4])["=="](0)
+	T(seen[3][3])["=="](7)
+	T(seen[3][4])["=="](1000)
 end)
 
-T.Test("Fragment splits large payload into correct number of fragments", function()
-	local max_data = packet_header.MaxPayload - packet_header.HeaderSize
-	local payload_size = max_data * 3
-	local payload = {}
-
-	for i = 1, payload_size do
-		payload[i] = (i % 256)
-	end
-
-	local fragments = packet_header.Fragment(payload, 0)
-	T(#fragments)["=="](3)
-
-	for _, frag_data in ipairs(fragments) do
-		T(#frag_data)["<="](packet_header.MaxPayload)
-	end
+T.Test("Truncated records are rejected", function()
+	local record = packet_header.EncodeRecord(TYPE_DATA, 0, 0, 0, "payload")
+	T(packet_header.DecodeRecord(record:sub(1, 5), 1))["=="](nil)
+	T(packet_header.DecodeRecord(record:sub(1, #record - 1), 1))["=="](nil)
+	local fragment = packet_header.EncodeRecord(TYPE_DATA, FLAG_RELIABLE, 0, 0, "x", 1, 2)
+	T(packet_header.DecodeRecord(fragment:sub(1, 9), 1))["=="](nil)
 end)
 
-T.Test("Fragment produces correct fragment IDs", function()
-	local max_data = packet_header.MaxPayload - packet_header.HeaderSize
-	local payload_size = max_data * 2 + 100
-	local payload = {}
-
-	for i = 1, payload_size do
-		payload[i] = i % 256
-	end
-
-	local fragments = packet_header.Fragment(payload, 0)
-	T(#fragments)["=="](3)
-
-	for i = 1, 3 do
-		local buf = packet.CreateBuffer(fragments[i])
-		local hdr = packet_header.ReadHeader(buf)
-		T(hdr.fragment_id)["=="](i)
-	end
-end)
-
-T.Test("Reassemble single fragment returns original payload", function()
-	local payload = {42, 43, 44, 45, 46}
-	local framed = packet_header.Frame(payload)
-	local reassembled = packet_header.Reassemble({framed})
-	T(#reassembled)["=="](#payload)
-
-	for i = 1, #payload do
-		T(reassembled[i])["=="](payload[i])
-	end
-end)
-
-T.Test("Reassemble multiple fragments reconstructs original payload", function()
-	local max_data = packet_header.MaxPayload - packet_header.HeaderSize
-	local payload_size = max_data * 3 + 100
-	local payload = {}
-
-	for i = 1, payload_size do
-		payload[i] = (i * 7 + 13) % 256
-	end
-
-	local fragments = packet_header.Fragment(payload, 0)
-	local reassembled = packet_header.Reassemble(fragments)
-	T(#reassembled)["=="](#payload)
-
-	for i = 1, #payload do
-		T(reassembled[i])["=="](payload[i])
-	end
-end)
-
-T.Test("Reassemble empty fragment list returns empty", function()
-	local result = packet_header.Reassemble({})
-	T(#result)["=="](0)
-end)
-
-T.Test("Fragment + Reassemble roundtrip with max-sized payload", function()
-	local max_data = packet_header.MaxPayload - packet_header.HeaderSize
-	local payload_size = packet_header.MaxPayload * 5
-	local payload = {}
-
-	for i = 1, payload_size do
-		payload[i] = (i * 31 + 7) % 256
-	end
-
-	local fragments = packet_header.Fragment(payload, 2)
-	local reassembled = packet_header.Reassemble(fragments)
-	T(#reassembled)["=="](#payload)
-
-	for i = 1, #payload do
-		T(reassembled[i])["=="](payload[i])
-	end
-end)
-
-T.Test("Header size is exactly 11 bytes", function()
-	local framed = packet_header.Frame({})
-	T(#framed)["=="](11)
-end)
-
-T.Test("Packet ID wraps correctly at boundary values", function()
-	local buf = packet.CreateBuffer()
-	packet_header.WriteHeader(buf, packet_header.TYPE_DATA, 0, 65535, 0, 1, 1)
-	buf:SetPosition(1)
-	local header = packet_header.ReadHeader(buf)
-	T(header.packet_id)["=="](65535)
-	local buf2 = packet.CreateBuffer()
-	packet_header.WriteHeader(buf2, packet_header.TYPE_DATA, 0, 0, 0, 1, 1)
-	buf2:SetPosition(1)
-	local header2 = packet_header.ReadHeader(buf2)
-	T(header2.packet_id)["=="](0)
-end)
-
-T.Test("All packet types serialize correctly", function()
-	for type_ = 0, 5 do
-		local buf = packet.CreateBuffer()
-		packet_header.WriteHeader(buf, type_, 0, 1, 0, 1, 1)
-		buf:SetPosition(1)
-		local header = packet_header.ReadHeader(buf)
-		T(header.type)["=="](type_)
-	end
-end)
-
-T.Test("Flags bit combinations are preserved", function()
-	local flag_values = {
-		packet_header.FLAG_RELIABLE,
-		packet_header.FLAG_UNRELIABLE_SEQUENCED,
-		bit.bor(packet_header.FLAG_RELIABLE, packet_header.FLAG_UNRELIABLE_SEQUENCED),
-	}
-
-	for _, flags in ipairs(flag_values) do
-		local buf = packet.CreateBuffer()
-		packet_header.WriteHeader(buf, packet_header.TYPE_DATA, flags, 1, 0, 1, 1)
-		buf:SetPosition(1)
-		local header = packet_header.ReadHeader(buf)
-		T(header.flags)["=="](flags)
-	end
-end)
+return {}

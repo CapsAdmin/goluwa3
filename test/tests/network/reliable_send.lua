@@ -1,216 +1,150 @@
 local T = import("test/environment.lua")
 local reliable_send = import("goluwa/network/reliable_send.lua")
 
-local function count_hash(t)
-	local count = 0
-
-	for _ in pairs(t) do
-		count = count + 1
-	end
-
-	return count
+local function entry(size)
+	return {size = size or 1000}
 end
 
-T.Test("Reliability levels are defined", function()
-	T(reliable_send.RELIABILITY.UNRELIABLE)["=="](0)
-	T(reliable_send.RELIABILITY.UNRELIABLE_SEQUENCED)["=="](1)
-	T(reliable_send.RELIABILITY.RELIABLE)["=="](2)
-end)
+T.Test("Sender rto follows the measured round trip", function()
+	local sender = reliable_send.New()
+	T(sender.rto)["=="](reliable_send.INITIAL_RTO)
+	sender:AddRttSample(300)
+	T(sender.srtt)["=="](300)
+	T(sender.rto)["=="](900)
 
-T.Test("UnackedPacket tracks send time and retry count", function()
-	local packet = reliable_send.UnackedPacket.New(100, "data", reliable_send.RELIABILITY.RELIABLE)
-	T(packet.sequence_number)["=="](100)
-	T(packet.payload)["=="]("data")
-	T(packet.reliability)["=="](2)
-	T(packet.retry_count)["=="](0)
-	T(packet.acked)["=="](false)
-end)
-
-T.Test("UnackedPacket:NeedsRetransmission returns false before timeout", function()
-	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
-	packet.send_time = reliable_send.Now() - 100
-	T(packet:NeedsRetransmission(reliable_send.Now()))["=="](false)
-end)
-
-T.Test("UnackedPacket:NeedsRetransmission returns true after timeout", function()
-	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
-	packet.send_time = reliable_send.Now() - 1000
-	T(packet:NeedsRetransmission(reliable_send.Now()))["=="](true)
-end)
-
-T.Test("UnackedPacket:Ack marks packet as acknowledged", function()
-	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
-	packet:Ack()
-	T(packet.acked)["=="](true)
-	T(packet:NeedsRetransmission(reliable_send.Now()))["=="](false)
-end)
-
-T.Test("UnackedPacket:OnTimeout increases retry count and backoff", function()
-	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
-	local initial_timeout = packet.timeout
-	packet:OnTimeout()
-	T(packet.retry_count)["=="](1)
-	local expected = initial_timeout * reliable_send.DEFAULT_MULTIPLIER
-	T(packet.timeout)[">="](expected * 0.9)
-	T(packet.timeout)["<="](expected * 1.1)
-end)
-
-T.Test("UnackedPacket:OnTimeout applies exponential backoff", function()
-	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
-	packet:OnTimeout()
-	packet:OnTimeout()
-	packet:OnTimeout()
-	T(packet.retry_count)["=="](3)
-	local expected = reliable_send.DEFAULT_INITIAL_TIMEOUT * 8
-	T(packet.timeout)[">="](expected * 0.7)
-	T(packet.timeout)["<="](expected * 1.3)
-end)
-
-T.Test("UnackedPacket:OnTimeout caps at maximum timeout", function()
-	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
-
-	for i = 1, 20 do
-		packet:OnTimeout()
+	for _ = 1, 50 do
+		sender:AddRttSample(300)
 	end
 
-	T(packet.timeout)["<="](reliable_send.DEFAULT_MAX_TIMEOUT * 1.1)
-end)
+	T(sender.rto)["=="](300 + reliable_send.RTO_GRANULARITY)
+	sender:AddRttSample(1)
 
-T.Test("UnackedPacket:HasExceededMaxRetries returns false initially", function()
-	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
-	T(packet:HasExceededMaxRetries())["=="](false)
-end)
-
-T.Test("UnackedPacket:HasExceededMaxRetries returns true after max retries", function()
-	local packet = reliable_send.UnackedPacket.New(1, "data", 2)
-
-	for i = 1, reliable_send.DEFAULT_MAX_RETRIES do
-		packet:OnTimeout()
+	for _ = 1, 50 do
+		sender:AddRttSample(1)
 	end
 
-	T(packet:HasExceededMaxRetries())["=="](true)
+	T(sender.rto)["=="](reliable_send.MIN_RTO)
 end)
 
-T.Test("RetransmissionTracker tracks sent packets", function()
-	local tracker = reliable_send.CreateTracker()
-	tracker:TrackPacket(100, "data1", 2)
-	tracker:TrackPacket(101, "data2", 2)
-	T(tracker.total_sent)["=="](2)
-	T(tracker.unacked[100])["~="](nil)
-	T(tracker.unacked[101])["~="](nil)
+T.Test("Sender ignores acks of retransmitted records for loss detection", function()
+	local sender = reliable_send.New()
+	local e = entry()
+	sender:OnSent(e, 0)
+	T(sender:CheckLost(e, reliable_send.INITIAL_RTO))["=="](true)
+	sender:OnAcked(e)
+	T(sender.largest_acked)["=="](-1)
+	T(sender.in_flight)["=="](0)
 end)
 
-T.Test("RetransmissionTracker:AckPacket removes acknowledged packet", function()
-	local tracker = reliable_send.CreateTracker()
-	tracker:TrackPacket(100, "data", 2)
-	local result = tracker:AckPacket(100)
-	T(result)["=="](true)
-	T(tracker.total_acked)["=="](1)
-	T(count_hash(tracker.unacked))["=="](0)
+T.Test("Sender window allows one record over the window when idle", function()
+	local sender = reliable_send.New()
+	T(sender:CanSend(sender.cwnd * 2))["=="](true)
+	local e = entry(sender.cwnd - 10)
+	sender:OnSent(e, 0)
+	T(sender:CanSend(5))["=="](true)
+	T(sender:CanSend(20))["=="](false)
 end)
 
-T.Test("RetransmissionTracker:AckPacket returns false for unknown sequence", function()
-	local tracker = reliable_send.CreateTracker()
-	local result = tracker:AckPacket(999)
-	T(result)["=="](false)
+T.Test("Sender window grows in slow start only while limited", function()
+	local sender = reliable_send.New()
+	local start = sender.cwnd
+	local e = entry(1000)
+	sender:OnSent(e, 0)
+	sender:OnAcked(e)
+	T(sender.cwnd)["=="](start)
+	sender.cwnd_limited = true
+	local e2 = entry(1000)
+	sender:OnSent(e2, 10)
+	sender:OnAcked(e2)
+	T(sender.cwnd)["=="](start + 1000)
 end)
 
-T.Test("RetransmissionTracker:GetRetransmitQueue returns timed-out packets", function()
-	local tracker = reliable_send.CreateTracker()
-	tracker:TrackPacket(100, "data", 2)
-	tracker:TrackPacket(101, "data", 2)
+T.Test("Sender declares a record lost once later records are acked", function()
+	local sender = reliable_send.New()
+	local lost = entry()
+	sender:OnSent(lost, 0)
+	local later = {}
 
-	for _, packet in pairs(tracker.unacked) do
-		if packet.sequence_number == 100 then
-			packet.send_time = reliable_send.Now() - 1000
-		else
-			packet.send_time = reliable_send.Now() - 10
-		end
+	for i = 1, reliable_send.LOSS_THRESHOLD do
+		later[i] = entry()
+		sender:OnSent(later[i], 0)
 	end
 
-	local retransmit = tracker:GetRetransmitQueue(reliable_send.Now())
-	T(#retransmit)["=="](1)
-	T(retransmit[1].sequence_number)["=="](100)
-end)
-
-T.Test("RetransmissionTracker:OnTimeout processes retransmissions", function()
-	local tracker = reliable_send.CreateTracker()
-	tracker:TrackPacket(100, "data", 2)
-
-	for _, packet in pairs(tracker.unacked) do
-		packet.send_time = reliable_send.Now() - 1000
+	for i = 1, reliable_send.LOSS_THRESHOLD - 1 do
+		sender:OnAcked(later[i])
 	end
 
-	local retransmit, failed = tracker:OnTimeout(reliable_send.Now())
-	T(#retransmit)["=="](1)
-	T(#failed)["=="](0)
-	T(tracker.total_retransmitted)["=="](1)
+	T(sender:CheckLost(lost, 10))["=="](false)
+	sender:OnAcked(later[reliable_send.LOSS_THRESHOLD])
+	T(sender:CheckLost(lost, 10))["=="](true)
+	T(lost.transmissions)["=="](2)
+	T(sender:CheckLost(lost, 11))["=="](false)
 end)
 
-T.Test("RetransmissionTracker:OnTimeout removes failed packets", function()
-	local tracker = reliable_send.CreateTracker()
-	tracker:TrackPacket(100, "data", 2)
-	local packet = tracker.unacked[100]
+T.Test("Sender halves the window once per loss episode and keeps the floor", function()
+	local sender = reliable_send.New()
+	sender:AddRttSample(100)
+	sender.cwnd = reliable_send.MIN_WINDOW * 8
+	local entries = {}
 
-	for i = 1, reliable_send.DEFAULT_MAX_RETRIES do
-		packet:OnTimeout()
+	for i = 1, 10 do
+		entries[i] = entry()
+		sender:OnSent(entries[i], 0)
 	end
 
-	packet.send_time = reliable_send.Now() - 31000
-	local retransmit, failed = tracker:OnTimeout(reliable_send.Now())
-	T(#failed)["=="](1)
-	T(tracker.total_failed)["=="](1)
-	T(count_hash(tracker.unacked))["=="](0)
-end)
-
-T.Test("RetransmissionTracker:Cleanup removes old acknowledged packets", function()
-	local tracker = reliable_send.CreateTracker()
-	tracker:TrackPacket(100, "data", 2)
-	local packet = tracker.unacked[100]
-	packet:Ack()
-	T(count_hash(tracker.unacked))["=="](1)
-	local cleaned = tracker:Cleanup(0)
-	T(cleaned)["=="](1)
-	T(count_hash(tracker.unacked))["=="](0)
-end)
-
-T.Test("RetransmissionTracker:GetStats returns correct counts", function()
-	local tracker = reliable_send.CreateTracker()
-	tracker:TrackPacket(100, "data", 2)
-	tracker:TrackPacket(101, "data", 2)
-	local packet100 = tracker.unacked[100]
-	packet100:Ack()
-	tracker.total_acked = tracker.total_acked + 1
-	local stats = tracker:GetStats()
-	T(count_hash(tracker.unacked))["=="](2)
-	T(stats.total_sent)["=="](2)
-	T(stats.total_acked)["=="](1)
-	T(stats.total_retransmitted)["=="](0)
-	T(stats.total_failed)["=="](0)
-end)
-
-T.Test("End-to-end: send, ack, and retransmit flow", function()
-	local tracker = reliable_send.CreateTracker()
-	tracker:TrackPacket(1, "payload1", 2)
-	tracker:TrackPacket(2, "payload2", 2)
-	tracker:TrackPacket(3, "payload3", 2)
-	T(tracker.total_sent)["=="](3)
-	tracker:AckPacket(1)
-	tracker:AckPacket(2)
-	T(tracker.total_acked)["=="](2)
-	T(tracker.unacked[3])["~="](nil)
-
-	for _, packet in pairs(tracker.unacked) do
-		packet.send_time = reliable_send.Now() - 1000
+	for i = 1, 10 do
+		sender:CheckLost(entries[i], 10000)
 	end
 
-	local retransmit, _ = tracker:OnTimeout(reliable_send.Now())
-	T(#retransmit)["=="](1)
-	T(retransmit[1].sequence_number)["=="](3)
-	T(tracker.total_retransmitted)["=="](1)
-	tracker:AckPacket(3)
-	T(tracker.total_acked)["=="](3)
-	T(count_hash(tracker.unacked))["=="](0)
+	T(sender.cwnd)["=="](reliable_send.MIN_WINDOW * 4)
+
+	for _ = 1, 10 do
+		local e = entry()
+		sender:OnSent(e, 20000)
+		sender:CheckLost(e, 40000)
+	end
+
+	T(sender.cwnd)["=="](reliable_send.MIN_WINDOW)
+end)
+
+T.Test("Sender keeps the window when it times out before the first round trip sample", function()
+	local sender = reliable_send.New()
+	sender.cwnd = reliable_send.MIN_WINDOW * 4
+	local e = entry()
+	sender:OnSent(e, 0)
+	T(sender:CheckLost(e, reliable_send.INITIAL_RTO))["=="](true)
+	T(sender.cwnd)["=="](reliable_send.MIN_WINDOW * 4)
+	T(sender.rto)["=="](math.min(reliable_send.INITIAL_RTO * 2, reliable_send.MAX_RTO))
+end)
+
+T.Test("Sender tolerates reordering shorter than the round trip", function()
+	local sender = reliable_send.New()
+	sender:AddRttSample(100)
+	local early = entry()
+	sender:OnSent(early, 0)
+
+	for _ = 1, reliable_send.LOSS_THRESHOLD do
+		local later = entry()
+		sender:OnSent(later, 0)
+		sender:OnAcked(later)
+	end
+
+	T(sender:CheckLost(early, 50))["=="](false)
+	T(sender:CheckLost(early, 120))["=="](true)
+end)
+
+T.Test("Sender backs off the rto on timeouts until a new sample", function()
+	local sender = reliable_send.New()
+	sender:AddRttSample(100)
+	local rto = sender.rto
+	local e = entry()
+	sender:OnSent(e, 0)
+	T(sender:CheckLost(e, rto - 1))["=="](false)
+	T(sender:CheckLost(e, rto))["=="](true)
+	T(sender.rto)["=="](math.min(rto * 2, reliable_send.MAX_RTO))
+	T(sender:CheckLost(e, rto + rto * 2 - 1))["=="](false)
+	sender:AddRttSample(100)
+	T(sender.rto)["<"](rto * 2)
 end)
 
 return {}
