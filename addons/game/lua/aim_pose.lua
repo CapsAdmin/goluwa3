@@ -521,6 +521,33 @@ local function solve_neutral(bones, arm, side)
 	solve_arm(bones, arm, identity, nil, nil, side, nil, ZERO)
 end
 
+do
+	local grip_roll = Quat()
+
+	-- position and rotation are the grip in model space, the hand frame follows the weapon grip convention
+	function aim_pose.SolveGrip(bones, side, position, rotation)
+		grip_target:Set(position.x, position.y, position.z)
+
+		if side == 1 then
+			grip_roll:SetMul(rotation, right_roll)
+		else
+			grip_roll:Set(rotation.x, rotation.y, rotation.z, rotation.w)
+		end
+
+		solve_arm(
+			bones,
+			side == 1 and RIGHT or LEFT,
+			identity,
+			nil,
+			nil,
+			side,
+			nil,
+			ZERO,
+			grip_roll
+		)
+	end
+end
+
 local function solve_left_hold(bones, pitch, right, left)
 	if right and right:IsTwoHanded() then
 		local half = right:GetSupportRoll() / 2

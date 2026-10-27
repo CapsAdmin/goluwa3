@@ -43,6 +43,9 @@ local WEAPON_OFFSET = Vec3(0.2, -0.22, -0.15)
 local TORSO_PITCH = 0.35
 local HIP_OFFSET = Vec3(0.4 * EYE_RADIUS, -0.4 * EYE_RADIUS, 0.2 * EYE_RADIUS)
 local BODY_DROP = eye_pose.BodyDrop
+local SEAT_EYE_HEIGHT = EYE_RADIUS - 0.1 + BODY_DROP
+local SEAT_FOOT = Vec3(0.12, -0.35, -0.45)
+local SEAT_KNEE_POLE = Vec3(0, 1, -1)
 
 local function solve(root, target, length_a, length_b, pole)
 	local delta = target - root
@@ -78,6 +81,7 @@ local SWITCH_TIME = 0.2
 local LOWER_DROP = 0.3
 local hand_free = Quat()
 local hand_grip = Quat()
+local seat_grip_rotation = Quat()
 local hand_keys = {0, 0, 0, 0, 0, 0}
 local hand_shift = Vec3()
 
@@ -155,6 +159,9 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local posed_right = holder and holder:GetPosedWeapon("right")
 	local posed_left = holder and holder:GetPosedWeapon("left")
 	local eye_height = math.lerp(crouch, eye_pose.EyeHeight, eye_pose.CrouchEyeHeight)
+	local seat_weight = animations.GetWeight(pose, "seat")
+	local seat = seat_weight > 0.001 and pose:GetSeatComponent() or nil
+	eye_height = math.lerp(seat_weight, eye_height, SEAT_EYE_HEIGHT)
 	local sides = state.sides
 	pose.hold_wanted = posed_right ~= nil or posed_left ~= nil
 
@@ -187,7 +194,11 @@ function eye_pose.Compute(state, bones, owner, dt)
 	end
 
 	local smoothed = state.velocity
-	smoothed = smoothed + (Vec3(velocity.x, 0, velocity.z) - smoothed) * math.min(dt * 6, 1)
+	smoothed = smoothed + (
+			Vec3(velocity.x, 0, velocity.z) * (
+				1 - seat_weight
+			) - smoothed
+		) * math.min(dt * 6, 1)
 	state.velocity = smoothed
 	local speed = smoothed:GetLength()
 	state.roll = state.roll + (
@@ -223,6 +234,8 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local swing_amount = (1 - hold_weight) * math.min(speed / 3, 1) * ARM_LENGTH * 0.7
 
 	if knee_pole:GetLength() < 1e-3 then knee_pole = Vec3(0, 0, -1) end
+
+	knee_pole = knee_pole + (SEAT_KNEE_POLE - knee_pole) * seat_weight
 
 	for i = 1, 2 do
 		local side = state.sides[i]
@@ -267,6 +280,15 @@ function eye_pose.Compute(state, bones, owner, dt)
 			grip_weight = grip_weight + (1 - grip_weight) * block_weight
 		end
 
+		local seat_grip = seat and seat:GetLimbNode(sign == 1 and seat.HandRight or seat.HandLeft)
+
+		if seat_grip then
+			local grip_world = seat_grip.transform:GetWorldMatrix()
+			local grip_local = world_inverse:TransformVector(Vec3(grip_world.m30, grip_world.m31, grip_world.m32))
+			target = target + (grip_local - target) * seat_weight
+			grip_weight = math.max(grip_weight, seat_weight)
+		end
+
 		local follow = 14
 
 		if grip_weight > 0.001 then follow = supporting and 40 or 1e6 end
@@ -289,7 +311,16 @@ function eye_pose.Compute(state, bones, owner, dt)
 		write_limb(bones["forearm_" .. name], elbow, hand)
 		aim_pose.SetBetween(hand_free, 0, 1, 0, hand.x - elbow.x, hand.y - elbow.y, hand.z - elbow.z)
 
-		if grip_weight > 0.001 then
+		if seat_grip then
+			world_inverse:GetRotation(hand_grip)
+			hand_grip:SetMul(hand_grip, seat_grip.transform:GetWorldMatrix():GetRotation(seat_grip_rotation))
+
+			if hand_free:Dot(hand_grip) < 0 then
+				hand_grip:Set(-hand_grip.x, -hand_grip.y, -hand_grip.z, -hand_grip.w)
+			end
+
+			hand_free:Lerp(seat_weight, hand_grip):Normalize()
+		elseif grip_weight > 0.001 then
 			local grip_aim = aim_pose.GetGripAim(pose, hold_aim, sign)
 			hand_grip:Set(grip_aim.x, grip_aim.y, grip_aim.z, grip_aim.w)
 
@@ -338,13 +369,25 @@ function eye_pose.Compute(state, bones, owner, dt)
 			end
 		end
 
-		local knee, ankle = solve(
-			hip,
-			world_inverse:TransformVector(foot),
-			LEG_LENGTH * 0.5,
-			LEG_LENGTH * 0.5,
-			knee_pole
-		)
+		local foot_local = world_inverse:TransformVector(foot)
+
+		if seat then
+			local seat_foot = seat:GetLimbNode(sign == 1 and seat.FootRight or seat.FootLeft)
+			local target_local
+
+			if seat_foot then
+				local foot_world = seat_foot.transform:GetWorldMatrix()
+				target_local = world_inverse:TransformVector(Vec3(foot_world.m30, foot_world.m31, foot_world.m32))
+			else
+				target_local = Vec3(SEAT_FOOT.x * sign, SEAT_FOOT.y, SEAT_FOOT.z)
+			end
+
+			foot_local = foot_local + (target_local - foot_local) * seat_weight
+
+			if seat_weight >= 0.999 then side.planted = nil end
+		end
+
+		local knee, ankle = solve(hip, foot_local, LEG_LENGTH * 0.5, LEG_LENGTH * 0.5, knee_pole)
 		write_limb(bones["thigh_" .. name], hip, knee)
 		write_limb(bones["calf_" .. name], knee, ankle)
 		write(bones["foot_" .. name], ankle, foot_yaw)

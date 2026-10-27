@@ -152,6 +152,18 @@ local function solve_leg(bones, leg, foot, planted, target_y, normal)
 	foot:SetTranslation(ks[7], ks[8], ks[9])
 end
 
+do
+	local target = {x = 0, y = 0, z = 0}
+	local UP = Vec3(0, 1, 0)
+
+	-- index 1 is the right leg, 2 the left, the target is the ankle in model space
+	function leg_pose.SolveFoot(bones, index, x, y, z)
+		local leg = LEGS[index]
+		target.x, target.y, target.z = x, y, z
+		solve_leg(bones, leg, bones[leg.foot], target, y, UP)
+	end
+end
+
 leg_pose.FootYawFollow = 0.6
 leg_pose.HeadHold = 0.8
 local pelvis = {0, 0, 0, 0, 0, 0}

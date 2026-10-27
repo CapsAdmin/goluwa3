@@ -7,6 +7,7 @@ local pose_variation = import("lua/pose_variation.lua")
 local system = import("goluwa/system.lua")
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local animations = import("lua/animations.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
@@ -372,7 +373,7 @@ end
 function META:UpdateGroundSink(character, pose, dt)
 	local target = 0
 
-	if pose.grounded and physics.instance then
+	if pose.grounded and physics.instance and not pose:GetSeat():IsValid() then
 		local transform = character.transform
 		local position = transform:GetRenderPositionRotation() or transform:GetPosition()
 		local hit = physics.RayCast(
@@ -457,6 +458,87 @@ function META:UpdateLegs(character, pose, dt, bones)
 		self.leg_normals,
 		self.leg_state
 	)
+end
+
+do
+	local SEAT_ARM_BONES = {
+		{"clavicle_r", "upperarm_r", "forearm_r", "hand_r"},
+		{"clavicle_l", "upperarm_l", "forearm_l", "hand_l"},
+	}
+	local SEAT_LEG_BONES = {
+		{"thigh_r", "calf_r", "foot_r"},
+		{"thigh_l", "calf_l", "foot_l"},
+	}
+	local SIDES = {1, -1}
+	local SEAT_PELVIS_HEIGHT = 0.02
+	local grip_position = Vec3()
+	local grip_rotation = Quat()
+	local world_rotation = Quat()
+	local before = {}
+
+	for i = 1, 4 do
+		before[i] = Matrix44():Identity()
+	end
+
+	local function save_chain(bones, chain, weight)
+		if weight >= 0.999 then return end
+
+		for i, name in ipairs(chain) do
+			aim_pose.CopyMatrix(before[i], bones[name])
+		end
+	end
+
+	local function blend_chain(bones, chain, weight)
+		if weight >= 0.999 then return end
+
+		for i, name in ipairs(chain) do
+			aim_pose.BlendMatrix(bones[name], before[i], bones[name], weight)
+		end
+	end
+
+	function META:ApplySeat(pose, bones, weight)
+		local pelvis = bones.body
+		local dx = -pelvis.m30 * weight
+		local dy = (SEAT_PELVIS_HEIGHT - pelvis.m31) * weight
+		local dz = -pelvis.m32 * weight
+
+		for _, name in ipairs(aim_pose.Bones) do
+			local matrix = bones[name]
+			matrix.m30, matrix.m31, matrix.m32 = matrix.m30 + dx, matrix.m31 + dy, matrix.m32 + dz
+		end
+
+		-- the leg ik smoothing is stale once the character stands up again
+		self.leg_ready = false
+		local seat = pose:GetSeatComponent()
+
+		if not seat then return end
+
+		local inverse = self.Owner.transform:GetWorldMatrixInverse()
+		inverse:GetRotation(world_rotation)
+
+		for i, side in ipairs(SIDES) do
+			local node = seat:GetLimbNode(side == 1 and seat.FootRight or seat.FootLeft)
+
+			if node then
+				local world = node.transform:GetWorldMatrix()
+				save_chain(bones, SEAT_LEG_BONES[i], weight)
+				leg_pose.SolveFoot(bones, i, inverse:TransformVectorUnpacked(world.m30, world.m31, world.m32))
+				blend_chain(bones, SEAT_LEG_BONES[i], weight)
+			end
+
+			node = seat:GetLimbNode(side == 1 and seat.HandRight or seat.HandLeft)
+
+			if node then
+				local world = node.transform:GetWorldMatrix()
+				grip_position:Set(inverse:TransformVectorUnpacked(world.m30, world.m31, world.m32))
+				world:GetRotation(grip_rotation)
+				grip_rotation:SetMul(world_rotation, grip_rotation)
+				save_chain(bones, SEAT_ARM_BONES[i], weight)
+				aim_pose.SolveGrip(bones, side, grip_position, grip_rotation)
+				blend_chain(bones, SEAT_ARM_BONES[i], weight)
+			end
+		end
+	end
 end
 
 do
@@ -574,6 +656,10 @@ do
 		end
 
 		if pose.legs then self:UpdateLegs(pose.Owner, pose, dt, bones) end
+
+		local seat_weight = animations.GetWeight(pose, "seat")
+
+		if seat_weight > 0.001 then self:ApplySeat(pose, bones, seat_weight) end
 
 		for _, name in ipairs(aim_pose.Bones) do
 			if biped.HasBone(rig, name) then
