@@ -226,7 +226,6 @@ function META:Start(position)
 	movement:Reset("fly")
 	movement:TeleportTo(position)
 	self.history = {}
-	self.number = 0
 	self.recent = {}
 	self.cmd = usercmd.New()
 	self.correction_offset:Set(0, 0, 0)

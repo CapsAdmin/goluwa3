@@ -447,7 +447,7 @@ T.TestPhysics("player controller ignores acknowledgements it has no history for"
 	T((player.transform:GetPosition() - Vec3(0, 3, 0)):GetLength())["<"](0.001)
 end)
 
-T.TestPhysics("player controller start resets the simulation state", function()
+T.TestPhysics("player controller start keeps the command numbers going so a server queue keeps accepting them", function()
 	local ground = create_ground()
 	local player = create_player()
 
@@ -456,8 +456,16 @@ T.TestPhysics("player controller start resets the simulation state", function()
 	end)
 
 	local controller = player.player_controller
+	local number = controller.number
+	T(number)[">"](0)
 	controller:Start(Vec3(10, 3, 10))
-	T(controller.number)["=="](0)
+	T(controller.number)["=="](number)
+	T(controller:GetHistory(number))["=="](nil)
+	controller.last_queued = number
+	local cmd = usercmd.New()
+	cmd.number = number + 1
+	controller:PushCommands({cmd})
+	T(controller:GetQueueSize())["=="](1)
 	T(player.character_movement:GetMode())["=="]("fly")
 	T((player.transform:GetPosition() - Vec3(10, 3, 10)):GetLength())["<"](0.001)
 	T(controller.synced)["=="](true)
