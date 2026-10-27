@@ -1559,9 +1559,17 @@ do
 		return self:receive(size, flags, true)
 	end
 
+	local int_box = ffi.typeof("int[1]")
+
 	function meta:receive(size, flags, return_address)
 		size = size or 64000
-		local buff = ffi.new("char[?]", size)
+		local buff = self.receive_buffer
+
+		if not buff or self.receive_buffer_size < size then
+			buff = ffi.new("char[?]", size)
+			self.receive_buffer = buff
+			self.receive_buffer_size = size
+		end
 
 		if self.on_receive then return self:on_receive(buff, size, flags) end
 
@@ -1569,12 +1577,20 @@ do
 		local addrinfo
 
 		if return_address then
-			local src_address = sockaddr_in_boxed()
-			local ai_addrlen_res = ffi.new("int[1]", ffi.sizeof(sockaddr_in))
+			local src_address = self.receive_address
+
+			if not src_address then
+				src_address = sockaddr_in_boxed()
+				self.receive_address = src_address
+				self.receive_address_length = int_box()
+			end
+
+			local ai_addrlen_res = self.receive_address_length
+			ai_addrlen_res[0] = ffi.sizeof(sockaddr_in)
 			len, err, num = socket.recvfrom(
 				self.fd,
 				buff,
-				ffi.sizeof(buff),
+				size,
 				flags or 0,
 				ffi.cast(sockaddr_ptr, src_address),
 				ai_addrlen_res
