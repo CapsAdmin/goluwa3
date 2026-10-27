@@ -5,6 +5,7 @@ local clients = import("goluwa/network/clients.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local game_history = import("lua/game_history.lua")
+local trace_debug = import("lua/trace_debug.lua")
 local weapon_effects = import("lua/weapon_effects.lua")
 local Constraint = import("lua/components/constraint.lua")
 Entity.RegisterComponent("constraint", Constraint)
@@ -155,6 +156,7 @@ do
 		local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 		local forward = view:GetForward()
 		local hit = physics.RayCast(origin, forward, toolgun.Range, player, is_solid_on_server, OPTIONS)
+		trace_debug.Record(player, "toolgun", origin, hit and hit.position, hit and hit.entity)
 
 		if not hit then return nil end
 

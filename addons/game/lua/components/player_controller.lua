@@ -5,6 +5,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local network = import("goluwa/network/network.lua")
 local physics = import("goluwa/physics.lua")
 local CharacterMovement = import("lua/components/character_movement.lua")
+local system = import("goluwa/system.lua")
 local raycast = RENDER_3D and import("goluwa/render3d/raycast.lua")
 local META = objects.CreateTemplate("player_controller")
 local HISTORY_SIZE = 256
@@ -16,6 +17,7 @@ local MAX_REPEATS = 15
 local SHRINK_INTERVAL = 300
 local CORRECTION_DECAY = 10
 local DISTANCE_TOLERANCE = 0.01
+local ACK_LOG_SIZE = 64
 META:GetSet("Source", "local")
 META:GetSet("Networked", false)
 
@@ -39,6 +41,21 @@ function META:Initialize()
 	}
 	self.correction_offset = Vec3()
 	self.corrections = 0
+	self.last_ack = {
+		number = 0,
+		time = 0,
+		error = 0,
+		velocity_error = 0,
+		distance_error = 0,
+		corrected = false,
+		server_position = Vec3(),
+		predicted_position = Vec3(),
+		server_velocity = Vec3(),
+		predicted_velocity = Vec3(),
+	}
+	self.ack_log = {}
+	self.ack_log_index = 0
+	self.ack_missed = 0
 	self.recent = {}
 	self:AddGlobalEvent("Update")
 end
@@ -173,7 +190,10 @@ function META:Reconcile(number, position, velocity, distance)
 	local movement = self.Owner.character_movement
 	local entry = self:GetHistory(number)
 
-	if not entry then return 0 end
+	if not entry then
+		self.ack_missed = self.ack_missed + 1
+		return 0
+	end
 
 	if movement:IsSeated() then
 		self.correction_offset:Set(0, 0, 0)
@@ -195,8 +215,23 @@ function META:Reconcile(number, position, velocity, distance)
 	local position_error = position - entry.position
 	local velocity_error = velocity - entry.velocity
 	local magnitude = position_error:GetLength()
+	local velocity_error_length = velocity_error:GetLength()
+	local corrected = magnitude >= 0.002 or velocity_error_length >= 0.02
+	local ack = self.last_ack
+	ack.number = number
+	ack.time = system.GetTime()
+	ack.error = magnitude
+	ack.velocity_error = velocity_error_length
+	ack.distance_error = distance_error
+	ack.corrected = corrected
+	ack.server_position:Set(position.x, position.y, position.z)
+	ack.predicted_position:Set(entry.position.x, entry.position.y, entry.position.z)
+	ack.server_velocity:Set(velocity.x, velocity.y, velocity.z)
+	ack.predicted_velocity:Set(entry.velocity.x, entry.velocity.y, entry.velocity.z)
+	self.ack_log_index = self.ack_log_index % ACK_LOG_SIZE + 1
+	self.ack_log[self.ack_log_index] = {magnitude, velocity_error_length, corrected}
 
-	if magnitude < 0.002 and velocity_error:GetLength() < 0.02 then return 0 end
+	if not corrected then return 0 end
 
 	movement:MoveBodyBy(body, position_error)
 	body:SetVelocity(body:GetVelocity() + velocity_error)
@@ -219,6 +254,20 @@ function META:Reconcile(number, position, velocity, distance)
 	self.corrections = self.corrections + 1
 	self.last_correction = magnitude
 	return magnitude
+end
+
+function META:GetAckStats()
+	local count, corrected, max_error, max_velocity_error = 0, 0, 0, 0
+
+	for _, entry in ipairs(self.ack_log) do
+		count = count + 1
+		max_error = math.max(max_error, entry[1])
+		max_velocity_error = math.max(max_velocity_error, entry[2])
+
+		if entry[3] then corrected = corrected + 1 end
+	end
+
+	return count, corrected, max_error, max_velocity_error
 end
 
 function META:Start(position)

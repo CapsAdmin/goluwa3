@@ -26,6 +26,7 @@ return {
 	Source = [=====[local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local network = import("goluwa/network/network.lua")
+local trace_debug = import("lua/trace_debug.lua")
 local physics = import("goluwa/physics.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -343,6 +344,7 @@ function META:FindBody(cmd)
 			)
 		)
 	local grab_point = hit and hit.point or nil
+	trace_debug.Record(player, "physgun", origin, grab_point, hit and hit.entity)
 
 	if not self:CanGrabBody(body) or not grab_point then return nil end
 
