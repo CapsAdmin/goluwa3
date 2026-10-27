@@ -390,6 +390,17 @@ function BaseEntity:SetProp(key, val)
 	apply_prop(self, getmetatable(self), valid_components, key, val)
 end
 
+local function initialize_components(constructed)
+	-- fixed bound: components added by an Initialize here (prefab) are already initialized by AddComponent
+	for i = 1, #constructed do
+		local component = constructed[i]
+
+		if component.Initialize then component:Initialize() end
+
+		if component.OnAdd then component:OnAdd() end
+	end
+end
+
 function BaseEntity:OnConstruct(config)
 	self.Children = {}
 	self.ChildrenMap = {}
@@ -500,14 +511,14 @@ function BaseEntity:OnConstruct(config)
 	end
 
 	local constructed = self.component_list
+	local ok, err = pcall(initialize_components, constructed)
 
-	-- fixed bound: components added by an Initialize here (prefab) are already initialized by AddComponent
-	for i = 1, #constructed do
-		local component = constructed[i]
+	if not ok then
+		for i = #constructed, 1, -1 do
+			pcall(constructed[i].Remove, constructed[i])
+		end
 
-		if component.Initialize then component:Initialize() end
-
-		if component.OnAdd then component:OnAdd() end
+		error(err, 0)
 	end
 
 	self.construct_ref = props.Ref
