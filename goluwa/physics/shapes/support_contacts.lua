@@ -117,8 +117,16 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 	if stats:IsEnabled() then stats:PopTime() end
 end
 
+-- primitive pair solvers only count overlap as touching, so a push out to the margin would take away their friction; they get no support
+local function is_support_surface(hit)
+	local shape_type = (hit.collider or hit.rigid_body):GetShapeType()
+	return shape_type == "mesh" or shape_type == "heightmap"
+end
+
 function support_contacts.ApplyWorldSupportContact(body, normal, contact_position, support_radius, hit, dt)
 	if not (normal and contact_position) then return false end
+
+	if not is_support_surface(hit) then return false end
 
 	if normal.y < MIN_SUPPORT_NORMAL_Y then return false end
 
@@ -162,6 +170,8 @@ end
 
 function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_position, support_point, local_point, hit, dt)
 	if not (normal and contact_position and support_point) then return false end
+
+	if not is_support_surface(hit) then return false end
 
 	local physics = body:GetPhysics()
 	local margin = body:GetCollisionMargin() or 0

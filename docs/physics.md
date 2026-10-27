@@ -29,6 +29,7 @@ Collide once, soft contacts: broadphase and islands only on substep 1 (`BeginSte
 - `Vec3` is float32: far from the origin fixed epsilons reject valid hits; `get_sweep_epsilon` in `sweep_mesh.lua` scales with coordinate magnitude.
 - Joint accumulators that are world vectors (hinge axis, slider plane, wheel, keep upright) must drop their component along the free axis before every warm start (`rows.RemoveAxis`): the frame turns between substeps, and the leftover part is never solved but reapplied each step, spinning a fast wheel up without bound.
 - Rotation is integrated exactly once a body turns more than 0.1 rad per substep; a body with `SpinAxis` (wheels) integrates its spin about that axis first and the rest after, so its axle follows its joint.
+- World support contacts only act on mesh and heightmap surfaces: they hold a body at the collision margin, and the primitive pair solvers only count overlap as touching, so supported primitives lost all friction.
 
 ## Meshes and the map
 
