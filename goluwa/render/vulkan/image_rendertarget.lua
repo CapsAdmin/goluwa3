@@ -539,6 +539,7 @@ function ImageRenderTarget:BeginFrame()
 		if not RENDER_NOOP or self.vulkan_instance.queue:HasPendingSubmission(fence) then
 			local wait_started = startup.Start()
 			fence:Wait()
+			render.AddWaitTime(wait_started)
 			startup.Add("gpu: wait for previous frame", wait_started)
 
 			if not RENDER_NOOP then fence:Reset() end
@@ -555,6 +556,7 @@ function ImageRenderTarget:BeginFrame()
 	elseif self.swapchain then
 		local acquire_started = startup.Start()
 		texture_index = self.swapchain:GetNextImage(self.image_available_semaphores[frame_index])
+		render.AddWaitTime(acquire_started)
 		startup.Add("gpu: swapchain acquire", acquire_started)
 
 		if texture_index == nil then

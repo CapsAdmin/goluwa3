@@ -1148,6 +1148,18 @@ function render.GetSyncFence()
 	return sync_fence
 end
 
+do
+	local waited = 0
+
+	function render.AddWaitTime(started)
+		waited = waited + system.GetTime() - started
+	end
+
+	function render.GetWaitTime()
+		return waited
+	end
+end
+
 function render.SubmitAndWait(cmd)
 	local fence = render.GetSyncFence()
 	local queue = render.GetQueue()
@@ -1158,8 +1170,9 @@ function render.SubmitAndWait(cmd)
 
 	if RENDER_NOOP then return end
 
-	local started = startup.Start()
+	local started = system.GetTime()
 	fence:Wait()
+	render.AddWaitTime(started)
 	startup.Add("gpu: SubmitAndWait", started)
 	queue:RetireFence(fence)
 end
