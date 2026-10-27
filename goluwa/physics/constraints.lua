@@ -7,6 +7,7 @@ local Ragdoll = import("goluwa/physics/constraints/ragdoll.lua")
 local Pulley = import("goluwa/physics/constraints/pulley.lua")
 local KeepUpright = import("goluwa/physics/constraints/keep_upright.lua")
 local NoCollide = import("goluwa/physics/constraints/no_collide.lua")
+local Wheel = import("goluwa/physics/constraints/wheel.lua")
 local constraints = {}
 constraints.Weld = Weld.New
 constraints.BallSocket = BallSocket.New
@@ -16,6 +17,7 @@ constraints.Slider = Slider.New
 constraints.KeepUpright = KeepUpright.New
 constraints.NoCollide = NoCollide.New
 constraints.Pulley = Pulley.New
+constraints.Wheel = Wheel.New
 
 function constraints.Rod(body_0, body_1, anchor_0, anchor_1, config)
 	return Distance.New(body_0, body_1, anchor_0, anchor_1, config)
