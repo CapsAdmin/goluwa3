@@ -171,7 +171,17 @@ function tiles.BuildPolygon(chunk, skirt_depth, stride, mode)
 					) * step
 				)
 			local inv_length = 1 / math.sqrt(nx * nx + 1 + nz * nz)
-			vertex.position[1] = heights[z * stride * full_samples + x * stride]
+			local height = heights[z * stride * full_samples + x * stride]
+
+			if stride > 1 then
+				for sz = math.max(z * stride - stride, 0), math.min(z * stride + stride, full_samples - 1) do
+					for sx = math.max(x * stride - stride, 0), math.min(x * stride + stride, full_samples - 1) do
+						height = math.min(height, heights[sz * full_samples + sx])
+					end
+				end
+			end
+
+			vertex.position[1] = height
 			vertex.normal[0] = nx * inv_length
 			vertex.normal[1] = inv_length
 			vertex.normal[2] = nz * inv_length
