@@ -1,17 +1,8 @@
 local ffi = require("ffi")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local vertex_math = {}
-local vertex_t = ffi.typeof([[
-	struct {
-		float position[3];
-		float normal[3];
-		float uv[2];
-		float tangent[4];
-		float texture_blend;
-		float vertex_color[4];
-	}
-]])
-vertex_math.VertexType = ffi.typeof("$[?]", vertex_t)
-vertex_math.VertexPointer = ffi.typeof("$ *", vertex_t)
+vertex_math.VertexType = vertex_layout.ArrayType
+vertex_math.VertexPointer = vertex_layout.PointerType
 local sqrt, abs = math.sqrt, math.abs
 local TANGENT_EPSILON = 1e-9
 local double_array_t = ffi.typeof("double[?]")

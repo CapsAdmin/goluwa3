@@ -3,6 +3,7 @@ local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local system = import("goluwa/system.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local skinning = {}
 skinning.MAX_JOBS = 4096
 skinning.MAX_MATRIX_FLOATS = 12 * 65536
@@ -117,7 +118,7 @@ local function get_pipeline()
 				SkinJob jobs[];
 			};
 
-			#define SKIN_VERTEX_FLOATS 17u
+			]] .. vertex_layout.BuildGlslDefines("SKIN_VERTEX") .. [[
 
 			mat4x3 skin_matrix(SkinMatrices matrices, uint bone) {
 				uint o = bone * 12u;
@@ -158,10 +159,14 @@ local function get_pipeline()
 					if (bone.w2 > 0.0) m += skin_matrix(matrices, (bone.indices >> 16u) & 0xFFu) * bone.w2;
 				}
 
-				uint o = i * SKIN_VERTEX_FLOATS;
-				vec3 position = vec3(bind.v[o], bind.v[o + 1u], bind.v[o + 2u]);
-				vec3 normal = vec3(bind.v[o + 3u], bind.v[o + 4u], bind.v[o + 5u]);
-				vec3 tangent = vec3(bind.v[o + 8u], bind.v[o + 9u], bind.v[o + 10u]);
+				uint o = i * SKIN_VERTEX_STRIDE;
+				uint position_at = o + SKIN_VERTEX_POSITION;
+				uint normal_at = o + SKIN_VERTEX_NORMAL;
+				uint tangent_at = o + SKIN_VERTEX_TANGENT;
+				uint color_at = o + SKIN_VERTEX_COLOR;
+				vec3 position = vec3(bind.v[position_at], bind.v[position_at + 1u], bind.v[position_at + 2u]);
+				vec3 normal = vec3(bind.v[normal_at], bind.v[normal_at + 1u], bind.v[normal_at + 2u]);
+				vec3 tangent = vec3(bind.v[tangent_at], bind.v[tangent_at + 1u], bind.v[tangent_at + 2u]);
 
 				if (job.morph_ranges.x != 0u || job.morph_ranges.y != 0u) {
 					uvec2 range = MorphRanges(packUint2x32(job.morph_ranges)).r[i];
@@ -180,31 +185,31 @@ local function get_pipeline()
 				}
 
 				vec3 previous = position;
-				bool had_previous = destination.v[o + 16u] < ]] .. skinning.MOTION_THRESHOLD .. [[.0;
+				bool had_previous = destination.v[color_at + 3u] < ]] .. skinning.MOTION_THRESHOLD .. [[.0;
 				position = m * vec4(position, 1.0);
 
 				if (had_previous) {
-					previous = vec3(destination.v[o], destination.v[o + 1u], destination.v[o + 2u]);
+					previous = vec3(destination.v[position_at], destination.v[position_at + 1u], destination.v[position_at + 2u]);
 				} else {
 					previous = position;
 				}
 
 				normal = normalize(mat3(m) * normal + 1e-20);
 				tangent = normalize(mat3(m) * tangent + 1e-20);
-				destination.v[o] = position.x;
-				destination.v[o + 1u] = position.y;
-				destination.v[o + 2u] = position.z;
-				destination.v[o + 3u] = normal.x;
-				destination.v[o + 4u] = normal.y;
-				destination.v[o + 5u] = normal.z;
-				destination.v[o + 8u] = tangent.x;
-				destination.v[o + 9u] = tangent.y;
-				destination.v[o + 10u] = tangent.z;
+				destination.v[position_at] = position.x;
+				destination.v[position_at + 1u] = position.y;
+				destination.v[position_at + 2u] = position.z;
+				destination.v[normal_at] = normal.x;
+				destination.v[normal_at + 1u] = normal.y;
+				destination.v[normal_at + 2u] = normal.z;
+				destination.v[tangent_at] = tangent.x;
+				destination.v[tangent_at + 1u] = tangent.y;
+				destination.v[tangent_at + 2u] = tangent.z;
 				vec3 motion = position - previous;
-				destination.v[o + 13u] = motion.x;
-				destination.v[o + 14u] = motion.y;
-				destination.v[o + 15u] = motion.z;
-				destination.v[o + 16u] = ]] .. skinning.MOTION_MARK .. [[.0;
+				destination.v[color_at] = motion.x;
+				destination.v[color_at + 1u] = motion.y;
+				destination.v[color_at + 2u] = motion.z;
+				destination.v[color_at + 3u] = ]] .. skinning.MOTION_MARK .. [[.0;
 			}
 		]],
 	}

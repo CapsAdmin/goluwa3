@@ -9,7 +9,12 @@ local vertex_math = import("goluwa/render3d/vertex_math.lua")
 local Color = import("goluwa/structs/color.lua")
 local sprites = {}
 local VertexType = vertex_math.VertexType
-local VERTEX_FLOATS = ffi.sizeof(VertexType(1)) / 4
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
+local VERTEX_FLOATS = vertex_layout.FloatStride
+local POSITION = vertex_layout.GetFloatOffset("position")
+local NORMAL = vertex_layout.GetFloatOffset("normal")
+local TANGENT = vertex_layout.GetFloatOffset("tangent")
+local COLOR = vertex_layout.GetFloatOffset("vertex_color")
 local CORNER_X = {-1, 1, 1, -1}
 local CORNER_Y = {-1, -1, 1, 1}
 local CORNER_U = {0, 1, 1, 0}
@@ -160,10 +165,10 @@ local function write(self, x, y, z, ax, ay, az, bx, by, bz, nx, ny, nz, reach, r
 	for corner = 0, 3 do
 		local sx, sy = CORNER_X[corner + 1], CORNER_Y[corner + 1]
 		local f = (first + corner) * VERTEX_FLOATS
-		floats[f], floats[f + 1], floats[f + 2] = x + ax * sx + bx * sy, y + ay * sx + by * sy, z + az * sx + bz * sy
-		floats[f + 3], floats[f + 4], floats[f + 5] = nx, ny, nz
-		floats[f + 8], floats[f + 9], floats[f + 10] = ax, ay, az
-		floats[f + 13], floats[f + 14], floats[f + 15], floats[f + 16] = r, g, b, a
+		floats[f + POSITION], floats[f + POSITION + 1], floats[f + POSITION + 2] = x + ax * sx + bx * sy, y + ay * sx + by * sy, z + az * sx + bz * sy
+		floats[f + NORMAL], floats[f + NORMAL + 1], floats[f + NORMAL + 2] = nx, ny, nz
+		floats[f + TANGENT], floats[f + TANGENT + 1], floats[f + TANGENT + 2] = ax, ay, az
+		floats[f + COLOR], floats[f + COLOR + 1], floats[f + COLOR + 2], floats[f + COLOR + 3] = r, g, b, a
 	end
 
 	self.count = n + 1
@@ -267,7 +272,7 @@ event.AddListener("LateUpdate", "sprite_batches", function()
 
 			for vertex = count * 4, batch.last_count * 4 - 1 do
 				local f = vertex * VERTEX_FLOATS
-				floats[f], floats[f + 1], floats[f + 2] = 0, 0, 0
+				floats[f + POSITION], floats[f + POSITION + 1], floats[f + POSITION + 2] = 0, 0, 0
 			end
 
 			batch.last_count = count

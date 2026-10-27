@@ -10,7 +10,13 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local ffi = require("ffi")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
 local VertexType = vertex_math.VertexType
-local VERTEX_FLOATS = ffi.sizeof(VertexType(1)) / 4
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
+local VERTEX_FLOATS = vertex_layout.FloatStride
+local POSITION = vertex_layout.GetFloatOffset("position")
+local NORMAL = vertex_layout.GetFloatOffset("normal")
+local UV = vertex_layout.GetFloatOffset("uv")
+local TANGENT = vertex_layout.GetFloatOffset("tangent")
+local COLOR = vertex_layout.GetFloatOffset("vertex_color")
 local Beam = objects.CreateTemplate("render3d_beam")
 Beam:GetSet("Radius", 0.02)
 Beam:GetSet("RadiusEnd", nil)
@@ -242,7 +248,7 @@ function Beam:ApplyTint()
 
 	for i = 0, self.point_count * 2 - 1 do
 		local f = i * VERTEX_FLOATS
-		floats[f + 13], floats[f + 14], floats[f + 15], floats[f + 16] = r, g, b, a
+		floats[f + COLOR], floats[f + COLOR + 1], floats[f + COLOR + 2], floats[f + COLOR + 3] = r, g, b, a
 	end
 
 	self.tint_dirty = false
@@ -283,7 +289,7 @@ do
 
 		for i = 0, count * 2 - 1 do
 			local f = i * VERTEX_FLOATS
-			local x, y, z = floats[f], floats[f + 1], floats[f + 2]
+			local x, y, z = floats[f + POSITION], floats[f + POSITION + 1], floats[f + POSITION + 2]
 
 			if x < min_x then min_x = x end
 
@@ -310,10 +316,10 @@ do
 
 			for side = 0, 1 do
 				local f = (i * 2 + side) * VERTEX_FLOATS
-				floats[f + 3], floats[f + 4], floats[f + 5] = nx, ny, nz
-				floats[f + 6], floats[f + 7] = side, v
-				floats[f + 8], floats[f + 9], floats[f + 10] = tx, ty, tz
-				floats[f + 13], floats[f + 14], floats[f + 15], floats[f + 16] = tint_r, tint_g, tint_b, tint_a
+				floats[f + NORMAL], floats[f + NORMAL + 1], floats[f + NORMAL + 2] = nx, ny, nz
+				floats[f + UV], floats[f + UV + 1] = side, v
+				floats[f + TANGENT], floats[f + TANGENT + 1], floats[f + TANGENT + 2] = tx, ty, tz
+				floats[f + COLOR], floats[f + COLOR + 1], floats[f + COLOR + 2], floats[f + COLOR + 3] = tint_r, tint_g, tint_b, tint_a
 			end
 		end
 	end
@@ -360,9 +366,9 @@ do
 			local px, py, pz = points[o], points[o + 1], points[o + 2]
 			local ox, oy, oz = work[w] * radius, work[w + 1] * radius, work[w + 2] * radius
 			local f = i * 2 * VERTEX_FLOATS
-			floats[f], floats[f + 1], floats[f + 2] = px - ox, py - oy, pz - oz
+			floats[f + POSITION], floats[f + POSITION + 1], floats[f + POSITION + 2] = px - ox, py - oy, pz - oz
 			f = f + VERTEX_FLOATS
-			floats[f], floats[f + 1], floats[f + 2] = px + ox, py + oy, pz + oz
+			floats[f + POSITION], floats[f + POSITION + 1], floats[f + POSITION + 2] = px + ox, py + oy, pz + oz
 		end
 
 		write_attributes(
@@ -397,9 +403,9 @@ do
 			work[w], work[w + 1], work[w + 2] = tx / length, ty / length, tz / length
 			work[w + 3], work[w + 4], work[w + 5] = nx / distance, ny / distance, nz / distance
 			local f = i * 2 * VERTEX_FLOATS
-			floats[f], floats[f + 1], floats[f + 2] = left[o], left[o + 1], left[o + 2]
+			floats[f + POSITION], floats[f + POSITION + 1], floats[f + POSITION + 2] = left[o], left[o + 1], left[o + 2]
 			f = f + VERTEX_FLOATS
-			floats[f], floats[f + 1], floats[f + 2] = right[o], right[o + 1], right[o + 2]
+			floats[f + POSITION], floats[f + POSITION + 1], floats[f + POSITION + 2] = right[o], right[o + 1], right[o + 2]
 		end
 
 		write_attributes(

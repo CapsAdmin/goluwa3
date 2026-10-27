@@ -9,6 +9,8 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
 local render = import("goluwa/render/render.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
+local Y = vertex_layout.GetFloatOffset("position") + 1
 local ffi = require("ffi")
 
 local function create_skeleton()
@@ -61,7 +63,7 @@ T.Test3D("rig moves bones with matrices in local and model space", function(draw
 	draw()
 	render.GetDevice():WaitIdle()
 	local skinned = ffi.cast("float*", clone.mesh.vertex_buffer:GetBuffer():Map())
-	T(math.abs(skinned[1] - (bind[1] + 0.5)))["<"](1e-4)
+	T(math.abs(skinned[Y] - (bind[Y] + 0.5)))["<"](1e-4)
 	T(math.abs(select(2, rig:GetBone("arm"):GetTranslation()) - 1.5))["<"](1e-5)
 	rig:ClearBone("arm")
 	rig:SetBone("arm", Matrix44():SetTranslation(2, 0, 0), "model")

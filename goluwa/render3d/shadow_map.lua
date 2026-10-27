@@ -9,6 +9,7 @@ local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Material = import("goluwa/render3d/material.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -223,7 +224,6 @@ local ShadowMultiDrawPushConstants = ffi.typeof([[
 	}
 ]])
 local SHADOW_MULTI_DRAW_COMMON_GLSL
-local SHADOW_VERTEX_FLOAT_COUNT = model_pipeline.GetVertexStride() / ffi.sizeof("float")
 
 do
 	local fields = {}
@@ -310,7 +310,7 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 
 			]] .. model_pipeline.BuildVertexAnimationGlsl("shadow_world", "pc.wind_camera", "pc.wind_pixel_scale") .. [[
 
-			#define SHADOW_VERTEX_FLOATS ]] .. SHADOW_VERTEX_FLOAT_COUNT .. [[u
+			]] .. vertex_layout.BuildGlslDefines("SHADOW_VERTEX") .. [[
 
 			void main() {
 				uint batch_index = pc.indexed != 0 ? uint(gl_InstanceIndex) : uint(gl_DrawID);
@@ -336,9 +336,11 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 				}
 
 				ShadowVertexData data = ShadowVertexData(packUint2x32(addresses.xy));
-				uint base = index * SHADOW_VERTEX_FLOATS;
-				vec3 local_pos = vec3(data.v[base], data.v[base + 1u], data.v[base + 2u]);
-				vec2 uv = vec2(data.v[base + 6u], data.v[base + 7u]);
+				uint base = index * SHADOW_VERTEX_STRIDE;
+				uint position_at = base + SHADOW_VERTEX_POSITION;
+				uint uv_at = base + SHADOW_VERTEX_UV;
+				vec3 local_pos = vec3(data.v[position_at], data.v[position_at + 1u], data.v[position_at + 2u]);
+				vec2 uv = vec2(data.v[uv_at], data.v[uv_at + 1u]);
 				shadow_world = ShadowInstanceData(pc.instances).worlds[gl_InstanceIndex];
 				vec3 world_pos = (shadow_world * vec4(local_pos, 1.0)).xyz;
 
@@ -352,8 +354,10 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 					vertex_animation.PrevTime = pc.prev_time;
 					vertex_animation.DetailTime = pc.detail_time;
 					vertex_animation.PrevDetailTime = pc.detail_time;
-					vec3 local_normal = vec3(data.v[base + 3u], data.v[base + 4u], data.v[base + 5u]);
-					vec4 vertex_color = vec4(data.v[base + 13u], data.v[base + 14u], data.v[base + 15u], data.v[base + 16u]);
+					uint normal_at = base + SHADOW_VERTEX_NORMAL;
+					uint color_at = base + SHADOW_VERTEX_COLOR;
+					vec3 local_normal = vec3(data.v[normal_at], data.v[normal_at + 1u], data.v[normal_at + 2u]);
+					vec4 vertex_color = vec4(data.v[color_at], data.v[color_at + 1u], data.v[color_at + 2u], data.v[color_at + 3u]);
 					vec3 world_normal = normalize(transpose(inverse(mat3(shadow_world))) * local_normal);
 					world_pos += get_vertex_animation_offset(world_pos, world_normal, vertex_color);
 				}

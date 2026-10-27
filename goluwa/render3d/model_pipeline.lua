@@ -8,8 +8,8 @@ local surface_features = import("goluwa/render3d/surface_features.lua")
 local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local terrain_layer_rules = import("goluwa/render3d/terrain_layer_rules.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local model_pipeline = {}
-local FLOAT_SIZE = ffi.sizeof("float")
 local SURFACE_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},
 	{type = "texture", name = "AlbedoTexture", getter = "GetAlbedoTexture"},
@@ -165,73 +165,24 @@ local function get_material()
 	return render3d.GetMaterial()
 end
 
-local VERTEX_ATTRIBUTE_DEFS = {
-	{name = "position", type = "vec3", format = "r32g32b32_sfloat", float_count = 3},
-	{name = "normal", type = "vec3", format = "r32g32b32_sfloat", float_count = 3},
-	{name = "uv", type = "vec2", format = "r32g32_sfloat", float_count = 2},
-	{
-		name = "tangent",
-		type = "vec4",
-		format = "r32g32b32a32_sfloat",
-		float_count = 4,
-	},
-	{name = "texture_blend", type = "float", format = "r32_sfloat", float_count = 1},
-	{
-		name = "vertex_color",
-		type = "vec4",
-		format = "r32g32b32a32_sfloat",
-		float_count = 4,
-	},
-}
-
-local function get_vertex_stride()
-	local stride = 0
-
-	for _, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
-		stride = stride + def.float_count * FLOAT_SIZE
-	end
-
-	return stride
-end
-
 function model_pipeline.GetVertexAttributes()
-	local attributes = {}
-
-	for i, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
-		attributes[i] = {def.name, def.type, def.format}
-	end
-
-	return attributes
+	return vertex_layout.GetShaderAttributes()
 end
 
 function model_pipeline.GetVertexStride()
-	return get_vertex_stride()
+	return vertex_layout.Stride
 end
 
 function model_pipeline.GetVertexBufferBinding(binding_index)
 	return {
 		binding = binding_index or 0,
-		stride = get_vertex_stride(),
+		stride = vertex_layout.Stride,
 		input_rate = "vertex",
 	}
 end
 
 function model_pipeline.GetVertexAttributeLayout(binding_index)
-	binding_index = binding_index or 0
-	local attributes = {}
-	local offset = 0
-
-	for i, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
-		attributes[i] = {
-			binding = binding_index,
-			location = i - 1,
-			format = def.format,
-			offset = offset,
-		}
-		offset = offset + def.float_count * FLOAT_SIZE
-	end
-
-	return attributes
+	return vertex_layout.GetAttributes(binding_index)
 end
 
 local INSTANCE_WORLD_EXPR = "mat4(in_instance_world_row_0, in_instance_world_row_1, in_instance_world_row_2, in_instance_world_row_3)"
@@ -626,23 +577,21 @@ do
 		local outputs = get_vertex_stage_outputs(options)
 		local batch_location = #outputs
 		local fetch = {}
-		local offset = 0
 
-		for _, def in ipairs(VERTEX_ATTRIBUTE_DEFS) do
+		for _, field in ipairs(vertex_layout.Fields) do
 			local components = {}
 
-			for i = 0, def.float_count - 1 do
-				components[#components + 1] = "data.v[base + " .. (offset + i) .. "u]"
+			for i = 0, field.count - 1 do
+				components[#components + 1] = "data.v[base + " .. (field.float_offset + i) .. "u]"
 			end
 
 			fetch[#fetch + 1] = string.format(
 				"\t%s in_%s = %s(%s);",
-				def.type,
-				def.name,
-				def.type,
+				field.glsl,
+				field.name,
+				field.glsl,
 				table.concat(components, ", ")
 			)
-			offset = offset + def.float_count
 		end
 
 		local main_prologue = [[
@@ -661,7 +610,7 @@ do
 
 	uint vertex_index = uint(gl_VertexIndex);
 	PBRBatchVertexData data = PBRBatchVertexData(packUint2x32(addresses.xy));
-	uint base = vertex_index * ]] .. offset .. [[u;
+	uint base = vertex_index * ]] .. vertex_layout.FloatStride .. [[u;
 ]] .. table.concat(fetch, "\n") .. [[
 
 	multi_draw_instance_world = PBRBatchInstanceData(]] .. options.instances_expr .. [[).worlds[gl_InstanceIndex];

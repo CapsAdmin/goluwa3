@@ -9,6 +9,10 @@ local steam = import("goluwa/steam/steam.lua")
 local vfs = import("goluwa/vfs.lua")
 local render = import("goluwa/render/render.lua")
 local raycast = import("goluwa/render3d/raycast.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
+local STRIDE = vertex_layout.FloatStride
+local X = vertex_layout.GetFloatOffset("position")
+local Y = X + 1
 local Vec3 = import("goluwa/structs/vec3.lua")
 local ffi = require("ffi")
 
@@ -70,7 +74,7 @@ T.Test3D("animator skins a primitive on the gpu without touching the shared mesh
 	local entity, primitive, poly = create_animated_entity(skeleton)
 	local animator = entity:AddComponent("animator")
 	local bind = ffi.cast("float*", poly.mesh.vertex_buffer.data)
-	local x, y, z = bind[0], bind[1], bind[2]
+	local x, y, z = bind[X], bind[Y], bind[Y + 1]
 	animator:Bind(skeleton)
 	T(primitive:GetPolygon3D() ~= poly)["=="](true)
 	T(#animator.targets)["=="](1)
@@ -85,10 +89,10 @@ T.Test3D("animator skins a primitive on the gpu without touching the shared mesh
 	local dx, dy = x, y - 1
 	local expected_x = dx * math.cos(angle) - dy * math.sin(angle)
 	local expected_y = dx * math.sin(angle) + dy * math.cos(angle) + 1
-	T(math.abs(skinned[0] - expected_x))["<"](1e-4)
+	T(math.abs(skinned[X] - expected_x))["<"](1e-4)
 	T(math.abs(skinned[1] - expected_y))["<"](1e-4)
 	T(math.abs(skinned[2] - z))["<"](1e-4)
-	T(bind[0])["=="](x)
+	T(bind[X])["=="](x)
 	T(bind[1])["=="](y)
 	animator:Unbind()
 	T(primitive:GetPolygon3D())["=="](poly)
@@ -104,8 +108,8 @@ T.Test3D("raycasts hit an animated primitive where it is posed and not where it 
 	local bind_x, bind_y = 0, 0
 
 	for i = 0, count - 1 do
-		bind_x = bind_x + bind[i * 17] / count
-		bind_y = bind_y + bind[i * 17 + 1] / count
+		bind_x = bind_x + bind[i * STRIDE + X] / count
+		bind_y = bind_y + bind[i * STRIDE + Y] / count
 	end
 
 	animator:Bind(skeleton)
@@ -119,8 +123,8 @@ T.Test3D("raycasts hit an animated primitive where it is posed and not where it 
 	local posed_x, posed_y = 0, 0
 
 	for i = 0, count - 1 do
-		posed_x = posed_x + skinned[i * 17] / count
-		posed_y = posed_y + skinned[i * 17 + 1] / count
+		posed_x = posed_x + skinned[i * STRIDE + X] / count
+		posed_y = posed_y + skinned[i * STRIDE + Y] / count
 	end
 
 	T(math.abs(posed_x - bind_x) + math.abs(posed_y - bind_y))[">"](0.5)

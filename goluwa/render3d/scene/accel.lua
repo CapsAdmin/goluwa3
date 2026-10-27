@@ -4,6 +4,8 @@ local system = import("goluwa/system.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local AccelerationStructure = import("goluwa/render/vulkan/internal/acceleration_structure.lua")
 local QueryPool = import("goluwa/render/vulkan/internal/query_pool.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
+local POSITION_FIELD = vertex_layout.Get("position")
 local pvars = import("goluwa/cli/pvars.lua")
 local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
 local accel = {}
@@ -197,8 +199,8 @@ function accel.BuildBLASes(cmd, jobs, count)
 		geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES
 		local triangles = geometry.geometry.triangles
 		triangles.sType = vk.VkStructureType.VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR
-		triangles.vertexFormat = vk.e.VkFormat("r32g32b32_sfloat")
-		triangles.vertexData = job.vertex_address
+		triangles.vertexFormat = vk.e.VkFormat(POSITION_FIELD.format)
+		triangles.vertexData = job.vertex_address + POSITION_FIELD.offset
 		triangles.vertexStride = job.vertex_stride
 		triangles.maxVertex = job.vertex_count - 1
 

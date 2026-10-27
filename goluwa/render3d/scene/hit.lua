@@ -1,6 +1,7 @@
 local render = import("goluwa/render/render.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local hit = {}
 hit.BINDING_COUNT = 3
 
@@ -55,6 +56,7 @@ function hit.GetCoreGLSL()
 	return [[
 		#extension GL_EXT_buffer_reference : require
 		#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+	]] .. vertex_layout.BuildGlslDefines("SCENE_VERTEX") .. [[
 
 		struct scene_mesh {
 			uint64_t vertex_address;
@@ -117,7 +119,7 @@ function hit.GetCoreGLSL()
 		}
 
 		vec3 scene_hit_world(scene_tlas_instance t, SceneVertexData vertices, uint base) {
-			vec3 p = vec3(vertices.v[base], vertices.v[base + 1u], vertices.v[base + 2u]);
+			vec3 p = vec3(vertices.v[base + SCENE_VERTEX_POSITION], vertices.v[base + SCENE_VERTEX_POSITION + 1u], vertices.v[base + SCENE_VERTEX_POSITION + 2u]);
 			return vec3(
 				dot(vec3(t.m[0], t.m[1], t.m[2]), p) + t.m[3],
 				dot(vec3(t.m[4], t.m[5], t.m[6]), p) + t.m[7],
@@ -190,10 +192,10 @@ function hit.GetGLSL(binding)
 			uint b = scene_mesh_index(mesh, primitive * 3u + 1u) * stride;
 			uint c = scene_mesh_index(mesh, primitive * 3u + 2u) * stride;
 			scene_uv uv;
-			uv.uv0 = vec2(vertices.v[a + 6u], vertices.v[a + 7u]);
-			uv.uv1 = vec2(vertices.v[b + 6u], vertices.v[b + 7u]);
-			uv.uv2 = vec2(vertices.v[c + 6u], vertices.v[c + 7u]);
-			uv.blend = vec3(vertices.v[a + 12u], vertices.v[b + 12u], vertices.v[c + 12u]);
+			uv.uv0 = vec2(vertices.v[a + SCENE_VERTEX_UV], vertices.v[a + SCENE_VERTEX_UV + 1u]);
+			uv.uv1 = vec2(vertices.v[b + SCENE_VERTEX_UV], vertices.v[b + SCENE_VERTEX_UV + 1u]);
+			uv.uv2 = vec2(vertices.v[c + SCENE_VERTEX_UV], vertices.v[c + SCENE_VERTEX_UV + 1u]);
+			uv.blend = vec3(vertices.v[a + SCENE_VERTEX_TEXTURE_BLEND], vertices.v[b + SCENE_VERTEX_TEXTURE_BLEND], vertices.v[c + SCENE_VERTEX_TEXTURE_BLEND]);
 			return uv;
 		}
 	]]

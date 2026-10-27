@@ -6,6 +6,7 @@ local Mesh = RENDER_2D and import("goluwa/render/mesh.lua")
 local IndexBuffer = RENDER_2D and import("goluwa/render/index_buffer.lua")
 local ffi = require("ffi")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local tasks = import("goluwa/tasks.lua")
 local Polygon3D = objects.CreateTemplate("render3d_polygon_3d")
 
@@ -60,44 +61,7 @@ end
 
 local VertexType = vertex_math.VertexType
 Polygon3D.VertexType = VertexType
-local VERTEX_ATTRIBUTES = {
-	{
-		binding = 0,
-		location = 0,
-		format = "r32g32b32_sfloat",
-		offset = 0,
-	},
-	{
-		binding = 0,
-		location = 1,
-		format = "r32g32b32_sfloat",
-		offset = ffi.sizeof("float") * 3,
-	},
-	{
-		binding = 0,
-		location = 2,
-		format = "r32g32_sfloat",
-		offset = ffi.sizeof("float") * 6,
-	},
-	{
-		binding = 0,
-		location = 3,
-		format = "r32g32b32a32_sfloat",
-		offset = ffi.sizeof("float") * 8,
-	},
-	{
-		binding = 0,
-		location = 4,
-		format = "r32_sfloat",
-		offset = ffi.sizeof("float") * 12,
-	},
-	{
-		binding = 0,
-		location = 5,
-		format = "r32g32b32a32_sfloat",
-		offset = ffi.sizeof("float") * 13,
-	},
-}
+local VERTEX_ATTRIBUTES = vertex_layout.GetAttributes(0)
 
 function Polygon3D:UploadVertexArray(vertices, vertex_count, indices, index_count, keep_packed, mode, aabb)
 	if not aabb then
@@ -275,6 +239,20 @@ local function pack_vertices(polygon, vertex_count)
 			vertices[idx].vertex_color[1] = 0
 			vertices[idx].vertex_color[2] = 0
 			vertices[idx].vertex_color[3] = 0
+		end
+
+		local pivot = v.pivot
+
+		if pivot then
+			vertices[idx].pivot[0] = pivot.x or pivot[1] or 0
+			vertices[idx].pivot[1] = pivot.y or pivot[2] or 0
+			vertices[idx].pivot[2] = pivot.z or pivot[3] or 0
+			vertices[idx].pivot[3] = 1
+		else
+			vertices[idx].pivot[0] = 0
+			vertices[idx].pivot[1] = 0
+			vertices[idx].pivot[2] = 0
+			vertices[idx].pivot[3] = 0
 		end
 	end
 

@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
 local terrain_layer_rules = import("goluwa/render3d/terrain_layer_rules.lua")
@@ -443,24 +444,24 @@ local COMPUTE_GLSL = COMMON_GLSL .. PROTOTYPES_GLSL .. [[
 		vec3 blend;
 	};
 
-	#define SCATTER_VERTEX_FLOATS 17u
+	]] .. vertex_layout.BuildGlslDefines("SCATTER_VERTEX") .. [[
 
 	ScatterTriangle scatter_load_triangle(ScatterSurface s, uint tri) {
 		ScatterVertexData data = ScatterVertexData(packUint2x32(s.addresses.xy));
-		uint a = scatter_index(s, tri * 3u) * SCATTER_VERTEX_FLOATS;
-		uint b = scatter_index(s, tri * 3u + 1u) * SCATTER_VERTEX_FLOATS;
-		uint c = scatter_index(s, tri * 3u + 2u) * SCATTER_VERTEX_FLOATS;
+		uint a = scatter_index(s, tri * 3u) * SCATTER_VERTEX_STRIDE;
+		uint b = scatter_index(s, tri * 3u + 1u) * SCATTER_VERTEX_STRIDE;
+		uint c = scatter_index(s, tri * 3u + 2u) * SCATTER_VERTEX_STRIDE;
 		ScatterTriangle t;
-		t.p0 = (s.world * vec4(data.v[a], data.v[a + 1u], data.v[a + 2u], 1.0)).xyz;
-		t.p1 = (s.world * vec4(data.v[b], data.v[b + 1u], data.v[b + 2u], 1.0)).xyz;
-		t.p2 = (s.world * vec4(data.v[c], data.v[c + 1u], data.v[c + 2u], 1.0)).xyz;
-		t.n0 = normalize(mat3(s.world) * vec3(data.v[a + 3u], data.v[a + 4u], data.v[a + 5u]));
-		t.n1 = normalize(mat3(s.world) * vec3(data.v[b + 3u], data.v[b + 4u], data.v[b + 5u]));
-		t.n2 = normalize(mat3(s.world) * vec3(data.v[c + 3u], data.v[c + 4u], data.v[c + 5u]));
-		t.uv0 = vec2(data.v[a + 6u], data.v[a + 7u]);
-		t.uv1 = vec2(data.v[b + 6u], data.v[b + 7u]);
-		t.uv2 = vec2(data.v[c + 6u], data.v[c + 7u]);
-		t.blend = vec3(data.v[a + 12u], data.v[b + 12u], data.v[c + 12u]);
+		t.p0 = (s.world * vec4(data.v[a + SCATTER_VERTEX_POSITION], data.v[a + SCATTER_VERTEX_POSITION + 1u], data.v[a + SCATTER_VERTEX_POSITION + 2u], 1.0)).xyz;
+		t.p1 = (s.world * vec4(data.v[b + SCATTER_VERTEX_POSITION], data.v[b + SCATTER_VERTEX_POSITION + 1u], data.v[b + SCATTER_VERTEX_POSITION + 2u], 1.0)).xyz;
+		t.p2 = (s.world * vec4(data.v[c + SCATTER_VERTEX_POSITION], data.v[c + SCATTER_VERTEX_POSITION + 1u], data.v[c + SCATTER_VERTEX_POSITION + 2u], 1.0)).xyz;
+		t.n0 = normalize(mat3(s.world) * vec3(data.v[a + SCATTER_VERTEX_NORMAL], data.v[a + SCATTER_VERTEX_NORMAL + 1u], data.v[a + SCATTER_VERTEX_NORMAL + 2u]));
+		t.n1 = normalize(mat3(s.world) * vec3(data.v[b + SCATTER_VERTEX_NORMAL], data.v[b + SCATTER_VERTEX_NORMAL + 1u], data.v[b + SCATTER_VERTEX_NORMAL + 2u]));
+		t.n2 = normalize(mat3(s.world) * vec3(data.v[c + SCATTER_VERTEX_NORMAL], data.v[c + SCATTER_VERTEX_NORMAL + 1u], data.v[c + SCATTER_VERTEX_NORMAL + 2u]));
+		t.uv0 = vec2(data.v[a + SCATTER_VERTEX_UV], data.v[a + SCATTER_VERTEX_UV + 1u]);
+		t.uv1 = vec2(data.v[b + SCATTER_VERTEX_UV], data.v[b + SCATTER_VERTEX_UV + 1u]);
+		t.uv2 = vec2(data.v[c + SCATTER_VERTEX_UV], data.v[c + SCATTER_VERTEX_UV + 1u]);
+		t.blend = vec3(data.v[a + SCATTER_VERTEX_TEXTURE_BLEND], data.v[b + SCATTER_VERTEX_TEXTURE_BLEND], data.v[c + SCATTER_VERTEX_TEXTURE_BLEND]);
 		return t;
 	}
 
