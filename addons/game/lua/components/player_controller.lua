@@ -17,6 +17,8 @@ local MAX_REPEATS = 15
 local SHRINK_INTERVAL = 300
 local CORRECTION_DECAY = 10
 local DISTANCE_TOLERANCE = 0.01
+local POSITION_TOLERANCE = 0.002
+local VELOCITY_TOLERANCE = 0.3
 local ACK_LOG_SIZE = 64
 META:GetSet("Source", "local")
 META:GetSet("Networked", false)
@@ -216,7 +218,8 @@ function META:Reconcile(number, position, velocity, distance)
 	local velocity_error = velocity - entry.velocity
 	local magnitude = position_error:GetLength()
 	local velocity_error_length = velocity_error:GetLength()
-	local corrected = magnitude >= 0.002 or velocity_error_length >= 0.02
+	local velocity_matters = velocity_error_length >= VELOCITY_TOLERANCE
+	local corrected = magnitude >= POSITION_TOLERANCE or velocity_matters
 	local ack = self.last_ack
 	ack.number = number
 	ack.time = system.GetTime()
@@ -232,6 +235,8 @@ function META:Reconcile(number, position, velocity, distance)
 	self.ack_log[self.ack_log_index] = {magnitude, velocity_error_length, corrected}
 
 	if not corrected then return 0 end
+
+	if not velocity_matters then velocity_error:Set(0, 0, 0) end
 
 	movement:MoveBodyBy(body, position_error)
 	body:SetVelocity(body:GetVelocity() + velocity_error)

@@ -440,6 +440,39 @@ T.TestPhysics("player controller reconciliation corrects mispredictions and shif
 	ground:Remove()
 end)
 
+T.TestPhysics("player controller does not correct a small velocity only disagreement but does a large one", function()
+	local ground = create_ground()
+	local player = create_player()
+	local controller = player.player_controller
+	local body = player.rigid_body
+	drive(player, 100)
+	local number = controller.number
+	local entry = controller:GetHistory(number - 10)
+	local velocity_before = body:GetVelocity():Copy()
+	T(
+		controller:Reconcile(
+			number - 10,
+			entry.position:Copy(),
+			entry.velocity + Vec3(0.1, 0, 0),
+			entry.distance
+		)
+	)["=="](0)
+	T(controller.corrections)["=="](0)
+	T((body:GetVelocity() - velocity_before):GetLength())["<"](0.0001)
+	T(math.abs(controller.last_ack.velocity_error - 0.1))["<"](0.0001)
+	T(controller.last_ack.corrected)["=="](false)
+	controller:Reconcile(
+		number - 10,
+		entry.position:Copy(),
+		entry.velocity + Vec3(2, 0, 0),
+		entry.distance
+	)
+	T(controller.corrections)["=="](1)
+	T(controller.last_ack.corrected)["=="](true)
+	player:Remove()
+	ground:Remove()
+end)
+
 T.TestPhysics("player controller ignores acknowledgements it has no history for", function()
 	local player = create_player()
 	local controller = player.player_controller
