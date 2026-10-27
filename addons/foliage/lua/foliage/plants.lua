@@ -98,6 +98,7 @@ function plants.BuildFlowers(config, rng)
 		local top = points[#points]
 		local held = trees.Stiffness(top.reach, grass.FLEX)
 		local tile = flower_rng:Int(0, config.atlas - 1)
+		heads:SetChain(unpack(trees.Chain(points)))
 
 		if config.spike then
 			grass.AddCrossedCards(
@@ -127,6 +128,8 @@ function plants.BuildFlowers(config, rng)
 				held
 			)
 		end
+
+		heads:ClearChain()
 	end
 
 	local leaf_rng = rng:Fork("leaves")

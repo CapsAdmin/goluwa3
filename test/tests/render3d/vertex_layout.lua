@@ -277,3 +277,49 @@ T.Test3D("a mesh builder writes the chain it was given into every vertex and the
 	T(builder.chain_vertices)["=="](3)
 	T(vertices[3].pivot[3])["=="](1)
 end)
+
+T.Test3D("grass blades and crossed cards state their own skeleton unless the caller already has one", function()
+	import("lua/foliage/foliage.lua")
+	local MeshBuilder = import("lua/foliage/mesh_builder.lua")
+	local grass = import("lua/foliage/grass.lua")
+	local Random = import("lua/foliage/random.lua")
+	local builder = MeshBuilder.New()
+	local root = Vec3(1, 0.5, 2)
+	grass.AddBlade(builder, root, Vec3(1, 0, 0), 1, 0.05, 0.3, 0.1, 0, 4, 0, 1, 0)
+	T(builder:GetChain())["=="](nil)
+	local blade_vertices = builder:GetVertexCount()
+	grass.AddCrossedCards(builder, Vec3(-1, 0, 0), Vec3(0, 1, 0), 0.6, 1, 0, 1, 0, 1, Random.New(1))
+	T(builder:GetChain())["=="](nil)
+	local polygon = builder:Build{}
+	local vertices = polygon.packed.vertices
+	T(builder.chain_vertices)["=="](builder:GetVertexCount())
+
+	for i = 0, blade_vertices - 1 do
+		T(vertices[i].pivot[3])["=="](1)
+		T(math.abs(vertices[i].pivot[0] - 1) < 1e-5)["=="](true)
+		T(math.abs(vertices[i].pivot[1] - 0.5) < 1e-5)["=="](true)
+		T(math.abs(vertices[i].pivot[2] - 2) < 1e-5)["=="](true)
+		T(math.abs(vertices[i].chain_tip[0] - 1.3) < 1e-5)["=="](true)
+		T(math.abs(vertices[i].chain_tip[1] - 1.4) < 1e-5)["=="](true)
+		T(vertices[i].chain_mid[1] > 0.5 and vertices[i].chain_mid[1] < 1.4)["=="](true)
+	end
+
+	for i = blade_vertices, builder:GetVertexCount() - 1 do
+		T(vertices[i].pivot[1])["=="](0)
+		T(math.abs(vertices[i].chain_tip[1] - 0.6) < 1e-5)["=="](true)
+		T(math.abs(vertices[i].chain_mid[1] - 0.3) < 1e-5)["=="](true)
+	end
+
+	local owned = MeshBuilder.New()
+	owned:SetChain(9, 9, 9, 8, 8, 8, 7, 7, 7)
+	local outer = owned:GetChain()
+	grass.AddBlade(owned, root, Vec3(1, 0, 0), 1, 0.05, 0.3, 0.1, 0, 4, 0, 1, 0)
+	grass.AddCrossedCards(owned, Vec3(-1, 0, 0), Vec3(0, 1, 0), 0.6, 1, 0, 1, 0, 1, Random.New(1))
+	T(owned:GetChain())["=="](outer)
+	local owned_vertices = owned:Build{}.packed.vertices
+
+	for i = 0, owned:GetVertexCount() - 1 do
+		T(owned_vertices[i].pivot[0])["=="](9)
+		T(owned_vertices[i].chain_tip[0])["=="](7)
+	end
+end)

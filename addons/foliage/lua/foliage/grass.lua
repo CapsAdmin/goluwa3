@@ -14,6 +14,13 @@ function grass.AddBlade(mesh, root, facing, height, width, lean, arch, twist, se
 	local p2 = root + UP * (height * (1 - arch)) + facing * (height * lean)
 	local side0 = Vec3(-facing.z, 0, facing.x)
 	local first = mesh:GetVertexCount()
+	local outer_chain = mesh:GetChain()
+
+	if not outer_chain then
+		local blade_mid = ((root + p1) * 0.5 + (p1 + p2) * 0.5) * 0.5
+		mesh:SetChain(root.x, root.y, root.z, blade_mid.x, blade_mid.y, blade_mid.z, p2.x, p2.y, p2.z)
+	end
+
 	local flip = side0:GetCross((p1 - root):GetNormalized()):GetDot(facing) > 0
 
 	for row = 0, segments do
@@ -60,6 +67,7 @@ function grass.AddBlade(mesh, root, facing, height, width, lean, arch, twist, se
 		mesh:Triangle(a, a + 1, a + 2)
 	end
 
+	mesh:RestoreChain(outer_chain)
 	return stiffness
 end
 
@@ -67,6 +75,13 @@ function grass.AddCrossedCards(mesh, base, up, size, aspect, tile, atlas, phase,
 	local top_stiffness = trees.StiffnessAlong(stiffness, up * size, grass.FLEX)
 	local yaw = rng:Next() * math.pi
 	local u0, u1 = tile / atlas, (tile + 1) / atlas
+	local outer_chain = mesh:GetChain()
+
+	if not outer_chain then
+		local top = base + up * size
+		local middle = base + up * (size * 0.5)
+		mesh:SetChain(base.x, base.y, base.z, middle.x, middle.y, middle.z, top.x, top.y, top.z)
+	end
 
 	for k = 0, 1 do
 		local angle = yaw + k * math.pi * 0.5
@@ -121,6 +136,8 @@ function grass.AddCrossedCards(mesh, base, up, size, aspect, tile, atlas, phase,
 		)
 		mesh:Quad(first, first + 1, first + 2, first + 3)
 	end
+
+	mesh:RestoreChain(outer_chain)
 end
 
 function grass.BuildPatch(config, rng)

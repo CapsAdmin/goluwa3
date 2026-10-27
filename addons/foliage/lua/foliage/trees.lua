@@ -95,6 +95,31 @@ function trees.Sample(points, t)
 	a.reach + (b.reach - a.reach) * k
 end
 
+trees.TRUNK_FLEX = 0.2
+
+function trees.Chain(points)
+	local count = #points
+
+	if count < 2 then return nil end
+
+	local f = 0.5 * (count - 1)
+	local i = floor(f)
+	local a, b = points[i + 1].pos, points[min(i + 2, count)].pos
+	local mid = a + (b - a) * (f - i)
+	local first, last = points[1].pos, points[count].pos
+	return {first.x, first.y, first.z, mid.x, mid.y, mid.z, last.x, last.y, last.z}
+end
+
+function trees.RootChain(points)
+	local chain = trees.Chain(points)
+	return {
+		pivot = {chain[1], chain[2], chain[3]},
+		mid = {chain[4], chain[5], chain[6]},
+		tip = {chain[7], chain[8], chain[9]},
+		flex = trees.TRUNK_FLEX,
+	}
+end
+
 function trees.Stiffness(reach, flex)
 	return max(1 - reach * flex, 0)
 end
@@ -114,7 +139,12 @@ function trees.AddTube(wood, points, sides, tile, phase, stiffness, cap, v_offse
 		ring[i] = {point.pos.x, point.pos.y, point.pos.z, point.radius, 0, phase, stiffness(point)}
 	end
 
-	return wood:Tube(
+	local outer = wood:GetChain()
+	local own = not outer and trees.Chain(points)
+
+	if own then wood:SetChain(unpack(own)) end
+
+	local result = wood:Tube(
 		ring,
 		{
 			sides = sides,
@@ -124,13 +154,15 @@ function trees.AddTube(wood, points, sides, tile, phase, stiffness, cap, v_offse
 			cap = cap,
 		}
 	)
+	wood:RestoreChain(outer)
+	return result
 end
 
 function trees.NewCards()
 	return {}
 end
 
-function trees.AddCard(cards, rng, base, up, facing, size, roll, phase, stiffness, flex, atlas, aspect)
+function trees.AddCard(cards, rng, base, up, facing, size, roll, phase, stiffness, flex, atlas, aspect, chain)
 	up = up:GetNormalized()
 	local side = up:GetCross(facing)
 
@@ -148,6 +180,7 @@ function trees.AddCard(cards, rng, base, up, facing, size, roll, phase, stiffnes
 		phase = phase,
 		stiffness = stiffness,
 		top_stiffness = trees.StiffnessAlong(stiffness, up * size, flex),
+		chain = chain,
 	}
 end
 
@@ -175,6 +208,9 @@ do
 
 		for _, card in ipairs(cards) do
 			local first = mesh:GetVertexCount()
+
+			if card.chain then mesh:SetChain(unpack(card.chain)) else mesh:ClearChain() end
+
 			local c, r, u, n = card.center, card.side, card.up, card.normal
 			local uv = card.uv
 			local out = c - nearest_on(trunk, c)
@@ -332,6 +368,7 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 	end
 
 	local leaves = config.leaves
+	local branch_chain = trees.Chain(points)
 
 	if leaves and level >= leaves.level then
 		local rng = state.rng
@@ -374,7 +411,8 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 				held,
 				config.flex,
 				leaves.atlas,
-				leaves.aspect
+				leaves.aspect,
+				branch_chain
 			)
 
 			if leaves.cross then
@@ -390,7 +428,8 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 					held,
 					config.flex,
 					leaves.atlas,
-					leaves.aspect
+					leaves.aspect,
+					branch_chain
 				)
 			end
 		end
@@ -481,17 +520,18 @@ function trees.BuildTree(config, rng)
 
 	local parts = {}
 	local top = height
+	local root = trees.RootChain(state.trunk[1])
 
 	if not state.wood:IsEmpty() then
 		parts[#parts + 1] = {
-			mesh = state.wood:Build{bend_height = top, name = "foliage_wood"},
+			mesh = state.wood:Build{bend_height = top, name = "foliage_wood", root_chain = root},
 			material = foliage.GetMaterial(config.bark),
 		}
 	end
 
 	if state.cards[1] then
 		parts[#parts + 1] = {
-			mesh = trees.BuildCards(state.cards, config.leaves.bend, state.trunk):Build{bend_height = top, name = "foliage_leaves"},
+			mesh = trees.BuildCards(state.cards, config.leaves.bend, state.trunk):Build{bend_height = top, name = "foliage_leaves", root_chain = root},
 			material = foliage.GetMaterial(config.leaves.material),
 		}
 	end
@@ -1121,6 +1161,10 @@ function trees.AddFrond(
 	local half = length * width * 0.5
 	local fold_angle = rad(fold)
 	local first = mesh:GetVertexCount()
+	local outer_chain = mesh:GetChain()
+	local own_chain = not outer_chain and trees.Chain(points)
+
+	if own_chain then mesh:SetChain(unpack(own_chain)) end
 
 	for i, point in ipairs(points) do
 		local t = point.t
@@ -1163,6 +1207,7 @@ function trees.AddFrond(
 		mesh:Quad(a + 1, a + 2, b + 2, b + 1)
 	end
 
+	mesh:RestoreChain(outer_chain)
 	return points
 end
 
@@ -1301,30 +1346,35 @@ function trees.BuildPalm(config, rng)
 		local offset = Vec3(cos(yaw), 0, sin(yaw)) * (
 				top.radius + 0.08
 			) - UP * fruit_rng:Range(0.1, 0.35)
-		trees.AddBall(fruit, top.pos + offset, fruit_rng:Range(0.09, 0.12), 6, 8, 0, 1)
+		local ball = top.pos + offset
+		local hang = (top.pos + ball) * 0.5
+		fruit:SetChain(top.pos.x, top.pos.y, top.pos.z, hang.x, hang.y, hang.z, ball.x, ball.y, ball.z)
+		trees.AddBall(fruit, ball, fruit_rng:Range(0.09, 0.12), 6, 8, 0, 1)
+		fruit:ClearChain()
 	end
 
+	local root = trees.RootChain(points)
 	local parts = {
 		{
-			mesh = wood:Build{bend_height = height, name = "foliage_palm_trunk"},
+			mesh = wood:Build{bend_height = height, name = "foliage_palm_trunk", root_chain = root},
 			material = foliage.GetMaterial(config.bark),
 		},
 		{
-			mesh = fronds:Build{bend_height = height, name = "foliage_palm_fronds"},
+			mesh = fronds:Build{bend_height = height, name = "foliage_palm_fronds", root_chain = root},
 			material = foliage.GetMaterial(config.frond_material),
 		},
 	}
 
 	if not dry:IsEmpty() then
 		parts[#parts + 1] = {
-			mesh = dry:Build{bend_height = height, name = "foliage_palm_dry"},
+			mesh = dry:Build{bend_height = height, name = "foliage_palm_dry", root_chain = root},
 			material = foliage.GetMaterial(config.dry_material),
 		}
 	end
 
 	if not fruit:IsEmpty() then
 		parts[#parts + 1] = {
-			mesh = fruit:Build{bend_height = height, name = "foliage_palm_fruit"},
+			mesh = fruit:Build{bend_height = height, name = "foliage_palm_fruit", root_chain = root},
 			material = foliage.GetMaterial("coconut"),
 		}
 	end

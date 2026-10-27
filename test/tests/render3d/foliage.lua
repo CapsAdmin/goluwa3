@@ -334,3 +334,53 @@ T.Test("foliage scatter sets only grow registered foliage models", function()
 
 	T(count)[">"](40)
 end)
+
+T.Test3D("foliage generators state the skeleton of every bending vertex themselves", function()
+	local vegetation_pivots = import("goluwa/render3d/vegetation_pivots.lua")
+	local compute = vegetation_pivots.ComputeArray
+	local names = {}
+
+	for name in pairs(foliage.generators) do
+		names[#names + 1] = name
+	end
+
+	table.sort(names)
+	local bending, rooted = 0, 0
+	vegetation_pivots.ComputeArray = function()
+		return false
+	end
+	local ok, err = pcall(function()
+		for i, name in ipairs(names) do
+			local parts = foliage.Build(name, {seed = 91000 + i})
+			local root
+
+			for _, part in ipairs(parts) do
+				if part.mesh:GetBendHeight() > 0 then
+					bending = bending + 1
+					local packed = part.mesh.packed
+
+					for v = 0, packed.vertex_count - 1 do
+						local vertex = packed.vertices[v]
+						T(vertex.pivot[3])["=="](1)
+					end
+
+					local part_root = part.mesh:GetRootChain()
+					root = root or part_root
+
+					if part_root then
+						rooted = rooted + 1
+						T(part_root)["=="](root)
+						T(part_root.flex)["=="](0.2)
+						T(part_root.tip[2] > part_root.pivot[2])["=="](true)
+					end
+				end
+			end
+		end
+	end)
+	vegetation_pivots.ComputeArray = compute
+
+	if not ok then error(err, 0) end
+
+	T(bending)[">"](20)
+	T(rooted)[">"](10)
+end)
