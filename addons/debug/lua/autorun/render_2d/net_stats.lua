@@ -8,8 +8,15 @@ local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local perf = import("lua/perf.lua")
 local last_time = 0
-local last = {bytes_in = 0, bytes_out = 0, received = 0, sent = 0}
-local rates = {in_kb = 0, out_kb = 0, in_pps = 0, out_pps = 0}
+local last = {
+	bytes_in = 0,
+	bytes_out = 0,
+	received = 0,
+	sent = 0,
+	datagrams_in = 0,
+	datagrams_out = 0,
+}
+local rates = {in_kb = 0, out_kb = 0, in_pps = 0, out_pps = 0, in_dps = 0, out_dps = 0}
 local rows = {}
 
 local function line(label, color)
@@ -103,16 +110,35 @@ local function build_rows()
 			rates.out_kb = (stats.bytes_out - last.bytes_out) / dt / 1024
 			rates.in_pps = (stats.received - last.received) / dt
 			rates.out_pps = (stats.sent - last.sent) / dt
+			rates.in_dps = (stats.datagrams_in - last.datagrams_in) / dt
+			rates.out_dps = (stats.datagrams_out - last.datagrams_out) / dt
 			last.bytes_in = stats.bytes_in
 			last.bytes_out = stats.bytes_out
 			last.received = stats.received
 			last.sent = stats.sent
+			last.datagrams_in = stats.datagrams_in
+			last.datagrams_out = stats.datagrams_out
 			last_time = now
 		end
 
 		line(string.format("ping %.0f ms", peer:GetPing()))
-		line(string.format("in  %.1f KB/s  %.0f msg/s", rates.in_kb, rates.in_pps))
-		line(string.format("out %.1f KB/s  %.0f msg/s", rates.out_kb, rates.out_pps))
+		line(
+			string.format(
+				"in  %.1f KB/s  %.0f msg/s  %.0f datagrams/s",
+				rates.in_kb,
+				rates.in_pps,
+				rates.in_dps
+			)
+		)
+		line(
+			string.format(
+				"out %.1f KB/s  %.0f msg/s  %.0f datagrams/s",
+				rates.out_kb,
+				rates.out_pps,
+				rates.out_dps
+			)
+		)
+		line(string.format("send window %.0f KB  rto %.0f ms", stats.window / 1024, stats.rto))
 		line(
 			string.format("retransmitted %d", stats.retransmitted),
 			stats.retransmitted > 0 and "warn" or nil
