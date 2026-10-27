@@ -80,6 +80,7 @@ RigidBody:GetSet("SleepAngularThreshold", 0.06)
 RigidBody:GetSet("SleepDelay", 0.5)
 RigidBody:GetSet("MaxLinearSpeed", 240)
 RigidBody:GetSet("MaxAngularSpeed", 60)
+RigidBody:GetSet("SpinAxis", nil)
 RigidBody:GetSet("MinGroundNormalY", 0.2)
 RigidBody:EndStorable()
 RigidBody:GetSet("Awake", true, {callback = "OnActivityChanged"})
@@ -169,11 +170,30 @@ local function clamp_vec_length(vec, max_length)
 	return vec
 end
 
+local EXACT_ROTATION_HALF_ANGLE = 0.05
+
 local function integrate_rotation(rotation, angular_velocity, dt)
-	if angular_velocity:GetLengthSquared() == 0 then return rotation end
+	local x, y, z = angular_velocity.x, angular_velocity.y, angular_velocity.z
+	local length_squared = x * x + y * y + z * z
+
+	if length_squared == 0 then return rotation end
 
 	local delta = ROTATION_INTEGRATION_DELTA
-	delta.x, delta.y, delta.z, delta.w = angular_velocity.x, angular_velocity.y, angular_velocity.z, 0
+
+	-- the first order update turns fast spinning bodies (wheels) about the wrong axis, which constraints then fight
+	if
+		length_squared * dt * dt > 4 * EXACT_ROTATION_HALF_ANGLE * EXACT_ROTATION_HALF_ANGLE
+	then
+		local length = math.sqrt(length_squared)
+		local half_angle = 0.5 * length * dt
+		local scale = math.sin(half_angle) / length
+		delta.x, delta.y, delta.z, delta.w = x * scale, y * scale, z * scale, math.cos(half_angle)
+		Quat.SetMul(rotation, delta, rotation)
+		rotation:Normalize()
+		return rotation
+	end
+
+	delta.x, delta.y, delta.z, delta.w = x, y, z, 0
 	Quat.SetMul(delta, delta, rotation)
 	local half_dt = 0.5 * dt
 	rotation.x = rotation.x + half_dt * delta.x
@@ -182,6 +202,27 @@ local function integrate_rotation(rotation, angular_velocity, dt)
 	rotation.w = rotation.w + half_dt * delta.w
 	rotation:Normalize()
 	return rotation
+end
+
+local SPIN_AXIS = Vec3()
+local SPIN_REST = Vec3()
+
+-- a wheel spins about its axle exactly first, so the rest of its rotation moves the axle the way its joint expects
+local function integrate_body_rotation(body, angular_velocity, dt)
+	local local_axis = body.SpinAxis
+
+	if not local_axis then
+		return integrate_rotation(body.Rotation, angular_velocity, dt)
+	end
+
+	local axis = Quat.SetVecMul(SPIN_AXIS, body.Rotation, local_axis)
+	local spin = angular_velocity.x * axis.x + angular_velocity.y * axis.y + angular_velocity.z * axis.z
+	SPIN_REST.x = angular_velocity.x - axis.x * spin
+	SPIN_REST.y = angular_velocity.y - axis.y * spin
+	SPIN_REST.z = angular_velocity.z - axis.z * spin
+	axis.x, axis.y, axis.z = axis.x * spin, axis.y * spin, axis.z * spin
+	integrate_rotation(body.Rotation, axis, dt)
+	return integrate_rotation(body.Rotation, SPIN_REST, dt)
 end
 
 local function build_ground_support_basis(normal, tangent, bitangent)
@@ -1382,7 +1423,7 @@ function RigidBody:Integrate(dt, gravity)
 	self.SolverAngularVelocity0:CopyFrom(self.AngularVelocity)
 	self.HasSolverVelocity0 = true
 	self.Position:AddScaled(self.Velocity, dt)
-	self.Rotation = integrate_rotation(self.Rotation, self.AngularVelocity, dt)
+	self.Rotation = integrate_body_rotation(self, self.AngularVelocity, dt)
 end
 
 local SOLVER_ANGULAR_DELTA = Vec3()
@@ -1408,7 +1449,7 @@ function RigidBody:ApplySolverVelocityDelta(dt)
 	delta.x = self.AngularVelocity.x - self.SolverAngularVelocity0.x
 	delta.y = self.AngularVelocity.y - self.SolverAngularVelocity0.y
 	delta.z = self.AngularVelocity.z - self.SolverAngularVelocity0.z
-	self.Rotation = integrate_rotation(self.Rotation, delta, dt)
+	self.Rotation = integrate_body_rotation(self, delta, dt)
 end
 
 function RigidBody:UpdateVelocities(dt)
