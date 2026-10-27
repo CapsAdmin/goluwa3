@@ -1384,6 +1384,44 @@ do
 		end
 	end
 
+	do
+		local limit_paths = {
+			rcvbuf = "/proc/sys/net/core/rmem_max",
+			sndbuf = "/proc/sys/net/core/wmem_max",
+		}
+		local limits = {}
+
+		function M.get_buffer_limit(key)
+			if limits[key] == nil then
+				limits[key] = false
+
+				if ffi.os == "Linux" then
+					local file = io.open(limit_paths[key], "r")
+
+					if file then
+						limits[key] = tonumber(file:read("*l")) or false
+						file:close()
+					end
+				end
+			end
+
+			return limits[key] or nil
+		end
+
+		function meta:maximize_buffer(key, cap)
+			local current = assert(self:get_option(key))
+			local size = math.min(M.get_buffer_limit(key) or cap, cap)
+
+			while size > current do
+				if self:set_option(key, size) then break end
+
+				size = math.floor(size / 2)
+			end
+
+			return assert(self:get_option(key))
+		end
+	end
+
 	function meta:connect(host, service)
 		local res, err = M.find_first_address_info(host, service, nil, self.family, self.socket_type, self.protocol)
 

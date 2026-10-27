@@ -9,8 +9,14 @@ local handshake = import("goluwa/network/handshake.lua")
 local transport_layer = {}
 transport_layer.sockets = transport_layer.sockets or {}
 transport_layer.servers = transport_layer.servers or {}
+transport_layer.SOCKET_BUFFER_CAP = 32 * 1024 * 1024
 
 function transport_layer.Initialize() end
+
+function transport_layer.MaximizeSocketBuffers(socket)
+	return socket:maximize_buffer("rcvbuf", transport_layer.SOCKET_BUFFER_CAP),
+	socket:maximize_buffer("sndbuf", transport_layer.SOCKET_BUFFER_CAP)
+end
 
 do
 	local conditions = {
@@ -189,6 +195,7 @@ do
 		self.address = {ip = ip, port = port}
 		self.client_socket = UDPClient.New()
 		self.client_socket:SetAddress(ip, port)
+		self.receive_buffer_size, self.send_buffer_size = transport_layer.MaximizeSocketBuffers(self.client_socket.socket)
 		local socket = self.client_socket
 
 		local function raw_send(str)
@@ -333,6 +340,7 @@ do
 		server:Initialize()
 		server.peers = {}
 		server:SetAddress(ip, port)
+		server.receive_buffer_size, server.send_buffer_size = transport_layer.MaximizeSocketBuffers(server.socket)
 		local ok, err = server.socket:bind(ip, port)
 
 		if not ok then

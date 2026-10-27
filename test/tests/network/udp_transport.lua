@@ -219,3 +219,18 @@ T.Test("UDP transport layer server cleanup removes peers", function()
 	peer1:Remove()
 	peer2:Remove()
 end)
+
+T.Test("UDP transport layer sizes socket buffers to what the system allows", function()
+	local ljsocket = import("goluwa/bindings/socket.lua")
+	local server = transport_layer.CreateServer("0.0.0.0", 27025)
+	local limit = ljsocket.get_buffer_limit("rcvbuf")
+
+	if limit then
+		T(server.receive_buffer_size)[">="](math.min(limit, transport_layer.SOCKET_BUFFER_CAP))
+	else
+		T(server.receive_buffer_size)[">"](0)
+	end
+
+	T(server.send_buffer_size)[">"](0)
+	server:Remove()
+end)
