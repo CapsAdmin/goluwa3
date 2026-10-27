@@ -26,8 +26,8 @@ local META = objects.CreateTemplate("transform_3d")
 META.Is3D = true
 META.Is2D = false
 META.Network = {
-	Position = {"vec3", 1 / 20, "sequenced", true},
-	Rotation = {"quat", 1 / 20, "sequenced", true},
+	Position = {"vec3", 1 / 60, "sequenced", true},
+	Rotation = {"quat", 1 / 60, "sequenced", true},
 	Scale = {"vec3", 1, "reliable"},
 }
 

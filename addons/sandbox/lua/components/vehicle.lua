@@ -15,10 +15,10 @@ local vehicles = import("lua/vehicles.lua")
 local META = objects.CreateTemplate("vehicle")
 META.Network = {
 	Kind = {"string", 0.5, "reliable"},
-	Steer = {"number", 1 / 20, "sequenced", true},
-	Throttle = {"number", 1 / 20, "sequenced", true},
-	Pitch = {"number", 1 / 20, "sequenced", true},
-	Roll = {"number", 1 / 20, "sequenced", true},
+	Steer = {"number", 1 / 30, "sequenced", true},
+	Throttle = {"number", 1 / 30, "sequenced", true},
+	Pitch = {"number", 1 / 30, "sequenced", true},
+	Roll = {"number", 1 / 30, "sequenced", true},
 }
 META:StartStorable()
 META:GetSet("Kind", "car", {enums = vehicles.Names, callback = "Build"})

@@ -12,7 +12,7 @@ META.Network = {
 	Holding = {"boolean", 0.1, "reliable"},
 	Blocking = {"boolean", 0.05, "reliable", to_owner = true},
 	States = {"string", 0.05, "reliable"},
-	ViewRotation = {"quat", 1 / 20, "sequenced", true},
+	ViewRotation = {"quat", 1 / 60, "sequenced", true},
 	Shots = {"number", 0.05, "reliable"},
 	Hits = {"number", 0.05, "reliable", to_owner = true},
 	Reacts = {"number", 0.05, "reliable", to_owner = true},
@@ -21,9 +21,9 @@ META.Network = {
 	Action = {"string", 0.05, "reliable", to_owner = true},
 	ActionDuration = {"number", 0.05, "reliable", to_owner = true},
 	Actions = {"number", 0.05, "reliable", to_owner = true},
-	LeanSide = {"number", 1 / 20, "sequenced", true},
-	LeanForward = {"number", 1 / 20, "sequenced", true},
-	Distance = {"number", 1 / 20, "sequenced", true},
+	LeanSide = {"number", 1 / 60, "sequenced", true},
+	LeanForward = {"number", 1 / 60, "sequenced", true},
+	Distance = {"number", 1 / 60, "sequenced", true},
 	Seat = {"entity", 0.1, "reliable", to_owner = true},
 }
 META:IsSet("Crouching", false)
