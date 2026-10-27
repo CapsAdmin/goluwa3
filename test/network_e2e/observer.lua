@@ -95,6 +95,7 @@ event.AddListener("Update", "e2e_observer", function()
 			prop.model:GetModelOptions().size.z == 3
 	end
 
+	checks.guid = prop ~= nil and prop:GetGUID() == "e2e_replicated_prop_guid"
 	local child = find("replicated_child")
 	checks.child = child ~= nil and child:GetParent():GetName() == "replicated_prop"
 	local outfits = 0
@@ -151,6 +152,7 @@ event.AddListener("Update", "e2e_observer", function()
 		"light",
 		"prop",
 		"child",
+		"guid",
 		"outfit",
 		"avatar_owner",
 		"pushed_owner",
@@ -174,6 +176,7 @@ local function finish(timed_out)
 		"light",
 		"prop",
 		"child",
+		"guid",
 		"outfit",
 		"avatar_owner",
 		"pushed_owner",

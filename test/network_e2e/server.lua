@@ -31,6 +31,7 @@ Entity.New{
 }
 local prop = Entity.New{
 	Name = "replicated_prop",
+	GUID = "e2e_replicated_prop_guid",
 	transform = {Position = Vec3(1, 2, 3)},
 	model = {ModelPath = "models/box.lua", ModelOptions = {size = Vec3(1, 2, 3)}},
 	network = {},

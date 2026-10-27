@@ -775,7 +775,7 @@ if CLIENT then
 
 			if self then self.Owner:Remove() end
 
-			Entity.New(config)
+			Entity.New(config):SetGUID(guid)
 			return true
 		end
 
