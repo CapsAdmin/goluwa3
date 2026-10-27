@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# usage: mcp list
+#        mcp <client|server|port> tools
+#        mcp <client|server|port> lua '<code>'
+#        mcp <client|server|port> <tool> ['<json arguments>']
+dir="$(cd "$(dirname "$0")/../.." && pwd)/storage/mcp"
+
+instances() {
+	for file in "$dir"/*.json; do
+		[ -e "$file" ] || continue
+		if kill -0 "$(jq -r .pid "$file")" 2>/dev/null; then
+			cat "$file"
+		else
+			rm -f "$file"
+		fi
+	done | jq -s 'sort_by(.started)'
+}
+
+if [ "$1" = list ] || [ -z "$1" ]; then
+	instances | jq -r '.[] | "\(.role)\t\(.port)\tpid \(.pid)\t\(.args | join(" "))"'
+	exit 0
+fi
+
+port="$(instances | jq -r --arg t "$1" '[.[] | select(.role == $t or (.port | tostring) == $t)] | last | .port // empty')"
+[ -n "$port" ] || { echo "no running '$1' instance (try: mcp list)" >&2; exit 1; }
+tool="${2:-tools}"
+
+if [ "$tool" = tools ]; then
+	body='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+else
+	[ "$tool" = lua ] && { tool=run_lua; set -- "$1" "$tool" "$(jq -n --arg c "$3" '{code: $c}')"; }
+	body="$(jq -n --arg n "$tool" --argjson a "${3:-{\}}" '{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:$n,arguments:$a}}')"
+fi
+
+response="$(curl -s --max-time "${MCP_TIMEOUT:-60}" -X POST "http://127.0.0.1:$port/mcp" -H 'Content-Type: application/json' -d "$body")" || exit 1
+
+if [ "$tool" = tools ]; then
+	echo "$response" | jq -r '.result.tools[] | "\(.name): \(.description)"'
+	exit 0
+fi
+
+echo "$response" | jq -r 'if .error then "error: \(.error.message)" else (.result.content[] | if .type == "text" then .text else "[\(.type) \(.mimeType // "")]" end) end'
+[ "$(echo "$response" | jq -r '.result.isError // false')" = false ]
