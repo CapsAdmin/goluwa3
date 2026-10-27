@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
+local vegetation_pivots = import("goluwa/render3d/vegetation_pivots.lua")
 local VertexType = vertex_math.VertexType
 local Index32Array = ffi.typeof("uint32_t[?]")
 local Index16Array = ffi.typeof("uint16_t[?]")
@@ -17,6 +18,7 @@ function MeshBuilder.New()
 			indices = Index32Array(3072),
 			index_capacity = 3072,
 			index_count = 0,
+			chain_vertices = 0,
 			r = 0,
 			g = 0,
 			b = 1,
@@ -27,6 +29,22 @@ end
 
 function MeshBuilder:SetColor(flutter, phase, stiffness)
 	self.r, self.g, self.b = flutter, phase, stiffness
+end
+
+function MeshBuilder:SetChain(px, py, pz, mx, my, mz, tx, ty, tz)
+	self.chain = {px, py, pz, mx, my, mz, tx, ty, tz}
+end
+
+function MeshBuilder:GetChain()
+	return self.chain
+end
+
+function MeshBuilder:RestoreChain(chain)
+	self.chain = chain
+end
+
+function MeshBuilder:ClearChain()
+	self.chain = nil
 end
 
 function MeshBuilder:Vertex(px, py, pz, nx, ny, nz, u, v)
@@ -46,6 +64,20 @@ function MeshBuilder:Vertex(px, py, pz, nx, ny, nz, u, v)
 
 	local vertex = self.vertices[count]
 	local position, normal, uv, color = vertex.position, vertex.normal, vertex.uv, vertex.vertex_color
+	local chain = self.chain
+	local pivot, mid, tip = vertex.pivot, vertex.chain_mid, vertex.chain_tip
+
+	if chain then
+		self.chain_vertices = self.chain_vertices + 1
+		pivot[0], pivot[1], pivot[2], pivot[3] = chain[1], chain[2], chain[3], 1
+		mid[0], mid[1], mid[2] = chain[4], chain[5], chain[6]
+		tip[0], tip[1], tip[2] = chain[7], chain[8], chain[9]
+	else
+		pivot[0], pivot[1], pivot[2], pivot[3] = 0, 0, 0, 0
+		mid[0], mid[1], mid[2] = 0, 0, 0
+		tip[0], tip[1], tip[2] = 0, 0, 0
+	end
+
 	position[0], position[1], position[2] = px, py, pz
 	normal[0], normal[1], normal[2] = nx, ny, nz
 	uv[0], uv[1] = u, v
@@ -247,6 +279,13 @@ function MeshBuilder:Card(cx, cy, cz, rx, ry, rz, ux, uy, uz, nx, ny, nz, uv)
 	return a
 end
 
+local function transform_point(point, ax, ay, az, o)
+	local x, y, z = point[0], point[1], point[2]
+	point[0] = x * ax[1] + y * ay[1] + z * az[1] + o[1]
+	point[1] = x * ax[2] + y * ay[2] + z * az[2] + o[2]
+	point[2] = x * ax[3] + y * ay[3] + z * az[3] + o[3]
+end
+
 function MeshBuilder:Transform(first_vertex, ax, ay, az, o)
 	local vertices = self.vertices
 
@@ -262,6 +301,12 @@ function MeshBuilder:Transform(first_vertex, ax, ay, az, o)
 		local nz = x * ax[3] + y * ay[3] + z * az[3]
 		local length = sqrt(nx * nx + ny * ny + nz * nz)
 		n[0], n[1], n[2] = nx / length, ny / length, nz / length
+
+		if vertices[i].pivot[3] > 0.5 then
+			transform_point(vertices[i].pivot, ax, ay, az, o)
+			transform_point(vertices[i].chain_mid, ax, ay, az, o)
+			transform_point(vertices[i].chain_tip, ax, ay, az, o)
+		end
 	end
 end
 
@@ -285,9 +330,14 @@ function MeshBuilder:Build(options)
 	end
 
 	vertex_math.BuildTangents(vertices, vertex_count, indices, index_count)
+	if self.chain_vertices < vertex_count then
+		vegetation_pivots.ComputeArray(vertices, vertex_count, indices, index_count, true)
+	end
+
 	local polygon = Polygon3D.New()
 	polygon:UploadVertexArray(vertices, vertex_count, indices, index_count, true)
 	polygon:SetBendHeight(options.bend_height or 0)
+	polygon:SetRootChain(options.root_chain)
 	polygon:SetLODLevel(options.lod_level or 0)
 	polygon:SetLODDistance(options.lod_distance or 0)
 

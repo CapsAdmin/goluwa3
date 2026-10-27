@@ -25,6 +25,7 @@ end
 
 Polygon3D:GetSet("Vertices")
 Polygon3D:GetSet("BendHeight", 0)
+Polygon3D:GetSet("RootChain", nil)
 Polygon3D:GetSet("MaterialSlot", nil)
 Polygon3D:GetSet("LODLevel", 0)
 Polygon3D:GetSet("LODDistance", 0)
@@ -186,6 +187,8 @@ function Polygon3D:GetIndices()
 	return self.indices
 end
 
+local CHAIN_FIELDS = {"chain_mid", "chain_tip"}
+
 local function pack_vertices(polygon, vertex_count)
 	local vertices = VertexType(vertex_count)
 
@@ -253,6 +256,22 @@ local function pack_vertices(polygon, vertex_count)
 			vertices[idx].pivot[1] = 0
 			vertices[idx].pivot[2] = 0
 			vertices[idx].pivot[3] = 0
+		end
+
+		for field = 1, #CHAIN_FIELDS do
+			local name = CHAIN_FIELDS[field]
+			local point = v[name]
+			local out = vertices[idx][name]
+
+			if point then
+				out[0] = point.x or point[1] or 0
+				out[1] = point.y or point[2] or 0
+				out[2] = point.z or point[3] or 0
+			else
+				out[0] = 0
+				out[1] = 0
+				out[2] = 0
+			end
 		end
 	end
 
@@ -334,6 +353,7 @@ function Polygon3D:CloneDynamic(vertex_buffer)
 	local clone = Polygon3D.New()
 	clone:SetAABB(self.AABB)
 	clone:SetBendHeight(self.BendHeight)
+	clone:SetRootChain(self.RootChain)
 	clone:SetMaterialSlot(self.MaterialSlot)
 	clone:SetLODLevel(self.LODLevel)
 	clone:SetLODDistance(self.LODDistance)

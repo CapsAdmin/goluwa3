@@ -6,6 +6,7 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local packed_mesh = import("goluwa/render3d/packed_mesh.lua")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
+local vegetation_pivots = import("goluwa/render3d/vegetation_pivots.lua")
 local blob = import("goluwa/codecs/internal/blob.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
@@ -644,6 +645,8 @@ function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 
 				if is_proxy then positions, indices, subsets = {}, {}, {subsets = {}} end
 
+				local has_color_stream = colors[1] ~= nil
+
 				if not colors[1] then
 					for index = 1, #positions do
 						colors[index] = RIGID_COLOR
@@ -663,6 +666,8 @@ function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 						vertex_color = colors[index],
 					}
 				end
+
+				local first_entry = #entries + 1
 
 				if subsets.subsets[1] then
 					local claimed = {}
@@ -738,6 +743,13 @@ function cgf.ExtractStaticMeshData(parsed, skip_physics, skip_visuals)
 						indices = fixed_indices,
 						lod_level = lod_level or 0,
 					}
+				end
+
+				if has_color_stream then
+					for entry_index = first_entry, #entries do
+						local entry = entries[entry_index]
+						vegetation_pivots.ComputeTables(entry.vertices, entry.indices)
+					end
 				end
 			end
 		end
@@ -863,6 +875,13 @@ function cgf.PackModel(input)
 
 	local builder = blob.New()
 	meta.bend_height = bend_height
+	meta.root_chains = {}
+
+	for _, entry in ipairs(entries) do
+		if meta.root_chains[entry.lod_level] == nil then
+			meta.root_chains[entry.lod_level] = vegetation_pivots.FindRoot(entries, entry.lod_level) or false
+		end
+	end
 	meta.entries = {}
 
 	for _, entry in ipairs(entries) do
@@ -956,6 +975,7 @@ function cgf.Decoder.Finish(path, full_path, input, meta, blob_table, mesh_callb
 		local mesh = Polygon3D.New()
 		mesh:UploadVertexArray(vertices, info.vertex_count, indices, info.index_count, true)
 		mesh:SetBendHeight(meta.bend_height)
+		mesh:SetRootChain(meta.root_chains[info.lod_level] or nil)
 		mesh:SetMaterialSlot(info.subset_material_id)
 		mesh:SetLODLevel(info.lod_level)
 		mesh:SetLODDistance(info.lod_level * lod.CRY_RADII_PER_LEVEL)

@@ -46,6 +46,20 @@ local FIELDS = {
 		glsl = "vec4",
 		format = "r32g32b32a32_sfloat",
 	},
+	{
+		name = "chain_mid",
+		alias = "CHAIN_MID",
+		count = 3,
+		glsl = "vec3",
+		format = "r32g32b32_sfloat",
+	},
+	{
+		name = "chain_tip",
+		alias = "CHAIN_TIP",
+		count = 3,
+		glsl = "vec3",
+		format = "r32g32b32_sfloat",
+	},
 }
 local declarations = {}
 
