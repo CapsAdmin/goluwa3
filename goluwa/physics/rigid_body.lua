@@ -22,6 +22,7 @@ end
 
 RigidBody.Network = {
 	MotionType = {"string", 0.5, "reliable", client = client_motion_type},
+	ServerDynamic = {"boolean", 0.5, "reliable"},
 	Shape = {"shape", 0.5, "reliable"},
 	Density = {"number", 0.5, "reliable"},
 	Mass = {"number", 0.5, "reliable"},
@@ -1115,6 +1116,16 @@ end
 
 function RigidBody:IsStatic()
 	return self.MotionType == "static"
+end
+
+function RigidBody:GetServerDynamic()
+	if self.ServerDynamic ~= nil then return self.ServerDynamic end
+
+	return self.MotionType == "dynamic"
+end
+
+function RigidBody:SetServerDynamic(dynamic)
+	self.ServerDynamic = dynamic
 end
 
 function RigidBody:IsKinematic()

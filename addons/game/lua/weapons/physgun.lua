@@ -324,7 +324,7 @@ function META:FindBody(cmd)
 
 			if entity.ragdoll_part then return true end
 
-			return not entity.ragdoll and not body:IsKinematic()
+			return not entity.ragdoll and (body:IsStatic() or body:GetServerDynamic())
 		end,
 		AIM_OPTIONS
 	)
