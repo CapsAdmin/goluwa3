@@ -1027,6 +1027,7 @@ do
 			block.RootMid[i] = root and root.mid[i + 1] or 0
 			block.RootTip[i] = root and root.tip[i + 1] or 0
 		end
+
 		return block
 	end
 end
@@ -1149,34 +1150,40 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 				vec3 turn = vec3(0.0);
 
 				for (int i = 0; i < pusher_count; i++) {
-					vec4 shape = pushers.p[1 + i * 2];
-					vec3 half_size = pushers.p[2 + i * 2].xyz;
+					int base = 1 + i * ]] .. vegetation_pushers.STRIDE .. [[;
+					float rounding = pushers.p[base].w;
+					vec3 half_size = pushers.p[base + 1].xyz;
 					float reach = 0.4 + 0.5 * min(max(half_size.x, half_size.z), 1.5);
-
-					if (distance(origin, shape.xyz) > plant_bound + reach + length(half_size)) continue;
-
-					vec2 away = origin.xz - shape.xz;
-					float away_length = length(away);
-					vec3 shared_direction = away_length > 0.001 ? vec3(away.x, 0.0, away.y) / away_length : vec3(1.0, 0.0, 0.0);
-					vec3 shared_sideways = shared_direction - chain_direction * dot(shared_direction, chain_direction);
-
-					if (dot(shared_sideways, shared_sideways) < 0.09) {
-						shared_direction = abs(chain_direction.y) < 0.9 ? normalize(cross(chain_direction, vec3(0.0, 1.0, 0.0))) : vec3(1.0, 0.0, 0.0);
+				
+					for (int j = 0; j < ]] .. vegetation_pushers.POSES .. [[; j++) {
+						vec4 pose = pushers.p[base + 2 + j];
+						vec4 shape = vec4(pose.xyz, rounding);
+				
+						if (pose.w == 0.0 || distance(origin, shape.xyz) > plant_bound + reach + length(half_size)) continue;
+				
+						vec2 away = origin.xz - shape.xz;
+						float away_length = length(away);
+						vec3 shared_direction = away_length > 0.001 ? vec3(away.x, 0.0, away.y) / away_length : vec3(1.0, 0.0, 0.0);
+						vec3 shared_sideways = shared_direction - chain_direction * dot(shared_direction, chain_direction);
+				
+						if (dot(shared_sideways, shared_sideways) < 0.09) {
+							shared_direction = abs(chain_direction.y) < 0.9 ? normalize(cross(chain_direction, vec3(0.0, 1.0, 0.0))) : vec3(1.0, 0.0, 0.0);
+						}
+				
+						bool over_root = origin.y < shape.y - half_size.y - 0.05;
+						vec3 best = vec3(0.0);
+				
+						for (int k = 0; k < 4; k++) {
+							vec3 sample_point = k == 0 ? mix(pivot, mid, 0.5) : (k == 1 ? mid : (k == 2 ? mix(mid, tip, 0.5) : tip));
+							vec3 sample_arm = sample_point - pivot;
+							vec4 contact = vegetation_push(sample_point, shape, half_size, over_root, shared_direction, reach);
+							vec3 candidate = cross(sample_arm, contact.xyz * contact.w) / max(dot(sample_arm, sample_arm), 0.0625);
+				
+							if (dot(candidate, candidate) > dot(best, best)) best = candidate;
+						}
+				
+						turn += best * pose.w;
 					}
-
-					bool over_root = origin.y < shape.y - half_size.y - 0.05;
-					vec3 best = vec3(0.0);
-
-					for (int k = 0; k < 4; k++) {
-						vec3 sample_point = k == 0 ? mix(pivot, mid, 0.5) : (k == 1 ? mid : (k == 2 ? mix(mid, tip, 0.5) : tip));
-						vec3 sample_arm = sample_point - pivot;
-						vec4 contact = vegetation_push(sample_point, shape, half_size, over_root, shared_direction, reach);
-						vec3 candidate = cross(sample_arm, contact.xyz * contact.w) / max(dot(sample_arm, sample_arm), 0.0625);
-
-						if (dot(candidate, candidate) > dot(best, best)) best = candidate;
-					}
-
-					turn += best;
 				}
 
 				return turn;

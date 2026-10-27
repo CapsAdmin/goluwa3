@@ -232,3 +232,52 @@ T.Test3D("vertex animation pushes the parts of a plant a body is touching", func
 
 	if not ok then error(err, 0) end
 end)
+
+local vegetation_pushers = import("goluwa/render3d/vegetation_pushers.lua")
+
+T.Test3D("vegetation pushers hand the shader the recent poses of a body, weighted like a spring", function()
+	vegetation_pushers.GetAddress()
+	local data = vegetation_pushers.GetData()
+	local first
+	local entity = Entity.New{Name = "vertex_animation_history"}
+	entity:AddComponent("transform")
+	entity:AddComponent("rigid_body", {Shape = SphereShape.New(0.5), MotionType = "kinematic"})
+	local ok, err = pcall(function()
+		local function update(time, x)
+			system.SetElapsedTime(time)
+			entity.rigid_body:SetPosition(Vec3(x, 10, -4))
+			event.Call("LateUpdate", 0)
+
+			for i = 0, data[0] - 1 do
+				local o = 4 + i * vegetation_pushers.STRIDE * 4
+
+				if data[o + 1] == 10 then first = o + 8 end
+			end
+		end
+
+		for i = 0, 19 do
+			update(i * 0.05, 0)
+		end
+
+		local sum, negative = 0, false
+
+		for j = 0, vegetation_pushers.POSES - 1 do
+			T(math.abs(data[first + j * 4]))["<"](0.01)
+			sum = sum + data[first + j * 4 + 3]
+			negative = negative or data[first + j * 4 + 3] < 0
+		end
+
+		T(math.abs(sum - 1))["<"](0.001)
+		T(negative)["=="](true)
+		update(1, 1)
+		T(math.abs(data[first] - 1))["<"](0.01)
+		T(math.abs(data[first + 4]))["<"](0.01)
+		update(1.035, 1)
+		T(math.abs(data[first + 4] - 0.3))["<"](0.05)
+		T(math.abs(data[first + 8]))["<"](0.01)
+	end)
+	entity:Remove()
+	event.Call("LateUpdate", 0)
+
+	if not ok then error(err, 0) end
+end)
