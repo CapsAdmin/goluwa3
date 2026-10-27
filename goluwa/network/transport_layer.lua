@@ -6,9 +6,13 @@ local UDPServer = import("goluwa/sockets/udp_server.lua")
 local connection = import("goluwa/network/connection.lua")
 local packet_header = import("goluwa/network/packet_header.lua")
 local handshake = import("goluwa/network/handshake.lua")
+local ljsocket = import("goluwa/bindings/socket.lua")
+local threads = import("goluwa/bindings/threads.lua")
+local get_time = import("goluwa/bindings/time.lua")
 local transport_layer = {}
 transport_layer.sockets = transport_layer.sockets or {}
 transport_layer.servers = transport_layer.servers or {}
+transport_layer.received = transport_layer.received or {}
 transport_layer.SOCKET_BUFFER_CAP = 32 * 1024 * 1024
 
 function transport_layer.Initialize() end
@@ -77,6 +81,18 @@ end
 function transport_layer.Update()
 	local now = connection.Now()
 	transport_layer.FlushDelayed(now)
+	local received = transport_layer.received
+
+	if received[1] then
+		transport_layer.received = {}
+
+		for i = 1, #received, 3 do
+			local obj = received[i]
+
+			if obj:IsValid() then obj:OnReceiveChunk(received[i + 1], received[i + 2]) end
+		end
+	end
+
 	local sockets = transport_layer.sockets
 
 	for i = #sockets, 1, -1 do
@@ -108,8 +124,66 @@ function transport_layer.Flush()
 	end
 end
 
+function transport_layer.Wait(seconds)
+	local entries = {}
+
+	for _, peer in ipairs(transport_layer.sockets) do
+		if peer.client_socket then
+			entries[#entries + 1] = {peer.client_socket.socket, {"in"}, peer.client_socket}
+		end
+	end
+
+	for _, server in ipairs(transport_layer.servers) do
+		entries[#entries + 1] = {server.socket, {"in"}, server}
+	end
+
+	if not entries[1] then return false end
+
+	local deadline = get_time() + seconds
+	local received = transport_layer.received
+
+	while true do
+		local ms = math.floor((deadline - get_time()) * 1000)
+
+		if ms <= 0 then break end
+
+		local results = ljsocket.poll(entries, ms)
+
+		if not results then
+			threads.sleep(math.max(deadline - get_time(), 0) * 1000)
+			return true
+		end
+
+		for _, result in ipairs(results) do
+			if not result.events["in"] then
+				threads.sleep(math.max(deadline - get_time(), 0) * 1000)
+				return true
+			end
+
+			local obj = result.entry[3]
+
+			for _ = 1, 16384 do
+				local chunk, address = obj.socket:receive_from(2048)
+
+				if not chunk then break end
+
+				local n = #received
+				received[n + 1] = obj
+				received[n + 2] = chunk
+				received[n + 3] = address
+				obj:ReceiveAcks(chunk, address)
+			end
+		end
+
+		transport_layer.Flush()
+	end
+
+	return true
+end
+
 event.AddListener("Update", "transport_layer", transport_layer.Update)
 event.AddListener("PostUpdate", "transport_layer", transport_layer.Flush, {priority = -100})
+event.AddListener("FrameSleep", "transport_layer", transport_layer.Wait)
 
 do
 	local PeerClient = objects.CreateTemplate("peer_client")
@@ -209,6 +283,9 @@ do
 		)
 		self.client_socket.OnReceiveChunk = function(_, chunk)
 			if self.conn then self.conn:Receive(chunk) end
+		end
+		self.client_socket.ReceiveAcks = function(_, chunk)
+			if self.conn then self.conn:ReceiveAcks(chunk) end
 		end
 		self.conn:Connect()
 		list.insert(transport_layer.sockets, self)
@@ -327,6 +404,13 @@ do
 		end
 
 		peer.conn:Receive(chunk)
+	end
+
+	function PeerServer:ReceiveAcks(chunk, address)
+		local addrinfo = address.addrinfo
+		local peer = self.peers[ffi_string(addrinfo.ai_addr, addrinfo.ai_addrlen)]
+
+		if peer then peer.conn:ReceiveAcks(chunk) end
 	end
 
 	function PeerServer:IsValid()

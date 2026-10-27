@@ -464,6 +464,37 @@ function Connection:HandleAck(channel, str, start, stop, now)
 	self.acked_any = true
 end
 
+function Connection:ReceiveAcks(str, now)
+	if self.state.state ~= STATE.CONNECTED or not IsDatagram(str) then return end
+
+	now = now or connection.Now()
+	local window = connection.RECEIVE_WINDOW
+	local pos = PREFIX_SIZE + 1
+	local size = #str
+
+	while pos <= size do
+		local type_, flags, channel, id, _, _, start, stop = DecodeRecord(str, pos)
+
+		if not type_ then break end
+
+		if type_ == TYPE_ACK then
+			self:HandleAck(channel, str, start, stop, now)
+		elseif type_ == TYPE_DATA and bit_band(flags, FLAG_RELIABLE) ~= 0 then
+			local ch = self:GetChannel(channel)
+			local diff = (id - ch.recv_expected) % 65536
+
+			if diff < window or diff >= 65536 - window then self:QueueAck(ch, id) end
+		end
+
+		pos = stop + 1
+	end
+
+	if self.acked_any then
+		self.acked_any = false
+		self:FlushBacklogs()
+	end
+end
+
 function Connection:Receive(str, now)
 	if not IsDatagram(str) then return end
 

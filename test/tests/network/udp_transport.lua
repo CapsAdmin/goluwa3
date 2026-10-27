@@ -220,6 +220,34 @@ T.Test("UDP transport layer server cleanup removes peers", function()
 	peer2:Remove()
 end)
 
+T.Test("UDP transport layer exchanges acks while waiting and delivers on update", function()
+	local received = {}
+	local server = transport_layer.CreateServer("0.0.0.0", 27024)
+
+	function server:OnReceive(peer, str)
+		table.insert(received, str)
+	end
+
+	local client = transport_layer.CreatePeer("127.0.0.1", 27024)
+	T(pump(function()
+		return client:IsConnected() and #server:GetPeers() == 1
+	end))["=="](true)
+
+	for i = 1, 100 do
+		client:Send("msg" .. i, "reliable", 0)
+	end
+
+	transport_layer.Flush()
+	T(transport_layer.Wait(0.05))["=="](true)
+	T(#received)["=="](0)
+	T(client.conn:GetChannel(0).unacked_count)["=="](0)
+	transport_layer.Update()
+	T(#received)["=="](100)
+	T(received[100])["=="]("msg100")
+	server:Remove()
+	client:Remove()
+end)
+
 T.Test("UDP transport layer sizes socket buffers to what the system allows", function()
 	local ljsocket = import("goluwa/bindings/socket.lua")
 	local server = transport_layer.CreateServer("0.0.0.0", 27025)

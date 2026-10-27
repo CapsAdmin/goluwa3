@@ -141,7 +141,9 @@ commands.Add{
 					next_frame = (next_frame or now) + frame_time
 
 					if next_frame > now then
-						native_threads.sleep((next_frame - now) * 1000)
+						if not event.Call("FrameSleep", next_frame - now) then
+							native_threads.sleep((next_frame - now) * 1000)
+						end
 					else
 						next_frame = now
 					end
