@@ -3,6 +3,7 @@ local network = import("goluwa/network/network.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local use = import("goluwa/entities/use.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
+local animations = import("lua/animations.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("weapon_holder")
@@ -18,12 +19,20 @@ function META:OnUpdate()
 
 	local pose = self.Owner.character_pose
 	local first_person = pose and pose:IsFirstPerson()
+	local hidden = pose and animations.HidesWeapons(pose)
 
 	for _, child in ipairs(self.Owner:GetChildren()) do
 		local weapon = child.weapon
 
 		if weapon then
-			weapon:UpdateModel(weapon:IsEquipped() and not (first_person and weapon:IsHiddenInFirstPerson()))
+			weapon:UpdateModel(
+				weapon:IsEquipped() and
+					not hidden and
+					not (
+						first_person and
+						weapon:IsHiddenInFirstPerson()
+					)
+			)
 		end
 	end
 end
@@ -47,7 +56,14 @@ function META:GetWeapon(where)
 	end
 end
 
+function META:IsSeated()
+	local pose = self.Owner.character_pose
+	return pose ~= nil and pose:GetSeat():IsValid()
+end
+
 function META:GetPosedWeapon(where)
+	if self:IsSeated() then return end
+
 	local weapon = self:GetWeapon(where)
 
 	if weapon and weapon.weapon:IsPoseArms() then return weapon end
@@ -275,6 +291,8 @@ function META:OnPhysicsUpdate(dt)
 	local own_rig = link and link.linked
 
 	if not authority and not own_rig then return end
+
+	if self:IsSeated() then return end
 
 	local cmd = self.Owner.character_movement:GetCommand()
 

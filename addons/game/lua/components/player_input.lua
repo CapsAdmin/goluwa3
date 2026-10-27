@@ -391,7 +391,13 @@ function META:OnPreUpdate(dt)
 
 	local movement = self.Owner.character_movement
 	local ragdoll = self.Owner.ragdoll
-	movement.frame_body_yaw = not movement.dead and not (ragdoll and ragdoll.Limp)
+	movement.frame_body_yaw = not movement.dead and
+		not (
+			ragdoll and
+			ragdoll.Limp
+		)
+		and
+		not movement:IsSeated()
 
 	if movement.frame_body_yaw then movement:SetBodyYaw(self.Rotation) end
 end

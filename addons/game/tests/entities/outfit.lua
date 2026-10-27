@@ -98,6 +98,9 @@ T.Test("a weapon that hides the player hides the whole outfit in first person an
 				end,
 			}}
 		end,
+		IsSeated = function()
+			return false
+		end,
 	}
 	local avatar = player.player_avatar
 	avatar.outfit = Entity.New{Parent = player, visibility = {}}

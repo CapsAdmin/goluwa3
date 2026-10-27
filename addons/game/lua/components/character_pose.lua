@@ -24,6 +24,7 @@ META.Network = {
 	LeanSide = {"number", 1 / 20, "sequenced", true},
 	LeanForward = {"number", 1 / 20, "sequenced", true},
 	Distance = {"number", 1 / 20, "sequenced", true},
+	Seat = {"entity", 0.1, "reliable", to_owner = true},
 }
 META:IsSet("Crouching", false)
 META:IsSet("Holding", false)
@@ -42,6 +43,7 @@ META:GetSet("Actions", 0)
 META:GetSet("LeanSide", 0)
 META:GetSet("LeanForward", 0)
 META:GetSet("Distance", 0)
+META:GetSet("Seat", NULL)
 local AIR_SPEED = 0.8
 local READY_MIN = 2
 local READY_MAX = 3
@@ -56,6 +58,10 @@ end
 
 local body_position = Vec3()
 local body_rotation = Quat()
+local seat_position = Vec3()
+local seat_rotation = Quat()
+local seat_look = Quat()
+local SEAT_LOOK_YAW = 1.4
 local RELAY_FRESH = 0.3
 
 function META:Initialize()
@@ -96,6 +102,12 @@ function META:Initialize()
 	self.sway_pitch = 0
 	self.sway_yaw = 0
 	self:AddGlobalEvent("Update")
+end
+
+function META:GetSeatComponent()
+	local seat = self.Seat
+
+	if seat:IsValid() then return seat.seat end
 end
 
 function META:PlayAction(name, duration)
@@ -256,6 +268,22 @@ function META:UpdateAnimations(dt)
 
 	for name, arg in pairs(self.state_args) do
 		self:EnableState(name, arg)
+	end
+
+	local seat = self:GetSeatComponent()
+	local previous = self.seated_on
+
+	if previous ~= seat then
+		if previous and previous:IsValid() and previous.Occupant == self.Owner then
+			previous.Occupant = NULL
+		end
+
+		self.seated_on = seat
+	end
+
+	if seat then
+		seat.Occupant = self.Owner
+		self:EnableState("seat", seat.Pose)
 	end
 
 	if self:IsBlocking() then self:EnableState("block") end
@@ -495,7 +523,13 @@ function META:OnUpdate(dt)
 	self.forward_speed = velocity:Dot(entity_rotation:GetForward())
 	self.right_speed = velocity:Dot(entity_rotation:GetRight())
 	self.vertical_speed = velocity.y
-	self.grounded = movement and movement:GetGrounded() or body ~= nil and body:GetGrounded()
+	local seat = self:GetSeatComponent()
+	self.grounded = seat ~= nil or
+		movement and
+		movement:GetGrounded()
+		or
+		body ~= nil and
+		body:GetGrounded()
 	self:UpdateAirborne()
 	local dead = movement and movement.dead
 	local speed = math.sqrt(self.forward_speed ^ 2 + self.right_speed ^ 2)
@@ -524,7 +558,7 @@ function META:OnUpdate(dt)
 
 		local target_side, target_forward = 0, 0
 
-		if not dead and self.grounded then
+		if not dead and self.grounded and not seat then
 			local max_lean = pose_variation.MaxLean
 			target_side = math.clamp(
 				math.atan(self.acceleration_right / pose_variation.Gravity) * pose_variation.LeanSideGain,
@@ -559,6 +593,14 @@ function META:OnUpdate(dt)
 	if dead then
 		self.dead_pitch = self.dead_pitch or self.pitch
 		self.pitch = self.dead_pitch
+	elseif seat then
+		self.dead_pitch = nil
+		seat:GetRenderFrame(seat_position, seat_rotation)
+		seat_look:SetMul(seat_rotation:Conjugate(), rotation)
+		local forward = seat_look:GetForward()
+		self.pitch:Identity():RotateYaw(
+			math.clamp(math.atan2(-forward.x, -forward.z), -SEAT_LOOK_YAW, SEAT_LOOK_YAW) + self.sway_yaw
+		):RotatePitch(math.asin(math.clamp(forward.y, -1, 1)) + self.sway_pitch)
 	else
 		self.dead_pitch = nil
 		self.pitch:Identity():RotatePitch(math.asin(math.clamp(rotation:GetForward().y, -1, 1)) + self.sway_pitch):RotateYaw(self.sway_yaw)

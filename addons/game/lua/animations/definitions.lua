@@ -5,6 +5,7 @@ local files = {
 	import("lua/animations/block.lua"),
 	import("lua/animations/air.lua"),
 	import("lua/animations/roll.lua"),
+	import("lua/animations/seat.lua"),
 }
 
 for _, definitions in ipairs(files) do

@@ -175,6 +175,11 @@ function META:Reconcile(number, position, velocity, distance)
 
 	if not entry then return 0 end
 
+	if movement:IsSeated() then
+		self.correction_offset:Set(0, 0, 0)
+		return 0
+	end
+
 	local distance_error = distance - entry.distance
 
 	if math.abs(distance_error) > DISTANCE_TOLERANCE then

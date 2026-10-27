@@ -101,6 +101,16 @@ function animations.GetWeight(pose, name)
 	return 0
 end
 
+function animations.HidesWeapons(pose)
+	local anims = pose.anims
+
+	for i = 1, #anims do
+		if anims[i].def.HideWeapons and anims[i].weight > 0.001 then return true end
+	end
+
+	return false
+end
+
 function animations.PosesWeapon(pose)
 	local anims = pose.anims
 

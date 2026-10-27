@@ -28,7 +28,6 @@ local function draw_reticle(x, y, size, a)
 	for i = 0, 3 do
 		local angle = i * math.pi / 2 + system.GetElapsedTime() * -1.6
 		local half = size / 2
-
 		render2d.PushMatrix()
 		render2d.Translatef(x, y)
 		render2d.Rotate(angle)
@@ -51,7 +50,9 @@ event.AddListener("DrawHUD", "use_hud", function()
 	local dt = system.GetFrameTime()
 	local usable
 
-	if not rig.health:IsDead() then usable = usable_component.Find(rig) end
+	if not rig.health:IsDead() and not rig.character_pose:GetSeat():IsValid() then
+		usable = usable_component.Find(rig)
+	end
 
 	if usable then
 		current = usable
@@ -60,7 +61,6 @@ event.AddListener("DrawHUD", "use_hud", function()
 		local box = visual_bounds.Get(owner, bounds) or
 			owner.rigid_body:GetBroadphaseAABB(nil, nil, bounds)
 		last_center = box:GetCenter()
-
 		alpha = math.min(alpha + dt * FADE_IN_SPEED, 1)
 	else
 		alpha = math.max(alpha - dt * FADE_OUT_SPEED, 0)

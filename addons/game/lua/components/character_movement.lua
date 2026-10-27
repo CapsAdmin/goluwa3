@@ -180,8 +180,63 @@ function META:GetGroundYawVelocity()
 end
 
 function META:GetEyeOffset()
+	local seat = self.seated
+
+	if seat and seat:IsValid() then
+		return seat:GetEyeOffset(self.Owner.transform:GetRotation())
+	end
+
 	local _, _, eye_height = self:GetDimensions()
 	return Vec3(0, eye_height, 0)
+end
+
+function META:IsSeated()
+	return self.seated ~= nil
+end
+
+do
+	local seat_position = Vec3()
+	local seat_rotation = Quat()
+
+	function META:UpdateSeated(seat, cmd)
+		local body = self.Owner.rigid_body
+		local transform = self.Owner.transform
+
+		if self.seated ~= seat then
+			self.seated = seat
+			self.ground_body = nil
+			self.was_grounded = false
+			self.Swimming = false
+			self.roll = nil
+			self.lunge = nil
+			body:SetCollisionEnabled(false)
+			body:SetMotionType("kinematic")
+			body:SetVelocity(Vec3())
+			self.Owner:CallLocalEvent("OnCharacterModeChanged", "seated")
+		end
+
+		seat:GetFrame(seat_position, seat_rotation)
+		transform:SetPosition(seat_position:Copy())
+		transform:SetRotation(seat_rotation:Copy())
+
+		if
+			network.HasAuthority() and
+			usercmd.WasPressed(cmd, usercmd.BUTTON.USE) and
+			usercmd.HasButton(cmd, usercmd.BUTTON.ACTIVE)
+		then
+			seat:Exit()
+		end
+	end
+
+	function META:LeaveSeat()
+		local seat = self.seated
+		self.seated = nil
+		local exit = seat:IsValid() and
+			seat:FindExit(self.Owner) or
+			self.Owner.transform:GetPosition():Copy()
+		self:Reset(self.Mode)
+		self:TeleportTo(exit)
+	end
 end
 
 function META:ClampHeadOffset(head)
@@ -721,6 +776,26 @@ do
 		if link and link.linked and not network.IsPredicting() then return end
 
 		local health = self.Owner.health
+		local pose = self.Owner.character_pose
+		local seat = pose and pose:GetSeatComponent()
+
+		if
+			seat and
+			network.HasAuthority() and
+			(
+				health and
+				health:IsDead() or
+				self.Owner.ragdoll and
+				self.Owner.ragdoll.Limp
+			)
+		then
+			seat:Exit()
+			seat = nil
+		end
+
+		if seat then return self:UpdateSeated(seat, cmd) end
+
+		if self.seated then self:LeaveSeat() end
 
 		if self.was_grounded then
 			local velocity = body:GetVelocity()
