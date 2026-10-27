@@ -35,6 +35,8 @@ function META:WarmStart()
 	if not self:Prepare() then return end
 
 	local acc = self.Acc
+	local target = self.TargetAxis
+	rows.RemoveAxis(acc, target.x, target.y, target.z)
 	rows.Apply(self.State1, 1, 0, 0, 0, acc[1], acc[2], acc[3])
 	self:AddAngularImpulse(acc[1], acc[2], acc[3])
 end

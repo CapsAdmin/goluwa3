@@ -347,6 +347,12 @@ function rows.WarmStartPoint(s0, s1, acc)
 	rows.Apply(s0, -1, acc[1], acc[2], acc[3], 0, 0, 0)
 end
 
+-- accumulated impulses are world vectors, so once the frame turns they gain a part along the free axis that nothing solves but every warm start reapplies
+function rows.RemoveAxis(acc, x, y, z)
+	local along = acc[1] * x + acc[2] * y + acc[3] * z
+	acc[1], acc[2], acc[3] = acc[1] - x * along, acc[2] - y * along, acc[3] - z * along
+end
+
 function rows.WarmStartAngular(s0, s1, acc)
 	rows.Apply(s1, 1, 0, 0, 0, acc[1], acc[2], acc[3])
 	rows.Apply(s0, -1, 0, 0, 0, acc[1], acc[2], acc[3])

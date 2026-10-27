@@ -54,6 +54,7 @@ function META:WarmStart()
 	local axis = self.AxisImpulse
 	local along = self.FrictionImpulse + self.MotorImpulse + self.LowerImpulse - self.UpperImpulse
 	local ax, ay, az = s0.xx * along, s0.xy * along, s0.xz * along
+	rows.RemoveAxis(axis, s0.xx, s0.xy, s0.xz)
 	rows.WarmStartPoint(s0, s1, point)
 	rows.WarmStartAngular(s0, s1, axis)
 	rows.Apply(s1, 1, 0, 0, 0, ax, ay, az)
