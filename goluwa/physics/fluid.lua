@@ -75,6 +75,40 @@ function fluid.Refresh(time)
 	end
 end
 
+local DEPTH_SAMPLE = {}
+
+function fluid.GetDepth(x, y, z)
+	local deepest
+	local regions = fluid.regions
+
+	for i = 1, #regions do
+		local region = regions[i]
+		local depth
+
+		if region.ocean then
+			depth = region.level + water.SampleOcean(x, z, fluid.time, 1, DEPTH_SAMPLE).height - y
+		else
+			local lx = x * region.m00 + y * region.m10 + z * region.m20 + region.m30
+			local ly = x * region.m01 + y * region.m11 + z * region.m21 + region.m31
+			local lz = x * region.m02 + y * region.m12 + z * region.m22 + region.m32
+
+			if
+				lx > -region.half_x and
+				lx < region.half_x and
+				lz > -region.half_z and
+				lz < region.half_z and
+				ly > -region.depth
+			then
+				depth = -ly
+			end
+		end
+
+		if depth and (not deepest or depth > deepest) then deepest = depth end
+	end
+
+	return deepest
+end
+
 function fluid.Overlaps(region, x, y, z, radius)
 	if region.ocean then return y - radius < region.level + region.max_height end
 
