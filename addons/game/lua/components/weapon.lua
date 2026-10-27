@@ -9,7 +9,7 @@ local BUTTON = usercmd.BUTTON
 local SOCKETS = {[""] = "grip_r", right = "grip_r", left = "grip_l", chest = "chest"}
 META.Network = {
 	Slot = {"number", 0.5, "reliable"},
-	Equipped = {"string", 0.5, "reliable"},
+	Equipped = {"string", 0.05, "reliable"},
 	PoseArms = {"boolean", 0.1, "reliable"},
 	HoldOffset = {"vec3", 0.1, "reliable"},
 	SupportGrip = {"vec3", 0.1, "reliable"},
@@ -70,6 +70,12 @@ function META:SetEquipped(where)
 
 	self.Equipped = where
 	self:RefreshWorldState()
+	local holder = self:GetHolder()
+	local link = holder and holder.Owner.network
+
+	if link and link.linked and not network.HasAuthority() then
+		self.Owner:CallLocalEvent(where == "" and "OnWeaponHolster" or "OnWeaponEquip")
+	end
 end
 
 function META:GetDefaultPlace()

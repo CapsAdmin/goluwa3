@@ -17,7 +17,7 @@ The holder thinks every equipped weapon on the authority with the buttons `holde
 
 ## Selection
 
-A command carries `select` (an index into `holder:GetWeapons()`, sorted by `Slot` then name, or `usercmd.SELECT_EMPTY`) and `select_left`; the holder applies it on the client and the authority alike. `player_input` builds it: number keys and the wheel pick the right hand (a number key picks the weapons whose `Slot` floors to it, pressing again cycles them), holding left alt does the same for the left hand, whose cycle also has an empty stop. The wheel skips the weapon held in the other hand; a number key does not, so it moves (or swaps) a weapon between hands.
+A command carries `select` (an index into `holder:GetWeapons()`, sorted by `Slot` then name, or `usercmd.SELECT_EMPTY`) and `select_left`; only the authority applies it. A connected client just sends the command and gets `Equipped` back from the server (the weapons replicate to the owner), so server and client cannot disagree about what is selected. `weapon:SetEquipped` fires `OnWeaponEquip`/`OnWeaponHolster` on the owner's client when the change comes from replication. `player_input` builds it: number keys and the wheel pick the right hand (a number key picks the weapons whose `Slot` floors to it, pressing again cycles them), holding left alt does the same for the left hand, whose cycle also has an empty stop. The wheel skips the weapon held in the other hand; a number key does not, so it moves (or swaps) a weapon between hands.
 
 ## Posing
 

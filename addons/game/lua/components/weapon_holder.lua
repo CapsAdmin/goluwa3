@@ -296,7 +296,7 @@ function META:OnPhysicsUpdate(dt)
 
 	local cmd = self.Owner.character_movement:GetCommand()
 
-	if cmd.select ~= 0 then self:ApplySelection(cmd) end
+	if authority and cmd.select ~= 0 then self:ApplySelection(cmd) end
 
 	if not authority then
 		if network.IsPredicting() then
