@@ -23,6 +23,14 @@ function camera_modes.GetActive()
 	end
 end
 
+function camera_modes.IsFirstPerson(third_person_enabled)
+	local mode = camera_modes.GetActive()
+
+	if mode then return mode.IsFirstPerson() end
+
+	return not third_person_enabled
+end
+
 function camera_modes.Disable()
 	for i = 1, #list do
 		list[i].Disable()

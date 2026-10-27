@@ -94,6 +94,10 @@ function battlecam.SetEnabled(value)
 	enabled = value
 end
 
+function battlecam.IsFirstPerson()
+	return false
+end
+
 function battlecam.IsHudHidden()
 	return false
 end
@@ -128,7 +132,6 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 
 	local mouse_x, mouse_y = state.mouse_x, state.mouse_y
 	state.mouse_x, state.mouse_y = 0, 0
-
 	targeting.Validate(owner, pivot)
 
 	if pending_target then
@@ -144,7 +147,6 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	end
 
 	local target = targeting.Get()
-
 	local desired = Vec3()
 	local look_at = Vec3()
 	local target_fov = FREE_FOV
@@ -164,7 +166,15 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 		away = yaw:VecMul(away)
 		local pitch = TARGET_BASE_PITCH + state.target_pitch
 		look_at = pivot + to_target * 0.5
-		desired = look_at + away * (math.cos(pitch) * (TARGET_SIZE + distance * 0.6)) + UP * (math.sin(pitch) * (TARGET_SIZE + distance * 0.6))
+		desired = look_at + away * (
+				math.cos(pitch) * (
+					TARGET_SIZE + distance * 0.6
+				)
+			) + UP * (
+				math.sin(pitch) * (
+					TARGET_SIZE + distance * 0.6
+				)
+			)
 		orbiting = mouse_x ~= 0 or mouse_y ~= 0
 		target_fov = TARGET_FOV
 	else

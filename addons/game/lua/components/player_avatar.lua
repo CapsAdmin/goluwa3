@@ -231,13 +231,7 @@ function META:OnUpdate(dt)
 	local camera = self.Owner.camera
 
 	if camera then
-		self:SetFirstPerson(
-			not (
-					third_person.IsEnabled() or
-					camera_modes.GetActive() ~= nil
-				) and
-				camera:IsRendered()
-		)
+		self:SetFirstPerson(camera_modes.IsFirstPerson(third_person.IsEnabled()) and camera:IsRendered())
 	end
 
 	self:UpdateOutfit()
