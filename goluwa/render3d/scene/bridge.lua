@@ -33,6 +33,17 @@ local function mark_dirty(aabb)
 	dirty_boxes[#dirty_boxes + 1] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
 end
 
+local DIRTY_MOVE_TOLERANCE = 0.01
+
+local function moved(a, b)
+	return math.abs(a.min_x - b.min_x) > DIRTY_MOVE_TOLERANCE or
+		math.abs(a.min_y - b.min_y) > DIRTY_MOVE_TOLERANCE or
+		math.abs(a.min_z - b.min_z) > DIRTY_MOVE_TOLERANCE or
+		math.abs(a.max_x - b.max_x) > DIRTY_MOVE_TOLERANCE or
+		math.abs(a.max_y - b.max_y) > DIRTY_MOVE_TOLERANCE or
+		math.abs(a.max_z - b.max_z) > DIRTY_MOVE_TOLERANCE
+end
+
 local function snapshot(visual)
 	local aabb = visual:GetWorldAABB()
 
@@ -419,10 +430,16 @@ function bridge.RefreshDynamic()
 		end
 
 		if changed then
-			mark_dirty(visual.scene_aabb)
-			visual.scene_aabb = snapshot(visual)
-			mark_dirty(visual.scene_aabb)
-			grow_bounds(visual.scene_aabb)
+			local aabb = snapshot(visual)
+			local previous = visual.scene_aabb
+
+			if not (previous and aabb and not moved(previous, aabb)) then
+				mark_dirty(previous)
+				visual.scene_aabb = aabb
+				mark_dirty(aabb)
+				grow_bounds(aabb)
+			end
+
 			set_lod_bounds(visual, list)
 			local visual_box = visual:GetWorldAABB()
 
