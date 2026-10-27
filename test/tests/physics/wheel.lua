@@ -2,8 +2,12 @@ local T = import("test/environment.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+local constraints = import("goluwa/physics/constraints.lua")
 local HingeConstraint = import("goluwa/physics/constraints/hinge.lua")
+local UP = Vec3(0, 1, 0)
 local RADIUS = 0.36
 
 local function spawn(position, config)
@@ -53,4 +57,34 @@ T.TestPhysics("a fast hinge on a turning body keeps its spin", function()
 		HingeConstraint.New(chassis, wheel, anchor, Vec3(1, 0, 0))
 	end)
 	T(highest)["<"](55)
+end)
+
+T.TestPhysics("keep upright with a roll axis rights the lean and leaves the pitch alone", function()
+	local pitch = 0.4
+	local rotation = Quat():Identity():RotatePitch(pitch):RotateRoll(0.5)
+	local body = spawn(
+		Vec3(0, 5, 0),
+		{
+			Shape = BoxShape.New(Vec3(0.4, 0.6, 1.4)),
+			Mass = 200,
+			AutomaticMass = false,
+			GravityScale = 0,
+		}
+	)
+	body.Owner.transform:SetRotation(rotation)
+	body:SynchronizeFromTransform()
+	constraints.KeepUpright(
+		body,
+		{LocalAxis = UP, LocalRollAxis = Vec3(0, 0, -1), Hertz = 3, DampingRatio = 1}
+	)
+
+	for _ = 1, 180 do
+		body:Wake()
+		physics.Update(1 / 60)
+	end
+
+	local forward = body:GetRotation():GetForward()
+	local right = body:GetRotation():GetRight()
+	T(math.abs(right.y))["<"](0.02)
+	T(math.abs(math.asin(forward.y) - pitch))["<"](0.02)
 end)
