@@ -654,7 +654,6 @@ do
 	end
 
 	open_source_by_path = open_source
-
 	add_animations = function(skeleton, root, filter)
 		local bone_index_by_name = {}
 
@@ -686,7 +685,10 @@ do
 					band(flags, SEQ_DELTA) == 0 and
 					blend_count > 0 and
 					not skeleton.ClipsByName[name] and
-					(not filter or filter(name))
+					(
+						not filter or
+						filter(name)
+					)
 				then
 					local anims = {}
 					local usable = true
@@ -778,7 +780,6 @@ do
 
 		add_clips(root)
 	end
-
 	add_donor_animations = function(skeleton, path, filter, check_bones)
 		local donor = open_source_by_path(path)
 
@@ -814,7 +815,6 @@ do
 		add_animations(skeleton, donor, filter)
 		return true
 	end
-
 	load_skeleton = function(path, eyes)
 		local main = open_source(path)
 		local hdr = main.header
@@ -897,7 +897,8 @@ do
 			BindLocal = bind_local,
 			InverseBind = inverse_bind,
 		}
-		skeleton.Eyes = {}
+
+		if #eyes > 0 then skeleton.Eyes = {} end
 
 		for k, eye in ipairs(eyes) do
 			skeleton.Eyes[k] = {
@@ -1345,7 +1346,6 @@ do
 end
 
 local mdl_decoder = {job = job_source}
-
 mdl_decoder.AddAnimations = add_donor_animations
 
 function mdl_decoder.Gather(path, full_path)
@@ -1534,5 +1534,4 @@ function mdl_decoder.Finish(
 end
 
 model_loader.AddThreadedDecoder("mdl", mdl_decoder)
-
 return mdl_decoder
