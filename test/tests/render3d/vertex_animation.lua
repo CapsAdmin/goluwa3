@@ -66,18 +66,28 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local HEIGHT = 20
 
-local function create_plate()
+local function create_plate(divisions)
+	divisions = divisions or 1
 	local polygon = Polygon3D.New()
 	local normal = Vec3(0, 0, 1)
-	local corners = {Vec3(-3, 0, 0), Vec3(3, 0, 0), Vec3(3, HEIGHT, 0), Vec3(-3, HEIGHT, 0)}
 
-	for _, i in ipairs{1, 2, 3, 1, 3, 4} do
-		polygon:AddVertex{
-			pos = corners[i],
-			uv = Vec2(corners[i].x, corners[i].y),
-			normal = normal,
-			tangent = Vec3(1, 0, 0),
-		}
+	local function corner(x, y)
+		return Vec3(-3 + 6 * x / divisions, HEIGHT * y / divisions, 0)
+	end
+
+	for x = 0, divisions - 1 do
+		for y = 0, divisions - 1 do
+			local quad = {corner(x, y), corner(x + 1, y), corner(x + 1, y + 1), corner(x, y + 1)}
+
+			for _, i in ipairs{1, 2, 3, 1, 3, 4} do
+				polygon:AddVertex{
+					pos = quad[i],
+					uv = Vec2(quad[i].x, quad[i].y),
+					normal = normal,
+					tangent = Vec3(1, 0, 0),
+				}
+			end
+		end
 	end
 
 	polygon:SetBendHeight(HEIGHT)
@@ -175,6 +185,47 @@ T.Test3D("vertex animation moves a plant that is near and leaves one that is far
 		T(differing(free, free_later))[">"](0)
 	end)
 	pvars.SetSession("r_wind_still_pixels", pixels)
+	atmosphere.SetWind(wind)
+	render3d.SetCurrentPolygon3D(nil)
+	polygon:Remove()
+
+	if not ok then error(err, 0) end
+end)
+
+local event = import("goluwa/event.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+
+T.Test3D("vertex animation pushes the parts of a plant a body is touching", function(draw)
+	local polygon = create_plate(60)
+	local material = Material.New{
+		ColorMultiplier = Color(1, 0, 0, 1),
+		DoubleSided = true,
+		Bending = 1,
+		DetailBending = "leaves",
+	}
+	local wind = atmosphere.GetWind():Copy()
+	local body_entity
+	local ok, err = pcall(function()
+		atmosphere.SetWind(Vec3(0, 0, 0))
+		render3d.SetCurrentPolygon3D(polygon)
+		local before, before_count = cover(draw, polygon, material, 4, 1000)
+		T(before_count)[">"](20)
+		body_entity = Entity.New{Name = "vertex_animation_pusher"}
+		body_entity:AddComponent("transform")
+		body_entity.transform:SetPosition(Vec3(2.8, 10, -4))
+		body_entity:AddComponent("rigid_body", {Shape = SphereShape.New(0.5), MotionType = "kinematic"})
+		event.Call("LateUpdate", 0)
+		local pushed = cover(draw, polygon, material, 4, 1000)
+		T(differing(before, pushed))[">"](4)
+		body_entity:Remove()
+		body_entity = nil
+		event.Call("LateUpdate", 0)
+		local after = cover(draw, polygon, material, 4, 1000)
+		T(differing(before, after))["=="](0)
+	end)
+
+	if body_entity then body_entity:Remove() end
+
 	atmosphere.SetWind(wind)
 	render3d.SetCurrentPolygon3D(nil)
 	polygon:Remove()

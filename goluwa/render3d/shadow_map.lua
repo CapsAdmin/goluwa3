@@ -347,6 +347,7 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 				if (
 					(floatBitsToUint(shadow_world[3][3]) & 0x80000000u) != 0u ||
 					SHADOW_BATCH[batch_index].anim.MainBending > 0.0 ||
+					SHADOW_BATCH[batch_index].anim.PushBending > 0.0 ||
 					(SHADOW_BATCH[batch_index].anim.DetailBending != 0 && SHADOW_BATCH[batch_index].anim.BendSpeed > 0.0)
 				) {
 					vertex_animation = SHADOW_BATCH[batch_index].anim;
@@ -356,10 +357,18 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 					vertex_animation.PrevDetailTime = pc.detail_time;
 					uint normal_at = base + SHADOW_VERTEX_NORMAL;
 					uint color_at = base + SHADOW_VERTEX_COLOR;
+					uint pivot_at = base + SHADOW_VERTEX_PIVOT;
+					uint mid_at = base + SHADOW_VERTEX_CHAIN_MID;
+					uint tip_at = base + SHADOW_VERTEX_CHAIN_TIP;
 					vec3 local_normal = vec3(data.v[normal_at], data.v[normal_at + 1u], data.v[normal_at + 2u]);
 					vec4 vertex_color = vec4(data.v[color_at], data.v[color_at + 1u], data.v[color_at + 2u], data.v[color_at + 3u]);
+					VegetationChain vertex_chain = VegetationChain(
+						vec4(data.v[pivot_at], data.v[pivot_at + 1u], data.v[pivot_at + 2u], data.v[pivot_at + 3u]),
+						vec3(data.v[mid_at], data.v[mid_at + 1u], data.v[mid_at + 2u]),
+						vec3(data.v[tip_at], data.v[tip_at + 1u], data.v[tip_at + 2u])
+					);
 					vec3 world_normal = normalize(transpose(inverse(mat3(shadow_world))) * local_normal);
-					world_pos += get_vertex_animation_offset(world_pos, world_normal, vertex_color);
+					world_pos += get_vertex_animation_offset(world_pos, world_normal, vertex_color, vertex_chain);
 				}
 
 				gl_Position = pc.light_space_matrix * vec4(world_pos, 1.0);

@@ -8,6 +8,7 @@ local surface_features = import("goluwa/render3d/surface_features.lua")
 local system = import("goluwa/system.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local terrain_layer_rules = import("goluwa/render3d/terrain_layer_rules.lua")
+local vegetation_pushers = import("goluwa/render3d/vegetation_pushers.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local model_pipeline = {}
 local SURFACE_MATERIAL_FIELDS = {
@@ -246,10 +247,11 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	end
 
 	if options.enable_vertex_animation ~= false then
-		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, vertex_color);"
+		lines[#lines + 1] = "\tVegetationChain vertex_chain = skinned ? VegetationChain(vec4(0.0), vec3(0.0), vec3(0.0)) : VegetationChain(in_pivot, in_chain_mid, in_chain_tip);"
+		lines[#lines + 1] = "\tvec3 world_offset = get_vertex_animation_offset(world_position, world_normal, vertex_color, vertex_chain);"
 
 		if options.velocity then
-			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, world_normal, vertex_color);"
+			lines[#lines + 1] = "\tprev_world_position += get_previous_vertex_animation_offset(prev_world_position, world_normal, vertex_color, vertex_chain);"
 		end
 
 		lines[#lines + 1] = [[
@@ -906,6 +908,15 @@ do
 		{"DetailBranchAmplitude", "float", "float DetailBranchAmplitude;"},
 		{"DetailPhase", "float", "float DetailPhase;"},
 		{"Motion", "float", "float Motion;"},
+		{"PushBending", "float", "float PushBending;"},
+		{"PushRadius", "float", "float PushRadius;"},
+		{"PushersLow", "int", "int PushersLow;"},
+		{"PushersHigh", "int", "int PushersHigh;"},
+		{"HasRoot", "float", "float HasRoot;"},
+		{"RootFlex", "float", "float RootFlex;"},
+		{"RootPivot", "vec3", "float RootPivot[3];"},
+		{"RootMid", "vec3", "float RootMid[3];"},
+		{"RootTip", "vec3", "float RootTip[3];"},
 	}
 	local DETAIL_BENDING_MODES = {none = 0, leaves = 1, grass = 2}
 	local MAIN_MOTION = 0.015 * 12 * 0.45
@@ -1000,6 +1011,22 @@ do
 
 		local pixels = still_pixels:Get()
 		block.Motion = pixels > 0 and motion / pixels or 1e9
+		block.PushBending = height > 0 and material:GetBending() or 0
+		local aabb = polygon and polygon:GetAABB()
+		block.PushRadius = aabb and
+			aabb.max_x >= aabb.min_x and
+			math.max(-aabb.min_x, aabb.max_x, -aabb.min_z, aabb.max_z, 0) or
+			0
+		block.PushersLow, block.PushersHigh = vegetation_pushers.GetAddress()
+		local root = polygon and polygon:GetRootChain()
+		block.HasRoot = root and 1 or 0
+		block.RootFlex = root and root.flex or 0
+
+		for i = 0, 2 do
+			block.RootPivot[i] = root and root.pivot[i + 1] or 0
+			block.RootMid[i] = root and root.mid[i + 1] or 0
+			block.RootTip[i] = root and root.tip[i + 1] or 0
+		end
 		return block
 	end
 end
@@ -1053,8 +1080,112 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 		"return 0.0;"
 	return [[
 
+			struct VegetationChain {
+				vec4 pivot;
+				vec3 mid;
+				vec3 tip;
+			};
+
+			layout(buffer_reference, scalar) readonly buffer VegetationPushers { vec4 p[]; };
+
+			VegetationPushers get_vegetation_pushers() {
+				return VegetationPushers(packUint2x32(uvec2(uint(vertex_animation.PushersLow), uint(vertex_animation.PushersHigh))));
+			}
+
+			vec4 vegetation_push(vec3 point, vec4 shape, vec3 half_size, bool over_root, vec3 shared_direction, float reach) {
+				vec3 q = point - shape.xyz;
+				vec3 core = max(half_size - vec3(shape.w), vec3(0.0));
+				vec3 d = abs(q) - core;
+				vec3 outside = max(d, vec3(0.0));
+				float outside_length = length(outside);
+				float surface;
+				vec3 normal;
+
+				if (outside_length > 0.0001) {
+					surface = outside_length - shape.w;
+					normal = vec3(q.x >= 0.0 ? 1.0 : -1.0, q.y >= 0.0 ? 1.0 : -1.0, q.z >= 0.0 ? 1.0 : -1.0) * outside / outside_length;
+				} else if (over_root) {
+					surface = -(q.y + half_size.y);
+					normal = vec3(0.0, -1.0, 0.0);
+				} else {
+					surface = max(d.x, max(d.y, d.z)) - shape.w;
+
+					if (d.x > d.y && d.x > d.z) normal = vec3(q.x >= 0.0 ? 1.0 : -1.0, 0.0, 0.0);
+					else if (d.y > d.z) normal = vec3(0.0, q.y >= 0.0 ? 1.0 : -1.0, 0.0);
+					else normal = vec3(0.0, 0.0, q.z >= 0.0 ? 1.0 : -1.0);
+				}
+
+				float penetration = reach - surface;
+
+				if (penetration <= 0.0) return vec4(0.0);
+
+				if (!over_root) normal = normalize(mix(normal, shared_direction, smoothstep(0.0, -0.4, surface)) + vec3(0.0001));
+
+				float t = clamp(penetration / reach, 0.0, 1.0);
+				return vec4(normal, penetration * t * t * (3.0 - 2.0 * t));
+			}
+
+			vec3 vegetation_rotate(vec3 point, vec3 pivot, vec3 rotation) {
+				float angle = min(length(rotation), 1.0);
+
+				if (angle < 0.0001) return point;
+
+				vec3 axis = normalize(rotation);
+				vec3 arm = point - pivot;
+				return pivot + arm * cos(angle) + cross(axis, arm) * sin(angle) + axis * (dot(axis, arm) * (1.0 - cos(angle)));
+			}
+
+			float vegetation_polyline_distance(vec3 point, vec3 a, vec3 b, vec3 c) {
+				vec3 ab = b - a;
+				vec3 bc = c - b;
+				vec3 on_ab = a + ab * clamp(dot(point - a, ab) / max(dot(ab, ab), 0.000001), 0.0, 1.0);
+				vec3 on_bc = b + bc * clamp(dot(point - b, bc) / max(dot(bc, bc), 0.000001), 0.0, 1.0);
+				return min(distance(point, on_ab), distance(point, on_bc));
+			}
+
+			vec3 vegetation_polyline_turn(VegetationPushers pushers, int pusher_count, vec3 origin, float plant_bound, vec3 pivot, vec3 mid, vec3 tip) {
+				vec3 chain = tip - pivot;
+				vec3 chain_direction = dot(chain, chain) > 0.0001 ? normalize(chain) : vec3(0.0, 1.0, 0.0);
+				vec3 turn = vec3(0.0);
+
+				for (int i = 0; i < pusher_count; i++) {
+					vec4 shape = pushers.p[1 + i * 2];
+					vec3 half_size = pushers.p[2 + i * 2].xyz;
+					float reach = 0.4 + 0.5 * min(max(half_size.x, half_size.z), 1.5);
+
+					if (distance(origin, shape.xyz) > plant_bound + reach + length(half_size)) continue;
+
+					vec2 away = origin.xz - shape.xz;
+					float away_length = length(away);
+					vec3 shared_direction = away_length > 0.001 ? vec3(away.x, 0.0, away.y) / away_length : vec3(1.0, 0.0, 0.0);
+					vec3 shared_sideways = shared_direction - chain_direction * dot(shared_direction, chain_direction);
+
+					if (dot(shared_sideways, shared_sideways) < 0.09) {
+						shared_direction = abs(chain_direction.y) < 0.9 ? normalize(cross(chain_direction, vec3(0.0, 1.0, 0.0))) : vec3(1.0, 0.0, 0.0);
+					}
+
+					bool over_root = origin.y < shape.y - half_size.y - 0.05;
+					vec3 best = vec3(0.0);
+
+					for (int k = 0; k < 4; k++) {
+						vec3 sample_point = k == 0 ? mix(pivot, mid, 0.5) : (k == 1 ? mid : (k == 2 ? mix(mid, tip, 0.5) : tip));
+						vec3 sample_arm = sample_point - pivot;
+						vec4 contact = vegetation_push(sample_point, shape, half_size, over_root, shared_direction, reach);
+						vec3 candidate = cross(sample_arm, contact.xyz * contact.w) / max(dot(sample_arm, sample_arm), 0.0625);
+
+						if (dot(candidate, candidate) > dot(best, best)) best = candidate;
+					}
+
+					turn += best;
+				}
+
+				return turn;
+			}
+
 			bool has_vertex_animation() {
-				return vertex_animation.MainBending > 0.0 || (vertex_animation.DetailBending != 0 && vertex_animation.BendSpeed > 0.0);
+				return vertex_animation.MainBending > 0.0 ||
+					(vertex_animation.DetailBending != 0 && vertex_animation.BendSpeed > 0.0) ||
+					(vertex_animation.PushBending > 0.0 && get_vegetation_pushers().p[0].x > 0.0);
 			}
 
 			vec4 vegetation_smooth_triangle_wave(vec4 x) {
@@ -1078,7 +1209,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 				return world_matrix3 * vec3(0.0, lift * radius * follow, 0.0);
 			}
 
-			vec3 get_vertex_animation_offset_at_time(vec3 world_pos, vec3 world_normal, vec4 vertex_color, float anim_time, float detail_time) {
+			vec3 get_vertex_animation_offset_at_time(vec3 world_pos, vec3 world_normal, vec4 vertex_color, VegetationChain vertex_chain, float anim_time, float detail_time) {
 				vec3 conform = get_instance_conform_offset(world_pos);
 
 				if (!has_vertex_animation()) return conform;
@@ -1092,6 +1223,40 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 				float speed = vertex_animation.BendSpeed;
 				float instance_phase = fract(sin(dot(origin, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
 				vec2 bend_dir = normalize((inv_world_matrix3 * vertex_animation.BendDirection).xz);
+				if (vertex_animation.PushBending > 0.0) {
+					VegetationPushers pushers = get_vegetation_pushers();
+					int pusher_count = int(pushers.p[0].x);
+					float plant_bound = (vertex_animation.PushRadius + vertex_animation.BendHeight) * length(world_matrix3[0]);
+					vec4 push_color = clamp(vertex_color, 0.0, 1.0);
+					float height_fraction = clamp(pos.y / max(vertex_animation.BendHeight, 0.01), 0.0, 1.0);
+					float flex = vertex_animation.DetailBending == 0 ? 0.1 : clamp(0.2 + 0.8 * (1.0 - push_color.b) + 0.25 * push_color.r, 0.0, 1.0);
+					if (vertex_animation.DetailBending == 2) flex = max(flex, height_fraction * height_fraction);
+					bool has_chain = vertex_chain.pivot.w > 0.5;
+					float horizontal_radius = length(world_pos.xz - origin.xz);
+					vec3 pivot = has_chain ? origin + world_matrix3 * vertex_chain.pivot.xyz : vec3(origin.x, mix(origin.y, world_pos.y, smoothstep(0.1, 0.6, horizontal_radius)), origin.z);
+					vec3 chain_mid = has_chain ? origin + world_matrix3 * vertex_chain.mid : mix(pivot, world_pos, 0.5);
+					vec3 chain_tip = has_chain ? origin + world_matrix3 * vertex_chain.tip : world_pos;
+					vec3 target = world_pos;
+
+					if (has_chain && vertex_animation.HasRoot > 0.5) {
+						vec3 root_pivot = origin + world_matrix3 * vertex_animation.RootPivot;
+						vec3 root_mid = origin + world_matrix3 * vertex_animation.RootMid;
+						vec3 root_tip = origin + world_matrix3 * vertex_animation.RootTip;
+						float root_length = distance(root_pivot, root_tip);
+						float attached = distance(pivot, root_pivot) > 0.05 ? 1.0 - smoothstep(0.1 * root_length, 0.25 * root_length, vegetation_polyline_distance(pivot, root_pivot, root_mid, root_tip)) : 0.0;
+
+						if (attached > 0.0) {
+							vec3 root_rotation = vegetation_polyline_turn(pushers, pusher_count, origin, plant_bound, root_pivot, root_mid, root_tip) * (vertex_animation.RootFlex * vertex_animation.PushBending * attached);
+							target = vegetation_rotate(target, root_pivot, root_rotation);
+							pivot = vegetation_rotate(pivot, root_pivot, root_rotation);
+							chain_mid = vegetation_rotate(chain_mid, root_pivot, root_rotation);
+							chain_tip = vegetation_rotate(chain_tip, root_pivot, root_rotation);
+						}
+					}
+
+					vec3 rotation = vegetation_polyline_turn(pushers, pusher_count, origin, plant_bound, pivot, chain_mid, chain_tip) * (flex * vertex_animation.PushBending);
+					pos += inv_world_matrix3 * (vegetation_rotate(target, pivot, rotation) - world_pos);
+				}
 
 				if (vertex_animation.DetailBending != 0) {
 					vec4 color = clamp(vertex_color, 0.0, 1.0);
@@ -1145,26 +1310,26 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 				]] .. still .. [[
 			}
 
-			vec3 get_vertex_animation_offset_still(vec3 world_pos, vec3 world_normal, vec4 vertex_color, float anim_time, float detail_time) {
+			vec3 get_vertex_animation_offset_still(vec3 world_pos, vec3 world_normal, vec4 vertex_color, VegetationChain vertex_chain, float anim_time, float detail_time) {
 				if (!has_vertex_animation()) return get_instance_conform_offset(world_pos);
 
 				float still = get_vertex_animation_still();
 
-				if (still <= 0.0) return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, anim_time, detail_time);
+				if (still <= 0.0) return get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_chain, anim_time, detail_time);
 
-				vec3 at_rest = get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, 0.0, 0.0);
+				vec3 at_rest = get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_chain, 0.0, 0.0);
 
 				if (still >= 1.0) return at_rest;
 
-				return mix(get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, anim_time, detail_time), at_rest, still);
+				return mix(get_vertex_animation_offset_at_time(world_pos, world_normal, vertex_color, vertex_chain, anim_time, detail_time), at_rest, still);
 			}
 
-			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {
-				return get_vertex_animation_offset_still(world_pos, world_normal, vertex_color, vertex_animation.Time, vertex_animation.DetailTime);
+			vec3 get_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color, VegetationChain vertex_chain) {
+				return get_vertex_animation_offset_still(world_pos, world_normal, vertex_color, vertex_chain, vertex_animation.Time, vertex_animation.DetailTime);
 			}
 
-			vec3 get_previous_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color) {
-				return get_vertex_animation_offset_still(world_pos, world_normal, vertex_color, vertex_animation.PrevTime, vertex_animation.PrevDetailTime);
+			vec3 get_previous_vertex_animation_offset(vec3 world_pos, vec3 world_normal, vec4 vertex_color, VegetationChain vertex_chain) {
+				return get_vertex_animation_offset_still(world_pos, world_normal, vertex_color, vertex_chain, vertex_animation.PrevTime, vertex_animation.PrevDetailTime);
 			}
 	]]
 end
