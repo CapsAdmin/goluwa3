@@ -1,8 +1,20 @@
 local camera_modes = {}
 local list = {}
 
+-- a mode with a higher Priority wins when several are enabled
 function camera_modes.Register(mode)
-	list[#list + 1] = mode
+	local priority = mode.Priority or 0
+	local index = #list + 1
+
+	for i = 1, #list do
+		if priority > (list[i].Priority or 0) then
+			index = i
+
+			break
+		end
+	end
+
+	table.insert(list, index, mode)
 end
 
 function camera_modes.GetActive()
