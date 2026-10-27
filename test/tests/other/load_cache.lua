@@ -43,3 +43,26 @@ T.Test("CreateLoadCache reports a failure to callers that joined later", functio
 	T(failures)["=="](20000)
 	T(loads:Get("b"))["=="](nil)
 end)
+
+T.Test("CreateLoadCache replays what was already emitted to callers that join a load in progress", function()
+	local loads = utility.CreateLoadCache({})
+	local first, late = {}, {}
+
+	loads:Begin("c", function() end, {
+		mesh = function(out)
+			first[#first + 1] = out
+		end,
+	})
+
+	loads:Emit("c", "mesh", "one")
+	loads:Emit("c", "mesh", "two")
+	T(loads:Join("c", function() end, {
+		mesh = function(out)
+			late[#late + 1] = out
+		end,
+	}))["=="](true)
+	loads:Emit("c", "mesh", "three")
+	loads:Finish("c", {})
+	T(table.concat(first, ","))["=="]("one,two,three")
+	T(table.concat(late, ","))["=="]("one,two,three")
+end)

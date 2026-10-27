@@ -400,17 +400,34 @@ do
 			if not entry or not entry.loading then return end
 
 			list.insert(entry.joiners, {callback = callback, extra = extra})
+
+			for _, emitted in ipairs(entry.emitted) do
+				local extra_callback = extra[emitted.key]
+
+				if extra_callback then
+					call(function()
+						extra_callback(emitted.out)
+					end)
+				end
+			end
+
 			return true
 		end
 
 		function self:Begin(path, callback, extra)
-			cache[path] = {loading = true, joiners = {{callback = callback, extra = extra}}}
+			cache[path] = {
+				loading = true,
+				emitted = {},
+				joiners = {{callback = callback, extra = extra}},
+			}
 		end
 
 		function self:Emit(path, key, out)
 			local entry = cache[path]
 
 			if not entry or not entry.loading then return end
+
+			entry.emitted[#entry.emitted + 1] = {key = key, out = out}
 
 			for _, joiner in ipairs(entry.joiners) do
 				local extra_callback = joiner.extra[key]
