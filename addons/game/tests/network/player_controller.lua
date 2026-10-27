@@ -152,6 +152,87 @@ T.TestPhysics("player controller drops commands from a runaway backlog", functio
 	T(cmd.number)[">"](150)
 end)
 
+local function settle(player)
+	drive(player, 90)
+	player.player_controller.buffer_target = 2
+end
+
+T.TestPhysics("player controller drains a surplus of idle commands while at rest", function()
+	local ground = create_ground()
+	local player = create_player(Vec3(0, 1, 0))
+	local controller = player.player_controller
+	settle(player)
+	local number = controller.last_queued
+	local commands = {}
+
+	for i = 1, 12 do
+		commands[i] = make_command(number + i)
+	end
+
+	controller:PushCommands(commands)
+
+	for _ = 1, 8 do
+		physics.UpdateFixed(1 / 60)
+	end
+
+	T(controller:GetQueueSize())["<="](controller.buffer_target + 2)
+	T(controller.skipped)[">="](4)
+	player:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("player controller drains a surplus of moving commands slowly", function()
+	local ground = create_ground()
+	local player = create_player(Vec3(0, 1, 0))
+	local controller = player.player_controller
+	settle(player)
+	local forward = function(cmd)
+		cmd.forward = 1
+	end
+	local number = controller.last_queued
+	local commands = {}
+
+	for i = 1, 12 do
+		commands[i] = make_command(number + i, forward)
+	end
+
+	controller:PushCommands(commands)
+	drive(player, 59, forward)
+	T(controller.skipped)["=="](1)
+	T(controller:GetQueueSize())["=="](11)
+	player:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("player controller never skips a button change while draining", function()
+	local ground = create_ground()
+	local player = create_player(Vec3(0, 1, 0))
+	local controller = player.player_controller
+	settle(player)
+	local number = controller.last_queued
+	local commands = {}
+
+	for i = 1, 12 do
+		commands[i] = make_command(number + i, function(cmd)
+			if i % 2 == 1 then cmd.buttons = bit.bor(cmd.buttons, BUTTON.USE) end
+		end)
+	end
+
+	controller:PushCommands(commands)
+	local presses = 0
+
+	for _ = 1, 12 do
+		local cmd = controller:NextCommand(1 / 60)
+
+		if usercmd.WasPressed(cmd, BUTTON.USE) then presses = presses + 1 end
+	end
+
+	T(controller.skipped)["=="](0)
+	T(presses)["=="](6)
+	player:Remove()
+	ground:Remove()
+end)
+
 T.TestPhysics("player movement lands on the ground, walks and jumps", function()
 	local ground = create_ground()
 	local player = create_player()

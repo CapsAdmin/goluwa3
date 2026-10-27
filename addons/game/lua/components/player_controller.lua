@@ -13,6 +13,9 @@ local MIN_BUFFER = 4
 local START_BUFFER = 6
 local MAX_BUFFER = 14
 local BACKLOG_SLACK = 12
+local DRAIN_SLACK = 2
+local DRAIN_INTERVAL = 30
+local REST_SPEED = 0.05
 local MAX_REPEATS = 15
 local SHRINK_INTERVAL = 300
 local CORRECTION_DECAY = 10
@@ -32,6 +35,8 @@ function META:Initialize()
 	self.starved = 0
 	self.buffering = true
 	self.buffer_target = START_BUFFER
+	self.drain_ticks = 0
+	self.skipped = 0
 	self.consumed = 0
 	self.history = {}
 	self.processed = {
@@ -118,6 +123,20 @@ function META:GetQueueSize()
 	return #self.queue - self.queue_head + 1
 end
 
+local function can_skip_idle(self, cmd)
+	local previous = self.cmd
+	return cmd.forward == 0 and
+		cmd.side == 0 and
+		cmd.up == 0 and
+		cmd.select == 0 and
+		cmd.scroll == 0 and
+		cmd.rotate_x == 0 and
+		cmd.rotate_y == 0 and
+		cmd.buttons == previous.buttons and
+		cmd.mode == previous.mode and
+		self.Owner.rigid_body:GetVelocity():GetLength() < REST_SPEED
+end
+
 local function next_queued(self)
 	local queue = self.queue
 	local size = #queue - self.queue_head + 1
@@ -139,6 +158,17 @@ local function next_queued(self)
 
 	if size > self.buffer_target + BACKLOG_SLACK then
 		self.queue_head = self.queue_head + (size - self.buffer_target - BACKLOG_SLACK / 2)
+	elseif size > self.buffer_target + DRAIN_SLACK then
+		self.drain_ticks = self.drain_ticks + 1
+
+		if self.drain_ticks >= DRAIN_INTERVAL or can_skip_idle(self, queue[self.queue_head]) then
+			queue[self.queue_head] = false
+			self.queue_head = self.queue_head + 1
+			self.drain_ticks = 0
+			self.skipped = self.skipped + 1
+		end
+	else
+		self.drain_ticks = 0
 	end
 
 	local cmd = queue[self.queue_head]
