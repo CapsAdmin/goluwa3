@@ -1191,6 +1191,20 @@ do
 		return out
 	end
 
+	-- a client gets part transforms from a server that placed the parts from its own pose, so each part's frame is fitted once, when the part first goes limp, to leave the bone where the animation had it
+	local function calibrate_frame(self, part, entity_rotation, bone)
+		local frame = self.frames[part.definition.Name]
+
+		if frame.calibrated or network.HasAuthority() then return end
+
+		local _, part_rotation = part.entity.transform:GetRenderPositionRotation()
+		part_rotation = part_rotation or part.entity.transform:GetRotation()
+		frame.rotation = bone:GetRotation():GetConjugated() * (
+				entity_rotation:GetConjugated() * part_rotation
+			)
+		frame.calibrated = true
+	end
+
 	-- puts the bones of the limp parts, and of what hangs on them, over the bones in out
 	function META:ReadBones(out)
 		if not self.frames then
@@ -1204,7 +1218,10 @@ do
 		for _, part in ipairs(self:GetPresentParts()) do
 			if self:IsDriven(part) then
 				limp[part.definition.Name] = true
+				calibrate_frame(self, part, entity_rotation, out[part.definition.Bone])
 				get_part_bone(self, part, entity_rotation, out[part.definition.Bone])
+			else
+				self.frames[part.definition.Name].calibrated = nil
 			end
 		end
 
@@ -1231,12 +1248,20 @@ do
 				limp[part.definition.Name] = true
 
 				if biped.HasBone(rig, part.definition.Bone) then
+					calibrate_frame(
+						self,
+						part,
+						entity_rotation,
+						rig:GetBone(biped.SourceBones[part.definition.Bone])
+					)
 					rig:SetBone(
 						biped.SourceBones[part.definition.Bone],
 						get_part_bone(self, part, entity_rotation, part_matrix),
 						"model"
 					)
 				end
+			else
+				self.frames[part.definition.Name].calibrated = nil
 			end
 		end
 
