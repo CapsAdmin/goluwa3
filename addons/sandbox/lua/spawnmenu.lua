@@ -17,6 +17,7 @@ local spawnlists = import("lua/spawnlists.lua")
 local weapons = import("lua/weapons.lua")
 local npcs = import("lua/npcs.lua")
 local interactives = import("lua/interactives.lua")
+local vehicles = import("lua/vehicles.lua")
 local spawn_requests = import("lua/spawn_requests.lua")
 local toolgun = import("lua/toolgun.lua")
 local spawnmenu = {}
@@ -33,7 +34,7 @@ local PAGE_LAYOUT = {
 local SPAWN_RANGE = 40
 local DEFAULT_DISTANCE = 3
 local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
-local LEFT_TABS = {"Spawnlists", "Weapons", "Interactive", "NPCs"}
+local LEFT_TABS = {"Spawnlists", "Weapons", "Interactive", "Vehicles", "NPCs"}
 local root = NULL
 local shown_setter
 local colors = {}
@@ -92,6 +93,23 @@ local function make_interactive_entries()
 			label = name,
 			spawn_name = name,
 			kind = "interactive",
+		}
+	end
+
+	return entries
+end
+
+local function make_vehicle_entries()
+	local entries = {}
+
+	for _, name in ipairs(vehicles.Names) do
+		entries[#entries + 1] = {
+			category = "prefabs",
+			name = vehicles.GetPrefabName(name),
+			path = vehicles.GetPrefabName(name),
+			label = vehicles.Definitions[name].DisplayName,
+			spawn_name = name,
+			kind = "vehicle",
 		}
 	end
 
@@ -547,6 +565,7 @@ local LEFT_PAGES = {
 	Spawnlists = ||->SpawnlistsPage{},
 	Weapons = ||->ListPage{Make = make_weapon_entries},
 	Interactive = ||->ListPage{Make = make_interactive_entries},
+	Vehicles = ||->ListPage{Make = make_vehicle_entries},
 	NPCs = ||->NpcsPage{},
 }
 local SpawnMenu = react.Component(

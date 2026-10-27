@@ -57,6 +57,10 @@ The PHYSICS tab of PERF (`perf physics`, `physics_stats` prints it) shows `goluw
 - `water.SampleOcean(x, z, time, min_wavelength, out)` evaluates the same quantized Gerstner waves as the shader; feed it wrapped `water.GetWaveTime()` (frequencies are multiples of 2pi/`water.WAVE_PERIOD`), never raw elapsed time. Wave params replicate through `network/water_sync.lua`, the ocean level does not.
 - Physgun (`addons/game/lua/weapons/physgun.lua`): right click freezes the held body (`static`); for a ragdoll part only that limb (`ragdoll:Freeze(body)`: the part is skipped by the pose drive and the character stays limp while any part is frozen). Reload (`BUTTON.RELOAD`, the `r` key) thaws everything this physgun froze; grabbing a frozen body thaws it. `CanGrabBody` re-grabs static bodies whose entity is not transient, and frozen ragdoll parts. World geometry is never grabbed. Ownership is not checked by the physgun.
 
+## Vehicles
+
+See [vehicles.md](vehicles.md): wheel joints (`constraints.Wheel`), the roll mode of keep upright, buoyant hulls with `FluidDrag`, aerodynamic surfaces.
+
 ## Toolgun and constraint entities
 
 - Toolgun (`addons/sandbox/lua/toolgun.lua`, one file per tool in `addons/sandbox/lua/tools/`, weapon in `addons/sandbox/lua/weapons/toolgun.lua`): a tool is a table passed to `toolgun.Register` (`Name`, `DisplayName`, `Category`, `Description`, `Settings`, `Instructions`, `LeftClick/RightClick/Reload(context, trace)` returning true when they did something). `toolgun.ConstraintTool` makes a two click tool from `Build(context, first, second)` returning constraint properties plus world anchors and axis. Tools run where the weapon thinks (the authority) and push `game_history` entries only for the local player. The selected tool and settings are `toolgun.state` on the client; a server gets them through the `toolgun_state` message. Settings are edited in the Tools tab of the spawn menu.

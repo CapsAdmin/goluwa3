@@ -7,6 +7,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local weapons = import("lua/weapons.lua")
 local npcs = import("lua/npcs.lua")
 local interactives = import("lua/interactives.lua")
+local vehicles = import("lua/vehicles.lua")
 local props = import("lua/props.lua")
 local game_history = import("lua/game_history.lua")
 local spawn_requests = {}
@@ -32,6 +33,10 @@ function validators.interactive(name)
 	return interactive_names[name] == true
 end
 
+function validators.vehicle(name)
+	return vehicles.Definitions[name] ~= nil
+end
+
 function validators.npc(name)
 	return npcs.Definitions[name] ~= nil
 end
@@ -54,6 +59,10 @@ end
 
 function spawners.interactive(player, name, position, yaw, done)
 	done(interactives.Spawn(name, position, yaw))
+end
+
+function spawners.vehicle(player, name, position, yaw, done)
+	done(vehicles.Spawn(name, position, yaw))
 end
 
 function spawners.npc(player, name, position, yaw, done)
