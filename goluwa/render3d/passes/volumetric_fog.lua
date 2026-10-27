@@ -782,14 +782,16 @@ local composite_pass = {
 				vec4 scene = texture(TEXTURE(fog_data.source_tex), in_uv);
 				scene.rgb /= pre_exposure;
 				float depth = texture(TEXTURE(fog_data.depth_tex), in_uv).r;
-				float air_distance = fog_data.ocean_distance_tex != -1 ? texture(TEXTURE(fog_data.ocean_distance_tex), in_uv).g : -1.0;
+				float air_distance = fog_data.ocean_distance_tex != -1 ? texture(TEXTURE(fog_data.ocean_distance_tex), in_uv).b : -1.0;
 				vec3 view_dir = get_view_dir(in_uv);
 				float hit_distance = -1.0;
 
-				if (air_distance >= 0.0) {
-					hit_distance = air_distance;
-				} else if (depth > 0.0) {
+				if (depth > 0.0) {
 					hit_distance = get_view_depth(in_uv, depth) * length(view_dir);
+				}
+
+				if (air_distance >= 0.0) {
+					hit_distance = hit_distance >= 0.0 ? min(air_distance, hit_distance) : air_distance;
 				}
 
 				float scale = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;

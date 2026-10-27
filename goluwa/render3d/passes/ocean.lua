@@ -697,7 +697,7 @@ list.insert(
 		name = "ocean",
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
-			{"r32g32_sfloat", {"ocean_distance", "rg"}},
+			{"r32g32b32a32_sfloat", {"ocean_distance", "rgba"}},
 		},
 		framebuffer_count = 2,
 		dont_create_framebuffers = true,
@@ -2156,7 +2156,7 @@ list.insert(
 
 			void write_passthrough(vec3 scene_color) {
 				set_scene_color(scene_color, -1.0);
-				set_ocean_distance(vec2(-1.0));
+				set_ocean_distance(vec4(-1.0));
 			}
 
 			void main() {
@@ -2300,7 +2300,7 @@ list.insert(
 
 						color = shade_underwater(w, camera_origin, ray_dir, surface_t, normal_up, volume_exit, scene_t, scene_color, scene_pos, jitter, distance);
 						set_scene_color(color, 1.0);
-						set_ocean_distance(vec2(distance, 0.0));
+						set_ocean_distance(vec4(distance, 0.0, 0.0, 0.0));
 						return;
 					}
 
@@ -2319,7 +2319,7 @@ list.insert(
 						vec3 transmittance;
 						vec3 inscatter = get_water_inscatter(w, surface_pos, ray_dir, len, jitter, transmittance);
 						set_scene_color(behind * transmittance + inscatter, 1.0);
-						set_ocean_distance(vec2(volume_entry, 0.0));
+						set_ocean_distance(vec4(volume_entry, 0.0, volume_entry, 0.0));
 						return;
 					}
 
@@ -2350,7 +2350,7 @@ list.insert(
 
 					color = shade_surface_from_above(w, surface_pos, normal, alpha, fold, ray_dir, volume_entry, scene_t < 1e29 ? max(scene_t - volume_entry, 0.0) : 1e30, jitter);
 					set_scene_color(color, 1.0);
-					set_ocean_distance(vec2(volume_entry, sqrt(alpha) * water_rt_share));
+					set_ocean_distance(vec4(volume_entry, sqrt(alpha) * water_rt_share, volume_entry, 0.0));
 					return;
 				}
 
@@ -2378,7 +2378,7 @@ list.insert(
 					float distance;
 					vec3 color = shade_underwater(w, camera_origin, ray_dir, surface_t, normal_up, WATER_OPEN_DEPTH, scene_t, scene_color, scene_pos, jitter, distance);
 					set_scene_color(color, 1.0);
-					set_ocean_distance(vec2(distance, 0.0));
+					set_ocean_distance(vec4(distance, 0.0, 0.0, 0.0));
 					return;
 				}
 
@@ -2390,7 +2390,7 @@ list.insert(
 				get_ocean_surface(surface_pos.xz, footprint, normal, alpha, fold);
 				vec3 color = shade_surface_from_above(w, surface_pos, normal, alpha, fold, ray_dir, ocean_t, scene_t < 1e29 ? max(scene_t - ocean_t, 0.0) : 1e30, jitter);
 				set_scene_color(color, 1.0);
-				set_ocean_distance(vec2(ocean_t, sqrt(alpha) * water_rt_share));
+				set_ocean_distance(vec4(ocean_t, sqrt(alpha) * water_rt_share, ocean_t, 0.0));
 			}
 		]],
 		},
