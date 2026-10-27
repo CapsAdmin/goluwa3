@@ -130,11 +130,24 @@ commands.Add{
 
 		if flags.cli or flags.server or flags.fps then
 			local native_threads = import("goluwa/bindings/threads.lua")
-			local fps = flags.fps or 30
+			local frame_time = 1 / (flags.fps or 30)
+			local next_frame
 
-			event.AddListener("Update", "cli_limit_fps", function()
-				native_threads.sleep(1000 / fps)
-			end)
+			event.AddListener(
+				"PostUpdate",
+				"cli_limit_fps",
+				function()
+					local now = system.GetTime()
+					next_frame = (next_frame or now) + frame_time
+
+					if next_frame > now then
+						native_threads.sleep((next_frame - now) * 1000)
+					else
+						next_frame = now
+					end
+				end,
+				{priority = -1000}
+			)
 		end
 
 		if flags["one-frame"] or flags.screenshot then
