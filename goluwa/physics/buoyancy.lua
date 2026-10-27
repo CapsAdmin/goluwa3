@@ -266,11 +266,36 @@ function buoyancy.Apply(body, dt, gravity)
 	local angular_rate = fluid.ANGULAR_VISCOSITY * fraction + drag * submerged ^ (
 			1 / 3
 		) * angular_velocity:GetLength()
-	local linear_scale = 1 / (1 + linear_rate * dt)
 	local angular_scale = 1 / (1 + angular_rate * dt)
-	velocity.x = water_velocity_x + relative_x * linear_scale
-	velocity.y = water_velocity_y + relative_y * linear_scale
-	velocity.z = water_velocity_z + relative_z * linear_scale
+	local axis_drag = body.FluidDrag
+
+	if axis_drag then
+		-- hulls slip through the water lengthwise and resist it sideways, so drag is scaled per body axis
+		local lx = (
+				r00 * relative_x + r10 * relative_y + r20 * relative_z
+			) / (
+				1 + linear_rate * axis_drag.x * dt
+			)
+		local ly = (
+				r01 * relative_x + r11 * relative_y + r21 * relative_z
+			) / (
+				1 + linear_rate * axis_drag.y * dt
+			)
+		local lz = (
+				r02 * relative_x + r12 * relative_y + r22 * relative_z
+			) / (
+				1 + linear_rate * axis_drag.z * dt
+			)
+		velocity.x = water_velocity_x + r00 * lx + r01 * ly + r02 * lz
+		velocity.y = water_velocity_y + r10 * lx + r11 * ly + r12 * lz
+		velocity.z = water_velocity_z + r20 * lx + r21 * ly + r22 * lz
+	else
+		local linear_scale = 1 / (1 + linear_rate * dt)
+		velocity.x = water_velocity_x + relative_x * linear_scale
+		velocity.y = water_velocity_y + relative_y * linear_scale
+		velocity.z = water_velocity_z + relative_z * linear_scale
+	end
+
 	angular_velocity.x = angular_velocity.x * angular_scale
 	angular_velocity.y = angular_velocity.y * angular_scale
 	angular_velocity.z = angular_velocity.z * angular_scale
