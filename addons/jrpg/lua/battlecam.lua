@@ -220,7 +220,7 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	local length = to_origin:GetLength()
 
 	if length > 1e-4 then
-		local hit = raycast.CastClosest(pivot, to_origin / length, length, blocks_camera, owner)
+		local hit = raycast.CastClosestSolid(pivot, to_origin / length, length, blocks_camera, owner)
 
 		if hit then
 			origin:CopyFrom(pivot + to_origin / length * math.max(hit.distance - TRACE_MARGIN, 0))

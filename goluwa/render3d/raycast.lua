@@ -642,6 +642,8 @@ local function test_skinned_polygon(ray, poly3d, primitive_idx, entity, max_hit_
 	}
 end
 
+local skip_see_through = false
+
 local function test_primitive_with_limit(
 	ray,
 	local_ray,
@@ -651,6 +653,14 @@ local function test_primitive_with_limit(
 	local_to_world,
 	max_hit_distance
 )
+	if skip_see_through then
+		local material = primitive.material
+
+		if material and (material:GetAlphaTest() or material:GetTranslucent()) then
+			return nil
+		end
+	end
+
 	if primitive.aabb then
 		local aabb_hit = BVH.RayAABBIntersection(local_ray, primitive.aabb)
 
@@ -1124,6 +1134,16 @@ function raycast.CastClosest(origin, direction, max_distance, filter_fn, a, b, c
 	max_distance = max_distance or math.huge
 	local ray = create_ray(origin, direction, max_distance)
 	return find_closest_hit(ray, filter_fn, a, b, c, d, e, f)
+end
+
+function raycast.CastClosestSolid(origin, direction, max_distance, filter_fn, a, b, c, d, e, f)
+	skip_see_through = true
+	local ok, hit = pcall(raycast.CastClosest, origin, direction, max_distance, filter_fn, a, b, c, d, e, f)
+	skip_see_through = false
+
+	if not ok then error(hit, 0) end
+
+	return hit
 end
 
 function raycast.CastClosestFromCamera(camera, filter_fn, a)

@@ -427,7 +427,7 @@ end
 
 local function blocked_distance(from, direction, distance, owner)
 	if settings.trace_raycast then
-		local hit = raycast.CastClosest(from, direction, distance, is_not_owner, owner)
+		local hit = raycast.CastClosestSolid(from, direction, distance, is_not_owner, owner)
 		return hit and hit.distance
 	end
 
@@ -439,7 +439,14 @@ event.AddListener("MouseInput", "third_person_drag", function(key, press)
 	if not settings.enabled then return end
 
 	if press then
-		if (key == "button_1" or key == "button_2") and not system.GetWindow():GetMouseTrapped() then
+		if
+			(
+				key == "button_1" or
+				key == "button_2"
+			)
+			and
+			not system.GetWindow():GetMouseTrapped()
+		then
 			state.drag_button = key
 			state.drag_started = false
 		end
