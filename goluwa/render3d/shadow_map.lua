@@ -1294,6 +1294,7 @@ end
 
 local function record_shadow_draw_cull(self, cascade_index)
 	self:CullScene(cascade_index)
+	event.Call("CullAllShadows", self, cascade_index)
 end
 
 function ShadowMap:GetTimingName(cascade_index)

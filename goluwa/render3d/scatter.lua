@@ -21,6 +21,7 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 import("goluwa/render3d/scatter_rt.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local ViewPriority = import("goluwa/render3d/view_priority.lua")
+local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local scatter = {}
 scatter.name = "gbuffer_multi_draw"
 scatter.MAX_SURFACES = 512
@@ -42,6 +43,8 @@ scatter.MAX_UNITS = 16384
 scatter.MAX_BAKED = 2 ^ 21
 scatter.GROW_MARGIN = 1.5
 scatter.MAX_BATCHES = 1024
+scatter.SHADOW_BLOCK_WORDS = 8
+scatter.MAX_SHADOW_BLOCKS = scatter.MAX_INSTANCES / 64 + 512
 scatter.BILLBOARD_REACH_UNIT = 0.25
 scatter.TILE_CELLS = 32
 scatter.MAX_LEVEL = 4
@@ -138,7 +141,7 @@ local function get_buffers()
 		},
 		prototypes = render.CreateBuffer{
 			byte_size = ffi.sizeof(ScatterPrototype) * MAX_PROTOTYPES,
-			buffer_usage = {"storage_buffer"},
+			buffer_usage = {"storage_buffer", "shader_device_address"},
 			memory_property = {"host_visible", "host_coherent"},
 			label = "scatter prototypes",
 		},
@@ -198,7 +201,7 @@ local function get_buffers()
 		},
 		batches = render.CreateBuffer{
 			byte_size = ffi.sizeof(ScatterBatch) * scatter.MAX_BATCHES,
-			buffer_usage = {"storage_buffer"},
+			buffer_usage = {"storage_buffer", "shader_device_address"},
 			memory_property = {"host_visible", "host_coherent"},
 			label = "scatter batches",
 		},
@@ -210,9 +213,15 @@ local function get_buffers()
 		},
 		shadow_commands = render.CreateBuffer{
 			byte_size = DRAW_COMMAND_SIZE_SHADOW * scatter.MAX_BATCHES,
-			buffer_usage = {"storage_buffer", "indirect_buffer"},
+			buffer_usage = {"storage_buffer", "indirect_buffer", "shader_device_address"},
 			memory_property = {"device_local"},
 			label = "scatter shadow commands",
+		},
+		shadow_blocks = render.CreateBuffer{
+			byte_size = 4 * scatter.SHADOW_BLOCK_WORDS * scatter.MAX_SHADOW_BLOCKS,
+			buffer_usage = {"storage_buffer", "shader_device_address"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "scatter shadow blocks",
 		},
 	}
 	buffers.surface_data = ffi.cast(ffi.typeof("$ *", ScatterSurface), buffers.surfaces:Map())
@@ -222,6 +231,7 @@ local function get_buffers()
 	buffers.unit_counts_data = ffi.cast("uint32_t *", buffers.unit_counts_readback:Map())
 	buffers.units_data = ffi.cast("uint32_t *", buffers.units:Map())
 	buffers.blocks_data = ffi.cast("uint32_t *", buffers.blocks:Map())
+	buffers.shadow_blocks_data = ffi.cast("uint32_t *", buffers.shadow_blocks:Map())
 	return buffers
 end
 
@@ -1313,7 +1323,16 @@ local function write_surface(out, surface, pipeline)
 	out.params[0] = material:GetScatterDensity()
 end
 
-local function write_prototype(out, proto, instance_base, far_base, shadow_base, shadow_billboard_base)
+local function write_prototype(
+	out,
+	proto,
+	instance_base,
+	far_base,
+	shadow_base,
+	shadow_billboard_base,
+	shadow_out_base,
+	shadow_out_billboard_base
+)
 	out.placement[0] = proto.density * proto.density_multiplier
 	out.placement[1] = proto.max_distance * proto.distance_multiplier * proto.reach
 	out.placement[2] = proto.full_density_distance * proto.distance_multiplier * proto.reach
@@ -1361,8 +1380,10 @@ local function write_prototype(out, proto, instance_base, far_base, shadow_base,
 	out.info2[1] = proto.far_room
 	out.info3[0] = shadow_base
 	out.info3[1] = proto.shadow_room
+	out.info3[2] = shadow_out_base
 	out.info4[0] = shadow_billboard_base
 	out.info4[1] = proto.shadow_billboard_room
+	out.info4[2] = shadow_out_billboard_base
 	out.limits[3] = proto.align_steep
 	out.limits[2] = RAY_QUERY and
 		proto.conform and
@@ -1383,6 +1404,10 @@ local instance_bases = {}
 local far_bases = {}
 local shadow_bases = {}
 local shadow_billboard_bases = {}
+local shadow_out_bases = {}
+local shadow_out_billboard_bases = {}
+local shadow_out_total = 0
+local shadow_block_count = 0
 local layout_dirty = false
 local layout_version = 0
 local BufferCopy = ffi.typeof("$[1]", vk.VkBufferCopy)
@@ -1510,6 +1535,48 @@ local function assign_bases()
 		shadow_bases[i] = far_bases[i] + proto.far_room
 		shadow_billboard_bases[i] = shadow_bases[i] + proto.shadow_room
 		total = shadow_billboard_bases[i] + proto.shadow_billboard_room
+	end
+
+	shadow_out_total = 0
+
+	for i, proto in ipairs(protos) do
+		shadow_out_bases[i] = shadow_out_total
+		shadow_out_billboard_bases[i] = shadow_out_total + proto.shadow_room
+		shadow_out_total = shadow_out_billboard_bases[i] + proto.shadow_billboard_room
+	end
+
+	local first_batch = {}
+
+	for batch_index, batch in ipairs(draw_batches) do
+		first_batch[batch.prototype] = first_batch[batch.prototype] or batch_index - 1
+	end
+
+	local data = get_buffers().shadow_blocks_data
+	shadow_block_count = 0
+
+	for i, proto in ipairs(protos) do
+		if proto.shadow and proto.state == "ready" then
+			for kind = 0, 1 do
+				local batch = first_batch[proto.index * 2 + kind]
+
+				if batch then
+					local room = kind == 0 and proto.shadow_room or proto.shadow_billboard_room
+					local source = kind == 0 and shadow_bases[i] or shadow_billboard_bases[i]
+					local out = kind == 0 and shadow_out_bases[i] or shadow_out_billboard_bases[i]
+
+					for first = 0, room - 1, 64 do
+						assert(shadow_block_count < scatter.MAX_SHADOW_BLOCKS, "too many scatter shadow blocks")
+						local entry = data + shadow_block_count * scatter.SHADOW_BLOCK_WORDS
+						entry[0] = first
+						entry[1] = source
+						entry[2] = out
+						entry[3] = room
+						entry[4] = bit.bor(bit.lshift(batch, 16), proto.index * 2 + kind)
+						shadow_block_count = shadow_block_count + 1
+					end
+				end
+			end
+		end
 	end
 
 	layout_dirty = false
@@ -2530,7 +2597,9 @@ function scatter.PreDraw(cmd)
 			instance_bases[i],
 			far_bases[i],
 			shadow_bases[i],
-			shadow_billboard_bases[i]
+			shadow_billboard_bases[i],
+			shadow_out_bases[i],
+			shadow_out_billboard_bases[i]
 		)
 	end
 
@@ -2744,26 +2813,281 @@ function scatter.Draw(pipeline, cmd)
 	cmd:DrawIndexedIndirect(b.commands, #draw_batches * DRAW_COMMAND_SIZE, #draw_batches, DRAW_COMMAND_SIZE)
 end
 
-event.AddListener("DrawAllShadows", "scatter", function(shadow_map, cascade_index)
-	if
-		not enabled:Get() or
-		not draw_batches[1] or
-		not first_commands_frame or
-		first_commands_frame >= system.GetFrameNumber()
-	then
-		return
+do
+	local SHADOW_COUNT_BYTES = 8 * MAX_PROTOTYPES
+	local SHADOW_COMMAND_BYTES = DRAW_COMMAND_SIZE_SHADOW * scatter.MAX_BATCHES
+	local SHADOW_DECLARATIONS = [[
+		#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+		#extension GL_EXT_buffer_reference : require
+		#extension GL_EXT_scalar_block_layout : require
+
+		layout(buffer_reference, scalar) readonly buffer ShadowBlocks { uvec4 b[]; };
+		layout(buffer_reference, scalar) readonly buffer ShadowPrototypeVec { vec4 v[]; };
+		layout(buffer_reference, scalar) readonly buffer ShadowPrototypeUint { uvec4 v[]; };
+		layout(buffer_reference, scalar) readonly buffer ShadowBatches { uvec4 b[]; };
+		layout(buffer_reference, scalar) readonly buffer ShadowCommandsIn { uvec4 c[]; };
+		layout(buffer_reference, scalar) writeonly buffer ShadowCommandsOut { uvec4 c[]; };
+		layout(buffer_reference, std430) readonly buffer ShadowWorldsIn { mat4 w[]; };
+		layout(buffer_reference, std430) writeonly buffer ShadowWorldsOut { mat4 w[]; };
+		layout(buffer_reference, scalar) buffer ShadowCounts { uint n[]; };
+	]]
+	local cull_pipeline
+	local commands_pipeline
+
+	local function get_cull_pipeline()
+		if cull_pipeline then return cull_pipeline end
+
+		cull_pipeline = EasyPipeline.Compute{
+			name = "scatter_shadow_cull",
+			DescriptorSetCount = 1,
+			LocalSize = {x = 64, y = 1, z = 1},
+			block = {
+				{"blocks", "uint64_t"},
+				{"prototypes", "uint64_t"},
+				{"source", "uint64_t"},
+				{"source_commands", "uint64_t"},
+				{"out_worlds", "uint64_t"},
+				{"out_counts", "uint64_t"},
+				{"planes", "vec4", 5},
+				{"min_extent", "float"},
+				{"block_count", "int"},
+				{"culling_enabled", "int"},
+			},
+			write = function(self, block)
+				local v = self.shadow_state
+				block.blocks = v.blocks
+				block.prototypes = v.prototypes
+				block.source = v.source
+				block.source_commands = v.source_commands
+				block.out_worlds = v.out_worlds
+				block.out_counts = v.out_counts
+
+				for i = 0, 3 do
+					for k = 0, 3 do
+						block.planes[i][k] = v.planes[i * 4 + k]
+					end
+				end
+
+				for k = 0, 3 do
+					block.planes[4][k] = v.planes[20 + k]
+				end
+
+				block.min_extent = v.min_extent
+				block.block_count = v.block_count
+				block.culling_enabled = gpu_culling.culling_enabled and 1 or 0
+				return block
+			end,
+			custom_declarations = SHADOW_DECLARATIONS,
+			shader = [[
+				void main() {
+					uint block = gl_WorkGroupID.x;
+
+					if (block >= uint(compute.block_count)) return;
+
+					uvec4 entry = ShadowBlocks(compute.blocks).b[block * 2u];
+					uint packed_id = ShadowBlocks(compute.blocks).b[block * 2u + 1u].x;
+					uint i = entry.x + gl_LocalInvocationID.x;
+					uint batch = packed_id >> 16u;
+					uint proto = (packed_id >> 1u) & 0x7FFFu;
+					uint kind = packed_id & 1u;
+					uint count = min(ShadowCommandsIn(compute.source_commands).c[batch].y, entry.w);
+
+					if (i >= count) return;
+
+					mat4 world = ShadowWorldsIn(compute.source).w[entry.y + i];
+					vec4 bounds = ShadowPrototypeVec(compute.prototypes).v[proto * 16u + 10u];
+					float size_y = length(world[1].xyz);
+					float radius = bounds.x * max(length(world[0].xyz), size_y);
+					vec3 center = world[3].xyz + vec3(0.0, bounds.y * size_y * 0.5, 0.0);
+
+					if (compute.culling_enabled != 0) {
+						if (compute.min_extent > 0.0 && radius * 2.0 < compute.min_extent) return;
+
+						float reach = radius * 1.25 + 0.25;
+
+						for (int p = 0; p < 5; p++) {
+							vec4 plane = compute.planes[p];
+
+							if (dot(plane.xyz, center) + plane.w < -reach) return;
+						}
+					}
+
+					uint slot = atomicAdd(ShadowCounts(compute.out_counts).n[proto * 2u + kind], 1u);
+
+					if (slot < entry.w) ShadowWorldsOut(compute.out_worlds).w[entry.z + slot] = world;
+				}
+			]],
+		}
+		return cull_pipeline
 	end
 
-	local b = get_buffers()
-	shadow_map:DrawBatches(
-		cascade_index,
-		scatter,
-		draw_batches,
-		batch_serial,
-		b.instances:GetDeviceAddress(),
-		b.shadow_commands,
-		DRAW_COMMAND_SIZE_SHADOW
-	)
-end)
+	local function get_commands_pipeline()
+		if commands_pipeline then return commands_pipeline end
+
+		commands_pipeline = EasyPipeline.Compute{
+			name = "scatter_shadow_commands",
+			DescriptorSetCount = 1,
+			LocalSize = {x = 64, y = 1, z = 1},
+			block = {
+				{"batches", "uint64_t"},
+				{"prototypes", "uint64_t"},
+				{"source_commands", "uint64_t"},
+				{"out_commands", "uint64_t"},
+				{"out_counts", "uint64_t"},
+				{"batch_count", "int"},
+			},
+			write = function(self, block)
+				local v = self.shadow_state
+				block.batches = v.batches
+				block.prototypes = v.prototypes
+				block.source_commands = v.source_commands
+				block.out_commands = v.out_commands
+				block.out_counts = v.out_counts
+				block.batch_count = v.batch_count
+				return block
+			end,
+			custom_declarations = SHADOW_DECLARATIONS,
+			shader = [[
+				void main() {
+					uint id = gl_GlobalInvocationID.x;
+
+					if (id >= uint(compute.batch_count)) return;
+
+					uvec4 source = ShadowCommandsIn(compute.source_commands).c[id];
+					uint prototype = ShadowBatches(compute.batches).b[id].z;
+					uint proto = prototype >> 1u;
+					uint kind = prototype & 1u;
+					uvec4 info = ShadowPrototypeUint(compute.prototypes).v[proto * 16u + 13u + kind];
+					ShadowCommandsOut(compute.out_commands).c[id] = uvec4(source.x, min(ShadowCounts(compute.out_counts).n[proto * 2u + kind], info.y), source.z, info.z);
+				}
+			]],
+		}
+		return commands_pipeline
+	end
+
+	local shadow_states = setmetatable({}, {__mode = "k"})
+	local COMPUTE_TO_COMPUTE = {
+		srcStage = {"host", "transfer", "compute"},
+		dstStage = "compute",
+		memoryBarrier = true,
+	}
+	local COMPUTE_TO_DRAW = {
+		srcStage = "compute",
+		dstStage = {"draw_indirect", "vertex_shader"},
+		memoryBarrier = true,
+	}
+
+	event.AddListener("CullAllShadows", "scatter", function(shadow_map, cascade_index)
+		local states = shadow_states[shadow_map]
+
+		if not states then
+			states = {}
+			shadow_states[shadow_map] = states
+		end
+
+		local state = states[cascade_index]
+
+		if not state then
+			state = {}
+			states[cascade_index] = state
+		end
+
+		state.culled = false
+
+		if
+			not enabled:Get() or
+			not draw_batches[1] or
+			not first_commands_frame or
+			first_commands_frame >= system.GetFrameNumber()
+			or
+			shadow_block_count == 0
+		then
+			return
+		end
+
+		if not state.commands then
+			state.counts = render.CreateBuffer{
+				byte_size = SHADOW_COUNT_BYTES,
+				buffer_usage = {"storage_buffer", "shader_device_address", "transfer_dst"},
+				memory_property = {"device_local"},
+				label = "scatter shadow cull counts",
+			}
+			state.commands = render.CreateBuffer{
+				byte_size = SHADOW_COMMAND_BYTES,
+				buffer_usage = {"storage_buffer", "indirect_buffer", "shader_device_address"},
+				memory_property = {"device_local"},
+				label = "scatter shadow cull commands",
+			}
+			state.counts_address = state.counts:GetDeviceAddress()
+			state.commands_address = state.commands:GetDeviceAddress()
+		end
+
+		if state.layout_version ~= layout_version then
+			if state.instances then state.instances:Remove() end
+
+			state.instances = render.CreateBuffer{
+				byte_size = 64 * math.max(shadow_out_total, 1),
+				buffer_usage = {"storage_buffer", "shader_device_address"},
+				memory_property = {"device_local"},
+				label = "scatter shadow cull instances",
+			}
+			state.layout_version = layout_version
+		end
+
+		local b = get_buffers()
+		local cmd = shadow_map.cmd
+		local options = shadow_map:GetGPUCullOptions(cascade_index)
+		local cull = get_cull_pipeline()
+		local commands = get_commands_pipeline()
+		local planes = shadow_map.cascade[cascade_index].frustum_planes
+		local v = cull.shadow_state or {planes = {}}
+		cull.shadow_state = v
+		v.blocks = b.shadow_blocks:GetDeviceAddress()
+		v.prototypes = b.prototypes:GetDeviceAddress()
+		v.source = b.instances:GetDeviceAddress()
+		v.source_commands = b.shadow_commands:GetDeviceAddress()
+		v.out_worlds = state.instances:GetDeviceAddress()
+		v.out_counts = state.counts_address
+
+		for i = 0, 23 do
+			v.planes[i] = planes[i]
+		end
+
+		v.min_extent = options and options.min_caster_extent or 0
+		v.block_count = shadow_block_count
+		local c = commands.shadow_state or {}
+		commands.shadow_state = c
+		c.batches = b.batches:GetDeviceAddress()
+		c.prototypes = v.prototypes
+		c.source_commands = v.source_commands
+		c.out_commands = state.commands_address
+		c.out_counts = state.counts_address
+		c.batch_count = #draw_batches
+		cmd:FillBuffer(state.counts, 0, SHADOW_COUNT_BYTES, 0)
+		cmd:PipelineBarrier(COMPUTE_TO_COMPUTE)
+		cull:Dispatch(cmd, shadow_block_count, 1, 1, 1)
+		cmd:PipelineBarrier(COMPUTE_TO_COMPUTE)
+		commands:Dispatch(cmd, math.ceil(#draw_batches / 64), 1, 1, 1)
+		cmd:PipelineBarrier(COMPUTE_TO_DRAW)
+		state.culled = true
+	end)
+
+	event.AddListener("DrawAllShadows", "scatter", function(shadow_map, cascade_index)
+		local states = shadow_states[shadow_map]
+		local state = states and states[cascade_index]
+
+		if not state or not state.culled then return end
+
+		shadow_map:DrawBatches(
+			cascade_index,
+			scatter,
+			draw_batches,
+			batch_serial,
+			state.instances:GetDeviceAddress(),
+			state.commands,
+			DRAW_COMMAND_SIZE_SHADOW
+		)
+	end)
+end
 
 return scatter
