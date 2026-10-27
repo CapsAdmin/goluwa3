@@ -315,7 +315,16 @@ function Context:ClearTargets()
 end
 
 function Context:Record(entry)
-	if is_local(self:GetPlayer()) then game_history.history:Push(entry) end
+	local player = self:GetPlayer()
+
+	if is_local(player) then
+		game_history.history:Push(entry)
+		return
+	end
+
+	local client = toolgun.GetClient(player)
+
+	if client:IsValid() then game_history.GetHistory(client):Push(entry) end
 end
 
 function Context:Refresh()

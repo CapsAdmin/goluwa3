@@ -4,6 +4,7 @@ input.Bind("q", "+spawnmenu", spawnmenu.Hold)
 input.Bind("q", "-spawnmenu", spawnmenu.Release)
 local game_history = import("lua/game_history.lua")
 local event = import("goluwa/event.lua")
+local network = import("goluwa/network/network.lua")
 local system = import("goluwa/system.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
@@ -21,6 +22,11 @@ event.AddListener("KeyInput", "game_history", function(key, press)
 	if not press or key ~= "z" or spawnmenu.IsEditing() then return end
 
 	if input.IsControlDown() and input.IsShiftDown() then
+		if network.IsConnected() then
+			game_history.Request("redo")
+			return true
+		end
+
 		local entry = history:GetEntries()[history:GetIndex() + 1]
 
 		if history:Redo() then notify("Redone ", entry) end
@@ -29,12 +35,21 @@ event.AddListener("KeyInput", "game_history", function(key, press)
 	end
 
 	if not input.IsControlDown() and not input.IsShiftDown() then
+		if network.IsConnected() then
+			game_history.Request("undo")
+			return true
+		end
+
 		local entry = history:GetEntries()[history:GetIndex()]
 
 		if history:Undo() then notify("Undone ", entry) end
 
 		return true
 	end
+end)
+
+event.AddListener("GameHistoryApplied", "game_history", function(action, name)
+	notify(action == "undo" and "Undone " or "Redone ", {Name = name})
 end)
 
 event.AddListener("DrawHUD", "game_history", function()

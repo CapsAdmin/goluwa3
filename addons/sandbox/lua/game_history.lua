@@ -1,6 +1,8 @@
 local objects = import("goluwa/objects/objects.lua")
 local History = import("goluwa/history.lua")
 local scene = import("goluwa/entities/scene.lua")
+local event = import("goluwa/event.lua")
+local message = import("goluwa/network/message.lua")
 local game_history = {}
 game_history.history = History.New()
 
@@ -13,7 +15,16 @@ end
 local function snapshot(entity)
 	local data = scene.SerializeEntities({entity})
 	assert(data.entities[1], "history: the entity cannot be serialized")
+	local networked = {}
+
+	if entity.network then networked[1] = entity:GetGUID() end
+
+	for _, child in ipairs(entity:GetChildrenList()) do
+		if child.network then networked[#networked + 1] = child:GetGUID() end
+	end
+
 	return {
+		networked = networked,
 		data = data,
 		parent = entity:GetParent():GetGUID(),
 		guid = entity:GetGUID(),
@@ -24,6 +35,11 @@ end
 local function restore(snap)
 	local root = scene.Deserialize(snap.data, resolve_entity(snap.parent))[1]
 	root:SetOwnedBy(snap.owner)
+
+	for _, guid in ipairs(snap.networked) do
+		resolve_entity(guid):AddComponent("network")
+	end
+
 	return root
 end
 
@@ -145,6 +161,62 @@ function game_history.Group(name, entries)
 			end
 		end,
 	}
+end
+
+if SERVER then
+	local histories = {}
+
+	function game_history.GetHistory(client)
+		local history = histories[client]
+
+		if not history then
+			history = History.New()
+			histories[client] = history
+		end
+
+		return history
+	end
+
+	event.AddListener("ClientLeft", "game_history", function(client)
+		histories[client] = nil
+	end)
+
+	message.AddListener("sandbox_history", function(client, action)
+		local history = game_history.GetHistory(client)
+		local entry
+
+		if action == "undo" then
+			entry = history:GetEntries()[history:GetIndex()]
+		elseif action == "redo" then
+			entry = history:GetEntries()[history:GetIndex() + 1]
+		else
+			return
+		end
+
+		if not entry then return end
+
+		local applied
+
+		if action == "undo" then
+			applied = history:Undo()
+		else
+			applied = history:Redo()
+		end
+
+		if applied then
+			message.Send("sandbox_history_applied", client, action, entry.Name)
+		end
+	end)
+end
+
+if CLIENT then
+	message.AddListener("sandbox_history_applied", function(action, name)
+		event.Call("GameHistoryApplied", action, name)
+	end)
+
+	function game_history.Request(action)
+		message.Send("sandbox_history", action)
+	end
 end
 
 return game_history
