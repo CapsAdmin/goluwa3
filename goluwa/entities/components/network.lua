@@ -399,7 +399,10 @@ if SERVER then
 
 			for _, var in ipairs(self.vars) do
 				if now >= var.next_send then
-					var.next_send = now + var.rate
+					var.next_send = var.next_send + var.rate
+
+					if var.next_send <= now then var.next_send = now + var.rate end
+
 					local target = self:GetTarget(var.component)
 					local value = target[var.get_name](target)
 
