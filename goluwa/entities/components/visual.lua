@@ -702,7 +702,7 @@ function Visual:Initialize()
 	self.RenderEntries = {}
 	self.LODRenderEntries = self.RenderEntries
 	self.RenderEntriesDirty = true
-	self.LoadGeneration = 0
+	self.LoadGeneration = self.LoadGeneration or 0
 	refresh_forward_overlay_registry(self)
 	refresh_translucent_registry(self)
 

@@ -55,3 +55,9 @@ return {
 	ent:Remove()
 	vfs.Unmount(dir)
 end)
+
+T.Test3D("a visual keeps the load of a model requested while its entity is built", function()
+	local ent = Entity.New{transform = {}, visual = {ModelPath = "models/box.lua"}}
+	T(ent.visual.LoadGeneration)["=="](1)
+	ent:Remove()
+end)
