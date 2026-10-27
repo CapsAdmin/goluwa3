@@ -24,6 +24,7 @@ RigidBody.Network = {
 	MotionType = {"string", 0.5, "reliable", client = client_motion_type},
 	ServerDynamic = {"boolean", 0.5, "reliable"},
 	Shape = {"shape", 0.5, "reliable"},
+	ShapeModelPath = {"string", 0.5, "reliable"},
 	Density = {"number", 0.5, "reliable"},
 	Mass = {"number", 0.5, "reliable"},
 	AutomaticMass = {"boolean", 0.5, "reliable"},
