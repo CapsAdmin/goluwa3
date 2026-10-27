@@ -57,7 +57,7 @@ end
 function UDPServer:OnPollReady(events)
 	if not (events["in"] or events.err or events.hup or events.nval) then return end
 
-	for _ = 1, 256 do
+	for _ = 1, 16384 do
 		local chunk, err = self.socket:receive_from(2048)
 
 		if chunk then
