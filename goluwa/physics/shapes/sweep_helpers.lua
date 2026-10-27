@@ -610,8 +610,10 @@ do
 
 		if not best_normal then return nil end
 
+		PROJECTED_POINT:CopyFrom(point):Sub(best_normal * best_distance)
+		local surface = PROJECTED_POINT
+
 		if best_distance > 0 then
-			PROJECTED_POINT:CopyFrom(point):Sub(best_normal * best_distance)
 			local indices = best_face.indices
 			local first = vertices[indices[1]]
 			local over_face = false
@@ -658,6 +660,8 @@ do
 
 				if closest_distance > radius + EPSILON then return nil end
 
+				surface = closest
+
 				if closest_distance > EPSILON then
 					best_normal = (point - closest) / closest_distance
 				end
@@ -672,7 +676,7 @@ do
 
 		return {
 			normal = best_normal,
-			position = helpers.GetSupportPoint(vertices, best_normal),
+			position = surface:Copy(),
 			point = point - best_normal * radius,
 		}
 	end

@@ -204,3 +204,12 @@ T.TestPhysics("keep upright with a roll axis rights the lean and leaves the pitc
 	T(math.abs(right.y))["<"](0.02)
 	T(math.abs(math.asin(forward.y) - pitch))["<"](0.02)
 end)
+
+T.TestPhysics("a sphere sweep onto a box reports the contact under the sphere", function()
+	spawn_ground()
+	physics.Update(1 / 60)
+	local hit = physics.Sweep(Vec3(-1.6, 1.5, 0.4), Vec3(0, -3, 0), 0.3, nil, nil, {IgnoreRigidBodies = false})
+	T(hit ~= nil)["=="](true)
+	T((hit.position - Vec3(-1.6, 0, 0.4)):GetLength())["<"](0.001)
+	T(math.abs(hit.distance - 1.2))["<"](0.001)
+end)
