@@ -126,6 +126,30 @@ local stamps = {}
 local move_frame = {}
 local geom_stale = {}
 local slot_at_z = {}
+local chosen_light = {}
+local chosen_score = {}
+local UNTRACED_SCORE = -1e9
+
+local function choose(light_index, score, chosen_count)
+	local i = chosen_count + 1
+
+	if i > LIGHT_OCCL_MAX_TRACES_PER_FRAME then
+		if score >= chosen_score[LIGHT_OCCL_MAX_TRACES_PER_FRAME] then return chosen_count end
+
+		i = LIGHT_OCCL_MAX_TRACES_PER_FRAME
+		chosen_count = chosen_count - 1
+	end
+
+	while i > 1 and chosen_score[i - 1] > score do
+		chosen_light[i] = chosen_light[i - 1]
+		chosen_score[i] = chosen_score[i - 1]
+		i = i - 1
+	end
+
+	chosen_light[i] = light_index
+	chosen_score[i] = score
+	return chosen_count + 1
+end
 
 local function sphere_overlaps_box(px, py, pz, radius_sq, box)
 	local dx = math.max(box[1] - px, 0, px - box[4])
@@ -392,6 +416,7 @@ function light_occlusion.Draw(cmd)
 	local frame = system.GetFrameNumber()
 	process_geometry_change(lights)
 	local dirty_count = 0
+	local camera_pos = render3d.GetCamera():GetPosition()
 
 	for light_index = 1, MAX_LIGHTS do
 		local light = lights[light_index]
@@ -401,7 +426,6 @@ function light_occlusion.Draw(cmd)
 			stamps[light_index] = nil
 			move_frame[light_index] = nil
 			geom_stale[light_index] = nil
-			slot_at_z[light_index] = nil
 		else
 			local pos = light.Owner.transform:GetWorldPosition()
 			local range = light:GetEffectiveRange()
@@ -458,8 +482,12 @@ function light_occlusion.Draw(cmd)
 
 				if mode ~= 0 then
 					stamps[light_index] = stamp
-					slot_at_z[dirty_count + 1] = light_index - 1
-					dirty_count = dirty_count + 1
+					local dx, dy, dz = pos.x - camera_pos.x, pos.y - camera_pos.y, pos.z - camera_pos.z
+					dirty_count = choose(
+						light_index,
+						(info and info.light == light) and info.frame or UNTRACED_SCORE + dx * dx + dy * dy + dz * dz,
+						dirty_count
+					)
 				end
 			end
 		end
@@ -467,8 +495,8 @@ function light_occlusion.Draw(cmd)
 
 	if dirty_count == 0 then return end
 
-	if dirty_count > LIGHT_OCCL_MAX_TRACES_PER_FRAME then
-		dirty_count = LIGHT_OCCL_MAX_TRACES_PER_FRAME
+	for i = 1, dirty_count do
+		slot_at_z[i] = chosen_light[i] - 1
 	end
 
 	ensure_resources()
@@ -564,6 +592,7 @@ function light_occlusion.Draw(cmd)
 			z = pos.z,
 			range = light:GetEffectiveRange(),
 			stamp_dispatched = stamps[light_index],
+			frame = frame,
 		}
 	end
 end
