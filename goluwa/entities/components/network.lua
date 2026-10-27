@@ -672,6 +672,16 @@ if CLIENT then
 		return vars
 	end
 
+	local function apply_changed_values(component, values)
+		for var_name, var_value in pairs(values) do
+			local getter = component["Get" .. var_name] or component["Is" .. var_name]
+
+			if not table.equal(getter(component), var_value) then
+				component["Set" .. var_name](component, var_value)
+			end
+		end
+	end
+
 	local function read_component(buffer)
 		local name = buffer:ReadNetString()
 		local length = buffer:ReadI32()
@@ -781,11 +791,7 @@ if CLIENT then
 
 			if values then
 				if self.Owner:HasComponent(name) then
-					local component = self.Owner[name]
-
-					for var_name, var_value in pairs(values) do
-						component["Set" .. var_name](component, var_value)
-					end
+					apply_changed_values(self.Owner[name], values)
 				else
 					self.Owner:AddComponent(name, values)
 				end
