@@ -1153,7 +1153,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 					int base = 1 + i * ]] .. vegetation_pushers.STRIDE .. [[;
 					float rounding = pushers.p[base].w;
 					vec3 half_size = pushers.p[base + 1].xyz;
-					float reach = 0.4 + 0.5 * min(max(half_size.x, half_size.z), 1.5);
+					float reach = (0.4 + 0.5 * min(max(half_size.x, half_size.z), 1.5)) * pushers.p[0].z;
 				
 					for (int j = 0; j < ]] .. vegetation_pushers.POSES .. [[; j++) {
 						vec4 pose = pushers.p[base + 2 + j];
@@ -1182,7 +1182,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 							if (dot(candidate, candidate) > dot(best, best)) best = candidate;
 						}
 				
-						turn += best * pose.w;
+						turn += best * pose.w * pushers.p[0].y;
 					}
 				}
 

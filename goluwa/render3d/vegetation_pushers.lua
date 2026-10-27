@@ -3,6 +3,7 @@ local event = import("goluwa/event.lua")
 local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local physics = import("goluwa/physics.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
 local vegetation_pushers = {}
@@ -15,6 +16,20 @@ vegetation_pushers.POSE_INTERVAL = 0.07
 vegetation_pushers.FREQUENCY = 2.5
 vegetation_pushers.DAMPING = 0.3
 vegetation_pushers.STRIDE = 2 + vegetation_pushers.POSES
+pvars.StartGroup("Rendering", "Vegetation", {store = false})
+local strength = pvars.Setup2{
+	key = "r_vegetation_push_strength",
+	default = 1,
+	min = 0,
+	help = "how far bodies bend vegetation, 0 turns pushing off",
+}
+local radius = pvars.Setup2{
+	key = "r_vegetation_push_radius",
+	default = 1,
+	min = 0.05,
+	help = "scales the distance around a body over which vegetation starts to bend away, its falloff",
+}
+pvars.EndGroup()
 local POSES = vegetation_pushers.POSES
 local STRIDE = vegetation_pushers.STRIDE
 local HISTORY = 128
@@ -110,6 +125,8 @@ event.AddListener("LateUpdate", "vegetation_pushers", function()
 
 	local alpha = physics.GetInterpolationAlpha()
 	data[0] = count
+	data[1] = strength:Get()
+	data[2] = radius:Get()
 
 	for i = 1, count do
 		local body = picked[i]
