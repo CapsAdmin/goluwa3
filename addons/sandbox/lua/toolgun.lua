@@ -144,12 +144,17 @@ function toolgun.GetClient(player)
 end
 
 do
-	local OPTIONS = {IncludeRigidBodies = true}
+	local OPTIONS = {IncludeRigidBodies = true, IncludeKinematicBodies = true}
+
+	local function is_solid_on_server(entity)
+		local body = entity.rigid_body
+		return body:IsStatic() or body:GetServerDynamic()
+	end
 
 	function toolgun.Trace(player, view)
 		local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 		local forward = view:GetForward()
-		local hit = physics.RayCast(origin, forward, toolgun.Range, player, nil, OPTIONS)
+		local hit = physics.RayCast(origin, forward, toolgun.Range, player, is_solid_on_server, OPTIONS)
 
 		if not hit then return nil end
 
