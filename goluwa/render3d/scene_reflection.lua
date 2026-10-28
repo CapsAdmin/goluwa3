@@ -260,6 +260,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 		#define SCENE_REFLECTION_FLAGS (RT_HIT_ANY_HIT != 0 ? gl_RayFlagsNoneEXT : gl_RayFlagsOpaqueEXT)
 		#define SCENE_REFLECTION_LIGHT_FULL_RADIANCE 0.02
+		#ifndef SCENE_HIT_SKY_RAYS
+		#define SCENE_HIT_SKY_RAYS 4
+		#endif
 
 		float scene_reflection_random(vec3 p, int light) {
 			return pcg_unorm(pcg3d(uvec3(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z) ^ (uint(light) * 2654435761u + uint(ddgi_data.ddgi_frame) * 40503u))).x);
@@ -307,6 +310,23 @@ function scene_reflection.GetGLSL(block_name, shared)
 			return rayQueryGetIntersectionTEXT(query, true);
 		}
 
+		bool trace_scene_interval(vec3 origin, vec3 dir, float t_min, float t_max, out float t, out uint instance, out uint primitive, out vec2 barycentrics) {
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, 0xFF, origin, t_min, dir, t_max);
+
+			SCENE_REFLECTION_PROCEED(query)
+
+			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return false;
+
+			t = rayQueryGetIntersectionTEXT(query, true);
+			instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+			primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+			barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
+			return true;
+		}
+
+		vec3 shade_scene_reflection_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics);
+
 		vec3 trace_scene_reflection_hit(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			hit_t = max_distance;
 			float t;
@@ -330,22 +350,16 @@ function scene_reflection.GetGLSL(block_name, shared)
 			SER_hitObjectGetAttributes(hit_object, 1);
 			hit_barycentrics = scene_reflection_attributes;
 			#else
-			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, 0xFF, origin, 0.0, dir, max_distance);
-
-			SCENE_REFLECTION_PROCEED(query)
-
-			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) {
+			if (!trace_scene_interval(origin, dir, 0.0, max_distance, t, hit_instance, hit_primitive, hit_barycentrics)) {
 				return sample_environment_specular(]] .. block_name .. [[.env_tex, dir, N, roughness);
 			}
-
-			t = rayQueryGetIntersectionTEXT(query, true);
-			hit_instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
-			hit_primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
-			hit_barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, true);
 			#endif
 
 			hit_t = t;
+			return shade_scene_reflection_hit(origin, dir, roughness, t, hit_instance, hit_primitive, hit_barycentrics);
+		}
+
+		vec3 shade_scene_reflection_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics) {
 			scene_triangle tri = scene_hit_tri(hit_instance, hit_primitive);
 			ddgi_material material = ddgi_materials[tri.material];
 			vec3 hit_N = -tri.normal;
@@ -517,11 +531,11 @@ function scene_reflection.GetGLSL(block_name, shared)
 				float spin = fract(sin(dot(P, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 6.28318530718;
 				float open_sky = 0.0;
 
-				for (int k = 0; k < 4; k++) {
-					float phi = spin + float(k) * 1.57079632679;
+				for (int k = 0; k < SCENE_HIT_SKY_RAYS; k++) {
+					float phi = spin + float(k) * (6.28318530718 / float(SCENE_HIT_SKY_RAYS));
 					vec3 sky_dir = normalize(hit_N + tangent * cos(phi) + bitangent * sin(phi));
 
-					if (scene_reflection_visible(surface, sky_dir, SCENE_REFLECTION_MAX_DISTANCE)) open_sky += 0.25;
+					if (scene_reflection_visible(surface, sky_dir, SCENE_REFLECTION_MAX_DISTANCE)) open_sky += 1.0 / float(SCENE_HIT_SKY_RAYS);
 				}
 
 				gi.rgb = sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, hit_N) * open_sky;
