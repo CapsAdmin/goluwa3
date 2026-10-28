@@ -120,7 +120,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/mcp.md](docs/mcp.md): the always-on MCP server in every instance, probing a running client and server (`addons/mcp/mcp`)
 - [docs/jit-trace-aborts.md](docs/jit-trace-aborts.md): reading trace aborts from `jit.log`, side trace register failures and how to restructure code, retries and `tryside`
 - [docs/performance.md](docs/performance.md): measuring CPU/GPU time correctly, benchmarks, JIT pitfalls, startup time (the STARTUP tab and the `startup` timers)
-- [docs/render3d-lighting.md](docs/render3d-lighting.md): choosing the GI (`r_gi`), DDGI, fog, sky, clouds, water, shadows, exposure, material and shading pitfalls
+- [docs/render3d-lighting.md](docs/render3d-lighting.md): choosing the GI (`r_gi`), DDGI, surfel radiance cascades, fog, sky, clouds, water, shadows, exposure, material and shading pitfalls
 - [docs/render3d-pipeline.md](docs/render3d-pipeline.md): surface features and the auto packed gbuffer, Vulkan/GLSL pitfalls, GPU culling, instancing, LOD, scene view, Test3D
 - [docs/particles.md](docs/particles.md): the particle system (gpu pools, one compute pass, lit by the sun, local lights and DDGI or the sky), the particle_emitter_gpu and particle_emitter_cpu (gbuffer instancing) components, rain, snow, collision, measuring
 - [docs/vfx.md](docs/vfx.md): sprite batches, ribbon trails, bursts, flash lights and timelines (the engine side of effects)

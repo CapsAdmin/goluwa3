@@ -350,7 +350,7 @@ function LayoutView:OnDraw()
 end
 
 LayoutView:Register()
-local PASS_NAMES = {"ambient_occlusion", "reflections", "ssgi_filter_1", "ssgi_filter_2", "ssgi", "ddgi_resolve"}
+local PASS_NAMES = {"ambient_occlusion", "reflections", "ssgi_filter_1", "ssgi_filter_2", "ssgi", "ddgi_resolve", "surfel_resolve"}
 local SWIZZLES = {r = "rrr", g = "ggg", b = "bbb", a = "aaa", rgb = "rgb"}
 
 local function show_fullscreen(spec)
@@ -467,6 +467,30 @@ local LIGHTING_MODES = {
 		key = "ddgi_debug_scene",
 		value = "hit_distance",
 		description = "the hit distance of the scene the ddgi probe rays trace",
+	},
+	{
+		name = "surfel gi only",
+		key = "surfel_debug_gi",
+		value = true,
+		description = "only the irradiance of the global illumination (surfel radiance cascades)",
+	},
+	{
+		name = "surfel cells",
+		key = "surfel_debug",
+		value = "cells",
+		description = "a colour per cascade 0 surfel a pixel reads, dimmed where the lookup found only part of them",
+	},
+	{
+		name = "surfel coverage",
+		key = "surfel_debug",
+		value = "coverage",
+		description = "green where the surfel lookup found surfels, red where it fell back to the sky",
+	},
+	{
+		name = "surfel sky visibility",
+		key = "surfel_debug",
+		value = "sky",
+		description = "the share of the surfels' rays that reach the sky",
 	},
 }
 

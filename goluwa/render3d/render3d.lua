@@ -305,6 +305,7 @@ local default_passes = {
 	{"terrain_shadow", "goluwa/render3d/passes/terrain_shadow.lua"},
 	{"ambient_occlusion", "goluwa/render3d/passes/ambient_occlusion.lua"},
 	{"ddgi", "goluwa/render3d/passes/ddgi.lua", gi = "ddgi"},
+	{"surfel_gi", "goluwa/render3d/passes/surfel_gi.lua", gi = "surfels"},
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
 	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},
@@ -346,8 +347,8 @@ pvars.StartGroup("Lighting", "Global illumination", {store = false})
 local gi_mode = pvars.Setup2{
 	key = "r_gi",
 	default = "ddgi",
-	enums = {"ddgi", "none"},
-	help = "the global illumination: ddgi probe cascades or none (the sky's irradiance). passes of a system that is not chosen are not built",
+	enums = {"ddgi", "surfels", "none"},
+	help = "the global illumination: ddgi probe cascades, surfel radiance cascades, or none (the sky's irradiance). the other system's passes are not built",
 	callback = function(value, initial)
 		if initial then return end
 
