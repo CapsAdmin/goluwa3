@@ -16,6 +16,8 @@ end)
 surfel_gi.CASCADES = 4
 surfel_gi.BASE_DIRECTIONS = 4
 surfel_gi.SLOTS_PER_ROW = 256
+surfel_gi.ATLAS_SLOTS_PER_ROW = 1024
+surfel_gi.CASCADE_SHIFTS = {0, 2, 4, 5}
 surfel_gi.PROBES = 8
 surfel_gi.TOUCH_SAMPLES = 65536
 surfel_gi.HIT_SAMPLES = 8192
@@ -24,7 +26,7 @@ surfel_gi.MAX_DIRTY_BOXES = 64
 surfel_gi.MAX_LEVEL = 15
 
 function surfel_gi.GetCapacity(c)
-	return 2 ^ (surfel_gi.CAPACITY_BITS - 2 * c)
+	return 2 ^ (surfel_gi.CAPACITY_BITS - surfel_gi.CASCADE_SHIFTS[c + 1])
 end
 
 function surfel_gi.GetOffset(c)
@@ -45,18 +47,24 @@ function surfel_gi.SetCapacity(capacity)
 	surfel_gi.CAPACITY_BITS = math.floor(math.log(math.max(capacity, 4096)) / math.log(2) + 1e-6)
 	surfel_gi.SLOT_COUNT = surfel_gi.GetOffset(surfel_gi.CASCADES)
 	surfel_gi.SLOT_ROWS = math.ceil(surfel_gi.SLOT_COUNT / surfel_gi.SLOTS_PER_ROW)
-	surfel_gi.ATLAS_WIDTH = surfel_gi.SLOTS_PER_ROW * surfel_gi.BASE_DIRECTIONS
-	surfel_gi.ATLAS_CASCADE_HEIGHT = surfel_gi.GetCapacity(0) / surfel_gi.SLOTS_PER_ROW * surfel_gi.BASE_DIRECTIONS
+	surfel_gi.ATLAS_WIDTH = surfel_gi.ATLAS_SLOTS_PER_ROW * surfel_gi.BASE_DIRECTIONS
+	surfel_gi.ATLAS_HEIGHT = 0
+
+	for c = 0, surfel_gi.CASCADES - 1 do
+		surfel_gi.ATLAS_HEIGHT = surfel_gi.ATLAS_HEIGHT + surfel_gi.GetCapacity(c) / (
+				surfel_gi.ATLAS_SLOTS_PER_ROW / 2 ^ c
+			) * surfel_gi.GetDirectionSide(c)
+	end
 end
 
 pvars.StartGroup("Lighting", "Surfel GI", {store = false, prefix = "surfel_"})
 local capacity = pvars.Setup2{
 	key = "surfel_capacity",
-	default = 65536,
+	default = 131072,
 	integer = true,
 	min = 4096,
 	max = 262144,
-	help = "most cascade 0 surfels, rounded down to a power of two, each coarser cascade holds a quarter as many. a full table fails to place new surfels (black patches in big or detailed views). changing it starts the gi over",
+	help = "most cascade 0 surfels, rounded down to a power of two. the coarser cascades hold 1/4, 1/16 and 1/32 of it (their cells are twice as large each, but small objects, edges and normal buckets keep needing their own coarse cells, so they shrink slower than the area). a full table fails to place new surfels (black patches in big or detailed views). changing it starts the gi over",
 	callback = function(value, initial)
 		if initial then return end
 
@@ -373,12 +381,7 @@ function surfel_gi.GetResources()
 		key = texture("keys", surfel_gi.SLOTS_PER_ROW, surfel_gi.SLOT_ROWS, "r32g32b32a32_sfloat"),
 		surfel = texture("positions", surfel_gi.SLOTS_PER_ROW, surfel_gi.SLOT_ROWS, "r32g32b32a32_sfloat"),
 		state = texture("state", surfel_gi.SLOTS_PER_ROW, surfel_gi.SLOT_ROWS, "r16g16b16a16_sfloat"),
-		atlas = texture(
-			"radiance",
-			surfel_gi.ATLAS_WIDTH,
-			surfel_gi.ATLAS_CASCADE_HEIGHT * surfel_gi.CASCADES,
-			"r16g16b16a16_sfloat"
-		),
+		atlas = texture("radiance", surfel_gi.ATLAS_WIDTH, surfel_gi.ATLAS_HEIGHT, "r16g16b16a16_sfloat"),
 		irradiance = texture(
 			"irradiance",
 			surfel_gi.SLOTS_PER_ROW * 4,
@@ -557,6 +560,7 @@ function surfel_gi.GetDefinesGLSL()
 		#define SURFEL_CASCADES %d
 		#define SURFEL_BASE_DIRECTIONS %d
 		#define SURFEL_SLOTS_PER_ROW %d
+		#define SURFEL_ATLAS_SLOTS_PER_ROW %d
 		#define SURFEL_PROBES %d
 		#define SURFEL_MAX_LEVEL %d
 		#define SURFEL_TOP_LEVEL (SURFEL_MAX_LEVEL - SURFEL_CASCADES)
@@ -565,7 +569,7 @@ function surfel_gi.GetDefinesGLSL()
 		#endif
 		#define SURFEL_FEATURES (SURFEL_BLOCK.surfel_features)
 		#define SURFEL_CAPACITY_BITS (SURFEL_BLOCK.surfel_capacity_bits)
-		#define SURFEL_ATLAS_CASCADE_HEIGHT ((1 << SURFEL_CAPACITY_BITS) / SURFEL_SLOTS_PER_ROW * SURFEL_BASE_DIRECTIONS)
+		const int SURFEL_CASCADE_SHIFTS[SURFEL_CASCADES] = int[](%s);
 		#define SURFEL_SLOT_COUNT surfel_offset(SURFEL_CASCADES)
 		#define SURFEL_ON(feature) ((SURFEL_FEATURES & (feature)) != 0)
 		%s
@@ -574,7 +578,7 @@ function surfel_gi.GetDefinesGLSL()
 		#endif
 
 		int surfel_capacity(int c) {
-			return 1 << (SURFEL_CAPACITY_BITS - 2 * c);
+			return 1 << (SURFEL_CAPACITY_BITS - SURFEL_CASCADE_SHIFTS[c]);
 		}
 
 		int surfel_offset(int c) {
@@ -595,8 +599,14 @@ function surfel_gi.GetDefinesGLSL()
 
 		ivec2 surfel_atlas_texel(int c, int local_slot, ivec2 dir) {
 			int side = surfel_side(c);
-			int per_row = SURFEL_SLOTS_PER_ROW >> c;
-			return ivec2((local_slot %% per_row) * side, (local_slot / per_row) * side + c * SURFEL_ATLAS_CASCADE_HEIGHT) + dir;
+			int per_row = SURFEL_ATLAS_SLOTS_PER_ROW >> c;
+			int row_offset = 0;
+
+			for (int i = 0; i < c; i++) {
+				row_offset += surfel_capacity(i) / (SURFEL_ATLAS_SLOTS_PER_ROW >> i) * surfel_side(i);
+			}
+
+			return ivec2((local_slot %% per_row) * side, (local_slot / per_row) * side + row_offset) + dir;
 		}
 
 		ivec2 surfel_irradiance_texel(int g, int i) {
@@ -661,8 +671,10 @@ function surfel_gi.GetDefinesGLSL()
 			surfel_gi.CASCADES,
 			surfel_gi.BASE_DIRECTIONS,
 			surfel_gi.SLOTS_PER_ROW,
+			surfel_gi.ATLAS_SLOTS_PER_ROW,
 			surfel_gi.PROBES,
 			surfel_gi.MAX_LEVEL,
+			table.concat(surfel_gi.CASCADE_SHIFTS, ", "),
 			surfel_gi.GetFeatureDefinesGLSL()
 		)
 end
