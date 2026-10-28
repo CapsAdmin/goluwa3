@@ -103,11 +103,7 @@ function jit_options.Set(options--[[#: AnyTable | nil]], flags--[[#: AnyTable | 
 	end
 
 	for k, v in pairs(f) do
-		if v then
-			table_insert(args, "+" .. k)
-		else
-			table_insert(args, "-" .. k)
-		end
+		if v then table_insert(args, "+" .. k) else table_insert(args, "-" .. k) end
 	end
 
 	jit.opt.start(unpack(args))
