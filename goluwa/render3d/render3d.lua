@@ -320,7 +320,10 @@ local default_passes = {
 	{"fxaa", "goluwa/render3d/passes/fxaa.lua"},
 	{"dof", "goluwa/render3d/passes/dof.lua"},
 	{"motion_blur", "goluwa/render3d/passes/motion_blur.lua"},
-	{"ambient_occlusion_debug", "goluwa/render3d/passes/ambient_occlusion_debug.lua"},
+	{
+		"ambient_occlusion_debug",
+		"goluwa/render3d/passes/ambient_occlusion_debug.lua",
+	},
 	{"gbuffer_inspect", "goluwa/render3d/passes/gbuffer_inspect.lua"},
 	{"blit", "goluwa/render3d/passes/blit.lua"},
 }
@@ -346,7 +349,7 @@ pvars.EndGroup()
 pvars.StartGroup("Lighting", "Global illumination", {store = false})
 local gi_mode = pvars.Setup2{
 	key = "r_gi",
-	default = "ddgi",
+	default = "surfels",
 	enums = {"ddgi", "surfels", "none"},
 	help = "the global illumination: ddgi probe cascades, surfel radiance cascades, or none (the sky's irradiance). the other system's passes are not built",
 	callback = function(value, initial)

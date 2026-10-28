@@ -112,7 +112,7 @@ local max_ray_distance = pvars.Setup2{
 local RESOLVE_MEGAPIXELS = {["0.25mp"] = 0.25, ["0.5mp"] = 0.5, ["1mp"] = 1, native = math.huge}
 local resolve_resolution = pvars.Setup2{
 	key = "surfel_resolve_resolution",
-	default = "0.25mp",
+	default = "native",
 	enums = {"0.25mp", "0.5mp", "1mp", "native"},
 	help = "the pixel count the surfel gi seen by the screen is resolved at, in megapixels, it is upsampled to the screen with depth and normal weights",
 	callback = function()
