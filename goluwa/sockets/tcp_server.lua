@@ -91,17 +91,17 @@ function UDPServer:OnPollReady(events)
 	for i = 1, 512 do
 		local client, err = self.socket:accept()
 
-		if err ~= "tryagain" then
-			if client then
-				local client = TCPClient.New(client)
-				client.connected = true
-				client:InsertIntoSocketPool()
-				self:OnClientConnected(client)
-			else
-				self:Error(err)
+		if err == "tryagain" then break end
 
-				break
-			end
+		if client then
+			local client = TCPClient.New(client)
+			client.connected = true
+			client:InsertIntoSocketPool()
+			self:OnClientConnected(client)
+		else
+			self:Error(err)
+
+			break
 		end
 	end
 end
