@@ -6,6 +6,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
+local bridge = import("goluwa/render3d/scene/bridge.lua")
 local surfel_gi = {}
 
 event.AddListener("Render3DPassToggled", "surfel_gi", function(name, value)
@@ -20,6 +21,7 @@ surfel_gi.PROBES = 8
 surfel_gi.TOUCH_SAMPLES = 65536
 surfel_gi.HIT_SAMPLES = 8192
 surfel_gi.STATS_STRIDE = 16
+surfel_gi.MAX_DIRTY_BOXES = 64
 surfel_gi.MAX_LEVEL = 15
 
 function surfel_gi.GetCapacity(c)
@@ -166,7 +168,8 @@ function surfel_gi.ResetHistory()
 end
 
 do
-	local state = {frame = -1, reset = false}
+	local state = {frame = -1, reset = false, dirty = {}}
+	local dirty_queue = bridge.CreateDirtyQueue()
 
 	function surfel_gi.GetFrameState()
 		local frame = system.GetFrameNumber()
@@ -176,6 +179,8 @@ do
 		state.frame = frame
 		state.reset = surfel_gi.reset_requested == true
 		surfel_gi.reset_requested = false
+		local all, boxes = bridge.ConsumeDirty(dirty_queue)
+		state.dirty = all and {} or boxes
 		return state
 	end
 end
@@ -204,7 +209,7 @@ function surfel_gi.GetResources()
 
 	local resources = {
 		table = render.CreateBuffer{
-			byte_size = surfel_gi.SLOT_COUNT * 32,
+			byte_size = surfel_gi.SLOT_COUNT * 40,
 			buffer_usage = {"storage_buffer"},
 			memory_property = {"device_local"},
 			label = "surfel_table",
@@ -350,6 +355,9 @@ function surfel_gi.GetPassBlockLayout()
 		{"surfel_emitter_tex", "int"},
 		{"surfel_filter_tex", "int"},
 		{"surfel_bent_normal_tex", "int"},
+		{"surfel_dirty_count", "int"},
+		{"surfel_dirty_min", "vec4", surfel_gi.MAX_DIRTY_BOXES},
+		{"surfel_dirty_max", "vec4", surfel_gi.MAX_DIRTY_BOXES},
 	}
 end
 
@@ -376,6 +384,19 @@ function surfel_gi.WritePassBlock(self, block)
 	block.surfel_emitter_tex = -1
 	block.surfel_filter_tex = -1
 	block.surfel_bent_normal_tex = -1
+	local dirty = state.dirty
+	block.surfel_dirty_count = math.min(#dirty, surfel_gi.MAX_DIRTY_BOXES)
+
+	for i = 1, block.surfel_dirty_count do
+		local box = dirty[i]
+		block.surfel_dirty_min[i - 1][0] = box[1]
+		block.surfel_dirty_min[i - 1][1] = box[2]
+		block.surfel_dirty_min[i - 1][2] = box[3]
+		block.surfel_dirty_max[i - 1][0] = box[4]
+		block.surfel_dirty_max[i - 1][1] = box[5]
+		block.surfel_dirty_max[i - 1][2] = box[6]
+	end
+
 	return block
 end
 

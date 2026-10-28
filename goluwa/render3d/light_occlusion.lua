@@ -134,7 +134,9 @@ local function choose(light_index, score, chosen_count)
 	local i = chosen_count + 1
 
 	if i > LIGHT_OCCL_MAX_TRACES_PER_FRAME then
-		if score >= chosen_score[LIGHT_OCCL_MAX_TRACES_PER_FRAME] then return chosen_count end
+		if score >= chosen_score[LIGHT_OCCL_MAX_TRACES_PER_FRAME] then
+			return chosen_count
+		end
 
 		i = LIGHT_OCCL_MAX_TRACES_PER_FRAME
 		chosen_count = chosen_count - 1
@@ -158,8 +160,10 @@ local function sphere_overlaps_box(px, py, pz, radius_sq, box)
 	return dx * dx + dy * dy + dz * dz <= radius_sq
 end
 
+local dirty_queue = bridge.CreateDirtyQueue()
+
 local function process_geometry_change(lights)
-	local dirty_all, boxes = bridge.ConsumeDirty()
+	local dirty_all, boxes = bridge.ConsumeDirty(dirty_queue)
 
 	if not dirty_all and not boxes[1] then return end
 
@@ -485,7 +489,13 @@ function light_occlusion.Draw(cmd)
 					local dx, dy, dz = pos.x - camera_pos.x, pos.y - camera_pos.y, pos.z - camera_pos.z
 					dirty_count = choose(
 						light_index,
-						(info and info.light == light) and info.frame or UNTRACED_SCORE + dx * dx + dy * dy + dz * dz,
+						(
+								info and
+								info.light == light
+							)
+							and
+							info.frame or
+							UNTRACED_SCORE + dx * dx + dy * dy + dz * dz,
 						dirty_count
 					)
 				end

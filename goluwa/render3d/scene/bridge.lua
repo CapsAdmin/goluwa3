@@ -13,24 +13,29 @@ local bounds_dirty = false
 local emissive_visuals = setmetatable({}, {__mode = "k"})
 bridge.emitter_version = 0
 local MAX_DIRTY_BOXES = 64
-local dirty_boxes = {}
-local dirty_all = false
+local dirty_queues = {}
+
+function bridge.CreateDirtyQueue()
+	local queue = {all = false, boxes = {}}
+	dirty_queues[#dirty_queues + 1] = queue
+	return queue
+end
 
 local function mark_dirty(aabb)
-	if not aabb then
-		dirty_all = true
-		return
+	local box = aabb and {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
+
+	for _, queue in ipairs(dirty_queues) do
+		if not box then
+			queue.all = true
+		elseif not queue.all then
+			if #queue.boxes >= MAX_DIRTY_BOXES then
+				queue.all = true
+				table.clear(queue.boxes)
+			else
+				queue.boxes[#queue.boxes + 1] = box
+			end
+		end
 	end
-
-	if dirty_all then return end
-
-	if #dirty_boxes >= MAX_DIRTY_BOXES then
-		dirty_all = true
-		table.clear(dirty_boxes)
-		return
-	end
-
-	dirty_boxes[#dirty_boxes + 1] = {aabb.min_x, aabb.min_y, aabb.min_z, aabb.max_x, aabb.max_y, aabb.max_z}
 end
 
 local DIRTY_MOVE_TOLERANCE = 0.01
@@ -123,11 +128,11 @@ local function set_lod_bounds(visual, list)
 	end
 end
 
-function bridge.ConsumeDirty()
-	local all = dirty_all
-	local boxes = dirty_boxes
-	dirty_all = false
-	dirty_boxes = {}
+function bridge.ConsumeDirty(queue)
+	local all = queue.all
+	local boxes = queue.boxes
+	queue.all = false
+	queue.boxes = {}
 	return all, boxes
 end
 

@@ -146,6 +146,8 @@ local TABLE_GLSL = [[
 		uint position_stamp;
 		uint hidden;
 		uint backfaces;
+		uint ratio_sum;
+		uint drift;
 	};
 	layout(std430, set = 0, binding = ]] .. BINDING_TABLE .. [[) coherent buffer SurfelTable {
 		SurfelSlot surfel_table[];
@@ -156,6 +158,8 @@ local TABLE_GLSL = [[
 	#define SURFEL_STAT(field) surfel_stats[(uint(surfel_data.surfel_frame) & 3u) * ]] .. surfel_gi.STATS_STRIDE .. [[u + uint(field)]
 	#define SURFEL_POSITION_HOLD 30
 	#define SURFEL_POSITION_CONFIRM 8
+	#define SURFEL_CHANGE_THRESHOLD 0.4
+	#define SURFEL_CHANGE_BOOST 4u
 	#define SURFEL_IDLE_INTERVAL_SCALE 16
 	#define SURFEL_STAT_ALIVE 0
 	#define SURFEL_STAT_FAILED 4
@@ -286,6 +290,8 @@ local function visit_glsl(touch)
 				surfel_table[candidate].position_stamp = frame - uint(SURFEL_POSITION_HOLD) - 1u;
 				surfel_table[candidate].hidden = 0x3FFFFFFu;
 				surfel_table[candidate].backfaces = 0u;
+				surfel_table[candidate].ratio_sum = 0u;
+				surfel_table[candidate].drift = 0u;
 				atomicOr(surfel_table[candidate].flags, 1u);
 				imageStore(out_key, surfel_slot_texel(candidate), vec4(vec3(cell), float(packed)));
 				return candidate;
@@ -480,7 +486,14 @@ local function pass_update()
 			{binding_index = BINDING_HITS},
 			{binding_index = BINDING_STATS},
 		},
-		uniform_buffers = {pass_uniform{}},
+		uniform_buffers = {
+			pass_uniform{
+				write = function(self, block)
+					block.surfel_positions_tex = self:GetTextureIndex(surfel_gi.GetResources().surfel)
+				end,
+			},
+			gi_uniform(),
+		},
 		on_pre_draw = function(self, cmd, frame, desc)
 			bind_buffers(self, desc)
 		end,
@@ -546,7 +559,7 @@ local function pass_update()
 				ivec2 texel = surfel_slot_texel(g);
 
 				if (surfel_data.surfel_reset != 0) {
-					surfel_table[g] = SurfelSlot(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+					surfel_table[g] = SurfelSlot(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
 					imageStore(out_key, texel, vec4(0.0));
 					imageStore(out_surfel, texel, vec4(0.0));
 					imageStore(surfel_state, texel, vec4(0.0));
@@ -572,9 +585,47 @@ local function pass_update()
 				bool alive = age <= uint(surfel_data.surfel_lifetime);
 				uint interval = uint(min(1 << c, surfel_data.surfel_update_interval_max)) * (alive ? 1u : uint(SURFEL_IDLE_INTERVAL_SCALE));
 
-				bool due = count == 0.0 || (uint(g) + frame) % interval == 0u;
+				bool moved = false;
 
-				if (due) surfel_table[g].backfaces = 0u;
+				if (surfel_data.surfel_dirty_count > 0 && count > 0.0) {
+					vec4 position = texelFetch(TEXTURE(surfel_data.surfel_positions_tex), texel, 0);
+					float margin = 1.5 * surfel_data.surfel_cell_size * exp2(float(surfel_packed_level(max(int(texelFetch(TEXTURE(ddgi_data.surfel_key_tex), texel, 0).w), 1))));
+
+					for (int i = 0; i < surfel_data.surfel_dirty_count; i++) {
+						vec3 low = surfel_data.surfel_dirty_min[i].xyz;
+						vec3 high = surfel_data.surfel_dirty_max[i].xyz;
+						vec3 grow = vec3(max(margin, 0.5 * max(high.x - low.x, max(high.y - low.y, high.z - low.z))));
+
+						if (all(greaterThan(position.xyz, low - grow)) && all(lessThan(position.xyz, high + grow))) {
+							count = min(count, 1.0);
+							moved = true;
+							surfel_table[g].position_stamp = frame - uint(SURFEL_POSITION_CONFIRM) - 1u;
+							surfel_table[g].flags = 4u;
+							break;
+						}
+					}
+				}
+
+				bool due = moved || count == 0.0 || (uint(g) + frame) % interval == 0u;
+				uint boost = 1u;
+
+				if (due) {
+					uint rays = entry.backfaces >> 16u;
+
+					if (rays > 0u && count > 2.0) {
+						float drift = mix(uintBitsToFloat(entry.drift), log2(max(float(entry.ratio_sum) / (1024.0 * float(rays)), 1e-3)), 0.5);
+
+						if (abs(drift) > SURFEL_CHANGE_THRESHOLD) {
+							boost = SURFEL_CHANGE_BOOST;
+							drift = 0.0;
+						}
+
+						surfel_table[g].drift = floatBitsToUint(drift);
+					}
+
+					surfel_table[g].backfaces = 0u;
+					surfel_table[g].ratio_sum = 0u;
+				}
 
 				if (surfel_data.surfel_debug != 0) {
 					if (alive) atomicAdd(SURFEL_STAT(SURFEL_STAT_ALIVE + c), 1u);
@@ -582,7 +633,7 @@ local function pass_update()
 					if (frame - entry.screen_stamp <= uint(surfel_data.surfel_lifetime)) atomicAdd(SURFEL_STAT(SURFEL_STAT_SCREEN + c), 1u);
 				}
 
-				imageStore(surfel_state, texel, vec4(due ? min(count + 1.0, 1024.0) : count, due ? float(interval) : 0.0, float(min(age, 60000u)), entry.screen_stamp == frame ? 1.0 : 0.0));
+				imageStore(surfel_state, texel, vec4(due ? min(count + 1.0, 1024.0) : count, due ? float(interval * boost) : 0.0, float(min(age, 60000u)), entry.screen_stamp == frame ? 1.0 : 0.0));
 			}
 		]],
 	}
@@ -642,7 +693,7 @@ local function pass_visibility()
 
 				if (state.y == 0.0) return;
 
-				if (state.x > 1.0 && uint(neighbour + surfel_data.surfel_frame) % 4u != 0u) return;
+				if (state.x > 1.0 && (surfel_table[g].flags & 4u) == 0u && uint(neighbour + surfel_data.surfel_frame) % 4u != 0u) return;
 
 				int index = neighbour < 13 ? neighbour : neighbour + 1;
 				ivec3 offset = ivec3(index % 3, (index / 3) % 3, index / 9) - 1;
@@ -907,6 +958,8 @@ local function pass_trace()
 
 				result.rgb = dot(result.rgb, vec3(1.0)) >= 0.0 ? min(result.rgb, vec3(60000.0)) : vec3(0.0);
 				vec4 previous = imageLoad(surfel_atlas, atlas_texel);
+				bool history = previous.a >= 0.0 && !any(isnan(previous)) && !any(isinf(previous));
+				atomicAdd(surfel_table[g].ratio_sum, uint(1024.0 * (history ? clamp((luminance(result.rgb) + 1e-3) / (luminance(previous.rgb) + 1e-3), 0.0, 16.0) : 1.0)));
 				float alpha = previous.a < 0.0 ? 1.0 : max(1.0 / state.x, 1.0 - pow(surfel_data.surfel_hysteresis, state.y));
 				// fresh atlas memory can hold NaN, and mix(NaN, x, 1.0) is still NaN
 				if (alpha >= 1.0 || any(isnan(previous)) || any(isinf(previous))) previous = result;
