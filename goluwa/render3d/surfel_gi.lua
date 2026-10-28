@@ -644,21 +644,6 @@ function surfel_gi.GetLookupGLSL()
 			second = vec4(second_rgb, result.a);
 			return result;
 		}
-
-		vec4 surfel_sample_medium(vec3 P, vec3 D, out float weight) {
-			float front_weight;
-			float back_weight;
-			vec4 unused;
-			vec4 front = surfel_sample_irradiance_pair(P, D, D, D, false, 2, front_weight, unused);
-			vec4 back = surfel_sample_irradiance_pair(P, -D, -D, -D, false, 2, back_weight, unused);
-			weight = 0.5 * (front_weight + back_weight);
-
-			if (front_weight <= 0.0) front = back;
-
-			if (back_weight <= 0.0) back = front;
-
-			return 0.5 * (front + back);
-		}
 	]]
 end
 

@@ -1,6 +1,5 @@
 local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
-local rt = import("goluwa/render3d/scene/rt.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
@@ -17,6 +16,8 @@ local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
+local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
+local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local AIR_END_ALTITUDE = 50
 local FROXEL_HISTORY = 0.9
 local LOCAL_LIGHT_LIMIT = 8
@@ -31,6 +32,9 @@ local BINDING_LIGHT_GRID = 7
 local BINDING_SCENE = 8
 local BINDING_TILE_DEPTH = 9
 local BINDING_GI = 10
+local BINDING_EMITTERS = 13
+local BINDING_GI_EMITTER = 14
+local GI_SCENE_BINDINGS = {scene = BINDING_SCENE, hit = 30, materials = 11, light_grid = 12}
 local VISIBILITY_RAYS = render.GetDevice().ray_query_supported
 local froxels = froxel_fog.froxels
 local FROXEL_SLICES = froxel_fog.SLICES
@@ -148,6 +152,13 @@ local gi_pass = {
 				return froxels.gi
 			end,
 		},
+		{
+			binding_index = BINDING_GI_EMITTER,
+			dst_stage = "compute",
+			get_texture = function()
+				return froxels.gi_emitter
+			end,
+		},
 	},
 	sampled_images = {
 		{
@@ -170,43 +181,50 @@ local gi_pass = {
 			block = {
 				render3d.camera_block,
 				gbuffer_layout.block,
+				post_source.pre_exposure_block,
 				{"froxel_size", "vec2"},
 				{"frame", "int"},
 				{"gi_screen_tex", "int"},
 				{"ocean_distance_tex", "int"},
+				scene_reflection.block,
+				atmosphere.GetBlockLayout(),
+				{"primary_sun_illuminance", "float"},
+				{"env_tex", "int"},
 			},
 			write = function(self, block)
 				render3d.WriteCameraBlock(self, block)
 				gbuffer_layout.WriteBlock(self, block)
+				post_source.WritePreExposureBlock(self, block)
 				block.froxel_size[0] = froxels.width
 				block.froxel_size[1] = froxels.height
 				block.frame = system.GetFrameNumber()
 				write_gi_screen_texture(self, block, "gi_screen_tex")
 				write_ocean_distance_texture(self, block, "ocean_distance_tex")
+				scene_reflection.WriteBlock(self, block)
+				local lights = render3d.GetLights()
+				atmosphere.WriteBlock(
+					self,
+					block,
+					render3d.GetCamera():GetPosition(),
+					directional_shadows.GetPrimarySunDirection(lights)
+				)
+				block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
+				block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 				return block
 			end,
 		},
 	},
 	descriptor_sets = VISIBILITY_RAYS and
-		{
-			{
-				type = "acceleration_structure_khr",
-				binding_index = BINDING_SCENE,
-				stageFlags = "compute",
-			},
-		} or
+		scene_reflection.GetDescriptorSets(GI_SCENE_BINDINGS, "compute") or
 		nil,
+	storage_buffers = VISIBILITY_RAYS and {{binding_index = BINDING_EMITTERS}} or nil,
 	on_pre_draw = function(self, cmd, frame, desc)
 		froxel_fog.EnsureResources()
 
 		if VISIBILITY_RAYS then
-			self:UpdateDescriptorSet(
-				"acceleration_structure_khr",
-				desc,
-				BINDING_SCENE,
-				0,
-				rt.GetTLAS(cmd)
-			)
+			scene_reflection.Bind(self, cmd, desc, GI_SCENE_BINDINGS)
+			local emitters = scene_emitters.BuildActive(cmd)
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
 		end
 	end,
 	on_draw = function(self, cmd, fb, frame, desc)
@@ -222,17 +240,20 @@ local gi_pass = {
 	end,
 	custom_declarations = (
 			VISIBILITY_RAYS and
-			[[
-		#extension GL_EXT_ray_query : require
-		#define DDGI_VISIBILITY_RAYS
-		layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT ddgi_scene;
-	]] or
+			scene_reflection.GetDeclarationGLSL(GI_SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS)
+			or
 			""
 		) .. [[
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_gi;
+		layout(set = 0, binding = ]] .. BINDING_GI_EMITTER .. [[, rgba16f) uniform writeonly image3D out_gi_emitter;
 		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
 	]],
-	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. gi.GetCommonGLSL() .. gi.GetMediumGLSL() .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
+	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. (
+			VISIBILITY_RAYS and
+			"#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. post_source.GetPreExposureGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "froxel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("froxel_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL()
+			or
+			gi.GetCommonGLSL()
+		) .. gi.GetMediumGLSL() .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {
 			uvec3 h = pcg3d(v);
 			return h.x ^ h.y ^ h.z;
@@ -243,6 +264,8 @@ local gi_pass = {
 			ivec2 size = ivec2(froxel_data.froxel_size);
 
 			if (any(greaterThanEqual(quad.xy * 2, size))) return;
+
+			imageStore(out_gi_emitter, quad, vec4(0.0));
 
 			uint start = froxel_hash(uvec3(quad.xy, uint(quad.z) + uint(froxel_data.frame) * 128u));
 			ivec3 id = ivec3(-1);
@@ -258,7 +281,7 @@ local gi_pass = {
 			}
 
 			if (id.x < 0) {
-				imageStore(out_gi, quad, vec4(0.0));
+				imageStore(out_gi, quad, vec4(-1.0));
 				return;
 			}
 
@@ -277,8 +300,61 @@ local gi_pass = {
 				uint n = froxel_hash(uvec3(seed, id.z, 7u));
 				float z = float(n & 0xffffu) / 32768.0 - 1.0;
 				float phi = float(n >> 16u) * (6.28318530718 / 65536.0);
+				vec3 dir = vec3(sqrt(max(1.0 - z * z, 0.0)) * vec2(cos(phi), sin(phi)), z);
+
+				#ifdef SCENE_REFLECTION
+				if (ddgi_data.gi_mode == GI_MODE_SURFELS) {
+					if (dir.y < 0.0) dir = -dir;
+
+					vec3 radiance = vec3(0.0);
+					float open_sky = 0.0;
+
+					for (int i = 0; i < 2; i++) {
+						vec3 d = i == 0 ? dir : -dir;
+						float t;
+						uint instance;
+						uint primitive;
+						vec2 barycentrics;
+						vec3 ray;
+
+						if (trace_scene_interval(P, d, 0.0, SCENE_REFLECTION_MAX_DISTANCE, t, instance, primitive, barycentrics)) {
+							ray = shade_scene_reflection_hit(P, d, 1.0, t, instance, primitive, barycentrics);
+						} else {
+							t = SCENE_REFLECTION_MAX_DISTANCE;
+							ray = ddgi_sky(d);
+
+							if (i == 0) open_sky = 1.0;
+						}
+
+						if (froxel_data.glass_light != 0) ray *= get_glass_light(P, d, t, 0.0);
+
+						radiance += 0.5 * ray;
+					}
+
+					int emitter_count = ddgi_data.ddgi_emitter_count;
+					vec3 glow = vec3(0.0);
+
+					if (emitter_count > 0) {
+						vec3 to_light;
+						float dist;
+						vec3 light = emitter_sample_light(froxel_hash(uvec3(quad)), uint(froxel_data.frame), emitter_count, P, vec3(0.0), 0.1 + depth * 0.01, to_light, dist);
+
+						if (dot(light, vec3(1.0)) > 0.0 && (dist <= 0.02 || scene_reflection_visible(P, to_light, dist - 0.02))) {
+							if (froxel_data.glass_light != 0) light *= get_glass_light(P, to_light, dist, 0.0);
+
+							glow = min(light / (4.0 * PI), vec3(60000.0));
+						}
+					}
+
+					radiance = dot(radiance, vec3(1.0)) >= 0.0 ? min(radiance, vec3(60000.0)) : vec3(0.0);
+					imageStore(out_gi, quad, vec4(radiance / PI, open_sky));
+					imageStore(out_gi_emitter, quad, vec4(glow / PI, 0.0));
+					return;
+				}
+				#endif
+
 				float weight;
-				vec4 gi = gi_sample_medium(P, vec3(sqrt(max(1.0 - z * z, 0.0)) * vec2(cos(phi), sin(phi)), z), weight);
+				vec4 gi = gi_sample_medium(P, dir, weight);
 
 				if (weight > 0.0) {
 					imageStore(out_gi, quad, vec4(gi.rgb / PI, saturate(gi.a)));
@@ -329,6 +405,12 @@ local scatter_pass = {
 				return {froxels.gi:GetView(), froxels.gi_sampler}
 			end,
 		},
+		{
+			binding_index = BINDING_GI_EMITTER,
+			get_descriptor = function()
+				return {froxels.gi_emitter:GetView(), froxels.gi_emitter_sampler}
+			end,
+		},
 	},
 	uniform_buffers = {
 		{
@@ -371,6 +453,7 @@ local scatter_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_scatter;
 		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
 		layout(set = 0, binding = ]] .. BINDING_GI .. [[) uniform sampler3D froxel_gi;
+		layout(set = 0, binding = ]] .. BINDING_GI_EMITTER .. [[) uniform sampler3D froxel_gi_emitter;
 	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID),
 	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. medium_lighting.GetLocalLightsGLSL("froxel_data", LOCAL_LIGHT_LIMIT) .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {
@@ -418,14 +501,15 @@ local scatter_pass = {
 			vec4 gi = texelFetch(froxel_gi, ivec3(id.xy >> 1, id.z), 0);
 			float open_sky = gi.a < 0.0 ? 1.0 : gi.a;
 			vec3 probe_ambient = gi.a < 0.0 ? shared_sky_ambient : gi.rgb;
-			vec3 ambient = mix(probe_ambient, shared_sky_ambient, open_sky);
+			vec3 glow = texelFetch(froxel_gi_emitter, ivec3(id.xy >> 1, id.z), 0).rgb;
+			vec3 ambient = mix(probe_ambient, shared_sky_ambient, open_sky) + glow;
 			vec3 scattering = get_ground_fog_in_scatter(fog_point, ray_dir, sun_dir, sun_visibility, ambient) * per_meter;
 			scattering += sun * (RAYLEIGH_BETA * (density_r * phase_rayleigh(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
 			vec3 air_up = fog_point / length(fog_point);
 			vec3 sky_multi = ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX == -1 ?
 				ambient * air_scattering :
 				sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, sun_dir), mu) * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * per_meter;
-			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky * mix(0.15, 1.0, get_terrain_shadow(world_pos)));
+			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky * mix(0.15, 1.0, get_terrain_shadow(world_pos))) + glow * air_scattering;
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction;
 

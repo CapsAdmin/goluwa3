@@ -131,9 +131,7 @@ function gi.GetMediumGLSL()
 	return ddgi.GetMediumGLSL() .. [[
 
 		vec4 gi_sample_medium(vec3 P, vec3 N, out float weight) {
-			if (ddgi_data.gi_mode == GI_MODE_SURFELS) return surfel_sample_medium(P, N, weight);
-
-			return ddgi_sample_medium(P, N, weight);
+				return ddgi_sample_medium(P, N, weight);
 		}
 	]]
 end

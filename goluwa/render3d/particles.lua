@@ -21,6 +21,7 @@ local rt = import("goluwa/render3d/scene/rt.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
+local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 local particles = {}
 particles.MAX_SYSTEMS = 8
 particles.LOCAL_SIZE = 64
@@ -31,6 +32,8 @@ local BINDING_DATA = 2
 local BINDING_OCCLUSION = 3
 local BINDING_LIGHT_GRID = 4
 local BINDING_FIRST_SYSTEM = 5
+local BINDING_FROXEL_GI = 19
+local BINDING_FROXEL_GI_EMITTER = 18
 local BINDING_TLAS = 20
 local BINDING_HIT = 21
 local COLLISION_MODES = {shelter_map = 1, scene_depth = 2, rays = 3, per_particle = 4}
@@ -396,6 +399,41 @@ function particles.GetSimulationGLSL()
 
 			if (!gi_available() || !gi_in_volume(P)) return environment;
 
+			if (ddgi_data.gi_mode == GI_MODE_SURFELS && particle_data.froxel_gi_ready != 0) {
+				vec4 view = particle_data.view * vec4(P, 1.0);
+				vec4 clip = particle_data.projection * view;
+
+				if (-view.z > 0.0 && clip.w > 0.0) {
+					vec2 uv = clip.xy / clip.w * 0.5 + 0.5;
+					vec3 cell = vec3(uv * particle_data.froxel_size * 0.5, froxel_slice_coord(-view.z)) - 0.5;
+					ivec3 base = ivec3(floor(cell));
+					vec3 f = cell - vec3(base);
+					ivec3 size = textureSize(particle_froxel_gi, 0);
+					vec4 sum = vec4(0.0);
+					vec3 glow = vec3(0.0);
+					float total = 0.0;
+
+					for (int i = 0; i < 8; i++) {
+						ivec3 o = ivec3(i & 1, (i >> 1) & 1, i >> 2);
+						ivec3 texel = base + o;
+
+						if (any(lessThan(texel, ivec3(0))) || any(greaterThanEqual(texel, size))) continue;
+
+						vec4 froxel = texelFetch(particle_froxel_gi, texel, 0);
+
+						if (froxel.a < 0.0) continue;
+
+						vec3 k = mix(1.0 - f, f, vec3(o));
+						float w = k.x * k.y * k.z + 1e-3;
+						sum += froxel * w;
+						glow += texelFetch(particle_froxel_gi_emitter, texel, 0).rgb * w;
+						total += w;
+					}
+
+					if (total > 0.0) return mix(sum.rgb / total * PI, environment, saturate(sum.a / total)) + glow / total * PI;
+				}
+			}
+
 			float weight;
 			vec4 probes = gi_sample_irradiance(P, N, vec3(0.0), ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
 			return mix(environment, probes.rgb, saturate(weight / ]] .. gi.MIN_WEIGHT .. [[));
@@ -496,7 +534,8 @@ function particles.GetSimulationGLSL()
 
 			if (visibility > 0.0 && system.lit != 0 && (fresh || was_hidden || (index + uint(particle_data.frame)) % ]] .. particles.RELIGHT_INTERVAL .. [[u == 0u)) {
 				vec3 view_dir = (p.position - particle_data.camera_position) / max(distance_to_camera, 1e-4);
-				p.light = get_particle_radiance(p.position, view_dir, system.scatter_g, system.forward_fraction);
+				vec3 light = get_particle_radiance(p.position, view_dir, system.scatter_g, system.forward_fraction);
+				p.light = fresh || was_hidden || ddgi_data.gi_mode != GI_MODE_SURFELS ? light : mix(p.light, light, 0.35);
 			}
 
 			if (visibility > 0.0) {
@@ -535,6 +574,8 @@ function particles.BuildSimulationPasses()
 				surface_weather.block,
 				gbuffer_layout.block,
 				{"bvh_ready", "int"},
+				{"froxel_gi_ready", "int"},
+				{"froxel_size", "vec2"},
 				pools_and_systems,
 			},
 			write = function(self, block)
@@ -545,6 +586,9 @@ function particles.BuildSimulationPasses()
 				surface_weather.WriteBlock(self, block)
 				gbuffer_layout.WriteBlock(self, block)
 				block.bvh_ready = bvh_ready and 1 or 0
+				block.froxel_gi_ready = render3d.IsPassEnabled("volumetric_fog") and froxel_fog.froxels.gi and 1 or 0
+				block.froxel_size[0] = froxel_fog.froxels.width
+				block.froxel_size[1] = froxel_fog.froxels.height
 				light_occlusion.WriteOcclusionBlock(block, medium_lighting.WriteLightsBlock(self, block))
 				particles.WriteSystems(block)
 				return block
@@ -581,6 +625,20 @@ function particles.BuildSimulationPasses()
 				{
 					binding_index = BINDING_OCCLUSION,
 					get_descriptor = light_occlusion.GetOcclusionDescriptor,
+				},
+				{
+					binding_index = BINDING_FROXEL_GI,
+					get_descriptor = function()
+						froxel_fog.EnsureResources()
+						return {froxel_fog.froxels.gi:GetView(), froxel_fog.froxels.gi_sampler}
+					end,
+				},
+				{
+					binding_index = BINDING_FROXEL_GI_EMITTER,
+					get_descriptor = function()
+						froxel_fog.EnsureResources()
+						return {froxel_fog.froxels.gi_emitter:GetView(), froxel_fog.froxels.gi_emitter_sampler}
+					end,
 				},
 			},
 			uniform_buffers = uniform_buffers,
@@ -642,7 +700,7 @@ function particles.BuildSimulationPasses()
 					bufferBarriers = pooled_after,
 				}
 			end,
-			custom_declarations = particles.GetParticleGLSL() .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. (
+			custom_declarations = particles.GetParticleGLSL() .. "layout(set = 0, binding = " .. BINDING_FROXEL_GI .. ") uniform sampler3D particle_froxel_gi;\nlayout(set = 0, binding = " .. BINDING_FROXEL_GI_EMITTER .. ") uniform sampler3D particle_froxel_gi_emitter;\n" .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. (
 					hit.IsSupported() and
 					hit.GetSceneGLSL("particle_scene", BINDING_TLAS) .. hit.GetGLSL(BINDING_HIT)
 					or
@@ -652,7 +710,7 @@ function particles.BuildSimulationPasses()
 					hit.IsSupported() and
 					hit.GetTraceGLSL("particle_scene") or
 					hit.GetStubTraceGLSL()
-				) .. ibl.GetEnvironmentGLSLCode() .. gi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("particle_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("particle_data") .. atmosphere.GetGLSLDefines("particle_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("particle_data", "get_particle_sun_visibility") .. scene_lights.GetPointShadowGLSL("particle_data") .. medium_lighting.GetLocalLightsGLSL("particle_data", LOCAL_LIGHT_LIMIT) .. particles.GetSimulationGLSL(),
+				) .. ibl.GetEnvironmentGLSLCode() .. gi.GetCommonGLSL() .. froxel_fog.SLICE_GLSL .. light_occlusion.GetSamplingGLSL("particle_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("particle_data") .. atmosphere.GetGLSLDefines("particle_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("particle_data", "get_particle_sun_visibility") .. scene_lights.GetPointShadowGLSL("particle_data") .. medium_lighting.GetLocalLightsGLSL("particle_data", LOCAL_LIGHT_LIMIT) .. particles.GetSimulationGLSL(),
 		},
 	}
 end
