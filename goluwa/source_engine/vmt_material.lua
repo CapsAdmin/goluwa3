@@ -277,6 +277,35 @@ local FLAMMABILITY = {
 	glass = 0,
 	water = 0,
 }
+local ACOUSTIC_ABSORPTION = {
+	concrete = {0.01, 0.02, 0.02},
+	brick = {0.03, 0.04, 0.07},
+	plaster = {0.10, 0.04, 0.05},
+	tile = {0.01, 0.01, 0.02},
+	wood = {0.15, 0.10, 0.07},
+	dirt = {0.15, 0.40, 0.55},
+	grass = {0.11, 0.40, 0.60},
+	sand = {0.15, 0.40, 0.50},
+	snow = {0.45, 0.85, 0.90},
+	rock = {0.02, 0.03, 0.05},
+	stone = {0.02, 0.03, 0.04},
+	asphalt = {0.03, 0.04, 0.06},
+	carpet = {0.05, 0.35, 0.65},
+	gravel = {0.25, 0.60, 0.70},
+	paper = {0.10, 0.20, 0.30},
+	cardboard = {0.15, 0.25, 0.30},
+	plastic = {0.03, 0.05, 0.07},
+	rubber = {0.05, 0.08, 0.10},
+	metal = {0.02, 0.02, 0.03},
+	glass = {0.18, 0.04, 0.02},
+	water = {0.01, 0.01, 0.02},
+	cloth = {0.15, 0.55, 0.70},
+	upholstery = {0.20, 0.60, 0.70},
+	mattress = {0.25, 0.65, 0.70},
+	foliage = {0.10, 0.30, 0.50},
+	tree = {0.10, 0.25, 0.40},
+	flesh = {0.10, 0.30, 0.50},
+}
 local OVERBRIGHT_SHADERS = {lightmappedgeneric = true, worldvertextransition = true}
 local MAX_ALBEDO = 0.9
 local CLOTH_WORDS = {
@@ -812,6 +841,12 @@ do
 		local shader = ctx.shader
 		self:SetMetallicMultiplier(0)
 		self:SetFlammability(FLAMMABILITY[class] or FLAMMABILITY[ctx.family] or 0.3)
+		local absorption = ACOUSTIC_ABSORPTION[class] or ACOUSTIC_ABSORPTION[ctx.family]
+
+		if absorption then
+			self:SetAcousticAbsorption(Vec3(absorption[1], absorption[2], absorption[3]))
+		end
+
 		load_textures(self, vmt, ctx)
 
 		if shader == "eyes" then

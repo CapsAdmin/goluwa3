@@ -16,6 +16,7 @@ surface_features.default_list = {
 	import("goluwa/render3d/features/refraction.lua"),
 	import("goluwa/render3d/features/weather_response.lua"),
 	import("goluwa/render3d/features/effect_response.lua"),
+	import("goluwa/render3d/features/acoustics.lua"),
 	import("goluwa/render3d/features/terrain.lua"),
 	import("goluwa/render3d/features/detail.lua"),
 	import("goluwa/render3d/features/vegetation.lua"),
