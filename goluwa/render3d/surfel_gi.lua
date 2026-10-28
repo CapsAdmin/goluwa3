@@ -18,7 +18,6 @@ surfel_gi.SLOTS_PER_ROW = 256
 surfel_gi.PROBES = 8
 surfel_gi.TOUCH_SAMPLES = 65536
 surfel_gi.MAX_LEVEL = 15
-surfel_gi.MIN_WEIGHT = "0.05"
 
 function surfel_gi.GetCapacity(c)
 	return 2 ^ (surfel_gi.CAPACITY_BITS - 2 * c)
@@ -119,7 +118,7 @@ local debug = pvars.Setup2{
 	key = "surfel_debug",
 	default = "off",
 	enums = {"off", "cells", "coverage", "sky"},
-	help = "show the cascade 0 surfels a pixel reads (a colour per surfel, dimmed where coverage is partial), how much of the pixel's lookup found surfels, or their sky visibility",
+	help = "show the cascade 0 surfel a pixel reads (a colour per surfel), whether its lookup found surfels at any level (red falls back to the sky), or their sky visibility",
 }
 local debug_gi = pvars.Setup2{
 	key = "surfel_debug_gi",
@@ -498,22 +497,35 @@ function surfel_gi.GetLookupGLSL()
 			float lod = min(surfel_lod(P, ddgi_data.surfel_camera.xyz, ddgi_data.surfel_params.y) + float(level_offset), float(SURFEL_TOP_LEVEL));
 			int level = int(lod);
 			float blend = level < SURFEL_TOP_LEVEL ? smoothstep(0.75, 1.0, lod - float(level)) : 0.0;
-			vec3 second_rgb;
-			vec4 result = surfel_sample_level(P, N, L, L2, level, surface, weight, second_rgb);
+			float fine_coverage;
+			vec3 fine_second;
+			vec4 fine = surfel_sample_level(P, N, L, L2, level, surface, fine_coverage, fine_second);
+			float filled = fine_coverage * (1.0 - blend);
+			vec4 result = fine * filled;
+			vec3 second_rgb = fine_second * filled;
 
-			if (level < SURFEL_TOP_LEVEL && (blend > 0.0 || weight <= 0.0)) {
-				float coarse_weight;
+			for (int coarser = level + 1; coarser <= min(level + 2, SURFEL_TOP_LEVEL) && filled < 0.999; coarser++) {
+				float coverage;
 				vec3 coarse_second;
-				vec4 coarse = surfel_sample_level(P, N, L, L2, level + 1, surface, coarse_weight, coarse_second);
+				vec4 coarse = surfel_sample_level(P, N, L, L2, coarser, surface, coverage, coarse_second);
+				float share = coverage * (1.0 - filled);
+				result += coarse * share;
+				second_rgb += coarse_second * share;
+				filled += share;
 
-				if (coarse_weight > 0.0) {
-					float t = weight > 0.0 ? blend : 1.0;
-					result = mix(result, coarse, t);
-					second_rgb = mix(second_rgb, coarse_second, t);
-					weight = mix(weight, coarse_weight, t);
+				if (coarser == level + 1 && blend > 0.0) {
+					share = fine_coverage * (1.0 - filled);
+					result += fine * share;
+					second_rgb += fine_second * share;
+					filled += share;
 				}
 			}
 
+			if (filled <= 0.0) return vec4(0.0);
+
+			result /= filled;
+			second_rgb /= filled;
+			weight = 1.0;
 			#ifndef SURFEL_UNSCALED
 			result.rgb *= ddgi_data.surfel_params.z;
 			second_rgb *= ddgi_data.surfel_params.z;

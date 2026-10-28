@@ -651,8 +651,8 @@ local function pass_resolve()
 		]],
 		shader = glsl_common.GetConstantsGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("surfel_data") .. ibl.GetEnvironmentGLSLCode() .. surfel_gi.GetLookupGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("surfel_data") .. [[
 
-			vec3 surfel_debug_color(vec3 P, vec3 N, float confidence, float sky) {
-				if (surfel_data.surfel_debug == 2) return vec3(1.0 - confidence, confidence, 0.0);
+			vec3 surfel_debug_color(vec3 P, vec3 N, float found, float sky) {
+				if (surfel_data.surfel_debug == 2) return vec3(1.0 - found, found, 0.0);
 
 				if (surfel_data.surfel_debug == 3) return vec3(sky);
 
@@ -663,7 +663,7 @@ local function pass_resolve()
 
 				if (g < 0) return vec3(0.0);
 
-				return (vec3(pcg3d(uvec3(uint(g), 7u, 13u)) >> 24u) / 255.0 * 0.8 + 0.2) * mix(0.3, 1.0, confidence);
+				return (vec3(pcg3d(uvec3(uint(g), 7u, 13u)) >> 24u) / 255.0 * 0.8 + 0.2) ;
 			}
 
 			void main() {
@@ -727,13 +727,16 @@ local function pass_resolve()
 				float weight;
 				vec4 specular;
 				vec4 gi = surfel_sample_irradiance_pair(P, N, L, R, true, 0, weight, specular);
-				float confidence = saturate(weight / ]] .. surfel_gi.MIN_WEIGHT .. [[);
 				float strength = ddgi_data.surfel_params.z;
-				gi = mix(vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, N) * strength, 1.0), gi, confidence);
-				specular = rough ? mix(vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, R) * strength, 1.0), specular, confidence) : gi;
+				if (weight <= 0.0) {
+					gi = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, N) * strength, 1.0);
+					specular = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, R) * strength, 1.0);
+				}
+
+				if (!rough) specular = gi;
 				imageStore(out_color, pos, gi);
 				imageStore(out_specular, pos, specular);
-				imageStore(out_debug, pos, vec4(surfel_data.surfel_debug == 0 ? vec3(0.0) : surfel_debug_color(P, N, confidence, gi.a), 1.0));
+				imageStore(out_debug, pos, vec4(surfel_data.surfel_debug == 0 ? vec3(0.0) : surfel_debug_color(P, N, weight, gi.a), 1.0));
 			}
 		]],
 	}

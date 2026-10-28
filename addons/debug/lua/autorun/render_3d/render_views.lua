@@ -478,13 +478,13 @@ local LIGHTING_MODES = {
 		name = "surfel cells",
 		key = "surfel_debug",
 		value = "cells",
-		description = "a colour per cascade 0 surfel a pixel reads, dimmed where the lookup found only part of them",
+		description = "a colour per cascade 0 surfel a pixel reads",
 	},
 	{
 		name = "surfel coverage",
 		key = "surfel_debug",
 		value = "coverage",
-		description = "green where the surfel lookup found surfels, red where it fell back to the sky",
+		description = "green where the surfel lookup found surfels at any level, red where it fell back to the sky",
 	},
 	{
 		name = "surfel sky visibility",
