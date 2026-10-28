@@ -75,7 +75,7 @@ local lifetime = pvars.Setup2{
 	default = 240,
 	integer = true,
 	min = 8,
-	help = "frames a surfel the screen no longer touches keeps being traced, after that its slot can be taken by a new one",
+	help = "frames a surfel the screen no longer touches keeps being traced at its full rate, after that it is refreshed 16 times less often (lookups still read it) and its slot can be taken by a new one",
 }
 local hit_spawns = pvars.Setup2{
 	key = "surfel_hit_spawns",

@@ -155,6 +155,7 @@ local TABLE_GLSL = [[
 	};
 	#define SURFEL_STAT(field) surfel_stats[(uint(surfel_data.surfel_frame) & 3u) * ]] .. surfel_gi.STATS_STRIDE .. [[u + uint(field)]
 	#define SURFEL_POSITION_HOLD 30
+	#define SURFEL_IDLE_INTERVAL_SCALE 16
 	#define SURFEL_STAT_ALIVE 0
 	#define SURFEL_STAT_FAILED 4
 	#define SURFEL_STAT_SCREEN 8
@@ -541,9 +542,10 @@ local function pass_update()
 
 				while (c < SURFEL_CASCADES - 1 && g >= surfel_offset(c + 1)) c++;
 
-				uint interval = uint(min(1 << c, surfel_data.surfel_update_interval_max));
 				bool alive = age <= uint(surfel_data.surfel_lifetime);
-				bool due = alive && (count == 0.0 || (uint(g) + frame) % interval == 0u);
+				uint interval = uint(min(1 << c, surfel_data.surfel_update_interval_max)) * (alive ? 1u : uint(SURFEL_IDLE_INTERVAL_SCALE));
+
+				bool due = count == 0.0 || (uint(g) + frame) % interval == 0u;
 
 				if (surfel_data.surfel_debug != 0) {
 					if (alive) atomicAdd(SURFEL_STAT(SURFEL_STAT_ALIVE + c), 1u);
@@ -551,7 +553,7 @@ local function pass_update()
 					if (frame - entry.screen_stamp <= uint(surfel_data.surfel_lifetime)) atomicAdd(SURFEL_STAT(SURFEL_STAT_SCREEN + c), 1u);
 				}
 
-				imageStore(surfel_state, texel, vec4(due ? min(count + 1.0, 1024.0) : count, due ? 1.0 : 0.0, float(min(age, 60000u)), entry.screen_stamp == frame ? 1.0 : 0.0));
+				imageStore(surfel_state, texel, vec4(due ? min(count + 1.0, 1024.0) : count, due ? float(interval) : 0.0, float(min(age, 60000u)), entry.screen_stamp == frame ? 1.0 : 0.0));
 			}
 		]],
 	}
@@ -859,7 +861,7 @@ local function pass_trace()
 
 				result.rgb = dot(result.rgb, vec3(1.0)) >= 0.0 ? min(result.rgb, vec3(60000.0)) : vec3(0.0);
 				vec4 previous = imageLoad(surfel_atlas, atlas_texel);
-				float alpha = previous.a < 0.0 ? 1.0 : max(1.0 / state.x, 1.0 - pow(surfel_data.surfel_hysteresis, float(min(1 << c, surfel_data.surfel_update_interval_max))));
+				float alpha = previous.a < 0.0 ? 1.0 : max(1.0 / state.x, 1.0 - pow(surfel_data.surfel_hysteresis, state.y));
 				// fresh atlas memory can hold NaN, and mix(NaN, x, 1.0) is still NaN
 				if (alpha >= 1.0 || any(isnan(previous)) || any(isinf(previous))) previous = result;
 
