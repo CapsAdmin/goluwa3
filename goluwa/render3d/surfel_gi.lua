@@ -111,7 +111,7 @@ local hysteresis = pvars.Setup2{
 }
 local lifetime = pvars.Setup2{
 	key = "surfel_lifetime",
-	default = 240,
+	default = 30,
 	integer = true,
 	min = 8,
 	help = "frames a surfel the screen no longer touches keeps being traced at its full rate, after that it is refreshed 16 times less often (lookups still read it) and its slot can be taken by a new one",
