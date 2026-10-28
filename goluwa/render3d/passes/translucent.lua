@@ -412,23 +412,13 @@ local passes = {
 
 ]] .. screen_reconstruct.GetWorldPosFromUVGLSL("lighting_data", {function_name = "get_scene_pos"}) .. [[
 
-				bool exit_gi_known;
-				bool exit_use_probes;
 				vec3 exit_irradiance;
 				float exit_sky_visibility;
-				vec2 exit_screen_uv;
 				vec3 exit_world_pos;
-				vec3 exit_geometric_N;
-				vec3 exit_V;
 				vec3 exit_N;
 				float exit_perceptual_roughness;
 
 				vec3 get_exit_environment(vec3 dir) {
-					if (!exit_gi_known) {
-						exit_irradiance = get_gi_irradiance(exit_screen_uv, exit_world_pos, dot(exit_geometric_N, exit_V) < 0.0 ? -exit_geometric_N : exit_geometric_N, exit_V, exit_use_probes, exit_sky_visibility);
-						exit_gi_known = true;
-					}
-
 					return blend_probe_reflections(
 						mix(exit_irradiance, sample_environment_specular(lighting_data.env_tex, dir, exit_N, exit_perceptual_roughness), exit_sky_visibility),
 						dir,
@@ -437,17 +427,26 @@ local passes = {
 					);
 				}
 
-				vec3 get_refracted_background(vec3 surface_pos, vec3 exit_pos, vec3 exit_normal, vec3 dir, float reach, float roughness) {
+				const int MAX_REFRACTION_RAYS = 12;
+				int refraction_ray_count = 0;
+				vec3 refraction_ray_origin[MAX_REFRACTION_RAYS];
+				vec3 refraction_ray_dir[MAX_REFRACTION_RAYS];
+				int refraction_ray_channel[MAX_REFRACTION_RAYS];
+				float refraction_ray_weight[MAX_REFRACTION_RAYS];
+
+				// the environment and scene traces are left to the caller (env_weight, refraction_ray_*), so each has one call site
+				vec3 get_refracted_background(int channel, vec3 surface_pos, vec3 exit_pos, vec3 exit_normal, vec3 dir, float reach, float roughness, out float env_weight) {
 					vec3 hash_state = pcg3d_unorm(uvec3(uvec2(gl_FragCoord.xy), uint(lighting_data.time * 60.0)));
 					float spin = hash_state.x;
 					float jitter = hash_state.y;
 
-					if (lighting_data.refraction_tex < 0) return get_exit_environment(dir);
+					env_weight = 0.0;
 
 					int samples = roughness < 0.04 ? 1 : 4;
 					vec3 tangent = normalize(cross(dir, abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
 					vec3 bitangent = cross(dir, tangent);
 					vec3 sum = vec3(0.0);
+					float weight = 1.0 / float(samples);
 
 					float to_absolute = 1.0 / get_pre_exposure();
 
@@ -466,11 +465,12 @@ local passes = {
 						if (!screen_refraction_trace(surface_pos, exit_pos, ray_dir, reach, jitter, uv, travel)) {
 							#ifdef SCENE_REFLECTION
 							if (scene_reflection_ready()) {
-								float traced_t;
 								// a ray that leaves a solid nearly along its surface must start outside it, or it meets the solid again
-								vec3 traced = trace_scene_reflection(exit_pos + exit_normal * 0.05 + ray_dir * 0.02, ray_dir, ray_dir, roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
-
-								sum += traced_t < SCENE_REFLECTION_MAX_DISTANCE ? traced : get_exit_environment(dir);
+								refraction_ray_origin[refraction_ray_count] = exit_pos + exit_normal * 0.05 + ray_dir * 0.02;
+								refraction_ray_dir[refraction_ray_count] = ray_dir;
+								refraction_ray_channel[refraction_ray_count] = channel;
+								refraction_ray_weight[refraction_ray_count] = weight;
+								refraction_ray_count++;
 								continue;
 							}
 							#endif
@@ -479,7 +479,8 @@ local passes = {
 							float edge_blur = 1.0 + outside * lighting_data.render_size.y * 0.25;
 							vec3 edge = textureLod(TEXTURE(lighting_data.refraction_tex), clamp(uv, vec2(0.0), vec2(1.0)), log2(edge_blur)).rgb * to_absolute;
 							float far_outside = smoothstep(0.5, 2.0, outside);
-							sum += far_outside > 0.0 ? mix(edge, get_exit_environment(dir), far_outside) : edge;
+							sum += edge * ((1.0 - far_outside) * weight);
+							env_weight += far_outside * weight;
 							continue;
 						}
 
@@ -490,7 +491,7 @@ local passes = {
 						if (samples > 1) blur_pixels *= 0.5;
 
 						if (blur_pixels <= 2.0) {
-							sum += textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb * to_absolute;
+							sum += textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb * (to_absolute * weight);
 							continue;
 						}
 
@@ -501,10 +502,10 @@ local passes = {
 							textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, -0.5), lod).rgb +
 							textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(-0.5, 0.5), lod).rgb +
 							textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, 0.5), lod).rgb
-						) * (0.25 * to_absolute);
+						) * (0.25 * to_absolute * weight);
 					}
 
-					return sum / float(samples);
+					return sum;
 				}
 
 				void main() {
@@ -571,20 +572,154 @@ local passes = {
 					bool gi_known = !(refractive && refraction.amount >= 1.0 && traced_only);
 					bool use_probes = !(refractive && refraction.amount >= 1.0);
 
-					if (gi_known) irradiance = get_gi_irradiance(screen_uv, world_pos, dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N, V, use_probes, sky_visibility);
-
-					exit_gi_known = gi_known;
-					exit_use_probes = true;
-					exit_irradiance = irradiance;
-					exit_sky_visibility = sky_visibility;
-					exit_screen_uv = screen_uv;
 					exit_world_pos = world_pos;
-					exit_geometric_N = geometric_N;
-					exit_V = V;
 					exit_N = N;
 					exit_perceptual_roughness = sqrt(refraction_roughness);
 					vec3 raw_R = reflect(-V, N);
 					vec3 reflection = vec3(0.0);
+
+					vec3 trace_origin = world_pos + (dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N) * 0.02;
+					bool reflection_rough = perceptual_roughness > SCENE_REFLECTION_MIRROR_THRESHOLD;
+					int reflection_rays = 0;
+					float reflection_limit = 0.0;
+					#ifdef SCENE_REFLECTION
+					if (traced_weight > 0.0 && scene_reflection_ready()) {
+						reflection_rays = scene_reflection_ray_count(perceptual_roughness, lighting_data.rough_rays);
+						reflection_limit = scene_reflection_hit_luminance_limit(perceptual_roughness, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), lighting_data.reflection_gi_end);
+					}
+					#endif
+
+					bool refracts = refractive && !Modulate && !Additive;
+					int channel_count = refraction.abbe > 0.0 ? 3 : 1;
+					vec3 channel_known[3] = vec3[3](vec3(0.0), vec3(0.0), vec3(0.0));
+					float channel_env[3] = float[3](0.0, 0.0, 0.0);
+					vec3 channel_exit_dir[3] = vec3[3](vec3(0.0), vec3(0.0), vec3(0.0));
+					float exit_transmitted = 0.0;
+					float path_length = 0.0;
+					float flat_exit = 0.0;
+
+					if (refracts) {
+						vec3 I = -V;
+						vec3 facing_N = dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N;
+						vec3 channel_ior = screen_refraction_dispersed_ior(refraction.ior, refraction.abbe);
+
+						for (int channel = 0; channel < channel_count; channel++) {
+							float ior = channel_ior[channel];
+							float eta = 1.0 / ior;
+							vec3 T = refract(I, N, eta);
+							vec3 exit_pos = world_pos;
+							vec3 exit_dir;
+							vec3 exit_outward = facing_N;
+
+							if (refraction.thickness > 0.0) {
+								float radius = max(1.0 / max(curvature, 1e-4), refraction.thickness * 0.5);
+								float cos_in = max(-dot(T, facing_N), 0.05);
+								float sphere_length = 2.0 * radius * cos_in;
+								float slab_length = refraction.thickness / cos_in;
+								exit_pos = world_pos + T * min(sphere_length, slab_length);
+								vec3 exit_N = sphere_length < slab_length ? normalize(exit_pos - (world_pos - facing_N * radius)) : -facing_N;
+								exit_outward = exit_N;
+								exit_dir = refract(T, -exit_N, ior);
+
+								path_length += min(sphere_length, slab_length);
+								flat_exit += sphere_length < slab_length ? 0.0 : 1.0;
+
+								if (dot(exit_dir, exit_dir) < 1e-6) {
+									exit_dir = T;
+									exit_transmitted += 1.0;
+								} else {
+									exit_transmitted += 1.0 - fresnel_dielectric(dot(T, exit_N), ior);
+								}
+							} else {
+								exit_dir = normalize(I + T - refract(I, facing_N, eta));
+							}
+
+							vec3 channel_background = vec3(0.0);
+							channel_exit_dir[channel] = exit_dir;
+							channel_env[channel] = 0.0;
+
+							if (lighting_data.refraction_tex < 0) {
+								channel_env[channel] = 1.0;
+							} else if (refraction.thickness > 0.0) {
+								float scene_depth = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r;
+								float surface_distance = distance(lighting_data.camera_position.xyz, exit_pos);
+								float reach = 2.0 * surface_distance;
+
+								if (scene_depth > 0.0) {
+									vec3 scene_pos = get_scene_pos(screen_uv, scene_depth);
+									reach = 3.0 * max(distance(lighting_data.camera_position.xyz, scene_pos) - surface_distance, 0.0) + 0.5;
+								}
+
+								channel_background = get_refracted_background(channel, world_pos, exit_pos, exit_outward, exit_dir, reach, refraction_roughness, channel_env[channel]);
+							} else {
+								vec2 slope = (lighting_data.view * vec4(N - facing_N, 0.0)).xy;
+								vec2 uv = clamp(screen_uv + vec2(slope.x, -slope.y) * (ior - 1.0), vec2(0.0), vec2(1.0));
+								float blur_pixels = refraction_roughness * lighting_data.render_size.y * 0.05;
+								channel_background = textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb / get_pre_exposure();
+							}
+
+							channel_known[channel] = channel_background;
+						}
+					}
+
+					// every call site inlines the whole hit shading and gi lookup, so reflection and refraction rays share one trace call
+					vec3 reflection_sum = vec3(0.0);
+					#ifdef SCENE_REFLECTION
+
+					for (int ray = 0; ray < reflection_rays + refraction_ray_count; ray++) {
+						bool reflected = ray < reflection_rays;
+						int k = ray - reflection_rays;
+						vec3 origin = trace_origin;
+						vec3 dir = raw_R;
+						vec3 trace_N = N;
+						float environment_roughness = perceptual_roughness;
+
+						if (reflected) {
+							if (reflection_rough) {
+								vec2 xi = pcg3d_unorm(uvec3(uvec2(gl_FragCoord.xy), uint(lighting_data.frame_index) * 16u + uint(ray))).xy;
+								dir = scene_reflection_direction(N, V, perceptual_roughness, xi, environment_roughness);
+							}
+						} else {
+							origin = refraction_ray_origin[k];
+							dir = refraction_ray_dir[k];
+							trace_N = dir;
+							environment_roughness = refraction_roughness;
+						}
+
+						float traced_t;
+						vec3 traced = trace_scene_reflection(origin, dir, trace_N, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
+
+						if (reflected) {
+							if (reflection_rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, perceptual_roughness, reflection_limit);
+
+							reflection_sum += traced;
+						} else {
+							int c = refraction_ray_channel[k];
+
+							if (traced_t < SCENE_REFLECTION_MAX_DISTANCE) {
+								channel_known[c] += traced * refraction_ray_weight[k];
+							} else {
+								channel_env[c] += refraction_ray_weight[k];
+							}
+						}
+					}
+
+					#endif
+
+					// the surface's gi and the exit environment's are never both needed: one call site for either
+					bool exit_needs_gi = !gi_known && refracts && (channel_env[0] > 0.0 || channel_env[1] > 0.0 || channel_env[2] > 0.0);
+
+					if (gi_known || exit_needs_gi) {
+						float gi_sky_visibility;
+						vec3 gi_irradiance = get_gi_irradiance(screen_uv, world_pos, dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N, V, gi_known ? use_probes : true, gi_sky_visibility);
+						exit_irradiance = gi_irradiance;
+						exit_sky_visibility = gi_sky_visibility;
+
+						if (gi_known) {
+							irradiance = gi_irradiance;
+							sky_visibility = gi_sky_visibility;
+						}
+					}
 
 					if (!traced_only) {
 						vec3 R = get_specular_dominant_direction(raw_R, N, perceptual_roughness);
@@ -592,34 +727,22 @@ local passes = {
 						reflection = blend_probe_reflections(mix(irradiance, sky_reflection, sky_visibility), R, perceptual_roughness, world_pos);
 					}
 
-					#ifdef SCENE_REFLECTION
-					if (traced_weight > 0.0 && scene_reflection_ready()) {
-						vec3 trace_origin = world_pos + (dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N) * 0.02;
-						bool rough = perceptual_roughness > SCENE_REFLECTION_MIRROR_THRESHOLD;
-						int count = scene_reflection_ray_count(perceptual_roughness, lighting_data.rough_rays);
-						float limit = scene_reflection_hit_luminance_limit(perceptual_roughness, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), lighting_data.reflection_gi_end);
-						vec3 sum = vec3(0.0);
+					if (reflection_rays > 0) reflection = mix(reflection, reflection_sum / float(reflection_rays), traced_weight);
 
-						for (int ray = 0; ray < count; ray++) {
-							vec3 dir = raw_R;
-							float environment_roughness = perceptual_roughness;
+					vec3 background = vec3(0.0);
 
-							if (rough) {
-								vec2 xi = pcg3d_unorm(uvec3(uvec2(gl_FragCoord.xy), uint(lighting_data.frame_index) * 16u + uint(ray))).xy;
-								dir = scene_reflection_direction(N, V, perceptual_roughness, xi, environment_roughness);
-							}
+					for (int channel = 0; refracts && channel < channel_count; channel++) {
+						vec3 channel_background = channel_known[channel];
 
-							float traced_t;
-							vec3 traced = trace_scene_reflection(trace_origin, dir, N, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
+						if (channel_env[channel] > 0.0) channel_background += channel_env[channel] * get_exit_environment(channel_exit_dir[channel]);
 
-							if (rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, perceptual_roughness, limit);
-
-							sum += traced;
+						if (channel_count == 1) {
+							background = channel_background;
+						} else {
+							background[channel] = channel_background[channel];
 						}
-
-						reflection = mix(reflection, sum / float(count), traced_weight);
 					}
-					#endif
+
 					vec2 env_brdf = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(NdotV, perceptual_roughness)).rg;
 					vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
 					vec3 ambient_diffuse = (1.0 - F_ambient) * (1.0 - metallic) * irradiance * diffuse_albedo * get_ao(in_uv);
@@ -674,75 +797,6 @@ local passes = {
 						set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance);
 						set_additive(vec4(0.0));
 						return;
-					}
-
-					vec3 I = -V;
-					vec3 facing_N = dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N;
-					vec3 channel_ior = screen_refraction_dispersed_ior(refraction.ior, refraction.abbe);
-					int channel_count = refraction.abbe > 0.0 ? 3 : 1;
-					vec3 background = vec3(0.0);
-					float exit_transmitted = 0.0;
-					float path_length = 0.0;
-					float flat_exit = 0.0;
-
-					for (int channel = 0; channel < channel_count; channel++) {
-						float ior = channel_ior[channel];
-						float eta = 1.0 / ior;
-						vec3 T = refract(I, N, eta);
-						vec3 exit_pos = world_pos;
-						vec3 exit_dir;
-						vec3 exit_outward = facing_N;
-
-						if (refraction.thickness > 0.0) {
-							float radius = max(1.0 / max(curvature, 1e-4), refraction.thickness * 0.5);
-							float cos_in = max(-dot(T, facing_N), 0.05);
-							float sphere_length = 2.0 * radius * cos_in;
-							float slab_length = refraction.thickness / cos_in;
-							exit_pos = world_pos + T * min(sphere_length, slab_length);
-							vec3 exit_N = sphere_length < slab_length ? normalize(exit_pos - (world_pos - facing_N * radius)) : -facing_N;
-							exit_outward = exit_N;
-							exit_dir = refract(T, -exit_N, ior);
-
-							path_length += min(sphere_length, slab_length);
-							flat_exit += sphere_length < slab_length ? 0.0 : 1.0;
-
-							if (dot(exit_dir, exit_dir) < 1e-6) {
-								exit_dir = T;
-								exit_transmitted += 1.0;
-							} else {
-								exit_transmitted += 1.0 - fresnel_dielectric(dot(T, exit_N), ior);
-							}
-						} else {
-							exit_dir = normalize(I + T - refract(I, facing_N, eta));
-						}
-
-						vec3 channel_background;
-
-						if (lighting_data.refraction_tex < 0) {
-							channel_background = get_exit_environment(exit_dir);
-						} else if (refraction.thickness > 0.0) {
-							float scene_depth = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r;
-							float surface_distance = distance(lighting_data.camera_position.xyz, exit_pos);
-							float reach = 2.0 * surface_distance;
-
-							if (scene_depth > 0.0) {
-								vec3 scene_pos = get_scene_pos(screen_uv, scene_depth);
-								reach = 3.0 * max(distance(lighting_data.camera_position.xyz, scene_pos) - surface_distance, 0.0) + 0.5;
-							}
-
-							channel_background = get_refracted_background(world_pos, exit_pos, exit_outward, exit_dir, reach, refraction_roughness);
-						} else {
-							vec2 slope = (lighting_data.view * vec4(N - facing_N, 0.0)).xy;
-							vec2 uv = clamp(screen_uv + vec2(slope.x, -slope.y) * (ior - 1.0), vec2(0.0), vec2(1.0));
-							float blur_pixels = refraction_roughness * lighting_data.render_size.y * 0.05;
-							channel_background = textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb / get_pre_exposure();
-						}
-
-						if (channel_count == 1) {
-							background = channel_background;
-						} else {
-							background[channel] = channel_background[channel];
-						}
 					}
 
 					vec3 transmission = pane_transmittance;
