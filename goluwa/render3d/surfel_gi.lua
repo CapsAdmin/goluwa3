@@ -19,6 +19,8 @@ surfel_gi.SLOTS_PER_ROW = 256
 surfel_gi.ATLAS_SLOTS_PER_ROW = 1024
 surfel_gi.CASCADE_SHIFTS = {0, 2, 4, 5}
 surfel_gi.PROBES = 8
+surfel_gi.FILL_FULL = 0.4
+surfel_gi.FILL_NONE = 0.6
 surfel_gi.TOUCH_SAMPLES = 65536
 surfel_gi.HIT_SAMPLES = 8192
 surfel_gi.STATS_STRIDE = 16
@@ -599,6 +601,8 @@ function surfel_gi.GetDefinesGLSL()
 		#define SURFEL_SLOTS_PER_ROW %d
 		#define SURFEL_ATLAS_SLOTS_PER_ROW %d
 		#define SURFEL_PROBES %d
+		#define SURFEL_FILL_FULL %s
+		#define SURFEL_FILL_NONE %s
 		#define SURFEL_MAX_LEVEL %d
 		#define SURFEL_TOP_LEVEL (SURFEL_MAX_LEVEL - SURFEL_CASCADES)
 		#ifndef SURFEL_BLOCK
@@ -710,6 +714,8 @@ function surfel_gi.GetDefinesGLSL()
 			surfel_gi.SLOTS_PER_ROW,
 			surfel_gi.ATLAS_SLOTS_PER_ROW,
 			surfel_gi.PROBES,
+			surfel_gi.FILL_FULL,
+			surfel_gi.FILL_NONE,
 			surfel_gi.MAX_LEVEL,
 			table.concat(surfel_gi.CASCADE_SHIFTS, ", "),
 			surfel_gi.GetFeatureDefinesGLSL()
@@ -886,11 +892,13 @@ function surfel_gi.GetLookupGLSL()
 				filled += share;
 			}
 
-			for (int coarser = level + 1; SURFEL_ON(SURFEL_FEATURE_FILL) && coarser <= min(level + 2, SURFEL_TOP_LEVEL) && filled < 0.999; coarser++) {
+			float fill_fade = 1.0 - smoothstep(SURFEL_FILL_FULL, SURFEL_FILL_NONE, filled);
+
+			for (int coarser = level + 1; SURFEL_ON(SURFEL_FEATURE_FILL) && fill_fade > 0.0 && coarser <= min(level + 2, SURFEL_TOP_LEVEL) && filled < 0.999; coarser++) {
 				float coverage;
 				vec3 coarse_second;
 				vec4 coarse = surfel_sample_level(P, N, L, L2, coarser, surface, visibility, true, coverage, coarse_second);
-				float share = coverage * (1.0 - filled);
+				float share = coverage * (1.0 - filled) * fill_fade;
 				result += coarse * share;
 				second_rgb += coarse_second * share;
 				filled += share;
