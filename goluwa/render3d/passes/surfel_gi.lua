@@ -282,7 +282,7 @@ local function visit_glsl(touch)
 				surfel_table[candidate].stamp = frame;
 				surfel_table[candidate].screen_stamp = frame - uint(surfel_data.surfel_lifetime) - 1u;
 				surfel_table[candidate].position_stamp = frame - uint(SURFEL_POSITION_HOLD) - 1u;
-				surfel_table[candidate].hidden = 0u;
+				surfel_table[candidate].hidden = 0x3FFFFFFu;
 				atomicOr(surfel_table[candidate].flags, 1u);
 				imageStore(out_key, surfel_slot_texel(candidate), vec4(vec3(cell), float(packed)));
 				return candidate;
@@ -620,7 +620,7 @@ local function pass_visibility()
 				uint bit = 1u << uint(neighbour);
 
 				if (other < 0) {
-					atomicAnd(surfel_table[g].hidden, ~bit);
+					atomicOr(surfel_table[g].hidden, bit);
 					return;
 				}
 
