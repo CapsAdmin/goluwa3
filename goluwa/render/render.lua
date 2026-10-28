@@ -696,26 +696,23 @@ do
 		return image, old_layout
 	end
 
-	function render.TransitionImage(image, old_layout, new_layout, config)
-		config = config or {}
+	local NO_CONFIG = {}
+	local image_barrier = {}
+	-- reused by every transition: issue it before building the next one
+	local barrier = {imageBarriers = {image_barrier}}
 
-		if old_layout == new_layout then return nil end
-
+	local function build_barrier(image, old_layout, new_layout, config, srcStage, srcAccess, dstStage, dstAccess)
 		local src = layout_access[old_layout]
 		local dst = layout_dst_access[new_layout]
 
 		if not src then
-			error("render.TransitionImage: unknown old layout '" .. old_layout .. "'", 2)
+			error("render.TransitionImage: unknown old layout '" .. old_layout .. "'", 3)
 		end
 
 		if not dst then
-			error("render.TransitionImage: unknown new layout '" .. new_layout .. "'", 2)
+			error("render.TransitionImage: unknown new layout '" .. new_layout .. "'", 3)
 		end
 
-		local srcStage = config.srcStage or src.srcStage
-		local srcAccess = config.srcAccess or src.srcAccess
-		local dstStage = config.dstStage or dst.dstStage
-		local dstAccess = config.dstAccess or dst.dstAccess
 		local level_count = config.level_count
 
 		if not level_count then
@@ -740,69 +737,56 @@ do
 			end
 		end
 
-		return {
-			srcStage = srcStage,
-			dstStage = dstStage,
-			imageBarriers = {
-				{
-					image = image,
-					srcAccessMask = srcAccess,
-					dstAccessMask = dstAccess,
-					oldLayout = old_layout,
-					newLayout = new_layout,
-					base_mip_level = config.base_mip_level or 0,
-					level_count = level_count,
-					base_array_layer = config.base_array_layer or 0,
-					layer_count = layer_count,
-				},
-			},
-		}
-	end
-
-	function render.TransitionResource(resource, new_layout, config)
-		config = config or {}
-		local image, old_layout = resolve_resource(resource)
-
-		if old_layout == new_layout then return nil end
-
-		local barrier = render.TransitionImage(image, old_layout, new_layout, config)
-
-		if not barrier then return nil end
-
-		local cmd = config.cmd or render.GetCommandBuffer()
-
-		if not cmd then
-			error("render.TransitionResource: no command buffer available", 2)
-		end
-
-		cmd:PipelineBarrier(barrier)
-		image.layout = new_layout
+		barrier.srcStage = srcStage or config.srcStage or src.srcStage
+		barrier.dstStage = dstStage or config.dstStage or dst.dstStage
+		image_barrier.image = image
+		image_barrier.srcAccessMask = srcAccess or config.srcAccess or src.srcAccess
+		image_barrier.dstAccessMask = dstAccess or config.dstAccess or dst.dstAccess
+		image_barrier.oldLayout = old_layout
+		image_barrier.newLayout = new_layout
+		image_barrier.base_mip_level = config.base_mip_level or 0
+		image_barrier.level_count = level_count
+		image_barrier.base_array_layer = config.base_array_layer or 0
+		image_barrier.layer_count = layer_count
 		return barrier
 	end
 
-	function render.TransitionResourceTo(resource, new_layout, config)
-		config = config or {}
+	local function get_command_buffer(config, name)
+		local cmd = config.cmd or render.GetCommandBuffer()
+
+		if not cmd then error(name .. ": no command buffer available", 3) end
+
+		return cmd
+	end
+
+	function render.TransitionImage(image, old_layout, new_layout, config)
+		if old_layout == new_layout then return nil end
+
+		return build_barrier(image, old_layout, new_layout, config or NO_CONFIG)
+	end
+
+	local function transition(resource, new_layout, config, srcStage, srcAccess, dstStage, dstAccess)
 		local image, old_layout = resolve_resource(resource)
 
 		if old_layout == new_layout then return old_layout end
 
-		local barrier = render.TransitionImage(image, old_layout, new_layout, config)
-
-		if not barrier then return old_layout end
-
-		local cmd = config.cmd or render.GetCommandBuffer()
-
-		if not cmd then
-			error("render.TransitionResourceTo: no command buffer available", 2)
-		end
-
-		cmd:PipelineBarrier(barrier)
+		get_command_buffer(config, "render.TransitionResource"):PipelineBarrier(
+			build_barrier(image, old_layout, new_layout, config, srcStage, srcAccess, dstStage, dstAccess)
+		)
 		image.layout = new_layout
 		return old_layout
 	end
 
+	function render.TransitionResource(resource, new_layout, config)
+		transition(resource, new_layout, config or NO_CONFIG)
+	end
+
+	function render.TransitionResourceTo(resource, new_layout, config)
+		return transition(resource, new_layout, config or NO_CONFIG)
+	end
+
 	function render.TransitionResourceFrom(resource, new_layout, config)
-		config = config or {}
+		config = config or NO_CONFIG
 		local image = resource
 		local get_image = resource.GetImage
 
@@ -810,56 +794,33 @@ do
 
 		local actual_old_layout = image.layout or "undefined"
 
-		if actual_old_layout == new_layout then return nil end
+		if actual_old_layout == new_layout then return end
 
-		local barrier = render.TransitionImage(image, actual_old_layout, new_layout, config)
-
-		if not barrier then return nil end
-
-		local cmd = config.cmd or render.GetCommandBuffer()
-
-		if not cmd then
-			error("render.TransitionResourceFrom: no command buffer available", 2)
-		end
-
-		cmd:PipelineBarrier(barrier)
+		get_command_buffer(config, "render.TransitionResourceFrom"):PipelineBarrier(build_barrier(image, actual_old_layout, new_layout, config))
 		image.layout = new_layout
-		return barrier
 	end
 
 	function render.TransitionResources(src, dst, new_src_layout, new_dst_layout, config)
-		config = config or {}
+		config = config or NO_CONFIG
 		local src_image, src_old = resolve_resource(src)
 		local dst_image, dst_old = resolve_resource(dst)
-		local barriers = {}
+		local cmd = get_command_buffer(config, "render.TransitionResources")
 
 		if src_old ~= new_src_layout then
-			barriers["src"] = render.TransitionImage(src_image, src_old, new_src_layout, config)
+			cmd:PipelineBarrier(build_barrier(src_image, src_old, new_src_layout, config))
+			src_image.layout = new_src_layout
 		end
 
 		if dst_old ~= new_dst_layout then
-			barriers["dst"] = render.TransitionImage(dst_image, dst_old, new_dst_layout, config)
+			cmd:PipelineBarrier(build_barrier(dst_image, dst_old, new_dst_layout, config))
+			dst_image.layout = new_dst_layout
 		end
-
-		local cmd = config.cmd or render.GetCommandBuffer()
-
-		if not cmd then
-			error("render.TransitionResources: no command buffer available", 2)
-		end
-
-		for _, barrier in pairs(barriers) do
-			cmd:PipelineBarrier(barrier)
-		end
-
-		if barriers.src then src_image.layout = new_src_layout end
-
-		if barriers.dst then dst_image.layout = new_dst_layout end
 
 		return src_old, dst_old
 	end
 
 	function render.RestoreResources(src, dst, src_old_layout, dst_old_layout, config)
-		config = config or {}
+		config = config or NO_CONFIG
 		local src_image = src
 		local src_get_image = src.GetImage
 
@@ -870,38 +831,24 @@ do
 
 		if dst_get_image then dst_image = dst_get_image(dst) end
 
-		local barriers = {}
 		local src_actual_layout = src_image.layout or "undefined"
 		local dst_actual_layout = dst_image.layout or "undefined"
+		local cmd = get_command_buffer(config, "render.RestoreResources")
 
 		if src_actual_layout ~= src_old_layout then
-			barriers["src"] = render.TransitionImage(src_image, src_actual_layout, src_old_layout, config)
+			cmd:PipelineBarrier(build_barrier(src_image, src_actual_layout, src_old_layout, config))
+			src_image.layout = src_old_layout
 		end
 
 		if dst_actual_layout ~= dst_old_layout then
-			barriers["dst"] = render.TransitionImage(dst_image, dst_actual_layout, dst_old_layout, config)
+			cmd:PipelineBarrier(build_barrier(dst_image, dst_actual_layout, dst_old_layout, config))
+			dst_image.layout = dst_old_layout
 		end
-
-		local cmd = config.cmd or render.GetCommandBuffer()
-
-		if not cmd then
-			error("render.RestoreResources: no command buffer available", 2)
-		end
-
-		for _, barrier in pairs(barriers) do
-			cmd:PipelineBarrier(barrier)
-		end
-
-		if barriers.src then src_image.layout = src_old_layout end
-
-		if barriers.dst then dst_image.layout = dst_old_layout end
-
-		return barriers
 	end
 
 	function render.TransitionResourceToComputeStorage(resource, config)
-		config = config or {}
-		local image, old_layout = resolve_resource(resource)
+		config = config or NO_CONFIG
+		local _, old_layout = resolve_resource(resource)
 		local srcStage = config.srcStage or "top_of_pipe"
 		local srcAccess = config.srcAccess or "none"
 
@@ -916,24 +863,12 @@ do
 			srcAccess = config.srcAccess or "color_attachment_write"
 		end
 
-		return render.TransitionResource(
-			resource,
-			"general",
-			table.merge(
-				config,
-				{
-					srcStage = srcStage,
-					srcAccess = srcAccess,
-					dstStage = "compute",
-					dstAccess = "shader_write",
-				}
-			)
-		)
+		transition(resource, "general", config, srcStage, srcAccess, "compute", "shader_write")
 	end
 
 	function render.TransitionResourceToShaderRead(resource, config)
-		config = config or {}
-		local image, old_layout = resolve_resource(resource)
+		config = config or NO_CONFIG
+		local _, old_layout = resolve_resource(resource)
 		local srcStage = config.srcStage or "transfer"
 		local srcAccess = config.srcAccess or "transfer_write"
 
@@ -945,24 +880,20 @@ do
 			srcAccess = config.srcAccess or "shader_write"
 		end
 
-		return render.TransitionResource(
+		transition(
 			resource,
 			"shader_read_only_optimal",
-			table.merge(
-				config,
-				{
-					srcStage = srcStage,
-					srcAccess = srcAccess,
-					dstStage = "fragment",
-					dstAccess = "shader_read",
-				}
-			)
+			config,
+			srcStage,
+			srcAccess,
+			"fragment",
+			"shader_read"
 		)
 	end
 
 	function render.TransitionResourceToTransferSrc(resource, config)
-		config = config or {}
-		local image, old_layout = resolve_resource(resource)
+		config = config or NO_CONFIG
+		local _, old_layout = resolve_resource(resource)
 		local srcStage = config.srcStage or "transfer"
 		local srcAccess = config.srcAccess or "transfer_write"
 
@@ -974,24 +905,12 @@ do
 			srcAccess = config.srcAccess or "color_attachment_write"
 		end
 
-		return render.TransitionResource(
-			resource,
-			"transfer_src_optimal",
-			table.merge(
-				config,
-				{
-					srcStage = srcStage,
-					srcAccess = srcAccess,
-					dstStage = "transfer",
-					dstAccess = "transfer_read",
-				}
-			)
-		)
+		transition(resource, "transfer_src_optimal", config, srcStage, srcAccess, "transfer", "transfer_read")
 	end
 
 	function render.TransitionResourceToTransferDst(resource, config)
-		config = config or {}
-		local image, old_layout = resolve_resource(resource)
+		config = config or NO_CONFIG
+		local _, old_layout = resolve_resource(resource)
 		local srcStage = config.srcStage or "top_of_pipe"
 		local srcAccess = config.srcAccess or "none"
 
@@ -1003,38 +922,18 @@ do
 			srcAccess = config.srcAccess or "color_attachment_write"
 		end
 
-		return render.TransitionResource(
-			resource,
-			"transfer_dst_optimal",
-			table.merge(
-				config,
-				{
-					srcStage = srcStage,
-					srcAccess = srcAccess,
-					dstStage = "transfer",
-					dstAccess = "transfer_write",
-				}
-			)
-		)
+		transition(resource, "transfer_dst_optimal", config, srcStage, srcAccess, "transfer", "transfer_write")
 	end
 
 	function render.TransitionResourceToColorAttachment(resource, config)
-		config = config or {}
-		local image, old_layout = resolve_resource(resource)
-		local oldOrUndefined = config.load_op == "load" and old_layout or "undefined"
-		return render.TransitionResource(
+		transition(
 			resource,
 			"color_attachment_optimal",
-			table.merge(
-				config,
-				{
-					srcStage = "top_of_pipe",
-					srcAccess = "none",
-					dstStage = "color_attachment_output",
-					dstAccess = "color_attachment_write",
-					oldLayout = oldOrUndefined,
-				}
-			)
+			config or NO_CONFIG,
+			"top_of_pipe",
+			"none",
+			"color_attachment_output",
+			"color_attachment_write"
 		)
 	end
 end
