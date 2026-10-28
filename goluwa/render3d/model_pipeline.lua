@@ -558,14 +558,19 @@ do
 	function model_pipeline.WritePBRBatchRecord(pipeline, record)
 		if not write_record then
 			local blocks = get_record_blocks()
-			local lines = {"local blocks = ...", "return function(pipeline, record)"}
+			local lines = {
+				"local blocks, trace_break = ...",
+				"return function(pipeline, record)",
+			}
 
 			for i, info in ipairs(blocks) do
+				if i > 1 then lines[#lines + 1] = "\ttrace_break()" end
+
 				lines[#lines + 1] = string.format("\tblocks[%d].write(pipeline, record.%s)", i, info.field)
 			end
 
 			lines[#lines + 1] = "end"
-			write_record = assert(loadstring(table.concat(lines, "\n"), "pbr_batch_record_writer"))(blocks)
+			write_record = assert(loadstring(table.concat(lines, "\n"), "pbr_batch_record_writer"))(blocks, coroutine.running)
 		end
 
 		return write_record(pipeline, record)
@@ -679,12 +684,15 @@ end
 
 local function build_material_block_writer(name, field_defs)
 	local lines = {
-		"return function(get_material)",
+		"return function(get_material, trace_break)",
 		"\treturn function(self, block, material)",
 		"\tmaterial = material or get_material()",
 	}
 
-	for _, def in ipairs(field_defs) do
+	for i, def in ipairs(field_defs) do
+		-- one trace for a long block exceeds the snapshot and tail call limits and runs interpreted
+		if i % 8 == 0 then lines[#lines + 1] = "\ttrace_break()" end
+
 		local info = Material.objects_variables[def.name]
 		local value = info and
 			def.getter == info.get_name and
@@ -704,7 +712,7 @@ local function build_material_block_writer(name, field_defs)
 	lines[#lines + 1] = "\t\treturn block"
 	lines[#lines + 1] = "\tend"
 	lines[#lines + 1] = "end"
-	return assert(loadstring(table.concat(lines, "\n"), name .. "_material_block_writer"))()(get_material)
+	return assert(loadstring(table.concat(lines, "\n"), name .. "_material_block_writer"))()(get_material, coroutine.running)
 end
 
 local SURFACE_MATERIAL_BLOCK = build_material_block(SURFACE_MATERIAL_FIELDS)
