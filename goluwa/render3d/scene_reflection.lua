@@ -64,7 +64,11 @@ pvars.EndGroup()
 
 function scene_reflection.GetDescriptorSets(bindings, stage)
 	local sets = hit.GetDescriptorSets(bindings.hit, stage, bindings.scene)
-	sets[#sets + 1] = {type = "storage_buffer", binding_index = bindings.materials, stageFlags = stage}
+	sets[#sets + 1] = {
+		type = "storage_buffer",
+		binding_index = bindings.materials,
+		stageFlags = stage,
+	}
 
 	if bindings.light_grid then
 		sets[#sets + 1] = {
@@ -257,6 +261,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 		#ifndef SCENE_HIT_SKY_RAYS
 		#define SCENE_HIT_SKY_RAYS 4
 		#endif
+		#ifndef SCENE_HIT_EMISSION
+		#define SCENE_HIT_EMISSION true
+		#endif
 
 		float scene_reflection_random(vec3 p, int light) {
 			return pcg_unorm(pcg3d(uvec3(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z) ^ (uint(light) * 2654435761u + uint(ddgi_data.ddgi_frame) * 40503u))).x);
@@ -392,7 +399,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			}
 			#endif
 
-			vec3 radiance = ddgi_emission(tri, albedo);
+			vec3 radiance = SCENE_HIT_EMISSION ? ddgi_emission(tri, albedo) : vec3(0.0);
 			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
 

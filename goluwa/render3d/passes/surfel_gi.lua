@@ -12,6 +12,7 @@ local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
+local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local surfel_gi = import("goluwa/render3d/surfel_gi.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local system = import("goluwa/system.lua")
@@ -27,6 +28,7 @@ local BINDING_SCENE = 8
 local BINDING_SCREEN_GEOMETRY = 13
 local BINDING_SCREEN_SPECULAR = 14
 local BINDING_SCREEN_DEBUG = 15
+local BINDING_EMITTERS = 16
 local SCENE_BINDINGS = {scene = 10, hit = 30, materials = 11, light_grid = 12}
 local DUMMY_FORMAT = {{"r8_unorm", {"surfel_dummy", "r"}}}
 
@@ -689,7 +691,7 @@ local function pass_trace()
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D surfel_atlas;
 		]] .. HITS_GLSL .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
-		shader = "#define SURFEL_UNSCALED\n#define SCENE_HIT_SKY_RAYS 1\n" .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("surfel_data") .. [[
+		shader = "#define SURFEL_UNSCALED\n#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("surfel_data") .. [[
 
 			ivec3 surfel_merge_corner(int c, vec3 P, int level, int bucket, int i, out vec3 f) {
 				vec3 grid = surfel_cell_position(P, bucket, surfel_cell_size(level + 1)) - 0.5;
@@ -867,6 +869,124 @@ local function pass_trace()
 	}
 end
 
+local function pass_emitters()
+	return {
+		name = "surfel_emitters",
+		ComputePass = true,
+		ColorFormat = DUMMY_FORMAT,
+		FramebufferSize = {x = 1, y = 1},
+		framebuffer_count = 1,
+		LocalSize = {x = 64, y = 1, z = 1},
+		storage_images = {storage_image(BINDING_OUTPUT, "emitter")},
+		descriptor_sets = scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute"),
+		uniform_buffers = {
+			pass_uniform{
+				trace = true,
+				write = function(self, block)
+					block.surfel_state_tex = self:GetTextureIndex(surfel_gi.GetResources().state)
+				end,
+			},
+			gi_uniform(),
+		},
+		storage_buffers = {{binding_index = BINDING_EMITTERS}},
+		on_pre_draw = function(self, cmd, frame, desc)
+			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+			local emitters = scene_emitters.BuildActive(cmd)
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
+		end,
+		on_draw = function(self, cmd, fb, frame, desc)
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(cmd, surfel_gi.GetCapacity(0), 1, 1, desc, self.dynamic_offsets)
+		end,
+		custom_declarations = [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D surfel_emitter;
+		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		shader = "#define SURFEL_UNSCALED\n" .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("surfel_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. [[
+			#define SURFEL_EMITTER_SAMPLES EMITTER_LOCAL_CANDIDATES
+
+			void main() {
+				int g = int(gl_GlobalInvocationID.x);
+
+				if (g >= surfel_capacity(0)) return;
+
+				ivec2 slot_texel = surfel_slot_texel(g);
+				vec4 state = texelFetch(TEXTURE(surfel_data.surfel_state_tex), slot_texel, 0);
+
+				if (state.y == 0.0) return;
+
+				vec3 a = vec3(0.0);
+				vec3 bx = vec3(0.0);
+				vec3 by = vec3(0.0);
+				vec3 bz = vec3(0.0);
+				int emitter_count = ddgi_data.ddgi_emitter_count;
+
+				if (emitter_count > 0 && ddgi_data.ddgi_rt_ready != 0) {
+					vec4 surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), slot_texel, 0);
+					vec3 N = surfel_unpack_normal(surfel.w);
+					int packed = max(int(texelFetch(TEXTURE(ddgi_data.surfel_key_tex), slot_texel, 0).w), 1);
+					float size = surfel_cell_size(surfel_packed_level(packed));
+					vec3 origin = surfel.xyz + N * (0.01 + 0.05 * size);
+
+					int source_count = int(emitter_words[2]);
+					bool local = source_count <= EMITTER_LOCAL_SOURCES;
+					int triangles[EMITTER_LOCAL_CANDIDATES];
+					float weights[EMITTER_LOCAL_CANDIDATES];
+					uint frame = uint(surfel_data.surfel_frame);
+
+					if (local && !emitter_local_candidates(uint(g), frame, source_count, origin, N, size, triangles, weights)) {
+						local = false;
+						source_count = 0;
+					}
+
+					for (int k = 0; k < SURFEL_EMITTER_SAMPLES; k++) {
+						vec3 dir;
+						float dist;
+						vec3 light;
+
+						if (local) {
+							int emitter = triangles[k];
+							light = emitter_light(emitter, emitter_candidate_point(uint(g), frame, int(uint(emitter) | (uint(k) << 26u))), origin, N, weights[k], dir, dist);
+						} else if (source_count > 0) {
+							light = emitter_sample_light(uint(g * SURFEL_EMITTER_SAMPLES + k), frame, emitter_count, origin, N, size, dir, dist);
+						} else {
+							continue;
+						}
+
+						if (dot(dir, N) <= 0.0 || !(dot(light, vec3(1.0)) > 0.0)) continue;
+
+						if (dist > 0.02 && !scene_reflection_visible(origin, dir, dist - 0.02)) continue;
+
+						if (surfel_data.glass_light != 0) light *= get_glass_light(origin, dir, dist, 0.0);
+
+						a += light;
+						bx += light * dir.x;
+						by += light * dir.y;
+						bz += light * dir.z;
+					}
+
+					float scale = 1.0 / (float(SURFEL_EMITTER_SAMPLES) * 6.28318530718);
+					a *= 0.5 * scale;
+					bx *= scale;
+					by *= scale;
+					bz *= scale;
+				}
+
+				float alpha = max(1.0 / max(state.x, 1.0), 1.0 - pow(surfel_data.surfel_hysteresis, state.y));
+				vec3 current[4] = vec3[4](a, bx, by, bz);
+
+				for (int i = 0; i < 4; i++) {
+					ivec2 texel = surfel_irradiance_texel(g, i);
+					vec3 previous = imageLoad(surfel_emitter, texel).rgb;
+					// fresh memory can hold NaN, and mix(NaN, x, 1.0) is still NaN
+					if (alpha >= 1.0 || any(isnan(previous)) || any(isinf(previous))) previous = current[i];
+
+					imageStore(surfel_emitter, texel, vec4(min(mix(previous, current[i], alpha), vec3(60000.0)), 0.0));
+				}
+			}
+		]],
+	}
+end
+
 local function pass_integrate()
 	return {
 		name = "surfel_integrate",
@@ -891,6 +1011,7 @@ local function pass_integrate()
 					block.surfel_state_tex = self:GetTextureIndex(r.state)
 					block.surfel_atlas_tex = self:GetTextureIndex(r.atlas)
 					block.surfel_positions_tex = self:GetTextureIndex(r.surfel)
+					block.surfel_emitter_tex = self:GetTextureIndex(r.emitter)
 				end,
 			},
 		},
@@ -902,6 +1023,10 @@ local function pass_integrate()
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_irradiance;
 		]],
 		shader = surfel_gi.GetDefinesGLSL() .. [[
+			vec3 surfel_emitter_irradiance(int g, int i) {
+				return texelFetch(TEXTURE(surfel_data.surfel_emitter_tex), surfel_irradiance_texel(g, i), 0).rgb;
+			}
+
 			void main() {
 				int g = int(gl_GlobalInvocationID.x);
 
@@ -940,11 +1065,11 @@ local function pass_integrate()
 				}
 
 				float scale = 4.0 / max(total, 1e-6);
-				imageStore(out_irradiance, surfel_irradiance_texel(g, 0), vec4(a * (0.25 * scale), saturate(sky * scale)));
 				uint hidden = surfel_table[g].hidden;
-				imageStore(out_irradiance, surfel_irradiance_texel(g, 1), vec4(bx * (0.5 * scale), float(hidden & 511u)));
-				imageStore(out_irradiance, surfel_irradiance_texel(g, 2), vec4(by * (0.5 * scale), float((hidden >> 9u) & 511u)));
-				imageStore(out_irradiance, surfel_irradiance_texel(g, 3), vec4(bz * (0.5 * scale), float(hidden >> 18u)));
+				imageStore(out_irradiance, surfel_irradiance_texel(g, 0), vec4(a * (0.25 * scale) + surfel_emitter_irradiance(g, 0), saturate(sky * scale)));
+				imageStore(out_irradiance, surfel_irradiance_texel(g, 1), vec4(bx * (0.5 * scale) + surfel_emitter_irradiance(g, 1), float(hidden & 511u)));
+				imageStore(out_irradiance, surfel_irradiance_texel(g, 2), vec4(by * (0.5 * scale) + surfel_emitter_irradiance(g, 2), float((hidden >> 9u) & 511u)));
+				imageStore(out_irradiance, surfel_irradiance_texel(g, 3), vec4(bz * (0.5 * scale) + surfel_emitter_irradiance(g, 3), float(hidden >> 18u)));
 			}
 		]],
 	}
@@ -1119,6 +1244,7 @@ return {
 	pass_update(),
 	pass_visibility(),
 	pass_trace(),
+	pass_emitters(),
 	pass_integrate(),
 	pass_resolve(),
 }

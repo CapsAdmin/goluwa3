@@ -237,6 +237,12 @@ function surfel_gi.GetResources()
 			surfel_gi.GetCapacity(0) / surfel_gi.SLOTS_PER_ROW,
 			"r16g16b16a16_sfloat"
 		),
+		emitter = texture(
+			"emitter irradiance",
+			surfel_gi.SLOTS_PER_ROW * 4,
+			surfel_gi.GetCapacity(0) / surfel_gi.SLOTS_PER_ROW,
+			"r16g16b16a16_sfloat"
+		),
 	}
 	owner.owned_textures = {
 		resources.table,
@@ -247,6 +253,7 @@ function surfel_gi.GetResources()
 		resources.state,
 		resources.atlas,
 		resources.irradiance,
+		resources.emitter,
 	}
 	owner.surfel_resources = resources
 	surfel_gi.GetFrameState().reset = true
@@ -326,6 +333,7 @@ function surfel_gi.GetPassBlockLayout()
 		{"surfel_max_distance", "float"},
 		{"surfel_state_tex", "int"},
 		{"surfel_atlas_tex", "int"},
+		{"surfel_emitter_tex", "int"},
 		{"surfel_bent_normal_tex", "int"},
 	}
 end
@@ -350,6 +358,7 @@ function surfel_gi.WritePassBlock(self, block)
 	block.surfel_max_distance = max_distance:Get()
 	block.surfel_state_tex = -1
 	block.surfel_atlas_tex = -1
+	block.surfel_emitter_tex = -1
 	block.surfel_bent_normal_tex = -1
 	return block
 end
