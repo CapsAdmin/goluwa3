@@ -461,7 +461,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 				pNextChain = ray_query_features
 			end
 
-			for _, vendor in ipairs({"ext", "nv"}) do
+			-- nvidia 615's EXT path hangs the gpu (Xid 109) in reflections_trace on the same SPIR-V the NV path runs fine
+			for _, vendor in ipairs({"nv", "ext"}) do
 				if
 					not ray_reorder and
 					table.has_value(available_extensions, RAY_REORDER_EXTENSIONS[vendor]) and
