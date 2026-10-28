@@ -884,6 +884,7 @@ local function pass_trace()
 		FramebufferSize = {x = 1, y = 1},
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
+		ray_generation = scene_reflection.GetRayGeneration(surfel_gi.IsReordered()),
 		storage_images = {storage_image(BINDING_OUTPUT, "atlas")},
 		descriptor_sets = scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		uniform_buffers = trace_uniforms(),
@@ -909,7 +910,7 @@ local function pass_trace()
 					desc,
 					self.dynamic_offsets
 				)
-				compute_barrier(cmd)
+				cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "all_commands", memoryBarrier = true}
 			end
 		end,
 		custom_declarations = [[
@@ -1011,7 +1012,7 @@ local function pass_trace()
 				uint primitive;
 				vec2 barycentrics;
 				float t_start = SURFEL_ON(SURFEL_FEATURE_RAYS_FROM_ORIGIN) || c == 0 ? 0.0 : size0 * surfel_data.surfel_interval * float(1 << (2 * (c - 1)));
-				bool hit = trace_scene_interval(origin, dir, t_start, t_end, t, instance, primitive, barycentrics);
+				bool hit = trace_scene_hit(origin, dir, t_start, t_end, t, instance, primitive, barycentrics);
 				bool backface = false;
 
 				if (hit) {
@@ -1028,7 +1029,7 @@ local function pass_trace()
 					result = surfel_merge(c, dir_texel, surfel.xyz, level, surfel_packed_bucket(packed), visible, merge_weight);
 
 					if (merge_weight <= 0.0) {
-						hit = trace_scene_interval(origin, dir, t_end, surfel_data.surfel_max_ray_distance, t, instance, primitive, barycentrics);
+						hit = trace_scene_hit(origin, dir, t_end, surfel_data.surfel_max_ray_distance, t, instance, primitive, barycentrics);
 						glass_distance = hit ? t : surfel_data.surfel_max_ray_distance;
 
 						if (!hit) result = vec4(ddgi_sky(dir), 1.0);
