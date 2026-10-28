@@ -1543,20 +1543,8 @@ list.insert(
 
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && water_feature(WATER_AMBIENT_GI)) {
-					int ambient_samples = 2;
-					float ambient_len = min(len, 60.0);
-					vec3 weighted = vec3(0.0);
-					vec3 weights = vec3(0.0);
-
-					for (int i = 0; i < ambient_samples; i++) {
-						float f = (float(i) + jitter) / float(ambient_samples);
-						vec3 p = origin + dir * (ambient_len * f * f);
-						vec3 reach = exp(-sigma * (ambient_len * f * f + max(w.surface_y - p.y, 0.0) / 0.75)) * (f + 0.01);
-						weighted += get_ambient_irradiance(p, DDGI_NO_VISIBILITY_RAYS, false) * reach;
-						weights += reach;
-					}
-
-					if (dot(weights, vec3(1.0)) > 1e-20) ambient = weighted / weights;
+					float f = jitter;
+					ambient = get_ambient_irradiance(origin + dir * (min(len, 60.0) * f * f), DDGI_NO_VISIBILITY_RAYS, false);
 				}
 				#endif
 
