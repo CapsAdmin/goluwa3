@@ -1412,6 +1412,15 @@ local function translate_stage(stage)
 	return stage_map[stage] or stage
 end
 
+local memory_barrier_scratch = VkMemoryBarrier2Array(1)
+local image_barrier_scratch = VkImageMemoryBarrier2Array(8)
+local image_barrier_capacity = 8
+local buffer_barrier_scratch = VkBufferMemoryBarrier2Array(8)
+local buffer_barrier_capacity = 8
+local dependency_info = vulkan.vk.VkDependencyInfo()
+dependency_info.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_DEPENDENCY_INFO
+local memory_read_write = vulkan.vk.e.VkAccessFlagBits({"memory_read", "memory_write"})
+
 function CommandBuffer:PipelineBarrier(config)
 	local srcStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.srcStage or "compute"))
 	local dstStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.dstStage or "fragment"))
@@ -1424,18 +1433,24 @@ function CommandBuffer:PipelineBarrier(config)
 
 	if config.memoryBarrier then
 		memoryBarrierCount = 1
-		memoryBarriers = VkMemoryBarrier2Array(1)
+		memoryBarriers = memory_barrier_scratch
 		local mb = memoryBarriers[0]
 		mb.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_MEMORY_BARRIER_2
 		mb.srcStageMask = srcStage
 		mb.dstStageMask = dstStage
-		mb.srcAccessMask = vulkan.vk.e.VkAccessFlagBits({"memory_read", "memory_write"})
-		mb.dstAccessMask = vulkan.vk.e.VkAccessFlagBits({"memory_read", "memory_write"})
+		mb.srcAccessMask = memory_read_write
+		mb.dstAccessMask = memory_read_write
 	end
 
 	if config.imageBarriers then
 		imageBarrierCount = #config.imageBarriers
-		imageBarriers = VkImageMemoryBarrier2Array(imageBarrierCount)
+
+		if imageBarrierCount > image_barrier_capacity then
+			image_barrier_capacity = imageBarrierCount * 2
+			image_barrier_scratch = VkImageMemoryBarrier2Array(image_barrier_capacity)
+		end
+
+		imageBarriers = image_barrier_scratch
 
 		for i, barrier in ipairs(config.imageBarriers) do
 			local aspect = barrier.aspect
@@ -1494,7 +1509,13 @@ function CommandBuffer:PipelineBarrier(config)
 
 	if config.bufferBarriers then
 		bufferBarrierCount = #config.bufferBarriers
-		bufferBarriers = VkBufferMemoryBarrier2Array(bufferBarrierCount)
+
+		if bufferBarrierCount > buffer_barrier_capacity then
+			buffer_barrier_capacity = bufferBarrierCount * 2
+			buffer_barrier_scratch = VkBufferMemoryBarrier2Array(buffer_barrier_capacity)
+		end
+
+		bufferBarriers = buffer_barrier_scratch
 
 		for i, barrier in ipairs(config.bufferBarriers) do
 			local bmb = bufferBarriers[i - 1]
@@ -1511,18 +1532,13 @@ function CommandBuffer:PipelineBarrier(config)
 		end
 	end
 
-	vulkan.lib.vkCmdPipelineBarrier2(
-		self.ptr[0],
-		vulkan.vk.s.DependencyInfo{
-			dependencyFlags = 0,
-			memoryBarrierCount = memoryBarrierCount,
-			pMemoryBarriers = memoryBarriers,
-			bufferMemoryBarrierCount = bufferBarrierCount,
-			pBufferMemoryBarriers = bufferBarrierCount > 0 and bufferBarriers or nil,
-			imageMemoryBarrierCount = imageBarrierCount,
-			pImageMemoryBarriers = imageBarrierCount > 0 and imageBarriers or nil,
-		}
-	)
+	dependency_info.memoryBarrierCount = memoryBarrierCount
+	dependency_info.pMemoryBarriers = memoryBarriers
+	dependency_info.bufferMemoryBarrierCount = bufferBarrierCount
+	dependency_info.pBufferMemoryBarriers = bufferBarriers
+	dependency_info.imageMemoryBarrierCount = imageBarrierCount
+	dependency_info.pImageMemoryBarriers = imageBarriers
+	vulkan.lib.vkCmdPipelineBarrier2(self.ptr[0], dependency_info)
 end
 
 function CommandBuffer:CopyBuffer(src, dst, regions, region_count)
