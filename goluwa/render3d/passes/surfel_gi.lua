@@ -136,6 +136,8 @@ local HITS_GLSL = [[
 		uint surfel_hit_attempts;
 		uint surfel_hit_last_attempts;
 		uint surfel_hit_pad;
+		uint surfel_budget_rays[3];
+		uint surfel_budget_pad;
 		vec4 surfel_hits[];
 	};
 	#define SURFEL_TOUCH_SAMPLES ]] .. surfel_gi.TOUCH_SAMPLES .. [[
@@ -577,6 +579,13 @@ local function pass_update()
 					surfel_hit_count = 0u;
 					surfel_hit_last_attempts = surfel_data.surfel_reset != 0 ? 0u : surfel_hit_attempts;
 					surfel_hit_attempts = 0u;
+					surfel_budget_rays[(uint(surfel_data.surfel_frame) + 1u) % 3u] = 0u;
+
+					if (surfel_data.surfel_reset != 0) {
+						surfel_budget_rays[0] = 0u;
+						surfel_budget_rays[1] = 0u;
+						surfel_budget_rays[2] = 0u;
+					}
 				}
 
 				ivec2 texel = surfel_slot_texel(g);
@@ -630,6 +639,18 @@ local function pass_update()
 				}
 
 				bool due = moved || count == 0.0 || (alive || SURFEL_ON(SURFEL_FEATURE_IDLE_REFRESH)) && (uint(g) + frame) % interval == 0u;
+				float throttle = 1.0;
+
+				if (due) {
+					atomicAdd(surfel_budget_rays[frame % 3u], uint(surfel_side(c) * surfel_side(c)));
+
+					if (!moved && count > 0.0) {
+						throttle = max(float(surfel_budget_rays[(frame + 2u) % 3u]) / surfel_data.surfel_ray_budget, 1.0);
+
+						if (pcg_unorm(pcg3d(uvec3(uint(g), frame, 0x2545F491u)).x) * throttle > 1.0) due = false;
+					}
+				}
+
 				uint boost = 1u;
 
 				if (due) {
@@ -656,7 +677,7 @@ local function pass_update()
 					if (frame - entry.screen_stamp <= uint(surfel_data.surfel_lifetime)) atomicAdd(SURFEL_STAT(SURFEL_STAT_SCREEN + c), 1u);
 				}
 
-				imageStore(surfel_state, texel, vec4(due ? min(count + 1.0, 1024.0) : count, due ? float(interval * boost) : 0.0, float(min(age, 60000u)), entry.screen_stamp == frame ? 1.0 : 0.0));
+				imageStore(surfel_state, texel, vec4(due ? min(count + 1.0, 1024.0) : count, due ? float(interval * boost) * throttle : 0.0, float(min(age, 60000u)), entry.screen_stamp == frame ? 1.0 : 0.0));
 			}
 		]],
 	}

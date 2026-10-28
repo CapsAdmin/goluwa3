@@ -129,6 +129,13 @@ local update_interval_max = pvars.Setup2{
 	max = 16,
 	help = "cascade n traces every 2^n frames, at most this many",
 }
+local ray_budget = pvars.Setup2{
+	key = "surfel_ray_budget",
+	default = 2000000,
+	integer = true,
+	min = 100000,
+	help = "rays the surfels may trace per frame, when the due surfels would trace more, surfels are skipped at random until it fits (their history is told the longer gap). new surfels and surfels around moved instances are never skipped",
+}
 local strength = pvars.Setup2{
 	key = "surfel_strength",
 	default = 1,
@@ -373,7 +380,7 @@ function surfel_gi.GetResources()
 			data = ffi.new("uint32_t[?]", 4 * surfel_gi.STATS_STRIDE),
 		},
 		hits = render.CreateBuffer{
-			byte_size = 16 + surfel_gi.HIT_SAMPLES * 16,
+			byte_size = 32 + surfel_gi.HIT_SAMPLES * 16,
 			buffer_usage = {"storage_buffer"},
 			memory_property = {"device_local"},
 			label = "surfel_hits",
@@ -500,6 +507,7 @@ function surfel_gi.GetPassBlockLayout()
 		{"surfel_cell_size", "float"},
 		{"surfel_lod_distance", "float"},
 		{"surfel_max_distance", "float"},
+		{"surfel_ray_budget", "float"},
 		{"surfel_state_tex", "int"},
 		{"surfel_atlas_tex", "int"},
 		{"surfel_emitter_tex", "int"},
@@ -531,6 +539,7 @@ function surfel_gi.WritePassBlock(self, block)
 	block.surfel_cell_size = cell_size:Get()
 	block.surfel_lod_distance = lod_distance:Get()
 	block.surfel_max_distance = max_distance:Get()
+	block.surfel_ray_budget = ray_budget:Get()
 	block.surfel_state_tex = -1
 	block.surfel_atlas_tex = -1
 	block.surfel_emitter_tex = -1
