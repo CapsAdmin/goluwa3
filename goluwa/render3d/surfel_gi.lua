@@ -136,6 +136,12 @@ local ray_budget = pvars.Setup2{
 	min = 100000,
 	help = "rays the surfels may trace per frame, when the due surfels would trace more, surfels are skipped at random until it fits (their history is told the longer gap). new surfels and surfels around moved instances are never skipped",
 }
+local fog_gather_distance = pvars.Setup2{
+	key = "surfel_fog_gather_distance",
+	default = 100,
+	min = 1,
+	help = "meters from the camera the fog traces its own rays for surfel gi, past it (faded over the last quarter) the fog uses the sky ambient like it does outside the surfels' range",
+}
 local strength = pvars.Setup2{
 	key = "surfel_strength",
 	default = 1,
@@ -293,6 +299,10 @@ function surfel_gi.GetFeatures()
 end
 
 pvars.EndGroup()
+
+function surfel_gi.GetFogGatherDistance()
+	return fog_gather_distance:Get()
+end
 
 function surfel_gi.GetDebugMode()
 	return DEBUG[debug:Get()]

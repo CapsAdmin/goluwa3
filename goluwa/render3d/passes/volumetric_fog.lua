@@ -19,6 +19,7 @@ local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
+local surfel_gi = import("goluwa/render3d/surfel_gi.lua")
 local AIR_END_ALTITUDE = 50
 local FROXEL_HISTORY = 0.9
 local LOCAL_LIGHT_LIMIT = 8
@@ -191,6 +192,7 @@ local gi_pass = {
 				atmosphere.GetBlockLayout(),
 				{"primary_sun_illuminance", "float"},
 				{"env_tex", "int"},
+				{"surfel_gather_distance", "float"},
 			},
 			write = function(self, block)
 				render3d.WriteCameraBlock(self, block)
@@ -211,6 +213,7 @@ local gi_pass = {
 				)
 				block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
 				block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+				block.surfel_gather_distance = surfel_gi.GetFogGatherDistance()
 				return block
 			end,
 		},
@@ -308,6 +311,13 @@ local gi_pass = {
 
 				#ifdef SCENE_REFLECTION
 				if (ddgi_data.gi_mode == GI_MODE_SURFELS) {
+					float gather = saturate((froxel_data.surfel_gather_distance - depth) / (0.25 * froxel_data.surfel_gather_distance));
+
+					if (float(froxel_hash(uvec3(seed, id.z, 3u)) & 0xFFFFu) / 65536.0 >= gather) {
+						imageStore(out_gi, quad, vec4(-1.0));
+						return;
+					}
+
 					if (dir.y < 0.0) dir = -dir;
 
 					vec3 radiance = vec3(0.0);
