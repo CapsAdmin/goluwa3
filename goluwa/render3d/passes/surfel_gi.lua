@@ -347,7 +347,9 @@ local function visit_glsl(touch)
 							float bias = 0.01 + 0.05 * surfel_cell_size_at(level + l);
 
 							bool screen = index < SURFEL_TOUCH_SAMPLES;
-							bool seen = (surfel_table[g].flags & 1u) != 0u || current.w == 0.0 || surfel_sees(current.xyz + surfel_unpack_normal(current.w) * bias, P + N * bias);
+							vec3 current_N = surfel_unpack_normal(current.w);
+							float lift = bias + surfel_curvature_lift(current.xyz, current_N, P, N);
+							bool seen = (surfel_table[g].flags & 1u) != 0u || current.w == 0.0 || surfel_sees(current.xyz + current_N * lift, P + N * lift);
 
 							if (!seen && screen && frame - surfel_table[g].position_stamp > uint(SURFEL_POSITION_HOLD)) {
 								seen = true;
@@ -629,8 +631,11 @@ local function pass_visibility()
 				float bias = 0.01 + 0.05 * surfel_cell_size(surfel_packed_level(int(key.w)));
 				vec4 surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), slot_texel, 0);
 				vec4 target = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(other), 0);
-				vec3 from = surfel.xyz + surfel_unpack_normal(surfel.w) * bias;
-				vec3 delta = target.xyz + surfel_unpack_normal(target.w) * bias - from;
+				vec3 surfel_N = surfel_unpack_normal(surfel.w);
+				vec3 target_N = surfel_unpack_normal(target.w);
+				float lift = bias + surfel_curvature_lift(surfel.xyz, surfel_N, target.xyz, target_N);
+				vec3 from = surfel.xyz + surfel_N * lift;
+				vec3 delta = target.xyz + target_N * lift - from;
 				float len = length(delta);
 				bool visible = true;
 
@@ -788,10 +793,13 @@ local function pass_trace()
 
 					if (coarse >= 0) {
 						vec4 neighbour = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(coarse), 0);
-						vec3 to = neighbour.xyz + surfel_unpack_normal(neighbour.w) * bias - origin;
+						vec3 neighbour_N = surfel_unpack_normal(neighbour.w);
+						float lift = surfel_curvature_lift(surfel.xyz, N, neighbour.xyz, neighbour_N);
+						vec3 from = origin + N * lift;
+						vec3 to = neighbour.xyz + neighbour_N * (bias + lift) - from;
 						float len = length(to);
 
-						if (len < 1e-3 || scene_reflection_visible(origin, to / len, len)) atomicOr(s_visible[group_slot], 1u << uint(corner));
+						if (len < 1e-3 || scene_reflection_visible(from, to / len, len)) atomicOr(s_visible[group_slot], 1u << uint(corner));
 					}
 				}
 

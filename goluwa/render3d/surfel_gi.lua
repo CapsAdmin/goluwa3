@@ -451,6 +451,11 @@ function surfel_gi.GetDefinesGLSL()
 			return oct_decode(vec2(v & 4095u, v >> 12u) / 4095.0 * 2.0 - 1.0);
 		}
 
+		// a straight ray between two points lifted off a curved surface clips it once they are far apart, lift both by about twice the bulge of a circle through them
+		float surfel_curvature_lift(vec3 a, vec3 a_N, vec3 b, vec3 b_N) {
+			return distance(a, b) * length(a_N - b_N) * 0.25;
+		}
+
 		vec3 surfel_bucket_weights(vec3 N) {
 			return max(abs(N) - 0.4, vec3(0.0));
 		}
@@ -558,7 +563,10 @@ function surfel_gi.GetLookupGLSL()
 						#if defined(DDGI_VISIBILITY_RAYS) && !defined(SURFEL_SCREEN_LOOKUP)
 						vec4 own_surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(own_slot), 0);
 
-						if (ddgi_probe_hidden(P, N, own_surfel.xyz + surfel_unpack_normal(own_surfel.w) * (0.01 + 0.05 * size), size)) {
+						vec3 own_N = surfel_unpack_normal(own_surfel.w);
+						float own_lift = surfel_curvature_lift(P, N, own_surfel.xyz, own_N);
+
+						if (ddgi_probe_hidden(P + N * own_lift, N, own_surfel.xyz + own_N * (0.01 + 0.05 * size + own_lift), size)) {
 							hidden = 0u;
 							own_hidden = true;
 							check_level = true;
@@ -596,7 +604,10 @@ function surfel_gi.GetLookupGLSL()
 					if (check_level) {
 						vec4 surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(g), 0);
 
-						if (ddgi_probe_hidden(P, N, surfel.xyz + surfel_unpack_normal(surfel.w) * (0.01 + 0.05 * size), size)) continue;
+						vec3 neighbour_N = surfel_unpack_normal(surfel.w);
+						float lift = surfel_curvature_lift(P, N, surfel.xyz, neighbour_N);
+
+						if (ddgi_probe_hidden(P + N * lift, N, surfel.xyz + neighbour_N * (0.01 + 0.05 * size + lift), size)) continue;
 					}
 					#endif
 
