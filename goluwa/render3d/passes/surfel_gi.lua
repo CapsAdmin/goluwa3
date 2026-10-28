@@ -302,7 +302,7 @@ local function visit_glsl(touch)
 
 			float lod = min(surfel_lod(P, surfel_data.camera_position, surfel_data.surfel_lod_distance), float(SURFEL_TOP_LEVEL));
 			int level = int(lod);
-			int levels = level < SURFEL_TOP_LEVEL && lod - float(level) > 0.5 ? 2 : 1;
+			int levels = level < SURFEL_TOP_LEVEL && lod > 0.0 ? 2 : 1;
 			vec3 buckets = surfel_bucket_weights(N);
 			uint frame = uint(surfel_data.surfel_frame);
 

@@ -595,13 +595,23 @@ function surfel_gi.GetLookupGLSL()
 
 			float lod = min(surfel_lod(P, ddgi_data.surfel_camera.xyz, ddgi_data.surfel_params.y) + float(level_offset), float(SURFEL_TOP_LEVEL));
 			int level = int(lod);
-			float blend = level < SURFEL_TOP_LEVEL ? smoothstep(0.75, 1.0, lod - float(level)) : 0.0;
+			float blend = level < SURFEL_TOP_LEVEL ? smoothstep(0.0, 1.0, lod - float(level)) : 0.0;
 			float fine_coverage;
 			vec3 fine_second;
 			vec4 fine = surfel_sample_level(P, N, L, L2, level, surface, false, fine_coverage, fine_second);
 			float filled = fine_coverage * (1.0 - blend);
 			vec4 result = fine * filled;
 			vec3 second_rgb = fine_second * filled;
+
+			if (blend > 0.0) {
+				float coverage;
+				vec3 coarse_second;
+				vec4 coarse = surfel_sample_level(P, N, L, L2, level + 1, surface, false, coverage, coarse_second);
+				float share = coverage * blend;
+				result += coarse * share;
+				second_rgb += coarse_second * share;
+				filled += share;
+			}
 
 			for (int coarser = level + 1; coarser <= min(level + 2, SURFEL_TOP_LEVEL) && filled < 0.999; coarser++) {
 				float coverage;
@@ -611,13 +621,6 @@ function surfel_gi.GetLookupGLSL()
 				result += coarse * share;
 				second_rgb += coarse_second * share;
 				filled += share;
-
-				if (coarser == level + 1 && blend > 0.0) {
-					share = fine_coverage * (1.0 - filled);
-					result += fine * share;
-					second_rgb += fine_second * share;
-					filled += share;
-				}
 			}
 
 			if (filled <= 0.0) return vec4(0.0);
