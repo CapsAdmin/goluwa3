@@ -264,6 +264,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 		#ifndef SCENE_HIT_EMISSION
 		#define SCENE_HIT_EMISSION true
 		#endif
+		#ifndef SCENE_REFLECTION_MASK
+		#define SCENE_REFLECTION_MASK 0xFF
+		#endif
 
 		float scene_reflection_random(vec3 p, int light) {
 			return pcg_unorm(pcg3d(uvec3(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z) ^ (uint(light) * 2654435761u + uint(ddgi_data.ddgi_frame) * 40503u))).x);
@@ -293,7 +296,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 		bool scene_reflection_visible(vec3 origin, vec3 dir, float dist) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT | (RT_HIT_ANY_HIT != 0 ? 0u : gl_RayFlagsOpaqueEXT), 0xFF, origin, 0.0, dir, dist);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT | (RT_HIT_ANY_HIT != 0 ? 0u : gl_RayFlagsOpaqueEXT), SCENE_REFLECTION_MASK, origin, 0.0, dir, dist);
 
 			SCENE_REFLECTION_PROCEED(query)
 
@@ -302,7 +305,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 		float scene_hit_distance(vec3 origin, vec3 dir, float max_distance) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, 0xFF, origin, 0.0, dir, max_distance);
+			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, SCENE_REFLECTION_MASK, origin, 0.0, dir, max_distance);
 
 			SCENE_REFLECTION_PROCEED(query)
 
@@ -313,7 +316,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 		bool trace_scene_interval(vec3 origin, vec3 dir, float t_min, float t_max, out float t, out uint instance, out uint primitive, out vec2 barycentrics) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, 0xFF, origin, t_min, dir, t_max);
+			rayQueryInitializeEXT(query, ddgi_scene, SCENE_REFLECTION_FLAGS, SCENE_REFLECTION_MASK, origin, t_min, dir, t_max);
 
 			SCENE_REFLECTION_PROCEED(query)
 
@@ -337,7 +340,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 			#ifdef SCENE_REFLECTION_SER
 			SER_hitObject hit_object;
-			SER_hitObjectTraceRay(hit_object, ddgi_scene, SCENE_REFLECTION_FLAGS, 0xFF, 0, 0, 0, origin, 0.0, dir, max_distance, 0);
+			SER_hitObjectTraceRay(hit_object, ddgi_scene, SCENE_REFLECTION_FLAGS, SCENE_REFLECTION_MASK, 0, 0, 0, origin, 0.0, dir, max_distance, 0);
 
 			SER_reorderThread(hit_object);
 

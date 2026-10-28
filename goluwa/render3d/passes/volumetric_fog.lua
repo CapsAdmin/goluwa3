@@ -18,6 +18,7 @@ local clouds = import("goluwa/render3d/clouds.lua")
 local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
+local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local AIR_END_ALTITUDE = 50
 local FROXEL_HISTORY = 0.9
 local LOCAL_LIGHT_LIMIT = 8
@@ -250,7 +251,10 @@ local gi_pass = {
 	]],
 	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. (
 			VISIBILITY_RAYS and
-			"#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. post_source.GetPreExposureGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "froxel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("froxel_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL()
+			"#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. string.format(
+				"#define SCENE_REFLECTION_MASK 0x%02X\n",
+				bit.band(0xFF, bit.bnot(scene_instances.MASK_DECAL))
+			) .. post_source.GetPreExposureGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "froxel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("froxel_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL()
 			or
 			gi.GetCommonGLSL()
 		) .. gi.GetMediumGLSL() .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
