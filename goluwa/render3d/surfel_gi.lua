@@ -15,7 +15,6 @@ end)
 
 surfel_gi.CASCADES = 4
 surfel_gi.BASE_DIRECTIONS = 4
-surfel_gi.CAPACITY_BITS = 16
 surfel_gi.SLOTS_PER_ROW = 256
 surfel_gi.PROBES = 8
 surfel_gi.TOUCH_SAMPLES = 65536
@@ -42,11 +41,41 @@ function surfel_gi.GetDirectionSide(c)
 	return surfel_gi.BASE_DIRECTIONS * 2 ^ c
 end
 
-surfel_gi.SLOT_COUNT = surfel_gi.GetOffset(surfel_gi.CASCADES)
-surfel_gi.SLOT_ROWS = math.ceil(surfel_gi.SLOT_COUNT / surfel_gi.SLOTS_PER_ROW)
-surfel_gi.ATLAS_WIDTH = surfel_gi.SLOTS_PER_ROW * surfel_gi.BASE_DIRECTIONS
-surfel_gi.ATLAS_CASCADE_HEIGHT = surfel_gi.GetCapacity(0) / surfel_gi.SLOTS_PER_ROW * surfel_gi.BASE_DIRECTIONS
+function surfel_gi.SetCapacityBits(bits)
+	surfel_gi.CAPACITY_BITS = bits
+	surfel_gi.SLOT_COUNT = surfel_gi.GetOffset(surfel_gi.CASCADES)
+	surfel_gi.SLOT_ROWS = math.ceil(surfel_gi.SLOT_COUNT / surfel_gi.SLOTS_PER_ROW)
+	surfel_gi.ATLAS_WIDTH = surfel_gi.SLOTS_PER_ROW * surfel_gi.BASE_DIRECTIONS
+	surfel_gi.ATLAS_CASCADE_HEIGHT = surfel_gi.GetCapacity(0) / surfel_gi.SLOTS_PER_ROW * surfel_gi.BASE_DIRECTIONS
+end
+
 pvars.StartGroup("Lighting", "Surfel GI", {store = false, prefix = "surfel_"})
+pvars.Setup2{
+	key = "surfel_capacity",
+	default = 65536,
+	integer = true,
+	min = 4096,
+	max = 262144,
+	help = "most cascade 0 surfels, rounded down to a power of two, each coarser cascade holds a quarter as many. a full table fails to place new surfels (black patches in big or detailed views). changing it starts the gi over",
+	callback = function(value, initial)
+		surfel_gi.SetCapacityBits(math.floor(math.log(math.max(value, 4096)) / math.log(2) + 1e-6))
+
+		if initial then return end
+
+		local owner = render3d.pipelines and render3d.pipelines.surfel_update
+
+		if not owner or not owner.surfel_resources then return end
+
+		render.GetDevice():WaitIdle()
+
+		for _, resource in ipairs(owner.owned_textures) do
+			resource:Remove()
+		end
+
+		owner.owned_textures = nil
+		owner.surfel_resources = nil
+	end,
+}
 local cell_size = pvars.Setup2{
 	key = "surfel_cell_size",
 	default = 0.25,
@@ -63,7 +92,7 @@ local interval = pvars.Setup2{
 	key = "surfel_interval",
 	default = 2,
 	min = 0.25,
-	help = "how far the rays of cascade 0 reach, in its cells. the rays of each cascade start where the ones before ended and reach 4 times as far, the last cascade's reach to the end of the scene",
+	help = "how far the rays of cascade 0 reach, in its cells. each cascade reaches 4 times as far, the last cascade's rays reach to the end of the scene",
 }
 local hysteresis = pvars.Setup2{
 	key = "surfel_hysteresis",
@@ -135,6 +164,119 @@ local debug_gi = pvars.Setup2{
 	default = false,
 	help = "show only the gi irradiance",
 }
+surfel_gi.FEATURES = {
+	{
+		"FILL",
+		"surfel_fill",
+		"a lookup that finds too few surfels at its level fills the rest from the next two coarser levels before falling back to the sky",
+	},
+	{
+		"FILL_VISIBILITY",
+		"surfel_fill_visibility",
+		"the coarser level fill traces a ray to each surfel it uses and skips the hidden ones (coarse cells reach across walls)",
+	},
+	{
+		"NEIGHBOUR_MASKS",
+		"surfel_neighbour_masks",
+		"each surfel traces rays to its 26 neighbouring cells' surfels, and lookups and the filter skip the neighbours it cannot see",
+	},
+	{
+		"OWN_CHECK",
+		"surfel_own_check",
+		"lookups at ray hits trace a ray to their own cell's surfel, and if it is hidden (the other side of a thin wall) trace every neighbour they use",
+	},
+	{
+		"MERGE_VISIBILITY",
+		"surfel_merge_visibility",
+		"a cascade only merges the coarser surfels a short ray from the surfel reaches",
+	},
+	{
+		"STICKY_POSITIONS",
+		"surfel_sticky_positions",
+		"a surfel only moves to a screen sample its current position can see, so a cell straddling a wall stays on one side",
+	},
+	{
+		"POSITION_CONFIRM",
+		"surfel_position_confirm",
+		"a surfel the screen keeps landing on keeps its position instead of being re-elected every frame (far large cells flash otherwise)",
+	},
+	{
+		"BURIED",
+		"surfel_buried",
+		"a surfel whose rays mostly hit backfaces (its position is inside geometry) is moved and restarted",
+	},
+	{
+		"CURVATURE_LIFT",
+		"surfel_curvature_lift",
+		"visibility rays between surfels are lifted by how much their normals differ, so they do not clip curved surfaces (lines across spheres otherwise)",
+	},
+	{
+		"FILTER",
+		"surfel_filter",
+		"the irradiance is averaged with the visible neighbouring surfels twice before lookups read it",
+	},
+	{
+		"IDLE_REFRESH",
+		"surfel_idle_refresh",
+		"surfels no longer touched keep being refreshed 16 times less often instead of freezing with their old light",
+	},
+	{
+		"MOVED_RESET",
+		"surfel_moved_reset",
+		"surfels around instances that moved this frame drop most of their history, update at once and retest their neighbours",
+	},
+	{
+		"CHANGE_DETECTOR",
+		"surfel_change_detector",
+		"a surfel whose new rays keep disagreeing with its history takes a larger step toward them",
+	},
+	{
+		"GRID_SHIFT",
+		"surfel_grid_shift",
+		"cells are shifted half a cell along the normal bucket, so surfaces on round coordinates sit in the middle of a cell instead of on its boundary",
+		true,
+	},
+	{
+		"RAYS_FROM_ORIGIN",
+		"surfel_rays_from_origin",
+		"every cascade's rays start at the surfel instead of where the finer cascade's ended, so thin walls inside the finer interval are not skipped",
+	},
+	{
+		"SCREEN_PRIORITY",
+		"surfel_screen_priority",
+		"a screen sample may evict a surfel the screen no longer touches even while its rays still keep it alive",
+	},
+	{
+		"TOUCH_SCRAMBLE",
+		"surfel_touch_scramble",
+		"touch threads take screen cells in a scrambled order, so a full table is not filled by the top rows of the screen",
+	},
+}
+
+for i, feature in ipairs(surfel_gi.FEATURES) do
+	feature.bit = bit.lshift(1, i - 1)
+	feature.var = pvars.Setup2{
+		key = feature[2],
+		default = true,
+		help = feature[3],
+		callback = feature[4] and
+			function(value, initial)
+				if not initial then surfel_gi.ResetHistory() end
+			end or
+			nil,
+	}
+end
+
+function surfel_gi.GetFeatures()
+	local features = 0
+
+	for _, feature in ipairs(surfel_gi.FEATURES) do
+		if feature.var:Get() then features = bit.bor(features, feature.bit) end
+	end
+
+	return features
+end
+
 pvars.EndGroup()
 
 function surfel_gi.GetDebugMode()
@@ -177,6 +319,7 @@ do
 		if state.frame == frame then return state end
 
 		state.frame = frame
+		state.features = surfel_gi.GetFeatures()
 		state.reset = surfel_gi.reset_requested == true
 		surfel_gi.reset_requested = false
 		local all, boxes = bridge.ConsumeDirty(dirty_queue)
@@ -314,6 +457,8 @@ function surfel_gi.GetBlockLayout()
 		{"surfel_irradiance_tex", "int"},
 		{"surfel_camera", "vec4"},
 		{"surfel_params", "vec4"},
+		{"surfel_features", "int"},
+		{"surfel_capacity_bits", "int"},
 	}
 end
 
@@ -331,6 +476,8 @@ function surfel_gi.WriteBlock(self, block, active)
 	block.surfel_params[1] = lod_distance:Get()
 	block.surfel_params[2] = strength:Get()
 	block.surfel_params[3] = 0
+	block.surfel_features = surfel_gi.GetFrameState().features
+	block.surfel_capacity_bits = surfel_gi.CAPACITY_BITS
 	return block
 end
 
@@ -355,6 +502,8 @@ function surfel_gi.GetPassBlockLayout()
 		{"surfel_emitter_tex", "int"},
 		{"surfel_filter_tex", "int"},
 		{"surfel_bent_normal_tex", "int"},
+		{"surfel_features", "int"},
+		{"surfel_capacity_bits", "int"},
 		{"surfel_dirty_count", "int"},
 		{"surfel_dirty_min", "vec4", surfel_gi.MAX_DIRTY_BOXES},
 		{"surfel_dirty_max", "vec4", surfel_gi.MAX_DIRTY_BOXES},
@@ -384,6 +533,8 @@ function surfel_gi.WritePassBlock(self, block)
 	block.surfel_emitter_tex = -1
 	block.surfel_filter_tex = -1
 	block.surfel_bent_normal_tex = -1
+	block.surfel_features = state.features
+	block.surfel_capacity_bits = surfel_gi.CAPACITY_BITS
 	local dirty = state.dirty
 	block.surfel_dirty_count = math.min(#dirty, surfel_gi.MAX_DIRTY_BOXES)
 
@@ -405,12 +556,19 @@ function surfel_gi.GetDefinesGLSL()
 			[[
 		#define SURFEL_CASCADES %d
 		#define SURFEL_BASE_DIRECTIONS %d
-		#define SURFEL_CAPACITY_BITS %d
 		#define SURFEL_SLOTS_PER_ROW %d
 		#define SURFEL_PROBES %d
 		#define SURFEL_MAX_LEVEL %d
-		#define SURFEL_ATLAS_CASCADE_HEIGHT %d
 		#define SURFEL_TOP_LEVEL (SURFEL_MAX_LEVEL - SURFEL_CASCADES)
+		#ifndef SURFEL_BLOCK
+		#define SURFEL_BLOCK surfel_data
+		#endif
+		#define SURFEL_FEATURES (SURFEL_BLOCK.surfel_features)
+		#define SURFEL_CAPACITY_BITS (SURFEL_BLOCK.surfel_capacity_bits)
+		#define SURFEL_ATLAS_CASCADE_HEIGHT ((1 << SURFEL_CAPACITY_BITS) / SURFEL_SLOTS_PER_ROW * SURFEL_BASE_DIRECTIONS)
+		#define SURFEL_SLOT_COUNT surfel_offset(SURFEL_CASCADES)
+		#define SURFEL_ON(feature) ((SURFEL_FEATURES & (feature)) != 0)
+		%s
 		#ifndef saturate
 		#define saturate(x) clamp(x, 0.0, 1.0)
 		#endif
@@ -474,7 +632,7 @@ function surfel_gi.GetDefinesGLSL()
 
 		// a straight ray between two points lifted off a curved surface clips it once they are far apart, lift both by about twice the bulge of a circle through them
 		float surfel_curvature_lift(vec3 a, vec3 a_N, vec3 b, vec3 b_N) {
-			return distance(a, b) * length(a_N - b_N) * 0.25;
+			return SURFEL_ON(SURFEL_FEATURE_CURVATURE_LIFT) ? distance(a, b) * length(a_N - b_N) * 0.25 : 0.0;
 		}
 
 		vec3 surfel_bucket_weights(vec3 N) {
@@ -488,7 +646,7 @@ function surfel_gi.GetDefinesGLSL()
 		// surfaces on round coordinates lie exactly on cell boundaries along their normal, half a cell of shift puts them in the middle of a cell
 		vec3 surfel_cell_position(vec3 P, int bucket, float size) {
 			vec3 offset = vec3(0.0);
-			offset[bucket / 2] = (bucket %% 2 == 0 ? 0.5 : -0.5) * size;
+			offset[bucket / 2] = SURFEL_ON(SURFEL_FEATURE_GRID_SHIFT) ? (bucket %% 2 == 0 ? 0.5 : -0.5) * size : 0.0;
 			return (P + offset) / size;
 		}
 
@@ -502,16 +660,25 @@ function surfel_gi.GetDefinesGLSL()
 	]],
 			surfel_gi.CASCADES,
 			surfel_gi.BASE_DIRECTIONS,
-			surfel_gi.CAPACITY_BITS,
 			surfel_gi.SLOTS_PER_ROW,
 			surfel_gi.PROBES,
 			surfel_gi.MAX_LEVEL,
-			surfel_gi.ATLAS_CASCADE_HEIGHT
+			surfel_gi.GetFeatureDefinesGLSL()
 		)
 end
 
+function surfel_gi.GetFeatureDefinesGLSL()
+	local lines = {}
+
+	for _, feature in ipairs(surfel_gi.FEATURES) do
+		lines[#lines + 1] = "#define SURFEL_FEATURE_" .. feature[1] .. " " .. feature.bit
+	end
+
+	return table.concat(lines, "\n\t\t")
+end
+
 function surfel_gi.GetLookupGLSL()
-	return surfel_gi.GetDefinesGLSL() .. [[
+	return "#define SURFEL_BLOCK ddgi_data\n" .. surfel_gi.GetDefinesGLSL() .. [[
 
 		float surfel_cell_size(int level) {
 			return ddgi_data.surfel_params.x * exp2(float(level));
@@ -573,21 +740,21 @@ function surfel_gi.GetLookupGLSL()
 				ivec3 own = ivec3(floor(cell_position));
 				uint hidden = 0u;
 
-				bool check_level = check_visibility;
+				bool check_level = check_visibility && SURFEL_ON(SURFEL_FEATURE_FILL_VISIBILITY);
 				bool own_hidden = false;
 
 				if (surface) {
 					int own_slot = surfel_find(own, packed, 0);
 
 					if (own_slot >= 0) {
-						hidden = surfel_hidden_mask(own_slot);
+						hidden = SURFEL_ON(SURFEL_FEATURE_NEIGHBOUR_MASKS) ? surfel_hidden_mask(own_slot) : 0u;
 						#if defined(DDGI_VISIBILITY_RAYS) && !defined(SURFEL_SCREEN_LOOKUP)
 						vec4 own_surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(own_slot), 0);
 
 						vec3 own_N = surfel_unpack_normal(own_surfel.w);
 						float own_lift = surfel_curvature_lift(P, N, own_surfel.xyz, own_N);
 
-						if (ddgi_probe_hidden(P + N * own_lift, N, own_surfel.xyz + own_N * (0.01 + 0.05 * size + own_lift), size)) {
+						if (SURFEL_ON(SURFEL_FEATURE_OWN_CHECK) && ddgi_probe_hidden(P + N * own_lift, N, own_surfel.xyz + own_N * (0.01 + 0.05 * size + own_lift), size)) {
 							hidden = 0u;
 							own_hidden = true;
 							check_level = true;
@@ -670,7 +837,7 @@ function surfel_gi.GetLookupGLSL()
 				filled += share;
 			}
 
-			for (int coarser = level + 1; coarser <= min(level + 2, SURFEL_TOP_LEVEL) && filled < 0.999; coarser++) {
+			for (int coarser = level + 1; SURFEL_ON(SURFEL_FEATURE_FILL) && coarser <= min(level + 2, SURFEL_TOP_LEVEL) && filled < 0.999; coarser++) {
 				float coverage;
 				vec3 coarse_second;
 				vec4 coarse = surfel_sample_level(P, N, L, L2, coarser, surface, true, coverage, coarse_second);

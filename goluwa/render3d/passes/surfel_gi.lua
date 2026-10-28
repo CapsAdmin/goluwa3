@@ -165,7 +165,6 @@ local TABLE_GLSL = [[
 	#define SURFEL_STAT_FAILED 4
 	#define SURFEL_STAT_SCREEN 8
 	#define SURFEL_STAT_HITS 12
-	#define SURFEL_SLOT_COUNT ]] .. surfel_gi.SLOT_COUNT .. [[
 
 ]] .. HITS_GLSL
 
@@ -190,7 +189,7 @@ local function visit_glsl(touch)
 
 			ivec2 grid = ivec2(surfel_data.surfel_touch_size);
 			// when a table is full the samples that run first win the free slots, and threads run in screen rows: scramble which cell a thread takes
-			int scrambled = int((uint(index) * 0x9E3779B1u + uint(surfel_data.surfel_frame) * 0x632BE5ABu) & uint(SURFEL_TOUCH_SAMPLES - 1));
+			int scrambled = SURFEL_ON(SURFEL_FEATURE_TOUCH_SCRAMBLE) ? int((uint(index) * 0x9E3779B1u + uint(surfel_data.surfel_frame) * 0x632BE5ABu) & uint(SURFEL_TOUCH_SAMPLES - 1)) : index;
 
 			if (scrambled >= grid.x * grid.y) return false;
 
@@ -274,7 +273,7 @@ local function visit_glsl(touch)
 
 				uint lifetime = uint(surfel_data.surfel_lifetime);
 
-				if (candidate < 0 && (frame - surfel_table[g].stamp > lifetime || screen && frame - surfel_table[g].screen_stamp > lifetime)) {
+				if (candidate < 0 && (frame - surfel_table[g].stamp > lifetime || SURFEL_ON(SURFEL_FEATURE_SCREEN_PRIORITY) && screen && frame - surfel_table[g].screen_stamp > lifetime)) {
 					candidate = g;
 					expected = v;
 				}
@@ -364,10 +363,10 @@ local function visit_glsl(touch)
 							vec3 current_N = surfel_unpack_normal(current.w);
 							float lift = bias + surfel_curvature_lift(current.xyz, current_N, P, N);
 							uint rays = surfel_table[g].backfaces;
-							bool buried = (rays & 0xFFFFu) * 4u >= (rays >> 16u) && rays >= (8u << 16u);
+							bool buried = SURFEL_ON(SURFEL_FEATURE_BURIED) && (rays & 0xFFFFu) * 4u >= (rays >> 16u) && rays >= (8u << 16u);
 							bool fresh = (surfel_table[g].flags & 1u) != 0u || current.w == 0.0;
-							bool confirmed = frame - surfel_table[g].position_stamp <= uint(SURFEL_POSITION_CONFIRM);
-							bool seen = fresh || buried || !confirmed && surfel_sees(current.xyz + current_N * lift, P + N * lift);
+							bool confirmed = SURFEL_ON(SURFEL_FEATURE_POSITION_CONFIRM) && frame - surfel_table[g].position_stamp <= uint(SURFEL_POSITION_CONFIRM);
+							bool seen = fresh || buried || !confirmed && (!SURFEL_ON(SURFEL_FEATURE_STICKY_POSITIONS) || surfel_sees(current.xyz + current_N * lift, P + N * lift));
 
 							if (buried && !fresh) {
 								atomicOr(surfel_table[g].flags, 1u);
@@ -587,7 +586,7 @@ local function pass_update()
 
 				bool moved = false;
 
-				if (surfel_data.surfel_dirty_count > 0 && count > 0.0) {
+				if (SURFEL_ON(SURFEL_FEATURE_MOVED_RESET) && surfel_data.surfel_dirty_count > 0 && count > 0.0) {
 					vec4 position = texelFetch(TEXTURE(surfel_data.surfel_positions_tex), texel, 0);
 					float margin = 1.5 * surfel_data.surfel_cell_size * exp2(float(surfel_packed_level(max(int(texelFetch(TEXTURE(ddgi_data.surfel_key_tex), texel, 0).w), 1))));
 
@@ -606,13 +605,13 @@ local function pass_update()
 					}
 				}
 
-				bool due = moved || count == 0.0 || (uint(g) + frame) % interval == 0u;
+				bool due = moved || count == 0.0 || (alive || SURFEL_ON(SURFEL_FEATURE_IDLE_REFRESH)) && (uint(g) + frame) % interval == 0u;
 				uint boost = 1u;
 
 				if (due) {
 					uint rays = entry.backfaces >> 16u;
 
-					if (rays > 0u && count > 2.0) {
+					if (SURFEL_ON(SURFEL_FEATURE_CHANGE_DETECTOR) && rays > 0u && count > 2.0) {
 						float drift = mix(uintBitsToFloat(entry.drift), log2(max(float(entry.ratio_sum) / (1024.0 * float(rays)), 1e-3)), 0.5);
 
 						if (abs(drift) > SURFEL_CHANGE_THRESHOLD) {
@@ -686,6 +685,8 @@ local function pass_visibility()
 				int g = id / 26;
 
 				if (g >= surfel_capacity(0)) return;
+
+				if (!SURFEL_ON(SURFEL_FEATURE_NEIGHBOUR_MASKS)) return;
 
 				int neighbour = id - g * 26;
 				ivec2 slot_texel = surfel_slot_texel(g);
@@ -880,7 +881,7 @@ local function pass_trace()
 						vec3 to = neighbour.xyz + neighbour_N * (bias + lift) - from;
 						float len = length(to);
 
-						if (len < 1e-3 || scene_reflection_visible(from, to / len, len)) atomicOr(s_visible[group_slot], 1u << uint(corner));
+						if (!SURFEL_ON(SURFEL_FEATURE_MERGE_VISIBILITY) || len < 1e-3 || scene_reflection_visible(from, to / len, len)) atomicOr(s_visible[group_slot], 1u << uint(corner));
 					}
 				}
 
@@ -907,7 +908,8 @@ local function pass_trace()
 				uint instance;
 				uint primitive;
 				vec2 barycentrics;
-				bool hit = trace_scene_interval(origin, dir, 0.0, t_end, t, instance, primitive, barycentrics);
+				float t_start = SURFEL_ON(SURFEL_FEATURE_RAYS_FROM_ORIGIN) || c == 0 ? 0.0 : size0 * surfel_data.surfel_interval * float(1 << (2 * (c - 1)));
+				bool hit = trace_scene_interval(origin, dir, t_start, t_end, t, instance, primitive, barycentrics);
 				bool backface = false;
 
 				if (hit) {
@@ -1136,7 +1138,7 @@ local function pass_irradiance_filter(name, source, target)
 				vec4 surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), slot_texel, 0);
 				vec3 N = surfel_unpack_normal(surfel.w);
 				float size = surfel_cell_size(surfel_packed_level(int(key.w)));
-				uint hidden = surfel_table[g].hidden;
+				uint hidden = SURFEL_ON(SURFEL_FEATURE_NEIGHBOUR_MASKS) ? surfel_table[g].hidden : 0u;
 				vec3 sum[4] = vec3[4](vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0));
 				float sky = 0.0;
 				float total = 0.0;
@@ -1146,6 +1148,8 @@ local function pass_irradiance_filter(name, source, target)
 					int other = g;
 
 					if (index != 13) {
+						if (!SURFEL_ON(SURFEL_FEATURE_FILTER)) continue;
+
 						if ((hidden & (1u << uint(index < 13 ? index : index - 1))) != 0u) continue;
 
 						other = surfel_find(ivec3(key.xyz) + offset, int(key.w), 0);
