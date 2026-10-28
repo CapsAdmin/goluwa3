@@ -216,7 +216,6 @@ end
 function instances.SetMatrix(id, matrix)
 	write_matrix(tlas_table:Get()[id], matrix)
 	tlas_table:Touch(id)
-	instances.version = instances.version + 1
 end
 
 function instances.SetBounds(id, x, y, z, radius)
