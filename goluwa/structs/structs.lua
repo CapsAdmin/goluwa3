@@ -700,13 +700,21 @@ operators.float = function(META, operator)
 			end
 
 			function META:CopyToFloatPointer(ptr)
-				ffi_copy(ptr, self:GetFloatPointer(), float_array)
+				{{PTR_STORES}}
 				return self
 			end
 		end
 
 	]=]
-	codegen.run(lua, "operator " .. operator, fields_env(META, ", ", false), META)
+	local env = fields_env(META, ", ", false)
+	local stores = {}
+
+	for i, v in ipairs(META.Args[1]) do
+		stores[i] = "ptr[" .. (i - 1) .. "] = self." .. (type(v) == "table" and v[1] or v)
+	end
+
+	env.PTR_STORES = table.concat(stores, "\n")
+	codegen.run(lua, "operator " .. operator, env, META)
 end
 
 function structs.AddOperator(META, operator, ...)

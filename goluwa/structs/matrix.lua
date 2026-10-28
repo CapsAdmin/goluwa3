@@ -108,7 +108,7 @@ local MATRIX_TEMPLATE = [==[
 				end
 
 				function META:CopyToFloatPointer(ptr)
-					ffi.copy(ptr, self:GetFloatCopy(), float_array_size)
+					{{PTR_STORES}}
 					return self
 				end
 			end
@@ -229,6 +229,13 @@ local function matrix_template(X, Y, identity)
 		return table.concat(refs, ", ")
 	end
 
+	local ptr_stores = {}
+
+	for i, f in ipairs(fields) do
+		ptr_stores[i] = "ptr[" .. (i - 1) .. "] = self." .. f
+	end
+
+	ptr_stores = table.concat(ptr_stores, "\n")
 	local identity_lines = {}
 	local copyto_lines = {}
 	local transpose_lines = {}
@@ -292,6 +299,7 @@ local function matrix_template(X, Y, identity)
 		FIELDS_QUOTED = table.concat(quoted_fields, ", "),
 		M_FIELDS = field_refs("m."),
 		SELF_FIELDS = field_refs("self."),
+		PTR_STORES = ptr_stores,
 		COLUMN_ARGS = args(Y),
 		ROW_ARGS = args(X),
 		GET_COLUMN = table.concat(column_returns, ", "),
