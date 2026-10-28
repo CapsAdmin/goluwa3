@@ -238,6 +238,7 @@ return {
 
 					float sky_open = 0.0;
 					float sky_total = 0.0;
+					float open_count = 0.0;
 					float open_cos_squared = 0.0;
 					float open_cos_sin = 0.0;
 
@@ -248,14 +249,17 @@ return {
 						bool covered = ((bi >> uint(k)) & 1u) != 0u;
 						sky_total += direction_weight;
 
-						if (!covered) sky_open += direction_weight;
+						if (!covered) {
+							sky_open += direction_weight;
+							open_count += 1.0;
+						}
 
 						float open_share = covered ? (up <= 0.0 ? 1.0 - below_horizon_weight : 0.0) : 1.0;
 						open_cos_squared += BENT_COS_SQUARED[k] * open_share;
 						open_cos_sin += BENT_COS_SIN[k] * open_share;
 					}
 
-					total_ao += sky_open / sky_total * weight;
+					total_ao += (sky_total > 1e-4 ? sky_open / sky_total : open_count / 32.0) * weight;
 					float cn = cos(theta_n);
 					float sn = sin(theta_n);
 					total_bent += (V * (open_cos_squared * cn - open_cos_sin * sn) + T_v * (open_cos_squared * sn + open_cos_sin * cn)) * weight;
