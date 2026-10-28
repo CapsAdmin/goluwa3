@@ -142,6 +142,11 @@ local fog_gather_distance = pvars.Setup2{
 	min = 1,
 	help = "meters from the camera the fog traces its own rays for surfel gi, past it (faded over the last quarter) the fog uses the sky ambient like it does outside the surfels' range",
 }
+local fog_reorder = pvars.Setup2{
+	key = "surfel_fog_reorder",
+	default = true,
+	help = "the fog's surfel gather rays are traced from a ray generation shader and the threads are reordered by what they hit before it is shaded, off traces with ray queries in a compute shader. needs ray tracing invocation reorder, built into the shader",
+}
 local strength = pvars.Setup2{
 	key = "surfel_strength",
 	default = 1,
@@ -302,6 +307,10 @@ pvars.EndGroup()
 
 function surfel_gi.GetFogGatherDistance()
 	return fog_gather_distance:Get()
+end
+
+function surfel_gi.IsFogReordered()
+	return fog_reorder:Get()
 end
 
 function surfel_gi.GetDebugMode()

@@ -146,6 +146,9 @@ local gi_pass = {
 	FramebufferSize = {x = 1, y = 1},
 	framebuffer_count = 1,
 	LocalSize = {x = 8, y = 8, z = 1},
+	ray_generation = VISIBILITY_RAYS and
+		scene_reflection.GetRayGeneration(surfel_gi.IsFogReordered()) or
+		nil,
 	storage_images = {
 		{
 			binding_index = BINDING_OUTPUT,
@@ -331,7 +334,7 @@ local gi_pass = {
 						vec2 barycentrics;
 						vec3 ray;
 
-						if (trace_scene_interval(P, d, 0.0, SCENE_REFLECTION_MAX_DISTANCE, t, instance, primitive, barycentrics)) {
+						if (trace_scene_hit(P, d, 0.0, SCENE_REFLECTION_MAX_DISTANCE, t, instance, primitive, barycentrics)) {
 							ray = shade_scene_reflection_hit(P, d, 1.0, t, instance, primitive, barycentrics);
 						} else {
 							t = SCENE_REFLECTION_MAX_DISTANCE;
