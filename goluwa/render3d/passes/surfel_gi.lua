@@ -12,12 +12,16 @@ local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local surfel_gi = import("goluwa/render3d/surfel_gi.lua")
+local gpu_timing = import("goluwa/render/gpu_timing.lua")
+local system = import("goluwa/system.lua")
 local BINDING_OUTPUT = 0
 local BINDING_PASS = 1
 local BINDING_GI = 2
 local BINDING_TABLE = 3
 local BINDING_KEY = 4
 local BINDING_SURFEL = 5
+local BINDING_HITS = 6
+local BINDING_STATS = 7
 local BINDING_SCREEN_GEOMETRY = 13
 local BINDING_SCREEN_SPECULAR = 14
 local BINDING_SCREEN_DEBUG = 15
@@ -90,22 +94,69 @@ local function storage_image(binding, name)
 	}
 end
 
-local function bind_table(self, desc)
-	local table_buffer = surfel_gi.GetResources().table
-	self:UpdateDescriptorSet("storage_buffer", desc, BINDING_TABLE, 0, table_buffer, table_buffer:GetSize())
+local function bind_buffers(self, desc)
+	local resources = surfel_gi.GetResources()
+	self:UpdateDescriptorSet(
+		"storage_buffer",
+		desc,
+		BINDING_TABLE,
+		0,
+		resources.table,
+		resources.table:GetSize()
+	)
+	self:UpdateDescriptorSet("storage_buffer", desc, BINDING_HITS, 0, resources.hits, resources.hits:GetSize())
+	self:UpdateDescriptorSet(
+		"storage_buffer",
+		desc,
+		BINDING_STATS,
+		0,
+		resources.stats,
+		resources.stats:GetSize()
+	)
 end
 
 local function compute_barrier(cmd)
 	cmd:PipelineBarrier{srcStage = "compute", dstStage = "all_commands", memoryBarrier = true}
 end
 
-local TABLE_GLSL = [[
-	layout(std430, set = 0, binding = ]] .. BINDING_TABLE .. [[) coherent buffer SurfelTable {
-		uvec4 surfel_table[];
+local HITS_GLSL = [[
+	layout(std430, set = 0, binding = ]] .. BINDING_HITS .. [[) coherent buffer SurfelHits {
+		uint surfel_hit_count;
+		uint surfel_hit_attempts;
+		uint surfel_hit_last_attempts;
+		uint surfel_hit_pad;
+		vec4 surfel_hits[];
 	};
-	#define SURFEL_SLOT_COUNT ]] .. surfel_gi.SLOT_COUNT .. [[
+	#define SURFEL_TOUCH_SAMPLES ]] .. surfel_gi.TOUCH_SAMPLES .. [[
+
+	#define SURFEL_HIT_SAMPLES ]] .. surfel_gi.HIT_SAMPLES .. [[
 
 ]]
+local TABLE_GLSL = [[
+	struct SurfelSlot {
+		uint lock;
+		uint stamp;
+		uint election;
+		uint flags;
+		uint screen_stamp;
+		uint pad0;
+		uint pad1;
+		uint pad2;
+	};
+	layout(std430, set = 0, binding = ]] .. BINDING_TABLE .. [[) coherent buffer SurfelTable {
+		SurfelSlot surfel_table[];
+	};
+	layout(std430, set = 0, binding = ]] .. BINDING_STATS .. [[) coherent buffer SurfelStats {
+		uint surfel_stats[];
+	};
+	#define SURFEL_STAT(field) surfel_stats[(uint(surfel_data.surfel_frame) & 3u) * ]] .. surfel_gi.STATS_STRIDE .. [[u + uint(field)]
+	#define SURFEL_STAT_ALIVE 0
+	#define SURFEL_STAT_FAILED 4
+	#define SURFEL_STAT_SCREEN 8
+	#define SURFEL_STAT_HITS 12
+	#define SURFEL_SLOT_COUNT ]] .. surfel_gi.SLOT_COUNT .. [[
+
+]] .. HITS_GLSL
 
 local function visit_glsl(touch)
 	return surfel_gi.GetDefinesGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("surfel_data") .. screen_reconstruct.GetWorldPosFromUVGLSL("surfel_data") .. [[
@@ -115,6 +166,17 @@ local function visit_glsl(touch)
 		}
 
 		bool surfel_touch_sample(int index, out vec3 P, out vec3 N) {
+			if (index >= SURFEL_TOUCH_SAMPLES) {
+				int hit = index - SURFEL_TOUCH_SAMPLES;
+
+				if (hit >= int(min(surfel_hit_count, uint(SURFEL_HIT_SAMPLES)))) return false;
+
+				vec4 sample_hit = surfel_hits[hit];
+				P = sample_hit.xyz;
+				N = surfel_unpack_normal(sample_hit.w);
+				return true;
+			}
+
 			ivec2 grid = ivec2(surfel_data.surfel_touch_size);
 			ivec2 cell = ivec2(index % grid.x, index / grid.x);
 			ivec2 depth_size = textureSize(TEXTURE(surfel_data.depth_tex), 0);
@@ -136,7 +198,7 @@ local function visit_glsl(touch)
 
 			for (int k = 0; k < SURFEL_PROBES; k++) {
 				int g = offset + int((h + uint(k)) & uint(mask));
-				uint v = surfel_table[g].x;
+				uint v = surfel_table[g].lock;
 
 				if (v == h) return g;
 
@@ -149,7 +211,7 @@ local function visit_glsl(touch)
 		]] .. (
 			touch and
 			[[
-		int surfel_insert(ivec3 cell, int packed, int c, uint frame) {
+		int surfel_insert(ivec3 cell, int packed, int c, uint frame, bool screen) {
 			int mask = surfel_capacity(c) - 1;
 			int offset = surfel_offset(c);
 			uint h = surfel_key_hash(cell, packed, c);
@@ -158,10 +220,10 @@ local function visit_glsl(touch)
 
 			for (int k = 0; k < SURFEL_PROBES; k++) {
 				int g = offset + int((h + uint(k)) & uint(mask));
-				uint v = surfel_table[g].x;
+				uint v = surfel_table[g].lock;
 
 				if (v == h) {
-					surfel_table[g].y = frame;
+					surfel_table[g].stamp = frame;
 					return g;
 				}
 
@@ -174,7 +236,9 @@ local function visit_glsl(touch)
 					break;
 				}
 
-				if (candidate < 0 && frame - surfel_table[g].y > uint(surfel_data.surfel_lifetime)) {
+				uint lifetime = uint(surfel_data.surfel_lifetime);
+
+				if (candidate < 0 && (frame - surfel_table[g].stamp > lifetime || screen && frame - surfel_table[g].screen_stamp > lifetime)) {
 					candidate = g;
 					expected = v;
 				}
@@ -182,17 +246,18 @@ local function visit_glsl(touch)
 
 			if (candidate < 0) return -1;
 
-			uint previous = atomicCompSwap(surfel_table[candidate].x, expected, h);
+			uint previous = atomicCompSwap(surfel_table[candidate].lock, expected, h);
 
 			if (previous == expected) {
-				surfel_table[candidate].y = frame;
-				surfel_table[candidate].w = 1u;
+				surfel_table[candidate].stamp = frame;
+				surfel_table[candidate].screen_stamp = frame - uint(surfel_data.surfel_lifetime) - 1u;
+				atomicOr(surfel_table[candidate].flags, 1u);
 				imageStore(out_key, surfel_slot_texel(candidate), vec4(vec3(cell), float(packed)));
 				return candidate;
 			}
 
 			if (previous == h) {
-				surfel_table[candidate].y = frame;
+				surfel_table[candidate].stamp = frame;
 				return candidate;
 			}
 
@@ -226,18 +291,25 @@ local function visit_glsl(touch)
 						int cell_level = level + l + c;
 						int packed = surfel_pack(cell_level, bucket);
 						ivec3 cell = ivec3(floor(P / surfel_cell_size_at(cell_level)));
-						uint vote = (((pcg3d(uvec3(uint(index), uint(packed) | (uint(c) << 8u), frame)).x | 1u) & 0xFFFFu) << 16u) | uint(index);
+						uint vote = (((pcg3d(uvec3(uint(index), uint(packed) | (uint(c) << 8u), frame)).x | 1u) & 0x7FFFu) << 17u) | uint(index);
 						]] .. (
 			touch and
 			[[
-						int g = surfel_insert(cell, packed, c, frame);
+						bool screen = index < SURFEL_TOUCH_SAMPLES;
+						int g = surfel_insert(cell, packed, c, frame, screen);
 
-						if (g >= 0) atomicMax(surfel_table[g].z, vote);
+						if (g >= 0) {
+							atomicMax(surfel_table[g].election, vote);
+
+							if (screen) surfel_table[g].screen_stamp = frame;
+						} else if (screen && surfel_data.surfel_debug != 0) {
+							atomicAdd(SURFEL_STAT(SURFEL_STAT_FAILED + c), 1u);
+						}
 						]] or
 			[[
 						int g = surfel_table_find(cell, packed, c);
 
-						if (g >= 0 && surfel_table[g].z == vote) imageStore(out_surfel, surfel_slot_texel(g), vec4(P, surfel_pack_normal(N)));
+						if (g >= 0 && surfel_table[g].election == vote) imageStore(out_surfel, surfel_slot_texel(g), vec4(P, surfel_pack_normal(N)));
 						]]
 		) .. [[
 					}
@@ -250,7 +322,7 @@ local function visit_glsl(touch)
 
 			int index = int(gl_GlobalInvocationID.x);
 
-			if (index >= int(surfel_data.surfel_touch_size.x) * int(surfel_data.surfel_touch_size.y)) return;
+			if (index < SURFEL_TOUCH_SAMPLES && index >= int(surfel_data.surfel_touch_size.x) * int(surfel_data.surfel_touch_size.y)) return;
 
 			surfel_visit(index);
 		}
@@ -266,14 +338,25 @@ local function pass_visit(name, touch)
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
 		storage_images = {storage_image(BINDING_OUTPUT, touch and "key" or "surfel")},
-		storage_buffers = {{binding_index = BINDING_TABLE}},
+		storage_buffers = {
+			{binding_index = BINDING_TABLE},
+			{binding_index = BINDING_HITS},
+			{binding_index = BINDING_STATS},
+		},
 		uniform_buffers = {pass_uniform{}},
 		on_pre_draw = function(self, cmd, frame, desc)
-			bind_table(self, desc)
+			bind_buffers(self, desc)
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
 			self:UploadConstants()
-			self.pipeline:DispatchForSize(cmd, surfel_gi.TOUCH_SAMPLES, 1, 1, desc, self.dynamic_offsets)
+			self.pipeline:DispatchForSize(
+				cmd,
+				surfel_gi.TOUCH_SAMPLES + surfel_gi.HIT_SAMPLES,
+				1,
+				1,
+				desc,
+				self.dynamic_offsets
+			)
 			compute_barrier(cmd)
 		end,
 		custom_declarations = TABLE_GLSL .. [[
@@ -300,15 +383,52 @@ local function pass_update()
 			storage_image(BINDING_KEY, "key"),
 			storage_image(BINDING_SURFEL, "surfel"),
 		},
-		storage_buffers = {{binding_index = BINDING_TABLE}},
+		storage_buffers = {
+			{binding_index = BINDING_TABLE},
+			{binding_index = BINDING_HITS},
+			{binding_index = BINDING_STATS},
+		},
 		uniform_buffers = {pass_uniform{}},
 		on_pre_draw = function(self, cmd, frame, desc)
-			bind_table(self, desc)
+			bind_buffers(self, desc)
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
 			self:UploadConstants()
 			self.pipeline:DispatchForSize(cmd, surfel_gi.SLOT_COUNT, 1, 1, desc, self.dynamic_offsets)
 			compute_barrier(cmd)
+
+			if surfel_gi.GetDebugMode() == 0 then return end
+
+			local stats = surfel_gi.ReadStats()
+
+			for c, cascade in ipairs(stats) do
+				gpu_timing.SetInfo(
+					"surfel_update",
+					"cascade " .. (c - 1),
+					string.format(
+						"%d alive (%d screen) of %d, %d failed",
+						cascade.alive,
+						cascade.screen,
+						cascade.capacity,
+						cascade.failed
+					)
+				)
+			end
+
+			gpu_timing.SetInfo("surfel_update", "hit samples", stats.hit_samples)
+
+			if system.GetElapsedTime() - (self.surfel_stats_logged or 0) < 2 then return end
+
+			self.surfel_stats_logged = system.GetElapsedTime()
+			logf("[surfel_gi] hit samples %d\n", stats.hit_samples)
+
+			for c, cascade in ipairs(stats) do
+				logf(
+					"[surfel_gi]   cascade %d: %s\n",
+					c - 1,
+					gpu_timing.GetInfo("surfel_update")["cascade " .. (c - 1)]
+				)
+			end
 		end,
 		custom_declarations = TABLE_GLSL .. [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D surfel_state;
@@ -321,35 +441,53 @@ local function pass_update()
 
 				if (g >= SURFEL_SLOT_COUNT) return;
 
+				if (g < ]] .. surfel_gi.STATS_STRIDE .. [[) surfel_stats[((uint(surfel_data.surfel_frame) + 1u) & 3u) * ]] .. surfel_gi.STATS_STRIDE .. [[u + uint(g)] = 0u;
+
+				if (g == 0) {
+					if (surfel_data.surfel_debug != 0) SURFEL_STAT(SURFEL_STAT_HITS) = min(surfel_hit_count, uint(SURFEL_HIT_SAMPLES));
+
+					surfel_hit_count = 0u;
+					surfel_hit_last_attempts = surfel_data.surfel_reset != 0 ? 0u : surfel_hit_attempts;
+					surfel_hit_attempts = 0u;
+				}
+
 				ivec2 texel = surfel_slot_texel(g);
 
 				if (surfel_data.surfel_reset != 0) {
-					surfel_table[g] = uvec4(0u);
+					surfel_table[g] = SurfelSlot(0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
 					imageStore(out_key, texel, vec4(0.0));
 					imageStore(out_surfel, texel, vec4(0.0));
 					imageStore(surfel_state, texel, vec4(0.0));
 					return;
 				}
 
-				uvec4 entry = surfel_table[g];
-				surfel_table[g].z = 0u;
+				SurfelSlot entry = surfel_table[g];
+				surfel_table[g].election = 0u;
 
-				if (entry.x == 0u) {
+				if (entry.lock == 0u) {
 					imageStore(surfel_state, texel, vec4(0.0));
 					return;
 				}
 
-				surfel_table[g].w = 0u;
-				float count = entry.w != 0u ? 0.0 : imageLoad(surfel_state, texel).x;
+				surfel_table[g].flags = 0u;
+				float count = (entry.flags & 1u) != 0u ? 0.0 : imageLoad(surfel_state, texel).x;
 				uint frame = uint(surfel_data.surfel_frame);
-				uint age = frame - entry.y;
+				uint age = frame - entry.stamp;
 				int c = 0;
 
 				while (c < SURFEL_CASCADES - 1 && g >= surfel_offset(c + 1)) c++;
 
 				uint interval = uint(min(1 << c, surfel_data.surfel_update_interval_max));
-				bool due = age <= uint(surfel_data.surfel_lifetime) && (count == 0.0 || (uint(g) + frame) % interval == 0u);
-				imageStore(surfel_state, texel, vec4(due ? min(count + 1.0, 1024.0) : count, due ? 1.0 : 0.0, float(min(age, 60000u)), 0.0));
+				bool alive = age <= uint(surfel_data.surfel_lifetime);
+				bool due = alive && (count == 0.0 || (uint(g) + frame) % interval == 0u);
+
+				if (surfel_data.surfel_debug != 0) {
+					if (alive) atomicAdd(SURFEL_STAT(SURFEL_STAT_ALIVE + c), 1u);
+
+					if (frame - entry.screen_stamp <= uint(surfel_data.surfel_lifetime)) atomicAdd(SURFEL_STAT(SURFEL_STAT_SCREEN + c), 1u);
+				}
+
+				imageStore(surfel_state, texel, vec4(due ? min(count + 1.0, 1024.0) : count, due ? 1.0 : 0.0, float(min(age, 60000u)), entry.screen_stamp == frame ? 1.0 : 0.0));
 			}
 		]],
 	}
@@ -374,8 +512,11 @@ local function pass_trace()
 			},
 			gi_uniform(),
 		},
+		storage_buffers = {{binding_index = BINDING_HITS}},
 		on_pre_draw = function(self, cmd, frame, desc)
 			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
+			local hits = surfel_gi.GetResources().hits
+			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_HITS, 0, hits, hits:GetSize())
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
 			for c = surfel_gi.CASCADES - 1, 0, -1 do
@@ -395,7 +536,7 @@ local function pass_trace()
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D surfel_atlas;
-		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
+		]] .. HITS_GLSL .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = "#define SURFEL_UNSCALED\n#define SCENE_HIT_SKY_RAYS 1\n" .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("surfel_data") .. [[
 
 			vec4 surfel_merge(int c, ivec2 dir_texel, vec3 P, int level, int bucket, out float weight) {
@@ -509,7 +650,26 @@ local function pass_trace()
 					result = vec4(ddgi_sky(dir), 1.0);
 				}
 
-				if (hit) result = vec4(shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), 0.0);
+				if (hit) {
+					result = vec4(shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), 0.0);
+
+					if (surfel_data.surfel_hit_spawns != 0 && state.w > 0.5) {
+						scene_triangle tri = scene_hit_tri(instance, primitive);
+						vec3 hit_N = -tri.normal;
+						bool front = dot(dir, hit_N) <= 0.0;
+
+						if (front || ddgi_materials[tri.material].double_sided != 0) {
+							uint attempts = atomicAdd(surfel_hit_attempts, 1u);
+							float rate = float(SURFEL_HIT_SAMPLES) / float(max(surfel_hit_last_attempts, uint(SURFEL_HIT_SAMPLES)));
+
+							if (pcg_unorm(pcg3d(uvec3(attempts, uint(surfel_data.surfel_frame), 0x2c1b3c6du)).x) < rate) {
+								uint slot = atomicAdd(surfel_hit_count, 1u);
+
+								if (slot < uint(SURFEL_HIT_SAMPLES)) surfel_hits[slot] = vec4(origin + dir * t, surfel_pack_normal(front ? hit_N : -hit_N));
+							}
+						}
+					}
+				}
 
 				if (surfel_data.glass_light != 0) result.rgb *= get_glass_light(origin, dir, glass_distance, 0.0);
 

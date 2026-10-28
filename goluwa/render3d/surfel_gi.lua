@@ -1,3 +1,4 @@
+local ffi = require("ffi")
 local pvars = import("goluwa/cli/pvars.lua")
 local render = import("goluwa/render/render.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -17,6 +18,8 @@ surfel_gi.CAPACITY_BITS = 16
 surfel_gi.SLOTS_PER_ROW = 256
 surfel_gi.PROBES = 8
 surfel_gi.TOUCH_SAMPLES = 65536
+surfel_gi.HIT_SAMPLES = 8192
+surfel_gi.STATS_STRIDE = 16
 surfel_gi.MAX_LEVEL = 15
 
 function surfel_gi.GetCapacity(c)
@@ -73,6 +76,11 @@ local lifetime = pvars.Setup2{
 	integer = true,
 	min = 8,
 	help = "frames a surfel the screen no longer touches keeps being traced, after that its slot can be taken by a new one",
+}
+local hit_spawns = pvars.Setup2{
+	key = "surfel_hit_spawns",
+	default = true,
+	help = "what the rays of the surfels the screen touches hit gets surfels too, so walls behind the camera are lit in reflections and bounces before they are seen. off only the screen spawns surfels",
 }
 local update_interval_max = pvars.Setup2{
 	key = "surfel_update_interval_max",
@@ -196,10 +204,23 @@ function surfel_gi.GetResources()
 
 	local resources = {
 		table = render.CreateBuffer{
-			byte_size = surfel_gi.SLOT_COUNT * 16,
+			byte_size = surfel_gi.SLOT_COUNT * 32,
 			buffer_usage = {"storage_buffer"},
 			memory_property = {"device_local"},
 			label = "surfel_table",
+		},
+		stats = render.CreateBuffer{
+			byte_size = 4 * surfel_gi.STATS_STRIDE * 4,
+			buffer_usage = {"storage_buffer"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "surfel_stats",
+			data = ffi.new("uint32_t[?]", 4 * surfel_gi.STATS_STRIDE),
+		},
+		hits = render.CreateBuffer{
+			byte_size = 16 + surfel_gi.HIT_SAMPLES * 16,
+			buffer_usage = {"storage_buffer"},
+			memory_property = {"device_local"},
+			label = "surfel_hits",
 		},
 		key = texture("keys", surfel_gi.SLOTS_PER_ROW, surfel_gi.SLOT_ROWS, "r32g32b32a32_sfloat"),
 		surfel = texture("positions", surfel_gi.SLOTS_PER_ROW, surfel_gi.SLOT_ROWS, "r32g32b32a32_sfloat"),
@@ -219,6 +240,8 @@ function surfel_gi.GetResources()
 	}
 	owner.owned_textures = {
 		resources.table,
+		resources.hits,
+		resources.stats,
 		resources.key,
 		resources.surfel,
 		resources.state,
@@ -228,6 +251,29 @@ function surfel_gi.GetResources()
 	owner.surfel_resources = resources
 	surfel_gi.GetFrameState().reset = true
 	return resources
+end
+
+do
+	local Pointer = ffi.typeof("uint32_t *")
+	local stats = {}
+
+	function surfel_gi.ReadStats()
+		local buffer = surfel_gi.GetResources().stats
+		local values = ffi.cast(Pointer, buffer:Map(0, buffer:GetSize())) + (
+				system.GetFrameNumber() + 2
+			) % 4 * surfel_gi.STATS_STRIDE
+
+		for c = 0, surfel_gi.CASCADES - 1 do
+			stats[c + 1] = stats[c + 1] or {}
+			stats[c + 1].alive = values[c]
+			stats[c + 1].failed = values[4 + c]
+			stats[c + 1].screen = values[8 + c]
+			stats[c + 1].capacity = surfel_gi.GetCapacity(c)
+		end
+
+		stats.hit_samples = values[12]
+		return stats
+	end
 end
 
 function surfel_gi.HasResources()
@@ -271,6 +317,7 @@ function surfel_gi.GetPassBlockLayout()
 		{"surfel_lifetime", "int"},
 		{"surfel_update_interval_max", "int"},
 		{"surfel_debug", "int"},
+		{"surfel_hit_spawns", "int"},
 		{"surfel_hysteresis", "float"},
 		{"surfel_interval", "float"},
 		{"surfel_max_ray_distance", "float"},
@@ -294,6 +341,7 @@ function surfel_gi.WritePassBlock(self, block)
 	block.surfel_lifetime = lifetime:Get()
 	block.surfel_update_interval_max = update_interval_max:Get()
 	block.surfel_debug = DEBUG[debug:Get()]
+	block.surfel_hit_spawns = hit_spawns:Get() and 1 or 0
 	block.surfel_hysteresis = hysteresis:Get()
 	block.surfel_interval = interval:Get()
 	block.surfel_max_ray_distance = max_ray_distance:Get()
