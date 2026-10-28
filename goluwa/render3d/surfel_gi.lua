@@ -243,6 +243,18 @@ function surfel_gi.GetResources()
 			surfel_gi.GetCapacity(0) / surfel_gi.SLOTS_PER_ROW,
 			"r16g16b16a16_sfloat"
 		),
+		irradiance_raw = texture(
+			"unfiltered irradiance",
+			surfel_gi.SLOTS_PER_ROW * 4,
+			surfel_gi.GetCapacity(0) / surfel_gi.SLOTS_PER_ROW,
+			"r16g16b16a16_sfloat"
+		),
+		irradiance_blurred = texture(
+			"half filtered irradiance",
+			surfel_gi.SLOTS_PER_ROW * 4,
+			surfel_gi.GetCapacity(0) / surfel_gi.SLOTS_PER_ROW,
+			"r16g16b16a16_sfloat"
+		),
 	}
 	owner.owned_textures = {
 		resources.table,
@@ -254,6 +266,8 @@ function surfel_gi.GetResources()
 		resources.atlas,
 		resources.irradiance,
 		resources.emitter,
+		resources.irradiance_raw,
+		resources.irradiance_blurred,
 	}
 	owner.surfel_resources = resources
 	surfel_gi.GetFrameState().reset = true
@@ -334,6 +348,7 @@ function surfel_gi.GetPassBlockLayout()
 		{"surfel_state_tex", "int"},
 		{"surfel_atlas_tex", "int"},
 		{"surfel_emitter_tex", "int"},
+		{"surfel_filter_tex", "int"},
 		{"surfel_bent_normal_tex", "int"},
 	}
 end
@@ -359,6 +374,7 @@ function surfel_gi.WritePassBlock(self, block)
 	block.surfel_state_tex = -1
 	block.surfel_atlas_tex = -1
 	block.surfel_emitter_tex = -1
+	block.surfel_filter_tex = -1
 	block.surfel_bent_normal_tex = -1
 	return block
 end

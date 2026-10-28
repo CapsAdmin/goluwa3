@@ -987,6 +987,98 @@ local function pass_emitters()
 	}
 end
 
+local function pass_irradiance_filter(name, source, target)
+	return {
+		name = name,
+		ComputePass = true,
+		ColorFormat = DUMMY_FORMAT,
+		FramebufferSize = {x = 1, y = 1},
+		framebuffer_count = 1,
+		LocalSize = {x = 64, y = 1, z = 1},
+		storage_images = {storage_image(BINDING_OUTPUT, target)},
+		storage_buffers = {
+			{binding_index = BINDING_TABLE},
+			{binding_index = BINDING_HITS},
+			{binding_index = BINDING_STATS},
+		},
+		on_pre_draw = function(self, cmd, frame, desc)
+			bind_buffers(self, desc)
+		end,
+		uniform_buffers = {
+			pass_uniform{
+				write = function(self, block)
+					local r = surfel_gi.GetResources()
+					block.surfel_state_tex = self:GetTextureIndex(r.state)
+					block.surfel_filter_tex = self:GetTextureIndex(r[source])
+				end,
+			},
+			gi_uniform(),
+		},
+		on_draw = function(self, cmd, fb, frame, desc)
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(cmd, surfel_gi.GetCapacity(0), 1, 1, desc, self.dynamic_offsets)
+		end,
+		custom_declarations = TABLE_GLSL .. [[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_irradiance;
+		]],
+		shader = glsl_common.GetConstantsGLSL() .. ibl.GetEnvironmentGLSLCode() .. gi.GetCommonGLSL() .. [[
+			void main() {
+				int g = int(gl_GlobalInvocationID.x);
+
+				if (g >= surfel_capacity(0)) return;
+
+				ivec2 slot_texel = surfel_slot_texel(g);
+
+				if (texelFetch(TEXTURE(surfel_data.surfel_state_tex), slot_texel, 0).y == 0.0) return;
+
+				vec4 key = texelFetch(TEXTURE(ddgi_data.surfel_key_tex), slot_texel, 0);
+				vec4 surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), slot_texel, 0);
+				vec3 N = surfel_unpack_normal(surfel.w);
+				float size = surfel_cell_size(surfel_packed_level(int(key.w)));
+				uint hidden = surfel_table[g].hidden;
+				vec3 sum[4] = vec3[4](vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0));
+				float sky = 0.0;
+				float total = 0.0;
+
+				for (int index = 0; index < 27; index++) {
+					ivec3 offset = ivec3(index % 3, (index / 3) % 3, index / 9) - 1;
+					int other = g;
+
+					if (index != 13) {
+						if ((hidden & (1u << uint(index < 13 ? index : index - 1))) != 0u) continue;
+
+						other = surfel_find(ivec3(key.xyz) + offset, int(key.w), 0);
+
+						if (other < 0) continue;
+					}
+
+					vec4 neighbour = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(other), 0);
+					float w = exp2(-float(abs(offset.x) + abs(offset.y) + abs(offset.z))) * saturate(1.5 - abs(dot(neighbour.xyz - surfel.xyz, N)) / size) * saturate(dot(surfel_unpack_normal(neighbour.w), N));
+
+					if (w <= 0.0) continue;
+
+					vec4 a = texelFetch(TEXTURE(surfel_data.surfel_filter_tex), surfel_irradiance_texel(other, 0), 0);
+					sum[0] += a.rgb * w;
+					sky += a.a * w;
+
+					for (int i = 1; i < 4; i++) {
+						sum[i] += texelFetch(TEXTURE(surfel_data.surfel_filter_tex), surfel_irradiance_texel(other, i), 0).rgb * w;
+					}
+
+					total += w;
+				}
+
+				float inv_total = 1.0 / max(total, 1e-6);
+				imageStore(out_irradiance, surfel_irradiance_texel(g, 0), vec4(sum[0] * inv_total, sky * inv_total));
+
+				for (int i = 1; i < 4; i++) {
+					imageStore(out_irradiance, surfel_irradiance_texel(g, i), vec4(sum[i] * inv_total, texelFetch(TEXTURE(surfel_data.surfel_filter_tex), surfel_irradiance_texel(g, i), 0).a));
+				}
+			}
+		]],
+	}
+end
+
 local function pass_integrate()
 	return {
 		name = "surfel_integrate",
@@ -995,7 +1087,7 @@ local function pass_integrate()
 		FramebufferSize = {x = 1, y = 1},
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
-		storage_images = {storage_image(BINDING_OUTPUT, "irradiance")},
+		storage_images = {storage_image(BINDING_OUTPUT, "irradiance_raw")},
 		storage_buffers = {
 			{binding_index = BINDING_TABLE},
 			{binding_index = BINDING_HITS},
@@ -1246,5 +1338,7 @@ return {
 	pass_trace(),
 	pass_emitters(),
 	pass_integrate(),
+	pass_irradiance_filter("surfel_irradiance_blur", "irradiance_raw", "irradiance_blurred"),
+	pass_irradiance_filter("surfel_irradiance_filter", "irradiance_blurred", "irradiance"),
 	pass_resolve(),
 }
