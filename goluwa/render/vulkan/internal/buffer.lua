@@ -7,7 +7,7 @@ local Memory = import("goluwa/render/vulkan/internal/memory.lua")
 local buffer_pool = import("goluwa/render/vulkan/internal/buffer_pool.lua")
 local Buffer = objects.CreateTemplate("vulkan_buffer")
 local VkBufferBox = ffi.typeof("$[1]", vulkan.vk.VkBuffer)
-Buffer.address_release_serial = 0
+Buffer.mesh_address_release_serial = 0
 
 local function build_buffer_memory_name(name)
 	if not name or name == "" then return nil end
@@ -54,16 +54,21 @@ function Buffer.New(config)
 	assert(size > 0, "buffer size must be greater than 0")
 	local usage = config.usage
 	local properties = config.properties
+	local mesh_storage = false
 
-	if device.ray_tracing_supported and type(usage) == "table" then
+	if type(usage) == "table" then
 		for _, u in ipairs(usage) do
 			if u == "vertex_buffer" or u == "index_buffer" then
-				usage = {unpack(usage)}
-				table.insert(usage, "acceleration_structure_build_input_read_only_khr")
+				mesh_storage = true
 
 				break
 			end
 		end
+	end
+
+	if mesh_storage and device.ray_tracing_supported then
+		usage = {unpack(usage)}
+		table.insert(usage, "acceleration_structure_build_input_read_only_khr")
 	end
 
 	local ptr = VkBufferBox()
@@ -88,6 +93,7 @@ function Buffer.New(config)
 		size = size,
 		device = device,
 		mapped_data = nil,
+		mesh_storage = mesh_storage,
 	}
 	local requirements = device:GetBufferMemoryRequirements(self)
 	local allocate_flags
@@ -157,8 +163,8 @@ function Buffer:GetSize()
 end
 
 function Buffer:OnRemove()
-	if self.device_address then
-		Buffer.address_release_serial = Buffer.address_release_serial + 1
+	if self.device_address and self.mesh_storage then
+		Buffer.mesh_address_release_serial = Buffer.mesh_address_release_serial + 1
 	end
 
 	if

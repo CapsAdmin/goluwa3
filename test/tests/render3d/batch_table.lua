@@ -36,10 +36,10 @@ local function create_table(per_frame)
 	}
 end
 
-local function release_a_buffer()
+local function release_a_buffer(buffer_usage)
 	local buffer = render.CreateBuffer{
 		byte_size = 16,
-		buffer_usage = {"storage_buffer", "shader_device_address"},
+		buffer_usage = buffer_usage,
 		memory_property = {"host_visible", "host_coherent"},
 	}
 	buffer:GetDeviceAddress()
@@ -192,9 +192,12 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 	}
 	T(update(3, 5))["=="](1 + 4)
 	T(read_record(batch_table.buffers[1], 50).value)["=="](5000)
-	local release_serial = Buffer.address_release_serial
-	release_a_buffer()
-	T(Buffer.address_release_serial > release_serial)["=="](true)
+	local release_serial = Buffer.mesh_address_release_serial
+	release_a_buffer({"storage_buffer", "shader_device_address"})
+	T(Buffer.mesh_address_release_serial)["=="](release_serial)
+	T(update(3, 5))["=="](0)
+	release_a_buffer({"vertex_buffer", "storage_buffer", "shader_device_address"})
+	T(Buffer.mesh_address_release_serial > release_serial)["=="](true)
 	T(update(3, 6))["=="](4)
 	batches[100].value = 1000
 	T(update(3, 7))["=="](4)
@@ -232,7 +235,7 @@ T.Test3D("Graphics render3d batch table rewrites records when needed", function(
 	local addresses = ffi.cast(UInt64Ptr, read_record(batch_table.buffers[1], 60).addresses)
 	T(addresses[0] == doomed:GetMesh():GetVertexBufferAddress())["=="](true)
 	doomed:GetMesh():Remove()
-	release_a_buffer()
+	release_a_buffer({"vertex_buffer", "storage_buffer", "shader_device_address"})
 	T(update(5, 15))["=="](4)
 	addresses = ffi.cast(UInt64Ptr, read_record(batch_table.buffers[1], 60).addresses)
 	T(addresses[0] == 0)["=="](true)

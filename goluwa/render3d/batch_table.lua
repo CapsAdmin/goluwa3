@@ -138,7 +138,7 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	local slot = self.per_frame and render.GetCurrentFrame() or 1
 	local version = objects.version_counter
 	local animation_version = self.animation_version()
-	local release_serial = Buffer.address_release_serial
+	local release_serial = Buffer.mesh_address_release_serial
 	local resync = self.batch_serial ~= batch_serial or
 		self.address_release_serial ~= release_serial
 
