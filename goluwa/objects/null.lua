@@ -29,6 +29,14 @@ do
 end
 
 function objects.MakeNULL(tbl)
+	local proxy = rawget(tbl, "__gc_proxy")
+
+	if proxy then
+		local meta = getmetatable(proxy)
+		meta.__gc = nil
+		meta.__div = nil
+	end
+
 	table.clear(tbl)
 	tbl.Type = "null"
 	setmetatable(tbl, objects.GetRegistered("null"))
