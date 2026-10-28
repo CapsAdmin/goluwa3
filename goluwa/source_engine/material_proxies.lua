@@ -336,7 +336,6 @@ local generators = {
 	end,
 }
 local PRELUDE = [[
-local v, time = ...
 local pi = math.pi
 local function n(x, i)
 	if type(x) == "table" then return x[i or 1] or 0 end
@@ -388,6 +387,7 @@ local function scroll(t, rate, angle, scale)
 	local s, o = t * rate * math.cos(a), t * rate * math.sin(a)
 	return {scale, 0, s - math.floor(s), 0, scale, o - math.floor(o)}
 end
+return function(v, time)
 ]]
 
 function material_proxies.Compile(source_text)
@@ -438,10 +438,10 @@ function material_proxies.Compile(source_text)
 		end
 	end
 
-	local code = PRELUDE .. table.concat(lines, "\n") .. "\n"
-	local fn = assert(loadstring(code, "vmt proxies"))
+	local code = PRELUDE .. table.concat(lines, "\n") .. "\nend\n"
+	local chunk = assert(loadstring(code, "vmt proxies"))
 	setfenv(
-		fn,
+		chunk,
 		{
 			math = math,
 			type = type,
@@ -449,7 +449,7 @@ function material_proxies.Compile(source_text)
 			build_transform = material_proxies.BuildTransform,
 		}
 	)
-	return fn, variables, animations
+	return chunk(), variables, animations
 end
 
 local function own_copies(material)
