@@ -6,5 +6,6 @@ audio.Initialize()
 local my_sound = audio.LoadSound(
 	"https://github.com/Metastruct/garrysmod-chatsounds/raw/refs/heads/master/sound/chatsounds/autoadd/darkest_dungeon/slowly.ogg"
 )
+my_sound:SetSpatial(false)
 my_sound:Play()
 my_sound:KeepApplicationAlive()

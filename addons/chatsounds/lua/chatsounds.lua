@@ -769,6 +769,7 @@ function chatsounds.PlayScript(script)
 
 					local sound = {}
 					sound.snd = audio.CreateSound()
+					sound.snd:SetSpatial(false)
 					sound.snd:LoadPath(path)
 					sound.duration = chunk.val.duration
 					sound.trigger = chunk.val.trigger

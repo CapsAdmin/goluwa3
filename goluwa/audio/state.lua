@@ -1,13 +1,17 @@
 local ffi = require("ffi")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local audio = {}
+audio.SLOT_COUNT = 32
+audio.MAX_TAPS = 8
+audio.BAND_COUNT = 3
+audio.BUS_COUNT = 2
 audio.distance_model = "inverse"
 audio.listener_position = Vec3(0, 0, 0)
-audio.listener_velocity = Vec3(0, 0, 0)
 audio.listener_forward = Vec3(0, 0, -1)
 audio.listener_up = Vec3(0, 1, 0)
 audio.doppler_factor = 1
 audio.speed_of_sound = 343.3
+audio.ear_distance = 0.18
 audio.backend_mode = "none"
 audio.initialized = false
 audio.DISTANCE_MODE_IDS = {
@@ -19,61 +23,84 @@ audio.DISTANCE_MODE_IDS = {
 	exponent = 5,
 	exponent_clamped = 6,
 }
-local sound_state_t = ffi.typeof(
+local slot_t = ffi.typeof(
 	[[
 	struct {
 		void* buffer;
 		uint32_t buffer_len;
-		float playback_pos;
+		double playback_pos;
 		float volume;
 		float pitch;
+		float sample_rate;
 		uint8_t channels;
-		$ position;
-		$ velocity;
-		$ direction;
-		float inner_cone_angle;
-		float outer_cone_angle;
-		float outer_cone_gain;
-		float reference_distance;
-		float max_distance;
-		float rolloff_factor;
 		bool looping;
 		bool active;
 		bool paused;
+		bool spatial;
+		bool draining;
+		uint32_t start_serial;
+		uint32_t param_serial;
+		double param_time;
+		float ear_delay[2];
+		float ear_rate[2];
+		float ear_gain[6];
+		float tap_delay[$];
+		float tap_rate[$];
+		float tap_gain[$];
+		float tap_band[3];
+		float send[$];
 	}
 ]],
-	Vec3,
-	Vec3,
-	Vec3
+	audio.MAX_TAPS,
+	audio.MAX_TAPS,
+	audio.MAX_TAPS * 2,
+	audio.BUS_COUNT
 )
+local bus_t = ffi.typeof([[
+	struct {
+		float t60[3];
+		float predelay;
+	}
+]])
 audio.mixer_state_t = ffi.typeof(
 	[[
 	struct {
-		$ slots[32];
+		$ slots[$];
+		$ buses[$];
 		float master_volume;
-		$ listener_position;
-		$ listener_velocity;
-		$ listener_forward;
-		$ listener_up;
-		float doppler_factor;
-		float speed_of_sound;
-		uint8_t distance_model;
+		uint32_t sample_rate;
+		double clock_offset;
+		uint64_t mixed_frames;
 		uint32_t debug_worker_stage;
 		uint64_t debug_mix_callbacks;
 		float debug_output_peak_left;
 		float debug_output_peak_right;
+		float debug_mix_seconds;
 		bool shutdown;
 	}
 ]],
-	sound_state_t,
-	Vec3,
-	Vec3,
-	Vec3,
-	Vec3
+	slot_t,
+	audio.SLOT_COUNT,
+	bus_t,
+	audio.BUS_COUNT
 )
 audio.mixer_state_ptr_t = ffi.typeof("$*", audio.mixer_state_t)
-audio.state = ffi.new(audio.mixer_state_t)
-audio.state_ref = audio.state
-audio.state.master_volume = 1.0
+
+function audio.CreateMixerState()
+	local state = audio.mixer_state_t()
+	state.master_volume = 1
+	state.sample_rate = 44100
+
+	for i = 0, audio.BUS_COUNT - 1 do
+		state.buses[i].t60[0] = 0.5
+		state.buses[i].t60[1] = 0.5
+		state.buses[i].t60[2] = 0.5
+		state.buses[i].predelay = 0.01
+	end
+
+	return state
+end
+
+audio.state = audio.CreateMixerState()
 audio.active_sounds = {}
 return audio

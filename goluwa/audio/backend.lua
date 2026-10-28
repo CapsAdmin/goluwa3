@@ -1,7 +1,6 @@
 local ffi = require("ffi")
 local threads = import("goluwa/bindings/threads.lua")
 local event = import("goluwa/event.lua")
-local mix = import("goluwa/audio/mix.lua")
 local system = import("goluwa/system.lua")
 local module = {}
 
@@ -15,15 +14,16 @@ function module.Attach(audio)
 		state.debug_worker_stage = 1
 		local audio_buffer = import("goluwa/bindings/audio_buffer.lua")
 		state.debug_worker_stage = 2
-		audio_buffer.start{
+		local config = audio_buffer.start{
 			sample_rate = 44100,
 			buffer_size = 512,
 			channels = 2,
 		}
+		local mixer = mix_mod.CreateMixer(state, config.sample_rate, config.buffer_size)
 		state.debug_worker_stage = 3
 
 		function audio_buffer.callback(out_buffer, num_samples)
-			mix_mod.MixOutputBuffer(state, out_buffer, num_samples)
+			mix_mod.MixOutputBuffer(mixer, out_buffer, num_samples)
 		end
 
 		while not state.shutdown do
@@ -63,6 +63,7 @@ function module.Attach(audio)
 			mix_callbacks = tonumber(audio.state.debug_mix_callbacks) or 0,
 			output_peak_left = tonumber(audio.state.debug_output_peak_left) or 0,
 			output_peak_right = tonumber(audio.state.debug_output_peak_right) or 0,
+			mix_seconds = tonumber(audio.state.debug_mix_seconds) or 0,
 		}
 	end
 

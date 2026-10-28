@@ -69,19 +69,6 @@ function module.Attach(audio)
 		end
 	end
 
-	local function apply_sound_spatial_state(sound, state)
-		state.position = sound:GetPosition()
-		state.velocity = sound:GetVelocity()
-		state.direction = sound:GetDirection()
-		state.inner_cone_angle = sound:GetInnerConeAngle()
-		state.outer_cone_angle = sound:GetOuterConeAngle()
-		state.outer_cone_gain = sound:GetOuterConeGain()
-		state.reference_distance = sound:GetReferenceDistance()
-		state.max_distance = sound:GetMaxDistance()
-		state.rolloff_factor = sound:GetRolloffFactor()
-		return state
-	end
-
 	local function sync_active_sound_state(sound)
 		if sound.slot == nil then return end
 
@@ -90,14 +77,21 @@ function module.Attach(audio)
 		state.pitch = sound:GetPitch()
 		state.looping = sound:IsLooping()
 		state.paused = sound:IsPaused()
-		apply_sound_spatial_state(sound, state)
 	end
 
-	local function clear_sound_slot(sound, reset_position)
+	local function clear_sound_slot(sound, reset_position, hard)
 		if not sound or sound.slot == nil then return end
 
 		local slot = sound.slot
 		local state = audio.state.slots[slot]
+
+		if hard then
+			state.draining = false
+			state.start_serial = state.start_serial + 1
+		else
+			state.draining = state.draining or (state.active and state.spatial)
+		end
+
 		state.active = false
 		state.paused = false
 		sound.slot = nil
@@ -166,32 +160,23 @@ function module.Attach(audio)
 
 		if not info.active then return info end
 
-		local mix = audio._ComputeSpatialMixData and
-			audio._ComputeSpatialMixData(sound) or
-			{
-				total_gain = 1,
-				left_gain = 1,
-				right_gain = 1,
-			}
-		local source_gain = (
-				tonumber(sound:GetVolume()) or
-				1
-			) * (
-				tonumber(audio.state.master_volume) or
-				1
-			) * (
-				tonumber(mix.total_gain) or
-				1
-			)
-		info.left = info.raw_left * source_gain * (tonumber(mix.left_gain) or 1)
-		info.right = info.raw_right * source_gain * (tonumber(mix.right_gain) or 1)
-		info.peak = info.raw_peak * source_gain * math.max(math.abs(tonumber(mix.left_gain) or 1), math.abs(tonumber(mix.right_gain) or 1))
+		local paths = audio.ComputePaths(sound)
+		local source_gain = sound:GetVolume() * audio.state.master_volume * paths.attenuation * paths.cone_gain
+		local left_gain = paths.ear_gain[2] / math.max(paths.attenuation * paths.cone_gain, 0.000001)
+		local right_gain = paths.ear_gain[5] / math.max(paths.attenuation * paths.cone_gain, 0.000001)
+		local mix = {
+			total_gain = paths.attenuation * paths.cone_gain,
+			left_gain = left_gain,
+			right_gain = right_gain,
+		}
+		info.left = info.raw_left * source_gain * left_gain
+		info.right = info.raw_right * source_gain * right_gain
+		info.peak = info.raw_peak * source_gain * math.max(left_gain, right_gain)
 		info.total_gain = source_gain
 		info.mix = mix
 		return info
 	end
 
-	audio._apply_sound_spatial_state = apply_sound_spatial_state
 	audio._sync_active_sound_state = sync_active_sound_state
 	audio._clear_sound_slot = clear_sound_slot
 	audio._get_sound_current_sample_info = get_sound_current_sample_info
@@ -218,7 +203,7 @@ function module.Attach(audio)
 	Sound:GetSet("RolloffFactor", 1)
 	Sound:GetSet("Direction", Vec3(0, 0, 0))
 	Sound:GetSet("Position", Vec3(0, 0, 0))
-	Sound:GetSet("Velocity", Vec3(0, 0, 0))
+	Sound:IsSet("Spatial", true)
 
 	function Sound:GetDuration()
 		local buffer_len = self:GetBufferLength()
@@ -272,11 +257,13 @@ function module.Attach(audio)
 		state.playback_pos = self:GetPlaybackPosition()
 		state.volume = self:GetVolume()
 		state.pitch = self:GetPitch()
+		state.sample_rate = self:GetSampleRate()
 		state.channels = self:GetChannels()
 		state.looping = self:IsLooping()
 		state.paused = self:IsPaused()
-		apply_sound_spatial_state(self, state)
-		state.active = true
+		state.spatial = self:IsSpatial()
+		state.draining = false
+		state.start_serial = state.start_serial + 1
 	end
 
 	function Sound:Play(start_position)
@@ -296,7 +283,11 @@ function module.Attach(audio)
 		local state = audio.state.slots[slot]
 		self:ApplySlotState(state)
 		self.slot = slot
+		self.audio_motion = nil
 		audio.active_sounds[slot] = self
+
+		audio.UpdateSoundPaths(self, audio.clock())
+		state.active = true
 		return slot
 	end
 
@@ -306,6 +297,10 @@ function module.Attach(audio)
 
 	function Sound:Stop()
 		clear_sound_slot(self, true)
+	end
+
+	function Sound:Cut()
+		clear_sound_slot(self, true, true)
 	end
 
 	function Sound:Pause()
@@ -437,7 +432,6 @@ function module.Attach(audio)
 		end
 
 		self.Direction = Vec3.FromValue(direction)
-		sync_active_sound_state(self)
 		return self
 	end
 
@@ -451,42 +445,23 @@ function module.Attach(audio)
 		end
 
 		self.Position = Vec3.FromValue(position)
-		sync_active_sound_state(self)
-		return self
-	end
-
-	function Sound:GetVelocity()
-		return self.Velocity
-	end
-
-	function Sound:SetVelocity(velocity, ...)
-		if select("#", ...) > 0 then
-			error("SetVelocity expects a Vec3-like value", 2)
-		end
-
-		self.Velocity = Vec3.FromValue(velocity)
-		sync_active_sound_state(self)
 		return self
 	end
 
 	function Sound:SetReferenceDistance(distance)
 		self.ReferenceDistance = tonumber(distance) or 1
-		sync_active_sound_state(self)
 	end
 
 	function Sound:SetInnerConeAngle(angle)
 		self.InnerConeAngle = clamp(tonumber(angle) or 360, 0, 360)
-		sync_active_sound_state(self)
 	end
 
 	function Sound:SetOuterConeAngle(angle)
 		self.OuterConeAngle = clamp(tonumber(angle) or 360, 0, 360)
-		sync_active_sound_state(self)
 	end
 
 	function Sound:SetOuterConeGain(gain)
 		self.OuterConeGain = clamp(tonumber(gain) or 0, 0, 1)
-		sync_active_sound_state(self)
 	end
 
 	function Sound:SetCone(inner_angle, outer_angle, outer_gain)
@@ -498,12 +473,10 @@ function module.Attach(audio)
 
 	function Sound:SetMaxDistance(distance)
 		self.MaxDistance = tonumber(distance) or 1000000
-		sync_active_sound_state(self)
 	end
 
 	function Sound:SetRolloffFactor(factor)
 		self.RolloffFactor = tonumber(factor) or 1
-		sync_active_sound_state(self)
 	end
 
 	function Sound:IsStopped()

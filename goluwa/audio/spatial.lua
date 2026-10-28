@@ -1,232 +1,272 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local dsp = import("goluwa/audio/dsp.lua")
 local spatial = {}
+spatial.AIR_ABSORPTION_DB = {0.0011, 0.006, 0.05}
+spatial.MIN_RATE = -3
+spatial.MAX_RATE = 0.75
+local VELOCITY_TIME_CONSTANT = 0.05
+local TELEPORT_SPEED = 1000
 
-function spatial.compute_distance_attenuation(
-	distance_model_id,
-	distance,
-	reference_distance,
-	max_distance,
-	rolloff_factor,
-	distance_mode_ids
-)
-	reference_distance = math.max(reference_distance or 1, 0.0001)
-	max_distance = math.max(max_distance or reference_distance, reference_distance)
-	rolloff_factor = math.max(rolloff_factor or 1, 0)
+function spatial.ComputeDistanceAttenuation(model, distance, reference_distance, max_distance, rolloff, ids)
+	reference_distance = math.max(reference_distance, 0.0001)
+	max_distance = math.max(max_distance, reference_distance)
+	rolloff = math.max(rolloff, 0)
 
-	if distance_model_id == distance_mode_ids.none then return 1 end
+	if model == ids.none then return 1 end
 
-	local effective_distance = math.max(distance, reference_distance)
-	local clamped = distance_model_id == distance_mode_ids.inverse_clamped or
-		distance_model_id == distance_mode_ids.linear_clamped or
-		distance_model_id == distance_mode_ids.exponent_clamped
-
-	if clamped then
-		effective_distance = math.clamp(effective_distance, reference_distance, max_distance)
-	end
+	local d = math.max(distance, reference_distance)
 
 	if
-		distance_model_id == distance_mode_ids.inverse or
-		distance_model_id == distance_mode_ids.inverse_clamped
+		model == ids.inverse_clamped or
+		model == ids.linear_clamped or
+		model == ids.exponent_clamped
 	then
-		return reference_distance / (
-				reference_distance + rolloff_factor * (
-					effective_distance - reference_distance
-				)
-			)
+		d = math.clamp(d, reference_distance, max_distance)
 	end
 
-	if
-		distance_model_id == distance_mode_ids.linear or
-		distance_model_id == distance_mode_ids.linear_clamped
-	then
+	if model == ids.inverse or model == ids.inverse_clamped then
+		return reference_distance / (reference_distance + rolloff * (d - reference_distance))
+	end
+
+	if model == ids.linear or model == ids.linear_clamped then
 		if max_distance <= reference_distance then return 1 end
 
 		return math.clamp(
-			1 - (
-					rolloff_factor * (
-						effective_distance - reference_distance
-					) / (
-						max_distance - reference_distance
-					)
-				),
+			1 - rolloff * (d - reference_distance) / (max_distance - reference_distance),
 			0,
 			1
 		)
 	end
 
-	if effective_distance <= reference_distance then return 1 end
-
-	return math.pow(effective_distance / reference_distance, -rolloff_factor)
+	return (d / reference_distance) ^ -rolloff
 end
 
-function spatial.compute_cone_attenuation(
-	listener_position,
-	source_position,
-	source_direction,
-	inner_cone_angle,
-	outer_cone_angle,
-	outer_cone_gain
-)
-	inner_cone_angle = math.clamp(tonumber(inner_cone_angle) or 360, 0, 360)
-	outer_cone_angle = math.clamp(tonumber(outer_cone_angle) or 360, 0, 360)
-	outer_cone_angle = math.max(outer_cone_angle, inner_cone_angle)
-	outer_cone_gain = math.clamp(tonumber(outer_cone_gain) or 0, 0, 1)
+function spatial.ComputeConeGain(direction, to_listener, inner_angle, outer_angle, outer_gain)
+	if inner_angle >= 360 and outer_angle >= 360 then return 1 end
 
-	if inner_cone_angle >= 360 and outer_cone_angle >= 360 then return 1 end
+	if direction:IsZero() or to_listener:IsZero() then return 1 end
 
-	if source_direction:IsZero() then return 1 end
-
-	local direction = source_direction:GetNormalized()
-	local to_listener = listener_position - source_position
-
-	if to_listener:IsZero() then return 1 end
-
-	to_listener = to_listener:GetNormalized()
-	local dot = math.clamp(direction:GetDot(to_listener), -1, 1)
-	local angle = math.deg(math.acos(dot))
-	local inner_half = inner_cone_angle * 0.5
-	local outer_half = outer_cone_angle * 0.5
+	local angle = math.deg(
+		math.acos(math.clamp(direction:GetNormalized():GetDot(to_listener:GetNormalized()), -1, 1))
+	)
+	local inner_half = inner_angle * 0.5
+	local outer_half = math.max(outer_angle, inner_angle) * 0.5
 
 	if angle <= inner_half then return 1 end
 
-	if angle >= outer_half then return outer_cone_gain end
+	if angle >= outer_half or outer_half <= inner_half then return outer_gain end
 
-	if outer_half <= inner_half then return outer_cone_gain end
-
-	local fraction = (angle - inner_half) / (outer_half - inner_half)
-	return 1 + ((outer_cone_gain - 1) * fraction)
+	return 1 + (outer_gain - 1) * (angle - inner_half) / (outer_half - inner_half)
 end
 
-function spatial.compute_doppler_pitch(
-	listener_position,
-	listener_velocity,
-	source_position,
-	source_velocity,
-	speed_of_sound,
-	doppler_factor
-)
-	speed_of_sound = math.max(tonumber(speed_of_sound) or 343.3, 0.0001)
-	doppler_factor = math.max(tonumber(doppler_factor) or 1, 0)
+function spatial.AirAbsorption(band, distance)
+	return 10 ^ (-spatial.AIR_ABSORPTION_DB[band] * distance / 20)
+end
 
-	if doppler_factor == 0 then return 1 end
+function spatial.HeadShadow(band, side, front)
+	local shadow = math.max(0, -side)
+	local back = math.max(0, -front)
 
-	local direction = listener_position - source_position
+	if band == 1 then return 1 - 0.15 * shadow end
 
-	if direction:IsZero() then return 1 end
+	if band == 2 then return (1 - 0.45 * shadow) * (1 - 0.1 * back) end
+
+	return (1 - 0.7 * shadow) * (1 - 0.3 * back)
+end
+
+function spatial.RetardedDelay(ear, source, source_velocity, speed)
+	local delay = (ear - source):GetLength() / speed
+
+	for _ = 1, 3 do
+		delay = (ear - (source - source_velocity * delay)):GetLength() / speed
+	end
+
+	return delay
+end
+
+function spatial.DelayRate(from, to, from_velocity, to_velocity, speed)
+	local direction = to - from
+
+	if direction:IsZero() then return 0 end
 
 	direction = direction:GetNormalized()
-	local listener_radial = direction:GetDot(listener_velocity)
-	local source_radial = direction:GetDot(source_velocity)
-	local velocity_limit = speed_of_sound / doppler_factor
-	listener_radial = math.clamp(listener_radial, -velocity_limit, velocity_limit)
-	source_radial = math.clamp(source_radial, -velocity_limit, velocity_limit)
-	local numerator = speed_of_sound - (doppler_factor * listener_radial)
-	local denominator = speed_of_sound - (doppler_factor * source_radial)
-
-	if math.abs(denominator) < 0.0001 then
-		denominator = denominator < 0 and -0.0001 or 0.0001
-	end
-
-	return math.clamp(numerator / denominator, 0.25, 4)
+	local source_radial = direction:GetDot(from_velocity)
+	local rate = (
+			direction:GetDot(to_velocity) - source_radial
+		) / math.max(speed - source_radial, 0.0001)
+	return math.clamp(rate, spatial.MIN_RATE, spatial.MAX_RATE)
 end
 
-function spatial.compute_spatial_mix_data(
-	listener_position,
-	listener_forward,
-	listener_up,
-	distance_model_id,
-	source_position,
-	reference_distance,
-	max_distance,
-	rolloff_factor,
-	distance_mode_ids
-)
-	local rel = source_position - listener_position
-	local distance = rel:GetLength()
-	local attenuation = spatial.compute_distance_attenuation(
-		distance_model_id,
-		distance,
-		reference_distance,
-		max_distance,
-		rolloff_factor,
-		distance_mode_ids
-	)
-	local forward = listener_forward
-	local up = listener_up
+function spatial.UpdateMotion(motion, position, time)
+	if not motion.time then
+		motion.time = time
+		motion.position = position:Copy()
+		motion.velocity = Vec3(0, 0, 0)
+		return motion
+	end
 
-	if not forward:IsZero() then forward = forward:GetNormalized() end
+	local dt = time - motion.time
 
-	if not up:IsZero() then up = up:GetNormalized() end
+	if dt <= 0 then return motion end
 
-	local right = forward:GetCross(up)
+	local step = position - motion.position
+	local speed = step:GetLength() / dt
 
-	if not right:IsZero() then
-		right = right:GetNormalized()
+	if speed > TELEPORT_SPEED then
+		motion.velocity = Vec3(0, 0, 0)
 	else
+		motion.velocity = motion.velocity + (
+				step / dt - motion.velocity
+			) * (
+				1 - math.exp(-dt / VELOCITY_TIME_CONSTANT)
+			)
+	end
+
+	motion.position = position:Copy()
+	motion.time = time
+	return motion
+end
+
+function spatial.ComputePaths(audio, sound, out)
+	out = out or {ear_delay = {}, ear_rate = {}, ear_gain = {}}
+	local listener = audio.listener_position
+	local forward = audio.listener_forward:GetNormalized()
+	local right = forward:GetCross(audio.listener_up)
+
+	if right:IsZero() then
 		right = Vec3(1, 0, 0)
+	else
+		right = right:GetNormalized()
 	end
 
-	local pan = 0
+	local source = sound:GetPosition()
+	local motion = sound.audio_motion
+	local source_velocity = motion and motion.velocity or Vec3(0, 0, 0)
+	local listener_velocity = audio.listener_motion.velocity or Vec3(0, 0, 0)
+	local doppler = audio.doppler_factor
+	local speed = audio.speed_of_sound / math.max(doppler, 0.000001)
+	local to_source = source - listener
+	local distance = to_source:GetLength()
+	local direction = distance > 0.0001 and to_source / distance or forward
+	local side = direction:GetDot(right)
+	local front = direction:GetDot(forward)
+	local attenuation = spatial.ComputeDistanceAttenuation(
+		audio.DISTANCE_MODE_IDS[audio.distance_model],
+		distance,
+		sound:GetReferenceDistance(),
+		sound:GetMaxDistance(),
+		sound:GetRolloffFactor(),
+		audio.DISTANCE_MODE_IDS
+	)
+	local cone = spatial.ComputeConeGain(
+		sound:GetDirection(),
+		-to_source,
+		sound:GetInnerConeAngle(),
+		sound:GetOuterConeAngle(),
+		sound:GetOuterConeGain()
+	)
+	local occlusion = sound.audio_occlusion
+	local half_ear = right * (audio.ear_distance * 0.5)
 
-	if distance > 0.0001 then
-		pan = math.clamp(rel:GetNormalized():GetDot(right), -1, 1)
+	for ear = 1, 2 do
+		local sign = ear == 1 and -1 or 1
+		local ear_position = listener + half_ear * sign
+
+		if doppler <= 0 then
+			out.ear_delay[ear] = 0
+			out.ear_rate[ear] = 0
+		else
+			local delay = spatial.RetardedDelay(ear_position, source, source_velocity, speed)
+			out.ear_delay[ear] = delay
+			out.ear_rate[ear] = spatial.DelayRate(
+				source - source_velocity * delay,
+				ear_position,
+				source_velocity,
+				listener_velocity,
+				speed
+			)
+		end
+
+		for band = 1, 3 do
+			out.ear_gain[(ear - 1) * 3 + band] = attenuation * cone * spatial.AirAbsorption(band, distance) * spatial.HeadShadow(band, side * sign, front) * (
+					occlusion and
+					occlusion[band] or
+					1
+				)
+		end
 	end
 
-	return {
-		distance = distance,
-		attenuation = attenuation,
-		cone_gain = 1,
-		doppler_pitch = 1,
-		pan = pan,
-		left_gain = math.sqrt(0.5 * (1 - pan)),
-		right_gain = math.sqrt(0.5 * (1 + pan)),
-	}
+	out.distance = distance
+	out.attenuation = attenuation
+	out.cone_gain = cone
+	out.direction = direction
+	out.side = side
+	out.front = front
+	return out
+end
+
+function spatial.WriteSlot(slot, paths, sound, time)
+	for ear = 0, 1 do
+		slot.ear_delay[ear] = paths.ear_delay[ear + 1]
+		slot.ear_rate[ear] = paths.ear_rate[ear + 1]
+	end
+
+	for ear = 0, 1 do
+		local g = paths.ear_gain
+		slot.ear_gain[ear * 3], slot.ear_gain[ear * 3 + 1], slot.ear_gain[ear * 3 + 2] = dsp.WarpBandGains(g[ear * 3 + 1], g[ear * 3 + 2], g[ear * 3 + 3])
+	end
+
+	local env = sound.audio_environment
+
+	for t = 0, 7 do
+		local tap = env and env.taps[t + 1]
+
+		if tap then
+			slot.tap_delay[t] = tap.delay
+			slot.tap_rate[t] = tap.rate
+			slot.tap_gain[t * 2] = tap.gain_left
+			slot.tap_gain[t * 2 + 1] = tap.gain_right
+		else
+			slot.tap_gain[t * 2] = 0
+			slot.tap_gain[t * 2 + 1] = 0
+		end
+	end
+
+	if env then
+		slot.tap_band[0], slot.tap_band[1], slot.tap_band[2] = dsp.WarpBandGains(env.tap_band[1], env.tap_band[2], env.tap_band[3])
+	else
+		slot.tap_band[0], slot.tap_band[1], slot.tap_band[2] = 1, 1, 1
+	end
+
+	for bus = 0, 1 do
+		slot.send[bus] = env and env.send[bus + 1] or 0
+	end
+
+	slot.param_time = time
+	slot.param_serial = slot.param_serial + 1
 end
 
 function spatial.Attach(audio)
-	function audio.sync_listener_state()
-		audio.state.listener_position = audio.listener_position
-		audio.state.listener_velocity = audio.listener_velocity
-		audio.state.listener_forward = audio.listener_forward
-		audio.state.listener_up = audio.listener_up
-		audio.state.doppler_factor = audio.doppler_factor
-		audio.state.speed_of_sound = audio.speed_of_sound
-		audio.state.distance_model = audio.DISTANCE_MODE_IDS[audio.distance_model] or audio.DISTANCE_MODE_IDS.inverse
+	audio.listener_motion = {}
+	local paths = {ear_delay = {}, ear_rate = {}, ear_gain = {}}
+
+	function audio.UpdateSoundPaths(sound, time)
+		local slot = audio.state.slots[sound.slot]
+
+		if not slot.spatial then return end
+
+		sound.audio_motion = spatial.UpdateMotion(sound.audio_motion or {}, sound:GetPosition(), time)
+		spatial.WriteSlot(slot, spatial.ComputePaths(audio, sound, paths), sound, time)
 	end
 
-	audio._spatial = spatial
-	audio._ComputeSpatialMixData = function(sound)
-		local data = spatial.compute_spatial_mix_data(
-			audio.listener_position,
-			audio.listener_forward,
-			audio.listener_up,
-			audio.DISTANCE_MODE_IDS[audio.distance_model] or audio.DISTANCE_MODE_IDS.inverse,
-			sound:GetPosition(),
-			sound:GetReferenceDistance(),
-			sound:GetMaxDistance(),
-			sound:GetRolloffFactor(),
-			audio.DISTANCE_MODE_IDS
-		)
-		data.cone_gain = spatial.compute_cone_attenuation(
-			audio.listener_position,
-			sound:GetPosition(),
-			sound:GetDirection(),
-			sound:GetInnerConeAngle(),
-			sound:GetOuterConeAngle(),
-			sound:GetOuterConeGain()
-		)
-		data.doppler_pitch = spatial.compute_doppler_pitch(
-			audio.listener_position,
-			audio.listener_velocity,
-			sound:GetPosition(),
-			sound:GetVelocity(),
-			audio.speed_of_sound,
-			audio.doppler_factor
-		)
-		data.total_gain = data.attenuation * data.cone_gain
-		return data
+	function audio.ComputePaths(sound)
+		return spatial.ComputePaths(audio, sound)
 	end
-	audio.sync_listener_state()
+
+	function audio.UpdateListenerMotion(time)
+		spatial.UpdateMotion(audio.listener_motion, audio.listener_position, time)
+	end
+
 	return audio
 end
 

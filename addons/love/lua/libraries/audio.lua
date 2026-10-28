@@ -38,8 +38,10 @@ function love.audio.getPosition()
 	return audio.GetListenerPosition():Unpack()
 end
 
+local listener_velocity = {0, 0, 0}
+
 function love.audio.getVelocity()
-	return audio.GetListenerVelocity():Unpack()
+	return unpack(listener_velocity)
 end
 
 function love.audio.getVolume()
@@ -87,7 +89,7 @@ function love.audio.setPosition(x, y, z)
 end
 
 function love.audio.setVelocity(x, y, z)
-	audio.SetListenerVelocity(Vec3(x, y, z))
+	listener_velocity = {x, y, z}
 end
 
 function love.audio.setVolume(vol)
@@ -152,7 +154,7 @@ do
 	end
 
 	function Source:getVelocity()
-		if self.source then return self.source:GetVelocity():Unpack() end
+		if self.velocity then return unpack(self.velocity) end
 
 		return 0, 0, 0
 	end
@@ -291,7 +293,10 @@ do
 	end
 
 	function Source:setPosition(x, y, z)
-		if self.source then self.source:SetPosition(Vec3(x, y, z)) end
+		if self.source then
+			self.source:SetSpatial(true)
+			self.source:SetPosition(Vec3(x, y, z))
+		end
 	end
 
 	function Source:setRolloff(x)
@@ -299,7 +304,7 @@ do
 	end
 
 	function Source:setVelocity(x, y, z)
-		if self.source then self.source:SetVelocity(Vec3(x, y, z)) end
+		self.velocity = {x, y, z}
 	end
 
 	function Source:setVolume(vol)
@@ -364,6 +369,8 @@ do
 		else
 			wlog("tried to create unknown source type: %s %s", line.Type(var), type, 2)
 		end
+
+		if self.source then self.source:SetSpatial(false) end
 
 		self.relative = false
 		return self

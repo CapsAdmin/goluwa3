@@ -120,7 +120,6 @@ state.source:SetCone(80, 220, 0.25)
 
 if state.bee_body and state.bee_body.GetPosition then
 	state.source:SetPosition(state.bee_body:GetPosition())
-	state.source:SetVelocity(state.bee_body:GetVelocity())
 	state.source:SetDirection(Vec3(1, 0, 0))
 end
 
@@ -135,15 +134,7 @@ event.AddListener("Update", UPDATE_ID, function(dt)
 
 	if cam and cam.GetPosition then
 		local cam_pos = cam:GetPosition():Copy()
-		local listener_velocity = Vec3()
-
-		if state.last_listener_pos and dt and dt > 0 then
-			listener_velocity = (cam_pos - state.last_listener_pos) * (1 / dt)
-		end
-
-		state.last_listener_pos = cam_pos:Copy()
 		audio.SetListenerPosition(cam_pos)
-		audio.SetListenerVelocity(listener_velocity)
 
 		if cam.GetRotation then
 			local rotation = cam:GetRotation()
@@ -198,7 +189,6 @@ event.AddListener("Update", UPDATE_ID, function(dt)
 	local speed = bee_velocity:GetLength()
 	local bee_dir = speed > 0.0001 and (bee_velocity / speed) or Vec3(1, 0, 0)
 	state.source:SetPosition(bee_pos)
-	state.source:SetVelocity(bee_velocity)
 	state.source:SetDirection(bee_dir)
 	state.source:SetPitch(0.96 + math.sin(t * 5.7) * 0.05 + math.sin(t * 13.0) * 0.02)
 
@@ -217,7 +207,7 @@ event.AddListener("Draw2D", DRAW2D_ID, function()
 	if not state.source then return end
 
 	local sample_info = state.source:GetCurrentSampleInfo()
-	local spatial = audio._ComputeSpatialMixData(state.source)
+	local spatial = audio.ComputePaths(state.source)
 	local debug_state = audio.GetDebugState()
 	local listener_pos = audio.GetListenerPosition()
 	local source_pos = state.source:GetPosition()
@@ -260,7 +250,7 @@ event.AddListener("Draw2D", DRAW2D_ID, function()
 		spatial.distance or 0,
 		spatial.attenuation or 0,
 		spatial.cone_gain or 0,
-		spatial.doppler_pitch or 0,
+		1 - (spatial.ear_rate[1] + spatial.ear_rate[2]) * 0.5,
 		(sample_info.total_gain or 0),
 		tostring(debug_state.backend_mode),
 		tostring(debug_state.thread_status),

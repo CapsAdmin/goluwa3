@@ -9,6 +9,7 @@ do
 
 		resource.skip_providers = true
 		local self = audio.CreateSource(resolved_path)
+		self:SetSpatial(false)
 		resource.skip_providers = false
 		return gine.WrapObject(self, "CSoundPatch")
 	end
@@ -59,7 +60,9 @@ if CLIENT then
 		if not resolved_path then return end
 
 		resource.skip_providers = true
-		audio.CreateSource(resolved_path):Play()
+		local sound = audio.CreateSource(resolved_path)
+		sound:SetSpatial(false)
+		sound:Play()
 		resource.skip_providers = false
 	end
 end

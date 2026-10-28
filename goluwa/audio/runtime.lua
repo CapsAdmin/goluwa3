@@ -1,33 +1,38 @@
 local event = import("goluwa/event.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
+local clock = import("goluwa/audio/clock.lua")
 local module = {}
 
 function module.Attach(audio)
+	audio.clock = clock
+
 	function audio.GetFreeSlot()
-		for i = 0, 31 do
-			if not audio.state.slots[i].active then return i end
+		for i = 0, audio.SLOT_COUNT - 1 do
+			local slot = audio.state.slots[i]
+
+			if not slot.active and not slot.draining then return i end
 		end
 
 		return nil
 	end
 
 	function audio.StopAll()
-		for i = 0, 31 do
+		for i = 0, audio.SLOT_COUNT - 1 do
 			local sound = audio.active_sounds[i]
 
 			if sound then
-				audio._clear_sound_slot(sound, true)
+				audio._clear_sound_slot(sound, true, true)
 			else
-				audio.state.slots[i].active = false
-				audio.state.slots[i].paused = false
-				audio.active_sounds[i] = nil
+				local slot = audio.state.slots[i]
+				slot.active = false
+				slot.paused = false
+				slot.draining = false
+				slot.start_serial = slot.start_serial + 1
 			end
 		end
 	end
 
 	function audio.SetDistanceModel(name)
 		audio.distance_model = audio.DISTANCE_MODE_IDS[name] and name or "inverse"
-		audio.sync_listener_state()
 	end
 
 	function audio.GetDistanceModel()
@@ -36,26 +41,19 @@ function module.Attach(audio)
 
 	function audio.SetListenerPosition(position)
 		audio.listener_position = position
-		audio.sync_listener_state()
 	end
 
 	function audio.GetListenerPosition()
 		return audio.listener_position
 	end
 
-	function audio.SetListenerVelocity(velocity)
-		audio.listener_velocity = velocity
-		audio.sync_listener_state()
-	end
-
 	function audio.GetListenerVelocity()
-		return audio.listener_velocity
+		return audio.listener_motion.velocity
 	end
 
 	function audio.SetListenerOrientation(forward, up)
 		audio.listener_forward = forward
 		audio.listener_up = up
-		audio.sync_listener_state()
 	end
 
 	function audio.GetListenerOrientation()
@@ -63,8 +61,7 @@ function module.Attach(audio)
 	end
 
 	function audio.SetDopplerFactor(factor)
-		audio.doppler_factor = math.max(tonumber(factor) or 1, 0)
-		audio.sync_listener_state()
+		audio.doppler_factor = math.max(factor, 0)
 	end
 
 	function audio.GetDopplerFactor()
@@ -72,8 +69,7 @@ function module.Attach(audio)
 	end
 
 	function audio.SetSpeedOfSound(speed)
-		audio.speed_of_sound = math.max(tonumber(speed) or 343.3, 0.0001)
-		audio.sync_listener_state()
+		audio.speed_of_sound = math.max(speed, 0.0001)
 	end
 
 	function audio.GetSpeedOfSound()
@@ -81,40 +77,45 @@ function module.Attach(audio)
 	end
 
 	function audio.SetListenerGain(gain)
-		audio.state.master_volume = tonumber(gain) or 1
-		audio.sync_listener_state()
+		audio.state.master_volume = gain
 	end
 
 	function audio.GetListenerGain()
 		return audio.state.master_volume
 	end
 
-	event.AddListener("Update", "audio_sync", function()
-		for slot, sound_obj in pairs(audio.active_sounds) do
+	function audio.Update()
+		local time = audio.clock()
+		audio.UpdateListenerMotion(time)
+
+		for slot, sound in pairs(audio.active_sounds) do
 			local state = audio.state.slots[slot]
 
 			if not state.active then
-				sound_obj:SetPlaybackPosition(state.playback_pos)
+				sound:SetPlaybackPosition(state.playback_pos)
 
-				if sound_obj.slot == slot then sound_obj.slot = nil end
+				if sound.slot == slot then sound.slot = nil end
 
 				audio.active_sounds[slot] = nil
-				sound_obj:SetPlaying(false)
-				sound_obj:SetPaused(false)
-			elseif not sound_obj:IsPlaying() then
+				sound:SetPlaying(false)
+				sound:SetPaused(false)
+			elseif not sound:IsPlaying() then
+				state.draining = state.spatial
 				state.active = false
 				state.paused = false
 
-				if sound_obj.slot == slot then sound_obj.slot = nil end
+				if sound.slot == slot then sound.slot = nil end
 
 				audio.active_sounds[slot] = nil
 			else
-				audio._sync_active_sound_state(sound_obj)
-				sound_obj:SetPlaybackPosition(state.playback_pos)
+				audio._sync_active_sound_state(sound)
+				sound:SetPlaybackPosition(state.playback_pos)
+				audio.UpdateSoundPaths(sound, time)
 			end
 		end
-	end)
+	end
 
+	event.AddListener("Update", "audio_sync", audio.Update)
 	return audio
 end
 
