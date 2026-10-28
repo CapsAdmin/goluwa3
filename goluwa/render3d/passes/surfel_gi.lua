@@ -145,7 +145,7 @@ local TABLE_GLSL = [[
 		uint screen_stamp;
 		uint position_stamp;
 		uint hidden;
-		uint pad2;
+		uint backfaces;
 	};
 	layout(std430, set = 0, binding = ]] .. BINDING_TABLE .. [[) coherent buffer SurfelTable {
 		SurfelSlot surfel_table[];
@@ -155,6 +155,7 @@ local TABLE_GLSL = [[
 	};
 	#define SURFEL_STAT(field) surfel_stats[(uint(surfel_data.surfel_frame) & 3u) * ]] .. surfel_gi.STATS_STRIDE .. [[u + uint(field)]
 	#define SURFEL_POSITION_HOLD 30
+	#define SURFEL_POSITION_CONFIRM 8
 	#define SURFEL_IDLE_INTERVAL_SCALE 16
 	#define SURFEL_STAT_ALIVE 0
 	#define SURFEL_STAT_FAILED 4
@@ -284,6 +285,7 @@ local function visit_glsl(touch)
 				surfel_table[candidate].screen_stamp = frame - uint(surfel_data.surfel_lifetime) - 1u;
 				surfel_table[candidate].position_stamp = frame - uint(SURFEL_POSITION_HOLD) - 1u;
 				surfel_table[candidate].hidden = 0x3FFFFFFu;
+				surfel_table[candidate].backfaces = 0u;
 				atomicOr(surfel_table[candidate].flags, 1u);
 				imageStore(out_key, surfel_slot_texel(candidate), vec4(vec3(cell), float(packed)));
 				return candidate;
@@ -334,7 +336,13 @@ local function visit_glsl(touch)
 						if (g >= 0) {
 							atomicMax(surfel_table[g].election, vote);
 
-							if (screen) surfel_table[g].screen_stamp = frame;
+							if (screen) {
+								surfel_table[g].screen_stamp = frame;
+								vec4 current = texelFetch(TEXTURE(surfel_data.surfel_positions_tex), surfel_slot_texel(g), 0);
+								float size = surfel_cell_size_at(cell_level);
+
+								if (current.w != 0.0 && distance(current.xyz, P) < 0.75 * size && abs(dot(P - current.xyz, surfel_unpack_normal(current.w))) < 0.1 * size) surfel_table[g].position_stamp = frame;
+							}
 						} else if (screen && surfel_data.surfel_debug != 0) {
 							atomicAdd(SURFEL_STAT(SURFEL_STAT_FAILED + c), 1u);
 						}
@@ -349,7 +357,16 @@ local function visit_glsl(touch)
 							bool screen = index < SURFEL_TOUCH_SAMPLES;
 							vec3 current_N = surfel_unpack_normal(current.w);
 							float lift = bias + surfel_curvature_lift(current.xyz, current_N, P, N);
-							bool seen = (surfel_table[g].flags & 1u) != 0u || current.w == 0.0 || surfel_sees(current.xyz + current_N * lift, P + N * lift);
+							uint rays = surfel_table[g].backfaces;
+							bool buried = (rays & 0xFFFFu) * 4u >= (rays >> 16u) && rays >= (8u << 16u);
+							bool fresh = (surfel_table[g].flags & 1u) != 0u || current.w == 0.0;
+							bool confirmed = frame - surfel_table[g].position_stamp <= uint(SURFEL_POSITION_CONFIRM);
+							bool seen = fresh || buried || !confirmed && surfel_sees(current.xyz + current_N * lift, P + N * lift);
+
+							if (buried && !fresh) {
+								atomicOr(surfel_table[g].flags, 1u);
+								surfel_table[g].backfaces = 0u;
+							}
 
 							if (!seen && screen && frame - surfel_table[g].position_stamp > uint(SURFEL_POSITION_HOLD)) {
 								seen = true;
@@ -393,7 +410,15 @@ local function pass_visit(name, touch)
 			{binding_index = BINDING_HITS},
 			{binding_index = BINDING_STATS},
 		},
-		uniform_buffers = {pass_uniform{}},
+		uniform_buffers = {
+			pass_uniform{
+				write = touch and
+					function(self, block)
+						block.surfel_positions_tex = self:GetTextureIndex(surfel_gi.GetResources().surfel)
+					end or
+					nil,
+			},
+		},
 		descriptor_sets = not touch and
 			{
 				{
@@ -549,6 +574,8 @@ local function pass_update()
 
 				bool due = count == 0.0 || (uint(g) + frame) % interval == 0u;
 
+				if (due) surfel_table[g].backfaces = 0u;
+
 				if (surfel_data.surfel_debug != 0) {
 					if (alive) atomicAdd(SURFEL_STAT(SURFEL_STAT_ALIVE + c), 1u);
 
@@ -673,11 +700,14 @@ local function pass_trace()
 			},
 			gi_uniform(),
 		},
-		storage_buffers = {{binding_index = BINDING_HITS}},
+		storage_buffers = {
+			{binding_index = BINDING_TABLE},
+			{binding_index = BINDING_HITS},
+			{binding_index = BINDING_STATS},
+		},
 		on_pre_draw = function(self, cmd, frame, desc)
 			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
-			local hits = surfel_gi.GetResources().hits
-			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_HITS, 0, hits, hits:GetSize())
+			bind_buffers(self, desc)
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
 			for c = surfel_gi.CASCADES - 1, 0, -1 do
@@ -697,7 +727,7 @@ local function pass_trace()
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D surfel_atlas;
-		]] .. HITS_GLSL .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
+		]] .. TABLE_GLSL .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = "#define SURFEL_UNSCALED\n#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("surfel_data") .. [[
 
 			ivec3 surfel_merge_corner(int c, vec3 P, int level, int bucket, int i, out vec3 f) {
@@ -827,6 +857,14 @@ local function pass_trace()
 				uint primitive;
 				vec2 barycentrics;
 				bool hit = trace_scene_interval(origin, dir, 0.0, t_end, t, instance, primitive, barycentrics);
+				bool backface = false;
+
+				if (hit) {
+					scene_triangle hit_tri = scene_hit_tri(instance, primitive);
+					backface = dot(dir, hit_tri.normal) < 0.0 && ddgi_materials[hit_tri.material].double_sided == 0;
+				}
+
+				atomicAdd(surfel_table[g].backfaces, backface ? 0x10001u : 0x10000u);
 				float glass_distance = hit ? t : t_end;
 				vec4 result = vec4(0.0);
 
