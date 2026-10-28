@@ -188,7 +188,7 @@ ddgi.GUIDE_TEXELS = 8
 ddgi.DISTANCE_TEXELS = 16
 local hysteresis = pvars.Setup2{
 	key = "ddgi_hysteresis",
-	default = 0.99,
+	default = 0.97,
 	min = 0,
 	max = 1,
 	help = "how much of a probe texel's history survives a frame at 60 fps, a cascade that updates less often keeps this to the power of the frames it was away",
@@ -201,7 +201,7 @@ local change_power = pvars.Setup2{
 }
 local ray_clamp = pvars.Setup2{
 	key = "ddgi_ray_clamp",
-	default = 0,
+	default = 200,
 	min = 0,
 	help = "cap each ray's radiance at this many times the probe's mean ray luminance, 0 is off",
 }
@@ -209,7 +209,7 @@ local guided_ray_fraction = pvars.Setup2{
 	key = "ddgi_guided_rays",
 	default = 0.7,
 	min = 0,
-	max = 0.75,
+	max = 1,
 	help = "share of each probe's rays aimed by its own radiance map, 0 is uniform rays only",
 }
 local aim_share = pvars.Setup2{
@@ -296,7 +296,7 @@ local contrast_ratio = pvars.Setup2{
 }
 local visibility_front_faces_only = pvars.Setup2{
 	key = "ddgi_visibility_front_faces_only",
-	default = true,
+	default = false,
 	help = "visibility rays only hit front faces",
 }
 local DEBUG_PROBES = {off = 0, irradiance = 1, hit_distance = 2}
@@ -514,7 +514,10 @@ do
 		local n = math.max(math.min(need[a], math.floor(budget ^ (1 / 3) + 1e-6)), ddgi.MIN_PROBES_PER_AXIS)
 		cascade.size[a] = n
 		budget = math.floor(budget / n)
-		n = math.max(math.min(need[b], math.floor(math.sqrt(budget) + 1e-6)), ddgi.MIN_PROBES_PER_AXIS)
+		n = math.max(
+			math.min(need[b], math.floor(math.sqrt(budget) + 1e-6)),
+			ddgi.MIN_PROBES_PER_AXIS
+		)
 		cascade.size[b] = n
 		budget = math.floor(budget / n)
 		cascade.size[c] = math.max(math.min(need[c], budget), ddgi.MIN_PROBES_PER_AXIS)
@@ -568,7 +571,15 @@ do
 		if not reference or frame - reference.frame >= 8 then
 			if reference and threshold > 0 then
 				local luma_change = math.abs(sun_luma - reference.luma) / math.max(sun_luma, reference.luma, 1e-3)
-				local moved = math.sqrt((sun_x - reference.x) ^ 2 + (sun_y - reference.y) ^ 2 + (sun_z - reference.z) ^ 2)
+				local moved = math.sqrt(
+					(
+							sun_x - reference.x
+						) ^ 2 + (
+							sun_y - reference.y
+						) ^ 2 + (
+							sun_z - reference.z
+						) ^ 2
+				)
 
 				if moved + luma_change > threshold then state.sun_fast_until = frame + 60 end
 			end
