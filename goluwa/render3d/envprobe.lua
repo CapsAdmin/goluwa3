@@ -76,7 +76,7 @@ envprobe.auto_placement_enabled = pvars.Setup2{
 pvars.EndGroup()
 envprobe.capture_pipeline_flags = envprobe.capture_pipeline_flags or {
 	reflections = false,
-	ocean = true,
+	water = true,
 }
 envprobe.AUTO_PLACEMENT_SPACING = 24
 envprobe.AUTO_PLACEMENT_RADIUS_CELLS = 4
@@ -1150,7 +1150,7 @@ local function get_probe_capture_bundle(size)
 			return name:find("^gbuffer") ~= nil or
 				name == "reflections" or
 				name == "lighting" or
-				name == "ocean"
+				name == "water"
 		end,
 	}
 	envprobe.capture_bundles[size] = bundle
@@ -1165,7 +1165,7 @@ local function get_probe_capture_context()
 		allow_last_frame_history = false,
 		pipeline_flags = {
 			reflections = envprobe.capture_pipeline_flags.reflections == true,
-			ocean = envprobe.capture_pipeline_flags.ocean ~= false,
+			water = envprobe.capture_pipeline_flags.water ~= false,
 		},
 	}
 end
@@ -1174,11 +1174,11 @@ local function get_probe_capture_source_texture(bundle)
 	local current_idx = system.GetFrameNumber() % 2 + 1
 
 	if
-		envprobe.capture_pipeline_flags.ocean ~= false and
-		render3d.IsBundlePassEnabled(bundle, "ocean") and
-		bundle.pipelines.ocean.framebuffers
+		envprobe.capture_pipeline_flags.water ~= false and
+		render3d.IsBundlePassEnabled(bundle, "water") and
+		bundle.pipelines.water.framebuffers
 	then
-		return bundle.pipelines.ocean:GetFramebuffer(current_idx):GetAttachment(1)
+		return bundle.pipelines.water:GetFramebuffer(current_idx):GetAttachment(1)
 	end
 
 	if render3d.IsBundlePassEnabled(bundle, "lighting") then

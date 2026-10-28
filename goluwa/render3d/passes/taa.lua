@@ -71,7 +71,7 @@ return {
 						{"source_tex", "int"},
 						{"history_tex", "int"},
 						{"history_color_tex", "int"},
-						{"ocean_distance_tex", "int"},
+						{"water_distance_tex", "int"},
 						{"depth_tex", "int"},
 						{"velocity_tex", "int"},
 						{"translucent_motion_tex", "int"},
@@ -92,15 +92,15 @@ return {
 						block.history_color_tex = render3d.IsAntiAliasingEnabled("edge_aa_t") and
 							self:GetTextureIndex(render3d.pipelines.edge_aa:GetFramebuffer((frame + 1) % 2 + 1):GetAttachment(1)) or
 							block.history_tex
-						block.ocean_distance_tex = render3d.IsPassEnabled("ocean") and
+						block.water_distance_tex = render3d.IsPassEnabled("water") and
 							(
 								render3d.IsOceanEnabled() or
 								render3d.IsWaterEnabled()
 							)
 							and
-							render3d.IsPassEnabled("ocean") and
-							render3d.pipelines.ocean.framebuffers and
-							self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(frame % 2 + 1):GetAttachment(2)) or
+							render3d.IsPassEnabled("water") and
+							render3d.pipelines.water.framebuffers and
+							self:GetTextureIndex(render3d.pipelines.water:GetFramebuffer(frame % 2 + 1):GetAttachment(2)) or
 							-1
 						block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
 						block.velocity_tex = render3d.velocity_enabled:Get() and
@@ -239,7 +239,7 @@ return {
 					prev_uv = prev_clip.xy / prev_clip.w * 0.5 + 0.5;
 				}
 
-				float water_distance = taa_data.ocean_distance_tex != -1 ? texelFetch(TEXTURE(taa_data.ocean_distance_tex), pixel, 0).r : -1.0;
+				float water_distance = taa_data.water_distance_tex != -1 ? texelFetch(TEXTURE(taa_data.water_distance_tex), pixel, 0).r : -1.0;
 
 				if (water_distance > 0.0) {
 					vec4 water_clip = taa_data.prev_projection * taa_data.prev_view * vec4(taa_data.camera_position + get_view_ray(uv) * water_distance, 1.0);

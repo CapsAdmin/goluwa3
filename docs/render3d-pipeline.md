@@ -1,6 +1,6 @@
 # Render3D pipeline, Vulkan pitfalls, LOD, surface features and test scenes
 
-How the 3D frame is put together and the invariants that are easy to break. Pass sources are in `goluwa/render3d/passes/` (the list and order is `default_passes` in `render3d.lua`; each pass has an `r_pass_<name>` pvar; a disabled pass is still built, except `optional` entries, which default off and are only built while on, so toggling one rebuilds the pipelines. The ocean is optional because its fragment shader inlines reflection traces and GI lookups and takes the driver minutes to compile). The ray traced scene store and the culled draw path are in [gpu-scene.md](gpu-scene.md); lighting is in [render3d-lighting.md](render3d-lighting.md); measurement is in [performance.md](performance.md).
+How the 3D frame is put together and the invariants that are easy to break. Pass sources are in `goluwa/render3d/passes/` (the list and order is `default_passes` in `render3d.lua`; each pass has an `r_pass_<name>` pvar; a disabled pass is still built, except `optional` entries, which default off and are only built while on, so toggling one rebuilds the pipelines. The water is optional because its shader inlines reflection traces and GI lookups and takes the driver minutes to compile). The ray traced scene store and the culled draw path are in [gpu-scene.md](gpu-scene.md); lighting is in [render3d-lighting.md](render3d-lighting.md); measurement is in [performance.md](performance.md).
 
 ## Frame structure
 

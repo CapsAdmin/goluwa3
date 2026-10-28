@@ -52,13 +52,13 @@ local function write_gi_screen_texture(self, block, key)
 	block[key] = texture and self:GetTextureIndex(texture) or -1
 end
 
-local function write_ocean_distance_texture(self, block, key)
+local function write_water_distance_texture(self, block, key)
 	if
 		render3d.IsWaterEnabled() and
-		render3d.IsPassEnabled("ocean") and
-		render3d.pipelines.ocean.framebuffers
+		render3d.IsPassEnabled("water") and
+		render3d.pipelines.water.framebuffers
 	then
-		block[key] = self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(2))
+		block[key] = self:GetTextureIndex(render3d.pipelines.water:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(2))
 	else
 		block[key] = -1
 	end
@@ -190,7 +190,7 @@ local gi_pass = {
 				{"froxel_size", "vec2"},
 				{"frame", "int"},
 				{"gi_screen_tex", "int"},
-				{"ocean_distance_tex", "int"},
+				{"water_distance_tex", "int"},
 				scene_reflection.block,
 				atmosphere.GetBlockLayout(),
 				{"primary_sun_illuminance", "float"},
@@ -205,7 +205,7 @@ local gi_pass = {
 				block.froxel_size[1] = froxels.height
 				block.frame = system.GetFrameNumber()
 				write_gi_screen_texture(self, block, "gi_screen_tex")
-				write_ocean_distance_texture(self, block, "ocean_distance_tex")
+				write_water_distance_texture(self, block, "water_distance_tex")
 				scene_reflection.WriteBlock(self, block)
 				local lights = render3d.GetLights()
 				atmosphere.WriteBlock(
@@ -438,7 +438,7 @@ local scatter_pass = {
 				gbuffer_layout.block,
 				{"froxel_size", "vec2"},
 				{"frame", "int"},
-				{"ocean_distance_tex", "int"},
+				{"water_distance_tex", "int"},
 				{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 				{"light_count", "int"},
 				{"shadows", scene_lights.BuildShadowsBlockLayout()},
@@ -451,7 +451,7 @@ local scatter_pass = {
 				block.froxel_size[0] = froxels.width
 				block.froxel_size[1] = froxels.height
 				block.frame = system.GetFrameNumber()
-				write_ocean_distance_texture(self, block, "ocean_distance_tex")
+				write_water_distance_texture(self, block, "water_distance_tex")
 				light_occlusion.WriteOcclusionBlock(block, medium_lighting.WriteLightsBlock(self, block))
 				return block
 			end,
@@ -580,7 +580,7 @@ local temporal_pass = {
 				render3d.prev_camera_block,
 				gbuffer_layout.block,
 				{"froxel_size", "vec2"},
-				{"ocean_distance_tex", "int"},
+				{"water_distance_tex", "int"},
 				{"history", "float"},
 				{"sun_direction", "vec4"},
 			},
@@ -594,7 +594,7 @@ local temporal_pass = {
 				gbuffer_layout.WriteBlock(self, block)
 				block.froxel_size[0] = froxels.width
 				block.froxel_size[1] = froxels.height
-				write_ocean_distance_texture(self, block, "ocean_distance_tex")
+				write_water_distance_texture(self, block, "water_distance_tex")
 				block.history = froxels.history_valid and
 					FROXEL_HISTORY ^ (
 						math.min(system.GetFrameTime(), 0.1) * 60
@@ -825,7 +825,7 @@ local composite_pass = {
 					render3d.camera_block,
 					gbuffer_layout.block,
 					{"source_tex", "int"},
-					{"ocean_distance_tex", "int"},
+					{"water_distance_tex", "int"},
 					{"gi_screen_tex", "int"},
 					{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 					{"light_count", "int"},
@@ -845,7 +845,7 @@ local composite_pass = {
 					block.cloud_view_depth_tex = cloud_view and self:GetTextureIndex(cloud_view_depth) or -1
 					block.frame = system.GetFrameNumber() % 64
 					block.source_tex = self:GetTextureIndex(post_source.GetOpaqueSceneTexture())
-					write_ocean_distance_texture(self, block, "ocean_distance_tex")
+					write_water_distance_texture(self, block, "water_distance_tex")
 					write_gi_screen_texture(self, block, "gi_screen_tex")
 					medium_lighting.WriteLightsBlock(self, block)
 					return block
@@ -876,7 +876,7 @@ local composite_pass = {
 				vec4 scene = texture(TEXTURE(fog_data.source_tex), in_uv);
 				scene.rgb /= pre_exposure;
 				float depth = texture(TEXTURE(fog_data.depth_tex), in_uv).r;
-				float air_distance = fog_data.ocean_distance_tex != -1 ? texture(TEXTURE(fog_data.ocean_distance_tex), in_uv).b : -1.0;
+				float air_distance = fog_data.water_distance_tex != -1 ? texture(TEXTURE(fog_data.water_distance_tex), in_uv).b : -1.0;
 				vec3 view_dir = get_view_dir(in_uv);
 				float hit_distance = -1.0;
 

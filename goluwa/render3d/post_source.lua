@@ -7,15 +7,15 @@ local post_source = {}
 
 function post_source.GetOpaqueSceneFramebuffer()
 	if render3d.IsWaterEnabled() then
-		if render3d.IsPassEnabled("ocean") then
+		if render3d.IsPassEnabled("water") then
 			local current_idx = system.GetFrameNumber() % 2 + 1
 
-			if render3d.pipelines.ocean_resolve.framebuffers then
-				return render3d.pipelines.ocean_resolve:GetFramebuffer(current_idx)
+			if render3d.pipelines.water_resolve.framebuffers then
+				return render3d.pipelines.water_resolve:GetFramebuffer(current_idx)
 			end
 
-			if render3d.pipelines.ocean.framebuffers then
-				return render3d.pipelines.ocean:GetFramebuffer(current_idx)
+			if render3d.pipelines.water.framebuffers then
+				return render3d.pipelines.water:GetFramebuffer(current_idx)
 			end
 		end
 	end

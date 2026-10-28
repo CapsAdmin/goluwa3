@@ -694,27 +694,38 @@ end
 list.insert(
 	passes,
 	{
-		name = "ocean",
+		name = "water",
+		ComputePass = true,
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"color", "rgba"}},
-			{"r32g32b32a32_sfloat", {"ocean_distance", "rgba"}},
+			{"r32g32b32a32_sfloat", {"water_distance", "rgba"}},
 		},
 		framebuffer_count = 2,
 		dont_create_framebuffers = true,
-		DescriptorSetCount = RAY_QUERY and render.GetSwapchainImageCount() or nil,
+		LocalSize = {x = 8, y = 8, z = 1},
+		storage_images = {
+			{binding_index = 0, attachment = 1, dst_stage = {"compute", "fragment"}},
+			{binding_index = 1, attachment = 2, dst_stage = {"compute", "fragment"}},
+		},
 		on_pre_draw = RAY_QUERY and
-			function(self, cmd)
-				scene_reflection.Bind(self, cmd, render.GetCurrentFrame(), REFLECTION_BINDINGS)
+			function(self, cmd, frame, desc)
+				scene_reflection.Bind(self, cmd, desc, REFLECTION_BINDINGS)
 			end or
 			nil,
-		fragment = {
-			descriptor_sets = RAY_QUERY and
-				scene_reflection.GetDescriptorSets(REFLECTION_BINDINGS, "fragment") or
-				nil,
-			custom_declarations = RAY_QUERY and scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) or nil,
-			uniform_buffers = {
+		descriptor_sets = RAY_QUERY and
+			scene_reflection.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
+			nil,
+		custom_declarations = [[
+			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
+			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_water_distance;
+		]] .. (
+				RAY_QUERY and
+				scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) or
+				""
+			),
+		uniform_buffers = {
 				{
-					name = "ocean_data",
+					name = "water_data",
 					binding_index = 3,
 					block = {
 						render3d.camera_block,
@@ -833,7 +844,17 @@ list.insert(
 				RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
 			},
 			shader = [[
-			]] .. post_source.GetPreExposureGLSL("ocean_data") .. [[
+			ivec2 water_pixel;
+			vec2 in_uv;
+
+			void set_color(vec4 color) {
+				imageStore(out_color, water_pixel, color);
+			}
+
+			void set_water_distance(vec4 distance) {
+				imageStore(out_water_distance, water_pixel, distance);
+			}
+			]] .. post_source.GetPreExposureGLSL("water_data") .. [[
 
 			const int WATER_CAUSTICS = 1;
 			const int WATER_SHAFTS = 2;
@@ -851,12 +872,12 @@ list.insert(
 			const int WATER_UNIFORM_ROUGHNESS = 8192;
 
 			bool water_feature(int bit) {
-				return (ocean_data.features & bit) != 0;
+				return (water_data.features & bit) != 0;
 			}
 
 			vec3 get_scene_color(vec2 uv) {
-				if (ocean_data.scene_tex == -1) return vec3(0.0);
-				return texture(TEXTURE(ocean_data.scene_tex), uv).rgb / get_pre_exposure();
+				if (water_data.scene_tex == -1) return vec3(0.0);
+				return texture(TEXTURE(water_data.scene_tex), uv).rgb / get_pre_exposure();
 			}
 
 			float water_rt_share = 0.0;
@@ -894,14 +915,14 @@ list.insert(
 			const float WATER_OPEN_DEPTH = 2000.0;
 			const float WATER_SCREENSPACE_DISTANCE = 20000.0;
 
-			]] .. gbuffer_layout.GetDecodeGLSL("ocean_data") .. [[
-			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("ocean_data") .. [[
-			]] .. screen_reconstruct.GetViewRayFromUVGLSL("ocean_data") .. [[
-			]] .. screen_refraction.GetGLSL("ocean_data") .. [[
+			]] .. gbuffer_layout.GetDecodeGLSL("water_data") .. [[
+			]] .. screen_reconstruct.GetWorldPosFromUVGLSL("water_data") .. [[
+			]] .. screen_reconstruct.GetViewRayFromUVGLSL("water_data") .. [[
+			]] .. screen_refraction.GetGLSL("water_data") .. [[
 
 ]] .. glsl_common.GetSunHorizonVisibilityGLSL() .. [[
 
-			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("ocean_data", "get_water_sun_visibility_shadowed") .. [[
+			]] .. directional_shadows.GetMediumDirectionalShadowGLSL("water_data", "get_water_sun_visibility_shadowed") .. [[
 
 			float get_water_sun_visibility(vec3 p, vec3 dir) {
 				return water_feature(WATER_SUN_SHADOWS) ? get_water_sun_visibility_shadowed(p, dir) : 1.0;
@@ -910,20 +931,20 @@ list.insert(
 			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetFresnelGLSL() .. glsl_common.GetBlueNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
 					RAY_QUERY and
-					render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("ocean_data", "ocean_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("ocean_data") .. scene_reflection.GetDirectionGLSL()
+					render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("water_data", "water_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("water_data") .. scene_reflection.GetDirectionGLSL()
 					or
 					scene_reflection.CONSTANTS_GLSL .. "#define DDGI_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
 				) .. [[
 
 			float get_blue_noise() {
-				if (ocean_data.blue_noise_tex == -1) return 0.5;
-				float n = blue_noise_texel(TEXTURE(ocean_data.blue_noise_tex), ivec2(gl_FragCoord.xy)).r;
-				return fract(n + float(ocean_data.frame) * 0.61803398875);
+				if (water_data.blue_noise_tex == -1) return 0.5;
+				float n = blue_noise_texel(TEXTURE(water_data.blue_noise_tex), water_pixel).r;
+				return fract(n + float(water_data.frame) * 0.61803398875);
 			}
 
 			vec2 get_blue_noise2(int sample_index) {
-				if (ocean_data.blue_noise_tex == -1) return vec2(0.5);
-				return blue_noise_r2(blue_noise_texel(TEXTURE(ocean_data.blue_noise_tex), ivec2(gl_FragCoord.xy)).rg, float(ocean_data.frame * ocean_data.rough_rays + sample_index));
+				if (water_data.blue_noise_tex == -1) return vec2(0.5);
+				return blue_noise_r2(blue_noise_texel(TEXTURE(water_data.blue_noise_tex), water_pixel).rg, float(water_data.frame * water_data.rough_rays + sample_index));
 			}
 
 			float water_hash(vec2 p) {
@@ -976,7 +997,7 @@ list.insert(
 			}
 
 			float get_pixel_footprint(float t, float cos_incidence) {
-				float pixel_angle = 2.0 / (ocean_data.projection[1][1] * ocean_data.render_size.y);
+				float pixel_angle = 2.0 / (water_data.projection[1][1] * water_data.render_size.y);
 				return t * pixel_angle / sqrt(max(abs(cos_incidence), 0.03));
 			}
 
@@ -993,9 +1014,9 @@ list.insert(
 
 			vec4 sample_wave_cascade(int cascade, vec2 world_xz, out float coverage) {
 				coverage = 0.0;
-				int tex = ocean_data.wave_tex[cascade];
+				int tex = water_data.wave_tex[cascade];
 				if (tex == -1) return vec4(0.0);
-				vec4 origin = ocean_data.wave_origin[cascade];
+				vec4 origin = water_data.wave_origin[cascade];
 				vec2 uv = (world_xz - origin.xy) * (0.5 / origin.z) + 0.5;
 				vec2 edge = abs(uv - 0.5) * 2.0;
 				coverage = 1.0 - smoothstep(0.75, 0.97, max(edge.x, edge.y));
@@ -1010,24 +1031,24 @@ list.insert(
 				{
 					const float FAR_TILE = ]] .. water.FFT_CASCADES[1].size .. [[;
 					vec2 uv = world_xz / FAR_TILE + 0.5 / ]] .. water.FFT_SIZE .. [[.0;
-					vec2 shifted = world_xz - ocean_data.wave_choppiness * textureLod(TEXTURE(ocean_data.far_tex[0]), uv, 0.0).xz;
+					vec2 shifted = world_xz - water_data.wave_choppiness * textureLod(TEXTURE(water_data.far_tex[0]), uv, 0.0).xz;
 					uv = shifted / FAR_TILE + 0.5 / ]] .. water.FFT_SIZE .. [[.0;
 					float texel = FAR_TILE / ]] .. water.FFT_SIZE .. [[.0;
 					float lod = max(log2(footprint / texel), 0.0);
 					float weight = get_wave_resolve(texel * WAVE_TEXELS_PER_WAVELENGTH, footprint);
-					vec4 far_derivatives = textureLod(TEXTURE(ocean_data.far_tex[1]), uv, lod);
-					data = vec4(textureLod(TEXTURE(ocean_data.far_tex[0]), uv, lod).y, far_derivatives.xy / (1.0 + ocean_data.wave_choppiness * far_derivatives.zw), 0.0);
+					vec4 far_derivatives = textureLod(TEXTURE(water_data.far_tex[1]), uv, lod);
+					data = vec4(textureLod(TEXTURE(water_data.far_tex[0]), uv, lod).y, far_derivatives.xy / (1.0 + water_data.wave_choppiness * far_derivatives.zw), 0.0);
 					data *= weight;
-					resolved_variance = ocean_data.far_variance * weight;
+					resolved_variance = water_data.far_variance * weight;
 				}
 
 				for (int i = WAVE_CASCADES - 1; i >= 0; i--) {
 					float coverage;
 					vec4 cascade = sample_wave_cascade(i, world_xz, coverage);
-					float texel = ocean_data.wave_origin[i].z * 2.0 / ]] .. WAVE_TEX_SIZE .. [[.0;
+					float texel = water_data.wave_origin[i].z * 2.0 / ]] .. WAVE_TEX_SIZE .. [[.0;
 					float weight = coverage * get_wave_resolve(texel * WAVE_TEXELS_PER_WAVELENGTH, footprint);
 					data = mix(data, cascade, weight);
-					resolved_variance = mix(resolved_variance, ocean_data.wave_origin[i].w, weight);
+					resolved_variance = mix(resolved_variance, water_data.wave_origin[i].w, weight);
 				}
 
 				return data;
@@ -1035,7 +1056,7 @@ list.insert(
 
 			float get_water_surface_height(vec2 world_xz) {
 				float variance;
-				return ocean_data.ocean_level + get_wave_data(world_xz, 0.0, variance).r;
+				return water_data.ocean_level + get_wave_data(world_xz, 0.0, variance).r;
 			}
 
 			const float VOLUME_RIPPLE_LIFETIME = 10.0;
@@ -1044,9 +1065,9 @@ list.insert(
 
 			float add_ripples(vec2 p, float footprint, vec2 wind, vec2 flow, float slope_variance, float wavelength, float upwind_share, float lifetime, inout vec2 grad, inout vec3 hess) {
 				float lost_variance = 0.0;
-				float time = ocean_data.time;
+				float time = water_data.time;
 				float wind_angle = atan(wind.y, wind.x);
-				int PAIRS = ocean_data.ripple_pairs;
+				int PAIRS = water_data.ripple_pairs;
 				p -= flow * time;
 
 				for (int o = 0; o < RIPPLE_OCTAVES; o++) {
@@ -1095,20 +1116,20 @@ list.insert(
 					float speed = sqrt(WATER_GRAVITY * 4.0 * texel / 6.28318530718);
 					bool transposed = (layer & 1) == 1;
 					vec2 direction = transposed ? wind.yx : wind;
-					vec2 q = (transposed ? p.yx : p) - direction * (speed * ocean_data.time);
+					vec2 q = (transposed ? p.yx : p) - direction * (speed * water_data.time);
 					float lod = max(log2(footprint / texel), 0.0);
 					float step_size = max(texel * 0.5, footprint * 0.5);
 					vec2 step_uv = vec2(step_size * frequency, 0.0);
 					float weight = WEIGHTS[layer] * 0.15 * strength;
-					vec2 here = (textureLod(TEXTURE(ocean_data.bump_tex), q * frequency, lod).rg - 0.5) * weight;
-					vec2 along_x = (textureLod(TEXTURE(ocean_data.bump_tex), q * frequency + (transposed ? step_uv.yx : step_uv), lod).rg - 0.5) * weight;
-					vec2 along_z = (textureLod(TEXTURE(ocean_data.bump_tex), q * frequency + (transposed ? step_uv : step_uv.yx), lod).rg - 0.5) * weight;
+					vec2 here = (textureLod(TEXTURE(water_data.bump_tex), q * frequency, lod).rg - 0.5) * weight;
+					vec2 along_x = (textureLod(TEXTURE(water_data.bump_tex), q * frequency + (transposed ? step_uv.yx : step_uv), lod).rg - 0.5) * weight;
+					vec2 along_z = (textureLod(TEXTURE(water_data.bump_tex), q * frequency + (transposed ? step_uv : step_uv.yx), lod).rg - 0.5) * weight;
 					vec2 d_dx = (along_x - here) / step_size;
 					vec2 d_dz = (along_z - here) / step_size;
 					grad += here;
 					hess += vec3(d_dx.x, d_dz.y, 0.5 * (d_dx.y + d_dz.x));
 					float retained = 1.0 / max(footprint / texel, 1.0);
-					lost_variance += weight * weight * ocean_data.bump_info.x * (1.0 - retained * retained);
+					lost_variance += weight * weight * water_data.bump_info.x * (1.0 - retained * retained);
 				}
 
 				return lost_variance;
@@ -1119,11 +1140,11 @@ list.insert(
 			}
 
 			vec4 get_sea_detail(vec2 xz) {
-				vec4 info = ocean_data.sea_info;
-				vec2 wind = ocean_data.detail_info.xy;
-				vec2 p = xz - ocean_data.sea_offset.xy;
+				vec4 info = water_data.sea_info;
+				vec2 wind = water_data.detail_info.xy;
+				vec2 p = xz - water_data.sea_offset.xy;
 				float g1 = sea_noise(p / 620.0, 1.0);
-				float g2 = sea_noise(p / 230.0 + vec2(ocean_data.sea_offset.z * 0.0009, 0.37), 2.0);
+				float g2 = sea_noise(p / 230.0 + vec2(water_data.sea_offset.z * 0.0009, 0.37), 2.0);
 				float gust = clamp((g1 * 0.62 + g2 * 0.38 - 0.5) * 3.0 * info.y + 0.5, 0.0, 1.0);
 				float along = dot(p, wind);
 				float across = dot(p, vec2(-wind.y, wind.x)) + (g2 - 0.5) * 26.0;
@@ -1138,23 +1159,23 @@ list.insert(
 			vec4 sea_state = vec4(1.0, 0.5, 0.0, 0.0);
 
 			float add_detail_ripples(vec2 p, float footprint, float rough, inout vec2 grad, inout vec3 hess) {
-				vec4 info = ocean_data.detail_info;
-				vec4 ripple = ocean_data.ripple_info;
+				vec4 info = water_data.detail_info;
+				vec4 ripple = water_data.ripple_info;
 				if (!water_feature(WATER_RIPPLES) || !water_feature(WATER_WAVES)) return info.w * float(RIPPLE_OCTAVES);
 				float drawn = info.w * ripple.x * rough * rough;
 
-				if (ocean_data.bump_tex != -1) {
+				if (water_data.bump_tex != -1) {
 					float lost = add_bump_waves(p, footprint, 1.0, info.xy, 1.0, grad, hess);
-					return max(info.w * float(RIPPLE_OCTAVES) - ocean_data.bump_info.x * 0.0225 * 10.0 + lost, 0.0);
+					return max(info.w * float(RIPPLE_OCTAVES) - water_data.bump_info.x * 0.0225 * 10.0 + lost, 0.0);
 				}
 
 				return add_ripples(p, footprint, info.xy, vec2(0.0), drawn, info.z * ripple.y, OCEAN_RIPPLE_UPWIND_SHARE, ripple.z, grad, hess) + (info.w - drawn) * float(RIPPLE_OCTAVES);
 			}
 
 			float height_map_tracing(vec3 ray_dir, float plane_t, vec3 camera_origin, float scene_limit, out vec3 hit_pos) {
-				float wave_bound = ocean_data.ocean_wave_info.x;
+				float wave_bound = water_data.ocean_wave_info.x;
 
-				if (ocean_data.wave_tex[0] == -1) {
+				if (water_data.wave_tex[0] == -1) {
 					hit_pos = ray_dir * plane_t;
 					return plane_t;
 				}
@@ -1162,8 +1183,8 @@ list.insert(
 				float camera_height = camera_origin.y - get_water_surface_height(camera_origin.xz);
 
 				if (camera_height >= 0.0) {
-					float top = ocean_data.ocean_level + wave_bound;
-					float bottom = ocean_data.ocean_level - wave_bound;
+					float top = water_data.ocean_level + wave_bound;
+					float bottom = water_data.ocean_level - wave_bound;
 					float dy = abs(ray_dir.y) < 1e-5 ? 1e-5 : ray_dir.y;
 					float ta = (top - camera_origin.y) / dy;
 					float tb = (bottom - camera_origin.y) / dy;
@@ -1178,7 +1199,7 @@ list.insert(
 					bool crossed = false;
 					float last_h = 1.0;
 
-					for (int i = 0; i < ocean_data.trace_steps; i++) {
+					for (int i = 0; i < water_data.trace_steps; i++) {
 						vec3 p = ray_dir * t + camera_origin;
 						float h = p.y - get_water_surface_height(p.xz);
 						last_h = h;
@@ -1200,7 +1221,7 @@ list.insert(
 					}
 
 					if (!crossed) {
-						float mean_t = (ocean_data.ocean_level - camera_origin.y) / min(ray_dir.y, -1e-5);
+						float mean_t = (water_data.ocean_level - camera_origin.y) / min(ray_dir.y, -1e-5);
 
 						if (ray_dir.y < 0.0 && last_h < wave_bound * 2.0 && mean_t > 0.0 && mean_t < scene_limit) {
 							hit_pos = ray_dir * mean_t;
@@ -1284,7 +1305,7 @@ list.insert(
 
 				if (!found_bracket) {
 					if (start_h * end_h > 0.0) {
-						float mean_t = (ocean_data.ocean_level - camera_origin.y) / min(ray_dir.y, -1e-5);
+						float mean_t = (water_data.ocean_level - camera_origin.y) / min(ray_dir.y, -1e-5);
 
 						if (camera_height >= 0.0 && ray_dir.y < 0.0 && mean_t > 0.0 && mean_t < scene_limit) {
 							hit_pos = ray_dir * mean_t;
@@ -1319,8 +1340,8 @@ list.insert(
 
 
 			bool intersect_volume(int i, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
-				mat4 to_local = ocean_data.volume_to_local[i];
-				vec4 shape = ocean_data.volume_shape[i];
+				mat4 to_local = water_data.volume_to_local[i];
+				vec4 shape = water_data.volume_shape[i];
 				vec3 origin = (to_local * vec4(ray_origin, 1.0)).xyz;
 				vec3 dir = (to_local * vec4(ray_dir, 0.0)).xyz;
 				dir = mix(dir, vec3(1e-7), lessThan(abs(dir), vec3(1e-7)));
@@ -1344,22 +1365,22 @@ list.insert(
 			}
 
 			bool is_inside_volume(int i, vec3 p) {
-				vec4 shape = ocean_data.volume_shape[i];
-				vec3 local = (ocean_data.volume_to_local[i] * vec4(p, 1.0)).xyz;
+				vec4 shape = water_data.volume_shape[i];
+				vec3 local = (water_data.volume_to_local[i] * vec4(p, 1.0)).xyz;
 				return all(lessThanEqual(abs(local.xz), shape.xz + 0.05)) && local.y <= 0.0 && local.y >= -shape.y - 0.05;
 			}
 
 			float get_volume_ripples(int i, vec2 world_xz, float footprint, out vec2 grad, inout vec3 hess) {
-				vec4 waves = ocean_data.volume_waves[i];
+				vec4 waves = water_data.volume_waves[i];
 				grad = vec2(0.0);
 				if (waves.x <= 0.0) return 0.0;
 				float slope = waves.x * 0.25 / waves.y;
 
-				if (ocean_data.bump_tex != -1) {
-					return add_bump_waves(world_xz, footprint, 6.0 / waves.y, vec2(cos(waves.z), sin(waves.z)) + ocean_data.volume_flow[i].xy, clamp(waves.x / waves.y * 6.0, 0.0, 1.0), grad, hess);
+				if (water_data.bump_tex != -1) {
+					return add_bump_waves(world_xz, footprint, 6.0 / waves.y, vec2(cos(waves.z), sin(waves.z)) + water_data.volume_flow[i].xy, clamp(waves.x / waves.y * 6.0, 0.0, 1.0), grad, hess);
 				}
 
-				return add_ripples(world_xz, footprint, vec2(cos(waves.z), sin(waves.z)), ocean_data.volume_flow[i].xy, 2.72 * slope * slope, waves.y, VOLUME_RIPPLE_UPWIND_SHARE, VOLUME_RIPPLE_LIFETIME, grad, hess);
+				return add_ripples(world_xz, footprint, vec2(cos(waves.z), sin(waves.z)), water_data.volume_flow[i].xy, 2.72 * slope * slope, waves.y, VOLUME_RIPPLE_UPWIND_SHARE, VOLUME_RIPPLE_LIFETIME, grad, hess);
 			}
 
 
@@ -1379,13 +1400,13 @@ list.insert(
 			Water get_ocean_water() {
 				Water w;
 				w.volume = -1;
-				w.absorption = ocean_data.ocean_absorption.rgb;
-				w.particles = ocean_data.ocean_scattering.rgb;
-				w.ior = ocean_data.ocean_absorption.w;
-				w.abbe = ocean_data.ocean_wave_info.w;
-				w.surface_y = ocean_data.ocean_level;
-				w.foam = ocean_data.ocean_scattering.w;
-				w.caustics = ocean_data.ocean_wave_info.y;
+				w.absorption = water_data.ocean_absorption.rgb;
+				w.particles = water_data.ocean_scattering.rgb;
+				w.ior = water_data.ocean_absorption.w;
+				w.abbe = water_data.ocean_wave_info.w;
+				w.surface_y = water_data.ocean_level;
+				w.foam = water_data.ocean_scattering.w;
+				w.caustics = water_data.ocean_wave_info.y;
 				w.roughness = 0.0;
 				w.closed = 0.0;
 				return w;
@@ -1394,15 +1415,15 @@ list.insert(
 			Water get_volume_water(int i) {
 				Water w;
 				w.volume = i;
-				w.absorption = ocean_data.volume_absorption[i].rgb;
-				w.particles = ocean_data.volume_scattering[i].rgb;
-				w.ior = ocean_data.volume_absorption[i].w;
-				w.abbe = ocean_data.volume_flow[i].w;
-				w.surface_y = ocean_data.volume_shape[i].w;
-				w.foam = ocean_data.volume_waves[i].w;
-				w.caustics = ocean_data.volume_flow[i].z;
-				w.roughness = ocean_data.volume_scattering[i].w;
-				w.closed = ocean_data.volume_misc[i].x;
+				w.absorption = water_data.volume_absorption[i].rgb;
+				w.particles = water_data.volume_scattering[i].rgb;
+				w.ior = water_data.volume_absorption[i].w;
+				w.abbe = water_data.volume_flow[i].w;
+				w.surface_y = water_data.volume_shape[i].w;
+				w.foam = water_data.volume_waves[i].w;
+				w.caustics = water_data.volume_flow[i].z;
+				w.roughness = water_data.volume_scattering[i].w;
+				w.closed = water_data.volume_misc[i].x;
 				return w;
 			}
 
@@ -1430,12 +1451,12 @@ list.insert(
 			}
 
 			vec3 get_sun_illuminance() {
-				float above_horizon = smoothstep(-0.02, 0.04, ocean_data.sun_direction.y);
-				return ocean_data.primary_sun_color * (ocean_data.primary_sun_illuminance * above_horizon);
+				float above_horizon = smoothstep(-0.02, 0.04, water_data.sun_direction.y);
+				return water_data.primary_sun_color * (water_data.primary_sun_illuminance * above_horizon);
 			}
 
 			vec3 get_underwater_sun_dir(Water w, out float transmission) {
-				vec3 sun = normalize(ocean_data.sun_direction);
+				vec3 sun = normalize(water_data.sun_direction);
 				float cos_i = max(sun.y, 0.0);
 				transmission = 1.0 - fresnel_dielectric(cos_i, 1.0 / w.ior);
 				vec3 refracted = refract(-sun, vec3(0.0, 1.0, 0.0), 1.0 / w.ior);
@@ -1443,7 +1464,7 @@ list.insert(
 			}
 
 			vec3 get_ambient_irradiance(vec3 P, float visibility_min_weight, bool smooth_blend) {
-				vec3 sky = sample_environment_irradiance(ocean_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
+				vec3 sky = sample_environment_irradiance(water_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && water_feature(WATER_AMBIENT_GI)) {
 					float weight;
@@ -1483,22 +1504,22 @@ list.insert(
 				if (dot(sun_light, sun_light) > 0.0 && water_feature(WATER_SHAFTS)) {
 					float shadow_len = min(len, 60.0);
 
-					float shaft_focus = 1.0 - smoothstep(25.0, 140.0, distance(origin, ocean_data.camera_position.xyz));
+					float shaft_focus = 1.0 - smoothstep(25.0, 140.0, distance(origin, water_data.camera_position.xyz));
 
-					int shaft_samples = min(len < 2.0 ? 2 : (len < 8.0 ? 4 : 8), ocean_data.shaft_samples);
+					int shaft_samples = min(len < 2.0 ? 2 : (len < 8.0 ? 4 : 8), water_data.shaft_samples);
 
 					for (int i = 0; i < shaft_samples; i++) {
 						float f = (float(i) + jitter) / float(shaft_samples);
 						vec3 p = origin + dir * (shadow_len * f * f);
 						vec3 surface = p - sun_dir * ((p.y - w.surface_y) / sun_dir.y);
-						float shaft = get_water_sun_visibility(surface, ocean_data.sun_direction);
+						float shaft = get_water_sun_visibility(surface, water_data.sun_direction);
 
 						#ifdef SCENE_REFLECTION
 						if (shaft > 0.0 && scene_reflection_ready() && water_feature(WATER_SUN_SHADOWS) && !scene_reflection_visible(p, -sun_dir, distance(p, surface) - 0.05)) shaft = 0.0;
 						#endif
 
 						if (shaft_focus > 0.0 && shaft > 0.0) {
-							shaft *= mix(1.0, get_caustic(w, p, get_pixel_footprint(distance(p, ocean_data.camera_position.xyz), 1.0), 0, 3.0, false).g, shaft_focus);
+							shaft *= mix(1.0, get_caustic(w, p, get_pixel_footprint(distance(p, water_data.camera_position.xyz), 1.0), 0, 3.0, false).g, shaft_focus);
 						}
 
 						visibility += shaft;
@@ -1544,7 +1565,7 @@ list.insert(
 						float t = light_len * (float(i) + jitter) / float(WATER_LIGHT_SAMPLES);
 						vec3 p = origin + dir * t;
 						int light_cell = light_grid_cell(p);
-						int light_count = ocean_data.light_count;
+						int light_count = water_data.light_count;
 						float point_depth = max(w.surface_y - p.y, 0.0);
 						vec3 point_light = vec3(0.0);
 						int shaded = 0;
@@ -1555,7 +1576,7 @@ list.insert(
 							while (light_bits != 0u && shaded < WATER_LIGHT_MAX_PER_SAMPLE) {
 								int li = word * 32 + findLSB(light_bits);
 								light_bits &= light_bits - 1u;
-								lights_t light = ocean_data.lights[li];
+								lights_t light = water_data.lights[li];
 
 								if (get_light_type(light) == 0) continue;
 
@@ -1596,8 +1617,8 @@ list.insert(
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
 				vec3 normal = gbuffer_normal(uv);
 				vec3 albedo = gbuffer_albedo(uv) * (1.0 - gbuffer_metallic(uv));
-				float no_l = max(dot(normal, normalize(ocean_data.sun_direction)), 0.0);
-				float shadow = get_water_sun_visibility(world_pos + normal * 0.1, ocean_data.sun_direction);
+				float no_l = max(dot(normal, normalize(water_data.sun_direction)), 0.0);
+				float shadow = get_water_sun_visibility(world_pos + normal * 0.1, water_data.sun_direction);
 				vec3 direct = min(albedo / PI * get_sun_illuminance() * (no_l * shadow), scene_color);
 				vec3 rest = scene_color - direct;
 				vec3 sun_path = exp(-sigma * (depth / max(-sun_dir.y, 0.05)));
@@ -1671,9 +1692,9 @@ list.insert(
 
 
 			vec3 get_last_frame_color(vec3 world_pos, vec2 uv) {
-				if (ocean_data.last_frame_tex == -1) return get_scene_color(uv);
+				if (water_data.last_frame_tex == -1) return get_scene_color(uv);
 
-				vec4 prev_clip = ocean_data.prev_projection * (ocean_data.prev_view * vec4(world_pos, 1.0));
+				vec4 prev_clip = water_data.prev_projection * (water_data.prev_view * vec4(world_pos, 1.0));
 
 				if (prev_clip.w <= 1e-5) return get_scene_color(uv);
 
@@ -1681,11 +1702,11 @@ list.insert(
 
 				if (!screen_refraction_on_screen(prev_uv)) return get_scene_color(uv);
 
-				return texture(TEXTURE(ocean_data.last_frame_tex), prev_uv).rgb / get_previous_pre_exposure();
+				return texture(TEXTURE(water_data.last_frame_tex), prev_uv).rgb / get_previous_pre_exposure();
 			}
 
 			float scene_depth_at(vec2 uv) {
-				return textureLod(TEXTURE(ocean_data.depth_tex), uv, 0.0).r;
+				return textureLod(TEXTURE(water_data.depth_tex), uv, 0.0).r;
 			}
 
 			bool trace_water_reflection(vec3 origin, vec3 dir, float jitter, out vec2 hit_uv, out float hit_t, out float weight) {
@@ -1741,11 +1762,11 @@ list.insert(
 
 			vec3 get_reflection(vec3 surface_pos, vec3 view_dir, vec3 reflection_dir, vec3 normal, float alpha, float jitter) {
 				float perceptual = sqrt(alpha);
-				vec3 reflected = sample_environment_specular(ocean_data.env_tex, reflection_dir, normal, perceptual);
+				vec3 reflected = sample_environment_specular(water_data.env_tex, reflection_dir, normal, perceptual);
 				vec3 origin = surface_pos + normal * 0.02;
 				water_rt_share = 0.0;
 
-				if (!water_feature(WATER_REFLECTION_TRACE) || perceptual > ocean_data.reflection_roughness_cutoff) return reflected;
+				if (!water_feature(WATER_REFLECTION_TRACE) || perceptual > water_data.reflection_roughness_cutoff) return reflected;
 
 				bool rays_ready = false;
 				bool screen_first = true;
@@ -1797,8 +1818,8 @@ list.insert(
 				#ifdef SCENE_REFLECTION
 				if (rays_ready && screen_weight < 0.999) {
 					bool rough = perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD;
-					int count = scene_reflection_ray_count(perceptual, ocean_data.rough_rays);
-					float limit = scene_reflection_hit_luminance_limit(perceptual, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), ocean_data.reflection_roughness_cutoff);
+					int count = scene_reflection_ray_count(perceptual, water_data.rough_rays);
+					float limit = scene_reflection_hit_luminance_limit(perceptual, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), water_data.reflection_roughness_cutoff);
 					vec3 sum = vec3(0.0);
 
 					for (int ray = 0; ray < count; ray++) {
@@ -1925,7 +1946,7 @@ list.insert(
 				if (water_feature(WATER_INSCATTER)) inscatter = get_water_inscatter(w, surface_pos, refracted_dir, path_len, jitter, transmittance);
 				vec3 transmitted = behind * transmittance + inscatter;
 
-				vec3 sun = normalize(ocean_data.sun_direction);
+				vec3 sun = normalize(water_data.sun_direction);
 				float shadow = get_water_sun_visibility(surface_pos, sun);
 				vec3 sun_light = get_sun_illuminance() * shadow;
 				float no_l = max(dot(normal, sun), 0.0);
@@ -1938,7 +1959,7 @@ list.insert(
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && water_feature(WATER_LIGHTS)) {
 					int light_cell = light_grid_cell(surface_pos);
-					int light_count = ocean_data.light_count;
+					int light_count = water_data.light_count;
 					int shaded = 0;
 					float lamp_alpha = max(alpha, 0.02);
 
@@ -1948,7 +1969,7 @@ list.insert(
 						while (light_bits != 0u && shaded < WATER_LIGHT_MAX_PER_SAMPLE) {
 							int li = word * 32 + findLSB(light_bits);
 							light_bits &= light_bits - 1u;
-							lights_t light = ocean_data.lights[li];
+							lights_t light = water_data.lights[li];
 
 							if (get_light_type(light) == 0) continue;
 
@@ -1980,7 +2001,7 @@ list.insert(
 				if (w.volume < 0) {
 					float sun_transmission;
 					vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
-					float crest = clamp((surface_pos.y - w.surface_y) / max(ocean_data.ocean_wave_info.x, 0.05), 0.0, 1.0);
+					float crest = clamp((surface_pos.y - w.surface_y) / max(water_data.ocean_wave_info.x, 0.05), 0.0, 1.0);
 					vec3 sigma = get_extinction(w);
 					float thickness = 1.5;
 					color += (1.0 - fresnel) * sun_light * sun_transmission * water_scatter(w, dot(-refracted_dir, sun_dir)) * thickness * exp(-sigma * thickness) * crest * crest * 4.0;
@@ -1996,11 +2017,11 @@ list.insert(
 				float shore_depth = has_floor ? max(w.surface_y - floor_pos.y, length(floor_pos.xz - surface_pos.xz) * 0.5) : 1e3;
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && shore_range > 0.0 && water_feature(WATER_SHORE_FOAM)) {
-					float rise = max(ocean_data.ocean_wave_info.x, 0.05);
+					float rise = max(water_data.ocean_wave_info.x, 0.05);
 					shore_depth = max(scene_hit_distance(vec3(surface_pos.x, w.surface_y + rise, surface_pos.z), vec3(0.0, -1.0, 0.0), shore_range + rise) - rise, 0.0);
 				}
 				#endif
-				vec3 pattern = foam_pattern(surface_pos.xz, ocean_data.time, footprint);
+				vec3 pattern = foam_pattern(surface_pos.xz, water_data.time, footprint);
 				float whitecap = fold * mix(0.5, 1.5, sea_state.y);
 				float shore = smoothstep(shore_range, 0.0, shore_depth);
 				float coverage = clamp((whitecap + shore) * w.foam, 0.0, 1.0);
@@ -2035,7 +2056,7 @@ list.insert(
 
 				if (trace_water_reflection(origin, dir, jitter, hit_uv, hit_t, weight) && hit_t < len) {
 					vec3 scene_pos = get_world_pos(hit_uv, scene_depth_at(hit_uv));
-					float footprint = get_pixel_footprint(length(scene_pos - ocean_data.camera_position.xyz), 1.0);
+					float footprint = get_pixel_footprint(length(scene_pos - water_data.camera_position.xyz), 1.0);
 					behind = relight_submerged(w, hit_uv, get_scene_color(hit_uv), scene_pos, get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true));
 					len = hit_t;
 				} else {
@@ -2072,11 +2093,11 @@ list.insert(
 				vec3 above = vec3(0.0);
 
 				if (fresnel.r < 1.0) {
-					vec3 sun = normalize(ocean_data.sun_direction);
+					vec3 sun = normalize(water_data.sun_direction);
 					vec3 sun_light = get_sun_illuminance() * get_water_sun_visibility(surface_pos, sun);
 					int primary = fresnel.g < 1.0 ? 1 : 0;
 					vec3 primary_dir = normalize(refract(ray_dir, normal, channel_ior[primary]));
-					vec3 primary_above = sample_environment_specular(ocean_data.env_tex, primary_dir, normal_up, 0.05);
+					vec3 primary_above = sample_environment_specular(water_data.env_tex, primary_dir, normal_up, 0.05);
 					bool hit_scene = false;
 
 					#ifdef SCENE_REFLECTION
@@ -2103,7 +2124,7 @@ list.insert(
 							if (fresnel[c] >= 1.0) continue;
 
 							vec3 refracted_dir = c == primary ? primary_dir : normalize(refract(ray_dir, normal, channel_ior[c]));
-							float sky = hit_scene || c == primary ? primary_above[c] : sample_environment_specular(ocean_data.env_tex, refracted_dir, normal_up, 0.05)[c];
+							float sky = hit_scene || c == primary ? primary_above[c] : sample_environment_specular(water_data.env_tex, refracted_dir, normal_up, 0.05)[c];
 							above[c] = sky + sun_light[c] * smoothstep(0.9995, 0.99995, dot(refracted_dir, sun)) * 2000.0;
 						}
 					}
@@ -2145,9 +2166,9 @@ list.insert(
 				vec2 grad = wd.gb;
 				sea_state = get_sea_detail(xz);
 				float detail_lost = add_detail_ripples(xz, footprint, sea_state.x, grad, unused_hess);
-				float detail_total = ocean_data.detail_info.w * float(RIPPLE_OCTAVES);
+				float detail_total = water_data.detail_info.w * float(RIPPLE_OCTAVES);
 
-				float unresolved = max(ocean_data.ocean_wave_info.z - (water_feature(WATER_UNIFORM_ROUGHNESS) ? ocean_data.wave_origin[0].w : resolved_variance) - (detail_total - detail_lost), 0.0) * sea_state.x * sea_state.x;
+				float unresolved = max(water_data.ocean_wave_info.z - (water_feature(WATER_UNIFORM_ROUGHNESS) ? water_data.wave_origin[0].w : resolved_variance) - (detail_total - detail_lost), 0.0) * sea_state.x * sea_state.x;
 				if (!water_feature(WATER_WAVES)) unresolved = 0.0;
 				alpha = water_feature(WATER_WAVES) && water_feature(WATER_ROUGHNESS) ? sqrt(max(unresolved, 4e-4)) : 0.001;
 				normal = normalize(vec3(-grad.x, 1.0, -grad.y));
@@ -2156,47 +2177,47 @@ list.insert(
 
 			void write_passthrough(vec3 scene_color) {
 				set_scene_color(scene_color, -1.0);
-				set_ocean_distance(vec4(-1.0));
+				set_water_distance(vec4(-1.0));
 			}
 
-			void main() {
+			void shade_water_pixel() {
 				vec3 unused_hess = vec3(0.0);
 				vec3 scene_color = get_scene_color(in_uv);
 
-				if (ocean_data.scene_tex == -1 || (ocean_data.ocean_enabled == 0 && ocean_data.volume_count == 0)) {
+				if (water_data.scene_tex == -1 || (water_data.ocean_enabled == 0 && water_data.volume_count == 0)) {
 					write_passthrough(scene_color);
 					return;
 				}
 
 				float scene_depth = gbuffer_depth(in_uv);
 				vec3 ray_dir = get_view_ray(in_uv);
-				vec3 camera_origin = ocean_data.camera_position.xyz + ray_dir * WATER_NEAR_PLANE;
+				vec3 camera_origin = water_data.camera_position.xyz + ray_dir * WATER_NEAR_PLANE;
 
-				bool near_surface = ocean_data.ocean_enabled != 0 && abs(camera_origin.y - ocean_data.ocean_level) < ocean_data.ocean_wave_info.x + 0.5;
+				bool near_surface = water_data.ocean_enabled != 0 && abs(camera_origin.y - water_data.ocean_level) < water_data.ocean_wave_info.x + 0.5;
 
-				for (int i = 0; i < ocean_data.volume_count && !near_surface; i++) {
-					vec3 local = (ocean_data.volume_to_local[i] * vec4(camera_origin, 1.0)).xyz;
-					vec4 shape = ocean_data.volume_shape[i];
+				for (int i = 0; i < water_data.volume_count && !near_surface; i++) {
+					vec3 local = (water_data.volume_to_local[i] * vec4(camera_origin, 1.0)).xyz;
+					vec4 shape = water_data.volume_shape[i];
 					near_surface = abs(local.y) < 0.5 && abs(local.x) < shape.x + 0.5 && abs(local.z) < shape.z + 0.5;
 				}
 
 				float near_height = 1e3;
 
 				if (near_surface) {
-					if (ocean_data.ocean_enabled != 0) {
+					if (water_data.ocean_enabled != 0) {
 						near_height = camera_origin.y - get_water_surface_height(camera_origin.xz);
 					}
 
-					for (int i = 0; i < ocean_data.volume_count; i++) {
-						vec3 local = (ocean_data.volume_to_local[i] * vec4(camera_origin, 1.0)).xyz;
-						vec4 shape = ocean_data.volume_shape[i];
+					for (int i = 0; i < water_data.volume_count; i++) {
+						vec3 local = (water_data.volume_to_local[i] * vec4(camera_origin, 1.0)).xyz;
+						vec4 shape = water_data.volume_shape[i];
 
 						if (abs(local.x) < shape.x + 0.5 && abs(local.z) < shape.z + 0.5 && abs(local.y) < abs(near_height)) near_height = local.y;
 					}
 				}
 
 				if (abs(near_height) < 0.03) {
-					float wobble_time = ocean_data.time;
+					float wobble_time = water_data.time;
 					vec2 wobble_p = camera_origin.xz;
 					float wobble = (value_noise2(wobble_p * 110.0 + vec2(wobble_time * 0.7, -wobble_time * 0.4)) - 0.5) * 0.0035 + (value_noise2(wobble_p * 290.0 + vec2(-wobble_time * 1.1, wobble_time * 0.6)) - 0.5) * 0.0012;
 					vec2 wobble_x = wobble_p + vec2(0.002, 0.0);
@@ -2224,7 +2245,7 @@ list.insert(
 				float volume_exit = 0.0;
 				bool volume_top = false;
 
-				for (int i = 0; i < ocean_data.volume_count; i++) {
+				for (int i = 0; i < water_data.volume_count; i++) {
 					float t_entry;
 					float t_exit;
 					bool top;
@@ -2245,13 +2266,13 @@ list.insert(
 				float ocean_t = -1.0;
 				vec3 ocean_local_pos = vec3(0.0);
 
-				if (ocean_data.ocean_enabled != 0) {
-					float wave_bound = ocean_data.ocean_wave_info.x;
+				if (water_data.ocean_enabled != 0) {
+					float wave_bound = water_data.ocean_wave_info.x;
 					float camera_surface_delta = camera_origin.y - get_water_surface_height(camera_origin.xz);
 					camera_under_ocean = camera_surface_delta < 0.0;
-					float trace_plane_y = ocean_data.ocean_level + (camera_under_ocean ? -wave_bound : wave_bound);
+					float trace_plane_y = water_data.ocean_level + (camera_under_ocean ? -wave_bound : wave_bound);
 
-					if (!camera_under_ocean && camera_origin.y < trace_plane_y) trace_plane_y = ocean_data.ocean_level;
+					if (!camera_under_ocean && camera_origin.y < trace_plane_y) trace_plane_y = water_data.ocean_level;
 
 					float denom = abs(ray_dir.y) < 1e-5 ? 1e-5 : ray_dir.y;
 					float plane_t = (trace_plane_y - camera_origin.y) / denom;
@@ -2275,8 +2296,8 @@ list.insert(
 
 				bool volume_in_sea = false;
 
-				if (volume >= 0 && ocean_data.ocean_enabled != 0) {
-					volume_in_sea = abs(ocean_data.volume_shape[volume].w - ocean_data.ocean_level) < ocean_data.ocean_wave_info.x + 0.5;
+				if (volume >= 0 && water_data.ocean_enabled != 0) {
+					volume_in_sea = abs(water_data.volume_shape[volume].w - water_data.ocean_level) < water_data.ocean_wave_info.x + 0.5;
 
 					if (volume_in_sea && !volume_top && volume_entry > 0.0) volume = -1;
 				}
@@ -2300,7 +2321,7 @@ list.insert(
 
 						color = shade_underwater(w, camera_origin, ray_dir, surface_t, normal_up, volume_exit, scene_t, scene_color, scene_pos, jitter, distance);
 						set_scene_color(color, 1.0);
-						set_ocean_distance(vec4(distance, 0.0, 0.0, 0.0));
+						set_water_distance(vec4(distance, 0.0, 0.0, 0.0));
 						return;
 					}
 
@@ -2319,7 +2340,7 @@ list.insert(
 						vec3 transmittance;
 						vec3 inscatter = get_water_inscatter(w, surface_pos, ray_dir, len, jitter, transmittance);
 						set_scene_color(behind * transmittance + inscatter, 1.0);
-						set_ocean_distance(vec4(volume_entry, 0.0, volume_entry, 0.0));
+						set_water_distance(vec4(volume_entry, 0.0, volume_entry, 0.0));
 						return;
 					}
 
@@ -2331,8 +2352,8 @@ list.insert(
 					float fold = 0.0;
 
 					if (volume_in_sea) {
-						vec3 local = (ocean_data.volume_to_local[volume] * vec4(surface_pos, 1.0)).xyz;
-						vec4 shape = ocean_data.volume_shape[volume];
+						vec3 local = (water_data.volume_to_local[volume] * vec4(surface_pos, 1.0)).xyz;
+						vec4 shape = water_data.volume_shape[volume];
 						float edge = min(shape.x - abs(local.x), shape.z - abs(local.z));
 						float inside = smoothstep(0.0, min(VOLUME_EDGE_BLEND, 0.5 * min(shape.x, shape.z)), edge);
 
@@ -2350,7 +2371,7 @@ list.insert(
 
 					color = shade_surface_from_above(w, surface_pos, normal, alpha, fold, ray_dir, volume_entry, scene_t < 1e29 ? max(scene_t - volume_entry, 0.0) : 1e30, jitter);
 					set_scene_color(color, 1.0);
-					set_ocean_distance(vec4(volume_entry, sqrt(alpha) * water_rt_share, volume_entry, 0.0));
+					set_water_distance(vec4(volume_entry, sqrt(alpha) * water_rt_share, volume_entry, 0.0));
 					return;
 				}
 
@@ -2378,7 +2399,7 @@ list.insert(
 					float distance;
 					vec3 color = shade_underwater(w, camera_origin, ray_dir, surface_t, normal_up, WATER_OPEN_DEPTH, scene_t, scene_color, scene_pos, jitter, distance);
 					set_scene_color(color, 1.0);
-					set_ocean_distance(vec4(distance, 0.0, 0.0, 0.0));
+					set_water_distance(vec4(distance, 0.0, 0.0, 0.0));
 					return;
 				}
 
@@ -2390,33 +2411,39 @@ list.insert(
 				get_ocean_surface(surface_pos.xz, footprint, normal, alpha, fold);
 				vec3 color = shade_surface_from_above(w, surface_pos, normal, alpha, fold, ray_dir, ocean_t, scene_t < 1e29 ? max(scene_t - ocean_t, 0.0) : 1e30, jitter);
 				set_scene_color(color, 1.0);
-				set_ocean_distance(vec4(ocean_t, sqrt(alpha) * water_rt_share, ocean_t, 0.0));
+				set_water_distance(vec4(ocean_t, sqrt(alpha) * water_rt_share, ocean_t, 0.0));
+			}
+
+			void main() {
+				water_pixel = ivec2(gl_GlobalInvocationID.xy);
+				ivec2 size = imageSize(out_color);
+
+				if (any(greaterThanEqual(water_pixel, size))) return;
+
+				in_uv = (vec2(water_pixel) + 0.5) / vec2(size);
+				shade_water_pixel();
 			}
 		]],
-		},
-		CullMode = "none",
-		DepthTest = false,
-		DepthWrite = false,
 	}
 )
 list.insert(
 	passes,
 	{
-		name = "ocean_resolve",
+		name = "water_resolve",
 		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
 		framebuffer_count = 2,
 		dont_create_framebuffers = true,
 		fragment = {
 			uniform_buffers = {
 				{
-					name = "ocean_resolve_data",
+					name = "water_resolve_data",
 					binding_index = 3,
 					block = {
 						render3d.camera_block,
-						{"current_ocean_tex", "int"},
-						{"history_ocean_tex", "int"},
+						{"current_water_tex", "int"},
+						{"history_water_tex", "int"},
 						{"history_blend", "float"},
-						{"current_ocean_distance_tex", "int"},
+						{"current_water_distance_tex", "int"},
 						{"filter_radius", "float"},
 						{"prev_view", "mat4"},
 						{"prev_projection", "mat4"},
@@ -2426,24 +2453,24 @@ list.insert(
 						render3d.WriteCameraBlock(self, block)
 						post_source.WritePreExposureBlock(self, block)
 
-						if not render3d.pipelines.ocean.framebuffers then
-							block.current_ocean_tex = -1
-							block.current_ocean_distance_tex = -1
+						if not render3d.pipelines.water.framebuffers then
+							block.current_water_tex = -1
+							block.current_water_distance_tex = -1
 						else
 							local current_idx = system.GetFrameNumber() % 2 + 1
-							local framebuffer = render3d.pipelines.ocean:GetFramebuffer(current_idx)
-							block.current_ocean_tex = self:GetTextureIndex(framebuffer:GetAttachment(1))
-							block.current_ocean_distance_tex = self:GetTextureIndex(framebuffer:GetAttachment(2))
+							local framebuffer = render3d.pipelines.water:GetFramebuffer(current_idx)
+							block.current_water_tex = self:GetTextureIndex(framebuffer:GetAttachment(1))
+							block.current_water_distance_tex = self:GetTextureIndex(framebuffer:GetAttachment(2))
 						end
 
 						block.history_blend = render3d.IsTemporalAntiAliasingEnabled() and 0.7 or 0.9
 						block.filter_radius = scene_reflection.filter_radius:Get()
 
-						if not render3d.pipelines.ocean_resolve.framebuffers then
-							block.history_ocean_tex = -1
+						if not render3d.pipelines.water_resolve.framebuffers then
+							block.history_water_tex = -1
 						else
 							local prev_idx = (system.GetFrameNumber() + 1) % 2 + 1
-							block.history_ocean_tex = self:GetTextureIndex(render3d.pipelines.ocean_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
+							block.history_water_tex = self:GetTextureIndex(render3d.pipelines.water_resolve:GetFramebuffer(prev_idx):GetAttachment(1))
 						end
 
 						local prev_view = render3d.GetPreviousViewMatrix()
@@ -2466,31 +2493,31 @@ list.insert(
 				},
 			},
 			shader = [[
-			vec4 get_current_ocean(vec2 uv) {
-				if (ocean_resolve_data.current_ocean_tex == -1) return vec4(0.0, 0.0, 0.0, -1.0);
-				return texture(TEXTURE(ocean_resolve_data.current_ocean_tex), uv);
+			vec4 get_current_water(vec2 uv) {
+				if (water_resolve_data.current_water_tex == -1) return vec4(0.0, 0.0, 0.0, -1.0);
+				return texture(TEXTURE(water_resolve_data.current_water_tex), uv);
 			}
 
-			float get_current_ocean_distance(vec2 uv) {
-				if (ocean_resolve_data.current_ocean_distance_tex == -1) return -1.0;
-				return texture(TEXTURE(ocean_resolve_data.current_ocean_distance_tex), uv).r;
+			float get_current_water_distance(vec2 uv) {
+				if (water_resolve_data.current_water_distance_tex == -1) return -1.0;
+				return texture(TEXTURE(water_resolve_data.current_water_distance_tex), uv).r;
 			}
 
 			]] .. scene_reflection.CONSTANTS_GLSL .. [[
 
-			float get_current_ocean_roughness(vec2 uv) {
-				if (ocean_resolve_data.current_ocean_distance_tex == -1) return 0.0;
-				return texture(TEXTURE(ocean_resolve_data.current_ocean_distance_tex), uv).g;
+			float get_current_water_roughness(vec2 uv) {
+				if (water_resolve_data.current_water_distance_tex == -1) return 0.0;
+				return texture(TEXTURE(water_resolve_data.current_water_distance_tex), uv).g;
 			}
 
 			const int OCEAN_FILTER_TAPS = 16;
 
-			vec4 get_filtered_ocean(vec4 center, float center_distance, float roughness) {
-				float radius = ocean_resolve_data.filter_radius * 2.0 * smoothstep(0.02, 0.15, roughness);
+			vec4 get_filtered_water(vec4 center, float center_distance, float roughness) {
+				float radius = water_resolve_data.filter_radius * 2.0 * smoothstep(0.02, 0.15, roughness);
 
 				if (radius < 0.5) return center;
 
-				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(ocean_resolve_data.current_ocean_tex), 0));
+				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(water_resolve_data.current_water_tex), 0));
 				float spin = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.28318530718;
 				float limit = SCENE_REFLECTION_MAX_HIT_LUMINANCE / ]] .. post_source.PRE_EXPOSURE_HEADROOM .. [[.0;
 				float center_weight = 1.0 / (1.0 + dot(center.rgb, vec3(0.2126, 0.7152, 0.0722)) / (limit * 0.1));
@@ -2500,8 +2527,8 @@ list.insert(
 				for (int i = 0; i < OCEAN_FILTER_TAPS; i++) {
 					float angle = spin + float(i) * 2.39996323;
 					vec2 tap_uv = in_uv + vec2(cos(angle), sin(angle)) * (radius * sqrt((float(i) + 0.5) / float(OCEAN_FILTER_TAPS))) * texel_size;
-					vec4 tap = get_current_ocean(tap_uv);
-					float tap_distance = get_current_ocean_distance(tap_uv);
+					vec4 tap = get_current_water(tap_uv);
+					float tap_distance = get_current_water_distance(tap_uv);
 
 					if (tap.a < 0.0 || tap_distance < 0.0) continue;
 
@@ -2513,31 +2540,31 @@ list.insert(
 				return vec4(sum / total, center.a);
 			}
 
-			]] .. post_source.GetPreExposureGLSL("ocean_resolve_data") .. [[
+			]] .. post_source.GetPreExposureGLSL("water_resolve_data") .. [[
 
-			vec4 get_history_ocean(vec2 uv) {
-				if (ocean_resolve_data.history_ocean_tex == -1) return vec4(0.0, 0.0, 0.0, -1.0);
-				vec4 history = texture(TEXTURE(ocean_resolve_data.history_ocean_tex), uv);
+			vec4 get_history_water(vec2 uv) {
+				if (water_resolve_data.history_water_tex == -1) return vec4(0.0, 0.0, 0.0, -1.0);
+				vec4 history = texture(TEXTURE(water_resolve_data.history_water_tex), uv);
 				return vec4(history.rgb * (get_pre_exposure() / get_previous_pre_exposure()), history.a);
 			}
 
 
-			]] .. screen_reconstruct.GetViewRayFromUVGLSL("ocean_resolve_data") .. [[
+			]] .. screen_reconstruct.GetViewRayFromUVGLSL("water_resolve_data") .. [[
 
 			void main() {
-				vec4 current = get_current_ocean(in_uv);
-				float current_distance = get_current_ocean_distance(in_uv);
+				vec4 current = get_current_water(in_uv);
+				float current_distance = get_current_water_distance(in_uv);
 
-				if (current.a >= 0.0 && current_distance >= 0.0) current = get_filtered_ocean(current, current_distance, get_current_ocean_roughness(in_uv));
+				if (current.a >= 0.0 && current_distance >= 0.0) current = get_filtered_water(current, current_distance, get_current_water_roughness(in_uv));
 
-				if (current.a < 0.0 || current_distance < 0.0 || ocean_resolve_data.history_ocean_tex == -1) {
+				if (current.a < 0.0 || current_distance < 0.0 || water_resolve_data.history_water_tex == -1) {
 					set_color(current);
 					return;
 				}
 
-				vec3 world_pos = ocean_resolve_data.camera_position.xyz + get_view_ray(in_uv) * current_distance;
-				vec4 prev_view_pos = ocean_resolve_data.prev_view * vec4(world_pos, 1.0);
-				vec4 prev_clip = ocean_resolve_data.prev_projection * prev_view_pos;
+				vec3 world_pos = water_resolve_data.camera_position.xyz + get_view_ray(in_uv) * current_distance;
+				vec4 prev_view_pos = water_resolve_data.prev_view * vec4(world_pos, 1.0);
+				vec4 prev_clip = water_resolve_data.prev_projection * prev_view_pos;
 				vec2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
 
 				if (prev_uv.x < 0.0 || prev_uv.x > 1.0 || prev_uv.y < 0.0 || prev_uv.y > 1.0) {
@@ -2545,7 +2572,7 @@ list.insert(
 					return;
 				}
 
-				vec4 history = get_history_ocean(prev_uv);
+				vec4 history = get_history_water(prev_uv);
 
 				if (history.a < 0.0) {
 					set_color(current);
@@ -2555,11 +2582,11 @@ list.insert(
 				vec3 m1 = vec3(0.0);
 				vec3 m2 = vec3(0.0);
 				float sample_count = 0.0;
-				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(ocean_resolve_data.current_ocean_tex), 0));
+				vec2 texel_size = 1.0 / vec2(textureSize(TEXTURE(water_resolve_data.current_water_tex), 0));
 
 				for (int y = -1; y <= 1; y++) {
 					for (int x = -1; x <= 1; x++) {
-						vec4 sample_color = get_current_ocean(in_uv + vec2(x, y) * texel_size);
+						vec4 sample_color = get_current_water(in_uv + vec2(x, y) * texel_size);
 						if (sample_color.a < 0.0) continue;
 						m1 += sample_color.rgb;
 						m2 += sample_color.rgb * sample_color.rgb;
@@ -2579,7 +2606,7 @@ list.insert(
 				float gamma = 1.25;
 				vec3 clamped_rgb = clamp(history.rgb, m1 - sigma * gamma, m1 + sigma * gamma);
 				float clamp_diff = length(history.rgb - clamped_rgb) / max(max(m1.r, max(m1.g, m1.b)), 1e-4);
-				float blend = ocean_resolve_data.history_blend * (1.0 - clamp(clamp_diff * 2.0, 0.0, 1.0));
+				float blend = water_resolve_data.history_blend * (1.0 - clamp(clamp_diff * 2.0, 0.0, 1.0));
 
 				set_color(vec4(mix(current.rgb, clamped_rgb, blend), current.a));
 			}

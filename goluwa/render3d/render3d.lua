@@ -309,7 +309,7 @@ local default_passes = {
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
 	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},
-	{"ocean", "goluwa/render3d/passes/ocean.lua", optional = true},
+	{"water", "goluwa/render3d/passes/water.lua", optional = true},
 	{"volumetric_fog", "goluwa/render3d/passes/volumetric_fog.lua"},
 	{"particles", "goluwa/render3d/passes/particles.lua"},
 	{"translucent", "goluwa/render3d/passes/translucent.lua"},
@@ -696,7 +696,7 @@ function render3d.Initialize(config)
 
 		for _, pipeline in ipairs(render3d.pipelines_i) do
 			local is_wave_pass = pipeline.name:starts_with("ocean_waves")
-			local is_ocean_pass = is_wave_pass or pipeline.name == "ocean" or pipeline.name == "ocean_resolve"
+			local is_water_pass = is_wave_pass or pipeline.name == "water" or pipeline.name == "water_resolve"
 
 			if
 				pipeline.name ~= "blit" and
@@ -707,7 +707,7 @@ function render3d.Initialize(config)
 				)
 				and
 				not (
-					is_ocean_pass and
+					is_water_pass and
 					not water_needed
 				)
 				and
@@ -716,7 +716,7 @@ function render3d.Initialize(config)
 					not ocean_enabled
 				)
 			then
-				if is_ocean_pass and not pipeline.framebuffers then
+				if is_water_pass and not pipeline.framebuffers then
 					pipeline:RecreateFramebuffers()
 
 					if not pipeline.config.FramebufferSize then
