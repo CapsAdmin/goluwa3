@@ -4,6 +4,9 @@ local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local system = import("goluwa/system.lua")
+local orientation = import("goluwa/render3d/orientation.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local ffi = require("ffi")
 local scene_lights = {}
 scene_lights.MAX_LIGHTS = 256
@@ -160,6 +163,10 @@ local cached_bytes
 local cached_size = 0
 local cached_frame = -1
 local cached_lights
+local light_rotation = Quat()
+local light_direction = Vec3()
+local light_forward = orientation.FORWARD_VECTOR
+local light_backward = -orientation.FORWARD_VECTOR
 
 function scene_lights.WriteLightsBlock(lights_block, lights)
 	local size = ffi.sizeof(lights_block)
@@ -178,13 +185,13 @@ function scene_lights.WriteLightsBlock(lights_block, lights)
 		local light = lights[i + 1]
 
 		if light then
-			local transform = light.Owner.transform
-			local rotation = transform:GetWorldRotation()
-			local direction = light.Type == "light_directional" and
-				rotation:GetBackward() or
-				rotation:GetForward()
-			transform:GetWorldPosition():CopyToFloatPointer(data.position)
-			direction:CopyToFloatPointer(data.direction)
+			local world = light.Owner.transform:GetWorldMatrix()
+			data.position[0], data.position[1], data.position[2] = world:GetTranslation()
+			Quat.SetVecMul(
+				light_direction,
+				world:GetRotation(light_rotation),
+				light.Type == "light_directional" and light_backward or light_forward
+			):CopyToFloatPointer(data.direction)
 			data.falloff[0] = light.SourceRadius ^ 2 + light.ConstantFalloff
 			data.falloff[1] = light.LinearFalloff
 			data.falloff[2] = light.QuadraticFalloff
