@@ -26,6 +26,10 @@ A tracer (`acoustics_gpu.lua`: ray queries on the scene TLAS in a PreRenderPass 
 - Absorption is the render material param `AcousticAbsorption` (energy coefficients per band). Source materials get it from their surfaceprop class.
 - Listener rays start `LISTENER_CLEARANCE` out (the player's own body); rays toward a source stop `SOURCE_CLEARANCE` short (the emitter's own mesh).
 
+## Debugging
+
+`perf audio` (or `h`, AUDIO tab, `addons/debug/lua/autorun/render_3d/audio_acoustics.lua`) shows what the system thinks the listener is in: tracer and cost, the listener room (T60 per band, volume, mean free path, escaping rays, predelay), every spatial sound (delay, doppler, direct level and occlusion, reverb send and which bus, reflections), a top down map of first hits, reflecting planes, reflection paths and direct paths, and the decay curves. `audio_debug` draws the same in the world; `audio_stats` prints the rows.
+
 ## Measuring
 
 You cannot listen, so render offline and measure: swap `audio.state` for `audio.CreateMixerState()`, create `mix.CreateMixer(state, 44100, 512)`, point `mixer.clock` and `audio.clock` at a virtual time, then alternate `audio.Update()` (frame rate) and `mix.MixOutputBuffer` (block rate). See `test/tests/other/audio_acoustics.lua`, which also has an analytic box tracer for checking the statistics against Eyring.
