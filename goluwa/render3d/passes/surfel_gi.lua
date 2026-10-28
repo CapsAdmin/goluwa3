@@ -290,7 +290,7 @@ local function visit_glsl(touch)
 					for (int c = 0; c < SURFEL_CASCADES; c++) {
 						int cell_level = level + l + c;
 						int packed = surfel_pack(cell_level, bucket);
-						ivec3 cell = ivec3(floor(P / surfel_cell_size_at(cell_level)));
+						ivec3 cell = ivec3(floor(surfel_cell_position(P, bucket, surfel_cell_size_at(cell_level))));
 						uint vote = (((pcg3d(uvec3(uint(index), uint(packed) | (uint(c) << 8u), frame)).x | 1u) & 0x7FFFu) << 17u) | uint(index);
 						]] .. (
 			touch and
@@ -545,7 +545,7 @@ local function pass_trace()
 				int coarse_offset = surfel_offset(coarse);
 				int packed = surfel_pack(coarse_level, bucket);
 				float size = surfel_cell_size(coarse_level);
-				vec3 grid = P / size - 0.5;
+				vec3 grid = surfel_cell_position(P, bucket, size) - 0.5;
 				ivec3 base = ivec3(floor(grid));
 				vec3 f = grid - vec3(base);
 				vec4 sum = vec4(0.0);
@@ -819,7 +819,8 @@ local function pass_resolve()
 				vec3 a = abs(N);
 				int axis = a.x >= a.y && a.x >= a.z ? 0 : (a.y >= a.z ? 1 : 2);
 				int level = int(min(surfel_lod(P, ddgi_data.surfel_camera.xyz, ddgi_data.surfel_params.y), float(SURFEL_TOP_LEVEL)));
-				int g = surfel_find(ivec3(floor(P / surfel_cell_size(level))), surfel_pack(level, surfel_bucket(axis, N[axis])), 0);
+				int bucket = surfel_bucket(axis, N[axis]);
+				int g = surfel_find(ivec3(floor(surfel_cell_position(P, bucket, surfel_cell_size(level)))), surfel_pack(level, bucket), 0);
 
 				if (g < 0) return vec3(0.0);
 

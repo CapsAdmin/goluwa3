@@ -434,6 +434,13 @@ function surfel_gi.GetDefinesGLSL()
 			return axis * 2 + (n < 0.0 ? 1 : 0);
 		}
 
+		// surfaces on round coordinates lie exactly on cell boundaries along their normal, half a cell of shift puts them in the middle of a cell
+		vec3 surfel_cell_position(vec3 P, int bucket, float size) {
+			vec3 offset = vec3(0.0);
+			offset[bucket / 2] = (bucket %% 2 == 0 ? 0.5 : -0.5) * size;
+			return (P + offset) / size;
+		}
+
 		float surfel_lod(vec3 P, vec3 camera, float lod_distance) {
 			return log2(max(distance(P, camera) / lod_distance, 1.0));
 		}
@@ -490,9 +497,6 @@ function surfel_gi.GetLookupGLSL()
 
 		vec4 surfel_sample_level(vec3 P, vec3 N, vec3 L, vec3 L2, int level, bool surface, out float weight, out vec3 second) {
 			float size = surfel_cell_size(level);
-			vec3 grid = P / size - 0.5;
-			ivec3 base = ivec3(floor(grid));
-			vec3 f = grid - vec3(base);
 			vec3 buckets = surfel_bucket_weights(N);
 			vec4 sum = vec4(0.0);
 			vec3 sum2 = vec3(0.0);
@@ -502,7 +506,11 @@ function surfel_gi.GetLookupGLSL()
 			for (int axis = 0; axis < 3; axis++) {
 				if (buckets[axis] <= 0.0) continue;
 
-				int packed = surfel_pack(level, surfel_bucket(axis, N[axis]));
+				int bucket = surfel_bucket(axis, N[axis]);
+				int packed = surfel_pack(level, bucket);
+				vec3 grid = surfel_cell_position(P, bucket, size) - 0.5;
+				ivec3 base = ivec3(floor(grid));
+				vec3 f = grid - vec3(base);
 
 				for (int i = 0; i < 8; i++) {
 					ivec3 o = ivec3(i & 1, (i >> 1) & 1, i >> 2);
