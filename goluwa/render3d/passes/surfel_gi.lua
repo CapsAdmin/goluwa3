@@ -11,6 +11,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local gi = import("goluwa/render3d/gi.lua")
+local scene_rt = import("goluwa/render3d/scene/rt.lua")
 local surfel_gi = import("goluwa/render3d/surfel_gi.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local system = import("goluwa/system.lua")
@@ -22,6 +23,7 @@ local BINDING_KEY = 4
 local BINDING_SURFEL = 5
 local BINDING_HITS = 6
 local BINDING_STATS = 7
+local BINDING_SCENE = 8
 local BINDING_SCREEN_GEOMETRY = 13
 local BINDING_SCREEN_SPECULAR = 14
 local BINDING_SCREEN_DEBUG = 15
@@ -139,8 +141,8 @@ local TABLE_GLSL = [[
 		uint election;
 		uint flags;
 		uint screen_stamp;
-		uint pad0;
-		uint pad1;
+		uint position_stamp;
+		uint hidden;
 		uint pad2;
 	};
 	layout(std430, set = 0, binding = ]] .. BINDING_TABLE .. [[) coherent buffer SurfelTable {
@@ -150,6 +152,7 @@ local TABLE_GLSL = [[
 		uint surfel_stats[];
 	};
 	#define SURFEL_STAT(field) surfel_stats[(uint(surfel_data.surfel_frame) & 3u) * ]] .. surfel_gi.STATS_STRIDE .. [[u + uint(field)]
+	#define SURFEL_POSITION_HOLD 30
 	#define SURFEL_STAT_ALIVE 0
 	#define SURFEL_STAT_FAILED 4
 	#define SURFEL_STAT_SCREEN 8
@@ -190,6 +193,26 @@ local function visit_glsl(touch)
 			N = normalize(gbuffer_normal(pixel));
 			return true;
 		}
+
+		]] .. (
+			touch and
+			"" or
+			[[
+		bool surfel_sees(vec3 from, vec3 to) {
+			vec3 delta = to - from;
+			float len = length(delta);
+
+			if (len < 1e-3) return true;
+
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, surfel_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, from, 0.0, delta / len, len);
+
+			while (rayQueryProceedEXT(query)) {}
+
+			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+		}
+		]]
+		) .. [[
 
 		int surfel_table_find(ivec3 cell, int packed, int c) {
 			int mask = surfel_capacity(c) - 1;
@@ -251,6 +274,8 @@ local function visit_glsl(touch)
 			if (previous == expected) {
 				surfel_table[candidate].stamp = frame;
 				surfel_table[candidate].screen_stamp = frame - uint(surfel_data.surfel_lifetime) - 1u;
+				surfel_table[candidate].position_stamp = frame - uint(SURFEL_POSITION_HOLD) - 1u;
+				surfel_table[candidate].hidden = 0u;
 				atomicOr(surfel_table[candidate].flags, 1u);
 				imageStore(out_key, surfel_slot_texel(candidate), vec4(vec3(cell), float(packed)));
 				return candidate;
@@ -309,7 +334,24 @@ local function visit_glsl(touch)
 			[[
 						int g = surfel_table_find(cell, packed, c);
 
-						if (g >= 0 && surfel_table[g].election == vote) imageStore(out_surfel, surfel_slot_texel(g), vec4(P, surfel_pack_normal(N)));
+						if (g >= 0 && surfel_table[g].election == vote) {
+							vec4 current = imageLoad(out_surfel, surfel_slot_texel(g));
+							float bias = 0.01 + 0.05 * surfel_cell_size_at(level + l);
+
+							bool screen = index < SURFEL_TOUCH_SAMPLES;
+							bool seen = (surfel_table[g].flags & 1u) != 0u || current.w == 0.0 || surfel_sees(current.xyz + surfel_unpack_normal(current.w) * bias, P + N * bias);
+
+							if (!seen && screen && frame - surfel_table[g].position_stamp > uint(SURFEL_POSITION_HOLD)) {
+								seen = true;
+								atomicOr(surfel_table[g].flags, 1u);
+							}
+
+							if (seen) {
+								imageStore(out_surfel, surfel_slot_texel(g), vec4(P, surfel_pack_normal(N)));
+
+								if (screen) surfel_table[g].position_stamp = frame;
+							}
+						}
 						]]
 		) .. [[
 					}
@@ -344,8 +386,21 @@ local function pass_visit(name, touch)
 			{binding_index = BINDING_STATS},
 		},
 		uniform_buffers = {pass_uniform{}},
+		descriptor_sets = not touch and
+			{
+				{
+					type = "acceleration_structure_khr",
+					binding_index = BINDING_SCENE,
+					stageFlags = "compute",
+				},
+			} or
+			nil,
 		on_pre_draw = function(self, cmd, frame, desc)
 			bind_buffers(self, desc)
+
+			if not touch then
+				self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, scene_rt.GetTLAS(cmd))
+			end
 		end,
 		on_draw = function(self, cmd, fb, frame, desc)
 			self:UploadConstants()
@@ -359,13 +414,17 @@ local function pass_visit(name, touch)
 			)
 			compute_barrier(cmd)
 		end,
-		custom_declarations = TABLE_GLSL .. [[
-			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba32f) uniform writeonly image2D ]] .. (
+		custom_declarations = TABLE_GLSL .. (
 				touch and
-				"out_key" or
-				"out_surfel"
-			) .. [[;
-		]],
+				[[
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba32f) uniform writeonly image2D out_key;
+		]] or
+				[[
+			#extension GL_EXT_ray_query : require
+			layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT surfel_scene;
+			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba32f) uniform image2D out_surfel;
+		]]
+			),
 		shader = visit_glsl(touch),
 	}
 end
@@ -493,6 +552,96 @@ local function pass_update()
 	}
 end
 
+local function pass_visibility()
+	return {
+		name = "surfel_visibility",
+		ComputePass = true,
+		ColorFormat = DUMMY_FORMAT,
+		FramebufferSize = {x = 1, y = 1},
+		framebuffer_count = 1,
+		LocalSize = {x = 64, y = 1, z = 1},
+		storage_buffers = {
+			{binding_index = BINDING_TABLE},
+			{binding_index = BINDING_HITS},
+			{binding_index = BINDING_STATS},
+		},
+		descriptor_sets = {
+			{
+				type = "acceleration_structure_khr",
+				binding_index = BINDING_SCENE,
+				stageFlags = "compute",
+			},
+		},
+		uniform_buffers = {
+			pass_uniform{
+				write = function(self, block)
+					block.surfel_state_tex = self:GetTextureIndex(surfel_gi.GetResources().state)
+				end,
+			},
+			gi_uniform(),
+		},
+		on_pre_draw = function(self, cmd, frame, desc)
+			bind_buffers(self, desc)
+			self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, scene_rt.GetTLAS(cmd))
+		end,
+		on_draw = function(self, cmd, fb, frame, desc)
+			self:UploadConstants()
+			self.pipeline:DispatchForSize(cmd, surfel_gi.GetCapacity(0) * 26, 1, 1, desc, self.dynamic_offsets)
+			compute_barrier(cmd)
+		end,
+		custom_declarations = TABLE_GLSL .. [[
+			#extension GL_EXT_ray_query : require
+			layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT surfel_scene;
+		]],
+		shader = glsl_common.GetConstantsGLSL() .. ibl.GetEnvironmentGLSLCode() .. gi.GetCommonGLSL() .. [[
+			void main() {
+				int id = int(gl_GlobalInvocationID.x);
+				int g = id / 26;
+
+				if (g >= surfel_capacity(0)) return;
+
+				int neighbour = id - g * 26;
+				ivec2 slot_texel = surfel_slot_texel(g);
+				vec4 state = texelFetch(TEXTURE(surfel_data.surfel_state_tex), slot_texel, 0);
+
+				if (state.y == 0.0) return;
+
+				if (state.x > 1.0 && uint(neighbour + surfel_data.surfel_frame) % 4u != 0u) return;
+
+				int index = neighbour < 13 ? neighbour : neighbour + 1;
+				ivec3 offset = ivec3(index % 3, (index / 3) % 3, index / 9) - 1;
+				vec4 key = texelFetch(TEXTURE(ddgi_data.surfel_key_tex), slot_texel, 0);
+				int other = surfel_find(ivec3(key.xyz) + offset, int(key.w), 0);
+				uint bit = 1u << uint(neighbour);
+
+				if (other < 0) {
+					atomicAnd(surfel_table[g].hidden, ~bit);
+					return;
+				}
+
+				float bias = 0.01 + 0.05 * surfel_cell_size(surfel_packed_level(int(key.w)));
+				vec4 surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), slot_texel, 0);
+				vec4 target = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(other), 0);
+				vec3 from = surfel.xyz + surfel_unpack_normal(surfel.w) * bias;
+				vec3 delta = target.xyz + surfel_unpack_normal(target.w) * bias - from;
+				float len = length(delta);
+				bool visible = true;
+
+				if (len > 1e-3) {
+					rayQueryEXT query;
+					rayQueryInitializeEXT(query, surfel_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, from, 0.0, delta / len, len);
+
+					while (rayQueryProceedEXT(query)) {}
+
+					visible = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT;
+				}
+
+				if (visible) atomicAnd(surfel_table[g].hidden, ~bit); else atomicOr(surfel_table[g].hidden, bit);
+			}
+		]],
+	}
+end
+
 local function pass_trace()
 	return {
 		name = "surfel_trace",
@@ -539,7 +688,14 @@ local function pass_trace()
 		]] .. HITS_GLSL .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = "#define SURFEL_UNSCALED\n#define SCENE_HIT_SKY_RAYS 1\n" .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("surfel_data") .. [[
 
-			vec4 surfel_merge(int c, ivec2 dir_texel, vec3 P, int level, int bucket, out float weight) {
+			ivec3 surfel_merge_corner(int c, vec3 P, int level, int bucket, int i, out vec3 f) {
+				vec3 grid = surfel_cell_position(P, bucket, surfel_cell_size(level + 1)) - 0.5;
+				ivec3 base = ivec3(floor(grid));
+				f = grid - vec3(base);
+				return base + ivec3(i & 1, (i >> 1) & 1, i >> 2);
+			}
+
+			vec4 surfel_merge(int c, ivec2 dir_texel, vec3 P, int level, int bucket, uint visible, out float weight) {
 				int coarse = c + 1;
 				int coarse_level = level + 1;
 				int coarse_offset = surfel_offset(coarse);
@@ -552,6 +708,8 @@ local function pass_trace()
 				weight = 0.0;
 
 				for (int i = 0; i < 8; i++) {
+					if ((visible & (1u << uint(i))) == 0u) continue;
+
 					ivec3 o = ivec3(i & 1, (i >> 1) & 1, i >> 2);
 					vec3 k = mix(1.0 - f, f, vec3(o));
 					float w = k.x * k.y * k.z;
@@ -588,27 +746,53 @@ local function pass_trace()
 				return sum / max(weight, 1e-6);
 			}
 
+			shared uint s_visible[64 / (]] .. surfel_gi.BASE_DIRECTIONS .. [[ * ]] .. surfel_gi.BASE_DIRECTIONS .. [[)];
+
 			void main() {
 				int c = surfel_data.surfel_cascade;
 				int side = surfel_side(c);
 				int dirs = side * side;
 				int id = int(gl_GlobalInvocationID.x);
 				int local_slot = id / dirs;
-
-				if (local_slot >= surfel_capacity(c)) return;
-
 				int d = id - local_slot * dirs;
+				uint group_slot = dirs < 64 ? gl_LocalInvocationID.x / uint(dirs) : 0u;
+				int corner = dirs < 64 ? d : int(gl_LocalInvocationID.x);
 				ivec2 dir_texel = ivec2(d % side, d / side);
 				int g = surfel_offset(c) + local_slot;
 				ivec2 slot_texel = surfel_slot_texel(g);
 				vec4 state = texelFetch(TEXTURE(surfel_data.surfel_state_tex), slot_texel, 0);
+				vec4 surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), slot_texel, 0);
+				int packed = max(int(texelFetch(TEXTURE(ddgi_data.surfel_key_tex), slot_texel, 0).w), 1);
+				int level = surfel_packed_level(packed);
+				vec3 N = surfel_unpack_normal(surfel.w);
+				float size0 = surfel_cell_size(level - c);
+				bool last = c == SURFEL_CASCADES - 1;
+
+				float bias = 0.01 + 0.05 * size0;
+				vec3 origin = surfel.xyz + N * bias;
+
+				if (corner == 0) s_visible[group_slot] = 0u;
+
+				barrier();
+
+				if (state.y != 0.0 && !last && corner < 8) {
+					vec3 f;
+					int coarse = surfel_find(surfel_merge_corner(c, surfel.xyz, level, surfel_packed_bucket(packed), corner, f), surfel_pack(level + 1, surfel_packed_bucket(packed)), c + 1);
+
+					if (coarse >= 0) {
+						vec4 neighbour = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(coarse), 0);
+						vec3 to = neighbour.xyz + surfel_unpack_normal(neighbour.w) * bias - origin;
+						float len = length(to);
+
+						if (len < 1e-3 || scene_reflection_visible(origin, to / len, len)) atomicOr(s_visible[group_slot], 1u << uint(corner));
+					}
+				}
+
+				barrier();
+				uint visible = s_visible[group_slot];
 
 				if (state.y == 0.0) return;
 
-				vec4 surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), slot_texel, 0);
-				int packed = int(texelFetch(TEXTURE(ddgi_data.surfel_key_tex), slot_texel, 0).w);
-				int level = surfel_packed_level(packed);
-				vec3 N = surfel_unpack_normal(surfel.w);
 				ivec2 atlas_texel = surfel_atlas_texel(c, local_slot, dir_texel);
 
 				if (dot(surfel_texel_direction(side, vec2(dir_texel) + 0.5), N) < -1.2 / float(side)) {
@@ -622,23 +806,18 @@ local function pass_trace()
 
 				if (facing < 0.02) dir = normalize(dir + N * (0.02 - facing));
 
-				float size0 = surfel_cell_size(level - c);
-				vec3 origin = surfel.xyz + N * (0.01 + 0.05 * size0);
-				float reach = size0 * surfel_data.surfel_interval;
-				bool last = c == SURFEL_CASCADES - 1;
-				float t_start = c == 0 ? 0.0 : max(reach * float(1 << (2 * (c - 1))) - 1.5 * surfel_cell_size(level), 0.0);
-				float t_end = last ? surfel_data.surfel_max_ray_distance : reach * float(1 << (2 * c));
+				float t_end = last ? surfel_data.surfel_max_ray_distance : size0 * surfel_data.surfel_interval * float(1 << (2 * c));
 				float t;
 				uint instance;
 				uint primitive;
 				vec2 barycentrics;
-				bool hit = trace_scene_interval(origin, dir, t_start, t_end, t, instance, primitive, barycentrics);
+				bool hit = trace_scene_interval(origin, dir, 0.0, t_end, t, instance, primitive, barycentrics);
 				float glass_distance = hit ? t : t_end;
 				vec4 result = vec4(0.0);
 
 				if (!hit && !last) {
 					float merge_weight;
-					result = surfel_merge(c, dir_texel, surfel.xyz, level, surfel_packed_bucket(packed), merge_weight);
+					result = surfel_merge(c, dir_texel, surfel.xyz, level, surfel_packed_bucket(packed), visible, merge_weight);
 
 					if (merge_weight <= 0.0) {
 						hit = trace_scene_interval(origin, dir, t_end, surfel_data.surfel_max_ray_distance, t, instance, primitive, barycentrics);
@@ -675,7 +854,10 @@ local function pass_trace()
 
 				result.rgb = dot(result.rgb, vec3(1.0)) >= 0.0 ? min(result.rgb, vec3(60000.0)) : vec3(0.0);
 				vec4 previous = imageLoad(surfel_atlas, atlas_texel);
-				float alpha = previous.a < 0.0 ? 1.0 : max(1.0 / state.x, 1.0 - surfel_data.surfel_hysteresis);
+				float alpha = previous.a < 0.0 ? 1.0 : max(1.0 / state.x, 1.0 - pow(surfel_data.surfel_hysteresis, float(min(1 << c, surfel_data.surfel_update_interval_max))));
+				// fresh atlas memory can hold NaN, and mix(NaN, x, 1.0) is still NaN
+				if (alpha >= 1.0 || any(isnan(previous)) || any(isinf(previous))) previous = result;
+
 				imageStore(surfel_atlas, atlas_texel, mix(previous, result, alpha));
 			}
 		]],
@@ -691,6 +873,14 @@ local function pass_integrate()
 		framebuffer_count = 1,
 		LocalSize = {x = 64, y = 1, z = 1},
 		storage_images = {storage_image(BINDING_OUTPUT, "irradiance")},
+		storage_buffers = {
+			{binding_index = BINDING_TABLE},
+			{binding_index = BINDING_HITS},
+			{binding_index = BINDING_STATS},
+		},
+		on_pre_draw = function(self, cmd, frame, desc)
+			bind_buffers(self, desc)
+		end,
 		uniform_buffers = {
 			pass_uniform{
 				write = function(self, block)
@@ -705,7 +895,7 @@ local function pass_integrate()
 			self:UploadConstants()
 			self.pipeline:DispatchForSize(cmd, surfel_gi.GetCapacity(0), 1, 1, desc, self.dynamic_offsets)
 		end,
-		custom_declarations = [[
+		custom_declarations = TABLE_GLSL .. [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_irradiance;
 		]],
 		shader = surfel_gi.GetDefinesGLSL() .. [[
@@ -748,9 +938,10 @@ local function pass_integrate()
 
 				float scale = 4.0 / max(total, 1e-6);
 				imageStore(out_irradiance, surfel_irradiance_texel(g, 0), vec4(a * (0.25 * scale), saturate(sky * scale)));
-				imageStore(out_irradiance, surfel_irradiance_texel(g, 1), vec4(bx * (0.5 * scale), 0.0));
-				imageStore(out_irradiance, surfel_irradiance_texel(g, 2), vec4(by * (0.5 * scale), 0.0));
-				imageStore(out_irradiance, surfel_irradiance_texel(g, 3), vec4(bz * (0.5 * scale), 0.0));
+				uint hidden = surfel_table[g].hidden;
+				imageStore(out_irradiance, surfel_irradiance_texel(g, 1), vec4(bx * (0.5 * scale), float(hidden & 511u)));
+				imageStore(out_irradiance, surfel_irradiance_texel(g, 2), vec4(by * (0.5 * scale), float((hidden >> 9u) & 511u)));
+				imageStore(out_irradiance, surfel_irradiance_texel(g, 3), vec4(bz * (0.5 * scale), float(hidden >> 18u)));
 			}
 		]],
 	}
@@ -803,13 +994,27 @@ local function pass_resolve()
 			},
 			gi_uniform(),
 		},
+		descriptor_sets = {
+			{
+				type = "acceleration_structure_khr",
+				binding_index = BINDING_SCENE,
+				stageFlags = "compute",
+			},
+		},
+		on_pre_draw = function(self, cmd, frame, desc)
+			self:UpdateDescriptorSet("acceleration_structure_khr", desc, BINDING_SCENE, 0, scene_rt.GetTLAS(cmd))
+		end,
 		custom_declarations = [[
+			#extension GL_EXT_ray_query : require
+			#define DDGI_VISIBILITY_RAYS
+			#define SURFEL_SCREEN_LOOKUP
+			layout(set = 0, binding = ]] .. BINDING_SCENE .. [[) uniform accelerationStructureEXT ddgi_scene;
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = ]] .. BINDING_SCREEN_GEOMETRY .. [[, rgba16f) uniform writeonly image2D out_geometry;
 			layout(set = 0, binding = ]] .. BINDING_SCREEN_SPECULAR .. [[, rgba16f) uniform writeonly image2D out_specular;
 			layout(set = 0, binding = ]] .. BINDING_SCREEN_DEBUG .. [[, rgba8) uniform writeonly image2D out_debug;
 		]],
-		shader = glsl_common.GetConstantsGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("surfel_data") .. ibl.GetEnvironmentGLSLCode() .. surfel_gi.GetLookupGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("surfel_data") .. [[
+		shader = glsl_common.GetConstantsGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("surfel_data") .. ibl.GetEnvironmentGLSLCode() .. gi.GetCommonGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("surfel_data") .. [[
 
 			vec3 surfel_debug_color(vec3 P, vec3 N, float found, float sky) {
 				if (surfel_data.surfel_debug == 2) return vec3(1.0 - found, found, 0.0);
@@ -909,6 +1114,7 @@ return {
 	pass_visit("surfel_touch", true),
 	pass_visit("surfel_elect", false),
 	pass_update(),
+	pass_visibility(),
 	pass_trace(),
 	pass_integrate(),
 	pass_resolve(),

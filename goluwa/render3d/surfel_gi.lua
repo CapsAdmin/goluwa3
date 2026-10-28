@@ -68,7 +68,7 @@ local hysteresis = pvars.Setup2{
 	default = 0.95,
 	min = 0,
 	max = 0.995,
-	help = "how much of a surfel direction's history survives an update, a new surfel weighs its first updates 1/n",
+	help = "how much of a surfel direction's history survives a frame, a cascade that updates every n frames keeps this to the power n per update. a new surfel weighs its first updates 1/n",
 }
 local lifetime = pvars.Setup2{
 	key = "surfel_lifetime",
@@ -488,6 +488,13 @@ function surfel_gi.GetLookupGLSL()
 			return ddgi_data.surfel_irradiance_tex >= 0 && distance(P, ddgi_data.surfel_camera.xyz) < ddgi_data.surfel_camera.w;
 		}
 
+		uint surfel_hidden_mask(int g) {
+			uint low = uint(texelFetch(TEXTURE(ddgi_data.surfel_irradiance_tex), surfel_irradiance_texel(g, 1), 0).a);
+			uint middle = uint(texelFetch(TEXTURE(ddgi_data.surfel_irradiance_tex), surfel_irradiance_texel(g, 2), 0).a);
+			uint high = uint(texelFetch(TEXTURE(ddgi_data.surfel_irradiance_tex), surfel_irradiance_texel(g, 3), 0).a);
+			return low | (middle << 9u) | (high << 18u);
+		}
+
 		vec3 surfel_evaluate(int g, vec3 L, vec4 a) {
 			vec3 bx = texelFetch(TEXTURE(ddgi_data.surfel_irradiance_tex), surfel_irradiance_texel(g, 1), 0).rgb;
 			vec3 by = texelFetch(TEXTURE(ddgi_data.surfel_irradiance_tex), surfel_irradiance_texel(g, 2), 0).rgb;
@@ -495,7 +502,7 @@ function surfel_gi.GetLookupGLSL()
 			return max(a.rgb + bx * L.x + by * L.y + bz * L.z, vec3(0.0));
 		}
 
-		vec4 surfel_sample_level(vec3 P, vec3 N, vec3 L, vec3 L2, int level, bool surface, out float weight, out vec3 second) {
+		vec4 surfel_sample_level(vec3 P, vec3 N, vec3 L, vec3 L2, int level, bool surface, bool check_visibility, out float weight, out vec3 second) {
 			float size = surfel_cell_size(level);
 			vec3 buckets = surfel_bucket_weights(N);
 			vec4 sum = vec4(0.0);
@@ -508,9 +515,32 @@ function surfel_gi.GetLookupGLSL()
 
 				int bucket = surfel_bucket(axis, N[axis]);
 				int packed = surfel_pack(level, bucket);
-				vec3 grid = surfel_cell_position(P, bucket, size) - 0.5;
+				vec3 cell_position = surfel_cell_position(P, bucket, size);
+				vec3 grid = cell_position - 0.5;
 				ivec3 base = ivec3(floor(grid));
 				vec3 f = grid - vec3(base);
+				ivec3 own = ivec3(floor(cell_position));
+				uint hidden = 0u;
+
+				bool check_level = check_visibility;
+				bool own_hidden = false;
+
+				if (surface) {
+					int own_slot = surfel_find(own, packed, 0);
+
+					if (own_slot >= 0) {
+						hidden = surfel_hidden_mask(own_slot);
+						#if defined(DDGI_VISIBILITY_RAYS) && !defined(SURFEL_SCREEN_LOOKUP)
+						vec4 own_surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(own_slot), 0);
+
+						if (ddgi_probe_hidden(P, N, own_surfel.xyz + surfel_unpack_normal(own_surfel.w) * (0.01 + 0.05 * size), size)) {
+							hidden = 0u;
+							own_hidden = true;
+							check_level = true;
+						}
+						#endif
+					}
+				}
 
 				for (int i = 0; i < 8; i++) {
 					ivec3 o = ivec3(i & 1, (i >> 1) & 1, i >> 2);
@@ -519,6 +549,11 @@ function surfel_gi.GetLookupGLSL()
 					possible += w;
 
 					if (w <= 0.0) continue;
+
+					ivec3 delta = base + o - own;
+					int neighbour = (delta.x + 1) + (delta.y + 1) * 3 + (delta.z + 1) * 9;
+
+					if (neighbour == 13 ? own_hidden : (hidden & (1u << uint(neighbour < 13 ? neighbour : neighbour - 1))) != 0u) continue;
 
 					int g = surfel_find(base + o, packed, 0);
 
@@ -531,6 +566,14 @@ function surfel_gi.GetLookupGLSL()
 
 						if (w <= 0.0) continue;
 					}
+
+					#ifdef DDGI_VISIBILITY_RAYS
+					if (check_level) {
+						vec4 surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(g), 0);
+
+						if (ddgi_probe_hidden(P, N, surfel.xyz + surfel_unpack_normal(surfel.w) * (0.01 + 0.05 * size), size)) continue;
+					}
+					#endif
 
 					vec4 a = texelFetch(TEXTURE(ddgi_data.surfel_irradiance_tex), surfel_irradiance_texel(g, 0), 0);
 					sum += vec4(surfel_evaluate(g, L, a), a.a) * w;
@@ -555,7 +598,7 @@ function surfel_gi.GetLookupGLSL()
 			float blend = level < SURFEL_TOP_LEVEL ? smoothstep(0.75, 1.0, lod - float(level)) : 0.0;
 			float fine_coverage;
 			vec3 fine_second;
-			vec4 fine = surfel_sample_level(P, N, L, L2, level, surface, fine_coverage, fine_second);
+			vec4 fine = surfel_sample_level(P, N, L, L2, level, surface, false, fine_coverage, fine_second);
 			float filled = fine_coverage * (1.0 - blend);
 			vec4 result = fine * filled;
 			vec3 second_rgb = fine_second * filled;
@@ -563,7 +606,7 @@ function surfel_gi.GetLookupGLSL()
 			for (int coarser = level + 1; coarser <= min(level + 2, SURFEL_TOP_LEVEL) && filled < 0.999; coarser++) {
 				float coverage;
 				vec3 coarse_second;
-				vec4 coarse = surfel_sample_level(P, N, L, L2, coarser, surface, coverage, coarse_second);
+				vec4 coarse = surfel_sample_level(P, N, L, L2, coarser, surface, true, coverage, coarse_second);
 				float share = coverage * (1.0 - filled);
 				result += coarse * share;
 				second_rgb += coarse_second * share;
