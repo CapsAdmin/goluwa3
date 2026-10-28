@@ -3,7 +3,7 @@ local assets = import("goluwa/assets.lua")
 local system = import("goluwa/system.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -70,7 +70,7 @@ return {
 					block.frame = system.GetFrameNumber() % 4096
 					block.gi_enabled = ambient_occlusion.IsGIEnabled() and block.last_frame_tex ~= -1 and 1 or 0
 					block.gi_strength = ambient_occlusion.GetGIStrength()
-					local screen = ddgi.GetScreenTexture()
+					local screen = gi.GetScreenTexture()
 					block.ddgi_screen_tex = screen and self:GetTextureIndex(screen) or -1
 					gbuffer_layout.WriteBlock(self, block)
 					return block

@@ -1447,7 +1447,7 @@ list.insert(
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && water_feature(WATER_AMBIENT_GI)) {
 					float weight;
-					vec4 gi = ddgi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), smooth_blend, visibility_min_weight, weight);
+					vec4 gi = gi_sample_irradiance(P, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), smooth_blend, visibility_min_weight, weight);
 					if (weight > 0.0) return gi.rgb;
 				}
 				#endif

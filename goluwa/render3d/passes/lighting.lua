@@ -12,6 +12,7 @@ local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -164,7 +165,7 @@ return {
 					gbuffer_layout.WriteBlock(self, block)
 					surface_weather.WriteRainSurfaceBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
-					block.gi_debug = ddgi.IsDebugGI() and 1 or 0
+					block.gi_debug = gi.IsDebugGI() and 1 or 0
 					block.direct_debug = debug_direct:Get() and 1 or 0
 					block.sky_clouds = render3d.GetActiveRenderContext() and 1 or 0
 					block.sky_air = (
@@ -191,7 +192,7 @@ return {
 					end
 
 					block.reflection_gi_start, block.reflection_gi_end = ibl.GetReflectionGIRange()
-					local overlay = ddgi.GetDebugOverlayTexture()
+					local overlay = gi.GetDebugOverlayTexture()
 					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
 
 					if render3d.IsPassEnabled("reflections") then

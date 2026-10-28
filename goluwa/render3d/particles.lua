@@ -12,7 +12,7 @@ local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
@@ -394,11 +394,11 @@ function particles.GetSimulationGLSL()
 		vec3 get_particle_irradiance(vec3 P, vec3 N) {
 			vec3 environment = sample_environment_irradiance(particle_data.env_irradiance_tex, N);
 
-			if (ddgi_data.ddgi_cascade_count == 0 || !ddgi_in_volume(P)) return environment;
+			if (!gi_available() || !gi_in_volume(P)) return environment;
 
 			float weight;
-			vec4 probes = ddgi_sample_irradiance(P, N, N, vec3(0.0), ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
-			return mix(environment, probes.rgb, saturate(weight / ]] .. ddgi.MIN_WEIGHT .. [[));
+			vec4 probes = gi_sample_irradiance(P, N, vec3(0.0), ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
+			return mix(environment, probes.rgb, saturate(weight / ]] .. gi.MIN_WEIGHT .. [[));
 		}
 
 		vec3 get_particle_radiance(vec3 P, vec3 view_dir, float g, float forward_fraction) {
@@ -516,15 +516,8 @@ function particles.BuildSimulationPasses()
 		{
 			name = "ddgi_data",
 			binding_index = BINDING_DDGI,
-			block = ddgi.GetProbeBlockLayout(),
-			write = function(self, block)
-				if render3d.IsPassEnabled("ddgi") then
-					return ddgi.WriteProbeBlock(self, block)
-				end
-
-				block.ddgi_cascade_count = 0
-				return block
-			end,
+			block = gi.GetProbeBlockLayout(),
+			write = gi.WriteProbeBlock,
 		},
 		{
 			name = "particle_data",
@@ -659,7 +652,7 @@ function particles.BuildSimulationPasses()
 					hit.IsSupported() and
 					hit.GetTraceGLSL("particle_scene") or
 					hit.GetStubTraceGLSL()
-				) .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("particle_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("particle_data") .. atmosphere.GetGLSLDefines("particle_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("particle_data", "get_particle_sun_visibility") .. scene_lights.GetPointShadowGLSL("particle_data") .. medium_lighting.GetLocalLightsGLSL("particle_data", LOCAL_LIGHT_LIMIT) .. particles.GetSimulationGLSL(),
+				) .. ibl.GetEnvironmentGLSLCode() .. gi.GetCommonGLSL() .. light_occlusion.GetSamplingGLSL("particle_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("particle_data") .. atmosphere.GetGLSLDefines("particle_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("particle_data", "get_particle_sun_visibility") .. scene_lights.GetPointShadowGLSL("particle_data") .. medium_lighting.GetLocalLightsGLSL("particle_data", LOCAL_LIGHT_LIMIT) .. particles.GetSimulationGLSL(),
 		},
 	}
 end

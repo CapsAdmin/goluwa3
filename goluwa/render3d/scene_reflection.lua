@@ -2,6 +2,7 @@ local render = import("goluwa/render/render.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
@@ -223,14 +224,7 @@ function scene_reflection.WriteBlock(self, block)
 end
 
 function scene_reflection.WriteProbeBlock(self, block)
-	ddgi.WriteProbeBlock(self, block)
-
-	if not render3d.IsPassEnabled("ddgi") then
-		block.ddgi_cascade_count = 0
-		block.ddgi_reset_mask = 0
-		block.ddgi_update_mask = 0
-		block.ddgi_rt_ready = scene_reflection.RAY_QUERY and 1 or 0
-	end
+	gi.WriteProbeBlock(self, block)
 
 	if not enabled:Get() then block.ddgi_rt_ready = 0 end
 
@@ -241,7 +235,7 @@ function scene_reflection.GetDDGIUniformBuffer(binding)
 	return {
 		name = "ddgi_data",
 		binding_index = binding,
-		block = ddgi.GetProbeBlockLayout(),
+		block = gi.GetProbeBlockLayout(),
 		write = scene_reflection.WriteProbeBlock,
 	}
 end
@@ -250,7 +244,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 	return ddgi.GetHitDefinesGLSL() .. (
 			shared and
 			"" or
-			ddgi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode()
+			gi.GetCommonGLSL() .. scene_lights.GetLightGLSLCode()
 		) .. ddgi.GetMaterialGLSL() .. ddgi.GetAlphaTestGLSL() .. (
 			shared and
 			"" or
@@ -523,9 +517,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 			#endif
 
 			float weight;
-			vec4 gi = ddgi_sample_irradiance(P, hit_N, hit_N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight);
+			vec4 gi = gi_sample_irradiance(P, hit_N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight);
 
-			if (weight <= 0.0 && !ddgi_in_volume(P)) {
+			if (!gi_covers(P, weight)) {
 				vec3 tangent = normalize(cross(hit_N, abs(hit_N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
 				vec3 bitangent = cross(hit_N, tangent);
 				float spin = fract(sin(dot(P, vec3(12.9898, 78.233, 37.719))) * 43758.5453) * 6.28318530718;
@@ -553,9 +547,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 				float fog_sky = 1.0;
 				vec3 fog_gi = vec3(0.0);
 
-				if (ddgi_data.ddgi_cascade_count > 0 && ddgi_in_volume(origin)) {
+				if (gi_available() && gi_in_volume(origin)) {
 					float fog_weight;
-					vec4 up = ddgi_sample_irradiance(origin, vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0), false, DDGI_NO_VISIBILITY_RAYS, fog_weight);
+					vec4 up = gi_sample_irradiance(origin, vec3(0.0, 1.0, 0.0), vec3(0.0), false, DDGI_NO_VISIBILITY_RAYS, fog_weight);
 
 					if (fog_weight > 0.0) {
 						fog_sky = saturate(up.a);

@@ -1,7 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local VisibilityGroup = objects.CreateTemplate("visibility_group")
 VisibilityGroup.has_boxes = false
 VisibilityGroup:StartStorable()
@@ -124,7 +124,7 @@ local function set_shown(target)
 		end
 	end
 
-	if changed then ddgi.ResetHistory() end
+	if changed then gi.ResetHistory() end
 end
 
 function VisibilityGroup.GetActive()

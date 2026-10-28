@@ -10,7 +10,7 @@ local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
@@ -152,7 +152,7 @@ table.insert(
 	surface_uniform_buffers,
 	{
 		name = "ddgi_data",
-		block = ddgi.GetProbeBlockLayout(),
+		block = gi.GetProbeBlockLayout(),
 		write = scene_reflection.WriteProbeBlock,
 		upload_scope = "frame",
 	}
@@ -368,7 +368,7 @@ local passes = {
 					scene_reflection.RAY_QUERY and
 					glass_light.GetGLSL("ddgi_scene") or
 					""
-				) .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. (
+				) .. surface_lighting.GetGLSL("lighting_data") .. gi.GetCommonGLSL() .. (
 					scene_reflection.RAY_QUERY and
 					scene_reflection.GetGLSL("lighting_data", true) .. scene_reflection.GetDirectionGLSL()
 					or
@@ -392,11 +392,11 @@ local passes = {
 						irradiance = gi.rgb;
 					}
 
-					if (!use_probes || !ddgi_in_volume(world_pos)) return irradiance;
+					if (!use_probes || !gi_available() || !gi_in_volume(world_pos)) return irradiance;
 
 					float weight;
-					vec4 probes = ddgi_sample_irradiance(world_pos, facing_N, facing_N, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
-					float confidence = saturate(weight / ]] .. ddgi.MIN_WEIGHT .. [[);
+					vec4 probes = gi_sample_irradiance(world_pos, facing_N, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight);
+					float confidence = saturate(weight / ]] .. gi.MIN_WEIGHT .. [[);
 					sky_visibility = mix(sky_visibility, probes.a, confidence);
 					return mix(irradiance, probes.rgb, confidence);
 				}

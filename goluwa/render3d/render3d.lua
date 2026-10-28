@@ -304,7 +304,7 @@ local default_passes = {
 	{"clouds", "goluwa/render3d/passes/clouds.lua"},
 	{"terrain_shadow", "goluwa/render3d/passes/terrain_shadow.lua"},
 	{"ambient_occlusion", "goluwa/render3d/passes/ambient_occlusion.lua"},
-	{"ddgi", "goluwa/render3d/passes/ddgi.lua"},
+	{"ddgi", "goluwa/render3d/passes/ddgi.lua", gi = "ddgi"},
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
 	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},
@@ -342,6 +342,29 @@ for _, entry in ipairs(default_passes) do
 end
 
 pvars.EndGroup()
+pvars.StartGroup("Lighting", "Global illumination", {store = false})
+local gi_mode = pvars.Setup2{
+	key = "r_gi",
+	default = "ddgi",
+	enums = {"ddgi", "none"},
+	help = "the global illumination: ddgi probe cascades or none (the sky's irradiance). passes of a system that is not chosen are not built",
+	callback = function(value, initial)
+		if initial then return end
+
+		for bundle in pairs(render3d.bundles) do
+			if not bundle.options.passes then
+				local ok, err = pcall(render3d.RebuildPipelineBundle, bundle)
+
+				if not ok then logn("failed to rebuild pipelines: ", err) end
+			end
+		end
+	end,
+}
+pvars.EndGroup()
+
+function render3d.GetGIMode()
+	return gi_mode:Get()
+end
 
 function render3d.IsBundlePassEnabled(bundle, name)
 	return bundle.passes[name] == true and
@@ -423,8 +446,10 @@ local function fill_pipeline_bundle(bundle)
 		passes = {}
 
 		for _, entry in ipairs(default_passes) do
-			local module = import(entry[2])
-			passes[#passes + 1] = entry[1] == "light_grid" and module.pass or module
+			if not entry.gi or entry.gi == gi_mode:Get() then
+				local module = import(entry[2])
+				passes[#passes + 1] = entry[1] == "light_grid" and module.pass or module
+			end
 		end
 	end
 

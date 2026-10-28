@@ -9,6 +9,7 @@ local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_lighting = {}
@@ -62,11 +63,11 @@ function surface_lighting.WriteBlock(self, block)
 
 	block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
 	envprobe.WriteProbeBlock(self, block)
-	local gi_texture = ddgi.GetScreenTexture()
+	local gi_texture = gi.GetScreenTexture()
 	block.gi_screen_tex = gi_texture and self:GetTextureIndex(gi_texture) or -1
-	local gi_geometry_texture = ddgi.GetScreenGeometryTexture()
+	local gi_geometry_texture = gi.GetScreenGeometryTexture()
 	block.gi_screen_geometry_tex = gi_geometry_texture and self:GetTextureIndex(gi_geometry_texture) or -1
-	local gi_specular_texture = ddgi.GetScreenSpecularTexture()
+	local gi_specular_texture = gi.GetScreenSpecularTexture()
 	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
 	block.glass_light = (glass_light.IsEnabled() and ddgi.HasGlass()) and 1 or 0
 	post_source.WritePreExposureBlock(self, block)

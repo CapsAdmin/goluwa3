@@ -11,7 +11,7 @@ local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
-local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
@@ -42,7 +42,7 @@ local HIDDEN_GLSL = [[
 ]]
 
 local function write_gi_screen_texture(self, block, key)
-	local texture = ddgi.GetScreenTexture()
+	local texture = gi.GetScreenTexture()
 	block[key] = texture and self:GetTextureIndex(texture) or -1
 end
 
@@ -161,15 +161,8 @@ local gi_pass = {
 		{
 			name = "ddgi_data",
 			binding_index = BINDING_DDGI,
-			block = ddgi.GetProbeBlockLayout(),
-			write = function(self, block)
-				if render3d.IsPassEnabled("ddgi") then
-					return ddgi.WriteProbeBlock(self, block)
-				end
-
-				block.ddgi_cascade_count = 0
-				return block
-			end,
+			block = gi.GetProbeBlockLayout(),
+			write = gi.WriteProbeBlock,
 		},
 		{
 			name = "froxel_data",
@@ -239,7 +232,7 @@ local gi_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_gi;
 		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
 	]],
-	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. ddgi.GetCommonGLSL() .. ddgi.GetMediumGLSL() .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
+	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. gi.GetCommonGLSL() .. gi.GetMediumGLSL() .. SLICE_GLSL .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {
 			uvec3 h = pcg3d(v);
 			return h.x ^ h.y ^ h.z;
@@ -275,8 +268,8 @@ local gi_pass = {
 			bool covered;
 			float depth = froxel_point(id, uv, froxel_slice_depth(float(id.z) + 0.5 + jitter.z), covered);
 			vec3 P = (froxel_data.inv_view * vec4(get_view_dir(uv) * depth, 1.0)).xyz;
-			if (ddgi_data.ddgi_cascade_count > 0) {
-				if (!ddgi_in_volume(P)) {
+			if (gi_available()) {
+				if (!gi_in_volume(P)) {
 					imageStore(out_gi, quad, vec4(-1.0));
 					return;
 				}
@@ -285,7 +278,7 @@ local gi_pass = {
 				float z = float(n & 0xffffu) / 32768.0 - 1.0;
 				float phi = float(n >> 16u) * (6.28318530718 / 65536.0);
 				float weight;
-				vec4 gi = ddgi_sample_medium(P, vec3(sqrt(max(1.0 - z * z, 0.0)) * vec2(cos(phi), sin(phi)), z), weight);
+				vec4 gi = gi_sample_medium(P, vec3(sqrt(max(1.0 - z * z, 0.0)) * vec2(cos(phi), sin(phi)), z), weight);
 
 				if (weight > 0.0) {
 					imageStore(out_gi, quad, vec4(gi.rgb / PI, saturate(gi.a)));
