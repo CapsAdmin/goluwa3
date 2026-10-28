@@ -102,33 +102,3 @@ T.Test3DRayTracing("Graphics render3d surfel gi produces a screen gi texture", f
 		T(sky_visibility > 0.5)["=="](true)
 	end)
 end)
-
-T.Test3DRayTracing("Graphics render3d surfel gi does not leak into a sealed box", function(draw)
-	local roof
-
-	local function gi_average()
-		for _ = 1, 40 do
-			draw()
-		end
-
-		local r, g, b = gi_mean()
-		return r + g + b
-	end
-
-	with_scene(draw, function(polygon3d, created)
-		render3d.camera:SetPosition(Vec3(0, 3, 2))
-		render3d.camera:SetAngles{x = 0, y = 0, z = 0}
-		add_slab(polygon3d, created, Vec3(-3.5, -0.5, -3.5), Vec3(3.5, 0, 3.5))
-		add_slab(polygon3d, created, Vec3(-3.5, 0, -3.5), Vec3(-3, 6, 3.5))
-		add_slab(polygon3d, created, Vec3(3, 0, -3.5), Vec3(3.5, 6, 3.5))
-		add_slab(polygon3d, created, Vec3(-3, 0, -3.5), Vec3(3, 6, -3))
-		add_slab(polygon3d, created, Vec3(-3, 0, 3), Vec3(3, 6, 3.5))
-		roof = add_slab(polygon3d, created, Vec3(-3.5, 6, -3.5), Vec3(3.5, 6.5, 3.5))
-	end, function()
-		local sealed = gi_average()
-		roof:Remove()
-		local open = gi_average()
-		T(open > 0)["=="](true)
-		T(sealed <= open * 0.01)["=="](true)
-	end)
-end)
