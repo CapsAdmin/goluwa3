@@ -224,7 +224,8 @@ function M.Build(opts)
 
 	if not msdf_mode then channel_override = 7 end
 
-	return render.ExecuteCommand(function(cmd)
+	local edge_buffer = create_edge_buffer(edges, channel_override, fill_rule)
+	local texture = render.ExecuteCommand(function(cmd)
 		local p = get_pipelines()
 		local tex_final = Texture.New{
 			width = width,
@@ -243,12 +244,13 @@ function M.Build(opts)
 		pipe.current_num_edges = #edges
 		pipe.current_even_odd = fill_rule == "evenodd" and 1 or 0
 		pipe.current_pseudo = msdf_mode and 1 or 0
-		local edge_buffer = create_edge_buffer(edges, channel_override, fill_rule)
 		pipe:Bind(cmd, {storage = {tex_final}, buffers = {edge_buffer}})
 		pipe:DispatchForSize(cmd, width, height, 1)
 		render.TransitionResourceToShaderRead(tex_final, {cmd = cmd, srcStage = "compute", srcAccess = "shader_write"})
 		return tex_final
 	end)
+	edge_buffer:Remove()
+	return texture
 end
 
 do

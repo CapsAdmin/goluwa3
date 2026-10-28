@@ -829,6 +829,7 @@ function Texture:Upload(data, keep_in_transfer_dst)
 	cmd:End()
 	render.SubmitAndWait(cmd)
 	cmd:Remove()
+	staging_buffer:Remove()
 end
 
 function Texture:UploadCompressed(data, vulkan_info)
@@ -896,6 +897,7 @@ function Texture:UploadCompressed(data, vulkan_info)
 	cmd:End()
 	render.SubmitAndWait(cmd)
 	cmd:Remove()
+	staging_buffer:Remove()
 end
 
 function Texture:GetImage()
