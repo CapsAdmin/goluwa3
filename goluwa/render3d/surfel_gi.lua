@@ -41,8 +41,8 @@ function surfel_gi.GetDirectionSide(c)
 	return surfel_gi.BASE_DIRECTIONS * 2 ^ c
 end
 
-function surfel_gi.SetCapacityBits(bits)
-	surfel_gi.CAPACITY_BITS = bits
+function surfel_gi.SetCapacity(capacity)
+	surfel_gi.CAPACITY_BITS = math.floor(math.log(math.max(capacity, 4096)) / math.log(2) + 1e-6)
 	surfel_gi.SLOT_COUNT = surfel_gi.GetOffset(surfel_gi.CASCADES)
 	surfel_gi.SLOT_ROWS = math.ceil(surfel_gi.SLOT_COUNT / surfel_gi.SLOTS_PER_ROW)
 	surfel_gi.ATLAS_WIDTH = surfel_gi.SLOTS_PER_ROW * surfel_gi.BASE_DIRECTIONS
@@ -50,7 +50,7 @@ function surfel_gi.SetCapacityBits(bits)
 end
 
 pvars.StartGroup("Lighting", "Surfel GI", {store = false, prefix = "surfel_"})
-pvars.Setup2{
+local capacity = pvars.Setup2{
 	key = "surfel_capacity",
 	default = 65536,
 	integer = true,
@@ -58,10 +58,9 @@ pvars.Setup2{
 	max = 262144,
 	help = "most cascade 0 surfels, rounded down to a power of two, each coarser cascade holds a quarter as many. a full table fails to place new surfels (black patches in big or detailed views). changing it starts the gi over",
 	callback = function(value, initial)
-		surfel_gi.SetCapacityBits(math.floor(math.log(math.max(value, 4096)) / math.log(2) + 1e-6))
-
 		if initial then return end
 
+		surfel_gi.SetCapacity(value)
 		local owner = render3d.pipelines and render3d.pipelines.surfel_update
 
 		if not owner or not owner.surfel_resources then return end
@@ -76,6 +75,7 @@ pvars.Setup2{
 		owner.surfel_resources = nil
 	end,
 }
+surfel_gi.SetCapacity(capacity:Get())
 local cell_size = pvars.Setup2{
 	key = "surfel_cell_size",
 	default = 0.25,
