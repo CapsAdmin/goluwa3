@@ -48,6 +48,8 @@ event.AddListener("Update", "startup_ready", function(dt)
 
 		if normal_gc_pause then
 			collectgarbage("setpause", normal_gc_pause)
+			-- the threshold from the raised pause stays until a cycle ends, start one now
+			collectgarbage("restart")
 			normal_gc_pause = nil
 		end
 
