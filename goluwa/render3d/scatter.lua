@@ -69,14 +69,14 @@ local billboard_scale = pvars.Setup2{
 pvars.EndGroup()
 local MAX_PROTOTYPES = ScatterSet.MAX_PROTOTYPES
 local LAYER_RULES = {
-	{"SlopeMin", "slope_min"},
-	{"SlopeMax", "slope_max"},
-	{"SlopeBlend", "slope_blend"},
-	{"CoverSlope", "cover_slope"},
-	{"CoverStart", "cover_start"},
-	{"CoverRange", "cover_range"},
-	{"CoverPower", "cover_power"},
-	{"CoverBlend", "cover_blend"},
+	{"GetTerrainLayerSlopeMin", "slope_min"},
+	{"GetTerrainLayerSlopeMax", "slope_max"},
+	{"GetTerrainLayerSlopeBlend", "slope_blend"},
+	{"GetTerrainLayerCoverSlope", "cover_slope"},
+	{"GetTerrainLayerCoverStart", "cover_start"},
+	{"GetTerrainLayerCoverRange", "cover_range"},
+	{"GetTerrainLayerCoverPower", "cover_power"},
+	{"GetTerrainLayerCoverBlend", "cover_blend"},
 }
 local ScatterSurface = ffi.typeof([[struct {
 	float world[16];
@@ -1308,7 +1308,7 @@ local function write_surface(out, surface, pipeline)
 	out.layer_additive_detail[3] = additive_detail.a
 
 	for _, rule in ipairs(LAYER_RULES) do
-		local value = material["GetTerrainLayer" .. rule[1]](material)
+		local value = material[rule[1]](material)
 		out[rule[2]][0] = value.r
 		out[rule[2]][1] = value.g
 		out[rule[2]][2] = value.b

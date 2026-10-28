@@ -532,13 +532,29 @@ end
 Material:GetSet("Name", "")
 
 function Material.IsGrassTexture(texture)
-	return texture.config.path and
-		file_path.GetFileNameFromPath(texture.config.path):lower():find("grass", 1, true) ~= nil
+	local grass = texture.is_grass_texture
+
+	if grass == nil then
+		grass = texture.config.path and
+			file_path.GetFileNameFromPath(texture.config.path):lower():find("grass", 1, true) ~= nil or
+			false
+		texture.is_grass_texture = grass
+	end
+
+	return grass
 end
 
 function Material.IsGlassTexture(texture)
-	return texture.config.path and
-		file_path.GetFileNameFromPath(texture.config.path):lower():find("glass", 1, true) ~= nil
+	local glass = texture.is_glass_texture
+
+	if glass == nil then
+		glass = texture.config.path and
+			file_path.GetFileNameFromPath(texture.config.path):lower():find("glass", 1, true) ~= nil or
+			false
+		texture.is_glass_texture = glass
+	end
+
+	return glass
 end
 
 function Material:GetDebugFlagMap()
