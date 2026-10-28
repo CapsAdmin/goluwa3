@@ -181,7 +181,12 @@ local function visit_glsl(touch)
 			}
 
 			ivec2 grid = ivec2(surfel_data.surfel_touch_size);
-			ivec2 cell = ivec2(index % grid.x, index / grid.x);
+			// when a table is full the samples that run first win the free slots, and threads run in screen rows: scramble which cell a thread takes
+			int scrambled = int((uint(index) * 0x9E3779B1u + uint(surfel_data.surfel_frame) * 0x632BE5ABu) & uint(SURFEL_TOUCH_SAMPLES - 1));
+
+			if (scrambled >= grid.x * grid.y) return false;
+
+			ivec2 cell = ivec2(scrambled % grid.x, scrambled / grid.x);
 			ivec2 depth_size = textureSize(TEXTURE(surfel_data.depth_tex), 0);
 			vec2 jitter = vec2(pcg3d(uvec3(uint(index), uint(surfel_data.surfel_frame), 0x51ed27u)).xy >> 8u) / 16777216.0;
 			ivec2 pixel = min(ivec2((vec2(cell) + jitter) * vec2(depth_size) / vec2(grid)), depth_size - 1);
@@ -363,8 +368,6 @@ local function visit_glsl(touch)
 			if (surfel_data.surfel_reset != 0) return;
 
 			int index = int(gl_GlobalInvocationID.x);
-
-			if (index < SURFEL_TOUCH_SAMPLES && index >= int(surfel_data.surfel_touch_size.x) * int(surfel_data.surfel_touch_size.y)) return;
 
 			surfel_visit(index);
 		}
