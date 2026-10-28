@@ -88,6 +88,8 @@ function module.Attach(audio)
 		local time = audio.clock()
 		audio.UpdateListenerMotion(time)
 
+		if audio.acoustics then audio.acoustics:Update(time) end
+
 		for slot, sound in pairs(audio.active_sounds) do
 			local state = audio.state.slots[slot]
 

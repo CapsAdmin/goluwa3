@@ -286,6 +286,8 @@ function module.Attach(audio)
 		self.audio_motion = nil
 		audio.active_sounds[slot] = self
 
+		if audio.acoustics and self:IsSpatial() then audio.acoustics:Probe(self) end
+
 		audio.UpdateSoundPaths(self, audio.clock())
 		state.active = true
 		return slot

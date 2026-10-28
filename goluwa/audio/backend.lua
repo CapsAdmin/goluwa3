@@ -70,6 +70,7 @@ function module.Attach(audio)
 	function audio.Initialize()
 		audio.initialized = true
 		audio.state.shutdown = false
+		audio.SetupAcoustics()
 
 		if audio.thread or audio.main_audio_buffer then return end
 

@@ -3,16 +3,20 @@ local ffi = require("ffi")
 local audio = import("goluwa/audio.lua")
 local mix = import("goluwa/audio/mix.lua")
 local dsp = import("goluwa/audio/dsp.lua")
+local acoustics = import("goluwa/audio/acoustics.lua")
+local acoustics_cpu = import("goluwa/audio/acoustics_cpu.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local FS = 44100
 
 local function with_offline_mixer(cb)
 	local saved_state, saved_sounds, saved_clock, saved_motion = audio.state, audio.active_sounds, audio.clock, audio.listener_motion
+	local saved_acoustics = audio.acoustics
 	local saved_position, saved_forward, saved_up = audio.listener_position, audio.listener_forward, audio.listener_up
 	local ctx = {time = 0}
 	audio.state = audio.CreateMixerState()
 	audio.active_sounds = {}
 	audio.listener_motion = {}
+	audio.acoustics = nil
 	audio.clock = function()
 		return ctx.time
 	end
@@ -50,6 +54,7 @@ local function with_offline_mixer(cb)
 
 	local ok, err = pcall(cb, ctx)
 	audio.state, audio.active_sounds, audio.clock, audio.listener_motion = saved_state, saved_sounds, saved_clock, saved_motion
+	audio.acoustics = saved_acoustics
 	audio.listener_position, audio.listener_forward, audio.listener_up = saved_position, saved_forward, saved_up
 
 	if not ok then error(err, 0) end
@@ -193,5 +198,124 @@ T.Test("audio reverb bus decays at its T60 with unit energy", function()
 
 		T(math.abs((to - from) / FS * 3 - t60) / t60)["<="](0.1)
 		T(math.abs(tail[0] - 1))["<="](0.15)
+	end
+end)
+
+local function box_tracer(min, max, absorption, budget)
+	local tracer = acoustics_cpu.New(budget)
+	local a = {absorption, absorption, absorption}
+
+	function tracer:Trace(ox, oy, oz, dx, dy, dz, tmin, tmax)
+		local best, nx, ny, nz = math.huge, 0, 0, 0
+
+		if dx ~= 0 then
+			local t = ((dx > 0 and max.x or min.x) - ox) / dx
+
+			if t < best then best, nx, ny, nz = t, dx > 0 and -1 or 1, 0, 0 end
+		end
+
+		if dy ~= 0 then
+			local t = ((dy > 0 and max.y or min.y) - oy) / dy
+
+			if t < best then best, nx, ny, nz = t, 0, dy > 0 and -1 or 1, 0 end
+		end
+
+		if dz ~= 0 then
+			local t = ((dz > 0 and max.z or min.z) - oz) / dz
+
+			if t < best then best, nx, ny, nz = t, 0, 0, dz > 0 and -1 or 1 end
+		end
+
+		if best < tmin or best > tmax then return nil end
+
+		return best, nx, ny, nz, a
+	end
+
+	return tracer
+end
+
+T.Test("audio acoustics matches Eyring in a box room and finds every wall reflection", function()
+	with_offline_mixer(function(ctx)
+		local W, H, D, alpha = 10, 4, 8, 0.1
+		local tracer = box_tracer(
+			Vec3(-W / 2, 0, -D / 2),
+			Vec3(W / 2, H, D / 2),
+			alpha,
+			{
+				rays = 256,
+				bounces = 10,
+				samples = 128,
+				sources = 1,
+				fresnel = 2,
+				reflection_sources = 1,
+			}
+		)
+		audio.acoustics = acoustics.New(audio, tracer)
+		local listener = Vec3(1.3, 1.7, 0.6)
+		local source = Vec3(-2.5, 1.2, -1.1)
+		audio.SetListenerPosition(listener)
+		local snd = mono_source(64, function()
+			return 0
+		end)
+		snd:SetLooping(true)
+		snd:SetPosition(source)
+		snd:Play()
+
+		for _ = 1, 40 do
+			ctx.time = ctx.time + 1 / 60
+			audio.Update()
+		end
+
+		local profile = audio.acoustics.profile
+		local V = W * H * D
+		local S = 2 * (W * H + W * D + H * D)
+
+		for band = 1, 3 do
+			local eyring = 0.161 * V / (
+					-S * math.log(1 - alpha) + 4 * acoustics.AirEnergyPerMeter(band) * V
+				)
+			T(math.abs(profile.t60[band] - eyring) / eyring)["<="](0.1)
+		end
+
+		T(math.abs(profile.volume - V) / V)["<="](0.05)
+		T(math.abs(profile.mean_free_path - 4 * V / S) / (4 * V / S))["<="](0.05)
+		local env = snd.audio_environment
+		local delays = {}
+
+		for _, tap in pairs(env.taps) do
+			delays[#delays + 1] = tap.delay
+		end
+
+		T(#delays)["=="](6)
+		local floor_image = Vec3(source.x, -source.y, source.z)
+		local floor_delay = (floor_image - listener):GetLength() / audio.speed_of_sound
+		local found = false
+
+		for _, delay in ipairs(delays) do
+			if math.abs(delay - floor_delay) < 0.0002 then found = true end
+		end
+
+		T(found)["=="](true)
+		T(env.send[1])[">"](0.5)
+		T(env.occlusion[2])["=="](1)
+		audio.StopAll()
+	end)
+end)
+
+T.TestPhysics("audio acoustics occludes a source behind a static wall", function()
+	local Entity = import("goluwa/entities/entity.lua")
+	local BoxShape = import("goluwa/physics/shapes/box.lua")
+	local wall = Entity.New({Name = "acoustic_wall"})
+	wall:AddComponent("transform")
+	wall.transform:SetPosition(Vec3(0, 2, -5))
+	wall:AddComponent("rigid_body", {Shape = BoxShape.New(Vec3(20, 4, 0.3)), MotionType = "static"})
+	local tracer = acoustics_cpu.New()
+	local listener = Vec3(0, 1.7, 0)
+	local hidden = acoustics.FresnelProbe(tracer, listener, Vec3(0, 1.7, -10), audio.speed_of_sound, 8)
+	local open = acoustics.FresnelProbe(tracer, listener, Vec3(0, 1.7, 4), audio.speed_of_sound, 8)
+
+	for band = 1, 3 do
+		T(hidden[band])["=="](0)
+		T(open[band])["=="](1)
 	end
 end)

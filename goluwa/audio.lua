@@ -1,4 +1,5 @@
 local codec = import("goluwa/codec.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local audio = import("goluwa/audio/state.lua")
 local spatial = import("goluwa/audio/spatial.lua")
 local sound = import("goluwa/audio/sound.lua")
@@ -56,6 +57,56 @@ function audio.Decode(source, lib)
 	if not decoded then return nil, 0, nil, err end
 
 	return pack_decoded_audio(decoded)
+end
+
+function audio.SetAcousticsTracer(tracer)
+	if audio.acoustics and audio.acoustics.tracer.Remove then
+		audio.acoustics.tracer:Remove()
+	end
+
+	if tracer then
+		audio.acoustics = import("goluwa/audio/acoustics.lua").New(audio, tracer)
+	else
+		audio.acoustics = nil
+	end
+
+	for _, sound in pairs(audio.active_sounds) do
+		sound.audio_environment = nil
+		sound.audio_occlusion = nil
+	end
+end
+
+pvars.StartGroup("Engine", "Audio", {prefix = "audio_"})
+local acoustics_mode = pvars.Setup2{
+	key = "audio_acoustics",
+	default = "auto",
+	enums = {"auto", "gpu", "cpu", "off"},
+	friendly = "acoustics",
+	help = "how the environment is traced for reverb, occlusion and reflections: gpu ray queries, cpu physics raycasts, or off for free field",
+	callback = function()
+		if audio.initialized then audio.SetupAcoustics() end
+	end,
+}
+pvars.EndGroup()
+
+function audio.SetupAcoustics(mode)
+	mode = mode or acoustics_mode:Get()
+
+	if mode == "off" then return audio.SetAcousticsTracer(nil) end
+
+	if
+		mode ~= "cpu" and
+		RENDER_3D and
+		import("goluwa/render/render.lua").GetDevice().ray_query_supported
+	then
+		return audio.SetAcousticsTracer(import("goluwa/audio/acoustics_gpu.lua").New())
+	end
+
+	if mode ~= "gpu" and PHYSICS then
+		return audio.SetAcousticsTracer(import("goluwa/audio/acoustics_cpu.lua").New())
+	end
+
+	audio.SetAcousticsTracer(nil)
 end
 
 spatial.Attach(audio)

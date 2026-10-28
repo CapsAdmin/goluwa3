@@ -1,6 +1,6 @@
 # Audio
 
-Physically based by default: sound travels at `audio.speed_of_sound` through a delay line per voice, and doppler is the derivative of that delay. World units are meters.
+Physically based by default: sound travels at `audio.speed_of_sound` through a delay line per voice, doppler is the derivative of that delay, and a traced environment drives occlusion, reflections and reverb. World units are meters.
 
 ## Mixer (`goluwa/audio/mix.lua`, audio thread)
 
@@ -13,9 +13,22 @@ Physically based by default: sound travels at `audio.speed_of_sound` through a d
 - Two reverb buses (`dsp.ProcessReverb`, 16 line FDN with per line 3 band absorption, Hadamard feedback, input diffusion). A bus is normalized so a unit send gives an impulse response with energy 1 per channel; sends carry the physical energy. Buses sleep when silent.
 - Bands: crossovers at 500 Hz and 4 kHz (two cascaded one poles each), centers 250/1500/8000 Hz. Gains are given at the band centers and converted with `dsp.WarpBandGains`, otherwise the shallow crossovers leak neighbouring bands.
 
+## Environment (`goluwa/audio/acoustics.lua`)
+
+A tracer (`acoustics_gpu.lua`: ray queries on the scene TLAS in a PreRenderPass compute pass, results read back one swapchain cycle later; `acoustics_cpu.lua`: `physics.RayCast`, static bodies only) runs the same jobs. Pvar `audio_acoustics` = auto, gpu, cpu or off.
+
+- Listener path tracing (Fibonacci directions, cosine bounces) accumulates statistics: hits, escapes, mean free path, log reflectance per band, first hit volume. T60 per band comes from per segment survival (escape counts as absorption, air absorption included), so it matches Eyring in closed rooms and drops outdoors.
+- Next event estimation from every bounce to each source gives the reverberant energy at the listener relative to the direct sound at 1 m. Only energy arriving after the split time (`1.5 * mean free path / c`, also the bus predelay) feeds the reverb; first order diffuse energy is early, not tail. Energy past the last traced bounce is completed analytically with the per bounce survival.
+- A source whose energy centroid decays much slower than the listener's room (another space) sends to the second bus, which takes the energy weighted T60 of such sources.
+- Direct occlusion samples 0.6 of the first Fresnel zone per band, so low frequencies bend around edges; fully blocked paths keep `acoustics.TRANSMISSION`.
+- First hits are clustered into planes; image sources validated with two rays become reflection taps (early reflections, distinct echoes).
+- New sounds are probed synchronously on Play (CPU physics) so a one-shot behind a wall does not start unoccluded; before NEE converges the send uses the diffuse field estimate (`acoustics.DiffuseEnergy`).
+- Absorption is the render material param `AcousticAbsorption` (energy coefficients per band). Source materials get it from their surfaceprop class.
+- Listener rays start `LISTENER_CLEARANCE` out (the player's own body); rays toward a source stop `SOURCE_CLEARANCE` short (the emitter's own mesh).
+
 ## Measuring
 
-You cannot listen, so render offline and measure: swap `audio.state` for `audio.CreateMixerState()`, create `mix.CreateMixer(state, 44100, 512)`, point `mixer.clock` and `audio.clock` at a virtual time, then alternate `audio.Update()` (frame rate) and `mix.MixOutputBuffer` (block rate). See `test/tests/other/audio_acoustics.lua`.
+You cannot listen, so render offline and measure: swap `audio.state` for `audio.CreateMixerState()`, create `mix.CreateMixer(state, 44100, 512)`, point `mixer.clock` and `audio.clock` at a virtual time, then alternate `audio.Update()` (frame rate) and `mix.MixOutputBuffer` (block rate). See `test/tests/other/audio_acoustics.lua`, which also has an analytic box tracer for checking the statistics against Eyring.
 
 - Delay: peak index of an impulse. Doppler: zero crossings of a sine. Decay: Schroeder backward integration, T20 range.
 - Measure per band decay with a narrow band pass at the band centers; a wide band's late tail is dominated by its slowest frequencies.
