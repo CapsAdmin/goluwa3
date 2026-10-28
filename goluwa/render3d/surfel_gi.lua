@@ -65,7 +65,7 @@ local interval = pvars.Setup2{
 }
 local hysteresis = pvars.Setup2{
 	key = "surfel_hysteresis",
-	default = 0.95,
+	default = 0.85,
 	min = 0,
 	max = 0.995,
 	help = "how much of a surfel direction's history survives a frame, a cascade that updates every n frames keeps this to the power n per update. a new surfel weighs its first updates 1/n",
