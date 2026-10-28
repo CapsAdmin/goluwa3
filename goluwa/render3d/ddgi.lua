@@ -172,16 +172,6 @@ function ddgi.AreHitTexturesOn()
 end
 
 ddgi.EMITTER_SAMPLES = 32
-local emitters_enabled = pvars.Setup2{
-	key = "ddgi_emitters",
-	default = true,
-	help = "emissive surfaces light the probes, off is for telling whether they cause noise",
-}
-local additive_emitters = pvars.Setup2{
-	key = "ddgi_additive_emitters",
-	default = false,
-	help = "additive materials light the probes like emissive surfaces do",
-}
 ddgi.LIGHT_SAMPLES = 2
 ddgi.IRRADIANCE_TEXELS = 8
 ddgi.GUIDE_TEXELS = 8
@@ -514,10 +504,7 @@ do
 		local n = math.max(math.min(need[a], math.floor(budget ^ (1 / 3) + 1e-6)), ddgi.MIN_PROBES_PER_AXIS)
 		cascade.size[a] = n
 		budget = math.floor(budget / n)
-		n = math.max(
-			math.min(need[b], math.floor(math.sqrt(budget) + 1e-6)),
-			ddgi.MIN_PROBES_PER_AXIS
-		)
+		n = math.max(math.min(need[b], math.floor(math.sqrt(budget) + 1e-6)), ddgi.MIN_PROBES_PER_AXIS)
 		cascade.size[b] = n
 		budget = math.floor(budget / n)
 		cascade.size[c] = math.max(math.min(need[c], budget), ddgi.MIN_PROBES_PER_AXIS)
@@ -720,8 +707,6 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_CASCADES %d
 		#define DDGI_RAYS %d
 		#define DDGI_EMITTER_SAMPLES %d
-		#define DDGI_EMITTER_CANDIDATES 16
-		#define DDGI_EMITTER_DOUBLE_SIDED 0x80000000u
 		#define DDGI_RAY_STRIDE (DDGI_RAYS + DDGI_EMITTER_SAMPLES)
 		#define DDGI_IRRADIANCE_TEXELS %d
 		#define DDGI_DISTANCE_TEXELS %d
@@ -860,17 +845,6 @@ end
 
 local MIN_WEIGHT = "0.05"
 ddgi.MIN_WEIGHT = MIN_WEIGHT
-
-function ddgi.GetEmitterDeclarationsGLSL(binding)
-	return (
-		[[
-
-		layout(set = 0, binding = %d) readonly buffer DDGIEmitters {
-			uint ddgi_grid[];
-		};
-	]]
-	):format(binding)
-end
 
 function ddgi.GetMaterialDeclarationsGLSL(binding)
 	return [[
@@ -1070,95 +1044,6 @@ function ddgi.GetAlphaTestGLSL()
 			}
 
 			return alpha >= material.alpha_cutoff;
-		}
-	]]
-end
-
-function ddgi.GetEmitterGLSL()
-	return glsl_common.GetHashGLSL() .. [[
-		vec4 ddgi_emitter_random(uint index, uint frame, uint candidate) {
-			return vec4(pcg4d(uvec4(index, frame, candidate, 0x9E3779B9u)) >> 8u) / 16777216.0;
-		}
-
-		uint ddgi_emitter_instance(int e) {
-			return ddgi_grid[2u + uint(e) * 4u];
-		}
-
-		uint ddgi_emitter_triangle(int e) {
-			return ddgi_grid[2u + uint(e) * 4u + 1u];
-		}
-
-		int ddgi_pick_emitter(float u, int count) {
-			uint guide = 2u + uint(count) * 4u;
-			uint bucket = min(uint(u * float(count)), uint(count) - 1u);
-			int lo = int(ddgi_grid[guide + bucket]);
-			int hi = int(ddgi_grid[guide + bucket + 1u]);
-
-			while (lo < hi) {
-				int mid = (lo + hi) / 2;
-
-				if (uintBitsToFloat(ddgi_grid[2u + uint(mid) * 4u + 2u]) <= u) {
-					lo = mid + 1;
-				} else {
-					hi = mid;
-				}
-			}
-
-			return lo;
-		}
-
-		vec3 ddgi_emitter_point(scene_triangle tri, vec2 u) {
-			if (u.x + u.y > 1.0) u = 1.0 - u;
-
-			return tri.v0 + tri.e1 * u.x + tri.e2 * u.y;
-		}
-
-		float ddgi_emitter_candidate_weight(uint index, uint frame, uint candidate, int emitter_count, vec3 origin, float radius) {
-			vec4 u = ddgi_emitter_random(index, frame, candidate);
-			int picked = ddgi_pick_emitter(u.x, emitter_count);
-			uint triangle = ddgi_emitter_triangle(picked);
-			scene_triangle tri = scene_hit_tri(ddgi_emitter_instance(picked), triangle & ~DDGI_EMITTER_DOUBLE_SIDED);
-			vec3 to_point = ddgi_emitter_point(tri, u.yz) - origin;
-			float dist2 = dot(to_point, to_point);
-			float facing = dot(tri.normal, to_point) * inversesqrt(dist2);
-
-			if ((triangle & DDGI_EMITTER_DOUBLE_SIDED) != 0u) facing = abs(facing);
-
-			return max(facing, 0.0) / max(dist2, radius * radius) * uintBitsToFloat(ddgi_grid[0]);
-		}
-
-		float ddgi_pick_emitter_sample(uint index, uint frame, int emitter_count, vec3 origin, float radius, out int emitter, out vec3 point) {
-			float weights[DDGI_EMITTER_CANDIDATES];
-			float total = 0.0;
-
-			for (uint k = 0u; k < uint(DDGI_EMITTER_CANDIDATES); k++) {
-				weights[k] = ddgi_emitter_candidate_weight(index, frame, k, emitter_count, origin, radius);
-				total += weights[k];
-			}
-
-			emitter = 0;
-			point = origin;
-
-			if (total <= 0.0) return 0.0;
-
-			float pick = ddgi_emitter_random(index, frame ^ 0x5bd1e995u, 0u).x * total;
-			uint chosen = uint(DDGI_EMITTER_CANDIDATES) - 1u;
-			float running = 0.0;
-
-			for (uint k = 0u; k < uint(DDGI_EMITTER_CANDIDATES); k++) {
-				running += weights[k];
-
-				if (pick < running) {
-					chosen = k;
-					break;
-				}
-			}
-
-			vec4 u = ddgi_emitter_random(index, frame, chosen);
-			int e = ddgi_pick_emitter(u.x, emitter_count);
-			point = ddgi_emitter_point(scene_hit_tri(ddgi_emitter_instance(e), ddgi_emitter_triangle(e) & ~DDGI_EMITTER_DOUBLE_SIDED), u.yz);
-			emitter = int(uint(e) | (chosen << 26u));
-			return total / float(DDGI_EMITTER_CANDIDATES);
 		}
 	]]
 end
@@ -1800,8 +1685,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_irradiance_tex = pipeline_texture_index(self, "ddgi_irradiance")
 	block.ddgi_distance_tex = pipeline_texture_index(self, "ddgi_distance")
 	block.ddgi_probe_data_tex = pipeline_texture_index(self, "ddgi_probe_data")
-	local emitters = ddgi.GetEmitters()
-	block.ddgi_emitter_count = emitters_enabled:Get() and emitters.count or 0
+	block.ddgi_emitter_count = scene_emitters.GetActiveCount()
 	block.ddgi_frame = state.frame
 	block.ddgi_uniform_rays = ddgi.GetUniformRays()
 	block.ddgi_guide_tex = pipeline_texture_index(self, "ddgi_guide")
@@ -1835,14 +1719,6 @@ function ddgi.GetRayHitBuffer()
 	end
 
 	return ray_hit_buffer
-end
-
-function ddgi.GetEmitters()
-	return scene_emitters.Get(additive_emitters:Get())
-end
-
-function ddgi.GetEmitterBuffer(cmd)
-	return scene_emitters.Build(cmd, additive_emitters:Get())
 end
 
 local MaterialEntry = ffi.typeof([[struct {
@@ -2125,7 +2001,7 @@ function ddgi.WriteRTParams()
 	p.sun_direction[3] = directional_shadows.GetPrimarySunIlluminance(lights) > 0 and 1 or 0
 	p.max_ray_distance = max_ray_distance:Get()
 	p.tmin = 0.0
-	p.emitter_count = emitters_enabled:Get() and ddgi.GetEmitters().count or 0
+	p.emitter_count = scene_emitters.GetActiveCount()
 	p.frame = state.frame
 	p.light_radius = light_radius:Get()
 	p.update_mask = state.update_mask
@@ -2155,7 +2031,7 @@ local raygen_glsl = [[
 
 layout(set = 0, binding = 4) uniform sampler2D guide;
 #define DDGI_GUIDE_FETCH(texel) texelFetch(guide, texel, 0)
-]] .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_hit.GetGLSL(10) .. ddgi.GetEmitterDeclarationsGLSL(6) .. ddgi.GetEmitterGLSL() .. [[
+]] .. ddgi.GetRayDirectionGLSL() .. payload_glsl .. scene_hit.GetGLSL(10) .. scene_emitters.GetDeclarationGLSL(6) .. scene_emitters.GetGLSL() .. [[
 layout(set = 0, binding = 0) uniform Params
 {
     vec4 cascades[DDGI_CASCADES];
@@ -2210,7 +2086,7 @@ void main()
         if (params.emitter_count > 0) {
             int emitter;
             vec3 point;
-            float weight = ddgi_pick_emitter_sample(index, params.frame, params.emitter_count, origin, params.light_radius * params.cascades[c].w, emitter, point);
+            float weight = emitter_pick_sample(index, params.frame, params.emitter_count, origin, vec3(0.0), params.light_radius * params.cascades[c].w, emitter, point);
             vec3 to_point = point - origin;
             float dist = length(to_point);
 

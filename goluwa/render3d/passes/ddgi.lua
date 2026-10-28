@@ -6,6 +6,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local scene_hit = import("goluwa/render3d/scene/hit.lua")
 local scene_rt = import("goluwa/render3d/scene/rt.lua")
+local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
@@ -98,7 +99,7 @@ local function pass_trace()
 			local hits = ddgi.GetRayHitBuffer()
 			rt:UpdateDescriptorSet("uniform_buffer", desc, 0, 0, params, params:GetSize())
 			rt:UpdateDescriptorSet("storage_buffer", desc, 1, 0, hits, hits:GetSize())
-			local emitters = ddgi.GetEmitterBuffer(cmd)
+			local emitters = scene_emitters.BuildActive(cmd)
 			scene_hit.Bind(rt, desc, 10)
 			rt:UpdateDescriptorSet("storage_buffer", desc, 6, 0, emitters, emitters:GetSize())
 
@@ -201,7 +202,7 @@ local function pass_shade()
 		on_pre_draw = function(self, cmd, frame, desc)
 			local hits = ddgi.GetRayHitBuffer()
 			local materials = ddgi.WriteMaterialBuffer(self)
-			local emitters = ddgi.GetEmitterBuffer(cmd)
+			local emitters = scene_emitters.BuildActive(cmd)
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_EMITTERS, 0, emitters, emitters:GetSize())
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_RAY_HITS, 0, hits, hits:GetSize())
 			self:UpdateDescriptorSet("storage_buffer", desc, BINDING_MATERIALS, 0, materials, materials:GetSize())
@@ -223,8 +224,8 @@ local function pass_shade()
 			layout(set = 0, binding = ]] .. BINDING_RAY_HITS .. [[) readonly buffer DDGIRayHits {
 				uvec4 ddgi_hits[];
 			};
-		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. ddgi.GetEmitterDeclarationsGLSL(BINDING_EMITTERS),
-		shader = "#define DDGI_UNSCALED\n" .. ddgi.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. ddgi.GetEmitterGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (
+		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
+		shader = "#define DDGI_UNSCALED\n" .. ddgi.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_emitters.GetGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (
 				VISIBILITY_RAYS and
 				glass_light.GetGLSL("ddgi_scene") or
 				glass_light.GetStubGLSL()
@@ -361,11 +362,11 @@ local function pass_shade()
 
 					if (ddgi_data.ddgi_rt_ready != 0 && weight > 0.0) {
 						int emitter_index = int(hit.y & 0x03FFFFFFu);
-						uint emitter_instance = ddgi_emitter_instance(emitter_index);
-						uint emitter_triangle = ddgi_emitter_triangle(emitter_index) & ~DDGI_EMITTER_DOUBLE_SIDED;
+						uint emitter_instance = emitter_instance(emitter_index);
+						uint emitter_triangle = emitter_triangle(emitter_index) & ~EMITTER_DOUBLE_SIDED;
 						scene_triangle tri = scene_hit_tri(emitter_instance, emitter_triangle);
-						vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> 26u);
-						vec3 point = ddgi_emitter_point(tri, u.yz);
+						vec4 u = emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> 26u);
+						vec3 point = emitter_point(tri, u.yz);
 						vec3 dir = normalize(point - origin);
 						vec3 emission = ddgi_emission(tri, ddgi_hit_albedo(ddgi_materials[tri.material], point, emitter_instance, emitter_triangle));
 						float emissive_luma = luminance(ddgi_materials[tri.material].emissive);
@@ -415,7 +416,7 @@ local function pass_shade()
 				vec3 albedo = ddgi_hit_albedo(material, P, hit.y, hit.z) * ddgi_bounce_share(material);
 				vec3 surface = P + N * 0.02;
 				float light_radius = ddgi_data.ddgi_light_radius * ddgi_spacing(c);
-				vec4 u = ddgi_emitter_random(hit_index, uint(ddgi_data.ddgi_frame), 0u);
+				vec4 u = emitter_random(hit_index, uint(ddgi_data.ddgi_frame), 0u);
 				vec3 radiance = albedo * ddgi_direct_light(surface, N, hit.w != 0u, light_radius, u);
 
 				float weight;

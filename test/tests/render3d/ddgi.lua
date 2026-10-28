@@ -8,6 +8,7 @@ local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 
 local function gi_mean()
 	local downloaded = ddgi.GetScreenTexture():Download()
@@ -267,11 +268,11 @@ do
 			local outside = Vec3(0, 1.5, -1000)
 			gi_average(outside, 6)
 			local before = gi_average(outside, 3)
-			local version = ddgi.GetEmitters().version
+			local version = scene_emitters.GetActive().version
 			local lit = gi_average(Vec3(0, 1.5, 2.3), 3)
-			local emitters = ddgi.GetEmitters()
+			local emitters = scene_emitters.GetActive()
 			T(emitters.version)["=="](version)
-			local weight, count = import("goluwa/render3d/scene/emitters.lua").ReadBackHeader()
+			local weight, count = scene_emitters.ReadBackHeader()
 			T(emitters.count)["=="](12)
 			T(count)["=="](12)
 			T(weight)["~"](6 * 0.01 * 30, 1e-3)
