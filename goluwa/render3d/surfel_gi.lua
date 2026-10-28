@@ -386,7 +386,7 @@ function surfel_gi.GetResources()
 
 	local resources = {
 		table = render.CreateBuffer{
-			byte_size = surfel_gi.SLOT_COUNT * 40,
+			byte_size = surfel_gi.SLOT_COUNT * 44,
 			buffer_usage = {"storage_buffer"},
 			memory_property = {"device_local"},
 			label = "surfel_table",
