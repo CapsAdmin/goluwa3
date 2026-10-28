@@ -117,6 +117,11 @@ local trace_steps_pvar = pvars.Setup2{
 	integer = true,
 	help = "most steps of the trace for the sea's surface from above, too few miss the thin tops of steep waves at grazing angles",
 }
+local reorder_pvar = pvars.Setup2{
+	key = "r_water_reorder",
+	default = true,
+	help = "the water's reflection and refraction rays are traced from a ray generation shader and the threads are reordered by what they hit before it is shaded, off traces with ray queries in a compute shader. needs ray tracing invocation reorder, built into the shader",
+}
 pvars.EndGroup()
 local WAVE_TEX_SIZE = 512
 local WAVE_CASCADES = {
@@ -703,6 +708,7 @@ list.insert(
 		framebuffer_count = 2,
 		dont_create_framebuffers = true,
 		LocalSize = {x = 8, y = 8, z = 1},
+		ray_generation = RAY_QUERY and scene_reflection.GetRayGeneration(reorder_pvar:Get()) or nil,
 		storage_images = {
 			{binding_index = 0, attachment = 1, dst_stage = {"compute", "fragment"}},
 			{binding_index = 1, attachment = 2, dst_stage = {"compute", "fragment"}},
@@ -724,126 +730,126 @@ list.insert(
 				""
 			),
 		uniform_buffers = {
-				{
-					name = "water_data",
-					binding_index = 3,
-					block = {
-						render3d.camera_block,
-						render3d.common_block,
-						gbuffer_layout.block,
-						{"scene_tex", "int"},
-						{"env_tex", "int"},
-						{"env_irradiance_tex", "int"},
-						{"blue_noise_tex", "int"},
-						{"frame", "int"},
-						{"features", "int"},
-						{"shaft_samples", "int"},
-						{"ripple_pairs", "int"},
-						{"trace_steps", "int"},
-						{"rough_rays", "int"},
-						{"last_frame_tex", "int"},
-						{"prev_view", "mat4"},
-						{"prev_projection", "mat4"},
-						{"reflection_roughness_cutoff", "float"},
-						{"sun_direction", "vec3"},
-						{"primary_sun_illuminance", "float"},
-						{"primary_sun_color", "vec3"},
-						{"ocean_enabled", "int"},
-						{"ocean_level", "float"},
-						{"ocean_absorption", "vec4"},
-						{"ocean_scattering", "vec4"},
-						{"ocean_wave_info", "vec4"},
-						{"wave_tex", "int", #WAVE_CASCADES},
-						{"wave_origin", "vec4", #WAVE_CASCADES},
-						{"far_tex", "int", 2},
-						{"wave_choppiness", "float"},
-						{"far_variance", "float"},
-						{"detail_info", "vec4"},
-						{"ripple_info", "vec4"},
-						{"sea_info", "vec4"},
-						{"sea_offset", "vec4"},
-						{"bump_tex", "int"},
-						{"bump_info", "vec4"},
-						{"volume_to_local", "mat4", water.MAX_VOLUMES},
-						{"volume_shape", "vec4", water.MAX_VOLUMES},
-						{"volume_absorption", "vec4", water.MAX_VOLUMES},
-						{"volume_scattering", "vec4", water.MAX_VOLUMES},
-						{"volume_waves", "vec4", water.MAX_VOLUMES},
-						{"volume_flow", "vec4", water.MAX_VOLUMES},
-						{"volume_misc", "vec4", water.MAX_VOLUMES},
-						{"volume_count", "int"},
-						{"shadows", directional_shadows.BuildFogShadowBlockLayout()},
-						post_source.pre_exposure_block,
-						RAY_QUERY and scene_reflection.block or nil,
-						RAY_QUERY and atmosphere.GetBlockLayout() or nil,
-					},
-					write = function(self, block)
-						render3d.WriteCameraBlock(self, block)
-						render3d.WriteCommonBlock(self, block)
-						gbuffer_layout.WriteBlock(self, block)
-						post_source.WritePreExposureBlock(self, block)
-						local current_idx = system.GetFrameNumber() % 2 + 1
-
-						if not render3d.IsPassEnabled("lighting") then
-							block.scene_tex = -1
-						else
-							block.scene_tex = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
-						end
-
-						block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
-						block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
-						block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
-						block.frame = system.GetFrameNumber() % 4096
-						local features = 0
-
-						for _, feature in ipairs(FEATURES) do
-							if feature.pvar:Get() then features = features + feature.bit end
-						end
-
-						block.features = features
-						block.shaft_samples = shaft_samples_pvar:Get()
-						block.ripple_pairs = ripple_pairs_pvar:Get()
-						block.trace_steps = trace_steps_pvar:Get()
-						local scale = scene_reflection.RESOLUTION_SCALES[pvars.Get("reflection_resolution")]
-						block.rough_rays = math.max(1, math.floor(scene_reflection.rough_rays:Get() * scale * scale + 0.5))
-						block.last_frame_tex = render3d.ShouldUseLastFrameHistory() and
-							render3d.IsPassEnabled("volumetric_fog") and
-							self:GetTextureIndex(post_source.GetFoggedOpaqueSceneTexture()) or
-							-1
-						local prev_view = render3d.GetPreviousViewMatrix() or render3d.GetCamera():BuildViewMatrix()
-						local prev_projection = render3d.GetPreviousProjectionMatrix() or
-							render3d.GetCamera():BuildProjectionMatrix()
-						prev_view:CopyToFloatPointer(block.prev_view)
-						prev_projection:CopyToFloatPointer(block.prev_projection)
-						local _, gi_end = ibl.GetReflectionGIRange()
-						block.reflection_roughness_cutoff = gi_end
-						local lights = render3d.GetLights()
-						directional_shadows.GetPrimarySunDirection(lights):CopyToFloatPointer(block.sun_direction)
-						block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
-						directional_shadows.GetPrimarySunColor(lights):CopyToFloatPointer(block.primary_sun_color)
-						directional_shadows.WriteFogShadowBlock(self, block.shadows, lights)
-						write_ocean(self, block)
-						block.bump_tex = water.wave_bump and self:GetTextureIndex(water.wave_bump.texture) or -1
-						block.bump_info[0] = water.wave_bump and water.wave_bump.slope_variance or 0
-						write_volumes(block)
-
-						if RAY_QUERY then
-							scene_reflection.WriteBlock(self, block)
-							atmosphere.WriteBlock(
-								self,
-								block,
-								render3d.GetCamera():GetPosition(),
-								directional_shadows.GetPrimarySunDirection(render3d.GetLights())
-							)
-							block.reflection_screenspace_roughness = screenspace_roughness_pvar:Get()
-						end
-
-						return block
-					end,
+			{
+				name = "water_data",
+				binding_index = 3,
+				block = {
+					render3d.camera_block,
+					render3d.common_block,
+					gbuffer_layout.block,
+					{"scene_tex", "int"},
+					{"env_tex", "int"},
+					{"env_irradiance_tex", "int"},
+					{"blue_noise_tex", "int"},
+					{"frame", "int"},
+					{"features", "int"},
+					{"shaft_samples", "int"},
+					{"ripple_pairs", "int"},
+					{"trace_steps", "int"},
+					{"rough_rays", "int"},
+					{"last_frame_tex", "int"},
+					{"prev_view", "mat4"},
+					{"prev_projection", "mat4"},
+					{"reflection_roughness_cutoff", "float"},
+					{"sun_direction", "vec3"},
+					{"primary_sun_illuminance", "float"},
+					{"primary_sun_color", "vec3"},
+					{"ocean_enabled", "int"},
+					{"ocean_level", "float"},
+					{"ocean_absorption", "vec4"},
+					{"ocean_scattering", "vec4"},
+					{"ocean_wave_info", "vec4"},
+					{"wave_tex", "int", #WAVE_CASCADES},
+					{"wave_origin", "vec4", #WAVE_CASCADES},
+					{"far_tex", "int", 2},
+					{"wave_choppiness", "float"},
+					{"far_variance", "float"},
+					{"detail_info", "vec4"},
+					{"ripple_info", "vec4"},
+					{"sea_info", "vec4"},
+					{"sea_offset", "vec4"},
+					{"bump_tex", "int"},
+					{"bump_info", "vec4"},
+					{"volume_to_local", "mat4", water.MAX_VOLUMES},
+					{"volume_shape", "vec4", water.MAX_VOLUMES},
+					{"volume_absorption", "vec4", water.MAX_VOLUMES},
+					{"volume_scattering", "vec4", water.MAX_VOLUMES},
+					{"volume_waves", "vec4", water.MAX_VOLUMES},
+					{"volume_flow", "vec4", water.MAX_VOLUMES},
+					{"volume_misc", "vec4", water.MAX_VOLUMES},
+					{"volume_count", "int"},
+					{"shadows", directional_shadows.BuildFogShadowBlockLayout()},
+					post_source.pre_exposure_block,
+					RAY_QUERY and scene_reflection.block or nil,
+					RAY_QUERY and atmosphere.GetBlockLayout() or nil,
 				},
-				RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
+				write = function(self, block)
+					render3d.WriteCameraBlock(self, block)
+					render3d.WriteCommonBlock(self, block)
+					gbuffer_layout.WriteBlock(self, block)
+					post_source.WritePreExposureBlock(self, block)
+					local current_idx = system.GetFrameNumber() % 2 + 1
+
+					if not render3d.IsPassEnabled("lighting") then
+						block.scene_tex = -1
+					else
+						block.scene_tex = self:GetTextureIndex(render3d.pipelines.lighting:GetFramebuffer(current_idx):GetAttachment(1))
+					end
+
+					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
+					block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
+					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+					block.frame = system.GetFrameNumber() % 4096
+					local features = 0
+
+					for _, feature in ipairs(FEATURES) do
+						if feature.pvar:Get() then features = features + feature.bit end
+					end
+
+					block.features = features
+					block.shaft_samples = shaft_samples_pvar:Get()
+					block.ripple_pairs = ripple_pairs_pvar:Get()
+					block.trace_steps = trace_steps_pvar:Get()
+					local scale = scene_reflection.RESOLUTION_SCALES[pvars.Get("reflection_resolution")]
+					block.rough_rays = math.max(1, math.floor(scene_reflection.rough_rays:Get() * scale * scale + 0.5))
+					block.last_frame_tex = render3d.ShouldUseLastFrameHistory() and
+						render3d.IsPassEnabled("volumetric_fog") and
+						self:GetTextureIndex(post_source.GetFoggedOpaqueSceneTexture()) or
+						-1
+					local prev_view = render3d.GetPreviousViewMatrix() or render3d.GetCamera():BuildViewMatrix()
+					local prev_projection = render3d.GetPreviousProjectionMatrix() or
+						render3d.GetCamera():BuildProjectionMatrix()
+					prev_view:CopyToFloatPointer(block.prev_view)
+					prev_projection:CopyToFloatPointer(block.prev_projection)
+					local _, gi_end = ibl.GetReflectionGIRange()
+					block.reflection_roughness_cutoff = gi_end
+					local lights = render3d.GetLights()
+					directional_shadows.GetPrimarySunDirection(lights):CopyToFloatPointer(block.sun_direction)
+					block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
+					directional_shadows.GetPrimarySunColor(lights):CopyToFloatPointer(block.primary_sun_color)
+					directional_shadows.WriteFogShadowBlock(self, block.shadows, lights)
+					write_ocean(self, block)
+					block.bump_tex = water.wave_bump and self:GetTextureIndex(water.wave_bump.texture) or -1
+					block.bump_info[0] = water.wave_bump and water.wave_bump.slope_variance or 0
+					write_volumes(block)
+
+					if RAY_QUERY then
+						scene_reflection.WriteBlock(self, block)
+						atmosphere.WriteBlock(
+							self,
+							block,
+							render3d.GetCamera():GetPosition(),
+							directional_shadows.GetPrimarySunDirection(render3d.GetLights())
+						)
+						block.reflection_screenspace_roughness = screenspace_roughness_pvar:Get()
+					end
+
+					return block
+				end,
 			},
-			shader = [[
+			RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
+		},
+		shader = [[
 			ivec2 water_pixel;
 			vec2 in_uv;
 
@@ -897,17 +903,17 @@ list.insert(
 			const float WATER_CREST_GLOW = 20.0;
 			const float WATER_PARTICLE_G = ]] .. water.PARTICLE_PHASE_G .. [[;
 			const float WATER_PARTICLE_BACKSCATTER = ]] .. string.format(
-					"%.5f",
-					(
-							1 - water.PARTICLE_PHASE_G
-						) / (
-							2 * water.PARTICLE_PHASE_G
-						) * (
-							(
-								1 + water.PARTICLE_PHASE_G
-							) / math.sqrt(1 + water.PARTICLE_PHASE_G ^ 2) - 1
-						)
-				) .. [[;
+				"%.5f",
+				(
+						1 - water.PARTICLE_PHASE_G
+					) / (
+						2 * water.PARTICLE_PHASE_G
+					) * (
+						(
+							1 + water.PARTICLE_PHASE_G
+						) / math.sqrt(1 + water.PARTICLE_PHASE_G ^ 2) - 1
+					)
+			) .. [[;
 			const float WATER_GRAVITY = ]] .. water.GRAVITY .. [[;
 			const int WAVE_CASCADES = ]] .. #WAVE_CASCADES .. [[;
 			const int RIPPLE_OCTAVES = ]] .. water.DETAIL_OCTAVES .. [[;
@@ -930,11 +936,11 @@ list.insert(
 
 			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetFresnelGLSL() .. glsl_common.GetBlueNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
-					RAY_QUERY and
-					render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("water_data", "water_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("water_data") .. scene_reflection.GetDirectionGLSL()
-					or
-					scene_reflection.CONSTANTS_GLSL .. "#define DDGI_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
-				) .. [[
+				RAY_QUERY and
+				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("water_data", "water_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("water_data") .. scene_reflection.GetDirectionGLSL()
+				or
+				scene_reflection.CONSTANTS_GLSL .. "#define DDGI_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
+			) .. [[
 
 			float get_blue_noise() {
 				if (water_data.blue_noise_tex == -1) return 0.5;
