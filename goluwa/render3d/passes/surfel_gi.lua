@@ -135,6 +135,9 @@ local HITS_GLSL = [[
 
 	#define SURFEL_HIT_SAMPLES ]] .. surfel_gi.HIT_SAMPLES .. [[
 
+	// a sample at a crease lies on both surfaces (a hair outside one of them in depth precision), and rays from it see through the other one: pull it off both, along the normals of the neighbouring pixels whose plane it lies on (never toward the camera, which can see through single sided planes)
+	#define SURFEL_SAMPLE_PULL 0.01
+
 ]]
 local TABLE_GLSL = [[
 	struct SurfelSlot {
@@ -203,6 +206,20 @@ local function visit_glsl(touch)
 
 			P = get_world_pos((vec2(pixel) + 0.5) / vec2(depth_size), depth);
 			N = normalize(gbuffer_normal(pixel));
+			vec3 pull = N;
+
+			for (int i = 0; i < 4; i++) {
+				ivec2 q = clamp(pixel + ivec2(i == 0 ? 1 : i == 1 ? -1 : 0, i == 2 ? 1 : i == 3 ? -1 : 0), ivec2(0), depth_size - 1);
+				float q_depth = gbuffer_depth(q);
+
+				if (q_depth <= 0.0) continue;
+
+				vec3 q_N = normalize(gbuffer_normal(q));
+
+				if (abs(dot(P - get_world_pos((vec2(q) + 0.5) / vec2(depth_size), q_depth), q_N)) < SURFEL_SAMPLE_PULL) pull += q_N;
+			}
+
+			P += normalize(pull) * SURFEL_SAMPLE_PULL;
 			return true;
 		}
 
@@ -950,7 +967,7 @@ local function pass_trace()
 							if (pcg_unorm(pcg3d(uvec3(attempts, uint(surfel_data.surfel_frame), 0x2c1b3c6du)).x) < rate) {
 								uint slot = atomicAdd(surfel_hit_count, 1u);
 
-								if (slot < uint(SURFEL_HIT_SAMPLES)) surfel_hits[slot] = vec4(origin + dir * t, surfel_pack_normal(front ? hit_N : -hit_N));
+								if (slot < uint(SURFEL_HIT_SAMPLES)) surfel_hits[slot] = vec4(origin + dir * max(t - SURFEL_SAMPLE_PULL, 0.0), surfel_pack_normal(front ? hit_N : -hit_N));
 							}
 						}
 					}
