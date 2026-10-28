@@ -309,7 +309,7 @@ local default_passes = {
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
 	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},
-	{"ocean", "goluwa/render3d/passes/ocean.lua"},
+	{"ocean", "goluwa/render3d/passes/ocean.lua", optional = true},
 	{"volumetric_fog", "goluwa/render3d/passes/volumetric_fog.lua"},
 	{"particles", "goluwa/render3d/passes/particles.lua"},
 	{"translucent", "goluwa/render3d/passes/translucent.lua"},
@@ -333,13 +333,27 @@ render3d.bundle_of_pipelines = render3d.bundle_of_pipelines or table.weak("k")
 local bundle_of_pipelines = render3d.bundle_of_pipelines
 pvars.StartGroup("Rendering", "Passes", {store = false, prefix = "pass_"})
 
+local function rebuild_default_bundles()
+	for bundle in pairs(render3d.bundles) do
+		if not bundle.options.passes then
+			local ok, err = pcall(render3d.RebuildPipelineBundle, bundle)
+
+			if not ok then logn("failed to rebuild pipelines: ", err) end
+		end
+	end
+end
+
 for _, entry in ipairs(default_passes) do
 	pass_vars[entry[1]] = pvars.Setup2{
 		key = "r_pass_" .. entry[1],
-		default = true,
+		default = not entry.optional,
 		friendly = entry[1],
-		help = "run the " .. entry[1] .. " pass, off skips every pipeline it adds",
-		callback = function(value)
+		help = entry.optional and
+			"run the " .. entry[1] .. " pass, off skips every pipeline it adds. its pipelines are only built while it is on, so turning it on rebuilds the pipelines" or
+			"run the " .. entry[1] .. " pass, off skips every pipeline it adds",
+		callback = function(value, initial)
+			if entry.optional and not initial then rebuild_default_bundles() end
+
 			event.Call("Render3DPassToggled", entry[1], value)
 		end,
 	}
@@ -355,13 +369,7 @@ local gi_mode = pvars.Setup2{
 	callback = function(value, initial)
 		if initial then return end
 
-		for bundle in pairs(render3d.bundles) do
-			if not bundle.options.passes then
-				local ok, err = pcall(render3d.RebuildPipelineBundle, bundle)
-
-				if not ok then logn("failed to rebuild pipelines: ", err) end
-			end
-		end
+		rebuild_default_bundles()
 	end,
 }
 pvars.EndGroup()
@@ -450,7 +458,17 @@ local function fill_pipeline_bundle(bundle)
 		passes = {}
 
 		for _, entry in ipairs(default_passes) do
-			if not entry.gi or entry.gi == gi_mode:Get() then
+			if
+				(
+					not entry.gi or
+					entry.gi == gi_mode:Get()
+				)
+				and
+				(
+					not entry.optional or
+					pass_vars[entry[1]]:Get()
+				)
+			then
 				local module = import(entry[2])
 				passes[#passes + 1] = entry[1] == "light_grid" and module.pass or module
 			end

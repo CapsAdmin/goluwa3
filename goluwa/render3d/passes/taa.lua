@@ -98,6 +98,7 @@ return {
 								render3d.IsWaterEnabled()
 							)
 							and
+							render3d.IsPassEnabled("ocean") and
 							render3d.pipelines.ocean.framebuffers and
 							self:GetTextureIndex(render3d.pipelines.ocean:GetFramebuffer(frame % 2 + 1):GetAttachment(2)) or
 							-1
