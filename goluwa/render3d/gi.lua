@@ -115,7 +115,7 @@ function gi.GetCommonGLSL()
 		}
 
 		vec4 gi_sample_irradiance_pair(vec3 P, vec3 N, vec3 L, vec3 L2, vec3 V, bool smooth_blend, float visibility_min_weight, out float weight, out vec4 second) {
-			if (ddgi_data.gi_mode == GI_MODE_SURFELS) return surfel_sample_irradiance_pair(P, N, L, L2, true, 0, weight, second);
+			if (ddgi_data.gi_mode == GI_MODE_SURFELS) return surfel_sample_irradiance_pair(P, N, L, L2, true, visibility_min_weight < DDGI_NO_VISIBILITY_RAYS, 0, weight, second);
 
 			return ddgi_sample_irradiance_pair(P, N, L, L2, V, smooth_blend, visibility_min_weight, weight, second);
 		}

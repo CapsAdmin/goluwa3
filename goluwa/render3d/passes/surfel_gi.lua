@@ -1520,7 +1520,7 @@ local function pass_resolve()
 				vec3 R = rough ? get_specular_dominant_direction(reflect(-V, N), N, roughness) : L;
 				float weight;
 				vec4 specular;
-				vec4 gi = surfel_sample_irradiance_pair(P, N, L, R, true, 0, weight, specular);
+				vec4 gi = surfel_sample_irradiance_pair(P, N, L, R, true, true, 0, weight, specular);
 				float strength = ddgi_data.surfel_params.z;
 				if (weight <= 0.0) {
 					gi = vec4(sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, N) * strength, 1.0);
