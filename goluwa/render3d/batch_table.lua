@@ -3,6 +3,7 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local render = import("goluwa/render/render.lua")
 local Buffer = import("goluwa/render/vulkan/internal/buffer.lua")
+local memory = import("goluwa/bindings/memory.lua")
 local render_stats = import("goluwa/render/stats.lua")
 local BatchTable = objects.CreateTemplate("render3d_batch_table")
 local UInt64Ptr = ffi.typeof("uint64_t *")
@@ -158,7 +159,7 @@ function BatchTable:Update(pipeline, batches, batch_serial, submission, context)
 	if self.capacity < count then
 		self:RemoveBuffers()
 		local capacity = math.max(math.ceil(count * 1.5), 1)
-		local records = ffi.typeof("$[?]", self.record_type)(capacity)
+		local records = memory.NewArray(self.record_type, capacity)
 
 		if self.records then
 			ffi.copy(records, self.records, self.written_count * self.record_size)

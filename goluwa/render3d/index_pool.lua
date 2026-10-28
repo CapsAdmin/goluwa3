@@ -1,7 +1,9 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
+local memory = import("goluwa/bindings/memory.lua")
 local index_pool = {}
+local UInt32 = ffi.typeof("uint32_t")
 local UInt32Array = ffi.typeof("uint32_t *")
 local MIN_CAPACITY = 2 ^ 20
 local MIN_RANGE = 64
@@ -53,7 +55,7 @@ local function grow(needed)
 		label = "index_pool",
 	}
 	local new_pointer = ffi.cast(UInt32Array, new_buffer:Map())
-	local new_shadow = ffi.new("uint32_t[?]", new_capacity)
+	local new_shadow = memory.NewArray(UInt32, new_capacity)
 
 	if buffer then
 		ffi.copy(new_shadow, shadow, top * 4)
