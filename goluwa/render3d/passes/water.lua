@@ -1533,7 +1533,7 @@ list.insert(
 				vec3 sun_scatter = sun_light * visibility * (water_scatter(w, dot(-dir, sun_dir)) + diffuse_scatter) * integrate_attenuated(sigma, depth_start, rate, len, sun_mu);
 				float particle_share = mix(WATER_PARTICLE_BACKSCATTER, 1.0 - WATER_PARTICLE_BACKSCATTER, 0.5 + 0.5 * dir.y) / (2.0 * PI);
 				vec3 sky_phase = WATER_MOLECULAR_SCATTERING / (4.0 * PI) + w.particles * particle_share;
-				vec3 ambient = get_ambient_irradiance(vec3(origin.x, w.surface_y + 0.1, origin.z), DDGI_NO_VISIBILITY_RAYS, true);
+				vec3 ambient = sample_environment_irradiance(water_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
 
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && water_feature(WATER_AMBIENT_GI)) {
@@ -1760,37 +1760,56 @@ list.insert(
 
 			const int WATER_SCREEN_LOBE_TAPS = 8;
 
-			vec3 get_reflection(vec3 surface_pos, vec3 view_dir, vec3 reflection_dir, vec3 normal, float alpha, float jitter) {
-				float perceptual = sqrt(alpha);
-				vec3 reflected = sample_environment_specular(water_data.env_tex, reflection_dir, normal, perceptual);
-				vec3 origin = surface_pos + normal * 0.02;
+			vec3 refl_env;
+			vec3 refl_origin;
+			vec3 refl_dir;
+			vec3 refl_normal;
+			vec3 refl_view;
+			float refl_perceptual;
+			vec3 refl_screen_color;
+			float refl_screen_weight;
+			bool refl_rough;
+			float refl_limit;
+			int refl_rays;
+			vec3 refl_sum;
+
+			int prepare_reflection(vec3 surface_pos, vec3 view_dir, vec3 reflection_dir, vec3 normal, float alpha, float jitter) {
+				refl_perceptual = sqrt(alpha);
+				refl_env = sample_environment_specular(water_data.env_tex, reflection_dir, normal, refl_perceptual);
+				refl_origin = surface_pos + normal * 0.02;
+				refl_dir = reflection_dir;
+				refl_normal = normal;
+				refl_view = view_dir;
+				refl_screen_color = vec3(0.0);
+				refl_screen_weight = 0.0;
+				refl_rough = false;
+				refl_rays = 0;
+				refl_sum = vec3(0.0);
 				water_rt_share = 0.0;
 
-				if (!water_feature(WATER_REFLECTION_TRACE) || perceptual > water_data.reflection_roughness_cutoff) return reflected;
+				if (!water_feature(WATER_REFLECTION_TRACE) || refl_perceptual > water_data.reflection_roughness_cutoff) return 0;
 
 				bool rays_ready = false;
 				bool screen_first = true;
 
 				#ifdef SCENE_REFLECTION
 				rays_ready = scene_reflection_ready();
-				screen_first = !rays_ready || scene_reflection_screen_first(perceptual);
+				screen_first = !rays_ready || scene_reflection_screen_first(refl_perceptual);
 				#endif
 
-				vec3 screen_color = vec3(0.0);
-				float screen_weight = 0.0;
 				vec2 screen_uv;
 				float screen_t;
 
-				if (screen_first && reflection_dir.y > -0.2 && trace_water_reflection(origin, reflection_dir, jitter, screen_uv, screen_t, screen_weight)) {
+				if (screen_first && refl_dir.y > -0.2 && trace_water_reflection(refl_origin, refl_dir, jitter, screen_uv, screen_t, refl_screen_weight)) {
 					vec3 hit_pos = get_world_pos(screen_uv, scene_depth_at(screen_uv));
-					screen_color = get_last_frame_color(hit_pos, screen_uv);
+					refl_screen_color = get_last_frame_color(hit_pos, screen_uv);
 
-					if (perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD) {
-						vec3 tangent = normalize(cross(reflection_dir, abs(reflection_dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
-						vec3 bitangent = cross(reflection_dir, tangent);
+					if (refl_perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD) {
+						vec3 tangent = normalize(cross(refl_dir, abs(refl_dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+						vec3 bitangent = cross(refl_dir, tangent);
 						float spin = get_blue_noise() * 6.2831853;
-						float radius = screen_t * perceptual * perceptual;
-						vec3 sum = screen_color;
+						float radius = screen_t * refl_perceptual * refl_perceptual;
+						vec3 sum = refl_screen_color;
 						float valid = 1.0;
 						float tolerance = max(0.4, screen_t * 0.04);
 
@@ -1810,43 +1829,30 @@ list.insert(
 							valid += 1.0;
 						}
 
-						screen_color = sum / valid;
-						screen_weight *= valid / float(WATER_SCREEN_LOBE_TAPS + 1);
+						refl_screen_color = sum / valid;
+						refl_screen_weight *= valid / float(WATER_SCREEN_LOBE_TAPS + 1);
 					}
 				}
 
 				#ifdef SCENE_REFLECTION
-				if (rays_ready && screen_weight < 0.999) {
-					bool rough = perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD;
-					int count = scene_reflection_ray_count(perceptual, water_data.rough_rays);
-					float limit = scene_reflection_hit_luminance_limit(perceptual, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), water_data.reflection_roughness_cutoff);
-					vec3 sum = vec3(0.0);
-
-					for (int ray = 0; ray < count; ray++) {
-						vec3 dir = reflection_dir;
-						float environment_roughness = perceptual;
-
-						if (rough) {
-							dir = scene_reflection_direction(normal, view_dir, perceptual, get_blue_noise2(ray), environment_roughness);
-							if (dir.y < 0.0) dir = normalize(vec3(dir.x, -dir.y * 0.3, dir.z));
-						}
-
-						float traced_t;
-						vec3 traced = trace_scene_reflection(origin, dir, normal, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
-
-						if (rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, perceptual, limit);
-
-						sum += traced;
-					}
-
-					water_rt_share = rough ? 1.0 - screen_weight : 0.0;
-					return mix(sum / float(count), screen_color, screen_weight);
+				if (rays_ready && refl_screen_weight < 0.999) {
+					refl_rough = refl_perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD;
+					refl_rays = scene_reflection_ray_count(refl_perceptual, water_data.rough_rays);
+					refl_limit = scene_reflection_hit_luminance_limit(refl_perceptual, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), water_data.reflection_roughness_cutoff);
 				}
 				#endif
 
-				return mix(reflected, screen_color, screen_weight);
+				return refl_rays;
 			}
 
+			vec3 resolve_reflection() {
+				if (refl_rays > 0) {
+					water_rt_share = refl_rough ? 1.0 - refl_screen_weight : 0.0;
+					return mix(refl_sum / float(refl_rays), refl_screen_color, refl_screen_weight);
+				}
+
+				return mix(refl_env, refl_screen_color, refl_screen_weight);
+			}
 
 			vec3 get_refracted_scene(Water w, vec3 surface_pos, vec3 ray_dir, vec3 normal, float scene_distance, out float path_len, out vec3 floor_pos, out vec2 floor_uv, out bool has_floor) {
 				path_len = WATER_OPEN_DEPTH;
@@ -1907,54 +1913,59 @@ list.insert(
 				return behind;
 			}
 
-			vec3 shade_surface_from_above(Water w, vec3 surface_pos, vec3 normal, float alpha, float fold, vec3 ray_dir, float t, float scene_distance, float jitter) {
-				vec3 view_dir = -ray_dir;
-				float no_v = max(dot(normal, view_dir), 1e-4);
-				float fresnel = fresnel_dielectric(no_v, 1.0 / w.ior);
+			vec3 above_view_dir;
+			float above_no_v;
+			float above_fresnel;
+			float above_sky_visibility;
+			vec3 above_behind;
+			float above_path_len;
+			vec3 above_floor_pos;
+			bool above_has_floor;
+			vec3 above_refracted_dir;
+			float above_footprint;
+
+			int prepare_above(Water w, vec3 surface_pos, vec3 normal, float alpha, vec3 ray_dir, float t, float scene_distance, float jitter) {
+				above_view_dir = -ray_dir;
+				above_no_v = max(dot(normal, above_view_dir), 1e-4);
+				above_fresnel = fresnel_dielectric(above_no_v, 1.0 / w.ior);
 				vec3 reflection_dir = reflect(ray_dir, normal);
-				float sky_visibility = smoothstep(-0.15, 0.08, reflection_dir.y);
+				above_sky_visibility = smoothstep(-0.15, 0.08, reflection_dir.y);
 				if (reflection_dir.y < 0.0) reflection_dir = normalize(vec3(reflection_dir.x, -reflection_dir.y * 0.3, reflection_dir.z));
 				if (w.volume < 0) {
 					float up = max(reflection_dir.y, 0.004) + alpha * (1.0 - max(reflection_dir.y, 0.0));
 					reflection_dir = normalize(vec3(reflection_dir.x, up, reflection_dir.z));
 				}
-				vec3 reflection = get_reflection(surface_pos, view_dir, reflection_dir, normal, alpha, jitter);
-				reflection *= mix(0.3, 1.0, sky_visibility);
+				int rays = prepare_reflection(surface_pos, above_view_dir, reflection_dir, normal, alpha, jitter);
+				vec2 floor_uv = in_uv;
+				above_behind = vec3(0.0);
+				above_path_len = WATER_OPEN_DEPTH;
+				above_floor_pos = surface_pos;
+				above_has_floor = false;
 
-				float path_len;
-				vec3 floor_pos;
-				vec2 floor_uv;
-				bool has_floor;
-				vec3 behind = vec3(0.0);
-				path_len = WATER_OPEN_DEPTH;
-				floor_pos = surface_pos;
-				floor_uv = in_uv;
-				has_floor = false;
+				if (water_feature(WATER_REFRACTION)) above_behind = get_refracted_scene(w, surface_pos, ray_dir, normal, scene_distance, above_path_len, above_floor_pos, floor_uv, above_has_floor);
+				above_refracted_dir = above_has_floor && above_path_len > 1e-3 ? normalize(above_floor_pos - surface_pos) : normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / w.ior));
+				above_refracted_dir.y = min(above_refracted_dir.y, -0.02);
+				above_refracted_dir = normalize(above_refracted_dir);
+				above_footprint = get_pixel_footprint(t, ray_dir.y);
 
-				if (water_feature(WATER_REFRACTION)) behind = get_refracted_scene(w, surface_pos, ray_dir, normal, scene_distance, path_len, floor_pos, floor_uv, has_floor);
-				vec3 refracted_dir = has_floor && path_len > 1e-3 ? normalize(floor_pos - surface_pos) : normalize(refract(ray_dir, vec3(0.0, 1.0, 0.0), 1.0 / w.ior));
-				refracted_dir.y = min(refracted_dir.y, -0.02);
-				refracted_dir = normalize(refracted_dir);
-				float footprint = get_pixel_footprint(t, ray_dir.y);
+				if (above_has_floor) above_behind = relight_submerged(w, floor_uv, above_behind, above_floor_pos, get_caustic(w, above_floor_pos, above_footprint, w.volume >= 0 ? 3 : 2, 1.0, true));
 
-				if (has_floor) behind = relight_submerged(w, floor_uv, behind, floor_pos, get_caustic(w, floor_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true));
+				return rays;
+			}
 
-				vec3 transmittance;
-				vec3 inscatter = vec3(0.0);
-				transmittance = vec3(1.0);
-
-				if (water_feature(WATER_INSCATTER)) inscatter = get_water_inscatter(w, surface_pos, refracted_dir, path_len, jitter, transmittance);
-				vec3 transmitted = behind * transmittance + inscatter;
+			vec3 finish_above(Water w, vec3 surface_pos, vec3 normal, float alpha, float fold, vec3 transmittance, vec3 inscatter) {
+				vec3 reflection = resolve_reflection() * mix(0.3, 1.0, above_sky_visibility);
+				vec3 transmitted = above_behind * transmittance + inscatter;
 
 				vec3 sun = normalize(water_data.sun_direction);
 				float shadow = get_water_sun_visibility(surface_pos, sun);
 				vec3 sun_light = get_sun_illuminance() * shadow;
 				float no_l = max(dot(normal, sun), 0.0);
-				vec3 half_dir = normalize(view_dir + sun);
+				vec3 half_dir = normalize(above_view_dir + sun);
 				float no_h = max(dot(normal, half_dir), 0.0);
 				float glint_alpha = sqrt(alpha * alpha + SUN_ANGULAR_RADIUS * SUN_ANGULAR_RADIUS);
-				float specular = D_GGXAlpha(glint_alpha, no_h) * V_SmithGGXCorrelated(glint_alpha, no_v, no_l) * fresnel_dielectric(max(dot(view_dir, half_dir), 0.0), 1.0 / w.ior);
-				vec3 color = mix(transmitted, reflection, fresnel) + sun_light * (specular * no_l);
+				float specular = D_GGXAlpha(glint_alpha, no_h) * V_SmithGGXCorrelated(glint_alpha, above_no_v, no_l) * fresnel_dielectric(max(dot(above_view_dir, half_dir), 0.0), 1.0 / w.ior);
+				vec3 color = mix(transmitted, reflection, above_fresnel) + sun_light * (specular * no_l);
 
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && water_feature(WATER_LIGHTS)) {
@@ -1982,8 +1993,8 @@ list.insert(
 
 							if (lamp_no_l <= 0.0) continue;
 
-							vec3 lamp_half = normalize(view_dir + lamp_dir);
-							float lamp_specular = D_GGXAlpha(lamp_alpha, max(dot(normal, lamp_half), 0.0)) * V_SmithGGXCorrelated(lamp_alpha, no_v, lamp_no_l) * fresnel_dielectric(max(dot(view_dir, lamp_half), 0.0), 1.0 / w.ior);
+							vec3 lamp_half = normalize(above_view_dir + lamp_dir);
+							float lamp_specular = D_GGXAlpha(lamp_alpha, max(dot(normal, lamp_half), 0.0)) * V_SmithGGXCorrelated(lamp_alpha, above_no_v, lamp_no_l) * fresnel_dielectric(max(dot(above_view_dir, lamp_half), 0.0), 1.0 / w.ior);
 							vec3 lamp_light = light.color.rgb * light.color.a * attenuation * (lamp_specular * lamp_no_l);
 							float lamp_distance = dot(light.position.xyz - surface_pos, lamp_dir);
 
@@ -2004,31 +2015,31 @@ list.insert(
 					float crest = clamp((surface_pos.y - w.surface_y) / max(water_data.ocean_wave_info.x, 0.05), 0.0, 1.0);
 					vec3 sigma = get_extinction(w);
 					float thickness = 1.5;
-					color += (1.0 - fresnel) * sun_light * sun_transmission * water_scatter(w, dot(-refracted_dir, sun_dir)) * thickness * exp(-sigma * thickness) * crest * crest * 4.0;
-					vec2 view_side = normalize(view_dir.xz + 1e-5);
+					color += (1.0 - above_fresnel) * sun_light * sun_transmission * water_scatter(w, dot(-above_refracted_dir, sun_dir)) * thickness * exp(-sigma * thickness) * crest * crest * 4.0;
+					vec2 view_side = normalize(above_view_dir.xz + 1e-5);
 					vec2 sun_side = normalize(sun.xz + 1e-5);
 					float back = pow(clamp(dot(view_side, -sun_side) * 0.6 + 0.4, 0.0, 1.0), 2.5);
 					float lit_crest = clamp(crest * 0.9 + 0.1, 0.0, 1.0) * (clamp((1.0 - normal.y) * 4.0, 0.0, 1.0) + 0.25);
 					vec3 isotropic = (WATER_MOLECULAR_SCATTERING + w.particles) / (4.0 * PI);
-					color += (1.0 - fresnel) * sun_light * sun_transmission * isotropic * thickness * exp(-sigma * thickness) * WATER_CREST_GLOW * back * lit_crest * smoothstep(0.0, 0.25, sun.y);
+					color += (1.0 - above_fresnel) * sun_light * sun_transmission * isotropic * thickness * exp(-sigma * thickness) * WATER_CREST_GLOW * back * lit_crest * smoothstep(0.0, 0.25, sun.y);
 				}
 
 				float shore_range = 0.25 * w.foam;
-				float shore_depth = has_floor ? max(w.surface_y - floor_pos.y, length(floor_pos.xz - surface_pos.xz) * 0.5) : 1e3;
+				float shore_depth = above_has_floor ? max(w.surface_y - above_floor_pos.y, length(above_floor_pos.xz - surface_pos.xz) * 0.5) : 1e3;
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && shore_range > 0.0 && water_feature(WATER_SHORE_FOAM)) {
 					float rise = max(water_data.ocean_wave_info.x, 0.05);
 					shore_depth = max(scene_hit_distance(vec3(surface_pos.x, w.surface_y + rise, surface_pos.z), vec3(0.0, -1.0, 0.0), shore_range + rise) - rise, 0.0);
 				}
 				#endif
-				vec3 pattern = foam_pattern(surface_pos.xz, water_data.time, footprint);
+				vec3 pattern = foam_pattern(surface_pos.xz, water_data.time, above_footprint);
 				float whitecap = fold * mix(0.5, 1.5, sea_state.y);
 				float shore = smoothstep(shore_range, 0.0, shore_depth);
 				float coverage = clamp((whitecap + shore) * w.foam, 0.0, 1.0);
 				float threshold = 1.05 - coverage * 1.1;
-				float soft = 0.1 + footprint * 0.1;
+				float soft = 0.1 + above_footprint * 0.1;
 				float foam = smoothstep(threshold - soft, threshold + soft, pattern.x) * (pattern.y * 0.25 + 0.8) * smoothstep(0.0, 0.08, coverage);
-				foam = mix(foam, coverage * coverage * 0.5, smoothstep(0.15, 1.2, footprint)) * 0.95;
+				foam = mix(foam, coverage * coverage * 0.5, smoothstep(0.15, 1.2, above_footprint)) * 0.95;
 
 				if (foam > 0.0) {
 					vec3 foam_light = sun_light * (max(dot(vec3(0.0, 1.0, 0.0), sun), 0.0) / PI) + get_ambient_irradiance(surface_pos + vec3(0.0, 0.1, 0.0), DDGI_NO_VISIBILITY_RAYS, true);
@@ -2046,117 +2057,122 @@ list.insert(
 				return sun_transmission * exp(-get_extinction(w) * (max(w.surface_y - world_pos.y, 0.0) / max(-sun_dir.y, 0.05)));
 			}
 
-			vec3 get_underwater_reflection(Water w, vec3 surface_pos, vec3 dir, float jitter) {
-				vec3 origin = surface_pos + dir * 0.02;
-				float len = w.volume >= 0 ? mix(WATER_OPEN_DEPTH, get_volume_exit(w.volume, origin, dir) + 0.25, w.closed) : WATER_OPEN_DEPTH;
-				vec3 behind = vec3(0.0);
+			bool below_surface;
+			vec3 below_surface_pos;
+			vec3 below_normal_up;
+			vec3 below_ray_dir;
+			vec3 below_fresnel;
+			vec3 below_channel_ior;
+			bool below_refracts;
+			int below_primary;
+			vec3 below_primary_dir;
+			vec3 below_primary_above;
+			bool below_hit_scene;
+			bool below_scene_traced;
+			vec3 below_reflect_dir;
+			vec3 below_origin;
+			float below_len;
+			vec3 below_behind;
+			float below_weight;
+			vec3 under_behind;
+			float under_len;
+
+			int prepare_below(Water w, vec3 surface_pos, vec3 normal_up, vec3 ray_dir, float jitter) {
+				below_surface_pos = surface_pos;
+				below_normal_up = normal_up;
+				below_ray_dir = ray_dir;
+				float cos_i = dot(-normal_up, -ray_dir);
+				below_channel_ior = screen_refraction_dispersed_ior(w.ior, w.abbe);
+				below_fresnel = vec3(
+					fresnel_dielectric(cos_i, below_channel_ior.r),
+					fresnel_dielectric(cos_i, below_channel_ior.g),
+					fresnel_dielectric(cos_i, below_channel_ior.b)
+				);
+				below_refracts = below_fresnel.r < 1.0;
+				below_primary = below_fresnel.g < 1.0 ? 1 : 0;
+				below_primary_dir = below_refracts ? normalize(refract(ray_dir, -normal_up, below_channel_ior[below_primary])) : normal_up;
+				below_primary_above = sample_environment_specular(water_data.env_tex, below_primary_dir, normal_up, 0.05);
+				below_hit_scene = false;
+				below_reflect_dir = reflect(ray_dir, -normal_up);
+				below_origin = surface_pos + below_reflect_dir * 0.02;
+				below_len = w.volume >= 0 ? mix(WATER_OPEN_DEPTH, get_volume_exit(w.volume, below_origin, below_reflect_dir) + 0.25, w.closed) : WATER_OPEN_DEPTH;
+				below_behind = vec3(0.0);
 				vec2 hit_uv;
 				float hit_t;
-				float weight;
 
-				if (trace_water_reflection(origin, dir, jitter, hit_uv, hit_t, weight) && hit_t < len) {
+				if (trace_water_reflection(below_origin, below_reflect_dir, jitter, hit_uv, hit_t, below_weight) && hit_t < below_len) {
 					vec3 scene_pos = get_world_pos(hit_uv, scene_depth_at(hit_uv));
 					float footprint = get_pixel_footprint(length(scene_pos - water_data.camera_position.xyz), 1.0);
-					behind = relight_submerged(w, hit_uv, get_scene_color(hit_uv), scene_pos, get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true));
-					len = hit_t;
+					below_behind = relight_submerged(w, hit_uv, get_scene_color(hit_uv), scene_pos, get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true));
+					below_len = hit_t;
 				} else {
-					weight = 0.0;
+					below_weight = 0.0;
 				}
+
+				below_scene_traced = false;
 
 				#ifdef SCENE_REFLECTION
-				if (weight < 0.999 && scene_reflection_ready()) {
-					float traced_t;
-					vec3 traced = trace_scene_reflection(origin, dir, -dir, 0.0, len, traced_t);
-
-					if (traced_t < len) {
-						behind = mix(traced * get_submerged_light(w, origin + dir * traced_t), behind, weight);
-						if (weight <= 0.0) len = traced_t;
-					}
-				}
+				below_scene_traced = scene_reflection_ready();
 				#endif
 
-				vec3 transmittance;
-				vec3 inscatter = get_water_inscatter(w, origin, dir, len, jitter, transmittance);
-				return behind * transmittance + inscatter;
+				return below_scene_traced ? 2 : 0;
 			}
 
-			vec3 shade_surface_from_below(Water w, vec3 surface_pos, vec3 normal_up, vec3 ray_dir, float jitter) {
-				vec3 normal = -normal_up;
-				vec3 view_dir = -ray_dir;
-				float cos_i = dot(normal, view_dir);
-				vec3 channel_ior = screen_refraction_dispersed_ior(w.ior, w.abbe);
-				vec3 fresnel = vec3(
-					fresnel_dielectric(cos_i, channel_ior.r),
-					fresnel_dielectric(cos_i, channel_ior.g),
-					fresnel_dielectric(cos_i, channel_ior.b)
-				);
+			vec3 finish_below(Water w, float jitter, vec3 transmittance, vec3 inscatter) {
+				if (!below_scene_traced && below_refracts) {
+					vec2 uv;
+					float hit;
+
+					if (screen_refraction_trace(below_surface_pos, below_surface_pos, below_primary_dir, 200.0, jitter, uv, hit) && hit < 200.0 && scene_depth_at(uv) > 0.0) {
+						below_primary_above = get_scene_color(uv);
+						below_hit_scene = true;
+					}
+				}
+
 				vec3 above = vec3(0.0);
 
-				if (fresnel.r < 1.0) {
+				if (below_refracts) {
 					vec3 sun = normalize(water_data.sun_direction);
-					vec3 sun_light = get_sun_illuminance() * get_water_sun_visibility(surface_pos, sun);
-					int primary = fresnel.g < 1.0 ? 1 : 0;
-					vec3 primary_dir = normalize(refract(ray_dir, normal, channel_ior[primary]));
-					vec3 primary_above = sample_environment_specular(water_data.env_tex, primary_dir, normal_up, 0.05);
-					bool hit_scene = false;
-
-					#ifdef SCENE_REFLECTION
-					if (scene_reflection_ready()) {
-						float traced_t;
-						primary_above = trace_scene_reflection(surface_pos + normal_up * 0.02, primary_dir, normal_up, 0.05, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
-						hit_scene = traced_t < SCENE_REFLECTION_MAX_DISTANCE;
-					} else
-					#endif
-					{
-						vec2 uv;
-						float hit;
-
-						if (screen_refraction_trace(surface_pos, surface_pos, primary_dir, 200.0, jitter, uv, hit) && hit < 200.0 && scene_depth_at(uv) > 0.0) {
-							primary_above = get_scene_color(uv);
-							hit_scene = true;
-						}
-					}
+					vec3 sun_light = get_sun_illuminance() * get_water_sun_visibility(below_surface_pos, sun);
 
 					if (w.abbe <= 0.0) {
-						above = primary_above + sun_light * smoothstep(0.9995, 0.99995, dot(primary_dir, sun)) * 2000.0;
+						above = below_primary_above + sun_light * smoothstep(0.9995, 0.99995, dot(below_primary_dir, sun)) * 2000.0;
 					} else {
 						for (int c = 0; c < 3; c++) {
-							if (fresnel[c] >= 1.0) continue;
+							if (below_fresnel[c] >= 1.0) continue;
 
-							vec3 refracted_dir = c == primary ? primary_dir : normalize(refract(ray_dir, normal, channel_ior[c]));
-							float sky = hit_scene || c == primary ? primary_above[c] : sample_environment_specular(water_data.env_tex, refracted_dir, normal_up, 0.05)[c];
+							vec3 refracted_dir = c == below_primary ? below_primary_dir : normalize(refract(below_ray_dir, -below_normal_up, below_channel_ior[c]));
+							float sky = below_hit_scene || c == below_primary ? below_primary_above[c] : sample_environment_specular(water_data.env_tex, refracted_dir, below_normal_up, 0.05)[c];
 							above[c] = sky + sun_light[c] * smoothstep(0.9995, 0.99995, dot(refracted_dir, sun)) * 2000.0;
 						}
 					}
 				}
 
-				vec3 depths = get_underwater_reflection(w, surface_pos, reflect(ray_dir, normal), jitter);
-				return mix(above, depths, fresnel);
+				return mix(above, below_behind * transmittance + inscatter, below_fresnel);
 			}
 
-			vec3 shade_underwater(Water w, vec3 camera, vec3 ray_dir, float surface_t, vec3 surface_normal, float exit_t, float scene_t, vec3 scene_color, vec3 scene_pos, float jitter, out float distance) {
-				float len;
-				vec3 behind;
+			int prepare_underwater(Water w, vec3 camera, vec3 ray_dir, float surface_t, vec3 surface_normal, float exit_t, float scene_t, float footprint_t, vec3 scene_color, vec3 scene_pos, float jitter, out float distance) {
+				below_surface = surface_t > 0.0 && surface_t < scene_t;
 
-				if (surface_t > 0.0 && surface_t < scene_t) {
-					len = surface_t;
-					behind = shade_surface_from_below(w, camera + ray_dir * surface_t, surface_normal, ray_dir, jitter);
+				if (below_surface) {
+					under_len = surface_t;
 					distance = surface_t;
-				} else if (scene_t < exit_t) {
-					len = scene_t;
-					float footprint = get_pixel_footprint(scene_t, 1.0);
-					vec3 caustic = get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true);
-					behind = relight_submerged(w, in_uv, scene_color, scene_pos, caustic);
-					distance = scene_t;
-				} else {
-					len = exit_t;
-					behind = w.volume >= 0 ? scene_color : vec3(0.0);
-					distance = w.volume >= 0 ? -1.0 : -1.0;
+					return prepare_below(w, camera + ray_dir * surface_t, surface_normal, ray_dir, jitter);
 				}
 
-				vec3 transmittance;
-				vec3 inscatter = get_water_inscatter(w, camera, ray_dir, len, jitter, transmittance);
-				return behind * transmittance + inscatter;
+				if (scene_t < exit_t) {
+					under_len = scene_t;
+					float footprint = get_pixel_footprint(footprint_t, 1.0);
+					vec3 caustic = get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true);
+					under_behind = relight_submerged(w, in_uv, scene_color, scene_pos, caustic);
+					distance = scene_t;
+					return 0;
+				}
+
+				under_len = exit_t;
+				under_behind = w.volume >= 0 ? scene_color : vec3(0.0);
+				distance = -1.0;
+				return 0;
 			}
 
 			void get_ocean_surface(vec2 xz, float footprint, out vec3 normal, out float alpha, out float fold) {
@@ -2302,15 +2318,26 @@ list.insert(
 					if (volume_in_sea && !volume_top && volume_entry > 0.0) volume = -1;
 				}
 
+				int shade_mode = 0;
+				Water w;
+				vec3 under_camera = camera_origin;
+				float under_scene_t = scene_t;
+				bool side_entry = false;
+				float surface_t = -1.0;
+				vec3 normal_up = vec3(0.0, 1.0, 0.0);
+				float exit_t = 0.0;
+				vec3 surface_pos = vec3(0.0);
+				vec3 normal = vec3(0.0, 1.0, 0.0);
+				float alpha = 0.0;
+				float fold = 0.0;
+				float entry_t = 0.0;
+
 				if (volume >= 0 && (!ocean_first || volume_entry < ocean_entry || (volume_entry == 0.0 && !camera_under_ocean) || (volume_in_sea && volume_top && !camera_under_ocean))) {
-					Water w = get_volume_water(volume);
-					vec3 color;
-					float distance;
+					w = get_volume_water(volume);
 
 					if (volume_entry <= 0.0) {
-						float surface_t = ray_dir.y > 1e-4 ? (w.surface_y - camera_origin.y) / ray_dir.y : -1.0;
+						surface_t = ray_dir.y > 1e-4 ? (w.surface_y - camera_origin.y) / ray_dir.y : -1.0;
 						if (surface_t > volume_exit + 1e-3) surface_t = -1.0;
-						vec3 normal_up = vec3(0.0, 1.0, 0.0);
 
 						if (surface_t > 0.0) {
 							vec3 p = camera_origin + ray_dir * surface_t;
@@ -2319,99 +2346,164 @@ list.insert(
 							normal_up = normalize(vec3(-grad.x, 1.0, -grad.y));
 						}
 
-						color = shade_underwater(w, camera_origin, ray_dir, surface_t, normal_up, volume_exit, scene_t, scene_color, scene_pos, jitter, distance);
-						set_scene_color(color, 1.0);
-						set_water_distance(vec4(distance, 0.0, 0.0, 0.0));
+						exit_t = volume_exit;
+						shade_mode = 1;
+					} else if (!volume_top) {
+						under_camera = camera_origin + ray_dir * volume_entry;
+						under_scene_t = scene_t - volume_entry;
+						exit_t = volume_exit - volume_entry;
+						side_entry = true;
+						shade_mode = 1;
+					} else {
+						surface_pos = camera_origin + ray_dir * volume_entry;
+						float footprint = get_pixel_footprint(volume_entry, ray_dir.y);
+						vec2 grad;
+						float lost_variance = get_volume_ripples(volume, surface_pos.xz, footprint, grad, unused_hess);
+						normal = normalize(vec3(-grad.x, 1.0, -grad.y));
+						alpha = sqrt(w.roughness * w.roughness + lost_variance);
+
+						if (volume_in_sea) {
+							vec3 local = (water_data.volume_to_local[volume] * vec4(surface_pos, 1.0)).xyz;
+							vec4 shape = water_data.volume_shape[volume];
+							float edge = min(shape.x - abs(local.x), shape.z - abs(local.z));
+							float inside = smoothstep(0.0, min(VOLUME_EDGE_BLEND, 0.5 * min(shape.x, shape.z)), edge);
+
+							if (inside < 1.0) {
+								vec3 sea_normal;
+								float sea_alpha;
+								float sea_fold;
+								get_ocean_surface(surface_pos.xz, footprint, sea_normal, sea_alpha, sea_fold);
+								w = mix_water(get_ocean_water(), w, inside);
+								normal = normalize(mix(sea_normal, normal, inside));
+								alpha = mix(sea_alpha, alpha, inside);
+								fold = sea_fold * (1.0 - inside);
+							}
+						}
+
+						entry_t = volume_entry;
+						shade_mode = 2;
+					}
+				} else {
+					if (!ocean_first) {
+						write_passthrough(scene_color);
 						return;
 					}
 
-					vec3 surface_pos = camera_origin + ray_dir * volume_entry;
+					w = get_ocean_water();
 
-					if (!volume_top) {
-						float len = min(scene_t, volume_exit) - volume_entry;
-						vec3 behind = scene_color;
+					if (camera_under_ocean) {
+						surface_t = ocean_t > 0.0 ? ocean_t : -1.0;
 
-						if (scene_t < volume_exit) {
-							float footprint = get_pixel_footprint(scene_t, 1.0);
-							vec3 caustic = get_caustic(w, scene_pos, footprint, w.volume >= 0 ? 3 : 2, 1.0, true);
-							behind = relight_submerged(w, in_uv, scene_color, scene_pos, caustic);
+						if (surface_t > 0.0) {
+							vec3 p = camera_origin + ocean_local_pos;
+							float footprint = get_pixel_footprint(surface_t, ray_dir.y);
+							float variance;
+							vec4 wd = get_wave_data(p.xz, footprint, variance);
+							vec2 grad = wd.gb;
+							add_detail_ripples(p.xz, footprint, 1.0, grad, unused_hess);
+							normal_up = normalize(vec3(-grad.x, 1.0, -grad.y));
 						}
 
-						vec3 transmittance;
-						vec3 inscatter = get_water_inscatter(w, surface_pos, ray_dir, len, jitter, transmittance);
-						set_scene_color(behind * transmittance + inscatter, 1.0);
-						set_water_distance(vec4(volume_entry, 0.0, volume_entry, 0.0));
-						return;
+						exit_t = WATER_OPEN_DEPTH;
+						shade_mode = 1;
+					} else {
+						surface_pos = camera_origin + ocean_local_pos;
+						get_ocean_surface(surface_pos.xz, get_pixel_footprint(ocean_t, ray_dir.y), normal, alpha, fold);
+						entry_t = ocean_t;
+						shade_mode = 2;
 					}
+				}
 
-					float footprint = get_pixel_footprint(volume_entry, ray_dir.y);
-					vec2 grad;
-					float lost_variance = get_volume_ripples(volume, surface_pos.xz, footprint, grad, unused_hess);
-					vec3 normal = normalize(vec3(-grad.x, 1.0, -grad.y));
-					float alpha = sqrt(w.roughness * w.roughness + lost_variance);
-					float fold = 0.0;
+				float distance = 0.0;
+				int trace_count = shade_mode == 1 ?
+					prepare_underwater(w, under_camera, ray_dir, surface_t, normal_up, exit_t, under_scene_t, scene_t, scene_color, scene_pos, jitter, distance) :
+					prepare_above(w, surface_pos, normal, alpha, ray_dir, entry_t, scene_t < 1e29 ? max(scene_t - entry_t, 0.0) : 1e30, jitter);
 
-					if (volume_in_sea) {
-						vec3 local = (water_data.volume_to_local[volume] * vec4(surface_pos, 1.0)).xyz;
-						vec4 shape = water_data.volume_shape[volume];
-						float edge = min(shape.x - abs(local.x), shape.z - abs(local.z));
-						float inside = smoothstep(0.0, min(VOLUME_EDGE_BLEND, 0.5 * min(shape.x, shape.z)), edge);
+				// every call site inlines the whole hit shading, gi lookup and inscatter, so all rays share one trace call and all segments one inscatter call
+				#ifdef SCENE_REFLECTION
+				for (int ray = 0; ray < trace_count; ray++) {
+					vec3 origin = refl_origin;
+					vec3 dir = refl_dir;
+					vec3 n = refl_normal;
+					float roughness = refl_perceptual;
+					float max_t = SCENE_REFLECTION_MAX_DISTANCE;
 
-						if (inside < 1.0) {
-							vec3 sea_normal;
-							float sea_alpha;
-							float sea_fold;
-							get_ocean_surface(surface_pos.xz, footprint, sea_normal, sea_alpha, sea_fold);
-							w = mix_water(get_ocean_water(), w, inside);
-							normal = normalize(mix(sea_normal, normal, inside));
-							alpha = mix(sea_alpha, alpha, inside);
-							fold = sea_fold * (1.0 - inside);
+					if (shade_mode == 2) {
+						if (refl_rough) {
+							dir = scene_reflection_direction(refl_normal, refl_view, refl_perceptual, get_blue_noise2(ray), roughness);
+							if (dir.y < 0.0) dir = normalize(vec3(dir.x, -dir.y * 0.3, dir.z));
 						}
+					} else if (ray == 0) {
+						if (!below_refracts) continue;
+
+						origin = below_surface_pos + below_normal_up * 0.02;
+						dir = below_primary_dir;
+						n = below_normal_up;
+						roughness = 0.05;
+					} else {
+						if (below_weight >= 0.999) continue;
+
+						origin = below_origin;
+						dir = below_reflect_dir;
+						n = -below_reflect_dir;
+						roughness = 0.0;
+						max_t = below_len;
 					}
 
-					color = shade_surface_from_above(w, surface_pos, normal, alpha, fold, ray_dir, volume_entry, scene_t < 1e29 ? max(scene_t - volume_entry, 0.0) : 1e30, jitter);
-					set_scene_color(color, 1.0);
-					set_water_distance(vec4(volume_entry, sqrt(alpha) * water_rt_share, volume_entry, 0.0));
-					return;
-				}
+					float traced_t;
+					vec3 traced = trace_scene_reflection(origin, dir, n, roughness, max_t, traced_t);
 
-				if (!ocean_first) {
-					write_passthrough(scene_color);
-					return;
-				}
+					if (shade_mode == 2) {
+						if (refl_rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, refl_perceptual, refl_limit);
 
-				Water w = get_ocean_water();
-
-				if (camera_under_ocean) {
-					vec3 normal_up = vec3(0.0, 1.0, 0.0);
-					float surface_t = ocean_t > 0.0 ? ocean_t : -1.0;
-
-					if (surface_t > 0.0) {
-						vec3 p = camera_origin + ocean_local_pos;
-						float footprint = get_pixel_footprint(surface_t, ray_dir.y);
-						float variance;
-						vec4 wd = get_wave_data(p.xz, footprint, variance);
-						vec2 grad = wd.gb;
-						add_detail_ripples(p.xz, footprint, 1.0, grad, unused_hess);
-						normal_up = normalize(vec3(-grad.x, 1.0, -grad.y));
+						refl_sum += traced;
+					} else if (ray == 0) {
+						below_primary_above = traced;
+						below_hit_scene = traced_t < SCENE_REFLECTION_MAX_DISTANCE;
+					} else if (traced_t < below_len) {
+						below_behind = mix(traced * get_submerged_light(w, below_origin + below_reflect_dir * traced_t), below_behind, below_weight);
+						if (below_weight <= 0.0) below_len = traced_t;
 					}
+				}
+				#endif
 
-					float distance;
-					vec3 color = shade_underwater(w, camera_origin, ray_dir, surface_t, normal_up, WATER_OPEN_DEPTH, scene_t, scene_color, scene_pos, jitter, distance);
-					set_scene_color(color, 1.0);
-					set_water_distance(vec4(distance, 0.0, 0.0, 0.0));
+				int segments = shade_mode == 1 ? (below_surface ? 2 : 1) : (water_feature(WATER_INSCATTER) ? 1 : 0);
+				vec3 view_transmittance = vec3(1.0);
+				vec3 view_inscatter = vec3(0.0);
+				vec3 below_transmittance = vec3(1.0);
+				vec3 below_inscatter = vec3(0.0);
+
+				for (int segment = 0; segment < segments; segment++) {
+					bool reflected = segment == 1;
+					vec3 transmittance;
+					vec3 inscatter = get_water_inscatter(
+						w,
+						shade_mode == 2 ? surface_pos : reflected ? below_origin : under_camera,
+						shade_mode == 2 ? above_refracted_dir : reflected ? below_reflect_dir : ray_dir,
+						shade_mode == 2 ? above_path_len : reflected ? below_len : under_len,
+						jitter,
+						transmittance
+					);
+
+					if (reflected) {
+						below_transmittance = transmittance;
+						below_inscatter = inscatter;
+					} else {
+						view_transmittance = transmittance;
+						view_inscatter = inscatter;
+					}
+				}
+
+				if (shade_mode == 1) {
+					if (below_surface) under_behind = finish_below(w, jitter, below_transmittance, below_inscatter);
+
+					set_scene_color(under_behind * view_transmittance + view_inscatter, 1.0);
+					set_water_distance(side_entry ? vec4(volume_entry, 0.0, volume_entry, 0.0) : vec4(distance, 0.0, 0.0, 0.0));
 					return;
 				}
 
-				vec3 surface_pos = camera_origin + ocean_local_pos;
-				float footprint = get_pixel_footprint(ocean_t, ray_dir.y);
-				vec3 normal;
-				float alpha;
-				float fold;
-				get_ocean_surface(surface_pos.xz, footprint, normal, alpha, fold);
-				vec3 color = shade_surface_from_above(w, surface_pos, normal, alpha, fold, ray_dir, ocean_t, scene_t < 1e29 ? max(scene_t - ocean_t, 0.0) : 1e30, jitter);
-				set_scene_color(color, 1.0);
-				set_water_distance(vec4(ocean_t, sqrt(alpha) * water_rt_share, ocean_t, 0.0));
+				set_scene_color(finish_above(w, surface_pos, normal, alpha, fold, view_transmittance, view_inscatter), 1.0);
+				set_water_distance(vec4(entry_t, sqrt(alpha) * water_rt_share, entry_t, 0.0));
 			}
 
 			void main() {
