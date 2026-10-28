@@ -1296,6 +1296,7 @@ local function pass_resolve()
 				float depth_sum = 0.0;
 				float roughness_sum = 0.0;
 				float count = 0.0;
+				float thin_count = 0.0;
 
 				for (int tap = 0; tap < 4; tap++) {
 					vec2 offset = vec2(tap & 1, tap >> 1) * 0.5 - 0.25;
@@ -1309,11 +1310,14 @@ local function pass_resolve()
 					vec3 N = normalize(gbuffer_normal(pixel));
 					normal_sum += N;
 
-					if (gbuffer_is_thin(pixel)) {
+					bool thin = gbuffer_is_thin(pixel);
+
+					if (thin) {
 						bent_sum += vec3(N.x, abs(N.y), N.z);
+						thin_count += 1.0;
 					} else bent_sum += N;
 
-					if (ddgi_data.ddgi_bent_normal_tex >= 0 && !gbuffer_is_thin(pixel)) {
+					if (ddgi_data.ddgi_bent_normal_tex >= 0 && !thin) {
 						vec3 bent = texture(TEXTURE(ddgi_data.ddgi_bent_normal_tex), uv).xyz;
 						float bent_length = length(bent);
 
@@ -1344,7 +1348,7 @@ local function pass_resolve()
 				vec3 R = rough ? get_specular_dominant_direction(reflect(-V, N), N, roughness) : L;
 				float weight;
 				vec4 specular;
-				vec4 gi = ddgi_sample_irradiance_pair(P, N, L, R, V, ddgi_data.ddgi_smooth_blend != 0, DDGI_VISIBILITY_MIN_WEIGHT, weight, specular);
+				vec4 gi = ddgi_sample_irradiance_pair(P, N, L, R, V, ddgi_data.ddgi_smooth_blend != 0, thin_count * 2.0 > count ? DDGI_NO_VISIBILITY_RAYS : DDGI_VISIBILITY_MIN_WEIGHT, weight, specular);
 				float with_rays = luminance(gi.rgb);
 				float without_rays = luminance(ddgi_stats_unoccluded);
 				float change = (without_rays - with_rays) / max(max(without_rays, with_rays), 1e-6);
