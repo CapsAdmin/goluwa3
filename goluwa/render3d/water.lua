@@ -187,6 +187,52 @@ do
 		return math.atan2(math.sin(angle), math.cos(angle))
 	end
 
+	local mode_re = ffi.new("double[?]", N * N)
+	local mode_im = ffi.new("double[?]", N * N)
+
+	local function push_candidate(heap, count, candidate, limit)
+		if count == limit then
+			if candidate.amplitude <= heap[1].amplitude then return count end
+
+			heap[1] = candidate
+		else
+			count = count + 1
+			heap[count] = candidate
+			local i = count
+
+			while i > 1 do
+				local parent = math.floor(i / 2)
+
+				if heap[parent].amplitude <= heap[i].amplitude then return count end
+
+				heap[parent], heap[i] = heap[i], heap[parent]
+				i = parent
+			end
+
+			return count
+		end
+
+		local i = 1
+
+		while true do
+			local smallest = i
+			local left, right = i * 2, i * 2 + 1
+
+			if left <= count and heap[left].amplitude < heap[smallest].amplitude then
+				smallest = left
+			end
+
+			if right <= count and heap[right].amplitude < heap[smallest].amplitude then
+				smallest = right
+			end
+
+			if smallest == i then return count end
+
+			heap[smallest], heap[i] = heap[i], heap[smallest]
+			i = smallest
+		end
+	end
+
 	local function slope_variance_between(waves, k_from, k_to)
 		if k_to <= k_from then return 0 end
 
@@ -261,6 +307,7 @@ do
 		local height_variance = 0
 		local gradient_variance = 0
 		local candidates = {}
+		local candidate_count = 0
 		waves.cascades = {}
 
 		for cascade_index, cascade in ipairs(water.FFT_CASCADES) do
@@ -297,13 +344,9 @@ do
 
 			for r = 0, N - 1 do
 				for u = 0, N - 1 do
-					local index = (r * N + u) * 4
 					local re, im, kx, kz, k = mode(u, r)
-					local partner_re, partner_im = mode((N - u) % N, (N - r) % N)
-					h0[index] = re
-					h0[index + 1] = im
-					h0[index + 2] = partner_re
-					h0[index + 3] = partner_im
+					mode_re[r * N + u] = re
+					mode_im[r * N + u] = im
 
 					if k > k_low and k <= k_high then
 						local j = math.max(math.round(math.sqrt(g * k) / BASE_OMEGA), 1)
@@ -312,17 +355,39 @@ do
 						height_variance = height_variance + amplitude * amplitude / 2
 						gradient_variance = gradient_variance + (k * amplitude) ^ 2 / 2
 
-						if cascade_index <= 2 then
-							candidates[#candidates + 1] = {
-								kx = kx,
-								kz = kz,
-								amplitude = amplitude,
-								phase = math.atan2(im, re),
-								k = k,
-								omega = j * BASE_OMEGA,
-							}
+						if
+							cascade_index <= 2 and
+							(
+								candidate_count < water.PHYSICS_WAVES or
+								amplitude > candidates[1].amplitude
+							)
+						then
+							candidate_count = push_candidate(
+								candidates,
+								candidate_count,
+								{
+									kx = kx,
+									kz = kz,
+									amplitude = amplitude,
+									phase = math.atan2(im, re),
+									k = k,
+									omega = j * BASE_OMEGA,
+								},
+								water.PHYSICS_WAVES
+							)
 						end
 					end
+				end
+			end
+
+			for r = 0, N - 1 do
+				for u = 0, N - 1 do
+					local index = (r * N + u) * 4
+					local partner = ((N - r) % N) * N + (N - u) % N
+					h0[index] = mode_re[r * N + u]
+					h0[index + 1] = mode_im[r * N + u]
+					h0[index + 2] = mode_re[partner]
+					h0[index + 3] = mode_im[partner]
 				end
 			end
 
@@ -335,7 +400,7 @@ do
 
 		local main = {}
 
-		for i = 1, math.min(water.PHYSICS_WAVES, #candidates) do
+		for i = 1, candidate_count do
 			local wave = candidates[i]
 			wave.dir_x = wave.kx / wave.k
 			wave.dir_z = wave.kz / wave.k
