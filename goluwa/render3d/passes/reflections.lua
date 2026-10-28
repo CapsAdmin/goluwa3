@@ -1,4 +1,3 @@
-local render = import("goluwa/render/render.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local assets = import("goluwa/assets.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
@@ -230,9 +229,7 @@ return {
 		scale = get_scale,
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		ray_generation = RAY_QUERY and
-			render.GetDevice().ray_reorder and
-			scene_reflection.IsReordered() and
-			scene_reflection.GetRayGeneration() or
+			scene_reflection.GetRayGeneration(scene_reflection.IsReordered()) or
 			nil,
 		storage_images = {
 			{

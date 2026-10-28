@@ -130,7 +130,9 @@ function scene_reflection.GetDeclarationGLSL(bindings, shared)
 		)
 end
 
-function scene_reflection.GetRayGeneration()
+function scene_reflection.GetRayGeneration(reordered)
+	if not (reordered and ray_reorder.IsSupported()) then return nil end
+
 	return ray_reorder.GetRayGeneration{
 		declarations = [[
 			#define SCENE_REFLECTION_SER
@@ -329,6 +331,26 @@ function scene_reflection.GetGLSL(block_name, shared)
 			return true;
 		}
 
+		bool trace_scene_hit(vec3 origin, vec3 dir, float t_min, float t_max, out float t, out uint instance, out uint primitive, out vec2 barycentrics) {
+			#ifdef SCENE_REFLECTION_SER
+			SER_hitObject hit_object;
+			SER_hitObjectTraceRay(hit_object, ddgi_scene, SCENE_REFLECTION_FLAGS, SCENE_REFLECTION_MASK, 0, 0, 0, origin, t_min, dir, t_max, 0);
+
+			SER_reorderThread(hit_object);
+
+			if (!SER_hitObjectIsHit(hit_object)) return false;
+
+			t = SER_hitObjectGetRayTMax(hit_object);
+			instance = uint(SER_hitObjectGetInstanceCustomIndex(hit_object));
+			primitive = uint(SER_hitObjectGetPrimitiveIndex(hit_object));
+			SER_hitObjectGetAttributes(hit_object, 1);
+			barycentrics = scene_reflection_attributes;
+			return true;
+			#else
+			return trace_scene_interval(origin, dir, t_min, t_max, t, instance, primitive, barycentrics);
+			#endif
+		}
+
 		vec3 shade_scene_reflection_hit(vec3 origin, vec3 dir, float roughness, float t, uint hit_instance, uint hit_primitive, vec2 hit_barycentrics);
 
 		vec3 trace_scene_reflection_hit(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
@@ -338,26 +360,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 			uint hit_primitive;
 			vec2 hit_barycentrics;
 
-			#ifdef SCENE_REFLECTION_SER
-			SER_hitObject hit_object;
-			SER_hitObjectTraceRay(hit_object, ddgi_scene, SCENE_REFLECTION_FLAGS, SCENE_REFLECTION_MASK, 0, 0, 0, origin, 0.0, dir, max_distance, 0);
-
-			SER_reorderThread(hit_object);
-
-			if (!SER_hitObjectIsHit(hit_object)) {
+			if (!trace_scene_hit(origin, dir, 0.0, max_distance, t, hit_instance, hit_primitive, hit_barycentrics)) {
 				return sample_environment_specular(]] .. block_name .. [[.env_tex, dir, N, roughness);
 			}
-
-			t = SER_hitObjectGetRayTMax(hit_object);
-			hit_instance = uint(SER_hitObjectGetInstanceCustomIndex(hit_object));
-			hit_primitive = uint(SER_hitObjectGetPrimitiveIndex(hit_object));
-			SER_hitObjectGetAttributes(hit_object, 1);
-			hit_barycentrics = scene_reflection_attributes;
-			#else
-			if (!trace_scene_interval(origin, dir, 0.0, max_distance, t, hit_instance, hit_primitive, hit_barycentrics)) {
-				return sample_environment_specular(]] .. block_name .. [[.env_tex, dir, N, roughness);
-			}
-			#endif
 
 			hit_t = t;
 			return shade_scene_reflection_hit(origin, dir, roughness, t, hit_instance, hit_primitive, hit_barycentrics);
