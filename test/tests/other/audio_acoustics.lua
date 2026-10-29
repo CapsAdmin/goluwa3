@@ -233,6 +233,78 @@ T.Test("audio reverb bus decays at its T60 with unit energy", function()
 	end
 end)
 
+local function reverb_band_t20(t60s)
+	local reverb = dsp.CreateReverb(FS)
+	local frames = FS * 5
+	local input = ffi.new("float[?]", frames)
+	local out = ffi.new("float[?]", frames * 2)
+	input[500] = 1
+
+	for i = 0, frames - 1, 512 do
+		dsp.ProcessReverb(
+			reverb,
+			input + i,
+			out + i * 2,
+			math.min(512, frames - i),
+			FS,
+			t60s[1],
+			t60s[2],
+			t60s[3],
+			0.03
+		)
+	end
+
+	local result = {}
+
+	for band = 1, 3 do
+		local w0 = 2 * math.pi * dsp.BAND_CENTERS[band] / FS
+		local alpha = math.sin(w0) / 2.8
+		local a0 = 1 + alpha
+		local b0, b2, a1, a2 = alpha / a0, -alpha / a0, -2 * math.cos(w0) / a0, (1 - alpha) / a0
+		local x1, x2, y1, y2 = 0, 0, 0, 0
+		local energy = ffi.new("double[?]", frames + 1)
+
+		for i = 0, frames - 1 do
+			local x = out[i * 2]
+			local y = b0 * x + b2 * x2 - a1 * y1 - a2 * y2
+			x2, x1, y2, y1 = x1, x, y1, y
+			energy[i] = y * y
+		end
+
+		for i = frames - 1, 0, -1 do
+			energy[i] = energy[i] + energy[i + 1]
+		end
+
+		local from, to
+
+		for i = 0, frames - 1 do
+			local level = 10 * math.log10(energy[i] / energy[0])
+
+			if not from and level <= -5 then from = i end
+
+			if level <= -25 then
+				to = i
+
+				break
+			end
+		end
+
+		result[band] = (to - from) / FS * 3
+	end
+
+	return result
+end
+
+T.Test("audio reverb bus decays at each band's own T60", function()
+	for _, t60s in ipairs{{2.77, 2.68, 1.51}, {1.6, 1.4, 0.8}} do
+		local measured = reverb_band_t20(t60s)
+
+		for band = 1, 3 do
+			T(math.abs(measured[band] - t60s[band]) / t60s[band])["<="](0.15)
+		end
+	end
+end)
+
 local function box_tracer(min, max, absorption, budget)
 	local tracer = acoustics_cpu.New(budget)
 	local a = {absorption, absorption, absorption}

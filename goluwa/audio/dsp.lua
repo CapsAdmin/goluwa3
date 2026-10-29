@@ -88,8 +88,75 @@ do
 	end
 end
 
-function dsp.BandGainBound(low, mid, high)
-	return math.abs(high) + math.abs(mid - high) + math.abs(low - mid)
+do
+	local POINTS = 48
+	local curves = {}
+
+	local function add_point(curve, k, frequency, sample_rate)
+		local w = 2 * math.pi * frequency / sample_rate
+
+		for _, pole in ipairs{
+			{dsp.LOW_CROSSOVER, "low_re", "low_im"},
+			{dsp.HIGH_CROSSOVER, "high_re", "high_im"},
+		} do
+			local c = dsp.OnePoleCoefficient(pole[1], sample_rate)
+			local dr, di = 1 - (1 - c) * math.cos(w), (1 - c) * math.sin(w)
+			local d2 = dr * dr + di * di
+			local re, im = c * dr / d2, -c * di / d2
+			curve[pole[2]][k], curve[pole[3]][k] = re * re - im * im, 2 * re * im
+		end
+	end
+
+	local function get_curve(sample_rate)
+		local curve = curves[sample_rate]
+
+		if curve then return curve end
+
+		curve = {low_re = {}, low_im = {}, high_re = {}, high_im = {}}
+		local centers = {low_re = {}, low_im = {}, high_re = {}, high_im = {}}
+
+		for k = 1, POINTS do
+			add_point(curve, k, 20 * (sample_rate / 40) ^ ((k - 1) / (POINTS - 1)), sample_rate)
+		end
+
+		for band = 1, 3 do
+			add_point(centers, band, dsp.BAND_CENTERS[band], sample_rate)
+		end
+
+		curve.centers = centers
+		curves[sample_rate] = curve
+		return curve
+	end
+
+	local function magnitude(low, mid, high, curve, k)
+		local re = high + (mid - high) * curve.high_re[k] + (low - mid) * curve.low_re[k]
+		local im = (mid - high) * curve.high_im[k] + (low - mid) * curve.low_im[k]
+		return math.sqrt(re * re + im * im)
+	end
+
+	function dsp.FitBandGains(low, mid, high, sample_rate)
+		local centers = get_curve(sample_rate).centers
+		local gl, gm, gh = dsp.WarpBandGains(low, mid, high)
+
+		for _ = 1, 6 do
+			gl = gl * low / magnitude(gl, gm, gh, centers, 1)
+			gm = gm * mid / magnitude(gl, gm, gh, centers, 2)
+			gh = gh * high / magnitude(gl, gm, gh, centers, 3)
+		end
+
+		return gl, gm, gh
+	end
+
+	function dsp.BandGainPeak(low, mid, high, sample_rate)
+		local curve = get_curve(sample_rate)
+		local peak = 0
+
+		for k = 1, POINTS do
+			peak = math.max(peak, magnitude(low, mid, high, curve, k))
+		end
+
+		return peak
+	end
 end
 
 function dsp.MeasureLoudness(data, frames, channels, sample_rate)
@@ -215,6 +282,8 @@ do
 	local sign_input = ffi.new("double[16]", SIGN_INPUT)
 	local lines_out = ffi.new("double[16]")
 	local MIN_T60 = 0.05
+	-- the shallow band filters ripple between band centers; let the ripple ring this much longer than the longest band before shortening all bands
+	local RIPPLE_T60 = 1.5
 
 	function dsp.CreateReverb(sample_rate)
 		local reverb = reverb_t()
@@ -242,24 +311,21 @@ do
 
 		for i = 0, LINES - 1 do
 			local seconds = -3 * reverb.length[i] / sample_rate
-			local low, mid, high = dsp.WarpBandGains(
-				10 ^ (seconds / reverb.t60[0]),
-				10 ^ (seconds / reverb.t60[1]),
-				10 ^ (seconds / reverb.t60[2])
-			)
-			local bound = dsp.BandGainBound(low, mid, high)
-			local peak = math.max(low, mid, high)
-
-			if bound > peak then
-				low = low * peak / bound
-				mid = mid * peak / bound
-				high = high * peak / bound
-			end
-
-			reverb.gain_low[i] = low
-			reverb.gain_mid[i] = mid
-			reverb.gain_high[i] = high
-			energy = energy + mid * mid
+			local target_low = 10 ^ (seconds / reverb.t60[0])
+			local target_mid = 10 ^ (seconds / reverb.t60[1])
+			local target_high = 10 ^ (seconds / reverb.t60[2])
+			local low, mid, high = dsp.FitBandGains(target_low, target_mid, target_high, sample_rate)
+			local response = dsp.BandGainPeak(low, mid, high, sample_rate)
+			local peak = 10 ^ (
+					seconds / (
+						math.max(reverb.t60[0], reverb.t60[1], reverb.t60[2]) * RIPPLE_T60
+					)
+				)
+			local shrink = response > peak and peak / response or 1
+			reverb.gain_low[i] = low * shrink
+			reverb.gain_mid[i] = mid * shrink
+			reverb.gain_high[i] = high * shrink
+			energy = energy + (target_mid * shrink) ^ 2
 		end
 
 		energy = energy / LINES
