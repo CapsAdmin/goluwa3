@@ -20,7 +20,6 @@ local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local surfel_gi = import("goluwa/render3d/surfel_gi.lua")
-local AIR_END_ALTITUDE = 50
 local FROXEL_HISTORY = 0.9
 local LOCAL_LIGHT_LIMIT = 8
 local BINDING_OUTPUT = 0
@@ -919,7 +918,7 @@ local composite_pass = {
 					vec3 front_transmittance = full_transmittance;
 					vec3 front_scattered = full_scattered;
 					vec3 behind_scattered = vec3(0.0);
-					bool air_past_volume = edge > froxel_end && length(origin + sky_dir * froxel_end) - PLANET_RADIUS < ]] .. string.format("%.1f", AIR_END_ALTITUDE) .. [[;
+					bool air_past_volume = edge > froxel_end;
 					fog_cloud_shadows = false;
 
 					if (cloud_km <= froxel_end) {
