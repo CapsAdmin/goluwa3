@@ -256,11 +256,10 @@ do
 	end
 
 	dsp.REVERB_MEAN_DELAY = mean_delay / 44100
-	-- line delays sit on whole samples at these scales, interpolated reads would dull the tail every pass
 	local SCALE_STEPS = {1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6}
-	-- how fast a scale change may move a line's read position (pitch bend of the tail), per sample
-	local MAX_DRIFT = 0.02
 	local SCALE_HYSTERESIS = 0.05
+	local SIZE_FADE_SECONDS = 0.05
+	local PREDELAY_GLIDE = 0.02
 	local DIFFUSERS = {142, 107, 379, 277}
 	-- the lines reach their decay envelope about one mean line delay (plus the diffuser spread) after the predelay; the diffused input fills that gap
 	local DIFFUSER_DELAY = 0.004
@@ -281,6 +280,9 @@ do
 			double predelay;
 			double scale, diffusion;
 			double delay[$];
+			double next_scale;
+			double next_delay[$];
+			double fade;
 			double output_gain;
 			double coefficient_low, coefficient_high;
 			double coefficient_coherent;
@@ -288,6 +290,7 @@ do
 			uint32_t write;
 			bool initialized;
 			bool sleeping;
+			bool fading;
 			uint32_t quiet_frames;
 		}
 	]],
@@ -295,6 +298,7 @@ do
 		LINE_SIZE,
 		PREDELAY_SIZE,
 		DIFFUSER_SIZE,
+		LINES,
 		LINES,
 		LINES,
 		LINES,
@@ -312,8 +316,6 @@ do
 	local sign_right = ffi.new("double[16]", SIGN_RIGHT)
 	local sign_input = ffi.new("double[16]", SIGN_INPUT)
 	local lines_out = ffi.new("double[16]")
-	local line_delay = ffi.new("double[16]")
-	local line_step = ffi.new("double[16]")
 	local MIN_T60 = 0.05
 	-- the shallow band filters ripple between band centers; let the ripple ring this much longer than the longest band before shortening all bands
 	local RIPPLE_T60 = 1.5
@@ -338,7 +340,7 @@ do
 	end
 
 	function dsp.GetReverbSettleSamples(reverb)
-		return reverb.delay[LINES - 1] + PREDELAY_SIZE
+		return math.max(reverb.delay[LINES - 1], reverb.next_delay[LINES - 1]) + PREDELAY_SIZE
 	end
 
 	local function update_gains(reverb, sample_rate)
@@ -426,27 +428,30 @@ do
 			reverb.diffusion = math.lerp(k, reverb.diffusion, diffusion)
 
 			if
+				not reverb.fading and
 				math.abs(math.log(scale / nearest)) + SCALE_HYSTERESIS < math.abs(math.log(scale / reverb.scale))
 			then
-				reverb.scale = nearest
+				reverb.fading = true
+				reverb.fade = 0
+				reverb.next_scale = nearest
+
+				for j = 0, LINES - 1 do
+					reverb.next_delay[j] = math.floor(reverb.length[j] * nearest + 0.5)
+				end
 			end
-		end
-
-		local drift = MAX_DRIFT * frames
-
-		for j = 0, LINES - 1 do
-			local current = reverb.delay[j]
-			local next = current + math.clamp(math.floor(reverb.length[j] * reverb.scale + 0.5) - current, -drift, drift)
-			line_delay[j] = current
-			line_step[j] = (next - current) / frames
-			reverb.delay[j] = next
 		end
 
 		update_gains(reverb, sample_rate)
 		local predelay_start = reverb.predelay
-		local predelay_step = (predelay - predelay_start) / frames
-		predelay_step = math.clamp(predelay_step, -0.5, 0.5)
-		reverb.predelay = predelay_start + predelay_step * frames
+		local predelay_jump = math.abs(predelay - predelay_start) > PREDELAY_GLIDE * frames
+		local predelay_step = predelay_jump and 0 or (predelay - predelay_start) / frames
+		reverb.predelay = predelay
+		local delay = reverb.delay
+		local next_delay = reverb.next_delay
+		local fading = reverb.fading
+		local fade = reverb.fade
+		local fade_step = 1 / (SIZE_FADE_SECONDS * sample_rate)
+		local keep, take = 1, 0
 		local ca = reverb.coefficient_low
 		local cb = reverb.coefficient_high
 		local output_gain = reverb.output_gain
@@ -471,6 +476,17 @@ do
 		for i = 0, frames - 1 do
 			predelay_line[bit.band(write, PREDELAY_MASK)] = input[i]
 			local x = dsp.ReadLinear(predelay_line, PREDELAY_MASK, write - predelay_start - predelay_step * (i + 1))
+
+			if predelay_jump then
+				local a = (i + 1) / frames
+				x = x * (1 - a) + dsp.ReadLinear(predelay_line, PREDELAY_MASK, write - predelay) * a
+			end
+
+			if fading then
+				local a = math.min(fade + fade_step * (i + 1), 1) * math.pi * 0.5
+				keep, take = math.cos(a), math.sin(a)
+			end
+
 			local early
 
 			for d = 0, 3 do
@@ -489,7 +505,13 @@ do
 			local right = 0
 
 			for j = 0, LINES - 1 do
-				local y = dsp.ReadLinear(lines[j], LINE_MASK, write - line_delay[j] - line_step[j] * (i + 1))
+				local line = lines[j]
+				local y = line[bit.band(write - delay[j], LINE_MASK)]
+
+				if fading then
+					y = y * keep + line[bit.band(write - next_delay[j], LINE_MASK)] * take
+				end
+
 				local la = low_a[j] + ca * (y - low_a[j])
 				local lb = low_b[j] + ca * (la - low_b[j])
 				local ha = high_a[j] + cb * (y - high_a[j])
@@ -543,6 +565,40 @@ do
 
 		coherent[0], coherent[1], coherent[2], coherent[3] = ma, mb, sa, sb
 		reverb.write = write
+
+		if fading then
+			reverb.fade = fade + fade_step * frames
+
+			if reverb.fade >= 1 then
+				local previous_gain = output_gain
+				reverb.fading = false
+				reverb.scale = reverb.next_scale
+
+				for j = 0, LINES - 1 do
+					delay[j] = next_delay[j]
+				end
+
+				update_gains(reverb, sample_rate)
+				local next_onset = dsp.REVERB_MEAN_DELAY * reverb.scale + DIFFUSER_DELAY * reverb.diffusion
+				local carry = previous_gain / (
+						reverb.output_gain * math.exp(-6.91 * next_onset / reverb.t60[1])
+					)
+
+				for j = 0, LINES - 1 do
+					local line = lines[j]
+
+					for k = 0, LINE_SIZE - 1 do
+						line[k] = line[k] * carry
+					end
+
+					low_a[j] = low_a[j] * carry
+					low_b[j] = low_b[j] * carry
+					high_a[j] = high_a[j] * carry
+					high_b[j] = high_b[j] * carry
+				end
+			end
+		end
+
 		reverb.sleeping = reverb.quiet_frames > dsp.GetReverbSettleSamples(reverb) and
 			tail_energy * output_gain * output_gain < 1e-14 * frames
 	end

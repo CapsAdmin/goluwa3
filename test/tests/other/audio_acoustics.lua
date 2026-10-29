@@ -292,6 +292,68 @@ T.Test("audio reflections reach each ear at their own time with the ear filters 
 	pvars.SetSession("audio_pinna", enabled)
 end)
 
+T.Test("audio reverb keeps its pitch and level when the room size changes", function()
+	local frames = FS * 2
+
+	local function render(fill, scale_from, scale_to, change)
+		local reverb = dsp.CreateReverb(FS)
+		local input = ffi.new("float[?]", frames)
+		local out = ffi.new("float[?]", frames * 2)
+
+		for i = 0, frames - 1 do
+			input[i] = fill(i)
+		end
+
+		for i = 0, frames - 1, 512 do
+			dsp.ProcessReverb(
+				reverb,
+				input + i,
+				out + i * 2,
+				math.min(512, frames - i),
+				FS,
+				2.5,
+				2.5,
+				2.5,
+				0.02,
+				i >= change * FS and scale_to or scale_from,
+				1
+			)
+		end
+
+		return out
+	end
+
+	local tone = render(
+		function(i)
+			return i < FS / 2 and math.sin(2 * math.pi * 1000 * i / FS) * 0.5 or 0
+		end,
+		1,
+		3,
+		0.55
+	)
+	T(frequency(tone, 0, math.floor(0.8 * FS), math.floor(1.2 * FS)))["~"](1000, 10)
+	local seed = 5
+
+	local function noise()
+		seed = (seed * 1103515245 + 12345) % 2147483648
+		return (seed / 2147483648 - 0.5) * 0.3
+	end
+
+	local function level(out)
+		local sum = 0
+
+		for i = math.floor(1.05 * FS), math.floor(1.4 * FS) do
+			sum = sum + out[i * 2] ^ 2 + out[i * 2 + 1] ^ 2
+		end
+
+		return sum
+	end
+
+	local changed = level(render(noise, 1, 3, 1))
+	seed = 5
+	T(math.abs(10 * math.log10(changed / level(render(noise, 1, 1, 1)))))["<"](1)
+end)
+
 T.Test("audio reverb is coherent between the ears below a few hundred hertz and not above", function()
 	local reverb = dsp.CreateReverb(FS)
 	local frames = FS * 2
