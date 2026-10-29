@@ -847,6 +847,7 @@ do
 			self:SetAcousticAbsorption(Vec3(absorption[1], absorption[2], absorption[3]))
 		end
 
+		self:SetSurfaceType(self.model_surfaceprop or class or "default")
 		load_textures(self, vmt, ctx)
 
 		if shader == "eyes" then
@@ -1187,6 +1188,7 @@ function vmt_material.SetModelSurfaceProperty(material, name)
 	if not name or material.model_surfaceprop then return end
 
 	material.model_surfaceprop = name:lower()
+	material:SetSurfaceType(material.model_surfaceprop)
 
 	if material.vmt and not material.vmt_has_own_class then
 		vmt_material.Apply(material, material.vmt)
