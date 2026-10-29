@@ -32,9 +32,10 @@ event.AddListener("DrawHUD", "item_highlight_hud", function()
 				local screen = camera:WorldPositionToScreen(position, w, h)
 
 				if screen then
-					local name = item.Owner.weapon.DisplayName
+					local weapon = item.Owner.weapon
+					local name = weapon:GetTitle()
 					local name_w, name_h = render2d.GetTextSize(name, nil, NAME_SIZE)
-					local color = item.Color
+					local color = item:GetHighlightColor()
 					render2d.SetTexture(nil)
 					render2d.SetColor(0, 0, 0, 0.6 * alpha)
 					render2d.DrawRoundedRect(screen.x - name_w / 2 - 40, screen.y - 4, name_w + 80, name_h + 8, 4)

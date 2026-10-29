@@ -7,6 +7,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local effect_exposure = import("lua/jrpg/effect_exposure.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local visual_bounds = import("lua/visual_bounds.lua")
+local weapon_stats = import("lua/jrpg/weapon_stats.lua")
 local META = objects.CreateTemplate("item_highlight")
 META:StartStorable()
 META:GetSet("Color", Color(1, 0.75, 0.2, 1))
@@ -29,9 +30,17 @@ function META:Initialize()
 
 	self:AddGlobalEvent("Update")
 	self.phase = math.random() * 100
+end
+
+function META:GetHighlightColor()
+	return weapon_stats.GetColor(self.Owner.weapon.Rarity) or self.Color
+end
+
+function META:Build()
+	self.rarity = self.Owner.weapon.Rarity
 	self.beams = {}
 	self.offsets = {}
-	local color = self.Color
+	local color = self:GetHighlightColor()
 
 	for i = 1, RIBBONS do
 		self.beams[i] = Beam.New{
@@ -103,7 +112,7 @@ function META:SetOverlayVisible(visible)
 
 	if not visible then return end
 
-	local color = self.Color
+	local color = self:GetHighlightColor()
 	local config = {
 		ColorA = color,
 		ColorB = Color(color.r * 0.4 + 0.6, color.g * 0.4 + 0.6, color.b * 0.4 + 0.6, 1),
@@ -136,6 +145,10 @@ function META:GetAnchor()
 end
 
 function META:OnUpdate(dt)
+	if self.beams and self.rarity ~= self.Owner.weapon.Rarity then self:Destroy() end
+
+	if not self.beams then self:Build() end
+
 	local dropped = self:IsShown() and self:GetAnchor() ~= nil
 
 	if self.overlay_visible ~= dropped then self:SetOverlayVisible(dropped) end
@@ -195,8 +208,10 @@ function META:OnUpdate(dt)
 end
 
 function META:OnRemove()
-	if not self.beams then return end
+	if self.beams then self:Destroy() end
+end
 
+function META:Destroy()
 	self:SetOverlayVisible(false)
 
 	for _, beam in ipairs(self.beams) do
@@ -208,6 +223,7 @@ function META:OnRemove()
 	end
 
 	self.emitter:Remove()
+	self.beams = nil
 end
 
 return META:Register()
