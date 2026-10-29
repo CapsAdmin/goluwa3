@@ -199,3 +199,35 @@ T.Test("audio compatibility API", function()
 	T(released_source:Tell("samples"))["=="](3)
 	T(released_source.slot)["=="](nil)
 end)
+
+T.Test("a normalized sound plays at the reference loudness", function()
+	local dsp = import("goluwa/audio/dsp.lua")
+	local sample_rate = 48000
+	local data = ffi.new("float[?]", sample_rate * 2)
+
+	for i = 0, sample_rate - 1 do
+		data[i * 2] = math.sin(2 * math.pi * 997 * i / sample_rate)
+		data[i * 2 + 1] = 0
+	end
+
+	assert_close(dsp.MeasureLoudness(data, sample_rate, 2, sample_rate), -3.01, 0.05)
+
+	for i = 0, sample_rate - 1 do
+		data[i * 2] = data[i * 2] * 0.1
+	end
+
+	local source = audio.CreateSource{data = data, samples = sample_rate, channels = 2, sample_rate = sample_rate}
+	source:SetVolume(0.5)
+	assert_close(source:GetMixVolume(), 0.5)
+	source:SetNormalized(true)
+	assert_close(source:GetLoudness(), -23.01, 0.05)
+	assert_close(
+		20 * math.log10(source:GetMixVolume() / 0.5),
+		audio.reference_loudness + 23.01,
+		0.05
+	)
+	T(source:Play())["~="](nil)
+	sync_audio_state()
+	assert_close(audio.state.slots[source.slot].volume, source:GetMixVolume())
+	audio.StopAll()
+end)

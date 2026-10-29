@@ -526,7 +526,7 @@ function META:SelectSources(budget)
 			local distance = (sound:GetPosition() - audio.listener_position):GetLength()
 			list[#list + 1] = {
 				sound = sound,
-				importance = sound:GetVolume() * sound:GetReferenceDistance() / math.max(distance, sound:GetReferenceDistance()),
+				importance = sound:GetMixVolume() * sound:GetReferenceDistance() / math.max(distance, sound:GetReferenceDistance()),
 			}
 		end
 	end

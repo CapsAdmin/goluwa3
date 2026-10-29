@@ -12,6 +12,7 @@ audio.listener_up = Vec3(0, 1, 0)
 audio.doppler_factor = 1
 audio.speed_of_sound = 343.3
 audio.ear_distance = 0.18
+audio.reference_loudness = -18
 audio.backend_mode = "none"
 audio.initialized = false
 audio.DISTANCE_MODE_IDS = {

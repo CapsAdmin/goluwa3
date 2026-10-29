@@ -92,6 +92,60 @@ function dsp.BandGainBound(low, mid, high)
 	return math.abs(high) + math.abs(mid - high) + math.abs(low - mid)
 end
 
+function dsp.MeasureLoudness(data, frames, channels, sample_rate)
+	local k = math.tan(math.pi * 1681.974450955533 / sample_rate)
+	local q = 0.7071752369554196
+	local vh = 10 ^ (3.999843853973347 / 20)
+	local vb = vh ^ 0.4996667741545416
+	local a0 = 1 + k / q + k * k
+	local sb0 = (vh + vb * k / q + k * k) / a0
+	local sb1 = 2 * (k * k - vh) / a0
+	local sb2 = (vh - vb * k / q + k * k) / a0
+	local sa1 = 2 * (k * k - 1) / a0
+	local sa2 = (1 - k / q + k * k) / a0
+	k = math.tan(math.pi * 38.13547087602444 / sample_rate)
+	q = 0.5003270373238773
+	a0 = 1 + k / q + k * k
+	local ha1 = 2 * (k * k - 1) / a0
+	local ha2 = (1 - k / q + k * k) / a0
+	local block = math.max(math.floor(sample_rate * 0.1), 1)
+	local block_count = math.ceil(frames / block)
+	local energy = {}
+
+	for i = 1, block_count + 3 do
+		energy[i] = 0
+	end
+
+	for channel = 0, channels - 1 do
+		local x1, x2, y1, y2, z1, z2 = 0, 0, 0, 0, 0, 0
+		local index, filled, sum = 1, 0, 0
+
+		for i = 0, frames - 1 do
+			local x = data[i * channels + channel]
+			local y = sb0 * x + sb1 * x1 + sb2 * x2 - sa1 * y1 - sa2 * y2
+			local z = y - 2 * y1 + y2 - ha1 * z1 - ha2 * z2
+			x2, x1, y2, y1, z2, z1 = x1, x, y1, y, z1, z
+			sum = sum + z * z
+			filled = filled + 1
+
+			if filled == block then
+				energy[index] = energy[index] + sum
+				index, filled, sum = index + 1, 0, 0
+			end
+		end
+
+		energy[index] = energy[index] + sum
+	end
+
+	local loudest = 0
+
+	for i = 1, math.max(block_count - 3, 1) do
+		loudest = math.max(loudest, energy[i] + energy[i + 1] + energy[i + 2] + energy[i + 3])
+	end
+
+	return -0.691 + 10 * math.log10(math.max(loudest / (block * 4), 1e-12))
+end
+
 do
 	local LINES = 16
 	local LINE_SIZE = 4096

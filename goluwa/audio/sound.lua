@@ -3,10 +3,19 @@ local objects = import("goluwa/objects/objects.lua")
 local codec = import("goluwa/codec.lua")
 local resource = import("goluwa/resource.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local dsp = import("goluwa/audio/dsp.lua")
 local module = {}
+local MAX_LOUDNESS_GAIN = 10 ^ (30 / 20)
 
 function module.Attach(audio)
 	local clamp = math.clamp
+
+	local function update_loudness_gain(sound)
+		sound.LoudnessGain = sound:IsNormalized() and
+			sound:GetBuffer() and
+			math.min(10 ^ ((audio.reference_loudness - sound:GetLoudness()) / 20), MAX_LOUDNESS_GAIN) or
+			1
+	end
 
 	local function configure_sound_buffer(sound, data, buffer_length, channels, sample_rate)
 		if not data then return false end
@@ -16,6 +25,8 @@ function module.Attach(audio)
 		sound:SetChannels(tonumber(channels) or 2)
 		sound:SetSampleRate(tonumber(sample_rate) or 44100)
 		sound.buffer_ref = data
+		sound.Loudness = nil
+		update_loudness_gain(sound)
 		sound:MakeReady()
 		return true
 	end
@@ -73,7 +84,7 @@ function module.Attach(audio)
 		if sound.slot == nil then return end
 
 		local state = audio.state.slots[sound.slot]
-		state.volume = sound:GetVolume()
+		state.volume = sound:GetMixVolume()
 		state.pitch = sound:GetPitch()
 		state.looping = sound:IsLooping()
 		state.paused = sound:IsPaused()
@@ -161,7 +172,7 @@ function module.Attach(audio)
 		if not info.active then return info end
 
 		local paths = audio.ComputePaths(sound)
-		local source_gain = sound:GetVolume() * audio.state.master_volume * paths.attenuation * paths.cone_gain
+		local source_gain = sound:GetMixVolume() * audio.state.master_volume * paths.attenuation * paths.cone_gain
 		local left_gain = paths.ear_gain[2] / math.max(paths.attenuation * paths.cone_gain, 0.000001)
 		local right_gain = paths.ear_gain[5] / math.max(paths.attenuation * paths.cone_gain, 0.000001)
 		local mix = {
@@ -205,6 +216,30 @@ function module.Attach(audio)
 	Sound:GetSet("Position", Vec3(0, 0, 0))
 	Sound:GetSet("BandGains", Vec3(1, 1, 1))
 	Sound:IsSet("Spatial", true)
+	Sound:IsSet("Normalized", false)
+	Sound.LoudnessGain = 1
+
+	function Sound:SetNormalized(normalized)
+		self.Normalized = normalized
+		update_loudness_gain(self)
+	end
+
+	function Sound:GetLoudness()
+		if not self.Loudness then
+			self.Loudness = dsp.MeasureLoudness(
+				self:GetBuffer(),
+				self:GetBufferLength(),
+				self:GetChannels(),
+				self:GetSampleRate()
+			)
+		end
+
+		return self.Loudness
+	end
+
+	function Sound:GetMixVolume()
+		return self:GetVolume() * self.LoudnessGain
+	end
 
 	function Sound:GetDuration()
 		local buffer_len = self:GetBufferLength()
@@ -256,7 +291,7 @@ function module.Attach(audio)
 		state.buffer = ffi.cast("void*", self:GetBuffer())
 		state.buffer_len = self:GetBufferLength()
 		state.playback_pos = self:GetPlaybackPosition()
-		state.volume = self:GetVolume()
+		state.volume = self:GetMixVolume()
 		state.pitch = self:GetPitch()
 		state.sample_rate = self:GetSampleRate()
 		state.channels = self:GetChannels()
@@ -366,7 +401,7 @@ function module.Attach(audio)
 		self:SetVolume(gain)
 
 		if self.slot ~= nil then
-			audio.state.slots[self.slot].volume = self:GetVolume()
+			audio.state.slots[self.slot].volume = self:GetMixVolume()
 		end
 	end
 
