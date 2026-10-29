@@ -2,6 +2,7 @@ local list = import("goluwa/list.lua")
 local system = import("goluwa/system.lua")
 local particles = import("goluwa/render3d/particles.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local gpu = {}
 gpu.MAX_EMITTERS = 128
 gpu.POOL_SIZE = 65536
@@ -160,6 +161,8 @@ gpu.system = particles.Register{
 				{"friction", "float"},
 				{"emissive", "float"},
 				{"exposure_compensation", "float"},
+				{"fizzle", "float"},
+				{"fizzle_start", "float"},
 				{"sparkle", "float"},
 				{"saturation_jitter", "float"},
 				{"shape", "int"},
@@ -218,6 +221,8 @@ gpu.system = particles.Register{
 			entry.friction = emitter.Friction
 			entry.emissive = emitter.Emissive
 			entry.exposure_compensation = emitter.ExposureCompensation
+			entry.fizzle = emitter.Fizzle
+			entry.fizzle_start = emitter.FizzleStart
 			entry.sparkle = emitter.Sparkle
 			entry.saturation_jitter = emitter.SaturationJitter
 			entry.shape = SHAPES[emitter.Shape]
@@ -237,7 +242,7 @@ gpu.system = particles.Register{
 		block.emitter_count = slots
 		return block
 	end,
-	declarations = "#define GPU_EMITTER_COUNT " .. gpu.MAX_EMITTERS .. "u\n" .. [[
+	declarations = glsl_common.GetNoiseGLSL() .. "#define GPU_EMITTER_COUNT " .. gpu.MAX_EMITTERS .. "u\n" .. [[
 
 		uint find_emitter(uint index) {
 			for (int i = 0; i < emitters_data.emitter_count; i++) {
@@ -327,6 +332,13 @@ gpu.system = particles.Register{
 		}
 
 		p.velocity.y -= 9.81 * e.gravity * dt;
+
+		if (e.fizzle > 0.0 && t > e.fizzle_start) {
+			vec3 q = p.position * 60.0 + vec3(float(e.uid) * 3.1, p.age * 6.0, float(index) * 0.37);
+			vec3 scatter = vec3(value_noise3(q), value_noise3(q + 17.3), value_noise3(q + 41.7)) - 0.5;
+			p.velocity += normalize(scatter + 1e-4) * e.fizzle * smoothstep(e.fizzle_start, 1.0, t) * dt;
+		}
+
 		p.velocity *= exp(-e.drag * dt);
 		p.position += p.velocity * dt;
 	]],

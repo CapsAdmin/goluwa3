@@ -55,6 +55,8 @@ particle_emitter.gpu = {
 	{"Lit", true, boolean, "Look"},
 	{"Emissive", 0, ranged(0, 1e7), "Look"},
 	{"ExposureCompensation", 0, ranged(0, 2), "Look"},
+	{"Fizzle", 0, ranged(0, 50), "Motion"},
+	{"FizzleStart", 0.6, ranged(0, 1), "Motion"},
 	{"Sparkle", 0, ranged(0, 1), "Look"},
 	{"SaturationJitter", 0, ranged(0, 1), "Look"},
 	{"Collision", "none", particle_emitter.GPU_COLLISIONS, "Collision"},
