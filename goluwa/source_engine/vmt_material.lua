@@ -8,6 +8,7 @@ local Vec4 = import("goluwa/structs/vec4.lua")
 local Material = import("goluwa/render3d/material.lua")
 local material_proxies = import("goluwa/source_engine/material_proxies.lua")
 local vmt_loader = import("goluwa/source_engine/vmt.lua")
+local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local vmt_material = {}
 Material.vmt_materials = Material.vmt_materials or table.weak("k")
 local live_materials = Material.vmt_materials
@@ -278,26 +279,30 @@ local FLAMMABILITY = {
 	water = 0,
 }
 local ACOUSTIC_ABSORPTION = {
-	concrete = {0.01, 0.02, 0.02},
+	concrete = {0.02, 0.03, 0.04},
 	brick = {0.03, 0.04, 0.07},
-	plaster = {0.10, 0.04, 0.05},
+	plaster = {0.10, 0.05, 0.08},
 	tile = {0.01, 0.01, 0.02},
-	wood = {0.15, 0.10, 0.07},
-	dirt = {0.15, 0.40, 0.55},
-	grass = {0.11, 0.40, 0.60},
-	sand = {0.15, 0.40, 0.50},
+	ceiling_tile = {0.35, 0.70, 0.70},
+	wood = {0.12, 0.08, 0.08},
+	wood_hollow = {0.22, 0.10, 0.10},
+	dirt = {0.20, 0.50, 0.60},
+	grass = {0.20, 0.60, 0.80},
+	sand = {0.25, 0.45, 0.60},
 	snow = {0.45, 0.85, 0.90},
 	rock = {0.02, 0.03, 0.05},
 	stone = {0.02, 0.03, 0.04},
 	asphalt = {0.03, 0.04, 0.06},
-	carpet = {0.05, 0.35, 0.65},
+	carpet = {0.06, 0.45, 0.65},
 	gravel = {0.25, 0.60, 0.70},
 	paper = {0.10, 0.20, 0.30},
 	cardboard = {0.15, 0.25, 0.30},
 	plastic = {0.03, 0.05, 0.07},
 	rubber = {0.05, 0.08, 0.10},
 	metal = {0.02, 0.02, 0.03},
-	glass = {0.18, 0.04, 0.02},
+	grate = {0.40, 0.50, 0.50},
+	chainlink = {0.75, 0.85, 0.85},
+	glass = {0.08, 0.03, 0.02},
 	water = {0.01, 0.01, 0.02},
 	cloth = {0.15, 0.55, 0.70},
 	upholstery = {0.20, 0.60, 0.70},
@@ -305,6 +310,124 @@ local ACOUSTIC_ABSORPTION = {
 	foliage = {0.10, 0.30, 0.50},
 	tree = {0.10, 0.25, 0.40},
 	flesh = {0.10, 0.30, 0.50},
+}
+local ACOUSTIC_ALIASES = {
+	solidmetal = "metal",
+	metalgrate = "grate",
+	chain = "grate",
+	computer = "plastic",
+	plastic_box = "plastic",
+	plastic_barrel = "plastic",
+	porcelain = "tile",
+	pottery = "tile",
+	ice = "tile",
+	gmod_ice = "tile",
+	wood_box = "wood_hollow",
+	wood_crate = "wood_hollow",
+	wood_panel = "wood_hollow",
+	wood_furniture = "wood_hollow",
+	hay = "mattress",
+	quicksand = "sand",
+	slime = "water",
+	watermelon = "flesh",
+}
+local ACOUSTIC_WORDS = {
+	{"mattress", "mattress"},
+	{"%f[%a]bed%f[%A]", "mattress"},
+	{"couch", "upholstery"},
+	{"sofa", "upholstery"},
+	{"armchair", "upholstery"},
+	{"chairfab", "upholstery"},
+	{"cushion", "upholstery"},
+	{"pillow", "upholstery"},
+	{"upholster", "upholstery"},
+	{"curtain", "cloth"},
+	{"cloth", "cloth"},
+	{"fabric", "cloth"},
+	{"textile", "cloth"},
+	{"towel", "cloth"},
+	{"blanket", "cloth"},
+	{"awning", "cloth"},
+	{"banner", "cloth"},
+	{"%f[%a]tent", "cloth"},
+	{"%f[%a]rope", "cloth"},
+	{"carpet", "carpet"},
+	{"ceiling_?tile", "ceiling_tile"},
+	{"acoustic", "ceiling_tile"},
+	{"chainlink", "chainlink"},
+	{"fence", "chainlink"},
+	{"grate", "grate"},
+	{"glass", "glass"},
+	{"window", "glass"},
+	{"mirror", "glass"},
+	{"wallpaper", "plaster"},
+	{"plaster", "plaster"},
+	{"drywall", "plaster"},
+	{"stucco", "plaster"},
+	{"concrete", "concrete"},
+	{"cement", "concrete"},
+	{"brick", "brick"},
+	{"porcelain", "tile"},
+	{"ceramic", "tile"},
+	{"marble", "tile"},
+	{"tile", "tile"},
+	{"asphalt", "asphalt"},
+	{"%f[%a]road", "asphalt"},
+	{"cobble", "stone"},
+	{"stone", "stone"},
+	{"granite", "rock"},
+	{"rocket", "metal"},
+	{"rock", "rock"},
+	{"cliff", "rock"},
+	{"%f[%a]cave", "rock"},
+	{"metal", "metal"},
+	{"steel", "metal"},
+	{"%f[%a]iron", "metal"},
+	{"chrome", "metal"},
+	{"brass", "metal"},
+	{"copper", "metal"},
+	{"pipe", "metal"},
+	{"%f[%a]vent", "metal"},
+	{"locker", "metal"},
+	{"fridge", "metal"},
+	{"leaf", "foliage"},
+	{"leaves", "foliage"},
+	{"foliage", "foliage"},
+	{"bush", "foliage"},
+	{"shrub", "foliage"},
+	{"fern", "foliage"},
+	{"%f[%a]ivy", "foliage"},
+	{"hedge", "foliage"},
+	{"plant", "foliage"},
+	{"branch", "foliage"},
+	{"cactus", "foliage"},
+	{"flower", "foliage"},
+	{"cattail", "foliage"},
+	{"yucca", "foliage"},
+	{"%f[%a]tree", "tree"},
+	{"%f[%a]pine", "tree"},
+	{"wood", "wood"},
+	{"plank", "wood"},
+	{"pallet", "wood"},
+	{"bamboo", "wood"},
+	{"timber", "wood"},
+	{"trunk", "wood"},
+	{"grass", "grass"},
+	{"dirt", "dirt"},
+	{"%f[%a]mud", "dirt"},
+	{"soil", "dirt"},
+	{"ground", "dirt"},
+	{"sand", "sand"},
+	{"gravel", "gravel"},
+	{"snow", "snow"},
+	{"cardboard", "cardboard"},
+	{"paper", "paper"},
+	{"%f[%a]book", "paper"},
+	{"cork", "paper"},
+	{"plastic", "plastic"},
+	{"rubber", "rubber"},
+	{"%f[%a]tire", "rubber"},
+	{"water", "water"},
 }
 local OVERBRIGHT_SHADERS = {lightmappedgeneric = true, worldvertextransition = true}
 local MAX_ALBEDO = 0.9
@@ -408,6 +531,48 @@ do
 		for _, family in ipairs(FAMILIES) do
 			if name:find(family, 1, true) then return family end
 		end
+	end
+
+	local function acoustic_class_of_name(name)
+		if not name then return nil end
+
+		name = name:lower()
+
+		if ACOUSTIC_ABSORPTION[name] then return name end
+
+		if ACOUSTIC_ALIASES[name] then return ACOUSTIC_ALIASES[name] end
+
+		for _, word in ipairs(ACOUSTIC_WORDS) do
+			if name:find(word[1]) then return word[2] end
+		end
+	end
+
+	local function acoustic_class_of_surfaceprop(prop)
+		if type(prop) == "string" then return acoustic_class_of_name(prop) end
+
+		while type(prop) == "table" do
+			local name = prop.surfaceprop_name:lower()
+			local class = ACOUSTIC_ABSORPTION[name] and name or ACOUSTIC_ALIASES[name]
+
+			if class then return class end
+
+			prop = prop.base
+		end
+	end
+
+	local function get_acoustic_class(self, vmt)
+		return acoustic_class_of_surfaceprop(vmt.surfaceprop) or
+			acoustic_class_of_name(self.vmt_path and file_path.GetFileNameFromPath(self.vmt_path)) or
+			type(vmt.basetexture) == "string" and
+			acoustic_class_of_name(file_path.GetFileNameFromPath(vmt.basetexture))
+			or
+			type(vmt.detail) == "string" and
+			acoustic_class_of_name(file_path.GetFileNameFromPath(vmt.detail))
+			or
+			self.model_surfaceprop and
+			acoustic_class_of_surfaceprop(surface_properties.GetAll()[self.model_surfaceprop] or self.model_surfaceprop)
+			or
+			acoustic_class_of_name(self.vmt_path)
 	end
 
 	local function lobe_roughness(exponent, boost)
@@ -841,7 +1006,7 @@ do
 		local shader = ctx.shader
 		self:SetMetallicMultiplier(0)
 		self:SetFlammability(FLAMMABILITY[class] or FLAMMABILITY[ctx.family] or 0.3)
-		local absorption = ACOUSTIC_ABSORPTION[class] or ACOUSTIC_ABSORPTION[ctx.family]
+		local absorption = ACOUSTIC_ABSORPTION[get_acoustic_class(self, vmt)]
 
 		if absorption then
 			self:SetAcousticAbsorption(Vec3(absorption[1], absorption[2], absorption[3]))

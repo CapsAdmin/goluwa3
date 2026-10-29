@@ -73,3 +73,34 @@ T.Test3D("vmt_material.Apply is idempotent and a changed vmt leaves nothing behi
 	T(material.Translucent)["=="](false)
 	T(material.DoubleSided)["=="](false)
 end)
+
+T.Test3D("vmt materials take their acoustic absorption from surfaceprop chains before names", function()
+	local function absorption(path, vmt)
+		local material = Material.New{}
+		material.vmt_path = path
+		vmt.shader = "lightmappedgeneric"
+		vmt.source_text = ""
+		vmt_material.Apply(material, vmt)
+		return material:GetAcousticAbsorption()
+	end
+
+	local metal_box = {surfaceprop_name = "Metal_Box", base = {surfaceprop_name = "SolidMetal"}}
+	local metal = absorption("materials/test/crate.vmt", {surfaceprop = metal_box})
+	local concrete = absorption(
+		"materials/test/concretewall001a.vmt",
+		{surfaceprop = {surfaceprop_name = "default"}}
+	)
+	local sofa = absorption("materials/models/props/sofa.vmt", {})
+	local fence = absorption("materials/test/fence.vmt", {surfaceprop = {surfaceprop_name = "chainlink"}})
+	local ceiling = absorption(
+		"materials/test/ceiling.vmt",
+		{
+			surfaceprop = {surfaceprop_name = "ceiling_tile", base = {surfaceprop_name = "cardboard"}},
+		}
+	)
+	T(metal.y)["<"](0.05)
+	T(concrete.y)["<"](0.05)
+	T(sofa.y)[">"](0.5)
+	T(fence.y)[">"](0.7)
+	T(ceiling.y)[">"](0.5)
+end)
