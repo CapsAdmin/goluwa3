@@ -80,6 +80,53 @@ function physics.GetUp()
 	return physics.instance.Up
 end
 
+function physics.GetHitMaterial(hit)
+	local primitive = hit.primitive
+
+	if primitive then
+		if primitive.material then return primitive.material end
+
+		local materials = primitive.brush_materials
+
+		if materials then
+			local planes = primitive.brush_planes
+			local normal = hit.normal
+			local best, best_dot = 1, -math.huge
+
+			for i = 1, #planes do
+				local dot = planes[i].normal:Dot(normal)
+
+				if dot > best_dot then best, best_dot = i, dot end
+			end
+
+			return materials[best]
+		end
+	end
+
+	local entity = hit.entity
+
+	if not entity or entity.rigid_body and entity.rigid_body.WorldGeometry then
+		return nil
+	end
+
+	if entity.model and entity.model.material then return entity.model.material end
+
+	local visual = entity.visual
+
+	if not visual then
+		for _, child in ipairs(entity:GetChildren()) do
+			if child.visual then
+				visual = child.visual
+
+				break
+			end
+		end
+	end
+
+	local entry = visual and visual:GetRenderEntries()[1]
+	return entry and visual:GetResolvedMaterial(entry)
+end
+
 function physics.GetHitSurfaceContact(...)
 	return physics.instance.GetHitSurfaceContact(...)
 end

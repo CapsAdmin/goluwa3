@@ -575,6 +575,7 @@ function META:UpdateCollider(record)
 			list.insert(model.Primitives, primitive)
 		end
 
+		primitive.brush_materials = static_geometry.GetSideMaterials(record)
 		model.AABB:Expand(primitive.aabb)
 		model.raycast_primitive_acceleration = nil
 
@@ -593,6 +594,7 @@ function META:UpdateCollider(record)
 		local fresh = record.kind == "mesh" and
 			collision.build_triangle_soup_shape(record.positions) or
 			collision.build_displacement_collision_shape(record.positions, record.dims)
+		fresh.Polygon3D.material = static_geometry.GetColliderMaterial(record.texname)
 
 		if shape then
 			shape.Polygon3D = fresh.Polygon3D

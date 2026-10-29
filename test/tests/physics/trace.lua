@@ -209,3 +209,38 @@ T.Test("Brush hit surface contact resolves corner contacts from polygonized worl
 	T(contact.normal.y)[">"](0.55)
 	T(contact.normal.z)[">"](0.55)
 end)
+
+T.Test("Brush hit material is the material of the side the hit normal faces", function()
+	local top, side = {}, {}
+	local hit = build_brush_hit(Vec3(-1, -1, -1), Vec3(1, 1, 1), Vec3(0, 1, 0), Vec3(0, 1, 0))
+	hit.primitive.brush_materials = {side, nil, top}
+	T(physics.GetHitMaterial(hit))["=="](top)
+	hit.normal = Vec3(0.99, 0.1, 0):GetNormalized()
+	T(physics.GetHitMaterial(hit))["=="](side)
+	hit.normal = Vec3(0, -1, 0)
+	T(physics.GetHitMaterial(hit))["=="](nil)
+end)
+
+T.TestPhysics("Ray hits on a polygon collision shape carry the material of the polygon", function()
+	local Entity = import("goluwa/entities/entity.lua")
+	local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+	local poly = Polygon3D.New()
+	poly.Vertices = {
+		{pos = Vec3(-2, 0, -2)},
+		{pos = Vec3(2, 0, -2)},
+		{pos = Vec3(-2, 0, 2)},
+		{pos = Vec3(2, 0, 2)},
+	}
+	poly.indices = {0, 2, 1, 1, 2, 3}
+	poly:BuildBoundingBox()
+	poly.material = {}
+	local ground = Entity.New{Name = "polygon_ground"}
+	ground:AddComponent("transform")
+	ground:AddComponent(
+		"rigid_body",
+		{Shapes = {{Polygon3D = poly}}, MotionType = "static", WorldGeometry = true}
+	)
+	local hit = physics.RayCast(Vec3(0.5, 1, 0.5), Vec3(0, -1, 0), 2)
+	T(hit ~= nil)["=="](true)
+	T(physics.GetHitMaterial(hit))["=="](poly.material)
+end)

@@ -503,6 +503,22 @@ function static_geometry.AddPolygon(mesh, polygon)
 	return first, mesh.i - first
 end
 
+function static_geometry.GetColliderMaterial(texname)
+	return RENDER_2D and vmt_material.FromVMT("materials/" .. texname .. ".vmt") or nil
+end
+
+function static_geometry.GetSideMaterials(record)
+	local materials = {}
+
+	for i, side in ipairs(record.sides) do
+		if side.texname then
+			materials[i] = static_geometry.GetColliderMaterial(side.texname)
+		end
+	end
+
+	return materials
+end
+
 function static_geometry.BuildColliders(brushes, displacements, meshes)
 	local model = {
 		Visible = true,
@@ -524,6 +540,7 @@ function static_geometry.BuildColliders(brushes, displacements, meshes)
 			local primitive = collision.build_brush_primitive(planes)
 
 			if primitive and primitive.aabb then
+				primitive.brush_materials = static_geometry.GetSideMaterials(record)
 				brush_primitives[record] = primitive
 				list.insert(model.Primitives, primitive)
 				model.AABB:Expand(primitive.aabb)
@@ -535,12 +552,14 @@ function static_geometry.BuildColliders(brushes, displacements, meshes)
 
 	for _, record in ipairs(displacements) do
 		record.collision_shape = collision.build_displacement_collision_shape(record.positions, record.dims)
+		record.collision_shape.Polygon3D.material = static_geometry.GetColliderMaterial(record.texname)
 		list.insert(shapes, record.collision_shape)
 	end
 
 	for _, record in ipairs(meshes) do
 		if record.collide then
 			record.collision_shape = collision.build_triangle_soup_shape(record.positions)
+			record.collision_shape.Polygon3D.material = static_geometry.GetColliderMaterial(record.texname)
 			list.insert(shapes, record.collision_shape)
 		end
 	end

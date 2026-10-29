@@ -23,7 +23,7 @@ local MESH_BOUNDS_CORNERS = {
 }
 
 local function create_synthetic_primitive(polygon)
-	return {polygon3d = polygon}
+	return {polygon3d = polygon, material = polygon.material}
 end
 
 local function build_brush_polygon(primitive)

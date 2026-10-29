@@ -10,15 +10,6 @@ local function is_static(entity)
 	return not body or body:IsStatic()
 end
 
-local function hit_material(hit)
-	if hit.primitive and hit.primitive.material then
-		return hit.primitive.material
-	end
-
-	local model = hit.entity and hit.entity.model
-	return model and model.material
-end
-
 local META = {}
 META.__index = META
 
@@ -41,7 +32,7 @@ function META:Trace(ox, oy, oz, dx, dy, dz, tmin, tmax)
 
 	if nx * dx + ny * dy + nz * dz > 0 then nx, ny, nz = -nx, -ny, -nz end
 
-	local material = hit_material(hit)
+	local material = physics.GetHitMaterial(hit)
 
 	if material then
 		local a = material:GetAcousticAbsorption()
