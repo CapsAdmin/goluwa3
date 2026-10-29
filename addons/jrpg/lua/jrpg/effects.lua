@@ -27,6 +27,13 @@ function effects.Impact(position, normal, type_name, strength, cut, direction)
 	fire_impact(position, normal, type_name, strength, cut or false, direction or normal)
 end
 
+effects.HitOverlay = new_event(
+	"jrpg_hit_overlay",
+	function(entity, kind)
+		effects.ShowHitOverlay(entity, kind)
+	end,
+	enabled
+)
 effects.Damage = new_event(
 	"jrpg_damage",
 	function(entity, type_name, amount, max_health)
@@ -640,6 +647,19 @@ local function collect_visuals(entity, out)
 
 	for _, child in ipairs(entity:GetChildren()) do
 		collect_visuals(child, out)
+	end
+end
+
+local HIT_OVERLAY = {Duration = 0.35, FadeIn = 0.05, FadeOut = 0.5, Intensity = 0.8}
+
+function effects.ShowHitOverlay(entity, kind)
+	if not entity:IsValid() then return end
+
+	local visuals = {}
+	collect_visuals(entity, visuals)
+
+	for _, visual in ipairs(visuals) do
+		surface_overlays.Add(visual, kind, HIT_OVERLAY)
 	end
 end
 

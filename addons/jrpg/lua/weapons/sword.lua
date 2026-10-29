@@ -131,6 +131,7 @@ local LUNGE_STOP_GAP = 1
 local COMBO_WINDOW = 0.5
 local NO_STAMINA = Color(1, 0.8, 0.3, 1)
 local TRAIL_POINTS = 12
+local HIT_OVERLAY = "magic_generic"
 local SWING_SOUNDS = {"npc/zombie/claw_miss1.wav", "npc/zombie/claw_miss2.wav"}
 
 function META:Initialize()
@@ -217,7 +218,7 @@ function META:OnWeaponSecondary(cmd)
 end
 
 function META:Hit(attack)
-	return slash.Strike(
+	local hit_any, cut, hits, normal = slash.Strike(
 		self:GetHolder(),
 		self.Owner,
 		attack.cut,
@@ -226,6 +227,12 @@ function META:Hit(attack)
 		self.Range,
 		self.Element
 	)
+
+	for _, hit in ipairs(hits) do
+		effects.HitOverlay(hit.victim, HIT_OVERLAY)
+	end
+
+	return hit_any, cut, hits, normal
 end
 
 function META:OnWeaponThink(dt)
