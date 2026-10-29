@@ -2,6 +2,7 @@ local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local network = import("goluwa/network/network.lua")
 local prefab = import("goluwa/entities/prefab.lua")
+local model_replacements = import("lua/model_replacements.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local META = objects.CreateTemplate("weapon")
@@ -37,18 +38,39 @@ META:GetSet("Automatic", false)
 META:GetSet("WorldSize", Vec3(0.2, 0.2, 0.6))
 META:GetSet("WorldCenter", Vec3())
 META:GetSet("WorldMass", 3)
+META:GetSet("Replacement", "")
 META:EndStorable()
 META:GetSet("Equipped", "")
 META:GetSet("PrimaryButton", BUTTON.ATTACK1)
 META:GetSet("SecondaryButton", BUTTON.ATTACK2)
 
 function META:Initialize()
+	self:AddGlobalEvent("SourceGameMounted")
 	self.time = 0
 	self.next_primary = 0
 	self.next_secondary = 0
 end
 
+function META:ApplyReplacement()
+	local entry = self.Replacement ~= "" and model_replacements.Get(self.Replacement)
+
+	if entry then
+		local node = self.Owner.prefab:GetNode("replacement")
+		prefab.Suppress()
+		node.transform:SetPosition(entry.Position)
+		node.transform:SetRotation(entry.Rotation)
+		node.transform:SetScale(entry.Scale)
+		node.model:SetModelPath(entry.Path)
+		prefab.Unsuppress()
+	end
+end
+
+function META:OnSourceGameMounted()
+	self:ApplyReplacement()
+end
+
 function META:OnEntityConstructed()
+	self:ApplyReplacement()
 	self:RefreshWorldState()
 end
 
