@@ -177,6 +177,15 @@ function handle_meta:IsActive()
 	return self.state.layers[self.index] == self
 end
 
+function handle_meta:SetIntensity(intensity)
+	local layer = self.layer
+
+	if layer.intensity == intensity then return end
+
+	layer.intensity = intensity
+	slot_table:Touch(self.state.slot)
+end
+
 function handle_meta:Remove(fade_out)
 	if not self:IsActive() then return end
 
@@ -295,7 +304,7 @@ function surface_overlays.GetGLSL(block_name)
 	end
 
 	return (
-		glsl_common.GetHashGLSL() .. [[
+		glsl_common.GetNoiseGLSL() .. [[
 		struct OverlayLayer {]] .. LAYER_FIELDS:gsub("float ([%w_]+)%[4%];", "vec4 %1;"):gsub("int32_t", "int") .. [[};
 
 		struct OverlaySlot {
@@ -329,6 +338,109 @@ function surface_overlays.GetGLSL(block_name)
 			return overlay_noise(c, scale);
 		}
 
+		struct OverlayCell {
+			vec3 id;
+			float edge;
+			float nearest;
+			vec3 offset;
+		};
+
+		OverlayCell overlay_voronoi(vec3 p) {
+			vec3 base = floor(p);
+			vec3 f = p - base;
+			float nearest = 8.0;
+			float second = 8.0;
+			OverlayCell cell;
+			cell.id = vec3(0.0);
+			cell.offset = vec3(0.0);
+
+			for (int z = -1; z <= 1; z++) {
+				for (int y = -1; y <= 1; y++) {
+					for (int x = -1; x <= 1; x++) {
+						vec3 g = vec3(x, y, z);
+						uvec3 h = pcg3d(uvec3(ivec3(base + g) + 32768));
+						vec3 r = vec3(pcg_unorm(h.x), pcg_unorm(h.y), pcg_unorm(h.z));
+						vec3 d = g + r - f;
+						float dist = dot(d, d);
+
+						if (dist < nearest) {
+							second = nearest;
+							nearest = dist;
+							cell.id = r;
+							cell.offset = d;
+						} else if (dist < second) {
+							second = dist;
+						}
+					}
+				}
+			}
+
+			cell.nearest = sqrt(nearest);
+			cell.edge = sqrt(second) - cell.nearest;
+			return cell;
+		}
+
+		float overlay_fbm(vec3 p, int octaves) {
+			float value = 0.0;
+			float amplitude = 0.5;
+
+			for (int i = 0; i < octaves; i++) {
+				value += amplitude * value_noise3(p);
+				p = p * 2.0 + vec3(1.7, 9.2, 3.1);
+				amplitude *= 0.5;
+			}
+
+			return value;
+		}
+
+		vec3 overlay_gradient(vec3 cell, float angle) {
+			uvec3 h = pcg3d(uvec3(ivec3(cell) + 32768));
+			vec3 g = vec3(pcg_unorm(h.x), pcg_unorm(h.y), pcg_unorm(h.z)) * 2.0 - 1.0;
+			vec3 axis = vec3(0.57735);
+			float cs = cos(angle);
+			float sn = sin(angle);
+			return g * cs + cross(axis, g) * sn + axis * (dot(axis, g) * (1.0 - cs));
+		}
+
+		vec4 overlay_gradient_noise(vec3 p, float angle) {
+			vec3 i = floor(p);
+			vec3 f = fract(p);
+			vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+			vec3 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+			vec3 ga = overlay_gradient(i, angle);
+			vec3 gb = overlay_gradient(i + vec3(1.0, 0.0, 0.0), angle);
+			vec3 gc = overlay_gradient(i + vec3(0.0, 1.0, 0.0), angle);
+			vec3 gd = overlay_gradient(i + vec3(1.0, 1.0, 0.0), angle);
+			vec3 ge = overlay_gradient(i + vec3(0.0, 0.0, 1.0), angle);
+			vec3 gf = overlay_gradient(i + vec3(1.0, 0.0, 1.0), angle);
+			vec3 gg = overlay_gradient(i + vec3(0.0, 1.0, 1.0), angle);
+			vec3 gh = overlay_gradient(i + vec3(1.0, 1.0, 1.0), angle);
+			float va = dot(ga, f);
+			float vb = dot(gb, f - vec3(1.0, 0.0, 0.0));
+			float vc = dot(gc, f - vec3(0.0, 1.0, 0.0));
+			float vd = dot(gd, f - vec3(1.0, 1.0, 0.0));
+			float ve = dot(ge, f - vec3(0.0, 0.0, 1.0));
+			float vf = dot(gf, f - vec3(1.0, 0.0, 1.0));
+			float vg = dot(gg, f - vec3(0.0, 1.0, 1.0));
+			float vh = dot(gh, f - vec3(1.0, 1.0, 1.0));
+			float k1 = vb - va;
+			float k2 = vc - va;
+			float k3 = ve - va;
+			float k4 = va - vb - vc + vd;
+			float k5 = va - vc - ve + vg;
+			float k6 = va - vb - ve + vf;
+			float k7 = -va + vb + vc - vd + ve - vf - vg + vh;
+			float value = va + u.x * k1 + u.y * k2 + u.z * k3 + u.x * u.y * k4 + u.y * u.z * k5 + u.z * u.x * k6 + u.x * u.y * u.z * k7;
+			vec3 gradient = ga + u.x * (gb - ga) + u.y * (gc - ga) + u.z * (ge - ga) + u.x * u.y * (ga - gb - gc + gd) + u.y * u.z * (ga - gc - ge + gg) + u.z * u.x * (ga - gb - ge + gf) + u.x * u.y * u.z * (-ga + gb + gc - gd + ge - gf - gg + gh) + du * (vec3(k1, k2, k3) + u.yzx * vec3(k4, k5, k6) + u.zxy * vec3(k6, k4, k5) + u.yzx * u.zxy * k7);
+			return vec4(gradient, value);
+		}
+
+		vec3 overlay_hsv(vec3 c) {
+			vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+			rgb = rgb * rgb * (3.0 - 2.0 * rgb);
+			return c.z * mix(vec3(1.0), rgb, c.y);
+		}
+
 		float overlay_hash(float x) {
 			return pcg_unorm(pcg3d(uvec3(floatBitsToUint(x), 7u, 13u)).x);
 		}
@@ -357,6 +469,28 @@ function surface_overlays.GetGLSL(block_name)
 
 		void overlay_cover(inout Surface s, float amount) {
 			s.alpha = max(s.alpha, amount);
+		}
+
+		void overlay_bump(inout Surface s, float height, float strength) {
+			vec3 dpdx = dFdx(s.world_pos);
+			vec3 dpdy = dFdy(s.world_pos);
+			vec3 r1 = cross(dpdy, s.N);
+			vec3 r2 = cross(s.N, dpdx);
+			float det = dot(dpdx, r1);
+			vec3 grad = sign(det) * (dFdx(height) * r1 + dFdy(height) * r2) * strength;
+			s.N = normalize(abs(det) * s.N - grad);
+		}
+
+		void overlay_bump_gradient(inout Surface s, OverlayContext c, vec3 local_gradient, float strength) {
+			vec3 dpdx = dFdx(s.world_pos);
+			vec3 dpdy = dFdy(s.world_pos);
+			vec3 r1 = cross(dpdy, s.N);
+			vec3 r2 = cross(s.N, dpdx);
+			float det = dot(dpdx, r1);
+			float dhdx = dot(local_gradient, dFdx(c.P));
+			float dhdy = dot(local_gradient, dFdy(c.P));
+			vec3 grad = sign(det) * (dhdx * r1 + dhdy * r2) * strength;
+			s.N = normalize(abs(det) * s.N - grad);
 		}
 
 		void overlay_set_roughness(inout Surface s, float roughness, float amount) {
