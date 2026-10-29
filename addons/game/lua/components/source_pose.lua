@@ -10,6 +10,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local animations = import("lua/animations.lua")
+local impacts = import("lua/impacts.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local META = objects.CreateTemplate("source_pose")
 META:StartStorable()
@@ -42,6 +43,11 @@ local LEG_DROP = 0.45
 local LEG_FOLLOW = 60
 local PELVIS_FOLLOW = 12
 local PELVIS_RISE_FOLLOW = 4
+local STEP_LIFT = 0.04
+local STEP_DESCEND = 0.4
+local STEP_STOP = 0.15
+local STEP_FLOOR_RISE = 0.02
+local STEP_MAX_RATE = 4
 local UP = Vec3(0, 1, 0)
 local SPRINT_MAX_RATE = 1.5
 local GAIT_SPEED = {
@@ -116,6 +122,24 @@ function META:Initialize()
 	self.pelvis_mean = 0
 	self.pelvis_rise = 0
 	self.leg_normals = {Vec3(0, 1, 0), Vec3(0, 1, 0)}
+	self.steps = {
+		{
+			height = 0,
+			floor = math.huge,
+			peak = 0,
+			speed = 0,
+			lifted = false,
+			descending = false,
+		},
+		{
+			height = 0,
+			floor = math.huge,
+			peak = 0,
+			speed = 0,
+			lifted = false,
+			descending = false,
+		},
+	}
 
 	if RENDER_3D and self.OwnsArmature then
 		self.Owner:EnsureComponent("armature", {Skeleton = biped.SkeletonName})
@@ -427,6 +451,31 @@ function META:UpdateLegs(character, pose, dt, bones)
 		if hit then
 			target = math.clamp(hit.position.y, plane - LEG_DROP, plane + LEG_RISE)
 			normal = rotation:VecMul(hit.normal or UP)
+		end
+
+		local step = self.steps[i]
+		local height = foot.m31 + self.ground_sink
+		local rate = math.max((height - step.height) / dt, -STEP_MAX_RATE)
+		step.height = height
+
+		if pose.airborne then
+			step.lifted, step.descending, step.peak = true, true, math.huge
+			step.speed = math.max(step.speed, -rate - pose.vertical_speed)
+		elseif step.lifted then
+			step.speed = math.max(step.speed, -rate - math.min(pose.vertical_speed, 0))
+			step.peak = math.max(step.peak, height)
+
+			if rate < -STEP_DESCEND then step.descending = true end
+
+			if step.descending and rate > -STEP_STOP and height < (step.peak + step.floor) * 0.5 then
+				if hit then impacts.FireFootstep(character, name, hit, step.speed) end
+
+				step.lifted, step.descending, step.speed, step.floor = false, false, 0, height
+			end
+		elseif height > step.floor + STEP_LIFT then
+			step.lifted, step.peak = true, height
+		else
+			step.floor = math.min(step.floor + dt * STEP_FLOOR_RISE, height)
 		end
 
 		ground[i] = ground[i] + (target - ground[i]) * follow

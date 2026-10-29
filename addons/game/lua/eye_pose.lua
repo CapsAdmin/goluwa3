@@ -5,6 +5,7 @@ local physics = import("goluwa/physics.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local animations = import("lua/animations.lua")
 local pose_variation = import("lua/pose_variation.lua")
+local impacts = import("lua/impacts.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
 local eye_pose = {}
@@ -74,7 +75,7 @@ local function ground_foot(foot, owner)
 	local hit = physics.instance and
 		physics.RayCast(Vec3(foot.x, plane + GROUND_BOUND, foot.z), DOWN, GROUND_BOUND * 2, owner)
 	foot.y = (hit and hit.position.y or plane) + FOOT_HEIGHT - FOOT_SINK
-	return foot
+	return foot, hit
 end
 
 local SWITCH_TIME = 0.2
@@ -136,7 +137,10 @@ function eye_pose.New()
 		velocity = Vec3(0, 0, 0),
 		roll = 0,
 		phase = 0,
-		sides = {{name = "l", sign = -1}, {name = "r", sign = 1}},
+		sides = {
+			{name = "l", sign = -1, part = "foot_l", fall = 0},
+			{name = "r", sign = 1, part = "foot_r", fall = 0},
+		},
 	}
 end
 
@@ -340,16 +344,34 @@ function eye_pose.Compute(state, bones, owner, dt)
 		if not grounded then
 			side.planted = world:TransformVector(home_local - smoothed * 0.08)
 			side.step_time = nil
+
+			if pose.airborne then side.fall = math.max(side.fall, -pose.vertical_speed) end
+
 			foot = side.planted
 		elseif not side.planted or (side.planted - home):GetLength() > LEG_LENGTH * 2 then
 			side.planted = ground_foot(target_foot, owner)
 			side.step_time = nil
+			side.fall = 0
+			foot = side.planted
+		elseif side.fall > 0 then
+			local hit
+			side.planted, hit = ground_foot(side.planted, owner)
+
+			if hit then impacts.FireFootstep(owner, side.part, hit, side.fall) end
+
+			side.fall = 0
 			foot = side.planted
 		elseif side.step_time then
 			side.step_time = side.step_time + dt / step_duration
 
 			if side.step_time >= 1 then
-				side.planted = ground_foot(target_foot, owner)
+				local hit
+				side.planted, hit = ground_foot(target_foot, owner)
+
+				if hit then
+					impacts.FireFootstep(owner, side.part, hit, math.pi * STEP_LIFT / step_duration)
+				end
+
 				side.step_time = nil
 				foot = side.planted
 			else

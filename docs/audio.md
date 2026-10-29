@@ -26,6 +26,13 @@ A tracer (`acoustics_gpu.lua`: ray queries on the scene TLAS in a PreRenderPass 
 - Absorption is the render material param `AcousticAbsorption` (energy coefficients per band). Source materials get it from their surfaceprop class.
 - Listener rays start `LISTENER_CLEARANCE` out (the player's own body); rays toward a source stop `SOURCE_CLEARANCE` short (the emitter's own mesh).
 
+## Impacts and footsteps (`addons/game/lua/impacts.lua`)
+
+- `impacts.Fire(entity, part, kind, hit, speed)` calls the `Impact` event with `{Entity, Part, Kind, Surface, Material, Other, Position, Normal, Speed}`: `hit` is a physics hit on `Other`, `Speed` the impact speed in m/s. Sounds listen to the event; whatever detects an impact only fires it. Kinds: `footstep`.
+- `Surface` is the material param `SurfaceType` of `physics.GetHitMaterial(hit)` (the hit polygon's or brush side's material, else the entity's model or first visual, also on a direct child). Source materials take the model's physics surfaceprop, else the vmt `$surfaceprop`, else keyword families; untyped is `default`. BSP collision polygons and brush sides carry their render materials only when rendering.
+- Footsteps come from the foot IK ground rays. `source_pose` works in animation space (immune to slopes and render jitter): a foot lifts 4 cm above its stance height, and fires when it stops descending in the lower half of its swing; airborne arms both feet and the body's fall speed is the landing speed. Thresholds against a running minimum alone miss steps, because blends dip the ankle below the stance height. `eye_pose` fires when a step plants.
+- `autorun/audio/footsteps.lua` maps surface names to wav sets in a hardcoded table (Source names; an unknown name falls back to its prefix before `_`), volume from speed.
+
 ## Debugging
 
 `perf audio` (or `h`, AUDIO tab, `addons/debug/lua/autorun/render_3d/audio_acoustics.lua`) shows what the system thinks the listener is in: tracer and cost, the listener room (T60 per band, volume, mean free path, escaping rays, predelay), every spatial sound (delay, doppler, direct level and occlusion, reverb send and which bus, reflections), a top down map of first hits, reflecting planes, reflection paths and direct paths, and the decay curves. `audio_debug` draws the same in the world; `audio_stats` prints the rows.
