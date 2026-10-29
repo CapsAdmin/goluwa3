@@ -414,6 +414,42 @@ T.Test("audio acoustics matches Eyring in a box room and finds every wall reflec
 	end)
 end)
 
+T.Test("audio acoustics follows the listener into another room within a few frames", function()
+	with_offline_mixer(function(ctx)
+		local budget = {
+			rays = 256,
+			bounces = 10,
+			samples = 128,
+			sources = 1,
+			fresnel = 2,
+			reflection_sources = 1,
+		}
+		local alpha = 0.1
+		local small = box_tracer(Vec3(-2, 0, -2), Vec3(2, 3, 2), alpha, budget)
+		local large = box_tracer(Vec3(96, 0, -12), Vec3(124, 10, 12), alpha, budget)
+		audio.acoustics = acoustics.New(audio, small)
+		audio.SetListenerPosition(Vec3(0.3, 1.7, 0.2))
+
+		for _ = 1, 40 do
+			ctx.time = ctx.time + 1 / 60
+			audio.Update()
+		end
+
+		audio.acoustics.tracer = large
+		audio.SetListenerPosition(Vec3(110.3, 1.7, 0.2))
+
+		for _ = 1, 12 do
+			ctx.time = ctx.time + 1 / 60
+			audio.Update()
+		end
+
+		local V = 28 * 10 * 24
+		local S = 2 * (28 * 10 + 28 * 24 + 10 * 24)
+		local eyring = 0.161 * V / (-S * math.log(1 - alpha) + 4 * acoustics.AirEnergyPerMeter(2) * V)
+		T(math.abs(audio.acoustics.profile.t60[2] - eyring) / eyring)["<="](0.1)
+	end)
+end)
+
 T.TestPhysics("audio acoustics occludes a source behind a static wall", function()
 	local Entity = import("goluwa/entities/entity.lua")
 	local BoxShape = import("goluwa/physics/shapes/box.lua")

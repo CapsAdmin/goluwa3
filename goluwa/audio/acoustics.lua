@@ -15,7 +15,8 @@ acoustics.MAX_REFLECTORS = 10
 acoustics.MIN_REFLECTOR_AREA = 0.5
 acoustics.REFLECTOR_MEMORY = 1.5
 acoustics.TAP_MEMORY = 1.0
-acoustics.STATS_MEMORY = 0.6
+acoustics.STATS_MEMORY = 0.5
+acoustics.STATS_DISTANCE = 0.5
 acoustics.OCCLUSION_MEMORY_SAMPLES = 12
 acoustics.TRUSTED_RAYS = 256
 acoustics.MIN_T60 = 0.05
@@ -760,18 +761,28 @@ end
 function META:Absorb(job, result)
 	local dt = self.last_result_time and math.max(job.time - self.last_result_time, 0) or 0
 	self.last_result_time = job.time
-	local decay = math.exp(-dt / acoustics.STATS_MEMORY)
+	local reach = acoustics.STATS_DISTANCE * self.profile.mean_free_path
+	local moved = self.last_listener and
+		(
+			job.listener - self.last_listener
+		):GetLength() / reach or
+		0
+	self.last_listener = job.listener
+	local decay = math.exp(-dt / acoustics.STATS_MEMORY - moved)
 	acoustics.DecayStats(self.stats, decay)
 	acoustics.AddStats(self.stats, result.stats)
 	self.profile = acoustics.ComputeProfile(self.stats, job.speed)
 
 	for i, sound in ipairs(job.sounds) do
 		local env = self:GetEnvironment(sound)
-		acoustics.DecaySourceSums(env.sums, decay)
+		local source = job.sources[i]
+		local source_moved = env.traced and (source - env.traced):GetLength() / reach or 0
+		env.traced = source
+		acoustics.DecaySourceSums(env.sums, decay * math.exp(-source_moved))
 		acoustics.AddSourceSums(env.sums, result.sources[i], job.rays)
 	end
 
-	self:AbsorbReflectors(job, result, math.exp(-dt / acoustics.REFLECTOR_MEMORY))
+	self:AbsorbReflectors(job, result, math.exp(-dt / acoustics.REFLECTOR_MEMORY - moved))
 	self.samples = result.samples
 	self.last_job = job
 	local q = result.queries
