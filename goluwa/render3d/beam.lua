@@ -20,6 +20,18 @@ local COLOR = vertex_layout.GetFloatOffset("vertex_color")
 local Beam = objects.CreateTemplate("render3d_beam")
 Beam:GetSet("Radius", 0.02)
 Beam:GetSet("RadiusEnd", nil)
+Beam:GetSet("EndTaper", 0)
+Beam:GetSet("EndFade", 0)
+Beam:GetSet("UVByLength", false)
+
+local function smooth_ramp(x)
+	if x <= 0 then return 0 end
+
+	if x >= 1 then return 1 end
+
+	return x * x * (3 - 2 * x)
+end
+
 Beam:GetSet("Visible", true)
 Beam:GetSet("Material", nil)
 
@@ -247,10 +259,18 @@ end
 function Beam:ApplyTint()
 	local floats = self.floats
 	local r, g, b, a = self.tint_r, self.tint_g, self.tint_b, self.tint_a
+	local end_fade = self.EndFade
 
 	for i = 0, self.point_count * 2 - 1 do
 		local f = i * VERTEX_FLOATS
-		floats[f + COLOR], floats[f + COLOR + 1], floats[f + COLOR + 2], floats[f + COLOR + 3] = r, g, b, a
+		local v = floats[f + UV + 1]
+		floats[f + COLOR], floats[f + COLOR + 1], floats[f + COLOR + 2], floats[f + COLOR + 3] = r,
+		g,
+		b,
+		end_fade > 0 and
+			a * smooth_ramp(v / end_fade) * smooth_ramp((1 - v) / end_fade)
+			or
+			a
 	end
 
 	self.tint_dirty = false
@@ -309,11 +329,26 @@ do
 		finish_ribbon(self, min_x, min_y, min_z, max_x, max_y, max_z)
 	end
 
-	local function write_attributes(floats, count, uv_offset, uv_scale, tint_r, tint_g, tint_b, tint_a)
+	local function write_attributes(
+		floats,
+		count,
+		uv_offset,
+		uv_scale,
+		tint_r,
+		tint_g,
+		tint_b,
+		tint_a,
+		end_fade,
+		by_length
+	)
 		for i = 0, count - 1 do
 			local w = i * 8
-			local v = i / (count - 1) * uv_scale + uv_offset
+			local v = (by_length and work[w + 7] or i / (count - 1)) * uv_scale + uv_offset
 			local nx, ny, nz = work[w + 3], work[w + 4], work[w + 5]
+			local alpha = end_fade > 0 and
+				tint_a * smooth_ramp(v / end_fade) * smooth_ramp((1 - v) / end_fade)
+				or
+				tint_a
 			local tx, ty, tz = work[w], work[w + 1], work[w + 2]
 
 			for side = 0, 1 do
@@ -321,7 +356,7 @@ do
 				floats[f + NORMAL], floats[f + NORMAL + 1], floats[f + NORMAL + 2] = nx, ny, nz
 				floats[f + UV], floats[f + UV + 1] = side, v
 				floats[f + TANGENT], floats[f + TANGENT + 1], floats[f + TANGENT + 2] = tx, ty, tz
-				floats[f + COLOR], floats[f + COLOR + 1], floats[f + COLOR + 2], floats[f + COLOR + 3] = tint_r, tint_g, tint_b, tint_a
+				floats[f + COLOR], floats[f + COLOR + 1], floats[f + COLOR + 2], floats[f + COLOR + 3] = tint_r, tint_g, tint_b, alpha
 			end
 		end
 	end
@@ -356,6 +391,7 @@ do
 
 		local radius_start = self.Radius
 		local radius_delta = (self.RadiusEnd or radius_start) - radius_start
+		local taper = self.EndTaper
 
 		for i = 0, count - 1 do
 			local o = i * 3
@@ -364,6 +400,11 @@ do
 			local minimum = work[w + 6] * min_radius_per_distance
 
 			if minimum > radius then radius = minimum end
+
+			if taper > 0 then
+				local v = i / (count - 1) * uv_scale + uv_offset
+				radius = radius * smooth_ramp(v / taper) * smooth_ramp((1 - v) / taper)
+			end
 
 			local px, py, pz = points[o], points[o + 1], points[o + 2]
 			local ox, oy, oz = work[w] * radius, work[w + 1] * radius, work[w + 2] * radius
@@ -381,7 +422,8 @@ do
 			self.tint_r,
 			self.tint_g,
 			self.tint_b,
-			self.tint_a
+			self.tint_a,
+			self.EndFade
 		)
 		write_bounds(self, floats, count)
 	end
@@ -410,6 +452,26 @@ do
 			floats[f + POSITION], floats[f + POSITION + 1], floats[f + POSITION + 2] = right[o], right[o + 1], right[o + 2]
 		end
 
+		local by_length = self.UVByLength
+
+		if by_length then
+			local total = 0
+			work[7] = 0
+
+			for i = 1, count - 1 do
+				local o = i * 3
+				local dx, dy, dz = right[o] - right[o - 3], right[o + 1] - right[o - 2], right[o + 2] - right[o - 1]
+				total = total + math.sqrt(dx * dx + dy * dy + dz * dz)
+				work[i * 8 + 7] = total
+			end
+
+			if total < 1e-6 then total = 1 end
+
+			for i = 1, count - 1 do
+				work[i * 8 + 7] = work[i * 8 + 7] / total
+			end
+		end
+
 		write_attributes(
 			floats,
 			count,
@@ -418,7 +480,9 @@ do
 			self.tint_r,
 			self.tint_g,
 			self.tint_b,
-			self.tint_a
+			self.tint_a,
+			self.EndFade,
+			by_length
 		)
 		write_bounds(self, floats, count)
 	end

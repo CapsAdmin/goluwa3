@@ -2,6 +2,8 @@ local T = import("test/environment.lua")
 local Beam = import("goluwa/render3d/beam.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
+local vfx = import("goluwa/render3d/vfx.lua")
+local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 
 T.Test3D("A beam follows its points, bends and keeps its radius", function()
 	local beam = Beam.New{
@@ -52,4 +54,31 @@ T.Test3D("A ribbon beam is a strip that faces the camera", function()
 	T(vertices[0].uv[1])["=="](0.5)
 	T(math.abs(vertices[0].position[2] - -5))["<"](1e-4)
 	beam:Remove()
+end)
+
+T.Test3D("A slash trail pane carries its overlay, fades at both ends and clears on release", function(draw)
+	local before = surface_overlays.GetActiveCount()
+	local trail = vfx.AcquireSlashTrail(Color(1, 1, 1, 1), 1, 6, "crystallize", {UVScale = {1, 1}, UVStretch = 4})
+
+	for i = 0, 3 do
+		trail:Push(Vec3(i * 0.3, 1, -4), Vec3(i * 0.3, 2, -4))
+	end
+
+	draw()
+	draw()
+	T(surface_overlays.GetActiveCount())["=="](before + 1)
+	local vertices = trail.pane.vertices
+	local count = trail.pane.point_count
+	T(vertices[(count - 1) * 2].vertex_color[3])["<"](0.01)
+	T(vertices[count * 2 - 2].vertex_color[3])["<"](0.01)
+	T(math.abs(trail.overlay.layer.uv_scale[0] - 1))["<"](1e-4)
+	T(math.abs(trail.overlay.layer.uv_scale[1] - 0.9 / 4))["<"](1e-4)
+	trail:Push(Vec3(1.2, 1, -4), Vec3(1.2, 2, -4))
+	trail:Push(Vec3(1.5, 1, -4), Vec3(1.5, 2, -4))
+	T(vertices[0].uv[1])["<="](0)
+	T(math.abs(vertices[count * 2 - 2].uv[1] - 1))["<"](1e-6)
+	trail:Release()
+	T(surface_overlays.GetActiveCount())["=="](before)
+	trail.beam:Remove()
+	trail.pane:Remove()
 end)

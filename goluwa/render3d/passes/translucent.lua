@@ -578,7 +578,7 @@ local passes = {
 
 						if (!DisplayReferred) unlit_emission *= effect_exposure_gain(translucent_camera.exposure_compensation_tex, color_model.ExposureCompensation);
 
-						unlit_emission += overlay_emissive * alpha * get_pre_exposure();
+						unlit_emission += overlay_emissive * alpha * (VertexTint ? in_vertex_color.a : 1.0) * get_pre_exposure();
 						set_color(vec4(0.0));
 						set_motion(vec4(0.0));
 						set_additive(vec4(min(unlit_emission * fog_transmittance, vec3(65504.0)), 0.0) * transmittance);

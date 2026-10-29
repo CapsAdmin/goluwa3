@@ -11,9 +11,11 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local trails = import("goluwa/render3d/trails.lua")
 local commands = import("goluwa/cli/commands.lua")
 local sprites = import("goluwa/render3d/sprites.lua")
+local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local vfx = {}
 local UP = Vec3(0, 1, 0)
 local WHITE = Color(1, 1, 1, 1)
+local SLASH_END_FADE = 0.15
 vfx.exposure_compensation = {particles = 0, sprites = 0, trails = 0}
 
 do
@@ -60,7 +62,7 @@ do
 		]],
 		slash = [[
 			float along = clamp(uv.y, 0.0, 1.0);
-			float v = pow(uv.x, 1.5) * (1.0 - smoothstep(0.9, 1.0, uv.x)) * along * along;
+			float v = pow(uv.x, 2.5) * (1.0 - smoothstep(0.9, 1.0, uv.x)) * along * along;
 			return vec4(vec3(v), v);
 		]],
 		beam = [[
@@ -117,6 +119,21 @@ local function release(key, object)
 end
 
 local tint_materials = {}
+local pane_material
+
+local function get_pane_material()
+	if not pane_material then
+		pane_material = Material.New{
+			Translucent = true,
+			Unlit = true,
+			DoubleSided = true,
+			VertexTint = true,
+			Color = Color(1, 1, 1, 0.06),
+		}
+	end
+
+	return pane_material
+end
 
 local function get_tint_material(texture)
 	local material = tint_materials[texture]
@@ -153,6 +170,65 @@ do
 			local o = i * 3
 			out[o], out[o + 1], out[o + 2] = history[source], history[source + 1], history[source + 2]
 		end
+	end
+
+	local sqrt = math.sqrt
+
+	local function subdivide(from, count, subdivisions, to)
+		local o = 0
+
+		for i = 0, count - 2 do
+			local a = i * 3
+			local b = a + 3
+			local p1x, p1y, p1z = from[a], from[a + 1], from[a + 2]
+			local p2x, p2y, p2z = from[b], from[b + 1], from[b + 2]
+			local p0x, p0y, p0z, p3x, p3y, p3z
+
+			if i > 0 then
+				p0x, p0y, p0z = from[a - 3], from[a - 2], from[a - 1]
+			else
+				p0x, p0y, p0z = 2 * p1x - p2x, 2 * p1y - p2y, 2 * p1z - p2z
+			end
+
+			if i < count - 2 then
+				p3x, p3y, p3z = from[b + 3], from[b + 4], from[b + 5]
+			else
+				p3x, p3y, p3z = 2 * p2x - p1x, 2 * p2y - p1y, 2 * p2z - p1z
+			end
+
+			local d01 = (p1x - p0x) ^ 2 + (p1y - p0y) ^ 2 + (p1z - p0z) ^ 2
+			local d12 = (p2x - p1x) ^ 2 + (p2y - p1y) ^ 2 + (p2z - p1z) ^ 2
+			local d23 = (p3x - p2x) ^ 2 + (p3y - p2y) ^ 2 + (p3z - p2z) ^ 2
+			local t1 = math.max(sqrt(sqrt(d01)), 1e-3)
+			local t2 = t1 + math.max(sqrt(sqrt(d12)), 1e-3)
+			local t3 = t2 + math.max(sqrt(sqrt(d23)), 1e-3)
+
+			for step = 0, subdivisions - 1 do
+				local t = t1 + (t2 - t1) * step / subdivisions
+				local a1 = (t1 - t) / t1
+				local a1b = t / t1
+				local a2 = (t2 - t) / (t2 - t1)
+				local a2b = (t - t1) / (t2 - t1)
+				local a3 = (t3 - t) / (t3 - t2)
+				local a3b = (t - t2) / (t3 - t2)
+				local b1 = (t2 - t) / t2
+				local b1b = t / t2
+				local b2 = (t3 - t) / (t3 - t1)
+				local b2b = (t - t1) / (t3 - t1)
+				local c1 = (t2 - t) / (t2 - t1)
+				local c1b = (t - t1) / (t2 - t1)
+				local a1x, a1y, a1z = p0x * a1 + p1x * a1b, p0y * a1 + p1y * a1b, p0z * a1 + p1z * a1b
+				local a2x, a2y, a2z = p1x * a2 + p2x * a2b, p1y * a2 + p2y * a2b, p1z * a2 + p2z * a2b
+				local a3x, a3y, a3z = p2x * a3 + p3x * a3b, p2y * a3 + p3y * a3b, p2z * a3 + p3z * a3b
+				local b1x, b1y, b1z = a1x * b1 + a2x * b1b, a1y * b1 + a2y * b1b, a1z * b1 + a2z * b1b
+				local b2x, b2y, b2z = a2x * b2 + a3x * b2b, a2y * b2 + a3y * b2b, a2z * b2 + a3z * b2b
+				to[o], to[o + 1], to[o + 2] = b1x * c1 + b2x * c1b, b1y * c1 + b2y * c1b, b1z * c1 + b2z * c1b
+				o = o + 3
+			end
+		end
+
+		local last = (count - 1) * 3
+		to[o], to[o + 1], to[o + 2] = from[last], from[last + 1], from[last + 2]
 	end
 
 	local function fill(history, count, x, y, z)
@@ -194,6 +270,8 @@ do
 			tint_pending[i] = nil
 
 			if object.beam.tint_dirty then object.beam:ApplyTint() end
+
+			if object.pane and object.pane.tint_dirty then object.pane:ApplyTint() end
 		end
 	end)
 
@@ -203,9 +281,11 @@ do
 		local META = {}
 		META.__index = META
 
-		function vfx.AcquireTrail(color, strength, count, radius, texture)
+		function vfx.AcquireTrail(color, strength, count, radius, texture, subdivisions, end_taper)
 			texture = texture or vfx.GetTexture("trail")
-			local key = tostring(texture) .. count
+			subdivisions = subdivisions or 1
+			local key = tostring(texture) .. count .. "x" .. subdivisions
+			local rendered = (count - 1) * subdivisions + 1
 			local object = acquire(key)
 
 			if not object then
@@ -213,7 +293,7 @@ do
 					{
 						key = key,
 						beam = Beam.New{
-							Points = count,
+							Points = rendered,
 							Ribbon = true,
 							Radius = 0,
 							Material = get_tint_material(texture),
@@ -221,7 +301,9 @@ do
 						history = double_array(count * 3),
 						flat_a = double_array(count * 3),
 						flat_b = double_array(count * 3),
+						spline = double_array(rendered * 3),
 						count = count,
+						subdivisions = subdivisions,
 					},
 					META
 				)
@@ -229,7 +311,10 @@ do
 
 			object.primed = false
 			object.head = 0
+			object.filled = 0
 			object.drift = 0
+			object.end_taper = end_taper or 0
+			object.beam:SetEndTaper(object.end_taper)
 			object.beam:SetRadius(0)
 			object.beam:SetRadiusEnd(radius)
 			set_tint(object, color, strength, 1)
@@ -248,6 +333,7 @@ do
 			local o = self.head * 3
 			self.history[o], self.history[o + 1], self.history[o + 2] = x, y, z
 			self.head = (self.head + 1) % count
+			self.filled = math.min(self.filled + 1, count)
 
 			if drift_dt then self.drift = self.drift + drift_dt end
 		end
@@ -281,9 +367,25 @@ do
 
 			unwrap(history, self.head, count, self.flat_a)
 			smooth_pass(self.flat_a, self.flat_b, count)
-			smooth_pass(self.flat_b, self.flat_a, count)
-			smooth_pass(self.flat_a, self.flat_b, count)
-			self.beam:SetRibbonFlat(self.flat_b, 0, 1)
+
+			if self.subdivisions == 1 then
+				smooth_pass(self.flat_b, self.flat_a, count)
+				smooth_pass(self.flat_a, self.flat_b, count)
+				self.beam:SetRibbonFlat(self.flat_b, 0, 1)
+			else
+				subdivide(self.flat_b, count, self.subdivisions, self.spline)
+
+				if self.end_taper > 0 then
+					local span = math.max(self.filled - 1, 1) * self.subdivisions
+					self.beam:SetRibbonFlat(
+						self.spline,
+						-(count - self.filled) * self.subdivisions / span,
+						(count - 1) * self.subdivisions / span
+					)
+				else
+					self.beam:SetRibbonFlat(self.spline, 0, 1)
+				end
+			end
 		end
 
 		function META:Push(position, drift_dt)
@@ -312,7 +414,7 @@ do
 		local META = {}
 		META.__index = META
 
-		function vfx.AcquireSlashTrail(color, strength, count)
+		function vfx.AcquireSlashTrail(color, strength, count, overlay_kind, overlay_config)
 			local key = "slash" .. count
 			local object = acquire(key)
 
@@ -325,6 +427,11 @@ do
 							Ribbon = true,
 							Material = get_tint_material(vfx.GetTexture("slash")),
 						},
+						pane = Beam.New{
+							Points = count,
+							Ribbon = true,
+							Material = get_pane_material(),
+						},
 						left = double_array(count * 3),
 						right = double_array(count * 3),
 						flat_left = double_array(count * 3),
@@ -333,11 +440,18 @@ do
 					},
 					META
 				)
+				object.beam:SetEndFade(SLASH_END_FADE)
+				object.pane:SetEndFade(SLASH_END_FADE)
+				object.beam:SetUVByLength(true)
+				object.pane:SetUVByLength(true)
 			end
 
 			object.primed = false
 			object.head = 0
+			object.overlay_kind = overlay_kind
+			object.overlay_config = overlay_config
 			set_tint(object, color, strength, 1)
+			object.pane:SetTint(1, 1, 1, 1)
 			return object
 		end
 
@@ -349,6 +463,8 @@ do
 				fill(self.right, count, tip.x, tip.y, tip.z)
 				self.primed = true
 				self.beam:SetVisible(true)
+				self.pane:SetVisible(true)
+				self.overlay = surface_overlays.Add(self.pane.entity.visual, self.overlay_kind, self.overlay_config)
 			end
 
 			local o = self.head * 3
@@ -358,14 +474,35 @@ do
 			unwrap(self.left, self.head, count, self.flat_left)
 			unwrap(self.right, self.head, count, self.flat_right)
 			self.beam:SetStripFlat(self.flat_left, self.flat_right, 0, 1)
+			self.pane:SetStripFlat(self.flat_left, self.flat_right, 0, 1)
+			local stretch = self.overlay_config.UVStretch
+
+			if stretch then
+				local right = self.flat_right
+				local length = 0
+
+				for i = 3, count * 3 - 3, 3 do
+					local dx, dy, dz = right[i] - right[i - 3], right[i + 1] - right[i - 2], right[i + 2] - right[i - 1]
+					length = length + math.sqrt(dx * dx + dy * dy + dz * dz)
+				end
+
+				local last = (count - 1) * 3
+				local wx, wy, wz = right[last] - self.flat_left[last],
+				right[last + 1] - self.flat_left[last + 1],
+				right[last + 2] - self.flat_left[last + 2]
+				self.overlay:SetUVScale(math.sqrt(wx * wx + wy * wy + wz * wz), math.max(length, 0.05) / stretch)
+			end
 		end
 
 		function META:SetAlpha(alpha)
 			refresh_tint(self, alpha)
+			self.pane:SetTint(1, 1, 1, alpha * alpha)
 		end
 
 		function META:Release()
 			self.beam:SetVisible(false)
+			self.pane:SetVisible(false)
+			surface_overlays.Clear(self.pane.entity.visual)
 			release(self.key, self)
 		end
 	end
