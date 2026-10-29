@@ -7,7 +7,7 @@ local store = import("goluwa/render3d/scene/store.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local surface_effects = import("goluwa/render3d/surface_effects.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
-local exposure = import("goluwa/render3d/exposure.lua")
+local exposure_compensation = import("goluwa/render3d/exposure_compensation.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local surface_overlays = {}
 surface_overlays.MAX_SLOTS = 255
@@ -304,7 +304,7 @@ function surface_overlays.GetGLSL(block_name)
 	end
 
 	return (
-		glsl_common.GetNoiseGLSL() .. [[
+		glsl_common.GetNoiseGLSL() .. exposure_compensation.GetGLSL() .. [[
 		struct OverlayLayer {]] .. LAYER_FIELDS:gsub("float ([%w_]+)%[4%];", "vec4 %1;"):gsub("int32_t", "int") .. [[};
 
 		struct OverlaySlot {
@@ -458,13 +458,7 @@ function surface_overlays.GetGLSL(block_name)
 		}
 
 		float overlay_exposure_ev() {
-			if (BLOCK.overlay_exposure_tex == -1) return ]] .. surface_overlays.REFERENCE_EV .. [[.0;
-
-			float current = texture(TEXTURE(BLOCK.overlay_exposure_tex), vec2(0.5)).r;
-
-			if (current <= 0.0) return ]] .. surface_overlays.REFERENCE_EV .. [[.0;
-
-			return ]] .. exposure.LOG_EXPOSURE_AT_EV0 .. [[ - log2(current);
+			return exposure_compensation_ev(BLOCK.overlay_exposure_tex, ]] .. surface_overlays.REFERENCE_EV .. [[.0);
 		}
 
 		void overlay_cover(inout Surface s, float amount) {
