@@ -310,6 +310,7 @@ local ACOUSTIC_ABSORPTION = {
 	foliage = {0.10, 0.30, 0.50},
 	tree = {0.10, 0.25, 0.40},
 	flesh = {0.10, 0.30, 0.50},
+	open = {1, 1, 1},
 }
 local ACOUSTIC_ALIASES = {
 	solidmetal = "metal",
@@ -332,6 +333,11 @@ local ACOUSTIC_ALIASES = {
 	watermelon = "flesh",
 }
 local ACOUSTIC_WORDS = {
+	{"^toolsnodraw", "open"},
+	{"^toolsinvisible", "open"},
+	{"^toolsskybox", "open"},
+	{"^tools.*clip", "open"},
+	{"%f[%a]sky%f[%A]", "open"},
 	{"mattress", "mattress"},
 	{"%f[%a]bed%f[%A]", "mattress"},
 	{"couch", "upholstery"},
