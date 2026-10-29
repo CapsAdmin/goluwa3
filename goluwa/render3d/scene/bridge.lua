@@ -457,4 +457,18 @@ function bridge.RefreshDynamic()
 	end
 end
 
+function bridge.RefreshBounds(visual)
+	local list = visual.scene_instances
+
+	if not list then return end
+
+	local visual_box = visual:GetWorldAABB()
+
+	for i = 1, #list do
+		local box = bridge.GetEntryBox(list[i].entry, list[i].matrix) or visual_box
+
+		if box then instances.SetRasterBox(list[i].id, box) end
+	end
+end
+
 return bridge

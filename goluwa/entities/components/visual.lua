@@ -1243,8 +1243,26 @@ function Visual:GetRenderEntries()
 end
 
 function Visual:BuildAABB()
-	self:GetRenderEntries()
-	return self:GetAABB()
+	if self.RenderEntriesDirty then
+		self:RebuildRenderEntries()
+		return self:GetAABB()
+	end
+
+	local bounds = create_empty_aabb()
+
+	for _, entry in ipairs(self.RenderEntries) do
+		local aabb = build_transformed_aabb(entry.source_aabb, entry.local_matrix)
+		entry.aabb = aabb
+
+		if aabb then bounds:Expand(aabb) end
+	end
+
+	self.WorldAABBCache = nil
+	self.WorldAABBCacheMatrix = nil
+	self.WorldAABBCacheSource = nil
+	self:SetAABB(bounds)
+	scene_bridge.RefreshBounds(self)
+	return bounds
 end
 
 function Visual:GetWorldMatrix()
