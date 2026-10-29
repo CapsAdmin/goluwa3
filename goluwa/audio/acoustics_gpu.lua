@@ -23,7 +23,8 @@ local BINDING_MATERIALS = 3
 local BINDING_TLAS = 4
 local BINDING_HIT = 5
 local MAX_GROUPS = MAX_RAYS / GROUP_SIZE
-local OUTPUT_FLOATS = MAX_GROUPS * ACC + MAX_SAMPLES * SAMPLE_FLOATS + MAX_QUERIES * 4
+local QUERY_FLOATS = acoustics.QUERY_FLOATS
+local OUTPUT_FLOATS = MAX_GROUPS * ACC + MAX_SAMPLES * SAMPLE_FLOATS + MAX_QUERIES * QUERY_FLOATS
 local float_ptr = ffi.typeof("float *")
 
 local function build_pipeline(slots)
@@ -110,6 +111,7 @@ local function build_pipeline(slots)
 			#define MAX_GROUPS %d
 			#define SAMPLE_FLOATS %d
 			#define MAX_SAMPLES %d
+			#define QUERY_FLOATS %d
 			#define DEFAULT_ABSORPTION vec3(%f, %f, %f)
 
 			shared float reduce_buffer[GROUP_SIZE];
@@ -162,13 +164,22 @@ local function build_pipeline(slots)
 					vec4 a = queries[q * 2u];
 					vec4 b = queries[q * 2u + 1u];
 					vec4 r = vec4(-1.0, 0.0, 0.0, 0.0);
+					vec3 absorption = vec3(0.0);
 
-					if (b.w > a.w && scene_trace(a.xyz, b.xyz, a.w, b.w, hit)) r = vec4(hit.distance, hit.normal);
+					if (b.w > a.w && scene_trace(a.xyz, b.xyz, a.w, b.w, hit)) {
+						r = vec4(hit.distance, hit.normal);
+						absorption = acoustic_absorption(hit.instance);
+					}
 
-					result[query_base + q * 4u] = r.x;
-					result[query_base + q * 4u + 1u] = r.y;
-					result[query_base + q * 4u + 2u] = r.z;
-					result[query_base + q * 4u + 3u] = r.w;
+					uint at = query_base + q * uint(QUERY_FLOATS);
+					result[at] = r.x;
+					result[at + 1u] = r.y;
+					result[at + 2u] = r.z;
+					result[at + 3u] = r.w;
+					result[at + 4u] = absorption.x;
+					result[at + 5u] = absorption.y;
+					result[at + 6u] = absorption.z;
+					result[at + 7u] = 0.0;
 					return;
 				}
 
@@ -319,6 +330,7 @@ local function build_pipeline(slots)
 				MAX_GROUPS,
 				SAMPLE_FLOATS,
 				MAX_SAMPLES,
+				QUERY_FLOATS,
 				acoustics.DEFAULT_ABSORPTION[1],
 				acoustics.DEFAULT_ABSORPTION[2],
 				acoustics.DEFAULT_ABSORPTION[3]
@@ -440,7 +452,7 @@ function META:ReadResult(job, slot)
 	local queries = result.queries
 	local query_base = sample_base + MAX_SAMPLES * SAMPLE_FLOATS
 
-	for i = 0, job.query_count * 4 - 1 do
+	for i = 0, job.query_count * QUERY_FLOATS - 1 do
 		queries[i + 1] = out[query_base + i]
 	end
 

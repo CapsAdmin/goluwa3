@@ -26,6 +26,7 @@ acoustics.TRUSTED_RAYS = 256
 acoustics.MIN_T60 = 0.05
 acoustics.MAX_T60 = 12
 acoustics.REMOTE_T60_RATIO = 1.6
+acoustics.QUERY_FLOATS = 8
 acoustics.DIFFUSE_ESCAPING = 0.1
 acoustics.SPARSE_ESCAPING = 0.35
 local LN10_OVER_10 = math.log(10) / 10
@@ -394,7 +395,7 @@ function acoustics.RunQueries(tracer, job, result)
 
 	for i = 0, job.query_count - 1 do
 		local at = i * 8
-		local distance, nx, ny, nz = tracer:Trace(
+		local distance, nx, ny, nz, absorption = tracer:Trace(
 			q[at + 1],
 			q[at + 2],
 			q[at + 3],
@@ -404,10 +405,15 @@ function acoustics.RunQueries(tracer, job, result)
 			q[at + 4],
 			q[at + 8]
 		)
-		out[i * 4 + 1] = distance or -1
-		out[i * 4 + 2] = nx or 0
-		out[i * 4 + 3] = ny or 0
-		out[i * 4 + 4] = nz or 0
+		local o = i * acoustics.QUERY_FLOATS
+		out[o + 1] = distance or -1
+		out[o + 2] = nx or 0
+		out[o + 3] = ny or 0
+		out[o + 4] = nz or 0
+		out[o + 5] = absorption and absorption[1] or 0
+		out[o + 6] = absorption and absorption[2] or 0
+		out[o + 7] = absorption and absorption[3] or 0
+		out[o + 8] = 0
 	end
 end
 
@@ -818,7 +824,8 @@ function META:Absorb(job, result)
 	local frame_visible = {}
 
 	for _, check in ipairs(job.fresnel) do
-		local visible = q[check.query * 4 + 1] < 0 and q[check.query * 4 + 5] < 0
+		local at = check.query * acoustics.QUERY_FLOATS
+		local visible = q[at + 1] < 0 and q[at + acoustics.QUERY_FLOATS + 1] < 0
 		local counts = frame_visible[check.sound]
 
 		if not counts then
@@ -848,14 +855,14 @@ function META:Absorb(job, result)
 	end
 
 	for _, check in ipairs(job.reflection_checks) do
-		local at = check.query * 4
+		local at = check.query * acoustics.QUERY_FLOATS
 		local distance = q[at + 1]
 		local tolerance = math.max(0.3, check.expected * 0.03)
 		local normal_dot = q[at + 2] * check.normal.x + q[at + 3] * check.normal.y + q[at + 4] * check.normal.z
 		local valid = distance >= 0 and
 			math.abs(distance - check.expected) <= tolerance and
 			normal_dot > 0.8 and
-			q[at + 5] < 0
+			q[at + acoustics.QUERY_FLOATS + 1] < 0
 		local env = self:GetEnvironment(check.sound)
 
 		if valid then
