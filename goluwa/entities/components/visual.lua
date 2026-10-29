@@ -1053,7 +1053,12 @@ function Visual:SetModelPath(path)
 
 			local mesh = data.mesh
 
-			if not mesh.mesh:IsValid() then return end
+			if not mesh.mesh:IsValid() then
+				logf("%s model %q has a removed mesh\n", self, path)
+				self:MakeError()
+				failed_models[self] = true
+				return
+			end
 
 			primitive_index = primitive_index + 1
 
