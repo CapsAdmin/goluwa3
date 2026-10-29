@@ -1,12 +1,27 @@
 local event = import("goluwa/event.lua")
 local audio = import("goluwa/audio.lua")
 local system = import("goluwa/system.lua")
+local vfs = import("goluwa/vfs.lua")
+local resource = import("goluwa/resource.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local sounds = import("lua/sounds.lua")
 local RANGE = 40
 local MIN_SPEED = 1
 local HARD_SPEED = 3
 local LOUD_SPEED = 7
 local INTERVAL = 0.05
+local SCRAPE_MIN = 0.3
+local SCRAPE_ROUGH = 2.5
+local LOUD_SLIP = 4
+local ROLL_MIN = 0.3
+local LOUD_ROLL = 5
+local GROUND_GAIN = 0.6
+local GRAIN_GAIN = 0.5
+local GRAIN_SPACING = 0.3
+local MAX_LOOPS = 8
+local ATTACK = 0.08
+local RELEASE = 0.15
+local STALE = 0.1
 
 local function range(path, first, last)
 	local list = {last = 0}
@@ -353,6 +368,162 @@ local SURFACES = {
 	water = "water",
 	wade = "water",
 }
+local LOOPS = {
+	concrete = {
+		"physics/concrete/concrete_scrape_smooth_loop1.wav",
+		"physics/concrete/rock_scrape_rough_loop1.wav",
+	},
+	concrete_block = {
+		"physics/concrete/concrete_scrape_smooth_loop1.wav",
+		"physics/concrete/concrete_block_scrape_rough_loop1.wav",
+	},
+	rock = {
+		"physics/concrete/rock_scrape_rough_loop1.wav",
+		"physics/concrete/rock_scrape_rough_loop1.wav",
+	},
+	boulder = {
+		"physics/concrete/rock_scrape_rough_loop1.wav",
+		"physics/concrete/concrete_block_scrape_rough_loop1.wav",
+	},
+	dirt = {
+		"physics/cardboard/cardboard_box_scrape_rough_loop1.wav",
+		"physics/cardboard/cardboard_box_scrape_rough_loop1.wav",
+	},
+	carpet = {"physics/flesh/flesh_scrape_rough_loop.wav", "physics/flesh/flesh_scrape_rough_loop.wav"},
+	metal = {
+		"physics/metal/metal_box_scrape_smooth_loop1.wav",
+		"physics/metal/metal_box_scrape_rough_loop1.wav",
+	},
+	metal_box = {
+		"physics/metal/metal_box_scrape_smooth_loop1.wav",
+		"physics/metal/metal_box_scrape_rough_loop1.wav",
+	},
+	metal_vent = {
+		"physics/metal/metal_box_scrape_smooth_loop1.wav",
+		"physics/metal/metal_box_scrape_rough_loop2.wav",
+	},
+	metal_barrel = {
+		"physics/metal/metal_box_scrape_smooth_loop1.wav",
+		"physics/metal/metal_box_scrape_rough_loop1.wav",
+		"physics/metal/canister_roll_loop1.wav",
+	},
+	canister = {
+		"physics/metal/canister_scrape_smooth_loop1.wav",
+		"physics/metal/canister_scrape_rough_loop1.wav",
+		"physics/metal/canister_roll_loop1.wav",
+	},
+	computer = {
+		"physics/metal/metal_box_scrape_smooth_loop1.wav",
+		"physics/metal/metal_box_scrape_rough_loop1.wav",
+	},
+	metal_grate = {
+		"physics/metal/metal_box_scrape_smooth_loop1.wav",
+		"physics/metal/metal_box_scrape_rough_loop1.wav",
+	},
+	chainlink = {
+		"physics/metal/metal_chainlink_scrape_rough_loop1.wav",
+		"physics/metal/metal_chainlink_scrape_rough_loop1.wav",
+	},
+	chain = {"physics/metal/chain_scrape_rough_loop1.wav", "physics/metal/chain_scrape_rough_loop1.wav"},
+	grenade = {
+		"physics/metal/metal_grenade_scrape_smooth_loop1.wav",
+		"physics/metal/metal_grenade_scrape_rough_loop1.wav",
+		"physics/metal/metal_grenade_roll_loop1.wav",
+	},
+	paintcan = {
+		"physics/plastic/plastic_box_scrape_smooth_loop2.wav",
+		"physics/metal/soda_can_scrape_rough_loop1.wav",
+		"physics/metal/paintcan_roll_loop1.wav",
+	},
+	popcan = {
+		"physics/plastic/plastic_box_scrape_smooth_loop2.wav",
+		"physics/metal/soda_can_scrape_rough_loop1.wav",
+		"physics/metal/paintcan_roll_loop1.wav",
+	},
+	weapon = {
+		"physics/plastic/plastic_box_scrape_smooth_loop2.wav",
+		"physics/metal/soda_can_scrape_rough_loop1.wav",
+	},
+	vehicle = {
+		"physics/metal/metal_box_scrape_smooth_loop1.wav",
+		"physics/metal/metal_box_scrape_rough_loop1.wav",
+	},
+	wood = {
+		"physics/wood/wood_plank_scrape_smooth_loop1.wav",
+		"physics/wood/wood_solid_scrape_rough_loop1.wav",
+	},
+	wood_solid = {
+		"physics/wood/wood_plank_scrape_smooth_loop1.wav",
+		"physics/wood/wood_solid_scrape_rough_loop1.wav",
+	},
+	wood_box = {
+		"physics/wood/wood_box_scrape_smooth_loop1.wav",
+		"physics/wood/wood_box_scrape_rough_loop1.wav",
+	},
+	wood_crate = {
+		"physics/wood/wood_box_scrape_smooth_loop1.wav",
+		"physics/wood/wood_crate_scrape_rough_loop1.wav",
+	},
+	wood_furniture = {
+		"physics/wood/wood_box_scrape_smooth_loop1.wav",
+		"physics/wood/wood_box_scrape_rough_loop1.wav",
+	},
+	wood_panel = {
+		"physics/wood/wood_box_scrape_smooth_loop1.wav",
+		"physics/wood/wood_box_scrape_rough_loop1.wav",
+	},
+	wood_plank = {
+		"physics/wood/wood_plank_scrape_smooth_loop1.wav",
+		"physics/wood/wood_plank_scrape_rough_loop1.wav",
+	},
+	plastic = {
+		"physics/plastic/plastic_box_scrape_smooth_loop2.wav",
+		"physics/plastic/plastic_box_scrape_rough_loop1.wav",
+	},
+	plastic_barrel = {
+		"physics/plastic/plastic_barrel_scrape_smooth_loop1.wav",
+		"physics/plastic/plastic_barrel_scrape_rough_loop1.wav",
+		"physics/plastic/plastic_barrel_roll_loop1.wav",
+	},
+	cardboard = {
+		"physics/cardboard/cardboard_box_scrape_smooth_loop1.wav",
+		"physics/cardboard/cardboard_box_scrape_rough_loop1.wav",
+	},
+	paper_cup = {
+		"physics/cardboard/cardboard_box_scrape_smooth_loop1.wav",
+		"physics/metal/soda_can_scrape_rough_loop1.wav",
+	},
+	drywall = {
+		"physics/plaster/ceiling_tile_scrape_smooth_loop1.wav",
+		"physics/plaster/ceiling_tile_scrape_smooth_loop1.wav",
+	},
+	ceiling_tile = {
+		"physics/plaster/ceiling_tile_scrape_smooth_loop1.wav",
+		"physics/plaster/ceiling_tile_scrape_smooth_loop1.wav",
+	},
+	rubber = {
+		"physics/plastic/plastic_box_scrape_smooth_loop2.wav",
+		"physics/cardboard/cardboard_box_scrape_rough_loop1.wav",
+	},
+	flesh = {
+		"physics/body/body_medium_scrape_smooth_loop1.wav",
+		"physics/body/body_medium_scrape_rough_loop1.wav",
+	},
+	bloody_flesh = {
+		"physics/body/body_medium_scrape_smooth_loop1.wav",
+		"physics/body/body_medium_scrape_rough_loop1.wav",
+	},
+	squishy = {
+		"physics/body/body_medium_scrape_smooth_loop1.wav",
+		"physics/body/body_medium_scrape_rough_loop1.wav",
+	},
+}
+
+for name, loops in pairs(LOOPS) do
+	local found = SETS[name]
+	found.smooth, found.rough, found.roll = loops[1], loops[2], loops[3]
+end
+
 local resolved = {}
 
 local function get_set(surface)
@@ -397,4 +568,186 @@ event.AddListener("Impact", "physics_impacts", function(info)
 		found.volume * math.min(info.Speed / LOUD_SPEED, 1),
 		math.randomf(0.95, 1.05)
 	)
+end)
+
+local voices = table.weak("k")
+local active = {}
+local idle = {}
+local missing = {}
+
+local function stop_voice(voice)
+	voice.source:Stop()
+	voice.owner[voice.path] = nil
+	local pool = idle[voice.path]
+
+	if not pool then
+		pool = {}
+		idle[voice.path] = pool
+	end
+
+	pool[#pool + 1] = voice.source
+
+	for i = 1, #active do
+		if active[i] == voice then
+			table.remove(active, i)
+
+			break
+		end
+	end
+end
+
+local function get_source(path)
+	local pool = idle[path]
+
+	if pool and pool[1] then return table.remove(pool) end
+
+	if missing[path] or not vfs.IsFile("sound/" .. path) then
+		missing[path] = true
+		return
+	end
+
+	resource.skip_providers = true
+	local source = audio.CreateSource("sound/" .. path)
+	resource.skip_providers = false
+	source:SetLooping(true)
+	source:SetReferenceDistance(2)
+	source:SetMaxDistance(40)
+	return source
+end
+
+local function get_priority(voice)
+	return voice.target / math.max(voice.position:Distance(audio.GetListenerPosition()), 1)
+end
+
+local function drive(owner, path, volume, pitch, low, mid, high, position, now)
+	local voice = owner[path]
+
+	if not voice then
+		local quietest
+
+		if #active >= MAX_LOOPS then
+			for _, other in ipairs(active) do
+				if not quietest or get_priority(other) < get_priority(quietest) then
+					quietest = other
+				end
+			end
+
+			if volume / math.max(position:Distance(audio.GetListenerPosition()), 1) <= get_priority(quietest) then
+				return
+			end
+
+			stop_voice(quietest)
+		end
+
+		local source = get_source(path)
+
+		if not source then return end
+
+		voice = {source = source, owner = owner, path = path, volume = 0, tone = Vec3(1, 1, 1)}
+		owner[path] = voice
+		active[#active + 1] = voice
+		source:SetVolume(0)
+		source:SetBandGains(voice.tone)
+		source:SetPosition(position)
+		source:Play()
+	end
+
+	voice.target = volume
+	voice.pitch = pitch
+	voice.tone:Set(low, mid, high)
+	voice.position = position
+	voice.updated = now
+end
+
+local function get_layers(entity, other)
+	local row = voices[entity]
+
+	if not row then
+		row = table.weak("k")
+		voices[entity] = row
+	end
+
+	local layers = row[other]
+
+	if not layers then
+		layers = {scrape = {}, ground = {}, object = {}, grain_distance = 0, grain_time = 0}
+		row[other] = layers
+	end
+
+	return layers
+end
+
+event.AddListener("Contact", "physics_sounds", function(info)
+	if info.Position:Distance(audio.GetListenerPosition()) > RANGE then return end
+
+	local found = get_set(info.Surface)
+	local now = system.GetElapsedTime()
+	local layers = get_layers(info.Entity, info.Other)
+	local slip, roll = info.Slip, info.Roll
+
+	if slip >= SCRAPE_MIN then
+		local path = slip >= SCRAPE_ROUGH and found.rough or found.smooth
+		local speed = math.min(slip / LOUD_SLIP, 1)
+
+		if path then
+			drive(layers.scrape, path, found.volume * speed, 0.9 + 0.2 * speed, 1, 1, 1, info.Position, now)
+		end
+	end
+
+	if roll < ROLL_MIN then return end
+
+	local speed = math.min(roll / LOUD_ROLL, 1)
+
+	if info.Rolling then
+		if found.smooth then
+			drive(
+				layers.ground,
+				found.smooth,
+				found.volume * GROUND_GAIN * speed,
+				0.6 + 0.6 * speed,
+				1,
+				0.4 + 0.6 * speed,
+				0.1 + 0.9 * speed,
+				info.Position,
+				now
+			)
+		end
+	elseif found.roll then
+		drive(layers.object, found.roll, found.volume * speed, 0.7 + 0.5 * speed, 1, 1, 1, info.Position, now)
+	else
+		local dt = now - layers.grain_time
+		layers.grain_time = now
+		layers.grain_distance = layers.grain_distance + roll * (dt < STALE and dt or 0)
+
+		if layers.grain_distance >= GRAIN_SPACING then
+			layers.grain_distance = 0
+			local paths = found.soft
+			local index = math.random(#paths)
+
+			if index == paths.last then index = index % #paths + 1 end
+
+			paths.last = index
+			sounds.Play(paths[index], info.Position, found.volume * GRAIN_GAIN * speed, math.randomf(0.9, 1.1))
+		end
+	end
+end)
+
+event.AddListener("Update", "physics_sounds", function(dt)
+	local now = system.GetElapsedTime()
+
+	for i = #active, 1, -1 do
+		local voice = active[i]
+		local target = now - voice.updated > STALE and 0 or voice.target
+		voice.volume = voice.volume + (
+				target - voice.volume
+			) * math.min(dt / (target > voice.volume and ATTACK or RELEASE), 1)
+
+		if target == 0 and voice.volume < 0.002 then
+			stop_voice(voice)
+		else
+			voice.source:SetVolume(voice.volume)
+			voice.source:SetPitch(voice.pitch)
+			voice.source:SetPosition(voice.position)
+		end
+	end
 end)

@@ -1,20 +1,27 @@
 local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
+local system = import("goluwa/system.lua")
 local impacts = {}
 
-function impacts.Fire(entity, part, kind, hit, speed)
+local function get_surface(hit)
 	local material = physics.GetHitMaterial(hit)
+	return material and
+		material:GetSurfaceType() or
+		hit.entity.ragdoll_part and
+		"flesh" or
+		"default",
+	material
+end
+
+function impacts.Fire(entity, part, kind, hit, speed)
+	local surface, material = get_surface(hit)
 	event.Call(
 		"Impact",
 		{
 			Entity = entity,
 			Part = part,
 			Kind = kind,
-			Surface = material and
-				material:GetSurfaceType() or
-				hit.entity.ragdoll_part and
-				"flesh" or
-				"default",
+			Surface = surface,
 			Material = material,
 			Other = hit.entity,
 			Position = hit.position,
@@ -69,14 +76,17 @@ do
 		end
 	end
 
+	local function is_ignored(entity_a, entity_b)
+		if entity_a.character_movement or entity_b.character_movement then return true end
+
+		local part_a, part_b = entity_a.ragdoll_part, entity_b.ragdoll_part
+		return part_a and part_b and part_a.Character == part_b.Character
+	end
+
 	function impacts.FirePhysics(impact)
 		local entity_a, entity_b = impact.entity_a, impact.entity_b
 
-		if entity_a.character_movement or entity_b.character_movement then return end
-
-		local part_a, part_b = entity_a.ragdoll_part, entity_b.ragdoll_part
-
-		if part_a and part_b and part_a.Character == part_b.Character then return end
+		if is_ignored(entity_a, entity_b) then return end
 
 		local normal = impact.normal
 		fire_side(
@@ -85,6 +95,72 @@ do
 			impact.speed
 		)
 		fire_side(entity_a, get_surface_hit(entity_b, impact.position, normal), impact.speed)
+	end
+
+	local SURFACE_REFRESH = 0.25
+	local surfaces = table.weak("k")
+
+	local function fire_contact(entity, other, surface, material, contact, normal, rolling)
+		local part = entity.ragdoll_part
+		event.Call(
+			"Contact",
+			{
+				Entity = part and part.Character or entity,
+				Part = part and part.Group,
+				Other = other,
+				Surface = surface,
+				Material = material,
+				Position = contact.position,
+				Normal = normal,
+				Slip = contact.slip,
+				Roll = contact.roll,
+				Rolling = rolling,
+			}
+		)
+	end
+
+	function impacts.FireContact(contact)
+		local entity_a, entity_b = contact.entity_a, contact.entity_b
+
+		if is_ignored(entity_a, entity_b) then return end
+
+		local row = surfaces[entity_a]
+
+		if not row then
+			row = table.weak("k")
+			surfaces[entity_a] = row
+		end
+
+		local now = system.GetElapsedTime()
+		local cached = row[entity_b]
+
+		if not cached or now - cached.time > SURFACE_REFRESH then
+			local normal = contact.normal
+			cached = cached or {}
+			cached.time = now
+			cached.surface_a, cached.material_a = get_surface(contact.hit_a or get_surface_hit(entity_a, contact.position, normal * -1))
+			cached.surface_b, cached.material_b = get_surface(get_surface_hit(entity_b, contact.position, normal))
+			row[entity_b] = cached
+		end
+
+		fire_contact(
+			entity_b,
+			entity_a,
+			cached.surface_a,
+			cached.material_a,
+			contact,
+			contact.normal,
+			contact.roller == contact.body_b
+		)
+		fire_contact(
+			entity_a,
+			entity_b,
+			cached.surface_b,
+			cached.material_b,
+			contact,
+			contact.normal * -1,
+			contact.roller == contact.body_a
+		)
 	end
 end
 

@@ -5,10 +5,11 @@ local Material = import("goluwa/render3d/material.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 import("addons/game/lua/autorun/impacts.lua")
 
-T.TestPhysics("a physics impact fires an Impact from each side with the surface it hit", function()
+local function create_concrete_ground()
 	local poly = Polygon3D.New()
 	poly.Vertices = {
 		{pos = Vec3(-8, 0, -8)},
@@ -26,6 +27,11 @@ T.TestPhysics("a physics impact fires an Impact from each side with the surface 
 		"rigid_body",
 		{Shapes = {{Polygon3D = poly}}, MotionType = "static", WorldGeometry = true}
 	)
+	return ground
+end
+
+T.TestPhysics("a physics impact fires an Impact from each side with the surface it hit", function()
+	local ground = create_concrete_ground()
 	local box = Entity.New({Name = "impact_box"})
 	box:AddComponent("transform")
 	box.transform:SetPosition(Vec3(0, 1.5, 0))
@@ -52,5 +58,36 @@ T.TestPhysics("a physics impact fires an Impact from each side with the surface 
 	T(from_ground.Surface)["=="]("default")
 	T(from_box.Speed)["=="](from_ground.Speed)
 	box:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("a rolling ball fires a Contact from each side, rolling on the ball's side", function()
+	local ground = create_concrete_ground()
+	ground.rigid_body:SetFriction(0.8)
+	local ball = Entity.New({Name = "contact_ball"})
+	ball:AddComponent("transform")
+	ball.transform:SetPosition(Vec3(-4, 0.6, 0))
+	ball:AddComponent("rigid_body", {Shape = SphereShape.New(0.25), Radius = 0.25, Friction = 0.8})
+	ball.rigid_body:SetVelocity(Vec3(4, -2, 0))
+	local from_ball, from_ground = {}, {}
+	event.AddListener("Contact", "contacts_test", function(info)
+		if info.Entity == ball then from_ball[#from_ball + 1] = info end
+
+		if info.Entity == ground then from_ground[#from_ground + 1] = info end
+	end)
+	test_helpers.Simulate(120)
+	event.RemoveListener("Contact", "contacts_test")
+	T(#from_ball > 20)["=="](true)
+	T(#from_ball)["=="](#from_ground)
+	local last_ball, last_ground = from_ball[#from_ball], from_ground[#from_ground]
+	T(last_ball.Other)["=="](ground)
+	T(last_ball.Surface)["=="]("concrete")
+	T(last_ball.Rolling)["=="](true)
+	T(last_ball.Roll > 1)["=="](true)
+	T(last_ground.Other)["=="](ball)
+	T(last_ground.Surface)["=="]("default")
+	T(last_ground.Rolling)["=="](false)
+	T(last_ground.Roll)["=="](last_ball.Roll)
+	ball:Remove()
 	ground:Remove()
 end)
