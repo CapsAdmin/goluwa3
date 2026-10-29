@@ -8,6 +8,7 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
+local exposure_compensation = import("goluwa/render3d/exposure_compensation.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
@@ -99,10 +100,12 @@ local camera_block = {
 		render3d.camera_block,
 		render3d.prev_camera_block,
 		surface_overlays.block,
+		exposure_compensation.block,
 	},
 	write = function(self, block)
 		render3d.WriteCameraBlock(self, block)
 		surface_overlays.WriteBlock(self, block)
+		exposure_compensation.WriteBlock(self, block)
 		return render3d.WritePreviousCameraBlock(self, block)
 	end,
 	upload_scope = "frame",
@@ -369,7 +372,7 @@ local passes = {
 				) .. [[
 				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
 			]],
-			shader = glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_overlays.GetGLSL("translucent_camera") .. (
+			shader = glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_overlays.GetGLSL("translucent_camera") .. exposure_compensation.GetGLSL() .. (
 					scene_reflection.RAY_QUERY and
 					glass_light.GetGLSL("ddgi_scene") or
 					""
@@ -807,6 +810,8 @@ local passes = {
 						if (VertexTint) {
 							emission = DisplayReferred ? emission * in_vertex_color.rgb * in_vertex_color.a : min(get_emissive(in_uv) * in_vertex_color.rgb, vec3(EMISSIVE_MAX_LUMINANCE)) * in_vertex_color.a * get_pre_exposure();
 						}
+						if (!DisplayReferred) emission *= effect_exposure_gain(translucent_camera.exposure_compensation_tex, color_model.ExposureCompensation);
+
 						vec3 specular = (direct_specular + ambient_specular) * specular_coverage * get_pre_exposure();
 
 						if (VertexTint) {

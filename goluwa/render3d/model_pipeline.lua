@@ -34,6 +34,11 @@ local PBR_MATERIAL_FIELDS = {
 }
 local PBR_COLOR_FIELDS = {
 	{type = "vec4", name = "ColorMultiplier", getter = "GetColorMultiplier"},
+	{
+		type = "float",
+		name = "ExposureCompensation",
+		getter = "GetExposureCompensation",
+	},
 }
 local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "MetallicMultiplier", getter = "GetMetallicMultiplier"},

@@ -6,6 +6,7 @@ local system = import("goluwa/system.lua")
 local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
+local exposure_compensation = import("goluwa/render3d/exposure_compensation.lua")
 local trails = {}
 trails.MAX_TRAILS = 128
 trails.MAX_POINTS = 160
@@ -25,6 +26,7 @@ local Header = ffi.typeof([[struct {
 	float drift;
 	float tint_end[3];
 	float flicker;
+	float exposure_compensation;
 	int32_t count;
 	int32_t head;
 	int32_t texture_slot;
@@ -77,6 +79,7 @@ function trails.Acquire(config)
 	header.drift = config.drift or 0
 	header.tint_end[0], header.tint_end[1], header.tint_end[2] = config.r_end or config.r, config.g_end or config.g, config.b_end or config.b
 	header.flicker = config.flicker or 0
+	header.exposure_compensation = config.exposure_compensation or 0
 	header.count = config.points
 	header.head = 0
 	header.texture_slot = get_texture_slot(config.texture)
@@ -230,6 +233,7 @@ local vertex_outputs = {
 	{"alpha", "float"},
 	{"texture_slot", "float"},
 	{"flicker", "float"},
+	{"exposure_compensation", "float"},
 	{"motion", "vec2"},
 }
 local common_glsl = [[
@@ -246,6 +250,7 @@ local common_glsl = [[
 		float drift;
 		vec3 tint_end;
 		float flicker;
+		float exposure_compensation;
 		int count;
 		int head;
 		int texture_slot;
@@ -284,6 +289,7 @@ local vertex_glsl = common_glsl .. [[
 			out_alpha = 0.0;
 			out_texture_slot = 0.0;
 			out_flicker = 0.0;
+			out_exposure_compensation = 0.0;
 			out_motion = vec2(0.0);
 			return;
 		}
@@ -315,13 +321,13 @@ local vertex_glsl = common_glsl .. [[
 		out_alpha = header.alpha;
 		out_texture_slot = float(header.texture_slot);
 		out_flicker = header.flicker;
+		out_exposure_compensation = header.exposure_compensation;
 		vec4 clip = trail_draw.projection * trail_draw.view * vec4(world, 1.0);
 		vec4 prev_clip = trail_draw.prev_projection * trail_draw.prev_view * vec4(world, 1.0);
 		out_motion = clip.w > 0.0001 && prev_clip.w > 0.0001 ? (clip.xy / clip.w - prev_clip.xy / prev_clip.w) * 0.5 : vec2(0.0);
 		gl_Position = trail_draw.projection * trail_draw.view * vec4(world, 1.0);
 	}
 ]]
-
 trails.name = "trails"
 
 function trails.Draw(pipeline, cmd)
@@ -352,7 +358,7 @@ function trails.BuildPasses()
 			},
 			fragment = {
 				uniform_buffers = {draw_block},
-				shader = post_source.GetPreExposureGLSL("trail_draw") .. translucent_moments.GLSL .. render3d.GetEmissiveGLSL() .. [[
+				shader = post_source.GetPreExposureGLSL("trail_draw") .. exposure_compensation.GetGLSL() .. translucent_moments.GLSL .. render3d.GetEmissiveGLSL() .. [[
 					void main() {
 						ivec2 pixel = ivec2(gl_FragCoord.xy);
 						float transmittance = moments_transmittance(
@@ -364,7 +370,7 @@ function trails.BuildPasses()
 						float n0 = fract(sin(floor(in_uv.y * 48.0 - trail_draw.time * 9.0) * 12.9898) * 43758.5453);
 						float n1 = fract(sin((floor(in_uv.y * 48.0 - trail_draw.time * 9.0) + 1.0) * 12.9898) * 43758.5453);
 						float flick = 1.0 - in_flicker * mix(n0, n1, smoothstep(0.0, 1.0, fract(in_uv.y * 48.0 - trail_draw.time * 9.0)));
-						vec3 emission = min(texel * in_tint * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE)) * in_alpha * flick * get_pre_exposure();
+						vec3 emission = min(texel * in_tint * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE)) * in_alpha * flick * get_pre_exposure() * effect_exposure_gain(trail_draw.pre_exposure_tex, in_exposure_compensation);
 						set_color(vec4(0.0));
 						float coverage = trail_draw.motion_enabled != 0 ? clamp(dot(texel, vec3(0.3333)) * 4.0, 0.0, 1.0) * clamp(in_alpha * 8.0, 0.0, 1.0) : 0.0;
 						set_motion(vec4(in_motion * coverage, coverage, 0.0) * transmittance);

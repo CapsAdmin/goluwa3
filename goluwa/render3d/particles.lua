@@ -22,6 +22,7 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
+local exposure_compensation = import("goluwa/render3d/exposure_compensation.lua")
 local particles = {}
 particles.MAX_SYSTEMS = 8
 particles.LOCAL_SIZE = 64
@@ -566,6 +567,7 @@ function particles.BuildSimulationPasses()
 				{"frame", "int"},
 				{"dt", "float"},
 				{"env_irradiance_tex", "int"},
+				post_source.pre_exposure_block,
 				{"lights", scene_lights.BuildLightsBlockLayout(), scene_lights.MAX_LIGHTS},
 				{"light_count", "int"},
 				{"shadows", scene_lights.BuildShadowsBlockLayout()},
@@ -583,6 +585,7 @@ function particles.BuildSimulationPasses()
 				block.frame = system.GetFrameNumber()
 				block.dt = particles.GetStepTime()
 				block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
+				post_source.WritePreExposureBlock(self, block)
 				surface_weather.WriteBlock(self, block)
 				gbuffer_layout.WriteBlock(self, block)
 				block.bvh_ready = bvh_ready and 1 or 0
@@ -706,7 +709,7 @@ function particles.BuildSimulationPasses()
 					or
 					""
 				),
-			shader = glsl_common.GetHashGLSL() .. glsl_common.GetPhaseGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("particle_data") .. screen_reconstruct.GetViewDepthGLSL("particle_data") .. (
+			shader = glsl_common.GetHashGLSL() .. exposure_compensation.GetGLSL() .. glsl_common.GetPhaseGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("particle_data") .. screen_reconstruct.GetViewDepthGLSL("particle_data") .. (
 					hit.IsSupported() and
 					hit.GetTraceGLSL("particle_scene") or
 					hit.GetStubTraceGLSL()

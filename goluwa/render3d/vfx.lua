@@ -9,10 +9,12 @@ local shapes = import("goluwa/render3d/shapes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local trails = import("goluwa/render3d/trails.lua")
+local commands = import("goluwa/cli/commands.lua")
+local sprites = import("goluwa/render3d/sprites.lua")
 local vfx = {}
 local UP = Vec3(0, 1, 0)
 local WHITE = Color(1, 1, 1, 1)
-local TINTED = {VertexTint = true}
+vfx.exposure_compensation = {particles = 0, sprites = 0, trails = 0}
 
 do
 	local textures = {}
@@ -120,7 +122,12 @@ local function get_tint_material(texture)
 	local material = tint_materials[texture]
 
 	if not material then
-		material = Beam.CreateRibbonMaterial(WHITE, 1, texture, TINTED)
+		material = Beam.CreateRibbonMaterial(
+			WHITE,
+			1,
+			texture,
+			{VertexTint = true, ExposureCompensation = vfx.exposure_compensation.trails}
+		)
 		tint_materials[texture] = material
 	end
 
@@ -368,7 +375,18 @@ do
 	local META = {}
 	META.__index = META
 
-	function vfx.AcquireGpuTrail(color, strength, count, radius, texture, drift, end_color, flicker)
+	function vfx.AcquireGpuTrail(
+		color,
+		strength,
+		count,
+		radius,
+		texture,
+		drift,
+		end_color,
+		flicker,
+		exposure_compensation
+	)
+		exposure_compensation = exposure_compensation or vfx.exposure_compensation.trails
 		end_color = end_color or color
 		return setmetatable(
 			{
@@ -386,6 +404,7 @@ do
 					g_end = end_color.g * strength,
 					b_end = end_color.b * strength,
 					flicker = flicker,
+					exposure_compensation = exposure_compensation,
 				},
 				end_color = end_color,
 				color_r = color.r,
@@ -496,11 +515,36 @@ end
 do
 	local emitters = {}
 	local definitions = {}
+	local live_emitters = setmetatable({}, {__mode = "k"})
 
 	function vfx.CreateEmitter(name, properties)
+		properties.ExposureCompensation = properties.ExposureCompensation or vfx.exposure_compensation.particles
 		local entity = Entity.New{Name = name, transform = {}, particle_emitter_gpu = properties}
 		entity:SetTransient(true)
+		live_emitters[entity] = true
 		return entity
+	end
+
+	function vfx.SetExposureCompensation(category, amount)
+		assert(
+			vfx.exposure_compensation[category] ~= nil,
+			"unknown exposure compensation category " .. tostring(category)
+		)
+		vfx.exposure_compensation[category] = amount
+
+		if category == "sprites" then
+			sprites.SetExposureCompensation(amount)
+		elseif category == "trails" then
+			for _, material in pairs(tint_materials) do
+				material:SetExposureCompensation(amount)
+			end
+		else
+			for entity in pairs(live_emitters) do
+				if entity:IsValid() then
+					entity.particle_emitter_gpu:SetExposureCompensation(amount)
+				end
+			end
+		end
 	end
 
 	function vfx.DefineBurst(key, properties)
@@ -645,5 +689,9 @@ do
 		end
 	end)
 end
+
+commands.Add("vfx_exposure=string,number", function(category, amount)
+	vfx.SetExposureCompensation(category, amount)
+end)
 
 return vfx

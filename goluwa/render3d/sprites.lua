@@ -8,6 +8,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
 local Color = import("goluwa/structs/color.lua")
 local sprites = {}
+sprites.exposure_compensation = 0
 local VertexType = vertex_math.VertexType
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local VERTEX_FLOATS = vertex_layout.FloatStride
@@ -90,6 +91,16 @@ local function build(batch, capacity)
 	batch.last_count = 0
 end
 
+function sprites.SetExposureCompensation(amount)
+	sprites.exposure_compensation = amount
+
+	for _, by_extra in pairs(batches) do
+		for _, batch in pairs(by_extra) do
+			batch.material:SetExposureCompensation(amount)
+		end
+	end
+end
+
 function sprites.GetBatch(texture, extra, color)
 	texture = texture or Beam.GetGlowTexture()
 	local by_extra = batches[texture]
@@ -115,7 +126,7 @@ function sprites.GetBatch(texture, extra, color)
 
 	if batch then return batch end
 
-	local config = {VertexTint = color == nil}
+	local config = {VertexTint = color == nil, ExposureCompensation = sprites.exposure_compensation}
 
 	if extra then for name, value in pairs(extra) do
 		config[name] = value

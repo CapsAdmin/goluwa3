@@ -159,6 +159,7 @@ gpu.system = particles.Register{
 				{"restitution", "float"},
 				{"friction", "float"},
 				{"emissive", "float"},
+				{"exposure_compensation", "float"},
 				{"sparkle", "float"},
 				{"saturation_jitter", "float"},
 				{"shape", "int"},
@@ -216,6 +217,7 @@ gpu.system = particles.Register{
 			entry.restitution = emitter.Restitution
 			entry.friction = emitter.Friction
 			entry.emissive = emitter.Emissive
+			entry.exposure_compensation = emitter.ExposureCompensation
 			entry.sparkle = emitter.Sparkle
 			entry.saturation_jitter = emitter.SaturationJitter
 			entry.shape = SHAPES[emitter.Shape]
@@ -348,7 +350,7 @@ gpu.system = particles.Register{
 		float luma = dot(tint, vec3(0.2126, 0.7152, 0.0722));
 		float jitter = fract(sin(p.life * 4321.987 + 3.7) * 24634.6345);
 		tint = max(mix(vec3(luma), tint, 1.0 + (jitter - 0.5) * 2.0 * e.saturation_jitter), vec3(0.0));
-		p.radiance = tint * ((e.lit != 0 ? p.light : vec3(0.0)) + e.emissive);
+		p.radiance = tint * ((e.lit != 0 ? p.light : vec3(0.0)) + e.emissive * effect_exposure_gain(particle_data.pre_exposure_tex, e.exposure_compensation));
 	]],
 	collision_mode = [[
 		uint slot;
