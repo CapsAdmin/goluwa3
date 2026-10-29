@@ -5,6 +5,7 @@ return {
 	Name = "decay",
 	Label = "DCY",
 	Negative = true,
+	Overlay = "status_decay",
 	Color = Color(0.75, 0.15, 0.7, 1),
 	Rate = 0.5,
 	Decay = 0.1,

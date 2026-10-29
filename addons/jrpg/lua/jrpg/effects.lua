@@ -75,6 +75,7 @@ local Material = import("goluwa/render3d/material.lua")
 local Beam = import("goluwa/render3d/beam.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
 local clips = import("goluwa/render3d/clips.lua")
+local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 effects.vfx = vfx
 local sprites = import("goluwa/render3d/sprites.lua")
 local hitmarkers = import("lua/hitmarkers.lua")
@@ -886,20 +887,48 @@ do
 	local SPAWN_RATE = 70
 	local EMITTER_BUDGET = 16
 	local emitter_count = 0
+
+	local function release_status_overlays(state)
+		for _, handle in ipairs(state.handles) do
+			handle:Remove()
+		end
+
+		table.clear(state.handles)
+		table.clear(state.visuals)
+	end
+
 	local layers = {
 		{
-			Update = function(p, v)
-				local definition = p.definition
-				local pulse = definition.Fill and 1 or 0.6 + 0.4 * math.sin(v.time * 6)
+			Update = function(p, v, state)
+				local children = p.entity:GetChildrenList()
 
-				if definition.Flicker then pulse = math.random() ^ 3 * 2 end
+				if state.source ~= children then
+					state.source = children
+					release_status_overlays(state)
+					collect_visuals(p.entity, state.visuals)
 
-				effects.AddOverlay(
-					p.entity,
-					p.color,
-					math.min(p.amount, 1) * pulse * 1.5,
-					definition.Fill and definition.Fill * math.min(p.amount * 1.5, 1) or 0
-				)
+					for _, visual in ipairs(state.visuals) do
+						state.handles[#state.handles + 1] = surface_overlays.Add(visual, p.definition.Overlay, {ColorA = p.color, Intensity = state.intensity})
+					end
+				end
+
+				local intensity = math.min(p.amount, 1)
+
+				if math.abs(intensity - state.intensity) > 0.01 then
+					state.intensity = intensity
+
+					for _, handle in ipairs(state.handles) do
+						handle:SetIntensity(intensity)
+					end
+				end
+			end,
+			Remove = function(p, state)
+				release_status_overlays(state)
+			end,
+			Setup = function(p, state)
+				state.handles = {}
+				state.visuals = {}
+				state.intensity = math.min(p.amount, 1)
 			end,
 		},
 		{

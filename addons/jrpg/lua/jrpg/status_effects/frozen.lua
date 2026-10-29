@@ -4,9 +4,9 @@ return {
 	Name = "frozen",
 	Label = "FRZ",
 	Negative = true,
+	Overlay = "status_frozen",
 	Color = Color(0.6, 0.85, 1, 1),
 	Decay = 0.12,
-	Fill = 0.22,
 	Particles = {
 		GravityScale = 0.15,
 		SpeedMin = 0.02,

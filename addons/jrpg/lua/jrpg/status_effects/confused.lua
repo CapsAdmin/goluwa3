@@ -3,6 +3,7 @@ return {
 	Name = "confused",
 	Label = "CNF",
 	Negative = true,
+	Overlay = "status_confused",
 	Color = Color(1, 0.95, 0.4, 1),
 	Decay = 0.2,
 	Orbit = true,

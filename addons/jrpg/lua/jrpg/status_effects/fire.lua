@@ -5,6 +5,7 @@ return {
 	Name = "fire",
 	Label = "BRN",
 	Negative = true,
+	Overlay = "status_fire",
 	Color = Color(1, 0.45, 0.08, 1),
 	Rate = 0.4,
 	Decay = 0.2,

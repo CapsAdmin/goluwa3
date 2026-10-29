@@ -5,6 +5,7 @@ return {
 	Name = "poison",
 	Label = "PSN",
 	Negative = true,
+	Overlay = "status_poison",
 	Color = Color(0.35, 1, 0.3, 1),
 	Rate = 1,
 	Decay = 0.08,

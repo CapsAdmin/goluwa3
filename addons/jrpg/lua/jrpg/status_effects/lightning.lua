@@ -6,6 +6,7 @@ return {
 	Name = "lightning",
 	Label = "SHK",
 	Negative = true,
+	Overlay = "status_lightning",
 	Color = Color(0.8, 0.85, 1, 1),
 	Rate = 0.15,
 	Decay = 0.25,
