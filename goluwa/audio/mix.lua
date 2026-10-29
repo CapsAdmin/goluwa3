@@ -20,6 +20,7 @@ local voice_t = ffi.typeof(
 	struct {
 		float *history;
 		float *tap_history;
+		float *side_history;
 		double written;
 		double last_signal;
 		double volume;
@@ -58,6 +59,7 @@ function mix.CreateMixer(state, sample_rate, max_frames)
 		voices = ffi.new(ffi.typeof("$[$]", voice_t, SLOT_COUNT)),
 		histories = {},
 		tap_histories = {},
+		side_histories = {},
 		cue_left = {},
 		cue_right = {},
 		cue_state = ffi.new("double[?]", CUE_GROUPS * 12),
@@ -99,9 +101,12 @@ local function reset_voice(mixer, index, voice, slot)
 			voice.history = mixer.histories[index]
 			mixer.tap_histories[index] = ffi.new("float[?]", mix.HISTORY_SIZE)
 			voice.tap_history = mixer.tap_histories[index]
+			mixer.side_histories[index] = ffi.new("float[?]", mix.HISTORY_SIZE)
+			voice.side_history = mixer.side_histories[index]
 		else
 			ffi.fill(voice.history, mix.HISTORY_SIZE * 4)
 			ffi.fill(voice.tap_history, mix.HISTORY_SIZE * 4)
+			ffi.fill(voice.side_history, mix.HISTORY_SIZE * 4)
 		end
 	end
 
@@ -148,21 +153,23 @@ end
 
 local function read_source(samples, channels, length, index, looping)
 	if index >= length then
-		if not looping then return 0 end
+		if not looping then return 0, 0 end
 
 		index = index % length
 	end
 
 	if channels == 2 then
-		return (samples[index * 2] + samples[index * 2 + 1]) * 0.5
+		local l, r = samples[index * 2], samples[index * 2 + 1]
+		return (l + r) * 0.5, (l - r) * 0.5
 	end
 
-	return samples[index]
+	return samples[index], 0
 end
 
 local function emit(mixer, slot, voice, frames, sample_rate)
 	local history = voice.history
 	local tap_history = voice.tap_history
+	local side_history = voice.side_history
 	local written = voice.written
 	local volume = voice.volume
 	local target_volume = slot.volume
@@ -174,6 +181,7 @@ local function emit(mixer, slot, voice, frames, sample_rate)
 			local at = bit.band(written + i, HISTORY_MASK)
 			history[at] = 0
 			tap_history[at] = 0
+			side_history[at] = 0
 		end
 
 		for i = 0, 3 do
@@ -216,18 +224,21 @@ local function emit(mixer, slot, voice, frames, sample_rate)
 					local at = bit.band(written + j, HISTORY_MASK)
 					history[at] = 0
 					tap_history[at] = 0
+					side_history[at] = 0
 				end
 
 				break
 			end
 		end
 
-		local a = read_source(samples, channels, length, index, looping)
-		local b = read_source(samples, channels, length, index + 1, looping)
+		local a, sa = read_source(samples, channels, length, index, looping)
+		local b, sb = read_source(samples, channels, length, index + 1, looping)
 		volume = volume + volume_step
-		local x = (a + (b - a) * (position - index)) * volume
+		local f = position - index
+		local x = (a + (b - a) * f) * volume
 		local at = bit.band(written + i, HISTORY_MASK)
 		history[at] = x
+		side_history[at] = (sa + (sb - sa) * f) * volume
 		la = la + ca * (x - la)
 		lb = lb + ca * (la - lb)
 		ha = ha + cb * (x - ha)
@@ -265,6 +276,9 @@ local filter_coefficients = ffi.new("double[12]")
 
 local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, frames)
 	local history = voice.history
+	local side_history = voice.side_history
+	local stereo = slot.channels == 2
+	local side_sign = ear == 0 and 1 or -1
 	local ca = mixer.coefficient_low
 	local cb = mixer.coefficient_high
 	local states = voice.ear_state
@@ -313,7 +327,13 @@ local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, fram
 		end
 
 		for i = from, to - 1 do
-			local x = dsp.ReadCubic(history, HISTORY_MASK, base + i - (delay + slope * (i + 1)))
+			local read = base + i - (delay + slope * (i + 1))
+			local x = dsp.ReadCubic(history, HISTORY_MASK, read)
+
+			if stereo then
+				x = x + side_sign * dsp.ReadCubic(side_history, HISTORY_MASK, read)
+			end
+
 			la = la + ca * (x - la)
 			lb = lb + ca * (la - lb)
 			ha = ha + cb * (x - ha)
@@ -693,6 +713,7 @@ local function mix_block(mixer, out, frames)
 				if was_idle and slot.active and not slot.paused then
 					ffi.fill(voice.history, mix.HISTORY_SIZE * 4)
 					ffi.fill(voice.tap_history, mix.HISTORY_SIZE * 4)
+					ffi.fill(voice.side_history, mix.HISTORY_SIZE * 4)
 					voice.idle = false
 				end
 
