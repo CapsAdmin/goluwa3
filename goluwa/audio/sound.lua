@@ -226,7 +226,7 @@ function module.Attach(audio)
 			self:SetName(path)
 			self:SetVolume(self:GetVolume())
 			configure_sound_buffer(self, res.data, res.samples, res.channels, res.sample_rate)
-			self:SetLooping(false)
+			self:SetLooping(self:IsLooping())
 
 			if self.play_on_ready then
 				local playback_position = self.play_on_ready.position or 0
