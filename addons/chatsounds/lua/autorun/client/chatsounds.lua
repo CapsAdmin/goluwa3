@@ -10,13 +10,13 @@ event.AddListener("ClientChat", "chatsounds", function(client, str, seed)
 		chatsounds.Initialize()
 
 		chatsounds.LoadRepositories():Then(function()
-			chatsounds.Say(str, seed)
+			chatsounds.Say(str, seed, nil, client)
 			loading = false
 			ready = true
 		end)
 
 		loading = true
 	else
-		chatsounds.Say(str, seed)
+		chatsounds.Say(str, seed, nil, client)
 	end
 end)

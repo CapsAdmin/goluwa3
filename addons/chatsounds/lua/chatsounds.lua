@@ -8,6 +8,8 @@ import.loaded["lua/chatsounds.lua"] = chatsounds
 import("lua/list_parsing.lua")
 import("lua/repositories.lua")
 chatsounds.max_iterations = 1000
+chatsounds.voice_inner_cone = 90
+chatsounds.voice_back_gain = 0.5
 local choose_realm
 
 local function dump_script(out)
@@ -683,8 +685,9 @@ local function unpack_args(data)
 	return unpack(args)
 end
 
-function chatsounds.PlayScript(script)
+function chatsounds.PlayScript(script, speaker)
 	local sounds = {}
+	local spatial = speaker ~= nil and event.Call("ClientVoiceOrigin", speaker) ~= nil
 
 	for _, chunk in ipairs(script) do
 		if chunk.type == "matched" then
@@ -769,7 +772,13 @@ function chatsounds.PlayScript(script)
 
 					local sound = {}
 					sound.snd = audio.CreateSound()
-					sound.snd:SetSpatial(false)
+					sound.snd:SetSpatial(spatial)
+
+					if spatial then
+						sound.speaker = speaker
+						sound.snd:SetCone(chatsounds.voice_inner_cone, 360, chatsounds.voice_back_gain)
+					end
+
 					sound.snd:LoadPath(path)
 					sound.duration = chunk.val.duration
 					sound.trigger = chunk.val.trigger
@@ -876,6 +885,15 @@ if chatsounds.active_tracks then chatsounds.Panic() end
 
 chatsounds.active_tracks = {}
 
+local function follow_speaker(sound)
+	local position, direction = event.Call("ClientVoiceOrigin", sound.speaker)
+
+	if position then
+		sound.snd:SetPosition(position)
+		sound.snd:SetDirection(direction)
+	end
+end
+
 function chatsounds.Update()
 	if chatsounds.queue_calc[1] then
 		for i, v in ipairs(chatsounds.queue_calc) do
@@ -892,6 +910,8 @@ function chatsounds.Update()
 	for i, track in ipairs(chatsounds.active_tracks) do
 		for i, sound in ipairs(track) do
 			if sound.start_time < time then
+				if sound.speaker then follow_speaker(sound) end
+
 				if not sound.started then
 					sound:play()
 					sound.started = true
@@ -912,7 +932,7 @@ function chatsounds.Update()
 	end
 end
 
-function chatsounds.Say(str, seed, custom_id)
+function chatsounds.Say(str, seed, custom_id, speaker)
 	str = str:lower()
 
 	if not chatsounds.tree and not custom_id then
@@ -945,7 +965,7 @@ function chatsounds.Say(str, seed, custom_id)
 		str = str .. ";"
 
 		for line in str:gmatch("(.-);") do
-			chatsounds.Say(line, seed)
+			chatsounds.Say(line, seed, custom_id, speaker)
 		end
 
 		return
@@ -973,7 +993,7 @@ function chatsounds.Say(str, seed, custom_id)
 
 	if chatsounds.debug then dump_script(script) end
 
-	chatsounds.PlayScript(script)
+	chatsounds.PlayScript(script, speaker)
 	return script
 end
 

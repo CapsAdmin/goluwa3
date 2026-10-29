@@ -55,7 +55,7 @@ A tracer (`acoustics_gpu.lua`: ray queries on the scene TLAS in a PreRenderPass 
 
 ## Voices
 
-- `event.Call("ClientVoiceOrigin", client)` returns where a client speaks from and where it faces: the world `mouth` socket of its player (`addons/game/lua/autorun/audio/voice.lua`), or nothing when it has no character.
+- `event.Call("ClientVoiceOrigin", client)` returns where a client speaks from and where it faces: the world `mouth` socket of its player (`addons/game/lua/autorun/audio/voice.lua`), or nothing when it has no character. Chatsounds play spatially from it, following it every frame, with a voice cone (full level within 45 degrees of the face, falling to -6 dB behind, `chatsounds.voice_inner_cone`, `voice_back_gain`); a speaker without an origin (console, no player yet) plays them non-spatial. The addon only fires the event, so it does not depend on `game`.
 
 ## Debugging
 
