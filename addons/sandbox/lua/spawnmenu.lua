@@ -10,6 +10,8 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local physics = import("goluwa/physics.lua")
 local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
+local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
+local clipboard = import("goluwa/bindings/clipboard.lua")
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 local previews = import("lua/asset_preview.lua")
@@ -140,6 +142,13 @@ function spawnmenu.Spawn(entry)
 	spawn_requests.Spawn(kind, name, position, yaw)
 end
 
+local function open_entry_menu(entry)
+	Panel.OpenContextMenu(
+		{OnClose = |menu|->menu:Remove()},
+		MenuItem{Text = "Copy path", Icon = "copy", OnClick = ||->clipboard.Set(entry.path)}
+	)
+end
+
 local function draw_tile(item, index, x, y, w, h, selected, hovered)
 	refresh_colors()
 	render2d.DrawBox(
@@ -197,6 +206,7 @@ local TileGrid = react.Component(
 				ContentPadding = 4,
 				OnDrawItem = draw_tile,
 				OnClick = spawnmenu.Spawn,
+				OnContextMenu = open_entry_menu,
 				OnHoverItem = set_hovered,
 				layout = {GrowWidth = 1, GrowHeight = 1},
 			},
@@ -355,6 +365,7 @@ local FactionGrid = react.Component(
 			ContentPadding = NPC_GRID_PADDING,
 			OnDrawItem = draw_tile,
 			OnClick = spawnmenu.Spawn,
+			OnContextMenu = open_entry_menu,
 			Size = Vec2(0, height),
 			MinSize = Vec2(0, height),
 			MaxSize = Vec2(0, height),
