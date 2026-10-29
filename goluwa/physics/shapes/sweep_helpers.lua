@@ -707,6 +707,23 @@ function helpers.GetCapsuleContactForPointAtPose(collider, point, radius, positi
 	}
 end
 
+function helpers.TracePointAgainstBody(shape, collider, origin, movement, max_fraction)
+	local length = movement:GetLength()
+
+	if length <= EPSILON then return nil end
+
+	local hit = shape:TraceAgainstBody(collider, origin, movement, length * max_fraction, 0)
+
+	if not hit then return nil end
+
+	return {
+		t = hit.distance / length,
+		position = hit.position,
+		point = hit.position,
+		normal = hit.normal,
+	}
+end
+
 do
 	local function evaluate_polyhedron_contact(context, point, position, rotation, relative_movement)
 		return helpers.GetPolyhedronContactForPointAtPose(

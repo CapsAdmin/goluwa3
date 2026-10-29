@@ -1072,20 +1072,7 @@ end
 
 function META:SweepPointAgainstBody(collider, origin, movement, radius, target_state, max_fraction)
 	if radius <= 0.001 then
-		local length = movement:GetLength()
-
-		if length <= EPSILON then return nil end
-
-		local hit = self:TraceAgainstBody(collider, origin, movement, length * max_fraction, 0)
-
-		if not hit then return nil end
-
-		return {
-			t = hit.distance / length,
-			position = hit.position,
-			point = hit.position,
-			normal = hit.normal,
-		}
+		return sweep_helpers.TracePointAgainstBody(self, collider, origin, movement, max_fraction)
 	end
 
 	local capsule_radius = self:GetRadius()

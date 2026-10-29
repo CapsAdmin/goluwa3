@@ -285,6 +285,10 @@ function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_
 end
 
 function META:SweepPointAgainstBody(collider, origin, movement, radius, target_state, max_fraction)
+	if radius <= 0.001 then
+		return sweep_helpers.TracePointAgainstBody(self, collider, origin, movement, max_fraction)
+	end
+
 	return sweep_helpers.SweepPointAgainstPolyhedronBody(
 		collider,
 		self:GetPolyhedron(collider),

@@ -87,9 +87,7 @@ local function collect_box_support_contact(context, collider, point, fallback_hi
 	end
 
 	local margin = collider:GetCollisionMargin() or 0
-	local depth = (
-		fallback_hit.position + fallback_hit.normal * margin - point
-	):Dot(fallback_hit.normal)
+	local depth = (fallback_hit.position + fallback_hit.normal * margin - point):Dot(fallback_hit.normal)
 	local support_tolerance = (collider:GetCollisionProbeDistance() or 0) + margin
 
 	if depth < -support_tolerance then return end
@@ -438,6 +436,10 @@ do
 end
 
 function META:SweepPointAgainstBody(collider, origin, movement, radius, target_state, max_fraction)
+	if radius <= 0.001 then
+		return sweep_helpers.TracePointAgainstBody(self, collider, origin, movement, max_fraction)
+	end
+
 	return sweep_helpers.SweepPointAgainstPolyhedronBody(
 		collider,
 		self:GetPolyhedron(collider),

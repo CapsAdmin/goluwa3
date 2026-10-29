@@ -548,7 +548,11 @@ T.TestPhysics("Sphere sweep point contact with a tilted box follows the rounded 
 	ramp.transform:SetRotation(Quat(math.sin(rad / 2), 0, 0, math.cos(rad / 2)))
 	local body = ramp:AddComponent(
 		"rigid_body",
-		{Shape = BoxShape.New(Vec3(8, thickness, length)), MotionType = "static", GravityScale = 0}
+		{
+			Shape = BoxShape.New(Vec3(8, thickness, length)),
+			MotionType = "static",
+			GravityScale = 0,
+		}
 	)
 	local collider = body:GetColliders()[1]
 	local polyhedron = collider:GetPhysicsShape():GetPolyhedron(body)
@@ -575,4 +579,17 @@ T.TestPhysics("Sphere sweep point contact with a tilted box follows the rounded 
 	T(over_face)["~="](nil)
 	T(over_face.normal:Dot(normal))[">"](0.999)
 	ramp:Remove()
+end)
+
+T.TestPhysics("Physics point sweep hits a small box at the end of a long sweep", function()
+	local ent = Entity.New{
+		transform = {Position = Vec3(150, 0, 0)},
+		rigid_body = {Shape = BoxShape.New(Vec3(0.3, 0.3, 0.3)), MotionType = "static"},
+	}
+	local options = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
+	local hit = physics.Sweep(Vec3(0, 0.1, 0), Vec3(300, 0, 0), 0, nil, nil, options)
+	T(hit)["~="](nil)
+	T(hit.rigid_body)["=="](ent.rigid_body)
+	T(hit.position.x)["~"](149.85, 1e-3)
+	ent:Remove()
 end)
