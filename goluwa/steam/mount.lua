@@ -5,6 +5,7 @@ local file_path = import("goluwa/filesystem/path.lua")
 local codec = import("goluwa/codec.lua")
 local utility = import("goluwa/utility.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local event = import("goluwa/event.lua")
 return function(steam)
 	commands.Add("mount=string", function(game)
 		local game_info = assert(steam.MountSourceGame(game))
@@ -877,6 +878,7 @@ return function(steam)
 			end
 
 			cache_mounted[game_info.filesystem.steamappid] = game_info
+			event.Call("SourceGameMounted", game_info)
 			return game_info
 		end
 
