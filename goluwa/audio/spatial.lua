@@ -1,5 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local dsp = import("goluwa/audio/dsp.lua")
+local audio_state = import("goluwa/audio/state.lua")
+local CUE_GROUPS = audio_state.CUE_GROUPS
 local spatial = {}
 spatial.AIR_ABSORPTION_DB = {0.0011, 0.006, 0.05}
 spatial.MIN_RATE = -3
@@ -95,6 +97,22 @@ function spatial.GetPinnaCues(height, front, toward, strength)
 		) * strength,
 	spatial.PINNA_OVERHEAD.gain * math.max(height, 0) * strength,
 	spatial.PINNA_FRONT.gain * front * strength
+end
+
+function spatial.WriteCueGroups(state, strength)
+	for group = 0, CUE_GROUPS - 1 do
+		local height = (math.floor(group / 2) - 1) * audio_state.CUE_GROUP_HEIGHT
+		local front = (group % 2 == 0 and 1 or -1) * math.sqrt(1 - height * height)
+		local notch_frequency, notch_gain, overhead_gain, front_gain = spatial.GetPinnaCues(height, front, 0, strength)
+		local at = group * 3
+		state.cue_frequency[at], state.cue_gain[at] = notch_frequency, notch_gain
+		state.cue_frequency[at + 1], state.cue_gain[at + 1] = spatial.PINNA_OVERHEAD.frequency, overhead_gain
+		state.cue_frequency[at + 2], state.cue_gain[at + 2] = spatial.PINNA_FRONT.frequency, front_gain
+	end
+
+	state.cue_q[0] = spatial.PINNA_NOTCH.q
+	state.cue_q[1] = spatial.PINNA_OVERHEAD.q
+	state.cue_q[2] = spatial.PINNA_FRONT.q
 end
 
 function spatial.RetardedDelay(ear, source, source_velocity, speed)
@@ -278,8 +296,12 @@ function spatial.WriteSlot(slot, paths, sound, time)
 		local tap = env and env.taps[t + 1]
 
 		if tap then
-			slot.tap_delay[t] = tap.delay
-			slot.tap_rate[t] = tap.rate
+			slot.tap_delay[t * 2] = tap.delay_left
+			slot.tap_delay[t * 2 + 1] = tap.delay_right
+			slot.tap_rate[t * 2] = tap.rate_left
+			slot.tap_rate[t * 2 + 1] = tap.rate_right
+			slot.tap_height[t] = tap.height
+			slot.tap_front[t] = tap.front
 			slot.tap_gain[t * 2] = tap.gain_left
 			slot.tap_gain[t * 2 + 1] = tap.gain_right
 		else
@@ -329,6 +351,10 @@ function spatial.Attach(audio)
 
 	function audio.UpdateListenerMotion(time)
 		spatial.UpdateMotion(audio.listener_motion, audio.listener_position, time)
+	end
+
+	function audio.UpdateCueGroups()
+		spatial.WriteCueGroups(audio.state, audio.pinna_cues:Get())
 	end
 
 	return audio

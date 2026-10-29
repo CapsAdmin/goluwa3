@@ -119,6 +119,7 @@ function module.Attach(audio)
 	function audio.Update()
 		local time = audio.clock()
 		audio.UpdateListenerMotion(time)
+		audio.UpdateCueGroups()
 
 		if audio.acoustics then audio.acoustics:Update(time) end
 

@@ -963,6 +963,8 @@ function META:UpdateTaps(sound, env, time)
 	local listener = audio.listener_position
 	local forward = audio.listener_forward:GetNormalized()
 	local right = forward:GetCross(audio.listener_up):GetNormalized()
+	local up = right:GetCross(forward)
+	local half_ear = right * (audio.ear_distance * 0.5)
 	local source = sound:GetPosition()
 	local motion = sound.audio_motion
 	local velocity = motion and motion.velocity or Vec3(0, 0, 0)
@@ -1006,14 +1008,23 @@ function META:UpdateTaps(sound, env, time)
 						sound:GetOuterConeGain()
 					) * spatial.AirAbsorption(2, path)
 				local image_velocity = velocity - n * (2 * velocity:GetDot(n))
-				local delay = 0
-				local rate = 0
+				local delay_left, delay_right = 0, 0
+				local rate_left, rate_right = 0, 0
 
 				if audio.doppler_factor > 0 then
-					delay = spatial.RetardedDelay(listener, image, image_velocity, speed)
-					rate = spatial.DelayRate(
-						image - image_velocity * delay,
-						listener,
+					local left_ear, right_ear = listener - half_ear, listener + half_ear
+					delay_left = spatial.RetardedDelay(left_ear, image, image_velocity, speed)
+					delay_right = spatial.RetardedDelay(right_ear, image, image_velocity, speed)
+					rate_left = spatial.DelayRate(
+						image - image_velocity * delay_left,
+						left_ear,
+						image_velocity,
+						listener_velocity,
+						speed
+					)
+					rate_right = spatial.DelayRate(
+						image - image_velocity * delay_right,
+						right_ear,
 						image_velocity,
 						listener_velocity,
 						speed
@@ -1026,8 +1037,13 @@ function META:UpdateTaps(sound, env, time)
 					key = key,
 					point = point,
 					gain = gain,
-					delay = delay,
-					rate = rate,
+					delay = (delay_left + delay_right) * 0.5,
+					delay_left = delay_left,
+					delay_right = delay_right,
+					rate_left = rate_left,
+					rate_right = rate_right,
+					height = direction:GetDot(up),
+					front = front,
 					gain_left = gain * spatial.HeadShadow(2, -side, front),
 					gain_right = gain * spatial.HeadShadow(2, side, front),
 					band = {

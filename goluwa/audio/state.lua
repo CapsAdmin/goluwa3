@@ -5,6 +5,8 @@ audio.SLOT_COUNT = 32
 audio.MAX_TAPS = 8
 audio.BAND_COUNT = 3
 audio.BUS_COUNT = 2
+audio.CUE_GROUPS = 6
+audio.CUE_GROUP_HEIGHT = 0.7
 audio.distance_model = "inverse"
 audio.listener_position = Vec3(0, 0, 0)
 audio.listener_forward = Vec3(0, 0, -1)
@@ -51,13 +53,17 @@ local slot_t = ffi.typeof(
 		float tap_delay[$];
 		float tap_rate[$];
 		float tap_gain[$];
+		float tap_height[$];
+		float tap_front[$];
 		float tap_band[3];
 		float send[$];
 	}
 ]],
-	audio.MAX_TAPS,
-	audio.MAX_TAPS,
 	audio.MAX_TAPS * 2,
+	audio.MAX_TAPS * 2,
+	audio.MAX_TAPS * 2,
+	audio.MAX_TAPS,
+	audio.MAX_TAPS,
 	audio.BUS_COUNT
 )
 local bus_t = ffi.typeof([[
@@ -73,6 +79,9 @@ audio.mixer_state_t = ffi.typeof(
 	struct {
 		$ slots[$];
 		$ buses[$];
+		float cue_frequency[$];
+		float cue_gain[$];
+		float cue_q[3];
 		float master_volume;
 		uint32_t sample_rate;
 		double clock_offset;
@@ -88,7 +97,9 @@ audio.mixer_state_t = ffi.typeof(
 	slot_t,
 	audio.SLOT_COUNT,
 	bus_t,
-	audio.BUS_COUNT
+	audio.BUS_COUNT,
+	audio.CUE_GROUPS * 3,
+	audio.CUE_GROUPS * 3
 )
 audio.mixer_state_ptr_t = ffi.typeof("$*", audio.mixer_state_t)
 
@@ -96,6 +107,14 @@ function audio.CreateMixerState()
 	local state = audio.mixer_state_t()
 	state.master_volume = 1
 	state.sample_rate = 44100
+
+	for i = 0, audio.CUE_GROUPS * 3 - 1 do
+		state.cue_frequency[i] = 1000
+	end
+
+	for i = 0, 2 do
+		state.cue_q[i] = 1
+	end
 
 	for i = 0, audio.BUS_COUNT - 1 do
 		state.buses[i].t60[0] = 0.5

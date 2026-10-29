@@ -8,6 +8,9 @@ local HISTORY_MASK = mix.HISTORY_SIZE - 1
 local SLOT_COUNT = audio_state.SLOT_COUNT
 local MAX_TAPS = audio_state.MAX_TAPS
 local BUS_COUNT = audio_state.BUS_COUNT
+local CUE_GROUPS = audio_state.CUE_GROUPS
+local CUE_GROUP_HEIGHT = audio_state.CUE_GROUP_HEIGHT
+local CUE_TAIL_BLOCKS = 8
 local MIN_DELAY = 2
 local SLOPE_RESPONSE = 0.5
 local MIN_SLOPE = -3
@@ -16,6 +19,7 @@ local voice_t = ffi.typeof(
 	[[
 	struct {
 		float *history;
+		float *tap_history;
 		double written;
 		double last_signal;
 		double volume;
@@ -28,8 +32,9 @@ local voice_t = ffi.typeof(
 		double ear_filter_state[12];
 		double tap_delay[$];
 		double tap_gain[$];
+		double tap_group[$];
 		double tap_band[3];
-		double tap_state[8];
+		double tap_state[4];
 		double send[$];
 		uint32_t start_serial;
 		bool initialized;
@@ -37,8 +42,9 @@ local voice_t = ffi.typeof(
 		bool idle;
 	}
 ]],
-	MAX_TAPS,
 	MAX_TAPS * 2,
+	MAX_TAPS * 2,
+	MAX_TAPS * CUE_GROUPS,
 	BUS_COUNT
 )
 local scratch_t = ffi.typeof("double[?]")
@@ -51,6 +57,13 @@ function mix.CreateMixer(state, sample_rate, max_frames)
 		max_frames = max_frames,
 		voices = ffi.new(ffi.typeof("$[$]", voice_t, SLOT_COUNT)),
 		histories = {},
+		tap_histories = {},
+		cue_left = {},
+		cue_right = {},
+		cue_state = ffi.new("double[?]", CUE_GROUPS * 12),
+		cue_coefficients = ffi.new("double[?]", CUE_GROUPS * 12),
+		cue_used = false,
+		cue_tail = 0,
 		buses = {},
 		bus_input = {},
 		tap_left = scratch_t(max_frames),
@@ -71,6 +84,11 @@ function mix.CreateMixer(state, sample_rate, max_frames)
 		mixer.bus_input[b] = ffi.new("float[?]", max_frames)
 	end
 
+	for g = 0, CUE_GROUPS - 1 do
+		mixer.cue_left[g] = scratch_t(max_frames)
+		mixer.cue_right[g] = scratch_t(max_frames)
+	end
+
 	return mixer
 end
 
@@ -79,8 +97,11 @@ local function reset_voice(mixer, index, voice, slot)
 		if voice.history == nil then
 			mixer.histories[index] = ffi.new("float[?]", mix.HISTORY_SIZE)
 			voice.history = mixer.histories[index]
+			mixer.tap_histories[index] = ffi.new("float[?]", mix.HISTORY_SIZE)
+			voice.tap_history = mixer.tap_histories[index]
 		else
 			ffi.fill(voice.history, mix.HISTORY_SIZE * 4)
+			ffi.fill(voice.tap_history, mix.HISTORY_SIZE * 4)
 		end
 	end
 
@@ -94,7 +115,18 @@ local function reset_voice(mixer, index, voice, slot)
 
 	for i = 0, 7 do
 		voice.ear_state[i] = 0
+	end
+
+	for i = 0, 3 do
 		voice.tap_state[i] = 0
+	end
+
+	for i = 0, 2 do
+		voice.tap_band[i] = slot.tap_band[i]
+	end
+
+	for i = 0, MAX_TAPS * CUE_GROUPS - 1 do
+		voice.tap_group[i] = 0
 	end
 
 	for i = 0, 11 do
@@ -105,7 +137,7 @@ local function reset_voice(mixer, index, voice, slot)
 		voice.tap_gain[i] = 0
 	end
 
-	for i = 0, MAX_TAPS - 1 do
+	for i = 0, MAX_TAPS * 2 - 1 do
 		voice.tap_delay[i] = 0
 	end
 
@@ -128,8 +160,9 @@ local function read_source(samples, channels, length, index, looping)
 	return samples[index]
 end
 
-local function emit(slot, voice, frames, sample_rate)
+local function emit(mixer, slot, voice, frames, sample_rate)
 	local history = voice.history
+	local tap_history = voice.tap_history
 	local written = voice.written
 	local volume = voice.volume
 	local target_volume = slot.volume
@@ -138,13 +171,26 @@ local function emit(slot, voice, frames, sample_rate)
 
 	if not voice.emitting or slot.paused or not slot.active then
 		for i = 0, frames - 1 do
-			history[bit.band(written + i, HISTORY_MASK)] = 0
+			local at = bit.band(written + i, HISTORY_MASK)
+			history[at] = 0
+			tap_history[at] = 0
+		end
+
+		for i = 0, 3 do
+			voice.tap_state[i] = 0
 		end
 
 		voice.written = written + frames
 		return
 	end
 
+	local ca = mixer.coefficient_low
+	local cb = mixer.coefficient_high
+	local states = voice.tap_state
+	local la, lb, ha, hb = states[0], states[1], states[2], states[3]
+	local gl, gm, gh = voice.tap_band[0], voice.tap_band[1], voice.tap_band[2]
+	local tl, tm, th = slot.tap_band[0], slot.tap_band[1], slot.tap_band[2]
+	local dl, dm, dh = (tl - gl) / frames, (tm - gm) / frames, (th - gh) / frames
 	local samples = ffi.cast("float*", slot.buffer)
 	local channels = slot.channels
 	local length = slot.buffer_len
@@ -167,7 +213,9 @@ local function emit(slot, voice, frames, sample_rate)
 				slot.draining = true
 
 				for j = i, frames - 1 do
-					history[bit.band(written + j, HISTORY_MASK)] = 0
+					local at = bit.band(written + j, HISTORY_MASK)
+					history[at] = 0
+					tap_history[at] = 0
 				end
 
 				break
@@ -177,10 +225,22 @@ local function emit(slot, voice, frames, sample_rate)
 		local a = read_source(samples, channels, length, index, looping)
 		local b = read_source(samples, channels, length, index + 1, looping)
 		volume = volume + volume_step
-		history[bit.band(written + i, HISTORY_MASK)] = (a + (b - a) * (position - index)) * volume
+		local x = (a + (b - a) * (position - index)) * volume
+		local at = bit.band(written + i, HISTORY_MASK)
+		history[at] = x
+		la = la + ca * (x - la)
+		lb = lb + ca * (la - lb)
+		ha = ha + cb * (x - ha)
+		hb = hb + cb * (ha - hb)
+		gl = gl + dl
+		gm = gm + dm
+		gh = gh + dh
+		tap_history[at] = gh * x + (gm - gh) * hb + (gl - gm) * lb
 		position = position + rate
 	end
 
+	states[0], states[1], states[2], states[3] = la, lb, ha, hb
+	voice.tap_band[0], voice.tap_band[1], voice.tap_band[2] = tl, tm, th
 	slot.playback_pos = position
 	voice.last_signal = written + frames
 	voice.written = written + frames
@@ -295,8 +355,27 @@ local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, fram
 	end
 end
 
+local group_weights = ffi.new("double[?]", CUE_GROUPS)
+
+local function set_group_weights(height, front)
+	for g = 0, CUE_GROUPS - 1 do
+		group_weights[g] = 0
+	end
+
+	local across = math.sqrt(math.max(1 - height * height, 0))
+	local ahead = across > 0.001 and math.clamp(front / across, -1, 1) or 0
+	local level = math.clamp(height / CUE_GROUP_HEIGHT, -1, 1)
+	local row = level >= 0 and 2 or 0
+	local blend = math.abs(level)
+	local w_front, w_back = 0.5 + 0.5 * ahead, 0.5 - 0.5 * ahead
+	group_weights[2] = (1 - blend) * w_front
+	group_weights[3] = (1 - blend) * w_back
+	group_weights[row * 2] = group_weights[row * 2] + blend * w_front
+	group_weights[row * 2 + 1] = group_weights[row * 2 + 1] + blend * w_back
+end
+
 local function render_taps(mixer, slot, voice, base, frames, elapsed)
-	local history = voice.history
+	local tap_history = voice.tap_history
 	local sample_rate = mixer.sample_rate
 	local tap_left = mixer.tap_left
 	local tap_right = mixer.tap_right
@@ -309,8 +388,10 @@ local function render_taps(mixer, slot, voice, base, frames, elapsed)
 		local target_right = slot.tap_gain[t * 2 + 1]
 
 		if gain_left ~= 0 or gain_right ~= 0 or target_left ~= 0 or target_right ~= 0 then
-			local target = clamp_delay((slot.tap_delay[t] + slot.tap_rate[t] * elapsed) * sample_rate)
-			local delay = voice.tap_delay[t]
+			local target_delay_left = clamp_delay((slot.tap_delay[t * 2] + slot.tap_rate[t * 2] * elapsed) * sample_rate)
+			local target_delay_right = clamp_delay((slot.tap_delay[t * 2 + 1] + slot.tap_rate[t * 2 + 1] * elapsed) * sample_rate)
+			local delay_left = voice.tap_delay[t * 2]
+			local delay_right = voice.tap_delay[t * 2 + 1]
 			local silent = math.abs(gain_left) + math.abs(gain_right) < 1e-6
 
 			if not voice.initialized then
@@ -318,35 +399,52 @@ local function render_taps(mixer, slot, voice, base, frames, elapsed)
 			end
 
 			if silent or not voice.initialized then
-				delay = target
-			elseif math.abs(target - delay) > frames * MAX_SLOPE then
-				target = delay
+				delay_left, delay_right = target_delay_left, target_delay_right
+			elseif
+				math.abs(target_delay_left - delay_left) > frames * MAX_SLOPE or
+				math.abs(target_delay_right - delay_right) > frames * MAX_SLOPE
+			then
+				target_delay_left, target_delay_right = delay_left, delay_right
 				target_left = 0
 				target_right = 0
 			end
 
-			if not any then
-				any = true
-
-				for i = 0, frames - 1 do
-					tap_left[i] = 0
-					tap_right[i] = 0
-				end
-			end
-
-			local slope = (target - delay) / frames
+			any = true
+			local slope_left = (target_delay_left - delay_left) / frames
+			local slope_right = (target_delay_right - delay_right) / frames
 			local step_left = (target_left - gain_left) / frames
 			local step_right = (target_right - gain_right) / frames
 
 			for i = 0, frames - 1 do
-				local x = dsp.ReadLinear(history, HISTORY_MASK, base + i - (delay + slope * (i + 1)))
 				gain_left = gain_left + step_left
 				gain_right = gain_right + step_right
-				tap_left[i] = tap_left[i] + x * gain_left
-				tap_right[i] = tap_right[i] + x * gain_right
+				tap_left[i] = dsp.ReadLinear(tap_history, HISTORY_MASK, base + i - (delay_left + slope_left * (i + 1))) * gain_left
+				tap_right[i] = dsp.ReadLinear(tap_history, HISTORY_MASK, base + i - (delay_right + slope_right * (i + 1))) * gain_right
 			end
 
-			voice.tap_delay[t] = target
+			set_group_weights(slot.tap_height[t], slot.tap_front[t])
+
+			for g = 0, CUE_GROUPS - 1 do
+				local to = group_weights[g]
+				local w = voice.initialized and voice.tap_group[t * CUE_GROUPS + g] or to
+
+				if w ~= 0 or to ~= 0 then
+					local cue_left = mixer.cue_left[g]
+					local cue_right = mixer.cue_right[g]
+					local step = (to - w) / frames
+
+					for i = 0, frames - 1 do
+						w = w + step
+						cue_left[i] = cue_left[i] + tap_left[i] * w
+						cue_right[i] = cue_right[i] + tap_right[i] * w
+					end
+				end
+
+				voice.tap_group[t * CUE_GROUPS + g] = to
+			end
+
+			voice.tap_delay[t * 2] = target_delay_left
+			voice.tap_delay[t * 2 + 1] = target_delay_right
 			voice.tap_gain[t * 2] = target_left
 			voice.tap_gain[t * 2 + 1] = target_right
 		end
@@ -355,37 +453,58 @@ local function render_taps(mixer, slot, voice, base, frames, elapsed)
 	return any
 end
 
-local function filter_taps(mixer, slot, voice, out, frames)
-	local ca = mixer.coefficient_low
-	local cb = mixer.coefficient_high
-	local states = voice.tap_state
-	local gl, gm, gh = voice.tap_band[0], voice.tap_band[1], voice.tap_band[2]
-	local tl, tm, th = slot.tap_band[0], slot.tap_band[1], slot.tap_band[2]
-	local dl, dm, dh = (tl - gl) / frames, (tm - gm) / frames, (th - gh) / frames
+local function filter_cues(mixer, out, frames)
+	local state = mixer.state
+	local c = mixer.cue_coefficients
+	local states = mixer.cue_state
 
-	for channel = 0, 1 do
-		local input = channel == 0 and mixer.tap_left or mixer.tap_right
-		local si = channel * 4
-		local la, lb, ha, hb = states[si], states[si + 1], states[si + 2], states[si + 3]
-		local l, m, h = gl, gm, gh
+	for g = 0, CUE_GROUPS - 1 do
+		local ci = g * 12
 
-		for i = 0, frames - 1 do
-			local x = input[i]
-			la = la + ca * (x - la)
-			lb = lb + ca * (la - lb)
-			ha = ha + cb * (x - ha)
-			hb = hb + cb * (ha - hb)
-			l = l + dl
-			m = m + dm
-			h = h + dh
-			local index = i * 2 + channel
-			out[index] = out[index] + h * x + (m - h) * hb + (l - m) * lb
+		for k = 0, 2 do
+			dsp.PeakingCoefficients(
+				c,
+				ci + k * 4,
+				state.cue_frequency[g * 3 + k],
+				state.cue_gain[g * 3 + k],
+				state.cue_q[k],
+				mixer.sample_rate
+			)
 		end
 
-		states[si], states[si + 1], states[si + 2], states[si + 3] = la, lb, ha, hb
-	end
+		local b0a, a1a, b2a, a2a = c[ci], c[ci + 1], c[ci + 2], c[ci + 3]
+		local b0b, a1b, b2b, a2b = c[ci + 4], c[ci + 5], c[ci + 6], c[ci + 7]
+		local b0c, a1c, b2c, a2c = c[ci + 8], c[ci + 9], c[ci + 10], c[ci + 11]
 
-	voice.tap_band[0], voice.tap_band[1], voice.tap_band[2] = tl, tm, th
+		for ear = 0, 1 do
+			local input = ear == 0 and mixer.cue_left[g] or mixer.cue_right[g]
+			local si = (g * 2 + ear) * 6
+			local s1a, s2a, s1b, s2b, s1c, s2c = states[si],
+			states[si + 1],
+			states[si + 2],
+			states[si + 3],
+			states[si + 4],
+			states[si + 5]
+
+			for i = 0, frames - 1 do
+				local x = input[i]
+				local y = b0a * x + s1a
+				s1a = a1a * (x - y) + s2a
+				s2a = b2a * x - a2a * y
+				local z = b0b * y + s1b
+				s1b = a1b * (y - z) + s2b
+				s2b = b2b * y - a2b * z
+				x = b0c * z + s1c
+				s1c = a1c * (z - x) + s2c
+				s2c = b2c * z - a2c * x
+				local index = i * 2 + ear
+				out[index] = out[index] + x
+				input[i] = 0
+			end
+
+			states[si], states[si + 1], states[si + 2], states[si + 3], states[si + 4], states[si + 5] = s1a, s2a, s1b, s2b, s1c, s2c
+		end
+	end
 end
 
 local function render_sends(mixer, slot, voice, base, delay, slope, frames)
@@ -445,12 +564,12 @@ local function propagate(mixer, slot, voice, out, frames, block_end_time)
 	end
 
 	if render_taps(mixer, slot, voice, base, frames, elapsed) then
-		filter_taps(mixer, slot, voice, out, frames)
+		mixer.cue_used = true
 	end
 
 	for t = 0, MAX_TAPS - 1 do
 		if voice.tap_gain[t * 2] ~= 0 or voice.tap_gain[t * 2 + 1] ~= 0 then
-			max_delay = math.max(max_delay, voice.tap_delay[t])
+			max_delay = math.max(max_delay, voice.tap_delay[t * 2], voice.tap_delay[t * 2 + 1])
 		end
 	end
 
@@ -573,10 +692,11 @@ local function mix_block(mixer, out, frames)
 
 				if was_idle and slot.active and not slot.paused then
 					ffi.fill(voice.history, mix.HISTORY_SIZE * 4)
+					ffi.fill(voice.tap_history, mix.HISTORY_SIZE * 4)
 					voice.idle = false
 				end
 
-				emit(slot, voice, frames, sample_rate)
+				emit(mixer, slot, voice, frames, sample_rate)
 
 				if not voice.idle then
 					local max_delay = propagate(mixer, slot, voice, out, frames, block_end_time)
@@ -588,6 +708,20 @@ local function mix_block(mixer, out, frames)
 					end
 				end
 			end
+		end
+	end
+
+	if mixer.cue_used then
+		mixer.cue_used = false
+		mixer.cue_tail = CUE_TAIL_BLOCKS
+	end
+
+	if mixer.cue_tail > 0 then
+		filter_cues(mixer, out, frames)
+		mixer.cue_tail = mixer.cue_tail - 1
+
+		if mixer.cue_tail == 0 then
+			ffi.fill(mixer.cue_state, CUE_GROUPS * 12 * 8)
 		end
 	end
 

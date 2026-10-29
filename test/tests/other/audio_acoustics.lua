@@ -226,6 +226,72 @@ T.Test("audio pinna cues move the notch with elevation and filter only the ears 
 	pvars.SetSession("audio_pinna", enabled)
 end)
 
+T.Test("audio reflections reach each ear at their own time with the ear filters of their direction", function()
+	local enabled = audio.pinna_cues:Get()
+
+	local function reflection(height, front, side, strength)
+		pvars.SetSession("audio_pinna", strength)
+		local out, total
+
+		with_offline_mixer(function(ctx)
+			local click = mono_source(64, function(i)
+				return i == 0 and 1 or 0
+			end)
+			click:SetPosition(Vec3(0, 0, -2))
+			local itd = side * audio.ear_distance / audio.speed_of_sound * 0.5
+			click.audio_environment = {
+				taps = {
+					{
+						delay_left = 0.036 + itd,
+						delay_right = 0.036 - itd,
+						rate_left = 0,
+						rate_right = 0,
+						height = height,
+						front = front,
+						gain_left = 0.5,
+						gain_right = 0.5,
+					},
+				},
+				tap_band = {1, 1, 1},
+				send = {0, 0},
+			}
+			click:Play()
+			out, total = ctx.Render(0.1)
+			audio.StopAll()
+		end)
+
+		return out, total
+	end
+
+	local function tone(out, hz)
+		local from, to = math.floor(0.03 * FS), math.floor(0.06 * FS)
+		local re, im = 0, 0
+
+		for i = from, to do
+			local w = (0.5 - 0.5 * math.cos(2 * math.pi * (i - from) / (to - from))) * out[i * 2]
+			re = re + w * math.cos(2 * math.pi * hz * i / FS)
+			im = im + w * math.sin(2 * math.pi * hz * i / FS)
+		end
+
+		return re * re + im * im
+	end
+
+	local out, total = reflection(0, 0, 1, 1)
+	local first = math.floor(0.03 * FS)
+	local left = peak_index(out + first * 2, total - first, 0)
+	local right = peak_index(out + first * 2, total - first, 1)
+	T(left - right)["~"](audio.ear_distance / audio.speed_of_sound * FS, 2)
+	T(
+		10 * math.log10(
+				tone(reflection(-0.7, 0.71, 0, 1), 5500) / tone(reflection(-0.7, 0.71, 0, 0), 5500)
+			)
+	)["<"](-3)
+	T(
+		10 * math.log10(tone(reflection(0.7, 0.71, 0, 1), 7500) / tone(reflection(0.7, 0.71, 0, 0), 7500))
+	)[">"](3)
+	pvars.SetSession("audio_pinna", enabled)
+end)
+
 T.Test("audio doppler comes from motion through the delay line", function()
 	local c = audio.speed_of_sound
 
@@ -478,6 +544,30 @@ T.Test("audio acoustics matches Eyring in a box room and finds every wall reflec
 		end
 
 		T(found)["=="](true)
+		local ceiling_delay = (
+				Vec3(source.x, 2 * H - source.y, source.z) - listener
+			):GetLength() / audio.speed_of_sound
+		local right_delay = (
+				Vec3(W - source.x, source.y, source.z) - listener
+			):GetLength() / audio.speed_of_sound
+		local checked = 0
+
+		for _, tap in pairs(env.taps) do
+			if math.abs(tap.delay - floor_delay) < 0.0002 then
+				T(tap.height)["<"](-0.3)
+				checked = checked + 1
+			elseif math.abs(tap.delay - ceiling_delay) < 0.0002 then
+				T(tap.height)[">"](0.3)
+				checked = checked + 1
+			elseif math.abs(tap.delay - right_delay) < 0.0002 then
+				T(tap.delay_right < tap.delay_left)["=="](true)
+				checked = checked + 1
+			end
+
+			T(math.abs(tap.delay_left - tap.delay_right))["<="](audio.ear_distance / audio.speed_of_sound + 1e-6)
+		end
+
+		T(checked)["=="](3)
 		T(env.send[1])[">"](0.5)
 		T(env.occlusion[2])["=="](1)
 		local clap = mono_source(64, function()
