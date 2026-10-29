@@ -45,14 +45,6 @@ function validators.prop(name)
 end
 
 function spawners.weapon(player, name, position, yaw, done)
-	local holder = player.weapon_holder
-	local existing = holder:FindWeapon(name)
-
-	if existing then
-		holder:Equip(existing, existing.weapon:GetDefaultPlace())
-		return
-	end
-
 	done(weapons.Spawn(name, position + weapon_offset, QuatFromAxis(yaw, Vec3(0, 1, 0))))
 end
 
