@@ -8,6 +8,7 @@ Physically based by default: sound travels at `audio.speed_of_sound` through a d
 - The main thread (`spatial.lua`, every Update) writes per path: delay, delay rate (seconds per second) and 3 band gains, stamped with `audio.clock()`. The mixer evaluates `delay + rate * (block_time - stamp)` and ramps across the block, so frame jitter and low update rates do not wobble the pitch. Delays use the retarded (emission time) source position; velocities are estimated from motion, there is no velocity API.
 - `doppler_factor` scales the effective speed of sound (0 = instant, no doppler).
 - Ears are `audio.ear_distance` apart: interaural time difference falls out of the per ear delays; head shadow is a band gain (`spatial.HeadShadow`).
+- A voice's first block takes its send and tap gains at once instead of ramping in from silence; a transient that falls inside the ramp loses several dB of reverb.
 - Stopping a spatial sound stops emission; what is already in flight still arrives (`slot.draining`). `Sound:Cut()` and `audio.StopAll()` cut hard.
 - `Sound:SetSpatial(false)` for UI, music and anything not in the world: plays the buffer directly in stereo. Spatial sounds are downmixed to mono.
 - `Sound:SetBandGains(Vec3(low, mid, high))` shapes what a spatial sound emits (direct path and reflections, not the reverb send). The shallow crossovers limit it to gentle tilts, about 10% accurate at the band centers; a steep cut next to a band at 1 bottoms out near -11 dB.

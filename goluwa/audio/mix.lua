@@ -240,6 +240,10 @@ local function render_taps(mixer, slot, voice, base, frames, elapsed)
 			local delay = voice.tap_delay[t]
 			local silent = math.abs(gain_left) + math.abs(gain_right) < 1e-6
 
+			if not voice.initialized then
+				gain_left, gain_right = target_left, target_right
+			end
+
 			if silent or not voice.initialized then
 				delay = target
 			elseif math.abs(target - delay) > frames * MAX_SLOPE then
@@ -315,8 +319,8 @@ local function render_sends(mixer, slot, voice, base, delay, slope, frames)
 	local history = voice.history
 
 	for b = 0, BUS_COUNT - 1 do
-		local gain = voice.send[b]
 		local target = slot.send[b]
+		local gain = voice.initialized and voice.send[b] or target
 
 		if gain ~= 0 or target ~= 0 then
 			local input = mixer.bus_input[b]
