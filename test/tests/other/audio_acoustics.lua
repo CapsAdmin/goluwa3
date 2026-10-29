@@ -410,6 +410,12 @@ T.Test("audio acoustics matches Eyring in a box room and finds every wall reflec
 		T(found)["=="](true)
 		T(env.send[1])[">"](0.5)
 		T(env.occlusion[2])["=="](1)
+		local clap = mono_source(64, function()
+			return 0
+		end)
+		clap:SetPosition(Vec3(2.1, 1.4, 1.9))
+		clap:Play()
+		T(clap.audio_environment.send[1])[">"](0.5)
 		audio.StopAll()
 	end)
 end)

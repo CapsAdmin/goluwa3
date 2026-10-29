@@ -49,6 +49,12 @@ function acoustics.NewSourceSums()
 	return {rays = 0, bounced = {0, 0, 0}, late = {0, 0, 0}, moment = {0, 0, 0}}
 end
 
+function acoustics.CopySourceSums(from)
+	local sums = acoustics.NewSourceSums()
+	acoustics.AddSourceSums(sums, from, from.rays)
+	return sums
+end
+
 function acoustics.DecayStats(stats, factor)
 	stats.rays = stats.rays * factor
 	stats.hits = stats.hits * factor
@@ -493,6 +499,7 @@ function acoustics.New(audio, tracer)
 	self.random = math.random
 	self.frame = 0
 	self.profile = acoustics.ComputeProfile(self.stats, audio.speed_of_sound)
+	self.ambient = acoustics.NewSourceSums()
 	self.remote = {t60 = {0.5, 0.5, 0.5}, predelay = 0.02}
 	self.last_time = nil
 	return self
@@ -576,6 +583,8 @@ function META:BuildJob(time)
 		self:AddFresnelQueries(job, sound, position, budget.fresnel)
 	end
 
+	job.sources[#job.sounds + 1] = listener
+	job.direct_time[#job.sounds + 1] = 0
 	local reflectors = self:GetTopReflectors()
 	local count = #job.sounds
 
@@ -782,6 +791,9 @@ function META:Absorb(job, result)
 		acoustics.AddSourceSums(env.sums, result.sources[i], job.rays)
 	end
 
+	acoustics.DecaySourceSums(self.ambient, decay)
+	acoustics.AddSourceSums(self.ambient, result.sources[#job.sounds + 1], job.rays)
+	self.ambient_reverb = acoustics.ComputeSourceReverb(self.ambient, self.stats, self.profile, 0, job.speed)
 	self:AbsorbReflectors(job, result, math.exp(-dt / acoustics.REFLECTOR_MEMORY - moved))
 	self.samples = result.samples
 	self.last_job = job
@@ -866,7 +878,7 @@ function META:UpdateSoundEnvironment(sound, time)
 	env.trust = trust
 	env.energy = energy
 	local amplitude = math.sqrt(math.max(energy, 0)) * sound:GetReferenceDistance()
-	local ratio = t60 / profile.t60[2]
+	local ratio = t60 / (self.ambient_reverb and self.ambient_reverb.t60[2] or profile.t60[2])
 	local remote = math.clamp((ratio - 1) / (acoustics.REMOTE_T60_RATIO - 1), 0, 1)
 	env.send[1] = amplitude * math.sqrt(1 - remote)
 	env.send[2] = amplitude * math.sqrt(remote)
@@ -1096,21 +1108,34 @@ end
 
 function META:Probe(sound)
 	local env = self:GetEnvironment(sound)
+	local source = sound:GetPosition()
+	local time = self.audio.clock()
 
-	if not self.tracer.Probe then return end
+	if
+		not env.traced or
+		(
+			source - env.traced
+		):GetLength() > acoustics.STATS_DISTANCE * self.profile.mean_free_path
+	then
+		env.sums = acoustics.CopySourceSums(self.ambient)
+		env.traced = source:Copy()
+		table.clear(env.reflections)
+	end
 
-	local visibility = self.tracer:Probe(self.audio.listener_position, sound:GetPosition(), self.audio.speed_of_sound)
+	if self.tracer.Probe then
+		local visibility = self.tracer:Probe(self.audio.listener_position, source, self.audio.speed_of_sound)
 
-	if visibility then
-		for band = 1, 3 do
-			env.visibility[band] = visibility[band]
-			env.visibility_samples[band] = 1
-			local transmission = acoustics.TRANSMISSION[band]
-			env.occlusion[band] = transmission + (1 - transmission) * visibility[band]
+		if visibility then
+			for band = 1, 3 do
+				env.visibility[band] = visibility[band]
+				env.visibility_samples[band] = 1
+				local transmission = acoustics.TRANSMISSION[band]
+				env.occlusion[band] = transmission + (1 - transmission) * visibility[band]
+			end
 		end
 	end
 
-	self:UpdateSoundEnvironment(sound, self.audio.clock())
+	self:UpdateSoundEnvironment(sound, time)
 end
 
 function acoustics.FresnelProbe(tracer, listener, source, speed, samples)

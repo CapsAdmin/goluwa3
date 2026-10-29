@@ -528,9 +528,9 @@ function acoustics_gpu.New(budget)
 					rays = 1024,
 					bounces = 8,
 					samples = 256,
-					sources = MAX_SOURCES,
+					sources = MAX_SOURCES - 1,
 					fresnel = 4,
-					reflection_sources = MAX_SOURCES,
+					reflection_sources = MAX_SOURCES - 1,
 				},
 		},
 		META
