@@ -6,13 +6,19 @@ local MIN_SPEED = 1
 local HARD_SPEED = 3
 local LOUD_SPEED = 7
 local INTERVAL = 0.05
+local REFERENCE_MASS = 20
+local MASS_DB = 6
+local MIN_MASS_DB = -18
+local MAX_MASS_DB = 4
 local SCRAPE_MIN = 0.3
 local SCRAPE_ROUGH = 2.5
 local LOUD_SLIP = 4
+local SCRAPE_GAIN = 10 ^ (-8 / 20)
 local ROLL_MIN = 0.3
 local LOUD_ROLL = 5
-local GROUND_GAIN = 0.6
-local GRAIN_GAIN = 0.5
+local ROLL_GAIN = 10 ^ (-8 / 20)
+local GROUND_GAIN = 10 ^ (-12 / 20)
+local GRAIN_GAIN = 10 ^ (-6 / 20)
 local GRAIN_SPACING = 0.3
 local MAX_LOOPS = 8
 local ATTACK = 0.08
@@ -33,37 +39,34 @@ local function list(...)
 	return {last = 0, ...}
 end
 
-local function set(soft, hard, volume)
-	return {soft = soft, hard = hard, volume = volume}
+local function set(soft, hard, db)
+	return {soft = soft, hard = hard, gain = 10 ^ ((db or 0) / 20)}
 end
 
 local SETS = {
 	concrete = set(
 		range("physics/concrete/concrete_impact_soft", 1, 3),
-		range("physics/concrete/concrete_impact_hard", 1, 3),
-		0.6
+		range("physics/concrete/concrete_impact_hard", 1, 3)
 	),
 	concrete_block = set(
 		range("physics/concrete/concrete_impact_soft", 1, 3),
-		range("physics/concrete/concrete_block_impact_hard", 1, 3),
-		0.6
+		range("physics/concrete/concrete_block_impact_hard", 1, 3)
 	),
 	rock = set(
 		range("physics/concrete/rock_impact_soft", 1, 3),
-		range("physics/concrete/rock_impact_hard", 4, 6),
-		0.6
+		range("physics/concrete/rock_impact_hard", 4, 6)
 	),
 	boulder = set(
 		range("physics/concrete/rock_impact_hard", 1, 3),
 		range("physics/concrete/boulder_impact_hard", 1, 4),
-		0.85
+		2
 	),
 	dirt = set(
 		range("physics/surfaces/sand_impact_bullet", 1, 4),
 		range("physics/surfaces/sand_impact_bullet", 1, 4),
-		0.6
+		-4
 	),
-	carpet = set(range("player/footsteps/sand", 1, 4), range("player/footsteps/sand", 1, 4), 0.6),
+	carpet = set(range("player/footsteps/sand", 1, 4), range("player/footsteps/sand", 1, 4), -6),
 	metal = set(
 		range("physics/metal/metal_solid_impact_soft", 1, 3),
 		list(
@@ -71,72 +74,67 @@ local SETS = {
 			"physics/metal/metal_solid_impact_hard4.wav",
 			"physics/metal/metal_solid_impact_hard5.wav"
 		),
-		0.6
+		2
 	),
 	metal_box = set(
 		range("physics/metal/metal_box_impact_soft", 1, 3),
 		range("physics/metal/metal_box_impact_hard", 1, 3),
-		0.6
+		2
 	),
 	metal_vent = set(
 		range("physics/metal/metal_box_impact_soft", 1, 3),
 		range("physics/metal/metal_sheet_impact_hard", 6, 8),
-		0.6
+		2
 	),
 	metal_barrel = set(
 		range("physics/metal/metal_barrel_impact_soft", 1, 4),
 		range("physics/metal/metal_barrel_impact_hard", 1, 3),
-		0.6
+		2
 	),
 	canister = set(
 		range("physics/metal/metal_canister_impact_soft", 1, 3),
 		range("physics/metal/metal_canister_impact_hard", 1, 3),
-		0.6
+		2
 	),
 	computer = set(
 		range("physics/metal/metal_computer_impact_soft", 1, 3),
-		range("physics/metal/metal_computer_impact_hard", 1, 3),
-		0.5
+		range("physics/metal/metal_computer_impact_hard", 1, 3)
 	),
 	metal_grate = set(
 		range("physics/metal/metal_grate_impact_soft", 1, 3),
 		range("physics/metal/metal_grate_impact_hard", 1, 3),
-		0.6
+		2
 	),
 	chainlink = set(
 		range("physics/metal/metal_chainlink_impact_soft", 1, 3),
 		range("physics/metal/metal_chainlink_impact_hard", 1, 3),
-		0.6
+		2
 	),
 	chain = set(
 		range("physics/metal/chain_impact_soft", 1, 3),
 		range("physics/metal/chain_impact_hard", 1, 2),
-		0.6
+		2
 	),
 	grenade = set(
 		range("physics/metal/metal_grenade_impact_soft", 1, 3),
-		range("physics/metal/metal_grenade_impact_hard", 1, 3),
-		0.6
+		range("physics/metal/metal_grenade_impact_hard", 1, 3)
 	),
 	paintcan = set(
 		range("physics/metal/paintcan_impact_soft", 1, 3),
-		range("physics/metal/paintcan_impact_hard", 1, 3),
-		0.6
+		range("physics/metal/paintcan_impact_hard", 1, 3)
 	),
 	popcan = set(
 		range("physics/metal/soda_can_impact_soft", 1, 3),
-		range("physics/metal/soda_can_impact_hard", 1, 3),
-		0.6
+		range("physics/metal/soda_can_impact_hard", 1, 3)
 	),
 	weapon = set(
 		range("physics/metal/weapon_impact_soft", 1, 3),
-		range("physics/metal/weapon_impact_hard", 1, 3),
-		0.6
+		range("physics/metal/weapon_impact_hard", 1, 3)
 	),
 	vehicle = set(
 		range("vehicles/v8/vehicle_impact_medium", 1, 4),
 		range("vehicles/v8/vehicle_impact_heavy", 1, 4),
-		0.9
+		4
 	),
 	wood = set(
 		list(
@@ -144,18 +142,15 @@ local SETS = {
 			"physics/wood/wood_box_impact_soft1.wav",
 			"physics/wood/wood_solid_impact_soft2.wav"
 		),
-		range("physics/wood/wood_box_impact_hard", 1, 3),
-		0.6
+		range("physics/wood/wood_box_impact_hard", 1, 3)
 	),
 	wood_solid = set(
 		range("physics/wood/wood_solid_impact_soft", 1, 3),
-		range("physics/wood/wood_solid_impact_hard", 1, 3),
-		0.6
+		range("physics/wood/wood_solid_impact_hard", 1, 3)
 	),
 	wood_box = set(
 		range("physics/wood/wood_box_impact_soft", 1, 3),
-		range("physics/wood/wood_box_impact_hard", 4, 6),
-		0.6
+		range("physics/wood/wood_box_impact_hard", 4, 6)
 	),
 	wood_crate = set(
 		range("physics/wood/wood_crate_impact_soft", 1, 3),
@@ -163,13 +158,11 @@ local SETS = {
 			"physics/wood/wood_crate_impact_hard4.wav",
 			"physics/wood/wood_crate_impact_hard5.wav",
 			"physics/wood/wood_panel_impact_hard1.wav"
-		),
-		0.6
+		)
 	),
 	wood_furniture = set(
 		range("physics/wood/wood_furniture_impact_soft", 1, 3),
-		range("physics/wood/wood_box_impact_hard", 4, 6),
-		0.6
+		range("physics/wood/wood_box_impact_hard", 4, 6)
 	),
 	wood_panel = set(
 		list(
@@ -181,63 +174,58 @@ local SETS = {
 			"physics/wood/wood_crate_impact_hard2.wav",
 			"physics/wood/wood_crate_impact_hard3.wav",
 			"physics/wood/wood_panel_impact_hard1.wav"
-		),
-		0.6
+		)
 	),
 	wood_plank = set(
 		range("physics/wood/wood_plank_impact_soft", 1, 3),
-		range("physics/wood/wood_plank_impact_hard", 1, 5),
-		0.6
+		range("physics/wood/wood_plank_impact_hard", 1, 5)
 	),
 	plastic = set(
 		range("physics/plastic/plastic_box_impact_soft", 1, 4),
 		range("physics/plastic/plastic_box_impact_hard", 1, 4),
-		0.7
+		-2
 	),
 	plastic_barrel = set(
 		range("physics/plastic/plastic_barrel_impact_soft", 1, 6),
 		range("physics/plastic/plastic_barrel_impact_hard", 1, 4),
-		0.7
+		-2
 	),
 	glass = set(
 		range("physics/glass/glass_sheet_impact_soft", 1, 3),
-		range("physics/glass/glass_sheet_impact_hard", 1, 3),
-		0.5
+		range("physics/glass/glass_sheet_impact_hard", 1, 3)
 	),
 	glass_bottle = set(
 		range("physics/glass/glass_impact_soft", 1, 3),
-		range("physics/glass/glass_bottle_impact_hard", 1, 3),
-		0.6
+		range("physics/glass/glass_bottle_impact_hard", 1, 3)
 	),
 	pottery = set(
 		range("physics/glass/glass_impact_soft", 1, 3),
-		range("physics/glass/glass_impact_hard", 1, 3),
-		0.5
+		range("physics/glass/glass_impact_hard", 1, 3)
 	),
 	cardboard = set(
 		range("physics/cardboard/cardboard_box_impact_soft", 1, 7),
 		range("physics/cardboard/cardboard_box_impact_hard", 1, 7),
-		0.7
+		-4
 	),
 	paper_cup = set(
 		range("physics/cardboard/cardboard_box_impact_soft", 1, 7),
 		range("physics/cardboard/cardboard_cup_impact_hard", 1, 3),
-		0.6
+		-4
 	),
 	drywall = set(
 		range("physics/plaster/drywall_impact_soft", 1, 3),
 		range("physics/plaster/drywall_impact_hard", 1, 3),
-		0.7
+		-2
 	),
 	ceiling_tile = set(
 		range("physics/plaster/ceiling_tile_impact_soft", 1, 3),
 		range("physics/plaster/ceiling_tile_impact_hard", 1, 3),
-		0.7
+		-2
 	),
 	rubber = set(
 		range("physics/rubber/rubber_tire_impact_soft", 1, 3),
 		range("physics/rubber/rubber_tire_impact_hard", 1, 3),
-		0.7
+		-4
 	),
 	flesh = set(
 		list(
@@ -248,7 +236,7 @@ local SETS = {
 			"physics/body/body_medium_impact_soft7.wav"
 		),
 		range("physics/body/body_medium_impact_hard", 1, 6),
-		0.7
+		-2
 	),
 	bloody_flesh = set(
 		list(
@@ -259,17 +247,16 @@ local SETS = {
 			"physics/body/body_medium_impact_soft7.wav"
 		),
 		range("physics/flesh/flesh_squishy_impact_hard", 1, 4),
-		0.6
+		-2
 	),
 	squishy = set(
 		range("physics/flesh/flesh_squishy_impact_hard", 1, 4),
 		range("physics/flesh/flesh_squishy_impact_hard", 1, 4),
-		0.6
+		-2
 	),
 	water = set(
 		range("physics/surfaces/underwater_impact_bullet", 1, 3),
-		range("ambient/water/water_splash", 1, 3),
-		0.6
+		range("ambient/water/water_splash", 1, 3)
 	),
 }
 local SURFACES = {
@@ -385,7 +372,10 @@ local LOOPS = {
 		"physics/cardboard/cardboard_box_scrape_rough_loop1.wav",
 		"physics/cardboard/cardboard_box_scrape_rough_loop1.wav",
 	},
-	carpet = {"physics/flesh/flesh_scrape_rough_loop.wav", "physics/flesh/flesh_scrape_rough_loop.wav"},
+	carpet = {
+		"physics/flesh/flesh_scrape_rough_loop.wav",
+		"physics/flesh/flesh_scrape_rough_loop.wav",
+	},
 	metal = {
 		"physics/metal/metal_box_scrape_smooth_loop1.wav",
 		"physics/metal/metal_box_scrape_rough_loop1.wav",
@@ -420,7 +410,10 @@ local LOOPS = {
 		"physics/metal/metal_chainlink_scrape_rough_loop1.wav",
 		"physics/metal/metal_chainlink_scrape_rough_loop1.wav",
 	},
-	chain = {"physics/metal/chain_scrape_rough_loop1.wav", "physics/metal/chain_scrape_rough_loop1.wav"},
+	chain = {
+		"physics/metal/chain_scrape_rough_loop1.wav",
+		"physics/metal/chain_scrape_rough_loop1.wav",
+	},
 	grenade = {
 		"physics/metal/metal_grenade_scrape_smooth_loop1.wav",
 		"physics/metal/metal_grenade_scrape_rough_loop1.wav",
@@ -533,6 +526,12 @@ local function get_set(surface)
 	return found
 end
 
+local function get_mass_gain(mass)
+	return 10 ^ (
+			math.clamp(MASS_DB * math.log10(mass / REFERENCE_MASS), MIN_MASS_DB, MAX_MASS_DB) / 20
+		)
+end
+
 local last_played = table.weak("k")
 
 event.AddListener("Impact", "physics_impacts", function(info)
@@ -559,7 +558,7 @@ event.AddListener("Impact", "physics_impacts", function(info)
 	sounds.Play(
 		paths[index],
 		info.Position,
-		found.volume * math.min(info.Speed / LOUD_SPEED, 1),
+		found.gain * get_mass_gain(info.Mass) * math.min(info.Speed / LOUD_SPEED, 1),
 		math.randomf(0.95, 1.05)
 	)
 end)
@@ -665,8 +664,9 @@ end
 
 event.AddListener("Contact", "physics_sounds", function(info)
 	local found = get_set(info.Surface)
+	local gain = found.gain * get_mass_gain(info.Mass)
 
-	if not sounds.IsAudible(info.Position, found.volume) then return end
+	if not sounds.IsAudible(info.Position, gain) then return end
 
 	local now = system.GetElapsedTime()
 	local layers = get_layers(info.Entity, info.Other)
@@ -677,7 +677,17 @@ event.AddListener("Contact", "physics_sounds", function(info)
 		local speed = math.min(slip / LOUD_SLIP, 1)
 
 		if path then
-			drive(layers.scrape, path, found.volume * speed, 0.9 + 0.2 * speed, 1, 1, 1, info.Position, now)
+			drive(
+				layers.scrape,
+				path,
+				gain * SCRAPE_GAIN * speed,
+				0.9 + 0.2 * speed,
+				1,
+				1,
+				1,
+				info.Position,
+				now
+			)
 		end
 	end
 
@@ -690,7 +700,7 @@ event.AddListener("Contact", "physics_sounds", function(info)
 			drive(
 				layers.ground,
 				found.smooth,
-				found.volume * GROUND_GAIN * speed,
+				gain * GROUND_GAIN * speed,
 				0.6 + 0.6 * speed,
 				1,
 				0.4 + 0.6 * speed,
@@ -700,7 +710,17 @@ event.AddListener("Contact", "physics_sounds", function(info)
 			)
 		end
 	elseif found.roll then
-		drive(layers.object, found.roll, found.volume * speed, 0.7 + 0.5 * speed, 1, 1, 1, info.Position, now)
+		drive(
+			layers.object,
+			found.roll,
+			gain * ROLL_GAIN * speed,
+			0.7 + 0.5 * speed,
+			1,
+			1,
+			1,
+			info.Position,
+			now
+		)
 	else
 		local dt = now - layers.grain_time
 		layers.grain_time = now
@@ -714,7 +734,7 @@ event.AddListener("Contact", "physics_sounds", function(info)
 			if index == paths.last then index = index % #paths + 1 end
 
 			paths.last = index
-			sounds.Play(paths[index], info.Position, found.volume * GRAIN_GAIN * speed, math.randomf(0.9, 1.1))
+			sounds.Play(paths[index], info.Position, gain * GRAIN_GAIN * speed, math.randomf(0.9, 1.1))
 		end
 	end
 end)
