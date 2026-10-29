@@ -144,8 +144,6 @@ local NO_STAMINA = Color(1, 0.8, 0.3, 1)
 local TRAIL_POINTS = 18
 local TRAIL_FADE_RATE = 1
 local TRAIL_STRENGTH = 0.1
-local TRAIL_OVERLAY = "magic_generic"
-local HIT_OVERLAY = "magic_generic"
 local TRAIL_OVERLAY_CONFIG = {FadeIn = 0.05, FadeOut = 0.05, Scale = 1.5, UVScale = {0.8, 1}, UVStretch = 40}
 local SPARK_LINGER = 0.15
 local LINE_STRENGTH = 6
@@ -242,6 +240,7 @@ function META:OnWeaponSecondary(cmd)
 end
 
 function META:Hit(attack)
+	local types = self.Owner.weapon:GetDamageTypes(SLASH)
 	local hit_any, cut, hits, normal = slash.Strike(
 		self:GetHolder(),
 		self.Owner,
@@ -249,11 +248,13 @@ function META:Hit(attack)
 		self.Damage * attack.damage * self.Owner.weapon:GetDamageScale(),
 		attack.damage,
 		self.Range,
-		self.Owner.weapon:GetDamageTypes(SLASH)
+		types
 	)
 
 	for _, hit in ipairs(hits) do
-		effects.HitOverlay(hit.victim, HIT_OVERLAY)
+		for _, type_name in ipairs(types) do
+			effects.HitOverlay(hit.victim, type_name)
+		end
 	end
 
 	return hit_any, cut, hits, normal
@@ -363,7 +364,15 @@ function META:OnUpdate(dt)
 
 		local attributes = self.Owner.weapon.Attributes
 		self.color = #attributes > 0 and damage_types.MixColor(attributes) or Color(0.85, 0.92, 1, 1)
-		self.trail = effects.vfx.AcquireSlashTrail(self.color, TRAIL_STRENGTH, TRAIL_POINTS, TRAIL_OVERLAY, TRAIL_OVERLAY_CONFIG)
+		local overlay = damage_types.Get(attributes[1] or "slash")
+		local overlay_config = TRAIL_OVERLAY_CONFIG
+
+		if #attributes > 0 then
+			overlay_config = table.shallow_copy(TRAIL_OVERLAY_CONFIG)
+			overlay_config.ColorA = self.color
+		end
+
+		self.trail = effects.vfx.AcquireSlashTrail(self.color, TRAIL_STRENGTH, TRAIL_POINTS, overlay.Overlay, overlay_config)
 		self.line = effects.vfx.AcquireTrail(self.color, LINE_STRENGTH, LINE_POINTS, LINE_RADIUS, nil, LINE_SUBDIVISIONS, LINE_END_TAPER)
 	end
 

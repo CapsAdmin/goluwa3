@@ -2,6 +2,7 @@ local Color = import("goluwa/structs/color.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 return {
 	Name = "fire",
+	Overlay = "status_fire",
 	Color = Color(1, 0.49, 0.1, 1),
 	EndColor = Color(0.8, 0.12, 0.02, 1),
 	Adjectives = {"hot", "molten", "burning", "flaming", "scorching"},

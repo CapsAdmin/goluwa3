@@ -2,6 +2,7 @@ local Color = import("goluwa/structs/color.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 return {
 	Name = "lightning",
+	Overlay = "status_lightning",
 	Color = Color(0.85, 0.88, 1, 1),
 	EndColor = Color(0.4, 0.5, 1, 1),
 	Adjectives = {"shocking", "electrical", "electrifying", "charged"},
@@ -20,6 +21,11 @@ return {
 	Light = 1.3,
 	HitSounds = {"ambient/energy/zap1.wav", "ambient/energy/zap2.wav", "ambient/energy/zap3.wav"},
 	OnDamage = function(victim, info)
-		status_effects.Set(victim, "lightning", math.max(status_effects.Get(victim, "lightning"), info.Damage / 50), info.Attacker)
+		status_effects.Set(
+			victim,
+			"lightning",
+			math.max(status_effects.Get(victim, "lightning"), info.Damage / 50),
+			info.Attacker
+		)
 	end,
 }

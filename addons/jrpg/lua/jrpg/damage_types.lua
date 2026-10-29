@@ -31,6 +31,7 @@ function damage_types.Register(definition)
 	assert(definition.Color, "damage type " .. definition.Name .. " needs a color")
 	definition.Particles = table.merge(table.shallow_copy(DEFAULT_PARTICLES), definition.Particles or {})
 	definition.Glow = definition.Glow or 1
+	definition.Overlay = definition.Overlay or "magic_generic"
 	definition.Flicker = definition.Flicker or 0
 	definition.Light = definition.Light or 1
 	definition.Adjectives = definition.Adjectives or {definition.Name}

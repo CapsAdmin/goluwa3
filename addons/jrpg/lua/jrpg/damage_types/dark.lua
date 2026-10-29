@@ -2,6 +2,7 @@ local Color = import("goluwa/structs/color.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 return {
 	Name = "dark",
+	Overlay = "status_decay",
 	Color = Color(1, 0.2, 0.8, 1),
 	EndColor = Color(0.15, 0, 0.2, 1),
 	Adjectives = {

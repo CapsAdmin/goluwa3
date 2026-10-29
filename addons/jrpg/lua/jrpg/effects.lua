@@ -29,8 +29,8 @@ end
 
 effects.HitOverlay = new_event(
 	"jrpg_hit_overlay",
-	function(entity, kind)
-		effects.ShowHitOverlay(entity, kind)
+	function(entity, type_name)
+		effects.ShowHitOverlay(entity, type_name)
 	end,
 	enabled
 )
@@ -652,14 +652,22 @@ end
 
 local HIT_OVERLAY = {Duration = 0.35, FadeIn = 0.05, FadeOut = 0.5, Intensity = 0.8}
 
-function effects.ShowHitOverlay(entity, kind)
+function effects.ShowHitOverlay(entity, type_name)
 	if not entity:IsValid() then return end
+
+	local definition = damage_types.Get(type_name)
+	local config = HIT_OVERLAY
+
+	if not definition.Physical then
+		config = table.shallow_copy(HIT_OVERLAY)
+		config.ColorA = definition.Color
+	end
 
 	local visuals = {}
 	collect_visuals(entity, visuals)
 
 	for _, visual in ipairs(visuals) do
-		surface_overlays.Add(visual, kind, HIT_OVERLAY)
+		surface_overlays.Add(visual, definition.Overlay, config)
 	end
 end
 
