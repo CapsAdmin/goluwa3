@@ -192,7 +192,9 @@ do
 
 		local v, w, o = body.Velocity, body.AngularVelocity, body.Position
 		local rx, ry, rz = px - o.x, py - o.y, pz - o.z
-		return v.x + w.y * rz - w.z * ry, v.y + w.z * rx - w.x * rz, v.z + w.x * ry - w.y * rx
+		return v.x + w.y * rz - w.z * ry,
+		v.y + w.z * rx - w.x * rz,
+		v.z + w.x * ry - w.y * rx
 	end
 
 	local function get_tangent(x, y, z, n)
@@ -264,6 +266,48 @@ local function emit_collision_event(what, self_owner, self_body, other_entity, o
 	)
 end
 
+local queue_impact, fire_impacts
+
+do
+	local pending = {}
+	local pending_count = 0
+	local by_owner = {}
+
+	function queue_impact(impact)
+		local a, b = impact.entity_a or impact.body_a, impact.entity_b or impact.body_b
+		local index = by_owner[a] and by_owner[a][b] or by_owner[b] and by_owner[b][a]
+
+		if index then
+			if impact.speed > pending[index].speed then pending[index] = impact end
+
+			return
+		end
+
+		pending_count = pending_count + 1
+		pending[pending_count] = impact
+		local row = by_owner[a]
+
+		if not row then
+			row = {}
+			by_owner[a] = row
+		end
+
+		row[b] = pending_count
+	end
+
+	function fire_impacts()
+		for i = 1, pending_count do
+			local impact = pending[i]
+			pending[i] = nil
+			by_owner[impact.entity_a or impact.body_a] = nil
+			by_owner[impact.entity_b or impact.body_b] = nil
+			event.Call("PhysicsImpact", impact)
+		end
+
+		pending_count = 0
+	end
+end
+
 function CollisionPairs:DispatchCollisionEvents()
 	local current = self.CurrentCollisionPairs or {}
 	local previous = self.PreviousCollisionPairs or {}
@@ -281,19 +325,16 @@ function CollisionPairs:DispatchCollisionEvents()
 		end
 
 		if speed >= impact_speed then
-			event.Call(
-				"PhysicsImpact",
-				{
-					entity_a = pair.entity,
-					entity_b = pair.body.Owner,
-					body_a = hit.rigid_body,
-					body_b = pair.body,
-					normal = pair.impact_normal,
-					position = pair.position or hit.position,
-					speed = speed,
-					hit_a = hit,
-				}
-			)
+			queue_impact{
+				entity_a = pair.entity,
+				entity_b = pair.body.Owner,
+				body_a = hit.rigid_body,
+				body_b = pair.body,
+				normal = pair.impact_normal,
+				position = pair.position or hit.position,
+				speed = speed,
+				hit_a = hit,
+			}
 		end
 
 		local contact = pair.contact
@@ -315,23 +356,20 @@ function CollisionPairs:DispatchCollisionEvents()
 
 	for _, pair in ipairs(self.CurrentCollisionEntries) do
 		if pair.speed >= impact_speed then
-			event.Call(
-				"PhysicsImpact",
-				{
-					entity_a = pair.body_a.Owner,
-					entity_b = pair.body_b.Owner,
-					body_a = pair.body_a,
-					body_b = pair.body_b,
-					normal = pair.impact_normal,
-					position = pair.position or
-						(
-							pair.body_b:IsDynamic() and
-							pair.body_b or
-							pair.body_a
-						):GetPosition():Copy(),
-					speed = pair.speed,
-				}
-			)
+			queue_impact{
+				entity_a = pair.body_a.Owner,
+				entity_b = pair.body_b.Owner,
+				body_a = pair.body_a,
+				body_b = pair.body_b,
+				normal = pair.impact_normal,
+				position = pair.position or
+					(
+						pair.body_b:IsDynamic() and
+						pair.body_b or
+						pair.body_a
+					):GetPosition():Copy(),
+				speed = pair.speed,
+			}
 		end
 
 		local count = pair.contact_count
@@ -349,6 +387,8 @@ function CollisionPairs:DispatchCollisionEvents()
 			)
 		end
 	end
+
+	fire_impacts()
 
 	for _, pair in ipairs(self.CurrentCollisionEntries or {}) do
 		local previous_pair = get_nested_entry(previous, pair.body_a, pair.body_b)
