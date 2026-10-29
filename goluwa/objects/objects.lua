@@ -352,6 +352,14 @@ local function remove_callback(self)
 end
 
 do
+	local function noop() end
+
+	function objects.DisableFinalizer(self)
+		getmetatable(rawget(self, "__gc_proxy")).__gc = noop
+	end
+end
+
+do
 	local DEBUG = DEBUG or DEBUG_OPENGL
 	local setmetatable = setmetatable
 	local type = type

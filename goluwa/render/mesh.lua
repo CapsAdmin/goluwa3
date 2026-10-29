@@ -183,6 +183,14 @@ function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index
 	if key then
 		self.content_key = key
 		mesh_content_cache[key] = self
+		self.owns_buffers = true
+		objects.DisableFinalizer(self.vertex_buffer)
+		objects.DisableFinalizer(self.vertex_buffer.buffer)
+
+		if self.index_buffer then
+			objects.DisableFinalizer(self.index_buffer)
+			objects.DisableFinalizer(self.index_buffer.buffer)
+		end
 	end
 
 	return self
@@ -190,6 +198,7 @@ end
 
 function Mesh:CloneDynamic(vertex_buffer)
 	local clone = Mesh:CreateObject()
+	clone.source = self
 	clone.debug_name = self.debug_name
 	clone.mode = self.mode
 	clone.index_buffer = self.index_buffer
@@ -209,7 +218,8 @@ function Mesh:ForgetContent()
 	end
 end
 
--- the weak content cache can still hand out a mesh whose finalizer is already queued
+-- The weak content cache can hand out a mesh whose finalizer is already queued. A deduped mesh is the only
+-- finalizer in its tree (it removes its buffers itself), so a cache hit only has to cancel that one removal.
 function Mesh.__gc(self)
 	if self.reclaimed then
 		self.reclaimed = nil
@@ -228,6 +238,16 @@ function Mesh:OnRemove()
 	if content_key then
 		mesh_content_cache[content_key] = nil
 		self.content_key = nil
+	end
+
+	if self.owns_buffers then
+		self.vertex_buffer.buffer:Remove()
+		self.vertex_buffer:Remove()
+
+		if self.index_buffer then
+			self.index_buffer.buffer:Remove()
+			self.index_buffer:Remove()
+		end
 	end
 end
 
