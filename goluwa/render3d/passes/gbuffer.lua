@@ -8,6 +8,7 @@ local gbuffer_extras = import("goluwa/render3d/gbuffer_extras.lua")
 local geometry_block = import("goluwa/render3d/geometry_block.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local surface_effects = import("goluwa/render3d/surface_effects.lua")
+local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local camera_block = geometry_block.New("gbuffer_data", {
@@ -50,7 +51,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		DepthClear = 0.0,
 		fragment = {
 			uniform_buffers = uniform_buffers,
-			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data") .. surface_weather.GetGLSL("gbuffer_data") .. surface_effects.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data") .. surface_weather.GetGLSL("gbuffer_data") .. surface_effects.GetGLSL("gbuffer_data") .. surface_overlays.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
 
 					vec3 get_screen_velocity(vec3 world_pos, vec3 prev_world_pos) {
 						vec4 clip = gbuffer_data.projection * gbuffer_data.view * vec4(world_pos, 1.0);
@@ -337,6 +338,7 @@ local function build_ssdm_fragment_shader(write_depth)
 				if (AlphaTest && consumed > fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))) discard;
 			}
 
+			apply_surface_overlays(surface, weather, in_instance_overlay, in_effect_position, in_effect_normal);
 			weather_surface_features(surface, weather);
 			surface.roughness_alpha = get_antialiased_roughness(surface.N, surface.roughness_alpha);
 
