@@ -2,9 +2,9 @@ local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local system = import("goluwa/system.lua")
 local Color = import("goluwa/structs/color.lua")
-local Material = import("goluwa/render3d/material.lua")
 local Beam = import("goluwa/render3d/beam.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local visual_bounds = import("lua/visual_bounds.lua")
 local META = objects.CreateTemplate("item_highlight")
 META:StartStorable()
@@ -46,13 +46,18 @@ function META:Initialize()
 	self.fade = 0
 	self.glows = {}
 	self.glow_materials = {}
+	self.overlays = {}
 
 	for i, scale in ipairs(GLOW_SCALES) do
 		self.glow_materials[i] = Beam.CreateRibbonMaterial(
 			color,
 			GLOW_STRENGTH,
 			Beam.GetGlowTexture(),
-			{IgnoreZ = true, OcclusionRadius = self.GlowRadius * 1.6, OcclusionSoftness = self.GlowRadius}
+			{
+				IgnoreZ = true,
+				OcclusionRadius = self.GlowRadius * 1.6,
+				OcclusionSoftness = self.GlowRadius,
+			}
 		)
 		self.glows[i] = Beam.New{
 			Points = 2,
@@ -62,14 +67,6 @@ function META:Initialize()
 		}
 	end
 
-	self.rim = Material.New{
-		Translucent = true,
-		ColorMultiplier = Color(0, 0, 0, 0),
-		RimColor = Color(color.r * 4, color.g * 4, color.b * 4, 1),
-		RimPower = 1.6,
-		OcclusionRadius = 0.08,
-		OcclusionSoftness = 0.05,
-	}
 	self.emitter = Entity.New{
 		Name = "item_highlight_motes",
 		transform = {},
@@ -94,22 +91,33 @@ function META:Initialize()
 	self.emitter:SetTransient(true)
 end
 
-function META:SetRimVisible(visible)
-	if self.rim_visible == visible then return end
+function META:SetOverlayVisible(visible)
+	for _, handle in ipairs(self.overlays) do
+		handle:Remove()
+	end
 
-	self.rim_visible = visible
+	table.clear(self.overlays)
+	self.overlay_visible = visible
+
+	if not visible then return end
+
+	local color = self.Color
+	local config = {
+		ColorA = color,
+		ColorB = Color(color.r * 0.4 + 0.6, color.g * 0.4 + 0.6, color.b * 0.4 + 0.6, 1),
+	}
 
 	for _, child in ipairs(self.Owner:GetChildrenList()) do
 		if child.visual then
-			child.visual:SetOverlayMaterial(visible and self.rim or nil)
+			self.overlays[#self.overlays + 1] = surface_overlays.Add(child.visual, "item_highlight", config)
 		end
 	end
 end
 
 function META:OnEntityConstructed()
-	if not self.rim then return end
+	if not self.overlays then return end
 
-	self:SetRimVisible(self:IsShown())
+	self:SetOverlayVisible(self:IsShown())
 end
 
 function META:IsDropped()
@@ -127,7 +135,8 @@ end
 
 function META:OnUpdate(dt)
 	local dropped = self:IsShown() and self:GetAnchor() ~= nil
-	self:SetRimVisible(dropped)
+
+	if self.overlay_visible ~= dropped then self:SetOverlayVisible(dropped) end
 
 	for _, beam in ipairs(self.beams) do
 		beam:SetVisible(dropped)
@@ -185,6 +194,8 @@ end
 
 function META:OnRemove()
 	if not self.beams then return end
+
+	self:SetOverlayVisible(false)
 
 	for _, beam in ipairs(self.beams) do
 		beam:Remove()
