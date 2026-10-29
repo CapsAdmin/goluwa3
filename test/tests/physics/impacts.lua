@@ -3,6 +3,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
@@ -54,6 +55,23 @@ T.TestPhysics("A box dropped on world geometry fires one physics impact at its a
 	drop_box(test_helpers.CreateFlatGround("impact_world_ground"))
 end)
 
+local function create_split_ground()
+	local ground = Entity.New({Name = "impact_split_ground"})
+	ground:AddComponent("transform")
+	local shapes = {}
+
+	for _, x in ipairs({-10, 10}) do
+		local poly = Polygon3D.New()
+		test_helpers.AddTriangle(poly, Vec3(x - 10, 0, -10), Vec3(x - 10, 0, 10), Vec3(x + 10, 0, -10))
+		test_helpers.AddTriangle(poly, Vec3(x + 10, 0, -10), Vec3(x - 10, 0, 10), Vec3(x + 10, 0, 10))
+		poly:BuildBoundingBox()
+		shapes[#shapes + 1] = {Polygon3D = poly}
+	end
+
+	ground:AddComponent("rigid_body", {Shapes = shapes, MotionType = "static", WorldGeometry = true})
+	return ground
+end
+
 local function create_crate_hull()
 	local corners = {}
 
@@ -93,5 +111,12 @@ T.TestPhysics("A crate landing flat reports its approach speed when the solver c
 	for _, gap in ipairs({0.005, 0.01, 0.015}) do
 		land_flat(test_helpers.CreateFlatGround, create_crate_hull(), gap)
 		land_flat(test_helpers.CreateFlatGround, BoxShape.New(Vec3(0.76, 0.76, 0.76)), gap)
+	end
+end)
+
+T.TestPhysics("A crate landing flat reports its approach speed when ground support stops it before any solver contact", function()
+	for _, gap in ipairs({0.065, 0.075, 0.115}) do
+		land_flat(create_split_ground, create_crate_hull(), gap)
+		land_flat(create_split_ground, BoxShape.New(Vec3(0.76, 0.76, 0.76)), gap)
 	end
 end)

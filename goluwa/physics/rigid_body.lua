@@ -1515,6 +1515,10 @@ function RigidBody:UpdateVelocities(dt)
 
 		if use_grounded_velocity_constraints and normal_speed < 0 then
 			self.Velocity:AddScaled(self.GroundNormal, -normal_speed)
+
+			if ground_body then
+				self:GetPhysics().collision_pairs:RecordGroundImpact(self, ground_body, self.GroundNormal, -normal_speed)
+			end
 		end
 
 		if

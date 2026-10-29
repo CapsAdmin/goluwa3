@@ -121,6 +121,20 @@ function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap, spe
 	return existing
 end
 
+function CollisionPairs:RecordGroundImpact(body, ground_body, normal, speed)
+	if speed < self.ImpactSpeed then return end
+
+	local world = get_nested_entry(self.CurrentWorldCollisionPairs, body, ground_body.Owner)
+
+	if world then
+		if speed > world.speed then world.speed = speed end
+
+		return
+	end
+
+	self:RecordCollisionPair(ground_body, body, normal:Copy(), 0, speed)
+end
+
 function CollisionPairs:AddContactPoint(entry, x, y, z, weight)
 	entry.contact_x = entry.contact_x + x
 	entry.contact_y = entry.contact_y + y
