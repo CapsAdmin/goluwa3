@@ -312,6 +312,15 @@ function module.Attach(audio)
 		self:SetPlaybackPosition(clamp(tonumber(start_position) or 0, 0, self:GetBufferLength()))
 		local slot = audio.GetFreeSlot()
 
+		if not slot then
+			if self:IsSpatial() then
+				local paths = audio.ComputePaths(self)
+				slot = audio.StealSlot(self:GetMixVolume() * paths.attenuation * paths.cone_gain)
+			else
+				slot = audio.StealSlot(math.huge)
+			end
+		end
+
 		if not slot then return nil end
 
 		self:SetPlaying(true)

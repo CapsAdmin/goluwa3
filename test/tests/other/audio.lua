@@ -231,3 +231,32 @@ T.Test("a normalized sound plays at the reference loudness", function()
 	assert_close(audio.state.slots[source.slot].volume, source:GetMixVolume())
 	audio.StopAll()
 end)
+
+T.Test("a sound that finds every voice busy takes the quietest one-shot's", function()
+	audio.StopAll()
+	audio.SetDistanceModel("inverse")
+	audio.SetListenerPosition(Vec3(0, 0, 0))
+	local far = {}
+
+	for i = 1, audio.SLOT_COUNT do
+		local source = new_test_source(64, 1, 8)
+		source:SetPosition(Vec3(40 + i, 0, 0))
+		T(source:Play())["~="](nil)
+		far[i] = source
+	end
+
+	T(audio.GetFreeSlot())["=="](nil)
+	local farther = new_test_source(64, 1, 8)
+	farther:SetPosition(Vec3(500, 0, 0))
+	T(farther:Play())["=="](nil)
+	local near = new_test_source(64, 1, 8)
+	near:SetPosition(Vec3(1, 0, 0))
+	T(near:Play())["~="](nil)
+	T(far[audio.SLOT_COUNT]:IsPlaying())["=="](false)
+
+	for i = 1, audio.SLOT_COUNT - 1 do
+		T(far[i]:IsPlaying())["=="](true)
+	end
+
+	audio.StopAll()
+end)

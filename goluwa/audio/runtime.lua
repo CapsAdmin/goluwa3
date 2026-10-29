@@ -15,6 +15,38 @@ function module.Attach(audio)
 		return nil
 	end
 
+	function audio.StealSlot(importance)
+		local quietest, quietest_level
+
+		for i = 0, audio.SLOT_COUNT - 1 do
+			local slot = audio.state.slots[i]
+
+			if slot.spatial and not slot.looping then
+				local level = slot.volume * math.max(slot.ear_gain[1], slot.ear_gain[4])
+
+				if level < importance and (not quietest or level < quietest_level) then
+					quietest, quietest_level = i, level
+				end
+			end
+		end
+
+		if not quietest then return nil end
+
+		local sound = audio.active_sounds[quietest]
+
+		if sound then
+			audio._clear_sound_slot(sound, false, true)
+		else
+			local slot = audio.state.slots[quietest]
+			slot.active = false
+			slot.paused = false
+			slot.draining = false
+			slot.start_serial = slot.start_serial + 1
+		end
+
+		return quietest
+	end
+
 	function audio.StopAll()
 		for i = 0, audio.SLOT_COUNT - 1 do
 			local sound = audio.active_sounds[i]
