@@ -250,6 +250,8 @@ do
 	local MAX_DRIFT = 0.02
 	local SCALE_HYSTERESIS = 0.05
 	local DIFFUSERS = {142, 107, 379, 277}
+	-- the lines reach their decay envelope about one mean line delay (plus the diffuser spread) after the predelay; the diffused input fills that gap
+	local DIFFUSER_DELAY = 0.004
 	local DIFFUSER_GAIN = 0.62
 	local DIFFUSER_SIZE = 512
 	local DIFFUSER_MASK = DIFFUSER_SIZE - 1
@@ -440,21 +442,28 @@ do
 		local diffusers = reverb.diffusers
 		local diffuser_length = reverb.diffuser_length
 		local diffuser_gain = DIFFUSER_GAIN * reverb.diffusion
+		local onset = dsp.REVERB_MEAN_DELAY * reverb.scale + DIFFUSER_DELAY * reverb.diffusion
+		local fill = 1 - math.exp(-13.82 * onset / reverb.t60[1])
+		local onset_gain = math.sqrt(fill)
+		output_gain = output_gain * math.sqrt(1 - fill)
 		local antidenormal = 1e-20
 		local tail_energy = 0
 
 		for i = 0, frames - 1 do
 			predelay_line[bit.band(write, PREDELAY_MASK)] = input[i]
 			local x = dsp.ReadLinear(predelay_line, PREDELAY_MASK, write - predelay_start - predelay_step * (i + 1))
+			local early
 
 			for d = 0, 3 do
 				local line = diffusers[d]
 				local delayed = line[bit.band(write - diffuser_length[d], DIFFUSER_MASK)]
 				local y = delayed - diffuser_gain * x
 				line[bit.band(write, DIFFUSER_MASK)] = x + diffuser_gain * y
+				early = x
 				x = y
 			end
 
+			local onset_left, onset_right = x * onset_gain, early * onset_gain
 			x = x * 0.25 + antidenormal
 			antidenormal = -antidenormal
 			local left = 0
@@ -498,8 +507,8 @@ do
 			end
 
 			tail_energy = tail_energy + left * left + right * right
-			output[i * 2] = output[i * 2] + left * output_gain
-			output[i * 2 + 1] = output[i * 2 + 1] + right * output_gain
+			output[i * 2] = output[i * 2] + left * output_gain + onset_left
+			output[i * 2 + 1] = output[i * 2 + 1] + right * output_gain + onset_right
 			write = write + 1
 		end
 
