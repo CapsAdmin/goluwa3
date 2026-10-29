@@ -43,14 +43,14 @@ function acoustics.NewStats()
 		segment = 0,
 		volume = 0,
 		log_reflect = {0, 0, 0},
-		throughput = {0, 0, 0},
 		last_throughput = {0, 0, 0},
 		last_throughput_length = {0, 0, 0},
+		settled_throughput = {0, 0, 0},
 	}
 end
 
 function acoustics.NewSourceSums()
-	return {rays = 0, bounced = {0, 0, 0}, late = {0, 0, 0}, moment = {0, 0, 0}}
+	return {rays = 0, settled = {0, 0, 0}, late = {0, 0, 0}, moment = {0, 0, 0}}
 end
 
 function acoustics.CopySourceSums(from)
@@ -68,9 +68,9 @@ function acoustics.DecayStats(stats, factor)
 
 	for b = 1, 3 do
 		stats.log_reflect[b] = stats.log_reflect[b] * factor
-		stats.throughput[b] = stats.throughput[b] * factor
 		stats.last_throughput[b] = stats.last_throughput[b] * factor
 		stats.last_throughput_length[b] = stats.last_throughput_length[b] * factor
+		stats.settled_throughput[b] = stats.settled_throughput[b] * factor
 	end
 end
 
@@ -83,9 +83,9 @@ function acoustics.AddStats(into, from)
 
 	for b = 1, 3 do
 		into.log_reflect[b] = into.log_reflect[b] + from.log_reflect[b]
-		into.throughput[b] = into.throughput[b] + from.throughput[b]
 		into.last_throughput[b] = into.last_throughput[b] + from.last_throughput[b]
 		into.last_throughput_length[b] = into.last_throughput_length[b] + from.last_throughput_length[b]
+		into.settled_throughput[b] = into.settled_throughput[b] + from.settled_throughput[b]
 	end
 end
 
@@ -93,9 +93,9 @@ function acoustics.DecaySourceSums(sums, factor)
 	sums.rays = sums.rays * factor
 
 	for b = 1, 3 do
-		sums.bounced[b] = sums.bounced[b] * factor
 		sums.late[b] = sums.late[b] * factor
 		sums.moment[b] = sums.moment[b] * factor
+		sums.settled[b] = sums.settled[b] * factor
 	end
 end
 
@@ -103,9 +103,9 @@ function acoustics.AddSourceSums(into, from, rays)
 	into.rays = into.rays + rays
 
 	for b = 1, 3 do
-		into.bounced[b] = into.bounced[b] + from.bounced[b]
 		into.late[b] = into.late[b] + from.late[b]
 		into.moment[b] = into.moment[b] + from.moment[b]
+		into.settled[b] = into.settled[b] + from.settled[b]
 	end
 end
 
@@ -154,8 +154,8 @@ function acoustics.ComputeSourceReverb(sums, stats, profile, direct_time, speed)
 	if sums.rays <= 0 or stats.rays <= 0 then return nil end
 
 	for b = 1, 3 do
-		local throughput = stats.throughput[b] / stats.rays
-		local per_bounce = throughput > 0 and (sums.bounced[b] / sums.rays) / throughput or 0
+		local throughput = stats.settled_throughput[b] / stats.rays
+		local per_bounce = throughput > 0 and (sums.settled[b] / sums.rays) / throughput or 0
 		local survival = math.min(profile.survival[b], 0.995)
 		local geometric = survival / (1 - survival)
 		local last = stats.last_throughput[b] / stats.rays
@@ -325,10 +325,11 @@ function acoustics.PathTrace(tracer, job, result)
 			stats.segment = stats.segment + distance
 			length = length + distance
 			local hx, hy, hz = ox + dx * distance, oy + dy * distance, oz + dz * distance
+			local settled = bounce >= math.floor(job.bounces / 2)
 
-			if bounce > 0 then
+			if settled then
 				for b = 1, 3 do
-					stats.throughput[b] = stats.throughput[b] + w[b]
+					stats.settled_throughput[b] = stats.settled_throughput[b] + w[b]
 				end
 			end
 
@@ -353,17 +354,17 @@ function acoustics.PathTrace(tracer, job, result)
 						local total = length + d
 						local t = total / speed - job.direct_time[s]
 						local base = 4 * cos_s / math.max(d2, 0.01)
-						local late = t > job.split_time
+						local late = bounce > 0 and t > job.split_time
 
 						for b = 1, 3 do
 							local e = base * w[b] * (1 - absorption[b]) * math.exp(-air[b] * total)
-
-							if bounce > 0 then sums.bounced[b] = sums.bounced[b] + e end
 
 							if late then
 								sums.late[b] = sums.late[b] + e
 								sums.moment[b] = sums.moment[b] + e * t
 							end
+
+							if settled then sums.settled[b] = sums.settled[b] + e end
 						end
 					end
 				end

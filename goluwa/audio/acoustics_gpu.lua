@@ -237,7 +237,9 @@ local function build_pipeline(slots)
 						vec3 n = hit.normal;
 						vec3 p = origin + dir * distance + n * offset;
 
-						if (bounce > 0) {
+						bool settled = bounce >= acoustic.counts.y / 2;
+
+						if (settled) {
 							acc[8] += w.x;
 							acc[9] += w.y;
 							acc[10] += w.z;
@@ -262,13 +264,13 @@ local function build_pipeline(slots)
 								vec3 e = (4.0 * cos_s / max(d2, 0.01)) * w * reflect * exp(-air * total);
 								int base = 17 + s * 9;
 
-								if (bounce > 0) {
+								if (settled) {
 									acc[base] += e.x;
 									acc[base + 1] += e.y;
 									acc[base + 2] += e.z;
 								}
 
-								if (t > acoustic.timing.x) {
+								if (bounce > 0 && t > acoustic.timing.x) {
 									acc[base + 3] += e.x;
 									acc[base + 4] += e.y;
 									acc[base + 5] += e.z;
@@ -405,7 +407,7 @@ function META:ReadResult(job, slot)
 
 		for b = 1, 3 do
 			stats.log_reflect[b] = stats.log_reflect[b] + out[at + 4 + b]
-			stats.throughput[b] = stats.throughput[b] + out[at + 7 + b]
+			stats.settled_throughput[b] = stats.settled_throughput[b] + out[at + 7 + b]
 			stats.last_throughput[b] = stats.last_throughput[b] + out[at + 10 + b]
 			stats.last_throughput_length[b] = stats.last_throughput_length[b] + out[at + 13 + b]
 		end
@@ -415,7 +417,7 @@ function META:ReadResult(job, slot)
 			local base = at + 17 + (s - 1) * 9
 
 			for b = 1, 3 do
-				sums.bounced[b] = sums.bounced[b] + out[base + b - 1]
+				sums.settled[b] = sums.settled[b] + out[base + b - 1]
 				sums.late[b] = sums.late[b] + out[base + 2 + b]
 				sums.moment[b] = sums.moment[b] + out[base + 5 + b]
 			end
