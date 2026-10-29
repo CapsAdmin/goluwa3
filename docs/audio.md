@@ -53,3 +53,4 @@ You cannot listen, so render offline and measure: swap `audio.state` for `audio.
 - Delay: peak index of an impulse. Doppler: zero crossings of a sine. Decay: Schroeder backward integration, T20 range.
 - Measure per band decay with a narrow band pass at the band centers; a wide band's late tail is dominated by its slowest frequencies.
 - Write a 16 bit wav to hand the user something to listen to.
+- `goluwa/audio/signals.lua` builds deterministic test signals: `Clap` (a hand clap, broad peak around 1.5 kHz, 10 ms) and `Boom` (40 to 90 Hz, about 1 s). In game the `Sound test` weapon (slot 9) plays them, clap on primary and boom on secondary, at -6 and +6 dB on the game's level scale.

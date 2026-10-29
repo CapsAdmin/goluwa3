@@ -83,9 +83,19 @@ weapons.Loadout = {
 	"weapon_hands",
 	"weapon_flashlight",
 	"weapon_sword",
+	"weapon_sound_test",
 }
 
-for _, name in ipairs{"camera", "physgun", "pistol", "grenade", "hands", "flashlight", "sword"} do
+for _, name in ipairs{
+	"camera",
+	"physgun",
+	"pistol",
+	"grenade",
+	"hands",
+	"flashlight",
+	"sword",
+	"sound_test",
+} do
 	local definition = import("lua/weapons/" .. name .. ".lua")
 	weapons.Register(
 		"weapon_" .. name,

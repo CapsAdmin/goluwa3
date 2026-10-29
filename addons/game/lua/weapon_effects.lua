@@ -211,4 +211,41 @@ do
 	)
 end
 
+do
+	local SIGNALS = {
+		clap = {build = "Clap", gain = 10 ^ (-6 / 20)},
+		boom = {build = "Boom", gain = 10 ^ (6 / 20)},
+	}
+	local SAMPLE_RATE = 48000
+	local sounds
+	local signals
+
+	local function audio_enabled()
+		return AUDIO and CLIENT
+	end
+
+	weapon_effects.TestSound = new_event(
+		"weapon_test_sound",
+		function(weapon, kind)
+			local signal = SIGNALS[kind]
+
+			if not signal.registered then
+				sounds = sounds or import("lua/sounds.lua")
+				signals = signals or import("goluwa/audio/signals.lua")
+				local data, frames = signals[signal.build](SAMPLE_RATE)
+				sounds.Register("signal/" .. kind, data, frames, SAMPLE_RATE)
+				signal.registered = true
+			end
+
+			sounds.Play(
+				"signal/" .. kind,
+				weapon.weapon:GetMuzzle().transform:GetWorldPosition(),
+				signal.gain
+			)
+		end,
+		audio_enabled,
+		get_owner_client
+	)
+end
+
 return weapon_effects

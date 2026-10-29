@@ -28,6 +28,18 @@ function sounds.CreateSource(path)
 	return source
 end
 
+function sounds.Register(name, data, frames, sample_rate)
+	local entry = {next = 1}
+
+	for i = 1, VOICES do
+		entry[i] = audio.CreateSource{data = data, samples = frames, channels = 1, sample_rate = sample_rate}
+		entry[i]:SetNormalized(true)
+		entry[i]:SetReferenceDistance(REFERENCE_DISTANCE)
+	end
+
+	voices[name] = entry
+end
+
 function sounds.GetLevel(position, volume)
 	return volume * REFERENCE_DISTANCE / math.max(position:Distance(audio.GetListenerPosition()), REFERENCE_DISTANCE)
 end
