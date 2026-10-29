@@ -28,7 +28,7 @@ A kind is a table: engine kinds are in `goluwa/render3d/surface_effects/` listed
 
 ## Gameplay
 
-`addons/jrpg/lua/jrpg/surface_hazards.lua`: damage types with a `Surface` entry apply that kind on impact through a replicated event, and on the authority actors standing on heat, frost or poison get the matching status (burning actors ignite the ground). Hazards read the world field only, objects burning do not hurt actors directly (they ignite the floor). The field only exists where the renderer runs, so on a dedicated server there are no hazards. Console: `surface_effect <kind> [radius] [amount]` applies at the crosshair, `surface_effect_clear`.
+Nothing in the game applies the field by itself: `Query` is the gameplay read, and the console has `surface_effect <kind> [radius] [amount]` (applies at the crosshair) and `surface_effect_clear`. The jrpg spells do not touch it; their looks are surface overlays on the victim.
 
 ## Verifying
 
