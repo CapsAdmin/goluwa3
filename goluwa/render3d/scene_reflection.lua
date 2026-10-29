@@ -564,7 +564,8 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 				if (gi_available() && gi_in_volume(origin)) {
 					float fog_weight;
-					vec4 up = gi_sample_irradiance(origin, vec3(0.0, 1.0, 0.0), vec3(0.0), false, DDGI_NO_VISIBILITY_RAYS, fog_weight);
+					vec3 fog_normal = ddgi_data.gi_mode == GI_MODE_SURFELS ? N : vec3(0.0, 1.0, 0.0);
+					vec4 up = gi_sample_irradiance(origin, fog_normal, vec3(0.0), false, DDGI_NO_VISIBILITY_RAYS, fog_weight);
 
 					if (fog_weight > 0.0) {
 						fog_sky = saturate(up.a);
