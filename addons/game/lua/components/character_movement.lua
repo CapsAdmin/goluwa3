@@ -638,7 +638,9 @@ do
 		self.dead = true
 		self.death_time = system.GetElapsedTime()
 		self.death_position = self.Owner.transform:GetPosition():Copy()
-		self.death_rotation = self.Owner.player_input:GetRotation():Copy()
+		self.death_rotation = self.Owner.player_input and
+			self.Owner.player_input:GetRotation():Copy() or
+			self.Owner.transform:GetRotation():Copy()
 		self.Swimming = false
 
 		if self.Owner.ragdoll then
