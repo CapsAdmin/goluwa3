@@ -212,8 +212,8 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 		lines[#lines + 1] = "\tout_lod_fade = world[0][3];"
 	end
 
-	if options.instance_tint then
-		lines[#lines + 1] = "\tout_instance_tint = " .. (options.instance_tint_expr or "vec3(1.0)") .. ";"
+	if options.instance_overlay then
+		lines[#lines + 1] = "\tout_instance_overlay = " .. (options.instance_overlay_expr or "0.0") .. ";"
 	end
 
 	if options.instance_effects then
@@ -272,7 +272,7 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	lines[#lines + 1] = "\tout_position = world_position;"
 
 	if options.instance_effects then
-		lines[#lines + 1] = "\tbool object_effects = any(greaterThan(out_instance_effects_a + out_instance_effects_b, vec3(0.0)));"
+		lines[#lines + 1] = "\tbool object_effects = out_instance_overlay > 0.0 || any(greaterThan(out_instance_effects_a + out_instance_effects_b, vec3(0.0)));"
 		lines[#lines + 1] = "\tout_effect_position = object_effects ? local_position : world_position;"
 		lines[#lines + 1] = "\tout_effect_normal = object_effects ? in_normal : world_normal;"
 	end
@@ -320,8 +320,8 @@ local function get_vertex_stage_outputs(options)
 
 	if options.lod_fade then outputs[#outputs + 1] = {"lod_fade", "float"} end
 
-	if options.instance_tint then
-		outputs[#outputs + 1] = {"instance_tint", "vec3"}
+	if options.instance_overlay then
+		outputs[#outputs + 1] = {"instance_overlay", "float"}
 	end
 
 	if options.instance_effects then
@@ -401,7 +401,7 @@ function model_pipeline.CreateVertexStage(options)
 	if
 		options.velocity or
 		options.lod_fade or
-		options.instance_tint or
+		options.instance_overlay or
 		options.instance_effects
 	then
 		local outputs = model_pipeline.GetVertexAttributes()
@@ -412,8 +412,8 @@ function model_pipeline.CreateVertexStage(options)
 
 		if options.lod_fade then outputs[#outputs + 1] = {"lod_fade", "float"} end
 
-		if options.instance_tint then
-			outputs[#outputs + 1] = {"instance_tint", "vec3"}
+		if options.instance_overlay then
+			outputs[#outputs + 1] = {"instance_overlay", "float"}
 		end
 
 		if options.instance_effects then
@@ -628,7 +628,7 @@ do
 	vertex_animation.DetailTime = ]] .. options.detail_time_expr .. [[;
 	vertex_animation.PrevDetailTime = ]] .. options.prev_detail_time_expr .. [[;
 ]]
-		options.instance_tint_expr = "multi_draw_instance_tint(world[1][3])"
+		options.instance_overlay_expr = "world[1][3]"
 		options.instance_effects_a_expr = "multi_draw_instance_effects(world[2][3])"
 		options.instance_effects_b_expr = "multi_draw_instance_effects(multi_draw_instance_prev_world[2][3])"
 		return {
@@ -644,11 +644,6 @@ layout(location = ]] .. batch_location .. [[) flat out uint out_batch;
 mat4 multi_draw_instance_world;
 mat4 multi_draw_instance_prev_world;
 PBRBatch_vertex_animation vertex_animation;
-
-vec3 multi_draw_instance_tint(float packed) {
-	uint bits = floatBitsToUint(packed);
-	return bits == 0u ? vec3(1.0) : unpackUnorm4x8(bits).rgb * 2.0;
-}
 
 vec3 multi_draw_instance_effects(float packed) {
 	uint bits = floatBitsToUint(packed);

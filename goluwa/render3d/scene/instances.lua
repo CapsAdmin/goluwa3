@@ -23,6 +23,7 @@ local InstanceData = ffi.typeof([[struct {
 	float lod_far;
 	float effect0;
 	float effect1;
+	float overlay;
 }]])
 instances.MASK_SOLID = 0x01
 instances.MASK_SEE_THROUGH = 0x02
@@ -253,6 +254,15 @@ function instances.SetEffects(id, a, b)
 	data_table:Touch(id)
 end
 
+function instances.SetOverlay(id, slot)
+	local data = data_table:Get()[id]
+
+	if data.overlay == slot then return end
+
+	data.overlay = slot
+	data_table:Touch(id)
+end
+
 function instances.SetMask(id, mask, flags)
 	local record = tlas_table:Get()[id]
 	local data = data_table:Get()[id]
@@ -432,7 +442,7 @@ do
 					uint mask_lod;
 					vec4 bounds;
 					vec2 lod;
-					vec2 effects;
+					vec3 effects;
 				};
 
 				struct mesh_row {

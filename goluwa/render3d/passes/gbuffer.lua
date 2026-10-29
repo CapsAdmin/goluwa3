@@ -116,7 +116,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			vertex_color = true,
 			velocity = true,
 			lod_fade = true,
-			instance_tint = true,
+			instance_overlay = true,
 			instance_effects = true,
 			camera_block_name = "gbuffer_data",
 			uniform_buffers = {
@@ -141,7 +141,7 @@ local function build_instanced_pass(fragment_shader)
 		vertex_color = true,
 		velocity = true,
 		lod_fade = true,
-		instance_tint = true,
+		instance_overlay = true,
 		instance_effects = true,
 		camera_block_name = "gbuffer_data",
 		uniform_buffers = {
@@ -193,7 +193,7 @@ local function build_multi_draw_pass(fragment_shader)
 		vertex_color = true,
 		velocity = true,
 		lod_fade = true,
-		instance_tint = true,
+		instance_overlay = true,
 		instance_effects = true,
 		camera_block_name = "gbuffer_data",
 		uniform_buffers = {camera_block, multi_draw_block},
@@ -320,7 +320,7 @@ local function build_ssdm_fragment_shader(write_depth)
 			prepare_terrain_layers(displacement.uv, displacement.world_pos);
 			init_surface_features(surface, displacement.uv);
 			surface.alpha = alpha;
-			surface.albedo = get_albedo_world(displacement.uv, displacement.world_pos) * in_instance_tint;
+			surface.albedo = get_albedo_world(displacement.uv, displacement.world_pos);
 			surface.N = get_normal(displacement.uv, tbn);
 			SurfaceWeather weather;
 			prepare_surface_weather(surface, weather);
