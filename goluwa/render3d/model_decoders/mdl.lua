@@ -7,6 +7,7 @@ local packed_mesh = import("goluwa/render3d/packed_mesh.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local units = import("goluwa/source_engine/units.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local render = import("goluwa/render/render.lua")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
@@ -1444,7 +1445,8 @@ function mdl_decoder.Finish(
 	blob_table,
 	mesh_callback,
 	physics_callback,
-	skeleton_callback
+	skeleton_callback,
+	bounds_callback
 )
 	local models = {}
 
@@ -1462,6 +1464,21 @@ function mdl_decoder.Finish(
 				flex.Sides = copy_array(blob_table, "uint8_t", meta.mdl_offset + flex.sides_offset, flex.Count)
 			end
 		end
+	end
+
+	if not meta.physics then
+		local min, max = mdl.hull_min, mdl.hull_max
+
+		if min[1] == max[1] and min[2] == max[2] and min[3] == max[3] then
+			min, max = mdl.view_bbmin, mdl.view_bbmax
+		end
+
+		local a = units.PositionToEngine(Vec3(min[1], min[2], min[3]))
+		local b = units.PositionToEngine(Vec3(max[1], max[2], max[3]))
+		bounds_callback(
+			Vec3(math.min(a.x, b.x), math.min(a.y, b.y), math.min(a.z, b.z)),
+			Vec3(math.max(a.x, b.x), math.max(a.y, b.y), math.max(a.z, b.z))
+		)
 	end
 
 	local eyes = {}

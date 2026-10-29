@@ -130,3 +130,34 @@ T.TestPhysics("the ragdoll rig bones sit on their bodies at a rotated spawn", fu
 	spawned:Remove()
 	ground:Remove()
 end)
+
+T.TestPhysics("a model without collision data spawns with a box collider around its visual", function()
+	local ground = create_ground()
+	local spawned
+
+	props.Spawn(
+		"models/Advisor.mdl",
+		Vec3(0, 0, 0),
+		Quat():Identity(),
+		function(entity)
+			spawned = entity
+		end
+	)
+
+	T.WaitUntil(function()
+		return spawned ~= nil
+	end)
+
+	local body = spawned.rigid_body
+	T(body:GetShapeType())["=="]("box")
+	T(body:GetMass())[">"](1)
+
+	for _ = 1, 120 do
+		physics.UpdateFixed(1 / 60)
+	end
+
+	T(body:IsDynamic())["=="](true)
+	T(body.Position.y)[">"](0.2)
+	spawned:Remove()
+	ground:Remove()
+end)

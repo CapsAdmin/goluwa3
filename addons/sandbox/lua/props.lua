@@ -1,6 +1,7 @@
 local prefab = import("goluwa/entities/prefab.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 Entity.RegisterComponent("source_ragdoll", import("lua/components/source_ragdoll.lua"))
@@ -59,6 +60,8 @@ prefab.Register(
 		}
 	).builtin = true
 local CLEARANCE = 0.02
+local BOX_DENSITY = 150
+local MIN_BOX_EXTENT = 0.05
 
 local function get_lowest(physics, rotation)
 	local lowest = math.huge
@@ -84,7 +87,50 @@ function props.Spawn(model_path, position, rotation, on_spawn)
 			local physics = model.physics
 
 			if not physics then
-				wlog("%s has no collision data, it cannot be a physics prop", model_path)
+				local min, max = model.bounds.min, model.bounds.max
+				local size = Vec3(
+					math.max(max.x - min.x, MIN_BOX_EXTENT),
+					math.max(max.y - min.y, MIN_BOX_EXTENT),
+					math.max(max.z - min.z, MIN_BOX_EXTENT)
+				)
+				local center = (min + max) * 0.5
+				local lowest = math.huge
+
+				for _, sign_x in ipairs({-1, 1}) do
+					for _, sign_y in ipairs({-1, 1}) do
+						for _, sign_z in ipairs({-1, 1}) do
+							lowest = math.min(
+								lowest,
+								rotation:VecMul(center + Vec3(sign_x * size.x, sign_y * size.y, sign_z * size.z) * 0.5).y
+							)
+						end
+					end
+				end
+
+				local surface = surface_properties.Get("default")
+				local entity = Entity.New{
+					Transient = false,
+					Name = model_path:match("([^/]+)%.%w+$") or model_path,
+					transform = {
+						Position = position + Vec3(0, CLEARANCE - lowest, 0) + rotation:VecMul(center),
+						Rotation = rotation,
+					},
+					network = SERVER and {} or nil,
+					rigid_body = {
+						Shape = BoxShape.New(size),
+						MotionType = "dynamic",
+						Mass = size.x * size.y * size.z * BOX_DENSITY,
+						AutomaticMass = false,
+						Friction = surface.friction,
+						Restitution = surface.elasticity,
+						FrictionCombineMode = "multiply",
+						RestitutionCombineMode = "multiply",
+					},
+					prefab = {Path = "prop_physics", Inputs = {Model = model_path, Offset = center * -1}},
+				}
+
+				if on_spawn then on_spawn(entity) end
+
 				return
 			end
 

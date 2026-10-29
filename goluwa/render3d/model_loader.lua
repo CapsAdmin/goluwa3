@@ -52,7 +52,14 @@ model_loader.model_loads = utility.CreateLoadCache(model_loader.model_cache, 0.0
 function model_loader.AddThreadedDecoder(id, decoder, ext)
 	model_loader.AddModelDecoder(
 		id,
-		function(path, full_path, mesh_callback, physics_callback, skeleton_callback)
+		function(
+			path,
+			full_path,
+			mesh_callback,
+			physics_callback,
+			skeleton_callback,
+			bounds_callback
+		)
 			local input, size = decoder.Gather(path, full_path)
 			local meta, blob = thread_pool.Run(decoder.job, input, size):Await()
 			return decoder.Finish(
@@ -63,7 +70,8 @@ function model_loader.AddThreadedDecoder(id, decoder, ext)
 				blob,
 				mesh_callback,
 				physics_callback,
-				skeleton_callback
+				skeleton_callback,
+				bounds_callback
 			)
 		end,
 		ext
@@ -151,6 +159,10 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 			out.skeleton = skeleton
 		end
 
+		local function bounds_callback(min, max)
+			out.bounds = {min = min, max = max}
+		end
+
 		local decode_callback = model_loader.FindModelDecoder(path)
 
 		if decode_callback then
@@ -162,7 +174,14 @@ function model_loader.LoadModel(path, callback, callback2, on_fail)
 			thread:SetName(path)
 
 			function thread:OnStart()
-				decode_callback(path, full_path, mesh_callback, physics_callback, skeleton_callback)
+				decode_callback(
+					path,
+					full_path,
+					mesh_callback,
+					physics_callback,
+					skeleton_callback,
+					bounds_callback
+				)
 				loads:Finish(path, out)
 			end
 
