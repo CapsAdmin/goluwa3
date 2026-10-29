@@ -124,7 +124,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/render3d-pipeline.md](docs/render3d-pipeline.md): surface features and the auto packed gbuffer, Vulkan/GLSL pitfalls, GPU culling, instancing, LOD, scene view, Test3D
 - [docs/particles.md](docs/particles.md): the particle system (gpu pools, one compute pass, lit by the sun, local lights and DDGI or the sky), the particle_emitter_gpu and particle_emitter_cpu (gbuffer instancing) components, rain, snow, collision, measuring
 - [docs/vfx.md](docs/vfx.md): sprite batches, ribbon trails, bursts, flash lights and timelines (the engine side of effects)
-- [docs/surface-effects.md](docs/surface-effects.md): fire, frost, water (and game kinds like poison) on patches of the world: the CPU cell field and simulation, the GPU field read by the gbuffer, flame sheets, smoke/ember particles, adding a kind
+- [docs/surface-effects.md](docs/surface-effects.md): fire, frost, water (and game kinds like poison) on patches of the world: the CPU cell field and simulation, the GPU field read by the gbuffer, flame sheets, smoke/ember particles, adding a kind; timed animated overlays on one visual (surface_overlays, magic looks)
 - [docs/scatter.md](docs/scatter.md): scatter sets, models (grass, rocks, trees) grown on surfaces on the gpu: set rules, passes, pitfalls
 - [docs/foliage.md](docs/foliage.md): procedural trees, grass, rocks and plants (addons/foliage), their textures, model assets and scatter sets
 - [docs/terrain-streaming.md](docs/terrain-streaming.md): the Limcore Terrain project (heightmap clipmap, tessellation) and what was taken from it for tiles
