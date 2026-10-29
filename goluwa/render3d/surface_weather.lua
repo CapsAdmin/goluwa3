@@ -401,13 +401,6 @@ function surface_weather.GetGLSL(block_name)
 			return clamp(n + 0.5, 0.0, 1.0);
 		}
 
-		void add_surface_film(inout SurfaceWeather w, float film, float film_alpha) {
-			if (film <= w.film) return;
-
-			w.film_alpha = mix(w.film_alpha, film_alpha, (film - w.film) / film);
-			w.film = film;
-		}
-
 		void apply_surface_wetness(inout Surface s, inout SurfaceWeather w, float wet) {
 			if (wet <= w.wet) return;
 

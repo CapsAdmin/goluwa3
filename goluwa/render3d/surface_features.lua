@@ -228,6 +228,13 @@ function surface_features.New(source_list)
 			vec3 geometric_N;
 			]] .. join("surface_members") .. [[
 		};
+
+		void add_surface_film(inout SurfaceWeather w, float film, float film_alpha) {
+			if (film <= w.film) return;
+
+			w.film_alpha = mix(w.film_alpha, film_alpha, (film - w.film) / film);
+			w.film = film;
+		}
 		#endif
 	]] .. "\n"
 	end
