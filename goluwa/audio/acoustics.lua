@@ -25,6 +25,7 @@ acoustics.OCCLUSION_MEMORY_SAMPLES = 12
 acoustics.TRUSTED_RAYS = 256
 acoustics.MIN_T60 = 0.05
 acoustics.MAX_T60 = 12
+acoustics.MIN_PREDELAY = 0.002
 acoustics.REMOTE_T60_RATIO = 1.6
 acoustics.QUERY_FLOATS = 8
 acoustics.DIFFUSE_ESCAPING = 0.1
@@ -1134,8 +1135,11 @@ function META:UpdateBuses()
 		listener_bus.t60[b - 1] = ambient[b]
 	end
 
-	listener_bus.predelay = profile.predelay
 	listener_bus.scale = profile.mean_free_path / (self.audio.speed_of_sound * dsp.REVERB_MEAN_DELAY)
+	listener_bus.predelay = math.max(
+		profile.predelay - math.max(dsp.REVERB_MIN_SCALE - listener_bus.scale, 0) * dsp.REVERB_MEAN_DELAY,
+		acoustics.MIN_PREDELAY
+	)
 	listener_bus.diffusion = math.clamp(
 		(
 				acoustics.SPARSE_ESCAPING - profile.openness

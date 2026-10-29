@@ -257,6 +257,7 @@ do
 
 	dsp.REVERB_MEAN_DELAY = mean_delay / 44100
 	local SCALE_STEPS = {1, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6}
+	dsp.REVERB_MIN_SCALE = SCALE_STEPS[1]
 	local SCALE_HYSTERESIS = 0.05
 	local SIZE_FADE_SECONDS = 0.05
 	local PREDELAY_GLIDE = 0.02
