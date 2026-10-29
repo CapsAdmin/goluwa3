@@ -13,7 +13,11 @@ acoustics.TRANSMISSION = {0.05, 0.02, 0.008}
 acoustics.DEFAULT_ABSORPTION = {0.06, 0.10, 0.16}
 acoustics.MAX_REFLECTORS = 10
 acoustics.MIN_REFLECTOR_AREA = 0.5
+acoustics.MIN_REFLECTOR_HITS = 3
 acoustics.REFLECTOR_MEMORY = 1.5
+acoustics.REFLECTOR_RECENT = 0.5
+acoustics.FOOTPRINT_SIGMA = 2
+acoustics.FOOTPRINT_MARGIN = 0.5
 acoustics.TAP_MEMORY = 1.0
 acoustics.STATS_MEMORY = 0.5
 acoustics.STATS_DISTANCE = 0.5
@@ -479,8 +483,8 @@ local function by_importance(a, b)
 	return a.importance > b.importance
 end
 
-local function by_weight(a, b)
-	return a.weight > b.weight
+local function by_count(a, b)
+	return a.count > b.count
 end
 
 local function by_gain(a, b)
@@ -669,12 +673,15 @@ function META:GetTopReflectors()
 	local list = {}
 
 	for _, reflector in pairs(self.reflectors) do
-		if reflector.weight >= acoustics.MIN_REFLECTOR_AREA then
+		if
+			reflector.weight >= acoustics.MIN_REFLECTOR_AREA and
+			reflector.count >= acoustics.MIN_REFLECTOR_HITS
+		then
 			list[#list + 1] = reflector
 		end
 	end
 
-	table.sort(list, by_weight)
+	table.sort(list, by_count)
 	local listener = self.audio.listener_position
 	local kept = {}
 
@@ -717,6 +724,10 @@ function META:AbsorbReflectors(job, result, decay)
 			reflector.absorption[i] = reflector.absorption[i] * decay
 		end
 
+		for i = 1, 6 do
+			reflector.spread[i] = reflector.spread[i] * decay
+		end
+
 		if reflector.weight < 0.01 then self.reflectors[key] = nil end
 	end
 
@@ -749,12 +760,17 @@ function META:AbsorbReflectors(job, result, decay)
 				position = {0, 0, 0},
 				normal = {0, 0, 0},
 				absorption = {0, 0, 0},
+				spread = {0, 0, 0, 0, 0, 0},
 			}
 			self.reflectors[key] = reflector
 		end
 
 		reflector.weight = reflector.weight + solid_angle * distance * distance / math.max(s[at + 8], 0.2) * job.rays / job.sample_count
 		reflector.count = reflector.count + 1
+		reflector.seen = job.time
+		local spread = reflector.spread
+		spread[1], spread[2], spread[3] = spread[1] + px * px, spread[2] + py * py, spread[3] + pz * pz
+		spread[4], spread[5], spread[6] = spread[4] + px * py, spread[5] + px * pz, spread[6] + py * pz
 		reflector.position[1] = reflector.position[1] + px
 		reflector.position[2] = reflector.position[2] + py
 		reflector.position[3] = reflector.position[3] + pz
@@ -1106,6 +1122,43 @@ function META:Update(time)
 	self:UpdateBuses()
 end
 
+do
+	local function contains(reflector, point, n)
+		local count = reflector.count
+		local cx, cy, cz = reflector.position[1] / count, reflector.position[2] / count, reflector.position[3] / count
+		local dx, dy, dz = point.x - cx, point.y - cy, point.z - cz
+		local along = dx * n.x + dy * n.y + dz * n.z
+		dx, dy, dz = dx - n.x * along, dy - n.y * along, dz - n.z * along
+		local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+		if distance <= acoustics.FOOTPRINT_MARGIN then return true end
+
+		local ux, uy, uz = dx / distance, dy / distance, dz / distance
+		local m = reflector.spread
+		local xx, yy, zz = m[1] / count - cx * cx, m[2] / count - cy * cy, m[3] / count - cz * cz
+		local xy, xz, yz = m[4] / count - cx * cy, m[5] / count - cx * cz, m[6] / count - cy * cz
+		local variance = ux * ux * xx + uy * uy * yy + uz * uz * zz + 2 * (
+				ux * uy * xy + ux * uz * xz + uy * uz * yz
+			)
+		return distance <= acoustics.FOOTPRINT_SIGMA * math.sqrt(math.max(variance, 0)) + acoustics.FOOTPRINT_MARGIN
+	end
+
+	function META:AcceptReflections(env, source, time)
+		local listener = self.audio.listener_position
+
+		for _, reflector in ipairs(self:GetTopReflectors()) do
+			if reflector.seen and time - reflector.seen <= acoustics.REFLECTOR_RECENT then
+				local n, offset = reflector_plane(reflector)
+				local point = reflection_point(listener, source, n, offset)
+
+				if point and contains(reflector, point, n) then
+					env.reflections[reflector.key] = time
+				end
+			end
+		end
+	end
+end
+
 function META:Probe(sound)
 	local env = self:GetEnvironment(sound)
 	local source = sound:GetPosition()
@@ -1121,6 +1174,8 @@ function META:Probe(sound)
 		env.traced = source:Copy()
 		table.clear(env.reflections)
 	end
+
+	self:AcceptReflections(env, source, time)
 
 	if self.tracer.Probe then
 		local visibility = self.tracer:Probe(self.audio.listener_position, source, self.audio.speed_of_sound)

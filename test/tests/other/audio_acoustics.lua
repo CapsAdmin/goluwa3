@@ -415,7 +415,15 @@ T.Test("audio acoustics matches Eyring in a box room and finds every wall reflec
 		end)
 		clap:SetPosition(Vec3(2.1, 1.4, 1.9))
 		clap:Play()
-		T(clap.audio_environment.send[1])[">"](0.5)
+		local clap_env = clap.audio_environment
+		local clap_taps = 0
+
+		for _ in pairs(clap_env.taps) do
+			clap_taps = clap_taps + 1
+		end
+
+		T(clap_taps)["=="](6)
+		T(clap_env.send[1])[">"](0.5)
 		audio.StopAll()
 	end)
 end)
