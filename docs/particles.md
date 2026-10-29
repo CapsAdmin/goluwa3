@@ -16,6 +16,8 @@ Start from `goluwa/render3d/particles.lua` (the system; the `Register{...}` fiel
 
 Rain and snow fill a box of `BOX_SIZE` (20 m) around the camera, wrapped on every side, so density is constant and teleports cost nothing. The drawn count is capped and each particle stands for `coverage_scale` real ones. Wind is read every frame; size is read at spawn. Both collide with the `shelter_map`; a box wrap is not a fall (the update resets `particle_previous` so the step is not tested). `r_feature_precipitation` turns both off.
 
+A system with `after_aa = true` is drawn after TAA in the effect layer (see vfx.md, Effects after TAA), which removes TAA ghosting of fast thin streaks.
+
 ## Collision
 
 A system sets `collision = "shelter_map" | "scene_depth" | "rays"` (read each frame) plus a `collide` body; after the update the step from `particle_previous` to the new position is tested. Helpers in `particles.GetCollisionGLSL`: `particle_stick`, `particle_bounce`, or `p.life = 0.0` to die.

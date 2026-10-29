@@ -64,32 +64,15 @@ function post_source.GetDebugTexture()
 	end
 end
 
-function post_source.GetSceneSourceTexture(self)
-	if self.name == "blit_compute" or self.name == "blit_scene" then
-		local debug_texture = post_source.GetDebugTexture()
+function post_source.IsEffectLayerActive()
+	return render3d.HasPass("effects_post") and render3d.pipelines.effects_post.is_enabled()
+end
 
-		if debug_texture then return debug_texture end
-	end
+function post_source.GetEffectLayerTexture()
+	return render3d.pipelines.effects_post_layer:GetFramebuffer():GetAttachment(1)
+end
 
-	if
-		self.name ~= "taa" and
-		self.name ~= "dof" and
-		self.name ~= "motion_blur" and
-		render3d.IsPassEnabled("motion_blur") and
-		render3d.motion_blur_enabled:Get()
-	then
-		return render3d.pipelines.motion_blur:GetFramebuffer():GetAttachment(1)
-	end
-
-	if
-		self.name ~= "taa" and
-		self.name ~= "dof" and
-		render3d.IsPassEnabled("dof") and
-		render3d.dof_enabled:Get()
-	then
-		return render3d.pipelines.dof:GetFramebuffer():GetAttachment(1)
-	end
-
+local function get_anti_aliased_scene_texture(self)
 	if self.name == "taa" and render3d.IsAntiAliasingEnabled("edge_aa_t") then
 		return render3d.pipelines.edge_aa:GetFramebuffer(system.GetFrameNumber() % 2 + 1):GetAttachment(1)
 	end
@@ -121,6 +104,43 @@ function post_source.GetSceneSourceTexture(self)
 	end
 
 	return post_source.GetRawSceneSourceTexture()
+end
+
+function post_source.GetAntiAliasedSceneTexture()
+	return get_anti_aliased_scene_texture({name = "effects_post"})
+end
+
+function post_source.GetSceneSourceTexture(self)
+	if self.name == "blit_compute" or self.name == "blit_scene" then
+		local debug_texture = post_source.GetDebugTexture()
+
+		if debug_texture then return debug_texture end
+	end
+
+	if
+		self.name ~= "taa" and
+		self.name ~= "dof" and
+		self.name ~= "motion_blur" and
+		render3d.IsPassEnabled("motion_blur") and
+		render3d.motion_blur_enabled:Get()
+	then
+		return render3d.pipelines.motion_blur:GetFramebuffer():GetAttachment(1)
+	end
+
+	if
+		self.name ~= "taa" and
+		self.name ~= "dof" and
+		render3d.IsPassEnabled("dof") and
+		render3d.dof_enabled:Get()
+	then
+		return render3d.pipelines.dof:GetFramebuffer():GetAttachment(1)
+	end
+
+	if self.name ~= "taa" and post_source.IsEffectLayerActive() then
+		return render3d.pipelines.effects_post:GetFramebuffer():GetAttachment(1)
+	end
+
+	return get_anti_aliased_scene_texture(self)
 end
 
 function post_source.GetExposureTexture(previous)

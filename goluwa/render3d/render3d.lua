@@ -318,6 +318,7 @@ local default_passes = {
 	{"taa", "goluwa/render3d/passes/taa.lua"},
 	{"ssaa", "goluwa/render3d/passes/ssaa.lua"},
 	{"fxaa", "goluwa/render3d/passes/fxaa.lua"},
+	{"effects_post", "goluwa/render3d/passes/effects_post.lua"},
 	{"dof", "goluwa/render3d/passes/dof.lua"},
 	{"motion_blur", "goluwa/render3d/passes/motion_blur.lua"},
 	{

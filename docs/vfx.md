@@ -17,3 +17,11 @@ Emissive effects are in absolute units, so the same glow is blown out at night a
 - GPU particles: the emitter property `ExposureCompensation` scales `Emissive` only (lit particles already follow the scene light). GPU trails: `header.exposure_compensation`, the last argument of `vfx.AcquireGpuTrail`. Pooled `vfx.AcquireTrail` ribbons use the shared tint materials.
 - `vfx.SetExposureCompensation(category, amount)` with `particles`, `sprites` or `trails` sets the default for new effects of that kind and updates live ones; the console has `vfx_exposure <category> <amount>`. Overlays use the same helper (`surface_overlays`, per kind `Daylight`).
 - jrpg keeps its values in `addons/jrpg/lua/jrpg/effect_exposure.lua`.
+
+## Effects after TAA
+
+TAA keeps a faint copy of thin bright features, so fast thin effects (spark streaks, ribbons) leave gray twins behind in pixels they have already left, and no mask written by the effect can reach those pixels. The `effects_post` stage (after the AA passes, before dof) draws marked effects into their own HDR layer instead: `effects_post_layer` renders them depth tested against the gbuffer depth, `effects_post` adds the layer to the anti aliased scene (`scene * (1 - alpha) + rgb`), and everything after it (dof, motion blur, exposure feedback, blit) reads that result through `post_source.GetSceneSourceTexture`. Bloom adds the layer to its first level, so the glare is kept. They get no TAA anti aliasing and no occlusion by glass or water in front (no moments), so use soft outlines (the particle capsule's minimum width and profile already are).
+
+- Mark a particle system with `after_aa = true` in `particles.Register{}` (read every frame), a flow ribbon burst follows `flow_ribbons.after_aa`. The gpu emitter component shares one system, so it is all or nothing (`particle_emitter_gpu.system.after_aa`).
+- A marked effect is skipped by the normal translucent draw only while the layer is active (`post_source.IsEffectLayerActive()`); with `r_pass_effects_post` off or a pass list without it, it falls back to the normal pass.
+- To support another extra, give it `IsPostActive`, `BuildPostPasses` (a `<name>_post` pipeline writing one rgba16f `color` attachment, alpha only for alpha blended light) and list it in `translucent_extras.post_list`. Trails and surface effect sheets do not support it yet.

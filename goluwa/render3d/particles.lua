@@ -53,6 +53,7 @@ local system_layout = {
 	{"collision", "int"},
 	{"lit", "int"},
 	{"scheduled", "int"},
+	{"after_aa", "int"},
 }
 local pools_and_systems = {
 	{"pools", "uint64_t", particles.MAX_SYSTEMS},
@@ -195,6 +196,7 @@ function particles.WriteSystems(block)
 			0
 		entry.lit = def.lit == false and 0 or 1
 		entry.scheduled = def.should_spawn and 1 or 0
+		entry.after_aa = def.after_aa and 1 or 0
 		first = first + count
 	end
 
@@ -733,11 +735,13 @@ local draw_block = {
 		{"moments_tex", "int"},
 		{"depth_warp", "vec2"},
 		{"dt", "float"},
+		{"layer_active", "int"},
 		pools_and_systems,
 	},
 	write = function(self, block)
 		render3d.WriteCameraBlock(self, block)
 		render3d.WritePreviousCameraBlock(self, block)
+		block.layer_active = post_source.IsEffectLayerActive() and 1 or 0
 		post_source.WritePreExposureBlock(self, block)
 		local b0, moments = translucent_moments.GetTextures()
 		block.b0_tex = self:GetTextureIndex(b0)
@@ -757,8 +761,8 @@ local vertex_outputs = {
 	{"motion", "vec2"},
 }
 
-local function get_vertex_glsl()
-	return particles.GetParticleGLSL() .. [[
+local function get_vertex_glsl(layer)
+	return "const int PARTICLE_LAYER = " .. layer .. ";\n" .. particles.GetParticleGLSL() .. [[
 		vec2 get_particle_screen_motion(vec3 world_pos, vec3 prev_world_pos) {
 			vec4 clip = particle_draw.projection * particle_draw.view * vec4(world_pos, 1.0);
 			vec4 prev_clip = particle_draw.prev_projection * particle_draw.prev_view * vec4(prev_world_pos, 1.0);
@@ -775,6 +779,11 @@ local function get_vertex_glsl()
 
 			systems_t system = particle_draw.systems[system_index];
 			Particle p = ParticleBufferRead(particle_draw.pools[system_index]).p[gl_InstanceIndex - system.first];
+
+			if ((system.after_aa != 0 && particle_draw.layer_active != 0) != (PARTICLE_LAYER == 1)) {
+				gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+				return;
+			}
 
 			if (p.visibility <= 0.0) {
 				gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -859,7 +868,7 @@ function particles.BuildPasses()
 			vertex = {
 				outputs = vertex_outputs,
 				uniform_buffers = {draw_block},
-				shader = get_vertex_glsl(),
+				shader = get_vertex_glsl(0),
 			},
 			fragment = {
 				uniform_buffers = {draw_block},
@@ -901,7 +910,7 @@ function particles.BuildPasses()
 			vertex = {
 				outputs = vertex_outputs,
 				uniform_buffers = {draw_block},
-				shader = get_vertex_glsl(),
+				shader = get_vertex_glsl(0),
 			},
 			fragment = {
 				uniform_buffers = {draw_block},
@@ -937,6 +946,59 @@ function particles.BuildPasses()
 					translucent_moments.MULTIPLY,
 				},
 			},
+			DepthTest = true,
+			DepthWrite = false,
+			DepthCompareOp = "greater_or_equal",
+		},
+	}
+end
+
+function particles.IsPostActive()
+	if
+		not render3d.IsPassEnabled("particles") or
+		not render3d.IsPassEnabled("translucent")
+	then
+		return false
+	end
+
+	for _, def in ipairs(particles.systems) do
+		if def.after_aa and def.IsActive() and def.pool then return true end
+	end
+
+	return false
+end
+
+function particles.BuildPostPasses()
+	return {
+		{
+			name = "particles_post",
+			draw_in_prerender = false,
+			dont_create_framebuffers = true,
+			ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+			DepthFormat = gbuffer_layout.DEPTH_FORMAT,
+			Topology = "triangle_strip",
+			vertex = {
+				outputs = vertex_outputs,
+				uniform_buffers = {draw_block},
+				shader = get_vertex_glsl(1),
+			},
+			fragment = {
+				uniform_buffers = {draw_block},
+				shader = post_source.GetPreExposureGLSL("particle_draw") .. coverage_glsl .. [[
+					void main() {
+						float alpha = get_particle_alpha();
+						set_color(vec4(min(in_radiance * (alpha * get_pre_exposure()), vec3(65504.0)), alpha));
+					}
+				]],
+			},
+			CullMode = "none",
+			Blend = true,
+			SrcColorBlendFactor = "one",
+			DstColorBlendFactor = "one",
+			ColorBlendOp = "add",
+			SrcAlphaBlendFactor = "one",
+			DstAlphaBlendFactor = "one",
+			AlphaBlendOp = "add",
 			DepthTest = true,
 			DepthWrite = false,
 			DepthCompareOp = "greater_or_equal",

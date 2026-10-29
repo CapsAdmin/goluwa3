@@ -83,10 +83,18 @@ local common_glsl = compute_helpers.GetScreenHelpersGLSL() .. [[
 	layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_bloom;
 	layout(set = 0, binding = 1) uniform sampler2D source_tex;
 
+	#ifdef BLOOM_EFFECT_LAYER
+	layout(set = 0, binding = 3) uniform sampler2D layer_tex;
+	#endif
+
 	vec3 bloom_sample(vec2 uv) {
 		vec2 half_texel = 0.5 / vec2(textureSize(source_tex, 0));
 		uv = clamp(uv, half_texel, 1.0 - half_texel);
-		return textureLod(source_tex, uv, 0.0).rgb;
+		vec3 color = textureLod(source_tex, uv, 0.0).rgb;
+		#ifdef BLOOM_EFFECT_LAYER
+		if (compute.has_layer != 0) color += textureLod(layer_tex, uv, 0.0).rgb;
+		#endif
+		return color;
 	}
 ]]
 local downsample_glsl = [[
@@ -164,6 +172,7 @@ end
 
 local block = {
 	{"has_source_tex", "int"},
+	{"has_layer", "int"},
 	{"source_weight", "vec4"},
 	{"merge_weight", "vec4"},
 }
@@ -197,7 +206,7 @@ return function()
 			r[#r + 1] = build_pass(
 				"bloom_down1",
 				0.5,
-				common_glsl .. downsample_glsl,
+				"#define BLOOM_EFFECT_LAYER\n" .. common_glsl .. downsample_glsl,
 				{
 					{
 						binding_index = 1,
@@ -205,7 +214,18 @@ return function()
 							return post_source.GetRawSceneSourceTexture()
 						end,
 					},
-				}
+					{
+						binding_index = 3,
+						get_texture = function()
+							return post_source.IsEffectLayerActive() and
+								post_source.GetEffectLayerTexture() or
+								post_source.GetRawSceneSourceTexture()
+						end,
+					},
+				},
+				function(block)
+					block.has_layer = post_source.IsEffectLayerActive() and 1 or 0
+				end
 			)
 		else
 			r[#r + 1] = build_pass(
