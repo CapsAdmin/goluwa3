@@ -894,7 +894,7 @@ function META:UpdateSoundEnvironment(sound, time)
 
 	env.trust = trust
 	env.energy = energy
-	local amplitude = math.sqrt(math.max(energy, 0)) * sound:GetReferenceDistance()
+	local amplitude = math.sqrt(math.max(energy, 0)) * math.min(distance, sound:GetReferenceDistance())
 	local ratio = t60 / (self.ambient_reverb and self.ambient_reverb.t60[2] or profile.t60[2])
 	local remote = math.clamp((ratio - 1) / (acoustics.REMOTE_T60_RATIO - 1), 0, 1)
 	env.send[1] = amplitude * math.sqrt(1 - remote)
@@ -916,6 +916,8 @@ function META:UpdateTaps(sound, env, time)
 	local listener_velocity = audio.listener_motion.velocity or Vec3(0, 0, 0)
 	local ids = audio.DISTANCE_MODE_IDS
 	local candidates = {}
+	-- the direct path stops getting louder inside the reference distance, reflections are held back by the same amount so close sounds keep their physical balance
+	local close = math.min((source - listener):GetLength() / sound:GetReferenceDistance(), 1)
 
 	for key, valid_time in pairs(env.reflections) do
 		local reflector = self.reflectors[key]
@@ -934,7 +936,7 @@ function META:UpdateTaps(sound, env, time)
 					absorption[b] = reflector.absorption[b] / reflector.count
 				end
 
-				local reflect_mid = math.sqrt((1 - absorption[2]) * (1 - acoustics.SCATTERING))
+				local reflect_mid = close * math.sqrt((1 - absorption[2]) * (1 - acoustics.SCATTERING))
 				local direction = (point - listener):GetNormalized()
 				local gain = spatial.ComputeDistanceAttenuation(
 						ids[audio.distance_model],
