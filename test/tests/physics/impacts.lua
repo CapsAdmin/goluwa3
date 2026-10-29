@@ -4,6 +4,8 @@ local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
+local ConvexShape = import("goluwa/physics/shapes/convex.lua")
+local convex_hull = import("goluwa/physics/convex_hull.lua")
 local test_helpers = import("test/tests/physics/test_helpers.lua")
 local DROP = 1.5
 
@@ -50,4 +52,46 @@ end)
 
 T.TestPhysics("A box dropped on world geometry fires one physics impact at its approach speed", function()
 	drop_box(test_helpers.CreateFlatGround("impact_world_ground"))
+end)
+
+local function create_crate_hull()
+	local corners = {}
+
+	for i = 0, 7 do
+		corners[i + 1] = Vec3(
+			i % 2 == 0 and -0.38 or 0.38,
+			i % 4 < 2 and -0.38 or 0.38,
+			i < 4 and -0.38 or 0.38
+		)
+	end
+
+	return ConvexShape.New(convex_hull.BuildFromTriangles(corners))
+end
+
+local function land_flat(create_ground, shape, gap)
+	local ground = create_ground()
+	local crate = Entity.New({Name = "impact_crate"})
+	crate:AddComponent("transform")
+	crate.transform:SetPosition(Vec3(0.13, 0.38 + gap, 0.21))
+	crate:AddComponent("rigid_body", {Shape = shape}):SetVelocity(Vec3(0, -6, 0))
+	local first
+
+	event.AddListener("PhysicsImpact", "impacts_test", function(impact)
+		first = first or impact
+	end)
+
+	test_helpers.Simulate(60)
+	event.RemoveListener("PhysicsImpact", "impacts_test")
+	local speed = math.sqrt(36 + 2 * physics.instance.Gravity:GetLength() * gap)
+	T(first ~= nil)["=="](true)
+	T(math.abs(first.speed - speed) / speed)["<"](0.1)
+	crate:Remove()
+	ground:Remove()
+end
+
+T.TestPhysics("A crate landing flat reports its approach speed when the solver contact catching it is rebuilt", function()
+	for _, gap in ipairs({0.005, 0.01, 0.015}) do
+		land_flat(test_helpers.CreateFlatGround, create_crate_hull(), gap)
+		land_flat(test_helpers.CreateFlatGround, BoxShape.New(Vec3(0.76, 0.76, 0.76)), gap)
+	end
 end)

@@ -487,6 +487,9 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 		solver:FinishRigidBodyPairs()
 		stats:PopTime()
+		stats:PushTime("contacts")
+		solver:RecordManifoldImpacts()
+		stats:PopTime()
 		stats:PushTime("velocities_sleep")
 		RigidBody.BeginSleepPass()
 

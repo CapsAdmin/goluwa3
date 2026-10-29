@@ -465,9 +465,43 @@ function Solver:ApplyRestitution(pairs, dt)
 	end
 end
 
-function Solver:RecordManifoldContacts()
+function Solver:RecordManifoldImpacts()
 	local collision_pairs = self:GetPhysics().collision_pairs
 	local stamp = self.CollideStamp
+	local manifolds, count = contact_solver.GetManifolds()
+
+	for i = 0, count - 1 do
+		local manifold = manifolds[i]
+		local cs = manifold.cs
+		local fastest, best = -collision_pairs.ImpactSpeed
+
+		for j = 0, manifold.n - 1 do
+			local c = cs[j]
+
+			if c.rest_speed < fastest and c.jn > 0 and c.rest_stamp == stamp then
+				fastest, best = c.rest_speed, j
+			end
+		end
+
+		if best then
+			local c = cs[best]
+			local body_a, body_b = manifold.solve_a:GetBody(), manifold.solve_b:GetBody()
+			local position
+
+			if body_b:IsDynamic() then
+				local origin = body_b:GetPosition()
+				position = Vec3(origin.x + c.rbx, origin.y + c.rby, origin.z + c.rbz)
+			else
+				position = Vec3(c.wpx, c.wpy, c.wpz)
+			end
+
+			collision_pairs:RecordCollisionPair(body_a, body_b, manifold.normal, 0, -fastest, position)
+		end
+	end
+end
+
+function Solver:RecordManifoldContacts()
+	local collision_pairs = self:GetPhysics().collision_pairs
 	local touch = math.max(self.PENETRATION_SLOP, 0.005)
 	local manifolds, count = contact_solver.GetManifolds()
 
@@ -476,38 +510,24 @@ function Solver:RecordManifoldContacts()
 		local cs = manifold.cs
 		local body_a, body_b = manifold.solve_a:GetBody(), manifold.solve_b:GetBody()
 		local origin = body_b:IsDynamic() and body_b:GetPosition()
-		local best_speed, best_x, best_y, best_z = collision_pairs.ImpactSpeed
 		local x, y, z, touching = 0, 0, 0, 0
 
 		for j = 0, manifold.n - 1 do
 			local c = cs[j]
 
 			if c.jn > 0 or c.sep <= touch then
-				local px, py, pz
-
 				if origin then
-					px, py, pz = origin.x + c.rbx, origin.y + c.rby, origin.z + c.rbz
+					x, y, z = x + origin.x + c.rbx, y + origin.y + c.rby, z + origin.z + c.rbz
 				else
-					px, py, pz = c.wpx, c.wpy, c.wpz
+					x, y, z = x + c.wpx, y + c.wpy, z + c.wpz
 				end
 
-				x, y, z, touching = x + px, y + py, z + pz, touching + 1
-
-				if c.jn > 0 and c.rest_stamp == stamp and -c.rest_speed > best_speed then
-					best_speed, best_x, best_y, best_z = -c.rest_speed, px, py, pz
-				end
+				touching = touching + 1
 			end
 		end
 
 		if touching > 0 then
-			local entry = collision_pairs:RecordCollisionPair(
-				body_a,
-				body_b,
-				manifold.normal,
-				0,
-				best_x and best_speed,
-				best_x and Vec3(best_x, best_y, best_z)
-			)
+			local entry = collision_pairs:RecordCollisionPair(body_a, body_b, manifold.normal, 0)
 
 			if entry then collision_pairs:AddContactPoint(entry, x, y, z, touching) end
 		end
