@@ -133,3 +133,21 @@ T.Test3D("surface overlays shade translucent meshes", function(draw)
 
 	if not ok then error(err, 0) end
 end)
+
+T.Test3D("a surface overlay layer can take its noise position from the uv", function()
+	local sphere = shapes.Sphere{
+		Position = Vec3(0, 0, 0),
+		Radius = 1,
+		Material = shapes.Material{Color = Color(1, 1, 1, 1), Roughness = 0.5, Metallic = 0},
+		Collision = false,
+		RigidBody = false,
+	}
+	local plain = surface_overlays.Add(sphere.visual, "crystallize")
+	local stretched = surface_overlays.Add(sphere.visual, "crystallize", {UVScale = {0.8, 3}})
+	T(plain.layer.uv_space)["=="](0)
+	T(stretched.layer.uv_space)["=="](1)
+	T(math.abs(stretched.layer.uv_scale[0] - 0.8))["<"](1e-6)
+	T(math.abs(stretched.layer.uv_scale[1] - 3))["<"](1e-6)
+	surface_overlays.Clear(sphere.visual)
+	sphere:Remove()
+end)

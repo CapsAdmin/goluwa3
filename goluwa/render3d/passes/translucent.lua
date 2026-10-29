@@ -559,7 +559,7 @@ local passes = {
 						overlay_surface.alpha = 0.0;
 						overlay_surface.emissive = vec3(0.0);
 						SurfaceWeather overlay_weather = SurfaceWeather(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0);
-						apply_surface_overlays(overlay_surface, overlay_weather, in_instance_overlay, in_effect_position, in_effect_normal);
+						apply_surface_overlays(overlay_surface, overlay_weather, in_instance_overlay, in_effect_position, in_effect_normal, in_uv);
 						albedo = overlay_surface.albedo;
 						roughness = overlay_surface.roughness_alpha;
 						metallic = overlay_surface.metallic;

@@ -43,6 +43,8 @@ local LAYER_FIELDS = [[
 	float color_a[4];
 	float color_b[4];
 	float params[4];
+	int32_t uv_space;
+	float uv_scale[2];
 ]]
 local Layer = ffi.typeof("struct {" .. LAYER_FIELDS .. "}")
 local Slot = ffi.typeof(
@@ -161,6 +163,9 @@ function surface_overlays.Add(visual, kind_name, config)
 	layer.daylight = config.Daylight or defaults.Daylight
 	write_color(layer.color_a, config.ColorA or defaults.ColorA, 1)
 	write_color(layer.color_b, config.ColorB or defaults.ColorB, 1)
+	local uv_scale = config.UVScale
+	layer.uv_space = uv_scale and 1 or 0
+	layer.uv_scale[0], layer.uv_scale[1] = uv_scale and uv_scale[1] or 0, uv_scale and uv_scale[2] or 0
 	local params = config.Params or defaults.Params
 
 	for i = 1, 4 do
@@ -183,6 +188,15 @@ function handle_meta:SetIntensity(intensity)
 	if layer.intensity == intensity then return end
 
 	layer.intensity = intensity
+	slot_table:Touch(self.state.slot)
+end
+
+function handle_meta:SetUVScale(x, y)
+	local scale = self.layer.uv_scale
+
+	if scale[0] == x and scale[1] == y then return end
+
+	scale[0], scale[1] = x, y
 	slot_table:Touch(self.state.slot)
 end
 
@@ -297,7 +311,7 @@ function surface_overlays.GetGLSL(block_name)
 			kind.glsl
 		)
 		cases[#cases + 1] = string.format(
-			"case %d: overlay_kind_%s(s, w, l, c, age, t, grow, outro, fade); break;",
+			"case %d: overlay_kind_%s(s, w, l, layer_context, age, t, grow, outro, fade); break;",
 			kind.index,
 			kind.name
 		)
@@ -305,7 +319,7 @@ function surface_overlays.GetGLSL(block_name)
 
 	return (
 		glsl_common.GetNoiseGLSL() .. exposure_compensation.GetGLSL() .. [[
-		struct OverlayLayer {]] .. LAYER_FIELDS:gsub("float ([%w_]+)%[4%];", "vec4 %1;"):gsub("int32_t", "int") .. [[};
+		struct OverlayLayer {]] .. LAYER_FIELDS:gsub("float ([%w_]+)%[4%];", "vec4 %1;"):gsub("float ([%w_]+)%[2%];", "vec2 %1;"):gsub("int32_t", "int") .. [[};
 
 		struct OverlaySlot {
 			vec3 center;
@@ -497,7 +511,7 @@ function surface_overlays.GetGLSL(block_name)
 
 		]] .. table.concat(functions, "\n") .. [[
 
-		void apply_surface_overlays(inout Surface s, inout SurfaceWeather w, float slot_value, vec3 noise_P, vec3 noise_N) {
+		void apply_surface_overlays(inout Surface s, inout SurfaceWeather w, float slot_value, vec3 noise_P, vec3 noise_N, vec2 uv) {
 			int slot_index = int(slot_value + 0.5);
 
 			if (slot_index <= 0 || BLOCK.overlay_slots == 0ul) return;
@@ -531,6 +545,13 @@ function surface_overlays.GetGLSL(block_name)
 				if (fade <= 0.0) continue;
 
 				float t = age * l.speed;
+
+				OverlayContext layer_context = c;
+
+				if (l.uv_space != 0) {
+					layer_context.P = vec3(uv * l.uv_scale, 0.0);
+					layer_context.N = vec3(0.0, 0.0, 1.0);
+				}
 
 				vec3 emissive_before = s.emissive;
 

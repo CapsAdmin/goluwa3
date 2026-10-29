@@ -338,7 +338,7 @@ local function build_ssdm_fragment_shader(write_depth)
 				if (AlphaTest && consumed > fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))) discard;
 			}
 
-			apply_surface_overlays(surface, weather, in_instance_overlay, in_effect_position, in_effect_normal);
+			apply_surface_overlays(surface, weather, in_instance_overlay, in_effect_position, in_effect_normal, in_uv);
 			weather_surface_features(surface, weather);
 			surface.roughness_alpha = get_antialiased_roughness(surface.N, surface.roughness_alpha);
 
