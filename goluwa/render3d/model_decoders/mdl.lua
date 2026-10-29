@@ -210,6 +210,7 @@ end
 
 local load_skeleton
 local get_root_offset
+local get_solid_frames
 local add_animations
 local open_source_by_path
 local add_donor_animations
@@ -917,6 +918,43 @@ do
 		add_animations(skeleton, main)
 		return skeleton
 	end
+	get_solid_frames = function(path, skeleton)
+		local main = open_source(path)
+		local hdr = main.header
+		local bind = skeleton.BindLocal
+		local rotations, positions, bone_of_solid = {}, {}, {}
+
+		for i = 0, hdr.bone_count - 1 do
+			local rotation = Quat(bind[i * 7 + 3], bind[i * 7 + 4], bind[i * 7 + 5], bind[i * 7 + 6])
+			local position = Vec3(bind[i * 7], bind[i * 7 + 1], bind[i * 7 + 2])
+			local parent = skeleton.parents[i]
+
+			if parent >= 0 then
+				position = positions[parent] + rotations[parent]:VecMul(position)
+				rotation = rotations[parent] * rotation
+			end
+
+			rotations[i], positions[i] = rotation, position
+			local solid_index = ffi.cast(I32, main.data + hdr.bone_offset + i * BONE_SIZE + 172)[0] + 1
+
+			if not bone_of_solid[solid_index] then bone_of_solid[solid_index] = i end
+		end
+
+		local root = bone_of_solid[1]
+		local inverse_root = rotations[root]:GetConjugated()
+		local frames = {}
+
+		for solid_index, bone in pairs(bone_of_solid) do
+			local rotation = inverse_root * rotations[bone]
+			frames[solid_index] = {
+				rotation = rotation,
+				position = inverse_root:VecMul(positions[bone] - positions[root]),
+				is_identity = math.abs(rotation.w) > 0.999999,
+			}
+		end
+
+		return frames
+	end
 	get_root_offset = function(path)
 		local main = open_source(path)
 		local hdr = main.header
@@ -983,24 +1021,26 @@ local job_source = [=[
 		local children = {}
 		local mass = 0
 		local surface_property
-		local center_of_mass = Vec3(0, 0, 0)
+		local solid_infos = {}
 		local damping = 0
 		local rotation_damping = 0
 
-		for _, solid in ipairs(solids) do
+		for solid_index, solid in ipairs(solids) do
 			local weight = solid.mass or 1
-			center_of_mass = center_of_mass + Vec3(solid.mass_center[1], solid.mass_center[2], solid.mass_center[3]) * weight
+			solid_infos[solid_index] = {
+				weight = weight,
+				mass_center = {solid.mass_center[1], solid.mass_center[2], solid.mass_center[3]},
+			}
 			damping = damping + (solid.damping or 0) * weight
 			rotation_damping = rotation_damping + (solid.rotation_damping or 0) * weight
 			mass = mass + weight
 			surface_property = surface_property or solid.surface_property
 		end
 
-		center_of_mass = center_of_mass / mass
 		damping = damping / mass
 		rotation_damping = rotation_damping / mass
 
-		for _, solid in ipairs(solids) do
+		for solid_index, solid in ipairs(solids) do
 			for _, flat in ipairs(solid.ledges) do
 				local points = {}
 				local min = Vec3(math.huge, math.huge, math.huge)
@@ -1022,10 +1062,10 @@ local job_source = [=[
 				local hull = convex_hull.Normalize(points)
 
 				if hull then
-					local position = center - center_of_mass
 					children[#children + 1] = {
 						hull = convex_hull.ToPlain(hull),
-						position = {position.x, position.y, position.z},
+						position = {center.x, center.y, center.z},
+						solid = solid_index,
 					}
 				end
 			end
@@ -1042,9 +1082,9 @@ local job_source = [=[
 
 			result.physics = {
 				children = children,
+				solids = solid_infos,
 				mass = solids[1].mass and mass or mdl_meta.mass,
 				surface_property = surface_property,
-				center_of_mass = {center_of_mass.x, center_of_mass.y, center_of_mass.z},
 				damping = damping,
 				rotation_damping = rotation_damping,
 				inertia = inertia,
@@ -1417,30 +1457,6 @@ function mdl_decoder.Finish(
 		end
 	end
 
-	if meta.physics then
-		local physics = meta.physics
-		local children = {}
-
-		for i, child in ipairs(physics.children) do
-			children[i] = {
-				ConvexHull = convex_hull.FromPlain(child.hull),
-				Position = Vec3(child.position[1], child.position[2], child.position[3]),
-			}
-		end
-
-		physics_callback{
-			children = children,
-			mass = physics.mass,
-			surface_property = physics.surface_property,
-			center_of_mass = Vec3(physics.center_of_mass[1], physics.center_of_mass[2], physics.center_of_mass[3]),
-			damping = physics.damping,
-			rotation_damping = physics.rotation_damping,
-			inertia = physics.inertia and
-				Vec3(physics.inertia[1], physics.inertia[2], physics.inertia[3]) or
-				nil,
-		}
-	end
-
 	local eyes = {}
 
 	for _, body_part in ipairs(mdl.bodypart_models) do
@@ -1453,6 +1469,60 @@ function mdl_decoder.Finish(
 
 	local skeleton = load_skeleton(full_path, eyes)
 	local root_rotation, root_position
+
+	if meta.physics then
+		local physics = meta.physics
+		local solid_frames = skeleton and get_solid_frames(full_path, skeleton)
+		local center_of_mass = Vec3(0, 0, 0)
+		local total_weight = 0
+
+		for solid_index, solid in ipairs(physics.solids) do
+			local mass_center = Vec3(solid.mass_center[1], solid.mass_center[2], solid.mass_center[3])
+			local frame = solid_frames and solid_frames[solid_index]
+
+			if frame then
+				mass_center = frame.rotation:VecMul(mass_center) + frame.position
+			end
+
+			center_of_mass = center_of_mass + mass_center * solid.weight
+			total_weight = total_weight + solid.weight
+		end
+
+		center_of_mass = center_of_mass / total_weight
+		local children = {}
+
+		for i, child in ipairs(physics.children) do
+			local hull = convex_hull.FromPlain(child.hull)
+			local center = Vec3(child.position[1], child.position[2], child.position[3])
+			local frame = solid_frames and solid_frames[child.solid]
+
+			if frame and not frame.is_identity then
+				local vertices = {}
+
+				for j, vertex in ipairs(hull.vertices) do
+					vertices[j] = frame.rotation:VecMul(vertex)
+				end
+
+				hull = convex_hull.Normalize(vertices)
+			end
+
+			if frame then center = frame.rotation:VecMul(center) + frame.position end
+
+			children[i] = {ConvexHull = hull, Position = center - center_of_mass}
+		end
+
+		physics_callback{
+			children = children,
+			mass = physics.mass,
+			surface_property = physics.surface_property,
+			center_of_mass = center_of_mass,
+			damping = physics.damping,
+			rotation_damping = physics.rotation_damping,
+			inertia = physics.inertia and
+				Vec3(physics.inertia[1], physics.inertia[2], physics.inertia[3]) or
+				nil,
+		}
+	end
 
 	if not skeleton then
 		root_rotation, root_position = get_root_offset(full_path)
