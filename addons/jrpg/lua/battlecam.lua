@@ -54,8 +54,12 @@ local state = {
 local pivot = Vec3()
 local target_point = Vec3()
 
-local function blocks_camera(entity, owner)
+local function blocks_camera(entity, owner, target)
 	if entity == owner or entity:ContainsParent(owner) then return false end
+
+	if target and (entity == target or entity:ContainsParent(target)) then
+		return false
+	end
 
 	if entity.weapon then return false end
 
@@ -220,7 +224,7 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	local length = to_origin:GetLength()
 
 	if length > 1e-4 then
-		local hit = raycast.CastClosestSolid(pivot, to_origin / length, length, blocks_camera, owner)
+		local hit = raycast.CastClosestSolid(pivot, to_origin / length, length, blocks_camera, owner, target and target.Owner)
 
 		if hit then
 			origin:CopyFrom(pivot + to_origin / length * math.max(hit.distance - TRACE_MARGIN, 0))
