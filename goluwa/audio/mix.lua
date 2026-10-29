@@ -523,7 +523,9 @@ local function mix_block(mixer, out, frames)
 			bus.t60[0],
 			bus.t60[1],
 			bus.t60[2],
-			bus.predelay
+			bus.predelay,
+			bus.scale,
+			bus.diffusion
 		)
 	end
 

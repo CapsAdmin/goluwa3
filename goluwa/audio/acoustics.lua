@@ -21,6 +21,8 @@ acoustics.TRUSTED_RAYS = 256
 acoustics.MIN_T60 = 0.05
 acoustics.MAX_T60 = 12
 acoustics.REMOTE_T60_RATIO = 1.6
+acoustics.DIFFUSE_ESCAPING = 0.1
+acoustics.SPARSE_ESCAPING = 0.35
 local LN10_OVER_10 = math.log(10) / 10
 local MAX_TAPS = 8
 
@@ -1021,6 +1023,16 @@ function META:UpdateBuses()
 	end
 
 	listener_bus.predelay = profile.predelay
+	listener_bus.scale = profile.mean_free_path / (self.audio.speed_of_sound * dsp.REVERB_MEAN_DELAY)
+	listener_bus.diffusion = math.clamp(
+		(
+				acoustics.SPARSE_ESCAPING - profile.openness
+			) / (
+				acoustics.SPARSE_ESCAPING - acoustics.DIFFUSE_ESCAPING
+			),
+		0,
+		1
+	)
 	local weight = 0
 	local t60 = {0, 0, 0}
 
@@ -1044,6 +1056,8 @@ function META:UpdateBuses()
 		end
 
 		remote_bus.predelay = math.clamp(remote_bus.t60[1] * 0.02, 0.01, 0.08)
+		remote_bus.scale = 1
+		remote_bus.diffusion = 1
 	end
 end
 

@@ -204,7 +204,9 @@ T.Test("audio reverb bus decays at its T60 with unit energy", function()
 				t60,
 				t60,
 				t60,
-				0.03
+				0.03,
+				1,
+				1
 			)
 		end
 
@@ -233,7 +235,7 @@ T.Test("audio reverb bus decays at its T60 with unit energy", function()
 	end
 end)
 
-local function reverb_band_t20(t60s)
+local function reverb_band_t20(t60s, scale, diffusion)
 	local reverb = dsp.CreateReverb(FS)
 	local frames = FS * 5
 	local input = ffi.new("float[?]", frames)
@@ -250,7 +252,9 @@ local function reverb_band_t20(t60s)
 			t60s[1],
 			t60s[2],
 			t60s[3],
-			0.03
+			0.03,
+			scale,
+			diffusion
 		)
 	end
 
@@ -295,12 +299,16 @@ local function reverb_band_t20(t60s)
 	return result
 end
 
-T.Test("audio reverb bus decays at each band's own T60", function()
-	for _, t60s in ipairs{{2.77, 2.68, 1.51}, {1.6, 1.4, 0.8}} do
-		local measured = reverb_band_t20(t60s)
+T.Test("audio reverb bus decays at each band's own T60, also with sparse lines", function()
+	for _, case in ipairs{
+		{{2.77, 2.68, 1.51}, 1, 1},
+		{{1.6, 1.4, 0.8}, 1, 1},
+		{{2.77, 2.68, 1.51}, 3.4, 0},
+	} do
+		local measured = reverb_band_t20(case[1], case[2], case[3])
 
 		for band = 1, 3 do
-			T(math.abs(measured[band] - t60s[band]) / t60s[band])["<="](0.15)
+			T(math.abs(measured[band] - case[1][band]) / case[1][band])["<="](0.15)
 		end
 	end
 end)
