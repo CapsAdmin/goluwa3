@@ -1,5 +1,6 @@
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local effect_exposure = import("lua/jrpg/effect_exposure.lua")
 local magic = {}
 magic.Values = {
 	WorldSize = Vec3(0.16, 0.16, 0.16),
@@ -54,6 +55,7 @@ function magic.CreateNodes(color)
 					Sparkle = 1,
 					SaturationJitter = 0.35,
 					Emissive = 2e5,
+					ExposureCompensation = effect_exposure.particles,
 					ColorStart = Color(color.r, color.g, color.b, 1),
 					ColorEnd = Color(color.r, color.g, color.b, 0),
 				},

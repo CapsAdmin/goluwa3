@@ -4,6 +4,7 @@ local system = import("goluwa/system.lua")
 local Color = import("goluwa/structs/color.lua")
 local Beam = import("goluwa/render3d/beam.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
+local effect_exposure = import("lua/jrpg/effect_exposure.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local visual_bounds = import("lua/visual_bounds.lua")
 local META = objects.CreateTemplate("item_highlight")
@@ -38,7 +39,7 @@ function META:Initialize()
 			Ribbon = true,
 			Radius = self.Width,
 			RadiusEnd = 0,
-			Material = Beam.CreateRibbonMaterial(color, 12),
+			Material = Beam.CreateRibbonMaterial(color, 12, nil, {ExposureCompensation = effect_exposure.trails}),
 		}
 		self.offsets[i] = math.random() * 2 - 1
 	end
@@ -84,6 +85,7 @@ function META:Initialize()
 			Lit = false,
 			GravityScale = -0.03,
 			Emissive = 2e5,
+			ExposureCompensation = effect_exposure.particles,
 			ColorStart = Color(color.r, color.g, color.b, 1),
 			ColorEnd = Color(color.r, color.g, color.b, 0),
 		},

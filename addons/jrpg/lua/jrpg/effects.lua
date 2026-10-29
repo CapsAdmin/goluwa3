@@ -73,6 +73,11 @@ local StatusEffects = import("lua/components/status_effects.lua")
 local Health = import("lua/components/health.lua")
 local Rpg = import("lua/components/rpg.lua")
 local WHITE = Color(1, 1, 1, 1)
+local effect_exposure = import("lua/jrpg/effect_exposure.lua")
+
+for category, amount in pairs(effect_exposure) do
+	vfx.SetExposureCompensation(category, amount)
+end
 
 do
 	local MAGIC_COMMON = [[
