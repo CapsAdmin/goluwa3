@@ -1,12 +1,14 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local translucent_extras = {}
 local particles = import("goluwa/render3d/particles.lua")
+local flow_ribbons = import("goluwa/render3d/flow_ribbons.lua")
 translucent_extras.list = {
 	particles,
 	import("goluwa/render3d/trails.lua"),
+	flow_ribbons,
 	import("goluwa/render3d/surface_effect_sheets.lua"),
 }
-translucent_extras.post_list = {particles}
+translucent_extras.post_list = {particles, flow_ribbons}
 
 function translucent_extras.Draw(stage, cmd)
 	for _, extra in ipairs(translucent_extras.list) do
