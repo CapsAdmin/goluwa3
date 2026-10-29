@@ -4,5 +4,4 @@ Entity.RegisterComponent("rpg", Rpg)
 Entity.RegisterComponent("status_effects", import("lua/components/status_effects.lua"))
 Entity.RegisterComponent("magic_projectile", import("lua/components/magic_projectile.lua"))
 import("lua/jrpg/jrpg.lua")
-import("lua/jrpg/surface_hazards.lua")
 

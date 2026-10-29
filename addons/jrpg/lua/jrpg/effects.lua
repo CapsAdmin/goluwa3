@@ -7,7 +7,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 local actors = import("lua/actors.lua")
-local surface_hazards = import("lua/jrpg/surface_hazards.lua")
 local effects = {}
 local visual = RENDER_3D and import("goluwa/render/render.lua").IsInitialized()
 effects.Visual = visual
@@ -26,17 +25,6 @@ local fire_impact = new_event(
 
 function effects.Impact(position, normal, type_name, strength, cut, direction)
 	fire_impact(position, normal, type_name, strength, cut or false, direction or normal)
-	local surface = damage_types.Get(type_name).Surface
-
-	if surface then
-		surface_hazards.Apply(
-			surface.Kind,
-			position,
-			surface.Radius * math.clamp(strength or 1, 0.3, 2),
-			surface.Amount,
-			normal
-		)
-	end
 end
 
 effects.Damage = new_event(

@@ -3,7 +3,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 return {
 	Name = "ice",
-	Surface = {Kind = "frost", Radius = 1.6, Amount = 0.9},
 	Color = Color(0.6, 0.82, 1, 1),
 	EndColor = Color(0.9, 0.97, 1, 1),
 	Adjectives = {"cold", "frozen", "freezing", "chilled", "iced", "arctic", "frosted"},
