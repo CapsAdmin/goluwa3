@@ -519,6 +519,7 @@ function map_scene.Translate(data, map_name, map_path, offset)
 					components = {
 						transform = {Position = center_of_mass * -1},
 						visual = {ModelPath = entry.model_path, ClipBounds = clip_bounds(info)},
+						animator = model.skeleton and {Playing = false} or nil,
 					},
 				}
 			elseif entry.motion_type then

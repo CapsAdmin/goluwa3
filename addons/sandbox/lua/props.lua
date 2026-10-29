@@ -27,7 +27,7 @@ prefab.Register(
 					guid = "visual",
 					parent = "root",
 					properties = {Name = "visual"},
-					components = {transform = {}, visual = {}},
+					components = {transform = {}, visual = {}, animator = {Playing = false}},
 				},
 			},
 		}
