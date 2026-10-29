@@ -1,8 +1,10 @@
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local stats = import("goluwa/physics/stats.lua")
 local CollisionPairs = objects.CreateTemplate("physics_collision_pairs")
 CollisionPairs.ImpactSpeed = 0.5
+CollisionPairs.ContactSpeed = 0.2
 import.loaded["goluwa/physics/collision_pairs.lua"] = CollisionPairs
 -- a builtin LuaJIT cannot record ends the trace so the side traces after it do not inherit the caller locals
 local trace_break = coroutine.running
@@ -97,7 +99,7 @@ function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap, spe
 			existing.impact_normal = existing.body_a == body_a and normal or normal * -1
 		end
 
-		return
+		return existing
 	end
 
 	existing = {
@@ -108,10 +110,22 @@ function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap, spe
 		speed = speed or 0,
 		position = position,
 		impact_normal = normal,
+		contact_x = 0,
+		contact_y = 0,
+		contact_z = 0,
+		contact_count = 0,
 	}
 	set_nested_entry(self.CurrentCollisionPairs, body_a, body_b, existing)
 	set_nested_entry(self.CurrentCollisionPairs, body_b, body_a, existing)
 	self.CurrentCollisionEntries[#self.CurrentCollisionEntries + 1] = existing
+	return existing
+end
+
+function CollisionPairs:AddContactPoint(entry, x, y, z, weight)
+	entry.contact_x = entry.contact_x + x
+	entry.contact_y = entry.contact_y + y
+	entry.contact_z = entry.contact_z + z
+	entry.contact_count = entry.contact_count + weight
 end
 
 function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap, speed, position)
@@ -137,6 +151,7 @@ function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap, speed, 
 			existing.impact_normal = normal
 		end
 
+		existing.contact = position
 		return
 	end
 
@@ -151,9 +166,68 @@ function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap, speed, 
 		position = position,
 		impact_hit = hit,
 		impact_normal = normal,
+		contact = position,
 	}
 	set_nested_entry(self.CurrentWorldCollisionPairs, body, hit.entity, existing)
 	self.CurrentWorldCollisionEntries[#self.CurrentWorldCollisionEntries + 1] = existing
+end
+
+do
+	local function get_point_velocity(body, px, py, pz)
+		if not body then return 0, 0, 0 end
+
+		local v, w, o = body.Velocity, body.AngularVelocity, body.Position
+		local rx, ry, rz = px - o.x, py - o.y, pz - o.z
+		return v.x + w.y * rz - w.z * ry, v.y + w.z * rx - w.x * rz, v.z + w.x * ry - w.y * rx
+	end
+
+	local function get_tangent(x, y, z, n)
+		local d = x * n.x + y * n.y + z * n.z
+		return x - n.x * d, y - n.y * d, z - n.z * d
+	end
+
+	-- the part of a body's motion along the surface that its spin carries, so the contact point does not slide
+	local function get_roll_speed(body, ox, oy, oz, px, py, pz, n)
+		if not body then return 0 end
+
+		local v, w, o = body.Velocity, body.AngularVelocity, body.Position
+		local rx, ry, rz = px - o.x, py - o.y, pz - o.z
+		local tx, ty, tz = get_tangent(v.x - ox, v.y - oy, v.z - oz, n)
+		local travel = math.sqrt(tx * tx + ty * ty + tz * tz)
+
+		if travel < 1e-6 then return 0 end
+
+		local sx, sy, sz = get_tangent(w.y * rz - w.z * ry, w.z * rx - w.x * rz, w.x * ry - w.y * rx, n)
+		return math.clamp(-(sx * tx + sy * ty + sz * tz) / travel, 0, travel)
+	end
+
+	function CollisionPairs:DispatchContact(entity_a, entity_b, body_a, body_b, normal, px, py, pz, hit_a)
+		local ax, ay, az = get_point_velocity(body_a, px, py, pz)
+		local bx, by, bz = get_point_velocity(body_b, px, py, pz)
+		local sx, sy, sz = get_tangent(bx - ax, by - ay, bz - az, normal)
+		local slip = math.sqrt(sx * sx + sy * sy + sz * sz)
+		local roll_a = get_roll_speed(body_a, bx, by, bz, px, py, pz, normal)
+		local roll_b = get_roll_speed(body_b, ax, ay, az, px, py, pz, normal)
+		local roll = math.max(roll_a, roll_b)
+
+		if slip < self.ContactSpeed and roll < self.ContactSpeed then return end
+
+		event.Call(
+			"PhysicsContact",
+			{
+				entity_a = entity_a,
+				entity_b = entity_b,
+				body_a = body_a,
+				body_b = body_b,
+				normal = normal,
+				position = Vec3(px, py, pz),
+				slip = slip,
+				roll = roll,
+				roller = roll > 0 and (roll_b >= roll_a and body_b or body_a) or nil,
+				hit_a = hit_a,
+			}
+		)
+	end
 end
 
 local function emit_collision_event(what, self_owner, self_body, other_entity, other_body, normal, overlap, hit)
@@ -189,6 +263,7 @@ function CollisionPairs:DispatchCollisionEvents()
 		if body_pair then
 			speed = math.max(speed, body_pair.speed)
 			body_pair.speed = 0
+			body_pair.contact_count = 0
 		end
 
 		if speed >= impact_speed then
@@ -204,6 +279,22 @@ function CollisionPairs:DispatchCollisionEvents()
 					speed = speed,
 					hit_a = hit,
 				}
+			)
+		end
+
+		local contact = pair.contact
+
+		if contact then
+			self:DispatchContact(
+				pair.entity,
+				pair.body.Owner,
+				pair.hit.rigid_body,
+				pair.body,
+				pair.normal,
+				contact.x,
+				contact.y,
+				contact.z,
+				pair.hit
 			)
 		end
 	end
@@ -226,6 +317,21 @@ function CollisionPairs:DispatchCollisionEvents()
 						):GetPosition():Copy(),
 					speed = pair.speed,
 				}
+			)
+		end
+
+		local count = pair.contact_count
+
+		if count > 0 then
+			self:DispatchContact(
+				pair.body_a.Owner,
+				pair.body_b.Owner,
+				pair.body_a,
+				pair.body_b,
+				pair.normal,
+				pair.contact_x / count,
+				pair.contact_y / count,
+				pair.contact_z / count
 			)
 		end
 	end

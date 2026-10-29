@@ -520,8 +520,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 	end
 
 	stats:PopTime()
-	stats:PushTime("impacts")
-	solver:RecordManifoldImpacts()
+	stats:PushTime("contacts")
+	solver:RecordManifoldContacts()
 	stats:PopTime()
 	stats:PushTime("finalize")
 

@@ -465,36 +465,51 @@ function Solver:ApplyRestitution(pairs, dt)
 	end
 end
 
-function Solver:RecordManifoldImpacts()
+function Solver:RecordManifoldContacts()
 	local collision_pairs = self:GetPhysics().collision_pairs
 	local stamp = self.CollideStamp
+	local touch = math.max(self.PENETRATION_SLOP, 0.005)
 	local manifolds, count = contact_solver.GetManifolds()
 
 	for i = 0, count - 1 do
 		local manifold = manifolds[i]
 		local cs = manifold.cs
-		local best_speed, best = collision_pairs.ImpactSpeed, nil
+		local body_a, body_b = manifold.solve_a:GetBody(), manifold.solve_b:GetBody()
+		local origin = body_b:IsDynamic() and body_b:GetPosition()
+		local best_speed, best_x, best_y, best_z = collision_pairs.ImpactSpeed
+		local x, y, z, touching = 0, 0, 0, 0
 
 		for j = 0, manifold.n - 1 do
 			local c = cs[j]
 
-			if c.rest_stamp == stamp and c.jn > 0 and -c.rest_speed > best_speed then
-				best_speed, best = -c.rest_speed, c
+			if c.jn > 0 or c.sep <= touch then
+				local px, py, pz
+
+				if origin then
+					px, py, pz = origin.x + c.rbx, origin.y + c.rby, origin.z + c.rbz
+				else
+					px, py, pz = c.wpx, c.wpy, c.wpz
+				end
+
+				x, y, z, touching = x + px, y + py, z + pz, touching + 1
+
+				if c.jn > 0 and c.rest_stamp == stamp and -c.rest_speed > best_speed then
+					best_speed, best_x, best_y, best_z = -c.rest_speed, px, py, pz
+				end
 			end
 		end
 
-		if best then
-			local body_a, body_b = manifold.solve_a:GetBody(), manifold.solve_b:GetBody()
-			local position
+		if touching > 0 then
+			local entry = collision_pairs:RecordCollisionPair(
+				body_a,
+				body_b,
+				manifold.normal,
+				0,
+				best_x and best_speed,
+				best_x and Vec3(best_x, best_y, best_z)
+			)
 
-			if body_b:IsDynamic() then
-				local origin = body_b:GetPosition()
-				position = Vec3(origin.x + best.rbx, origin.y + best.rby, origin.z + best.rbz)
-			else
-				position = Vec3(best.wpx, best.wpy, best.wpz)
-			end
-
-			collision_pairs:RecordCollisionPair(body_a, body_b, manifold.normal, 0, best_speed, position)
+			if entry then collision_pairs:AddContactPoint(entry, x, y, z, touching) end
 		end
 	end
 end

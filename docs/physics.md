@@ -31,9 +31,11 @@ Collide once, soft contacts: broadphase and islands only on substep 1 (`BeginSte
 - Rotation is integrated exactly once a body turns more than 0.1 rad per substep; a body with `SpinAxis` (wheels) integrates its spin about that axis first and the rest after, so its axle follows its joint.
 - World support contacts only act on mesh and heightmap surfaces: they hold a body at the collision margin, and the primitive pair solvers only count overlap as touching, so supported primitives lost all friction. The sphere support sweep is half the sphere's radius so a wall it leans on cannot start the sweep overlapped and hide the floor, which lets a loaded wheel sink through a displacement.
 
-## Impacts
+## Impacts and contacts
 
 `PhysicsImpact` (global event, after each step) reports collisions: `{entity_a, entity_b, body_a, body_b, normal (a to b), position, speed, hit_a}`, at most one per body pair per step, when the approach speed reaches `CollisionPairs.ImpactSpeed`. The speed is the relative normal velocity removed by whichever path resolved the contact: solver manifolds (`rest_speed` of touching contacts, scanned from the last substep's manifolds, which are keyed by collider), CCD and penetration impulses (`ApplyPairImpulse` returns it) and world support contacts (which also give `hit_a`, the world surface). Contact points from mesh sweeps and from the world side of a manifold can be polygon vertices, so positions come from the dynamic body.
+
+`PhysicsContact` (also after each step) reports touching pairs that move against each other: `{entity_a, entity_b, body_a, body_b, normal, position, slip, roll, roller, hit_a}` when `slip` or `roll` reaches `CollisionPairs.ContactSpeed`. `slip` is the tangential speed of the contact points relative to each other, `roll` the part of a body's travel along the surface that its spin carries (so a rolling ball has roll = speed and slip near 0, a sliding box the opposite, a body pivoting on an edge rolls briefly), `roller` the body that rolls. Contact points are averaged from the touching manifold contacts (accumulated normal impulse can be 0 at the end of a step for a resting contact, so separation within the touch tolerance counts), from penetration contacts and from world support hits. Tests: `physics/impacts.lua`, `physics/contacts.lua`.
 
 ## Meshes and the map
 

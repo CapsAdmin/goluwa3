@@ -557,7 +557,13 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		accumulate_pair_ground_support(body_a, body_b, normal, point_a, point_b)
 	end
 
-	physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, overlap, speed)
+	local entry = physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, overlap, speed)
+	local point = inverse_mass_b > 0 and point_b or point_a or point_b
+
+	if entry and point then
+		physics.collision_pairs:AddContactPoint(entry, point.x, point.y, point.z, 1)
+	end
+
 	return true
 end
 
