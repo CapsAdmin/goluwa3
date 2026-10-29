@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local network = import("goluwa/network/network.lua")
+local event = import("goluwa/event.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local model_replacements = import("lua/model_replacements.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
@@ -14,6 +15,13 @@ META.Network = {
 	PoseArms = {"boolean", 0.1, "reliable"},
 	HoldOffset = {"vec3", 0.1, "reliable"},
 	SupportGrip = {"vec3", 0.1, "reliable"},
+	Attributes = {"table", 0.5, "reliable"},
+	Statuses = {"table", 0.5, "reliable"},
+	Strength = {"number", 0.5, "reliable"},
+	RateMultiplier = {"number", 0.5, "reliable"},
+	DamageMultiplier = {"number", 0.5, "reliable"},
+	Rarity = {"string", 0.5, "reliable"},
+	Title = {"string", 0.5, "reliable"},
 }
 META:StartStorable()
 META:GetSet("Slot", 1)
@@ -39,6 +47,14 @@ META:GetSet("WorldSize", Vec3(0.2, 0.2, 0.6))
 META:GetSet("WorldCenter", Vec3())
 META:GetSet("WorldMass", 3)
 META:GetSet("Replacement", "")
+META:GetSet("Attributes", {})
+META:GetSet("Statuses", {})
+META:GetSet("Strength", 1)
+META:GetSet("RateMultiplier", 1)
+META:GetSet("DamageMultiplier", 1)
+META:GetSet("Rarity", "")
+META:GetSet("Title", "")
+META:IsSet("Rollable", false)
 META:EndStorable()
 META:GetSet("Equipped", "")
 META:GetSet("PrimaryButton", BUTTON.ATTACK1)
@@ -71,7 +87,24 @@ end
 
 function META:OnEntityConstructed()
 	self:ApplyReplacement()
+
+	if self.Rollable and self.Rarity == "" and network.HasAuthority() then
+		event.Call("RollWeapon", self)
+	end
+
 	self:RefreshWorldState()
+end
+
+function META:GetDamageTypes(default)
+	return #self.Attributes > 0 and self.Attributes or default
+end
+
+function META:GetDamageScale()
+	return self.DamageMultiplier * (#self.Attributes > 0 and self.Strength or 1)
+end
+
+function META:GetTitle()
+	return self.Title ~= "" and self.Title or self.DisplayName
 end
 
 function META:GetHolder()
@@ -215,7 +248,7 @@ local function run(self, dt, cmd, primary, secondary, think, press_primary, pres
 		and
 		owner:CallLocalEvent(press_primary, cmd) ~= false
 	then
-		self.next_primary = self.time + self.FireRate
+		self.next_primary = self.time + self.FireRate / self.RateMultiplier
 		local pose = self:GetHolder().Owner.character_pose
 
 		if pose then pose:RegisterShot() end
@@ -231,7 +264,7 @@ local function run(self, dt, cmd, primary, secondary, think, press_primary, pres
 		and
 		owner:CallLocalEvent(press_secondary, cmd) ~= false
 	then
-		self.next_secondary = self.time + self.FireRate
+		self.next_secondary = self.time + self.FireRate / self.RateMultiplier
 	end
 end
 

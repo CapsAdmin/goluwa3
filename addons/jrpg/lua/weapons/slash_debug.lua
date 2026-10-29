@@ -16,6 +16,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local actors = import("lua/actors.lua")
 local effects = import("lua/jrpg/effects.lua")
 local slash = import("lua/jrpg/slash.lua")
+local SLASH = {"slash"}
 local META = objects.CreateTemplate("weapon_slash_debug")
 local DIRECTIONS = {
 	{"down", Vec3(0, -1, 0)},
@@ -44,7 +45,7 @@ function META:OnWeaponPrimary(cmd)
 	self.index = self.index % #DIRECTIONS + 1
 	local name, local_cut = DIRECTIONS[self.index][1], DIRECTIONS[self.index][2]
 	local holder = self.Owner:GetParent()
-	local hit, cut, hits, plane_normal = slash.Strike(holder, self.Owner, local_cut, 1, 1, 3, "")
+	local hit, cut, hits, plane_normal = slash.Strike(holder, self.Owner, local_cut, 1, 1, 3, SLASH)
 	effects.Text(holder, name, TEXT)
 
 	if not effects.Visual then return false end

@@ -39,6 +39,7 @@ return {
 		HoldOffset = Vec3(0.1, -0.05, 0),
 		FireRate = 0.05,
 		Replacement = "sword",
+		Rollable = true,
 	},
 	Nodes = {
 		{
@@ -63,6 +64,7 @@ local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local slash = import("lua/jrpg/slash.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
+local SLASH = {"slash"}
 local actors = import("lua/actors.lua")
 local effects = import("lua/jrpg/effects.lua")
 local sounds = import("lua/sounds.lua")
@@ -72,7 +74,6 @@ local META = objects.CreateTemplate("weapon_sword")
 META:StartStorable()
 META:GetSet("Damage", 22)
 META:GetSet("Range", 1.7)
-META:GetSet("Element", "")
 META:EndStorable()
 local ATTACKS = {
 	light_1 = {
@@ -245,10 +246,10 @@ function META:Hit(attack)
 		self:GetHolder(),
 		self.Owner,
 		attack.cut,
-		self.Damage * attack.damage,
+		self.Damage * attack.damage * self.Owner.weapon:GetDamageScale(),
 		attack.damage,
 		self.Range,
-		self.Element
+		self.Owner.weapon:GetDamageTypes(SLASH)
 	)
 
 	for _, hit in ipairs(hits) do
@@ -360,7 +361,8 @@ function META:OnUpdate(dt)
 			self.sparks = nil
 		end
 
-		self.color = self.Element ~= "" and damage_types.Get(self.Element).Color or Color(0.85, 0.92, 1, 1)
+		local attributes = self.Owner.weapon.Attributes
+		self.color = #attributes > 0 and damage_types.MixColor(attributes) or Color(0.85, 0.92, 1, 1)
 		self.trail = effects.vfx.AcquireSlashTrail(self.color, TRAIL_STRENGTH, TRAIL_POINTS, TRAIL_OVERLAY, TRAIL_OVERLAY_CONFIG)
 		self.line = effects.vfx.AcquireTrail(self.color, LINE_STRENGTH, LINE_POINTS, LINE_RADIUS, nil, LINE_SUBDIVISIONS, LINE_END_TAPER)
 	end

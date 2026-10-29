@@ -1,6 +1,7 @@
 local weapons = import("lua/weapons.lua")
 local animations = import("lua/animations.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
+import("lua/jrpg/weapon_stats.lua")
 weapons.AddRootComponent("item_highlight", {})
 
 for name, def in pairs(import("lua/animations/sword.lua")) do

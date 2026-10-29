@@ -14,6 +14,7 @@ return {
 		FireRate = 0.25,
 		HoldOffset = Vec3(0.16, 0, 0),
 		Holster = true,
+		Rollable = true,
 	},
 	Nodes = {
 		nodes.Handle("handle", 0.022, 0.12, Vec3(0, 0, 0), HANDLE),
@@ -24,6 +25,7 @@ return {
 local damage = import("lua/damage.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local weapon_effects = import("lua/weapon_effects.lua")
+local GENERIC = {"generic"}
 local META = objects.CreateTemplate("weapon_pistol")
 META:GetSet("Range", 50)
 META:GetSet("Damage", 20)
@@ -69,18 +71,26 @@ function META:OnWeaponPrimary(cmd)
 	if hit.entity then victim, multiplier = damage.GetVictim(hit.entity) end
 
 	if victim and victim.health then
-		damage.Deal(
-			victim,
-			{
-				Attacker = player,
-				Inflictor = self.Owner,
-				Damage = self.Damage * multiplier,
-				Position = hit.point,
-				Normal = hit.normal,
-				Force = forward * self.Impulse,
-				Part = hit.entity.ragdoll_part and hit.entity.ragdoll_part.Group,
-			}
-		)
+		local scale = self.Owner.weapon:GetDamageScale()
+
+		for i, type_name in ipairs(self.Owner.weapon:GetDamageTypes(GENERIC)) do
+			if victim.health:IsDead() then break end
+
+			damage.Deal(
+				victim,
+				{
+					Attacker = player,
+					Inflictor = self.Owner,
+					Damage = self.Damage * multiplier * scale,
+					Type = type_name,
+					Secondary = i > 1,
+					Position = hit.point,
+					Normal = hit.normal,
+					Force = forward * self.Impulse,
+					Part = hit.entity.ragdoll_part and hit.entity.ragdoll_part.Group,
+				}
+			)
+		end
 	end
 
 	local body = hit.rigid_body or (hit.entity and hit.entity.rigid_body)

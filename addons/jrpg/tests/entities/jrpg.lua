@@ -176,3 +176,94 @@ T.TestPhysics("kills give experience and levels give attribute points", function
 	T(player.rpg:LevelAttribute("health"))["=="](true)
 	T(player.health:GetMaxHealth())["=="](health + 25)
 end)
+
+T.TestPhysics("a weapon with attributes deals one hit of each type", function()
+	local event = import("goluwa/event.lua")
+	local slash = import("lua/jrpg/slash.lua")
+	local weapon_stats = import("lua/jrpg/weapon_stats.lua")
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local sword = attacker.weapon_holder:Give("weapon_sword")
+	local slash_types = {"slash"}
+	weapon_stats.Roll(sword.weapon, "common", 0, {})
+	T(sword.weapon:GetDamageTypes(slash_types)[1])["=="]("slash")
+	weapon_stats.Roll(sword.weapon, "common", 0, {"ice", "fire"})
+	T(#sword.weapon:GetDamageTypes(slash_types))["=="](2)
+	local victim = create_character(Vec3(0, 0.05, -1))
+	local types = {}
+	local secondary = {}
+
+	event.AddListener("ModifyDamage", "weapon_attribute_test", function(_, info)
+		types[#types + 1] = info.Type
+		secondary[#secondary + 1] = info.Secondary == true
+		info.Cancel = true
+	end)
+
+	slash.Strike(
+		attacker,
+		sword,
+		Vec3(1, 0, 0),
+		10,
+		1,
+		2,
+		sword.weapon:GetDamageTypes(slash_types)
+	)
+	event.RemoveListener("ModifyDamage", "weapon_attribute_test")
+	T(table.concat(types, ","))["=="]("ice,fire")
+	T(secondary[1])["=="](false)
+	T(secondary[2])["=="](true)
+end)
+
+T.TestPhysics("rolled weapons get a rarity, attributes, statuses and a generated title", function()
+	local weapon_stats = import("lua/jrpg/weapon_stats.lua")
+	local weapons = import("lua/weapons.lua")
+	local sword = weapons.Spawn("weapon_sword", Vec3(0, 1, 0))
+	T(weapon_stats.GetRarity(sword.weapon.Rarity) ~= nil)["=="](true)
+	weapon_stats.Roll(sword.weapon, "epic", 5, {"ice", "fire", "fast", "dull"})
+	T(sword.weapon.Rarity)["=="]("epic")
+	T(table.concat(sword.weapon.Attributes, ","))["=="]("ice,fire")
+	T(table.concat(sword.weapon.Statuses, ","))["=="]("fast,dull")
+	T(math.abs(sword.weapon.Strength - 1.1) < 1e-6)["=="](true)
+	T(sword.weapon.RateMultiplier > 1)["=="](true)
+	local title = sword.weapon:GetTitle()
+	T(title:find("^Epic ") ~= nil)["=="](true)
+	T(title:find(" Sword of .+ %(%+5%)$") ~= nil)["=="](true)
+	weapon_stats.Roll(sword.weapon, "common", 0, {})
+	T(sword.weapon:GetTitle())["=="]("Common Sword")
+	T(sword.weapon:GetDamageScale())["=="](1)
+	T(sword.weapon.RateMultiplier)["=="](1)
+	local shield = weapons.Spawn("weapon_shield", Vec3(2, 1, 0))
+	T(shield.weapon.Rarity)["=="]("")
+end)
+
+T.TestPhysics("weapon statuses react to hits", function()
+	local weapon_stats = import("lua/jrpg/weapon_stats.lua")
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	attacker.health:SetHealth(50)
+	local sword = attacker.weapon_holder:Give("weapon_sword")
+	weapon_stats.Roll(sword.weapon, "common", 0, {"leech"})
+	local victim = create_dummy(100)
+	damage.Deal(victim, {Attacker = attacker, Inflictor = sword, Damage = 40})
+	T(attacker.health:GetHealth() > 50)["=="](true)
+	weapon_stats.Roll(sword.weapon, "common", 0, {"deflect"})
+	local wielder = create_dummy(100)
+	local holder = Entity.New{
+		ComponentSet = {"transform", "health"},
+		health = {Health = 100, MaxHealth = 100},
+	}
+	sword:SetParent(holder)
+	sword.weapon:SetEquipped("right")
+	local hits = 0
+
+	for _ = 1, 200 do
+		holder.health:Revive()
+		attacker.health:Revive()
+		local before = attacker.health:GetHealth()
+		damage.Deal(holder, {Attacker = attacker, Damage = 20})
+
+		if attacker.health:GetHealth() < before then hits = hits + 1 end
+	end
+
+	T(hits > 0)["=="](true)
+	T(hits < 200)["=="](true)
+	wielder:Remove()
+end)

@@ -13,7 +13,7 @@ local function to_attacker_side(normal, to_attacker)
 	return normal
 end
 
-function slash.Strike(holder, inflictor, cut_local, amount, scale, range, element)
+function slash.Strike(holder, inflictor, cut_local, amount, scale, range, types)
 	local center = actors.GetCenter(holder)
 	local forward = actors.GetForward(holder)
 	local strike = center + forward * (range * 0.55)
@@ -48,37 +48,28 @@ function slash.Strike(holder, inflictor, cut_local, amount, scale, range, elemen
 				part = trace.entity.ragdoll_part and trace.entity.ragdoll_part.Group
 			end
 
-			damage.Deal(
-				victim,
-				{
-					Attacker = holder,
-					Inflictor = inflictor,
-					Damage = amount,
-					Type = "slash",
-					Position = point,
-					Normal = normal,
-					Force = cut * 5 * scale,
-					Part = part,
-					Direction = cut,
-					Reaction = scale,
-				}
-			)
+			for i, type_name in ipairs(types) do
+				if i > 1 and victim.health:IsDead() then break end
 
-			if element ~= "" and victim.health and not victim.health:IsDead() then
 				damage.Deal(
 					victim,
 					{
 						Attacker = holder,
 						Inflictor = inflictor,
-						Damage = amount * 0.5,
-						Type = element,
+						Damage = amount,
+						Type = type_name,
+						Secondary = i > 1,
 						Position = point,
 						Normal = normal,
+						Force = cut * 5 * scale,
+						Part = part,
+						Direction = cut,
+						Reaction = scale,
 					}
 				)
 			end
 
-			effects.Impact(point, normal, element ~= "" and element or "slash", scale, cut)
+			effects.Impact(point, normal, types[1], scale, cut)
 			hits[#hits + 1] = {victim = victim, point = point, normal = normal}
 			hit_any = true
 		end
