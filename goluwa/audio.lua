@@ -87,6 +87,14 @@ local acoustics_mode = pvars.Setup2{
 		if audio.initialized then audio.SetupAcoustics() end
 	end,
 }
+audio.pinna_cues = pvars.Setup2{
+	key = "audio_pinna",
+	default = 1,
+	min = 0,
+	max = 3,
+	friendly = "pinna cues",
+	help = "strength of the direction dependent ear filters on the direct sound (outer ear notch, overhead and front cues) that let headphones tell up from down and front from back: 0 is off, 1 is about a measured ear, more exaggerates",
+}
 pvars.EndGroup()
 
 function audio.SetupAcoustics(mode)

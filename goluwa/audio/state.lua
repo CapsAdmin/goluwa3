@@ -45,6 +45,9 @@ local slot_t = ffi.typeof(
 		float ear_delay[2];
 		float ear_rate[2];
 		float ear_gain[6];
+		float ear_filter_frequency[6];
+		float ear_filter_gain[6];
+		float ear_filter_q[3];
 		float tap_delay[$];
 		float tap_rate[$];
 		float tap_gain[$];

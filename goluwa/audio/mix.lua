@@ -23,6 +23,9 @@ local voice_t = ffi.typeof(
 		double ear_slope[2];
 		double ear_gain[6];
 		double ear_state[8];
+		double ear_filter_frequency[6];
+		double ear_filter_gain[6];
+		double ear_filter_state[12];
 		double tap_delay[$];
 		double tap_gain[$];
 		double tap_band[3];
@@ -92,6 +95,10 @@ local function reset_voice(mixer, index, voice, slot)
 	for i = 0, 7 do
 		voice.ear_state[i] = 0
 		voice.tap_state[i] = 0
+	end
+
+	for i = 0, 11 do
+		voice.ear_filter_state[i] = 0
 	end
 
 	for i = 0, MAX_TAPS * 2 - 1 do
@@ -193,7 +200,10 @@ local function clamp_delay(samples)
 	return math.clamp(samples, MIN_DELAY, mix.HISTORY_SIZE - 8192)
 end
 
-local function render_ear(mixer, voice, ear, base, delay, slope, gains, out, frames)
+local FILTER_STEP = 32
+local filter_coefficients = ffi.new("double[12]")
+
+local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, frames)
 	local history = voice.history
 	local ca = mixer.coefficient_low
 	local cb = mixer.coefficient_high
@@ -202,24 +212,87 @@ local function render_ear(mixer, voice, ear, base, delay, slope, gains, out, fra
 	local la, lb, ha, hb = states[si], states[si + 1], states[si + 2], states[si + 3]
 	local gi = ear * 3
 	local gl, gm, gh = voice.ear_gain[gi], voice.ear_gain[gi + 1], voice.ear_gain[gi + 2]
-	local tl, tm, th = gains[gi], gains[gi + 1], gains[gi + 2]
+	local tl, tm, th = slot.ear_gain[gi], slot.ear_gain[gi + 1], slot.ear_gain[gi + 2]
 	local dl, dm, dh = (tl - gl) / frames, (tm - gm) / frames, (th - gh) / frames
+	local frequency, gain = voice.ear_filter_frequency, voice.ear_filter_gain
+	local target_frequency, target_gain = slot.ear_filter_frequency, slot.ear_filter_gain
+	local filtered = false
+	local changing = false
 
-	for i = 0, frames - 1 do
-		local x = dsp.ReadCubic(history, HISTORY_MASK, base + i - (delay + slope * (i + 1)))
-		la = la + ca * (x - la)
-		lb = lb + ca * (la - lb)
-		ha = ha + cb * (x - ha)
-		hb = hb + cb * (ha - hb)
-		gl = gl + dl
-		gm = gm + dm
-		gh = gh + dh
-		local index = i * 2 + ear
-		out[index] = out[index] + gh * x + (gm - gh) * hb + (gl - gm) * lb
+	for k = gi, gi + 2 do
+		if gain[k] ~= 0 or target_gain[k] ~= 0 then filtered = true end
+
+		if gain[k] ~= target_gain[k] or frequency[k] ~= target_frequency[k] then
+			changing = true
+		end
 	end
 
+	local fs = voice.ear_filter_state
+	local fi = ear * 6
+	local s1a, s2a, s1b, s2b, s1c, s2c = fs[fi], fs[fi + 1], fs[fi + 2], fs[fi + 3], fs[fi + 4], fs[fi + 5]
+	local c = filter_coefficients
+	local from = 0
+
+	while from < frames do
+		local to = changing and math.min(from + FILTER_STEP, frames) or frames
+
+		if filtered then
+			local t = to / frames
+
+			for k = 0, 2 do
+				local f = frequency[gi + k]
+				dsp.PeakingCoefficients(
+					c,
+					k * 4,
+					f * (target_frequency[gi + k] / f) ^ t,
+					gain[gi + k] + (target_gain[gi + k] - gain[gi + k]) * t,
+					slot.ear_filter_q[k],
+					mixer.sample_rate
+				)
+			end
+		end
+
+		for i = from, to - 1 do
+			local x = dsp.ReadCubic(history, HISTORY_MASK, base + i - (delay + slope * (i + 1)))
+			la = la + ca * (x - la)
+			lb = lb + ca * (la - lb)
+			ha = ha + cb * (x - ha)
+			hb = hb + cb * (ha - hb)
+			gl = gl + dl
+			gm = gm + dm
+			gh = gh + dh
+			local y = gh * x + (gm - gh) * hb + (gl - gm) * lb
+
+			if filtered then
+				local z = c[0] * y + s1a
+				s1a = c[1] * (y - z) + s2a
+				s2a = c[2] * y - c[3] * z
+				y = c[4] * z + s1b
+				s1b = c[5] * (z - y) + s2b
+				s2b = c[6] * z - c[7] * y
+				z = c[8] * y + s1c
+				s1c = c[9] * (y - z) + s2c
+				s2c = c[10] * y - c[11] * z
+				y = z
+			end
+
+			local index = i * 2 + ear
+			out[index] = out[index] + y
+		end
+
+		from = to
+	end
+
+	if not filtered then s1a, s2a, s1b, s2b, s1c, s2c = 0, 0, 0, 0, 0, 0 end
+
+	fs[fi], fs[fi + 1], fs[fi + 2], fs[fi + 3], fs[fi + 4], fs[fi + 5] = s1a, s2a, s1b, s2b, s1c, s2c
 	states[si], states[si + 1], states[si + 2], states[si + 3] = la, lb, ha, hb
 	voice.ear_gain[gi], voice.ear_gain[gi + 1], voice.ear_gain[gi + 2] = tl, tm, th
+
+	for k = gi, gi + 2 do
+		frequency[k] = target_frequency[k]
+		gain[k] = target_gain[k]
+	end
 end
 
 local function render_taps(mixer, slot, voice, base, frames, elapsed)
@@ -360,10 +433,12 @@ local function propagate(mixer, slot, voice, out, frames, block_end_time)
 
 			for g = ear * 3, ear * 3 + 2 do
 				voice.ear_gain[g] = slot.ear_gain[g]
+				voice.ear_filter_frequency[g] = slot.ear_filter_frequency[g]
+				voice.ear_filter_gain[g] = slot.ear_filter_gain[g]
 			end
 		end
 
-		render_ear(mixer, voice, ear, base, delay, slope, slot.ear_gain, out, frames)
+		render_ear(mixer, slot, voice, ear, base, delay, slope, out, frames)
 		voice.ear_delay[ear] = delay + slope * frames
 		voice.ear_slope[ear] = slope
 		max_delay = math.max(max_delay, voice.ear_delay[ear])

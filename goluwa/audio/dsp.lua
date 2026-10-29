@@ -8,6 +8,17 @@ function dsp.OnePoleCoefficient(frequency, sample_rate)
 	return 1 - math.exp(-2 * math.pi * frequency / sample_rate)
 end
 
+function dsp.PeakingCoefficients(out, at, frequency, gain_db, q, sample_rate)
+	local a = 10 ^ (gain_db / 40)
+	local w = 2 * math.pi * frequency / sample_rate
+	local alpha = math.sin(w) / (2 * q)
+	local a0 = 1 + alpha / a
+	out[at] = (1 + alpha * a) / a0
+	out[at + 1] = -2 * math.cos(w) / a0
+	out[at + 2] = (1 - alpha * a) / a0
+	out[at + 3] = (1 - alpha / a) / a0
+end
+
 function dsp.ReadCubic(buffer, mask, position)
 	local index = math.floor(position)
 	local f = position - index

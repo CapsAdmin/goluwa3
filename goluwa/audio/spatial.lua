@@ -4,6 +4,9 @@ local spatial = {}
 spatial.AIR_ABSORPTION_DB = {0.0011, 0.006, 0.05}
 spatial.MIN_RATE = -3
 spatial.MAX_RATE = 0.75
+spatial.PINNA_NOTCH = {frequency = 7500, octaves = 0.65, depth = 18, q = 2.5, rear = 0.6, far = 0.2}
+spatial.PINNA_OVERHEAD = {frequency = 8000, gain = 10, q = 1.2}
+spatial.PINNA_FRONT = {frequency = 4000, gain = 5, q = 0.8}
 local VELOCITY_TIME_CONSTANT = 0.05
 local TELEPORT_SPEED = 1000
 
@@ -74,6 +77,26 @@ function spatial.HeadShadow(band, side, front)
 	return (1 - 0.7 * shadow) * (1 - 0.3 * back)
 end
 
+function spatial.GetPinnaCues(height, front, toward, strength)
+	local notch = spatial.PINNA_NOTCH
+	return notch.frequency * 2 ^ (notch.octaves * height),
+	-notch.depth * (
+			1 - math.max(height, 0)
+		) * (
+			1 - (
+				1 - notch.rear
+			) * math.max(-front, 0)
+		) * (
+			notch.far + (
+				1 - notch.far
+			) * (
+				0.5 + 0.5 * toward
+			)
+		) * strength,
+	spatial.PINNA_OVERHEAD.gain * math.max(height, 0) * strength,
+	spatial.PINNA_FRONT.gain * front * strength
+end
+
 function spatial.RetardedDelay(ear, source, source_velocity, speed)
 	local delay = (ear - source):GetLength() / speed
 
@@ -128,7 +151,14 @@ function spatial.UpdateMotion(motion, position, time)
 end
 
 function spatial.ComputePaths(audio, sound, out)
-	out = out or {ear_delay = {}, ear_rate = {}, ear_gain = {}}
+	out = out or
+		{
+			ear_delay = {},
+			ear_rate = {},
+			ear_gain = {},
+			ear_filter_frequency = {},
+			ear_filter_gain = {},
+		}
 	local listener = audio.listener_position
 	local forward = audio.listener_forward:GetNormalized()
 	local right = forward:GetCross(audio.listener_up)
@@ -150,6 +180,8 @@ function spatial.ComputePaths(audio, sound, out)
 	local direction = distance > 0.0001 and to_source / distance or forward
 	local side = direction:GetDot(right)
 	local front = direction:GetDot(forward)
+	local height = direction:GetDot(right:GetCross(forward))
+	local pinna = audio.pinna_cues:Get()
 	local attenuation = spatial.ComputeDistanceAttenuation(
 		audio.DISTANCE_MODE_IDS[audio.distance_model],
 		distance,
@@ -201,6 +233,15 @@ function spatial.ComputePaths(audio, sound, out)
 					tone.z
 				)
 		end
+
+		local f = (ear - 1) * 3
+		local notch_frequency, notch_gain, overhead_gain, front_gain = spatial.GetPinnaCues(height, front, side * sign, pinna)
+		out.ear_filter_frequency[f + 1] = notch_frequency
+		out.ear_filter_gain[f + 1] = notch_gain
+		out.ear_filter_frequency[f + 2] = spatial.PINNA_OVERHEAD.frequency
+		out.ear_filter_gain[f + 2] = overhead_gain
+		out.ear_filter_frequency[f + 3] = spatial.PINNA_FRONT.frequency
+		out.ear_filter_gain[f + 3] = front_gain
 	end
 
 	out.distance = distance
@@ -223,6 +264,14 @@ function spatial.WriteSlot(slot, paths, sound, time)
 		slot.ear_gain[ear * 3], slot.ear_gain[ear * 3 + 1], slot.ear_gain[ear * 3 + 2] = dsp.WarpBandGains(g[ear * 3 + 1], g[ear * 3 + 2], g[ear * 3 + 3])
 	end
 
+	for i = 0, 5 do
+		slot.ear_filter_frequency[i] = paths.ear_filter_frequency[i + 1]
+		slot.ear_filter_gain[i] = paths.ear_filter_gain[i + 1]
+	end
+
+	slot.ear_filter_q[0] = spatial.PINNA_NOTCH.q
+	slot.ear_filter_q[1] = spatial.PINNA_OVERHEAD.q
+	slot.ear_filter_q[2] = spatial.PINNA_FRONT.q
 	local env = sound.audio_environment
 
 	for t = 0, 7 do
@@ -257,7 +306,13 @@ end
 
 function spatial.Attach(audio)
 	audio.listener_motion = {}
-	local paths = {ear_delay = {}, ear_rate = {}, ear_gain = {}}
+	local paths = {
+		ear_delay = {},
+		ear_rate = {},
+		ear_gain = {},
+		ear_filter_frequency = {},
+		ear_filter_gain = {},
+	}
 
 	function audio.UpdateSoundPaths(sound, time)
 		local slot = audio.state.slots[sound.slot]

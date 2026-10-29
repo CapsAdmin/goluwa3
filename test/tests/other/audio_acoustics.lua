@@ -5,6 +5,8 @@ local mix = import("goluwa/audio/mix.lua")
 local dsp = import("goluwa/audio/dsp.lua")
 local acoustics = import("goluwa/audio/acoustics.lua")
 local acoustics_cpu = import("goluwa/audio/acoustics_cpu.lua")
+local spatial = import("goluwa/audio/spatial.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local FS = 44100
 
@@ -155,6 +157,73 @@ T.Test("audio band gains of a sound shape what it emits", function()
 	T(measure(250, tilt) / measure(250, Vec3(1, 1, 1)))["~"](1, 0.1)
 	T(measure(1500, tilt) / measure(1500, Vec3(1, 1, 1)))["~"](0.6, 0.1)
 	T(measure(8000, tilt) / measure(8000, Vec3(1, 1, 1)))["~"](0.3, 0.1)
+end)
+
+T.Test("audio pinna cues move the notch with elevation and filter only the ears they face", function()
+	local enabled = audio.pinna_cues:Get()
+	pvars.SetSession("audio_pinna", 1)
+
+	local function paths(position)
+		local result
+
+		with_offline_mixer(function()
+			local snd = mono_source(64, function()
+				return 0
+			end)
+			snd:SetPosition(position)
+			result = audio.ComputePaths(snd)
+		end)
+
+		return result
+	end
+
+	local below, level, above = paths(Vec3(0, -2, -2)), paths(Vec3(0, 0, -3)), paths(Vec3(0, 2, -2))
+	T(below.ear_filter_frequency[1] < level.ear_filter_frequency[1])["=="](true)
+	T(level.ear_filter_frequency[1] < above.ear_filter_frequency[1])["=="](true)
+	T(level.ear_filter_frequency[1])["~"](spatial.PINNA_NOTCH.frequency, 1)
+	T(level.ear_filter_gain[2])["=="](0)
+	T(above.ear_filter_gain[2])[">"](0)
+	local right = paths(Vec3(3, 0, -0.5))
+	T(right.ear_filter_gain[4] < right.ear_filter_gain[1])["=="](true)
+
+	local function band_level(pinna, hz)
+		pvars.SetSession("audio_pinna", pinna)
+		local level
+
+		with_offline_mixer(function(ctx)
+			local seed = 1
+			local noise = mono_source(FS, function()
+				seed = (seed * 1103515245 + 12345) % 2147483648
+				return seed / 2147483648 - 0.5
+			end)
+			noise:SetLooping(true)
+			noise:SetPosition(Vec3(0, 0, -3))
+			noise:Play()
+			local out, total = ctx.Render(0.6)
+			local w0 = 2 * math.pi * hz / FS
+			local alpha = math.sin(w0) / 24
+			local a0 = 1 + alpha
+			local b0, b2, a1, a2 = alpha / a0, -alpha / a0, -2 * math.cos(w0) / a0, (1 - alpha) / a0
+			local x1, x2, y1, y2, sum = 0, 0, 0, 0, 0
+
+			for i = math.floor(total / 3), total - 1 do
+				local x = out[i * 2]
+				local y = b0 * x + b2 * x2 - a1 * y1 - a2 * y2
+				x2, x1, y2, y1 = x1, x, y1, y
+				sum = sum + y * y
+			end
+
+			level = sum
+			audio.StopAll()
+		end)
+
+		return level
+	end
+
+	local notch = spatial.PINNA_NOTCH.frequency
+	T(10 * math.log10(band_level(1, notch) / band_level(0, notch)))["<"](-4)
+	T(math.abs(10 * math.log10(band_level(1, 500) / band_level(0, 500))))["<"](0.5)
+	pvars.SetSession("audio_pinna", enabled)
 end)
 
 T.Test("audio doppler comes from motion through the delay line", function()
