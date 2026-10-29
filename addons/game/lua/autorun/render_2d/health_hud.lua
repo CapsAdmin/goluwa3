@@ -23,7 +23,14 @@ end
 event.AddListener("DrawHUD", "health_hud", function()
 	local rig = _G.PLAYER_RIG
 
-	if not (rig and rig:IsValid()) or third_person.IsDefaultHudReplaced(rig) or third_person.IsHudHidden() then
+	if
+		not (
+			rig and
+			rig:IsValid()
+		) or
+		third_person.IsDefaultHudReplaced(rig) or
+		third_person.IsHudHidden()
+	then
 		return
 	end
 
@@ -67,7 +74,7 @@ event.AddListener("DrawHUD", "health_hud", function()
 	}
 
 	if health:IsDead() then
-		local text = "you died, click to respawn"
+		local text = "you died, left click to spawn, right click to revive here"
 		local w, h = render2d.GetTextSize(text, nil, DEATH_SIZE)
 		render2d.DrawText{
 			text = text,

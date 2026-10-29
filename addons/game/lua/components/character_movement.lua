@@ -637,6 +637,8 @@ do
 
 		self.dead = true
 		self.death_time = system.GetElapsedTime()
+		self.death_position = self.Owner.transform:GetPosition():Copy()
+		self.death_rotation = self.Owner.player_input:GetRotation():Copy()
 		self.Swimming = false
 
 		if self.Owner.ragdoll then
@@ -812,10 +814,13 @@ do
 			if
 				network.HasAuthority() and
 				system.GetElapsedTime() - self.death_time >= self.RespawnDelay and
-				usercmd.HasButton(cmd, BUTTON.ACTIVE) and
-				usercmd.WasPressed(cmd, BUTTON.ATTACK1)
+				usercmd.HasButton(cmd, BUTTON.ACTIVE)
 			then
-				event.Call("PlayerRespawn", self.Owner)
+				if usercmd.WasPressed(cmd, BUTTON.ATTACK1) then
+					event.Call("PlayerRespawn", self.Owner)
+				elseif usercmd.WasPressed(cmd, BUTTON.ATTACK2) then
+					event.Call("PlayerRespawn", self.Owner, self.death_position, self.death_rotation)
+				end
 			end
 
 			return

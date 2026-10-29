@@ -2,8 +2,9 @@ local event = import("goluwa/event.lua")
 local clients = import("goluwa/network/clients.lua")
 local spawning = import("lua/spawning.lua")
 
-event.AddListener("PlayerRespawn", "player_respawn", function(entity)
-	local position, rotation = spawning.Pick()
+event.AddListener("PlayerRespawn", "player_respawn", function(entity, position, rotation)
+	if not position then position, rotation = spawning.Pick() end
+
 	local controller = entity.player_controller
 	entity.health:Revive()
 	entity.weapon_holder:GiveLoadout()
