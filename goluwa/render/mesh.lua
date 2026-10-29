@@ -172,7 +172,10 @@ function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index
 	if key then
 		local cached = mesh_content_cache[key]
 
-		if cached and not cached.IsNull then return cached end
+		if cached and not cached.IsNull then
+			cached.reclaimed = true
+			return cached
+		end
 	end
 
 	local self = Mesh.New(vertex_attributes, vertices, indices, index_type, index_count, name)
@@ -204,6 +207,19 @@ function Mesh:ForgetContent()
 		mesh_content_cache[self.content_key] = nil
 		self.content_key = nil
 	end
+end
+
+-- the weak content cache can still hand out a mesh whose finalizer is already queued
+function Mesh.__gc(self)
+	if self.reclaimed then
+		self.reclaimed = nil
+		setmetatable(self, getmetatable(self))
+		return
+	end
+
+	if self:IsValid() then self:Remove() end
+
+	objects.created_objects[self] = nil
 end
 
 function Mesh:OnRemove()
