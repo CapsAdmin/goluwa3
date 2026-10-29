@@ -783,7 +783,7 @@ local function get_vertex_glsl()
 
 			vec3 camera = particle_draw.camera_position;
 			vec3 head = p.position;
-			vec3 tail = head - p.velocity * system.streak_time;
+			vec3 tail = head - p.velocity * min(system.streak_time, p.age);
 			vec3 to_particle = head - camera;
 			float dist = length(to_particle);
 			float width = p.width;
