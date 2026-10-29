@@ -382,6 +382,7 @@ biped.SocketProfiles.biped = {
 	grip_l = {Bone = "hand_l"},
 	eye = {Bone = "head"},
 	head = {Bone = "head"},
+	mouth = {Bone = "head"},
 	center = {Bone = "spine"},
 	feet = {Bone = "root"},
 	chest = {Bone = "chest", Offset = Vec3(0, -0.6, -0.8) * (eye_pose.EyeRadius + 0.02)},
@@ -391,6 +392,12 @@ biped.SocketProfiles.source_humanoid = {
 	grip_l = {Bone = "hand_l"},
 	eye = {Bone = "head"},
 	head = {Bone = "head"},
+	-- ValveBiped Head1 points x forward, y right and z down, with x 14 degrees below where the face looks
+	mouth = {
+		Bone = "head",
+		Offset = Vec3(0.09, 0, 0),
+		Rotation = Quat(-0.4353, -0.4353, 0.5572, 0.5572),
+	},
 	center = {Bone = "spine"},
 	feet = {Bone = "root"},
 	-- ValveBiped Spine2 points x back, y left and z down, the socket faces forward with y up

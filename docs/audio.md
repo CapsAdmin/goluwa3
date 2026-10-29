@@ -53,6 +53,10 @@ A tracer (`acoustics_gpu.lua`: ray queries on the scene TLAS in a PreRenderPass 
   - slip plays the smooth or rough scrape loop of the touched surface;
   - rolling has two layers, the ground's smooth scrape loop pitched and brightened (`BandGains`) with speed on the roller's side, and the roller's own sound on the ground's side: its roll loop where Source has one (canisters, barrels, cans, grenades), else its soft impact samples as grains every 0.3 m rolled.
 
+## Voices
+
+- `event.Call("ClientVoiceOrigin", client)` returns where a client speaks from and where it faces: the world `mouth` socket of its player (`addons/game/lua/autorun/audio/voice.lua`), or nothing when it has no character.
+
 ## Debugging
 
 `perf audio` (or `h`, AUDIO tab, `addons/debug/lua/autorun/render_3d/audio_acoustics.lua`) shows what the system thinks the listener is in: tracer and cost, the listener room (T60 per band, volume, mean free path, escaping rays, predelay), every spatial sound (delay, doppler, direct level and occlusion, reverb send and which bus, reflections), a top down map of first hits, reflecting planes, reflection paths and direct paths, and the decay curves. `audio_debug` draws the same in the world; `audio_stats` prints the rows.

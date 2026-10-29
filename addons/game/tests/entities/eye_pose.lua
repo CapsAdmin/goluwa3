@@ -3,6 +3,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local physics = import("goluwa/physics.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local biped = import("lua/biped.lua")
 local eye_pose = import("lua/eye_pose.lua")
 local pose_variation = import("lua/pose_variation.lua")
@@ -43,6 +44,30 @@ T.TestPhysics("the eye pose puts the eye at the pupil point and plants the feet 
 	T(bones.foot_l.m31)["~"](eye_pose.FootHeight - eye_pose.FootSink, 0.02)
 	T(bones.foot_r.m31)["~"](eye_pose.FootHeight - eye_pose.FootSink, 0.02)
 	npc:Remove()
+end)
+
+T.TestPhysics("the mouth socket of the eye body faces where the eye looks", function()
+	create_ground()
+	local character = Entity.New{
+		ComponentSet = {"transform", "character_pose", "procedural_pose", "attachment_points"},
+		transform = {Position = Vec3(0, 0.05, 0)},
+	}
+	character:AddComponent("armature")
+	character.armature:SetSkeleton(biped.SkeletonName)
+	local view = Quat(0, 0, 0, 1):RotatePitch(math.rad(30))
+	character.character_pose:SetViewRotation(view)
+
+	for _ = 1, 30 do
+		character.character_pose:OnUpdate(1 / 60)
+		character.procedural_pose:OnUpdate(1 / 60)
+	end
+
+	local mouth = character.armature:GetBoneMatrix("mouth")
+	T(Vec3(-mouth.m20, -mouth.m21, -mouth.m22):GetDot(view:GetForward()))[">"](0.999)
+	T(
+		Vec3(mouth:GetTranslation()):Distance(Vec3(character.armature:GetBoneMatrix("head"):GetTranslation()))
+	)["<"](1e-5)
+	character:Remove()
 end)
 
 T.TestPhysics("the physics rig of an eye npc follows the eye pose and falls apart on death", function()

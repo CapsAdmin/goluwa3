@@ -5,6 +5,9 @@ local system = import("goluwa/system.lua")
 local vfs = import("goluwa/vfs.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
+local event = import("goluwa/event.lua")
+local pose_variation = import("lua/pose_variation.lua")
 local physics = import("goluwa/physics.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local outfit_source = import("lua/outfit_source.lua")
@@ -197,6 +200,64 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 	T(avatar:GetHeadOffset():Distance(target) > 0.03)["=="](true)
 	pvars.SetSession("cl_outfit_head_smoothing", 0.05)
 	player:Remove()
+	pvars.SetSession("cl_outfit", "player_outfit")
+end)
+
+T.Test3D("a source outfit speaks from a mouth in front of its head, facing where the head looks", function()
+	steam.MountSourceGame("gmod")
+
+	if not vfs.IsFile(outfit_source.Model) then
+		return T.Unavailable("gmod content not mounted")
+	end
+
+	import("addons/game/lua/autorun/audio/voice.lua")
+	pvars.SetSession("cl_outfit", outfit_source.Name)
+	local sway_pitch, sway_yaw = pose_variation.SwayPitch, pose_variation.SwayYaw
+	pose_variation.SwayPitch = 0
+	pose_variation.SwayYaw = 0
+	local player = Entity.New{
+		ComponentSet = {"transform", "character_pose", "attachment_points", "player_avatar"},
+		transform = {Position = Vec3(0, 0, 0)},
+		player_avatar = {},
+	}
+	local avatar = player.player_avatar
+	local model
+
+	T.WaitUntil(
+		function()
+			model = avatar.outfit and avatar.outfit:GetChildren()[1]
+			return model and
+				model.animator and
+				model.animator:GetRig() and
+				model.source_pose and
+				avatar.armature
+		end,
+		30
+	)
+
+	local function speak(yaw, pitch)
+		player.transform:SetRotation(Quat(0, 0, 0, 1):RotateYaw(yaw))
+		player.character_pose:SetViewRotation(Quat(0, 0, 0, 1):RotatePitch(pitch))
+
+		for _ = 1, 30 do
+			player.character_pose:OnUpdate(1 / 60)
+			model.source_pose:OnUpdate(1 / 60)
+		end
+
+		return event.Call("ClientVoiceOrigin", player:GetOwnedBy())
+	end
+
+	local position, direction = speak(0, 0)
+	local head = Vec3(avatar.armature:GetBoneMatrix("head"):GetTranslation())
+	T(direction:GetDot(Vec3(0, 0, -1)))[">"](math.cos(math.rad(8)))
+	T((position - head):GetDot(Vec3(0, 0, -1)))[">"](0.05)
+	T(math.abs(position.y - head.y))["<"](0.06)
+	position, direction = speak(0, math.rad(40))
+	T(direction.y)["~"](math.sin(math.rad(40)), 0.1)
+	position, direction = speak(math.rad(90), 0)
+	T(direction:GetDot(Quat(0, 0, 0, 1):RotateYaw(math.rad(90)):GetForward()))[">"](math.cos(math.rad(8)))
+	player:Remove()
+	pose_variation.SwayPitch, pose_variation.SwayYaw = sway_pitch, sway_yaw
 	pvars.SetSession("cl_outfit", "player_outfit")
 end)
 
