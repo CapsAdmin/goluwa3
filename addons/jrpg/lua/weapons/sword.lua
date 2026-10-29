@@ -2,27 +2,32 @@ local nodes = import("lua/weapon_nodes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
+local model_replacements = import("lua/model_replacements.lua")
 local STEEL = {Color = Color(0.78, 0.8, 0.84, 1), Roughness = 0.22, Metallic = 1}
-local GOLD = {Color = Color(0.85, 0.62, 0.25, 1), Roughness = 0.3, Metallic = 1}
-local LEATHER = {Color = Color(0.22, 0.12, 0.07, 1), Roughness = 0.85, Metallic = 0}
 local Quat = import("goluwa/structs/quat.lua")
 local STANCE_TILT = math.rad(65)
-
-local function box(name, size, position, material)
-	local node = nodes.Box(name, size, position, material)
-	node.parent = "sword"
-	return node
-end
+local pole = nodes.Cylinder("replacement", 0.025, 1.08, FORWARD * 0.43, STEEL, true)
+pole.parent = "grip_shift"
 
 local function marker(name, distance)
 	return {
 		guid = name,
-		parent = "sword",
+		parent = "grip_shift",
 		properties = {Name = name},
 		components = {transform = {Position = FORWARD * distance}},
 	}
 end
 
+model_replacements.Register(
+	"sword",
+	{
+		Game = "gmod",
+		Path = "models/weapons/w_crowbar.mdl",
+		Position = FORWARD * 0.383,
+		Rotation = Quat():SetAngles(Vec3(0, math.pi, 0)),
+		Scale = Vec3(1.66, 1.66, 1.66),
+	}
+)
 return {
 	Values = {
 		WorldSize = Vec3(0.2, 0.05, 1.1),
@@ -33,6 +38,7 @@ return {
 		Stance = "melee",
 		HoldOffset = Vec3(0.1, -0.05, 0),
 		FireRate = 0.05,
+		Replacement = "sword",
 	},
 	Nodes = {
 		{
@@ -41,11 +47,13 @@ return {
 			properties = {Name = "sword"},
 			components = {transform = {Rotation = Quat():SetAngles(Vec3(STANCE_TILT, 0, 0))}},
 		},
-		box("pommel", Vec3(0.045, 0.045, 0.045), FORWARD * -0.11, GOLD),
-		box("handle", Vec3(0.032, 0.032, 0.18), FORWARD * -0.01, LEATHER),
-		box("guard", Vec3(0.22, 0.035, 0.04), FORWARD * 0.09, GOLD),
-		box("blade", Vec3(0.055, 0.012, 0.82), FORWARD * 0.52, STEEL),
-		box("tip", Vec3(0.035, 0.01, 0.06), FORWARD * 0.95, STEEL),
+		{
+			guid = "grip_shift",
+			parent = "sword",
+			properties = {Name = "grip_shift"},
+			components = {transform = {Position = FORWARD * -0.08}},
+		},
+		pole,
 		marker("blade_base", 0.14),
 		marker("blade_tip", 0.97),
 	},
