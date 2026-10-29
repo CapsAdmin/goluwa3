@@ -142,7 +142,9 @@ function surface_overlays.Add(visual, kind_name, config)
 		index = 1
 
 		for i = 2, surface_overlays.MAX_LAYERS do
-			if state.layers[i].start < state.layers[index].start then index = i end
+			if state.layers[i].layer.start < state.layers[index].layer.start then
+				index = i
+			end
 		end
 	end
 
