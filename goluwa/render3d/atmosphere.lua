@@ -314,18 +314,31 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 		return PLANET_RADIUS + (ATMOSPHERE_RADIUS - PLANET_RADIUS) * v * v;
 	}
 
-	vec2 get_transmittance_lut_uv(vec3 sample_point, vec3 light_dir) {
-		vec3 up = normalize(sample_point);
-		float mu = dot(up, light_dir);
-		float radius = length(sample_point);
-		float u = mu * 0.5 + 0.5;
+	float get_transmittance_lut_mu(float radius, float u) {
+		float horizon_distance = sqrt(ATMOSPHERE_RADIUS * ATMOSPHERE_RADIUS - PLANET_RADIUS * PLANET_RADIUS);
+		float rho = sqrt(max(radius * radius - PLANET_RADIUS * PLANET_RADIUS, 0.0));
+		float d_min = ATMOSPHERE_RADIUS - radius;
+		float d = d_min + u * (rho + horizon_distance - d_min);
+		if (d < 1e-5) return 1.0;
+		return clamp((horizon_distance * horizon_distance - rho * rho - d * d) / (2.0 * radius * d), -1.0, 1.0);
+	}
+
+	vec2 get_transmittance_lut_uv(float radius, float mu) {
+		float horizon_distance = sqrt(ATMOSPHERE_RADIUS * ATMOSPHERE_RADIUS - PLANET_RADIUS * PLANET_RADIUS);
+		float rho = sqrt(max(radius * radius - PLANET_RADIUS * PLANET_RADIUS, 0.0));
+		float d_min = ATMOSPHERE_RADIUS - radius;
+		float d = -radius * mu + sqrt(max(radius * radius * (mu * mu - 1.0) + ATMOSPHERE_RADIUS * ATMOSPHERE_RADIUS, 0.0));
+		float u = clamp((d - d_min) / max(rho + horizon_distance - d_min, 1e-5), 0.0, 1.0);
 		float v = sqrt(clamp((radius - PLANET_RADIUS) / max(ATMOSPHERE_RADIUS - PLANET_RADIUS, 1e-5), 0.0, 1.0));
 		return vec2(u, v);
 	}
 
 	vec3 sample_transmittance_lut(vec3 sample_point, vec3 light_dir) {
 		if (ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX == -1) return vec3(1.0);
-		return texture(TEXTURE(ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX), get_transmittance_lut_uv(sample_point, light_dir)).rgb;
+		float radius = max(length(sample_point), PLANET_RADIUS);
+		float mu = dot(sample_point, light_dir) / max(length(sample_point), 1e-5);
+		if (mu < -sqrt(max(1.0 - PLANET_RADIUS * PLANET_RADIUS / (radius * radius), 0.0))) return vec3(0.0);
+		return texture(TEXTURE(ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX), get_transmittance_lut_uv(radius, mu)).rgb;
 	}
 
 	]] .. scattering.LOOKUP_GLSL .. [[
@@ -513,7 +526,7 @@ end
 
 local transmittance_glsl = build_atmosphere_shader_prelude(
 	[[
-	const int TRANSMITTANCE_STEPS = 40;
+	const int TRANSMITTANCE_STEPS = 64;
 	const int SPECTRAL_COUNT = ]] .. #SPECTRUM.wavelengths .. [[;
 	const int SPECTRAL_FIRST_WAVELENGTH = ]] .. SPECTRUM.wavelengths[1] .. [[;
 	const int SPECTRAL_STEP = ]] .. (
@@ -537,32 +550,36 @@ local transmittance_glsl = build_atmosphere_shader_prelude(
 	}
 
 	vec4 shade(vec2 uv, vec3 _cube_dir) {
-		float mu = mix(-1.0, 1.0, uv.x);
 		float radius = get_lut_radius(uv.y);
+		float mu = get_transmittance_lut_mu(radius, uv.x);
 		vec3 ray_origin = vec3(0.0, radius, 0.0);
 		float sin_theta = sqrt(max(1.0 - mu * mu, 0.0));
 		vec3 ray_dir = normalize(vec3(sin_theta, mu, 0.0));
 		vec2 atmosphere_hit = ray_sphere_intersect_normalized(ray_origin, ray_dir, ATMOSPHERE_RADIUS);
-		vec2 ground_hit = ray_sphere_intersect_normalized(ray_origin, ray_dir, PLANET_RADIUS);
 		float ray_length = atmosphere_hit.y;
 
 		if (ray_length <= 0.0) return vec4(1.0);
-		if (ground_hit.x > 0.0) return vec4(0.0, 0.0, 0.0, 1.0);
 
 		float rayleigh_od = 0.0;
 		float mie_od = 0.0;
 		float ozone_od = 0.0;
 
-		for (int i = 0; i < TRANSMITTANCE_STEPS; i++) {
-			float u0 = float(i) / float(TRANSMITTANCE_STEPS);
-			float u1 = float(i + 1) / float(TRANSMITTANCE_STEPS);
-			float step_size = ray_length * (u1 * u1 - u0 * u0);
-			float u = 0.5 * (u0 + u1);
-			float t = ray_length * u * u;
-			vec3 sample_point = ray_origin + ray_dir * t;
-			rayleigh_od += rayleigh_density(sample_point) * step_size;
-			mie_od += mie_density(sample_point) * step_size;
-			ozone_od += ozone_density(sample_point) * step_size;
+		float closest = clamp(-dot(ray_origin, ray_dir), 0.0, ray_length);
+
+		for (int half_index = 0; half_index < 2; half_index++) {
+			float half_length = half_index == 0 ? closest : ray_length - closest;
+			float direction = half_index == 0 ? -1.0 : 1.0;
+
+			for (int i = 0; i < TRANSMITTANCE_STEPS; i++) {
+				float u0 = float(i) / float(TRANSMITTANCE_STEPS);
+				float u1 = float(i + 1) / float(TRANSMITTANCE_STEPS);
+				float u = 0.5 * (u0 + u1);
+				float step_size = half_length * (u1 * u1 * u1 - u0 * u0 * u0);
+				vec3 sample_point = ray_origin + ray_dir * (closest + direction * half_length * u * u * u);
+				rayleigh_od += rayleigh_density(sample_point) * step_size;
+				mie_od += mie_density(sample_point) * step_size;
+				ozone_od += ozone_density(sample_point) * step_size;
+			}
 		}
 
 		vec3 transmitted = vec3(0.0);
