@@ -113,6 +113,7 @@ local function build_pipeline(slots)
 			#define MAX_SAMPLES %d
 			#define QUERY_FLOATS %d
 			#define DEFAULT_ABSORPTION vec3(%f, %f, %f)
+			#define SCATTERING %f
 
 			shared float reduce_buffer[GROUP_SIZE];
 
@@ -295,9 +296,13 @@ local function build_pipeline(slots)
 						w *= reflect;
 						origin = p;
 						tmin = 0.0;
-						float u1 = acoustic_random(rng);
-						float u2 = acoustic_random(rng);
-						dir = acoustic_cosine(n, u1, u2);
+						if (acoustic_random(rng) < SCATTERING) {
+							float u1 = acoustic_random(rng);
+							float u2 = acoustic_random(rng);
+							dir = acoustic_cosine(n, u1, u2);
+						} else {
+							dir -= 2.0 * dot(dir, n) * n;
+						}
 					}
 
 					if (!escaped) {
@@ -333,7 +338,8 @@ local function build_pipeline(slots)
 				QUERY_FLOATS,
 				acoustics.DEFAULT_ABSORPTION[1],
 				acoustics.DEFAULT_ABSORPTION[2],
-				acoustics.DEFAULT_ABSORPTION[3]
+				acoustics.DEFAULT_ABSORPTION[3],
+				acoustics.SCATTERING
 			),
 	}
 end

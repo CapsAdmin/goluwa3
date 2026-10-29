@@ -377,7 +377,13 @@ function acoustics.PathTrace(tracer, job, result)
 
 			ox, oy, oz = px, py, pz
 			tmin = 0
-			dx, dy, dz = acoustics.CosineDirection(nx, ny, nz, random(), random())
+
+			if random() < acoustics.SCATTERING then
+				dx, dy, dz = acoustics.CosineDirection(nx, ny, nz, random(), random())
+			else
+				local k = 2 * (dx * nx + dy * ny + dz * nz)
+				dx, dy, dz = dx - k * nx, dy - k * ny, dz - k * nz
+			end
 		end
 
 		if not escaped then
