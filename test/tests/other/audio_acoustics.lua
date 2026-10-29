@@ -125,6 +125,38 @@ T.Test("audio propagation delay and interaural time difference", function()
 	end)
 end)
 
+T.Test("audio band gains of a sound shape what it emits", function()
+	local function measure(hz, gains)
+		local level
+
+		with_offline_mixer(function(ctx)
+			local sine = mono_source(FS, function(i)
+				return math.sin(2 * math.pi * hz * i / FS) * 0.5
+			end)
+			sine:SetLooping(true)
+			sine:SetPosition(Vec3(0, 0, -2))
+			sine:SetBandGains(gains)
+			sine:Play()
+			local out, total = ctx.Render(0.5)
+			local from, sum = math.floor(total / 2), 0
+
+			for i = from, total - 1 do
+				sum = sum + out[i * 2] ^ 2
+			end
+
+			level = math.sqrt(sum / (total - from))
+			audio.StopAll()
+		end)
+
+		return level
+	end
+
+	local tilt = Vec3(1, 0.6, 0.3)
+	T(measure(250, tilt) / measure(250, Vec3(1, 1, 1)))["~"](1, 0.1)
+	T(measure(1500, tilt) / measure(1500, Vec3(1, 1, 1)))["~"](0.6, 0.1)
+	T(measure(8000, tilt) / measure(8000, Vec3(1, 1, 1)))["~"](0.3, 0.1)
+end)
+
 T.Test("audio doppler comes from motion through the delay line", function()
 	local c = audio.speed_of_sound
 

@@ -10,6 +10,7 @@ Physically based by default: sound travels at `audio.speed_of_sound` through a d
 - Ears are `audio.ear_distance` apart: interaural time difference falls out of the per ear delays; head shadow is a band gain (`spatial.HeadShadow`).
 - Stopping a spatial sound stops emission; what is already in flight still arrives (`slot.draining`). `Sound:Cut()` and `audio.StopAll()` cut hard.
 - `Sound:SetSpatial(false)` for UI, music and anything not in the world: plays the buffer directly in stereo. Spatial sounds are downmixed to mono.
+- `Sound:SetBandGains(Vec3(low, mid, high))` shapes what a spatial sound emits (direct path and reflections, not the reverb send). The shallow crossovers limit it to gentle tilts, about 10% accurate at the band centers; a steep cut next to a band at 1 bottoms out near -11 dB.
 - Two reverb buses (`dsp.ProcessReverb`, 16 line FDN with per line 3 band absorption, Hadamard feedback, input diffusion). A bus is normalized so a unit send gives an impulse response with energy 1 per channel; sends carry the physical energy. Buses sleep when silent.
 - Bands: crossovers at 500 Hz and 4 kHz (two cascaded one poles each), centers 250/1500/8000 Hz. Gains are given at the band centers and converted with `dsp.WarpBandGains`, otherwise the shallow crossovers leak neighbouring bands.
 

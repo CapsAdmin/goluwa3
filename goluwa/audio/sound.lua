@@ -203,6 +203,7 @@ function module.Attach(audio)
 	Sound:GetSet("RolloffFactor", 1)
 	Sound:GetSet("Direction", Vec3(0, 0, 0))
 	Sound:GetSet("Position", Vec3(0, 0, 0))
+	Sound:GetSet("BandGains", Vec3(1, 1, 1))
 	Sound:IsSet("Spatial", true)
 
 	function Sound:GetDuration()

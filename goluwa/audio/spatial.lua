@@ -166,6 +166,7 @@ function spatial.ComputePaths(audio, sound, out)
 		sound:GetOuterConeGain()
 	)
 	local occlusion = sound.audio_occlusion
+	local tone = sound:GetBandGains()
 	local half_ear = right * (audio.ear_distance * 0.5)
 
 	for ear = 1, 2 do
@@ -192,6 +193,12 @@ function spatial.ComputePaths(audio, sound, out)
 					occlusion and
 					occlusion[band] or
 					1
+				) * (
+					band == 1 and
+					tone.x or
+					band == 2 and
+					tone.y or
+					tone.z
 				)
 		end
 	end
@@ -232,10 +239,12 @@ function spatial.WriteSlot(slot, paths, sound, time)
 		end
 	end
 
+	local tone = sound:GetBandGains()
+
 	if env then
-		slot.tap_band[0], slot.tap_band[1], slot.tap_band[2] = dsp.WarpBandGains(env.tap_band[1], env.tap_band[2], env.tap_band[3])
+		slot.tap_band[0], slot.tap_band[1], slot.tap_band[2] = dsp.WarpBandGains(env.tap_band[1] * tone.x, env.tap_band[2] * tone.y, env.tap_band[3] * tone.z)
 	else
-		slot.tap_band[0], slot.tap_band[1], slot.tap_band[2] = 1, 1, 1
+		slot.tap_band[0], slot.tap_band[1], slot.tap_band[2] = dsp.WarpBandGains(tone.x, tone.y, tone.z)
 	end
 
 	for bus = 0, 1 do
