@@ -1,11 +1,7 @@
 local event = import("goluwa/event.lua")
-local audio = import("goluwa/audio.lua")
 local system = import("goluwa/system.lua")
-local vfs = import("goluwa/vfs.lua")
-local resource = import("goluwa/resource.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local sounds = import("lua/sounds.lua")
-local RANGE = 40
 local MIN_SPEED = 1
 local HARD_SPEED = 3
 local LOUD_SPEED = 7
@@ -542,8 +538,6 @@ local last_played = table.weak("k")
 event.AddListener("Impact", "physics_impacts", function(info)
 	if info.Kind ~= "physics" or info.Speed < MIN_SPEED then return end
 
-	if info.Position:Distance(audio.GetListenerPosition()) > RANGE then return end
-
 	local now = system.GetElapsedTime()
 	local row = last_played[info.Entity]
 
@@ -573,7 +567,6 @@ end)
 local voices = table.weak("k")
 local active = {}
 local idle = {}
-local missing = {}
 
 local function stop_voice(voice)
 	voice.source:Stop()
@@ -601,22 +594,15 @@ local function get_source(path)
 
 	if pool and pool[1] then return table.remove(pool) end
 
-	if missing[path] or not vfs.IsFile("sound/" .. path) then
-		missing[path] = true
-		return
-	end
+	local source = sounds.CreateSource(path)
 
-	resource.skip_providers = true
-	local source = audio.CreateSource("sound/" .. path)
-	resource.skip_providers = false
-	source:SetLooping(true)
-	source:SetReferenceDistance(2)
-	source:SetMaxDistance(40)
+	if source then source:SetLooping(true) end
+
 	return source
 end
 
 local function get_priority(voice)
-	return voice.target / math.max(voice.position:Distance(audio.GetListenerPosition()), 1)
+	return sounds.GetLevel(voice.position, voice.target)
 end
 
 local function drive(owner, path, volume, pitch, low, mid, high, position, now)
@@ -632,7 +618,7 @@ local function drive(owner, path, volume, pitch, low, mid, high, position, now)
 				end
 			end
 
-			if volume / math.max(position:Distance(audio.GetListenerPosition()), 1) <= get_priority(quietest) then
+			if sounds.GetLevel(position, volume) <= get_priority(quietest) then
 				return
 			end
 
@@ -678,9 +664,10 @@ local function get_layers(entity, other)
 end
 
 event.AddListener("Contact", "physics_sounds", function(info)
-	if info.Position:Distance(audio.GetListenerPosition()) > RANGE then return end
-
 	local found = get_set(info.Surface)
+
+	if not sounds.IsAudible(info.Position, found.volume) then return end
+
 	local now = system.GetElapsedTime()
 	local layers = get_layers(info.Entity, info.Other)
 	local slip, roll = info.Slip, info.Roll

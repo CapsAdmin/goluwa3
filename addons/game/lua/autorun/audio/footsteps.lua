@@ -1,7 +1,5 @@
 local event = import("goluwa/event.lua")
-local audio = import("goluwa/audio.lua")
 local sounds = import("lua/sounds.lua")
-local RANGE = 30
 local LOUD_SPEED = 3
 local QUIET = 0.15
 
@@ -141,8 +139,6 @@ end
 
 event.AddListener("Impact", "footsteps", function(info)
 	if info.Kind ~= "footstep" then return end
-
-	if info.Position:Distance(audio.GetListenerPosition()) > RANGE then return end
 
 	local set = get_set(info.Surface)
 	local index = math.random(#set)

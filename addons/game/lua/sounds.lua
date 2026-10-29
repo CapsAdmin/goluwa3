@@ -5,8 +5,36 @@ local audio = AUDIO and import("goluwa/audio.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local sounds = {}
 local VOICES = 3
+local REFERENCE_DISTANCE = 2
+local AUDIBLE = 10 ^ (-45 / 20)
 local voices = {}
 local missing = {}
+
+function sounds.CreateSource(path)
+	if missing[path] then return end
+
+	local full_path = "sound/" .. path
+
+	if not vfs.IsFile(full_path) then
+		missing[path] = true
+		return
+	end
+
+	resource.skip_providers = true
+	local source = audio.CreateSource(full_path)
+	resource.skip_providers = false
+	source:SetNormalized(true)
+	source:SetReferenceDistance(REFERENCE_DISTANCE)
+	return source
+end
+
+function sounds.GetLevel(position, volume)
+	return volume * REFERENCE_DISTANCE / math.max(position:Distance(audio.GetListenerPosition()), REFERENCE_DISTANCE)
+end
+
+function sounds.IsAudible(position, volume)
+	return sounds.GetLevel(position, volume) >= AUDIBLE
+end
 
 local function get_voice(path)
 	local entry = voices[path]
@@ -14,23 +42,16 @@ local function get_voice(path)
 	if not entry then
 		if missing[path] then return end
 
-		local full_path = "sound/" .. path
+		local first = sounds.CreateSource(path)
 
-		if not vfs.IsFile(full_path) then
-			missing[path] = true
-			return
+		if not first then return end
+
+		entry = {first, next = 1}
+
+		for i = 2, VOICES do
+			entry[i] = sounds.CreateSource(path)
 		end
 
-		entry = {next = 1}
-		resource.skip_providers = true
-
-		for i = 1, VOICES do
-			entry[i] = audio.CreateSource(full_path)
-			entry[i]:SetReferenceDistance(2)
-			entry[i]:SetMaxDistance(40)
-		end
-
-		resource.skip_providers = false
 		voices[path] = entry
 	end
 
@@ -42,11 +63,15 @@ end
 function sounds.Play(path, position, volume, pitch)
 	if not audio or not CLIENT then return end
 
+	volume = volume or 1
+
+	if not sounds.IsAudible(position, volume) then return end
+
 	local voice = get_voice(path)
 
 	if not voice then return end
 
-	voice:SetGain(volume or 1)
+	voice:SetGain(volume)
 	voice:SetPitch(pitch or 1)
 	voice:SetPosition(position:Copy())
 	voice:Play()
