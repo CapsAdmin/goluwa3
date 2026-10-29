@@ -31,6 +31,10 @@ Collide once, soft contacts: broadphase and islands only on substep 1 (`BeginSte
 - Rotation is integrated exactly once a body turns more than 0.1 rad per substep; a body with `SpinAxis` (wheels) integrates its spin about that axis first and the rest after, so its axle follows its joint.
 - World support contacts only act on mesh and heightmap surfaces: they hold a body at the collision margin, and the primitive pair solvers only count overlap as touching, so supported primitives lost all friction. The sphere support sweep is half the sphere's radius so a wall it leans on cannot start the sweep overlapped and hide the floor, which lets a loaded wheel sink through a displacement.
 
+## Impacts
+
+`PhysicsImpact` (global event, after each step) reports collisions: `{entity_a, entity_b, body_a, body_b, normal (a to b), position, speed, hit_a}`, at most one per body pair per step, when the approach speed reaches `CollisionPairs.ImpactSpeed`. The speed is the relative normal velocity removed by whichever path resolved the contact: solver manifolds (`rest_speed` of touching contacts, scanned from the last substep's manifolds, which are keyed by collider), CCD and penetration impulses (`ApplyPairImpulse` returns it) and world support contacts (which also give `hit_a`, the world surface). Contact points from mesh sweeps and from the world side of a manifold can be polygon vertices, so positions come from the dynamic body.
+
 ## Meshes and the map
 
 - Capsule/sphere vs mesh builds up to 4 manifolds per pair (`ResolvePairClusters`). Contacts are speculative out to |v| * StepDt but dropped unless approaching. The relax pass treats every contact as touching: never feed it open contacts, filter at creation. No narrow-phase triangle cache.

@@ -14,6 +14,7 @@ local section_names = {
 	"relax",
 	"velocities_sleep",
 	"restitution",
+	"impacts",
 	"finalize",
 }
 local subsection_names = {

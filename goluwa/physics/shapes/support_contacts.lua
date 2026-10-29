@@ -154,7 +154,7 @@ function support_contacts.ApplyWorldSupportContact(body, normal, contact_positio
 			body:AccumulateGroundSupportContact(normal, contact_position.x, contact_position.y, contact_position.z)
 		end
 
-		physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
+		physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth, -normal_speed, contact_position)
 		return true
 	end
 
@@ -179,11 +179,12 @@ function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_po
 	local correction = target_point - support_point
 	local depth = correction:Dot(normal)
 	local support_tolerance = (body:GetCollisionProbeDistance() or 0) + margin
+	local normal_speed = 0
 
 	if depth > 0 then
 		body:ApplyCorrection(0, normal * depth, support_point, nil, nil, dt)
 		local point_velocity = body.Velocity + body.AngularVelocity:GetCross(support_point - body.Position)
-		local normal_speed = point_velocity:Dot(normal)
+		normal_speed = point_velocity:Dot(normal)
 
 		if normal_speed < 0 then
 			body:ApplyImpulse(
@@ -201,7 +202,7 @@ function support_contacts.ApplyPointWorldSupportContact(body, normal, contact_po
 		body:AccumulateGroundSupportContact(normal, support_point.x, support_point.y, support_point.z)
 	end
 
-	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth)
+	physics.collision_pairs:RecordWorldCollision(body, hit, normal, depth, -normal_speed, contact_position)
 	record_support_contact(
 		body,
 		hit,

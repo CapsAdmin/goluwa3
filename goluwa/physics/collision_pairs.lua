@@ -1,6 +1,8 @@
 local objects = import("goluwa/objects/objects.lua")
+local event = import("goluwa/event.lua")
 local stats = import("goluwa/physics/stats.lua")
 local CollisionPairs = objects.CreateTemplate("physics_collision_pairs")
+CollisionPairs.ImpactSpeed = 0.5
 import.loaded["goluwa/physics/collision_pairs.lua"] = CollisionPairs
 -- a builtin LuaJIT cannot record ends the trace so the side traces after it do not inherit the caller locals
 local trace_break = coroutine.running
@@ -77,7 +79,7 @@ function CollisionPairs:BodyHasCurrentCollision(body)
 	return row ~= nil and next(row) ~= nil
 end
 
-function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap)
+function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap, speed, position)
 	if not (body_a and body_a:ShouldCollide(body_b)) then return end
 
 	local existing = get_nested_entry(self.CurrentCollisionPairs, body_a, body_b)
@@ -89,6 +91,12 @@ function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap)
 			existing.overlap = stored_overlap
 		end
 
+		if speed and speed > existing.speed then
+			existing.speed = speed
+			existing.position = position
+			existing.impact_normal = existing.body_a == body_a and normal or normal * -1
+		end
+
 		return
 	end
 
@@ -97,13 +105,16 @@ function CollisionPairs:RecordCollisionPair(body_a, body_b, normal, overlap)
 		body_b = body_b,
 		normal = normal,
 		overlap = stored_overlap,
+		speed = speed or 0,
+		position = position,
+		impact_normal = normal,
 	}
 	set_nested_entry(self.CurrentCollisionPairs, body_a, body_b, existing)
 	set_nested_entry(self.CurrentCollisionPairs, body_b, body_a, existing)
 	self.CurrentCollisionEntries[#self.CurrentCollisionEntries + 1] = existing
 end
 
-function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap)
+function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap, speed, position)
 	if not (hit and hit.entity) then return end
 
 	if hit.entity == body.Owner then return end
@@ -119,6 +130,13 @@ function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap)
 			existing.other_body = hit.rigid_body
 		end
 
+		if speed and speed > existing.speed then
+			existing.speed = speed
+			existing.position = position
+			existing.impact_hit = hit
+			existing.impact_normal = normal
+		end
+
 		return
 	end
 
@@ -129,6 +147,10 @@ function CollisionPairs:RecordWorldCollision(body, hit, normal, overlap)
 		normal = normal,
 		overlap = stored_overlap,
 		hit = hit,
+		speed = speed or 0,
+		position = position,
+		impact_hit = hit,
+		impact_normal = normal,
 	}
 	set_nested_entry(self.CurrentWorldCollisionPairs, body, hit.entity, existing)
 	self.CurrentWorldCollisionEntries[#self.CurrentWorldCollisionEntries + 1] = existing
@@ -157,6 +179,56 @@ end
 function CollisionPairs:DispatchCollisionEvents()
 	local current = self.CurrentCollisionPairs or {}
 	local previous = self.PreviousCollisionPairs or {}
+	local impact_speed = self.ImpactSpeed
+
+	for _, pair in ipairs(self.CurrentWorldCollisionEntries) do
+		local hit = pair.impact_hit
+		local body_pair = get_nested_entry(current, pair.body, hit.rigid_body)
+		local speed = pair.speed
+
+		if body_pair then
+			speed = math.max(speed, body_pair.speed)
+			body_pair.speed = 0
+		end
+
+		if speed >= impact_speed then
+			event.Call(
+				"PhysicsImpact",
+				{
+					entity_a = pair.entity,
+					entity_b = pair.body.Owner,
+					body_a = hit.rigid_body,
+					body_b = pair.body,
+					normal = pair.impact_normal,
+					position = pair.position or hit.position,
+					speed = speed,
+					hit_a = hit,
+				}
+			)
+		end
+	end
+
+	for _, pair in ipairs(self.CurrentCollisionEntries) do
+		if pair.speed >= impact_speed then
+			event.Call(
+				"PhysicsImpact",
+				{
+					entity_a = pair.body_a.Owner,
+					entity_b = pair.body_b.Owner,
+					body_a = pair.body_a,
+					body_b = pair.body_b,
+					normal = pair.impact_normal,
+					position = pair.position or
+						(
+							pair.body_b:IsDynamic() and
+							pair.body_b or
+							pair.body_a
+						):GetPosition():Copy(),
+					speed = pair.speed,
+				}
+			)
+		end
+	end
 
 	for _, pair in ipairs(self.CurrentCollisionEntries or {}) do
 		local previous_pair = get_nested_entry(previous, pair.body_a, pair.body_b)

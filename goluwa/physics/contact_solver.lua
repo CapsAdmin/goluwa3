@@ -97,6 +97,10 @@ function contact_solver.Begin(solver, dt)
 	soft_hertz, soft_damping_ratio = configure(solver, dt)
 end
 
+function contact_solver.GetManifolds()
+	return man_objects, man_count
+end
+
 function contact_solver.BeginGroup(group)
 	body_stamp = body_stamp + 1
 	group.first_man = man_count

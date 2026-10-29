@@ -465,6 +465,40 @@ function Solver:ApplyRestitution(pairs, dt)
 	end
 end
 
+function Solver:RecordManifoldImpacts()
+	local collision_pairs = self:GetPhysics().collision_pairs
+	local stamp = self.CollideStamp
+	local manifolds, count = contact_solver.GetManifolds()
+
+	for i = 0, count - 1 do
+		local manifold = manifolds[i]
+		local cs = manifold.cs
+		local best_speed, best = collision_pairs.ImpactSpeed, nil
+
+		for j = 0, manifold.n - 1 do
+			local c = cs[j]
+
+			if c.rest_stamp == stamp and c.jn > 0 and -c.rest_speed > best_speed then
+				best_speed, best = -c.rest_speed, c
+			end
+		end
+
+		if best then
+			local body_a, body_b = manifold.solve_a:GetBody(), manifold.solve_b:GetBody()
+			local position
+
+			if body_b:IsDynamic() then
+				local origin = body_b:GetPosition()
+				position = Vec3(origin.x + best.rbx, origin.y + best.rby, origin.z + best.rbz)
+			else
+				position = Vec3(best.wpx, best.wpy, best.wpz)
+			end
+
+			collision_pairs:RecordCollisionPair(body_a, body_b, manifold.normal, 0, best_speed, position)
+		end
+	end
+end
+
 function Solver:IslandPairFilter(pair)
 	local body_a = pair.entry_a.body
 	local body_b = pair.entry_b.body

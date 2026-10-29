@@ -951,9 +951,9 @@ function pair_solver_helpers.ResolveSweptHit(
 	local normal = hit.normal
 	local physics = static_body:GetPhysics()
 	dynamic_body.Position = start_world + movement_world * math.max(0, hit_fraction - EPSILON)
-	contact_resolution.ApplyPairImpulse(static_body, dynamic_body, normal, dt)
+	local speed = contact_resolution.ApplyPairImpulse(static_body, dynamic_body, normal, dt)
 	contact_resolution.MarkPairGrounding(static_body, dynamic_body, normal)
-	physics.collision_pairs:RecordCollisionPair(static_body, dynamic_body, normal, 0)
+	physics.collision_pairs:RecordCollisionPair(static_body, dynamic_body, normal, 0, speed)
 
 	if allow_remaining_motion then
 		local remaining_fraction = 1 - hit_fraction
@@ -988,9 +988,9 @@ function pair_solver_helpers.ResolveRelativeSweptPairHit(
 	local physics = body_a:GetPhysics()
 	body_a.Position = start_a + move_a * safe_fraction
 	body_b.Position = start_b + move_b * safe_fraction
-	contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b)
+	local speed = contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b)
 	contact_resolution.MarkPairGrounding(body_a, body_b, normal)
-	physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, 0)
+	physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, 0, speed)
 
 	if allow_remaining_motion then
 		local remaining_fraction = 1 - hit_fraction

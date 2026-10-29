@@ -287,14 +287,14 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	local inverse_mass_sum = inverse_mass_a + inverse_mass_b
 	options = options or EMPTY_OPTIONS
 
-	if inverse_mass_sum <= 0 then return end
+	if inverse_mass_sum <= 0 then return 0 end
 
 	trace_break()
 	local state_a, state_b = impulse_motion.CapturePairMotion(body_a, body_b)
 	local relative_velocity = impulse_motion.GetRelativePointVelocity(state_a, point_a, state_b, point_b)
 	local normal_speed = relative_velocity:Dot(normal)
 
-	if normal_speed >= 0 then return end
+	if normal_speed >= 0 then return 0 end
 
 	local restitution = physics.solver:GetPairRestitution(body_a, body_b)
 	local normal_inverse_mass = inverse_mass_sum
@@ -303,7 +303,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 		normal_inverse_mass = body_a:GetInverseMassAlong(normal, point_a) + body_b:GetInverseMassAlong(normal, point_b)
 	end
 
-	if normal_inverse_mass <= EPSILON then return end
+	if normal_inverse_mass <= EPSILON then return 0 end
 
 	local normal_impulse = -(1 + restitution) * normal_speed / normal_inverse_mass
 	impulse_motion.ApplyPairImpulse(state_a, state_b, normal, normal_impulse, point_a, point_b)
@@ -338,6 +338,7 @@ function contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a
 	end
 
 	impulse_motion.CommitPairMotion(state_a, state_b, dt)
+	return -normal_speed
 end
 
 local rebuild_manifold
@@ -534,7 +535,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 
 	if overlap <= 0 then return false end
 
-	contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
+	local speed = contact_resolution.ApplyPairImpulse(body_a, body_b, normal, dt, point_a, point_b, options)
 	local correction = CORRECTION:CopyFrom(normal):Scale(overlap)
 
 	if inverse_mass_a > 0 then
@@ -556,7 +557,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		accumulate_pair_ground_support(body_a, body_b, normal, point_a, point_b)
 	end
 
-	physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, overlap)
+	physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, overlap, speed)
 	return true
 end
 
