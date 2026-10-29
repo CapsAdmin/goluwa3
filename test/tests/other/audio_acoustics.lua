@@ -313,7 +313,7 @@ T.Test("audio reverb bus decays at each band's own T60, also with sparse lines",
 	end
 end)
 
-local function box_tracer(min, max, absorption, budget)
+local function box_tracer(min, max, absorption, budget, open_top)
 	local tracer = acoustics_cpu.New(budget)
 	local a = {absorption, absorption, absorption}
 
@@ -338,7 +338,7 @@ local function box_tracer(min, max, absorption, budget)
 			if t < best then best, nx, ny, nz = t, 0, 0, dz > 0 and -1 or 1 end
 		end
 
-		if best < tmin or best > tmax then return nil end
+		if best < tmin or best > tmax or open_top and ny == -1 then return nil end
 
 		return best, nx, ny, nz, a
 	end
@@ -387,6 +387,7 @@ T.Test("audio acoustics matches Eyring in a box room and finds every wall reflec
 					-S * math.log(1 - alpha) + 4 * acoustics.AirEnergyPerMeter(band) * V
 				)
 			T(math.abs(profile.t60[band] - eyring) / eyring)["<="](0.1)
+			T(math.abs(audio.state.buses[0].t60[band - 1] - eyring) / eyring)["<="](0.1)
 		end
 
 		T(math.abs(profile.volume - V) / V)["<="](0.05)
@@ -461,6 +462,36 @@ T.Test("audio acoustics follows the listener into another room within a few fram
 		local S = 2 * (28 * 10 + 28 * 24 + 10 * 24)
 		local eyring = 0.161 * V / (-S * math.log(1 - alpha) + 4 * acoustics.AirEnergyPerMeter(2) * V)
 		T(math.abs(audio.acoustics.profile.t60[2] - eyring) / eyring)["<="](0.1)
+	end)
+end)
+
+T.Test("audio acoustics keeps the long late tail of a room without a roof", function()
+	with_offline_mixer(function(ctx)
+		audio.acoustics = acoustics.New(
+			audio,
+			box_tracer(
+				Vec3(-5, 0, -6),
+				Vec3(5, 3.5, 6),
+				0.02,
+				{
+					rays = 256,
+					bounces = 8,
+					samples = 128,
+					sources = 1,
+					fresnel = 2,
+					reflection_sources = 1,
+				},
+				true
+			)
+		)
+		audio.SetListenerPosition(Vec3(-1, 1.7, -0.6))
+
+		for _ = 1, 40 do
+			ctx.time = ctx.time + 1 / 60
+			audio.Update()
+		end
+
+		T(audio.state.buses[0].t60[1] / audio.acoustics.profile.t60[2])[">="](1.5)
 	end)
 end)
 

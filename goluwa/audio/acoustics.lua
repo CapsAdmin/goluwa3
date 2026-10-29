@@ -47,6 +47,9 @@ function acoustics.NewStats()
 		last_throughput = {0, 0, 0},
 		last_throughput_length = {0, 0, 0},
 		settled_throughput = {0, 0, 0},
+		settled_first = {0, 0, 0},
+		settled_final = {0, 0, 0},
+		settled_length = {0, 0, 0},
 	}
 end
 
@@ -72,6 +75,9 @@ function acoustics.DecayStats(stats, factor)
 		stats.last_throughput[b] = stats.last_throughput[b] * factor
 		stats.last_throughput_length[b] = stats.last_throughput_length[b] * factor
 		stats.settled_throughput[b] = stats.settled_throughput[b] * factor
+		stats.settled_first[b] = stats.settled_first[b] * factor
+		stats.settled_final[b] = stats.settled_final[b] * factor
+		stats.settled_length[b] = stats.settled_length[b] * factor
 	end
 end
 
@@ -87,6 +93,9 @@ function acoustics.AddStats(into, from)
 		into.last_throughput[b] = into.last_throughput[b] + from.last_throughput[b]
 		into.last_throughput_length[b] = into.last_throughput_length[b] + from.last_throughput_length[b]
 		into.settled_throughput[b] = into.settled_throughput[b] + from.settled_throughput[b]
+		into.settled_first[b] = into.settled_first[b] + from.settled_first[b]
+		into.settled_final[b] = into.settled_final[b] + from.settled_final[b]
+		into.settled_length[b] = into.settled_length[b] + from.settled_length[b]
 	end
 end
 
@@ -111,7 +120,7 @@ function acoustics.AddSourceSums(into, from, rays)
 end
 
 function acoustics.ComputeProfile(stats, speed)
-	local profile = {t60 = {}, survival = {}}
+	local profile = {t60 = {}, survival = {}, tail_survival = {}, tail_path = {}}
 	local segments = stats.hits + stats.escapes
 
 	if stats.hits < 0.5 or segments <= 0 then
@@ -123,6 +132,8 @@ function acoustics.ComputeProfile(stats, speed)
 		for b = 1, 3 do
 			profile.t60[b] = acoustics.MIN_T60
 			profile.survival[b] = 0
+			profile.tail_survival[b] = 0
+			profile.tail_path[b] = acoustics.OPEN_DISTANCE
 		end
 
 		return profile
@@ -140,6 +151,22 @@ function acoustics.ComputeProfile(stats, speed)
 		profile.survival[b] = survival
 		local kappa = -math.log(math.max(survival, 1e-9)) / mean_free_path
 		profile.t60[b] = math.clamp(13.82 / (speed * kappa), acoustics.MIN_T60, acoustics.MAX_T60)
+		local settled = stats.settled_throughput[b]
+		local before_final = settled - stats.settled_final[b]
+
+		if before_final > 0 then
+			local tail_path = stats.settled_length[b] / settled
+			profile.tail_path[b] = tail_path
+			profile.tail_survival[b] = math.min(
+				(
+						settled - stats.settled_first[b]
+					) / before_final * math.exp(-acoustics.AirEnergyPerMeter(b) * tail_path),
+				0.9995
+			)
+		else
+			profile.tail_path[b] = mean_free_path
+			profile.tail_survival[b] = survival
+		end
 	end
 
 	profile.mean_free_path = mean_free_path
@@ -157,7 +184,7 @@ function acoustics.ComputeSourceReverb(sums, stats, profile, direct_time, speed)
 	for b = 1, 3 do
 		local throughput = stats.settled_throughput[b] / stats.rays
 		local per_bounce = throughput > 0 and (sums.settled[b] / sums.rays) / throughput or 0
-		local survival = math.min(profile.survival[b], 0.995)
+		local survival = math.min(profile.tail_survival[b], 0.995)
 		local geometric = survival / (1 - survival)
 		local last = stats.last_throughput[b] / stats.rays
 		local last_length = stats.last_throughput_length[b] / stats.rays
@@ -166,7 +193,7 @@ function acoustics.ComputeSourceReverb(sums, stats, profile, direct_time, speed)
 				(
 					last_length / speed - direct_time * last
 				) * geometric + last * (
-					profile.mean_free_path / speed
+					profile.tail_path[b] / speed
 				) * survival / (
 					(
 						1 - survival
@@ -331,6 +358,19 @@ function acoustics.PathTrace(tracer, job, result)
 			if settled then
 				for b = 1, 3 do
 					stats.settled_throughput[b] = stats.settled_throughput[b] + w[b]
+					stats.settled_length[b] = stats.settled_length[b] + w[b] * distance
+				end
+
+				if bounce == math.floor(job.bounces / 2) then
+					for b = 1, 3 do
+						stats.settled_first[b] = stats.settled_first[b] + w[b]
+					end
+				end
+
+				if bounce == job.bounces - 1 then
+					for b = 1, 3 do
+						stats.settled_final[b] = stats.settled_final[b] + w[b]
+					end
 				end
 			end
 
@@ -1072,9 +1112,10 @@ function META:UpdateBuses()
 	local state = self.audio.state
 	local profile = self.profile
 	local listener_bus = state.buses[0]
+	local ambient = self.ambient_reverb and self.ambient_reverb.t60 or profile.t60
 
 	for b = 1, 3 do
-		listener_bus.t60[b - 1] = profile.t60[b]
+		listener_bus.t60[b - 1] = ambient[b]
 	end
 
 	listener_bus.predelay = profile.predelay
