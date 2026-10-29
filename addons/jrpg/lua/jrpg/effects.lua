@@ -203,6 +203,10 @@ do
 
 	local SPARK_SIZE = 0.012
 	local SPARK_GRAVITY = 0.3
+	local CUT_DRAG = 4
+	local CUT_FIZZLE = 1
+	local CUT_FIZZLE_START = 0.55
+	local CUT_LIFETIME_SCALE = 4
 	local debris_emitters = {}
 	local debris_materials = {}
 
@@ -248,7 +252,7 @@ do
 		entity.particle_emitter_cpu:BurstAt(count, position, direction)
 	end
 
-	function effects.BurstType(type_name, position, direction, count, speed_scale, spread)
+	function effects.BurstType(type_name, position, direction, count, speed_scale, spread, cut)
 		local key = type_name .. (
 				speed_scale and
 				"_fast" or
@@ -256,6 +260,10 @@ do
 			) .. (
 				spread and
 				"_cone" .. spread or
+				""
+			) .. (
+				cut and
+				"_cut" or
 				""
 			)
 
@@ -275,6 +283,16 @@ do
 			if speed_scale then
 				overrides.SpeedMin = definition.Particles.SpeedMin * speed_scale
 				overrides.SpeedMax = definition.Particles.SpeedMax * speed_scale
+			end
+
+			if cut then
+				overrides.MaxParticles = 1024
+				overrides.GravityScale = 0
+				overrides.Drag = CUT_DRAG
+				overrides.Fizzle = CUT_FIZZLE
+				overrides.FizzleStart = CUT_FIZZLE_START
+				overrides.LifetimeMin = definition.Particles.LifetimeMin * CUT_LIFETIME_SCALE
+				overrides.LifetimeMax = definition.Particles.LifetimeMax * CUT_LIFETIME_SCALE
 			end
 
 			vfx.DefineBurst(key, effects.GetParticleProperties(definition, overrides))
@@ -490,30 +508,12 @@ function effects.ShowMagicCircle(entity, color, size, duration, strength, pillar
 end
 
 local IMPACT_SPREAD = 55
-local SLASH_SPREAD = 6
-local SLASH_RADIUS = 2.6
+local SLASH_SPREAD = 2
 local SLASH_SOUNDS = {
 	"weapons/blade_slice_2.wav",
 	"weapons/blade_slice_3.wav",
 	"weapons/blade_slice_4.wav",
 }
-vfx.RegisterTexture(
-	"slash_arc",
-	[[
-	vec4 shade(vec2 uv, vec3 _cube_dir) {
-		vec2 p = uv * 2.0 - 1.0;
-		float x = p.x;
-		float taper = pow(max(1.0 - x * x, 0.0), 1.3);
-		float center = 0.32 * x * x - 0.16;
-		float width = 0.14 * taper;
-		float d = abs(p.y - center) / max(width, 0.0001);
-		float body = 1.0 - smoothstep(0.55, 1.0, d);
-		float core = (1.0 - smoothstep(0.0, 0.35, d)) * 0.8;
-		float v = clamp(body * 0.7 + core, 0.0, 1.0) * step(abs(x), 1.0) * smoothstep(0.0, 0.04, taper);
-		return vec4(vec3(v), v);
-	}
-]]
-)
 clips.Define(
 	"jrpg_impact",
 	{
@@ -532,7 +532,6 @@ clips.Define(
 			},
 			glow = {{0, 0.45}, {1, 1.35}},
 			fade = {{0, 1, "outQuart"}, {1, 0}},
-			slash_fade = {{0, 1}, {0.25, 0.85}, {1, 0}},
 			glow_fade = {
 				{
 					0,
@@ -549,14 +548,15 @@ clips.Define(
 				0,
 				function(p)
 					local spread = p.cut and SLASH_SPREAD or IMPACT_SPREAD
-					effects.BurstType(p.type_name, p.position, p.direction, p.count, nil, spread)
+					effects.BurstType(p.type_name, p.position, p.direction, p.count, nil, spread, p.cut)
 					effects.BurstType(
 						p.type_name,
 						p.position,
 						p.direction,
 						math.floor(p.count * 0.6),
 						2.5,
-						spread
+						spread,
+						p.cut
 					)
 
 					if p.debris then
@@ -579,18 +579,6 @@ clips.Define(
 				Brightness = 1.5,
 				Alpha = function(p, v)
 					return p.cut and 0 or v.fade
-				end,
-			},
-			{
-				Type = "sprite",
-				Texture = "slash_arc",
-				Axial = "cut",
-				Tint = 0.5,
-				Radius = SLASH_RADIUS,
-				ScaleBy = "size",
-				Brightness = 5,
-				Alpha = function(p, v)
-					return p.cut and v.slash_fade or 0
 				end,
 			},
 			{
