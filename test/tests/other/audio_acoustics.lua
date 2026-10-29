@@ -292,6 +292,57 @@ T.Test("audio reflections reach each ear at their own time with the ear filters 
 	pvars.SetSession("audio_pinna", enabled)
 end)
 
+T.Test("audio reverb is coherent between the ears below a few hundred hertz and not above", function()
+	local reverb = dsp.CreateReverb(FS)
+	local frames = FS * 2
+	local input = ffi.new("float[?]", frames)
+	local out = ffi.new("float[?]", frames * 2)
+	local seed = 3
+
+	for i = 0, FS / 4 do
+		seed = (seed * 1103515245 + 12345) % 2147483648
+		input[i] = seed / 2147483648 - 0.5
+	end
+
+	for i = 0, frames - 1, 512 do
+		dsp.ProcessReverb(
+			reverb,
+			input + i,
+			out + i * 2,
+			math.min(512, frames - i),
+			FS,
+			1.5,
+			1.4,
+			0.9,
+			0.02,
+			1,
+			1
+		)
+	end
+
+	local function coherence(hz)
+		local w0 = 2 * math.pi * hz / FS
+		local alpha = math.sin(w0) / 4
+		local a0 = 1 + alpha
+		local b0, b2, a1, a2 = alpha / a0, -alpha / a0, -2 * math.cos(w0) / a0, (1 - alpha) / a0
+		local l1, l2, ly1, ly2, r1, r2, ry1, ry2 = 0, 0, 0, 0, 0, 0, 0, 0
+		local ll, rr, lr = 0, 0, 0
+
+		for i = 0, frames - 1 do
+			local l = b0 * out[i * 2] + b2 * l2 - a1 * ly1 - a2 * ly2
+			l2, l1, ly2, ly1 = l1, out[i * 2], ly1, l
+			local r = b0 * out[i * 2 + 1] + b2 * r2 - a1 * ry1 - a2 * ry2
+			r2, r1, ry2, ry1 = r1, out[i * 2 + 1], ry1, r
+			ll, rr, lr = ll + l * l, rr + r * r, lr + l * r
+		end
+
+		return lr / math.sqrt(ll * rr)
+	end
+
+	T(coherence(125))[">"](0.8)
+	T(math.abs(coherence(2000)))["<"](0.25)
+end)
+
 T.Test("audio doppler comes from motion through the delay line", function()
 	local c = audio.speed_of_sound
 

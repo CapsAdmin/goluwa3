@@ -3,6 +3,7 @@ local dsp = {}
 dsp.LOW_CROSSOVER = 500
 dsp.HIGH_CROSSOVER = 4000
 dsp.BAND_CENTERS = {250, 1500, 8000}
+dsp.REVERB_COHERENT_BELOW = 350
 
 function dsp.OnePoleCoefficient(frequency, sample_rate)
 	return 1 - math.exp(-2 * math.pi * frequency / sample_rate)
@@ -282,6 +283,8 @@ do
 			double delay[$];
 			double output_gain;
 			double coefficient_low, coefficient_high;
+			double coefficient_coherent;
+			double coherent[4];
 			uint32_t write;
 			bool initialized;
 			bool sleeping;
@@ -314,6 +317,7 @@ do
 	local MIN_T60 = 0.05
 	-- the shallow band filters ripple between band centers; let the ripple ring this much longer than the longest band before shortening all bands
 	local RIPPLE_T60 = 1.5
+	local COHERENT_BOOST = math.sqrt(2) - 1
 
 	function dsp.CreateReverb(sample_rate)
 		local reverb = reverb_t()
@@ -329,6 +333,7 @@ do
 
 		reverb.coefficient_low = dsp.OnePoleCoefficient(dsp.LOW_CROSSOVER, sample_rate)
 		reverb.coefficient_high = dsp.OnePoleCoefficient(dsp.HIGH_CROSSOVER, sample_rate)
+		reverb.coefficient_coherent = dsp.OnePoleCoefficient(dsp.REVERB_COHERENT_BELOW, sample_rate)
 		return reverb
 	end
 
@@ -459,6 +464,9 @@ do
 		output_gain = output_gain * math.sqrt(1 - fill)
 		local antidenormal = 1e-20
 		local tail_energy = 0
+		local cc = reverb.coefficient_coherent
+		local coherent = reverb.coherent
+		local ma, mb, sa, sb = coherent[0], coherent[1], coherent[2], coherent[3]
 
 		for i = 0, frames - 1 do
 			predelay_line[bit.band(write, PREDELAY_MASK)] = input[i]
@@ -518,11 +526,22 @@ do
 			end
 
 			tail_energy = tail_energy + left * left + right * right
-			output[i * 2] = output[i * 2] + left * output_gain + onset_left
-			output[i * 2 + 1] = output[i * 2 + 1] + right * output_gain + onset_right
+			local mid = (left * output_gain + onset_left + right * output_gain + onset_right) * 0.5
+			local side = (left * output_gain + onset_left - right * output_gain - onset_right) * 0.5
+			ma = ma + cc * (mid - ma)
+			local mid_high = mid - ma
+			mb = mb + cc * (mid_high - mb)
+			mid = mid + COHERENT_BOOST * (mid - mid_high + mb)
+			sa = sa + cc * (side - sa)
+			local side_high = side - sa
+			sb = sb + cc * (side_high - sb)
+			side = side_high - sb
+			output[i * 2] = output[i * 2] + mid + side
+			output[i * 2 + 1] = output[i * 2 + 1] + mid - side
 			write = write + 1
 		end
 
+		coherent[0], coherent[1], coherent[2], coherent[3] = ma, mb, sa, sb
 		reverb.write = write
 		reverb.sleeping = reverb.quiet_frames > dsp.GetReverbSettleSamples(reverb) and
 			tail_energy * output_gain * output_gain < 1e-14 * frames
