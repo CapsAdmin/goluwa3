@@ -185,11 +185,17 @@ function Mesh.NewDeduped(vertex_attributes, vertices, indices, index_type, index
 		mesh_content_cache[key] = self
 		self.owns_buffers = true
 		objects.DisableFinalizer(self.vertex_buffer)
-		objects.DisableFinalizer(self.vertex_buffer.buffer)
+
+		if self.vertex_buffer.buffer then
+			objects.DisableFinalizer(self.vertex_buffer.buffer)
+		end
 
 		if self.index_buffer then
 			objects.DisableFinalizer(self.index_buffer)
-			objects.DisableFinalizer(self.index_buffer.buffer)
+
+			if self.index_buffer.buffer then
+				objects.DisableFinalizer(self.index_buffer.buffer)
+			end
 		end
 	end
 
@@ -241,11 +247,13 @@ function Mesh:OnRemove()
 	end
 
 	if self.owns_buffers then
-		self.vertex_buffer.buffer:Remove()
+		if self.vertex_buffer.buffer then self.vertex_buffer.buffer:Remove() end
+
 		self.vertex_buffer:Remove()
 
 		if self.index_buffer then
-			self.index_buffer.buffer:Remove()
+			if self.index_buffer.buffer then self.index_buffer.buffer:Remove() end
+
 			self.index_buffer:Remove()
 		end
 	end
