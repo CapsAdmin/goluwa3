@@ -2659,17 +2659,34 @@ function Visual:OnFirstCreated()
 
 			if not world_matrix then return nil end
 
-			if item.has_matrix and memcmp(item.matrix, world_matrix, MATRIX_SIZE) == 0 then
+			local aabb = entry.source_aabb
+
+			if
+				item.has_matrix and
+				memcmp(item.matrix, world_matrix, MATRIX_SIZE) == 0 and
+				(
+					not aabb or
+					(
+						item.min_x == aabb.min_x and
+						item.min_y == aabb.min_y and
+						item.min_z == aabb.min_z and
+						item.max_x == aabb.max_x and
+						item.max_y == aabb.max_y and
+						item.max_z == aabb.max_z
+					)
+				)
+			then
 				return world_matrix
 			end
 
 			ffi.copy(item.matrix, world_matrix, MATRIX_SIZE)
 			item.has_matrix = true
-			local aabb = entry.source_aabb
 			local x, y, z = 0, 0, 0
 			local radius = math.huge
 
 			if aabb then
+				item.min_x, item.min_y, item.min_z = aabb.min_x, aabb.min_y, aabb.min_z
+				item.max_x, item.max_y, item.max_z = aabb.max_x, aabb.max_y, aabb.max_z
 				x, y, z = (aabb.min_x + aabb.max_x) * 0.5,
 				(aabb.min_y + aabb.max_y) * 0.5,
 				(aabb.min_z + aabb.max_z) * 0.5
