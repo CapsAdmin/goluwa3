@@ -950,6 +950,9 @@ do
 				rotation = rotation,
 				position = inverse_root:VecMul(positions[bone] - positions[root]),
 				is_identity = math.abs(rotation.w) > 0.999999,
+				bone = bone,
+				bone_rotation = rotations[bone],
+				bone_position = positions[bone],
 			}
 		end
 
@@ -1017,7 +1020,8 @@ local job_source = [=[
 	if mdl_blob then result.mdl_offset = builder:Add(mdl_blob) end
 
 	if input.phy then
-		local solids = assert(phy.Decode(input.phy)).solids
+		local decoded = assert(phy.Decode(input.phy))
+		local solids = decoded.solids
 		local children = {}
 		local mass = 0
 		local surface_property
@@ -1030,6 +1034,7 @@ local job_source = [=[
 			solid_infos[solid_index] = {
 				weight = weight,
 				mass_center = {solid.mass_center[1], solid.mass_center[2], solid.mass_center[3]},
+				name = solid.name,
 			}
 			damping = damping + (solid.damping or 0) * weight
 			rotation_damping = rotation_damping + (solid.rotation_damping or 0) * weight
@@ -1083,6 +1088,8 @@ local job_source = [=[
 			result.physics = {
 				children = children,
 				solids = solid_infos,
+				constraints = decoded.constraints,
+				self_collision = decoded.self_collision,
 				mass = solids[1].mass and mass or mdl_meta.mass,
 				surface_property = surface_property,
 				damping = damping,
@@ -1511,8 +1518,39 @@ function mdl_decoder.Finish(
 			children[i] = {ConvexHull = hull, Position = center - center_of_mass}
 		end
 
+		local ragdoll
+
+		if solid_frames and physics.constraints[1] then
+			ragdoll = {
+				solids = {},
+				constraints = physics.constraints,
+				self_collision = physics.self_collision,
+			}
+
+			for solid_index, solid in ipairs(physics.solids) do
+				ragdoll.solids[solid_index] = {
+					name = solid.name,
+					bone = skeleton.BoneNames[solid_frames[solid_index].bone + 1],
+					weight = solid.weight,
+					mass_center = Vec3(solid.mass_center[1], solid.mass_center[2], solid.mass_center[3]),
+					bone_position = solid_frames[solid_index].bone_position,
+					bone_rotation = solid_frames[solid_index].bone_rotation,
+					children = {},
+				}
+			end
+
+			for _, child in ipairs(physics.children) do
+				local list = ragdoll.solids[child.solid].children
+				list[#list + 1] = {
+					ConvexHull = convex_hull.FromPlain(child.hull),
+					Position = Vec3(child.position[1], child.position[2], child.position[3]),
+				}
+			end
+		end
+
 		physics_callback{
 			children = children,
+			ragdoll = ragdoll,
 			mass = physics.mass,
 			surface_property = physics.surface_property,
 			center_of_mass = center_of_mass,

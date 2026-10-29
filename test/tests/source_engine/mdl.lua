@@ -101,3 +101,42 @@ T.Test("mdl eyeballs come out in model space as engine units", function()
 
 	T(eyeballs[1].origin[3] * eyeballs[2].origin[3])["<"](0)
 end)
+
+T.Test("mdl ragdoll models report a solid per physics bone placed at its bone", function()
+	steam.MountSourceGame("gmod")
+	local model_loader = import("goluwa/render3d/model_loader.lua")
+	local loaded
+
+	model_loader.LoadModel("models/props_junk/cardboard_box002a_gib01.mdl", function(data)
+		loaded = data
+	end)
+
+	T.WaitUntil(function()
+		return loaded ~= nil
+	end)
+
+	local ragdoll = loaded.physics.ragdoll
+	T(ragdoll ~= nil)["=="](true)
+	T(#ragdoll.solids)["=="](6)
+	T(#ragdoll.constraints)["=="](5)
+	T(ragdoll.solids[1].bone)["=="]("root")
+	T(ragdoll.solids[2].bone)["=="]("flap02")
+	T(ragdoll.solids[2].bone_position.y)["~"](0.3076, 1e-3)
+	T(#ragdoll.solids[2].children)["=="](1)
+end)
+
+T.Test("mdl models without ragdoll constraints have no ragdoll data", function()
+	steam.MountSourceGame("gmod")
+	local model_loader = import("goluwa/render3d/model_loader.lua")
+	local loaded
+
+	model_loader.LoadModel("models/props_c17/oildrum001.mdl", function(data)
+		loaded = data
+	end)
+
+	T.WaitUntil(function()
+		return loaded ~= nil
+	end)
+
+	T(loaded.physics.ragdoll)["=="](nil)
+end)

@@ -105,10 +105,35 @@ function phy.Decode(str)
 		if solid then
 			solid.mass = tonumber(block:match("\"mass\"%s*\"([^\"]*)\""))
 			solid.surface_property = block:match("\"surfaceprop\"%s*\"([^\"]*)\"")
+			solid.name = block:match("\"name\"%s*\"([^\"]*)\"")
+			solid.parent = block:match("\"parent\"%s*\"([^\"]*)\"")
 		end
 	end
 
-	return {solids = solids}
+	local constraints = {}
+
+	for block in text:gmatch("ragdollconstraint%s*(%b{})") do
+		local constraint = {
+			parent = tonumber(block:match("\"parent\"%s*\"([^\"]*)\"")) + 1,
+			child = tonumber(block:match("\"child\"%s*\"([^\"]*)\"")) + 1,
+		}
+
+		for _, axis in ipairs({"x", "y", "z"}) do
+			constraint[axis] = {
+				min = math.rad(tonumber(block:match("\"" .. axis .. "min\"%s*\"([^\"]*)\""))),
+				max = math.rad(tonumber(block:match("\"" .. axis .. "max\"%s*\"([^\"]*)\""))),
+				friction = tonumber(block:match("\"" .. axis .. "friction\"%s*\"([^\"]*)\"")),
+			}
+		end
+
+		constraints[#constraints + 1] = constraint
+	end
+
+	return {
+		solids = solids,
+		constraints = constraints,
+		self_collision = text:match("collisionrules%s*{[^}]*\"selfcollisions\"%s*\"([^\"]*)\"") == "1",
+	}
 end
 
 return phy

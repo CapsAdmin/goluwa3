@@ -3,6 +3,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
+Entity.RegisterComponent("source_ragdoll", import("lua/components/source_ragdoll.lua"))
 local props = {}
 prefab.Register(
 		"prop_physics",
@@ -23,6 +24,31 @@ prefab.Register(
 			},
 			entities = {
 				{guid = "root", components = {}},
+				{
+					guid = "visual",
+					parent = "root",
+					properties = {Name = "visual"},
+					components = {transform = {}, visual = {}, animator = {Playing = false}},
+				},
+			},
+		}
+	).builtin = true
+prefab.Register(
+		"prop_ragdoll",
+		{
+			inputs = {
+				{
+					Name = "Model",
+					Type = "string",
+					Default = "",
+					Targets = {
+						{Node = "root", Component = "source_ragdoll", Property = "ModelPath"},
+						{Node = "visual", Component = "visual", Property = "ModelPath"},
+					},
+				},
+			},
+			entities = {
+				{guid = "root", components = {source_ragdoll = {}}},
 				{
 					guid = "visual",
 					parent = "root",
@@ -59,6 +85,39 @@ function props.Spawn(model_path, position, rotation, on_spawn)
 
 			if not physics then
 				wlog("%s has no collision data, it cannot be a physics prop", model_path)
+				return
+			end
+
+			if physics.ragdoll then
+				local lowest = math.huge
+				local root = physics.ragdoll.solids[1]
+				local rest_rotation = root.bone_rotation
+				local rest_position = root.bone_position + rest_rotation:VecMul(root.mass_center)
+
+				for _, solid in ipairs(physics.ragdoll.solids) do
+					for _, child in ipairs(solid.children) do
+						for _, vertex in ipairs(child.ConvexHull.vertices) do
+							lowest = math.min(
+								lowest,
+								rotation:VecMul(solid.bone_position + solid.bone_rotation:VecMul(child.Position + vertex)).y
+							)
+						end
+					end
+				end
+
+				local entity = Entity.New{
+					Transient = false,
+					Name = model_path:match("([^/]+)%.%w+$") or model_path,
+					transform = {
+						Position = position + Vec3(0, CLEARANCE - lowest, 0) + rotation:VecMul(rest_position),
+						Rotation = rotation * rest_rotation,
+					},
+					network = SERVER and {} or nil,
+					prefab = {Path = "prop_ragdoll", Inputs = {Model = model_path}},
+				}
+
+				if on_spawn then on_spawn(entity) end
+
 				return
 			end
 

@@ -115,6 +115,24 @@ T.Test("phy codec returns plain solids in engine space", function()
 	T(table.equal(buffer.decode(buffer.encode(meta)), meta))["=="](true)
 end)
 
+T.Test("phy codec reads ragdoll constraints with limits in radians", function()
+	if not mounted then return end
+
+	local meta = assert(phy.Decode(read("models/props_junk/cardboard_box002a_gib01.phy")))
+	T(#meta.solids)["=="](6)
+	T(#meta.constraints)["=="](5)
+	T(meta.self_collision)["=="](false)
+	T(meta.solids[2].name)["=="]("flap02")
+	T(meta.solids[2].parent)["=="]("root")
+	local constraint = meta.constraints[1]
+	T(constraint.parent)["=="](1)
+	T(constraint.child)["=="](2)
+	T(constraint.x.min)["~"](math.rad(-80), 1e-6)
+	T(constraint.x.max)["~"](math.rad(260), 1e-6)
+	T(constraint.y.min)["=="](0)
+	T(constraint.y.max)["=="](0)
+end)
+
 T.Test("codecs report malformed data as errors instead of crashing", function()
 	if not mounted then return end
 
