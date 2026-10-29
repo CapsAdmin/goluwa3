@@ -13,7 +13,7 @@ local function get_surface(hit)
 	material
 end
 
-function impacts.Fire(entity, part, kind, hit, speed)
+function impacts.Fire(entity, part, kind, hit, speed, mass)
 	local surface, material = get_surface(hit)
 	event.Call(
 		"Impact",
@@ -27,6 +27,7 @@ function impacts.Fire(entity, part, kind, hit, speed)
 			Position = hit.position,
 			Normal = hit.normal,
 			Speed = speed,
+			Mass = mass,
 		}
 	)
 end
@@ -66,18 +67,31 @@ do
 			{entity = entity, position = position, normal = direction * -1}
 	end
 
-	local function fire_side(entity, hit, speed)
+	local function fire_side(entity, hit, speed, mass)
 		local part = entity.ragdoll_part
 
 		if part then
-			impacts.Fire(part.Character, part.Group, "physics", hit, speed)
+			impacts.Fire(part.Character, part.Group, "physics", hit, speed, mass)
 		else
-			impacts.Fire(entity, nil, "physics", hit, speed)
+			impacts.Fire(entity, nil, "physics", hit, speed, mass)
 		end
 	end
 
+	local function get_reduced_mass(body_a, body_b)
+		local mass_a = body_a and body_a:IsDynamic() and body_a:GetMass() or math.huge
+		local mass_b = body_b and body_b:IsDynamic() and body_b:GetMass() or math.huge
+
+		if mass_a == math.huge then return mass_b end
+
+		if mass_b == math.huge then return mass_a end
+
+		return mass_a * mass_b / (mass_a + mass_b)
+	end
+
 	local function is_ignored(entity_a, entity_b)
-		if entity_a.character_movement or entity_b.character_movement then return true end
+		if entity_a.character_movement or entity_b.character_movement then
+			return true
+		end
 
 		local part_a, part_b = entity_a.ragdoll_part, entity_b.ragdoll_part
 		return part_a and part_b and part_a.Character == part_b.Character
@@ -89,18 +103,20 @@ do
 		if is_ignored(entity_a, entity_b) then return end
 
 		local normal = impact.normal
+		local mass = get_reduced_mass(impact.body_a, impact.body_b)
 		fire_side(
 			entity_b,
 			impact.hit_a or get_surface_hit(entity_a, impact.position, normal * -1),
-			impact.speed
+			impact.speed,
+			mass
 		)
-		fire_side(entity_a, get_surface_hit(entity_b, impact.position, normal), impact.speed)
+		fire_side(entity_a, get_surface_hit(entity_b, impact.position, normal), impact.speed, mass)
 	end
 
 	local SURFACE_REFRESH = 0.25
 	local surfaces = table.weak("k")
 
-	local function fire_contact(entity, other, surface, material, contact, normal, rolling)
+	local function fire_contact(entity, other, surface, material, contact, normal, rolling, mass)
 		local part = entity.ragdoll_part
 		event.Call(
 			"Contact",
@@ -115,6 +131,7 @@ do
 				Slip = contact.slip,
 				Roll = contact.roll,
 				Rolling = rolling,
+				Mass = mass,
 			}
 		)
 	end
@@ -143,6 +160,7 @@ do
 			row[entity_b] = cached
 		end
 
+		local mass = get_reduced_mass(contact.body_a, contact.body_b)
 		fire_contact(
 			entity_b,
 			entity_a,
@@ -150,7 +168,8 @@ do
 			cached.material_a,
 			contact,
 			contact.normal,
-			contact.roller == contact.body_b
+			contact.roller == contact.body_b,
+			mass
 		)
 		fire_contact(
 			entity_a,
@@ -159,7 +178,8 @@ do
 			cached.material_b,
 			contact,
 			contact.normal * -1,
-			contact.roller == contact.body_a
+			contact.roller == contact.body_a,
+			mass
 		)
 	end
 end

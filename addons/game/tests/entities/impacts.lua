@@ -57,6 +57,8 @@ T.TestPhysics("a physics impact fires an Impact from each side with the surface 
 	T(from_ground.Other)["=="](box)
 	T(from_ground.Surface)["=="]("default")
 	T(from_box.Speed)["=="](from_ground.Speed)
+	T(from_box.Mass)["=="](box.rigid_body:GetMass())
+	T(from_ground.Mass)["=="](box.rigid_body:GetMass())
 	box:Remove()
 	ground:Remove()
 end)
@@ -70,11 +72,13 @@ T.TestPhysics("a rolling ball fires a Contact from each side, rolling on the bal
 	ball:AddComponent("rigid_body", {Shape = SphereShape.New(0.25), Radius = 0.25, Friction = 0.8})
 	ball.rigid_body:SetVelocity(Vec3(4, -2, 0))
 	local from_ball, from_ground = {}, {}
+
 	event.AddListener("Contact", "contacts_test", function(info)
 		if info.Entity == ball then from_ball[#from_ball + 1] = info end
 
 		if info.Entity == ground then from_ground[#from_ground + 1] = info end
 	end)
+
 	test_helpers.Simulate(120)
 	event.RemoveListener("Contact", "contacts_test")
 	T(#from_ball > 20)["=="](true)
@@ -88,6 +92,7 @@ T.TestPhysics("a rolling ball fires a Contact from each side, rolling on the bal
 	T(last_ground.Surface)["=="]("default")
 	T(last_ground.Rolling)["=="](false)
 	T(last_ground.Roll)["=="](last_ball.Roll)
+	T(last_ball.Mass)["=="](ball.rigid_body:GetMass())
 	ball:Remove()
 	ground:Remove()
 end)
