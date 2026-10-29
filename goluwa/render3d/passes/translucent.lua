@@ -7,6 +7,7 @@ local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local surface_lighting = import("goluwa/render3d/surface_lighting.lua")
+local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
@@ -97,9 +98,11 @@ local camera_block = {
 	block = {
 		render3d.camera_block,
 		render3d.prev_camera_block,
+		surface_overlays.block,
 	},
 	write = function(self, block)
 		render3d.WriteCameraBlock(self, block)
+		surface_overlays.WriteBlock(self, block)
 		return render3d.WritePreviousCameraBlock(self, block)
 	end,
 	upload_scope = "frame",
@@ -330,6 +333,8 @@ local passes = {
 			texture_blend = true,
 			vertex_color = true,
 			velocity = true,
+			instance_overlay = true,
+			instance_effects = true,
 			camera_block_name = "translucent_camera",
 			uniform_buffers = {camera_block},
 		},
@@ -364,7 +369,7 @@ local passes = {
 				) .. [[
 				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
 			]],
-			shader = glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. (
+			shader = glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_overlays.GetGLSL("translucent_camera") .. (
 					scene_reflection.RAY_QUERY and
 					glass_light.GetGLSL("ddgi_scene") or
 					""
@@ -536,14 +541,40 @@ local passes = {
 					vec3 albedo = get_albedo();
 					float metallic = get_metallic(in_uv);
 					float roughness = get_antialiased_roughness(N, get_roughness(in_uv));
+					float overlay_cover = 0.0;
+					vec3 overlay_emissive = vec3(0.0);
+
+					if (in_instance_overlay > 0.0) {
+						Surface overlay_surface;
+						init_surface_features(overlay_surface, in_uv);
+						overlay_surface.world_pos = world_pos;
+						overlay_surface.geometric_N = geometric_N;
+						overlay_surface.albedo = albedo;
+						overlay_surface.roughness_alpha = roughness;
+						overlay_surface.metallic = metallic;
+						overlay_surface.N = N;
+						overlay_surface.alpha = 0.0;
+						overlay_surface.emissive = vec3(0.0);
+						SurfaceWeather overlay_weather = SurfaceWeather(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0);
+						apply_surface_overlays(overlay_surface, overlay_weather, in_instance_overlay, in_effect_position, in_effect_normal);
+						albedo = overlay_surface.albedo;
+						roughness = overlay_surface.roughness_alpha;
+						metallic = overlay_surface.metallic;
+						N = overlay_surface.N;
+						overlay_emissive = overlay_surface.emissive;
+						overlay_cover = overlay_surface.alpha;
+						alpha = max(alpha, overlay_cover);
+					}
+
 					float perceptual_roughness = sqrt(roughness);
 					float diffuse_transmission = get_transmission(in_uv);
+					float refraction_amount = refraction.amount * (1.0 - overlay_cover);
 					bool refractive = refraction.amount > 0.0;
 					float refraction_roughness = roughness;
 					float ior_f0 = (refraction.ior - 1.0) / (refraction.ior + 1.0);
 					vec3 F0 = mix(vec3(refractive ? ior_f0 * ior_f0 : get_specular(in_uv) * 0.04), albedo, metallic);
 					float NdotV = max(dot(N, V), 0.001);
-					vec3 diffuse_albedo = albedo * (refractive ? 1.0 - refraction.amount : alpha);
+					vec3 diffuse_albedo = albedo * (refractive ? 1.0 - refraction_amount : alpha);
 					float specular_coverage = refractive ? 1.0 : smoothstep(0.0, 0.1, alpha);
 
 					vec3 direct_specular;
@@ -569,8 +600,8 @@ local passes = {
 					#endif
 					float sky_visibility = 1.0;
 					vec3 irradiance = vec3(0.0);
-					bool gi_known = !(refractive && refraction.amount >= 1.0 && traced_only);
-					bool use_probes = !(refractive && refraction.amount >= 1.0);
+					bool gi_known = !(refractive && refraction_amount >= 1.0 && traced_only);
+					bool use_probes = !(refractive && refraction_amount >= 1.0);
 
 					exit_world_pos = world_pos;
 					exit_N = N;
@@ -790,7 +821,7 @@ local passes = {
 					}
 
 					if (!refractive) {
-						vec3 emissive = get_emissive(in_uv) * alpha;
+						vec3 emissive = (get_emissive(in_uv) + overlay_emissive) * alpha;
 						vec3 color = direct_diffuse + ambient_diffuse + (direct_specular + ambient_specular) * specular_coverage + emissive;
 						color = color * fog_transmittance + fog_scattered * alpha;
 						set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha) * transmittance);
@@ -823,8 +854,8 @@ local passes = {
 					vec3 reflectance_scale = reflectance / max(schlick_front, 1e-4);
 					ambient_specular *= reflectance_scale;
 					direct_specular *= reflectance_scale;
-					transmission *= (1.0 - metallic) * refraction.amount;
-					vec3 emissive = get_emissive(in_uv);
+					transmission *= (1.0 - metallic) * refraction_amount;
+					vec3 emissive = get_emissive(in_uv) + overlay_emissive;
 					vec3 color = (direct_diffuse + ambient_diffuse + direct_specular + ambient_specular + emissive) * fog_transmittance + fog_scattered * (1.0 - transmission) + background * transmission;
 					set_color(vec4(min(color * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
 					set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance * (1.0 - dot(transmission, vec3(1.0 / 3.0))));
@@ -994,6 +1025,8 @@ local function build_multi_draw_pass(source, uniform_buffers, with_thickness)
 		texture_blend = true,
 		vertex_color = true,
 		velocity = true,
+		instance_overlay = with_thickness or nil,
+		instance_effects = with_thickness or nil,
 		camera_block_name = "translucent_camera",
 		uniform_buffers = {camera_block, multi_draw_block},
 		batches_expr = "translucent_draw.batches",
