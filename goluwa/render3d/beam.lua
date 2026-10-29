@@ -111,6 +111,8 @@ function Beam.CreateRibbonMaterial(color, strength, texture, extra)
 		config[key] = value
 	end
 
+	if config.Additive and config.Unlit == nil then config.Unlit = true end
+
 	return Material.New(config)
 end
 

@@ -569,6 +569,23 @@ local passes = {
 						alpha = max(alpha, overlay_cover);
 					}
 
+					if (Unlit) {
+						vec3 unlit_emission = DisplayReferred ? get_albedo_uv(in_uv) * color_model.ColorMultiplier.a / ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : get_emissive(in_uv) * color_model.ColorMultiplier.a * get_pre_exposure();
+
+						if (VertexTint) {
+							unlit_emission = DisplayReferred ? unlit_emission * in_vertex_color.rgb * in_vertex_color.a : min(get_emissive(in_uv) * in_vertex_color.rgb, vec3(EMISSIVE_MAX_LUMINANCE)) * in_vertex_color.a * get_pre_exposure();
+						}
+
+						if (!DisplayReferred) unlit_emission *= effect_exposure_gain(translucent_camera.exposure_compensation_tex, color_model.ExposureCompensation);
+
+						unlit_emission += overlay_emissive * alpha * get_pre_exposure();
+						set_color(vec4(0.0));
+						set_motion(vec4(0.0));
+						set_additive(vec4(min(unlit_emission * fog_transmittance, vec3(65504.0)), 0.0) * transmittance);
+						set_modulate(vec4(1.0));
+						return;
+					}
+
 					float perceptual_roughness = sqrt(roughness);
 					float diffuse_transmission = get_transmission(in_uv);
 					float refraction_amount = refraction.amount * (1.0 - overlay_cover);

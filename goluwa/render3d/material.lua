@@ -98,6 +98,7 @@ Material:GetSet("Additive", false, {callback = "InvalidateFlags"})
 Material:GetSet("VertexTint", false, {callback = "InvalidateFlags"})
 Material:GetSet("Modulate", false, {callback = "InvalidateFlags"})
 Material:GetSet("DisplayReferred", false, {callback = "InvalidateFlags"})
+Material:GetSet("Unlit", false, {callback = "InvalidateFlags"})
 Material:StartCategory("Rendering")
 Material:GetSet("DoubleSided", false, {callback = "InvalidateFlags"})
 Material:GetSet("BentNormals", false, {callback = "InvalidateFlags", requires = "DoubleSided"})
@@ -451,6 +452,7 @@ local FLAGS = {
 	"MetallicRoughnessIsMRAO",
 	"HeightTextureIsAlpha",
 	"VertexTint",
+	"Unlit",
 }
 Material.FlagBits = {}
 
