@@ -344,6 +344,8 @@ function META:OnPhysicsUpdate(dt)
 
 	if self.rest_time < REST_TIME then return end
 
+	self.rest_time = 0
+
 	for _, body in ipairs(self.bodies) do
 		body:Sleep()
 	end
