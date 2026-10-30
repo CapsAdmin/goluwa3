@@ -173,11 +173,13 @@ function META:Hit(hit, forward)
 	for _, victim_hit in ipairs(hits) do
 		local victim = victim_hit.victim
 
-		for _, type_name in ipairs(types) do
-			effects.HitOverlay(victim, type_name)
+		if victim:IsValid() then
+			for _, type_name in ipairs(types) do
+				effects.HitOverlay(victim, type_name)
+			end
 		end
 
-		local body = victim.rigid_body
+		local body = victim:IsValid() and victim.rigid_body
 
 		if knock and body and not victim.health:IsDead() then
 			local push = knock.z
