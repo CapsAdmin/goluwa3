@@ -8,6 +8,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local mesh_polyhedron_contacts = {}
 local EPSILON = physics_constants.EPSILON
 local MAX_MESH_POLYHEDRON_CONTACTS = 4
+local MAX_MESH_POLYHEDRON_CANDIDATES = 16
 local CONTACT_MERGE_DISTANCE = 0.08
 local SPECULATIVE_DISTANCE = 0.03
 local SOLVE_MESH_POLYHEDRON_CONTEXT = {
@@ -110,37 +111,127 @@ function mesh_polyhedron_contacts.BuildContactSamples(body, mesh_body, use_local
 	return entries
 end
 
+local RESTING_CONTACT_SLACK = 0.005
+
+local function reduce_contacts(contacts, normal)
+	local nx, ny, nz = normal.x, normal.y, normal.z
+	local first = 1
+	local deepest = -math.huge
+
+	for i = 1, #contacts do
+		local a, b = contacts[i].point_a, contacts[i].point_b
+		local depth = (a.x - b.x) * nx + (a.y - b.y) * ny + (a.z - b.z) * nz
+
+		if depth > deepest then deepest, first = depth, i end
+	end
+
+	local p1 = contacts[first].point_b
+	local second = first
+	local farthest = -1
+
+	for i = 1, #contacts do
+		local p = contacts[i].point_b
+		local dx, dy, dz = p.x - p1.x, p.y - p1.y, p.z - p1.z
+		local distance = dx * dx + dy * dy + dz * dz
+
+		if distance > farthest then farthest, second = distance, i end
+	end
+
+	local p2 = contacts[second].point_b
+	local ex, ey, ez = p2.x - p1.x, p2.y - p1.y, p2.z - p1.z
+	local third = nil
+	local third_area = 0
+	local fourth = nil
+	local fourth_area = 0
+
+	for pass = 1, 2 do
+		for i = 1, #contacts do
+			local p = contacts[i].point_b
+			local dx, dy, dz = p.x - p1.x, p.y - p1.y, p.z - p1.z
+			local area = (ey * dz - ez * dy) * nx + (ez * dx - ex * dz) * ny + (ex * dy - ey * dx) * nz
+
+			if pass == 1 then
+				if math.abs(area) > math.abs(third_area) then third_area, third = area, i end
+			elseif -area * third_area > fourth_area then
+				fourth_area, fourth = -area * third_area, i
+			end
+		end
+	end
+
+	local a, b, c, d = contacts[first], contacts[second], contacts[third], contacts[fourth]
+	list.clear(contacts)
+	contacts[1] = a
+
+	if b ~= a then contacts[#contacts + 1] = b end
+
+	if c then contacts[#contacts + 1] = c end
+
+	if d then contacts[#contacts + 1] = d end
+end
+
 local function resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 	if not (state.best_normal and state.best_overlap > EPSILON) then return false end
 
-	state.best_overlap = state.best_overlap - SPECULATIVE_DISTANCE
+	local contacts = state.contacts
 
-	if state.contacts[1] then
-		return contact_resolution.ResolvePairPenetration(
-			mesh_body,
-			poly_body,
-			state.best_normal,
-			state.best_overlap,
-			dt,
-			nil,
-			nil,
-			state.contacts
-		)
+	if not contacts[1] then
+		if not (state.best_point_a and state.best_point_b) then return false end
+
+		contacts[1] = {point_a = state.best_point_a, point_b = state.best_point_b}
 	end
 
-	if state.best_point_a and state.best_point_b then
-		return contact_resolution.ResolvePairPenetration(
-			mesh_body,
-			poly_body,
-			state.best_normal,
-			state.best_overlap,
-			dt,
-			state.best_point_a,
-			state.best_point_b
+	local normal = state.best_normal
+	local body = poly_body:GetBody()
+	local solver = body:GetPhysics().solver
+	local rest_gap = poly_body:GetCollisionMargin() + solver.PENETRATION_SLOP
+	local velocity = body.Velocity
+	local angular_velocity = body.AngularVelocity
+	local center = body.Position
+	local deepest = -math.huge
+	local count = 0
+
+	for i = 1, #contacts do
+		local contact = contacts[i]
+		local point = contact.point_b
+		local mesh_point = contact.point_a
+		local depth = (
+				mesh_point.x - point.x
+			) * normal.x + (
+				mesh_point.y - point.y
+			) * normal.y + (
+				mesh_point.z - point.z
+			) * normal.z
+		local rx, ry, rz = point.x - center.x, point.y - center.y, point.z - center.z
+		local approach_speed = -(
+			(
+				velocity.x + angular_velocity.y * rz - angular_velocity.z * ry
+			) * normal.x + (
+				velocity.y + angular_velocity.z * rx - angular_velocity.x * rz
+			) * normal.y + (
+				velocity.z + angular_velocity.x * ry - angular_velocity.y * rx
+			) * normal.z
 		)
+
+		if
+			-depth - rest_gap <= math.max(approach_speed, 0) * solver.StepDt + RESTING_CONTACT_SLACK
+		then
+			count = count + 1
+			contacts[count] = contact
+			deepest = math.max(deepest, depth)
+		end
 	end
 
-	return false
+	for i = #contacts, count + 1, -1 do
+		contacts[i] = nil
+	end
+
+	if count == 0 then return false end
+
+	if count > MAX_MESH_POLYHEDRON_CONTACTS then
+		reduce_contacts(contacts, normal)
+	end
+
+	return contact_resolution.ResolvePairPenetration(mesh_body, poly_body, normal, deepest + rest_gap, dt, nil, nil, contacts)
 end
 
 function mesh_polyhedron_contacts.AccumulateSampleContacts(
@@ -226,7 +317,7 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 					state.best_point_b = sample.point:Copy()
 				end
 
-				if #state.contacts < MAX_MESH_POLYHEDRON_CONTACTS then
+				if #state.contacts < MAX_MESH_POLYHEDRON_CANDIDATES then
 					polyhedron_triangle_aggregator.MergeContact(state.contacts, position, sample.point, CONTACT_MERGE_DISTANCE)
 				end
 			end
@@ -277,12 +368,12 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 			query_v2,
 			{
 				merge_distance = CONTACT_MERGE_DISTANCE,
-				max_contacts = MAX_MESH_POLYHEDRON_CONTACTS,
+				max_contacts = MAX_MESH_POLYHEDRON_CANDIDATES,
 			}
 		)
 	end
 
-	if #state.contacts < MAX_MESH_POLYHEDRON_CONTACTS then
+	if #state.contacts < MAX_MESH_POLYHEDRON_CANDIDATES then
 		mesh_polyhedron_contacts.AccumulateSampleContacts(
 			state,
 			mesh_body,
