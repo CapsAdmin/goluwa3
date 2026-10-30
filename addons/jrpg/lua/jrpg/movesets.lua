@@ -5,6 +5,7 @@ local actors = import("lua/actors.lua")
 local movesets = {}
 movesets.Registered = {}
 movesets.ByAction = {}
+movesets.Source = {}
 local TARGET_CONE = 0.35
 local TARGET_CLOSE = 1.2
 local VIRTUAL_APPROACH = 1.5
@@ -55,6 +56,7 @@ local EVENT_TYPES = {
 		required = {"Damage", "Inherit", "Throw"},
 	},
 }
+movesets.EventTypes = EVENT_TYPES
 local KEY_FIELDS = {ease = true, hold = true}
 local TRACKS = {}
 
@@ -191,6 +193,7 @@ end
 
 function movesets.Register(name, def)
 	movesets.Validate(name, def)
+	movesets.Source[name] = table.copy(def)
 	local poses = def.Poses
 	def.Poses = nil
 	def.Name = name
@@ -255,6 +258,57 @@ function movesets.Register(name, def)
 
 	movesets.Registered[name] = def
 	return def
+end
+
+function movesets.Update(name, def)
+	return movesets.Register(name, table.copy(def))
+end
+
+do
+	local vfs = import("goluwa/vfs.lua")
+	local KEY_PRIORITY = {
+		"Combo",
+		"Heavy",
+		"Air",
+		"Dash",
+		"ComboWindow",
+		"Poses",
+		"Moves",
+		"Duration",
+		"Stamina",
+		"Reach",
+		"Approach",
+		"Retreat",
+		"Cancel",
+		"Branch",
+		"Next",
+		"Face",
+		"PoseWeapon",
+		"Group",
+		"Legs",
+		"CarryBones",
+		"Keys",
+		"Events",
+		"At",
+		"Type",
+	}
+
+	function movesets.Reload(name)
+		local path = assert(
+			vfs.GetAbsolutePath("lua/jrpg/movesets/" .. name .. ".lua"),
+			"there is no file for moveset " .. name
+		)
+		return movesets.Update(name, assert(loadfile(path))())
+	end
+
+	function movesets.Save(name)
+		local path = vfs.GetAbsolutePath("lua/jrpg/movesets/" .. name .. ".lua")
+		assert(path, "there is no file for moveset " .. name)
+		local file = assert(io.open(path, "wb"))
+		file:write(table.to_source(movesets.Source[name], KEY_PRIORITY))
+		file:close()
+		return path
+	end
 end
 
 function movesets.GetEvent(move, event_type)

@@ -251,6 +251,85 @@ do
 	end
 end
 
+do
+	local format = string.format
+	local concat = table.concat
+	local IDENTIFIER = "^[%a_][%w_]*$"
+	local INLINE_WIDTH = 100
+
+	local function key_order(key, order)
+		return order[key] or math.huge
+	end
+
+	local function write(value, order, indent)
+		local kind = type(value)
+
+		if kind == "number" then
+			assert(value == value and math.abs(value) ~= math.huge, "cannot write nan or inf")
+			local text
+
+			for precision = 6, 17 do
+				text = format("%." .. precision .. "g", value)
+
+				if tonumber(text) == value then break end
+			end
+
+			return text == "-0" and "0" or text
+		elseif kind == "string" then
+			return format("%q", value)
+		elseif kind == "boolean" then
+			return tostring(value)
+		end
+
+		assert(kind == "table", "cannot write a " .. kind)
+		local parts, named = {}, {}
+
+		for i = 1, #value do
+			parts[i] = write(value[i], order, indent .. "\t")
+		end
+
+		for key in pairs(value) do
+			if not (type(key) == "number" and key >= 1 and key <= #value and key % 1 == 0) then
+				assert(type(key) == "string", "can only write string keys and list items")
+				named[#named + 1] = key
+			end
+		end
+
+		table.sort(named, function(a, b)
+			local oa, ob = key_order(a, order), key_order(b, order)
+
+			if oa ~= ob then return oa < ob end
+
+			return a < b
+		end)
+
+		for _, key in ipairs(named) do
+			local name = key:find(IDENTIFIER) and key or format("[%q]", key)
+			parts[#parts + 1] = name .. " = " .. write(value[key], order, indent .. "\t")
+		end
+
+		if parts[1] == nil then return "{}" end
+
+		local inline = "{" .. concat(parts, ", ") .. "}"
+
+		if #inline <= INLINE_WIDTH and not inline:find("\n", 1, true) then
+			return inline
+		end
+
+		return "{\n" .. indent .. "\t" .. concat(parts, ",\n" .. indent .. "\t") .. ",\n" .. indent .. "}"
+	end
+
+	function table.to_source(value, key_priority)
+		local order = {}
+
+		for i, key in ipairs(key_priority or {}) do
+			order[key] = i
+		end
+
+		return "return " .. write(value, order, "") .. "\n"
+	end
+end
+
 table.sort = import("goluwa/table/sort.lua")
 table.new = require("table.new")
 table.print = import("goluwa/tostring_object.lua").dump_object
