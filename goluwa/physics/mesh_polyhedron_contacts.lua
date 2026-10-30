@@ -10,6 +10,8 @@ local EPSILON = physics_constants.EPSILON
 local MAX_MESH_POLYHEDRON_CONTACTS = 4
 local MAX_MESH_POLYHEDRON_CANDIDATES = 16
 local CONTACT_MERGE_DISTANCE = 0.08
+local MIN_FACE_NORMAL_DOT = 0.5
+local FACE_SNAP_DOT = 0.99
 local SPECULATIVE_DISTANCE = 0.03
 local SOLVE_MESH_POLYHEDRON_CONTEXT = {
 	mesh_body = nil,
@@ -357,7 +359,18 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 		}
 	)
 
-	if result and result.normal and result.contacts and result.contacts[1] then
+	local face_normal = result and
+		result.normal and
+		result.contacts and
+		result.contacts[1] and
+		triangle_contact_queries.GetTriangleFaceNormal(query_v0, query_v1, query_v2, EPSILON)
+	local face_dot = face_normal and result.normal:Dot(face_normal) or 0
+
+	if math.abs(face_dot) >= MIN_FACE_NORMAL_DOT then
+		if math.abs(face_dot) >= FACE_SNAP_DOT then
+			result.normal = face_dot > 0 and face_normal or face_normal * -1
+		end
+
 		polyhedron_triangle_aggregator.AccumulateMeshContacts(
 			state,
 			mesh_body,
