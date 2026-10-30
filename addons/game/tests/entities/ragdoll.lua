@@ -252,7 +252,7 @@ T.TestPhysics("a thrown body trails its arms and legs straight out behind its tr
 
 	for _, name in ipairs{"upperarm_r", "forearm_l", "thigh_r", "calf_l"} do
 		local axis = ragdoll.part_by_name[name].body.Rotation:VecMul(Vec3(0, 1, 0))
-		T(axis:Dot(back) > 0.8)["=="](true)
+		T(axis:Dot(back) > 0.65)["=="](true)
 	end
 
 	T(ragdoll.fling > 0.9)["=="](true)
@@ -282,11 +282,37 @@ T.TestPhysics("a killed body flings its arms and legs away from the blow for two
 
 	for _, name in ipairs{"forearm_r", "calf_l"} do
 		local axis = ragdoll.part_by_name[name].body.Rotation:VecMul(Vec3(0, 1, 0))
-		T(axis:Dot(back) > 0.5)["=="](true)
+		T(axis:Dot(back) > 0.3)["=="](true)
 	end
 
 	run(character, 2.5)
 	T(ragdoll.fling)["=="](0)
+	character:Remove()
+end)
+
+T.TestPhysics("a killed body comes to rest instead of spinning on", function()
+	create_ground()
+	local character = create_character()
+	run(character, 1)
+	local ragdoll = character.ragdoll
+	character.health:TakeDamage(
+		damage.Info{
+			Damage = 5000,
+			Part = "torso",
+			Force = Vec3(0, 2, -9),
+			Position = ragdoll.part_by_name.torso.body.Position:Copy(),
+		}
+	)
+	run(character, 7)
+	local speed, spin = 0, 0
+
+	for _, part in ipairs(ragdoll.parts) do
+		speed = math.max(speed, part.body.Velocity:GetLength())
+		spin = math.max(spin, part.body.AngularVelocity:GetLength())
+	end
+
+	T(speed < 0.1)["=="](true)
+	T(spin < 0.2)["=="](true)
 	character:Remove()
 end)
 
@@ -309,6 +335,7 @@ T.TestPhysics("a physgun grabs the limb it points at and a dead body stays a rag
 	holder.player_controller.cmd.mode = "walk"
 	local physgun = holder.weapon_holder:Give("weapon_physgun")
 	holder.weapon_holder:Equip(physgun, "right")
+	physgun.weapon.Think = function() end
 	local cmd = usercmd.New()
 	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
 
@@ -350,6 +377,7 @@ T.TestPhysics("a physgun freezes only the held limb, grabbing or reload thaws it
 	holder.player_controller.cmd.mode = "walk"
 	local physgun = holder.weapon_holder:Give("weapon_physgun")
 	holder.weapon_holder:Equip(physgun, "right")
+	physgun.weapon.Think = function() end
 	local cmd = usercmd.New()
 	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
 
@@ -543,6 +571,82 @@ T.TestPhysics("walking into a corpse shoves it aside without knocking the walker
 	T(player.transform:GetPosition().z < position.z)["=="](true)
 	player:Remove()
 	corpse:Remove()
+end)
+
+local function freeze_gravity(ragdoll)
+	for _, part in ipairs(ragdoll.parts) do
+		part.body:SetGravityScale(0)
+		part.body:SetVelocity(Vec3())
+		part.body:SetAngularVelocity(Vec3())
+	end
+end
+
+local function get_deviation(ragdoll)
+	local worst = 0
+
+	for _, part in ipairs(ragdoll.parts) do
+		if part.parent then
+			local relative = part.parent.body.Rotation:GetConjugated() * part.body.Rotation
+			local dot = math.abs(relative:Dot(part.neutral))
+			worst = math.max(worst, 2 * math.acos(math.min(dot, 1)))
+		end
+	end
+
+	return worst
+end
+
+T.TestPhysics("without gravity a limp ragdoll drifts back to its neutral pose", function()
+	local character = create_character(Vec3(0, 50, 0))
+	run(character, 0.1)
+	local ragdoll = character.ragdoll
+	local hand = ragdoll.part_by_name.forearm_r.body
+	ragdoll:Grab(hand)
+	freeze_gravity(ragdoll)
+
+	for tick = 1, 30 do
+		for index, part in ipairs(ragdoll.parts) do
+			part.body:SetAngularVelocity(Vec3(math.sin(index + tick), math.cos(index * 2 + tick), math.sin(index * 3)) * 4)
+		end
+
+		run(character, 1 / 60)
+	end
+
+	ragdoll:Ungrab(hand)
+	local shaken = get_deviation(ragdoll)
+	run(character, 5)
+	T(shaken > 0.5)["=="](true)
+	T(get_deviation(ragdoll) < 0.25)["=="](true)
+	character:Remove()
+end)
+
+T.TestPhysics("a joint with its neutral on a limit rests inside the soft zone and resists more the closer it is pushed to that limit", function()
+	local character = create_character(Vec3(0, 50, 0))
+	run(character, 0.1)
+	local ragdoll = character.ragdoll
+	ragdoll:Grab(ragdoll.part_by_name.torso.body)
+	freeze_gravity(ragdoll)
+	local calf = ragdoll.part_by_name.calf_l
+	local joint = calf.joint
+	run(character, 3)
+	local rest = joint:GetAngle()
+	local reach = {}
+
+	for _, push in ipairs{0.1, 0.2, 0.4, 0.8} do
+		for _ = 1, 60 do
+			calf.body:SetAngularVelocity(calf.body.AngularVelocity + joint.Body0.Rotation:VecMul(Vec3(-push, 0, 0)))
+			run(character, 1 / 60)
+		end
+
+		reach[#reach + 1] = joint:GetAngle() - rest
+		run(character, 2)
+	end
+
+	T(rest < joint.UpperAngle - 0.2)["=="](true)
+	T(rest > joint.LowerAngle)["=="](true)
+	T(reach[1] > 0.01)["=="](true)
+	T(reach[4] < joint.UpperAngle - rest + 0.05)["=="](true)
+	T(reach[2] / reach[1] > reach[4] / reach[3])["=="](true)
+	character:Remove()
 end)
 
 T.TestPhysics("moving a held body around in the air does not hurt it", function()

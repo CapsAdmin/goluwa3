@@ -7,6 +7,7 @@ local physics = import("goluwa/physics.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local rows = import("goluwa/physics/constraint_rows.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local biped = import("lua/biped.lua")
 local biped_pose = import("lua/biped_pose.lua")
@@ -47,14 +48,21 @@ local PART_LINEAR_DAMPING = 0.1
 local PART_ANGULAR_DAMPING = 1
 local PART_ROLLING_FRICTION = 6
 local PART_MAX_SPEED = 40
-local JOINT_FRICTION = 0.6
+local JOINT_FRICTION = 0.05
 local RELEASE_JITTER = 0.4
 local RELEASE_SPIN = 1.5
 local TOUCH_MARGIN = 0.02
+local SPRING_HERTZ = 1
+local SPRING_LIMIT_HERTZ = 12
+local SPRING_DAMPING = 2
+local SPRING_ZONE = 0.5
+local neutral_rotation = Quat()
+local neutral_state = {}
 local FLING_MIN_SPEED = 1
 local FLING_FULL_SPEED = 4
 local FLING_RATE = 8
 local FLING_STRENGTH = 0.8
+local FLING_SOFTEN = 0.85
 local FLING_HOLD = 2
 local FLING_FADE = 0.5
 local FLING_ARM_SPLAY = 0.5
@@ -239,6 +247,17 @@ function META:UpdateTargets(dt)
 	if self.flinging and self.global_active then self:UpdateFling(dt) end
 end
 
+local function set_limb_springs(self, scale)
+	for _, part in ipairs(self.parts) do
+		local joint = part.joint
+
+		if part.fling_side and joint then
+			joint.SpringHertz = SPRING_HERTZ * scale
+			joint.SpringLimitHertz = SPRING_LIMIT_HERTZ * scale
+		end
+	end
+end
+
 -- arms and legs of a thrown body trail out straight behind its travel, spread a little to either side
 function META:UpdateFling(dt)
 	local velocity = self.parts[1].body.Velocity
@@ -249,6 +268,7 @@ function META:UpdateFling(dt)
 	if fade <= 0 then
 		self.flinging = false
 		self.fling = 0
+		set_limb_springs(self, 1)
 		return
 	end
 
@@ -257,6 +277,7 @@ function META:UpdateFling(dt)
 			self.fling_floor
 		) * fade
 	self.fling = self.fling + math.clamp(want - self.fling, -FLING_RATE * dt, FLING_RATE * dt)
+	set_limb_springs(self, 1 - self.fling * FLING_SOFTEN)
 
 	if speed > FLING_MIN_SPEED then
 		self.fling_direction:Set(-velocity.x / speed, -velocity.y / speed, -velocity.z / speed)
@@ -360,6 +381,10 @@ function META:Build()
 	self:UpdateTargets(0)
 
 	for _, part in ipairs(self.parts) do
+		if part.parent then
+			part.neutral = part.parent.target_rotation:GetConjugated() * part.target_rotation
+		end
+
 		self:DrivePart(part, true)
 	end
 end
@@ -477,7 +502,34 @@ function META:MakeDynamic(part, keep_pose, jitter)
 	end
 
 	if parent then
-		part.joint = self:BuildJoint(part, parent.body.Rotation * parent.target_rotation:GetConjugated())
+		local joint = self:BuildJoint(part, parent.body.Rotation * parent.target_rotation:GetConjugated())
+		part.joint = joint
+		local s0, s1 = joint:LoadStates()
+		Quat.SetMul(neutral_rotation, parent.body.Rotation, part.neutral)
+		Quat.SetMul(neutral_rotation, neutral_rotation, joint.LocalFrame1)
+		neutral_state.qx, neutral_state.qy, neutral_state.qz, neutral_state.qw = neutral_rotation.x, neutral_rotation.y, neutral_rotation.z, neutral_rotation.w
+
+		if part.joint_definition.Hinge then
+			local angle = joint:UpdateAngle(s0, s1)
+			local delta = rows.GetTwist(s0, neutral_state) - joint.RawAngle
+
+			if delta > math.pi then
+				delta = delta - 2 * math.pi
+			elseif delta < -math.pi then
+				delta = delta + 2 * math.pi
+			end
+
+			joint:SetSpring(angle + delta, SPRING_HERTZ, SPRING_LIMIT_HERTZ, SPRING_DAMPING, SPRING_ZONE)
+		else
+			joint:SetSpring(
+				{rows.GetSwingTwist(s0, neutral_state)},
+				SPRING_HERTZ,
+				SPRING_LIMIT_HERTZ,
+				SPRING_DAMPING,
+				SPRING_ZONE
+			)
+		end
+
 		local axis = body.Rotation:VecMul(UP)
 
 		for _, other in ipairs(self.parts) do
