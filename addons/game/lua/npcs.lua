@@ -13,22 +13,25 @@ local AIController = import("lua/components/ai_controller.lua")
 local eyes = RENDER_3D and import("goluwa/entities/components/eyes.lua")
 local npcs = {}
 
+
+local function creature_move(move)
+	move.Face = false
+	move.PoseWeapon = false
+	return move
+end
+
 local function claw(clip, duration, delay, damage, range)
-	return {
+	return creature_move{
 		Clip = clip,
 		Duration = duration,
-		Face = false,
-		PoseWeapon = false,
 		Events = {{At = delay / duration, Type = "strike", Damage = damage, Range = range}},
 	}
 end
 
 local function cast(clip, duration, delay, element, damage)
-	return {
+	return creature_move{
 		Clip = clip,
 		Duration = duration,
-		Face = false,
-		PoseWeapon = false,
 		Events = {{At = delay / duration, Type = "cast", Element = element, Damage = damage}},
 	}
 end
@@ -377,8 +380,29 @@ npcs.Definitions = {
 		TurnSpeed = 6,
 		StepHeight = 24,
 		Health = 400,
-		Moves = {claw = claw("shove", 1.4, 0.5, 40, 3.64)},
-		Attacks = {{Move = "claw", Range = 2.6, Interval = 2.0}},
+		Alert = "roar",
+		AttackRange = 25,
+		Moves = {
+			roar = creature_move{Clip = "short_roar", Duration = 1.6},
+			shove = claw("shove", 1.4, 0.7, 40, 3.64),
+			charge_windup = creature_move{Clip = "charge_startfast", Duration = 1.2, Next = "charge_run"},
+			charge_run = creature_move{
+				Clip = "charge_loop",
+				ClipSpeed = 1,
+				Duration = 3,
+				Speed = 8.9,
+				Crash = "charge_crash",
+				Next = "charge_stop",
+				Events = {{At = 0.03, Until = 1, Type = "strike", Damage = 60, Range = 2.4, Force = 14}},
+			},
+			charge_stop = creature_move{Clip = "charge_stop", Duration = 1.2},
+			charge_crash = creature_move{Clip = "charge_crash02", Duration = 2, Next = "stunned"},
+			stunned = creature_move{Clip = "stunned_01", Duration = 2.5},
+		},
+		Attacks = {
+			{Move = "shove", Range = 2.6, Interval = 2},
+			{Move = "charge_windup", Range = 22, MinRange = 8, Interval = 12},
+		},
 	},
 	hunter = {
 		Faction = "enemy",
@@ -453,6 +477,8 @@ function npcs.Register(name, info)
 		StepHeight = info.StepHeight and info.StepHeight * UNIT,
 		Moveset = info.Moves and npcs.GetPrefabName(name) or "",
 		Attacks = info.Attacks,
+		Alert = info.Alert,
+		AttackRange = info.AttackRange,
 		Faction = info.Faction,
 		Retaliate = info.Retaliate,
 	}

@@ -86,6 +86,75 @@ T.TestPhysics("an unarmed npc chases a player and hurts it with its moves", func
 	T(biter.move_runner ~= nil)["=="](true)
 end)
 
+movesets.Register(
+	"test_charge",
+	{
+		Moves = {
+			windup = {Duration = 0.3, Keys = {}, Next = "run"},
+			run = {
+				Duration = 2,
+				Keys = {},
+				Speed = 8,
+				Crash = "crash",
+				Next = "stop",
+				Events = {{At = 0.03, Until = 1, Type = "strike", Damage = 50, Range = 2, Force = 10}},
+			},
+			stop = {Duration = 0.3, Keys = {}},
+			crash = {Duration = 0.3, Keys = {}},
+		},
+	}
+)
+
+local function create_charger()
+	local charger = Entity.New{
+		ComponentSet = {"transform", "ai_controller", "character_pose", "health"},
+		transform = {Position = Vec3(0, 0.05, 0)},
+		ai_controller = {
+			Wander = false,
+			WalkSpeed = 3,
+			Moveset = "test_charge",
+			AttackRange = 25,
+			Attacks = {{Move = "windup", Range = 20, MinRange = 6, Interval = 30}},
+		},
+		health = {Health = 1000, MaxHealth = 1000},
+	}
+	charger.ai_controller:Teleport(Vec3(0, 0.05, 0), 0)
+	return charger
+end
+
+local function run_until_move(charger, name, seconds)
+	for _ = 1, seconds * 60 do
+		physics.UpdateFixed(1 / 60)
+		local move = charger.move_runner and charger.move_runner.move
+
+		if move and move.Action == "test_charge_" .. name then return true end
+	end
+
+	return false
+end
+
+T.TestPhysics("a charging npc runs at a player, hurts it once and stops", function()
+	create_ground()
+	local charger = create_charger()
+	local player = create_target(Vec3(14, 0.05, 0))
+	T(run_until_move(charger, "run", 3))["=="](true)
+	T(run_until_move(charger, "stop", 4))["=="](true)
+	T(player.health.MaxHealth - player.health.Health)["=="](50)
+end)
+
+T.TestPhysics("a charging npc that runs into a wall crashes instead", function()
+	create_ground()
+	Entity.New{
+		transform = {Position = Vec3(6, 0.5, 0), Scale = Vec3(0.5, 1, 20)},
+		rigid_body = {MotionType = "static", WorldGeometry = true, Shape = BoxShape.New(Vec3(1, 1, 1))},
+	}
+	local charger = create_charger()
+	local player = create_target(Vec3(14, 0.05, 0))
+	T(run_until_move(charger, "run", 3))["=="](true)
+	T(run_until_move(charger, "crash", 4))["=="](true)
+	T(player.health.Health)["=="](player.health.MaxHealth)
+end)
+
 T.TestPhysics("npc with a weapon turns to and shoots a player in range", function()
 	create_ground()
 	local gunman = create_gunman(Vec3(0, 0.05, 0))

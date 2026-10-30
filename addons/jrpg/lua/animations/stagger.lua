@@ -1,4 +1,4 @@
-local CREATURE_SEQUENCES = {"physflinch1", "physflinch2", "flinch1", "flinchheavy", "flinch_head", "flinch"}
+local CREATURE_SEQUENCES = {"physflinch1", "physflinch2", "flinch1", "flinchheavy", "flinch_head", "flinch", "pain"}
 
 local function stagger(push_x, push_z)
 	local lean = 0.5

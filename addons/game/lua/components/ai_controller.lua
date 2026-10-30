@@ -33,6 +33,7 @@ META:GetSet("FireInterval", 0.8)
 META:GetSet("AimError", 0.035)
 META:GetSet("Faction", "enemy")
 META:GetSet("Moveset", "")
+META:GetSet("Alert", "")
 META:EndStorable()
 META:GetSet("Attacks", NO_ATTACKS)
 local WAYPOINT_RADIUS = 0.5
@@ -433,6 +434,15 @@ function META:Fight(target, position)
 
 	if runner:IsPlaying() then return end
 
+	if self.alerted ~= target then
+		self.alerted = target
+
+		if self.Alert ~= "" then
+			self:BeginMove(movesets.Get(self.Moveset).Moves[self.Alert], target)
+			return
+		end
+	end
+
 	local offset = target.transform:GetPosition() - position
 	offset.y = 0
 	local distance = offset:GetLength()
@@ -448,8 +458,7 @@ function META:Fight(target, position)
 			distance >= (attack.MinRange or 0)
 		then
 			ready[i] = self.time + attack.Interval * math.randomf(0.8, 1.2)
-			local move = movesets.Get(self.Moveset).Moves[attack.Move]
-			runner:Begin(move, move.Duration, self, true, target)
+			self:BeginMove(movesets.Get(self.Moveset).Moves[attack.Move], target)
 			return
 		end
 	end
@@ -460,11 +469,15 @@ function META:Fight(target, position)
 	end
 end
 
+function META:BeginMove(move, target)
+	self.Owner.move_runner:Begin(move, move.Duration, self, true, target)
+end
+
 function META:OnMoveEvent(move, event)
 	local owner = self.Owner
 	local target = owner.move_runner.frame.target
 
-	if not target:IsValid() or target.health:IsDead() then return end
+	if not target or not target:IsValid() or target.health:IsDead() then return end
 
 	local offset = target.transform:GetPosition() - owner.transform:GetPosition()
 	offset.y = 0
@@ -485,6 +498,8 @@ function META:OnMoveEvent(move, event)
 				Force = direction * (event.Force or 3),
 			}
 		)
+
+		if event.Until then return "end" end
 	end
 end
 
@@ -562,7 +577,15 @@ function META:NextCommand(dt)
 
 	local runner = owner.move_runner
 
-	if runner and runner:IsPlaying() then runner:Step(dt, true) end
+	if runner and runner:IsPlaying() then
+		local state, ended = runner:Step(dt, true)
+
+		if state == "blocked" then
+			self:BeginMove(ended.Crash, self.target)
+		elseif state == "finished" and ended.Next then
+			self:BeginMove(ended.Next, self.target)
+		end
+	end
 
 	if target and self:CanFight() then
 		self.time = self.time + dt
@@ -570,7 +593,10 @@ function META:NextCommand(dt)
 
 		if not self:IsArmed() and not stunned then self:Fight(target, position) end
 	else
-		if not target then self.target = nil end
+		if not target then
+			self.target = nil
+			self.alerted = nil
+		end
 
 		self:Think(dt, position)
 	end
@@ -617,6 +643,9 @@ function META:NextCommand(dt)
 					target_movement:GetEyeOffset().y,
 				0
 			)
+
+		if runner and runner.move and runner.move.Speed then aim = runner.frame.point end
+
 		local dx, dy, dz = aim.x - eye.x, aim.y - eye.y, aim.z - eye.z
 		local delta = math.normalizeangle(math.atan2(-dx, -dz) - yaw)
 		local step = self.TurnSpeed * dt
