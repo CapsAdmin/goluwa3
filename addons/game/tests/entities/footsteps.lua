@@ -172,3 +172,34 @@ T.Test3D("a walking antlion plants all four weight bearing legs through limb ik"
 	entity:Remove()
 	floor:Remove()
 end)
+
+T.Test3D("a walking black headcrab plants its two bone limbs through virtual tips", function()
+	steam.MountSourceGame("gmod")
+
+	if not vfs.IsFile("models/headcrabblack.mdl") then
+		return T.Unavailable("gmod content not mounted")
+	end
+
+	if not physics.instance then physics.Initialize() end
+
+	local floor = create_floor()
+	local entity = npcs.Spawn("headcrab_black", Vec3(0, 0.05, 0), 0)
+	entity.ai_controller:SetWander(false)
+	local impacts = record_impacts(entity)
+
+	T.WaitUntil(function()
+		return entity.animator and entity.animator:GetRig() ~= nil
+	end, 30)
+
+	entity.ai_controller:MoveTo(Vec3(0, 0, -30), true)
+
+	T.WaitUntil(function()
+		return #impacts >= 8
+	end, 20)
+
+	event.RemoveListener("Impact", "footsteps_test")
+	T(#entity.source_pose.limbs)["=="](4)
+	T(entity.source_pose.limbs[1].virtual_matrix ~= nil)["=="](true)
+	entity:Remove()
+	floor:Remove()
+end)

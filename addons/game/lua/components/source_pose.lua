@@ -122,6 +122,7 @@ function META:Initialize()
 	self.leg_shift = {0, 0}
 	self.leg_state = leg_pose.NewState()
 	self.leg_ground = {0, 0}
+	self.leg_scale = 1
 	self.pelvis_ground = 0
 	self.pelvis_mean = 0
 	self.pelvis_rise = 0
@@ -471,6 +472,7 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 	local rotation = world:GetRotation():GetConjugated()
 	local ground = self.leg_ground
 	local mean = 0
+	local scale = self.leg_scale
 
 	if not self.leg_ready then
 		self.leg_ready = true
@@ -491,9 +493,9 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 		local x, y, z = world:TransformVectorUnpacked(sx, sy, sz)
 		local hit = grounded and
 			physics.RayCast(
-				Vec3(x, y + LEG_PROBE, z),
+				Vec3(x, y + LEG_PROBE * scale, z),
 				DOWN,
-				LEG_PROBE + LEG_DROP,
+				LEG_PROBE * scale + LEG_DROP * scale,
 				character,
 				nil,
 				SINK_OPTIONS
@@ -502,7 +504,7 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 		local normal = UP
 
 		if hit then
-			target = math.clamp(hit.position.y, plane - LEG_DROP, plane + LEG_RISE)
+			target = math.clamp(hit.position.y, plane - LEG_DROP * scale, plane + LEG_RISE * scale)
 			normal = rotation:VecMul(hit.normal or UP)
 		end
 
@@ -518,17 +520,17 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 			step.speed = math.max(step.speed, -rate - math.min(pose.vertical_speed, 0))
 			step.peak = math.max(step.peak, height)
 
-			if rate < -STEP_DESCEND then step.descending = true end
+			if rate < -STEP_DESCEND * scale then step.descending = true end
 
-			if step.descending and rate > -STEP_STOP and height < (step.peak + step.floor) * 0.5 then
+			if step.descending and rate > -STEP_STOP * scale and height < (step.peak + step.floor) * 0.5 then
 				if hit then impacts.FireFootstep(character, name, hit, step.speed) end
 
 				step.lifted, step.descending, step.speed, step.floor = false, false, 0, height
 			end
-		elseif height > step.floor + STEP_LIFT then
+		elseif height > step.floor + STEP_LIFT * scale then
 			step.lifted, step.peak = true, height
 		else
-			step.floor = math.min(step.floor + dt * STEP_FLOOR_RISE, height)
+			step.floor = math.min(step.floor + dt * STEP_FLOOR_RISE * scale, height)
 		end
 
 		ground[i] = ground[i] + (target - ground[i]) * follow
@@ -538,7 +540,7 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 			current.y + (normal.y - current.y) * follow,
 			current.z + (normal.z - current.z) * follow
 		)
-		self.leg_shift[i] = math.clamp(ground[i] - plane, -LEG_DROP, LEG_RISE)
+		self.leg_shift[i] = math.clamp(ground[i] - plane, -LEG_DROP * scale, LEG_RISE * scale)
 		mean = mean + ground[i] / #feet
 	end
 
@@ -811,26 +813,33 @@ do
 	end
 end
 
-function META:UpdateCreatureLimbs(rig, pose, dt)
+function META:BuildLimbs(ragdoll)
 	local definition = self.LegRig
-	local limbs = self.limbs
-	local bones = self.bones
-	local root = definition.Root
-	local ragdoll = self.character.source_ragdoll
+	local sole_bones = {}
 
-	if not limbs then
-		limbs = {}
-		self.limbs = limbs
-		self.limb_feet = {}
-		self.leg_shift, self.leg_ground, self.leg_normals, self.steps = {}, {}, {}, {}
+	for i, chain in ipairs(definition.Legs) do
+		sole_bones[i] = chain[3] or chain[2]
+	end
 
-		for i, chain in ipairs(definition.Legs) do
-			limbs[i] = leg_pose.NewLimb(chain[1], chain[2], chain[3])
-			self.limb_feet[i] = chain[3]
-			self.leg_shift[i] = 0
-			self.leg_ground[i] = 0
-			self.leg_normals[i] = Vec3(0, 1, 0)
-			self.steps[i] = {
+	local soles = leg_pose.GetSoles(ragdoll, sole_bones)
+	local limbs = {}
+	self.limb_feet, self.limb_samples, self.limb_soles = {}, {}, {}
+	self.leg_shift, self.leg_ground, self.leg_normals, self.steps, self.limb_targets = {}, {}, {}, {}, {}
+
+	for i, chain in ipairs(definition.Legs) do
+		local virtual = chain[3] == nil
+
+		if soles[i] or not virtual then
+			local n = #limbs + 1
+			limbs[n] = leg_pose.NewLimb(chain[1], chain[2], chain[3])
+			self.limb_feet[n] = limbs[n].foot
+			self.limb_samples[n] = not virtual and soles[i]
+			self.limb_soles[n] = virtual and soles[i]
+			self.leg_shift[n] = 0
+			self.leg_ground[n] = 0
+			self.leg_normals[n] = Vec3(0, 1, 0)
+			self.limb_targets[n] = {x = 0, y = 0, z = 0}
+			self.steps[n] = {
 				height = 0,
 				floor = math.huge,
 				peak = 0,
@@ -839,40 +848,45 @@ function META:UpdateCreatureLimbs(rig, pose, dt)
 				descending = false,
 			}
 		end
-
-		self.leg_ready = false
-		self.limb_targets = {}
-
-		for i = 1, #limbs do
-			self.limb_targets[i] = {x = 0, y = 0, z = 0}
-		end
 	end
 
-	rig:ClearBone(root)
+	self.leg_scale = definition.Scale or 1
+	self.leg_ready = false
+	self.limbs = limbs
+end
 
-	for _, limb in ipairs(limbs) do
-		for _, name in ipairs(limb.chain) do
-			rig:ClearBone(name)
-		end
-	end
+function META:UpdateCreatureLimbs(rig, pose, dt)
+	local definition = self.LegRig
+	local limbs = self.limbs
+	local bones = self.bones
+	local root = definition.Root
+	local ragdoll = self.character.source_ragdoll
 
-	if ragdoll and ragdoll:IsDead() then return end
-
-	if not self.soles then
-		if not self.soles_loading then
-			self.soles_loading = true
+	if not limbs then
+		if not self.limbs_loading then
+			self.limbs_loading = true
 			model_loader.LoadModel(self.Owner.model.ModelPath, function(data)
-				self.soles = leg_pose.GetSoles(data.physics.ragdoll, self.limb_feet)
+				self:BuildLimbs(data.physics.ragdoll)
 			end)
 		end
 
 		return
 	end
 
+	rig:ClearBone(root)
+
+	for _, limb in ipairs(limbs) do
+		for _, name in ipairs(limb.bones) do
+			rig:ClearBone(name)
+		end
+	end
+
+	if ragdoll and ragdoll:IsDead() then return end
+
 	bones[root] = rig:GetBone(root)
 
 	for _, limb in ipairs(limbs) do
-		for _, name in ipairs(limb.chain) do
+		for _, name in ipairs(limb.bones) do
 			bones[name] = rig:GetBone(name)
 		end
 	end
@@ -880,14 +894,25 @@ function META:UpdateCreatureLimbs(rig, pose, dt)
 	self:UpdateGroundSink(self.character, pose, dt)
 	bones[root].m31 = bones[root].m31 - self.ground_sink
 
-	for _, limb in ipairs(limbs) do
-		for _, name in ipairs(limb.chain) do
+	for i, limb in ipairs(limbs) do
+		for _, name in ipairs(limb.bones) do
 			bones[name].m31 = bones[name].m31 - self.ground_sink
+		end
+
+		local sole = self.limb_soles[i]
+
+		if sole then
+			local lower = bones[limb.calf]
+			local virtual = limb.virtual_matrix
+			aim_pose.CopyMatrix(virtual, lower)
+			virtual:SetTranslation(lower:TransformVectorUnpacked(sole.x, sole.y, sole.z))
+			bones[limb.foot] = virtual
 		end
 	end
 
-	local plane = self:UpdateFeet(pose.Owner, pose, dt, bones, self.limb_feet, self.soles)
-	local body_shift = math.clamp(self.pelvis_ground - plane, -LEG_DROP, LEG_RISE)
+	local scale = self.leg_scale
+	local plane = self:UpdateFeet(pose.Owner, pose, dt, bones, self.limb_feet, self.limb_samples)
+	local body_shift = math.clamp(self.pelvis_ground - plane, -LEG_DROP * scale, LEG_RISE * scale)
 
 	for i, limb in ipairs(limbs) do
 		local tip = bones[limb.foot]
@@ -911,7 +936,7 @@ function META:UpdateCreatureLimbs(rig, pose, dt)
 	rig:SetBone(root, bones[root], "model")
 
 	for _, limb in ipairs(limbs) do
-		for _, name in ipairs(limb.chain) do
+		for _, name in ipairs(limb.bones) do
 			rig:SetBone(name, bones[name], "model")
 		end
 	end

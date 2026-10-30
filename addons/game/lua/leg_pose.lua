@@ -191,13 +191,18 @@ do
 
 	leg_pose.LimbFlexion = math.pi * 0.98
 
+	-- a limb of only two bones (upper, lower) reaches with a virtual tip bone, named after the lower one, that the caller places at the sole
 	function leg_pose.NewLimb(upper, lower, tip)
+		local virtual = tip == nil
+		tip = tip or lower .. "#sole"
 		return {
 			thigh = upper,
 			calf = lower,
 			foot = tip,
 			chain = {upper, lower, tip},
 			lower_chain = {lower, tip},
+			bones = virtual and {upper, lower} or {upper, lower, tip},
+			virtual_matrix = virtual and Matrix44():Identity() or nil,
 		}
 	end
 

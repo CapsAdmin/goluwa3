@@ -131,6 +131,7 @@ npcs.Definitions = {
 		Sounds = voices.antlion,
 	},
 	headcrab = {
+		LegRig = rigs.headcrab,
 		Faction = "enemy",
 		Model = "models/headcrab.mdl",
 		Idle = "Idle01",
@@ -368,6 +369,7 @@ npcs.Definitions = {
 		Sounds = voices.zombie_torso,
 	},
 	headcrab_black = {
+		LegRig = rigs.headcrab_black,
 		Faction = "enemy",
 		Model = "models/headcrabblack.mdl",
 		Idle = "Idle01",
@@ -474,6 +476,7 @@ npcs.Definitions = {
 		Sounds = voices.vortigaunt_slave,
 	},
 	lamarr = {
+		LegRig = rigs.lamarr,
 		Faction = "friend",
 		Model = "models/lamarr.mdl",
 		Idle = "Idle01",
@@ -486,6 +489,7 @@ npcs.Definitions = {
 		TurnSpeed = 14,
 		StepHeight = 8,
 		Health = 20,
+		Sounds = voices.lamarr,
 	},
 }
 

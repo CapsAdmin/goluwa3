@@ -79,6 +79,7 @@ voices.antlion_guard = {
 	Hit = set(numbered("npc/antlion_guard/antlion_guard_shellcrack%d.wav", 1, 2), 1),
 }
 voices.headcrab = {
+	Foot = foot("npc/headcrab_poison/ph_step%d.wav", 4, nil, 0.12),
 	Idle = set(numbered("npc/headcrab/idle%d.wav", 1, 3), 0.4),
 	Alert = set({"npc/headcrab/alert1.wav"}, 0.6),
 	Pain = set(numbered("npc/headcrab/pain%d.wav", 1, 3), 0.6),
@@ -87,7 +88,7 @@ voices.headcrab = {
 	Hit = set({"npc/headcrab/headbite.wav"}, 0.6),
 }
 voices.headcrab_black = {
-	Foot = foot("npc/headcrab_poison/ph_step%d.wav", 4, 0.4, 0.25),
+	Foot = foot("npc/headcrab_poison/ph_step%d.wav", 4, nil, 0.15),
 	Idle = set(numbered("npc/headcrab_poison/ph_idle%d.wav", 1, 3), 0.4),
 	Alert = set(numbered("npc/headcrab_poison/ph_warning%d.wav", 1, 3), 0.6),
 	Pain = set(numbered("npc/headcrab_poison/ph_pain%d.wav", 1, 3), 0.6),
@@ -103,6 +104,9 @@ voices.hunter = {
 	Death = set({"npc/ministrider/hunter_die2.wav", "npc/ministrider/hunter_die3.wav"}, 1),
 	Attack = set(numbered("npc/ministrider/hunter_angry%d.wav", 1, 3), 0.9),
 	Hit = set(numbered("npc/ministrider/body_medium_impact_hard%d.wav", 1, 6), 0.8),
+}
+voices.lamarr = {
+	Foot = foot("npc/headcrab_poison/ph_step%d.wav", 4, nil, 0.12),
 }
 voices.vortigaunt = {
 	Foot = foot("npc/vort/vort_foot%d.wav", 4, 0.9, 0.4),
