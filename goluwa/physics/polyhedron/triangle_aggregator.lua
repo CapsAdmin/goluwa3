@@ -44,8 +44,8 @@ function polyhedron_triangle_aggregator.MergeContact(contacts, point_a, point_b,
 	end
 
 	contacts[#contacts + 1] = {
-		point_a = point_a,
-		point_b = point_b,
+		point_a = point_a:Copy(),
+		point_b = point_b:Copy(),
 	}
 	return true
 end
@@ -64,10 +64,8 @@ function polyhedron_triangle_aggregator.AccumulateMeshContacts(state, mesh_body,
 
 	state.best_overlap = math.max(state.best_overlap or 0, result.overlap or 0)
 
-	if result.overlap == state.best_overlap then
-		state.best_normal = normal
-	elseif not state.best_normal then
-		state.best_normal = normal
+	if result.overlap == state.best_overlap or not state.best_normal then
+		state.best_normal = normal:Copy()
 	end
 
 	for _, pair in ipairs(result.contacts) do
