@@ -146,6 +146,12 @@ function META:Build()
 			end
 		end
 
+		if not moving[1] then
+			self.joints[#self.joints + 1] = constraints.Weld(self.bodies[constraint.parent], self.bodies[constraint.child], anchor)
+
+			goto continue
+		end
+
 		local joint = constraints.Hinge(
 			self.bodies[constraint.parent],
 			self.bodies[constraint.child],
@@ -159,6 +165,8 @@ function META:Build()
 		)
 		joint:SetSpring(0, SPRING_HERTZ, SPRING_LIMIT_HERTZ, SPRING_DAMPING, SPRING_ZONE)
 		self.joints[#self.joints + 1] = joint
+
+		::continue::
 	end
 end
 
