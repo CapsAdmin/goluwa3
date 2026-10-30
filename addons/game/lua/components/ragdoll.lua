@@ -50,7 +50,18 @@ local PART_MAX_SPEED = 40
 local JOINT_FRICTION = 0.6
 local RELEASE_JITTER = 0.4
 local RELEASE_SPIN = 1.5
+local TOUCH_MARGIN = 0.02
+local FLING_MIN_SPEED = 1
+local FLING_FULL_SPEED = 4
+local FLING_RATE = 8
+local FLING_STRENGTH = 0.8
+local FLING_HOLD = 2
+local FLING_FADE = 0.5
+local FLING_ARM_SPLAY = 0.5
+local FLING_LEG_SPLAY = 0.3
 local UP = Vec3(0, 1, 0)
+local fling_axis = Vec3()
+local fling_rotation = Quat()
 local local_center = Vec3()
 local world_offset = Vec3()
 local local_rotation = Quat()
@@ -72,6 +83,11 @@ function META:Initialize()
 	self.grabs = 0
 	self.dynamic_count = 0
 	self.frozen_count = 0
+	self.fling = 0
+	self.fling_age = 0
+	self.fling_floor = 0
+	self.fling_direction = Vec3(0, 0, 1)
+	self.fling_side_x, self.fling_side_z = 1, 0
 	self.global_active = false
 	self.previous_velocities = {}
 	self.dead_time = 0
@@ -219,6 +235,41 @@ function META:UpdateTargets(dt)
 		part.last_target = last or Vec3()
 		part.last_target:Set(position.x, position.y, position.z)
 	end
+
+	if self.flinging and self.global_active then self:UpdateFling(dt) end
+end
+
+-- arms and legs of a thrown body trail out straight behind its travel, spread a little to either side
+function META:UpdateFling(dt)
+	local velocity = self.parts[1].body.Velocity
+	local speed = velocity:GetLength()
+	self.fling_age = self.fling_age + dt
+	local fade = 1 - math.clamp((self.fling_age - FLING_HOLD) / FLING_FADE, 0, 1)
+
+	if fade <= 0 then
+		self.flinging = false
+		self.fling = 0
+		return
+	end
+
+	local want = math.max(
+			math.clamp((speed - FLING_MIN_SPEED) / (FLING_FULL_SPEED - FLING_MIN_SPEED), 0, 1),
+			self.fling_floor
+		) * fade
+	self.fling = self.fling + math.clamp(want - self.fling, -FLING_RATE * dt, FLING_RATE * dt)
+
+	if speed > FLING_MIN_SPEED then
+		self.fling_direction:Set(-velocity.x / speed, -velocity.y / speed, -velocity.z / speed)
+	end
+
+	local back = self.fling_direction
+	local side_length = math.sqrt(back.x * back.x + back.z * back.z)
+
+	if side_length < 1e-3 then
+		self.fling_side_x, self.fling_side_z = 1, 0
+	else
+		self.fling_side_x, self.fling_side_z = back.z / side_length, -back.x / side_length
+	end
 end
 
 function META:DrivePart(part, teleport, position, rotation)
@@ -275,7 +326,10 @@ function META:Build()
 		}
 		entity.ragdoll_part.Character = owner
 		local joint_definition = joint_of[definition.Name]
+		local side = definition.Name:match("_([lr])$")
 		local part = {
+			fling_side = side and (side == "l" and 1 or -1),
+			fling_splay = definition.Name:find("arm") and FLING_ARM_SPLAY or FLING_LEG_SPLAY,
 			definition = definition,
 			entity = entity,
 			body = entity.rigid_body,
@@ -441,7 +495,7 @@ function META:MakeDynamic(part, keep_pose, jitter)
 					other.body.Position,
 					other.body.Rotation:VecMul(UP),
 					other.half
-				) < part.definition.Radius + other.definition.Radius
+				) < part.definition.Radius + other.definition.Radius + TOUCH_MARGIN
 			then
 				body:IgnoreCollisionWith(other.body)
 				part.ignored[#part.ignored + 1] = other.body
@@ -574,6 +628,9 @@ function META:Capture()
 	self.frozen_count = 0
 	self.hold = nil
 	self.blend = nil
+	self.flinging = false
+	self.thrown = false
+	self.fling = 0
 	self.global_active = false
 	self.previous_velocities = {}
 	self.dead_time = 0
@@ -670,6 +727,19 @@ do
 	end
 end
 
+function META:StartFling(floor)
+	self.flinging = true
+	self.fling = 0
+	self.fling_age = 0
+	self.fling_floor = floor
+end
+
+function META:Knockdown(velocity)
+	self.knock = velocity:Copy()
+	self.thrown = true
+	self:StartFling(0)
+end
+
 function META:AddSource(part, policy)
 	self.sources[#self.sources + 1] = {
 		part = part,
@@ -717,6 +787,12 @@ function META:OnDeath(info)
 	self.blend = nil
 	self:UpdateLimp(0)
 	self.keep_pose = false
+
+	if info.Force and info.Force:GetLength() > 1e-3 then
+		self:StartFling(1)
+		self.fling_direction:CopyFrom(info.Force:GetNormalized() * -1)
+	end
+
 	local part = self.part_by_name[info.Part]
 
 	if not info.Force or not info.Position or not part or not part.dynamic then
@@ -759,6 +835,10 @@ function META:BeginBlend()
 	self.sources = {}
 	self.impulses = {}
 	self.global_active = false
+	self.dead_time = 0
+	self.flinging = false
+	self.thrown = false
+	self.fling = 0
 	self:SetLimp(false)
 	self.blend = 0
 	self.blend_from = {}
@@ -833,7 +913,7 @@ function META:CheckImpact()
 		local last = previous[i]
 
 		if last then
-			if not self.held[body] then
+			if part.touched and not self.held[body] then
 				local lost_x = math.max((last.x - velocity.x) * math.sign(last.x), 0)
 				local lost_y = math.max((last.y - velocity.y) * math.sign(last.y), 0)
 				local lost_z = math.max((last.z - velocity.z) * math.sign(last.z), 0)
@@ -844,6 +924,8 @@ function META:CheckImpact()
 		else
 			previous[i] = velocity:Copy()
 		end
+
+		part.touched = false
 	end
 
 	if worst > 0 then self.Owner.character_movement:Impact(worst) end
@@ -861,6 +943,23 @@ function META:DrivePose(part, dt)
 
 	if parent then
 		target = parent.body.Rotation * parent.target_rotation:GetConjugated() * target
+	end
+
+	if part.fling_side and self.fling > 0 then
+		local back = self.fling_direction
+		local spread = part.fling_side * part.fling_splay
+		Quat.SetVecMul(fling_axis, body.Rotation, UP)
+		aim_pose.SetBetween(
+			fling_rotation,
+			fling_axis.x,
+			fling_axis.y,
+			fling_axis.z,
+			back.x + self.fling_side_x * spread,
+			back.y,
+			back.z + self.fling_side_z * spread
+		)
+		Quat.SetMul(fling_rotation, fling_rotation, body.Rotation)
+		target = target:Interpolate(fling_rotation, self.fling)
 	end
 
 	local rate = 1 - math.exp(-POSE_RATE * strength * strength * dt)
@@ -908,6 +1007,11 @@ function META:UpdateLimp(dt)
 	local owner = self.Owner
 	local dead = owner.health:IsDead()
 	local global = dead and 1 or 0
+
+	if self.knock then
+		self.hold = {value = SETTLE_LIMP, held = false, timer = 0, target = SETTLE_LIMP}
+	end
+
 	local hold = self.hold
 
 	if hold then
@@ -971,6 +1075,14 @@ function META:UpdateLimp(dt)
 		if parent and parent.limp > part.limp then part.limp = parent.limp end
 	end
 
+	if self.fling > 0 and self.global_active then
+		for _, part in ipairs(parts) do
+			if part.fling_side then
+				part.limp = math.min(part.limp, 1 - FLING_STRENGTH * self.fling)
+			end
+		end
+	end
+
 	local now = self.time
 
 	for i, part in ipairs(parts) do
@@ -1016,6 +1128,17 @@ function META:UpdateLimp(dt)
 			self.impulses[part] = nil
 		end
 	end
+
+	if self.knock then
+		for _, part in ipairs(parts) do
+			if part.dynamic then
+				part.body:SetVelocity(self.knock)
+				part.body:Wake()
+			end
+		end
+
+		self.knock = nil
+	end
 end
 
 function META:OnPhysicsUpdate(dt)
@@ -1052,6 +1175,12 @@ function META:OnPhysicsUpdate(dt)
 			if self.global_active then
 				self:FollowHead()
 				self:UpdateRest(dt)
+
+				if self.fling > 0 then
+					for _, part in ipairs(self.parts) do
+						if part.fling_side then self:DrivePose(part, dt) end
+					end
+				end
 
 				if self.CorpseTime > 0 then
 					self.dead_time = self.dead_time + dt

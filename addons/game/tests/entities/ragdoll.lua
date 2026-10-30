@@ -220,6 +220,76 @@ T.TestPhysics("a held limb puts the character in a limp ragdoll that stands back
 	character:Remove()
 end)
 
+T.TestPhysics("a knockdown throws a living character as a ragdoll that stands back up and knocks down whoever it hits", function()
+	create_ground()
+	local character = create_character()
+	local bystander = create_character(Vec3(0, 0.05, -1.2))
+	run(character, 1)
+	run(bystander, 0.1)
+	local ragdoll = character.ragdoll
+	ragdoll:Knockdown(Vec3(0, 3, -7))
+	run(character, 0.1)
+	T(ragdoll.Limp)["=="](true)
+	T(character.health:IsDead())["=="](false)
+	run(character, 0.5)
+	T(bystander.ragdoll.Limp)["=="](true)
+	T(character.transform:GetPosition().z < -0.3)["=="](true)
+	run(character, 8)
+	T(ragdoll.Limp)["=="](false)
+	T(bystander.ragdoll.Limp)["=="](false)
+	character:Remove()
+	bystander:Remove()
+end)
+
+T.TestPhysics("a thrown body trails its arms and legs straight out behind its travel and stops once it has stood up", function()
+	create_ground()
+	local character = create_character()
+	run(character, 1)
+	local ragdoll = character.ragdoll
+	ragdoll:Knockdown(Vec3(0, 3, -7))
+	run(character, 0.3)
+	local back = ragdoll.parts[1].body.Velocity:GetNormalized() * -1
+
+	for _, name in ipairs{"upperarm_r", "forearm_l", "thigh_r", "calf_l"} do
+		local axis = ragdoll.part_by_name[name].body.Rotation:VecMul(Vec3(0, 1, 0))
+		T(axis:Dot(back) > 0.8)["=="](true)
+	end
+
+	T(ragdoll.fling > 0.9)["=="](true)
+	run(character, 8)
+	T(ragdoll.Limp)["=="](false)
+	T(ragdoll.fling)["=="](0)
+	character:Remove()
+end)
+
+T.TestPhysics("a killed body flings its arms and legs away from the blow for two seconds and then lets them hang", function()
+	create_ground()
+	local character = create_character()
+	run(character, 1)
+	local ragdoll = character.ragdoll
+	character.health:TakeDamage(
+		damage.Info{
+			Damage = 5000,
+			Part = "torso",
+			Force = Vec3(0, 0, -6),
+			Position = ragdoll.part_by_name.torso.body.Position:Copy(),
+		}
+	)
+	run(character, 0.4)
+	T(character.health:IsDead())["=="](true)
+	T(ragdoll.fling > 0.9)["=="](true)
+	local back = ragdoll.fling_direction
+
+	for _, name in ipairs{"forearm_r", "calf_l"} do
+		local axis = ragdoll.part_by_name[name].body.Rotation:VecMul(Vec3(0, 1, 0))
+		T(axis:Dot(back) > 0.5)["=="](true)
+	end
+
+	run(character, 2.5)
+	T(ragdoll.fling)["=="](0)
+	character:Remove()
+end)
+
 T.TestPhysics("a physgun grabs the limb it points at and a dead body stays a ragdoll when let go", function()
 	create_ground()
 	local target = create_character(Vec3(0, 0.05, -3))
@@ -454,3 +524,48 @@ T.TestPhysics("a hit does not make a part limp unless HitLimp is on", function()
 	T(ragdoll:GetPartLimp("upperarm_r"))["=="](0)
 	character:Remove()
 end)
+
+T.TestPhysics("walking into a corpse shoves it aside without knocking the walker down", function()
+	create_ground()
+	local corpse = create_character(Vec3(0, 0.05, -2))
+	run(corpse, 0.5)
+	corpse.health:TakeDamage(damage.Info{Damage = 5000})
+	run(corpse, 3)
+	local position = corpse.ragdoll.parts[1].body.Position
+	local player = create_character(Vec3(position.x, 0.05, position.z + 2.5))
+	run(player, 0.5)
+
+	for _ = 1, 120 do
+		run(player, 1 / 60, 1)
+		T(player.ragdoll.Limp)["=="](false)
+	end
+
+	T(player.transform:GetPosition().z < position.z)["=="](true)
+	player:Remove()
+	corpse:Remove()
+end)
+
+T.TestPhysics("moving a held body around in the air does not hurt it", function()
+	create_ground()
+	local character = create_character(Vec3(0, 0.05, 0))
+	run(character, 1)
+	local ragdoll = character.ragdoll
+	local hand = ragdoll.part_by_name.forearm_r.body
+	ragdoll:Grab(hand)
+
+	for _ = 1, 120 do
+		hand:SetVelocity(Vec3(0, 1.5, 0))
+		run(character, 1 / 60, 1)
+	end
+
+	T(ragdoll.part_by_name.pelvis.body.Position.y > 1.5)["=="](true)
+
+	for tick = 1, 240 do
+		hand:SetVelocity(Vec3(math.sin(tick / 20) * 3, 0, 0))
+		run(character, 1 / 60, 1)
+	end
+
+	T(character.health.Health)["=="](character.health.MaxHealth)
+	character:Remove()
+end)
+
