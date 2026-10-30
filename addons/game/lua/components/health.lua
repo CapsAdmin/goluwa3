@@ -1,5 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
+local timer = import("goluwa/timer.lua")
 local META = objects.CreateTemplate("health")
 META.Network = {
 	Health = {"number", 0.1, "reliable", to_owner = true},
@@ -9,8 +10,12 @@ META:StartStorable()
 META:GetSet("Health", 100)
 META:GetSet("MaxHealth", 100)
 META:IsSet("RemoveOnDeath", false)
-META:IsSet("Refill", false)
+META:GetSet("RefillDelay", 0)
 META:EndStorable()
+
+local function revive(self)
+	self:Revive()
+end
 
 function META:IsDead()
 	return self.Health <= 0
@@ -38,13 +43,13 @@ function META:TakeDamage(info)
 
 	if self.Health > 0 then return end
 
-	if self.Refill then
-		self:SetHealth(self.MaxHealth)
-		return
-	end
-
 	self.Owner:CallLocalEvent("OnDeath", info)
 	event.Call("EntityKilled", self.Owner, info)
+
+	if self.RefillDelay > 0 then
+		timer.Delay(self.RefillDelay, revive, nil, self, self)
+		return
+	end
 
 	if self.RemoveOnDeath then self.Owner:Remove() end
 end

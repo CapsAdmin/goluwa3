@@ -170,7 +170,7 @@ npcs.Definitions = {
 		Run = "run_all",
 		WalkSpeed = 80,
 		RunSpeed = 210,
-		Health = 1000,
+		Health = 300,
 	},
 	zombie_fast = {
 		Faction = "enemy",
@@ -270,7 +270,7 @@ function npcs.Register(name, info)
 							Health = info.Health or 50,
 							MaxHealth = info.Health or 50,
 							RemoveOnDeath = not info.Biped,
-							Refill = info.Dummy,
+							RefillDelay = info.Dummy and 4 or 0,
 						},
 					},
 				},
