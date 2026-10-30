@@ -8,6 +8,8 @@ local slash = import("lua/jrpg/slash.lua")
 local movesets = import("lua/jrpg/movesets.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local actors = import("lua/actors.lua")
+local grab = import("lua/grab.lua")
+local damage = import("lua/damage.lua")
 local effects = import("lua/jrpg/effects.lua")
 local sounds = import("lua/sounds.lua")
 local flow_ribbons = import("goluwa/render3d/flow_ribbons.lua")
@@ -197,6 +199,65 @@ function META:Hit(hit, forward)
 	end
 end
 
+function META:EndGrab(velocity)
+	local victim = self.grabbed
+	self.grabbed = nil
+
+	if victim:IsValid() and grab.IsHeld(victim) then grab.Release(victim, velocity) end
+end
+
+function META:Latch(move, event)
+	local holder = self:GetHolder()
+	local target = self.frame.target
+
+	if
+		not target or
+		not actors.IsAlive(target) or
+		(
+			actors.GetCenter(target) - actors.GetCenter(holder)
+		):GetLength() > event.Range
+	then
+		target = movesets.FindTarget(holder, actors.GetCenter(holder), actors.GetForward(holder), event.Range)
+	end
+
+	if target and not grab.IsHeld(target) then
+		if grab.Latch(holder, target, {Def = move, Bones = target.source_pose.bones}) then
+			self.grabbed = target
+			holder.character_pose:SetFocusOn(nil, self.frame.point)
+		end
+	end
+end
+
+function META:Throw(event, f)
+	local victim = self.grabbed
+
+	if not victim then return end
+
+	local holder = self:GetHolder()
+	local forward = actors.GetForward(holder)
+	local throw = grab.Get(victim):GetVelocity(f, self.duration) * event.Inherit + Vec3(-forward.z, 0, forward.x) * event.Throw.x + Vec3(0, event.Throw.y, 0) + forward * event.Throw.z
+	local weapon = self.Owner.weapon
+
+	for i, type_name in ipairs(weapon:GetDamageTypes(SLASH)) do
+		if not victim.health:IsDead() then
+			damage.Deal(
+				victim,
+				{
+					Attacker = holder,
+					Inflictor = self.Owner,
+					Damage = self.Damage * event.Damage * weapon:GetDamageScale(),
+					Type = type_name,
+					Secondary = i > 1,
+					Position = actors.GetCenter(victim),
+					Direction = throw:GetNormalized(),
+				}
+			)
+		end
+	end
+
+	self:EndGrab(throw)
+end
+
 function META:Chain(authority)
 	local move = self.attack
 	local set = movesets.Get(self.Moveset)
@@ -247,6 +308,8 @@ function META:Step(dt, cmd, authority)
 	local pose = holder.character_pose
 
 	if pose:IsStunned() then
+		if self.grabbed then self:EndGrab(Vec3()) end
+
 		self.attack = nil
 		self.queued = nil
 		return
@@ -271,10 +334,16 @@ function META:Step(dt, cmd, authority)
 		self.next_event = self.next_event + 1
 
 		if authority then
-			local forward = movesets.GetFocus(frame) - center
-			forward.y = 0
-			forward = forward:GetLength() > 1e-3 and forward:GetNormalized() or actors.GetForward(holder)
-			self:Hit(event, forward)
+			if event.Type == "hit" then
+				local forward = movesets.GetFocus(frame) - center
+				forward.y = 0
+				forward = forward:GetLength() > 1e-3 and forward:GetNormalized() or actors.GetForward(holder)
+				self:Hit(event, forward)
+			elseif event.Type == "latch" then
+				self:Latch(move, event)
+			else
+				self:Throw(event, f)
+			end
 		end
 
 		event = move.Events[self.next_event]
@@ -294,6 +363,8 @@ function META:OnWeaponPredictThink(dt, cmd)
 end
 
 function META:OnWeaponHolster()
+	if self.grabbed then self:EndGrab(Vec3()) end
+
 	self.attack = nil
 	self.queued = nil
 end

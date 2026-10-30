@@ -179,6 +179,34 @@ T.TestPhysics("a predicted action is adopted when the server's copy arrives inst
 	T((count("sword_light_2")))["=="](1)
 end)
 
+T.TestPhysics("the sword dive throw latches onto the target and throws it", function()
+	local grab = import("lua/grab.lua")
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -2), 1000, true)
+	victim.source_pose = {
+		bones = {
+			upperarm_r = {m30 = 0.15, m31 = 1.08, m32 = 0},
+			upperarm_l = {m30 = -0.15, m31 = 1.08, m32 = 0},
+		},
+	}
+	local sword = attacker.weapon_holder:Give("weapon_sword")
+	run(0.3)
+	sword.weapon_melee:StartMove(movesets.Get("sword").Moves.dive_throw, true)
+	local held = false
+
+	for _ = 1, 450 do
+		run(1 / 60, {attacker.character_pose, victim.character_pose})
+		held = held or grab.IsHeld(victim)
+	end
+
+	T(held)["=="](true)
+	T(grab.IsHeld(victim))["=="](false)
+	T(victim.health:GetHealth() < 1000)["=="](true)
+	T(sword.weapon_melee.grabbed)["=="](nil)
+	T(victim.ragdoll.thrown or victim.ragdoll.flinging or victim.ragdoll.Limp)["~="](nil)
+end)
+
 T.Test("moveset data is validated with a message that names the field", function()
 	local function check(def, expected)
 		local ok, err = pcall(movesets.Validate, "test", def)
