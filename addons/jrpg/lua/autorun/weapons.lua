@@ -1,16 +1,24 @@
 local weapons = import("lua/weapons.lua")
-local animations = import("lua/animations.lua")
+local keyframes = import("lua/keyframes.lua")
+local movesets = import("lua/jrpg/movesets.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 import("lua/jrpg/weapon_stats.lua")
 weapons.AddRootComponent("item_highlight", {})
+keyframes.AddPoses(import("lua/jrpg/movesets/poses.lua"))
 
-for name, def in pairs(import("lua/animations/sword.lua")) do
-	animations.Register(name, def)
+for _, name in ipairs{"sword"} do
+	movesets.Register(name, import("lua/jrpg/movesets/" .. name .. ".lua"))
 end
 
 for _, name in ipairs{"sword", "shield", "slash_debug"} do
 	local definition = import("lua/weapons/" .. name .. ".lua")
-	weapons.Register("weapon_" .. name, definition.Values, definition.Nodes, definition.Source)
+	weapons.Register(
+		"weapon_" .. name,
+		definition.Values,
+		definition.Nodes,
+		definition.Source,
+		definition.ScriptValues
+	)
 end
 
 local magic = import("lua/weapons/magic.lua")

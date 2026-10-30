@@ -1,0 +1,132 @@
+local T = import("test/environment.lua")
+local Entity = import("goluwa/entities/entity.lua")
+local physics = import("goluwa/physics.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
+Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
+Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
+Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
+import("lua/weapons.lua")
+import("addons/game/lua/autorun/characters.lua")
+import("addons/jrpg/lua/autorun/weapons.lua")
+import("addons/jrpg/lua/autorun/jrpg.lua")
+local damage = import("lua/damage.lua")
+local movesets = import("lua/jrpg/movesets.lua")
+
+local function create_character(position, health)
+	local entity = Entity.New{
+		ComponentSet = {"transform", "ai_controller", "character_pose", "weapon_holder", "health"},
+		transform = {Position = position:Copy()},
+		ai_controller = {Wander = false},
+		health = {Health = health or 100, MaxHealth = health or 100},
+	}
+	entity.ai_controller:Teleport(position, 0)
+	return entity
+end
+
+local function create_ground()
+	Entity.New{
+		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(100, 1, 100)},
+		rigid_body = {MotionType = "static", WorldGeometry = true, Shape = BoxShape.New(Vec3(1, 1, 1))},
+	}
+end
+
+local function run(seconds, poses)
+	for _ = 1, seconds * 60 do
+		physics.UpdateFixed(1 / 60)
+
+		for _, pose in ipairs(poses or {}) do
+			pose:UpdateAnimations(1 / 60)
+		end
+	end
+end
+
+T.Test("every moveset move is a registered action and its hits are in order", function()
+	for _, name in ipairs{"sword"} do
+		local set = movesets.Get(name)
+		T(#set.Combo > 0)["=="](true)
+		T(set.Heavy ~= nil)["=="](true)
+
+		for _, move in pairs(set.Moves) do
+			T(movesets.GetMove(move.Action))["=="](move)
+			T(import("lua/animations.lua").Get(move.Action))["=="](move)
+			T(move.Cancel >= move.Hits[#move.Hits].At)["=="](true)
+		end
+	end
+end)
+
+T.Test("moveset motion orbits the focus at the keyed distance", function()
+	local move = movesets.Get("sword").Moves.dash
+	local frame = {bearing = Vec3(0, 0, 1), right = Vec3(1, 0, 0), distance = 2}
+	local out = Vec3()
+	movesets.SampleMotion(move, 0, frame, Vec3(0, 0, 0), out)
+	T(out.z)["~"](2, 1e-6)
+	movesets.SampleMotion(move, 1, frame, Vec3(0, 0, 0), out)
+	T(out.z)["~"](1.3 * math.cos(math.rad(150)), 1e-3)
+	T(out.x)["~"](1.3 * math.sin(math.rad(150)), 1e-3)
+end)
+
+T.TestPhysics("a light attack draws the sheathed sword, steps in and hits the target", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -2.2), 1000)
+	local sword = attacker.weapon_holder:Give("weapon_sword")
+	run(0.5)
+	T(sword.weapon:IsSheathed())["=="](true)
+	T(attacker.weapon_holder:GetPosedWeapon("right"))["=="](nil)
+	sword.weapon_melee:Request("light", attacker.character_movement:GetCommand(), true)
+	T(sword.weapon:IsSheathed())["=="](false)
+	T(attacker.weapon_holder:GetPosedWeapon("right"))["=="](sword)
+	T(attacker.character_pose.Action)["=="]("sword_light_1")
+	T(attacker.character_pose:GetFocus())["=="](victim)
+	run(0.7)
+	T(victim.health:GetHealth() < 1000)["=="](true)
+	T(attacker.transform:GetPosition().z < -0.3)["=="](true)
+	T(attacker.health:GetHealth())["=="](100)
+	T(sword.weapon_melee.attack)["=="](nil)
+end)
+
+T.TestPhysics("a sheathed weapon goes back on the back after its delay", function()
+	create_ground()
+	local holder = create_character(Vec3(0, 0.05, 0))
+	local sword = holder.weapon_holder:Give("weapon_sword")
+	sword.weapon:SetDrawn(true)
+	T(sword.weapon:IsSheathed())["=="](false)
+	T(sword.weapon:GetModel().transform:GetAttachment())["=="]("grip_r")
+	run(sword.weapon:GetSheathDelay() + 0.2)
+	T(sword.weapon:IsSheathed())["=="](true)
+	T(sword.weapon:GetModel().transform:GetAttachment())["=="]("back")
+end)
+
+T.TestPhysics("a predicted action is adopted when the server's copy arrives instead of restarting", function()
+	create_ground()
+	local pose = create_character(Vec3(0, 0.05, 0)).character_pose
+
+	local function count(name)
+		local found, time = 0, nil
+
+		for _, inst in ipairs(pose.anims) do
+			if inst.def.Name == name then
+				found = found + 1
+				time = inst.time
+			end
+		end
+
+		return found, time
+	end
+
+	pose:PredictAction("sword_light_1", 0.5)
+	pose:UpdateAnimations(0.1)
+	pose:SetAction("sword_light_1")
+	pose:SetActionDuration(0.5)
+	pose:SetActions(pose.Actions + 1)
+	pose:UpdateAnimations(0.1)
+	local found, time = count("sword_light_1")
+	T(found)["=="](1)
+	T(time)["~"](0.2, 1e-6)
+	pose:SetAction("sword_light_2")
+	pose:SetActions(pose.Actions + 1)
+	pose:UpdateAnimations(0.1)
+	T((count("sword_light_2")))["=="](1)
+end)

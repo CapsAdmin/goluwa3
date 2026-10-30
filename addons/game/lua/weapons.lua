@@ -102,7 +102,7 @@ for _, name in ipairs{
 		definition.Values,
 		definition.Nodes,
 		definition.Source,
-		nil,
+		definition.ScriptValues,
 		definition.Components
 	)
 end

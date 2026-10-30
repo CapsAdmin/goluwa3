@@ -504,6 +504,7 @@ function META:NextCommand(dt)
 	local owner = self.Owner
 	local position = owner.rigid_body:GetOriginPosition()
 	local cmd = self.cmd
+	cmd.number = cmd.number + 1
 	local previous_buttons = cmd.buttons
 	simulation_lod.Update(META.Instances)
 	local far = self.far

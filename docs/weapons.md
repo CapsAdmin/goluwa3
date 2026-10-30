@@ -13,7 +13,7 @@ A held weapon is either stowed (`Equipped == ""`, hidden) or equipped in a place
 
 ## Sheath
 
-A weapon with `Sheath` (a socket name, `back`) rests there while it is equipped but not `Drawn` (replicated): the model attaches to the sheath socket with `SheathOffset`/`SheathRotation` (in the socket frame: right, up, back), the arms are not posed (`GetPosedWeapon` skips it), the gait uses the unarmed stance and it is hidden in first person. `weapon:SetDrawn(true)` puts it in the hand until `SheathDelay` seconds without another draw, counted on every side from the last time it was set drawn (also when the value arrives from the server); holstering sheathes it. The `back` socket of both socket profiles has no rotation, since the biped chest bone is already model aligned.
+A weapon with `Sheath` (a socket name, `back`) rests there while it is equipped but not `Drawn` (replicated): the model attaches to the sheath socket with `SheathOffset`/`SheathRotation` (in the socket frame: right, up, back; `blade.SheathRotation(direction)` turns a blade along a direction), the arms are not posed (`GetPosedWeapon` skips it), the gait uses the unarmed stance and it is hidden in first person. `weapon:SetDrawn(true)` (the melee script calls it when a move starts, the owner predicts it) puts it in the hand until `SheathDelay` seconds without another draw, counted on every side from the last time it was set drawn (also when the value arrives from the server); holstering sheathes it. The `back` socket of both socket profiles has no rotation, since the biped chest bone is already model aligned.
 
 ## Model replacements
 
