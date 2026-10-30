@@ -95,6 +95,34 @@ local function evaluate_sphere_capsule_point_sweep(context, start_world, end_wor
 	)
 end
 
+local SWEPT_CAPSULE_SPHERE_CONTEXT = {}
+
+local function evaluate_swept_capsule_sphere(context, t)
+	local segment_a = context.start_a + (context.end_a - context.start_a) * t
+	local segment_b = context.start_b + (context.end_b - context.start_b) * t
+	local closest = segment_geometry.ClosestPointOnSegment(segment_a, segment_b, context.sphere_center, EPSILON)
+	local delta = context.sphere_center - closest
+	return {
+		delta = delta,
+		distance = delta:GetLength(),
+	}
+end
+
+local SWEPT_CAPSULE_CAPSULE_CONTEXT = {}
+
+local function evaluate_swept_capsule_capsule(context, t)
+	local dynamic_a = context.start_a + (context.end_a - context.start_a) * t
+	local dynamic_b = context.start_b + (context.end_b - context.start_b) * t
+	local point_dynamic, point_static = segment_geometry.ClosestPointsBetweenSegments(dynamic_a, dynamic_b, context.static_a, context.static_b, EPSILON)
+	local delta = point_static - point_dynamic
+	return {
+		point_dynamic = point_dynamic,
+		point_static = point_static,
+		delta = delta,
+		distance = delta:GetLength(),
+	}
+end
+
 local function evaluate_capsule_segment_sweep_distance(context, t)
 	local point = context.start_world + context.movement * t
 	local closest = segment_geometry.ClosestPointOnSegment(context.segment_a, context.segment_b, point, EPSILON)
@@ -289,26 +317,22 @@ local function solve_swept_capsule_sphere_collision(capsule_body, sphere_body, d
 		end
 	end
 
-	local start_a, start_b = capsule_geometry.GetSegmentWorld(capsule_body, previous_position, sweep.previous_rotation)
-	local end_a, end_b = capsule_geometry.GetSegmentWorld(capsule_body)
-
-	local function evaluate(t)
-		local segment_a = start_a + (end_a - start_a) * t
-		local segment_b = start_b + (end_b - start_b) * t
-		local closest = segment_geometry.ClosestPointOnSegment(segment_a, segment_b, sphere_center, EPSILON)
-		local delta = sphere_center - closest
-		local distance = delta:GetLength()
-		return {
-			delta = delta,
-			distance = distance,
-		}
-	end
-
-	local start_distance = evaluate(0).distance
+	local context = SWEPT_CAPSULE_SPHERE_CONTEXT
+	context.start_a, context.start_b = capsule_geometry.GetSegmentWorld(capsule_body, previous_position, sweep.previous_rotation)
+	context.end_a, context.end_b = capsule_geometry.GetSegmentWorld(capsule_body)
+	context.sphere_center = sphere_center
+	local start_distance = evaluate_swept_capsule_sphere(context, 0).distance
 
 	if start_distance <= combined_radius then return false end
 
-	local hit = pair_solver_helpers.FindDistanceSweepHit(evaluate, combined_radius, relative_velocity, movement:GetLength())
+	local hit = pair_solver_helpers.FindDistanceSweepHit(
+		evaluate_swept_capsule_sphere,
+		combined_radius,
+		relative_velocity,
+		movement:GetLength(),
+		nil,
+		context
+	)
 
 	if hit then
 		local normal = get_oriented_normal(hit.delta * -1, sphere_body:GetVelocity() - capsule_body:GetVelocity())
@@ -392,31 +416,25 @@ local function solve_swept_capsule_capsule_collision(dynamic_body, static_body, 
 
 	if movement:GetLength() <= EPSILON then return false end
 
-	local start_a, start_b, dynamic_radius = capsule_geometry.GetSegmentWorld(dynamic_body, previous_position, sweep.previous_rotation)
-	local end_a, end_b = capsule_geometry.GetSegmentWorld(dynamic_body)
-	local static_a, static_b, static_radius = capsule_geometry.GetSegmentWorld(static_body)
+	local context = SWEPT_CAPSULE_CAPSULE_CONTEXT
+	local dynamic_radius, static_radius
+	context.start_a, context.start_b, dynamic_radius = capsule_geometry.GetSegmentWorld(dynamic_body, previous_position, sweep.previous_rotation)
+	context.end_a, context.end_b = capsule_geometry.GetSegmentWorld(dynamic_body)
+	context.static_a, context.static_b, static_radius = capsule_geometry.GetSegmentWorld(static_body)
 	local combined_radius = dynamic_radius + static_radius
 	local relative_velocity = static_body:GetVelocity() - dynamic_body:GetVelocity()
-
-	local function evaluate(t)
-		local dynamic_a = start_a + (end_a - start_a) * t
-		local dynamic_b = start_b + (end_b - start_b) * t
-		local point_dynamic, point_static = segment_geometry.ClosestPointsBetweenSegments(dynamic_a, dynamic_b, static_a, static_b, EPSILON)
-		local delta = point_static - point_dynamic
-		local distance = delta:GetLength()
-		return {
-			point_dynamic = point_dynamic,
-			point_static = point_static,
-			delta = delta,
-			distance = distance,
-		}
-	end
-
-	local start_distance = evaluate(0).distance
+	local start_distance = evaluate_swept_capsule_capsule(context, 0).distance
 
 	if start_distance <= combined_radius then return false end
 
-	local hit = pair_solver_helpers.FindDistanceSweepHit(evaluate, combined_radius, relative_velocity, movement:GetLength())
+	local hit = pair_solver_helpers.FindDistanceSweepHit(
+		evaluate_swept_capsule_capsule,
+		combined_radius,
+		relative_velocity,
+		movement:GetLength(),
+		nil,
+		context
+	)
 
 	if hit then
 		local normal = get_oriented_normal(hit.delta * -1, static_body:GetVelocity() - dynamic_body:GetVelocity())

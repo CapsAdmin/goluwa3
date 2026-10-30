@@ -327,6 +327,25 @@ local function build_polyhedron_triangle_sweep_hit(collider, polyhedron, positio
 	}
 end
 
+local POLYHEDRON_TRIANGLE_SWEEP_CONTEXT = {}
+
+local function evaluate_polyhedron_triangle_distance(context, alpha)
+	local position = context.start_position + context.movement * (alpha * context.sweep_fraction)
+	local proxy = get_polyhedron_sweep_proxy(context.collider, position, context.rotation)
+	local poly_vertices = polyhedron_cache.GetPolyhedronWorldVertices(proxy, context.polyhedron)
+	local result = gjk_epa.Distance(
+		poly_vertices,
+		context.prism_vertices,
+		context.last_normal or (position - context.triangle_center),
+		context.simplex
+	)
+	context.simplex = result and result.simplex or context.simplex
+
+	if result and result.normal then context.last_normal = result.normal end
+
+	return result
+end
+
 function sweep_polyhedron_against_triangle(
 	collider,
 	polyhedron,
@@ -359,31 +378,27 @@ function sweep_polyhedron_against_triangle(
 				0.0005
 			)
 		)
-		local triangle_center = (v0 + v1 + v2) / 3
-		local scratch = {}
+		local context = POLYHEDRON_TRIANGLE_SWEEP_CONTEXT
+		context.sweep_fraction = sweep_fraction
+		context.start_position = start_position
+		context.movement = movement
+		context.collider = collider
+		context.rotation = rotation
+		context.polyhedron = polyhedron
+		context.prism_vertices = prism_vertices
+		context.triangle_center = (v0 + v1 + v2) / 3
+		context.last_normal = nil
+		context.simplex = nil
 		local hit = pair_solver_helpers.FindDistanceSweepHit(
-			function(alpha)
-				local t = alpha * sweep_fraction
-				local position = start_position + movement * t
-				local proxy = get_polyhedron_sweep_proxy(collider, position, rotation)
-				local poly_vertices = polyhedron_cache.GetPolyhedronWorldVertices(proxy, polyhedron)
-				local result = gjk_epa.Distance(
-					poly_vertices,
-					prism_vertices,
-					scratch.last_normal or (position - triangle_center),
-					scratch.simplex
-				)
-				scratch.simplex = result and result.simplex or scratch.simplex
-
-				if result and result.normal then scratch.last_normal = result.normal end
-
-				return result
-			end,
+			evaluate_polyhedron_triangle_distance,
 			hit_distance,
 			movement,
 			movement:GetLength() * sweep_fraction,
-			nil
+			nil,
+			context
 		)
+		context.collider = nil
+		context.polyhedron = nil
 
 		if hit and (hit.distance or math.huge) <= hit_distance + EPSILON then
 			local hit_t = hit.t * sweep_fraction
@@ -1185,7 +1200,12 @@ do
 		local distance = math.sqrt(sq)
 
 		if distance > EPSILON then
-			return qx, qy, qz, (px - qx) / distance, (py - qy) / distance, (pz - qz) / distance
+			return qx,
+			qy,
+			qz,
+			(px - qx) / distance,
+			(py - qy) / distance,
+			(pz - qz) / distance
 		end
 
 		local nx, ny, nz, normal_len_sq = triangle_normal_raw(v0, v1, v2)
@@ -1209,7 +1229,18 @@ do
 		return qx, qy, qz, 0, 1, 0
 	end
 
-	local function find_sphere_contact_fraction(start_position, movement, reach, v0, v1, v2, max_fraction, segment_x, segment_y, segment_z)
+	local function find_sphere_contact_fraction(
+		start_position,
+		movement,
+		reach,
+		v0,
+		v1,
+		v2,
+		max_fraction,
+		segment_x,
+		segment_y,
+		segment_z
+	)
 		local reach_sq = reach * reach
 		local movement_length_sq = movement.x * movement.x + movement.y * movement.y + movement.z * movement.z
 		local hi = 0
@@ -1305,7 +1336,18 @@ do
 			return {t = 0, position = Vec3(qx, qy, qz), normal = Vec3(nx, ny, nz)}
 		end
 
-		local hi = find_sphere_contact_fraction(start_position, movement, reach, v0, v1, v2, max_fraction, segment_x, segment_y, segment_z)
+		local hi = find_sphere_contact_fraction(
+			start_position,
+			movement,
+			reach,
+			v0,
+			v1,
+			v2,
+			max_fraction,
+			segment_x,
+			segment_y,
+			segment_z
+		)
 
 		if not hi then return nil end
 
