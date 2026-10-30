@@ -406,6 +406,10 @@ T.Test3D("npc speeds are the ground speeds of the sequences they play", function
 
 		T(skeleton.ClipsByName[info.Idle]:GetGroundSpeed(params))["=="](0)
 
+		for _, move in pairs(info.Moves or {}) do
+			T(skeleton.ClipsByName[move.Clip] ~= nil)["=="](true)
+		end
+
 		for sequence, speed in pairs{[info.Walk] = info.WalkSpeed, [info.Run] = info.RunSpeed} do
 			local ground_speed = skeleton.ClipsByName[sequence]:GetGroundSpeed(params) / UNIT
 			T(math.abs(ground_speed - speed) / speed < 0.03)["=="](true)

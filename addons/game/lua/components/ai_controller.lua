@@ -9,7 +9,9 @@ local UNIT = import("goluwa/source_engine/units.lua").meters
 local CharacterMovement = import("lua/components/character_movement.lua")
 local PlayerController = import("lua/components/player_controller.lua")
 local simulation_lod = import("lua/simulation_lod.lua")
+local movesets = import("lua/movesets.lua")
 local BUTTON = usercmd.BUTTON
+local NO_ATTACKS = {}
 local META = objects.CreateTemplate("ai_controller")
 META:StartStorable()
 META:GetSet("WalkSpeed", 80 * UNIT)
@@ -29,15 +31,10 @@ META:GetSet("PhysicsDistance", 15)
 META:GetSet("AttackRange", 12)
 META:GetSet("FireInterval", 0.8)
 META:GetSet("AimError", 0.035)
-META:GetSet("MeleeDamage", 0)
-META:GetSet("MeleeRange", 1.5)
-META:GetSet("MeleeInterval", 1.2)
-META:GetSet("MeleeDelay", 0.3)
-META:GetSet("MagicElement", "")
-META:GetSet("MagicDamage", 20)
 META:GetSet("Faction", "enemy")
-META:GetSet("MagicInterval", 2.5)
+META:GetSet("Moveset", "")
 META:EndStorable()
+META:GetSet("Attacks", NO_ATTACKS)
 local WAYPOINT_RADIUS = 0.5
 local GOAL_RADIUS = 0.3
 local TURN_FIRST = math.rad(100)
@@ -89,6 +86,7 @@ function META:Initialize()
 	self.turning = false
 	self.next_target = 0
 	self.next_fire = 0
+	self.attack_ready = {}
 	self.next_follow_path = 0
 	self.aim_direction = Vec3()
 	self.cmd = usercmd.New()
@@ -411,10 +409,10 @@ function META:IsArmed()
 end
 
 function META:CanFight()
-	return self:IsArmed() or self.MeleeDamage > 0 or self.MagicElement ~= ""
+	return self:IsArmed() or #self.Attacks > 0
 end
 
-function META:CastAt(target)
+function META:CastAt(target, element, damage)
 	local owner = self.Owner
 	local eye = owner.rigid_body:GetOriginPosition() + owner.character_movement:GetViewOffset()
 	local aim = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * TARGET_CHEST, 0)
@@ -425,61 +423,72 @@ function META:CastAt(target)
 		direction,
 		target,
 		nil,
-		self.MagicElement,
-		self.MagicDamage
+		element,
+		damage
 	)
 end
 
 function META:Fight(target, position)
-	local owner = self.Owner
-	local pose = owner.character_pose
+	local runner = self.Owner:EnsureComponent("move_runner")
+
+	if runner:IsPlaying() then return end
+
 	local offset = target.transform:GetPosition() - position
 	offset.y = 0
 	local distance = offset:GetLength()
+	local attacks = self.Attacks
+	local ready = self.attack_ready
 
-	if self.MagicElement ~= "" then
-		if self.time >= self.next_fire then
-			self.next_fire = self.time + self.MagicInterval * math.randomf(0.8, 1.2)
-			pose:PlayAction("attack", 0.9)
-			self.attack_at = self.time + 0.45
+	for i = 1, #attacks do
+		local attack = attacks[i]
+
+		if
+			self.time >= (ready[i] or 0) and
+			distance <= attack.Range and
+			distance >= (attack.MinRange or 0)
+		then
+			ready[i] = self.time + attack.Interval * math.randomf(0.8, 1.2)
+			local move = movesets.Get(self.Moveset).Moves[attack.Move]
+			runner:Begin(move, move.Duration, self, true, target)
+			return
 		end
-
-		if self.attack_at and self.time >= self.attack_at then
-			self.attack_at = nil
-			self:CastAt(target)
-		end
-
-		return
 	end
 
-	if distance > self.MeleeRange then
+	if distance > attacks[1].Range then
 		self.dir_x, self.dir_z = offset.x / distance, offset.z / distance
 		self.chasing = true
-	elseif self.time >= self.next_fire then
-		self.next_fire = self.time + self.MeleeInterval
-		pose:PlayAction("attack", self.MeleeInterval * 0.7)
-		self.attack_at = self.time + self.MeleeDelay
-	end
-
-	if self.attack_at and self.time >= self.attack_at then
-		self.attack_at = nil
-
-		if distance <= self.MeleeRange * 1.4 then
-			local direction = distance > 1e-3 and offset / distance or Vec3(0, 0, -1)
-			damage.Deal(
-				target,
-				{
-					Attacker = owner,
-					Inflictor = owner,
-					Damage = self.MeleeDamage,
-					Position = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * TARGET_CHEST, 0),
-					Normal = direction * -1,
-					Force = direction * 3,
-				}
-			)
-		end
 	end
 end
+
+function META:OnMoveEvent(move, event)
+	local owner = self.Owner
+	local target = owner.move_runner.frame.target
+
+	if not target:IsValid() or target.health:IsDead() then return end
+
+	local offset = target.transform:GetPosition() - owner.transform:GetPosition()
+	offset.y = 0
+	local distance = offset:GetLength()
+
+	if event.Type == "cast" then
+		self:CastAt(target, event.Element, event.Damage)
+	elseif distance <= event.Range then
+		local direction = distance > 1e-3 and offset / distance or Vec3(0, 0, -1)
+		damage.Deal(
+			target,
+			{
+				Attacker = owner,
+				Inflictor = owner,
+				Damage = event.Damage,
+				Position = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * TARGET_CHEST, 0),
+				Normal = direction * -1,
+				Force = direction * (event.Force or 3),
+			}
+		)
+	end
+end
+
+function META:OnMoveInterrupted() end
 
 function META:UpdateTarget(position)
 	local owner = self.Owner
@@ -551,7 +560,9 @@ function META:NextCommand(dt)
 	local pose = owner.character_pose
 	local stunned = pose ~= nil and (pose:IsStunned() or pose:IsFrozen())
 
-	if stunned then self.attack_at = nil end
+	local runner = owner.move_runner
+
+	if runner and runner:IsPlaying() then runner:Step(dt, true) end
 
 	if target and self:CanFight() then
 		self.time = self.time + dt

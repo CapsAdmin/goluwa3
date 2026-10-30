@@ -7,10 +7,31 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 import("lua/damage.lua")
 local outfit = import("lua/outfit.lua")
+local movesets = import("lua/movesets.lua")
 local PlayerController = import("lua/components/player_controller.lua")
 local AIController = import("lua/components/ai_controller.lua")
 local eyes = RENDER_3D and import("goluwa/entities/components/eyes.lua")
 local npcs = {}
+
+local function claw(clip, duration, delay, damage, range)
+	return {
+		Clip = clip,
+		Duration = duration,
+		Face = false,
+		PoseWeapon = false,
+		Events = {{At = delay / duration, Type = "strike", Damage = damage, Range = range}},
+	}
+end
+
+local function cast(clip, duration, delay, element, damage)
+	return {
+		Clip = clip,
+		Duration = duration,
+		Face = false,
+		PoseWeapon = false,
+		Events = {{At = delay / duration, Type = "cast", Element = element, Damage = damage}},
+	}
+end
 npcs.Factions = {"friend", "enemy"}
 npcs.Definitions = {
 	citizen = {
@@ -64,11 +85,8 @@ npcs.Definitions = {
 		Run = "walk",
 		WalkSpeed = 45,
 		RunSpeed = 45,
-		Attack = "attackA",
-		MeleeDamage = 18,
-		MeleeRange = 1.4,
-		MeleeInterval = 1.8,
-		MeleeDelay = 0.6,
+		Moves = {claw = claw("attackA", 1.26, 0.6, 18, 1.96)},
+		Attacks = {{Move = "claw", Range = 1.4, Interval = 1.8}},
 	},
 	vortigaunt = {
 		Faction = "enemy",
@@ -80,8 +98,8 @@ npcs.Definitions = {
 		RunSpeed = 140,
 		Radius = 20,
 		Height = 84,
-		Attack = "zapattack1",
-		MagicElement = "lightning",
+		Moves = {zap = cast("zapattack1", 0.9, 0.5, "lightning", 20)},
+		Attacks = {{Move = "zap", Range = 12, Interval = 2.5}},
 	},
 	antlion = {
 		Faction = "enemy",
@@ -94,9 +112,8 @@ npcs.Definitions = {
 		Radius = 28,
 		Height = 56,
 		TurnSpeed = 12,
-		Attack = "attack1",
-		MeleeDamage = 12,
-		MeleeRange = 1.8,
+		Moves = {claw = claw("attack1", 0.84, 0.3, 12, 2.52)},
+		Attacks = {{Move = "claw", Range = 1.8, Interval = 1.2}},
 	},
 	headcrab = {
 		Faction = "enemy",
@@ -110,9 +127,8 @@ npcs.Definitions = {
 		Height = 14,
 		TurnSpeed = 14,
 		StepHeight = 8,
-		Attack = "attack",
-		MeleeDamage = 6,
-		MeleeRange = 0.9,
+		Moves = {claw = claw("attack", 0.84, 0.3, 6, 1.26)},
+		Attacks = {{Move = "claw", Range = 0.9, Interval = 1.2}},
 	},
 	citizen_female = {
 		Faction = "friend",
@@ -181,11 +197,8 @@ npcs.Definitions = {
 		Run = "Run",
 		WalkSpeed = 55,
 		RunSpeed = 218,
-		Attack = "BR2_Attack",
-		MeleeDamage = 10,
-		MeleeRange = 1.3,
-		MeleeInterval = 1,
-		MeleeDelay = 0.3,
+		Moves = {claw = claw("BR2_Attack", 0.7, 0.3, 10, 1.82)},
+		Attacks = {{Move = "claw", Range = 1.3, Interval = 1.0}},
 	},
 	zombie_poison = {
 		Faction = "enemy",
@@ -195,12 +208,9 @@ npcs.Definitions = {
 		Run = "Run",
 		WalkSpeed = 56,
 		RunSpeed = 154,
-		Attack = "melee_01",
-		MeleeDamage = 25,
-		MeleeRange = 1.5,
-		MeleeInterval = 2,
-		MeleeDelay = 0.5,
 		Health = 120,
+		Moves = {claw = claw("melee_01", 1.4, 0.5, 25, 2.1)},
+		Attacks = {{Move = "claw", Range = 1.5, Interval = 2.0}},
 	},
 	monk = {
 		Faction = "friend",
@@ -304,12 +314,9 @@ npcs.Definitions = {
 		Run = "Run_All",
 		WalkSpeed = 35,
 		RunSpeed = 193,
-		Attack = "attackA",
-		MeleeDamage = 20,
-		MeleeRange = 1.4,
-		MeleeInterval = 1.6,
-		MeleeDelay = 0.6,
 		Health = 80,
+		Moves = {claw = claw("attackA", 1.12, 0.6, 20, 1.96)},
+		Attacks = {{Move = "claw", Range = 1.4, Interval = 1.6}},
 	},
 	zombie_torso = {
 		Faction = "enemy",
@@ -322,12 +329,9 @@ npcs.Definitions = {
 		Radius = 14,
 		Height = 28,
 		StepHeight = 8,
-		Attack = "attack",
-		MeleeDamage = 10,
-		MeleeRange = 1.1,
-		MeleeInterval = 1.8,
-		MeleeDelay = 0.5,
 		Health = 25,
+		Moves = {claw = claw("attack", 1.26, 0.5, 10, 1.54)},
+		Attacks = {{Move = "claw", Range = 1.1, Interval = 1.8}},
 	},
 	headcrab_black = {
 		Faction = "enemy",
@@ -341,10 +345,9 @@ npcs.Definitions = {
 		Height = 14,
 		TurnSpeed = 14,
 		StepHeight = 8,
-		Attack = "Spitattack",
-		MeleeDamage = 14,
-		MeleeRange = 0.9,
 		Health = 40,
+		Moves = {claw = claw("Spitattack", 0.84, 0.3, 14, 1.26)},
+		Attacks = {{Move = "claw", Range = 0.9, Interval = 1.2}},
 	},
 	antlion_worker = {
 		Faction = "enemy",
@@ -357,10 +360,9 @@ npcs.Definitions = {
 		Radius = 28,
 		Height = 56,
 		TurnSpeed = 12,
-		Attack = "attack1",
-		MeleeDamage = 10,
-		MeleeRange = 1.8,
 		Health = 40,
+		Moves = {claw = claw("attack1", 0.84, 0.3, 10, 2.52)},
+		Attacks = {{Move = "claw", Range = 1.8, Interval = 1.2}},
 	},
 	antlion_guard = {
 		Faction = "enemy",
@@ -374,12 +376,9 @@ npcs.Definitions = {
 		Height = 80,
 		TurnSpeed = 6,
 		StepHeight = 24,
-		Attack = "shove",
-		MeleeDamage = 40,
-		MeleeRange = 2.6,
-		MeleeInterval = 2,
-		MeleeDelay = 0.5,
 		Health = 400,
+		Moves = {claw = claw("shove", 1.4, 0.5, 40, 3.64)},
+		Attacks = {{Move = "claw", Range = 2.6, Interval = 2.0}},
 	},
 	hunter = {
 		Faction = "enemy",
@@ -393,12 +392,9 @@ npcs.Definitions = {
 		Height = 100,
 		TurnSpeed = 8,
 		StepHeight = 24,
-		Attack = "meleeleft",
-		MeleeDamage = 30,
-		MeleeRange = 2.2,
-		MeleeInterval = 1.5,
-		MeleeDelay = 0.4,
 		Health = 200,
+		Moves = {claw = claw("meleeleft", 1.05, 0.4, 30, 3.08)},
+		Attacks = {{Move = "claw", Range = 2.2, Interval = 1.5}},
 	},
 	vortigaunt_slave = {
 		Faction = "friend",
@@ -410,9 +406,9 @@ npcs.Definitions = {
 		RunSpeed = 140,
 		Radius = 20,
 		Height = 84,
-		Attack = "zapattack1",
-		MagicElement = "lightning",
 		Health = 80,
+		Moves = {zap = cast("zapattack1", 0.9, 0.5, "lightning", 20)},
+		Attacks = {{Move = "zap", Range = 12, Interval = 2.5}},
 	},
 	lamarr = {
 		Faction = "friend",
@@ -444,6 +440,10 @@ function npcs.GetPrefabName(name)
 end
 
 function npcs.Register(name, info)
+	if info.Moves then
+		movesets.Register(npcs.GetPrefabName(name), table.copy({Moves = info.Moves}))
+	end
+
 	local npc = {
 		WalkSpeed = info.WalkSpeed * UNIT,
 		RunSpeed = info.RunSpeed * UNIT,
@@ -451,11 +451,8 @@ function npcs.Register(name, info)
 		Radius = info.Radius and info.Radius * UNIT,
 		Height = info.Height and info.Height * UNIT,
 		StepHeight = info.StepHeight and info.StepHeight * UNIT,
-		MeleeDamage = info.MeleeDamage,
-		MeleeRange = info.MeleeRange,
-		MeleeInterval = info.MeleeInterval,
-		MeleeDelay = info.MeleeDelay,
-		MagicElement = info.MagicElement,
+		Moveset = info.Moves and npcs.GetPrefabName(name) or "",
+		Attacks = info.Attacks,
 		Faction = info.Faction,
 		Retaliate = info.Retaliate,
 	}
@@ -482,7 +479,6 @@ function npcs.Register(name, info)
 								IdleSequence = info.Idle,
 								WalkSequence = info.Walk,
 								RunSequence = info.Run,
-								AttackSequence = info.Attack,
 								Mirror = info.Biped,
 								OwnsArmature = info.Biped,
 							} or

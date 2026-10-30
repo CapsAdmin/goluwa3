@@ -11,6 +11,7 @@ Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
 import("lua/weapons.lua")
 local damage = import("lua/damage.lua")
+local movesets = import("lua/movesets.lua")
 import("addons/game/lua/autorun/characters.lua")
 
 local function create_ground()
@@ -59,6 +60,31 @@ local function create_target(position)
 	player.character_movement:TeleportTo(position)
 	return player
 end
+
+movesets.Register("test_bite", {Moves = {bite = {Duration = 0.5, Keys = {}, Events = {{At = 0.4, Type = "strike", Damage = 10, Range = 2}}}}})
+
+T.TestPhysics("an unarmed npc chases a player and hurts it with its moves", function()
+	create_ground()
+	local biter = Entity.New{
+		ComponentSet = {"transform", "ai_controller", "character_pose", "health"},
+		transform = {Position = Vec3(0, 0.05, 0)},
+		ai_controller = {
+			Wander = false,
+			WalkSpeed = 3,
+			Moveset = "test_bite",
+			Attacks = {{Move = "bite", Range = 1.5, Interval = 1}},
+		},
+		health = {Health = 1000, MaxHealth = 1000},
+	}
+	biter.ai_controller:Teleport(Vec3(0, 0.05, 0), 0)
+	local player = create_target(Vec3(6, 0.05, 0))
+	run(1)
+	T(player.health.Health)["=="](player.health.MaxHealth)
+	run(5)
+	T(player.health.Health < player.health.MaxHealth)["=="](true)
+	T((player.health.MaxHealth - player.health.Health) % 10)["=="](0)
+	T(biter.move_runner ~= nil)["=="](true)
+end)
 
 T.TestPhysics("npc with a weapon turns to and shoots a player in range", function()
 	create_ground()

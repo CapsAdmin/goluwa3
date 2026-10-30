@@ -23,7 +23,7 @@ A port of the gmod jrpg addon, in the `jrpg` addon (`addons/jrpg/lua/jrpg/` plus
 - The dropped weapon highlight (`components/item_highlight.lua`) shades the item itself with the `item_highlight` surface overlay kind (`lua/surface_overlays/item_highlight.lua`, one layer per child visual, added while the weapon is dropped and removed when held), plus ribbons, glow sprites and motes. See [surface-effects.md](surface-effects.md). `lua/examples/overlays_showcase.lua` (run it with `lua`, nothing imports it) shows every status kind and the item highlight on spheres, and drops a few real weapons.
 - Status particles are one gpu emitter per (entity, status) under a small budget; status looks are surface overlay layers (one per visual of the entity, intensity set from the status amount with `handle:SetIntensity`, rebuilt when the children list changes); the damage flash and low health pulse still use the forward `effects.AddOverlay` rim/fill material.
 - One-shot character animations are replicated pose actions (`character_pose:PlayAction(name, duration)` on the authority, definitions in `lua/animations/actions.lua`, or keyframed with `keyframes.Register`, see [characters.md](characters.md)); the base `character_movement` roll (hold crouch while moving on the ground; the `roll` state replicates its kind) rotates the rendered body and the view (`character_pose`), creatures play `source_pose.AttackSequence` during `attack`.
-- Npcs fight with a gun (`weapon_holder`), in melee (`ai_controller.MeleeDamage`) or with magic (`MagicElement`).
+- Npcs fight with a gun (`weapon_holder`), with moves (`Attacks`, a `strike` or `cast` event, see [navigation-and-npcs.md](navigation-and-npcs.md)).
 
 ## Melee and movesets
 
