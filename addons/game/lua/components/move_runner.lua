@@ -5,7 +5,8 @@ local actors = import("lua/actors.lua")
 local META = objects.CreateTemplate("move_runner")
 local CRASH_GRACE = 0.4
 local CRASH_SPEED = 0.35
-local CRASH_TICKS = 6
+local CRASH_TICKS = 2
+local RUN_LEAD = 1.1
 
 function META:Initialize()
 	self.frame = {}
@@ -73,6 +74,19 @@ function META:Step(dt, authority, early_cancel)
 	local f = math.min(self.time / self.duration, 1)
 	movesets.SampleMotion(move, f, frame, frame.point, self.drive)
 	self.drive.y = actors.GetCenter(owner).y
+
+	if move.Speed then
+		local position = owner.rigid_body:GetOriginPosition()
+		local dx, dz = self.drive.x - position.x, self.drive.z - position.z
+		local length = math.sqrt(dx * dx + dz * dz)
+		local lead = move.Speed * dt * RUN_LEAD
+
+		if length > lead then
+			self.drive.x = position.x + dx / length * lead
+			self.drive.z = position.z + dz / length * lead
+		end
+	end
+
 	owner.character_movement:Drive(self.drive)
 	local event = move.Events[self.next_event]
 

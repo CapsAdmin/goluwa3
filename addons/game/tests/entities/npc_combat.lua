@@ -153,6 +153,8 @@ T.TestPhysics("a charging npc that runs into a wall crashes instead", function()
 	T(run_until_move(charger, "run", 3))["=="](true)
 	T(run_until_move(charger, "crash", 4))["=="](true)
 	T(player.health.Health)["=="](player.health.MaxHealth)
+	T(charger.health.Health < charger.health.MaxHealth)["=="](true)
+	T(charger.health.Health > charger.health.MaxHealth * 0.8)["=="](true)
 end)
 
 T.TestPhysics("npc with a weapon turns to and shoots a player in range", function()
