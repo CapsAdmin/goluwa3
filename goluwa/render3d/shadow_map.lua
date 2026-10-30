@@ -1493,7 +1493,7 @@ function ShadowMap:DrawBatches(
 	push_constants.wind_camera[0] = wind_camera.x
 	push_constants.wind_camera[1] = wind_camera.y
 	push_constants.wind_camera[2] = wind_camera.z
-	push_constants.wind_pixel_scale = wind_pixel_scale
+	push_constants.wind_pixel_scale = self.role == "inset" and wind_pixel_scale or 0
 	push_constants.time = atmosphere.GetWindTime()
 	push_constants.prev_time = atmosphere.GetPreviousWindTime()
 	push_constants.detail_time = atmosphere.GetWindDetailTime()
