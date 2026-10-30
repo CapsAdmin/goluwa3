@@ -268,9 +268,9 @@ function module.Attach(audio)
 			self:SetLooping(self:IsLooping())
 
 			if self.play_on_ready then
-				local playback_position = self.play_on_ready.position or 0
+				local ready = self.play_on_ready
 				self.play_on_ready = nil
-				self:Play(playback_position)
+				self:Play(ready.position or 0, ready.unit)
 			end
 		end
 
@@ -308,10 +308,14 @@ function module.Attach(audio)
 		state.start_serial = state.start_serial + 1
 	end
 
-	function Sound:Play(start_position)
+	function Sound:Play(start_position, unit)
 		if not self:IsReady() or not self:GetBuffer() then
-			self.play_on_ready = {position = tonumber(start_position) or 0}
+			self.play_on_ready = {position = tonumber(start_position) or 0, unit = unit}
 			return nil
+		end
+
+		if unit == "fraction" then
+			start_position = start_position * self:GetBufferLength()
 		end
 
 		clear_sound_slot(self, false)

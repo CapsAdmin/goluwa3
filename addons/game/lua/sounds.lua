@@ -72,7 +72,7 @@ local function get_voice(path)
 	return voice
 end
 
-function sounds.Play(path, position, volume, pitch)
+function sounds.Play(path, position, volume, pitch, start_fraction, fade_in, fade_in_fraction)
 	if not audio or not CLIENT then return end
 
 	volume = volume or 1
@@ -86,7 +86,9 @@ function sounds.Play(path, position, volume, pitch)
 	voice:SetGain(volume)
 	voice:SetPitch(pitch or 1)
 	voice:SetPosition(position:Copy())
-	voice:Play()
+	voice:SetFadeIn(fade_in or 0)
+	voice:SetFadeInFraction(fade_in_fraction or 0)
+	voice:Play(start_fraction or 0, "fraction")
 end
 
 function sounds.PlayRandom(paths, position, volume, pitch)
