@@ -64,6 +64,7 @@ local ROLL_MIN = 0.5
 local ROLL_DECAY = 0.6
 local ROLL_EXIT = 0.25
 local ROLL_FLOOR = 0.3
+local DRIVE_MAX_SPEED = 25
 
 local function classify_roll(direction, rotation)
 	local forward = rotation:GetForward()
@@ -90,6 +91,11 @@ function META:Lunge(direction, distance, delay, duration)
 	}
 end
 
+function META:Drive(position)
+	self.drive_target:CopyFrom(position)
+	self.drive = self.drive_target
+end
+
 function META:GetRollKind()
 	return self:IsRolling() and self.roll.kind or nil
 end
@@ -100,6 +106,7 @@ function META:Initialize()
 	assert(self.Owner.rigid_body)
 	self.crouch_alpha = self:IsCrouching() and 1 or 0
 	self.distance = 0
+	self.drive_target = Vec3()
 	self.previous_velocity = Vec3()
 	self.previous_valid = false
 	self.dead = false
@@ -1134,6 +1141,25 @@ do
 					local gain = math.min(acceleration * dt * wish_speed, add_speed)
 					x = x + move.x * gain
 					z = z + move.z * gain
+				end
+			end
+
+			local drive = self.drive
+
+			if drive then
+				self.drive = nil
+
+				if not self:IsRolling() then
+					local dx, dz = (drive.x - position.x) / dt, (drive.z - position.z) / dt
+					local speed = math.sqrt(dx * dx + dz * dz)
+
+					if speed > DRIVE_MAX_SPEED then
+						dx, dz = dx / speed * DRIVE_MAX_SPEED, dz / speed * DRIVE_MAX_SPEED
+						speed = DRIVE_MAX_SPEED
+					end
+
+					x, z = dx, dz
+					wish_speed = speed
 				end
 			end
 
