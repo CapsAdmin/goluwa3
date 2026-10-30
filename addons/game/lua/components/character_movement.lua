@@ -947,9 +947,6 @@ do
 				impact = math.sqrt(lost_x * lost_x + lost_y * lost_y + lost_z * lost_z)
 			end
 
-			self.previous_velocity:Set(x, y, z)
-			self.previous_valid = true
-
 			if y <= 0 then self.jumping = false end
 
 			self.flat_ground_time = self.flat_ground_time - dt
@@ -1150,6 +1147,8 @@ do
 				base_x, base_y, base_z = carry.x, carry.y, carry.z
 			end
 
+			self.previous_velocity:Set(x, y, z)
+			self.previous_valid = true
 			body:ApplyImpulse(
 				Vec3(x + base_x - velocity.x, y + base_y - velocity.y, z + base_z - velocity.z) / body.InverseMass
 			)
