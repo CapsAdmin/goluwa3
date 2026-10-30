@@ -21,6 +21,7 @@ META:GetSet("StepHeight", 18 * UNIT)
 META:GetSet("MaxDrop", 1.2)
 META:IsSet("Running", false)
 META:IsSet("Wander", true)
+META:IsSet("Retaliate", false)
 META:GetSet("WanderRadius", 30)
 META:GetSet("WanderMinDelay", 1)
 META:GetSet("WanderMaxDelay", 6)
@@ -58,6 +59,7 @@ local TARGET_CHEST = 0.6
 local AIM_TOLERANCE = 0.04
 local PLAYER_FACTION = "friend"
 local FOLLOW_START_DISTANCE = 4
+local PURSUE_START_DISTANCE = 2.5
 local FOLLOW_STAND_DISTANCE = 2
 local FOLLOW_RUN_DISTANCE = 9
 local FOLLOW_REPATH_DISTANCE = 3.5
@@ -162,6 +164,35 @@ function META:SetLeader(leader)
 	if usable then usable:SetPrompt(leader and "stay" or "follow") end
 end
 
+function META:OnTakeDamage(info)
+	local attacker = info.Attacker
+
+	if
+		not self.Retaliate or
+		not self:HasAuthority()
+		or
+		not attacker or
+		attacker == self.Owner or
+		not attacker.health or
+		not attacker.character_movement
+	then
+		return
+	end
+
+	self.provoker = attacker
+end
+
+function META:GetProvoker()
+	local provoker = self.provoker
+
+	if provoker and (not provoker:IsValid() or provoker.health:IsDead()) then
+		self.provoker = nil
+		provoker = nil
+	end
+
+	return provoker
+end
+
 function META:OnUsed(user)
 	if self.Faction ~= PLAYER_FACTION or not self:HasAuthority() then return end
 
@@ -169,14 +200,14 @@ function META:OnUsed(user)
 	return true
 end
 
-function META:FollowLeader(position, leader)
+function META:FollowLeader(position, leader, start_distance)
 	local leader_position = leader.transform:GetPosition()
 	local dx, dz = position.x - leader_position.x, position.z - leader_position.z
 	local distance = math.sqrt(dx * dx + dz * dz)
 	local goal = self.goal
 
 	if not goal then
-		if distance < FOLLOW_START_DISTANCE then return false end
+		if distance < start_distance then return false end
 	else
 		local gx, gz = goal.x - leader_position.x, goal.z - leader_position.z
 
@@ -287,11 +318,16 @@ end
 
 function META:Think(dt, position)
 	self.time = self.time + dt
-	local leader = self.leader
+	local provoker = self:GetProvoker()
+	local leader = provoker or self.leader
 
 	if leader then
 		if leader:IsValid() and not leader.health:IsDead() then
-			if not self:FollowLeader(position, leader) then return end
+			if
+				not self:FollowLeader(position, leader, provoker and PURSUE_START_DISTANCE or FOLLOW_START_DISTANCE)
+			then
+				return
+			end
 		else
 			self:SetLeader(nil)
 		end
@@ -496,6 +532,7 @@ function META:UpdateTarget(position)
 		end
 	end
 
+	target = target or self:GetProvoker()
 	self.target = target
 	return target
 end
@@ -516,13 +553,14 @@ function META:NextCommand(dt)
 
 	if stunned then self.attack_at = nil end
 
-	if target then
+	if target and self:CanFight() then
 		self.time = self.time + dt
 		self.stuck_position = nil
 
 		if not self:IsArmed() and not stunned then self:Fight(target, position) end
 	else
-		self.target = nil
+		if not target then self.target = nil end
+
 		self:Think(dt, position)
 	end
 
@@ -560,7 +598,14 @@ function META:NextCommand(dt)
 
 	if target then
 		local eye = position + movement:GetViewOffset()
-		local aim = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * TARGET_CHEST, 0)
+		local target_movement = target.character_movement
+		local aim = target.transform:GetPosition() + Vec3(
+				0,
+				self:CanFight() and
+					target_movement:GetHeight() * TARGET_CHEST or
+					target_movement:GetEyeOffset().y,
+				0
+			)
 		local dx, dy, dz = aim.x - eye.x, aim.y - eye.y, aim.z - eye.z
 		local delta = math.normalizeangle(math.atan2(-dx, -dz) - yaw)
 		local step = self.TurnSpeed * dt
@@ -569,7 +614,12 @@ function META:NextCommand(dt)
 		local aim_yaw = yaw
 		local pitch = math.atan2(dy, math.sqrt(dx * dx + dz * dz))
 
-		if not stunned and math.abs(delta) < AIM_TOLERANCE and self.time >= self.next_fire then
+		if
+			self:CanFight() and
+			not stunned and
+			math.abs(delta) < AIM_TOLERANCE and
+			self.time >= self.next_fire
+		then
 			self.next_fire = self.time + self.FireInterval * math.randomf(0.7, 1.3)
 			cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
 			aim_yaw = aim_yaw + math.randomf(-self.AimError, self.AimError)

@@ -163,6 +163,7 @@ npcs.Definitions = {
 	breen = {
 		Faction = "friend",
 		Dummy = true,
+		Retaliate = true,
 		Biped = true,
 		Model = "models/breen.mdl",
 		Idle = "idle_subtle",
@@ -230,6 +231,7 @@ function npcs.Register(name, info)
 		MeleeDelay = info.MeleeDelay,
 		MagicElement = info.MagicElement,
 		Faction = info.Faction,
+		Retaliate = info.Retaliate,
 	}
 	return prefab.Register(
 		npcs.GetPrefabName(name),

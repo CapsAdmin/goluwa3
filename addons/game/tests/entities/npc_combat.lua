@@ -10,7 +10,7 @@ Entity.RegisterComponent("player_controller", import("lua/components/player_cont
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
 import("lua/weapons.lua")
-import("lua/damage.lua")
+local damage = import("lua/damage.lua")
 import("addons/game/lua/autorun/characters.lua")
 
 local function create_ground()
@@ -164,4 +164,35 @@ T.TestPhysics("a physgun is held by an npc as it is by a player", function()
 	cmd.buttons = usercmd.BUTTON.ACTIVE
 	physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
 	T(gunman.character_pose:IsHolding())["=="](false)
+end)
+
+T.TestPhysics("an unarmed npc that retaliates follows whoever hit it, stops two meters away and keeps aiming at it", function()
+	create_ground()
+	local npc = Entity.New{
+		ComponentSet = {"transform", "ai_controller", "character_pose", "health"},
+		transform = {Position = Vec3(0, 0.05, 0)},
+		ai_controller = {
+			Wander = false,
+			Retaliate = true,
+			WalkSpeed = 3,
+			RunSpeed = 5,
+			Faction = "friend",
+		},
+		health = {Health = 1000, MaxHealth = 1000},
+	}
+	npc.ai_controller:Teleport(Vec3(0, 0.05, 0), 0)
+	local player = create_target(Vec3(8, 0.05, 0))
+	run(1)
+	T(npc.transform:GetPosition().x)["<"](0.5)
+	damage.Deal(npc, {Attacker = player, Damage = 1})
+	run(6)
+	local distance = (npc.transform:GetPosition() - player.transform:GetPosition()):GetLength()
+	T(distance > 1.5 and distance < 2.6)["=="](true)
+	T(npc.transform:GetRotation():GetForward().x > 0.9)["=="](true)
+	npc.character_pose:OnUpdate(1 / 60)
+	T(math.abs(npc.character_pose.pitch:GetForward().y) < 0.05)["=="](true)
+	player.character_movement:TeleportTo(Vec3(8, 0.05, 6))
+	run(6)
+	T(npc.transform:GetPosition().z > 3)["=="](true)
+	T(npc.transform:GetRotation():GetForward().z > 0.5)["=="](true)
 end)
