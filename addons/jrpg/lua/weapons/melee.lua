@@ -49,14 +49,16 @@ function META:Initialize()
 	self.idle = 0
 	self.hold = 0
 	self.last_number = 0
-	self.frame = {}
-	self.drive = Vec3()
 	self.fading_trails = {}
 	self:AddGlobalEvent("Update")
 end
 
 function META:GetHolder()
 	return self.Owner:GetParent()
+end
+
+function META:GetRunner()
+	return self:GetHolder():EnsureComponent("move_runner")
 end
 
 function META:StartMove(move, authority)
@@ -80,26 +82,13 @@ function META:StartMove(move, authority)
 
 	local weapon = self.Owner.weapon
 	weapon:SetDrawn(true)
-	self.attack = move
-	self.attack_time = 0
-	self.duration = move.Duration / weapon.RateMultiplier
-	self.next_event = 1
 	self.queued = nil
-	local frame = movesets.NewFrame(holder, move, self.frame)
-	pose:SetFocusOn(frame.target, frame.point)
-	self.predicted_focus = pose.FocusPoint
-
-	if authority then
-		pose:PlayAction(move.Action, self.duration)
-	else
-		pose:PredictAction(move.Action, self.duration)
-	end
-
+	self:GetRunner():Begin(move, move.Duration / weapon.RateMultiplier, self, authority)
 	return true
 end
 
 function META:Request(kind, cmd, authority)
-	if self.attack then
+	if self:GetRunner():IsPlaying() then
 		self.queued = kind
 		return
 	end
@@ -208,7 +197,8 @@ end
 
 function META:Latch(move, event)
 	local holder = self:GetHolder()
-	local target = self.frame.target
+	local runner = self:GetRunner()
+	local target = runner.frame.target
 
 	if
 		not target or
@@ -223,7 +213,7 @@ function META:Latch(move, event)
 	if target and not grab.IsHeld(target) then
 		if grab.Latch(holder, target, {Def = move, Bones = target.source_pose.bones}) then
 			self.grabbed = target
-			holder.character_pose:SetFocusOn(nil, self.frame.point)
+			holder.character_pose:SetFocusOn(nil, runner.frame.point)
 		end
 	end
 end
@@ -235,7 +225,7 @@ function META:Throw(event, f)
 
 	local holder = self:GetHolder()
 	local forward = actors.GetForward(holder)
-	local throw = grab.Get(victim):GetVelocity(f, self.duration) * event.Inherit + Vec3(-forward.z, 0, forward.x) * event.Throw.x + Vec3(0, event.Throw.y, 0) + forward * event.Throw.z
+	local throw = grab.Get(victim):GetVelocity(f, self:GetRunner().duration) * event.Inherit + Vec3(-forward.z, 0, forward.x) * event.Throw.x + Vec3(0, event.Throw.y, 0) + forward * event.Throw.z
 	local weapon = self.Owner.weapon
 
 	for i, type_name in ipairs(weapon:GetDamageTypes(SLASH)) do
@@ -258,11 +248,9 @@ function META:Throw(event, f)
 	self:EndGrab(throw)
 end
 
-function META:Chain(authority)
-	local move = self.attack
+function META:Chain(move, authority)
 	local set = movesets.Get(self.Moveset)
 	local queued = self.queued
-	self.attack = nil
 	self.idle = 0
 
 	if queued == "heavy" then
@@ -278,6 +266,22 @@ function META:Chain(authority)
 	end
 end
 
+function META:OnMoveEvent(move, event, f)
+	if event.Type == "hit" then
+		self:Hit(event, self:GetRunner():GetStrikeForward())
+	elseif event.Type == "latch" then
+		self:Latch(move, event)
+	else
+		self:Throw(event, f)
+	end
+end
+
+function META:OnMoveInterrupted()
+	if self.grabbed then self:EndGrab(Vec3()) end
+
+	self.queued = nil
+end
+
 function META:Step(dt, cmd, authority)
 	local ticks = cmd.number - self.last_number
 	self.last_number = cmd.number
@@ -285,9 +289,9 @@ function META:Step(dt, cmd, authority)
 	if ticks < 0 or ticks > MAX_COMMAND_GAP then ticks = 1 end
 
 	dt = dt * ticks
-	local move = self.attack
+	local runner = self:GetRunner()
 
-	if not move then
+	if not runner:IsPlaying() then
 		self.idle = self.idle + dt
 		self.hold = 0
 		return
@@ -304,54 +308,9 @@ function META:Step(dt, cmd, authority)
 		self.hold = 0
 	end
 
-	local holder = self:GetHolder()
-	local pose = holder.character_pose
+	local state, move = runner:Step(dt, authority, self.queued)
 
-	if pose:IsStunned() then
-		if self.grabbed then self:EndGrab(Vec3()) end
-
-		self.attack = nil
-		self.queued = nil
-		return
-	end
-
-	self.attack_time = self.attack_time + dt
-	local frame = self.frame
-
-	if not authority and pose.FocusPoint ~= self.predicted_focus and pose.Action == move.Action then
-		self.predicted_focus = pose.FocusPoint
-		movesets.Anchor(frame, pose.FocusPoint:Copy())
-	end
-
-	local f = math.min(self.attack_time / self.duration, 1)
-	local center = actors.GetCenter(holder)
-	movesets.SampleMotion(move, f, frame, frame.point, self.drive)
-	self.drive.y = center.y
-	holder.character_movement:Drive(self.drive)
-	local event = move.Events[self.next_event]
-
-	while event and f >= event.At do
-		self.next_event = self.next_event + 1
-
-		if authority then
-			if event.Type == "hit" then
-				local forward = movesets.GetFocus(frame) - center
-				forward.y = 0
-				forward = forward:GetLength() > 1e-3 and forward:GetNormalized() or actors.GetForward(holder)
-				self:Hit(event, forward)
-			elseif event.Type == "latch" then
-				self:Latch(move, event)
-			else
-				self:Throw(event, f)
-			end
-		end
-
-		event = move.Events[self.next_event]
-	end
-
-	if f >= (self.queued and move.Cancel or 1) and not event then
-		self:Chain(authority)
-	end
+	if state == "finished" then self:Chain(move, authority) end
 end
 
 function META:OnWeaponThink(dt, cmd)
@@ -365,7 +324,7 @@ end
 function META:OnWeaponHolster()
 	if self.grabbed then self:EndGrab(Vec3()) end
 
-	self.attack = nil
+	self:GetRunner():Cancel()
 	self.queued = nil
 end
 

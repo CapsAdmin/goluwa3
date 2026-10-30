@@ -98,7 +98,7 @@ T.TestPhysics("a light attack draws the sheathed sword, steps in and hits the ta
 	T(victim.health:GetHealth() < 1000)["=="](true)
 	T(attacker.transform:GetPosition().z < -0.3)["=="](true)
 	T(attacker.health:GetHealth())["=="](100)
-	T(sword.weapon_melee.attack)["=="](nil)
+	T(attacker.move_runner.move)["=="](nil)
 end)
 
 T.TestPhysics("a sheathed weapon goes back on the back after its delay", function()

@@ -6,3 +6,4 @@ Entity.RegisterComponent("procedural_pose", import("lua/components/procedural_po
 Entity.RegisterComponent("ragdoll", import("lua/components/ragdoll.lua"))
 Entity.RegisterComponent("ragdoll_part", import("lua/components/ragdoll_part.lua"))
 Entity.RegisterComponent("seat", import("lua/components/seat.lua"))
+Entity.RegisterComponent("move_runner", import("lua/components/move_runner.lua"))
