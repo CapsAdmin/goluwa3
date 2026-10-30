@@ -21,6 +21,10 @@ META.Network = {
 	Action = {"string", 0.05, "reliable", to_owner = true},
 	ActionDuration = {"number", 0.05, "reliable", to_owner = true},
 	Actions = {"number", 0.05, "reliable", to_owner = true},
+	Focus = {"entity", 0.05, "reliable", to_owner = true},
+	FocusPoint = {"vec3", 0.05, "reliable", to_owner = true},
+	Freezes = {"number", 0.05, "reliable", to_owner = true},
+	FreezeTime = {"number", 0.05, "reliable", to_owner = true},
 	LeanSide = {"number", 1 / 60, "sequenced", true},
 	LeanForward = {"number", 1 / 60, "sequenced", true},
 	Distance = {"number", 1 / 60, "sequenced", true},
@@ -40,6 +44,10 @@ META:GetSet("States", "")
 META:GetSet("Action", "")
 META:GetSet("ActionDuration", 0)
 META:GetSet("Actions", 0)
+META:GetSet("Focus", NULL)
+META:GetSet("FocusPoint", Vec3())
+META:GetSet("Freezes", 0)
+META:GetSet("FreezeTime", 0)
 META:GetSet("LeanSide", 0)
 META:GetSet("LeanForward", 0)
 META:GetSet("Distance", 0)
@@ -63,6 +71,7 @@ local seat_rotation = Quat()
 local seat_look = Quat()
 local SEAT_LOOK_YAW = 1.4
 local RELAY_FRESH = 0.3
+local PREDICTED_ACTION_WINDOW = 1
 
 function META:Initialize()
 	self.pitch = Quat(0, 0, 0, 1)
@@ -77,6 +86,9 @@ function META:Initialize()
 	self.seen_hits = self.Hits
 	self.seen_reacts = self.Reacts
 	self.seen_actions = self.Actions
+	self.seen_freezes = self.Freezes
+	self.predicted_actions = {}
+	self.freeze = 0
 	self.seen_ready_shots = self.Shots
 	self.anims = {}
 	self.state_args = {}
@@ -114,6 +126,92 @@ function META:PlayAction(name, duration)
 	self:SetAction(name)
 	self:SetActionDuration(duration)
 	self:SetActions(self.Actions + 1)
+end
+
+function META:StartAction(name, duration)
+	local anims = self.anims
+	local inst = animations.NewInstance(name)
+	inst.duration = math.max(duration, 0.001)
+
+	if inst.def.Group then
+		for i = #anims, 1, -1 do
+			if anims[i].def.Group == inst.def.Group then table.remove(anims, i) end
+		end
+	end
+
+	anims[#anims + 1] = inst
+
+	if inst.def.Init then inst.def.Init(inst, self) end
+end
+
+function META:PredictAction(name, duration)
+	local predicted = self.predicted_actions
+	predicted[#predicted + 1] = {name = name, time = system.GetTime()}
+	self:StartAction(name, duration)
+end
+
+function META:AdoptPredictedAction(name)
+	local predicted = self.predicted_actions
+	local now = system.GetTime()
+
+	for i = 1, #predicted do
+		local entry = predicted[i]
+
+		if entry.name == name and now - entry.time < PREDICTED_ACTION_WINDOW then
+			for _ = 1, i do
+				table.remove(predicted, 1)
+			end
+
+			return true
+		end
+	end
+
+	for i = #predicted, 1, -1 do
+		if now - predicted[i].time >= PREDICTED_ACTION_WINDOW then table.remove(predicted, i) end
+	end
+
+	return false
+end
+
+function META:SetFocusOn(entity, point)
+	self:SetFocus(entity or NULL)
+	self:SetFocusPoint(point:Copy())
+end
+
+function META:GetFacingPoint()
+	local focus = self.Focus
+
+	if focus:IsValid() then
+		local body = focus.rigid_body
+		return body and body:GetPosition() or focus.transform:GetPosition()
+	end
+
+	return self.FocusPoint
+end
+
+function META:Freeze(duration)
+	self:SetFreezeTime(duration)
+	self:SetFreezes(self.Freezes + 1)
+	self.seen_freezes = self.Freezes
+	self.freeze = duration
+end
+
+function META:IsFrozen()
+	return self.freeze > 0
+end
+
+function META:GetTimeScale()
+	return self.freeze > 0 and 0 or self.animation_speed
+end
+
+function META:IsStunned()
+	local anims = self.anims
+
+	for i = 1, #anims do
+		if anims[i].def.Stun and anims[i].weight > 0.5 then return true end
+	end
+
+	return false
 end
 
 function META:GetActiveAction()
@@ -227,6 +325,16 @@ end
 function META:UpdateAnimations(dt)
 	local anims = self.anims
 
+	if self.Freezes ~= self.seen_freezes then
+		self.seen_freezes = self.Freezes
+		self.freeze = self.FreezeTime
+	end
+
+	if self.freeze > 0 then
+		self.freeze = math.max(self.freeze - dt, 0)
+		dt = 0
+	end
+
 	if self.States ~= self.seen_states then
 		self.seen_states = self.States
 		table.clear(self.state_args)
@@ -238,16 +346,10 @@ function META:UpdateAnimations(dt)
 
 	if self.Actions ~= self.seen_actions then
 		self.seen_actions = self.Actions
-		local inst = animations.NewInstance(self.Action)
-		inst.duration = math.max(self.ActionDuration, 0.001)
 
-		if inst.def.Group then
-			for i = #anims, 1, -1 do
-				if anims[i].def.Group == inst.def.Group then table.remove(anims, i) end
-			end
+		if not self:AdoptPredictedAction(self.Action) then
+			self:StartAction(self.Action, self.ActionDuration)
 		end
-
-		anims[#anims + 1] = inst
 	end
 
 	for _, trigger in ipairs(animations.Triggers) do

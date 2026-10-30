@@ -510,16 +510,22 @@ function META:NextCommand(dt)
 	self.dir_x, self.dir_z = nil, nil
 	self.chasing = false
 	local target = not far and self:UpdateTarget(position)
+	local pose = owner.character_pose
+	local stunned = pose ~= nil and (pose:IsStunned() or pose:IsFrozen())
+
+	if stunned then self.attack_at = nil end
 
 	if target then
 		self.time = self.time + dt
 		self.stuck_position = nil
 
-		if not self:IsArmed() then self:Fight(target, position) end
+		if not self:IsArmed() and not stunned then self:Fight(target, position) end
 	else
 		self.target = nil
 		self:Think(dt, position)
 	end
+
+	if stunned then self.dir_x, self.dir_z = nil, nil end
 
 	local dir_x, dir_z = self.dir_x, self.dir_z
 	self.yaw = self.yaw + owner.character_movement:GetGroundYawVelocity() * dt
@@ -562,7 +568,7 @@ function META:NextCommand(dt)
 		local aim_yaw = yaw
 		local pitch = math.atan2(dy, math.sqrt(dx * dx + dz * dz))
 
-		if math.abs(delta) < AIM_TOLERANCE and self.time >= self.next_fire then
+		if not stunned and math.abs(delta) < AIM_TOLERANCE and self.time >= self.next_fire then
 			self.next_fire = self.time + self.FireInterval * math.randomf(0.7, 1.3)
 			cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
 			aim_yaw = aim_yaw + math.randomf(-self.AimError, self.AimError)

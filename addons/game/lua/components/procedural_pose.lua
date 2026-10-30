@@ -71,7 +71,7 @@ function META:OnUpdate(dt)
 		self.state,
 		self.bones,
 		owner,
-		dt * owner.character_pose.animation_speed * owner.character_pose.rate_variation
+		dt * owner.character_pose:GetTimeScale() * owner.character_pose.rate_variation
 	)
 	self:CopyDisplay()
 

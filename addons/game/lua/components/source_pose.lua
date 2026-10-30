@@ -186,7 +186,38 @@ function META:SwitchSequence(animator, sequence, override)
 	if override and override.def.Loop == false then animator:Restart() end
 end
 
+local function find_creature_sequence(pose, clips)
+	local anims = pose.anims
+
+	for i = #anims, 1, -1 do
+		local names = anims[i].def.CreatureSequences
+
+		if names then
+			for _, name in ipairs(names) do
+				if clips[name] then return name, anims[i] end
+			end
+		end
+	end
+end
+
 function META:UpdateCreature(animator, skeleton, pose, dt)
+	local reaction, inst = find_creature_sequence(pose, skeleton.ClipsByName)
+
+	if reaction then
+		if self.reaction_inst ~= inst then
+			self.reaction_inst = inst
+			self.sequence = reaction
+			animator:SetLoop(false)
+			animator:SetSequence(reaction)
+			animator:Restart()
+		end
+
+		animator:SetSpeed(pose:GetTimeScale() * pose.rate_variation)
+		return
+	end
+
+	self.reaction_inst = nil
+
 	if pose:IsPlaying("attack") and self.AttackSequence ~= "" then
 		if self.attack_actions ~= pose.Actions then
 			self.attack_actions = pose.Actions
@@ -196,7 +227,7 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 			animator:Restart()
 		end
 
-		animator:SetSpeed(pose.animation_speed * pose.rate_variation)
+		animator:SetSpeed(pose:GetTimeScale() * pose.rate_variation)
 		return
 	end
 
@@ -248,9 +279,9 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 		end
 	end
 
-	animator:SetSpeed(rate * pose.animation_speed * pose.rate_variation)
+	animator:SetSpeed(rate * pose:GetTimeScale() * pose.rate_variation)
 
-	if clip and clip.Duration > 0 and pose.animation_speed == 1 then
+	if clip and clip.Duration > 0 and pose:GetTimeScale() == 1 then
 		local ground_speed = clip:GetGroundSpeed(params)
 
 		if state == "idle" then
@@ -369,10 +400,10 @@ function META:UpdatePlayer(animator, pose, dt)
 				override and
 				override.def.Speed or
 				1
-			) * pose.animation_speed * pose.rate_variation
+			) * pose:GetTimeScale() * pose.rate_variation
 	)
 
-	if clip and clip.Duration > 0 and not override and pose.animation_speed == 1 then
+	if clip and clip.Duration > 0 and not override and pose:GetTimeScale() == 1 then
 		if speed < 0.15 then
 			animator:SyncCycle(
 				pose_variation.GetClockCycle(pose.seed, pose.rate_scale, system.GetGameTime(), clip.Duration),

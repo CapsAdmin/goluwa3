@@ -1071,9 +1071,16 @@ do
 			move = MOVE.move:Copy()
 			wish_speed = MOVE.wish_speed
 			jump_requested = MOVE.jump_pressed
+			local frozen = pose and pose:IsFrozen() and not self.Owner.player_controller
+
+			if pose and pose:IsStunned() then
+				wish_speed = 0
+				jump_requested = false
+			end
+
 			local lunge = self.lunge
 
-			if lunge then
+			if lunge and not frozen then
 				if lunge.delay > 0 then
 					lunge.delay = lunge.delay - dt
 				else
@@ -1128,6 +1135,11 @@ do
 					x = x + move.x * gain
 					z = z + move.z * gain
 				end
+			end
+
+			if frozen then
+				x, y, z = 0, 0, 0
+				wish_speed = 0
 			end
 
 			if grounded and y == 0 and ground_normal then
