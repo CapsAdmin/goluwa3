@@ -14,6 +14,7 @@ return {
 		FireRate = 0.25,
 		HoldOffset = Vec3(0.16, 0, 0),
 		Holster = true,
+		AimSlack = true,
 		Rollable = true,
 	},
 	Nodes = {

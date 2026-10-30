@@ -1,3 +1,4 @@
+local pvars = import("goluwa/cli/pvars.lua")
 local objects = import("goluwa/objects/objects.lua")
 local input = import("goluwa/input.lua")
 local system = import("goluwa/system.lua")
@@ -10,6 +11,41 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local third_person = import("lua/third_person.lua")
 local camera_modes = import("lua/camera_modes.lua")
 local META = objects.CreateTemplate("player_input")
+local aim_slack = pvars.Setup2{
+	key = "cl_aim_slack",
+	category = "Game",
+	group = "Player",
+	default = "auto",
+	enums = {"on", "off", "auto"},
+	help = "first person aim is a cursor that moves freely inside a circle around the screen and only turns the view once it leaves the circle, auto leaves it to the weapon in the right hand",
+}
+local aim_slack_radius = pvars.Setup2{
+	key = "cl_aim_slack_radius",
+	category = "Game",
+	group = "Player",
+	default = 12,
+	min = 0,
+	max = 60,
+	help = "radius in degrees of the circle the aim cursor moves in before the view turns",
+}
+local aim_slack_x = pvars.Setup2{
+	key = "cl_aim_slack_center_x",
+	category = "Game",
+	group = "Player",
+	default = 0,
+	min = -45,
+	max = 45,
+	help = "horizontal angle in degrees of the center of the aim circle from the middle of the screen, positive is right",
+}
+local aim_slack_y = pvars.Setup2{
+	key = "cl_aim_slack_center_y",
+	category = "Game",
+	group = "Player",
+	default = 0,
+	min = -45,
+	max = 45,
+	help = "vertical angle in degrees of the center of the aim circle from the middle of the screen, positive is down",
+}
 META:GetSet("Mode", "fly")
 META:GetSet("Rotation", Quat(0, 0, 0, 1))
 META:GetSet("Pitch", 0)
@@ -33,6 +69,9 @@ function META:Initialize()
 	self:SetRotation(self.Rotation or Quat():Identity())
 	self.look_delta = Vec2()
 	self.look_nudge = Vec2()
+	self.aim_offset = Vec2()
+	self.aim_slack = false
+	self.aim_rotation = Quat(0, 0, 0, 1)
 	self.move_local = Vec3()
 	self.mouse_trapped = false
 	self.crouching = false
@@ -143,8 +182,20 @@ function META:SyncFromCamera(camera)
 	self.Pitch = math.asin(math.clamp(forward.y, -1, 1))
 end
 
+function META:GetAimAngles()
+	if not self.aim_slack then return 0, 0 end
+
+	return math.rad(aim_slack_x:Get()) + self.aim_offset.x,
+	math.rad(aim_slack_y:Get()) + self.aim_offset.y
+end
+
 function META:GetAimRotation()
-	return self.Rotation
+	local aim = self.aim_rotation
+	local x, y = self:GetAimAngles()
+	aim:CopyFrom(self.Rotation)
+	aim:RotateYaw(-x)
+	aim:RotatePitch(-y)
+	return aim
 end
 
 function META:GetForward()
@@ -169,7 +220,7 @@ function META:BuildCommand(cmd)
 	local BUTTON = usercmd.BUTTON
 	local buttons = 0
 	cmd.view:CopyFrom(self.Rotation)
-	cmd.aim:CopyFrom(self.Rotation)
+	cmd.aim:CopyFrom(self:GetAimRotation())
 	cmd.mode = self.Mode
 	cmd.fov = self.FOV
 
@@ -414,8 +465,11 @@ function META:OnCameraInputUpdate(dt)
 	local mouse_delta = (self.look_delta + self.look_nudge * self.ArrowLookSpeed) * self.MouseSensitivity
 	mouse_delta = mouse_delta * (self.FOV / 175)
 	local mode = camera_modes.GetActive()
+	local offset = self.aim_offset
 
 	if mode then
+		offset:Set(0, 0)
+		self.aim_slack = false
 		mode.AddMouse(mouse_delta)
 		return
 	end
@@ -423,7 +477,39 @@ function META:OnCameraInputUpdate(dt)
 	local weapon = self.Owner.weapon_holder:GetWeapon("right")
 
 	if weapon and weapon:CallLocalEvent("OnWeaponMouseLook", self, mouse_delta) then
+		offset:Set(0, 0)
+		self.aim_slack = false
 		return
+	end
+
+	local slack = aim_slack:Get()
+	self.aim_slack = (
+			slack == "on" or
+			slack == "auto" and
+			weapon ~= nil and
+			weapon.weapon:IsAimSlack()
+		)
+		and
+		not third_person.IsEnabled()
+		and
+		not self.Owner.character_movement:IsSeated()
+
+	if self.aim_slack then
+		local radius = math.rad(aim_slack_radius:Get())
+		local x, y = offset.x + mouse_delta.x, offset.y + mouse_delta.y
+		local length = math.sqrt(x * x + y * y)
+
+		if length > radius then
+			local keep = radius / length
+			mouse_delta.x, mouse_delta.y = x * (1 - keep), y * (1 - keep)
+			x, y = x * keep, y * keep
+		else
+			mouse_delta.x, mouse_delta.y = 0, 0
+		end
+
+		offset:Set(x, y)
+	else
+		offset:Set(0, 0)
 	end
 
 	local new_pitch = math.clamp(self.Pitch + mouse_delta.y, self.MinPitch, self.MaxPitch)

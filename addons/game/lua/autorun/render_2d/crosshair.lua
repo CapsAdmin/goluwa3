@@ -4,6 +4,7 @@ local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local third_person = import("lua/third_person.lua")
 local camera_modes = import("lua/camera_modes.lua")
 local RADIUS = 2.5
+local AIM_DISTANCE = 100
 local settings = third_person.Settings
 
 event.AddListener("DrawHUD", "crosshair", function()
@@ -37,6 +38,19 @@ event.AddListener("DrawHUD", "crosshair", function()
 		x, y = screen.x, screen.y
 
 		if blocked then red = 0.4 end
+	end
+
+	local player_input = rig.player_input
+
+	if not settings.enabled and player_input and player_input.aim_slack then
+		local camera = render3d.GetMainCamera()
+		local screen = camera:WorldPositionToScreen(
+			camera:GetPosition() + player_input:GetAimRotation():GetForward() * AIM_DISTANCE,
+			w,
+			h
+		)
+
+		if screen then x, y = screen.x, screen.y end
 	end
 
 	render2d.SetTexture(nil)
