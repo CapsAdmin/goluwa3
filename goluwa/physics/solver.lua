@@ -538,6 +538,8 @@ function Solver:IslandPairFilter(pair)
 	local body_a = pair.entry_a.body
 	local body_b = pair.entry_b.body
 
+	if not body_a:ShouldCollide(body_b) then return false end
+
 	if body_a:GetAwake() or body_b:GetAwake() then return true end
 
 	if #body_a:GetColliders() > 1 or #body_b:GetColliders() > 1 then
