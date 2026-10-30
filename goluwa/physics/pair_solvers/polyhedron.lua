@@ -760,6 +760,12 @@ function polyhedron.SolvePolyhedronPairCollision(body_a, body_b, dt)
 		end
 	end
 
+	if
+		polyhedron_cache.AreWorldBoundsSeparated(body_a, poly_a, body_b, poly_b, EPSILON * 2)
+	then
+		return try_swept_polyhedron_pair_fallback(body_a, body_b, poly_a, poly_b, dt)
+	end
+
 	local center_delta = body_b:GetPosition() - body_a:GetPosition()
 	local vertices_a = polyhedron.GetPolyhedronWorldVertices(body_a, poly_a)
 	local vertices_b = polyhedron.GetPolyhedronWorldVertices(body_b, poly_b)

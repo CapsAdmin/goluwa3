@@ -102,7 +102,23 @@ local function get_polyhedron_world_cache(body, polyhedron_data)
 	cache.ry = rotation.y
 	cache.rz = rotation.z
 	cache.rw = rotation.w
-	cache.vertices = fill_polyhedron_world_vertices(polyhedron_data, position, rotation, cache.vertices)
+	local vertices = fill_polyhedron_world_vertices(polyhedron_data, position, rotation, cache.vertices)
+	local min_x, min_y, min_z = math.huge, math.huge, math.huge
+	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+
+	for i = 1, #vertices do
+		local point = vertices[i]
+		min_x = math.min(min_x, point.x)
+		min_y = math.min(min_y, point.y)
+		min_z = math.min(min_z, point.z)
+		max_x = math.max(max_x, point.x)
+		max_y = math.max(max_y, point.y)
+		max_z = math.max(max_z, point.z)
+	end
+
+	cache.vertices = vertices
+	cache.min_x, cache.min_y, cache.min_z = min_x, min_y, min_z
+	cache.max_x, cache.max_y, cache.max_z = max_x, max_y, max_z
 	cache.faces_valid = false
 	return cache
 end
@@ -113,6 +129,17 @@ end
 
 function polyhedron_cache.GetPolyhedronWorldVertices(body, polyhedron_data)
 	return get_polyhedron_world_cache(body, polyhedron_data).vertices
+end
+
+function polyhedron_cache.AreWorldBoundsSeparated(body_a, polyhedron_a, body_b, polyhedron_b, padding)
+	local a = get_polyhedron_world_cache(body_a, polyhedron_a)
+	local b = get_polyhedron_world_cache(body_b, polyhedron_b)
+	return a.min_x > b.max_x + padding or
+		b.min_x > a.max_x + padding or
+		a.min_y > b.max_y + padding or
+		b.min_y > a.max_y + padding or
+		a.min_z > b.max_z + padding or
+		b.min_z > a.max_z + padding
 end
 
 function polyhedron_cache.GetPolyhedronWorldFace(body, polyhedron_data, face_index)
