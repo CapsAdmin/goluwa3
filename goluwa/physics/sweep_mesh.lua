@@ -292,6 +292,12 @@ do
 	end
 end
 
+local TRIANGLE_CONTACT_OPTIONS = {
+	epsilon = EPSILON,
+	triangle_slop = 0,
+	manifold_merge_distance = 0.08,
+}
+
 local function evaluate_polyhedron_triangle_contact(collider, polyhedron, position, rotation, v0, v1, v2)
 	return polyhedron_triangle_contacts.FindContact(
 		get_polyhedron_sweep_proxy(collider, position, rotation),
@@ -299,11 +305,7 @@ local function evaluate_polyhedron_triangle_contact(collider, polyhedron, positi
 		v0,
 		v1,
 		v2,
-		{
-			epsilon = EPSILON,
-			triangle_slop = 0,
-			manifold_merge_distance = 0.08,
-		}
+		TRIANGLE_CONTACT_OPTIONS
 	)
 end
 
@@ -328,15 +330,21 @@ local function build_polyhedron_triangle_sweep_hit(collider, polyhedron, positio
 end
 
 local POLYHEDRON_TRIANGLE_SWEEP_CONTEXT = {}
+local SWEEP_POSITION = Vec3()
+local SWEEP_DIRECTION = Vec3()
 
 local function evaluate_polyhedron_triangle_distance(context, alpha)
-	local position = context.start_position + context.movement * (alpha * context.sweep_fraction)
+	local t = alpha * context.sweep_fraction
+	local start, movement = context.start_position, context.movement
+	local position = SWEEP_POSITION
+	position.x, position.y, position.z = start.x + movement.x * t, start.y + movement.y * t, start.z + movement.z * t
 	local proxy = get_polyhedron_sweep_proxy(context.collider, position, context.rotation)
 	local poly_vertices = polyhedron_cache.GetPolyhedronWorldVertices(proxy, context.polyhedron)
 	local result = gjk_epa.Distance(
 		poly_vertices,
 		context.prism_vertices,
-		context.last_normal or (position - context.triangle_center),
+		context.last_normal or
+			Vec3.SetSub(SWEEP_DIRECTION, position, context.triangle_center),
 		context.simplex
 	)
 	context.simplex = result and result.simplex or context.simplex
