@@ -279,6 +279,7 @@ local EPA_BORDER_EDGES = {}
 local EPA_BORDER_EDGE_ROWS = {}
 local epa_face_count = 0
 local epa_edge_count = 0
+local epa_edge_row_max = 0
 
 local function build_epa_face(vertices, ia, ib, ic)
 	local a = vertices[ia]
@@ -333,6 +334,8 @@ local function add_edge(edges, edge_rows, a, b)
 		row = {}
 		edge_rows[a] = row
 	end
+
+	if a > epa_edge_row_max then epa_edge_row_max = a end
 
 	local index = #edges + 1
 	epa_edge_count = epa_edge_count + 1
@@ -824,9 +827,13 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 		clear_array(border_edges, 1)
 		epa_edge_count = 0
 
-		for _, row in pairs(border_edge_rows) do
-			table.clear(row)
+		for i = 1, epa_edge_row_max do
+			local row = border_edge_rows[i]
+
+			if row then table.clear(row) end
 		end
+
+		epa_edge_row_max = 0
 
 		for i = #faces, 1, -1 do
 			local candidate = faces[i]
