@@ -5,9 +5,13 @@ local active_islands = {}
 local island_pos = {}
 local body_island = table.weak("k")
 local prev_pair_links = {}
+local prev_pair_link_keys = {}
 local prev_constraints = {}
+local prev_constraint_list = {}
 local spare_pair_links = {}
+local spare_pair_link_keys = {}
 local spare_constraints = {}
+local spare_constraint_list = {}
 local next_body_rank = 0
 local constraint_body_seen = {}
 local constraint_body_stamp = 0
@@ -156,8 +160,10 @@ local function create_island(root_body)
 end
 
 local function destroy_island(island)
-	for body in pairs(island.body_set) do
-		body_island[body] = nil
+	local bodies = island.bodies
+
+	for i = 1, #bodies do
+		body_island[bodies[i]] = nil
 	end
 
 	island.body_set = {}
@@ -238,14 +244,19 @@ local function merge_islands(island_a, island_b)
 		add_member(main, other_bodies[i])
 	end
 
-	for key, link in pairs(other.pair_links) do
-		main.pair_links[key] = link
-		local slot = other.pair_slot[key]
+	local other_keys = other.pair_keys
 
-		if slot then add_pair_slot(main, key, other.pairs[slot]) end
+	for i = 1, #other_keys do
+		local key = other_keys[i]
+		main.pair_links[key] = other.pair_links[key]
+		add_pair_slot(main, key, other.pairs[i])
 	end
 
-	for constraint in pairs(other.constraint_set) do
+	local other_constraints = other.constraints
+
+	for i = 1, #other_constraints do
+		local constraint = other_constraints[i]
+
 		if not main.constraint_set[constraint] then
 			main.constraint_set[constraint] = true
 			main.constraints[#main.constraints + 1] = constraint
@@ -311,8 +322,10 @@ local function refresh_constraint_summary(island)
 	list.clear(out)
 	constraint_body_stamp = constraint_body_stamp + 1
 	local stamp = constraint_body_stamp
+	local constraints = island.constraints
 
-	for constraint in pairs(island.constraint_set) do
+	for i = 1, #constraints do
+		local constraint = constraints[i]
 		local body_a = constraint.Body0
 
 		if is_dynamic_body(body_a) and constraint_body_seen[body_a] ~= stamp then
@@ -328,11 +341,15 @@ local function refresh_constraint_summary(island)
 		end
 	end
 
-	island.has_constraints = next(island.constraint_set) ~= nil
+	island.has_constraints = constraints[1] ~= nil
 end
 
 local function clear_membership(island)
-	for body in pairs(island.body_set) do
+	local bodies = island.bodies
+
+	for i = 1, #bodies do
+		local body = bodies[i]
+
 		if body_island[body] == island then body_island[body] = nil end
 	end
 
@@ -378,7 +395,13 @@ local function split_island(island)
 		parent[i] = i
 	end
 
-	for _, link in pairs(island.pair_links) do
+	local pair_links = island.pair_links
+	local pair_keys = island.pair_keys
+	local constraints = island.constraints
+
+	for k = 1, #pair_keys do
+		local link = pair_links[pair_keys[k]]
+
 		if island.body_set[link.a] and island.body_set[link.b] then
 			local i = index_of[link.a]
 			local j = index_of[link.b]
@@ -387,7 +410,8 @@ local function split_island(island)
 		end
 	end
 
-	for constraint in pairs(island.constraint_set) do
+	for k = 1, #constraints do
+		local constraint = constraints[k]
 		local i = constraint.Body0 and index_of[constraint.Body0] or nil
 		local j = constraint.Body1 and index_of[constraint.Body1] or nil
 
@@ -395,6 +419,7 @@ local function split_island(island)
 	end
 
 	local components = {}
+	local component_roots = {}
 	local component_count = 0
 
 	for i = 1, dynamic_count do
@@ -405,6 +430,7 @@ local function split_island(island)
 			comp = {dynamics = {}, anchors = {}}
 			components[r] = comp
 			component_count = component_count + 1
+			component_roots[component_count] = r
 		end
 
 		comp.dynamics[#comp.dynamics + 1] = dynamics[i]
@@ -420,7 +446,8 @@ local function split_island(island)
 			local comp_stamp = anchor_comp_stamp
 			local attached_any = false
 
-			for _, link in pairs(island.pair_links) do
+			for k = 1, #pair_keys do
+				local link = pair_links[pair_keys[k]]
 				local other
 
 				if link.a == body then
@@ -445,7 +472,8 @@ local function split_island(island)
 			end
 
 			if not attached_any then
-				for constraint in pairs(island.constraint_set) do
+				for k = 1, #constraints do
+					local constraint = constraints[k]
 					local other
 
 					if constraint.Body0 == body then
@@ -483,15 +511,14 @@ local function split_island(island)
 	local kept = keep_root and components[keep_root] or nil
 
 	if not kept then
-		for r, comp in pairs(components) do
-			keep_root = r
-			kept = comp
-
-			break
-		end
+		keep_root = component_roots[1]
+		kept = components[keep_root]
 	end
 
-	for r, comp in pairs(components) do
+	for c = 1, component_count do
+		local r = component_roots[c]
+		local comp = components[r]
+
 		if r ~= keep_root then
 			local new_island = create_island(comp.dynamics[1])
 
@@ -503,16 +530,18 @@ local function split_island(island)
 				add_member(new_island, comp.anchors[i])
 			end
 
-			for key, link in pairs(island.pair_links) do
+			for k = 1, #pair_keys do
+				local key = pair_keys[k]
+				local link = pair_links[key]
+
 				if new_island.body_set[link.a] and new_island.body_set[link.b] then
 					new_island.pair_links[key] = link
-					local slot = island.pair_slot[key]
-
-					if slot then add_pair_slot(new_island, key, island.pairs[slot]) end
+					add_pair_slot(new_island, key, island.pairs[k])
 				end
 			end
 
-			for constraint in pairs(island.constraint_set) do
+			for k = 1, #constraints do
+				local constraint = constraints[k]
 				local body_a = constraint.Body0
 				local body_b = constraint.Body1
 
@@ -547,14 +576,18 @@ local function split_island(island)
 		add_member(island, kept.anchors[i])
 	end
 
-	for key, link in pairs(island.pair_links) do
+	for k = #pair_keys, 1, -1 do
+		local key = pair_keys[k]
+		local link = pair_links[key]
+
 		if not (island.body_set[link.a] and island.body_set[link.b]) then
-			island.pair_links[key] = nil
+			pair_links[key] = nil
 			remove_pair_slot(island, key)
 		end
 	end
 
-	for constraint in pairs(island.constraint_set) do
+	for k = #constraints, 1, -1 do
+		local constraint = constraints[k]
 		local body_a = constraint.Body0
 		local body_b = constraint.Body1
 
@@ -572,18 +605,8 @@ local function split_island(island)
 			)
 		then
 			island.constraint_set[constraint] = nil
-			local constraints = island.constraints
-
-			for i = 1, #constraints do
-				if constraints[i] == constraint then
-					local last = constraints[#constraints]
-					constraints[i] = last
-					constraints[#constraints] = nil
-
-					break
-				end
-			end
-
+			constraints[k] = constraints[#constraints]
+			constraints[#constraints] = nil
 			island.needs_constraint_refresh = true
 		end
 	end
@@ -604,7 +627,9 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 	end
 
 	local curr_links = spare_pair_links
+	local curr_link_keys = spare_pair_link_keys
 	table.clear(curr_links)
+	list.clear(curr_link_keys)
 
 	for i = 1, #candidate_pairs do
 		local pair = candidate_pairs[i]
@@ -637,6 +662,7 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 				end
 
 				curr_links[key] = link
+				curr_link_keys[#curr_link_keys + 1] = key
 				local slot = island.pair_slot[key]
 
 				if slot and island.pairs[slot] ~= pair then
@@ -651,6 +677,7 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 			end
 		else
 			curr_links[key] = {a = body_a, b = body_b}
+			curr_link_keys[#curr_link_keys + 1] = key
 			local island = link_bodies(body_a, body_b)
 
 			if island then
@@ -662,7 +689,10 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 		::continue_pair::
 	end
 
-	for key, link in pairs(prev_pair_links) do
+	for i = 1, #prev_pair_link_keys do
+		local key = prev_pair_link_keys[i]
+		local link = prev_pair_links[key]
+
 		if curr_links[key] == nil then
 			local island
 
@@ -681,9 +711,13 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 	end
 
 	spare_pair_links = prev_pair_links
+	spare_pair_link_keys = prev_pair_link_keys
 	prev_pair_links = curr_links
+	prev_pair_link_keys = curr_link_keys
 	local curr_constraints = spare_constraints
+	local curr_constraint_list = spare_constraint_list
 	table.clear(curr_constraints)
+	list.clear(curr_constraint_list)
 
 	for i = 1, #constraints do
 		local constraint = constraints[i]
@@ -691,6 +725,7 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 		if constraint and constraint.Enabled ~= false and constraint:IsValid() then
 			if prev_constraints[constraint] ~= nil then
 				curr_constraints[constraint] = true
+				curr_constraint_list[#curr_constraint_list + 1] = constraint
 			else
 				local body_a = constraint.Body0
 				local body_b = constraint.Body1
@@ -698,6 +733,7 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 
 				if bodies_valid and (is_dynamic_body(body_a) or is_dynamic_body(body_b)) then
 					curr_constraints[constraint] = true
+					curr_constraint_list[#curr_constraint_list + 1] = constraint
 					local island = link_bodies(body_a, body_b)
 
 					if island and not island.constraint_set[constraint] then
@@ -710,8 +746,10 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 		end
 	end
 
-	for constraint in pairs(prev_constraints) do
-		if curr_constraints[constraint] == nil then
+	for i = 1, #prev_constraint_list do
+		local constraint = prev_constraint_list[i]
+
+		if prev_constraints[constraint] and curr_constraints[constraint] == nil then
 			local island = body_island[constraint.Body0] or body_island[constraint.Body1]
 
 			if island and island.constraint_set[constraint] then
@@ -721,7 +759,9 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 	end
 
 	spare_constraints = prev_constraints
+	spare_constraint_list = prev_constraint_list
 	prev_constraints = curr_constraints
+	prev_constraint_list = curr_constraint_list
 	local island_count = #active_islands
 
 	for i = island_count, 1, -1 do
@@ -918,8 +958,12 @@ end
 
 local function detach_body_from_island(island, body)
 	remove_member(island, body)
+	local pair_keys = island.pair_keys
 
-	for key, link in pairs(island.pair_links) do
+	for i = #pair_keys, 1, -1 do
+		local key = pair_keys[i]
+		local link = island.pair_links[key]
+
 		if link.a == body or link.b == body then
 			island.pair_links[key] = nil
 			remove_pair_slot(island, key)
@@ -927,7 +971,11 @@ local function detach_body_from_island(island, body)
 		end
 	end
 
-	for constraint in pairs(island.constraint_set) do
+	local constraints = island.constraints
+
+	for i = #constraints, 1, -1 do
+		local constraint = constraints[i]
+
 		if constraint.Body0 == body or constraint.Body1 == body then
 			remove_constraint_from_island(island, constraint)
 			prev_constraints[constraint] = nil
@@ -962,16 +1010,20 @@ function islands.RemoveBody(body)
 end
 
 function islands.ResetState()
-	for island in pairs(island_pos) do
-		island_pos[island] = nil
+	for i = 1, #active_islands do
+		island_pos[active_islands[i]] = nil
 	end
 
 	list.clear(active_islands)
 	body_island = table.weak("k")
 	prev_pair_links = {}
+	prev_pair_link_keys = {}
 	prev_constraints = {}
+	prev_constraint_list = {}
 	spare_pair_links = {}
+	spare_pair_link_keys = {}
 	spare_constraints = {}
+	spare_constraint_list = {}
 	next_body_rank = 0
 end
 
