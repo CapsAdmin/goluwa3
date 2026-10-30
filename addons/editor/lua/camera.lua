@@ -21,6 +21,8 @@ camera.gizmo_speed_per_distance = 1
 camera.min_gizmo_speed = 0.25
 camera.block_movement = false
 camera.block_dragging = false
+camera.key_up = "space"
+camera.key_down = "q"
 
 function camera.SetBlockMovement(b)
 	camera.block_movement = b
@@ -82,9 +84,9 @@ function camera.Update(dt)
 
 		if input.IsKeyDown("d") then move_local.x = move_local.x + 1 end
 
-		if input.IsKeyDown("space") then move_local.y = move_local.y + 1 end
+		if input.IsKeyDown(camera.key_up) then move_local.y = move_local.y + 1 end
 
-		if input.IsKeyDown("q") then move_local.y = move_local.y - 1 end
+		if input.IsKeyDown(camera.key_down) then move_local.y = move_local.y - 1 end
 
 		local move = Vec3()
 
