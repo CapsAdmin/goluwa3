@@ -13,6 +13,16 @@ local AIController = import("lua/components/ai_controller.lua")
 local eyes = RENDER_3D and import("goluwa/entities/components/eyes.lua")
 local npcs = {}
 
+local function numbered(format, count)
+	local paths = {}
+
+	for i = 1, count do
+		paths[i] = format:format(i)
+	end
+
+	return paths
+end
+
 
 local function creature_move(move)
 	move.Face = false
@@ -90,6 +100,7 @@ npcs.Definitions = {
 		RunSpeed = 45,
 		Moves = {claw = claw("attackA", 1.26, 0.6, 18, 1.96)},
 		Attacks = {{Move = "claw", Range = 1.4, Interval = 1.8}},
+		Sounds = {Foot = {Paths = numbered("npc/zombie/foot%d.wav", 3), Length = 0.6, Gain = 0.3}},
 	},
 	vortigaunt = {
 		Faction = "enemy",
@@ -103,6 +114,7 @@ npcs.Definitions = {
 		Height = 84,
 		Moves = {zap = cast("zapattack1", 0.9, 0.5, "lightning", 20)},
 		Attacks = {{Move = "zap", Range = 12, Interval = 2.5}},
+		Sounds = {Foot = {Paths = numbered("npc/vort/vort_foot%d.wav", 4), Length = 0.9, Gain = 0.4}},
 	},
 	antlion = {
 		Faction = "enemy",
@@ -117,6 +129,7 @@ npcs.Definitions = {
 		TurnSpeed = 12,
 		Moves = {claw = claw("attack1", 0.84, 0.3, 12, 2.52)},
 		Attacks = {{Move = "claw", Range = 1.8, Interval = 1.2}},
+		Sounds = {Foot = {Paths = numbered("npc/antlion/foot%d.wav", 4), Length = 1.2, Gain = 0.4}},
 	},
 	headcrab = {
 		Faction = "enemy",
@@ -202,6 +215,7 @@ npcs.Definitions = {
 		RunSpeed = 218,
 		Moves = {claw = claw("BR2_Attack", 0.7, 0.3, 10, 1.82)},
 		Attacks = {{Move = "claw", Range = 1.3, Interval = 1.0}},
+		Sounds = {Foot = {Paths = numbered("npc/fast_zombie/foot%d.wav", 4), Length = 0.8, Gain = 0.35}},
 	},
 	zombie_poison = {
 		Faction = "enemy",
@@ -214,6 +228,7 @@ npcs.Definitions = {
 		Health = 120,
 		Moves = {claw = claw("melee_01", 1.4, 0.5, 25, 2.1)},
 		Attacks = {{Move = "claw", Range = 1.5, Interval = 2.0}},
+		Sounds = {Foot = {Paths = numbered("npc/zombie/foot%d.wav", 3), Length = 0.7, Gain = 0.35}},
 	},
 	monk = {
 		Faction = "friend",
@@ -320,6 +335,7 @@ npcs.Definitions = {
 		Health = 80,
 		Moves = {claw = claw("attackA", 1.12, 0.6, 20, 1.96)},
 		Attacks = {{Move = "claw", Range = 1.4, Interval = 1.6}},
+		Sounds = {Foot = {Paths = numbered("npc/zombie/foot%d.wav", 3), Length = 0.6, Gain = 0.3}},
 	},
 	zombie_torso = {
 		Faction = "enemy",
@@ -335,6 +351,7 @@ npcs.Definitions = {
 		Health = 25,
 		Moves = {claw = claw("attack", 1.26, 0.5, 10, 1.54)},
 		Attacks = {{Move = "claw", Range = 1.1, Interval = 1.8}},
+		Sounds = {Foot = {Paths = numbered("npc/zombie/foot_slide%d.wav", 3), Length = 0.5, Gain = 0.25}},
 	},
 	headcrab_black = {
 		Faction = "enemy",
@@ -351,6 +368,7 @@ npcs.Definitions = {
 		Health = 40,
 		Moves = {claw = claw("Spitattack", 0.84, 0.3, 14, 1.26)},
 		Attacks = {{Move = "claw", Range = 0.9, Interval = 1.2}},
+		Sounds = {Foot = {Paths = numbered("npc/headcrab_poison/ph_step%d.wav", 4), Length = 0.4, Gain = 0.25}},
 	},
 	antlion_worker = {
 		Faction = "enemy",
@@ -366,6 +384,7 @@ npcs.Definitions = {
 		Health = 40,
 		Moves = {claw = claw("attack1", 0.84, 0.3, 10, 2.52)},
 		Attacks = {{Move = "claw", Range = 1.8, Interval = 1.2}},
+		Sounds = {Foot = {Paths = numbered("npc/antlion/foot%d.wav", 4), Length = 1.2, Gain = 0.4}},
 	},
 	antlion_guard = {
 		Faction = "enemy",
@@ -403,6 +422,7 @@ npcs.Definitions = {
 			{Move = "shove", Range = 2.6, Interval = 2},
 			{Move = "charge_windup", Range = 22, MinRange = 8, Interval = 12},
 		},
+		Sounds = {Foot = {Paths = numbered("npc/antlion_guard/foot_heavy%d.wav", 2), Length = 1.6, Gain = 0.8}},
 	},
 	hunter = {
 		Faction = "enemy",
@@ -419,6 +439,7 @@ npcs.Definitions = {
 		Health = 200,
 		Moves = {claw = claw("meleeleft", 1.05, 0.4, 30, 3.08)},
 		Attacks = {{Move = "claw", Range = 2.2, Interval = 1.5}},
+		Sounds = {Foot = {Paths = numbered("npc/ministrider/ministrider_footstep%d.wav", 5), Length = 1.5, Gain = 0.7}},
 	},
 	vortigaunt_slave = {
 		Faction = "friend",
@@ -433,6 +454,7 @@ npcs.Definitions = {
 		Health = 80,
 		Moves = {zap = cast("zapattack1", 0.9, 0.5, "lightning", 20)},
 		Attacks = {{Move = "zap", Range = 12, Interval = 2.5}},
+		Sounds = {Foot = {Paths = numbered("npc/vort/vort_foot%d.wav", 4), Length = 0.9, Gain = 0.4}},
 	},
 	lamarr = {
 		Faction = "friend",
@@ -516,6 +538,7 @@ function npcs.Register(name, info)
 						usable = info.Faction == "friend" and not info.Dummy and {Prompt = "follow"} or nil,
 						weapon_holder = info.Weapon and {} or nil,
 						ragdoll = info.Biped and {CorpseTime = 20, Profile = info.Ragdoll} or nil,
+						npc_sounds = info.Sounds and {Sounds = info.Sounds} or nil,
 						source_ragdoll = info.Model and not info.Biped and {DeathState = true, CorpseTime = 20} or nil,
 						health = {
 							Health = info.Health or 50,

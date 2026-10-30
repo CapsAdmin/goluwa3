@@ -8,3 +8,4 @@ Entity.RegisterComponent("ragdoll_part", import("lua/components/ragdoll_part.lua
 Entity.RegisterComponent("seat", import("lua/components/seat.lua"))
 Entity.RegisterComponent("move_runner", import("lua/components/move_runner.lua"))
 Entity.RegisterComponent("source_ragdoll", import("lua/components/source_ragdoll.lua"))
+Entity.RegisterComponent("npc_sounds", import("lua/components/npc_sounds.lua"))
