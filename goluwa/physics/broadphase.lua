@@ -51,6 +51,25 @@ local function build_entry_bounds(body, out, look_ahead)
 	return out
 end
 
+local MAX_FAT_MARGIN = 0.05
+local FAT_MARGIN_FRACTION = 0.125
+local tight_bounds_scratch = AABB(0, 0, 0, 0, 0, 0)
+
+-- box3d's fat bounds: an entry keeps its cells and pairs while its tight bounds stay inside them
+local function inflate_entry_bounds(body, out)
+	if body.MotionType == "static" then return out end
+
+	local half = body:GetHalfExtents()
+	local margin = math.min(MAX_FAT_MARGIN, FAT_MARGIN_FRACTION * half:GetLength())
+	out.min_x = out.min_x - margin
+	out.min_y = out.min_y - margin
+	out.min_z = out.min_z - margin
+	out.max_x = out.max_x + margin
+	out.max_y = out.max_y + margin
+	out.max_z = out.max_z + margin
+	return out
+end
+
 local function store_entry_pose(entry, body)
 	local p = body.Position
 	local r = body.Rotation
@@ -385,7 +404,7 @@ local function create_entry(self, body)
 	}
 	self.Entries[entry.index] = entry
 	self.BodyEntries[body] = entry
-	build_entry_bounds(body, entry.bounds, self.LookAhead)
+	inflate_entry_bounds(body, build_entry_bounds(body, entry.bounds, self.LookAhead))
 	assign_entry_cells(self, entry, entry.bounds)
 	return entry
 end
@@ -605,16 +624,23 @@ function Broadphase:TrackBodies(bodies, physics_override, incremental)
 				entry.last_seen_step = self.StepStamp
 			else
 				if entry then
-					build_entry_bounds(body, entry.bounds, self.LookAhead)
+					local tight = build_entry_bounds(body, tight_bounds_scratch, self.LookAhead)
 					store_entry_pose(entry, body)
 					entry.last_seen_step = self.StepStamp
-					entry.overflow_dirty = true
-					changed[#changed + 1] = entry
-					stats:Count("broadphase_bounds_updates")
 
-					if not is_same_spatial_assignment(self, entry, entry.bounds) then
-						assign_entry_cells(self, entry, entry.bounds)
-						stats:Count("broadphase_invalidations")
+					if not entry.bounds:IsBoxInside(tight) then
+						local bounds = entry.bounds
+						bounds.min_x, bounds.min_y, bounds.min_z = tight.min_x, tight.min_y, tight.min_z
+						bounds.max_x, bounds.max_y, bounds.max_z = tight.max_x, tight.max_y, tight.max_z
+						inflate_entry_bounds(body, bounds)
+						entry.overflow_dirty = true
+						changed[#changed + 1] = entry
+						stats:Count("broadphase_bounds_updates")
+
+						if not is_same_spatial_assignment(self, entry, bounds) then
+							assign_entry_cells(self, entry, bounds)
+							stats:Count("broadphase_invalidations")
+						end
 					end
 				else
 					local new_entry = create_entry(self, body)
