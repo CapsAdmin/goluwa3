@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 -- a builtin LuaJIT cannot record ends the trace so the side traces of the traversal do not inherit the locals of its callers
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local bvh = {}
 bvh.DefaultLeafItemCount = bvh.DefaultLeafItemCount or 8
 

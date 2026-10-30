@@ -15,7 +15,7 @@ META:GetSet("Radius", 0.5)
 META:GetSet("Height", 2)
 local EPSILON = physics_constants.EPSILON
 -- a builtin LuaJIT cannot record ends the trace so the toppling block does not inherit the grounded velocity locals
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local CAPSULE_CAPSULE_SWEEP_CONTEXT = {
 	start_a = nil,
 	start_b = nil,

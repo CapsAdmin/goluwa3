@@ -9,7 +9,7 @@ local sweep_helpers = import("goluwa/physics/shapes/sweep_helpers.lua")
 local gjk_epa = import("goluwa/physics/gjk_epa.lua")
 local convex_face_clipping = import("goluwa/physics/convex_face_clipping.lua")
 -- a builtin LuaJIT cannot record ends the trace so the removed vectors of the parallel test are not inherited by the side traces of its branches
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local capsule = {}
 local EPSILON = physics_constants.EPSILON
 local CAPSULE_POLYHEDRON_SPECULATIVE = physics_constants.DEFAULT_COLLISION_MARGIN

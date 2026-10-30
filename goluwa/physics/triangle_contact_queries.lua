@@ -4,7 +4,7 @@ local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local triangle_scalar = import("goluwa/physics/triangle_scalar.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 -- a builtin LuaJIT cannot record ends the trace so the side traces of the bounds test do not inherit the locals of the triangle callback chain
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local triangle_contact_queries = {}
 local SCRATCH_FACE_NORMAL = Vec3()
 local polyhedron_triangle_contacts = nil

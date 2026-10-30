@@ -8,7 +8,7 @@ local stats = import("goluwa/physics/stats.lua")
 local contact_resolution = {}
 local Vec3 = import("goluwa/structs/vec3.lua")
 -- a builtin LuaJIT cannot record ends the trace so the side traces after it do not inherit the caller loop locals
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local EPSILON = physics_constants.EPSILON
 local TANGENT_VELOCITY = Vec3()
 local TANGENT = Vec3()

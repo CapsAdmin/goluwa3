@@ -9,7 +9,7 @@ local polyhedron_sat = import("goluwa/physics/polyhedron/sat.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 -- a builtin LuaJIT cannot record ends the trace so the side traces after it do not inherit the locals of the axis loop
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local polyhedron_triangle_contacts = {}
 local DEFAULT_EPSILON = 0.00001
 local DEFAULT_TRIANGLE_SLOP = 0.05

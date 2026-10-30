@@ -6,7 +6,7 @@ local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
 local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries.lua")
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 -- a builtin LuaJIT cannot record ends the trace so the removed vectors above are not inherited by the side traces of the branches below
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local sphere = {}
 local EPSILON = physics_constants.EPSILON
 local SWEPT_SPHERE_BOX_POINT_CALLBACK_CONTEXT = {

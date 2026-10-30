@@ -9,7 +9,7 @@ local triangle_contact_queries = import("goluwa/physics/triangle_contact_queries
 local triangle_geometry = import("goluwa/physics/triangle_geometry.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
 -- a builtin LuaJIT cannot record ends the trace so the fields of the removed query result are not inherited by the side traces after it
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local mesh_contact_common = {}
 local EPSILON = physics_constants.EPSILON
 local SPHERE_TRIANGLE_CONTACT_HANDLERS = {}

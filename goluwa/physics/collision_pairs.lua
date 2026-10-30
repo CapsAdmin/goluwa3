@@ -7,7 +7,7 @@ CollisionPairs.ImpactSpeed = 0.5
 CollisionPairs.ContactSpeed = 0.2
 import.loaded["goluwa/physics/collision_pairs.lua"] = CollisionPairs
 -- a builtin LuaJIT cannot record ends the trace so the side traces after it do not inherit the caller locals
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 
 local function get_nested_entry(store, key_a, key_b)
 	trace_break()

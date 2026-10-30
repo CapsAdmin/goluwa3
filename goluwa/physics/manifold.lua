@@ -3,7 +3,7 @@ local contact_store = import("goluwa/physics/contact_store.lua")
 local motion = import("goluwa/physics/motion.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 -- a builtin LuaJIT cannot record ends the trace so the side traces of the restitution loop do not inherit the locals of the pair loop
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local manifold = {}
 local EPSILON = physics_constants.EPSILON
 local LOCAL_POINT = Vec3()

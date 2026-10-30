@@ -1,6 +1,7 @@
 local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local stats = import("goluwa/physics/stats.lua")
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local broadphase = {}
 local Broadphase = {}
 Broadphase.__index = Broadphase
@@ -452,8 +453,6 @@ function Broadphase:ResetState()
 	self.NextEntryId = 0
 	return self
 end
-
-local trace_break = coroutine.running
 
 local function query_cell_entries(cell, stamp, out, count)
 	for i = 1, #cell.entries do

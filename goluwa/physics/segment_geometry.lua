@@ -1,5 +1,5 @@
 local segment_geometry = {}
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 
 function segment_geometry.ClosestPointOnSegment(a, b, point, epsilon)
 	epsilon = epsilon or 0.000001

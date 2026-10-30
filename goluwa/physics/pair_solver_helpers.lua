@@ -8,7 +8,7 @@ local polyhedron_cache = import("goluwa/physics/polyhedron/cache.lua")
 local stats = import("goluwa/physics/stats.lua")
 local collider_index = import("goluwa/physics/collider_index.lua")
 -- a builtin LuaJIT cannot record ends the trace so the side traces of a pair handler do not inherit the dispatch loop locals
-local trace_break = coroutine.running
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local pair_solver_helpers = {}
 local EPSILON = physics_constants.EPSILON
 local axis_data = {

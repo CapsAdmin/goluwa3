@@ -10,6 +10,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local terrain_layer_rules = import("goluwa/render3d/terrain_layer_rules.lua")
 local vegetation_pushers = import("goluwa/render3d/vegetation_pushers.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local model_pipeline = {}
 local SURFACE_MATERIAL_FIELDS = {
 	{type = "int", name = "Flags", getter = "GetFillFlags"},
@@ -575,7 +576,7 @@ do
 			end
 
 			lines[#lines + 1] = "end"
-			write_record = assert(loadstring(table.concat(lines, "\n"), "pbr_batch_record_writer"))(blocks, coroutine.running)
+			write_record = assert(loadstring(table.concat(lines, "\n"), "pbr_batch_record_writer"))(blocks, trace_break)
 		end
 
 		return write_record(pipeline, record)
@@ -712,7 +713,7 @@ local function build_material_block_writer(name, field_defs)
 	lines[#lines + 1] = "\t\treturn block"
 	lines[#lines + 1] = "\tend"
 	lines[#lines + 1] = "end"
-	return assert(loadstring(table.concat(lines, "\n"), name .. "_material_block_writer"))()(get_material, coroutine.running)
+	return assert(loadstring(table.concat(lines, "\n"), name .. "_material_block_writer"))()(get_material, trace_break)
 end
 
 local SURFACE_MATERIAL_BLOCK = build_material_block(SURFACE_MATERIAL_FIELDS)
