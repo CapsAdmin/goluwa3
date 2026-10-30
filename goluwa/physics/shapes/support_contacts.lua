@@ -1,5 +1,7 @@
 local physics_constants = import("goluwa/physics/constants.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local AABB = import("goluwa/structs/aabb.lua")
+local sweep_candidates = import("goluwa/physics/sweep_candidates.lua")
 local stats = import("goluwa/physics/stats.lua")
 local support_contacts = {}
 local cast_origin_offset = Vec3(0, 0, 0)
@@ -84,6 +86,37 @@ function support_contacts.AccumulatePointSweepSupport(body, point, hit)
 	return false
 end
 
+local SWEEP_BOUNDS = AABB(0, 0, 0, 0, 0, 0)
+local SWEEP_POINT = Vec3()
+local SWEEP_CANDIDATES = {}
+
+local function is_any_sweep_candidate(physics, body, support_points, owner, filter_function)
+	local min_x, min_y, min_z = math.huge, math.huge, math.huge
+	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+
+	for i = 1, #support_points do
+		local point = body:GeometryLocalToWorld(support_points[i], nil, nil, SWEEP_POINT)
+		min_x = math.min(min_x, point.x)
+		min_y = math.min(min_y, point.y)
+		min_z = math.min(min_z, point.z)
+		max_x = math.max(max_x, point.x)
+		max_y = math.max(max_y, point.y)
+		max_z = math.max(max_z, point.z)
+	end
+
+	local bounds = SWEEP_BOUNDS
+	bounds.min_x = min_x + cast_origin_offset.x + math.min(cast_delta.x, 0)
+	bounds.min_y = min_y + cast_origin_offset.y + math.min(cast_delta.y, 0)
+	bounds.min_z = min_z + cast_origin_offset.z + math.min(cast_delta.z, 0)
+	bounds.max_x = max_x + cast_origin_offset.x + math.max(cast_delta.x, 0)
+	bounds.max_y = max_y + cast_origin_offset.y + math.max(cast_delta.y, 0)
+	bounds.max_z = max_z + cast_origin_offset.z + math.max(cast_delta.z, 0)
+	local candidates = SWEEP_CANDIDATES
+	table.clear(candidates)
+	sweep_candidates.CollectRigidBodyCandidates(physics, bounds, owner, filter_function, nil, candidates)
+	return candidates[1] ~= nil
+end
+
 function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solve_contact_context)
 	local physics = body:GetPhysics()
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body, dt)
@@ -91,6 +124,10 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 	local owner = body:GetOwner()
 	local filter_function = body:GetFilterFunction()
 	fill_cast_vectors(cast_up, cast_distance)
+
+	if not is_any_sweep_candidate(physics, body, support_points, owner, filter_function) then
+		return
+	end
 
 	if stats:IsEnabled() then stats:PushTime("support_point_sweeps") end
 
