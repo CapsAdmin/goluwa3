@@ -31,6 +31,7 @@ local MAX_PITCH = 2
 local ATTACK = 0.08
 local RELEASE = 0.15
 local STALE = 0.1
+local physics_sounds = {}
 
 local function range(path, first, last)
 	local list = {last = 0}
@@ -520,6 +521,30 @@ for name, loops in pairs(LOOPS) do
 	found.smooth, found.rough, found.roll = loops[1], loops[2], loops[3]
 end
 
+function physics_sounds.GetSurfaces()
+	local list = {}
+
+	for name in pairs(SETS) do
+		local surface = name
+
+		if SURFACES[name] ~= name then
+			for key, set_name in pairs(SURFACES) do
+				if set_name == name and (SURFACES[surface] ~= name or #key < #surface) then
+					surface = key
+				end
+			end
+		end
+
+		list[#list + 1] = {Text = name, Value = surface}
+	end
+
+	table.sort(list, function(a, b)
+		return a.Text < b.Text
+	end)
+
+	return list
+end
+
 local resolved = {}
 
 local function get_set(surface)
@@ -784,3 +809,5 @@ event.AddListener("Update", "physics_sounds", function(dt)
 		end
 	end
 end)
+
+return physics_sounds
