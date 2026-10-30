@@ -47,7 +47,10 @@ return {
 			return render3d.IsAntiAliasingEnabled("taa") or
 				render3d.IsAntiAliasingEnabled("edge_aa_t")
 		end,
-		ColorFormat = {{"r16g16b16a16_sfloat", {"color", "rgba"}}},
+		ColorFormat = {
+			{"r16g16b16a16_sfloat", {"color", "rgba"}},
+			{"r16_sfloat", {"motion", "r"}},
+		},
 		framebuffer_count = 2,
 		pre_render = function()
 			render3d.previous_jitter = render3d.GetMainCamera():GetJitter():Copy()
@@ -71,6 +74,7 @@ return {
 						{"source_tex", "int"},
 						{"history_tex", "int"},
 						{"history_color_tex", "int"},
+						{"history_motion_tex", "int"},
 						{"water_distance_tex", "int"},
 						{"depth_tex", "int"},
 						{"velocity_tex", "int"},
@@ -92,6 +96,7 @@ return {
 						block.history_color_tex = render3d.IsAntiAliasingEnabled("edge_aa_t") and
 							self:GetTextureIndex(render3d.pipelines.edge_aa:GetFramebuffer((frame + 1) % 2 + 1):GetAttachment(1)) or
 							block.history_tex
+						block.history_motion_tex = self:GetTextureIndex(render3d.pipelines.taa:GetFramebuffer((frame + 1) % 2 + 1):GetAttachment(2))
 						block.water_distance_tex = render3d.IsPassEnabled("water") and
 							(
 								render3d.IsOceanEnabled() or
@@ -183,6 +188,7 @@ return {
 
 				if (taa_data.history_valid == 0) {
 					set_color(vec4(texelFetch(TEXTURE(taa_data.source_tex), pixel, 0).rgb, get_view_depth(uv, depth)));
+					set_motion(0.0);
 					return;
 				}
 
@@ -268,6 +274,7 @@ return {
 
 				if (any(lessThan(prev_uv, vec2(0.0))) || any(greaterThan(prev_uv, vec2(1.0)))) {
 					set_color(vec4(decompress(current, exposure), view_depth));
+					set_motion(0.0);
 					return;
 				}
 
@@ -292,7 +299,9 @@ return {
 					compress(textureLod(TEXTURE(taa_data.history_color_tex), clamp_history_uv(prev_uv + vec2(0.0, texel.y), vec2(size)), 0.0).rgb * history_scale, exposure) +
 					compress(textureLod(TEXTURE(taa_data.history_color_tex), clamp_history_uv(prev_uv - vec2(0.0, texel.y), vec2(size)), 0.0).rgb * history_scale, exposure)
 				) * 0.25;
-				float isolated = smoothstep(0.008, 0.035, length(history - ring));
+				vec4 history_motions = textureGather(TEXTURE(taa_data.history_motion_tex), clamp_history_uv(prev_uv, vec2(size)), 0);
+				float history_motion = max(max(history_motions.x, history_motions.y), max(history_motions.z, history_motions.w));
+				float isolated = smoothstep(0.008, 0.035, length(history - ring)) * (1.0 - smoothstep(0.75, 2.0, history_motion));
 				float history_weight = mix(depth_weight, 1.0, isolated);
 				float still = (1.0 - smoothstep(0.0, 0.75, motion)) * history_weight * (1.0 - reactive);
 				float thin = taa_data.max_feedback > 0.0 ? 0.0 : still * isolated;
@@ -304,6 +313,7 @@ return {
 				float feedback = taa_data.max_feedback > 0.0 ? taa_data.max_feedback : mix(0.85, 0.94, thin) * (1.0 - 0.5 * clip_amount);
 				vec3 result = mix(current, clipped, feedback * history_weight * (1.0 - reactive));
 				set_color(vec4(decompress(result, exposure), view_depth));
+				set_motion(min(motion, 1000.0));
 			}
 		]],
 		},
