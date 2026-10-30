@@ -48,3 +48,61 @@ T.Test("keyframes out of order are an error", function()
 	local ok = pcall(keyframes.Compile, {Keys = {{0.5, torso = 1}, {0.4, torso = 0}}})
 	T(ok)["=="](false)
 end)
+
+T.Test("the held victim bones are placed at the reach points and its velocity is sampled from the keys", function()
+	local Vec3 = import("goluwa/structs/vec3.lua")
+	local Quat = import("goluwa/structs/quat.lua")
+	local bones = {
+		right = {m30 = 0.2, m31 = 1, m32 = 0},
+		left = {m30 = -0.2, m31 = 1, m32 = 0},
+	}
+	local reach = {0.2, 2, 0, -0.2, 2, 0, 0, 0, 0}
+	local def = keyframes.Compile{
+		CarryBones = {"right", "left"},
+		Keys = {
+			{0, body = {0, 0, 0}, carry = reach},
+			{1, body = {4, 0, 0}, carry = reach, ease = "linear"},
+		},
+	}
+	local position, rotation = Vec3(), Quat()
+	keyframes.EvaluateVictim(def, 0.5, bones, position, rotation)
+	T(position.x)["~"](2, 1e-6)
+	T(position.y)["~"](1, 1e-6)
+	T(position.z)["~"](0, 1e-6)
+	T(rotation.w)["~"](1, 1e-6)
+	local velocity = keyframes.EvaluateVictimVelocity(def, 0.5, 2, bones, Vec3())
+	T(velocity.x)["~"](2, 1e-3)
+	T(velocity.y)["~"](0, 1e-6)
+	local tilted = keyframes.Compile{
+		CarryBones = {"right", "left"},
+		Keys = {
+			{0, carry = {0.2, 2, 0, -0.2, 2, 0, math.pi / 2, 0, 0}},
+			{1, carry = {0.2, 2, 0, -0.2, 2, 0, math.pi / 2, 0, 0}},
+		},
+	}
+	local offset = Vec3()
+	keyframes.EvaluateCarry(tilted, 0.5, bones, offset, rotation)
+	T(offset.x)["~"](0, 1e-6)
+	T(offset.y)["~"](2, 1e-6)
+	T(offset.z)["~"](-1, 1e-6)
+	local longer = {
+		right = {m30 = 0.2, m31 = 1.5, m32 = 0},
+		left = {m30 = -0.2, m31 = 1.5, m32 = 0},
+	}
+	keyframes.EvaluateCarry(def, 0.5, longer, offset, rotation)
+	T(offset.y)["~"](0.5, 1e-6)
+end)
+
+T.Test("grip keys need carry keys and carry keys need the carried bones", function()
+	T(pcall(keyframes.Compile, {Keys = {{0.5, grip = {1}}}}))["=="](false)
+	T(pcall(keyframes.Compile, {Keys = {{0.5, carry = {0, 1, 0}}}}))["=="](false)
+	T(pcall(keyframes.Compile, {Keys = {{0.5, grip = {1}, carry = {0, 1, 0}}}}))["=="](false)
+	local def = keyframes.Compile{
+		CarryBones = {"upperarm_r", "upperarm_l"},
+		Keys = {{0.5, grip = {1}, carry = {0, 1, 0}}},
+	}
+	T(def.Bones)["=="](keyframes.ApplyGrip)
+	T(def.GripKeys[2][2])["=="](1)
+	T(def.CarryKeys[2][3])["=="](1)
+	T(def.CarryKeys[2][10])["=="](0)
+end)
