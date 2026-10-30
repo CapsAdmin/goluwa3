@@ -27,11 +27,12 @@ function polyhedron_triangle_aggregator.OrientResultNormal(mesh_body, body, resu
 	return normal
 end
 
-function polyhedron_triangle_aggregator.MergeContact(contacts, point_a, point_b, merge_distance)
+function polyhedron_triangle_aggregator.MergeContact(contacts, point_a, point_b, merge_distance, normal)
 	merge_distance = merge_distance or 0.08
 
 	for _, existing in ipairs(contacts) do
 		if
+			existing.normal:Dot(normal) > 0.9 and
 			(
 				existing.point_a - point_a
 			):GetLength() <= merge_distance and
@@ -46,6 +47,7 @@ function polyhedron_triangle_aggregator.MergeContact(contacts, point_a, point_b,
 	contacts[#contacts + 1] = {
 		point_a = point_a:Copy(),
 		point_b = point_b:Copy(),
+		normal = normal:Copy(),
 	}
 	return true
 end
@@ -73,7 +75,7 @@ function polyhedron_triangle_aggregator.AccumulateMeshContacts(state, mesh_body,
 		local point_b = pair.point_a
 
 		if point_a and point_b then
-			polyhedron_triangle_aggregator.MergeContact(state.contacts, point_a, point_b, merge_distance)
+			polyhedron_triangle_aggregator.MergeContact(state.contacts, point_a, point_b, merge_distance, normal)
 
 			if #state.contacts >= max_contacts then break end
 		end

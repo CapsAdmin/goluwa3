@@ -171,6 +171,14 @@ local function reduce_contacts(contacts, normal)
 	if d then contacts[#contacts + 1] = d end
 end
 
+local CLUSTER_NORMAL_DOT = 0.9
+local MAX_CLUSTERS = 4
+local CLUSTERS = {}
+
+for i = 1, MAX_CLUSTERS do
+	CLUSTERS[i] = {normal = nil, overlap = 0, contacts = {}}
+end
+
 local function resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 	if not (state.best_normal and state.best_overlap > EPSILON) then return false end
 
@@ -179,10 +187,13 @@ local function resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 	if not contacts[1] then
 		if not (state.best_point_a and state.best_point_b) then return false end
 
-		contacts[1] = {point_a = state.best_point_a, point_b = state.best_point_b}
+		contacts[1] = {
+			point_a = state.best_point_a,
+			point_b = state.best_point_b,
+			normal = state.best_normal,
+		}
 	end
 
-	local normal = state.best_normal
 	local body = poly_body:GetBody()
 	local solver = body:GetPhysics().solver
 	-- the soft contact settles a slop inside this, keep it above the margin the world support contacts push to or they rock compound bodies awake
@@ -190,11 +201,11 @@ local function resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 	local velocity = body.Velocity
 	local angular_velocity = body.AngularVelocity
 	local center = body.Position
-	local deepest = -math.huge
-	local count = 0
+	local cluster_count = 0
 
 	for i = 1, #contacts do
 		local contact = contacts[i]
+		local normal = contact.normal
 		local point = contact.point_b
 		local mesh_point = contact.point_a
 		local depth = (
@@ -218,23 +229,46 @@ local function resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 		if
 			-depth - rest_gap <= math.max(approach_speed, 0) * solver.StepDt + RESTING_CONTACT_SLACK
 		then
-			count = count + 1
-			contacts[count] = contact
-			deepest = math.max(deepest, depth)
+			local cluster = nil
+
+			for j = 1, cluster_count do
+				if CLUSTERS[j].normal:Dot(normal) > CLUSTER_NORMAL_DOT then
+					cluster = CLUSTERS[j]
+
+					break
+				end
+			end
+
+			if not cluster and cluster_count < MAX_CLUSTERS then
+				cluster_count = cluster_count + 1
+				cluster = CLUSTERS[cluster_count]
+				cluster.normal = normal
+				cluster.overlap = -math.huge
+				list.clear(cluster.contacts)
+			end
+
+			if cluster then
+				cluster.contacts[#cluster.contacts + 1] = contact
+
+				if depth + rest_gap > cluster.overlap then
+					cluster.overlap = depth + rest_gap
+					cluster.normal = normal
+				end
+			end
 		end
 	end
 
-	for i = #contacts, count + 1, -1 do
-		contacts[i] = nil
+	if cluster_count == 0 then return false end
+
+	for i = 1, cluster_count do
+		local cluster = CLUSTERS[i]
+
+		if #cluster.contacts > MAX_MESH_POLYHEDRON_CONTACTS then
+			reduce_contacts(cluster.contacts, cluster.normal)
+		end
 	end
 
-	if count == 0 then return false end
-
-	if count > MAX_MESH_POLYHEDRON_CONTACTS then
-		reduce_contacts(contacts, normal)
-	end
-
-	return contact_resolution.ResolvePairPenetration(mesh_body, poly_body, normal, deepest + rest_gap, dt, nil, nil, contacts)
+	return contact_resolution.ResolvePairClusters(mesh_body, poly_body, CLUSTERS, cluster_count, dt)
 end
 
 function mesh_polyhedron_contacts.AccumulateSampleContacts(
@@ -322,7 +356,7 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 				end
 
 				if #state.contacts < MAX_MESH_POLYHEDRON_CANDIDATES then
-					polyhedron_triangle_aggregator.MergeContact(state.contacts, position, sample.point, CONTACT_MERGE_DISTANCE)
+					polyhedron_triangle_aggregator.MergeContact(state.contacts, position, sample.point, CONTACT_MERGE_DISTANCE, normal)
 				end
 			end
 		end
@@ -360,7 +394,6 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 			outward_winding = context.outward_winding,
 		}
 	)
-
 	local face_normal = result and
 		result.normal and
 		result.contacts and
