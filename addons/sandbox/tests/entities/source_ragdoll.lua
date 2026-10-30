@@ -161,3 +161,136 @@ T.TestPhysics("a model without collision data spawns with a box collider around 
 	spawned:Remove()
 	ground:Remove()
 end)
+
+T.TestPhysics("a dropped citizen ragdoll lands on its joint limits softly instead of bouncing between them", function()
+	local ground = create_ground()
+	local spawned
+
+	props.Spawn(
+		"models/humans/group01/male_01.mdl",
+		Vec3(0, 1.2, 0),
+		Quat():Identity(),
+		function(entity)
+			spawned = entity
+		end
+	)
+
+	T.WaitUntil(function()
+		return spawned ~= nil and spawned.source_ragdoll.bodies[2] ~= nil
+	end)
+
+	local ragdoll = spawned.source_ragdoll
+	local hits, impact, near, previous = 0, 0, {}, {}
+
+	for _ = 1, 360 do
+		physics.UpdateFixed(1 / 60)
+
+		for i, joint in ipairs(ragdoll.joints) do
+			local angle = joint:GetAngle()
+			local at = angle < joint.LowerAngle + 0.02 or angle > joint.UpperAngle - 0.02
+
+			if at and not near[i] then
+				hits = hits + 1
+				impact = impact + math.abs(angle - (previous[i] or angle)) * 60
+			end
+
+			near[i] = at
+			previous[i] = angle
+		end
+	end
+
+	T(hits)["<"](25)
+	T(impact)["<"](100)
+	spawned:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("limbs of a ragdoll collide with every body they are not jointed to", function()
+	local ground = create_ground()
+	local spawned
+
+	props.Spawn(
+		"models/humans/group01/male_01.mdl",
+		Vec3(0, 1, 0),
+		Quat():Identity(),
+		function(entity)
+			spawned = entity
+		end
+	)
+
+	T.WaitUntil(function()
+		return spawned ~= nil and spawned.source_ragdoll.bodies[2] ~= nil
+	end)
+
+	local ragdoll = spawned.source_ragdoll
+	local jointed = {}
+
+	for _, joint in ipairs(ragdoll.joints) do
+		jointed[joint.Body0] = jointed[joint.Body0] or {}
+		jointed[joint.Body0][joint.Body1] = true
+	end
+
+	local colliding = 0
+
+	for i, a in ipairs(ragdoll.bodies) do
+		for j = i + 1, #ragdoll.bodies do
+			local b = ragdoll.bodies[j]
+
+			if not (jointed[a] and jointed[a][b]) and not (jointed[b] and jointed[b][a]) then
+				T(a:ShouldCollide(b))["=="](true)
+				colliding = colliding + 1
+			end
+		end
+	end
+
+	T(colliding > 50)["=="](true)
+	spawned:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("a ragdoll that has come to rest falls asleep instead of rocking on for ever", function()
+	local ground = create_ground()
+	local spawned
+
+	props.Spawn(
+		"models/humans/group01/male_01.mdl",
+		Vec3(0, 0.6, 0),
+		Quat():Identity(),
+		function(entity)
+			spawned = entity
+		end
+	)
+
+	T.WaitUntil(function()
+		return spawned ~= nil and spawned.source_ragdoll.bodies[2] ~= nil
+	end)
+
+	local ragdoll = spawned.source_ragdoll
+
+	for _ = 1, 900 do
+		physics.UpdateFixed(1 / 60)
+	end
+
+	for _, body in ipairs(ragdoll.bodies) do
+		T(body.Awake)["=="](false)
+	end
+
+	local position = ragdoll.bodies[1].Position:Copy()
+
+	for _ = 1, 120 do
+		physics.UpdateFixed(1 / 60)
+	end
+
+	T(ragdoll.bodies[1].Position:Distance(position))["<"](0.001)
+	ragdoll.bodies[3]:Wake()
+	ragdoll.bodies[3]:SetVelocity(Vec3(0, 4, 0))
+
+	for _ = 1, 30 do
+		physics.UpdateFixed(1 / 60)
+	end
+
+	T(ragdoll.bodies[1].Awake)["=="](true)
+	spawned:Remove()
+	ground:Remove()
+end)
+

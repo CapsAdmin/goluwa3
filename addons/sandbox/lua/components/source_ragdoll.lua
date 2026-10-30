@@ -13,6 +13,13 @@ META:StartStorable()
 META:GetSet("ModelPath", "", {callback = "Load"})
 META:EndStorable()
 local JOINT_FRICTION = 0.2
+local SPRING_HERTZ = 1
+local SPRING_LIMIT_HERTZ = 12
+local SPRING_DAMPING = 2
+local SPRING_ZONE = 0.5
+local REST_SPEED = 0.25
+local REST_SPIN = 2
+local REST_TIME = 1
 local AXES = {
 	x = Vec3(0, 0, -1),
 	y = Vec3(-1, 0, 0),
@@ -23,7 +30,9 @@ function META:Initialize()
 	self.bodies = {}
 	self.joints = {}
 	self.matrix = Matrix44()
+	self.rest_time = 0
 	self:AddGlobalEvent("Update")
+	self:AddGlobalEvent("PhysicsUpdate")
 	self:Load()
 end
 
@@ -124,7 +133,7 @@ function META:Build()
 			end
 		end
 
-		self.joints[#self.joints + 1] = constraints.Hinge(
+		local joint = constraints.Hinge(
 			self.bodies[constraint.parent],
 			self.bodies[constraint.child],
 			anchor,
@@ -135,14 +144,8 @@ function META:Build()
 				Friction = constraint[moving[1]].friction * JOINT_FRICTION,
 			}
 		)
-	end
-
-	if not self.ragdoll.self_collision then
-		for i = 1, #self.bodies do
-			for j = i + 1, #self.bodies do
-				self.bodies[i]:IgnoreCollisionWith(self.bodies[j])
-			end
-		end
+		joint:SetSpring(0, SPRING_HERTZ, SPRING_LIMIT_HERTZ, SPRING_DAMPING, SPRING_ZONE)
+		self.joints[#self.joints + 1] = joint
 	end
 end
 
@@ -186,6 +189,41 @@ function META:PlaceVisual()
 	visual.transform:SetRotation(rest_inverse)
 	visual.transform:SetPosition(rest_inverse:VecMul(rest_position) * -1)
 	self.visual_placed = true
+end
+
+-- a jointed pile of light and heavy bodies keeps rocking a little on its hulls and never reaches the sleep thresholds of a single body
+function META:OnPhysicsUpdate(dt)
+	local solids = self.ragdoll and self.ragdoll.solids
+
+	if not (solids and self.bodies[#solids]) or not network.HasAuthority() then
+		return
+	end
+
+	local awake = false
+
+	for _, body in ipairs(self.bodies) do
+		if body.Awake then
+			awake = true
+
+			if
+				body.Velocity:GetLength() > REST_SPEED or
+				body.AngularVelocity:GetLength() > REST_SPIN
+			then
+				self.rest_time = 0
+				return
+			end
+		end
+	end
+
+	if not awake then return end
+
+	self.rest_time = self.rest_time + dt
+
+	if self.rest_time < REST_TIME then return end
+
+	for _, body in ipairs(self.bodies) do
+		body:Sleep()
+	end
 end
 
 function META:OnUpdate()
