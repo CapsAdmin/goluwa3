@@ -652,11 +652,14 @@ function gjk_epa.Intersect(vertices_a, vertices_b, initial_direction, simplex)
 
 		if not support then return nil end
 
-		if support.point:Dot(direction) <= EPSILON then
+		local reach = support.point:Dot(direction)
+
+		if reach <= EPSILON then
 			return {
 				intersect = false,
 				simplex = simplex,
 				iterations = iteration,
+				separation = -reach / direction:GetLength(),
 			}
 		end
 
@@ -696,6 +699,13 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 	if not gjk_result then return nil end
 
 	if not (gjk_result.intersect and gjk_result.simplex) then
+		if (gjk_result.separation or 0) > EPSILON * 10 then
+			return {
+				intersect = false,
+				gjk = gjk_result,
+			}
+		end
+
 		local distance_result = gjk_epa.Distance(vertices_a, vertices_b, initial_direction, gjk_result.simplex)
 
 		if
