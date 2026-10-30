@@ -241,9 +241,11 @@ end
 
 function META:Hit(attack)
 	local types = self.Owner.weapon:GetDamageTypes(SLASH)
+	local holder = self:GetHolder()
 	local hit_any, cut, hits, normal = slash.Strike(
-		self:GetHolder(),
+		holder,
 		self.Owner,
+		actors.GetForward(holder),
 		attack.cut,
 		self.Damage * attack.damage * self.Owner.weapon:GetDamageScale(),
 		attack.damage,

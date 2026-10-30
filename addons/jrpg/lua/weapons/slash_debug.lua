@@ -45,7 +45,7 @@ function META:OnWeaponPrimary(cmd)
 	self.index = self.index % #DIRECTIONS + 1
 	local name, local_cut = DIRECTIONS[self.index][1], DIRECTIONS[self.index][2]
 	local holder = self.Owner:GetParent()
-	local hit, cut, hits, plane_normal = slash.Strike(holder, self.Owner, local_cut, 1, 1, 3, SLASH)
+	local hit, cut, hits, plane_normal = slash.Strike(holder, self.Owner, actors.GetForward(holder), local_cut, 1, 1, 3, SLASH)
 	effects.Text(holder, name, TEXT)
 
 	if not effects.Visual then return false end

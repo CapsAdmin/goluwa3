@@ -201,6 +201,7 @@ T.TestPhysics("a weapon with attributes deals one hit of each type", function()
 	slash.Strike(
 		attacker,
 		sword,
+		import("lua/actors.lua").GetForward(attacker),
 		Vec3(1, 0, 0),
 		10,
 		1,

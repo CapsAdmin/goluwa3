@@ -13,13 +13,12 @@ local function to_attacker_side(normal, to_attacker)
 	return normal
 end
 
-function slash.Strike(holder, inflictor, cut_local, amount, scale, range, types)
+function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, range, types)
 	local center = actors.GetCenter(holder)
-	local forward = actors.GetForward(holder)
 	local strike = center + forward * (range * 0.55)
 	local hit_any = false
 	local hits = {}
-	local right = actors.GetRight(holder)
+	local right = Vec3(-forward.z, 0, forward.x)
 	local cut = (
 		right * cut_local.x + Vec3(0, cut_local.y, 0) + forward * cut_local.z
 	):GetNormalized()
