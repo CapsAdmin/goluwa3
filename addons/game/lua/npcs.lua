@@ -9,6 +9,7 @@ import("lua/damage.lua")
 local outfit = import("lua/outfit.lua")
 local movesets = import("lua/movesets.lua")
 local voices = import("lua/npc_voices.lua")
+local rigs = import("lua/creature_rigs.lua")
 local PlayerController = import("lua/components/player_controller.lua")
 local AIController = import("lua/components/ai_controller.lua")
 local eyes = RENDER_3D and import("goluwa/entities/components/eyes.lua")
@@ -114,6 +115,7 @@ npcs.Definitions = {
 		Sounds = voices.vortigaunt,
 	},
 	antlion = {
+		LegRig = rigs.antlion,
 		Faction = "enemy",
 		Model = "models/antlion.mdl",
 		Idle = "Idle",
@@ -383,6 +385,7 @@ npcs.Definitions = {
 		Sounds = voices.headcrab_black,
 	},
 	antlion_worker = {
+		LegRig = rigs.antlion,
 		Faction = "enemy",
 		Model = "models/antlion_worker.mdl",
 		Idle = "Idle",
@@ -399,6 +402,7 @@ npcs.Definitions = {
 		Sounds = voices.antlion_worker,
 	},
 	antlion_guard = {
+		LegRig = rigs.antlion_guard,
 		Faction = "enemy",
 		Model = "models/antlion_guard.mdl",
 		Idle = "idle",
@@ -437,6 +441,7 @@ npcs.Definitions = {
 		Sounds = voices.antlion_guard,
 	},
 	hunter = {
+		LegRig = rigs.hunter,
 		Faction = "enemy",
 		Model = "models/hunter.mdl",
 		Idle = "idle1",
@@ -542,6 +547,7 @@ function npcs.Register(name, info)
 								Mirror = info.Biped,
 								OwnsArmature = info.Biped,
 								LegIK = info.Legs,
+								LegRig = info.LegRig,
 							} or
 							nil,
 						procedural_pose = info.Outfit and {} or nil,

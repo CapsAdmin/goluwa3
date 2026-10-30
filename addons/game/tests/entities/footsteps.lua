@@ -134,3 +134,41 @@ T.Test3D("a walking zombie fires footstep impacts from its foot ik and plays its
 	entity:Remove()
 	floor:Remove()
 end)
+
+T.Test3D("a walking antlion plants all four weight bearing legs through limb ik", function()
+	steam.MountSourceGame("gmod")
+
+	if not vfs.IsFile("models/antlion.mdl") then
+		return T.Unavailable("gmod content not mounted")
+	end
+
+	if not physics.instance then physics.Initialize() end
+
+	local floor = create_floor()
+	local entity = npcs.Spawn("antlion", Vec3(0, 0.05, 0), 0)
+	entity.ai_controller:SetWander(false)
+	local impacts = record_impacts(entity)
+
+	T.WaitUntil(function()
+		return entity.animator and entity.animator:GetRig() ~= nil
+	end, 30)
+
+	entity.ai_controller:MoveTo(Vec3(0, 0, -30), false)
+
+	T.WaitUntil(function()
+		return #impacts >= 16
+	end, 20)
+
+	event.RemoveListener("Impact", "footsteps_test")
+	local parts = {}
+
+	for _, info in ipairs(impacts) do
+		parts[info.Part] = true
+		T(info.Kind)["=="]("footstep")
+	end
+
+	T(table.count(parts))["=="](4)
+	T(#entity.source_pose.limbs)["=="](4)
+	entity:Remove()
+	floor:Remove()
+end)

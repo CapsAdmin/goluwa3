@@ -34,7 +34,7 @@ end
 
 local knee_solution = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
-local function solve_reach(bones, leg, target_x, target_y, target_z)
+local function solve_reach(bones, leg, target_x, target_y, target_z, flexion)
 	local thigh, calf, foot = bones[leg.thigh], bones[leg.calf], bones[leg.foot]
 	local upper_length = get_distance(thigh, calf)
 	local lower_length = get_distance(calf, foot)
@@ -42,7 +42,7 @@ local function solve_reach(bones, leg, target_x, target_y, target_z)
 	local dx, dy, dz = target_x - tx, target_y - ty, target_z - tz
 	local distance = math.max(math.sqrt(dx * dx + dy * dy + dz * dz), 1e-3)
 	local fold = math.sqrt(
-		upper_length * upper_length + lower_length * lower_length + 2 * upper_length * lower_length * math.cos(leg_pose.KneeFlexion)
+		upper_length * upper_length + lower_length * lower_length + 2 * upper_length * lower_length * math.cos(flexion)
 	)
 	local clamped = math.clamp(distance, fold, (upper_length + lower_length) * 0.999)
 	local along = (
@@ -109,16 +109,42 @@ local function solve_knee(bones, leg)
 	ks[7], ks[8], ks[9] = tx + dx * clamped, ty + dy * clamped, tz + dz * clamped
 end
 
-local function solve_leg(bones, leg, foot, planted, target_y, normal)
+local function solve_bend(bones, leg)
+	local ks = knee_solution
+	local calf = bones[leg.calf]
+	local dx, dy, dz = ks[10], ks[11], ks[12]
+	local kx, ky, kz = calf.m30 - ks[1], calf.m31 - ks[2], calf.m32 - ks[3]
+	local along = kx * dx + ky * dy + kz * dz
+	local bx, by, bz = kx - dx * along, ky - dy * along, kz - dz * along
+	local bend = math.sqrt(bx * bx + by * by + bz * bz)
+
+	if bend < 1e-4 then
+		bx, by, bz = -dx * dy, 1 - dy * dy, -dz * dy
+		bend = math.sqrt(bx * bx + by * by + bz * bz)
+
+		if bend < 1e-4 then bx, by, bz, bend = 0, 0, -1, 1 end
+	end
+
+	bx, by, bz = bx / bend, by / bend, bz / bend
+	local reach, height, clamped = ks[13], ks[14], ks[15]
+	local tx, ty, tz = ks[1], ks[2], ks[3]
+	ks[4], ks[5], ks[6] = tx + dx * reach + bx * height,
+	ty + dy * reach + by * height,
+	tz + dz * reach + bz * height
+	ks[7], ks[8], ks[9] = tx + dx * clamped, ty + dy * clamped, tz + dz * clamped
+end
+
+local function solve_leg(bones, leg, foot, planted, target_y, normal, solve_pole, flexion)
 	local ks = knee_solution
 	solve_reach(
 		bones,
 		leg,
 		planted and planted.x or foot.m30,
 		target_y,
-		planted and planted.z or foot.m32
+		planted and planted.z or foot.m32,
+		flexion
 	)
-	solve_knee(bones, leg)
+	solve_pole(bones, leg)
 	planted = nil
 	target_y = nil
 	local thigh, calf = bones[leg.thigh], bones[leg.calf]
@@ -160,7 +186,56 @@ do
 	function leg_pose.SolveFoot(bones, index, x, y, z)
 		local leg = LEGS[index]
 		target.x, target.y, target.z = x, y, z
-		solve_leg(bones, leg, bones[leg.foot], target, y, UP)
+		solve_leg(bones, leg, bones[leg.foot], target, y, UP, solve_knee, leg_pose.KneeFlexion)
+	end
+
+	leg_pose.LimbFlexion = math.pi * 0.98
+
+	function leg_pose.NewLimb(upper, lower, tip)
+		return {
+			thigh = upper,
+			calf = lower,
+			foot = tip,
+			chain = {upper, lower, tip},
+			lower_chain = {lower, tip},
+		}
+	end
+
+	-- the point of each tip bone that touches the ground, in the bone's own frame: the lowest vertex of the hull of its physics solid at rest, false when the model has no solid for the bone
+	function leg_pose.GetSoles(ragdoll, tips)
+		local solids = {}
+
+		for _, solid in ipairs(ragdoll.solids) do
+			solids[solid.bone:lower()] = solid
+		end
+
+		local soles = {}
+
+		for i, tip in ipairs(tips) do
+			local solid = solids[tip:lower()]
+			soles[i] = false
+
+			if solid then
+				local lowest
+
+				for _, child in ipairs(solid.children) do
+					for _, vertex in ipairs(child.ConvexHull.vertices) do
+						local local_point = child.Position + vertex
+						local height = (solid.bone_position + solid.bone_rotation:VecMul(local_point)).y
+
+						if not lowest or height < lowest then lowest, soles[i] = height, local_point end
+					end
+				end
+			end
+		end
+
+		return soles
+	end
+
+	-- a limb of any creature: the bend keeps the side the animation gave it, and it may fold far tighter than a knee
+	function leg_pose.SolveLimb(bones, limb, x, y, z, normal)
+		target.x, target.y, target.z = x, y, z
+		solve_leg(bones, limb, bones[limb.foot], target, y, normal, solve_bend, leg_pose.LimbFlexion)
 	end
 end
 
@@ -262,8 +337,8 @@ function leg_pose.Apply(bones, shift_r, shift_l, pelvis_shift, normals, state)
 		bones[name].m31 = bones[name].m31 + pelvis_shift
 	end
 
-	solve_leg(bones, LEGS[1], bones.foot_r, planted_r, target_r, normals[1])
-	solve_leg(bones, LEGS[2], bones.foot_l, planted_l, target_l, normals[2])
+	solve_leg(bones, LEGS[1], bones.foot_r, planted_r, target_r, normals[1], solve_knee, leg_pose.KneeFlexion)
+	solve_leg(bones, LEGS[2], bones.foot_l, planted_l, target_l, normals[2], solve_knee, leg_pose.KneeFlexion)
 
 	if state then state.active = false end
 end

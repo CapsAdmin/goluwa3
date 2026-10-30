@@ -10,10 +10,12 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local animations = import("lua/animations.lua")
+local model_loader = import("goluwa/render3d/model_loader.lua")
 local movesets = import("lua/movesets.lua")
 local impacts = import("lua/impacts.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local META = objects.CreateTemplate("source_pose")
+local NO_RIG = {}
 META:StartStorable()
 META:GetSet("Profile", "creature")
 META:GetSet("IdleSequence", "")
@@ -22,6 +24,7 @@ META:GetSet("RunSequence", "")
 META:IsSet("Mirror", false)
 META:IsSet("OwnsArmature", false)
 META:IsSet("LegIK", false)
+META:GetSet("LegRig", NO_RIG)
 META:GetSet("SocketProfile", "source_humanoid")
 META:EndStorable()
 local START_SPEED = 0.3
@@ -458,7 +461,7 @@ end
 
 local FEET = {"foot_r", "foot_l"}
 
-function META:UpdateLegs(character, pose, dt, bones)
+function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 	local world = self.Owner.transform:GetWorldMatrix()
 	local position = character.transform:GetRenderPositionRotation() or
 		character.transform:GetPosition()
@@ -471,12 +474,21 @@ function META:UpdateLegs(character, pose, dt, bones)
 
 	if not self.leg_ready then
 		self.leg_ready = true
-		ground[1], ground[2], self.pelvis_ground, self.pelvis_mean = plane, plane, plane, plane
+		self.pelvis_ground, self.pelvis_mean = plane, plane
+
+		for i = 1, #feet do
+			ground[i] = plane
+		end
 	end
 
-	for i, name in ipairs(FEET) do
+	for i, name in ipairs(feet) do
 		local foot = bones[name]
-		local x, y, z = world:TransformVectorUnpacked(foot.m30, foot.m31, foot.m32)
+		local sole = soles and soles[i]
+		local sx, sy, sz = foot.m30, foot.m31, foot.m32
+
+		if sole then sx, sy, sz = foot:TransformVectorUnpacked(sole.x, sole.y, sole.z) end
+
+		local x, y, z = world:TransformVectorUnpacked(sx, sy, sz)
 		local hit = grounded and
 			physics.RayCast(
 				Vec3(x, y + LEG_PROBE, z),
@@ -495,7 +507,7 @@ function META:UpdateLegs(character, pose, dt, bones)
 		end
 
 		local step = self.steps[i]
-		local height = foot.m31 + self.ground_sink
+		local height = sy + self.ground_sink
 		local rate = math.max((height - step.height) / dt, -STEP_MAX_RATE)
 		step.height = height
 
@@ -527,7 +539,7 @@ function META:UpdateLegs(character, pose, dt, bones)
 			current.z + (normal.z - current.z) * follow
 		)
 		self.leg_shift[i] = math.clamp(ground[i] - plane, -LEG_DROP, LEG_RISE)
-		mean = mean + ground[i] * 0.5
+		mean = mean + ground[i] / #feet
 	end
 
 	local rise = (mean - self.pelvis_mean) / dt
@@ -538,6 +550,11 @@ function META:UpdateLegs(character, pose, dt, bones)
 	self.pelvis_ground = self.pelvis_ground + (
 			mean + self.pelvis_rise / PELVIS_FOLLOW - self.pelvis_ground
 		) * math.min(dt * PELVIS_FOLLOW, 1)
+	return plane
+end
+
+function META:UpdateLegs(character, pose, dt, bones)
+	local plane = self:UpdateFeet(character, pose, dt, bones, FEET)
 	local shift = self.leg_shift
 	leg_pose.ApplyKeys(bones, pose, self.held_l and not self.held_r and -1 or 1, self.leg_state)
 	leg_pose.Apply(
@@ -794,6 +811,114 @@ do
 	end
 end
 
+function META:UpdateCreatureLimbs(rig, pose, dt)
+	local definition = self.LegRig
+	local limbs = self.limbs
+	local bones = self.bones
+	local root = definition.Root
+	local ragdoll = self.character.source_ragdoll
+
+	if not limbs then
+		limbs = {}
+		self.limbs = limbs
+		self.limb_feet = {}
+		self.leg_shift, self.leg_ground, self.leg_normals, self.steps = {}, {}, {}, {}
+
+		for i, chain in ipairs(definition.Legs) do
+			limbs[i] = leg_pose.NewLimb(chain[1], chain[2], chain[3])
+			self.limb_feet[i] = chain[3]
+			self.leg_shift[i] = 0
+			self.leg_ground[i] = 0
+			self.leg_normals[i] = Vec3(0, 1, 0)
+			self.steps[i] = {
+				height = 0,
+				floor = math.huge,
+				peak = 0,
+				speed = 0,
+				lifted = false,
+				descending = false,
+			}
+		end
+
+		self.leg_ready = false
+		self.limb_targets = {}
+
+		for i = 1, #limbs do
+			self.limb_targets[i] = {x = 0, y = 0, z = 0}
+		end
+	end
+
+	rig:ClearBone(root)
+
+	for _, limb in ipairs(limbs) do
+		for _, name in ipairs(limb.chain) do
+			rig:ClearBone(name)
+		end
+	end
+
+	if ragdoll and ragdoll:IsDead() then return end
+
+	if not self.soles then
+		if not self.soles_loading then
+			self.soles_loading = true
+			model_loader.LoadModel(self.Owner.model.ModelPath, function(data)
+				self.soles = leg_pose.GetSoles(data.physics.ragdoll, self.limb_feet)
+			end)
+		end
+
+		return
+	end
+
+	bones[root] = rig:GetBone(root)
+
+	for _, limb in ipairs(limbs) do
+		for _, name in ipairs(limb.chain) do
+			bones[name] = rig:GetBone(name)
+		end
+	end
+
+	self:UpdateGroundSink(self.character, pose, dt)
+	bones[root].m31 = bones[root].m31 - self.ground_sink
+
+	for _, limb in ipairs(limbs) do
+		for _, name in ipairs(limb.chain) do
+			bones[name].m31 = bones[name].m31 - self.ground_sink
+		end
+	end
+
+	local plane = self:UpdateFeet(pose.Owner, pose, dt, bones, self.limb_feet, self.soles)
+	local body_shift = math.clamp(self.pelvis_ground - plane, -LEG_DROP, LEG_RISE)
+
+	for i, limb in ipairs(limbs) do
+		local tip = bones[limb.foot]
+		local target = self.limb_targets[i]
+		target.x, target.y, target.z = tip.m30, tip.m31 + self.leg_shift[i], tip.m32
+	end
+
+	bones[root].m31 = bones[root].m31 + body_shift
+
+	for _, limb in ipairs(limbs) do
+		for _, name in ipairs(limb.chain) do
+			bones[name].m31 = bones[name].m31 + body_shift
+		end
+	end
+
+	for i, limb in ipairs(limbs) do
+		local target = self.limb_targets[i]
+		leg_pose.SolveLimb(bones, limb, target.x, target.y, target.z, self.leg_normals[i])
+	end
+
+	rig:SetBone(root, bones[root], "model")
+
+	for _, limb in ipairs(limbs) do
+		for _, name in ipairs(limb.chain) do
+			rig:SetBone(name, bones[name], "model")
+		end
+	end
+
+	rig:Compute()
+end
+
 function META:UpdateCreatureLegs(rig, pose, dt)
 	local bones = self.bones
 	local ragdoll = self.character.source_ragdoll
@@ -854,6 +979,8 @@ function META:OnUpdate(dt)
 		self:UpdateCreature(animator, animator.skeleton, pose, dt)
 
 		if self.LegIK and not host then self:UpdateCreatureLegs(rig, pose, dt) end
+
+		if self.LegRig.Root then self:UpdateCreatureLimbs(rig, pose, dt) end
 	end
 
 	if host then

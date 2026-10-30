@@ -60,7 +60,7 @@ voices.zombie_poison = derive(
 	}
 )
 voices.antlion = {
-	Foot = foot("npc/antlion/foot%d.wav", 4, 1.2, 0.4),
+	Foot = foot("npc/antlion/foot%d.wav", 4, nil, 0.25),
 	Idle = set(numbered("npc/antlion/idle%d.wav", 1, 5), 0.45),
 	Alert = set({"npc/antlion/distract1.wav"}, 0.7),
 	Pain = set(numbered("npc/antlion/pain%d.wav", 1, 2), 0.7),
@@ -69,7 +69,7 @@ voices.antlion = {
 }
 voices.antlion_worker = voices.antlion
 voices.antlion_guard = {
-	Foot = foot("npc/antlion_guard/foot_heavy%d.wav", 2, 1.6, 0.8),
+	Foot = foot("npc/antlion_guard/foot_heavy%d.wav", 2, nil, 0.6),
 	Idle = set({"npc/antlion_guard/growl_idle.wav"}, 0.7),
 	Alert = set(numbered("npc/antlion_guard/angry%d.wav", 1, 3), 1),
 	Charge = set({"npc/antlion_guard/growl_high.wav"}, 1),
@@ -96,7 +96,7 @@ voices.headcrab_black = {
 	Hit = set(numbered("npc/headcrab_poison/ph_poisonbite%d.wav", 1, 3), 0.6),
 }
 voices.hunter = {
-	Foot = foot("npc/ministrider/ministrider_footstep%d.wav", 5, 1.5, 0.7),
+	Foot = foot("npc/ministrider/ministrider_footstep%d.wav", 5, nil, 0.5),
 	Idle = set(numbered("npc/ministrider/hunter_angry%d.wav", 1, 3), 0.6),
 	Alert = set(numbered("npc/ministrider/hunter_alert%d.wav", 1, 3), 0.9),
 	Pain = set({"npc/ministrider/hunter_pain2.wav", "npc/ministrider/hunter_pain4.wav"}, 0.9),

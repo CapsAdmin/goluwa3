@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local leg_pose = import("lua/leg_pose.lua")
 local POSITIONS = {
@@ -167,4 +168,53 @@ T.Test("a pelvis hook moves the body and the head holds most of the pelvis rotat
 	T(bones.chest:GetRotation():GetForward().y > 0.4)["=="](true)
 	T(bones.head:GetRotation():GetForward().y)["~"](math.sin(0.5 * (1 - leg_pose.HeadHold)), 0.03)
 	T(position(bones, "foot_r"):Distance(POSITIONS.foot_r) < 0.02)["=="](true)
+end)
+
+T.Test("a creature limb reaches a lowered target, keeps its bone lengths and the side it bends to", function()
+	local bones = {}
+
+	for name, at in pairs{upper = Vec3(0, 1, 0), lower = Vec3(0.4, 1.3, 0), tip = Vec3(0.8, 0.3, 0)} do
+		bones[name] = Matrix44():Identity():SetTranslation(at.x, at.y, at.z)
+	end
+
+	local limb = leg_pose.NewLimb("upper", "lower", "tip")
+	local upper, lower, tip = position(bones, "upper"), position(bones, "lower"), position(bones, "tip")
+	local upper_length, lower_length = upper:Distance(lower), lower:Distance(tip)
+	leg_pose.SolveLimb(bones, limb, 0.8, 0.1, 0.1, Vec3(0, 1, 0))
+	T(position(bones, "tip"):Distance(Vec3(0.8, 0.1, 0.1)))["<"](1e-3)
+	T(position(bones, "upper"):Distance(position(bones, "lower")))["~"](upper_length, 1e-4)
+	T(position(bones, "lower"):Distance(position(bones, "tip")))["~"](lower_length, 1e-4)
+	local axis = (position(bones, "tip") - position(bones, "upper")):GetNormalized()
+	local knee = position(bones, "lower") - position(bones, "upper")
+	T((knee - axis * knee:Dot(axis)).y > 0.1)["=="](true)
+end)
+
+T.Test("a creature limb folds tighter than a knee can", function()
+	local bones = {}
+
+	for name, at in pairs{upper = Vec3(0, 1, 0), lower = Vec3(0.5, 1, 0), tip = Vec3(0.1, 1, 0.05)} do
+		bones[name] = Matrix44():Identity():SetTranslation(at.x, at.y, at.z)
+	end
+
+	local limb = leg_pose.NewLimb("upper", "lower", "tip")
+	leg_pose.SolveLimb(bones, limb, 0.1, 1, 0.05, Vec3(0, 1, 0))
+	T(position(bones, "tip"):Distance(Vec3(0.1, 1, 0.05)))["<"](1e-3)
+end)
+
+T.Test("the sole of a tip bone is the lowest hull vertex of its solid, in the bone frame", function()
+	local solid = {
+		bone = "Leg.Tip",
+		bone_position = Vec3(0, 0.8, 0),
+		bone_rotation = Quat(-0.7071067811865476, 0, 0, 0.7071067811865476),
+		children = {
+			{
+				Position = Vec3(0, 0, 0),
+				ConvexHull = {vertices = {Vec3(0, 0, 0), Vec3(0, 0, -0.8), Vec3(0.05, 0, -0.4)}},
+			},
+		},
+	}
+	local soles = leg_pose.GetSoles({solids = {solid}}, {"leg.tip", "missing"})
+	T(soles[1] ~= false)["=="](true)
+	T(soles[1]:Distance(Vec3(0, 0, -0.8)))["<"](1e-6)
+	T(soles[2])["=="](false)
 end)
