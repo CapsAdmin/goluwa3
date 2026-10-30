@@ -269,6 +269,9 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 	local nx, ny, nz = e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x
 	local normal_length = math.sqrt(nx * nx + ny * ny + nz * nz)
 	local plane_cutoff = normal_length > EPSILON and combined_margin * normal_length or math.huge
+	local face_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, EPSILON)
+
+	if not face_normal then return state, false end
 
 	for _, sample in ipairs(samples) do
 		if support_only and not sample.is_support then goto continue end
@@ -287,27 +290,25 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 			goto continue
 		end
 
-		local result = triangle_contact_queries.QueryPointSample(poly_body, query_point, v0, v1, v2, {
-			epsilon = EPSILON,
-		})
+		local signed_distance = (query_point - v0):Dot(face_normal)
+		local projected = query_point - face_normal * signed_distance
 
-		if result then
-			local position = use_local_space and mesh_body:LocalToWorld(result.position) or result.position
-			local face_normal = use_local_space and
-				mesh_body:GetRotation():VecMul(result.face_normal):GetNormalized() or
-				result.face_normal
-			local normal = face_normal
+		if triangle_geometry.PointInTriangle(projected, v0, v1, v2, face_normal) then
+			local position = use_local_space and mesh_body:LocalToWorld(projected) or projected
+			local normal = use_local_space and
+				mesh_body:GetRotation():VecMul(face_normal):GetNormalized() or
+				face_normal
 
 			if
 				not SOLVE_MESH_POLYHEDRON_CONTEXT.outward_winding and
 				(
 					poly_body:GetPosition() - triangle_center_world
-				):Dot(face_normal) < 0
+				):Dot(normal) < 0
 			then
-				normal = face_normal * -1
+				normal = normal * -1
 			end
 
-			local overlap = combined_margin - result.surface_distance
+			local overlap = combined_margin - (sample.point - position):Dot(normal)
 
 			if overlap > EPSILON then
 				found_contact = true
