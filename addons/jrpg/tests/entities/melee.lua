@@ -62,7 +62,7 @@ T.Test("every moveset move is a registered action and its hits are in order", fu
 		for _, move in pairs(set.Moves) do
 			T(movesets.GetMove(move.Action))["=="](move)
 			T(import("lua/animations.lua").Get(move.Action))["=="](move)
-			T(move.Cancel >= move.Hits[#move.Hits].At)["=="](true)
+			T(move.Cancel >= (move.Events[#move.Events] or {At = 0}).At)["=="](true)
 		end
 	end
 end)
@@ -177,4 +177,63 @@ T.TestPhysics("a predicted action is adopted when the server's copy arrives inst
 	pose:SetActions(pose.Actions + 1)
 	pose:UpdateAnimations(0.1)
 	T((count("sword_light_2")))["=="](1)
+end)
+
+T.Test("moveset data is validated with a message that names the field", function()
+	local function check(def, expected)
+		local ok, err = pcall(movesets.Validate, "test", def)
+		T(ok)["=="](false)
+		T(tostring(err):find(expected, 1, true) ~= nil)["=="](true)
+	end
+
+	local Vec3 = import("goluwa/structs/vec3.lua")
+
+	local function move(extra)
+		return table.merge({Duration = 1, Keys = {{0.5, torso = 1}}}, extra or {})
+	end
+
+	check(
+		{Moves = {a = move{Events = {{At = 0.5, Type = "hit", Cut = Vec3(0, 0, 1)}}}}},
+		"not plain data"
+	)
+	check({Moves = {a = move{Wobble = 1}}}, "unknown field Wobble")
+	check({Moves = {a = move{Events = {{At = 0.5, Type = "kick"}}}}}, "unknown Type kick")
+	check({Moves = {a = move{Events = {{At = 0.5, Type = "hit"}}}}}, "needs Cut")
+	check(
+		{
+			Moves = {a = move{Events = {{At = 0.5, Type = "hit", Cut = {0, 0, 1}, Spin = 1}}}},
+		},
+		"unknown field Spin"
+	)
+	check(
+		{
+			Moves = {
+				a = move{
+					Events = {{At = 0.6, Type = "latch", Range = 1}, {At = 0.5, Type = "latch", Range = 1}},
+				},
+			},
+		},
+		".At must be in order"
+	)
+	check({Moves = {a = move{Keys = {{0.5, wobble = 1}}}}}, "unknown field wobble")
+	check({Moves = {a = move{Keys = {{0.5, "nope"}}}}}, "unknown pose nope")
+	check(
+		{Moves = {a = move{Keys = {{0.5, motion = {0, 1, 1, 1}}}}}},
+		"takes at most 3 numbers"
+	)
+	check(
+		{Moves = {a = move{Keys = {{0.5, torso = 1}, {0.4, torso = 0}}}}},
+		"not later than the previous torso key"
+	)
+end)
+
+T.Test("a move's motion is a track of the same timeline and holds its last key", function()
+	local move = movesets.Get("greatsword").Moves.cleave
+	local out = {0, 0, 0}
+	import("lua/animations.lua").SampleKeys(move.MotionKeys, 1, out, 3)
+	T(out[1])["~"](math.rad(-10), 1e-6)
+	T(out[2])["~"](1.6, 1e-6)
+	T(out[3])["=="](1)
+	T(movesets.GetEvent(move, "hit").At)["=="](0.56)
+	T(movesets.GetEvent(move, "latch"))["=="](nil)
 end)

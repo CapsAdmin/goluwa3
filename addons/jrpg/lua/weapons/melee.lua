@@ -81,7 +81,7 @@ function META:StartMove(move, authority)
 	self.attack = move
 	self.attack_time = 0
 	self.duration = move.Duration / weapon.RateMultiplier
-	self.next_hit = 1
+	self.next_event = 1
 	self.queued = nil
 	local frame = movesets.NewFrame(holder, move, self.frame)
 	pose:SetFocusOn(frame.target, frame.point)
@@ -265,20 +265,22 @@ function META:Step(dt, cmd, authority)
 	movesets.SampleMotion(move, f, frame, frame.point, self.drive)
 	self.drive.y = center.y
 	holder.character_movement:Drive(self.drive)
-	local hit = move.Hits[self.next_hit]
+	local event = move.Events[self.next_event]
 
-	if hit and f >= hit.At then
-		self.next_hit = self.next_hit + 1
+	while event and f >= event.At do
+		self.next_event = self.next_event + 1
 
 		if authority then
 			local forward = movesets.GetFocus(frame) - center
 			forward.y = 0
 			forward = forward:GetLength() > 1e-3 and forward:GetNormalized() or actors.GetForward(holder)
-			self:Hit(hit, forward)
+			self:Hit(event, forward)
 		end
+
+		event = move.Events[self.next_event]
 	end
 
-	if f >= (self.queued and move.Cancel or 1) and not move.Hits[self.next_hit] then
+	if f >= (self.queued and move.Cancel or 1) and not event then
 		self:Chain(authority)
 	end
 end
