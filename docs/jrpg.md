@@ -2,7 +2,7 @@
 
 A port of the gmod jrpg addon, in the `jrpg` addon (`addons/jrpg/lua/jrpg/` plus its components in `addons/jrpg/lua/components/`), which depends on `game`. `!rpg` toggles it on the local player (`!rpg cheat` pins mana and stamina), `!level <attribute>` spends attribute points (no argument lists them), `!status <name> <amount>` applies a status to yourself.
 
-- Being in rpg mode is having the `rpg` component (mana, stamina, xp, level, attributes; stats persist per player in `data/jrpg/`). `jrpg.SetEnabled(entity, on)` adds it, gives the loadout (sword in the right hand on right mouse, shield in the left raised with left mouse, one `weapon_magic_<type>` per damage type, potions) and puts the old max health, speeds and weapons back when removed. `RPGEnabled`/`RPGDisabled` events turn the battlecam on and off for the local player.
+- Being in rpg mode is having the `rpg` component (mana, stamina, xp, level, attributes; stats persist per player in `data/jrpg/`). `jrpg.SetEnabled(entity, on)` adds it, gives the loadout (sword in the right hand on right mouse, the greatsword, rapier and reaper to switch to, shield in the left raised with left mouse, one `weapon_magic_<type>` per damage type, potions) and puts the old max health, speeds and weapons back when removed. `RPGEnabled`/`RPGDisabled` events turn the battlecam on and off for the local player.
 - Everything that is only presentation (jrpg HUD, damage numbers, npc bars, item highlights, damage flashes) checks `actors.IsLocalRPG()`; the plain HUD hides itself while it is on. Gameplay (statuses, projectiles, npc fights) runs regardless.
 
 ## Damage
@@ -27,7 +27,7 @@ A port of the gmod jrpg addon, in the `jrpg` addon (`addons/jrpg/lua/jrpg/` plus
 
 ## Melee and movesets
 
-Every melee weapon (the `sword`) runs one shared script, `lua/weapons/melee.lua` (`weapon_melee`), parameterized by its script values (`Moveset`, `Damage`, `Range`, `SwingPitch`, `TrailColor`). The weapon files only describe the model (`lua/weapons/blade.lua` builds the tilted blade nodes, markers and the placeholder pole; the gmod model replaces the pole) and the sheath. A moveset (`lua/jrpg/movesets/<name>.lua`, registered with `movesets.Register`) is data:
+Every melee weapon (`sword`, the two handed `greatsword`, the fast `rapier`, the `reaper` hook) runs one shared script, `lua/weapons/melee.lua` (`weapon_melee`), parameterized by its script values (`Moveset`, `Damage`, `Range`, `SwingPitch`, `TrailColor`). The weapon files only describe the model (`lua/weapons/blade.lua` builds the tilted blade nodes, markers and the placeholder pole; the gmod model replaces the pole) and the sheath. A moveset (`lua/jrpg/movesets/<name>.lua`, registered with `movesets.Register`) is data:
 
 - `Combo` (the light chain on primary), `Heavy` (secondary, or holding primary for 0.3 s queues it), `Air` (attacking while airborne), `Dash` (attacking while sprinting), `ComboWindow`, `Poses` (named poses local to the set, falling back to `keyframes.Poses`; the shared sword poses are in `movesets/poses.lua`) and `Moves`.
 - A move: `Duration`, `Stamina`, `Keys` (keyframes, see [characters.md](characters.md)), `Hits` (`{At, Cut, Damage, Range, Swing, Knock}` with fractions of the duration: `Swing` is the trail and sound window, `Knock` a velocity added to the victim in the attacker's right/up/forward frame, negative forward pulls), `Cancel` (when a queued input chains, never before the last hit), `Next` and `Branch` (the light and heavy follow-ups instead of the combo order), and `Motion`.

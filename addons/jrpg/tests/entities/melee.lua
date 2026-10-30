@@ -43,7 +43,7 @@ local function run(seconds, poses)
 end
 
 T.Test("every moveset move is a registered action and its hits are in order", function()
-	for _, name in ipairs{"sword"} do
+	for _, name in ipairs{"sword", "greatsword", "rapier", "reaper"} do
 		local set = movesets.Get(name)
 		T(#set.Combo > 0)["=="](true)
 		T(set.Heavy ~= nil)["=="](true)
@@ -57,14 +57,17 @@ T.Test("every moveset move is a registered action and its hits are in order", fu
 end)
 
 T.Test("moveset motion orbits the focus at the keyed distance", function()
-	local move = movesets.Get("sword").Moves.dash
+	local move = movesets.Get("reaper").Moves.carousel
 	local frame = {bearing = Vec3(0, 0, 1), right = Vec3(1, 0, 0), distance = 2}
 	local out = Vec3()
 	movesets.SampleMotion(move, 0, frame, Vec3(0, 0, 0), out)
 	T(out.z)["~"](2, 1e-6)
 	movesets.SampleMotion(move, 1, frame, Vec3(0, 0, 0), out)
-	T(out.z)["~"](1.3 * math.cos(math.rad(150)), 1e-3)
-	T(out.x)["~"](1.3 * math.sin(math.rad(150)), 1e-3)
+	T(out.z)["~"](1.3, 1e-3)
+	T(out.x)["~"](0, 1e-3)
+	local quarter = {0.12 + (0.82 - 0.12) / 4}
+	movesets.SampleMotion(move, quarter[1], frame, Vec3(0, 0, 0), out)
+	T(out.x > 0.5)["=="](true)
 end)
 
 T.TestPhysics("a light attack draws the sheathed sword, steps in and hits the target", function()

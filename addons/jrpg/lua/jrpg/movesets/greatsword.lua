@@ -1,0 +1,140 @@
+local Vec3 = import("goluwa/structs/vec3.lua")
+local TAU = math.pi * 2
+return {
+	ComboWindow = 0.7,
+	Combo = {"cleave", "upheave", "whirlwind"},
+	Heavy = "earthsplitter",
+	Air = "meteor",
+	Dash = "charge",
+	Poses = {
+		shoulder = {
+			aim = {-0.9, 0.2},
+			hand = {0.2, 0.15, 0.15, 0.6, -0.4, -1.1},
+			torso = 0.25,
+			pelvis = {0.05, -0.06, 0.08, -0.35},
+			head = {0.15},
+		},
+		sweep = {
+			aim = {1, -0.15},
+			hand = {-0.1, -0.05, -0.3, -0.5, 0.5, 0.9},
+			torso = -0.3,
+			pelvis = {-0.05, -0.12, -0.12, 0.35},
+			head = {0.15},
+		},
+		low_left = {
+			aim = {0.6, -0.35},
+			hand = {-0.15, -0.2, 0.05, -1, 0.4, 0.8},
+			torso = -0.1,
+			pelvis = {-0.03, -0.1, 0.02, 0.25},
+			head = {0.15},
+		},
+		high_right = {
+			aim = {-0.6, 0.45},
+			hand = {0.12, 0.25, -0.2, 1.1, -0.3, -0.6},
+			torso = 0.3,
+			pelvis = {0.03, 0.02, -0.05, -0.25},
+			head = {0.15},
+		},
+		raised = {
+			aim = {0, 0.45},
+			hand = {0.05, 0.3, 0.15, 1.3, 0, -0.2},
+			torso = 0.45,
+			pelvis = {0, 0.03, 0.12, -0.05},
+			head = {0.2},
+		},
+		buried = {
+			aim = {0, -0.45},
+			hand = {0, -0.2, -0.35, -1.1, 0, 0.1},
+			torso = -0.55,
+			pelvis = {0, -0.22, -0.22, 0.05},
+			head = {0.2},
+		},
+	},
+	Moves = {
+		cleave = {
+			Duration = 0.95,
+			Stamina = 18,
+			Approach = 0.7,
+			Hits = {{At = 0.56, Cut = Vec3(-0.97, -0.2, 0), Damage = 1.1, Knock = Vec3(-2, 1, 1.5)}},
+			Motion = {{0.4}, {0.6, -10, 1.6, ease = "in"}},
+			Keys = {
+				{0.38, "shoulder", ease = "out", hold = 0.1},
+				{0.6, "sweep", ease = "in", hold = 0.14},
+			},
+		},
+		upheave = {
+			Duration = 0.9,
+			Stamina = 18,
+			Approach = 0.6,
+			Hits = {{At = 0.55, Cut = Vec3(0.6, 0.8, 0), Damage = 1.1, Knock = Vec3(1, 3.5, 1)}},
+			Motion = {{0.3}, {0.56, 15, 1.6}},
+			Keys = {
+				{0.32, "low_left", ease = "out", hold = 0.1},
+				{0.58, "high_right", ease = "in", hold = 0.14},
+			},
+		},
+		whirlwind = {
+			Duration = 1.35,
+			Stamina = 30,
+			Approach = 1.2,
+			Hits = {
+				{At = 0.42, Cut = Vec3(-0.97, -0.1, 0), Damage = 1, Knock = Vec3(-1.5, 1, 2)},
+				{At = 0.68, Cut = Vec3(-0.97, 0.1, 0), Damage = 1.5, Knock = Vec3(-2, 2, 4)},
+			},
+			Motion = {{0.2}, {0.75, 0, 1.4}},
+			Keys = {
+				{0.22, "shoulder", ease = "out", hold = 0.06, body = {0, 0, 0, 0}},
+				{0.42, "sweep", ease = "in", body = {0, 0, 0, TAU * 0.45}},
+				{0.56, "sweep", body = {0, 0.05, 0, TAU * 0.75}},
+				{0.72, "sweep", ease = "out", body = {0, 0, 0, TAU}},
+				{1, body = {0, 0, 0, TAU}},
+			},
+		},
+		earthsplitter = {
+			Duration = 1.45,
+			Stamina = 35,
+			Reach = 5,
+			Approach = 3,
+			Hits = {
+				{
+					At = 0.64,
+					Cut = Vec3(0, -1, 0.2),
+					Damage = 2.8,
+					Range = 2.8,
+					Swing = {0.52, 0.7},
+					Knock = Vec3(0, 3, 2),
+				},
+			},
+			Motion = {{0.3}, {0.62, 0, 1.4, ease = "in"}},
+			Keys = {
+				{0.28, "raised", ease = "out"},
+				{0.46, "raised", ease = "out", body = {0, 0.8, 0.2, 0, 0.25}},
+				{0.64, "buried", ease = "in", body = {0, 0, -0.1, 0, -0.3}},
+				{0.82, "buried", body = {0, -0.05, -0.1, 0, -0.3}},
+			},
+		},
+		meteor = {
+			Duration = 0.85,
+			Stamina = 25,
+			Approach = 0.8,
+			Hits = {{At = 0.5, Cut = Vec3(0, -1, 0.2), Damage = 2.2, Range = 2.6}},
+			Motion = {{0.2}, {0.5, 0, 1.4}},
+			Keys = {
+				{0.25, "raised", ease = "out", hold = 0.05},
+				{0.5, "buried", ease = "in", hold = 0.25},
+			},
+		},
+		charge = {
+			Duration = 1.05,
+			Stamina = 24,
+			Reach = 6,
+			Approach = 4,
+			Hits = {{At = 0.52, Cut = Vec3(-0.97, -0.2, 0), Damage = 1.6, Knock = Vec3(-3, 2, 3)}},
+			Motion = {{0.1}, {0.5, 25, 1.5, ease = "in"}},
+			Keys = {
+				{0.3, "shoulder", ease = "out", hold = 0.08},
+				{0.56, "sweep", ease = "in", hold = 0.16},
+			},
+		},
+	},
+}

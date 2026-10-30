@@ -24,7 +24,14 @@ jrpg.Colors = {
 	neon = Color.FromHex("#3fd3e6"),
 	danger = Color.FromHex("#e04a33"),
 }
-jrpg.Loadout = {"weapon_sword", "weapon_shield", "weapon_slash_debug"}
+jrpg.Loadout = {
+	"weapon_sword",
+	"weapon_greatsword",
+	"weapon_rapier",
+	"weapon_reaper",
+	"weapon_shield",
+	"weapon_slash_debug",
+}
 
 for _, name in ipairs(damage_types.Names) do
 	jrpg.Loadout[#jrpg.Loadout + 1] = "weapon_magic_" .. name

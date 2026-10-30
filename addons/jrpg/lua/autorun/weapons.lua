@@ -11,11 +11,11 @@ for name, def in pairs(import("lua/animations/stagger.lua")) do
 	keyframes.Register(name, def)
 end
 
-for _, name in ipairs{"sword"} do
+for _, name in ipairs{"sword", "greatsword", "rapier", "reaper"} do
 	movesets.Register(name, import("lua/jrpg/movesets/" .. name .. ".lua"))
 end
 
-for _, name in ipairs{"sword", "shield", "slash_debug"} do
+for _, name in ipairs{"sword", "greatsword", "rapier", "reaper", "shield", "slash_debug"} do
 	local definition = import("lua/weapons/" .. name .. ".lua")
 	weapons.Register(
 		"weapon_" .. name,
