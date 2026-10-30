@@ -106,3 +106,23 @@ T.Test("grip keys need carry keys and carry keys need the carried bones", functi
 	T(def.CarryKeys[2][3])["=="](1)
 	T(def.CarryKeys[2][10])["=="](0)
 end)
+
+T.Test("attach keys weigh the victim between where it was latched and the carry frame", function()
+	local carry = {0, 1, 0, 0, 1, 0, 0, 0, 0}
+	local def = keyframes.Compile(
+		{
+			CarryBones = {"a", "b"},
+			Keys = {
+				{0.2, carry = carry, attach = {0}},
+				{0.6, carry = carry, attach = {1}},
+			},
+		},
+		POSES
+	)
+	T(keyframes.EvaluateAttach(def, 0.2))["=="](0)
+	T(keyframes.EvaluateAttach(def, 0.6))["=="](1)
+	T(keyframes.EvaluateAttach(def, 0.4) > 0.01 and
+		keyframes.EvaluateAttach(def, 0.4) < 0.99)["=="](true)
+	T(keyframes.EvaluateAttach(keyframes.Compile({Keys = {{0.5, aim = {0.1}}}}, POSES), 0.3))["=="](1)
+	T(pcall(keyframes.Compile, {Keys = {{0.5, attach = {0}}}}, POSES))["=="](false)
+end)

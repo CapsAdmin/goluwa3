@@ -6,35 +6,72 @@ local grab = {}
 local LATCH = {}
 LATCH.__index = LATCH
 
-function LATCH:GetRenderFrame(position, rotation)
-	local grabber = self.Grabber
-	local def = self.Def
+do
+	local blended = Quat()
 
-	if def then
-		local anims = grabber.character_pose.anims
+	function LATCH:GetRenderFrame(position, rotation)
+		local grabber = self.Grabber
+		local def = self.Def
+		local weight = 1
 
-		for i = 1, #anims do
-			if anims[i].def == def then
-				keyframes.EvaluateCarry(
-					def,
-					math.min(anims[i].phase, self.PhaseLimit),
-					self.Bones,
-					self.Offset,
-					self.Rotation
-				)
+		if def then
+			local anims = grabber.character_pose.anims
 
-				break
+			for i = 1, #anims do
+				if anims[i].def == def then
+					local phase = math.min(anims[i].phase, self.PhaseLimit)
+					keyframes.EvaluateCarry(def, phase, self.Bones, self.Offset, self.Rotation)
+					weight = keyframes.EvaluateAttach(def, phase)
+
+					break
+				end
 			end
 		end
-	end
 
-	local transform = grabber.transform
-	local base_position = transform.OverridePosition or transform:GetPosition()
-	local base_rotation = transform.OverrideRotation or transform:GetRotation()
-	local offset = base_rotation:VecMul(self.Offset)
-	position:Set(base_position.x + offset.x, base_position.y + offset.y, base_position.z + offset.z)
-	Quat.SetMul(rotation, base_rotation, self.Rotation)
-	return position, rotation
+		local transform = grabber.transform
+		local base_position = transform.OverridePosition or transform:GetPosition()
+		local base_rotation = transform.OverrideRotation or transform:GetRotation()
+		local offset = base_rotation:VecMul(self.Offset)
+		position:Set(base_position.x + offset.x, base_position.y + offset.y, base_position.z + offset.z)
+		Quat.SetMul(rotation, base_rotation, self.Rotation)
+
+		if weight < 1 then
+			local home_position, home_rotation = self.HomePosition, self.HomeRotation
+			position:Set(
+				home_position.x + (position.x - home_position.x) * weight,
+				home_position.y + (position.y - home_position.y) * weight,
+				home_position.z + (position.z - home_position.z) * weight
+			)
+			local sign = home_rotation:Dot(rotation) < 0 and -1 or 1
+			blended:Set(
+				home_rotation.x + (rotation.x * sign - home_rotation.x) * weight,
+				home_rotation.y + (rotation.y * sign - home_rotation.y) * weight,
+				home_rotation.z + (rotation.z * sign - home_rotation.z) * weight,
+				home_rotation.w + (rotation.w * sign - home_rotation.w) * weight
+			)
+			blended:Normalize()
+			rotation:Set(blended.x, blended.y, blended.z, blended.w)
+		end
+
+		return position, rotation
+	end
+end
+
+do
+	local frame_position, frame_rotation = Vec3(), Quat()
+	local inverse = Quat()
+	local point = Vec3()
+
+	function LATCH:GetBoneTarget(bone, out)
+		self:GetRenderFrame(frame_position, frame_rotation)
+		local transform = self.Grabber.transform
+		local base_position = transform.OverridePosition or transform:GetPosition()
+		local base_rotation = transform.OverrideRotation or transform:GetRotation()
+		point:Set(bone.m30, bone.m31, bone.m32)
+		local world = frame_position + frame_rotation:VecMul(point) - base_position
+		inverse:SetConjugated(base_rotation)
+		return out:CopyFrom(inverse:VecMul(world))
+	end
 end
 
 do
@@ -107,6 +144,8 @@ function grab.Latch(grabber, victim, options)
 			PhaseLimit = options.PhaseLimit or 1,
 			Offset = options.Offset or Vec3(),
 			Rotation = options.Rotation or Quat(0, 0, 0, 1),
+			HomePosition = victim.transform:GetPosition():Copy(),
+			HomeRotation = victim.transform:GetRotation():Copy(),
 		},
 		LATCH
 	)

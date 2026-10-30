@@ -5,21 +5,65 @@ local animations = import("lua/animations.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local keyframes = {}
 keyframes.Tracks = {
-	{Name = "aim", Key = "AimKeys", Rest = {0, 0}},
-	{Name = "hand", Key = "HandKeys", Rest = {0, 0, 0, 0, 0, 0}},
-	{Name = "torso", Key = "TorsoKeys", Rest = {0}},
-	{Name = "head", Key = "HeadKeys", Rest = {1, 0, 0, 0}},
-	{Name = "pelvis", Key = "PelvisKeys", Rest = {0, 0, 0, 0, 0, 0}},
-	{Name = "body", Key = "BodyKeys", Rest = {0, 0, 0, 0, 0, 0}},
+	{
+		Name = "aim",
+		Key = "AimKeys",
+		Rest = {0, 0},
+		Labels = {"yaw", "pitch"},
+		Radians = {1, 2},
+	},
+	{
+		Name = "hand",
+		Key = "HandKeys",
+		Rest = {0, 0, 0, 0, 0, 0},
+		Labels = {"x", "y", "z", "pitch", "yaw", "roll"},
+		Radians = {4, 5, 6},
+	},
+	{
+		Name = "torso",
+		Key = "TorsoKeys",
+		Rest = {0},
+		Labels = {"pitch"},
+		Radians = {1},
+	},
+	{
+		Name = "head",
+		Key = "HeadKeys",
+		Rest = {1, 0, 0, 0},
+		Labels = {"follow", "nod", "turn", "tilt"},
+		Radians = {2, 3, 4},
+	},
+	{
+		Name = "pelvis",
+		Key = "PelvisKeys",
+		Rest = {0, 0, 0, 0, 0, 0},
+		Labels = {"x", "y", "z", "yaw", "pitch", "roll"},
+		Radians = {4, 5, 6},
+	},
+	{
+		Name = "body",
+		Key = "BodyKeys",
+		Rest = {0, 0, 0, 0, 0, 0, 0, 0.95, 0},
+		Labels = {"x", "y", "z", "yaw", "pitch", "roll", "pivot x", "pivot y", "pivot z"},
+		Radians = {4, 5, 6},
+	},
 	{
 		Name = "motion",
 		Key = "MotionKeys",
 		Rest = {0, 0, 0},
+		Labels = {"orbit", "distance", "blend"},
 		Degrees = {1},
 		Extend = true,
 	},
-	{Name = "carry", Key = "CarryKeys", Rest = {0, 0, 0, 0, 0, 0, 0, 0, 0}},
-	{Name = "grip", Key = "GripKeys", Rest = {0}},
+	{
+		Name = "carry",
+		Key = "CarryKeys",
+		Rest = {0, 0, 0, 0, 0, 0, 0, 0, 0},
+		Labels = {"rx", "ry", "rz", "lx", "ly", "lz", "pitch", "yaw", "roll"},
+		Radians = {7, 8, 9},
+	},
+	{Name = "grip", Key = "GripKeys", Rest = {0}, Labels = {"weight"}},
+	{Name = "attach", Key = "AttachKeys", Rest = {1}, Labels = {"weight"}},
 }
 keyframes.Poses = {rest = {}}
 
@@ -27,7 +71,6 @@ for _, track in ipairs(keyframes.Tracks) do
 	keyframes.Poses.rest[track.Name] = track.Rest
 end
 
-keyframes.BodyPivot = 0.95
 keyframes.FaceIn = 0.12
 keyframes.FaceOut = 0.2
 local AIRBORNE_LIFT = 0.15
@@ -138,7 +181,7 @@ local function is_airborne(rows)
 end
 
 do
-	local sample = {0, 0, 0, 0, 0, 0}
+	local sample = {0, 0, 0, 0, 0, 0, 0, 0, 0}
 	local faced = Quat()
 	local turn = Quat()
 	local pivot = Vec3()
@@ -164,11 +207,11 @@ do
 	end
 
 	local function apply_body_keys(keys, phase, weight, position, rotation)
-		animations.SampleKeys(keys, phase, sample, 6)
+		animations.SampleKeys(keys, phase, sample, 9)
 		faced:Set(rotation.x, rotation.y, rotation.z, rotation.w)
 		turn:Set(rotation.x, rotation.y, rotation.z, rotation.w)
 		turn:RotateYaw(sample[4] * weight):RotatePitch(sample[5] * weight):RotateRoll(sample[6] * weight)
-		pivot:Set(0, keyframes.BodyPivot, 0)
+		pivot:Set(sample[7], sample[8], sample[9])
 		offset:Set(sample[1] * weight, sample[2] * weight, sample[3] * weight)
 		local moved = position + faced:VecMul(offset) + faced:VecMul(pivot) - turn:VecMul(pivot)
 		position:Set(moved.x, moved.y, moved.z)
@@ -232,6 +275,15 @@ do
 		return position, rotation
 	end
 
+	local attach = {1}
+
+	function keyframes.EvaluateAttach(def, phase)
+		if not def.AttachKeys then return 1 end
+
+		animations.SampleKeys(def.AttachKeys, phase, attach, 1)
+		return attach[1]
+	end
+
 	local WINDOW = 0.02
 	local before, after = Vec3(), Vec3()
 	local ignored = Quat()
@@ -278,12 +330,19 @@ do
 		if weight < 0.001 then return end
 
 		local victim_bones = latch.Bones
-		keyframes.EvaluateCarry(def, inst.phase, victim_bones, offset, rotation)
 
-		for i = 1, 2 do
-			local anchor = victim_bones[def.CarryBones[i]]
-			point:Set(anchor.m30, anchor.m31, anchor.m32)
-			targets[i]:CopyFrom(offset + rotation:VecMul(point))
+		if keyframes.EvaluateAttach(def, inst.phase) < 1 then
+			for i = 1, 2 do
+				latch:GetBoneTarget(victim_bones[def.CarryBones[i]], targets[i])
+			end
+		else
+			keyframes.EvaluateCarry(def, inst.phase, victim_bones, offset, rotation)
+
+			for i = 1, 2 do
+				local anchor = victim_bones[def.CarryBones[i]]
+				point:Set(anchor.m30, anchor.m31, anchor.m32)
+				targets[i]:CopyFrom(offset + rotation:VecMul(point))
+			end
 		end
 
 		for i, side in ipairs(SIDES) do
@@ -348,6 +407,13 @@ function keyframes.Compile(def, poses)
 		assert(
 			def.CarryBones,
 			"carry keys place the victim bones named in CarryBones {right, left} at points in the body frame"
+		)
+	end
+
+	if def.AttachKeys then
+		assert(
+			def.CarryKeys,
+			"attach keys blend the victim between where the latch found it and the carry frame, and need carry keys"
 		)
 	end
 
