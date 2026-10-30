@@ -65,8 +65,20 @@ local function blocks_camera(entity, owner, target)
 
 	if entity.weapon then return false end
 
+	local movement = entity.character_movement
+
+	if movement and movement.latch and movement.latch.Grabber == owner then
+		return false
+	end
+
 	for _, parent in ipairs(entity:GetParentList()) do
 		if parent.weapon then return false end
+
+		movement = parent.character_movement
+
+		if movement and movement.latch and movement.latch.Grabber == owner then
+			return false
+		end
 	end
 
 	return true
