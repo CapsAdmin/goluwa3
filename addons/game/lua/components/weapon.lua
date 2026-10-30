@@ -6,12 +6,14 @@ local prefab = import("goluwa/entities/prefab.lua")
 local model_replacements = import("lua/model_replacements.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("weapon")
 local BUTTON = usercmd.BUTTON
 local SOCKETS = {[""] = "grip_r", right = "grip_r", left = "grip_l", chest = "chest"}
 META.Network = {
 	Slot = {"number", 0.5, "reliable"},
 	Equipped = {"string", 0.05, "reliable"},
+	Drawn = {"boolean", 0.05, "reliable"},
 	PoseArms = {"boolean", 0.1, "reliable"},
 	HoldOffset = {"vec3", 0.1, "reliable"},
 	SupportGrip = {"vec3", 0.1, "reliable"},
@@ -55,8 +57,13 @@ META:GetSet("DamageMultiplier", 1)
 META:GetSet("Rarity", "")
 META:GetSet("Title", "")
 META:IsSet("Rollable", false)
+META:GetSet("Sheath", "")
+META:GetSet("SheathOffset", Vec3())
+META:GetSet("SheathRotation", Quat(0, 0, 0, 1))
+META:GetSet("SheathDelay", 5)
 META:EndStorable()
 META:GetSet("Equipped", "")
+META:IsSet("Drawn", false)
 META:GetSet("PrimaryButton", BUTTON.ATTACK1)
 META:GetSet("SecondaryButton", BUTTON.ATTACK2)
 
@@ -65,6 +72,7 @@ function META:Initialize()
 	self.time = 0
 	self.next_primary = 0
 	self.next_secondary = 0
+	self.sheath_time = 0
 end
 
 function META:ApplyReplacement()
@@ -124,6 +132,9 @@ function META:SetEquipped(where)
 	if self.Equipped == where then return end
 
 	self.Equipped = where
+
+	if where == "" then self.Drawn = false end
+
 	self:RefreshWorldState()
 	local holder = self:GetHolder()
 	local link = holder and holder.Owner.network
@@ -131,6 +142,19 @@ function META:SetEquipped(where)
 	if link and link.linked and not network.HasAuthority() then
 		self.Owner:CallLocalEvent(where == "" and "OnWeaponHolster" or "OnWeaponEquip")
 	end
+end
+
+function META:SetDrawn(drawn)
+	if drawn then self.sheath_time = self.time + self.SheathDelay end
+
+	if self.Drawn == drawn then return end
+
+	self.Drawn = drawn
+	self:RefreshWorldState()
+end
+
+function META:IsSheathed()
+	return self.Sheath ~= "" and not self.Drawn
 end
 
 function META:GetDefaultPlace()
@@ -153,9 +177,11 @@ function META:RefreshWorldState()
 	local model = self:GetModel()
 
 	if model then
+		local sheathed = held and self:IsEquipped() and self:IsSheathed()
 		prefab.Suppress()
-		model.transform:SetAttachment(held and SOCKETS[self.Equipped] or "root")
-		model.transform:SetPosition(held and Vec3() or self.WorldCenter * -1)
+		model.transform:SetAttachment(held and (sheathed and self.Sheath or SOCKETS[self.Equipped]) or "root")
+		model.transform:SetPosition(sheathed and self.SheathOffset:Copy() or held and Vec3() or self.WorldCenter * -1)
+		model.transform:SetRotation(sheathed and self.SheathRotation:Copy() or Quat(0, 0, 0, 1))
 		model.visibility:SetVisible(not held)
 		prefab.Unsuppress()
 	end
@@ -230,6 +256,11 @@ end
 local function run(self, dt, cmd, primary, secondary, think, press_primary, press_secondary)
 	local owner = self.Owner
 	self.time = self.time + dt
+
+	if self.Drawn and self.Sheath ~= "" and self.time >= self.sheath_time then
+		self:SetDrawn(false)
+	end
+
 	self.PrimaryButton = primary
 	self.SecondaryButton = secondary
 	owner:CallLocalEvent(think, dt, cmd)

@@ -386,6 +386,7 @@ biped.SocketProfiles.biped = {
 	center = {Bone = "spine"},
 	feet = {Bone = "root"},
 	chest = {Bone = "chest", Offset = Vec3(0, -0.6, -0.8) * (eye_pose.EyeRadius + 0.02)},
+	back = {Bone = "chest", Offset = Vec3(0, -0.6, 0.8) * (eye_pose.EyeRadius + 0.02)},
 }
 biped.SocketProfiles.source_humanoid = {
 	grip_r = {Bone = "hand_r"},
@@ -406,6 +407,7 @@ biped.SocketProfiles.source_humanoid = {
 		Offset = Vec3(-0.17, 0, -0.1),
 		Rotation = Quat(-0.5, 0.5, -0.5, 0.5),
 	},
+	back = {Bone = "chest"},
 }
 
 if RENDER_3D then

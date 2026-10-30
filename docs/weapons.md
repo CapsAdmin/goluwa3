@@ -11,6 +11,10 @@ A held weapon is either stowed (`Equipped == ""`, hidden) or equipped in a place
 - `OnWeaponEquip` / `OnWeaponHolster` fire on the weapon entity whenever it enters or leaves a place, including hand swaps.
 - The flashlight's lamp model sits on the chest, but its spot light (real lumens, a lazily created shadow map) starts just in front of the eyes and follows the aim: a light below the view lets the held weapons throw shadows into the beam.
 
+## Sheath
+
+A weapon with `Sheath` (a socket name, `back`) rests there while it is equipped but not `Drawn` (replicated): the model attaches to the sheath socket with `SheathOffset`/`SheathRotation` (in the socket frame: right, up, back), the arms are not posed (`GetPosedWeapon` skips it), the gait uses the unarmed stance and it is hidden in first person. `weapon:SetDrawn(true)` puts it in the hand until `SheathDelay` seconds without another draw, counted on every side from the last time it was set drawn (also when the value arrives from the server); holstering sheathes it. The `back` socket of both socket profiles has no rotation, since the biped chest bone is already model aligned.
+
 ## Model replacements
 
 `model_replacements.Register(key, {Game, Path, Position, Rotation, Scale})` (`addons/game/lua/model_replacements.lua`) lets mounted content stand in for a built-in look. `Get(key)` returns the entry only when the game is mounted and the file exists. A weapon with `Replacement = key` and a node `replacement` (its placeholder, usually a pole the size of the real model) gets that node's `model` pointed at `Path` and its transform set from the entry when constructed. The placeholder must match the real model's size and orientation, because everything else (`blade_base`/`blade_tip` markers, hold offset, world size) is shared; fit the real model to it with `Scale`/`Rotation`/`Position`, not the markers. It is applied when the weapon is constructed and again on the `SourceGameMounted` event (fired by `steam.MountSourceGame`), so mounting before or after spawning both work.

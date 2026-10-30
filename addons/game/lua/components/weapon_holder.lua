@@ -30,7 +30,10 @@ function META:OnUpdate()
 					not hidden and
 					not (
 						first_person and
-						weapon:IsHiddenInFirstPerson()
+						(
+							weapon:IsHiddenInFirstPerson() or
+							weapon:IsSheathed()
+						)
 					)
 			)
 		end
@@ -66,7 +69,9 @@ function META:GetPosedWeapon(where)
 
 	local weapon = self:GetWeapon(where)
 
-	if weapon and weapon.weapon:IsPoseArms() then return weapon end
+	if weapon and weapon.weapon:IsPoseArms() and not weapon.weapon:IsSheathed() then
+		return weapon
+	end
 end
 
 do

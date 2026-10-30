@@ -303,7 +303,7 @@ function META:UpdatePlayer(animator, pose, dt)
 	local clips = animator.skeleton.ClipsByName
 	local holder = pose.Owner.weapon_holder
 	local weapon = holder and holder:GetWeapon("right")
-	local suffix = weapon and weapon.weapon:GetStance() or "all"
+	local suffix = weapon and not weapon.weapon:IsSheathed() and weapon.weapon:GetStance() or "all"
 	sequence, override = self:GetOverride(pose, suffix, clips)
 	local air_crouch = crouching and pose.airborne and override and override.def.Kind == "state"
 	local sprinting = not crouching and not pose.airborne and speed > PLAYER_RUN_SPEED * SPRINT_START
