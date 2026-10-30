@@ -42,62 +42,45 @@ end
 function polyhedron_face_contacts.BuildPolyhedronTriangleFaceContacts(collider, polyhedron, triangle_vertices, chosen, normal, options)
 	options = options or {}
 
-	if
-		not (
-			chosen and
-			(
-				chosen.reference ~= "polyhedron" or
-				chosen.face_index
-			)
-			and
-			normal and
-			triangle_vertices and
-			triangle_vertices[1]
-		)
-	then
+	if not (chosen and normal and triangle_vertices and triangle_vertices[1]) then
 		return nil
 	end
 
 	if normal.y < collider:GetMinGroundNormalY() then return nil end
 
-	local separation_tolerance = (collider:GetCollisionMargin() or 0) + (options.triangle_slop or 0)
-	local area_scale = options.area_scale or 1.25
+	local polyhedron_face = polyhedron_face_contacts.GetIncidentWorldFace(collider, polyhedron, collider:GetRotation(), normal)
+
+	if not polyhedron_face then return nil end
+
 	local triangle_area = triangle_geometry.GetTriangleArea(triangle_vertices[1], triangle_vertices[2], triangle_vertices[3])
-	local swap = false
-	local reference_points = nil
-	local incident_points = nil
+
+	if
+		triangle_area < triangle_geometry.GetPolygonArea(polyhedron_face.points) * (
+			options.area_scale or
+			1.25
+		)
+	then
+		return nil
+	end
+
+	local reference_points = triangle_vertices
+	local reference_normal = normal
+	local incident_points = polyhedron_face.points
+	local swap = true
 
 	if chosen.reference == "polyhedron" then
-		local reference_face = polyhedron_face_contacts.GetWorldFace(collider, polyhedron, chosen.face_index)
-
-		if not reference_face then return nil end
-
-		local face_area = triangle_geometry.GetPolygonArea(reference_face.points)
-
-		if triangle_area < face_area * area_scale then return nil end
-
-		reference_points = reference_face.points
+		reference_points = polyhedron_face.points
+		reference_normal = normal * -1
 		incident_points = triangle_vertices
-	elseif chosen.reference == "triangle" then
-		local incident_face = polyhedron_face_contacts.GetIncidentWorldFace(collider, polyhedron, collider:GetRotation(), normal)
-
-		if not incident_face then return nil end
-
-		local face_area = triangle_geometry.GetPolygonArea(incident_face.points)
-
-		if triangle_area < face_area * area_scale then return nil end
-
-		reference_points = triangle_vertices
-		incident_points = incident_face.points
-		swap = true
+		swap = false
 	end
 
 	return polyhedron_face_contacts.BuildClippedPairs(
 		reference_points,
-		normal,
+		reference_normal,
 		incident_points,
 		{
-			separation_tolerance = separation_tolerance,
+			separation_tolerance = (collider:GetCollisionMargin() or 0) + (options.triangle_slop or 0),
 			max_contacts = options.max_contacts or 4,
 			scratch = options.scratch,
 			out = options.out,

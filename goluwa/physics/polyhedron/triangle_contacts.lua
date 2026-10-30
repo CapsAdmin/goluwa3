@@ -106,36 +106,27 @@ local function orient_triangle_normal(normal, face_normal, center_delta, outward
 	return center_delta:Dot(normal) >= 0 and normal or normal * -1
 end
 
-local function find_best_face_index_for_normal(polyhedron, rotation, normal)
-	local best_index = nil
+local function get_best_face_alignment(polyhedron, rotation, normal)
 	local best_alignment = -math.huge
 
-	for face_index, face in ipairs(polyhedron.faces or {}) do
-		local world_normal = rotation:VecMul(face.normal):GetNormalized()
-		local alignment = world_normal:Dot(normal)
-
-		if alignment > best_alignment then
-			best_alignment = alignment
-			best_index = face_index
-		end
+	for _, face in ipairs(polyhedron.faces or {}) do
+		best_alignment = math.max(best_alignment, rotation:VecMul(face.normal):GetNormalized():Dot(normal))
 	end
 
-	return best_index, best_alignment
+	return best_alignment
 end
 
 local function build_face_candidate(collider, polyhedron, triangle_normal, normal)
-	local face_index, face_alignment = find_best_face_index_for_normal(polyhedron, collider:GetRotation(), normal)
+	local face_alignment = get_best_face_alignment(polyhedron, collider:GetRotation(), normal * -1)
 	local triangle_alignment = triangle_normal and triangle_normal:Dot(normal) or -math.huge
 
 	if
-		face_index and
 		face_alignment >= FACE_CONTACT_ALIGNMENT_THRESHOLD and
 		face_alignment >= triangle_alignment
 	then
 		return {
 			kind = "face",
 			reference = "polyhedron",
-			face_index = face_index,
 		}
 	end
 
@@ -143,18 +134,16 @@ local function build_face_candidate(collider, polyhedron, triangle_normal, norma
 		return {
 			kind = "face",
 			reference = "triangle",
-			face_index = 1,
 		}
 	end
 
 	return nil
 end
 
-local function build_polyhedron_face_candidate(context, face_index)
+local function build_polyhedron_face_candidate(context)
 	return {
 		kind = context.kind,
 		reference = context.reference,
-		face_index = face_index,
 	}
 end
 
