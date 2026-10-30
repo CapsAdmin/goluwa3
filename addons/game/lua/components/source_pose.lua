@@ -200,6 +200,8 @@ local function find_creature_sequence(pose, clips)
 	end
 end
 
+local EYE_LOOK_DISTANCE = 10
+
 function META:UpdateCreature(animator, skeleton, pose, dt)
 	local reaction, inst = find_creature_sequence(pose, skeleton.ClipsByName)
 
@@ -808,7 +810,10 @@ function META:OnUpdate(dt)
 	if self.Profile == "gmod_player" then
 		self:AddDonorClips(animator.skeleton)
 		self:UpdatePlayer(animator, pose, dt)
-
+		local character = self.character
+		owner.eyes:SetLookTarget(
+			character.transform:GetPosition() + character.character_movement:GetViewOffset() + pose.aim_rotation:GetForward() * EYE_LOOK_DISTANCE
+		)
 	else
 		self:UpdateCreature(animator, animator.skeleton, pose, dt)
 	end

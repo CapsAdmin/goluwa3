@@ -34,6 +34,7 @@ function outfit_source.GetDefinition()
 					transform = {},
 					model = {ModelPath = outfit_source.Model},
 					animator = {},
+					eyes = {AutoBlink = true},
 					source_pose = {Profile = "gmod_player", Mirror = true},
 				},
 			},
