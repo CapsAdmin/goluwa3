@@ -364,50 +364,47 @@ local function solve_pair(self, pair, dt)
 	if not body_a:ShouldCollide(body_b) then return end
 
 	local reuse = self.CollideStamp ~= self.StepStamp
+	local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
 
-	if reuse then
-		local manifold = contact_resolution.GetPairManifold(self.PersistentManifolds, body_a, body_b)
+	if manifold and manifold.last_rebuild_step >= 0 then
+		manifold.last_seen_step = self.StepStamp
 
-		if manifold and manifold.last_rebuild_step >= 0 then
-			manifold.last_seen_step = self.StepStamp
-
-			if
-				pair_solver_helpers.IsPoseInvalidated(
-					body_a,
-					manifold.rebuild_pose_a,
-					(
-							manifold.last_rebuild_step < self.CollideStamp and
-							RECYCLE_POSE_THRESHOLD or
-							self.REBUILD_POSE_THRESHOLD or
-							0.01
-						) ^ 2,
-					manifold.last_rebuild_step < self.CollideStamp and
-						RECYCLE_ROTATION_DOT or
-						REBUILD_ROTATION_DOT
-				) or
-				pair_solver_helpers.IsPoseInvalidated(
-					body_b,
-					manifold.rebuild_pose_b,
-					(
-							manifold.last_rebuild_step < self.CollideStamp and
-							RECYCLE_POSE_THRESHOLD or
-							self.REBUILD_POSE_THRESHOLD or
-							0.01
-						) ^ 2,
-					manifold.last_rebuild_step < self.CollideStamp and
-						RECYCLE_ROTATION_DOT or
-						REBUILD_ROTATION_DOT
-				)
-			then
-				manifold.last_rebuild_step = -1
-			else
-				stats:Count(
-					manifold.last_rebuild_step < self.CollideStamp and
-						"solver_pairs_recycled" or
-						"solver_pairs_cached"
-				)
-				return contact_resolution.EnqueueManifold(manifold.solve_a, manifold.solve_b, manifold)
-			end
+		if
+			pair_solver_helpers.IsPoseInvalidated(
+				body_a,
+				manifold.rebuild_pose_a,
+				(
+						manifold.last_rebuild_step < self.CollideStamp and
+						RECYCLE_POSE_THRESHOLD or
+						self.REBUILD_POSE_THRESHOLD or
+						0.01
+					) ^ 2,
+				manifold.last_rebuild_step < self.CollideStamp and
+					RECYCLE_ROTATION_DOT or
+					REBUILD_ROTATION_DOT
+			) or
+			pair_solver_helpers.IsPoseInvalidated(
+				body_b,
+				manifold.rebuild_pose_b,
+				(
+						manifold.last_rebuild_step < self.CollideStamp and
+						RECYCLE_POSE_THRESHOLD or
+						self.REBUILD_POSE_THRESHOLD or
+						0.01
+					) ^ 2,
+				manifold.last_rebuild_step < self.CollideStamp and
+					RECYCLE_ROTATION_DOT or
+					REBUILD_ROTATION_DOT
+			)
+		then
+			manifold.last_rebuild_step = -1
+		else
+			stats:Count(
+				manifold.last_rebuild_step < self.CollideStamp and
+					"solver_pairs_recycled" or
+					"solver_pairs_cached"
+			)
+			return contact_resolution.EnqueueManifold(manifold.solve_a, manifold.solve_b, manifold)
 		end
 	end
 
@@ -415,6 +412,14 @@ local function solve_pair(self, pair, dt)
 		pair_solver_helpers.IsSimpleBody(body_a:GetColliders()) and
 		pair_solver_helpers.IsSimpleBody(body_b:GetColliders())
 	then
+		if
+			reuse and
+			not manifold and
+			not pair_solver_helpers.ShouldUsePairCCD(body_a, body_b)
+		then
+			return
+		end
+
 		local _, found = pair_solver_helpers.TryInvokePairHandler(self, body_a, body_b, pair.entry_a, pair.entry_b, dt)
 
 		if not found then
