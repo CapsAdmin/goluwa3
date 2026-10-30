@@ -14,9 +14,16 @@ import("addons/jrpg/lua/autorun/jrpg.lua")
 local damage = import("lua/damage.lua")
 local movesets = import("lua/jrpg/movesets.lua")
 
-local function create_character(position, health)
+local function create_character(position, health, ragdoll)
 	local entity = Entity.New{
-		ComponentSet = {"transform", "ai_controller", "character_pose", "weapon_holder", "health"},
+		ComponentSet = {
+			"transform",
+			"ai_controller",
+			"character_pose",
+			"weapon_holder",
+			"health",
+			ragdoll and "ragdoll" or nil,
+		},
 		transform = {Position = position:Copy()},
 		ai_controller = {Wander = false},
 		health = {Health = health or 100, MaxHealth = health or 100},
@@ -28,7 +35,11 @@ end
 local function create_ground()
 	Entity.New{
 		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(100, 1, 100)},
-		rigid_body = {MotionType = "static", WorldGeometry = true, Shape = BoxShape.New(Vec3(1, 1, 1))},
+		rigid_body = {
+			MotionType = "static",
+			WorldGeometry = true,
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+		},
 	}
 end
 
@@ -119,6 +130,21 @@ T.TestPhysics("a hit over the threshold freezes both fighters and staggers the v
 	T(victim.transform:GetPosition().z < start.z - 0.3)["=="](true)
 	run(0.6, {victim.character_pose})
 	T(victim.character_pose:IsStunned())["=="](false)
+end)
+
+T.TestPhysics("a hit over half the victim's health knocks a ragdoll victim down and it stands back up", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -1.5), 100, true)
+	run(1, {victim.character_pose})
+	damage.Deal(victim, {Attacker = attacker, Damage = 40, Direction = Vec3(0, 0, -1)})
+	T(victim.ragdoll.Limp)["=="](false)
+	damage.Deal(victim, {Attacker = attacker, Damage = 40, Direction = Vec3(0, 0, -1)})
+	run(0.2, {victim.character_pose})
+	T(victim.ragdoll.Limp)["=="](true)
+	T(victim.health:IsDead())["=="](false)
+	run(8, {victim.character_pose})
+	T(victim.ragdoll.Limp)["=="](false)
 end)
 
 T.TestPhysics("a predicted action is adopted when the server's copy arrives instead of restarting", function()

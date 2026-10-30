@@ -7,6 +7,11 @@ local effects = import("lua/jrpg/effects.lua")
 local stagger = {}
 stagger.Fraction = 0.25
 stagger.MinDamage = 20
+stagger.KnockdownFraction = 0.5
+stagger.KnockdownMinDamage = 40
+stagger.KnockdownSpeed = 5
+stagger.KnockdownMaxSpeed = 9
+stagger.KnockdownLift = 3
 stagger.Duration = 0.85
 stagger.Hitstop = 0.08
 stagger.MaxHitstop = 0.16
@@ -15,8 +20,12 @@ stagger.KnockbackTime = 0.3
 local CUT_SHARE = 0.6
 local TEXT = Color(1, 0.85, 0.35, 1)
 
-function stagger.GetThreshold(victim)
-	return math.max(stagger.MinDamage, victim.health:GetMaxHealth() * stagger.Fraction)
+function stagger.GetThreshold(before)
+	return math.max(stagger.MinDamage, before * stagger.Fraction)
+end
+
+function stagger.GetKnockdownThreshold(before)
+	return math.max(stagger.KnockdownMinDamage, before * stagger.KnockdownFraction)
 end
 
 function stagger.GetHitstop(amount, threshold)
@@ -58,6 +67,25 @@ function stagger.Apply(victim, attacker, push, hitstop)
 	effects.Stagger(victim, attacker or victim, hitstop)
 end
 
+function stagger.Knockdown(victim, attacker, push, hitstop, power)
+	victim.character_pose:Freeze(hitstop)
+	victim.ragdoll:Knockdown(
+		push * math.lerp(power, stagger.KnockdownSpeed, stagger.KnockdownMaxSpeed) + Vec3(0, stagger.KnockdownLift, 0)
+	)
+
+	if
+		attacker and
+		attacker ~= victim and
+		attacker:IsValid() and
+		attacker.character_pose
+	then
+		attacker.character_pose:Freeze(hitstop)
+	end
+
+	effects.Text(victim, "KNOCKDOWN", TEXT)
+	effects.Stagger(victim, attacker or victim, hitstop)
+end
+
 event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_health, info)
 	if not network.HasAuthority() then return end
 
@@ -65,7 +93,8 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 
 	if not victim.character_pose or victim.health:IsDead() then return end
 
-	local threshold = stagger.GetThreshold(victim)
+	local before = victim.health:GetHealth() + amount
+	local threshold = stagger.GetThreshold(before)
 
 	if amount < threshold then return end
 
@@ -85,7 +114,15 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 	push = push:GetLength() > 1e-3 and
 		push:GetNormalized() or
 		actors.GetForward(victim) * -1
-	stagger.Apply(victim, attacker, push, stagger.GetHitstop(amount, threshold))
+	local hitstop = stagger.GetHitstop(amount, threshold)
+	local knockdown = stagger.GetKnockdownThreshold(before)
+
+	if victim.ragdoll and amount >= knockdown then
+		stagger.Knockdown(victim, attacker, push, hitstop, math.clamp(amount / knockdown - 1, 0, 1))
+		return
+	end
+
+	stagger.Apply(victim, attacker, push, hitstop)
 end)
 
 return stagger
