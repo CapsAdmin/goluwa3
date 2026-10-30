@@ -9,51 +9,31 @@ local BONUS_CHANCE = 0.25
 local MAX_UNLIMITED = 3
 weapon_stats.Rarities = {
 	{
-		name = "broken",
-		damage_mult = -0.30,
-		bonus = {-5, -2},
-		positive = 0,
-		negative = 3,
-		color = Color(0.12, 0.12, 0.12, 1),
-	},
-	{
-		name = "uninteresting",
-		damage_mult = -0.15,
-		bonus = {-5, -1},
-		positive = 0,
-		negative = 2,
-		color = Color(0.24, 0.24, 0.24, 1),
-	},
-	{
 		name = "common",
 		damage_mult = 0,
 		bonus = {0, 0},
 		positive = 0,
-		negative = 2,
 		color = Color(0.47, 0.47, 0.47, 1),
 	},
 	{
 		name = "uncommon",
 		damage_mult = 0.05,
-		bonus = {-5, 2},
+		bonus = {0, 2},
 		positive = 1,
-		negative = 1,
 		color = Color(0.62, 0.77, 0.91, 1),
 	},
 	{
 		name = "greater",
 		damage_mult = 0.10,
-		bonus = {-5, 3},
+		bonus = {0, 3},
 		positive = 2,
-		negative = 1,
 		color = Color(0.24, 0.52, 0.78, 1),
 	},
 	{
 		name = "rare",
 		damage_mult = 0.15,
-		bonus = {-5, 6},
+		bonus = {0, 6},
 		positive = 2,
-		negative = 1,
 		color = Color(0.29, 1, 0.29, 1),
 	},
 	{
@@ -61,7 +41,6 @@ weapon_stats.Rarities = {
 		damage_mult = 0.20,
 		bonus = {1, 9},
 		positive = 2,
-		negative = 0,
 		color = Color(0.95, 0.76, 0.2, 1),
 	},
 	{
@@ -69,7 +48,6 @@ weapon_stats.Rarities = {
 		damage_mult = 0.30,
 		bonus = {1, 12},
 		positive = MAX_UNLIMITED,
-		negative = 0,
 		color = Color(1, 0, 0, 1),
 	},
 	{
@@ -77,14 +55,12 @@ weapon_stats.Rarities = {
 		damage_mult = 0.35,
 		bonus = {1, 15},
 		positive = MAX_UNLIMITED,
-		negative = 0,
 		color = Color(1, 1, 1, 1),
 	},
 }
 weapon_stats.Registered = {}
 
-for i, rarity in ipairs(weapon_stats.Rarities) do
-	rarity.tier = i / #weapon_stats.Rarities + 1
+for _, rarity in ipairs(weapon_stats.Rarities) do
 	weapon_stats.Registered[rarity.name] = rarity
 end
 
@@ -98,14 +74,11 @@ function weapon_stats.GetColor(name)
 end
 
 weapon_stats.Statuses = {}
-weapon_stats.Positive = {}
-weapon_stats.Negative = {}
+weapon_stats.Names = {}
 
 function weapon_stats.RegisterStatus(definition)
-	assert(definition.Positive ~= definition.Negative, "a status is positive or negative")
 	weapon_stats.Statuses[definition.Name] = definition
-	local list = definition.Positive and weapon_stats.Positive or weapon_stats.Negative
-	list[#list + 1] = definition.Name
+	table.insert(weapon_stats.Names, definition.Name)
 	return definition
 end
 
@@ -114,7 +87,6 @@ for _, name in ipairs(damage_types.Names) do
 		local definition = damage_types.Get(name)
 		weapon_stats.RegisterStatus{
 			Name = name,
-			Positive = true,
 			Elemental = true,
 			Chance = 0.5,
 			Names = definition.Names,
@@ -134,7 +106,6 @@ end
 
 weapon_stats.RegisterStatus{
 	Name = "leech",
-	Positive = true,
 	Chance = 0.5,
 	Names = {"life steal"},
 	Adjectives = {"vampiric", "leeching"},
@@ -146,7 +117,6 @@ weapon_stats.RegisterStatus{
 }
 weapon_stats.RegisterStatus{
 	Name = "fast",
-	Positive = true,
 	Chance = 0.5,
 	Names = {"speed", "quickness", "haste"},
 	Adjectives = {"quick", "snappy", "rapid", "swift", "accelerated", "speedy", "fast"},
@@ -156,7 +126,6 @@ weapon_stats.RegisterStatus{
 }
 weapon_stats.RegisterStatus{
 	Name = "decay",
-	Positive = true,
 	Chance = 0.1,
 	Names = {"decay"},
 	Adjectives = {"withering", "decaying", "fading", "deteriorating", "decay"},
@@ -166,48 +135,12 @@ weapon_stats.RegisterStatus{
 }
 weapon_stats.RegisterStatus{
 	Name = "deflect",
-	Positive = true,
 	Chance = 0.5,
 	Names = {"deflect"},
 	Adjectives = {"shielding", "deflecting", "repelling", "ricocheting", "warding", "resist"},
 	OnReceiveDamage = function(weapon, victim, attacker, info)
 		if attacker and attacker ~= victim and attacker.health and math.random() < 0.3 then
 			reflect(attacker, victim, info, math.max(info.Damage * 0.3 / weapon.Strength, 1))
-		end
-	end,
-}
-weapon_stats.RegisterStatus{
-	Name = "clumsy",
-	Negative = true,
-	Chance = 0.5,
-	Names = {"slippery", "clumsy", "unstable"},
-	OnDamage = function(weapon, attacker, victim, info)
-		if attacker.weapon_holder and math.random() * weapon.Strength < 0.1 then
-			attacker.weapon_holder:Drop(weapon.Owner)
-		end
-	end,
-}
-weapon_stats.RegisterStatus{
-	Name = "dull",
-	Negative = true,
-	Chance = 0.5,
-	Names = {"dull", "dim", "sluggish", "tedious", "faint", "pale", "faded", "weak"},
-	Allowed = function(rarity)
-		return rarity.name == "broken" or rarity.name == "uninteresting"
-	end,
-	Roll = function(weapon, rarity)
-		local penalty = rarity.name == "broken" and -0.2 or -0.1
-		weapon:SetDamageMultiplier(weapon.DamageMultiplier * (1 + penalty) / weapon.Strength)
-	end,
-}
-weapon_stats.RegisterStatus{
-	Name = "dumb",
-	Negative = true,
-	Chance = 0.5,
-	Names = {"dumb", "idiotic", "selfharming"},
-	OnDamage = function(weapon, attacker, victim, info)
-		if attacker.health and math.random() < 0.1 then
-			reflect(attacker, attacker, info, math.max(info.Damage * 0.25 / weapon.Strength, 1))
 		end
 	end,
 }
@@ -218,7 +151,7 @@ function weapon_stats.RandomRarity()
 end
 
 do
-	local function pick(names, limit, rarity, divisor)
+	local function pick(names, limit)
 		local candidates = table.shallow_copy(names)
 		local picked = {}
 
@@ -232,28 +165,14 @@ do
 
 			local definition = weapon_stats.Statuses[name]
 
-			if
-				(
-					not definition.Allowed or
-					definition.Allowed(rarity)
-				) and
-				math.random() / divisor < definition.Chance
-			then
-				picked[#picked + 1] = name
-			end
+			if math.random() < definition.Chance then picked[#picked + 1] = name end
 		end
 
 		return picked
 	end
 
 	function weapon_stats.RandomStatuses(rarity)
-		local names = pick(weapon_stats.Positive, rarity.positive, rarity, 1)
-
-		for _, name in ipairs(pick(weapon_stats.Negative, rarity.negative, rarity, rarity.tier)) do
-			names[#names + 1] = name
-		end
-
-		return names
+		return pick(weapon_stats.Names, rarity.positive)
 	end
 end
 
@@ -265,38 +184,30 @@ do
 	end
 
 	function weapon_stats.GetTitle(display_name, rarity, names, bonus)
-		local adjectives, of = {}, {}
+		local of = {}
 		local first_positive
 
 		for _, name in ipairs(names) do
 			local definition = weapon_stats.Statuses[name]
 
-			if definition.Negative then
-				adjectives[#adjectives + 1] = table.random(definition.Adjectives or definition.Names)
-			elseif not first_positive then
+			if not first_positive then
 				first_positive = definition
 			else
 				of[#of + 1] = table.random(definition.Names)
 			end
 		end
 
-		if first_positive then
-			adjectives[#adjectives + 1] = table.random(first_positive.Adjectives or first_positive.Names)
-		end
-
 		local words = {rarity.name}
 
-		if adjectives[1] then words[#words + 1] = join(adjectives) end
+		if first_positive then
+			words[#words + 1] = table.random(first_positive.Adjectives or first_positive.Names)
+		end
 
 		words[#words + 1] = display_name
 
 		if of[1] then words[#words + 1] = "of " .. join(of) end
 
-		if bonus > 0 then
-			words[#words + 1] = "(+" .. bonus .. ")"
-		elseif bonus < 0 then
-			words[#words + 1] = "(" .. bonus .. ")"
-		end
+		if bonus > 0 then words[#words + 1] = "(+" .. bonus .. ")" end
 
 		local title = table.concat(words, " "):gsub("(%a)(%a*)", function(first, rest)
 			return first:upper() .. rest
