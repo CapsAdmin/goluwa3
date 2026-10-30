@@ -1036,6 +1036,8 @@ local job_source = [=[
 				weight = weight,
 				mass_center = {solid.mass_center[1], solid.mass_center[2], solid.mass_center[3]},
 				name = solid.name,
+				damping = solid.damping or 0,
+				rotation_damping = solid.rotation_damping or 0,
 			}
 			damping = damping + (solid.damping or 0) * weight
 			rotation_damping = rotation_damping + (solid.rotation_damping or 0) * weight
@@ -1549,6 +1551,8 @@ function mdl_decoder.Finish(
 					name = solid.name,
 					bone = skeleton.BoneNames[solid_frames[solid_index].bone + 1],
 					weight = solid.weight,
+					damping = solid.damping,
+					rotation_damping = solid.rotation_damping,
 					mass_center = Vec3(solid.mass_center[1], solid.mass_center[2], solid.mass_center[3]),
 					bone_position = solid_frames[solid_index].bone_position,
 					bone_rotation = solid_frames[solid_index].bone_rotation,

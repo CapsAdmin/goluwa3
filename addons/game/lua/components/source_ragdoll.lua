@@ -154,6 +154,10 @@ function META:Build()
 		body:SetMass(first.weight * scale)
 		body:SetFriction(CharacterMovement.RagdollFriction)
 		body:SetFrictionCombineMode("multiply")
+		body:SetLinearDamping(first.damping)
+		body:SetAirLinearDamping(first.damping)
+		body:SetAngularDamping(first.rotation_damping)
+		body:SetAirAngularDamping(first.rotation_damping)
 		self.bodies[1] = body
 	end
 
@@ -178,6 +182,10 @@ function META:Build()
 				AutomaticMass = false,
 				Friction = CharacterMovement.RagdollFriction,
 				FrictionCombineMode = "multiply",
+				LinearDamping = solid.damping,
+				AirLinearDamping = solid.damping,
+				AngularDamping = solid.rotation_damping,
+				AirAngularDamping = solid.rotation_damping,
 			},
 		}
 		entity.rigid_body.TraceOwner = owner
@@ -277,7 +285,9 @@ function META:GetVisual()
 end
 
 function META:GetRig()
-	if self.DeathState then return self.Owner.animator and self.Owner.animator:GetRig() end
+	if self.DeathState then
+		return self.Owner.animator and self.Owner.animator:GetRig()
+	end
 
 	local visual = self:GetVisual()
 	return visual and visual.animator.rig

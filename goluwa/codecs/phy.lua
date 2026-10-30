@@ -105,6 +105,8 @@ function phy.Decode(str)
 		if solid then
 			solid.mass = tonumber(block:match("\"mass\"%s*\"([^\"]*)\""))
 			solid.surface_property = block:match("\"surfaceprop\"%s*\"([^\"]*)\"")
+			solid.damping = tonumber(block:match("\"damping\"%s*\"([^\"]*)\""))
+			solid.rotation_damping = tonumber(block:match("\"rotdamping\"%s*\"([^\"]*)\""))
 			solid.name = block:match("\"name\"%s*\"([^\"]*)\"")
 			solid.parent = block:match("\"parent\"%s*\"([^\"]*)\"")
 		end
