@@ -26,6 +26,7 @@ Every widget under `goluwa/render2d/ui` (`elements/`, `widgets/`, `widgets/prope
 ## Tabs and property editor
 
 - `TabBar` (`tab_bar.lua`) and `Tabs` (`tabs.lua`, children carry `Tab = "name"`). `SetValue` never fires `OnChange` (only a click does) so programmatic changes cannot loop. `SetTabs` copies the list and skips equal lists; mutate a copy, not `bar.Tabs`. `Tabs` hides inactive pages via `visual:SetVisible(false)` and invalidates layout itself.
+- `Timeline` (`widgets/timeline.lua`): `Rows = {{Name, Color, Round, Keys = {{Time, Until, Label}}}}` on one time axis (`Length`, `Time` the playhead, `Selection = {row, index}`), all state is the caller's: it reports `OnScrub(time)` (ruler or empty area), `OnSelect(row, index)` (nil off a key), `OnKeyMove(row, index, time)` while a key is dragged (snapped to `Snap`, never past its neighbours in the row), `OnKeyDrop`, `OnKeyAdd(row, time)` (double click on a row); the wheel zooms about the cursor, middle drag pans. Extra fields on a key are ignored, so a caller can keep its own reference there. Gallery page `timeline`.
 - `PropertyEditor:SetFilter(text)` filters rows by words in titles, label or node `Search`; put a `TextEdit` above it (`SetText` does not fire `OnTextChanged`).
 - pvars have a `category` (tab) and `group` (section): `pvars.StartGroup(category, group, {store = false, prefix = "ddgi_"})` ... `pvars.EndGroup()`; a pvar without both asserts. `goluwa/render2d/ui/pvar_node.lua` turns a pvar into a property node.
 
