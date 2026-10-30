@@ -9,6 +9,7 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local network = import("goluwa/network/network.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local damage = import("lua/damage.lua")
+local grab = import("lua/grab.lua")
 local pose_variation = import("lua/pose_variation.lua")
 local META = objects.CreateTemplate("character_movement")
 local UNIT = import("goluwa/source_engine/units.lua").meters
@@ -235,6 +236,36 @@ do
 		then
 			seat:Exit()
 		end
+	end
+
+	function META:UpdateLatched(latch)
+		local body = self.Owner.rigid_body
+		local transform = self.Owner.transform
+
+		if self.latched ~= latch then
+			self.latched = latch
+			self.ground_body = nil
+			self.was_grounded = false
+			self.Swimming = false
+			self.roll = nil
+			self.lunge = nil
+			self.drive = nil
+			body:SetCollisionEnabled(false)
+			body:SetMotionType("kinematic")
+			body:SetVelocity(Vec3())
+			self.Owner:CallLocalEvent("OnCharacterModeChanged", "latched")
+		end
+
+		local rotation = latch:Step(seat_position)
+		transform:SetPosition(seat_position:Copy())
+		transform:SetRotation(rotation:Copy())
+	end
+
+	function META:Unlatch()
+		self.latch = nil
+		self.latched = nil
+		self.lunge = nil
+		self:Reset(self.Mode)
 	end
 
 	function META:LeaveSeat()
@@ -806,6 +837,16 @@ do
 		then
 			seat:Exit()
 			seat = nil
+		end
+
+		local latch = self.latch
+
+		if latch then
+			if not latch:IsHolding() or health and health:IsDead() then
+				grab.Release(self.Owner, Vec3())
+			else
+				return self:UpdateLatched(latch)
+			end
 		end
 
 		if seat then return self:UpdateSeated(seat, cmd) end
