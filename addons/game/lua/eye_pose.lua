@@ -148,8 +148,8 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local pose = owner.character_pose
 	local transform = owner.transform
 	local view = pose.pitch
-	local aim = aim_pose.GetAim(pose)
-	local hold_aim = aim_pose.GetHoldAim(pose, aim)
+	local aim = aim_pose.GetAim(pose, view)
+	local hold_aim = aim_pose.GetHoldAim(pose, aim_pose.GetAim(pose, pose.aim))
 	aim_pose.GetHand(pose, hand_keys)
 	local crouch = pose.crouch_alpha
 	local body = owner.rigid_body

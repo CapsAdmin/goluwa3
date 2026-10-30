@@ -71,12 +71,15 @@ local body_rotation = Quat()
 local seat_position = Vec3()
 local seat_rotation = Quat()
 local seat_look = Quat()
+local head_conjugate = Quat()
+local head_to_aim = Quat()
 local SEAT_LOOK_YAW = 1.4
 local RELAY_FRESH = 0.3
 local PREDICTED_ACTION_WINDOW = 1
 
 function META:Initialize()
 	self.pitch = Quat(0, 0, 0, 1)
+	self.aim = Quat(0, 0, 0, 1)
 	self.head_rotation = Quat(0, 0, 0, 1)
 	self.aim_rotation = Quat(0, 0, 0, 1)
 	self.crouch_alpha = 0
@@ -753,6 +756,14 @@ function META:OnUpdate(dt)
 	else
 		self.dead_pitch = nil
 		self.pitch:Identity():RotatePitch(math.asin(math.clamp(rotation:GetForward().y, -1, 1)) + self.sway_pitch):RotateYaw(self.sway_yaw)
+	end
+
+	if dead or seat then
+		self.aim:CopyFrom(self.pitch)
+	else
+		head_conjugate:Set(-rotation.x, -rotation.y, -rotation.z, rotation.w)
+		head_to_aim:SetMul(head_conjugate, aim)
+		self.aim:SetMul(self.pitch, head_to_aim)
 	end
 end
 

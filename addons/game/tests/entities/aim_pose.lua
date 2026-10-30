@@ -72,6 +72,7 @@ local function pose(pitch, recoil, flinch)
 
 	return {
 		pitch = pitch,
+		aim = pitch,
 		anims = anims,
 		lean_side = 0,
 		lean_forward = 0,
@@ -116,8 +117,8 @@ T.Test("an armed arm reaches out along the aim and the hand takes the aim rotati
 end)
 
 T.Test("recoil kicks the aim up and flinch leans the torso", function()
-	local still = aim_pose.GetAim(pose(Quat(0, 0, 0, 1)))
-	local kicked = aim_pose.GetAim(pose(Quat(0, 0, 0, 1), 1))
+	local still = aim_pose.GetAim(pose(Quat(0, 0, 0, 1)), Quat(0, 0, 0, 1))
+	local kicked = aim_pose.GetAim(pose(Quat(0, 0, 0, 1), 1), Quat(0, 0, 0, 1))
 	T(kicked:GetForward().y > still:GetForward().y)["=="](true)
 	local rest, leaning = create_bones(), create_bones()
 	aim_pose.Apply(rest, pose(Quat(0, 0, 0, 1)))

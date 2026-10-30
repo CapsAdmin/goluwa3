@@ -406,8 +406,8 @@ aim_pose.SetBetween = set_between
 aim_pose.RotateChain = rotate_chain
 local aim_sample = {0, 0}
 
-function aim_pose.GetAim(pose)
-	local aim = pose.pitch
+function aim_pose.GetAim(pose, base)
+	local aim = base
 	local anims = pose.anims
 
 	for i = 1, #anims do
@@ -669,7 +669,7 @@ function aim_pose.Apply(bones, pose, right, left)
 	if right and right:IsTwoHanded() then left = nil end
 
 	local armed = right or left
-	local pitch = aim_pose.GetAim(pose)
+	local pitch = aim_pose.GetAim(pose, pose.pitch)
 	local flinch = 0
 
 	for i = 1, #pose.anims do
@@ -733,7 +733,7 @@ function aim_pose.Apply(bones, pose, right, left)
 		rotate_chain(bones, HEAD_ONLY, 1, bones.head, rotation)
 	end
 
-	local hold_aim = armed and aim_pose.GetHoldAim(pose, pitch) or pitch
+	local hold_aim = armed and aim_pose.GetHoldAim(pose, aim_pose.GetAim(pose, pose.aim)) or pitch
 	aim_pose.GetHand(pose, apply_hand)
 	shift_aim:Set(apply_hand[1], apply_hand[2], apply_hand[3])
 	Quat.SetVecMul(shift_right, hold_aim, shift_aim)

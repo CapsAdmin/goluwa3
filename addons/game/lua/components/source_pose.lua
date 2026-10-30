@@ -758,7 +758,11 @@ do
 					aim_pose.CopyMatrix(self.grip_follow, follow)
 					local gripped = aim_pose.GetGripMatrix(
 						matrix,
-						aim_pose.GetGripAim(pose, aim_pose.GetHoldAim(pose, aim_pose.GetAim(pose)), is_right and 1 or -1)
+						aim_pose.GetGripAim(
+							pose,
+							aim_pose.GetHoldAim(pose, aim_pose.GetAim(pose, pose.aim)),
+							is_right and 1 or -1
+						)
 					)
 
 					if hold < 0.999 then
@@ -804,6 +808,7 @@ function META:OnUpdate(dt)
 	if self.Profile == "gmod_player" then
 		self:AddDonorClips(animator.skeleton)
 		self:UpdatePlayer(animator, pose, dt)
+
 	else
 		self:UpdateCreature(animator, animator.skeleton, pose, dt)
 	end
