@@ -351,6 +351,7 @@ local function create_entry(self, body)
 		body = body,
 		bounds = AABB(0, 0, 0, 0, 0, 0),
 		cell_keys = {},
+		is_overflow = false,
 		index = #self.Entries + 1,
 		last_seen_step = self.StepStamp,
 		overflow_dirty = true,
