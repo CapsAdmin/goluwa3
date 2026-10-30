@@ -3,8 +3,13 @@ local keyframes = import("lua/keyframes.lua")
 local movesets = import("lua/jrpg/movesets.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 import("lua/jrpg/weapon_stats.lua")
+import("lua/jrpg/stagger.lua")
 weapons.AddRootComponent("item_highlight", {})
 keyframes.AddPoses(import("lua/jrpg/movesets/poses.lua"))
+
+for name, def in pairs(import("lua/animations/stagger.lua")) do
+	keyframes.Register(name, def)
+end
 
 for _, name in ipairs{"sword"} do
 	movesets.Register(name, import("lua/jrpg/movesets/" .. name .. ".lua"))

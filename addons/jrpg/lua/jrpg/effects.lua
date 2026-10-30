@@ -62,6 +62,13 @@ effects.LevelUp = new_event(
 	end,
 	enabled
 )
+effects.Stagger = new_event(
+	"jrpg_stagger",
+	function(victim, attacker, hitstop)
+		effects.ShowStagger(victim, attacker, hitstop)
+	end,
+	enabled
+)
 
 if not visual then return effects end
 
@@ -874,6 +881,24 @@ function effects.ShowBlock(entity, position, normal, broken)
 
 	if broken then
 		effects.ShowText(entity, "GUARD BREAK", Color(1, 0.4, 0.3, 1))
+	end
+end
+
+function effects.ShowStagger(victim, attacker, hitstop)
+	if not victim:IsValid() then return end
+
+	local center = actors.GetCenter(victim)
+	vfx.Flash(center, Color(1, 0.95, 0.85, 1), 25, 0.15)
+	sounds.Play(
+		"physics/body/body_medium_impact_hard" .. math.random(1, 6) .. ".wav",
+		center,
+		0.9,
+		math.randomf(0.8, 1)
+	)
+	local rig = _G.PLAYER_RIG
+
+	if rig and (rig == victim or rig == attacker) then
+		screen_shake.Add(0.06 + hitstop * 0.4, 1.4, 0.3)
 	end
 end
 
