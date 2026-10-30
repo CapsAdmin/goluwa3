@@ -95,6 +95,7 @@ function META:Initialize()
 	self.fling_age = 0
 	self.fling_floor = 0
 	self.fling_direction = Vec3(0, 0, 1)
+	self.pose_rotation = Quat()
 	self.fling_side_x, self.fling_side_z = 1, 0
 	self.global_active = false
 	self.previous_velocities = {}
@@ -244,6 +245,25 @@ function META:UpdateTargets(dt)
 		part.last_target:Set(position.x, position.y, position.z)
 	end
 
+	local transform = self.Owner.transform
+	local position = transform:GetPosition()
+	self.pose_rotation:CopyFrom(transform:GetRotation())
+
+	for _, part in ipairs(self.parts) do
+		local definition = part.joint_definition
+
+		if definition then
+			local bone = self.bones[definition.Anchor]
+			part.anchor_target:Set(bone.m30, bone.m31, bone.m32)
+			Quat.SetVecMul(part.anchor_target, self.pose_rotation, part.anchor_target)
+			part.anchor_target:Set(
+				part.anchor_target.x + position.x,
+				part.anchor_target.y + position.y,
+				part.anchor_target.z + position.z
+			)
+		end
+	end
+
 	if self.flinging and self.global_active then self:UpdateFling(dt) end
 end
 
@@ -371,6 +391,7 @@ function META:Build()
 			ignored = {},
 			target_position = Vec3(),
 			target_rotation = Quat(),
+			anchor_target = joint_definition and Vec3(),
 			pose_velocity = Vec3(),
 		}
 		part.body.TraceOwner = owner
@@ -450,11 +471,8 @@ end
 function META:BuildJoint(part, attach_rotation)
 	local definition = part.joint_definition
 	local parent = part.parent
-	local owner_transform = self.Owner.transform
-	local entity_rotation = owner_transform:GetRotation()
-	local bone = self.bones[definition.Anchor]
-	local anchor_pose = owner_transform:GetPosition() + entity_rotation:VecMul(Vec3(bone.m30, bone.m31, bone.m32))
-	local anchor = parent.body.Position + attach_rotation:VecMul(anchor_pose - parent.target_position)
+	local entity_rotation = self.pose_rotation
+	local anchor = parent.body.Position + attach_rotation:VecMul(part.anchor_target - parent.target_position)
 
 	if definition.Hinge then
 		local a, b = get_direction(self, parent.definition), get_direction(self, part.definition)
@@ -1266,6 +1284,10 @@ function META:OnPhysicsUpdate(dt)
 
 		for _, part in ipairs(self.parts) do
 			part.target_position:Set(part.target_position.x + dx, part.target_position.y + dy, part.target_position.z + dz)
+
+			if part.anchor_target then
+				part.anchor_target:Set(part.anchor_target.x + dx, part.anchor_target.y + dy, part.anchor_target.z + dz)
+			end
 		end
 
 		self:CheckImpact()

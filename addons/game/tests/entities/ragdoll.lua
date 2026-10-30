@@ -627,6 +627,11 @@ T.TestPhysics("without gravity a limp ragdoll drifts back to its neutral pose", 
 	end
 
 	ragdoll:Ungrab(hand)
+
+	for _, part in ipairs(ragdoll.parts) do
+		part.body:SetVelocity(Vec3())
+	end
+
 	local shaken = get_deviation(ragdoll)
 	run(character, 5)
 	T(shaken > 0.5)["=="](true)
@@ -724,4 +729,37 @@ T.TestPhysics("a ragdoll thrown along ordinary ground stops within a few meters"
 	local ordinary = slide_distance(0.85)
 	T(ordinary)[">"](1.5)
 	T(ordinary)["<"](4)
+end)
+
+T.TestPhysics("a character killed while flying fast falls as one connected ragdoll", function()
+	Entity.New{
+		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(1000, 1, 1000)},
+		rigid_body = {MotionType = "static", Shape = BoxShape.New(Vec3(1, 1, 1)), Friction = 0.85},
+	}
+	local character = create_character(Vec3(0, 1, 0))
+
+	for _ = 1, 84 do
+		local cmd = character.player_controller.cmd
+		cmd.mode = "fly"
+		cmd.buttons = bit.bor(usercmd.BUTTON.ACTIVE, usercmd.BUTTON.SPRINT)
+		cmd.forward = 1
+		character.player_controller.starved = 0
+		physics.UpdateFixed(1 / 60)
+		character.character_pose:OnUpdate(1 / 60)
+	end
+
+	T(character.rigid_body:GetVelocity():GetLength())[">"](150)
+	character.health:TakeDamage(damage.Info{Damage = 1000})
+	local worst = 0
+
+	for _ = 1, 120 do
+		run(character, 1 / 60)
+
+		for _, joint in ipairs(character.ragdoll:GetJoints()) do
+			worst = math.max(worst, joint:GetAnchorError())
+		end
+	end
+
+	character:Remove()
+	T(worst)["<"](0.1)
 end)
