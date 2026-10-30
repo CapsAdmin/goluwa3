@@ -256,22 +256,30 @@ local function iterate_matching_feature_faces(poly, world_matrix, feature_indice
 			matches = {}
 
 			for i = 1, #face_indices do
-				matches[face_indices[i]] = true
+				if not list.has_value(matches, face_indices[i]) then
+					matches[#matches + 1] = face_indices[i]
+				end
 			end
 		else
 			local next_matches = {}
 
-			for i = 1, #face_indices do
-				local face_index = face_indices[i]
+			for i = 1, #matches do
+				local face_index = matches[i]
 
-				if matches[face_index] then next_matches[face_index] = true end
+				for j = 1, #face_indices do
+					if face_indices[j] == face_index then
+						next_matches[#next_matches + 1] = face_index
+
+						break
+					end
+				end
 			end
 
 			matches = next_matches
 		end
 	end
 
-	for face_index in pairs(matches or {}) do
+	for _, face_index in ipairs(matches or {}) do
 		if face_index ~= skip_face_index then
 			local v0, v1, v2 = get_mesh_face_world_vertices(poly, face_index, world_matrix)
 
@@ -288,18 +296,24 @@ local function iterate_matching_feature_position_faces(poly, world_matrix, local
 	if not cache then return end
 
 	local matches = {}
+	local matched = {}
 
 	for _, position in ipairs(local_feature_positions) do
 		local face_indices = cache.faces_by_position_key[triangle_mesh.GetFeaturePositionKey(position, MESH_FEATURE_EPSILON)]
 
 		if face_indices then
 			for i = 1, #face_indices do
-				matches[face_indices[i]] = true
+				local face_index = face_indices[i]
+
+				if not matched[face_index] then
+					matched[face_index] = true
+					matches[#matches + 1] = face_index
+				end
 			end
 		end
 	end
 
-	for face_index in pairs(matches) do
+	for _, face_index in ipairs(matches) do
 		local v0, v1, v2 = get_mesh_face_world_vertices(poly, face_index, world_matrix)
 
 		if v0 and v1 and v2 then callback(v0, v1, v2, face_index) end
