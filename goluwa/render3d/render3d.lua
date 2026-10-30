@@ -364,7 +364,7 @@ pvars.EndGroup()
 pvars.StartGroup("Lighting", "Global illumination", {store = false})
 local gi_mode = pvars.Setup2{
 	key = "r_gi",
-	default = "surfels",
+	default = "ddgi",
 	enums = {"ddgi", "surfels", "none"},
 	help = "the global illumination: ddgi probe cascades, surfel radiance cascades, or none (the sky's irradiance). the other system's passes are not built",
 	callback = function(value, initial)
