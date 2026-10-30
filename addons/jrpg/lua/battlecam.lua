@@ -16,6 +16,8 @@ local ROOM_SIZE = 200 * U
 local MIN_DISTANCE = 60 * U
 local START_DISTANCE = 175 * U
 local TARGET_SIZE = 150 * U
+local FOLLOW_NEAR = 100 * U
+local FOLLOW_FAR = 300 * U
 local TARGET_BASE_PITCH = 0.3
 local TARGET_PITCH_LIMIT = 1
 local TRACE_MARGIN = 10 * U
@@ -45,7 +47,7 @@ local state = {
 	roll = 0,
 	initialized = false,
 	prev_enabled = false,
-	target_yaw = 0,
+	cam_away = nil,
 	target_pitch = 0,
 	mouse_x = 0,
 	mouse_y = 0,
@@ -146,7 +148,7 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 		end
 
 		pending_target = nil
-		state.target_yaw = 0
+		state.cam_away = nil
 		state.target_pitch = 0
 	end
 
@@ -161,13 +163,30 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 		target_point:CopyFrom(target:GetPosition())
 		local to_target = target_point - pivot
 		local distance = to_target:GetLength()
-		local away = Vec3(-to_target.x, 0, -to_target.z)
-		away = away:GetLength() > 1e-4 and away:GetNormalized() or aim:VecMul(FORWARD) * -1
-		state.target_yaw = state.target_yaw - mouse_x
+		local flat = math.sqrt(to_target.x * to_target.x + to_target.z * to_target.z)
+		local ideal = flat > 1e-4 and
+			Vec3(-to_target.x / flat, 0, -to_target.z / flat) or
+			aim:VecMul(FORWARD) * -1
+		local away = state.cam_away
+
+		if not away then
+			away = ideal:Copy()
+			state.cam_away = away
+		end
+
+		if mouse_x ~= 0 then
+			local yaw = Quat():Identity()
+			yaw:RotateYaw(-mouse_x)
+			away = yaw:VecMul(away)
+		end
+
+		local t = math.clamp((flat - FOLLOW_NEAR) / (FOLLOW_FAR - FOLLOW_NEAR), 0, 1)
+		local follow = t * t * (3 - 2 * t) * math.min(dt * CAM_SPEED, 1)
+		away = away + (ideal - away) * follow
+		away.y = 0
+		away = away:GetLength() > 1e-4 and away:GetNormalized() or state.cam_away
+		state.cam_away = away
 		state.target_pitch = math.clamp(state.target_pitch + mouse_y, -TARGET_PITCH_LIMIT, TARGET_PITCH_LIMIT)
-		local yaw = Quat():Identity()
-		yaw:RotateYaw(state.target_yaw)
-		away = yaw:VecMul(away)
 		local pitch = TARGET_BASE_PITCH + state.target_pitch
 		look_at = pivot + to_target * 0.5
 		desired = look_at + away * (
@@ -182,6 +201,7 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 		orbiting = mouse_x ~= 0 or mouse_y ~= 0
 		target_fov = TARGET_FOV
 	else
+		state.cam_away = nil
 		local offset = origin - pivot
 
 		if mouse_x ~= 0 or mouse_y ~= 0 then
