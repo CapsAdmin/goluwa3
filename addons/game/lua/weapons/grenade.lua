@@ -48,7 +48,7 @@ local BODY = {Color = Color(0.2, 0.27, 0.15, 1), Roughness = 0.45, Metallic = 0.
 
 function META:OnWeaponPrimary(cmd)
 	local caster = self.Owner:GetParent()
-	local view = cmd.view
+	local view = cmd.aim
 	local forward = view:GetForward()
 	local eye = caster.transform:GetPosition() + caster.character_movement:GetViewOffset()
 	local origin = eye + forward * 0.5 + view:GetRight() * 0.2 - Vec3(0, 0.15, 0)

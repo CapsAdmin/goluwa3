@@ -634,6 +634,7 @@ function META:NextCommand(dt)
 		view.x, view.y, view.z, view.w = 0, math.sin(half), 0, math.cos(half)
 	end
 
+	cmd.aim:CopyFrom(view)
 	cmd.pressed = bit.band(cmd.buttons, bit.bnot(previous_buttons))
 	movement:SetGroundSpeed(speed)
 	movement:SetStopSpeed(self.WalkSpeed * STOP_SPEED_SHARE)

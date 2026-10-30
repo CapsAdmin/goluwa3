@@ -357,7 +357,7 @@ function toolgun.Fire(context, cmd, action)
 
 	if not callback then return false end
 
-	local trace = toolgun.Trace(context:GetPlayer(), cmd.view)
+	local trace = toolgun.Trace(context:GetPlayer(), cmd.aim)
 
 	if not trace then return false end
 

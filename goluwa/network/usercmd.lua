@@ -26,6 +26,7 @@ function usercmd.New()
 	return {
 		number = 0,
 		view = Quat(0, 0, 0, 1),
+		aim = Quat(0, 0, 0, 1),
 		head = Vec3(0, 0, 0),
 		forward = 0,
 		side = 0,
@@ -46,6 +47,7 @@ function usercmd.Copy(cmd)
 	local out = usercmd.New()
 	out.number = cmd.number
 	out.view:CopyFrom(cmd.view)
+	out.aim:CopyFrom(cmd.aim)
 	out.head:CopyFrom(cmd.head)
 	out.forward = cmd.forward
 	out.side = cmd.side
@@ -85,6 +87,7 @@ end
 function usercmd.Write(buffer, cmd)
 	buffer:WriteU32(cmd.number)
 	buffer:WriteQuat(cmd.view)
+	buffer:WriteQuat(cmd.aim)
 	write_head(buffer, cmd.head.x)
 	write_head(buffer, cmd.head.y)
 	write_head(buffer, cmd.head.z)
@@ -105,6 +108,7 @@ function usercmd.Read(buffer, out)
 	out = out or usercmd.New()
 	out.number = buffer:ReadU32()
 	out.view = buffer:ReadQuat()
+	out.aim = buffer:ReadQuat()
 	out.head:Set(buffer:ReadI16() / 10000, buffer:ReadI16() / 10000, buffer:ReadI16() / 10000)
 	out.forward = read_axis(buffer)
 	out.side = read_axis(buffer)

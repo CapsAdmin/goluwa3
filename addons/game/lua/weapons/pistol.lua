@@ -35,7 +35,7 @@ META:GetSet("LimpSpread", 0.3)
 function META:Aim(cmd)
 	local player = self.Owner:GetParent()
 	local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
-	local forward = cmd.view:GetForward()
+	local forward = cmd.aim:GetForward()
 	local ragdoll = player.ragdoll
 	local limp = ragdoll and math.max(ragdoll:GetPartLimp("upperarm_r"), ragdoll:GetPartLimp("forearm_r")) or 0
 

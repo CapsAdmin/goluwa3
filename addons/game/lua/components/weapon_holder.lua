@@ -221,12 +221,12 @@ end
 
 function META:Drop(weapon)
 	local owner = self.Owner
-	local forward = owner.character_movement:GetCommand().view:GetForward()
+	local forward = owner.character_movement:GetCommand().aim:GetForward()
 	self:Unequip(weapon)
 	local position = owner.transform:GetPosition() + owner.character_movement:GetViewOffset() + forward * 0.6
 	weapon:UnParent()
 	weapon.transform:SetPosition(position)
-	weapon.transform:SetRotation(owner.character_movement:GetCommand().view:Copy())
+	weapon.transform:SetRotation(owner.character_movement:GetCommand().aim:Copy())
 
 	if weapon.network then
 		weapon.network:SetNetworkOwner("")
@@ -322,7 +322,7 @@ function META:OnPhysicsUpdate(dt)
 		use.Press(
 			owner,
 			owner.transform:GetPosition() + owner.character_movement:GetViewOffset(),
-			cmd.view:GetForward()
+			cmd.aim:GetForward()
 		)
 	end
 

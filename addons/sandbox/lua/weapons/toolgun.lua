@@ -41,7 +41,7 @@ function META:OnWeaponSecondary(cmd)
 end
 
 function META:PredictTrace(cmd)
-	local trace = toolgun.Trace(self.Owner:GetParent(), cmd.view)
+	local trace = toolgun.Trace(self.Owner:GetParent(), cmd.aim)
 
 	if trace then
 		weapon_effects.ToolTrace(self.Owner, trace.position, trace.normal)

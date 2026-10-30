@@ -63,6 +63,7 @@ local function click(holder, context, point, action)
 	local eye = holder.transform:GetPosition() + holder.character_movement:GetViewOffset()
 	local cmd = usercmd.New()
 	cmd.view = Quat():SetLookDirection((point - eye):GetNormalized())
+	cmd.aim = cmd.view
 	cmd.buttons = usercmd.BUTTON.ACTIVE
 	return toolgun.Fire(context, cmd, action or "LeftClick")
 end
@@ -219,6 +220,7 @@ T.TestPhysics("switching tools drops a half made constraint and the primary atta
 	local eye = holder.transform:GetPosition() + holder.character_movement:GetViewOffset()
 	local cmd = usercmd.New()
 	cmd.view = Quat():SetLookDirection((Vec3(-1, 0.25, -3) - eye):GetNormalized())
+	cmd.aim = cmd.view
 	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
 	cmd.pressed = usercmd.BUTTON.ATTACK1
 	gun.weapon:Think(1, cmd, usercmd.BUTTON.ATTACK1, usercmd.BUTTON.ATTACK2)

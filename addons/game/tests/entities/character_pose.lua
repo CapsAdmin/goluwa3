@@ -38,6 +38,7 @@ T.TestPhysics("character pose follows the pitch of the command view and not its 
 	local character = create_character()
 	local cmd = character.player_controller.cmd
 	cmd.view = Quat(0, 0, 0, 1):RotatePitch(math.rad(30))
+	cmd.aim = cmd.view
 
 	for _ = 1, 30 do
 		physics.UpdateFixed(1 / 60)
@@ -49,6 +50,7 @@ T.TestPhysics("character pose follows the pitch of the command view and not its 
 	T(math.abs(forward.x) < 0.01)["=="](true)
 	T(character.character_pose.crouch_alpha)["=="](0)
 	character.player_controller.cmd.view = Quat(0, 0, 0, 1):RotateYaw(math.rad(110)):RotatePitch(math.rad(30))
+	character.player_controller.cmd.aim = character.player_controller.cmd.view
 
 	for _ = 1, 30 do
 		physics.UpdateFixed(1 / 60)

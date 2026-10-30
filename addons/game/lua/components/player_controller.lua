@@ -208,7 +208,7 @@ function META:TeleportToAim(cmd)
 	local owner = self.Owner
 	local movement = owner.character_movement
 	local origin = owner.transform:GetPosition() + movement:GetViewOffset()
-	local direction = cmd.view:GetForward()
+	local direction = cmd.aim:GetForward()
 	local hit = physics.RayCast(origin, direction, TELEPORT_MAX_DISTANCE, owner, nil, TELEPORT_TRACE_OPTIONS)
 
 	if raycast and not network.IsStarted() then

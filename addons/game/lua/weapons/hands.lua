@@ -93,7 +93,7 @@ function META:TryAcquireBody(cmd)
 	local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 	local hit = physics.Sweep(
 		origin,
-		cmd.view:GetForward() * self.Range,
+		cmd.aim:GetForward() * self.Range,
 		0,
 		player,
 		function(entity)
@@ -112,7 +112,7 @@ function META:TryAcquireBody(cmd)
 
 	if not self:CanHoldBody(body) then return false end
 
-	local relative = (cmd.view:GetConjugated() * body:GetRotation()):GetNormalized()
+	local relative = (cmd.aim:GetConjugated() * body:GetRotation()):GetNormalized()
 	local angles = relative:GetAngles()
 	angles.x = math.round(angles.x / SNAP) * SNAP
 	angles.y = math.round(angles.y / SNAP) * SNAP
@@ -179,7 +179,7 @@ function META:UpdateHeldBody(dt, cmd)
 	end
 
 	local player = self.Owner:GetParent()
-	local view = cmd.view
+	local view = cmd.aim
 	local eye = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 	local extra = 0
 
@@ -188,7 +188,7 @@ function META:UpdateHeldBody(dt, cmd)
 		extra = self.ThrowReach * (1 - math.max(self.throw_left, 0) / self.ThrowTime)
 
 		if self.throw_left <= 0 then
-			local velocity = cmd.view:GetForward() * self.ThrowSpeed
+			local velocity = cmd.aim:GetForward() * self.ThrowSpeed
 
 			if player.rigid_body then velocity = velocity + player.rigid_body:GetVelocity() end
 

@@ -78,7 +78,7 @@ function META.Find(user)
 	local hit = use.Find(
 		user,
 		user.transform:GetPosition() + movement:GetViewOffset(),
-		movement:GetCommand().view:GetForward()
+		movement:GetCommand().aim:GetForward()
 	)
 
 	if not hit then return end

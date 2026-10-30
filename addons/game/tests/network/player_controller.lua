@@ -465,6 +465,7 @@ local function run_scenario()
 		cmd.forward = 1
 		cmd.side = 1
 		cmd.view = QuatDeg3(-10, 33, 0)
+		cmd.aim = cmd.view
 	end)
 
 	drive(player, 30, function(cmd)
@@ -630,6 +631,7 @@ T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies 
 
 	drive(player, 90, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 	end)
 
 	local controller = player.player_controller
@@ -638,6 +640,7 @@ T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies 
 
 	drive(player, 5, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
 	end)
 
@@ -649,6 +652,7 @@ T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies 
 
 	drive(player, 5, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
 		cmd.scroll = 1
 	end)
@@ -658,6 +662,7 @@ T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies 
 
 	drive(player, 5, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
 		cmd.rotate_x = 0.1
 	end)
@@ -666,6 +671,7 @@ T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies 
 
 	drive(player, 1, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1, BUTTON.ATTACK2)
 	end)
 
@@ -675,6 +681,7 @@ T.TestPhysics("player physgun grabs, holds, rotates, scrolls and freezes bodies 
 
 	drive(player, 5, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
 	end)
 
@@ -706,10 +713,12 @@ T.TestPhysics("player physgun releases when the primary button is released", fun
 
 	drive(player, 90, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 	end)
 
 	drive(player, 5, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
 	end)
 
@@ -717,6 +726,7 @@ T.TestPhysics("player physgun releases when the primary button is released", fun
 
 	drive(player, 3, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 	end)
 
 	T(physgun_entity.weapon_physgun.held_body == nil)["=="](true)
@@ -752,6 +762,7 @@ T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodi
 
 	drive(player, 90, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 	end)
 
 	T(#holder:GetWeapons())["=="](3)
@@ -767,6 +778,7 @@ T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodi
 
 	drive(player, 5, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
 	end)
 
@@ -774,6 +786,7 @@ T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodi
 
 	drive(player, 1, function(cmd)
 		cmd.view = QuatDeg3(-15, 0, 0)
+		cmd.aim = cmd.view
 		cmd.select = 2
 	end)
 
@@ -790,10 +803,12 @@ T.TestPhysics("weapon holder switches weapons by slot and the pistol pushes bodi
 
 	drive(player, 2, function(cmd)
 		cmd.view = QuatDeg3(0, 0, 0)
+		cmd.aim = cmd.view
 	end)
 
 	drive(player, 1, function(cmd)
 		cmd.view = QuatDeg3(0, 0, 0)
+		cmd.aim = cmd.view
 		cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
 	end)
 
@@ -811,6 +826,7 @@ T.TestPhysics("player body turns with the view in yaw only and stays upright", f
 
 	drive(player, 10, function(cmd)
 		cmd.view = QuatDeg3(-30, 90, 0)
+		cmd.aim = cmd.view
 	end)
 
 	local body = player.rigid_body

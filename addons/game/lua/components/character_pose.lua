@@ -13,6 +13,7 @@ META.Network = {
 	Blocking = {"boolean", 0.05, "reliable", to_owner = true},
 	States = {"string", 0.05, "reliable"},
 	ViewRotation = {"quat", 1 / 60, "sequenced", true},
+	AimRotation = {"quat", 1 / 60, "sequenced", true},
 	Shots = {"number", 0.05, "reliable"},
 	Hits = {"number", 0.05, "reliable", to_owner = true},
 	Reacts = {"number", 0.05, "reliable", to_owner = true},
@@ -35,6 +36,7 @@ META:IsSet("Holding", false)
 META:IsSet("Blocking", false)
 META:IsSet("FirstPerson", false)
 META:GetSet("ViewRotation", Quat(0, 0, 0, 1))
+META:GetSet("AimRotation", Quat(0, 0, 0, 1))
 META:GetSet("Shots", 0)
 META:GetSet("Hits", 0)
 META:GetSet("Reacts", 0)
@@ -75,6 +77,7 @@ local PREDICTED_ACTION_WINDOW = 1
 
 function META:Initialize()
 	self.pitch = Quat(0, 0, 0, 1)
+	self.head_rotation = Quat(0, 0, 0, 1)
 	self.aim_rotation = Quat(0, 0, 0, 1)
 	self.crouch_alpha = 0
 	self.crouch_base = 0
@@ -595,6 +598,7 @@ function META:OnUpdate(dt)
 
 	if movement then
 		self:SetViewRotation(movement:GetCommand().view:Copy())
+		self:SetAimRotation(movement:GetCommand().aim:Copy())
 		self:SetCrouching(movement:IsCrouching())
 		self:SetState("roll", movement:GetRollKind())
 	end
@@ -634,12 +638,15 @@ function META:OnUpdate(dt)
 	end
 
 	local rotation = self:GetViewRotation()
+	local aim = self:GetAimRotation()
 	local relay = self.relay_cmd
 
 	if owner.player_input then
 		rotation = owner.player_input:GetRotation()
+		aim = owner.player_input:GetAimRotation()
 	elseif relay and system.GetTime() - self.relay_time < RELAY_FRESH then
 		rotation = relay.view
+		aim = relay.aim
 		self:SetCrouching(usercmd.HasButton(relay, usercmd.BUTTON.CROUCH))
 	end
 
@@ -648,7 +655,8 @@ function META:OnUpdate(dt)
 		self:ApplyView(rotation)
 	end
 
-	self.aim_rotation = rotation
+	self.head_rotation = rotation
+	self.aim_rotation = aim
 	self.crouch_base = self.crouch_base + (
 			(
 				self:IsCrouching() and

@@ -312,7 +312,7 @@ end
 function META:FindBody(cmd)
 	local player = self.Owner:GetParent()
 	local origin = get_origin(player)
-	local movement = cmd.view:GetForward() * self.MaxGrabDistance
+	local movement = cmd.aim:GetForward() * self.MaxGrabDistance
 	local hit = physics.Sweep(
 		origin,
 		movement,
@@ -371,7 +371,7 @@ function META:TryAcquireBody(cmd)
 	body:SetCollisionGroup(usercmd.HELD_COLLISION_GROUP)
 	self.held_local_point = body:WorldToLocal(grab_point)
 	self.held_distance = math.clamp(hit.distance or self.MinHoldDistance, self.MinHoldDistance, self.MaxGrabDistance)
-	self.held_rotation_offset = (cmd.view:GetConjugated() * body:GetRotation()):GetNormalized()
+	self.held_rotation_offset = (cmd.aim:GetConjugated() * body:GetRotation()):GetNormalized()
 
 	if body.SetGrounded then body:SetGrounded(false) end
 
@@ -389,7 +389,7 @@ function META:UpdateHeldBody(dt, cmd)
 	end
 
 	local origin = get_origin(self.Owner:GetParent())
-	local target_position = origin + cmd.view:GetForward() * self.held_distance
+	local target_position = origin + cmd.aim:GetForward() * self.held_distance
 	local grab_position = body:LocalToWorld(self.held_local_point)
 	local offset = target_position - grab_position
 	local offset_length = offset:GetLength()
@@ -404,7 +404,7 @@ function META:UpdateHeldBody(dt, cmd)
 	body:SetVelocity(current_velocity + (target_velocity - current_velocity) * linear_response)
 
 	if not self.held_character then
-		local target_rotation = (cmd.view * self.held_rotation_offset):GetNormalized()
+		local target_rotation = (cmd.aim * self.held_rotation_offset):GetNormalized()
 
 		if usercmd.HasButton(cmd, BUTTON.SPRINT) then
 			local angles = target_rotation:GetAngles()
@@ -505,7 +505,7 @@ function META:Think(dt, cmd)
 	then
 		rotate_delta.x = cmd.rotate_x * self.RotateSensitivity
 		rotate_delta.y = cmd.rotate_y * self.RotateSensitivity
-		self.held_rotation_offset = rotate_offset_relative_to_camera(self.held_rotation_offset, cmd.view, rotate_delta)
+		self.held_rotation_offset = rotate_offset_relative_to_camera(self.held_rotation_offset, cmd.aim, rotate_delta)
 	end
 
 	if self.held_body and weapon:WasSecondaryPressed(cmd) then
@@ -521,10 +521,10 @@ function META:Think(dt, cmd)
 	end
 
 	self.beam_on = true
-	self.beam_forward:Set(cmd.view:GetForward():Unpack())
+	self.beam_forward:Set(cmd.aim:GetForward():Unpack())
 
 	if not self.held_body and not self:TryAcquireBody(cmd) then
-		self:UpdateBeamAim(get_origin(self.Owner:GetParent()), cmd.view:GetForward())
+		self:UpdateBeamAim(get_origin(self.Owner:GetParent()), cmd.aim:GetForward())
 		return
 	end
 

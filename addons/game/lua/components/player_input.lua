@@ -143,6 +143,10 @@ function META:SyncFromCamera(camera)
 	self.Pitch = math.asin(math.clamp(forward.y, -1, 1))
 end
 
+function META:GetAimRotation()
+	return self.Rotation
+end
+
 function META:GetForward()
 	return self.Rotation:GetForward()
 end
@@ -165,6 +169,7 @@ function META:BuildCommand(cmd)
 	local BUTTON = usercmd.BUTTON
 	local buttons = 0
 	cmd.view:CopyFrom(self.Rotation)
+	cmd.aim:CopyFrom(self.Rotation)
 	cmd.mode = self.Mode
 	cmd.fov = self.FOV
 

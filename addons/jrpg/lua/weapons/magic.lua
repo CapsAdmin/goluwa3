@@ -119,7 +119,7 @@ function META:Cast(cmd, self_target)
 	end
 
 	caster.character_pose:PlayAction(self.left and "cast_l" or "cast_r", self.CastTime)
-	local view = cmd.view
+	local view = cmd.aim
 	local forward = view:GetForward()
 	local eye = caster.transform:GetPosition() + caster.character_movement:GetViewOffset()
 	local origin = eye + forward * 0.4 + view:GetRight() * (self.left and -HAND_OFFSET or HAND_OFFSET) - Vec3(0, HAND_DROP, 0)
