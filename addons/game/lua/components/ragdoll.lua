@@ -1224,9 +1224,15 @@ function META:OnPhysicsUpdate(dt)
 		self:SetPartsCollidable(walking)
 	end
 
-	if not walking and not self.global_active then return end
-
 	self:UpdateTargets(dt)
+
+	if not walking and not self.global_active then
+		for _, part in ipairs(self.parts) do
+			self:DrivePart(part, true)
+		end
+
+		return
+	end
 
 	if self.global_active then
 		if owner.health:IsDead() then
