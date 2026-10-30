@@ -157,6 +157,31 @@ T.TestPhysics("a charging npc that runs into a wall crashes instead", function()
 	T(charger.health.Health > charger.health.MaxHealth * 0.8)["=="](true)
 end)
 
+T.TestPhysics("an unarmed npc cannot hit a player standing on a ledge far above it", function()
+	create_ground()
+	Entity.New{
+		transform = {Position = Vec3(1.7, 2.75, 0), Scale = Vec3(1, 0.5, 3)},
+		rigid_body = {MotionType = "static", WorldGeometry = true, Shape = BoxShape.New(Vec3(1, 1, 1))},
+	}
+	local biter = Entity.New{
+		ComponentSet = {"transform", "ai_controller", "character_pose", "health"},
+		transform = {Position = Vec3(0, 0.05, 0)},
+		ai_controller = {
+			Wander = false,
+			WalkSpeed = 3,
+			Moveset = "test_bite",
+			Attacks = {{Move = "bite", Range = 1.5, Interval = 1}},
+		},
+		health = {Health = 1000, MaxHealth = 1000},
+	}
+	biter.ai_controller:Teleport(Vec3(0, 0.05, 0), 0)
+	local player = create_target(Vec3(1.3, 3.05, 0))
+	run(1)
+	T(biter.ai_controller.alerted == player)["=="](true)
+	run(5)
+	T(player.health.Health)["=="](player.health.MaxHealth)
+end)
+
 T.TestPhysics("npc with a weapon turns to and shoots a player in range", function()
 	create_ground()
 	local gunman = create_gunman(Vec3(0, 0.05, 0))

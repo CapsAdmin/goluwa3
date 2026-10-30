@@ -432,6 +432,11 @@ function META:CastAt(target, element, damage)
 	)
 end
 
+function META:GetReach(position, target, flat_distance)
+	local rise = target.transform:GetPosition().y + target.character_movement:GetHeight() * TARGET_CHEST - position.y - self.Owner.character_movement:GetHeight() * TARGET_CHEST
+	return math.sqrt(flat_distance * flat_distance + rise * rise)
+end
+
 function META:Fight(target, position)
 	local runner = self.Owner:EnsureComponent("move_runner")
 
@@ -450,6 +455,7 @@ function META:Fight(target, position)
 	local offset = target.transform:GetPosition() - position
 	offset.y = 0
 	local distance = offset:GetLength()
+	local reach = self:GetReach(position, target, distance)
 	local attacks = self.Attacks
 	local ready = self.attack_ready
 
@@ -458,8 +464,8 @@ function META:Fight(target, position)
 
 		if
 			self.time >= (ready[i] or 0) and
-			distance <= attack.Range and
-			distance >= (attack.MinRange or 0)
+			reach <= attack.Range and
+			reach >= (attack.MinRange or 0)
 		then
 			ready[i] = self.time + attack.Interval * math.randomf(0.8, 1.2)
 			self:BeginMove(movesets.Get(self.Moveset).Moves[attack.Move], target)
@@ -489,7 +495,7 @@ function META:OnMoveEvent(move, event)
 
 	if event.Type == "cast" then
 		self:CastAt(target, event.Element, event.Damage)
-	elseif distance <= event.Range then
+	elseif self:GetReach(owner.transform:GetPosition(), target, distance) <= event.Range then
 		local direction = distance > 1e-3 and offset / distance or Vec3(0, 0, -1)
 		damage.Deal(
 			target,
