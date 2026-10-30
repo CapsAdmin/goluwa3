@@ -13,7 +13,7 @@ local function get_surface(hit)
 	material
 end
 
-function impacts.Fire(entity, part, kind, hit, speed, mass, size)
+function impacts.Fire(entity, part, kind, hit, speed, mass, size, other_hit)
 	local surface, material = get_surface(hit)
 	event.Call(
 		"Impact",
@@ -22,6 +22,7 @@ function impacts.Fire(entity, part, kind, hit, speed, mass, size)
 			Part = part,
 			Kind = kind,
 			Surface = surface,
+			OtherSurface = other_hit and (get_surface(other_hit)),
 			Material = material,
 			Other = hit.entity,
 			Position = hit.position,
@@ -68,13 +69,13 @@ do
 			{entity = entity, position = position, normal = direction * -1}
 	end
 
-	local function fire_side(entity, hit, speed, mass, size)
+	local function fire_side(entity, hit, other_hit, speed, mass, size)
 		local part = entity.ragdoll_part
 
 		if part then
-			impacts.Fire(part.Character, part.Group, "physics", hit, speed, mass, size)
+			impacts.Fire(part.Character, part.Group, "physics", hit, speed, mass, size, other_hit)
 		else
-			impacts.Fire(entity, nil, "physics", hit, speed, mass, size)
+			impacts.Fire(entity, nil, "physics", hit, speed, mass, size, other_hit)
 		end
 	end
 
@@ -118,16 +119,13 @@ do
 
 		local normal = impact.normal
 		local mass = get_reduced_mass(impact.body_a, impact.body_b)
-		fire_side(
-			entity_b,
-			impact.hit_a or get_surface_hit(entity_a, impact.position, normal * -1),
-			impact.speed,
-			mass,
-			get_sounding_size(entity_a, entity_b)
-		)
+		local hit_a = impact.hit_a or get_surface_hit(entity_a, impact.position, normal * -1)
+		local hit_b = get_surface_hit(entity_b, impact.position, normal)
+		fire_side(entity_b, hit_a, hit_b, impact.speed, mass, get_sounding_size(entity_a, entity_b))
 		fire_side(
 			entity_a,
-			get_surface_hit(entity_b, impact.position, normal),
+			hit_b,
+			hit_a,
 			impact.speed,
 			mass,
 			get_sounding_size(entity_b, entity_a)

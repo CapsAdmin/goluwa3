@@ -56,6 +56,8 @@ T.TestPhysics("a physics impact fires an Impact from each side with the surface 
 	T(from_ground.Entity)["=="](ground)
 	T(from_ground.Other)["=="](box)
 	T(from_ground.Surface)["=="]("default")
+	T(from_box.OtherSurface)["=="](from_ground.Surface)
+	T(from_ground.OtherSurface)["=="](from_box.Surface)
 	T(from_box.Speed)["=="](from_ground.Speed)
 	T(from_box.Mass)["=="](box.rigid_body:GetMass())
 	T(math.abs(from_box.Size - 0.5))["<"](0.01)

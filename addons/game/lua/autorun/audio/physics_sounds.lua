@@ -12,6 +12,7 @@ local LOUD_SPEED = 7
 local INTERVAL = 0.05
 local REFERENCE_MASS = 20
 local MASS_DB = 6
+local DAMP_DB = 18
 local MIN_MASS_DB = -18
 local MAX_MASS_DB = 4
 local SCRAPE_MIN = 0.3
@@ -515,6 +516,53 @@ local LOOPS = {
 		"physics/body/body_medium_scrape_rough_loop1.wav",
 	},
 }
+local HARDNESS = {
+	concrete = 0.9,
+	concrete_block = 0.9,
+	rock = 0.9,
+	boulder = 1,
+	dirt = 0.05,
+	carpet = 0.05,
+	metal = 1,
+	metal_box = 0.9,
+	metal_vent = 0.8,
+	metal_barrel = 0.8,
+	canister = 0.8,
+	computer = 0.8,
+	metal_grate = 1,
+	chainlink = 0.6,
+	chain = 0.7,
+	grenade = 1,
+	paintcan = 0.8,
+	popcan = 0.6,
+	weapon = 1,
+	vehicle = 0.9,
+	wood = 0.5,
+	wood_solid = 0.6,
+	wood_box = 0.45,
+	wood_crate = 0.45,
+	wood_furniture = 0.5,
+	wood_panel = 0.45,
+	wood_plank = 0.5,
+	plastic = 0.35,
+	plastic_barrel = 0.35,
+	glass = 0.9,
+	glass_bottle = 0.9,
+	pottery = 0.85,
+	cardboard = 0.1,
+	paper_cup = 0.1,
+	drywall = 0.3,
+	ceiling_tile = 0.2,
+	rubber = 0.1,
+	flesh = 0.1,
+	bloody_flesh = 0.1,
+	squishy = 0.05,
+	water = 0,
+}
+
+for name, hardness in pairs(HARDNESS) do
+	SETS[name].hardness = hardness
+end
 
 for name, loops in pairs(LOOPS) do
 	local found = SETS[name]
@@ -570,6 +618,10 @@ local function get_mass_gain(mass)
 		)
 end
 
+local function get_damping_gain(found, other)
+	return 10 ^ (-DAMP_DB * math.max(found.hardness - other.hardness, 0) / 20)
+end
+
 local last_played = table.weak("k")
 
 event.AddListener("Impact", "physics_impacts", function(info)
@@ -587,6 +639,7 @@ event.AddListener("Impact", "physics_impacts", function(info)
 
 	row[info.Other] = now
 	local found = get_set(info.Surface)
+	local gain = found.gain * get_damping_gain(found, get_set(info.OtherSurface))
 	local soft = info.Speed < SOFT_SPEED
 	local paths = soft and found.soft or found.hard
 	local index = math.random(#paths)
@@ -597,7 +650,7 @@ event.AddListener("Impact", "physics_impacts", function(info)
 	sounds.Play(
 		paths[index],
 		info.Position,
-		found.gain * get_mass_gain(info.Mass) * math.min(info.Speed / LOUD_SPEED, 1),
+		gain * get_mass_gain(info.Mass) * math.min(info.Speed / LOUD_SPEED, 1),
 		get_pitch(info.Size),
 		MAX_SKIP * (
 				1 - math.clamp((info.Speed - MIN_SPEED) / (LOUD_SPEED - MIN_SPEED), 0, 1)
