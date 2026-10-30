@@ -32,6 +32,9 @@ local slot_t = ffi.typeof(
 		void* buffer;
 		uint32_t buffer_len;
 		double playback_pos;
+		double played;
+		float fade_in;
+		float fade_out;
 		float volume;
 		float pitch;
 		float sample_rate;

@@ -9,6 +9,7 @@ local spatial = import("goluwa/audio/spatial.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local FS = 44100
+local LEAD = 200
 
 local function with_offline_mixer(cb)
 	local saved_state, saved_sounds, saved_clock, saved_motion = audio.state, audio.active_sounds, audio.clock, audio.listener_motion
@@ -107,17 +108,17 @@ end
 
 T.Test("audio propagation delay and interaural time difference", function()
 	with_offline_mixer(function(ctx)
-		local front = mono_source(64, function(i)
-			return i == 0 and 1 or 0
+		local front = mono_source(64 + LEAD, function(i)
+			return i == LEAD and 1 or 0
 		end)
 		front:SetPosition(Vec3(0, 0, -34.33))
 		front:Play()
 		local out, total = ctx.Render(0.2)
-		T(math.abs(peak_index(out, total, 0) - 34.33 / audio.speed_of_sound * FS))["<="](2)
+		T(math.abs(peak_index(out, total, 0) - LEAD - 34.33 / audio.speed_of_sound * FS))["<="](2)
 		T(math.abs(peak_index(out, total, 0) - peak_index(out, total, 1)))["<="](1)
 		audio.StopAll()
-		local right = mono_source(64, function(i)
-			return i == 0 and 1 or 0
+		local right = mono_source(64 + LEAD, function(i)
+			return i == LEAD and 1 or 0
 		end)
 		right:SetPosition(Vec3(3, 0, 0))
 		right:Play()
@@ -234,8 +235,8 @@ T.Test("audio reflections reach each ear at their own time with the ear filters 
 		local out, total
 
 		with_offline_mixer(function(ctx)
-			local click = mono_source(64, function(i)
-				return i == 0 and 1 or 0
+			local click = mono_source(64 + LEAD, function(i)
+				return i == LEAD and 1 or 0
 			end)
 			click:SetPosition(Vec3(0, 0, -2))
 			local itd = side * audio.ear_distance / audio.speed_of_sound * 0.5
@@ -783,4 +784,47 @@ T.TestPhysics("audio acoustics occludes a source behind a static wall", function
 		T(hidden[band])["=="](0)
 		T(open[band])["=="](1)
 	end
+end)
+
+T.Test("audio sounds ramp in and out instead of clicking on a non zero sample", function()
+	with_offline_mixer(function(ctx)
+		local frames = 4410
+		local data = ffi.new("float[?]", frames)
+
+		for i = 0, frames - 1 do
+			data[i] = 0.8
+		end
+
+		local sound = audio.CreateSource{data = data, samples = frames, channels = 1, sample_rate = FS}
+		sound:SetSpatial(false)
+		sound:Play(0)
+		local out = ctx.Render(0.2)
+		T(math.abs(out[0]))["<"](0.01)
+		T(math.abs(out[2 * 200] - 0.8))["<"](1e-4)
+		T(math.abs(out[2 * (frames - 1)]))["<"](0.01)
+		sound:SetFadeIn(0.02)
+		sound:Play(0)
+		out = ctx.Render(0.1)
+		T(out[2 * 441])["<"](0.5)
+		T(math.abs(out[2 * 1500] - 0.8))["<"](1e-4)
+	end)
+end)
+
+T.Test("audio fade in fraction spreads the ramp over the whole sound", function()
+	with_offline_mixer(function(ctx)
+		local frames = 4410
+		local data = ffi.new("float[?]", frames)
+
+		for i = 0, frames - 1 do
+			data[i] = 0.8
+		end
+
+		local sound = audio.CreateSource{data = data, samples = frames, channels = 1, sample_rate = FS}
+		sound:SetSpatial(false)
+		sound:SetFadeInFraction(1)
+		sound:Play(0)
+		local out = ctx.Render(0.1)
+		T(math.abs(out[2 * math.floor(frames / 2)] - 0.4))["<"](0.02)
+		T(out[2 * (frames - 300)])[">"](0.7)
+	end)
 end)

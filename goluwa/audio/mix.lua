@@ -12,6 +12,7 @@ local CUE_GROUPS = audio_state.CUE_GROUPS
 local CUE_GROUP_HEIGHT = audio_state.CUE_GROUP_HEIGHT
 local CUE_TAIL_BLOCKS = 8
 local MIN_DELAY = 2
+local DECLICK = 0.003
 local SLOPE_RESPONSE = 0.5
 local MIN_SLOPE = -3
 local MAX_SLOPE = 0.75
@@ -205,6 +206,9 @@ local function emit(mixer, slot, voice, frames, sample_rate)
 	local looping = slot.looping
 	local rate = slot.pitch * slot.sample_rate / sample_rate
 	local position = slot.playback_pos
+	local played = slot.played
+	local inv_in = 1 / (math.max(slot.fade_in, DECLICK) * slot.sample_rate)
+	local inv_out = 1 / (math.max(slot.fade_out, DECLICK) * slot.sample_rate)
 
 	if rate < 0 then rate = 0 end
 
@@ -234,11 +238,23 @@ local function emit(mixer, slot, voice, frames, sample_rate)
 		local a, sa = read_source(samples, channels, length, index, looping)
 		local b, sb = read_source(samples, channels, length, index + 1, looping)
 		volume = volume + volume_step
+		local envelope = played * inv_in
+
+		if envelope > 1 then envelope = 1 end
+
+		if not looping then
+			local fade_out = (length - position) * inv_out
+
+			if fade_out < envelope then envelope = fade_out end
+		end
+
+		played = played + rate
+		local gain = volume * envelope
 		local f = position - index
-		local x = (a + (b - a) * f) * volume
+		local x = (a + (b - a) * f) * gain
 		local at = bit.band(written + i, HISTORY_MASK)
 		history[at] = x
-		side_history[at] = (sa + (sb - sa) * f) * volume
+		side_history[at] = (sa + (sb - sa) * f) * gain
 		la = la + ca * (x - la)
 		lb = lb + ca * (la - lb)
 		ha = ha + cb * (x - ha)
@@ -253,6 +269,7 @@ local function emit(mixer, slot, voice, frames, sample_rate)
 	states[0], states[1], states[2], states[3] = la, lb, ha, hb
 	voice.tap_band[0], voice.tap_band[1], voice.tap_band[2] = tl, tm, th
 	slot.playback_pos = position
+	slot.played = played
 	voice.last_signal = written + frames
 	voice.written = written + frames
 end
@@ -620,6 +637,9 @@ local function mix_flat(mixer, slot, voice, out, frames)
 	local looping = slot.looping
 	local rate = slot.pitch * slot.sample_rate / mixer.sample_rate
 	local position = slot.playback_pos
+	local played = slot.played
+	local inv_in = 1 / (math.max(slot.fade_in, DECLICK) * slot.sample_rate)
+	local inv_out = 1 / (math.max(slot.fade_out, DECLICK) * slot.sample_rate)
 	local volume = voice.volume
 	local volume_step = (slot.volume - volume) / frames
 	voice.volume = slot.volume
@@ -642,17 +662,29 @@ local function mix_flat(mixer, slot, voice, out, frames)
 
 		local f = position - index
 		volume = volume + volume_step
+		local envelope = played * inv_in
+
+		if envelope > 1 then envelope = 1 end
+
+		if not looping then
+			local fade_out = (length - position) * inv_out
+
+			if fade_out < envelope then envelope = fade_out end
+		end
+
+		played = played + rate
+		local gain = volume * envelope
 
 		if channels == 2 then
 			local next_index = index + 1 < length and index + 1 or (looping and 0 or index)
 			local l0, r0 = samples[index * 2], samples[index * 2 + 1]
 			local l1, r1 = samples[next_index * 2], samples[next_index * 2 + 1]
-			out[i * 2] = out[i * 2] + (l0 + (l1 - l0) * f) * volume
-			out[i * 2 + 1] = out[i * 2 + 1] + (r0 + (r1 - r0) * f) * volume
+			out[i * 2] = out[i * 2] + (l0 + (l1 - l0) * f) * gain
+			out[i * 2 + 1] = out[i * 2 + 1] + (r0 + (r1 - r0) * f) * gain
 		else
 			local next_index = index + 1 < length and index + 1 or (looping and 0 or index)
 			local a = samples[index]
-			local x = (a + (samples[next_index] - a) * f) * volume
+			local x = (a + (samples[next_index] - a) * f) * gain
 			out[i * 2] = out[i * 2] + x
 			out[i * 2 + 1] = out[i * 2 + 1] + x
 		end
@@ -661,6 +693,7 @@ local function mix_flat(mixer, slot, voice, out, frames)
 	end
 
 	slot.playback_pos = position
+	slot.played = played
 end
 
 local function mix_block(mixer, out, frames)
