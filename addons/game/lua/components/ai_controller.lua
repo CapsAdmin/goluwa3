@@ -12,6 +12,8 @@ local simulation_lod = import("lua/simulation_lod.lua")
 local movesets = import("lua/movesets.lua")
 local BUTTON = usercmd.BUTTON
 local NO_ATTACKS = {}
+local IDLE_MIN = 5
+local IDLE_MAX = 14
 local META = objects.CreateTemplate("ai_controller")
 META:StartStorable()
 META:GetSet("WalkSpeed", 80 * UNIT)
@@ -88,6 +90,7 @@ function META:Initialize()
 	self.next_target = 0
 	self.next_fire = 0
 	self.attack_ready = {}
+	self.idle_time = math.randomf(IDLE_MIN, IDLE_MAX)
 	self.next_follow_path = 0
 	self.aim_direction = Vec3()
 	self.cmd = usercmd.New()
@@ -436,6 +439,7 @@ function META:Fight(target, position)
 
 	if self.alerted ~= target then
 		self.alerted = target
+		self.Owner:CallLocalEvent("OnNPCAlert", target)
 
 		if self.Alert ~= "" then
 			self:BeginMove(movesets.Get(self.Moveset).Moves[self.Alert], target)
@@ -498,6 +502,8 @@ function META:OnMoveEvent(move, event)
 				Force = direction * (event.Force or 3),
 			}
 		)
+
+		owner:CallLocalEvent("OnNPCStrike", target)
 
 		if event.Until then return "end" end
 	end
@@ -579,6 +585,14 @@ function META:NextCommand(dt)
 		cmd.buttons = 0
 		cmd.pressed = 0
 		return cmd
+	end
+
+	self.idle_time = self.idle_time - dt
+
+	if self.idle_time <= 0 then
+		self.idle_time = math.randomf(IDLE_MIN, IDLE_MAX)
+
+		if not self.far and not self.target then owner:CallLocalEvent("OnNPCIdle") end
 	end
 
 	local previous_buttons = cmd.buttons

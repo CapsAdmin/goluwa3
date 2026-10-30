@@ -8,20 +8,11 @@ local UNIT = import("goluwa/source_engine/units.lua").meters
 import("lua/damage.lua")
 local outfit = import("lua/outfit.lua")
 local movesets = import("lua/movesets.lua")
+local voices = import("lua/npc_voices.lua")
 local PlayerController = import("lua/components/player_controller.lua")
 local AIController = import("lua/components/ai_controller.lua")
 local eyes = RENDER_3D and import("goluwa/entities/components/eyes.lua")
 local npcs = {}
-
-local function numbered(format, count)
-	local paths = {}
-
-	for i = 1, count do
-		paths[i] = format:format(i)
-	end
-
-	return paths
-end
 
 
 local function creature_move(move)
@@ -33,6 +24,7 @@ end
 local function claw(clip, duration, delay, damage, range)
 	return creature_move{
 		Clip = clip,
+		Sound = "Attack",
 		Duration = duration,
 		Events = {{At = delay / duration, Type = "strike", Damage = damage, Range = range}},
 	}
@@ -41,6 +33,7 @@ end
 local function cast(clip, duration, delay, element, damage)
 	return creature_move{
 		Clip = clip,
+		Sound = "Attack",
 		Duration = duration,
 		Events = {{At = delay / duration, Type = "cast", Element = element, Damage = damage}},
 	}
@@ -57,6 +50,7 @@ npcs.Definitions = {
 		Run = "run_all",
 		WalkSpeed = 80,
 		RunSpeed = 210,
+		Sounds = voices.citizen,
 	},
 	barney = {
 		Faction = "friend",
@@ -69,6 +63,7 @@ npcs.Definitions = {
 		WalkSpeed = 80,
 		RunSpeed = 210,
 		Health = 200,
+		Sounds = voices.barney,
 	},
 	combine_soldier = {
 		Faction = "enemy",
@@ -80,6 +75,7 @@ npcs.Definitions = {
 		Run = "RunALL",
 		WalkSpeed = 78,
 		RunSpeed = 215,
+		Sounds = voices.combine_soldier,
 	},
 	eye = {
 		Faction = "friend",
@@ -100,7 +96,7 @@ npcs.Definitions = {
 		RunSpeed = 45,
 		Moves = {claw = claw("attackA", 1.26, 0.6, 18, 1.96)},
 		Attacks = {{Move = "claw", Range = 1.4, Interval = 1.8}},
-		Sounds = {Foot = {Paths = numbered("npc/zombie/foot%d.wav", 3), Length = 0.6, Gain = 0.3}},
+		Sounds = voices.zombie,
 	},
 	vortigaunt = {
 		Faction = "enemy",
@@ -114,7 +110,7 @@ npcs.Definitions = {
 		Height = 84,
 		Moves = {zap = cast("zapattack1", 0.9, 0.5, "lightning", 20)},
 		Attacks = {{Move = "zap", Range = 12, Interval = 2.5}},
-		Sounds = {Foot = {Paths = numbered("npc/vort/vort_foot%d.wav", 4), Length = 0.9, Gain = 0.4}},
+		Sounds = voices.vortigaunt,
 	},
 	antlion = {
 		Faction = "enemy",
@@ -129,7 +125,7 @@ npcs.Definitions = {
 		TurnSpeed = 12,
 		Moves = {claw = claw("attack1", 0.84, 0.3, 12, 2.52)},
 		Attacks = {{Move = "claw", Range = 1.8, Interval = 1.2}},
-		Sounds = {Foot = {Paths = numbered("npc/antlion/foot%d.wav", 4), Length = 1.2, Gain = 0.4}},
+		Sounds = voices.antlion,
 	},
 	headcrab = {
 		Faction = "enemy",
@@ -145,6 +141,7 @@ npcs.Definitions = {
 		StepHeight = 8,
 		Moves = {claw = claw("attack", 0.84, 0.3, 6, 1.26)},
 		Attacks = {{Move = "claw", Range = 0.9, Interval = 1.2}},
+		Sounds = voices.headcrab,
 	},
 	citizen_female = {
 		Faction = "friend",
@@ -156,6 +153,7 @@ npcs.Definitions = {
 		Run = "run_all",
 		WalkSpeed = 80,
 		RunSpeed = 210,
+		Sounds = voices.citizen_female,
 	},
 	rebel = {
 		Faction = "friend",
@@ -167,6 +165,7 @@ npcs.Definitions = {
 		Run = "run_all",
 		WalkSpeed = 80,
 		RunSpeed = 210,
+		Sounds = voices.rebel,
 	},
 	alyx = {
 		Faction = "friend",
@@ -179,6 +178,7 @@ npcs.Definitions = {
 		WalkSpeed = 80,
 		RunSpeed = 210,
 		Health = 300,
+		Sounds = voices.alyx,
 	},
 	combine_elite = {
 		Faction = "enemy",
@@ -191,6 +191,7 @@ npcs.Definitions = {
 		WalkSpeed = 78,
 		RunSpeed = 215,
 		Health = 80,
+		Sounds = voices.combine_elite,
 	},
 	breen = {
 		Faction = "friend",
@@ -215,7 +216,7 @@ npcs.Definitions = {
 		RunSpeed = 218,
 		Moves = {claw = claw("BR2_Attack", 0.7, 0.3, 10, 1.82)},
 		Attacks = {{Move = "claw", Range = 1.3, Interval = 1.0}},
-		Sounds = {Foot = {Paths = numbered("npc/fast_zombie/foot%d.wav", 4), Length = 0.8, Gain = 0.35}},
+		Sounds = voices.zombie_fast,
 	},
 	zombie_poison = {
 		Faction = "enemy",
@@ -228,7 +229,7 @@ npcs.Definitions = {
 		Health = 120,
 		Moves = {claw = claw("melee_01", 1.4, 0.5, 25, 2.1)},
 		Attacks = {{Move = "claw", Range = 1.5, Interval = 2.0}},
-		Sounds = {Foot = {Paths = numbered("npc/zombie/foot%d.wav", 3), Length = 0.7, Gain = 0.35}},
+		Sounds = voices.zombie_poison,
 	},
 	monk = {
 		Faction = "friend",
@@ -240,6 +241,7 @@ npcs.Definitions = {
 		Run = "run_all",
 		WalkSpeed = 80,
 		RunSpeed = 209,
+		Sounds = voices.monk,
 	},
 	kleiner = {
 		Faction = "friend",
@@ -252,6 +254,7 @@ npcs.Definitions = {
 		WalkSpeed = 80,
 		RunSpeed = 209,
 		Health = 80,
+		Sounds = voices.kleiner,
 	},
 	eli = {
 		Faction = "friend",
@@ -264,6 +267,7 @@ npcs.Definitions = {
 		WalkSpeed = 40,
 		RunSpeed = 209,
 		Health = 80,
+		Sounds = voices.eli,
 	},
 	odessa = {
 		Faction = "friend",
@@ -276,6 +280,7 @@ npcs.Definitions = {
 		WalkSpeed = 80,
 		RunSpeed = 209,
 		Health = 150,
+		Sounds = voices.odessa,
 	},
 	mossman = {
 		Faction = "friend",
@@ -287,6 +292,7 @@ npcs.Definitions = {
 		Run = "run_all",
 		WalkSpeed = 79,
 		RunSpeed = 209,
+		Sounds = voices.mossman,
 	},
 	gman = {
 		Faction = "friend",
@@ -311,6 +317,7 @@ npcs.Definitions = {
 		WalkSpeed = 57,
 		RunSpeed = 184,
 		Health = 60,
+		Sounds = voices.metrocop,
 	},
 	combine_guard = {
 		Faction = "enemy",
@@ -323,6 +330,7 @@ npcs.Definitions = {
 		WalkSpeed = 77,
 		RunSpeed = 214,
 		Health = 70,
+		Sounds = voices.combine_guard,
 	},
 	zombie_soldier = {
 		Faction = "enemy",
@@ -335,7 +343,7 @@ npcs.Definitions = {
 		Health = 80,
 		Moves = {claw = claw("attackA", 1.12, 0.6, 20, 1.96)},
 		Attacks = {{Move = "claw", Range = 1.4, Interval = 1.6}},
-		Sounds = {Foot = {Paths = numbered("npc/zombie/foot%d.wav", 3), Length = 0.6, Gain = 0.3}},
+		Sounds = voices.zombie_soldier,
 	},
 	zombie_torso = {
 		Faction = "enemy",
@@ -351,7 +359,7 @@ npcs.Definitions = {
 		Health = 25,
 		Moves = {claw = claw("attack", 1.26, 0.5, 10, 1.54)},
 		Attacks = {{Move = "claw", Range = 1.1, Interval = 1.8}},
-		Sounds = {Foot = {Paths = numbered("npc/zombie/foot_slide%d.wav", 3), Length = 0.5, Gain = 0.25}},
+		Sounds = voices.zombie_torso,
 	},
 	headcrab_black = {
 		Faction = "enemy",
@@ -368,7 +376,7 @@ npcs.Definitions = {
 		Health = 40,
 		Moves = {claw = claw("Spitattack", 0.84, 0.3, 14, 1.26)},
 		Attacks = {{Move = "claw", Range = 0.9, Interval = 1.2}},
-		Sounds = {Foot = {Paths = numbered("npc/headcrab_poison/ph_step%d.wav", 4), Length = 0.4, Gain = 0.25}},
+		Sounds = voices.headcrab_black,
 	},
 	antlion_worker = {
 		Faction = "enemy",
@@ -384,7 +392,7 @@ npcs.Definitions = {
 		Health = 40,
 		Moves = {claw = claw("attack1", 0.84, 0.3, 10, 2.52)},
 		Attacks = {{Move = "claw", Range = 1.8, Interval = 1.2}},
-		Sounds = {Foot = {Paths = numbered("npc/antlion/foot%d.wav", 4), Length = 1.2, Gain = 0.4}},
+		Sounds = voices.antlion_worker,
 	},
 	antlion_guard = {
 		Faction = "enemy",
@@ -404,7 +412,7 @@ npcs.Definitions = {
 		Moves = {
 			roar = creature_move{Clip = "short_roar", Duration = 1.6},
 			shove = claw("shove", 1.4, 0.7, 40, 3.64),
-			charge_windup = creature_move{Clip = "charge_startfast", Duration = 1.2, Next = "charge_run"},
+			charge_windup = creature_move{Clip = "charge_startfast", Sound = "Charge", Duration = 1.2, Next = "charge_run"},
 			charge_run = creature_move{
 				Clip = "charge_loop",
 				ClipSpeed = 1,
@@ -422,7 +430,7 @@ npcs.Definitions = {
 			{Move = "shove", Range = 2.6, Interval = 2},
 			{Move = "charge_windup", Range = 22, MinRange = 8, Interval = 12},
 		},
-		Sounds = {Foot = {Paths = numbered("npc/antlion_guard/foot_heavy%d.wav", 2), Length = 1.6, Gain = 0.8}},
+		Sounds = voices.antlion_guard,
 	},
 	hunter = {
 		Faction = "enemy",
@@ -439,7 +447,7 @@ npcs.Definitions = {
 		Health = 200,
 		Moves = {claw = claw("meleeleft", 1.05, 0.4, 30, 3.08)},
 		Attacks = {{Move = "claw", Range = 2.2, Interval = 1.5}},
-		Sounds = {Foot = {Paths = numbered("npc/ministrider/ministrider_footstep%d.wav", 5), Length = 1.5, Gain = 0.7}},
+		Sounds = voices.hunter,
 	},
 	vortigaunt_slave = {
 		Faction = "friend",
@@ -454,7 +462,7 @@ npcs.Definitions = {
 		Health = 80,
 		Moves = {zap = cast("zapattack1", 0.9, 0.5, "lightning", 20)},
 		Attacks = {{Move = "zap", Range = 12, Interval = 2.5}},
-		Sounds = {Foot = {Paths = numbered("npc/vort/vort_foot%d.wav", 4), Length = 0.9, Gain = 0.4}},
+		Sounds = voices.vortigaunt_slave,
 	},
 	lamarr = {
 		Faction = "friend",

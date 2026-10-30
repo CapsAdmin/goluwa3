@@ -41,6 +41,7 @@ local MOVE_KEYS = {
 	Next = true,
 	Face = true,
 	Clip = true,
+	Sound = true,
 	ClipSpeed = true,
 	Speed = true,
 	Crash = true,
@@ -123,6 +124,7 @@ local function validate_move(move, poses, path)
 	assert(type(move.Duration) == "number", path .. ".Duration must be a number")
 	assert(move.Clip == nil or type(move.Clip) == "string", path .. ".Clip must be a sequence name")
 	assert(move.ClipSpeed == nil or type(move.ClipSpeed) == "number", path .. ".ClipSpeed must be a number")
+	assert(move.Sound == nil or type(move.Sound) == "string", path .. ".Sound must be a sound role")
 	assert(move.Speed == nil or type(move.Speed) == "number", path .. ".Speed must be a number")
 	assert(move.Keys or move.Clip, path .. " needs Keys or a Clip")
 	local previous = {}
@@ -306,6 +308,7 @@ do
 		"Next",
 		"Face",
 		"Clip",
+		"Sound",
 		"ClipSpeed",
 		"Speed",
 		"Crash",

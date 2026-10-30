@@ -30,6 +30,7 @@ function META:Begin(move, duration, listener, authority, target)
 	self.predicted_focus = pose.FocusPoint
 
 	if authority then
+		self.Owner:CallLocalEvent("OnMoveBegin", move)
 		pose:PlayAction(move.Action, duration)
 	else
 		pose:PredictAction(move.Action, duration)
