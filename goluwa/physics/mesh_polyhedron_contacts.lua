@@ -203,23 +203,27 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 			local face_normal = use_local_space and
 				mesh_body:GetRotation():VecMul(result.face_normal):GetNormalized() or
 				result.face_normal
-			local normal = mesh_contact_common.SelectTriangleNormal(
-				mesh_body,
-				poly_body,
-				sample.point - position,
-				poly_body:GetPosition() - triangle_center_world,
-				face_normal
-			)
+			local normal = face_normal
+
+			if
+				not SOLVE_MESH_POLYHEDRON_CONTEXT.outward_winding and
+				(
+					poly_body:GetPosition() - triangle_center_world
+				):Dot(face_normal) < 0
+			then
+				normal = face_normal * -1
+			end
+
 			local overlap = combined_margin - result.surface_distance
 
-			if normal and overlap > EPSILON then
+			if overlap > EPSILON then
 				found_contact = true
 
 				if overlap > (state.best_overlap or 0) then
 					state.best_overlap = overlap
-					state.best_normal = normal
-					state.best_point_a = position
-					state.best_point_b = sample.point
+					state.best_normal = normal:Copy()
+					state.best_point_a = position:Copy()
+					state.best_point_b = sample.point:Copy()
 				end
 
 				if #state.contacts < MAX_MESH_POLYHEDRON_CONTACTS then

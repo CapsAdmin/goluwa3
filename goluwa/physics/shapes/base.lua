@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix33 = import("goluwa/structs/matrix33.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local mass_properties = import("goluwa/physics/shapes/mass_properties.lua")
 local sample_points = import("goluwa/physics/shapes/sample_points.lua")
@@ -82,7 +83,7 @@ end
 function META:GeometryLocalToWorld(body, local_pos, position, rotation, out)
 	position = position or body:GetPosition()
 	rotation = rotation or body:GetRotation()
-	out = rotation:VecMul(local_pos, out)
+	out = Quat.SetVecMul(out or Vec3(), rotation, local_pos)
 	out.x = out.x + position.x
 	out.y = out.y + position.y
 	out.z = out.z + position.z
