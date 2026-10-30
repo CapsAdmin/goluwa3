@@ -4,7 +4,6 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
-Entity.RegisterComponent("source_ragdoll", import("lua/components/source_ragdoll.lua"))
 local props = {}
 prefab.Register(
 		"prop_physics",

@@ -516,10 +516,10 @@ function npcs.Register(name, info)
 						usable = info.Faction == "friend" and not info.Dummy and {Prompt = "follow"} or nil,
 						weapon_holder = info.Weapon and {} or nil,
 						ragdoll = info.Biped and {CorpseTime = 20, Profile = info.Ragdoll} or nil,
+						source_ragdoll = info.Model and not info.Biped and {DeathState = true, CorpseTime = 20} or nil,
 						health = {
 							Health = info.Health or 50,
 							MaxHealth = info.Health or 50,
-							RemoveOnDeath = not info.Biped,
 							RefillDelay = info.Dummy and 4 or 0,
 						},
 					},

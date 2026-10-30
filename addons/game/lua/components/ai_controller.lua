@@ -566,6 +566,21 @@ function META:NextCommand(dt)
 	local position = owner.rigid_body:GetOriginPosition()
 	local cmd = self.cmd
 	cmd.number = cmd.number + 1
+	local health = owner.health
+
+	if health and health:IsDead() then
+		local runner = owner.move_runner
+
+		if runner and runner:IsPlaying() then runner:Cancel() end
+
+		self.target = nil
+		self.alerted = nil
+		cmd.forward, cmd.side = 0, 0
+		cmd.buttons = 0
+		cmd.pressed = 0
+		return cmd
+	end
+
 	local previous_buttons = cmd.buttons
 	simulation_lod.Update(META.Instances)
 	local far = self.far
