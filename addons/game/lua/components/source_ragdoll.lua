@@ -27,6 +27,7 @@ local AXES = {
 	y = Vec3(-1, 0, 0),
 	z = Vec3(0, 1, 0),
 }
+local AXIS_NAMES = {"x", "y", "z"}
 
 function META:Initialize()
 	self.bodies = {}
@@ -191,10 +192,10 @@ function META:Build()
 		local frame = child.rotation
 		local moving = {}
 
-		for name, axis in pairs(constraint) do
-			if AXES[name] and (axis.min ~= 0 or axis.max ~= 0) then
-				moving[#moving + 1] = name
-			end
+		for _, name in ipairs(AXIS_NAMES) do
+			local axis = constraint[name]
+
+			if axis.min ~= 0 or axis.max ~= 0 then moving[#moving + 1] = name end
 		end
 
 		if not moving[1] then
