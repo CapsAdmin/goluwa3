@@ -25,6 +25,9 @@ local GROUND_GAIN = 10 ^ (-12 / 20)
 local GRAIN_GAIN = 10 ^ (-6 / 20)
 local GRAIN_SPACING = 0.3
 local MAX_LOOPS = 8
+local REFERENCE_SIZE = 0.625
+local MIN_PITCH = 0.25
+local MAX_PITCH = 2
 local ATTACK = 0.08
 local RELEASE = 0.15
 local STALE = 0.1
@@ -530,6 +533,12 @@ local function get_set(surface)
 	return found
 end
 
+local function get_pitch(size)
+	if not size then return 1 end
+
+	return math.clamp(REFERENCE_SIZE / size, MIN_PITCH, MAX_PITCH)
+end
+
 local function get_mass_gain(mass)
 	return 10 ^ (
 			math.clamp(MASS_DB * math.log10(mass / REFERENCE_MASS), MIN_MASS_DB, MAX_MASS_DB) / 20
@@ -564,7 +573,7 @@ event.AddListener("Impact", "physics_impacts", function(info)
 		paths[index],
 		info.Position,
 		found.gain * get_mass_gain(info.Mass) * math.min(info.Speed / LOUD_SPEED, 1),
-		math.randomf(0.95, 1.05),
+		get_pitch(info.Size),
 		MAX_SKIP * (
 				1 - math.clamp((info.Speed - MIN_SPEED) / (LOUD_SPEED - MIN_SPEED), 0, 1)
 			)
@@ -679,6 +688,7 @@ event.AddListener("Contact", "physics_sounds", function(info)
 	local now = system.GetElapsedTime()
 	local layers = get_layers(info.Entity, info.Other)
 	local slip, roll = info.Slip, info.Roll
+	local pitch = get_pitch(info.Size)
 
 	if slip >= SCRAPE_MIN then
 		local path = slip >= SCRAPE_ROUGH and found.rough or found.smooth
@@ -689,7 +699,7 @@ event.AddListener("Contact", "physics_sounds", function(info)
 				layers.scrape,
 				path,
 				gain * SCRAPE_GAIN * speed,
-				0.9 + 0.2 * speed,
+				pitch * (0.9 + 0.2 * speed),
 				1,
 				1,
 				1,
@@ -709,7 +719,7 @@ event.AddListener("Contact", "physics_sounds", function(info)
 				layers.ground,
 				found.smooth,
 				gain * GROUND_GAIN * speed,
-				0.6 + 0.6 * speed,
+				pitch * (0.6 + 0.6 * speed),
 				1,
 				0.4 + 0.6 * speed,
 				0.1 + 0.9 * speed,
@@ -722,7 +732,7 @@ event.AddListener("Contact", "physics_sounds", function(info)
 			layers.object,
 			found.roll,
 			gain * ROLL_GAIN * speed,
-			0.7 + 0.5 * speed,
+			pitch * (0.7 + 0.5 * speed),
 			1,
 			1,
 			1,
@@ -746,7 +756,7 @@ event.AddListener("Contact", "physics_sounds", function(info)
 				paths[index],
 				info.Position,
 				gain * GRAIN_GAIN * speed,
-				math.randomf(0.9, 1.1),
+				get_pitch(info.Size),
 				0,
 				0,
 				1

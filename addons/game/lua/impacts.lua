@@ -13,7 +13,7 @@ local function get_surface(hit)
 	material
 end
 
-function impacts.Fire(entity, part, kind, hit, speed, mass)
+function impacts.Fire(entity, part, kind, hit, speed, mass, size)
 	local surface, material = get_surface(hit)
 	event.Call(
 		"Impact",
@@ -28,6 +28,7 @@ function impacts.Fire(entity, part, kind, hit, speed, mass)
 			Normal = hit.normal,
 			Speed = speed,
 			Mass = mass,
+			Size = size,
 		}
 	)
 end
@@ -67,14 +68,27 @@ do
 			{entity = entity, position = position, normal = direction * -1}
 	end
 
-	local function fire_side(entity, hit, speed, mass)
+	local function fire_side(entity, hit, speed, mass, size)
 		local part = entity.ragdoll_part
 
 		if part then
-			impacts.Fire(part.Character, part.Group, "physics", hit, speed, mass)
+			impacts.Fire(part.Character, part.Group, "physics", hit, speed, mass, size)
 		else
-			impacts.Fire(entity, nil, "physics", hit, speed, mass)
+			impacts.Fire(entity, nil, "physics", hit, speed, mass, size)
 		end
+	end
+
+	local function get_body_size(entity)
+		local body = entity.rigid_body
+
+		if not body or not body:IsDynamic() then return end
+
+		local half = body:GetHalfExtents()
+		return 2 * (half.x * half.y * half.z) ^ (1 / 3)
+	end
+
+	local function get_sounding_size(sounding, other)
+		return get_body_size(sounding) or get_body_size(other)
 	end
 
 	local function get_reduced_mass(body_a, body_b)
@@ -108,15 +122,22 @@ do
 			entity_b,
 			impact.hit_a or get_surface_hit(entity_a, impact.position, normal * -1),
 			impact.speed,
-			mass
+			mass,
+			get_sounding_size(entity_a, entity_b)
 		)
-		fire_side(entity_a, get_surface_hit(entity_b, impact.position, normal), impact.speed, mass)
+		fire_side(
+			entity_a,
+			get_surface_hit(entity_b, impact.position, normal),
+			impact.speed,
+			mass,
+			get_sounding_size(entity_b, entity_a)
+		)
 	end
 
 	local SURFACE_REFRESH = 0.25
 	local surfaces = table.weak("k")
 
-	local function fire_contact(entity, other, surface, material, contact, normal, rolling, mass)
+	local function fire_contact(entity, other, surface, material, contact, normal, rolling, mass, size)
 		local part = entity.ragdoll_part
 		event.Call(
 			"Contact",
@@ -132,6 +153,7 @@ do
 				Roll = contact.roll,
 				Rolling = rolling,
 				Mass = mass,
+				Size = size,
 			}
 		)
 	end
@@ -169,7 +191,8 @@ do
 			contact,
 			contact.normal,
 			contact.roller == contact.body_b,
-			mass
+			mass,
+			get_sounding_size(entity_a, entity_b)
 		)
 		fire_contact(
 			entity_a,
@@ -179,7 +202,8 @@ do
 			contact,
 			contact.normal * -1,
 			contact.roller == contact.body_a,
-			mass
+			mass,
+			get_sounding_size(entity_b, entity_a)
 		)
 	end
 end
