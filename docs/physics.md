@@ -1,6 +1,6 @@
 # Physics
 
-Code lives in `goluwa/physics/`. Benchmarks: `luajit glw bench physics_stress`, `physics_map_stack` (needs the gmod lostcoast map), `physics_synthetic_map` (no assets). Per-process JIT variance is +-15%: compare 3+ alternating pairs against a copy or worktree of the old code, and compare trajectories (the simulation is chaotic) before trusting a timing difference.
+Code lives in `goluwa/physics/`. Benchmarks: `luajit glw bench physics_stress` (zones for stacks, mixed shapes, kinematic stirring, ball-socket chains, CCD projectiles, hinge ragdolls on a triangle mesh, capsule characters with queries on a heightmap; `ZONES=a,b` picks some; `QUICK=10 luajit glw --cli --physics lua test/benchmarks/physics_stress.lua` is one 10 s run that prints ms/step, island time per zone and the stats sections, for a first look at whether a change pays off), `physics_map_stack` (needs the gmod lostcoast map), `physics_synthetic_map` (no assets). Per-process JIT variance is +-15%: compare 3+ alternating pairs against a copy or worktree of the old code, and compare trajectories (the simulation is chaotic) before trusting a timing difference.
 
 ## Step layout (`world_step.lua`, `solver.lua`)
 

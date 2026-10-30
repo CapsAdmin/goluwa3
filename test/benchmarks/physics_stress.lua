@@ -11,6 +11,9 @@ local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local CompoundShape = import("goluwa/physics/shapes/compound.lua")
+local MeshShape = import("goluwa/physics/shapes/mesh.lua")
+local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
+local slow_step = import("goluwa/physics/slow_step.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local constraints = import("goluwa/physics/constraints.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
@@ -30,6 +33,9 @@ local PIT_BODIES = FULL and 300 or 100
 local CHAIN_COUNT = FULL and 8 or 3
 local DRUM_BODIES = FULL and 40 or 20
 local PROJECTILE_WALL_H = FULL and 8 or 5
+local RAGDOLL_COUNT = FULL and 10 or 5
+local CHARACTER_COUNT = FULL and 16 or 8
+local QUICK = tonumber(os.getenv("QUICK") or "")
 local enabled_zones = {}
 
 if os.getenv("ZONES") then
@@ -37,7 +43,16 @@ if os.getenv("ZONES") then
 		enabled_zones[name] = true
 	end
 else
-	for _, name in ipairs{"pyramid", "wall", "pit", "chains", "drum", "projectiles"} do
+	for _, name in ipairs{
+		"pyramid",
+		"wall",
+		"pit",
+		"chains",
+		"drum",
+		"projectiles",
+		"ragdolls",
+		"characters",
+	} do
 		enabled_zones[name] = true
 	end
 end
@@ -462,6 +477,255 @@ if enabled_zones.projectiles then
 	end_zone()
 end
 
+if enabled_zones.ragdolls then
+	local origin = begin_zone("ragdolls")
+	local poly = Polygon3D.New()
+	local cells, half = 8, 8
+
+	local function floor_height(x, z)
+		return math.sin(x * 0.7) * math.cos(z * 0.6) * 0.15
+	end
+
+	local function corner(i, j)
+		local x, z = -half + i * 2 * half / cells, -half + j * 2 * half / cells
+		return Vec3(x, floor_height(x, z), z)
+	end
+
+	for i = 0, cells - 1 do
+		for j = 0, cells - 1 do
+			local a, b, c, d = corner(i, j), corner(i + 1, j), corner(i + 1, j + 1), corner(i, j + 1)
+
+			for _, point in ipairs{a, d, b, b, d, c} do
+				poly:AddVertex{pos = point, uv = Vec2(0, 0)}
+			end
+		end
+	end
+
+	poly:BuildBoundingBox()
+	local floor = Entity.New({Name = "stress_ragdoll_floor"})
+	floor:AddComponent("transform")
+	floor.transform:SetPosition(origin)
+	floor:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New(poly),
+			MotionType = "static",
+			Friction = 0.8,
+			WorldGeometry = true,
+		}
+	)
+	local lying = Quat(0, 0, math.sin(math.pi / 4), math.cos(math.pi / 4))
+	local parts = {
+		pelvis = {
+			Vec3(0, 0, 0),
+			function()
+				return {Shape = BoxShape.New(Vec3(0.3, 0.2, 0.35)), Mass = 12}
+			end,
+		},
+		torso = {
+			Vec3(0.4, 0, 0),
+			function()
+				return {Shape = BoxShape.New(Vec3(0.45, 0.22, 0.4)), Mass = 20}
+			end,
+		},
+		head = {
+			Vec3(0.78, 0, 0),
+			function()
+				return {Shape = SphereShape.New(0.12), Radius = 0.12, Mass = 5}
+			end,
+		},
+		upper_arm_l = {
+			Vec3(0.42, 0, 0.28),
+			function()
+				return {Shape = CapsuleShape.New(0.05, 0.28), Mass = 2.5}
+			end,
+			lying,
+		},
+		upper_arm_r = {
+			Vec3(0.42, 0, -0.28),
+			function()
+				return {Shape = CapsuleShape.New(0.05, 0.28), Mass = 2.5}
+			end,
+			lying,
+		},
+		forearm_l = {
+			Vec3(0.1, 0, 0.28),
+			function()
+				return {Shape = CapsuleShape.New(0.045, 0.26), Mass = 1.5}
+			end,
+			lying,
+		},
+		forearm_r = {
+			Vec3(0.1, 0, -0.28),
+			function()
+				return {Shape = CapsuleShape.New(0.045, 0.26), Mass = 1.5}
+			end,
+			lying,
+		},
+		thigh_l = {
+			Vec3(-0.36, 0, 0.1),
+			function()
+				return {Shape = CapsuleShape.New(0.08, 0.36), Mass = 8}
+			end,
+			lying,
+		},
+		thigh_r = {
+			Vec3(-0.36, 0, -0.1),
+			function()
+				return {Shape = CapsuleShape.New(0.08, 0.36), Mass = 8}
+			end,
+			lying,
+		},
+		calf_l = {
+			Vec3(-0.8, 0, 0.1),
+			function()
+				return {Shape = CapsuleShape.New(0.06, 0.36), Mass = 4}
+			end,
+			lying,
+		},
+		calf_r = {
+			Vec3(-0.8, 0, -0.1),
+			function()
+				return {Shape = CapsuleShape.New(0.06, 0.36), Mass = 4}
+			end,
+			lying,
+		},
+	}
+	local part_order = {
+		"pelvis",
+		"torso",
+		"head",
+		"upper_arm_l",
+		"upper_arm_r",
+		"forearm_l",
+		"forearm_r",
+		"thigh_l",
+		"thigh_r",
+		"calf_l",
+		"calf_r",
+	}
+	local joints = {
+		{"pelvis", "torso", Vec3(0.18, 0, 0), -0.4, 0.4},
+		{"torso", "head", Vec3(0.64, 0, 0), -0.6, 0.6},
+		{"torso", "upper_arm_l", Vec3(0.58, 0, 0.28), -1.6, 1.6},
+		{"torso", "upper_arm_r", Vec3(0.58, 0, -0.28), -1.6, 1.6},
+		{"upper_arm_l", "forearm_l", Vec3(0.26, 0, 0.28), 0, 2.2},
+		{"upper_arm_r", "forearm_r", Vec3(0.26, 0, -0.28), 0, 2.2},
+		{"pelvis", "thigh_l", Vec3(-0.15, 0, 0.1), -1.2, 0.6},
+		{"pelvis", "thigh_r", Vec3(-0.15, 0, -0.1), -1.2, 0.6},
+		{"thigh_l", "calf_l", Vec3(-0.58, 0, 0.1), -2.2, 0},
+		{"thigh_r", "calf_r", Vec3(-0.58, 0, -0.1), -2.2, 0},
+	}
+
+	for figure = 1, RAGDOLL_COUNT do
+		local yaw = Quat(0, math.sin(figure * 0.4), 0, math.cos(figure * 0.4))
+		local base = origin + Vec3((rand() - 0.5) * 0.3, 0.4 + (figure - 1) * 0.5, (rand() - 0.5) * 0.3)
+		local bodies = {}
+
+		for _, name in ipairs(part_order) do
+			local part = parts[name]
+			local config = part[2]()
+			config.AutomaticMass = false
+			config.Friction = 0.8
+			local rotation = part[3] and yaw * part[3] or yaw
+			local _, body = spawn(base + yaw:VecMul(part[1]), config, rotation)
+			bodies[name] = body
+		end
+
+		for _, joint in ipairs(joints) do
+			constraints.Hinge(
+				bodies[joint[1]],
+				bodies[joint[2]],
+				base + yaw:VecMul(joint[3]),
+				yaw:VecMul(Vec3(0, 0, 1)),
+				{LowerAngle = joint[4], UpperAngle = joint[5], Friction = 0.05}
+			):SetSpring(0, 1, 12, 2, 0.5)
+		end
+	end
+
+	end_zone()
+end
+
+if enabled_zones.characters then
+	local origin = begin_zone("characters")
+	local samples = 25
+	local size = 24
+	local ground = Entity.New({Name = "stress_character_ground"})
+	ground:AddComponent("transform")
+	ground.transform:SetPosition(origin)
+	ground:AddComponent(
+		"rigid_body",
+		{
+			Shape = HeightmapShape.New{
+				Samples = HeightmapShape.SamplesFromFunction(samples, samples, function(x, z)
+					return math.sin(x * 0.5) * math.cos(z * 0.4) * 0.6
+				end),
+				SamplesX = samples,
+				SamplesZ = samples,
+				Size = Vec2(size, size),
+			},
+			MotionType = "static",
+			Friction = 0.8,
+			WorldGeometry = true,
+		}
+	)
+
+	for i = 1, 10 do
+		local box_size = Vec3(0.6, 0.6, 0.6)
+		spawn(
+			origin + Vec3((rand() - 0.5) * 14, 1.5, (rand() - 0.5) * 14),
+			{Shape = BoxShape.New(box_size), Size = box_size, Friction = 0.6}
+		)
+	end
+
+	local characters = {}
+
+	for i = 1, CHARACTER_COUNT do
+		local angle = i / CHARACTER_COUNT * math.pi * 2
+		local radius = 3 + (i % 3) * 2
+		local ent, body = spawn(
+			origin + Vec3(math.cos(angle) * radius, 2, math.sin(angle) * radius),
+			{
+				Shape = CapsuleShape.New(0.3, 1.2),
+				Radius = 0.3,
+				Height = 1.2,
+				Mass = 80,
+				AutomaticMass = false,
+				CanSleep = false,
+				LockRotation = true,
+				CCD = true,
+				Friction = 0,
+			}
+		)
+		characters[i] = {
+			ent = ent,
+			body = body,
+			angle = angle,
+			radius = radius,
+			speed = 0.6 + (i % 4) * 0.15,
+		}
+	end
+
+	local down = Vec3(0, -1, 0)
+	local forward = Vec3()
+	local query_options = {IgnoreRigidBodies = false}
+	steppers[#steppers + 1] = function()
+		for _, character in ipairs(characters) do
+			character.angle = character.angle + character.speed * DT
+			local body = character.body
+			local position = body:GetPosition()
+			local target_x = origin.x + math.cos(character.angle) * character.radius
+			local target_z = origin.z + math.sin(character.angle) * character.radius
+			local velocity = body:GetVelocity()
+			body:SetVelocity(Vec3((target_x - position.x) * 4, velocity.y, (target_z - position.z) * 4))
+			physics.RayCast(position, down, 1.2, character.ent)
+			forward.x, forward.y, forward.z = (target_x - position.x) * 0.2, 0, (target_z - position.z) * 0.2
+			physics.Sweep(position, forward, 0.3, character.ent, nil, query_options)
+		end
+	end
+	end_zone()
+end
+
 local step_index = 0
 local TRACK_EVERY = tonumber(os.getenv("TRACK") or "0")
 
@@ -624,6 +888,75 @@ end
 
 if os.getenv("ABORTS") == "early" then attach_abort_log() end
 
+-- one short run for a first impression: warm up, time plain steps, then split the cost by section and by zone
+if QUICK then
+	local function run_for(seconds, after_step)
+		local start = system.GetTime()
+		local count, total = 0, 0
+
+		while system.GetTime() - start < seconds do
+			local t = system.GetTime()
+			step()
+			total = total + system.GetTime() - t
+			count = count + 1
+
+			if after_step then after_step() end
+		end
+
+		return count, total * 1000 / math.max(count, 1)
+	end
+
+	local warm_steps, warm_ms = run_for(QUICK * 0.3)
+	local plain_steps, plain_ms = run_for(QUICK * 0.4)
+	local zone_ms = {}
+	stats:Enable()
+	local breakdown_steps = run_for(QUICK * 0.3, function()
+		world.TimeIslands = true
+		local islands = slow_step.Islands
+
+		if not islands then return end
+
+		for i = 1, #islands do
+			local time = slow_step.IslandTimes[i]
+			local body = time and islands[i].dynamic_bodies[1]
+
+			if body then
+				local zone = math.floor(body:GetPosition().x / ZONE_SPACING + 0.5)
+				zone_ms[zone] = (zone_ms[zone] or 0) + time * 1000
+			end
+		end
+	end)
+	world.TimeIslands = false
+	print(
+		string.format(
+			"quick: warmup %d steps %.2f ms/step, measured %d steps %.2f ms/step",
+			warm_steps,
+			warm_ms,
+			plain_steps,
+			plain_ms
+		)
+	)
+	print("island solve time per zone (pairs, support, constraints, relax), with stats on:")
+
+	for i, zone in ipairs(zone_body_counts) do
+		print(
+			string.format(
+				"  %-12s %4d bodies  %7.3f ms/step",
+				zone.name,
+				zone.count,
+				(zone_ms[i] or 0) / math.max(breakdown_steps, 1)
+			)
+		)
+	end
+
+	print(stats:Summary())
+	stats:Disable()
+	local sx, sy, sz, awake, dynamic = checksum()
+	print(string.format("state: awake=%d/%d  sum=(%.9f, %.9f, %.9f)", awake, dynamic, sx, sy, sz))
+	system.ShutDown(0)
+	return
+end
+
 local settle_start = system.GetTime()
 
 for _ = 1, WARMUP_STEPS do
@@ -720,9 +1053,7 @@ if os.getenv("JITINFO") then
 	end
 
 	local _, _, _, mcode = jit_util.tracemc and 0, 0, 0, 0
-	print(
-		string.format("[JITINFO] live traces %d  status %s", live, tostring(jit.status()))
-	)
+	print(string.format("[JITINFO] live traces %d  status %s", live, tostring(jit.status())))
 end
 
 if os.getenv("ABORTS") then
@@ -738,9 +1069,7 @@ if os.getenv("ABORTS") then
 		return a[2] > b[2]
 	end)
 
-	print(
-		string.format("[ABORT] traces started=%d stopped(ok)=%d", abort_started, abort_stopped)
-	)
+	print(string.format("[ABORT] traces started=%d stopped(ok)=%d", abort_started, abort_stopped))
 
 	for i = 1, math.min(tonumber(os.getenv("TOP") or "25"), #list) do
 		print(string.format("[ABORT] %4d %s", list[i][2], list[i][1]))
@@ -831,9 +1160,7 @@ print(
 		settle_ms
 	)
 )
-print(
-	string.format("state: awake=%d/%d  sum=(%.9f, %.9f, %.9f)", awake, dynamic, sx, sy, sz)
-)
+print(string.format("state: awake=%d/%d  sum=(%.9f, %.9f, %.9f)", awake, dynamic, sx, sy, sz))
 local results = benchmark_results.New("physics_stress")
 results:Add("settle step mean", settle_ms, settle_ms * 0.1, "ms")
 results:Add("step mean", mean, window_dev, "ms")
