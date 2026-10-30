@@ -76,6 +76,21 @@ function spawn_requests.GetLabel(kind, name)
 end
 
 if SERVER then
+	message.AddListener("sandbox_give", function(client, name)
+		local player = _G.GetPlayerEntity(client)
+
+		if not (player and player:IsValid()) then return end
+
+		if type(name) ~= "string" or not validators.weapon(name) then return end
+
+		if not permissions.CanSpawn(client, "weapon", name) then
+			wlog("%s was not allowed to give %s", client, name)
+			return
+		end
+
+		player.weapon_holder:Give(name)
+	end)
+
 	message.AddListener("sandbox_spawn", function(client, kind, name, position, yaw)
 		local player = _G.GetPlayerEntity(client)
 
@@ -122,6 +137,15 @@ if SERVER then
 end
 
 if CLIENT then
+	function spawn_requests.Give(name)
+		if network.IsConnected() then
+			message.Send("sandbox_give", name)
+			return
+		end
+
+		_G.PLAYER_RIG.weapon_holder:Give(name)
+	end
+
 	function spawn_requests.Spawn(kind, name, position, yaw)
 		if network.IsConnected() then
 			message.Send("sandbox_spawn", kind, name, position, yaw)

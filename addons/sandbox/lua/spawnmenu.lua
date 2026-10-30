@@ -143,10 +143,19 @@ function spawnmenu.Spawn(entry)
 end
 
 local function open_entry_menu(entry)
-	Panel.OpenContextMenu(
-		{OnClose = |menu|->menu:Remove()},
-		MenuItem{Text = "Copy path", Icon = "copy", OnClick = ||->clipboard.Set(entry.path)}
-	)
+	local copy = MenuItem{Text = "Copy path", Icon = "copy", OnClick = ||->clipboard.Set(entry.path)}
+
+	if entry.kind == "weapon" then
+		Panel.OpenContextMenu(
+			{OnClose = |menu|->menu:Remove()},
+			MenuItem{Text = "Spawn", Icon = "plus", OnClick = ||->spawnmenu.Spawn(entry)},
+			MenuItem{Text = "Give", Icon = "user", OnClick = ||->spawn_requests.Give(entry.spawn_name)},
+			copy
+		)
+		return
+	end
+
+	Panel.OpenContextMenu({OnClose = |menu|->menu:Remove()}, copy)
 end
 
 local function draw_tile(item, index, x, y, w, h, selected, hovered)
