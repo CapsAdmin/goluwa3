@@ -185,7 +185,8 @@ local function resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 	local normal = state.best_normal
 	local body = poly_body:GetBody()
 	local solver = body:GetPhysics().solver
-	local rest_gap = poly_body:GetCollisionMargin() + solver.PENETRATION_SLOP
+	-- the soft contact settles a slop inside this, keep it above the margin the world support contacts push to or they rock compound bodies awake
+	local rest_gap = poly_body:GetCollisionMargin() + 2 * solver.PENETRATION_SLOP
 	local velocity = body.Velocity
 	local angular_velocity = body.AngularVelocity
 	local center = body.Position

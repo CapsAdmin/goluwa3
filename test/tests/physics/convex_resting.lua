@@ -87,7 +87,7 @@ local function lowest_point(body)
 	return lowest
 end
 
-T.TestPhysics("Octagonal barrel sleeps at the collision margin on a brush floor in any orientation", function()
+T.TestPhysics("Octagonal barrel sleeps just above its collision margin on a brush floor in any orientation", function()
 	local floor = create_brush_floor("convex_resting_floor")
 	local cases = {
 		Deg3(0, 0, 0),
@@ -117,7 +117,7 @@ T.TestPhysics("Octagonal barrel sleeps at the collision margin on a brush floor 
 		local body = barrel.body
 		local gap = lowest_point(body)
 
-		if body:GetAwake() or math.abs(gap - body:GetCollisionMargin()) > 0.005 then
+		if body:GetAwake() or math.abs(gap - body:GetCollisionMargin() - body:GetPhysics().solver.PENETRATION_SLOP) > 0.004 then
 			failures[#failures + 1] = string.format(
 				"#%d %s gap=%.4f awake=%s v=%.3f w=%.3f",
 				i,
