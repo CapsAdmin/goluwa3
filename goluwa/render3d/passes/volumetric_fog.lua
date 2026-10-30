@@ -274,7 +274,7 @@ local gi_pass = {
 
 			if (any(greaterThanEqual(quad.xy * 2, size))) return;
 
-			imageStore(out_gi_emitter, quad, vec4(0.0));
+			imageStore(out_gi_emitter, quad, vec4(0.0, 0.0, 0.0, -1.0));
 
 			uint start = froxel_hash(uvec3(quad.xy, uint(quad.z) + uint(froxel_data.frame) * 128u));
 			ivec3 id = ivec3(-1);
@@ -300,6 +300,22 @@ local gi_pass = {
 			bool covered;
 			float depth = froxel_point(id, uv, froxel_slice_depth(float(id.z) + 0.5 + jitter.z), covered);
 			vec3 P = (froxel_data.inv_view * vec4(get_view_dir(uv) * depth, 1.0)).xyz;
+			float other_visibility = -1.0;
+
+			#ifdef SCENE_REFLECTION
+			{
+				bool primary_is_sun = froxel_data.primary_sun_illuminance > 0.5 * ATMOSPHERE_SUN_DISC_ILLUMINANCE;
+				vec3 other_dir = primary_is_sun ? ATMOSPHERE_MOON_DIRECTION : ATMOSPHERE_SKY_SUN_DIRECTION;
+				float other_elevation = max(other_dir.y, 0.1);
+				vec2 other_horizontal = normalize(other_dir.xz + vec2(1e-6));
+				uint on = froxel_hash(uvec3(seed, id.z, 11u));
+				vec3 cone = vec3(float(on & 0x3ffu), float((on >> 10u) & 0x3ffu), float((on >> 20u) & 0x3ffu)) / 511.5 - 1.0;
+				vec3 glow_dir = normalize(vec3(other_horizontal.x * sqrt(1.0 - other_elevation * other_elevation), other_elevation, other_horizontal.y * sqrt(1.0 - other_elevation * other_elevation)) + cone * 0.3);
+				other_visibility = scene_reflection_visible(P, glow_dir, SCENE_REFLECTION_MAX_DISTANCE) ? 1.0 : 0.0;
+				imageStore(out_gi_emitter, quad, vec4(0.0, 0.0, 0.0, other_visibility));
+			}
+			#endif
+
 			if (gi_available()) {
 				if (!gi_in_volume(P)) {
 					imageStore(out_gi, quad, vec4(-1.0));
@@ -364,7 +380,7 @@ local gi_pass = {
 
 					radiance = dot(radiance, vec3(1.0)) >= 0.0 ? min(radiance, vec3(60000.0)) : vec3(0.0);
 					imageStore(out_gi, quad, vec4(radiance / PI, open_sky));
-					imageStore(out_gi_emitter, quad, vec4(glow / PI, 0.0));
+					imageStore(out_gi_emitter, quad, vec4(glow / PI, other_visibility));
 					return;
 				}
 				#endif
@@ -517,7 +533,8 @@ local scatter_pass = {
 			vec4 gi = texelFetch(froxel_gi, ivec3(id.xy >> 1, id.z), 0);
 			float open_sky = gi.a < 0.0 ? 1.0 : gi.a;
 			vec3 probe_ambient = gi.a < 0.0 ? shared_sky_ambient : gi.rgb;
-			vec3 glow = texelFetch(froxel_gi_emitter, ivec3(id.xy >> 1, id.z), 0).rgb;
+			vec4 gi_emitter = texelFetch(froxel_gi_emitter, ivec3(id.xy >> 1, id.z), 0);
+			vec3 glow = gi_emitter.rgb;
 			vec3 ambient = mix(probe_ambient, shared_sky_ambient, open_sky) + glow;
 			vec3 scattering = get_ground_fog_in_scatter(fog_point, ray_dir, sun_dir, sun_visibility, ambient) * per_meter;
 			scattering += sun * (RAYLEIGH_BETA * (density_r * phase_rayleigh(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
@@ -526,6 +543,19 @@ local scatter_pass = {
 				ambient * air_scattering :
 				sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, sun_dir), mu) * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * per_meter;
 			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky * mix(0.15, 1.0, get_terrain_shadow(world_pos))) + glow * air_scattering;
+
+			{
+				bool primary_is_sun = dot(sun_dir, ATMOSPHERE_SKY_SUN_DIRECTION) > 0.9999;
+				vec3 other_dir = primary_is_sun ? ATMOSPHERE_MOON_DIRECTION : ATMOSPHERE_SKY_SUN_DIRECTION;
+				float other_mu = dot(ray_dir, other_dir);
+				vec3 other = (primary_is_sun ? ATMOSPHERE_SUN_DISC_ILLUMINANCE * ATMOSPHERE_MOON_SKY_SCALE : ATMOSPHERE_SUN_DISC_ILLUMINANCE) * SUN_COLOR * per_meter;
+				float other_visibility = gi_emitter.a >= 0.0 ? gi_emitter.a : mix(0.15, 1.0, get_terrain_shadow(world_pos));
+				scattering += other_visibility * other * sample_transmittance_lut(fog_point, other_dir) * (RAYLEIGH_BETA * (density_r * phase_rayleigh(other_mu)) + MIE_BETA * (density_m * mie_phase(other_mu)));
+
+				if (ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX != -1) {
+					scattering += sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, other_dir), other_mu) * other * open_sky * other_visibility;
+				}
+			}
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction;
 
@@ -870,6 +900,17 @@ local composite_pass = {
 				return t > 0.0 ? t : 1e30;
 			}
 		]] .. SLICE_GLSL .. froxel_fog.GetViewDirGLSL("fog_data") .. screen_reconstruct.GetViewDepthGLSL("fog_data") .. froxel_fog.GetGLSL("fog_data") .. post_source.GetPreExposureGLSL("fog_data") .. [[
+			vec3 integrate_air(vec3 origin, vec3 dir, float t_near, float t_far, vec3 primary_dir, int steps, out vec3 view_transmittance) {
+				vec3 scattered = integrate_scattering(origin, dir, t_near, t_far, primary_dir, steps, vec2(1.0), 1.0, view_transmittance);
+
+				bool primary_is_sun = dot(primary_dir, ATMOSPHERE_SKY_SUN_DIRECTION) > 0.9999;
+				vec3 other_dir = primary_is_sun ? ATMOSPHERE_MOON_DIRECTION : ATMOSPHERE_SKY_SUN_DIRECTION;
+				vec3 unused;
+				scattered += integrate_scattering(origin, dir, t_near, t_far, other_dir, steps, vec2(1.0), 1.0, unused) * ((primary_is_sun ? ATMOSPHERE_SUN_DISC_ILLUMINANCE * ATMOSPHERE_MOON_SKY_SCALE : ATMOSPHERE_SUN_DISC_ILLUMINANCE) / ATMOSPHERE_SUN_ILLUMINANCE);
+
+				return scattered;
+			}
+
 			void main() {
 				float pre_exposure = get_pre_exposure();
 				vec4 scene = texture(TEXTURE(fog_data.source_tex), in_uv);
@@ -927,15 +968,15 @@ local composite_pass = {
 
 						if (air_past_volume) {
 							vec3 tail_transmittance;
-							behind_scattered += full_transmittance * integrate_scattering(origin, sky_dir, froxel_end, edge, sun_dir, 32, vec2(1.0), 1.0, tail_transmittance);
+							behind_scattered += full_transmittance * integrate_air(origin, sky_dir, froxel_end, edge, sun_dir, 32, tail_transmittance);
 						}
 					} else if (air_past_volume) {
 						vec3 before_transmittance;
-						vec3 before = integrate_scattering(origin, sky_dir, froxel_end, cloud_km, sun_dir, 24, vec2(1.0), 1.0, before_transmittance);
+						vec3 before = integrate_air(origin, sky_dir, froxel_end, cloud_km, sun_dir, 24, before_transmittance);
 						front_scattered = full_scattered + full_transmittance * before;
 						front_transmittance = full_transmittance * before_transmittance;
 						vec3 after_transmittance;
-						behind_scattered = front_transmittance * integrate_scattering(origin, sky_dir, cloud_km, edge, sun_dir, 24, vec2(1.0), 1.0, after_transmittance);
+						behind_scattered = front_transmittance * integrate_air(origin, sky_dir, cloud_km, edge, sun_dir, 24, after_transmittance);
 					}
 
 					color = front_scattered + front_transmittance * cloud.rgb + cloud.a * (behind_scattered + layer_transmittance * scene.rgb);
