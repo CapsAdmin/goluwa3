@@ -304,10 +304,9 @@ local gi_pass = {
 
 			#ifdef SCENE_REFLECTION
 			{
-				bool primary_is_sun = froxel_data.primary_sun_illuminance > 0.5 * ATMOSPHERE_SUN_DISC_ILLUMINANCE;
-				vec3 other_dir = primary_is_sun ? ATMOSPHERE_MOON_DIRECTION : ATMOSPHERE_SKY_SUN_DIRECTION;
-				float other_elevation = max(other_dir.y, 0.1);
-				vec2 other_horizontal = normalize(other_dir.xz + vec2(1e-6));
+				vec3 glow_body = ATMOSPHERE_SKY_SUN_DIRECTION.y > -0.2 ? ATMOSPHERE_SKY_SUN_DIRECTION : ATMOSPHERE_MOON_DIRECTION;
+				float other_elevation = max(glow_body.y, 0.1);
+				vec2 other_horizontal = normalize(glow_body.xz + vec2(1e-6));
 				uint on = froxel_hash(uvec3(seed, id.z, 11u));
 				vec3 cone = vec3(float(on & 0x3ffu), float((on >> 10u) & 0x3ffu), float((on >> 20u) & 0x3ffu)) / 511.5 - 1.0;
 				vec3 glow_dir = normalize(vec3(other_horizontal.x * sqrt(1.0 - other_elevation * other_elevation), other_elevation, other_horizontal.y * sqrt(1.0 - other_elevation * other_elevation)) + cone * 0.3);
@@ -539,21 +538,21 @@ local scatter_pass = {
 			vec3 scattering = get_ground_fog_in_scatter(fog_point, ray_dir, sun_dir, sun_visibility, ambient) * per_meter;
 			scattering += sun * (RAYLEIGH_BETA * (density_r * phase_rayleigh(mu)) + MIE_BETA * (density_m * mie_phase(mu))) * per_meter;
 			vec3 air_up = fog_point / length(fog_point);
+			float glow_visibility = gi_emitter.a >= 0.0 ? gi_emitter.a : mix(0.15, 1.0, get_terrain_shadow(world_pos));
 			vec3 sky_multi = ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX == -1 ?
 				ambient * air_scattering :
 				sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, sun_dir), mu) * ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * per_meter;
-			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky * mix(0.15, 1.0, get_terrain_shadow(world_pos))) + glow * air_scattering;
+			scattering += mix(probe_ambient * air_scattering, sky_multi, open_sky * glow_visibility) + glow * air_scattering;
 
 			{
 				bool primary_is_sun = dot(sun_dir, ATMOSPHERE_SKY_SUN_DIRECTION) > 0.9999;
 				vec3 other_dir = primary_is_sun ? ATMOSPHERE_MOON_DIRECTION : ATMOSPHERE_SKY_SUN_DIRECTION;
 				float other_mu = dot(ray_dir, other_dir);
 				vec3 other = (primary_is_sun ? ATMOSPHERE_SUN_DISC_ILLUMINANCE * ATMOSPHERE_MOON_SKY_SCALE : ATMOSPHERE_SUN_DISC_ILLUMINANCE) * SUN_COLOR * per_meter;
-				float other_visibility = gi_emitter.a >= 0.0 ? gi_emitter.a : mix(0.15, 1.0, get_terrain_shadow(world_pos));
-				scattering += other_visibility * other * sample_transmittance_lut(fog_point, other_dir) * (RAYLEIGH_BETA * (density_r * phase_rayleigh(other_mu)) + MIE_BETA * (density_m * mie_phase(other_mu)));
+				scattering += glow_visibility * other * sample_transmittance_lut(fog_point, other_dir) * (RAYLEIGH_BETA * (density_r * phase_rayleigh(other_mu)) + MIE_BETA * (density_m * mie_phase(other_mu)));
 
 				if (ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX != -1) {
-					scattering += sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, other_dir), other_mu) * other * open_sky * other_visibility;
+					scattering += sc_lookup(ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX, length(fog_point), dot(air_up, ray_dir), dot(air_up, other_dir), other_mu) * other * open_sky * glow_visibility;
 				}
 			}
 
