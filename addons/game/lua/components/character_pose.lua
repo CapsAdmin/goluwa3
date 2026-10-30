@@ -128,6 +128,23 @@ function META:PlayAction(name, duration)
 	self:SetActions(self.Actions + 1)
 end
 
+function META:ScrubAction(name, duration, phase)
+	local scrub = self.scrub
+
+	if not scrub then
+		scrub = {}
+		self.scrub = scrub
+	end
+
+	scrub.name = name
+	scrub.duration = math.max(duration, 0.001)
+	scrub.time = math.min(phase, 0.9999) * scrub.duration
+end
+
+function META:EndScrub()
+	self.scrub = nil
+end
+
 function META:StartAction(name, duration)
 	local anims = self.anims
 	local inst = animations.NewInstance(name)
@@ -167,7 +184,9 @@ function META:AdoptPredictedAction(name)
 	end
 
 	for i = #predicted, 1, -1 do
-		if now - predicted[i].time >= PREDICTED_ACTION_WINDOW then table.remove(predicted, i) end
+		if now - predicted[i].time >= PREDICTED_ACTION_WINDOW then
+			table.remove(predicted, i)
+		end
 	end
 
 	return false
@@ -419,12 +438,32 @@ function META:UpdateAnimations(dt)
 	local locomotion = true
 	local legs = true
 	local viewing = false
+	local scrub = self.scrub
+	local scrubbed
+
+	if scrub then
+		local def = animations.Get(scrub.name)
+
+		for i = 1, #anims do
+			if anims[i].def == def then scrubbed = anims[i] end
+		end
+
+		if not scrubbed then
+			self:StartAction(scrub.name, scrub.duration)
+			scrubbed = anims[#anims]
+		end
+	end
 
 	for i = #anims, 1, -1 do
 		local inst = anims[i]
 		local def = inst.def
 		local kind = def.Kind
 		inst.time = inst.time + dt
+
+		if inst == scrubbed then
+			inst.time = scrub.time
+			inst.duration = scrub.duration
+		end
 
 		if kind == "action" then
 			inst.phase = math.min(inst.time / inst.duration, 1)

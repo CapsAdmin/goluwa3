@@ -207,6 +207,79 @@ T.TestPhysics("the sword dive throw latches onto the target and throws it", func
 	T(victim.ragdoll.thrown or victim.ragdoll.flinging or victim.ragdoll.Limp)["~="](nil)
 end)
 
+T.TestPhysics("a move preview scrubs both characters to a phase without simulating the move", function()
+	local grab = import("lua/grab.lua")
+	local move_preview = import("lua/jrpg/move_preview.lua")
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -2.6), 1000, true)
+	victim.source_pose = {
+		bones = {
+			upperarm_r = {m30 = 0.15, m31 = 1.08, m32 = 0},
+			upperarm_l = {m30 = -0.15, m31 = 1.08, m32 = 0},
+		},
+	}
+	local move = movesets.Get("sword").Moves.dive_throw
+	local preview = move_preview.Start(attacker, victim, move)
+	local poses = {attacker.character_pose, victim.character_pose}
+	preview:SetPhase(0.3)
+	run(0.2, poses)
+	local name, phase = attacker.character_pose:GetActiveAction()
+	T(name)["=="](move.Action)
+	T(phase)["~"](0.3, 1e-3)
+	T(grab.IsHeld(victim))["=="](false)
+	local out = Vec3()
+	movesets.SampleMotion(move, 0.3, preview.Frame, preview.Frame.point, out)
+	T(attacker.transform:GetPosition().z)["~"](out.z, 1e-3)
+	preview:SetPhase(0.5)
+	run(0.2, poses)
+	T(select(2, attacker.character_pose:GetActiveAction()))["~"](0.5, 1e-3)
+	T(grab.IsHeld(victim))["=="](true)
+	preview:SetPhase(0.2)
+	run(0.2, poses)
+	T(grab.IsHeld(victim))["=="](false)
+	T(victim.transform:GetPosition().z)["~"](-2.6, 0.05)
+	preview:Stop()
+	run(0.1, poses)
+	T(attacker.character_movement.latch)["=="](nil)
+	T(attacker.character_pose.scrub)["=="](nil)
+	T(attacker.transform:GetPosition().z)["~"](0, 0.05)
+end)
+
+T.TestPhysics("the move preview scrubs every move of every moveset", function()
+	local move_preview = import("lua/jrpg/move_preview.lua")
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -2.6), 1000)
+	victim.source_pose = {
+		bones = {
+			upperarm_r = {m30 = 0.15, m31 = 1.08, m32 = 0},
+			upperarm_l = {m30 = -0.15, m31 = 1.08, m32 = 0},
+		},
+	}
+	local count = 0
+
+	for _, name in ipairs{"sword", "greatsword", "rapier", "reaper"} do
+		for _, move in pairs(movesets.Get(name).Moves) do
+			local preview = move_preview.Start(attacker, victim, move)
+
+			for _, f in ipairs{0, 0.3, 0.6, 0.95} do
+				preview:SetPhase(f)
+				run(0.05, {attacker.character_pose})
+				local active, phase = attacker.character_pose:GetActiveAction()
+				T(active)["=="](move.Action)
+				T(phase)["~"](f, 1e-3)
+			end
+
+			preview:Stop()
+			run(0.05, {attacker.character_pose})
+			count = count + 1
+		end
+	end
+
+	T(count > 10)["=="](true)
+end)
+
 T.Test("moveset data is validated with a message that names the field", function()
 	local function check(def, expected)
 		local ok, err = pcall(movesets.Validate, "test", def)
