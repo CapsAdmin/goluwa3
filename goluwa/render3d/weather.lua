@@ -520,7 +520,7 @@ local SUN_SHADOW_DEFAULTS = {
 		cache_far_cascade = true,
 		far_cascade_move = 96,
 	},
-	inset = {
+	exact = {
 		enabled = true,
 		size = 4096,
 		format = "d32_sfloat",
@@ -542,35 +542,40 @@ local function apply_sun_shadow()
 	directional_shadows.bias.normal = weather.sun_shadow.bias.normal
 	directional_shadows.bias.light = weather.sun_shadow.bias.light
 	local cascades = weather.sun_shadow.cascades
-	local inset = weather.sun_shadow.inset
-	local map = weather.shadow_maps.cascades
+	local exact = weather.sun_shadow.exact
+	local map = weather.shadow_maps.sun
 
-	if map then
-		map.max_shadow_distance = cascades.distance
-		map.cascade_split_lambda = cascades.split_lambda
-		map.cascade_zoom_factors = cascades.zoom
-		map.min_caster_texel_size = cascades.min_caster_texel_size
-		map:SetUpdatePolicy{
-			shadow_update_mode = "continuous",
-			shadow_update_interval = cascades.update_interval,
-			farthest_cascade_update_mode = cascades.cache_far_cascade and "world_changed" or nil,
-			farthest_cascade_camera_position_threshold = cascades.far_cascade_move,
-		}
-		map:Invalidate()
+	if not map then return end
+
+	local offset = exact.enabled and 1 or 0
+	local zoom, min_caster_texel_sizes, update_intervals = {}, {}, {}
+
+	if exact.enabled then
+		zoom[1] = exact.zoom
+		min_caster_texel_sizes[1] = exact.min_caster_texel_size
+		update_intervals[1] = exact.update_interval
+		map.cascade_fixed_splits = {exact.distance}
+	else
+		map.cascade_fixed_splits = {}
 	end
 
-	map = weather.shadow_maps.inset
-
-	if map then
-		map.max_shadow_distance = inset.distance
-		map.cascade_zoom_factors = {inset.zoom}
-		map.min_caster_texel_size = inset.min_caster_texel_size
-		map:SetUpdatePolicy{
-			shadow_update_mode = "continuous",
-			shadow_update_interval = inset.update_interval,
-		}
-		map:Invalidate()
+	for i = 1, map:GetCascadeCount() - offset do
+		zoom[offset + i] = cascades.zoom[i]
+		min_caster_texel_sizes[offset + i] = cascades.min_caster_texel_size
+		update_intervals[offset + i] = cascades.update_interval
 	end
+
+	map.max_shadow_distance = cascades.enabled and cascades.distance or exact.distance
+	map.cascade_split_lambda = cascades.split_lambda
+	map.cascade_zoom_factors = zoom
+	map.cascade_min_caster_texel_sizes = min_caster_texel_sizes
+	map.cascade_update_intervals = update_intervals
+	map:SetUpdatePolicy{
+		shadow_update_mode = "continuous",
+		farthest_cascade_update_mode = cascades.enabled and cascades.cache_far_cascade and "world_changed" or nil,
+		farthest_cascade_camera_position_threshold = cascades.far_cascade_move,
+	}
+	map:Invalidate()
 end
 
 function weather.BuildSunShadows()
@@ -580,28 +585,28 @@ function weather.BuildSunShadows()
 
 	weather.shadow_maps = {}
 	local cascades = weather.sun_shadow.cascades
-	local inset = weather.sun_shadow.inset
+	local exact = weather.sun_shadow.exact
+	local scale = quality.Get().shadow_size_scale
+	local config = {mode = "sun", light = weather.light}
 
 	if cascades.enabled then
-		weather.shadow_maps.cascades = ShadowMap.New{
-			mode = "sun",
-			light = weather.light,
-			size = Vec2() + cascades.size * quality.Get().shadow_size_scale,
-			format = cascades.format,
-			cascade_count = cascades.count,
-		}
+		config.size = Vec2() + cascades.size * scale
+		config.format = cascades.format
+		config.cascade_count = cascades.count
 	end
 
-	if inset.enabled then
-		weather.shadow_maps.inset = ShadowMap.New{
-			mode = "sun",
-			light = weather.light,
-			size = Vec2() + inset.size * quality.Get().shadow_size_scale,
-			format = inset.format,
-			cascade_count = 1,
-			role = "inset",
-		}
+	if exact.enabled then
+		config.cascade_sizes = {Vec2() + exact.size * scale}
+		config.cascade_formats = {exact.format}
+		config.cascade_count = (config.cascade_count or 0) + 1
+
+		if not cascades.enabled then
+			config.size = config.cascade_sizes[1]
+			config.format = exact.format
+		end
 	end
+
+	if config.cascade_count then weather.shadow_maps.sun = ShadowMap.New(config) end
 
 	apply_sun_shadow()
 	weather.UpdateSky()

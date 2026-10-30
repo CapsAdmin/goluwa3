@@ -20,7 +20,6 @@ local cascade_colors = {
 	Color(0.2, 0.2, 1.0, 1.0),
 	Color(1.0, 1.0, 0.2, 1.0),
 }
-local inset_color = Color(1.0, 0.5, 1.0, 1.0)
 local previews = setmetatable({}, {__mode = "k"})
 
 local function get_preview(shadow_map, cascade_index)
@@ -243,7 +242,6 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 	local panel_index = 0
 
 	for _, shadow_map in ipairs(shadow_maps) do
-		local is_inset = shadow_map.role == "inset"
 		local cascade_count = shadow_map:GetCascadeCount()
 		local splits = shadow_map:GetCascadeSplits()
 		local cull_stats = Visual.GetShadowGPUCullingStats(shadow_map) or {}
@@ -264,7 +262,6 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 			}
 
 			if
-				not is_inset and
 				cascade_count > 1 and
 				i == cascade_count and
 				policy.farthest_cascade_update_mode == "world_changed"
@@ -277,9 +274,7 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 
 				if cascade.last_camera_forward and camera then
 					turned = math.deg(
-						math.acos(
-							math.clamp(camera:GetRotation():GetForward():Dot(cascade.last_camera_forward), -1, 1)
-						)
+						math.acos(math.clamp(camera:GetRotation():GetForward():Dot(cascade.last_camera_forward), -1, 1))
 					)
 				end
 
@@ -297,14 +292,8 @@ event.AddListener("Draw2D", "debug_shadow_map", function(cmd, dt)
 				margin + (panel_index - 1) * (250 + spacing + 16),
 				margin,
 				size,
-				is_inset and inset_color or cascade_colors[i] or Color(1, 1, 0, 1),
-				is_inset and
-					(
-						"Inset  0 .. %.0f"
-					):format(splits[i] or 0) or
-					(
-						"Cascade %d  %.0f .. %.0f"
-					):format(i, previous_split, splits[i] or 0),
+				cascade_colors[i] or Color(1, 1, 0, 1),
+				("Cascade %d  %.0f .. %.0f"):format(i, previous_split, splits[i] or 0),
 				extra,
 				"shadow_debug_map_" .. panel_index
 			)

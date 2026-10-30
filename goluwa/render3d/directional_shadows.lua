@@ -56,13 +56,9 @@ function directional_shadows.BuildFogShadowBlockLayout()
 	local max_cascades = directional_shadows.MAX_CASCADES
 	local layout = {
 		{"light_space_matrices", "mat4", max_cascades},
-		{"inset_light_space_matrix", "mat4"},
 		{"cascade_splits", "float", max_cascades},
 		{"cascade_texel_world_sizes", "float", max_cascades},
-		{"inset_shadow_distance", "float"},
-		{"inset_shadow_texel_world_size", "float"},
 		{"shadow_map_indices", "int", max_cascades},
-		{"inset_shadow_map_index", "int"},
 		{"cascade_count", "int"},
 		{"sun_angular_radius_tan", "float"},
 		unpack(clouds.GetShadowBlockLayout()),
@@ -85,17 +81,10 @@ function directional_shadows.WriteFogShadowBlock(self, shadow_block, lights)
 		shadow_block.cascade_texel_world_sizes[i] = 0
 	end
 
-	shadow_block.inset_shadow_map_index = -1
-	shadow_block.inset_shadow_distance = 0
-	shadow_block.inset_shadow_texel_world_size = 0
 	shadow_block.cascade_count = 0
 	shadow_block.sun_angular_radius_tan = directional_shadows.GetSunAngularRadiusTan()
 	clouds.WriteShadowBlock(self, shadow_block)
 	terrain_shadow.WriteShadowBlock(self, shadow_block)
-
-	for i = 0, 15 do
-		shadow_block.inset_light_space_matrix[i] = 0
-	end
 
 	if not sun then return end
 
@@ -104,21 +93,14 @@ function directional_shadows.WriteFogShadowBlock(self, shadow_block, lights)
 
 	for _, shadow_map in ipairs(ShadowMap.GetActiveMaps()) do
 		if shadow_map:IsEnabled() and shadow_map.light == sun_entity then
-			if shadow_map.role == "inset" then
-				shadow_block.inset_shadow_map_index = self:GetTextureIndex(shadow_map:GetDepthTexture(1))
-				shadow_map:GetLightSpaceMatrix(1):CopyToFloatPointer(shadow_block.inset_light_space_matrix)
-				shadow_block.inset_shadow_distance = shadow_map:GetCascadeSplits()[1] or 0
-				shadow_block.inset_shadow_texel_world_size = shadow_map:GetCascadeTexelWorldSize(1)
-			else
-				for i = 1, shadow_map:GetCascadeCount() do
-					if cascade_slot > directional_shadows.MAX_CASCADES then break end
+			for i = 1, shadow_map:GetCascadeCount() do
+				if cascade_slot > directional_shadows.MAX_CASCADES then break end
 
-					shadow_block.shadow_map_indices[cascade_slot - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
-					shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(shadow_block.light_space_matrices[cascade_slot - 1])
-					shadow_block.cascade_splits[cascade_slot - 1] = shadow_map:GetCascadeSplits()[i] or -1
-					shadow_block.cascade_texel_world_sizes[cascade_slot - 1] = shadow_map:GetCascadeTexelWorldSize(i)
-					cascade_slot = cascade_slot + 1
-				end
+				shadow_block.shadow_map_indices[cascade_slot - 1] = self:GetTextureIndex(shadow_map:GetDepthTexture(i))
+				shadow_map:GetLightSpaceMatrix(i):CopyToFloatPointer(shadow_block.light_space_matrices[cascade_slot - 1])
+				shadow_block.cascade_splits[cascade_slot - 1] = shadow_map:GetCascadeSplits()[i] or -1
+				shadow_block.cascade_texel_world_sizes[cascade_slot - 1] = shadow_map:GetCascadeTexelWorldSize(i)
+				cascade_slot = cascade_slot + 1
 			end
 		end
 	end
@@ -158,28 +140,14 @@ local function getCascadeIndexGLSL(block_macro)
 	return (src:gsub("@@BLOCK@@", block_macro))
 end
 
-local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
+local function shadowSearchBodyGLSL(block_macro, cascade_call)
 	local src = [==[
 			int cascade_count = @@BLOCK@@.shadows.cascade_count;
-			bool has_inset = @@BLOCK@@.shadows.inset_shadow_map_index >= 0;
 
-			if (cascade_count <= 0 && !has_inset) return 1.0;
+			if (cascade_count <= 0) return 1.0;
 
 			int cascade_idx = max(getCascadeIndex(world_pos), 0);
 			float dist = -(@@BLOCK@@.view * vec4(world_pos, 1.0)).z;
-			float inset_distance = @@BLOCK@@.shadows.inset_shadow_distance;
-
-			if (has_inset && dist <= max(inset_distance - max(inset_distance * 0.25, 4.0), 0.0)) {
-				float inset_shadow = 1.0;
-
-				if (@@INSET@@) {
-					shadow_texel_world_size = cascade_count > 0 ?
-						@@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx] :
-						@@BLOCK@@.shadows.inset_shadow_texel_world_size;
-					return inset_shadow;
-				}
-			}
-
 			float shadow = -1.0;
 
 			for (; cascade_idx < cascade_count; cascade_idx++) {
@@ -187,48 +155,29 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 				if (shadow >= 0.0) break;
 			}
 
-			if (shadow < 0.0) {
-				if (!has_inset || dist >= inset_distance) return get_terrain_shadow(world_pos);
+			if (shadow < 0.0) return get_terrain_shadow(world_pos);
 
-				shadow = 1.0;
-				shadow_texel_world_size = @@BLOCK@@.shadows.inset_shadow_texel_world_size;
-			} else {
-				shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx];
+			shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx];
 
-				if (cascade_idx < cascade_count - 1) {
-					float previous_split = cascade_idx > 0 ? @@BLOCK@@.shadows.cascade_splits[cascade_idx - 1] : 0.0;
-					float current_split = @@BLOCK@@.shadows.cascade_splits[cascade_idx];
-					float cascade_span = max(current_split - previous_split, 0.0001);
-					float blend_band = max(cascade_span * 0.15, 8.0);
-					float blend_start = current_split - blend_band;
+			if (cascade_idx < cascade_count - 1) {
+				float previous_split = cascade_idx > 0 ? @@BLOCK@@.shadows.cascade_splits[cascade_idx - 1] : 0.0;
+				float current_split = @@BLOCK@@.shadows.cascade_splits[cascade_idx];
+				float cascade_span = max(current_split - previous_split, 0.0001);
+				float blend_band = max(cascade_span * 0.15, 8.0);
+				float blend_start = current_split - blend_band;
 
-					if (dist > blend_start) {
-						float next_shadow = @@CASCADE_NEXT@@;
+				if (dist > blend_start) {
+					float next_shadow = @@CASCADE_NEXT@@;
 
-						if (next_shadow >= 0.0) {
-							float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
-							shadow = mix(shadow, next_shadow, blend);
-							shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx + 1];
-						}
+					if (next_shadow >= 0.0) {
+						float blend = clamp((dist - blend_start) / max(current_split - blend_start, 0.0001), 0.0, 1.0);
+						shadow = mix(shadow, next_shadow, blend);
+						shadow_texel_world_size = @@BLOCK@@.shadows.cascade_texel_world_sizes[cascade_idx + 1];
 					}
 				}
 			}
 
-			if (has_inset && dist < inset_distance) {
-				float inset_shadow = 1.0;
-
-				if (@@INSET@@) {
-					float inset_band = max(@@BLOCK@@.shadows.inset_shadow_distance * 0.25, 4.0);
-					float inset_blend = 1.0 - smoothstep(
-						max(@@BLOCK@@.shadows.inset_shadow_distance - inset_band, 0.0),
-						@@BLOCK@@.shadows.inset_shadow_distance,
-						dist
-					);
-					shadow = mix(shadow, inset_shadow, inset_blend);
-				}
-			}
-
-			float raster_end = min(@@BLOCK@@.shadows.terrain_shadow_params.z, cascade_count > 0 ? @@BLOCK@@.shadows.cascade_splits[cascade_count - 1] : inset_distance);
+			float raster_end = min(@@BLOCK@@.shadows.terrain_shadow_params.z, @@BLOCK@@.shadows.cascade_splits[cascade_count - 1]);
 			float terrain_weight = smoothstep(raster_end * 0.8, raster_end, dist);
 
 			if (terrain_weight > 0.0) shadow = min(shadow, mix(1.0, get_terrain_shadow(world_pos), terrain_weight));
@@ -238,7 +187,6 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call, inset_call)
 	src = (src:gsub("@@BLOCK@@", block_macro))
 	src = (src:gsub("@@CASCADE_MAIN@@", string.format(cascade_call, "cascade_idx")))
 	src = (src:gsub("@@CASCADE_NEXT@@", string.format(cascade_call, "cascade_idx + 1")))
-	src = (src:gsub("@@INSET@@", string.format(inset_call, "inset_shadow")))
 	return src
 end
 
@@ -247,8 +195,7 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 	local header = "\t\t\t#define MEDIUM_DIRECTIONAL_SHADOW_BLOCK " .. block_name .. "\n" .. "\t\t\t#define MEDIUM_DIRECTIONAL_SHADOW_FN " .. result_fn_name .. "\n\n"
 	local body = shadowSearchBodyGLSL(
 		"MEDIUM_DIRECTIONAL_SHADOW_BLOCK",
-		"sampleMediumShadowCascade(%s, world_pos, light_dir)",
-		"sampleMediumInsetShadow(world_pos, light_dir, %s)"
+		"sampleMediumShadowCascade(%s, world_pos, light_dir)"
 	)
 	return header .. clouds.GetShadowGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows") .. terrain_shadow.GetShadowGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows") .. getCascadeIndexGLSL("MEDIUM_DIRECTIONAL_SHADOW_BLOCK") .. [[
 
@@ -301,19 +248,6 @@ function directional_shadows.GetMediumDirectionalShadowGLSL(block_name, result_f
 				}
 
 				return sampleMediumShadowProjection(shadow_map_idx, proj_coords, 1.35);
-			}
-
-			bool sampleMediumInsetShadow(vec3 world_pos, vec3 light_dir, out float shadow) {
-				shadow = 1.0;
-				if (MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index < 0) return false;
-				vec3 proj_coords;
-
-
-				if (!projectMediumShadowMap(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_light_space_matrix, world_pos, proj_coords)) {
-					return false;
-				}
-				shadow = sampleMediumShadowProjection(MEDIUM_DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index, proj_coords, 1.0);
-				return true;
 			}
 
 			float ]] .. result_fn_name .. [[_without_clouds(vec3 world_pos, vec3 light_dir) {
@@ -479,8 +413,7 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 		)
 	local body = shadowSearchBodyGLSL(
 		"DIRECTIONAL_SHADOW_BLOCK",
-		"sampleShadowCascade(%s, world_pos, normal, light_dir)",
-		"sampleInsetShadow(world_pos, normal, light_dir, %s)"
+		"sampleShadowCascade(%s, world_pos, normal, light_dir)"
 	)
 	return header .. clouds.GetShadowGLSL("DIRECTIONAL_SHADOW_BLOCK.shadows") .. terrain_shadow.GetShadowGLSL("DIRECTIONAL_SHADOW_BLOCK.shadows") .. getCascadeIndexGLSL("DIRECTIONAL_SHADOW_BLOCK") .. "\n" .. SHADOW_PROJECTION_GLSL .. [[
 
@@ -507,31 +440,6 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_normal_bias,
 					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_light_bias
 				);
-			}
-
-			bool sampleInsetShadow(vec3 world_pos, vec3 normal, vec3 light_dir, out float shadow) {
-				shadow = 1.0;
-				if (DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index < 0) return false;
-
-				float result = sampleShadowMap(
-					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_map_index,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_light_space_matrix,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_shadow_texel_world_size,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.inset_depth_quantum,
-					world_pos,
-					normal,
-					light_dir,
-					1.0,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_angular_radius_tan,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.noise_phase,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_normal_bias,
-					DIRECTIONAL_SHADOW_BLOCK.shadows.sun_light_bias
-				);
-
-				if (result < 0.0) return false;
-
-				shadow = result;
-				return true;
 			}
 
 			float calculateShadowUnfaded(vec3 world_pos, vec3 normal, vec3 light_dir) {

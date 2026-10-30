@@ -9,7 +9,7 @@ ShadowMapSun:GetSet(
 	"Role",
 	"cascades",
 	{
-		enums = {"cascades", "inset"},
+		enums = {"cascades"},
 		callback = after_map(function(self, value)
 			self.Map:SetRole(value)
 		end),

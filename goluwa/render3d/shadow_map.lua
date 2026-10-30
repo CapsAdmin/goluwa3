@@ -695,17 +695,23 @@ local function build_shadow_cascade_update_mask(self)
 
 	if self.mode == "point" then return nil end
 
-	if policy.farthest_cascade_update_mode ~= "world_changed" then return nil end
-
+	local intervals = self.cascade_update_intervals
 	local farthest_cascade_idx = self:GetCascadeCount()
+	local cache_farthest = policy.farthest_cascade_update_mode == "world_changed" and
+		farthest_cascade_idx > 1
 
-	if farthest_cascade_idx <= 1 then return nil end
+	if not cache_farthest and not next(intervals) then return nil end
 
 	local mask = {}
+	local frame = system.GetFrameNumber()
 
 	for i = 1, farthest_cascade_idx do
-		mask[i] = true
+		local interval = intervals[i]
+		local last = self.cascade[i].last_rendered_frame
+		mask[i] = not (interval and interval > 1 and last and frame - last < interval)
 	end
+
+	if not cache_farthest then return mask end
 
 	local farthest_cascade = self.cascade[farthest_cascade_idx]
 
@@ -811,6 +817,9 @@ function ShadowMap.New(config)
 	self.current_shadow_distance = self.max_shadow_distance
 	self.min_caster_texel_size = config.min_caster_texel_size or 0
 	self.cascade_zoom_factors = config.cascade_zoom_factors or {}
+	self.cascade_fixed_splits = config.cascade_fixed_splits or {}
+	self.cascade_min_caster_texel_sizes = config.cascade_min_caster_texel_sizes or {}
+	self.cascade_update_intervals = config.cascade_update_intervals or {}
 	self.cascade_splits = {}
 	self.cascade = {}
 	self.light = config.light
@@ -1058,13 +1067,21 @@ function ShadowMap:CalculateCascadeSplits()
 	self.current_shadow_distance = view_far
 	local lambda = self.cascade_split_lambda
 	self.cascade_splits = {}
-	local n = self.cascade_count
+	local fixed = self.cascade_fixed_splits
+	local fixed_count = math.min(#fixed, self.cascade_count)
+	local first_near = fixed_count > 0 and fixed[fixed_count] or view_near
+	local free_count = self.cascade_count - fixed_count
+	view_far = math.max(view_far, first_near + 1)
 
-	for i = 1, n do
-		local p = i / n
-		local log_split = view_near * math.pow(view_far / view_near, p)
-		local linear_split = view_near + (view_far - view_near) * p
-		self.cascade_splits[i] = lambda * log_split + (1 - lambda) * linear_split
+	for i = 1, fixed_count do
+		self.cascade_splits[i] = fixed[i]
+	end
+
+	for i = 1, free_count do
+		local p = i / free_count
+		local log_split = first_near * math.pow(view_far / first_near, p)
+		local linear_split = first_near + (view_far - first_near) * p
+		self.cascade_splits[fixed_count + i] = lambda * log_split + (1 - lambda) * linear_split
 	end
 end
 
@@ -1212,10 +1229,13 @@ function ShadowMap:UpdateCascadeLightMatrices(light_rotation, cascade_update_mas
 		local receiver_depth_span = max_z - min_z
 		local texel_world_size = self.cascade[cascade_idx].texel_world_size
 		local far_margin = receiver_depth_span * 0.05 + texel_world_size * 4
-		local near_margin = math.max(receiver_depth_span * 0.5, self.current_shadow_distance * 0.5)
+		local reach = cascade_idx <= #self.cascade_fixed_splits and
+			split_far or
+			self.current_shadow_distance
+		local near_margin = math.max(receiver_depth_span * 0.5, reach * 0.5)
 		local cull_near_margin = self.mode == "sun" and
 			SUN_CASTER_REACH or
-			math.max(receiver_depth_span * 4.0, self.current_shadow_distance * 2)
+			math.max(receiver_depth_span * 4.0, reach * 2)
 		local caster_min_z = min_z - far_margin
 		local caster_max_z = max_z + near_margin
 		local projection = Matrix44()
@@ -1278,7 +1298,7 @@ function ShadowMap:GetGPUCullOptions(cascade_index)
 	if self.mode == "point" then return nil end
 
 	local cascade = self.cascade[cascade_index]
-	local min_caster_texel_size = self.min_caster_texel_size or 0
+	local min_caster_texel_size = self.cascade_min_caster_texel_sizes[cascade_index] or self.min_caster_texel_size
 	local texel_world_size = cascade.texel_world_size or 0
 
 	if min_caster_texel_size <= 0 or texel_world_size <= 0 or not cascade.view_matrix then
@@ -1493,7 +1513,7 @@ function ShadowMap:DrawBatches(
 	push_constants.wind_camera[0] = wind_camera.x
 	push_constants.wind_camera[1] = wind_camera.y
 	push_constants.wind_camera[2] = wind_camera.z
-	push_constants.wind_pixel_scale = self.role == "inset" and wind_pixel_scale or 0
+	push_constants.wind_pixel_scale = cascade_index <= #self.cascade_fixed_splits and wind_pixel_scale or 0
 	push_constants.time = atmosphere.GetWindTime()
 	push_constants.prev_time = atmosphere.GetPreviousWindTime()
 	push_constants.detail_time = atmosphere.GetWindDetailTime()

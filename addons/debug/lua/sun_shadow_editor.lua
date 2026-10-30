@@ -123,17 +123,17 @@ local SHADOW_GROUPS = {
 		},
 	},
 	{
-		category = "inset",
-		text = "Inset",
-		help = "a small shadow map close to the camera with finer texels, blended over the cascades",
+		category = "exact",
+		text = "Exact cascade",
+		help = "the first cascade: a small, finely sampled cascade close to the camera that is redrawn every frame and the only one where vegetation animates",
 		settings = {
-			{"enabled", "enabled", "boolean", "off destroys the inset"},
+			{"enabled", "enabled", "boolean", "off destroys the exact cascade"},
 			{"size", "size", "enum", "texels per side", {Options = SIZE_OPTIONS}},
 			{
 				"format",
 				"depth format",
 				"enum",
-				"d16 has 65536 depth steps over the inset's depth range",
+				"d16 has 65536 depth steps over the cascade's depth range",
 				{Options = FORMAT_OPTIONS},
 			},
 			{
@@ -190,7 +190,9 @@ local SHADOW_GROUPS = {
 }
 
 local function describe_cascade(category, i)
-	local map = weather.shadow_maps[category]
+	local map = weather.shadow_maps.sun
+
+	if category == "cascades" and weather.GetSunShadow("exact").enabled then i = i + 1 end
 
 	if not map or i > map:GetCascadeCount() then return "off" end
 
@@ -260,7 +262,7 @@ local function build_items()
 			children[#children + 1] = node
 		end
 
-		for i = 1, category == "cascades" and 4 or category == "inset" and 1 or 0 do
+		for i = 1, category == "cascades" and 4 or category == "exact" and 1 or 0 do
 			local node = {
 				Key = "shadow/" .. category .. "/result/" .. i,
 				Text = category == "cascades" and "cascade " .. i or "reach",
