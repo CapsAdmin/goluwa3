@@ -3,7 +3,11 @@ local system = import("goluwa/system.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local sounds = import("lua/sounds.lua")
 local MIN_SPEED = 1
-local HARD_SPEED = 3
+local SOFT_SPEED = 3
+local MAX_SKIP = 0.5
+local SOFT_SKIP = 0.5
+local FADE_SPEED = 4
+local MAX_FADE = 0.012
 local LOUD_SPEED = 7
 local INTERVAL = 0.05
 local REFERENCE_MASS = 20
@@ -549,7 +553,8 @@ event.AddListener("Impact", "physics_impacts", function(info)
 
 	row[info.Other] = now
 	local found = get_set(info.Surface)
-	local paths = info.Speed >= HARD_SPEED and found.hard or found.soft
+	local soft = info.Speed < SOFT_SPEED
+	local paths = soft and found.soft or found.hard
 	local index = math.random(#paths)
 
 	if index == paths.last then index = index % #paths + 1 end
@@ -559,7 +564,10 @@ event.AddListener("Impact", "physics_impacts", function(info)
 		paths[index],
 		info.Position,
 		found.gain * get_mass_gain(info.Mass) * math.min(info.Speed / LOUD_SPEED, 1),
-		math.randomf(0.95, 1.05)
+		math.randomf(0.95, 1.05),
+		MAX_SKIP * (
+				1 - math.clamp((info.Speed - MIN_SPEED) / (LOUD_SPEED - MIN_SPEED), 0, 1)
+			)
 	)
 end)
 
@@ -734,7 +742,15 @@ event.AddListener("Contact", "physics_sounds", function(info)
 			if index == paths.last then index = index % #paths + 1 end
 
 			paths.last = index
-			sounds.Play(paths[index], info.Position, gain * GRAIN_GAIN * speed, math.randomf(0.9, 1.1))
+			sounds.Play(
+				paths[index],
+				info.Position,
+				gain * GRAIN_GAIN * speed,
+				math.randomf(0.9, 1.1),
+				0,
+				0,
+				1
+			)
 		end
 	end
 end)
