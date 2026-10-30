@@ -776,7 +776,7 @@ event.AddListener("Contact", "physics_sounds", function(info)
 			drive(
 				layers.scrape,
 				path,
-				gain * SCRAPE_GAIN * speed,
+				gain * SCRAPE_GAIN * speed * get_damping_gain(found, get_set(info.OtherSurface)),
 				pitch * (0.9 + 0.2 * speed),
 				1,
 				1,

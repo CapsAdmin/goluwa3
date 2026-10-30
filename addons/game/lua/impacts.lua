@@ -135,7 +135,18 @@ do
 	local SURFACE_REFRESH = 0.25
 	local surfaces = table.weak("k")
 
-	local function fire_contact(entity, other, surface, material, contact, normal, rolling, mass, size)
+	local function fire_contact(
+		entity,
+		other,
+		surface,
+		other_surface,
+		material,
+		contact,
+		normal,
+		rolling,
+		mass,
+		size
+	)
 		local part = entity.ragdoll_part
 		event.Call(
 			"Contact",
@@ -144,6 +155,7 @@ do
 				Part = part and part.Group,
 				Other = other,
 				Surface = surface,
+				OtherSurface = other_surface,
 				Material = material,
 				Position = contact.position,
 				Normal = normal,
@@ -185,6 +197,7 @@ do
 			entity_b,
 			entity_a,
 			cached.surface_a,
+			cached.surface_b,
 			cached.material_a,
 			contact,
 			contact.normal,
@@ -196,6 +209,7 @@ do
 			entity_a,
 			entity_b,
 			cached.surface_b,
+			cached.surface_a,
 			cached.material_b,
 			contact,
 			contact.normal * -1,

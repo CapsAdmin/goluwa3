@@ -87,6 +87,8 @@ T.TestPhysics("a rolling ball fires a Contact from each side, rolling on the bal
 	event.RemoveListener("Contact", "contacts_test")
 	T(#from_ball > 20)["=="](true)
 	T(#from_ball)["=="](#from_ground)
+	T(from_ball[1].OtherSurface)["=="](from_ground[1].Surface)
+	T(from_ground[1].OtherSurface)["=="](from_ball[1].Surface)
 	local last_ball, last_ground = from_ball[#from_ball], from_ground[#from_ground]
 	T(last_ball.Other)["=="](ground)
 	T(last_ball.Surface)["=="]("concrete")
