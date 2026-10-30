@@ -10,6 +10,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local animations = import("lua/animations.lua")
+local movesets = import("lua/movesets.lua")
 local impacts = import("lua/impacts.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local META = objects.CreateTemplate("source_pose")
@@ -18,7 +19,6 @@ META:GetSet("Profile", "creature")
 META:GetSet("IdleSequence", "")
 META:GetSet("WalkSequence", "")
 META:GetSet("RunSequence", "")
-META:GetSet("AttackSequence", "")
 META:IsSet("Mirror", false)
 META:IsSet("OwnsArmature", false)
 META:GetSet("SocketProfile", "source_humanoid")
@@ -220,16 +220,21 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 
 	self.reaction_inst = nil
 
-	if pose:IsPlaying("attack") and self.AttackSequence ~= "" then
-		if self.attack_actions ~= pose.Actions then
-			self.attack_actions = pose.Actions
-			self.sequence = self.AttackSequence
+	local action = pose:GetActiveAction()
+	local move = action and movesets.GetMove(action)
+
+	if move and move.Clip then
+		local clip = skeleton.ClipsByName[move.Clip]
+
+		if self.clip_actions ~= pose.Actions then
+			self.clip_actions = pose.Actions
+			self.sequence = move.Clip
 			animator:SetLoop(false)
-			animator:SetSequence(self.AttackSequence)
+			animator:SetSequence(move.Clip)
 			animator:Restart()
 		end
 
-		animator:SetSpeed(pose:GetTimeScale() * pose.rate_variation)
+		animator:SetSpeed(clip.Duration / pose.ActionDuration * pose:GetTimeScale() * pose.rate_variation)
 		return
 	end
 

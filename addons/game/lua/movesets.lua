@@ -39,6 +39,7 @@ local MOVE_KEYS = {
 	Branch = true,
 	Next = true,
 	Face = true,
+	Clip = true,
 	PoseWeapon = true,
 	Group = true,
 	Legs = true,
@@ -51,6 +52,8 @@ local EVENT_TYPES = {
 		keys = {Cut = 3, Damage = "number", Range = "number", Swing = 2, Knock = 3},
 		required = {"Cut"},
 	},
+	strike = {keys = {Damage = "number", Range = "number", Force = "number"}, required = {"Damage", "Range"}},
+	cast = {keys = {Element = "string", Damage = "number"}, required = {"Element", "Damage"}},
 	latch = {keys = {Range = "number"}, required = {"Range"}},
 	release = {
 		keys = {Damage = "number", Inherit = "number", Throw = 3},
@@ -111,10 +114,11 @@ local function validate_move(move, poses, path)
 	end
 
 	assert(type(move.Duration) == "number", path .. ".Duration must be a number")
-	assert(move.Keys, path .. " needs Keys")
+	assert(move.Clip == nil or type(move.Clip) == "string", path .. ".Clip must be a sequence name")
+	assert(move.Keys or move.Clip, path .. " needs Keys or a Clip")
 	local previous = {}
 
-	for i, frame in ipairs(move.Keys) do
+	for i, frame in ipairs(move.Keys or {}) do
 		local at = path .. ".Keys[" .. i .. "]"
 		assert(
 			type(frame[1]) == "number" and frame[1] >= 0 and frame[1] <= 1,
@@ -162,6 +166,8 @@ local function validate_move(move, poses, path)
 
 				if kind == "number" then
 					assert(type(value) == "number", at .. "." .. key .. " must be a number")
+				elseif kind == "string" then
+					assert(type(value) == "string", at .. "." .. key .. " must be a string")
 				else
 					check_numbers(value, kind, at .. "." .. key)
 				end
@@ -200,6 +206,7 @@ function movesets.Register(name, def, path)
 	def.Poses = nil
 	def.Name = name
 	def.ComboWindow = def.ComboWindow or 0.5
+	def.Combo = def.Combo or {}
 
 	for move_name, move in pairs(def.Moves) do
 		move.Name = move_name
@@ -285,6 +292,7 @@ do
 		"Branch",
 		"Next",
 		"Face",
+		"Clip",
 		"PoseWeapon",
 		"Group",
 		"Legs",
@@ -393,10 +401,10 @@ function movesets.Anchor(frame, point)
 	return frame
 end
 
-function movesets.NewFrame(holder, move, frame)
+function movesets.NewFrame(holder, move, frame, target)
 	local center = actors.GetCenter(holder)
 	local forward = actors.GetForward(holder)
-	local target = movesets.FindTarget(holder, center, forward, move.Reach)
+	target = target or movesets.FindTarget(holder, center, forward, move.Reach)
 	frame.target = target
 	frame.start = center:Copy()
 	frame.forward = forward

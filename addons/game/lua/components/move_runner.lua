@@ -13,14 +13,14 @@ function META:IsPlaying()
 	return self.move ~= nil
 end
 
-function META:Begin(move, duration, listener, authority)
+function META:Begin(move, duration, listener, authority, target)
 	local pose = self.Owner.character_pose
 	self.move = move
 	self.listener = listener
 	self.time = 0
 	self.duration = duration
 	self.next_event = 1
-	local frame = movesets.NewFrame(self.Owner, move, self.frame)
+	local frame = movesets.NewFrame(self.Owner, move, self.frame, target)
 	pose:SetFocusOn(frame.target, frame.point)
 	self.predicted_focus = pose.FocusPoint
 
