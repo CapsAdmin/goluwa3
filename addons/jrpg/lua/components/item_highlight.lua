@@ -8,6 +8,7 @@ local render3d = import("goluwa/render3d/render3d.lua")
 local effect_exposure = import("lua/jrpg/effect_exposure.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local visual_bounds = import("lua/visual_bounds.lua")
+local damage_types = import("lua/jrpg/damage_types.lua")
 local weapon_stats = import("lua/jrpg/weapon_stats.lua")
 local META = objects.CreateTemplate("item_highlight")
 META:StartStorable()
@@ -22,6 +23,8 @@ local RIBBONS = 3
 local bounds
 local points = Beam.NewPoints(POINTS)
 local glow_points = Beam.NewPoints(2)
+local HELD_INTENSITY = 0.6
+local EMPTY = {}
 local GLOW_STRENGTH = 0.8
 local GLOW_SCALES = {1, 0.45}
 local glow_color = Color(1, 1, 1, 1)
@@ -103,25 +106,33 @@ function META:Build()
 	self.emitter:SetTransient(true)
 end
 
-function META:SetOverlayVisible(visible)
+function META:SetOverlay(dropped, attributes)
 	for _, handle in ipairs(self.overlays) do
 		handle:Remove()
 	end
 
 	table.clear(self.overlays)
-	self.overlay_visible = visible
+	self.overlay_dropped = dropped
+	self.overlay_attributes = attributes
+	local name, config
 
-	if not visible then return end
-
-	local color = self:GetHighlightColor()
-	local config = {
-		ColorA = color,
-		ColorB = Color(color.r * 0.4 + 0.6, color.g * 0.4 + 0.6, color.b * 0.4 + 0.6, 1),
-	}
+	if dropped then
+		local color = self:GetHighlightColor()
+		name = "item_highlight"
+		config = {
+			ColorA = color,
+			ColorB = Color(color.r * 0.4 + 0.6, color.g * 0.4 + 0.6, color.b * 0.4 + 0.6, 1),
+		}
+	elseif #attributes > 0 then
+		name = damage_types.Get(attributes[1]).Overlay
+		config = {ColorA = damage_types.MixColor(attributes), Intensity = HELD_INTENSITY}
+	else
+		return
+	end
 
 	for _, child in ipairs(self.Owner:GetChildrenList()) do
 		if child.visual then
-			self.overlays[#self.overlays + 1] = surface_overlays.Add(child.visual, "item_highlight", config)
+			self.overlays[#self.overlays + 1] = surface_overlays.Add(child.visual, name, config)
 		end
 	end
 end
@@ -129,7 +140,7 @@ end
 function META:OnEntityConstructed()
 	if not self.overlays then return end
 
-	self:SetOverlayVisible(self:IsShown())
+	self:SetOverlay(self:IsShown(), self.Owner.weapon.Attributes)
 end
 
 function META:IsDropped()
@@ -151,8 +162,17 @@ function META:OnUpdate(dt)
 	if not self.beams then self:Build() end
 
 	local dropped = self:IsShown() and self:GetAnchor() ~= nil
+	local attributes = self.Owner.weapon.Attributes
 
-	if self.overlay_visible ~= dropped then self:SetOverlayVisible(dropped) end
+	if
+		self.overlay_dropped ~= dropped or
+		(
+			not dropped and
+			self.overlay_attributes ~= attributes
+		)
+	then
+		self:SetOverlay(dropped, attributes)
+	end
 
 	for _, beam in ipairs(self.beams) do
 		beam:SetVisible(dropped)
@@ -213,7 +233,7 @@ function META:OnRemove()
 end
 
 function META:Destroy()
-	self:SetOverlayVisible(false)
+	self:SetOverlay(false, EMPTY)
 
 	for _, beam in ipairs(self.beams) do
 		beam:Remove()
