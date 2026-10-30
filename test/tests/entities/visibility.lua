@@ -123,3 +123,18 @@ T.Test("Lights and water volumes leave the scene while their entity is hidden an
 	T(late.light_point.registered)["=="](false)
 	root:Remove()
 end)
+
+T.Test("A removed light is not registered again by visibility events before it is cleared", function()
+	local Light = import("goluwa/entities/components/light.lua")
+	local lamp = Entity.New{transform = {}, visibility = {}, light_point = {Lumen = 100}}
+	local light = lamp.light_point
+	light:Remove()
+	lamp.visibility:SetVisible(false)
+	lamp.visibility:SetVisible(true)
+
+	for _, other in ipairs(Light.GetInstances()) do
+		T(other ~= light)["=="](true)
+	end
+
+	lamp:Remove()
+end)

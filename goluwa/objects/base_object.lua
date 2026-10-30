@@ -357,7 +357,7 @@ function META:CallLocalEvent(what, a, b, c, d, e, f, g)
 
 	if self.component_list then
 		for _, component in ipairs(self.component_list) do
-			if component[what] then
+			if component[what] and not component.__removed then
 				local ret = component[what](component, a, b, c, d, e, f, g)
 
 				if ret ~= nil then return ret end
