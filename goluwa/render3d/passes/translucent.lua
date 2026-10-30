@@ -616,6 +616,7 @@ local passes = {
 					bool traced_only = false;
 					#ifdef SCENE_REFLECTION
 					float traced_weight = 1.0 - smoothstep(lighting_data.reflection_gi_start, lighting_data.reflection_gi_end, clamp(perceptual_roughness, 0.0, 1.0));
+					if (!refractive && perceptual_roughness > SCENE_REFLECTION_MIRROR_THRESHOLD) traced_weight = 0.0;
 					traced_only = traced_weight >= 1.0 && scene_reflection_ready();
 					#endif
 					float sky_visibility = 1.0;
@@ -635,7 +636,7 @@ local passes = {
 					float reflection_limit = 0.0;
 					#ifdef SCENE_REFLECTION
 					if (traced_weight > 0.0 && scene_reflection_ready()) {
-						reflection_rays = scene_reflection_ray_count(perceptual_roughness, lighting_data.rough_rays);
+						reflection_rays = refractive ? scene_reflection_ray_count(perceptual_roughness, lighting_data.rough_rays) : 1;
 						reflection_limit = scene_reflection_hit_luminance_limit(perceptual_roughness, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), lighting_data.reflection_gi_end);
 					}
 					#endif
