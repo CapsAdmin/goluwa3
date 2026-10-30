@@ -6,6 +6,7 @@ local movesets = {}
 movesets.Registered = {}
 movesets.ByAction = {}
 movesets.Source = {}
+movesets.Paths = {}
 local TARGET_CONE = 0.35
 local TARGET_CLOSE = 1.2
 local VIRTUAL_APPROACH = 1.5
@@ -191,8 +192,9 @@ function movesets.Validate(name, def)
 	end
 end
 
-function movesets.Register(name, def)
+function movesets.Register(name, def, path)
 	movesets.Validate(name, def)
+	movesets.Paths[name] = path or movesets.Paths[name]
 	movesets.Source[name] = table.copy(def)
 	local poses = def.Poses
 	def.Poses = nil
@@ -295,14 +297,14 @@ do
 
 	function movesets.Reload(name)
 		local path = assert(
-			vfs.GetAbsolutePath("lua/jrpg/movesets/" .. name .. ".lua"),
+			movesets.Paths[name] and vfs.GetAbsolutePath(movesets.Paths[name]),
 			"there is no file for moveset " .. name
 		)
 		return movesets.Update(name, assert(loadfile(path))())
 	end
 
 	function movesets.Save(name)
-		local path = vfs.GetAbsolutePath("lua/jrpg/movesets/" .. name .. ".lua")
+		local path = movesets.Paths[name] and vfs.GetAbsolutePath(movesets.Paths[name])
 		assert(path, "there is no file for moveset " .. name)
 		local file = assert(io.open(path, "wb"))
 		file:write(table.to_source(movesets.Source[name], KEY_PRIORITY))

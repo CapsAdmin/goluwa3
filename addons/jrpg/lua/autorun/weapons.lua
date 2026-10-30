@@ -1,6 +1,6 @@
 local weapons = import("lua/weapons.lua")
 local keyframes = import("lua/keyframes.lua")
-local movesets = import("lua/jrpg/movesets.lua")
+local movesets = import("lua/movesets.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 import("lua/jrpg/weapon_stats.lua")
 import("lua/jrpg/stagger.lua")
@@ -12,7 +12,8 @@ for name, def in pairs(import("lua/animations/stagger.lua")) do
 end
 
 for _, name in ipairs{"sword", "greatsword", "rapier", "reaper"} do
-	movesets.Register(name, import("lua/jrpg/movesets/" .. name .. ".lua"))
+	local path = "lua/jrpg/movesets/" .. name .. ".lua"
+	movesets.Register(name, import(path), path)
 end
 
 for _, name in ipairs{"sword", "greatsword", "rapier", "reaper", "shield", "slash_debug"} do

@@ -1,6 +1,6 @@
 local keyframes = import("lua/keyframes.lua")
 local animations = import("lua/animations.lua")
-local movesets = import("lua/jrpg/movesets.lua")
+local movesets = import("lua/movesets.lua")
 local move_edit = {}
 move_edit.EventDefaults = {
 	hit = {Cut = {0, 0, 1}},

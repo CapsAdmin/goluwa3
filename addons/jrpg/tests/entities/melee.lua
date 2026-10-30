@@ -12,7 +12,7 @@ import("addons/game/lua/autorun/characters.lua")
 import("addons/jrpg/lua/autorun/weapons.lua")
 import("addons/jrpg/lua/autorun/jrpg.lua")
 local damage = import("lua/damage.lua")
-local movesets = import("lua/jrpg/movesets.lua")
+local movesets = import("lua/movesets.lua")
 
 local function create_character(position, health, ragdoll)
 	local entity = Entity.New{

@@ -1,6 +1,6 @@
 local T = import("test/environment.lua")
 local keyframes = import("lua/keyframes.lua")
-local movesets = import("lua/jrpg/movesets.lua")
+local movesets = import("lua/movesets.lua")
 local move_edit = import("lua/jrpg/move_edit.lua")
 import("addons/jrpg/lua/autorun/weapons.lua")
 
