@@ -174,24 +174,32 @@ function manifold.ApplyRestitution(body_a, body_b, normal, manifold_data, dt)
 	end
 end
 
-function manifold.PruneOld(manifolds, step_stamp, prune_steps)
-	for body_a, row in pairs(manifolds or {}) do
-		for body_b, pair_manifold in pairs(row or {}) do
-			if
-				not pair_manifold.last_seen_step or
-				pair_manifold.last_seen_step < step_stamp - prune_steps
-			then
-				row[body_b] = nil
+do
+	local function remove_row_entry(manifolds, body_a, body_b, pair_manifold)
+		local row = manifolds[body_a]
 
-				if manifolds[body_b] then
-					manifolds[body_b][body_a] = nil
+		if not row or row[body_b] ~= pair_manifold then return end
 
-					if not next(manifolds[body_b]) then manifolds[body_b] = nil end
-				end
-			end
-		end
+		row[body_b] = nil
 
 		if not next(row) then manifolds[body_a] = nil end
+	end
+
+	function manifold.PruneOld(solver, step_stamp, prune_steps)
+		local manifolds = solver.PersistentManifolds
+		local list = solver.PersistentManifoldList
+		local oldest = step_stamp - prune_steps
+
+		for i = #list, 1, -1 do
+			local pair_manifold = list[i]
+
+			if not pair_manifold.last_seen_step or pair_manifold.last_seen_step < oldest then
+				remove_row_entry(manifolds, pair_manifold.pair_a, pair_manifold.pair_b, pair_manifold)
+				remove_row_entry(manifolds, pair_manifold.pair_b, pair_manifold.pair_a, pair_manifold)
+				list[i] = list[#list]
+				list[#list] = nil
+			end
+		end
 	end
 end
 

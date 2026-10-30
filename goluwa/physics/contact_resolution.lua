@@ -56,9 +56,18 @@ end
 
 contact_resolution.GetPairManifold = get_pair_manifold
 
-local function set_pair_manifold(manifolds, body_a, body_b, manifold)
-	get_or_create_manifold_row(manifolds, body_a)[body_b] = manifold
+local function set_pair_manifold(solver, body_a, body_b, manifold)
+	local manifolds = solver.PersistentManifolds
+	local row_a = get_or_create_manifold_row(manifolds, body_a)
+
+	if row_a[body_b] == manifold then return end
+
+	row_a[body_b] = manifold
 	get_or_create_manifold_row(manifolds, body_b)[body_a] = manifold
+	manifold.pair_a = body_a
+	manifold.pair_b = body_b
+	local list = solver.PersistentManifoldList
+	list[#list + 1] = manifold
 end
 
 local function refresh_pair_materials(solver, body_a, body_b, manifold)
@@ -503,7 +512,7 @@ function contact_resolution.ResolvePairClusters(body_a, body_b, clusters, cluste
 	head.solve_a = body_a
 	head.solve_b = body_b
 	store_rebuild_pose(head, body_a, body_b)
-	set_pair_manifold(solver.PersistentManifolds, body_a, body_b, head)
+	set_pair_manifold(solver, body_a, body_b, head)
 	contact_resolution.EnqueueManifold(body_a, body_b, head)
 	return true
 end
@@ -528,7 +537,7 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 		local manifold = get_pair_manifold(solver.PersistentManifolds, body_a, body_b) or {}
 		fill_manifold(manifold, body_a, body_b, normal, overlap, contacts, options, solver)
 		store_rebuild_pose(manifold, body_a, body_b)
-		set_pair_manifold(solver.PersistentManifolds, body_a, body_b, manifold)
+		set_pair_manifold(solver, body_a, body_b, manifold)
 		contact_resolution.EnqueueManifold(body_a, body_b, manifold)
 		return true
 	end

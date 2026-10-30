@@ -183,6 +183,7 @@ function Solver.New(config)
 	self.STATIC_FRICTION_SPEED = config.STATIC_FRICTION_SPEED or self.STATIC_FRICTION_SPEED or 0.08
 	self.STATIC_FRICTION_EXIT_SPEED = config.STATIC_FRICTION_EXIT_SPEED or self.STATIC_FRICTION_EXIT_SPEED or 0.12
 	self.PersistentManifolds = table.weak("k")
+	self.PersistentManifoldList = {}
 	self.PositionPairCount = 0
 	self.PositionPairsA = {}
 	self.PositionPairsB = {}
@@ -203,6 +204,7 @@ function Solver:ResetState()
 	table.clear(self.PositionPairsB)
 	table.clear(self.PositionPairManifolds)
 	table.clear(self.PersistentManifolds)
+	list.clear(self.PersistentManifoldList)
 end
 
 function Solver:GetPairRestitution(body_a, body_b)
@@ -252,7 +254,7 @@ function Solver:BeginStep(collide, dt)
 
 	self.PositionPairCount = 0
 	manifolds.PruneOld(
-		self.PersistentManifolds,
+		self,
 		self.StepStamp,
 		self.MANIFOLD_PRUNE_STEPS or Solver.MANIFOLD_PRUNE_STEPS
 	)
