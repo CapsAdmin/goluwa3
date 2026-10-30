@@ -142,6 +142,30 @@ local function get_pair_key(entry_a, entry_b)
 	return id_b * PAIR_KEY_ID_LIMIT + id_a
 end
 
+local function add_overflow_hit(hits, entry, other)
+	local ordered = hits.ordered
+	local pair = {
+		entry_a = other.id < entry.id and other or entry,
+		entry_b = other.id < entry.id and entry or other,
+		hit_index = #ordered + 1,
+	}
+	ordered[pair.hit_index] = pair
+	hits.by_id[other.id] = pair
+end
+
+local function remove_overflow_hit(hits, id)
+	local pair = hits.by_id[id]
+
+	if not pair then return end
+
+	hits.by_id[id] = nil
+	local ordered = hits.ordered
+	local last = ordered[#ordered]
+	ordered[pair.hit_index] = last
+	last.hit_index = pair.hit_index
+	ordered[#ordered] = nil
+end
+
 local function remove_entry_from_overflow(self, entry)
 	if not entry.is_overflow then return end
 
@@ -373,7 +397,7 @@ local function destroy_entry(self, entry)
 	for i = 1, #self.OverflowEntries do
 		local hits = self.OverflowEntries[i].overflow_hits
 
-		if hits then hits[entry.id] = nil end
+		if hits then remove_overflow_hit(hits, entry.id) end
 	end
 
 	self.BodyEntries[entry.body] = nil
@@ -670,23 +694,21 @@ function Broadphase:GetCandidatePairs(out)
 		local hits = entry.overflow_hits
 
 		if not hits then
-			hits = {}
+			hits = {by_id = {}, ordered = {}}
 			entry.overflow_hits = hits
 			entry.overflow_dirty = true
 		end
 
 		if entry.overflow_dirty then
 			entry.overflow_dirty = false
-			table.clear(hits)
+			table.clear(hits.by_id)
+			list.clear(hits.ordered)
 
 			for j = 1, #entries do
 				local other = entries[j]
 
 				if other ~= entry and is_pair_candidate(entry, other) then
-					hits[other.id] = {
-						entry_a = other.id < entry.id and other or entry,
-						entry_b = other.id < entry.id and entry or other,
-					}
+					add_overflow_hit(hits, entry, other)
 				end
 			end
 		else
@@ -695,20 +717,18 @@ function Broadphase:GetCandidatePairs(out)
 
 				if other ~= entry then
 					if is_pair_candidate(entry, other) then
-						if not hits[other.id] then
-							hits[other.id] = {
-								entry_a = other.id < entry.id and other or entry,
-								entry_b = other.id < entry.id and entry or other,
-							}
-						end
+						if not hits.by_id[other.id] then add_overflow_hit(hits, entry, other) end
 					else
-						hits[other.id] = nil
+						remove_overflow_hit(hits, other.id)
 					end
 				end
 			end
 		end
 
-		for other_id, pair in pairs(hits) do
+		local ordered = hits.ordered
+
+		for j = 1, #ordered do
+			local pair = ordered[j]
 			local other = pair.entry_a == entry and pair.entry_b or pair.entry_a
 
 			if not other.is_overflow or entry.id < other.id then
