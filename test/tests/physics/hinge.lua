@@ -73,6 +73,42 @@ T.TestPhysics("Hinge to the world swings like a pendulum without stretching", fu
 	T(lowest)["<"](3.2)
 end)
 
+T.TestPhysics("Hinge spring pulls the angle back to its neutral angle and softens only near the limit", function()
+	physics.RemoveAllConstraints()
+	local ent, body = spawn_box(
+		"hinge_spring",
+		Vec3(2, 5, 0),
+		Vec3(0.4, 0.4, 0.4),
+		{
+			Mass = 1,
+			AutomaticMass = false,
+			GravityScale = 0,
+		}
+	)
+	local hinge = HingeConstraint.New(nil, body, Vec3(2, 5, 0), Vec3(0, 0, 1), {LowerAngle = -1.5, UpperAngle = 1.5})
+	hinge:SetSpring(0, 1, 4, 1, 0.35)
+	body:SetAngularVelocity(Vec3(0, 0, 3))
+	local peak = 0
+
+	for _ = 1, 120 do
+		physics.Update(1 / 120)
+		peak = math.max(peak, math.abs(hinge:GetAngle()))
+	end
+
+	for _ = 1, 480 do
+		body:Wake()
+		physics.Update(1 / 120)
+	end
+
+	local settled = math.abs(hinge:GetAngle())
+	local lower, upper = hinge.LowerAngle, hinge.UpperAngle
+	hinge:Remove()
+	ent:Remove()
+	T(peak)[">"](0.1)
+	T(peak)["<"](upper)
+	T(settled)["<"](0.05)
+end)
+
 T.TestPhysics("Hinged wheel rolls freely about its axis and is pinned to the body", function()
 	physics.RemoveAllConstraints()
 	local ground_ent = spawn_box(
@@ -290,4 +326,41 @@ T.TestPhysics("Car with hinged wheels rolls down a ramp and topples a stack of b
 	T(stack_hit)["=="](true)
 	T(top_position.y)["<"](2.6)
 	T(math.abs(top_position.x - 7) > 0.7 or top_up.y < 0.9)["=="](true)
+end)
+
+local function swing_into_limit(spring)
+	physics.RemoveAllConstraints()
+	local ent, body = spawn_box(
+		"hinge_landing",
+		Vec3(0.3, 5, 0),
+		Vec3(0.6, 0.15, 0.15),
+		{Mass = 1, AutomaticMass = false, GravityScale = 1}
+	)
+	local hinge = HingeConstraint.New(nil, body, Vec3(0, 5, 0), Vec3(0, 0, 1), {LowerAngle = -1.4, UpperAngle = 0.2})
+
+	if spring then hinge:SetSpring(0, 1, 12, 2, 0.5) end
+
+	local arrival = nil
+
+	for _ = 1, 360 do
+		body:Wake()
+		physics.Update(1 / 120)
+
+		if not arrival and hinge:GetAngle() < -1.4 + 0.03 then
+			arrival = math.abs(body:GetAngularVelocity().z)
+		end
+	end
+
+	local final = hinge:GetAngle()
+	hinge:Remove()
+	ent:Remove()
+	return arrival, final
+end
+
+T.TestPhysics("Hinge spring slows a swing down before the limit so it lands softly", function()
+	local hard_arrival = swing_into_limit(false)
+	local soft_arrival, final = swing_into_limit(true)
+	T(hard_arrival ~= nil)["=="](true)
+	T(soft_arrival == nil or soft_arrival < hard_arrival * 0.5)["=="](true)
+	T(final > -1.4 - 0.05)["=="](true)
 end)

@@ -15,6 +15,12 @@ function META.New(body_0, body_1, world_anchor, world_axis, config)
 		UpperAngle = config.UpperAngle,
 		MotorSpeed = config.MotorSpeed or 0,
 		MaxMotorTorque = config.MaxMotorTorque or 0,
+		NeutralAngle = config.NeutralAngle,
+		SpringHertz = config.SpringHertz or 0,
+		SpringLimitHertz = config.SpringLimitHertz or 0,
+		SpringDamping = config.SpringDamping or 1,
+		SpringZone = config.SpringZone or 0.35,
+		SpringImpulse = 0,
 		Friction = config.Friction or 0,
 		Angle = 0,
 		RawAngle = 0,
@@ -31,6 +37,15 @@ end
 function META:SetLimits(lower, upper)
 	self.LowerAngle = lower
 	self.UpperAngle = upper
+	return self
+end
+
+function META:SetSpring(neutral_angle, hertz, limit_hertz, damping, zone)
+	self.NeutralAngle = neutral_angle
+	self.SpringHertz = hertz
+	self.SpringLimitHertz = limit_hertz
+	self.SpringDamping = damping
+	self.SpringZone = zone
 	return self
 end
 
@@ -52,7 +67,7 @@ function META:WarmStart()
 	self:UpdateAngle(s0, s1)
 	local point = self.PointImpulse
 	local axis = self.AxisImpulse
-	local along = self.FrictionImpulse + self.MotorImpulse + self.LowerImpulse - self.UpperImpulse
+	local along = self.FrictionImpulse + self.MotorImpulse + self.LowerImpulse - self.UpperImpulse + self.SpringImpulse
 	local ax, ay, az = s0.xx * along, s0.xy * along, s0.xz * along
 	rows.RemoveAxis(axis, s0.xx, s0.xy, s0.xz)
 	rows.WarmStartPoint(s0, s1, point)
@@ -119,6 +134,31 @@ function META:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 
 	local lower = self.LowerAngle
 	local upper = self.UpperAngle
+	local neutral = self.NeutralAngle
+
+	if neutral then
+		local before = self.SpringImpulse
+		self.SpringImpulse = rows.SpringRow(
+			s0,
+			s1,
+			ax,
+			ay,
+			az,
+			self:UpdateAngle(s0, s1),
+			neutral,
+			lower,
+			upper,
+			dt,
+			relax,
+			self.SpringHertz,
+			self.SpringLimitHertz,
+			self.SpringDamping,
+			self.SpringZone,
+			before
+		)
+		local delta = self.SpringImpulse - before
+		self:AddAngularImpulse(ax * delta, ay * delta, az * delta)
+	end
 
 	if lower or upper then
 		local angle = self:UpdateAngle(s0, s1)

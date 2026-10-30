@@ -24,12 +24,27 @@ function META.New(body_0, body_1, world_anchor, world_axis, config)
 		SwingZMax = config.SwingZMax,
 		TwistFriction = config.TwistFriction or 0,
 		SwingFriction = config.SwingFriction or 0,
+		NeutralAngles = config.NeutralAngles,
+		SpringHertz = config.SpringHertz or 0,
+		SpringLimitHertz = config.SpringLimitHertz or 0,
+		SpringDamping = config.SpringDamping or 1,
+		SpringZone = config.SpringZone or 0.35,
+		SpringImpulses = {0, 0, 0},
 		LowerImpulses = {0, 0, 0},
 		UpperImpulses = {0, 0, 0},
 		FrictionImpulses = {0, 0, 0},
 		PointImpulse = {0, 0, 0},
 	}
 	return self:SetupFrames(body_0, body_1, world_anchor, rows.FrameFromAxis(world_axis))
+end
+
+function META:SetSpring(neutral_angles, hertz, limit_hertz, damping, zone)
+	self.NeutralAngles = neutral_angles
+	self.SpringHertz = hertz
+	self.SpringLimitHertz = limit_hertz
+	self.SpringDamping = damping
+	self.SpringZone = zone
+	return self
 end
 
 function META:WarmStart()
@@ -41,7 +56,7 @@ function META:WarmStart()
 	self:AddLinearImpulse(point[1], point[2], point[3])
 
 	for axis = 1, 3 do
-		local along = self.FrictionImpulses[axis] + self.LowerImpulses[axis] - self.UpperImpulses[axis]
+		local along = self.FrictionImpulses[axis] + self.LowerImpulses[axis] - self.UpperImpulses[axis] + self.SpringImpulses[axis]
 		local ax, ay, az
 
 		if axis == 1 then
@@ -95,6 +110,31 @@ function META:Solve(dt, relax, joint_bias_rate, joint_impulse_scale)
 		local angle = axis == 1 and angles_0 or axis == 2 and angles_1 or angles_2
 		local lower = self[keys[1]]
 		local upper = self[keys[2]]
+		local neutral = self.NeutralAngles
+
+		if neutral then
+			local before = self.SpringImpulses[axis]
+			local after = rows.SpringRow(
+				s0,
+				s1,
+				ax,
+				ay,
+				az,
+				angle,
+				neutral[axis],
+				lower,
+				upper,
+				dt,
+				relax,
+				self.SpringHertz,
+				self.SpringLimitHertz,
+				self.SpringDamping,
+				self.SpringZone,
+				before
+			)
+			self.SpringImpulses[axis] = after
+			self:AddAngularImpulse(ax * (after - before), ay * (after - before), az * (after - before))
+		end
 
 		if lower then
 			local bias, scale, impulse_scale = rows.GetLimitSoftness(

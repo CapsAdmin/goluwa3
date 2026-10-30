@@ -633,4 +633,60 @@ function rows.GetLimitSoftness(gap, dt, relax, bias_rate, soft_mass_scale, soft_
 	return bias_rate * gap, soft_mass_scale, soft_impulse_scale
 end
 
+-- a soft spring towards a rest angle for a joint with limits: within `zone` (a share of half the range) of a limit its frequency rises from `hertz` to
+-- `limit_hertz` with the square of how deep in the zone the angle is, and its damping doubles, so a limb lands on a limit instead of hitting it. The rest
+-- angle is held out of the zone: a rest angle on a limit pulls to the edge of the zone, never into the limit. It is not solved in the relax pass (that
+-- pass drives the relative speed of its row to zero, which would damp the spring dead)
+function rows.SpringRow(
+	s0,
+	s1,
+	x,
+	y,
+	z,
+	angle,
+	rest,
+	lower,
+	upper,
+	dt,
+	relax,
+	hertz,
+	limit_hertz,
+	damping,
+	zone,
+	accumulated
+)
+	if relax then return accumulated end
+
+	local width = (upper and lower) and (upper - lower) / 2 * zone or math.pi * zone
+	local depth = 0
+
+	if lower then depth = math.max(depth, 1 - (angle - lower) / width) end
+
+	if upper then depth = math.max(depth, 1 - (upper - angle) / width) end
+
+	depth = math.min(math.max(depth, 0), 1)
+
+	if lower and upper then
+		rest = math.min(math.max(rest, lower + width), math.max(upper - width, lower + width))
+	end
+
+	local omega = 2 * math.pi * math.min(hertz + (limit_hertz - hertz) * depth * depth, 0.25 / dt)
+	local a1 = 2 * damping * (1 + depth) + dt * omega
+	local a2 = dt * omega * a1
+	return rows.AngularRow(
+		s0,
+		s1,
+		x,
+		y,
+		z,
+		0,
+		omega / a1 * (angle - rest),
+		a2 / (1 + a2),
+		1 / (1 + a2),
+		accumulated,
+		-math.huge,
+		math.huge
+	)
+end
+
 return rows
