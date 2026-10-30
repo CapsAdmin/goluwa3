@@ -196,6 +196,22 @@ T.TestPhysics("using a ragdoll hitbox uses the character it belongs to", functio
 	T(use.Resolve(character) == character)["=="](true)
 end)
 
+T.TestPhysics("use falls back to the usable closest to the view direction", function()
+	local use = import("goluwa/entities/use.lua")
+	local user = Entity.New{transform = {}}
+	local near = Entity.New{transform = {Position = Vec3(0.3, 0, -2)}, usable = {}}
+	local centered = Entity.New{transform = {Position = Vec3(0, 0, -2.2)}, usable = {}}
+	local behind = Entity.New{transform = {Position = Vec3(0, 0, 2)}, usable = {}}
+	local origin = Vec3(0, 0, 0)
+	local hit = use.Find(user, origin, Vec3(0, 0, -1))
+	T(hit.entity == centered)["=="](true)
+	centered.usable:SetEnabled(false)
+	T(use.Find(user, origin, Vec3(0, 0, -1)).entity == near)["=="](true)
+	near.usable:SetEnabled(false)
+	T(use.Find(user, origin, Vec3(0, 0, -1)) == nil)["=="](true)
+	T(use.Find(user, origin, Vec3(0, 0, 1)).entity == behind)["=="](true)
+end)
+
 T.TestPhysics("an enemy npc cannot be told to follow", function()
 	create_ground()
 	local entity = create_npc(Vec3(0, 0.05, 0), {Faction = "enemy"})

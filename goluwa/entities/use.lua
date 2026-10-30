@@ -44,8 +44,13 @@ function use.Trace(user, origin, direction)
 	}
 end
 
-function use.Press(user, origin, direction)
+function use.Find(user, origin, direction)
 	local hit = use.Trace(user, origin, direction)
+	return event.Call("FindUseFallback", user, origin, direction, hit) or hit
+end
+
+function use.Press(user, origin, direction)
+	local hit = use.Find(user, origin, direction)
 
 	if not hit then return end
 
