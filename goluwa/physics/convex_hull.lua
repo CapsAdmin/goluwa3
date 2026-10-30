@@ -350,12 +350,11 @@ local function build_faces(points, plane_groups, plane_epsilon, epsilon)
 	local faces = {}
 	local indices = {}
 
-	for _, group in pairs(plane_groups) do
-		local face_indices = {}
+	for _, group in ipairs(plane_groups) do
+		local face_indices = group.vertices
 		local face_center = Vec3(0, 0, 0)
 
-		for index in pairs(group.vertices) do
-			face_indices[#face_indices + 1] = index
+		for _, index in ipairs(face_indices) do
 			face_center = face_center + points[index]
 		end
 
@@ -414,6 +413,7 @@ local function build_convex_hull(points, epsilon)
 
 	centroid = centroid / #points
 	local plane_groups = {}
+	local plane_group_by_key = {}
 	local plane_epsilon = math.max(epsilon * 4, 0.000000001)
 
 	for i = 1, #points - 2 do
@@ -453,20 +453,26 @@ local function build_convex_hull(points, epsilon)
 
 				local plane_distance = normal:Dot(a)
 				local key = vec3_key(normal, plane_epsilon) .. ":" .. quantize(plane_distance, plane_epsilon)
-				local group = plane_groups[key]
+				local group = plane_group_by_key[key]
 
 				if not group then
 					group = {
 						normal = normal,
 						distance = plane_distance,
 						vertices = {},
+						vertex_set = {},
 					}
-					plane_groups[key] = group
+					plane_group_by_key[key] = group
+					plane_groups[#plane_groups + 1] = group
 				end
 
 				for m = 1, #points do
-					if math.abs(points[m]:Dot(group.normal) - group.distance) <= plane_epsilon then
-						group.vertices[m] = true
+					if
+						not group.vertex_set[m] and
+						math.abs(points[m]:Dot(group.normal) - group.distance) <= plane_epsilon
+					then
+						group.vertex_set[m] = true
+						group.vertices[#group.vertices + 1] = m
 					end
 				end
 
@@ -549,21 +555,23 @@ function convex_hull.BuildFromPlanes(points, planes, epsilon)
 	if #points < 4 then return nil end
 
 	local plane_groups = {}
+	local plane_group_by_key = {}
 	local plane_epsilon = math.max(epsilon * 4, 0.000000001)
 
 	for _, plane in ipairs(planes) do
 		local key = vec3_key(plane.normal, plane_epsilon) .. ":" .. quantize(plane.dist, plane_epsilon)
 
-		if not plane_groups[key] then
+		if not plane_group_by_key[key] then
 			local group = {normal = plane.normal, distance = plane.dist, vertices = {}}
 
 			for m = 1, #points do
 				if math.abs(points[m]:Dot(plane.normal) - plane.dist) <= plane_epsilon then
-					group.vertices[m] = true
+					group.vertices[#group.vertices + 1] = m
 				end
 			end
 
-			plane_groups[key] = group
+			plane_group_by_key[key] = group
+			plane_groups[#plane_groups + 1] = group
 		end
 	end
 
