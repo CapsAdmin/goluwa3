@@ -20,6 +20,8 @@ local KEY_TEXT = Color(0.1, 0.1, 0.1, 1)
 local current
 local last_center
 local last_prompt = ""
+local last_name
+local last_name_color = TEXT
 local alpha = 0
 
 local function draw_reticle(x, y, size, a)
@@ -58,6 +60,8 @@ event.AddListener("DrawHUD", "use_hud", function()
 		current = usable
 		last_prompt = usable.Prompt
 		local owner = usable.Owner
+		last_name = owner.weapon and owner.weapon:GetTitle()
+		last_name_color = event.Call("GetUseColor", owner) or TEXT
 		local box = visual_bounds.Get(owner, bounds) or
 			owner.rigid_body:GetBroadphaseAABB(nil, nil, bounds)
 		last_center = box:GetCenter()
@@ -85,7 +89,8 @@ event.AddListener("DrawHUD", "use_hud", function()
 	local text_w, text_h = render2d.GetTextSize(text, nil, TEXT_SIZE)
 	local key_w, key_h = render2d.GetTextSize(KEY, nil, TEXT_SIZE)
 	local box_w = key_w + KEY_PADDING * 2
-	local total = box_w + 14 + text_w
+	local name_w = last_name and render2d.GetTextSize(last_name, nil, TEXT_SIZE) or 0
+	local total = box_w + 14 + text_w + (last_name and 14 + name_w or 0)
 	local x = (w - total) / 2
 	local y = h / 3
 	render2d.SetTexture(nil)
@@ -110,4 +115,14 @@ event.AddListener("DrawHUD", "use_hud", function()
 		foreground_color = TEXT,
 		alpha = ease,
 	}
+	if last_name then
+		render2d.DrawText{
+			text = last_name,
+			x = x + box_w + 28 + text_w,
+			y = y,
+			size = TEXT_SIZE,
+			foreground_color = last_name_color,
+			alpha = ease,
+		}
+	end
 end)

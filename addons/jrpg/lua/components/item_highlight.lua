@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
 local Color = import("goluwa/structs/color.lua")
 local Beam = import("goluwa/render3d/beam.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -226,4 +227,10 @@ function META:Destroy()
 	self.beams = nil
 end
 
-return META:Register()
+META:Register()
+
+event.AddListener("GetUseColor", "item_highlight", function(entity)
+	return entity.item_highlight and entity.item_highlight:GetHighlightColor()
+end)
+
+return META

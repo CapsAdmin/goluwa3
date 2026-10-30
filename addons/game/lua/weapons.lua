@@ -20,7 +20,7 @@ function weapons.Register(name, values, nodes, source, script_values, components
 			guid = "root",
 			components = {
 				weapon = values,
-				usable = {Prompt = "pick up"},
+				usable = {Prompt = "take"},
 				script = {Source = source, Values = script_values},
 			},
 		},
