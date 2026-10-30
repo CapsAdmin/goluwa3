@@ -229,12 +229,14 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 		if self.clip_actions ~= pose.Actions then
 			self.clip_actions = pose.Actions
 			self.sequence = move.Clip
-			animator:SetLoop(false)
+			animator:SetLoop(move.ClipSpeed ~= nil)
 			animator:SetSequence(move.Clip)
 			animator:Restart()
 		end
 
-		animator:SetSpeed(clip.Duration / pose.ActionDuration * pose:GetTimeScale() * pose.rate_variation)
+		animator:SetSpeed(
+			(move.ClipSpeed or clip.Duration / pose.ActionDuration) * pose:GetTimeScale() * pose.rate_variation
+		)
 		return
 	end
 

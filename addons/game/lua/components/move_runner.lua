@@ -3,6 +3,9 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local movesets = import("lua/movesets.lua")
 local actors = import("lua/actors.lua")
 local META = objects.CreateTemplate("move_runner")
+local CRASH_GRACE = 0.4
+local CRASH_SPEED = 0.35
+local CRASH_TICKS = 6
 
 function META:Initialize()
 	self.frame = {}
@@ -20,6 +23,7 @@ function META:Begin(move, duration, listener, authority, target)
 	self.time = 0
 	self.duration = duration
 	self.next_event = 1
+	self.slow_ticks = 0
 	local frame = movesets.NewFrame(self.Owner, move, self.frame, target)
 	pose:SetFocusOn(frame.target, frame.point)
 	self.predicted_focus = pose.FocusPoint
@@ -73,11 +77,41 @@ function META:Step(dt, authority, early_cancel)
 	local event = move.Events[self.next_event]
 
 	while event and f >= event.At do
+		if event.Until and f < event.Until then
+			if authority and self.listener:OnMoveEvent(move, event, f) == "end" then
+				self.move = nil
+				return "finished", move
+			end
+
+			break
+		end
+
 		self.next_event = self.next_event + 1
 
-		if authority then self.listener:OnMoveEvent(move, event, f) end
+		if authority and self.listener:OnMoveEvent(move, event, f) == "end" then
+			self.move = nil
+			return "finished", move
+		end
 
 		event = move.Events[self.next_event]
+	end
+
+	if move.Speed then
+		if frame.distance - move.Speed * self.time <= movesets.MinGap then
+			self.move = nil
+			return "finished", move
+		end
+
+		if move.Crash and self.time > CRASH_GRACE then
+			local velocity = owner.rigid_body:GetVelocity()
+			local speed = math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z)
+			self.slow_ticks = speed < move.Speed * CRASH_SPEED and self.slow_ticks + 1 or 0
+
+			if self.slow_ticks >= CRASH_TICKS then
+				self.move = nil
+				return "blocked", move
+			end
+		end
 	end
 
 	if f >= (early_cancel and move.Cancel or 1) and not event then

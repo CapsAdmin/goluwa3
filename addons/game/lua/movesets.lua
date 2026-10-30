@@ -11,6 +11,7 @@ local TARGET_CONE = 0.35
 local TARGET_CLOSE = 1.2
 local VIRTUAL_APPROACH = 1.5
 local MIN_GAP = 0.45
+movesets.MinGap = MIN_GAP
 local SWING_LEAD = 0.14
 local SWING_TRAIL = 0.06
 
@@ -40,6 +41,9 @@ local MOVE_KEYS = {
 	Next = true,
 	Face = true,
 	Clip = true,
+	ClipSpeed = true,
+	Speed = true,
+	Crash = true,
 	PoseWeapon = true,
 	Group = true,
 	Legs = true,
@@ -52,7 +56,10 @@ local EVENT_TYPES = {
 		keys = {Cut = 3, Damage = "number", Range = "number", Swing = 2, Knock = 3},
 		required = {"Cut"},
 	},
-	strike = {keys = {Damage = "number", Range = "number", Force = "number"}, required = {"Damage", "Range"}},
+	strike = {
+		keys = {Damage = "number", Range = "number", Force = "number", Until = "number"},
+		required = {"Damage", "Range"},
+	},
 	cast = {keys = {Element = "string", Damage = "number"}, required = {"Element", "Damage"}},
 	latch = {keys = {Range = "number"}, required = {"Range"}},
 	release = {
@@ -115,6 +122,8 @@ local function validate_move(move, poses, path)
 
 	assert(type(move.Duration) == "number", path .. ".Duration must be a number")
 	assert(move.Clip == nil or type(move.Clip) == "string", path .. ".Clip must be a sequence name")
+	assert(move.ClipSpeed == nil or type(move.ClipSpeed) == "number", path .. ".ClipSpeed must be a number")
+	assert(move.Speed == nil or type(move.Speed) == "number", path .. ".Speed must be a number")
 	assert(move.Keys or move.Clip, path .. " needs Keys or a Clip")
 	local previous = {}
 
@@ -263,6 +272,10 @@ function movesets.Register(name, def, path)
 		if move.Branch then
 			move.Branch = assert(def.Moves[move.Branch], name .. " has no move " .. move.Branch)
 		end
+
+		if move.Crash then
+			move.Crash = assert(def.Moves[move.Crash], name .. " has no move " .. move.Crash)
+		end
 	end
 
 	movesets.Registered[name] = def
@@ -293,6 +306,9 @@ do
 		"Next",
 		"Face",
 		"Clip",
+		"ClipSpeed",
+		"Speed",
+		"Crash",
 		"PoseWeapon",
 		"Group",
 		"Legs",
@@ -373,11 +389,19 @@ do
 	function movesets.SampleMotion(move, f, frame, point, out)
 		animations.SampleKeys(move.MotionKeys, f, sample, 3)
 		local start = frame.distance
-		local distance = math.clamp(
-			math.lerp(sample[3], start, sample[2]),
-			start - move.Approach,
-			start + move.Retreat
-		)
+		local distance
+
+		if move.Speed then
+			distance = start - move.Speed * f * move.Duration
+			sample[1] = 0
+		else
+			distance = math.clamp(
+				math.lerp(sample[3], start, sample[2]),
+				start - move.Approach,
+				start + move.Retreat
+			)
+		end
+
 		distance = math.max(distance, MIN_GAP)
 		local c, s = math.cos(sample[1]), math.sin(sample[1])
 		local bearing, right = frame.bearing, frame.right
