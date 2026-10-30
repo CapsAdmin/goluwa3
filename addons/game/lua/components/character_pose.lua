@@ -699,7 +699,7 @@ function META:OnUpdate(dt)
 
 		local target_side, target_forward = 0, 0
 
-		if not dead and self.grounded and not seat then
+		if not dead and self.grounded and not seat and not (movement and movement.latch) then
 			local max_lean = pose_variation.MaxLean
 			target_side = math.clamp(
 				math.atan(self.acceleration_right / pose_variation.Gravity) * pose_variation.LeanSideGain,
