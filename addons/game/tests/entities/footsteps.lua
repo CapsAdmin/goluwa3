@@ -103,3 +103,34 @@ T.Test3D("a walking source npc fires alternating footstep impacts from its foot 
 	entity:Remove()
 	floor:Remove()
 end)
+
+T.Test3D("a walking zombie fires footstep impacts from its foot ik and plays its own footstep sounds", function()
+	steam.MountSourceGame("gmod")
+
+	if not vfs.IsFile("models/zombie/classic.mdl") then
+		return T.Unavailable("gmod content not mounted")
+	end
+
+	if not physics.instance then physics.Initialize() end
+
+	local floor = create_floor()
+	local entity = npcs.Spawn("zombie", Vec3(0, 0.05, 0), 0)
+	entity.ai_controller:SetWander(false)
+	local impacts = record_impacts(entity)
+
+	T.WaitUntil(function()
+		return entity.animator and entity.animator:GetRig() ~= nil
+	end, 30)
+
+	entity.ai_controller:MoveTo(Vec3(0, 0, -20), false)
+
+	T.WaitUntil(function()
+		return #impacts >= 6
+	end, 20)
+
+	event.RemoveListener("Impact", "footsteps_test")
+	check_steps(impacts, floor, 0.1, 4)
+	T(entity.npc_sounds.Sounds.Foot.Length)["=="](nil)
+	entity:Remove()
+	floor:Remove()
+end)

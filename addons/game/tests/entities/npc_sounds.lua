@@ -36,7 +36,7 @@ T.TestPhysics("a creature npc plays one footstep per step length it walks", func
 	end
 
 	local ground = create_ground()
-	local npc = npcs.Spawn("zombie", Vec3(0, 0.05, 0), 0)
+	local npc = npcs.Spawn("antlion", Vec3(0, 0.05, 0), 0)
 	npc.ai_controller:SetWander(false)
 	local sounds = npc.npc_sounds
 	local played = {}
@@ -55,7 +55,7 @@ T.TestPhysics("a creature npc plays one footstep per step length it walks", func
 
 	run(1)
 	T(#played)["=="](0)
-	npc.ai_controller:MoveTo(Vec3(8, 0.05, 0), false)
+	npc.ai_controller:MoveTo(Vec3(30, 0.05, 0), false)
 	local start = npc.transform:GetPosition():Copy()
 	run(6)
 	local walked = npc.transform:GetPosition():Distance(start)

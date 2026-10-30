@@ -141,6 +141,13 @@ end
 event.AddListener("Impact", "footsteps", function(info)
 	if info.Kind ~= "footstep" then return end
 
+	local voice = info.Entity.npc_sounds
+
+	if voice and voice.Sounds.Foot then
+		voice:Play("Foot", info.Position, math.clamp(info.Speed / LOUD_SPEED, QUIET, 1))
+		return
+	end
+
 	local set = get_set(info.Surface)
 	local index = math.random(#set)
 

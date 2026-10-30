@@ -21,6 +21,7 @@ META:GetSet("WalkSequence", "")
 META:GetSet("RunSequence", "")
 META:IsSet("Mirror", false)
 META:IsSet("OwnsArmature", false)
+META:IsSet("LegIK", false)
 META:GetSet("SocketProfile", "source_humanoid")
 META:EndStorable()
 local START_SPEED = 0.3
@@ -793,6 +794,34 @@ do
 	end
 end
 
+function META:UpdateCreatureLegs(rig, pose, dt)
+	local bones = self.bones
+	local ragdoll = self.character.source_ragdoll
+
+	for _, name in ipairs(aim_pose.Bones) do
+		if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
+	end
+
+	if ragdoll and ragdoll:IsDead() then return end
+
+	biped.ReadBones(rig, bones)
+	self:UpdateGroundSink(self.character, pose, dt)
+
+	for _, name in ipairs(aim_pose.Bones) do
+		bones[name].m31 = bones[name].m31 - self.ground_sink
+	end
+
+	if pose.legs then self:UpdateLegs(pose.Owner, pose, dt, bones) end
+
+	for _, name in ipairs(aim_pose.Bones) do
+		if biped.HasBone(rig, name) then
+			rig:SetBone(biped.SourceBones[name], bones[name], "model")
+		end
+	end
+
+	rig:Compute()
+end
+
 function META:OnUpdate(dt)
 	local owner = self.Owner
 	local animator = owner.animator
@@ -823,6 +852,8 @@ function META:OnUpdate(dt)
 		)
 	else
 		self:UpdateCreature(animator, animator.skeleton, pose, dt)
+
+		if self.LegIK and not host then self:UpdateCreatureLegs(rig, pose, dt) end
 	end
 
 	if host then

@@ -29,7 +29,7 @@ local function foot(format, count, length, gain)
 end
 
 voices.zombie = {
-	Foot = foot("npc/zombie/foot%d.wav", 3, 0.6, 0.3),
+	Foot = foot("npc/zombie/foot%d.wav", 3, nil, 0.3),
 	Idle = set(numbered("npc/zombie/zombie_voice_idle%d.wav", 1, 14), 0.45),
 	Alert = set(numbered("npc/zombie/zombie_alert%d.wav", 1, 3), 0.7),
 	Pain = set(numbered("npc/zombie/zombie_pain%d.wav", 1, 6), 0.7),
@@ -42,7 +42,7 @@ voices.zombie_torso = derive(voices.zombie, {Foot = foot("npc/zombie/foot_slide%
 voices.zombie_fast = derive(
 	voices.zombie,
 	{
-		Foot = foot("npc/fast_zombie/foot%d.wav", 4, 0.8, 0.35),
+		Foot = foot("npc/fast_zombie/foot%d.wav", 4, nil, 0.35),
 		Idle = set(numbered("npc/fast_zombie/idle%d.wav", 1, 3), 0.45),
 		Alert = set({"npc/fast_zombie/fz_alert_close1.wav", "npc/fast_zombie/fz_scream1.wav"}, 0.8),
 		Attack = set(numbered("npc/fast_zombie/claw_miss%d.wav", 1, 2), 0.6),
@@ -52,7 +52,7 @@ voices.zombie_fast = derive(
 voices.zombie_poison = derive(
 	voices.zombie,
 	{
-		Foot = foot("npc/zombie/foot%d.wav", 3, 0.7, 0.35),
+		Foot = foot("npc/zombie/foot%d.wav", 3, nil, 0.35),
 		Idle = set({"npc/zombie_poison/pz_idle2.wav", "npc/zombie_poison/pz_idle3.wav", "npc/zombie_poison/pz_idle4.wav"}, 0.45),
 		Alert = set({"npc/zombie_poison/pz_alert1.wav", "npc/zombie_poison/pz_alert2.wav", "npc/zombie_poison/pz_warn1.wav"}, 0.7),
 		Pain = set(numbered("npc/zombie_poison/pz_pain%d.wav", 1, 3), 0.7),

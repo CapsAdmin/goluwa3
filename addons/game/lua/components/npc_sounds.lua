@@ -24,14 +24,14 @@ function META:Initialize()
 	if AUDIO and CLIENT then self:AddGlobalEvent("Update") end
 end
 
-function META:Play(role, position)
+function META:Play(role, position, scale)
 	local set = self.Sounds[role]
 
 	if set then
 		sounds.PlayRandom(
 			set.Paths,
 			position or self.Owner.transform:GetPosition(),
-			set.Gain or 1,
+			(set.Gain or 1) * (scale or 1),
 			(set.Pitch or 1) * math.randomf(0.95, 1.05)
 		)
 	end
@@ -75,7 +75,7 @@ function META:OnUpdate()
 	local owner = self.Owner
 	local pose = owner.character_pose
 
-	if not foot or owner.health:IsDead() then
+	if not foot or not foot.Length or owner.health:IsDead() then
 		self.step = nil
 		return
 	end

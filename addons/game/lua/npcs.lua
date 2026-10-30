@@ -87,6 +87,7 @@ npcs.Definitions = {
 		RunSpeed = 210,
 	},
 	zombie = {
+		Legs = true,
 		Faction = "enemy",
 		Model = "models/zombie/classic.mdl",
 		Idle = "Idle01",
@@ -207,6 +208,7 @@ npcs.Definitions = {
 		Health = 300,
 	},
 	zombie_fast = {
+		Legs = true,
 		Faction = "enemy",
 		Model = "models/zombie/fast.mdl",
 		Idle = "idle",
@@ -219,6 +221,7 @@ npcs.Definitions = {
 		Sounds = voices.zombie_fast,
 	},
 	zombie_poison = {
+		Legs = true,
 		Faction = "enemy",
 		Model = "models/zombie/poison.mdl",
 		Idle = "Idle01",
@@ -333,6 +336,7 @@ npcs.Definitions = {
 		Sounds = voices.combine_guard,
 	},
 	zombie_soldier = {
+		Legs = true,
 		Faction = "enemy",
 		Model = "models/zombie/zombie_soldier.mdl",
 		Idle = "Idle01",
@@ -537,6 +541,7 @@ function npcs.Register(name, info)
 								RunSequence = info.Run,
 								Mirror = info.Biped,
 								OwnsArmature = info.Biped,
+								LegIK = info.Legs,
 							} or
 							nil,
 						procedural_pose = info.Outfit and {} or nil,
