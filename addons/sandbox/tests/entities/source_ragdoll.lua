@@ -15,7 +15,7 @@ local function create_ground()
 		rigid_body = {
 			MotionType = "static",
 			Shape = BoxShape.New(Vec3(40, 1, 40)),
-			Friction = 0.8,
+			Friction = 0.85,
 			WorldGeometry = true,
 		},
 	}
@@ -294,3 +294,98 @@ T.TestPhysics("a ragdoll that has come to rest falls asleep instead of rocking o
 	ground:Remove()
 end)
 
+T.TestPhysics("a ragdoll of a character model weighs what the standing character weighs and other ragdolls keep their file weights", function()
+	local ground = create_ground()
+	local CharacterMovement = import("lua/components/character_movement.lua")
+
+	local function total(ragdoll)
+		local sum = 0
+
+		for _, body in ipairs(ragdoll.bodies) do
+			sum = sum + body.Mass
+		end
+
+		return sum
+	end
+
+	local citizen
+
+	props.Spawn(
+		"models/humans/group01/female_01.mdl",
+		Vec3(0, 1, 0),
+		Quat():Identity(),
+		function(entity)
+			citizen = entity
+		end
+	)
+
+	T.WaitUntil(function()
+		return citizen ~= nil and citizen.source_ragdoll.bodies[2] ~= nil
+	end)
+
+	T(math.abs(total(citizen.source_ragdoll) - CharacterMovement.BodyMass))["<"](0.001)
+	local gib = spawn(Vec3(3, 1, 0))
+	local file_weight = 0
+
+	for _, solid in ipairs(gib.source_ragdoll.ragdoll.solids) do
+		file_weight = file_weight + solid.weight
+	end
+
+	T(math.abs(total(gib.source_ragdoll) - file_weight))["<"](0.001)
+	citizen:Remove()
+	gib:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("a ragdoll thrown along ordinary ground stops within a few meters and slides on slippery ground", function()
+	local function slide(friction)
+		local floor = Entity.New{
+			transform = {Position = Vec3(0, -0.5, 0)},
+			rigid_body = {
+				MotionType = "static",
+				Shape = BoxShape.New(Vec3(80, 1, 80)),
+				Friction = friction,
+				WorldGeometry = true,
+			},
+		}
+		local spawned
+
+		props.Spawn(
+			"models/humans/group01/male_01.mdl",
+			Vec3(0, 0.25, 0),
+			Quat():Identity(),
+			function(entity)
+				spawned = entity
+			end
+		)
+
+		T.WaitUntil(function()
+			return spawned ~= nil and spawned.source_ragdoll.bodies[2] ~= nil
+		end)
+
+		local ragdoll = spawned.source_ragdoll
+
+		for _ = 1, 90 do
+			physics.UpdateFixed(1 / 60)
+		end
+
+		local start = ragdoll.bodies[1].Position:Copy()
+
+		for _, body in ipairs(ragdoll.bodies) do
+			body:Wake()
+			body:SetVelocity(Vec3(5, 0, 0))
+		end
+
+		for _ = 1, 360 do
+			physics.UpdateFixed(1 / 60)
+		end
+
+		local distance = ragdoll.bodies[1].Position.x - start.x
+		spawned:Remove()
+		floor:Remove()
+		return distance
+	end
+
+	T(slide(0.85))["<"](4)
+	T(slide(0.1))[">"](slide(0.85) * 2)
+end)

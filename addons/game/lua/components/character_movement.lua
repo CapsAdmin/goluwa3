@@ -12,7 +12,8 @@ local damage = import("lua/damage.lua")
 local pose_variation = import("lua/pose_variation.lua")
 local META = objects.CreateTemplate("character_movement")
 local UNIT = import("goluwa/source_engine/units.lua").meters
-local BODY_MASS = 85
+META.BodyMass = 85
+META.RagdollFriction = 0.6
 META:IsSet("Crouching", false)
 META:GetSet("GroundSpeed", 200 * UNIT)
 META:GetSet("AirSpeed", 30 * UNIT)
@@ -710,7 +711,7 @@ function META:ApplyMode(mode)
 	body:SetMotionType("dynamic")
 	body:SetShape(CapsuleShape.New(radius, height))
 	body:SetAutomaticMass(false)
-	body:SetMass(BODY_MASS)
+	body:SetMass(META.BodyMass)
 	body:SetCenterOffset(Vec3(0, height * 0.5, 0))
 	body:SetCCD(true)
 	body:SetCanSleep(false)

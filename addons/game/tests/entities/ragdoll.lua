@@ -17,7 +17,7 @@ import("lua/weapons.lua")
 local function create_ground()
 	return Entity.New{
 		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(100, 1, 100)},
-		rigid_body = {MotionType = "static", Shape = BoxShape.New(Vec3(1, 1, 1))},
+		rigid_body = {MotionType = "static", Shape = BoxShape.New(Vec3(1, 1, 1)), Friction = 0.85},
 	}
 end
 
@@ -51,6 +51,21 @@ end
 local function sweep_at(origin_x, y)
 	return damage.Sweep(Vec3(origin_x, y, 0), Vec3(-origin_x, 0, 0), nil)
 end
+
+T.TestPhysics("the body parts of a character add up to the weight of the standing character", function()
+	create_ground()
+	local character = create_character()
+	run(character, 0.2)
+	local sum = 0
+
+	for _, part in ipairs(character.ragdoll.parts) do
+		sum = sum + part.body.Mass
+	end
+
+	T(math.abs(sum - import("lua/components/character_movement.lua").BodyMass))["<"](0.001)
+	T(math.abs(character.ragdoll.total_mass - sum))["<"](0.001)
+	character:Remove()
+end)
 
 T.TestPhysics("a character has kinematic body parts that follow its pose and are what weapons hit", function()
 	create_ground()
@@ -673,3 +688,40 @@ T.TestPhysics("moving a held body around in the air does not hurt it", function(
 	character:Remove()
 end)
 
+local function slide_distance(ground_friction)
+	Entity.New{
+		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(100, 1, 100)},
+		rigid_body = {
+			MotionType = "static",
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+			Friction = ground_friction,
+		},
+	}
+	local character = create_character(Vec3(0, 0.3, 0))
+	run(character, 0.3)
+	local ragdoll = character.ragdoll
+	character.health:TakeDamage(damage.Info{Damage = 5000})
+	run(character, 1.5)
+	local start = ragdoll.parts[1].body.Position:Copy()
+
+	for _, part in ipairs(ragdoll.parts) do
+		part.body:Wake()
+		part.body:SetVelocity(Vec3(5, 0, 0))
+	end
+
+	run(character, 6)
+	local distance = ragdoll.parts[1].body.Position.x - start.x
+	character:Remove()
+	return distance
+end
+
+T.TestPhysics("a ragdoll slides far on slippery ground because its friction multiplies the ground friction", function()
+	local slippery = slide_distance(0.1)
+	T(slippery)[">"](6)
+end)
+
+T.TestPhysics("a ragdoll thrown along ordinary ground stops within a few meters", function()
+	local ordinary = slide_distance(0.85)
+	T(ordinary)[">"](1.5)
+	T(ordinary)["<"](4)
+end)

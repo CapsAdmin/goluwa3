@@ -336,6 +336,14 @@ function npcs.SpawnNear(name, around, radius)
 	return npcs.Spawn(name, position + Vec3(0, 0.05, 0), math.randomf(-math.pi, math.pi))
 end
 
+function npcs.GetByModel(model_path)
+	model_path = model_path:lower()
+
+	for name, info in pairs(npcs.Definitions) do
+		if info.Model and info.Model:lower() == model_path then return name, info end
+	end
+end
+
 function npcs.GetNamesByFaction(faction)
 	local names = {}
 

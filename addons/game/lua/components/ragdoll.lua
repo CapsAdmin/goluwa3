@@ -12,6 +12,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local biped = import("lua/biped.lua")
 local biped_pose = import("lua/biped_pose.lua")
 local RagdollPart = import("lua/components/ragdoll_part.lua")
+local CharacterMovement = import("lua/components/character_movement.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local META = objects.CreateTemplate("ragdoll")
 -- an empty Network table is what makes the component part of the spawn packet
@@ -22,7 +23,6 @@ META:GetSet("CorpseTime", 0)
 META:IsSet("HitLimp", false)
 META:GetSet("Profile", "humanoid")
 META:EndStorable()
-local PART_FRICTION = 0.8
 local POSE_GAIN = 10
 local POSE_RATE = 180
 local ROOT_LIMP = 0.3
@@ -315,6 +315,13 @@ function META:Build()
 	local owner = self.Owner
 	self:ComputePose()
 	local profile = biped.Profiles[self.Profile]
+	local profile_mass = 0
+
+	for _, definition in ipairs(profile.Parts) do
+		profile_mass = profile_mass + definition.Mass
+	end
+
+	local mass_scale = CharacterMovement.BodyMass / profile_mass
 	local joint_of = {}
 
 	for _, definition in ipairs(profile.Joints) do
@@ -336,9 +343,10 @@ function META:Build()
 			rigid_body = {
 				Shape = CapsuleShape.New(definition.Radius, length + definition.Radius * 2),
 				MotionType = "kinematic",
-				Mass = definition.Mass,
+				Mass = definition.Mass * mass_scale,
 				AutomaticMass = false,
-				Friction = PART_FRICTION,
+				Friction = CharacterMovement.RagdollFriction,
+				FrictionCombineMode = "multiply",
 				LinearDamping = PART_LINEAR_DAMPING,
 				AngularDamping = PART_ANGULAR_DAMPING,
 				CollisionMask = 0,
@@ -370,7 +378,7 @@ function META:Build()
 		if part.parent then table.insert(part.parent.children, part) end
 
 		self.parts[#self.parts + 1] = part
-		self.total_mass = self.total_mass + definition.Mass
+		self.total_mass = self.total_mass + definition.Mass * mass_scale
 		self.part_by_name[definition.Name] = part
 	end
 
@@ -559,7 +567,7 @@ function META:MakeDynamic(part, keep_pose, jitter)
 	body:SetCollisionMask(-1)
 	body:SetCCD(true)
 	body:SetMaxLinearSpeed(PART_MAX_SPEED)
-	body:SetFrictionCombineMode("max")
+	body:SetFrictionCombineMode("multiply")
 	body:SetRollingFriction(PART_ROLLING_FRICTION)
 	body:SetRollingFrictionCombineMode("max")
 	body:SetMotionType("dynamic")

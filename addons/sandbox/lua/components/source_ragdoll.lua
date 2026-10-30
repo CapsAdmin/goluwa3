@@ -1,9 +1,10 @@
 local objects = import("goluwa/objects/objects.lua")
 local network = import("goluwa/network/network.lua")
+local npcs = import("lua/npcs.lua")
+local CharacterMovement = import("lua/components/character_movement.lua")
 local physics = import("goluwa/physics.lua")
 local constraints = import("goluwa/physics/constraints.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
-local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -53,7 +54,6 @@ function META:Load()
 
 			assert(data.physics and data.physics.ragdoll, self.ModelPath .. " has no ragdoll data")
 			self.ragdoll = data.physics.ragdoll
-			self.surface_property = data.physics.surface_property
 			self:Build()
 		end,
 		nil,
@@ -82,17 +82,29 @@ end
 function META:Build()
 	local owner = self.Owner
 	local solids = self.ragdoll.solids
+	local scale = 1
+
+	if npcs.GetByModel(self.ModelPath) then
+		local total = 0
+
+		for _, solid in ipairs(solids) do
+			total = total + solid.weight
+		end
+
+		scale = CharacterMovement.BodyMass / total
+	end
+
 	local rest_rotation, rest_position = self:GetRestFrame()
 	local rest_inverse = rest_rotation:GetConjugated()
 	self.visual_placed = false
 	local first = solids[1]
-	local surface = surface_properties.Get(self.surface_property or "default")
 	local body = owner:EnsureComponent("rigid_body")
 	body:SetShapes(build_shapes(first))
 	body:SetMotionType(network.HasAuthority() and "dynamic" or "kinematic")
 	body:SetAutomaticMass(false)
-	body:SetMass(first.weight)
-	body:SetFriction(surface.friction)
+	body:SetMass(first.weight * scale)
+	body:SetFriction(CharacterMovement.RagdollFriction)
+	body:SetFrictionCombineMode("multiply")
 	self.bodies[1] = body
 
 	if not network.HasAuthority() then return end
@@ -112,9 +124,10 @@ function META:Build()
 			},
 			rigid_body = {
 				Shapes = build_shapes(solid),
-				Mass = solid.weight,
+				Mass = solid.weight * scale,
 				AutomaticMass = false,
-				Friction = surface.friction,
+				Friction = CharacterMovement.RagdollFriction,
+				FrictionCombineMode = "multiply",
 			},
 		}
 		entity.rigid_body.TraceOwner = owner
