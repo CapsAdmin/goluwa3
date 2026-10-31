@@ -63,6 +63,7 @@ RigidBody:GetSet("CollisionEnabled", true, {callback = "OnCollisionEnabledChange
 RigidBody:GetSet("WorldGeometry", false, {callback = "OnWorldGeometryChanged"})
 RigidBody:GetSet("GroundedSettling", true)
 RigidBody:GetSet("CollisionGroup", 1, {validate = "integer"})
+RigidBody:GetSet("CollideWorldOnly", false)
 RigidBody:GetSet("CenterOffset", nil)
 RigidBody:GetSet("CollisionMask", -1, {validate = "integer"})
 RigidBody:GetSet("CCD", false)
@@ -1167,6 +1168,20 @@ function RigidBody:ShouldCollide(body)
 	if self == body then return false end
 
 	if self.IgnoredBodies and self.IgnoredBodies[body] then return false end
+
+	if
+		(
+			self.CollideWorldOnly and
+			body.MotionType ~= "static"
+		)
+		or
+		(
+			body.CollideWorldOnly and
+			self.MotionType ~= "static"
+		)
+	then
+		return false
+	end
 
 	do
 		local mask = self.CollisionMask
