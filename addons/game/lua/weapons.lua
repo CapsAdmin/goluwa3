@@ -40,7 +40,12 @@ function weapons.Register(name, values, nodes, source, script_values, components
 		entities[1].components[component] = config
 	end
 
-	weapons.Definitions[name] = {DisplayName = values.DisplayName, Entities = entities}
+	weapons.Definitions[name] = {
+		DisplayName = values.DisplayName,
+		Category = values.Category or "tools",
+		Rollable = values.Rollable == true,
+		Entities = entities,
+	}
 
 	for _, node in ipairs(nodes) do
 		if node.guid then
@@ -55,14 +60,17 @@ function weapons.Register(name, values, nodes, source, script_values, components
 	prefab.Register(name, {inputs = {}, entities = entities}).builtin = true
 end
 
-function weapons.Spawn(name, position, rotation)
-	return Entity.New{
+function weapons.Spawn(name, position, rotation, roll)
+	weapons.PendingRoll = roll
+	local entity = Entity.New{
 		Name = name,
 		Transient = false,
 		transform = {Position = position, Rotation = rotation},
 		network = SERVER and {} or nil,
 		prefab = {Path = name},
 	}
+	weapons.PendingRoll = nil
+	return entity
 end
 
 function weapons.GetNames()

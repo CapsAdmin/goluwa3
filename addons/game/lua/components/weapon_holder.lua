@@ -4,6 +4,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local use = import("goluwa/entities/use.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local animations = import("lua/animations.lua")
+local weapons = import("lua/weapons.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("weapon_holder")
@@ -186,8 +187,9 @@ function META:EquipFirst()
 	end
 end
 
-function META:Give(weapon_name)
+function META:Give(weapon_name, roll)
 	local owner = self.Owner
+	weapons.PendingRoll = roll
 	local weapon = Entity.New{
 		Parent = owner,
 		Name = weapon_name,
@@ -197,6 +199,7 @@ function META:Give(weapon_name)
 			{NetworkOwner = owner.network:GetNetworkOwner(), SendToOwner = true} or
 			nil,
 	}
+	weapons.PendingRoll = nil
 	self:EquipDefault(weapon)
 	return weapon
 end
