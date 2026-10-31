@@ -154,6 +154,20 @@ T.TestPhysics("a hit over the threshold freezes both fighters and staggers the v
 	T(victim.character_pose:IsStunned())["=="](false)
 end)
 
+T.TestPhysics("a killing slash freezes both fighters without the stagger action", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -1.5), 30)
+	damage.Deal(
+		victim,
+		{Attacker = attacker, Damage = 40, Direction = Vec3(0, 0, -1), Type = "slash"}
+	)
+	T(victim.health:IsDead())["=="](true)
+	T(victim.character_pose:IsFrozen())["=="](true)
+	T(attacker.character_pose:IsFrozen())["=="](true)
+	T(victim.character_pose.Action ~= "stagger")["=="](true)
+end)
+
 T.TestPhysics("a hit over half the victim's health knocks a ragdoll victim down and it stands back up", function()
 	create_ground()
 	local attacker = create_character(Vec3(0, 0.05, 0))

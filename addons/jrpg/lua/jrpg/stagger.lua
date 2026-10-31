@@ -82,15 +82,43 @@ function stagger.Knockdown(victim, attacker, push, hitstop, power, direction, cu
 	effects.Stagger(victim, attacker or victim, hitstop, direction)
 end
 
+function stagger.Kill(victim, attacker, hitstop, direction)
+	victim.character_pose:Freeze(stagger.Duration * stagger.FreezeFraction, true)
+
+	if
+		attacker and
+		attacker ~= victim and
+		attacker:IsValid() and
+		attacker.character_pose
+	then
+		attacker.character_pose:Freeze(stagger.Duration * stagger.FreezeFraction)
+	end
+
+	effects.Stagger(victim, attacker or victim, hitstop, direction)
+end
+
 event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_health, info)
 	if not network.HasAuthority() then return end
 
 	if info.Secondary or info.Status or amount <= 0 then return end
 
-	if not victim.character_pose or victim.health:IsDead() then return end
+	if not victim.character_pose then return end
 
 	local before = victim.health:GetHealth() + amount
 	local threshold = stagger.GetThreshold(before)
+
+	if victim.health:IsDead() then
+		if info.Type == "slash" then
+			stagger.Kill(
+				victim,
+				info.Attacker,
+				stagger.GetHitstop(amount, threshold),
+				info.Direction or actors.GetForward(victim) * -1
+			)
+		end
+
+		return
+	end
 
 	if amount < threshold and not victim.character_pose:IsAlwaysStagger() then
 		return
