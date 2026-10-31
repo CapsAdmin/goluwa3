@@ -15,7 +15,6 @@ local AIController = import("lua/components/ai_controller.lua")
 local eyes = RENDER_3D and import("goluwa/entities/components/eyes.lua")
 local npcs = {}
 
-
 local function creature_move(move)
 	move.Face = false
 	move.PoseWeapon = false
@@ -39,6 +38,7 @@ local function cast(clip, duration, delay, element, damage)
 		Events = {{At = delay / duration, Type = "cast", Element = element, Damage = damage}},
 	}
 end
+
 npcs.Factions = {"friend", "enemy"}
 npcs.Definitions = {
 	citizen = {
@@ -422,7 +422,12 @@ npcs.Definitions = {
 		Moves = {
 			roar = creature_move{Clip = "short_roar", Duration = 1.6},
 			shove = claw("shove", 1.4, 0.7, 40, 3.64),
-			charge_windup = creature_move{Clip = "charge_startfast", Sound = "Charge", Duration = 1.2, Next = "charge_run"},
+			charge_windup = creature_move{
+				Clip = "charge_startfast",
+				Sound = "Charge",
+				Duration = 1.2,
+				Next = "charge_run",
+			},
 			charge_run = creature_move{
 				Clip = "charge_loop",
 				ClipSpeed = 1,
@@ -560,9 +565,14 @@ function npcs.Register(name, info)
 						ai_controller = npc,
 						usable = info.Faction == "friend" and not info.Dummy and {Prompt = "follow"} or nil,
 						weapon_holder = info.Weapon and {} or nil,
-						ragdoll = info.Biped and {CorpseTime = 20, Profile = info.Ragdoll} or nil,
+						ragdoll = info.Biped and
+							{CorpseTime = 20, CheapCorpse = true, Profile = info.Ragdoll} or
+							nil,
 						npc_sounds = info.Sounds and {Sounds = info.Sounds} or nil,
-						source_ragdoll = info.Model and not info.Biped and {DeathState = true, CorpseTime = 20} or nil,
+						source_ragdoll = info.Model and
+							not info.Biped and
+							{DeathState = true, CorpseTime = 20, CheapCorpse = true} or
+							nil,
 						health = {
 							Health = info.Health or 50,
 							MaxHealth = info.Health or 50,

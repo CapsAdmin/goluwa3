@@ -116,6 +116,56 @@ T.TestPhysics("a character has kinematic body parts that follow its pose and are
 	T(#physics.GetConstraints())["=="](0)
 end)
 
+T.TestPhysics("a cheap corpse has no muscle springs or forced ccd and only touches static bodies", function()
+	create_ground()
+	local character = create_character()
+	character.ragdoll:SetCheapCorpse(true)
+	run(character, 1)
+	character.health:TakeDamage(damage.Info{Damage = 1000})
+	run(character, 3)
+
+	for _, part in ipairs(character.ragdoll.parts) do
+		T(part.body:IsDynamic())["=="](true)
+		T(part.body:GetCCD())["=="](false)
+		T(part.body.SleepLinearThreshold)["=="](character.ragdoll.CheapSleepThreshold)
+		T(part.body:GetCollideWorldOnly())["=="](true)
+		T(
+			part.joint == nil or
+				part.joint.NeutralAngle == nil and
+				part.joint.NeutralAngles == nil
+		)["=="](true)
+	end
+
+	T(character.ragdoll.parts[1].body.Position.y < 0.5)["=="](true)
+	character:Remove()
+end)
+
+T.TestPhysics("a cheap corpse turns static once it sleeps and is dynamic again when revived", function()
+	create_ground()
+	local character = create_character()
+	character.ragdoll:SetCheapCorpse(true)
+	run(character, 1)
+	character.health:TakeDamage(damage.Info{Damage = 1000})
+	run(character, 10)
+	T(character.ragdoll.corpse_static)["=="](true)
+
+	for _, part in ipairs(character.ragdoll.parts) do
+		T(part.body:IsStatic())["=="](true)
+	end
+
+	character.health:Revive()
+	character.character_movement:Reset("walk")
+	character.character_movement:TeleportTo(Vec3(2, 0.05, 0))
+	run(character, 1)
+	T(character.ragdoll.corpse_static)["=="](false)
+
+	for _, part in ipairs(character.ragdoll.parts) do
+		T(part.body:IsStatic())["=="](false)
+	end
+
+	character:Remove()
+end)
+
 T.TestPhysics("dying lets the body parts go as a ragdoll and reviving takes them back", function()
 	create_ground()
 	local character = create_character()

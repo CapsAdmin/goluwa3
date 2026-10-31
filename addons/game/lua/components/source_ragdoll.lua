@@ -14,6 +14,8 @@ META:GetSet("ModelPath", "", {callback = "Load"})
 META:IsSet("DeathState", false)
 META:GetSet("CorpseTime", 0)
 META:IsSet("CorpseWorldOnly", true)
+META:IsSet("CheapCorpse", false)
+META:GetSet("CheapSleepThreshold", 0.5)
 META:EndStorable()
 local JOINT_FRICTION = 0.2
 local SPRING_HERTZ = 1
@@ -191,6 +193,12 @@ function META:Build()
 		}
 		entity.rigid_body.TraceOwner = owner
 		entity.rigid_body:SetCollideWorldOnly(self.DeathState and self.CorpseWorldOnly)
+
+		if self.DeathState and self.CheapCorpse then
+			entity.rigid_body:SetSleepLinearThreshold(self.CheapSleepThreshold)
+			entity.rigid_body:SetSleepAngularThreshold(self.CheapSleepThreshold)
+		end
+
 		self.bodies[i] = entity.rigid_body
 
 		if velocity then entity.rigid_body:SetVelocity(velocity) end
@@ -225,7 +233,11 @@ function META:Build()
 				Friction = constraint[moving[1]].friction * JOINT_FRICTION,
 			}
 		)
-		joint:SetSpring(0, SPRING_HERTZ, SPRING_LIMIT_HERTZ, SPRING_DAMPING, SPRING_ZONE)
+
+		if not (self.DeathState and self.CheapCorpse) then
+			joint:SetSpring(0, SPRING_HERTZ, SPRING_LIMIT_HERTZ, SPRING_DAMPING, SPRING_ZONE)
+		end
+
 		self.joints[#self.joints + 1] = joint
 
 		::continue::
@@ -324,6 +336,8 @@ function META:OnPhysicsUpdate(dt)
 		end
 	end
 
+	if self.corpse_static then return end
+
 	local awake = false
 
 	for _, body in ipairs(self.bodies) do
@@ -340,7 +354,19 @@ function META:OnPhysicsUpdate(dt)
 		end
 	end
 
-	if not awake then return end
+	if not awake then
+		if self.DeathState and self.CheapCorpse then
+			self.corpse_static = true
+
+			for _, body in ipairs(self.bodies) do
+				body:SetVelocity(Vec3())
+				body:SetAngularVelocity(Vec3())
+				body:SetMotionType("static")
+			end
+		end
+
+		return
+	end
 
 	self.rest_time = self.rest_time + dt
 

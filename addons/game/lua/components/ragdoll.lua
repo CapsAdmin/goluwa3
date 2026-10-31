@@ -22,6 +22,8 @@ META:StartStorable()
 META:GetSet("CorpseTime", 0)
 META:IsSet("HitLimp", false)
 META:IsSet("CorpseWorldOnly", true)
+META:IsSet("CheapCorpse", false)
+META:GetSet("CheapSleepThreshold", 0.5)
 META:GetSet("Profile", "humanoid")
 META:EndStorable()
 local POSE_GAIN = 10
@@ -510,8 +512,17 @@ function META:BuildJoint(part, attach_rotation)
 	)
 end
 
+function META:SetCheapSleep(part)
+	local body = part.body
+	part.sleep_linear = part.sleep_linear or body.SleepLinearThreshold
+	part.sleep_angular = part.sleep_angular or body.SleepAngularThreshold
+	body:SetSleepLinearThreshold(self.CheapSleepThreshold)
+	body:SetSleepAngularThreshold(self.CheapSleepThreshold)
+end
+
 function META:MakeDynamic(part, keep_pose, jitter)
 	local body = part.body
+	local cheap = self.CheapCorpse and self.Owner.health:IsDead()
 	local parent = part.parent
 
 	if not keep_pose then
@@ -531,30 +542,33 @@ function META:MakeDynamic(part, keep_pose, jitter)
 	if parent then
 		local joint = self:BuildJoint(part, parent.body.Rotation * parent.target_rotation:GetConjugated())
 		part.joint = joint
-		local s0, s1 = joint:LoadStates()
-		Quat.SetMul(neutral_rotation, parent.body.Rotation, part.neutral)
-		Quat.SetMul(neutral_rotation, neutral_rotation, joint.LocalFrame1)
-		neutral_state.qx, neutral_state.qy, neutral_state.qz, neutral_state.qw = neutral_rotation.x, neutral_rotation.y, neutral_rotation.z, neutral_rotation.w
 
-		if part.joint_definition.Hinge then
-			local angle = joint:UpdateAngle(s0, s1)
-			local delta = rows.GetTwist(s0, neutral_state) - joint.RawAngle
+		if not cheap then
+			local s0, s1 = joint:LoadStates()
+			Quat.SetMul(neutral_rotation, parent.body.Rotation, part.neutral)
+			Quat.SetMul(neutral_rotation, neutral_rotation, joint.LocalFrame1)
+			neutral_state.qx, neutral_state.qy, neutral_state.qz, neutral_state.qw = neutral_rotation.x, neutral_rotation.y, neutral_rotation.z, neutral_rotation.w
 
-			if delta > math.pi then
-				delta = delta - 2 * math.pi
-			elseif delta < -math.pi then
-				delta = delta + 2 * math.pi
+			if part.joint_definition.Hinge then
+				local angle = joint:UpdateAngle(s0, s1)
+				local delta = rows.GetTwist(s0, neutral_state) - joint.RawAngle
+
+				if delta > math.pi then
+					delta = delta - 2 * math.pi
+				elseif delta < -math.pi then
+					delta = delta + 2 * math.pi
+				end
+
+				joint:SetSpring(angle + delta, SPRING_HERTZ, SPRING_LIMIT_HERTZ, SPRING_DAMPING, SPRING_ZONE)
+			else
+				joint:SetSpring(
+					{rows.GetSwingTwist(s0, neutral_state)},
+					SPRING_HERTZ,
+					SPRING_LIMIT_HERTZ,
+					SPRING_DAMPING,
+					SPRING_ZONE
+				)
 			end
-
-			joint:SetSpring(angle + delta, SPRING_HERTZ, SPRING_LIMIT_HERTZ, SPRING_DAMPING, SPRING_ZONE)
-		else
-			joint:SetSpring(
-				{rows.GetSwingTwist(s0, neutral_state)},
-				SPRING_HERTZ,
-				SPRING_LIMIT_HERTZ,
-				SPRING_DAMPING,
-				SPRING_ZONE
-			)
 		end
 
 		local axis = body.Rotation:VecMul(UP)
@@ -585,7 +599,10 @@ function META:MakeDynamic(part, keep_pose, jitter)
 	body:SetCollisionEnabled(true)
 	body:SetCollisionMask(-1)
 	body:SetCollideWorldOnly(self.CorpseWorldOnly and self.Owner.health:IsDead())
-	body:SetCCD(true)
+	body:SetCCD(not cheap)
+
+	if cheap then self:SetCheapSleep(part) end
+
 	body:SetMaxLinearSpeed(PART_MAX_SPEED)
 	body:SetFrictionCombineMode("multiply")
 	body:SetRollingFriction(PART_ROLLING_FRICTION)
@@ -635,6 +652,14 @@ function META:MakeKinematic(part)
 	part.body:SetMotionType("kinematic")
 	part.body:SetCollisionMask(0)
 	part.body:SetCollideWorldOnly(false)
+
+	if part.sleep_linear then
+		part.body:SetSleepLinearThreshold(part.sleep_linear)
+		part.body:SetSleepAngularThreshold(part.sleep_angular)
+		part.sleep_linear = nil
+		part.sleep_angular = nil
+	end
+
 	self:DrivePart(part, true)
 	part.dynamic = false
 	self.dynamic_count = self.dynamic_count - 1
@@ -657,7 +682,48 @@ function META:IsSettled()
 	return true
 end
 
+function META:FreezeCorpse()
+	self.corpse_static = true
+
+	for _, part in ipairs(self.parts) do
+		part.body:SetVelocity(Vec3())
+		part.body:SetAngularVelocity(Vec3())
+		part.body:SetMotionType("static")
+	end
+end
+
+function META:ThawCorpse()
+	self.corpse_static = false
+	self.rest_time = 0
+
+	for _, part in ipairs(self.parts) do
+		if not part.frozen then
+			part.body:SetMotionType("dynamic")
+			part.body:Wake()
+		end
+	end
+end
+
 function META:UpdateRest(dt)
+	if self.corpse_static then return end
+
+	if self.CheapCorpse then
+		local asleep = true
+
+		for _, part in ipairs(self.parts) do
+			if part.body:GetAwake() then
+				asleep = false
+
+				break
+			end
+		end
+
+		if asleep then
+			self:FreezeCorpse()
+			return
+		end
+	end
+
 	for _, part in ipairs(self.parts) do
 		local body = part.body
 
@@ -754,6 +820,8 @@ end
 
 -- a held limb pulls the rest of the body along, and how much the rest of the body resists is the hold strength
 function META:Grab(body)
+	if self.corpse_static then self:ThawCorpse() end
+
 	self.grabs = self.grabs + 1
 	self.held[body] = body:GetMass()
 	body:SetMass(self.total_mass)
@@ -872,6 +940,15 @@ function META:OnDeath(info)
 	if self.CorpseWorldOnly then
 		for _, part in ipairs(self.parts) do
 			part.body:SetCollideWorldOnly(true)
+		end
+	end
+
+	if self.CheapCorpse then
+		for _, part in ipairs(self.parts) do
+			part.body:SetCCD(false)
+			self:SetCheapSleep(part)
+
+			if part.joint then part.joint:ClearSpring() end
 		end
 	end
 
@@ -1261,6 +1338,8 @@ function META:OnPhysicsUpdate(dt)
 		return
 	end
 
+	if self.corpse_static and not owner.health:IsDead() then self:ThawCorpse() end
+
 	if self.global_active then
 		if owner.health:IsDead() then
 			self:UpdateLimp(dt)
@@ -1269,7 +1348,7 @@ function META:OnPhysicsUpdate(dt)
 				self:FollowHead()
 				self:UpdateRest(dt)
 
-				if self.fling > 0 then
+				if self.fling > 0 and not self.corpse_static then
 					for _, part in ipairs(self.parts) do
 						if part.fling_side then self:DrivePose(part, dt) end
 					end
