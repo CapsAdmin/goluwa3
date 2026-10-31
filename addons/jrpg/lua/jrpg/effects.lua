@@ -85,6 +85,7 @@ local Material = import("goluwa/render3d/material.lua")
 local Beam = import("goluwa/render3d/beam.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
 local clips = import("goluwa/render3d/clips.lua")
+local screen_fields = import("goluwa/render3d/screen_fields.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 effects.vfx = vfx
 vfx.ClearBursts("jrpg_")
@@ -926,6 +927,11 @@ function effects.ShowBlock(entity, position, normal, broken)
 	end
 end
 
+local PUNCH_DISTANCE = 6
+local PUNCH_ZOOM = 0.07
+local PUNCH_BLUR = 45
+local PUNCH_ABERRATION = 8
+
 function effects.ShowStagger(victim, attacker, hitstop)
 	if not victim:IsValid() then return end
 
@@ -941,6 +947,21 @@ function effects.ShowStagger(victim, attacker, hitstop)
 
 	if rig and (rig == victim or rig == attacker) then
 		screen_shake.Add(0.06 + hitstop * 0.4, 1.4, 0.3)
+		local camera = render3d.GetCamera()
+		local strength = math.clamp(hitstop / 0.16, 0.5, 1)
+		screen_fields.Add{
+			Position = rig == victim and
+				camera:GetPosition() + camera:GetRotation():GetForward() * PUNCH_DISTANCE or
+				center,
+			Duration = 0.4,
+			Attack = 0.2,
+			Radius = 200,
+			Expand = false,
+			Thickness = 1,
+			Zoom = PUNCH_ZOOM * strength,
+			Blur = PUNCH_BLUR * strength,
+			Aberration = PUNCH_ABERRATION * strength,
+		}
 	end
 end
 
