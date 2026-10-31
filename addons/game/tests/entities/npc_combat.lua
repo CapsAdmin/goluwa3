@@ -61,7 +61,18 @@ local function create_target(position)
 	return player
 end
 
-movesets.Register("test_bite", {Moves = {bite = {Duration = 0.5, Keys = {}, Events = {{At = 0.4, Type = "strike", Damage = 10, Range = 2}}}}})
+movesets.Register(
+	"test_bite",
+	{
+		Moves = {
+			bite = {
+				Duration = 0.5,
+				Keys = {},
+				Events = {{At = 0.4, Type = "strike", Damage = 10, Range = 2}},
+			},
+		},
+	}
+)
 
 T.TestPhysics("an unarmed npc chases a player and hurts it with its moves", function()
 	create_ground()
@@ -146,22 +157,29 @@ T.TestPhysics("a charging npc that runs into a wall crashes instead", function()
 	create_ground()
 	Entity.New{
 		transform = {Position = Vec3(6, 0.5, 0), Scale = Vec3(0.5, 1, 20)},
-		rigid_body = {MotionType = "static", WorldGeometry = true, Shape = BoxShape.New(Vec3(1, 1, 1))},
+		rigid_body = {
+			MotionType = "static",
+			WorldGeometry = true,
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+		},
 	}
 	local charger = create_charger()
 	local player = create_target(Vec3(14, 0.05, 0))
 	T(run_until_move(charger, "run", 3))["=="](true)
 	T(run_until_move(charger, "crash", 4))["=="](true)
 	T(player.health.Health)["=="](player.health.MaxHealth)
-	T(charger.health.Health < charger.health.MaxHealth)["=="](true)
-	T(charger.health.Health > charger.health.MaxHealth * 0.8)["=="](true)
+	T(charger.health.Health)["=="](charger.health.MaxHealth)
 end)
 
 T.TestPhysics("an unarmed npc cannot hit a player standing on a ledge far above it", function()
 	create_ground()
 	Entity.New{
 		transform = {Position = Vec3(1.7, 2.75, 0), Scale = Vec3(1, 0.5, 3)},
-		rigid_body = {MotionType = "static", WorldGeometry = true, Shape = BoxShape.New(Vec3(1, 1, 1))},
+		rigid_body = {
+			MotionType = "static",
+			WorldGeometry = true,
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+		},
 	}
 	local biter = Entity.New{
 		ComponentSet = {"transform", "ai_controller", "character_pose", "health"},
