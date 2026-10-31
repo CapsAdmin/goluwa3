@@ -649,6 +649,8 @@ do
 	end
 end
 
+local REDEFINE_LINGER = 3
+
 do
 	local emitters = {}
 	local definitions = {}
@@ -684,10 +686,29 @@ do
 		end
 	end
 
+	local function drop_emitter(key)
+		local entity = emitters[key]
+
+		if entity then
+			vfx.RemoveDelayed(entity, REDEFINE_LINGER)
+			emitters[key] = nil
+		end
+	end
+
 	function vfx.DefineBurst(key, properties)
+		drop_emitter(key)
 		properties.Playing = false
 		properties.Rate = 0
 		definitions[key] = properties
+	end
+
+	function vfx.ClearBursts(prefix)
+		for key in pairs(definitions) do
+			if key:starts_with(prefix) then
+				drop_emitter(key)
+				definitions[key] = nil
+			end
+		end
 	end
 
 	function vfx.HasBurst(key)
@@ -711,6 +732,13 @@ do
 	local definitions = {}
 
 	function vfx.DefineDebris(key, material, properties)
+		local entity = emitters[key]
+
+		if entity then
+			vfx.RemoveDelayed(entity, REDEFINE_LINGER)
+			emitters[key] = nil
+		end
+
 		properties.Material = Material.New(material)
 		properties.Playing = false
 		properties.Rate = 0

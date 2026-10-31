@@ -87,6 +87,7 @@ local vfx = import("goluwa/render3d/vfx.lua")
 local clips = import("goluwa/render3d/clips.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 effects.vfx = vfx
+vfx.ClearBursts("jrpg_")
 local sprites = import("goluwa/render3d/sprites.lua")
 local hitmarkers = import("lua/hitmarkers.lua")
 local screen_shake = import("lua/screen_shake.lua")
@@ -278,7 +279,7 @@ do
 	end
 
 	function effects.BurstType(type_name, position, direction, count, speed_scale, spread, cut, cut_scale)
-		local key = type_name .. (
+		local key = "jrpg_" .. type_name .. (
 				speed_scale and
 				"_fast" or
 				""
@@ -885,7 +886,7 @@ function effects.ShowText(entity, text, color)
 end
 
 function effects.ShowBlock(entity, position, normal, broken)
-	local key = broken and "shield_break" or "block"
+	local key = broken and "jrpg_shield_break" or "jrpg_block"
 
 	if not vfx.HasBurst(key) then
 		vfx.DefineBurst(
