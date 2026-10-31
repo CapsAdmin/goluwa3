@@ -1,12 +1,14 @@
 local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
 local damage = import("lua/damage.lua")
+local weapons = import("lua/weapons.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 local weapon_stats = {}
 local BONUS_STEP = 0.02
 local BONUS_CHANCE = 0.25
 local MAX_UNLIMITED = 3
+weapon_stats.MaxBonus = 15
 weapon_stats.Rarities = {
 	{
 		name = "common",
@@ -215,17 +217,50 @@ do
 	end
 end
 
+function weapon_stats.RandomBonus(rarity)
+	return math.random() < BONUS_CHANCE and
+		math.random(rarity.bonus[1], rarity.bonus[2]) or
+		0
+end
+
+function weapon_stats.RandomRoll()
+	local rarity = weapon_stats.RandomRarity()
+	return {
+		rarity = rarity.name,
+		bonus = weapon_stats.RandomBonus(rarity),
+		names = weapon_stats.RandomStatuses(rarity),
+	}
+end
+
+function weapon_stats.IsValidRoll(roll)
+	if type(roll) ~= "table" or not weapon_stats.Registered[roll.rarity] then
+		return false
+	end
+
+	if
+		type(roll.bonus) ~= "number" or
+		roll.bonus < 0 or
+		roll.bonus > weapon_stats.MaxBonus
+	then
+		return false
+	end
+
+	if type(roll.names) ~= "table" or #roll.names > #weapon_stats.Names then
+		return false
+	end
+
+	for _, name in ipairs(roll.names) do
+		if not weapon_stats.Statuses[name] then return false end
+	end
+
+	return true
+end
+
 function weapon_stats.Roll(weapon, rarity_name, bonus, names)
 	local rarity = rarity_name and
 		weapon_stats.Registered[rarity_name] or
 		weapon_stats.RandomRarity()
-
-	if bonus == nil then
-		bonus = math.random() < BONUS_CHANCE and
-			math.random(rarity.bonus[1], rarity.bonus[2]) or
-			0
-	end
-
+	bonus = bonus ?? weapon_stats.RandomBonus(rarity)
 	names = names or weapon_stats.RandomStatuses(rarity)
 	local attributes, statuses = {}, {}
 
@@ -251,7 +286,13 @@ function weapon_stats.Roll(weapon, rarity_name, bonus, names)
 end
 
 event.AddListener("RollWeapon", "jrpg_weapon_stats", function(weapon)
-	weapon_stats.Roll(weapon)
+	local roll = weapons.PendingRoll
+
+	if roll then
+		weapon_stats.Roll(weapon, roll.rarity, roll.bonus, roll.names)
+	else
+		weapon_stats.Roll(weapon)
+	end
 end)
 
 local function call_statuses(weapon, hook, a, b, info)
