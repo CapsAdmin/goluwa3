@@ -201,8 +201,8 @@ local function flat_direction(from, to)
 end
 
 event.AddListener("ModifyDamage", "jrpg", function(victim, info)
-	local definition = damage_types.Get(info.Type)
 	local magic = damage_types.IsMagic(info.Type)
+	local heals = damage_types.Get(info.Type).Heals
 	local attacker = info.Attacker
 	local rpg = victim.rpg
 
@@ -210,7 +210,11 @@ event.AddListener("ModifyDamage", "jrpg", function(victim, info)
 		info.Damage = info.Damage * attacker.rpg:GetStat(magic and "magic_attack" or "physical_attack")
 	end
 
-	if definition.Heals then
+	for _, name in ipairs(info.Attributes) do
+		heals = heals or damage_types.Get(name).Heals
+	end
+
+	if heals then
 		info.Damage = -math.abs(info.Damage)
 		info.Force = nil
 		info.Part = nil
@@ -254,14 +258,11 @@ event.AddListener("ModifyDamage", "jrpg", function(victim, info)
 					gap:GetLength() < PARRY_RANGE
 				then
 					info.Cancel = true
+					effects.Block(victim, get_shield_point(victim, to_attacker), to_attacker, false)
+					effects.Text(victim, "PARRY", jrpg.Colors.neon)
 
-					if not info.Secondary then
-						effects.Block(victim, get_shield_point(victim, to_attacker), to_attacker, false)
-						effects.Text(victim, "PARRY", jrpg.Colors.neon)
-
-						if attacker.character_pose and actors.IsAlive(attacker) then
-							stagger.Apply(attacker, victim, to_attacker, stagger.MaxHitstop, nil, to_attacker, true)
-						end
+					if attacker.character_pose and actors.IsAlive(attacker) then
+						stagger.Apply(attacker, victim, to_attacker, stagger.MaxHitstop, nil, to_attacker, true)
 					end
 
 					return
@@ -289,8 +290,16 @@ event.AddListener("ModifyDamage", "jrpg", function(victim, info)
 		end
 	end
 
-	if definition.OnDamage and not info.Status then
-		definition.OnDamage(victim, info)
+	if not info.Status then
+		local on_damage = damage_types.Get(info.Type).OnDamage
+
+		if on_damage then on_damage(victim, info) end
+
+		for _, name in ipairs(info.Attributes) do
+			on_damage = damage_types.Get(name).OnDamage
+
+			if on_damage then on_damage(victim, info) end
+		end
 	end
 end)
 
@@ -312,18 +321,23 @@ event.AddListener("HealthDamaged", "jrpg", function(entity, amount, max_health, 
 
 	effects.Damage(
 		entity,
-		info.Type,
+		info.Attributes[1] or info.Type,
 		amount,
 		max_health,
 		info.Damage,
 		info.Position:GetLength() > 0 and info.Position or nil
 	)
-	local definition = damage_types.Get(info.Type)
+	local knockback = damage_types.Get(info.Type).Knockback or 0
+
+	for _, name in ipairs(info.Attributes) do
+		knockback = math.max(knockback, damage_types.Get(name).Knockback or 0)
+	end
+
 	local body = entity.rigid_body
 
-	if definition.Knockback and body and amount > 0 and attacker and attacker:IsValid() then
-		local push = flat_direction(actors.GetCenter(attacker), actors.GetCenter(entity)) * definition.Knockback
-		push.y = definition.Knockback * 0.8
+	if knockback > 0 and body and amount > 0 and attacker and attacker:IsValid() then
+		local push = flat_direction(actors.GetCenter(attacker), actors.GetCenter(entity)) * knockback
+		push.y = knockback * 0.8
 		body:SetVelocity(body:GetVelocity() + push)
 	end
 end)

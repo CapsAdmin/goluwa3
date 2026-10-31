@@ -448,8 +448,7 @@ T.TestPhysics("a strike keeps its assisted hit and takes the part under the aim 
 	local head = victim.ragdoll.part_by_name.head.body.Position
 	local actors = import("lua/actors.lua")
 	local forward = actors.GetForward(attacker)
-	local types = {"slash"}
-	local _, _, assisted = slash.Strike(attacker, attacker, forward, Vec3(1, 0, 0), 1, 1, 3, types)
+	local _, _, assisted = slash.Strike(attacker, attacker, forward, Vec3(1, 0, 0), 1, 1, 3, "slash", {})
 	T(#assisted)["=="](1)
 	T(assisted[1].part ~= "head")["=="](true)
 	local _, _, aimed = slash.Strike(
@@ -460,11 +459,12 @@ T.TestPhysics("a strike keeps its assisted hit and takes the part under the aim 
 		1,
 		1,
 		3,
-		types,
+		"slash",
+		{},
 		{Origin = Vec3(0, head.y, 0), Direction = forward}
 	)
 	T(aimed[1].part)["=="]("head")
-	local _, _, named = slash.Strike(attacker, attacker, forward, Vec3(1, 0, 0), 1, 1, 3, types, {Part = "head"})
+	local _, _, named = slash.Strike(attacker, attacker, forward, Vec3(1, 0, 0), 1, 1, 3, "slash", {}, {Part = "head"})
 	T(named[1].part)["=="]("head")
 	local _, _, missed = slash.Strike(
 		attacker,
@@ -474,7 +474,8 @@ T.TestPhysics("a strike keeps its assisted hit and takes the part under the aim 
 		1,
 		1,
 		3,
-		types,
+		"slash",
+		{},
 		{Origin = Vec3(5, head.y, 0), Direction = forward}
 	)
 	T(#missed)["=="](1)

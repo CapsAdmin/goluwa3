@@ -104,10 +104,6 @@ function META:OnEntityConstructed()
 	self:RefreshWorldState()
 end
 
-function META:GetDamageTypes(default)
-	return #self.Attributes > 0 and self.Attributes or default
-end
-
 function META:GetDamageScale()
 	return self.DamageMultiplier * (#self.Attributes > 0 and self.Strength or 1)
 end

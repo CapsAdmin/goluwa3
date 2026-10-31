@@ -617,9 +617,7 @@ function META:RegisterShot()
 end
 
 function META:OnTakeDamage(info)
-	if info.Staggered or info.Status or info.Secondary or info.Damage <= 0 then
-		return
-	end
+	if info.Staggered or info.Status or info.Damage <= 0 then return end
 
 	self:PlayAction(
 		"flinch",

@@ -71,7 +71,7 @@ T.Test("slash is a registered physical type that is not magic and has no spell",
 	T(damage_types.Get("slash").Name)["=="]("slash")
 	T(damage_types.IsMagic("slash"))["=="](false)
 	T(damage_types.IsMagic("generic"))["=="](false)
-	T(damage_types.IsMagic("fire"))["=="](true)
+	T(damage_types.IsMagic("magic"))["=="](true)
 
 	for _, name in ipairs(damage_types.Names) do
 		T(name ~= "slash")["=="](true)
@@ -80,7 +80,7 @@ end)
 
 T.Test("fire damage sets the victim burning until the burn decays", function()
 	local victim = create_dummy(200)
-	damage.Deal(victim, {Damage = 50, Type = "fire"})
+	damage.Deal(victim, {Damage = 50, Type = "magic", Attributes = {"fire"}})
 	T(victim.health.Health)["=="](150)
 	T(status_effects.Get(victim, "fire"))["~"](0.5, 1e-6)
 	tick(victim.status_effects, 1)
@@ -101,14 +101,14 @@ T.Test("heal damage restores health and clears negative statuses", function()
 	local victim = create_dummy(100)
 	damage.Deal(victim, {Damage = 60, Type = "generic"})
 	status_effects.Set(victim, "poison", 0.8)
-	damage.Deal(victim, {Damage = 30, Type = "heal"})
+	damage.Deal(victim, {Damage = 30, Type = "magic", Attributes = {"heal"}})
 	T(victim.health.Health)["=="](70)
 	T(status_effects.Get(victim, "poison"))["=="](0)
 end)
 
 T.Test("ice freezes solid, which stops movement and attacks", function()
 	local victim = create_dummy(100)
-	damage.Deal(victim, {Damage = 40, Type = "ice"})
+	damage.Deal(victim, {Damage = 40, Type = "magic", Attributes = {"ice"}})
 	T(status_effects.GetSpeedScale(victim))["~"](0.6, 1e-6)
 	T(status_effects.CanAttack(victim))["=="](true)
 	status_effects.Set(victim, "frozen", 0.9)
@@ -148,7 +148,10 @@ T.TestPhysics("attributes scale damage, a raised shield blocks and a roll dodges
 	jrpg.SetEnabled(attacker, true)
 	jrpg.SetEnabled(victim, true)
 	attacker.rpg:GetStats().magic_attack = 2
-	damage.Deal(victim, {Attacker = attacker, Damage = 10, Type = "water"})
+	damage.Deal(
+		victim,
+		{Attacker = attacker, Damage = 10, Type = "magic", Attributes = {"water"}}
+	)
 	T(victim.health:GetHealth())["=="](180)
 	victim.transform:SetRotation(import("goluwa/structs/quat.lua")():Identity())
 	local shield = victim.weapon_holder:GetWeapon("left").weapon_shield
@@ -161,7 +164,7 @@ T.TestPhysics("attributes scale damage, a raised shield blocks and a roll dodges
 	victim.character_movement.roll = {time = 0, forward = 1, side = 0, kind = "forward"}
 	damage.Deal(victim, {Attacker = attacker, Damage = 30})
 	T(victim.health:GetHealth())["=="](180)
-	damage.Deal(victim, {Attacker = attacker, Damage = 10, Type = "fire"})
+	damage.Deal(victim, {Attacker = attacker, Damage = 10, Type = "magic", Attributes = {"fire"}})
 	T(victim.health:GetHealth() < 180)["=="](true)
 end)
 
@@ -178,24 +181,19 @@ T.TestPhysics("kills give experience and levels give attribute points", function
 	T(player.health:GetMaxHealth())["=="](health + 25)
 end)
 
-T.TestPhysics("a weapon with attributes deals one hit of each type", function()
+T.TestPhysics("a weapon with attributes deals one slash hit carrying all its attributes", function()
 	local event = import("goluwa/event.lua")
 	local slash = import("lua/jrpg/slash.lua")
 	local weapon_stats = import("lua/jrpg/weapon_stats.lua")
 	local attacker = create_character(Vec3(0, 0.05, 0))
 	local sword = attacker.weapon_holder:Give("weapon_sword")
-	local slash_types = {"slash"}
-	weapon_stats.Roll(sword.weapon, "common", 0, {})
-	T(sword.weapon:GetDamageTypes(slash_types)[1])["=="]("slash")
 	weapon_stats.Roll(sword.weapon, "common", 0, {"ice", "fire"})
-	T(#sword.weapon:GetDamageTypes(slash_types))["=="](2)
+	T(table.concat(sword.weapon.Attributes, ","))["=="]("ice,fire")
 	local victim = create_character(Vec3(0, 0.05, -1))
-	local types = {}
-	local secondary = {}
+	local seen = {}
 
 	event.AddListener("ModifyDamage", "weapon_attribute_test", function(_, info)
-		types[#types + 1] = info.Type
-		secondary[#secondary + 1] = info.Secondary == true
+		seen[#seen + 1] = info.Type .. ":" .. table.concat(info.Attributes, ",")
 		info.Cancel = true
 	end)
 
@@ -207,12 +205,19 @@ T.TestPhysics("a weapon with attributes deals one hit of each type", function()
 		10,
 		1,
 		2,
-		sword.weapon:GetDamageTypes(slash_types)
+		"slash",
+		sword.weapon.Attributes
 	)
 	event.RemoveListener("ModifyDamage", "weapon_attribute_test")
-	T(table.concat(types, ","))["=="]("ice,fire")
-	T(secondary[1])["=="](false)
-	T(secondary[2])["=="](true)
+	T(#seen)["=="](1)
+	T(seen[1])["=="]("slash:ice,fire")
+end)
+
+T.Test("every attribute of a hit applies its effect", function()
+	local victim = create_dummy(500)
+	damage.Deal(victim, {Damage = 20, Type = "slash", Attributes = {"fire", "poison"}})
+	T(status_effects.Get(victim, "fire") > 0)["=="](true)
+	T(status_effects.Get(victim, "poison") > 0)["=="](true)
 end)
 
 T.TestPhysics("rolled weapons get a rarity, attributes, statuses and a generated title", function()

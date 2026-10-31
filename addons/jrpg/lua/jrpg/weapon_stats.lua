@@ -99,7 +99,6 @@ local function reflect(attacker, victim, info, amount)
 	local copy = table.shallow_copy(info)
 	copy.Attacker = victim
 	copy.Damage = amount
-	copy.Secondary = nil
 	copy.WeaponStatus = true
 	damage.Deal(attacker, copy)
 end
@@ -264,7 +263,7 @@ local function call_statuses(weapon, hook, a, b, info)
 end
 
 event.AddListener("ModifyDamage", "jrpg_weapon_stats", function(victim, info)
-	if info.WeaponStatus or info.Secondary or info.Status then return end
+	if info.WeaponStatus or info.Status then return end
 
 	local attacker = info.Attacker
 	local inflictor = info.Inflictor

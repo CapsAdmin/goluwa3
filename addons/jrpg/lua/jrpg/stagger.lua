@@ -117,7 +117,7 @@ end
 event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_health, info)
 	if not network.HasAuthority() then return end
 
-	if info.Secondary or info.Status or amount <= 0 then return end
+	if info.Status or amount <= 0 then return end
 
 	if not victim.character_pose then return end
 

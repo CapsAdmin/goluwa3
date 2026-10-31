@@ -15,7 +15,18 @@ local function to_attacker_side(normal, to_attacker)
 	return normal
 end
 
-function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, range, types, target)
+function slash.Strike(
+	holder,
+	inflictor,
+	forward,
+	cut_local,
+	amount,
+	scale,
+	range,
+	type_name,
+	attributes,
+	target
+)
 	local center = actors.GetCenter(holder)
 	local strike = center + forward * (range * 0.55)
 	local hit_any = false
@@ -76,31 +87,27 @@ function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, rang
 				end
 			end
 
-			for i, type_name in ipairs(types) do
-				if i > 1 and victim.health:IsDead() then break end
-
-				damage.Deal(
-					victim,
-					{
-						Attacker = holder,
-						Inflictor = inflictor,
-						Damage = amount,
-						Type = type_name,
-						Secondary = i > 1,
-						Position = point,
-						Normal = normal,
-						Force = cut * 5 * scale,
-						Part = part,
-						Direction = cut,
-					}
-				)
-			end
+			damage.Deal(
+				victim,
+				{
+					Attacker = holder,
+					Inflictor = inflictor,
+					Damage = amount,
+					Type = type_name,
+					Attributes = attributes,
+					Position = point,
+					Normal = normal,
+					Force = cut * 5 * scale,
+					Part = part,
+					Direction = cut,
+				}
+			)
 
 			if surface then
 				effects.Impact(
 					point,
 					surface,
-					types[1],
+					attributes[1] or type_name,
 					scale,
 					cut,
 					(
@@ -113,7 +120,7 @@ function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, rang
 					amount
 				)
 			else
-				effects.Impact(point, normal, types[1], scale, cut, nil, amount)
+				effects.Impact(point, normal, attributes[1] or type_name, scale, cut, nil, amount)
 			end
 
 			hits[#hits + 1] = {victim = victim, point = point, normal = normal, part = part}

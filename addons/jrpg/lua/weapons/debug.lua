@@ -27,9 +27,9 @@ local RANGE = 50
 local IMPULSE = 6
 local TYPES = {BULLET}
 
-for _, list in ipairs{damage_types.Physical, damage_types.Names} do
+for _, list in ipairs{damage_types.Base, damage_types.Names} do
 	for _, name in ipairs(list) do
-		if name ~= "generic" then TYPES[#TYPES + 1] = name end
+		if name ~= "generic" and name ~= "magic" then TYPES[#TYPES + 1] = name end
 	end
 end
 
@@ -176,7 +176,8 @@ function META:OnWeaponPrimary(cmd)
 		DAMAGES[self.damage_index],
 		1,
 		3,
-		{type_name},
+		damage_types.Registered[type_name].Physical and type_name or "slash",
+		damage_types.Registered[type_name].Physical and {} or {type_name},
 		self.aimed and {Origin = holder.transform:GetPosition() + holder.character_movement:GetViewOffset(), Direction = cmd.aim:GetForward()} or nil
 	)
 	effects.Text(holder, name .. " " .. DAMAGES[self.damage_index] .. " " .. type_name, TEXT)

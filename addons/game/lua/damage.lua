@@ -6,6 +6,7 @@ local physics = import("goluwa/physics.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 Entity.RegisterComponent("health", import("lua/components/health.lua"))
 local damage = {}
+local NO_ATTRIBUTES = {}
 local godmode = pvars.Setup2{
 	key = "sv_godmode",
 	category = "Game",
@@ -22,6 +23,7 @@ end
 function damage.Info(fields)
 	fields.Damage = fields.Damage or 0
 	fields.Type = fields.Type or "generic"
+	fields.Attributes = fields.Attributes or NO_ATTRIBUTES
 	fields.Position = fields.Position or Vec3()
 	fields.Normal = fields.Normal or Vec3(0, 1, 0)
 	fields.Force = fields.Force or Vec3()

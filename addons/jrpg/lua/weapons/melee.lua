@@ -26,7 +26,6 @@ META:GetSet("TrailColor", Color(0.85, 0.92, 1, 1))
 META:GetSet("Guard", 0.6)
 META:GetSet("Parry", 0.18)
 META:EndStorable()
-local SLASH = {"slash"}
 local BUTTON = usercmd.BUTTON
 local DASH_SPEED = 3
 local VAULT_REACH = 3.5
@@ -244,7 +243,6 @@ end
 function META:Hit(hit, forward)
 	local weapon = self.Owner.weapon
 	local holder = self:GetHolder()
-	local types = weapon:GetDamageTypes(SLASH)
 	local _, _, hits = slash.Strike(
 		holder,
 		self.Owner,
@@ -253,7 +251,8 @@ function META:Hit(hit, forward)
 		self.Damage * hit.Damage * weapon:GetDamageScale(),
 		hit.Damage,
 		hit.Range or self.Range,
-		types
+		"slash",
+		weapon.Attributes
 	)
 
 	local knock = hit.Knock
@@ -264,8 +263,12 @@ function META:Hit(hit, forward)
 		if victim:IsValid() then
 			victim.character_movement:IgnoreImpacts()
 
-			for _, type_name in ipairs(types) do
-				effects.HitOverlay(victim, type_name)
+			if #weapon.Attributes == 0 then
+				effects.HitOverlay(victim, "slash")
+			end
+
+			for _, name in ipairs(weapon.Attributes) do
+				effects.HitOverlay(victim, name)
 			end
 		end
 
@@ -343,21 +346,19 @@ function META:Throw(event, f)
 	local throw = grab.Get(victim):GetVelocity(f, self:GetRunner().duration) * event.Inherit + Vec3(-forward.z, 0, forward.x) * event.Throw.x + Vec3(0, event.Throw.y, 0) + forward * event.Throw.z
 	local weapon = self.Owner.weapon
 
-	for i, type_name in ipairs(weapon:GetDamageTypes(SLASH)) do
-		if not victim.health:IsDead() then
-			damage.Deal(
-				victim,
-				{
-					Attacker = holder,
-					Inflictor = self.Owner,
-					Damage = self.Damage * event.Damage * weapon:GetDamageScale(),
-					Type = type_name,
-					Secondary = i > 1,
-					Position = actors.GetCenter(victim),
-					Direction = throw:GetNormalized(),
-				}
-			)
-		end
+	if not victim.health:IsDead() then
+		damage.Deal(
+			victim,
+			{
+				Attacker = holder,
+				Inflictor = self.Owner,
+				Damage = self.Damage * event.Damage * weapon:GetDamageScale(),
+				Type = "slash",
+				Attributes = weapon.Attributes,
+				Position = actors.GetCenter(victim),
+				Direction = throw:GetNormalized(),
+			}
+		)
 	end
 
 	self:EndGrab(throw)

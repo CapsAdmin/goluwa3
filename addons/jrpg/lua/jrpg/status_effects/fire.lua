@@ -27,7 +27,8 @@ return {
 			{
 				Attacker = source,
 				Damage = 1 + math.ceil(amount * 5),
-				Type = "fire",
+				Type = "magic",
+				Attributes = {"fire"},
 				Status = "fire",
 				Position = actors.GetCenter(entity),
 			}

@@ -119,23 +119,20 @@ function META:Explode(position, normal, victim, part)
 	local direction = self:GetBurstDirection(self.velocity, normal)
 
 	if victim and victim.health then
-		for _, type_name in ipairs(types) do
-			if victim:IsValid() and not victim.health:IsDead() then
-				damage.Deal(
-					victim,
-					{
-						Attacker = self.caster,
-						Inflictor = self.Owner,
-						Damage = self.Damage,
-						Type = type_name,
-						Position = position,
-						Normal = normal,
-						Force = self.velocity:GetNormalized() * 4,
-						Part = part,
-					}
-				)
-			end
-		end
+		damage.Deal(
+			victim,
+			{
+				Attacker = self.caster,
+				Inflictor = self.Owner,
+				Damage = self.Damage,
+				Type = "magic",
+				Attributes = types,
+				Position = position,
+				Normal = normal,
+				Force = self.velocity:GetNormalized() * 4,
+				Part = part,
+			}
+		)
 	end
 
 	for _, type_name in ipairs(types) do

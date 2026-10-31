@@ -32,7 +32,8 @@ return {
 		local info = {
 			Attacker = source,
 			Damage = 1 + math.ceil(amount * 2),
-			Type = "lightning",
+			Type = "magic",
+			Attributes = {"lightning"},
 			Status = "lightning",
 			Position = center,
 			Force = Vec3(math.randomf(-1, 1), math.randomf(0, 1), math.randomf(-1, 1)) * amount * 3,

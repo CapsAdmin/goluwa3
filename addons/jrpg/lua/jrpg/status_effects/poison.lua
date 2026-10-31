@@ -25,7 +25,8 @@ return {
 		local info = {
 			Attacker = source,
 			Damage = 1 + math.ceil(amount * 4),
-			Type = "poison",
+			Type = "magic",
+			Attributes = {"poison"},
 			Status = "poison",
 			Position = center,
 		}

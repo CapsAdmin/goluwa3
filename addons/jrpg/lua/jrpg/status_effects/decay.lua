@@ -31,7 +31,8 @@ return {
 			{
 				Attacker = source,
 				Damage = 1 + math.ceil(amount * 3),
-				Type = "dark",
+				Type = "magic",
+				Attributes = {"dark"},
 				Status = "decay",
 				Position = actors.GetCenter(entity),
 			}
