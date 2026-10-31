@@ -8,7 +8,11 @@ META:GetSet("Profile", "biped")
 META:EndStorable()
 
 function META:Apply(armature)
-	for name, socket in pairs(assert(biped.SocketProfiles[self.Profile], "unknown socket profile " .. self.Profile)) do
+	local sockets = self.Profile == "creature" and
+		biped.GetCreatureSockets(self.Owner.character_movement:GetHeight()) or
+		assert(biped.SocketProfiles[self.Profile], "unknown socket profile " .. self.Profile)
+
+	for name, socket in pairs(sockets) do
 		armature:SetSocket(name, socket.Bone, socket.Offset, socket.Rotation)
 	end
 end

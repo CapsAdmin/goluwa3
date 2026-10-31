@@ -139,6 +139,20 @@ T.TestPhysics("reviving a dead creature npc stands it back up", function()
 	ground:Remove()
 end)
 
+T.TestPhysics("a creature with a weapon gets sockets on top of its body", function()
+	local Entity = import("goluwa/entities/entity.lua")
+	local entity = Entity.New{
+		ComponentSet = {"transform", "character_movement", "attachment_points"},
+		attachment_points = {Profile = "creature"},
+	}
+	entity:EnsureComponent("armature", {Skeleton = "biped"})
+	local names = entity.armature:GetSocketNames()
+	T(#names)[">"](0)
+	local height = entity.character_movement:GetHeight()
+	T(entity.armature:GetBoneMatrix("grip_r").m31)[">"](height * 0.9)
+	entity:Remove()
+end)
+
 T.TestPhysics("a ragdoll finds its parts by role as well as by name", function()
 	if not available() then return T.Unavailable("gmod content not mounted") end
 

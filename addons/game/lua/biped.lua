@@ -422,6 +422,21 @@ biped.SocketProfiles.source_humanoid = {
 	back = {Bone = "chest"},
 }
 
+function biped.GetCreatureSockets(height)
+	local top = Vec3(0, height, 0)
+	return {
+		grip_r = {Bone = "root", Offset = top + Vec3(height * 0.3, 0, 0)},
+		grip_l = {Bone = "root", Offset = top + Vec3(-height * 0.3, 0, 0)},
+		eye = {Bone = "root", Offset = top},
+		head = {Bone = "root", Offset = top},
+		mouth = {Bone = "root", Offset = top},
+		center = {Bone = "root", Offset = Vec3(0, height * 0.5, 0)},
+		feet = {Bone = "root"},
+		chest = {Bone = "root", Offset = Vec3(0, height * 0.6, 0)},
+		back = {Bone = "root", Offset = Vec3(0, height * 0.6, 0)},
+	}
+end
+
 if RENDER_3D then
 	import("goluwa/entities/components/armature.lua").RegisterSkeleton(biped.SkeletonName, biped.Bones)
 end
