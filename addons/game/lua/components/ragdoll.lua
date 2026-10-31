@@ -53,6 +53,7 @@ local PART_ANGULAR_DAMPING = 1
 local PART_ROLLING_FRICTION = 6
 local PART_MAX_SPEED = 40
 local JOINT_FRICTION = 0.05
+local CORPSE_JOINT_FRICTION = 2
 local RELEASE_JITTER = 0.4
 local RELEASE_SPIN = 1.5
 local TOUCH_MARGIN = 0.02
@@ -1027,8 +1028,18 @@ function META:OnDeath(info)
 		for _, part in ipairs(self.parts) do
 			part.body:SetCCD(false)
 			self:SetCheapSleep(part)
+			local joint = part.joint
 
-			if part.joint then part.joint:ClearSpring() end
+			if joint then
+				joint:ClearSpring()
+
+				if joint.Friction then
+					joint.Friction = CORPSE_JOINT_FRICTION
+				else
+					joint.TwistFriction = CORPSE_JOINT_FRICTION
+					joint.SwingFriction = CORPSE_JOINT_FRICTION
+				end
+			end
 		end
 	end
 
