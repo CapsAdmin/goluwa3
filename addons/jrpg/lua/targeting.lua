@@ -6,8 +6,10 @@ local U = import("goluwa/source_engine/units.lua").meters
 local FORWARD = orientation.FORWARD_VECTOR
 local RIGHT = orientation.RIGHT_VECTOR
 local MAX_DISTANCE = 800 * U
+local DEAD_HOLD = 2
 local targeting = {}
 local target
+local dead_time = 0
 
 local function is_not_owner(entity, owner)
 	return entity ~= owner and not entity:ContainsParent(owner)
@@ -15,9 +17,8 @@ end
 
 local function is_valid_target(body, owner)
 	local entity = body.Owner
-
 	return entity ~= owner and
-		not entity.ragdoll_part and
+		not body.TraceOwner and
 		not body.WorldGeometry and
 		not body:IsStatic()
 		and
@@ -45,6 +46,7 @@ end
 
 function targeting.Set(body)
 	target = body
+	dead_time = 0
 end
 
 function targeting.Clear()
@@ -75,7 +77,6 @@ function targeting.Find(owner, from, camera_rotation)
 	end
 
 	table.sort(found, by_angle)
-
 	return found
 end
 
@@ -120,11 +121,29 @@ function targeting.Toggle(owner, from, camera_rotation)
 	end
 end
 
-function targeting.Validate(owner, from)
+function targeting.Validate(owner, from, camera_rotation, dt)
 	if not target then return end
 
+	if not target:IsValid() then
+		target = nil
+		return
+	end
+
+	local health = target.Owner.health
+
+	if health and health:IsDead() then
+		dead_time = dead_time + dt
+
+		if dead_time > DEAD_HOLD or #targeting.Find(owner, from, camera_rotation) > 0 then
+			target = nil
+		end
+
+		return
+	end
+
+	dead_time = 0
+
 	if
-		not target:IsValid() or
 		not is_valid_target(target, owner) or
 		(
 			target:GetPosition() - from
