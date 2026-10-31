@@ -1033,6 +1033,7 @@ function META:OnUpdate(dt)
 
 	if ragdoll and ragdoll:HasLimp() then
 		ragdoll:DriveRig(rig, host and host.armature)
+		animator:Refresh()
 	end
 end
 

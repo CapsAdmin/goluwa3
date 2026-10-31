@@ -32,6 +32,9 @@ local buffers = nil
 local pipeline = nil
 skinning.updated = {}
 local job_base = 0
+local frame_stamp = -1
+local frame_jobs = 0
+local frame_floats = 0
 local job_count = 0
 local group_count = 0
 
@@ -376,19 +379,29 @@ function skinning.GetMorphData(skin, vertex_count)
 end
 
 function skinning.Queue(rig)
+	if rig.skin_queued then return end
+
+	rig.skin_queued = true
 	queued_count = queued_count + 1
 	queue[queued_count] = rig
 end
 
 function skinning.Dispatch(cmd)
-	table.clear(skinning.updated)
+	local frame = system.GetFrameNumber()
+
+	if frame ~= frame_stamp then
+		frame_stamp = frame
+		frame_jobs = 0
+		frame_floats = 0
+		table.clear(skinning.updated)
+	end
 
 	if queued_count == 0 then return end
 
 	local b = get_buffers()
-	local ring = system.GetFrameNumber() % skinning.RING
-	job_base = ring * skinning.MAX_JOBS
-	local matrix_offset = ring * skinning.MAX_MATRIX_FLOATS
+	local ring = frame % skinning.RING
+	job_base = ring * skinning.MAX_JOBS + frame_jobs
+	local matrix_offset = ring * skinning.MAX_MATRIX_FLOATS + frame_floats
 	local jobs = 0
 	local floats = 0
 	local groups = 0
@@ -396,6 +409,7 @@ function skinning.Dispatch(cmd)
 	for i = 1, queued_count do
 		local rig = queue[i]
 		queue[i] = nil
+		rig.skin_queued = nil
 
 		if rig.removed then goto continue end
 
@@ -403,8 +417,8 @@ function skinning.Dispatch(cmd)
 		local weight_count = rig.morph_weight_count
 
 		if
-			floats + matrix_count + weight_count > skinning.MAX_MATRIX_FLOATS or
-			jobs + #rig.skinned > skinning.MAX_JOBS
+			frame_floats + floats + matrix_count + weight_count > skinning.MAX_MATRIX_FLOATS or
+			frame_jobs + jobs + #rig.skinned > skinning.MAX_JOBS
 		then
 			if not skinning.warned then
 				skinning.warned = true
@@ -459,6 +473,8 @@ function skinning.Dispatch(cmd)
 
 	if jobs == 0 then return end
 
+	frame_jobs = frame_jobs + jobs
+	frame_floats = frame_floats + floats
 	cmd:PipelineBarrier{srcStage = "all_commands", dstStage = "compute", memoryBarrier = true}
 	job_count = jobs
 	group_count = groups

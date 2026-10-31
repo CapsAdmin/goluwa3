@@ -527,7 +527,11 @@ function Animator:Animate(dt)
 
 	if pose_changed then rig:SetPose(self.pose) end
 
-	rig:Update()
+	self:Refresh()
+end
+
+function Animator:Refresh()
+	self.rig:Update()
 	self.settle = 1
 	self.skin_version = (self.skin_version or 0) + 1
 	self.Owner.visual:NotifyGeometryChanged()

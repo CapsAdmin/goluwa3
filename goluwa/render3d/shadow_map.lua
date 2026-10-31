@@ -9,6 +9,7 @@ local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Material = import("goluwa/render3d/material.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
+local skinning = import("goluwa/render3d/skinning.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
@@ -368,6 +369,11 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 						vec3(data.v[tip_at], data.v[tip_at + 1u], data.v[tip_at + 2u])
 					);
 					vec3 world_normal = normalize(transpose(inverse(mat3(shadow_world))) * local_normal);
+					if (vertex_color.a < ]] .. skinning.MOTION_THRESHOLD .. [[.0) {
+						vertex_color = vec4(0.0);
+						vertex_chain = VegetationChain(vec4(0.0), vec3(0.0), vec3(0.0));
+					}
+
 					world_pos += get_vertex_animation_offset(world_pos, world_normal, vertex_color, vertex_chain);
 				}
 
@@ -1337,6 +1343,18 @@ function ShadowMap:GetTimingName(cascade_index)
 	return name
 end
 
+local skinned_frame = -1
+
+-- shadows are drawn before the main pass skins, so they would pair last frame's skin with this frame's matrices
+local function dispatch_skinning(cmd)
+	local frame = system.GetFrameNumber()
+
+	if skinned_frame == frame then return end
+
+	skinned_frame = frame
+	skinning.Dispatch(cmd)
+end
+
 function ShadowMap:Begin(cascade_index, is_first_in_batch)
 	cascade_index = cascade_index or 1
 	is_first_in_batch = is_first_in_batch == nil and cascade_index == 1 or is_first_in_batch
@@ -1354,6 +1372,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 			self.cmd:Reset()
 			self.cmd:Begin()
 			gpu_timing.BeginCommandBuffer(self.cmd)
+			dispatch_skinning(self.cmd)
 			self.is_recording_cascades = true
 			self.batch_serial = self.batch_serial + 1
 		end
@@ -1421,6 +1440,7 @@ function ShadowMap:Begin(cascade_index, is_first_in_batch)
 		self.cmd:Reset()
 		self.cmd:Begin()
 		gpu_timing.BeginCommandBuffer(self.cmd)
+		dispatch_skinning(self.cmd)
 		self.is_recording_cascades = true
 		self.batch_serial = self.batch_serial + 1
 	end

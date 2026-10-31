@@ -64,6 +64,9 @@ for name, bone in pairs{
 		step(npc, 0.5)
 		npc.health:TakeDamage({Damage = 1e6})
 		step(npc, 0.4)
+		local version = npc.animator.skin_version
+		step(npc, 1 / 60)
+		T(npc.animator.skin_version)[">"](version)
 		local first = get_relative(rig, bone[1], bone[2])
 		local before = npc.ragdoll.parts[1].body.Position:Copy()
 		local animated = Matrix44():Identity()
