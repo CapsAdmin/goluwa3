@@ -130,7 +130,9 @@ function META:GetRig()
 	local driver = self.Owner.character_pose.driver
 	local animator = driver and driver.Owner.animator
 
-	if not animator and self.profile.Model then animator = self.Owner.animator end
+	if not animator and self:GetProfile().Model then
+		animator = self.Owner.animator
+	end
 
 	return animator and animator:GetRig(), driver
 end
@@ -139,11 +141,12 @@ function META:ComputePose()
 	local owner = self.Owner
 	local pose = owner.character_pose
 	local rig, driver = self:GetRig()
+	local profile = self:GetProfile()
 
-	if self.profile.Model then
-		for _, definition in ipairs(self.profile.Parts) do
+	if profile.Model then
+		for _, definition in ipairs(profile.Parts) do
 			local name = definition.Bone
-			self.bones[name] = rig and rig:GetBone(name) or self.profile.Rest[name]
+			self.bones[name] = rig and rig:GetBone(name) or profile.Rest[name]
 		end
 
 		if not self.frames then self:BuildFrames() end
