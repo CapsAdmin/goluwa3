@@ -65,7 +65,7 @@ function slash.Strike(
 				local aimed
 
 				if target.Part then
-					local ragdoll_part = victim.ragdoll and victim.ragdoll.part_by_name[target.Part]
+					local ragdoll_part = victim.ragdoll and victim.ragdoll:FindPart(target.Part)
 
 					if ragdoll_part then
 						local to_part = ragdoll_part.body:GetPosition() - center

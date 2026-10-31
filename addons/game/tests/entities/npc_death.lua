@@ -138,3 +138,19 @@ T.TestPhysics("reviving a dead creature npc stands it back up", function()
 	npc:Remove()
 	ground:Remove()
 end)
+
+T.TestPhysics("a ragdoll finds its parts by role as well as by name", function()
+	if not available() then return T.Unavailable("gmod content not mounted") end
+
+	local ground = create_ground()
+
+	for _, name in ipairs(CREATURES) do
+		local npc = npcs.Spawn(name, Vec3(0, 0.05, 0), 0)
+		wait_for_parts(npc)
+		T(npc.ragdoll:FindPart("torso") ~= nil)["=="](true)
+		T(npc.ragdoll:FindPart(npc.ragdoll.parts[2].definition.Name))["=="](npc.ragdoll.parts[2])
+		npc:Remove()
+	end
+
+	ground:Remove()
+end)

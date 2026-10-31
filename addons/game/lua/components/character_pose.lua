@@ -619,10 +619,12 @@ end
 function META:OnTakeDamage(info)
 	if info.Staggered or info.Status or info.Damage <= 0 then return end
 
+	local ragdoll = self.Owner.ragdoll
+	local part = ragdoll and ragdoll:FindPart(info.Part)
 	self:PlayAction(
 		"flinch",
 		FLINCH_DURATION,
-		info.Part,
+		part and part.definition.Role == "head" and "head" or info.Part,
 		info.Direction or
 			info.Force and
 			info.Force:GetLength() > 0.01 and

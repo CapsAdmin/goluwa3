@@ -88,6 +88,7 @@ function META:Initialize()
 	self.bones = {}
 	self.parts = {}
 	self.part_by_name = {}
+	self.part_by_role = {}
 	self.total_mass = 0
 	self.sources = {}
 	self.impulses = {}
@@ -458,6 +459,7 @@ function META:Build()
 		self.parts[#self.parts + 1] = part
 		self.total_mass = self.total_mass + definition.Mass * mass_scale
 		self.part_by_name[definition.Name] = part
+		self.part_by_role[definition.Role] = self.part_by_role[definition.Role] or part
 	end
 
 	for _, part in ipairs(self.parts) do
@@ -790,8 +792,12 @@ function META:UpdateRest(dt)
 	end
 end
 
+function META:FindPart(key)
+	return self.part_by_name[key] or self.part_by_role[key]
+end
+
 function META:GetPartLimp(name)
-	local part = self.part_by_name[name]
+	local part = self:FindPart(name)
 	return part and part.limp or 0
 end
 

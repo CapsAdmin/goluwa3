@@ -76,6 +76,7 @@ local humanoid = {
 			Radius = 0.17,
 			Mass = 8,
 			Multiplier = 1,
+			Role = "torso",
 			Bone = "body",
 		},
 		{
@@ -86,6 +87,7 @@ local humanoid = {
 			Radius = 0.19,
 			Mass = 14,
 			Multiplier = 1,
+			Role = "torso",
 			Bone = "spine",
 		},
 		{
@@ -96,6 +98,7 @@ local humanoid = {
 			Radius = 0.13,
 			Mass = 4,
 			Multiplier = 2.5,
+			Role = "head",
 			Bone = "head",
 		},
 	},
@@ -112,6 +115,7 @@ for _, side in ipairs{"r", "l"} do
 			Radius = 0.065,
 			Mass = 2,
 			Multiplier = 0.7,
+			Role = "limb",
 			Bone = "upperarm_" .. side,
 		}
 	)
@@ -124,6 +128,7 @@ for _, side in ipairs{"r", "l"} do
 			Radius = 0.055,
 			Mass = 1.5,
 			Multiplier = 0.7,
+			Role = "limb",
 			Bone = "forearm_" .. side,
 		}
 	)
@@ -136,6 +141,7 @@ for _, side in ipairs{"r", "l"} do
 			Radius = 0.095,
 			Mass = 5,
 			Multiplier = 0.7,
+			Role = "limb",
 			Bone = "thigh_" .. side,
 		}
 	)
@@ -148,6 +154,7 @@ for _, side in ipairs{"r", "l"} do
 			Radius = 0.075,
 			Mass = 3,
 			Multiplier = 0.6,
+			Role = "limb",
 			Bone = "calf_" .. side,
 		}
 	)
@@ -214,6 +221,7 @@ local eye_parts = {
 		Radius = eye_pose.EyeRadius,
 		Mass = 6,
 		Multiplier = 2.5,
+		Role = "head",
 		Bone = "neck",
 	},
 }
@@ -228,6 +236,7 @@ for _, side in ipairs{"r", "l"} do
 			Radius = 0.05,
 			Mass = 2,
 			Multiplier = 0.7,
+			Role = "limb",
 			Bone = "upperarm_" .. side,
 		}
 	)
@@ -240,6 +249,7 @@ for _, side in ipairs{"r", "l"} do
 			Radius = 0.045,
 			Mass = 1.5,
 			Multiplier = 0.7,
+			Role = "limb",
 			Bone = "forearm_" .. side,
 		}
 	)
@@ -252,6 +262,7 @@ for _, side in ipairs{"r", "l"} do
 			Radius = 0.06,
 			Mass = 4,
 			Multiplier = 0.7,
+			Role = "limb",
 			Bone = "thigh_" .. side,
 		}
 	)
@@ -264,6 +275,7 @@ for _, side in ipairs{"r", "l"} do
 			Radius = 0.05,
 			Mass = 3,
 			Multiplier = 0.6,
+			Role = "limb",
 			Bone = "calf_" .. side,
 		}
 	)

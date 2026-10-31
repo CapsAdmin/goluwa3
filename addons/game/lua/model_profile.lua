@@ -31,17 +31,19 @@ local LIMB_WORDS = {
 local cache = {}
 local loading = {}
 
-local function get_multiplier(name)
+local function get_role(name)
 	name = name:lower()
 
-	if name:find("head", nil, true) then return HEAD_MULTIPLIER end
+	if name:find("head", nil, true) then return "head" end
 
 	for _, word in ipairs(LIMB_WORDS) do
-		if name:find(word, nil, true) then return LIMB_MULTIPLIER end
+		if name:find(word, nil, true) then return "limb" end
 	end
 
-	return 1
+	return "torso"
 end
+
+local MULTIPLIERS = {head = HEAD_MULTIPLIER, limb = LIMB_MULTIPLIER, torso = 1}
 
 local function get_limit(axis)
 	local range = math.max(math.abs(axis.min), math.abs(axis.max))
@@ -111,7 +113,8 @@ function model_profile.Build(ragdoll)
 		used[name] = true
 		names[i] = name
 		local center, rotation, length, radius = fit_capsule(solid)
-		local multiplier = get_multiplier(name .. " " .. solid.bone)
+		local role = get_role(name .. " " .. solid.bone)
+		local multiplier = MULTIPLIERS[role]
 		profile.Parts[i] = {
 			Name = name,
 			Bone = solid.bone,
@@ -120,6 +123,7 @@ function model_profile.Build(ragdoll)
 			Radius = radius,
 			Mass = solid.weight,
 			Multiplier = multiplier,
+			Role = role,
 		}
 		profile.Hits[name] = multiplier < 1 and LIMB_HIT or BODY_HIT
 		local rest = Matrix44():Identity()
