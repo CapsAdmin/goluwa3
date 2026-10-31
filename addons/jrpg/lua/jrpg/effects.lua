@@ -647,6 +647,11 @@ end
 
 local overlays = {}
 
+			cut_scale = cut_scale,
+			cut_bucket = cut and
+				2 ^ math.floor(math.log(math.max(cut_scale, 0.125)) / math.log(2) + 0.5)
+				or
+				nil,
 local function collect_visuals(entity, out)
 	if entity.weapon then return end
 
@@ -973,7 +978,13 @@ do
 
 				if not emitter and emitter_count < EMITTER_BUDGET then
 					emitter_count = emitter_count + 1
-					local properties = effects.GetParticleProperties(definition, {Shape = "sphere", ShapeSize = Vec3(0.3, 0.6, 0.3)})
+					local properties = effects.GetParticleProperties(
+						definition,
+						{
+							Shape = "sphere",
+							ShapeSize = p.entity.ragdoll and Vec3(0.12, 0.12, 0.12) or Vec3(0.3, 0.6, 0.3),
+						}
+					)
 					properties.Playing = true
 					properties.MaxParticles = 256
 					emitter = vfx.CreateEmitter("jrpg_status_" .. definition.Name, properties)
