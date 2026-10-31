@@ -4,11 +4,13 @@ local screen_shake = {}
 local shakes = {}
 local offset = Vec3()
 
-function screen_shake.Add(amplitude, frequency, length)
+function screen_shake.Add(amplitude, frequency, length, axis_x, axis_y)
 	shakes[#shakes + 1] = {
 		amplitude = amplitude,
 		frequency = frequency,
 		length = length,
+		axis_x = axis_x,
+		axis_y = axis_y,
 		ends = system.GetElapsedTime() + length,
 		seed = math.random() * 100,
 	}
@@ -31,9 +33,16 @@ function screen_shake.Get()
 			f = f * f * (3 - 2 * f)
 			local t = now * shake.frequency * 30 + shake.seed
 			local amplitude = shake.amplitude * f
-			x = x + (math.sin(t * 1.7) + math.sin(t * 3.1) * 0.5) * amplitude
-			y = y + (math.cos(t * 2.3) + math.sin(t * 4.3) * 0.5) * amplitude
-			roll = roll + math.sin(t * 1.3) * amplitude * 0.15
+			local sway = (math.sin(t * 1.7) + math.sin(t * 3.1) * 0.5) * amplitude
+
+			if shake.axis_x then
+				x = x + shake.axis_x * sway
+				y = y + shake.axis_y * sway
+			else
+				x = x + sway
+				y = y + (math.cos(t * 2.3) + math.sin(t * 4.3) * 0.5) * amplitude
+				roll = roll + math.sin(t * 1.3) * amplitude * 0.15
+			end
 		end
 	end
 

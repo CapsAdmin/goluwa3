@@ -72,8 +72,8 @@ effects.LevelUp = new_event(
 )
 effects.Stagger = new_event(
 	"jrpg_stagger",
-	function(victim, attacker, hitstop)
-		effects.ShowStagger(victim, attacker, hitstop)
+	function(victim, attacker, hitstop, direction)
+		effects.ShowStagger(victim, attacker, hitstop, direction)
 	end,
 	enabled
 )
@@ -932,7 +932,7 @@ local PUNCH_ZOOM = 0.07
 local PUNCH_BLUR = 45
 local PUNCH_ABERRATION = 8
 
-function effects.ShowStagger(victim, attacker, hitstop)
+function effects.ShowStagger(victim, attacker, hitstop, direction)
 	if not victim:IsValid() then return end
 
 	local center = actors.GetCenter(victim)
@@ -946,8 +946,20 @@ function effects.ShowStagger(victim, attacker, hitstop)
 	local rig = _G.PLAYER_RIG
 
 	if rig and (rig == victim or rig == attacker) then
-		screen_shake.Add(0.06 + hitstop * 0.4, 1.4, 0.3)
 		local camera = render3d.GetCamera()
+		local amplitude = 0.06 + hitstop * 0.4
+
+		if rig == victim then
+			screen_shake.Add(amplitude, 1.4, 0.3)
+		else
+			local local_direction = camera:GetRotation():GetConjugated():VecMul(direction)
+			local length = math.sqrt(local_direction.x ^ 2 + local_direction.y ^ 2)
+
+			if length > 1e-3 then
+				screen_shake.Add(amplitude, 1.4, 0.3, local_direction.x / length, local_direction.y / length)
+			end
+		end
+
 		local strength = math.clamp(hitstop / 0.16, 0.5, 1)
 		screen_fields.Add{
 			Position = rig == victim and

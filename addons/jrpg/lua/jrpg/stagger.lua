@@ -33,7 +33,7 @@ function stagger.GetHitstop(amount, threshold)
 	return math.lerp(math.clamp(amount / threshold - 1, 0, 1), stagger.Hitstop, stagger.MaxHitstop)
 end
 
-function stagger.Apply(victim, attacker, push, hitstop, part)
+function stagger.Apply(victim, attacker, push, hitstop, part, direction)
 	local freeze = stagger.Duration * stagger.FreezeFraction
 	local pose = victim.character_pose
 	pose:Freeze(freeze, true)
@@ -54,10 +54,10 @@ function stagger.Apply(victim, attacker, push, hitstop, part)
 	end
 
 	effects.Text(victim, "STAGGER", TEXT)
-	effects.Stagger(victim, attacker or victim, hitstop)
+	effects.Stagger(victim, attacker or victim, hitstop, direction)
 end
 
-function stagger.Knockdown(victim, attacker, push, hitstop, power)
+function stagger.Knockdown(victim, attacker, push, hitstop, power, direction)
 	victim.character_pose:Freeze(hitstop, true)
 	victim.ragdoll:Knockdown(
 		push * math.lerp(power, stagger.KnockdownSpeed, stagger.KnockdownMaxSpeed) + Vec3(0, stagger.KnockdownLift, 0)
@@ -73,7 +73,7 @@ function stagger.Knockdown(victim, attacker, push, hitstop, power)
 	end
 
 	effects.Text(victim, "KNOCKDOWN", TEXT)
-	effects.Stagger(victim, attacker or victim, hitstop)
+	effects.Stagger(victim, attacker or victim, hitstop, direction)
 end
 
 event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_health, info)
@@ -108,14 +108,22 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 		push:GetNormalized() or
 		actors.GetForward(victim) * -1
 	local hitstop = stagger.GetHitstop(amount, threshold)
+	local direction = info.Direction or push
 	local knockdown = stagger.GetKnockdownThreshold(before)
 
 	if victim.ragdoll and amount >= knockdown then
-		stagger.Knockdown(victim, attacker, push, hitstop, math.clamp(amount / knockdown - 1, 0, 1))
+		stagger.Knockdown(
+			victim,
+			attacker,
+			push,
+			hitstop,
+			math.clamp(amount / knockdown - 1, 0, 1),
+			direction
+		)
 		return
 	end
 
-	stagger.Apply(victim, attacker, push, hitstop, info.Part)
+	stagger.Apply(victim, attacker, push, hitstop, info.Part, direction)
 end)
 
 return stagger
