@@ -993,6 +993,9 @@ do
 				local lost_x = math.max((previous.x - x) * math.sign(previous.x), 0)
 				local lost_y = math.max((previous.y - y) * math.sign(previous.y), 0)
 				local lost_z = math.max((previous.z - z) * math.sign(previous.z), 0)
+
+				if self.previous_driven then lost_x, lost_z = 0, 0 end
+
 				impact = math.sqrt(lost_x * lost_x + lost_y * lost_y + lost_z * lost_z)
 			end
 
@@ -1127,6 +1130,7 @@ do
 				jump_requested = false
 			end
 
+			local driven = self:IsRolling()
 			local lunge = self.lunge
 
 			if lunge and not frozen then
@@ -1140,6 +1144,7 @@ do
 					if not self:IsRolling() then
 						move = lunge.direction:Copy()
 						wish_speed = lunge.distance * (math.cos(math.pi * from) - math.cos(math.pi * to)) / 2 / dt
+						driven = true
 					end
 
 					if to >= 1 - 1e-6 then self.lunge = nil end
@@ -1202,6 +1207,7 @@ do
 
 					x, z = dx, dz
 					wish_speed = speed
+					driven = true
 				end
 			end
 
@@ -1228,6 +1234,7 @@ do
 			end
 
 			self.previous_velocity:Set(x, y, z)
+			self.previous_driven = driven
 			self.previous_valid = true
 			body:ApplyImpulse(
 				Vec3(x + base_x - velocity.x, y + base_y - velocity.y, z + base_z - velocity.z) / body.InverseMass

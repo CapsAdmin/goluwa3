@@ -40,3 +40,34 @@ T.TestPhysics("a lunge waits for its delay, then covers its distance over its du
 	T(entity.character_movement.lunge)["=="](nil)
 	entity:Remove()
 end)
+
+T.TestPhysics("a lunge or a drive into a wall deals no impact damage", function()
+	Entity.New{
+		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(100, 1, 100)},
+		rigid_body = {
+			MotionType = "static",
+			WorldGeometry = true,
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+		},
+	}
+	Entity.New{
+		transform = {Position = Vec3(0, 1, -2.5), Scale = Vec3(10, 3, 0.5)},
+		rigid_body = {
+			MotionType = "static",
+			WorldGeometry = true,
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+		},
+	}
+	local entity = Entity.New{
+		ComponentSet = {"transform", "ai_controller", "character_pose", "health"},
+		transform = {Position = Vec3(0, 0.05, 0)},
+		ai_controller = {Wander = false},
+		health = {Health = 100, MaxHealth = 100},
+	}
+	entity.ai_controller:Teleport(Vec3(0, 0.05, 0), 0)
+	run(1)
+	entity.character_movement:Lunge(Vec3(0, 0, -1), 8, 0, 0.4)
+	run(1.5)
+	T(entity.health:GetHealth())["=="](100)
+	entity:Remove()
+end)
