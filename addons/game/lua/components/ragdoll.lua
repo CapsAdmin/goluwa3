@@ -11,6 +11,7 @@ local rows = import("goluwa/physics/constraint_rows.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local biped = import("lua/biped.lua")
 local biped_pose = import("lua/biped_pose.lua")
+local model_profile = import("lua/model_profile.lua")
 local RagdollPart = import("lua/components/ragdoll_part.lua")
 local CharacterMovement = import("lua/components/character_movement.lua")
 local aim_pose = import("lua/aim_pose.lua")
@@ -109,12 +110,45 @@ function META:Initialize()
 	self:AddGlobalEvent("PhysicsUpdate")
 end
 
+function META:GetProfile()
+	local profile = self.profile
+
+	if profile then return profile end
+
+	if self.Profile == "model" then
+		profile = model_profile.Get(self.Owner.model.ModelPath)
+	else
+		profile = biped.Profiles[self.Profile]
+	end
+
+	self.profile = profile
+	return profile
+end
+
+function META:GetRig()
+	local driver = self.Owner.character_pose.driver
+	local animator = driver and driver.Owner.animator
+
+	if not animator and self.profile.Model then animator = self.Owner.animator end
+
+	return animator and animator:GetRig(), driver
+end
+
 function META:ComputePose()
 	local owner = self.Owner
 	local pose = owner.character_pose
-	local driver = pose.driver
-	local animator = driver and driver.Owner.animator
-	local rig = animator and animator:GetRig()
+	local rig, driver = self:GetRig()
+
+	if self.profile.Model then
+		for _, definition in ipairs(self.profile.Parts) do
+			local name = definition.Bone
+			self.bones[name] = rig and rig:GetBone(name) or self.profile.Rest[name]
+		end
+
+		if not self.frames then self:BuildFrames() end
+
+		return
+	end
 
 	if rig then
 		if next(driver.bones) then
@@ -150,9 +184,24 @@ end
 -- and the bone follows the part without sampling anything at the moment of death
 function META:BuildFrames()
 	local frames = {}
-	local profile = biped.Profiles[self.Profile]
+	local profile = self.profile
 	local part_bones = {}
 	local owner_of = {}
+
+	if profile.Model then
+		for _, definition in ipairs(profile.Parts) do
+			frames[definition.Name] = {
+				rotation = definition.Frame.rotation:Copy(),
+				center = definition.Frame.center,
+			}
+		end
+
+		self.attached = {}
+		self.part_bones = part_bones
+		self.owner_of = owner_of
+		self.frames = frames
+		return
+	end
 
 	for _, definition in ipairs(profile.Parts) do
 		part_bones[definition.Bone] = true
@@ -337,7 +386,7 @@ end
 function META:Build()
 	local owner = self.Owner
 	self:ComputePose()
-	local profile = biped.Profiles[self.Profile]
+	local profile = self.profile
 	local profile_mass = 0
 
 	for _, definition in ipairs(profile.Parts) do
@@ -352,13 +401,18 @@ function META:Build()
 	end
 
 	for _, definition in ipairs(profile.Parts) do
-		local from, to = self.bones[definition.From], self.bones[definition.To]
-		local offset = definition.ToOffset or Vec3()
-		local length = Vec3(
-			to.m30 - from.m30 + offset.x,
-			to.m31 - from.m31 + offset.y,
-			to.m32 - from.m32 + offset.z
-		):GetLength()
+		local length = definition.Length
+
+		if not length then
+			local from, to = self.bones[definition.From], self.bones[definition.To]
+			local offset = definition.ToOffset or Vec3()
+			length = Vec3(
+				to.m30 - from.m30 + offset.x,
+				to.m31 - from.m31 + offset.y,
+				to.m32 - from.m32 + offset.z
+			):GetLength()
+		end
+
 		local position, rotation = self:GetPartTarget(definition)
 		local entity = Entity.New{
 			Name = "ragdoll_" .. definition.Name,
@@ -427,16 +481,6 @@ function META:SetPartsCollidable(collidable)
 	end
 end
 
-local function get_direction(self, definition)
-	local from, to = self.bones[definition.From], self.bones[definition.To]
-	local offset = definition.ToOffset or Vec3()
-	return Vec3(
-		to.m30 - from.m30 + offset.x,
-		to.m31 - from.m31 + offset.y,
-		to.m32 - from.m32 + offset.z
-	)
-end
-
 local get_segment_distance
 
 do
@@ -478,8 +522,9 @@ function META:BuildJoint(part, attach_rotation)
 	local anchor = parent.body.Position + attach_rotation:VecMul(part.anchor_target - parent.target_position)
 
 	if definition.Hinge then
-		local a, b = get_direction(self, parent.definition), get_direction(self, part.definition)
-		local bend = math.acos(math.clamp(a:Dot(b) / (a:GetLength() * b:GetLength()), -1, 1))
+		local bend = math.acos(
+			math.clamp(parent.target_rotation:VecMul(UP):Dot(part.target_rotation:VecMul(UP)), -1, 1)
+		)
 		local pose_angle = definition.Hinge[2] > 0 and bend or -bend
 		return constraints.Hinge(
 			parent.body,
@@ -498,7 +543,7 @@ function META:BuildJoint(part, attach_rotation)
 		parent.body,
 		part.body,
 		anchor,
-		attach_rotation:VecMul(entity_rotation:VecMul(get_direction(self, part.definition))):GetNormalized(),
+		attach_rotation:VecMul(part.target_rotation:VecMul(UP)),
 		{
 			TwistMin = -definition.Twist,
 			TwistMax = definition.Twist,
@@ -809,6 +854,11 @@ end
 function META:EnterGlobal(dead)
 	local owner = self.Owner
 	self.global_active = true
+
+	if self.profile.Model then
+		self.follow_offset = self.parts[1].target_position - owner.transform:GetPosition()
+	end
+
 	self.limp_mode = owner.character_movement.mode
 	owner.rigid_body:SetCollisionEnabled(false)
 	owner.rigid_body:SetMotionType("kinematic")
@@ -921,7 +971,7 @@ function META:OnTakeDamage(info)
 		return
 	end
 
-	local policy = biped.Profiles[self.Profile].Hits[info.Part]
+	local policy = self.profile.Hits[info.Part]
 	local part = self.part_by_name[info.Part]
 
 	if not policy or not part then return end
@@ -936,7 +986,7 @@ function META:OnTakeDamage(info)
 end
 
 function META:OnDeath(info)
-	if not network.HasAuthority() then return end
+	if not network.HasAuthority() or not self:GetProfile() then return end
 
 	if not self.parts[1] then self:Build() end
 
@@ -981,6 +1031,14 @@ end
 
 function META:FollowHead()
 	local owner = self.Owner
+
+	if self.profile.Model then
+		local root = self.parts[1].body.Position
+		local offset = self.follow_offset
+		owner.transform:SetPosition(Vec3(root.x - offset.x, root.y - offset.y, root.z - offset.z))
+		return
+	end
+
 	local head = self.part_by_name.head.body
 	local rotation = head.Rotation
 	local view = owner.character_movement:GetEyeOffset()
@@ -1319,7 +1377,7 @@ function META:OnPhysicsUpdate(dt)
 	local owner = self.Owner
 	local movement = owner.character_movement
 
-	if not movement or not owner.rigid_body then return end
+	if not movement or not owner.rigid_body or not self:GetProfile() then return end
 
 	if not self.parts[1] then self:Build() end
 
@@ -1420,7 +1478,11 @@ function META:GetPresentParts()
 		end
 	end
 
-	for _, definition in ipairs(biped.Profiles[self.Profile].Parts) do
+	local profile = self:GetProfile()
+
+	if not profile then return self.present end
+
+	for _, definition in ipairs(profile.Parts) do
 		local component = by_group[definition.Name]
 
 		if component then
@@ -1464,12 +1526,16 @@ end
 function META:ClearRig()
 	local rig = self.driven_rig
 
-	if rig then
+	if rig and self.profile.Model then
+		for _, part in ipairs(self.profile.Parts) do
+			rig:ClearBone(part.Bone)
+		end
+	elseif rig then
 		for _, name in ipairs(aim_pose.Bones) do
 			if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
 		end
 
-		for _, part in ipairs(biped.Profiles[self.Profile].Parts) do
+		for _, part in ipairs(self.profile.Parts) do
 			if biped.HasBone(rig, part.Bone) then
 				rig:ClearBone(biped.SourceBones[part.Bone])
 			end
@@ -1548,6 +1614,25 @@ do
 	-- sets the rig bones of the limp parts on top of the animation and frees what hangs on them from the aim overrides
 	function META:DriveRig(rig, armature)
 		local entity_rotation = get_entity_frame(self)
+
+		if self.profile.Model then
+			if not self.frames then self:BuildFrames() end
+
+			for _, part in ipairs(self:GetPresentParts()) do
+				local name = part.definition.Bone
+
+				if self:IsDriven(part) then
+					calibrate_frame(self, part, entity_rotation, rig:GetBone(name))
+					rig:SetBone(name, get_part_bone(self, part, entity_rotation, part_matrix), "model")
+				else
+					self.frames[part.definition.Name].calibrated = nil
+				end
+			end
+
+			rig:Compute()
+			self.driven_rig = rig
+			return
+		end
 
 		if not self.frames then
 			biped.ReadBones(rig, self.bones)
