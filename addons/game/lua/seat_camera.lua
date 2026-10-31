@@ -137,5 +137,7 @@ end
 
 function seat_camera.AdjustCommand(cmd) end
 
+function seat_camera.AttackTarget(holder, target) end
+
 camera_modes.Register(seat_camera)
 return seat_camera

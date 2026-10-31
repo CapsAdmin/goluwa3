@@ -52,6 +52,7 @@ local state = {
 	mouse_x = 0,
 	mouse_y = 0,
 	walking = false,
+	owner = nil,
 }
 local pivot = Vec3()
 local target_point = Vec3()
@@ -125,6 +126,18 @@ function battlecam.Disable()
 	targeting.Clear()
 end
 
+function battlecam.AttackTarget(holder, target)
+	if not enabled or holder ~= state.owner then return end
+
+	local body = target.rigid_body
+
+	if body and body ~= targeting.Get() then
+		targeting.Set(body)
+		state.cam_away = nil
+		state.target_pitch = 0
+	end
+end
+
 function battlecam.AddMouse(delta)
 	state.mouse_x = state.mouse_x + delta.x
 	state.mouse_y = state.mouse_y + delta.y
@@ -132,6 +145,7 @@ end
 
 function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	dt = math.min(dt, MAX_DT)
+	state.owner = owner
 	local feet_y = eye.y - view_offset.y
 	pivot:Set(eye.x, feet_y + CHEST, eye.z)
 

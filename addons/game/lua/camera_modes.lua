@@ -43,6 +43,12 @@ function camera_modes.AdjustCommand(cmd)
 	end
 end
 
+function camera_modes.AttackTarget(holder, target)
+	for i = 1, #list do
+		list[i].AttackTarget(holder, target)
+	end
+end
+
 function camera_modes.ApplyMovement(player_input, dt, attacking)
 	for i = 1, #list do
 		list[i].ApplyMovement(player_input, dt, attacking)

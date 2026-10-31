@@ -2,6 +2,7 @@ local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local movesets = import("lua/movesets.lua")
 local actors = import("lua/actors.lua")
+local camera_modes = import("lua/camera_modes.lua")
 local META = objects.CreateTemplate("move_runner")
 local CRASH_GRACE = 0.4
 local CRASH_SPEED = 0.35
@@ -27,6 +28,9 @@ function META:Begin(move, duration, listener, authority, target)
 	self.slow_ticks = 0
 	local frame = movesets.NewFrame(self.Owner, move, self.frame, target)
 	pose:SetFocusOn(frame.target, frame.point)
+
+	if frame.target then camera_modes.AttackTarget(self.Owner, frame.target) end
+
 	self.predicted_focus = pose.FocusPoint
 
 	if authority then
