@@ -37,10 +37,10 @@ return {
 				{0.82, motion = {360, 1.3, 1}},
 			},
 			Events = {
-				{At = 0.34, Type = "hit", Cut = {-0.95, -0.2, 0}, Damage = 0.8},
-				{At = 0.54, Type = "hit", Cut = {0.93, 0.3, 0}, Damage = 0.8},
+				{At = 0.36, Type = "hit", Cut = {-0.95, -0.2, 0}, Damage = 0.8},
+				{At = 0.56, Type = "hit", Cut = {0.93, 0.3, 0}, Damage = 0.8},
 				{
-					At = 0.76,
+					At = 0.78,
 					Type = "hit",
 					Cut = {0, -0.95, 0.3},
 					Damage = 1.6,
@@ -114,7 +114,7 @@ return {
 			},
 			Events = {
 				{
-					At = 0.46,
+					At = 0.48,
 					Type = "hit",
 					Cut = {-0.95, -0.2, 0},
 					Damage = 1.4,
@@ -133,7 +133,7 @@ return {
 				{0.62, motion = {50, 1.2, 1}},
 			},
 			Events = {
-				{At = 0.52, Type = "hit", Cut = {-0.95, -0.2, 0}, Knock = {0, 1.5, -3}},
+				{At = 0.54, Type = "hit", Cut = {-0.95, -0.2, 0}, Knock = {0, 1.5, -3}},
 			},
 		},
 		reap_back = {
@@ -147,7 +147,7 @@ return {
 				{0.62, motion = {-60, 1.2, 1}},
 			},
 			Events = {
-				{At = 0.52, Type = "hit", Cut = {0.93, 0.3, 0}, Knock = {0, 1.5, -3}},
+				{At = 0.54, Type = "hit", Cut = {0.93, 0.3, 0}, Knock = {0, 1.5, -3}},
 			},
 		},
 	},

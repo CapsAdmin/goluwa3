@@ -62,7 +62,7 @@ return {
 			},
 			Events = {
 				{
-					At = 0.52,
+					At = 0.56,
 					Type = "hit",
 					Cut = {-0.97, -0.2, 0},
 					Damage = 1.6,
@@ -82,7 +82,7 @@ return {
 			},
 			Events = {
 				{
-					At = 0.56,
+					At = 0.6,
 					Type = "hit",
 					Cut = {-0.97, -0.2, 0},
 					Damage = 1.1,
@@ -140,7 +140,7 @@ return {
 				{0.58, "high_right", ease = "in", hold = 0.14},
 			},
 			Events = {
-				{At = 0.55, Type = "hit", Cut = {0.6, 0.8, 0}, Damage = 1.1, Knock = {1, 3.5, 1}},
+				{At = 0.58, Type = "hit", Cut = {0.6, 0.8, 0}, Damage = 1.1, Knock = {1, 3.5, 1}},
 			},
 		},
 		whirlwind = {

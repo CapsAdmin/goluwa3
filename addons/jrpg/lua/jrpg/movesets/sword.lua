@@ -17,7 +17,7 @@ return {
 				{0.44, "cut_right", ease = "in", hold = 0.16},
 				{0.55, motion = {150, 1.3, 1}},
 			},
-			Events = {{At = 0.42, Type = "hit", Cut = {0.95, 0.1, 0}, Damage = 1.5}},
+			Events = {{At = 0.44, Type = "hit", Cut = {0.95, 0.1, 0}, Damage = 1.5}},
 		},
 		dive_throw = {
 			Duration = 1.4,
@@ -122,7 +122,7 @@ return {
 				{0.5, motion = {0, 1.1, 1}},
 				{0.52, "cut_left", ease = "in", hold = 0.1},
 			},
-			Events = {{At = 0.5, Type = "hit", Cut = {-0.94, -0.33, 0}, Swing = {0.36, 0.56}}},
+			Events = {{At = 0.52, Type = "hit", Cut = {-0.94, -0.33, 0}, Swing = {0.36, 0.56}}},
 		},
 		light_2 = {
 			Duration = 0.5,
@@ -135,7 +135,7 @@ return {
 				{0.5, motion = {-15, 1.1, 1}},
 				{0.52, "cut_right", ease = "in", hold = 0.1},
 			},
-			Events = {{At = 0.5, Type = "hit", Cut = {0.93, 0.37, 0}, Swing = {0.36, 0.56}}},
+			Events = {{At = 0.52, Type = "hit", Cut = {0.93, 0.37, 0}, Swing = {0.36, 0.56}}},
 		},
 		light_3 = {
 			Duration = 0.7,
@@ -148,7 +148,7 @@ return {
 				{0.58, "thrust", ease = "in", hold = 0.12},
 				{0.58, ease = "in", motion = {35, 1, 1}},
 			},
-			Events = {{At = 0.57, Type = "hit", Cut = {0, 0, 1}, Damage = 1.6, Swing = {0.46, 0.62}}},
+			Events = {{At = 0.58, Type = "hit", Cut = {0, 0, 1}, Damage = 1.6, Swing = {0.46, 0.62}}},
 		},
 		rising = {
 			Duration = 0.8,
@@ -164,7 +164,7 @@ return {
 			},
 			Events = {
 				{
-					At = 0.5,
+					At = 0.52,
 					Type = "hit",
 					Cut = {-0.5, 0.86, 0},
 					Damage = 1.8,

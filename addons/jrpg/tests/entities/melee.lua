@@ -346,7 +346,7 @@ T.Test("a move's motion is a track of the same timeline and holds its last key",
 	T(out[1])["~"](math.rad(-10), 1e-6)
 	T(out[2])["~"](1.6, 1e-6)
 	T(out[3])["=="](1)
-	T(movesets.GetEvent(move, "hit").At)["=="](0.56)
+	T(movesets.GetEvent(move, "hit").At)["=="](0.6)
 	T(movesets.GetEvent(move, "latch"))["=="](nil)
 end)
 

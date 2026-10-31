@@ -47,7 +47,7 @@ return {
 				{0.45, ease = "in", motion = {0, 1.1, 1}},
 			},
 			Events = {
-				{At = 0.44, Type = "hit", Cut = {0, 0, 1}, Damage = 1.5, Knock = {0, 1, 3}},
+				{At = 0.45, Type = "hit", Cut = {0, 0, 1}, Damage = 1.5, Knock = {0, 1, 3}},
 			},
 		},
 		falcon = {
@@ -75,7 +75,7 @@ return {
 				{0.55, motion = {-25, 1.1, 1}},
 			},
 			Events = {
-				{At = 0.5, Type = "hit", Cut = {0.8, -0.6, 0}, Damage = 1},
+				{At = 0.52, Type = "hit", Cut = {0.8, -0.6, 0}, Damage = 1},
 			},
 		},
 		flurry = {
@@ -112,7 +112,7 @@ return {
 				{0.5, ease = "in", motion = {0, 1.1, 1}},
 			},
 			Events = {
-				{At = 0.48, Type = "hit", Cut = {0, 0, 1}, Damage = 1},
+				{At = 0.5, Type = "hit", Cut = {0, 0, 1}, Damage = 1},
 			},
 		},
 		phantom = {
@@ -131,7 +131,7 @@ return {
 				{0.77, "extended", ease = "in", hold = 0.12},
 			},
 			Events = {
-				{At = 0.34, Type = "hit", Cut = {0.95, 0.2, 0}, Damage = 1.1},
+				{At = 0.36, Type = "hit", Cut = {0.95, 0.2, 0}, Damage = 1.1},
 				{At = 0.76, Type = "hit", Cut = {0, 0, 1}, Damage = 2.2, Knock = {0, 1, 3.5}},
 			},
 		},
@@ -148,8 +148,8 @@ return {
 				{0.8, motion = {140, 1.15, 1}},
 			},
 			Events = {
-				{At = 0.34, Type = "hit", Cut = {-0.94, -0.33, 0}, Damage = 0.9},
-				{At = 0.7, Type = "hit", Cut = {0.93, 0.37, 0}, Damage = 0.9},
+				{At = 0.36, Type = "hit", Cut = {-0.94, -0.33, 0}, Damage = 0.9},
+				{At = 0.72, Type = "hit", Cut = {0.93, 0.37, 0}, Damage = 0.9},
 			},
 		},
 	},
