@@ -12,6 +12,7 @@ local JITTER = 0.15
 local marks = {}
 local GRAVITY = 900
 local COUNT_TIME = 0.4
+local COUNT_MIN_FRACTION = 0.5
 local MAX_BOUNCES = 2
 local REPLACE_FADE = 0.1
 local TIERS = {
@@ -132,7 +133,7 @@ function hitmarkers.Draw(camera, screen_w, screen_h, now, dt)
 				local color = mark.line_color
 
 				if not text then
-					local count = math.min(age / COUNT_TIME, 1)
+					local count = mark.fraction >= COUNT_MIN_FRACTION and math.min(age / COUNT_TIME, 1) or 1
 
 					if mark.amount == 0 then
 						text = "MISS"
