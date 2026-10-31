@@ -445,9 +445,14 @@ local function simplex_contains_support(simplex, support)
 	return false
 end
 
-local function combine_simplex_witness(simplex, weights)
-	local point_a = Vec3(0, 0, 0)
-	local point_b = Vec3(0, 0, 0)
+local function combine_simplex_witness(simplex, weights, point_a, point_b)
+	if point_a then
+		point_a.x, point_a.y, point_a.z = 0, 0, 0
+		point_b.x, point_b.y, point_b.z = 0, 0, 0
+	else
+		point_a = Vec3(0, 0, 0)
+		point_b = Vec3(0, 0, 0)
+	end
 
 	for i = 1, #weights do
 		local weight = weights[i]
@@ -884,7 +889,36 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 	}
 end
 
-function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex)
+-- out is a table filled in place ({point_a, point_b, delta, normal_storage} Vec3s); without it every call allocates a new result
+local function new_distance_result(out)
+	if not out then return {point_a = Vec3(0, 0, 0), point_b = Vec3(0, 0, 0)} end
+
+	out.delta = out.delta or Vec3()
+	out.normal_storage = out.normal_storage or Vec3()
+	out.point_a = out.point_a or Vec3()
+	out.point_b = out.point_b or Vec3()
+	return out
+end
+
+local function touching_distance_result(out, simplex, weights, iteration)
+	local result = new_distance_result(out)
+	combine_simplex_witness(simplex, weights, result.point_a, result.point_b)
+	result.intersect = true
+	result.distance = 0
+
+	if out then
+		result.delta.x, result.delta.y, result.delta.z = 0, 0, 0
+	else
+		result.delta = Vec3(0, 0, 0)
+	end
+
+	result.normal = nil
+	result.simplex = simplex
+	result.iterations = iteration
+	return result
+end
+
+function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex, out)
 	if not (vertices_a and vertices_a[1] and vertices_b and vertices_b[1]) then
 		return nil
 	end
@@ -914,17 +948,7 @@ function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex)
 		local distance = closest:GetLength()
 
 		if distance <= EPSILON then
-			local point_a, point_b = combine_simplex_witness(simplex, weights)
-			return {
-				intersect = true,
-				distance = 0,
-				delta = Vec3(0, 0, 0),
-				point_a = point_a,
-				point_b = point_b,
-				normal = nil,
-				simplex = simplex,
-				iterations = iteration,
-			}
+			return touching_distance_result(out, simplex, weights, iteration)
 		end
 
 		direction = TEMP_NEG:CopyFrom(closest):Scale(-1 / distance)
@@ -943,17 +967,7 @@ function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex)
 			simplex = updated_simplex or simplex
 
 			if contains_origin then
-				local point_a, point_b = combine_simplex_witness(simplex, set_weights(1, 0, 0))
-				return {
-					intersect = true,
-					distance = 0,
-					delta = Vec3(0, 0, 0),
-					point_a = point_a,
-					point_b = point_b,
-					normal = nil,
-					simplex = simplex,
-					iterations = iteration,
-				}
+				return touching_distance_result(out, simplex, set_weights(1, 0, 0), iteration)
 			end
 		end
 
@@ -962,18 +976,29 @@ function gjk_epa.Distance(vertices_a, vertices_b, initial_direction, simplex)
 		closest, weights = get_distance_simplex_closest(simplex)
 	end
 
-	local point_a, point_b = combine_simplex_witness(simplex, weights)
-	local delta = point_b - point_a
-	local normal = delta:GetLength() > EPSILON and delta:GetNormalized() or nil
-	return {
-		intersect = false,
-		distance = delta:GetLength(),
-		delta = delta,
-		point_a = point_a,
-		point_b = point_b,
-		normal = normal,
-		simplex = simplex,
-	}
+	local result = new_distance_result(out)
+	local point_a, point_b = combine_simplex_witness(simplex, weights, result.point_a, result.point_b)
+
+	if out then
+		Vec3.SetSub(result.delta, point_b, point_a)
+	else
+		result.delta = point_b - point_a
+	end
+
+	local delta = result.delta
+	local length = delta:GetLength()
+
+	if length > EPSILON then
+		result.normal = out and Vec3.SetNormalized(result.normal_storage, delta) or delta:GetNormalized()
+	else
+		result.normal = nil
+	end
+
+	result.intersect = false
+	result.distance = length
+	result.simplex = simplex
+	result.iterations = nil
+	return result
 end
 
 return gjk_epa
