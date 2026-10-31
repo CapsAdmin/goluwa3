@@ -163,6 +163,8 @@ gpu.system = particles.Register{
 				{"exposure_compensation", "float"},
 				{"fizzle", "float"},
 				{"fizzle_start", "float"},
+				{"flow", "float"},
+				{"flow_scale", "float"},
 				{"sparkle", "float"},
 				{"saturation_jitter", "float"},
 				{"shape", "int"},
@@ -223,6 +225,8 @@ gpu.system = particles.Register{
 			entry.exposure_compensation = emitter.ExposureCompensation
 			entry.fizzle = emitter.Fizzle
 			entry.fizzle_start = emitter.FizzleStart
+			entry.flow = emitter.Flow
+			entry.flow_scale = emitter.FlowScale
 			entry.sparkle = emitter.Sparkle
 			entry.saturation_jitter = emitter.SaturationJitter
 			entry.shape = SHAPES[emitter.Shape]
@@ -255,6 +259,19 @@ gpu.system = particles.Register{
 		bool get_particle_emitter(Particle p, out uint slot) {
 			slot = min(p.user.y, GPU_EMITTER_COUNT - 1u);
 			return emitters_data.emitters[slot].enabled != 0 && uint(emitters_data.emitters[slot].uid) == p.user.z;
+		}
+
+		vec3 emitter_flow_potential(vec3 q) {
+			return vec3(value_noise3(q), value_noise3(q + 31.4), value_noise3(q + 71.7));
+		}
+
+		vec3 emitter_flow(vec3 position, float scale, float seed) {
+			vec3 q = position * scale + vec3(seed, 0.0, 0.0);
+			float e = 0.15;
+			vec3 dx = emitter_flow_potential(q + vec3(e, 0.0, 0.0)) - emitter_flow_potential(q - vec3(e, 0.0, 0.0));
+			vec3 dy = emitter_flow_potential(q + vec3(0.0, e, 0.0)) - emitter_flow_potential(q - vec3(0.0, e, 0.0));
+			vec3 dz = emitter_flow_potential(q + vec3(0.0, 0.0, e)) - emitter_flow_potential(q - vec3(0.0, 0.0, e));
+			return vec3(dy.z - dz.y, dz.x - dx.z, dx.y - dy.x) / (2.0 * e);
 		}
 
 		vec3 get_random_unit_vector(vec2 r) {
@@ -332,6 +349,8 @@ gpu.system = particles.Register{
 		}
 
 		p.velocity.y -= 9.81 * e.gravity * dt;
+
+		if (e.flow > 0.0) p.velocity += emitter_flow(p.position, e.flow_scale, float(e.seed)) * e.flow * dt;
 
 		if (e.fizzle > 0.0 && t > e.fizzle_start) {
 			vec3 q = p.position * 60.0 + vec3(float(e.uid) * 3.1, p.age * 6.0, float(index) * 0.37);
