@@ -106,7 +106,7 @@ function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, rang
 					amount
 				)
 			else
-				effects.Impact(point, normal, types[1], scale, cut)
+				effects.Impact(point, normal, types[1], scale, cut, nil, amount)
 			end
 
 			hits[#hits + 1] = {victim = victim, point = point, normal = normal, part = part}

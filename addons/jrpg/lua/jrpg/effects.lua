@@ -17,14 +17,22 @@ end
 
 local fire_impact = new_event(
 	"jrpg_impact",
-	function(position, normal, type_name, strength, cut, direction)
-		effects.ShowImpact(position, normal, type_name, strength, cut, direction)
+	function(position, normal, type_name, strength, cut, direction, damage)
+		effects.ShowImpact(position, normal, type_name, strength, cut, direction, damage)
 	end,
 	enabled
 )
 
-function effects.Impact(position, normal, type_name, strength, cut, direction)
-	fire_impact(position, normal, type_name, strength, cut or false, direction or normal)
+function effects.Impact(position, normal, type_name, strength, cut, direction, damage)
+	fire_impact(
+		position,
+		normal,
+		type_name,
+		strength,
+		cut or false,
+		direction or normal,
+		damage or false
+	)
 end
 
 effects.HitOverlay = new_event(
@@ -266,7 +274,7 @@ do
 		entity.particle_emitter_cpu:BurstAt(count, position, direction)
 	end
 
-	function effects.BurstType(type_name, position, direction, count, speed_scale, spread, cut)
+	function effects.BurstType(type_name, position, direction, count, speed_scale, spread, cut, cut_scale)
 		local key = type_name .. (
 				speed_scale and
 				"_fast" or
@@ -278,6 +286,10 @@ do
 			) .. (
 				cut and
 				"_cut" or
+				""
+			) .. (
+				cut_scale and
+				"_s" .. cut_scale or
 				""
 			)
 
@@ -293,10 +305,11 @@ do
 				ColorStart = WHITE:GetLerped(0.4, color),
 				ColorEnd = Color(color.r, color.g, color.b, 0),
 			}
+			local speed = (speed_scale or 1) * (cut_scale or 1)
 
-			if speed_scale then
-				overrides.SpeedMin = definition.Particles.SpeedMin * speed_scale
-				overrides.SpeedMax = definition.Particles.SpeedMax * speed_scale
+			if speed ~= 1 then
+				overrides.SpeedMin = definition.Particles.SpeedMin * speed
+				overrides.SpeedMax = definition.Particles.SpeedMax * speed
 			end
 
 			if cut then
@@ -305,8 +318,8 @@ do
 				overrides.Drag = CUT_DRAG
 				overrides.Fizzle = CUT_FIZZLE
 				overrides.FizzleStart = CUT_FIZZLE_START
-				overrides.LifetimeMin = definition.Particles.LifetimeMin * CUT_LIFETIME_SCALE
-				overrides.LifetimeMax = definition.Particles.LifetimeMax * CUT_LIFETIME_SCALE
+				overrides.LifetimeMin = definition.Particles.LifetimeMin * CUT_LIFETIME_SCALE * (cut_scale or 1)
+				overrides.LifetimeMax = definition.Particles.LifetimeMax * CUT_LIFETIME_SCALE * (cut_scale or 1)
 			end
 
 			vfx.DefineBurst(key, effects.GetParticleProperties(definition, overrides))
@@ -523,6 +536,10 @@ end
 
 local IMPACT_SPREAD = 55
 local SLASH_SPREAD = 2
+local SLASH_BACKOFF = 0.6
+local SLASH_DAMAGE = 40
+local SLASH_MIN_SCALE = 0.025
+local SLASH_MAX_SCALE = 2
 local SLASH_SOUNDS = {
 	"weapons/blade_slice_2.wav",
 	"weapons/blade_slice_3.wav",
@@ -562,15 +579,17 @@ clips.Define(
 				0,
 				function(p)
 					local spread = p.cut and SLASH_SPREAD or IMPACT_SPREAD
-					effects.BurstType(p.type_name, p.position, p.direction, p.count, nil, spread, p.cut)
+					local origin = p.cut and p.position - p.direction * SLASH_BACKOFF * p.cut_scale or p.position
+					effects.BurstType(p.type_name, origin, p.direction, p.count, nil, spread, p.cut, p.cut_bucket)
 					effects.BurstType(
 						p.type_name,
-						p.position,
+						origin,
 						p.direction,
 						math.floor(p.count * 0.6),
 						2.5,
 						spread,
-						p.cut
+						p.cut,
+						p.cut_bucket
 					)
 
 					if p.debris then
@@ -617,8 +636,9 @@ clips.Define(
 	}
 )
 
-function effects.ShowImpact(position, normal, type_name, strength, cut, direction)
+function effects.ShowImpact(position, normal, type_name, strength, cut, direction, damage)
 	local definition = damage_types.Get(type_name)
+	local cut_scale = math.clamp((damage or SLASH_DAMAGE) / SLASH_DAMAGE, SLASH_MIN_SCALE, SLASH_MAX_SCALE)
 	strength = math.clamp(strength or 1, 0.3, 2)
 	clips.Play(
 		"jrpg_impact",
@@ -627,6 +647,11 @@ function effects.ShowImpact(position, normal, type_name, strength, cut, directio
 			normal = normal,
 			direction = direction,
 			cut = cut or nil,
+			cut_scale = cut_scale,
+			cut_bucket = cut and
+				2 ^ math.floor(math.log(math.max(cut_scale, 0.125)) / math.log(2) + 0.5)
+				or
+				nil,
 			type_name = type_name,
 			color = definition.Color,
 			size = 0.35 * strength * definition.Glow,
@@ -647,11 +672,6 @@ end
 
 local overlays = {}
 
-			cut_scale = cut_scale,
-			cut_bucket = cut and
-				2 ^ math.floor(math.log(math.max(cut_scale, 0.125)) / math.log(2) + 0.5)
-				or
-				nil,
 local function collect_visuals(entity, out)
 	if entity.weapon then return end
 
@@ -992,7 +1012,13 @@ do
 				end
 
 				if emitter then
-					emitter.transform:SetPosition(p.position:Copy())
+					local parts = p.entity.ragdoll and p.entity.ragdoll.parts
+					emitter.transform:SetPosition(
+						parts and
+							parts[1] and
+							table.random(parts).body:GetPosition() or
+							p.position:Copy()
+					)
 					local rate = SPAWN_RATE * math.min(p.amount, 1)
 
 					if definition.Flicker then rate = rate * (math.random() > 0.6 and 3 or 0) end
