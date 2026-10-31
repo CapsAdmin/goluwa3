@@ -28,14 +28,20 @@ local HEAL_LINE = Color(0.4, 1, 0.5, 1)
 local MISS = Color(0.9, 0.9, 0.95, 1)
 local glow_line
 
-local function get_center(owner)
+local function get_anchor(owner, top)
 	local box = visual_bounds.Get(owner, bounds) or
 		(
 			owner.rigid_body and
 			owner.rigid_body:GetBroadphaseAABB(nil, nil, bounds)
 		)
 
-	if box then return box:GetCenter() end
+	if box then
+		local center = box:GetCenter()
+
+		if top then center.y = box.max_y end
+
+		return center
+	end
 
 	return owner.transform:GetPosition():Copy()
 end
@@ -48,7 +54,7 @@ local function add(owner, now, position)
 			math.randomf(-JITTER, JITTER),
 			math.randomf(-JITTER, JITTER)
 		),
-		last_position = position and position:Copy() or get_center(owner),
+		last_position = position and position:Copy() or get_anchor(owner, false),
 		time = now,
 		life = 1.2 + math.random() * 0.5,
 		x = 0,
@@ -65,6 +71,7 @@ function hitmarkers.Add(owner, amount, max_health, now, position, line_color)
 	local mark = add(owner, now, position)
 	mark.amount = amount
 	mark.fraction = math.abs(amount) / math.max(max_health, 1)
+	mark.last_position = mark.last_position + mark.jitter
 	mark.line_color = line_color or (amount < 0 and HEAL_LINE or DAMAGE_LINE)
 	mark.still = amount > 0 and mark.fraction <= TIERS[1].max
 end
@@ -78,6 +85,7 @@ function hitmarkers.AddText(owner, text, color, now)
 	end
 
 	local mark = add(owner, now)
+	mark.last_position = get_anchor(owner, true)
 	mark.text = text
 	mark.line_color = color
 	mark.vy = mark.vy * 0.6
@@ -107,8 +115,8 @@ function hitmarkers.Draw(camera, screen_w, screen_h, now, dt)
 		if age > mark.life then
 			table.remove(marks, i)
 		else
-			if mark.owner and mark.owner:IsValid() then
-				mark.last_position = get_center(mark.owner) + mark.jitter
+			if mark.text and mark.owner:IsValid() then
+				mark.last_position = get_anchor(mark.owner, true)
 			end
 
 			if not mark.still then
