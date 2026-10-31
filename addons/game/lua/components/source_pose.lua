@@ -870,7 +870,6 @@ function META:UpdateCreatureLimbs(rig, pose, dt)
 	local limbs = self.limbs
 	local bones = self.bones
 	local root = definition.Root
-	local ragdoll = self.character.source_ragdoll
 
 	if not limbs then
 		if not self.limbs_loading then
@@ -892,7 +891,7 @@ function META:UpdateCreatureLimbs(rig, pose, dt)
 		end
 	end
 
-	if ragdoll and ragdoll:IsDead() then return end
+	if self.character.health:IsDead() then return end
 
 	bones[root] = rig:GetBone(root)
 
@@ -957,13 +956,12 @@ end
 
 function META:UpdateCreatureLegs(rig, pose, dt)
 	local bones = self.bones
-	local ragdoll = self.character.source_ragdoll
 
 	for _, name in ipairs(aim_pose.Bones) do
 		if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
 	end
 
-	if ragdoll and ragdoll:IsDead() then return end
+	if self.character.health:IsDead() then return end
 
 	biped.ReadBones(rig, bones)
 	self:UpdateGroundSink(self.character, pose, dt)

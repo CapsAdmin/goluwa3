@@ -593,14 +593,18 @@ function npcs.Register(name, info)
 						ai_controller = npc,
 						usable = info.Faction == "friend" and not info.Dummy and {Prompt = "follow"} or nil,
 						weapon_holder = info.Weapon and {} or nil,
-						ragdoll = info.Biped and
-							{CorpseTime = 20, CheapCorpse = true, Profile = info.Ragdoll} or
+						ragdoll = (
+								info.Biped or
+								info.Model
+							)
+							and
+							{
+								CorpseTime = 20,
+								CheapCorpse = true,
+								Profile = info.Biped and info.Ragdoll or "model",
+							} or
 							nil,
 						npc_sounds = info.Sounds and {Sounds = info.Sounds} or nil,
-						source_ragdoll = info.Model and
-							not info.Biped and
-							{DeathState = true, CorpseTime = 20, CheapCorpse = true} or
-							nil,
 						health = {
 							Health = info.Health or 50,
 							MaxHealth = info.Health or 50,

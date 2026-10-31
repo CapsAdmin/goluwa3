@@ -149,7 +149,7 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 			stagger.Kill(victim, attacker, hitstop, info.Direction or actors.GetForward(victim) * -1)
 		end
 
-		local ragdoll = victim.ragdoll or victim.source_ragdoll
+		local ragdoll = victim.ragdoll
 
 		if
 			ragdoll and

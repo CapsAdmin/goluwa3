@@ -709,7 +709,7 @@ do
 			self.Owner.transform:GetRotation():Copy()
 		self.Swimming = false
 
-		if self.Owner.ragdoll or self.Owner.source_ragdoll then
+		if self.Owner.ragdoll then
 			body:SetCollisionEnabled(false)
 			body:SetMotionType("kinematic")
 			return

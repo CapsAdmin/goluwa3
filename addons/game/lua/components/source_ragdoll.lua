@@ -11,11 +11,6 @@ local META = objects.CreateTemplate("source_ragdoll")
 META.Network = {ModelPath = {"string", 0.5, "reliable"}}
 META:StartStorable()
 META:GetSet("ModelPath", "", {callback = "Load"})
-META:IsSet("DeathState", false)
-META:GetSet("CorpseTime", 0)
-META:IsSet("CorpseWorldOnly", true)
-META:IsSet("CheapCorpse", false)
-META:GetSet("CheapSleepThreshold", 0.5)
 META:EndStorable()
 local JOINT_FRICTION = 0.2
 local SPRING_HERTZ = 1
@@ -59,18 +54,13 @@ function META:Load()
 
 			assert(data.physics and data.physics.ragdoll, self.ModelPath .. " has no ragdoll data")
 			self.ragdoll = data.physics.ragdoll
-
-			if not self.DeathState or self.dead then self:Build() end
+			self:Build()
 		end,
 		nil,
 		function(err)
 			wlog("source_ragdoll: failed to load %s: %s", self.ModelPath, tostring(err))
 		end
 	)
-end
-
-function META:IsDead()
-	return self.dead == true
 end
 
 function META:GetRestFrame()
@@ -93,30 +83,6 @@ function META:GetPoseFrames()
 	local owner = self.Owner
 	local solids = self.ragdoll.solids
 	local frames = {}
-
-	if self.DeathState then
-		local rig = owner.animator and owner.animator:GetRig()
-		local owner_rotation = owner.transform:GetRotation()
-		local owner_position = owner.transform:GetPosition()
-
-		for i, solid in ipairs(solids) do
-			if rig then
-				local bone = rig:GetBone(solid.bone)
-				frames[i] = {
-					rotation = owner_rotation * bone:GetRotation(),
-					position = owner_position + owner_rotation:VecMul(Vec3(bone:GetTranslation())),
-				}
-			else
-				frames[i] = {
-					rotation = owner_rotation * solid.bone_rotation,
-					position = owner_position + owner_rotation:VecMul(solid.bone_position),
-				}
-			end
-		end
-
-		return frames
-	end
-
 	local rest_rotation, rest_position = self:GetRestFrame()
 	local model_rotation = owner.transform:GetRotation() * rest_rotation:GetConjugated()
 	local model_position = owner.transform:GetPosition() - model_rotation:VecMul(rest_position)
@@ -136,7 +102,7 @@ function META:Build()
 	local solids = self.ragdoll.solids
 	local scale = 1
 
-	if self.DeathState or import("lua/npcs.lua").GetByModel(self.ModelPath) then
+	if import("lua/npcs.lua").GetByModel(self.ModelPath) then
 		local total = 0
 
 		for _, solid in ipairs(solids) do
@@ -148,7 +114,7 @@ function META:Build()
 
 	self.visual_placed = false
 
-	if not self.DeathState then
+	do
 		local first = solids[1]
 		local body = owner:EnsureComponent("rigid_body")
 		body:SetShapes(build_shapes(first))
@@ -167,9 +133,8 @@ function META:Build()
 	if not network.HasAuthority() then return end
 
 	local frames = self:GetPoseFrames()
-	local velocity = self.DeathState and owner.rigid_body:GetVelocity():Copy()
 
-	for i = self.DeathState and 1 or 2, #solids do
+	for i = 2, #solids do
 		local solid = solids[i]
 		local frame = frames[i]
 		local entity = Entity.New{
@@ -192,16 +157,7 @@ function META:Build()
 			},
 		}
 		entity.rigid_body.TraceOwner = owner
-		entity.rigid_body:SetCollideWorldOnly(self.DeathState and self.CorpseWorldOnly)
-
-		if self.DeathState and self.CheapCorpse then
-			entity.rigid_body:SetSleepLinearThreshold(self.CheapSleepThreshold)
-			entity.rigid_body:SetSleepAngularThreshold(self.CheapSleepThreshold)
-		end
-
 		self.bodies[i] = entity.rigid_body
-
-		if velocity then entity.rigid_body:SetVelocity(velocity) end
 	end
 
 	for _, constraint in ipairs(self.ragdoll.constraints) do
@@ -233,11 +189,7 @@ function META:Build()
 				Friction = constraint[moving[1]].friction * JOINT_FRICTION,
 			}
 		)
-
-		if not (self.DeathState and self.CheapCorpse) then
-			joint:SetSpring(0, SPRING_HERTZ, SPRING_LIMIT_HERTZ, SPRING_DAMPING, SPRING_ZONE)
-		end
-
+		joint:SetSpring(0, SPRING_HERTZ, SPRING_LIMIT_HERTZ, SPRING_DAMPING, SPRING_ZONE)
 		self.joints[#self.joints + 1] = joint
 
 		::continue::
@@ -249,7 +201,7 @@ function META:RemoveBodies()
 		joint:Remove()
 	end
 
-	for i = self.DeathState and 1 or 2, #self.bodies do
+	for i = 2, #self.bodies do
 		local entity = self.bodies[i].Owner
 
 		if entity:IsValid() then entity:Remove() end
@@ -257,47 +209,6 @@ function META:RemoveBodies()
 
 	self.joints = {}
 	self.bodies = {}
-end
-
-function META:OnDeath()
-	if not self.DeathState or not network.HasAuthority() then return end
-
-	self.dead = true
-	self.dead_time = 0
-	self.rest_time = 0
-
-	if self.ragdoll then
-		self:Build()
-	else
-		self:SetModelPath(self.Owner.model.ModelPath)
-	end
-end
-
-function META:Knockdown(velocity)
-	self.knock = velocity:Copy()
-end
-
-function META:AddKnock(velocity)
-	if not self.knock then return false end
-
-	self.knock = self.knock + velocity
-	return true
-end
-
-function META:OnCharacterReset()
-	if not self.dead then return end
-
-	local rig = self.Owner.animator and self.Owner.animator:GetRig()
-
-	if rig then
-		for _, solid in ipairs(self.ragdoll.solids) do
-			rig:ClearBone(solid.bone)
-		end
-	end
-
-	self.dead = false
-	self.knock = nil
-	self:RemoveBodies()
 end
 
 function META:OnRemove()
@@ -311,10 +222,6 @@ function META:GetVisual()
 end
 
 function META:GetRig()
-	if self.DeathState then
-		return self.Owner.animator and self.Owner.animator:GetRig()
-	end
-
 	local visual = self:GetVisual()
 	return visual and visual.animator.rig
 end
@@ -339,26 +246,6 @@ function META:OnPhysicsUpdate(dt)
 		return
 	end
 
-	if self.knock then
-		for _, body in ipairs(self.bodies) do
-			body:SetVelocity(self.knock)
-			body:Wake()
-		end
-
-		self.knock = nil
-	end
-
-	if self.DeathState and self.CorpseTime > 0 then
-		self.dead_time = self.dead_time + dt
-
-		if self.dead_time >= self.CorpseTime then
-			self.Owner:Remove()
-			return
-		end
-	end
-
-	if self.corpse_static then return end
-
 	local awake = false
 
 	for _, body in ipairs(self.bodies) do
@@ -375,19 +262,7 @@ function META:OnPhysicsUpdate(dt)
 		end
 	end
 
-	if not awake then
-		if self.DeathState and self.CheapCorpse then
-			self.corpse_static = true
-
-			for _, body in ipairs(self.bodies) do
-				body:SetVelocity(Vec3())
-				body:SetAngularVelocity(Vec3())
-				body:SetMotionType("static")
-			end
-		end
-
-		return
-	end
+	if not awake then return end
 
 	self.rest_time = self.rest_time + dt
 
@@ -400,36 +275,12 @@ function META:OnPhysicsUpdate(dt)
 	end
 end
 
-function META:UpdateDeadRig(solids, rig)
-	local alpha = physics.instance.InterpolationAlpha
-	local owner_inverse = self.Owner.transform:GetRotation():GetConjugated()
-	local owner_position = self.Owner.transform:GetPosition()
-	local matrix = self.matrix
-
-	for i, solid in ipairs(solids) do
-		local body = self.bodies[i]
-		local rotation = body:GetInterpolatedRotation(alpha)
-		local position = body:GetInterpolatedPosition(alpha) - rotation:VecMul(solid.mass_center)
-		position = owner_inverse:VecMul(position - owner_position)
-		matrix:Identity()
-		matrix:SetRotation(owner_inverse * rotation)
-		matrix:SetTranslation(position.x, position.y, position.z)
-		rig:SetBone(solid.bone, matrix, "model")
-	end
-end
-
 function META:OnUpdate()
 	local solids = self.ragdoll and self.ragdoll.solids
 
 	if not (solids and self.bodies[#solids]) then return end
 
 	local rig = self:GetRig()
-
-	if self.DeathState then
-		if rig and self.dead then self:UpdateDeadRig(solids, rig) end
-
-		return
-	end
 
 	if not self.visual_placed then self:PlaceVisual() end
 

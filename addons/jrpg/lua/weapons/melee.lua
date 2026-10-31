@@ -274,7 +274,7 @@ function META:Hit(hit, forward)
 
 		local alive = victim:IsValid() and not victim.health:IsDead() and not grab.IsHeld(victim)
 
-		local ragdoll = victim:IsValid() and (victim.ragdoll or victim.source_ragdoll)
+		local ragdoll = victim:IsValid() and victim.ragdoll
 
 		if knock and (alive or ragdoll and victim.health:IsDead()) then
 			local push = knock.z
