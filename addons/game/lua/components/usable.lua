@@ -17,13 +17,17 @@ function META:OnUse(user, hit)
 	return self.Owner:CallLocalEvent("OnUsed", user, hit) == true
 end
 
+local function is_usable(usable)
+	return usable.Enabled and usable.Owner:CallLocalEvent("OnCanUse") ~= false
+end
+
 local function find_usable(entity)
 	local current = entity
 
 	while current:IsValid() do
 		local usable = current.usable
 
-		if usable and usable.Enabled then return usable end
+		if usable and is_usable(usable) then return usable end
 
 		current = current:GetParent()
 	end
@@ -44,7 +48,7 @@ do
 		for _, usable in ipairs(META.Instances) do
 			local owner = usable.Owner
 
-			if usable.Enabled and owner ~= user and not owner:ContainsParent(user) then
+			if is_usable(usable) and owner ~= user and not owner:ContainsParent(user) then
 				local x, y, z = owner.transform:GetWorldMatrix():GetTranslation()
 				x, y, z = x - origin.x, y - origin.y, z - origin.z
 				local distance = math.sqrt(x * x + y * y + z * z)

@@ -207,6 +207,10 @@ function META:RefreshWorldState()
 	end
 end
 
+function META:OnCanUse()
+	if self:IsHeld() then return false end
+end
+
 function META:OnParent()
 	self:RefreshWorldState()
 end
