@@ -168,3 +168,13 @@ T.TestPhysics("a ragdoll finds its parts by role as well as by name", function()
 
 	ground:Remove()
 end)
+
+T.TestPhysics("a biped npc keeps the humanoid ragdoll profile and a creature gets the model one", function()
+	if not available() then return T.Unavailable("gmod content not mounted") end
+
+	for name, profile in pairs{citizen = "humanoid", barney = "humanoid", eye = "eye", zombie = "model"} do
+		local npc = npcs.Spawn(name, Vec3(0, 0.05, 0), 0)
+		T(npc.ragdoll.Profile)["=="](profile)
+		npc:Remove()
+	end
+end)

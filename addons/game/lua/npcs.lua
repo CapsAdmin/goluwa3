@@ -551,7 +551,7 @@ function npcs.Register(name, info)
 							{
 								CorpseTime = 20,
 								CheapCorpse = true,
-								Profile = info.Biped and info.Ragdoll or "model",
+								Profile = not info.Biped and "model" or info.Ragdoll,
 							} or
 							nil,
 						npc_sounds = info.Sounds and {Sounds = info.Sounds} or nil,
