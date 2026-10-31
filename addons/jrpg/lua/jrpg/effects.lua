@@ -229,6 +229,9 @@ do
 	local CUT_FIZZLE = 1
 	local CUT_FIZZLE_START = 0.55
 	local CUT_LIFETIME_SCALE = 4
+	local CUT_GRAVITY = 0.03
+	local CUT_FLOW = 0.5
+	local CUT_FLOW_SCALE = 1
 	local debris_emitters = {}
 	local debris_materials = {}
 
@@ -314,7 +317,9 @@ do
 
 			if cut then
 				overrides.MaxParticles = 1024
-				overrides.GravityScale = 0
+				overrides.GravityScale = CUT_GRAVITY
+				overrides.Flow = CUT_FLOW * (cut_scale or 1)
+				overrides.FlowScale = CUT_FLOW_SCALE
 				overrides.Drag = CUT_DRAG
 				overrides.Fizzle = CUT_FIZZLE
 				overrides.FizzleStart = CUT_FIZZLE_START
@@ -536,7 +541,6 @@ end
 
 local IMPACT_SPREAD = 55
 local SLASH_SPREAD = 2
-local SLASH_BACKOFF = 0.6
 local SLASH_DAMAGE = 40
 local SLASH_MIN_SCALE = 0.025
 local SLASH_MAX_SCALE = 2
@@ -579,18 +583,31 @@ clips.Define(
 				0,
 				function(p)
 					local spread = p.cut and SLASH_SPREAD or IMPACT_SPREAD
-					local origin = p.cut and p.position - p.direction * SLASH_BACKOFF * p.cut_scale or p.position
-					effects.BurstType(p.type_name, origin, p.direction, p.count, nil, spread, p.cut, p.cut_bucket)
-					effects.BurstType(
-						p.type_name,
-						origin,
-						p.direction,
-						math.floor(p.count * 0.6),
-						2.5,
-						spread,
-						p.cut,
-						p.cut_bucket
-					)
+					local sides = p.cut and 2 or 1
+
+					for side = 1, sides do
+						local direction = side == 1 and p.direction or p.direction * -1
+						effects.BurstType(
+							p.type_name,
+							p.position,
+							direction,
+							math.floor(p.count / sides),
+							nil,
+							spread,
+							p.cut,
+							p.cut_bucket
+						)
+						effects.BurstType(
+							p.type_name,
+							p.position,
+							direction,
+							math.floor(p.count * 0.6 / sides),
+							2.5,
+							spread,
+							p.cut,
+							p.cut_bucket
+						)
+					end
 
 					if p.debris then
 						effects.BurstDebris(p.type_name, p.position, p.direction, p.debris)
@@ -647,7 +664,6 @@ function effects.ShowImpact(position, normal, type_name, strength, cut, directio
 			normal = normal,
 			direction = direction,
 			cut = cut or nil,
-			cut_scale = cut_scale,
 			cut_bucket = cut and
 				2 ^ math.floor(math.log(math.max(cut_scale, 0.125)) / math.log(2) + 0.5)
 				or
