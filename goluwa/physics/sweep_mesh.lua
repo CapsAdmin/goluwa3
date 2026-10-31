@@ -329,7 +329,8 @@ local function build_polyhedron_triangle_sweep_hit(collider, polyhedron, positio
 	}
 end
 
-local POLYHEDRON_TRIANGLE_SWEEP_CONTEXT = {}
+-- every distance result of one sweep stays its own table (the time of impact search keeps several), the pool is reused by the next sweep
+local POLYHEDRON_TRIANGLE_SWEEP_CONTEXT = {results = {}, result_count = 0}
 local SWEEP_POSITION = Vec3()
 local SWEEP_DIRECTION = Vec3()
 
@@ -340,12 +341,22 @@ local function evaluate_polyhedron_triangle_distance(context, alpha)
 	position.x, position.y, position.z = start.x + movement.x * t, start.y + movement.y * t, start.z + movement.z * t
 	local proxy = get_polyhedron_sweep_proxy(context.collider, position, context.rotation)
 	local poly_vertices = polyhedron_cache.GetPolyhedronWorldVertices(proxy, context.polyhedron)
+	local index = context.result_count + 1
+	context.result_count = index
+	local out = context.results[index]
+
+	if not out then
+		out = {}
+		context.results[index] = out
+	end
+
 	local result = gjk_epa.Distance(
 		poly_vertices,
 		context.prism_vertices,
 		context.last_normal or
 			Vec3.SetSub(SWEEP_DIRECTION, position, context.triangle_center),
-		context.simplex
+		context.simplex,
+		out
 	)
 	context.simplex = result and result.simplex or context.simplex
 
@@ -397,6 +408,7 @@ function sweep_polyhedron_against_triangle(
 		context.triangle_center = (v0 + v1 + v2) / 3
 		context.last_normal = nil
 		context.simplex = nil
+		context.result_count = 0
 		local hit = pair_solver_helpers.FindDistanceSweepHit(
 			evaluate_polyhedron_triangle_distance,
 			hit_distance,
