@@ -16,9 +16,15 @@ local function run(seconds)
 	end
 end
 
-local function create_character(position)
+local function create_character(position, ragdoll)
 	local entity = Entity.New{
-		ComponentSet = {"transform", "ai_controller", "character_pose", "health"},
+		ComponentSet = {
+			"transform",
+			"ai_controller",
+			"character_pose",
+			"health",
+			ragdoll and "ragdoll" or nil,
+		},
 		transform = {Position = position:Copy()},
 		ai_controller = {Wander = false},
 	}
@@ -59,6 +65,17 @@ T.TestPhysics("a latched character follows the grabber's frame and is thrown on 
 	T(grabber.character_pose.grab_latch)["=="](nil)
 	run(0.2)
 	T(victim.rigid_body:GetVelocity().z < -1)["=="](true)
+end)
+
+T.TestPhysics("a released victim cannot chain knock down the one who threw it", function()
+	create_ground()
+	local grabber = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -2), true)
+	run(0.5)
+	grab.Latch(grabber, victim, {Offset = Vec3(0, 1, -1), Rotation = Quat(0, 0, 0, 1)})
+	run(0.1)
+	grab.Release(victim, Vec3(0, 0, -6))
+	T(victim.ragdoll.knocked_by)["=="](grabber)
 end)
 
 T.TestPhysics("a latch lets go when the grabber dies", function()

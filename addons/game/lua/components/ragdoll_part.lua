@@ -36,8 +36,9 @@ function META:OnCollisionEnter(other, info)
 	if not self.Character.ragdoll.thrown then return end
 
 	local velocity = info.self_body.Velocity
+	local relative = info.other_body and velocity - info.other_body.Velocity or velocity
 
-	if velocity:GetLength() < CHAIN_SPEED then return end
+	if relative:GetLength() < CHAIN_SPEED then return end
 
 	local victim = other.ragdoll_part and other.ragdoll_part.Character or other
 	local ragdoll = victim.ragdoll

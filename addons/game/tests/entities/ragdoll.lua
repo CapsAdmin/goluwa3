@@ -830,3 +830,17 @@ T.TestPhysics("a thrown victim chain knocks down bystanders but never the one wh
 	T(bystander.ragdoll.thrown)["=="](true)
 	T(bystander.ragdoll.knocked_by)["=="](attacker)
 end)
+
+T.TestPhysics("a lying body that is only shoved along with a walker does not knock the walker down", function()
+	create_ground()
+	local lying = create_character(Vec3(0, 0.05, -1.5))
+	local walker = create_character(Vec3(2, 0.05, 0))
+	run(walker, 0.5)
+	lying.ragdoll:Knockdown(Vec3(0, 0, 8), nil)
+	local part = lying.ragdoll.parts[1].body.Owner.ragdoll_part
+	local velocity = Vec3(0, 0, 6)
+	part:OnCollisionEnter(walker, {self_body = {Velocity = velocity}, other_body = {Velocity = velocity}})
+	T(walker.ragdoll.thrown)["=="](nil)
+	part:OnCollisionEnter(walker, {self_body = {Velocity = velocity}, other_body = {Velocity = Vec3()}})
+	T(walker.ragdoll.thrown)["=="](true)
+end)

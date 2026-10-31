@@ -371,11 +371,12 @@ function grab.Detach(victim)
 end
 
 function grab.Release(victim, velocity)
+	local grabber = victim.character_movement.latch.Grabber
 	grab.Detach(victim)
 	victim.character_movement:IgnoreImpacts()
 
 	if victim.ragdoll then
-		victim.ragdoll:Knockdown(velocity)
+		victim.ragdoll:Knockdown(velocity, grabber)
 	else
 		victim.rigid_body:SetVelocity(velocity)
 	end
