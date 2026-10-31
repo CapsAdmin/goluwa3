@@ -240,7 +240,16 @@ do
 	-- a limb of any creature: the bend keeps the side the animation gave it, and it may fold far tighter than a knee
 	function leg_pose.SolveLimb(bones, limb, x, y, z, normal)
 		target.x, target.y, target.z = x, y, z
-		solve_leg(bones, limb, bones[limb.foot], target, y, normal, solve_bend, leg_pose.LimbFlexion)
+		solve_leg(
+			bones,
+			limb,
+			bones[limb.foot],
+			target,
+			y,
+			normal,
+			solve_bend,
+			leg_pose.LimbFlexion
+		)
 	end
 end
 
@@ -276,7 +285,7 @@ function leg_pose.ApplyKeys(bones, pose, side, state)
 			animations.SampleKeys(def.PelvisKeys, inst.phase, pelvis_sample, 6)
 
 			for j = 1, 6 do
-				pelvis[j] = pelvis[j] + pelvis_sample[j] * inst.weight
+				pelvis[j] = pelvis[j] + pelvis_sample[j] * inst.weight * (inst.body_scale or 1)
 			end
 		end
 
@@ -342,8 +351,26 @@ function leg_pose.Apply(bones, shift_r, shift_l, pelvis_shift, normals, state)
 		bones[name].m31 = bones[name].m31 + pelvis_shift
 	end
 
-	solve_leg(bones, LEGS[1], bones.foot_r, planted_r, target_r, normals[1], solve_knee, leg_pose.KneeFlexion)
-	solve_leg(bones, LEGS[2], bones.foot_l, planted_l, target_l, normals[2], solve_knee, leg_pose.KneeFlexion)
+	solve_leg(
+		bones,
+		LEGS[1],
+		bones.foot_r,
+		planted_r,
+		target_r,
+		normals[1],
+		solve_knee,
+		leg_pose.KneeFlexion
+	)
+	solve_leg(
+		bones,
+		LEGS[2],
+		bones.foot_l,
+		planted_l,
+		target_l,
+		normals[2],
+		solve_knee,
+		leg_pose.KneeFlexion
+	)
 
 	if state then state.active = false end
 end

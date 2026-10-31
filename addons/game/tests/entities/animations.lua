@@ -52,7 +52,8 @@ T.Test("actions and impulses play at the same time as a state and expire", funct
 	local pose = entity.character_pose
 	pose:SetState("roll", "left")
 	pose:PlayAction("cast_r", 0.4)
-	pose:SetHits(pose.Hits + 1)
+	step(pose, 0.02)
+	pose:OnTakeDamage{Damage = 20, Force = Vec3(), Normal = Vec3(0, 1, 0)}
 	step(pose, 0.1)
 	T(pose:IsPlaying("roll"))["=="](true)
 	T(pose:IsPlaying("cast_r"))["=="](true)
@@ -105,83 +106,30 @@ end)
 
 local Vec3 = import("goluwa/structs/vec3.lua")
 
-local function hit(pose, direction, intensity)
-	pose:OnTakeDamage{
-		Reaction = intensity,
-		Direction = direction,
-		Force = Vec3(),
-		Normal = Vec3(0, 1, 0),
-	}
-end
-
-T.Test("a reaction restarts on every hit and follows the direction and intensity of the hit", function()
+T.Test("a hit plays a flinch that follows the part, direction and damage of the hit", function()
 	local entity = create()
 	local pose = entity.character_pose
-	local out = {0, 0, 0, 0, 0, 0}
-	hit(pose, Vec3(1, 0, 0), 1)
-	step(pose, 0.1)
-	local inst = pose.anims[#pose.anims]
-	T(inst.def.Name)["=="]("hit_react")
-	inst.def.Pelvis(inst, pose, out)
-	local first = out[1]
-	T(first > 0)["=="](true)
-	T(out[2] ~= out[1])["=="](true)
-	T(math.abs(out[3]) < 1e-6)["=="](true)
-	T(out[6] < 0)["=="](true)
-	step(pose, 0.1)
-	hit(pose, Vec3(0, 0, -1), 2)
-	step(pose, 0.02)
-	inst = pose.anims[#pose.anims]
-	T(inst.time < 0.05)["=="](true)
-	T(inst.intensity)["~"](2, 1e-6)
-	inst.time = 0.12
-	inst.def.Pelvis(inst, pose, out)
-	T(out[3] < -0.3)["=="](true)
-	T(math.abs(out[1]) < 1e-6)["=="](true)
-	step(pose, 0.7)
-	T(pose:IsPlaying("hit_react"))["=="](false)
-	entity:Remove()
-end)
+	pose:OnTakeDamage{Damage = 20, Direction = Vec3(1, 0, 0), Part = "upperarm_r", Force = Vec3(), Normal = Vec3(0, 1, 0)}
+	T(pose.Action)["=="]("flinch")
+	T(pose.ActionPart)["=="]("upperarm_r")
+	T(pose.ActionStrength)["=="](1)
+	step(pose, 0.05)
+	local inst
 
-T.Test("the reaction snaps out fast, holds and settles back with a small overshoot", function()
-	local entity = create()
-	local pose = entity.character_pose
-	local out = {0, 0, 0, 0, 0, 0}
-	hit(pose, Vec3(1, 0, 0), 1)
-	step(pose, 0.02)
-	local inst = pose.anims[#pose.anims]
-	local peak, low = 0, 0
-
-	for _, time in ipairs{0.02, 0.05, 0.08, 0.12, 0.2, 0.3, 0.4, 0.49} do
-		inst.time = time
-		inst.def.Pelvis(inst, pose, out)
-		peak = math.max(peak, out[1])
-		low = math.min(low, out[1])
-
-		if time == 0.05 then T(out[1] > 0.9 * peak)["=="](true) end
+	for _, entry in ipairs(pose.anims) do
+		if entry.def.Name == "flinch" then inst = entry end
 	end
 
-	T(peak)["~"](0.22, 0.01)
-	T(low < 0)["=="](true)
-	T(low > -0.2 * peak)["=="](true)
-	inst.time = 0.49
-	inst.def.Pelvis(inst, pose, out)
-	T(math.abs(out[1]) < 0.02)["=="](true)
-	entity:Remove()
-end)
-
-T.Test("a damage with a reaction triggers the reaction and not the flinch", function()
-	local entity = create()
-	local pose = entity.character_pose
-	local info = {Force = Vec3(), Normal = Vec3(0, 1, 0)}
-	info.Reaction = true
-	pose:OnTakeDamage(info)
-	T(pose.Reacts)["=="](1)
-	T(pose.Hits)["=="](0)
-	T(pose.ReactDirection.y)["~"](-1, 1e-6)
-	T(pose.ReactIntensity)["=="](1)
-	pose:OnTakeDamage{Force = Vec3(), Normal = Vec3(0, 1, 0)}
-	T(pose.Hits)["=="](1)
+	T(inst ~= nil)["=="](true)
+	T(inst.push_x)["~"](1, 1e-6)
+	T(inst.body_scale < 1)["=="](true)
+	pose:OnTakeDamage{Damage = 1, Force = Vec3(0, 0, 1), Normal = Vec3(0, 1, 0)}
+	T(pose.ActionStrength)["~"](0.25, 1e-6)
+	T(pose.ActionPart)["=="]("")
+	pose:OnTakeDamage{Damage = 40, Staggered = true, Force = Vec3(), Normal = Vec3(0, 1, 0)}
+	T(pose.ActionStrength)["~"](0.25, 1e-6)
+	step(pose, 0.6)
+	T(pose:IsPlaying("flinch"))["=="](false)
 	entity:Remove()
 end)
 

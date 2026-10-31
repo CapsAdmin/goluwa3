@@ -32,22 +32,10 @@ function stagger.GetHitstop(amount, threshold)
 	return math.lerp(math.clamp(amount / threshold - 1, 0, 1), stagger.Hitstop, stagger.MaxHitstop)
 end
 
-local function pick_action(victim, push)
-	local rotation = victim.transform:GetRotation()
-	local side = push:Dot(rotation:GetRight())
-	local back = -push:Dot(rotation:GetForward())
-
-	if math.abs(side) > math.abs(back) then
-		return side > 0 and "stagger_right" or "stagger_left"
-	end
-
-	return back > 0 and "stagger_back" or "stagger_forward"
-end
-
-function stagger.Apply(victim, attacker, push, hitstop)
+function stagger.Apply(victim, attacker, push, hitstop, part)
 	local pose = victim.character_pose
 	pose:Freeze(hitstop)
-	pose:PlayAction(pick_action(victim, push), stagger.Duration)
+	pose:PlayAction("stagger", stagger.Duration, part, push)
 	local movement = victim.character_movement
 
 	if movement then
@@ -96,8 +84,11 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 	local before = victim.health:GetHealth() + amount
 	local threshold = stagger.GetThreshold(before)
 
-	if amount < threshold then return end
+	if amount < threshold and not victim.character_pose:IsAlwaysStagger() then
+		return
+	end
 
+	info.Staggered = true
 	local attacker = info.Attacker
 	local push = Vec3()
 
@@ -122,7 +113,7 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 		return
 	end
 
-	stagger.Apply(victim, attacker, push, hitstop)
+	stagger.Apply(victim, attacker, push, hitstop, info.Part)
 end)
 
 return stagger

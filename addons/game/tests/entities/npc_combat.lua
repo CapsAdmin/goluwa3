@@ -193,7 +193,7 @@ T.TestPhysics("npc with a weapon turns to and shoots a player in range", functio
 	gunman.character_pose:OnUpdate(1 / 60)
 	T(gunman.character_pose.pitch:GetForward().y < 0)["=="](true)
 	T(gunman.character_pose.Shots > 0)["=="](true)
-	T(player.character_pose.Hits > 0)["=="](true)
+	T(player.character_pose.Actions > 0)["=="](true)
 	player.character_pose:OnUpdate(1 / 60)
 	T(player.character_pose:GetWeight("flinch") > 0)["=="](true)
 	gunman.character_pose:OnUpdate(1 / 60)

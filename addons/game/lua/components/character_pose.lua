@@ -15,12 +15,11 @@ META.Network = {
 	ViewRotation = {"quat", 1 / 60, "sequenced", true},
 	AimRotation = {"quat", 1 / 60, "sequenced", true},
 	Shots = {"number", 0.05, "reliable"},
-	Hits = {"number", 0.05, "reliable", to_owner = true},
-	Reacts = {"number", 0.05, "reliable", to_owner = true},
-	ReactDirection = {"vec3", 0.05, "reliable", to_owner = true},
-	ReactIntensity = {"number", 0.05, "reliable", to_owner = true},
 	Action = {"string", 0.05, "reliable", to_owner = true},
 	ActionDuration = {"number", 0.05, "reliable", to_owner = true},
+	ActionPart = {"string", 0.05, "reliable", to_owner = true},
+	ActionDirection = {"vec3", 0.05, "reliable", to_owner = true},
+	ActionStrength = {"number", 0.05, "reliable", to_owner = true},
 	Actions = {"number", 0.05, "reliable", to_owner = true},
 	Focus = {"entity", 0.05, "reliable", to_owner = true},
 	FocusPoint = {"vec3", 0.05, "reliable", to_owner = true},
@@ -35,16 +34,16 @@ META:IsSet("Crouching", false)
 META:IsSet("Holding", false)
 META:IsSet("Blocking", false)
 META:IsSet("FirstPerson", false)
+META:IsSet("AlwaysStagger", false)
 META:GetSet("ViewRotation", Quat(0, 0, 0, 1))
 META:GetSet("AimRotation", Quat(0, 0, 0, 1))
 META:GetSet("Shots", 0)
-META:GetSet("Hits", 0)
-META:GetSet("Reacts", 0)
-META:GetSet("ReactDirection", Vec3(0, 0, -1))
-META:GetSet("ReactIntensity", 1)
 META:GetSet("States", "")
 META:GetSet("Action", "")
 META:GetSet("ActionDuration", 0)
+META:GetSet("ActionPart", "")
+META:GetSet("ActionDirection", Vec3(0, 0, 1))
+META:GetSet("ActionStrength", 1)
 META:GetSet("Actions", 0)
 META:GetSet("Focus", NULL)
 META:GetSet("FocusPoint", Vec3())
@@ -76,6 +75,9 @@ local head_to_aim = Quat()
 local SEAT_LOOK_YAW = 1.4
 local RELAY_FRESH = 0.3
 local PREDICTED_ACTION_WINDOW = 1
+local FLINCH_DURATION = 0.4
+local FLINCH_FULL_DAMAGE = 20
+local FLINCH_MIN_STRENGTH = 0.25
 
 function META:Initialize()
 	self.pitch = Quat(0, 0, 0, 1)
@@ -89,8 +91,6 @@ function META:Initialize()
 	self.vertical_speed = 0
 	self.grounded = false
 	self.seen_shots = self.Shots
-	self.seen_hits = self.Hits
-	self.seen_reacts = self.Reacts
 	self.seen_actions = self.Actions
 	self.seen_freezes = self.Freezes
 	self.predicted_actions = {}
@@ -128,9 +128,12 @@ function META:GetSeatComponent()
 	if seat:IsValid() then return seat.seat end
 end
 
-function META:PlayAction(name, duration)
+function META:PlayAction(name, duration, part, direction, strength)
 	self:SetAction(name)
 	self:SetActionDuration(duration)
+	self:SetActionPart(part or "")
+	self:SetActionDirection(direction or Vec3(0, 0, 1))
+	self:SetActionStrength(strength or 1)
 	self:SetActions(self.Actions + 1)
 end
 
@@ -151,10 +154,16 @@ function META:EndScrub()
 	self.scrub = nil
 end
 
-function META:StartAction(name, duration)
+function META:StartAction(name, duration, part, strength)
 	local anims = self.anims
 	local inst = animations.NewInstance(name)
 	inst.duration = math.max(duration, 0.001)
+	inst.part = part
+
+	if strength then
+		inst.strength = strength
+		inst.weight = strength
+	end
 
 	if inst.def.Group then
 		for i = #anims, 1, -1 do
@@ -243,7 +252,7 @@ function META:GetActiveAction()
 	local anims = self.anims
 
 	for i = #anims, 1, -1 do
-		if anims[i].def.Kind == "action" then
+		if anims[i].def.Kind == "action" and not anims[i].def.Passive then
 			return anims[i].def.Name, anims[i].phase
 		end
 	end
@@ -373,7 +382,7 @@ function META:UpdateAnimations(dt)
 		self.seen_actions = self.Actions
 
 		if not self:AdoptPredictedAction(self.Action) then
-			self:StartAction(self.Action, self.ActionDuration)
+			self:StartAction(self.Action, self.ActionDuration, self.ActionPart, self.ActionStrength)
 		end
 	end
 
@@ -545,20 +554,21 @@ function META:RegisterShot()
 end
 
 function META:OnTakeDamage(info)
-	if not info.Reaction then
-		self:SetHits(self.Hits + 1)
-		return
-	end
+	if info.Staggered or info.Status or info.Secondary or info.Damage <= 0 then return end
 
-	local direction = info.Direction
-
-	if not direction then
-		direction = info.Force:GetLength() > 0.01 and info.Force or info.Normal * -1
-	end
-
-	self:SetReactDirection(direction:GetNormalized())
-	self:SetReactIntensity(info.Reaction == true and 1 or info.Reaction)
-	self:SetReacts(self.Reacts + 1)
+	self:PlayAction(
+		"flinch",
+		FLINCH_DURATION,
+		info.Part,
+		info.Direction or
+			info.Force and
+			info.Force:GetLength() > 0.01 and
+			info.Force
+			or
+			info.Normal and
+			info.Normal * -1,
+		math.clamp(info.Damage / FLINCH_FULL_DAMAGE, FLINCH_MIN_STRENGTH, 1)
+	)
 end
 
 function META:ApplyRelayedCommands(commands)

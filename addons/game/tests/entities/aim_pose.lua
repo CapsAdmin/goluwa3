@@ -68,7 +68,13 @@ local function pose(pitch, recoil, flinch)
 
 	if recoil then anims[#anims + 1] = animations.NewInstance("recoil", recoil) end
 
-	if flinch then anims[#anims + 1] = animations.NewInstance("flinch", flinch) end
+	if flinch then
+		anims[#anims + 1] = {
+			def = {Kind = "action", TorsoKeys = {{0, 0.17}, {1, 0.17}}},
+			weight = flinch,
+			phase = 0,
+		}
+	end
 
 	return {
 		pitch = pitch,

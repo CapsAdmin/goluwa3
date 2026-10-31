@@ -122,10 +122,19 @@ T.TestPhysics("a hit over the threshold freezes both fighters and staggers the v
 	damage.Deal(victim, {Attacker = attacker, Damage = 40, Direction = Vec3(0, 0, -1)})
 	T(victim.character_pose:IsFrozen())["=="](true)
 	T(attacker.character_pose:IsFrozen())["=="](true)
-	T(victim.character_pose.Action)["=="]("stagger_forward")
+	T(victim.character_pose.Action)["=="]("stagger")
 	local start = victim.transform:GetPosition():Copy()
 	run(0.2, {victim.character_pose})
 	T(victim.character_pose:IsStunned())["=="](true)
+	local strength = 0
+
+	for _, inst in ipairs(victim.character_pose.anims) do
+		if inst.def.Name:starts_with("stagger_") then
+			strength = strength + inst.strength
+		end
+	end
+
+	T(math.abs(strength - 1) < 0.01)["=="](true)
 	run(0.5, {victim.character_pose})
 	T(victim.transform:GetPosition().z < start.z - 0.3)["=="](true)
 	run(0.6, {victim.character_pose})

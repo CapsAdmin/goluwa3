@@ -673,13 +673,9 @@ function aim_pose.Apply(bones, pose, right, left)
 	local flinch = 0
 
 	for i = 1, #pose.anims do
-		local torso = pose.anims[i].def.Torso
-
-		if torso then flinch = flinch + torso(pose.anims[i]) end
-
 		if pose.anims[i].def.TorsoKeys then
 			animations.SampleKeys(pose.anims[i].def.TorsoKeys, pose.anims[i].phase, torso_sample, 1)
-			flinch = flinch + torso_sample[1] * pose.anims[i].weight
+			flinch = flinch + torso_sample[1] * pose.anims[i].weight * (pose.anims[i].body_scale or 1)
 		end
 	end
 
