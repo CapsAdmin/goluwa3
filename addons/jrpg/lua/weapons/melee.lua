@@ -271,7 +271,9 @@ function META:Hit(hit, forward)
 
 		local alive = victim:IsValid() and not victim.health:IsDead() and not grab.IsHeld(victim)
 
-		if knock and (alive or victim:IsValid() and victim.ragdoll and victim.health:IsDead()) then
+		local ragdoll = victim:IsValid() and (victim.ragdoll or victim.source_ragdoll)
+
+		if knock and (alive or ragdoll and victim.health:IsDead()) then
 			local push = knock.z
 
 			if push < 0 then
@@ -282,7 +284,7 @@ function META:Hit(hit, forward)
 
 			local velocity = Vec3(-forward.z, 0, forward.x) * knock.x + Vec3(0, knock.y, 0) + forward * push
 
-			if not (victim.ragdoll and victim.ragdoll:AddKnock(velocity)) then
+			if not (ragdoll and ragdoll:AddKnock(velocity)) then
 				victim.character_movement:Push(velocity)
 			end
 		end

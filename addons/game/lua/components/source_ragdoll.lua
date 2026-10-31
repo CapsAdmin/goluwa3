@@ -273,6 +273,17 @@ function META:OnDeath()
 	end
 end
 
+function META:Knockdown(velocity)
+	self.knock = velocity:Copy()
+end
+
+function META:AddKnock(velocity)
+	if not self.knock then return false end
+
+	self.knock = self.knock + velocity
+	return true
+end
+
 function META:OnCharacterReset()
 	if not self.dead then return end
 
@@ -285,6 +296,7 @@ function META:OnCharacterReset()
 	end
 
 	self.dead = false
+	self.knock = nil
 	self:RemoveBodies()
 end
 
@@ -325,6 +337,15 @@ function META:OnPhysicsUpdate(dt)
 
 	if not (solids and self.bodies[#solids]) or not network.HasAuthority() then
 		return
+	end
+
+	if self.knock then
+		for _, body in ipairs(self.bodies) do
+			body:SetVelocity(self.knock)
+			body:Wake()
+		end
+
+		self.knock = nil
 	end
 
 	if self.DeathState and self.CorpseTime > 0 then

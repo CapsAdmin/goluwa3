@@ -149,13 +149,15 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 			stagger.Kill(victim, attacker, hitstop, info.Direction or actors.GetForward(victim) * -1)
 		end
 
+		local ragdoll = victim.ragdoll or victim.source_ragdoll
+
 		if
-			victim.ragdoll and
+			ragdoll and
 			info.Inflictor and
 			info.Inflictor.weapon_melee and
 			not grab.IsHeld(victim)
 		then
-			victim.ragdoll:Knockdown(
+			ragdoll:Knockdown(
 				stagger.GetKnockdownVelocity(push, math.clamp(amount / knockdown - 1, 0, 1)),
 				attacker
 			)
