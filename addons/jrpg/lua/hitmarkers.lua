@@ -13,6 +13,7 @@ local marks = {}
 local GRAVITY = 900
 local COUNT_TIME = 0.4
 local MAX_BOUNCES = 2
+local REPLACE_FADE = 0.1
 local TIERS = {
 	{max = 0.25, size = 22, color = Color(0.92, 0.94, 1, 1)},
 	{max = 0.5, size = 28, color = Color(1, 0.88, 0.45, 1)},
@@ -67,6 +68,13 @@ function hitmarkers.Add(owner, amount, max_health, now, position, line_color)
 end
 
 function hitmarkers.AddText(owner, text, color, now)
+	for _, other in ipairs(marks) do
+		if other.owner == owner and other.text == text and not other.fading then
+			other.fading = true
+			other.life = now - other.time + REPLACE_FADE
+		end
+	end
+
 	local mark = add(owner, now)
 	mark.text = text
 	mark.line_color = color
@@ -145,7 +153,7 @@ function hitmarkers.Draw(camera, screen_w, screen_h, now, dt)
 					end
 				end
 
-				local alpha = math.min((mark.life - age) / (mark.life * 0.4), 1)
+				local alpha = math.min((mark.life - age) / (mark.fading and REPLACE_FADE or mark.life * 0.4), 1)
 				local pop = age < 0.12 and 1 + (1 - age / 0.12) * 0.6 or 1
 				local size = math.floor(tier.size * pop + 0.5)
 				local w, h = render2d.GetTextSize(text, hitmarkers.Font, size, hitmarkers.FontWeight)
