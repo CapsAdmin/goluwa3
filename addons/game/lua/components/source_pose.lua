@@ -115,6 +115,7 @@ function META:Initialize()
 	self.bones = {}
 	self.ground_sink = 0
 	self.idle_bones = {}
+	self.look_bones = {}
 	self.prev_bones = {}
 	self.switch = 1
 	self.grip_follow = Matrix44():Identity()
@@ -1006,8 +1007,10 @@ function META:OnUpdate(dt)
 		self:AddDonorClips(animator.skeleton)
 		self:UpdatePlayer(animator, pose, dt)
 		local character = self.character
+		biped.ReadBones(rig, self.look_bones)
+		local head = self.look_bones.head
 		owner.eyes:SetLookTarget(
-			character.transform:GetPosition() + character.character_movement:GetViewOffset() + pose.aim_rotation:GetForward() * EYE_LOOK_DISTANCE
+			character.transform:GetPosition() + character.transform:GetRotation():VecMul(Vec3(head.m30, head.m31, head.m32)) + pose.aim_rotation:GetForward() * EYE_LOOK_DISTANCE
 		)
 	else
 		self:UpdateCreature(animator, animator.skeleton, pose, dt)
