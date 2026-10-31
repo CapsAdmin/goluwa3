@@ -23,6 +23,7 @@ end
 
 local spawners = {}
 local validators = {}
+local option_validators = {}
 
 function validators.weapon(name)
 	return weapons.Definitions[name] ~= nil
@@ -44,6 +45,29 @@ function validators.prop(name)
 	return name:find(PROP_PATTERN) ~= nil and not name:find("..", 1, true)
 end
 
+function option_validators.weapon(roll)
+	return weapons.Roller ~= nil and weapons.Roller.IsValidRoll(roll)
+end
+
+function option_validators.npc(options)
+	return type(options) == "table" and
+		(
+			options.Faction == nil or
+			options.Faction == "friend" or
+			options.Faction == "enemy"
+		)
+		and
+		(
+			options.Weapon == nil or
+			validators.weapon(options.Weapon)
+		)
+		and
+		(
+			options.Roll == nil or
+			option_validators.weapon(options.Roll)
+		)
+end
+
 function spawners.weapon(player, name, position, yaw, done, roll)
 	done(weapons.Spawn(name, position + weapon_offset, QuatFromAxis(yaw, Vec3(0, 1, 0)), roll))
 end
@@ -56,8 +80,8 @@ function spawners.vehicle(player, name, position, yaw, done)
 	done(vehicles.Spawn(name, position, yaw))
 end
 
-function spawners.npc(player, name, position, yaw, done)
-	local npc = npcs.Spawn(name, position, yaw)
+function spawners.npc(player, name, position, yaw, done, options)
+	local npc = npcs.Spawn(name, position, yaw, options)
 	npc:SetTransient(false)
 	done(npc)
 end
@@ -95,7 +119,7 @@ if SERVER then
 		player.weapon_holder:Give(name, roll)
 	end)
 
-	message.AddListener("sandbox_spawn", function(client, kind, name, position, yaw, roll)
+	message.AddListener("sandbox_spawn", function(client, kind, name, position, yaw, options)
 		local player = _G.GetPlayerEntity(client)
 
 		if not (player and player:IsValid()) then return end
@@ -110,7 +134,13 @@ if SERVER then
 			return
 		end
 
-		if roll ~= nil and not (weapons.Roller and weapons.Roller.IsValidRoll(roll)) then
+		if
+			options ~= nil and
+			not (
+				option_validators[kind] and
+				option_validators[kind](options)
+			)
+		then
 			return
 		end
 
@@ -140,7 +170,7 @@ if SERVER then
 				entity:SetOwnedBy(client)
 				game_history.GetHistory(client):Push(game_history.Spawned(spawn_requests.GetLabel(kind, name), entity))
 			end,
-			roll
+			options
 		)
 	end)
 end
@@ -155,9 +185,9 @@ if CLIENT then
 		_G.PLAYER_RIG.weapon_holder:Give(name, roll)
 	end
 
-	function spawn_requests.Spawn(kind, name, position, yaw, roll)
+	function spawn_requests.Spawn(kind, name, position, yaw, options)
 		if network.IsConnected() then
-			message.Send("sandbox_spawn", kind, name, position, yaw, roll)
+			message.Send("sandbox_spawn", kind, name, position, yaw, options)
 			return
 		end
 
@@ -170,7 +200,7 @@ if CLIENT then
 				entity:SetOwnedBy(clients.GetLocalClient())
 				game_history.RecordSpawn(spawn_requests.GetLabel(kind, name), entity)
 			end,
-			roll
+			options
 		)
 	end
 end

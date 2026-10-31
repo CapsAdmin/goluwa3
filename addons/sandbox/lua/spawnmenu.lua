@@ -68,10 +68,23 @@ local function get_aim()
 end
 
 local STATUSES_PER_ROW = 7
-local weapon_roll = {rarity = "common", bonus = 0, names = {}}
+local function new_roll()
+	return {rarity = "common", bonus = 0, names = {}}
+end
 
-local function get_weapon_roll(kind)
-	return kind == "weapon" and weapons.Roller and weapon_roll or nil
+local weapon_state = {roll = new_roll()}
+local npc_state = {roll = new_roll(), weapon = "", hostile = false}
+
+local function get_spawn_options(kind)
+	if kind == "weapon" then return weapons.Roller and weapon_state.roll or nil end
+
+	if kind == "npc" then
+		return {
+			Faction = npc_state.hostile and "enemy" or "friend",
+			Weapon = npc_state.weapon ~= "" and npc_state.weapon or nil,
+			Roll = npc_state.weapon ~= "" and weapons.Roller and npc_state.roll or nil,
+		}
+	end
 end
 
 local function make_weapon_entries(category)
@@ -130,10 +143,10 @@ local function make_vehicle_entries()
 	return entries
 end
 
-local function make_npc_entries(faction)
+local function make_npc_entries()
 	local entries = {}
 
-	for _, name in ipairs(npcs.GetNamesByFaction(faction)) do
+	for _, name in ipairs(npcs.GetNames()) do
 		entries[#entries + 1] = {
 			category = "prefabs",
 			name = npcs.GetPrefabName(name),
@@ -151,7 +164,7 @@ function spawnmenu.Spawn(entry)
 	local position, yaw = get_aim()
 	local kind = entry.kind or "prop"
 	local name = kind == "prop" and entry.path or entry.spawn_name
-	spawn_requests.Spawn(kind, name, position, yaw, get_weapon_roll(kind))
+	spawn_requests.Spawn(kind, name, position, yaw, get_spawn_options(kind))
 end
 
 local function open_entry_menu(entry)
@@ -161,7 +174,7 @@ local function open_entry_menu(entry)
 		Panel.OpenContextMenu(
 			{OnClose = |menu|->menu:Remove()},
 			MenuItem{Text = "Spawn", Icon = "plus", OnClick = ||->spawnmenu.Spawn(entry)},
-			MenuItem{Text = "Give", Icon = "user", OnClick = ||->spawn_requests.Give(entry.spawn_name, get_weapon_roll("weapon"))},
+			MenuItem{Text = "Give", Icon = "user", OnClick = ||->spawn_requests.Give(entry.spawn_name, get_spawn_options("weapon"))},
 			copy
 		)
 		return
@@ -394,27 +407,10 @@ local EntryGrid = react.Component(
 		}
 	end
 )
-local NpcsPage = react.Component(
-	||->ui.ScrollablePanel{
-		Padding = "XS",
-		ScrollX = false,
-		ScrollY = true,
-		layout = {GrowWidth = 1, GrowHeight = 1},
-	}{
-		ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XS", AlignmentX = "stretch"}}{
-			list.map(
-				npcs.Factions,
-				|faction|->ui.Collapsible{Key = faction, Title = faction:sub(1, 1):upper() .. faction:sub(2), HeaderMode = "text"}{
-					EntryGrid{Group = faction, Make = ||->make_npc_entries(faction)},
-				}
-			),
-		},
-	}
-)
 local RollPanel = react.Component(
-	||-> do
+	|props|-> do
 		local roller = weapons.Roller
-		local roll, set_roll = react.UseState(weapon_roll)
+		local roll, set_roll = react.UseState(props.State.roll)
 		local version, set_version = react.UseState(0)
 		local rarity_options = react.UseMemo(
 			||->list.map(roller.Rarities, |rarity|->{Text = rarity.name, Value = rarity.name}),
@@ -447,8 +443,8 @@ local RollPanel = react.Component(
 			{}
 		)
 		local function update(rarity, bonus, names)
-			weapon_roll = {rarity = rarity, bonus = bonus, names = names}
-			set_roll(weapon_roll)
+			props.State.roll = {rarity = rarity, bonus = bonus, names = names}
+			set_roll(props.State.roll)
 		end
 
 		return ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XS", AlignmentX = "stretch"}}{
@@ -508,6 +504,62 @@ local RollPanel = react.Component(
 		}
 	end
 )
+local NpcOptions = react.Component(
+	||-> do
+		local weapon, set_weapon = react.UseState(npc_state.weapon)
+		local hostile, set_hostile = react.UseState(npc_state.hostile)
+		local weapon_options = react.UseMemo(
+			||-> do
+				local options = {{Text = "None", Value = ""}}
+
+				for _, name in ipairs(weapons.GetNames()) do
+					options[#options + 1] = {Text = weapons.Definitions[name].DisplayName ?? name, Value = name}
+				end
+
+				return options
+			end,
+			{}
+		)
+		return ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XS", AlignmentX = "stretch"}}{
+			ui.Row{layout = {ChildGap = "S", AlignmentY = "center"}}{
+				ui.Text{Text = "Weapon", Color = "text_disabled"},
+				ui.Dropdown{
+					Options = weapon_options,
+					Value = weapon,
+					Padding = "XS",
+					OnSelect = |value|-> do
+						npc_state.weapon = value
+						set_weapon(value)
+					end,
+				},
+				ui.Checkbox{
+					Text = "Hostile to players",
+					Value = hostile,
+					OnChange = |checked|-> do
+						npc_state.hostile = checked
+						set_hostile(checked)
+					end,
+				},
+			},
+			weapon ~= "" and weapons.Roller and RollPanel{State = npc_state},
+		}
+	end
+)
+local NpcsPage = react.Component(
+	||->ui.Column{
+		layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, ChildGap = 6, AlignmentX = "stretch"},
+	}{
+		ui.ScrollablePanel{
+			Padding = "XS",
+			ScrollX = false,
+			ScrollY = true,
+			layout = {GrowWidth = 1, GrowHeight = 1},
+		}{
+			EntryGrid{Group = "npcs", Make = make_npc_entries},
+		},
+		NpcOptions{},
+	}
+)
 local WeaponsPage = react.Component(
 	||-> do
 		local categories = react.UseMemo(
@@ -551,7 +603,7 @@ local WeaponsPage = react.Component(
 					),
 				},
 			},
-			weapons.Roller and RollPanel{},
+			weapons.Roller and RollPanel{State = weapon_state},
 		}
 	end
 )
