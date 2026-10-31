@@ -35,7 +35,7 @@ local function create_gunman(position, faction)
 	local entity = Entity.New{
 		ComponentSet = {"transform", "ai_controller", "character_pose", "weapon_holder", "health"},
 		transform = {Position = position:Copy()},
-		ai_controller = {Wander = false, WalkSpeed = 3, Faction = faction},
+		ai_controller = {Wander = false, WalkSpeed = 3, Faction = faction ?? "enemy"},
 		health = {Health = 1000, MaxHealth = 1000},
 	}
 	entity.ai_controller:Teleport(position, 0)
@@ -81,6 +81,7 @@ T.TestPhysics("an unarmed npc chases a player and hurts it with its moves", func
 		transform = {Position = Vec3(0, 0.05, 0)},
 		ai_controller = {
 			Wander = false,
+			Faction = "enemy",
 			WalkSpeed = 3,
 			Moveset = "test_bite",
 			Attacks = {{Move = "bite", Range = 1.5, Interval = 1}},
@@ -122,6 +123,7 @@ local function create_charger()
 		transform = {Position = Vec3(0, 0.05, 0)},
 		ai_controller = {
 			Wander = false,
+			Faction = "enemy",
 			WalkSpeed = 3,
 			Moveset = "test_charge",
 			AttackRange = 25,
@@ -186,6 +188,7 @@ T.TestPhysics("an unarmed npc cannot hit a player standing on a ledge far above 
 		transform = {Position = Vec3(0, 0.05, 0)},
 		ai_controller = {
 			Wander = false,
+			Faction = "enemy",
 			WalkSpeed = 3,
 			Moveset = "test_bite",
 			Attacks = {{Move = "bite", Range = 1.5, Interval = 1}},

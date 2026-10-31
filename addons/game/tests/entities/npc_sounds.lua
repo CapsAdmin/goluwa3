@@ -36,7 +36,7 @@ T.TestPhysics("a creature npc plays one footstep per step length it walks", func
 	end
 
 	local ground = create_ground()
-	local npc = npcs.Spawn("zombie_torso", Vec3(0, 0.05, 0), 0)
+	local npc = npcs.Spawn("zombie_torso", Vec3(0, 0.05, 0), 0, {Faction = "enemy"})
 	npc.ai_controller:SetWander(false)
 	local sounds = npc.npc_sounds
 	local played = {}
@@ -93,7 +93,7 @@ T.TestPhysics("an npc speaks when it sees a target, attacks, hits, is hurt and d
 	end
 
 	local ground = create_ground()
-	local npc = npcs.Spawn("zombie", Vec3(0, 0.05, 0), 0)
+	local npc = npcs.Spawn("zombie", Vec3(0, 0.05, 0), 0, {Faction = "enemy"})
 	npc.ai_controller:SetWander(false)
 	local said = {}
 
@@ -135,7 +135,9 @@ T.Test("every npc sound file exists", function()
 			T(#set.Paths > 0)["=="](true)
 
 			for _, path in ipairs(set.Paths) do
-				if not vfs.IsFile("sound/" .. path) then error(name .. " " .. role .. " " .. path .. " is missing") end
+				if not vfs.IsFile("sound/" .. path) then
+					error(name .. " " .. role .. " " .. path .. " is missing")
+				end
 			end
 		end
 	end

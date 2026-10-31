@@ -357,8 +357,8 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	local instance = Entity.New{prefab = {Path = npcs.GetPrefabName("zombie")}, transform = {}}
 	local npc = instance.ai_controller
 	T(npc ~= nil)["=="](true)
-	T(npc.Faction)["=="]("enemy")
-	T(instance.usable == nil)["=="](true)
+	T(npc.Faction)["=="]("friend")
+	T(instance.usable ~= nil)["=="](true)
 	T(instance.source_pose.WalkSequence)["=="]("walk")
 	T(instance.model.ModelPath)["=="]("models/zombie/classic.mdl")
 	T(math.abs(npc.WalkSpeed - 45 * UNIT) < 1e-6)["=="](true)
@@ -370,10 +370,13 @@ T.Test3D("npc prefabs are built in and push their inputs into the npc", function
 	T(npc.Wander)["=="](false)
 	T(instance.weapon_holder == nil)["=="](true)
 	instance:Remove()
-	local armed = npcs.Spawn("barney", Vec3(0, 0.05, 0), 0)
+	local unarmed = npcs.Spawn("barney", Vec3(0, 0.05, 0), 0)
+	T(unarmed.weapon_holder:GetWeapon("right") == nil)["=="](true)
+	T(unarmed.ai_controller.Faction)["=="]("friend")
+	unarmed:Remove()
+	local armed = npcs.Spawn("barney", Vec3(0, 0.05, 0), 0, {Faction = "enemy", Weapon = "weapon_pistol"})
 	T(armed.weapon_holder:GetWeapon("right").weapon:GetDisplayName())["=="]("Pistol")
-	T(armed.ai_controller.Faction)["=="]("friend")
-	T(armed.usable ~= nil)["=="](true)
+	T(armed.ai_controller.Faction)["=="]("enemy")
 	armed:Remove()
 end)
 

@@ -39,11 +39,8 @@ local function cast(clip, duration, delay, element, damage)
 	}
 end
 
-npcs.Factions = {"friend", "enemy"}
 npcs.Definitions = {
 	citizen = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/humans/group01/male_01.mdl",
 		Idle = "idle_subtle",
@@ -54,8 +51,6 @@ npcs.Definitions = {
 		Sounds = voices.citizen,
 	},
 	barney = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/barney.mdl",
 		Idle = "idle_subtle",
@@ -67,8 +62,6 @@ npcs.Definitions = {
 		Sounds = voices.barney,
 	},
 	combine_soldier = {
-		Faction = "enemy",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/combine_soldier.mdl",
 		Idle = "Idle_Unarmed",
@@ -79,8 +72,6 @@ npcs.Definitions = {
 		Sounds = voices.combine_soldier,
 	},
 	eye = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Outfit = outfit.DefaultName,
 		Ragdoll = "eye",
@@ -89,7 +80,6 @@ npcs.Definitions = {
 	},
 	zombie = {
 		Legs = true,
-		Faction = "enemy",
 		Model = "models/zombie/classic.mdl",
 		Idle = "Idle01",
 		Walk = "walk",
@@ -101,7 +91,6 @@ npcs.Definitions = {
 		Sounds = voices.zombie,
 	},
 	vortigaunt = {
-		Faction = "enemy",
 		Model = "models/vortigaunt.mdl",
 		Idle = "Idle01",
 		Walk = "Walk_all",
@@ -116,7 +105,6 @@ npcs.Definitions = {
 	},
 	antlion = {
 		LegRig = rigs.antlion,
-		Faction = "enemy",
 		Model = "models/antlion.mdl",
 		Idle = "Idle",
 		Walk = "walk_all",
@@ -132,7 +120,6 @@ npcs.Definitions = {
 	},
 	headcrab = {
 		LegRig = rigs.headcrab,
-		Faction = "enemy",
 		Model = "models/headcrab.mdl",
 		Idle = "Idle01",
 		Walk = "Run1",
@@ -148,8 +135,6 @@ npcs.Definitions = {
 		Sounds = voices.headcrab,
 	},
 	citizen_female = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/humans/group01/female_01.mdl",
 		Idle = "idle_subtle",
@@ -160,8 +145,6 @@ npcs.Definitions = {
 		Sounds = voices.citizen_female,
 	},
 	rebel = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/humans/group03/male_01.mdl",
 		Idle = "idle_subtle",
@@ -172,8 +155,6 @@ npcs.Definitions = {
 		Sounds = voices.rebel,
 	},
 	alyx = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/alyx.mdl",
 		Idle = "idle_subtle",
@@ -185,8 +166,6 @@ npcs.Definitions = {
 		Sounds = voices.alyx,
 	},
 	combine_elite = {
-		Faction = "enemy",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/combine_super_soldier.mdl",
 		Idle = "Idle_Unarmed",
@@ -198,7 +177,6 @@ npcs.Definitions = {
 		Sounds = voices.combine_elite,
 	},
 	breen = {
-		Faction = "friend",
 		Dummy = true,
 		Retaliate = true,
 		RefillDelay = 0.25,
@@ -213,7 +191,6 @@ npcs.Definitions = {
 	},
 	zombie_fast = {
 		Legs = true,
-		Faction = "enemy",
 		Model = "models/zombie/fast.mdl",
 		Idle = "idle",
 		Walk = "walk_all",
@@ -226,7 +203,6 @@ npcs.Definitions = {
 	},
 	zombie_poison = {
 		Legs = true,
-		Faction = "enemy",
 		Model = "models/zombie/poison.mdl",
 		Idle = "Idle01",
 		Walk = "Walk",
@@ -239,8 +215,6 @@ npcs.Definitions = {
 		Sounds = voices.zombie_poison,
 	},
 	monk = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/monk.mdl",
 		Idle = "idle_subtle",
@@ -251,8 +225,6 @@ npcs.Definitions = {
 		Sounds = voices.monk,
 	},
 	kleiner = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/kleiner.mdl",
 		Idle = "idle_subtle",
@@ -264,8 +236,6 @@ npcs.Definitions = {
 		Sounds = voices.kleiner,
 	},
 	eli = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/eli.mdl",
 		Idle = "idle_subtle",
@@ -277,8 +247,6 @@ npcs.Definitions = {
 		Sounds = voices.eli,
 	},
 	odessa = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/odessa.mdl",
 		Idle = "idle_subtle",
@@ -290,8 +258,6 @@ npcs.Definitions = {
 		Sounds = voices.odessa,
 	},
 	mossman = {
-		Faction = "friend",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/mossman.mdl",
 		Idle = "idle_subtle",
@@ -302,7 +268,6 @@ npcs.Definitions = {
 		Sounds = voices.mossman,
 	},
 	debug_stagger = {
-		Faction = "friend",
 		Dummy = true,
 		Biped = true,
 		Model = "models/humans/group01/male_01.mdl",
@@ -316,7 +281,6 @@ npcs.Definitions = {
 		Health = 100000,
 	},
 	debug_flinch = {
-		Faction = "friend",
 		Dummy = true,
 		Biped = true,
 		Model = "models/humans/group01/male_01.mdl",
@@ -329,7 +293,6 @@ npcs.Definitions = {
 		Health = 100000,
 	},
 	gman = {
-		Faction = "friend",
 		Dummy = true,
 		Biped = true,
 		Model = "models/gman.mdl",
@@ -341,8 +304,6 @@ npcs.Definitions = {
 		Health = 1000,
 	},
 	metrocop = {
-		Faction = "enemy",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/police.mdl",
 		Idle = "Idle_Baton",
@@ -354,8 +315,6 @@ npcs.Definitions = {
 		Sounds = voices.metrocop,
 	},
 	combine_guard = {
-		Faction = "enemy",
-		Weapon = "weapon_pistol",
 		Biped = true,
 		Model = "models/combine_soldier_prisonguard.mdl",
 		Idle = "Idle_Unarmed",
@@ -368,7 +327,6 @@ npcs.Definitions = {
 	},
 	zombie_soldier = {
 		Legs = true,
-		Faction = "enemy",
 		Model = "models/zombie/zombie_soldier.mdl",
 		Idle = "Idle01",
 		Walk = "walk_All",
@@ -381,7 +339,6 @@ npcs.Definitions = {
 		Sounds = voices.zombie_soldier,
 	},
 	zombie_torso = {
-		Faction = "enemy",
 		Model = "models/zombie/classic_torso.mdl",
 		Idle = "Idle01",
 		Walk = "crawl",
@@ -398,7 +355,6 @@ npcs.Definitions = {
 	},
 	headcrab_black = {
 		LegRig = rigs.headcrab_black,
-		Faction = "enemy",
 		Model = "models/headcrabblack.mdl",
 		Idle = "Idle01",
 		Walk = "walk_All",
@@ -416,7 +372,6 @@ npcs.Definitions = {
 	},
 	antlion_worker = {
 		LegRig = rigs.antlion,
-		Faction = "enemy",
 		Model = "models/antlion_worker.mdl",
 		Idle = "Idle",
 		Walk = "walk_all",
@@ -433,7 +388,6 @@ npcs.Definitions = {
 	},
 	antlion_guard = {
 		LegRig = rigs.antlion_guard,
-		Faction = "enemy",
 		Model = "models/antlion_guard.mdl",
 		Idle = "idle",
 		Walk = "walk1",
@@ -477,7 +431,6 @@ npcs.Definitions = {
 	},
 	hunter = {
 		LegRig = rigs.hunter,
-		Faction = "enemy",
 		Model = "models/hunter.mdl",
 		Idle = "idle1",
 		Walk = "walk_all",
@@ -494,7 +447,6 @@ npcs.Definitions = {
 		Sounds = voices.hunter,
 	},
 	vortigaunt_slave = {
-		Faction = "friend",
 		Model = "models/vortigaunt_slave.mdl",
 		Idle = "Idle01",
 		Walk = "Walk_all",
@@ -510,7 +462,6 @@ npcs.Definitions = {
 	},
 	lamarr = {
 		LegRig = rigs.lamarr,
-		Faction = "friend",
 		Model = "models/lamarr.mdl",
 		Idle = "Idle01",
 		Walk = "Run1",
@@ -555,7 +506,6 @@ function npcs.Register(name, info)
 		Attacks = info.Attacks,
 		Alert = info.Alert,
 		AttackRange = info.AttackRange,
-		Faction = info.Faction,
 		Retaliate = info.Retaliate,
 	}
 	return prefab.Register(
@@ -582,17 +532,17 @@ function npcs.Register(name, info)
 								WalkSequence = info.Walk,
 								RunSequence = info.Run,
 								Mirror = info.Biped,
-								OwnsArmature = info.Biped or info.Weapon,
+								OwnsArmature = info.Biped,
 								LegIK = info.Legs,
 								LegRig = info.LegRig,
 							} or
 							nil,
 						procedural_pose = info.Outfit and {} or nil,
 						player_avatar = info.Outfit and {Outfit = info.Outfit} or nil,
-						attachment_points = info.Biped and {} or info.Weapon and {Profile = "creature"} or nil,
+						attachment_points = info.Biped and {} or nil,
 						ai_controller = npc,
-						usable = info.Faction == "friend" and not info.Dummy and {Prompt = "follow"} or nil,
-						weapon_holder = info.Weapon and {} or nil,
+						usable = not info.Dummy and {Prompt = "follow"} or nil,
+						weapon_holder = info.Biped and {} or nil,
 						ragdoll = (
 								info.Biped or
 								info.Model
@@ -646,7 +596,7 @@ if eyes then
 	end)
 end
 
-function npcs.Spawn(name, position, yaw)
+function npcs.Spawn(name, position, yaw, options)
 	local entity = Entity.New{
 		Name = name,
 		transform = {Position = position:Copy()},
@@ -656,9 +606,14 @@ function npcs.Spawn(name, position, yaw)
 
 	if entity.ai_controller:HasAuthority() then
 		entity.ai_controller:Teleport(position, yaw)
-		local weapon = npcs.Definitions[name].Weapon
 
-		if weapon then entity.weapon_holder:Give(weapon) end
+		if options then
+			if options.Faction then entity.ai_controller:SetFaction(options.Faction) end
+
+			if options.Weapon and entity.weapon_holder then
+				entity.weapon_holder:Give(options.Weapon, options.Roll)
+			end
+		end
 	end
 
 	return entity
@@ -678,17 +633,6 @@ function npcs.GetByModel(model_path)
 	for name, info in pairs(npcs.Definitions) do
 		if info.Model and info.Model:lower() == model_path then return name, info end
 	end
-end
-
-function npcs.GetNamesByFaction(faction)
-	local names = {}
-
-	for name, info in pairs(npcs.Definitions) do
-		if info.Faction == faction then names[#names + 1] = name end
-	end
-
-	table.sort(names)
-	return names
 end
 
 function npcs.GetNames()
