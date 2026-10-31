@@ -207,6 +207,14 @@ function META:DrainMana(amount)
 	return true
 end
 
+function META:SetGuard(guard)
+	self.guard = guard
+end
+
+function META:GetGuard()
+	return self.guard
+end
+
 function META:Stun(duration)
 	self.stun_time = duration
 	self:SetStunned(true)

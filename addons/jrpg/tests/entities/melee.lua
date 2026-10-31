@@ -15,6 +15,11 @@ import("addons/jrpg/lua/autorun/jrpg.lua")
 local damage = import("lua/damage.lua")
 local slash = import("lua/jrpg/slash.lua")
 local movesets = import("lua/movesets.lua")
+local actors = import("lua/actors.lua")
+local grab = import("lua/grab.lua")
+local jrpg = import("lua/jrpg/jrpg.lua")
+local usercmd = import("goluwa/network/usercmd.lua")
+local BUTTON = usercmd.BUTTON
 
 local function create_character(position, health, ragdoll)
 	local entity = Entity.New{
@@ -54,6 +59,44 @@ local function run(seconds, poses)
 		end
 	end
 end
+
+local function command(entity, forward, buttons, pressed)
+	local cmd = usercmd.New()
+	cmd.number = entity.character_movement:GetCommand().number
+	cmd.forward = forward
+	cmd.buttons = bit.bor(BUTTON.ACTIVE, buttons or 0)
+	cmd.pressed = pressed or 0
+	return cmd
+end
+
+local function track_height(entity, seconds, poses)
+	local top = actors.GetCenter(entity).y
+
+	for _ = 1, seconds * 60 do
+		run(1 / 60, poses)
+		top = math.max(top, actors.GetCenter(entity).y)
+	end
+
+	return top
+end
+
+local function count_fall_damage()
+	local event = import("goluwa/event.lua")
+	local falls = {count = 0}
+
+	event.AddListener("HealthDamaged", falls, function(_, amount, _, info)
+		if info.Inflictor == Entity.World and amount > 0 then
+			falls.count = falls.count + 1
+		end
+	end)
+
+	return falls
+end
+
+local VICTIM_BONES = {
+	upperarm_r = {m30 = 0.15, m31 = 1.08, m32 = 0},
+	upperarm_l = {m30 = -0.15, m31 = 1.08, m32 = 0},
+}
 
 T.Test("every moveset move is a registered action and its hits are in order", function()
 	for _, name in ipairs{"sword", "greatsword", "rapier", "reaper"} do
@@ -436,4 +479,232 @@ T.TestPhysics("a strike keeps its assisted hit and takes the part under the aim 
 	)
 	T(#missed)["=="](1)
 	T(missed[1].part)["=="](assisted[1].part)
+end)
+
+T.TestPhysics("crouching launches the victim, which hangs briefly at the top and falls back down without a follow-up", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -1.6), 1000)
+	local sword = attacker.weapon_holder:Give("weapon_sword")
+	run(0.3)
+	local ground = actors.GetCenter(attacker).y
+	local victim_ground = actors.GetCenter(victim).y
+	sword.weapon_melee:Request("light", command(attacker, 0, BUTTON.CROUCH), true)
+	T(attacker.character_pose.Action)["=="]("sword_rising_edge")
+	local poses = {attacker.character_pose, victim.character_pose}
+	local victim_top = victim_ground
+	local attacker_top = ground
+
+	for _ = 1, 50 do
+		run(1 / 60, poses)
+		victim_top = math.max(victim_top, actors.GetCenter(victim).y)
+		attacker_top = math.max(attacker_top, actors.GetCenter(attacker).y)
+	end
+
+	T(victim.health:GetHealth() < 1000)["=="](true)
+	T(attacker_top > ground + 1.4)["=="](true)
+	T(victim_top > victim_ground + 0.8)["=="](true)
+	T(victim.character_movement:IsHanging())["=="](true)
+	run(1, poses)
+	T(victim.character_movement:IsHanging())["=="](false)
+	T(actors.GetCenter(victim).y)["~"](victim_ground, 0.1)
+	run(2, poses)
+	T(actors.GetCenter(attacker).y)["~"](ground, 0.1)
+	T(actors.GetCenter(victim).y)["~"](victim_ground, 0.1)
+end)
+
+T.TestPhysics("a plunge from the air dives to the ground and strikes around the landing", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 3, 0))
+	local victim = create_character(Vec3(0, 0.05, -1.2), 1000)
+	run(0.3)
+	local sword = attacker.weapon_holder:Give("weapon_sword")
+	T(attacker.character_movement:GetGrounded())["=="](false)
+	sword.weapon_melee:Request("light", command(attacker, 0, BUTTON.CROUCH), true)
+	T(attacker.character_pose.Action)["=="]("sword_falling_star")
+	run(0.45, {attacker.character_pose})
+	T(attacker.character_movement:GetGrounded())["=="](true)
+	T(victim.health:GetHealth() < 1000)["=="](true)
+	T(attacker.health:GetHealth())["=="](100)
+end)
+
+T.TestPhysics("back and jump flips away from the target and dodges hits during the flip", function()
+	create_ground()
+	local player = create_character(Vec3(0, 0.05, 0))
+	local enemy = create_character(Vec3(0, 0.05, -1.6), 1000)
+	jrpg.SetEnabled(player, true, true)
+	run(0.3)
+	local sword = player.weapon_holder:FindWeapon("weapon_sword")
+	local start = (actors.GetCenter(player) - actors.GetCenter(enemy)):GetLength()
+	sword.weapon_melee:Step(1 / 60, command(player, -1, BUTTON.JUMP, BUTTON.JUMP), true)
+	T(player.character_pose.Action)["=="]("sword_backflip")
+	run(0.1, {player.character_pose})
+	local health = player.health:GetHealth()
+	damage.Deal(player, {Attacker = enemy, Damage = 30, Type = "slash"})
+	T(player.health:GetHealth())["=="](health)
+	local top = track_height(player, 0.6, {player.character_pose})
+	T(top > actors.GetCenter(enemy).y + 0.5)["=="](true)
+	T((actors.GetCenter(player) - actors.GetCenter(enemy)):GetLength() > start + 1.5)["=="](true)
+	damage.Deal(player, {Attacker = enemy, Damage = 30, Type = "slash"})
+	T(player.health:GetHealth() < health)["=="](true)
+end)
+
+T.TestPhysics("jumping toward a target vaults over it and lands behind it", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -2), 1000)
+	local sword = attacker.weapon_holder:Give("weapon_sword")
+	run(0.3)
+	local ground = actors.GetCenter(attacker).y
+	sword.weapon_melee:Step(1 / 60, command(attacker, 1, BUTTON.JUMP, BUTTON.JUMP), true)
+	T(attacker.character_pose.Action)["=="]("sword_skyward_flip")
+	local top = track_height(attacker, 1.2, {attacker.character_pose, victim.character_pose})
+	T(top > ground + 1.8)["=="](true)
+	T(actors.GetCenter(attacker).z < actors.GetCenter(victim).z - 0.6)["=="](true)
+	T(actors.GetCenter(attacker).y)["~"](ground, 0.1)
+	T(victim.health:GetHealth() < 1000)["=="](true)
+end)
+
+T.TestPhysics("the greatsword impale lift pins the victim to the blade and slams it down", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -2), 1000, true)
+	victim.source_pose = {bones = VICTIM_BONES}
+	local blade = attacker.weapon_holder:Give("weapon_greatsword")
+	run(0.3)
+	local falls = count_fall_damage()
+	blade.weapon_melee:Request("heavy", command(attacker, 0, BUTTON.CROUCH), true)
+	T(attacker.character_pose.Action)["=="]("greatsword_impale_lift")
+	local held = false
+	local pinned = math.huge
+	local position, rotation = Vec3(), Quat()
+
+	local function node_position(name)
+		return Vec3(blade.prefab:GetNode(name).transform:GetWorldMatrix():GetTranslation())
+	end
+
+	for _ = 1, 150 do
+		run(1 / 60, {attacker.character_pose, victim.character_pose})
+
+		if grab.IsHeld(victim) then
+			held = true
+			grab.Get(victim):GetRenderFrame(position, rotation)
+			local chest = position + rotation:VecMul(Vec3(0, 1.08, 0))
+			local point = node_position("blade_base"):GetLerped(0.7, node_position("blade_tip"))
+			pinned = math.min(pinned, (chest - point):GetLength())
+		end
+	end
+
+	T(pinned < 0.05)["=="](true)
+	T(held)["=="](true)
+	T(grab.IsHeld(victim))["=="](false)
+	T(victim.health:GetHealth() < 1000)["=="](true)
+	T(victim.ragdoll.thrown or victim.ragdoll.Limp)["~="](nil)
+	run(3, {attacker.character_pose, victim.character_pose})
+	T(falls.count)["=="](0)
+end)
+
+T.TestPhysics("the sword heavens grasp skewers the victim, leaps with it and throws it down", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -1.8), 1000, true)
+	victim.source_pose = {bones = VICTIM_BONES}
+	local sword = attacker.weapon_holder:Give("weapon_sword")
+	run(0.3)
+	local ground = actors.GetCenter(attacker).y
+	local falls = count_fall_damage()
+	sword.weapon_melee:Request("heavy", command(attacker, 0, BUTTON.CROUCH), true)
+	T(attacker.character_pose.Action)["=="]("sword_heavens_grasp")
+	local top = ground
+	local held_damage = false
+
+	for _ = 1, 180 do
+		run(1 / 60, {attacker.character_pose, victim.character_pose})
+		top = math.max(top, actors.GetCenter(attacker).y)
+
+		if grab.IsHeld(victim) and victim.health:GetHealth() < 1000 then
+			held_damage = true
+		end
+	end
+
+	T(top > ground + 1.5)["=="](true)
+	T(held_damage)["=="](true)
+	T(grab.IsHeld(victim))["=="](false)
+	T(sword.weapon_melee.grabbed)["=="](nil)
+	T(actors.GetCenter(attacker).y)["~"](ground, 0.1)
+	run(3, {attacker.character_pose, victim.character_pose})
+	T(falls.count)["=="](0)
+end)
+
+T.TestPhysics("a hit of a move that kills throws the body like a knockdown and freezes both fighters", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -1.6), 10, true)
+	local sword = attacker.weapon_holder:Give("weapon_sword")
+	sword.weapon:SetAttributes({})
+	run(1, {victim.character_pose})
+	sword.weapon_melee:Request("light", command(attacker, 0), true)
+	local frozen = false
+
+	for _ = 1, 40 do
+		run(1 / 60, {attacker.character_pose, victim.character_pose})
+		frozen = frozen or attacker.character_pose:IsFrozen() and victim.character_pose:IsFrozen()
+	end
+
+	T(victim.health:IsDead())["=="](true)
+	T(frozen)["=="](true)
+	T(victim.ragdoll.thrown)["=="](true)
+end)
+
+T.TestPhysics("back and secondary raise the blade guard, which parries when fresh and blocks part of a hit after", function()
+	create_ground()
+	local player = create_character(Vec3(0, 0.05, 0))
+	local enemy = create_character(Vec3(0, 0.05, -1.5), 1000)
+	jrpg.SetEnabled(player, true, true)
+	local holder = player.weapon_holder
+	local blade = holder:FindWeapon("weapon_greatsword")
+	holder:Equip(blade, "right")
+	run(0.3)
+	player.transform:SetRotation(Quat():Identity())
+	local health = player.health:GetHealth()
+	damage.Deal(player, {Attacker = enemy, Damage = 30, Type = "slash"})
+	local open = health - player.health:GetHealth()
+	T(open > 0)["=="](true)
+	local script = blade.weapon_melee
+	script:Step(1 / 60, command(player, -1, BUTTON.ATTACK2), true)
+	T(player.character_pose:IsBlocking())["=="](true)
+	T(player.character_pose.state_args.greatsword_guard)["=="]("")
+	health = player.health:GetHealth()
+	damage.Deal(player, {Attacker = enemy, Damage = 30, Type = "slash"})
+	T(player.health:GetHealth())["=="](health)
+	T(enemy.character_pose.Action)["=="]("stagger")
+	script.guard.Raised = script.guard.Raised - 1
+	damage.Deal(player, {Attacker = enemy, Damage = 30, Type = "slash"})
+	local guarded = health - player.health:GetHealth()
+	T(guarded > 0)["=="](true)
+	T(guarded < open * 0.5)["=="](true)
+	script:Step(1 / 60, command(player, 0, 0), true)
+	T(player.character_pose:IsBlocking())["=="](false)
+	T(player.character_pose.state_args.greatsword_guard)["=="](nil)
+end)
+
+T.TestPhysics("a grab on a victim without the carry bones pins it by its centre", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -2), 1000)
+	local blade = attacker.weapon_holder:Give("weapon_greatsword")
+	run(0.3)
+	T(victim.source_pose)["=="](nil)
+	blade.weapon_melee:Request("heavy", command(attacker, 0, BUTTON.CROUCH), true)
+	local held = false
+
+	for _ = 1, 150 do
+		run(1 / 60, {attacker.character_pose, victim.character_pose})
+		held = held or grab.IsHeld(victim)
+	end
+
+	T(held)["=="](true)
+	T(blade.weapon_melee ~= nil)["=="](true)
+	T(grab.IsHeld(victim))["=="](false)
+	T(victim.health:GetHealth() < 1000)["=="](true)
 end)

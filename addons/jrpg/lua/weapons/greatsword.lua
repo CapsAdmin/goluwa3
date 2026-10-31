@@ -45,5 +45,12 @@ return {
 		Material = {Color = Color(0.5, 0.5, 0.48, 1), Roughness = 0.8, Metallic = 0},
 	},
 	Source = melee.Source,
-	ScriptValues = {Moveset = "greatsword", Damage = 38, Range = 2.4, SwingPitch = 0.65},
+	ScriptValues = {
+		Moveset = "greatsword",
+		Damage = 38,
+		Range = 2.4,
+		SwingPitch = 0.65,
+		Guard = 0.75,
+		Parry = 0.12,
+	},
 }

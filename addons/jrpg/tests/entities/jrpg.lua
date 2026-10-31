@@ -151,12 +151,13 @@ T.TestPhysics("attributes scale damage, a raised shield blocks and a roll dodges
 	damage.Deal(victim, {Attacker = attacker, Damage = 10, Type = "water"})
 	T(victim.health:GetHealth())["=="](180)
 	victim.transform:SetRotation(import("goluwa/structs/quat.lua")():Identity())
-	victim.character_pose:SetBlocking(true)
+	local shield = victim.weapon_holder:GetWeapon("left").weapon_shield
+	shield:SetRaised(victim, true)
 	local stamina = victim.rpg:GetStamina()
 	damage.Deal(victim, {Attacker = attacker, Damage = 30})
 	T(victim.health:GetHealth())["=="](180)
 	T(victim.rpg:GetStamina())["=="](stamina - 30)
-	victim.character_pose:SetBlocking(false)
+	shield:SetRaised(victim, false)
 	victim.character_movement.roll = {time = 0, forward = 1, side = 0, kind = "forward"}
 	damage.Deal(victim, {Attacker = attacker, Damage = 30})
 	T(victim.health:GetHealth())["=="](180)

@@ -1,6 +1,8 @@
 return {
 	Source = [=====[
 local objects = import("goluwa/objects/objects.lua")
+local network = import("goluwa/network/network.lua")
+local system = import("goluwa/system.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -21,10 +23,17 @@ META:GetSet("Damage", 22)
 META:GetSet("Range", 1.7)
 META:GetSet("SwingPitch", 1)
 META:GetSet("TrailColor", Color(0.85, 0.92, 1, 1))
+META:GetSet("Guard", 0.6)
+META:GetSet("Parry", 0.18)
 META:EndStorable()
 local SLASH = {"slash"}
 local BUTTON = usercmd.BUTTON
 local DASH_SPEED = 3
+local VAULT_REACH = 3.5
+local STICK = 0.5
+local GUARD_ANGLE = 0.35
+local GUARD_COST = 1.5
+local GUARD_MAGIC = 0.5
 local HOLD_HEAVY = 0.3
 local MAX_COMMAND_GAP = 30
 local PULL_GAP = 1.4
@@ -50,6 +59,8 @@ function META:Initialize()
 	self.hold = 0
 	self.last_number = 0
 	self.fading_trails = {}
+	self.guarding = false
+	self.guard = {Angle = GUARD_ANGLE, Cost = GUARD_COST, Raised = 0}
 	self:AddGlobalEvent("Update")
 end
 
@@ -87,41 +98,121 @@ function META:StartMove(move, authority)
 	return true
 end
 
-function META:Request(kind, cmd, authority)
+function META:PickMove(kind, cmd, chained)
+	local holder = self:GetHolder()
+	local set = movesets.Get(self.Moveset)
+
+	if kind == "evade" or kind == "vault" then
+		return kind == "evade" and set.Evade or set.Vault
+	end
+
+	local crouching = usercmd.HasButton(cmd, BUTTON.CROUCH)
+
+	if not holder.character_movement:GetGrounded() then
+		local move = crouching and set.Plunge or kind == "heavy" and set.AirHeavy or set.Air
+
+		if move then return move end
+	end
+
+	if crouching then
+		local move = kind == "heavy" and set.CrouchHeavy or set.Crouch
+
+		if move then return move end
+	end
+
+	if kind == "heavy" then return set.Heavy end
+
+	local velocity = holder.rigid_body:GetVelocity()
+
+	if
+		not chained and
+		set.Dash and
+		usercmd.HasButton(cmd, BUTTON.SPRINT) and
+		velocity.x * velocity.x + velocity.z * velocity.z > DASH_SPEED * DASH_SPEED
+	then
+		return set.Dash
+	end
+
+	local combo = self.idle < set.ComboWindow and self.combo % #set.Combo + 1 or 1
+	return set.Combo[combo], combo
+end
+
+function META:Request(kind, cmd, authority, chained)
 	if self:GetRunner():IsPlaying() then
 		self.queued = kind
 		return
 	end
 
+	local move, combo = self:PickMove(kind, cmd, chained)
+	self.combo = combo or 0
+
+	if move then self:StartMove(move, authority) end
+end
+
+function META:GetJumpKind(cmd)
 	local holder = self:GetHolder()
+
+	if not holder.character_movement:GetGrounded() then return end
+
 	local set = movesets.Get(self.Moveset)
 
-	if not holder.rigid_body:GetGrounded() and set.Air then
-		self.combo = 0
-		self:StartMove(set.Air, authority)
-		return
-	end
-
-	if kind == "heavy" then
-		self.combo = 0
-		self:StartMove(set.Heavy, authority)
-		return
-	end
-
-	local velocity = holder.rigid_body:GetVelocity()
+	if cmd.forward < -STICK and set.Evade then return "evade" end
 
 	if
-		set.Dash and
-		usercmd.HasButton(cmd, BUTTON.SPRINT) and
-		velocity.x * velocity.x + velocity.z * velocity.z > DASH_SPEED * DASH_SPEED
+		cmd.forward > STICK and
+		set.Vault and
+		movesets.FindTarget(holder, actors.GetCenter(holder), actors.GetForward(holder), VAULT_REACH)
 	then
-		self.combo = 0
-		self:StartMove(set.Dash, authority)
-		return
+		return "vault"
+	end
+end
+
+function META:WantsGuard(cmd)
+	local weapon = self.Owner.weapon
+
+	if not weapon:IsSecondaryDown(cmd) or not movesets.Get(self.Moveset).Guard then
+		return false
 	end
 
-	self.combo = self.idle < set.ComboWindow and self.combo % #set.Combo + 1 or 1
-	self:StartMove(set.Combo[self.combo], authority)
+	return self.guarding or cmd.forward < -STICK
+end
+
+function META:SetGuarding(up)
+	local holder = self:GetHolder()
+	local pose = holder.character_pose
+	local rpg = holder.rpg
+
+	if up and not self.guarding then
+		self.guard.Raised = system.GetElapsedTime()
+		self.guard.Physical = self.Guard
+		self.guard.Magic = self.Guard * GUARD_MAGIC
+		self.guard.Parry = self.Parry
+	end
+
+	self.guarding = up
+	pose:SetBlocking(up)
+	pose:SetState(movesets.Get(self.Moveset).Guard, up and "" or nil)
+
+	if rpg then rpg:SetGuard(up and self.guard or nil) end
+
+	if up then self.Owner.weapon:SetDrawn(true) end
+end
+
+function META:UpdateGuard(cmd)
+	local holder = self:GetHolder()
+	local rpg = holder.rpg
+	local able = not self:GetRunner():IsPlaying() and
+		not holder.character_pose:IsStunned()
+		and
+		not holder.character_movement:IsRolling() and
+		(
+			not rpg or
+			rpg:GetStamina() > 0 and
+			not rpg:IsStunned()
+		)
+	local up = able and self:WantsGuard(cmd)
+
+	if up ~= self.guarding then self:SetGuarding(up) end
 end
 
 function META:OnWeaponPrimary(cmd)
@@ -130,7 +221,10 @@ function META:OnWeaponPrimary(cmd)
 end
 
 function META:OnWeaponSecondary(cmd)
-	self:Request("heavy", cmd, true)
+	if not self.guarding and cmd.forward >= -STICK then
+		self:Request("heavy", cmd, true)
+	end
+
 	return false
 end
 
@@ -140,7 +234,10 @@ function META:OnWeaponPredictPrimary(cmd)
 end
 
 function META:OnWeaponPredictSecondary(cmd)
-	self:Request("heavy", cmd, false)
+	if not self.guarding and cmd.forward >= -STICK then
+		self:Request("heavy", cmd, false)
+	end
+
 	return false
 end
 
@@ -165,14 +262,16 @@ function META:Hit(hit, forward)
 		local victim = victim_hit.victim
 
 		if victim:IsValid() then
+			victim.character_movement:IgnoreImpacts()
+
 			for _, type_name in ipairs(types) do
 				effects.HitOverlay(victim, type_name)
 			end
 		end
 
-		local body = victim:IsValid() and victim.rigid_body
+		local alive = victim:IsValid() and not victim.health:IsDead() and not grab.IsHeld(victim)
 
-		if knock and body and not victim.health:IsDead() then
+		if knock and (alive or victim:IsValid() and victim.ragdoll and victim.health:IsDead()) then
 			local push = knock.z
 
 			if push < 0 then
@@ -181,10 +280,14 @@ function META:Hit(hit, forward)
 				push = -math.min(-push, math.max(gap:GetLength() - PULL_GAP, 0) / PULL_TIME)
 			end
 
-			body:SetVelocity(
-				body:GetVelocity() + Vec3(-forward.z, 0, forward.x) * knock.x + Vec3(0, knock.y, 0) + forward * push
-			)
+			local velocity = Vec3(-forward.z, 0, forward.x) * knock.x + Vec3(0, knock.y, 0) + forward * push
+
+			if not (victim.ragdoll and victim.ragdoll:AddKnock(velocity)) then
+				victim.character_movement:Push(velocity)
+			end
 		end
+
+		if hit.Hang and alive then victim.character_movement:Hang(hit.Hang) end
 	end
 end
 
@@ -211,7 +314,11 @@ function META:Latch(move, event)
 	end
 
 	if target and not grab.IsHeld(target) then
-		if grab.Latch(holder, target, {Def = move, Bones = target.source_pose.bones}) then
+		if grab.Latch(holder, target, {
+				Def = move,
+				Bones = grab.GetCarryBones(target, move.CarryBones),
+				Weapon = self.Owner,
+			}) then
 			self.grabbed = target
 			holder.character_pose:SetFocusOn(nil, runner.frame.point)
 		end
@@ -248,21 +355,18 @@ function META:Throw(event, f)
 	self:EndGrab(throw)
 end
 
-function META:Chain(move, authority)
-	local set = movesets.Get(self.Moveset)
+function META:Chain(move, cmd, authority)
 	local queued = self.queued
+	self.queued = nil
 	self.idle = 0
 
-	if queued == "heavy" then
+	if queued == "heavy" and move.Branch then
 		self.combo = 0
-		self:StartMove(move.Branch or set.Heavy, authority)
-	elseif queued == "light" then
-		if move.Next then
-			self:StartMove(move.Next, authority)
-		else
-			self.combo = self.combo % #set.Combo + 1
-			self:StartMove(set.Combo[self.combo], authority)
-		end
+		self:StartMove(move.Branch, authority)
+	elseif queued == "light" and move.Next then
+		self:StartMove(move.Next, authority)
+	elseif queued then
+		self:Request(queued, cmd, authority, true)
 	end
 end
 
@@ -291,6 +395,18 @@ function META:Step(dt, cmd, authority)
 	dt = dt * ticks
 	local runner = self:GetRunner()
 
+	if usercmd.WasPressed(cmd, BUTTON.JUMP) and usercmd.HasButton(cmd, BUTTON.ACTIVE) then
+		local kind = self:GetJumpKind(cmd)
+
+		if kind then
+			if authority and self.guarding then self:SetGuarding(false) end
+
+			self:Request(kind, cmd, authority)
+		end
+	end
+
+	if authority then self:UpdateGuard(cmd) end
+
 	if not runner:IsPlaying() then
 		self.idle = self.idle + dt
 		self.hold = 0
@@ -310,7 +426,7 @@ function META:Step(dt, cmd, authority)
 
 	local state, move = runner:Step(dt, authority, self.queued)
 
-	if state == "finished" then self:Chain(move, authority) end
+	if state == "finished" then self:Chain(move, cmd, authority) end
 end
 
 function META:OnWeaponThink(dt, cmd)
@@ -321,9 +437,16 @@ function META:OnWeaponPredictThink(dt, cmd)
 	self:Step(dt, cmd, false)
 end
 
+function META:LowerGuard()
+	if self.guarding and network.HasAuthority() and self:GetHolder():IsValid() then
+		self:SetGuarding(false)
+	end
+end
+
 function META:OnWeaponHolster()
 	if self.grabbed then self:EndGrab(Vec3()) end
 
+	self:LowerGuard()
 	self:GetRunner():Cancel()
 	self.queued = nil
 end
@@ -435,6 +558,8 @@ function META:EndTrail()
 end
 
 function META:OnRemove()
+	self:LowerGuard()
+
 	if self.trail then self.trail:Release() end
 
 	if self.line then self.line:Release() end

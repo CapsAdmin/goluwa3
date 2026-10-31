@@ -28,9 +28,18 @@ return {
 local objects = import("goluwa/objects/objects.lua")
 local network = import("goluwa/network/network.lua")
 local META = objects.CreateTemplate("weapon_shield")
+local GUARD = {Physical = 1, Magic = 0.5, Angle = 0.2, Cost = 1, Parry = 0, Raised = 0}
 
 function META:GetHolder()
 	return self.Owner:GetParent()
+end
+
+function META:SetRaised(holder, up)
+	local pose = holder.character_pose
+	pose:SetBlocking(up)
+	pose:SetState("block", up and "" or nil)
+
+	if holder.rpg then holder.rpg:SetGuard(up and GUARD or nil) end
 end
 
 function META:OnWeaponThink(dt, cmd)
@@ -38,7 +47,7 @@ function META:OnWeaponThink(dt, cmd)
 	local rpg = holder.rpg
 	local wants = self.Owner.weapon:IsPrimaryDown(cmd)
 	local able = not rpg or (rpg:GetStamina() > 0 and not rpg:IsStunned() and not holder.character_movement:IsRolling())
-	holder.character_pose:SetBlocking(wants and able)
+	self:SetRaised(holder, wants and able)
 end
 
 function META:OnWeaponPrimary()
@@ -49,7 +58,7 @@ function META:Lower()
 	local holder = self:GetHolder()
 
 	if network.HasAuthority() and holder:IsValid() and holder.character_pose then
-		holder.character_pose:SetBlocking(false)
+		self:SetRaised(holder, false)
 	end
 end
 

@@ -11,7 +11,9 @@ local damage_types = import("lua/jrpg/damage_types.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 local attributes = import("lua/jrpg/attributes.lua")
 local actors = import("lua/actors.lua")
+local movesets = import("lua/movesets.lua")
 local effects = import("lua/jrpg/effects.lua")
+local stagger = import("lua/jrpg/stagger.lua")
 local battlecam = import("lua/battlecam.lua")
 local Rpg = import("lua/components/rpg.lua")
 local jrpg = {}
@@ -43,9 +45,7 @@ end
 
 local ROLL_COST = 30
 local BLOCK_SPEED = 0.45
-local BLOCK_ANGLE = 0.2
-local SHIELD_PHYSICAL = 1
-local SHIELD_MAGIC = 0.5
+local PARRY_RANGE = 4
 local STUN_TIME = 2
 local STUNNED_DAMAGE = 3
 
@@ -216,9 +216,13 @@ event.AddListener("ModifyDamage", "jrpg", function(victim, info)
 		info.Part = nil
 	elseif rpg then
 		info.Damage = info.Damage / rpg:GetStat(magic and "magic_defense" or "physical_defense")
+		local pose = victim.character_pose
 
 		if
-			victim.character_movement:IsRolling() and
+			(
+				victim.character_movement:IsRolling() or
+				movesets.IsDodging(pose)
+			) and
 			not magic and
 			attacker ~= victim and
 			not info.Status
@@ -230,20 +234,41 @@ event.AddListener("ModifyDamage", "jrpg", function(victim, info)
 
 		if rpg:IsStunned() then info.Damage = info.Damage * STUNNED_DAMAGE end
 
-		local pose = victim.character_pose
+		local guard = rpg:GetGuard()
 
 		if
+			guard and
 			pose:IsBlocking() and
 			attacker and
 			attacker ~= victim and
 			attacker:IsValid() and
 			not info.Status
 		then
+			local gap = actors.GetCenter(attacker) - actors.GetCenter(victim)
 			local to_attacker = flat_direction(actors.GetCenter(victim), actors.GetCenter(attacker))
 
-			if to_attacker:Dot(actors.GetForward(victim)) > BLOCK_ANGLE then
-				local blocked = info.Damage * (magic and SHIELD_MAGIC or SHIELD_PHYSICAL)
-				rpg:DrainStamina(blocked)
+			if to_attacker:Dot(actors.GetForward(victim)) > guard.Angle then
+				if
+					not magic and
+					system.GetElapsedTime() - guard.Raised <= guard.Parry and
+					gap:GetLength() < PARRY_RANGE
+				then
+					info.Cancel = true
+
+					if not info.Secondary then
+						effects.Block(victim, get_shield_point(victim, to_attacker), to_attacker, false)
+						effects.Text(victim, "PARRY", jrpg.Colors.neon)
+
+						if attacker.character_pose and actors.IsAlive(attacker) then
+							stagger.Apply(attacker, victim, to_attacker, stagger.MaxHitstop, nil, to_attacker, true)
+						end
+					end
+
+					return
+				end
+
+				local blocked = info.Damage * (magic and guard.Magic or guard.Physical)
+				rpg:DrainStamina(blocked * guard.Cost)
 				local broken = rpg:GetStamina() <= 0 and not rpg:IsCheat()
 
 				if broken then

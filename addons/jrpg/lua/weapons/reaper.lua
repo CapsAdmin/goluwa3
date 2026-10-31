@@ -49,5 +49,7 @@ return {
 		Range = 1.9,
 		SwingPitch = 0.85,
 		TrailColor = Color(0.45, 1, 0.65, 1),
+		Guard = 0.5,
+		Parry = 0.15,
 	},
 }

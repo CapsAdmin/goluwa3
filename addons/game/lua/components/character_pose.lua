@@ -487,8 +487,6 @@ function META:UpdateAnimations(dt)
 		self:EnableState("seat", seat.Pose)
 	end
 
-	if self:IsBlocking() then self:EnableState("block") end
-
 	if self.hold_wanted then self:EnableState("hold") end
 
 	if self.Shots ~= self.seen_ready_shots then

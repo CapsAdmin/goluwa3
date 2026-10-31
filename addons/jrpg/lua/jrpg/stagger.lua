@@ -3,6 +3,7 @@ local network = import("goluwa/network/network.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local actors = import("lua/actors.lua")
+local grab = import("lua/grab.lua")
 local effects = import("lua/jrpg/effects.lua")
 local stagger = {}
 stagger.Fraction = 0.25
@@ -60,13 +61,14 @@ function stagger.Apply(victim, attacker, push, hitstop, part, direction, cut)
 	effects.Stagger(victim, attacker or victim, hitstop, direction)
 end
 
+function stagger.GetKnockdownVelocity(push, power)
+	return push * math.lerp(power, stagger.KnockdownSpeed, stagger.KnockdownMaxSpeed) + Vec3(0, stagger.KnockdownLift, 0)
+end
+
 function stagger.Knockdown(victim, attacker, push, hitstop, power, direction, cut)
 	if cut then victim.character_pose:Freeze(hitstop, true) end
 
-	victim.ragdoll:Knockdown(
-		push * math.lerp(power, stagger.KnockdownSpeed, stagger.KnockdownMaxSpeed) + Vec3(0, stagger.KnockdownLift, 0),
-		attacker
-	)
+	victim.ragdoll:Knockdown(stagger.GetKnockdownVelocity(push, power), attacker)
 
 	if
 		cut and
@@ -80,6 +82,21 @@ function stagger.Knockdown(victim, attacker, push, hitstop, power, direction, cu
 
 	effects.Text(victim, "KNOCKDOWN", TEXT)
 	effects.Stagger(victim, attacker or victim, hitstop, direction)
+end
+
+function stagger.Hold(victim, attacker, hitstop, direction)
+	victim.character_pose:Freeze(hitstop, true)
+
+	if
+		attacker and
+		attacker ~= victim and
+		attacker:IsValid() and
+		attacker.character_pose
+	then
+		attacker.character_pose:Freeze(hitstop)
+	end
+
+	effects.Stagger(victim, attacker or victim, hitstop, direction or actors.GetForward(victim) * -1)
 end
 
 function stagger.Kill(victim, attacker, hitstop, direction)
@@ -106,25 +123,6 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 
 	local before = victim.health:GetHealth() + amount
 	local threshold = stagger.GetThreshold(before)
-
-	if victim.health:IsDead() then
-		if info.Type == "slash" then
-			stagger.Kill(
-				victim,
-				info.Attacker,
-				stagger.GetHitstop(amount, threshold),
-				info.Direction or actors.GetForward(victim) * -1
-			)
-		end
-
-		return
-	end
-
-	if amount < threshold and not victim.character_pose:IsAlwaysStagger() then
-		return
-	end
-
-	info.Staggered = true
 	local attacker = info.Attacker
 	local push = Vec3()
 
@@ -145,6 +143,37 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 	local hitstop = stagger.GetHitstop(amount, threshold)
 	local knockdown = stagger.GetKnockdownThreshold(before)
 	local cut = info.Type == "slash"
+
+	if victim.health:IsDead() then
+		if cut then
+			stagger.Kill(victim, attacker, hitstop, info.Direction or actors.GetForward(victim) * -1)
+		end
+
+		if
+			victim.ragdoll and
+			info.Inflictor and
+			info.Inflictor.weapon_melee and
+			not grab.IsHeld(victim)
+		then
+			victim.ragdoll:Knockdown(
+				stagger.GetKnockdownVelocity(push, math.clamp(amount / knockdown - 1, 0, 1)),
+				attacker
+			)
+		end
+
+		return
+	end
+
+	if amount < threshold and not victim.character_pose:IsAlwaysStagger() then
+		return
+	end
+
+	info.Staggered = true
+
+	if victim.character_movement and grab.IsHeld(victim) then
+		stagger.Hold(victim, attacker, hitstop, info.Direction)
+		return
+	end
 
 	if victim.ragdoll and amount >= knockdown then
 		stagger.Knockdown(

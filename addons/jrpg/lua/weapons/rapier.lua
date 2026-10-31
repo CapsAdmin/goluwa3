@@ -43,5 +43,12 @@ return {
 		Material = {Color = Color(0.85, 0.86, 0.9, 1), Roughness = 0.15, Metallic = 1},
 	},
 	Source = melee.Source,
-	ScriptValues = {Moveset = "rapier", Damage = 12, Range = 1.9, SwingPitch = 1.35},
+	ScriptValues = {
+		Moveset = "rapier",
+		Damage = 12,
+		Range = 1.9,
+		SwingPitch = 1.35,
+		Guard = 0.4,
+		Parry = 0.25,
+	},
 }
