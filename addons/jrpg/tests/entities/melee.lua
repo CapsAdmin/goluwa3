@@ -13,6 +13,7 @@ import("addons/game/lua/autorun/characters.lua")
 import("addons/jrpg/lua/autorun/weapons.lua")
 import("addons/jrpg/lua/autorun/jrpg.lua")
 local damage = import("lua/damage.lua")
+local slash = import("lua/jrpg/slash.lua")
 local movesets = import("lua/movesets.lua")
 
 local function create_character(position, health, ragdoll)
@@ -365,4 +366,45 @@ T.TestPhysics("the debug weapon strikes and shoots with the picked damage and ty
 	debug_weapon.weapon_debug.type_index = 1
 	debug_weapon.weapon_debug:OnWeaponPrimary(cmd)
 	T(victim.health:GetHealth() < after_strike)["=="](true)
+end)
+
+T.TestPhysics("a strike keeps its assisted hit and takes the part under the aim when it has a target", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -1.5), 1000, true)
+	run(1)
+	local head = victim.ragdoll.part_by_name.head.body.Position
+	local actors = import("lua/actors.lua")
+	local forward = actors.GetForward(attacker)
+	local types = {"slash"}
+	local _, _, assisted = slash.Strike(attacker, attacker, forward, Vec3(1, 0, 0), 1, 1, 3, types)
+	T(#assisted)["=="](1)
+	T(assisted[1].part ~= "head")["=="](true)
+	local _, _, aimed = slash.Strike(
+		attacker,
+		attacker,
+		forward,
+		Vec3(1, 0, 0),
+		1,
+		1,
+		3,
+		types,
+		{Origin = Vec3(0, head.y, 0), Direction = forward}
+	)
+	T(aimed[1].part)["=="]("head")
+	local _, _, named = slash.Strike(attacker, attacker, forward, Vec3(1, 0, 0), 1, 1, 3, types, {Part = "head"})
+	T(named[1].part)["=="]("head")
+	local _, _, missed = slash.Strike(
+		attacker,
+		attacker,
+		forward,
+		Vec3(1, 0, 0),
+		1,
+		1,
+		3,
+		types,
+		{Origin = Vec3(5, head.y, 0), Direction = forward}
+	)
+	T(#missed)["=="](1)
+	T(missed[1].part)["=="](assisted[1].part)
 end)

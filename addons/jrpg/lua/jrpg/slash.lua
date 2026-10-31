@@ -4,6 +4,7 @@ local damage = import("lua/damage.lua")
 local actors = import("lua/actors.lua")
 local effects = import("lua/jrpg/effects.lua")
 local slash = {}
+local CUT_SPRAY = 0.5
 
 local function to_attacker_side(normal, to_attacker)
 	normal = normal:GetNormalized()
@@ -13,7 +14,7 @@ local function to_attacker_side(normal, to_attacker)
 	return normal
 end
 
-function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, range, types)
+function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, range, types, target)
 	local center = actors.GetCenter(holder)
 	local strike = center + forward * (range * 0.55)
 	local hit_any = false
@@ -32,7 +33,7 @@ function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, rang
 
 		if to_victim:GetLength() < 0.7 or to_victim:GetNormalized():Dot(forward) > 0.15 then
 			local normal = to_attacker_side(plane_normal, center - victim_center)
-			local point, part = victim_center, nil
+			local point, part, surface = victim_center, nil, nil
 
 			if stab then
 				normal = forward * -1
@@ -44,7 +45,34 @@ function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, rang
 
 			if trace and trace.entity and damage.GetVictim(trace.entity) == victim then
 				point = trace.point
+				surface = trace.normal
 				part = trace.entity.ragdoll_part and trace.entity.ragdoll_part.Group
+			end
+
+			if target then
+				local aimed
+
+				if target.Part then
+					local ragdoll_part = victim.ragdoll and victim.ragdoll.part_by_name[target.Part]
+
+					if ragdoll_part then
+						local to_part = ragdoll_part.body:GetPosition() - center
+						aimed = damage.Sweep(center, to_part + to_part:GetNormalized() * 0.5, holder)
+					end
+				else
+					aimed = damage.Sweep(target.Origin, target.Direction * (range + 1), holder)
+				end
+
+				if
+					aimed and
+					aimed.entity and
+					aimed.entity.ragdoll_part and
+					damage.GetVictim(aimed.entity) == victim
+				then
+					point = aimed.point
+					surface = aimed.normal
+					part = aimed.entity.ragdoll_part.Group
+				end
 			end
 
 			for i, type_name in ipairs(types) do
@@ -67,8 +95,21 @@ function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, rang
 				)
 			end
 
-			effects.Impact(point, normal, types[1], scale, cut)
-			hits[#hits + 1] = {victim = victim, point = point, normal = normal}
+			if surface then
+				effects.Impact(
+					point,
+					surface,
+					types[1],
+					scale,
+					cut,
+					(surface + cut * CUT_SPRAY):GetNormalized(),
+					amount
+				)
+			else
+				effects.Impact(point, normal, types[1], scale, cut)
+			end
+
+			hits[#hits + 1] = {victim = victim, point = point, normal = normal, part = part}
 			hit_any = true
 		end
 	end

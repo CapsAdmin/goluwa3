@@ -44,16 +44,16 @@ local DIRECTIONS = {
 }
 local TEXT = Color(1, 1, 1, 1)
 local RED = Color(1, 0.2, 0.2, 1)
-local GREEN = Color(0.2, 1, 0.3, 1)
-local BLUE = Color(0.3, 0.5, 1, 1)
-local CYAN = Color(0.2, 0.9, 1, 1)
 local SHOW_TIME = 5
 local EXTENT = 0.7
+local ARROW_HEAD = 0.25
+local ARROW_WING = 0.15
 
 function META:Initialize()
 	self.index = 0
 	self.damage_index = 4
 	self.type_index = 1
+	self.aimed = true
 	self:AddGlobalEvent("Draw2D")
 end
 
@@ -61,10 +61,17 @@ function META:NextDamage(cmd)
 	self.damage_index = self.damage_index % #DAMAGES + 1
 end
 
-function META:NextType(cmd)
-	if usercmd.HasButton(cmd, usercmd.BUTTON.ACTIVE) and usercmd.WasPressed(cmd, usercmd.BUTTON.RELOAD) then
+function META:Select(cmd)
+	if not usercmd.HasButton(cmd, usercmd.BUTTON.ACTIVE) then return end
+
+	if usercmd.WasPressed(cmd, usercmd.BUTTON.RELOAD) then
 		self.type_index = self.type_index % #TYPES + 1
-		return true
+		return "type"
+	end
+
+	if usercmd.WasPressed(cmd, usercmd.BUTTON.ATTACK3) then
+		self.aimed = not self.aimed
+		return "aim"
 	end
 end
 
@@ -78,14 +85,19 @@ function META:OnWeaponPredictSecondary(cmd)
 end
 
 function META:OnWeaponThink(dt, cmd)
-	if self:NextType(cmd) then
+	local changed = self:Select(cmd)
+	local holder = self.Owner:GetParent()
+
+	if changed == "type" then
 		local type_name = TYPES[self.type_index]
-		effects.Text(self.Owner:GetParent(), type_name, damage_types.GetColor(type_name == BULLET and "generic" or type_name))
+		effects.Text(holder, type_name, damage_types.GetColor(type_name == BULLET and "generic" or type_name))
+	elseif changed == "aim" then
+		effects.Text(holder, self.aimed and "aimed" or "assisted", TEXT)
 	end
 end
 
 function META:OnWeaponPredictThink(dt, cmd)
-	self:NextType(cmd)
+	self:Select(cmd)
 end
 
 function META:OnDraw2D()
@@ -99,10 +111,10 @@ function META:OnDraw2D()
 	debug_draw.DrawTextBlock(
 		{
 			"debug weapon",
-			"mode    " .. (bullet and "bullet (hitscan)" or "strike (" .. DIRECTIONS[self.index % #DIRECTIONS + 1][1] .. " next)"),
+			"mode    " .. (bullet and "bullet (hitscan)" or "strike, " .. (self.aimed and "aimed" or "assisted") .. " (" .. DIRECTIONS[self.index % #DIRECTIONS + 1][1] .. " next)"),
 			"type    " .. (bullet and "generic" or type_name),
 			"damage  " .. DAMAGES[self.damage_index],
-			"left click fire, right click damage, reload type",
+			"left click fire, right click damage, reload type, F aimed or assisted",
 		},
 		width,
 		height,
@@ -156,7 +168,17 @@ function META:OnWeaponPrimary(cmd)
 
 	self.index = self.index % #DIRECTIONS + 1
 	local name, local_cut = DIRECTIONS[self.index][1], DIRECTIONS[self.index][2]
-	local hit, cut, hits, plane_normal = slash.Strike(holder, self.Owner, actors.GetForward(holder), local_cut, DAMAGES[self.damage_index], 1, 3, {type_name})
+	local hit, cut, hits, plane_normal = slash.Strike(
+		holder,
+		self.Owner,
+		actors.GetForward(holder),
+		local_cut,
+		DAMAGES[self.damage_index],
+		1,
+		3,
+		{type_name},
+		self.aimed and {Origin = holder.transform:GetPosition() + holder.character_movement:GetViewOffset(), Direction = cmd.aim:GetForward()} or nil
+	)
 	effects.Text(holder, name .. " " .. DAMAGES[self.damage_index] .. " " .. type_name, TEXT)
 
 	if not effects.Visual then return false end
@@ -167,14 +189,16 @@ function META:OnWeaponPrimary(cmd)
 
 	if hits[1] then origin, normal = hits[1].point, hits[1].normal end
 
-	line("debug_cut", origin - cut * EXTENT, origin + cut * EXTENT, RED)
-	line("debug_normal", origin, origin + normal * EXTENT, GREEN)
-	line("debug_forward", origin - forward * EXTENT, origin + forward * EXTENT, BLUE)
-	local a, b = cut * EXTENT, forward * EXTENT
-	line("debug_plane_1", origin + a + b, origin + a - b, CYAN)
-	line("debug_plane_2", origin + a - b, origin - a - b, CYAN)
-	line("debug_plane_3", origin - a - b, origin - a + b, CYAN)
-	line("debug_plane_4", origin - a + b, origin + a + b, CYAN)
+	local side = normal:GetCross(cut)
+
+	if side:GetLength() < 1e-3 then side = Vec3(0, 1, 0):GetCross(cut) end
+
+	side = side:GetNormalized() * ARROW_WING
+	local tip = origin + cut * EXTENT
+	local head = tip - cut * ARROW_HEAD
+	line("debug_arrow_shaft", origin - cut * EXTENT, tip, RED)
+	line("debug_arrow_wing_1", tip, head + side, RED)
+	line("debug_arrow_wing_2", tip, head - side, RED)
 	print(string.format("slash debug %s: cut %.2f %.2f %.2f normal %.2f %.2f %.2f hits %d", name, cut.x, cut.y, cut.z, normal.x, normal.y, normal.z, #hits))
 	return false
 end
