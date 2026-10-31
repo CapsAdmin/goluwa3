@@ -3,8 +3,21 @@ local event = import("goluwa/event.lua")
 local network = import("goluwa/network/network.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 Entity.RegisterComponent("health", import("lua/components/health.lua"))
 local damage = {}
+local godmode = pvars.Setup2{
+	key = "sv_godmode",
+	category = "Game",
+	group = "Server",
+	prefix = "sv_",
+	default = false,
+	help = "players take no damage (each player can also toggle it for themselves with the god command)",
+}
+
+function damage.IsGod(victim)
+	return victim.health:IsGodMode() or godmode:Get() and victim.player_controller ~= nil
+end
 
 function damage.Info(fields)
 	fields.Damage = fields.Damage or 0
@@ -38,7 +51,7 @@ function damage.Deal(victim, info)
 	damage.Info(info)
 	event.Call("ModifyDamage", victim, info)
 
-	if info.Cancel then return 0 end
+	if info.Cancel or info.Damage > 0 and damage.IsGod(victim) then return 0 end
 
 	victim.health:TakeDamage(info)
 	return info.Damage

@@ -5,12 +5,14 @@ local META = objects.CreateTemplate("health")
 META.Network = {
 	Health = {"number", 0.1, "reliable", to_owner = true},
 	MaxHealth = {"number", 0.5, "reliable", to_owner = true},
+	GodMode = {"boolean", 0.5, "reliable", to_owner = true},
 }
 META:StartStorable()
 META:GetSet("Health", 100)
 META:GetSet("MaxHealth", 100)
 META:IsSet("RemoveOnDeath", false)
 META:GetSet("RefillDelay", 0)
+META:IsSet("GodMode", false)
 META:EndStorable()
 
 local function revive(self)
