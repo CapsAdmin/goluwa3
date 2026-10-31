@@ -13,6 +13,7 @@ META:StartStorable()
 META:GetSet("ModelPath", "", {callback = "Load"})
 META:IsSet("DeathState", false)
 META:GetSet("CorpseTime", 0)
+META:IsSet("CorpseWorldOnly", true)
 META:EndStorable()
 local JOINT_FRICTION = 0.2
 local SPRING_HERTZ = 1
@@ -189,6 +190,7 @@ function META:Build()
 			},
 		}
 		entity.rigid_body.TraceOwner = owner
+		entity.rigid_body:SetCollideWorldOnly(self.DeathState and self.CorpseWorldOnly)
 		self.bodies[i] = entity.rigid_body
 
 		if velocity then entity.rigid_body:SetVelocity(velocity) end

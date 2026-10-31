@@ -21,6 +21,7 @@ META:IsSet("Limp", false)
 META:StartStorable()
 META:GetSet("CorpseTime", 0)
 META:IsSet("HitLimp", false)
+META:IsSet("CorpseWorldOnly", true)
 META:GetSet("Profile", "humanoid")
 META:EndStorable()
 local POSE_GAIN = 10
@@ -583,6 +584,7 @@ function META:MakeDynamic(part, keep_pose, jitter)
 
 	body:SetCollisionEnabled(true)
 	body:SetCollisionMask(-1)
+	body:SetCollideWorldOnly(self.CorpseWorldOnly and self.Owner.health:IsDead())
 	body:SetCCD(true)
 	body:SetMaxLinearSpeed(PART_MAX_SPEED)
 	body:SetFrictionCombineMode("multiply")
@@ -632,6 +634,7 @@ function META:MakeKinematic(part)
 	self:RemoveJoint(part)
 	part.body:SetMotionType("kinematic")
 	part.body:SetCollisionMask(0)
+	part.body:SetCollideWorldOnly(false)
 	self:DrivePart(part, true)
 	part.dynamic = false
 	self.dynamic_count = self.dynamic_count - 1
@@ -865,6 +868,12 @@ function META:OnDeath(info)
 	self.blend = nil
 	self:UpdateLimp(0)
 	self.keep_pose = false
+
+	if self.CorpseWorldOnly then
+		for _, part in ipairs(self.parts) do
+			part.body:SetCollideWorldOnly(true)
+		end
+	end
 
 	if info.Force and info.Force:GetLength() > 1e-3 then
 		self:StartFling(1)
