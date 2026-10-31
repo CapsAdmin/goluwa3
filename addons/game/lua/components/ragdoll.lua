@@ -890,6 +890,13 @@ function META:Knockdown(velocity, source)
 	self:StartFling(0)
 end
 
+function META:AddKnock(velocity)
+	if not self.knock then return false end
+
+	self.knock = self.knock + velocity
+	return true
+end
+
 function META:AddSource(part, policy)
 	self.sources[#self.sources + 1] = {
 		part = part,

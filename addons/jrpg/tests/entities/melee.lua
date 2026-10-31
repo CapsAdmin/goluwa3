@@ -355,13 +355,17 @@ T.Test("moveset data is validated with a message that names the field", function
 	check({Moves = {a = move{Keys = {{0.5, wobble = 1}}}}}, "unknown field wobble")
 	check({Moves = {a = move{Keys = {{0.5, "nope"}}}}}, "unknown pose nope")
 	check(
-		{Moves = {a = move{Keys = {{0.5, motion = {0, 1, 1, 1}}}}}},
-		"takes at most 3 numbers"
+		{Moves = {a = move{Keys = {{0.5, motion = {0, 1, 1, 1, 1}}}}}},
+		"takes at most 4 numbers"
 	)
 	check(
 		{Moves = {a = move{Keys = {{0.5, torso = 1}, {0.4, torso = 0}}}}},
 		"not later than the previous torso key"
 	)
+	check({Crouch = "nope", Moves = {a = move()}}, "Crouch names an unknown move nope")
+	check({Guard = "nope", Moves = {a = move()}}, "Guard names an unknown pose nope")
+	check({Moves = {a = move{GripHands = "both"}}}, "GripHands must be right or left")
+	check({Moves = {a = move{Dodge = {0}}}}, "Dodge must be a list of 2 numbers")
 end)
 
 T.Test("a move's motion is a track of the same timeline and holds its last key", function()

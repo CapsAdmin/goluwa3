@@ -36,8 +36,8 @@ function META:SetPhase(f)
 	local move = self.Move
 	local victim = self.Victim
 	self.Grabber.character_pose:ScrubAction(move.Action, move.Duration, f)
-	movesets.SampleMotion(move, f, self.Frame, self.Frame.point, motion)
-	self.Puppet.Position:Set(motion.x, self.Ground, motion.z)
+	local _, height = movesets.SampleMotion(move, f, self.Frame, self.Frame.point, motion)
+	self.Puppet.Position:Set(motion.x, self.Ground + (move.Vertical and math.max(height, 0) or 0), motion.z)
 	local latch = movesets.GetEvent(move, "latch")
 
 	if not latch then return end
@@ -51,7 +51,8 @@ function META:SetPhase(f)
 				victim,
 				{
 					Def = move,
-					Bones = victim.source_pose.bones,
+					Bones = grab.GetCarryBones(victim, move.CarryBones),
+					Weapon = self.Grabber.weapon_holder:GetWeapon("right"),
 					PhaseLimit = movesets.GetEvent(move, "release").At,
 				}
 			)

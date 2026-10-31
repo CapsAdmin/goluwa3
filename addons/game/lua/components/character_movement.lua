@@ -67,6 +67,8 @@ local ROLL_DECAY = 0.6
 local ROLL_EXIT = 0.25
 local ROLL_FLOOR = 0.3
 local DRIVE_MAX_SPEED = 25
+local HANG_RISE_SPEED = 1
+local HANG_HOLD = 0.9
 
 local function classify_roll(direction, rotation)
 	local forward = rotation:GetForward()
@@ -93,9 +95,29 @@ function META:Lunge(direction, distance, delay, duration)
 	}
 end
 
-function META:Drive(position)
+function META:Drive(position, vertical)
 	self.drive_target:CopyFrom(position)
 	self.drive = self.drive_target
+	self.drive_vertical = vertical == true
+end
+
+function META:IgnoreImpacts()
+	self.ignore_impacts = true
+end
+
+function META:Push(velocity)
+	self.push = self.push and self.push + velocity or velocity:Copy()
+end
+
+function META:Hang(duration)
+	if duration >= self.hang then
+		self.hang = duration
+		self.hang_length = duration
+	end
+end
+
+function META:IsHanging()
+	return self.hang > 0
 end
 
 function META:GetRollKind()
@@ -109,6 +131,10 @@ function META:Initialize()
 	self.crouch_alpha = self:IsCrouching() and 1 or 0
 	self.distance = 0
 	self.drive_target = Vec3()
+	self.drive_vertical = false
+	self.ignore_impacts = false
+	self.hang = 0
+	self.hang_length = 0
 	self.previous_velocity = Vec3()
 	self.previous_valid = false
 	self.dead = false
@@ -703,7 +729,12 @@ do
 		local owner = self.Owner
 		local health = owner.health
 
-		if not health or speed <= self.SafeFallSpeed or not network.HasAuthority() then
+		if
+			not health or
+			speed <= self.SafeFallSpeed or
+			self.ignore_impacts or
+			not network.HasAuthority()
+		then
 			return
 		end
 
@@ -1192,6 +1223,7 @@ do
 			end
 
 			local drive = self.drive
+			local driven_vertical = false
 
 			if drive then
 				self.drive = nil
@@ -1208,12 +1240,46 @@ do
 					x, z = dx, dz
 					wish_speed = speed
 					driven = true
+
+					if self.drive_vertical then
+						local dy = math.clamp((drive.y - position.y) / dt, -DRIVE_MAX_SPEED, DRIVE_MAX_SPEED)
+
+						if dy > 0 or not grounded then
+							y = dy
+							driven_vertical = true
+
+							if dy > 0 then
+								self.jumping = true
+								grounded = false
+								body:SetGrounded(false)
+							end
+						end
+					end
+				end
+			end
+
+			if self.hang > 0 then
+				if driven_vertical or grounded and self.hang < self.hang_length then
+					self.hang = 0
+				elseif not grounded and y < HANG_RISE_SPEED then
+					y = y + self.Gravity * dt * HANG_HOLD * self.hang / self.hang_length
+					self.hang = math.max(self.hang - dt, 0)
 				end
 			end
 
 			if frozen then
 				x, y, z = 0, 0, 0
 				wish_speed = 0
+			elseif self.push then
+				local push = self.push
+				self.push = nil
+				x, y, z = x + push.x, y + push.y, z + push.z
+
+				if y > 0 then
+					self.jumping = true
+					grounded = false
+					body:SetGrounded(false)
+				end
 			end
 
 			if grounded and y == 0 and ground_normal then
@@ -1235,6 +1301,21 @@ do
 
 			self.previous_velocity:Set(x, y, z)
 			self.previous_driven = driven
+
+			if drive then
+				self.ignore_impacts = true
+			elseif
+				grounded and
+				not driven and
+				not self.push and
+				not (
+					self.Owner.ragdoll and
+					self.Owner.ragdoll.thrown
+				)
+			then
+				self.ignore_impacts = false
+			end
+
 			self.previous_valid = true
 			body:ApplyImpulse(
 				Vec3(x + base_x - velocity.x, y + base_y - velocity.y, z + base_z - velocity.z) / body.InverseMass

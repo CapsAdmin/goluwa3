@@ -48,8 +48,9 @@ function META:GetStrikeForward()
 	local owner = self.Owner
 	local forward = movesets.GetFocus(self.frame) - actors.GetCenter(owner)
 	forward.y = 0
-
-	return forward:GetLength() > 1e-3 and forward:GetNormalized() or actors.GetForward(owner)
+	return forward:GetLength() > 1e-3 and
+		forward:GetNormalized() or
+		actors.GetForward(owner)
 end
 
 function META:Step(dt, authority, early_cancel)
@@ -67,17 +68,27 @@ function META:Step(dt, authority, early_cancel)
 	self.time = self.time + dt
 	local frame = self.frame
 
-	if not authority and pose.FocusPoint ~= self.predicted_focus and pose.Action == move.Action then
+	if
+		not authority and
+		pose.FocusPoint ~= self.predicted_focus and
+		pose.Action == move.Action
+	then
 		self.predicted_focus = pose.FocusPoint
 		movesets.Anchor(frame, pose.FocusPoint:Copy())
 	end
 
 	local f = math.min(self.time / self.duration, 1)
-	movesets.SampleMotion(move, f, frame, frame.point, self.drive)
-	self.drive.y = actors.GetCenter(owner).y
+	local _, height = movesets.SampleMotion(move, f, frame, frame.point, self.drive)
+	local body = owner.rigid_body
+
+	if move.Vertical then
+		self.drive.y = body:GetPosition().y + frame.start.y + height - actors.GetCenter(owner).y
+	else
+		self.drive.y = body:GetPosition().y
+	end
 
 	if move.Speed then
-		local position = owner.rigid_body:GetOriginPosition()
+		local position = body:GetOriginPosition()
 		local dx, dz = self.drive.x - position.x, self.drive.z - position.z
 		local length = math.sqrt(dx * dx + dz * dz)
 		local lead = move.Speed * dt * RUN_LEAD
@@ -88,7 +99,7 @@ function META:Step(dt, authority, early_cancel)
 		end
 	end
 
-	owner.character_movement:Drive(self.drive)
+	owner.character_movement:Drive(self.drive, move.Vertical)
 	local event = move.Events[self.next_event]
 
 	while event and f >= event.At do

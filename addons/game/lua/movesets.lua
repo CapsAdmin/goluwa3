@@ -27,9 +27,28 @@ local SET_KEYS = {
 	Heavy = true,
 	Air = true,
 	Dash = true,
+	Crouch = true,
+	CrouchHeavy = true,
+	AirHeavy = true,
+	Plunge = true,
+	Vault = true,
+	Evade = true,
+	Guard = true,
 	Poses = true,
 	Moves = true,
 }
+local SLOTS = {
+	"Heavy",
+	"Air",
+	"Dash",
+	"Crouch",
+	"CrouchHeavy",
+	"AirHeavy",
+	"Plunge",
+	"Vault",
+	"Evade",
+}
+movesets.Slots = SLOTS
 local MOVE_KEYS = {
 	Duration = true,
 	Stamina = true,
@@ -49,19 +68,36 @@ local MOVE_KEYS = {
 	Group = true,
 	Legs = true,
 	CarryBones = true,
+	GripHands = true,
+	Hover = true,
+	Relative = true,
+	Dodge = true,
 	Keys = true,
 	Events = true,
 }
+local GRIP_HANDS = {right = true, left = true}
+local GUARD_ENTER = 0.08
+local GUARD_EXIT = 0.15
 local EVENT_TYPES = {
 	hit = {
-		keys = {Cut = 3, Damage = "number", Range = "number", Swing = 2, Knock = 3},
+		keys = {
+			Cut = 3,
+			Damage = "number",
+			Range = "number",
+			Swing = 2,
+			Knock = 3,
+			Hang = "number",
+		},
 		required = {"Cut"},
 	},
 	strike = {
 		keys = {Damage = "number", Range = "number", Force = "number", Until = "number"},
 		required = {"Damage", "Range"},
 	},
-	cast = {keys = {Element = "string", Damage = "number"}, required = {"Element", "Damage"}},
+	cast = {
+		keys = {Element = "string", Damage = "number"},
+		required = {"Element", "Damage"},
+	},
 	latch = {keys = {Range = "number"}, required = {"Range"}},
 	release = {
 		keys = {Damage = "number", Inherit = "number", Throw = 3},
@@ -122,10 +158,34 @@ local function validate_move(move, poses, path)
 	end
 
 	assert(type(move.Duration) == "number", path .. ".Duration must be a number")
-	assert(move.Clip == nil or type(move.Clip) == "string", path .. ".Clip must be a sequence name")
-	assert(move.ClipSpeed == nil or type(move.ClipSpeed) == "number", path .. ".ClipSpeed must be a number")
-	assert(move.Sound == nil or type(move.Sound) == "string", path .. ".Sound must be a sound role")
+	assert(
+		move.Clip == nil or type(move.Clip) == "string",
+		path .. ".Clip must be a sequence name"
+	)
+	assert(
+		move.ClipSpeed == nil or type(move.ClipSpeed) == "number",
+		path .. ".ClipSpeed must be a number"
+	)
+	assert(
+		move.Sound == nil or type(move.Sound) == "string",
+		path .. ".Sound must be a sound role"
+	)
 	assert(move.Speed == nil or type(move.Speed) == "number", path .. ".Speed must be a number")
+	assert(
+		move.GripHands == nil or GRIP_HANDS[move.GripHands],
+		path .. ".GripHands must be right or left"
+	)
+	assert(
+		move.Hover == nil or type(move.Hover) == "boolean",
+		path .. ".Hover must be a boolean"
+	)
+	assert(
+		move.Relative == nil or type(move.Relative) == "boolean",
+		path .. ".Relative must be a boolean"
+	)
+
+	if move.Dodge ~= nil then check_numbers(move.Dodge, 2, path .. ".Dodge") end
+
 	assert(move.Keys or move.Clip, path .. " needs Keys or a Clip")
 	local previous = {}
 
@@ -207,6 +267,18 @@ function movesets.Validate(name, def)
 	for move_name, move in pairs(def.Moves) do
 		validate_move(move, poses, name .. ".Moves." .. move_name)
 	end
+
+	for _, key in ipairs(SLOTS) do
+		assert(
+			def[key] == nil or def.Moves[def[key]],
+			name .. "." .. key .. " names an unknown move " .. tostring(def[key])
+		)
+	end
+
+	assert(
+		def.Guard == nil or poses[def.Guard],
+		name .. ".Guard names an unknown pose " .. tostring(def.Guard)
+	)
 end
 
 function movesets.Register(name, def, path)
@@ -248,7 +320,13 @@ function movesets.Register(name, def, path)
 
 		move.Cancel = math.max(move.Cancel or 0.8, last_event)
 		keyframes.Register(move.Action, move, poses)
-		move.MotionKeys = move.MotionKeys or {{0, 0, 0, 0}, {1, 0, 0, 0}}
+		move.MotionKeys = move.MotionKeys or {{0, 0, 0, 0, 0}, {1, 0, 0, 0, 0}}
+		move.Vertical = move.Hover == true
+
+		for _, row in ipairs(move.MotionKeys) do
+			if row[5] ~= 0 then move.Vertical = true end
+		end
+
 		move.VirtualDistance = (
 				first_distance(move.MotionKeys) or
 				1.2
@@ -260,10 +338,22 @@ function movesets.Register(name, def, path)
 		def.Combo[i] = assert(def.Moves[move_name], name .. " has no move " .. move_name)
 	end
 
-	for _, key in ipairs{"Heavy", "Air", "Dash"} do
-		if def[key] then
-			def[key] = assert(def.Moves[def[key]], name .. " has no move " .. def[key])
-		end
+	for _, key in ipairs(SLOTS) do
+		if def[key] then def[key] = def.Moves[def[key]] end
+	end
+
+	if def.Guard then
+		def.Guard = keyframes.Register(
+				name .. "_guard",
+				{
+					Kind = "state",
+					Enter = GUARD_ENTER,
+					Exit = GUARD_EXIT,
+					PoseWeapon = true,
+					Keys = {{0, def.Guard}},
+				},
+				poses
+			).Name
 	end
 
 	for _, move in pairs(def.Moves) do
@@ -295,6 +385,13 @@ do
 		"Heavy",
 		"Air",
 		"Dash",
+		"Crouch",
+		"CrouchHeavy",
+		"AirHeavy",
+		"Plunge",
+		"Vault",
+		"Evade",
+		"Guard",
 		"ComboWindow",
 		"Poses",
 		"Moves",
@@ -316,6 +413,10 @@ do
 		"Group",
 		"Legs",
 		"CarryBones",
+		"GripHands",
+		"Hover",
+		"Relative",
+		"Dodge",
 		"Keys",
 		"Events",
 		"At",
@@ -354,6 +455,19 @@ function movesets.GetMove(action)
 	return movesets.ByAction[action]
 end
 
+function movesets.GetActive(pose)
+	local name, phase = pose:GetActiveAction()
+	local move = name and movesets.ByAction[name]
+
+	if move then return move, phase end
+end
+
+function movesets.IsDodging(pose)
+	local move, phase = movesets.GetActive(pose)
+	local dodge = move and move.Dodge
+	return dodge ~= nil and phase >= dodge[1] and phase <= dodge[2]
+end
+
 function movesets.IsSwinging(move, phase)
 	for _, event in ipairs(move.Events) do
 		if event.Swing and phase >= event.Swing[1] and phase <= event.Swing[2] then
@@ -387,16 +501,22 @@ function movesets.FindTarget(holder, center, forward, reach)
 end
 
 do
-	local sample = {0, 0, 0}
+	local sample = {0, 0, 0, 0}
 
 	function movesets.SampleMotion(move, f, frame, point, out)
-		animations.SampleKeys(move.MotionKeys, f, sample, 3)
+		animations.SampleKeys(move.MotionKeys, f, sample, 4)
 		local start = frame.distance
 		local distance
 
 		if move.Speed then
 			distance = start - move.Speed * f * move.Duration
 			sample[1] = 0
+		elseif move.Relative then
+			distance = math.clamp(
+				start + sample[2] * sample[3],
+				start - move.Approach,
+				start + move.Retreat
+			)
 		else
 			distance = math.clamp(
 				math.lerp(sample[3], start, sample[2]),
@@ -412,7 +532,8 @@ do
 			point.x + (bearing.x * c + right.x * s) * distance,
 			point.y,
 			point.z + (bearing.z * c + right.z * s) * distance
-		)
+		),
+		sample[4]
 	end
 end
 

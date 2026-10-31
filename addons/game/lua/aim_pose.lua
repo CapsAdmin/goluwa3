@@ -416,7 +416,8 @@ function aim_pose.GetAim(pose, base)
 
 		if def.AimKeys then
 			animations.SampleKeys(def.AimKeys, inst.phase, aim_sample, 2)
-			aim = Quat():Identity():RotateYaw(aim_sample[1]) * aim:Copy():RotatePitch(aim_sample[2])
+			local keyed = Quat():Identity():RotateYaw(aim_sample[1]) * aim:Copy():RotatePitch(aim_sample[2])
+			aim = inst.weight < 0.999 and aim:GetLerped(inst.weight, keyed):Normalize() or keyed
 		elseif def.Aim then
 			aim = def.Aim(inst, aim)
 		end

@@ -50,8 +50,8 @@ keyframes.Tracks = {
 	{
 		Name = "motion",
 		Key = "MotionKeys",
-		Rest = {0, 0, 0},
-		Labels = {"orbit", "distance", "blend"},
+		Rest = {0, 0, 0, 0},
+		Labels = {"orbit", "distance", "blend", "height"},
 		Degrees = {1},
 		Extend = true,
 	},
@@ -64,6 +64,12 @@ keyframes.Tracks = {
 	},
 	{Name = "grip", Key = "GripKeys", Rest = {0}, Labels = {"weight"}},
 	{Name = "attach", Key = "AttachKeys", Rest = {1}, Labels = {"weight"}},
+	{
+		Name = "impale",
+		Key = "ImpaleKeys",
+		Rest = {0, 1},
+		Labels = {"weight", "along"},
+	},
 }
 keyframes.Poses = {rest = {}}
 
@@ -245,6 +251,7 @@ do
 	local angles = Vec3()
 	local rotated = Vec3()
 	local middle = Vec3()
+	local target = Vec3()
 
 	function keyframes.EvaluateCarry(def, phase, victim_bones, offset, rotation)
 		animations.SampleKeys(def.CarryKeys, phase, sample, 9)
@@ -255,12 +262,10 @@ do
 				middle:Set((right.m30 + left.m30) / 2, (right.m31 + left.m31) / 2, (right.m32 + left.m32) / 2)
 			)
 		)
-		return offset:Set(
-			(sample[1] + sample[4]) / 2 - rotated.x,
-			(sample[2] + sample[5]) / 2 - rotated.y,
-			(sample[3] + sample[6]) / 2 - rotated.z
-		),
-		rotation
+		target:Set((sample[1] + sample[4]) / 2, (sample[2] + sample[5]) / 2, (sample[3] + sample[6]) / 2)
+		return offset:Set(target.x - rotated.x, target.y - rotated.y, target.z - rotated.z),
+		rotation,
+		target
 	end
 
 	local body_position, body_rotation = Vec3(), Quat()
@@ -276,6 +281,14 @@ do
 	end
 
 	local attach = {1}
+	local impale = {0, 1}
+
+	function keyframes.EvaluateImpale(def, phase)
+		if not def.ImpaleKeys then return 0, 1 end
+
+		animations.SampleKeys(def.ImpaleKeys, phase, impale, 2)
+		return impale[1], impale[2]
+	end
 
 	function keyframes.EvaluateAttach(def, phase)
 		if not def.AttachKeys then return 1 end
@@ -304,6 +317,7 @@ end
 do
 	local ARM_CHAINS = {{"upperarm_r", "forearm_r", "hand_r"}, {"upperarm_l", "forearm_l", "hand_l"}}
 	local SIDES = {1, -1}
+	local HAND_NAMES = {"right", "left"}
 	local saved = {{}, {}}
 
 	for i = 1, 2 do
@@ -330,6 +344,7 @@ do
 		if weight < 0.001 then return end
 
 		local victim_bones = latch.Bones
+		local hands = def.GripHands
 
 		if keyframes.EvaluateAttach(def, inst.phase) < 1 then
 			for i = 1, 2 do
@@ -346,17 +361,19 @@ do
 		end
 
 		for i, side in ipairs(SIDES) do
-			local chain = ARM_CHAINS[i]
+			if hands == nil or hands == HAND_NAMES[i] then
+				local chain = ARM_CHAINS[i]
 
-			for j = 1, 3 do
-				aim_pose.CopyMatrix(saved[i][j], bones[chain[j]])
-			end
-
-			aim_pose.SolveGrip(bones, side, targets[i], hand_rotation)
-
-			if weight < 0.999 then
 				for j = 1, 3 do
-					aim_pose.BlendMatrix(bones[chain[j]], saved[i][j], bones[chain[j]], weight)
+					aim_pose.CopyMatrix(saved[i][j], bones[chain[j]])
+				end
+
+				aim_pose.SolveGrip(bones, side, targets[i], hand_rotation)
+
+				if weight < 0.999 then
+					for j = 1, 3 do
+						aim_pose.BlendMatrix(bones[chain[j]], saved[i][j], bones[chain[j]], weight)
+					end
 				end
 			end
 		end
@@ -414,6 +431,13 @@ function keyframes.Compile(def, poses)
 		assert(
 			def.CarryKeys,
 			"attach keys blend the victim between where the latch found it and the carry frame, and need carry keys"
+		)
+	end
+
+	if def.ImpaleKeys then
+		assert(
+			def.CarryKeys,
+			"impale keys pin the carried bones to the held weapon and need carry keys"
 		)
 	end
 

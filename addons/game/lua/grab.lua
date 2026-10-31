@@ -3,16 +3,35 @@ local Quat = import("goluwa/structs/quat.lua")
 local keyframes = import("lua/keyframes.lua")
 local actors = import("lua/actors.lua")
 local grab = {}
+
+function grab.GetBaseFrame(grabber, drawn)
+	local transform = grabber.transform
+	local position, rotation
+
+	if drawn then position, rotation = transform:GetRenderPositionRotation() end
+
+	return transform.OverridePosition or position or transform:GetPosition(),
+	transform.OverrideRotation or rotation or transform:GetRotation()
+end
+
 local LATCH = {}
 LATCH.__index = LATCH
 
 do
 	local blended = Quat()
+	local inverse = Quat()
+	local blade = Vec3()
 
-	function LATCH:GetRenderFrame(position, rotation)
+	local function get_node_position(weapon, name)
+		local m = weapon.prefab:GetNode(name).transform:GetWorldMatrix()
+		return m.m30, m.m31, m.m32
+	end
+
+	function LATCH:GetRenderFrame(position, rotation, physics)
 		local grabber = self.Grabber
 		local def = self.Def
 		local weight = 1
+		local base_position, base_rotation = grab.GetBaseFrame(grabber, not physics)
 
 		if def then
 			local anims = grabber.character_pose.anims
@@ -20,17 +39,32 @@ do
 			for i = 1, #anims do
 				if anims[i].def == def then
 					local phase = math.min(anims[i].phase, self.PhaseLimit)
-					keyframes.EvaluateCarry(def, phase, self.Bones, self.Offset, self.Rotation)
+					local _, _, target = keyframes.EvaluateCarry(def, phase, self.Bones, self.Offset, self.Rotation)
 					weight = keyframes.EvaluateAttach(def, phase)
+					local impale, along = keyframes.EvaluateImpale(def, phase)
+
+					if impale > 0.001 and self.Weapon and self.Weapon:IsValid() then
+						local bx, by, bz = get_node_position(self.Weapon, "blade_base")
+						local tx, ty, tz = get_node_position(self.Weapon, "blade_tip")
+						blade:Set(
+							bx + (tx - bx) * along - base_position.x,
+							by + (ty - by) * along - base_position.y,
+							bz + (tz - bz) * along - base_position.z
+						)
+						inverse:SetConjugated(base_rotation)
+						blade:CopyFrom(inverse:VecMul(blade))
+						self.Offset:Set(
+							self.Offset.x + (blade.x - target.x) * impale,
+							self.Offset.y + (blade.y - target.y) * impale,
+							self.Offset.z + (blade.z - target.z) * impale
+						)
+					end
 
 					break
 				end
 			end
 		end
 
-		local transform = grabber.transform
-		local base_position = transform.OverridePosition or transform:GetPosition()
-		local base_rotation = transform.OverrideRotation or transform:GetRotation()
 		local offset = base_rotation:VecMul(self.Offset)
 		position:Set(base_position.x + offset.x, base_position.y + offset.y, base_position.z + offset.z)
 		Quat.SetMul(rotation, base_rotation, self.Rotation)
@@ -64,9 +98,7 @@ do
 
 	function LATCH:GetBoneTarget(bone, out)
 		self:GetRenderFrame(frame_position, frame_rotation)
-		local transform = self.Grabber.transform
-		local base_position = transform.OverridePosition or transform:GetPosition()
-		local base_rotation = transform.OverrideRotation or transform:GetRotation()
+		local base_position, base_rotation = grab.GetBaseFrame(self.Grabber, true)
 		point:Set(bone.m30, bone.m31, bone.m32)
 		local world = frame_position + frame_rotation:VecMul(point) - base_position
 		inverse:SetConjugated(base_rotation)
@@ -78,7 +110,7 @@ do
 	local rotation = Quat()
 
 	function LATCH:Step(position)
-		self:GetRenderFrame(position, rotation)
+		self:GetRenderFrame(position, rotation, true)
 		return rotation
 	end
 end
@@ -129,6 +161,27 @@ function grab.Unpuppet(character)
 	character.character_movement:Unlatch()
 end
 
+function grab.GetCarryBones(victim, names)
+	local bones = victim.source_pose and victim.source_pose.bones
+
+	if bones and bones[names[1]] and bones[names[2]] then return bones end
+
+	local height = actors.GetCenter(victim).y - victim.transform:GetPosition().y
+	local center = {m30 = 0, m31 = height, m32 = 0}
+	return {[names[1]] = center, [names[2]] = center}
+end
+
+local function snapshot_bones(bones, names)
+	local copy = {}
+
+	for _, name in ipairs(names) do
+		local bone = bones[name]
+		copy[name] = {m30 = bone.m30, m31 = bone.m31, m32 = bone.m32}
+	end
+
+	return copy
+end
+
 function grab.Latch(grabber, victim, options)
 	local movement = victim.character_movement
 	local grabber_pose = grabber.character_pose
@@ -140,7 +193,11 @@ function grab.Latch(grabber, victim, options)
 			Grabber = grabber,
 			Victim = victim,
 			Def = options.Def,
-			Bones = options.Bones,
+			Bones = options.Def and
+				options.Def.CarryBones and
+				snapshot_bones(options.Bones, options.Def.CarryBones) or
+				options.Bones,
+			Weapon = options.Weapon,
 			PhaseLimit = options.PhaseLimit or 1,
 			Offset = options.Offset or Vec3(),
 			Rotation = options.Rotation or Quat(0, 0, 0, 1),
@@ -175,6 +232,7 @@ end
 
 function grab.Release(victim, velocity)
 	grab.Detach(victim)
+	victim.character_movement:IgnoreImpacts()
 
 	if victim.ragdoll then
 		victim.ragdoll:Knockdown(velocity)
