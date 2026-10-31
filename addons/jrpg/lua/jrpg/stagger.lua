@@ -60,7 +60,8 @@ end
 function stagger.Knockdown(victim, attacker, push, hitstop, power, direction)
 	victim.character_pose:Freeze(hitstop, true)
 	victim.ragdoll:Knockdown(
-		push * math.lerp(power, stagger.KnockdownSpeed, stagger.KnockdownMaxSpeed) + Vec3(0, stagger.KnockdownLift, 0)
+		push * math.lerp(power, stagger.KnockdownSpeed, stagger.KnockdownMaxSpeed) + Vec3(0, stagger.KnockdownLift, 0),
+		attacker
 	)
 
 	if
@@ -107,8 +108,8 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 	push = push:GetLength() > 1e-3 and
 		push:GetNormalized() or
 		actors.GetForward(victim) * -1
-	local hitstop = stagger.GetHitstop(amount, threshold)
 	local direction = info.Direction or push
+	local hitstop = stagger.GetHitstop(amount, threshold)
 	local knockdown = stagger.GetKnockdownThreshold(before)
 
 	if victim.ragdoll and amount >= knockdown then

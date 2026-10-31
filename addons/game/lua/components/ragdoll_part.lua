@@ -41,17 +41,19 @@ function META:OnCollisionEnter(other, info)
 
 	local victim = other.ragdoll_part and other.ragdoll_part.Character or other
 	local ragdoll = victim.ragdoll
+	local source = self.Character.ragdoll.knocked_by
 
 	if
 		not ragdoll or
 		victim == self.Character or
+		victim == source or
 		ragdoll.Limp or
 		victim.health:IsDead()
 	then
 		return
 	end
 
-	ragdoll:Knockdown(velocity * CHAIN_SHARE)
+	ragdoll:Knockdown(velocity * CHAIN_SHARE, source)
 end
 
 event.AddListener("ResolveUseTarget", "ragdoll_part", function(entity)

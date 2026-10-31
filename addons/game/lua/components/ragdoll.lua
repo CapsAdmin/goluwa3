@@ -883,7 +883,8 @@ function META:StartFling(floor)
 	self.fling_floor = floor
 end
 
-function META:Knockdown(velocity)
+function META:Knockdown(velocity, source)
+	self.knocked_by = source
 	self.knock = velocity:Copy()
 	self.thrown = true
 	self:StartFling(0)

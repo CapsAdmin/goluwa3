@@ -813,3 +813,20 @@ T.TestPhysics("a character killed while flying fast falls as one connected ragdo
 	character:Remove()
 	T(worst)["<"](0.1)
 end)
+
+T.TestPhysics("a thrown victim chain knocks down bystanders but never the one who knocked it down", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -1.5))
+	local bystander = create_character(Vec3(2, 0.05, 0))
+	run(attacker, 0.5)
+	run(bystander, 0.1)
+	victim.ragdoll:Knockdown(Vec3(0, 0, 8), attacker)
+	local part = victim.ragdoll.parts[1].body.Owner.ragdoll_part
+	local info = {self_body = {Velocity = Vec3(0, 0, 6)}}
+	part:OnCollisionEnter(attacker, info)
+	T(attacker.ragdoll.thrown)["=="](nil)
+	part:OnCollisionEnter(bystander, info)
+	T(bystander.ragdoll.thrown)["=="](true)
+	T(bystander.ragdoll.knocked_by)["=="](attacker)
+end)
