@@ -1058,7 +1058,6 @@ event.AddListener("DrawHUD", "jrpg_hud", function(dt)
 	draw_vignette(rig, w, h, now)
 	draw_npcs(rig, camera, w, h, now, dt)
 	draw_reticle(camera, w, h, now)
-	hitmarkers.Draw(camera, w, h, now, dt)
 
 	if rig.health:IsDead() then
 		draw_defeat(w, h, now, rig)
@@ -1066,4 +1065,11 @@ event.AddListener("DrawHUD", "jrpg_hud", function(dt)
 		smoothed.dead_time = nil
 		draw_player(rig, w, h, dt)
 	end
+end)
+
+event.AddListener("DrawHUD", "jrpg_hitmarkers", function()
+	if third_person.IsHudHidden() then return end
+
+	local w, h = render2d.GetSize()
+	hitmarkers.Draw(render3d.GetMainCamera(), w, h, system.GetElapsedTime(), system.GetFrameTime())
 end)

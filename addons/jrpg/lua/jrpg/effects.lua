@@ -859,22 +859,22 @@ end
 function effects.ShowDamage(entity, type_name, amount, max_health)
 	if not entity:IsValid() then return end
 
-	if not Rpg.IsLocal() then return end
-
 	local definition = damage_types.Get(type_name)
 	local fraction = math.abs(amount) / math.max(max_health, 1)
-	clips.Play(
-		"jrpg_flash",
-		{
-			entity = entity,
-			color = definition.Color,
-			intensity = 0.6 + math.min(fraction * 6, 1.5),
-			duration = math.clamp(math.abs(amount) / 50, 0.35, 1.5),
-		}
-	)
+	if Rpg.IsLocal() then
+		clips.Play(
+			"jrpg_flash",
+			{
+				entity = entity,
+				color = definition.Color,
+				intensity = 0.6 + math.min(fraction * 6, 1.5),
+				duration = math.clamp(math.abs(amount) / 50, 0.35, 1.5),
+			}
+		)
 
-	if entity == _G.PLAYER_RIG and amount > 0 then
-		screen_shake.Add(math.min(fraction * 0.6, 0.12), 1, 0.4)
+		if entity == _G.PLAYER_RIG and amount > 0 then
+			screen_shake.Add(math.min(fraction * 0.6, 0.12), 1, 0.4)
+		end
 	end
 
 	hitmarkers.Add(entity, amount, max_health, system.GetElapsedTime(), nil, definition.Color)
