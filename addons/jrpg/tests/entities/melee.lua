@@ -727,3 +727,26 @@ T.TestPhysics("reloading a weapon script in the middle of a move drops the move 
 	run(0.6, {attacker.character_pose})
 	T(sword.script.Error)["=="](nil)
 end)
+
+T.TestPhysics("a grab whose victim dies and is removed before the throw ends without an error", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -2), 5)
+	victim.health:SetRemoveOnDeath(true)
+	local blade = attacker.weapon_holder:Give("weapon_greatsword")
+	blade.weapon:SetAttributes({})
+	run(0.3)
+	blade.weapon_melee:Request("heavy", command(attacker, 0, BUTTON.CROUCH), true)
+	local objects = import("goluwa/objects/objects.lua")
+
+	for _ = 1, 150 do
+		run(1 / 60, {attacker.character_pose})
+		objects.CheckRemovedObjects()
+	end
+
+	T(victim:IsValid())["=="](false)
+	T(blade.script.Error)["=="](nil)
+	T(blade.weapon_melee.grabbed)["=="](nil)
+	blade.weapon_melee:Request("light", command(attacker, 0), true)
+	T(attacker.character_pose.Action)["=="]("greatsword_cleave")
+end)

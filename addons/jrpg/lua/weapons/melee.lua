@@ -330,6 +330,11 @@ function META:Throw(event, f)
 
 	if not victim then return end
 
+	if not victim:IsValid() or not grab.IsHeld(victim) then
+		self.grabbed = nil
+		return
+	end
+
 	local holder = self:GetHolder()
 	local forward = actors.GetForward(holder)
 	local throw = grab.Get(victim):GetVelocity(f, self:GetRunner().duration) * event.Inherit + Vec3(-forward.z, 0, forward.x) * event.Throw.x + Vec3(0, event.Throw.y, 0) + forward * event.Throw.z
