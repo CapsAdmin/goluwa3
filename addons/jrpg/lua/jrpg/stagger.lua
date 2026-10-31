@@ -13,6 +13,7 @@ stagger.KnockdownSpeed = 5
 stagger.KnockdownMaxSpeed = 9
 stagger.KnockdownLift = 3
 stagger.Duration = 0.85
+stagger.FreezeFraction = 0.3
 stagger.Hitstop = 0.08
 stagger.MaxHitstop = 0.16
 stagger.Knockback = 0.7
@@ -33,13 +34,14 @@ function stagger.GetHitstop(amount, threshold)
 end
 
 function stagger.Apply(victim, attacker, push, hitstop, part)
+	local freeze = stagger.Duration * stagger.FreezeFraction
 	local pose = victim.character_pose
-	pose:Freeze(hitstop)
+	pose:Freeze(freeze, true)
 	pose:PlayAction("stagger", stagger.Duration, part, push)
 	local movement = victim.character_movement
 
 	if movement then
-		movement:Lunge(push, stagger.Knockback, hitstop, stagger.KnockbackTime)
+		movement:Lunge(push, stagger.Knockback, 0, stagger.KnockbackTime)
 	end
 
 	if
@@ -48,7 +50,7 @@ function stagger.Apply(victim, attacker, push, hitstop, part)
 		attacker:IsValid() and
 		attacker.character_pose
 	then
-		attacker.character_pose:Freeze(hitstop)
+		attacker.character_pose:Freeze(freeze)
 	end
 
 	effects.Text(victim, "STAGGER", TEXT)
@@ -56,7 +58,7 @@ function stagger.Apply(victim, attacker, push, hitstop, part)
 end
 
 function stagger.Knockdown(victim, attacker, push, hitstop, power)
-	victim.character_pose:Freeze(hitstop)
+	victim.character_pose:Freeze(hitstop, true)
 	victim.ragdoll:Knockdown(
 		push * math.lerp(power, stagger.KnockdownSpeed, stagger.KnockdownMaxSpeed) + Vec3(0, stagger.KnockdownLift, 0)
 	)
