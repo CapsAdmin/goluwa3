@@ -340,14 +340,23 @@ T.TestPhysics("a killed body flings its arms and legs away from the blow for two
 			Position = ragdoll.part_by_name.torso.body.Position:Copy(),
 		}
 	)
-	run(character, 0.4)
+	run(character, 0.2)
 	T(character.health:IsDead())["=="](true)
 	T(ragdoll.fling > 0.9)["=="](true)
-	local back = ragdoll.fling_direction
+	local alignment = {forearm_r = 0, calf_l = 0}
+	local samples = 20
 
-	for _, name in ipairs{"forearm_r", "calf_l"} do
-		local axis = ragdoll.part_by_name[name].body.Rotation:VecMul(Vec3(0, 1, 0))
-		T(axis:Dot(back) > 0.3)["=="](true)
+	for _ = 1, samples do
+		run(character, 0.04)
+
+		for name in pairs(alignment) do
+			local axis = ragdoll.part_by_name[name].body.Rotation:VecMul(Vec3(0, 1, 0))
+			alignment[name] = alignment[name] + axis:Dot(ragdoll.fling_direction) / samples
+		end
+	end
+
+	for _, mean in pairs(alignment) do
+		T(mean > 0.3)["=="](true)
 	end
 
 	run(character, 2.5)
