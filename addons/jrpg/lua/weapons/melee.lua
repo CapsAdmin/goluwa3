@@ -395,6 +395,8 @@ function META:Step(dt, cmd, authority)
 	dt = dt * ticks
 	local runner = self:GetRunner()
 
+	if runner:IsPlaying() and runner.listener ~= self then return end
+
 	if usercmd.WasPressed(cmd, BUTTON.JUMP) and usercmd.HasButton(cmd, BUTTON.ACTIVE) then
 		local kind = self:GetJumpKind(cmd)
 
@@ -558,6 +560,13 @@ function META:EndTrail()
 end
 
 function META:OnRemove()
+	if self.grabbed then self:EndGrab(Vec3()) end
+
+	local holder = self:GetHolder()
+	local runner = holder:IsValid() and holder.move_runner
+
+	if runner and runner.listener == self then runner:Cancel() end
+
 	self:LowerGuard()
 
 	if self.trail then self.trail:Release() end

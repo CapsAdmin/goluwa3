@@ -58,6 +58,11 @@ function META:Step(dt, authority, early_cancel)
 	local owner = self.Owner
 	local pose = owner.character_pose
 
+	if not self.listener:IsValid() then
+		self:Cancel()
+		return "interrupted"
+	end
+
 	if pose:IsStunned() then
 		local listener = self.listener
 		self:Cancel()
