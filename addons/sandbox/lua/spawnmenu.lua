@@ -17,6 +17,7 @@ local system = import("goluwa/system.lua")
 local previews = import("lua/asset_preview.lua")
 local spawnlists = import("lua/spawnlists.lua")
 local weapons = import("lua/weapons.lua")
+local weapon_categories = import("lua/weapon_categories.lua")
 local npcs = import("lua/npcs.lua")
 local interactives = import("lua/interactives.lua")
 local vehicles = import("lua/vehicles.lua")
@@ -66,11 +67,21 @@ local function get_aim()
 	return position, yaw
 end
 
-local function make_weapon_entries()
+local STATUSES_PER_ROW = 7
+local weapon_roll = {rarity = "common", bonus = 0, names = {}}
+
+local function get_weapon_roll(kind)
+	return kind == "weapon" and weapons.Roller and weapon_roll or nil
+end
+
+local function make_weapon_entries(category)
 	local entries = {}
 
 	for _, name in ipairs(weapons.GetNames()) do
 		local definition = weapons.Definitions[name]
+
+		if definition.Category ~= category then goto continue end
+
 		entries[#entries + 1] = {
 			category = "prefabs",
 			name = name,
@@ -79,6 +90,7 @@ local function make_weapon_entries()
 			spawn_name = name,
 			kind = "weapon",
 		}
+		::continue::
 	end
 
 	return entries
@@ -139,7 +151,7 @@ function spawnmenu.Spawn(entry)
 	local position, yaw = get_aim()
 	local kind = entry.kind or "prop"
 	local name = kind == "prop" and entry.path or entry.spawn_name
-	spawn_requests.Spawn(kind, name, position, yaw)
+	spawn_requests.Spawn(kind, name, position, yaw, get_weapon_roll(kind))
 end
 
 local function open_entry_menu(entry)
@@ -149,7 +161,7 @@ local function open_entry_menu(entry)
 		Panel.OpenContextMenu(
 			{OnClose = |menu|->menu:Remove()},
 			MenuItem{Text = "Spawn", Icon = "plus", OnClick = ||->spawnmenu.Spawn(entry)},
-			MenuItem{Text = "Give", Icon = "user", OnClick = ||->spawn_requests.Give(entry.spawn_name)},
+			MenuItem{Text = "Give", Icon = "user", OnClick = ||->spawn_requests.Give(entry.spawn_name, get_weapon_roll("weapon"))},
 			copy
 		)
 		return
@@ -358,9 +370,9 @@ local LEFT_PANE_SHARE = 0.54
 local LEFT_PANE_INSET = 118
 local NPC_GRID_GAP = 4
 local NPC_GRID_PADDING = 4
-local FactionGrid = react.Component(
+local EntryGrid = react.Component(
 	|props|-> do
-		local items = react.UseMemo(||->make_npc_entries(props.Faction), {props.Faction})
+		local items = react.UseMemo(props.Make, {props.Group})
 		local columns = math.max(
 			math.floor((Panel.World.transform:GetSize().x * LEFT_PANE_SHARE - LEFT_PANE_INSET) / (LABELED_TILE_SIZE + NPC_GRID_GAP)),
 			1
@@ -393,11 +405,155 @@ local NpcsPage = react.Component(
 			list.map(
 				npcs.Factions,
 				|faction|->ui.Collapsible{Key = faction, Title = faction:sub(1, 1):upper() .. faction:sub(2), HeaderMode = "text"}{
-					FactionGrid{Faction = faction},
+					EntryGrid{Group = faction, Make = ||->make_npc_entries(faction)},
 				}
 			),
 		},
 	}
+)
+local RollPanel = react.Component(
+	||-> do
+		local roller = weapons.Roller
+		local roll, set_roll = react.UseState(weapon_roll)
+		local version, set_version = react.UseState(0)
+		local rarity_options = react.UseMemo(
+			||->list.map(roller.Rarities, |rarity|->{Text = rarity.name, Value = rarity.name}),
+			{}
+		)
+		local bonus_options = react.UseMemo(
+			||-> do
+				local options = {}
+
+				for i = 0, roller.MaxBonus do
+					options[#options + 1] = {Text = "+" .. i, Value = i}
+				end
+
+				return options
+			end,
+			{}
+		)
+		local status_rows = react.UseMemo(
+			||-> do
+				local rows = {}
+
+				for i, name in ipairs(roller.Names) do
+					local row = math.ceil(i / STATUSES_PER_ROW)
+					rows[row] = rows[row] ?? {}
+					table.insert(rows[row], name)
+				end
+
+				return rows
+			end,
+			{}
+		)
+		local function update(rarity, bonus, names)
+			weapon_roll = {rarity = rarity, bonus = bonus, names = names}
+			set_roll(weapon_roll)
+		end
+
+		return ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XS", AlignmentX = "stretch"}}{
+			ui.Row{layout = {ChildGap = "S", AlignmentY = "center"}}{
+				ui.Text{Text = "Rarity", Color = "text_disabled"},
+				ui.Dropdown{
+					Key = "rarity" .. version,
+					Options = rarity_options,
+					Value = roll.rarity,
+					Padding = "XS",
+					OnSelect = |value|->update(value, roll.bonus, roll.names),
+				},
+				ui.Text{Text = "Bonus", Color = "text_disabled"},
+				ui.Dropdown{
+					Key = "bonus" .. version,
+					Options = bonus_options,
+					Value = roll.bonus,
+					Padding = "XS",
+					OnSelect = |value|->update(roll.rarity, value, roll.names),
+				},
+				ui.Button{
+					Text = "Randomize",
+					OnClick = ||-> do
+						local random = roller.RandomRoll()
+						update(random.rarity, random.bonus, random.names)
+						set_version(|current|->current + 1)
+					end,
+				},
+				ui.Button{
+					Text = "Reset",
+					OnClick = ||-> do
+						update("common", 0, {})
+						set_version(|current|->current + 1)
+					end,
+				},
+			},
+			list.map(
+				status_rows,
+				|row|->ui.Row{Key = row[1], layout = {ChildGap = "M", AlignmentY = "center"}}{
+					list.map(
+						row,
+						|name|->ui.Checkbox{
+							Key = name .. version,
+							Text = name,
+							Value = list.find(roll.names, |candidate|->candidate == name) ~= nil,
+							OnChange = |checked|-> do
+								local names = list.filter(roll.names, |candidate|->candidate ~= name)
+
+								if checked then names[#names + 1] = name end
+
+								update(roll.rarity, roll.bonus, names)
+							end,
+						}
+					),
+				}
+			),
+		}
+	end
+)
+local WeaponsPage = react.Component(
+	||-> do
+		local categories = react.UseMemo(
+			||-> do
+				local result = {}
+				local seen = {}
+
+				for _, name in ipairs(weapons.GetNames()) do
+					local category = weapons.Definitions[name].Category
+
+					if not seen[category] then
+						seen[category] = true
+						result[#result + 1] = category
+					end
+				end
+
+				table.sort(result)
+				return result
+			end,
+			{}
+		)
+		return ui.Column{
+			layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, ChildGap = 6, AlignmentX = "stretch"},
+		}{
+			ui.ScrollablePanel{
+				Padding = "XS",
+				ScrollX = false,
+				ScrollY = true,
+				layout = {GrowWidth = 1, GrowHeight = 1},
+			}{
+				ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XS", AlignmentX = "stretch"}}{
+					list.map(
+						categories,
+						|category|->ui.Collapsible{
+							Key = category,
+							Title = weapon_categories.Get(category).Label,
+							HeaderMode = "text",
+						}{
+							EntryGrid{Group = category, Make = ||->make_weapon_entries(category)},
+						}
+					),
+				},
+			},
+			weapons.Roller and RollPanel{},
+		}
+	end
 )
 local ListPage = react.Component(
 	|props|-> do
@@ -582,7 +738,7 @@ local ToolsPage = react.Component(
 )
 local LEFT_PAGES = {
 	Spawnlists = ||->SpawnlistsPage{},
-	Weapons = ||->ListPage{Make = make_weapon_entries},
+	Weapons = ||->WeaponsPage{},
 	Interactive = ||->ListPage{Make = make_interactive_entries},
 	Vehicles = ||->ListPage{Make = make_vehicle_entries},
 	NPCs = ||->NpcsPage{},
