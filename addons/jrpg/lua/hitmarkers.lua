@@ -66,6 +66,7 @@ function hitmarkers.Add(owner, amount, max_health, now, position, line_color)
 	mark.amount = amount
 	mark.fraction = math.abs(amount) / math.max(max_health, 1)
 	mark.line_color = line_color or (amount < 0 and HEAL_LINE or DAMAGE_LINE)
+	mark.still = amount > 0 and mark.fraction <= TIERS[1].max
 end
 
 function hitmarkers.AddText(owner, text, color, now)
@@ -110,9 +111,11 @@ function hitmarkers.Draw(camera, screen_w, screen_h, now, dt)
 				mark.last_position = get_center(mark.owner) + mark.jitter
 			end
 
-			mark.vy = mark.vy + GRAVITY * dt
-			mark.x = mark.x + mark.vx * dt
-			mark.y = mark.y + mark.vy * dt
+			if not mark.still then
+				mark.vy = mark.vy + GRAVITY * dt
+				mark.x = mark.x + mark.vx * dt
+				mark.y = mark.y + mark.vy * dt
+			end
 
 			if mark.y > 0 and mark.vy > 0 then
 				if mark.bounces < MAX_BOUNCES then
@@ -155,7 +158,7 @@ function hitmarkers.Draw(camera, screen_w, screen_h, now, dt)
 				end
 
 				local alpha = math.min((mark.life - age) / (mark.fading and REPLACE_FADE or mark.life * 0.4), 1)
-				local pop = age < 0.12 and 1 + (1 - age / 0.12) * 0.6 or 1
+				local pop = age < 0.12 and not mark.still and 1 + (1 - age / 0.12) * 0.6 or 1
 				local size = math.floor(tier.size * pop + 0.5)
 				local w, h = render2d.GetTextSize(text, hitmarkers.Font, size, hitmarkers.FontWeight)
 				local x = screen.x + mark.x
