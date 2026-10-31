@@ -321,6 +321,7 @@ local default_passes = {
 	{"effects_post", "goluwa/render3d/passes/effects_post.lua"},
 	{"dof", "goluwa/render3d/passes/dof.lua"},
 	{"motion_blur", "goluwa/render3d/passes/motion_blur.lua"},
+	{"screen_fields", "goluwa/render3d/passes/screen_fields.lua"},
 	{
 		"ambient_occlusion_debug",
 		"goluwa/render3d/passes/ambient_occlusion_debug.lua",

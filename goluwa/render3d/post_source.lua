@@ -68,6 +68,10 @@ function post_source.IsEffectLayerActive()
 	return render3d.HasPass("effects_post") and render3d.pipelines.effects_post.is_enabled()
 end
 
+function post_source.IsScreenFieldsActive()
+	return import("goluwa/render3d/screen_fields.lua").IsActive()
+end
+
 function post_source.GetEffectLayerTexture()
 	return render3d.pipelines.effects_post_layer:GetFramebuffer():GetAttachment(1)
 end
@@ -115,6 +119,18 @@ function post_source.GetSceneSourceTexture(self)
 		local debug_texture = post_source.GetDebugTexture()
 
 		if debug_texture then return debug_texture end
+	end
+
+	if
+		self.name ~= "taa" and
+		self.name ~= "dof" and
+		self.name ~= "motion_blur" and
+		self.name ~= "screen_fields" and
+		render3d.IsPassEnabled("screen_fields") and
+		post_source.IsScreenFieldsActive() and
+		render3d.pipelines.screen_fields.framebuffers
+	then
+		return render3d.pipelines.screen_fields:GetFramebuffer():GetAttachment(1)
 	end
 
 	if
