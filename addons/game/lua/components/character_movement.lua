@@ -264,7 +264,7 @@ do
 		end
 	end
 
-	function META:UpdateLatched(latch)
+	function META:UpdateLatched(latch, dt)
 		local body = self.Owner.rigid_body
 		local transform = self.Owner.transform
 
@@ -282,7 +282,7 @@ do
 			self.Owner:CallLocalEvent("OnCharacterModeChanged", "latched")
 		end
 
-		local rotation = latch:Step(seat_position)
+		local rotation = latch:Step(seat_position, dt)
 		transform:SetPosition(seat_position:Copy())
 		transform:SetRotation(rotation:Copy())
 	end
@@ -876,7 +876,7 @@ do
 			if not latch:IsHolding() or health and health:IsDead() then
 				grab.Release(self.Owner, Vec3())
 			else
-				return self:UpdateLatched(latch)
+				return self:UpdateLatched(latch, dt)
 			end
 		end
 

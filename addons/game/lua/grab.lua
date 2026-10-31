@@ -1,8 +1,11 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local system = import("goluwa/system.lua")
+local physics = import("goluwa/physics.lua")
 local keyframes = import("lua/keyframes.lua")
 local actors = import("lua/actors.lua")
 local grab = {}
+local SWEEP_SHARE = 0.9
 
 function grab.GetBaseFrame(grabber, drawn)
 	local transform = grabber.transform
@@ -27,41 +30,43 @@ do
 		return m.m30, m.m31, m.m32
 	end
 
-	function LATCH:GetRenderFrame(position, rotation, physics)
+	function LATCH:GetWantedFrame(position, rotation, drawn)
 		local grabber = self.Grabber
 		local def = self.Def
 		local weight = 1
-		local base_position, base_rotation = grab.GetBaseFrame(grabber, not physics)
+		local base_position, base_rotation = grab.GetBaseFrame(grabber, drawn)
 
 		if def then
+			local phase = self.PhaseLimit
 			local anims = grabber.character_pose.anims
 
 			for i = 1, #anims do
 				if anims[i].def == def then
-					local phase = math.min(anims[i].phase, self.PhaseLimit)
-					local _, _, target = keyframes.EvaluateCarry(def, phase, self.Bones, self.Offset, self.Rotation)
-					weight = keyframes.EvaluateAttach(def, phase)
-					local impale, along = keyframes.EvaluateImpale(def, phase)
-
-					if impale > 0.001 and self.Weapon and self.Weapon:IsValid() then
-						local bx, by, bz = get_node_position(self.Weapon, "blade_base")
-						local tx, ty, tz = get_node_position(self.Weapon, "blade_tip")
-						blade:Set(
-							bx + (tx - bx) * along - base_position.x,
-							by + (ty - by) * along - base_position.y,
-							bz + (tz - bz) * along - base_position.z
-						)
-						inverse:SetConjugated(base_rotation)
-						blade:CopyFrom(inverse:VecMul(blade))
-						self.Offset:Set(
-							self.Offset.x + (blade.x - target.x) * impale,
-							self.Offset.y + (blade.y - target.y) * impale,
-							self.Offset.z + (blade.z - target.z) * impale
-						)
-					end
+					phase = math.min(anims[i].phase, self.PhaseLimit)
 
 					break
 				end
+			end
+
+			local _, _, target = keyframes.EvaluateCarry(def, phase, self.Bones, self.Offset, self.Rotation)
+			weight = keyframes.EvaluateAttach(def, phase)
+			local impale, along = keyframes.EvaluateImpale(def, phase)
+
+			if impale > 0.001 and self.Weapon and self.Weapon:IsValid() then
+				local bx, by, bz = get_node_position(self.Weapon, "blade_base")
+				local tx, ty, tz = get_node_position(self.Weapon, "blade_tip")
+				blade:Set(
+					bx + (tx - bx) * along - base_position.x,
+					by + (ty - by) * along - base_position.y,
+					bz + (tz - bz) * along - base_position.z
+				)
+				inverse:SetConjugated(base_rotation)
+				blade:CopyFrom(inverse:VecMul(blade))
+				self.Offset:Set(
+					self.Offset.x + (blade.x - target.x) * impale,
+					self.Offset.y + (blade.y - target.y) * impale,
+					self.Offset.z + (blade.z - target.z) * impale
+				)
 			end
 		end
 
@@ -107,11 +112,131 @@ do
 end
 
 do
+	local SKIN = 0.02
+	local SLIDES = 3
+	local BLOCKED_SPEED = 3
+	local BLOCKED_COOLDOWN = 0.25
+	local UP = Vec3(0, 1, 0)
+	local OPTIONS = {IgnoreRigidBodies = false}
 	local rotation = Quat()
+	local anchor = Vec3()
+	local clear = Vec3()
+	local move = Vec3()
+	local up = Vec3()
 
-	function LATCH:Step(position)
-		self:GetRenderFrame(position, rotation, true)
+	local function is_world(entity)
+		local body = entity.rigid_body
+		return body ~= nil and (body.WorldGeometry or body:IsStatic())
+	end
+
+	function LATCH:Slide(from, to, radius)
+		local victim = self.Victim
+		local blocked
+		move:Set(to.x - from.x, to.y - from.y, to.z - from.z)
+
+		for _ = 1, SLIDES do
+			local length = move:GetLength()
+
+			if length < 1e-5 then break end
+
+			local hit = physics.Sweep(from, move, radius, victim, is_world, OPTIONS)
+
+			if not hit then
+				from:Set(from.x + move.x, from.y + move.y, from.z + move.z)
+
+				break
+			end
+
+			local travel = math.max(hit.fraction * length - SKIN, 0) / length
+			from:Set(from.x + move.x * travel, from.y + move.y * travel, from.z + move.z * travel)
+			local rest = 1 - travel
+			move:Set(move.x * rest, move.y * rest, move.z * rest)
+			local normal = hit.normal
+			local into = move.x * normal.x + move.y * normal.y + move.z * normal.z
+
+			if into < 0 then
+				move:Set(move.x - normal.x * into, move.y - normal.y * into, move.z - normal.z * into)
+
+				if not blocked or -into > blocked.depth then
+					blocked = blocked or {}
+					blocked.depth = -into
+					blocked.point = hit.point or hit.position
+					blocked.normal = normal
+				end
+			end
+		end
+
+		return blocked
+	end
+
+	function LATCH:KeepEnd(from, direction, extent, radius)
+		local hit = physics.RayCast(from, direction, extent, self.Victim, is_world, OPTIONS)
+
+		if not hit then return end
+
+		local depth = extent - hit.distance
+		local push = Vec3(-direction.x * depth, -direction.y * depth, -direction.z * depth)
+		self:Slide(from, from + push, radius)
+	end
+
+	function LATCH:Constrain(position, rotation, origin)
+		anchor:CopyFrom(position + rotation:VecMul(self.Anchor))
+		clear:CopyFrom(origin)
+		local radius = self.Radius
+		local blocked = self:Slide(clear, anchor, radius)
+		up:CopyFrom(rotation:VecMul(UP))
+		self:KeepEnd(clear, up * -1, self.Anchor.y, radius)
+		self:KeepEnd(clear, up, self.Height - self.Anchor.y, radius)
+		position:Set(
+			position.x + clear.x - anchor.x,
+			position.y + clear.y - anchor.y,
+			position.z + clear.z - anchor.z
+		)
+		return blocked
+	end
+
+	function LATCH:Step(position, dt)
+		self:GetWantedFrame(position, rotation)
+		local blocked = self:Constrain(position, rotation, actors.GetCenter(self.Grabber))
+		self.blocked_cooldown = math.max(self.blocked_cooldown - dt, 0)
+
+		if blocked and self.blocked_cooldown <= 0 then
+			local speed = blocked.depth / dt
+
+			if speed >= BLOCKED_SPEED then
+				self.blocked_cooldown = BLOCKED_COOLDOWN
+				self.Grabber:CallLocalEvent("OnLatchBlocked", self, blocked.point, blocked.normal, speed)
+			end
+		end
+
 		return rotation
+	end
+
+	local center = Vec3()
+
+	function LATCH:GetRenderFrame(position, rotation)
+		local frame = system.GetFrameNumber()
+
+		if self.drawn_frame ~= frame then
+			self.drawn_frame = frame
+			local grabber = self.Grabber
+			local drawn = self.DrawnPosition
+			self:GetWantedFrame(drawn, self.DrawnRotation, true)
+			local base = grab.GetBaseFrame(grabber, true)
+			local physical = grabber.transform:GetPosition()
+			local body = actors.GetCenter(grabber)
+			center:Set(
+				base.x + body.x - physical.x,
+				base.y + body.y - physical.y,
+				base.z + body.z - physical.z
+			)
+			self:Constrain(drawn, self.DrawnRotation, center)
+		end
+
+		local drawn, turned = self.DrawnPosition, self.DrawnRotation
+		position:Set(drawn.x, drawn.y, drawn.z)
+		rotation:Set(turned.x, turned.y, turned.z, turned.w)
+		return position, rotation
 	end
 end
 
@@ -203,9 +328,24 @@ function grab.Latch(grabber, victim, options)
 			Rotation = options.Rotation or Quat(0, 0, 0, 1),
 			HomePosition = victim.transform:GetPosition():Copy(),
 			HomeRotation = victim.transform:GetRotation():Copy(),
+			Radius = math.min(movement.Radius, grabber.character_movement.Radius) * SWEEP_SHARE,
+			Height = movement:GetHeight(),
+			DrawnPosition = Vec3(),
+			DrawnRotation = Quat(),
+			blocked_cooldown = 0,
 		},
 		LATCH
 	)
+	local names = latch.Def and latch.Def.CarryBones
+	local bones = latch.Bones
+
+	if names then
+		local right, left = bones[names[1]], bones[names[2]]
+		latch.Anchor = Vec3((right.m30 + left.m30) / 2, (right.m31 + left.m31) / 2, (right.m32 + left.m32) / 2)
+	else
+		latch.Anchor = Vec3(0, actors.GetCenter(victim).y - victim.transform:GetPosition().y, 0)
+	end
+
 	movement.latch = latch
 	grabber_pose.grab_latch = latch
 	victim.character_pose:SetState("held", "1")

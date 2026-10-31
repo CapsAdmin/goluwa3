@@ -318,6 +318,7 @@ function META:Latch(move, event)
 				Def = move,
 				Bones = grab.GetCarryBones(target, move.CarryBones),
 				Weapon = self.Owner,
+				PhaseLimit = movesets.GetEvent(move, "release").At,
 			}) then
 			self.grabbed = target
 			holder.character_pose:SetFocusOn(nil, runner.frame.point)

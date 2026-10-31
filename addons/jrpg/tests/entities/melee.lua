@@ -588,7 +588,7 @@ T.TestPhysics("the greatsword impale lift pins the victim to the blade and slams
 
 		if grab.IsHeld(victim) then
 			held = true
-			grab.Get(victim):GetRenderFrame(position, rotation)
+			grab.Get(victim):GetWantedFrame(position, rotation, true)
 			local chest = position + rotation:VecMul(Vec3(0, 1.08, 0))
 			local point = node_position("blade_base"):GetLerped(0.7, node_position("blade_tip"))
 			pinned = math.min(pinned, (chest - point):GetLength())
