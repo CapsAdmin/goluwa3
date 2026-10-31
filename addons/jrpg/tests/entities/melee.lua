@@ -121,7 +121,18 @@ T.TestPhysics("a hit over the threshold freezes both fighters and staggers the v
 	local victim = create_character(Vec3(0, 0.05, -1.5))
 	damage.Deal(victim, {Attacker = attacker, Damage = 10, Direction = Vec3(0, 0, -1)})
 	T(victim.character_pose:IsFrozen())["=="](false)
-	damage.Deal(victim, {Attacker = attacker, Damage = 40, Direction = Vec3(0, 0, -1)})
+	damage.Deal(
+		victim,
+		{Attacker = attacker, Damage = 40, Direction = Vec3(0, 0, -1), Type = "blunt"}
+	)
+	T(victim.character_pose:IsFrozen())["=="](false)
+	T(attacker.character_pose:IsFrozen())["=="](false)
+	T(victim.character_pose.Action)["=="]("stagger")
+	run(1.2, {victim.character_pose})
+	damage.Deal(
+		victim,
+		{Attacker = attacker, Damage = 40, Direction = Vec3(0, 0, -1), Type = "slash"}
+	)
 	T(victim.character_pose:IsFrozen())["=="](true)
 	T(attacker.character_pose:IsFrozen())["=="](true)
 	T(victim.character_pose.Action)["=="]("stagger")
