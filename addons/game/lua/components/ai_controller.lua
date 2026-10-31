@@ -421,15 +421,7 @@ function META:CastAt(target, element, damage)
 	local eye = owner.rigid_body:GetOriginPosition() + owner.character_movement:GetViewOffset()
 	local aim = target.transform:GetPosition() + Vec3(0, target.character_movement:GetHeight() * TARGET_CHEST, 0)
 	local direction = (aim - eye):GetNormalized()
-	import("lua/components/magic_projectile.lua").Cast(
-		eye + direction * 0.6,
-		owner,
-		direction,
-		target,
-		nil,
-		element,
-		damage
-	)
+	import("lua/components/magic_projectile.lua").Cast(eye + direction * 0.6, owner, direction, target, nil, element, damage)
 end
 
 function META:GetReach(position, target, flat_distance)
@@ -463,9 +455,16 @@ function META:Fight(target, position)
 		local attack = attacks[i]
 
 		if
-			self.time >= (ready[i] or 0) and
+			self.time >= (
+				ready[i] or
+				0
+			)
+			and
 			reach <= attack.Range and
-			reach >= (attack.MinRange or 0)
+			reach >= (
+				attack.MinRange or
+				0
+			)
 		then
 			ready[i] = self.time + attack.Interval * math.randomf(0.8, 1.2)
 			self:BeginMove(movesets.Get(self.Moveset).Moves[attack.Move], target)
@@ -508,7 +507,6 @@ function META:OnMoveEvent(move, event)
 				Force = direction * (event.Force or 3),
 			}
 		)
-
 		owner:CallLocalEvent("OnNPCStrike", target)
 
 		if event.Until then return "end" end
@@ -609,10 +607,9 @@ function META:NextCommand(dt)
 	local target = not far and self:UpdateTarget(position)
 	local pose = owner.character_pose
 	local stunned = pose ~= nil and (pose:IsStunned() or pose:IsFrozen())
-
 	local runner = owner.move_runner
 
-	if runner and runner:IsPlaying() then
+	if runner and runner:IsPlaying() and runner.listener == self then
 		local state, ended = runner:Step(dt, true)
 
 		if state == "blocked" then
