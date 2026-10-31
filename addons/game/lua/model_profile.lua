@@ -7,10 +7,11 @@ local model_profile = {}
 local MIN_RADIUS = 0.02
 local MIN_LENGTH = 0.02
 local RADIUS_FIT = 0.8
-local DEFAULT_TWIST = 0.4
-local DEFAULT_SWING = 0.6
-local MIN_LIMIT = 0.15
-local MAX_LIMIT = 1.5
+local DEFAULT_TWIST = 0.2
+local DEFAULT_SWING = 0.3
+local MIN_LIMIT = 0.1
+local MAX_LIMIT = 0.7
+local LIMIT_SHARE = 0.5
 local HEAD_MULTIPLIER = 2.5
 local LIMB_MULTIPLIER = 0.7
 local BODY_HIT = {Amount = 0.6, Hold = 0.1, Recover = 0.3, Impulse = 0.5}
@@ -50,7 +51,7 @@ local function get_limit(axis)
 
 	if range == 0 then return nil end
 
-	return math.clamp(range, MIN_LIMIT, MAX_LIMIT)
+	return math.clamp(range * LIMIT_SHARE, MIN_LIMIT, MAX_LIMIT)
 end
 
 -- a capsule along the longest direction of the solid, in the frame of its bone

@@ -178,3 +178,28 @@ T.TestPhysics("a biped npc keeps the humanoid ragdoll profile and a creature get
 		npc:Remove()
 	end
 end)
+
+T.TestPhysics("a dead creature npc settles instead of flailing on", function()
+	if not available() then return T.Unavailable("gmod content not mounted") end
+
+	local ground = create_ground()
+
+	for _, name in ipairs(CREATURES) do
+		local npc = npcs.Spawn(name, Vec3(0, 0.05, 0), 0)
+		wait_for_parts(npc)
+		run(0.5)
+		kill(npc)
+		run(2.5)
+		local worst = 0
+
+		for _, part in ipairs(npc.ragdoll.parts) do
+			worst = math.max(worst, part.body.AngularVelocity:GetLength())
+		end
+
+		print("SETTLE", name, worst)
+		T(worst)["<"](15)
+		npc:Remove()
+	end
+
+	ground:Remove()
+end)
