@@ -174,14 +174,15 @@ do
 		return w[o + 3], w[o + 7], w[o + 11]
 	end
 
-	function Rig:GetBone(name)
+	function Rig:GetBone(name, out)
 		local index = get_index(self, name)
 
 		if self.dirty then self:Compute() end
 
 		local w = self.world
 		local o = index * 12
-		local m = Matrix44()
+		local m = out or Matrix44()
+		m.m03, m.m13, m.m23, m.m33 = 0, 0, 0, 1
 		m.m00, m.m10, m.m20, m.m30 = w[o], w[o + 1], w[o + 2], w[o + 3]
 		m.m01, m.m11, m.m21, m.m31 = w[o + 4], w[o + 5], w[o + 6], w[o + 7]
 		m.m02, m.m12, m.m22, m.m32 = w[o + 8], w[o + 9], w[o + 10], w[o + 11]

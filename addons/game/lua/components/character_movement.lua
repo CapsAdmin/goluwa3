@@ -910,7 +910,9 @@ do
 
 			return
 		elseif self.dead then
-			self:Reset(cmd.mode)
+			local ragdoll = self.Owner.ragdoll
+
+			if not (ragdoll and ragdoll.global_active) then self:Reset(cmd.mode) end
 		end
 
 		if self.Owner.ragdoll and self.Owner.ragdoll.Limp then return end

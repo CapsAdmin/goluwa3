@@ -78,7 +78,6 @@ local local_center = Vec3()
 local world_offset = Vec3()
 local local_rotation = Quat()
 local world_rotation = Quat()
-local part_matrix = Matrix44()
 local blend_position = Vec3()
 
 function META:Initialize()
@@ -89,6 +88,8 @@ function META:Initialize()
 	self.parts = {}
 	self.part_by_name = {}
 	self.part_by_role = {}
+	self.free_set = {}
+	self.pose_bones = {}
 	self.total_mass = 0
 	self.sources = {}
 	self.impulses = {}
@@ -137,6 +138,16 @@ function META:GetRig()
 	return animator and animator:GetRig(), driver
 end
 
+-- the rig carries the overrides of the last DriveRig until the next animation update clears them, the pose has to come from before them
+function META:ReadPoseBones(rig)
+	local pose_bones = self.pose_bones
+
+	for _, definition in ipairs(self.profile.Parts) do
+		local name = definition.Bone
+		pose_bones[name] = rig:GetBone(name, pose_bones[name])
+	end
+end
+
 function META:ComputePose()
 	local owner = self.Owner
 	local pose = owner.character_pose
@@ -144,9 +155,11 @@ function META:ComputePose()
 	local profile = self:GetProfile()
 
 	if profile.Model then
+		if rig and not self.driven_rig then self:ReadPoseBones(rig) end
+
 		for _, definition in ipairs(profile.Parts) do
 			local name = definition.Bone
-			self.bones[name] = rig and rig:GetBone(name) or profile.Rest[name]
+			self.bones[name] = self.pose_bones[name] or profile.Rest[name]
 		end
 
 		if not self.frames then self:BuildFrames() end
@@ -1458,6 +1471,8 @@ function META:OnPhysicsUpdate(dt)
 
 	self:UpdateLimp(dt)
 
+	if self.blend then return end
+
 	for _, part in ipairs(self.parts) do
 		if not part.frozen then
 			if part.dynamic then self:DrivePose(part, dt) else self:DrivePart(part) end
@@ -1539,6 +1554,12 @@ function META:ClearRig()
 		for _, part in ipairs(self.profile.Parts) do
 			rig:ClearBone(part.Bone)
 		end
+
+		for _, name in ipairs(self.free_set) do
+			rig:ClearBone(name)
+		end
+
+		self.free_set = {}
 	elseif rig then
 		for _, name in ipairs(aim_pose.Bones) do
 			if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
@@ -1549,6 +1570,12 @@ function META:ClearRig()
 				rig:ClearBone(biped.SourceBones[part.Bone])
 			end
 		end
+
+		for _, name in ipairs(self.free_set) do
+			rig:ClearBone(name)
+		end
+
+		self.free_set = {}
 	end
 
 	self.driven_rig = nil
@@ -1620,6 +1647,75 @@ do
 		end
 	end
 
+	-- bones that map onto no part keep the pose they had when their parent went limp and follow it rigidly
+	local function begin_free(self, rig)
+		local skeleton = rig.skeleton
+		local names, parents = skeleton.BoneNames, skeleton.parents
+		local count = skeleton.BoneCount
+		local worlds, affected = self.free_worlds, self.free_affected
+
+		if not worlds then
+			worlds, affected = {}, {}
+			self.free_worlds, self.free_affected = worlds, affected
+			self.free_part_bones = {}
+
+			for _, definition in ipairs(self.profile.Parts) do
+				local name = self.profile.Model and definition.Bone or biped.SourceBones[definition.Bone]
+				local index = name and rig.bone_indices[name:lower()]
+
+				if index then self.free_part_bones[index] = true end
+			end
+
+			for i = 0, count - 1 do
+				worlds[i] = Matrix44():Identity()
+			end
+		end
+
+		local frame = system.GetFrameNumber()
+
+		if not self.free_locals or frame - self.free_frame > 1 then
+			local locals = {}
+
+			for i = 0, count - 1 do
+				worlds[i] = rig:GetBone(names[i + 1])
+			end
+
+			for i = 0, count - 1 do
+				if not self.free_part_bones[i] then
+					local parent = parents[i]
+					locals[i] = parent >= 0 and worlds[i]:GetMultiplied(worlds[parent]:GetInverse()) or worlds[i]
+				end
+			end
+
+			self.free_locals = locals
+		end
+
+		self.free_frame = frame
+
+		for i = 0, count - 1 do
+			affected[i] = false
+		end
+
+		return worlds, affected
+	end
+
+	local function end_free(self, rig)
+		local skeleton = rig.skeleton
+		local names, parents = skeleton.BoneNames, skeleton.parents
+		local worlds, affected = self.free_worlds, self.free_affected
+
+		for i = 0, skeleton.BoneCount - 1 do
+			local parent = parents[i]
+
+			if not self.free_part_bones[i] and parent >= 0 and affected[parent] then
+				self.free_locals[i]:GetMultiplied(worlds[parent], worlds[i])
+				rig:SetBone(names[i + 1], worlds[i], "model")
+				self.free_set[#self.free_set + 1] = names[i + 1]
+				affected[i] = true
+			end
+		end
+	end
+
 	-- sets the rig bones of the limp parts on top of the animation and frees what hangs on them from the aim overrides
 	function META:DriveRig(rig, armature)
 		local entity_rotation = get_entity_frame(self)
@@ -1627,17 +1723,23 @@ do
 		if self.profile.Model then
 			if not self.frames then self:BuildFrames() end
 
+			self:ReadPoseBones(rig)
+			local worlds, affected = begin_free(self, rig)
+
 			for _, part in ipairs(self:GetPresentParts()) do
 				local name = part.definition.Bone
 
 				if self:IsDriven(part) then
+					local index = rig.bone_indices[name:lower()]
 					calibrate_frame(self, part, entity_rotation, rig:GetBone(name))
-					rig:SetBone(name, get_part_bone(self, part, entity_rotation, part_matrix), "model")
+					rig:SetBone(name, get_part_bone(self, part, entity_rotation, worlds[index]), "model")
+					affected[index] = true
 				else
 					self.frames[part.definition.Name].calibrated = nil
 				end
 			end
 
+			end_free(self, rig)
 			rig:Compute()
 			self.driven_rig = rig
 			return
@@ -1649,23 +1751,18 @@ do
 		end
 
 		local limp = {}
+		local worlds, affected = begin_free(self, rig)
 
 		for _, part in ipairs(self:GetPresentParts()) do
 			if self:IsDriven(part) then
 				limp[part.definition.Name] = true
 
 				if biped.HasBone(rig, part.definition.Bone) then
-					calibrate_frame(
-						self,
-						part,
-						entity_rotation,
-						rig:GetBone(biped.SourceBones[part.definition.Bone])
-					)
-					rig:SetBone(
-						biped.SourceBones[part.definition.Bone],
-						get_part_bone(self, part, entity_rotation, part_matrix),
-						"model"
-					)
+					local name = biped.SourceBones[part.definition.Bone]
+					local index = rig.bone_indices[name:lower()]
+					calibrate_frame(self, part, entity_rotation, rig:GetBone(name))
+					rig:SetBone(name, get_part_bone(self, part, entity_rotation, worlds[index]), "model")
+					affected[index] = true
 				end
 			else
 				self.frames[part.definition.Name].calibrated = nil
@@ -1682,6 +1779,7 @@ do
 			end
 		end
 
+		end_free(self, rig)
 		rig:Compute()
 		self.driven_rig = rig
 
