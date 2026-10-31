@@ -201,6 +201,7 @@ npcs.Definitions = {
 		Faction = "friend",
 		Dummy = true,
 		Retaliate = true,
+		RefillDelay = 0.25,
 		Biped = true,
 		Model = "models/breen.mdl",
 		Idle = "idle_subtle",
@@ -300,7 +301,6 @@ npcs.Definitions = {
 		RunSpeed = 209,
 		Sounds = voices.mossman,
 	},
-	gman = {
 	debug_stagger = {
 		Faction = "friend",
 		Dummy = true,
@@ -328,6 +328,7 @@ npcs.Definitions = {
 		RunSpeed = 210,
 		Health = 100000,
 	},
+	gman = {
 		Faction = "friend",
 		Dummy = true,
 		Biped = true,
@@ -603,7 +604,7 @@ function npcs.Register(name, info)
 						health = {
 							Health = info.Health or 50,
 							MaxHealth = info.Health or 50,
-							RefillDelay = info.Dummy and 4 or 0,
+							RefillDelay = info.RefillDelay or info.Dummy and 4 or 0,
 						},
 					},
 				},
