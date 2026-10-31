@@ -285,7 +285,14 @@ event.AddListener("HealthDamaged", "jrpg", function(entity, amount, max_health, 
 		entity.jrpg_attackers[attacker] = (entity.jrpg_attackers[attacker] or 0) + amount
 	end
 
-	effects.Damage(entity, info.Type, amount, max_health)
+	effects.Damage(
+		entity,
+		info.Type,
+		amount,
+		max_health,
+		info.Damage,
+		info.Position:GetLength() > 0 and info.Position or nil
+	)
 	local definition = damage_types.Get(info.Type)
 	local body = entity.rigid_body
 

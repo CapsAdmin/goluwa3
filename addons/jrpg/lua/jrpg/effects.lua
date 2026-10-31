@@ -44,8 +44,8 @@ effects.HitOverlay = new_event(
 )
 effects.Damage = new_event(
 	"jrpg_damage",
-	function(entity, type_name, amount, max_health)
-		effects.ShowDamage(entity, type_name, amount, max_health)
+	function(entity, type_name, amount, max_health, raw_amount, position)
+		effects.ShowDamage(entity, type_name, amount, max_health, raw_amount, position)
 	end,
 	enabled
 )
@@ -856,11 +856,12 @@ do
 	end)
 end
 
-function effects.ShowDamage(entity, type_name, amount, max_health)
+function effects.ShowDamage(entity, type_name, amount, max_health, raw_amount, position)
 	if not entity:IsValid() then return end
 
 	local definition = damage_types.Get(type_name)
 	local fraction = math.abs(amount) / math.max(max_health, 1)
+
 	if Rpg.IsLocal() then
 		clips.Play(
 			"jrpg_flash",
@@ -877,7 +878,14 @@ function effects.ShowDamage(entity, type_name, amount, max_health)
 		end
 	end
 
-	hitmarkers.Add(entity, amount, max_health, system.GetElapsedTime(), nil, definition.Color)
+	hitmarkers.Add(
+		entity,
+		raw_amount,
+		max_health,
+		system.GetElapsedTime(),
+		position,
+		definition.Color
+	)
 end
 
 function effects.ShowText(entity, text, color)
