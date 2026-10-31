@@ -4,7 +4,8 @@ local damage = import("lua/damage.lua")
 local actors = import("lua/actors.lua")
 local effects = import("lua/jrpg/effects.lua")
 local slash = {}
-local CUT_SPRAY = 0.5
+local SPRAY_TILT = 0.4
+local SPRAY_JITTER = 0.12
 
 local function to_attacker_side(normal, to_attacker)
 	normal = normal:GetNormalized()
@@ -102,7 +103,13 @@ function slash.Strike(holder, inflictor, forward, cut_local, amount, scale, rang
 					types[1],
 					scale,
 					cut,
-					(surface + cut * CUT_SPRAY):GetNormalized(),
+					(
+						cut + surface * SPRAY_TILT + Vec3(
+							math.randomf(-SPRAY_JITTER, SPRAY_JITTER),
+							math.randomf(-SPRAY_JITTER, SPRAY_JITTER),
+							math.randomf(-SPRAY_JITTER, SPRAY_JITTER)
+						)
+					):GetNormalized(),
 					amount
 				)
 			else
