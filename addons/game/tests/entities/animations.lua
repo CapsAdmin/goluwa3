@@ -68,6 +68,29 @@ T.Test("actions and impulses play at the same time as a state and expire", funct
 	entity:Remove()
 end)
 
+T.Test("a freeze holds what is drawn and pauses the action clock only when it asks to", function()
+	local entity = create()
+	local pose = entity.character_pose
+	pose:PlayAction("cast_r", 1)
+	step(pose, 0.1)
+	pose:Freeze(0.3)
+	local _, before = pose:GetActiveAction()
+	step(pose, 0.1)
+	local _, during = pose:GetActiveAction()
+	T(pose:IsFrozen())["=="](true)
+	T(pose.render_held)["=="](true)
+	T(during > before)["=="](true)
+	step(pose, 0.3)
+	T(pose.render_held)["=="](false)
+	pose:Freeze(0.3, true)
+	_, before = pose:GetActiveAction()
+	step(pose, 0.1)
+	_, during = pose:GetActiveAction()
+	T(during)["=="](before)
+	T(pose:GetTimeScale())["=="](0)
+	entity:Remove()
+end)
+
 T.Test("key sampling eases per segment and holds the ends", function()
 	local out = {}
 	local keys = {{0, 0}, {1, 1, ease = "in"}, {2, 3, ease = "linear"}}
@@ -109,7 +132,13 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 T.Test("a hit plays a flinch that follows the part, direction and damage of the hit", function()
 	local entity = create()
 	local pose = entity.character_pose
-	pose:OnTakeDamage{Damage = 20, Direction = Vec3(1, 0, 0), Part = "upperarm_r", Force = Vec3(), Normal = Vec3(0, 1, 0)}
+	pose:OnTakeDamage{
+		Damage = 20,
+		Direction = Vec3(1, 0, 0),
+		Part = "upperarm_r",
+		Force = Vec3(),
+		Normal = Vec3(0, 1, 0),
+	}
 	T(pose.Action)["=="]("flinch")
 	T(pose.ActionPart)["=="]("upperarm_r")
 	T(pose.ActionStrength)["=="](1)

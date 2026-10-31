@@ -25,6 +25,7 @@ META.Network = {
 	FocusPoint = {"vec3", 0.05, "reliable", to_owner = true},
 	Freezes = {"number", 0.05, "reliable", to_owner = true},
 	FreezeTime = {"number", 0.05, "reliable", to_owner = true},
+	FreezeClock = {"boolean", 0.05, "reliable", to_owner = true},
 	LeanSide = {"number", 1 / 60, "sequenced", true},
 	LeanForward = {"number", 1 / 60, "sequenced", true},
 	Distance = {"number", 1 / 60, "sequenced", true},
@@ -49,6 +50,7 @@ META:GetSet("Focus", NULL)
 META:GetSet("FocusPoint", Vec3())
 META:GetSet("Freezes", 0)
 META:GetSet("FreezeTime", 0)
+META:GetSet("FreezeClock", false)
 META:GetSet("LeanSide", 0)
 META:GetSet("LeanForward", 0)
 META:GetSet("Distance", 0)
@@ -95,6 +97,7 @@ function META:Initialize()
 	self.seen_freezes = self.Freezes
 	self.predicted_actions = {}
 	self.freeze = 0
+	self.freeze_clock = false
 	self.seen_ready_shots = self.Shots
 	self.anims = {}
 	self.state_args = {}
@@ -223,11 +226,36 @@ function META:GetFacingPoint()
 	return self.FocusPoint
 end
 
-function META:Freeze(duration)
+function META:Freeze(duration, clock)
 	self:SetFreezeTime(duration)
+	self:SetFreezeClock(clock or false)
 	self:SetFreezes(self.Freezes + 1)
 	self.seen_freezes = self.Freezes
 	self.freeze = duration
+	self.freeze_clock = clock or false
+end
+
+do
+	local function hold_rigs(entity, held)
+		local animator = entity.animator
+		local rig = animator and animator:GetRig()
+		local armature = entity.armature
+
+		if rig then rig:SetHeld(held) end
+
+		if armature and armature.rig then armature.rig:SetHeld(held) end
+	end
+
+	function META:SetRenderHeld(held)
+		self.render_held = held
+		local owner = self.Owner
+		owner.transform:SetFrozen(held)
+		hold_rigs(owner, held)
+
+		for _, child in ipairs(owner:GetChildrenList()) do
+			hold_rigs(child, held)
+		end
+	end
 end
 
 function META:IsFrozen()
@@ -235,7 +263,7 @@ function META:IsFrozen()
 end
 
 function META:GetTimeScale()
-	return self.freeze > 0 and 0 or self.animation_speed
+	return self.freeze > 0 and self.freeze_clock and 0 or self.animation_speed
 end
 
 function META:IsStunned()
@@ -362,12 +390,18 @@ function META:UpdateAnimations(dt)
 	if self.Freezes ~= self.seen_freezes then
 		self.seen_freezes = self.Freezes
 		self.freeze = self.FreezeTime
+		self.freeze_clock = self.FreezeClock
 	end
 
 	if self.freeze > 0 then
 		self.freeze = math.max(self.freeze - dt, 0)
-		dt = 0
+
+		if self.freeze_clock then dt = 0 end
 	end
+
+	local frozen = self.freeze > 0
+
+	if frozen ~= self.render_held then self:SetRenderHeld(frozen) end
 
 	if self.States ~= self.seen_states then
 		self.seen_states = self.States
@@ -554,7 +588,9 @@ function META:RegisterShot()
 end
 
 function META:OnTakeDamage(info)
-	if info.Staggered or info.Status or info.Secondary or info.Damage <= 0 then return end
+	if info.Staggered or info.Status or info.Secondary or info.Damage <= 0 then
+		return
+	end
 
 	self:PlayAction(
 		"flinch",
@@ -563,8 +599,7 @@ function META:OnTakeDamage(info)
 		info.Direction or
 			info.Force and
 			info.Force:GetLength() > 0.01 and
-			info.Force
-			or
+			info.Force or
 			info.Normal and
 			info.Normal * -1,
 		math.clamp(info.Damage / FLINCH_FULL_DAMAGE, FLINCH_MIN_STRENGTH, 1)

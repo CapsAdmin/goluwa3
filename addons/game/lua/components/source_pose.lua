@@ -224,7 +224,6 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 	end
 
 	self.reaction_inst = nil
-
 	local action = pose:GetActiveAction()
 	local move = action and movesets.GetMove(action)
 
@@ -240,7 +239,10 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 		end
 
 		animator:SetSpeed(
-			(move.ClipSpeed or clip.Duration / pose.ActionDuration) * pose:GetTimeScale() * pose.rate_variation
+			(
+					move.ClipSpeed or
+					clip.Duration / pose.ActionDuration
+				) * pose:GetTimeScale() * pose.rate_variation
 		)
 		return
 	end
@@ -488,7 +490,9 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 		local sole = soles and soles[i]
 		local sx, sy, sz = foot.m30, foot.m31, foot.m32
 
-		if sole then sx, sy, sz = foot:TransformVectorUnpacked(sole.x, sole.y, sole.z) end
+		if sole then
+			sx, sy, sz = foot:TransformVectorUnpacked(sole.x, sole.y, sole.z)
+		end
 
 		local x, y, z = world:TransformVectorUnpacked(sx, sy, sz)
 		local hit = grounded and
@@ -522,7 +526,13 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 
 			if rate < -STEP_DESCEND * scale then step.descending = true end
 
-			if step.descending and rate > -STEP_STOP * scale and height < (step.peak + step.floor) * 0.5 then
+			if
+				step.descending and
+				rate > -STEP_STOP * scale and
+				height < (
+					step.peak + step.floor
+				) * 0.5
+			then
 				if hit then impacts.FireFootstep(character, name, hit, step.speed) end
 
 				step.lifted, step.descending, step.speed, step.floor = false, false, 0, height
@@ -865,6 +875,7 @@ function META:UpdateCreatureLimbs(rig, pose, dt)
 	if not limbs then
 		if not self.limbs_loading then
 			self.limbs_loading = true
+
 			model_loader.LoadModel(self.Owner.model.ModelPath, function(data)
 				self:BuildLimbs(data.physics.ragdoll)
 			end)

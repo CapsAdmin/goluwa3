@@ -380,7 +380,33 @@ function META:WorldToLocalPosition(world_position)
 	return self:GetParentWorldMatrix():GetInverse():TransformVector(world_position)
 end
 
+function META:SetFrozen(frozen)
+	if frozen then
+		self.FrozenWorldMatrix = self:GetWorldMatrix():Copy()
+		return
+	end
+
+	self.FrozenWorldMatrix = nil
+	self:ResetRenderHistory()
+end
+
+function META:ResetRenderHistory()
+	self.RenderWorldMatrixFrame = nil
+	self.PreviousRenderWorldMatrix = nil
+
+	for _, child in ipairs(self.Owner:GetChildrenList()) do
+		local transform = child.transform
+
+		if transform then
+			transform.RenderWorldMatrixFrame = nil
+			transform.PreviousRenderWorldMatrix = nil
+		end
+	end
+end
+
 function META:GetWorldMatrix()
+	if self.FrozenWorldMatrix then return self.FrozenWorldMatrix end
+
 	local frame = system.GetFrameNumber()
 	local dynamic = self:IsFrameDynamic()
 	local bone = self:GetAttachedBone()
@@ -425,6 +451,9 @@ end
 
 function META:GetPreviousWorldMatrix()
 	local world = self:GetWorldMatrix()
+
+	if self.FrozenWorldMatrix then return world end
+
 	local frame = system.GetFrameNumber()
 
 	if self.RenderWorldMatrixFrame ~= frame then

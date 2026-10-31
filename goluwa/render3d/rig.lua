@@ -92,7 +92,19 @@ function Rig:Remove()
 	self.removed = true
 end
 
+function Rig:SetHeld(held)
+	if held then
+		self:Update()
+		self.held = true
+	else
+		self.held = nil
+		self.dirty = true
+	end
+end
+
 function Rig:SetPose(pose)
+	if self.held then return end
+
 	self.pose:Copy(pose)
 	self.dirty = true
 end
@@ -114,6 +126,8 @@ do
 	end
 
 	function Rig:SetBone(name, matrix, space)
+		if self.held then return end
+
 		local index = get_index(self, name)
 		local overrides = self.overrides
 
@@ -131,6 +145,8 @@ do
 	end
 
 	function Rig:ClearBone(name)
+		if self.held then return end
+
 		local index = get_index(self, name)
 		local overrides = self.overrides
 		set_flag(overrides, overrides.local_set, index, false)
@@ -139,6 +155,8 @@ do
 	end
 
 	function Rig:ClearBones()
+		if self.held then return end
+
 		local overrides = self.overrides
 		ffi.fill(overrides.local_set, self.skeleton.BoneCount)
 		ffi.fill(overrides.model_set, self.skeleton.BoneCount)
@@ -187,6 +205,8 @@ function Rig:GetFlex(name)
 end
 
 function Rig:SetFlex(name, value)
+	if self.held then return end
+
 	self.flex_controllers[self.flex_indices[name] or
 	error("unknown flex " .. name, 2)] = value
 	self.flex_dirty = true
@@ -194,6 +214,8 @@ function Rig:SetFlex(name, value)
 end
 
 function Rig:SetEyeAngles(index, yaw, pitch)
+	if self.held then return end
+
 	local eye = self.skeleton.Eyes[index]
 	local up = Vec3(eye.up[1], eye.up[2], eye.up[3])
 	local right = Vec3(eye.forward[1], eye.forward[2], eye.forward[3]):GetCross(up)
@@ -273,6 +295,8 @@ function Rig:Skin()
 end
 
 function Rig:Update()
+	if self.held then return end
+
 	if self.dirty then self:Compute() end
 
 	if self.needs_skin then self:Skin() end

@@ -469,6 +469,8 @@ end
 function Animator:Animate(dt)
 	local rig = self.rig
 
+	if rig.held then return end
+
 	if self.clip_dirty then self:ResolveClip() end
 
 	local clip = self.clip
