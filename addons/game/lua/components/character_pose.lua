@@ -77,6 +77,7 @@ local head_to_aim = Quat()
 local SEAT_LOOK_YAW = 1.4
 local RELAY_FRESH = 0.3
 local PREDICTED_ACTION_WINDOW = 1
+local REFRESH_MAX_FRAMES = 3
 local FLINCH_DURATION = 0.4
 local FLINCH_FULL_DAMAGE = 20
 local FLINCH_MIN_STRENGTH = 0.25
@@ -177,6 +178,10 @@ function META:StartAction(name, duration, part, strength)
 	anims[#anims + 1] = inst
 
 	if inst.def.Init then inst.def.Init(inst, self) end
+
+	if self.freeze > 0 and not self.freeze_clock and not inst.def.Passive then
+		self:RefreshRenderHold()
+	end
 end
 
 function META:PredictAction(name, duration)
@@ -244,6 +249,14 @@ do
 		if rig then rig:SetHeld(held) end
 
 		if armature and armature.rig then armature.rig:SetHeld(held) end
+	end
+
+	function META:RefreshRenderHold()
+		local animator = self.Owner.animator
+		self.refreshing = true
+		self.refresh_frames = 0
+		self.refresh_version = animator and animator.skin_version or 0
+		self:SetRenderHeld(false)
 	end
 
 	function META:SetRenderHeld(held)
@@ -401,7 +414,25 @@ function META:UpdateAnimations(dt)
 
 	local frozen = self.freeze > 0
 
-	if frozen ~= self.render_held then self:SetRenderHeld(frozen) end
+	if self.refreshing then
+		local animator = self.Owner.animator
+		self.refresh_frames = self.refresh_frames + 1
+
+		if
+			(
+				animator and
+				animator.skin_version or
+				0
+			) ~= self.refresh_version or
+			self.refresh_frames >= REFRESH_MAX_FRAMES
+		then
+			self.refreshing = false
+		end
+	end
+
+	local hold = frozen and not self.refreshing
+
+	if hold ~= self.render_held then self:SetRenderHeld(hold) end
 
 	if self.States ~= self.seen_states then
 		self.seen_states = self.States

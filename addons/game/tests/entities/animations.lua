@@ -91,6 +91,24 @@ T.Test("a freeze holds what is drawn and pauses the action clock only when it as
 	entity:Remove()
 end)
 
+T.Test("an action started during a render only freeze shows one fresh frame and is held again", function()
+	local entity = create()
+	local pose = entity.character_pose
+	pose:Freeze(5)
+	step(pose, 0.02)
+	T(pose.render_held)["=="](true)
+	pose:PlayAction("cast_r", 1)
+	step(pose, 0.02)
+	T(pose.render_held)["=="](false)
+
+	for _ = 1, 3 do
+		step(pose, 0.02)
+	end
+
+	T(pose.render_held)["=="](true)
+	entity:Remove()
+end)
+
 T.Test("key sampling eases per segment and holds the ends", function()
 	local out = {}
 	local keys = {{0, 0}, {1, 1, ease = "in"}, {2, 3, ease = "linear"}}
