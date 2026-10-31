@@ -30,7 +30,7 @@ jrpg.Loadout = {
 	"weapon_rapier",
 	"weapon_reaper",
 	"weapon_shield",
-	"weapon_slash_debug",
+	"weapon_debug",
 }
 
 for _, name in ipairs(damage_types.Names) do

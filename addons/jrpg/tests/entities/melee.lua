@@ -3,6 +3,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local physics = import("goluwa/physics.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
@@ -125,7 +126,6 @@ T.TestPhysics("a hit over the threshold freezes both fighters and staggers the v
 	T(victim.character_pose.Action)["=="]("stagger")
 	local start = victim.transform:GetPosition():Copy()
 	run(0.2, {victim.character_pose})
-	T(victim.character_pose:IsStunned())["=="](true)
 	local strength = 0
 
 	for _, inst in ipairs(victim.character_pose.anims) do
@@ -135,6 +135,7 @@ T.TestPhysics("a hit over the threshold freezes both fighters and staggers the v
 	end
 
 	T(math.abs(strength - 1) < 0.01)["=="](true)
+	T(victim.character_pose:IsStunned())["=="](true)
 	run(0.5, {victim.character_pose})
 	T(victim.transform:GetPosition().z < start.z - 0.3)["=="](true)
 	run(0.6, {victim.character_pose})
@@ -346,4 +347,22 @@ T.Test("a move's motion is a track of the same timeline and holds its last key",
 	T(out[3])["=="](1)
 	T(movesets.GetEvent(move, "hit").At)["=="](0.56)
 	T(movesets.GetEvent(move, "latch"))["=="](nil)
+end)
+
+T.TestPhysics("the debug weapon strikes and shoots with the picked damage and type", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local victim = create_character(Vec3(0, 0.05, -1.5), 1000)
+	local debug_weapon = attacker.weapon_holder:Give("weapon_debug")
+	local usercmd = import("goluwa/network/usercmd.lua")
+	local cmd = usercmd.New()
+	cmd.aim = Quat(0, 0, 0, 1)
+	debug_weapon.weapon_debug.type_index = 2
+	debug_weapon.weapon_debug.damage_index = 5
+	debug_weapon.weapon_debug:OnWeaponPrimary(cmd)
+	T(victim.health:GetHealth() < 1000)["=="](true)
+	local after_strike = victim.health:GetHealth()
+	debug_weapon.weapon_debug.type_index = 1
+	debug_weapon.weapon_debug:OnWeaponPrimary(cmd)
+	T(victim.health:GetHealth() < after_strike)["=="](true)
 end)

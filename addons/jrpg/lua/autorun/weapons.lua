@@ -12,7 +12,7 @@ for _, name in ipairs{"sword", "greatsword", "rapier", "reaper"} do
 	movesets.Register(name, import(path), path)
 end
 
-for _, name in ipairs{"sword", "greatsword", "rapier", "reaper", "shield", "slash_debug"} do
+for _, name in ipairs{"sword", "greatsword", "rapier", "reaper", "shield", "debug"} do
 	local definition = import("lua/weapons/" .. name .. ".lua")
 	weapons.Register(
 		"weapon_" .. name,
