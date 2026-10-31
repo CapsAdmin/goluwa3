@@ -49,6 +49,12 @@ function META:SetSpring(neutral_angle, hertz, limit_hertz, damping, zone)
 	return self
 end
 
+function META:ClearSpring()
+	self.NeutralAngle = nil
+	self.SpringImpulse = 0
+	return self
+end
+
 function META:SetMotor(speed, max_torque)
 	self.MotorSpeed = speed
 	self.MaxMotorTorque = max_torque

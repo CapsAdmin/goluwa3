@@ -47,6 +47,12 @@ function META:SetSpring(neutral_angles, hertz, limit_hertz, damping, zone)
 	return self
 end
 
+function META:ClearSpring()
+	self.NeutralAngles = nil
+	self.SpringImpulses = {0, 0, 0}
+	return self
+end
+
 function META:WarmStart()
 	if not self:Prepare() then return end
 
