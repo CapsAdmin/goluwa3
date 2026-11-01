@@ -18,6 +18,7 @@ View:GetSet("HidePlayer", true)
 View:GetSet("Ignore", nil)
 View:GetSet("HideHud", false)
 View:GetSet("ExposureLock", false)
+View:GetSet("ExposureHold", false)
 View:GetSet("ExposureCompensation", false)
 
 local function sort_active(a, b)

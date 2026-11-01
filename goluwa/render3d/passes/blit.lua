@@ -370,6 +370,11 @@ local exposure_feedback_shader = glsl_common.GetLuminanceGLSL() .. [[
 
 		if (!(prev.r > 0.0)) prev.b = metered_ev;
 
+		if (compute.hold != 0 && prev.r > 0.0) {
+			imageStore(out_exposure, ivec2(0, 0), vec4(prev.r, metered_ev, prev.b, 1.0));
+			return;
+		}
+
 		if (!(prev.r > 0.0) || compute.lock != 0) prev.r = exp2(log_target);
 
 		float log_prev = log2(prev.r);
@@ -414,6 +419,7 @@ local exposure_feedback_pass = {
 		{"dt", "float"},
 		{"lock", "int"},
 		{"lock_ev", "float"},
+		{"hold", "int"},
 		{"compensation", "float"},
 		{"eye", "int"},
 		{"min_ev", "float"},
@@ -431,6 +437,7 @@ local exposure_feedback_pass = {
 		block.dt = get_exposure_dt()
 		block.lock = lock and 1 or 0
 		block.lock_ev = lock or 0
+		block.hold = view and view.ExposureHold and 1 or 0
 		block.compensation = view and view.ExposureCompensation or exposure_model.GetCompensation()
 		block.eye = eye and 1 or 0
 		block.min_ev = min_ev
