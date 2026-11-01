@@ -35,7 +35,7 @@ A command carries `select` (an index into `holder:GetWeapons()`, sorted by `Slot
 
 ## Inventory menu
 
-`~` toggles `lua/inventory_menu.lua` (model: open state, subject, selected place, `GetCandidates`, `Equip`; it fires `InventoryMenuChanged`). The panel is a react component (`lua/inventory_ui.lua`) mounted while open and driven by the mouse, a party is the player plus nearby `friend` NPCs with a `weapon_holder`. While open, `player_input` ignores movement, buttons, look and selection keys. `autorun/render_3d/inventory_camera.lua` activates a front view on the selected place's socket and a `screen_fields` darken sphere around the subject; `autorun/render_2d/inventory_hud.lua` marks the socket. The player equips through `player_input:Select` (the command path), other subjects through `holder:Equip` on the authority.
+`~` toggles `lua/inventory_menu.lua` (model: open state, subject, selected place, `GetCandidates`, `Equip`; it fires `InventoryMenuChanged`). The panel is a react component (`lua/inventory_ui.lua`) mounted while open and driven by the mouse, a party is the player plus nearby `friend` NPCs with a `weapon_holder`. While open, `player_input` ignores movement, buttons, look and selection keys. `autorun/render_3d/inventory_camera.lua` activates a front view on the selected place's socket and a `screen_fields` darken sphere around the subject (`Brightness` low, the view holds exposure so auto exposure does not undo it); `autorun/render_2d/inventory_hud.lua` marks the socket. The player equips through `player_input:Select` (the command path), other subjects through `holder:Equip` on the authority.
 
 ## Posing
 

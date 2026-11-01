@@ -45,15 +45,16 @@ event.AddListener("Update", "inventory_camera", function(dt)
 		local camera = render3d.GetMainCamera()
 		view_position:CopyFrom(camera:GetPosition())
 		view_aim:CopyFrom(view_position + camera:GetRotation():GetForward() * 3)
-		view = View.New{Priority = 100, HidePlayer = false, FOV = math.rad(50)}:Activate()
+		view = View.New{Priority = 100, HidePlayer = false, FOV = math.rad(50), ExposureHold = true}:Activate()
 		field = screen_fields.Add{
 			Position = chest,
 			Duration = 1000,
 			Attack = 0.0003,
 			Radius = HERO_RADIUS,
 			Expand = false,
-			Thickness = 0.5,
-			Darken = 0.85,
+			Thickness = 0.2,
+			Darken = 0.995,
+			Brightness = 0,
 		}
 	end
 
