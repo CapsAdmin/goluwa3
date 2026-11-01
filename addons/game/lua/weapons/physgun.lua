@@ -69,6 +69,12 @@ local function sync_body_rotation_to_transform(body)
 	transform:SetRotation(body:GetRotation():Copy())
 end
 
+local function get_beam_entity(body)
+	local ragdoll = body.BoxRagdoll
+	local proxy = ragdoll and ragdoll.box_proxy
+	return proxy and proxy.entity or body.Owner
+end
+
 local function rotate_offset_relative_to_camera(offset, camera_rotation, mouse_delta)
 	local target_rotation = (camera_rotation * offset):GetNormalized()
 	local delta_rotation = Quat():Identity()
@@ -135,7 +141,7 @@ function META:SyncBeam()
 	local tool = self.Owner.tool_beam
 	local body = self.held_body
 	tool:SetActive(self.beam_on)
-	tool:SetTarget(body and body:IsValid() and body.Owner:GetGUID() or "")
+	tool:SetTarget(body and body:IsValid() and get_beam_entity(body):GetGUID() or "")
 	tool:SetTargetPoint(self.held_local_point:Copy())
 end
 
@@ -256,6 +262,7 @@ function META:CanGrabBody(body)
 		body.WorldGeometry ~= true and
 		(
 			not body:IsStatic() or
+			body.BoxRagdoll or
 			body.Owner.ragdoll_part or
 			not body.Owner:GetTransient()
 		)
@@ -323,7 +330,7 @@ function META:FindBody(cmd)
 
 			if not self:CanGrabBody(body) then return false end
 
-			if entity.ragdoll_part then return true end
+			if body.BoxRagdoll or entity.ragdoll_part then return true end
 
 			return not entity.ragdoll and (body:IsStatic() or body:GetServerDynamic())
 		end,
@@ -357,8 +364,14 @@ function META:TryAcquireBody(cmd)
 	if not body then return false end
 
 	local part = body.Owner.ragdoll_part
+	local box_ragdoll = body.BoxRagdoll or part and part.Character.ragdoll.BoxRagdoll and part.Character.ragdoll
 
-	if part then
+	if box_ragdoll then
+		self.held_character = box_ragdoll.Owner
+		body = box_ragdoll:GrabBox(body)
+
+		if body:IsStatic() then body:SetMotionType("dynamic") end
+	elseif part then
 		self.held_character = part.Character
 		part.Character.ragdoll:Unfreeze(body)
 		part.Character.ragdoll:Grab(body)

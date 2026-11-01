@@ -888,18 +888,68 @@ T.TestPhysics("a box ragdoll knockdown carries the character as one box and stan
 	local character = create_character()
 	character.ragdoll:SetBoxRagdoll(true)
 	run(character, 1)
-	character.ragdoll:Knockdown(Vec3(3, 0, 0), nil)
+	character.ragdoll:Knockdown(Vec3(3, 3, 0), nil)
 	run(character, 0.2)
 	T(character.ragdoll.box_entity ~= nil)["=="](true)
 	T(character.ragdoll.Limp)["=="](true)
 	T(character.transform:GetPosition().x > 0.1)["=="](true)
 	run(character, 0.9)
 	T(character.transform:GetRotation():VecMul(Vec3(0, 0, -1)).y)[">"](0.9)
-	T(character.ragdoll.box_entity.rigid_body.Shape:GetRadius())[">"](0.2)
+	T(character.ragdoll.box_entity.rigid_body.Shape:GetRadius())[">"](0.1)
 	run(character, 5)
 	T(character.ragdoll.box_entity == nil)["=="](true)
 	T(character.ragdoll.Limp)["=="](false)
 	T(character.character_movement.mode)["=="]("walk")
 	T(character.transform:GetPosition().y < 0.5)["=="](true)
 	character:Remove()
+end)
+
+T.TestPhysics("a physgun picks up the box of a box ragdoll instead of building the part ragdoll, which stands back up once let go", function()
+	create_ground()
+	local target = create_character(Vec3(0, 0.05, -3))
+	target.ragdoll:SetBoxRagdoll(true)
+	run(target, 1)
+	local holder = Entity.New{
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"weapon_holder",
+			"health",
+		},
+		transform = {Position = Vec3(0, 0.05, 0)},
+		player_controller = {Source = "queue"},
+	}
+	holder.player_controller.cmd.mode = "walk"
+	local physgun = holder.weapon_holder:Give("weapon_physgun")
+	holder.weapon_holder:Equip(physgun, "right")
+	physgun.weapon.Think = function() end
+	local cmd = usercmd.New()
+	cmd.buttons = usercmd.BUTTON.ACTIVE + usercmd.BUTTON.ATTACK1
+
+	for _ = 1, 20 do
+		physics.UpdateFixed(1 / 60)
+		target.character_pose:OnUpdate(1 / 60)
+		physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	end
+
+	local held = physgun.weapon_physgun.held_body
+	local ragdoll = target.ragdoll
+	T(held ~= nil and held == ragdoll.box_entity.rigid_body)["=="](true)
+	T(ragdoll.dynamic_count)["=="](0)
+	T(ragdoll.Limp)["=="](true)
+	T(ragdoll.box_proxy ~= nil)["=="](true)
+	run(target, 3)
+	T(ragdoll.box_entity ~= nil)["=="](true)
+	T(ragdoll.box_proxy.body.Position:Distance(held.Position))["<"](0.01)
+	cmd.buttons = usercmd.BUTTON.ACTIVE
+	physgun.weapon_physgun:OnWeaponThink(1 / 60, cmd)
+	T(physgun.weapon_physgun.held_body == nil)["=="](true)
+	run(target, 6)
+	T(ragdoll.box_entity == nil)["=="](true)
+	T(ragdoll.Limp)["=="](false)
+	T(ragdoll.box_proxy == nil)["=="](true)
+	target:Remove()
+	holder:Remove()
 end)

@@ -5,7 +5,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local constraints = import("goluwa/physics/constraints.lua")
 local physics = import("goluwa/physics.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
-local BoxShape = import("goluwa/physics/shapes/box.lua")
+local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local rows = import("goluwa/physics/constraint_rows.lua")
@@ -17,7 +17,6 @@ local RagdollPart = import("lua/components/ragdoll_part.lua")
 local CharacterMovement = import("lua/components/character_movement.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local knockout_pose = import("lua/knockout_pose.lua")
-local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local META = objects.CreateTemplate("ragdoll")
 -- an empty Network table is what makes the component part of the spawn packet
 META.Network = {Limp = {"boolean", 0.1, "reliable", to_owner = true}}
@@ -57,11 +56,12 @@ local PART_ROLLING_FRICTION = 6
 local PART_MAX_SPEED = 40
 local JOINT_FRICTION = 0.05
 local CHEAP_ANGULAR_DAMPING = 3
-local KNOCKOUT_RADIUS = 0.2
-local KNOCKOUT_LYING_HALF = 0.2
-local KNOCKOUT_TURN_RATE = 12
+local MIN_BOX_RADIUS = 0.075
+local BOX_ANGULAR_DAMPING = 0.5
+local BOX_ROLLING_FRICTION = 20
+local knockout_local = Vec3()
+local KNOCKOUT_TURN_RATE = 24
 local KNOCKOUT_REST_SPEED = 0.1
-local KNOCKOUT_DEAD_POSE = 0.2
 local KNOCKOUT_REST_TIME = 1
 local KNOCKOUT_GETUP_TIME = 0.5
 local knockout_rest = Quat()
@@ -969,6 +969,11 @@ function META:Grab(body)
 end
 
 function META:Ungrab(body)
+	if body.BoxRagdoll then
+		self:UngrabBox()
+		return
+	end
+
 	self.grabs = math.max(self.grabs - 1, 0)
 	body:SetMass(self.held[body])
 	self.held[body] = nil
@@ -1095,68 +1100,50 @@ function META:EnterBox(velocity)
 
 	if not self.global_active then self:EnterGlobal(owner.health:IsDead()) end
 
-	local min_x, min_y, min_z = math.huge, math.huge, math.huge
-	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
-
 	for _, part in ipairs(self.parts) do
-		local body = part.body
-		local position = body.Position
-		local axis = body.Rotation:VecMul(UP) * part.half
-		local radius = part.definition.Radius
-
-		for sign = -1, 1, 2 do
-			local x, y, z = position.x + axis.x * sign, position.y + axis.y * sign, position.z + axis.z * sign
-			min_x, min_y, min_z = math.min(min_x, x - radius), math.min(min_y, y - radius), math.min(min_z, z - radius)
-			max_x, max_y, max_z = math.max(max_x, x + radius), math.max(max_y, y + radius), math.max(max_z, z + radius)
-		end
-
 		part.body:SetCollisionEnabled(false)
 	end
 
-	local knockout = self.Profile == "humanoid"
-	local radius = (max_y - min_y) * KNOCKOUT_RADIUS
-	local center = Vec3((min_x + max_x) * 0.5, (min_y + max_y) * 0.5, (min_z + max_z) * 0.5)
-
-	if knockout then center = owner.transform:GetPosition() + Vec3(0, radius, 0) end
-
+	local root = self.parts[1]
+	local half = math.max(root.definition.Radius, MIN_BOX_RADIUS)
+	local center = owner.transform:GetPosition() + Vec3(0, half, 0)
 	local entity = Entity.New{
 		Name = "corpse_box",
 		transform = {Position = center:Copy(), Rotation = Quat(0, 0, 0, 1)},
 		rigid_body = {
-			Shape = knockout and
-				SphereShape.New(radius) or
-				BoxShape.New(Vec3(max_x - min_x, max_y - min_y, max_z - min_z)),
+			Shape = SphereShape.New(half),
 			MotionType = "dynamic",
 			Mass = CharacterMovement.BodyMass,
 			AutomaticMass = false,
 			Friction = CharacterMovement.RagdollFriction,
 			FrictionCombineMode = "multiply",
 			LinearDamping = PART_LINEAR_DAMPING,
-			AngularDamping = CHEAP_ANGULAR_DAMPING,
+			AngularDamping = BOX_ANGULAR_DAMPING,
 			CollisionMask = -1,
 		},
 	}
 	local body = entity.rigid_body
+	body:SetRollingFriction(BOX_ROLLING_FRICTION)
+	body:SetRollingFrictionCombineMode("max")
 	body:SetCollideWorldOnly(true)
 	body:SetCCD(false)
 	body:SetSleepLinearThreshold(self.CheapSleepThreshold)
 	body:SetSleepAngularThreshold(self.CheapSleepThreshold)
 	body:SetMaxLinearSpeed(PART_MAX_SPEED)
 	body:SetVelocity(velocity)
+	body.BoxRagdoll = self
 	self.box_entity = entity
+	self.box_held = 0
 	self.box_offset = owner.transform:GetPosition() - center
 	self.box_rotation = owner.transform:GetRotation():Copy()
-
-	if knockout then
-		body:SetLockRotation(true)
-		self.knockout_radius = radius
-		self.knockout_time = 0
-		self.knockout_quiet = 0
-		self.knockout_getup = nil
-		self.knockout_rotation = self.box_rotation:Copy()
-		local forward = self.box_rotation:VecMul(Vec3(0, 0, -1))
-		self.knockout_dir = Vec3(forward.x, 0, forward.z):GetNormalized()
-	end
+	self.knockout_pelvis = self.box_rotation:GetConjugated():VecMul(owner.transform:GetPosition() - root.body.Position)
+	self.box_half = half
+	self.knockout_time = 0
+	self.knockout_quiet = 0
+	self.knockout_getup = nil
+	self.knockout_rotation = self.box_rotation:Copy()
+	local forward = self.box_rotation:VecMul(Vec3(0, 0, -1))
+	self.knockout_dir = Vec3(forward.x, 0, forward.z):GetNormalized()
 end
 
 function META:UpdateKnockoutRotation(body, dt)
@@ -1166,7 +1153,7 @@ function META:UpdateKnockoutRotation(body, dt)
 	self.knockout_time = self.knockout_time + dt
 	local time = self.knockout_time
 	local flight = knockout_pose.GetFactor(speed, time)
-	local lie = math.min(time, 1)
+	local lie = math.min(time * 3, 1)
 
 	if self.knockout_getup then
 		lie = 1 - math.min((time - self.knockout_getup) / KNOCKOUT_GETUP_TIME, 1)
@@ -1195,23 +1182,25 @@ function META:UpdateKnockoutRotation(body, dt)
 	local rotation = self.knockout_rotation:Interpolate(target, math.min(dt * KNOCKOUT_TURN_RATE, 1))
 	self.knockout_rotation = rotation
 	local position = body.Position
-	Quat.SetVecMul(world_offset, rotation, self.box_offset)
-	local drop = (self.knockout_radius - KNOCKOUT_LYING_HALF) * lie * (1 - flight)
+	local pivot = lie * (1 - flight)
+	local feet, pelvis = self.box_offset, self.knockout_pelvis
+	knockout_local:Set(
+		feet.x + (pelvis.x - feet.x) * pivot,
+		feet.y + (pelvis.y - feet.y) * pivot,
+		feet.z + (pelvis.z - feet.z) * pivot
+	)
+	Quat.SetVecMul(world_offset, rotation, knockout_local)
 	self.Owner.transform:SetPosition(
-		Vec3(
-			position.x + world_offset.x,
-			position.y + world_offset.y - drop,
-			position.z + world_offset.z
-		)
+		Vec3(position.x + world_offset.x, position.y + world_offset.y, position.z + world_offset.z)
 	)
 	self.Owner.transform:SetRotation(rotation:Copy())
 end
 
 function META:IsKnockoutPosed()
-	return self.Limp and self.BoxRagdoll and self.Profile == "humanoid"
+	return self.Limp and self.BoxRagdoll
 end
 
-function META:DriveKnockout(rig, dt)
+function META:DriveKnockout(rig, animator, dt)
 	local state = self.knockout_state
 
 	if not state then
@@ -1219,18 +1208,59 @@ function META:DriveKnockout(rig, dt)
 		self.knockout_state = state
 	end
 
+	local box = self.box_entity
+	local ground = box and box.rigid_body.Position.y - self.box_half
 	knockout_pose.Drive(
 		state,
 		rig,
+		animator,
 		self.Owner.transform:GetPosition(),
+		self.Owner.transform:GetRotation(),
 		dt,
-		self.Owner.health:IsDead() and KNOCKOUT_DEAD_POSE or 0
+		self.Owner.health:IsDead(),
+		ground,
+		self.box_half
 	)
 end
 
-function META:ClearKnockout(rig)
-	knockout_pose.Release(self.knockout_state, rig)
+function META:ClearKnockout(rig, animator)
+	knockout_pose.Release(self.knockout_state, rig, animator)
 	self.knockout_state = nil
+end
+
+-- a held box is what the physgun carries, the networked part it grabbed follows the box so clients can still point the beam at something
+function META:GrabBox(grabbed_body)
+	if not self.box_entity then self:EnterBox(Vec3()) end
+
+	local body = self.box_entity.rigid_body
+	self.box_held = self.box_held + 1
+	self.box_static = nil
+
+	if not self.box_proxy then
+		local proxy = self.parts[1]
+
+		for _, part in ipairs(self.parts) do
+			if part.body == grabbed_body then proxy = part end
+		end
+
+		self.box_proxy = proxy
+		local character_id = SERVER and self.Owner.network and self.Owner.network.NetworkId or -1
+
+		if character_id ~= -1 then
+			proxy.entity.ragdoll_part:SetCharacterId(character_id)
+
+			if not proxy.entity.network then proxy.entity:AddComponent("network") end
+		end
+	end
+
+	return body
+end
+
+function META:UngrabBox()
+	self.box_held = math.max(self.box_held - 1, 0)
+	self.box_time = 0
+	self.knockout_quiet = 0
+	self.knockout_getup = nil
 end
 
 function META:StandFromBox()
@@ -1262,52 +1292,43 @@ function META:UpdateBox(dt)
 	local body = self.box_entity.rigid_body
 	local owner = self.Owner
 
-	if self.knockout_radius then
-		self:UpdateKnockoutRotation(body, dt)
-	else
-		local position = body.Position
-		Quat.SetVecMul(world_offset, body.Rotation, self.box_offset)
-		owner.transform:SetPosition(
-			Vec3(position.x + world_offset.x, position.y + world_offset.y, position.z + world_offset.z)
-		)
-		owner.transform:SetRotation(body.Rotation * self.box_rotation)
+	if self.box_proxy then
+		self:DrivePart(self.box_proxy, true, body.Position, body.Rotation)
 	end
 
+	self:UpdateKnockoutRotation(body, dt)
+
 	if not owner.health:IsDead() then
-		self.box_time = self.box_time + dt
-		local stand
-
-		if self.knockout_radius then
-			local quiet = body.Velocity:GetLength() < KNOCKOUT_REST_SPEED
-			self.knockout_quiet = quiet and self.knockout_quiet + dt or 0
-
-			if
-				not self.knockout_getup and
-				(
-					self.knockout_quiet >= KNOCKOUT_REST_TIME or
-					self.box_time >= SETTLE_MAX_TIME
-				)
-			then
-				self.knockout_getup = self.knockout_time
-			end
-
-			stand = self.knockout_getup and
-				self.knockout_time - self.knockout_getup >= KNOCKOUT_GETUP_TIME
-		else
-			stand = self.box_time >= SETTLE_MAX_TIME or
-				(
-					self.box_time >= SETTLE_MIN_TIME and
-					body.Velocity:GetLength() < SETTLE_SPEED and
-					body.AngularVelocity:GetLength() < SETTLE_SPIN
-				)
+		if self.box_held > 0 or body:IsStatic() then
+			self.box_time = 0
+			self.knockout_quiet = 0
+			self.knockout_getup = nil
+			return
 		end
+
+		self.box_time = self.box_time + dt
+		local quiet = body.Velocity:GetLength() < KNOCKOUT_REST_SPEED
+		self.knockout_quiet = quiet and self.knockout_quiet + dt or 0
+
+		if
+			not self.knockout_getup and
+			(
+				self.knockout_quiet >= KNOCKOUT_REST_TIME or
+				self.box_time >= SETTLE_MAX_TIME
+			)
+		then
+			self.knockout_getup = self.knockout_time
+		end
+
+		local stand = self.knockout_getup and
+			self.knockout_time - self.knockout_getup >= KNOCKOUT_GETUP_TIME
 
 		if stand then self:StandFromBox() end
 
 		return
 	end
 
-	if not self.box_static and not body:GetAwake() then
+	if not self.box_static and self.box_held == 0 and not body:GetAwake() then
 		self.box_static = true
 		body:SetMotionType("static")
 	end
@@ -1320,10 +1341,17 @@ function META:UpdateBox(dt)
 end
 
 function META:RemoveBox()
+	local proxy = self.box_proxy
+
+	if proxy then
+		if proxy.entity.network then proxy.entity:RemoveComponent("network") end
+
+		self.box_proxy = nil
+	end
+
 	self.box_entity:Remove()
 	self.box_entity = nil
 	self.box_static = nil
-	self.knockout_radius = nil
 	self.walking = nil
 end
 

@@ -1004,14 +1004,14 @@ function META:OnUpdate(dt)
 	if ragdoll and ragdoll.driven_rig then ragdoll:ClearRig() end
 
 	if ragdoll and ragdoll.knockout_state and not ragdoll:IsKnockoutPosed() then
-		ragdoll:ClearKnockout(rig)
+		ragdoll:ClearKnockout(rig, animator)
 		animator:Refresh()
 	end
 
 	local knocked_out = ragdoll and ragdoll:IsKnockoutPosed()
 
 	if knocked_out then
-		ragdoll:DriveKnockout(rig, dt)
+		ragdoll:DriveKnockout(rig, animator, dt)
 		animator:Refresh()
 
 		if host then
