@@ -160,7 +160,10 @@ function codec.DecodeFile(path, lib)
 	end
 
 	file:Close()
+	return codec.DecodeData(path, file_content, lib)
+end
 
+function codec.DecodeData(path, file_content, lib)
 	if lib then
 		return codec.DecodeWithModule(path, file_content, import("goluwa/codecs/" .. lib .. ".lua"))
 	end
@@ -193,8 +196,16 @@ function codec.DecodeFileAsync(path, callback)
 		local file_content = vfs.Read(path)
 		local mod = file_content and codec.GuessFormat(path, file_content)
 
-		if not (mod and mod.thread_job) then
+		if not file_content then
 			local ok, decoded, err = pcall(codec.DecodeFile, path)
+
+			if ok then callback(decoded, err) else callback(nil, decoded) end
+
+			return
+		end
+
+		if not (mod and mod.thread_job) then
+			local ok, decoded, err = pcall(codec.DecodeData, path, file_content)
 
 			if ok then callback(decoded, err) else callback(nil, decoded) end
 
@@ -205,7 +216,7 @@ function codec.DecodeFileAsync(path, callback)
 
 		import("goluwa/thread_pool.lua").Run(mod.thread_job, file_content, cost):OnDone(function(job)
 			if job.err then
-				local ok, decoded, err = pcall(codec.DecodeFile, path)
+				local ok, decoded, err = pcall(codec.DecodeData, path, file_content)
 
 				if ok then callback(decoded, err) else callback(nil, decoded) end
 			else
