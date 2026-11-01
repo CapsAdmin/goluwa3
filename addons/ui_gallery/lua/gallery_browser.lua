@@ -20,6 +20,7 @@ local section_order = {
 	"Data",
 	"Overlays",
 	"Graphics",
+	"HUD",
 }
 
 local function load_pages()
