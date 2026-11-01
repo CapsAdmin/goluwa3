@@ -7,10 +7,32 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local system = import("goluwa/system.lua")
+local memcmp = import("goluwa/bindings/memory.lua").memcmp
 local physics
 local MATRIX_SIZE = ffi.sizeof(Matrix44)
 local attachment_matrix = Matrix44()
 local rotation_matrix = Matrix44()
+local scratch_local = Matrix44()
+local scratch_world = Matrix44()
+local scratch_scale = Vec3()
+local matrix_version = 0
+
+-- matrices are owned and updated in place: consumers detect change by version, never by identity
+local function store_matrix(self, field, version_field, computed)
+	local stored = self[field]
+
+	if not stored then
+		stored = Matrix44()
+		self[field] = stored
+	elseif memcmp(stored, computed, MATRIX_SIZE) == 0 then
+		return stored
+	end
+
+	ffi.copy(stored, computed, MATRIX_SIZE)
+	matrix_version = matrix_version + 1
+	self[version_field] = matrix_version
+	return stored
+end
 
 local function find_armature(entity)
 	local parent = entity:GetParent()
@@ -47,9 +69,13 @@ local function update_temp_scale(self)
 	local scale = self.Scale or Vec3(1, 1, 1)
 	local size = self.Size or 1
 	local previous = self.temp_scale
-	self.temp_scale = scale * size
+	scratch_scale:Set(scale.x * size, scale.y * size, scale.z * size)
 
-	if previous and previous ~= self.temp_scale then
+	if previous == scratch_scale then return previous end
+
+	self.temp_scale = scratch_scale:Copy()
+
+	if previous then
 		local body = self.Owner and self.Owner.rigid_body
 
 		if body then body:OnGeometryChanged() end
@@ -164,12 +190,8 @@ function META:InvalidateMatrices()
 
 	if body then body:MarkTransformDirty() end
 
-	self.LocalMatrix = nil
-	self.WorldMatrix = nil
-	self.WorldMatrixInverse = nil
-	self.LocalMatrixFrame = nil
-	self.WorldMatrixFrame = nil
-	self.WorldMatrixInverseFrame = nil
+	self.LocalMatrixDirty = true
+	self.WorldMatrixDirty = true
 	self.ShouldUseInterpolatedPhysicsTransformFrame = nil
 	self.ShouldUseInterpolatedPhysicsTransformCached = nil
 	self.IsFrameDynamicFrame = nil
@@ -178,7 +200,7 @@ function META:InvalidateMatrices()
 
 	if self.Owner and self.Owner.visual then
 		self.Owner.visual.WorldAABBCache = nil
-		self.Owner.visual.WorldAABBCacheMatrix = nil
+		self.Owner.visual.WorldAABBCacheVersion = nil
 		self.Owner.visual.WorldAABBCacheSource = nil
 		local visual_library = self.Owner.visual.Library
 
@@ -216,10 +238,7 @@ function META:InvalidateChildWorldMatrices()
 
 	for _, child in ipairs(self.Owner:GetChildrenList()) do
 		if child.transform then
-			child.transform.WorldMatrix = nil
-			child.transform.WorldMatrixInverse = nil
-			child.transform.WorldMatrixFrame = nil
-			child.transform.WorldMatrixInverseFrame = nil
+			child.transform.WorldMatrixDirty = true
 			child.transform:InvalidateChildWorldMatrices()
 		end
 	end
@@ -295,31 +314,42 @@ function META:GetLocalMatrix()
 	local frame = system.GetFrameNumber()
 	local dynamic = self:IsFrameDynamic()
 
-	if dynamic and self.LocalMatrixFrame == frame and self.LocalMatrix then
+	if
+		self.LocalMatrix and
+		not self.LocalMatrixDirty and
+		(
+			not dynamic or
+			self.LocalMatrixFrame == frame
+		)
+	then
 		return self.LocalMatrix
 	end
 
-	if not self.LocalMatrix or dynamic then
-		self.LocalMatrix = self.FromMatrix and self.FromMatrix:Copy() or Matrix44()
-		self.LocalMatrixFrame = dynamic and frame or nil
+	self.LocalMatrixDirty = false
+	self.LocalMatrixFrame = dynamic and frame or nil
+	local m = scratch_local
 
-		if not self.FromMatrix and not self.SkipRebuild then
+	if self.FromMatrix then
+		ffi.copy(m, self.FromMatrix, MATRIX_SIZE)
+	else
+		m:Identity()
+
+		if not self.SkipRebuild then
 			local interpolated_pos, interpolated_rot = self:GetRenderPositionRotation()
 			local pos = self.OverridePosition or interpolated_pos or self.Position
 			local rot = self.OverrideRotation or interpolated_rot or self.Rotation
 			local temp_scale = update_temp_scale(self)
-			self.LocalMatrix:Identity()
-			self.LocalMatrix:SetRotation(rot)
+			m:SetRotation(rot)
 
 			if temp_scale.x ~= 1 or temp_scale.y ~= 1 or temp_scale.z ~= 1 then
-				self.LocalMatrix:Scale(temp_scale.x, temp_scale.y, temp_scale.z)
+				m:Scale(temp_scale.x, temp_scale.y, temp_scale.z)
 			end
 
-			self.LocalMatrix:SetTranslation(pos.x, pos.y, pos.z)
+			m:SetTranslation(pos.x, pos.y, pos.z)
 		end
 	end
 
-	return self.LocalMatrix
+	return store_matrix(self, "LocalMatrix", "LocalMatrixVersion", m)
 end
 
 function META:GetAttachedBone()
@@ -383,6 +413,8 @@ end
 function META:SetFrozen(frozen)
 	if frozen then
 		self.FrozenWorldMatrix = self:GetWorldMatrix():Copy()
+		matrix_version = matrix_version + 1
+		self.FrozenWorldMatrixVersion = matrix_version
 		return
 	end
 
@@ -412,41 +444,49 @@ function META:GetWorldMatrix()
 	local bone = self:GetAttachedBone()
 
 	if
-		dynamic and
-		self.WorldMatrixFrame == frame and
 		self.WorldMatrix and
-		self.WorldMatrixBone == bone
+		not self.WorldMatrixDirty and
+		(
+			not dynamic or
+			(
+				self.WorldMatrixFrame == frame and
+				self.WorldMatrixBone == bone
+			)
+		)
 	then
 		return self.WorldMatrix
 	end
 
-	if not self.WorldMatrix or dynamic then
-		self.WorldMatrixBone = bone
-		local local_matrix = self:GetLocalMatrix()
-		self.WorldMatrixFrame = dynamic and frame or nil
+	self.WorldMatrixDirty = false
+	self.WorldMatrixBone = bone
+	self.WorldMatrixFrame = dynamic and frame or nil
+	local computed = self:GetLocalMatrix()
 
-		if self.Owner and self.Owner:HasParent() then
-			local parent = self.Owner:GetParent()
+	if self.Owner and self.Owner:HasParent() then
+		local parent = self.Owner:GetParent()
 
-			if parent.transform then
-				local parent_world = parent.transform:GetWorldMatrix()
-				self.WorldMatrix = Matrix44()
+		if parent.transform then
+			local parent_world = parent.transform:GetWorldMatrix()
 
-				if bone then
-					local_matrix:GetMultiplied(bone, attachment_matrix)
-					attachment_matrix:GetMultiplied(parent_world, self.WorldMatrix)
-				else
-					local_matrix:GetMultiplied(parent_world, self.WorldMatrix)
-				end
+			if bone then
+				computed:GetMultiplied(bone, attachment_matrix)
+				attachment_matrix:GetMultiplied(parent_world, scratch_world)
 			else
-				self.WorldMatrix = local_matrix
+				computed:GetMultiplied(parent_world, scratch_world)
 			end
-		else
-			self.WorldMatrix = local_matrix
+
+			computed = scratch_world
 		end
 	end
 
-	return self.WorldMatrix
+	return store_matrix(self, "WorldMatrix", "WorldMatrixVersion", computed)
+end
+
+function META:GetWorldMatrixVersion()
+	if self.FrozenWorldMatrix then return self.FrozenWorldMatrixVersion end
+
+	self:GetWorldMatrix()
+	return self.WorldMatrixVersion
 end
 
 function META:GetPreviousWorldMatrix()
@@ -478,19 +518,20 @@ function META:GetPreviousWorldMatrix()
 end
 
 function META:GetWorldMatrixInverse()
-	local frame = system.GetFrameNumber()
-	local dynamic = self:IsFrameDynamic()
+	local world = self:GetWorldMatrix()
+	local version = self:GetWorldMatrixVersion()
+	local inverse = self.WorldMatrixInverse
 
-	if dynamic and self.WorldMatrixInverseFrame == frame and self.WorldMatrixInverse then
-		return self.WorldMatrixInverse
+	if inverse and self.WorldMatrixInverseVersion == version then return inverse end
+
+	if not inverse then
+		inverse = Matrix44()
+		self.WorldMatrixInverse = inverse
 	end
 
-	if not self.WorldMatrixInverse or dynamic then
-		self.WorldMatrixInverseFrame = dynamic and frame or nil
-		self.WorldMatrixInverse = self:GetWorldMatrix():GetInverse()
-	end
-
-	return self.WorldMatrixInverse
+	world:GetInverse(inverse)
+	self.WorldMatrixInverseVersion = version
+	return inverse
 end
 
 function META:GetWorldPosition()

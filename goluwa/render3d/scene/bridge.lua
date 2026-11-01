@@ -293,6 +293,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			local flags, mask = instances.GetMaterialFlags(material)
 			local material_row = materials.GetID(material)
 			local matrix = entry.transform:GetWorldMatrix()
+			local matrix_version = entry.transform:GetWorldMatrixVersion()
 			local item = list[count]
 			local r, g, b = materials.GetEmissive(material)
 
@@ -311,9 +312,10 @@ function bridge.UpdateVisual(visual, is_dynamic)
 			end
 
 			if item and item.mesh_row == mesh_row then
-				if item.matrix ~= matrix then
+				if item.matrix_version ~= matrix_version then
 					instances.SetMatrix(item.id, matrix)
 					item.matrix = matrix
+					item.matrix_version = matrix_version
 					changed = true
 				end
 
@@ -345,6 +347,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 				item.level = entry.lod_level or 0
 				item.mesh_row = mesh_row
 				item.matrix = matrix
+				item.matrix_version = matrix_version
 				item.entry = entry
 				list[count] = item
 			end
@@ -424,12 +427,15 @@ function bridge.RefreshDynamic()
 
 		for i = 1, #list do
 			local item = list[i]
-			local matrix = item.entry.transform:GetWorldMatrix()
-			instances.SetPrevMatrix(item.id, item.entry.transform:GetPreviousWorldMatrix() or matrix)
+			local transform = item.entry.transform
+			local matrix = transform:GetWorldMatrix()
+			local matrix_version = transform:GetWorldMatrixVersion()
+			instances.SetPrevMatrix(item.id, transform:GetPreviousWorldMatrix() or matrix)
 
-			if item.matrix ~= matrix then
+			if item.matrix_version ~= matrix_version then
 				instances.SetMatrix(item.id, matrix)
 				item.matrix = matrix
+				item.matrix_version = matrix_version
 				changed = true
 			end
 		end

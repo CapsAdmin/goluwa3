@@ -879,7 +879,7 @@ function Visual:InvalidateRenderEntries()
 	self.gpu_dataset_static_serialized = nil
 	self.gpu_dataset_shadow_serialized = nil
 	self.WorldAABBCache = nil
-	self.WorldAABBCacheMatrix = nil
+	self.WorldAABBCacheVersion = nil
 	self.WorldAABBCacheSource = nil
 	self.raycast_primitive_acceleration = nil
 	mark_shadow_change(self)
@@ -1258,7 +1258,7 @@ function Visual:BuildAABB()
 	end
 
 	self.WorldAABBCache = nil
-	self.WorldAABBCacheMatrix = nil
+	self.WorldAABBCacheVersion = nil
 	self.WorldAABBCacheSource = nil
 	self:SetAABB(bounds)
 	scene_bridge.RefreshBounds(self)
@@ -1299,9 +1299,11 @@ function Visual:GetWorldAABB()
 
 	if not world_matrix then return local_aabb end
 
+	local version = self.Owner.transform:GetWorldMatrixVersion()
+
 	if
 		self.WorldAABBCache and
-		self.WorldAABBCacheMatrix == world_matrix and
+		self.WorldAABBCacheVersion == version and
 		self.WorldAABBCacheSource == local_aabb
 	then
 		return self.WorldAABBCache
@@ -1310,7 +1312,7 @@ function Visual:GetWorldAABB()
 	local world_aabb = create_empty_aabb()
 	expand_aabb_with_transformed(local_aabb, world_matrix, world_aabb)
 	self.WorldAABBCache = world_aabb
-	self.WorldAABBCacheMatrix = world_matrix
+	self.WorldAABBCacheVersion = version
 	self.WorldAABBCacheSource = local_aabb
 	return world_aabb
 end
