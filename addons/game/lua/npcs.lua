@@ -280,6 +280,19 @@ npcs.Definitions = {
 		RunSpeed = 210,
 		Health = 100000,
 	},
+	debug_knockout = {
+		Dummy = true,
+		Biped = true,
+		Model = "models/humans/group01/male_01.mdl",
+		AlwaysKnockdown = true,
+		Static = true,
+		Idle = "reference",
+		Walk = "reference",
+		Run = "reference",
+		WalkSpeed = 80,
+		RunSpeed = 210,
+		Health = 100000,
+	},
 	debug_flinch = {
 		Dummy = true,
 		Biped = true,
@@ -525,7 +538,7 @@ function npcs.Register(name, info)
 						model = info.Model and {ModelPath = info.Model} or nil,
 						animator = info.Model and {} or nil,
 						eyes = info.Model and {AutoBlink = true, AutoLook = true} or nil,
-						character_pose = {AlwaysStagger = info.AlwaysStagger},
+						character_pose = {AlwaysStagger = info.AlwaysStagger, AlwaysKnockdown = info.AlwaysKnockdown},
 						source_pose = info.Model and
 							{
 								IdleSequence = info.Idle,

@@ -166,7 +166,14 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 		return
 	end
 
-	if amount < threshold and not victim.character_pose:IsAlwaysStagger() then
+	local always_knockdown = victim.ragdoll and victim.character_pose:IsAlwaysKnockdown()
+
+	if
+		amount < threshold and
+		not victim.character_pose:IsAlwaysStagger()
+		and
+		not always_knockdown
+	then
 		return
 	end
 
@@ -177,7 +184,7 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 		return
 	end
 
-	if victim.ragdoll and amount >= knockdown then
+	if victim.ragdoll and (amount >= knockdown or always_knockdown) then
 		stagger.Knockdown(
 			victim,
 			attacker,
