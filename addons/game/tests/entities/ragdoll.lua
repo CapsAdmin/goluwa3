@@ -122,10 +122,15 @@ T.TestPhysics("a cheap corpse has no muscle springs or forced ccd and only touch
 	character.ragdoll:SetCheapCorpse(true)
 	run(character, 1)
 	character.health:TakeDamage(damage.Info{Damage = 1000})
-	run(character, 3)
+	run(character, 0.2)
 
 	for _, part in ipairs(character.ragdoll.parts) do
 		T(part.body:IsDynamic())["=="](true)
+	end
+
+	run(character, 3)
+
+	for _, part in ipairs(character.ragdoll.parts) do
 		T(part.body:GetCCD())["=="](false)
 		T(part.body.SleepLinearThreshold)["=="](character.ragdoll.CheapSleepThreshold)
 		T(part.body:GetCollideWorldOnly())["=="](true)

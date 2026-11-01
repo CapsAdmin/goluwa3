@@ -43,8 +43,7 @@ local SETTLE_MAX_TIME = 8
 local SETTLE_SPEED = 0.35
 local SETTLE_SPIN = 2
 local NETWORK_LINGER = 1
-local REST_SPEED = 0.15
-local REST_SPIN = 0.5
+local REST_DRIFT = 0.05
 local REST_TIME = 1.5
 local GROUND_PROBE = 4
 local STAND_HEIGHT = 0.05
@@ -788,15 +787,28 @@ function META:UpdateRest(dt)
 		end
 	end
 
-	for _, part in ipairs(self.parts) do
-		local body = part.body
+	local anchors = self.rest_anchors
 
-		if
-			body.Velocity:GetLength() > REST_SPEED or
-			body.AngularVelocity:GetLength() > REST_SPIN
-		then
-			self.rest_time = 0
-			return
+	if not anchors then
+		anchors = {}
+		self.rest_anchors = anchors
+	end
+
+	if self.rest_time == 0 then
+		for i, part in ipairs(self.parts) do
+			anchors[i] = anchors[i] or Vec3()
+			anchors[i]:CopyFrom(part.body.Position)
+		end
+	else
+		for i, part in ipairs(self.parts) do
+			local position = part.body.Position
+			local anchor = anchors[i]
+			local dx, dy, dz = position.x - anchor.x, position.y - anchor.y, position.z - anchor.z
+
+			if dx * dx + dy * dy + dz * dz > REST_DRIFT * REST_DRIFT then
+				self.rest_time = 0
+				return
+			end
 		end
 	end
 
