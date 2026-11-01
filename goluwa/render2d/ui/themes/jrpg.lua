@@ -196,7 +196,6 @@ function JRPGTheme:Initialize()
 			},
 		}
 	)
-
 	self.TrailFadeGradient = render2d.CreateGradient{
 		width = 64,
 		height = 1,
@@ -216,6 +215,36 @@ function JRPGTheme:Initialize()
 			stops = {
 				{pos = 0.0, color = Color.FromHex("#0a1122")},
 				{pos = 1.0, color = Color.FromHex("#182a4e")},
+			},
+		}
+		self.MenuRowFade = render2d.CreateGradient{
+			mode = "linear",
+			angle = 90,
+			width = 256,
+			height = 1,
+			stops = {
+				{pos = 0.0, color = Color(1, 1, 1, 1)},
+				{pos = 1.0, color = Color(1, 1, 1, 0.12)},
+			},
+		}
+		self.ButtonFadeIn = render2d.CreateGradient{
+			mode = "linear",
+			angle = 90,
+			width = 128,
+			height = 1,
+			stops = {
+				{pos = 0.0, color = Color(1, 1, 1, 0)},
+				{pos = 1.0, color = Color(1, 1, 1, 1)},
+			},
+		}
+		self.ButtonFadeOut = render2d.CreateGradient{
+			mode = "linear",
+			angle = 90,
+			width = 128,
+			height = 1,
+			stops = {
+				{pos = 0.0, color = Color(1, 1, 1, 1)},
+				{pos = 1.0, color = Color(1, 1, 1, 0)},
 			},
 		}
 		self.SliderFillFadeH = render2d.CreateGradient{
@@ -799,11 +828,174 @@ function JRPGTheme:DrawHeader(size, emphasis)
 	self:DrawFrameCorner(size.x, 0, -1, 1, emphasis or 3)
 end
 
+function JRPGTheme:DrawMenuButton(size, state)
+	local anim = state.anim or {glow_alpha = 0}
+	local accent = self:GetColor(state.button_color or "primary")
+	local lit = state.selected or state.pressed
+	local glow = state.hovered and anim.glow_alpha or 0
+	local alpha_scale = state.disabled and 0.4 or 1
+	local bright = accent:GetLerped(0.55, WHITE)
+	render2d.DrawShape{
+		x = 3,
+		y = 0,
+		w = size.x - 3,
+		h = size.y,
+		color = self:GetColor("actual_black"),
+		alpha = 0.8 * alpha_scale,
+		texture = self.MenuRowFade,
+		int = true,
+	}
+
+	if lit or glow > 0.01 then
+		local amount = lit and 0.7 or glow * 0.5
+		render2d.DrawShape{
+			x = 3,
+			y = 0,
+			w = size.x - 3,
+			h = size.y,
+			color = accent,
+			alpha = amount * alpha_scale,
+			texture = self.MenuRowFade,
+			int = true,
+		}
+
+		for _, y in ipairs{0, size.y - 1} do
+			render2d.DrawShape{
+				x = 3,
+				y = y,
+				w = size.x - 3,
+				h = 1,
+				color = bright,
+				alpha = (lit and 0.9 or 0.5 * glow) * alpha_scale,
+				texture = self.MenuRowFade,
+				int = true,
+			}
+		end
+
+		render2d.DrawShape{
+			x = 0,
+			y = 0,
+			w = 2,
+			h = size.y,
+			color = accent,
+			alpha = (lit and 1 or 0.6 * glow) * alpha_scale,
+			texture = false,
+			int = true,
+		}
+		render2d.PushBlendPreset("additive")
+		set_color(accent, (lit and 1 or 0.7 * glow) * alpha_scale)
+		self:DrawGlowLine(2, 0, 2, size.y, lit and 12 or 8)
+
+		if lit then self:DrawGlowLine(2, 0, 2, size.y, 24) end
+
+		render2d.PopBlendMode()
+	else
+		render2d.DrawShape{
+			x = 3,
+			y = size.y - 1,
+			w = size.x - 3,
+			h = 1,
+			color = accent,
+			alpha = 0.35 * alpha_scale,
+			texture = self.MenuRowFade,
+			int = true,
+		}
+		render2d.DrawShape{
+			x = 0,
+			y = 0,
+			w = 2,
+			h = size.y,
+			color = self:GetColor("actual_black"),
+			alpha = 0.9 * alpha_scale,
+			texture = false,
+			int = true,
+		}
+	end
+end
+
+function JRPGTheme:DrawSoftBand(x, y, w, h, color, alpha)
+	local floor = 0.55 * math.clamp((260 - w) / 160, 0, 1)
+	local fade = math.floor(math.clamp(w * 0.25, 12, 90))
+
+	if floor > 0 then
+		render2d.DrawShape{
+			x = x,
+			y = y,
+			w = w,
+			h = h,
+			color = color,
+			alpha = alpha * floor,
+			texture = false,
+			int = true,
+		}
+	end
+
+	alpha = alpha * (1 - floor)
+	render2d.DrawShape{
+		x = x,
+		y = y,
+		w = fade,
+		h = h,
+		color = color,
+		alpha = alpha,
+		texture = self.ButtonFadeIn,
+		int = true,
+	}
+	render2d.DrawShape{
+		x = x + fade,
+		y = y,
+		w = w - fade * 2,
+		h = h,
+		color = color,
+		alpha = alpha,
+		texture = false,
+		int = true,
+	}
+	render2d.DrawShape{
+		x = x + w - fade,
+		y = y,
+		w = fade,
+		h = h,
+		color = color,
+		alpha = alpha,
+		texture = self.ButtonFadeOut,
+		int = true,
+	}
+end
+
+function JRPGTheme:DrawFilledButton(size, state)
+	local anim = state.anim or {glow_alpha = 0, press_scale = 0}
+	local accent = self:GetColor(state.button_color or "primary")
+	local lit = not state.disabled and (state.hovered or state.pressed or state.active)
+	local alpha_scale = state.disabled and 0.4 or 1
+	local black = self:GetColor("actual_black")
+	local bright = accent:GetLerped(0.55, WHITE)
+	local idle = state.button_color and accent:GetLerped(0.5, black) or black
+	self:DrawSoftBand(0, 0, size.x, size.y, idle, 0.8 * alpha_scale)
+
+	if lit then
+		self:DrawSoftBand(
+			0,
+			0,
+			size.x,
+			size.y,
+			accent,
+			state.pressed and 1 or math.min(0.75 + anim.glow_alpha * 0.25, 1)
+		)
+		self:DrawSoftBand(0, 0, size.x, 1, bright, 0.95)
+		self:DrawSoftBand(0, size.y - 1, size.x, 1, bright, 0.95)
+	end
+end
+
 function JRPGTheme:DrawButton(size, state)
 	if state.mode == "menu" then
-		return self.BaseClass.DrawButton(self, size, state)
+		return self:DrawMenuButton(size, state)
 	elseif state.mode == "tab" then
 		return self:DrawTabButton(size, state)
+	end
+
+	if state.mode ~= "text" and state.mode ~= "outline" then
+		return self:DrawFilledButton(size, state)
 	end
 
 	local anim = state.anim or {glow_alpha = 0, press_scale = 0}
@@ -812,19 +1004,20 @@ function JRPGTheme:DrawButton(size, state)
 	local alpha_scale = state.disabled and 0.4 or 1
 
 	if state.mode == "text" then
-		if not state.disabled and (state.hovered or state.pressed or state.active) then
-			local fill_alpha = (state.pressed or state.active) and 0.95 or 0.8
-			render2d.DrawShape{
-				x = 0,
-				y = 0,
-				w = size.x,
-				h = size.y,
-				color = accent,
-				alpha = fill_alpha,
-				texture = false,
-				border_radius = radius,
-				int = true,
-			}
+		local black = self:GetColor("actual_black")
+		local idle = state.button_color and accent:GetLerped(0.65, black) or black
+		local lit = not state.disabled and (state.hovered or state.pressed or state.active)
+		self:DrawSoftBand(0, 0, size.x, size.y, idle, 0.4 * alpha_scale)
+
+		if lit then
+			self:DrawSoftBand(
+				0,
+				0,
+				size.x,
+				size.y,
+				accent,
+				(state.pressed or state.active) and 0.4 or 0.2 + anim.glow_alpha * 0.1
+			)
 		end
 
 		return
@@ -841,23 +1034,7 @@ function JRPGTheme:DrawButton(size, state)
 		border_radius = radius,
 		int = true,
 	}
-
-	if state.mode ~= "outline" then
-		render2d.DrawShape{
-			x = 0,
-			y = 0,
-			w = size.x,
-			h = size.y,
-			color = accent,
-			alpha = (state.disabled and 0.08) or (0.25 + anim.glow_alpha * 0.2),
-			texture = self.Textures.Gradient,
-			color_uv = {x = 0, y = 0, w = 0.5, h = 1},
-			border_radius = radius,
-			int = true,
-		}
-	end
-
-	local bo = (state.disabled and 0.3) or (0.2 + anim.glow_alpha * 0.4)
+	local bo = (state.disabled and 0.3) or 1
 	local r = 1
 	render2d.DrawShape{
 		x = r,
@@ -870,22 +1047,13 @@ function JRPGTheme:DrawButton(size, state)
 		sdf_softness = 1,
 		int = true,
 		layers = {
-			{outline_width = 0.4},
+			{outline_width = 0.55},
 		},
 	}
-
-	if not state.disabled then
-		render2d.PushBlendPreset("additive")
-		local side_alpha = state.mode == "outline" and 0.9 or 0.55
-		set_color(accent, side_alpha * (0.6 + anim.glow_alpha * 0.4))
-		self:DrawDiamond(1, size.y / 2, 3.5)
-		self:DrawDiamond(size.x - 1, size.y / 2, 3.5)
-		render2d.PopBlendMode()
-	end
 end
 
 function JRPGTheme:DrawButtonPost(size, state)
-	if state.mode == "menu" or state.mode == "tab" then return end
+	if state.mode ~= "outline" then return end
 
 	local anim = state.anim or {glow_alpha = 0}
 
