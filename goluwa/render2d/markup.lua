@@ -1,5 +1,6 @@
 local utf8 = import("goluwa/string/utf8.lua")
 local objects = import("goluwa/objects/objects.lua")
+local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
@@ -42,6 +43,18 @@ Markup:GetSet("AdaptColors", false)
 Markup:GetSet("Halo", nil)
 Markup:GetSet("AdaptContrast", 4.5)
 Markup.ResetColor = {}
+
+function Markup:OnFirstCreated()
+	event.AddListener("OnFontsChanged", "markup_layout", function()
+		for _, markup in ipairs(Markup.Instances) do
+			markup.need_layout = true
+		end
+	end)
+end
+
+function Markup:OnLastRemoved()
+	event.RemoveListener("OnFontsChanged", "markup_layout")
+end
 
 function Markup:SetDefaultColor(color)
 	self.DefaultColor = color
@@ -1348,6 +1361,7 @@ do
 		local out = {}
 		local found = {}
 		local last_type
+		set_font(self, self.DefaultFont or fonts.GetDefaultFont())
 
 		for _, chunk in ipairs(input_chunks) do
 			if chunk.type == "font" then set_font(self, chunk.val) end
