@@ -61,6 +61,12 @@ local BOX_ANGULAR_DAMPING = 0.5
 local BOX_ROLLING_FRICTION = 20
 local knockout_local = Vec3()
 local KNOCKOUT_TURN_RATE = 24
+local LANDING_PROBE = 0.08
+local LANDING_DELAY = 0.3
+local LANDED_ANGULAR_DAMPING = 4
+local LANDED_LINEAR_DAMPING = 1.5
+local DOWN = Vec3(0, -1, 0)
+local LANDING_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 local KNOCKOUT_REST_SPEED = 0.1
 local KNOCKOUT_REST_TIME = 1
 local KNOCKOUT_GETUP_TIME = 0.5
@@ -167,6 +173,8 @@ function META:ReadPoseBones(rig)
 end
 
 function META:ComputePose()
+	if self.landed then return end
+
 	local owner = self.Owner
 	local pose = owner.character_pose
 	local rig, driver = self:GetRig()
@@ -888,6 +896,8 @@ function META:GetJoints()
 end
 
 function META:Capture()
+	self.landed = nil
+
 	if not self.parts[1] then return end
 
 	if self.box_entity then self:RemoveBox() end
@@ -1134,6 +1144,7 @@ function META:EnterBox(velocity)
 	body.BoxRagdoll = self
 	self.box_entity = entity
 	self.box_held = 0
+	self.box_age = 0
 	self.box_offset = owner.transform:GetPosition() - center
 	self.box_rotation = owner.transform:GetRotation():Copy()
 	self.knockout_pelvis = self.box_rotation:GetConjugated():VecMul(owner.transform:GetPosition() - root.body.Position)
@@ -1197,7 +1208,7 @@ function META:UpdateKnockoutRotation(body, dt)
 end
 
 function META:IsKnockoutPosed()
-	return self.Limp and self.BoxRagdoll
+	return self.Limp and self.BoxRagdoll and not self.landed
 end
 
 function META:DriveKnockout(rig, animator, dt)
@@ -1288,12 +1299,58 @@ function META:StandFromBox()
 	end
 end
 
+-- a dead body flies as the box with the procedural pose and, once it touches the ground, turns into the part ragdoll in that exact pose so it settles for real
+function META:LandBox()
+	local velocity = self.box_entity.rigid_body.Velocity:Copy()
+	local rig = self:GetRig()
+
+	if rig then
+		if self.profile.Model then
+			self:ReadPoseBones(rig)
+
+			for _, definition in ipairs(self.profile.Parts) do
+				self.bones[definition.Bone] = self.pose_bones[definition.Bone]
+			end
+		else
+			self.bones = {}
+			biped.ReadBones(rig, self.bones)
+		end
+	end
+
+	self.landed = true
+	self:RemoveBox()
+	self:UpdateTargets(0)
+
+	for _, part in ipairs(self.parts) do
+		part.pose_velocity:CopyFrom(velocity)
+	end
+
+	self:UpdateLimp(0)
+
+	for _, part in ipairs(self.parts) do
+		part.body:SetAngularDamping(LANDED_ANGULAR_DAMPING)
+		part.body:SetLinearDamping(LANDED_LINEAR_DAMPING)
+	end
+end
+
 function META:UpdateBox(dt)
 	local body = self.box_entity.rigid_body
 	local owner = self.Owner
 
 	if self.box_proxy then
 		self:DrivePart(self.box_proxy, true, body.Position, body.Rotation)
+	end
+
+	self.box_age = self.box_age + dt
+
+	if
+		owner.health:IsDead() and
+		self.box_age >= LANDING_DELAY and
+		self.box_held == 0 and
+		physics.RayCast(body.Position, DOWN, self.box_half + LANDING_PROBE, owner, nil, LANDING_OPTIONS)
+	then
+		self:LandBox()
+		return
 	end
 
 	self:UpdateKnockoutRotation(body, dt)
