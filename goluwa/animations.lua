@@ -88,7 +88,7 @@ function animations.Update(dt, group)
 		end
 
 		if not pause then
-			animation.alpha = animation.alpha + dt / animation.time
+			animation.alpha = animation.alpha + math.min(dt, animation.max_dt or dt) / animation.time
 		end
 
 		local alpha = math.min(animation.alpha, 1)
@@ -425,6 +425,7 @@ function animations.Animate(config)
 			start_time = system.GetElapsedTime(),
 			pow = pow,
 			callback = callback,
+			max_dt = config.max_dt,
 			pausers = pausers,
 			interpolation = interpolation,
 			spring_on_complete = spring_on_complete,
