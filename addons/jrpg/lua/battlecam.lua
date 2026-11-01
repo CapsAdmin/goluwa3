@@ -20,6 +20,7 @@ local FOLLOW_NEAR = 100 * U
 local FOLLOW_FAR = 300 * U
 local TARGET_BASE_PITCH = 0.3
 local TARGET_PITCH_LIMIT = 1
+local TARGET_DEADZONE = math.rad(35)
 local TRACE_MARGIN = 10 * U
 local CHEST = 40 * U
 local MAX_ORBIT_PITCH = 1.2
@@ -208,9 +209,10 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 
 		local t = math.clamp((flat - FOLLOW_NEAR) / (FOLLOW_FAR - FOLLOW_NEAR), 0, 1)
 		local follow = t * t * (3 - 2 * t) * math.min(dt * CAM_SPEED, 1)
-		away = away + (ideal - away) * follow
-		away.y = 0
-		away = away:GetLength() > 1e-4 and away:GetNormalized() or state.cam_away
+		local away_yaw = math.atan2(away.x, away.z)
+		local diff = (math.atan2(ideal.x, ideal.z) - away_yaw + math.pi) % (math.pi * 2) - math.pi
+		away_yaw = away_yaw + (diff - math.clamp(diff, -TARGET_DEADZONE, TARGET_DEADZONE)) * follow
+		away = Vec3(math.sin(away_yaw), 0, math.cos(away_yaw))
 		state.cam_away = away
 		state.target_pitch = math.clamp(state.target_pitch + mouse_y, -TARGET_PITCH_LIMIT, TARGET_PITCH_LIMIT)
 		local pitch = TARGET_BASE_PITCH + state.target_pitch
