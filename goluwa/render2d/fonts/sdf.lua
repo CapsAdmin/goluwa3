@@ -249,11 +249,24 @@ local function get_draw_pass_layout(self, str, spacing, extra_space_advance)
 	return cached
 end
 
+local function find_draw_pass_layout(self, str, spacing, extra_space_advance)
+	local atlas_cache = self.draw_pass_cache
+	local spacing_cache = atlas_cache and atlas_cache[spacing]
+	local param_cache = spacing_cache and spacing_cache[extra_space_advance]
+	return param_cache and param_cache[str]
+end
+
 function META:DrawString(str, x, y, spacing, extra_space_advance)
 	str = tostring(str)
-	self:LoadGlyphsFromString(str)
 	spacing = spacing or self.Spacing
 	extra_space_advance = extra_space_advance or 0
+	local layout = find_draw_pass_layout(self, str, spacing, extra_space_advance)
+
+	if not layout then
+		self:LoadGlyphsFromString(str)
+		layout = get_draw_pass_layout(self, str, spacing, extra_space_advance)
+	end
+
 	render2d.PushSDFTexture()
 	render2d.PushSDFTexelRange(0)
 
@@ -261,7 +274,6 @@ function META:DrawString(str, x, y, spacing, extra_space_advance)
 
 	local last_texture = nil
 	local last_texel_range = nil
-	local layout = get_draw_pass_layout(self, str, spacing, extra_space_advance or 0)
 
 	if layout.entries[1] then
 		render2d.SetSDFTexture(layout.entries[1].texture)
