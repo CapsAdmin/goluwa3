@@ -366,6 +366,64 @@ do
 	local ipairs = ipairs
 	objects.created_objects = objects.created_objects or table.weak("kv")
 	objects.created_objects_list = objects.created_objects_list or {}
+	local placeholder_keys = {}
+	local NO_VARIABLES = {}
+
+	local function build_field_layout(meta)
+		local infos = {}
+
+		for _, info in pairs(meta.objects_variables or NO_VARIABLES) do
+			infos[#infos + 1] = info
+		end
+
+		table.sort(infos, function(a, b)
+			if a.order ~= b.order then return (a.order or 0) < (b.order or 0) end
+
+			return a.var_name < b.var_name
+		end)
+
+		local layout = {}
+
+		for i = 1, #infos do
+			layout[i] = infos[i].var_name
+		end
+
+		for _, key in ipairs(meta.FieldLayout) do
+			layout[#layout + 1] = key
+		end
+
+		meta.FieldLayout = layout
+		meta.field_layout_built = true
+		return layout
+	end
+
+	-- LuaJIT guards a constant key read on the hash node it found the key in (HREFK), so instances whose keys were
+	-- inserted in another order or set get a side trace each at every field read. Inserting every key in one order
+	-- (and clearing the ones without a default afterwards, which keeps their node) gives all instances one layout.
+	local function apply_field_layout(self, meta)
+		local layout = meta.field_layout_built and meta.FieldLayout or build_field_layout(meta)
+		local count = 0
+
+		for i = 1, #layout do
+			local key = layout[i]
+
+			if rawget(self, key) == nil then
+				local default = rawget(meta, key)
+
+				if default == nil then
+					count = count + 1
+					placeholder_keys[count] = key
+					rawset(self, key, false)
+				else
+					rawset(self, key, default)
+				end
+			end
+		end
+
+		for i = 1, count do
+			rawset(self, placeholder_keys[i], nil)
+		end
+	end
 
 	function objects.CreateObject(meta, override, a, b, c, d, e, f)
 		assert(f == nil)
@@ -374,6 +432,8 @@ do
 		if not meta.__gc then meta.__gc = remove_callback end
 
 		local self = setmetatable(override or {}, meta)
+
+		if meta.FieldLayout then apply_field_layout(self, meta) end
 
 		if meta.copy_variables then
 			for _, info in ipairs(meta.copy_variables) do

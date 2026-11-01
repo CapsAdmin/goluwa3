@@ -151,37 +151,58 @@ function META.BuildEntries(body)
 	return entries
 end
 
-function META.New(body, data, index)
-	local self = {}
-	self.Body = body
-	self.ColliderIndex = index or 1
-	self.Shape = assert(data.Shape or data.shape, "collider requires Shape")
-	self.LocalPosition = data.Position:Copy()
-	self.LocalRotation = data.Rotation:Copy()
+local DATA_KEYS = {
+	"Density",
+	"Mass",
+	"AutomaticMass",
+	"CollisionGroup",
+	"CollisionMask",
+	"CollisionMargin",
+	"CollisionProbeDistance",
+	"Friction",
+	"StaticFriction",
+	"RollingFriction",
+	"Restitution",
+	"FrictionCombineMode",
+	"StaticFrictionCombineMode",
+	"RollingFrictionCombineMode",
+	"RestitutionCombineMode",
+	"FilterFunction",
+	"MinGroundNormalY",
+}
+META.FieldLayout = {
+	"TransformCache",
+	"IndexBounds",
+	"CollisionLocalPoints",
+	"SupportLocalPoints",
+	"point_polyhedron_contact_scratch",
+	"polyhedron_body_sweep_scratch",
+	"polyhedron_sweep_proxy",
+	"sweep_candidate_aabb_cache",
+	"sweep_hit_local_vertices",
+	"sweep_local_vertices",
+}
 
-	for _, key in ipairs{
-		"Density",
-		"Mass",
-		"AutomaticMass",
-		"CollisionGroup",
-		"CollisionMask",
-		"CollisionMargin",
-		"CollisionProbeDistance",
-		"Friction",
-		"StaticFriction",
-		"RollingFriction",
-		"Restitution",
-		"FrictionCombineMode",
-		"StaticFrictionCombineMode",
-		"RollingFrictionCombineMode",
-		"RestitutionCombineMode",
-		"FilterFunction",
-		"MinGroundNormalY",
-	} do
+for i = 1, #DATA_KEYS do
+	META.FieldLayout[#META.FieldLayout + 1] = DATA_KEYS[i]
+end
+
+function META.New(body, data, index)
+	local self = META:CreateObject{
+		Body = body,
+		ColliderIndex = index or 1,
+		Shape = assert(data.Shape or data.shape, "collider requires Shape"),
+		LocalPosition = data.Position:Copy(),
+		LocalRotation = data.Rotation:Copy(),
+	}
+
+	for i = 1, #DATA_KEYS do
+		local key = DATA_KEYS[i]
+
 		if data[key] ~= nil then self[key] = data[key] end
 	end
 
-	return META:CreateObject(self)
+	return self
 end
 
 function META:__index2(key)
