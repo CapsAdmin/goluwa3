@@ -430,7 +430,16 @@ function bridge.RefreshDynamic()
 			local transform = item.entry.transform
 			local matrix = transform:GetWorldMatrix()
 			local matrix_version = transform:GetWorldMatrixVersion()
-			instances.SetPrevMatrix(item.id, transform:GetPreviousWorldMatrix() or matrix)
+			-- called every frame even when the row is not written: it rolls the transform's render history
+			local previous = transform:GetPreviousWorldMatrix() or matrix
+			local previous_version = item.seen_version or matrix_version
+
+			if item.prev_version ~= previous_version then
+				instances.SetPrevMatrix(item.id, previous)
+				item.prev_version = previous_version
+			end
+
+			item.seen_version = matrix_version
 
 			if item.matrix_version ~= matrix_version then
 				instances.SetMatrix(item.id, matrix)
