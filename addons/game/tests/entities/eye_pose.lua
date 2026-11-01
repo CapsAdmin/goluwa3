@@ -76,6 +76,7 @@ T.TestPhysics("the physics rig of an eye npc follows the eye pose and falls apar
 	npc.ai_controller:SetWander(false)
 	run(npc, 1)
 	local ragdoll = npc.ragdoll
+	ragdoll:SetBoxRagdoll(false)
 	local profile = biped.Profiles.eye
 	T(#ragdoll.parts)["=="](#profile.Parts)
 	local bones = npc.procedural_pose:GetBones()

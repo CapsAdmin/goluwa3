@@ -1003,21 +1003,41 @@ function META:OnUpdate(dt)
 
 	if ragdoll and ragdoll.driven_rig then ragdoll:ClearRig() end
 
-	if self.Profile == "gmod_player" then
-		self:AddDonorClips(animator.skeleton)
-		self:UpdatePlayer(animator, pose, dt)
-		local character = self.character
-		biped.ReadBones(rig, self.look_bones)
-		local head = self.look_bones.head
-		owner.eyes:SetLookTarget(
-			character.transform:GetPosition() + character.transform:GetRotation():VecMul(Vec3(head.m30, head.m31, head.m32)) + pose.aim_rotation:GetForward() * EYE_LOOK_DISTANCE
-		)
-	else
-		self:UpdateCreature(animator, animator.skeleton, pose, dt)
+	if ragdoll and ragdoll.knockout_state and not ragdoll:IsKnockoutPosed() then
+		ragdoll:ClearKnockout(rig)
+		animator:Refresh()
+	end
 
-		if self.LegIK and not host then self:UpdateCreatureLegs(rig, pose, dt) end
+	local knocked_out = ragdoll and ragdoll:IsKnockoutPosed()
 
-		if self.LegRig.Root then self:UpdateCreatureLimbs(rig, pose, dt) end
+	if knocked_out then
+		ragdoll:DriveKnockout(rig, dt)
+		animator:Refresh()
+
+		if host then
+			for name, source in pairs(biped.SourceBones) do
+				host.armature:SetBone(name, rig:GetBone(source), "model")
+			end
+		end
+	end
+
+	if not (ragdoll and ragdoll.Limp) then
+		if self.Profile == "gmod_player" then
+			self:AddDonorClips(animator.skeleton)
+			self:UpdatePlayer(animator, pose, dt)
+			local character = self.character
+			biped.ReadBones(rig, self.look_bones)
+			local head = self.look_bones.head
+			owner.eyes:SetLookTarget(
+				character.transform:GetPosition() + character.transform:GetRotation():VecMul(Vec3(head.m30, head.m31, head.m32)) + pose.aim_rotation:GetForward() * EYE_LOOK_DISTANCE
+			)
+		else
+			self:UpdateCreature(animator, animator.skeleton, pose, dt)
+
+			if self.LegIK and not host then self:UpdateCreatureLegs(rig, pose, dt) end
+
+			if self.LegRig.Root then self:UpdateCreatureLimbs(rig, pose, dt) end
+		end
 	end
 
 	if host then
@@ -1027,8 +1047,10 @@ function META:OnUpdate(dt)
 			points:SetProfile(self.SocketProfile)
 		end
 
-		self:UpdateGroundSink(self.character, pose, dt)
-		self:MirrorBones(rig, host.armature, pose, dt)
+		if not knocked_out then
+			self:UpdateGroundSink(self.character, pose, dt)
+			self:MirrorBones(rig, host.armature, pose, dt)
+		end
 	end
 
 	if ragdoll and ragdoll:HasLimp() then

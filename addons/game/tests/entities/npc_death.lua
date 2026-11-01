@@ -50,6 +50,8 @@ local function wait_for_parts(npc)
 	T.WaitUntil(function()
 		return npc.ragdoll.parts[1] ~= nil
 	end, 10)
+
+	npc.ragdoll:SetBoxRagdoll(false)
 end
 
 T.TestPhysics("a creature npc has hitboxes that point back at it while alive", function()

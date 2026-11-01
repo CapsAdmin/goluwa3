@@ -564,6 +564,7 @@ function npcs.Register(name, info)
 							{
 								CorpseTime = 20,
 								CheapCorpse = true,
+								BoxRagdoll = true,
 								Profile = not info.Biped and "model" or info.Ragdoll,
 							} or
 							nil,
