@@ -912,7 +912,7 @@ function JRPGTheme:DrawMenuButton(size, state)
 end
 
 function JRPGTheme:DrawSoftBand(x, y, w, h, color, alpha)
-	local floor = 0.55 * math.clamp((260 - w) / 160, 0, 1)
+	local floor = math.clamp((260 - w) / 160, 0, 1)
 	local fade = math.floor(math.clamp(w * 0.25, 12, 90))
 
 	if floor > 0 then
