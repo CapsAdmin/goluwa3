@@ -14,6 +14,7 @@ local DEFAULTS = {
 	Ring = 0,
 	Aberration = 0,
 	Darken = 0,
+	Brightness = 0.25,
 	Haze = 0,
 	Zoom = 0,
 }

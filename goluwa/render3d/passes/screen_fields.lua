@@ -27,6 +27,7 @@ return {
 						{"shape", "vec4", MAX},
 						{"look", "vec4", MAX},
 						{"grade", "vec4", MAX},
+						{"dim", "vec4", MAX},
 					},
 					write = function(self, block)
 						render3d.WriteCameraBlock(self, block)
@@ -52,6 +53,7 @@ return {
 							block.grade[slot][1] = field.Haze
 							block.grade[slot][2] = field.Zoom
 							block.grade[slot][3] = intensity
+							block.dim[slot][0] = field.Brightness
 						end
 
 						return block
@@ -81,6 +83,7 @@ return {
 				vec2 blur = vec2(0.0);
 				vec2 chroma = vec2(0.0);
 				float darken = 0.0;
+				float brightness = 0.25;
 				float jitter = hash21(gl_FragCoord.xy);
 
 				for (int i = 0; i < sf_data.count; i++) {
@@ -106,7 +109,12 @@ return {
 					offset -= (uv - center) * grade.z * intensity * inside;
 					offset += vec2(sin(uv.y * 70.0 + sf_data.time * 7.0) + sin(uv.y * 23.0 - sf_data.time * 4.0), cos(uv.x * 60.0 + sf_data.time * 6.0)) * grade.y * intensity * inside * 0.003;
 					chroma += outward * look.w * intensity * (shell + inside * 0.3) / float(size.y);
-					darken = max(darken, grade.x * intensity * (1.0 - inside));
+					float field_darken = grade.x * intensity * (1.0 - inside);
+
+					if (field_darken > darken) {
+						darken = field_darken;
+						brightness = sf_data.dim[i].x;
+					}
 				}
 
 				vec2 base = uv + offset;
@@ -126,8 +134,8 @@ return {
 
 				vec3 color = decompress(sum / float(TAPS), exposure);
 				float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-				color = mix(color, vec3(luminance) * 0.25, darken);
-				set_color(vec4(color, texelFetch(TEXTURE(sf_data.source_tex), ivec2(gl_FragCoord.xy), 0).a));
+				color = mix(color, vec3(luminance) * brightness, clamp(darken, 0.0, 1.0));
+				set_color(vec4(color, 1.0 - clamp(darken, 0.0, 1.0)));
 			}
 		]],
 		},

@@ -114,6 +114,16 @@ function post_source.GetAntiAliasedSceneTexture()
 	return get_anti_aliased_scene_texture({name = "effects_post"})
 end
 
+function post_source.GetScreenFieldsTexture()
+	if
+		render3d.IsPassEnabled("screen_fields") and
+		post_source.IsScreenFieldsActive() and
+		render3d.pipelines.screen_fields.framebuffers
+	then
+		return render3d.pipelines.screen_fields:GetFramebuffer():GetAttachment(1)
+	end
+end
+
 function post_source.GetSceneSourceTexture(self)
 	if self.name == "blit_compute" or self.name == "blit_scene" then
 		local debug_texture = post_source.GetDebugTexture()
@@ -126,11 +136,9 @@ function post_source.GetSceneSourceTexture(self)
 		self.name ~= "dof" and
 		self.name ~= "motion_blur" and
 		self.name ~= "screen_fields" and
-		render3d.IsPassEnabled("screen_fields") and
-		post_source.IsScreenFieldsActive() and
-		render3d.pipelines.screen_fields.framebuffers
+		post_source.GetScreenFieldsTexture()
 	then
-		return render3d.pipelines.screen_fields:GetFramebuffer():GetAttachment(1)
+		return post_source.GetScreenFieldsTexture()
 	end
 
 	if

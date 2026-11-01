@@ -582,7 +582,9 @@ local compute_shader = [[
 		}
 
 		vec2 uv = get_screen_uv(pos, size);
-		vec3 col = texture(source_tex, uv).rgb;
+		vec4 scene = texture(source_tex, uv);
+		vec3 col = scene.rgb;
+		float glare_keep = compute.has_fields != 0 ? scene.a : 1.0;
 
 		if (compute.eye_defocus != 0 && compute.has_exposure_tex != 0) {
 			float pupil_mm = 4.9 - 3.0 * tanh(0.4 * (log((exp2(texture(exposure_tex, vec2(0.5)).b - 3.0))) * 0.4342945 + 1.0));
@@ -632,7 +634,7 @@ local compute_shader = [[
 		float cones = smoothstep(compute.night_vision_log10_threshold - 1.5, compute.night_vision_log10_threshold + 1.5, max((adapted_ev - 3.0) * 0.30103, pixel_log10));
 
 		if (compute.has_bloom_tex != 0) {
-			col = max(col * (1.0 - compute.bloom_strength.rgb) + texelFetch(glare_tex, pos, 0).rgb / exposure, vec3(0.0));
+			col = max(col * (1.0 - compute.bloom_strength.rgb) + texelFetch(glare_tex, pos, 0).rgb * glare_keep / exposure, vec3(0.0));
 		}
 
 		if (compute.has_afterimage != 0) col = apply_afterimage(col, texture_catmull_rom(afterimage_tex, uv).rgb, texture_catmull_rom(afterimage_bleach_tex, uv).rgb, texture_catmull_rom(afterimage_source_tex, uv), exposure, compute.afterimage_intensity);
@@ -843,6 +845,7 @@ for _, pass in ipairs{
 		},
 		block = {
 			{"has_source_tex", "int"},
+			{"has_fields", "int"},
 			{"has_afterimage", "int"},
 			{"afterimage_intensity", "float"},
 			{"frame", "int"},
@@ -872,6 +875,7 @@ for _, pass in ipairs{
 		},
 		write = function(self, block)
 			block.has_source_tex = get_scene_source_texture() and 1 or 0
+			block.has_fields = post_source.GetScreenFieldsTexture() and 1 or 0
 			block.has_afterimage = afterimage.GetTexture(1) and 1 or 0
 			block.afterimage_intensity = exposure_model.Get("eye.afterimage_intensity")
 			block.frame = system.GetFrameNumber()
