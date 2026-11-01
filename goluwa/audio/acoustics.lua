@@ -795,16 +795,12 @@ function META:AbsorbReflectors(job, result, decay)
 		local u, v = octahedral_key(nx, ny, nz, 24)
 		local offset = nx * px + ny * py + nz * pz
 		local cell = math.max(0.5, distance * 0.02)
-		local bucket = math.floor(offset / cell + 0.5)
-		local prefix = u .. "," .. v .. ","
-		local key = prefix .. bucket
-		local reflector = self.reflectors[key] or
-			self.reflectors[prefix .. (
-				bucket - 1
-			)] or
-			self.reflectors[prefix .. (
-				bucket + 1
-			)]
+		local key = (u * 25 + v) * 0x400000 + math.floor(offset / cell + 0.5) + 0x200000
+
+		-- a degenerate triangle hit has a NaN normal, and a NaN key cannot index a table
+		if key ~= key then goto continue end
+
+		local reflector = self.reflectors[key] or self.reflectors[key - 1] or self.reflectors[key + 1]
 
 		if not reflector then
 			reflector = {
@@ -834,6 +830,8 @@ function META:AbsorbReflectors(job, result, decay)
 		reflector.absorption[1] = reflector.absorption[1] + s[at + 9]
 		reflector.absorption[2] = reflector.absorption[2] + s[at + 10]
 		reflector.absorption[3] = reflector.absorption[3] + s[at + 11]
+
+		::continue::
 	end
 end
 
