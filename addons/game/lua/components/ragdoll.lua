@@ -48,6 +48,9 @@ local SETTLE_SPIN = 2
 local NETWORK_LINGER = 1
 local REST_DRIFT = 0.05
 local REST_TIME = 1.5
+local CORPSE_REST_SPEED = 0.6
+local CORPSE_REST_SPIN = 4
+local CORPSE_REST_TIME = 0.25
 local GROUND_PROBE = 4
 local STAND_HEIGHT = 0.05
 local PART_LINEAR_DAMPING = 0.1
@@ -130,6 +133,7 @@ function META:Initialize()
 	self.previous_velocities = {}
 	self.dead_time = 0
 	self.rest_time = 0
+	self.corpse_still = 0
 	self.time = 0
 	self.walking = nil
 	self:AddGlobalEvent("PhysicsUpdate")
@@ -839,6 +843,38 @@ function META:UpdateRest(dt)
 		if asleep then
 			self:FreezeCorpse()
 			return
+		end
+
+		local still, grounded = true, false
+
+		for _, part in ipairs(self.parts) do
+			local body = part.body
+
+			if
+				body.Velocity:GetLength() > CORPSE_REST_SPEED or
+				body.AngularVelocity:GetLength() > CORPSE_REST_SPIN
+			then
+				still = false
+
+				break
+			end
+
+			if body.Grounded then grounded = true end
+		end
+
+		if still and grounded then
+			self.corpse_still = self.corpse_still + dt
+
+			if self.corpse_still >= CORPSE_REST_TIME then
+				for _, part in ipairs(self.parts) do
+					part.body:Sleep()
+				end
+
+				self:FreezeCorpse()
+				return
+			end
+		else
+			self.corpse_still = 0
 		end
 	end
 
