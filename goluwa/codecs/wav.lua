@@ -11,16 +11,9 @@ function wav.CanDecodeData(data)
 	return (container == "RIFF" or container == "RIFX") and data:sub(9, 12) == "WAVE"
 end
 
-local function read_s24le(buffer)
-	local b1 = buffer:ReadByte()
-	local b2 = buffer:ReadByte()
-	local b3 = buffer:ReadByte()
-	local value = b1 + (b2 * 0x100) + (b3 * 0x10000)
-
-	if value >= 0x800000 then value = value - 0x1000000 end
-
-	return value
-end
+local int16_ptr = ffi.typeof("const int16_t *")
+local int32_ptr = ffi.typeof("const int32_t *")
+local double_ptr = ffi.typeof("const double *")
 
 function wav.Decode(data)
 	local buffer = type(data) == "string" and Buffer.New(data) or data
@@ -119,36 +112,45 @@ function wav.Decode(data)
 	local sample_frames = math.floor(data_size / block_align)
 	local sample_values = sample_frames * channels
 	local pcm = ffi.new("float[?]", sample_values)
-	buffer:SetPosition(data_offset)
+	local src = buffer.Buffer + data_offset
 
 	if format_tag == WAVE_FORMAT_PCM then
 		if bits_per_sample == 8 then
 			for i = 0, sample_values - 1 do
-				pcm[i] = (buffer:ReadByte() - 128) / 128
+				pcm[i] = (src[i] - 128) / 128
 			end
 		elseif bits_per_sample == 16 then
+			local samples = ffi.cast(int16_ptr, src)
+
 			for i = 0, sample_values - 1 do
-				pcm[i] = buffer:ReadI16LE() / 32768
+				pcm[i] = samples[i] / 32768
 			end
 		elseif bits_per_sample == 24 then
 			for i = 0, sample_values - 1 do
-				pcm[i] = read_s24le(buffer) / 8388608
+				local at = i * 3
+				local value = src[at] + src[at + 1] * 0x100 + src[at + 2] * 0x10000
+
+				if value >= 0x800000 then value = value - 0x1000000 end
+
+				pcm[i] = value / 8388608
 			end
 		elseif bits_per_sample == 32 then
+			local samples = ffi.cast(int32_ptr, src)
+
 			for i = 0, sample_values - 1 do
-				pcm[i] = buffer:ReadI32LE() / 2147483648
+				pcm[i] = samples[i] / 2147483648
 			end
 		else
 			return nil, "Unsupported PCM bit depth: " .. tostring(bits_per_sample)
 		end
 	elseif format_tag == WAVE_FORMAT_IEEE_FLOAT then
 		if bits_per_sample == 32 then
-			for i = 0, sample_values - 1 do
-				pcm[i] = buffer:ReadFloatLE()
-			end
+			ffi.copy(pcm, src, sample_values * 4)
 		elseif bits_per_sample == 64 then
+			local samples = ffi.cast(double_ptr, src)
+
 			for i = 0, sample_values - 1 do
-				pcm[i] = buffer:ReadDoubleLE()
+				pcm[i] = samples[i]
 			end
 		else
 			return nil, "Unsupported floating-point bit depth: " .. tostring(bits_per_sample)
