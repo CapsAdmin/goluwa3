@@ -273,6 +273,27 @@ add(
 )
 add("Scene", "water", path(teardrop(12, 14.5, 6.5, 12, 3.5)))
 add("Scene", "sparkle", path("M12 3L14 10L21 12L14 14L12 21L10 14L3 12L10 10Z"))
+add("Weapons", "sword", path("M12 2.5L15 6V13H19V17H12 5V13H9V6Z", "M12 17V21.5"))
+add("Weapons", "shield", path("M12 3L19.5 6V12L12 21L4.5 12V6Z", "M12 3V21"))
+add("Weapons", "pistol", path("M3.5 7H20.5V12H15V14L13 21H8.5L10.5 12H3.5Z"))
+add(
+	"Weapons",
+	"flask",
+	path(
+		"M9.5 3H14.5V9L17.357 15L19.5 19.5V21H4.5V19.5L6.643 15L9.5 9Z",
+		"M6.643 15H17.357"
+	)
+)
+
+do
+	local x, y = polar(17, 7, 1.6, 1.6, 135)
+	add(
+		"Weapons",
+		"wand",
+		path(star(17, 7, 5, 1.6, 4), "M4.5 19.5L" .. f(x) .. " " .. f(y))
+	)
+end
+
 add("Objects", "user", path(ring(12, 7.5, 3.5), arc(12, 21, 8, 6.5, 180, 360, true)))
 add("Scene", "spawn", path("M6 4H18L15 8.5L18 13H6Z", "M6 13V21"))
 add("Scene", "place", path(teardrop(12, 9.5, 6.5, 12, 21)) .. dot(12, 9.5, 2.2))

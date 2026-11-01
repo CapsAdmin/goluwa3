@@ -4,6 +4,7 @@ weapon_categories.Registered = {}
 
 function weapon_categories.Register(definition)
 	assert(definition.Name, "a weapon category needs a name")
+	assert(definition.Icon, "weapon category " .. definition.Name .. " needs an icon")
 	assert(definition.Color, "weapon category " .. definition.Name .. " needs a color")
 	definition.Label = definition.Label or definition.Name:upper()
 	weapon_categories.Registered[definition.Name] = definition
@@ -22,8 +23,28 @@ function weapon_categories.GetDividerColor(a, b)
 	(ca.b + cb.b) * 0.5 + 0.25
 end
 
-weapon_categories.Register{Name = "unknown", Label = "OTHER", Color = Color(0.6, 0.6, 0.65, 1)}
-weapon_categories.Register{Name = "tools", Label = "TOOL", Color = Color(0.35, 0.65, 0.95, 1)}
-weapon_categories.Register{Name = "weapons", Label = "RANGE", Color = Color(0.95, 0.45, 0.25, 1)}
-weapon_categories.Register{Name = "items", Label = "ITEMS", Color = Color(0.4, 0.85, 0.5, 1)}
+weapon_categories.Register{
+	Name = "unknown",
+	Icon = "cube",
+	Label = "OTHER",
+	Color = Color(0.6, 0.6, 0.65, 1),
+}
+weapon_categories.Register{
+	Name = "tools",
+	Icon = "settings",
+	Label = "TOOL",
+	Color = Color(0.35, 0.65, 0.95, 1),
+}
+weapon_categories.Register{
+	Name = "weapons",
+	Icon = "pistol",
+	Label = "RANGE",
+	Color = Color(0.95, 0.45, 0.25, 1),
+}
+weapon_categories.Register{
+	Name = "items",
+	Icon = "flask",
+	Label = "ITEMS",
+	Color = Color(0.4, 0.85, 0.5, 1),
+}
 return weapon_categories
