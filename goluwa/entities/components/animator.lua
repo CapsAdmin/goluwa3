@@ -237,7 +237,7 @@ function Animator:Bind(skeleton)
 		local polygon = target.original
 		local indices, weights = polygon.Skin.BoneIndices, polygon.Skin.BoneWeights
 
-		for i, vertex in ipairs(polygon:GetVertices()) do
+		for i = 1, polygon:GetVertexCount() do
 			local first = (i - 1) * 4
 			local bone, best_weight = indices[first], weights[first]
 
@@ -246,19 +246,19 @@ function Animator:Bind(skeleton)
 			end
 
 			local o = bone * 6
-			local pos = vertex.pos
+			local x, y, z = polygon:GetVertexPosition(i)
 
-			if pos.x < bone_bounds[o] then bone_bounds[o] = pos.x end
+			if x < bone_bounds[o] then bone_bounds[o] = x end
 
-			if pos.y < bone_bounds[o + 1] then bone_bounds[o + 1] = pos.y end
+			if y < bone_bounds[o + 1] then bone_bounds[o + 1] = y end
 
-			if pos.z < bone_bounds[o + 2] then bone_bounds[o + 2] = pos.z end
+			if z < bone_bounds[o + 2] then bone_bounds[o + 2] = z end
 
-			if pos.x > bone_bounds[o + 3] then bone_bounds[o + 3] = pos.x end
+			if x > bone_bounds[o + 3] then bone_bounds[o + 3] = x end
 
-			if pos.y > bone_bounds[o + 4] then bone_bounds[o + 4] = pos.y end
+			if y > bone_bounds[o + 4] then bone_bounds[o + 4] = y end
 
-			if pos.z > bone_bounds[o + 5] then bone_bounds[o + 5] = pos.z end
+			if z > bone_bounds[o + 5] then bone_bounds[o + 5] = z end
 		end
 	end
 

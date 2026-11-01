@@ -140,21 +140,45 @@ function Polygon3D:GetVertices()
 	return self.Vertices
 end
 
-function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
-	local vertices = self:GetVertices()
-	local indices = self.indices
-	local inside = {}
+function Polygon3D:GetVertexCount()
+	local packed = self.packed
 
-	for i = 1, #vertices do
-		local world = world_matrix:TransformVector(vertices[i].pos)
-		inside[i] = world.x >= aabb.min_x and
-			world.x <= aabb.max_x and
-			world.y >= aabb.min_y and
-			world.y <= aabb.max_y and
-			world.z >= aabb.min_z and
-			world.z <= aabb.max_z
+	if packed then return packed.vertex_count end
+
+	return #self.Vertices
+end
+
+function Polygon3D:GetVertexPosition(i)
+	local packed = self.packed
+
+	if packed then
+		local position = packed.vertices[i - 1].position
+		return position[0], position[1], position[2]
 	end
 
+	local pos = self.Vertices[i].pos
+	return pos.x, pos.y, pos.z
+end
+
+function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
+	local inside = {}
+	local any_inside = false
+
+	for i = 1, self:GetVertexCount() do
+		local x, y, z = world_matrix:TransformVectorUnpacked(self:GetVertexPosition(i))
+		inside[i] = x >= aabb.min_x and
+			x <= aabb.max_x and
+			y >= aabb.min_y and
+			y <= aabb.max_y and
+			z >= aabb.min_z and
+			z <= aabb.max_z
+		any_inside = any_inside or inside[i]
+	end
+
+	if not any_inside then return self end
+
+	local vertices = self:GetVertices()
+	local indices = self.indices
 	local copy = Polygon3D.New()
 	local removed = 0
 
