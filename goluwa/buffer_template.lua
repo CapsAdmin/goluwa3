@@ -231,56 +231,146 @@ function buffer_template.AddBasicDataTypes(META)
 	for name, type in pairs(type_info) do
 		type = ffi.typeof(type)
 		local size = ffi.sizeof(type)
+		local temp = ffi.new(ffi.typeof("$[1]", type), 0)
+		META["Write" .. name .. "LE"] = function(self, num)
+			temp[0] = num
+			local bytes = ffi_string(temp, size)
 
-		if size > 1 then
-			local ctype_read = ffi.typeof("$*", type)
-			local ctype_write = ffi.typeof("$[1]", type)
-
-			do
-				local temp = ffi.new(ctype_write, 0)
-				META["Write" .. name .. "LE"] = function(self, num)
-					temp[0] = num
-					local bytes = ffi_string(temp, size)
-
-					for i = 1, size do
-						self:WriteByte(bytes:byte(i))
-					end
-
-					return self
-				end
-				META["Read" .. name .. "LE"] = function(self)
-					local bytes = {}
-
-					for i = 1, size do
-						bytes[i] = string.char(self:ReadByte())
-					end
-
-					return ffi_cast(ctype_read, table.concat(bytes))[0]
-				end
+			for i = 1, size do
+				self:WriteByte(bytes:byte(i))
 			end
 
-			do
-				local temp = ffi.new(ctype_write, 0)
-				META["Write" .. name .. "BE"] = function(self, num)
-					temp[0] = num
-					local bytes = ffi_string(temp, size)
+			return self
+		end
+		META["Write" .. name .. "BE"] = function(self, num)
+			temp[0] = num
+			local bytes = ffi_string(temp, size)
 
-					for i = size, 1, -1 do
-						self:WriteByte(bytes:byte(i))
-					end
-
-					return self
-				end
-				META["Read" .. name .. "BE"] = function(self)
-					local bytes = {}
-
-					for i = size, 1, -1 do
-						bytes[i] = string.char(self:ReadByte())
-					end
-
-					return ffi_cast(ctype_read, table.concat(bytes))[0]
-				end
+			for i = size, 1, -1 do
+				self:WriteByte(bytes:byte(i))
 			end
+
+			return self
+		end
+	end
+
+	-- assembled with arithmetic: writing bytes into a scratch and reading it back as another type breaks under the JIT, its alias analysis treats differently typed cdata accesses as independent
+	do
+		local int64_t = ffi.typeof("int64_t")
+		local math_ldexp = math.ldexp
+		local math_floor = math.floor
+
+		local function read_u16_le(self)
+			local a, b = self:ReadByte(), self:ReadByte()
+			return a + b * 0x100
+		end
+
+		local function read_u16_be(self)
+			local a, b = self:ReadByte(), self:ReadByte()
+			return b + a * 0x100
+		end
+
+		local function read_u32_le(self)
+			local a, b, c, d = self:ReadByte(), self:ReadByte(), self:ReadByte(), self:ReadByte()
+			return a + b * 0x100 + c * 0x10000 + d * 0x1000000
+		end
+
+		local function read_u32_be(self)
+			local a, b, c, d = self:ReadByte(), self:ReadByte(), self:ReadByte(), self:ReadByte()
+			return d + c * 0x100 + b * 0x10000 + a * 0x1000000
+		end
+
+		local function float_from_bits(bits)
+			local exponent = math_floor(bits / 0x800000) % 0x100
+			local mantissa = bits % 0x800000
+			local value
+
+			if exponent == 0xFF then
+				value = mantissa == 0 and math.huge or 0 / 0
+			elseif exponent == 0 then
+				value = math_ldexp(mantissa, -149)
+			else
+				value = math_ldexp(mantissa + 0x800000, exponent - 150)
+			end
+
+			return bits >= 0x80000000 and -value or value
+		end
+
+		local function double_from_bits(hi, lo)
+			local exponent = math_floor(hi / 0x100000) % 0x800
+			local mantissa = (hi % 0x100000) * 0x100000000 + lo
+			local value
+
+			if exponent == 0x7FF then
+				value = mantissa == 0 and math.huge or 0 / 0
+			elseif exponent == 0 then
+				value = math_ldexp(mantissa, -1074)
+			else
+				value = math_ldexp(mantissa + 0x10000000000000, exponent - 1075)
+			end
+
+			return hi >= 0x80000000 and -value or value
+		end
+
+		META.ReadU16LE = read_u16_le
+		META.ReadU16BE = read_u16_be
+		META.ReadU32LE = read_u32_le
+		META.ReadU32BE = read_u32_be
+
+		function META:ReadI16LE()
+			local v = read_u16_le(self)
+			return v >= 0x8000 and v - 0x10000 or v
+		end
+
+		function META:ReadI16BE()
+			local v = read_u16_be(self)
+			return v >= 0x8000 and v - 0x10000 or v
+		end
+
+		function META:ReadI32LE()
+			local v = read_u32_le(self)
+			return v >= 0x80000000 and v - 0x100000000 or v
+		end
+
+		function META:ReadI32BE()
+			local v = read_u32_be(self)
+			return v >= 0x80000000 and v - 0x100000000 or v
+		end
+
+		function META:ReadU64LE()
+			local lo = read_u32_le(self)
+			return lo + read_u32_le(self) * 0x100000000ULL
+		end
+
+		function META:ReadU64BE()
+			local hi = read_u32_be(self)
+			return read_u32_be(self) + hi * 0x100000000ULL
+		end
+
+		function META:ReadI64LE()
+			return ffi_cast(int64_t, self:ReadU64LE())
+		end
+
+		function META:ReadI64BE()
+			return ffi_cast(int64_t, self:ReadU64BE())
+		end
+
+		function META:ReadFloatLE()
+			return float_from_bits(read_u32_le(self))
+		end
+
+		function META:ReadFloatBE()
+			return float_from_bits(read_u32_be(self))
+		end
+
+		function META:ReadDoubleLE()
+			local lo = read_u32_le(self)
+			return double_from_bits(read_u32_le(self), lo)
+		end
+
+		function META:ReadDoubleBE()
+			local hi = read_u32_be(self)
+			return double_from_bits(hi, read_u32_be(self))
 		end
 	end
 
