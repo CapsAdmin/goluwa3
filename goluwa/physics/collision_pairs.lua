@@ -252,11 +252,23 @@ do
 	end
 end
 
-local function emit_collision_event(what, self_owner, self_body, other_entity, other_body, normal, overlap, hit)
+local function emit_collision_event(
+	what,
+	self_owner,
+	self_body,
+	other_entity,
+	other_body,
+	normal,
+	flip_normal,
+	overlap,
+	hit
+)
 	stats:Count(what)
 	local owner = self_owner or (self_body and self_body.Owner)
 
-	if not (owner and owner.CallLocalEvent) then return end
+	if not (owner and owner.HasLocalEventHandler and owner:HasLocalEventHandler(what)) then
+		return
+	end
 
 	owner:CallLocalEvent(
 		what,
@@ -265,7 +277,7 @@ local function emit_collision_event(what, self_owner, self_body, other_entity, o
 			self_body = self_body,
 			other_body = other_body,
 			other_entity = other_entity,
-			normal = normal,
+			normal = flip_normal and normal * -1 or normal,
 			overlap = overlap or 0,
 			hit = hit,
 		}
@@ -406,6 +418,7 @@ function CollisionPairs:DispatchCollisionEvents()
 			pair.body_b and pair.body_b.Owner or nil,
 			pair.body_b,
 			pair.normal,
+			false,
 			pair.overlap
 		)
 		emit_collision_event(
@@ -414,7 +427,8 @@ function CollisionPairs:DispatchCollisionEvents()
 			pair.body_b,
 			pair.body_a and pair.body_a.Owner or nil,
 			pair.body_a,
-			pair.normal * -1,
+			pair.normal,
+			true,
 			pair.overlap
 		)
 	end
@@ -428,6 +442,7 @@ function CollisionPairs:DispatchCollisionEvents()
 				pair.body_b and pair.body_b.Owner or nil,
 				pair.body_b,
 				pair.normal,
+				false,
 				pair.overlap
 			)
 			emit_collision_event(
@@ -436,7 +451,8 @@ function CollisionPairs:DispatchCollisionEvents()
 				pair.body_b,
 				pair.body_a and pair.body_a.Owner or nil,
 				pair.body_a,
-				pair.normal * -1,
+				pair.normal,
+				true,
 				pair.overlap
 			)
 		end
@@ -456,6 +472,7 @@ function CollisionPairs:DispatchCollisionEvents()
 			pair.entity,
 			other_body,
 			pair.normal,
+			false,
 			pair.overlap,
 			pair.hit
 		)
@@ -465,7 +482,8 @@ function CollisionPairs:DispatchCollisionEvents()
 			nil,
 			pair.body and pair.body.Owner or nil,
 			pair.body,
-			pair.normal * -1,
+			pair.normal,
+			true,
 			pair.overlap,
 			pair.hit
 		)
@@ -481,6 +499,7 @@ function CollisionPairs:DispatchCollisionEvents()
 				pair.entity,
 				other_body,
 				pair.normal,
+				false,
 				pair.overlap,
 				pair.hit
 			)
@@ -490,7 +509,8 @@ function CollisionPairs:DispatchCollisionEvents()
 				nil,
 				pair.body and pair.body.Owner or nil,
 				pair.body,
-				pair.normal * -1,
+				pair.normal,
+				true,
 				pair.overlap,
 				pair.hit
 			)

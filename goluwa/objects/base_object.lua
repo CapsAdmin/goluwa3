@@ -346,6 +346,25 @@ function META:AddLocalListener(what, callback, id, config)
 	end
 end
 
+function META:HasLocalEventHandler(what)
+	if self.SuppressEvents then return false end
+
+	if self[what] then return true end
+
+	local components = self.component_list
+
+	if components then
+		for i = 1, #components do
+			local component = components[i]
+
+			if component[what] and not component.__removed then return true end
+		end
+	end
+
+	local local_events = self.local_events
+	return local_events ~= nil and (local_events[what] ~= nil or event.IsEvent(what))
+end
+
 function META:CallLocalEvent(what, a, b, c, d, e, f, g)
 	if self.SuppressEvents then return end
 
