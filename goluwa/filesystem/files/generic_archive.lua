@@ -48,13 +48,15 @@ end
 
 local cache = {}
 local last_used = {}
+local EVICT_AFTER = 60
 
 local function get_cache(key)
-	last_used[key] = os.clock()
+	last_used[key] = os.time()
 	return cache[key]
 end
 
 local function set_cache(key, value)
+	last_used[key] = os.time()
 	cache[key] = value
 end
 
@@ -63,10 +65,10 @@ timer.Repeat(
 	10,
 	0,
 	function()
-		local now = os.clock()
+		local now = os.time()
 
 		for k, v in pairs(last_used) do
-			if now - v > 5 then
+			if now - v > EVICT_AFTER then
 				cache[k] = nil
 				last_used[k] = nil
 			end
