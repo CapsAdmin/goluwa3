@@ -563,14 +563,35 @@ local function test_static_polygon(
 	return closest_hit
 end
 
+local function get_skinned_source_indices(source)
+	local packed = source.packed
+
+	if not packed then
+		return get_index_buffer(source, source.Vertices, source.indices)
+	end
+
+	local indices = source.raycast_packed_indices
+
+	if not indices then
+		indices = {}
+
+		for i = 1, packed.index_count do
+			indices[i] = packed.indices[i - 1] + 1
+		end
+
+		source.raycast_packed_indices = indices
+	end
+
+	return indices, math.floor(#indices / 3)
+end
+
 local function test_skinned_polygon(ray, poly3d, primitive_idx, entity, max_hit_distance, cull_back)
 	local source = poly3d.SkinSource
-	local vertices = get_mesh_vertices(source)
+	local count = source:GetVertexCount()
 
-	if not vertices then return nil end
+	if count == 0 then return nil end
 
 	local rig = poly3d.SkinRig
-	local count = #vertices
 	local posed = poly3d.raycast_posed
 
 	if not posed or posed.count ~= count then
@@ -579,11 +600,11 @@ local function test_skinned_polygon(ray, poly3d, primitive_idx, entity, max_hit_
 	end
 
 	if posed.version ~= rig.version then
-		skinning.PosePositions(poly3d.Skin, rig.matrices, vertices, count, posed.positions)
+		skinning.PosePositions(poly3d.Skin, rig.matrices, source, count, posed.positions)
 		posed.version = rig.version
 	end
 
-	local indices, triangle_count = get_index_buffer(source, vertices, source.indices)
+	local indices, triangle_count = get_skinned_source_indices(source)
 	local positions = posed.positions
 	local origin, direction = ray.origin, ray.direction
 	local ox, oy, oz = origin.x, origin.y, origin.z

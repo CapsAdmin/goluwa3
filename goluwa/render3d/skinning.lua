@@ -249,13 +249,12 @@ function skinning.GetBoneBuffer(skin, vertex_count)
 	return skin.GpuBuffer
 end
 
-function skinning.PosePositions(skin, matrices, vertices, count, out)
+function skinning.PosePositions(skin, matrices, polygon, count, out)
 	local indices, weights = skin.BoneIndices, skin.BoneWeights
 
 	for i = 0, count - 1 do
 		local s = i * 4
-		local pos = vertices[i + 1].pos
-		local x, y, z = pos.x, pos.y, pos.z
+		local x, y, z = polygon:GetVertexPosition(i + 1)
 		local w = weights[s]
 		local o = indices[s] * 12
 		local px = (matrices[o] * x + matrices[o + 1] * y + matrices[o + 2] * z + matrices[o + 3]) * w
