@@ -342,6 +342,35 @@ function BaseTheme:GetFont(name, size_name)
 	return font_cache[cache_key], size_val
 end
 
+function BaseTheme:GetWorldTextStyle()
+	if not self.world_text_style then
+		local ink = self:GetColor("actual_black")
+		self.world_text_style = {
+			foreground = self:GetColor("text_on_dark"),
+			backdrop = ink,
+			outline = ink,
+			outline_width = 2,
+			glow = ink:Copy():SetAlpha(0.7),
+			glow_softness = 4,
+			glow_spread = 1.5,
+		}
+	end
+
+	return self.world_text_style
+end
+
+function BaseTheme:DrawWorldText(font, text, x, y, color, alpha)
+	local style = self:GetWorldTextStyle()
+	color = color or style.foreground
+	render2d.PushAlphaMultiplier(alpha)
+	render2d.DrawTextHalo(font, text, x, y, style)
+	render2d.PushColor(color.r, color.g, color.b, color.a)
+	font:DrawText(text, x, y)
+	render2d.PopColor()
+	render2d.PopAlphaMultiplier()
+	return x + font:GetTextSize(text)
+end
+
 function BaseTheme:GetTextShadow(foreground)
 	return nil
 end

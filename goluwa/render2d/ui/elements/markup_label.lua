@@ -13,11 +13,13 @@ META:GetSet("AdaptColors", false)
 META:GetSet("ContentMinHeight", 0)
 META:EndStorable()
 
-function META.SyncTheme(markup, font_size, adapt_colors)
+function META.SyncTheme(markup, font_size, adapt_colors, world)
 	local active = theme.active
-	local background = active:GetColor("surface")
+	local world_style = world and active:GetWorldTextStyle()
+	local background = world and world_style.backdrop or active:GetColor("surface")
 	local selection_color = active:GetColor("text_selection")
-	local text_color = active:GetColor("text", {surface = "surface"})
+	local text_color = world and world_style.foreground or active:GetColor("text", {surface = "surface"})
+	markup.Halo = world_style
 	local font = active:GetFont("body", font_size)
 	markup:SetBackground(background)
 	markup:SetAdaptColors(adapt_colors)

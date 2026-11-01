@@ -199,6 +199,23 @@ function render2d.DrawLine(x1, y1, x2, y2, w, skip_tex, ox, oy)
 	render2d.DrawRect(x1, y1, w, dst, -ang, ox, oy)
 end
 
+function render2d.DrawTextHalo(font, text, x, y, style, spacing)
+	local glow = style.glow
+	render2d.PushColor(glow.r, glow.g, glow.b, glow.a)
+	render2d.PushSDFSoftness(style.glow_softness)
+	render2d.PushOutlineWidth(style.outline_width + style.glow_spread)
+	font:DrawText(text, x, y, spacing)
+	render2d.PopOutlineWidth()
+	render2d.PopSDFSoftness()
+	render2d.PopColor()
+	local outline = style.outline
+	render2d.PushColor(outline.r, outline.g, outline.b, outline.a)
+	render2d.PushOutlineWidth(style.outline_width)
+	font:DrawText(text, x, y, spacing)
+	render2d.PopOutlineWidth()
+	render2d.PopColor()
+end
+
 function render2d.DrawCircle(x, y, radius, width, resolution)
 	resolution = resolution or 16
 	local spacing = (resolution / radius) - 0.2

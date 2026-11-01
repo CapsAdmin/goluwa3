@@ -195,7 +195,7 @@ end
 event.AddListener("DrawHUD", "chatbox_hud", function()
 	local w, h = render2d.GetSize()
 	render2d.PushMatrix(50, h / 2)
-	MarkupLabel.SyncTheme(chatbox.markup_hud, "M", true)
+	MarkupLabel.SyncTheme(chatbox.markup_hud, "M", true, true)
 	chatbox.markup_hud:Update()
 	chatbox.markup_hud:Draw()
 	chatbox.markup_hud:SetMaxWidth(render2d.GetSize() * 0.3)

@@ -5,7 +5,6 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local objects = import("goluwa/objects/objects.lua")
 local autocomplete = import("goluwa/autocomplete.lua")
 local Color = import("goluwa/structs/color.lua")
-local white = Color(1, 1, 1, 1)
 local full_anim = {glow_alpha = 1}
 local META = Panel:CreateTemplate("autocomplete_list")
 META.CMP.transform = {}
@@ -176,16 +175,10 @@ function META:OnMouseInput(button, press)
 end
 
 do
-	local function draw_string(font, str, x, y, color, alpha, shadow)
+	local function draw_string(font, str, x, y, color, alpha, world)
 		if str == "" then return x end
 
-		if shadow then
-			render2d.PushColor(0, 0, 0, 1)
-			render2d.PushAlphaMultiplier(alpha * 0.8)
-			font:DrawText(str, x + 1, y + 1)
-			render2d.PopAlphaMultiplier()
-			render2d.PopColor()
-		end
+		if world then return theme.active:DrawWorldText(font, str, x, y, color, alpha) end
 
 		render2d.PushColor(color.r, color.g, color.b, 1)
 		render2d.PushAlphaMultiplier(alpha * color.a)
@@ -207,7 +200,8 @@ do
 		if not transparent then active:DrawMenuContainer(size) end
 
 		local match_color = active:GetColor("primary")
-		local disabled_color = active:GetColor("text_disabled")
+		local disabled_color = transparent and active:GetWorldTextStyle().foreground or active:GetColor("text_disabled")
+		local disabled_alpha = transparent and 0.6 or 1
 		local selected_index = session:GetSelectedIndex()
 		local y = padding / 2
 		local row_size = Vec2(size.x, row_height)
@@ -217,7 +211,7 @@ do
 			local row = self._rows[i]
 
 			if row.header then
-				draw_string(font, row.header, padding, y + padding / 2, disabled_color, 1, transparent)
+				draw_string(font, row.header, padding, y + padding / 2, disabled_color, disabled_alpha, transparent)
 			else
 				local selected = row.index == selected_index and not row.result.hint
 				local hovered = row.index == self._hover_index
@@ -226,7 +220,7 @@ do
 				local alpha = 1
 
 				if transparent then
-					text_color = self.TextColor and active:GetColor(self.TextColor) or white
+					text_color = self.TextColor and active:GetColor(self.TextColor) or active:GetWorldTextStyle().foreground
 					row_match_color = text_color
 					alpha = selected and 1 or 0.75
 
@@ -271,7 +265,7 @@ do
 						row.detail_x,
 						text_y,
 						result.hint and text_color or disabled_color,
-						result.hint and 0.8 or 1,
+						result.hint and 0.8 or disabled_alpha,
 						transparent
 					)
 				end

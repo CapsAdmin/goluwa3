@@ -117,6 +117,22 @@ function JRPGTheme:ConfigurePalette(palette)
 	return palette
 end
 
+function JRPGTheme:GetWorldTextStyle()
+	if not self.world_text_style then
+		self.world_text_style = {
+			foreground = self:GetColor("text_on_dark"),
+			backdrop = ink,
+			outline = ink,
+			outline_width = 2.5,
+			glow = self:GetColor("primary"):GetLerped(0.8, ink):SetAlpha(0.75),
+			glow_softness = 3,
+			glow_spread = 1.5,
+		}
+	end
+
+	return self.world_text_style
+end
+
 function JRPGTheme:Initialize()
 	self.BaseClass.Initialize(self)
 	self:SetSizes(

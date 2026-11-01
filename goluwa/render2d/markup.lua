@@ -39,6 +39,7 @@ Markup:GetSet("DefaultColor", Color(1, 1, 1, 1))
 Markup:GetSet("DefaultFont", nil)
 Markup:GetSet("Background", nil)
 Markup:GetSet("AdaptColors", false)
+Markup:GetSet("Halo", nil)
 Markup:GetSet("AdaptContrast", 4.5)
 Markup.ResetColor = {}
 
@@ -2613,6 +2614,10 @@ do
 
 						if c and self.AdaptColors and self.Background then
 							c = self:GetAdaptedColor(c)
+						end
+
+						if self.Halo then
+							render2d.DrawTextHalo(fonts.GetFont(), chunk.val, chunk.x, chunk.y, self.Halo, max_w)
 						end
 
 						if c then render2d.PushColor(c.r, c.g, c.b, c.a) end
