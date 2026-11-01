@@ -1573,6 +1573,102 @@ function BaseTheme:DrawProgressBar(size, state, color)
 	end
 end
 
+function BaseTheme:DrawReticle(x, y, size, state)
+	local a = state.alpha
+	local now = state.time
+	local scale = size / 70
+	local light = self:GetColor("text_on_dark")
+	local dark = self:GetColor("actual_black")
+	render2d.SetTexture(nil)
+
+	if state.kind == "crosshair" then
+		local color = state.blocked and self:GetColor("negative") or light
+		render2d.SetColor(dark.r, dark.g, dark.b, 0.6 * a)
+		render2d.DrawRoundedRect(x - size / 2 - 1, y - size / 2 - 1, size + 2, size + 2, size / 2 + 1)
+		render2d.SetColor(color.r, color.g, color.b, 0.9 * a)
+		render2d.DrawRoundedRect(x - size / 2, y - size / 2, size, size, size / 2)
+		return
+	end
+
+	if state.kind == "target" then
+		local danger = self:GetColor("negative")
+		local radius = size / 2 + math.sin(now * 6) * 3 * scale
+
+		for i = 0, 3 do
+			render2d.PushMatrix()
+			render2d.Translatef(
+				x + math.cos(now * 1.5 + i * math.pi / 2) * radius,
+				y + math.sin(now * 1.5 + i * math.pi / 2) * radius
+			)
+			render2d.Rotate(now * 1.5 + i * math.pi / 2 + math.pi / 4)
+			render2d.SetColor(dark.r, dark.g, dark.b, 0.7 * a)
+			render2d.DrawRoundedRect(-6 * scale, -6 * scale, 12 * scale, 12 * scale, 2)
+			render2d.SetColor(danger.r, danger.g, danger.b, a)
+			render2d.DrawRoundedRect(-4.5 * scale, -4.5 * scale, 9 * scale, 9 * scale, 1)
+			render2d.PopMatrix()
+		end
+
+		render2d.SetColor(danger.r, danger.g, danger.b, 0.8 * a)
+		render2d.DrawCircle(x, y, radius * 0.8, 1.5, 40)
+		return
+	end
+
+	for i = 0, 3 do
+		render2d.PushMatrix()
+		render2d.Translatef(x, y)
+		render2d.Rotate(i * math.pi / 2 - now * 1.6)
+		render2d.SetColor(dark.r, dark.g, dark.b, 0.6 * a)
+		render2d.DrawRoundedRect(size / 2 - 3, -9, 8, 18, 2)
+		render2d.SetColor(light.r, light.g, light.b, a)
+		render2d.DrawRoundedRect(size / 2 - 2, -8, 4, 16, 1)
+		render2d.PopMatrix()
+	end
+
+	render2d.SetColor(light.r, light.g, light.b, a * 0.9)
+	render2d.DrawCircle(x, y, size / 2 - 6, 1.5, 40)
+end
+
+function BaseTheme:DrawHudPanel(x, y, w, h, state)
+	local a = state.alpha or 1
+	local dark = self:GetColor("actual_black")
+	render2d.SetTexture(nil)
+	render2d.SetColor(dark.r, dark.g, dark.b, (state.opacity or 0.6) * a)
+	render2d.DrawRoundedRect(x, y, w, h, 6)
+
+	if state.accent then
+		local accent = self:ResolveColor(state.accent)
+		render2d.SetColor(accent.r, accent.g, accent.b, a)
+
+		if state.accent_side == "bottom" then
+			local from = state.accent_from or 0
+			render2d.DrawRoundedRect(x + w * from, y + h - 3, w * ((state.accent_to or 1) - from), 3, 1.5)
+		else
+			render2d.DrawRoundedRect(x, y, 4, h, 2)
+		end
+	end
+end
+
+function BaseTheme:DrawKeycap(x, y, w, h, text, size, alpha)
+	local light = self:GetColor("text_on_dark")
+	local dark = self:GetColor("actual_black")
+	local font, weight = self:GetTextStyle("body_strong")
+	local text_w, text_h = render2d.GetTextSize(text, font, size, weight)
+	render2d.SetTexture(nil)
+	render2d.SetColor(light.r, light.g, light.b, alpha)
+	render2d.DrawRoundedRect(x, y, w, h, 5)
+	render2d.DrawText{
+		text = text,
+		font = font,
+		weight = weight,
+		x = x + (w - text_w) / 2,
+		y = y + (h - text_h) / 2,
+		size = size,
+		foreground_color = dark,
+		alpha = alpha,
+		softness = 0,
+	}
+end
+
 function BaseTheme:DrawDivider(size)
 	self:DrawLine(0, 1, size, "auto")
 end

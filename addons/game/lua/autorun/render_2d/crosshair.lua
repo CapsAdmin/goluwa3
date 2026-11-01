@@ -2,6 +2,7 @@ local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local third_person = import("lua/third_person.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 local camera_modes = import("lua/camera_modes.lua")
 local RADIUS = 2.5
 local AIM_DISTANCE = 100
@@ -16,7 +17,7 @@ event.AddListener("DrawHUD", "crosshair", function()
 
 	local w, h = render2d.GetSize()
 	local x, y = w / 2, h / 2
-	local red = 1
+	local blocked = false
 
 	if settings.enabled then
 		local bar = third_person.GetBlackBarHeight()
@@ -30,14 +31,14 @@ event.AddListener("DrawHUD", "crosshair", function()
 
 		if not settings.crosshair then return end
 
-		local point, blocked = third_person.GetCrosshairPoint()
+		local point, is_blocked = third_person.GetCrosshairPoint()
 		local screen = render3d.GetMainCamera():WorldPositionToScreen(point, w, h)
 
 		if not screen then return end
 
 		x, y = screen.x, screen.y
 
-		if blocked then red = 0.4 end
+		if is_blocked then blocked = true end
 	end
 
 	local player_input = rig.player_input
@@ -53,9 +54,5 @@ event.AddListener("DrawHUD", "crosshair", function()
 		if screen then x, y = screen.x, screen.y end
 	end
 
-	render2d.SetTexture(nil)
-	render2d.SetColor(0, 0, 0, 0.6)
-	render2d.DrawRoundedRect(x - RADIUS - 1, y - RADIUS - 1, RADIUS * 2 + 2, RADIUS * 2 + 2, RADIUS + 1)
-	render2d.SetColor(1, red, red, 0.9)
-	render2d.DrawRoundedRect(x - RADIUS, y - RADIUS, RADIUS * 2, RADIUS * 2, RADIUS)
+	theme.active:DrawReticle(x, y, RADIUS * 2, {kind = "crosshair", alpha = 1, time = 0, blocked = blocked})
 end)

@@ -1,7 +1,7 @@
-local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 local killfeed = import("lua/killfeed.lua")
 local third_person = import("lua/third_person.lua")
 local MARGIN = 20
@@ -10,9 +10,6 @@ local ROW_HEIGHT = 28
 local ROW_GAP = 4
 local FONT_SIZE = 16
 local FADE_TIME = 0.5
-local TEXT = Color(0.95, 0.95, 0.95, 1)
-local KILLER = Color(1, 0.85, 0.4, 1)
-local VICTIM = Color(1, 0.5, 0.45, 1)
 local parts_scratch = {}
 
 event.AddListener("DrawHUD", "killfeed_hud", function()
@@ -26,6 +23,11 @@ event.AddListener("DrawHUD", "killfeed_hud", function()
 	end
 
 	local screen_w = render2d.GetSize()
+	local active = theme.active
+	local TEXT = active:GetColor("text_on_dark")
+	local KILLER = active:GetColor("neutral")
+	local VICTIM = active:GetColor("negative")
+	local font, weight = active:GetTextStyle("body")
 	local y = MARGIN
 
 	for _, entry in ipairs(entries) do
@@ -41,26 +43,26 @@ event.AddListener("DrawHUD", "killfeed_hud", function()
 		local width = PADDING * 2
 
 		for i = 1, 5, 2 do
-			if parts[i] then width = width + render2d.GetTextSize(parts[i], nil, FONT_SIZE) end
+			if parts[i] then width = width + render2d.GetTextSize(parts[i], font, FONT_SIZE, weight) end
 		end
 
 		local x = screen_w - MARGIN - width
-		render2d.SetTexture(nil)
-		render2d.SetColor(0, 0, 0, 0.6 * alpha)
-		render2d.DrawRoundedRect(x, y, width, ROW_HEIGHT, 6)
+		active:DrawHudPanel(x, y, width, ROW_HEIGHT, {alpha = alpha})
 		x = x + PADDING
 
 		for i = 1, 5, 2 do
 			if parts[i] then
 				render2d.DrawText{
 					text = parts[i],
+					font = font,
+					weight = weight,
 					x = x,
 					y = y + (ROW_HEIGHT - FONT_SIZE) / 2 - 2,
 					size = FONT_SIZE,
 					foreground_color = parts[i + 1],
 					alpha = alpha,
 				}
-				x = x + render2d.GetTextSize(parts[i], nil, FONT_SIZE)
+				x = x + render2d.GetTextSize(parts[i], font, FONT_SIZE, weight)
 			end
 		end
 

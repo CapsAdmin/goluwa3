@@ -78,24 +78,23 @@ event.AddListener("DrawHUD", "toolgun_hud", function()
 	local height = PADDING * 2 + title_h + description_h + LINE_GAP * 5 + count * (
 			line_h + LINE_GAP
 		)
-	render2d.SetTexture(nil)
-	render2d.SetColor(0, 0, 0, 0.7)
-	render2d.DrawRoundedRect(MARGIN, MARGIN, WIDTH, height, 8)
-	render2d.SetColor(0.35, 0.75, 1, 1)
-	render2d.DrawRoundedRect(MARGIN, MARGIN, 4, height, 2)
+	local active = theme.active
+	local text_color = active:GetColor("text_on_dark")
+	local accent = active:GetColor("primary")
+	active:DrawHudPanel(MARGIN, MARGIN, WIDTH, height, {opacity = 0.7, accent = accent})
 	local x = MARGIN + PADDING
 	local y = MARGIN + PADDING
-	render2d.SetColor(1, 1, 1, 1)
+	render2d.SetColor(text_color.r, text_color.g, text_color.b, 1)
 	fonts.title:DrawText(tool.DisplayName, x, y, 0)
 	y = y + title_h + LINE_GAP * 2
-	render2d.SetColor(0.8, 0.82, 0.86, 1)
+	render2d.SetColor(text_color.r, text_color.g, text_color.b, 0.8)
 	fonts.body:DrawText(description, x, y, 0)
 	y = y + description_h + LINE_GAP * 3
 
 	for i = 1, count do
-		render2d.SetColor(0.45, 0.78, 1, 1)
+		render2d.SetColor(accent.r, accent.g, accent.b, 1)
 		fonts.key:DrawText(keys[i], x, y, 0)
-		render2d.SetColor(1, 1, 1, 0.92)
+		render2d.SetColor(text_color.r, text_color.g, text_color.b, 0.92)
 		fonts.body:DrawText(texts[i], x + KEY_WIDTH, y, 0)
 		y = y + line_h + LINE_GAP
 	end
@@ -109,7 +108,7 @@ event.AddListener("DrawHUD", "toolgun_hud", function()
 		if screen then
 			render2d.SetColor(0, 0, 0, 0.6)
 			render2d.DrawCircle(screen.x, screen.y, pulse + 1, 3, 24)
-			render2d.SetColor(0.35, 0.75, 1, 1)
+			render2d.SetColor(accent.r, accent.g, accent.b, 1)
 			render2d.DrawCircle(screen.x, screen.y, pulse, 2, 24)
 		end
 	end

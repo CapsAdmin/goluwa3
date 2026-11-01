@@ -1,7 +1,7 @@
-local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 local third_person = import("lua/third_person.lua")
 local CELL_WIDTH = 124
 local CELL_HEIGHT = 40
@@ -9,17 +9,8 @@ local CELL_GAP = 6
 local BOTTOM_MARGIN = 28
 local VISIBLE_TIME = 2.5
 local FADE_TIME = 0.5
-local TEXT = Color(0.88, 0.9, 0.94, 1)
-local RIGHT = Color(1, 0.85, 0.4, 1)
-local LEFT = Color(0.45, 0.75, 1, 1)
-local MOUNT = Color(0.75, 0.95, 0.7, 1)
 local last_right, last_left, last_chest
 local last_change = -math.huge
-
-local function draw_bar(color, x, y, w, alpha)
-	render2d.SetColor(color.r, color.g, color.b, alpha)
-	render2d.DrawRoundedRect(x, y + CELL_HEIGHT - 3, w, 3, 1.5)
-end
 
 event.AddListener("DrawHUD", "weapon_hud", function()
 	local rig = _G.PLAYER_RIG
@@ -50,6 +41,12 @@ event.AddListener("DrawHUD", "weapon_hud", function()
 
 	if alpha <= 0 then return end
 
+	local active = theme.active
+	local text_color = active:GetColor("text_on_dark")
+	local right_color = active:GetColor("neutral")
+	local left_color = active:GetColor("primary")
+	local mount_color = active:GetColor("positive")
+	local font, weight = active:GetTextStyle("body")
 	local weapons = holder:GetWeapons()
 	local screen_w, screen_h = render2d.GetSize()
 	local total = #weapons * CELL_WIDTH + (#weapons - 1) * CELL_GAP
@@ -64,28 +61,31 @@ event.AddListener("DrawHUD", "weapon_hud", function()
 		local mounted = info:GetMount() ~= "hand"
 		local equipped = info:IsEquipped()
 		local tag
-		render2d.SetColor(0, 0, 0, (equipped and 0.8 or 0.55) * alpha)
-		render2d.DrawRoundedRect(x, y, CELL_WIDTH, CELL_HEIGHT, 6)
+		local state = {alpha = alpha, opacity = equipped and 0.8 or 0.55, accent_side = "bottom"}
 
 		if in_right and in_left then
-			draw_bar(RIGHT, x, y, CELL_WIDTH, alpha)
+			state.accent = right_color
 			tag = "L R"
 		elseif in_right then
-			draw_bar(RIGHT, x + CELL_WIDTH / 2, y, CELL_WIDTH / 2, alpha)
+			state.accent, state.accent_from = right_color, 0.5
 			tag = "R"
 		elseif in_left then
-			draw_bar(LEFT, x, y, CELL_WIDTH / 2, alpha)
+			state.accent, state.accent_to = left_color, 0.5
 			tag = "L"
 		elseif equipped then
-			draw_bar(MOUNT, x, y, CELL_WIDTH, alpha)
+			state.accent = mount_color
 		end
+
+		active:DrawHudPanel(x, y, CELL_WIDTH, CELL_HEIGHT, state)
 
 		render2d.DrawText{
 			text = (mounted and "F" or math.floor(info:GetSlot())) .. "  " .. info:GetDisplayName(),
 			x = x + 12,
 			y = y + 12,
 			size = 16,
-			foreground_color = TEXT,
+			font = font,
+			weight = weight,
+			foreground_color = text_color,
 			alpha = (equipped and 1 or 0.6) * alpha,
 		}
 
@@ -95,7 +95,9 @@ event.AddListener("DrawHUD", "weapon_hud", function()
 				x = x + CELL_WIDTH - 10,
 				y = y + 12,
 				size = 14,
-				foreground_color = in_right and RIGHT or LEFT,
+				font = font,
+				weight = weight,
+				foreground_color = in_right and right_color or left_color,
 				alpha = alpha,
 				align_x = 1,
 			}

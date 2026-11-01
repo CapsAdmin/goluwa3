@@ -1315,6 +1315,123 @@ function JRPGTheme:DrawProgressBar(size, state, color)
 	render2d.PopWorldMatrix()
 end
 
+function JRPGTheme:DrawReticle(x, y, size, state)
+	local a = state.alpha
+	local now = state.time
+	local scale = size / 70
+	local light = self:GetColor("text_on_dark")
+	render2d.SetTexture(nil)
+
+	if state.kind == "crosshair" then
+		local color = state.blocked and self:GetColor("negative") or light
+		set_color(self:GetColor("actual_black"), 0.6 * a)
+		self:DrawDiamond(x, y, size * 1.8 + 2)
+		set_color(color, 0.9 * a)
+		self:DrawDiamond(x, y, size * 1.8)
+		return
+	end
+
+	render2d.PushBlendPreset("additive")
+
+	if state.kind == "target" then
+		local danger = self:GetColor("negative")
+		local radius = size / 2 + math.sin(now * 6) * 3 * scale
+
+		for i = 0, 3 do
+			local angle = now * 1.5 + i * math.pi / 2
+			local dx = x + math.cos(angle) * radius
+			local dy = y + math.sin(angle) * radius
+			set_color(danger, 0.9 * a)
+			self:DrawDiamond(dx, dy, 9 * scale)
+			set_color(light, 0.8 * a)
+			self:DrawDiamond(dx, dy, 3 * scale)
+		end
+
+		set_color(danger, 0.5 * a)
+		self:DrawCircle(x, y, radius * 0.8, 1, 1)
+	else
+		local accent = self:GetColor("primary")
+		local gold = self:GetColor("gold")
+		set_color(accent, 0.7 * a)
+		self:DrawCircle(x, y, size / 2 - 6 * scale, 1, 1)
+
+		for i = 0, 3 do
+			local angle = now * -0.8 + i * math.pi / 2
+			local dx = x + math.cos(angle) * size / 2
+			local dy = y + math.sin(angle) * size / 2
+			set_color(gold, a)
+			self:DrawDiamond(dx, dy, 7 * scale)
+			set_color(light, 0.9 * a)
+			self:DrawDiamond(dx, dy, 2.5 * scale)
+		end
+	end
+
+	render2d.PopBlendMode()
+end
+
+function JRPGTheme:DrawHudPanel(x, y, w, h, state)
+	local a = state.alpha or 1
+	render2d.SetTexture(nil)
+	set_color(self:GetColor("actual_black"), math.min((state.opacity or 0.6) + 0.2, 0.95) * a)
+	render2d.DrawRect(x, y, w, h)
+	render2d.SetColor(1, 1, 1, 0.05 * a)
+	render2d.DrawRect(x, y, w, h * 0.5)
+	set_color(self:GetColor("border"), 0.95 * a)
+	render2d.DrawRect(x, y, w, 1)
+	render2d.DrawRect(x, y + h - 1, w, 1)
+	render2d.DrawRect(x, y, 1, h)
+	render2d.DrawRect(x + w - 1, y, 1, h)
+
+	if state.accent then
+		local accent = self:ResolveColor(state.accent)
+		set_color(accent, a)
+
+		if state.accent_side == "bottom" then
+			local from = x + w * (state.accent_from or 0)
+			local to = x + w * (state.accent_to or 1)
+			render2d.DrawRect(from, y + h - 2, to - from, 2)
+			render2d.PushBlendPreset("additive")
+			set_color(accent, 0.5 * a)
+			self:DrawGlowLine(from, y + h - 1, to, y + h - 1, 3)
+			render2d.PopBlendMode()
+		else
+			render2d.DrawRect(x, y, 2, h)
+			render2d.PushBlendPreset("additive")
+			set_color(accent, 0.5 * a)
+			self:DrawGlowLine(x + 1, y, x + 1, y + h, 3)
+			render2d.PopBlendMode()
+		end
+	end
+end
+
+function JRPGTheme:DrawKeycap(x, y, w, h, text, size, alpha)
+	local gold = self:GetColor("gold")
+	local font, weight = self:GetTextStyle("body_strong")
+	local text_w, text_h = render2d.GetTextSize(text, font, size, weight)
+	render2d.SetTexture(nil)
+	set_color(self:GetColor("actual_black"), 0.9 * alpha)
+	render2d.DrawRect(x, y, w, h)
+	set_color(gold, alpha)
+	render2d.DrawRect(x, y, w, 1)
+	render2d.DrawRect(x, y + h - 1, w, 1)
+	render2d.DrawRect(x, y, 1, h)
+	render2d.DrawRect(x + w - 1, y, 1, h)
+	render2d.PushBlendPreset("additive")
+	set_color(gold, 0.35 * alpha)
+	self:DrawGlowLine(x, y + h, x + w, y + h, 3)
+	render2d.PopBlendMode()
+	render2d.DrawText{
+		text = text,
+		font = font,
+		weight = weight,
+		x = x + (w - text_w) / 2,
+		y = y + (h - text_h) / 2,
+		size = size,
+		foreground_color = gold,
+		alpha = alpha,
+	}
+end
+
 function JRPGTheme:DrawDivider(size)
 	render2d.SetTexture(nil)
 	local cyan = self:GetColor("primary")

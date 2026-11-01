@@ -862,38 +862,6 @@ local function draw_npcs(rig, camera, w, h, now, dt)
 	end
 end
 
-local function draw_reticle(camera, w, h, now)
-	local target = targeting.Get()
-
-	if not target then return end
-
-	local S = h / 1080
-	local box = visual_bounds.Get(target.Owner, bounds)
-	local center = box and box:GetCenter() or target:GetPosition()
-	local screen = camera:WorldPositionToScreen(center, w, h)
-
-	if not screen then return end
-
-	local theme = get_style()
-	local size = (34 + math.sin(now * 6) * 3) * S
-	render2d.SetTexture(nil)
-	render2d.PushBlendPreset("additive")
-
-	for i = 0, 3 do
-		local a = now * 1.5 + i * math.pi / 2
-		local x = screen.x + math.cos(a) * size
-		local y = screen.y + math.sin(a) * size
-		set_color(DANGER, 0.9)
-		theme:DrawDiamond(x, y, 9 * S)
-		set_color(WHITE, 0.8)
-		theme:DrawDiamond(x, y, 3 * S)
-	end
-
-	set_color(DANGER, 0.5)
-	theme:DrawCircle(screen.x, screen.y, size * 0.8, 1, 1)
-	render2d.PopBlendMode()
-end
-
 local function draw_vignette(rig, w, h, now)
 	local color = Color(0, 0, 0, 0)
 	local strength = 0
@@ -985,7 +953,6 @@ event.AddListener("DrawHUD", "jrpg_hud", function(dt)
 	local camera = render3d.GetMainCamera()
 	draw_vignette(rig, w, h, now)
 	draw_npcs(rig, camera, w, h, now, dt)
-	draw_reticle(camera, w, h, now)
 
 	if rig.health:IsDead() then
 		draw_defeat(w, h, now, rig)
