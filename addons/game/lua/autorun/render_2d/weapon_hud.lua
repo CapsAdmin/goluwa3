@@ -3,6 +3,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local third_person = import("lua/third_person.lua")
+local inventory_menu = import("lua/inventory_menu.lua")
 local CELL_WIDTH = 124
 local CELL_HEIGHT = 40
 local CELL_GAP = 6
@@ -21,7 +22,8 @@ event.AddListener("DrawHUD", "weapon_hud", function()
 			rig:IsValid()
 		) or
 		third_person.IsDefaultHudReplaced(rig) or
-		third_person.IsHudHidden()
+		third_person.IsHudHidden() or
+		inventory_menu.IsOpen()
 	then
 		return
 	end
@@ -77,7 +79,6 @@ event.AddListener("DrawHUD", "weapon_hud", function()
 		end
 
 		active:DrawHudPanel(x, y, CELL_WIDTH, CELL_HEIGHT, state)
-
 		render2d.DrawText{
 			text = (mounted and "F" or math.floor(info:GetSlot())) .. "  " .. info:GetDisplayName(),
 			x = x + 12,

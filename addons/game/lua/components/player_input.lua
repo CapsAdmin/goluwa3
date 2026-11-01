@@ -10,6 +10,7 @@ local UP = Vec3(0, 1, 0)
 local usercmd = import("goluwa/network/usercmd.lua")
 local third_person = import("lua/third_person.lua")
 local camera_modes = import("lua/camera_modes.lua")
+local inventory_menu = import("lua/inventory_menu.lua")
 local META = objects.CreateTemplate("player_input")
 local aim_slack = pvars.Setup2{
 	key = "cl_aim_slack",
@@ -121,7 +122,9 @@ end
 function META:KeyInput(key, press)
 	self:RefreshKeys()
 
-	if not press or not self:IsReceivingInput() then return end
+	if not press or not self:IsReceivingInput() or inventory_menu.IsOpen() then
+		return
+	end
 
 	if key == "v" then
 		self:OnCameraToggleMode()
@@ -216,7 +219,8 @@ function META:IsReceivingInput()
 end
 
 function META:BuildCommand(cmd)
-	local active = self:IsReceivingInput() and self.mouse_trapped
+	local menu = inventory_menu.IsOpen()
+	local active = self:IsReceivingInput() and self.mouse_trapped and not menu
 	local BUTTON = usercmd.BUTTON
 	local buttons = 0
 	cmd.view:CopyFrom(self.Rotation)
@@ -231,7 +235,15 @@ function META:BuildCommand(cmd)
 	local focused = objects.GetFocusedObject()
 	local typing = focused and focused:IsValid() and focused.text and focused.text:GetEditable()
 
-	if active or (self.KeyboardMovement and self:IsReceivingInput() and not typing) then
+	if
+		active or
+		(
+			self.KeyboardMovement and
+			self:IsReceivingInput() and
+			not typing and
+			not menu
+		)
+	then
 		buttons = bit.bor(buttons, BUTTON.ACTIVE)
 		cmd.forward = self.move_local.z
 		cmd.side = self.move_local.x
@@ -406,6 +418,13 @@ function META:OnPreUpdate(dt)
 
 	local pose = self.Owner.character_pose
 	local left = input.IsKeyDown("left_alt")
+
+	if inventory_menu.IsOpen() then
+		self.wheel_accum = 0
+		self.look_delta = Vec2()
+		self.look_nudge = Vec2()
+		return
+	end
 
 	for slot = 1, 9 do
 		local down = input.IsKeyDown(SLOT_KEYS[slot])
