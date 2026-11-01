@@ -1,7 +1,7 @@
 local ffi = require("ffi")
 local skinning = import("goluwa/render3d/skinning.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local Rig = {}
 Rig.__index = Rig
 
@@ -214,22 +214,31 @@ function Rig:SetFlex(name, value)
 	self.dirty = true
 end
 
-function Rig:SetEyeAngles(index, yaw, pitch)
-	if self.held then return end
+do
+	local yaw_rotation = Quat()
+	local pitch_rotation = Quat()
+	local eye_matrix = Matrix44()
 
-	local eye = self.skeleton.Eyes[index]
-	local up = Vec3(eye.up[1], eye.up[2], eye.up[3])
-	local right = Vec3(eye.forward[1], eye.forward[2], eye.forward[3]):GetCross(up)
-	self:SetBone(
-		eye.name,
-		Matrix44():SetRotation(QuatFromAxis(yaw, up) * QuatFromAxis(pitch, right)),
-		"local"
-	)
-	self.eye_pitch[index] = pitch
+	function Rig:SetEyeAngles(index, yaw, pitch)
+		if self.held then return end
 
-	if self.skeleton.Flex then
-		self.flex_dirty = true
-		self.dirty = true
+		local eye = self.skeleton.Eyes[index]
+		local f, u = eye.forward, eye.up
+		local s = math.sin(yaw * 0.5)
+		yaw_rotation.x, yaw_rotation.y, yaw_rotation.z, yaw_rotation.w = u[1] * s, u[2] * s, u[3] * s, math.cos(yaw * 0.5)
+		s = math.sin(pitch * 0.5)
+		pitch_rotation.x = (f[2] * u[3] - f[3] * u[2]) * s
+		pitch_rotation.y = (f[3] * u[1] - f[1] * u[3]) * s
+		pitch_rotation.z = (f[1] * u[2] - f[2] * u[1]) * s
+		pitch_rotation.w = math.cos(pitch * 0.5)
+		Quat.SetMul(yaw_rotation, yaw_rotation, pitch_rotation)
+		self:SetBone(eye.name, eye_matrix:SetRotation(yaw_rotation), "local")
+		self.eye_pitch[index] = pitch
+
+		if self.skeleton.Flex then
+			self.flex_dirty = true
+			self.dirty = true
+		end
 	end
 end
 
