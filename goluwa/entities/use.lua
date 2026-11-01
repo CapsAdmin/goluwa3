@@ -28,7 +28,7 @@ function use.Trace(user, origin, direction)
 	best = best and best.entity and best or nil
 
 	if raycast then
-		local visual = raycast.CastClosest(origin, direction, use.MaxDistance, is_not_user, user)
+		local visual = raycast.CastClosestUnskinned(origin, direction, use.MaxDistance, is_not_user, user)
 
 		if visual and (not best or visual.distance < best.distance) then
 			best = visual

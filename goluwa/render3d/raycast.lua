@@ -643,6 +643,7 @@ local function test_skinned_polygon(ray, poly3d, primitive_idx, entity, max_hit_
 end
 
 local skip_see_through = false
+local skip_skinned = false
 
 local function test_primitive_with_limit(
 	ray,
@@ -696,6 +697,8 @@ local function test_primitive_with_limit(
 	local closest_hit
 
 	if poly3d.SkinRig then
+		if skip_skinned then return nil end
+
 		closest_hit = test_skinned_polygon(primitive_ray, poly3d, primitive_idx, entity, max_hit_distance, cull_back)
 	else
 		closest_hit = test_static_polygon(
@@ -1140,6 +1143,16 @@ function raycast.CastClosestSolid(origin, direction, max_distance, filter_fn, a,
 	skip_see_through = true
 	local ok, hit = pcall(raycast.CastClosest, origin, direction, max_distance, filter_fn, a, b, c, d, e, f)
 	skip_see_through = false
+
+	if not ok then error(hit, 0) end
+
+	return hit
+end
+
+function raycast.CastClosestUnskinned(origin, direction, max_distance, filter_fn, a, b, c, d, e, f)
+	skip_skinned = true
+	local ok, hit = pcall(raycast.CastClosest, origin, direction, max_distance, filter_fn, a, b, c, d, e, f)
+	skip_skinned = false
 
 	if not ok then error(hit, 0) end
 
