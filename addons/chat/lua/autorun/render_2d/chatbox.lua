@@ -70,9 +70,7 @@ function chatbox.AddText(...)
 			v = v:gsub("(:[%a%d]-:)", function(str)
 				str = str:sub(2, -2)
 
-				if chatbox.emote_shortucts[str] then
-					return chatbox.emote_shortucts[str]
-				end
+				if chatbox.emote_shortucts[str] then return chatbox.emote_shortucts[str] end
 			end)
 			v = v:gsub("\\n", "\n")
 			v = v:gsub("\\t", "\t")
@@ -195,7 +193,7 @@ end
 event.AddListener("DrawHUD", "chatbox_hud", function()
 	local w, h = render2d.GetSize()
 	render2d.PushMatrix(50, h / 2)
-	MarkupLabel.SyncTheme(chatbox.markup_hud, "M", true, true)
+	MarkupLabel.SyncTheme(chatbox.markup_hud, "L", true, true)
 	chatbox.markup_hud:Update()
 	chatbox.markup_hud:Draw()
 	chatbox.markup_hud:SetMaxWidth(render2d.GetSize() * 0.3)
