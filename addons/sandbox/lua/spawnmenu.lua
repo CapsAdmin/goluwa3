@@ -73,7 +73,7 @@ local function new_roll()
 end
 
 local weapon_state = {roll = new_roll()}
-local npc_state = {roll = new_roll(), weapon = "", hostile = false}
+local npc_state = {roll = new_roll(), weapon = "", hostile = false, reaction = "", health = 0, god = false}
 
 local function get_spawn_options(kind)
 	if kind == "weapon" then return weapons.Roller and weapon_state.roll or nil end
@@ -83,6 +83,9 @@ local function get_spawn_options(kind)
 			Faction = npc_state.hostile and "enemy" or "friend",
 			Weapon = npc_state.weapon ~= "" and npc_state.weapon or nil,
 			Roll = npc_state.weapon ~= "" and weapons.Roller and npc_state.roll or nil,
+			Reaction = npc_state.reaction ~= "" and npc_state.reaction or nil,
+			Health = npc_state.health > 0 and npc_state.health or nil,
+			God = npc_state.god or nil,
 		}
 	end
 end
@@ -504,10 +507,27 @@ local RollPanel = react.Component(
 		}
 	end
 )
+local NPC_REACTIONS = {
+	{Text = "Normal hits", Value = ""},
+	{Text = "Always flinch", Value = "flinch"},
+	{Text = "Always stagger", Value = "stagger"},
+	{Text = "Always knock out", Value = "knockdown"},
+}
+local NPC_HEALTHS = {
+	{Text = "Default", Value = 0},
+	{Text = "1", Value = 1},
+	{Text = "10", Value = 10},
+	{Text = "100", Value = 100},
+	{Text = "1000", Value = 1000},
+	{Text = "100000", Value = 100000},
+}
 local NpcOptions = react.Component(
 	||-> do
 		local weapon, set_weapon = react.UseState(npc_state.weapon)
 		local hostile, set_hostile = react.UseState(npc_state.hostile)
+		local reaction, set_reaction = react.UseState(npc_state.reaction)
+		local health, set_health = react.UseState(npc_state.health)
+		local god, set_god = react.UseState(npc_state.god)
 		local weapon_options = react.UseMemo(
 			||-> do
 				local options = {{Text = "None", Value = ""}}
@@ -538,6 +558,36 @@ local NpcOptions = react.Component(
 					OnChange = |checked|-> do
 						npc_state.hostile = checked
 						set_hostile(checked)
+					end,
+				},
+			},
+			ui.Row{layout = {ChildGap = "S", AlignmentY = "center"}}{
+				ui.Text{Text = "Reaction", Color = "text_disabled"},
+				ui.Dropdown{
+					Options = NPC_REACTIONS,
+					Value = reaction,
+					Padding = "XS",
+					OnSelect = |value|-> do
+						npc_state.reaction = value
+						set_reaction(value)
+					end,
+				},
+				ui.Text{Text = "Health", Color = "text_disabled"},
+				ui.Dropdown{
+					Options = NPC_HEALTHS,
+					Value = health,
+					Padding = "XS",
+					OnSelect = |value|-> do
+						npc_state.health = value
+						set_health(value)
+					end,
+				},
+				ui.Checkbox{
+					Text = "God mode (regenerates instead of dying)",
+					Value = god,
+					OnChange = |checked|-> do
+						npc_state.god = checked
+						set_god(checked)
 					end,
 				},
 			},

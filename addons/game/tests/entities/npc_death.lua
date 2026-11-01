@@ -205,3 +205,20 @@ T.TestPhysics("a dead creature npc settles instead of flailing on", function()
 
 	ground:Remove()
 end)
+
+T.TestPhysics("spawn options set a forced reaction, a health override and god mode", function()
+	if not available() then return T.Unavailable("gmod content not mounted") end
+
+	local ground = create_ground()
+	local npc = npcs.Spawn("zombie", Vec3(0, 0.05, 0), 0, {Reaction = "stagger", Health = 7, God = true})
+	T(npc.character_pose:GetForcedReaction())["=="]("stagger")
+	T(npc.health:GetHealth())["=="](7)
+	T(npc.health:GetMaxHealth())["=="](7)
+	T(npc.health:IsUnkillable())["=="](true)
+	local plain = npcs.Spawn("zombie", Vec3(2, 0.05, 0), 0, {})
+	T(plain.character_pose:GetForcedReaction())["=="]("")
+	T(plain.health:IsUnkillable())["=="](false)
+	npc:Remove()
+	plain:Remove()
+	ground:Remove()
+end)

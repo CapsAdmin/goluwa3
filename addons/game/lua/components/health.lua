@@ -13,9 +13,12 @@ META:GetSet("MaxHealth", 100)
 META:IsSet("RemoveOnDeath", false)
 META:GetSet("RefillDelay", 0)
 META:IsSet("GodMode", false)
+META:IsSet("Unkillable", false)
+META:GetSet("UnkillableRefillDelay", 2)
 META:EndStorable()
 
 local function revive(self)
+	self.refilling = nil
 	self:Revive()
 end
 
@@ -39,9 +42,18 @@ function META:TakeDamage(info)
 	if self.Health <= 0 then return end
 
 	local before = self.Health
-	self:SetHealth(math.clamp(self.Health - info.Damage, 0, self.MaxHealth))
+	local after = math.clamp(self.Health - info.Damage, 0, self.MaxHealth)
+
+	if self.Unkillable and after <= 0 then after = math.min(1, self.MaxHealth) end
+
+	self:SetHealth(after)
 	event.Call("HealthDamaged", self.Owner, before - self.Health, self.MaxHealth, info)
 	self.Owner:CallLocalEvent("OnTakeDamage", info)
+
+	if self.Unkillable and self.Health <= 1 and not self.refilling then
+		self.refilling = true
+		timer.Delay(self.UnkillableRefillDelay, revive, nil, self, self)
+	end
 
 	if self.Health > 0 then return end
 

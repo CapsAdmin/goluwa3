@@ -166,16 +166,9 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 		return
 	end
 
-	local always_knockdown = victim.ragdoll and victim.character_pose:IsAlwaysKnockdown()
+	local forced = victim.character_pose:GetForcedReaction()
 
-	if
-		amount < threshold and
-		not victim.character_pose:IsAlwaysStagger()
-		and
-		not always_knockdown
-	then
-		return
-	end
+	if forced == "flinch" or forced == "" and amount < threshold then return end
 
 	info.Staggered = true
 
@@ -184,7 +177,14 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 		return
 	end
 
-	if victim.ragdoll and (amount >= knockdown or always_knockdown) then
+	if
+		victim.ragdoll and
+		forced ~= "stagger" and
+		(
+			forced == "knockdown" or
+			amount >= knockdown
+		)
+	then
 		stagger.Knockdown(
 			victim,
 			attacker,

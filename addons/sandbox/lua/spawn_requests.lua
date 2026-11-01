@@ -14,6 +14,8 @@ spawn_requests.Range = 40
 local RANGE_SLACK = 10
 local PROP_PATTERN = "^models/[%w_%-%./]+$"
 local MAX_NAME_LENGTH = 200
+local MAX_NPC_HEALTH = 1e6
+local REACTIONS = {flinch = true, stagger = true, knockdown = true}
 local weapon_offset = Vec3(0, 0.3, 0)
 local interactive_names = {}
 
@@ -65,6 +67,23 @@ function option_validators.npc(options)
 		(
 			options.Roll == nil or
 			option_validators.weapon(options.Roll)
+		)
+		and
+		(
+			options.Reaction == nil or
+			REACTIONS[options.Reaction] == true
+		)
+		and
+		(
+			options.Health == nil or
+			type(options.Health) == "number" and
+			options.Health > 0 and
+			options.Health <= MAX_NPC_HEALTH
+		)
+		and
+		(
+			options.God == nil or
+			type(options.God) == "boolean"
 		)
 end
 

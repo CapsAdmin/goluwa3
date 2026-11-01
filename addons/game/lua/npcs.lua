@@ -267,44 +267,6 @@ npcs.Definitions = {
 		RunSpeed = 209,
 		Sounds = voices.mossman,
 	},
-	debug_stagger = {
-		Dummy = true,
-		Biped = true,
-		Model = "models/humans/group01/male_01.mdl",
-		AlwaysStagger = true,
-		Static = true,
-		Idle = "reference",
-		Walk = "reference",
-		Run = "reference",
-		WalkSpeed = 80,
-		RunSpeed = 210,
-		Health = 100000,
-	},
-	debug_knockout = {
-		Dummy = true,
-		Biped = true,
-		Model = "models/humans/group01/male_01.mdl",
-		AlwaysKnockdown = true,
-		Static = true,
-		Idle = "reference",
-		Walk = "reference",
-		Run = "reference",
-		WalkSpeed = 80,
-		RunSpeed = 210,
-		Health = 100000,
-	},
-	debug_flinch = {
-		Dummy = true,
-		Biped = true,
-		Model = "models/humans/group01/male_01.mdl",
-		Static = true,
-		Idle = "reference",
-		Walk = "reference",
-		Run = "reference",
-		WalkSpeed = 80,
-		RunSpeed = 210,
-		Health = 100000,
-	},
 	gman = {
 		Dummy = true,
 		Biped = true,
@@ -538,7 +500,7 @@ function npcs.Register(name, info)
 						model = info.Model and {ModelPath = info.Model} or nil,
 						animator = info.Model and {} or nil,
 						eyes = info.Model and {AutoBlink = true, AutoLook = true} or nil,
-						character_pose = {AlwaysStagger = info.AlwaysStagger, AlwaysKnockdown = info.AlwaysKnockdown},
+						character_pose = {},
 						source_pose = info.Model and
 							{
 								IdleSequence = info.Idle,
@@ -627,6 +589,17 @@ function npcs.Spawn(name, position, yaw, options)
 			if options.Weapon and entity.weapon_holder then
 				entity.weapon_holder:Give(options.Weapon, options.Roll)
 			end
+
+			if options.Reaction then
+				entity.character_pose:SetForcedReaction(options.Reaction)
+			end
+
+			if options.Health then
+				entity.health:SetMaxHealth(options.Health)
+				entity.health:SetHealth(options.Health)
+			end
+
+			if options.God then entity.health:SetUnkillable(true) end
 		end
 	end
 
