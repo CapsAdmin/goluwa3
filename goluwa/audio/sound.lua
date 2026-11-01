@@ -17,10 +17,11 @@ function module.Attach(audio)
 			1
 	end
 
-	local function configure_sound_buffer(sound, data, buffer_length, channels, sample_rate)
+	local function configure_sound_buffer(sound, data, buffer_length, channels, sample_rate, decoded)
 		if not data then return false end
 
 		sound:SetBuffer(data)
+		sound.decoded = decoded
 		sound:SetBufferLength(tonumber(buffer_length) or 0)
 		sound:SetChannels(tonumber(channels) or 2)
 		sound:SetSampleRate(tonumber(sample_rate) or 44100)
@@ -229,12 +230,17 @@ function module.Attach(audio)
 
 	function Sound:GetLoudness()
 		if not self.Loudness then
-			self.Loudness = dsp.MeasureLoudness(
-				self:GetBuffer(),
-				self:GetBufferLength(),
-				self:GetChannels(),
-				self:GetSampleRate()
-			)
+			local decoded = self.decoded
+			self.Loudness = decoded and
+				decoded.loudness or
+				dsp.MeasureLoudness(
+					self:GetBuffer(),
+					self:GetBufferLength(),
+					self:GetChannels(),
+					self:GetSampleRate()
+				)
+
+			if decoded then decoded.loudness = self.Loudness end
 		end
 
 		return self.Loudness
@@ -260,11 +266,40 @@ function module.Attach(audio)
 		self:SetPlaybackPosition(0)
 	end
 
+	local decoded_paths = table.weak("v")
+	local decoding_paths = {}
+
+	local function decode_shared(full_path, callback)
+		local decoded = decoded_paths[full_path]
+
+		if decoded then return callback(decoded) end
+
+		local waiting = decoding_paths[full_path]
+
+		if waiting then
+			waiting[#waiting + 1] = callback
+			return
+		end
+
+		waiting = {callback}
+		decoding_paths[full_path] = waiting
+
+		codec.DecodeFileAsync(full_path, function(decoded, err)
+			decoding_paths[full_path] = nil
+
+			if decoded then decoded_paths[full_path] = decoded end
+
+			for _, waiting_callback in ipairs(waiting) do
+				waiting_callback(decoded, err)
+			end
+		end)
+	end
+
 	function Sound:LoadPath(path)
 		local function load(res)
 			self:SetName(path)
 			self:SetVolume(self:GetVolume())
-			configure_sound_buffer(self, res.data, res.samples, res.channels, res.sample_rate)
+			configure_sound_buffer(self, res.data, res.samples, res.channels, res.sample_rate, res)
 			self:SetLooping(self:IsLooping())
 
 			if self.play_on_ready then
@@ -275,7 +310,7 @@ function module.Attach(audio)
 		end
 
 		resource.Download(path):Then(function(full_path)
-			codec.DecodeFileAsync(full_path, function(decoded, err)
+			decode_shared(full_path, function(decoded, err)
 				if not decoded then
 					print("failed to decode sound:", full_path, err)
 					self:MakeReady()
@@ -455,6 +490,7 @@ function module.Attach(audio)
 
 	function Sound:SetBuffer(buffer)
 		self.buffer_view = buffer
+		self.decoded = nil
 
 		if type(buffer) == "table" and buffer.GetData then
 			self.Buffer = buffer:GetData()
