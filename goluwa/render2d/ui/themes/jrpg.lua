@@ -123,9 +123,9 @@ function JRPGTheme:GetWorldTextStyle()
 			foreground = self:GetColor("text_on_dark"),
 			backdrop = ink,
 			outline = ink,
-			outline_width = 2.5,
-			glow = self:GetColor("primary"):GetLerped(0.8, ink):SetAlpha(0.75),
-			glow_softness = 3,
+			outline_width = 1,
+			glow = self:GetColor("primary"):GetLerped(0.8, ink):SetAlpha(0.4),
+			glow_softness = 1,
 			glow_spread = 1.5,
 		}
 	end
@@ -173,9 +173,9 @@ function JRPGTheme:Initialize()
 			self:GetFontStyles(),
 			{
 				heading = {"Orbitron", "Bold"},
-				body_weak = {"Exo", "Bold"},
-				body = {"Exo", "Regular"},
-				body_strong = {"Exo", "Bold"},
+				body_weak = {"Exo 2", "ExtraLight"},
+				body = {"Exo 2", "Regular"},
+				body_strong = {"Exo 2", "Bold"},
 			}
 		)
 	)
@@ -672,9 +672,7 @@ end
 function JRPGTheme:DrawSelectionFill(size, color, alpha)
 	local resolved = self:ResolveColor(color, color or "primary")
 
-	if resolved.a < 0.5 then
-		return self:DrawPanelFill(size, resolved, alpha, 0)
-	end
+	if resolved.a < 0.5 then return self:DrawPanelFill(size, resolved, alpha, 0) end
 
 	local accent = self:GetColor("primary")
 	render2d.DrawShape{
