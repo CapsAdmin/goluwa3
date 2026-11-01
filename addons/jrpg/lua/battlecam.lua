@@ -164,7 +164,7 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 
 	local mouse_x, mouse_y = state.mouse_x, state.mouse_y
 	state.mouse_x, state.mouse_y = 0, 0
-	targeting.Validate(owner, pivot, state.rotation, dt)
+	targeting.Validate(owner, pivot, dt)
 
 	if pending_target then
 		if pending_target == "toggle" then

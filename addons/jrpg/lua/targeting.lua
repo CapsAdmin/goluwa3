@@ -53,31 +53,45 @@ function targeting.Clear()
 	target = nil
 end
 
+local function get_visible_offset(body, owner, from)
+	if not is_valid_target(body, owner) then return end
+
+	local to_body = body:GetPosition() - from
+	local distance = to_body:GetLength()
+
+	if distance >= MAX_DISTANCE or distance <= 1e-4 then return end
+
+	local hit = raycast.CastClosestUnskinned(from, to_body / distance, distance, is_not_owner, owner)
+
+	if not hit or hit.entity == body.Owner then return to_body end
+end
+
 function targeting.Find(owner, from, camera_rotation)
 	local forward = camera_rotation:VecMul(FORWARD)
 	local right = camera_rotation:VecMul(RIGHT)
 	local found = {}
 
 	for _, body in ipairs(RigidBody.Instances) do
-		if is_valid_target(body, owner) then
-			local to_body = body:GetPosition() - from
-			local distance = to_body:GetLength()
+		local to_body = get_visible_offset(body, owner, from)
 
-			if distance < MAX_DISTANCE and distance > 1e-4 then
-				local hit = raycast.CastClosest(from, to_body / distance, distance, is_not_owner, owner)
-
-				if not hit or hit.entity == body.Owner then
-					found[#found + 1] = {
-						body = body,
-						angle = math.atan2(to_body:Dot(right), to_body:Dot(forward)),
-					}
-				end
-			end
+		if to_body then
+			found[#found + 1] = {
+				body = body,
+				angle = math.atan2(to_body:Dot(right), to_body:Dot(forward)),
+			}
 		end
 	end
 
 	table.sort(found, by_angle)
 	return found
+end
+
+function targeting.HasAny(owner, from)
+	for _, body in ipairs(RigidBody.Instances) do
+		if get_visible_offset(body, owner, from) then return true end
+	end
+
+	return false
 end
 
 function targeting.Scroll(owner, from, camera_rotation, delta)
@@ -121,7 +135,7 @@ function targeting.Toggle(owner, from, camera_rotation)
 	end
 end
 
-function targeting.Validate(owner, from, camera_rotation, dt)
+function targeting.Validate(owner, from, dt)
 	if not target then return end
 
 	if not target:IsValid() then
@@ -134,7 +148,7 @@ function targeting.Validate(owner, from, camera_rotation, dt)
 	if health and health:IsDead() then
 		dead_time = dead_time + dt
 
-		if dead_time > DEAD_HOLD or #targeting.Find(owner, from, camera_rotation) > 0 then
+		if dead_time > DEAD_HOLD or targeting.HasAny(owner, from) then
 			target = nil
 		end
 
