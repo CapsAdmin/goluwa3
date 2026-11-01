@@ -52,7 +52,7 @@ local PART_ANGULAR_DAMPING = 1
 local PART_ROLLING_FRICTION = 6
 local PART_MAX_SPEED = 40
 local JOINT_FRICTION = 0.05
-local CORPSE_JOINT_FRICTION = 2
+local CHEAP_ANGULAR_DAMPING = 3
 local RELEASE_JITTER = 0.4
 local RELEASE_SPIN = 1.5
 local TOUCH_MARGIN = 0.02
@@ -583,6 +583,25 @@ function META:BuildJoint(part, attach_rotation)
 	)
 end
 
+function META:SetCheapJoint(part)
+	local joint = part.joint
+	joint:ClearSpring()
+	part.body:SetAngularDamping(CHEAP_ANGULAR_DAMPING)
+
+	if joint.Friction then
+		joint.Friction = 0
+		joint.FrictionImpulse = 0
+	else
+		joint.TwistMin = nil
+		joint.TwistMax = nil
+		joint.TwistFriction = 0
+		joint.SwingFriction = 0
+		joint.LowerImpulses[1] = 0
+		joint.UpperImpulses[1] = 0
+		joint.FrictionImpulses = {0, 0, 0}
+	end
+end
+
 function META:SetCheapSleep(part)
 	local body = part.body
 	part.sleep_linear = part.sleep_linear or body.SleepLinearThreshold
@@ -614,7 +633,9 @@ function META:MakeDynamic(part, keep_pose, jitter)
 		local joint = self:BuildJoint(part, parent.body.Rotation * parent.target_rotation:GetConjugated())
 		part.joint = joint
 
-		if not cheap then
+		if cheap then
+			self:SetCheapJoint(part)
+		else
 			local s0, s1 = joint:LoadStates()
 			Quat.SetMul(neutral_rotation, parent.body.Rotation, part.neutral)
 			Quat.SetMul(neutral_rotation, neutral_rotation, joint.LocalFrame1)
@@ -1048,18 +1069,8 @@ function META:OnDeath(info)
 		for _, part in ipairs(self.parts) do
 			part.body:SetCCD(false)
 			self:SetCheapSleep(part)
-			local joint = part.joint
 
-			if joint then
-				joint:ClearSpring()
-
-				if joint.Friction then
-					joint.Friction = CORPSE_JOINT_FRICTION
-				else
-					joint.TwistFriction = CORPSE_JOINT_FRICTION
-					joint.SwingFriction = CORPSE_JOINT_FRICTION
-				end
-			end
+			if part.joint then self:SetCheapJoint(part) end
 		end
 	end
 
