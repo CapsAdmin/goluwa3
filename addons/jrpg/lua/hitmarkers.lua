@@ -167,15 +167,14 @@ function hitmarkers.Draw(camera, screen_w, screen_h, now, dt)
 
 				local alpha = math.min((mark.life - age) / (mark.fading and REPLACE_FADE or mark.life * 0.4), 1)
 				local pop = age < 0.12 and not mark.still and 1 + (1 - age / 0.12) * 0.6 or 1
-				local size = math.floor(tier.size * pop + 0.5)
-				local w, h = render2d.GetTextSize(text, hitmarkers.Font, size, hitmarkers.FontWeight)
+				local w, h = render2d.GetTextSize(text, hitmarkers.Font, tier.size, hitmarkers.FontWeight)
 				local x = screen.x + mark.x
 				local y = screen.y + mark.y
-				local line_y = y + h * 0.45
+				local line_y = y + h * pop * 0.45
 				render2d.PushBlendPreset("additive")
 				render2d.SetTexture(get_glow_line())
 				render2d.SetColor(color.r, color.g, color.b, alpha * 0.9)
-				render2d.DrawRect(x - w * 1.4, line_y - 9, w * 2.8, 18)
+				render2d.DrawRect(x - w * pop * 1.4, line_y - 9, w * pop * 2.8, 18)
 				render2d.PopBlendMode()
 				render2d.SetTexture(nil)
 				local foreground = tier.color or color
@@ -191,7 +190,8 @@ function hitmarkers.Draw(camera, screen_w, screen_h, now, dt)
 					y = y - h / 2,
 					font = hitmarkers.Font,
 					weight = hitmarkers.FontWeight,
-					size = size,
+					size = tier.size,
+					scale = pop,
 					foreground_color = foreground,
 					background_color = background,
 					softness = 6,

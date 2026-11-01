@@ -47,7 +47,9 @@ All icons are defined up front in `goluwa/render2d/ui/themes/icons.lua` as strok
 - `icon` size token is the standard box (the glyph is about 70% of it). Glyphs in tiny boxes need `inset = 0` in `DrawIcon`.
 - Use via `Icon{Icon = name}`, `Button{Icon = name}`, `IconButton`, `MenuItem`, `TabBar{Icons = ...}`, tree nodes. `addons/ui_gallery/lua/gallery/icons.lua` is the review page.
 
-## Bitmap fonts and the zsnes theme
+## Fonts, bitmap fonts and the zsnes theme
+
+Every distinct (font, size, weight) is its own font object whose glyphs are rasterized and uploaded with a blocking `render.SubmitAndWait` the first time a string needs them. Animate text size with `DrawText{scale = ...}` at a fixed `size`, never by changing `size` per frame (a popping damage number otherwise stalls tens of ms per hit).
 
 `glyphs.RegisterBitmapFont` plus a font path `"bitmap:name:scale"` gives a pixel font drawn from one texture (`fonts/bitmap.lua`; `fonts/raster.lua` is out of date). Bitmap text is drawn with `render2d.PushMargin(0)` because `GetMargin` pads quads when `sdf_softness > 0`. Texture glyph UVs are sampled upside down.
 
