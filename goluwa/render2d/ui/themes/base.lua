@@ -342,6 +342,12 @@ function BaseTheme:GetFont(name, size_name)
 	return font_cache[cache_key], size_val
 end
 
+function BaseTheme:GetTextStyle(name)
+	local font_styles = self:GetFontStyles()
+	local style = font_styles[name] or font_styles.body
+	return style.Path or style.Name or style[1], style.Weight or style[2]
+end
+
 function BaseTheme:GetWorldTextStyle()
 	if not self.world_text_style then
 		local ink = self:GetColor("actual_black")
@@ -1546,7 +1552,21 @@ function BaseTheme:DrawProgressBar(size, state, color)
 	local value = math.clamp(state.value or 0, 0, 1)
 	color = self:ResolveSurfaceFill(color, "primary")
 	local radius = math.min(math.floor(size.y / 2), self:GetRadius("full"))
+	local ghost = math.clamp(state.ghost or value, 0, 1)
 	self:DrawBox(size, {fill = "track", radius = radius})
+
+	if ghost > value then
+		self:DrawRoundRect(
+			0,
+			0,
+			size.x * ghost,
+			size.y,
+			radius,
+			state.ghost_color and
+				self:ResolveSurfaceFill(state.ghost_color, "negative") or
+				color:GetLerped(0.5, self:GetColor("surface"))
+		)
+	end
 
 	if value > 0 then
 		self:DrawRoundRect(0, 0, size.x * value, size.y, radius, color)

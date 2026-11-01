@@ -197,6 +197,16 @@ function JRPGTheme:Initialize()
 		}
 	)
 
+	self.TrailFadeGradient = render2d.CreateGradient{
+		width = 64,
+		height = 1,
+		angle = 90,
+		stops = {
+			{pos = 0, color = Color(1, 1, 1, 1)},
+			{pos = 1, color = Color(1, 1, 1, 0.3)},
+		},
+	}
+
 	do
 		self.ModernFrameGradient = render2d.CreateGradient{
 			mode = "linear",
@@ -1239,79 +1249,70 @@ function JRPGTheme:DrawButtonRadio(size, state)
 end
 
 function JRPGTheme:DrawProgressBar(size, state, color)
-	local value = state.value or 0
-	local c = color == nil and self:GetColor("primary") or self:ResolveSurfaceColor(color)
+	local value = math.clamp(state.value or 0, 0, 1)
+	local ghost = math.clamp(state.ghost or value, 0, 1)
+	local fill_color = color == nil and self:GetColor("primary") or self:ResolveSurfaceColor(color)
+	local ghost_color = state.ghost_color and
+		self:ResolveSurfaceColor(state.ghost_color) or
+		fill_color:GetLerped(0.5, WHITE)
+	local segments = state.segments or 10
+	local h = size.y
+	local skew = h * 0.66
+	local w = size.x - skew
+	render2d.PushWorldMatrix()
+	render2d.Translatef(0, h)
+	render2d.Shear(-skew / h, 0)
+	render2d.Translatef(0, -h)
 	render2d.SetTexture(nil)
-	local track = self:GetColor("surface_variant")
-	render2d.DrawShape{
-		x = 0,
-		y = 0,
-		w = size.x,
-		h = size.y,
-		color = track,
-		texture = false,
-		int = true,
-	}
-	local segments = 10
-	local seg_w = size.x / segments
-	render2d.SetColor(1, 1, 1, 0.08)
+	set_color(self:GetColor("actual_black"), 0.82)
+	render2d.DrawRect(-2, -2, w + 4, h + 4)
+	render2d.SetColor(1, 1, 1, 0.05)
+	render2d.DrawRect(0, 0, w, h * 0.5)
+	local fill = w * value
 
-	for i = 1, segments do
-		render2d.DrawShape{
-			x = i * seg_w - 0.5,
-			y = 1,
-			w = 1,
-			h = size.y - 2,
-			texture = false,
-			int = true,
-		}
+	if ghost > value + 0.001 then
+		set_color(ghost_color, 0.8)
+		render2d.SetTexture(self.TrailFadeGradient)
+		render2d.DrawRect(fill, 0, w * ghost - fill, h)
+		render2d.SetTexture(nil)
 	end
 
-	local accent = self:GetColor("primary")
+	if fill > 0.5 then
+		set_color(fill_color, 1)
+		render2d.DrawRect(0, 0, fill, h)
+		render2d.SetColor(0, 0, 0, 0.18)
+		render2d.DrawRect(0, h * 0.55, fill, h * 0.45)
+		render2d.SetColor(1, 1, 1, 0.35)
+		render2d.DrawRect(0, 0, fill, math.max(h * 0.18, 1))
+	end
+
+	for i = 1, segments - 1 do
+		local tick_x = math.floor(w * i / segments)
+		render2d.SetColor(0, 0, 0, 0.35)
+		render2d.DrawRect(tick_x, 1, 1, h - 2)
+		render2d.SetColor(1, 1, 1, 0.22)
+		render2d.DrawRect(tick_x, 1, 1, math.max(h * 0.25, 2) - 1)
+	end
+
+	set_color(self:GetColor("border"), 0.95)
+	render2d.DrawRect(-2, -2, w + 4, 1)
+	render2d.DrawRect(-2, h + 1, w + 4, 1)
+	render2d.DrawRect(-2, -2, 1, h + 4)
+	render2d.DrawRect(w + 1, -2, 1, h + 4)
 	render2d.PushBlendPreset("additive")
-	set_color(accent, 0.35)
-	self:DrawGlowLine(0, 0, size.x, 0, 1)
-	self:DrawGlowLine(0, size.y, size.x, size.y, 1)
+	set_color(fill_color, 0.3)
+	self:DrawGlowLine(-8, -2, w + 8, -2, 3)
+	self:DrawGlowLine(-8, h + 2, w + 8, h + 2, 3)
+
+	if fill > 0.5 then
+		set_color(fill_color, 0.9)
+		self:DrawGlowLine(fill, -h * 0.6, fill, h * 1.6, math.max(h * 0.5, 3))
+		render2d.SetColor(1, 1, 1, 0.9)
+		self:DrawGlowLine(fill, -h * 0.2, fill, h * 1.2, math.max(h * 0.18, 1.5))
+	end
+
 	render2d.PopBlendMode()
-	local fill_w = size.x * value
-	render2d.DrawShape{
-		x = 0,
-		y = 1,
-		w = fill_w,
-		h = size.y - 2,
-		color = c,
-		alpha = 0.95,
-		texture = self.Textures.Gradient,
-		color_uv = {x = 0, y = 0, w = 0.5, h = 1},
-		int = true,
-	}
-	render2d.SetColor(1, 1, 1, 0.5)
-	render2d.DrawShape{
-		x = 0,
-		y = 1,
-		w = fill_w,
-		h = 1,
-		texture = false,
-		int = true,
-	}
-	local cx = fill_w
-	local cy = size.y / 2
-	local s = math.min(size.y / 2, 6)
-	render2d.PushBlendPreset("additive")
-	render2d.DrawShape{
-		x = cx - 4,
-		y = cy - s * 2,
-		w = 8,
-		h = s * 4,
-		color = c,
-		alpha = 0.9,
-		texture = self.GlowLineTexture,
-	}
-	set_color(c, 1)
-	self:DrawDiamond(cx, cy, s)
-	render2d.SetColor(1, 1, 1, 0.8)
-	self:DrawDiamond(cx, cy, s * 0.4)
-	render2d.PopBlendMode()
+	render2d.PopWorldMatrix()
 end
 
 function JRPGTheme:DrawDivider(size)

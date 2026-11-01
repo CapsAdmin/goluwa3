@@ -9,12 +9,11 @@ local derma = import("goluwa/render2d/ui/themes/derma.lua")
 local derma_dark = import("goluwa/render2d/ui/themes/derma_dark.lua")
 local zsnes = import("goluwa/render2d/ui/themes/zsnes.lua")
 local theme = {}
-local DEFAULT_PRESET_NAME = base.Name
+local DEFAULT_PRESET_NAME = jrpg.Name
 theme.themes = {base, jrpg, playful, retro, derma, derma_dark, zsnes}
-theme.active = nil
 
 local function find_theme_class(name)
-	if name == nil or name == DEFAULT_PRESET_NAME then return base end
+	if name == nil then return jrpg end
 
 	for _, theme_class in ipairs(theme.themes) do
 		if theme_class.Name == name then return theme_class end
@@ -24,10 +23,12 @@ local function find_theme_class(name)
 end
 
 function theme.LoadTheme(name)
-	if theme.active and theme.active.Name == name then return end
+	local active = rawget(theme, "active")
+
+	if active and active.Name == name then return end
 
 	local theme_class = find_theme_class(name)
-	if theme.active then theme.active:Deactivate() end
+	if active then active:Deactivate() end
 
 	local object = theme_class:CreateObject()
 	object:Initialize()
@@ -61,5 +62,12 @@ function theme.GetAvailable()
 	return out
 end
 
-theme.LoadTheme(DEFAULT_PRESET_NAME)
+setmetatable(
+	theme,
+	{
+		__index = function(self, key)
+			if key == "active" then return self.LoadTheme(DEFAULT_PRESET_NAME) end
+		end,
+	}
+)
 return theme

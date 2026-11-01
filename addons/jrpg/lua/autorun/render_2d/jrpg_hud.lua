@@ -3,6 +3,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Texture = import("goluwa/render/texture.lua")
 local AABB = import("goluwa/structs/aabb.lua")
@@ -14,6 +15,8 @@ local damage_types = import("lua/jrpg/damage_types.lua")
 local weapon_categories = import("lua/weapon_categories.lua")
 local hitmarkers = import("lua/hitmarkers.lua")
 local targeting = import("lua/targeting.lua")
+local progress_bar = import("goluwa/render2d/ui/elements/progress_bar.lua")
+local ui_theme = import("goluwa/render2d/ui/theme.lua")
 local third_person = import("lua/third_person.lua")
 
 function third_person.IsDefaultHudReplaced(rig)
@@ -26,7 +29,6 @@ local HEADING = "Orbitron"
 local BODY = "Exo"
 local BOLD = "Bold"
 local INK = Color.FromHex("#04060d")
-local STEEL = Color.FromHex("#2e5876")
 local WHITE = Color.FromHex("#eef4ff")
 local MUTED = Color.FromHex("#8fa8c8")
 local NEON = jrpg.Colors.neon
@@ -77,6 +79,7 @@ local style
 local vignette
 local bounds = AABB(0, 0, 0, 0, 0, 0)
 local smoothed = {}
+local trackers = {health = progress_bar.NewTracker(), mana = progress_bar.NewTracker(), stamina = progress_bar.NewTracker(), xp = progress_bar.NewTracker()}
 local records = table.weak("k")
 local tracked = {}
 
@@ -146,77 +149,13 @@ local function set_color(color, alpha)
 	render2d.SetColor(color.r, color.g, color.b, alpha)
 end
 
-local TRAIL_FADE = render2d.CreateGradient{
-	width = 64,
-	height = 1,
-	angle = 90,
-	stops = {
-		{pos = 0, color = Color(1, 1, 1, 1)},
-		{pos = 1, color = Color(1, 1, 1, 0.3)},
-	},
-}
-
-local function draw_skewed_bar(x, y, w, h, skew, fraction, ghost, ghost_color, color, alpha, segments)
-	local theme = get_style()
-	render2d.PushWorldMatrix()
-	render2d.Translatef(x, y + h)
-	render2d.Shear(-skew / h, 0)
-	render2d.Translatef(0, -h)
-	render2d.SetTexture(nil)
-	set_color(INK, 0.82 * alpha)
-	render2d.DrawRect(-2, -2, w + 4, h + 4)
-	render2d.SetColor(1, 1, 1, 0.05 * alpha)
-	render2d.DrawRect(0, 0, w, h * 0.5)
-	local fill = w * math.clamp(fraction, 0, 1)
-
-	if ghost > fraction + 0.001 then
-		set_color(ghost_color, 0.8 * alpha)
-		render2d.SetTexture(TRAIL_FADE)
-		render2d.DrawRect(fill, 0, w * math.min(ghost, 1) - fill, h)
-		render2d.SetTexture(nil)
-	end
-
-	if fill > 0.5 then
-		set_color(color, alpha)
-		render2d.DrawRect(0, 0, fill, h)
-		render2d.SetColor(0, 0, 0, 0.18 * alpha)
-		render2d.DrawRect(0, h * 0.55, fill, h * 0.45)
-		render2d.SetTexture(nil)
-		render2d.SetColor(1, 1, 1, 0.35 * alpha)
-		render2d.DrawRect(0, 0, fill, math.max(h * 0.18, 1))
-	end
-
-	if segments then
-		for i = 1, segments - 1 do
-			local tick_x = math.floor(w * i / segments)
-			render2d.SetColor(0, 0, 0, 0.35 * alpha)
-			render2d.DrawRect(tick_x, 1, 1, h - 2)
-			render2d.SetColor(1, 1, 1, 0.22 * alpha)
-			render2d.DrawRect(tick_x, 1, 1, math.max(h * 0.25, 2) - 1)
-		end
-	end
-
-	set_color(STEEL, 0.95 * alpha)
-	render2d.DrawRect(-2, -2, w + 4, 1)
-	render2d.DrawRect(-2, h + 1, w + 4, 1)
-	render2d.DrawRect(-2, -2, 1, h + 4)
-	render2d.DrawRect(w + 1, -2, 1, h + 4)
-	render2d.PushBlendPreset("additive")
-	set_color(color, 0.3 * alpha)
-	theme:DrawGlowLine(-8, -2, w + 8, -2, 3)
-	theme:DrawGlowLine(-8, h + 2, w + 8, h + 2, 3)
-	render2d.PopBlendMode()
-
-	if fill > 0.5 then
-		render2d.PushBlendPreset("additive")
-		set_color(color, 0.9 * alpha)
-		theme:DrawGlowLine(fill, -h * 0.6, fill, h * 1.6, math.max(h * 0.5, 3))
-		render2d.SetColor(1, 1, 1, 0.9 * alpha)
-		theme:DrawGlowLine(fill, -h * 0.2, fill, h * 1.2, math.max(h * 0.18, 1.5))
-		render2d.PopBlendMode()
-	end
-
-	render2d.PopWorldMatrix()
+local function draw_bar(x, y, w, h, state, color, alpha)
+	render2d.PushMatrix()
+	render2d.PushAlphaMultiplier(alpha)
+	render2d.Translatef(x, y)
+	ui_theme.active:DrawProgressBar(Vec2(w, h), state, color)
+	render2d.PopAlphaMultiplier()
+	render2d.PopMatrix()
 end
 
 local function draw_status_icons(component, x, y, size, alpha, align_right)
@@ -709,20 +648,8 @@ local function draw_player(rig, w, h, dt)
 	for _, bar in ipairs(BARS) do
 		local value, max = values[bar.key][1], values[bar.key][2]
 		local fraction = value / math.max(max, 1)
-		local shown = smooth(bar.key, fraction, dt)
-		local ghost_key = bar.key .. "_ghost"
-		local ghost = smoothed[ghost_key] or shown
-
-		if shown < ghost then
-			if (smoothed[ghost_key .. "_time"] or 0) < now - TRAIL_DELAY then
-				ghost = math.max(ghost - dt * TRAIL_SPEED, shown)
-			end
-		else
-			ghost = shown
-			smoothed[ghost_key .. "_time"] = now
-		end
-
-		smoothed[ghost_key] = ghost
+		local tracker = trackers[bar.key]
+		local shown, ghost = tracker:Update(fraction, dt, now)
 		local width = math.clamp(max * 2, 120, w / 3 / S) * S
 		local color = bar.color
 
@@ -732,7 +659,15 @@ local function draw_player(rig, w, h, dt)
 			color = color:GetLerped(0.5 + 0.5 * math.sin(now * 14), DANGER)
 		end
 
-		draw_skewed_bar(bx, by, width, bar_h, skew, shown, ghost, bar.trail, color, 1, 10)
+		draw_bar(
+			bx,
+			by,
+			width + skew,
+			bar_h,
+			{value = shown, ghost = ghost, ghost_color = bar.trail},
+			color,
+			1
+		)
 		text(
 			bar.label,
 			bx - 34 * S,
@@ -760,17 +695,14 @@ local function draw_player(rig, w, h, dt)
 	end
 
 	local next_xp = math.max(rpg:GetNextLevelXP(), 1)
-	local xp_fraction = smooth("xp", rpg:GetXP() / next_xp, dt)
+	local xp_fraction = trackers.xp:Update(rpg:GetXP() / next_xp, dt, now)
 	local xp_width = math.clamp(rpg:GetMaxStamina() * 2, 120, w / 3 / S) * S
-	draw_skewed_bar(
+	draw_bar(
 		bx,
 		by + 2 * S,
-		xp_width,
+		xp_width + skew * 0.5,
 		XP_HEIGHT * S,
-		skew * 0.5,
-		xp_fraction,
-		xp_fraction,
-		jrpg.Colors.xp,
+		{value = xp_fraction, segments = 0},
 		jrpg.Colors.xp,
 		1
 	)
@@ -824,18 +756,14 @@ local function draw_npc_bar(camera, record, alpha, is_target, w, h, S)
 
 	if record.shown < 0.25 then color = DANGER end
 
-	draw_skewed_bar(
+	draw_bar(
 		x,
 		y,
 		width,
 		bar_h,
-		6 * S,
-		record.shown,
-		record.trail,
-		NPC_TRAIL,
+		{value = record.shown, ghost = record.trail, ghost_color = NPC_TRAIL, segments = is_target and 8 or 0},
 		color,
-		alpha,
-		is_target and 8 or nil
+		alpha
 	)
 	text(
 		record.name,
