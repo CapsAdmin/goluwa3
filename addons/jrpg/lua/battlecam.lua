@@ -25,6 +25,8 @@ local TRACE_MARGIN = 10 * U
 local CHEST = 40 * U
 local MAX_ORBIT_PITCH = 1.2
 local FREE_FOV = math.rad(60)
+local FREE_PITCH = math.rad(15)
+local FREE_PITCH_SPEED = 2
 local TARGET_FOV = math.rad(50)
 local TURN_SPEED = 12
 local AIM_LIFT = 0.15
@@ -249,6 +251,17 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 			end
 
 			origin:CopyFrom(pivot + offset)
+		else
+			local flat = math.sqrt(offset.x * offset.x + offset.z * offset.z)
+
+			if flat > 1e-4 then
+				local length = offset:GetLength()
+				local pitch = math.atan2(offset.y, flat)
+				pitch = pitch + (FREE_PITCH - pitch) * math.min(dt * FREE_PITCH_SPEED, 1)
+				local scale = math.cos(pitch) * length / flat
+				offset:Set(offset.x * scale, math.sin(pitch) * length, offset.z * scale)
+				origin:CopyFrom(pivot + offset)
+			end
 		end
 
 		local outside = math.max(math.clamp(offset:GetLength() / ROOM_SIZE, 0, 1) ^ 10 - 0.05, 0)
