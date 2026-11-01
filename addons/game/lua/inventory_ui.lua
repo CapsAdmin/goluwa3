@@ -5,6 +5,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
+local easing = import("goluwa/math/easing.lua")
 local Color = import("goluwa/structs/color.lua")
 local weapons = import("lua/weapons.lua")
 local weapon_categories = import("lua/weapon_categories.lua")
@@ -14,9 +15,51 @@ local PANEL_WIDTH = 560
 local PANEL_PADDING = 36
 local PANEL_FADE = 140
 local PLACE_NAMES = {right = "Right hand", left = "Left hand"}
+local MAX_FRAME = 1 / 30
+local OPEN_TIME = 0.45
+local CLOSE_TIME = 0.25
+local ROW_STAGGER = 0.05
 local root = NULL
 local mounted
+local closing
+local panel = NULL
 local fade
+local appear_state = setmetatable({}, {__mode = "k"})
+
+local function pre_draw(entity)
+	render2d.PushAlphaMultiplier(appear_state[entity].value)
+end
+
+local function post_draw()
+	render2d.PopAlphaMultiplier()
+end
+
+local function make_appear(entity, distance)
+	appear_state[entity] = {value = 0, distance = distance}
+	entity.transform:SetDrawPositionOffset(Vec2(-distance, 0))
+end
+
+local function appear_to(entity, target, time, delay, ease, callback)
+	local state = appear_state[entity]
+	local total = delay + time
+	entity.animation:Animate{
+		id = "appear",
+		get = function()
+			return state.value
+		end,
+		set = function(value)
+			state.value = value
+			entity.transform:SetDrawPositionOffset(Vec2((value - 1) * state.distance, 0))
+		end,
+		to = target,
+		time = total,
+		max_dt = MAX_FRAME,
+		interpolation = function(t)
+			return easing[ease](math.clamp((t * total - delay) / time, 0, 1))
+		end,
+		callback = callback,
+	}
+end
 
 local function draw_backdrop(panel)
 	fade = fade or render2d.CreateGradient{
@@ -77,6 +120,29 @@ local function get_stats(info)
 	}
 end
 
+local Appear = react.Component(
+	|props|-> do
+		local ref = react.UseRef()
+		react.UseLayoutEffect(
+			||-> do
+				appear_to(ref.current, 1, props.Time ?? 0.3, props.Delay ?? 0, "outCubic")
+			end,
+			{}
+		)
+		return ui.Panel{
+			Ref = |entity|-> do
+				ref.current = entity
+				if entity then make_appear(entity, props.Distance ?? 32) end
+			end,
+			transform = true,
+			visual = true,
+			animation = true,
+			OnPreDraw = pre_draw,
+			OnPostDraw = post_draw,
+			layout = {Direction = "y", GrowWidth = 1, FitHeight = true, AlignmentX = "stretch"},
+		}{props.children}
+	end
+)
 local Stat = react.Component(
 	|props|->ui.Row{layout = {GrowWidth = 1, AlignmentY = "center"}}{
 		ui.Text{Text = props.Label, Color = "text_disabled"},
@@ -96,6 +162,12 @@ local InventoryMenu = react.Component(
 		local place = state.place
 		local current = holder:GetWeapon(place)
 		local names = {}
+		react.UseLayoutEffect(
+			||-> do
+				appear_to(panel, 1, OPEN_TIME, 0, "outExpo")
+			end,
+			{}
+		)
 
 		for i, other in ipairs(subjects) do
 			names[i] = other == _G.PLAYER_RIG and "You" or (other:GetName() .. " " .. i)
@@ -110,8 +182,15 @@ local InventoryMenu = react.Component(
 			mouse_input = {RequestMouse = true},
 		}{
 			ui.Panel{
+				Ref = |entity|-> do
+					panel = entity ?? NULL
+					if entity then make_appear(entity, PANEL_WIDTH * 0.6) end
+				end,
 				transform = true,
 				visual = true,
+				animation = true,
+				OnPreDraw = pre_draw,
+				OnPostDraw = post_draw,
 				OnDraw = draw_backdrop,
 				layout = {
 					Padding = Rect(PANEL_PADDING, PANEL_PADDING, PANEL_FADE, PANEL_PADDING),
@@ -139,13 +218,14 @@ local InventoryMenu = react.Component(
 				ui.Text{Text = "Equipment", Color = "text_disabled"},
 				list.map(
 					inventory_menu.GetPlaces(),
-					|name|->ui.MenuItem{
-						Key = name,
-						Text = get_place_name(name) .. "   " .. get_title(holder:GetWeapon(name)),
-						Icon = get_icon(holder:GetWeapon(name)),
-						Padding = "S",
-						Selected = name == place,
-						OnClick = ||->inventory_menu.SetPlace(name),
+					|name, i|->Appear{Key = name, Delay = 0.12 + i * ROW_STAGGER, Time = 0.35}{
+						ui.MenuItem{
+							Text = get_place_name(name) .. "   " .. get_title(holder:GetWeapon(name)),
+							Icon = get_icon(holder:GetWeapon(name)),
+							Padding = "S",
+							Selected = name == place,
+							OnClick = ||->inventory_menu.SetPlace(name),
+						},
 					}
 				),
 				not inventory_menu.IsMount(place) && ui.Text{Text = "Change " .. get_place_name(place):lower(), Color = "text_disabled"},
@@ -158,18 +238,25 @@ local InventoryMenu = react.Component(
 					ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XXS", AlignmentX = "stretch"}}{
 						list.map(
 							inventory_menu.GetCandidates(place),
-							|weapon, i|->ui.MenuItem{
-								Key = weapon and weapon:GetName() or "empty",
-								Icon = get_icon(weapon),
-								Text = get_title(weapon) .. ((weapon or false) == (current or false) and "   (equipped)" or ""),
-								Padding = "S",
-								Selected = (weapon or false) == (current or false),
-								OnClick = ||->inventory_menu.Equip(weapon, place),
+							|weapon, i|->Appear{
+								Key = place .. ":" .. (weapon and weapon:GetName() or "empty"),
+								Delay = (i - 1) * 0.03,
+								Time = 0.25,
+								Distance = 24,
+							}{
+								ui.MenuItem{
+									Icon = get_icon(weapon),
+									Text = get_title(weapon) .. ((weapon or false) == (current or false) and "   (equipped)" or ""),
+									Padding = "S",
+									Selected = (weapon or false) == (current or false),
+									OnClick = ||->inventory_menu.Equip(weapon, place),
+								},
 							}
 						),
 					},
 				},
-				current && ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XXS", AlignmentX = "stretch"}}{
+				current && Appear{Key = place .. ":" .. current:GetName(), Time = 0.3, Distance = 20}{
+					ui.Column{layout = {GrowWidth = 1, FitHeight = true, ChildGap = "XXS", AlignmentX = "stretch"}}{
 					ui.Row{layout = {ChildGap = "S", AlignmentY = "center"}}{
 						ui.Icon{Icon = get_icon(current), IconColor = get_category(current).Color},
 						ui.Text{Text = get_title(current), FontSize = "M", Color = get_rarity_color(current)},
@@ -179,6 +266,7 @@ local InventoryMenu = react.Component(
 						|row|->Stat{Key = row[1], Label = row[1], Value = row[2]}
 					),
 				},
+			},
 				ui.Button{Text = "Close", Padding = "S", OnClick = inventory_menu.Close},
 			},
 		}
@@ -187,13 +275,30 @@ local InventoryMenu = react.Component(
 
 function inventory_ui.Sync()
 	if inventory_menu.IsOpen() then
-		if mounted then return end
+		if mounted and not closing then return end
 
+		if mounted then mounted:Unmount() end
+
+		closing = false
 		mounted = react.Mount(InventoryMenu{}, Panel.World)
 		root.transform:SetSize(Panel.World.transform:GetSize())
-	elseif mounted then
-		mounted:Unmount()
-		mounted = nil
+	elseif mounted and not closing then
+		closing = true
+		local closing_mount = mounted
+		appear_to(
+			panel,
+			0,
+			CLOSE_TIME,
+			0,
+			"inCubic",
+			function()
+				if mounted ~= closing_mount then return end
+
+				mounted:Unmount()
+				mounted = nil
+				closing = false
+			end
+		)
 	end
 end
 
