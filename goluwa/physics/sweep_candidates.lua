@@ -1,5 +1,6 @@
 local AABB = import("goluwa/structs/aabb.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
+local trace_break = import("goluwa/jit/tracebreak.lua")
 local sweep_candidates = {}
 
 local function should_skip_rigid_body(body, ignore_entity, filter_fn, options)
@@ -402,6 +403,7 @@ local function append_rigid_body_candidate(entry)
 end
 
 local function collect_rigid_body_candidates(physics, world_aabb, ignore_entity, filter_fn, options, out)
+	trace_break()
 	out = out or {}
 	local effective_options = options or EMPTY_OPTIONS
 	local broadphase = physics.broadphase
