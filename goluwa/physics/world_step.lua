@@ -133,7 +133,7 @@ local function refresh_support_entries(bodies)
 	end
 end
 
-local function solve_body_support_contacts(body, step_dt, substep_id)
+local function solve_body_support_contacts(body, dt)
 	if not body:GetAwake() then return end
 
 	local entries = body._SupportEntries
@@ -142,7 +142,7 @@ local function solve_body_support_contacts(body, step_dt, substep_id)
 
 	for i = 1, #entries do
 		local entry = entries[i]
-		support_contacts.SolveShapeSupportContacts(entry[1], entry[2], step_dt, substep_id)
+		support_contacts.SolveShapeSupportContacts(entry[1], entry[2], dt)
 	end
 end
 
@@ -397,7 +397,6 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 		stats:PopTime()
 		refresh_support_entries(ACTIVE_BODIES)
-		local substep_id = solver.StepStamp or 0
 		local has_world_geometry = RigidBody.WorldGeometryBodies[1] ~= nil
 		stats:PushTime("constraints")
 
@@ -430,7 +429,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 						local dynamic_bodies = island.awake_dynamic_bodies or island.dynamic_bodies or island.bodies
 
 						for body_index = 1, #dynamic_bodies do
-							solve_body_support_contacts(dynamic_bodies[body_index], sub_dt, substep_id)
+							solve_body_support_contacts(dynamic_bodies[body_index], sub_dt)
 						end
 					end
 

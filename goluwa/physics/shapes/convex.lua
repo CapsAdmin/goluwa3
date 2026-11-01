@@ -188,8 +188,8 @@ do
 	end
 end
 
-function META:SolveSupportContacts(body, dt, support_contacts, substep_id)
-	if not support_contacts.BeginSupportDetection(body, substep_id) then
+function META:SolveSupportContacts(body, dt, support_contacts)
+	if not support_contacts.BeginSupportDetection(body) then
 		support_contacts.ResolveCachedSupportContacts(body, dt)
 		return
 	end
