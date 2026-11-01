@@ -15,6 +15,8 @@ local COUNT_TIME = 0.4
 local COUNT_MIN_FRACTION = 0.5
 local MAX_BOUNCES = 2
 local REPLACE_FADE = 0.1
+local BIG_HIT_SCALE = 1.2
+local BIG_HIT_TIME = 0.15
 local TIERS = {
 	{max = 0.25, size = 22, color = Color(0.92, 0.94, 1, 1)},
 	{max = 0.5, size = 28, color = Color(1, 0.88, 0.45, 1)},
@@ -167,6 +169,11 @@ function hitmarkers.Draw(camera, screen_w, screen_h, now, dt)
 
 				local alpha = math.min((mark.life - age) / (mark.fading and REPLACE_FADE or mark.life * 0.4), 1)
 				local pop = age < 0.12 and not mark.still and 1 + (1 - age / 0.12) * 0.6 or 1
+
+				if mark.fraction and mark.fraction >= TIERS[1].max and age < BIG_HIT_TIME then
+					pop = pop * (1 + (BIG_HIT_SCALE - 1) * (1 - age / BIG_HIT_TIME))
+				end
+
 				local w, h = render2d.GetTextSize(text, hitmarkers.Font, tier.size, hitmarkers.FontWeight)
 				local x = screen.x + mark.x
 				local y = screen.y + mark.y
