@@ -64,6 +64,31 @@ function sample_points.BuildFlatBottomSupportPoints(extents)
 	}
 end
 
+local AXIS_NAMES = {"x", "y", "z"}
+
+function sample_points.BuildBoxFaceSupportGridPoints(extents, axis, sign)
+	local name = AXIS_NAMES[axis]
+	local name_u, name_v = AXIS_NAMES[axis % 3 + 1], AXIS_NAMES[(axis + 1) % 3 + 1]
+	local extent_u, extent_v = extents[name_u], extents[name_v]
+	local samples_u, samples_v = BOX_SUPPORT_SAMPLES_X, BOX_SUPPORT_SAMPLES_Z
+
+	if extent_v > extent_u then samples_u, samples_v = samples_v, samples_u end
+
+	local points = {}
+
+	for _, su in ipairs(samples_u) do
+		for _, sv in ipairs(samples_v) do
+			local point = Vec3()
+			point[name] = extents[name] * sign
+			point[name_u] = extent_u * su
+			point[name_v] = extent_v * sv
+			points[#points + 1] = point
+		end
+	end
+
+	return points
+end
+
 function sample_points.BuildBoxSupportGridPoints(extents, samples_x, samples_z)
 	samples_x = samples_x or BOX_SUPPORT_SAMPLES_X
 	samples_z = samples_z or BOX_SUPPORT_SAMPLES_Z

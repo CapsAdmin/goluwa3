@@ -137,6 +137,7 @@ end
 function META:OnBodyGeometryChanged(body)
 	BaseShape.OnBodyGeometryChanged(self, body)
 	self.Polyhedron = nil
+	self.SupportFacePoints = nil
 end
 
 function META:GetExtents()
@@ -251,51 +252,69 @@ function META:ShouldUseBroadSupportContact(body, ground_normal)
 	return metrics.stable and metrics.min_coverage >= 0.7 and metrics.area_coverage >= 0.5
 end
 
-function META:SolveSupportContacts(body, dt, support_contacts)
-	if not support_contacts.BeginSupportDetection(body) then
-		support_contacts.ResolveCachedSupportContacts(body, dt)
-		return
+do
+	local function get_lowest_face_points(self, body)
+		fill_body_axes(body)
+		local axis, sign = 2, BODY_UP.y > 0 and -1 or 1
+		local best = math.abs(BODY_UP.y)
+
+		if math.abs(BODY_RIGHT.y) > best then
+			axis, sign, best = 1, BODY_RIGHT.y > 0 and -1 or 1, math.abs(BODY_RIGHT.y)
+		end
+
+		if math.abs(BODY_BACK.y) > best then
+			axis, sign = 3, BODY_BACK.y > 0 and -1 or 1
+		end
+
+		local faces = self.SupportFacePoints
+
+		if not faces then
+			faces = {}
+			self.SupportFacePoints = faces
+		end
+
+		local key = axis * 2 + (sign > 0 and 1 or 0)
+		local points = faces[key]
+
+		if not points then
+			points = sample_points.BuildBoxFaceSupportGridPoints(self:GetExtents(), axis, sign)
+			faces[key] = points
+		end
+
+		return points
 	end
 
-	BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
-	support_contacts.ForEachPointSweepContact(body, dt, collect_box_support_contact, BOX_SUPPORT_CONTACT_CONTEXT)
-	local best_point = BOX_SUPPORT_CONTACT_CONTEXT.best_point
-	BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
+	function META:SolveSupportContacts(body, dt, support_contacts)
+		if not support_contacts.BeginSupportDetection(body) then
+			support_contacts.ResolveCachedSupportContacts(body, dt)
+			return
+		end
 
-	if
-		best_point and
-		self:ShouldUseBroadSupportContact(best_point.body, best_point.hit.normal)
-	then
-		support_contacts.ApplyPointWorldSupportContact(
-			best_point.body,
-			best_point.hit.normal,
-			best_point.hit.position,
-			best_point.point,
-			best_point.local_point,
-			best_point.hit,
-			best_point.dt
-		)
-		return
-	end
-
-	local hit = support_contacts.SweepCollider(body, dt)
-	local normal = hit and hit.normal or nil
-	local contact_position = hit and hit.position or nil
-
-	if
-		hit and
-		normal and
-		contact_position and
-		self:ShouldUseBroadSupportContact(body, normal)
-	then
-		support_contacts.ApplyWorldSupportContact(
+		BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
+		support_contacts.ForEachPointSweepContact(
 			body,
-			normal,
-			contact_position,
-			self:GetSupportRadiusAlongNormal(body, normal),
-			hit,
-			dt
+			dt,
+			collect_box_support_contact,
+			BOX_SUPPORT_CONTACT_CONTEXT,
+			get_lowest_face_points(self, body)
 		)
+		local best_point = BOX_SUPPORT_CONTACT_CONTEXT.best_point
+		BOX_SUPPORT_CONTACT_CONTEXT.best_point = nil
+
+		if
+			best_point and
+			self:ShouldUseBroadSupportContact(best_point.body, best_point.hit.normal)
+		then
+			support_contacts.ApplyPointWorldSupportContact(
+				best_point.body,
+				best_point.hit.normal,
+				best_point.hit.position,
+				best_point.point,
+				best_point.local_point,
+				best_point.hit,
+				best_point.dt
+			)
+		end
 	end
 end
 

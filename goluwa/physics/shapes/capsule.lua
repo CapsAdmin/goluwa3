@@ -362,7 +362,7 @@ function META:SolveSupportContacts(body, dt, support_contacts)
 			dt,
 			collect_capsule_support_contact,
 			CAPSULE_SUPPORT_CONTACT_CONTEXT,
-			CAPSULE_SUPPORT_CONTACT_CONTEXT.sweep_point
+			body:GetSupportLocalPoints()
 		)
 		local best_point = CAPSULE_SUPPORT_CONTACT_CONTEXT.best_point
 		CAPSULE_SUPPORT_CONTACT_CONTEXT.best_point = nil

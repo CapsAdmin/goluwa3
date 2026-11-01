@@ -200,7 +200,7 @@ function META:SolveSupportContacts(body, dt, support_contacts)
 		dt,
 		collect_convex_support_contact,
 		CONVEX_SUPPORT_CONTACT_CONTEXT,
-		CONVEX_SUPPORT_CONTACT_CONTEXT.sweep_point
+		body:GetSupportLocalPoints()
 	)
 	local best = CONVEX_SUPPORT_CONTACT_CONTEXT.best
 	CONVEX_SUPPORT_CONTACT_CONTEXT.best = nil

@@ -127,10 +127,9 @@ local function is_any_sweep_candidate(physics, body, support_points, owner, filt
 	return candidates[1] ~= nil
 end
 
-function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solve_contact_context)
+function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solve_contact_context, support_points)
 	local physics = body:GetPhysics()
 	local cast_up, cast_distance = support_contacts.GetCastDistances(body)
-	local support_points = body:GetSupportLocalPoints()
 	local owner = body:GetOwner()
 	local filter_function = body:GetFilterFunction()
 	fill_cast_vectors(cast_up, cast_distance)
