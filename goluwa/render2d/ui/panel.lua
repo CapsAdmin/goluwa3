@@ -35,8 +35,14 @@ Panel:GetSet("Tooltip", nil)
 Panel:GetSet("TooltipOptions", nil)
 Panel:GetSet("TooltipMaxWidth", nil)
 Panel:GetSet("TooltipOffset", nil)
+local theme
 
 function Panel:OnConstruct(config)
+	if Panel.World then
+		theme = theme or import("goluwa/render2d/ui/theme.lua")
+		local _ = theme.active
+	end
+
 	self.World = Panel.World
 	Panel.BaseClass.OnConstruct(self, config)
 end
