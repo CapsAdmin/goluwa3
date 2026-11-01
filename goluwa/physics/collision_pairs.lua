@@ -206,13 +206,14 @@ do
 	local function get_roll_speed(body, ox, oy, oz, px, py, pz, n)
 		if not body then return 0 end
 
-		local v, w, o = body.Velocity, body.AngularVelocity, body.Position
-		local rx, ry, rz = px - o.x, py - o.y, pz - o.z
+		local v = body.Velocity
 		local tx, ty, tz = get_tangent(v.x - ox, v.y - oy, v.z - oz, n)
 		local travel = math.sqrt(tx * tx + ty * ty + tz * tz)
 
 		if travel < 1e-6 then return 0 end
 
+		local w, o = body.AngularVelocity, body.Position
+		local rx, ry, rz = px - o.x, py - o.y, pz - o.z
 		local sx, sy, sz = get_tangent(w.y * rz - w.z * ry, w.z * rx - w.x * rz, w.x * ry - w.y * rx, n)
 		return math.clamp(-(sx * tx + sy * ty + sz * tz) / travel, 0, travel)
 	end
@@ -220,8 +221,13 @@ do
 	function CollisionPairs:DispatchContact(entity_a, entity_b, body_a, body_b, normal, px, py, pz, hit_a)
 		local ax, ay, az = get_point_velocity(body_a, px, py, pz)
 		local bx, by, bz = get_point_velocity(body_b, px, py, pz)
-		local sx, sy, sz = get_tangent(bx - ax, by - ay, bz - az, normal)
-		local slip = math.sqrt(sx * sx + sy * sy + sz * sz)
+		local slip
+
+		do
+			local sx, sy, sz = get_tangent(bx - ax, by - ay, bz - az, normal)
+			slip = math.sqrt(sx * sx + sy * sy + sz * sz)
+		end
+
 		local roll_a = get_roll_speed(body_a, bx, by, bz, px, py, pz, normal)
 		local roll_b = get_roll_speed(body_b, ax, ay, az, px, py, pz, normal)
 		local roll = math.max(roll_a, roll_b)

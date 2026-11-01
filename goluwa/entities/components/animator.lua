@@ -327,18 +327,12 @@ function Animator:GetWorldAABB(out, core)
 		local extent_x = math.abs(m00 * s00 + m10 * s10 + m20 * s20) * ex + math.abs(m00 * s01 + m10 * s11 + m20 * s21) * ey + math.abs(m00 * s02 + m10 * s12 + m20 * s22) * ez
 		local extent_y = math.abs(m01 * s00 + m11 * s10 + m21 * s20) * ex + math.abs(m01 * s01 + m11 * s11 + m21 * s21) * ey + math.abs(m01 * s02 + m11 * s12 + m21 * s22) * ez
 		local extent_z = math.abs(m02 * s00 + m12 * s10 + m22 * s20) * ex + math.abs(m02 * s01 + m12 * s11 + m22 * s21) * ey + math.abs(m02 * s02 + m12 * s12 + m22 * s22) * ez
-
-		if wx - extent_x < min_x then min_x = wx - extent_x end
-
-		if wy - extent_y < min_y then min_y = wy - extent_y end
-
-		if wz - extent_z < min_z then min_z = wz - extent_z end
-
-		if wx + extent_x > max_x then max_x = wx + extent_x end
-
-		if wy + extent_y > max_y then max_y = wy + extent_y end
-
-		if wz + extent_z > max_z then max_z = wz + extent_z end
+		min_x = math.min(min_x, wx - extent_x)
+		min_y = math.min(min_y, wy - extent_y)
+		min_z = math.min(min_z, wz - extent_z)
+		max_x = math.max(max_x, wx + extent_x)
+		max_y = math.max(max_y, wy + extent_y)
+		max_z = math.max(max_z, wz + extent_z)
 	end
 
 	if min_x > max_x then return nil end

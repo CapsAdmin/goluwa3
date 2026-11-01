@@ -1198,24 +1198,29 @@ function META:Update(time)
 end
 
 do
-	local function contains(reflector, point, n)
+	-- branch-free so the comparison in contains() exits with two live values instead of every temporary
+	local function footprint(reflector, point, n)
 		local count = reflector.count
 		local cx, cy, cz = reflector.position[1] / count, reflector.position[2] / count, reflector.position[3] / count
 		local dx, dy, dz = point.x - cx, point.y - cy, point.z - cz
 		local along = dx * n.x + dy * n.y + dz * n.z
 		dx, dy, dz = dx - n.x * along, dy - n.y * along, dz - n.z * along
 		local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-
-		if distance <= acoustics.FOOTPRINT_MARGIN then return true end
-
-		local ux, uy, uz = dx / distance, dy / distance, dz / distance
+		local safe = math.max(distance, 1e-9)
+		local ux, uy, uz = dx / safe, dy / safe, dz / safe
 		local m = reflector.spread
 		local xx, yy, zz = m[1] / count - cx * cx, m[2] / count - cy * cy, m[3] / count - cz * cz
 		local xy, xz, yz = m[4] / count - cx * cy, m[5] / count - cx * cz, m[6] / count - cy * cz
 		local variance = ux * ux * xx + uy * uy * yy + uz * uz * zz + 2 * (
 				ux * uy * xy + ux * uz * xz + uy * uz * yz
 			)
-		return distance <= acoustics.FOOTPRINT_SIGMA * math.sqrt(math.max(variance, 0)) + acoustics.FOOTPRINT_MARGIN
+		return distance,
+		acoustics.FOOTPRINT_SIGMA * math.sqrt(math.max(variance, 0)) + acoustics.FOOTPRINT_MARGIN
+	end
+
+	local function contains(reflector, point, n)
+		local distance, limit = footprint(reflector, point, n)
+		return distance <= limit
 	end
 
 	function META:AcceptReflections(env, source, time)

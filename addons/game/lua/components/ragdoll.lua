@@ -505,16 +505,24 @@ do
 	local d1, d2, r = Vec3(), Vec3(), Vec3()
 
 	function get_segment_distance(p1, axis_1, half_1, p2, axis_2, half_2)
-		local ax, ay, az = axis_1.x * half_1, axis_1.y * half_1, axis_1.z * half_1
-		local bx, by, bz = axis_2.x * half_2, axis_2.y * half_2, axis_2.z * half_2
-		d1:Set(ax * 2, ay * 2, az * 2)
-		d2:Set(bx * 2, by * 2, bz * 2)
-		r:Set(p1.x - ax - (p2.x - bx), p1.y - ay - (p2.y - by), p1.z - az - (p2.z - bz))
-		local a, e, f = d1:Dot(d1), d2:Dot(d2), d2:Dot(r)
-		local c, b = d1:Dot(r), d1:Dot(d2)
-		local denominator = a * e - b * b
-		local s = denominator > 1e-9 and math.clamp((b * f - c * e) / denominator, 0, 1) or 0
-		local t = (b * s + f) / e
+		do
+			local ax, ay, az = axis_1.x * half_1, axis_1.y * half_1, axis_1.z * half_1
+			local bx, by, bz = axis_2.x * half_2, axis_2.y * half_2, axis_2.z * half_2
+			d1:Set(ax * 2, ay * 2, az * 2)
+			d2:Set(bx * 2, by * 2, bz * 2)
+			r:Set(p1.x - ax - (p2.x - bx), p1.y - ay - (p2.y - by), p1.z - az - (p2.z - bz))
+		end
+
+		p1, axis_1, half_1, p2, axis_2, half_2 = nil, nil, nil, nil, nil, nil
+		local a, c, b = d1:Dot(d1), d1:Dot(r), d1:Dot(d2)
+		local s, t
+
+		do
+			local e, f = d2:Dot(d2), d2:Dot(r)
+			local denominator = a * e - b * b
+			s = denominator > 1e-9 and math.clamp((b * f - c * e) / denominator, 0, 1) or 0
+			t = (b * s + f) / e
+		end
 
 		if t < 0 then
 			t = 0

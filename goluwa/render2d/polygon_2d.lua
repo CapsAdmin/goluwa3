@@ -232,12 +232,17 @@ do
 			local u1 = math.clamp((r1 - inner) / (outer - inner), 0, 1)
 
 			for station = 1, stations - 1 do
-				local t0, t1 = station_angle[station], station_angle[station + 1]
-				local c0, s0, c1, s1 = math.cos(t0), math.sin(t0), math.cos(t1), math.sin(t1)
-				local m0, m1 = station_alpha[station], station_alpha[station + 1]
-				local x00, y00, x01, y01 = x + c0 * r0, y + s0 * r0, x + c1 * r0, y + s1 * r0
-				local x10, y10, x11, y11 = x + c0 * r1, y + s0 * r1, x + c1 * r1, y + s1 * r1
-				local a00, a01, a10, a11 = a * k0 * m0, a * k0 * m1, a * k1 * m0, a * k1 * m1
+				local x00, y00, x01, y01, x10, y10, x11, y11, a00, a01, a10, a11
+
+				do
+					local t0, t1 = station_angle[station], station_angle[station + 1]
+					local c0, s0, c1, s1 = math.cos(t0), math.sin(t0), math.cos(t1), math.sin(t1)
+					local m0, m1 = station_alpha[station], station_alpha[station + 1]
+					x00, y00, x01, y01 = x + c0 * r0, y + s0 * r0, x + c1 * r0, y + s1 * r0
+					x10, y10, x11, y11 = x + c0 * r1, y + s0 * r1, x + c1 * r1, y + s1 * r1
+					a00, a01, a10, a11 = a * k0 * m0, a * k0 * m1, a * k1 * m0, a * k1 * m1
+				end
+
 				self:SetVertex(vertex, x10, y10, u1, 0.5, r, g, b, a10)
 				self:SetVertex(vertex + 1, x00, y00, u0, 0.5, r, g, b, a00)
 				self:SetVertex(vertex + 2, x11, y11, u1, 0.5, r, g, b, a11)

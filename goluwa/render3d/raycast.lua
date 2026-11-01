@@ -612,21 +612,32 @@ local function test_skinned_polygon(ray, poly3d, primitive_idx, entity, max_hit_
 	local best_t = max_hit_distance or math.huge
 	local best_tri, best_nx, best_ny, best_nz
 
+	-- the do blocks end temporaries before the next test: an exit carries every local in scope and more than 16 numbers do not fit a side trace
 	for tri = 0, triangle_count - 1 do
-		local base = tri * 3
-		local a = (indices[base + 1] - 1) * 3
-		local b = (indices[base + 2] - 1) * 3
-		local c = (indices[base + 3] - 1) * 3
-		local ax, ay, az = positions[a], positions[a + 1], positions[a + 2]
-		local e1x, e1y, e1z = positions[b] - ax, positions[b + 1] - ay, positions[b + 2] - az
-		local e2x, e2y, e2z = positions[c] - ax, positions[c + 1] - ay, positions[c + 2] - az
-		local px, py, pz = dy * e2z - dz * e2y, dz * e2x - dx * e2z, dx * e2y - dy * e2x
-		local det = e1x * px + e1y * py + e1z * pz
+		local e1x, e1y, e1z, e2x, e2y, e2z, tx, ty, tz
+
+		do
+			local base = tri * 3
+			local a = (indices[base + 1] - 1) * 3
+			local b = (indices[base + 2] - 1) * 3
+			local c = (indices[base + 3] - 1) * 3
+			local ax, ay, az = positions[a], positions[a + 1], positions[a + 2]
+			e1x, e1y, e1z = positions[b] - ax, positions[b + 1] - ay, positions[b + 2] - az
+			e2x, e2y, e2z = positions[c] - ax, positions[c + 1] - ay, positions[c + 2] - az
+			tx, ty, tz = ox - ax, oy - ay, oz - az
+		end
+
+		local det, u_dot
+
+		do
+			local px, py, pz = dy * e2z - dz * e2y, dz * e2x - dx * e2z, dx * e2y - dy * e2x
+			det = e1x * px + e1y * py + e1z * pz
+			u_dot = tx * px + ty * py + tz * pz
+		end
 
 		if det > 1e-12 or det < -1e-12 then
 			local inv = 1 / det
-			local tx, ty, tz = ox - ax, oy - ay, oz - az
-			local u = (tx * px + ty * py + tz * pz) * inv
+			local u = u_dot * inv
 
 			if u >= 0 and u <= 1 then
 				local qx, qy, qz = ty * e1z - tz * e1y, tz * e1x - tx * e1z, tx * e1y - ty * e1x
