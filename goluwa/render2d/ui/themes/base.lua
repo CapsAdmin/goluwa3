@@ -1628,6 +1628,24 @@ function BaseTheme:DrawReticle(x, y, size, state)
 	render2d.DrawCircle(x, y, size / 2 - 6, 1.5, 40)
 end
 
+function BaseTheme:DrawSidePanel(size)
+	self.side_panel_fade = self.side_panel_fade or
+		render2d.CreateGradient{
+			width = 1024,
+			height = 1,
+			angle = 90,
+			stops = {
+				{pos = 0, color = Color(1, 1, 1, 0.94)},
+				{pos = 0.75, color = Color(1, 1, 1, 0.82)},
+				{pos = 1, color = Color(1, 1, 1, 0)},
+			},
+		}
+	local color = self:GetColor("surface")
+	render2d.SetTexture(self.side_panel_fade)
+	render2d.SetColor(color.r, color.g, color.b, 1)
+	render2d.DrawRect(0, 0, size.x, size.y)
+end
+
 function BaseTheme:DrawHudPanel(x, y, w, h, state)
 	local a = state.alpha or 1
 	local dark = self:GetColor("actual_black")

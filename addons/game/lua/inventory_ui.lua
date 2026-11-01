@@ -6,7 +6,7 @@ local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local easing = import("goluwa/math/easing.lua")
-local Color = import("goluwa/structs/color.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 local weapons = import("lua/weapons.lua")
 local weapon_categories = import("lua/weapon_categories.lua")
 local inventory_menu = import("lua/inventory_menu.lua")
@@ -23,7 +23,6 @@ local root = NULL
 local mounted
 local closing
 local panel = NULL
-local fade
 local appear_state = setmetatable({}, {__mode = "k"})
 
 local function pre_draw(entity)
@@ -62,20 +61,7 @@ local function appear_to(entity, target, time, delay, ease, callback)
 end
 
 local function draw_backdrop(panel)
-	fade = fade or render2d.CreateGradient{
-		width = 1024,
-		height = 1,
-		angle = 90,
-		stops = {
-			{pos = 0, color = Color(1, 1, 1, 0.92)},
-			{pos = 0.75, color = Color(1, 1, 1, 0.8)},
-			{pos = 1, color = Color(1, 1, 1, 0)},
-		},
-	}
-	local size = panel.transform:GetSize()
-	render2d.SetTexture(fade)
-	render2d.SetColor(0.02, 0.04, 0.1, 1)
-	render2d.DrawRect(0, 0, size.x, size.y)
+	theme.active:DrawSidePanel(panel.transform:GetSize())
 end
 
 local function get_signature()

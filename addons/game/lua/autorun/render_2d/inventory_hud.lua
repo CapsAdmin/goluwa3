@@ -42,7 +42,7 @@ event.AddListener("DrawHUD", "inventory_hud", function()
 	local holder = subject.weapon_holder
 	local active = theme.active
 	local text_color = active:GetColor("text_on_dark")
-	local gold = active:GetColor("gold")
+	local gold = active:GetColor("neutral")
 	local strong_font, strong_weight = active:GetTextStyle("body_strong")
 	local screen_w, screen_h = render2d.GetSize()
 	local S = screen_h / 1080
