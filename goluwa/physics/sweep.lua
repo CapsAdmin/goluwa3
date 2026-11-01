@@ -24,6 +24,7 @@ local evaluate_point_against_capsule_segment = sweep_mesh.EvaluatePointAgainstCa
 local collect_mesh_body_point_sweep_hit = sweep_mesh.CollectMeshBodyPointSweepHit
 local collect_mesh_body_collider_sweep_hit = sweep_mesh.CollectMeshBodyColliderSweepHit
 local build_capsule_sweep_invariants = sweep_mesh.BuildCapsuleSweepInvariants
+local CAPSULE_SWEEP_INVARIANTS = {}
 local evaluate_polyhedron_pair_contact
 local should_skip_rigid_body = sweep_candidates.ShouldSkipRigidBody
 local get_rigid_body_candidate_aabb = sweep_candidates.GetRigidBodyCandidateAABB
@@ -209,7 +210,8 @@ local function test_mesh_body_collider_sweep(
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_collider = target_collider
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_position = target_position
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_rotation = target_rotation
-	MESH_BODY_COLLIDER_SWEEP_CONTEXT.wv_cache = {}
+	table.clear(MESH_BODY_COLLIDER_SWEEP_CONTEXT.wv_cache)
+	MESH_BODY_COLLIDER_SWEEP_CONTEXT.wv_used = 0
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.best_hit = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.entry = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.capsule_invariants = query_shape_type == "capsule" and
@@ -218,7 +220,7 @@ local function test_mesh_body_collider_sweep(
 			start_position,
 			rotation,
 			movement,
-			MESH_BODY_COLLIDER_SWEEP_CONTEXT.capsule_invariants
+			CAPSULE_SWEEP_INVARIANTS
 		) or
 		nil
 
@@ -233,7 +235,6 @@ local function test_mesh_body_collider_sweep(
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_collider = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_position = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_rotation = nil
-		MESH_BODY_COLLIDER_SWEEP_CONTEXT.wv_cache = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.entry = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.best_hit = nil
 		MESH_BODY_COLLIDER_SWEEP_CONTEXT.capsule_invariants = nil
@@ -257,7 +258,6 @@ local function test_mesh_body_collider_sweep(
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_collider = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_position = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.target_rotation = nil
-	MESH_BODY_COLLIDER_SWEEP_CONTEXT.wv_cache = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.entry = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.best_hit = nil
 	MESH_BODY_COLLIDER_SWEEP_CONTEXT.capsule_invariants = nil
@@ -664,7 +664,6 @@ local function test_rigid_body_collider_sweep_untimed(
 	end
 
 	local movement_length = movement:GetLength()
-	local target_state = sweep_helpers.BuildTargetMotionState(body)
 	local world_aabb = build_collider_swept_aabb(collider, start_position, rotation, movement * best_fraction)
 	local body_bounds = get_rigid_body_candidate_aabb(body)
 
@@ -672,6 +671,7 @@ local function test_rigid_body_collider_sweep_untimed(
 		return nil
 	end
 
+	local target_state = sweep_helpers.BuildTargetMotionState(body)
 	local query_shape_type = collider:GetShapeType()
 	local best_hit
 	local target_colliders, target_count = collider_index.Query(body, world_aabb, SWEEP_COLLIDER_TARGETS)

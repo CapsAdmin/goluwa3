@@ -76,7 +76,9 @@ local MESH_BODY_COLLIDER_SWEEP_CONTEXT = {
 	target_collider = nil,
 	target_position = nil,
 	target_rotation = nil,
-	wv_cache = nil,
+	wv_cache = {},
+	wv_pool = {},
+	wv_used = 0,
 	entry = nil,
 	best_hit = nil,
 }
@@ -110,7 +112,16 @@ local function get_cached_world_vertex(context, v)
 	local wv = cache[v]
 
 	if not wv then
-		wv = context.target_collider:LocalToWorld(v, context.target_position, context.target_rotation)
+		local used = context.wv_used + 1
+		context.wv_used = used
+		wv = context.wv_pool[used]
+
+		if not wv then
+			wv = Vec3()
+			context.wv_pool[used] = wv
+		end
+
+		context.target_collider:LocalToWorld(v, context.target_position, context.target_rotation, wv)
 		cache[v] = wv
 	end
 
@@ -657,8 +668,9 @@ end
 
 local function build_capsule_sweep_invariants(collider, start_position, rotation, movement, out)
 	out = out or {}
-	local segment_a, segment_b, radius = capsule_geometry.GetSegmentWorld(collider, start_position, rotation)
-	local segment_length = (segment_b - segment_a):GetLength()
+	local segment_a, segment_b, radius = capsule_geometry.GetSegmentWorld(collider, start_position, rotation, out.segment_a, out.segment_b)
+	local sx, sy, sz = segment_b.x - segment_a.x, segment_b.y - segment_a.y, segment_b.z - segment_a.z
+	local segment_length = math.sqrt(sx * sx + sy * sy + sz * sz)
 	out.segment_a = segment_a
 	out.segment_b = segment_b
 	out.radius = radius
