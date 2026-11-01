@@ -33,6 +33,10 @@ The holder thinks every equipped weapon on the authority with the buttons `holde
 
 A command carries `select` (an index into `holder:GetWeapons()`, sorted by `Slot` then name, or `usercmd.SELECT_EMPTY`) and `select_left`; only the authority applies it. A connected client just sends the command and gets `Equipped` back from the server (the weapons replicate to the owner), so server and client cannot disagree about what is selected. `weapon:SetEquipped` fires `OnWeaponEquip`/`OnWeaponHolster` on the owner's client when the change comes from replication. `player_input` builds it: number keys and the wheel pick the right hand (a number key picks the weapons whose `Slot` floors to it, pressing again cycles them), holding left alt does the same for the left hand, whose cycle also has an empty stop. The wheel skips the weapon held in the other hand; a number key does not, so it moves (or swaps) a weapon between hands.
 
+## Inventory menu
+
+`~` toggles `lua/inventory_menu.lua` (model: open state, subject, selected place, `GetCandidates`, `Equip`; it fires `InventoryMenuChanged`). The panel is a react component (`lua/inventory_ui.lua`) mounted while open and driven by the mouse, a party is the player plus nearby `friend` NPCs with a `weapon_holder`. While open, `player_input` ignores movement, buttons, look and selection keys. `autorun/render_3d/inventory_camera.lua` activates a front view on the selected place's socket and a `screen_fields` darken sphere around the subject; `autorun/render_2d/inventory_hud.lua` marks the socket. The player equips through `player_input:Select` (the command path), other subjects through `holder:Equip` on the authority.
+
 ## Posing
 
 Drivers pose `holder:GetPosedWeapon("right")` and `("left")` (equipped weapons with `PoseArms`). A left hand weapon mirrors the right hand hold (`HoldOffset.x` and the hand offset flip sign); a two handed weapon puts the left hand on its `SupportGrip`; a free hand next to a held weapon takes the neutral pose. The shield does not pose (`PoseArms = false`), blocking raises the left arm instead. A change of either hand blends both arms over the switch time.
