@@ -5,6 +5,8 @@ local grenade_effects = {}
 local FIRE = Color(1, 0.55, 0.15, 1)
 local EMBER = Color(0.55, 0.08, 0.02, 1)
 local FUSE = Color(1, 0.12, 0.06, 1)
+local FLASH_HOT = Color(1, 0.85, 0.55, 1)
+local FLASH_COOL = Color(1, 0.3, 0.08, 1)
 local UP = Vec3(0, 1, 0)
 local TRAIL_COUNT = 10
 local GRAVITY = 9.8
@@ -557,7 +559,38 @@ local function init()
 							Haze = 0.8,
 							Ring = 0.01,
 						}
-						vfx.Flash(p.position + p.normal * 0.6, FIRE, 40 * p.size * p.size, 0.9)
+						vfx.Flash(
+							p.position + p.normal * 0.6,
+							FLASH_HOT,
+							60000 * p.size * p.size,
+							0.45,
+							{
+								Range = p.size * 5,
+								SourceRadius = p.size * 0.04,
+								ColorEnd = FLASH_COOL,
+								Attack = 0.03,
+								Falloff = 4,
+								Flicker = 0.15,
+							}
+						)
+						vfx.Flash(
+							p.position + p.normal * p.size * 0.3,
+							FIRE,
+							14000 * p.size * p.size,
+							4.5,
+							{
+								Range = p.size * 5,
+								SourceRadius = p.size * 0.05,
+								SourceRadiusEnd = p.size * 1.6,
+								ColorEnd = EMBER,
+								Attack = 0.06,
+								Falloff = 0.7,
+								Sustain = 0.25 / 3,
+								SustainTime = 0.12,
+								Flicker = 0.3,
+								Velocity = p.normal * p.size * 0.17,
+							}
+						)
 						sounds.PlayRandom(SOUNDS, p.position, 1, math.randomf(0.9, 1.1))
 						local distance = (render3d.GetCamera():GetPosition() - p.position):GetLength()
 						local closeness = math.clamp(1 - distance / (p.size * 3), 0, 1)
