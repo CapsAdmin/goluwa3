@@ -410,6 +410,45 @@ T.Test("moveset data is validated with a message that names the field", function
 	check({Guard = "nope", Moves = {a = move()}}, "Guard names an unknown pose nope")
 	check({Moves = {a = move{GripHands = "both"}}}, "GripHands must be right or left")
 	check({Moves = {a = move{Dodge = {0}}}}, "Dodge must be a list of 2 numbers")
+	check({Moves = {a = move{Shots = {{0.5, "dolly_zoom"}}}}}, "unknown shot dolly_zoom")
+	check(
+		{Moves = {a = move{Shots = {{0.5, "hero_low"}, {0.2, "battle"}}}}},
+		"needs a time in order"
+	)
+	check({Moves = {a = move{Faces = {{0.5, "smug"}}}}}, "unknown face smug")
+	check(
+		{Moves = {a = move{Faces = {{0.5, victim = "smug"}}}}},
+		".victim names an unknown face smug"
+	)
+	check(
+		{Moves = {a = move{Faces = {{0.5, "fury", target = "pain"}}}}},
+		"unknown field target"
+	)
+	check({Special = "nope", Moves = {a = move()}}, "Special names an unknown move nope")
+end)
+
+T.Test("a move's shots and faces hold from their key until the next one", function()
+	local faces = import("lua/faces.lua")
+	local camera_shots = import("lua/camera_shots.lua")
+	local keys = {{0, "determined"}, {0.4, victim = "shock"}, {0.6, "fury", victim = "pain"}}
+	local attacker, victim = faces.Sample(keys, 0.2)
+	T(attacker)["=="]("determined")
+	T(victim)["=="](nil)
+	attacker, victim = faces.Sample(keys, 0.5)
+	T(attacker)["=="]("determined")
+	T(victim)["=="]("shock")
+	attacker, victim = faces.Sample(keys, 0.9)
+	T(attacker)["=="]("fury")
+	T(victim)["=="]("pain")
+	local shots = {{0.1, "attacker_face"}, {0.5, "hero_low"}, {0.8, "battle"}}
+	local index, name = camera_shots.Sample(shots, 0.05)
+	T(index)["=="](0)
+	T(name)["=="](nil)
+	index, name = camera_shots.Sample(shots, 0.6)
+	T(index)["=="](2)
+	T(name)["=="]("hero_low")
+	index, name = camera_shots.Sample(shots, 0.9)
+	T(name)["=="](camera_shots.Battle)
 end)
 
 T.Test("a move's motion is a track of the same timeline and holds its last key", function()

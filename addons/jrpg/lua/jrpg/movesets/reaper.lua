@@ -10,6 +10,7 @@ return {
 	Plunge = "grave_drop",
 	Vault = "crescent_vault",
 	Evade = "wraith_step",
+	Special = "soul_harvest",
 	Guard = "guard_reaper",
 	Poses = {
 		guard_reaper = {
@@ -35,6 +36,58 @@ return {
 		},
 	},
 	Moves = {
+		soul_harvest = {
+			Duration = 2.8,
+			Stamina = 42,
+			Reach = 6,
+			Approach = 3,
+			Retreat = 0.6,
+			Keys = {
+				{0, motion = {0, 0, 0}},
+				{0.14, "hook_high", ease = "out", hold = 0.1, body = {0, 0, 0, 0, 0.1}},
+				{0.3, "hook_low", ease = "in", hold = 0.06, body = {0, 0, 0, 0, -0.2}},
+				{0.3, ease = "in", motion = {0, 1.6, 0.4}},
+				{0.44, motion = {0, 1.3, 1}},
+				{0.46, "windup_right", ease = "out", body = {0, 0, 0, 0, -0.2}},
+				{0.56, "cut_left", ease = "in", body = {0, 0, 0, 0, -0.25}},
+				{0.62, "windup_left", ease = "out", body = {0, 0, 0, 0, -0.25}},
+				{0.7, "cut_right", ease = "in", body = {0, 0, 0, 0, -0.25}},
+				{0.72, motion = {360, 1.3, 1}},
+				{0.78, "hook_high", ease = "out", body = {0, 0.2, 0, 0, 0.15}},
+				{0.86, "hook_low", ease = "in", hold = 0.1, body = {0, 0, 0, 0, -0.3}},
+			},
+			Shots = {
+				{0, "attacker_face"},
+				{0.26, "battle"},
+			},
+			Faces = {
+				{0, "annoyed"},
+				{0.14, "grin"},
+				{0.3, victim = "shock"},
+				{0.36, victim = "sorry"},
+				{0.46, "fury", victim = "pain"},
+				{0.93, "joker"},
+			},
+			Events = {
+				{
+					At = 0.3,
+					Type = "hit",
+					Cut = {0, -0.5, -0.85},
+					Damage = 0.8,
+					Range = 3.4,
+					Knock = {0, 1, -6},
+				},
+				{At = 0.56, Type = "hit", Cut = {-0.95, -0.2, 0}, Damage = 0.8},
+				{At = 0.7, Type = "hit", Cut = {0.93, 0.3, 0}, Damage = 0.8},
+				{
+					At = 0.86,
+					Type = "hit",
+					Cut = {0, -0.95, 0.3},
+					Damage = 2.8,
+					Knock = {0, -4, 2},
+				},
+			},
+		},
 		crescent_vault = {
 			Duration = 1,
 			Stamina = 18,

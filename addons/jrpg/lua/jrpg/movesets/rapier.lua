@@ -10,6 +10,7 @@ return {
 	Plunge = "starfall",
 	Vault = "harlequin",
 	Evade = "pas_arriere",
+	Special = "thousand_petals",
 	Guard = "guard_rapier",
 	Poses = {
 		guard_rapier = {
@@ -49,6 +50,48 @@ return {
 		},
 	},
 	Moves = {
+		thousand_petals = {
+			Duration = 2.4,
+			Stamina = 38,
+			Reach = 6,
+			Approach = 4,
+			Keys = {
+				{0, motion = {0, 0, 0}},
+				{0.1, "flick_high", ease = "out", hold = 0.08},
+				{0.22, "en_garde", ease = "out"},
+				{0.24, motion = {0, 0, 0}},
+				{0.32, ease = "in", motion = {0, 1, 1}},
+				{0.32, "extended", ease = "in", aim = {0.12, 0.08}},
+				{0.37, "en_garde", ease = "out"},
+				{0.42, "extended", ease = "in", aim = {-0.12, -0.05}},
+				{0.47, "en_garde", ease = "out"},
+				{0.52, "extended", ease = "in", aim = {0.05, 0.12}},
+				{0.57, "en_garde", ease = "out"},
+				{0.62, "extended", ease = "in", aim = {-0.08, 0.1}},
+				{0.68, "en_garde", ease = "out", hold = 0.08, torso = 0.35},
+				{0.8, motion = {0, 1, 1}},
+				{0.84, "extended", ease = "in", hold = 0.1, torso = -0.45},
+				{0.9, ease = "in", motion = {0, 0.9, 1}},
+			},
+			Shots = {
+				{0, "attacker_face"},
+				{0.24, "battle"},
+			},
+			Faces = {
+				{0, "smirk"},
+				{0.32, "determined", victim = "pain"},
+				{0.66, victim = "disbelief"},
+				{0.84, "fury", victim = "pain"},
+				{0.92, "happy"},
+			},
+			Events = {
+				{At = 0.32, Type = "hit", Cut = {0, 0, 1}, Damage = 0.45},
+				{At = 0.42, Type = "hit", Cut = {0, 0, 1}, Damage = 0.45},
+				{At = 0.52, Type = "hit", Cut = {0, 0, 1}, Damage = 0.45},
+				{At = 0.62, Type = "hit", Cut = {0, 0, 1}, Damage = 0.45},
+				{At = 0.84, Type = "hit", Cut = {0, 0, 1}, Damage = 2.5, Knock = {0, 1.5, 6}},
+			},
+		},
 		ascension = {
 			Duration = 1,
 			Stamina = 18,

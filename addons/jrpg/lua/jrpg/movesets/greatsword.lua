@@ -10,6 +10,7 @@ return {
 	Plunge = "cometfall",
 	Vault = "vault_cleave",
 	Evade = "backstep",
+	Special = "cataclysm",
 	Guard = "guard_great",
 	Poses = {
 		guard_great = {
@@ -63,6 +64,49 @@ return {
 		},
 	},
 	Moves = {
+		cataclysm = {
+			Duration = 3,
+			Stamina = 45,
+			Reach = 6,
+			Approach = 4,
+			Retreat = 1,
+			Dodge = {0.58, 0.8},
+			Keys = {
+				{0, motion = {0, 0, 0, 0}},
+				{0.22, "raised", ease = "out", hold = 0.3, body = {0, 0, 0, 0, 0.12}},
+				{0.56, motion = {0, 0, 0, 0}},
+				{0.58, "crouch_low", ease = "out"},
+				{0.6, body = {0, -0.1, 0, 0, 0}},
+				{0.72, "raised", ease = "out", body = {0, 0.4, 0, 0, 0.3}},
+				{0.72, ease = "out", motion = {0, 0.8, 0.6, 2.6}},
+				{0.8, "buried", ease = "in", hold = 0.12, body = {0, 0, -0.1, 0, -0.35}},
+				{0.8, ease = "in", motion = {0, 1.4, 1, 0}},
+			},
+			Shots = {
+				{0, "hero_low"},
+				{0.56, "battle"},
+			},
+			Faces = {
+				{0, "determined"},
+				{0.3, "fury"},
+				{0.48, victim = "disbelief"},
+				{0.6, "determined", victim = "shock"},
+				{0.72, "fury"},
+				{0.8, victim = "pain"},
+				{0.92, "indifferent"},
+			},
+			Events = {
+				{
+					At = 0.8,
+					Type = "hit",
+					Cut = {0, -1, 0.2},
+					Range = 3.2,
+					Damage = 4,
+					Swing = {0.72, 0.84},
+					Knock = {0, 7, 3},
+				},
+			},
+		},
 		backstep = {
 			Duration = 0.7,
 			Stamina = 16,

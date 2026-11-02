@@ -105,6 +105,8 @@ function META:PickMove(kind, cmd, chained)
 		return kind == "evade" and set.Evade or set.Vault
 	end
 
+	if kind == "special" then return set.Special end
+
 	local crouching = usercmd.HasButton(cmd, BUTTON.CROUCH)
 
 	if not holder.character_movement:GetGrounded() then
@@ -414,6 +416,16 @@ function META:Step(dt, cmd, authority)
 
 			self:Request(kind, cmd, authority)
 		end
+	end
+
+	if
+		usercmd.WasPressed(cmd, BUTTON.RELOAD) and
+		usercmd.HasButton(cmd, BUTTON.ACTIVE) and
+		movesets.Get(self.Moveset).Special
+	then
+		if authority and self.guarding then self:SetGuarding(false) end
+
+		self:Request("special", cmd, authority)
 	end
 
 	if authority then self:UpdateGuard(cmd) end

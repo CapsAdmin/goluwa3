@@ -35,6 +35,7 @@ local SET_KEYS = {
 	Plunge = true,
 	Vault = true,
 	Evade = true,
+	Special = true,
 	Guard = true,
 	Poses = true,
 	Moves = true,
@@ -49,6 +50,7 @@ local SLOTS = {
 	"Plunge",
 	"Vault",
 	"Evade",
+	"Special",
 }
 movesets.Slots = SLOTS
 local MOVE_KEYS = {
@@ -437,6 +439,7 @@ do
 		"Plunge",
 		"Vault",
 		"Evade",
+		"Special",
 		"Guard",
 		"ComboWindow",
 		"Poses",
