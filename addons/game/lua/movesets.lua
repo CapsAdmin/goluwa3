@@ -2,6 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local keyframes = import("lua/keyframes.lua")
 local animations = import("lua/animations.lua")
 local actors = import("lua/actors.lua")
+local faces = import("lua/faces.lua")
 local movesets = {}
 movesets.Registered = {}
 movesets.ByAction = {}
@@ -74,6 +75,7 @@ local MOVE_KEYS = {
 	Dodge = true,
 	Keys = true,
 	Events = true,
+	Faces = true,
 }
 local GRIP_HANDS = {right = true, left = true}
 local GUARD_ENTER = 0.08
@@ -221,6 +223,33 @@ local function validate_move(move, poses, path)
 	end
 
 	local last = 0
+
+	for i, face in ipairs(move.Faces or {}) do
+		local at = path .. ".Faces[" .. i .. "]"
+		assert(
+			type(face[1]) == "number" and face[1] >= last and face[1] <= 1,
+			at .. " needs a time in order between 0 and 1"
+		)
+		assert(
+			face[2] == nil or faces.Presets[face[2]],
+			at .. " names an unknown face " .. tostring(face[2])
+		)
+		assert(
+			face.victim == nil or faces.Presets[face.victim],
+			at .. ".victim names an unknown face " .. tostring(face.victim)
+		)
+
+		for key in pairs(face) do
+			assert(
+				key == 1 or key == 2 or key == "victim",
+				at .. " has an unknown field " .. tostring(key)
+			)
+		end
+
+		last = face[1]
+	end
+
+	last = 0
 
 	for i, event in ipairs(move.Events or {}) do
 		local at = path .. ".Events[" .. i .. "]"
@@ -418,6 +447,7 @@ do
 		"Relative",
 		"Dodge",
 		"Keys",
+		"Faces",
 		"Events",
 		"At",
 		"Type",
@@ -460,6 +490,14 @@ function movesets.GetActive(pose)
 	local move = name and movesets.ByAction[name]
 
 	if move then return move, phase end
+end
+
+function movesets.GetVictim(pose)
+	local latch = pose.grab_latch
+
+	if latch and latch.Victim:IsValid() then return latch.Victim end
+
+	if pose.Focus:IsValid() then return pose.Focus end
 end
 
 function movesets.IsDodging(pose)
