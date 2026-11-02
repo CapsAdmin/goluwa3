@@ -283,7 +283,7 @@ local FLAMMABILITY = {
 local ACOUSTIC = {
 	concrete = {
 		absorption = {0.02, 0.03, 0.04},
-		scattering = {0.05, 0.10, 0.15},
+		scattering = {0.30, 0.40, 0.50},
 		density = 2300,
 		surface_mass = 230,
 		rain = {0.6, 1.0, 1.2},
@@ -291,7 +291,7 @@ local ACOUSTIC = {
 	},
 	brick = {
 		absorption = {0.03, 0.04, 0.07},
-		scattering = {0.05, 0.15, 0.30},
+		scattering = {0.30, 0.40, 0.50},
 		density = 1800,
 		surface_mass = 180,
 		rain = {0.6, 1.0, 1.2},
@@ -299,7 +299,7 @@ local ACOUSTIC = {
 	},
 	plaster = {
 		absorption = {0.10, 0.05, 0.08},
-		scattering = {0.05, 0.10, 0.15},
+		scattering = {0.30, 0.40, 0.50},
 		density = 150,
 		surface_mass = 10,
 		rain = {0.5, 0.8, 0.9},
