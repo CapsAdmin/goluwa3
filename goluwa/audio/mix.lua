@@ -14,6 +14,8 @@ local CUE_TAIL_BLOCKS = 8
 local MIN_DELAY = 2
 local DECLICK = 0.003
 local SLOPE_RESPONSE = 0.5
+-- the read speed is the reported delay rate, and the delay error left over is corrected over this long: noise in the targets would otherwise land on the pitch within a block
+local DELAY_CORRECTION = 0.1
 local MIN_SLOPE = -3
 local MAX_SLOPE = 0.75
 local voice_t = ffi.typeof(
@@ -274,12 +276,12 @@ local function emit(mixer, slot, voice, frames, sample_rate)
 	voice.written = written + frames
 end
 
-local function track_delay(current, slope, target, frames, initialized, snap)
+local function track_delay(current, slope, target, rate, frames, initialized, snap, correction)
 	if not initialized or math.abs(target - current) > snap then
 		return target, 0
 	end
 
-	local wanted = (target - current) / frames
+	local wanted = rate + (target - current - rate * frames) / math.max(correction, frames)
 	slope = slope + (wanted - slope) * SLOPE_RESPONSE
 	return current, math.clamp(slope, MIN_SLOPE, MAX_SLOPE)
 end
@@ -447,8 +449,25 @@ local function render_taps(mixer, slot, voice, base, frames, elapsed)
 			end
 
 			any = true
-			local slope_left = (target_delay_left - delay_left) / frames
-			local slope_right = (target_delay_right - delay_right) / frames
+			local correction = math.max(DELAY_CORRECTION * sample_rate, frames)
+			local rate_left, rate_right = slot.tap_rate[t * 2], slot.tap_rate[t * 2 + 1]
+			local slope_left = math.clamp(
+				rate_left + (target_delay_left - delay_left - rate_left * frames) / correction,
+				MIN_SLOPE,
+				MAX_SLOPE
+			)
+			local slope_right = math.clamp(
+				rate_right + (
+						target_delay_right - delay_right - rate_right * frames
+					) / correction,
+				MIN_SLOPE,
+				MAX_SLOPE
+			)
+
+			if target_delay_left == delay_left and target_delay_right == delay_right then
+				slope_left, slope_right = 0, 0
+			end
+
 			local step_left = (target_left - gain_left) / frames
 			local step_right = (target_right - gain_right) / frames
 
@@ -480,8 +499,8 @@ local function render_taps(mixer, slot, voice, base, frames, elapsed)
 				voice.tap_group[t * CUE_GROUPS + g] = to
 			end
 
-			voice.tap_delay[t * 2] = target_delay_left
-			voice.tap_delay[t * 2 + 1] = target_delay_right
+			voice.tap_delay[t * 2] = delay_left + slope_left * frames
+			voice.tap_delay[t * 2 + 1] = delay_right + slope_right * frames
 			voice.tap_gain[t * 2] = target_left
 			voice.tap_gain[t * 2 + 1] = target_right
 		end
@@ -573,14 +592,17 @@ local function propagate(mixer, slot, voice, out, frames, block_end_time)
 	local max_delay = 0
 
 	for ear = 0, 1 do
-		local target = clamp_delay((slot.ear_delay[ear] + slot.ear_rate[ear] * elapsed) * sample_rate)
+		local rate, change = slot.ear_rate[ear], slot.ear_rate_change[ear]
+		local target = clamp_delay((slot.ear_delay[ear] + rate * elapsed + 0.5 * change * elapsed * elapsed) * sample_rate)
 		local delay, slope = track_delay(
 			voice.ear_delay[ear],
 			voice.ear_slope[ear],
 			target,
+			rate + change * (elapsed - 0.5 * frames / sample_rate),
 			frames,
 			voice.initialized,
-			snap
+			snap,
+			DELAY_CORRECTION * sample_rate
 		)
 
 		if not voice.initialized then

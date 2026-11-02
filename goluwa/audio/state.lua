@@ -51,6 +51,7 @@ local slot_t = ffi.typeof(
 		double param_time;
 		float ear_delay[2];
 		float ear_rate[2];
+		float ear_rate_change[2];
 		float ear_gain[6];
 		float ear_filter_frequency[6];
 		float ear_filter_gain[6];

@@ -12,6 +12,7 @@ spatial.PINNA_OVERHEAD = {frequency = 8000, gain = 10, q = 1.2}
 spatial.PINNA_FRONT = {frequency = 4000, gain = 5, q = 0.8}
 -- positions arrive in physics steps and frame jitter; the ear hears every step of the delay as pitch, so paths follow a tracked path instead
 spatial.MOTION_TIME = 0.15
+local RATE_STEP = 0.01
 local TELEPORT_SPEED = 1000
 
 function spatial.ComputeDistanceAttenuation(model, distance, reference_distance, max_distance, rolloff, ids)
@@ -272,6 +273,7 @@ function spatial.ComputePaths(audio, sound, out)
 		{
 			ear_delay = {},
 			ear_rate = {},
+			ear_rate_change = {},
 			ear_gain = {},
 			ear_filter_frequency = {},
 			ear_filter_gain = {},
@@ -326,16 +328,31 @@ function spatial.ComputePaths(audio, sound, out)
 		if doppler <= 0 then
 			out.ear_delay[ear] = 0
 			out.ear_rate[ear] = 0
+			out.ear_rate_change[ear] = 0
 		else
 			local delay = spatial.RetardedDelay(ear_position, source, source_velocity, speed)
-			out.ear_delay[ear] = delay
-			out.ear_rate[ear] = spatial.DelayRate(
+			local rate = spatial.DelayRate(
 				source - source_velocity * delay,
 				ear_position,
 				source_velocity,
 				listener_velocity,
 				speed
 			)
+			out.ear_delay[ear] = delay
+			out.ear_rate[ear] = rate
+			-- how the rate itself moves (a close pass sweeps it fast), from the same paths a moment later along the tracked velocities
+			local later_ear = ear_position + (listener_velocity + medium) * RATE_STEP
+			local later_source = source + (source_velocity + medium) * RATE_STEP
+			local later_delay = spatial.RetardedDelay(later_ear, later_source, source_velocity, speed)
+			out.ear_rate_change[ear] = (
+					spatial.DelayRate(
+						later_source - source_velocity * later_delay,
+						later_ear,
+						source_velocity,
+						listener_velocity,
+						speed
+					) - rate
+				) / RATE_STEP
 		end
 
 		for band = 1, 3 do
@@ -375,6 +392,7 @@ function spatial.WriteSlot(slot, paths, sound, time)
 	for ear = 0, 1 do
 		slot.ear_delay[ear] = paths.ear_delay[ear + 1]
 		slot.ear_rate[ear] = paths.ear_rate[ear + 1]
+		slot.ear_rate_change[ear] = paths.ear_rate_change[ear + 1]
 	end
 
 	for ear = 0, 1 do
@@ -431,6 +449,7 @@ function spatial.Attach(audio)
 	local paths = {
 		ear_delay = {},
 		ear_rate = {},
+		ear_rate_change = {},
 		ear_gain = {},
 		ear_filter_frequency = {},
 		ear_filter_gain = {},
