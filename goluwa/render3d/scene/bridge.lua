@@ -208,6 +208,16 @@ do
 	end
 end
 
+local function is_character_gear(entity)
+	while entity do
+		if entity.character_movement or entity.weapon_holder then return true end
+
+		entity = entity.Parent
+	end
+
+	return false
+end
+
 local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	local flags = 0
 	local module = import("goluwa/entities/components/visual.lua").Library
@@ -299,7 +309,11 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 			if r + g + b > 0 and (entry.lod_level or 0) == 0 then emissive = true end
 
-			if hidden or not visual.InSceneBVH then mask = 0 end
+			if hidden or not visual.InSceneBVH then
+				mask = 0
+			elseif is_character_gear(visual.Owner) then
+				mask = bit.bor(mask, instances.MASK_SELF)
+			end
 
 			if not visual.CastShadows or material:GetRayShadowOpacity() < 0.5 then
 				flags = flags + instances.FLAG_NO_SHADOW

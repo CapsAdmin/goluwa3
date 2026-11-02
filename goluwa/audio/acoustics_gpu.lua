@@ -3,6 +3,7 @@ local event = import("goluwa/event.lua")
 local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
+local instances = import("goluwa/render3d/scene/instances.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
@@ -140,7 +141,7 @@ local function build_pipeline(slots)
 			layout(set = 0, binding = %d) readonly buffer AcousticMaterials { vec4 acoustic_materials[]; };
 		]]
 			):format(BINDING_QUERIES, BINDING_OUTPUT, BINDING_MATERIALS),
-		shader = hit.GetTraceGLSL("acoustic_scene") .. (
+		shader = hit.GetTraceGLSL("acoustic_scene", instances.MASK_SELF) .. (
 				[[
 			#define ACC %d
 			#define STATS_FLOATS %d

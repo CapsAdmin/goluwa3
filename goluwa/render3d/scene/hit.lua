@@ -202,7 +202,35 @@ function hit.GetGLSL(binding)
 		):format(binding, binding + 1, binding + 2)
 end
 
-function hit.GetTraceGLSL(tlas_name)
+function hit.GetTraceGLSL(tlas_name, skip_mask)
+	local solid = string.format("0x%02X", instances.MASK_SOLID)
+	local skip = skip_mask and
+		string.format(
+			[[
+				if ((scene_instances[hit.instance].mask_lod & 0x%02Xu) != 0u) {
+					start = rayQueryGetIntersectionTEXT(query, true) + 0.002;
+					continue;
+				}
+			]],
+			skip_mask
+		) or
+		""
+	local skip_occluded = skip_mask and
+		string.format(
+			[[
+				uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+
+				if ((scene_instances[instance].mask_lod & 0x%02Xu) != 0u) {
+					start = rayQueryGetIntersectionTEXT(query, true) + 0.002;
+					continue;
+				}
+			]],
+			skip_mask
+		) or
+		""
+	local occluded_flags = skip_mask and
+		"gl_RayFlagsOpaqueEXT" or
+		"gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT"
 	return [[
 		struct scene_trace_hit {
 			vec3 position;
@@ -215,32 +243,48 @@ function hit.GetTraceGLSL(tlas_name)
 		};
 
 		bool scene_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_trace_hit hit) {
-			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ]] .. tlas_name .. [[, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", instances.MASK_SOLID) .. [[, origin, t_min, dir, t_max);
+			float start = t_min;
 
-			while (rayQueryProceedEXT(query)) {}
+			for (int attempt = 0; attempt < 8; attempt++) {
+				rayQueryEXT query;
+				rayQueryInitializeEXT(query, ]] .. tlas_name .. [[, gl_RayFlagsOpaqueEXT, ]] .. solid .. [[, origin, start, dir, t_max);
 
-			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return false;
+				while (rayQueryProceedEXT(query)) {}
 
-			hit.instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
-			hit.primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
-			scene_triangle tri = scene_hit_tri(hit.instance, hit.primitive);
-			hit.distance = rayQueryGetIntersectionTEXT(query, true);
-			hit.position = origin + dir * hit.distance;
-			hit.emissive = tri.emissive;
-			hit.normal = dot(tri.normal, dir) > 0.0 ? -tri.normal : tri.normal;
-			// render meshes are wound clockwise seen from outside, so cross(e1, e2) points inward
-			hit.front_face = dot(tri.normal, dir) > 0.0;
-			return true;
+				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return false;
+
+				hit.instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+				]] .. skip .. [[
+				hit.primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, true));
+				scene_triangle tri = scene_hit_tri(hit.instance, hit.primitive);
+				hit.distance = rayQueryGetIntersectionTEXT(query, true);
+				hit.position = origin + dir * hit.distance;
+				hit.emissive = tri.emissive;
+				hit.normal = dot(tri.normal, dir) > 0.0 ? -tri.normal : tri.normal;
+				// render meshes are wound clockwise seen from outside, so cross(e1, e2) points inward
+				hit.front_face = dot(tri.normal, dir) > 0.0;
+				return true;
+			}
+
+			return false;
 		}
 
 		bool scene_occluded(vec3 origin, vec3 dir, float t_min, float t_max) {
-			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ]] .. tlas_name .. [[, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", instances.MASK_SOLID) .. [[, origin, t_min, dir, t_max);
+			float start = t_min;
 
-			while (rayQueryProceedEXT(query)) {}
+			for (int attempt = 0; attempt < 8; attempt++) {
+				rayQueryEXT query;
+				rayQueryInitializeEXT(query, ]] .. tlas_name .. [[, ]] .. occluded_flags .. [[, ]] .. solid .. [[, origin, start, dir, t_max);
 
-			return rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+				while (rayQueryProceedEXT(query)) {}
+
+				if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return false;
+
+				]] .. skip_occluded .. [[
+				return true;
+			}
+
+			return false;
 		}
 	]]
 end

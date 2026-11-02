@@ -28,6 +28,7 @@ local InstanceData = ffi.typeof([[struct {
 instances.MASK_SOLID = 0x01
 instances.MASK_SEE_THROUGH = 0x02
 instances.MASK_DECAL = 0x04
+instances.MASK_SELF = 0x08
 instances.FLAG_DOUBLE_SIDED = 1
 instances.FLAG_ALPHA_TEST = 2
 instances.FLAG_EMISSIVE = 4
