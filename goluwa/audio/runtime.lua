@@ -1,5 +1,6 @@
 local event = import("goluwa/event.lua")
 local clock = import("goluwa/audio/clock.lua")
+local spatial_air = import("goluwa/audio/spatial.lua")
 local module = {}
 
 function module.Attach(audio)
@@ -106,6 +107,16 @@ function module.Attach(audio)
 
 	function audio.GetSpeedOfSound()
 		return audio.speed_of_sound
+	end
+
+	function audio.SetAir(celsius, relative_humidity, pressure)
+		audio.speed_of_sound = 331.3 * math.sqrt(1 + celsius / 273.15)
+		audio.air_absorption_db = spatial_air.ComputeAirAbsorption(celsius, relative_humidity, pressure)
+		spatial_air.AIR_SUBBANDS = spatial_air.ComputeAirSubbands(celsius, relative_humidity, pressure)
+
+		for band = 1, 3 do
+			spatial_air.AIR_ABSORPTION_DB[band] = audio.air_absorption_db[band]
+		end
 	end
 
 	function audio.SetListenerGain(gain)

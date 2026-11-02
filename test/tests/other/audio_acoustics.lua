@@ -828,3 +828,23 @@ T.Test("audio fade in fraction spreads the ramp over the whole sound", function(
 		T(out[2 * (frames - 300)])[">"](0.7)
 	end)
 end)
+
+T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the temperature", function()
+	T(spatial.AirAbsorptionAt(1000, 20, 0.5, 101325) * 1000)["~"](4.66, 0.15)
+	T(spatial.AirAbsorptionAt(4000, 20, 0.5, 101325) * 1000)["~"](29.7, 0.9)
+	T(spatial.AirAbsorptionAt(8000, 20, 0.5, 101325) * 1000)["~"](105, 3)
+	local speed, absorption, subbands = audio.speed_of_sound, {unpack(spatial.AIR_ABSORPTION_DB)}, spatial.AIR_SUBBANDS
+	audio.SetAir(0, 0.3, 101325)
+	T(audio.speed_of_sound)["~"](331.3, 1e-6)
+	T(spatial.AIR_ABSORPTION_DB[3])[">"](absorption[2])
+	audio.SetSpeedOfSound(speed)
+
+	for band = 1, 3 do
+		spatial.AIR_ABSORPTION_DB[band] = absorption[band]
+	end
+
+	spatial.AIR_SUBBANDS = subbands
+	local far = -20 * math.log10(spatial.AirAbsorption(3, 1000))
+	T(far)["<"](spatial.AIR_ABSORPTION_DB[3] * 1000 * 0.5)
+	T(far)[">"](spatial.AIR_SUBBANDS[3][1] * 1000)
+end)

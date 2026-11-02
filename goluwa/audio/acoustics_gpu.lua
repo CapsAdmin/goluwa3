@@ -14,7 +14,7 @@ local MAX_RAYS = 4096
 local MAX_SAMPLES = 512
 local MAX_MATERIALS = 8192
 local GROUP_SIZE = 64
-local ACC = 26 + 9 * MAX_SOURCES
+local ACC = 29 + 9 * MAX_SOURCES
 local SAMPLE_FLOATS = 11
 local BINDING_UNIFORM = 0
 local BINDING_QUERIES = 1
@@ -258,6 +258,9 @@ local function build_pipeline(slots)
 							acc[23] += w.x * distance;
 							acc[24] += w.y * distance;
 							acc[25] += w.z * distance;
+							acc[26] += w.x * path_length;
+							acc[27] += w.y * path_length;
+							acc[28] += w.z * path_length;
 
 							if (bounce == acoustic.counts.y / 2) {
 								acc[17] += w.x;
@@ -289,7 +292,7 @@ local function build_pipeline(slots)
 								float total = path_length + d;
 								float t = total / speed - source.w;
 								vec3 e = (4.0 * cos_s / max(d2, 0.01)) * w * reflect * exp(-air * total);
-								int base = 26 + s * 9;
+								int base = 29 + s * 9;
 
 								if (settled) {
 									acc[base] += e.x;
@@ -446,11 +449,12 @@ function META:ReadResult(job, slot)
 			stats.settled_first[b] = stats.settled_first[b] + out[at + 16 + b]
 			stats.settled_final[b] = stats.settled_final[b] + out[at + 19 + b]
 			stats.settled_length[b] = stats.settled_length[b] + out[at + 22 + b]
+			stats.settled_path[b] = stats.settled_path[b] + out[at + 25 + b]
 		end
 
 		for s = 1, #job.sources do
 			local sums = result.sources[s]
-			local base = at + 26 + (s - 1) * 9
+			local base = at + 29 + (s - 1) * 9
 
 			for b = 1, 3 do
 				sums.settled[b] = sums.settled[b] + out[base + b - 1]

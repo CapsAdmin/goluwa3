@@ -3,7 +3,6 @@ local dsp = import("goluwa/audio/dsp.lua")
 local audio_state = import("goluwa/audio/state.lua")
 local CUE_GROUPS = audio_state.CUE_GROUPS
 local spatial = {}
-spatial.AIR_ABSORPTION_DB = {0.0011, 0.006, 0.05}
 spatial.MIN_RATE = -3
 -- a supersonic source has two arrivals at once (or none) and a boom between them; one delay line follows it only below the speed of sound
 spatial.MAX_SOURCE_MACH = 0.95
@@ -66,8 +65,92 @@ function spatial.ComputeConeGain(direction, to_listener, inner_angle, outer_angl
 	return 1 + (outer_gain - 1) * (angle - inner_half) / (outer_half - inner_half)
 end
 
+do
+	local T0 = 293.15
+	local T01 = 273.16
+	local REFERENCE_PRESSURE = 101325
+	-- band coefficients are fitted at this distance: the energy average over a band does not fall exponentially
+	local FIT_DISTANCE = 30
+	local SUBBANDS = 6
+	local EDGES = {{50, 500}, {500, 4000}, {4000, 16000}}
+
+	function spatial.AirAbsorptionAt(frequency, celsius, relative_humidity, pressure)
+		local t = celsius + 273.15
+		local pa = pressure / REFERENCE_PRESSURE
+		local saturation = 10 ^ (-6.8346 * (T01 / t) ^ 1.261 + 4.6151)
+		local h = relative_humidity * 100 * saturation / pa
+		local fr_o = pa * (24 + 4.04e4 * h * (0.02 + h) / (0.391 + h))
+		local fr_n = pa * (
+				t / T0
+			) ^ -0.5 * (
+				9 + 280 * h * math.exp(-4.170 * ((t / T0) ^ (-1 / 3) - 1))
+			)
+		local f2 = frequency * frequency
+		return 8.686 * f2 * (
+				1.84e-11 / pa * (
+					t / T0
+				) ^ 0.5 + (
+					t / T0
+				) ^ -2.5 * (
+					0.01275 * math.exp(-2239.1 / t) / (
+						fr_o + f2 / fr_o
+					) + 0.1068 * math.exp(-3352 / t) / (
+						fr_n + f2 / fr_n
+					)
+				)
+			)
+	end
+
+	-- per band the absorption of its sub frequencies, so a band's loss can be summed at any distance
+	function spatial.ComputeAirSubbands(celsius, relative_humidity, pressure)
+		local out = {}
+
+		for band = 1, 3 do
+			local low, high = EDGES[band][1], EDGES[band][2]
+			out[band] = {}
+
+			for k = 1, SUBBANDS do
+				out[band][k] = spatial.AirAbsorptionAt(low * (high / low) ^ ((k - 0.5) / SUBBANDS), celsius, relative_humidity, pressure)
+			end
+		end
+
+		return out
+	end
+
+	function spatial.ComputeAirAbsorption(celsius, relative_humidity, pressure)
+		local out = {}
+
+		for band = 1, 3 do
+			local low, high = EDGES[band][1], EDGES[band][2]
+			local energy = 0
+
+			for k = 1, SUBBANDS do
+				local frequency = low * (high / low) ^ ((k - 0.5) / SUBBANDS)
+				energy = energy + 10 ^ (
+						-spatial.AirAbsorptionAt(frequency, celsius, relative_humidity, pressure) * FIT_DISTANCE / 10
+					) / SUBBANDS
+			end
+
+			out[band] = -10 * math.log10(energy) / FIT_DISTANCE
+		end
+
+		return out
+	end
+end
+
+spatial.AIR_ABSORPTION_DB = spatial.ComputeAirAbsorption(20, 0.5, 101325)
+spatial.AIR_SUBBANDS = spatial.ComputeAirSubbands(20, 0.5, 101325)
+
+-- the band's energy is the mean of its sub frequencies, each decaying on its own: far away only the low end of a band is left
 function spatial.AirAbsorption(band, distance)
-	return 10 ^ (-spatial.AIR_ABSORPTION_DB[band] * distance / 20)
+	local subbands = spatial.AIR_SUBBANDS[band]
+	local energy = 0
+
+	for k = 1, #subbands do
+		energy = energy + 10 ^ (-subbands[k] * distance / 10)
+	end
+
+	return math.sqrt(energy / #subbands)
 end
 
 function spatial.HeadShadow(band, side, front)

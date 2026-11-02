@@ -51,6 +51,7 @@ function acoustics.NewStats()
 		settled_first = {0, 0, 0},
 		settled_final = {0, 0, 0},
 		settled_length = {0, 0, 0},
+		settled_path = {0, 0, 0},
 	}
 end
 
@@ -79,6 +80,7 @@ function acoustics.DecayStats(stats, factor)
 		stats.settled_first[b] = stats.settled_first[b] * factor
 		stats.settled_final[b] = stats.settled_final[b] * factor
 		stats.settled_length[b] = stats.settled_length[b] * factor
+		stats.settled_path[b] = stats.settled_path[b] * factor
 	end
 end
 
@@ -97,6 +99,7 @@ function acoustics.AddStats(into, from)
 		into.settled_first[b] = into.settled_first[b] + from.settled_first[b]
 		into.settled_final[b] = into.settled_final[b] + from.settled_final[b]
 		into.settled_length[b] = into.settled_length[b] + from.settled_length[b]
+		into.settled_path[b] = into.settled_path[b] + from.settled_path[b]
 	end
 end
 
@@ -177,6 +180,16 @@ function acoustics.ComputeProfile(stats, speed)
 	return profile
 end
 
+-- the per bounce yield is measured at the settled bounces, the completion starts at the last one: air takes the path in between
+function acoustics.TailAirLoss(stats, band)
+	local settled, last = stats.settled_throughput[band], stats.last_throughput[band]
+
+	if settled <= 0 or last <= 0 then return 1 end
+
+	local extra = stats.last_throughput_length[band] / last - stats.settled_path[band] / settled
+	return math.exp(-acoustics.AirEnergyPerMeter(band) * math.max(extra, 0))
+end
+
 function acoustics.ComputeSourceReverb(sums, stats, profile, direct_time, speed)
 	local result = {energy = {}, t60 = {}}
 
@@ -184,7 +197,12 @@ function acoustics.ComputeSourceReverb(sums, stats, profile, direct_time, speed)
 
 	for b = 1, 3 do
 		local throughput = stats.settled_throughput[b] / stats.rays
-		local per_bounce = throughput > 0 and (sums.settled[b] / sums.rays) / throughput or 0
+		local per_bounce = throughput > 0 and
+			(
+				sums.settled[b] / sums.rays
+			) / throughput * acoustics.TailAirLoss(stats, b)
+			or
+			0
 		local survival = math.min(profile.tail_survival[b], 0.995)
 		local geometric = survival / (1 - survival)
 		local last = stats.last_throughput[b] / stats.rays
@@ -360,6 +378,7 @@ function acoustics.PathTrace(tracer, job, result)
 				for b = 1, 3 do
 					stats.settled_throughput[b] = stats.settled_throughput[b] + w[b]
 					stats.settled_length[b] = stats.settled_length[b] + w[b] * distance
+					stats.settled_path[b] = stats.settled_path[b] + w[b] * length
 				end
 
 				if bounce == math.floor(job.bounces / 2) then
