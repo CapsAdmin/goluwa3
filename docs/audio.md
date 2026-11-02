@@ -81,6 +81,10 @@ A tracer (`acoustics_gpu.lua`: ray queries on the scene TLAS in a PreRenderPass 
 
 - `event.Call("ClientVoiceOrigin", client)` returns where a client speaks from and where it faces: the world `mouth` socket of its player (`addons/game/lua/autorun/audio/voice.lua`), or nothing when it has no character. Chatsounds play spatially from it, following it every frame, with a voice cone (full level within 45 degrees of the face, falling to -6 dB behind, `chatsounds.voice_inner_cone`, `voice_back_gain`); a speaker without an origin (console, no player yet) plays them non-spatial. The addon only fires the event, so it does not depend on `game`.
 
+## Examples
+
+`addons/examples/lua/examples/render3d/audio_rooms.lua` (17 rooms against Eyring) and `audio_showcase.lua` (`audio_showcase <f1|canyon|flyover|wall|shelter|city>`: a formula 1 car on a 1.9 km track with a synthesized V6, a canyon with near and far cliff echoes, a jet flyover, diffraction around a wall, a shelter in synthetic rain (`ambience.SetSource` swaps a kind's sound), an ambulance circling city blocks). Keep markers out of the traced scene (`visual:SetInSceneBVH(false)`): a marker at a source in line with a reflector hides that reflector's echo.
+
 ## Debugging
 
 `perf audio` (or `h`, AUDIO tab, `addons/debug/lua/autorun/render_3d/audio_acoustics.lua`) shows what the system thinks the listener is in: tracer and cost, the listener room (T60 per band, volume, mean free path, escaping rays, predelay, openings, how directed the other space reverb is), the gathered ambience, every spatial sound (delay, doppler, direct level and occlusion, solid crossed and transmission loss, reverb send and which bus, reflections), a top down map of first hits, reflecting planes, reflection paths and direct paths, and the decay curves. `audio_debug` draws the same in the world; `audio_stats` prints the rows.
