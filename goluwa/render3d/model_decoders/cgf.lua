@@ -502,10 +502,6 @@ do
 			if not points[1] then return end
 
 			if polygon then
-				for i = 1, #polygon_indices - 2, 3 do
-					polygon_indices[i + 1], polygon_indices[i + 2] = polygon_indices[i + 2], polygon_indices[i + 1]
-				end
-
 				polygon.indices = polygon_indices
 				polygon:BuildBoundingBox()
 				out[#out + 1] = {Polygon3D = polygon}
@@ -772,6 +768,33 @@ function cgf.ResolveMaterialPath(model_path, material_name)
 	return vfs.FindMixedCasePath(material_path) or material_path
 end
 
+function cgf.HasPhysics(path)
+	local parsed = cgf.Open(path)
+	local found = false
+
+	for _, chunk in ipairs(parsed.chunks) do
+		if chunk.type == cgf.CHUNK_NODE then
+			local node = cgf.ReadNodeChunk(parsed.file, chunk)
+			local mesh_chunk = node.object_id > 0 and parsed.chunks_by_id[node.object_id]
+
+			if
+				mesh_chunk and
+				mesh_chunk.type == cgf.CHUNK_MESH and
+				not node.name:starts_with("$LOD")
+				and
+				cgf.ReadMeshChunk(parsed.file, mesh_chunk).physics_data_chunk_ids[1] > 0
+			then
+				found = true
+
+				break
+			end
+		end
+	end
+
+	parsed.file:Close()
+	return found
+end
+
 function cgf.GetMaterialPaths(path)
 	local parsed = cgf.Open(path)
 	local model_path = parsed.file.path_used or path
@@ -882,6 +905,7 @@ function cgf.PackModel(input)
 			meta.root_chains[entry.lod_level] = vegetation_pivots.FindRoot(entries, entry.lod_level) or false
 		end
 	end
+
 	meta.entries = {}
 
 	for _, entry in ipairs(entries) do

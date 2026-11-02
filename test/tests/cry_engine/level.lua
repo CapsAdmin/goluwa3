@@ -37,7 +37,7 @@ local function build_engine_matrix(transform)
 	return matrix
 end
 
-local empty_libraries = {prefabs = {}, archetypes = {}}
+local empty_libraries = {prefabs = {}, archetypes = {}, archetype_nodes = {}}
 
 local function get_basis(transform)
 	local basis = Matrix44():SetRotation(transform.rotation)
@@ -149,9 +149,7 @@ T.Test("Cry level parser reads visual objects from editor level xml", function()
 end)
 
 T.Test("Cry quaternions are w first and cry yaw maps to engine yaw", function()
-	local transform = crylevel.ConvertCryWorldMatrixToEngineTransform(
-		crylevel.BuildCryLocalMatrix{Pos = "1967,2682,203", Rotate = "0.70710659,0,0,0.70710695"}
-	)
+	local transform = crylevel.ConvertCryWorldMatrixToEngineTransform(crylevel.BuildCryLocalMatrix{Pos = "1967,2682,203", Rotate = "0.70710659,0,0,0.70710695"})
 	local right, up, forward = get_basis(transform)
 	T((transform.position - Vec3(1967, 203, -2682)):GetLength())["~"](0, 0.001)
 	T((right - Vec3(0, 0, -1)):GetLength())["~"](0, 0.001)
@@ -188,6 +186,17 @@ T.Test("Cry prefabs, archetypes, entity models, parents and hidden groups", func
 			).children[1],
 		},
 		archetypes = {["{A}"] = {object_Model = "objects/archetype.cgf"}},
+		archetype_nodes = {
+			["{A}"] = assert(
+				xml.Decode([[
+<EntityPrototype Id="{A}" Class="RigidBodyEx">
+	<Properties object_Model="objects/archetype.cgf">
+		<Physics bPhysicalize="1" bRigidBody="1" Mass="5" />
+	</Properties>
+</EntityPrototype>
+			]])
+			).children[1],
+		},
 	}
 	local entries = crylevel.ExtractVisualObjects(
 		assert(
@@ -221,6 +230,8 @@ T.Test("Cry prefabs, archetypes, entity models, parents and hidden groups", func
 	T(#entries)["=="](5)
 	T(by_name.hidden_child)["=="](nil)
 	T(by_name.archetype.model_path)["=="]("objects/archetype.cgf")
+	T(by_name.archetype.physics.motion)["=="]("dynamic")
+	T(by_name.archetype.physics.mass)["=="](5)
 	T(by_name.entity.model_path)["=="]("objects/entity.cgf")
 	local child = crylevel.ConvertCryWorldMatrixToEngineTransform(by_name.child.world_matrix)
 	T((child.position - Vec3(99, 0, 0)):GetLength())["~"](0, 0.001)
@@ -251,7 +262,7 @@ T.Test("Cry level entries remember their layer and group chain", function()
 </Level>
 			]])
 		),
-		{prefabs = {}, archetypes = {}}
+		{prefabs = {}, archetypes = {}, archetype_nodes = {}}
 	)
 	T(#entries)["=="](1)
 	T(entries[1].layer)["=="]("Main")

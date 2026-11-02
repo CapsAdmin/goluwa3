@@ -21,6 +21,12 @@ Crysis content is loaded by `goluwa/cry_engine/` (`level.lua`, `scene.lua`, `ter
 - Vegetation animation (`model_pipeline.BuildVertexAnimationGlsl`) is based on CE2's `_DetailBending`. Detail bending applies only with the Vegetation GenMask DETAIL_BENDING plus LEAVES or GRASS; main bending applies to every object whose level vegetation group has `Bending != 0`, and rotates vertices about the origin keeping length (which keeps palm trunks from stretching). The CPU side follows Lumberyard: the bend vector is wind times 0.25 softly clamped, and the detail speed is 0.3 of its length; passing the raw wind as the detail speed makes leaves buzz because the wave input past 0.5 gets faster, not wider. Deliberate differences from CE2: the engine smooths the triangle wave, centers the flutter wave and pushes along the wind part of the normal, and pushes branches downwind. Tune `BEND_PER_HEIGHT` for sway strength before touching the shader. See [foliage.md](foliage.md) for the shared wind rules.
 - Painted vegetation (`vegetationinstancesarray.editor_data`: 19 byte records of f32 x, y, z, f32 scale, u8 prototype id, u8 brightness, u8 angle) is drawn by scatter as placed instances, one `scatter_placements` entity per prototype (see [scatter.md](scatter.md)), never one entity per instance. "Fit to Terrain" (GenMask 0x4000) is scatter `Conform`; scatter is off on cry terrain (layers get `scatter = 0`). Only LOD 0 is drawn plus a billboard (`BillboardRadii`).
 
+## Collision
+
+- Collision comes from the cgf physics chunk of slot 0 (`physics_data_chunk_ids[1]`, decoded by `codecs/cry_physics.lua`); slots 1 and 2 are no-collide and obstruct geometry and are not solid. Models with no slot 0 (bushes, grass, hill trees) have no collision in Cry either.
+- Brushes and GeomEntities are static bodies; entities and EntityArchetypes (physics and class come from `Libs/EntityArchetypes`) are static or dynamic from their `Physics` properties.
+- Painted vegetation is drawn by scatter, but prototypes whose cgf has physics (`cgf.HasPhysics`: palm and jungle trunks, rocks) also get one static body per instance under `Vegetation Physics`.
+
 ## Performance of big levels
 
 Beach has ~30k visuals and flying streams terrain, so a visual is added, removed or hidden nearly every frame. Rules that keep it workable:

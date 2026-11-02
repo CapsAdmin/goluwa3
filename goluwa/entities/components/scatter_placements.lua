@@ -95,5 +95,6 @@ end
 
 META.RECORD_SIZE = ffi.sizeof(Record)
 META.Record = Record
+META.WriteMatrix = write_matrix
 META.RecordArray = ffi.typeof("$[?]", Record)
 return META:Register()

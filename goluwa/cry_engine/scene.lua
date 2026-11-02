@@ -5,6 +5,7 @@ local cry_water = import("goluwa/cry_engine/water.lua")
 local water = import("goluwa/render3d/water.lua")
 local fluid = import("goluwa/physics/fluid.lua")
 local scene = import("goluwa/entities/scene.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -377,6 +378,54 @@ function cry_scene.Translate(data, level_name, level_path, options)
 					},
 				},
 			}
+		end
+	end
+
+	do
+		local physics_entries = {}
+
+		for _, entry in ipairs(data.vegetation_entries or {}) do
+			if data.vegetation_prototypes.by_id[entry.prototype_id].has_physics then
+				physics_entries[#physics_entries + 1] = entry
+			end
+		end
+
+		if physics_entries[1] then
+			local ScatterPlacements = import("goluwa/entities/components/scatter_placements.lua")
+			local record = ScatterPlacements.RecordArray(1)
+			local matrix = ffi.new("float[16]")
+			local words = ffi.cast("uint32_t *", matrix)
+			local rotation_matrix = Matrix44()
+			local folder = add_folder(level_guid, "Vegetation Physics")
+
+			for index, entry in ipairs(physics_entries) do
+				local position = units.ToEngine(entry.position)
+				local up = entry.terrain_normal
+				local r = record[0]
+				r.x, r.y, r.z, r.scale, r.yaw = position.x, position.y, position.z, entry.scale, entry.yaw
+				r.nx, r.ny, r.nz = 0, 1, 0
+
+				if up then r.nx, r.ny, r.nz = up.x, up.y, up.z end
+
+				ScatterPlacements.WriteMatrix(matrix, words, 0, r)
+				rotation_matrix:Identity()
+				rotation_matrix.m00, rotation_matrix.m01, rotation_matrix.m02 = matrix[0] / entry.scale, matrix[1] / entry.scale, matrix[2] / entry.scale
+				rotation_matrix.m10, rotation_matrix.m11, rotation_matrix.m12 = matrix[4] / entry.scale, matrix[5] / entry.scale, matrix[6] / entry.scale
+				rotation_matrix.m20, rotation_matrix.m21, rotation_matrix.m22 = matrix[8] / entry.scale, matrix[9] / entry.scale, matrix[10] / entry.scale
+				add{
+					guid = level_guid .. ":vegphys:" .. index,
+					parent = folder,
+					properties = {Name = entry.name},
+					components = {
+						transform = {
+							Position = position,
+							Rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
+							Scale = Vec3(entry.scale, entry.scale, entry.scale),
+						},
+						rigid_body = {ShapeModelPath = entry.model_path, MotionType = "static"},
+					},
+				}
+			end
 		end
 	end
 

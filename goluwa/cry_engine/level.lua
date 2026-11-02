@@ -273,7 +273,7 @@ do
 	end
 end
 
-function level.GetPhysicsProperties(node)
+function level.GetPhysicsProperties(node, libraries)
 	local attrs = node.attrs
 	local object_type = attrs.Type
 
@@ -281,11 +281,24 @@ function level.GetPhysicsProperties(node)
 		return {motion = "static"}
 	end
 
-	if attrs.EntityClass ~= "BasicEntity" and attrs.EntityClass ~= "RigidBodyEx" then
+	local entity_class = attrs.EntityClass
+	local properties
+
+	if object_type == "EntityArchetype" then
+		local archetype = libraries.archetype_nodes[attrs.Prototype]
+
+		if not archetype then return nil end
+
+		entity_class = archetype.attrs.Class
+		properties = find_child_by_tag(archetype, "Properties")
+	else
+		properties = find_child_by_tag(node, "Properties")
+	end
+
+	if entity_class ~= "BasicEntity" and entity_class ~= "RigidBodyEx" then
 		return nil
 	end
 
-	local properties = find_child_by_tag(node, "Properties")
 	local physics = properties and find_child_by_tag(properties, "Physics")
 
 	if not physics or physics.attrs.bPhysicalize ~= "1" then return nil end
@@ -449,7 +462,7 @@ function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, 
 			model_path = model_path,
 			material_path = attrs.Material ~= "" and attrs.Material or nil,
 			type = object_type,
-			physics = level.GetPhysicsProperties(node),
+			physics = level.GetPhysicsProperties(node, libraries),
 			world_matrix = world_matrix,
 			layer = layer,
 			group = group,
@@ -509,7 +522,7 @@ function level.ExtractVisualObjects(nodes, libraries)
 end
 
 function level.LoadLibraries()
-	local libraries = {prefabs = {}, archetypes = {}}
+	local libraries = {prefabs = {}, archetypes = {}, archetype_nodes = {}}
 
 	for _, file_name in ipairs(vfs.Find("Prefabs/") or {}) do
 		if file_name:lower():ends_with(".xml") then
@@ -537,6 +550,7 @@ function level.LoadLibraries()
 
 					if prototype.attrs.Id and properties then
 						libraries.archetypes[prototype.attrs.Id] = properties.attrs
+						libraries.archetype_nodes[prototype.attrs.Id] = prototype
 					end
 				end
 			else
@@ -1373,6 +1387,7 @@ function level.Load(level_dir)
 
 		if prototypes and vegetation_instances_data then
 			vegetation_prototypes = prototypes
+			local cgf_decoder = import("goluwa/render3d/model_decoders/cgf.lua")
 
 			for _, prototype in ipairs(prototypes.list) do
 				prototype.model_path = game.ResolveModelPath(level_dir, prototype.model_path)
@@ -1383,8 +1398,9 @@ function level.Load(level_dir)
 
 				local material_paths = prototype.material_path and
 					{prototype.material_path} or
-					import("goluwa/render3d/model_decoders/cgf.lua").GetMaterialPaths(prototype.model_path)
+					cgf_decoder.GetMaterialPaths(prototype.model_path)
 				prototype.material_paths = material_paths
+				prototype.has_physics = cgf_decoder.HasPhysics(prototype.model_path)
 				prototype.fit_to_terrain = level.IsVegetationFitToTerrain(material_paths)
 
 				if
