@@ -4,6 +4,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
+local prop_data = import("goluwa/source_engine/prop_data.lua")
 local props = {}
 prefab.Register(
 		"prop_physics",
@@ -74,8 +75,11 @@ local function get_lowest(physics, rotation)
 	return lowest
 end
 
-function props.Spawn(model_path, position, rotation, on_spawn)
+function props.Spawn(model_path, position, rotation, on_spawn, options)
 	local done = false
+	local exact = options and options.Exact
+	local fade_out = options and options.Lifetime and {Time = options.Lifetime} or nil
+	local data = not (options and options.Gib) and prop_data.Get(model_path)
 
 	model_loader.LoadModel(
 		model_path,
@@ -111,7 +115,7 @@ function props.Spawn(model_path, position, rotation, on_spawn)
 					Transient = false,
 					Name = model_path:match("([^/]+)%.%w+$") or model_path,
 					transform = {
-						Position = position + Vec3(0, CLEARANCE - lowest, 0) + rotation:VecMul(center),
+						Position = position + Vec3(0, exact and 0 or CLEARANCE - lowest, 0) + rotation:VecMul(center),
 						Rotation = rotation,
 					},
 					network = SERVER and {} or nil,
@@ -125,6 +129,7 @@ function props.Spawn(model_path, position, rotation, on_spawn)
 						FrictionCombineMode = "multiply",
 						RestitutionCombineMode = "multiply",
 					},
+					fade_out = fade_out,
 					prefab = {Path = "prop_physics", Inputs = {Model = model_path, Offset = center * -1}},
 				}
 
@@ -154,10 +159,11 @@ function props.Spawn(model_path, position, rotation, on_spawn)
 					Transient = false,
 					Name = model_path:match("([^/]+)%.%w+$") or model_path,
 					transform = {
-						Position = position + Vec3(0, CLEARANCE - lowest, 0) + rotation:VecMul(rest_position),
+						Position = position + Vec3(0, exact and 0 or CLEARANCE - lowest, 0) + rotation:VecMul(rest_position),
 						Rotation = rotation * rest_rotation,
 					},
 					network = SERVER and {} or nil,
+					fade_out = fade_out,
 					prefab = {Path = "prop_ragdoll", Inputs = {Model = model_path}},
 				}
 
@@ -167,11 +173,35 @@ function props.Spawn(model_path, position, rotation, on_spawn)
 			end
 
 			local surface = surface_properties.Get(physics.surface_property or "default")
+			local hull_min, hull_max = Vec3(math.huge, math.huge, math.huge), Vec3(-math.huge, -math.huge, -math.huge)
+
+			if data then
+				for _, child in ipairs(physics.children) do
+					for _, vertex in ipairs(child.ConvexHull.vertices) do
+						local point = child.Position + vertex
+						hull_min = Vec3(
+							math.min(hull_min.x, point.x),
+							math.min(hull_min.y, point.y),
+							math.min(hull_min.z, point.z)
+						)
+						hull_max = Vec3(
+							math.max(hull_max.x, point.x),
+							math.max(hull_max.y, point.y),
+							math.max(hull_max.z, point.z)
+						)
+					end
+				end
+			end
+
 			local entity = Entity.New{
 				Transient = false,
 				Name = model_path:match("([^/]+)%.%w+$") or model_path,
 				transform = {
-					Position = position + Vec3(0, CLEARANCE - get_lowest(physics, rotation), 0),
+					Position = position + (
+							exact and
+							rotation:VecMul(physics.center_of_mass) or
+							Vec3(0, CLEARANCE - get_lowest(physics, rotation), 0)
+						),
 					Rotation = rotation,
 				},
 				network = SERVER and {} or nil,
@@ -190,6 +220,18 @@ function props.Spawn(model_path, position, rotation, on_spawn)
 					AngularDamping = physics.rotation_damping,
 					AirAngularDamping = physics.rotation_damping,
 				},
+				health = data and
+					{Health = data.Health, MaxHealth = data.Health, RemoveOnDeath = true} or
+					nil,
+				breakable = data and
+					{
+						Model = model_path,
+						Offset = physics.center_of_mass * -1,
+						Center = (hull_min + hull_max) * 0.5 - physics.center_of_mass,
+						Size = hull_max - hull_min,
+					} or
+					nil,
+				fade_out = fade_out,
 				prefab = {
 					Path = "prop_physics",
 					Inputs = {Model = model_path, Offset = physics.center_of_mass * -1},
