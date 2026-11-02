@@ -8,11 +8,12 @@ acoustics.LISTENER_CLEARANCE = 0.25
 acoustics.SOURCE_CLEARANCE = 0.3
 acoustics.SURFACE_OFFSET = 0.01
 acoustics.FRESNEL_CLEARANCE = 0.6
-acoustics.TRANSMISSION = {0.05, 0.02, 0.008}
 acoustics.RHO_C = 413
 acoustics.RHO_C2 = 141600
 acoustics.MAX_INCIDENCE = math.rad(78)
 acoustics.FIELD_SAMPLES = 6
+acoustics.MAX_LEAVES = 8
+acoustics.LEAF_STEP = 0.001
 acoustics.BAND_EDGES = {{50, 500}, {500, 4000}, {4000, 16000}}
 acoustics.MIN_SCATTER_PROBABILITY = 0.05
 acoustics.SAMPLE_FLOATS = 14
@@ -32,7 +33,8 @@ acoustics.MIN_T60 = 0.05
 acoustics.MAX_T60 = 12
 acoustics.MIN_PREDELAY = 0.002
 acoustics.REMOTE_T60_RATIO = 1.6
-acoustics.QUERY_FLOATS = 8
+acoustics.QUERY_FLOATS = 12
+acoustics.QUERY_INPUT_FLOATS = 12
 acoustics.DIFFUSE_ESCAPING = 0.1
 acoustics.SPARSE_ESCAPING = 0.35
 local LN10_OVER_10 = math.log(10) / 10
@@ -150,6 +152,60 @@ do
 			out[b] = sum / 3
 		end
 
+		return out
+	end
+end
+
+function acoustics.NewTransmission()
+	return {1, 1, 1, solid = 0, leaves = 0}
+end
+
+do
+	local mass, cosines, gaps = {}, {}, {}
+
+	function acoustics.Transmit(tracer, ox, oy, oz, dx, dy, dz, tmin, tmax, speed, out)
+		local step = acoustics.LEAF_STEP
+		local count, t, last_end, solid = 0, tmin, tmin, 0
+
+		while count < acoustics.MAX_LEAVES and t < tmax do
+			local d, nx, ny, nz, material, front, exit = tracer:Trace(ox, oy, oz, dx, dy, dz, t, tmax)
+
+			if not d then break end
+
+			local density, surface_mass = material.density, material.surface_mass
+			local m, e = surface_mass, d
+
+			if exit then
+				e = math.min(exit, tmax)
+				m = density * (e - d)
+				solid = solid + e - d
+			elseif front then
+				local back, _, _, _, _, back_front = tracer:Trace(ox, oy, oz, dx, dy, dz, d + step, tmax)
+
+				if back and back_front == false then
+					e = back
+					m = density * (back - d)
+					solid = solid + back - d
+				end
+			end
+
+			count = count + 1
+			mass[count] = m
+			cosines[count] = math.abs(nx * dx + ny * dy + nz * dz)
+			gaps[count] = d - last_end
+			last_end = e
+			t = e + step
+		end
+
+		out.solid = solid
+		out.leaves = count
+
+		if count == 0 then
+			out[1], out[2], out[3] = 1, 1, 1
+			return out
+		end
+
+		acoustics.ChainTransmission(count, mass, cosines, gaps, speed, out)
 		return out
 	end
 end
@@ -593,31 +649,36 @@ do
 	end
 end
 
-function acoustics.RunQueries(tracer, job, result)
-	local q = job.queries
-	local out = result.queries
+do
+	local transmission = acoustics.NewTransmission()
 
-	for i = 0, job.query_count - 1 do
-		local at = i * 8
-		local distance, nx, ny, nz, material = tracer:Trace(
-			q[at + 1],
-			q[at + 2],
-			q[at + 3],
-			q[at + 5],
-			q[at + 6],
-			q[at + 7],
-			q[at + 4],
-			q[at + 8]
-		)
-		local o = i * acoustics.QUERY_FLOATS
-		out[o + 1] = distance or -1
-		out[o + 2] = nx or 0
-		out[o + 3] = ny or 0
-		out[o + 4] = nz or 0
-		out[o + 5] = material and material.absorption[1] or 0
-		out[o + 6] = material and material.absorption[2] or 0
-		out[o + 7] = material and material.absorption[3] or 0
-		out[o + 8] = 0
+	function acoustics.RunQueries(tracer, job, result)
+		local q = job.queries
+		local out = result.queries
+		local stride = acoustics.QUERY_INPUT_FLOATS
+
+		for i = 0, job.query_count - 1 do
+			local at = i * stride
+			local ox, oy, oz, tmin = q[at + 1], q[at + 2], q[at + 3], q[at + 4]
+			local dx, dy, dz, tmax = q[at + 5], q[at + 6], q[at + 7], q[at + 8]
+			local distance, nx, ny, nz, material = tracer:Trace(ox, oy, oz, dx, dy, dz, tmin, tmax)
+			local o = i * acoustics.QUERY_FLOATS
+			out[o + 1] = distance or -1
+			out[o + 2] = nx or 0
+			out[o + 3] = ny or 0
+			out[o + 4] = nz or 0
+			out[o + 5] = material and material.absorption[1] or 0
+			out[o + 6] = material and material.absorption[2] or 0
+			out[o + 7] = material and material.absorption[3] or 0
+			out[o + 8] = material and material.scattering[2] or 0
+			out[o + 9], out[o + 10], out[o + 11], out[o + 12] = 1, 1, 1, 0
+
+			if distance and q[at + 9] ~= 0 then
+				acoustics.Transmit(tracer, ox, oy, oz, dx, dy, dz, tmin, tmax, job.speed, transmission)
+				out[o + 9], out[o + 10], out[o + 11] = transmission[1], transmission[2], transmission[3]
+				out[o + 12] = transmission.solid
+			end
+		end
 	end
 end
 
@@ -643,20 +704,21 @@ local function octahedral_key(nx, ny, nz, cells)
 	math.floor((v * 0.5 + 0.5) * cells + 0.5)
 end
 
-local function add_query(job, ox, oy, oz, dx, dy, dz, tmin, tmax)
+local function add_query(job, ox, oy, oz, dx, dy, dz, tmin, tmax, transmit)
 	local q = job.queries
-	local at = job.query_count * 8
+	local at = job.query_count * acoustics.QUERY_INPUT_FLOATS
 	q[at + 1], q[at + 2], q[at + 3], q[at + 4] = ox, oy, oz, tmin
 	q[at + 5], q[at + 6], q[at + 7], q[at + 8] = dx, dy, dz, tmax
+	q[at + 9], q[at + 10], q[at + 11], q[at + 12] = transmit and 1 or 0, 0, 0, 0
 	job.query_count = job.query_count + 1
 	return job.query_count - 1
 end
 
-local function add_segment(job, a, b, tmin, trim)
+local function add_segment(job, a, b, tmin, trim, transmit)
 	local d = b - a
 	local length = d:GetLength()
 	d = d / length
-	return add_query(job, a.x, a.y, a.z, d.x, d.y, d.z, tmin, math.max(length - trim, tmin))
+	return add_query(job, a.x, a.y, a.z, d.x, d.y, d.z, tmin, math.max(length - trim, tmin), transmit)
 end
 
 local function perpendicular(axis)
@@ -728,6 +790,9 @@ function META:GetEnvironment(sound)
 			sums = acoustics.NewSourceSums(),
 			visibility = {1, 1, 1},
 			visibility_samples = {0, 0, 0},
+			transmission = {1, 1, 1},
+			transmission_samples = 0,
+			solid = 0,
 			occlusion = {1, 1, 1},
 			reflections = {},
 			tap_keys = {},
@@ -788,8 +853,10 @@ function META:BuildJob(time)
 		queries = {},
 		query_count = 0,
 		fresnel = {},
+		transmissions = {},
 		reflection_checks = {},
 	}
+	job.fresnel_samples = budget.fresnel
 
 	for i, sound in ipairs(job.sounds) do
 		local position = sound:GetPosition():Copy()
@@ -824,6 +891,17 @@ function META:AddFresnelQueries(job, sound, source, samples)
 		return
 	end
 
+	job.transmissions[#job.transmissions + 1] = {
+		sound = sound,
+		query = add_segment(
+			job,
+			listener,
+			source,
+			acoustics.LISTENER_CLEARANCE,
+			acoustics.SOURCE_CLEARANCE,
+			true
+		),
+	}
 	axis = axis / distance
 	local t, b = perpendicular(axis)
 
@@ -1061,6 +1139,23 @@ function META:Absorb(job, result)
 		end
 	end
 
+	for _, check in ipairs(job.transmissions) do
+		if check.query >= job.query_count then break end
+
+		local at = check.query * acoustics.QUERY_FLOATS
+		local env = self:GetEnvironment(check.sound)
+		local k = env.transmission_samples == 0 and
+			1 or
+			1 - math.exp(-job.fresnel_samples / acoustics.OCCLUSION_MEMORY_SAMPLES)
+
+		for band = 1, 3 do
+			env.transmission[band] = env.transmission[band] + (q[at + 8 + band] - env.transmission[band]) * k
+		end
+
+		env.solid = env.solid + (q[at + 12] - env.solid) * k
+		env.transmission_samples = env.transmission_samples + 1
+	end
+
 	for _, check in ipairs(job.reflection_checks) do
 		local at = check.query * acoustics.QUERY_FLOATS
 		local distance = q[at + 1]
@@ -1089,8 +1184,8 @@ function META:UpdateSoundEnvironment(sound, time)
 	local distance = (source - listener):GetLength()
 
 	for band = 1, 3 do
-		local transmission = acoustics.TRANSMISSION[band]
-		env.occlusion[band] = transmission + (1 - transmission) * env.visibility[band]
+		local visible = env.visibility[band] * env.visibility[band]
+		env.occlusion[band] = math.sqrt(visible + (1 - visible) * env.transmission[band])
 	end
 
 	local profile = self.profile
@@ -1421,21 +1516,45 @@ function META:Probe(sound)
 	end
 
 	self:AcceptReflections(env, source, time)
+	local visibility, transmission = self.tracer:Probe(self.audio.listener_position, source, self.audio.speed_of_sound)
 
-	if self.tracer.Probe then
-		local visibility = self.tracer:Probe(self.audio.listener_position, source, self.audio.speed_of_sound)
-
-		if visibility then
-			for band = 1, 3 do
-				env.visibility[band] = visibility[band]
-				env.visibility_samples[band] = 1
-				local transmission = acoustics.TRANSMISSION[band]
-				env.occlusion[band] = transmission + (1 - transmission) * visibility[band]
-			end
+	if visibility then
+		for band = 1, 3 do
+			env.visibility[band] = visibility[band]
+			env.visibility_samples[band] = 1
+			env.transmission[band] = transmission[band]
 		end
+
+		env.solid = transmission.solid
+		env.transmission_samples = 1
 	end
 
 	self:UpdateSoundEnvironment(sound, time)
+end
+
+function acoustics.ProbeTransmission(tracer, listener, source, speed)
+	local axis = source - listener
+	local distance = axis:GetLength()
+	local out = acoustics.NewTransmission()
+
+	if distance < acoustics.SOURCE_CLEARANCE + acoustics.LISTENER_CLEARANCE + 0.1 then
+		return out
+	end
+
+	axis = axis / distance
+	return acoustics.Transmit(
+		tracer,
+		listener.x,
+		listener.y,
+		listener.z,
+		axis.x,
+		axis.y,
+		axis.z,
+		acoustics.LISTENER_CLEARANCE,
+		distance - acoustics.SOURCE_CLEARANCE,
+		speed,
+		out
+	)
 end
 
 function acoustics.FresnelProbe(tracer, listener, source, speed, samples)

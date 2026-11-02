@@ -2,11 +2,18 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local physics = import("goluwa/physics.lua")
 local acoustics = import("goluwa/audio/acoustics.lua")
 local acoustics_cpu = {}
-local OPTIONS = {IncludeRigidBodies = true}
+acoustics_cpu.DYNAMIC_OCCLUDER_SIZE = 1.5
+local OPTIONS = {IncludeRigidBodies = true, IgnoreKinematicBodies = false}
 
-local function is_static(entity)
+local function is_occluder(entity)
 	local body = entity.rigid_body
-	return not body or body:IsStatic()
+
+	if not body or body:IsStatic() or body:IsKinematic() then return true end
+
+	if body:GetShapeType() == "capsule" then return false end
+
+	local half = body:GetHalfExtents()
+	return math.max(half.x, half.y, half.z) * 2 >= acoustics_cpu.DYNAMIC_OCCLUDER_SIZE
 end
 
 local META = {}
@@ -20,7 +27,7 @@ function META:Trace(ox, oy, oz, dx, dy, dz, tmin, tmax)
 		Vec3(dx, dy, dz),
 		tmax - tmin,
 		nil,
-		is_static,
+		is_occluder,
 		OPTIONS
 	)
 
@@ -80,7 +87,8 @@ function META:Collect()
 end
 
 function META:Probe(listener, source, speed)
-	return acoustics.FresnelProbe(self, listener, source, speed, 4)
+	return acoustics.FresnelProbe(self, listener, source, speed, 4),
+	acoustics.ProbeTransmission(self, listener, source, speed)
 end
 
 function acoustics_cpu.New(budget)

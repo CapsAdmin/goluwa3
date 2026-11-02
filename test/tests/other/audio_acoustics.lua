@@ -881,6 +881,81 @@ T.Test("audio wall transmission follows the mass law for one and two leaves", fu
 	T(math.abs(transmission_db(leaves, 3) + 10 * math.log10(expected)))["<="](0.01)
 end)
 
+T.TestPhysics("audio transmission measures walls on the physics tracer", function()
+	local Entity = import("goluwa/entities/entity.lua")
+	local BoxShape = import("goluwa/physics/shapes/box.lua")
+	local MeshShape = import("goluwa/physics/shapes/mesh.lua")
+	local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+	local physics = import("goluwa/physics.lua")
+	local tracer = acoustics_cpu.New()
+	local default = acoustics.DEFAULT_MATERIAL
+	local wall = Entity.New({Name = "transmission_wall"})
+	wall:AddComponent("transform")
+	wall.transform:SetPosition(Vec3(0, 2, -5))
+	wall:AddComponent("rigid_body", {Shape = BoxShape.New(Vec3(20, 4, 0.3)), MotionType = "static"})
+	local through = acoustics.ProbeTransmission(tracer, Vec3(0, 1.7, 0), Vec3(0, 1.7, -10), audio.speed_of_sound)
+	local expected = acoustics.ChainTransmission(1, {default.density * 0.3}, {1}, {0}, audio.speed_of_sound, {})
+	T(through.solid)["~"](0.3, 1e-3)
+	T(through.leaves)["=="](1)
+
+	for band = 1, 3 do
+		T(math.abs(transmission_db(through, band) - transmission_db(expected, band)))["<="](0.01)
+	end
+
+	wall:Remove()
+
+	local function mesh_owner(primitive)
+		local owner = Entity.New{Name = "transmission_mesh", transform = {Position = Vec3(0, 2, -5)}}
+		owner:AddComponent(
+			"rigid_body",
+			{
+				Shape = MeshShape.New{Model = {Primitives = {primitive}}},
+				MotionType = "static",
+			}
+		)
+		physics.Update(1 / 60)
+		return owner
+	end
+
+	local brush = mesh_owner{
+		brush_planes = {
+			{normal = Vec3(1, 0, 0), dist = 10},
+			{normal = Vec3(-1, 0, 0), dist = 10},
+			{normal = Vec3(0, 1, 0), dist = 2},
+			{normal = Vec3(0, -1, 0), dist = 2},
+			{normal = Vec3(0, 0, 1), dist = 0.2},
+			{normal = Vec3(0, 0, -1), dist = 0.2},
+		},
+	}
+	local brush_through = acoustics.ProbeTransmission(tracer, Vec3(0, 1.7, 0), Vec3(0, 1.7, -10), audio.speed_of_sound)
+	T(brush_through.solid)["~"](0.4, 1e-3)
+	T(brush_through.leaves)["=="](1)
+	brush:Remove()
+	local poly = Polygon3D.New()
+
+	for _, v in ipairs{
+		Vec3(-5, -2, 0),
+		Vec3(5, -2, 0),
+		Vec3(-5, 2, 0),
+		Vec3(5, -2, 0),
+		Vec3(5, 2, 0),
+		Vec3(-5, 2, 0),
+	} do
+		poly:AddVertex({pos = v})
+	end
+
+	poly:BuildBoundingBox()
+	mesh_owner{polygon3d = poly}
+	local flat = acoustics.ProbeTransmission(tracer, Vec3(0, 1.7, 0), Vec3(0, 1.7, -10), audio.speed_of_sound)
+	local flat_expected = acoustics.ChainTransmission(1, {default.surface_mass}, {1}, {0}, audio.speed_of_sound, {})
+	T(flat.solid)["=="](0)
+	T(flat.leaves)["=="](1)
+
+	for band = 1, 3 do
+		T(math.abs(transmission_db(flat, band) - transmission_db(flat_expected, band)))["<="](0.01)
+	end
+end)
+
 T.Test("audio acoustics per band scattering keeps the decay of each band", function()
 	with_offline_mixer(function(ctx)
 		local W, H, D, alpha = 10, 4, 8, 0.1

@@ -211,6 +211,7 @@ function hit.GetTraceGLSL(tlas_name)
 			float distance;
 			uint instance;
 			uint primitive;
+			bool front_face;
 		};
 
 		bool scene_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_trace_hit hit) {
@@ -228,6 +229,8 @@ function hit.GetTraceGLSL(tlas_name)
 			hit.position = origin + dir * hit.distance;
 			hit.emissive = tri.emissive;
 			hit.normal = dot(tri.normal, dir) > 0.0 ? -tri.normal : tri.normal;
+			// render meshes are wound clockwise seen from outside, so cross(e1, e2) points inward
+			hit.front_face = dot(tri.normal, dir) > 0.0;
 			return true;
 		}
 
@@ -251,6 +254,7 @@ function hit.GetStubTraceGLSL()
 			float distance;
 			uint instance;
 			uint primitive;
+			bool front_face;
 		};
 
 		bool scene_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_trace_hit hit) {

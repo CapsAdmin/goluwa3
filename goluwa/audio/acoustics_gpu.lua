@@ -27,6 +27,7 @@ local BINDING_TLAS = 4
 local BINDING_HIT = 5
 local MAX_GROUPS = MAX_RAYS / GROUP_SIZE
 local QUERY_FLOATS = acoustics.QUERY_FLOATS
+local QUERY_INPUT_FLOATS = acoustics.QUERY_INPUT_FLOATS
 local SAMPLE_BASE = MAX_GROUPS * ACC
 local QUERY_BASE = SAMPLE_BASE + MAX_SAMPLES * SAMPLE_FLOATS
 local OUTPUT_FLOATS = QUERY_BASE + MAX_QUERIES * QUERY_FLOATS
@@ -38,6 +39,11 @@ end
 
 local function build_pipeline(slots)
 	local default = acoustics.DEFAULT_MATERIAL
+	local frequencies = {}
+
+	for i, f in ipairs(acoustics.BAND_FREQUENCIES) do
+		frequencies[i] = ("%f"):format(f)
+	end
 
 	return EasyPipeline.Compute{
 		name = "audio_acoustics_trace",
@@ -98,7 +104,7 @@ local function build_pipeline(slots)
 					block.params[2] = acoustics.SOURCE_CLEARANCE
 					block.params[3] = acoustics.TRACE_DISTANCE
 					block.limits[0] = 0
-					block.limits[1] = 0
+					block.limits[1] = acoustics.LEAF_STEP
 					block.limits[2] = 0
 					block.limits[3] = acoustics.MIN_SCATTER_PROBABILITY
 					block.counts[0] = job.rays
@@ -130,13 +136,19 @@ local function build_pipeline(slots)
 			#define QUERY_FLOATS %d
 			#define SAMPLE_BASE %d
 			#define QUERY_BASE %d
+			#define MAX_LEAVES %d
+			#define RHO_C %f
+			#define RHO_C2 %f
+			#define MIN_COS %f
 			#define DEFAULT_ABSORPTION %s
 			#define DEFAULT_SCATTERING %s
 			#define DEFAULT_RAIN %s
 			#define DEFAULT_WIND %s
 			#define DEFAULT_DENSITY %f
 			#define DEFAULT_SURFACE_MASS %f
+			#define PI 3.14159265359
 
+			const float BAND_FREQUENCIES[9] = float[9](%s);
 			shared float reduce_buffer[GROUP_SIZE];
 
 			uint acoustic_hash(uint x) {
@@ -196,6 +208,91 @@ local function build_pipeline(slots)
 				return m;
 			}
 
+			float acoustic_limp(float f, float m, float c) {
+				float x = PI * f * m * c / RHO_C;
+				return 1.0 / (1.0 + x * x);
+			}
+
+			vec3 acoustic_chain(int count, float mass[MAX_LEAVES], float cosines[MAX_LEAVES], float gaps[MAX_LEAVES], float speed) {
+				vec3 bands = vec3(0.0);
+
+				for (int b = 0; b < 3; b++) {
+					float sum = 0.0;
+
+					for (int k = 0; k < 3; k++) {
+						float f = BAND_FREQUENCIES[b * 3 + k];
+						float c = max(cosines[0], MIN_COS);
+						float total = mass[0];
+						float tau = acoustic_limp(f, total, c);
+
+						for (int i = 1; i < count; i++) {
+							c = max(cosines[i], MIN_COS);
+							float m = mass[i];
+							float combined = tau * acoustic_limp(f, total + m, c) / acoustic_limp(f, total, c);
+							float gap = gaps[i];
+
+							if (gap > 0.0 && total > 0.0 && m > 0.0 && f > sqrt(RHO_C2 * (total + m) / (gap * total * m)) / (2.0 * PI)) {
+								float coupling = min(4.0 * PI * f * gap / speed, 2.0);
+								tau = min(tau * acoustic_limp(f, m, c) / (coupling * coupling), combined);
+							} else {
+								tau = combined;
+							}
+
+							total += m;
+						}
+
+						sum += tau;
+					}
+
+					bands[b] = sum / 3.0;
+				}
+
+				return bands;
+			}
+
+			struct acoustic_wall {
+				vec3 tau;
+				float solid;
+			};
+
+			acoustic_wall acoustic_transmit(vec3 origin, vec3 dir, float tmin, float tmax) {
+				float mass[MAX_LEAVES];
+				float cosines[MAX_LEAVES];
+				float gaps[MAX_LEAVES];
+				float step_size = acoustic.limits.y;
+				int count = 0;
+				float t = tmin;
+				float last_end = tmin;
+				acoustic_wall wall;
+				wall.solid = 0.0;
+				scene_trace_hit h;
+				scene_trace_hit back;
+
+				while (count < MAX_LEAVES && t < tmax) {
+					if (!scene_trace(origin, dir, t, tmax, h)) break;
+
+					acoustic_material material = acoustic_material_of(h.instance);
+					float m = material.surface_mass;
+					float e = h.distance;
+
+					if (h.front_face && scene_trace(origin, dir, h.distance + step_size, tmax, back) && !back.front_face) {
+						e = back.distance;
+						m = material.density * (back.distance - h.distance);
+						wall.solid += back.distance - h.distance;
+					}
+
+					mass[count] = m;
+					cosines[count] = abs(dot(h.normal, dir));
+					gaps[count] = h.distance - last_end;
+					count++;
+					last_end = e;
+					t = e + step_size;
+				}
+
+				wall.tau = count == 0 ? vec3(1.0) : acoustic_chain(count, mass, cosines, gaps, acoustic.params.x);
+				return wall;
+			}
+
 			void main() {
 				uint id = gl_GlobalInvocationID.x;
 				uint lid = gl_LocalInvocationID.x;
@@ -208,14 +305,26 @@ local function build_pipeline(slots)
 
 					if (q >= uint(acoustic.extra.x)) return;
 
-					vec4 a = queries[q * 2u];
-					vec4 b = queries[q * 2u + 1u];
+					vec4 a = queries[q * 3u];
+					vec4 b = queries[q * 3u + 1u];
+					vec4 c = queries[q * 3u + 2u];
 					vec4 r = vec4(-1.0, 0.0, 0.0, 0.0);
 					vec3 absorption = vec3(0.0);
+					float scattering = 0.0;
+					vec3 tau = vec3(1.0);
+					float solid = 0.0;
 
 					if (b.w > a.w && scene_trace(a.xyz, b.xyz, a.w, b.w, hit)) {
+						acoustic_material material = acoustic_material_of(hit.instance);
 						r = vec4(hit.distance, hit.normal);
-						absorption = acoustic_material_of(hit.instance).absorption;
+						absorption = material.absorption;
+						scattering = material.scattering.y;
+
+						if (c.x != 0.0) {
+							acoustic_wall wall = acoustic_transmit(a.xyz, b.xyz, a.w, b.w);
+							tau = wall.tau;
+							solid = wall.solid;
+						}
 					}
 
 					uint at = QUERY_BASE + q * uint(QUERY_FLOATS);
@@ -226,7 +335,11 @@ local function build_pipeline(slots)
 					result[at + 4u] = absorption.x;
 					result[at + 5u] = absorption.y;
 					result[at + 6u] = absorption.z;
-					result[at + 7u] = 0.0;
+					result[at + 7u] = scattering;
+					result[at + 8u] = tau.x;
+					result[at + 9u] = tau.y;
+					result[at + 10u] = tau.z;
+					result[at + 11u] = solid;
 					return;
 				}
 
@@ -413,12 +526,17 @@ local function build_pipeline(slots)
 				QUERY_FLOATS,
 				SAMPLE_BASE,
 				QUERY_BASE,
+				acoustics.MAX_LEAVES,
+				acoustics.RHO_C,
+				acoustics.RHO_C2,
+				math.cos(acoustics.MAX_INCIDENCE),
 				glsl_vec3(default.absorption),
 				glsl_vec3(default.scattering),
 				glsl_vec3(default.rain),
 				glsl_vec3(default.wind),
 				default.density,
-				default.surface_mass
+				default.surface_mass,
+				table.concat(frequencies, ", ")
 			),
 	}
 end
@@ -454,7 +572,7 @@ function META:GetSlot(index)
 
 	slot = {
 		queries = render.CreateBuffer{
-			byte_size = MAX_QUERIES * 32,
+			byte_size = MAX_QUERIES * QUERY_INPUT_FLOATS * 4,
 			buffer_usage = {"storage_buffer"},
 			memory_property = {"host_visible", "host_coherent"},
 			label = "audio_acoustics queries",
@@ -580,7 +698,7 @@ function META:Dispatch(cmd)
 
 	local q = ffi.cast(float_ptr, slot.queries:Map())
 
-	for i = 0, job.query_count * 8 - 1 do
+	for i = 0, job.query_count * QUERY_INPUT_FLOATS - 1 do
 		q[i] = job.queries[i + 1]
 	end
 
