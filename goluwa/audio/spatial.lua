@@ -5,6 +5,8 @@ local CUE_GROUPS = audio_state.CUE_GROUPS
 local spatial = {}
 spatial.AIR_ABSORPTION_DB = {0.0011, 0.006, 0.05}
 spatial.MIN_RATE = -3
+-- a supersonic source has two arrivals at once (or none) and a boom between them; one delay line follows it only below the speed of sound
+spatial.MAX_SOURCE_MACH = 0.95
 spatial.MAX_RATE = 0.75
 spatial.PINNA_NOTCH = {frequency = 7500, octaves = 0.65, depth = 18, q = 2.5, rear = 0.6, far = 0.2}
 spatial.PINNA_OVERHEAD = {frequency = 8000, gain = 10, q = 1.2}
@@ -115,14 +117,22 @@ function spatial.WriteCueGroups(state, strength)
 	state.cue_q[2] = spatial.PINNA_FRONT.q
 end
 
+-- solves |ear - source + v delay| = speed delay: the sound now arriving left where the source was a delay ago; v is the source velocity relative to the air
 function spatial.RetardedDelay(ear, source, source_velocity, speed)
-	local delay = (ear - source):GetLength() / speed
+	local rx, ry, rz = ear.x - source.x, ear.y - source.y, ear.z - source.z
+	local vx, vy, vz = source_velocity.x, source_velocity.y, source_velocity.z
+	local v2 = vx * vx + vy * vy + vz * vz
+	local max_speed = speed * spatial.MAX_SOURCE_MACH
 
-	for _ = 1, 3 do
-		delay = (ear - (source - source_velocity * delay)):GetLength() / speed
+	if v2 > max_speed * max_speed then
+		local k = max_speed / math.sqrt(v2)
+		vx, vy, vz, v2 = vx * k, vy * k, vz * k, max_speed * max_speed
 	end
 
-	return delay
+	local rv = rx * vx + ry * vy + rz * vz
+	local r2 = rx * rx + ry * ry + rz * rz
+	local a = speed * speed - v2
+	return (rv + math.sqrt(rv * rv + a * r2)) / a
 end
 
 function spatial.DelayRate(from, to, from_velocity, to_velocity, speed)
