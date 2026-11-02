@@ -76,6 +76,7 @@ local MOVE_KEYS = {
 	Hover = true,
 	Relative = true,
 	Dodge = true,
+	Land = true,
 	Keys = true,
 	Events = true,
 	Shots = true,
@@ -192,6 +193,13 @@ local function validate_move(move, poses, path)
 
 	if move.Dodge ~= nil then check_numbers(move.Dodge, 2, path .. ".Dodge") end
 
+	assert(
+		move.Land == nil or
+			type(move.Land) == "number" and
+			move.Land >= 0 and
+			move.Land <= 1,
+		path .. ".Land must be a phase between 0 and 1"
+	)
 	assert(move.Keys or move.Clip, path .. " needs Keys or a Clip")
 	local previous = {}
 
@@ -466,6 +474,7 @@ do
 		"Hover",
 		"Relative",
 		"Dodge",
+		"Land",
 		"Keys",
 		"Shots",
 		"Faces",

@@ -21,6 +21,7 @@ META.Network = {
 	ActionDirection = {"vec3", 0.05, "reliable", to_owner = true},
 	ActionStrength = {"number", 0.05, "reliable", to_owner = true},
 	Actions = {"number", 0.05, "reliable", to_owner = true},
+	LandHold = {"boolean", 0.05, "reliable", to_owner = true},
 	Focus = {"entity", 0.05, "reliable", to_owner = true},
 	FocusPoint = {"vec3", 0.05, "reliable", to_owner = true},
 	Freezes = {"number", 0.05, "reliable", to_owner = true},
@@ -46,6 +47,7 @@ META:GetSet("ActionPart", "")
 META:GetSet("ActionDirection", Vec3(0, 0, 1))
 META:GetSet("ActionStrength", 1)
 META:GetSet("Actions", 0)
+META:IsSet("LandHold", false)
 META:GetSet("Focus", NULL)
 META:GetSet("FocusPoint", Vec3())
 META:GetSet("Freezes", 0)
@@ -544,6 +546,10 @@ function META:UpdateAnimations(dt)
 		end
 
 		if kind == "action" then
+			if self.LandHold and def.Land then
+				inst.time = math.min(inst.time, def.Land * inst.duration)
+			end
+
 			inst.phase = math.min(inst.time / inst.duration, 1)
 
 			if def.Exit then

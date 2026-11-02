@@ -410,6 +410,7 @@ T.Test("moveset data is validated with a message that names the field", function
 	check({Guard = "nope", Moves = {a = move()}}, "Guard names an unknown pose nope")
 	check({Moves = {a = move{GripHands = "both"}}}, "GripHands must be right or left")
 	check({Moves = {a = move{Dodge = {0}}}}, "Dodge must be a list of 2 numbers")
+	check({Moves = {a = move{Land = 2}}}, "Land must be a phase between 0 and 1")
 	check({Moves = {a = move{Shots = {{0.5, "dolly_zoom"}}}}}, "unknown shot dolly_zoom")
 	check(
 		{Moves = {a = move{Shots = {{0.5, "hero_low"}, {0.2, "battle"}}}}},

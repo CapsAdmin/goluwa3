@@ -8,6 +8,8 @@ local CRASH_GRACE = 0.4
 local CRASH_SPEED = 0.35
 local CRASH_TICKS = 2
 local RUN_LEAD = 1.1
+local LAND_DIVE_SPEED = 16
+local LAND_HOLD_MAX = 4
 
 function META:Initialize()
 	self.frame = {}
@@ -26,6 +28,8 @@ function META:Begin(move, duration, listener, authority, target)
 	self.duration = duration
 	self.next_event = 1
 	self.slow_ticks = 0
+	self.land_time = 0
+	self.land_drop = 0
 	local frame = movesets.NewFrame(self.Owner, move, self.frame, target)
 	pose:SetFocusOn(frame.target, frame.point)
 
@@ -46,6 +50,9 @@ end
 function META:Cancel()
 	self.move = nil
 	self.listener = nil
+	local pose = self.Owner.character_pose
+
+	if pose:IsLandHold() then pose:SetLandHold(false) end
 end
 
 function META:GetStrikeForward()
@@ -57,101 +64,127 @@ function META:GetStrikeForward()
 		actors.GetForward(owner)
 end
 
-function META:Step(dt, authority, early_cancel)
-	local move = self.move
-	local owner = self.Owner
-	local pose = owner.character_pose
+do
+	local function step(self, dt, authority, early_cancel)
+		local move = self.move
+		local owner = self.Owner
+		local pose = owner.character_pose
 
-	if not self.listener:IsValid() then
-		self:Cancel()
-		return "interrupted"
-	end
-
-	if pose:IsStunned() then
-		local listener = self.listener
-		self:Cancel()
-		listener:OnMoveInterrupted()
-		return "interrupted"
-	end
-
-	self.time = self.time + dt
-	local frame = self.frame
-
-	if
-		not authority and
-		pose.FocusPoint ~= self.predicted_focus and
-		pose.Action == move.Action
-	then
-		self.predicted_focus = pose.FocusPoint
-		movesets.Anchor(frame, pose.FocusPoint:Copy())
-	end
-
-	local f = math.min(self.time / self.duration, 1)
-	local _, height = movesets.SampleMotion(move, f, frame, frame.point, self.drive)
-	local body = owner.rigid_body
-
-	if move.Vertical then
-		self.drive.y = body:GetPosition().y + frame.start.y + height - actors.GetCenter(owner).y
-	else
-		self.drive.y = body:GetPosition().y
-	end
-
-	if move.Speed then
-		local position = body:GetOriginPosition()
-		local dx, dz = self.drive.x - position.x, self.drive.z - position.z
-		local length = math.sqrt(dx * dx + dz * dz)
-		local lead = move.Speed * dt * RUN_LEAD
-
-		if length > lead then
-			self.drive.x = position.x + dx / length * lead
-			self.drive.z = position.z + dz / length * lead
+		if not self.listener:IsValid() then
+			self:Cancel()
+			return "interrupted"
 		end
-	end
 
-	owner.character_movement:Drive(self.drive, move.Vertical)
-	local event = move.Events[self.next_event]
+		if pose:IsStunned() then
+			local listener = self.listener
+			self:Cancel()
+			listener:OnMoveInterrupted()
+			return "interrupted"
+		end
 
-	while event and f >= event.At do
-		if event.Until and f < event.Until then
+		self.time = self.time + dt
+		local frame = self.frame
+
+		if
+			not authority and
+			pose.FocusPoint ~= self.predicted_focus and
+			pose.Action == move.Action
+		then
+			self.predicted_focus = pose.FocusPoint
+			movesets.Anchor(frame, pose.FocusPoint:Copy())
+		end
+
+		local f = math.min(self.time / self.duration, 1)
+		local landing = move.Land ~= nil and
+			f >= move.Land and
+			not owner.character_movement:GetGrounded()
+			and
+			self.land_time < LAND_HOLD_MAX
+
+		if landing then
+			self.land_time = self.land_time + dt
+			self.land_drop = self.land_drop + LAND_DIVE_SPEED * dt
+			self.time = move.Land * self.duration
+			f = move.Land
+		end
+
+		if pose:IsLandHold() ~= landing then pose:SetLandHold(landing) end
+
+		local _, height = movesets.SampleMotion(move, f, frame, frame.point, self.drive)
+		local body = owner.rigid_body
+
+		if move.Vertical then
+			self.drive.y = body:GetPosition().y + frame.start.y + height - self.land_drop - actors.GetCenter(owner).y
+		else
+			self.drive.y = body:GetPosition().y
+		end
+
+		if move.Speed then
+			local position = body:GetOriginPosition()
+			local dx, dz = self.drive.x - position.x, self.drive.z - position.z
+			local length = math.sqrt(dx * dx + dz * dz)
+			local lead = move.Speed * dt * RUN_LEAD
+
+			if length > lead then
+				self.drive.x = position.x + dx / length * lead
+				self.drive.z = position.z + dz / length * lead
+			end
+		end
+
+		owner.character_movement:Drive(self.drive, move.Vertical)
+		local event = move.Events[self.next_event]
+
+		while event and f >= event.At and not (landing and event.At >= move.Land) do
+			if event.Until and f < event.Until then
+				if authority and self.listener:OnMoveEvent(move, event, f) == "end" then
+					self.move = nil
+					return "finished", move
+				end
+
+				break
+			end
+
+			self.next_event = self.next_event + 1
+
 			if authority and self.listener:OnMoveEvent(move, event, f) == "end" then
 				self.move = nil
 				return "finished", move
 			end
 
-			break
+			event = move.Events[self.next_event]
 		end
 
-		self.next_event = self.next_event + 1
-
-		if authority and self.listener:OnMoveEvent(move, event, f) == "end" then
-			self.move = nil
-			return "finished", move
-		end
-
-		event = move.Events[self.next_event]
-	end
-
-	if move.Speed then
-		if frame.distance - move.Speed * self.time <= movesets.MinGap then
-			self.move = nil
-			return "finished", move
-		end
-
-		if move.Crash and self.time > CRASH_GRACE then
-			local velocity = owner.rigid_body:GetVelocity()
-			local speed = math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z)
-			self.slow_ticks = speed < move.Speed * CRASH_SPEED and self.slow_ticks + 1 or 0
-
-			if self.slow_ticks >= CRASH_TICKS then
+		if move.Speed then
+			if frame.distance - move.Speed * self.time <= movesets.MinGap then
 				self.move = nil
-				return "blocked", move
+				return "finished", move
+			end
+
+			if move.Crash and self.time > CRASH_GRACE then
+				local velocity = owner.rigid_body:GetVelocity()
+				local speed = math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z)
+				self.slow_ticks = speed < move.Speed * CRASH_SPEED and self.slow_ticks + 1 or 0
+
+				if self.slow_ticks >= CRASH_TICKS then
+					self.move = nil
+					return "blocked", move
+				end
 			end
 		end
+
+		if f >= (early_cancel and move.Cancel or 1) and not event and not landing then
+			self.move = nil
+			return "finished", move
+		end
 	end
 
-	if f >= (early_cancel and move.Cancel or 1) and not event then
-		self.move = nil
-		return "finished", move
+	function META:Step(dt, authority, early_cancel)
+		local state, move = step(self, dt, authority, early_cancel)
+		local pose = self.Owner.character_pose
+
+		if state and pose:IsLandHold() then pose:SetLandHold(false) end
+
+		return state, move
 	end
 end
 
