@@ -829,6 +829,47 @@ T.Test("audio fade in fraction spreads the ramp over the whole sound", function(
 	end)
 end)
 
+local function transmission_db(out, band)
+	return -10 * math.log10(out[band])
+end
+
+T.Test("audio wall transmission follows the mass law for one and two leaves", function()
+	local single, double, normal, field = {}, {}, {}, {}
+	acoustics.ChainTransmission(1, {10}, {1}, {0}, 343, single)
+	acoustics.ChainTransmission(1, {20}, {1}, {0}, 343, double)
+
+	for band = 1, 3 do
+		local step = transmission_db(double, band) - transmission_db(single, band)
+		T(step)[">="](5)
+		T(step)["<="](6.1)
+	end
+
+	acoustics.ChainTransmission(1, {100}, {1}, {0}, 343, normal)
+	acoustics.ChainTransmission(1, {100}, {1}, {0}, 343, field, true)
+
+	for band = 1, 3 do
+		local drop = transmission_db(normal, band) - transmission_db(field, band)
+		T(drop)[">="](3)
+		T(drop)["<="](6)
+	end
+
+	local leaves, combined = {}, {}
+	acoustics.ChainTransmission(2, {10, 10}, {1, 1}, {0, 0.1}, 343, leaves)
+	acoustics.ChainTransmission(1, {20}, {1}, {0}, 343, combined)
+
+	for band = 1, 3 do
+		T(transmission_db(leaves, band))[">="](transmission_db(combined, band) - 1e-6)
+	end
+
+	local expected = 0
+
+	for k = 7, 9 do
+		expected = expected + acoustics.LimpTransmission(acoustics.BAND_FREQUENCIES[k], 10, 1) ^ 2 / 4 / 3
+	end
+
+	T(math.abs(transmission_db(leaves, 3) + 10 * math.log10(expected)))["<="](0.01)
+end)
+
 T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the temperature", function()
 	T(spatial.AirAbsorptionAt(1000, 20, 0.5, 101325) * 1000)["~"](4.66, 0.15)
 	T(spatial.AirAbsorptionAt(4000, 20, 0.5, 101325) * 1000)["~"](29.7, 0.9)

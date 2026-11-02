@@ -6,6 +6,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local Material = import("goluwa/render3d/material.lua")
+local acoustics = import("goluwa/audio/acoustics.lua")
 local material_proxies = import("goluwa/source_engine/material_proxies.lua")
 local vmt_loader = import("goluwa/source_engine/vmt.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
@@ -278,40 +279,284 @@ local FLAMMABILITY = {
 	glass = 0,
 	water = 0,
 }
-local ACOUSTIC_ABSORPTION = {
-	concrete = {0.02, 0.03, 0.04},
-	brick = {0.03, 0.04, 0.07},
-	plaster = {0.10, 0.05, 0.08},
-	tile = {0.01, 0.01, 0.02},
-	ceiling_tile = {0.35, 0.70, 0.70},
-	wood = {0.12, 0.08, 0.08},
-	wood_hollow = {0.22, 0.10, 0.10},
-	dirt = {0.20, 0.50, 0.60},
-	grass = {0.20, 0.60, 0.80},
-	sand = {0.25, 0.45, 0.60},
-	snow = {0.45, 0.85, 0.90},
-	rock = {0.02, 0.03, 0.05},
-	stone = {0.02, 0.03, 0.04},
-	asphalt = {0.03, 0.04, 0.06},
-	carpet = {0.06, 0.45, 0.65},
-	gravel = {0.25, 0.60, 0.70},
-	paper = {0.10, 0.20, 0.30},
-	cardboard = {0.15, 0.25, 0.30},
-	plastic = {0.03, 0.05, 0.07},
-	rubber = {0.05, 0.08, 0.10},
-	metal = {0.02, 0.02, 0.03},
-	grate = {0.40, 0.50, 0.50},
-	chainlink = {0.75, 0.85, 0.85},
-	glass = {0.08, 0.03, 0.02},
-	water = {0.01, 0.01, 0.02},
-	cloth = {0.15, 0.55, 0.70},
-	upholstery = {0.20, 0.60, 0.70},
-	mattress = {0.25, 0.65, 0.70},
-	foliage = {0.10, 0.30, 0.50},
-	tree = {0.10, 0.25, 0.40},
-	flesh = {0.10, 0.30, 0.50},
-	open = {1, 1, 1},
+-- density is the average of the construction behind a surface of this class (a plaster wall is studs, boards and air), surface mass is one panel of it for geometry with no inside
+local ACOUSTIC = {
+	concrete = {
+		absorption = {0.02, 0.03, 0.04},
+		scattering = {0.05, 0.10, 0.15},
+		density = 2300,
+		surface_mass = 230,
+		rain = {0.6, 1.0, 1.2},
+		wind = {0, 0, 0},
+	},
+	brick = {
+		absorption = {0.03, 0.04, 0.07},
+		scattering = {0.05, 0.15, 0.30},
+		density = 1800,
+		surface_mass = 180,
+		rain = {0.6, 1.0, 1.2},
+		wind = {0, 0, 0},
+	},
+	plaster = {
+		absorption = {0.10, 0.05, 0.08},
+		scattering = {0.05, 0.10, 0.15},
+		density = 150,
+		surface_mass = 10,
+		rain = {0.5, 0.8, 0.9},
+		wind = {0, 0, 0},
+	},
+	tile = {
+		absorption = {0.01, 0.01, 0.02},
+		scattering = {0.05, 0.05, 0.10},
+		density = 2000,
+		surface_mass = 20,
+		rain = {0.6, 1.0, 1.3},
+		wind = {0, 0, 0},
+	},
+	ceiling_tile = {
+		absorption = {0.35, 0.70, 0.70},
+		scattering = {0.10, 0.20, 0.40},
+		density = 100,
+		surface_mass = 4,
+		rain = {0.3, 0.5, 0.5},
+		wind = {0, 0, 0},
+	},
+	wood = {
+		absorption = {0.12, 0.08, 0.08},
+		scattering = {0.05, 0.10, 0.15},
+		density = 600,
+		surface_mass = 12,
+		rain = {0.8, 1.0, 1.0},
+		wind = {0, 0, 0},
+	},
+	wood_hollow = {
+		absorption = {0.22, 0.10, 0.10},
+		scattering = {0.05, 0.10, 0.15},
+		density = 250,
+		surface_mass = 10,
+		rain = {1.2, 1.2, 1.0},
+		wind = {0, 0, 0},
+	},
+	dirt = {
+		absorption = {0.20, 0.50, 0.60},
+		scattering = {0.10, 0.30, 0.60},
+		density = 1600,
+		surface_mass = 160,
+		rain = {0.3, 0.5, 0.5},
+		wind = {0, 0, 0},
+	},
+	grass = {
+		absorption = {0.20, 0.60, 0.80},
+		scattering = {0.10, 0.30, 0.60},
+		density = 1600,
+		surface_mass = 160,
+		rain = {0.2, 0.4, 0.5},
+		wind = {0.3, 0.6, 0.8},
+	},
+	sand = {
+		absorption = {0.25, 0.45, 0.60},
+		scattering = {0.10, 0.30, 0.60},
+		density = 1600,
+		surface_mass = 160,
+		rain = {0.2, 0.3, 0.3},
+		wind = {0, 0, 0},
+	},
+	snow = {
+		absorption = {0.45, 0.85, 0.90},
+		scattering = {0.10, 0.30, 0.60},
+		density = 300,
+		surface_mass = 30,
+		rain = {0.05, 0.05, 0.05},
+		wind = {0, 0, 0},
+	},
+	rock = {
+		absorption = {0.02, 0.03, 0.05},
+		scattering = {0.10, 0.30, 0.50},
+		density = 2600,
+		surface_mass = 260,
+		rain = {0.6, 1.0, 1.2},
+		wind = {0, 0, 0},
+	},
+	stone = {
+		absorption = {0.02, 0.03, 0.04},
+		scattering = {0.05, 0.15, 0.30},
+		density = 2500,
+		surface_mass = 250,
+		rain = {0.6, 1.0, 1.2},
+		wind = {0, 0, 0},
+	},
+	asphalt = {
+		absorption = {0.03, 0.04, 0.06},
+		scattering = {0.05, 0.10, 0.20},
+		density = 2300,
+		surface_mass = 230,
+		rain = {0.6, 1.0, 1.2},
+		wind = {0, 0, 0},
+	},
+	carpet = {
+		absorption = {0.06, 0.45, 0.65},
+		scattering = {0.05, 0.10, 0.20},
+		density = 1500,
+		surface_mass = 20,
+		rain = {0.2, 0.3, 0.2},
+		wind = {0, 0, 0},
+	},
+	gravel = {
+		absorption = {0.25, 0.60, 0.70},
+		scattering = {0.10, 0.40, 0.70},
+		density = 1700,
+		surface_mass = 170,
+		rain = {0.5, 0.8, 1.0},
+		wind = {0, 0, 0},
+	},
+	paper = {
+		absorption = {0.10, 0.20, 0.30},
+		scattering = {0.05, 0.10, 0.20},
+		density = 800,
+		surface_mass = 20,
+		rain = {0.6, 0.8, 0.6},
+		wind = {0, 0, 0},
+	},
+	cardboard = {
+		absorption = {0.60, 0.25, 0.30},
+		scattering = {0.05, 0.10, 0.20},
+		density = 300,
+		surface_mass = 1,
+		rain = {0.6, 0.8, 0.6},
+		wind = {0, 0, 0},
+	},
+	plastic = {
+		absorption = {0.25, 0.05, 0.07},
+		scattering = {0.05, 0.05, 0.10},
+		density = 1000,
+		surface_mass = 3,
+		rain = {1.0, 1.8, 2.0},
+		wind = {0, 0, 0},
+	},
+	rubber = {
+		absorption = {0.10, 0.08, 0.10},
+		scattering = {0.05, 0.10, 0.15},
+		density = 1200,
+		surface_mass = 6,
+		rain = {0.5, 0.8, 0.8},
+		wind = {0, 0, 0},
+	},
+	metal = {
+		absorption = {0.02, 0.02, 0.03},
+		scattering = {0.05, 0.05, 0.10},
+		density = 300,
+		surface_mass = 15,
+		rain = {1.5, 2.5, 3.0},
+		wind = {0, 0, 0},
+	},
+	grate = {
+		absorption = {0.40, 0.50, 0.50},
+		scattering = {0.10, 0.30, 0.50},
+		density = 100,
+		surface_mass = 2,
+		rain = {1.0, 1.5, 2.0},
+		wind = {0.2, 0.4, 0.5},
+	},
+	chainlink = {
+		absorption = {0.90, 0.85, 0.85},
+		scattering = {0.10, 0.30, 0.50},
+		density = 10,
+		surface_mass = 0.3,
+		rain = {0.3, 0.5, 0.8},
+		wind = {0.3, 0.6, 0.8},
+	},
+	glass = {
+		absorption = {0.08, 0.03, 0.02},
+		scattering = {0.02, 0.03, 0.05},
+		density = 250,
+		surface_mass = 10,
+		rain = {0.8, 1.5, 2.0},
+		wind = {0, 0, 0},
+	},
+	water = {
+		absorption = {0.01, 0.01, 0.02},
+		scattering = {0.02, 0.05, 0.10},
+		density = 1000,
+		surface_mass = 100,
+		rain = {0.8, 1.0, 1.5},
+		wind = {0, 0, 0},
+	},
+	cloth = {
+		absorption = {0.90, 0.55, 0.70},
+		scattering = {0.10, 0.20, 0.40},
+		density = 50,
+		surface_mass = 0.3,
+		rain = {0.3, 0.5, 0.4},
+		wind = {0.6, 0.8, 0.6},
+	},
+	upholstery = {
+		absorption = {0.25, 0.60, 0.70},
+		scattering = {0.10, 0.30, 0.50},
+		density = 100,
+		surface_mass = 3,
+		rain = {0.2, 0.3, 0.2},
+		wind = {0, 0, 0},
+	},
+	mattress = {
+		absorption = {0.25, 0.65, 0.70},
+		scattering = {0.10, 0.30, 0.50},
+		density = 100,
+		surface_mass = 10,
+		rain = {0.2, 0.3, 0.2},
+		wind = {0, 0, 0},
+	},
+	foliage = {
+		absorption = {0.90, 0.30, 0.50},
+		scattering = {0.30, 0.60, 0.80},
+		density = 20,
+		surface_mass = 0.3,
+		rain = {0.6, 1.2, 1.8},
+		wind = {0.5, 1.0, 1.5},
+	},
+	tree = {
+		absorption = {0.10, 0.25, 0.40},
+		scattering = {0.20, 0.40, 0.60},
+		density = 700,
+		surface_mass = 200,
+		rain = {0.4, 0.6, 0.6},
+		wind = {0.6, 0.6, 0.3},
+	},
+	flesh = {
+		absorption = {0.10, 0.30, 0.50},
+		scattering = {0.10, 0.30, 0.50},
+		density = 1000,
+		surface_mass = 50,
+		rain = {0.3, 0.5, 0.5},
+		wind = {0, 0, 0},
+	},
+	open = {
+		absorption = {1, 1, 1},
+		scattering = {0, 0, 0},
+		density = 0,
+		surface_mass = 0,
+		rain = {0, 0, 0},
+		wind = {0, 0, 0},
+	},
 }
+
+do
+	local transmission = {}
+
+	for name, class in pairs(ACOUSTIC) do
+		acoustics.ChainTransmission(1, {class.surface_mass}, {1}, {0}, 343, transmission, true)
+
+		for b = 1, 3 do
+			if class.absorption[b] < transmission[b] then
+				error(
+					(
+						"acoustic class %s reflects more than it can: absorption %.3f is below its transmission %.3f in band %d"
+					):format(name, class.absorption[b], transmission[b], b)
+				)
+			end
+		end
+	end
+end
+
 local ACOUSTIC_ALIASES = {
 	solidmetal = "metal",
 	metalgrate = "grate",
@@ -544,7 +789,7 @@ do
 
 		name = name:lower()
 
-		if ACOUSTIC_ABSORPTION[name] then return name end
+		if ACOUSTIC[name] then return name end
 
 		if ACOUSTIC_ALIASES[name] then return ACOUSTIC_ALIASES[name] end
 
@@ -558,7 +803,7 @@ do
 
 		while type(prop) == "table" do
 			local name = prop.surfaceprop_name:lower()
-			local class = ACOUSTIC_ABSORPTION[name] and name or ACOUSTIC_ALIASES[name]
+			local class = ACOUSTIC[name] and name or ACOUSTIC_ALIASES[name]
 
 			if class then return class end
 
@@ -1012,10 +1257,16 @@ do
 		local shader = ctx.shader
 		self:SetMetallicMultiplier(0)
 		self:SetFlammability(FLAMMABILITY[class] or FLAMMABILITY[ctx.family] or 0.3)
-		local absorption = ACOUSTIC_ABSORPTION[get_acoustic_class(self, vmt)]
+		local acoustic = ACOUSTIC[get_acoustic_class(self, vmt)]
 
-		if absorption then
-			self:SetAcousticAbsorption(Vec3(absorption[1], absorption[2], absorption[3]))
+		if acoustic then
+			local a, sc, r, w = acoustic.absorption, acoustic.scattering, acoustic.rain, acoustic.wind
+			self:SetAcousticAbsorption(Vec3(a[1], a[2], a[3]))
+			self:SetAcousticScattering(Vec3(sc[1], sc[2], sc[3]))
+			self:SetAcousticDensity(acoustic.density)
+			self:SetAcousticSurfaceMass(acoustic.surface_mass)
+			self:SetAcousticRainEmission(Vec3(r[1], r[2], r[3]))
+			self:SetAcousticWindEmission(Vec3(w[1], w[2], w[3]))
 		end
 
 		self:SetSurfaceType(self.model_surfaceprop or class or "default")

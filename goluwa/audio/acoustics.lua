@@ -11,6 +11,11 @@ acoustics.SCATTERING = 0.2
 acoustics.FRESNEL_CLEARANCE = 0.6
 acoustics.TRANSMISSION = {0.05, 0.02, 0.008}
 acoustics.DEFAULT_ABSORPTION = {0.06, 0.10, 0.16}
+acoustics.RHO_C = 413
+acoustics.RHO_C2 = 141600
+acoustics.MAX_INCIDENCE = math.rad(78)
+acoustics.FIELD_SAMPLES = 6
+acoustics.BAND_EDGES = {{50, 500}, {500, 4000}, {4000, 16000}}
 acoustics.MAX_REFLECTORS = 10
 acoustics.MIN_REFLECTOR_AREA = 0.5
 acoustics.MIN_REFLECTOR_HITS = 3
@@ -35,6 +40,104 @@ local MAX_TAPS = 8
 
 function acoustics.AirEnergyPerMeter(band)
 	return spatial.AIR_ABSORPTION_DB[band] * LN10_OVER_10
+end
+
+function acoustics.NewMaterial(absorption, scattering, density, surface_mass, rain, wind)
+	return {
+		absorption = {absorption[1], absorption[2], absorption[3]},
+		scattering = {scattering[1], scattering[2], scattering[3]},
+		density = density,
+		surface_mass = surface_mass,
+		rain = {rain[1], rain[2], rain[3]},
+		wind = {wind[1], wind[2], wind[3]},
+	}
+end
+
+acoustics.DEFAULT_MATERIAL = acoustics.NewMaterial({0.06, 0.10, 0.16}, {0.1, 0.2, 0.3}, 1500, 20, {0.6, 0.8, 0.9}, {0, 0, 0})
+
+do
+	local frequencies = {}
+
+	for b = 1, 3 do
+		local low, high = acoustics.BAND_EDGES[b][1], acoustics.BAND_EDGES[b][2]
+
+		for k = 1, 3 do
+			frequencies[(b - 1) * 3 + k] = low * (high / low) ^ ((k - 0.5) / 3)
+		end
+	end
+
+	acoustics.BAND_FREQUENCIES = frequencies
+
+	function acoustics.LimpTransmission(frequency, mass, cos_theta)
+		local x = math.pi * frequency * mass * cos_theta / acoustics.RHO_C
+		return 1 / (1 + x * x)
+	end
+
+	local limp = acoustics.LimpTransmission
+
+	local function chain(frequency, count, mass, cosines, gaps, cos_override, speed)
+		local min_cos = math.cos(acoustics.MAX_INCIDENCE)
+		local c = math.max(cos_override or cosines[1], min_cos)
+		local total = mass[1]
+		local tau = limp(frequency, total, c)
+
+		for i = 2, count do
+			c = math.max(cos_override or cosines[i], min_cos)
+			local m = mass[i]
+			local combined = tau * limp(frequency, total + m, c) / limp(frequency, total, c)
+			local gap = gaps[i]
+
+			if gap > 0 and total > 0 and m > 0 then
+				local resonance = math.sqrt(acoustics.RHO_C2 * (total + m) / (gap * total * m)) / (2 * math.pi)
+
+				if frequency > resonance then
+					local coupling = math.min(4 * math.pi * frequency * gap / speed, 2)
+					tau = math.min(tau * limp(frequency, m, c) / (coupling * coupling), combined)
+				else
+					tau = combined
+				end
+			else
+				tau = combined
+			end
+
+			total = total + m
+		end
+
+		return tau
+	end
+
+	function acoustics.ChainTransmission(count, mass, cosines, gaps, speed, out, field)
+		local u_max = 1 - math.cos(acoustics.MAX_INCIDENCE) ^ 2
+		local samples = acoustics.FIELD_SAMPLES
+
+		for b = 1, 3 do
+			local sum = 0
+
+			for k = 1, 3 do
+				local frequency = frequencies[(b - 1) * 3 + k]
+
+				if field then
+					for i = 1, samples do
+						sum = sum + chain(
+								frequency,
+								count,
+								mass,
+								cosines,
+								gaps,
+								math.sqrt(1 - u_max * (i - 0.5) / samples),
+								speed
+							) / samples
+					end
+				else
+					sum = sum + chain(frequency, count, mass, cosines, gaps, nil, speed)
+				end
+			end
+
+			out[b] = sum / 3
+		end
+
+		return out
+	end
 end
 
 function acoustics.NewStats()
