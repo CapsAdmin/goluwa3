@@ -585,7 +585,8 @@ function convex_hull.BuildFromTriangles(source, epsilon)
 end
 
 do
-	local MAX_HULL_POINTS = 32
+	local MAX_HULL_POINTS = 64
+	local TIE_EPSILON = 0.001
 	local DIRECTIONS = {}
 
 	for x = -1, 1 do
@@ -608,17 +609,21 @@ do
 
 		if #points > MAX_HULL_POINTS then
 			local extremes = {}
+			local added = {}
 
 			for _, direction in ipairs(DIRECTIONS) do
-				local best, best_dot = nil, -math.huge
+				local best_dot = -math.huge
 
 				for _, point in ipairs(points) do
-					local dot = point:Dot(direction)
-
-					if dot > best_dot then best, best_dot = point, dot end
+					best_dot = math.max(best_dot, point:Dot(direction))
 				end
 
-				extremes[#extremes + 1] = best
+				for _, point in ipairs(points) do
+					if not added[point] and point:Dot(direction) >= best_dot - TIE_EPSILON then
+						added[point] = true
+						extremes[#extremes + 1] = point
+					end
+				end
 			end
 
 			points = extremes

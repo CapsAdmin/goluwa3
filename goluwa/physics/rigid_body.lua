@@ -298,6 +298,16 @@ function RigidBody:Initialize()
 end
 
 function RigidBody:OnMotionTypeChanged()
+	if
+		self.ShapeModelPath ~= "" and
+		self.shape_model_static ~= nil and
+		self.shape_model_static ~= (
+			self.MotionType == "static"
+		)
+	then
+		self:LoadShapeModel()
+	end
+
 	self:RefreshMassProperties()
 	islands.RemoveBody(self)
 	self:OnActivityChanged()
@@ -583,18 +593,54 @@ function RigidBody:LoadShapeModel()
 			end
 
 			local children = model.physics.children
+			self.shape_model_static = self.MotionType == "static"
 
-			if self.MotionType ~= "static" then
+			if self.shape_model_static then
+				self.CenterOffset = nil
+			else
+				local weighted = Vec3(0, 0, 0)
+				local total = 0
 				children = {}
 
 				for i, child in ipairs(model.physics.children) do
-					children[i] = child.Polygon3D and
-						ConvexHull.FromPolygon3D(child.Polygon3D) or
-						child
+					child = child.Polygon3D and ConvexHull.FromPolygon3D(child.Polygon3D) or child
+					children[i] = child
+					local hull = child.ConvexHull
+					local weight = hull and
+						(
+							hull.bounds_max.x - hull.bounds_min.x
+						) * (
+							hull.bounds_max.y - hull.bounds_min.y
+						) * (
+							hull.bounds_max.z - hull.bounds_min.z
+						)
+						or
+						1
+					weighted = weighted + (child.Position or Vec3(0, 0, 0)) * weight
+					total = total + weight
 				end
+
+				local center = weighted / total
+				local scale = self.Owner.transform and self.Owner.transform.temp_scale
+
+				for i, child in ipairs(children) do
+					child = table.shallow_copy(child)
+					child.Position = (child.Position or Vec3(0, 0, 0)) - center
+					children[i] = child
+				end
+
+				self.CenterOffset = scale and
+					Vec3(center.x * scale.x, center.y * scale.y, center.z * scale.z) or
+					center
 			end
 
 			self:SetShapes(children)
+
+			if self.Owner.transform then
+				self:SynchronizeFromTransform()
+				self.StepStartPosition:CopyFrom(self.Position)
+				self.StepStartRotation:CopyFrom(self.Rotation)
+			end
 
 			if self.sleep_after_shapes then
 				self.sleep_after_shapes = nil
