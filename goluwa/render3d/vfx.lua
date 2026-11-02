@@ -951,7 +951,7 @@ do
 	local LIGHT_COUNT = 6
 	local lights = {}
 
-	function vfx.Flash(position, color, lumen, duration)
+	function vfx.Flash(position, color, lumen, duration, options)
 		local pick
 
 		for i = 1, LIGHT_COUNT do
@@ -964,7 +964,18 @@ do
 					light_point = {Range = 12, OcclusionMap = false, Lumen = 0},
 				}
 				entity:SetTransient(true)
-				light = {entity = entity, time = 0, duration = 0, lumen = 0}
+				light = {
+					entity = entity,
+					time = 0,
+					duration = 0,
+					lumen = 0,
+					color = Color(1, 1, 1, 1),
+					x = 0,
+					y = 0,
+					z = 0,
+					flip = false,
+					positions = {Vec3(), Vec3()},
+				}
 				lights[i] = light
 			end
 
@@ -973,19 +984,75 @@ do
 			end
 		end
 
+		pick.x, pick.y, pick.z = position.x, position.y, position.z
 		pick.entity.transform:SetPosition(position:Copy())
-		pick.entity.light_point:SetColor(Color(color.r, color.g, color.b, 1))
+		pick.velocity = options and options.Velocity
 		pick.time = 0
 		pick.duration = duration
 		pick.lumen = lumen
+		pick.start = color
+		pick.finish = options and options.ColorEnd or color
+		pick.attack = options and options.Attack or 0
+		pick.falloff = options and options.Falloff or 2
+		pick.flicker = options and options.Flicker or 0
+		pick.sustain = options and options.Sustain or 1
+		pick.sustain_time = options and options.SustainTime or 0
+		pick.seed = math.random() * 100
+		pick.entity.light_point:SetRange(options and options.Range or 12)
+		pick.radius = options and options.SourceRadius or 0
+		pick.radius_end = options and options.SourceRadiusEnd or pick.radius
+		pick.entity.light_point:SetSourceRadius(pick.radius)
+		pick.entity.light_point:SetOcclusionMap(options and options.Shadows or false)
+		pick.entity.light_point:SetColor(pick.color:Set(color.r, color.g, color.b, 1))
 	end
 
 	event.AddListener("Update", "vfx_flash_lights", function(dt)
 		for _, light in ipairs(lights) do
 			if light.time < light.duration then
-				light.time = light.time + dt
-				local f = math.max(1 - light.time / light.duration, 0)
-				light.entity.light_point:SetLumen(light.lumen * f * f)
+				light.time = math.min(light.time + dt, light.duration)
+				local t = light.time / light.duration
+				local f = t < light.attack and t / light.attack or (1 - t) ^ light.falloff
+
+				if light.sustain < 1 then
+					f = f * (
+							light.sustain + (
+								1 - light.sustain
+							) * (
+								1 - math.smoothstep(0, light.sustain_time, t)
+							)
+						)
+				end
+
+				if light.flicker > 0 then
+					f = f * (1 - light.flicker * (0.5 + 0.5 * math.sin(light.time * 60 + light.seed)))
+				end
+
+				local start, finish = light.start, light.finish
+				local k = math.sqrt(t)
+				local point = light.entity.light_point
+				point:SetColor(
+					light.color:Set(
+						start.r + (finish.r - start.r) * k,
+						start.g + (finish.g - start.g) * k,
+						start.b + (finish.b - start.b) * k,
+						1
+					)
+				)
+				point:SetLumen(light.lumen * f)
+
+				if light.radius_end ~= light.radius then
+					point:SetSourceRadius(light.radius + (light.radius_end - light.radius) * (1 - (1 - t) ^ 2))
+				end
+
+				local velocity = light.velocity
+
+				if velocity then
+					light.x, light.y, light.z = light.x + velocity.x * dt, light.y + velocity.y * dt, light.z + velocity.z * dt
+					light.flip = not light.flip
+					local position = light.positions[light.flip and 1 or 2]
+					position:Set(light.x, light.y, light.z)
+					light.entity.transform:SetPosition(position)
+				end
 			end
 		end
 	end)
