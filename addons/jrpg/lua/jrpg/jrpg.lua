@@ -31,6 +31,7 @@ jrpg.Loadout = {
 	"weapon_greatsword",
 	"weapon_rapier",
 	"weapon_reaper",
+	"weapon_shovel",
 	"weapon_shield",
 	"weapon_debug",
 }

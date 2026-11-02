@@ -100,7 +100,7 @@ local VICTIM_BONES = {
 }
 
 T.Test("every moveset move is a registered action and its hits are in order", function()
-	for _, name in ipairs{"sword", "greatsword", "rapier", "reaper"} do
+	for _, name in ipairs{"sword", "greatsword", "rapier", "reaper", "shovel"} do
 		local set = movesets.Get(name)
 		T(#set.Combo > 0)["=="](true)
 		T(set.Heavy ~= nil)["=="](true)
@@ -339,7 +339,7 @@ T.TestPhysics("the move preview scrubs every move of every moveset", function()
 	}
 	local count = 0
 
-	for _, name in ipairs{"sword", "greatsword", "rapier", "reaper"} do
+	for _, name in ipairs{"sword", "greatsword", "rapier", "reaper", "shovel"} do
 		for _, move in pairs(movesets.Get(name).Moves) do
 			local preview = move_preview.Start(attacker, victim, move)
 

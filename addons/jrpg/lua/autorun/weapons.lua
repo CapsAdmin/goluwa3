@@ -7,12 +7,12 @@ import("lua/jrpg/stagger.lua")
 weapons.AddRootComponent("item_highlight", {})
 keyframes.AddPoses(import("lua/jrpg/movesets/poses.lua"))
 
-for _, name in ipairs{"sword", "greatsword", "rapier", "reaper"} do
+for _, name in ipairs{"sword", "greatsword", "rapier", "reaper", "shovel"} do
 	local path = "lua/jrpg/movesets/" .. name .. ".lua"
 	movesets.Register(name, import(path), path)
 end
 
-for _, name in ipairs{"sword", "greatsword", "rapier", "reaper", "shield", "debug"} do
+for _, name in ipairs{"sword", "greatsword", "rapier", "reaper", "shovel", "shield", "debug"} do
 	local definition = import("lua/weapons/" .. name .. ".lua")
 	weapons.Register(
 		"weapon_" .. name,

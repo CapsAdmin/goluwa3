@@ -11,7 +11,7 @@ local function find_row(rows, name)
 end
 
 T.Test("moveset source round trips through the text a save writes", function()
-	for _, name in ipairs{"sword", "greatsword", "rapier", "reaper"} do
+	for _, name in ipairs{"sword", "greatsword", "rapier", "reaper", "shovel"} do
 		local back = assert(loadstring(table.to_source(movesets.Source[name], {"Moves", "Keys"})))()
 		T(table.equal(back, movesets.Source[name]))["=="](true)
 	end
