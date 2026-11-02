@@ -178,11 +178,7 @@ function META:UpdateBeam()
 
 	if body and body:IsValid() then
 		local alpha = physics.GetInterpolationAlpha()
-		local grab = body:LocalToWorld(
-			tool.TargetPoint,
-			body:GetInterpolatedPosition(alpha),
-			body:GetInterpolatedRotation(alpha)
-		)
+		local grab = body:GetInterpolatedOrigin(alpha) + body:GetInterpolatedRotation(alpha):VecMul(tool.TargetPoint)
 		finish:Set(grab.x, grab.y, grab.z)
 		local forward = self.beam_forward
 		local reach = start:Distance(finish) * 0.5
@@ -382,7 +378,7 @@ function META:TryAcquireBody(cmd)
 	self.held_body = body
 	self.held_original_group = body:GetCollisionGroup()
 	body:SetCollisionGroup(usercmd.HELD_COLLISION_GROUP)
-	self.held_local_point = body:WorldToLocal(grab_point)
+	self.held_local_point = body:GetRotation():GetConjugated():VecMul(grab_point - body:GetOriginPosition())
 	self.held_distance = math.clamp(hit.distance or self.MinHoldDistance, self.MinHoldDistance, self.MaxGrabDistance)
 	self.held_rotation_offset = (cmd.aim:GetConjugated() * body:GetRotation()):GetNormalized()
 
@@ -403,7 +399,7 @@ function META:UpdateHeldBody(dt, cmd)
 
 	local origin = get_origin(self.Owner:GetParent())
 	local target_position = origin + cmd.aim:GetForward() * self.held_distance
-	local grab_position = body:LocalToWorld(self.held_local_point)
+	local grab_position = body:GetOriginPosition() + body:GetRotation():VecMul(self.held_local_point)
 	local offset = target_position - grab_position
 	local offset_length = offset:GetLength()
 	local target_velocity = Vec3()
@@ -479,7 +475,7 @@ function META:OnWeaponPredictThink(dt, cmd)
 
 	if body then
 		tool:SetTarget(body.Owner:GetGUID())
-		tool:SetTargetPoint(body:WorldToLocal(grab_point))
+		tool:SetTargetPoint(body:GetRotation():GetConjugated():VecMul(grab_point - body:GetOriginPosition()))
 	end
 end
 
