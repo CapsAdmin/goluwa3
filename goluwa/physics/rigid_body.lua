@@ -459,6 +459,9 @@ end
 
 function RigidBody:RebuildColliders()
 	self._SupportEntryList = nil
+	self.ColliderVersion = (self.ColliderVersion or 0) + 1
+	self.sweep_candidate_aabb_cache = nil
+	self:MarkTransformDirty()
 	local colliders = {}
 
 	for index, entry in ipairs(Collider.BuildEntries(self)) do

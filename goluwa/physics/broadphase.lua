@@ -76,6 +76,7 @@ local function store_entry_pose(entry, body)
 	local pp = body.PreviousPosition
 	local pr = body.PreviousRotation
 	entry.px, entry.py, entry.pz = p.x, p.y, p.z
+	entry.collider_version = body.ColliderVersion
 	entry.rx, entry.ry, entry.rz, entry.rw = r.x, r.y, r.z, r.w
 	entry.ppx, entry.ppy, entry.ppz = pp.x, pp.y, pp.z
 	entry.prx, entry.pry, entry.prz, entry.prw = pr.x, pr.y, pr.z, pr.w
@@ -86,7 +87,8 @@ local function is_entry_pose_current(entry, body)
 	local r = body.Rotation
 	local pp = body.PreviousPosition
 	local pr = body.PreviousRotation
-	return entry.px == p.x and
+	return entry.collider_version == body.ColliderVersion and
+		entry.px == p.x and
 		entry.py == p.y and
 		entry.pz == p.z and
 		entry.rx == r.x and
