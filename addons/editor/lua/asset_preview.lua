@@ -1,6 +1,9 @@
 local assets = import("goluwa/assets.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
+local fs = import("goluwa/filesystem/fs.lua")
+local vfs = import("goluwa/vfs.lua")
+local crypto = import("goluwa/crypto.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
@@ -12,10 +15,12 @@ local model_loader = import("goluwa/render3d/model_loader.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local previews = {}
 previews.RENDER_SIZE = 192
+previews.CACHE_VERSION = 1
 previews.MAX_RENDERED = 360
 previews.TEXTURE_BYTES = 256 * 1024 * 1024
 previews.MAX_LOADING = 6
 previews.STARTS_PER_FRAME = 2
+previews.CACHED_STARTS_PER_FRAME = 24
 previews.RENDERS_PER_FRAME = 2
 previews.TIMEOUT = 15
 previews.frame = previews.frame or 0
@@ -46,6 +51,38 @@ local function get_kind(entry)
 	if entry.category == "prefabs" and RENDER_3D then return "prefab" end
 
 	return "none"
+end
+
+function previews.IsCacheable(entry)
+	return entry.category == "prefabs" or not entry.path:ends_with(".lua")
+end
+
+do
+	local directory
+
+	function previews.GetCachePath(entry)
+		directory = directory or vfs.GetStorageDirectory("cache") .. "asset_previews/"
+		local source = entry.lower_path
+
+		if entry.category == "prefabs" then
+			local names = {entry.name}
+
+			for name in pairs(prefab.GetDependencies(entry.name)) do
+				names[#names + 1] = name
+			end
+
+			table.sort(names)
+
+			for i, name in ipairs(names) do
+				names[i] = name .. prefab.Encode(prefab.Get(name))
+			end
+
+			source = "prefab|" .. table.concat(names, "|")
+		end
+
+		local sha = crypto.SHA1(previews.CACHE_VERSION .. "|" .. previews.RENDER_SIZE .. "|" .. source)
+		return directory .. ("%02x"):rep(20):format(sha:byte(1, 20)) .. ".png"
+	end
 end
 
 local function fail(state, reason)
@@ -215,13 +252,13 @@ local function step_texture(state, now)
 	local entry = state.entry
 
 	if not state.texture then
-		if entry.kind == "lua" or entry.source == "virtual" then
+		if not state.cache_path and (entry.kind == "lua" or entry.source == "virtual") then
 			state.texture = assets.GetTexture(entry.path)
 		else
 			state.texture = Texture.New{
-				path = entry.path,
+				path = state.cache_path or entry.path,
 				srgb = true,
-				cache_key = "asset_preview|" .. entry.lower_path .. "|" .. state.id,
+				cache_key = "asset_preview|" .. (state.cache_path or entry.lower_path) .. "|" .. state.id,
 			}
 			state.owned = true
 		end
@@ -255,6 +292,15 @@ local function step_texture(state, now)
 	if state.owned and texture.image == Texture.GetFallback().image then
 		state.texture = nil
 		state.owned = false
+
+		if state.cache_path then
+			os.remove(state.cache_path)
+			state.cache_path = nil
+			state.kind = state.entry.category == "prefabs" and "prefab" or "model"
+			state.status = "queued"
+			return false
+		end
+
 		fail(state, "failed to decode texture")
 		return false
 	end
@@ -274,6 +320,24 @@ local function step_texture(state, now)
 	end
 
 	return false
+end
+
+local function try_cached(state, now, budget)
+	local entry = state.entry
+
+	if not previews.IsCacheable(entry) or budget.cached_starts <= 0 then
+		return false
+	end
+
+	budget.cached_starts = budget.cached_starts - 1
+	state.save_path = previews.GetCachePath(entry)
+
+	if not fs.exists(state.save_path) then return false end
+
+	budget.starts = budget.starts + 1
+	state.cache_path = state.save_path
+	state.kind = "texture"
+	return true
 end
 
 local function collect_model_info(state, visual)
@@ -334,6 +398,10 @@ local function step_model(state, now, budget)
 	local entry = state.entry
 
 	if not state.entity then
+		if try_cached(state, now, budget) then return step_texture(state, now) end
+
+		if budget.starts <= 0 then return false end
+
 		if loading.model_count >= previews.MAX_LOADING then return false end
 
 		local owns_model_cache = entry.kind ~= "lua" and not model_loader.model_cache[entry.path]
@@ -375,10 +443,9 @@ local function step_model(state, now, budget)
 		return false
 	end
 
-	if
-		not previews.AreModelMaterialsReady(visual) and
-		now - state.started < previews.TIMEOUT
-	then
+	local materials_ready = previews.AreModelMaterialsReady(visual)
+
+	if not materials_ready and now - state.started < previews.TIMEOUT then
 		return false
 	end
 
@@ -395,6 +462,11 @@ local function step_model(state, now, budget)
 	render.preview:Refresh()
 	render.preview:SetTarget(nil)
 	finish_render(state, render)
+
+	if materials_ready and state.save_path then
+		render.preview:GetTexture():Save(state.save_path)
+	end
+
 	cleanup_model_job(state)
 	loading.model_count = loading.model_count - 1
 	return true
@@ -443,6 +515,10 @@ local function step_prefab(state, now, budget)
 	local entry = state.entry
 
 	if not state.entity then
+		if try_cached(state, now, budget) then return step_texture(state, now) end
+
+		if budget.starts <= 0 then return false end
+
 		if loading.model_count >= previews.MAX_LOADING then return false end
 
 		local ok, entity, visuals = pcall(previews.CreatePrefabEntity, entry.name, entry.inputs)
@@ -483,6 +559,11 @@ local function step_prefab(state, now, budget)
 	render.preview:SetTarget(nil)
 	state.visuals = nil
 	finish_render(state, render)
+
+	if ready and state.save_path then
+		render.preview:GetTexture():Save(state.save_path)
+	end
+
 	cleanup_model_job(state)
 	loading.model_count = loading.model_count - 1
 	return true
@@ -715,7 +796,11 @@ function previews.Update()
 	next_wanted = wanted
 	wanted = frame_wanted
 	list.clear(next_wanted)
-	local budget = {starts = previews.STARTS_PER_FRAME, renders = previews.RENDERS_PER_FRAME}
+	local budget = {
+		starts = previews.STARTS_PER_FRAME,
+		cached_starts = previews.CACHED_STARTS_PER_FRAME,
+		renders = previews.RENDERS_PER_FRAME,
+	}
 
 	for i = #inflight, 1, -1 do
 		local state = inflight[i]
@@ -725,7 +810,18 @@ function previews.Update()
 	end
 
 	for _, state in ipairs(wanted) do
-		if state.status == "queued" and budget.starts > 0 then
+		if
+			state.status == "queued" and
+			(
+				budget.starts > 0 or
+				(
+					state.kind == "model" or
+					state.kind == "prefab"
+				)
+				and
+				budget.cached_starts > 0
+			)
+		then
 			if steps[state.kind](state, now, budget) then
 				budget.starts = budget.starts - 1
 				inflight[#inflight + 1] = state
