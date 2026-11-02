@@ -16,8 +16,13 @@ local BAND_NAMES = {"low", "mid", "high"}
 local BAND_COLORS = {Color(1, 0.55, 0.25, 1), Color(0.95, 0.9, 0.35, 1), Color(0.45, 0.8, 1, 1)}
 local TEXT_DIM = Color(0.55, 0.6, 0.7, 1)
 local UP = Vec3(0, 1, 0)
-local MAP_WIDTH, MAP_HEIGHT = 270, 330
-local DECAY_HEIGHT = 130
+local MAP_WIDTH, MAP_HEIGHT = 270, 200
+local DECAY_HEIGHT = 90
+local LEVEL_HEIGHT = 190
+local HISTORY_SECONDS = 10
+local HISTORY_SIZE = 600
+local history = {}
+local history_at = 0
 local BLOCK_SECONDS = 512 / 44100
 local show_world = false
 
@@ -25,6 +30,12 @@ local function db(amplitude)
 	if amplitude <= 0 then return "-inf" end
 
 	return string.format("%.0f dB", 20 * math.log10(amplitude))
+end
+
+local function dbfs(amplitude)
+	if amplitude < 1e-6 then return "silent" end
+
+	return string.format("%.0f dBFS", 20 * math.log10(amplitude))
 end
 
 local function sound_name(sound)
@@ -91,6 +102,72 @@ local function build_rows()
 		label = "cost",
 		value = string.format("gpu %.2f ms", gpu_timing.GetMilliseconds("audio_acoustics") or 0),
 		detail = string.format("mix %.0f%% core", debug_state.mix_seconds / BLOCK_SECONDS * 100),
+		color = "dim",
+	}
+	local state = audio.state
+	rows[#rows + 1] = {label = "output stage", color = "head"}
+	rows[#rows + 1] = {
+		label = "  dry (direct, reflections)",
+		value = dbfs(state.debug_dry_rms),
+		detail = "before ear and limiter",
+	}
+	local room_bus = state.buses[0]
+	rows[#rows + 1] = {
+		label = "  room reverb bus",
+		value = dbfs(state.debug_bus_rms[0]),
+		detail = string.format(
+			"t60 %.1f/%.1f/%.1f s, pre %.0f ms",
+			room_bus.t60[0],
+			room_bus.t60[1],
+			room_bus.t60[2],
+			room_bus.predelay * 1000
+		),
+	}
+	rows[#rows + 1] = {label = "  other space reverb bus", value = dbfs(state.debug_bus_rms[1])}
+	rows[#rows + 1] = {
+		label = "  mix before ear",
+		value = dbfs(state.debug_raw_rms),
+		detail = string.format("threshold %.0f dBFS", state.ear_threshold),
+	}
+	rows[#rows + 1] = {
+		label = "  ear reduction",
+		value = string.format("%.1f dB", state.debug_ear_reduction),
+		fraction = math.min(state.debug_ear_reduction / 36, 1),
+		color = state.debug_ear_reduction > 6 and "warn" or nil,
+	}
+	rows[#rows + 1] = {
+		label = "  limiter gain",
+		value = string.format("%.1f dB", 20 * math.log10(math.max(state.debug_limiter_gain, 1e-6))),
+		fraction = math.min(-20 * math.log10(math.max(state.debug_limiter_gain, 1e-6)) / 20, 1),
+		color = state.debug_limiter_gain < 0.7 and "warn" or nil,
+	}
+	rows[#rows + 1] = {
+		label = "  output peak",
+		value = dbfs(math.max(state.debug_output_peak_left, state.debug_output_peak_right)),
+		detail = string.format(
+			"master %.2f gain %+.0f dB %s",
+			state.master_volume,
+			20 * math.log10(state.output_gain),
+			({[0] = "limiter", "clip", "soft"})[state.output_mode]
+		),
+	}
+	local listener_position = audio.listener_position
+	local forward = audio.listener_forward
+	rows[#rows + 1] = {label = "listener and air", color = "head"}
+	rows[#rows + 1] = {
+		label = "  position",
+		value = string.format("%.1f %.1f %.1f", listener_position.x, listener_position.y, listener_position.z),
+		detail = string.format("facing %.2f %.2f %.2f", forward.x, forward.y, forward.z),
+	}
+	rows[#rows + 1] = {
+		label = "  wind",
+		value = string.format("%.1f %.1f %.1f m/s", audio.wind.x, audio.wind.y, audio.wind.z),
+		detail = string.format("c %.1f m/s", audio.speed_of_sound),
+	}
+	rows[#rows + 1] = {
+		label = "  turbulence, gradient",
+		value = string.format("%.1e", audio.turbulence),
+		detail = string.format("%.4f K/m", audio.temperature_gradient),
 		color = "dim",
 	}
 
@@ -171,6 +248,13 @@ local function build_rows()
 				string.format("%.0f ms", delay * 1000),
 		}
 		local senv = sound.audio_environment
+		local at = sound:GetPosition()
+		rows[#rows + 1] = {
+			label = "  at",
+			value = string.format("%.1f %.1f %.1f", at.x, at.y, at.z),
+			detail = string.format("level %.0f dB SPL", audio.VolumeToSPL(math.max(sound:GetMixVolume(), 1e-9))),
+			color = "dim",
+		}
 
 		if senv then
 			local o = senv.occlusion
@@ -221,6 +305,21 @@ local function build_rows()
 				detail = count > 0 and string.format("%.0f-%.0f ms", first * 1000, last * 1000) or nil,
 				color = count == 0 and "dim" or nil,
 			}
+			local refraction = sound.audio_refraction
+
+			if refraction then
+				rows[#rows + 1] = {
+					label = "  refraction",
+					value = string.format(
+						"%+.0f/%+.0f/%+.0f dB",
+						20 * math.log10(refraction[1]),
+						20 * math.log10(refraction[2]),
+						20 * math.log10(refraction[3])
+					),
+					detail = senv.ground_user and "ground filter" or nil,
+					color = "dim",
+				}
+			end
 		end
 	end
 
@@ -441,20 +540,151 @@ function DecayGraph:OnDraw()
 end
 
 DecayGraph:Register()
+local LevelGraph = Panel:CreateTemplate("audio_level_graph")
+LevelGraph.CMP.transform = {}
+LevelGraph.CMP.layout = {GrowWidth = 0, FitWidth = false, FitHeight = false}
+LevelGraph.CMP.visual = {}
+local LEVEL_TOP, LEVEL_BOTTOM = 30, -90
+local LEVEL_TRACES = {
+	{key = "dry", color = Color(0.95, 0.95, 0.95, 1), label = "dry"},
+	{key = "room", color = Color(1, 0.55, 0.25, 1), label = "room"},
+	{key = "other", color = Color(0.45, 0.8, 1, 1), label = "other"},
+	{key = "raw", color = Color(0.95, 0.9, 0.35, 1), label = "mix"},
+	{key = "peak", color = Color(0.5, 1, 0.5, 1), label = "out"},
+}
+
+local function to_db(amplitude)
+	return 20 * math.log10(math.max(amplitude, 1e-9))
+end
+
+event.AddListener("Update", "audio_level_history", function()
+	local state = audio.state
+	history_at = history_at % HISTORY_SIZE + 1
+	history[history_at] = {
+		dry = to_db(state.debug_dry_rms),
+		room = to_db(state.debug_bus_rms[0]),
+		other = to_db(state.debug_bus_rms[1]),
+		raw = to_db(state.debug_raw_rms),
+		peak = to_db(math.max(state.debug_output_peak_left, state.debug_output_peak_right)),
+		ear = state.debug_ear_reduction,
+		limiter = -to_db(state.debug_limiter_gain),
+	}
+end)
+
+local function sample(i)
+	return history[(history_at - (HISTORY_SIZE - i)) % HISTORY_SIZE + 1]
+end
+
+function LevelGraph.PropDefaults(_, props)
+	return {layout = {MinSize = props.Size, MaxSize = props.Size}}
+end
+
+function LevelGraph:OnDraw()
+	local size = self.transform:GetSize()
+	render2d.SetTexture(nil)
+	render2d.SetColor(0.03, 0.04, 0.07, 0.92)
+	render2d.DrawRoundedRect(0, 0, size.x, size.y, 10)
+	local x0, y0 = 12, 10
+	local w = size.x - 24
+	local level_h = size.y * 0.62
+	local gain_y = y0 + level_h + 22
+	local gain_h = size.y - gain_y - 22
+	render2d.SetColor(1, 1, 1, 0.1)
+
+	for level = LEVEL_TOP - 30, LEVEL_BOTTOM + 1, -30 do
+		render2d.DrawRect(x0, y0 + level_h * (LEVEL_TOP - level) / (LEVEL_TOP - LEVEL_BOTTOM), w, 1)
+	end
+
+	render2d.DrawRect(x0, y0 + level_h * LEVEL_TOP / (LEVEL_TOP - LEVEL_BOTTOM), w, 1)
+
+	for _, trace in ipairs(LEVEL_TRACES) do
+		render2d.SetColor(trace.color.r, trace.color.g, trace.color.b, 1)
+		local px, py
+
+		for i = 1, HISTORY_SIZE do
+			local entry = sample(i)
+
+			if entry then
+				local x = x0 + w * i / HISTORY_SIZE
+				local y = y0 + level_h * (
+						LEVEL_TOP - math.clamp(entry[trace.key], LEVEL_BOTTOM, LEVEL_TOP)
+					) / (
+						LEVEL_TOP - LEVEL_BOTTOM
+					)
+
+				if px then render2d.DrawLine(px, py, x, y, 1.5) end
+
+				px, py = x, y
+			end
+		end
+	end
+
+	for i, trace in ipairs(LEVEL_TRACES) do
+		render2d.DrawText{
+			text = trace.label,
+			x = x0 + (i - 1) * 44,
+			y = y0 + level_h + 10,
+			size = 11,
+			align_y = "cap_center",
+			foreground_color = trace.color,
+		}
+	end
+
+	render2d.SetColor(1, 1, 1, 0.1)
+	render2d.DrawRect(x0, gain_y, w, 1)
+	render2d.DrawRect(x0, gain_y + gain_h, w, 1)
+	local gain_colors = {ear = Color(1, 0.55, 0.25, 1), limiter = Color(1, 0.3, 0.3, 1)}
+
+	for key, color in pairs(gain_colors) do
+		render2d.SetColor(color.r, color.g, color.b, 1)
+		local px, py
+
+		for i = 1, HISTORY_SIZE do
+			local entry = sample(i)
+
+			if entry then
+				local x = x0 + w * i / HISTORY_SIZE
+				local y = gain_y + gain_h * math.clamp(entry[key], 0, 40) / 40
+
+				if px then render2d.DrawLine(px, py, x, y, 1.5) end
+
+				px, py = x, y
+			end
+		end
+	end
+
+	render2d.DrawText{
+		text = string.format(
+			"%d to %d dBFS, ear and limiter 0-40 dB, %d s",
+			LEVEL_TOP,
+			LEVEL_BOTTOM,
+			HISTORY_SECONDS
+		),
+		x = x0,
+		y = size.y - 10,
+		size = 10,
+		align_y = "cap_center",
+		foreground_color = TEXT_DIM,
+	}
+end
+
+LevelGraph:Register()
 local RoomMapElement = react.Element(RoomMap)
 local DecayGraphElement = react.Element(DecayGraph)
+local LevelGraphElement = react.Element(LevelGraph)
 perf.RegisterTab(
 	"AUDIO",
 	8,
 	react.Component(
 		||->ui.Row{layout = {ChildGap = 8}}{
 			ui.StatTable{
-				Size = Vec2(392, MAP_HEIGHT + DECAY_HEIGHT + 8),
+				Size = Vec2(392, MAP_HEIGHT + DECAY_HEIGHT + LEVEL_HEIGHT + 16),
 				Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL),
 			},
 			ui.Column{layout = {ChildGap = 8}}{
 				RoomMapElement{Size = Vec2(MAP_WIDTH, MAP_HEIGHT)},
 				DecayGraphElement{Size = Vec2(MAP_WIDTH, DECAY_HEIGHT)},
+				LevelGraphElement{Size = Vec2(MAP_WIDTH, LEVEL_HEIGHT)},
 			},
 		}
 	)
@@ -587,6 +817,16 @@ end)
 commands.Add("audio_debug", function()
 	show_world = not show_world
 	logn("audio world overlay ", show_world and "on" or "off")
+end)
+
+commands.Add("audio_record=number[10]", function(seconds)
+	local prefix = "storage/logs/audio_capture/" .. os.date("%H%M%S")
+	audio.StartCapture(seconds)
+	logn("recording the mixer output for ", seconds, " s to ", prefix, "_out/dry/rev.wav")
+
+	import("goluwa/timer.lua").Delay(seconds + 0.2, function()
+		logn("wrote ", audio.StopCapture(prefix), " s to ", prefix, "_out/dry/rev.wav")
+	end)
 end)
 
 commands.Add("audio_stats", function()
