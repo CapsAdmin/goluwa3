@@ -85,6 +85,7 @@ return {
 			Duration = 0.75,
 			Stamina = 16,
 			Approach = 1.2,
+			Land = 0.42,
 			Keys = {
 				{0, motion = {0, 0, 0, 0}},
 				{0.18, "overhead", ease = "out", hold = 0.08, body = {0, 0, 0, 0, 0.3}},
@@ -235,6 +236,7 @@ return {
 			Duration = 0.85,
 			Stamina = 20,
 			Approach = 0.8,
+			Land = 0.66,
 			Keys = {
 				{0, body = {0, 0, 0, 0, 0}, motion = {0, 0, 0, 0}},
 				{0.3, "overhead", ease = "out", body = {0, 0, 0, 0, -3.141592653589793}},

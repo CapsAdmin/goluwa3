@@ -172,6 +172,7 @@ return {
 			Duration = 0.8,
 			Stamina = 18,
 			Approach = 1.2,
+			Land = 0.44,
 			Keys = {
 				{0, motion = {0, 0, 0, 0}},
 				{0.18, "hook_high", ease = "out", hold = 0.06, body = {0, 0, 0, 0, 0.3}},
@@ -265,6 +266,7 @@ return {
 			Stamina = 16,
 			Approach = 0.6,
 			Hover = true,
+			Land = 0.45,
 			Keys = {
 				{0.2, motion = {0, 0, 0}},
 				{0.25, "hook_high", ease = "out", hold = 0.05},

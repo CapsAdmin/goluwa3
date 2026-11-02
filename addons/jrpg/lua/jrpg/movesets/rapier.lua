@@ -233,6 +233,7 @@ return {
 			Duration = 0.65,
 			Stamina = 14,
 			Approach = 1.2,
+			Land = 0.4,
 			Keys = {
 				{0, motion = {0, 0, 0, 0}},
 				{0.16, "en_garde", ease = "out", body = {0, 0, 0, 0, 0.2}},
@@ -278,6 +279,7 @@ return {
 			Duration = 0.6,
 			Stamina = 14,
 			Approach = 0.6,
+			Land = 0.46,
 			Keys = {
 				{0.2, motion = {0, 0, 0}},
 				{0.25, "en_garde", ease = "out", hold = 0.05},

@@ -109,6 +109,7 @@ return {
 			Stamina = 16,
 			Approach = 1,
 			Hover = true,
+			Land = 0.42,
 			Keys = {
 				{0.15, motion = {0, 0, 0, 0}},
 				{0.22, "overhead", ease = "out", hold = 0.06},

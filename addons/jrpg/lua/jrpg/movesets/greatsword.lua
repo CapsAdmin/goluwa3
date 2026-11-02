@@ -128,6 +128,7 @@ return {
 			Duration = 0.95,
 			Stamina = 26,
 			Approach = 1.4,
+			Land = 0.46,
 			Keys = {
 				{0, motion = {0, 0, 0, 0}},
 				{0.22, "raised", ease = "out", hold = 0.08, body = {0, 0, 0, 0, 0.35}},
@@ -191,6 +192,7 @@ return {
 			Stamina = 26,
 			Reach = 5,
 			Approach = 1.2,
+			Land = 0.74,
 			Keys = {
 				{0, motion = {0, 0, 0, 0}},
 				{0.12, "crouch_low", ease = "out", body = {0, 0, 0, 0, 0}},
@@ -342,6 +344,7 @@ return {
 			Duration = 0.85,
 			Stamina = 25,
 			Approach = 0.8,
+			Land = 0.5,
 			Keys = {
 				{0.2, motion = {0, 0, 0}},
 				{0.25, "raised", ease = "out", hold = 0.05},
