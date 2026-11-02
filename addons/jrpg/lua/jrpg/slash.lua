@@ -6,6 +6,9 @@ local effects = import("lua/jrpg/effects.lua")
 local slash = {}
 local SPRAY_TILT = 0.4
 local SPRAY_JITTER = 0.12
+local WORLD_SAMPLES = {-0.8, -0.4, 0, 0.4, 0.8}
+local WORLD_SPACING = 0.3
+local PROP_IMPULSE = 70
 
 local function to_attacker_side(normal, to_attacker)
 	normal = normal:GetNormalized()
@@ -128,6 +131,40 @@ function slash.Strike(
 		end
 	end
 
+	local world_points = {}
+
+	for _, sample in ipairs(WORLD_SAMPLES) do
+		local direction = (forward + cut * sample):GetNormalized()
+		local trace = damage.Sweep(center, direction * range, holder)
+		local struck = trace and trace.entity and damage.GetVictim(trace.entity)
+
+		if struck and not (struck.health and not struck.health:IsDead()) then
+			local fresh = true
+
+			for _, other in ipairs(world_points) do
+				if (other - trace.point):GetLength() < WORLD_SPACING then
+					fresh = false
+
+					break
+				end
+			end
+
+			if fresh then
+				world_points[#world_points + 1] = trace.point
+				effects.Impact(
+					trace.point,
+					trace.normal,
+					attributes[1] or type_name,
+					scale,
+					cut,
+					(cut + trace.normal * SPRAY_TILT):GetNormalized(),
+					amount
+				)
+				hit_any = true
+			end
+		end
+	end
+
 	for _, body in ipairs(RigidBody.Instances) do
 		local owner = body.Owner
 
@@ -139,8 +176,14 @@ function slash.Strike(
 				body:GetPosition() - strike
 			):GetLength() < range
 		then
-			body:ApplyImpulse(forward * 4 * scale / body.InverseMass ^ 0.5, body:GetPosition())
+			body:ApplyImpulse(forward * PROP_IMPULSE * scale / body.InverseMass ^ 0.5, body:GetPosition())
 			hit_any = true
+
+			if #attributes == 0 then effects.HitOverlay(owner, type_name) end
+
+			for _, name in ipairs(attributes) do
+				effects.HitOverlay(owner, name)
+			end
 		end
 	end
 
