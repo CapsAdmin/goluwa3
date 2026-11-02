@@ -84,6 +84,7 @@ function Rig.New(skeleton, parts)
 		self.flex_dirty = true
 	end
 
+	self.flex_scale = 1
 	self.eye_pitch = {}
 	return self
 end
@@ -100,6 +101,10 @@ function Rig:SetHeld(held)
 		self.held = nil
 		self.dirty = true
 	end
+end
+
+function Rig:IsHeld()
+	return self.held == true
 end
 
 function Rig:SetPose(pose)
@@ -194,6 +199,10 @@ function Rig:GetFlexNames()
 	return self.skeleton.Flex and self.skeleton.Flex.ControllerNames or {}
 end
 
+function Rig:HasFlex(name)
+	return self.flex_indices ~= nil and self.flex_indices[name] ~= nil
+end
+
 function Rig:GetFlexRange(name)
 	local flex = self.skeleton.Flex
 	local index = self.flex_indices[name] or error("unknown flex " .. name, 2)
@@ -203,6 +212,18 @@ end
 function Rig:GetFlex(name)
 	return self.flex_controllers[self.flex_indices[name] or
 	error("unknown flex " .. name, 2)]
+end
+
+function Rig:SetFlexScale(scale)
+	if self.held then return end
+
+	self.flex_scale = scale
+	self.flex_dirty = true
+	self.dirty = true
+end
+
+function Rig:GetFlexScale()
+	return self.flex_scale
 end
 
 function Rig:SetFlex(name, value)
@@ -260,6 +281,7 @@ function Rig:ComputeFlex()
 	end
 
 	local weights = self.morph_weights
+	local scale = self.flex_scale
 
 	for _, skinned in ipairs(self.skinned) do
 		local morph = skinned.morph
@@ -274,8 +296,8 @@ function Rig:ComputeFlex()
 				local w2 = entry.Pair ~= 0 and
 					flex_ramp(descriptors[entry.Pair], t[1], t[2], t[3], t[4]) or
 					w1
-				weights[o + i * 2 - 2] = w1
-				weights[o + i * 2 - 1] = w2
+				weights[o + i * 2 - 2] = w1 * scale
+				weights[o + i * 2 - 1] = w2 * scale
 
 				if w1 ~= 0 or w2 ~= 0 then active = true end
 			end
