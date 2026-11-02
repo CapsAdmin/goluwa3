@@ -562,9 +562,20 @@ T.Test("audio reverb bus decays at each band's own T60, also with sparse lines",
 	end
 end)
 
-local function box_tracer(min, max, absorption, budget, open_top)
+local function box_material(absorption, scattering)
+	return acoustics.NewMaterial(
+		{absorption, absorption, absorption},
+		scattering or {0.2, 0.2, 0.2},
+		acoustics.DEFAULT_MATERIAL.density,
+		acoustics.DEFAULT_MATERIAL.surface_mass,
+		{1, 1, 1},
+		{0, 0, 0}
+	)
+end
+
+local function box_tracer(min, max, absorption, budget, open_top, material)
 	local tracer = acoustics_cpu.New(budget)
-	local a = {absorption, absorption, absorption}
+	local a = material or box_material(absorption)
 
 	function tracer:Trace(ox, oy, oz, dx, dy, dz, tmin, tmax)
 		local best, nx, ny, nz = math.huge, 0, 0, 0
@@ -868,6 +879,46 @@ T.Test("audio wall transmission follows the mass law for one and two leaves", fu
 	end
 
 	T(math.abs(transmission_db(leaves, 3) + 10 * math.log10(expected)))["<="](0.01)
+end)
+
+T.Test("audio acoustics per band scattering keeps the decay of each band", function()
+	with_offline_mixer(function(ctx)
+		local W, H, D, alpha = 10, 4, 8, 0.1
+		audio.acoustics = acoustics.New(
+			audio,
+			box_tracer(
+				Vec3(-W / 2, 0, -D / 2),
+				Vec3(W / 2, H, D / 2),
+				alpha,
+				{
+					rays = 256,
+					bounces = 10,
+					samples = 128,
+					sources = 1,
+					fresnel = 2,
+					reflection_sources = 1,
+				},
+				false,
+				box_material(alpha, {0.05, 0.5, 0.95})
+			)
+		)
+		audio.SetListenerPosition(Vec3(1.3, 1.7, 0.6))
+
+		for _ = 1, 40 do
+			ctx.time = ctx.time + 1 / 60
+			audio.Update()
+		end
+
+		local V = W * H * D
+		local S = 2 * (W * H + W * D + H * D)
+
+		for band = 1, 3 do
+			local eyring = 0.161 * V / (
+					-S * math.log(1 - alpha) + 4 * acoustics.AirEnergyPerMeter(band) * V
+				)
+			T(math.abs(audio.acoustics.profile.t60[band] - eyring) / eyring)["<="](0.1)
+		end
+	end)
 end)
 
 T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the temperature", function()

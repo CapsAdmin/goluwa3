@@ -3,7 +3,6 @@ local physics = import("goluwa/physics.lua")
 local acoustics = import("goluwa/audio/acoustics.lua")
 local acoustics_cpu = {}
 local OPTIONS = {IncludeRigidBodies = true}
-local absorption = {0, 0, 0}
 
 local function is_static(entity)
 	local body = entity.rigid_body
@@ -33,16 +32,31 @@ function META:Trace(ox, oy, oz, dx, dy, dz, tmin, tmax)
 	if nx * dx + ny * dy + nz * dz > 0 then nx, ny, nz = -nx, -ny, -nz end
 
 	local material = physics.GetHitMaterial(hit)
+	local record = self.material
 
 	if material then
-		local a = material:GetAcousticAbsorption()
-		absorption[1], absorption[2], absorption[3] = a.x, a.y, a.z
+		acoustics.ReadMaterial(material, record)
 	else
-		local a = acoustics.DEFAULT_ABSORPTION
-		absorption[1], absorption[2], absorption[3] = a[1], a[2], a[3]
+		local default = acoustics.DEFAULT_MATERIAL
+
+		for b = 1, 3 do
+			record.absorption[b] = default.absorption[b]
+			record.scattering[b] = default.scattering[b]
+			record.rain[b] = default.rain[b]
+			record.wind[b] = default.wind[b]
+		end
+
+		record.density = default.density
+		record.surface_mass = default.surface_mass
 	end
 
-	return hit.distance + tmin, nx, ny, nz, absorption
+	return hit.distance + tmin,
+	nx,
+	ny,
+	nz,
+	record,
+	hit.front_face,
+	hit.exit_distance and hit.exit_distance + tmin
 end
 
 function META:IsReady()
@@ -70,9 +84,18 @@ function META:Probe(listener, source, speed)
 end
 
 function acoustics_cpu.New(budget)
+	local default = acoustics.DEFAULT_MATERIAL
 	return setmetatable(
 		{
 			done = {},
+			material = acoustics.NewMaterial(
+				default.absorption,
+				default.scattering,
+				default.density,
+				default.surface_mass,
+				default.rain,
+				default.wind
+			),
 			budget = budget or
 				{
 					rays = 16,

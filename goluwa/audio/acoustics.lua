@@ -7,15 +7,15 @@ acoustics.TRACE_DISTANCE = 1000
 acoustics.LISTENER_CLEARANCE = 0.25
 acoustics.SOURCE_CLEARANCE = 0.3
 acoustics.SURFACE_OFFSET = 0.01
-acoustics.SCATTERING = 0.2
 acoustics.FRESNEL_CLEARANCE = 0.6
 acoustics.TRANSMISSION = {0.05, 0.02, 0.008}
-acoustics.DEFAULT_ABSORPTION = {0.06, 0.10, 0.16}
 acoustics.RHO_C = 413
 acoustics.RHO_C2 = 141600
 acoustics.MAX_INCIDENCE = math.rad(78)
 acoustics.FIELD_SAMPLES = 6
 acoustics.BAND_EDGES = {{50, 500}, {500, 4000}, {4000, 16000}}
+acoustics.MIN_SCATTER_PROBABILITY = 0.05
+acoustics.SAMPLE_FLOATS = 14
 acoustics.MAX_REFLECTORS = 10
 acoustics.MIN_REFLECTOR_AREA = 0.5
 acoustics.MIN_REFLECTOR_HITS = 3
@@ -54,6 +54,20 @@ function acoustics.NewMaterial(absorption, scattering, density, surface_mass, ra
 end
 
 acoustics.DEFAULT_MATERIAL = acoustics.NewMaterial({0.06, 0.10, 0.16}, {0.1, 0.2, 0.3}, 1500, 20, {0.6, 0.8, 0.9}, {0, 0, 0})
+
+function acoustics.ReadMaterial(material, out)
+	local a = material:GetAcousticAbsorption()
+	local s = material:GetAcousticScattering()
+	local r = material:GetAcousticRainEmission()
+	local w = material:GetAcousticWindEmission()
+	out.absorption[1], out.absorption[2], out.absorption[3] = a.x, a.y, a.z
+	out.scattering[1], out.scattering[2], out.scattering[3] = s.x, s.y, s.z
+	out.rain[1], out.rain[2], out.rain[3] = r.x, r.y, r.z
+	out.wind[1], out.wind[2], out.wind[3] = w.x, w.y, w.z
+	out.density = material:GetAcousticDensity()
+	out.surface_mass = material:GetAcousticSurfaceMass()
+	return out
+end
 
 do
 	local frequencies = {}
@@ -414,145 +428,166 @@ function acoustics.CosineDirection(nx, ny, nz, u1, u2)
 	tz * x + bz * y + nz * z
 end
 
-function acoustics.PathTrace(tracer, job, result)
-	local lx, ly, lz = job.listener.x, job.listener.y, job.listener.z
-	local speed = job.speed
-	local stats = result.stats
-	local random = job.random
-	local sources = job.sources
-	local source_count = #sources
-	local open = acoustics.OPEN_DISTANCE
-	local offset = acoustics.SURFACE_OFFSET
-	local clearance = acoustics.SOURCE_CLEARANCE
-	local air = {
-		acoustics.AirEnergyPerMeter(1),
-		acoustics.AirEnergyPerMeter(2),
-		acoustics.AirEnergyPerMeter(3),
-	}
+do
 	local w = {1, 1, 1}
+	local a, sc = {0, 0, 0}, {0, 0, 0}
+	local air = {0, 0, 0}
 
-	for ray = 0, job.rays - 1 do
-		local dx, dy, dz = acoustics.FibonacciDirection(ray, job.rays, job.rotation)
-		local ox, oy, oz = lx, ly, lz
-		local tmin = acoustics.LISTENER_CLEARANCE
-		local length = 0
-		w[1], w[2], w[3] = 1, 1, 1
-		stats.rays = stats.rays + 1
-		local escaped = false
+	function acoustics.PathTrace(tracer, job, result)
+		local lx, ly, lz = job.listener.x, job.listener.y, job.listener.z
+		local speed = job.speed
+		local stats = result.stats
+		local random = job.random
+		local sources = job.sources
+		local source_count = #sources
+		local open = acoustics.OPEN_DISTANCE
+		local offset = acoustics.SURFACE_OFFSET
+		local clearance = acoustics.SOURCE_CLEARANCE
+		local min_p = acoustics.MIN_SCATTER_PROBABILITY
+		local settled_bounce = math.floor(job.bounces / 2)
 
-		for bounce = 0, job.bounces - 1 do
-			local distance, nx, ny, nz, absorption = tracer:Trace(ox, oy, oz, dx, dy, dz, tmin, acoustics.TRACE_DISTANCE)
+		for b = 1, 3 do
+			air[b] = acoustics.AirEnergyPerMeter(b)
+		end
 
-			if bounce == 0 then
-				local d = math.min(distance or open, open)
-				stats.volume = stats.volume + 4 / 3 * math.pi * d * d * d
+		for ray = 0, job.rays - 1 do
+			local dx, dy, dz = acoustics.FibonacciDirection(ray, job.rays, job.rotation)
+			local ox, oy, oz = lx, ly, lz
+			local tmin = acoustics.LISTENER_CLEARANCE
+			local length = 0
+			w[1], w[2], w[3] = 1, 1, 1
+			stats.rays = stats.rays + 1
+			local escaped = false
 
-				if distance and ray < job.sample_count then
+			for bounce = 0, job.bounces - 1 do
+				local distance, nx, ny, nz, material = tracer:Trace(ox, oy, oz, dx, dy, dz, tmin, acoustics.TRACE_DISTANCE)
+
+				if bounce == 0 then
+					local d = math.min(distance or open, open)
+					stats.volume = stats.volume + 4 / 3 * math.pi * d * d * d
+				end
+
+				if not distance or distance > open then
+					stats.escapes = stats.escapes + 1
+					escaped = true
+
+					break
+				end
+
+				local hx, hy, hz = ox + dx * distance, oy + dy * distance, oz + dz * distance
+				a[1], a[2], a[3] = material.absorption[1], material.absorption[2], material.absorption[3]
+				sc[1], sc[2], sc[3] = material.scattering[1], material.scattering[2], material.scattering[3]
+
+				if bounce == 0 and ray < job.sample_count then
 					local s = result.samples
-					local at = #s
-					s[at + 1] = ox + dx * distance
-					s[at + 2] = oy + dy * distance
-					s[at + 3] = oz + dz * distance
-					s[at + 4] = nx
-					s[at + 5] = ny
-					s[at + 6] = nz
-					s[at + 7] = distance
-					s[at + 8] = math.abs(nx * dx + ny * dy + nz * dz)
-					s[at + 9] = absorption[1]
-					s[at + 10] = absorption[2]
-					s[at + 11] = absorption[3]
-				end
-			end
-
-			if not distance or distance > open then
-				stats.escapes = stats.escapes + 1
-				escaped = true
-
-				break
-			end
-
-			stats.hits = stats.hits + 1
-			stats.segment = stats.segment + distance
-			length = length + distance
-			local hx, hy, hz = ox + dx * distance, oy + dy * distance, oz + dz * distance
-			local settled = bounce >= math.floor(job.bounces / 2)
-
-			if settled then
-				for b = 1, 3 do
-					stats.settled_throughput[b] = stats.settled_throughput[b] + w[b]
-					stats.settled_length[b] = stats.settled_length[b] + w[b] * distance
-					stats.settled_path[b] = stats.settled_path[b] + w[b] * length
+					local n = #s
+					s[n + 1] = hx
+					s[n + 2] = hy
+					s[n + 3] = hz
+					s[n + 4] = nx
+					s[n + 5] = ny
+					s[n + 6] = nz
+					s[n + 7] = distance
+					s[n + 8] = math.abs(nx * dx + ny * dy + nz * dz)
+					s[n + 9] = a[1]
+					s[n + 10] = a[2]
+					s[n + 11] = a[3]
+					s[n + 12] = sc[1]
+					s[n + 13] = sc[2]
+					s[n + 14] = sc[3]
 				end
 
-				if bounce == math.floor(job.bounces / 2) then
+				stats.hits = stats.hits + 1
+				stats.segment = stats.segment + distance
+				length = length + distance
+				local settled = bounce >= settled_bounce
+
+				if settled then
 					for b = 1, 3 do
-						stats.settled_first[b] = stats.settled_first[b] + w[b]
+						stats.settled_throughput[b] = stats.settled_throughput[b] + w[b]
+						stats.settled_length[b] = stats.settled_length[b] + w[b] * distance
+						stats.settled_path[b] = stats.settled_path[b] + w[b] * length
 					end
-				end
 
-				if bounce == job.bounces - 1 then
-					for b = 1, 3 do
-						stats.settled_final[b] = stats.settled_final[b] + w[b]
-					end
-				end
-			end
-
-			for b = 1, 3 do
-				stats.log_reflect[b] = stats.log_reflect[b] + math.log(math.max(1 - absorption[b], 1e-6))
-			end
-
-			local px, py, pz = hx + nx * offset, hy + ny * offset, hz + nz * offset
-
-			for s = 1, source_count do
-				local source = sources[s]
-				local sx, sy, sz = source.x - px, source.y - py, source.z - pz
-				local d2 = sx * sx + sy * sy + sz * sz
-				local d = math.sqrt(d2)
-				local cos_s = (sx * nx + sy * ny + sz * nz) / math.max(d, 1e-6)
-
-				if cos_s > 0 and d > clearance then
-					local inv = 1 / d
-
-					if not tracer:Trace(px, py, pz, sx * inv, sy * inv, sz * inv, 0, d - clearance) then
-						local sums = result.sources[s]
-						local total = length + d
-						local t = total / speed - job.direct_time[s]
-						local base = 4 * cos_s / math.max(d2, 0.01)
-						local late = bounce > 0 and t > job.split_time
-
+					if bounce == settled_bounce then
 						for b = 1, 3 do
-							local e = base * w[b] * (1 - absorption[b]) * math.exp(-air[b] * total)
+							stats.settled_first[b] = stats.settled_first[b] + w[b]
+						end
+					end
 
-							if late then
-								sums.late[b] = sums.late[b] + e
-								sums.moment[b] = sums.moment[b] + e * t
-							end
-
-							if settled then sums.settled[b] = sums.settled[b] + e end
+					if bounce == job.bounces - 1 then
+						for b = 1, 3 do
+							stats.settled_final[b] = stats.settled_final[b] + w[b]
 						end
 					end
 				end
+
+				for b = 1, 3 do
+					stats.log_reflect[b] = stats.log_reflect[b] + math.log(math.max(1 - a[b], 1e-6))
+				end
+
+				local px, py, pz = hx + nx * offset, hy + ny * offset, hz + nz * offset
+
+				for s = 1, source_count do
+					local source = sources[s]
+					local sx, sy, sz = source.x - px, source.y - py, source.z - pz
+					local d2 = sx * sx + sy * sy + sz * sz
+					local d = math.sqrt(d2)
+					local cos_s = (sx * nx + sy * ny + sz * nz) / math.max(d, 1e-6)
+
+					if cos_s > 0 and d > clearance then
+						local inv = 1 / d
+
+						if not tracer:Trace(px, py, pz, sx * inv, sy * inv, sz * inv, 0, d - clearance) then
+							local sums = result.sources[s]
+							local total = length + d
+							local t = total / speed - job.direct_time[s]
+							local base = 4 * cos_s / math.max(d2, 0.01)
+							local late = bounce > 0 and t > job.split_time
+
+							for b = 1, 3 do
+								local e = base * w[b] * (1 - a[b]) * math.exp(-air[b] * total)
+
+								if late then
+									sums.late[b] = sums.late[b] + e
+									sums.moment[b] = sums.moment[b] + e * t
+								end
+
+								if settled then sums.settled[b] = sums.settled[b] + e end
+							end
+						end
+					end
+				end
+
+				for b = 1, 3 do
+					w[b] = w[b] * (1 - a[b])
+				end
+
+				ox, oy, oz = px, py, pz
+				tmin = 0
+				local p = math.clamp(sc[2], min_p, 1 - min_p)
+
+				if random() < p then
+					dx, dy, dz = acoustics.CosineDirection(nx, ny, nz, random(), random())
+
+					for b = 1, 3 do
+						w[b] = w[b] * sc[b] / p
+					end
+				else
+					local k = 2 * (dx * nx + dy * ny + dz * nz)
+					dx, dy, dz = dx - k * nx, dy - k * ny, dz - k * nz
+
+					for b = 1, 3 do
+						w[b] = w[b] * (1 - sc[b]) / (1 - p)
+					end
+				end
 			end
 
-			for b = 1, 3 do
-				w[b] = w[b] * (1 - absorption[b])
-			end
-
-			ox, oy, oz = px, py, pz
-			tmin = 0
-
-			if random() < acoustics.SCATTERING then
-				dx, dy, dz = acoustics.CosineDirection(nx, ny, nz, random(), random())
-			else
-				local k = 2 * (dx * nx + dy * ny + dz * nz)
-				dx, dy, dz = dx - k * nx, dy - k * ny, dz - k * nz
-			end
-		end
-
-		if not escaped then
-			for b = 1, 3 do
-				stats.last_throughput[b] = stats.last_throughput[b] + w[b]
-				stats.last_throughput_length[b] = stats.last_throughput_length[b] + w[b] * length
+			if not escaped then
+				for b = 1, 3 do
+					stats.last_throughput[b] = stats.last_throughput[b] + w[b]
+					stats.last_throughput_length[b] = stats.last_throughput_length[b] + w[b] * length
+				end
 			end
 		end
 	end
@@ -564,7 +599,7 @@ function acoustics.RunQueries(tracer, job, result)
 
 	for i = 0, job.query_count - 1 do
 		local at = i * 8
-		local distance, nx, ny, nz, absorption = tracer:Trace(
+		local distance, nx, ny, nz, material = tracer:Trace(
 			q[at + 1],
 			q[at + 2],
 			q[at + 3],
@@ -579,9 +614,9 @@ function acoustics.RunQueries(tracer, job, result)
 		out[o + 2] = nx or 0
 		out[o + 3] = ny or 0
 		out[o + 4] = nz or 0
-		out[o + 5] = absorption and absorption[1] or 0
-		out[o + 6] = absorption and absorption[2] or 0
-		out[o + 7] = absorption and absorption[3] or 0
+		out[o + 5] = material and material.absorption[1] or 0
+		out[o + 6] = material and material.absorption[2] or 0
+		out[o + 7] = material and material.absorption[3] or 0
 		out[o + 8] = 0
 	end
 end
@@ -898,6 +933,7 @@ function META:AbsorbReflectors(job, result, decay)
 			reflector.position[i] = reflector.position[i] * decay
 			reflector.normal[i] = reflector.normal[i] * decay
 			reflector.absorption[i] = reflector.absorption[i] * decay
+			reflector.scattering[i] = reflector.scattering[i] * decay
 		end
 
 		for i = 1, 6 do
@@ -910,7 +946,7 @@ function META:AbsorbReflectors(job, result, decay)
 	local s = result.samples
 	local solid_angle = 4 * math.pi / job.rays
 
-	for at = 0, #s - 1, 11 do
+	for at = 0, #s - 1, acoustics.SAMPLE_FLOATS do
 		local px, py, pz = s[at + 1], s[at + 2], s[at + 3]
 		local nx, ny, nz = s[at + 4], s[at + 5], s[at + 6]
 		local distance = s[at + 7]
@@ -932,6 +968,7 @@ function META:AbsorbReflectors(job, result, decay)
 				position = {0, 0, 0},
 				normal = {0, 0, 0},
 				absorption = {0, 0, 0},
+				scattering = {0, 0, 0},
 				spread = {0, 0, 0, 0, 0, 0},
 			}
 			self.reflectors[key] = reflector
@@ -952,6 +989,9 @@ function META:AbsorbReflectors(job, result, decay)
 		reflector.absorption[1] = reflector.absorption[1] + s[at + 9]
 		reflector.absorption[2] = reflector.absorption[2] + s[at + 10]
 		reflector.absorption[3] = reflector.absorption[3] + s[at + 11]
+		reflector.scattering[1] = reflector.scattering[1] + s[at + 12]
+		reflector.scattering[2] = reflector.scattering[2] + s[at + 13]
+		reflector.scattering[3] = reflector.scattering[3] + s[at + 14]
 
 		::continue::
 	end
@@ -1108,12 +1148,14 @@ function META:UpdateTaps(sound, env, time)
 			if point then
 				local path = (image - listener):GetLength()
 				local absorption = {}
+				local specular = {}
 
 				for b = 1, 3 do
 					absorption[b] = reflector.absorption[b] / reflector.count
+					specular[b] = (1 - absorption[b]) * (1 - reflector.scattering[b] / reflector.count)
 				end
 
-				local reflect_mid = close * math.sqrt((1 - absorption[2]) * (1 - acoustics.SCATTERING))
+				local reflect_mid = close * math.sqrt(specular[2])
 				local direction = (point - listener):GetNormalized()
 				local gain = spatial.ComputeDistanceAttenuation(
 						ids[audio.distance_model],
@@ -1169,9 +1211,9 @@ function META:UpdateTaps(sound, env, time)
 					gain_left = gain * spatial.HeadShadow(2, -side, front),
 					gain_right = gain * spatial.HeadShadow(2, side, front),
 					band = {
-						math.sqrt((1 - absorption[1]) / (1 - absorption[2])) * spatial.AirAbsorption(1, path) / spatial.AirAbsorption(2, path),
+						math.sqrt(specular[1] / specular[2]) * spatial.AirAbsorption(1, path) / spatial.AirAbsorption(2, path),
 						1,
-						math.sqrt((1 - absorption[3]) / (1 - absorption[2])) * spatial.AirAbsorption(3, path) / spatial.AirAbsorption(2, path),
+						math.sqrt(specular[3] / specular[2]) * spatial.AirAbsorption(3, path) / spatial.AirAbsorption(2, path),
 					},
 				}
 			end

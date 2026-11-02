@@ -14,8 +14,11 @@ local MAX_RAYS = 4096
 local MAX_SAMPLES = 512
 local MAX_MATERIALS = 8192
 local GROUP_SIZE = 64
-local ACC = 29 + 9 * MAX_SOURCES
-local SAMPLE_FLOATS = 11
+local STATS_FLOATS = 29
+local SOURCE_FLOATS = 9
+local ACC = STATS_FLOATS + SOURCE_FLOATS * MAX_SOURCES
+local SAMPLE_FLOATS = acoustics.SAMPLE_FLOATS
+local MATERIAL_ROWS = 4
 local BINDING_UNIFORM = 0
 local BINDING_QUERIES = 1
 local BINDING_OUTPUT = 2
@@ -24,10 +27,18 @@ local BINDING_TLAS = 4
 local BINDING_HIT = 5
 local MAX_GROUPS = MAX_RAYS / GROUP_SIZE
 local QUERY_FLOATS = acoustics.QUERY_FLOATS
-local OUTPUT_FLOATS = MAX_GROUPS * ACC + MAX_SAMPLES * SAMPLE_FLOATS + MAX_QUERIES * QUERY_FLOATS
+local SAMPLE_BASE = MAX_GROUPS * ACC
+local QUERY_BASE = SAMPLE_BASE + MAX_SAMPLES * SAMPLE_FLOATS
+local OUTPUT_FLOATS = QUERY_BASE + MAX_QUERIES * QUERY_FLOATS
 local float_ptr = ffi.typeof("float *")
 
+local function glsl_vec3(t)
+	return ("vec3(%f, %f, %f)"):format(t[1], t[2], t[3])
+end
+
 local function build_pipeline(slots)
+	local default = acoustics.DEFAULT_MATERIAL
+
 	return EasyPipeline.Compute{
 		name = "audio_acoustics_trace",
 		DescriptorSetCount = slots,
@@ -49,6 +60,7 @@ local function build_pipeline(slots)
 					{"air", "vec4"},
 					{"timing", "vec4"},
 					{"params", "vec4"},
+					{"limits", "vec4"},
 					{"counts", "ivec4"},
 					{"extra", "ivec4"},
 				},
@@ -85,6 +97,10 @@ local function build_pipeline(slots)
 					block.params[1] = acoustics.OPEN_DISTANCE
 					block.params[2] = acoustics.SOURCE_CLEARANCE
 					block.params[3] = acoustics.TRACE_DISTANCE
+					block.limits[0] = 0
+					block.limits[1] = 0
+					block.limits[2] = 0
+					block.limits[3] = acoustics.MIN_SCATTER_PROBABILITY
 					block.counts[0] = job.rays
 					block.counts[1] = job.bounces
 					block.counts[2] = math.min(job.sample_count, job.rays)
@@ -101,19 +117,25 @@ local function build_pipeline(slots)
 				[[
 			layout(set = 0, binding = %d) readonly buffer AcousticQueries { vec4 queries[]; };
 			layout(set = 0, binding = %d) buffer AcousticOutput { float result[]; };
-			layout(set = 0, binding = %d) readonly buffer AcousticMaterials { vec4 absorptions[]; };
+			layout(set = 0, binding = %d) readonly buffer AcousticMaterials { vec4 acoustic_materials[]; };
 		]]
 			):format(BINDING_QUERIES, BINDING_OUTPUT, BINDING_MATERIALS),
 		shader = hit.GetTraceGLSL("acoustic_scene") .. (
 				[[
 			#define ACC %d
+			#define STATS_FLOATS %d
+			#define SOURCE_FLOATS %d
 			#define GROUP_SIZE %d
-			#define MAX_GROUPS %d
 			#define SAMPLE_FLOATS %d
-			#define MAX_SAMPLES %d
 			#define QUERY_FLOATS %d
-			#define DEFAULT_ABSORPTION vec3(%f, %f, %f)
-			#define SCATTERING %f
+			#define SAMPLE_BASE %d
+			#define QUERY_BASE %d
+			#define DEFAULT_ABSORPTION %s
+			#define DEFAULT_SCATTERING %s
+			#define DEFAULT_RAIN %s
+			#define DEFAULT_WIND %s
+			#define DEFAULT_DENSITY %f
+			#define DEFAULT_SURFACE_MASS %f
 
 			shared float reduce_buffer[GROUP_SIZE];
 
@@ -140,12 +162,38 @@ local function build_pipeline(slots)
 				return t * (r * cos(phi)) + b * (r * sin(phi)) + n * sqrt(max(0.0, 1.0 - u1));
 			}
 
-			vec3 acoustic_absorption(uint instance) {
+			struct acoustic_material {
+				vec3 absorption;
+				vec3 scattering;
+				vec3 rain;
+				vec3 wind;
+				float density;
+				float surface_mass;
+			};
+
+			acoustic_material acoustic_material_of(uint instance) {
 				uint row = scene_instance_material(instance);
+				acoustic_material m;
 
-				if (row >= uint(acoustic.extra.z)) return DEFAULT_ABSORPTION;
+				if (row >= uint(acoustic.extra.z)) {
+					m.absorption = DEFAULT_ABSORPTION;
+					m.scattering = DEFAULT_SCATTERING;
+					m.rain = DEFAULT_RAIN;
+					m.wind = DEFAULT_WIND;
+					m.density = DEFAULT_DENSITY;
+					m.surface_mass = DEFAULT_SURFACE_MASS;
+					return m;
+				}
 
-				return absorptions[row].xyz;
+				vec4 a = acoustic_materials[row * 4u];
+				vec4 b = acoustic_materials[row * 4u + 1u];
+				m.absorption = a.xyz;
+				m.density = a.w;
+				m.scattering = b.xyz;
+				m.surface_mass = b.w;
+				m.rain = acoustic_materials[row * 4u + 2u].xyz;
+				m.wind = acoustic_materials[row * 4u + 3u].xyz;
+				return m;
 			}
 
 			void main() {
@@ -153,8 +201,6 @@ local function build_pipeline(slots)
 				uint lid = gl_LocalInvocationID.x;
 				int ray_count = acoustic.counts.x;
 				uint ray_groups = uint((ray_count + GROUP_SIZE - 1) / GROUP_SIZE);
-				uint sample_base = uint(MAX_GROUPS * ACC);
-				uint query_base = sample_base + uint(MAX_SAMPLES * SAMPLE_FLOATS);
 				scene_trace_hit hit;
 
 				if (gl_WorkGroupID.x >= ray_groups) {
@@ -169,10 +215,10 @@ local function build_pipeline(slots)
 
 					if (b.w > a.w && scene_trace(a.xyz, b.xyz, a.w, b.w, hit)) {
 						r = vec4(hit.distance, hit.normal);
-						absorption = acoustic_absorption(hit.instance);
+						absorption = acoustic_material_of(hit.instance).absorption;
 					}
 
-					uint at = query_base + q * uint(QUERY_FLOATS);
+					uint at = QUERY_BASE + q * uint(QUERY_FLOATS);
 					result[at] = r.x;
 					result[at + 1u] = r.y;
 					result[at + 2u] = r.z;
@@ -194,8 +240,10 @@ local function build_pipeline(slots)
 					float clearance = acoustic.params.z;
 					float trace_distance = acoustic.params.w;
 					float offset = acoustic.air.w;
+					float min_p = acoustic.limits.w;
 					vec3 air = acoustic.air.xyz;
 					int source_count = acoustic.counts.w;
+					int settled_bounce = acoustic.counts.y / 2;
 					float z = 1.0 - 2.0 * (float(id) + 0.5) / float(ray_count);
 					float rr = sqrt(max(0.0, 1.0 - z * z));
 					float phi = float(id) * 2.399963229728653;
@@ -212,29 +260,10 @@ local function build_pipeline(slots)
 					for (int bounce = 0; bounce < acoustic.counts.y; bounce++) {
 						bool found = scene_trace(origin, dir, tmin, trace_distance, hit);
 						float distance = found ? hit.distance : -1.0;
-						vec3 absorption = found ? acoustic_absorption(hit.instance) : vec3(0.0);
 
 						if (bounce == 0) {
 							float d = found ? min(distance, open_distance) : open_distance;
 							acc[4] += 4.18879020479 * d * d * d;
-
-							if (found && int(id) < acoustic.counts.z) {
-								uint s = sample_base + id * uint(SAMPLE_FLOATS);
-								vec3 p = origin + dir * distance;
-								result[s] = p.x;
-								result[s + 1u] = p.y;
-								result[s + 2u] = p.z;
-								result[s + 3u] = hit.normal.x;
-								result[s + 4u] = hit.normal.y;
-								result[s + 5u] = hit.normal.z;
-								result[s + 6u] = distance;
-								result[s + 7u] = abs(dot(hit.normal, dir));
-								result[s + 8u] = absorption.x;
-								result[s + 9u] = absorption.y;
-								result[s + 10u] = absorption.z;
-							} else if (int(id) < acoustic.counts.z) {
-								result[sample_base + id * uint(SAMPLE_FLOATS) + 6u] = -1.0;
-							}
 						}
 
 						if (!found || distance > open_distance) {
@@ -243,13 +272,36 @@ local function build_pipeline(slots)
 							break;
 						}
 
+						acoustic_material material = acoustic_material_of(hit.instance);
+						vec3 n = hit.normal;
+						vec3 hit_point = origin + dir * distance;
+
+						vec3 absorption = material.absorption;
+						vec3 scattering = material.scattering;
+
+						if (bounce == 0 && int(id) < acoustic.counts.z) {
+							uint s = SAMPLE_BASE + id * uint(SAMPLE_FLOATS);
+							result[s] = hit_point.x;
+							result[s + 1u] = hit_point.y;
+							result[s + 2u] = hit_point.z;
+							result[s + 3u] = n.x;
+							result[s + 4u] = n.y;
+							result[s + 5u] = n.z;
+							result[s + 6u] = distance;
+							result[s + 7u] = abs(dot(n, dir));
+							result[s + 8u] = absorption.x;
+							result[s + 9u] = absorption.y;
+							result[s + 10u] = absorption.z;
+							result[s + 11u] = scattering.x;
+							result[s + 12u] = scattering.y;
+							result[s + 13u] = scattering.z;
+						}
+
 						acc[1] += 1.0;
 						acc[3] += distance;
 						path_length += distance;
-						vec3 n = hit.normal;
-						vec3 p = origin + dir * distance + n * offset;
-
-						bool settled = bounce >= acoustic.counts.y / 2;
+						vec3 p = hit_point + n * offset;
+						bool settled = bounce >= settled_bounce;
 
 						if (settled) {
 							acc[8] += w.x;
@@ -262,7 +314,7 @@ local function build_pipeline(slots)
 							acc[27] += w.y * path_length;
 							acc[28] += w.z * path_length;
 
-							if (bounce == acoustic.counts.y / 2) {
+							if (bounce == settled_bounce) {
 								acc[17] += w.x;
 								acc[18] += w.y;
 								acc[19] += w.z;
@@ -292,7 +344,7 @@ local function build_pipeline(slots)
 								float total = path_length + d;
 								float t = total / speed - source.w;
 								vec3 e = (4.0 * cos_s / max(d2, 0.01)) * w * reflect * exp(-air * total);
-								int base = 29 + s * 9;
+								int base = STATS_FLOATS + s * SOURCE_FLOATS;
 
 								if (settled) {
 									acc[base] += e.x;
@@ -314,12 +366,16 @@ local function build_pipeline(slots)
 						w *= reflect;
 						origin = p;
 						tmin = 0.0;
-						if (acoustic_random(rng) < SCATTERING) {
+						float probability = clamp(scattering.y, min_p, 1.0 - min_p);
+
+						if (acoustic_random(rng) < probability) {
 							float u1 = acoustic_random(rng);
 							float u2 = acoustic_random(rng);
 							dir = acoustic_cosine(n, u1, u2);
+							w *= scattering / probability;
 						} else {
 							dir -= 2.0 * dot(dir, n) * n;
+							w *= (vec3(1.0) - scattering) / (1.0 - probability);
 						}
 					}
 
@@ -331,6 +387,7 @@ local function build_pipeline(slots)
 						acc[15] += w.y * path_length;
 						acc[16] += w.z * path_length;
 					}
+
 				}
 
 				for (int f = 0; f < ACC; f++) {
@@ -349,15 +406,19 @@ local function build_pipeline(slots)
 		]]
 			):format(
 				ACC,
+				STATS_FLOATS,
+				SOURCE_FLOATS,
 				GROUP_SIZE,
-				MAX_GROUPS,
 				SAMPLE_FLOATS,
-				MAX_SAMPLES,
 				QUERY_FLOATS,
-				acoustics.DEFAULT_ABSORPTION[1],
-				acoustics.DEFAULT_ABSORPTION[2],
-				acoustics.DEFAULT_ABSORPTION[3],
-				acoustics.SCATTERING
+				SAMPLE_BASE,
+				QUERY_BASE,
+				glsl_vec3(default.absorption),
+				glsl_vec3(default.scattering),
+				glsl_vec3(default.rain),
+				glsl_vec3(default.wind),
+				default.density,
+				default.surface_mass
 			),
 	}
 end
@@ -405,7 +466,7 @@ function META:GetSlot(index)
 			label = "audio_acoustics output",
 		},
 		materials = render.CreateBuffer{
-			byte_size = MAX_MATERIALS * 16,
+			byte_size = MAX_MATERIALS * MATERIAL_ROWS * 16,
 			buffer_usage = {"storage_buffer"},
 			memory_property = {"host_visible", "host_coherent"},
 			label = "audio_acoustics materials",
@@ -420,8 +481,16 @@ function META:UploadMaterials(slot)
 	local out = ffi.cast(float_ptr, slot.materials:Map())
 
 	for i = 0, count - 1 do
-		local a = materials.list[i + 1]:GetAcousticAbsorption()
-		out[i * 4], out[i * 4 + 1], out[i * 4 + 2], out[i * 4 + 3] = a.x, a.y, a.z, 0
+		local material = materials.list[i + 1]
+		local a = material:GetAcousticAbsorption()
+		local s = material:GetAcousticScattering()
+		local r = material:GetAcousticRainEmission()
+		local w = material:GetAcousticWindEmission()
+		local at = i * MATERIAL_ROWS * 4
+		out[at], out[at + 1], out[at + 2], out[at + 3] = a.x, a.y, a.z, material:GetAcousticDensity()
+		out[at + 4], out[at + 5], out[at + 6], out[at + 7] = s.x, s.y, s.z, material:GetAcousticSurfaceMass()
+		out[at + 8], out[at + 9], out[at + 10], out[at + 11] = r.x, r.y, r.z, 0
+		out[at + 12], out[at + 13], out[at + 14], out[at + 15] = w.x, w.y, w.z, 0
 	end
 
 	self.material_count = count
@@ -454,7 +523,7 @@ function META:ReadResult(job, slot)
 
 		for s = 1, #job.sources do
 			local sums = result.sources[s]
-			local base = at + 29 + (s - 1) * 9
+			local base = at + STATS_FLOATS + (s - 1) * SOURCE_FLOATS
 
 			for b = 1, 3 do
 				sums.settled[b] = sums.settled[b] + out[base + b - 1]
@@ -465,10 +534,9 @@ function META:ReadResult(job, slot)
 	end
 
 	local samples = result.samples
-	local sample_base = MAX_GROUPS * ACC
 
 	for i = 0, math.min(job.sample_count, job.rays) - 1 do
-		local at = sample_base + i * SAMPLE_FLOATS
+		local at = SAMPLE_BASE + i * SAMPLE_FLOATS
 
 		if out[at + 6] > 0 then
 			for k = 0, SAMPLE_FLOATS - 1 do
@@ -478,10 +546,9 @@ function META:ReadResult(job, slot)
 	end
 
 	local queries = result.queries
-	local query_base = sample_base + MAX_SAMPLES * SAMPLE_FLOATS
 
 	for i = 0, job.query_count * QUERY_FLOATS - 1 do
-		queries[i + 1] = out[query_base + i]
+		queries[i + 1] = out[QUERY_BASE + i]
 	end
 
 	return result
@@ -515,6 +582,12 @@ function META:Dispatch(cmd)
 
 	for i = 0, job.query_count * 8 - 1 do
 		q[i] = job.queries[i + 1]
+	end
+
+	local out = ffi.cast(float_ptr, slot.output:Map())
+
+	for i = 0, math.min(job.sample_count, job.rays) - 1 do
+		out[SAMPLE_BASE + i * SAMPLE_FLOATS + 6] = -1
 	end
 
 	self:UploadMaterials(slot)
