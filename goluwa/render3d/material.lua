@@ -96,6 +96,7 @@ Material:GetSet("Dithered", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaCutoff", 0.5, {callback = "InvalidateColor", requires = "AlphaTest"})
 Material:GetSet("Additive", false, {callback = "InvalidateFlags"})
 Material:GetSet("VertexTint", false, {callback = "InvalidateFlags"})
+Material:GetSet("SimpleLighting", false, {callback = "InvalidateFlags"})
 Material:GetSet("Modulate", false, {callback = "InvalidateFlags"})
 Material:GetSet("DisplayReferred", false, {callback = "InvalidateFlags"})
 Material:GetSet("Unlit", false, {callback = "InvalidateFlags"})
@@ -453,6 +454,7 @@ local FLAGS = {
 	"HeightTextureIsAlpha",
 	"VertexTint",
 	"Unlit",
+	"SimpleLighting",
 }
 Material.FlagBits = {}
 

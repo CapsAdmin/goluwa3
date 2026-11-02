@@ -268,6 +268,8 @@ local passes = {
 
 					if (AlphaTest && alpha < factor_model.AlphaCutoff) discard;
 
+					if (VertexTint && !Unlit) alpha *= in_vertex_color.a;
+
 					float absorbance = (Additive || Modulate) ? 0.0 : -log(max(1.0 - alpha, 1e-3));
 					float depth = moments_warp_depth(distance(in_position, translucent_camera.camera_position), moments_data.depth_warp);
 					float depth2 = depth * depth;
@@ -582,6 +584,44 @@ local passes = {
 						set_color(vec4(0.0));
 						set_motion(vec4(0.0));
 						set_additive(vec4(min(unlit_emission * fog_transmittance, vec3(65504.0)), 0.0) * transmittance);
+						set_modulate(vec4(1.0));
+						return;
+					}
+
+					if (VertexTint && !Additive) {
+						albedo *= in_vertex_color.rgb;
+						alpha *= in_vertex_color.a;
+					}
+
+					if (SimpleLighting) {
+						Surface simple;
+						init_surface_features(simple, in_uv);
+						simple.F0 = vec3(0.04);
+						simple.NdotV = max(dot(N, V), 0.001);
+						simple.albedo = albedo * alpha;
+						simple.roughness_alpha = 1.0;
+						simple.perceptual_roughness = 1.0;
+						simple.metallic = 0.0;
+						simple.world_pos = world_pos;
+						simple.V = V;
+						simple.N = N;
+						simple.geometric_N = geometric_N;
+						finish_surface_features(simple);
+						vec3 simple_specular;
+						vec3 simple_diffuse = get_direct_light(simple, simple_specular);
+						vec3 simple_irradiance = sample_environment_irradiance(lighting_data.env_irradiance_tex, N);
+
+						if (gi_available() && gi_in_volume(world_pos)) {
+							float simple_weight;
+							vec4 simple_probes = gi_sample_irradiance(world_pos, N, V, false, DDGI_NO_VISIBILITY_RAYS, simple_weight);
+							simple_irradiance = mix(simple_irradiance, simple_probes.rgb, saturate(simple_weight / ]] .. gi.MIN_WEIGHT .. [[));
+						}
+
+						vec3 simple_color = simple_diffuse + simple_irradiance * albedo * alpha;
+						simple_color = simple_color * fog_transmittance + fog_scattered * alpha;
+						set_color(vec4(min(simple_color * get_pre_exposure(), vec3(65504.0)), alpha) * transmittance);
+						set_motion(vec4(motion, 1.0, 0.0) * alpha * transmittance);
+						set_additive(vec4(0.0));
 						set_modulate(vec4(1.0));
 						return;
 					}
