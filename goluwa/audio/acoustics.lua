@@ -1751,12 +1751,11 @@ function META:AbsorbOpenings(job, result, decay)
 	for ray = 0, job.rays - 1 do
 		local at = ray * stride
 		local weight = r[at + 11]
+		local px, py, pz = r[at + 7], r[at + 8], r[at + 9]
+		local dx, dy, dz = px - listener.x, py - listener.y, pz - listener.z
+		local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
 
-		if weight > 0 then
-			local px, py, pz = r[at + 7], r[at + 8], r[at + 9]
-			local dx, dy, dz = px - listener.x, py - listener.y, pz - listener.z
-			local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-
+		if weight > 0 and distance == distance and distance < math.huge then
 			if distance < 0.01 then
 				dx, dy, dz = acoustics.FibonacciDirection(ray, job.rays, job.rotation)
 				distance = 0
