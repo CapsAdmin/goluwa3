@@ -172,6 +172,9 @@ function module.Attach(audio)
 			else
 				audio._sync_active_sound_state(sound)
 				sound:SetPlaybackPosition(state.playback_pos)
+
+				if sound.stream then audio.RefillStream(sound, state.playback_pos) end
+
 				audio.UpdateSoundPaths(sound, time)
 			end
 		end

@@ -984,3 +984,32 @@ T.Test("audio doppler stays smooth when positions arrive in physics steps betwee
 	T(#cents)[">"](1000)
 	T(worst)["<"](3)
 end)
+
+T.Test("audio streams keep refilling what was played so they never repeat", function()
+	with_offline_mixer(function(ctx)
+		local counter = 0
+		local stream = audio.CreateStream(
+			function(data, from, count)
+				for i = from, from + count - 1 do
+					data[i] = counter / 200000
+					counter = counter + 1
+				end
+			end,
+			0.25,
+			FS,
+			1
+		)
+		stream:SetSpatial(false)
+		stream:Play()
+		local out, total = ctx.Render(3)
+		local drops = 0
+
+		for i = math.floor(0.1 * FS), total - 1 do
+			if out[i * 2] < out[(i - 1) * 2] - 1e-4 then drops = drops + 1 end
+		end
+
+		T(drops)["=="](0)
+		T(out[(total - 1) * 2])[">"](out[math.floor(1.5 * FS) * 2])
+		stream:Cut()
+	end)
+end)

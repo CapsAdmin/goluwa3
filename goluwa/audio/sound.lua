@@ -656,6 +656,40 @@ function module.Attach(audio)
 		return sound
 	end
 
+	-- a looping buffer the main thread keeps refilling behind the audio thread's read position, so it never repeats. fill(data, from, count) writes frames from .. from + count - 1, channels interleaved; it is called for the whole buffer first, then each frame for what was played
+	local STREAM_MARGIN = 4
+
+	function audio.CreateStream(fill, seconds, sample_rate, channels)
+		local frames = math.ceil(seconds * sample_rate)
+		local data = ffi.new("float[?]", frames * channels)
+		fill(data, 0, frames)
+		local sound = audio.CreateSound()
+		configure_sound_buffer(sound, data, frames, channels, sample_rate)
+		sound:SetLooping(true)
+		sound.stream = {fill = fill, at = 0}
+		return sound
+	end
+
+	function audio.RefillStream(sound, position)
+		local stream = sound.stream
+		local length = sound:GetBufferLength()
+		local data = sound:GetBuffer()
+		local to = (math.floor(position) - STREAM_MARGIN) % length
+		local from = stream.at
+
+		if to == from then return end
+
+		if to > from then
+			stream.fill(data, from, to - from)
+		else
+			stream.fill(data, from, length - from)
+
+			if to > 0 then stream.fill(data, 0, to) end
+		end
+
+		stream.at = to
+	end
+
 	function audio.GetCurrentSampleInfo(sound)
 		if not sound then return end
 
