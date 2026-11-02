@@ -9,8 +9,12 @@ local FLASH_COLOR = Color(1, 0.65, 0.3, 1)
 local TOOL_COLOR = Color(0.3, 0.7, 1, 1)
 local TOOL_TRACE_TIME = 0.15
 local TOOL_TRACE_RADIUS = 0.012
+local PISTOL_SOUNDS = {"weapons/pistol/pistol_fire2.wav", "weapons/pistol/pistol_fire3.wav"}
+local PISTOL_SPL = 140
+local PISTOL_KEEP = 0.12
 local vfx
 local clips
+local sounds
 local Beam
 
 local function burst(properties)
@@ -145,6 +149,17 @@ weapon_effects.MuzzleFlash = new_event(
 		local position = weapon.weapon:GetMuzzle().transform:GetWorldPosition()
 		vfx.Burst("muzzle_flash", position, direction, 18)
 		vfx.Flash(position, FLASH_COLOR, FLASH_LUMEN, FLASH_TIME)
+		sounds = sounds or import("lua/sounds.lua")
+		sounds.Play(
+			PISTOL_SOUNDS[math.random(#PISTOL_SOUNDS)],
+			position,
+			sounds.SPLToVolume(PISTOL_SPL),
+			math.randomf(0.97, 1.03),
+			nil,
+			nil,
+			nil,
+			PISTOL_KEEP
+		)
 	end,
 	enabled,
 	get_owner_client
@@ -217,7 +232,6 @@ do
 		boom = {build = "Boom", gain = 10 ^ (6 / 20)},
 	}
 	local SAMPLE_RATE = 48000
-	local sounds
 	local signals
 
 	local function audio_enabled()

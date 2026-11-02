@@ -40,6 +40,10 @@ function sounds.Register(name, data, frames, sample_rate)
 	voices[name] = entry
 end
 
+function sounds.SPLToVolume(spl_at_1m)
+	return audio.SPLToVolume(spl_at_1m - 20 * math.log10(REFERENCE_DISTANCE))
+end
+
 function sounds.GetLevel(position, volume)
 	return volume * REFERENCE_DISTANCE / math.max(position:Distance(audio.GetListenerPosition()), REFERENCE_DISTANCE)
 end
@@ -72,7 +76,7 @@ local function get_voice(path)
 	return voice
 end
 
-function sounds.Play(path, position, volume, pitch, start_fraction, fade_in, fade_in_fraction)
+function sounds.Play(path, position, volume, pitch, start_fraction, fade_in, fade_in_fraction, keep)
 	if not audio or not CLIENT then return end
 
 	volume = volume or 1
@@ -88,12 +92,13 @@ function sounds.Play(path, position, volume, pitch, start_fraction, fade_in, fad
 	voice:SetPosition(position:Copy())
 	voice:SetFadeIn(fade_in or 0)
 	voice:SetFadeInFraction(fade_in_fraction or 0)
+	voice:SetFadeOut(keep and math.max(voice:GetDuration() - keep, 0) or 0)
 	voice:Play(start_fraction or 0, "fraction")
 end
 
-function sounds.PlayRandom(paths, position, volume, pitch)
+function sounds.PlayRandom(paths, position, volume, pitch, keep)
 	if paths then
-		sounds.Play(paths[math.random(#paths)], position, volume, pitch)
+		sounds.Play(paths[math.random(#paths)], position, volume, pitch, nil, nil, nil, keep)
 	end
 end
 

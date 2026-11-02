@@ -10,6 +10,8 @@ local FLASH_COOL = Color(1, 0.3, 0.08, 1)
 local UP = Vec3(0, 1, 0)
 local TRAIL_COUNT = 10
 local GRAVITY = 9.8
+local EXPLOSION_SPL = 150
+local EXPLOSION_KEEP = 0.35
 local SOUNDS = {"weapons/explode3.wav", "weapons/explode4.wav", "weapons/explode5.wav"}
 local clips, vfx, screen_shake, sounds, render3d, puffs, screen_fields, raycast
 
@@ -591,7 +593,13 @@ local function init()
 								Velocity = p.normal * p.size * 0.17,
 							}
 						)
-						sounds.PlayRandom(SOUNDS, p.position, 1, math.randomf(0.9, 1.1))
+						sounds.PlayRandom(
+							SOUNDS,
+							p.position,
+							sounds.SPLToVolume(EXPLOSION_SPL),
+							math.randomf(0.9, 1.1),
+							EXPLOSION_KEEP
+						)
 						local distance = (render3d.GetCamera():GetPosition() - p.position):GetLength()
 						local closeness = math.clamp(1 - distance / (p.size * 3), 0, 1)
 
