@@ -24,6 +24,8 @@ acoustics.SAMPLE_FLOATS = 14
 acoustics.AMBIENCE_CELLS = 4
 acoustics.OPENING_CELLS = 8
 acoustics.MAX_OPENINGS = 8
+acoustics.CLUSTER_DISTANCE = 3
+acoustics.CLUSTER_FREE_PATH = 0.25
 -- ISO 9613-2 limit for one edge: turbulence and scattering fill the deep shadow
 acoustics.DIFFRACTION_CAP_DB = 20
 acoustics.DETOUR_MIN_RADIUS = 0.05
@@ -1128,12 +1130,29 @@ function META:SelectSources(budget)
 
 	table.sort(list, by_importance)
 	local sounds = {}
+	local members = {}
+	local reach = math.min(acoustics.CLUSTER_DISTANCE, acoustics.CLUSTER_FREE_PATH * self.profile.mean_free_path)
 
-	for i = 1, math.min(#list, budget) do
-		sounds[i] = list[i].sound
+	for _, entry in ipairs(list) do
+		local position = entry.sound:GetPosition()
+		local joined = false
+
+		for i, sound in ipairs(sounds) do
+			if (sound:GetPosition() - position):GetLength() <= reach then
+				members[i][#members[i] + 1] = entry.sound
+				joined = true
+
+				break
+			end
+		end
+
+		if not joined and #sounds < budget then
+			sounds[#sounds + 1] = entry.sound
+			members[#sounds] = {}
+		end
 	end
 
-	return sounds
+	return sounds, members
 end
 
 function META:BuildJob(time)
@@ -1141,6 +1160,7 @@ function META:BuildJob(time)
 	local budget = self.tracer.budget
 	local listener = audio.listener_position:Copy()
 	local speed = audio.speed_of_sound
+	local sounds, members = self:SelectSources(budget.sources)
 	local job = {
 		time = time,
 		listener = listener,
@@ -1152,7 +1172,8 @@ function META:BuildJob(time)
 		random = self.random,
 		seed = math.floor(self.random() * 2147483647),
 		sources = {},
-		sounds = self:SelectSources(budget.sources),
+		sounds = sounds,
+		members = members,
 		direct_time = {},
 		split_time = self.profile.predelay,
 		queries = {},
@@ -1174,6 +1195,12 @@ function META:BuildJob(time)
 		job.direct_time[i] = (position - listener):GetLength() / speed
 		self:AddFresnelQueries(job, sound, position, budget.fresnel)
 		self:AddDetourQueries(job, sound, position, budget.fresnel * acoustics.DETOUR_SAMPLES)
+
+		for _, member in ipairs(members[i]) do
+			local member_position = member:GetPosition():Copy()
+			self:AddFresnelQueries(job, member, member_position, budget.fresnel)
+			self:AddDetourQueries(job, member, member_position, budget.fresnel * acoustics.DETOUR_SAMPLES)
+		end
 	end
 
 	job.sources[#job.sounds + 1] = listener
@@ -1451,12 +1478,17 @@ function META:Absorb(job, result)
 	self.profile = acoustics.ComputeProfile(self.stats, job.speed)
 
 	for i, sound in ipairs(job.sounds) do
-		local env = self:GetEnvironment(sound)
 		local source = job.sources[i]
-		local source_moved = env.traced and (source - env.traced):GetLength() / reach or 0
-		env.traced = source
-		acoustics.DecaySourceSums(env.sums, decay * math.exp(-source_moved))
-		acoustics.AddSourceSums(env.sums, result.sources[i], job.rays)
+
+		for k = 0, #job.members[i] do
+			local member = k == 0 and sound or job.members[i][k]
+			local env = self:GetEnvironment(member)
+			local position = k == 0 and source or member:GetPosition()
+			local source_moved = env.traced and (position - env.traced):GetLength() / reach or 0
+			env.traced = position:Copy()
+			acoustics.DecaySourceSums(env.sums, decay * math.exp(-source_moved))
+			acoustics.AddSourceSums(env.sums, result.sources[i], job.rays)
+		end
 	end
 
 	self:AbsorbAmbience(job, result, decay)
@@ -1471,6 +1503,8 @@ function META:Absorb(job, result)
 	local frame_visible = {}
 
 	for _, check in ipairs(job.fresnel) do
+		if check.query + 1 >= job.query_count then break end
+
 		local at = check.query * acoustics.QUERY_FLOATS
 		local visible = q[at + 1] < 0 and q[at + acoustics.QUERY_FLOATS + 1] < 0
 		local counts = frame_visible[check.sound]
@@ -1559,6 +1593,8 @@ function META:Absorb(job, result)
 	end
 
 	for _, check in ipairs(job.reflection_checks) do
+		if check.query + 1 >= job.query_count then break end
+
 		local at = check.query * acoustics.QUERY_FLOATS
 		local distance = q[at + 1]
 		local tolerance = math.max(0.3, check.expected * 0.03)
@@ -1573,6 +1609,19 @@ function META:Absorb(job, result)
 			env.reflections[check.key] = job.time
 		else
 			env.reflections[check.key] = nil
+		end
+	end
+
+	for i, sound in ipairs(job.sounds) do
+		local reflections = self:GetEnvironment(sound).reflections
+
+		for _, member in ipairs(job.members[i]) do
+			local env = self:GetEnvironment(member)
+			table.clear(env.reflections)
+
+			for key, valid_time in pairs(reflections) do
+				env.reflections[key] = valid_time
+			end
 		end
 	end
 end

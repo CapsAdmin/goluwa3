@@ -846,6 +846,7 @@ function META:Dispatch(cmd)
 	for i = #job.sources, MAX_SOURCES + 1, -1 do
 		job.sources[i] = nil
 		job.sounds[i] = nil
+		job.members[i] = nil
 	end
 
 	local q = ffi.cast(float_ptr, slot.queries:Map())

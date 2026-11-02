@@ -1080,6 +1080,53 @@ T.Test("audio acoustics per band scattering keeps the decay of each band", funct
 	end)
 end)
 
+T.Test("audio acoustics clusters nearby sounds onto one traced source", function()
+	with_offline_mixer(function(ctx)
+		audio.acoustics = acoustics.New(
+			audio,
+			box_tracer(
+				Vec3(-5, 0, -4),
+				Vec3(5, 4, 4),
+				0.1,
+				{
+					rays = 256,
+					bounces = 10,
+					samples = 128,
+					sources = 1,
+					fresnel = 2,
+					reflection_sources = 1,
+				}
+			)
+		)
+		audio.SetListenerPosition(Vec3(1.3, 1.7, 0.6))
+		local a = mono_source(64, function()
+			return 0
+		end)
+		local b = mono_source(64, function()
+			return 0
+		end)
+
+		for _, snd in ipairs{a, b} do
+			snd:SetLooping(true)
+		end
+
+		a:SetPosition(Vec3(-2.5, 1.2, -1.1))
+		b:SetPosition(Vec3(-2.0, 1.2, -0.6))
+		a:Play()
+		b:Play()
+
+		for _ = 1, 40 do
+			ctx.time = ctx.time + 1 / 60
+			audio.Update()
+		end
+
+		T(a.audio_environment.sums.rays)[">"](0)
+		T(b.audio_environment.sums.rays)[">"](0)
+		T(math.abs(b.audio_environment.send[1] / a.audio_environment.send[1] - 1))["<="](0.2)
+		audio.StopAll()
+	end)
+end)
+
 T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the temperature", function()
 	T(spatial.AirAbsorptionAt(1000, 20, 0.5, 101325) * 1000)["~"](4.66, 0.15)
 	T(spatial.AirAbsorptionAt(4000, 20, 0.5, 101325) * 1000)["~"](29.7, 0.9)
