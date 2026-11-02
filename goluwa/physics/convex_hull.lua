@@ -584,6 +584,64 @@ function convex_hull.BuildFromTriangles(source, epsilon)
 	return build_convex_hull(points, epsilon)
 end
 
+do
+	local MAX_HULL_POINTS = 32
+	local DIRECTIONS = {}
+
+	for x = -1, 1 do
+		for y = -1, 1 do
+			for z = -1, 1 do
+				if x ~= 0 or y ~= 0 or z ~= 0 then
+					DIRECTIONS[#DIRECTIONS + 1] = Vec3(x, y, z):GetNormalized()
+				end
+			end
+		end
+	end
+
+	function convex_hull.FromPolygon3D(polygon)
+		local points = {}
+
+		for i, vertex in ipairs(polygon.Vertices) do
+			local pos = vertex.pos
+			points[i] = Vec3(pos.x, pos.y, pos.z)
+		end
+
+		if #points > MAX_HULL_POINTS then
+			local extremes = {}
+
+			for _, direction in ipairs(DIRECTIONS) do
+				local best, best_dot = nil, -math.huge
+
+				for _, point in ipairs(points) do
+					local dot = point:Dot(direction)
+
+					if dot > best_dot then best, best_dot = point, dot end
+				end
+
+				extremes[#extremes + 1] = best
+			end
+
+			points = extremes
+		end
+
+		local min = Vec3(math.huge, math.huge, math.huge)
+		local max = Vec3(-math.huge, -math.huge, -math.huge)
+
+		for _, point in ipairs(points) do
+			min.x, min.y, min.z = math.min(min.x, point.x), math.min(min.y, point.y), math.min(min.z, point.z)
+			max.x, max.y, max.z = math.max(max.x, point.x), math.max(max.y, point.y), math.max(max.z, point.z)
+		end
+
+		local center = (min + max) * 0.5
+
+		for _, point in ipairs(points) do
+			point.x, point.y, point.z = point.x - center.x, point.y - center.y, point.z - center.z
+		end
+
+		return {ConvexHull = build_convex_hull(points), Position = center}
+	end
+end
+
 function convex_hull.BuildCompoundShapeFromTriangles(source, epsilon)
 	epsilon = epsilon or 0.0001
 	local triangles = {}

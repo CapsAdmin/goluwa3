@@ -563,7 +563,14 @@ function contact_resolution.ResolvePairPenetration(body_a, body_b, normal, overl
 
 	if not options.skip_grounding then
 		contact_resolution.MarkPairGrounding(body_a, body_b, normal)
-		accumulate_pair_ground_support(body_a, body_b, normal, point_a, point_b)
+
+		if point_a and body_a.Grounded and -normal.y >= body_a:GetMinGroundNormalY() then
+			body_a:AccumulateGroundSupportContact(body_a.GroundNormal, point_a.x, point_a.y, point_a.z)
+		end
+
+		if point_b and body_b.Grounded and normal.y >= body_b:GetMinGroundNormalY() then
+			body_b:AccumulateGroundSupportContact(body_b.GroundNormal, point_b.x, point_b.y, point_b.z)
+		end
 	end
 
 	local entry = physics.collision_pairs:RecordCollisionPair(body_a, body_b, normal, overlap, speed)

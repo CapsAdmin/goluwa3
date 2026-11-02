@@ -6,6 +6,7 @@ local Matrix33 = import("goluwa/structs/matrix33.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Collider = import("goluwa/physics/collider.lua")
+local ConvexHull = import("goluwa/physics/convex_hull.lua")
 local islands = import("goluwa/physics/islands.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -581,7 +582,19 @@ function RigidBody:LoadShapeModel()
 				return
 			end
 
-			self:SetShapes(model.physics.children)
+			local children = model.physics.children
+
+			if self.MotionType ~= "static" then
+				children = {}
+
+				for i, child in ipairs(model.physics.children) do
+					children[i] = child.Polygon3D and
+						ConvexHull.FromPolygon3D(child.Polygon3D) or
+						child
+				end
+			end
+
+			self:SetShapes(children)
 
 			if self.sleep_after_shapes then
 				self.sleep_after_shapes = nil
