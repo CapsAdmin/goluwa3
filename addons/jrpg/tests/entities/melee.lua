@@ -20,6 +20,7 @@ local grab = import("lua/grab.lua")
 local jrpg = import("lua/jrpg/jrpg.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local BUTTON = usercmd.BUTTON
+local PLAIN = {rarity = "common", bonus = 0, names = {}}
 
 local function create_character(position, health, ragdoll)
 	local entity = Entity.New{
@@ -130,7 +131,7 @@ T.TestPhysics("a light attack draws the sheathed sword, steps in and hits the ta
 	create_ground()
 	local attacker = create_character(Vec3(0, 0.05, 0))
 	local victim = create_character(Vec3(0, 0.05, -2.2), 1000)
-	local sword = attacker.weapon_holder:Give("weapon_sword")
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
 	run(0.5)
 	T(sword.weapon:IsSheathed())["=="](true)
 	T(attacker.weapon_holder:GetPosedWeapon("right"))["=="](nil)
@@ -149,7 +150,7 @@ end)
 T.TestPhysics("a sheathed weapon goes back on the back after its delay", function()
 	create_ground()
 	local holder = create_character(Vec3(0, 0.05, 0))
-	local sword = holder.weapon_holder:Give("weapon_sword")
+	local sword = holder.weapon_holder:Give("weapon_sword", PLAIN)
 	sword.weapon:SetDrawn(true)
 	T(sword.weapon:IsSheathed())["=="](false)
 	T(sword.weapon:GetModel().transform:GetAttachment())["=="]("grip_r")
@@ -269,7 +270,7 @@ T.TestPhysics("the sword dive throw latches onto the target and throws it", func
 			upperarm_l = {m30 = -0.15, m31 = 1.08, m32 = 0},
 		},
 	}
-	local sword = attacker.weapon_holder:Give("weapon_sword")
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
 	run(0.3)
 	sword.weapon_melee:StartMove(movesets.Get("sword").Moves.dive_throw, true)
 	local held = false
@@ -486,7 +487,7 @@ T.TestPhysics("crouching launches the victim, which hangs briefly at the top and
 	create_ground()
 	local attacker = create_character(Vec3(0, 0.05, 0))
 	local victim = create_character(Vec3(0, 0.05, -1.6), 1000)
-	local sword = attacker.weapon_holder:Give("weapon_sword")
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
 	run(0.3)
 	local ground = actors.GetCenter(attacker).y
 	local victim_ground = actors.GetCenter(victim).y
@@ -519,7 +520,7 @@ T.TestPhysics("a plunge from the air dives to the ground and strikes around the 
 	local attacker = create_character(Vec3(0, 3, 0))
 	local victim = create_character(Vec3(0, 0.05, -1.2), 1000)
 	run(0.3)
-	local sword = attacker.weapon_holder:Give("weapon_sword")
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
 	T(attacker.character_movement:GetGrounded())["=="](false)
 	sword.weapon_melee:Request("light", command(attacker, 0, BUTTON.CROUCH), true)
 	T(attacker.character_pose.Action)["=="]("sword_falling_star")
@@ -554,7 +555,7 @@ T.TestPhysics("jumping toward a target vaults over it and lands behind it", func
 	create_ground()
 	local attacker = create_character(Vec3(0, 0.05, 0))
 	local victim = create_character(Vec3(0, 0.05, -2), 1000)
-	local sword = attacker.weapon_holder:Give("weapon_sword")
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
 	run(0.3)
 	local ground = actors.GetCenter(attacker).y
 	sword.weapon_melee:Step(1 / 60, command(attacker, 1, BUTTON.JUMP, BUTTON.JUMP), true)
@@ -571,7 +572,7 @@ T.TestPhysics("the greatsword impale lift pins the victim to the blade and slams
 	local attacker = create_character(Vec3(0, 0.05, 0))
 	local victim = create_character(Vec3(0, 0.05, -2), 1000, true)
 	victim.source_pose = {bones = VICTIM_BONES}
-	local blade = attacker.weapon_holder:Give("weapon_greatsword")
+	local blade = attacker.weapon_holder:Give("weapon_greatsword", PLAIN)
 	run(0.3)
 	local falls = count_fall_damage()
 	blade.weapon_melee:Request("heavy", command(attacker, 0, BUTTON.CROUCH), true)
@@ -610,7 +611,7 @@ T.TestPhysics("the sword heavens grasp skewers the victim, leaps with it and thr
 	local attacker = create_character(Vec3(0, 0.05, 0))
 	local victim = create_character(Vec3(0, 0.05, -1.8), 1000, true)
 	victim.source_pose = {bones = VICTIM_BONES}
-	local sword = attacker.weapon_holder:Give("weapon_sword")
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
 	run(0.3)
 	local ground = actors.GetCenter(attacker).y
 	local falls = count_fall_damage()
@@ -641,7 +642,7 @@ T.TestPhysics("a hit of a move that kills throws the body like a knockdown and f
 	create_ground()
 	local attacker = create_character(Vec3(0, 0.05, 0))
 	local victim = create_character(Vec3(0, 0.05, -1.6), 10, true)
-	local sword = attacker.weapon_holder:Give("weapon_sword")
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
 	sword.weapon:SetAttributes({})
 	run(1, {victim.character_pose})
 	sword.weapon_melee:Request("light", command(attacker, 0), true)
@@ -693,7 +694,7 @@ T.TestPhysics("a grab on a victim without the carry bones pins it by its centre"
 	create_ground()
 	local attacker = create_character(Vec3(0, 0.05, 0))
 	local victim = create_character(Vec3(0, 0.05, -2), 1000)
-	local blade = attacker.weapon_holder:Give("weapon_greatsword")
+	local blade = attacker.weapon_holder:Give("weapon_greatsword", PLAIN)
 	run(0.3)
 	T(victim.source_pose)["=="](nil)
 	blade.weapon_melee:Request("heavy", command(attacker, 0, BUTTON.CROUCH), true)
@@ -714,7 +715,7 @@ T.TestPhysics("reloading a weapon script in the middle of a move drops the move 
 	create_ground()
 	local attacker = create_character(Vec3(0, 0.05, 0))
 	create_character(Vec3(0, 0.05, -2), 1000)
-	local sword = attacker.weapon_holder:Give("weapon_sword")
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
 	run(0.3)
 	sword.weapon_melee:Request("light", command(attacker, 0), true)
 	T(attacker.move_runner:IsPlaying())["=="](true)
@@ -734,7 +735,7 @@ T.TestPhysics("a grab whose victim dies and is removed before the throw ends wit
 	local attacker = create_character(Vec3(0, 0.05, 0))
 	local victim = create_character(Vec3(0, 0.05, -2), 5)
 	victim.health:SetRemoveOnDeath(true)
-	local blade = attacker.weapon_holder:Give("weapon_greatsword")
+	local blade = attacker.weapon_holder:Give("weapon_greatsword", PLAIN)
 	blade.weapon:SetAttributes({})
 	run(0.3)
 	blade.weapon_melee:Request("heavy", command(attacker, 0, BUTTON.CROUCH), true)
