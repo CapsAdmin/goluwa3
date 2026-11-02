@@ -11,6 +11,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local trails = import("goluwa/render3d/trails.lua")
 local commands = import("goluwa/cli/commands.lua")
 local sprites = import("goluwa/render3d/sprites.lua")
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local vfx = {}
 local UP = Vec3(0, 1, 0)
@@ -97,6 +98,186 @@ do
 		texture:Shade(glsl[name] or error("unknown vfx texture " .. tostring(name)))
 		textures[name] = texture
 		return texture
+	end
+end
+
+do
+	local flipbooks = {}
+	local definitions = {}
+
+	function vfx.RegisterFlipbook(name, definition)
+		definitions[name] = definition
+		flipbooks[name] = nil
+	end
+
+	function vfx.GetFlipbook(name)
+		local flipbook = flipbooks[name]
+
+		if flipbook then return flipbook end
+
+		local definition = definitions[name] or error("unknown vfx flipbook " .. tostring(name))
+		local columns, rows, tile = definition.Columns, definition.Rows, definition.TileSize
+		local noise_glsl = glsl_common.GetNoiseGLSL()
+
+		local function bake(entry)
+			local texture = Texture.New{
+				width = columns * tile,
+				height = rows * tile,
+				format = "r8g8b8a8_unorm",
+				mip_map_levels = definition.MipLevels or 3,
+				image = {
+					usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
+				},
+				sampler = {
+					min_filter = "linear",
+					mag_filter = "linear",
+					mipmap_mode = "linear",
+					wrap_s = "clamp_to_edge",
+					wrap_t = "clamp_to_edge",
+				},
+			}
+			texture:Shade(
+				noise_glsl .. string.format(
+						[[
+					const vec2 FLIPBOOK_GRID = vec2(%d.0, %d.0);
+					const float FLIPBOOK_FRAMES = %d.0;
+					%s
+
+					vec4 shade(vec2 uv, vec3 _cube_dir) {
+						vec2 cell = floor(uv * FLIPBOOK_GRID);
+						float frame = cell.y * FLIPBOOK_GRID.x + cell.x;
+						return %s(fract(uv * FLIPBOOK_GRID), frame / FLIPBOOK_FRAMES * 6.2831853, frame);
+					}
+				]],
+						columns,
+						rows,
+						columns * rows,
+						definition.GLSL,
+						entry
+					)
+			)
+			return texture
+		end
+
+		flipbook = {
+			Texture = bake("flipbook_frame"),
+			Normal = definition.GLSL:find("flipbook_normal") and bake("flipbook_normal") or nil,
+			Columns = columns,
+			Rows = rows,
+			Frames = columns * rows,
+		}
+		flipbooks[name] = flipbook
+		return flipbook
+	end
+
+	local SMOKE_FIELD_GLSL = [[
+				float smoke_fbm(vec3 q, float phase, int octaves) {
+					float sum = 0.0;
+					float amplitude = 0.5;
+					float norm = 0.0;
+
+					for (int i = 0; i < octaves; i++) {
+						float a = phase * (i % 2 == 0 ? 1.0 : -1.0) + float(i) * 1.7;
+						vec3 orbit = vec3(cos(a), sin(a), float(i) * 5.3) * 0.5;
+						sum += value_noise3(q + orbit) * amplitude;
+						norm += amplitude;
+						amplitude *= 0.52;
+						q *= 2.03;
+					}
+
+					return sum / norm;
+				}
+
+				float smoke_fine(vec2 p, float phase) {
+					return smoke_fbm(vec3(p * 4.0, 9.0), phase, 4);
+				}
+
+				float smoke_height(vec2 p, float phase) {
+					vec3 q = vec3(p * 1.3, 0.0);
+					vec3 warp = vec3(smoke_fbm(q + vec3(7.1, 0.0, 0.0), phase, 2), smoke_fbm(q + vec3(0.0, 3.7, 0.0), phase, 2), 0.0);
+					float n = smoke_fbm(q + (warp - 0.5) * 1.1, phase, 5);
+					float fine = smoke_fine(p, phase);
+					float r = length(p);
+					float body = 1.0 - smoothstep(0.45, 1.0, r + (n - 0.5) * 1.0 + (fine - 0.5) * 0.3);
+					body *= 1.0 - smoothstep(0.8, 0.98, r);
+					return body * (0.1 + n * 1.5) * (0.7 + 0.6 * fine);
+				}
+
+	]]
+	vfx.RegisterFlipbook(
+		"smoke",
+		{
+			Columns = 8,
+			Rows = 8,
+			TileSize = 256,
+			GLSL = SMOKE_FIELD_GLSL .. [[
+				vec4 flipbook_frame(vec2 local, float phase, float frame) {
+					vec2 p = local * 2.0 - 1.0;
+					float h = smoke_height(p, phase);
+					float crevice = smoothstep(0.1, 0.9, smoke_fine(p, phase));
+					return vec4(vec3(mix(0.55, 1.0, crevice) * (1.0 - 0.4 * smoothstep(0.2, 1.0, h))), smoothstep(0.1, 0.75, h));
+				}
+
+				vec4 flipbook_normal(vec2 local, float phase, float frame) {
+					vec2 p = local * 2.0 - 1.0;
+					const float e = 0.04;
+					vec2 slope = vec2(
+						smoke_height(p + vec2(e, 0.0), phase) - smoke_height(p - vec2(e, 0.0), phase),
+						smoke_height(p + vec2(0.0, e), phase) - smoke_height(p - vec2(0.0, e), phase)
+					) / (2.0 * e);
+					float r2 = min(dot(p, p), 0.95);
+					vec3 n = normalize(vec3(p - slope * 0.22, sqrt(1.0 - r2)));
+					return vec4(n * 0.5 + 0.5, 1.0);
+				}
+			]],
+		}
+	)
+	vfx.RegisterFlipbook(
+		"fire",
+		{
+			Columns = 8,
+			Rows = 8,
+			TileSize = 256,
+			GLSL = SMOKE_FIELD_GLSL .. [[
+				vec4 flipbook_frame(vec2 local, float phase, float frame) {
+					vec2 p = local * 2.0 - 1.0;
+					float h = smoke_height(p, phase);
+					float heat = clamp(pow(smoothstep(0.12, 0.85, h), 1.7) * (0.65 + 0.7 * smoke_fine(p, phase)), 0.0, 1.0);
+					return vec4(vec3(heat), heat);
+				}
+			]],
+		}
+	)
+end
+
+do
+	local LIT_SPRITES = {
+		Additive = false,
+		Translucent = true,
+		Unlit = false,
+		VertexTint = true,
+		SimpleLighting = true,
+		Roughness = 1,
+		Metallic = 0,
+	}
+	local ADDITIVE_SPRITES = {Additive = true, VertexTint = true}
+	local materials = {}
+
+	function vfx.GetFlipbookBatch(name)
+		local flipbook = vfx.GetFlipbook(name)
+		local config = materials[flipbook]
+
+		if not config then
+			config = flipbook.Normal and
+				table.merge({NormalTexture = flipbook.Normal}, LIT_SPRITES) or
+				ADDITIVE_SPRITES
+			materials[flipbook] = config
+		end
+
+		local batch = sprites.GetBatch(flipbook.Texture, config)
+		batch:SetAtlas(flipbook.Columns, flipbook.Rows)
+		batch:SetNearFade(0.5, 1.5)
+		return batch, flipbook.Frames
 	end
 end
 
