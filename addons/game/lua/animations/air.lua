@@ -56,6 +56,7 @@ return {
 	},
 	land = {
 		Kind = "action",
+		Passive = true,
 		Duration = 0.45,
 		Cutoff = function(strength)
 			return strength
