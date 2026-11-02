@@ -17,6 +17,15 @@ acoustics.LEAF_STEP = 0.001
 acoustics.BAND_EDGES = {{50, 500}, {500, 4000}, {4000, 16000}}
 acoustics.MIN_SCATTER_PROBABILITY = 0.05
 acoustics.SAMPLE_FLOATS = 14
+-- ISO 9613-2 limit for one edge: turbulence and scattering fill the deep shadow
+acoustics.DIFFRACTION_CAP_DB = 20
+acoustics.DETOUR_MIN_RADIUS = 0.05
+acoustics.DETOUR_MAX_RADIUS = 0.5
+acoustics.DETOUR_MIN_REACH = 16
+acoustics.DETOUR_NONE = 1000
+acoustics.DETOUR_MEMORY = 0.7
+acoustics.DETOUR_FOLLOW = 0.3
+acoustics.DETOUR_SAMPLES = 6
 acoustics.MAX_REFLECTORS = 10
 acoustics.MIN_REFLECTOR_AREA = 0.5
 acoustics.MIN_REFLECTOR_HITS = 3
@@ -154,6 +163,30 @@ do
 
 		return out
 	end
+end
+
+function acoustics.DiffractionGain(detour, speed, out)
+	local frequencies = acoustics.BAND_FREQUENCIES
+	local cap = acoustics.DIFFRACTION_CAP_DB
+
+	if detour >= acoustics.DETOUR_NONE then
+		out[1], out[2], out[3] = 0, 0, 0
+		return out
+	end
+
+	for b = 1, 3 do
+		local sum = 0
+
+		for k = 1, 3 do
+			local x = math.sqrt(2 * math.pi * 2 * math.max(detour, 0) * frequencies[(b - 1) * 3 + k] / speed)
+			local loss = x < 1e-4 and 5 or 5 + 20 * math.log10(x / math.tanh(x))
+			sum = sum + 10 ^ (-math.min(loss, cap) / 10)
+		end
+
+		out[b] = sum / 3
+	end
+
+	return out
 end
 
 function acoustics.NewTransmission()
@@ -792,6 +825,9 @@ function META:GetEnvironment(sound)
 			visibility_samples = {0, 0, 0},
 			transmission = {1, 1, 1},
 			transmission_samples = 0,
+			direct = 1,
+			detour = 0,
+			diffraction = {1, 1, 1},
 			solid = 0,
 			occlusion = {1, 1, 1},
 			reflections = {},
@@ -853,6 +889,7 @@ function META:BuildJob(time)
 		queries = {},
 		query_count = 0,
 		fresnel = {},
+		detours = {},
 		transmissions = {},
 		reflection_checks = {},
 	}
@@ -863,6 +900,7 @@ function META:BuildJob(time)
 		job.sources[i] = position
 		job.direct_time[i] = (position - listener):GetLength() / speed
 		self:AddFresnelQueries(job, sound, position, budget.fresnel)
+		self:AddDetourQueries(job, sound, position, budget.fresnel * acoustics.DETOUR_SAMPLES)
 	end
 
 	job.sources[#job.sounds + 1] = listener
@@ -880,6 +918,55 @@ function META:BuildJob(time)
 	end
 
 	return job
+end
+
+function META:AddDetourQueries(job, sound, source, samples)
+	local listener = job.listener
+	local axis = source - listener
+	local distance = axis:GetLength()
+
+	if distance < acoustics.SOURCE_CLEARANCE + acoustics.LISTENER_CLEARANCE + 0.1 then
+		return
+	end
+
+	axis = axis / distance
+	local t, b = perpendicular(axis)
+	local min_radius = acoustics.DETOUR_MIN_RADIUS
+	local max_radius = math.max(acoustics.DETOUR_MAX_RADIUS * distance, acoustics.DETOUR_MIN_REACH)
+	local best = self:GetEnvironment(sound).detour_sample
+
+	for i = 1, samples do
+		local u, angle, radius
+		-- half the samples straddle the shortest clear detour so far, so the estimate settles on the edge and keeps confirming it
+		local refine = best and i % 2 == 0
+
+		if refine then
+			u = math.clamp(best.u + (self.random() - 0.5) * 0.1, 0.05, 0.95)
+			angle = best.angle + (self.random() - 0.5) * 0.3
+			radius = math.max(best.radius * (0.8 + 0.4 * self.random()), min_radius)
+		else
+			u = 0.15 + 0.7 * self.random()
+			angle = self.random() * math.pi * 2
+			radius = min_radius * (max_radius / min_radius) ^ self.random()
+		end
+
+		local point = listener + axis * (
+				distance * u
+			) + (
+				t * math.cos(angle) + b * math.sin(angle)
+			) * radius
+		local first = add_segment(job, listener, point, acoustics.LISTENER_CLEARANCE, 0)
+		add_segment(job, point, source, 0, acoustics.SOURCE_CLEARANCE)
+		job.detours[#job.detours + 1] = {
+			sound = sound,
+			query = first,
+			u = u,
+			angle = angle,
+			radius = radius,
+			refine = refine,
+			detour = (point - listener):GetLength() + (source - point):GetLength() - distance,
+		}
+	end
 end
 
 function META:AddFresnelQueries(job, sound, source, samples)
@@ -1153,7 +1240,47 @@ function META:Absorb(job, result)
 		end
 
 		env.solid = env.solid + (q[at + 12] - env.solid) * k
+		env.direct = env.direct + ((q[at + 1] < 0 and 1 or 0) - env.direct) * k
 		env.transmission_samples = env.transmission_samples + 1
+	end
+
+	local frame_detour = {}
+	local held_path = {}
+
+	for _, check in ipairs(job.detours) do
+		if check.query + 1 >= job.query_count then break end
+
+		local at = check.query * acoustics.QUERY_FLOATS
+		local best = frame_detour[check.sound]
+
+		if not best then
+			best = {detour = acoustics.DETOUR_NONE}
+			frame_detour[check.sound] = best
+		end
+
+		if q[at + 1] < 0 and q[at + acoustics.QUERY_FLOATS + 1] < 0 then
+			if check.refine then held_path[check.sound] = true end
+
+			if check.detour < best.detour then frame_detour[check.sound] = check end
+		end
+	end
+
+	for sound, best in pairs(frame_detour) do
+		local env = self:GetEnvironment(sound)
+
+		-- while samples around the held detour still get through it stands; once they are all blocked the path is gone and the shortest one found now takes over. A frame that finds nothing only lets it grow slowly: a missed sample is not a closed door
+		if best.detour <= env.detour then
+			env.detour = best.detour
+			env.detour_sample = best.u and best
+		elseif best.u and not held_path[sound] then
+			env.detour = env.detour + (best.detour - env.detour) * acoustics.DETOUR_FOLLOW
+			env.detour_sample = best
+		else
+			env.detour = math.min(
+				math.max(env.detour, 0.001) * math.exp(dt / acoustics.DETOUR_MEMORY),
+				acoustics.DETOUR_NONE
+			)
+		end
 	end
 
 	for _, check in ipairs(job.reflection_checks) do
@@ -1182,9 +1309,21 @@ function META:UpdateSoundEnvironment(sound, time)
 	local listener = audio.listener_position
 	local source = sound:GetPosition()
 	local distance = (source - listener):GetLength()
+	acoustics.DiffractionGain(env.detour, audio.speed_of_sound, env.diffraction)
+	local reach = math.max(acoustics.DETOUR_MAX_RADIUS * distance, acoustics.DETOUR_MIN_REACH)
+	local longest = 2 * math.sqrt(0.25 * distance * distance + reach * reach) - distance
+	-- a held detour past anything the samples can find means the path is gone; fade it out instead of dropping it, a missed sample is not a closed door
+	local fade = math.clamp(2 - env.detour / longest, 0, 1)
 
 	for band = 1, 3 do
-		local visible = env.visibility[band] * env.visibility[band]
+		env.diffraction[band] = env.diffraction[band] * fade
+	end
+
+	for band = 1, 3 do
+		local around = env.direct * env.visibility[band] + (
+				1 - env.direct
+			) * math.sqrt(env.diffraction[band])
+		local visible = around * around
 		env.occlusion[band] = math.sqrt(visible + (1 - visible) * env.transmission[band])
 	end
 
@@ -1516,7 +1655,7 @@ function META:Probe(sound)
 	end
 
 	self:AcceptReflections(env, source, time)
-	local visibility, transmission = self.tracer:Probe(self.audio.listener_position, source, self.audio.speed_of_sound)
+	local visibility, transmission, detour = self.tracer:Probe(self.audio.listener_position, source, self.audio.speed_of_sound)
 
 	if visibility then
 		for band = 1, 3 do
@@ -1526,10 +1665,90 @@ function META:Probe(sound)
 		end
 
 		env.solid = transmission.solid
+		env.direct = transmission.leaves == 0 and 1 or 0
+		env.detour = detour
 		env.transmission_samples = 1
 	end
 
 	self:UpdateSoundEnvironment(sound, time)
+end
+
+local function clear(tracer, listener, point, source)
+	local d1 = point - listener
+	local l1 = d1:GetLength()
+	local d2 = source - point
+	local l2 = d2:GetLength()
+	return not tracer:Trace(
+			listener.x,
+			listener.y,
+			listener.z,
+			d1.x / l1,
+			d1.y / l1,
+			d1.z / l1,
+			acoustics.LISTENER_CLEARANCE,
+			l1
+		) and
+		not tracer:Trace(
+			point.x,
+			point.y,
+			point.z,
+			d2.x / l2,
+			d2.y / l2,
+			d2.z / l2,
+			0,
+			math.max(l2 - acoustics.SOURCE_CLEARANCE, 0)
+		)
+end
+
+function acoustics.DetourProbe(tracer, listener, source, samples)
+	local axis = source - listener
+	local distance = axis:GetLength()
+
+	if distance < acoustics.SOURCE_CLEARANCE + acoustics.LISTENER_CLEARANCE + 0.1 then
+		return 0
+	end
+
+	axis = axis / distance
+	local t, b = perpendicular(axis)
+	local min_radius = acoustics.DETOUR_MIN_RADIUS
+	local max_radius = math.max(acoustics.DETOUR_MAX_RADIUS * distance, acoustics.DETOUR_MIN_REACH)
+	local best = acoustics.DETOUR_NONE
+	local best_radius, best_angle
+
+	for i = 1, samples do
+		local radius = min_radius * (max_radius / min_radius) ^ ((i - 0.5) / samples)
+		local angle = i * 2.399963229728653
+		local point = listener + axis * (
+				distance * 0.5
+			) + (
+				t * math.cos(angle) + b * math.sin(angle)
+			) * radius
+		local detour = (point - listener):GetLength() + (source - point):GetLength() - distance
+
+		if detour < best and clear(tracer, listener, point, source) then
+			best = detour
+			best_radius, best_angle = radius, angle
+		end
+	end
+
+	if best_radius then
+		local inner, outer = 0, best_radius
+		local direction = t * math.cos(best_angle) + b * math.sin(best_angle)
+
+		for _ = 1, 6 do
+			local radius = (inner + outer) * 0.5
+			local point = listener + axis * (distance * 0.5) + direction * radius
+
+			if clear(tracer, listener, point, source) then
+				outer = radius
+				best = math.min(best, (point - listener):GetLength() + (source - point):GetLength() - distance)
+			else
+				inner = radius
+			end
+		end
+	end
+
+	return best
 end
 
 function acoustics.ProbeTransmission(tracer, listener, source, speed)

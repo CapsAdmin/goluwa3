@@ -88,7 +88,8 @@ end
 
 function META:Probe(listener, source, speed)
 	return acoustics.FresnelProbe(self, listener, source, speed, 4),
-	acoustics.ProbeTransmission(self, listener, source, speed)
+	acoustics.ProbeTransmission(self, listener, source, speed),
+	acoustics.DetourProbe(self, listener, source, 24)
 end
 
 function acoustics_cpu.New(budget)

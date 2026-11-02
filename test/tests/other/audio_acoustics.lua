@@ -1016,6 +1016,39 @@ T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the tempe
 	T(far)[">"](spatial.AIR_SUBBANDS[3][1] * 1000)
 end)
 
+T.TestPhysics("audio diffraction around a wall edge follows the barrier loss of its shortest detour", function()
+	local Entity = import("goluwa/entities/entity.lua")
+	local BoxShape = import("goluwa/physics/shapes/box.lua")
+	local physics = import("goluwa/physics.lua")
+	local wall = Entity.New({Name = "diffraction_wall"})
+	wall:AddComponent("transform")
+	wall.transform:SetPosition(Vec3(0, 2, -5))
+	wall:AddComponent("rigid_body", {Shape = BoxShape.New(Vec3(4, 4, 0.05)), MotionType = "static"})
+	physics.Update(1 / 60)
+	local tracer = acoustics_cpu.New()
+	local listener, source = Vec3(0, 1.7, 0), Vec3(2.5, 1.7, -10)
+	local edge = Vec3(2, 1.7, -5)
+	local exact = (
+			edge - listener
+		):GetLength() + (
+			source - edge
+		):GetLength() - (
+			source - listener
+		):GetLength()
+	local found = acoustics.DetourProbe(tracer, listener, source, 24)
+	local expected, measured = {}, {}
+	acoustics.DiffractionGain(exact, audio.speed_of_sound, expected)
+	acoustics.DiffractionGain(found, audio.speed_of_sound, measured)
+	T(found)[">="](exact - 0.01)
+
+	for band = 1, 2 do
+		T(math.abs(10 * math.log10(measured[band] / expected[band])))["<="](2)
+	end
+
+	T(10 * math.log10(acoustics.DiffractionGain(0, audio.speed_of_sound, {})[2]))["~"](-5, 0.01)
+	T(acoustics.DiffractionGain(acoustics.DETOUR_NONE, audio.speed_of_sound, {})[2])["=="](0)
+end)
+
 local function exact_doppler(start, velocity, t, wind, c)
 	local lo, hi = 0, 10
 
