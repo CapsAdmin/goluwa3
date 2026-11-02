@@ -848,3 +848,66 @@ T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the tempe
 	T(far)["<"](spatial.AIR_ABSORPTION_DB[3] * 1000 * 0.5)
 	T(far)[">"](spatial.AIR_SUBBANDS[3][1] * 1000)
 end)
+
+T.Test("audio doppler stays smooth when positions arrive in physics steps between frames", function()
+	local c = audio.speed_of_sound
+	local speed = 5
+	local expected = 1000 * (c + speed) / c
+	local cents = {}
+
+	with_offline_mixer(function(ctx)
+		local sine = mono_source(FS * 2, function(i)
+			return math.sin(2 * math.pi * 1000 * i / FS) * 0.5
+		end)
+		sine:SetLooping(true)
+		sine:SetPosition(Vec3(0, 0, -50))
+		sine:Play()
+		local total = 3 * FS
+		local out = ffi.new("float[?]", total * 2)
+		local done, next_update = 0, 0
+
+		while done < total do
+			local frames = math.min(512, total - done)
+			local now = ctx.mixer.frames_done / FS
+
+			while now >= next_update do
+				ctx.time = next_update
+				audio.SetListenerPosition(Vec3(0, 0, -speed * math.floor(next_update * 60) / 60))
+				audio.Update()
+				next_update = next_update + 1 / 144
+			end
+
+			ctx.time = now
+			mix.MixOutputBuffer(ctx.mixer, out + done * 2, frames * 2)
+			done = done + frames
+		end
+
+		local previous
+		local last = out[FS * 2]
+
+		for i = FS + 1, total - 1 do
+			local v = out[i * 2]
+
+			if last < 0 and v >= 0 then
+				local crossing = i - 1 + last / (last - v)
+
+				if previous then
+					cents[#cents + 1] = 1200 * math.log(FS / (crossing - previous) / expected) / math.log(2)
+				end
+
+				previous = crossing
+			end
+
+			last = v
+		end
+	end)
+
+	local worst = 0
+
+	for _, value in ipairs(cents) do
+		worst = math.max(worst, math.abs(value))
+	end
+
+	T(#cents)[">"](1000)
+	T(worst)["<"](3)
+end)

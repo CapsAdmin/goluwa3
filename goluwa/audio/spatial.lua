@@ -10,7 +10,8 @@ spatial.MAX_RATE = 0.75
 spatial.PINNA_NOTCH = {frequency = 7500, octaves = 0.65, depth = 18, q = 2.5, rear = 0.6, far = 0.2}
 spatial.PINNA_OVERHEAD = {frequency = 8000, gain = 10, q = 1.2}
 spatial.PINNA_FRONT = {frequency = 4000, gain = 5, q = 0.8}
-local VELOCITY_TIME_CONSTANT = 0.05
+-- positions arrive in physics steps and frame jitter; the ear hears every step of the delay as pitch, so paths follow a tracked path instead
+spatial.MOTION_TIME = 0.15
 local TELEPORT_SPEED = 1000
 
 function spatial.ComputeDistanceAttenuation(model, distance, reference_distance, max_distance, rolloff, ids)
@@ -243,20 +244,25 @@ function spatial.UpdateMotion(motion, position, time)
 
 	if dt <= 0 then return motion end
 
-	local step = position - motion.position
-	local speed = step:GetLength() / dt
+	local predicted = motion.position + motion.velocity * dt
+	local residual = position - predicted
 
-	if speed > TELEPORT_SPEED then
+	if residual:GetLength() / dt > TELEPORT_SPEED then
+		motion.position = position:Copy()
 		motion.velocity = Vec3(0, 0, 0)
+		motion.seeded = false
+	elseif not motion.seeded then
+		-- a sound that starts on a moving object already moves: the first step sets the velocity instead of a slow climb from rest
+		motion.velocity = (position - motion.position) / dt
+		motion.position = position:Copy()
+		motion.seeded = true
 	else
-		motion.velocity = motion.velocity + (
-				step / dt - motion.velocity
-			) * (
-				1 - math.exp(-dt / VELOCITY_TIME_CONSTANT)
-			)
+		-- critically damped position and velocity tracker (g-h filter): no lag at constant velocity, steps and jitter shorter than MOTION_TIME are smoothed out
+		local theta = math.exp(-dt / spatial.MOTION_TIME)
+		motion.position = predicted + residual * (1 - theta * theta)
+		motion.velocity = motion.velocity + residual * ((1 - theta) * (1 - theta) / dt)
 	end
 
-	motion.position = position:Copy()
 	motion.time = time
 	return motion
 end
@@ -270,7 +276,7 @@ function spatial.ComputePaths(audio, sound, out)
 			ear_filter_frequency = {},
 			ear_filter_gain = {},
 		}
-	local listener = audio.listener_position
+	local listener = audio.listener_motion.position or audio.listener_position
 	local forward = audio.listener_forward:GetNormalized()
 	local right = forward:GetCross(audio.listener_up)
 
@@ -280,8 +286,8 @@ function spatial.ComputePaths(audio, sound, out)
 		right = right:GetNormalized()
 	end
 
-	local source = sound:GetPosition()
 	local motion = sound.audio_motion
+	local source = motion and motion.position or sound:GetPosition()
 	local source_velocity = motion and motion.velocity or Vec3(0, 0, 0)
 	local listener_velocity = audio.listener_motion.velocity or Vec3(0, 0, 0)
 	local doppler = audio.doppler_factor

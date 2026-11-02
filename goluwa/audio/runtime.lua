@@ -132,6 +132,13 @@ function module.Attach(audio)
 		audio.UpdateListenerMotion(time)
 		audio.UpdateCueGroups()
 
+		-- the reflections are computed in acoustics:Update and must use this frame's tracked positions, like the direct path does after it
+		for slot, sound in pairs(audio.active_sounds) do
+			if audio.state.slots[slot].spatial then
+				sound.audio_motion = spatial_air.UpdateMotion(sound.audio_motion or {}, sound:GetPosition(), time)
+			end
+		end
+
 		if audio.acoustics then audio.acoustics:Update(time) end
 
 		for slot, sound in pairs(audio.active_sounds) do

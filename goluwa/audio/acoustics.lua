@@ -978,13 +978,13 @@ end
 function META:UpdateTaps(sound, env, time)
 	local audio = self.audio
 	local speed = audio.speed_of_sound / math.max(audio.doppler_factor, 0.000001)
-	local listener = audio.listener_position
+	local listener = audio.listener_motion.position or audio.listener_position
 	local forward = audio.listener_forward:GetNormalized()
 	local right = forward:GetCross(audio.listener_up):GetNormalized()
 	local up = right:GetCross(forward)
 	local half_ear = right * (audio.ear_distance * 0.5)
-	local source = sound:GetPosition()
 	local motion = sound.audio_motion
+	local source = motion and motion.position or sound:GetPosition()
 	local velocity = motion and motion.velocity or Vec3(0, 0, 0)
 	local listener_velocity = audio.listener_motion.velocity or Vec3(0, 0, 0)
 	local ids = audio.DISTANCE_MODE_IDS
