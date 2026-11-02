@@ -95,6 +95,37 @@ audio.pinna_cues = pvars.Setup2{
 	friendly = "pinna cues",
 	help = "strength of the direction dependent ear filters on the direct sound (outer ear notch, overhead and front cues) that let headphones tell up from down and front from back: 0 is off, 1 is about a measured ear, more exaggerates",
 }
+local LIMITER_MODES = {on = 0, clip = 1, soft = 2}
+pvars.Setup2{
+	key = "audio_limiter",
+	default = "on",
+	enums = {"on", "clip", "soft"},
+	friendly = "limiter",
+	help = "what keeps the output under full scale: on is the lookahead peak limiter, clip hard clips at full scale like the device would, soft saturates with tanh",
+	callback = function(value)
+		audio.state.output_mode = LIMITER_MODES[value]
+	end,
+}
+pvars.Setup2{
+	key = "audio_gain",
+	default = 0,
+	min = -60,
+	max = 60,
+	friendly = "output gain",
+	help = "gain in dB on the mix before the ear stage and the limiter, on top of the listener gain",
+	callback = function(value)
+		audio.state.output_gain = 10 ^ (value / 20)
+	end,
+}
+pvars.Setup2{
+	key = "audio_ear",
+	default = true,
+	friendly = "ear stage",
+	help = "the acoustic reflex model that ducks the mix after loud sounds; off leaves loudness to the limiter alone",
+	callback = function(value)
+		audio.state.ear_threshold = value and audio.reference_loudness - 4 or 1000
+	end,
+}
 pvars.EndGroup()
 
 function audio.SetupAcoustics(mode)

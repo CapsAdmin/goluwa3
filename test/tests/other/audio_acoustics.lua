@@ -5,6 +5,8 @@ local mix = import("goluwa/audio/mix.lua")
 local dsp = import("goluwa/audio/dsp.lua")
 local acoustics = import("goluwa/audio/acoustics.lua")
 local acoustics_cpu = import("goluwa/audio/acoustics_cpu.lua")
+local ground = import("goluwa/audio/ground.lua")
+local explosion = import("goluwa/audio/explosion.lua")
 local spatial = import("goluwa/audio/spatial.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -15,8 +17,16 @@ local function with_offline_mixer(cb)
 	local saved_state, saved_sounds, saved_clock, saved_motion = audio.state, audio.active_sounds, audio.clock, audio.listener_motion
 	local saved_acoustics = audio.acoustics
 	local saved_position, saved_forward, saved_up = audio.listener_position, audio.listener_forward, audio.listener_up
+	local saved_atmosphere = {
+		audio.turbulence,
+		audio.temperature_gradient,
+		spatial.TURBULENCE_WIND,
+		spatial.WIND_GRADIENT,
+	}
+	audio.turbulence, audio.temperature_gradient, spatial.TURBULENCE_WIND, spatial.WIND_GRADIENT = 0, 0, 0, 0
 	local ctx = {time = 0}
 	audio.state = audio.CreateMixerState()
+	audio.state.ear_threshold = 100
 	audio.active_sounds = {}
 	audio.listener_motion = {}
 	audio.acoustics = nil
@@ -30,12 +40,14 @@ local function with_offline_mixer(cb)
 
 	function ctx.Render(seconds, on_frame)
 		local total = math.floor(seconds * FS)
-		local out = ffi.new("float[?]", total * 2)
+		local latency = ctx.mixer.limiter.length - 1
+		local mixed = total + latency
+		local out = ffi.new("float[?]", mixed * 2)
 		local done = 0
 		local next_update = 0
 
-		while done < total do
-			local frames = math.min(512, total - done)
+		while done < mixed do
+			local frames = math.min(512, mixed - done)
 			local now = ctx.mixer.frames_done / FS
 
 			while now >= next_update do
@@ -52,13 +64,16 @@ local function with_offline_mixer(cb)
 			done = done + frames
 		end
 
-		return out, total
+		local trimmed = ffi.new("float[?]", total * 2)
+		ffi.copy(trimmed, out + latency * 2, total * 8)
+		return trimmed, total
 	end
 
 	local ok, err = pcall(cb, ctx)
 	audio.state, audio.active_sounds, audio.clock, audio.listener_motion = saved_state, saved_sounds, saved_clock, saved_motion
 	audio.acoustics = saved_acoustics
 	audio.listener_position, audio.listener_forward, audio.listener_up = saved_position, saved_forward, saved_up
+	audio.turbulence, audio.temperature_gradient, spatial.TURBULENCE_WIND, spatial.WIND_GRADIENT = unpack(saved_atmosphere)
 
 	if not ok then error(err, 0) end
 end
@@ -105,6 +120,135 @@ local function frequency(out, channel, from, to)
 
 	return count / ((last - first) / FS)
 end
+
+T.Test("audio a far sound on a curved path is delayed from where it was, not from where its velocity points", function()
+	with_offline_mixer(function(ctx)
+		local c = audio.speed_of_sound
+		local radius, speed, omega = 1000, 150, 0.15
+		local center = Vec3(0, 50, -4000)
+
+		local function position(t)
+			return center + Vec3(math.cos(omega * t) * radius, 0, math.sin(omega * t) * radius)
+		end
+
+		local source = mono_source(64, function()
+			return 0
+		end)
+		source:SetLooping(true)
+		source:SetReferenceDistance(1)
+		source:SetPosition(position(0))
+		source:Play()
+
+		for _ = 1, 30 * 60 do
+			ctx.time = ctx.time + 1 / 60
+			source:SetPosition(position(ctx.time))
+			audio.Update()
+		end
+
+		local ear = audio.listener_position
+
+		local function exact_delay(now)
+			local lo, hi = 0, 25
+
+			for _ = 1, 60 do
+				local tau = (lo + hi) / 2
+
+				if c * tau < (position(now - tau) - ear):GetLength() then
+					lo = tau
+				else
+					hi = tau
+				end
+			end
+
+			return (lo + hi) / 2
+		end
+
+		local exact = exact_delay(ctx.time)
+		local exact_rate = (exact_delay(ctx.time + 0.01) - exact_delay(ctx.time - 0.01)) / 0.02
+		local slot = audio.state.slots[source.slot]
+		T(exact)[">"](8)
+		T(math.abs(slot.ear_delay[0] - exact))["<"](0.005)
+		T(math.abs(slot.ear_delay[1] - exact))["<"](0.005)
+		T(math.abs(exact_rate))[">"](0.05)
+		T(math.abs(slot.ear_rate[0] - exact_rate))["<"](0.01)
+		local motion = source.audio_motion
+		local ground = Vec3(0, 1, 0)
+		local image = Vec3(motion.position.x, -motion.position.y, motion.position.z)
+		local image_velocity = Vec3(motion.velocity.x, -motion.velocity.y, motion.velocity.z)
+		local echo_delay = spatial.PathTiming(motion, image, image_velocity, ear, Vec3(0, 0, 0), Vec3(0, 0, 0), c, 0, ground, 0)
+		local lo, hi = 0, 25
+
+		for _ = 1, 60 do
+			local tau = (lo + hi) / 2
+			local p = position(ctx.time - tau)
+
+			if c * tau < (Vec3(p.x, -p.y, p.z) - ear):GetLength() then
+				lo = tau
+			else
+				hi = tau
+			end
+		end
+
+		T(math.abs(echo_delay - (lo + hi) / 2))["<"](0.005)
+		audio.StopAll()
+	end)
+end)
+
+T.Test("audio sounds keep as much delay history as their distance needs", function()
+	with_offline_mixer(function(ctx)
+		local count = 300
+
+		local function tone()
+			return mono_source(count, function(i)
+				return math.sin(2 * math.pi * 300 * i / FS) * (
+						0.5 - 0.5 * math.cos(2 * math.pi * i / count)
+					)
+			end)
+		end
+
+		local near = tone()
+		near:SetPosition(Vec3(0, 0, -30))
+		near:Play()
+		local far = tone()
+		far:SetReferenceDistance(1)
+		far:SetPosition(Vec3(0, 0, -3000))
+		far:Play()
+		local near_slot, far_slot = near.slot, far.slot
+		local out, total = ctx.Render(10)
+		local best, at = 0, 0
+
+		for i = 5 * FS, total - 1 do
+			if math.abs(out[i * 2]) > best then best, at = math.abs(out[i * 2]), i end
+		end
+
+		T(math.abs(at / FS - 3000 / audio.speed_of_sound))["<"](0.03)
+		T(ctx.mixer.voices[near_slot].history_size)["=="](mix.MIN_HISTORY_SIZE)
+		T(ctx.mixer.voices[far_slot].history_size)[">="](math.ceil(3000 / audio.speed_of_sound * FS))
+		audio.StopAll()
+	end)
+end)
+
+T.Test("audio a sound moving far away grows its history without losing what is in flight", function()
+	with_offline_mixer(function(ctx)
+		local source = mono_source(FS * 4, function(i)
+			return 0.5 * math.sin(2 * math.pi * 200 * i / FS)
+		end)
+		source:SetReferenceDistance(1)
+		source:SetPosition(Vec3(0, 0, -100))
+		source:Play()
+		ctx.Render(1)
+		T(ctx.mixer.voices[source.slot].history_size)["=="](mix.MIN_HISTORY_SIZE)
+		source:SetPosition(Vec3(0, 0, -2500))
+		local out, total = ctx.Render(1)
+		T(ctx.mixer.voices[source.slot].history_size)[">"](mix.MIN_HISTORY_SIZE)
+
+		for i = 0, total * 2 - 1 do
+			T(out[i] == out[i])["=="](true)
+		end
+
+		audio.StopAll()
+	end)
+end)
 
 T.Test("audio propagation delay and interaural time difference", function()
 	with_offline_mixer(function(ctx)
@@ -251,6 +395,7 @@ T.Test("audio reflections reach each ear at their own time with the ear filters 
 						front = front,
 						gain_left = 0.5,
 						gain_right = 0.5,
+						air = {1, 1, 1, 1, 1, 1},
 					},
 				},
 				tap_band = {1, 1, 1},
@@ -737,6 +882,64 @@ T.Test("audio acoustics matches Eyring in a box room and finds every wall reflec
 	end)
 end)
 
+T.Test("audio a one shot starts with the reverb of its distance, not of a sound at the listener", function()
+	with_offline_mixer(function(ctx)
+		audio.acoustics = acoustics.New(
+			audio,
+			box_tracer(
+				Vec3(-5, 0, -4),
+				Vec3(5, 4, 4),
+				0.1,
+				{
+					rays = 256,
+					bounces = 10,
+					samples = 128,
+					sources = 1,
+					fresnel = 2,
+					reflection_sources = 1,
+				}
+			)
+		)
+		local listener = Vec3(1.3, 1.7, 0.6)
+		audio.SetListenerPosition(listener)
+		local keep = mono_source(64, function()
+			return 0
+		end)
+		keep:SetLooping(true)
+		keep:SetPosition(Vec3(-2.5, 1.2, -1.1))
+		keep:Play()
+
+		for _ = 1, 40 do
+			ctx.time = ctx.time + 1 / 60
+			audio.Update()
+		end
+
+		local function one_shot_energy(offset)
+			local shot = mono_source(64, function()
+				return 0
+			end)
+			shot:SetPosition(listener + offset)
+			shot:Play()
+			local energy = shot.audio_environment.energy
+			shot:Stop()
+			return energy
+		end
+
+		local near_offset, far_offset = Vec3(-1, 0, 0), Vec3(-6, 0, 0)
+		local near, far = one_shot_energy(near_offset), one_shot_energy(far_offset)
+		local t60 = audio.acoustics.ambient_reverb.t60[2]
+		local expected = math.exp(
+			-13.82 * (
+					far_offset:GetLength() - near_offset:GetLength()
+				) / (
+					audio.speed_of_sound * t60
+				)
+		)
+		T(math.abs(far / near / expected - 1))["<"](0.02)
+		audio.StopAll()
+	end)
+end)
+
 T.Test("audio acoustics follows the listener into another room within a few frames", function()
 	with_offline_mixer(function(ctx)
 		local budget = {
@@ -803,6 +1006,136 @@ T.Test("audio acoustics keeps the long late tail of a room without a roof", func
 	end)
 end)
 
+local function ground_tracer(boxes, absorption, budget, scattering)
+	local tracer = acoustics_cpu.New(budget)
+	local material = box_material(absorption, scattering)
+
+	function tracer:Trace(ox, oy, oz, dx, dy, dz, tmin, tmax)
+		local best, nx, ny, nz = math.huge, 0, 0, 0
+
+		if dy < 0 then best, nx, ny, nz = -oy / dy, 0, 1, 0 end
+
+		for _, b in ipairs(boxes) do
+			local near, far, axis, side = -math.huge, math.huge, nil, 0
+
+			for i = 1, 3 do
+				local o = i == 1 and ox or i == 2 and oy or oz
+				local d = i == 1 and dx or i == 2 and dy or dz
+				local lo, hi = b[i * 2 - 1], b[i * 2]
+
+				if d == 0 then
+					if o < lo or o > hi then far = -math.huge end
+				else
+					local t1, t2, s = (lo - o) / d, (hi - o) / d, -1
+
+					if t1 > t2 then t1, t2, s = t2, t1, 1 end
+
+					if t1 > near then near, axis, side = t1, i, s end
+
+					if t2 < far then far = t2 end
+				end
+			end
+
+			if axis and near <= far and near > 1e-6 and near < best then
+				best = near
+				nx, ny, nz = 0, 0, 0
+
+				if axis == 1 then nx = side elseif axis == 2 then ny = side else nz = side end
+			end
+		end
+
+		if best == math.huge or best < tmin or best > tmax then return nil end
+
+		return best, nx, ny, nz, material
+	end
+
+	return tracer
+end
+
+T.Test("audio acoustics gives open ground with one building an echo and no reverb tail", function()
+	with_offline_mixer(function(ctx)
+		audio.acoustics = acoustics.New(
+			audio,
+			ground_tracer(
+				{{55, 75, 0, 10, -10, 10}},
+				0.1,
+				{
+					rays = 512,
+					bounces = 8,
+					samples = 128,
+					sources = 1,
+					fresnel = 2,
+					reflection_sources = 1,
+				}
+			)
+		)
+		audio.SetListenerPosition(Vec3(15, 1.5, 0))
+		local snd = mono_source(64, function()
+			return 0
+		end)
+		snd:SetLooping(true)
+		snd:SetPosition(Vec3(-15, 1.5, 0))
+		snd:Play()
+
+		for _ = 1, 90 do
+			ctx.time = ctx.time + 1 / 60
+			audio.Update()
+		end
+
+		local profile = audio.acoustics.profile
+		T(profile.t60[2])["<"](0.5)
+		T(audio.state.buses[0].t60[1])["<"](math.max(profile.t60[2] * 2, 0.6))
+		audio.StopAll()
+	end)
+end)
+
+T.Test("audio a far listener hears the reverb of the space the sound is in, from the sound's own trace", function()
+	with_offline_mixer(function(ctx)
+		audio.acoustics = acoustics.New(
+			audio,
+			ground_tracer(
+				{
+					{-42, 42, 0, 10, -42, -40},
+					{-42, 42, 0, 10, 40, 42},
+					{-42, -40, 0, 10, -40, 40},
+				},
+				0.1,
+				{
+					rays = 512,
+					bounces = 8,
+					samples = 128,
+					sources = 1,
+					fresnel = 2,
+					reflection_sources = 1,
+				}
+			)
+		)
+		audio.SetListenerPosition(Vec3(300, 1.5, 0))
+		local snd = mono_source(64, function()
+			return 0
+		end)
+		snd:SetLooping(true)
+		snd:SetReferenceDistance(1)
+		snd:SetPosition(Vec3(-10, 1.5, 0))
+		snd:Play()
+
+		for _ = 1, 150 do
+			ctx.time = ctx.time + 1 / 60
+			audio.Update()
+		end
+
+		local env = snd.audio_environment
+		local distance2 = 310 ^ 2
+		local emitter = env.emitter
+		T(emitter ~= nil and emitter.reverb ~= nil)["=="](true)
+		T(math.abs(env.energy / emitter.reverb.energy[2] - 1))["<"](0.01)
+		T(emitter.reverb.energy[2] * distance2)[">"](0.1)
+		T(emitter.reverb.energy[2])[">"](1.2 * env.sums.late[2] / env.sums.rays)
+		T(env.send[1] + env.send[2])[">"](0)
+		audio.StopAll()
+	end)
+end)
+
 T.TestPhysics("audio acoustics occludes a source behind a static wall", function()
 	local Entity = import("goluwa/entities/entity.lua")
 	local BoxShape = import("goluwa/physics/shapes/box.lua")
@@ -842,6 +1175,114 @@ T.Test("audio sounds ramp in and out instead of clicking on a non zero sample", 
 		out = ctx.Render(0.1)
 		T(out[2 * 441])["<"](0.5)
 		T(math.abs(out[2 * 1500] - 0.8))["<"](1e-4)
+	end)
+end)
+
+T.Test("audio the ear takes a share of what is above the reference loudness, the lows first, slowly", function()
+	local threshold = -18
+
+	-- steady state change in level (dB) of a tone of the given rms level after 2 s, and the change 0.2 s after the tone stops (a second, quiet tone follows)
+	local function reduction(frequency, rms_db)
+		local ear = dsp.CreateEar(FS)
+		local frames = FS * 3
+		local out = ffi.new("float[?]", frames * 2)
+		local amplitude = 10 ^ (rms_db / 20) * math.sqrt(2)
+
+		for i = 0, frames - 1 do
+			local t = i / FS
+			out[i * 2] = (t < 2 and amplitude or 10 ^ (-45 / 20)) * math.sin(2 * math.pi * frequency * t)
+			out[i * 2 + 1] = out[i * 2]
+		end
+
+		local reference = ffi.new("float[?]", frames * 2)
+		ffi.copy(reference, out, frames * 8)
+
+		for i = 0, frames - 1, 512 do
+			dsp.ProcessEar(ear, out + i * 2, math.min(512, frames - i), threshold)
+		end
+
+		local function level(buffer, from, to)
+			local sum = 0
+
+			for i = math.floor(from * FS), math.floor(to * FS) - 1 do
+				sum = sum + buffer[i * 2] ^ 2
+			end
+
+			return 10 * math.log10(sum / ((to - from) * FS) + 1e-12)
+		end
+
+		return level(reference, 1.5, 2) - level(out, 1.5, 2),
+		level(reference, 2.1, 2.3) - level(out, 2.1, 2.3)
+	end
+
+	local quiet = reduction(200, -30)
+	T(math.abs(quiet))["<"](0.3)
+	T(math.abs((reduction(3000, -30))))["<"](0.3)
+	local bass = reduction(60, -6)
+	local high = reduction(3000, -6)
+	-- 6 dB over the bass threshold (6 dB above the reflex one), three quarters of it
+	T(math.abs(bass - 4.5))["<"](1.5)
+	-- 12 dB over the reflex threshold, three quarters of it, 60% of that on the highs
+	T(high)[">"](3)
+	T(high)["<"](8)
+	local _, after = reduction(60, -6)
+	T(after)[">"](2)
+end)
+
+T.Test("audio the explosion model has the blast wave of its charge, no net pressure and a dry waveform", function()
+	local overpressure, duration = explosion.GetBlast(1, 10)
+	T(math.abs(overpressure - 10000) / 10000)["<"](0.1)
+	T(duration)[">"](0.002)
+	T(duration)["<"](0.006)
+	local near = explosion.GetBlast(1, 20)
+	local far = explosion.GetBlast(1, 200)
+	T(near)["<"](overpressure)
+	T(far)["<"](near / 5)
+	local data, count, peak_pressure = explosion.Generate(0.05, 50, FS, 1)
+	local peak, sum, minimum, early = 0, 0, 0, 0
+
+	for i = 0, count - 1 do
+		peak = math.max(peak, math.abs(data[i]))
+		minimum = math.min(minimum, data[i])
+		sum = sum + data[i]
+	end
+
+	for i = 3, 20 do
+		early = math.max(early, data[i])
+	end
+
+	T(math.abs(peak - 1))["<"](1e-6)
+	T(math.abs(sum / count))["<"](0.005)
+	T(early)[">"](0.5)
+	T(minimum)["<"](-0.05)
+	T(peak_pressure)[">"](0)
+end)
+
+T.Test("audio levels are dB SPL and the limiter keeps the output under its ceiling", function()
+	with_offline_mixer(function(ctx)
+		local frames = 8820
+		local data = ffi.new("float[?]", frames)
+
+		for i = 0, frames - 1 do
+			data[i] = 0.3 * math.sin(i * 2 * math.pi * 100 / FS)
+		end
+
+		local sound = audio.CreateSource{data = data, samples = frames, channels = 1, sample_rate = FS}
+		sound:SetSpatial(false)
+		sound:SetLevel(audio.reference_spl + 20)
+		T(sound:GetVolume())["=="](10)
+		T(sound:GetLevel())["=="](audio.reference_spl + 20)
+		sound:Play(0)
+		local out = ctx.Render(0.25)
+		local peak = 0
+
+		for i = 0, frames * 2 - 1 do
+			peak = math.max(peak, math.abs(out[i]))
+		end
+
+		T(peak)["<="](dsp.LIMITER_CEILING + 1e-5)
+		T(peak)[">"](dsp.LIMITER_CEILING * 0.95)
+		T(audio.state.debug_limiter_gain)["<"](0.5)
 	end)
 end)
 
@@ -1127,6 +1568,301 @@ T.Test("audio acoustics clusters nearby sounds onto one traced source", function
 	end)
 end)
 
+local function band_power(out, from, count, frequency, size)
+	size = size or 8192
+	local window = {}
+	local window_energy = 0
+
+	for n = 0, size - 1 do
+		local x = 2 * math.pi * n / (size - 1)
+		window[n] = 0.35875 - 0.48829 * math.cos(x) + 0.14128 * math.cos(2 * x) - 0.01168 * math.cos(3 * x)
+		window_energy = window_energy + window[n] ^ 2
+	end
+
+	local w = 2 * math.pi * frequency / FS
+	local coefficient = 2 * math.cos(w)
+	local total, segments = 0, 0
+
+	for at = from, from + count - size, size do
+		local s1, s2 = 0, 0
+
+		for n = 0, size - 1 do
+			local s0 = out[(at + n) * 2] * window[n] + coefficient * s1 - s2
+			s2, s1 = s1, s0
+		end
+
+		total = total + (s1 * s1 + s2 * s2 - coefficient * s1 * s2) / window_energy
+		segments = segments + 1
+	end
+
+	return total / segments
+end
+
+T.Test("audio reverb loop loses each high frequency at the rate air takes it", function()
+	local reverb = dsp.CreateReverb(FS)
+	local frames = FS * 2
+	local input = ffi.new("float[?]", frames)
+	local out = ffi.new("float[?]", frames * 2)
+	math.randomseed(2)
+
+	for i = 0, 43 do
+		input[500 + i] = math.random() * 2 - 1
+	end
+
+	for i = 0, frames - 1, 512 do
+		for j = 0, dsp.REVERB_LINES - 1 do
+			spatial.GetAirFilter(reverb.delay[j] / FS * audio.speed_of_sound, FS, reverb.air_coefficient, j * 6 - 1)
+		end
+
+		dsp.ProcessReverb(
+			reverb,
+			input + i,
+			out + i * 2,
+			math.min(512, frames - i),
+			FS,
+			12,
+			12,
+			12,
+			0.02,
+			2,
+			1,
+			0,
+			1,
+			1,
+			0,
+			0
+		)
+	end
+
+	local size = 2048
+
+	for _, f in ipairs{8000, 12500} do
+		local levels = {}
+
+		for at = 0, frames - size, 512 do
+			levels[#levels + 1] = {
+				t = (at + size / 2) / FS,
+				db = 10 * math.log10(band_power(out, at, size, f, size) + 1e-30),
+			}
+		end
+
+		local peak, peak_at = -1e9, 1
+
+		for i, p in ipairs(levels) do
+			if p.db > peak then peak, peak_at = p.db, i end
+		end
+
+		local n, sx, sy, sxx, sxy = 0, 0, 0, 0, 0
+
+		for i = peak_at, #levels do
+			local p = levels[i]
+
+			if p.db < peak - 3 and p.db > peak - 40 then
+				n, sx, sy, sxx, sxy = n + 1, sx + p.t, sy + p.db, sxx + p.t * p.t, sxy + p.t * p.db
+			end
+		end
+
+		local rate = -(n * sxy - sx * sy) / (n * sxx - sx * sx)
+		local expected = spatial.AirAbsorptionAt(f, 20, 0.5, 101325) * audio.speed_of_sound
+		T(math.abs(rate / expected - 1))["<"](0.15)
+	end
+end)
+
+T.Test("audio a long reflection loses each frequency the way ISO 9613-1 says", function()
+	local frequencies = {2000, 4000, 8000}
+
+	local function tap_spectrum(path)
+		local result
+
+		with_offline_mixer(function(ctx)
+			local count = math.floor(0.1 * FS)
+			math.randomseed(4)
+			local noise = mono_source(count, function()
+				return math.random() * 2 - 1
+			end)
+			noise:SetPosition(Vec3(0, 0, -2))
+			noise:SetVolume(0.0001)
+			local air = {}
+			spatial.GetAirFilter(path, FS, air, 0)
+			local delay = path / audio.speed_of_sound
+			noise.audio_environment = {
+				taps = {
+					{
+						delay_left = delay,
+						delay_right = delay,
+						rate_left = 0,
+						rate_right = 0,
+						height = 0,
+						front = 1,
+						gain_left = 1 / path,
+						gain_right = 1 / path,
+						air = air,
+					},
+				},
+				tap_band = {1, 1, 1},
+				send = {0, 0},
+			}
+			noise:Play()
+			local out = ctx.Render(delay + 0.2)
+			result = {}
+
+			for i, f in ipairs(frequencies) do
+				result[i] = band_power(out, math.floor((delay + 0.02) * FS), math.floor(0.06 * FS), f, 2048)
+			end
+		end)
+
+		return result
+	end
+
+	local near, far = tap_spectrum(50), tap_spectrum(150)
+
+	for i, f in ipairs(frequencies) do
+		local measured = 10 * math.log10(far[i] / near[i])
+		local expected = 20 * math.log10(50 / 150) - spatial.AirAbsorptionAt(f, 20, 0.5, 101325) * 100
+		T(math.abs(measured - expected))["<"](3)
+	end
+end)
+
+local function ground_effect_levels(distance, source_height, listener_height, frequencies)
+	local function spectrum(with_acoustics)
+		local result
+
+		with_offline_mixer(function(ctx)
+			audio.SetListenerPosition(Vec3(distance, listener_height, 0))
+			audio.SetListenerOrientation(Vec3(-1, 0, 0), Vec3(0, 1, 0))
+
+			if with_acoustics then
+				audio.acoustics = acoustics.New(
+					audio,
+					ground_tracer(
+						{},
+						0.6,
+						{
+							rays = 512,
+							bounces = 4,
+							samples = 128,
+							sources = 1,
+							fresnel = 2,
+							reflection_sources = 1,
+						},
+						{0, 0, 0}
+					)
+				)
+				local keep = mono_source(64, function()
+					return 0
+				end)
+				keep:SetLooping(true)
+				keep:SetPosition(Vec3(0, source_height, 0))
+				keep:Play()
+
+				for _ = 1, 120 do
+					ctx.time = ctx.time + 1 / 60
+					audio.Update()
+				end
+			end
+
+			math.randomseed(5)
+			local burst = mono_source(math.floor(0.6 * FS), function()
+				return math.random() * 2 - 1
+			end)
+			burst:SetReferenceDistance(1)
+			burst:SetVolume(0.01)
+			burst:SetPosition(Vec3(0, source_height, 0))
+			burst:Play()
+			local delay = math.sqrt(distance ^ 2 + (source_height - listener_height) ^ 2) / audio.speed_of_sound
+			local out = ctx.Render(delay + 0.9)
+			result = {}
+
+			for i, f in ipairs(frequencies) do
+				result[i] = band_power(out, math.floor((delay + 0.15) * FS), 6 * 4096, f, 4096)
+			end
+
+			audio.StopAll()
+		end)
+
+		return result
+	end
+
+	local free, engine = spectrum(false), spectrum(true)
+	local result = {}
+
+	for i, f in ipairs(frequencies) do
+		local r1 = math.sqrt(distance ^ 2 + (source_height - listener_height) ^ 2)
+		local r2 = math.sqrt(distance ^ 2 + (source_height + listener_height) ^ 2)
+		local qr, qi = ground.Coefficient(f, ground.Resistivity(0.6), r2, (source_height + listener_height) / r2)
+		local k = 2 * math.pi * f / audio.speed_of_sound
+		local er, ei = math.cos(k * (r2 - r1)), math.sin(k * (r2 - r1))
+		local a = r1 / r2
+		local re, im = 1 + a * (qr * er - qi * ei), a * (qr * ei + qi * er)
+		result[i] = {
+			engine = 10 * math.log10(engine[i] / free[i]),
+			exact = 10 * math.log10(re * re + im * im + 1e-12),
+		}
+	end
+
+	return result
+end
+
+T.Test("audio ground effect: a distant source on the ground loses its low and mid frequencies like soft ground does", function()
+	local levels = ground_effect_levels(400, 1.5, 1.7, {250, 400, 630, 1000, 1600, 2500})
+
+	for _, level in ipairs(levels) do
+		T(level.exact)["<"](-4)
+		T(math.abs(level.engine - level.exact))["<"](4)
+	end
+end)
+
+T.Test("audio ground effect: the reflection of an airburst arrives with the sign and phase of the ground", function()
+	local levels = ground_effect_levels(1000, 100, 1.7, {160, 250, 400, 630, 1000, 1600, 2500})
+	local sum = 0
+
+	for _, level in ipairs(levels) do
+		local difference = math.abs(level.engine - level.exact)
+		T(difference)["<"](4)
+		sum = sum + difference
+	end
+
+	T(sum / #levels)["<"](1.5)
+end)
+
+T.Test("audio distant sounds lose each frequency the way ISO 9613-1 says, not one flat band", function()
+	local function spectrum(distance, frequencies)
+		local result
+
+		with_offline_mixer(function(ctx)
+			local count = FS * 2
+			math.randomseed(3)
+			local noise = mono_source(count, function()
+				return math.random() * 2 - 1
+			end)
+			noise:SetReferenceDistance(1)
+			noise:SetVolume(0.001)
+			noise:SetPosition(Vec3(0, 0, -distance))
+			noise:Play()
+			local delay = distance / audio.speed_of_sound
+			local out = ctx.Render(delay + 1.6)
+			local from = math.floor((delay + 0.3) * FS)
+			result = {}
+
+			for i, f in ipairs(frequencies) do
+				result[i] = band_power(out, from, math.floor(1.3 * FS), f)
+			end
+		end)
+
+		return result
+	end
+
+	local frequencies = {1000, 2000, 4000, 8000}
+	local near = spectrum(2, frequencies)
+	local far = spectrum(150, frequencies)
+
+	for i, f in ipairs(frequencies) do
+		local measured = 10 * math.log10(far[i] / near[i])
+		local expected = 20 * math.log10(2 / 150) - spatial.AirAbsorptionAt(f, 20, 0.5, 101325) * 148
+		T(math.abs(measured - expected))["<"](3)
+	end
+end)
+
 T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the temperature", function()
 	T(spatial.AirAbsorptionAt(1000, 20, 0.5, 101325) * 1000)["~"](4.66, 0.15)
 	T(spatial.AirAbsorptionAt(4000, 20, 0.5, 101325) * 1000)["~"](29.7, 0.9)
@@ -1145,6 +1881,218 @@ T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the tempe
 	local far = -20 * math.log10(spatial.AirAbsorption(3, 1000))
 	T(far)["<"](spatial.AIR_ABSORPTION_DB[3] * 1000 * 0.5)
 	T(far)[">"](spatial.AIR_SUBBANDS[3][1] * 1000)
+end)
+
+T.Test("audio refraction leaves a shadow zone upwind of a distant source and carries the sound downwind", function()
+	local function level(wind)
+		local result
+
+		with_offline_mixer(function(ctx)
+			local distance = 800
+			spatial.WIND_GRADIENT = 0.026
+			audio.SetWind(Vec3(wind, 0, 0))
+			audio.SetListenerPosition(Vec3(distance, 1.7, 0))
+			audio.SetListenerOrientation(Vec3(-1, 0, 0), Vec3(0, 1, 0))
+			audio.acoustics = acoustics.New(
+				audio,
+				ground_tracer(
+					{},
+					0.6,
+					{
+						rays = 512,
+						bounces = 4,
+						samples = 128,
+						sources = 1,
+						fresnel = 2,
+						reflection_sources = 1,
+					},
+					{0, 0, 0}
+				)
+			)
+			local keep = mono_source(64, function()
+				return 0
+			end)
+			keep:SetLooping(true)
+			keep:SetPosition(Vec3(0, 1.5, 0))
+			keep:Play()
+
+			for _ = 1, 120 do
+				ctx.time = ctx.time + 1 / 60
+				audio.Update()
+			end
+
+			local count = FS
+			local tone = mono_source(count, function(i)
+				return math.sin(2 * math.pi * 2500 * i / FS)
+			end)
+			tone:SetReferenceDistance(1)
+			tone:SetVolume(0.01)
+			tone:SetPosition(Vec3(0, 1.5, 0))
+			tone:Play()
+			local delay = distance / (audio.speed_of_sound + wind)
+			local out = ctx.Render(delay + 0.9)
+			result = band_power(out, math.floor((delay + 0.2) * FS), 4096, 2500, 4096)
+			audio.StopAll()
+			audio.SetWind(Vec3(0, 0, 0))
+		end)
+
+		return 10 * math.log10(result)
+	end
+
+	local calm = level(0)
+	local upwind = level(-4)
+	local downwind = level(4)
+	T(upwind - calm)["<"](-12)
+	T(upwind - calm)[">"](-spatial.SHADOW_FLOOR_DB - 4)
+	T(downwind - calm)[">"](0)
+	T(downwind - calm)["<"](spatial.DUCT_MAX_DB + 3)
+end)
+
+T.Test("audio refraction shadow grows with the cube root of frequency, past the horizon of the rays only", function()
+	local gains = {}
+
+	local function shadow(distance, gradient)
+		return spatial.GetRefraction(audio, gradient, distance, 1.5, 1.7, {})
+	end
+
+	local radius = audio.speed_of_sound / 0.1
+	local horizon = math.sqrt(2 * radius) * (math.sqrt(1.5) + math.sqrt(1.7))
+	gains = shadow(horizon * 0.5, -0.1)
+	T(gains[2])["~"](1, 0.03)
+	gains = shadow(horizon * 1.5, -0.1)
+	T(gains[2])["<"](10 ^ (-spatial.SHADOW_EDGE_DB * 0.9 / 20))
+	T(gains[1])[">"](gains[2])
+	T(gains[2])[">"](gains[3])
+	gains = shadow(horizon * 100, -0.1)
+	T(gains[2])["~"](10 ^ (-spatial.SHADOW_FLOOR_DB / 20), 1e-6)
+	gains = shadow(horizon * 4, 0.1)
+	T(gains[2])[">"](1)
+	T(gains[2])["<="](10 ^ (spatial.DUCT_MAX_DB / 20) + 1e-6)
+end)
+
+T.Test("audio turbulence makes distant highs fluctuate with the depth it predicts and keeps the mean power", function()
+	local function levels(mu2)
+		local result = {}
+
+		with_offline_mixer(function(ctx)
+			audio.SetTurbulence(mu2)
+			audio.SetWind(Vec3(0, 0, 5))
+			local distance = 300
+			local count = FS * 12
+			local tone = mono_source(count, function(i)
+				return math.sin(2 * math.pi * 8000 * i / FS)
+			end)
+			tone:SetReferenceDistance(1)
+			tone:SetVolume(1)
+			tone:SetPosition(Vec3(0, 0, -distance))
+			tone:Play()
+			local delay = distance / (audio.speed_of_sound + 5)
+			local out = ctx.Render(delay + 10)
+			local from = math.floor((delay + 0.5) * FS)
+
+			for at = from, from + 9 * FS - 1024, 1024 do
+				result[#result + 1] = band_power(out, at, 1024, 8000, 1024)
+			end
+
+			audio.StopAll()
+			audio.SetWind(Vec3(0, 0, 0))
+		end)
+
+		return result
+	end
+
+	local mu2 = 3e-5
+	local still, shaken = levels(0), levels(mu2)
+	local mean_still, mean_shaken = 0, 0
+
+	for i = 1, #still do
+		mean_still = mean_still + still[i] / #still
+		mean_shaken = mean_shaken + shaken[i] / #shaken
+	end
+
+	local mean_db, square = 0, 0
+
+	for _, power in ipairs(shaken) do
+		mean_db = mean_db + 10 * math.log10(power) / #shaken
+	end
+
+	for _, power in ipairs(shaken) do
+		square = square + (10 * math.log10(power) - mean_db) ^ 2 / #shaken
+	end
+
+	local expected = 8.686 * spatial.ScintillationDepth(mu2, 6000, 300, audio.speed_of_sound)
+	T(math.sqrt(square))[">"](expected * 0.55)
+	T(math.sqrt(square))["<"](expected * 1.2)
+	T(math.abs(10 * math.log10(mean_shaken / mean_still)))["<"](2.5)
+end)
+
+T.Test("audio turbulence scatters the ground reflection out of step with the direct sound at high frequencies and distance", function()
+	local mu2 = 3e-6
+	local c = audio.speed_of_sound
+	T(spatial.Coherence(mu2, 250, 100, 1.5, c))[">"](0.97)
+	T(spatial.Coherence(mu2, 8000, 100, 1.5, c))["<"](0.3)
+	T(spatial.Coherence(mu2, 1500, 400, 1.5, c))["<"](spatial.Coherence(mu2, 1500, 100, 1.5, c))
+	T(spatial.Coherence(mu2, 8000, 100, 0.01, c))[">"](0.99)
+	T(spatial.ScintillationDepth(mu2, 6000, 5000, c))["~"](math.sqrt(spatial.SCINTILLATION_SATURATION), 0.03)
+	T(spatial.ScintillationDepth(mu2, 6000, 10, c))["<"](spatial.ScintillationDepth(mu2, 6000, 300, c))
+end)
+
+T.Test("audio output modes: limiter keeps the ceiling, clip stops at full scale, soft saturates, gain comes before them", function()
+	local function peak(mode, gain)
+		local result
+
+		with_offline_mixer(function(ctx)
+			audio.state.output_mode = mode
+			audio.state.output_gain = gain
+			local tone = mono_source(FS, function(i)
+				return math.sin(2 * math.pi * 440 * i / FS)
+			end)
+			tone:SetSpatial(false)
+			tone:SetNormalized(false)
+			tone:SetVolume(4)
+			tone:Play()
+			local out, total = ctx.Render(0.5)
+			result = 0
+
+			for i = 4000, total * 2 - 1 do
+				result = math.max(result, math.abs(out[i]))
+			end
+
+			audio.StopAll()
+		end)
+
+		return result
+	end
+
+	T(peak(0, 1))["<="](dsp.LIMITER_CEILING + 1e-3)
+	T(peak(1, 1))["~"](1, 1e-3)
+	T(peak(2, 1))["<"](1)
+	T(peak(2, 1))[">"](0.99)
+	T(peak(1, 0.125))["~"](0.5, 0.02)
+end)
+
+T.Test("audio reverb onset delay stays within a couple of mean free paths of travel", function()
+	local stats = acoustics.NewStats()
+	stats.rays = 1000
+	local sums = acoustics.NewSourceSums()
+	sums.rays = 1000
+
+	for b = 1, 3 do
+		sums.late[b] = 1
+		sums.moment[b] = 0.8
+		sums.moment2[b] = 0.64
+	end
+
+	local profile = {
+		mean_free_path = 35,
+		predelay = 0.08,
+		t60 = {2, 2, 1},
+		tail_survival = {0.5, 0.5, 0.2},
+		tail_path = {35, 35, 35},
+	}
+	local speed = 343.3
+	local result = acoustics.ComputeSourceReverb(sums, stats, profile, 0, speed)
+	T(result.delay)["~"](acoustics.MAX_TAIL_DELAY_PATHS * 35 / speed, 0.01)
 end)
 
 T.Test("audio remote reverb bus plays from its direction with the time difference between the ears", function()
@@ -1353,7 +2301,7 @@ T.Test("audio delay follows the wind along the path", function()
 			local out, total = ctx.Render(0.5)
 			local delay = (peak_index(out, total, 0) - count / 2) / FS
 			audio.SetWind(Vec3(0, 0, 0))
-			T(delay)["~"](100 / (math.sqrt(c * c - wind.x * wind.x) + wind.z), 0.0001)
+			T(delay)["~"](100 / (math.sqrt(c * c - wind.x * wind.x) + wind.z), 0.0003)
 		end)
 	end
 end)

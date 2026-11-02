@@ -16,7 +16,7 @@ local MAX_SAMPLES = 512
 local MAX_MATERIALS = 8192
 local GROUP_SIZE = 64
 local STATS_FLOATS = 38
-local SOURCE_FLOATS = 12
+local SOURCE_FLOATS = 15
 local ACC = STATS_FLOATS + SOURCE_FLOATS * MAX_SOURCES
 local SAMPLE_FLOATS = acoustics.SAMPLE_FLOATS
 local RAY_FLOATS = acoustics.RAY_FLOATS
@@ -105,6 +105,7 @@ local function build_pipeline(slots)
 
 					block.air[3] = acoustics.SURFACE_OFFSET
 					block.timing[0] = job.split_time
+					block.timing[1] = job.emitter and 1 or 0
 					block.params[0] = job.speed
 					block.params[1] = acoustics.OPEN_DISTANCE
 					block.params[2] = acoustics.SOURCE_CLEARANCE
@@ -157,6 +158,7 @@ local function build_pipeline(slots)
 			#define RHO_C %f
 			#define RHO_C2 %f
 			#define MIN_COS %f
+			#define MIN_SOURCE_D2 %f
 			#define DEFAULT_ABSORPTION %s
 			#define DEFAULT_SCATTERING %s
 			#define DEFAULT_RAIN %s
@@ -578,7 +580,7 @@ local function build_pipeline(slots)
 							if (cos_s > 0.0 && d > clearance && !scene_occluded(p, to_source / d, 0.0, d - clearance)) {
 								float total = path_length + d;
 								float t = total / speed - source.w;
-								vec3 e = (4.0 * cos_s / max(d2, 0.01)) * w * reflect * exp(-air * total);
+								vec3 e = (4.0 * cos_s / max(d2, MIN_SOURCE_D2)) * w * reflect * exp(-air * total);
 								int base = STATS_FLOATS + s * SOURCE_FLOATS;
 
 								if (settled) {
@@ -587,16 +589,20 @@ local function build_pipeline(slots)
 									acc[base + 2] += e.z;
 								}
 
-								if (bounce > 0 && t > acoustic.timing.x) {
+								if ((bounce > 0 || acoustic.timing.y > 0.5) && t > acoustic.timing.x) {
+									vec3 arrival = acoustic.timing.y > 0.5 ? -to_source / d : first_dir;
 									acc[base + 3] += e.x;
 									acc[base + 4] += e.y;
 									acc[base + 5] += e.z;
 									acc[base + 6] += e.x * t;
 									acc[base + 7] += e.y * t;
 									acc[base + 8] += e.z * t;
-									acc[base + 9] += e.y * first_dir.x;
-									acc[base + 10] += e.y * first_dir.y;
-									acc[base + 11] += e.y * first_dir.z;
+									acc[base + 12] += e.x * t * t;
+									acc[base + 13] += e.y * t * t;
+									acc[base + 14] += e.z * t * t;
+									acc[base + 9] += e.y * arrival.x;
+									acc[base + 10] += e.y * arrival.y;
+									acc[base + 11] += e.y * arrival.z;
 								}
 							}
 						}
@@ -670,6 +676,7 @@ local function build_pipeline(slots)
 				acoustics.RHO_C,
 				acoustics.RHO_C2,
 				math.cos(acoustics.MAX_INCIDENCE),
+				acoustics.MIN_SOURCE_DISTANCE ^ 2,
 				glsl_vec3(default.absorption),
 				glsl_vec3(default.scattering),
 				glsl_vec3(default.rain),
@@ -793,6 +800,7 @@ function META:ReadResult(job, slot)
 				sums.settled[b] = sums.settled[b] + out[base + b - 1]
 				sums.late[b] = sums.late[b] + out[base + 2 + b]
 				sums.moment[b] = sums.moment[b] + out[base + 5 + b]
+				sums.moment2[b] = sums.moment2[b] + out[base + 11 + b]
 				sums.direction[b] = sums.direction[b] + out[base + 8 + b]
 			end
 		end

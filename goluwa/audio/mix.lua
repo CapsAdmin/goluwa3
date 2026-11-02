@@ -1,10 +1,15 @@
 local ffi = require("ffi")
+local bit = require("bit")
 local dsp = import("goluwa/audio/dsp.lua")
+local spatial = import("goluwa/audio/spatial.lua")
+local ground = import("goluwa/audio/ground.lua")
 local clock = import("goluwa/audio/clock.lua")
 local audio_state = import("goluwa/audio/state.lua")
 local mix = {}
-mix.HISTORY_SIZE = 131072
-local HISTORY_MASK = mix.HISTORY_SIZE - 1
+mix.MIN_HISTORY_SIZE = 131072
+mix.REVERB_SPEED_OF_SOUND = 343.3
+mix.MAX_REVERB_T60 = 12
+local HISTORY_GUARD = 8192
 local SLOT_COUNT = audio_state.SLOT_COUNT
 local MAX_TAPS = audio_state.MAX_TAPS
 local BUS_COUNT = audio_state.BUS_COUNT
@@ -24,9 +29,12 @@ local voice_t = ffi.typeof(
 		float *history;
 		float *tap_history;
 		float *side_history;
+		float *ground_history;
+		bool ground_active;
 		double written;
 		double last_signal;
 		double volume;
+		uint32_t history_size;
 		double ear_delay[2];
 		double ear_slope[2];
 		double ear_gain[6];
@@ -34,12 +42,20 @@ local voice_t = ffi.typeof(
 		double ear_filter_frequency[6];
 		double ear_filter_gain[6];
 		double ear_filter_state[12];
+		double air_state[12];
+		double scintillation_state[2];
+		int32_t scintillation_seed;
+		double air_coefficient[12];
+		double send_air_state[6];
+		double send_air_coefficient[6];
 		double tap_delay[$];
 		double tap_gain[$];
 		double tap_group[$];
 		double tap_band[3];
 		double tap_state[4];
 		double send[$];
+		double tap_air_state[$];
+		double tap_air_coefficient[$];
 		uint32_t start_serial;
 		bool initialized;
 		bool emitting;
@@ -49,7 +65,9 @@ local voice_t = ffi.typeof(
 	MAX_TAPS * 2,
 	MAX_TAPS * 2,
 	MAX_TAPS * CUE_GROUPS,
-	BUS_COUNT
+	BUS_COUNT,
+	MAX_TAPS * 12,
+	MAX_TAPS * 6
 )
 local scratch_t = ffi.typeof("double[?]")
 
@@ -63,6 +81,9 @@ function mix.CreateMixer(state, sample_rate, max_frames)
 		histories = {},
 		tap_histories = {},
 		side_histories = {},
+		side_dummy = ffi.new("float[1]"),
+		ground_histories = {},
+		convolvers = {},
 		cue_left = {},
 		cue_right = {},
 		cue_state = ffi.new("double[?]", CUE_GROUPS * 12),
@@ -71,11 +92,17 @@ function mix.CreateMixer(state, sample_rate, max_frames)
 		cue_tail = 0,
 		buses = {},
 		bus_input = {},
+		send_scratch = scratch_t(max_frames),
+		bus_before = ffi.new("float[?]", max_frames * 2),
+		scintillation_mid = scratch_t(max_frames),
+		scintillation_high = scratch_t(max_frames),
 		tap_left = scratch_t(max_frames),
 		tap_right = scratch_t(max_frames),
 		coefficient_low = dsp.OnePoleCoefficient(dsp.LOW_CROSSOVER, sample_rate),
 		coefficient_high = dsp.OnePoleCoefficient(dsp.HIGH_CROSSOVER, sample_rate),
 		frames_done = 0,
+		ear = dsp.CreateEar(sample_rate),
+		limiter = dsp.CreateLimiter(sample_rate),
 		clock = clock,
 	}
 	state.sample_rate = sample_rate
@@ -97,22 +124,120 @@ function mix.CreateMixer(state, sample_rate, max_frames)
 	return mixer
 end
 
-local function reset_voice(mixer, index, voice, slot)
-	if slot.spatial then
-		if voice.history == nil then
-			mixer.histories[index] = ffi.new("float[?]", mix.HISTORY_SIZE)
-			voice.history = mixer.histories[index]
-			mixer.tap_histories[index] = ffi.new("float[?]", mix.HISTORY_SIZE)
-			voice.tap_history = mixer.tap_histories[index]
-			mixer.side_histories[index] = ffi.new("float[?]", mix.HISTORY_SIZE)
-			voice.side_history = mixer.side_histories[index]
-		else
-			ffi.fill(voice.history, mix.HISTORY_SIZE * 4)
-			ffi.fill(voice.tap_history, mix.HISTORY_SIZE * 4)
-			ffi.fill(voice.side_history, mix.HISTORY_SIZE * 4)
+local function history_size(mixer, slot)
+	local needed = math.ceil(slot.history_seconds * mixer.sample_rate) + HISTORY_GUARD + mixer.max_frames
+	local size = mix.MIN_HISTORY_SIZE
+
+	while size < needed do
+		size = size * 2
+	end
+
+	return size
+end
+
+local function allocate_history(mixer, index, voice, slot, size, keep)
+	local old_size = voice.history_size
+	local history = ffi.new("float[?]", size)
+	local tap_history = ffi.new("float[?]", size)
+	local side_history = slot.channels == 2 and ffi.new("float[?]", size) or mixer.side_dummy
+
+	if keep then
+		local mask, old_mask = size - 1, old_size - 1
+
+		for w = math.max(voice.written - old_size, 0), voice.written - 1 do
+			history[bit.band(w, mask)] = voice.history[bit.band(w, old_mask)]
+			tap_history[bit.band(w, mask)] = voice.tap_history[bit.band(w, old_mask)]
+
+			if slot.channels == 2 then
+				side_history[bit.band(w, mask)] = voice.side_history[bit.band(w, old_mask)]
+			end
 		end
 	end
 
+	if voice.ground_history ~= nil and voice.ground_active then
+		local ground_history = ffi.new("float[?]", size)
+
+		if keep then
+			for w = math.max(voice.written - old_size, 0), voice.written - 1 do
+				ground_history[bit.band(w, size - 1)] = voice.ground_history[bit.band(w, old_size - 1)]
+			end
+		end
+
+		mixer.ground_histories[index] = ground_history
+		voice.ground_history = ground_history
+	else
+		mixer.ground_histories[index] = nil
+		voice.ground_history = nil
+		voice.ground_active = false
+	end
+
+	mixer.histories[index] = history
+	mixer.tap_histories[index] = tap_history
+	mixer.side_histories[index] = side_history
+	voice.history = history
+	voice.tap_history = tap_history
+	voice.side_history = side_history
+	voice.history_size = size
+end
+
+local function update_ground(mixer, index, voice, slot, frames)
+	if slot.ground_tap == 0 then
+		voice.ground_active = false
+		return
+	end
+
+	if not voice.ground_active then
+		local ground_history = ffi.new("float[?]", voice.history_size)
+		mixer.ground_histories[index] = ground_history
+		voice.ground_history = ground_history
+		voice.ground_active = true
+		mixer.convolvers[index] = mixer.convolvers[index] or ground.CreateConvolver()
+		mixer.convolvers[index].serial = -1
+	end
+
+	local convolver = mixer.convolvers[index]
+
+	if convolver.serial ~= slot.ground_serial then
+		ground.SetFilter(convolver, slot.ground_ir)
+		convolver.serial = slot.ground_serial
+	end
+
+	local mask = voice.history_size - 1
+	local start = voice.written - frames
+	local done = 0
+
+	while done < frames do
+		local count = math.min(frames - done, ground.FFT_SIZE - ground.IR_SIZE + 1)
+		ground.Convolve(convolver, voice.history, mask, voice.ground_history, mask, start + done, count)
+		done = done + count
+	end
+end
+
+local function reset_voice(mixer, index, voice, slot)
+	if slot.spatial then
+		local size = history_size(mixer, slot)
+		local stereo_changed = (voice.side_history ~= mixer.side_dummy) ~= (slot.channels == 2)
+
+		if
+			voice.history == nil or
+			stereo_changed or
+			voice.history_size < size or
+			voice.history_size > size * 4
+		then
+			allocate_history(mixer, index, voice, slot, size, false)
+		else
+			ffi.fill(voice.history, voice.history_size * 4)
+			ffi.fill(voice.tap_history, voice.history_size * 4)
+
+			if slot.channels == 2 then
+				ffi.fill(voice.side_history, voice.history_size * 4)
+			end
+		end
+	end
+
+	voice.scintillation_state[0], voice.scintillation_state[1] = 0, 0
+	voice.scintillation_seed = (index + 1) * 2654435 + 1
+	voice.ground_active = false
 	voice.written = 0
 	voice.last_signal = 0
 	voice.volume = slot.volume
@@ -139,10 +264,23 @@ local function reset_voice(mixer, index, voice, slot)
 
 	for i = 0, 11 do
 		voice.ear_filter_state[i] = 0
+		voice.air_state[i] = 0
+	end
+
+	for i = 0, 5 do
+		voice.send_air_state[i] = 0
 	end
 
 	for i = 0, MAX_TAPS * 2 - 1 do
 		voice.tap_gain[i] = 0
+	end
+
+	for i = 0, MAX_TAPS * 12 - 1 do
+		voice.tap_air_state[i] = 0
+	end
+
+	for i = 0, MAX_TAPS * 6 - 1 do
+		voice.tap_air_coefficient[i] = 1
 	end
 
 	for i = 0, MAX_TAPS * 2 - 1 do
@@ -173,6 +311,8 @@ local function emit(mixer, slot, voice, frames, sample_rate)
 	local history = voice.history
 	local tap_history = voice.tap_history
 	local side_history = voice.side_history
+	local stereo = slot.channels == 2
+	local mask = voice.history_size - 1
 	local written = voice.written
 	local volume = voice.volume
 	local target_volume = slot.volume
@@ -181,10 +321,11 @@ local function emit(mixer, slot, voice, frames, sample_rate)
 
 	if not voice.emitting or slot.paused or not slot.active then
 		for i = 0, frames - 1 do
-			local at = bit.band(written + i, HISTORY_MASK)
+			local at = bit.band(written + i, mask)
 			history[at] = 0
 			tap_history[at] = 0
-			side_history[at] = 0
+
+			if stereo then side_history[at] = 0 end
 		end
 
 		for i = 0, 3 do
@@ -227,10 +368,11 @@ local function emit(mixer, slot, voice, frames, sample_rate)
 				slot.draining = true
 
 				for j = i, frames - 1 do
-					local at = bit.band(written + j, HISTORY_MASK)
+					local at = bit.band(written + j, mask)
 					history[at] = 0
 					tap_history[at] = 0
-					side_history[at] = 0
+
+					if stereo then side_history[at] = 0 end
 				end
 
 				break
@@ -254,9 +396,11 @@ local function emit(mixer, slot, voice, frames, sample_rate)
 		local gain = volume * envelope
 		local f = position - index
 		local x = (a + (b - a) * f) * gain
-		local at = bit.band(written + i, HISTORY_MASK)
+		local at = bit.band(written + i, mask)
 		history[at] = x
-		side_history[at] = (sa + (sb - sa) * f) * gain
+
+		if stereo then side_history[at] = (sa + (sb - sa) * f) * gain end
+
 		la = la + ca * (x - la)
 		lb = lb + ca * (la - lb)
 		ha = ha + cb * (x - ha)
@@ -286,15 +430,17 @@ local function track_delay(current, slope, target, rate, frames, initialized, sn
 	return current, math.clamp(slope, MIN_SLOPE, MAX_SLOPE)
 end
 
-local function clamp_delay(samples)
-	return math.clamp(samples, MIN_DELAY, mix.HISTORY_SIZE - 8192)
+local function clamp_delay(samples, voice)
+	return math.clamp(samples, MIN_DELAY, voice.history_size - HISTORY_GUARD)
 end
 
 local FILTER_STEP = 32
 local filter_coefficients = ffi.new("double[12]")
 
-local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, frames)
+local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, frames, scintillating)
+	local scintillation_mid, scintillation_high = mixer.scintillation_mid, mixer.scintillation_high
 	local history = voice.history
+	local mask = voice.history_size - 1
 	local side_history = voice.side_history
 	local stereo = slot.channels == 2
 	local side_sign = ear == 0 and 1 or -1
@@ -324,6 +470,22 @@ local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, fram
 	local fi = ear * 6
 	local s1a, s2a, s1b, s2b, s1c, s2c = fs[fi], fs[fi + 1], fs[fi + 2], fs[fi + 3], fs[fi + 4], fs[fi + 5]
 	local c = filter_coefficients
+	local air = voice.air_state
+	local ai = ear * 6
+	local p1, p2, p3, p4, p5, p6 = air[ai], air[ai + 1], air[ai + 2], air[ai + 3], air[ai + 4], air[ai + 5]
+	local air_now, air_target = voice.air_coefficient, slot.ear_air
+	local c1, c2, c3, c4, c5, c6 = air_now[ai],
+	air_now[ai + 1],
+	air_now[ai + 2],
+	air_now[ai + 3],
+	air_now[ai + 4],
+	air_now[ai + 5]
+	local d1, d2, d3, d4, d5, d6 = (air_target[ai] - c1) / frames,
+	(air_target[ai + 1] - c2) / frames,
+	(air_target[ai + 2] - c3) / frames,
+	(air_target[ai + 3] - c4) / frames,
+	(air_target[ai + 4] - c5) / frames,
+	(air_target[ai + 5] - c6) / frames
 	local from = 0
 
 	while from < frames do
@@ -347,10 +509,10 @@ local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, fram
 
 		for i = from, to - 1 do
 			local read = base + i - (delay + slope * (i + 1))
-			local x = dsp.ReadCubic(history, HISTORY_MASK, read)
+			local x = dsp.ReadCubic(history, mask, read)
 
 			if stereo then
-				x = x + side_sign * dsp.ReadCubic(side_history, HISTORY_MASK, read)
+				x = x + side_sign * dsp.ReadCubic(side_history, mask, read)
 			end
 
 			la = la + ca * (x - la)
@@ -360,7 +522,14 @@ local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, fram
 			gl = gl + dl
 			gm = gm + dm
 			gh = gh + dh
-			local y = gh * x + (gm - gh) * hb + (gl - gm) * lb
+			local ym, yh = gm, gh
+
+			if scintillating then
+				ym = gm * scintillation_mid[i]
+				yh = gh * scintillation_high[i]
+			end
+
+			local y = yh * x + (ym - yh) * hb + (gl - ym) * lb
 
 			if filtered then
 				local z = c[0] * y + s1a
@@ -375,6 +544,25 @@ local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, fram
 				y = z
 			end
 
+			c1, c2, c3, c4, c5, c6 = c1 + d1, c2 + d2, c3 + d3, c4 + d4, c5 + d5, c6 + d6
+			local v = (y - p1) * c1
+			y = p1 + v
+			p1 = y + v
+			v = (y - p2) * c2
+			y = p2 + v
+			p2 = y + v
+			v = (y - p3) * c3
+			y = p3 + v
+			p3 = y + v
+			v = (y - p4) * c4
+			y = p4 + v
+			p4 = y + v
+			v = (y - p5) * c5
+			y = p5 + v
+			p5 = y + v
+			v = (y - p6) * c6
+			y = p6 + v
+			p6 = y + v
 			local index = i * 2 + ear
 			out[index] = out[index] + y
 		end
@@ -385,6 +573,12 @@ local function render_ear(mixer, slot, voice, ear, base, delay, slope, out, fram
 	if not filtered then s1a, s2a, s1b, s2b, s1c, s2c = 0, 0, 0, 0, 0, 0 end
 
 	fs[fi], fs[fi + 1], fs[fi + 2], fs[fi + 3], fs[fi + 4], fs[fi + 5] = s1a, s2a, s1b, s2b, s1c, s2c
+	air[ai], air[ai + 1], air[ai + 2], air[ai + 3], air[ai + 4], air[ai + 5] = p1, p2, p3, p4, p5, p6
+
+	for k = ai, ai + 5 do
+		air_now[k] = air_target[k]
+	end
+
 	states[si], states[si + 1], states[si + 2], states[si + 3] = la, lb, ha, hb
 	voice.ear_gain[gi], voice.ear_gain[gi + 1], voice.ear_gain[gi + 2] = tl, tm, th
 
@@ -413,22 +607,37 @@ local function set_group_weights(height, front)
 	group_weights[row * 2 + 1] = group_weights[row * 2 + 1] + blend * w_back
 end
 
+local function air_cascade(state, at, coefficient, ct, x)
+	for k = 0, 5 do
+		local s = state[at + k]
+		local v = (x - s) * coefficient[ct + k]
+		x = s + v
+		state[at + k] = x + v
+	end
+
+	return x
+end
+
 local function render_taps(mixer, slot, voice, base, frames, elapsed)
 	local tap_history = voice.tap_history
+	local mask = voice.history_size - 1
 	local sample_rate = mixer.sample_rate
 	local tap_left = mixer.tap_left
 	local tap_right = mixer.tap_right
 	local any = false
 
 	for t = 0, MAX_TAPS - 1 do
+		local on_ground = slot.ground_tap == t + 1 and voice.ground_active
+		local source_history = on_ground and voice.ground_history or tap_history
+		local ahead = on_ground and slot.ground_ahead or 0
 		local gain_left = voice.tap_gain[t * 2]
 		local gain_right = voice.tap_gain[t * 2 + 1]
 		local target_left = slot.tap_gain[t * 2]
 		local target_right = slot.tap_gain[t * 2 + 1]
 
 		if gain_left ~= 0 or gain_right ~= 0 or target_left ~= 0 or target_right ~= 0 then
-			local target_delay_left = clamp_delay((slot.tap_delay[t * 2] + slot.tap_rate[t * 2] * elapsed) * sample_rate)
-			local target_delay_right = clamp_delay((slot.tap_delay[t * 2 + 1] + slot.tap_rate[t * 2 + 1] * elapsed) * sample_rate)
+			local target_delay_left = clamp_delay((slot.tap_delay[t * 2] + slot.tap_rate[t * 2] * elapsed) * sample_rate - ahead, voice)
+			local target_delay_right = clamp_delay((slot.tap_delay[t * 2 + 1] + slot.tap_rate[t * 2 + 1] * elapsed) * sample_rate - ahead, voice)
 			local delay_left = voice.tap_delay[t * 2]
 			local delay_right = voice.tap_delay[t * 2 + 1]
 			local silent = math.abs(gain_left) + math.abs(gain_right) < 1e-6
@@ -470,12 +679,42 @@ local function render_taps(mixer, slot, voice, base, frames, elapsed)
 
 			local step_left = (target_left - gain_left) / frames
 			local step_right = (target_right - gain_right) / frames
+			local air_state, air_coefficient = voice.tap_air_state, voice.tap_air_coefficient
+			local ct = t * 6
+
+			if silent or not voice.initialized then
+				for k = 0, 5 do
+					air_coefficient[ct + k] = slot.tap_air[ct + k]
+				end
+
+				for k = 0, 11 do
+					air_state[t * 12 + k] = 0
+				end
+			end
+
+			local filtered = false
+
+			for k = 0, 5 do
+				if air_coefficient[ct + k] ~= 1 or slot.tap_air[ct + k] ~= 1 then
+					filtered = true
+				end
+
+				air_coefficient[ct + k] = slot.tap_air[ct + k]
+			end
 
 			for i = 0, frames - 1 do
 				gain_left = gain_left + step_left
 				gain_right = gain_right + step_right
-				tap_left[i] = dsp.ReadLinear(tap_history, HISTORY_MASK, base + i - (delay_left + slope_left * (i + 1))) * gain_left
-				tap_right[i] = dsp.ReadLinear(tap_history, HISTORY_MASK, base + i - (delay_right + slope_right * (i + 1))) * gain_right
+				local left = dsp.ReadLinear(source_history, mask, base + i - (delay_left + slope_left * (i + 1)))
+				local right = dsp.ReadLinear(source_history, mask, base + i - (delay_right + slope_right * (i + 1)))
+
+				if filtered then
+					left = air_cascade(air_state, t * 12, air_coefficient, ct, left)
+					right = air_cascade(air_state, t * 12 + 6, air_coefficient, ct, right)
+				end
+
+				tap_left[i] = left * gain_left
+				tap_right[i] = right * gain_right
 			end
 
 			set_group_weights(slot.tap_height[t], slot.tap_front[t])
@@ -565,6 +804,53 @@ end
 
 local function render_sends(mixer, slot, voice, base, delay, slope, frames)
 	local history = voice.history
+	local mask = voice.history_size - 1
+	local first, second = slot.send[0], slot.send[1]
+
+	if first == 0 and second == 0 and voice.send[0] == 0 and voice.send[1] == 0 then
+		return
+	end
+
+	local scratch = mixer.send_scratch
+	local state, from, to = voice.send_air_state, voice.send_air_coefficient, slot.send_air
+	local p1, p2, p3, p4, p5, p6 = state[0], state[1], state[2], state[3], state[4], state[5]
+	local c1, c2, c3, c4, c5, c6 = from[0], from[1], from[2], from[3], from[4], from[5]
+	local d1, d2, d3, d4, d5, d6 = (to[0] - c1) / frames,
+	(to[1] - c2) / frames,
+	(to[2] - c3) / frames,
+	(to[3] - c4) / frames,
+	(to[4] - c5) / frames,
+	(to[5] - c6) / frames
+
+	for i = 0, frames - 1 do
+		local y = dsp.ReadLinear(history, mask, base + i - (delay + slope * (i + 1)))
+		c1, c2, c3, c4, c5, c6 = c1 + d1, c2 + d2, c3 + d3, c4 + d4, c5 + d5, c6 + d6
+		local v = (y - p1) * c1
+		y = p1 + v
+		p1 = y + v
+		v = (y - p2) * c2
+		y = p2 + v
+		p2 = y + v
+		v = (y - p3) * c3
+		y = p3 + v
+		p3 = y + v
+		v = (y - p4) * c4
+		y = p4 + v
+		p4 = y + v
+		v = (y - p5) * c5
+		y = p5 + v
+		p5 = y + v
+		v = (y - p6) * c6
+		y = p6 + v
+		p6 = y + v
+		scratch[i] = y
+	end
+
+	state[0], state[1], state[2], state[3], state[4], state[5] = p1, p2, p3, p4, p5, p6
+
+	for k = 0, 5 do
+		from[k] = to[k]
+	end
 
 	for b = 0, BUS_COUNT - 1 do
 		local target = slot.send[b]
@@ -576,12 +862,46 @@ local function render_sends(mixer, slot, voice, base, delay, slope, frames)
 
 			for i = 0, frames - 1 do
 				gain = gain + step
-				input[i] = input[i] + dsp.ReadLinear(history, HISTORY_MASK, base + i - (delay + slope * (i + 1))) * gain
+				input[i] = input[i] + scratch[i] * gain
 			end
 
 			voice.send[b] = target
 		end
 	end
+end
+
+-- log amplitude fluctuations of the mid and high bands from turbulence: low passed noise, normalized to the depth, with a gain that keeps the mean power
+local function fill_scintillation(mixer, slot, voice, frames)
+	local depth_mid, depth_high = slot.scintillation_depth[0], slot.scintillation_depth[1]
+
+	if depth_mid < 0.01 and depth_high < 0.01 then
+		voice.scintillation_state[0], voice.scintillation_state[1] = 0, 0
+		return false
+	end
+
+	local coefficient = 1 - math.exp(-2 * math.pi * slot.scintillation_rate / mixer.sample_rate)
+	local scale = math.sqrt((2 - coefficient) / coefficient * 3)
+	local seed = voice.scintillation_seed
+	local x_mid, x_high = voice.scintillation_state[0], voice.scintillation_state[1]
+	local mid, high = mixer.scintillation_mid, mixer.scintillation_high
+	local exp = math.exp
+
+	for i = 0, frames - 1 do
+		seed = bit.bxor(seed, bit.lshift(seed, 13))
+		seed = bit.bxor(seed, bit.rshift(seed, 17))
+		seed = bit.bxor(seed, bit.lshift(seed, 5))
+		x_mid = x_mid + coefficient * (seed / 2147483648 - x_mid)
+		seed = bit.bxor(seed, bit.lshift(seed, 13))
+		seed = bit.bxor(seed, bit.rshift(seed, 17))
+		seed = bit.bxor(seed, bit.lshift(seed, 5))
+		x_high = x_high + coefficient * (seed / 2147483648 - x_high)
+		mid[i] = exp(x_mid * scale * depth_mid - depth_mid * depth_mid)
+		high[i] = exp(x_high * scale * depth_high - depth_high * depth_high)
+	end
+
+	voice.scintillation_seed = seed
+	voice.scintillation_state[0], voice.scintillation_state[1] = x_mid, x_high
+	return true
 end
 
 local function propagate(mixer, slot, voice, out, frames, block_end_time)
@@ -590,10 +910,11 @@ local function propagate(mixer, slot, voice, out, frames, block_end_time)
 	local base = voice.written - frames
 	local snap = 0.05 * sample_rate
 	local max_delay = 0
+	local scintillating = fill_scintillation(mixer, slot, voice, frames)
 
 	for ear = 0, 1 do
 		local rate, change = slot.ear_rate[ear], slot.ear_rate_change[ear]
-		local target = clamp_delay((slot.ear_delay[ear] + rate * elapsed + 0.5 * change * elapsed * elapsed) * sample_rate)
+		local target = clamp_delay((slot.ear_delay[ear] + rate * elapsed + 0.5 * change * elapsed * elapsed) * sample_rate, voice)
 		local delay, slope = track_delay(
 			voice.ear_delay[ear],
 			voice.ear_slope[ear],
@@ -606,7 +927,7 @@ local function propagate(mixer, slot, voice, out, frames, block_end_time)
 		)
 
 		if not voice.initialized then
-			delay = clamp_delay(target - slot.ear_rate[ear] * frames)
+			delay = clamp_delay(target - slot.ear_rate[ear] * frames, voice)
 			slope = (target - delay) / frames
 
 			for g = ear * 3, ear * 3 + 2 do
@@ -614,9 +935,17 @@ local function propagate(mixer, slot, voice, out, frames, block_end_time)
 				voice.ear_filter_frequency[g] = slot.ear_filter_frequency[g]
 				voice.ear_filter_gain[g] = slot.ear_filter_gain[g]
 			end
+
+			for k = ear * 6, ear * 6 + 5 do
+				voice.air_coefficient[k] = slot.ear_air[k]
+			end
+
+			for k = 0, 5 do
+				voice.send_air_coefficient[k] = slot.send_air[k]
+			end
 		end
 
-		render_ear(mixer, slot, voice, ear, base, delay, slope, out, frames)
+		render_ear(mixer, slot, voice, ear, base, delay, slope, out, frames, scintillating)
 		voice.ear_delay[ear] = delay + slope * frames
 		voice.ear_slope[ear] = slope
 		max_delay = math.max(max_delay, voice.ear_delay[ear])
@@ -766,13 +1095,24 @@ local function mix_block(mixer, out, frames)
 				local was_idle = voice.idle
 
 				if was_idle and slot.active and not slot.paused then
-					ffi.fill(voice.history, mix.HISTORY_SIZE * 4)
-					ffi.fill(voice.tap_history, mix.HISTORY_SIZE * 4)
-					ffi.fill(voice.side_history, mix.HISTORY_SIZE * 4)
+					ffi.fill(voice.history, voice.history_size * 4)
+					ffi.fill(voice.tap_history, voice.history_size * 4)
+
+					if slot.channels == 2 then
+						ffi.fill(voice.side_history, voice.history_size * 4)
+					end
+
 					voice.idle = false
 				end
 
+				local size = history_size(mixer, slot)
+
+				if size > voice.history_size then
+					allocate_history(mixer, i, voice, slot, size, true)
+				end
+
 				emit(mixer, slot, voice, frames, sample_rate)
+				update_ground(mixer, i, voice, slot, frames)
 
 				if not voice.idle then
 					local max_delay = propagate(mixer, slot, voice, out, frames, block_end_time)
@@ -801,8 +1141,47 @@ local function mix_block(mixer, out, frames)
 		end
 	end
 
+	local air_scale = state.air_scale
+	local speed = mix.REVERB_SPEED_OF_SOUND
+	local air_rate = state.air_flat_high * speed * air_scale
+	local master_volume = state.master_volume * state.output_gain
+	local dry_energy = 0
+
+	for i = 0, frames * 2 - 1 do
+		dry_energy = dry_energy + out[i] * out[i]
+	end
+
+	state.debug_dry_rms = math.sqrt(dry_energy / (frames * 2)) * master_volume
+	local capturing = state.capture_frames + frames <= state.capture_capacity
+	local capture_at = state.capture_frames * 2
+
+	if capturing then
+		for i = 0, frames * 2 - 1 do
+			state.capture_dry[capture_at + i] = out[i] * master_volume
+			state.capture_rev[capture_at + i] = 0
+		end
+	end
+
 	for b = 0, BUS_COUNT - 1 do
 		local bus = state.buses[b]
+		local reverb = mixer.buses[b]
+
+		for j = 0, dsp.REVERB_LINES - 1 do
+			spatial.GetAirFilter(
+				reverb.delay[j] / sample_rate * speed * air_scale,
+				sample_rate,
+				reverb.air_coefficient,
+				j * 6 - 1
+			)
+		end
+
+		spatial.GetAirFilter(
+			dsp.REVERB_MEAN_DELAY * reverb.scale * speed * air_scale,
+			sample_rate,
+			reverb.air_coefficient,
+			dsp.REVERB_LINES * 6 - 1
+		)
+		ffi.copy(mixer.bus_before, out, frames * 8)
 		dsp.ProcessReverb(
 			mixer.buses[b],
 			mixer.bus_input[b],
@@ -811,7 +1190,7 @@ local function mix_block(mixer, out, frames)
 			sample_rate,
 			bus.t60[0],
 			bus.t60[1],
-			bus.t60[2],
+			60 / math.max(60 / bus.t60[2] - air_rate, 60 / mix.MAX_REVERB_T60),
 			bus.predelay,
 			bus.scale,
 			bus.diffusion,
@@ -821,12 +1200,60 @@ local function mix_block(mixer, out, frames)
 			bus.ear_delay[0],
 			bus.ear_delay[1]
 		)
+		local bus_energy = 0
+
+		for i = 0, frames * 2 - 1 do
+			local d = out[i] - mixer.bus_before[i]
+			bus_energy = bus_energy + d * d
+		end
+
+		state.debug_bus_rms[b] = math.sqrt(bus_energy / (frames * 2)) * master_volume
+
+		if capturing then
+			for i = 0, frames * 2 - 1 do
+				state.capture_rev[capture_at + i] = state.capture_rev[capture_at + i] + (
+						out[i] - mixer.bus_before[i]
+					) * master_volume
+			end
+		end
 	end
 
-	local master_volume = state.master_volume
+	local raw_energy = 0
 
 	for i = 0, frames * 2 - 1 do
 		out[i] = out[i] * master_volume
+		raw_energy = raw_energy + out[i] * out[i]
+	end
+
+	state.debug_raw_rms = math.sqrt(raw_energy / (frames * 2))
+	state.debug_ear_reduction = dsp.ProcessEar(mixer.ear, out, frames, state.ear_threshold)
+
+	if state.output_mode == 0 then
+		state.debug_limiter_gain = dsp.ProcessLimiter(mixer.limiter, out, frames)
+	else
+		local soft = state.output_mode == 2
+		local tanh = math.tanh
+		local lowest = 1
+
+		for i = 0, frames * 2 - 1 do
+			local x = out[i]
+			local y = soft and tanh(x) or math.max(-1, math.min(1, x))
+			local gain = math.abs(x) > 1e-9 and math.abs(y / x) or 1
+
+			if gain < lowest then lowest = gain end
+
+			out[i] = y
+		end
+
+		state.debug_limiter_gain = lowest
+	end
+
+	if capturing then
+		for i = 0, frames * 2 - 1 do
+			state.capture_out[capture_at + i] = out[i]
+		end
+
+		state.capture_frames = state.capture_frames + frames
 	end
 
 	mixer.frames_done = mixer.frames_done + frames

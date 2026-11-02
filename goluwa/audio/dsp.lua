@@ -171,6 +171,230 @@ do
 	end
 end
 
+dsp.EAR_RATIO = 4
+dsp.EAR_ATTACK = 0.03
+dsp.EAR_RELEASE = 1
+dsp.EAR_KNEE = 10
+dsp.EAR_DETECTOR = 0.02
+dsp.EAR_MAX_REDUCTION = 36
+dsp.EAR_HIGH_SHARE = 0.6
+dsp.EAR_LOW_CORNER = 1000
+dsp.EAR_WEIGHT_CORNER = 400
+dsp.EAR_BASS_CROSSOVER = 300
+dsp.EAR_BASS_OFFSET = 6
+dsp.EAR_BASS_RATIO = 4
+dsp.EAR_BASS_ATTACK = 0.02
+dsp.EAR_BASS_RELEASE = 0.6
+dsp.EAR_BASS_MAX_REDUCTION = 40
+local NEPERS_PER_DB = 0.11512925464970229
+
+function dsp.CreateEar(sample_rate)
+	local w0 = 2 * math.pi * dsp.EAR_WEIGHT_CORNER / sample_rate
+	local alpha = math.sin(w0) / (2 * 0.7071)
+	local a0 = 1 + alpha
+	local cos = math.cos(w0)
+	return {
+		detector = 1 - math.exp(-1 / (sample_rate * dsp.EAR_DETECTOR)),
+		attack = 1 - math.exp(-1 / (sample_rate * dsp.EAR_ATTACK)),
+		release = 1 - math.exp(-1 / (sample_rate * dsp.EAR_RELEASE)),
+		bass_attack = 1 - math.exp(-1 / (sample_rate * dsp.EAR_BASS_ATTACK)),
+		bass_release = 1 - math.exp(-1 / (sample_rate * dsp.EAR_BASS_RELEASE)),
+		bass_pole = 1 - math.exp(-2 * math.pi * dsp.EAR_BASS_CROSSOVER / sample_rate),
+		low_pole = 1 - math.exp(-2 * math.pi * dsp.EAR_LOW_CORNER / sample_rate),
+		b0 = (1 + cos) / 2 / a0,
+		b1 = -(1 + cos) / a0,
+		a1 = -2 * cos / a0,
+		a2 = (1 - alpha) / a0,
+		energy = 0,
+		reduction = 0,
+		bass_energy = 0,
+		bass_reduction = 0,
+		state = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+	}
+end
+
+local function soft_reduction(over, knee, slope)
+	if over >= knee / 2 then return over * slope end
+
+	if over > -knee / 2 then return (over + knee / 2) ^ 2 / (2 * knee) * slope end
+
+	return 0
+end
+
+-- two stages on the mix. The bass (below 300 Hz) has its own rms and gain: it is most of the energy of a blast and the least audible, it would otherwise decide what the peak limiter does to everything else. The reflex then follows the loudness through a hearing weighted detector (2nd order high pass at 400 Hz, close to A weighting) and takes 1 / ratio of the excess over the threshold in dBFS, in full below 1 kHz and EAR_HIGH_SHARE of it above, through a soft knee
+function dsp.ProcessEar(ear, out, frames, threshold)
+	local st = ear.state
+	local ll1, ll2, lr1, lr2, low_l, low_r, xl1, xl2, yl1, yl2, xr1, xr2 = st[1],
+	st[2],
+	st[3],
+	st[4],
+	st[5],
+	st[6],
+	st[7],
+	st[8],
+	st[9],
+	st[10],
+	st[11],
+	st[12]
+	local yr1, yr2 = ear.yr1 or 0, ear.yr2 or 0
+	local detector, b0, b1, a1, a2 = ear.detector, ear.b0, ear.b1, ear.a1, ear.a2
+	local energy, reduction, bass_energy, bass_reduction = ear.energy, ear.reduction, ear.bass_energy, ear.bass_reduction
+	local slope = 1 - 1 / dsp.EAR_RATIO
+	local bass_slope = 1 - 1 / dsp.EAR_BASS_RATIO
+	local bass_threshold = threshold + dsp.EAR_BASS_OFFSET
+	local knee, share = dsp.EAR_KNEE, dsp.EAR_HIGH_SHARE
+	local deepest = 0
+
+	for i = 0, frames - 1 do
+		local left, right = out[i * 2], out[i * 2 + 1]
+		ll1, lr1 = ll1 + ear.bass_pole * (left - ll1), lr1 + ear.bass_pole * (right - lr1)
+		ll2, lr2 = ll2 + ear.bass_pole * (ll1 - ll2), lr2 + ear.bass_pole * (lr1 - lr2)
+		bass_energy = bass_energy + detector * (0.5 * (ll2 * ll2 + lr2 * lr2) - bass_energy)
+		local target = soft_reduction(10 * math.log10(bass_energy + 1e-12) - bass_threshold, 0, bass_slope)
+
+		if target > dsp.EAR_BASS_MAX_REDUCTION then
+			target = dsp.EAR_BASS_MAX_REDUCTION
+		end
+
+		bass_reduction = bass_reduction + (
+				target > bass_reduction and
+				ear.bass_attack or
+				ear.bass_release
+			) * (
+				target - bass_reduction
+			)
+		local bass_gain = math.exp(-bass_reduction * NEPERS_PER_DB)
+		left, right = left - ll2 + ll2 * bass_gain, right - lr2 + lr2 * bass_gain
+		local hl = b0 * left + b1 * xl1 + b0 * xl2 - a1 * yl1 - a2 * yl2
+		xl2, xl1, yl2, yl1 = xl1, left, yl1, hl
+		local hr = b0 * right + b1 * xr1 + b0 * xr2 - a1 * yr1 - a2 * yr2
+		xr2, xr1, yr2, yr1 = xr1, right, yr1, hr
+		energy = energy + detector * (0.5 * (hl * hl + hr * hr) - energy)
+		target = soft_reduction(10 * math.log10(energy + 1e-12) - threshold, knee, slope)
+
+		if target > dsp.EAR_MAX_REDUCTION then target = dsp.EAR_MAX_REDUCTION end
+
+		reduction = reduction + (
+				target > reduction and
+				ear.attack or
+				ear.release
+			) * (
+				target - reduction
+			)
+		local gain_low = math.exp(-reduction * NEPERS_PER_DB)
+		local gain_high = math.exp(-reduction * share * NEPERS_PER_DB)
+		low_l, low_r = low_l + ear.low_pole * (left - low_l), low_r + ear.low_pole * (right - low_r)
+		out[i * 2] = gain_high * left + (gain_low - gain_high) * low_l
+		out[i * 2 + 1] = gain_high * right + (gain_low - gain_high) * low_r
+
+		if reduction > deepest then deepest = reduction end
+	end
+
+	st[1], st[2], st[3], st[4], st[5], st[6], st[7], st[8], st[9], st[10], st[11], st[12] = ll1, ll2, lr1, lr2, low_l, low_r, xl1, xl2, yl1, yl2, xr1, xr2
+	ear.yr1, ear.yr2 = yr1, yr2
+	ear.energy, ear.reduction, ear.bass_energy, ear.bass_reduction = energy, reduction, bass_energy, bass_reduction
+	return deepest
+end
+
+dsp.LIMITER_CEILING = 0.9
+dsp.LIMITER_LOOKAHEAD = 0.002
+dsp.LIMITER_RELEASE = 0.2
+
+function dsp.CreateLimiter(sample_rate)
+	local length = math.max(math.floor(sample_rate * dsp.LIMITER_LOOKAHEAD), 2)
+	local limiter = {
+		length = length,
+		delay_left = ffi.new("float[?]", length - 1),
+		delay_right = ffi.new("float[?]", length - 1),
+		delay_position = 0,
+		deque_gain = ffi.new("float[?]", length),
+		deque_time = ffi.new("double[?]", length),
+		deque_first = 0,
+		deque_size = 0,
+		average = ffi.new("float[?]", length),
+		average_position = 0,
+		average_sum = length,
+		release = 1 - math.exp(-1 / (sample_rate * dsp.LIMITER_RELEASE)),
+		gain = 1,
+		time = 0,
+	}
+
+	for i = 0, length - 1 do
+		limiter.average[i] = 1
+	end
+
+	return limiter
+end
+
+function dsp.ProcessLimiter(limiter, out, frames)
+	local ceiling = dsp.LIMITER_CEILING
+	local length = limiter.length
+	local delay_length = length - 1
+	local delay_left, delay_right = limiter.delay_left, limiter.delay_right
+	local delay_position = limiter.delay_position
+	local deque_gain, deque_time = limiter.deque_gain, limiter.deque_time
+	local first, size = limiter.deque_first, limiter.deque_size
+	local average, average_position, average_sum = limiter.average, limiter.average_position, limiter.average_sum
+	local release = limiter.release
+	local gain = limiter.gain
+	local time = limiter.time
+	local lowest = 1
+
+	for i = 0, frames - 1 do
+		local left = out[i * 2]
+		local right = out[i * 2 + 1]
+		local peak = math.max(math.abs(left), math.abs(right))
+		local needed = peak > ceiling and ceiling / peak or 1
+
+		if size > 0 and deque_time[first] <= time - length then
+			first = first + 1 == length and 0 or first + 1
+			size = size - 1
+		end
+
+		while size > 0 do
+			local last = (first + size - 1) % length
+
+			if deque_gain[last] < needed then break end
+
+			size = size - 1
+		end
+
+		local slot = (first + size) % length
+		deque_gain[slot] = needed
+		deque_time[slot] = time
+		size = size + 1
+		local held = deque_gain[first]
+		average_sum = average_sum + held - average[average_position]
+		average[average_position] = held
+		average_position = average_position + 1 == length and 0 or average_position + 1
+		local target = average_sum / length
+
+		if target < gain then
+			gain = target
+		else
+			gain = gain + (target - gain) * release
+		end
+
+		if gain < lowest then lowest = gain end
+
+		local delayed_left = delay_left[delay_position]
+		local delayed_right = delay_right[delay_position]
+		delay_left[delay_position] = left
+		delay_right[delay_position] = right
+		delay_position = delay_position + 1 == delay_length and 0 or delay_position + 1
+		out[i * 2] = delayed_left * gain
+		out[i * 2 + 1] = delayed_right * gain
+		time = time + 1
+	end
+
+	limiter.delay_position = delay_position
+	limiter.deque_first, limiter.deque_size = first, size
+	limiter.average_position, limiter.average_sum = average_position, average_sum
+	limiter.gain = gain
+	limiter.time = time
+	return lowest
+end
+
 function dsp.MeasureLoudness(data, frames, channels, sample_rate)
 	local k = math.tan(math.pi * 1681.974450955533 / sample_rate)
 	local q = 0.7071752369554196
@@ -227,6 +451,7 @@ end
 
 do
 	local LINES = 16
+	dsp.REVERB_LINES = LINES
 	local LINE_SIZE = 16384
 	local LINE_MASK = LINE_SIZE - 1
 	local PREDELAY_SIZE = 16384
@@ -295,6 +520,7 @@ do
 			bool sleeping;
 			bool fading;
 			uint32_t quiet_frames;
+			double air_state[$], air_coefficient[$];
 		}
 	]],
 		LINES,
@@ -310,7 +536,9 @@ do
 		LINES,
 		LINES,
 		LINES,
-		LINES
+		LINES,
+		(LINES + 2) * 6,
+		(LINES + 1) * 6
 	)
 	local SIGN_LEFT = {1, 1, 1, 1, 1, 1, 1, 1, -1, -1, -1, -1, -1, -1, -1, -1}
 	local SIGN_RIGHT = {1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1, 1, -1}
@@ -334,6 +562,10 @@ do
 
 		for i = 0, 3 do
 			reverb.diffuser_length[i] = math.min(math.floor(DIFFUSERS[i + 1] * scale + 0.5), DIFFUSER_SIZE - 1)
+		end
+
+		for i = 0, (LINES + 1) * 6 - 1 do
+			reverb.air_coefficient[i] = 1
 		end
 
 		reverb.coefficient_low = dsp.OnePoleCoefficient(dsp.LOW_CROSSOVER, sample_rate)
@@ -475,6 +707,7 @@ do
 		local lines = reverb.lines
 		local low_a, low_b, high_a, high_b = reverb.low_a, reverb.low_b, reverb.high_a, reverb.high_b
 		local gain_low, gain_mid, gain_high = reverb.gain_low, reverb.gain_mid, reverb.gain_high
+		local air_state, air_coefficient = reverb.air_state, reverb.air_coefficient
 		local predelay_line = reverb.predelay_line
 		local diffusers = reverb.diffusers
 		local diffuser_length = reverb.diffuser_length
@@ -521,6 +754,18 @@ do
 			end
 
 			local onset_left, onset_right = x * onset_gain, early * onset_gain
+			local oi = LINES * 6
+
+			for k = 0, 5 do
+				local c = air_coefficient[oi + k]
+				local v = (onset_left - air_state[oi + k]) * c
+				onset_left = air_state[oi + k] + v
+				air_state[oi + k] = onset_left + v
+				v = (onset_right - air_state[oi + 6 + k]) * c
+				onset_right = air_state[oi + 6 + k] + v
+				air_state[oi + 6 + k] = onset_right + v
+			end
+
 			x = x * 0.25 + antidenormal
 			antidenormal = -antidenormal
 			local left = 0
@@ -545,6 +790,25 @@ do
 				local gh = gain_high[j]
 				local gm = gain_mid[j]
 				y = gh * y + (gm - gh) * hb + (gain_low[j] - gm) * lb
+				local ai = j * 6
+				local v = (y - air_state[ai]) * air_coefficient[ai]
+				y = air_state[ai] + v
+				air_state[ai] = y + v
+				v = (y - air_state[ai + 1]) * air_coefficient[ai + 1]
+				y = air_state[ai + 1] + v
+				air_state[ai + 1] = y + v
+				v = (y - air_state[ai + 2]) * air_coefficient[ai + 2]
+				y = air_state[ai + 2] + v
+				air_state[ai + 2] = y + v
+				v = (y - air_state[ai + 3]) * air_coefficient[ai + 3]
+				y = air_state[ai + 3] + v
+				air_state[ai + 3] = y + v
+				v = (y - air_state[ai + 4]) * air_coefficient[ai + 4]
+				y = air_state[ai + 4] + v
+				air_state[ai + 4] = y + v
+				v = (y - air_state[ai + 5]) * air_coefficient[ai + 5]
+				y = air_state[ai + 5] + v
+				air_state[ai + 5] = y + v
 				lines_out[j] = y
 				left = left + sign_left[j] * y
 				right = right + sign_right[j] * y

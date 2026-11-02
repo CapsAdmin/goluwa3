@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local ground = import("goluwa/audio/ground.lua")
 local audio = {}
 audio.SLOT_COUNT = 32
 audio.MAX_TAPS = 8
@@ -15,10 +16,13 @@ audio.doppler_factor = 1
 audio.speed_of_sound = 343.3
 audio.ear_distance = 0.18
 audio.reference_loudness = -18
+audio.reference_spl = 85
 audio.rain_up = Vec3(0, 1, 0)
 audio.upwind = nil
 audio.trace_ambience = false
 audio.snow_depth = 0
+audio.turbulence = 1e-6
+audio.temperature_gradient = -0.0065
 audio.wind = Vec3(0, 0, 0)
 audio.medium_velocity = Vec3(0, 0, 0)
 audio.backend_mode = "none"
@@ -56,6 +60,8 @@ local slot_t = ffi.typeof(
 		float ear_delay[2];
 		float ear_rate[2];
 		float ear_rate_change[2];
+		float ear_air[12];
+		float send_air[6];
 		float ear_gain[6];
 		float ear_filter_frequency[6];
 		float ear_filter_gain[6];
@@ -67,6 +73,14 @@ local slot_t = ffi.typeof(
 		float tap_front[$];
 		float tap_band[3];
 		float send[$];
+		float tap_air[$];
+		float history_seconds;
+		float scintillation_depth[2];
+		float scintillation_rate;
+		float ground_ir[$];
+		float ground_ahead;
+		int32_t ground_tap;
+		uint32_t ground_serial;
 	}
 ]],
 	audio.MAX_TAPS * 2,
@@ -74,7 +88,9 @@ local slot_t = ffi.typeof(
 	audio.MAX_TAPS * 2,
 	audio.MAX_TAPS,
 	audio.MAX_TAPS,
-	audio.BUS_COUNT
+	audio.BUS_COUNT,
+	audio.MAX_TAPS * 6,
+	ground.IR_SIZE
 )
 local bus_t = ffi.typeof([[
 	struct {
@@ -96,6 +112,10 @@ audio.mixer_state_t = ffi.typeof(
 		float cue_gain[$];
 		float cue_q[3];
 		float master_volume;
+		float output_gain;
+		uint8_t output_mode;
+		float air_scale;
+		float air_flat_high;
 		uint32_t sample_rate;
 		double clock_offset;
 		uint64_t mixed_frames;
@@ -103,6 +123,17 @@ audio.mixer_state_t = ffi.typeof(
 		uint64_t debug_mix_callbacks;
 		float debug_output_peak_left;
 		float debug_output_peak_right;
+		float debug_limiter_gain;
+		float debug_ear_reduction;
+		float *capture_out;
+		float *capture_dry;
+		float *capture_rev;
+		uint32_t capture_frames;
+		uint32_t capture_capacity;
+		float debug_dry_rms;
+		float debug_bus_rms[2];
+		float debug_raw_rms;
+		float ear_threshold;
 		float debug_mix_seconds;
 		bool shutdown;
 	}
@@ -119,6 +150,11 @@ audio.mixer_state_ptr_t = ffi.typeof("$*", audio.mixer_state_t)
 function audio.CreateMixerState()
 	local state = audio.mixer_state_t()
 	state.master_volume = 1
+	state.output_gain = 1
+	state.air_scale = 1
+	state.air_flat_high = audio.default_air_flat_high or 0
+	state.debug_limiter_gain = 1
+	state.ear_threshold = audio.reference_loudness - 4
 	state.sample_rate = 44100
 
 	for i = 0, audio.CUE_GROUPS * 3 - 1 do

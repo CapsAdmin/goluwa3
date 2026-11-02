@@ -247,6 +247,14 @@ function module.Attach(audio)
 		return self.Loudness
 	end
 
+	function Sound:SetLevel(spl)
+		self:SetVolume(audio.SPLToVolume(spl))
+	end
+
+	function Sound:GetLevel()
+		return audio.VolumeToSPL(self:GetVolume())
+	end
+
 	function Sound:GetMixVolume()
 		return self:GetVolume() * self.LoudnessGain
 	end

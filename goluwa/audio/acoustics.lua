@@ -1,12 +1,15 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local spatial = import("goluwa/audio/spatial.lua")
 local dsp = import("goluwa/audio/dsp.lua")
+local ground = import("goluwa/audio/ground.lua")
 local acoustics = {}
 acoustics.OPEN_DISTANCE = 400
 acoustics.TRACE_DISTANCE = 1000
 acoustics.LISTENER_CLEARANCE = 0.25
 acoustics.SOURCE_CLEARANCE = 0.3
 acoustics.SURFACE_OFFSET = 0.01
+acoustics.MIN_SOURCE_DISTANCE = 1
+acoustics.MAX_TAIL_DELAY_PATHS = 2
 acoustics.FRESNEL_CLEARANCE = 0.6
 acoustics.RHO_C = 413
 acoustics.RHO_C2 = 141600
@@ -52,10 +55,22 @@ acoustics.MIN_T60 = 0.05
 acoustics.MAX_T60 = 12
 acoustics.MIN_PREDELAY = 0.002
 acoustics.REMOTE_T60_RATIO = 1.6
+acoustics.ECHO_SPREAD_MIN = 0.3
+acoustics.ECHO_SPREAD_MAX = 0.7
 acoustics.QUERY_FLOATS = 12
 acoustics.QUERY_INPUT_FLOATS = 12
 acoustics.DIFFUSE_ESCAPING = 0.1
 acoustics.SPARSE_ESCAPING = 0.35
+acoustics.MIN_DIFFUSION = 0.8
+acoustics.EMITTER_DISTANCE = 40
+acoustics.EMITTER_MAX_DISTANCE = 100
+acoustics.EMITTER_FREE_PATH = 2
+acoustics.EMITTER_PERIOD = 3
+acoustics.GROUND_MIN_SLOPE = 0.75
+acoustics.GROUND_FILTER_DISTANCE = 40
+acoustics.GROUND_SCATTER_FREQUENCIES = {250, 1500, 8000}
+acoustics.GROUND_VOICES = 4
+acoustics.GROUND_AHEAD_MARGIN = 128
 local LN10_OVER_10 = math.log(10) / 10
 local MAX_TAPS = 8
 
@@ -300,6 +315,7 @@ function acoustics.NewSourceSums()
 		settled = {0, 0, 0},
 		late = {0, 0, 0},
 		moment = {0, 0, 0},
+		moment2 = {0, 0, 0},
 		direction = {0, 0, 0},
 	}
 end
@@ -354,12 +370,23 @@ function acoustics.AddStats(into, from)
 	end
 end
 
+function acoustics.ScaleSourceSums(sums, factor)
+	for b = 1, 3 do
+		sums.late[b] = sums.late[b] * factor
+		sums.moment[b] = sums.moment[b] * factor
+		sums.moment2[b] = sums.moment2[b] * factor
+		sums.settled[b] = sums.settled[b] * factor
+		sums.direction[b] = sums.direction[b] * factor
+	end
+end
+
 function acoustics.DecaySourceSums(sums, factor)
 	sums.rays = sums.rays * factor
 
 	for b = 1, 3 do
 		sums.late[b] = sums.late[b] * factor
 		sums.moment[b] = sums.moment[b] * factor
+		sums.moment2[b] = sums.moment2[b] * factor
 		sums.settled[b] = sums.settled[b] * factor
 		sums.direction[b] = sums.direction[b] * factor
 	end
@@ -371,6 +398,7 @@ function acoustics.AddSourceSums(into, from, rays)
 	for b = 1, 3 do
 		into.late[b] = into.late[b] + from.late[b]
 		into.moment[b] = into.moment[b] + from.moment[b]
+		into.moment2[b] = into.moment2[b] + from.moment2[b]
 		into.settled[b] = into.settled[b] + from.settled[b]
 		into.direction[b] = into.direction[b] + from.direction[b]
 	end
@@ -444,7 +472,7 @@ function acoustics.TailAirLoss(stats, band)
 end
 
 function acoustics.ComputeSourceReverb(sums, stats, profile, direct_time, speed)
-	local result = {energy = {}, t60 = {}}
+	local result = {energy = {}, t60 = {}, delay = 0}
 
 	if sums.rays <= 0 or stats.rays <= 0 then return nil end
 
@@ -461,25 +489,52 @@ function acoustics.ComputeSourceReverb(sums, stats, profile, direct_time, speed)
 		local last = stats.last_throughput[b] / stats.rays
 		local last_length = stats.last_throughput_length[b] / stats.rays
 		local energy = sums.late[b] / sums.rays + last * per_bounce * geometric
+		local first_time = last_length / speed - direct_time * last
+		local step = profile.tail_path[b] / speed
+		local one = survival / (1 - survival) ^ 2
+		local two = survival * (1 + survival) / (1 - survival) ^ 3
 		local moment = sums.moment[b] / sums.rays + per_bounce * (
+				first_time * geometric + last * step * one
+			)
+		local moment2 = sums.moment2[b] / sums.rays + per_bounce * (
 				(
-					last_length / speed - direct_time * last
-				) * geometric + last * (
-					profile.tail_path[b] / speed
-				) * survival / (
-					(
-						1 - survival
-					) ^ 2
-				)
+					last > 0 and
+					first_time * first_time / last or
+					0
+				) * geometric + 2 * step * first_time * one + step * step * last * two
 			)
 		result.energy[b] = energy
-		result.t60[b] = energy > 0 and
-			math.clamp(
-				13.82 * math.max(moment / energy - profile.predelay, 0),
-				acoustics.MIN_T60,
-				acoustics.MAX_T60
-			) or
-			profile.t60[b]
+
+		if energy > 0 then
+			local mean = moment / energy
+			local spread = math.sqrt(math.max(moment2 / energy - mean * mean, 0))
+			local excess = math.max(mean - profile.predelay, 0)
+			local decay = math.lerp(
+				math.clamp(
+					(
+							spread / math.max(excess, 1e-6) - acoustics.ECHO_SPREAD_MIN
+						) / (
+							acoustics.ECHO_SPREAD_MAX - acoustics.ECHO_SPREAD_MIN
+						),
+					0,
+					1
+				),
+				spread,
+				excess
+			)
+
+			if b == 2 then
+				result.delay = math.min(
+					math.max(excess - decay, 0),
+					acoustics.MAX_TAIL_DELAY_PATHS * profile.mean_free_path / speed
+				)
+			end
+
+			decay = math.min(decay, step / -math.log(survival))
+			result.t60[b] = math.clamp(13.82 * decay, acoustics.MIN_T60, acoustics.MAX_T60)
+		else
+			result.t60[b] = profile.t60[b]
+		end
 	end
 
 	return result
@@ -859,8 +914,8 @@ do
 							local sums = result.sources[s]
 							local total = length + d
 							local t = total / speed - job.direct_time[s]
-							local base = 4 * cos_s / math.max(d2, 0.01)
-							local late = bounce > 0 and t > job.split_time
+							local base = 4 * cos_s / math.max(d2, acoustics.MIN_SOURCE_DISTANCE ^ 2)
+							local late = (bounce > 0 or job.emitter) and t > job.split_time
 
 							for b = 1, 3 do
 								local e = base * w[b] * (1 - a[b]) * math.exp(-air[b] * total)
@@ -868,6 +923,7 @@ do
 								if late then
 									sums.late[b] = sums.late[b] + e
 									sums.moment[b] = sums.moment[b] + e * t
+									sums.moment2[b] = sums.moment2[b] + e * t * t
 								end
 
 								if settled then sums.settled[b] = sums.settled[b] + e end
@@ -875,9 +931,16 @@ do
 
 							if late then
 								local e = base * w[2] * (1 - a[2]) * math.exp(-air[2] * total)
-								sums.direction[1] = sums.direction[1] + e * fx
-								sums.direction[2] = sums.direction[2] + e * fy
-								sums.direction[3] = sums.direction[3] + e * fz
+
+								if job.emitter then
+									sums.direction[1] = sums.direction[1] - e * sx * inv
+									sums.direction[2] = sums.direction[2] - e * sy * inv
+									sums.direction[3] = sums.direction[3] - e * sz * inv
+								else
+									sums.direction[1] = sums.direction[1] + e * fx
+									sums.direction[2] = sums.direction[2] + e * fy
+									sums.direction[3] = sums.direction[3] + e * fz
+								end
 							end
 						end
 					end
@@ -1038,7 +1101,7 @@ local function by_count(a, b)
 end
 
 local function by_gain(a, b)
-	return a.gain > b.gain
+	return math.abs(a.gain) > math.abs(b.gain)
 end
 
 local function by_energy(a, b)
@@ -1153,6 +1216,114 @@ function META:SelectSources(budget)
 	end
 
 	return sounds, members
+end
+
+function META:GetEmitterReach()
+	return math.min(
+		math.max(acoustics.EMITTER_DISTANCE, acoustics.EMITTER_FREE_PATH * self.profile.mean_free_path),
+		acoustics.EMITTER_MAX_DISTANCE
+	)
+end
+
+function META:SelectEmitter()
+	local audio = self.audio
+	local reach = self:GetEmitterReach()
+	local best, best_score
+
+	for _, sound in pairs(audio.active_sounds) do
+		if
+			sound:IsSpatial() and
+			sound:IsTraced() and
+			sound.slot and
+			audio.state.slots[sound.slot].active
+		then
+			local distance = (sound:GetPosition() - audio.listener_position):GetLength()
+
+			if distance > reach then
+				local env = self:GetEnvironment(sound)
+				local score = sound:GetMixVolume() * sound:GetReferenceDistance() / distance + (
+						env.emitter and
+						0 or
+						1e9
+					) - (
+						env.emitter and
+						env.emitter.time or
+						0
+					) * 1e-3
+
+				if not best_score or score > best_score then best, best_score = sound, score end
+			end
+		end
+	end
+
+	return best
+end
+
+function META:BuildEmitterJob(sound, time)
+	local audio = self.audio
+	local budget = self.tracer.budget
+	local origin = sound:GetPosition():Copy()
+	local target = audio.listener_position:Copy()
+	local speed = audio.speed_of_sound
+	local env = self:GetEnvironment(sound)
+	local profile = env.emitter and env.emitter.profile or self.profile
+	return {
+		time = time,
+		listener = origin,
+		emitter = sound,
+		speed = speed,
+		rays = budget.rays,
+		bounces = budget.bounces,
+		sample_count = 0,
+		rotation = acoustics.RandomRotation(self.random),
+		random = self.random,
+		seed = math.floor(self.random() * 2147483647),
+		sources = {target},
+		sounds = {},
+		members = {},
+		direct_time = {(target - origin):GetLength() / speed},
+		split_time = profile.predelay,
+		queries = {},
+		query_count = 0,
+		fresnel = {},
+		detours = {},
+		transmissions = {},
+		reflection_checks = {},
+		fresnel_samples = 0,
+		gather = false,
+		rain_up = audio.rain_up,
+		upwind = audio.upwind,
+		snow_cover = acoustics.SnowCover(audio.snow_depth, speed, {}),
+	}
+end
+
+function META:AbsorbEmitter(job, result)
+	local env = self:GetEnvironment(job.emitter)
+	local emitter = env.emitter
+
+	if not emitter then
+		emitter = {
+			stats = acoustics.NewStats(),
+			sums = acoustics.NewSourceSums(),
+			profile = self.profile,
+		}
+		env.emitter = emitter
+	end
+
+	local reach = acoustics.STATS_DISTANCE * emitter.profile.mean_free_path
+	local dt = emitter.time and math.max(job.time - emitter.time, 0) or 0
+	local moved = emitter.origin and (job.listener - emitter.origin):GetLength() / reach or 0
+	local target_moved = emitter.target and (job.sources[1] - emitter.target):GetLength() / reach or 0
+	local decay = math.exp(-dt / acoustics.STATS_MEMORY - moved - target_moved)
+	acoustics.DecayStats(emitter.stats, decay)
+	acoustics.AddStats(emitter.stats, result.stats)
+	emitter.profile = acoustics.ComputeProfile(emitter.stats, job.speed)
+	acoustics.DecaySourceSums(emitter.sums, decay)
+	acoustics.AddSourceSums(emitter.sums, result.sources[1], job.rays)
+	emitter.reverb = acoustics.ComputeSourceReverb(emitter.sums, emitter.stats, emitter.profile, job.direct_time[1], job.speed)
+	emitter.time = job.time
+	emitter.origin = job.listener:Copy()
+	emitter.target = job.sources[1]:Copy()
 end
 
 function META:BuildJob(time)
@@ -1463,6 +1634,8 @@ function META:AbsorbReflectors(job, result, decay)
 end
 
 function META:Absorb(job, result)
+	if job.emitter then return self:AbsorbEmitter(job, result) end
+
 	local dt = self.last_result_time and math.max(job.time - self.last_result_time, 0) or 0
 	self.last_result_time = job.time
 	local reach = acoustics.STATS_DISTANCE * self.profile.mean_free_path
@@ -1847,6 +2020,24 @@ function META:UpdateSoundEnvironment(sound, time)
 		t60 = math.lerp(trust, t60, reverb.t60[2])
 	end
 
+	env.reverb_sums = env.sums
+	local emitter = env.emitter
+
+	if emitter and emitter.reverb and emitter.sums.rays >= acoustics.TRUSTED_RAYS then
+		local reach = self:GetEmitterReach()
+		local weight = math.clamp((distance - reach) / reach, 0, 1)
+
+		if weight > 0 then
+			energy = math.lerp(weight, energy, emitter.reverb.energy[2])
+			t60 = math.lerp(weight, t60, emitter.reverb.t60[2])
+
+			if weight >= 0.5 then
+				reverb = emitter.reverb
+				env.reverb_sums = emitter.sums
+			end
+		end
+	end
+
 	env.trust = trust
 	env.energy = energy
 	local amplitude = math.sqrt(math.max(energy, 0)) * math.min(distance, sound:GetReferenceDistance())
@@ -1857,6 +2048,57 @@ function META:UpdateSoundEnvironment(sound, time)
 	env.remote_weight = energy * remote
 	env.t60 = reverb and reverb.t60 or profile.t60
 	self:UpdateTaps(sound, env, time)
+end
+
+function META:GetGroundFilter(candidate, sample_rate, ahead)
+	local cache = self.ground_cache
+
+	if not cache then
+		cache = {count = 0, serial = 0}
+		self.ground_cache = cache
+	end
+
+	local scatter = candidate.scatter
+	local key = table.concat(
+		{
+			math.floor(math.log(candidate.sigma) * 8 + 0.5),
+			math.floor(math.log(candidate.r2) * 30 + 0.5),
+			math.floor(math.log(candidate.sin_psi) * 30 + 0.5),
+			math.floor(scatter[1] * 10 + 0.5),
+			math.floor(scatter[2] * 10 + 0.5),
+			math.floor(scatter[3] * 10 + 0.5),
+			sample_rate,
+			ahead,
+		},
+		"|"
+	)
+	local entry = cache[key]
+
+	if not entry then
+		if cache.count >= 48 then
+			table.clear(cache)
+			cache.count = 0
+			cache.serial = 0
+		end
+
+		cache.serial = cache.serial + 1
+		cache.count = cache.count + 1
+		entry = {ir = ground.CreateIR(), serial = cache.serial}
+		ground.DesignFilter(
+			entry.ir,
+			candidate.sigma,
+			candidate.r2,
+			candidate.sin_psi,
+			sample_rate,
+			ahead,
+			scatter[1],
+			scatter[2],
+			scatter[3]
+		)
+		cache[key] = entry
+	end
+
+	return entry
 end
 
 function META:UpdateTaps(sound, env, time)
@@ -1874,6 +2116,8 @@ function META:UpdateTaps(sound, env, time)
 	local listener_velocity = (audio.listener_motion.velocity or Vec3(0, 0, 0)) - medium
 	local ids = audio.DISTANCE_MODE_IDS
 	local candidates = {}
+	local mu2 = spatial.GetTurbulence(audio)
+	local source_height, listener_height
 	-- the direct path stops getting louder inside the reference distance, reflections are held back by the same amount so close sounds keep their physical balance
 	local close = math.min((source - listener):GetLength() / sound:GetReferenceDistance(), 1)
 
@@ -1896,51 +2140,106 @@ function META:UpdateTaps(sound, env, time)
 					specular[b] = (1 - absorption[b]) * (1 - reflector.scattering[b] / reflector.count)
 				end
 
-				local reflect_mid = close * math.sqrt(specular[2])
+				local sin_psi = (listener:GetDot(n) + source:GetDot(n) - 2 * offset) / path
+				local ground_candidate
+
+				if n.y >= acoustics.GROUND_MIN_SLOPE then
+					if not source_height then
+						source_height = math.max(source:GetDot(n) - offset, 0.01)
+						listener_height = math.max(listener:GetDot(n) - offset, 0.01)
+					end
+
+					local sigma = ground.Resistivity(absorption[2])
+
+					if sigma < ground.RIGID then
+						local scatter = {}
+
+						for b = 1, 3 do
+							local coherence = spatial.Coherence(
+								mu2,
+								acoustics.GROUND_SCATTER_FREQUENCIES[b],
+								path,
+								0.5 * sin_psi * path,
+								audio.speed_of_sound
+							)
+							scatter[b] = 1 - (1 - reflector.scattering[b] / reflector.count) * coherence * coherence
+						end
+
+						ground_candidate = {
+							sigma = sigma,
+							r2 = path,
+							sin_psi = sin_psi,
+							scatter = scatter,
+						}
+					end
+				end
+
+				local reflect_mid = ground_candidate and
+					close * (
+						ground.Coefficient(500, ground_candidate.sigma, path, sin_psi)
+					) * math.sqrt(1 - ground_candidate.scatter[2])
+					or
+					close * math.sqrt(specular[2])
 				local direction = (point - listener):GetNormalized()
-				local gain = spatial.ComputeDistanceAttenuation(
+				local attenuation = spatial.ComputeDistanceAttenuation(
 						ids[audio.distance_model],
 						path,
 						sound:GetReferenceDistance(),
 						sound:GetMaxDistance(),
 						sound:GetRolloffFactor(),
 						ids
-					) * reflect_mid * spatial.ComputeConeGain(
+					) * spatial.ComputeConeGain(
 						sound:GetDirection(),
 						point - source,
 						sound:GetInnerConeAngle(),
 						sound:GetOuterConeAngle(),
 						sound:GetOuterConeGain()
-					) * spatial.AirAbsorption(2, path)
+					)
+				local gain = attenuation * reflect_mid
 				local image_velocity = velocity - n * (2 * velocity:GetDot(n))
 				local delay_left, delay_right = 0, 0
 				local rate_left, rate_right = 0, 0
 
 				if audio.doppler_factor > 0 then
 					local left_ear, right_ear = listener - half_ear, listener + half_ear
-					delay_left = spatial.RetardedDelay(left_ear, image, image_velocity, speed)
-					delay_right = spatial.RetardedDelay(right_ear, image, image_velocity, speed)
-					rate_left = spatial.DelayRate(
-						image - image_velocity * delay_left,
+					delay_left, rate_left = spatial.PathTiming(
+						motion,
+						image,
+						image_velocity,
 						left_ear,
-						image_velocity,
 						listener_velocity,
-						speed
+						medium,
+						speed,
+						0,
+						n,
+						offset
 					)
-					rate_right = spatial.DelayRate(
-						image - image_velocity * delay_right,
-						right_ear,
+					delay_right, rate_right = spatial.PathTiming(
+						motion,
+						image,
 						image_velocity,
+						right_ear,
 						listener_velocity,
-						speed
+						medium,
+						speed,
+						0,
+						n,
+						offset
 					)
 				end
 
 				local side = direction:GetDot(right)
 				local front = direction:GetDot(forward)
+				local air = {}
+				spatial.GetAirFilter(path * spatial.AIR_SCALE, audio.state.sample_rate, air, 0)
+				local shadow_left, shadow_right = spatial.HeadShadow(2, -side, front), spatial.HeadShadow(2, side, front)
 				candidates[#candidates + 1] = {
 					key = key,
 					point = point,
+					attenuation = attenuation,
+					shadow_left = shadow_left,
+					shadow_right = shadow_right,
+					ground_candidate = ground_candidate,
 					gain = gain,
 					delay = (delay_left + delay_right) * 0.5,
 					delay_left = delay_left,
@@ -1949,18 +2248,31 @@ function META:UpdateTaps(sound, env, time)
 					rate_right = rate_right,
 					height = direction:GetDot(up),
 					front = front,
-					gain_left = gain * spatial.HeadShadow(2, -side, front),
-					gain_right = gain * spatial.HeadShadow(2, side, front),
-					band = {
-						math.sqrt(specular[1] / specular[2]) * spatial.AirAbsorption(1, path) / spatial.AirAbsorption(2, path),
-						1,
-						math.sqrt(specular[3] / specular[2]) * spatial.AirAbsorption(3, path) / spatial.AirAbsorption(2, path),
-					},
+					gain_left = gain * shadow_left,
+					gain_right = gain * shadow_right,
+					band = ground_candidate and
+						{1, 1, 1} or
+						{math.sqrt(specular[1] / specular[2]), 1, math.sqrt(specular[3] / specular[2])},
+					air = air,
 				}
 			end
 		end
 	end
 
+	local refraction
+
+	if source_height then
+		refraction = spatial.GetRefraction(
+			audio,
+			spatial.GetSoundGradient(audio, source, listener),
+			(source - listener):GetLength(),
+			source_height,
+			listener_height,
+			sound.audio_refraction or {}
+		)
+	end
+
+	sound.audio_refraction = refraction
 	table.sort(candidates, by_gain)
 	local kept = {}
 
@@ -1979,6 +2291,40 @@ function META:UpdateTaps(sound, env, time)
 	end
 
 	candidates = kept
+	local chosen
+
+	for _, tap in ipairs(candidates) do
+		if
+			tap.ground_candidate and
+			tap.ground_candidate.r2 >= acoustics.GROUND_FILTER_DISTANCE
+		then
+			chosen = tap
+
+			break
+		end
+	end
+
+	if env.ground_user then
+		if not chosen then env.ground_user = false end
+	elseif chosen and self.ground_count < acoustics.GROUND_VOICES then
+		env.ground_user = true
+		self.ground_count = self.ground_count + 1
+	end
+
+	if env.ground_user and chosen then
+		local sample_rate = audio.state.sample_rate
+		local ahead = math.clamp(
+			math.floor((chosen.delay * sample_rate - acoustics.GROUND_AHEAD_MARGIN) / 64) * 64,
+			0,
+			ground.READ_AHEAD
+		)
+		chosen.ground = self:GetGroundFilter(chosen.ground_candidate, sample_rate, ahead)
+		chosen.ground_ahead = ahead
+		chosen.gain = chosen.attenuation * close * refraction[2]
+		chosen.gain_left = chosen.gain * chosen.shadow_left
+		chosen.gain_right = chosen.gain * chosen.shadow_right
+	end
+
 	local by_key = {}
 
 	for _, tap in ipairs(candidates) do
@@ -2016,7 +2362,7 @@ function META:UpdateTaps(sound, env, time)
 		local tap = keys[slot] and by_key[keys[slot]]
 		env.taps[slot] = tap
 
-		if tap then
+		if tap and not tap.ground then
 			local e = tap.gain * tap.gain
 			weight = weight + e
 			band_low = band_low + tap.band[1] * e
@@ -2041,16 +2387,20 @@ function META:UpdateBuses()
 
 	listener_bus.scale = profile.mean_free_path / (self.audio.speed_of_sound * dsp.REVERB_MEAN_DELAY)
 	listener_bus.predelay = math.max(
-		profile.predelay - math.max(dsp.REVERB_MIN_SCALE - listener_bus.scale, 0) * dsp.REVERB_MEAN_DELAY,
-		acoustics.MIN_PREDELAY
-	)
+			profile.predelay - math.max(dsp.REVERB_MIN_SCALE - listener_bus.scale, 0) * dsp.REVERB_MEAN_DELAY,
+			acoustics.MIN_PREDELAY
+		) + (
+			self.ambient_reverb and
+			self.ambient_reverb.delay or
+			0
+		)
 	listener_bus.diffusion = math.clamp(
 		(
 				acoustics.SPARSE_ESCAPING - profile.openness
 			) / (
 				acoustics.SPARSE_ESCAPING - acoustics.DIFFUSE_ESCAPING
 			),
-		0,
+		acoustics.MIN_DIFFUSION,
 		1
 	)
 	local weight = 0
@@ -2067,13 +2417,14 @@ function META:UpdateBuses()
 				t60[b] = t60[b] + env.t60[b] * env.remote_weight
 			end
 
-			local late = env.sums.late[2]
+			local sums = env.reverb_sums or env.sums
+			local late = sums.late[2]
 
 			if late > 0 then
 				local k = env.remote_weight / late
-				dx = dx + env.sums.direction[1] * k
-				dy = dy + env.sums.direction[2] * k
-				dz = dz + env.sums.direction[3] * k
+				dx = dx + sums.direction[1] * k
+				dy = dy + sums.direction[2] * k
+				dz = dz + sums.direction[3] * k
 			end
 		end
 	end
@@ -2120,11 +2471,29 @@ function META:Update(time)
 	end
 
 	if self.tracer:IsReady() then
-		self.tracer:Submit(self:BuildJob(time))
+		local emitter = self:SelectEmitter()
+
+		if
+			emitter and
+			emitter.audio_environment.emitter and
+			self.frame % acoustics.EMITTER_PERIOD ~= 0
+		then
+			emitter = nil
+		end
+
+		self.tracer:Submit(emitter and self:BuildEmitterJob(emitter, time) or self:BuildJob(time))
 
 		for _, done in ipairs(self.tracer:Collect()) do
 			self:Absorb(done.job, done.result)
 		end
+	end
+
+	self.ground_count = 0
+
+	for _, sound in pairs(self.audio.active_sounds) do
+		local env = sound.audio_environment
+
+		if env and env.ground_user then self.ground_count = self.ground_count + 1 end
 	end
 
 	for _, sound in pairs(self.audio.active_sounds) do
@@ -2190,6 +2559,17 @@ function META:Probe(sound)
 		):GetLength() > acoustics.STATS_DISTANCE * self.profile.mean_free_path
 	then
 		env.sums = acoustics.CopySourceSums(self.ambient)
+		local t60 = self.ambient_reverb and self.ambient_reverb.t60[2] or self.profile.t60[2]
+		acoustics.ScaleSourceSums(
+			env.sums,
+			math.exp(
+				-13.82 * (
+						source - self.audio.listener_position
+					):GetLength() / (
+						self.audio.speed_of_sound * t60
+					)
+			)
+		)
 		env.traced = source:Copy()
 		table.clear(env.reflections)
 	end
