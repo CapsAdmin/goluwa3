@@ -83,7 +83,7 @@ A tracer (`acoustics_gpu.lua`: ray queries on the scene TLAS in a PreRenderPass 
 
 ## Debugging
 
-`perf audio` (or `h`, AUDIO tab, `addons/debug/lua/autorun/render_3d/audio_acoustics.lua`) shows what the system thinks the listener is in: tracer and cost, the listener room (T60 per band, volume, mean free path, escaping rays, predelay), every spatial sound (delay, doppler, direct level and occlusion, reverb send and which bus, reflections), a top down map of first hits, reflecting planes, reflection paths and direct paths, and the decay curves. `audio_debug` draws the same in the world; `audio_stats` prints the rows.
+`perf audio` (or `h`, AUDIO tab, `addons/debug/lua/autorun/render_3d/audio_acoustics.lua`) shows what the system thinks the listener is in: tracer and cost, the listener room (T60 per band, volume, mean free path, escaping rays, predelay, openings, how directed the other space reverb is), the gathered ambience, every spatial sound (delay, doppler, direct level and occlusion, solid crossed and transmission loss, reverb send and which bus, reflections), a top down map of first hits, reflecting planes, reflection paths and direct paths, and the decay curves. `audio_debug` draws the same in the world; `audio_stats` prints the rows.
 
 ## Measuring
 

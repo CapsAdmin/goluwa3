@@ -10,6 +10,7 @@ local render2d = import("goluwa/render2d/render2d.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local audio = import("goluwa/audio.lua")
+local acoustics = import("goluwa/audio/acoustics.lua")
 local perf = import("lua/perf.lua")
 local BAND_NAMES = {"low", "mid", "high"}
 local BAND_COLORS = {Color(1, 0.55, 0.25, 1), Color(0.95, 0.9, 0.35, 1), Color(0.45, 0.8, 1, 1)}
@@ -128,12 +129,30 @@ local function build_rows()
 			value = string.format("%.0f ms", profile.predelay * 1000),
 		}
 		rows[#rows + 1] = {label = "  reflecting surfaces", value = tostring(#env:GetTopReflectors())}
+		rows[#rows + 1] = {label = "  openings", value = tostring(#env:GetOpenings())}
 		local bus = audio.state.buses[1]
 		rows[#rows + 1] = {
 			label = "other space reverb",
 			value = string.format("%.1f/%.1f/%.1f s", bus.t60[0], bus.t60[1], bus.t60[2]),
+			detail = bus.concentration > 0.05 and
+				string.format("%.0f%% directed", bus.concentration * 100) or
+				nil,
 			color = "dim",
 		}
+
+		if audio.trace_ambience then
+			local gathered = env:GetAmbience()
+			rows[#rows + 1] = {label = "ambience", color = "head"}
+			rows[#rows + 1] = {
+				label = "  rain radiance",
+				value = string.format("%.0f dB", 10 * math.log10(math.max(gathered.rain[2], 1e-9))),
+				detail = string.format("tail %.0f%%", gathered.tail_rain[2] / math.max(gathered.rain[2], 1e-9) * 100),
+			}
+			rows[#rows + 1] = {
+				label = "  wind radiance",
+				value = string.format("%.0f dB", 10 * math.log10(math.max(gathered.wind[2], 1e-9))),
+			}
+		end
 	end
 
 	local sounds = spatial_sounds()
@@ -169,6 +188,22 @@ local function build_rows()
 				fraction = o[2],
 				color = o[2] < 0.5 and "warn" or nil,
 			}
+
+			if senv.solid > 0.001 or senv.transmission[2] < 0.999 then
+				local t = senv.transmission
+				rows[#rows + 1] = {
+					label = "  through walls",
+					value = string.format("%.2f m", senv.solid),
+					detail = string.format(
+						"%.0f/%.0f/%.0f dB",
+						10 * math.log10(math.max(t[1], 1e-12)),
+						10 * math.log10(math.max(t[2], 1e-12)),
+						10 * math.log10(math.max(t[3], 1e-12))
+					),
+					color = "dim",
+				}
+			end
+
 			rows[#rows + 1] = {
 				label = "  reverb",
 				value = db(math.sqrt(senv.send[1] ^ 2 + senv.send[2] ^ 2)),
@@ -255,7 +290,7 @@ function RoomMap:OnDraw()
 	if env and env.samples then
 		local s = env.samples
 
-		for at = 0, #s - 1, 11 do
+		for at = 0, #s - 1, acoustics.SAMPLE_FLOATS do
 			local x, y = project(map, Vec3(s[at + 1], s[at + 2], s[at + 3]))
 			local r, g, b = absorption_color(s[at + 10])
 			local vertical = math.abs(s[at + 5]) > 0.7
@@ -265,6 +300,12 @@ function RoomMap:OnDraw()
 	end
 
 	if env then
+		for _, opening in ipairs(env:GetOpenings()) do
+			local x, y = project(map, opening.position)
+			render2d.SetColor(0.4, 0.8, 1, 0.9)
+			render2d.DrawCircle(x, y, 4, 2, 12)
+		end
+
 		for _, reflector in ipairs(env:GetTopReflectors()) do
 			local n = Vec3(reflector.normal[1], reflector.normal[2], reflector.normal[3]):GetNormalized()
 			local center = Vec3(reflector.position[1], reflector.position[2], reflector.position[3]) / reflector.count
