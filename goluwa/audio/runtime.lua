@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local clock = import("goluwa/audio/clock.lua")
 local spatial_air = import("goluwa/audio/spatial.lua")
+local acoustics = import("goluwa/audio/acoustics.lua")
 local module = {}
 
 function module.Attach(audio)
@@ -119,6 +120,10 @@ function module.Attach(audio)
 		end
 	end
 
+	function audio.SetWind(velocity)
+		audio.wind = velocity
+	end
+
 	function audio.SetListenerGain(gain)
 		audio.state.master_volume = gain
 	end
@@ -131,6 +136,10 @@ function module.Attach(audio)
 		local time = audio.clock()
 		audio.UpdateListenerMotion(time)
 		audio.UpdateCueGroups()
+		local profile = audio.acoustics and audio.acoustics.profile
+		-- indoors the air stands still: the wind reaches the paths as far as the listener's space is open
+		local exposure = profile and math.clamp(profile.openness / acoustics.SPARSE_ESCAPING, 0, 1) or 1
+		audio.medium_velocity = audio.wind * exposure
 
 		-- the reflections are computed in acoustics:Update and must use this frame's tracked positions, like the direct path does after it
 		for slot, sound in pairs(audio.active_sounds) do

@@ -849,6 +849,79 @@ T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the tempe
 	T(far)[">"](spatial.AIR_SUBBANDS[3][1] * 1000)
 end)
 
+local function exact_doppler(start, velocity, t, wind, c)
+	local lo, hi = 0, 10
+
+	for _ = 1, 200 do
+		local tau = (lo + hi) / 2
+
+		if (start + velocity * (t - tau) + wind * tau):GetLength() > c * tau then
+			lo = tau
+		else
+			hi = tau
+		end
+	end
+
+	local tau = (lo + hi) / 2
+	local n = (start + velocity * (t - tau) + wind * tau):GetNormalized() * -1
+	return 1000 * (c + n:GetDot(wind)) / (c - n:GetDot(velocity - wind))
+end
+
+T.Test("audio doppler stays exact for fast sources and in moving air", function()
+	local c = audio.speed_of_sound
+
+	local function measure(start, velocity, wind)
+		local f
+
+		with_offline_mixer(function(ctx)
+			audio.SetWind(wind)
+			local sine = mono_source(FS * 3, function(i)
+				return math.sin(2 * math.pi * 1000 * i / FS) * 0.5
+			end)
+			sine:SetLooping(true)
+			sine:SetPosition(start)
+			sine:Play()
+			local out = ctx.Render(2.2, function(t)
+				sine:SetPosition(start + velocity * t)
+			end)
+			f = frequency(out, 0, math.floor(2.0 * FS), math.floor(2.1 * FS))
+			audio.SetWind(Vec3(0, 0, 0))
+		end)
+
+		return f
+	end
+
+	for _, case in ipairs{
+		{Vec3(20, 0, -350), Vec3(0, 0, 250), Vec3(0, 0, 0)},
+		{Vec3(20, 0, -150), Vec3(0, 0, 100), Vec3(15, 0, 0)},
+		{Vec3(0, 0, -100), Vec3(0, 0, 0), Vec3(0, 0, 10)},
+	} do
+		local expected = exact_doppler(case[1], case[2], 2.05, case[3], c)
+		T(math.abs(measure(case[1], case[2], case[3]) / expected - 1))["<="](0.001)
+	end
+end)
+
+T.Test("audio delay follows the wind along the path", function()
+	local c = audio.speed_of_sound
+	local count = math.floor(0.04 * FS)
+
+	for _, wind in ipairs{Vec3(0, 0, 10), Vec3(0, 0, -10), Vec3(20, 0, 0)} do
+		with_offline_mixer(function(ctx)
+			audio.SetWind(wind)
+			local burst = mono_source(count, function(i)
+				local t = (i - count / 2) / FS
+				return math.exp(-(t / 0.003) ^ 2) * math.cos(2 * math.pi * 2000 * t)
+			end)
+			burst:SetPosition(Vec3(0, 0, -100))
+			burst:Play()
+			local out, total = ctx.Render(0.5)
+			local delay = (peak_index(out, total, 0) - count / 2) / FS
+			audio.SetWind(Vec3(0, 0, 0))
+			T(delay)["~"](100 / (math.sqrt(c * c - wind.x * wind.x) + wind.z), 0.0001)
+		end)
+	end
+end)
+
 T.Test("audio doppler stays smooth when positions arrive in physics steps between frames", function()
 	local c = audio.speed_of_sound
 	local speed = 5

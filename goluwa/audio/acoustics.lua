@@ -985,8 +985,9 @@ function META:UpdateTaps(sound, env, time)
 	local half_ear = right * (audio.ear_distance * 0.5)
 	local motion = sound.audio_motion
 	local source = motion and motion.position or sound:GetPosition()
-	local velocity = motion and motion.velocity or Vec3(0, 0, 0)
-	local listener_velocity = audio.listener_motion.velocity or Vec3(0, 0, 0)
+	local medium = audio.medium_velocity
+	local velocity = (motion and motion.velocity or Vec3(0, 0, 0)) - medium
+	local listener_velocity = (audio.listener_motion.velocity or Vec3(0, 0, 0)) - medium
 	local ids = audio.DISTANCE_MODE_IDS
 	local candidates = {}
 	-- the direct path stops getting louder inside the reference distance, reflections are held back by the same amount so close sounds keep their physical balance

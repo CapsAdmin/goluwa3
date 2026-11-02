@@ -288,8 +288,9 @@ function spatial.ComputePaths(audio, sound, out)
 
 	local motion = sound.audio_motion
 	local source = motion and motion.position or sound:GetPosition()
-	local source_velocity = motion and motion.velocity or Vec3(0, 0, 0)
-	local listener_velocity = audio.listener_motion.velocity or Vec3(0, 0, 0)
+	local medium = audio.medium_velocity
+	local source_velocity = (motion and motion.velocity or Vec3(0, 0, 0)) - medium
+	local listener_velocity = (audio.listener_motion.velocity or Vec3(0, 0, 0)) - medium
 	local doppler = audio.doppler_factor
 	local speed = audio.speed_of_sound / math.max(doppler, 0.000001)
 	local to_source = source - listener
