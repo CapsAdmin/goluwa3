@@ -1521,6 +1521,51 @@ T.Test("audio acoustics per band scattering keeps the decay of each band", funct
 	end)
 end)
 
+T.Test("audio scattering scale multiplies every material's scattering in the trace", function()
+	local function reflected_scattering(scale)
+		local result
+		local saved = acoustics.scattering_scale
+		acoustics.scattering_scale = scale
+
+		with_offline_mixer(function(ctx)
+			audio.acoustics = acoustics.New(
+				audio,
+				box_tracer(
+					Vec3(-5, 0, -4),
+					Vec3(5, 4, 4),
+					0.1,
+					{
+						rays = 256,
+						bounces = 4,
+						samples = 128,
+						sources = 1,
+						fresnel = 2,
+						reflection_sources = 1,
+					},
+					false,
+					box_material(0.1, {0.1, 0.1, 0.1})
+				)
+			)
+			audio.SetListenerPosition(Vec3(1, 1.7, 0.5))
+
+			for _ = 1, 40 do
+				ctx.time = ctx.time + 1 / 60
+				audio.Update()
+			end
+
+			local reflector = audio.acoustics:GetTopReflectors()[1]
+			result = reflector.scattering[2] / reflector.count
+		end)
+
+		acoustics.scattering_scale = saved
+		return result
+	end
+
+	T(reflected_scattering(1))["~"](0.1, 0.02)
+	T(reflected_scattering(3))["~"](0.3, 0.03)
+	T(reflected_scattering(20))["~"](1, 0.001)
+end)
+
 T.Test("audio acoustics clusters nearby sounds onto one traced source", function()
 	with_offline_mixer(function(ctx)
 		audio.acoustics = acoustics.New(

@@ -8,6 +8,7 @@ acoustics.TRACE_DISTANCE = 1000
 acoustics.LISTENER_CLEARANCE = 0.25
 acoustics.SOURCE_CLEARANCE = 0.3
 acoustics.SURFACE_OFFSET = 0.01
+acoustics.scattering_scale = 1
 acoustics.MIN_SOURCE_DISTANCE = 1
 acoustics.MAX_TAIL_DELAY_PATHS = 2
 acoustics.FRESNEL_CLEARANCE = 0.6
@@ -798,7 +799,7 @@ do
 
 				for b = 1, 3 do
 					surface.absorption[b] = material.absorption[b]
-					surface.scattering[b] = material.scattering[b]
+					surface.scattering[b] = math.min(material.scattering[b] * acoustics.scattering_scale, 1)
 					surface.rain[b] = material.rain[b]
 					surface.wind[b] = material.wind[b]
 				end
@@ -1004,7 +1005,7 @@ do
 			out[o + 5] = material and material.absorption[1] or 0
 			out[o + 6] = material and material.absorption[2] or 0
 			out[o + 7] = material and material.absorption[3] or 0
-			out[o + 8] = material and material.scattering[2] or 0
+			out[o + 8] = material and math.min(material.scattering[2] * acoustics.scattering_scale, 1) or 0
 			out[o + 9], out[o + 10], out[o + 11], out[o + 12] = 1, 1, 1, 0
 
 			if distance and q[at + 9] ~= 0 then

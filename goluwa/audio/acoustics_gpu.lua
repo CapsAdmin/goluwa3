@@ -756,7 +756,11 @@ function META:UploadMaterials(slot)
 		local w = material:GetAcousticWindEmission()
 		local at = i * MATERIAL_ROWS * 4
 		out[at], out[at + 1], out[at + 2], out[at + 3] = a.x, a.y, a.z, material:GetAcousticDensity()
-		out[at + 4], out[at + 5], out[at + 6], out[at + 7] = s.x, s.y, s.z, material:GetAcousticSurfaceMass()
+		local scale = acoustics.scattering_scale
+		out[at + 4], out[at + 5], out[at + 6], out[at + 7] = math.min(s.x * scale, 1),
+		math.min(s.y * scale, 1),
+		math.min(s.z * scale, 1),
+		material:GetAcousticSurfaceMass()
 		out[at + 8], out[at + 9], out[at + 10], out[at + 11] = r.x, r.y, r.z, 0
 		out[at + 12], out[at + 13], out[at + 14], out[at + 15] = w.x, w.y, w.z, 0
 	end

@@ -5,6 +5,7 @@ local spatial = import("goluwa/audio/spatial.lua")
 local sound = import("goluwa/audio/sound.lua")
 local runtime = import("goluwa/audio/runtime.lua")
 local backend = import("goluwa/audio/backend.lua")
+local acoustics = import("goluwa/audio/acoustics.lua")
 
 local function pack_decoded_audio(decoded)
 	if not decoded then return nil, 0, nil end
@@ -65,7 +66,7 @@ function audio.SetAcousticsTracer(tracer)
 	end
 
 	if tracer then
-		audio.acoustics = import("goluwa/audio/acoustics.lua").New(audio, tracer)
+		audio.acoustics = acoustics.New(audio, tracer)
 	else
 		audio.acoustics = nil
 	end
@@ -124,6 +125,17 @@ pvars.Setup2{
 	help = "the acoustic reflex model that ducks the mix after loud sounds; off leaves loudness to the limiter alone",
 	callback = function(value)
 		audio.state.ear_threshold = value and audio.reference_loudness - 4 or 1000
+	end,
+}
+pvars.Setup2{
+	key = "audio_scattering",
+	default = 1,
+	min = 0,
+	max = 4,
+	friendly = "scattering",
+	help = "multiplies the scattering coefficient of every material in the acoustic trace (clamped to 1): how much of what a surface reflects goes in random directions instead of as a mirror. Real facades with balconies and window reveals scatter much more than a flat game wall, more scattering shortens the late decay and thins out flutter between parallel walls",
+	callback = function(value)
+		acoustics.scattering_scale = value
 	end,
 }
 pvars.EndGroup()
