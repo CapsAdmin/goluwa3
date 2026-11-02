@@ -16,6 +16,7 @@ local POSITION = vertex_layout.GetFloatOffset("position")
 local NORMAL = vertex_layout.GetFloatOffset("normal")
 local TANGENT = vertex_layout.GetFloatOffset("tangent")
 local COLOR = vertex_layout.GetFloatOffset("vertex_color")
+local UV = vertex_layout.GetFloatOffset("uv")
 local CORNER_X = {-1, 1, 1, -1}
 local CORNER_Y = {-1, -1, 1, 1}
 local CORNER_U = {0, 1, 1, 0}
@@ -140,7 +141,30 @@ function sprites.GetBatch(texture, extra, color)
 	return batch
 end
 
-local function write(self, x, y, z, ax, ay, az, bx, by, bz, nx, ny, nz, reach, r, g, b, a)
+local function write(
+	self,
+	x,
+	y,
+	z,
+	ax,
+	ay,
+	az,
+	bx,
+	by,
+	bz,
+	nx,
+	ny,
+	nz,
+	reach,
+	r,
+	g,
+	b,
+	a,
+	u0,
+	v0,
+	u1,
+	v1
+)
 	local n = self.count
 
 	if n >= self.capacity then
@@ -180,30 +204,69 @@ local function write(self, x, y, z, ax, ay, az, bx, by, bz, nx, ny, nz, reach, r
 		floats[f + NORMAL], floats[f + NORMAL + 1], floats[f + NORMAL + 2] = nx, ny, nz
 		floats[f + TANGENT], floats[f + TANGENT + 1], floats[f + TANGENT + 2] = ax, ay, az
 		floats[f + COLOR], floats[f + COLOR + 1], floats[f + COLOR + 2], floats[f + COLOR + 3] = r, g, b, a
+		floats[f + UV], floats[f + UV + 1] = CORNER_U[corner + 1] == 0 and u0 or u1, CORNER_V[corner + 1] == 0 and v0 or v1
 	end
 
 	self.count = n + 1
 end
 
-function BATCH:Add(x, y, z, radius, r, g, b, a)
+function BATCH:SetAtlas(columns, rows)
+	self.columns, self.rows = columns, rows
+end
+
+function BATCH:SetNearFade(gone, full)
+	self.near_gone, self.near_full = gone, full
+end
+
+function BATCH:Add(x, y, z, radius, r, g, b, a, frame, roll)
 	if not frame_ready then begin_frame() end
 
 	local dx, dy, dz = x - camera_x, y - camera_y, z - camera_z
-	local min_radius = math.sqrt(dx * dx + dy * dy + dz * dz) * radius_per_distance
+	local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+	local min_radius = distance * radius_per_distance
+	local near_gone = self.near_gone
+
+	if near_gone then
+		local f = math.clamp((distance / radius - near_gone) / (self.near_full - near_gone), 0, 1)
+
+		if f <= 0 then return end
+
+		a = a * f * f * (3 - 2 * f)
+	end
 
 	if radius < min_radius then radius = min_radius end
+
+	local ax, ay, az = right_x * radius, right_y * radius, right_z * radius
+	local bx, by, bz = up_x * radius, up_y * radius, up_z * radius
+	local u0, v0, u1, v1 = 0, 0, 1, 1
+
+	if roll then
+		local c, s = math.cos(roll), math.sin(roll)
+		ax, ay, az, bx, by, bz = ax * c + bx * s,
+		ay * c + by * s,
+		az * c + bz * s,
+		bx * c - ax * s,
+		by * c - ay * s,
+		bz * c - az * s
+	end
+
+	if frame then
+		local columns, rows = self.columns, self.rows
+		u0, v0 = frame % columns / columns, math.floor(frame / columns) / rows
+		u1, v1 = u0 + 1 / columns, v0 + 1 / rows
+	end
 
 	write(
 		self,
 		x,
 		y,
 		z,
-		right_x * radius,
-		right_y * radius,
-		right_z * radius,
-		up_x * radius,
-		up_y * radius,
-		up_z * radius,
+		ax,
+		ay,
+		az,
+		bx,
+		by,
+		bz,
 		back_x,
 		back_y,
 		back_z,
@@ -211,7 +274,11 @@ function BATCH:Add(x, y, z, radius, r, g, b, a)
 		r,
 		g,
 		b,
-		a
+		a,
+		u0,
+		v0,
+		u1,
+		v1
 	)
 end
 
@@ -232,7 +299,30 @@ function BATCH:AddFlat(x, y, z, nx, ny, nz, radius, r, g, b, a, ux, uy, uz)
 	local bx = (ny * rz - nz * ry)
 	local by = (nz * rx - nx * rz)
 	local bz = (nx * ry - ny * rx)
-	write(self, x, y, z, rx, ry, rz, bx, by, bz, nx, ny, nz, radius * 1.5, r, g, b, a)
+	write(
+		self,
+		x,
+		y,
+		z,
+		rx,
+		ry,
+		rz,
+		bx,
+		by,
+		bz,
+		nx,
+		ny,
+		nz,
+		radius * 1.5,
+		r,
+		g,
+		b,
+		a,
+		0,
+		0,
+		1,
+		1
+	)
 end
 
 function BATCH:AddAxial(x, y, z, ux, uy, uz, radius, r, g, b, a)
@@ -250,6 +340,47 @@ function BATCH:AddAxial(x, y, z, ux, uy, uz, radius, r, g, b, a)
 	if face <= 0 then return end
 
 	self:AddFlat(x, y, z, nx / side, ny / side, nz / side, radius, r, g, b, a * face, ux, uy, uz)
+end
+
+function BATCH:AddStreak(x, y, z, dx, dy, dz, length, width, r, g, b, a, frame)
+	if not frame_ready then begin_frame() end
+
+	local vx, vy, vz = camera_x - x, camera_y - y, camera_z - z
+	local distance = math.sqrt(vx * vx + vy * vy + vz * vz)
+	local along = vx * dx + vy * dy + vz * dz
+	local nx, ny, nz = vx - dx * along, vy - dy * along, vz - dz * along
+	local side = math.sqrt(nx * nx + ny * ny + nz * nz)
+	local face = math.clamp((side / distance - 0.1) / 0.4, 0, 1)
+
+	if face <= 0 then return end
+
+	nx, ny, nz = nx / side, ny / side, nz / side
+	local columns, rows = self.columns, self.rows
+	local u0, v0 = frame % columns / columns, math.floor(frame / columns) / rows
+	write(
+		self,
+		x,
+		y,
+		z,
+		dx * length,
+		dy * length,
+		dz * length,
+		(ny * dz - nz * dy) * width,
+		(nz * dx - nx * dz) * width,
+		(nx * dy - ny * dx) * width,
+		nx,
+		ny,
+		nz,
+		math.max(length, width) * 1.5,
+		r,
+		g,
+		b,
+		a * face,
+		u0,
+		v0,
+		u0 + 1 / columns,
+		v0 + 1 / rows
+	)
 end
 
 event.AddListener("LateUpdate", "sprite_batches", function()
