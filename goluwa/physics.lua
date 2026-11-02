@@ -90,7 +90,7 @@ function physics.GetHitMaterial(hit)
 
 		if materials then
 			local planes = primitive.brush_planes
-			local normal = hit.normal
+			local normal = hit.front_face == false and hit.normal * -1 or hit.normal
 			local best, best_dot = 1, -math.huge
 
 			for i = 1, #planes do

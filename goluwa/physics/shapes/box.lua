@@ -423,7 +423,7 @@ do
 
 		if not hit_normal_local or t_enter < 0 or t_enter > 1 then return nil end
 
-		return t_enter, hit_normal_local
+		return t_enter, hit_normal_local, t_exit
 	end
 
 	function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radius)
@@ -437,7 +437,7 @@ do
 		local movement_local = end_local - start_local
 		local expansion = math.max(trace_radius or 0, 0)
 		local extents = self:GetExtents()
-		local t_enter, hit_normal_local = slab_sweep(start_local, movement_local, extents, expansion)
+		local t_enter, hit_normal_local, t_exit = slab_sweep(start_local, movement_local, extents, expansion)
 
 		if not t_enter then return nil end
 
@@ -447,6 +447,7 @@ do
 		return {
 			entity = body:GetOwner(),
 			distance = distance_limit * t_enter,
+			exit_distance = distance_limit * t_exit,
 			position = position,
 			normal = normal,
 			rigid_body = body,

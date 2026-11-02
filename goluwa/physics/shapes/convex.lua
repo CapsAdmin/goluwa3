@@ -278,6 +278,7 @@ function META:TraceAgainstBody(collider, origin, direction, max_distance, trace_
 	return {
 		entity = collider:GetOwner(),
 		distance = distance_limit * t_enter,
+		exit_distance = distance_limit * t_exit,
 		position = origin + movement_world * t_enter - normal * expansion,
 		normal = normal,
 		rigid_body = collider:GetBody(),

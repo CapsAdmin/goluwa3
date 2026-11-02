@@ -158,8 +158,9 @@ local function build_triangle_hit(collider, entry, ray_origin, ray_direction, di
 	if face_normal_local:GetLength() <= 0.00001 then return nil end
 
 	local face_normal = collider:GetRotation():VecMul(face_normal_local):GetNormalized()
+	local front_face = face_normal:Dot(ray_direction) < 0
 
-	if face_normal:Dot(ray_direction) > 0 then face_normal = face_normal * -1 end
+	if not front_face then face_normal = face_normal * -1 end
 
 	local position = ray_origin + ray_direction * distance
 	local radius = math.max(trace_radius or 0, 0)
@@ -169,6 +170,7 @@ local function build_triangle_hit(collider, entry, ray_origin, ray_direction, di
 	return {
 		entity = collider:GetOwner(),
 		distance = distance,
+		front_face = front_face,
 		position = position,
 		normal = face_normal,
 		face_normal = face_normal,

@@ -198,9 +198,10 @@ function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radi
 
 	if discriminant < 0 then return nil end
 
+	local exit_distance = -b + math.sqrt(discriminant)
 	local distance = -b - math.sqrt(discriminant)
 
-	if distance < 0 then distance = -b + math.sqrt(discriminant) end
+	if distance < 0 then distance = exit_distance end
 
 	if distance < 0 or distance > (max_distance or math.huge) then return nil end
 
@@ -210,6 +211,7 @@ function META:TraceAgainstBody(body, origin, direction, max_distance, trace_radi
 	return {
 		entity = owner,
 		distance = distance,
+		exit_distance = distance < exit_distance and exit_distance or nil,
 		position = position,
 		normal = normal,
 		rigid_body = body.GetBody and body:GetBody() or body,

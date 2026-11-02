@@ -94,3 +94,54 @@ T.TestPhysics("ray casts only trace the colliders near the ray", function()
 		entity:Remove()
 	end
 end)
+
+T.TestPhysics("ray casts report where they leave solids and which side of a mesh they hit", function()
+	local SphereShape = import("goluwa/physics/shapes/sphere.lua")
+	local MeshShape = import("goluwa/physics/shapes/mesh.lua")
+	local box = create_box(Vec3(0, 0, 10))
+	local through = physics.RayCast(Vec3(0, 0, 5), Vec3(0, 0, 1), 100, nil, nil, OPTIONS)
+	T(through.distance)["~"](4.5, 1e-4)
+	T(through.exit_distance)["~"](5.5, 1e-4)
+	box:Remove()
+	local ball = Entity.New{
+		transform = {Position = Vec3(0, 0, 20)},
+		rigid_body = {Shape = SphereShape.New(2), MotionType = "static"},
+	}
+	physics.Update(1 / 60)
+	local sphere_hit = physics.RayCast(Vec3(0, 0, 10), Vec3(0, 0, 1), 100, nil, nil, OPTIONS)
+	T(sphere_hit.distance)["~"](8, 1e-4)
+	T(sphere_hit.exit_distance)["~"](12, 1e-4)
+	ball:Remove()
+	local brush = Entity.New{transform = {Position = Vec3(30, 0, 0)}}
+	brush:AddComponent(
+		"rigid_body",
+		{
+			Shape = MeshShape.New{
+				Model = {
+					Primitives = {
+						{
+							brush_planes = {
+								{normal = Vec3(1, 0, 0), dist = 1},
+								{normal = Vec3(-1, 0, 0), dist = 1},
+								{normal = Vec3(0, 1, 0), dist = 1},
+								{normal = Vec3(0, -1, 0), dist = 1},
+								{normal = Vec3(0, 0, 1), dist = 1},
+								{normal = Vec3(0, 0, -1), dist = 1},
+							},
+						},
+					},
+				},
+			},
+			MotionType = "static",
+		}
+	)
+	physics.Update(1 / 60)
+	local outside = physics.RayCast(Vec3(25, 0, 0), Vec3(1, 0, 0), 100, nil, nil, OPTIONS)
+	T(outside.distance)["~"](4, 1e-4)
+	T(outside.front_face)["=="](true)
+	local inside = physics.RayCast(Vec3(30, 0, 0), Vec3(1, 0, 0), 100, nil, nil, OPTIONS)
+	T(inside.distance)["~"](1, 1e-4)
+	T(inside.front_face)["=="](false)
+	T(inside.normal.x)["<"](-0.999)
+	brush:Remove()
+end)
