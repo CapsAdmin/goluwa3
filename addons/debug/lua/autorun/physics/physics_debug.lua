@@ -99,6 +99,10 @@ local function get_body_render_position_rotation(body)
 		local render_position, render_rotation = owner.transform:GetRenderPositionRotation()
 		position = render_position or owner.transform:GetPosition() or position
 		rotation = render_rotation or owner.transform:GetRotation() or rotation
+
+		if body.CenterOffset then
+			position = position + rotation:VecMul(body.CenterOffset)
+		end
 	end
 
 	return position, rotation
@@ -440,7 +444,6 @@ local function build_focus_overlay_lines(body, snapshot, hit, contacts)
 			yes_no(snapshot.collision_enabled)
 		),
 	}
-
 	local owner = body.Owner
 	local part = owner and owner.ragdoll_part
 
@@ -779,7 +782,10 @@ local function draw_character_overlay()
 			draw_capsule(
 				"physics_debug_hitbox_" .. get_body_debug_id(body),
 				body,
-				HITBOX_COLORS[component.Group] and body:IsDynamic() == false and HITBOX_COLORS[component.Group] or color,
+				HITBOX_COLORS[component.Group] and
+					body:IsDynamic() == false and
+					HITBOX_COLORS[component.Group] or
+					color,
 				body == focused_body and 1 or 0.6
 			)
 		end
@@ -793,7 +799,9 @@ local function draw_character_overlay()
 			owner ~= local_player and
 			owner.character_movement and
 			body:GetShapeType() == "capsule" and
-			(get_body_render_position_rotation(body) - camera_position):GetLength() < CHARACTER_DRAW_DISTANCE
+			(
+				get_body_render_position_rotation(body) - camera_position
+			):GetLength() < CHARACTER_DRAW_DISTANCE
 		then
 			draw_capsule(
 				"physics_debug_capsule_" .. get_body_debug_id(body),
@@ -893,7 +901,12 @@ local function draw_weapon_trace()
 		lines[1] = string.format(
 			"%s%s",
 			tostring(victim.Name or "character"),
-			part and (" | " .. part.Group .. " x" .. format_number(multiplier)) or " | capsule"
+			part and
+				(
+					" | " .. part.Group .. " x" .. format_number(multiplier)
+				)
+				or
+				" | capsule"
 		)
 		lines[2] = string.format(
 			"health %s/%s | damage x%s",
@@ -905,7 +918,12 @@ local function draw_weapon_trace()
 		lines[1] = tostring(hit.entity and hit.entity.Name or "world")
 	end
 
-	debug_draw.DrawTextBlock(lines, screen.x + 14, screen.y + 10, {padding = 6, line_gap = 2, background_alpha = 0.7})
+	debug_draw.DrawTextBlock(
+		lines,
+		screen.x + 14,
+		screen.y + 10,
+		{padding = 6, line_gap = 2, background_alpha = 0.7}
+	)
 end
 
 local function draw_hovered_body_info()
@@ -1083,7 +1101,12 @@ local function rebuild_debug_model(body, entry, region_polygon)
 
 	if region_polygon ~= nil then
 		if region_polygon then
-			add_primitive(debug_ent.visual, region_polygon, "mesh", debug_draw.MakeMatrix(zero_vec, identity_rotation))
+			add_primitive(
+				debug_ent.visual,
+				region_polygon,
+				"mesh",
+				debug_draw.MakeMatrix(zero_vec, identity_rotation)
+			)
 		end
 	else
 		for _, collider in ipairs(body:GetColliders()) do
@@ -1147,7 +1170,9 @@ end
 
 local function add_hull_region(hull, bounds)
 	for i = 1, #hull.indices, 3 do
-		local v0, v1, v2 = hull.vertices[hull.indices[i]], hull.vertices[hull.indices[i + 1]], hull.vertices[hull.indices[i + 2]]
+		local v0, v1, v2 = hull.vertices[hull.indices[i]],
+		hull.vertices[hull.indices[i + 1]],
+		hull.vertices[hull.indices[i + 2]]
 
 		if
 			v0 and
@@ -1187,7 +1212,7 @@ local function build_region(body, center)
 		region_is_identity = region_local_position:GetLength() < 1e-6 and
 			math.abs(region_local_rotation.w) > 0.999999
 
-		if shape:GetTypeName() == "mesh" then
+		if shape.GetMeshPolygons then
 			for _, polygon in ipairs(shape:GetMeshPolygons(collider)) do
 				triangle_mesh.ForEachOverlappingTriangle(polygon, bounds, add_region_triangle)
 			end
@@ -1240,7 +1265,9 @@ local function ensure_region_model(body, hit)
 	then
 		local visible = debug_enabled and body == focused_body
 
-		if debug_ent.visual:GetVisible() ~= visible then debug_ent.visual:SetVisible(visible) end
+		if debug_ent.visual:GetVisible() ~= visible then
+			debug_ent.visual:SetVisible(visible)
+		end
 
 		return
 	end
