@@ -82,6 +82,9 @@ local bus_t = ffi.typeof([[
 		float predelay;
 		float scale;
 		float diffusion;
+		float concentration;
+		float ear_gain[2];
+		float ear_delay[2];
 	}
 ]])
 audio.mixer_state_t = ffi.typeof(
@@ -133,6 +136,9 @@ function audio.CreateMixerState()
 		state.buses[i].predelay = 0.01
 		state.buses[i].scale = 1
 		state.buses[i].diffusion = 1
+		state.buses[i].concentration = 0
+		state.buses[i].ear_gain[0] = 1
+		state.buses[i].ear_gain[1] = 1
 	end
 
 	return state

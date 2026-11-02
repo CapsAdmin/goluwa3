@@ -814,7 +814,12 @@ local function mix_block(mixer, out, frames)
 			bus.t60[2],
 			bus.predelay,
 			bus.scale,
-			bus.diffusion
+			bus.diffusion,
+			bus.concentration,
+			bus.ear_gain[0],
+			bus.ear_gain[1],
+			bus.ear_delay[0],
+			bus.ear_delay[1]
 		)
 	end
 

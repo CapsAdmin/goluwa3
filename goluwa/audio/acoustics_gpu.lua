@@ -15,7 +15,7 @@ local MAX_SAMPLES = 512
 local MAX_MATERIALS = 8192
 local GROUP_SIZE = 64
 local STATS_FLOATS = 38
-local SOURCE_FLOATS = 9
+local SOURCE_FLOATS = 12
 local ACC = STATS_FLOATS + SOURCE_FLOATS * MAX_SOURCES
 local SAMPLE_FLOATS = acoustics.SAMPLE_FLOATS
 local RAY_FLOATS = acoustics.RAY_FLOATS
@@ -439,6 +439,7 @@ local function build_pipeline(slots)
 					float phi = float(id) * 2.399963229728653;
 					vec3 local_dir = vec3(cos(phi) * rr, sin(phi) * rr, z);
 					vec3 dir = vec3(dot(acoustic.rotation[0].xyz, local_dir), dot(acoustic.rotation[1].xyz, local_dir), dot(acoustic.rotation[2].xyz, local_dir));
+					vec3 first_dir = dir;
 					vec3 origin = acoustic.listener.xyz;
 					float tmin = acoustic.listener.w;
 					float path_length = 0.0;
@@ -592,6 +593,9 @@ local function build_pipeline(slots)
 									acc[base + 6] += e.x * t;
 									acc[base + 7] += e.y * t;
 									acc[base + 8] += e.z * t;
+									acc[base + 9] += e.y * first_dir.x;
+									acc[base + 10] += e.y * first_dir.y;
+									acc[base + 11] += e.y * first_dir.z;
 								}
 							}
 						}
@@ -788,6 +792,7 @@ function META:ReadResult(job, slot)
 				sums.settled[b] = sums.settled[b] + out[base + b - 1]
 				sums.late[b] = sums.late[b] + out[base + 2 + b]
 				sums.moment[b] = sums.moment[b] + out[base + 5 + b]
+				sums.direction[b] = sums.direction[b] + out[base + 8 + b]
 			end
 		end
 	end

@@ -288,6 +288,8 @@ do
 			double coefficient_low, coefficient_high;
 			double coefficient_coherent;
 			double coherent[4];
+			float pan_line[64];
+			double pan[5];
 			uint32_t write;
 			bool initialized;
 			bool sleeping;
@@ -381,7 +383,12 @@ do
 		t60_high,
 		predelay,
 		scale,
-		diffusion
+		diffusion,
+		concentration,
+		gain_left,
+		gain_right,
+		delay_left,
+		delay_right
 	)
 		local silent = true
 
@@ -417,6 +424,8 @@ do
 			reverb.predelay = predelay
 			reverb.scale = nearest
 			reverb.diffusion = diffusion
+			reverb.pan[0], reverb.pan[1], reverb.pan[2] = concentration, gain_left, gain_right
+			reverb.pan[3], reverb.pan[4] = delay_left * sample_rate, delay_right * sample_rate
 
 			for j = 0, LINES - 1 do
 				reverb.delay[j] = math.floor(reverb.length[j] * nearest + 0.5)
@@ -427,6 +436,12 @@ do
 			reverb.t60[1] = math.exp(math.lerp(k, math.log(reverb.t60[1]), math.log(t60_mid)))
 			reverb.t60[2] = math.exp(math.lerp(k, math.log(reverb.t60[2]), math.log(t60_high)))
 			reverb.diffusion = math.lerp(k, reverb.diffusion, diffusion)
+			local pan = reverb.pan
+			pan[0] = math.lerp(k, pan[0], concentration)
+			pan[1] = math.lerp(k, pan[1], gain_left)
+			pan[2] = math.lerp(k, pan[2], gain_right)
+			pan[3] = math.lerp(k, pan[3], delay_left * sample_rate)
+			pan[4] = math.lerp(k, pan[4], delay_right * sample_rate)
 
 			if
 				not reverb.fading and
@@ -473,6 +488,12 @@ do
 		local cc = reverb.coefficient_coherent
 		local coherent = reverb.coherent
 		local ma, mb, sa, sb = coherent[0], coherent[1], coherent[2], coherent[3]
+		local pan_line = reverb.pan_line
+		local pan = reverb.pan
+		local diffuse_share = math.sqrt(1 - pan[0])
+		local directed_left = math.sqrt(pan[0]) * pan[1]
+		local directed_right = math.sqrt(pan[0]) * pan[2]
+		local pan_delay_left, pan_delay_right = pan[3], pan[4]
 
 		for i = 0, frames - 1 do
 			predelay_line[bit.band(write, PREDELAY_MASK)] = input[i]
@@ -559,8 +580,19 @@ do
 			local side_high = side - sa
 			sb = sb + cc * (side_high - sb)
 			side = side_high - sb
-			output[i * 2] = output[i * 2] + mid + side
-			output[i * 2 + 1] = output[i * 2 + 1] + mid - side
+			local left_out = mid + side
+			pan_line[bit.band(write, 63)] = left_out
+
+			if directed_left > 0 or directed_right > 0 then
+				output[i * 2] = output[i * 2] + diffuse_share * left_out + directed_left * dsp.ReadLinear(pan_line, 63, write - pan_delay_left)
+				output[i * 2 + 1] = output[i * 2 + 1] + diffuse_share * (
+						mid - side
+					) + directed_right * dsp.ReadLinear(pan_line, 63, write - pan_delay_right)
+			else
+				output[i * 2] = output[i * 2] + left_out
+				output[i * 2 + 1] = output[i * 2 + 1] + mid - side
+			end
+
 			write = write + 1
 		end
 

@@ -317,7 +317,12 @@ T.Test("audio reverb keeps its pitch and level when the room size changes", func
 				2.5,
 				0.02,
 				i >= change * FS and scale_to or scale_from,
-				1
+				1,
+				0,
+				1,
+				1,
+				0,
+				0
 			)
 		end
 
@@ -379,7 +384,12 @@ T.Test("audio reverb is coherent between the ears below a few hundred hertz and 
 			0.9,
 			0.02,
 			1,
-			1
+			1,
+			0,
+			1,
+			1,
+			0,
+			0
 		)
 	end
 
@@ -455,7 +465,12 @@ T.Test("audio reverb bus decays at its T60 with unit energy", function()
 				t60,
 				0.03,
 				1,
-				1
+				1,
+				0,
+				1,
+				1,
+				0,
+				0
 			)
 		end
 
@@ -503,7 +518,12 @@ local function reverb_band_t20(t60s, scale, diffusion)
 			t60s[3],
 			0.03,
 			scale,
-			diffusion
+			diffusion,
+			0,
+			1,
+			1,
+			0,
+			0
 		)
 	end
 
@@ -1078,6 +1098,64 @@ T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the tempe
 	local far = -20 * math.log10(spatial.AirAbsorption(3, 1000))
 	T(far)["<"](spatial.AIR_ABSORPTION_DB[3] * 1000 * 0.5)
 	T(far)[">"](spatial.AIR_SUBBANDS[3][1] * 1000)
+end)
+
+T.Test("audio remote reverb bus plays from its direction with the time difference between the ears", function()
+	local frames = FS
+	local reverb = dsp.CreateReverb(FS)
+	local input = ffi.new("float[?]", frames)
+	local out = ffi.new("float[?]", frames * 2)
+	local seed = 3
+
+	for i = 0, FS / 4 do
+		seed = (seed * 1103515245 + 12345) % 2147483648
+		input[i] = seed / 2147483648 - 0.5
+	end
+
+	local lag = 20
+
+	for i = 0, frames - 1, 512 do
+		dsp.ProcessReverb(
+			reverb,
+			input + i,
+			out + i * 2,
+			math.min(512, frames - i),
+			FS,
+			1,
+			1,
+			1,
+			0.02,
+			1,
+			1,
+			1,
+			1.3,
+			0.6,
+			0,
+			lag / FS
+		)
+	end
+
+	local left, right = 0, 0
+
+	for i = 0, frames - 1 do
+		left = left + out[i * 2] ^ 2
+		right = right + out[i * 2 + 1] ^ 2
+	end
+
+	T(10 * math.log10(left / right))["~"](20 * math.log10(1.3 / 0.6), 0.5)
+	local best, best_lag = -math.huge, 0
+
+	for k = 0, 40 do
+		local sum = 0
+
+		for i = 0, frames - 1 - k do
+			sum = sum + out[i * 2] * out[(i + k) * 2 + 1]
+		end
+
+		if sum > best then best, best_lag = sum, k end
+	end
+
+	T(best_lag)["=="](lag)
 end)
 
 local function snow_t60(open_top, depth, ctx)

@@ -293,7 +293,13 @@ function acoustics.NewStats()
 end
 
 function acoustics.NewSourceSums()
-	return {rays = 0, settled = {0, 0, 0}, late = {0, 0, 0}, moment = {0, 0, 0}}
+	return {
+		rays = 0,
+		settled = {0, 0, 0},
+		late = {0, 0, 0},
+		moment = {0, 0, 0},
+		direction = {0, 0, 0},
+	}
 end
 
 function acoustics.CopySourceSums(from)
@@ -353,6 +359,7 @@ function acoustics.DecaySourceSums(sums, factor)
 		sums.late[b] = sums.late[b] * factor
 		sums.moment[b] = sums.moment[b] * factor
 		sums.settled[b] = sums.settled[b] * factor
+		sums.direction[b] = sums.direction[b] * factor
 	end
 end
 
@@ -363,6 +370,7 @@ function acoustics.AddSourceSums(into, from, rays)
 		into.late[b] = into.late[b] + from.late[b]
 		into.moment[b] = into.moment[b] + from.moment[b]
 		into.settled[b] = into.settled[b] + from.settled[b]
+		into.direction[b] = into.direction[b] + from.direction[b]
 	end
 end
 
@@ -679,6 +687,7 @@ do
 
 		for ray = 0, job.rays - 1 do
 			local dx, dy, dz = acoustics.FibonacciDirection(ray, job.rays, job.rotation)
+			local fx, fy, fz = dx, dy, dz
 			local ox, oy, oz = lx, ly, lz
 			local tmin = acoustics.LISTENER_CLEARANCE
 			local length = 0
@@ -860,6 +869,13 @@ do
 								end
 
 								if settled then sums.settled[b] = sums.settled[b] + e end
+							end
+
+							if late then
+								local e = base * w[2] * (1 - a[2]) * math.exp(-air[2] * total)
+								sums.direction[1] = sums.direction[1] + e * fx
+								sums.direction[2] = sums.direction[2] + e * fy
+								sums.direction[3] = sums.direction[3] + e * fz
 							end
 						end
 					end
@@ -1991,6 +2007,7 @@ function META:UpdateBuses()
 	)
 	local weight = 0
 	local t60 = {0, 0, 0}
+	local dx, dy, dz = 0, 0, 0
 
 	for _, sound in pairs(self.audio.active_sounds) do
 		local env = sound.audio_environment
@@ -2000,6 +2017,15 @@ function META:UpdateBuses()
 
 			for b = 1, 3 do
 				t60[b] = t60[b] + env.t60[b] * env.remote_weight
+			end
+
+			local late = env.sums.late[2]
+
+			if late > 0 then
+				local k = env.remote_weight / late
+				dx = dx + env.sums.direction[1] * k
+				dy = dy + env.sums.direction[2] * k
+				dz = dz + env.sums.direction[3] * k
 			end
 		end
 	end
@@ -2014,6 +2040,27 @@ function META:UpdateBuses()
 		remote_bus.predelay = math.clamp(remote_bus.t60[1] * 0.02, 0.01, 0.08)
 		remote_bus.scale = 1
 		remote_bus.diffusion = 1
+		dx, dy, dz = dx / weight, dy / weight, dz / weight
+		local concentration = math.min(math.sqrt(dx * dx + dy * dy + dz * dz), 1)
+		remote_bus.concentration = concentration
+
+		if concentration > 0 then
+			local audio = self.audio
+			local direction = Vec3(dx, dy, dz) / concentration
+			local forward = audio.listener_forward:GetNormalized()
+			local right = forward:GetCross(audio.listener_up):GetNormalized()
+			local side = direction:GetDot(right)
+			local front = direction:GetDot(forward)
+			local left = spatial.HeadShadow(2, -side, front)
+			local right_gain = spatial.HeadShadow(2, side, front)
+			local norm = math.sqrt(2 / (left * left + right_gain * right_gain))
+			local half = audio.ear_distance * 0.5 / audio.speed_of_sound
+			remote_bus.ear_gain[0] = left * norm
+			remote_bus.ear_gain[1] = right_gain * norm
+			remote_bus.ear_delay[0] = half * (1 + side)
+			remote_bus.ear_delay[1] = half * (1 - side)
+			self.remote_direction = direction
+		end
 	end
 end
 
