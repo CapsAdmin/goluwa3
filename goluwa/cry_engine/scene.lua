@@ -14,6 +14,7 @@ local LEAF_CELL_TARGET = 64
 local LEAF_CHUNK_THRESHOLD = 256
 local DECAL_PROJECTIONS = {[0] = "planar", "objects", "terrain", "terrain_objects"}
 local DEFAULT_DENSITY = 1000
+local FRICTION = 0.8
 local MATRIX_FIELDS = {}
 
 for row = 0, 3 do
@@ -34,7 +35,11 @@ end
 
 local function build_rigid_body(entry)
 	local physics = entry.physics
-	local body = {ShapeModelPath = entry.model_path, MotionType = physics.motion}
+	local body = {
+		ShapeModelPath = entry.model_path,
+		MotionType = physics.motion,
+		Friction = FRICTION,
+	}
 
 	if physics.motion == "dynamic" then
 		body.AutomaticMass = physics.mass == nil
@@ -422,7 +427,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 							Rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
 							Scale = Vec3(entry.scale, entry.scale, entry.scale),
 						},
-						rigid_body = {ShapeModelPath = entry.model_path, MotionType = "static"},
+						rigid_body = {ShapeModelPath = entry.model_path, MotionType = "static", Friction = FRICTION},
 					},
 				}
 			end
