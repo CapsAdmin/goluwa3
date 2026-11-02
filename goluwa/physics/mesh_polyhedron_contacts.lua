@@ -13,6 +13,7 @@ local CONTACT_MERGE_DISTANCE = 0.08
 local MIN_FACE_NORMAL_DOT = 0.5
 local FACE_SNAP_DOT = 0.99
 local SPECULATIVE_DISTANCE = 0.03
+local MAX_SAMPLE_DEPTH = 0.1
 local SOLVE_MESH_POLYHEDRON_CONTEXT = {
 	mesh_body = nil,
 	poly_body = nil,
@@ -326,6 +327,9 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 		end
 
 		local signed_distance = (query_point - v0):Dot(face_normal)
+
+		if signed_distance < -MAX_SAMPLE_DEPTH then goto continue end
+
 		local projected = query_point - face_normal * signed_distance
 
 		if triangle_geometry.PointInTriangle(projected, v0, v1, v2, face_normal) then
