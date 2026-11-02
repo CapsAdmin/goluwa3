@@ -361,14 +361,7 @@ local ACOUSTIC = {
 		rain = {0.2, 0.3, 0.3},
 		wind = {0, 0, 0},
 	},
-	snow = {
-		absorption = {0.45, 0.85, 0.90},
-		scattering = {0.10, 0.30, 0.60},
-		density = 300,
-		surface_mass = 30,
-		rain = {0.05, 0.05, 0.05},
-		wind = {0, 0, 0},
-	},
+	snow = acoustics.SNOW,
 	rock = {
 		absorption = {0.02, 0.03, 0.05},
 		scattering = {0.10, 0.30, 0.50},

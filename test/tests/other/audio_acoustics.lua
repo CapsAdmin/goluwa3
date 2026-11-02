@@ -573,7 +573,7 @@ local function box_material(absorption, scattering)
 	)
 end
 
-local function box_tracer(min, max, absorption, budget, open_top, material)
+local function box_tracer(min, max, absorption, budget, open_top, material, hole)
 	local tracer = acoustics_cpu.New(budget)
 	local a = material or box_material(absorption)
 
@@ -599,6 +599,10 @@ local function box_tracer(min, max, absorption, budget, open_top, material)
 		end
 
 		if best < tmin or best > tmax or open_top and ny == -1 then return nil end
+
+		if hole and hole(ox + dx * best, oy + dy * best, oz + dz * best, nx, ny, nz) then
+			return nil
+		end
 
 		return best, nx, ny, nz, a
 	end
@@ -956,6 +960,66 @@ T.TestPhysics("audio transmission measures walls on the physics tracer", functio
 	end
 end)
 
+local function rain_room(hole_width)
+	local W, H, D, alpha = 6, 3, 5, 0.2
+	local material = acoustics.NewMaterial({alpha, alpha, alpha}, {1, 1, 1}, 1e6, 1e6, {0, 0, 0}, {0, 0, 0})
+	return box_tracer(
+		Vec3(-W / 2, 0, -D / 2),
+		Vec3(W / 2, H, D / 2),
+		alpha,
+		{
+			rays = 512,
+			bounces = 12,
+			samples = 128,
+			sources = 1,
+			fresnel = 2,
+			reflection_sources = 1,
+		},
+		false,
+		material,
+		function(x, y, z, nx)
+			return nx == -1 and math.abs(y - 1.5) <= 0.5 and math.abs(z) <= hole_width / 2
+		end
+	),
+	W,
+	H,
+	D,
+	alpha
+end
+
+local function gather_rain(hole_width, ctx)
+	local tracer, W, H, D, alpha = rain_room(hole_width)
+	audio.acoustics = acoustics.New(audio, tracer)
+	audio.SetListenerPosition(Vec3(0, 1.5, 0))
+	audio.SetAmbienceTracing(Vec3(0, 1, 0), nil)
+
+	for _ = 1, 60 do
+		ctx.time = ctx.time + 1 / 60
+		audio.Update()
+	end
+
+	audio.StopAmbienceTracing()
+	local S = 2 * (W * H + W * D + H * D) - hole_width
+	local far = acoustics.DEFAULT_MATERIAL.rain[2]
+	local reverberant = far * 0.5 * hole_width / (alpha * S / (1 - alpha) + hole_width)
+	local w, h, d = hole_width / 2, 0.5, W / 2
+	local solid_angle = 4 * math.asin(w * h / math.sqrt((w * w + d * d) * (h * h + d * d)))
+	return audio.acoustics:GetAmbience(),
+	reverberant + far * 0.5 * solid_angle / (4 * math.pi)
+end
+
+T.Test("audio ambience through an opening matches the diffuse field and comes from the opening", function()
+	with_offline_mixer(function(ctx)
+		local small, small_expected = gather_rain(1, ctx)
+		T(math.abs(small.rain[2] - small_expected) / small_expected)["<="](0.25)
+		local strongest = small.bins[1]
+		T(strongest.direction.x)[">"](0.7)
+		local large, large_expected = gather_rain(2, ctx)
+		T(math.abs(large.rain[2] - large_expected) / large_expected)["<="](0.25)
+		T(large.rain[2] / small.rain[2])[">"](1.5)
+	end)
+end)
+
 T.Test("audio acoustics per band scattering keeps the decay of each band", function()
 	with_offline_mixer(function(ctx)
 		local W, H, D, alpha = 10, 4, 8, 0.1
@@ -1014,6 +1078,53 @@ T.Test("audio air absorption follows ISO 9613-1 and the speed of sound the tempe
 	local far = -20 * math.log10(spatial.AirAbsorption(3, 1000))
 	T(far)["<"](spatial.AIR_ABSORPTION_DB[3] * 1000 * 0.5)
 	T(far)[">"](spatial.AIR_SUBBANDS[3][1] * 1000)
+end)
+
+local function snow_t60(open_top, depth, ctx)
+	audio.acoustics = acoustics.New(
+		audio,
+		box_tracer(
+			Vec3(-6, 0, -5),
+			Vec3(6, 6, 5),
+			0.03,
+			{
+				rays = 512,
+				bounces = 10,
+				samples = 128,
+				sources = 1,
+				fresnel = 2,
+				reflection_sources = 1,
+			},
+			open_top
+		)
+	)
+	audio.SetListenerPosition(Vec3(1.3, 1.7, 0.6))
+	audio.SetSnowDepth(depth)
+
+	for _ = 1, 40 do
+		ctx.time = ctx.time + 1 / 60
+		audio.Update()
+	end
+
+	audio.SetSnowDepth(0)
+	return {unpack(audio.acoustics.profile.t60)}
+end
+
+T.Test("audio snow covers only exposed ground and absorbs the bands its depth reaches", function()
+	with_offline_mixer(function(ctx)
+		local closed, closed_snow = snow_t60(false, 1, ctx), snow_t60(false, 1, ctx)
+		local bare = snow_t60(true, 0, ctx)
+		local snowed = snow_t60(true, 0.02, ctx)
+
+		for band = 1, 3 do
+			T(math.abs(closed_snow[band] / closed[band] - 1))["<="](0.05)
+		end
+
+		local low, mid, high = snowed[1] / bare[1], snowed[2] / bare[2], snowed[3] / bare[3]
+		T(high)["<"](mid)
+		T(mid)["<"](low)
+		T(high)["<"](0.8)
+	end)
 end)
 
 T.TestPhysics("audio diffraction around a wall edge follows the barrier loss of its shortest detour", function()

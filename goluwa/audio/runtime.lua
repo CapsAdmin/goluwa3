@@ -120,8 +120,22 @@ function module.Attach(audio)
 		end
 	end
 
+	function audio.SetAmbienceTracing(rain_up, upwind)
+		audio.trace_ambience = true
+		audio.rain_up = rain_up
+		audio.upwind = upwind
+	end
+
 	function audio.SetWind(velocity)
 		audio.wind = velocity
+	end
+
+	function audio.SetSnowDepth(meters)
+		audio.snow_depth = meters
+	end
+
+	function audio.StopAmbienceTracing()
+		audio.trace_ambience = false
 	end
 
 	function audio.SetListenerGain(gain)

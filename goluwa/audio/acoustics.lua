@@ -16,7 +16,14 @@ acoustics.MAX_LEAVES = 8
 acoustics.LEAF_STEP = 0.001
 acoustics.BAND_EDGES = {{50, 500}, {500, 4000}, {4000, 16000}}
 acoustics.MIN_SCATTER_PROBABILITY = 0.05
+acoustics.GATHER_WALL_BOUNCES = 2
+acoustics.WALL_SEARCH = 3
+acoustics.WIND_SHELTER = 20
+acoustics.RAY_FLOATS = 12
 acoustics.SAMPLE_FLOATS = 14
+acoustics.AMBIENCE_CELLS = 4
+acoustics.OPENING_CELLS = 8
+acoustics.MAX_OPENINGS = 8
 -- ISO 9613-2 limit for one edge: turbulence and scattering fill the deep shadow
 acoustics.DIFFRACTION_CAP_DB = 20
 acoustics.DETOUR_MIN_RADIUS = 0.05
@@ -26,6 +33,7 @@ acoustics.DETOUR_NONE = 1000
 acoustics.DETOUR_MEMORY = 0.7
 acoustics.DETOUR_FOLLOW = 0.3
 acoustics.DETOUR_SAMPLES = 6
+acoustics.SNOW_MIN_SLOPE = math.cos(math.rad(50))
 acoustics.MAX_REFLECTORS = 10
 acoustics.MIN_REFLECTOR_AREA = 0.5
 acoustics.MIN_REFLECTOR_HITS = 3
@@ -65,6 +73,16 @@ function acoustics.NewMaterial(absorption, scattering, density, surface_mass, ra
 end
 
 acoustics.DEFAULT_MATERIAL = acoustics.NewMaterial({0.06, 0.10, 0.16}, {0.1, 0.2, 0.3}, 1500, 20, {0.6, 0.8, 0.9}, {0, 0, 0})
+acoustics.SNOW = acoustics.NewMaterial({0.45, 0.85, 0.90}, {0.1, 0.3, 0.6}, 300, 30, {0.05, 0.05, 0.05}, {0, 0, 0})
+
+-- a porous layer absorbs a band once it is about a quarter wavelength deep
+function acoustics.SnowCover(depth, speed, out)
+	for b = 1, 3 do
+		out[b] = math.min(depth / (speed / (4 * dsp.BAND_CENTERS[b])), 1)
+	end
+
+	return out
+end
 
 function acoustics.ReadMaterial(material, out)
 	local a = material:GetAcousticAbsorption()
@@ -190,7 +208,7 @@ function acoustics.DiffractionGain(detour, speed, out)
 end
 
 function acoustics.NewTransmission()
-	return {1, 1, 1, solid = 0, leaves = 0}
+	return {1, 1, 1, solid = 0, leaves = 0, rain = {0, 0, 0}, wind = {0, 0, 0}}
 end
 
 do
@@ -199,6 +217,7 @@ do
 	function acoustics.Transmit(tracer, ox, oy, oz, dx, dy, dz, tmin, tmax, speed, out)
 		local step = acoustics.LEAF_STEP
 		local count, t, last_end, solid = 0, tmin, tmin, 0
+		out.exit = nil
 
 		while count < acoustics.MAX_LEAVES and t < tmax do
 			local d, nx, ny, nz, material, front, exit = tracer:Trace(ox, oy, oz, dx, dy, dz, t, tmax)
@@ -206,19 +225,25 @@ do
 			if not d then break end
 
 			local density, surface_mass = material.density, material.surface_mass
+			local r1, r2, r3 = material.rain[1], material.rain[2], material.rain[3]
+			local w1, w2, w3 = material.wind[1], material.wind[2], material.wind[3]
 			local m, e = surface_mass, d
+			local ex, ey, ez = -nx, -ny, -nz
 
 			if exit then
 				e = math.min(exit, tmax)
 				m = density * (e - d)
 				solid = solid + e - d
 			elseif front then
-				local back, _, _, _, _, back_front = tracer:Trace(ox, oy, oz, dx, dy, dz, d + step, tmax)
+				local back, bx, by, bz, back_material, back_front = tracer:Trace(ox, oy, oz, dx, dy, dz, d + step, tmax)
 
 				if back and back_front == false then
 					e = back
 					m = density * (back - d)
 					solid = solid + back - d
+					ex, ey, ez = -bx, -by, -bz
+					r1, r2, r3 = back_material.rain[1], back_material.rain[2], back_material.rain[3]
+					w1, w2, w3 = back_material.wind[1], back_material.wind[2], back_material.wind[3]
 				end
 			end
 
@@ -228,6 +253,9 @@ do
 			gaps[count] = d - last_end
 			last_end = e
 			t = e + step
+			out.exit, out.nx, out.ny, out.nz = e, ex, ey, ez
+			out.rain[1], out.rain[2], out.rain[3] = r1, r2, r3
+			out.wind[1], out.wind[2], out.wind[3] = w1, w2, w3
 		end
 
 		out.solid = solid
@@ -258,6 +286,9 @@ function acoustics.NewStats()
 		settled_final = {0, 0, 0},
 		settled_length = {0, 0, 0},
 		settled_path = {0, 0, 0},
+		settled_escape = {0, 0, 0},
+		settled_rain = {0, 0, 0},
+		settled_wind = {0, 0, 0},
 	}
 end
 
@@ -287,6 +318,9 @@ function acoustics.DecayStats(stats, factor)
 		stats.settled_final[b] = stats.settled_final[b] * factor
 		stats.settled_length[b] = stats.settled_length[b] * factor
 		stats.settled_path[b] = stats.settled_path[b] * factor
+		stats.settled_escape[b] = stats.settled_escape[b] * factor
+		stats.settled_rain[b] = stats.settled_rain[b] * factor
+		stats.settled_wind[b] = stats.settled_wind[b] * factor
 	end
 end
 
@@ -306,6 +340,9 @@ function acoustics.AddStats(into, from)
 		into.settled_final[b] = into.settled_final[b] + from.settled_final[b]
 		into.settled_length[b] = into.settled_length[b] + from.settled_length[b]
 		into.settled_path[b] = into.settled_path[b] + from.settled_path[b]
+		into.settled_escape[b] = into.settled_escape[b] + from.settled_escape[b]
+		into.settled_rain[b] = into.settled_rain[b] + from.settled_rain[b]
+		into.settled_wind[b] = into.settled_wind[b] + from.settled_wind[b]
 	end
 end
 
@@ -520,7 +557,106 @@ end
 do
 	local w = {1, 1, 1}
 	local a, sc = {0, 0, 0}, {0, 0, 0}
+	local rain, wind = {0, 0, 0}, {0, 0, 0}
 	local air = {0, 0, 0}
+	local wall = acoustics.NewTransmission()
+	local surface = acoustics.NewMaterial({0, 0, 0}, {0, 0, 0}, 0, 0, {0, 0, 0}, {0, 0, 0})
+
+	local function exposed(tracer, px, py, pz, ux, uy, uz, distance)
+		return not tracer:Trace(px, py, pz, ux, uy, uz, 0, distance)
+	end
+
+	-- radiance per band of a surface hit seen from the ray, rain and wind added into rain/wind scaled by scale
+	local function gather_surface(tracer, job, material, hx, hy, hz, nx, ny, nz, scale_1, scale_2, scale_3)
+		local offset = acoustics.SURFACE_OFFSET
+		local px, py, pz = hx + nx * offset, hy + ny * offset, hz + nz * offset
+		local up = job.rain_up
+		local flux = nx * up.x + ny * up.y + nz * up.z
+		local r1, r2, r3 = material.rain[1], material.rain[2], material.rain[3]
+		local e1, e2, e3 = material.wind[1], material.wind[2], material.wind[3]
+
+		if flux > 0 and r1 + r2 + r3 > 0 then
+			if exposed(tracer, px, py, pz, up.x, up.y, up.z, acoustics.OPEN_DISTANCE) then
+				rain[1] = rain[1] + scale_1 * r1 * flux
+				rain[2] = rain[2] + scale_2 * r2 * flux
+				rain[3] = rain[3] + scale_3 * r3 * flux
+			end
+		end
+
+		local upwind = job.upwind
+
+		if upwind and e1 + e2 + e3 > 0 then
+			if exposed(tracer, px, py, pz, upwind.x, upwind.y, upwind.z, acoustics.WIND_SHELTER) then
+				wind[1] = wind[1] + scale_1 * e1
+				wind[2] = wind[2] + scale_2 * e2
+				wind[3] = wind[3] + scale_3 * e3
+			end
+		end
+	end
+
+	local function gather_escape(job, dx, dy, dz, scale_1, scale_2, scale_3)
+		local up = job.rain_up
+
+		if dx * up.x + dy * up.y + dz * up.z < 0 then
+			local r = acoustics.DEFAULT_MATERIAL.rain
+			rain[1] = rain[1] + scale_1 * r[1]
+			rain[2] = rain[2] + scale_2 * r[2]
+			rain[3] = rain[3] + scale_3 * r[3]
+		end
+	end
+
+	local function gather_through_wall(tracer, job, px, py, pz, dx, dy, dz)
+		acoustics.Transmit(tracer, px, py, pz, dx, dy, dz, 0, acoustics.WALL_SEARCH, job.speed, wall)
+
+		if not wall.exit then return end
+
+		local t1, t2, t3 = w[1] * wall[1], w[2] * wall[2], w[3] * wall[3]
+		local offset = acoustics.SURFACE_OFFSET
+		local ex, ey, ez = px + dx * wall.exit, py + dy * wall.exit, pz + dz * wall.exit
+		local up = job.rain_up
+		local flux = wall.nx * up.x + wall.ny * up.y + wall.nz * up.z
+		local r = wall.rain
+
+		if
+			flux > 0 and
+			exposed(
+				tracer,
+				ex + wall.nx * offset,
+				ey + wall.ny * offset,
+				ez + wall.nz * offset,
+				up.x,
+				up.y,
+				up.z,
+				acoustics.OPEN_DISTANCE
+			)
+		then
+			rain[1] = rain[1] + t1 * r[1] * flux
+			rain[2] = rain[2] + t2 * r[2] * flux
+			rain[3] = rain[3] + t3 * r[3] * flux
+		end
+
+		local start = wall.exit + acoustics.LEAF_STEP
+		local distance, nx, ny, nz, material = tracer:Trace(px, py, pz, dx, dy, dz, start, acoustics.TRACE_DISTANCE)
+
+		if not distance or distance > acoustics.OPEN_DISTANCE then
+			gather_escape(job, dx, dy, dz, t1, t2, t3)
+		else
+			gather_surface(
+				tracer,
+				job,
+				material,
+				px + dx * distance,
+				py + dy * distance,
+				pz + dz * distance,
+				nx,
+				ny,
+				nz,
+				t1,
+				t2,
+				t3
+			)
+		end
+	end
 
 	function acoustics.PathTrace(tracer, job, result)
 		local lx, ly, lz = job.listener.x, job.listener.y, job.listener.z
@@ -533,6 +669,8 @@ do
 		local offset = acoustics.SURFACE_OFFSET
 		local clearance = acoustics.SOURCE_CLEARANCE
 		local min_p = acoustics.MIN_SCATTER_PROBABILITY
+		local rays_out = result.rays
+		local ray_floats = acoustics.RAY_FLOATS
 		local settled_bounce = math.floor(job.bounces / 2)
 
 		for b = 1, 3 do
@@ -545,8 +683,15 @@ do
 			local tmin = acoustics.LISTENER_CLEARANCE
 			local length = 0
 			w[1], w[2], w[3] = 1, 1, 1
+			rain[1], rain[2], rain[3] = 0, 0, 0
+			wind[1], wind[2], wind[3] = 0, 0, 0
 			stats.rays = stats.rays + 1
 			local escaped = false
+			local at = ray * ray_floats
+
+			for i = 1, ray_floats do
+				rays_out[at + i] = 0
+			end
 
 			for bounce = 0, job.bounces - 1 do
 				local distance, nx, ny, nz, material = tracer:Trace(ox, oy, oz, dx, dy, dz, tmin, acoustics.TRACE_DISTANCE)
@@ -560,10 +705,55 @@ do
 					stats.escapes = stats.escapes + 1
 					escaped = true
 
+					if job.gather then
+						local before_1, before_2, before_3 = rain[1], rain[2], rain[3]
+						gather_escape(job, dx, dy, dz, w[1], w[2], w[3])
+
+						if bounce >= settled_bounce then
+							stats.settled_rain[1] = stats.settled_rain[1] + rain[1] - before_1
+							stats.settled_rain[2] = stats.settled_rain[2] + rain[2] - before_2
+							stats.settled_rain[3] = stats.settled_rain[3] + rain[3] - before_3
+						end
+					end
+
+					if bounce >= settled_bounce then
+						for b = 1, 3 do
+							stats.settled_escape[b] = stats.settled_escape[b] + w[b]
+						end
+					end
+
+					rays_out[at + 7], rays_out[at + 8], rays_out[at + 9] = ox, oy, oz
+					rays_out[at + 10], rays_out[at + 11], rays_out[at + 12] = w[1], w[2], w[3]
+
 					break
 				end
 
 				local hx, hy, hz = ox + dx * distance, oy + dy * distance, oz + dz * distance
+
+				for b = 1, 3 do
+					surface.absorption[b] = material.absorption[b]
+					surface.scattering[b] = material.scattering[b]
+					surface.rain[b] = material.rain[b]
+					surface.wind[b] = material.wind[b]
+				end
+
+				local cover = job.snow_cover
+
+				if
+					cover[3] > 0 and
+					ny > acoustics.SNOW_MIN_SLOPE and
+					exposed(tracer, hx + nx * offset, hy + ny * offset, hz + nz * offset, 0, 1, 0, open)
+				then
+					local snow = acoustics.SNOW
+
+					for b = 1, 3 do
+						surface.absorption[b] = math.lerp(cover[b], surface.absorption[b], snow.absorption[b])
+						surface.scattering[b] = math.lerp(cover[b], surface.scattering[b], snow.scattering[b])
+						surface.rain[b] = math.lerp(cover[b], surface.rain[b], snow.rain[b])
+					end
+				end
+
+				material = surface
 				a[1], a[2], a[3] = material.absorption[1], material.absorption[2], material.absorption[3]
 				sc[1], sc[2], sc[3] = material.scattering[1], material.scattering[2], material.scattering[3]
 
@@ -586,6 +776,26 @@ do
 					s[n + 14] = sc[3]
 				end
 
+				local rain_before_1, rain_before_2, rain_before_3 = rain[1], rain[2], rain[3]
+				local wind_before_1, wind_before_2, wind_before_3 = wind[1], wind[2], wind[3]
+
+				if job.gather then
+					gather_surface(tracer, job, material, hx, hy, hz, nx, ny, nz, w[1], w[2], w[3])
+
+					if bounce < acoustics.GATHER_WALL_BOUNCES and rain[2] == rain_before_2 then
+						gather_through_wall(
+							tracer,
+							job,
+							hx + nx * offset,
+							hy + ny * offset,
+							hz + nz * offset,
+							dx,
+							dy,
+							dz
+						)
+					end
+				end
+
 				stats.hits = stats.hits + 1
 				stats.segment = stats.segment + distance
 				length = length + distance
@@ -597,6 +807,13 @@ do
 						stats.settled_length[b] = stats.settled_length[b] + w[b] * distance
 						stats.settled_path[b] = stats.settled_path[b] + w[b] * length
 					end
+
+					stats.settled_rain[1] = stats.settled_rain[1] + rain[1] - rain_before_1
+					stats.settled_rain[2] = stats.settled_rain[2] + rain[2] - rain_before_2
+					stats.settled_rain[3] = stats.settled_rain[3] + rain[3] - rain_before_3
+					stats.settled_wind[1] = stats.settled_wind[1] + wind[1] - wind_before_1
+					stats.settled_wind[2] = stats.settled_wind[2] + wind[2] - wind_before_2
+					stats.settled_wind[3] = stats.settled_wind[3] + wind[3] - wind_before_3
 
 					if bounce == settled_bounce then
 						for b = 1, 3 do
@@ -678,6 +895,9 @@ do
 					stats.last_throughput_length[b] = stats.last_throughput_length[b] + w[b] * length
 				end
 			end
+
+			rays_out[at + 1], rays_out[at + 2], rays_out[at + 3] = rain[1], rain[2], rain[3]
+			rays_out[at + 4], rays_out[at + 5], rays_out[at + 6] = wind[1], wind[2], wind[3]
 		end
 	end
 end
@@ -716,7 +936,13 @@ do
 end
 
 function acoustics.NewResult(job)
-	local result = {stats = acoustics.NewStats(), sources = {}, samples = {}, queries = {}}
+	local result = {
+		stats = acoustics.NewStats(),
+		sources = {},
+		samples = {},
+		queries = {},
+		rays = {},
+	}
 
 	for i = 1, #job.sources do
 		result.sources[i] = acoustics.NewSourceSums()
@@ -797,6 +1023,10 @@ local function by_gain(a, b)
 	return a.gain > b.gain
 end
 
+local function by_energy(a, b)
+	return a.energy > b.energy
+end
+
 local META = {}
 META.__index = META
 
@@ -806,6 +1036,8 @@ function acoustics.New(audio, tracer)
 	self.tracer = tracer
 	self.stats = acoustics.NewStats()
 	self.reflectors = {}
+	self.openings = {}
+	self.ambience = acoustics.NewAmbience()
 	self.random = math.random
 	self.frame = 0
 	self.profile = acoustics.ComputeProfile(self.stats, audio.speed_of_sound)
@@ -813,6 +1045,22 @@ function acoustics.New(audio, tracer)
 	self.remote = {t60 = {0.5, 0.5, 0.5}, predelay = 0.02}
 	self.last_time = nil
 	return self
+end
+
+function acoustics.NewAmbience()
+	local ambience = {
+		rays = 0,
+		rain = {0, 0, 0},
+		wind = {0, 0, 0},
+		bins = {},
+	}
+	local cells = acoustics.AMBIENCE_CELLS + 1
+
+	for i = 1, cells * cells do
+		ambience.bins[i] = {rain = {0, 0, 0}, wind = {0, 0, 0}, x = 0, y = 0, z = 0}
+	end
+
+	return ambience
 end
 
 function META:GetEnvironment(sound)
@@ -848,7 +1096,12 @@ function META:SelectSources(budget)
 	local list = {}
 
 	for _, sound in pairs(audio.active_sounds) do
-		if sound:IsSpatial() and sound.slot and audio.state.slots[sound.slot].active then
+		if
+			sound:IsSpatial() and
+			sound:IsTraced() and
+			sound.slot and
+			audio.state.slots[sound.slot].active
+		then
 			local distance = (sound:GetPosition() - audio.listener_position):GetLength()
 			list[#list + 1] = {
 				sound = sound,
@@ -892,6 +1145,10 @@ function META:BuildJob(time)
 		detours = {},
 		transmissions = {},
 		reflection_checks = {},
+		gather = audio.trace_ambience,
+		rain_up = audio.rain_up,
+		upwind = audio.upwind,
+		snow_cover = acoustics.SnowCover(audio.snow_depth, speed, {}),
 	}
 	job.fresnel_samples = budget.fresnel
 
@@ -1186,6 +1443,8 @@ function META:Absorb(job, result)
 		acoustics.AddSourceSums(env.sums, result.sources[i], job.rays)
 	end
 
+	self:AbsorbAmbience(job, result, decay)
+	self:AbsorbOpenings(job, result, decay)
 	acoustics.DecaySourceSums(self.ambient, decay)
 	acoustics.AddSourceSums(self.ambient, result.sources[#job.sounds + 1], job.rays)
 	self.ambient_reverb = acoustics.ComputeSourceReverb(self.ambient, self.stats, self.profile, 0, job.speed)
@@ -1300,6 +1559,190 @@ function META:Absorb(job, result)
 			env.reflections[check.key] = nil
 		end
 	end
+end
+
+function META:AbsorbAmbience(job, result, decay)
+	local ambience = self.ambience
+	local bins = ambience.bins
+	ambience.rays = ambience.rays * decay
+
+	for b = 1, 3 do
+		ambience.rain[b] = ambience.rain[b] * decay
+		ambience.wind[b] = ambience.wind[b] * decay
+	end
+
+	for _, bin in ipairs(bins) do
+		for b = 1, 3 do
+			bin.rain[b] = bin.rain[b] * decay
+			bin.wind[b] = bin.wind[b] * decay
+		end
+
+		bin.x, bin.y, bin.z = bin.x * decay, bin.y * decay, bin.z * decay
+	end
+
+	if not job.gather then return end
+
+	ambience.rays = ambience.rays + job.rays
+	local r = result.rays
+	local stride = acoustics.RAY_FLOATS
+	local cells = acoustics.AMBIENCE_CELLS
+
+	for ray = 0, job.rays - 1 do
+		local at = ray * stride
+		local energy = r[at + 2] + r[at + 5]
+
+		if energy > 0 then
+			local dx, dy, dz = acoustics.FibonacciDirection(ray, job.rays, job.rotation)
+			local u, v = octahedral_key(dx, dy, dz, cells)
+			local bin = bins[u * (cells + 1) + v + 1]
+
+			for b = 1, 3 do
+				bin.rain[b] = bin.rain[b] + r[at + b]
+				bin.wind[b] = bin.wind[b] + r[at + 3 + b]
+				ambience.rain[b] = ambience.rain[b] + r[at + b]
+				ambience.wind[b] = ambience.wind[b] + r[at + 3 + b]
+			end
+
+			bin.x, bin.y, bin.z = bin.x + dx * energy, bin.y + dy * energy, bin.z + dz * energy
+		end
+	end
+end
+
+function META:GetAmbience()
+	local ambience = self.ambience
+	local stats = self.stats
+	local profile = self.profile
+	local out = {
+		rain = {0, 0, 0},
+		wind = {0, 0, 0},
+		tail_rain = {0, 0, 0},
+		tail_wind = {0, 0, 0},
+		bins = {},
+	}
+
+	if ambience.rays <= 0 or stats.rays <= 0 then return out end
+
+	for b = 1, 3 do
+		local settled = stats.settled_throughput[b] + stats.settled_escape[b]
+		local survival = math.min(profile.tail_survival[b], 0.995)
+		local tail = stats.last_throughput[b] / stats.rays / (1 - survival)
+
+		if settled > 0 then
+			local air = acoustics.TailAirLoss(stats, b)
+			out.tail_rain[b] = tail * air * stats.settled_rain[b] / settled
+			out.tail_wind[b] = tail * air * stats.settled_wind[b] / settled
+		end
+
+		out.rain[b] = ambience.rain[b] / ambience.rays + out.tail_rain[b]
+		out.wind[b] = ambience.wind[b] / ambience.rays + out.tail_wind[b]
+	end
+
+	for _, bin in ipairs(ambience.bins) do
+		local energy = bin.rain[2] + bin.wind[2]
+
+		if energy > 0 then
+			local length = math.sqrt(bin.x * bin.x + bin.y * bin.y + bin.z * bin.z)
+			out.bins[#out.bins + 1] = {
+				rain = {
+					bin.rain[1] / ambience.rays,
+					bin.rain[2] / ambience.rays,
+					bin.rain[3] / ambience.rays,
+				},
+				wind = {
+					bin.wind[1] / ambience.rays,
+					bin.wind[2] / ambience.rays,
+					bin.wind[3] / ambience.rays,
+				},
+				direction = length > 0 and
+					Vec3(bin.x / length, bin.y / length, bin.z / length) or
+					Vec3(0, 1, 0),
+				energy = energy / ambience.rays,
+			}
+		end
+	end
+
+	table.sort(out.bins, by_energy)
+	return out
+end
+
+function META:AbsorbOpenings(job, result, decay)
+	for key, opening in pairs(self.openings) do
+		opening.weight = opening.weight * decay
+
+		for b = 1, 3 do
+			opening.position[b] = opening.position[b] * decay
+			opening.energy[b] = opening.energy[b] * decay
+		end
+
+		if opening.weight < 0.01 then self.openings[key] = nil end
+	end
+
+	local r = result.rays
+	local stride = acoustics.RAY_FLOATS
+	local listener = job.listener
+	local cells = acoustics.OPENING_CELLS
+	self.opening_rays = (self.opening_rays or 0) * decay + job.rays
+
+	for ray = 0, job.rays - 1 do
+		local at = ray * stride
+		local weight = r[at + 11]
+
+		if weight > 0 then
+			local px, py, pz = r[at + 7], r[at + 8], r[at + 9]
+			local dx, dy, dz = px - listener.x, py - listener.y, pz - listener.z
+			local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+			if distance < 0.01 then
+				dx, dy, dz = acoustics.FibonacciDirection(ray, job.rays, job.rotation)
+				distance = 0
+			else
+				dx, dy, dz = dx / distance, dy / distance, dz / distance
+			end
+
+			local u, v = octahedral_key(dx, dy, dz, cells)
+			local key = (
+					u * (
+						cells + 1
+					) + v
+				) * 64 + math.floor(math.log(1 + distance) / math.log(2) + 0.5)
+			local opening = self.openings[key]
+
+			if not opening then
+				opening = {key = key, weight = 0, position = {0, 0, 0}, energy = {0, 0, 0}}
+				self.openings[key] = opening
+			end
+
+			opening.weight = opening.weight + weight
+			opening.position[1] = opening.position[1] + px * weight
+			opening.position[2] = opening.position[2] + py * weight
+			opening.position[3] = opening.position[3] + pz * weight
+
+			for b = 1, 3 do
+				opening.energy[b] = opening.energy[b] + r[at + 9 + b]
+			end
+		end
+	end
+end
+
+function META:GetOpenings()
+	local list = {}
+	local rays = math.max(self.opening_rays or 0, 1)
+
+	for _, opening in pairs(self.openings) do
+		list[#list + 1] = {
+			position = Vec3(opening.position[1], opening.position[2], opening.position[3]) / opening.weight,
+			energy = {opening.energy[1] / rays, opening.energy[2] / rays, opening.energy[3] / rays},
+			count = opening.weight,
+		}
+	end
+
+	table.sort(list, by_count)
+
+	for i = #list, acoustics.MAX_OPENINGS + 1, -1 do
+		list[i] = nil
+	end
+
+	return list
 end
 
 function META:UpdateSoundEnvironment(sound, time)
@@ -1590,7 +2033,9 @@ function META:Update(time)
 	end
 
 	for _, sound in pairs(self.audio.active_sounds) do
-		if sound:IsSpatial() then self:UpdateSoundEnvironment(sound, time) end
+		if sound:IsSpatial() and sound:IsTraced() then
+			self:UpdateSoundEnvironment(sound, time)
+		end
 	end
 
 	self:UpdateBuses()

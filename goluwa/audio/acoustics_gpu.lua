@@ -14,10 +14,11 @@ local MAX_RAYS = 4096
 local MAX_SAMPLES = 512
 local MAX_MATERIALS = 8192
 local GROUP_SIZE = 64
-local STATS_FLOATS = 29
+local STATS_FLOATS = 38
 local SOURCE_FLOATS = 9
 local ACC = STATS_FLOATS + SOURCE_FLOATS * MAX_SOURCES
 local SAMPLE_FLOATS = acoustics.SAMPLE_FLOATS
+local RAY_FLOATS = acoustics.RAY_FLOATS
 local MATERIAL_ROWS = 4
 local BINDING_UNIFORM = 0
 local BINDING_QUERIES = 1
@@ -30,7 +31,8 @@ local QUERY_FLOATS = acoustics.QUERY_FLOATS
 local QUERY_INPUT_FLOATS = acoustics.QUERY_INPUT_FLOATS
 local SAMPLE_BASE = MAX_GROUPS * ACC
 local QUERY_BASE = SAMPLE_BASE + MAX_SAMPLES * SAMPLE_FLOATS
-local OUTPUT_FLOATS = QUERY_BASE + MAX_QUERIES * QUERY_FLOATS
+local RAY_BASE = QUERY_BASE + MAX_QUERIES * QUERY_FLOATS
+local OUTPUT_FLOATS = RAY_BASE + MAX_RAYS * RAY_FLOATS
 local float_ptr = ffi.typeof("float *")
 
 local function glsl_vec3(t)
@@ -66,7 +68,10 @@ local function build_pipeline(slots)
 					{"air", "vec4"},
 					{"timing", "vec4"},
 					{"params", "vec4"},
+					{"rain_up", "vec4"},
+					{"upwind", "vec4"},
 					{"limits", "vec4"},
+					{"snow", "vec4"},
 					{"counts", "ivec4"},
 					{"extra", "ivec4"},
 				},
@@ -103,10 +108,19 @@ local function build_pipeline(slots)
 					block.params[1] = acoustics.OPEN_DISTANCE
 					block.params[2] = acoustics.SOURCE_CLEARANCE
 					block.params[3] = acoustics.TRACE_DISTANCE
-					block.limits[0] = 0
+					local up = job.rain_up
+					block.rain_up[0], block.rain_up[1], block.rain_up[2], block.rain_up[3] = up.x, up.y, up.z, job.gather and 1 or 0
+					local upwind = job.upwind
+					block.upwind[0] = upwind and upwind.x or 0
+					block.upwind[1] = upwind and upwind.y or 0
+					block.upwind[2] = upwind and upwind.z or 0
+					block.upwind[3] = upwind and 1 or 0
+					block.limits[0] = acoustics.WALL_SEARCH
 					block.limits[1] = acoustics.LEAF_STEP
-					block.limits[2] = 0
+					block.limits[2] = acoustics.WIND_SHELTER
 					block.limits[3] = acoustics.MIN_SCATTER_PROBABILITY
+					local cover = job.snow_cover
+					block.snow[0], block.snow[1], block.snow[2], block.snow[3] = cover[1], cover[2], cover[3], acoustics.SNOW_MIN_SLOPE
 					block.counts[0] = job.rays
 					block.counts[1] = job.bounces
 					block.counts[2] = math.min(job.sample_count, job.rays)
@@ -114,7 +128,7 @@ local function build_pipeline(slots)
 					block.extra[0] = job.query_count
 					block.extra[1] = job.seed
 					block.extra[2] = tracer.material_count
-					block.extra[3] = 0
+					block.extra[3] = acoustics.GATHER_WALL_BOUNCES
 					return block
 				end,
 			},
@@ -134,8 +148,10 @@ local function build_pipeline(slots)
 			#define GROUP_SIZE %d
 			#define SAMPLE_FLOATS %d
 			#define QUERY_FLOATS %d
+			#define RAY_FLOATS %d
 			#define SAMPLE_BASE %d
 			#define QUERY_BASE %d
+			#define RAY_BASE %d
 			#define MAX_LEAVES %d
 			#define RHO_C %f
 			#define RHO_C2 %f
@@ -146,6 +162,9 @@ local function build_pipeline(slots)
 			#define DEFAULT_WIND %s
 			#define DEFAULT_DENSITY %f
 			#define DEFAULT_SURFACE_MASS %f
+			#define SNOW_ABSORPTION %s
+			#define SNOW_SCATTERING %s
+			#define SNOW_RAIN %s
 			#define PI 3.14159265359
 
 			const float BAND_FREQUENCIES[9] = float[9](%s);
@@ -252,7 +271,11 @@ local function build_pipeline(slots)
 
 			struct acoustic_wall {
 				vec3 tau;
+				vec3 exit_normal;
+				vec3 rain;
 				float solid;
+				float exit_t;
+				bool found;
 			};
 
 			acoustic_wall acoustic_transmit(vec3 origin, vec3 dir, float tmin, float tmax) {
@@ -265,6 +288,10 @@ local function build_pipeline(slots)
 				float last_end = tmin;
 				acoustic_wall wall;
 				wall.solid = 0.0;
+				wall.exit_t = 0.0;
+				wall.exit_normal = vec3(0.0);
+				wall.rain = vec3(0.0);
+				wall.found = false;
 				scene_trace_hit h;
 				scene_trace_hit back;
 
@@ -274,11 +301,15 @@ local function build_pipeline(slots)
 					acoustic_material material = acoustic_material_of(h.instance);
 					float m = material.surface_mass;
 					float e = h.distance;
+					vec3 exit_normal = -h.normal;
+					vec3 rain = material.rain;
 
 					if (h.front_face && scene_trace(origin, dir, h.distance + step_size, tmax, back) && !back.front_face) {
 						e = back.distance;
 						m = material.density * (back.distance - h.distance);
 						wall.solid += back.distance - h.distance;
+						exit_normal = -back.normal;
+						rain = acoustic_material_of(back.instance).rain;
 					}
 
 					mass[count] = m;
@@ -287,10 +318,55 @@ local function build_pipeline(slots)
 					count++;
 					last_end = e;
 					t = e + step_size;
+					wall.exit_t = e;
+					wall.exit_normal = exit_normal;
+					wall.rain = rain;
+					wall.found = true;
 				}
 
 				wall.tau = count == 0 ? vec3(1.0) : acoustic_chain(count, mass, cosines, gaps, acoustic.params.x);
 				return wall;
+			}
+
+			void acoustic_gather_surface(acoustic_material material, vec3 position, vec3 n, vec3 scale, inout vec3 rain, inout vec3 wind) {
+				vec3 p = position + n * acoustic.air.w;
+				vec3 up = acoustic.rain_up.xyz;
+				float flux = dot(n, up);
+
+				if (flux > 0.0 && dot(material.rain, vec3(1.0)) > 0.0 && !scene_occluded(p, up, 0.0, acoustic.params.y)) {
+					rain += scale * material.rain * flux;
+				}
+
+				if (acoustic.upwind.w > 0.0 && dot(material.wind, vec3(1.0)) > 0.0 && !scene_occluded(p, acoustic.upwind.xyz, 0.0, acoustic.limits.z)) {
+					wind += scale * material.wind;
+				}
+			}
+
+			void acoustic_gather_escape(vec3 dir, vec3 scale, inout vec3 rain) {
+				if (dot(dir, acoustic.rain_up.xyz) < 0.0) rain += scale * DEFAULT_RAIN;
+			}
+
+			void acoustic_gather_wall(vec3 p, vec3 dir, vec3 w, inout vec3 rain, inout vec3 wind) {
+				acoustic_wall wall = acoustic_transmit(p, dir, 0.0, acoustic.limits.x);
+
+				if (!wall.found) return;
+
+				vec3 scale = w * wall.tau;
+				vec3 exit_point = p + dir * wall.exit_t;
+				vec3 up = acoustic.rain_up.xyz;
+				float flux = dot(wall.exit_normal, up);
+
+				if (flux > 0.0 && !scene_occluded(exit_point + wall.exit_normal * acoustic.air.w, up, 0.0, acoustic.params.y)) {
+					rain += scale * wall.rain * flux;
+				}
+
+				scene_trace_hit beyond;
+
+				if (scene_trace(p, dir, wall.exit_t + acoustic.limits.y, acoustic.params.w, beyond) && beyond.distance <= acoustic.params.y) {
+					acoustic_gather_surface(acoustic_material_of(beyond.instance), p + dir * beyond.distance, beyond.normal, scale, rain, wind);
+				} else {
+					acoustic_gather_escape(dir, scale, rain);
+				}
 			}
 
 			void main() {
@@ -354,6 +430,7 @@ local function build_pipeline(slots)
 					float trace_distance = acoustic.params.w;
 					float offset = acoustic.air.w;
 					float min_p = acoustic.limits.w;
+					bool gather = acoustic.rain_up.w > 0.0;
 					vec3 air = acoustic.air.xyz;
 					int source_count = acoustic.counts.w;
 					int settled_bounce = acoustic.counts.y / 2;
@@ -366,6 +443,10 @@ local function build_pipeline(slots)
 					float tmin = acoustic.listener.w;
 					float path_length = 0.0;
 					vec3 w = vec3(1.0);
+					vec3 rain = vec3(0.0);
+					vec3 wind = vec3(0.0);
+					vec3 escape_point = vec3(0.0);
+					vec3 escape_w = vec3(0.0);
 					bool escaped = false;
 					uint rng = acoustic_hash(id * 9781u + uint(acoustic.extra.y));
 					acc[0] = 1.0;
@@ -382,12 +463,34 @@ local function build_pipeline(slots)
 						if (!found || distance > open_distance) {
 							acc[2] += 1.0;
 							escaped = true;
+
+							vec3 rain_before = rain;
+
+							if (gather) acoustic_gather_escape(dir, w, rain);
+
+							if (bounce >= settled_bounce) {
+								acc[29] += rain.x - rain_before.x;
+								acc[30] += rain.y - rain_before.y;
+								acc[31] += rain.z - rain_before.z;
+								acc[35] += w.x;
+								acc[36] += w.y;
+								acc[37] += w.z;
+							}
+
+							escape_point = origin;
+							escape_w = w;
 							break;
 						}
 
 						acoustic_material material = acoustic_material_of(hit.instance);
 						vec3 n = hit.normal;
 						vec3 hit_point = origin + dir * distance;
+
+						if (acoustic.snow.z > 0.0 && n.y > acoustic.snow.w && !scene_occluded(hit_point + n * offset, vec3(0.0, 1.0, 0.0), 0.0, open_distance)) {
+							material.absorption = mix(material.absorption, SNOW_ABSORPTION, acoustic.snow.xyz);
+							material.scattering = mix(material.scattering, SNOW_SCATTERING, acoustic.snow.xyz);
+							material.rain = mix(material.rain, SNOW_RAIN, acoustic.snow.xyz);
+						}
 
 						vec3 absorption = material.absorption;
 						vec3 scattering = material.scattering;
@@ -410,6 +513,17 @@ local function build_pipeline(slots)
 							result[s + 13u] = scattering.z;
 						}
 
+						vec3 rain_before = rain;
+						vec3 wind_before = wind;
+
+						if (gather) {
+							acoustic_gather_surface(material, hit_point, n, w, rain, wind);
+
+							if (bounce < acoustic.extra.w && rain.y == rain_before.y) {
+								acoustic_gather_wall(hit_point + n * offset, dir, w, rain, wind);
+							}
+						}
+
 						acc[1] += 1.0;
 						acc[3] += distance;
 						path_length += distance;
@@ -426,6 +540,12 @@ local function build_pipeline(slots)
 							acc[26] += w.x * path_length;
 							acc[27] += w.y * path_length;
 							acc[28] += w.z * path_length;
+							acc[29] += rain.x - rain_before.x;
+							acc[30] += rain.y - rain_before.y;
+							acc[31] += rain.z - rain_before.z;
+							acc[32] += wind.x - wind_before.x;
+							acc[33] += wind.y - wind_before.y;
+							acc[34] += wind.z - wind_before.z;
 
 							if (bounce == settled_bounce) {
 								acc[17] += w.x;
@@ -501,6 +621,19 @@ local function build_pipeline(slots)
 						acc[16] += w.z * path_length;
 					}
 
+					uint ray_at = RAY_BASE + id * uint(RAY_FLOATS);
+					result[ray_at] = rain.x;
+					result[ray_at + 1u] = rain.y;
+					result[ray_at + 2u] = rain.z;
+					result[ray_at + 3u] = wind.x;
+					result[ray_at + 4u] = wind.y;
+					result[ray_at + 5u] = wind.z;
+					result[ray_at + 6u] = escape_point.x;
+					result[ray_at + 7u] = escape_point.y;
+					result[ray_at + 8u] = escape_point.z;
+					result[ray_at + 9u] = escape_w.x;
+					result[ray_at + 10u] = escape_w.y;
+					result[ray_at + 11u] = escape_w.z;
 				}
 
 				for (int f = 0; f < ACC; f++) {
@@ -524,8 +657,10 @@ local function build_pipeline(slots)
 				GROUP_SIZE,
 				SAMPLE_FLOATS,
 				QUERY_FLOATS,
+				RAY_FLOATS,
 				SAMPLE_BASE,
 				QUERY_BASE,
+				RAY_BASE,
 				acoustics.MAX_LEAVES,
 				acoustics.RHO_C,
 				acoustics.RHO_C2,
@@ -536,6 +671,9 @@ local function build_pipeline(slots)
 				glsl_vec3(default.wind),
 				default.density,
 				default.surface_mass,
+				glsl_vec3(acoustics.SNOW.absorption),
+				glsl_vec3(acoustics.SNOW.scattering),
+				glsl_vec3(acoustics.SNOW.rain),
 				table.concat(frequencies, ", ")
 			),
 	}
@@ -637,6 +775,9 @@ function META:ReadResult(job, slot)
 			stats.settled_final[b] = stats.settled_final[b] + out[at + 19 + b]
 			stats.settled_length[b] = stats.settled_length[b] + out[at + 22 + b]
 			stats.settled_path[b] = stats.settled_path[b] + out[at + 25 + b]
+			stats.settled_rain[b] = stats.settled_rain[b] + out[at + 28 + b]
+			stats.settled_wind[b] = stats.settled_wind[b] + out[at + 31 + b]
+			stats.settled_escape[b] = stats.settled_escape[b] + out[at + 34 + b]
 		end
 
 		for s = 1, #job.sources do
@@ -667,6 +808,12 @@ function META:ReadResult(job, slot)
 
 	for i = 0, job.query_count * QUERY_FLOATS - 1 do
 		queries[i + 1] = out[QUERY_BASE + i]
+	end
+
+	local rays = result.rays
+
+	for i = 0, job.rays * RAY_FLOATS - 1 do
+		rays[i + 1] = out[RAY_BASE + i]
 	end
 
 	return result

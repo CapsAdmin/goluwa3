@@ -220,6 +220,7 @@ function module.Attach(audio)
 	Sound:GetSet("Position", Vec3(0, 0, 0))
 	Sound:GetSet("BandGains", Vec3(1, 1, 1))
 	Sound:IsSet("Spatial", true)
+	Sound:IsSet("Traced", true)
 	Sound:IsSet("Normalized", false)
 	Sound.LoudnessGain = 1
 
@@ -376,7 +377,9 @@ function module.Attach(audio)
 		self.audio_motion = nil
 		audio.active_sounds[slot] = self
 
-		if audio.acoustics and self:IsSpatial() then audio.acoustics:Probe(self) end
+		if audio.acoustics and self:IsSpatial() and self:IsTraced() then
+			audio.acoustics:Probe(self)
+		end
 
 		audio.UpdateSoundPaths(self, audio.clock())
 		state.active = true
