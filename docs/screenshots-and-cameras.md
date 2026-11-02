@@ -26,4 +26,6 @@ end, {settle = 3, converge = 0.5})
 
 To move the camera do not write to `render3d.GetCamera()` (the player's view overwrites it every frame). Activate a view above the player: `View.New{Priority = 100, Position = ..., Rotation = ..., ExposureLock = 15}:Activate()` with `View = import("goluwa/render3d/view.lua")`. A view hides the local player's body unless it is the player's own camera (`HidePlayer`, default true; the editor's view sets it false). Unset fields are copied from the current camera; `ExposureLock` is an EV100 and exposure fields default to the global `r_exposure_*` settings. `view:Remove()` gives control back.
 
+A camera that jumps (a cinematic cut) calls `render3d.CutCamera()` in that frame: the previous view and projection read as the current ones, so the jump makes no motion vectors or motion blur, and TAA drops its history.
+
 For A/B comparisons freeze time-driven effects and lock exposure (see performance.md "Measuring correctly"). After a camera change, let temporal history converge before capturing (a few dozen frames).

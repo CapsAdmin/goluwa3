@@ -214,12 +214,22 @@ function render3d.ShouldUseProbeReflections()
 	return context_bool("allow_probe_reflections", render3d.ShouldUseEnvProbes())
 end
 
+function render3d.CutCamera()
+	render3d.camera_cut_frame = system.GetFrameNumber()
+end
+
+function render3d.IsCameraCut()
+	return render3d.camera_cut_frame == system.GetFrameNumber()
+end
+
 function render3d.GetPreviousViewMatrix()
 	local context = render3d.GetActiveRenderContext()
 
 	if context and context.prev_view_matrix ~= nil then
 		return context.prev_view_matrix
 	end
+
+	if render3d.IsCameraCut() then return render3d.GetCamera():BuildViewMatrix() end
 
 	return render3d.prev_view_matrix
 end
@@ -234,7 +244,11 @@ do
 			return context.prev_projection_matrix
 		end
 
-		return render3d.prev_projection_matrix:GetMultiplied(render3d.GetCamera():GetJitterMatrix(), jittered)
+		local camera = render3d.GetCamera()
+		local previous = render3d.IsCameraCut() and
+			camera:BuildUnjitteredProjectionMatrix() or
+			render3d.prev_projection_matrix
+		return previous:GetMultiplied(camera:GetJitterMatrix(), jittered)
 	end
 end
 

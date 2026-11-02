@@ -126,6 +126,7 @@ return {
 						local size = render.GetRenderImageSize()
 						block.max_feedback = render3d.IsAntiAliasingEnabled("edge_aa_t") and 0.5 or 0
 						block.history_valid = (
+								not render3d.IsCameraCut() and
 								last_frame == frame - 1 and
 								last_width == size.x and
 								last_height == size.y
