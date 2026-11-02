@@ -3,6 +3,7 @@ local keyframes = import("lua/keyframes.lua")
 local animations = import("lua/animations.lua")
 local actors = import("lua/actors.lua")
 local faces = import("lua/faces.lua")
+local camera_shots = import("lua/camera_shots.lua")
 local movesets = {}
 movesets.Registered = {}
 movesets.ByAction = {}
@@ -75,6 +76,7 @@ local MOVE_KEYS = {
 	Dodge = true,
 	Keys = true,
 	Events = true,
+	Shots = true,
 	Faces = true,
 }
 local GRIP_HANDS = {right = true, left = true}
@@ -223,6 +225,21 @@ local function validate_move(move, poses, path)
 	end
 
 	local last = 0
+
+	for i, shot in ipairs(move.Shots or {}) do
+		local at = path .. ".Shots[" .. i .. "]"
+		assert(
+			type(shot[1]) == "number" and shot[1] >= last and shot[1] <= 1,
+			at .. " needs a time in order between 0 and 1"
+		)
+		assert(
+			shot[2] == camera_shots.Battle or camera_shots.Shots[shot[2]],
+			at .. " names an unknown shot " .. tostring(shot[2])
+		)
+		last = shot[1]
+	end
+
+	last = 0
 
 	for i, face in ipairs(move.Faces or {}) do
 		local at = path .. ".Faces[" .. i .. "]"
@@ -447,6 +464,7 @@ do
 		"Relative",
 		"Dodge",
 		"Keys",
+		"Shots",
 		"Faces",
 		"Events",
 		"At",

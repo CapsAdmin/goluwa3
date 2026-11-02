@@ -6,6 +6,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local targeting = import("lua/targeting.lua")
 local third_person = import("lua/third_person.lua")
+local camera_modes = import("lua/camera_modes.lua")
 local visual_bounds = import("lua/visual_bounds.lua")
 local usable_component = import("lua/components/usable.lua")
 local bounds = AABB(0, 0, 0, 0, 0, 0)
@@ -28,7 +29,16 @@ local locked
 event.AddListener("DrawHUD", "use_hud", function()
 	local rig = _G.PLAYER_RIG
 
-	if not (rig and rig:IsValid()) or third_person.IsHudHidden() then return end
+	if
+		not (
+			rig and
+			rig:IsValid()
+		) or
+		third_person.IsHudHidden() or
+		camera_modes.IsHudHidden()
+	then
+		return
+	end
 
 	local dt = system.GetFrameTime()
 	local target = targeting.Get()
@@ -81,7 +91,11 @@ event.AddListener("DrawHUD", "use_hud", function()
 		screen.x,
 		screen.y,
 		(BASE_SIZE + (1 - ease) * 50 + pulse * 30) * S,
-		{kind = locked and "target" or "use", alpha = ease, time = system.GetElapsedTime()}
+		{
+			kind = locked and "target" or "use",
+			alpha = ease,
+			time = system.GetElapsedTime(),
+		}
 	)
 
 	if prompt_alpha <= 0 then return end
@@ -110,14 +124,15 @@ event.AddListener("DrawHUD", "use_hud", function()
 		foreground_color = light,
 		alpha = ease,
 	}
+
 	if last_name then
 		render2d.DrawText{
 			text = last_name,
 			x = x + box_w + 28 + text_w,
 			y = y,
 			font = font,
-		weight = weight,
-		size = TEXT_SIZE,
+			weight = weight,
+			size = TEXT_SIZE,
 			foreground_color = last_name_color or light,
 			alpha = ease,
 		}

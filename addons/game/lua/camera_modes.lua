@@ -31,6 +31,11 @@ function camera_modes.IsFirstPerson(third_person_enabled)
 	return not third_person_enabled
 end
 
+function camera_modes.IsHudHidden()
+	local mode = camera_modes.GetActive()
+	return mode ~= nil and mode.IsHudHidden()
+end
+
 function camera_modes.Disable()
 	for i = 1, #list do
 		list[i].Disable()

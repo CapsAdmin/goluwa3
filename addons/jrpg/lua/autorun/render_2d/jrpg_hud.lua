@@ -18,6 +18,7 @@ local targeting = import("lua/targeting.lua")
 local progress_bar = import("goluwa/render2d/ui/elements/progress_bar.lua")
 local ui_theme = import("goluwa/render2d/ui/theme.lua")
 local third_person = import("lua/third_person.lua")
+local battlecam = import("lua/battlecam.lua")
 
 function third_person.IsDefaultHudReplaced(rig)
 	return rig.rpg ~= nil
@@ -79,7 +80,12 @@ local style
 local vignette
 local bounds = AABB(0, 0, 0, 0, 0, 0)
 local smoothed = {}
-local trackers = {health = progress_bar.NewTracker(), mana = progress_bar.NewTracker(), stamina = progress_bar.NewTracker(), xp = progress_bar.NewTracker()}
+local trackers = {
+	health = progress_bar.NewTracker(),
+	mana = progress_bar.NewTracker(),
+	stamina = progress_bar.NewTracker(),
+	xp = progress_bar.NewTracker(),
+}
 local records = table.weak("k")
 local tracked = {}
 
@@ -761,7 +767,12 @@ local function draw_npc_bar(camera, record, alpha, is_target, w, h, S)
 		y,
 		width,
 		bar_h,
-		{value = record.shown, ghost = record.trail, ghost_color = NPC_TRAIL, segments = is_target and 8 or 0},
+		{
+			value = record.shown,
+			ghost = record.trail,
+			ghost_color = NPC_TRAIL,
+			segments = is_target and 8 or 0,
+		},
 		color,
 		alpha
 	)
@@ -899,6 +910,20 @@ local function draw_vignette(rig, w, h, now)
 	render2d.SetTexture(nil)
 end
 
+local LETTERBOX = 0.11
+local LETTERBOX_SPEED = 12
+
+local function draw_letterbox(w, h, dt)
+	local bar = smooth("letterbox", battlecam.IsHudHidden() and LETTERBOX or 0, dt, LETTERBOX_SPEED) * h
+
+	if bar < 0.5 then return end
+
+	render2d.SetTexture(nil)
+	render2d.SetColor(0, 0, 0, 1)
+	render2d.DrawRect(0, 0, w, bar)
+	render2d.DrawRect(0, h - bar, w, bar)
+end
+
 local function draw_defeat(w, h, now, rig)
 	local S = h / 1080
 	local dead_time = smoothed.dead_time or now
@@ -952,6 +977,10 @@ event.AddListener("DrawHUD", "jrpg_hud", function(dt)
 	local w, h = render2d.GetSize()
 	local camera = render3d.GetMainCamera()
 	draw_vignette(rig, w, h, now)
+	draw_letterbox(w, h, dt)
+
+	if battlecam.IsHudHidden() then return end
+
 	draw_npcs(rig, camera, w, h, now, dt)
 
 	if rig.health:IsDead() then

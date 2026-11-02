@@ -2,10 +2,14 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local targeting = import("lua/targeting.lua")
+local actors = import("lua/actors.lua")
 local camera_modes = import("lua/camera_modes.lua")
+local camera_shots = import("lua/camera_shots.lua")
+local movesets = import("lua/movesets.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local event = import("goluwa/event.lua")
 local raycast = RENDER_3D and import("goluwa/render3d/raycast.lua")
+local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local U = import("goluwa/source_engine/units.lua").meters
 local UP = orientation.UP_VECTOR
 local FORWARD = orientation.FORWARD_VECTOR
@@ -30,6 +34,8 @@ local FREE_PITCH_SPEED = 2
 local TARGET_FOV = math.rad(50)
 local TURN_SPEED = 12
 local AIM_LIFT = 0.15
+local SHOT_FOLLOW = 8
+local SHOT_AIM = 20
 local battlecam = {}
 local enabled = false
 pvars.Setup2{
@@ -59,6 +65,15 @@ local state = {
 }
 local pivot = Vec3()
 local target_point = Vec3()
+local shot = {
+	move = nil,
+	index = 0,
+	phase = 0,
+	origin = Vec3(),
+	look = Vec3(),
+	forward = Vec3(),
+	right = Vec3(),
+}
 
 local function blocks_camera(entity, owner, target)
 	if entity == owner or entity:ContainsParent(owner) then return false end
@@ -121,11 +136,12 @@ function battlecam.IsFirstPerson()
 end
 
 function battlecam.IsHudHidden()
-	return false
+	return shot.move ~= nil
 end
 
 function battlecam.Disable()
 	state.prev_enabled = false
+	shot.move = nil
 	targeting.Clear()
 end
 
@@ -144,6 +160,67 @@ end
 function battlecam.AddMouse(delta)
 	state.mouse_x = state.mouse_x + delta.x
 	state.mouse_y = state.mouse_y + delta.y
+end
+
+local function update_shot(owner, dt)
+	local pose = owner.character_pose
+	local move, phase = movesets.GetActive(pose)
+	local index, name = 0, nil
+
+	if move and move.Shots then
+		index, name = camera_shots.Sample(move.Shots, phase)
+	end
+
+	if not name or name == camera_shots.Battle then
+		if shot.move then
+			shot.move = nil
+			render3d.CutCamera()
+		end
+
+		return
+	end
+
+	local cut = move ~= shot.move or index ~= shot.index or phase < shot.phase
+	shot.move, shot.index, shot.phase = move, index, phase
+
+	if cut then
+		local victim = movesets.GetVictim(pose)
+		local to_victim = (victim and actors.GetCenter(victim) or pose.FocusPoint) - actors.GetCenter(owner)
+		to_victim.y = 0
+		local forward = to_victim:GetLength() > 1e-3 and
+			to_victim:GetNormalized() or
+			actors.GetForward(owner)
+		shot.forward:CopyFrom(forward)
+		shot.right:Set(-forward.z, 0, forward.x)
+	end
+
+	local def = camera_shots.Shots[name]
+	local origin, look = camera_shots.Place(def, owner, shot.forward, shot.right)
+
+	if cut then
+		shot.origin:CopyFrom(origin)
+		shot.look:CopyFrom(look)
+		render3d.CutCamera()
+	else
+		shot.origin:CopyFrom(shot.origin + (origin - shot.origin) * (1 - math.exp(-dt * SHOT_FOLLOW)))
+		shot.look:CopyFrom(shot.look + (look - shot.look) * (1 - math.exp(-dt * SHOT_AIM)))
+	end
+
+	origin = shot.origin:Copy()
+	local to_origin = origin - shot.look
+	local length = to_origin:GetLength()
+
+	if length > 1e-4 then
+		local hit = raycast.CastClosestSolid(shot.look, to_origin / length, length, blocks_camera, owner)
+
+		if hit then
+			origin = shot.look + to_origin / length * math.max(hit.distance - TRACE_MARGIN, 0)
+		end
+	end
+
+	return origin,
+	Quat():SetLookDirection((shot.look - origin):GetNormalized()),
+	math.rad(def.Fov)
 end
 
 function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
@@ -299,6 +376,10 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	local sideways = velocity:Dot(state.rotation:VecMul(RIGHT)) / U
 	local roll = target and math.rad(-5) or math.rad(math.clamp(-sideways * 0.01, -10, 10))
 	state.roll = state.roll + (roll - state.roll) * k
+	local shot_origin, shot_rotation, shot_fov = update_shot(owner, dt)
+
+	if shot_origin then return shot_origin, shot_rotation, shot_fov, 0.05 end
+
 	local rotation = state.rotation:Copy()
 	rotation:RotateRoll(state.roll)
 	return origin, rotation, state.fov, 0.1

@@ -49,6 +49,10 @@ function seat_camera.IsFirstPerson()
 	return state.distance == 0
 end
 
+function seat_camera.IsHudHidden()
+	return false
+end
+
 function seat_camera.Disable()
 	state.seat = nil
 end
