@@ -1065,9 +1065,11 @@ function META:build_list_panel(node, path, level, is_last)
 		HeaderFontSize = self._font_size,
 		HeaderTextColor = "text",
 		Tree = {Level = level, IsLast = is_last},
-		HeaderButtons = {
-			{Icon = "plus", Tooltip = "Add item", OnClick = node.Actions.Add},
-		},
+		HeaderButtons = node.Display ~= "chips" and
+			{
+				{Icon = "plus", Tooltip = "Add item", OnClick = node.Actions.Add},
+			} or
+			nil,
 		OnHeaderContextMenu = on_list_header_menu,
 		Padding = "none",
 		Collapsed = collapsed,

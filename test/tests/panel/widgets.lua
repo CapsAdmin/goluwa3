@@ -667,3 +667,72 @@ T.Test2D("property editor list nodes build rows and group items, route actions a
 	T(#log)["=="](2)
 	editor:Remove()
 end)
+
+T.Test2D("property editor chip lists drag with a ghost, edit on double click and end with an add button", function()
+	local log = {}
+
+	local function log_action(name)
+		return function(...)
+			log[#log + 1] = name .. ":" .. table.concat({...}, ",")
+		end
+	end
+
+	local items = {}
+
+	for i, name in ipairs({"fire", "flames", "embers"}) do
+		items[i] = {Key = "words/" .. i, Type = "string", Value = name}
+	end
+
+	local editor = PropertyEditor{
+		Items = {
+			{
+				Key = "cat",
+				Text = "Cat",
+				Children = {
+					{
+						Key = "words",
+						Text = "Words",
+						Type = "list",
+						Display = "chips",
+						Items = items,
+						Actions = {
+							Add = log_action("add"),
+							Insert = log_action("insert"),
+							Duplicate = log_action("duplicate"),
+							Remove = log_action("remove"),
+							Move = log_action("move"),
+							Clear = log_action("clear"),
+						},
+					},
+				},
+			},
+		},
+	}
+	local list
+
+	for _, child in ipairs(editor:GetChildrenList()) do
+		if child.Name == "property_list" then list = child end
+	end
+
+	local chips = list._chips
+	T(#chips)["=="](3)
+
+	for i, chip in ipairs(chips) do
+		chip.transform:SetSize(Vec2(60, 24))
+		chip.transform:SetPosition(Vec2(i * 70, 0))
+	end
+
+	T(chips[1].Control:GetEditClickCount())["=="](2)
+	chips[2].Control.Node.ContextActions[1].OnClick()
+	T(log[1])["=="]("remove:2")
+	log[1] = nil
+	local first = chips[1].transform:LocalToGlobal(Vec2(4, 4))
+	list:begin_drag(1, first)
+	T(list._drag.ghost:IsValid())["=="](true)
+	list:OnGlobalMouseMove(chips[3].transform:LocalToGlobal(chips[3].transform:GetSize() - Vec2(1, 1)))
+	T(list._drag.drop)["=="](4)
+	list:OnGlobalMouseInput("button_1", false)
+	T(log[1])["=="]("move:1,3")
+	T(list._drag)["=="](nil)
+	editor:Remove()
+end)

@@ -26,6 +26,7 @@ META:EndStorable()
 local GRIP_WIDTH = 16
 local INDEX_WIDTH = 22
 local ACTION_WIDTH = 22
+local DRAG_THRESHOLD = 4
 
 local function get_rows(list)
 	return list._rows
@@ -89,11 +90,71 @@ function META.OpenItemMenu(list, index)
 	)
 end
 
-function META:begin_drag(index)
+local function draw_ghost(ghost)
+	local size = ghost.transform:GetSize()
+	local active = theme.active
+	active:DrawRoundRect(0, 0, size.x, size.y, size.y / 2, active:GetColor("primary"), 0.35)
+	active:DrawRoundRect(0, 0, size.x, size.y, size.y / 2, active:GetColor("surface_alt"), 0.9)
+end
+
+function META:begin_drag(index, pos)
 	self._drag = {from = index, drop = index}
+
+	if self._chips then
+		local chip = self._chips[index]
+		self._drag.grab = pos - chip.transform:LocalToGlobal(Vec2(0, 0))
+		self._drag.ghost = Panel.New{
+			Parent = Panel.World,
+			Name = "property_list_ghost",
+			Size = chip.transform:GetSize():Copy(),
+			visual = true,
+			mouse_input = {IgnoreMouseInput = true},
+			layout = {Floating = true, Direction = "x", AlignmentX = "center", AlignmentY = "center"},
+			OnDraw = draw_ghost,
+		}{
+			Text{
+				Text = tostring(self.Node.Items[index].Value),
+				FontSize = self.Editor._font_size,
+				IgnoreMouseInput = true,
+			},
+		}
+		self._drag.ghost:BringToFront()
+		self:move_ghost(pos)
+	end
+end
+
+function META:move_ghost(pos)
+	local drag = self._drag
+	drag.ghost.transform:SetPosition(pos - drag.grab)
+end
+
+function META:get_chip_drop_index(pos)
+	local drop
+	local best = math.huge
+
+	for index, chip in ipairs(self._chips) do
+		local size = chip.transform:GetSize()
+		local top_left = chip.transform:LocalToGlobal(Vec2(0, 0))
+		local center = top_left.x + size.x / 2
+		local dy = pos.y < top_left.y and
+			top_left.y - pos.y or
+			pos.y > top_left.y + size.y and
+			pos.y - top_left.y - size.y or
+			0
+		local distance = dy * 8 + math.abs(pos.x - center)
+
+		if distance < best then
+			best = distance
+			drop = pos.x < center and index or index + 1
+		end
+	end
+
+	return drop
 end
 
 function META:get_drop_index(pos)
+	if self._chips then return self:get_chip_drop_index(pos) end
+
 	local rows = get_rows(self)
 
 	for i, row in ipairs(rows) do
@@ -111,20 +172,56 @@ function META:end_drag()
 
 	if not drag then return end
 
+	if drag.ghost then drag.ghost:Remove() end
+
 	local to = drag.drop > drag.from and drag.drop - 1 or drag.drop
 
 	if to ~= drag.from then self.Node.Actions.Move(drag.from, to) end
 end
 
 function META:OnGlobalMouseMove(pos)
+	local pending = self._pending
+
+	if
+		pending and
+		(
+			math.abs(pos.x - pending.pos.x) >= DRAG_THRESHOLD or
+			math.abs(pos.y - pending.pos.y) >= DRAG_THRESHOLD
+		)
+	then
+		self._pending = nil
+		self:begin_drag(pending.index, pending.pos)
+	end
+
 	if self._drag then
 		self._drag.drop = self:get_drop_index(pos)
+
+		if self._drag.ghost then self:move_ghost(pos) end
+
 		return true
 	end
 end
 
-function META:OnGlobalMouseInput(button, press)
-	if self._drag and not press and button == "button_1" then self:end_drag() end
+function META:OnGlobalMouseInput(button, press, pos)
+	if button ~= "button_1" then return end
+
+	if press then
+		if self._chips then
+			for index, chip in ipairs(self._chips) do
+				if chip.visual:IsHovered(pos) and not chip.Control:IsEditing() then
+					self._pending = {index = index, pos = pos:Copy()}
+
+					break
+				end
+			end
+		end
+
+		return
+	end
+
+	self._pending = nil
+
+	if self._drag then self:end_drag() end
 end
 
 local function draw_row(row)
@@ -269,46 +366,53 @@ local function stretch(control, width, height)
 	end
 end
 
-local CHIP_CHARACTER_WIDTH = 7
-local CHIP_EXTRA_WIDTH = 34
+local CHIP_MIN_TEXT_WIDTH = 36
 local CHIP_GAP = 6
 
 local function draw_chip(chip)
 	local size = chip.transform:GetSize()
 	local active = theme.active
-	active:DrawRoundRect(0, 0, size.x, size.y, size.y / 2, active:GetColor("surface_alt"), 1)
+	local drag = chip.List._drag
+	local dragged = drag and drag.from == chip.Index
+	active:DrawRoundRect(
+		0,
+		0,
+		size.x,
+		size.y,
+		size.y / 2,
+		active:GetColor("surface_alt"),
+		dragged and 0.35 or 1
+	)
+
+	if drag and drag.drop ~= drag.from and drag.drop ~= drag.from + 1 then
+		local color = active:GetColor("primary")
+
+		if drag.drop == chip.Index then
+			active:DrawRoundRect(-4, 0, 2, size.y, 0, color, 1)
+		elseif drag.drop == chip.Index + 1 and chip.Index == #chip.List._chips then
+			active:DrawRoundRect(size.x + 2, 0, 2, size.y, 0, color, 1)
+		end
+	end
 end
 
 function META:create_chips(height)
 	local node, editor = self.Node, self.Editor
-	local width = editor.transform:GetWidth()
-	local available = width > 100 and width - 28 or 400
-	local line, used
-
-	local function new_line()
-		line = Panel.New{
-			Parent = self,
-			transform = true,
-			layout = {
-				Direction = "x",
-				GrowWidth = 1,
-				FitHeight = true,
-				ChildGap = CHIP_GAP,
-				Padding = Rect(8 + self.Indent, 3, 8, 0),
-			},
-		}
-		used = 0
-	end
-
-	new_line()
+	local line = Panel.New{
+		Parent = self,
+		transform = true,
+		layout = {
+			Direction = "x",
+			GrowWidth = 1,
+			FitHeight = true,
+			WrapChildren = true,
+			ChildGap = CHIP_GAP,
+			AlignmentY = "center",
+			Padding = Rect(8 + self.Indent, 3, 8, 0),
+		},
+	}
+	self._chips = {}
 
 	for index, item in ipairs(node.Items) do
-		local text_width = math.max(36, #tostring(item.Value) * CHIP_CHARACTER_WIDTH + 12)
-		local chip_width = text_width + CHIP_EXTRA_WIDTH
-
-		if used > 0 and used + chip_width > available then new_line() end
-
-		used = used + chip_width + CHIP_GAP
 		local chip = Panel.New{
 			Parent = line,
 			Name = "property_list_chip",
@@ -321,29 +425,38 @@ function META:create_chips(height)
 				Direction = "x",
 				AlignmentY = "center",
 				ChildGap = 0,
-				Padding = Rect(6, 0, 2, 0),
+				Padding = Rect(6, 0, 6, 0),
 				FitWidth = true,
 				FitHeight = true,
 			},
 			OnDraw = draw_chip,
 			OnMouseInput = on_row_input,
 		}
-		local control = editor:create_control(item, self.Path .. "/" .. index, item.Key)
-		stretch(control, text_width, height)
-		chip:AddChild(control)
-		IconButton{
-			Parent = chip,
-			List = self,
-			Index = index,
-			Icon = "close",
-			Tooltip = "Delete",
-			OnClick = on_remove,
+		item.ContextActions = {
+			{
+				Text = "Remove",
+				Icon = "trash",
+				OnClick = function()
+					node.Actions.Remove(index)
+				end,
+			},
 		}
+		local control = editor:create_control(item, self.Path .. "/" .. index, item.Key)
+		control:SetEditClickCount(2)
+		control.layout:SetMinSize(Vec2(CHIP_MIN_TEXT_WIDTH, height))
+		control.layout:SetMaxSize(Vec2(0, height))
+		control.layout:SetGrowWidth(0)
+		control.layout:SetFitWidth(true)
+		control._text.layout:SetGrowWidth(0)
+		control._text.layout:SetFitWidth(true)
+		chip:AddChild(control)
+		chip.Control = control
+		self._chips[index] = chip
 
-		if node.FocusIndex == index and control.BeginEdit then
-			self.FocusControl = control
-		end
+		if node.FocusIndex == index then self.FocusControl = control end
 	end
+
+	IconButton{Parent = line, Icon = "plus", Tooltip = "Add item", OnClick = node.Actions.Add}
 end
 
 function META:OnCreate()
@@ -352,6 +465,11 @@ function META:OnCreate()
 	self._rows = {}
 	local display = node.Display or "rows"
 	local item_height = editor:get_row_height(node)
+
+	if display == "chips" then
+		self:create_chips(item_height)
+		return
+	end
 
 	if #node.Items == 0 then
 		Text{
@@ -362,11 +480,6 @@ function META:OnCreate()
 			IgnoreMouseInput = true,
 			layout = {Padding = Rect(8 + self.Indent, 4, 8, 4)},
 		}
-		return
-	end
-
-	if display == "chips" then
-		self:create_chips(item_height)
 		return
 	end
 
