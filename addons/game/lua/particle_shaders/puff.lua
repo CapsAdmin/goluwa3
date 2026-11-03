@@ -55,4 +55,5 @@ vec3 linear = mix(e.color_start.rgb, e.color_end.rgb, t);
 vec3 curved = mix(e.color_start.rgb, e.color_end.rgb, pow(t, ColorCurve));
 p.radiance *= curved / max(linear, vec3(1e-4));
 ]],
+	Preview = {Emitter = "puff_preview", Offset = {0, 0, 0}},
 }

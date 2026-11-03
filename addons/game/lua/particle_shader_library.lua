@@ -5,7 +5,7 @@ local shaders = import("goluwa/render3d/particle_shaders.lua")
 local library = {}
 library.Files = data_files.New(
 	"lua/particle_shaders/",
-	{"Sprite", "Params", "Spawn", "Update", "Visibility", "Shade"}
+	{"Sprite", "Params", "Spawn", "Update", "Visibility", "Shade", "Preview"}
 )
 library.Names = {}
 library.Errors = {}

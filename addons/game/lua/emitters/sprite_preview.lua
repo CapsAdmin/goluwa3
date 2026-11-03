@@ -1,0 +1,18 @@
+return {
+	MaxParticles = 128,
+	Rate = 10,
+	Shape = "sphere",
+	ShapeSize = {0.2, 0.2, 0.2},
+	Spread = 180,
+	Speed = {0.1, 0.35},
+	Lifetime = {2, 3.5},
+	GravityScale = -0.08,
+	Drag = 1,
+	SizeStart = {0.25, 0.4},
+	SizeEnd = {0.7, 1},
+	ColorStart = {0.8, 0.8, 0.8, 0.8},
+	ColorEnd = {0.5, 0.5, 0.5, 0},
+	FlipbookFps = 12,
+	FlipbookRandomStart = true,
+	Spin = {-20, 20},
+}

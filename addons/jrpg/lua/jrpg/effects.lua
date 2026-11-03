@@ -243,32 +243,17 @@ do
 		return properties
 	end
 
-	function effects.PlayParticleShader(position, name, duration)
-		local properties = effects.GetParticleProperties(
-			{Color = Color(1, 1, 1, 1), Particles = {}},
-			{
-				Shader = name,
-				ShaderParams = particle_shader_library.GetDefaults(name),
-				Playing = true,
-				Rate = 90,
-				MaxParticles = 512,
-				Shape = "box",
-				ShapeSize = Vec3(1.6, 0.2, 1.6),
-				Spread = 180,
-				Speed = {0.02, 0.15},
-				Lifetime = {1.6, 3},
-				GravityScale = 0.15,
-				Drag = 3,
-				SizeStart = 0.05,
-				SizeEnd = 0.05,
-				Emissive = 0,
-				Lit = true,
-			}
-		)
-		local emitter = vfx.CreateEmitter("jrpg_shader_" .. name, properties)
-		emitter.transform:SetPosition(position + Vec3(0, 1, 0))
+	local DEFAULT_SHADER_PREVIEW = {Emitter = "shader_preview", Offset = {0, 1, 0}}
 
-		timer.Delay(duration or 3, function()
+	function effects.PlayParticleShader(position, name, preview)
+		preview = table.merge(table.copy(DEFAULT_SHADER_PREVIEW), preview or {})
+		local properties = emitters.Get(preview.Emitter)
+		properties.Shader = name
+		properties.ShaderParams = table.merge(table.copy(particle_shader_library.GetDefaults(name)), preview.ShaderParams or {})
+		local emitter = vfx.CreateEmitter("jrpg_shader_" .. name, properties)
+		emitter.transform:SetPosition(position + Vec3(unpack(preview.Offset)))
+
+		timer.Delay(preview.Duration or 3, function()
 			if emitter:IsValid() then
 				emitter.particle_emitter_gpu:SetPlaying(false)
 				vfx.RemoveDelayed(emitter, 4)

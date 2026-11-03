@@ -452,3 +452,39 @@ T.Test3D("play restarts what it started, stop ends it and an applied edit restar
 		child:Remove()
 	end
 end)
+
+T.Test3D("a particle shader is previewed on the emitter its preview block names", function()
+	local Vec3 = import("goluwa/structs/vec3.lua")
+	local Entity = import("goluwa/entities/entity.lua")
+	local effects = import("lua/jrpg/effects.lua")
+	local emitters = import("lua/emitters.lua")
+	local library = import("lua/particle_shader_library.lua")
+	local shapes = {puff = "sphere", glow = "point", sprite = "sphere", snow = "box"}
+
+	for name, shape in pairs(shapes) do
+		local preview = library.Files.Source[name].Preview
+		T(preview ~= nil)["=="](true)
+		T(not not table.has_value(emitters.Names, preview.Emitter))["=="](true)
+		local emitter = effects.PlayParticleShader(Vec3(), name, preview).particle_emitter_gpu
+		T(emitter:GetShader())["=="](name)
+		T(emitter:GetShape())["=="](shape)
+	end
+
+	local puff = effects.PlayParticleShader(Vec3(), "puff", library.Files.Source.puff.Preview).particle_emitter_gpu
+	T(puff:GetShaderParams().Grow)["=="](2)
+	T(puff:GetShaderParams().Sprite)["=="]("fire")
+	local tuned = effects.PlayParticleShader(
+		Vec3(),
+		"puff",
+		{Emitter = "puff_preview", Offset = {0, 0, 0}, ShaderParams = {Grow = 3}}
+	)
+	T(tuned.particle_emitter_gpu:GetShaderParams().Grow)["=="](3)
+	T(tuned.particle_emitter_gpu:GetShaderParams().Sprite)["=="]("fire")
+	local fallback = effects.PlayParticleShader(Vec3(), "glow")
+	T(fallback.particle_emitter_gpu:GetShape())["=="]("box")
+	T(fallback.transform:GetPosition().y)["=="](1)
+
+	for _, child in ipairs(Entity.World:GetChildrenList()) do
+		child:Remove()
+	end
+end)

@@ -151,8 +151,8 @@ effects_editor.Categories = {
 		Reload = particle_shader_library.Reload,
 		Save = particle_shader_library.Save,
 		Duplicate = |name|->particle_shader_library.Create(particle_shader_library.GetNewName(name), name),
-		Play = |stage, name|-> do
-			local emitter = effects.PlayParticleShader(stage.Chest, name)
+		Play = |stage, name, session|-> do
+			local emitter = effects.PlayParticleShader(stage.Chest, name, session.Data.Preview)
 
 			return function()
 				if emitter:IsValid() then effects.vfx.StopEmitter(emitter, 1) end

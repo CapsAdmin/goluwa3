@@ -452,10 +452,22 @@ do
 		Drive = table.copy(effects_drive.Defaults.sweep),
 	}
 
-	for _, name in ipairs{"damage types", "status effects", "clips", "gpu emitters"} do
+	for _, name in ipairs{"damage types", "status effects", "clips", "gpu emitters", "particle shaders"} do
 		local schema = schemas[name]
 		schema.Fields = merge(schema.Fields, fields)
 		schema.Fields.Preview = {Keys = keys}
+
+		if name == "particle shaders" then
+			schema.Fields["Preview.Emitter"] = {
+				Ref = "emitter",
+				Description = "the gpu emitter that plays this shader in the preview, its Shader and ShaderParams are replaced",
+			}
+			schema.Fields["Preview.Offset"] = {Description = "where the preview emitter sits, in metres from the stage chest"}
+			schema.Fields["Preview.ShaderParams"] = {Description = "shader params for the preview, over the shader's defaults"}
+			schema.Fields.Preview = {
+				Keys = merge(keys, {Emitter = "shader_preview", Offset = {0, 1, 0}, ShaderParams = {}}),
+			}
+		end
 		schema.Root.Keys = merge(schema.Root.Keys or {}, {Preview = {}})
 	end
 end

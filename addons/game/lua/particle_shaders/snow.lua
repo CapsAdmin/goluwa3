@@ -64,4 +64,5 @@ p.sprite.x += Tumble * (p.sprite.z - 0.5) * 2.0 * dt;
 ]],
 	Visibility = "",
 	Shade = "",
+	Preview = {Emitter = "shader_preview", Offset = {0, 1, 0}},
 }
