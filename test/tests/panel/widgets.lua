@@ -977,3 +977,44 @@ T.Test2D("a color curve row keeps rgba keys and a color range row writes both sw
 	picker_window:Remove()
 	editor:Remove()
 end)
+
+T.Test2D("a searchable dropdown with thousands of options only builds the visible window", function()
+	local options = {}
+
+	for i = 1, 5000 do
+		options[i] = "option " .. i
+	end
+
+	local dropdown = Dropdown{Options = options, Value = "option 1", Searchable = true}
+	dropdown:open_menu()
+
+	local function count_options(column)
+		local count = 0
+
+		for _, child in ipairs(column:GetChildrenList()) do
+			if child.OptionIndex then count = count + 1 end
+		end
+
+		return count
+	end
+
+	local column = dropdown._results_column
+	T(count_options(column))["<"](100)
+	T(count_options(column))[">"](0)
+	local viewport = dropdown._results_panel:GetViewport()
+	viewport.transform:SetScroll(Vec2(0, dropdown._item_height * 3000))
+	dropdown:show_window()
+	T(count_options(column))["<"](100)
+	T(column:GetChildrenList()[1].OptionIndex)[">"](2500)
+	dropdown:rebuild_results("option 99")
+	T(#dropdown._matches)["=="](11)
+	dropdown:rebuild_results("nothing like it")
+	T(count_options(column))["=="](0)
+	Panel.CloseContextMenu()
+	dropdown:Remove()
+	local plain = Dropdown{Options = options, Value = "option 1"}
+	plain:open_menu()
+	T(#plain._matches)["=="](5000)
+	Panel.CloseContextMenu()
+	plain:Remove()
+end)

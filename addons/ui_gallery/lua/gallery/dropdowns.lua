@@ -18,6 +18,7 @@ end
 
 local ASSET_PACKS = build_options("Asset pack", 48)
 local PRESETS = build_options("Workspace preset", 48)
+local THOUSANDS = build_options("Entry", 5000)
 local COLUMN = {MinSize = Vec2(260, 0), MaxSize = Vec2(260, 0), GrowWidth = 0}
 local NARROW = {MinSize = Vec2(180, 0), MaxSize = Vec2(180, 0), GrowWidth = 0}
 return {
@@ -70,6 +71,21 @@ return {
 						ui.Dropdown{
 							Options = PRESETS,
 							Text = "Choose a preset",
+							Searchable = true,
+							OnSelect = on_select,
+							layout = COLUMN,
+						}
+					),
+				},
+				kit.Section{
+					Title = "Thousands of options",
+					Description = "The menu is virtual: only the rows in view are built, so 5000 options scroll and filter smoothly.",
+				}{
+					kit.Labeled(
+						"5000 entries",
+						ui.Dropdown{
+							Options = THOUSANDS,
+							Text = "Choose an entry",
 							Searchable = true,
 							OnSelect = on_select,
 							layout = COLUMN,

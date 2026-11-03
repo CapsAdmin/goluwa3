@@ -179,18 +179,57 @@ function META:create_option_item(index)
 end
 
 function META:rebuild_results(query)
-	local column = self._results_column
-	column:RemoveChildren()
-	local has_matches = false
+	local matches = self._matches
+	local lowered = self._lowered
+	table.clear(matches)
 
 	for index, option in ipairs(self.Options) do
-		if query == "" or get_option_text(option):lower():find(query, 1, true) then
-			column:AddChild(self:create_option_item(index))
-			has_matches = true
+		if query == "" then
+			matches[#matches + 1] = index
+		else
+			local text = lowered[index]
+
+			if not text then
+				text = get_option_text(option):lower()
+				lowered[index] = text
+			end
+
+			if text:find(query, 1, true) then matches[#matches + 1] = index end
 		end
 	end
 
-	if self._search_edit and not has_matches then
+	self._results_panel:GetViewport().transform:SetScroll(Vec2(0, 0))
+	self:show_window(true)
+end
+
+function META:show_window(force)
+	local matches = self._matches
+	local count = #matches
+	local height = self._item_height
+	local view = self._body_height
+	local scroll = self._results_panel:GetViewport().transform:GetScroll().y
+	local first = math.max(1, math.floor(scroll / height) + 1)
+	local last = math.min(count, math.ceil((scroll + view) / height))
+
+	if not force and first >= self._built_first and last <= self._built_last then
+		return
+	end
+
+	local overscan = math.ceil(view / height)
+	local from = math.max(1, first - overscan)
+	local to = math.min(count, last + overscan)
+	local column = self._results_column
+	column:RemoveChildren()
+	column.layout:SetPadding(Rect(0, (from - 1) * height, 0, (count - to) * height))
+
+	for position = from, to do
+		column:AddChild(self:create_option_item(matches[position]))
+	end
+
+	self._built_first = from
+	self._built_last = to
+
+	if count == 0 then
 		Text{
 			Parent = column,
 			Text = self.EmptySearchText,
@@ -210,11 +249,22 @@ function META:rebuild_results(query)
 	end
 
 	self._results_panel:GetViewport().layout:UpdateLayout()
+	local first_item = column:GetChildrenList()[1]
+
+	if first_item and count > 0 then
+		local measured = first_item.transform:GetHeight()
+
+		if measured > 0 and measured ~= height then
+			self._item_height = measured
+			column.layout:SetPadding(Rect(0, (from - 1) * measured, 0, (count - to) * measured))
+			self._results_panel:GetViewport().layout:UpdateLayout()
+		end
+	end
 end
 
 function META:build_scroll_menu(use_search, scroll_threshold)
 	local search_height = theme.active:GetInputHeight(self.FontSize)
-	local search_gap = theme.active:GetPadding("M")
+	local search_gap = theme.active:GetPadding("S")
 	local _, dropdown_y = self.transform:GetWorldMatrix():GetTranslation()
 	local world_height = Panel.World.transform:GetHeight()
 	local available_below = math.max(dropdown_y, world_height - (dropdown_y + self.transform:GetHeight()))
@@ -275,12 +325,34 @@ function META:build_scroll_menu(use_search, scroll_threshold)
 		},
 	}
 	self._results_panel:AddChild(self._results_column)
+	self._matches = {}
+	self._lowered = {}
+	self._built_first = 1
+	self._built_last = 0
+	self._body_height = body_height
+	self._item_height = theme.active:ResolveFontSize(self.FontSize) + theme.active:GetPadding("M") * 2
 	children[#children + 1] = self._results_panel
 	local menu = MenuContainer{
 		Name = use_search and "dropdown_search_menu" or "dropdown_scroll_menu",
 		layout = {ChildGap = search_gap},
 	}(children)
 	self:rebuild_results("")
+	local selected
+
+	for position, index in ipairs(self._matches) do
+		if get_option_value(self.Options[index]) == self.Value then
+			selected = position
+
+			break
+		end
+	end
+
+	if selected then
+		local height = self._item_height
+		self._results_panel:GetViewport().transform:SetScroll(Vec2(0, math.max(0, (selected - 0.5) * height - body_height / 2)))
+		self:show_window(true)
+	end
+
 	return menu
 end
 
@@ -341,6 +413,7 @@ function META:OnUpdate()
 
 	if self._results_panel and self._results_panel:IsValid() then
 		self._results_panel:GetViewport().layout:UpdateLayout()
+		self:show_window()
 	end
 end
 
