@@ -844,13 +844,15 @@ local function get_vertex_glsl(layer)
 					float sprite_cos = cos(p.sprite.x);
 					float sprite_sin = sin(p.sprite.x);
 					vec2 corner = vec2(sprite_cos * sprite_across - sprite_sin * sprite_along, sprite_sin * sprite_across + sprite_cos * sprite_along);
-					sprite_position = head + (view_basis[0] * corner.x + view_basis[1] * corner.y) * p.width * 0.5;
+					vec3 sprite_right = (p.spare & 4u) != 0u ? vec3(1.0, 0.0, 0.0) : view_basis[0];
+					vec3 sprite_up = (p.spare & 4u) != 0u ? vec3(0.0, 0.0, 1.0) : view_basis[1];
+					sprite_position = head + (sprite_right * corner.x + sprite_up * corner.y) * p.width * 0.5;
 				}
 
 				out_position = sprite_position;
 				out_radiance = p.radiance;
 				out_alpha = system.coverage_scale * p.visibility;
-				out_shape = vec3(sprite_across, sprite_along, -1.0);
+				out_shape = vec3((p.spare & 2u) != 0u ? -sprite_across : sprite_across, sprite_along, (p.spare & 8u) != 0u ? -2.0 : -1.0);
 				out_motion = get_particle_screen_motion(sprite_position, sprite_position - p.velocity * particle_draw.dt);
 				out_sprite = vec2(abs(p.sprite.y) - 1.0, p.sprite.z);
 				gl_Position = particle_draw.projection * particle_draw.view * vec4(sprite_position, 1.0);
@@ -905,7 +907,11 @@ local coverage_glsl = [[
 	}
 
 	float get_particle_alpha() {
-		if (in_shape.z < -0.5) return min(in_alpha * get_particle_sprite().a, 1.0);
+		if (in_shape.z < -0.5) {
+			vec4 sprite = get_particle_sprite();
+			float sprite_alpha = in_shape.z < -1.5 ? max(sprite.r, max(sprite.g, sprite.b)) : sprite.a;
+			return min(in_alpha * sprite_alpha, 1.0);
+		}
 
 		float end_distance = max(abs(in_shape.y) - in_shape.z, 0.0) / max(1.0 - in_shape.z, 1e-4);
 		return min(in_alpha * max(1.0 - in_shape.x * in_shape.x - end_distance * end_distance, 0.0), 1.0);

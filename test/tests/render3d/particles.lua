@@ -1088,3 +1088,153 @@ T.Test("a one shot emitter still emits when its first step is longer than its du
 	T(particle_emitter.Step(emitter, 0.05))["=="](5)
 	T(particle_emitter.Step(emitter, 0.05))["=="](0)
 end)
+
+T.Test3D("Graphics render3d gpu emitter swirls around its axis", function(draw)
+	init()
+	local entity
+	local ok, err = pcall(function()
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 1, 0))
+		emitter:SetRate(100)
+		emitter:SetMaxParticles(512)
+		emitter:SetLifetime(4)
+		emitter:SetShape("disc")
+		emitter:SetShapeSize(Vec3(2, 1, 1))
+		emitter:SetSpread(0)
+		emitter:SetSpeed(0)
+		emitter:SetGravityScale(0)
+		emitter:SetDrag(0)
+		emitter:SetSwirl(4)
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		step_with_update(draw, 60)
+		local uid = emitter.gpu_range.uid
+		local records = particles.Download(particle_emitter_gpu.system)
+		local checked = 0
+
+		for i = 0, particle_emitter_gpu.system.GetCount() - 1 do
+			local p = records[i]
+			local x, z = p.position[0], p.position[2] + 5
+			local radius = math.sqrt(x * x + z * z)
+
+			if p.life > 0 and p.user[2] == uid and p.age > 0.5 and radius > 0.2 then
+				checked = checked + 1
+				local tangential = (p.velocity[0] * z - p.velocity[2] * x) / radius
+				T(tangential > 1)["=="](true)
+				T(math.abs(p.velocity[1]) < 1e-3)["=="](true)
+			end
+		end
+
+		T(checked > 20)["=="](true)
+	end)
+
+	if entity then entity:Remove() end
+
+	restore()
+
+	if not ok then error(err, 0) end
+end)
+
+T.Test3D("Graphics render3d gpu emitter ages particles that fall below its minimum speed", function(draw)
+	init()
+	local entity
+	local ok, err = pcall(function()
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 1, 0))
+		emitter:SetRate(50)
+		emitter:SetMaxParticles(512)
+		emitter:SetLifetime(4)
+		emitter:SetSpread(0)
+		emitter:SetSpeed(0.2)
+		emitter:SetGravityScale(0)
+		emitter:SetDrag(0)
+		emitter:SetMinSpeed(1)
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		step_with_update(draw, 20)
+
+		local function measure()
+			local before = particles.Download(particle_emitter_gpu.system)
+			local ages = {}
+
+			for i = 0, particle_emitter_gpu.system.GetCount() - 1 do
+				if
+					before[i].life > 0 and
+					before[i].age > 0.3 and
+					before[i].age < before[i].life - 0.5
+				then
+					ages[i] = before[i].age
+				end
+			end
+
+			step_with_update(draw, 2)
+			local after = particles.Download(particle_emitter_gpu.system)
+			local total, count = 0, 0
+
+			for i, age in pairs(ages) do
+				if after[i].life > 0 and after[i].age > age then
+					total = total + after[i].age - age
+					count = count + 1
+				end
+			end
+
+			T(count > 5)["=="](true)
+			return total / count / (2 * STEP)
+		end
+
+		T(math.abs(measure() - 5) < 0.2)["=="](true)
+		emitter:SetMinSpeed(0)
+		T(math.abs(measure() - 1) < 0.2)["=="](true)
+	end)
+
+	if entity then entity:Remove() end
+
+	if slow_entity then slow_entity:Remove() end
+
+	restore()
+
+	if not ok then error(err, 0) end
+end)
+
+T.Test3D("Graphics render3d gpu emitter marks mirrored and ground oriented sprites in the particle record", function(draw)
+	init()
+	local entity
+	local ok, err = pcall(function()
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 1, 0))
+		emitter:SetRate(100)
+		emitter:SetMaxParticles(512)
+		emitter:SetLifetime(4)
+		emitter:SetSpeed(0)
+		emitter:SetGravityScale(0)
+		emitter:SetFlipRandom(0.5)
+		emitter:SetOrientation("ground")
+		emitter:SetAlphaFromColor(true)
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		step_with_update(draw, 60)
+		local uid = emitter.gpu_range.uid
+		local records = particles.Download(particle_emitter_gpu.system)
+		local alive, flipped, grounded, from_color = 0, 0, 0, 0
+
+		for i = 0, particle_emitter_gpu.system.GetCount() - 1 do
+			local p = records[i]
+
+			if p.life > 0 and p.user[2] == uid then
+				alive = alive + 1
+				flipped = flipped + (bit.band(p.spare, 2) ~= 0 and 1 or 0)
+				grounded = grounded + (bit.band(p.spare, 4) ~= 0 and 1 or 0)
+				from_color = from_color + (bit.band(p.spare, 8) ~= 0 and 1 or 0)
+			end
+		end
+
+		T(alive > 100)["=="](true)
+		T(grounded)["=="](alive)
+		T(from_color)["=="](alive)
+		T(flipped > alive * 0.3 and flipped < alive * 0.7)["=="](true)
+		T(pcall(emitter.SetOrientation, emitter, "sideways"))["=="](false)
+	end)
+
+	if entity then entity:Remove() end
+
+	restore()
+
+	if not ok then error(err, 0) end
+end)

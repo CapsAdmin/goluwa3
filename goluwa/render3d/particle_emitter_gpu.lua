@@ -17,6 +17,7 @@ local last_sync_frame
 local SHAPES = {point = 0, sphere = 1, cone = 2, box = 3, disc = 4}
 local COLLISIONS = {none = 0, shelter_map = 1, scene_depth = 2, rays = 3}
 local ON_HIT = {bounce = 0, stick = 1, kill = 2}
+local ORIENTATIONS = {screen = 0, ground = 1}
 local SAMPLES = particle_emitter.CURVE_SAMPLES
 local CURVE_BUFFERS = 3
 local curve_record = ffi.typeof(
@@ -324,6 +325,11 @@ gpu.system = particles.Register{
 				{"enabled", "int"},
 				{"first", "int"},
 				{"count", "int"},
+				{"swirl", "float"},
+				{"min_speed", "float"},
+				{"flip_random", "float"},
+				{"orientation", "int"},
+				{"alpha_from_color", "int"},
 				{"cursor", "int"},
 				{"spawn_count", "int"},
 				{"uid", "int"},
@@ -439,6 +445,11 @@ gpu.system = particles.Register{
 
 					if name == nil then
 						for _, param in ipairs(shaders.Get(shader).definition.Params) do
+			entry.swirl = emitter.Swirl
+			entry.min_speed = emitter.MinSpeed
+			entry.flip_random = emitter.FlipRandom
+			entry.orientation = ORIENTATIONS[emitter.Orientation]
+			entry.alpha_from_color = emitter.AlphaFromColor and 1 or 0
 							if param.Name == sprite_param then name = param.Default end
 						end
 					end
@@ -547,6 +558,12 @@ gpu.system = particles.Register{
 		p.width = emitter_curve_size(slot, t, random_a.y) * p.sprite.w;
 
 		if (p.sprite.y > 0.0 && (e.spin_min != 0.0 || e.spin_max != 0.0)) {
+
+		if (e.flip_random > 0.0 && pcg3d_unorm(uvec3(index, generation, uint(e.seed) + 86028121u)).x < e.flip_random) p.spare |= 2u;
+
+		if (e.orientation == 1) p.spare |= 4u;
+
+		if (e.alpha_from_color != 0) p.spare |= 8u;
 			p.sprite.x += mix(e.spin_min, e.spin_max, random_a.x) * dt;
 		}
 
@@ -561,7 +578,9 @@ gpu.system = particles.Register{
 			}
 		}
 
-		if (p.spare != 0u) {
+		if (e.min_speed > 0.0 && p.age > 0.1 && dot(p.velocity, p.velocity) < e.min_speed * e.min_speed) p.age += dt * 4.0;
+
+		if ((p.spare & 1u) != 0u) {
 			p.velocity = vec3(0.0);
 			return;
 		}
@@ -587,6 +606,14 @@ gpu.system = particles.Register{
 
 		emitters_t e = emitters_data.emitters[slot];
 		float seed = fract(sin(p.life * 12345.678) * 43758.5453);
+		if (e.swirl != 0.0) {
+			vec3 around = p.position - e.position;
+			around -= e.axis * dot(around, e.axis);
+			float around_length = length(around);
+
+			if (around_length > 1e-4) p.velocity += cross(e.axis, around / around_length) * e.swirl * dt;
+		}
+
 		float twinkle = 0.5 + 0.5 * sin(p.age * mix(18.0, 60.0, seed) + seed * 6.2831853);
 		float t = clamp(p.age / p.life, 0.0, 1.0);
 		return emitter_curve_color(slot, t, emitter_random_a(e, index, p).z).a * mix(1.0, twinkle * twinkle, e.sparkle) * emitter_shader_visibility(e, index, t, p);
@@ -623,7 +650,7 @@ gpu.system = particles.Register{
 			particle_bounce(p, hit, normal, e.restitution, e.friction);
 		} else if (e.on_hit == 1) {
 			particle_stick(p, hit, normal);
-			p.spare = 1u;
+			p.spare |= 1u;
 		} else {
 			p.life = 0.0;
 		}

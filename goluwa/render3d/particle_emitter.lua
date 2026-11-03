@@ -13,6 +13,7 @@ particle_emitter.GPU_COLLISIONS = {"none", "shelter_map", "scene_depth", "rays"}
 particle_emitter.CPU_COLLISIONS = {"none", "rays"}
 particle_emitter.ON_HIT = {"bounce", "stick", "kill"}
 particle_emitter.MESHES = {"quad", "sphere", "cube", "shard", "feather"}
+particle_emitter.ORIENTATIONS = {"screen", "ground"}
 local SAMPLES = 32
 particle_emitter.CURVE_SAMPLES = SAMPLES
 local number = {validate = "number"}
@@ -175,6 +176,11 @@ particle_emitter.gpu = {
 	{"Flow", 0, ranged(0, 50), "Motion"},
 	{"FlowScale", 0.28, ranged(0.01, 20), "Motion"},
 	{"Sparkle", 0, ranged(0, 1), "Look"},
+	{"Swirl", 0, ranged(-200, 200), "Motion"},
+	{"MinSpeed", 0, ranged(0, 100), "Motion"},
+	{"FlipRandom", 0, ranged(0, 1), "Look"},
+	{"Orientation", "screen", particle_emitter.ORIENTATIONS, "Look"},
+	{"AlphaFromColor", false, boolean, "Look"},
 	{"SaturationJitter", 0, ranged(0, 1), "Look"},
 	{"Shader", "glow", nil, "Look"},
 	{"ShaderParams", nil, nil, "Look"},
