@@ -2,6 +2,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
 local Icon = import("goluwa/render2d/ui/elements/icon.lua")
+local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local META = Panel:CreateTemplate("collapsible")
@@ -26,6 +27,8 @@ META:GetSet("HeaderFont", "body")
 META:GetSet("HeaderFontSize", nil)
 META:GetSet("Badge", nil)
 META:GetSet("BadgeColor", nil)
+META:GetSet("HeaderButtons", nil)
+META:GetSet("Tree", nil)
 META:GetSet("HeaderHeight", nil)
 META:GetSet("HeaderPadding", nil)
 META:GetSet("HeaderGap", nil)
@@ -55,6 +58,47 @@ end
 
 local function on_body_draw(body)
 	theme.active:Draw(body)
+end
+
+local function on_body_post_draw(body)
+	local tree = body.Collapsible.Tree
+
+	if not tree or tree.IsLast then return end
+
+	local active = theme.active
+	local toggle_size, guide_step = active:GetTreeMetrics()
+	local line = active:GetSize("line")
+	active:DrawRoundRect(
+		tree.Level * guide_step + math.floor(toggle_size / 2),
+		0,
+		line,
+		body.transform:GetHeight(),
+		0,
+		active:GetColor("border"),
+		1
+	)
+end
+
+local function draw_tree_toggle(visual)
+	local owner = visual.Owner
+	local collapsible = owner.Collapsible
+	local tree = collapsible.Tree
+	local toggle_size, guide_step, box_size = theme.active:GetTreeMetrics()
+	local center_x = tree.Level * guide_step + math.floor(toggle_size / 2)
+	owner:SetState("theme_role", "tree_toggle")
+	owner:SetState("tree_meta", {level = tree.Level, is_last = tree.IsLast, continuations = {}})
+	owner:SetState(
+		"tree_opts",
+		{
+			line_color = "border",
+			toggle_size = toggle_size,
+			guide_step = guide_step,
+			box_size = box_size,
+			line_start_x = center_x + math.floor(box_size / 2),
+			expanded = not collapsible.Collapsed,
+		}
+	)
+	theme.active:Draw(owner)
 end
 
 local function get_open_fraction(collapsible)
@@ -94,14 +138,32 @@ function META:OnCreate()
 		OnClick = on_header_click,
 		OnRightClick = on_header_right_click,
 	}
-	self._arrow = Icon{
-		Parent = self._header,
-		IsInternal = true,
-		Icon = "disclosure",
-		IconColor = self.HeaderTextColor,
-		OpenFraction = self.OpenFraction,
-		Size = Vec2() + theme.active:ResolveFontSize(font_size),
-	}
+
+	if self.Tree then
+		local toggle_size, guide_step = theme.active:GetTreeMetrics()
+		local width = self.Tree.Level * guide_step + toggle_size + theme.active:GetSize("XXS")
+		local height = header_height or toggle_size
+		Panel.New{
+			Parent = self._header,
+			IsInternal = true,
+			Name = "collapsible_tree_toggle",
+			Collapsible = self,
+			transform = true,
+			visual = {OnDraw = draw_tree_toggle},
+			mouse_input = {IgnoreMouseInput = true},
+			layout = {MinSize = Vec2(width, height), MaxSize = Vec2(width, height), GrowWidth = 0},
+		}
+	else
+		self._arrow = Icon{
+			Parent = self._header,
+			IsInternal = true,
+			Icon = "disclosure",
+			IconColor = self.HeaderTextColor,
+			OpenFraction = self.OpenFraction,
+			Size = Vec2() + theme.active:ResolveFontSize(font_size),
+		}
+	end
+
 	Text{
 		Parent = self._header,
 		IsInternal = true,
@@ -126,6 +188,16 @@ function META:OnCreate()
 			FontSize = font_size,
 			IgnoreMouseInput = true,
 			layout = {FitWidth = true, FitHeight = true},
+		}
+	end
+
+	for _, button in ipairs(self.HeaderButtons or {}) do
+		IconButton{
+			Parent = self._header,
+			IsInternal = true,
+			Icon = button.Icon,
+			Tooltip = button.Tooltip,
+			OnClick = button.OnClick,
 		}
 	end
 
@@ -160,6 +232,7 @@ function META:OnCreate()
 		visual = true,
 		style = true,
 		OnDraw = on_body_draw,
+		OnPostDraw = on_body_post_draw,
 		OnLayoutUpdated = on_container_changed,
 	}
 	self._body.style:SetForegroundColor(theme.active:GetContentForeground())
@@ -169,7 +242,10 @@ end
 
 function META:OnThemeChanged()
 	self._body.style:SetForegroundColor(theme.active:GetContentForeground())
-	self._arrow.transform:SetSize(Vec2() + theme.active:ResolveFontSize(self.HeaderFontSize or "M"))
+
+	if self._arrow then
+		self._arrow.transform:SetSize(Vec2() + theme.active:ResolveFontSize(self.HeaderFontSize or "M"))
+	end
 end
 
 function META:update_height()
@@ -188,7 +264,9 @@ end
 
 function META:SetOpenFraction(fraction)
 	self.OpenFraction = fraction
-	self._arrow:SetOpenFraction(fraction)
+
+	if self._arrow then self._arrow:SetOpenFraction(fraction) end
+
 	self:update_height()
 	return self
 end

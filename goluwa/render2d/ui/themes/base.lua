@@ -1111,6 +1111,13 @@ function BaseTheme:DrawSelectionFill(size, color, alpha)
 	self:DrawPanelFill(size, self:ResolveColor(color, color or "primary"), alpha, 0)
 end
 
+function BaseTheme:GetTreeMetrics()
+	local toggle_size = self:ResolveSize("M")
+	return toggle_size,
+	math.max(self:ResolveSize("M"), toggle_size),
+	self:ResolveSize("toggle_box")
+end
+
 function BaseTheme:DrawTreeGuideLines(size, meta, opts)
 	opts = opts or {}
 	local line = self:GetSize("line")

@@ -21,6 +21,9 @@ local PropertyAsset = import("goluwa/render2d/ui/widgets/properties/asset.lua")
 local PropertyBoolean = import("goluwa/render2d/ui/widgets/properties/boolean.lua")
 local PropertyCode = import("goluwa/render2d/ui/widgets/properties/code.lua")
 local PropertyDivider = import("goluwa/render2d/ui/widgets/properties/divider.lua")
+local PropertyList = import("goluwa/render2d/ui/widgets/properties/list.lua")
+local clipboard = import("goluwa/bindings/clipboard.lua")
+local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local PropertyEnum = import("goluwa/render2d/ui/widgets/properties/enum.lua")
 local PropertyNumber = import("goluwa/render2d/ui/widgets/properties/number.lua")
 local PropertyObject = import("goluwa/render2d/ui/widgets/properties/object.lua")
@@ -851,7 +854,7 @@ function META:collect_rows(nodes, parent_path, label_prefix, out, first, last)
 	end
 end
 
-function META:build_rows_panel(entries)
+function META:build_rows_panel(entries, indent)
 	local left_children = {}
 	local right_children = {}
 
@@ -936,6 +939,7 @@ function META:build_rows_panel(entries)
 			FitHeight = true,
 			AlignmentY = "stretch",
 			ChildGap = 0,
+			Padding = Rect(indent or 0, 0, 0, 0),
 		},
 		visual = true,
 	}
@@ -974,10 +978,216 @@ function META:build_rows_panel(entries)
 	return split_row
 end
 
-function META:build_group_panel(node, path)
+local function is_block(node)
+	return node.IsGroup or node.Type == "list"
+end
+
+local function on_list_header_menu(collapsible)
+	local node = collapsible.CategoryNode
+	local actions = node.Actions
+	local items = {
+		MenuItem{
+			Text = "Add item",
+			Icon = "plus",
+			OnClick = function()
+				actions.Add()
+			end,
+		},
+	}
+
+	if actions.Sort then
+		items[#items + 1] = MenuItem{Text = "Sort", OnClick = actions.Sort}
+	end
+
+	if actions.Copy then
+		items[#items + 1] = MenuItem{
+			Text = "Copy as Lua",
+			Icon = "copy",
+			OnClick = function()
+				clipboard.Set(actions.Copy())
+			end,
+		}
+	end
+
+	if actions.Paste then
+		items[#items + 1] = MenuItem{
+			Text = "Paste lines as items",
+			Icon = "paste",
+			OnClick = function()
+				actions.Paste(clipboard.Get() or "")
+			end,
+		}
+	end
+
+	items[#items + 1] = MenuItem{
+		Text = "Clear",
+		Icon = "trash",
+		Disabled = #node.Items == 0,
+		OnClick = actions.Clear,
+	}
+	Panel.OpenContextMenu({
+		OnClose = function(self)
+			self:Remove()
+		end,
+	}, items)
+	return true
+end
+
+function META:build_list_panel(node, path, level, is_last)
 	local key = get_node_key(node, path)
+	local collapsed = self._collapsed_state[key]
+
+	if collapsed == nil then collapsed = node.Collapsed == true end
+
+	if self._filter_tokens then collapsed = false end
+
+	local toggle_size, guide_step = theme.active:GetTreeMetrics()
+	local body = PropertyList{
+		Editor = self,
+		Node = node,
+		Path = path,
+		Level = level,
+		Indent = level * guide_step + toggle_size,
+	}
+	local list = Collapsible{
+		Editor = self,
+		CategoryKey = key,
+		CategoryNode = node,
+		Title = get_node_text(node, path),
+		Tooltip = node.Description,
+		TooltipMaxWidth = 420,
+		Badge = tostring(#node.Items),
+		BadgeColor = "text_disabled",
+		HeaderMode = "text",
+		HeaderHeight = self:get_row_height(node),
+		HeaderPadding = Rect(0, 0, 4, 0),
+		HeaderGap = self.HeaderGap or "XXS",
+		HeaderFontSize = self._font_size,
+		HeaderTextColor = "text",
+		Tree = {Level = level, IsLast = is_last},
+		HeaderButtons = {
+			{Icon = "plus", Tooltip = "Add item", OnClick = node.Actions.Add},
+		},
+		OnHeaderContextMenu = on_list_header_menu,
+		Padding = "none",
+		Collapsed = collapsed,
+		OnToggle = on_category_toggle,
+	}{body}
+	self._category_refs[key] = list
+
+	if node.FocusIndex then
+		timer.Delay(0.05, function()
+			if body:IsValid() then body:Focus() end
+		end)
+	end
+
+	return list
+end
+
+function META:build_item_group(list, item, index, path, level, is_last)
+	local actions = list.Node.Actions
+	local count = #list.Node.Items
+	local collapsed = self._collapsed_state[item.Key]
+
+	if collapsed == nil then collapsed = item.Collapsed ~= false end
+
+	if self._filter_tokens then collapsed = false end
+
+	local buttons = {}
+
+	if index > 1 then
+		buttons[#buttons + 1] = {
+			Icon = "arrow_up",
+			Tooltip = "Move up",
+			OnClick = function()
+				actions.Move(index, index - 1)
+			end,
+		}
+	end
+
+	if index < count then
+		buttons[#buttons + 1] = {
+			Icon = "arrow_down",
+			Tooltip = "Move down",
+			OnClick = function()
+				actions.Move(index, index + 1)
+			end,
+		}
+	end
+
+	buttons[#buttons + 1] = {
+		Icon = "copy",
+		Tooltip = "Duplicate",
+		OnClick = function()
+			actions.Duplicate(index)
+		end,
+	}
+	buttons[#buttons + 1] = {
+		Icon = "close",
+		Tooltip = "Delete",
+		OnClick = function()
+			actions.Remove(index)
+		end,
+	}
+	local group = Collapsible{
+		Editor = self,
+		CategoryKey = item.Key,
+		Title = index .. "  " .. get_node_text(item, path),
+		HeaderMode = "text",
+		HeaderHeight = self:get_row_height(item),
+		HeaderPadding = Rect(0, 0, 4, 0),
+		Tree = {Level = level, IsLast = is_last},
+		HeaderGap = self.HeaderGap or "XXS",
+		HeaderFontSize = self._font_size,
+		HeaderTextColor = "text",
+		HeaderButtons = buttons,
+		OnHeaderContextMenu = function()
+			list:OpenItemMenu(index)
+			return true
+		end,
+		Padding = "none",
+		Collapsed = collapsed,
+		OnToggle = on_category_toggle,
+	}(self:build_blocks(item.Children, path, level))
+	self._category_refs[item.Key] = group
+	return group
+end
+
+function META:build_blocks(nodes, path, level)
+	local children = {}
 	local entries = {}
-	self:collect_rows(get_node_children(node), path, nil, entries)
+	local blocks = {}
+
+	for index, node in ipairs(nodes) do
+		if is_block(node) then
+			blocks[#blocks + 1] = index
+		else
+			self:collect_rows(nodes, path, nil, entries, index, index)
+		end
+	end
+
+	if #entries > 0 then
+		local toggle_size, guide_step = theme.active:GetTreeMetrics()
+		children[1] = self:build_rows_panel(entries, level > 1 and (level - 1) * guide_step + toggle_size or 0)
+	end
+
+	for position, index in ipairs(blocks) do
+		local block = nodes[index]
+		local block_path = build_path(path, index)
+		local is_last = position == #blocks
+
+		if block.Type == "list" then
+			children[#children + 1] = self:build_list_panel(block, block_path, level, is_last)
+		else
+			children[#children + 1] = self:build_group_panel(block, block_path, level, is_last)
+		end
+	end
+
+	return children
+end
+
+function META:build_group_panel(node, path, level, is_last)
+	local key = get_node_key(node, path)
 	local collapsed = self._collapsed_state[key]
 
 	if collapsed == nil then collapsed = node.Collapsed == true end
@@ -990,14 +1200,15 @@ function META:build_group_panel(node, path)
 		Title = get_node_text(node, path),
 		HeaderMode = "text",
 		HeaderHeight = self:get_row_height(node),
-		HeaderPadding = node.HeaderPadding or self._padding,
+		HeaderPadding = Rect(0, 0, 4, 0),
+		Tree = {Level = level, IsLast = is_last},
 		HeaderGap = self.HeaderGap or "XXS",
 		HeaderFontSize = self._font_size,
 		HeaderTextColor = "text",
 		Padding = "none",
 		Collapsed = collapsed,
 		OnToggle = on_category_toggle,
-	}{self:build_rows_panel(entries)}
+	}(self:build_blocks(get_node_children(node), path, level + 1))
 	self._category_refs[key] = group
 	return group
 end
@@ -1018,7 +1229,6 @@ end
 
 function META:build_category_panel(node, path, key)
 	local collapsed = self._collapsed_state[key]
-	local children = {}
 
 	if collapsed == nil then
 		collapsed = node.Collapsed == true or node.Expanded == false
@@ -1026,26 +1236,7 @@ function META:build_category_panel(node, path, key)
 
 	if self._filter_tokens then collapsed = false end
 
-	local nodes = get_node_children(node)
-	local run_start = 1
-
-	for index = 1, #nodes + 1 do
-		local group = nodes[index]
-
-		if index == #nodes + 1 or group.IsGroup then
-			if index > run_start then
-				local entries = {}
-				self:collect_rows(nodes, path, nil, entries, run_start, index - 1)
-				children[#children + 1] = self:build_rows_panel(entries)
-			end
-
-			run_start = index + 1
-
-			if group then
-				children[#children + 1] = self:build_group_panel(group, build_path(path, index))
-			end
-		end
-	end
+	local children = self:build_blocks(get_node_children(node), path, 1)
 
 	if #children == 0 then
 		children[1] = Text{

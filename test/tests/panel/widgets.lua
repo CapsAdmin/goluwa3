@@ -584,3 +584,86 @@ T.Test2D("checkbox and radio button labels are part of the control", function()
 	world:Remove()
 	Panel.World = old_world
 end)
+
+T.Test2D("property editor list nodes build rows and group items, route actions and reorder by dragging", function()
+	local log = {}
+	local names = {"a", "b", "c"}
+
+	local function log_action(name)
+		return function(...)
+			log[#log + 1] = name .. ":" .. table.concat({...}, ",")
+		end
+	end
+
+	local items = {}
+
+	for i, name in ipairs(names) do
+		items[i] = {Key = "names/" .. i, Type = "string", Value = name}
+	end
+
+	local editor = PropertyEditor{
+		Items = {
+			{
+				Key = "cat",
+				Text = "Cat",
+				Children = {
+					{
+						Key = "names",
+						Text = "Names",
+						Type = "list",
+						Items = items,
+						Actions = {
+							Add = log_action("add"),
+							Insert = log_action("insert"),
+							Duplicate = log_action("duplicate"),
+							Remove = log_action("remove"),
+							Move = log_action("move"),
+							Clear = log_action("clear"),
+						},
+					},
+					{
+						Key = "groups",
+						Text = "Groups",
+						Type = "list",
+						Items = {
+							{
+								Key = "groups/1",
+								Text = "one",
+								Children = {{Key = "groups/1/x", Text = "X", Type = "number", Value = 1}},
+							},
+						},
+						Actions = {
+							Add = log_action("add"),
+							Insert = log_action("insert"),
+							Duplicate = log_action("duplicate"),
+							Remove = log_action("remove"),
+							Move = log_action("move"),
+							Clear = log_action("clear"),
+						},
+					},
+				},
+			},
+		},
+	}
+	local lists = {}
+
+	for _, child in ipairs(editor:GetChildrenList()) do
+		if child.Name == "property_list" then lists[#lists + 1] = child end
+	end
+
+	T(#lists)["=="](2)
+	local rows = lists[1]._rows
+	T(#rows)["=="](3)
+	lists[1]:begin_drag(1)
+	local last = rows[3]
+	lists[1]:OnGlobalMouseMove(last.transform:LocalToGlobal(Vec2(20, last.transform:GetHeight() * 0.9)))
+	T(lists[1]._drag.drop)["=="](4)
+	lists[1]:OnGlobalMouseInput("button_1", false)
+	T(log[1])["=="]("move:1,3")
+	lists[1]:begin_drag(3)
+	lists[1]:OnGlobalMouseMove(rows[1].transform:LocalToGlobal(Vec2(20, 0)))
+	lists[1]:OnGlobalMouseInput("button_1", false)
+	T(log[2])["=="]("move:3,1")
+	T(#log)["=="](2)
+	editor:Remove()
+end)
