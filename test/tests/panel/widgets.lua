@@ -766,3 +766,40 @@ T.Test2D("a ghost draws the source panel subtree at an offset with an alpha over
 	T(source.visual:GetGhosted())["=="](false)
 	source:Remove()
 end)
+
+T.Test2D("sound property has a play button before the browse button and plays through the node", function()
+	local played
+	local editor = PropertyEditor{
+		Items = {
+			{
+				Key = "cat",
+				Text = "Cat",
+				Children = {
+					{
+						Key = "cue",
+						Text = "Cue",
+						Type = "sound",
+						Value = "ambient/fire/ignite.wav",
+						PlayAction = function(path)
+							played = path
+						end,
+					},
+				},
+			},
+		},
+	}
+	local control
+
+	for _, child in ipairs(editor:GetChildrenList()) do
+		if child.Name == "property_sound" then control = child end
+	end
+
+	T(control ~= nil)["=="](true)
+	T(control.AssetCategory)["=="]("sounds")
+	T(#control.RightElements)["=="](2)
+	T(control.RightElements[1].Icon)["=="]("play")
+	T(control.RightElements[2].Icon)["=="]("folder_open")
+	control.RightElements[1].OnClick(control.RightElements[1])
+	T(played)["=="]("ambient/fire/ignite.wav")
+	editor:Remove()
+end)

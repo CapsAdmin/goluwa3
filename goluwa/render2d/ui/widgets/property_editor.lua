@@ -18,6 +18,7 @@ local Column = import("goluwa/render2d/ui/elements/column.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local TabBar = import("goluwa/render2d/ui/widgets/tab_bar.lua")
 local PropertyAsset = import("goluwa/render2d/ui/widgets/properties/asset.lua")
+local PropertySound = import("goluwa/render2d/ui/widgets/properties/sound.lua")
 local PropertyBoolean = import("goluwa/render2d/ui/widgets/properties/boolean.lua")
 local PropertyCode = import("goluwa/render2d/ui/widgets/properties/code.lua")
 local PropertyDivider = import("goluwa/render2d/ui/widgets/properties/divider.lua")
@@ -226,6 +227,10 @@ local function on_action_click(button)
 	editor:trigger_action(button.Node, button.PropertyKey, button.PropertyPath)
 end
 
+local function on_sound_play(path, control)
+	control.Node.PlayAction(path)
+end
+
 local function on_object_action(control)
 	local node = control.Node
 	node.OnActionButton(
@@ -272,6 +277,7 @@ local property_types = {
 	integer = {},
 	string = {},
 	asset = {},
+	sound = {},
 	action = {},
 	vec2 = {
 		components = {"x", "y"},
@@ -777,7 +783,7 @@ function META:create_control(node, path, key)
 			MaxSize = Vec2(0, size.y),
 		}
 		control = PropertyObject(shared)
-	elseif kind == "asset" then
+	elseif kind == "asset" or kind == "sound" then
 		shared.Value = node.Value == nil and "" or tostring(node.Value)
 		shared.AssetCategory = node.AssetCategory
 		shared.Tooltip = get_string_tooltip
@@ -787,7 +793,13 @@ function META:create_control(node, path, key)
 		shared.Size = size
 		shared.MinSize = size
 		shared.MaxSize = Vec2(0, size.y)
-		control = PropertyAsset(shared)
+
+		if kind == "sound" then
+			shared.OnPlay = node.PlayAction and on_sound_play or nil
+			control = PropertySound(shared)
+		else
+			control = PropertyAsset(shared)
+		end
 	elseif kind == "code" then
 		shared.Value = node.Value == nil and "" or tostring(node.Value)
 		shared.Language = node.CodeLanguage

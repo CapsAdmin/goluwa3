@@ -293,12 +293,6 @@ function META:create_row(index, height)
 end
 
 function META:add_action_buttons(row, index)
-	local item = self.Node.Items[index]
-
-	if item.PlayAction then
-		IconButton{Parent = row, Icon = "play", Tooltip = "Play", OnClick = item.PlayAction}
-	end
-
 	IconButton{
 		Parent = row,
 		List = self,

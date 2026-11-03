@@ -15,7 +15,10 @@ T.Test("data items edit a plain table in place and skip functions", function()
 		Layers = {{Name = "a"}, {Name = "b"}},
 		Words = {"b", "a"},
 		Pairs = {{1, 2}, {3, 4}},
+		Cue = "ambient/fire/ignite.wav",
+		Cues = {"a.wav", "b.wav"},
 	}
+	local played = {}
 	local changes = 0
 	local restructured = 0
 	local focus
@@ -29,9 +32,14 @@ T.Test("data items edit a plain table in place and skip functions", function()
 				restructured = restructured + 1
 				focus = new_focus or focus
 			end,
+			PlaySound = function(path)
+				played[#played + 1] = path
+			end,
 			Schema = {
 				Refs = {kind = {"a", "b"}},
 				Fields = {
+					Cue = {Sound = true},
+					["Cues[]"] = {Sound = true},
 					Mode = {Ref = "kind"},
 					Layers = {Template = {Name = "new"}},
 					Pairs = {Display = "table", Columns = {{Text = "a", Key = 1}, {Text = "b", Key = 2}}},
@@ -58,6 +66,12 @@ T.Test("data items edit a plain table in place and skip functions", function()
 	T(by_text.Mode.Type)["=="]("enum")
 	T(by_text.Mode.Options[1].Text)["=="]("c (missing)")
 	T(by_text.Mode.RowButtons)["=="](nil)
+	T(by_text.Cue.Type)["=="]("sound")
+	by_text.Cue.PlayAction("x.wav")
+	T(played[1])["=="]("x.wav")
+	T(by_text.Words.Items[1].Type)["=="]("string")
+	T(by_text.Cues.Items[2].Type)["=="]("sound")
+	T(by_text.Cues.Items[2].PlayAction)["=="](by_text.Cue.PlayAction)
 	local opened
 	local openable = data_items.Build(
 		{Mode = "a"},

@@ -23,15 +23,20 @@ local function on_browse_click(button)
 	return true
 end
 
-function META:OnCreate()
-	self.RightElements = {
+function META:CreateRightElements()
+	return {
 		IconButton{
 			Field = self,
 			Icon = "folder_open",
+			Tooltip = "Browse",
 			Mode = "outline",
 			OnClick = on_browse_click,
 		},
 	}
+end
+
+function META:OnCreate()
+	self.RightElements = self:CreateRightElements()
 	META.BaseClass.OnCreate(self)
 end
 

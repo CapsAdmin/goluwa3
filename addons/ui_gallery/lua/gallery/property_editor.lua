@@ -313,7 +313,7 @@ local function build_list_items(lists, update)
 					Key = "lists/sounds",
 					Text = "HitSounds",
 					Type = "list",
-					Items = scalar_items("sounds", {PlayAction = function() end}),
+					Items = scalar_items("sounds", {Type = "sound"}),
 					Actions = actions("sounds", function(last)
 						return last or ""
 					end),

@@ -112,7 +112,7 @@ local function make_leaf(data, key, value, item_path, field, options)
 			item.ShowSlider = field.Max ~= nil
 		end
 	elseif kind == "string" then
-		item.Type = "string"
+		item.Type = field and field.Sound and "sound" or "string"
 	elseif kind == "boolean" then
 		item.Type = "boolean"
 	elseif data_files.IsColorKey(key) and kind == "table" and is_numbers(value, 3, 4) then
@@ -128,10 +128,8 @@ local function make_leaf(data, key, value, item_path, field, options)
 
 	if item.Value == nil then item.Value = value end
 
-	if field and field.Sound and options.PlaySound then
-		item.PlayAction = function()
-			options.PlaySound(data[key])
-		end
+	if item.Type == "sound" and options.PlaySound then
+		item.PlayAction = options.PlaySound
 	end
 
 	item.OnChange = function(_, new)
