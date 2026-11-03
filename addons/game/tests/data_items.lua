@@ -170,7 +170,7 @@ T.Test("data items show defaults for missing keys, group them and strip values t
 	local data = {Count = 5, Tint = {1, 0, 0, 1}, Spread = {1, 2}}
 	local schema = {
 		Refs = {},
-		Fields = {Spread = {Range = true}},
+		Fields = {Spread = {Range = true}, Count = {Integer = true}},
 		Root = {
 			Defaults = {Count = 1, Size = 0.5, Tint = {1, 1, 1, 1}, Name = "a", Spread = 0},
 			Groups = {
@@ -206,6 +206,9 @@ T.Test("data items show defaults for missing keys, group them and strip values t
 	T(count.Default)["=="](1)
 	T(count.RowButtons)["=="](nil)
 	T(count.ShowStepper)["=="](nil)
+	T(count.Type)["=="]("integer")
+	T(count.Precision)["=="](0)
+	T(size.Type)["=="]("number")
 	T(name.Value)["=="]("a")
 	size.OnChange(nil, 2)
 	T(data.Size)["=="](2)

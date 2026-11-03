@@ -272,7 +272,7 @@ do
 			local name, default, check = entry[1], entry[2], entry[3]
 
 			if check and check.validate then
-				fields[name] = {Min = check.min, Max = check.max, Range = entry[5] == "range" or nil}
+				fields[name] = {Min = check.min, Max = check.max, Range = entry[5] == "range" or nil, Integer = check.validate == "integer" or nil}
 			elseif check then
 				fields[name] = {Options = check}
 			end

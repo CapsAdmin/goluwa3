@@ -112,6 +112,19 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 	T(import("lua/emitters.lua").Get("melee_sparks", {Tint = Color(0.2, 0.4, 0.6, 1)}).ColorEnd.a)["=="](0)
 	effects_editor.Load(session, "gpu emitters", "melee_sparks")
 	local grouped = effects_editor.BuildItems(session, handlers)
+	local max_particles = find_text(grouped, "MaxParticles")
+	T(max_particles.Type)["=="]("integer")
+	T(max_particles.Precision)["=="](0)
+	T(find_text(grouped, "Rate").Type)["=="]("number")
+	session.Data.MaxParticles = 100.5
+	T(effects_editor.Apply(session))["=="](false)
+	T(session.Status:find("MaxParticles: expected an integer", 1, true) ~= nil)["=="](true)
+	T(import("lua/emitters.lua").Get("melee_sparks").MaxParticles)["=="](512)
+	session.Data.MaxParticles = 512
+	T(effects_editor.Apply(session))["=="](true)
+	T(session.Status)["=="]("")
+	effects_editor.Load(session, "gpu emitters", "melee_sparks")
+	grouped = effects_editor.BuildItems(session, handlers)
 
 	for _, group in ipairs{"Emission", "Shape", "Motion", "Look", "Collision"} do
 		T(find_text(grouped, group) ~= nil)["=="](true)

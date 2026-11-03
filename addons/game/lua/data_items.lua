@@ -104,8 +104,8 @@ local function make_leaf(data, key, value, item_path, field, options)
 			table.insert(item.Options, 1, {Text = value .. " (missing)", Value = value})
 		end
 	elseif kind == "number" then
-		item.Type = "number"
-		item.Precision = field and field.Precision or 3
+		item.Type = field and field.Integer and "integer" or "number"
+		item.Precision = field and field.Integer and 0 or field and field.Precision or 3
 
 		if field and field.Min then
 			item.Min, item.Max = field.Min, field.Max
