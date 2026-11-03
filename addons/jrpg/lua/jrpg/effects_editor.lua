@@ -701,14 +701,13 @@ local EffectsEditor = react.Component(
 						GrowWidth = 1,
 						FitHeight = true,
 						FitWidth = false,
-						MinSize = Vec2(LEFT_WIDTH - 24, 0),
 						Padding = Rect(2, 2, 2, 2),
 					},
 				}{
 					ui.PropertyEditor{
 						Ref = properties,
 						Items = items,
-						layout = {GrowWidth = 1, GrowHeight = 1, FitWidth = false, MinSize = Vec2(LEFT_WIDTH - 28, 0)},
+						layout = {GrowWidth = 1, GrowHeight = 1, FitWidth = false},
 					},
 				},
 			},
