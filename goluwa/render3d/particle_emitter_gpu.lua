@@ -226,6 +226,7 @@ gpu.system = particles.Register{
 				{"flipbook_random", "int"},
 				{"spin_min", "float"},
 				{"spin_max", "float"},
+				{"stretch", "float"},
 				{"shape", "int"},
 				{"collision", "int"},
 				{"on_hit", "int"},
@@ -307,6 +308,7 @@ gpu.system = particles.Register{
 			entry.flipbook_random = emitter.FlipbookRandomStart and 1 or 0
 			entry.spin_min = math.rad(emitter.SpinMin)
 			entry.spin_max = math.rad(emitter.SpinMax)
+			entry.stretch = emitter.Stretch
 
 			if entry.style ~= 0 then
 				styles.WriteParams(style, emitter.StyleParams, entry.params)
@@ -392,7 +394,7 @@ gpu.system = particles.Register{
 		p.width = e.size_start;
 		p.user.y = slot;
 		p.user.z = uint(e.uid);
-		p.sprite = vec4(r.x * 6.2831853, float(e.sprite_slot), 0.0, 1.0);
+		p.sprite = e.stretch > 0.0 ? vec4(e.stretch, -float(e.sprite_slot), 0.0, 1.0) : vec4(r.x * 6.2831853, float(e.sprite_slot), 0.0, 1.0);
 		emitter_style_spawn(e, index, generation, p);
 	]],
 	update = [[
@@ -407,7 +409,7 @@ gpu.system = particles.Register{
 		float t = clamp(p.age / p.life, 0.0, 1.0);
 		p.width = mix(e.size_start, e.size_end, t) * p.sprite.w;
 
-		if (e.spin_min != 0.0 || e.spin_max != 0.0) {
+		if (p.sprite.y > 0.0 && (e.spin_min != 0.0 || e.spin_max != 0.0)) {
 			p.sprite.x += mix(e.spin_min, e.spin_max, pcg3d_unorm(uvec3(index, p.user.x, uint(e.seed) + 32452843u)).x) * dt;
 		}
 

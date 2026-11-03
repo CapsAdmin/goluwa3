@@ -827,20 +827,32 @@ local function get_vertex_glsl(layer)
 			vec3 camera = particle_draw.camera_position;
 			vec3 head = p.position;
 
-			if (p.sprite.y > 0.5) {
+			if (abs(p.sprite.y) > 0.5) {
 				float sprite_across = float(gl_VertexIndex & 1) * 2.0 - 1.0;
 				float sprite_along = float(gl_VertexIndex >> 1) * 2.0 - 1.0;
-				float sprite_cos = cos(p.sprite.x);
-				float sprite_sin = sin(p.sprite.x);
-				vec2 corner = vec2(sprite_cos * sprite_across - sprite_sin * sprite_along, sprite_sin * sprite_across + sprite_cos * sprite_along);
 				mat3 view_basis = mat3(particle_draw.inv_view);
-				vec3 sprite_position = head + (view_basis[0] * corner.x + view_basis[1] * corner.y) * p.width * 0.5;
+				vec3 sprite_position;
+
+				if (p.sprite.y < 0.0) {
+					vec3 in_view_plane = p.velocity - view_basis[2] * dot(p.velocity, view_basis[2]);
+					float flat_speed = length(in_view_plane);
+					vec3 streak_dir = flat_speed > 1e-4 ? in_view_plane / flat_speed : view_basis[1];
+					float streak_length = p.width + flat_speed * p.sprite.x;
+					vec3 streak_center = head - streak_dir * (streak_length - p.width) * 0.5;
+					sprite_position = streak_center + streak_dir * sprite_along * streak_length * 0.5 + cross(view_basis[2], streak_dir) * sprite_across * p.width * 0.5;
+				} else {
+					float sprite_cos = cos(p.sprite.x);
+					float sprite_sin = sin(p.sprite.x);
+					vec2 corner = vec2(sprite_cos * sprite_across - sprite_sin * sprite_along, sprite_sin * sprite_across + sprite_cos * sprite_along);
+					sprite_position = head + (view_basis[0] * corner.x + view_basis[1] * corner.y) * p.width * 0.5;
+				}
+
 				out_position = sprite_position;
 				out_radiance = p.radiance;
 				out_alpha = system.coverage_scale * p.visibility;
 				out_shape = vec3(sprite_across, sprite_along, -1.0);
 				out_motion = get_particle_screen_motion(sprite_position, sprite_position - p.velocity * particle_draw.dt);
-				out_sprite = vec2(p.sprite.y - 1.0, p.sprite.z);
+				out_sprite = vec2(abs(p.sprite.y) - 1.0, p.sprite.z);
 				gl_Position = particle_draw.projection * particle_draw.view * vec4(sprite_position, 1.0);
 				return;
 			}
