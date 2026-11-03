@@ -39,15 +39,16 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 		end
 	end
 
-	effects_editor.Load(session, "status effects", "poison")
-	session.Data.Particles.Emitter = "frozen_snow"
-	local emitter_row = find_text(effects_editor.BuildItems(session, handlers), "Emitter")
+	effects_editor.Load(session, "status effects", "frozen")
+	local frozen_items = effects_editor.BuildItems(session, handlers)
+	local emitter_row = find_text(frozen_items, "Emitter")
 	T(emitter_row.Type)["=="]("enum")
 	T(emitter_row.RowButtons ~= nil)["=="](true)
+	T(session.Data.Particles.Emitter)["=="]("frozen_snow")
 	effects_editor.Open(session, "gpu emitters", "frozen_snow")
 	T(session.Category)["=="]("gpu emitters")
 	effects_editor.Back(session, 1)
-	T(session.Name)["=="]("poison")
+	T(session.Name)["=="]("frozen")
 	effects_editor.Load(session, "gpu emitters", "frozen_snow")
 	local frozen_snow_items = effects_editor.BuildItems(session, handlers)
 	local shader_row = find_text(frozen_snow_items, "Shader")
@@ -159,7 +160,13 @@ end)
 
 T.Test3D("a particles block starts from the emitter it names and its own keys win", function()
 	local effects = import("lua/jrpg/effects.lua")
+	local status_effects = import("lua/jrpg/status_effects.lua")
 	local emitters = import("lua/emitters.lua")
+	local frozen = effects.GetParticles((status_effects.GetDefinition("frozen")))
+	T(frozen.Emitter)["=="](nil)
+	T(frozen.Shader)["=="]("snow")
+	T(frozen.ShaderParams.Sway)["=="](0.35)
+	T(frozen.SpeedMax)["=="](emitters.Get("frozen_snow").SpeedMax)
 	local resolved = effects.GetParticles{
 		ParticleBase = {SpeedMin = 0.3, Spread = 180, Drag = 9},
 		Particles = {Emitter = "frozen_snow", SpeedMin = 0.5, ShaderParams = {Sway = 1}},
@@ -173,10 +180,7 @@ T.Test3D("a particles block starts from the emitter it names and its own keys wi
 	local plain = effects.GetParticles{Particles = {Drag = 2}}
 	T(plain.Drag)["=="](2)
 	T(plain.Spread)["=="](nil)
-	local properties = effects.GetParticleProperties{
-		Color = emitters.Get("hit_normal").ColorStart,
-		Particles = {Emitter = "frozen_snow"},
-	}
+	local properties = effects.GetParticleProperties((status_effects.GetDefinition("frozen")))
 	T(properties.Shader)["=="]("snow")
-	T(properties.SpeedMax)["=="](emitters.Get("frozen_snow").SpeedMax)
+	T(properties.ColorStart.b)["=="](1)
 end)
