@@ -147,6 +147,7 @@ effects_editor.Categories = {
 	["gpu emitters"] = {
 		Schema = effects_schema.Schemas["gpu emitters"],
 		GetSchema = effects_schema.WithEmitterShaderParams,
+		TestInputs = true,
 		Duration = ||->3,
 		GetNames = ||->emitters.Names,
 		GetSource = |name|->emitters.Files.Source[name],
@@ -154,8 +155,8 @@ effects_editor.Categories = {
 		Reload = emitters.Reload,
 		Save = emitters.Save,
 		Duplicate = |name|->emitters.Create(emitters.GetNewName(name), name),
-		Play = |stage, name|-> do
-			effects_stage.PlayEmitter(stage, name)
+		Play = |stage, name, session|-> do
+			effects_stage.PlayEmitter(stage, name, session.Inputs, session.Count)
 		end,
 	},
 	["grenade puffs"] = {
@@ -224,6 +225,7 @@ function effects_editor.Load(session, category_name, name)
 	session.Name = name or category.GetNames()[1]
 	session.Trail = {}
 	session.Data = table.copy(category.GetSource(session.Name))
+	session.Inputs = {}
 	session.History = data_history.New(session.Data)
 	session.Status = ""
 	session.Selection = nil
@@ -296,7 +298,7 @@ function effects_editor.Play(session)
 	local category = effects_editor.Categories[session.Category]
 
 	if category.Play then
-		local ok, err = pcall(category.Play, session.Stage, session.Name)
+		local ok, err = pcall(category.Play, session.Stage, session.Name, session)
 		session.Status = ok and "" or tostring(err)
 		session.PlayStart = system.GetElapsedTime()
 	end
@@ -341,6 +343,7 @@ function effects_editor.CreateSession()
 		Loop = true,
 		Exposure = "day",
 		Camera = "front",
+		Count = 24,
 		GizmoMode = Gizmo.GetMode(),
 	}
 	session.View = View.New{
@@ -380,6 +383,53 @@ function effects_editor.BuildItems(session, h)
 	session.Focus = nil
 	local items = data_items.Build(session.Data, options)
 	local selection = session.Selection
+
+	if category.TestInputs then
+		local children = {
+			{
+				Key = "/test/count",
+				Text = "count",
+				Description = "how many particles a burst spawns",
+				Type = "number",
+				Value = session.Count,
+				Precision = 0,
+				Min = 1,
+				Max = 200,
+				ShowSlider = true,
+				ShowStepper = true,
+				OnChange = |_, value|-> do
+					session.Count = value
+				end,
+			},
+		}
+
+		for name, spec in table.sorted_pairs(session.Data.Inputs or {}, |a, b|->a.key < b.key) do
+			local child = {
+				Key = "/test/input/" .. name,
+				Text = name,
+				Description = "an input the caller passes to this emitter, only used while playing here",
+				OnChange = |_, value|-> do
+					session.Inputs[name] = value
+				end,
+			}
+
+			if spec.DefaultColor then
+				child.Type = "color"
+				child.Value = session.Inputs[name] or Color(unpack(spec.DefaultColor))
+			else
+				child.Type = "number"
+				child.Value = session.Inputs[name] or spec.Default
+				child.Precision = 3
+				child.ShowStepper = true
+				child.Min, child.Max = spec.Min, spec.Max
+				child.ShowSlider = spec.Min ~= nil and spec.Max ~= nil
+			end
+
+			children[#children + 1] = child
+		end
+
+		table.insert(items, 1, {Key = "/test", Text = "test inputs", Expanded = true, Children = children})
+	end
 
 	if selection then
 		local children

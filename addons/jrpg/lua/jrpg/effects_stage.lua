@@ -14,7 +14,6 @@ effects_stage.DefaultNpc = "citizen"
 local NORMAL_LENGTH = 0.6
 local SWEEP_TIME = 1
 local SWEEP_HALF_LENGTH = 1.2
-local PREVIEW_BURST_COUNT = 24
 local SWEEP_LINGER = 3
 
 function effects_stage.New(kind, npc_name)
@@ -57,17 +56,17 @@ function effects_stage.GetSubject(self)
 	return self.Target.transform:GetPosition()
 end
 
-function effects_stage.PlayEmitter(self, name)
+function effects_stage.PlayEmitter(self, name, inputs, count)
 	effects_stage.StopSweep(self)
 
 	if (emitters.Files.Source[name].RatePerMeter or 0) == 0 then
-		emitters.Burst(name, self.Chest, self.Normal, PREVIEW_BURST_COUNT)
+		emitters.Burst(name, self.Chest, self.Normal, count, inputs)
 		return
 	end
 
 	local right = Vec3(self.Toward.z, 0, -self.Toward.x)
 	self.Sweep = {
-		Entity = vfx.CreateEmitter("effects_editor_sweep", emitters.Get(name)),
+		Entity = vfx.CreateEmitter("effects_editor_sweep", emitters.Get(name, inputs)),
 		Start = system.GetElapsedTime(),
 		From = self.Chest - right * SWEEP_HALF_LENGTH,
 		To = self.Chest + right * SWEEP_HALF_LENGTH,

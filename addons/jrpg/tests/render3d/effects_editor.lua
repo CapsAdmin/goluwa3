@@ -5,7 +5,7 @@ local data_history = import("lua/data_history.lua")
 T.Test3D("the effects editor loads, edits, undoes and checks every effect definition", function()
 	local effects_editor = import("lua/jrpg/effects_editor.lua")
 	local clips = import("goluwa/render3d/clips.lua")
-	local session = {LoadId = 0, SelectId = 0}
+	local session = {LoadId = 0, SelectId = 0, Count = 24}
 	local changes = 0
 	local handlers = {
 		changed = function()
@@ -74,7 +74,21 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 	T(find_text(shader_items, "Update").CodeLanguage)["=="]("glsl")
 	T(find_text(shader_items, "Update").GetStatus())["=="](nil)
 	T(find_text(shader_items, "Sprite").Type)["=="]("string")
+	effects_editor.Load(session, "gpu emitters", "hit_force")
+	local force_items = effects_editor.BuildItems(session, handlers)
+	T(find_text(force_items, "count").Value)["=="](24)
+	local strength = find_text(force_items, "Strength")
+	T(strength.Value)["=="](3)
+	T(strength.Max)["=="](12)
+	strength.OnChange(nil, 8)
+	T(session.Inputs.Strength)["=="](8)
+	T(find_text(effects_editor.BuildItems(session, handlers), "Strength").Value)["=="](8)
+	session.Data.Inputs.Strength.Targets[1][2] = "nope"
+	T(effects_editor.Apply(session))["=="](false)
+	session.Data.Inputs.Strength.Targets[1][2] = "set"
+	T(effects_editor.Apply(session))["=="](true)
 	effects_editor.Load(session, "gpu emitters", "melee_sparks")
+	T(find_text(effects_editor.BuildItems(session, handlers), "Tint").Type)["=="]("color")
 	local emitter_items = effects_editor.BuildItems(session, handlers)
 	T(find_text(emitter_items, "RatePerMeter").Max)["=="](10000)
 	T(find_text(emitter_items, "Shape").Type)["=="]("enum")
@@ -140,9 +154,11 @@ T.Test3D("the effects stage bursts one shot emitters and sweeps path emitters", 
 	}
 	weapon_effects.Init()
 	T(vfx.HasBurst("hit_position"))["=="](true)
-	effects_stage.PlayEmitter(stage, "hit_position")
+	effects_stage.PlayEmitter(stage, "hit_position", {}, 24)
 	T(stage.Sweep)["=="](nil)
-	effects_stage.PlayEmitter(stage, "melee_sparks")
+	effects_stage.PlayEmitter(stage, "hit_force", {Strength = 5}, 10)
+	T(vfx.HasBurst(import("lua/emitters.lua").GetBurstKey("hit_force", {Strength = 5})))["=="](true)
+	effects_stage.PlayEmitter(stage, "melee_sparks", {}, 24)
 	T(stage.Sweep ~= nil)["=="](true)
 	local entity = stage.Sweep.Entity
 	local start = entity.transform:GetPosition():Copy()

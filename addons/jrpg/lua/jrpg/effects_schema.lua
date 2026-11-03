@@ -250,6 +250,7 @@ do
 	local EXCLUDED = {Visible = true, Playing = true, Loop = true, Duration = true, Seed = true, ShaderParams = true}
 	local fields = {}
 	local keys = {}
+	local input_targets = {}
 
 	for _, properties in ipairs{particle_emitter.common, particle_emitter.gpu} do
 		for _, entry in ipairs(properties) do
@@ -262,6 +263,10 @@ do
 			end
 
 			if not EXCLUDED[name] then
+				if type(default) == "number" or type(default) == "cdata" and default.r then
+					input_targets[#input_targets + 1] = name
+				end
+
 				if type(default) == "cdata" and default.r then
 					default = {default.r, default.g, default.b, default.a}
 				elseif type(default) == "cdata" then
@@ -283,7 +288,20 @@ do
 		Description = "how the particles are drawn and move beyond the common properties, see particle shaders",
 	}
 	fields.ShaderParams = {}
+	fields.Inputs = {
+		NewKey = {Name = "Input", Template = {Default = 1, Min = 0, Max = 10, Targets = {{"SpeedMax", "set"}}}},
+		Description = "values the caller passes by name when it plays this emitter (emitters.Burst, emitters.Get), each one sets, scales or adds to properties; a color input has DefaultColor instead of Default and only sets the color",
+	}
+	fields.Targets = {
+		Display = "table",
+		Columns = {
+			{Text = "property", Key = 1, Options = input_targets},
+			{Text = "mode", Key = 2, Options = {"set", "scale", "add"}},
+		},
+		Template = {"SpeedMax", "set"},
+	}
 	fields.ShapeSize = {Min = 0, Max = 100}
+	keys.Inputs = {}
 	schemas["gpu emitters"] = {Refs = refs, Fields = fields, Root = {Keys = keys}}
 end
 local PARAM_TYPES = {"float", "int", "bool", "vec3", "color", "texture"}
