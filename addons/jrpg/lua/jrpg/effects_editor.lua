@@ -14,6 +14,9 @@ local easing = import("goluwa/math/easing.lua")
 local View = import("goluwa/render3d/view.lua")
 local clips = import("goluwa/render3d/clips.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
+local surface_overlay_preview = import("goluwa/render3d/surface_overlay_preview.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local Canvas = import("lua/editor_kit.lua").Canvas
 local view_camera = import("lua/view_camera.lua")
 local data_items = import("lua/data_items.lua")
 local data_schema = import("lua/data_schema.lua")
@@ -42,6 +45,7 @@ local RESTART_DELAY = 0.25
 local PREVIEW_WIDTH = 420
 effects_editor.LastCategory = "damage types"
 effects_editor.LastName = "fire"
+effects_editor.OverlayPreviewShape = "sphere"
 effects_editor.LastStage = "player"
 effects_editor.LastNpc = effects_stage.DefaultNpc
 effects_editor.CategoryNames = {
@@ -56,6 +60,7 @@ effects_editor.CategoryNames = {
 	"scripts",
 }
 
+local OVERLAY_WINDOW_HEADER = 70
 local CLIP_DEFAULT_PARAMS = {size = 0.3, fade = 1, flicker = 1, lens_scale = 1, trail_radius = 0.03}
 
 local REF_CATEGORIES = {
@@ -496,6 +501,28 @@ function effects_editor.StartPreview(session)
 		effects_editor.Play(session)
 	elseif session.OverlayHandles then
 		effects_editor.Stop(session)
+	end
+end
+
+function effects_editor.RenderOverlayPreview(session)
+	local size = effects_editor.OverlayPreviewCanvas
+	local width = size and math.max(math.floor(size.x), surface_overlay_preview.MIN_SIZE) or surface_overlay_preview.SIZE
+	local height = size and math.max(math.floor(size.y), surface_overlay_preview.MIN_SIZE) or surface_overlay_preview.SIZE
+	local handle = session.OverlayHandles and session.OverlayHandles[1]
+	local ok, result = pcall(
+		surface_overlay_preview.Render,
+		width,
+		height,
+		effects_editor.OverlayPreviewShape,
+		session.Name,
+		handle and handle:IsActive() and handle.layer or nil,
+		surface_overlays.GetTime()
+	)
+
+	if ok then
+		effects_editor.OverlayPreviewTexture = result
+	else
+		session.Status = surface_overlays.ParseError(tostring(result))
 	end
 end
 
@@ -1031,6 +1058,17 @@ local EffectsEditor = react.Component(
 				effects_stage.Update(session.Stage, session.View:GetPosition())
 				effects_editor.Tick(session, system.GetElapsedTime())
 
+				if session.Category == "overlays" then
+					effects_editor.RenderOverlayPreview(session)
+
+					local shown = tostring(surface_overlays.IsRebuilding()) .. (surface_overlay_preview.GetShapeStatus(effects_editor.OverlayPreviewShape) or "")
+
+					if session.ShownPreviewState ~= shown then
+						session.ShownPreviewState = shown
+						h.refresh()
+					end
+				end
+
 				if session.PlayStart or session.OverlayHandles and session.OverlayHandles[1]:IsActive() then
 					h.refresh()
 				end
@@ -1060,7 +1098,21 @@ local EffectsEditor = react.Component(
 			{session.LoadId, session.SelectId}
 		)
 		local category = effects_editor.Categories[session.Category]
+		local draw_overlay_preview = react.UseCallback(
+			|self|-> do
+				local size = self.Owner.transform:GetSize()
+				effects_editor.OverlayPreviewCanvas = size
+				render2d.PushTexture(effects_editor.OverlayPreviewTexture)
+				render2d.PushColorUV(0, 1, 1, 0, 0)
+				render2d.SetColor(1, 1, 1, 1)
+				render2d.DrawRect(0, 0, size.x, size.y)
+				render2d.PopColorUV()
+				render2d.PopTexture()
+			end,
+			{}
+		)
 		local screen = Panel.World.transform:GetSize()
+		local overlay_window_size = Vec2(surface_overlay_preview.SIZE, surface_overlay_preview.SIZE + OVERLAY_WINDOW_HEADER)
 		local preview_position = react.UseMemo(||->Vec2(LEFT_WIDTH + 12, 12), {})
 		local test_items = react.UseMemo(
 			||->category.TestInputs and effects_editor.BuildTestInputs(session) or {},
@@ -1251,10 +1303,63 @@ local EffectsEditor = react.Component(
 								layout = {GrowWidth = 1},
 							},
 						},
+								category.Lasting and ui.Text{
+									Text = surface_overlays.IsRebuilding() and "building the game shaders..." or "",
+									Color = "text_disabled",
+									Font = "body XS",
+									IgnoreMouseInput = true,
+								},
 						category.TestInputs and ui.PropertyEditor{
 							Ref = test_properties,
 							Items = {{Key = "/test", Text = "test inputs", Expanded = true, Children = test_items}},
 							layout = {GrowWidth = 1, FitHeight = true, FitWidth = false},
+						},
+					},
+				},
+			},
+			category.Lasting and react.Portal{Target = Panel.World}{
+				ui.Window{
+					Key = "EffectsEditorOverlayPreview",
+					Title = "OVERLAY PREVIEW",
+					Name = "effects editor overlay preview",
+					RequestMouse = true,
+					Size = overlay_window_size,
+					Position = Vec2(
+						math.floor((screen.x - overlay_window_size.x) / 2),
+						math.floor((screen.y - overlay_window_size.y) / 2)
+					),
+					Padding = Rect(),
+					Closable = false,
+					Minimizable = false,
+					Maximizable = false,
+					layout = {FitHeight = false, FitWidth = false},
+				}{
+					ui.Column{
+						layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch", ChildGap = 4},
+					}{
+						ui.Row{layout = {GrowWidth = 1, ChildGap = 8, AlignmentY = "center", Padding = Rect(6, 4, 6, 0)}}{
+							ui.Dropdown{
+								Key = "overlay preview shape",
+								Options = surface_overlay_preview.SHAPES,
+								Value = effects_editor.OverlayPreviewShape,
+								Padding = "XS",
+								OnSelect = |value|-> do
+									effects_editor.OverlayPreviewShape = value
+									h.refresh()
+								end,
+								layout = {MinSize = Vec2(110, 0), MaxSize = Vec2(110, 0), GrowWidth = 0},
+							},
+							ui.Text{
+								Text = surface_overlay_preview.GetShapeStatus(effects_editor.OverlayPreviewShape) or "",
+								Color = "text_disabled",
+								Font = "body XS",
+								IgnoreMouseInput = true,
+							},
+						},
+						Canvas{
+							Name = "OverlayPreview",
+							OnDraw = draw_overlay_preview,
+							layout = {GrowWidth = 1, GrowHeight = 1},
 						},
 					},
 				},

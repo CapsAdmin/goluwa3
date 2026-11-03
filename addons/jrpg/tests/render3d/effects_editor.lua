@@ -680,6 +680,7 @@ T.Test3D("source particles are only scanned once the source particles category i
 end)
 
 T.Test3D("an overlay preview lasts until cleared and its fade slider holds the layers", function()
+	local Vec2 = import("goluwa/structs/vec2.lua")
 	local effects_editor = import("lua/jrpg/effects_editor.lua")
 	local session = {
 		LoadId = 0,
@@ -720,6 +721,18 @@ T.Test3D("an overlay preview lasts until cleared and its fade slider holds the l
 	end
 	effects_editor.Load(session, "overlays", "status_lightning")
 	T(category.Lasting)["=="](true)
+	session.Status = ""
+	effects_editor.RenderOverlayPreview(session)
+	T(session.Status)["=="](""
+)
+	T(effects_editor.OverlayPreviewTexture ~= nil)["=="](true)
+	effects_editor.OverlayPreviewCanvas = Vec2(200.6, 120)
+	effects_editor.RenderOverlayPreview(session)
+	T(effects_editor.OverlayPreviewTexture:GetWidth())["=="](200)
+	T(effects_editor.OverlayPreviewTexture:GetHeight())["=="](120)
+	T(session.Status)["=="](""
+)
+	effects_editor.OverlayPreviewCanvas = nil
 	session.AutoRestart = false
 	effects_editor.QueueRestart(session)
 	T(session.RestartAt ~= nil)["=="](true)
