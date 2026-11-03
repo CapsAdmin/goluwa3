@@ -18,7 +18,10 @@ local function build(data, inputs)
 		end
 	end
 
-	if not declared then return properties end
+	if not declared then
+		particle_emitter.CheckProperties(properties)
+		return properties
+	end
 
 	for input_name, spec in pairs(declared) do
 		local value = inputs and inputs[input_name]
@@ -54,6 +57,7 @@ local function build(data, inputs)
 		end
 	end
 
+	particle_emitter.CheckProperties(properties)
 	return properties
 end
 

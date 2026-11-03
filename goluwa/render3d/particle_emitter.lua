@@ -122,6 +122,65 @@ do
 	end
 end
 
+do
+	local known
+
+	function particle_emitter.CheckProperties(properties)
+		if not known then
+			known = {}
+
+			for _, list in ipairs{particle_emitter.common, particle_emitter.gpu} do
+				for _, entry in ipairs(list) do
+					known[entry[1]] = entry
+				end
+			end
+		end
+
+		for name, value in pairs(properties) do
+			local entry = known[name] or error("unknown gpu emitter property " .. tostring(name), 0)
+			local check = entry[3]
+
+			if type(check) == "table" and not check.validate then
+				if not table.has_value(check, value) then
+					error(
+						(
+							"%s: expected one of %s, got %s"
+						):format(name, table.concat(check, ", "), tostring(value)),
+						0
+					)
+				end
+			elseif type(check) == "table" and check.validate == "integer" then
+				if type(value) ~= "number" or value % 1 ~= 0 then
+					error(("%s: expected an integer, got %s"):format(name, tostring(value)), 0)
+				end
+
+				if value < check.min or value > check.max then
+					error(("%s: expected %d to %d, got %d"):format(name, check.min, check.max, value), 0)
+				end
+			elseif type(check) == "table" and check.validate == "number" then
+				if type(value) ~= "number" then
+					error(("%s: expected a number, got %s"):format(name, tostring(value)), 0)
+				end
+			elseif type(check) == "table" and check.validate == "boolean" then
+				if type(value) ~= "boolean" then
+					error(("%s: expected true or false, got %s"):format(name, tostring(value)), 0)
+				end
+			elseif type(check) == "table" and entry[5] == "range" then
+				if
+					type(value) ~= "number" and
+					not (
+						type(value) == "table" and
+						type(value[1]) == "number" and
+						type(value[2]) == "number"
+					)
+				then
+					error(("%s: expected a number or {min, max}, got %s"):format(name, tostring(value)), 0)
+				end
+			end
+		end
+	end
+end
+
 function particle_emitter.GetRange(value)
 	if type(value) == "number" then return value, value end
 

@@ -66,7 +66,10 @@ T.Test("emitter inputs set, scale and add properties and fall back to their defa
 end)
 
 T.Test("emitter inputs fall back to the component default of a property the file leaves out", function()
-	local data = {MaxParticles = 8, Inputs = {Tint = {DefaultColor = {1, 0, 0, 1}, Targets = {{"ColorEnd", "set"}}}}}
+	local data = {
+		MaxParticles = 8,
+		Inputs = {Tint = {DefaultColor = {1, 0, 0, 1}, Targets = {{"ColorEnd", "set"}}}},
+	}
 	emitters.Update("default_fallback", data)
 	local properties = emitters.Get("default_fallback", {Tint = Color(0, 1, 0, 1)})
 	T(properties.ColorEnd.g)["=="](1)
@@ -78,4 +81,46 @@ T.Test("emitter inputs fall back to the component default of a property the file
 	local list = import("goluwa/list.lua")
 	list.remove_value(emitters.Names, "default_fallback")
 	emitters.Files.Source.default_fallback = nil
+end)
+
+T.Test("emitters reject values the emitter component would reject, and keep the last good data", function()
+	local good = table.copy(emitters.Files.Source.tool_hit)
+
+	local function rejected(change)
+		local data = table.copy(good)
+		change(data)
+		local ok = pcall(emitters.Update, "tool_hit", data)
+		T(emitters.Files.Source.tool_hit.MaxParticles)["=="](good.MaxParticles)
+		return not ok
+	end
+
+	T(rejected(function(data)
+		data.MaxParticles = 100.5
+	end))["=="](true)
+	T(rejected(function(data)
+		data.MaxParticles = 0
+	end))["=="](true)
+	T(rejected(function(data)
+		data.MaxParticles = 100000
+	end))["=="](true)
+	T(rejected(function(data)
+		data.Shape = "blob"
+	end))["=="](true)
+	T(rejected(function(data)
+		data.Lit = "yes"
+	end))["=="](true)
+	T(rejected(function(data)
+		data.Drag = {1}
+	end))["=="](true)
+	T(rejected(function(data)
+		data.Rate = {1, 2}
+	end))["=="](true)
+	T(rejected(function(data)
+		data.NotAProperty = 1
+	end))["=="](true)
+	local data = table.copy(good)
+	data.MaxParticles = 128
+	data.Drag = {1, 2}
+	T(pcall(emitters.Update, "tool_hit", data))["=="](true)
+	emitters.Update("tool_hit", good)
 end)
