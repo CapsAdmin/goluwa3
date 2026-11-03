@@ -1,7 +1,7 @@
 local new_event = import("goluwa/network/replicated_event.lua")
 local Color = import("goluwa/structs/color.lua")
 local clients = import("goluwa/network/clients.lua")
-local data_files = import("goluwa/data_files.lua")
+local emitters = import("lua/emitters.lua")
 local weapon_effects = {}
 local FLASH_LUMEN = 40
 local FLASH_TIME = 0.06
@@ -18,14 +18,6 @@ local clips
 local sounds
 local Beam
 
-local function burst(properties)
-	properties.Lit = false
-	properties.Collision = "none"
-	properties.GravityScale = 0
-	properties.MaxParticles = 256
-	return properties
-end
-
 local function get_owner_client(weapon)
 	return weapon.network and
 		clients.GetByUniqueID(weapon.network:GetNetworkOwner()) or
@@ -36,34 +28,16 @@ local function enabled()
 	return RENDER_3D and import("goluwa/render/render.lua").IsInitialized()
 end
 
-weapon_effects.BurstFiles = data_files.New("lua/effect_data/")
-weapon_effects.BurstFiles:Remember("weapon_bursts", import("lua/effect_data/weapon_bursts.lua"))
-weapon_effects.BurstNames = {"tool_hit", "muzzle_flash", "hit_position", "hit_normal"}
-
-function weapon_effects.UpdateBursts(data)
-	vfx = vfx or import("goluwa/render3d/vfx.lua")
-	weapon_effects.BurstFiles:Remember("weapon_bursts", data)
-
-	for _, name in ipairs(weapon_effects.BurstNames) do
-		vfx.DefineBurst(name, burst(data_files.Realize(table.copy(data[name]))))
-	end
-end
-
-function weapon_effects.ReloadBursts()
-	weapon_effects.UpdateBursts(weapon_effects.BurstFiles:Read("weapon_bursts"))
-end
-
-function weapon_effects.SaveBursts()
-	return weapon_effects.BurstFiles:Save("weapon_bursts")
-end
-
 local function init()
 	if clips then return end
 
 	vfx = import("goluwa/render3d/vfx.lua")
 	clips = import("goluwa/render3d/clips.lua")
 	Beam = import("goluwa/render3d/beam.lua")
-	weapon_effects.UpdateBursts(weapon_effects.BurstFiles.Source.weapon_bursts)
+	emitters.DefineBurst("hit_position")
+	emitters.DefineBurst("hit_normal")
+	emitters.DefineBurst("muzzle_flash")
+	emitters.DefineBurst("tool_hit")
 	clips.Define(
 		"weapon_hit",
 		{
@@ -79,22 +53,9 @@ local function init()
 						local key = "hit_force_" .. p.speed
 
 						if not vfx.HasBurst(key) then
-							vfx.DefineBurst(
-								key,
-								burst{
-									Spread = 0,
-									SpeedMin = 0.1,
-									SpeedMax = p.speed,
-									LifetimeMin = 0.9,
-									LifetimeMax = 0.9,
-									SizeStart = 0.015,
-									SizeEnd = 0.015,
-									Drag = 0,
-									Emissive = 2e5,
-									ColorStart = Color(1, 0.3, 0.15, 1),
-									ColorEnd = Color(1, 0.3, 0.15, 0),
-								}
-							)
+							local properties = emitters.Get("hit_force")
+							properties.SpeedMax = p.speed
+							vfx.DefineBurst(key, properties)
 						end
 
 						vfx.Burst(key, p.position, p.force_direction, 16)

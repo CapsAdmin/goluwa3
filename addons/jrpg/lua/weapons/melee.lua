@@ -15,6 +15,7 @@ local damage = import("lua/damage.lua")
 local effects = import("lua/jrpg/effects.lua")
 local sounds = import("lua/sounds.lua")
 local effect_exposure = import("lua/jrpg/effect_exposure.lua")
+local emitters = import("lua/emitters.lua")
 local META = objects.CreateTemplate("weapon_melee")
 META:StartStorable()
 META:GetSet("Moveset", "sword")
@@ -46,9 +47,7 @@ local LINE_STRENGTH = 6
 local LINE_RADIUS = 0.03
 local LINE_POINTS = 48
 local LINE_TAPER = 0.8
-local SPARK_DENSITY = 20
 local SPARK_FADE = 1.6
-local WHITE = Color(1, 1, 1, 1)
 local SWING_SOUNDS = {"npc/zombie/claw_miss1.wav", "npc/zombie/claw_miss2.wav"}
 
 function META:Initialize()
@@ -561,33 +560,10 @@ function META:OnUpdate(dt)
 	end
 
 	if not self.sparks then
-		self.sparks = effects.vfx.CreateEmitter(
-			"melee_sparks",
-			{
-				MaxParticles = 512,
-				Rate = 0,
-				RatePerMeter = SPARK_DENSITY,
-				Shape = "point",
-				Spread = 80,
-				SpeedMin = 0.18,
-				SpeedMax = 0.66,
-				LifetimeMin = 0.75,
-				LifetimeMax = 1.5,
-				Drag = 12,
-				GravityScale = 0,
-				SizeStart = 0.004,
-				SizeEnd = 0.0014,
-				SizeJitter = 0.5,
-				ColorStart = WHITE,
-				ColorEnd = Color(self.color.r, self.color.g, self.color.b, 0),
-				Emissive = 4e5,
-				ExposureCompensation = effect_exposure.particles,
-				Lit = false,
-				Flow = 0.3,
-				Fizzle = 1,
-				Collision = "none",
-			}
-		)
+		local properties = emitters.Get("melee_sparks")
+		properties.ColorEnd = Color(self.color.r, self.color.g, self.color.b, 0)
+		properties.ExposureCompensation = effect_exposure.particles
+		self.sparks = effects.vfx.CreateEmitter("melee_sparks", properties)
 	end
 
 	self.sparks.transform:SetPosition(tip)

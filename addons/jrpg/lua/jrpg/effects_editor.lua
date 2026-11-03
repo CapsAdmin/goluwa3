@@ -12,7 +12,6 @@ local system = import("goluwa/system.lua")
 local easing = import("goluwa/math/easing.lua")
 local View = import("goluwa/render3d/view.lua")
 local clips = import("goluwa/render3d/clips.lua")
-local vfx = import("goluwa/render3d/vfx.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local view_camera = import("lua/view_camera.lua")
 local data_items = import("lua/data_items.lua")
@@ -21,7 +20,6 @@ local data_history = import("lua/data_history.lua")
 local Gizmo = import("lua/gizmo.lua")
 local npcs = import("lua/npcs.lua")
 local sounds = import("lua/sounds.lua")
-local weapon_effects = import("lua/weapon_effects.lua")
 local emitters = import("lua/emitters.lua")
 local grenade_effects = import("lua/grenade_effects.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
@@ -49,7 +47,6 @@ effects_editor.CategoryNames = {
 	"clips",
 	"overlays",
 	"particle styles",
-	"weapon bursts",
 	"emitters",
 	"grenade puffs",
 	"scripts",
@@ -144,21 +141,6 @@ effects_editor.Categories = {
 		Duplicate = |name|->particle_style_library.Create(particle_style_library.GetNewName(name), name),
 		Play = |stage, name|-> do
 			effects.PlayParticleStyle(stage.Chest, name)
-		end,
-	},
-	["weapon bursts"] = {
-		Schema = effects_schema.Schemas["weapon bursts"],
-		GetNames = ||->{"weapon_bursts"},
-		GetSource = ||->weapon_effects.BurstFiles.Source.weapon_bursts,
-		Update = |name, data|->weapon_effects.UpdateBursts(data),
-		Reload = weapon_effects.ReloadBursts,
-		Save = weapon_effects.SaveBursts,
-		Play = |stage|-> do
-			weapon_effects.Init()
-
-			for _, name in ipairs(weapon_effects.BurstNames) do
-				vfx.Burst(name, stage.Chest, stage.Normal, 24)
-			end
 		end,
 	},
 	emitters = {

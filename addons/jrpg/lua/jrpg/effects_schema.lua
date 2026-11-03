@@ -226,7 +226,6 @@ local schemas = {
 		},
 		Root = {},
 	},
-	["weapon bursts"] = {Refs = refs, Fields = {Spread = {Min = 0, Max = 180}}, Root = {}},
 	["grenade puffs"] = {
 		Refs = refs,
 		Labels = {Styles = function(style)
