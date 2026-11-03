@@ -160,12 +160,12 @@ T.Test3D("surface overlay params are named per kind and a config overrides the d
 		Collision = false,
 		RigidBody = false,
 	}
-	local defaults = surface_overlays.DefaultFiles.Source.radiant
+	local params = surface_overlays.GetParams("radiant")
 	local plain = surface_overlays.Add(sphere.visual, "radiant")
 	local custom = surface_overlays.Add(sphere.visual, "radiant", {RayCount = 3})
-	T(math.abs(plain.layer.params[0] - defaults.Emissive))["<"](1e-6)
-	T(math.abs(plain.layer.params[1] - defaults.RayCount))["<"](1e-6)
-	T(math.abs(custom.layer.params[0] - defaults.Emissive))["<"](1e-6)
+	T(math.abs(plain.layer.params[0] - params[1].Default))["<"](1e-6)
+	T(math.abs(plain.layer.params[1] - params[2].Default))["<"](1e-6)
+	T(math.abs(custom.layer.params[0] - params[1].Default))["<"](1e-6)
 	T(custom.layer.params[1])["=="](3)
 	T(custom.layer.params[2])["=="](0)
 	T(#surface_overlays.GetParams("charred"))["=="](0)
@@ -205,5 +205,85 @@ T.Test3D("a surface overlay fade can be held, read and resumed", function()
 	T(math.abs(handle:GetFade() - 0.375))["<"](1e-6)
 	surface_overlays.GetTime = get_time
 	surface_overlays.Clear(sphere.visual)
+	sphere:Remove()
+end)
+
+T.Test("overlay kinds are checked when registered", function()
+	local source = surface_overlays.Files.Source.crystallize
+
+	local function broken(change)
+		local data = table.copy(source)
+		change(data)
+		return select(2, pcall(surface_overlays.Register, "overlay_check_kind", data))
+	end
+
+	T(broken(function(data)
+		data.Params = {{Name = "A", Default = 0}, {Name = "B", Default = 0}, {Name = "C", Default = 0}, {Name = "D", Default = 0}, {Name = "E", Default = 0}}
+	end):find("more than 4", 1, true) ~= nil)["=="](true)
+	T(broken(function(data)
+		data.Params = {{Name = "RayCount", Default = 1}, {Name = "RayCount", Default = 1}}
+	end):find("twice", 1, true) ~= nil)["=="](true)
+	T(broken(function(data)
+		data.Params = {{Name = "Fade", Default = 1}}
+	end):find("reserved", 1, true) ~= nil)["=="](true)
+	T(broken(function(data)
+		data.Params = {{Name = "lower", Default = 1}}
+	end):find("PascalCase", 1, true) ~= nil)["=="](true)
+	T(broken(function(data)
+		data.Params = {{Name = "Strength"}}
+	end):find("Default", 1, true) ~= nil)["=="](true)
+	T(broken(function(data)
+		data.Source = nil
+	end):find("Source", 1, true) ~= nil)["=="](true)
+	T(#surface_overlays.GetKindNames())[">="](18)
+end)
+
+T.Test3D("an overlay edit is checked in the preview shader and a bad one is rolled back", function()
+	local original = surface_overlays.Files.Source.crystallize.Source
+	local broken = table.copy(surface_overlays.Files.Source.crystallize)
+	broken.Source = broken.Source .. "\nbroken_call(1);\n"
+	local ok, err = pcall(surface_overlays.UpdateKind, "crystallize", broken)
+	T(ok)["=="](false)
+	T(err:find("crystallize line", 1, true) ~= nil)["=="](true)
+	T(surface_overlays.GetStatus("crystallize"))["=="](err)
+	T(surface_overlays.Files.Source.crystallize.Source)["=="](original)
+	T(surface_overlays.GetSignature("crystallize"):find("broken_call", 1, true))["=="](nil)
+	surface_overlays.UpdateKind("crystallize", table.copy(surface_overlays.Files.Source.crystallize))
+	T(surface_overlays.GetStatus("crystallize"))["=="](nil)
+	T(surface_overlays.IsRebuilding())["=="](false)
+end)
+
+T.Test3D("the overlay preview draws each shape and follows the layer's fade", function()
+	local preview = import("goluwa/render3d/surface_overlay_preview.lua")
+	local sphere = shapes.Sphere{
+		Position = Vec3(0, 0, 0),
+		Radius = 1,
+		Material = shapes.Material{Color = Color(1, 1, 1, 1), Roughness = 0.5, Metallic = 0},
+		Collision = false,
+		RigidBody = false,
+	}
+	local width, height = 160, 120
+
+	local function shade(shape, fade)
+		local handle = surface_overlays.Add(sphere.visual, "status_fire", {})
+		handle:SetFade(fade)
+		local texture = preview.Render(width, height, shape, "status_fire", handle.layer, 3)
+		local r, g, b = texture:GetPixel(width / 2, height / 2)
+		local corner = {texture:GetPixel(1, 1)}
+		surface_overlays.Clear(sphere.visual)
+		return r + g + b, corner[1] + corner[2] + corner[3], texture
+	end
+
+	for _, shape in ipairs{"sphere", "box"} do
+		local off, background, texture = shade(shape, 0)
+		local on = shade(shape, 1)
+		T(texture:GetWidth())["=="](width)
+		T(texture:GetHeight())["=="](height)
+		T(off)[">"](background)
+		T(math.abs(on - off))[">"](0.05)
+	end
+
+	T(preview.GetShapeStatus("sphere"))["=="](nil)
+	T(preview.Check("status_fire"))["=="](nil)
 	sphere:Remove()
 end)

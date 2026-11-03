@@ -18,29 +18,86 @@ surface_overlays.REFERENCE_EV = 9
 surface_overlays.MAX_EXPOSURE_GAIN_EV = 7
 surface_overlays.EXPOSURE_OVERSHOOT = 1.35
 surface_overlays.kinds = {}
-
-for _, file in ipairs(vfs.Find("lua/surface_overlays/%.lua$")) do
-	surface_overlays.kinds[#surface_overlays.kinds + 1] = import("lua/surface_overlays/" .. file)
-end
-
+surface_overlays.Errors = {}
+surface_overlays.Files = data_files.New(
+	"lua/surface_overlays/",
+	{"FadeIn", "FadeOut", "Intensity", "Scale", "Speed", "Daylight", "ColorA", "ColorB", "Params", "Source"}
+)
 local kinds = surface_overlays.kinds
 local kinds_by_name = {}
-surface_overlays.DefaultFiles = data_files.New("lua/surface_overlays/defaults/")
+local RESERVED_PARAMS = {
+	s = true,
+	w = true,
+	l = true,
+	c = true,
+	age = true,
+	t = true,
+	grow = true,
+	outro = true,
+	fade = true,
+}
 
-function surface_overlays.SetDefaults(name, data)
-	for _, param in ipairs(kinds_by_name[name].params) do
-		assert(type(data[param.Name]) == "number", name .. " needs a number for " .. param.Name)
-	end
-
-	surface_overlays.DefaultFiles:Remember(name, data)
-	kinds_by_name[name].defaults = data_files.Realize(table.copy(data))
+function surface_overlays.GetParamIdentifier(name)
+	return (name:gsub("(%l)(%u)", "%1_%2"):lower())
 end
 
-for i, kind in ipairs(kinds) do
-	assert(#kind.params <= 4, kind.name .. " has more than 4 params")
-	kind.index = i
-	kinds_by_name[kind.name] = kind
-	surface_overlays.SetDefaults(kind.name, import("lua/surface_overlays/defaults/" .. kind.name .. ".lua"))
+function surface_overlays.Register(name, data)
+	assert(type(name) == "string" and name:find("^[%w_]+$"), "overlay names are letters, digits and underscores")
+	assert(type(data.Source) == "string", name .. " needs a Source")
+	local params = data.Params or {}
+	assert(#params <= 4, name .. " has more than 4 params")
+	local seen = {}
+
+	for _, param in ipairs(params) do
+		assert(
+			type(param.Name) == "string" and param.Name:find("^[A-Z][%w]*$"),
+			name .. " param names are PascalCase letters and digits"
+		)
+		local identifier = surface_overlays.GetParamIdentifier(param.Name)
+		assert(not RESERVED_PARAMS[identifier], name .. " param " .. param.Name .. " is a reserved glsl name")
+		assert(not seen[identifier], name .. " has the param " .. param.Name .. " twice")
+		seen[identifier] = true
+		assert(type(param.Default) == "number", name .. " param " .. param.Name .. " needs a number Default")
+	end
+
+	surface_overlays.Files:Remember(name, data)
+	local kind = kinds_by_name[name]
+
+	if not kind then
+		kind = {name = name, index = #kinds + 1}
+		kinds[#kinds + 1] = kind
+		kinds_by_name[name] = kind
+	end
+
+	local identifiers = {}
+
+	for i, param in ipairs(params) do
+		identifiers[i] = surface_overlays.GetParamIdentifier(param.Name)
+	end
+
+	kind.signature = data.Source .. "\0" .. table.concat(identifiers, ",")
+	kind.params = table.copy(params)
+	kind.glsl = data.Source
+	kind.defaults = data_files.Realize(table.copy(data))
+	return kind
+end
+
+do
+	local names = {}
+
+	for _, file in ipairs(vfs.Find("lua/surface_overlays/%.lua$")) do
+		names[#names + 1] = file:gsub("%.lua$", "")
+	end
+
+	table.sort(names)
+
+	for _, name in ipairs(names) do
+		surface_overlays.Register(name, surface_overlays.Files:Read(name))
+	end
+end
+
+function surface_overlays.GetSignature(name)
+	return kinds_by_name[name].signature
 end
 
 function surface_overlays.GetParams(name)
@@ -57,12 +114,123 @@ function surface_overlays.GetKindNames()
 	return names
 end
 
-function surface_overlays.ReloadDefaults(name)
-	surface_overlays.SetDefaults(name, surface_overlays.DefaultFiles:Read(name))
+do
+	local PASS_PATHS = {"goluwa/render3d/passes/gbuffer.lua", "goluwa/render3d/passes/translucent.lua"}
+	local REBUILD_DELAY = 1.5
+	local rebuild = {active = 0}
+
+	local function on_rebuild_done()
+		rebuild.active = rebuild.active - 1
+	end
+
+	local function rebuild_pipelines()
+		local render3d = import("goluwa/render3d/render3d.lua")
+		local passes = {}
+
+		for _, path in ipairs(PASS_PATHS) do
+			local old = import.loaded[path]
+			import.loaded[path] = nil
+			passes[path] = {old = old, fresh = import(path)}
+		end
+
+		for bundle in pairs(render3d.bundles) do
+			local names = {}
+
+			for _, path in ipairs(PASS_PATHS) do
+				local entry = passes[path]
+
+				for index, pass in ipairs(bundle.options.passes or {}) do
+					if pass == entry.old then bundle.options.passes[index] = entry.fresh end
+				end
+
+				for _, config in ipairs(entry.fresh) do
+					if bundle.pipelines[config.name] then names[#names + 1] = config.name end
+				end
+			end
+
+			if names[1] then
+				rebuild.active = rebuild.active + 1
+				local ok, err = pcall(render3d.RebuildPipelinesAsync, bundle, names, on_rebuild_done)
+
+				if not ok then
+					rebuild.active = rebuild.active - 1
+					surface_overlays.BuildError = surface_overlays.ParseError(tostring(err))
+					logn("failed to rebuild overlay pipelines: ", surface_overlays.BuildError)
+				end
+			end
+		end
+	end
+
+	event.AddListener("Update", "surface_overlays_rebuild", function()
+		if rebuild.at and system.GetTime() >= rebuild.at and rebuild.active == 0 then
+			rebuild.at = nil
+			surface_overlays.BuildError = nil
+			rebuild_pipelines()
+		end
+	end)
+
+	function surface_overlays.IsRebuilding()
+		return rebuild.at ~= nil or rebuild.active > 0
+	end
+
+	function surface_overlays.UpdateKind(name, data)
+		local previous = surface_overlays.Files.Source[name]
+		local previous_signature = kinds_by_name[name] and kinds_by_name[name].signature
+		local ok, err = pcall(surface_overlays.Register, name, data)
+
+		if ok and RENDER_3D and render.IsInitialized() then
+			local message = import("goluwa/render3d/surface_overlay_preview.lua").Check(name)
+
+			if message then ok, err = false, message end
+		end
+
+		if not ok then
+			if previous then
+				surface_overlays.Register(name, previous)
+			elseif kinds[#kinds] and kinds[#kinds].name == name then
+				kinds[#kinds] = nil
+				kinds_by_name[name] = nil
+				surface_overlays.Files.Source[name] = nil
+			end
+
+			surface_overlays.Errors[name] = tostring(err)
+			error(err, 0)
+		end
+
+		surface_overlays.Errors[name] = nil
+
+		if kinds_by_name[name].signature ~= previous_signature and RENDER_3D and render.IsInitialized() then
+			rebuild.at = system.GetTime() + REBUILD_DELAY
+		end
+	end
 end
 
-function surface_overlays.SaveDefaults(name)
-	return surface_overlays.DefaultFiles:Save(name)
+function surface_overlays.GetStatus(name)
+	return surface_overlays.Errors[name] or surface_overlays.BuildError
+end
+
+function surface_overlays.GetNewName(name)
+	local base = name:gsub("_?%d+$", "")
+	local index = 2
+
+	while kinds_by_name[base .. "_" .. index] do
+		index = index + 1
+	end
+
+	return base .. "_" .. index
+end
+
+function surface_overlays.CreateKind(name, from)
+	surface_overlays.UpdateKind(name, table.copy(surface_overlays.Files.Source[from]))
+	return name
+end
+
+function surface_overlays.ReloadKind(name)
+	return surface_overlays.UpdateKind(name, surface_overlays.Files:Read(name))
+end
+
+function surface_overlays.SaveKind(name)
+	return surface_overlays.Files:Save(name)
 end
 
 local LAYER_FIELDS = [[
@@ -206,7 +374,7 @@ function surface_overlays.Add(visual, kind_name, config)
 
 	for i = 1, 4 do
 		local param = kind.params[i]
-		layer.params[i - 1] = param and (config[param.Name] or defaults[param.Name]) or 0
+		layer.params[i - 1] = param and (config[param.Name] or param.Default) or 0
 	end
 
 	slot_table:Touch(state.slot)
@@ -367,45 +535,34 @@ function surface_overlays.WriteBlock(self, block)
 	return block
 end
 
-function surface_overlays.GetGLSL(block_name)
-	local functions = {}
-	local cases = {}
+local function get_kind_glsl(kind)
+	local declarations = {}
 
-	for _, kind in ipairs(kinds) do
-		local declarations = {}
+	for i, param in ipairs(kind.params) do
+		declarations[i] = string.format(
+			"float %s = l.params.%s;",
+			surface_overlays.GetParamIdentifier(param.Name),
+			("xyzw"):sub(i, i)
+		)
+	end
 
-		for i, param in ipairs(kind.params) do
-			declarations[i] = string.format(
-				"float %s = l.params.%s;",
-				param.Name:gsub("(%l)(%u)", "%1_%2"):lower(),
-				("xyzw"):sub(i, i)
-			)
-		end
-
-		functions[#functions + 1] = string.format(
-			"void overlay_kind_%s(inout Surface s, inout SurfaceWeather w, OverlayLayer l, OverlayContext c, float age, float t, float grow, float outro, float fade) {\n%s\n%s\n}\n",
+	return string.format(
+			"void overlay_kind_%s(inout Surface s, inout SurfaceWeather w, OverlayLayer l, OverlayContext c, float age, float t, float grow, float outro, float fade) {\n%s\n#line 1 %d\n%s\n}\n",
 			kind.name,
 			table.concat(declarations, "\n"),
+			kind.index,
 			kind.glsl
-		)
-		cases[#cases + 1] = string.format(
+		),
+		string.format(
 			"case %d: overlay_kind_%s(s, w, l, layer_context, age, t, grow, outro, fade); break;",
 			kind.index,
 			kind.name
 		)
-	end
+end
 
-	return (
-		glsl_common.GetNoiseGLSL() .. exposure_compensation.GetGLSL() .. [[
+local function get_helpers_glsl()
+	return glsl_common.GetNoiseGLSL() .. exposure_compensation.GetGLSL() .. [[
 		struct OverlayLayer {]] .. LAYER_FIELDS:gsub("float ([%w_]+)%[4%];", "vec4 %1;"):gsub("float ([%w_]+)%[2%];", "vec2 %1;"):gsub("int32_t", "int") .. [[};
-
-		struct OverlaySlot {
-			vec3 center;
-			float radius;
-			OverlayLayer layers[]] .. surface_overlays.MAX_LAYERS .. [[];
-		};
-
-		layout(buffer_reference, scalar) readonly buffer SurfaceOverlaySlots { OverlaySlot slots[]; };
 
 		struct OverlayContext {
 			vec3 P;
@@ -587,7 +744,74 @@ function surface_overlays.GetGLSL(block_name)
 			s.N = normalize(mix(s.N, normalize(s.geometric_N + tilt - s.geometric_N * dot(tilt, s.geometric_N)), amount));
 		}
 
-		]] .. table.concat(functions, "\n") .. [[
+	]]
+end
+
+local APPLY_LAYER_GLSL = [[
+	void overlay_apply_layer(inout Surface s, inout SurfaceWeather w, OverlayLayer l, OverlayContext c, float exposure_gain_ev, vec2 uv) {
+		float age = BLOCK.overlay_time - l.start;
+
+		if (age < 0.0) return;
+
+		bool held = l.hold >= 0.0;
+		float grow = held ? l.hold : clamp(age / max(l.fade_in, 1e-3), 0.0, 1.0);
+		float outro = l.duration > 0.0 && !held ? 1.0 - clamp((age - l.duration) / max(l.fade_out, 1e-3), 0.0, 1.0) : 1.0;
+		float fade = smoothstep(0.0, 1.0, grow) * smoothstep(0.0, 1.0, outro) * l.intensity;
+
+		if (fade <= 0.0) return;
+
+		float t = age * l.speed;
+		OverlayContext layer_context = c;
+
+		if (l.uv_space != 0) {
+			layer_context.P = vec3(uv * l.uv_scale, 0.0);
+			layer_context.N = vec3(0.0, 0.0, 1.0);
+		}
+
+		vec3 emissive_before = s.emissive;
+
+		switch (l.kind) {
+			CASES
+			default: break;
+		}
+
+		s.emissive = emissive_before + (s.emissive - emissive_before) * ]] .. string.format("%.2f", surface_overlays.EMISSION) .. [[ * exp2(exposure_gain_ev * l.daylight * ]] .. surface_overlays.EXPOSURE_OVERSHOOT .. [[);
+	}
+]]
+
+function surface_overlays.GetPreviewGLSL(name)
+	local kind = kinds_by_name[name]
+	local source, case = get_kind_glsl(kind)
+	return get_helpers_glsl() .. source .. APPLY_LAYER_GLSL:gsub("CASES", case), kind.index
+end
+
+function surface_overlays.ParseError(message)
+	local source, line, text = message:match("(%d+):(%d+): error: ([^\n]*)")
+	local kind = source and kinds[tonumber(source)]
+
+	if not kind then return message end
+
+	return ("%s line %s: %s"):format(kind.name, line, text)
+end
+
+function surface_overlays.GetGLSL(block_name)
+	local functions = {}
+	local cases = {}
+
+	for _, kind in ipairs(kinds) do
+		functions[#functions + 1], cases[#cases + 1] = get_kind_glsl(kind)
+	end
+
+	return (
+		get_helpers_glsl() .. table.concat(functions, "\n") .. APPLY_LAYER_GLSL:gsub("CASES", table.concat(cases, "\n")) .. [[
+
+		struct OverlaySlot {
+			vec3 center;
+			float radius;
+			OverlayLayer layers[]] .. surface_overlays.MAX_LAYERS .. [[];
+		};
+
+		layout(buffer_reference, scalar) readonly buffer SurfaceOverlaySlots { OverlaySlot slots[]; };
 
 		void apply_surface_overlays(inout Surface s, inout SurfaceWeather w, float slot_value, vec3 noise_P, vec3 noise_N, vec2 uv) {
 			int slot_index = int(slot_value + 0.5);
@@ -610,36 +834,7 @@ function surface_overlays.GetGLSL(block_name)
 			for (int i = 0; i < ]] .. surface_overlays.MAX_LAYERS .. [[; i++) {
 				OverlayLayer l = slot.layers[i];
 
-				if (l.kind == 0) continue;
-
-				float age = BLOCK.overlay_time - l.start;
-
-				if (age < 0.0) continue;
-
-				bool held = l.hold >= 0.0;
-				float grow = held ? l.hold : clamp(age / max(l.fade_in, 1e-3), 0.0, 1.0);
-				float outro = l.duration > 0.0 && !held ? 1.0 - clamp((age - l.duration) / max(l.fade_out, 1e-3), 0.0, 1.0) : 1.0;
-				float fade = smoothstep(0.0, 1.0, grow) * smoothstep(0.0, 1.0, outro) * l.intensity;
-
-				if (fade <= 0.0) continue;
-
-				float t = age * l.speed;
-
-				OverlayContext layer_context = c;
-
-				if (l.uv_space != 0) {
-					layer_context.P = vec3(uv * l.uv_scale, 0.0);
-					layer_context.N = vec3(0.0, 0.0, 1.0);
-				}
-
-				vec3 emissive_before = s.emissive;
-
-				switch (l.kind) {
-					]] .. table.concat(cases, "\n") .. [[
-					default: break;
-				}
-
-				s.emissive = emissive_before + (s.emissive - emissive_before) * ]] .. string.format("%.2f", surface_overlays.EMISSION) .. [[ * exp2(exposure_gain_ev * l.daylight * ]] .. surface_overlays.EXPOSURE_OVERSHOOT .. [[);
+				if (l.kind != 0) overlay_apply_layer(s, w, l, c, exposure_gain_ev, uv);
 			}
 		}
 	]]

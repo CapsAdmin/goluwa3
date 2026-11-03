@@ -137,12 +137,12 @@ effects_editor.Categories = {
 	},
 	overlays = {
 		Schema = effects_schema.Schemas.overlays,
-		GetSchema = effects_schema.WithOverlayParams,
 		GetNames = ||->surface_overlays.GetKindNames(),
-		GetSource = |name|->surface_overlays.DefaultFiles.Source[name],
-		Update = surface_overlays.SetDefaults,
-		Reload = surface_overlays.ReloadDefaults,
-		Save = surface_overlays.SaveDefaults,
+		GetSource = |name|->surface_overlays.Files.Source[name],
+		Update = surface_overlays.UpdateKind,
+		Reload = surface_overlays.ReloadKind,
+		Save = surface_overlays.SaveKind,
+		Duplicate = |name|->surface_overlays.CreateKind(surface_overlays.GetNewName(name), name),
 		Lasting = true,
 		Play = |stage, name, session|-> do
 			local handles = effects.PlayOverlay(stage.Target, name, {Duration = 0})

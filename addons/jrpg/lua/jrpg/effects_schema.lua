@@ -234,6 +234,7 @@ local schemas = {
 	},
 	overlays = {
 		Refs = refs,
+		Labels = {Params = |param|->tostring(param.Name)},
 		Fields = {
 			FadeIn = {Min = 0, Max = 5},
 			FadeOut = {Min = 0, Max = 5},
@@ -241,6 +242,17 @@ local schemas = {
 			Scale = {Min = 0.05, Max = 8},
 			Speed = {Min = 0, Max = 8},
 			Daylight = {Min = 0, Max = 4},
+			Source = {
+				Code = "glsl",
+				Description = OVERLAY_SOURCE_DESCRIPTION,
+				GetStatus = |data, options|->surface_overlays.GetStatus(options.Name),
+			},
+			Params = {
+				Description = "up to four numbers the glsl reads by name, each a config key for surface_overlays.Add",
+				Template = function(last)
+					return {Name = "Param" .. math.random(100, 999), Default = 0, Min = 0, Max = 1}
+				end,
+			},
 		},
 		Root = {},
 	},
@@ -355,6 +367,7 @@ do
 	}
 	schemas.clips.Fields = merge(fields, schemas.clips.Fields)
 end
+local OVERLAY_SOURCE_DESCRIPTION = "glsl, the body of a function that changes the surface under a layer. In scope: Surface s (albedo, emissive, roughness_alpha, metallic, ao, alpha, N, world_pos), SurfaceWeather w, OverlayLayer l (l.color_a, l.color_b, l.scale, l.speed, l.intensity), OverlayContext c (P and N for noise, V, height 0 to 1, ndv), float age, t (age times speed), grow (0 to 1 over FadeIn), outro (1 to 0 over FadeOut) and fade (both times intensity). Every param is a float named after it in snake case (RayCount is ray_count). Helpers: overlay_noise(c, scale), overlay_noise_at, overlay_voronoi, overlay_fbm, overlay_hash, overlay_hue, overlay_reveal, overlay_cover, overlay_bump, overlay_set_roughness, overlay_tilt"
 local PARAM_TYPES = {"float", "int", "bool", "vec3", "color", "texture"}
 local SOURCE_DESCRIPTION = "glsl with up to four functions, any you leave out do nothing (visibility counts as 1): void spawn(emitters_t e, uint index, uint generation, inout Particle p) runs once when a particle is born, after the common spawn; void update(emitters_t e, uint index, float dt, float t, inout Particle p) runs every frame before drag and integration, t is 0 to 1 over the lifetime; float visibility(emitters_t e, uint index, float t, Particle p) returns a number multiplied into the alpha; void shade(emitters_t e, uint index, float t, inout Particle p) runs after the common shading, p.radiance is the color. Every param is a name that reads e.params, so the functions need their e argument; helpers that read params take an emitters_t e too"
 local SOURCE_TEMPLATE = [[
@@ -408,18 +421,6 @@ function effects_schema.WithEmitterShaderParams(schema, data)
 	end
 
 	fields.ShaderParams = {Keys = keys}
-	local out = table.shallow_copy(schema)
-	out.Fields = fields
-	return out
-end
-
-function effects_schema.WithOverlayParams(schema, data, name)
-	local fields = table.shallow_copy(schema.Fields)
-
-	for _, param in ipairs(surface_overlays.GetParams(name)) do
-		fields[param.Name] = {Min = param.Min, Max = param.Max, Description = param.Description}
-	end
-
 	local out = table.shallow_copy(schema)
 	out.Fields = fields
 	return out
