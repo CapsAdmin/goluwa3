@@ -630,11 +630,14 @@ end
 
 function effects.PlayOverlay(entity, kind, config)
 	local visuals = {}
+	local handles = {}
 	collect_visuals(entity, visuals)
 
 	for _, visual in ipairs(visuals) do
-		surface_overlays.Add(visual, kind, config)
+		handles[#handles + 1] = surface_overlays.Add(visual, kind, config)
 	end
+
+	return handles
 end
 
 local function set_overlay(record, material)

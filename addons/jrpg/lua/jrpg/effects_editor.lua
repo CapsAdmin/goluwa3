@@ -143,8 +143,18 @@ effects_editor.Categories = {
 		Update = surface_overlays.SetDefaults,
 		Reload = surface_overlays.ReloadDefaults,
 		Save = surface_overlays.SaveDefaults,
-		Play = |stage, name|-> do
-			effects.PlayOverlay(stage.Target, name, {Duration = 3})
+		Lasting = true,
+		Play = |stage, name, session|-> do
+			local handles = effects.PlayOverlay(stage.Target, name, {Duration = 0})
+			session.OverlayHandles = handles
+
+			return function()
+				for _, handle in ipairs(handles) do
+					handle:Remove(0)
+				end
+
+				session.OverlayHandles = nil
+			end
 		end,
 	},
 	["particle shaders"] = {
@@ -478,11 +488,42 @@ function effects_editor.Play(session)
 	local ok, result = pcall(category.Play, session.Stage, session.Name, session)
 	session.Status = ok and "" or tostring(result)
 	session.Stopper = ok and type(result) == "function" and result or nil
-	session.PlayStart = system.GetElapsedTime()
+	session.PlayStart = not category.Lasting and system.GetElapsedTime() or nil
+end
+
+function effects_editor.StartPreview(session)
+	if effects_editor.Categories[session.Category].Lasting then
+		effects_editor.Play(session)
+	elseif session.OverlayHandles then
+		effects_editor.Stop(session)
+	end
+end
+
+function effects_editor.FadeOutOverlay(session)
+	for _, handle in ipairs(session.OverlayHandles) do
+		handle:Remove()
+	end
+end
+
+function effects_editor.SetOverlayFade(session, fade)
+	if not session.OverlayHandles or not session.OverlayHandles[1]:IsActive() then
+		effects_editor.Play(session)
+	end
+
+	for _, handle in ipairs(session.OverlayHandles) do
+		handle:SetFade(fade)
+	end
+end
+
+function effects_editor.GetOverlayFade(session)
+	local handle = session.OverlayHandles and session.OverlayHandles[1]
+	return handle and handle:GetFade() or 0
 end
 
 function effects_editor.QueueRestart(session)
-	if session.AutoRestart and effects_editor.Categories[session.Category].Play then
+	local category = effects_editor.Categories[session.Category]
+
+	if (session.AutoRestart or category.Lasting) and category.Play then
 		session.RestartAt = system.GetElapsedTime() + RESTART_DELAY
 	end
 end
@@ -618,6 +659,7 @@ function effects_editor.CreateSession()
 	effects_editor.Prepare(effects_editor.LastCategory)
 	effects_editor.Load(session, effects_editor.LastCategory, effects_editor.LastName)
 	effects_editor.ApplyPreview(session)
+	effects_editor.StartPreview(session)
 	effects_editor.Current = session
 	return session
 end
@@ -790,6 +832,7 @@ function effects_editor.BuildMenu(session, h)
 						local category = effects_editor.Categories[session.Category]
 						effects_editor.Load(session, session.Category, category.Duplicate(session.Name))
 						effects_editor.ApplyPreview(session)
+						effects_editor.StartPreview(session)
 						h.refresh()
 					end,
 				},
@@ -953,6 +996,7 @@ local EffectsEditor = react.Component(
 					if category then
 						effects_editor.Open(session, category, name)
 						effects_editor.ApplyPreview(session)
+						effects_editor.StartPreview(session)
 						h.refresh()
 					end
 				end
@@ -961,6 +1005,7 @@ local EffectsEditor = react.Component(
 					if index <= #session.Trail then
 						effects_editor.Back(session, index)
 						effects_editor.ApplyPreview(session)
+						effects_editor.StartPreview(session)
 						h.refresh()
 					end
 				end
@@ -986,7 +1031,9 @@ local EffectsEditor = react.Component(
 				effects_stage.Update(session.Stage, session.View:GetPosition())
 				effects_editor.Tick(session, system.GetElapsedTime())
 
-				if session.PlayStart then h.refresh() end
+				if session.PlayStart or session.OverlayHandles and session.OverlayHandles[1]:IsActive() then
+					h.refresh()
+				end
 			end
 		)
 		react.UseEvent(
@@ -1085,6 +1132,7 @@ local EffectsEditor = react.Component(
 						effects_editor.Prepare(value)
 						effects_editor.Load(session, value)
 						effects_editor.ApplyPreview(session)
+						effects_editor.StartPreview(session)
 						h.refresh()
 					end
 				),
@@ -1096,6 +1144,7 @@ local EffectsEditor = react.Component(
 					|value|-> do
 						effects_editor.Load(session, session.Category, value)
 						effects_editor.ApplyPreview(session)
+						effects_editor.StartPreview(session)
 						h.refresh()
 					end
 				),
@@ -1153,7 +1202,7 @@ local EffectsEditor = react.Component(
 					}{
 						ui.Row{layout = {GrowWidth = 1, ChildGap = 8, AlignmentY = "center"}}{
 							category.Play and ui.Button{
-								Text = "Play",
+								Text = category.Lasting and "Fade in" or "Play",
 								Mode = "outline",
 								Tooltip = "space, plays again from the start",
 								OnClick = ||-> do
@@ -1161,23 +1210,45 @@ local EffectsEditor = react.Component(
 									h.refresh()
 								end,
 							},
+							category.Lasting and ui.Button{
+								Text = "Fade out",
+								Mode = "outline",
+								OnClick = ||-> do
+									if session.OverlayHandles then effects_editor.FadeOutOverlay(session) end
+								end,
+							},
 							category.Play and ui.Button{
-								Text = "Stop",
+								Text = category.Lasting and "Clear" or "Stop",
 								Mode = "outline",
 								OnClick = ||-> do
 									effects_editor.Stop(session)
 									h.refresh()
 								end,
 							},
-							ui.Checkbox{Text = "Loop", Value = session.Loop, OnChange = |value|-> do
+							not category.Lasting and ui.Checkbox{Text = "Loop", Value = session.Loop, OnChange = |value|-> do
 								session.Loop = value
 							end},
-							ui.Checkbox{
+							not category.Lasting and ui.Checkbox{
 								Text = "Auto restart",
 								Value = session.AutoRestart,
 								OnChange = |value|-> do
 									session.AutoRestart = value
 								end,
+							},
+						},
+						category.Lasting and ui.Column{layout = {GrowWidth = 1, ChildGap = 2, AlignmentX = "stretch"}}{
+							ui.Text{
+								Text = string.format("Fade %.2f", effects_editor.GetOverlayFade(session)),
+								Color = "text_disabled",
+								Font = "body XS",
+								IgnoreMouseInput = true,
+							},
+							ui.Slider{
+								Value = effects_editor.GetOverlayFade(session),
+								OnChange = |value|-> do
+									effects_editor.SetOverlayFade(session, value)
+								end,
+								layout = {GrowWidth = 1},
 							},
 						},
 						category.TestInputs and ui.PropertyEditor{

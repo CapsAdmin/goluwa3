@@ -679,3 +679,78 @@ T.Test3D("source particles are only scanned once the source particles category i
 	pcf.names_cache, pcf.lookup = old_cache, old_lookup
 	effects_editor.LastCategory, effects_editor.LastName = "damage types", "fire"
 end)
+
+T.Test3D("an overlay preview lasts until cleared and its fade slider holds the layers", function()
+	local effects_editor = import("lua/jrpg/effects_editor.lua")
+	local session = {
+		LoadId = 0,
+		SelectId = 0,
+		Count = 24,
+		AutoRestart = true,
+		Loop = true,
+		Stage = {},
+		StageKind = "gizmo",
+	}
+	local category = effects_editor.Categories.overlays
+	local original = category.Play
+	local handle = {active = true, removed = 0}
+
+	function handle:IsActive()
+		return self.active
+	end
+
+	function handle:SetFade(fade)
+		self.fade = fade
+	end
+
+	function handle:GetFade()
+		return self.fade or 0
+	end
+
+	function handle:Remove()
+		self.removed = self.removed + 1
+	end
+
+	local plays = 0
+	category.Play = function(_, _, s)
+		plays = plays + 1
+		s.OverlayHandles = {handle}
+		return function()
+			s.OverlayHandles = nil
+		end
+	end
+	effects_editor.Load(session, "overlays", "status_lightning")
+	T(category.Lasting)["=="](true)
+	session.AutoRestart = false
+	effects_editor.QueueRestart(session)
+	T(session.RestartAt ~= nil)["=="](true)
+	session.RestartAt = nil
+	effects_editor.SetOverlayFade(session, 0.4)
+	T(plays)["=="](1)
+	T(handle.fade)["=="](0.4)
+	T(session.PlayStart)["=="](nil)
+	T(effects_editor.GetOverlayFade(session))["=="](0.4)
+	effects_editor.SetOverlayFade(session, 0.6)
+	T(plays)["=="](1)
+	effects_editor.Tick(session, 1e6)
+	T(plays)["=="](1)
+	effects_editor.FadeOutOverlay(session)
+	T(handle.removed)["=="](1)
+	handle.active = false
+	T(effects_editor.GetOverlayFade(session))["=="](0.6)
+	effects_editor.SetOverlayFade(session, 0.1)
+	T(plays)["=="](2)
+	effects_editor.StartPreview(session)
+	T(plays)["=="](3)
+	effects_editor.Load(session, "gpu emitters", "hit_force")
+	effects_editor.StartPreview(session)
+	T(session.OverlayHandles)["=="](nil)
+	T(plays)["=="](3)
+	effects_editor.Load(session, "overlays", "status_lightning")
+	effects_editor.StartPreview(session)
+	T(plays)["=="](4)
+	effects_editor.Stop(session)
+	T(session.OverlayHandles)["=="](nil)
+	T(effects_editor.GetOverlayFade(session))["=="](0)
+	category.Play = original
+end)
