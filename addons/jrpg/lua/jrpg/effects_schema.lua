@@ -413,6 +413,18 @@ function effects_schema.WithEmitterShaderParams(schema, data)
 	return out
 end
 
+function effects_schema.WithOverlayParams(schema, data, name)
+	local fields = table.shallow_copy(schema.Fields)
+
+	for _, param in ipairs(surface_overlays.GetParams(name)) do
+		fields[param.Name] = {Min = param.Min, Max = param.Max, Description = param.Description}
+	end
+
+	local out = table.shallow_copy(schema)
+	out.Fields = fields
+	return out
+end
+
 function effects_schema.WithShaderParams(schema, data)
 	local shader = data.Particles and data.Particles.Shader
 

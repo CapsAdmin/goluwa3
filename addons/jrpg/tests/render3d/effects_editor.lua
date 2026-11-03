@@ -207,6 +207,13 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 	T(session.Name)["=="]("fire")
 	T(#session.Trail)["=="](0)
 	T(#effects_editor.GetTrailLabels(session))["=="](0)
+	effects_editor.Load(session, "overlays", "status_lightning")
+	T(session.Data.Emissive)["=="](7)
+	T(session.Data.Params)["=="](nil)
+	local fields = effects_editor.Categories.overlays.GetSchema(effects_editor.Categories.overlays.Schema, session.Data, session.Name).Fields
+	T(fields.Jitter.Max)["=="](3)
+	T(fields.Emissive.Min)["=="](0)
+	T(#effects_editor.GetProblems(session))["=="](0)
 	effects_editor.Load(session, "damage types", "fire")
 	session.Data.Apply[2].Add = "nope"
 	T(#effects_editor.GetProblems(session))["=="](1)

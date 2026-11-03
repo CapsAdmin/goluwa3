@@ -137,6 +137,7 @@ effects_editor.Categories = {
 	},
 	overlays = {
 		Schema = effects_schema.Schemas.overlays,
+		GetSchema = effects_schema.WithOverlayParams,
 		GetNames = ||->surface_overlays.GetKindNames(),
 		GetSource = |name|->surface_overlays.DefaultFiles.Source[name],
 		Update = surface_overlays.SetDefaults,
@@ -366,7 +367,7 @@ function effects_editor.GetProblems(session)
 	if category.ReadOnly then return {} end
 
 	return data_schema.Check(
-		category.GetSchema and category.GetSchema(category.Schema, session.Data) or category.Schema,
+		category.GetSchema and category.GetSchema(category.Schema, session.Data, session.Name) or category.Schema,
 		session.Data
 	)
 end
@@ -634,7 +635,7 @@ function effects_editor.BuildItems(session, h)
 		Changed = h.changed,
 		Restructured = h.restructured,
 		Name = session.Name,
-		Schema = category.GetSchema and category.GetSchema(category.Schema, session.Data) or category.Schema,
+		Schema = category.GetSchema and category.GetSchema(category.Schema, session.Data, session.Name) or category.Schema,
 		Open = h.open,
 		CanOpen = |ref|->REF_CATEGORIES[ref] ~= nil,
 		Focus = session.Focus,
