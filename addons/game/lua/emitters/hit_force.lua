@@ -12,6 +12,8 @@ return {
 	Lit = false,
 	SizeEnd = 0.015,
 	SizeStart = 0.015,
-	SpeedMax = 3,
 	SpeedMin = 0.1,
+	Inputs = {
+		Strength = {Default = 3, Min = 0.1, Max = 12, Targets = {{"SpeedMax", "set"}}},
+	},
 }

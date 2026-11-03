@@ -20,4 +20,7 @@ return {
 	SizeStart = 0.004,
 	SpeedMax = 0.66,
 	SpeedMin = 0.18,
+	Inputs = {
+		Tint = {DefaultColor = {1, 1, 1, 1}, Targets = {{"ColorEnd", "set"}}},
+	},
 }

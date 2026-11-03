@@ -50,15 +50,7 @@ local function init()
 					function(p)
 						if not p.force_direction then return end
 
-						local key = "hit_force_" .. p.speed
-
-						if not vfx.HasBurst(key) then
-							local properties = emitters.Get("hit_force")
-							properties.SpeedMax = p.speed
-							vfx.DefineBurst(key, properties)
-						end
-
-						vfx.Burst(key, p.position, p.force_direction, 16)
+						emitters.Burst("hit_force", p.position, p.force_direction, 16, {Strength = p.speed})
 					end,
 				},
 			},

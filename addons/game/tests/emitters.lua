@@ -1,9 +1,17 @@
 local T = import("test/environment.lua")
 local list = import("goluwa/list.lua")
+local Color = import("goluwa/structs/color.lua")
 local emitters = import("lua/emitters.lua")
 
 T.Test("emitters load the shipped files, hand out realized copies and name duplicates", function()
-	for _, name in ipairs{"hit_position", "hit_normal", "hit_force", "muzzle_flash", "tool_hit", "melee_sparks"} do
+	for _, name in ipairs{
+		"hit_position",
+		"hit_normal",
+		"hit_force",
+		"muzzle_flash",
+		"tool_hit",
+		"melee_sparks",
+	} do
 		T(not not table.has_value(emitters.Names, name))["=="](true)
 	end
 
@@ -22,4 +30,36 @@ T.Test("emitters load the shipped files, hand out realized copies and name dupli
 	T(emitters.Get("tool_hit_2").SpeedMax)["=="](emitters.Get("tool_hit").SpeedMax)
 	list.remove_value(emitters.Names, "tool_hit_2")
 	emitters.Files.Source.tool_hit_2 = nil
+end)
+
+T.Test("emitter inputs set, scale and add properties and fall back to their defaults", function()
+	T(emitters.Get("hit_force").Inputs)["=="](nil)
+	T(emitters.Get("hit_force").SpeedMax)["=="](3)
+	T(emitters.Get("hit_force", {Strength = 7}).SpeedMax)["=="](7)
+	T(emitters.Files.Source.hit_force.Inputs.Strength.Default)["=="](3)
+	local tinted = emitters.Get("melee_sparks", {Tint = Color(0.2, 0.4, 0.6, 1)})
+	T(tinted.ColorEnd.r)["=="](0.2)
+	T(tinted.ColorEnd.b)["=="](0.6)
+	T(tinted.ColorEnd.a)["=="](0)
+	T(emitters.Get("melee_sparks").ColorEnd.r)["=="](1)
+	local ok = pcall(emitters.Get, "hit_force", {Nope = 1})
+	T(ok)["=="](false)
+	T(emitters.GetBurstKey("hit_force"))["=="]("hit_force")
+	T(emitters.GetBurstKey("hit_force", {}))["=="]("hit_force")
+	T(emitters.GetBurstKey("hit_force", {Strength = 7}))["=="]("hit_force:Strength=7")
+	local data = table.copy(emitters.Files.Source.hit_force)
+	data.Inputs = {
+		Size = {Default = 2, Targets = {{"SizeStart", "scale"}, {"SizeEnd", "add"}}},
+	}
+	emitters.Update("input_test", data)
+	local properties = emitters.Get("input_test")
+	T(properties.SizeStart)["=="](0.03)
+	T(properties.SizeEnd)["=="](2.015)
+	T(emitters.Get("input_test", {Size = 1}).SizeStart)["=="](0.015)
+	data.Inputs.Size.Targets[1][2] = "nope"
+	T(pcall(emitters.Update, "input_test", data))["=="](false)
+	T(emitters.Files.Source.input_test.Inputs.Size.Targets[1][2])["=="]("scale")
+	local list = import("goluwa/list.lua")
+	list.remove_value(emitters.Names, "input_test")
+	emitters.Files.Source.input_test = nil
 end)

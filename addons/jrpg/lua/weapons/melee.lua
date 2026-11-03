@@ -560,8 +560,7 @@ function META:OnUpdate(dt)
 	end
 
 	if not self.sparks then
-		local properties = emitters.Get("melee_sparks")
-		properties.ColorEnd = Color(self.color.r, self.color.g, self.color.b, 0)
+		local properties = emitters.Get("melee_sparks", {Tint = self.color})
 		properties.ExposureCompensation = effect_exposure.particles
 		self.sparks = effects.vfx.CreateEmitter("melee_sparks", properties)
 	end
