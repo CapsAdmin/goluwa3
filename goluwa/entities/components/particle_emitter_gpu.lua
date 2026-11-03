@@ -8,8 +8,10 @@ GPUEmitter.ParticleBackend = "gpu"
 GPUEmitter:StartStorable()
 
 for _, property in ipairs(particle_emitter.gpu) do
+	GPUEmitter:StartCategory(property[4])
 	GPUEmitter:GetSet(property[1], property[2], property[3])
 end
 
+GPUEmitter:EndCategory()
 GPUEmitter:EndStorable()
 return GPUEmitter:Register()

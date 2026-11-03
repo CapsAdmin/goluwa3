@@ -4,9 +4,11 @@ local ParticleEmitter = objects.CreateTemplate("particle_emitter")
 ParticleEmitter:StartStorable()
 
 for _, property in ipairs(particle_emitter.common) do
+	ParticleEmitter:StartCategory(property[4])
 	ParticleEmitter:GetSet(property[1], property[2], property[3])
 end
 
+ParticleEmitter:EndCategory()
 ParticleEmitter:EndStorable()
 
 function ParticleEmitter:OnCreate()

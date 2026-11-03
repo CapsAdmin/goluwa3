@@ -8,8 +8,10 @@ CPUEmitter.ParticleBackend = "cpu"
 CPUEmitter:StartStorable()
 
 for _, property in ipairs(particle_emitter.cpu) do
+	CPUEmitter:StartCategory(property[4])
 	CPUEmitter:GetSet(property[1], property[2], property[3])
 end
 
+CPUEmitter:EndCategory()
 CPUEmitter:EndStorable()
 return CPUEmitter:Register()
