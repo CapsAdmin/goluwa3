@@ -1251,12 +1251,10 @@ do
 	flames:SetLifetime({0.45, 0.95})
 	flames:SetGravityScale(-0.35)
 	flames:SetDrag(1.1)
-	flames:SetSizeStart(0.55)
-	flames:SetSizeEnd(0.04)
+	flames:SetSize{Keys = {{0, 0.55}, {1, 0.04}}}
 	flames:SetLit(false)
 	flames:SetEmissive(8e4)
-	flames:SetColorStart(Color(1, 0.62, 0.18, 0.9))
-	flames:SetColorEnd(Color(1, 0.12, 0.02, 0))
+	flames:SetColor{Keys = {{0, Color(1, 0.62, 0.18, 0.9)}, {1, Color(1, 0.12, 0.02, 0)}}}
 	local sparks = emitter("fire_sparks", "particle_emitter_gpu", origin + Vec3(0, 0.2, 0), up)
 	sparks:SetRate(16)
 	sparks:SetMaxParticles(240)
@@ -1267,12 +1265,10 @@ do
 	sparks:SetLifetime({1.2, 2.8})
 	sparks:SetGravityScale(0.12)
 	sparks:SetDrag(0.35)
-	sparks:SetSizeStart(0.022)
-	sparks:SetSizeEnd(0.008)
+	sparks:SetSize{Keys = {{0, 0.022}, {1, 0.008}}}
 	sparks:SetLit(false)
 	sparks:SetEmissive(4e5)
-	sparks:SetColorStart(Color(1, 0.72, 0.28, 1))
-	sparks:SetColorEnd(Color(1, 0.25, 0.05, 0))
+	sparks:SetColor{Keys = {{0, Color(1, 0.72, 0.28, 1)}, {1, Color(1, 0.25, 0.05, 0)}}}
 	local smoke = emitter("fire_smoke", "particle_emitter_gpu", origin + Vec3(0, 0.9, 0), up)
 	smoke:SetRate(12)
 	smoke:SetMaxParticles(260)
@@ -1283,11 +1279,9 @@ do
 	smoke:SetLifetime({5, 9})
 	smoke:SetGravityScale(-0.05)
 	smoke:SetDrag(0.35)
-	smoke:SetSizeStart(0.35)
-	smoke:SetSizeEnd(2.4)
+	smoke:SetSize{Keys = {{0, 0.35}, {1, 2.4}}}
 	smoke:SetLit(true)
-	smoke:SetColorStart(Color(0.32, 0.3, 0.3, 0.4))
-	smoke:SetColorEnd(Color(0.45, 0.44, 0.44, 0))
+	smoke:SetColor{Keys = {{0, Color(0.32, 0.3, 0.3, 0.4)}, {1, Color(0.45, 0.44, 0.44, 0)}}}
 	twilight.fireflies = {}
 
 	for _, swarm in ipairs{
@@ -1305,12 +1299,10 @@ do
 		fireflies:SetLifetime({10, 18})
 		fireflies:SetGravityScale(0)
 		fireflies:SetDrag(0.5)
-		fireflies:SetSizeStart(0.075)
-		fireflies:SetSizeEnd(0.075)
+		fireflies:SetSize(0.075)
 		fireflies:SetLit(false)
 		fireflies:SetEmissive(1.6e5)
-		fireflies:SetColorStart(Color(0.85, 1, 0.3, 1))
-		fireflies:SetColorEnd(Color(0.85, 1, 0.3, 0))
+		fireflies:SetColor{Keys = {{0, Color(0.85, 1, 0.3, 1)}, {1, Color(0.85, 1, 0.3, 0)}}}
 		twilight.fireflies[#twilight.fireflies + 1] = fireflies
 	end
 

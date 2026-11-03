@@ -13,7 +13,6 @@ return {
 		Tumble = 1.5,
 		Wind = {0.05, 0, 0},
 	},
-	SizeEnd = 0.04,
-	SizeStart = 0.04,
+	Size = 0.04,
 	Speed = {0.02, 0.15},
 }

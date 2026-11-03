@@ -90,15 +90,18 @@ function META:Build()
 			Spread = 180,
 			Speed = {0.05, 0.3},
 			Lifetime = {1.5, 3},
-			SizeStart = 0.03,
-			SizeEnd = 0,
+			Size = {Keys = {{0, 0.03}, {1, 0}}},
 			Drag = 1,
 			Lit = false,
 			GravityScale = -0.03,
 			Emissive = 2e5,
 			ExposureCompensation = effect_exposure.particles,
-			ColorStart = Color(color.r, color.g, color.b, 1),
-			ColorEnd = Color(color.r, color.g, color.b, 0),
+			Color = {
+				Keys = {
+					{0, Color(color.r, color.g, color.b, 1)},
+					{1, Color(color.r, color.g, color.b, 0)},
+				},
+			},
 		},
 	}
 	self.emitter:SetTransient(true)

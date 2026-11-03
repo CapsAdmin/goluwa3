@@ -48,7 +48,7 @@ return {
 			Min = 0,
 			Max = 1,
 			Group = "Look",
-			Description = "how much smaller than SizeStart the smallest flakes are",
+			Description = "how much smaller than Size the smallest flakes are",
 		},
 	},
 	Source = [[

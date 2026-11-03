@@ -66,8 +66,7 @@ local COMMON = {
 	Decay = {Min = 0, Max = 1},
 	Max = {Min = 0.1, Max = 2},
 	Spread = {Min = 0, Max = 180},
-	SizeStart = {Min = 0, Max = 2, Range = true},
-	SizeEnd = {Min = 0, Max = 2, Range = true},
+	Size = {Min = 0, Max = 2, Band = "scalar"},
 	Drag = {Min = 0, Max = 10, Range = true},
 	Speed = {Min = 0, Max = 100, Range = true},
 	Lifetime = {Min = 0.01, Max = 60, Range = true},
@@ -260,6 +259,24 @@ local schemas = {
 	},
 }
 do
+	local function to_data(value)
+		if type(value) == "cdata" and value.r then
+			return {value.r, value.g, value.b, value.a}
+		elseif type(value) == "cdata" then
+			return {value.x, value.y, value.z}
+		elseif type(value) == "table" then
+			local copy = {}
+
+			for key, child in pairs(value) do
+				copy[key] = to_data(child)
+			end
+
+			return copy
+		end
+
+		return value
+	end
+
 	local EXCLUDED = {Visible = true, Playing = true, Loop = true, Duration = true, Seed = true, ShaderParams = true}
 	local GROUP_ORDER = {"Emission", "Shape", "Motion", "Look", "Collision"}
 	local fields = {}
@@ -272,21 +289,28 @@ do
 			local name, default, check = entry[1], entry[2], entry[3]
 
 			if check and check.validate then
-				fields[name] = {Min = check.min, Max = check.max, Range = entry[5] == "range" or nil, Integer = check.validate == "integer" or nil}
+				fields[name] = {
+					Min = check.min,
+					Max = check.max,
+					Range = entry[5] == "range" or nil,
+					Band = entry[5] == "band" and "scalar" or entry[5] == "color_band" and "color" or nil,
+					Integer = check.validate == "integer" or nil,
+				}
 			elseif check then
 				fields[name] = {Options = check}
 			end
 
 			if not EXCLUDED[name] then
-				if type(default) == "number" or type(default) == "cdata" and default.r then
+				if
+					type(default) == "number" or
+					type(default) == "cdata" and
+					default.r or
+					entry[5] == "color_band"
+				then
 					input_targets[#input_targets + 1] = name
 				end
 
-				if type(default) == "cdata" and default.r then
-					default = {default.r, default.g, default.b, default.a}
-				elseif type(default) == "cdata" then
-					default = {default.x, default.y, default.z}
-				end
+				default = to_data(default)
 
 				defaults[name] = default
 				members[entry[4]] = members[entry[4]] or {}
@@ -319,7 +343,7 @@ do
 		Display = "table",
 		Columns = {
 			{Text = "property", Key = 1, Options = input_targets},
-			{Text = "mode", Key = 2, Options = {"set", "set_min", "set_max", "scale", "add"}},
+			{Text = "mode", Key = 2, Options = {"set", "set_min", "set_max", "scale", "add", "set_first", "set_last"}},
 		},
 		Template = {"Speed", "set_max"},
 	}

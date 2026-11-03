@@ -5,8 +5,7 @@ return {
 	Shape = "point",
 	Spread = 80,
 	Collision = "none",
-	ColorEnd = {1, 1, 1, 0},
-	ColorStart = {1, 1, 1, 1},
+	Color = {Keys = {{0, {1, 1, 1, 1}}, {1, {1, 1, 1, 0}}}},
 	Drag = 12,
 	Emissive = 400000,
 	Fizzle = 1,
@@ -14,10 +13,9 @@ return {
 	GravityScale = 0,
 	Lifetime = {0.75, 1.5},
 	Lit = false,
-	SizeEnd = {0.0007, 0.0021},
-	SizeStart = {0.002, 0.006},
+	Size = {Keys = {{0, 0.002}, {1, 0.0007}}, MaxKeys = {{0, 0.006}, {1, 0.0021}}},
 	Speed = {0.18, 0.66},
 	Inputs = {
-		Tint = {DefaultColor = {1, 1, 1, 1}, Targets = {{"ColorEnd", "set"}}},
+		Tint = {DefaultColor = {1, 1, 1, 1}, Targets = {{"Color", "set_last"}}},
 	},
 }

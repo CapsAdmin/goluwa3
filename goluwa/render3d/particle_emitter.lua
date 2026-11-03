@@ -3,6 +3,7 @@ local list = import("goluwa/list.lua")
 local system = import("goluwa/system.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local curve = import("goluwa/math/curve.lua")
 local particle_emitter = {}
 particle_emitter.GPU_MAX_PARTICLES = 16384
 particle_emitter.CPU_MAX_PARTICLES = 4096
@@ -12,6 +13,8 @@ particle_emitter.GPU_COLLISIONS = {"none", "shelter_map", "scene_depth", "rays"}
 particle_emitter.CPU_COLLISIONS = {"none", "rays"}
 particle_emitter.ON_HIT = {"bounce", "stick", "kill"}
 particle_emitter.MESHES = {"quad", "sphere", "cube", "shard", "feather"}
+local SAMPLES = 32
+particle_emitter.CURVE_SAMPLES = SAMPLES
 local number = {validate = "number"}
 local integer = {validate = "integer"}
 local boolean = {validate = "boolean"}
@@ -20,7 +23,47 @@ local function ranged(min, max)
 	return {validate = "number", min = min, max = max}
 end
 
-local function validate_range(value, info)
+local CURVE_MODES = {linear = true, smooth = true, step = true}
+
+local function is_color(value)
+	return type(value) == "cdata" or
+		(
+			type(value) == "table" and
+			type(value[1]) == "number" and
+			type(value[2]) == "number" and
+			type(value[3]) == "number"
+		)
+end
+
+local function keys_problem(keys, color)
+	if type(keys) ~= "table" or #keys == 0 then
+		return "curve keys must be a list of {time, value}"
+	end
+
+	local previous = 0
+
+	for i, key in ipairs(keys) do
+		if type(key) ~= "table" or type(key[1]) ~= "number" or key[1] < 0 or key[1] > 1 then
+			return ("curve key %d: expected {time, value} with a time from 0 to 1"):format(i)
+		end
+
+		if key[1] < previous then return "curve key times must not decrease" end
+
+		previous = key[1]
+
+		if color and not is_color(key[2]) then
+			return ("curve key %d: expected a color value"):format(i)
+		elseif not color and type(key[2]) ~= "number" then
+			return ("curve key %d: expected a number value"):format(i)
+		end
+
+		if key[3] ~= nil and not CURVE_MODES[key[3]] then
+			return ("curve key %d: unknown interpolation %s"):format(i, tostring(key[3]))
+		end
+	end
+end
+
+local function range_problem(value)
 	if type(value) == "number" then return end
 
 	if
@@ -31,11 +74,63 @@ local function validate_range(value, info)
 		return
 	end
 
-	error(string.format("property %q: expected a number or {min, max}", info.var_name), 3)
+	return "expected a number or {min, max}, got " .. tostring(value)
+end
+
+local function scalar_band_problem(value)
+	if type(value) == "table" and value.Keys then
+		return keys_problem(value.Keys, false) or
+			(
+				value.MaxKeys and
+				keys_problem(value.MaxKeys, false)
+			)
+	end
+
+	return range_problem(value)
+end
+
+local function color_band_problem(value)
+	if is_color(value) then return end
+
+	if type(value) == "table" then
+		if value.Keys then
+			return keys_problem(value.Keys, true) or
+				(
+					value.MaxKeys and
+					keys_problem(value.MaxKeys, true)
+				)
+		end
+
+		if is_color(value[1]) and is_color(value[2]) then return end
+	end
+
+	return "expected a color, {color, color} or a curve with Keys, got " .. tostring(value)
+end
+
+local function validator(problem_of, min, max)
+	local check = {problem = problem_of, min = min, max = max, type = "nil"}
+
+	function check.validate(value, info)
+		local problem = problem_of(value)
+
+		if problem then
+			error(string.format("property %q: %s", info.var_name, problem), 3)
+		end
+	end
+
+	return check
 end
 
 local function range_value(min, max)
-	return {validate = validate_range, min = min, max = max, type = "nil"}
+	return validator(range_problem, min, max)
+end
+
+local function scalar_band(min, max)
+	return validator(scalar_band_problem, min, max)
+end
+
+local function color_band()
+	return validator(color_band_problem)
 end
 
 particle_emitter.common = {
@@ -53,8 +148,7 @@ particle_emitter.common = {
 	{"InheritVelocity", 0, ranged(0, 1), "Motion"},
 	{"GravityScale", 1, range_value(-5, 5), "Motion", "range"},
 	{"Drag", 0.1, range_value(0, 20), "Motion", "range"},
-	{"SizeStart", 0.05, range_value(0.001, 10), "Look", "range"},
-	{"SizeEnd", 0.05, range_value(0, 10), "Look", "range"},
+	{"Size", 0.05, scalar_band(0, 10), "Look", "band"},
 	{"OnHit", "bounce", particle_emitter.ON_HIT, "Collision"},
 	{"Restitution", 0.5, ranged(0, 1), "Collision"},
 	{"Friction", 0.2, ranged(0, 1), "Collision"},
@@ -66,10 +160,15 @@ particle_emitter.gpu = {
 		{validate = "integer", min = 1, max = particle_emitter.GPU_MAX_PARTICLES},
 		"Emission",
 	},
-	{"ColorStart", Color(1, 1, 1, 1), nil, "Look"},
-	{"ColorEnd", Color(1, 1, 1, 0), nil, "Look"},
+	{
+		"Color",
+		{Keys = {{0, Color(1, 1, 1, 1)}, {1, Color(1, 1, 1, 0)}}},
+		color_band(),
+		"Look",
+		"color_band",
+	},
 	{"Lit", true, boolean, "Look"},
-	{"Emissive", 0, ranged(0, 1e7), "Look"},
+	{"Emissive", 0, scalar_band(0, 1e7), "Look", "band"},
 	{"ExposureCompensation", 0, ranged(0, 2), "Look"},
 	{"Fizzle", 0, ranged(0, 50), "Motion"},
 	{"FizzleStart", 0.6, ranged(0, 1), "Motion"},
@@ -165,17 +264,10 @@ do
 				if type(value) ~= "boolean" then
 					error(("%s: expected true or false, got %s"):format(name, tostring(value)), 0)
 				end
-			elseif type(check) == "table" and entry[5] == "range" then
-				if
-					type(value) ~= "number" and
-					not (
-						type(value) == "table" and
-						type(value[1]) == "number" and
-						type(value[2]) == "number"
-					)
-				then
-					error(("%s: expected a number or {min, max}, got %s"):format(name, tostring(value)), 0)
-				end
+			elseif type(check) == "table" and check.problem then
+				local problem = check.problem(value)
+
+				if problem then error(name .. ": " .. problem, 0) end
 			end
 		end
 	end
@@ -187,8 +279,31 @@ function particle_emitter.GetRange(value)
 	return math.min(value[1], value[2]), math.max(value[1], value[2])
 end
 
+local function map_keys(keys, map)
+	local mapped = {}
+
+	for i, key in ipairs(keys) do
+		mapped[i] = {key[1], map(key[2]), key[3]}
+	end
+
+	return mapped
+end
+
+local function map_curve(value, map)
+	return {
+		Keys = map_keys(value.Keys, map),
+		MaxKeys = value.MaxKeys and map_keys(value.MaxKeys, map),
+	}
+end
+
 function particle_emitter.ScaleRange(value, factor)
 	if type(value) == "number" then return value * factor end
+
+	if value.Keys then
+		return map_curve(value, function(v)
+			return v * factor
+		end)
+	end
 
 	return {value[1] * factor, value[2] * factor}
 end
@@ -196,7 +311,140 @@ end
 function particle_emitter.AddRange(value, amount)
 	if type(value) == "number" then return value + amount end
 
+	if value.Keys then
+		return map_curve(value, function(v)
+			return v + amount
+		end)
+	end
+
 	return {value[1] + amount, value[2] + amount}
+end
+
+local function get_channel(color, channel)
+	if type(color) == "cdata" then
+		if channel == 0 then return color.r end
+
+		if channel == 1 then return color.g end
+
+		if channel == 2 then return color.b end
+
+		return color.a
+	end
+
+	return color[channel + 1] or (channel == 3 and 1 or 0)
+end
+
+local function fill(out, channels, value)
+	for i = 0, SAMPLES - 1 do
+		if channels == 1 then
+			out[i] = value
+		else
+			for c = 0, channels - 1 do
+				out[i * channels + c] = get_channel(value, c)
+			end
+		end
+	end
+end
+
+local function bake_keys(keys, out, channels)
+	for i = 0, SAMPLES - 1 do
+		local from, to, fraction = curve.Segment(keys, i / (SAMPLES - 1))
+
+		for c = 0, channels - 1 do
+			local a = channels == 1 and from[2] or get_channel(from[2], c)
+			local b = channels == 1 and to[2] or get_channel(to[2], c)
+			out[i * channels + c] = a + (b - a) * fraction
+		end
+	end
+end
+
+function particle_emitter.BakeScalar(value, low, high)
+	if type(value) == "number" then
+		fill(low, 1, value)
+		fill(high, 1, value)
+	elseif value.Keys then
+		bake_keys(value.Keys, low, 1)
+		bake_keys(value.MaxKeys or value.Keys, high, 1)
+	else
+		local min, max = particle_emitter.GetRange(value)
+		fill(low, 1, min)
+		fill(high, 1, max)
+	end
+end
+
+function particle_emitter.BakeColor(value, low, high)
+	if is_color(value) then
+		fill(low, 4, value)
+		fill(high, 4, value)
+	elseif value.Keys then
+		bake_keys(value.Keys, low, 4)
+		bake_keys(value.MaxKeys or value.Keys, high, 4)
+	else
+		fill(low, 4, value[1])
+		fill(high, 4, value[2])
+	end
+end
+
+function particle_emitter.SampleBaked(low, high, t, random)
+	local x = math.clamp(t, 0, 1) * (SAMPLES - 1)
+	local i = math.min(math.floor(x), SAMPLES - 2)
+	local f = x - i
+	local a = low[i] + (low[i + 1] - low[i]) * f
+	return a + (high[i] + (high[i + 1] - high[i]) * f - a) * random
+end
+
+local function with_rgb(color, tint)
+	return Color(tint.r, tint.g, tint.b, get_channel(color, 3))
+end
+
+local function tint_keys(keys, tint, which)
+	local tinted = {}
+
+	for i, key in ipairs(keys) do
+		local hit = which == "set" or
+			(
+				which == "set_first" and
+				i == 1
+			)
+			or
+			(
+				which == "set_last" and
+				i == #keys
+			)
+		tinted[i] = {key[1], hit and with_rgb(key[2], tint) or key[2], key[3]}
+	end
+
+	return tinted
+end
+
+function particle_emitter.TintColor(current, tint, which)
+	if is_color(current) then
+		local tinted = with_rgb(current, tint)
+
+		if which == "set" then return tinted end
+
+		return {
+			Keys = {
+				{0, which == "set_first" and tinted or current},
+				{1, which == "set_last" and tinted or current},
+			},
+		}
+	end
+
+	if current.Keys then
+		return {
+			Keys = tint_keys(current.Keys, tint, which),
+			MaxKeys = current.MaxKeys and tint_keys(current.MaxKeys, tint, which),
+		}
+	end
+
+	local first, last = current[1], current[2]
+
+	if which ~= "set_last" then first = with_rgb(first, tint) end
+
+	if which ~= "set_first" then last = with_rgb(last, tint) end
+
+	return {first, last}
 end
 
 function particle_emitter.Add(emitter, backend)

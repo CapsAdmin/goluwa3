@@ -8,8 +8,7 @@ return {
 	Lifetime = {1.6, 3},
 	GravityScale = 0.15,
 	Drag = 3,
-	SizeStart = 0.05,
-	SizeEnd = 0.05,
+	Size = 0.05,
 	Lit = true,
 	SaturationJitter = 0.35,
 }

@@ -472,8 +472,7 @@ T.Test3D("Graphics render3d particle emitter spawns along the path it moved thro
 		emitter:SetSpeed(0)
 		emitter:SetGravityScale(0)
 		emitter:SetDrag(0)
-		emitter:SetSizeStart({0.5, 1.5})
-		emitter:SetSizeEnd({0.5, 1.5})
+		emitter:SetSize({0.5, 1.5})
 		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
 		step_with_update(draw, 3)
 
@@ -631,8 +630,7 @@ T.Test3D("Graphics render3d particle emitter in the gbuffer is queued as instanc
 		emitter:SetSpeed({5, 8})
 		emitter:SetLifetime(20)
 		emitter:SetGravityScale(0)
-		emitter:SetSizeStart(0.2)
-		emitter:SetSizeEnd(0.2)
+		emitter:SetSize(0.2)
 		emitter:SetCollision("rays")
 		emitter:SetOnHit("stick")
 		step_with_update(draw, 45)
@@ -668,8 +666,8 @@ T.Test("Graphics render3d particle emitters differ by type in what they have", f
 	local a = gpu:AddComponent("particle_emitter_gpu")
 	local b = cpu:AddComponent("particle_emitter_cpu")
 	T(a.GetRate ~= nil and b.GetRate ~= nil and a.Burst ~= nil and b.Burst ~= nil)["=="](true)
-	T(a.GetColorEnd ~= nil and a.GetEmissive ~= nil and a.GetLit ~= nil)["=="](true)
-	T(b.GetColorEnd == nil and b.GetEmissive == nil and b.GetLit == nil)["=="](true)
+	T(a.GetColor ~= nil and a.GetEmissive ~= nil and a.GetLit ~= nil)["=="](true)
+	T(b.GetColor == nil and b.GetEmissive == nil and b.GetLit == nil)["=="](true)
 	T(b.GetMesh ~= nil and b.GetMaterial ~= nil and b.GetFreezeAfter ~= nil)["=="](true)
 	T(b.GetColor == nil and b.GetRoughness == nil and b.GetMetallic == nil)["=="](true)
 	T(a.GetMesh == nil and a.GetMaterial == nil and a.GetFreezeAfter == nil)["=="](true)
@@ -702,8 +700,7 @@ T.Test3D("Graphics render3d cpu emitter draws refractive materials through the t
 		emitter:SetSpeed({0, 0.5})
 		emitter:SetLifetime(20)
 		emitter:SetGravityScale(0)
-		emitter:SetSizeStart(0.3)
-		emitter:SetSizeEnd(0.3)
+		emitter:SetSize(0.3)
 		emitter:Burst(20)
 		step_with_update(draw, 5)
 		T(particle_emitter_cpu.GetParticleCount(emitter))["=="](20)
@@ -733,8 +730,7 @@ T.Test3D("Graphics render3d particle emitter randomizes drag, gravity and spin p
 		emitter:SetSpread(0)
 		emitter:SetGravityScale({0, 2})
 		emitter:SetDrag({0, 3})
-		emitter:SetSizeStart(0.2)
-		emitter:SetSizeEnd(0.2)
+		emitter:SetSize(0.2)
 		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
 		emitter:Burst(200)
 		step_with_update(draw, 3)
@@ -806,11 +802,11 @@ T.Test("Graphics render3d particle emitter properties accept a number or a min m
 	local built = Entity.New{
 		Name = "range_emitter_data",
 		transform = {},
-		particle_emitter_gpu = {Speed = 2, Lifetime = {1, 2}, SizeStart = {0.1, 0.2}, Drag = 3},
+		particle_emitter_gpu = {Speed = 2, Lifetime = {1, 2}, Size = {0.1, 0.2}, Drag = 3},
 	}
 	T(built.particle_emitter_gpu:GetSpeed())["=="](2)
 	T(built.particle_emitter_gpu:GetLifetime()[2])["=="](2)
-	T(built.particle_emitter_gpu:GetSizeStart()[1])["=="](0.1)
+	T(built.particle_emitter_gpu:GetSize()[1])["=="](0.1)
 	built:Remove()
 end)
 
@@ -829,8 +825,7 @@ T.Test3D("Graphics render3d cpu emitter randomizes speed, lifetime, drag and siz
 		emitter:SetLifetime({10, 20})
 		emitter:SetGravityScale(0)
 		emitter:SetDrag({0, 2})
-		emitter:SetSizeStart({0.1, 0.3})
-		emitter:SetSizeEnd({0.1, 0.3})
+		emitter:SetSize({0.1, 0.3})
 		emitter:Burst(60)
 		step_with_update(draw, 10)
 		local runtime = emitter.particle_state.cpu
@@ -880,4 +875,197 @@ T.Test("Graphics render3d a gpu emitter entity that fails to construct leaves no
 	)
 	T(ok)["=="](false)
 	T(#particle_emitter.instances)["=="](before)
+end)
+
+T.Test("size and color values take a constant, a range or a curve and reject malformed curves", function()
+	local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
+	particle_emitter.CheckProperties{
+		Size = 0.1,
+		Color = Color(1, 0, 0, 1),
+	}
+	particle_emitter.CheckProperties{
+		Size = {0.1, 0.3},
+		Color = {Color(1, 0, 0, 1), {0, 0, 1, 1}},
+	}
+	particle_emitter.CheckProperties{
+		Size = {Keys = {{0, 0.1}, {0.5, 0.4, "smooth"}, {1, 0}}, MaxKeys = {{0, 0.2}, {1, 0.1}}},
+		Color = {Keys = {{0, {1, 1, 1, 1}}, {1, Color(1, 0, 0, 0)}}},
+	}
+
+	for _, properties in ipairs{
+		{Size = {Keys = {}}},
+		{Size = {Keys = {{0.5, 1}, {0.2, 2}}}},
+		{Size = {Keys = {{0, 1}, {2, 2}}}},
+		{Size = {Keys = {{0, 1, "bounce"}}}},
+		{Size = {Keys = {{0, {1, 1, 1}}}}},
+		{Color = {Keys = {{0, 1}}}},
+		{Color = {1, 0}},
+		{Color = "red"},
+	} do
+		T(pcall(particle_emitter.CheckProperties, properties))["=="](false)
+	end
+
+	local entity = Entity.New{
+		Name = "band_emitter_data",
+		transform = {},
+		particle_emitter_gpu = {Size = {Keys = {{0, 0.1}, {1, 0.4}}}},
+	}
+	T(entity.particle_emitter_gpu:GetSize().Keys[2][2])["=="](0.4)
+	entity:Remove()
+	T(
+		pcall(
+			Entity.New,
+			{
+				Name = "bad_band_emitter",
+				transform = {},
+				particle_emitter_gpu = {Color = {Keys = {{0, 5}}}},
+			}
+		)
+	)["=="](false)
+end)
+
+T.Test("a curve bakes into the lookup table the shaders and the cpu sample", function()
+	local ffi = require("ffi")
+	local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
+	local samples = particle_emitter.CURVE_SAMPLES
+	local low, high = ffi.new("float[?]", samples), ffi.new("float[?]", samples)
+	particle_emitter.BakeScalar(0.25, low, high)
+	T(low[0])["=="](0.25)
+	T(high[samples - 1])["=="](0.25)
+	particle_emitter.BakeScalar({0.1, 0.3}, low, high)
+	T(math.abs(low[7] - 0.1) < 1e-6)["=="](true)
+	T(math.abs(high[7] - 0.3) < 1e-6)["=="](true)
+	particle_emitter.BakeScalar({Keys = {{0, 0}, {1, 1}}, MaxKeys = {{0, 0}, {1, 2}}}, low, high)
+	T(math.abs(particle_emitter.SampleBaked(low, high, 0.5, 0) - 0.5) < 1e-6)["=="](true)
+	T(math.abs(particle_emitter.SampleBaked(low, high, 0.5, 1) - 1) < 1e-6)["=="](true)
+	T(math.abs(particle_emitter.SampleBaked(low, high, 0.5, 0.5) - 0.75) < 1e-6)["=="](true)
+	T(particle_emitter.SampleBaked(low, high, 2, 0))["=="](1)
+	particle_emitter.BakeScalar({Keys = {{0.25, 1, "step"}, {0.75, 3}, {1, 5}}}, low, high)
+	T(low[0])["=="](1)
+	T(low[samples - 1])["=="](5)
+	T(low[20])["=="](1)
+	T(low[10])["=="](1)
+	T(low[25] > 3 and low[25] < 4)["=="](true)
+	particle_emitter.BakeScalar({Keys = {{0, 0}, {1, 1, "smooth"}, {1, 1}}}, low, high)
+	T(math.abs(low[0]) < 1e-6)["=="](true)
+	particle_emitter.BakeScalar({Keys = {{0, 0, "smooth"}, {1, 1}}}, low, high)
+	T(math.abs(particle_emitter.SampleBaked(low, low, 0.25, 0) - 0.15625) < 0.01)["=="](true)
+	local colors_low, colors_high = ffi.new("float[?]", samples * 4), ffi.new("float[?]", samples * 4)
+	particle_emitter.BakeColor({Keys = {{0, {1, 0, 0, 1}}, {1, Color(0, 0, 1, 0)}}}, colors_low, colors_high)
+	T(colors_low[0])["=="](1)
+	T(colors_low[3])["=="](1)
+	T(math.abs(colors_low[(samples - 1) * 4 + 2] - 1) < 1e-6)["=="](true)
+	T(math.abs(colors_low[(samples - 1) * 4 + 3]) < 1e-6)["=="](true)
+	particle_emitter.BakeColor({{1, 0, 0, 1}, Color(0, 1, 0, 1)}, colors_low, colors_high)
+	T(colors_low[4])["=="](1)
+	T(colors_high[5])["=="](1)
+	particle_emitter.BakeColor({1, 0.5, 0.25}, colors_low, colors_high)
+	T(colors_low[7])["=="](1)
+	local scaled = particle_emitter.ScaleRange({Keys = {{0, 1}, {1, 2}}, MaxKeys = {{0, 3}, {1, 4}}}, 2)
+	T(scaled.Keys[2][2])["=="](4)
+	T(scaled.MaxKeys[1][2])["=="](6)
+	T(particle_emitter.AddRange({Keys = {{0, 1}}}, 1).Keys[1][2])["=="](2)
+	local tinted = particle_emitter.TintColor({Keys = {{0, {1, 1, 1, 1}}, {1, {1, 1, 1, 0}}}}, Color(0, 1, 0, 1), "set_last")
+	T(tinted.Keys[1][2][2])["=="](1)
+	T(tinted.Keys[1][2][1])["=="](1)
+	T(tinted.Keys[2][2].g)["=="](1)
+	T(tinted.Keys[2][2].r)["=="](0)
+	T(tinted.Keys[2][2].a)["=="](0)
+	local all = particle_emitter.TintColor(Color(1, 1, 1, 0.5), Color(0, 1, 0, 1), "set")
+	T(all.g)["=="](1)
+	T(all.a)["=="](0.5)
+	local first = particle_emitter.TintColor(Color(1, 1, 1, 0.5), Color(0, 1, 0, 1), "set_first")
+	T(first.Keys[1][2].r)["=="](0)
+	T(first.Keys[2][2].r)["=="](1)
+end)
+
+T.Test3D("Graphics render3d gpu emitter size and alpha follow their curves over the life", function(draw)
+	init()
+	local entity
+	local ok, err = pcall(function()
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 0, -1))
+		emitter:SetRate(100)
+		emitter:SetMaxParticles(512)
+		emitter:SetLifetime(4)
+		emitter:SetSpeed(0)
+		emitter:SetGravityScale(0)
+		emitter:SetDrag(0)
+		emitter:SetLit(false)
+		emitter:SetSize{Keys = {{0, 0.1}, {0.5, 0.6}, {1, 0.2}}}
+		emitter:SetColor{Keys = {{0, {1, 1, 1, 0}}, {1, {1, 1, 1, 1}}}}
+		emitter:SetEmissive{Keys = {{0, 1000}, {1, 3000}}}
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		step_with_update(draw, 150)
+		local records = particles.Download(particle_emitter_gpu.system)
+		local checked = 0
+		local gain
+
+		for i = 0, particle_emitter_gpu.system.GetCount() - 1 do
+			local p = records[i]
+			local t = p.age / p.life
+
+			if p.life > 0 and t > 0.15 and t < 0.85 then
+				checked = checked + 1
+				local size = t <= 0.5 and 0.1 + t / 0.5 * 0.5 or 0.6 - (t - 0.5) / 0.5 * 0.4
+				T(math.abs(p.width - size) < 0.03)["=="](true)
+				T(math.abs(p.visibility - t) < 0.03)["=="](true)
+				local emissive = 1000 + 2000 * t
+				gain = gain or p.radiance[0] / emissive
+				T(gain > 0)["=="](true)
+				T(math.abs(p.radiance[0] / emissive / gain - 1) < 0.05)["=="](true)
+			end
+		end
+
+		T(checked > 100)["=="](true)
+	end)
+
+	if entity then entity:Remove() end
+
+	restore()
+
+	if not ok then error(err, 0) end
+end)
+
+T.Test3D("Graphics render3d gpu emitter color picks a point between two colors per particle", function(draw)
+	init()
+	local entity
+	local ok, err = pcall(function()
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 0, -1))
+		emitter:SetRate(100)
+		emitter:SetMaxParticles(512)
+		emitter:SetLifetime(4)
+		emitter:SetSpeed(0)
+		emitter:SetGravityScale(0)
+		emitter:SetDrag(0)
+		emitter:SetLit(false)
+		emitter:SetEmissive(1000)
+		emitter:SetColor{{1, 0, 0, 1}, Color(0, 0, 1, 1)}
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		step_with_update(draw, 100)
+		local records = particles.Download(particle_emitter_gpu.system)
+		local low, high, alive = 1, 0, 0
+
+		for i = 0, particle_emitter_gpu.system.GetCount() - 1 do
+			local p = records[i]
+
+			if p.life > 0 and p.visibility > 0.5 then
+				alive = alive + 1
+				local share = p.radiance[2] / (p.radiance[0] + p.radiance[2])
+				low, high = math.min(low, share), math.max(high, share)
+				T(math.abs(p.radiance[1]) < 1e-6)["=="](true)
+			end
+		end
+
+		T(alive > 100)["=="](true)
+		T(low < 0.2)["=="](true)
+		T(high > 0.8)["=="](true)
+	end)
+
+	if entity then entity:Remove() end
+
+	restore()
+
+	if not ok then error(err, 0) end
 end)

@@ -1,4 +1,6 @@
+local ffi = require("ffi")
 local list = import("goluwa/list.lua")
+local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local particles = import("goluwa/render3d/particles.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
@@ -15,6 +17,41 @@ local last_sync_frame
 local SHAPES = {point = 0, sphere = 1, cone = 2, box = 3, disc = 4}
 local COLLISIONS = {none = 0, shelter_map = 1, scene_depth = 2, rays = 3}
 local ON_HIT = {bounce = 0, stick = 1, kill = 2}
+local SAMPLES = particle_emitter.CURVE_SAMPLES
+local CURVE_BUFFERS = 3
+local curve_record = ffi.typeof(
+	"struct { float size_low[$]; float size_high[$]; float emissive_low[$]; float emissive_high[$]; float color_low[$]; float color_high[$]; }",
+	SAMPLES,
+	SAMPLES,
+	SAMPLES,
+	SAMPLES,
+	SAMPLES * 4,
+	SAMPLES * 4
+)
+local curve_pointer = ffi.typeof("$ *", curve_record)
+local curve_buffers = {}
+
+local function get_curves()
+	local index = system.GetFrameNumber() % CURVE_BUFFERS
+	local curves = curve_buffers[index]
+
+	if not curves then
+		local buffer = render.CreateBuffer{
+			byte_size = gpu.MAX_EMITTERS * ffi.sizeof(curve_record),
+			buffer_usage = {"storage_buffer", "shader_device_address"},
+			memory_property = {"host_visible", "host_coherent"},
+			label = "gpu emitter curves",
+		}
+		curves = {
+			buffer = buffer,
+			records = ffi.cast(curve_pointer, buffer:Map()),
+			address = buffer:GetDeviceAddress(),
+		}
+		curve_buffers[index] = curves
+	end
+
+	return curves
+end
 
 local function release(range)
 	list.remove_value(ranges, range)
@@ -127,11 +164,18 @@ local function write_vec3(target, x, y, z)
 	target[0], target[1], target[2] = x, y, z
 end
 
-local function write_color(target, color)
-	target[0], target[1], target[2], target[3] = color.r, color.g, color.b, color.a
-end
+gpu.base_declarations = glsl_common.GetNoiseGLSL() .. "#define GPU_EMITTER_COUNT " .. gpu.MAX_EMITTERS .. "u\n#define EMITTER_CURVE_SAMPLES " .. SAMPLES .. "\n" .. [[
+		struct EmitterCurve {
+			float size_low[EMITTER_CURVE_SAMPLES];
+			float size_high[EMITTER_CURVE_SAMPLES];
+			float emissive_low[EMITTER_CURVE_SAMPLES];
+			float emissive_high[EMITTER_CURVE_SAMPLES];
+			vec4 color_low[EMITTER_CURVE_SAMPLES];
+			vec4 color_high[EMITTER_CURVE_SAMPLES];
+		};
 
-gpu.base_declarations = glsl_common.GetNoiseGLSL() .. "#define GPU_EMITTER_COUNT " .. gpu.MAX_EMITTERS .. "u\n" .. [[
+		layout(buffer_reference, scalar) readonly buffer EmitterCurves { EmitterCurve curves[]; };
+
 		uint find_emitter(uint index) {
 			for (int i = 0; i < emitters_data.emitter_count; i++) {
 				if (emitters_data.emitters[i].enabled != 0 && index >= uint(emitters_data.emitters[i].first) && index < uint(emitters_data.emitters[i].first + emitters_data.emitters[i].count)) return uint(i);
@@ -166,9 +210,42 @@ gpu.base_declarations = glsl_common.GetNoiseGLSL() .. "#define GPU_EMITTER_COUNT
 			return pcg3d_unorm(uvec3(index, p.user.x, uint(e.seed) + 49979687u));
 		}
 
+		float emitter_curve_size(uint slot, float t, float r) {
+			EmitterCurves buf = EmitterCurves(emitters_data.curves);
+			float x = clamp(t, 0.0, 1.0) * float(EMITTER_CURVE_SAMPLES - 1);
+			uint i = min(uint(x), uint(EMITTER_CURVE_SAMPLES - 2));
+			float f = x - float(i);
+			float low = mix(buf.curves[slot].size_low[i], buf.curves[slot].size_low[i + 1u], f);
+			float high = mix(buf.curves[slot].size_high[i], buf.curves[slot].size_high[i + 1u], f);
+			return mix(low, high, r);
+		}
+
+		float emitter_curve_emissive(uint slot, float t, float r) {
+			EmitterCurves buf = EmitterCurves(emitters_data.curves);
+			float x = clamp(t, 0.0, 1.0) * float(EMITTER_CURVE_SAMPLES - 1);
+			uint i = min(uint(x), uint(EMITTER_CURVE_SAMPLES - 2));
+			float f = x - float(i);
+			float low = mix(buf.curves[slot].emissive_low[i], buf.curves[slot].emissive_low[i + 1u], f);
+			float high = mix(buf.curves[slot].emissive_high[i], buf.curves[slot].emissive_high[i + 1u], f);
+			return mix(low, high, r);
+		}
+
+		vec4 emitter_curve_color(uint slot, float t, float r) {
+			EmitterCurves buf = EmitterCurves(emitters_data.curves);
+			float x = clamp(t, 0.0, 1.0) * float(EMITTER_CURVE_SAMPLES - 1);
+			uint i = min(uint(x), uint(EMITTER_CURVE_SAMPLES - 2));
+			float f = x - float(i);
+			vec4 low = mix(buf.curves[slot].color_low[i], buf.curves[slot].color_low[i + 1u], f);
+			vec4 high = mix(buf.curves[slot].color_high[i], buf.curves[slot].color_high[i + 1u], f);
+			return mix(low, high, r);
+		}
+
 		float emitter_size_at(emitters_t e, uint index, Particle p, float f) {
-			vec3 r = emitter_random_a(e, index, p);
-			return mix(mix(e.size_start_min, e.size_start_max, r.y), mix(e.size_end_min, e.size_end_max, r.z), f);
+			return emitter_curve_size(p.user.y, f, emitter_random_a(e, index, p).y);
+		}
+
+		vec4 emitter_color_at(emitters_t e, uint index, Particle p, float f) {
+			return emitter_curve_color(p.user.y, f, emitter_random_a(e, index, p).z);
 		}
 
 		vec3 get_random_unit_vector(vec2 r) {
@@ -211,24 +288,17 @@ gpu.system = particles.Register{
 				{"velocity", "vec3"},
 				{"previous", "vec3"},
 				{"shape_size", "vec3"},
-				{"color_start", "vec4"},
-				{"color_end", "vec4"},
 				{"speed_min", "float"},
 				{"speed_max", "float"},
 				{"life_min", "float"},
 				{"life_max", "float"},
 				{"spread", "float"},
-				{"size_start_min", "float"},
-				{"size_start_max", "float"},
-				{"size_end_min", "float"},
-				{"size_end_max", "float"},
 				{"gravity_min", "float"},
 				{"gravity_max", "float"},
 				{"drag_min", "float"},
 				{"drag_max", "float"},
 				{"restitution", "float"},
 				{"friction", "float"},
-				{"emissive", "float"},
 				{"exposure_compensation", "float"},
 				{"fizzle", "float"},
 				{"fizzle_start", "float"},
@@ -258,15 +328,19 @@ gpu.system = particles.Register{
 				{"spawn_count", "int"},
 				{"uid", "int"},
 				{"seed", "int"},
+				{"slot", "int"},
 			},
 			gpu.MAX_EMITTERS,
 		},
 		{"emitter_count", "int"},
+		{"curves", "uint64_t"},
 	},
 	WriteBlock = function(self, block)
 		sync()
 		local dt = particles.GetStepTime()
 		local slots = 0
+		local curves = get_curves()
+		block.curves = curves.address
 
 		for i = 0, gpu.MAX_EMITTERS - 1 do
 			block.emitters[i].enabled = 0
@@ -301,18 +375,18 @@ gpu.system = particles.Register{
 			)
 			local size = emitter.ShapeSize
 			write_vec3(entry.shape_size, size.x, size.y, size.z)
-			write_color(entry.color_start, emitter.ColorStart)
-			write_color(entry.color_end, emitter.ColorEnd)
+			local record = curves.records[range.slot]
+			particle_emitter.BakeScalar(emitter.Size, record.size_low, record.size_high)
+			particle_emitter.BakeColor(emitter.Color, record.color_low, record.color_high)
+			entry.slot = range.slot
 			entry.speed_min, entry.speed_max = particle_emitter.GetRange(emitter.Speed)
 			entry.life_min, entry.life_max = particle_emitter.GetRange(emitter.Lifetime)
 			entry.spread = math.rad(emitter.Spread)
-			entry.size_start_min, entry.size_start_max = particle_emitter.GetRange(emitter.SizeStart)
-			entry.size_end_min, entry.size_end_max = particle_emitter.GetRange(emitter.SizeEnd)
 			entry.gravity_min, entry.gravity_max = particle_emitter.GetRange(emitter.GravityScale)
 			entry.drag_min, entry.drag_max = particle_emitter.GetRange(emitter.Drag)
 			entry.restitution = emitter.Restitution
 			entry.friction = emitter.Friction
-			entry.emissive = emitter.Emissive
+			particle_emitter.BakeScalar(emitter.Emissive, record.emissive_low, record.emissive_high)
 			entry.exposure_compensation = emitter.ExposureCompensation
 			entry.fizzle = emitter.Fizzle
 			entry.fizzle_start = emitter.FizzleStart
@@ -452,7 +526,7 @@ gpu.system = particles.Register{
 		p.position += p.velocity * elapsed;
 		p.age = elapsed;
 		p.life = mix(e.life_min, e.life_max, r3.z);
-		p.width = e.size_start_min;
+		p.width = emitter_size_at(e, index, p, 0.0);
 		p.user.y = slot;
 		p.user.z = uint(e.uid);
 		p.sprite = e.stretch > 0.0 ? vec4(e.stretch, -float(e.sprite_slot), 0.0, 1.0) : vec4(r.x * 6.2831853, float(e.sprite_slot), 0.0, 1.0);
@@ -470,7 +544,7 @@ gpu.system = particles.Register{
 		float t = clamp(p.age / p.life, 0.0, 1.0);
 		vec3 random_a = emitter_random_a(e, index, p);
 		vec3 random_b = emitter_random_b(e, index, p);
-		p.width = mix(mix(e.size_start_min, e.size_start_max, random_a.y), mix(e.size_end_min, e.size_end_max, random_a.z), t) * p.sprite.w;
+		p.width = emitter_curve_size(slot, t, random_a.y) * p.sprite.w;
 
 		if (p.sprite.y > 0.0 && (e.spin_min != 0.0 || e.spin_max != 0.0)) {
 			p.sprite.x += mix(e.spin_min, e.spin_max, random_a.x) * dt;
@@ -515,7 +589,7 @@ gpu.system = particles.Register{
 		float seed = fract(sin(p.life * 12345.678) * 43758.5453);
 		float twinkle = 0.5 + 0.5 * sin(p.age * mix(18.0, 60.0, seed) + seed * 6.2831853);
 		float t = clamp(p.age / p.life, 0.0, 1.0);
-		return mix(e.color_start.a, e.color_end.a, t) * mix(1.0, twinkle * twinkle, e.sparkle) * emitter_shader_visibility(e, index, t, p);
+		return emitter_curve_color(slot, t, emitter_random_a(e, index, p).z).a * mix(1.0, twinkle * twinkle, e.sparkle) * emitter_shader_visibility(e, index, t, p);
 	]],
 	shade = [[
 		uint slot;
@@ -523,11 +597,12 @@ gpu.system = particles.Register{
 		if (!get_particle_emitter(p, slot)) return;
 
 		emitters_t e = emitters_data.emitters[slot];
-		vec3 tint = mix(e.color_start.rgb, e.color_end.rgb, clamp(p.age / p.life, 0.0, 1.0));
+		vec3 tint = emitter_curve_color(slot, clamp(p.age / p.life, 0.0, 1.0), emitter_random_a(e, index, p).z).rgb;
 		float luma = dot(tint, vec3(0.2126, 0.7152, 0.0722));
 		float jitter = fract(sin(p.life * 4321.987 + 3.7) * 24634.6345);
 		tint = max(mix(vec3(luma), tint, 1.0 + (jitter - 0.5) * 2.0 * e.saturation_jitter), vec3(0.0));
-		p.radiance = tint * ((e.lit != 0 ? p.light : vec3(0.0)) + e.emissive * effect_exposure_gain(particle_data.pre_exposure_tex, e.exposure_compensation));
+		float emissive = emitter_curve_emissive(slot, clamp(p.age / p.life, 0.0, 1.0), emitter_random_b(e, index, p).z);
+		p.radiance = tint * ((e.lit != 0 ? p.light : vec3(0.0)) + emissive * effect_exposure_gain(particle_data.pre_exposure_tex, e.exposure_compensation));
 		emitter_shader_shade(e, index, clamp(p.age / p.life, 0.0, 1.0), p);
 	]],
 	collision_mode = [[

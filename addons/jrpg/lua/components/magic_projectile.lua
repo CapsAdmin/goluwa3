@@ -284,8 +284,7 @@ function META:BuildVisuals()
 				Playing = true,
 				MaxParticles = 384,
 				Spread = 180,
-				SizeStart = PARTICLE_SIZE,
-				SizeEnd = 0,
+				Size = {Keys = {{0, PARTICLE_SIZE}, {1, 0}}},
 				Sparkle = 1,
 				GravityScale = 0,
 			}

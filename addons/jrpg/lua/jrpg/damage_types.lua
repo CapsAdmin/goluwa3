@@ -21,8 +21,7 @@ local DEFAULT_PARTICLES = {
 	Spread = 180,
 	Speed = {0.3, 1.5},
 	Lifetime = {0.2, 0.6},
-	SizeStart = 0.04,
-	SizeEnd = 0,
+	Size = {Keys = {{0, 0.04}, {1, 0}}},
 	Drag = 3,
 	GravityScale = 0,
 }

@@ -1,5 +1,4 @@
 local data_files = import("goluwa/data_files.lua")
-local Color = import("goluwa/structs/color.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local emitter_data = {}
 emitter_data.MAX_VARIANTS = 16
@@ -50,8 +49,11 @@ local function build(data, inputs)
 						error("unknown input mode " .. tostring(mode) .. " on " .. input_name)
 					end
 				else
-					assert(mode == "set", "color inputs only set, " .. input_name)
-					properties[property] = Color(value.r, value.g, value.b, current.a)
+					assert(
+						mode == "set" or mode == "set_first" or mode == "set_last",
+						"color inputs only set, set_first or set_last, " .. input_name
+					)
+					properties[property] = particle_emitter.TintColor(current, value, mode)
 				end
 			end
 		end

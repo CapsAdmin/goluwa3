@@ -21,10 +21,11 @@ local Particle = ffi.typeof([[struct {
 	float px, py, pz;
 	float age, life, angle;
 	float kx, ky, kz, phase;
-	float rs, re, rd, rg, rsp;
+	float rs, rd, rg, rsp;
 	uint32_t stuck;
 }]])
 local ParticleArray = ffi.typeof("$[?]", Particle)
+local Curve = ffi.typeof("float[$]", particle_emitter.CURVE_SAMPLES)
 local polygons = {}
 local rays_left = 0
 
@@ -73,6 +74,8 @@ local function get_runtime(emitter)
 			matrices = {},
 			prev_matrices = {},
 			sizes = {},
+			size_low = Curve(),
+			size_high = Curve(),
 		}
 		state.cpu = runtime
 		state.rng = bit.bor(emitter.Seed * 2654435761 % 4294967296, 1)
@@ -158,7 +161,7 @@ local function spawn(emitter, state, runtime)
 	p.age = 0
 	local life_min, life_max = particle_emitter.GetRange(emitter.Lifetime)
 	p.life = life_min + (life_max - life_min) * random(state)
-	p.rs, p.re, p.rd, p.rg, p.rsp = random(state), random(state), random(state), random(state), random(state)
+	p.rs, p.rd, p.rg, p.rsp = random(state), random(state), random(state), random(state)
 	p.angle = random(state) * 6.2831853
 	local kz = random(state) * 2 - 1
 	local kphi = random(state) * 6.2831853
@@ -176,8 +179,8 @@ local function step(emitter, runtime, dt)
 	local gravity_min, gravity_max = particle_emitter.GetRange(emitter.GravityScale)
 	local drag_min, drag_max = particle_emitter.GetRange(emitter.Drag)
 	local spin_min, spin_max = particle_emitter.GetRange(emitter.Spin)
-	local size_start_min, size_start_max = particle_emitter.GetRange(emitter.SizeStart)
-	local size_end_min, size_end_max = particle_emitter.GetRange(emitter.SizeEnd)
+	local size_low, size_high = runtime.size_low, runtime.size_high
+	particle_emitter.BakeScalar(emitter.Size, size_low, size_high)
 	local fixed_drag = drag_min == drag_max and math.exp(-drag_min * dt)
 	local collides = emitter.Collision == "rays"
 	local on_hit = emitter.OnHit
@@ -227,9 +230,7 @@ local function step(emitter, runtime, dt)
 					if distance > 1e-5 then
 						rays_left = rays_left - 1
 						local t = p.age / p.life
-						local size_start = size_start_min + (size_start_max - size_start_min) * p.rs
-						local size_end = size_end_min + (size_end_max - size_end_min) * p.re
-						local radius = (size_start + (size_end - size_start) * t) * 0.5
+						local radius = particle_emitter.SampleBaked(size_low, size_high, t, p.rs) * 0.5
 						ray_origin.x, ray_origin.y, ray_origin.z = p.px, p.py, p.pz
 						ray_direction.x, ray_direction.y, ray_direction.z = dx, dy, dz
 						local hit = raycast.CastClosest(ray_origin, ray_direction, distance + radius)
@@ -352,8 +353,7 @@ do
 				local sizes = runtime.sizes
 				local quad = emitter.Mesh == "quad"
 				local rock = math.rad(emitter.RockAngle)
-				local size_start_min, size_start_max = particle_emitter.GetRange(emitter.SizeStart)
-				local size_end_min, size_end_max = particle_emitter.GetRange(emitter.SizeEnd)
+				local size_low, size_high = runtime.size_low, runtime.size_high
 				runtime.translucent = translucent
 
 				for i = 0, runtime.count - 1 do
@@ -367,12 +367,7 @@ do
 					end
 
 					local t = p.age / p.life
-					local size_start = size_start_min + (size_start_max - size_start_min) * p.rs
-					local size = size_start + (
-							size_end_min + (
-								size_end_max - size_end_min
-							) * p.re - size_start
-						) * t
+					local size = particle_emitter.SampleBaked(size_low, size_high, t, p.rs)
 					local prev_matrix = prev_matrices[i + 1]
 					sizes[i + 1] = size
 
@@ -422,8 +417,12 @@ do
 					far = math.max(far, distance)
 				end
 
-				local radius = select(2, particle_emitter.GetRange(emitter.SizeStart))
-				radius = math.max(radius, select(2, particle_emitter.GetRange(emitter.SizeEnd)))
+				local radius = 0
+
+				for i = 0, particle_emitter.CURVE_SAMPLES - 1 do
+					radius = math.max(radius, runtime.size_low[i], runtime.size_high[i])
+				end
+
 				render3d.ExtendTranslucentDepthRange(near - radius, far + radius)
 
 				if get_material(emitter):GetRefraction() > 0 then

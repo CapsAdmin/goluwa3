@@ -223,13 +223,20 @@ do
 			Collision = "none",
 			Emissive = 2.5e5,
 			SaturationJitter = 0.35,
-			ColorStart = Color(definition.Color.r, definition.Color.g, definition.Color.b, 1),
-			ColorEnd = Color(
-				(definition.EndColor or definition.Color).r,
-				(definition.EndColor or definition.Color).g,
-				(definition.EndColor or definition.Color).b,
-				0
-			),
+			Color = {
+				Keys = {
+					{0, Color(definition.Color.r, definition.Color.g, definition.Color.b, 1)},
+					{
+						1,
+						Color(
+							(definition.EndColor or definition.Color).r,
+							(definition.EndColor or definition.Color).g,
+							(definition.EndColor or definition.Color).b,
+							0
+						),
+					},
+				},
+			},
 		}
 
 		for key, value in pairs(effects.GetParticles(definition)) do
@@ -351,12 +358,12 @@ do
 			local color = definition.Color
 			local overrides = {
 				Spread = spread,
-				SizeStart = SPARK_SIZE,
-				SizeEnd = 0,
+				Size = {Keys = {{0, SPARK_SIZE}, {1, 0}}},
 				Sparkle = 1,
 				GravityScale = SPARK_GRAVITY,
-				ColorStart = WHITE:GetLerped(0.4, color),
-				ColorEnd = Color(color.r, color.g, color.b, 0),
+				Color = {
+					Keys = {{0, WHITE:GetLerped(0.4, color)}, {1, Color(color.r, color.g, color.b, 0)}},
+				},
 			}
 			local speed = (speed_scale or 1) * (cut_scale or 1)
 			local particles = effects.GetParticles(definition)
@@ -807,13 +814,11 @@ function effects.ShowBlock(entity, position, normal, broken)
 				Spread = 50,
 				Speed = {1, broken and 6 or 4},
 				Lifetime = {0.15, 0.5},
-				SizeStart = 0.02,
-				SizeEnd = 0,
+				Size = {Keys = {{0, 0.02}, {1, 0}}},
 				Drag = 1.5,
 				GravityScale = 0.8,
 				Emissive = 4e5,
-				ColorStart = Color(1, 0.95, 0.8, 1),
-				ColorEnd = Color(1, 0.6, 0.2, 0),
+				Color = {Keys = {{0, Color(1, 0.95, 0.8, 1)}, {1, Color(1, 0.6, 0.2, 0)}}},
 			}
 		)
 	end

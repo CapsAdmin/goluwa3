@@ -1,6 +1,5 @@
 return {
-	ColorEnd = {0.2, 0.9, 1, 0},
-	ColorStart = {0.2, 0.9, 1, 1},
+	Color = {Keys = {{0, {0.2, 0.9, 1, 1}}, {1, {0.2, 0.9, 1, 0}}}},
 	Drag = 0,
 	Emissive = 200000,
 	Fizzle = 1.784,
@@ -11,8 +10,7 @@ return {
 	Lifetime = {0.09, 0.204},
 	Lit = false,
 	MaxParticles = 256,
-	SizeEnd = 0.015,
-	SizeStart = 0.001,
+	Size = {Keys = {{0, 0.001}, {1, 0.015}}},
 	Speed = {0.295, 1.894},
 	Spread = 5.651,
 	Stretch = 1.048,
