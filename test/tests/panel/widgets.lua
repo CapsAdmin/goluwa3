@@ -654,13 +654,16 @@ T.Test2D("property editor list nodes build rows and group items, route actions a
 	T(#lists)["=="](2)
 	local rows = lists[1]._rows
 	T(#rows)["=="](3)
-	lists[1]:begin_drag(1)
+	T(#lists[1]._drag_controls)["=="](3)
+	T(lists[1]._drag_controls[1].control:GetEditClickCount())["=="](2)
+	lists[1]:begin_drag(1, rows[1].transform:LocalToGlobal(Vec2(4, 0)))
+	T(lists[1]._drag.ghost:IsValid())["=="](true)
 	local last = rows[3]
 	lists[1]:OnGlobalMouseMove(last.transform:LocalToGlobal(Vec2(20, last.transform:GetHeight() * 0.9)))
 	T(lists[1]._drag.drop)["=="](4)
 	lists[1]:OnGlobalMouseInput("button_1", false)
 	T(log[1])["=="]("move:1,3")
-	lists[1]:begin_drag(3)
+	lists[1]:begin_drag(3, rows[3].transform:LocalToGlobal(Vec2(4, 0)))
 	lists[1]:OnGlobalMouseMove(rows[1].transform:LocalToGlobal(Vec2(20, 0)))
 	lists[1]:OnGlobalMouseInput("button_1", false)
 	T(log[2])["=="]("move:3,1")

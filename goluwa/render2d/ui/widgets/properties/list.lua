@@ -2,6 +2,8 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
+local system = import("goluwa/system.lua")
+local Ghost = import("goluwa/render2d/ui/elements/ghost.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
 local Icon = import("goluwa/render2d/ui/elements/icon.lua")
 local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
@@ -90,42 +92,28 @@ function META.OpenItemMenu(list, index)
 	)
 end
 
-local function draw_ghost(ghost)
-	local size = ghost.transform:GetSize()
-	local active = theme.active
-	active:DrawRoundRect(0, 0, size.x, size.y, size.y / 2, active:GetColor("primary"), 0.35)
-	active:DrawRoundRect(0, 0, size.x, size.y, size.y / 2, active:GetColor("surface_alt"), 0.9)
-end
+function META:register_control(control, index)
+	if control.EditClickCount == nil then return end
 
-function META:begin_drag(index, pos)
-	self._drag = {from = index, drop = index}
+	control:SetEditClickCount(2)
 
-	if self._chips then
-		local chip = self._chips[index]
-		self._drag.grab = pos - chip.transform:LocalToGlobal(Vec2(0, 0))
-		self._drag.ghost = Panel.New{
-			Parent = Panel.World,
-			Name = "property_list_ghost",
-			Size = chip.transform:GetSize():Copy(),
-			visual = true,
-			mouse_input = {IgnoreMouseInput = true},
-			layout = {Floating = true, Direction = "x", AlignmentX = "center", AlignmentY = "center"},
-			OnDraw = draw_ghost,
-		}{
-			Text{
-				Text = tostring(self.Node.Items[index].Value),
-				FontSize = self.Editor._font_size,
-				IgnoreMouseInput = true,
-			},
-		}
-		self._drag.ghost:BringToFront()
-		self:move_ghost(pos)
+	if control.OnDragValue == nil then
+		self._drag_controls[#self._drag_controls + 1] = {control = control, index = index}
 	end
 end
 
-function META:move_ghost(pos)
-	local drag = self._drag
-	drag.ghost.transform:SetPosition(pos - drag.grab)
+function META:begin_drag(index, pos)
+	local source = self._chips and self._chips[index] or self._rows[index]
+	self._drag = {
+		from = index,
+		drop = index,
+		ghost = Ghost{
+			Parent = Panel.World,
+			Source = source,
+			GrabPosition = pos,
+			Radius = self._chips and source.transform:GetHeight() / 2 or 3,
+		},
+	}
 end
 
 function META:get_chip_drop_index(pos)
@@ -172,8 +160,7 @@ function META:end_drag()
 
 	if not drag then return end
 
-	if drag.ghost then drag.ghost:Remove() end
-
+	drag.ghost:Remove()
 	local to = drag.drop > drag.from and drag.drop - 1 or drag.drop
 
 	if to ~= drag.from then self.Node.Actions.Move(drag.from, to) end
@@ -195,9 +182,6 @@ function META:OnGlobalMouseMove(pos)
 
 	if self._drag then
 		self._drag.drop = self:get_drop_index(pos)
-
-		if self._drag.ghost then self:move_ghost(pos) end
-
 		return true
 	end
 end
@@ -206,13 +190,11 @@ function META:OnGlobalMouseInput(button, press, pos)
 	if button ~= "button_1" then return end
 
 	if press then
-		if self._chips then
-			for index, chip in ipairs(self._chips) do
-				if chip.visual:IsHovered(pos) and not chip.Control:IsEditing() then
-					self._pending = {index = index, pos = pos:Copy()}
+		for _, entry in ipairs(self._drag_controls) do
+			if entry.control.visual:IsHovered(pos) and not entry.control:IsEditing() then
+				self._pending = {index = entry.index, pos = pos:Copy()}
 
-					break
-				end
+				break
 			end
 		end
 
@@ -229,10 +211,6 @@ local function draw_row(row)
 	local drag = list._drag
 	local size = row.transform:GetSize()
 	local active = theme.active
-
-	if drag and drag.from == row.Index then
-		active:DrawRoundRect(0, 0, size.x, size.y, 0, active:GetColor("primary"), 0.15)
-	end
 
 	if drag and drag.drop ~= drag.from and drag.drop ~= drag.from + 1 then
 		local color = active:GetColor("primary")
@@ -254,7 +232,7 @@ end
 
 local function on_grip_input(grip, button, press)
 	if button == "button_1" and press then
-		grip.List:begin_drag(grip.Index)
+		grip.List:begin_drag(grip.Index, system.GetWindow():GetMousePosition())
 		return true
 	end
 end
@@ -373,16 +351,7 @@ local function draw_chip(chip)
 	local size = chip.transform:GetSize()
 	local active = theme.active
 	local drag = chip.List._drag
-	local dragged = drag and drag.from == chip.Index
-	active:DrawRoundRect(
-		0,
-		0,
-		size.x,
-		size.y,
-		size.y / 2,
-		active:GetColor("surface_alt"),
-		dragged and 0.35 or 1
-	)
+	active:DrawRoundRect(0, 0, size.x, size.y, size.y / 2, active:GetColor("surface_alt"), 1)
 
 	if drag and drag.drop ~= drag.from and drag.drop ~= drag.from + 1 then
 		local color = active:GetColor("primary")
@@ -442,7 +411,7 @@ function META:create_chips(height)
 			},
 		}
 		local control = editor:create_control(item, self.Path .. "/" .. index, item.Key)
-		control:SetEditClickCount(2)
+		self:register_control(control, index)
 		control.layout:SetMinSize(Vec2(CHIP_MIN_TEXT_WIDTH, height))
 		control.layout:SetMaxSize(Vec2(0, height))
 		control.layout:SetGrowWidth(0)
@@ -463,6 +432,7 @@ function META:OnCreate()
 	META.BaseClass.OnCreate(self)
 	local node, editor = self.Node, self.Editor
 	self._rows = {}
+	self._drag_controls = {}
 	local display = node.Display or "rows"
 	local item_height = editor:get_row_height(node)
 
@@ -550,12 +520,14 @@ function META:OnCreate()
 				local control = editor:create_control(cell, self.Path .. "/" .. index .. "/" .. column_index, cell.Key)
 				stretch(control, node.Columns[column_index].Width, item_height)
 				row:AddChild(control)
+				self:register_control(control, index)
 			end
 		else
 			self:add_index(row, index, item_height)
 			local control = editor:create_control(item, self.Path .. "/" .. index, item.Key)
 			stretch(control)
 			row:AddChild(control)
+			self:register_control(control, index)
 
 			if node.FocusIndex == index and control.BeginEdit then
 				self.FocusControl = control
