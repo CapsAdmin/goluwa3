@@ -506,3 +506,72 @@ T.Test3D("a particle shader is previewed on the emitter its preview block names"
 		child:Remove()
 	end
 end)
+
+T.Test3D("the preview block offers the keys that apply to the category and an npc alone picks the npc stage", function()
+	local effects_editor = import("lua/jrpg/effects_editor.lua")
+	local session = {LoadId = 0, SelectId = 0, Count = 24}
+	local handlers = {
+		changed = function() end,
+		restructured = function() end,
+		open = function() end,
+	}
+
+	local function offered(category, name)
+		effects_editor.Load(session, category, name)
+		session.Data.Preview = {}
+		local preview
+
+		for _, item in ipairs(effects_editor.BuildItems(session, handlers)) do
+			if item.Text == "Preview" then preview = item end
+		end
+
+		local out = {}
+
+		for _, child in ipairs(preview.Children) do
+			if child.Type == "add" then
+				for _, entry in ipairs(child.Items) do
+					out[entry.Text] = true
+				end
+			end
+		end
+
+		return out, preview
+	end
+
+	local clips, clip_preview = offered("clips", "impact")
+	T(
+		clips.Params and
+			clips.Drive and
+			clips.Release and
+			clips.Npc and
+			clips.Stage and
+			clips.Camera
+	)["=="](true)
+	T(clips.Emitter == nil and clips.Offset == nil and clips.ShaderParams == nil)["=="](true)
+	T(clip_preview.Description ~= nil)["=="](true)
+	local emitters = offered("gpu emitters", "melee_sparks")
+	T(emitters.Drive and emitters.Loop and emitters.View)["=="](true)
+	T(emitters.Params == nil and emitters.Release == nil and emitters.Emitter == nil)["=="](true)
+	local shaders = offered("particle shaders", "puff")
+	T(shaders.Emitter and shaders.Offset and shaders.ShaderParams and shaders.Duration)["=="](true)
+	T(shaders.Drive == nil and shaders.Params == nil and shaders.Release == nil)["=="](true)
+	local damage = offered("damage types", "fire")
+	T(damage.Stage and damage.Npc and damage.Exposure)["=="](true)
+	T(damage.Drive == nil and damage.Params == nil and damage.Emitter == nil)["=="](true)
+	local original = effects_editor.SetStage
+	local calls = {}
+	effects_editor.SetStage = function(_, kind, npc)
+		calls[#calls + 1] = kind .. ":" .. tostring(npc)
+	end
+	session.StageKind, session.NpcName = "player", "citizen"
+	session.Data.Preview = {Npc = "antlion_worker"}
+	effects_editor.ApplyPreview(session)
+	session.Data.Preview = {Stage = "npc", Npc = "antlion_worker"}
+	effects_editor.ApplyPreview(session)
+	session.StageKind, session.NpcName = "npc", "antlion_worker"
+	effects_editor.ApplyPreview(session)
+	session.Data.Preview = {Stage = "gizmo"}
+	effects_editor.ApplyPreview(session)
+	effects_editor.SetStage = original
+	T(table.concat(calls, ","))["=="]("npc:antlion_worker,npc:antlion_worker,gizmo:antlion_worker")
+end)

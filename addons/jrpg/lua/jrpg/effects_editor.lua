@@ -373,16 +373,18 @@ function effects_editor.ApplyPreview(session)
 
 	if not preview then return end
 
+	local stage = preview.Stage or preview.Npc and "npc" or nil
+
 	if
-		preview.Stage and
+		stage and
 		(
-			preview.Stage ~= session.StageKind or
-			preview.Stage == "npc" and
+			stage ~= session.StageKind or
+			stage == "npc" and
 			preview.Npc and
 			preview.Npc ~= session.NpcName
 		)
 	then
-		effects_editor.SetStage(session, preview.Stage, preview.Npc or session.NpcName)
+		effects_editor.SetStage(session, stage, preview.Npc or session.NpcName)
 	end
 
 	if preview.Loop ~= nil then session.Loop = preview.Loop end

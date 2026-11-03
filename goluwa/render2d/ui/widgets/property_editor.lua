@@ -1004,7 +1004,26 @@ function META:build_rows_panel(entries, indent)
 end
 
 local function is_block(node)
-	return node.IsGroup or node.Type == "list"
+	return node.IsGroup or node.Type == "list" or node.Type == "add"
+end
+
+local function open_node_menu(actions, items)
+	items = items or {}
+
+	for _, action in ipairs(actions) do
+		items[#items + 1] = MenuItem{Text = action.Text, Icon = action.Icon, OnClick = action.OnClick}
+	end
+
+	Panel.OpenContextMenu({
+		OnClose = function(self)
+			self:Remove()
+		end,
+	}, items)
+	return true
+end
+
+local function on_group_header_menu(collapsible)
+	return open_node_menu(collapsible.CategoryNode.ContextActions)
 end
 
 local function on_list_header_menu(collapsible)
@@ -1050,12 +1069,7 @@ local function on_list_header_menu(collapsible)
 		Disabled = #node.Items == 0,
 		OnClick = actions.Clear,
 	}
-	Panel.OpenContextMenu({
-		OnClose = function(self)
-			self:Remove()
-		end,
-	}, items)
-	return true
+	return open_node_menu(node.ContextActions or {}, items)
 end
 
 function META:build_list_panel(node, path, level, is_last)
@@ -1191,12 +1205,39 @@ function META:build_blocks(nodes, path, level)
 
 		if block.Type == "list" then
 			children[#children + 1] = self:build_list_panel(block, block_path, level, is_last)
+		elseif block.Type == "add" then
+			children[#children + 1] = self:build_add_panel(block, block_path)
 		else
 			children[#children + 1] = self:build_group_panel(block, block_path, level, is_last)
 		end
 	end
 
 	return children
+end
+
+function META:build_add_panel(node, path)
+	local height = self:get_row_height(node)
+	local row = Panel.New{
+		Name = "property_add_row",
+		transform = true,
+		layout = {
+			Direction = "x",
+			GrowWidth = 1,
+			AlignmentX = "center",
+			AlignmentY = "center",
+			MinSize = Vec2(0, height),
+			MaxSize = Vec2(0, height),
+		},
+	}
+	IconButton{
+		Parent = row,
+		Icon = "plus",
+		Tooltip = node.Tooltip or "Add",
+		OnClick = function()
+			open_node_menu(node.Items)
+		end,
+	}
+	return row
 end
 
 function META:build_group_panel(node, path, level, is_last)
@@ -1210,7 +1251,10 @@ function META:build_group_panel(node, path, level, is_last)
 	local group = Collapsible{
 		Editor = self,
 		CategoryKey = key,
+		CategoryNode = node,
 		Title = get_node_text(node, path),
+		Tooltip = node.Description,
+		TooltipMaxWidth = 420,
 		HeaderMode = "text",
 		HeaderHeight = self:get_row_height(node),
 		HeaderPadding = Rect(0, 0, 4, 0),
@@ -1218,6 +1262,7 @@ function META:build_group_panel(node, path, level, is_last)
 		HeaderGap = self.HeaderGap or "XXS",
 		HeaderFontSize = self._font_size,
 		HeaderTextColor = "text",
+		OnHeaderContextMenu = node.ContextActions and on_group_header_menu or nil,
 		Padding = "none",
 		Collapsed = collapsed,
 		OnToggle = on_category_toggle,

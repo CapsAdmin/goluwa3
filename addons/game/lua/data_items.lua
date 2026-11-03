@@ -52,10 +52,6 @@ local function is_array(value, field)
 	return #value > 0 and next(value, #value) == nil
 end
 
-local function action(key, text, on_action)
-	return {Key = key, Text = "", Type = "action", ButtonText = text, OnAction = on_action}
-end
-
 local function copy_template(template, sibling)
 	if type(template) == "function" then return template(sibling) end
 
@@ -279,40 +275,51 @@ local function make_list(data, key, list, item_path, field, list_key, options)
 	return node
 end
 
-local function add_structure_actions(children, value, path, field, options)
-	local restructured = options.Restructured
+local function optional_keys(field)
+	if not field then return end
 
-	if field and field.Keys then
-		for _, name in ipairs(sorted_keys(field.Keys)) do
+	return field.NewKey and true or field.Keys
+end
+
+local function make_add_node(value, path, field, options, keys)
+	local items = {}
+
+	if keys then
+		for _, name in ipairs(sorted_keys(keys)) do
 			if value[name] == nil then
-				children[#children + 1] = action(path .. "/add_" .. name, "add " .. name, function()
-					value[name] = copy_template(field.Keys[name])
-					restructured()
-				end)
-			elseif type(value[name]) ~= "table" or not is_numbers(value[name], 3, 4) then
-				children[#children + 1] = action(path .. "/remove_" .. name, "remove " .. name, function()
-					value[name] = nil
-					restructured()
-				end)
+				items[#items + 1] = {
+					Text = name,
+					OnClick = function()
+						value[name] = copy_template(keys[name])
+						options.Restructured()
+					end,
+				}
 			end
 		end
 	end
 
 	if field and field.NewKey then
-		children[#children + 1] = action(path .. "/new", "add " .. field.NewKey.Name, function()
-			local n = 1
+		items[#items + 1] = {
+			Text = "new " .. field.NewKey.Name,
+			OnClick = function()
+				local n = 1
 
-			while value[field.NewKey.Name .. "_" .. n] ~= nil do
-				n = n + 1
-			end
+				while value[field.NewKey.Name .. "_" .. n] ~= nil do
+					n = n + 1
+				end
 
-			value[field.NewKey.Name .. "_" .. n] = copy_template(field.NewKey.Template)
-			restructured()
-		end)
+				value[field.NewKey.Name .. "_" .. n] = copy_template(field.NewKey.Template)
+				options.Restructured()
+			end,
+		}
 	end
+
+	if #items == 0 then return end
+
+	return {Key = path .. "/add", Type = "add", Items = items}
 end
 
-function build(data, options, path, list_key)
+function build(data, options, path, list_key, optional)
 	local items = {}
 	local schema = options.Schema
 	local defaults = path == "" and schema and schema.Root and schema.Root.Defaults or nil
@@ -353,13 +360,36 @@ function build(data, options, path, list_key)
 					Text = field and field.Text or tostring(key),
 					IsGroup = true,
 					Description = field and field.Description,
-					Children = build(value, options, item_path, type(key) == "number" and list_key or key),
+					Children = build(
+						value,
+						options,
+						item_path,
+						type(key) == "number" and list_key or key,
+						optional_keys(field)
+					),
 				}
-				add_structure_actions(item.Children, value, item_path, field, options)
+				local add = make_add_node(value, item_path, field, options, field and field.Keys)
+
+				if add then item.Children[#item.Children + 1] = add end
 			end
 		end
 
 		items[#items + 1] = item
+
+		if optional and not is_default and (optional == true or optional[key] ~= nil) then
+			item.ContextActions = item.ContextActions or {}
+			table.insert(
+				item.ContextActions,
+				{
+					Text = "Remove",
+					OnClick = function()
+						data[key] = nil
+						options.Restructured()
+					end,
+				}
+			)
+		end
+
 		local buttons = {}
 
 		if item.Type and default ~= nil then
@@ -462,7 +492,8 @@ function data_items.StripDefaults(data, schema)
 end
 
 function data_items.Build(data, options)
-	local items = build(data, options, "", "")
+	local root = options.Schema and options.Schema.Root
+	local items = build(data, options, "", "", root and root.Keys)
 	local top = {}
 	local general = {Key = "/general", Text = "general", Expanded = true, Children = {}}
 	local groups = options.Schema and options.Schema.Root and options.Schema.Root.Groups
@@ -509,12 +540,17 @@ function data_items.Build(data, options)
 		::continue::
 	end
 
-	local structure = {Key = "/structure", Text = "optional parts", Expanded = false, Children = {}}
-	add_structure_actions(structure.Children, data, "", options.Schema and options.Schema.Root, options)
+	local add = make_add_node(data, "", root, options, root and root.Keys)
 
 	if #general.Children > 0 then table.insert(top, 1, general) end
 
-	if #structure.Children > 0 then top[#top + 1] = structure end
+	if add then
+		if groups or #general.Children == 0 then
+			top[#top + 1] = {Key = "/optional", Text = "optional", Expanded = true, Children = {add}}
+		else
+			general.Children[#general.Children + 1] = add
+		end
+	end
 
 	return top
 end

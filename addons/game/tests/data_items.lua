@@ -245,3 +245,106 @@ T.Test("data items show defaults for missing keys, group them and strip values t
 	T(data.Tint)["=="](nil)
 	T(data.Name)["=="]("b")
 end)
+
+T.Test("data items add optional keys through one add node and remove them from their context menu", function()
+	local data = {Loop = true, Preview = {Stage = "gizmo"}, Inputs = {Strength = {Default = 1}}}
+	local restructures = 0
+	local schema = {
+		Refs = {},
+		Fields = {
+			Preview = {Keys = {Stage = "gizmo", Npc = "citizen", Loop = true}},
+			Inputs = {NewKey = {Name = "Input", Template = {Default = 1}}},
+		},
+		Root = {Keys = {Loop = true, Preview = {}, Inputs = {}, Debris = {}}},
+	}
+	local options = {
+		Schema = schema,
+		Name = "x",
+		Changed = function() end,
+		Restructured = function()
+			restructures = restructures + 1
+		end,
+	}
+	local items = data_items.Build(data, options)
+	local general = items[1]
+	T(general.Text)["=="]("general")
+	local loop
+	local preview
+	local inputs
+	local add
+
+	for _, child in ipairs(general.Children) do
+		if child.Text == "Loop" then loop = child end
+
+		if child.Type == "add" then add = child end
+	end
+
+	for _, item in ipairs(items) do
+		if item.Text == "Preview" then preview = item end
+
+		if item.Text == "Inputs" then inputs = item end
+	end
+
+	T(loop.ContextActions[1].Text)["=="]("Remove")
+	T(add ~= nil)["=="](true)
+	T(#add.Items)["=="](1)
+	T(add.Items[1].Text)["=="]("Debris")
+	add.Items[1].OnClick()
+	T(type(data.Debris))["=="]("table")
+	T(restructures)["=="](1)
+	local preview_add
+
+	for _, child in ipairs(preview.Children) do
+		if child.Type == "add" then preview_add = child end
+	end
+
+	T(#preview_add.Items)["=="](2)
+	T(preview_add.Items[1].Text)["=="]("Loop")
+	T(preview_add.Items[2].Text)["=="]("Npc")
+	preview_add.Items[2].OnClick()
+	T(data.Preview.Npc)["=="]("citizen")
+	local stage
+
+	for _, child in ipairs(preview.Children) do
+		if child.Text == "Stage" then stage = child end
+	end
+
+	T(stage.ContextActions[1].Text)["=="]("Remove")
+	stage.ContextActions[1].OnClick()
+	T(data.Preview.Stage)["=="](nil)
+	loop.ContextActions[1].OnClick()
+	T(data.Loop)["=="](nil)
+	T(preview.ContextActions[1].Text)["=="]("Remove")
+	local inputs_add
+
+	for _, child in ipairs(inputs.Children) do
+		if child.Type == "add" then inputs_add = child end
+
+		if child.Text == "Strength" then
+			T(child.ContextActions[1].Text)["=="]("Remove")
+		end
+	end
+
+	T(inputs_add.Items[1].Text)["=="]("new Input")
+	inputs_add.Items[1].OnClick()
+	T(data.Inputs.Input_1.Default)["=="](1)
+	local grouped = data_items.Build(
+		{},
+		{
+			Schema = {
+				Refs = {},
+				Fields = {},
+				Root = {
+					Keys = {Inputs = {}},
+					Defaults = {Count = 1},
+					Groups = {{Name = "Misc", Keys = {"Count"}}},
+				},
+			},
+			Name = "x",
+			Changed = function() end,
+			Restructured = function() end,
+		}
+	)
+	T(grouped[#grouped].Text)["=="]("optional")
+	T(grouped[#grouped].Children[1].Type)["=="]("add")
+end)

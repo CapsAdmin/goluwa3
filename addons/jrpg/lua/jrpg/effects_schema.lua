@@ -422,52 +422,60 @@ end
 
 do
 	local fields = {
-		["Preview.Stage"] = {Options = effects_stage.Kinds, Description = "what the effect is played on"},
-		["Preview.Npc"] = {Options = ||->npcs.GetNames(), Description = "the npc to spawn when the stage is npc"},
-		["Preview.Camera"] = {Options = effects_stage.Cameras, Description = "a starting camera, View replaces it"},
-		["Preview.Exposure"] = {Options = effects_stage.ExposureNames},
+		["Preview.Stage"] = {
+			Options = effects_stage.Kinds,
+			Description = "what the preview plays on: the player, a spawned npc, or a gizmo point whose position and up axis are the hit position and normal",
+		},
+		["Preview.Npc"] = {
+			Options = ||->npcs.GetNames(),
+			Description = "the npc the preview is played on; setting it previews on that npc even without a Stage",
+		},
+		["Preview.Camera"] = {
+			Options = effects_stage.Cameras,
+			Description = "a starting camera preset (front, side or high), View replaces it",
+		},
+		["Preview.Exposure"] = {Options = effects_stage.ExposureNames, Description = "the lighting the preview opens with"},
 		["Preview.Release"] = {Min = 0.05, Max = 10, Description = "seconds a clip fades out after the drive ends"},
 		["Preview.Duration"] = {Min = 0.1, Max = 30, Description = "seconds the play head runs, and when Loop plays it again"},
 		["Preview.Loop"] = {Description = "play again when the play head ends"},
-		["Preview.View"] = {Description = "the camera as an offset from the stage subject, set with FILE > save view as preview"},
+		["Preview.View"] = {Description = "the camera as an offset from the stage subject, set with Save view"},
 		["Preview.Params"] = {
-			Description = "values the effect is played with: numbers, strings, colors (keys named color), and the stage tokens $target, $target.health, $target.position, $chest, $ground and $normal",
+			Description = "values the clip is played with: numbers, strings, colors (keys named color), and the stage tokens $target, $target.health, $target.position, $chest, $ground and $normal",
 		},
 		["Preview.Drive"] = {
-			Description = "moves a point or a blade through the stage while the effect plays, for effects that follow a path",
+			Description = "moves a point or a blade through the stage while it plays, for effects that follow a path",
 		},
+		["Preview.Emitter"] = {
+			Ref = "emitter",
+			Description = "the gpu emitter that plays this shader in the preview, its Shader and ShaderParams are replaced",
+		},
+		["Preview.Offset"] = {Description = "where the preview emitter sits, in metres from the stage chest"},
+		["Preview.ShaderParams"] = {Description = "shader params for the preview, over the shader's defaults"},
 		["Drive.Type"] = {Options = effects_drive.Types},
 		["Drive.Time"] = {Min = 0.05, Max = 10},
 	}
-	local keys = {
+	local common_keys = {
 		Stage = "gizmo",
 		Npc = "citizen",
 		Camera = "front",
 		Exposure = "day",
 		Duration = 2,
-		Release = 1,
 		Loop = true,
 		View = {Offset = {0, 1.5, 3.6}, Pitch = 0, Yaw = 0},
-		Params = {},
-		Drive = table.copy(effects_drive.Defaults.sweep),
+	}
+	local extra_keys = {
+		clips = {Params = {}, Drive = table.copy(effects_drive.Defaults.sweep), Release = 1},
+		["gpu emitters"] = {Drive = table.copy(effects_drive.Defaults.sweep)},
+		["particle shaders"] = {Emitter = "shader_preview", Offset = {0, 1, 0}, ShaderParams = {}},
 	}
 
 	for _, name in ipairs{"damage types", "status effects", "clips", "gpu emitters", "particle shaders"} do
 		local schema = schemas[name]
 		schema.Fields = merge(schema.Fields, fields)
-		schema.Fields.Preview = {Keys = keys}
-
-		if name == "particle shaders" then
-			schema.Fields["Preview.Emitter"] = {
-				Ref = "emitter",
-				Description = "the gpu emitter that plays this shader in the preview, its Shader and ShaderParams are replaced",
-			}
-			schema.Fields["Preview.Offset"] = {Description = "where the preview emitter sits, in metres from the stage chest"}
-			schema.Fields["Preview.ShaderParams"] = {Description = "shader params for the preview, over the shader's defaults"}
-			schema.Fields.Preview = {
-				Keys = merge(keys, {Emitter = "shader_preview", Offset = {0, 1, 0}, ShaderParams = {}}),
-			}
-		end
+		schema.Fields.Preview = {
+			Keys = merge(common_keys, extra_keys[name] or {}),
+			Description = "how the editor previews this effect when it is opened, saved in the file and ignored by the game; a key that is not here leaves the editor's current setting",
+		}
 		schema.Root.Keys = merge(schema.Root.Keys or {}, {Preview = {}})
 	end
 end
