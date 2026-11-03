@@ -553,7 +553,7 @@ do
 		{"Duration", "Loop", "Follow", "Tracks", "Events", "Layers", "Type", "Preview"}
 	)
 	effects.ClipFiles = files
-	effects.ClipNames = {"orb", "projectile", "impact", "magic_circle"}
+	effects.ClipNames = {"orb", "projectile", "impact", "magic_circle", "blade_trail"}
 
 	function effects.UpdateClip(name, data)
 		files:Remember(name, data)

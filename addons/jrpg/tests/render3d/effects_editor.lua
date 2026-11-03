@@ -143,6 +143,8 @@ T.Test3D("the effects stage bursts one shot emitters and sweeps path emitters", 
 	local Entity = import("goluwa/entities/entity.lua")
 	local vfx = import("goluwa/render3d/vfx.lua")
 	local effects_stage = import("lua/jrpg/effects_stage.lua")
+	local effects_drive = import("lua/jrpg/effects_drive.lua")
+	local Color = import("goluwa/structs/color.lua")
 	local weapon_effects = import("lua/weapon_effects.lua")
 	local marker = Entity.New{Name = "emitter_test_marker", transform = {Position = Vec3(0, 1, 0)}}
 	marker:SetTransient(true)
@@ -170,6 +172,20 @@ T.Test3D("the effects stage bursts one shot emitters and sweeps path emitters", 
 	effects_stage.PlayEmitter(stage, "melee_sparks", {}, 24, {Type = "sweep", Length = 6, Time = 2})
 	T(stage.Drive.State.Spec.Length)["=="](6)
 	effects_stage.StopDrive(stage)
+	import("lua/jrpg/effects.lua")
+	local params = {color = Color(1, 0.5, 0.2, 1), base = Vec3(), tip = Vec3(), position = Vec3()}
+	local clip = effects_stage.PlayClip(stage, "jrpg_blade_trail", params, effects_drive.Defaults.blade, 0.2)
+	local first_tip = params.tip:Copy()
+	T((params.tip - params.base):GetLength() > 1)["=="](true)
+	stage.Drive.State.Start = stage.Drive.State.Start - 0.25
+	effects_stage.Update(stage)
+	T((params.tip - first_tip):GetLength() > 0.5)["=="](true)
+	T(clip.release_duration)["=="](nil)
+	stage.Drive.State.Start = stage.Drive.State.Start - 1
+	effects_stage.Update(stage)
+	T(stage.Drive)["=="](nil)
+	T(clip.release_duration)["=="](0.2)
+	clip:Stop()
 	local resolved = effects_stage.ResolveParams(
 		stage,
 		{

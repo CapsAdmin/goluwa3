@@ -6,6 +6,7 @@ local Gizmo = import("lua/gizmo.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
 local actors = import("lua/actors.lua")
 local emitters = import("lua/emitters.lua")
+local clips = import("goluwa/render3d/clips.lua")
 local effects_drive = import("lua/jrpg/effects_drive.lua")
 local npcs = import("lua/npcs.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
@@ -116,6 +117,31 @@ function effects_stage.PlayEmitter(self, name, inputs, count, drive)
 			vfx.StopEmitter(entity, DRIVE_LINGER)
 		end
 	)
+end
+
+function effects_stage.PlayClip(self, name, params, drive, release)
+	local clip = clips.Play(name, params)
+
+	if drive then
+		effects_stage.StartDrive(
+			self,
+			drive,
+			function(state)
+				local position = state.Position
+				params.position:Set(position.x, position.y, position.z)
+
+				if state.Base then
+					params.base:Set(state.Base.x, state.Base.y, state.Base.z)
+					params.tip:Set(state.Tip.x, state.Tip.y, state.Tip.z)
+				end
+			end,
+			function()
+				clip:End(release or 1)
+			end
+		)
+	end
+
+	return clip
 end
 
 function effects_stage.StartDrive(self, spec, on_step, on_stop)

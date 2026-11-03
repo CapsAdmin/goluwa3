@@ -111,7 +111,7 @@ effects_editor.Categories = {
 				table.merge(params, CLIP_DEFAULT_PARAMS)
 			end
 
-			clips.Play("jrpg_" .. name, params)
+			effects_stage.PlayClip(stage, "jrpg_" .. name, params, preview and preview.Drive, preview and preview.Release)
 		end,
 	},
 	overlays = {

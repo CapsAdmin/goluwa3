@@ -14,8 +14,7 @@ local grab = import("lua/grab.lua")
 local damage = import("lua/damage.lua")
 local effects = import("lua/jrpg/effects.lua")
 local sounds = import("lua/sounds.lua")
-local effect_exposure = import("lua/jrpg/effect_exposure.lua")
-local emitters = import("lua/emitters.lua")
+local clips = import("goluwa/render3d/clips.lua")
 local META = objects.CreateTemplate("weapon_melee")
 META:StartStorable()
 META:GetSet("Moveset", "sword")
@@ -38,16 +37,7 @@ local MAX_COMMAND_GAP = 30
 local PULL_GAP = 1.4
 local PULL_TIME = 0.35
 local NO_STAMINA = Color(1, 0.8, 0.3, 1)
-local TRAIL_POINTS = 18
-local TRAIL_FADE_RATE = 1
-local TRAIL_STRENGTH = 0.1
-local TRAIL_OVERLAY_CONFIG = {FadeIn = 0.05, FadeOut = 0.05, Scale = 1.5, UVScale = {0.8, 1}, UVStretch = 40}
-local SPARK_LINGER = 0.15
-local LINE_STRENGTH = 6
-local LINE_RADIUS = 0.03
-local LINE_POINTS = 48
-local LINE_TAPER = 0.8
-local SPARK_FADE = 1.6
+local TRAIL_RELEASE = 1
 local SWING_SOUNDS = {"npc/zombie/claw_miss1.wav", "npc/zombie/claw_miss2.wav"}
 
 function META:Initialize()
@@ -55,7 +45,6 @@ function META:Initialize()
 	self.idle = 0
 	self.hold = 0
 	self.last_number = 0
-	self.fading_trails = {}
 	self.guarding = false
 	self.guard = {Angle = GUARD_ANGLE, Cost = GUARD_COST, Raised = 0}
 	self:AddGlobalEvent("Update")
@@ -498,87 +487,40 @@ function META:OnUpdate(dt)
 	if self.swing and swing ~= self.swing then self:EndTrail() end
 
 	self.swing = swing
-	local fading = self.fading_trails
 
-	for i = #fading, 1, -1 do
-		local entry = fading[i]
-		entry.fade = entry.fade - dt * TRAIL_FADE_RATE
-
-		if entry.fade <= 0 then
-			entry.trail:Release()
-			table.remove(fading, i)
-		else
-			entry.trail:SetAlpha(entry.fade)
-		end
-	end
+	if not swing then return end
 
 	local instance = self.Owner.prefab
-
-	if not swing then
-		if self.sparks then
-			self.linger = self.linger - dt
-
-			if self.linger > 0 then
-				self.sparks.transform:SetPosition(get_world_position(instance:GetNode("blade_tip")))
-			else
-				effects.vfx.StopEmitter(self.sparks, SPARK_FADE)
-				self.sparks = nil
-			end
-		end
-
-		return
-	end
-
 	local base = get_world_position(instance:GetNode("blade_base"))
 	local tip = get_world_position(instance:GetNode("blade_tip"))
 
-	if not self.trail then
-		if self.sparks then
-			effects.vfx.StopEmitter(self.sparks, SPARK_FADE)
-			self.sparks = nil
-		end
-
+	if not self.blade then
 		local attributes = weapon.Attributes
 		self.color = #attributes > 0 and damage_types.MixColor(attributes) or self.TrailColor
-		local overlay = damage_types.Get(attributes[1] or "slash")
-		local overlay_config = TRAIL_OVERLAY_CONFIG
-
-		if #attributes > 0 then
-			overlay_config = table.shallow_copy(TRAIL_OVERLAY_CONFIG)
-			overlay_config.ColorA = self.color
-		end
-
-		self.trail = effects.vfx.AcquireSlashTrail(self.color, TRAIL_STRENGTH, TRAIL_POINTS, overlay.Overlay, overlay_config)
-		self.line = effects.vfx.AcquireGpuTrail{
-			Color = self.color,
-			Strength = LINE_STRENGTH,
-			Points = LINE_POINTS,
-			Radius = LINE_RADIUS,
-			Texture = effects.vfx.GetTexture("trail"),
-			Taper = LINE_TAPER,
-		}
+		self.blade = clips.Play(
+			"jrpg_blade_trail",
+			{
+				color = self.color,
+				overlay = damage_types.Get(attributes[1] or "slash").Overlay,
+				overlay_color = #attributes > 0 and self.color or nil,
+				base = base:Copy(),
+				tip = tip:Copy(),
+				position = tip:Copy(),
+			}
+		)
 	end
 
-	if not self.sparks then
-		local properties = emitters.Get("melee_sparks", {Tint = self.color})
-		properties.ExposureCompensation = effect_exposure.particles
-		self.sparks = effects.vfx.CreateEmitter("melee_sparks", properties)
-	end
-
-	self.sparks.transform:SetPosition(tip)
-	self.trail:Push(base, tip)
-	self.line:ShiftXYZ(tip.x, tip.y, tip.z)
+	local params = self.blade.params
+	params.base:Set(base.x, base.y, base.z)
+	params.tip:Set(tip.x, tip.y, tip.z)
+	params.position:Set(tip.x, tip.y, tip.z)
 end
 
 function META:EndTrail()
-	if not self.trail then return end
+	if not self.blade then return end
 
-	local fading = self.fading_trails
-	fading[#fading + 1] = {trail = self.trail, fade = 1}
-	fading[#fading + 1] = {trail = self.line, fade = 1}
-	self.trail = nil
-	self.line = nil
-	self.linger = SPARK_LINGER
+	self.blade:End(TRAIL_RELEASE)
+	self.blade = nil
 end
 
 function META:OnRemove()
@@ -591,15 +533,7 @@ function META:OnRemove()
 
 	self:LowerGuard()
 
-	if self.trail then self.trail:Release() end
-
-	if self.line then self.line:Release() end
-
-	for _, entry in ipairs(self.fading_trails) do
-		entry.trail:Release()
-	end
-
-	if self.sparks then effects.vfx.StopEmitter(self.sparks, SPARK_FADE) end
+	if self.blade then self.blade:Stop() end
 end
 
 return META:Register()

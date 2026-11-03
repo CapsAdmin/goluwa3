@@ -13,7 +13,7 @@ local effects_drive = import("lua/jrpg/effects_drive.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local effects_schema = {}
 local EXPRESSION = "a number, the name of a track or param, or an expression: p.<param>, v.<track>, v.time, math functions"
-local LAYER_TYPES = {"sprite", "quad", "orb", "gpu_trail", "emitter", "custom"}
+local LAYER_TYPES = {"sprite", "quad", "orb", "gpu_trail", "emitter", "slash", "custom"}
 
 local function sorted_names(source)
 	local names = {}
@@ -186,6 +186,7 @@ local schemas = {
 			["Events.Call"] = {Ref = "script"},
 			["Layers.Emitter"] = {Ref = "emitter", Description = "a gpu emitter file by name, or write the properties inline"},
 			["Events.Emitter"] = {Ref = "emitter", Description = "a gpu emitter file by name, or write the properties inline"},
+			["Layers.Overlay"] = {Ref = "overlay"},
 			["Layers.At"] = {Description = "the param holding the point the emitter follows, position by default"},
 			["Layers.Inputs"] = {Description = "emitter input name to the param that feeds it"},
 			["Events.Inputs"] = {Description = "emitter input name to the param that feeds it"},
@@ -409,6 +410,7 @@ do
 		["Preview.Npc"] = {Options = ||->npcs.GetNames(), Description = "the npc to spawn when the stage is npc"},
 		["Preview.Camera"] = {Options = effects_stage.Cameras, Description = "a starting camera, View replaces it"},
 		["Preview.Exposure"] = {Options = effects_stage.ExposureNames},
+		["Preview.Release"] = {Min = 0.05, Max = 10, Description = "seconds a clip fades out after the drive ends"},
 		["Preview.Duration"] = {Min = 0.1, Max = 30, Description = "seconds the play head runs, and when Loop plays it again"},
 		["Preview.Loop"] = {Description = "play again when the play head ends"},
 		["Preview.View"] = {Description = "the camera as an offset from the stage subject, set with FILE > save view as preview"},
@@ -427,6 +429,7 @@ do
 		Camera = "front",
 		Exposure = "day",
 		Duration = 2,
+		Release = 1,
 		Loop = true,
 		View = {Offset = {0, 1.5, 3.6}, Pitch = 0, Yaw = 0},
 		Params = {},

@@ -312,6 +312,7 @@ do
 				Drift = layer.Drift,
 				EndColor = layer.EndColor and layer.EndColor(p),
 				Flicker = layer.Flicker,
+				Taper = layer.Taper,
 			}
 
 			if layer.Init then state.data[i] = layer.Init(p, i) end
@@ -340,6 +341,32 @@ do
 	end
 
 	LAYERS.gpu_trail = TRAIL
+end
+
+do
+	local SLASH = {}
+
+	function SLASH.Setup(layer, p, state)
+		local config = layer.OverlayConfig
+
+		if p.overlay_color then
+			config = table.shallow_copy(config)
+			config.ColorA = p.overlay_color
+		end
+
+		state.trail = vfx.AcquireSlashTrail(p.color, layer.Strength, layer.Points, p.overlay or layer.Overlay, config)
+	end
+
+	function SLASH.Update(layer, p, v, state)
+		state.trail:Push(p.base, p.tip)
+		state.trail:SetAlpha(get(layer.Alpha, p, v))
+	end
+
+	function SLASH.Remove(layer, p, state)
+		state.trail:Release()
+	end
+
+	LAYERS.slash = SLASH
 end
 
 do
@@ -566,6 +593,15 @@ function CLIP:Update(f, dt)
 
 	if self.manual then self.time = self.time + dt end
 
+	if self.release_duration then
+		self.release_elapsed = self.release_elapsed + dt
+		v.release = 1 - self.release_elapsed / self.release_duration
+
+		if v.release <= 0 then return false end
+	else
+		v.release = 1
+	end
+
 	v.f = f
 	v.time = self.time
 	self:FireEvents(f)
@@ -579,6 +615,11 @@ function CLIP:Update(f, dt)
 	end
 
 	return true
+end
+
+function CLIP:End(duration)
+	self.release_duration = duration
+	self.release_elapsed = 0
 end
 
 function CLIP:Stop()
