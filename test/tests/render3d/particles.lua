@@ -243,8 +243,7 @@ T.Test3D("Graphics render3d particle shaders run their glsl hooks with params, d
 					{Name = "Flake", Type = "texture", Default = "glow"},
 				},
 				Sprite = "Flake",
-				Spawn = "p.sprite.z = 0.25;",
-				Update = push,
+				Source = "void spawn(emitters_t e, uint index, uint generation, inout Particle p) { p.sprite.z = 0.25; }\n" .. "void update(emitters_t e, uint index, float dt, float t, inout Particle p) { " .. push .. " }",
 			}
 		)
 	end
@@ -310,7 +309,7 @@ T.Test3D("Graphics render3d particle shaders run their glsl hooks with params, d
 			define("p.velocity += nonsense * Push;")
 			local failed, message = pcall(particles.Recompile)
 			T(failed)["=="](false)
-			T(particle_shaders.ParseError(message):find("test_shader update line 1", 1, true) ~= nil)["=="](true)
+			T(particle_shaders.ParseError(message):find("test_shader line 2", 1, true) ~= nil)["=="](true)
 			define("p.velocity += vec3(0.0, 0.0, 1.0) * Push * dt;")
 			particles.Recompile()
 			step(draw, 2)

@@ -56,3 +56,68 @@ T.Test("particle shader params pack into the emitter block in declaration order"
 	T(read("Wind", 2))["=="](3)
 	T(offsets.Flake)["=="](nil)
 end)
+
+T.Test("a particle shader source defines the hook functions it wants and the rest are left out", function()
+	local shader_module = import("goluwa/render3d/particle_shaders.lua")
+	local ok = pcall(shader_module.Register, "test_none", {Source = "float helper() { return 1.0; }"})
+	T(ok)["=="](false)
+	ok = pcall(
+		shader_module.Register,
+		"test_comment",
+		{
+			Source = "// void update(emitters_t e, uint index, float dt, float t, inout Particle p) {}\n/* float visibility(emitters_t e, float t, Particle p) { return 1.0; } */",
+		}
+	)
+	T(ok)["=="](false)
+	ok = pcall(
+		shader_module.Register,
+		"test_reserved",
+		{
+			Params = {{Name = "update", Type = "float", Default = 1}},
+			Source = "float visibility(emitters_t e, float t, Particle p) { return 1.0; }",
+		}
+	)
+	T(ok)["=="](false)
+	shader_module.Register(
+		"test_visibility",
+		{
+			Params = {
+				{Name = "Gain", Type = "float", Default = 2},
+				{Name = "Tilt", Type = "vec3", Default = {0, 1, 0}},
+			},
+			Source = "float helper(emitters_t e) { return Gain; }\nfloat visibility(emitters_t e, float t, Particle p) { return helper(e) * Tilt.y; }",
+		}
+	)
+	shader_module.Register(
+		"test_update",
+		{
+			Source = "void update(emitters_t e, uint index, float dt, float t, inout Particle p) {\n}\nvoid shade(emitters_t e, float t, inout Particle p) {}",
+		}
+	)
+	local glsl = shader_module.GetGLSL()
+	local id = shader_module.GetId("test_visibility")
+	local other = shader_module.GetId("test_update")
+	T(glsl:find("#define visibility shader_" .. id .. "_visibility", 1, true) ~= nil)["=="](true)
+	T(glsl:find("#define Gain (e.params[0].x)", 1, true) ~= nil)["=="](true)
+	T(
+		glsl:find("#define Tilt (vec3(e.params[0].y, e.params[0].z, e.params[0].w))", 1, true) ~= nil
+	)["=="](true)
+	T(glsl:find("#undef Gain", 1, true) ~= nil)["=="](true)
+	T(glsl:find("#line 1 " .. id .. "\n", 1, true) ~= nil)["=="](true)
+	T(glsl:find("shader_" .. id .. "_update", 1, true) == nil)["=="](true)
+	T(
+		glsl:find(
+				"case " .. other .. ": shader_" .. other .. "_update(e, index, dt, t, p); break;",
+				1,
+				true
+			) ~= nil
+	)["=="](true)
+	T(
+		glsl:find("case " .. id .. ": return shader_" .. id .. "_visibility(e, t, p);", 1, true) ~= nil
+	)["=="](true)
+	T(glsl:find("case " .. id .. ": shader_" .. id .. "_spawn", 1, true) == nil)["=="](true)
+	T(shader_module.ParseError("0:3: error: foo\n"))["=="]("0:3: error: foo\n")
+	T(shader_module.ParseError(id .. ":2: error: 'x' : undeclared identifier\n"))["=="]("test_visibility line 2: 'x' : undeclared identifier")
+	shader_module.Remove("test_visibility")
+	shader_module.Remove("test_update")
+end)

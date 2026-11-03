@@ -3,10 +3,7 @@ local list = import("goluwa/list.lua")
 local data_files = import("goluwa/data_files.lua")
 local shaders = import("goluwa/render3d/particle_shaders.lua")
 local library = {}
-library.Files = data_files.New(
-	"lua/particle_shaders/",
-	{"Sprite", "Params", "Spawn", "Update", "Visibility", "Shade", "Preview"}
-)
+library.Files = data_files.New("lua/particle_shaders/", {"Sprite", "Params", "Source", "Preview"})
 library.Names = {}
 library.Errors = {}
 local signatures = {}
@@ -20,16 +17,7 @@ local function get_signature(data)
 	end
 
 	return table.concat(params, ",") .. "|" .. tostring(data.Sprite) .. "|" .. (
-			data.Spawn or
-			""
-		) .. "|" .. (
-			data.Update or
-			""
-		) .. "|" .. (
-			data.Visibility or
-			""
-		) .. "|" .. (
-			data.Shade or
+			data.Source or
 			""
 		)
 end

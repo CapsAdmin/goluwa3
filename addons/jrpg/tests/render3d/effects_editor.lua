@@ -89,10 +89,16 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 	T(#effects_editor.GetProblems(session))["=="](1)
 	effects_editor.Load(session, "particle shaders", "snow")
 	local shader_items = effects_editor.BuildItems(session, handlers)
-	T(find_text(shader_items, "Update").Type)["=="]("code")
-	T(find_text(shader_items, "Update").CodeLanguage)["=="]("glsl")
-	T(find_text(shader_items, "Update").GetStatus())["=="](nil)
+	T(find_text(shader_items, "Source").Type)["=="]("code")
+	T(find_text(shader_items, "Source").CodeLanguage)["=="]("glsl")
+	T(find_text(shader_items, "Source").GetStatus())["=="](nil)
 	T(find_text(shader_items, "Sprite").Type)["=="]("string")
+	local good_source = session.Data.Source
+	session.Data.Source = "float helper() { return 1.0; }"
+	T(effects_editor.Apply(session))["=="](false)
+	T(session.Status:find("defines none of the functions", 1, true) ~= nil)["=="](true)
+	session.Data.Source = good_source
+	T(effects_editor.Apply(session))["=="](true)
 	effects_editor.Load(session, "gpu emitters", "hit_force")
 	local force_items = effects_editor.BuildTestInputs(session)
 	T(find_text(force_items, "count").Value)["=="](24)

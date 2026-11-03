@@ -6,27 +6,27 @@ local order = {}
 local SIZES = {float = 1, int = 1, bool = 1, vec3 = 3, color = 4, texture = 0}
 local HOOKS = {
 	{
-		key = "Spawn",
 		name = "spawn",
 		signature = "uint index, uint generation, inout Particle p",
+		call = "e, index, generation, p",
 		return_type = "void",
 	},
 	{
-		key = "Update",
 		name = "update",
 		signature = "uint index, float dt, float t, inout Particle p",
+		call = "e, index, dt, t, p",
 		return_type = "void",
 	},
 	{
-		key = "Visibility",
 		name = "visibility",
 		signature = "float t, Particle p",
+		call = "e, t, p",
 		return_type = "float",
 	},
 	{
-		key = "Shade",
 		name = "shade",
 		signature = "float t, inout Particle p",
+		call = "e, t, p",
 		return_type = "void",
 	},
 }
@@ -38,6 +38,10 @@ local RESERVED = {
 	index = true,
 	generation = true,
 	shader = true,
+	spawn = true,
+	update = true,
+	visibility = true,
+	shade = true,
 }
 shaders.Hooks = HOOKS
 
@@ -68,14 +72,32 @@ function shaders.Register(name, definition)
 
 	assert(
 		offset <= shaders.PARAM_FLOATS,
-		("shader %s uses %d of %d param floats"):format(name, offset, shaders.PARAM_FLOATS)
+		(
+			"shader %s uses %d of %d param floats"
+		):format(name, offset, shaders.PARAM_FLOATS)
 	)
 
 	if definition.Sprite then
 		assert(seen[definition.Sprite], "the sprite param does not exist: " .. definition.Sprite)
 	end
 
-	local entry = {name = name, definition = definition, layout = layout}
+	local hooks = {}
+	local source = definition.Source
+
+	if source and source:find("%S") then
+		local code = source:gsub("/%*.-%*/", ""):gsub("//[^\n]*", "")
+
+		for _, hook in ipairs(HOOKS) do
+			hooks[hook.name] = code:find("%f[%w_]" .. hook.return_type .. "%s+" .. hook.name .. "%s*%(") ~= nil
+		end
+
+		assert(
+			next(hooks) and (hooks.spawn or hooks.update or hooks.visibility or hooks.shade),
+			"the source defines none of the functions spawn, update, visibility and shade"
+		)
+	end
+
+	local entry = {name = name, definition = definition, layout = layout, hooks = hooks}
 
 	if definitions[name] then
 		for index, other in ipairs(order) do
@@ -183,8 +205,8 @@ do
 	end
 end
 
-local function get_locals(entry)
-	local out = {}
+local function get_macros(entry)
+	local defines, undefines = {}, {}
 
 	for _, item in ipairs(entry.layout) do
 		local param = item.param
@@ -197,24 +219,25 @@ local function get_locals(entry)
 			):format(math.floor(slot / 4), ("xyzw"):sub(slot % 4 + 1, slot % 4 + 1))
 		end
 
+		local value
+
 		if param.Type == "float" then
-			out[#out + 1] = ("float %s = %s;"):format(param.Name, parts[1])
+			value = parts[1]
 		elseif param.Type == "int" then
-			out[#out + 1] = ("int %s = int(%s);"):format(param.Name, parts[1])
+			value = ("int(%s)"):format(parts[1])
 		elseif param.Type == "bool" then
-			out[#out + 1] = ("bool %s = %s > 0.5;"):format(param.Name, parts[1])
+			value = ("(%s > 0.5)"):format(parts[1])
 		elseif param.Type == "vec3" then
-			out[#out + 1] = ("vec3 %s = vec3(%s);"):format(param.Name, table.concat(parts, ", "))
+			value = ("vec3(%s)"):format(table.concat(parts, ", "))
 		else
-			out[#out + 1] = ("vec4 %s = vec4(%s);"):format(param.Name, table.concat(parts, ", "))
+			value = ("vec4(%s)"):format(table.concat(parts, ", "))
 		end
+
+		defines[#defines + 1] = ("#define %s (%s)"):format(param.Name, value)
+		undefines[#undefines + 1] = "#undef " .. param.Name
 	end
 
-	return table.concat(out, " ")
-end
-
-function shaders.GetSourceId(shader_id, hook_index)
-	return shader_id * 10 + hook_index
+	return defines, undefines
 end
 
 function shaders.ParseError(message)
@@ -222,52 +245,54 @@ function shaders.ParseError(message)
 
 	if not source then return message end
 
-	source = tonumber(source)
-	local shader = order[math.floor(source / 10)]
-	local hook = HOOKS[source % 10]
+	local shader = order[tonumber(source)]
 
-	if not shader or not hook then return message end
+	if not shader then return message end
 
-	return ("%s %s line %s: %s"):format(shader, hook.name, line, text)
+	return ("%s line %s: %s"):format(shader, line, text)
 end
 
 function shaders.GetGLSL()
 	local out = {}
+	local cases = {}
 
-	for hook_index, hook in ipairs(HOOKS) do
-		local cases = {}
-		local call = hook.key == "Spawn" and
-			"e, index, generation, p" or
-			hook.key == "Update" and
-			"e, index, dt, t, p" or
-			"e, t, p"
+	for _, hook in ipairs(HOOKS) do
+		cases[hook.name] = {}
+	end
 
-		for shader_id, name in ipairs(order) do
-			local entry = definitions[name]
-			local body = entry.definition[hook.key]
+	for shader_id, name in ipairs(order) do
+		local entry = definitions[name]
 
-			if body and body:find("%S") then
-				local function_name = ("shader_%d_%s"):format(shader_id, hook.name)
-				out[#out + 1] = (
-					"%s %s(emitters_t e, %s) { %s\n#line 1 %d\n%s\n}\n"
-				):format(
-					hook.return_type,
-					function_name,
-					hook.signature,
-					get_locals(entry),
-					shaders.GetSourceId(shader_id, hook_index),
-					body
-				)
-				cases[#cases + 1] = hook.return_type == "float" and
-					(
-						"case %d: return %s(%s);"
-					):format(shader_id, function_name, call) or
-					(
-						"case %d: %s(%s); break;"
-					):format(shader_id, function_name, call)
+		if next(entry.hooks) then
+			local defines, undefines = get_macros(entry)
+
+			for _, hook in ipairs(HOOKS) do
+				if entry.hooks[hook.name] then
+					local function_name = ("shader_%d_%s"):format(shader_id, hook.name)
+					defines[#defines + 1] = ("#define %s %s"):format(hook.name, function_name)
+					undefines[#undefines + 1] = "#undef " .. hook.name
+					cases[hook.name][#cases[hook.name] + 1] = hook.return_type == "float" and
+						(
+							"case %d: return %s(%s);"
+						):format(shader_id, function_name, hook.call) or
+						(
+							"case %d: %s(%s); break;"
+						):format(shader_id, function_name, hook.call)
+				end
 			end
-		end
 
+			out[#out + 1] = (
+				"%s\n#line 1 %d\n%s\n#line 1 0\n%s\n"
+			):format(
+				table.concat(defines, "\n"),
+				shader_id,
+				entry.definition.Source,
+				table.concat(undefines, "\n")
+			)
+		end
+	end
+
+	for _, hook in ipairs(HOOKS) do
 		local dispatch = hook.return_type == "float" and
 			"switch (e.shader) { %s default: break; } return 1.0;" or
 			"switch (e.shader) { %s default: break; }"
@@ -277,7 +302,7 @@ function shaders.GetGLSL()
 			hook.return_type,
 			hook.name,
 			hook.signature,
-			dispatch:format(table.concat(cases, " "))
+			dispatch:format(table.concat(cases[hook.name], " "))
 		)
 	end
 
