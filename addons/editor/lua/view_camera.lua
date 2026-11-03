@@ -26,6 +26,13 @@ function view_camera.Set(state, eye, pitch_degrees, yaw_degrees)
 	state.View:SetRotation(camera.GetRotation():Copy())
 end
 
+function view_camera.Get()
+	local forward = camera.GetRotation():GetForward()
+	return camera.GetPosition():Copy(),
+	math.deg(math.asin(forward.y)),
+	math.deg(math.atan2(-forward.x, -forward.z))
+end
+
 function view_camera.Update(state, dt)
 	local focused = objects:GetFocusedObject()
 	local hovered = MouseInput.GetHoveredObject()

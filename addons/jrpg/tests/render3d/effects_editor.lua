@@ -154,19 +154,39 @@ T.Test3D("the effects stage bursts one shot emitters and sweeps path emitters", 
 	}
 	weapon_effects.Init()
 	effects_stage.PlayEmitter(stage, "hit_position", {}, 24)
-	T(stage.Sweep)["=="](nil)
+	T(stage.Drive)["=="](nil)
 	effects_stage.PlayEmitter(stage, "hit_force", {Strength = 5}, 10)
 	T(vfx.HasBurst(import("lua/emitters.lua").GetBurstKey("hit_force", {Strength = 5})))["=="](true)
 	effects_stage.PlayEmitter(stage, "melee_sparks", {}, 24)
-	T(stage.Sweep ~= nil)["=="](true)
-	local entity = stage.Sweep.Entity
-	local start = entity.transform:GetPosition():Copy()
-	stage.Sweep.Start = stage.Sweep.Start - 0.5
+	T(stage.Drive ~= nil)["=="](true)
+	local state = stage.Drive.State
+	local start = state.Position:Copy()
+	state.Start = state.Start - 0.5
 	effects_stage.Update(stage)
-	T((entity.transform:GetPosition() - start):GetLength() > 1)["=="](true)
-	stage.Sweep.Start = stage.Sweep.Start - 1
+	T((state.Position - start):GetLength() > 1)["=="](true)
+	state.Start = state.Start - 1
 	effects_stage.Update(stage)
-	T(stage.Sweep)["=="](nil)
+	T(stage.Drive)["=="](nil)
+	effects_stage.PlayEmitter(stage, "melee_sparks", {}, 24, {Type = "sweep", Length = 6, Time = 2})
+	T(stage.Drive.State.Spec.Length)["=="](6)
+	effects_stage.StopDrive(stage)
+	local resolved = effects_stage.ResolveParams(
+		stage,
+		{
+			entity = "$normal",
+			color = {1, 0.5, 0.25},
+			size = 2,
+			list = {1, 2},
+			ColorA = {0, 0, 1, 1},
+		}
+	)
+	T(resolved.entity.y)["=="](1)
+	T(resolved.color.g)["=="](0.5)
+	T(resolved.color.a)["=="](1)
+	T(resolved.ColorA.b)["=="](1)
+	T(resolved.size)["=="](2)
+	T(resolved.list[2])["=="](2)
+	T(pcall(effects_stage.ResolveParams, stage, {x = "$nope"}))["=="](false)
 
 	for _, child in ipairs(Entity.World:GetChildrenList()) do
 		child:Remove()
@@ -198,4 +218,80 @@ T.Test3D("a particles block starts from the emitter it names and its own keys wi
 	local properties = effects.GetParticleProperties((status_effects.GetDefinition("frozen")))
 	T(properties.Shader)["=="]("snow")
 	T(properties.ColorStart.b)["=="](1)
+end)
+
+T.Test3D("an effect's preview block sets the view, the duration and the play params", function()
+	local Vec3 = import("goluwa/structs/vec3.lua")
+	local Entity = import("goluwa/entities/entity.lua")
+	local view_camera = import("lua/view_camera.lua")
+	local effects_editor = import("lua/jrpg/effects_editor.lua")
+	local effects_stage = import("lua/jrpg/effects_stage.lua")
+	local marker = Entity.New{Name = "preview_test_marker", transform = {Position = Vec3(0, 1, 0)}}
+	marker:SetTransient(true)
+	local view = {
+		SetPosition = function() end,
+		SetRotation = function() end,
+	}
+
+	function view:SetExposureLock(lock)
+		self.Lock = lock
+	end
+
+	local fly = {View = view}
+	local session = {
+		LoadId = 0,
+		SelectId = 0,
+		Count = 24,
+		Stage = {Marker = marker, Chest = Vec3(0, 1, 0)},
+		StageKind = "gizmo",
+		Exposure = "dusk",
+		Loop = false,
+		View = view,
+		Fly = fly,
+	}
+	effects_editor.Load(session, "gpu emitters", "hit_force")
+	T(effects_editor.GetDuration(session))["=="](3)
+	view_camera.Set(fly, Vec3(2, 2.5, 5), -10, 30)
+	effects_editor.SaveView(session)
+	local preview = session.Data.Preview
+	T(preview.Stage)["=="]("gizmo")
+	T(preview.Exposure)["=="]("dusk")
+	T(preview.Loop)["=="](false)
+	T(preview.View.Offset[1])["=="](2)
+	T(preview.View.Offset[2])["=="](1.5)
+	T(preview.View.Offset[3])["=="](5)
+	T(math.abs(preview.View.Pitch + 10) < 0.01)["=="](true)
+	T(math.abs(preview.View.Yaw - 30) < 0.01)["=="](true)
+	T(#effects_editor.GetProblems(session))["=="](0)
+	T(effects_editor.Apply(session))["=="](true)
+	T(import("lua/emitters.lua").Get("hit_force").Preview)["=="](nil)
+	preview.Duration = 7
+	preview.Exposure = "night"
+	preview.Loop = true
+	T(effects_editor.GetDuration(session))["=="](7)
+	view_camera.Set(fly, Vec3(9, 9, 9), 0, 0)
+	effects_editor.ApplyPreview(session)
+	local eye, pitch, yaw = view_camera.Get()
+	T((eye - Vec3(2, 2.5, 5)):GetLength() < 0.01)["=="](true)
+	T(math.abs(pitch + 10) < 0.01)["=="](true)
+	T(math.abs(yaw - 30) < 0.01)["=="](true)
+	T(session.Exposure)["=="]("night")
+	T(view.Lock)["=="](effects_stage.Exposures.night)
+	T(session.Loop)["=="](true)
+	local stub = {
+		Target = {health = 5, transform = {GetPosition = ||->Vec3(1, 2, 3)}},
+		Chest = Vec3(),
+		Ground = Vec3(),
+		Normal = Vec3(0, 1, 0),
+	}
+
+	for _, name in ipairs(effects_editor.Categories.clips.GetNames()) do
+		local clip_preview = effects_editor.Categories.clips.GetSource(name).Preview
+
+		if clip_preview and clip_preview.Params then
+			effects_stage.ResolveParams(stub, clip_preview.Params)
+		end
+	end
+
+	marker:Remove()
 end)

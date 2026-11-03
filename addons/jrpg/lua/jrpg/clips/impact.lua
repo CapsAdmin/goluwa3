@@ -42,4 +42,14 @@ return {
 			Alpha = "glow_fade",
 		},
 	},
+	Preview = {
+		Params = {
+			type_name = "generic",
+			color = {0.9, 0.92, 1, 1},
+			size = 0.42,
+			count = 112,
+			lumen = 36,
+			direction = "$normal",
+		},
+	},
 }

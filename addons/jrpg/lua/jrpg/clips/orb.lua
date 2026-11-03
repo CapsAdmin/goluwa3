@@ -9,4 +9,5 @@ return {
 			LensScale = "lens_scale",
 		},
 	},
+	Preview = {Params = {size = 0.3, alpha = 1, flicker = 1, lens_scale = 1}},
 }

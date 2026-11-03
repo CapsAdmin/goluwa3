@@ -9,6 +9,7 @@ local function build(data, inputs)
 	local properties = data_files.Realize(table.copy(data))
 	local declared = properties.Inputs
 	properties.Inputs = nil
+	properties.Preview = nil
 
 	if inputs then
 		for input_name in pairs(inputs) do

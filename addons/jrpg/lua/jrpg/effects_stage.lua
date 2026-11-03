@@ -1,20 +1,42 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local Gizmo = import("lua/gizmo.lua")
-local system = import("goluwa/system.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
 local actors = import("lua/actors.lua")
 local emitters = import("lua/emitters.lua")
+local effects_drive = import("lua/jrpg/effects_drive.lua")
 local npcs = import("lua/npcs.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 local effects_stage = {}
 effects_stage.Kinds = {"player", "npc", "gizmo"}
 effects_stage.DefaultNpc = "citizen"
+effects_stage.Cameras = {"front", "side", "high"}
+effects_stage.Exposures = {day = 15, dusk = 11, night = 7}
+effects_stage.ExposureNames = {"day", "dusk", "night"}
+local TOKENS = {
+	target = function(self)
+		return self.Target
+	end,
+	["target.health"] = function(self)
+		return self.Target.health
+	end,
+	["target.position"] = function(self)
+		return self.Target.transform:GetPosition():Copy()
+	end,
+	chest = function(self)
+		return self.Chest:Copy()
+	end,
+	ground = function(self)
+		return self.Ground:Copy()
+	end,
+	normal = function(self)
+		return self.Normal:Copy()
+	end,
+}
 local NORMAL_LENGTH = 0.6
-local SWEEP_TIME = 1
-local SWEEP_HALF_LENGTH = 1.2
-local SWEEP_LINGER = 3
+local DRIVE_LINGER = 3
 
 function effects_stage.New(kind, npc_name)
 	local rig = assert(_G.PLAYER_RIG, "the effects editor previews on the local player")
@@ -50,47 +72,75 @@ function effects_stage.New(kind, npc_name)
 	return self
 end
 
+function effects_stage.ResolveParams(self, params)
+	local out = {}
+
+	for key, value in pairs(params) do
+		if type(value) == "string" and value:starts_with("$") then
+			out[key] = assert(TOKENS[value:sub(2)], "unknown preview token " .. value)(self)
+		elseif type(value) == "table" and key:lower():find("color", 1, true) and #value >= 3 then
+			out[key] = Color(value[1], value[2], value[3], value[4] or 1)
+		elseif type(value) == "table" then
+			out[key] = table.copy(value)
+		else
+			out[key] = value
+		end
+	end
+
+	return out
+end
+
 function effects_stage.GetSubject(self)
 	if self.Marker then return self.Marker.transform:GetPosition() end
 
 	return self.Target.transform:GetPosition()
 end
 
-function effects_stage.PlayEmitter(self, name, inputs, count)
-	effects_stage.StopSweep(self)
+function effects_stage.PlayEmitter(self, name, inputs, count, drive)
+	effects_stage.StopDrive(self)
 
 	if (emitters.Files.Source[name].RatePerMeter or 0) == 0 then
 		emitters.Burst(name, self.Chest, self.Normal, count, inputs)
 		return
 	end
 
-	local right = Vec3(self.Toward.z, 0, -self.Toward.x)
-	self.Sweep = {
-		Entity = vfx.CreateEmitter("effects_editor_sweep", emitters.Get(name, inputs)),
-		Start = system.GetElapsedTime(),
-		From = self.Chest - right * SWEEP_HALF_LENGTH,
-		To = self.Chest + right * SWEEP_HALF_LENGTH,
-	}
-	self.Sweep.Entity.transform:SetPosition(self.Sweep.From)
+	local entity = vfx.CreateEmitter("effects_editor_emitter", emitters.Get(name, inputs))
+
+	effects_stage.StartDrive(
+		self,
+		drive or effects_drive.Defaults.sweep,
+		function(state)
+			entity.transform:SetPosition(state.Position)
+		end,
+		function()
+			vfx.StopEmitter(entity, DRIVE_LINGER)
+		end
+	)
 end
 
-function effects_stage.StopSweep(self)
-	if self.Sweep then
-		vfx.StopEmitter(self.Sweep.Entity, SWEEP_LINGER)
-		self.Sweep = nil
+function effects_stage.StartDrive(self, spec, on_step, on_stop)
+	effects_stage.StopDrive(self)
+	self.Drive = {State = effects_drive.Start(spec, self), OnStep = on_step, OnStop = on_stop}
+	on_step(self.Drive.State)
+end
+
+function effects_stage.StopDrive(self)
+	local drive = self.Drive
+
+	if drive then
+		self.Drive = nil
+		drive.OnStop()
 	end
 end
 
 function effects_stage.Update(self, eye)
-	local sweep = self.Sweep
+	local drive = self.Drive
 
-	if sweep then
-		local t = (system.GetElapsedTime() - sweep.Start) / SWEEP_TIME
-
-		if t >= 1 then
-			effects_stage.StopSweep(self)
+	if drive then
+		if effects_drive.Step(drive.State) then
+			drive.OnStep(drive.State)
 		else
-			sweep.Entity.transform:SetPosition(sweep.From:GetLerped(t, sweep.To))
+			effects_stage.StopDrive(self)
 		end
 	end
 
@@ -121,7 +171,7 @@ function effects_stage.Update(self, eye)
 end
 
 function effects_stage.Remove(self)
-	effects_stage.StopSweep(self)
+	effects_stage.StopDrive(self)
 
 	if self.Marker then
 		Gizmo.DisableGizmo()

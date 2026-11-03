@@ -550,7 +550,7 @@ clips.RegisterScript(
 do
 	local files = data_files.New(
 		"lua/jrpg/clips/",
-		{"Duration", "Loop", "Follow", "Tracks", "Events", "Layers", "Type"}
+		{"Duration", "Loop", "Follow", "Tracks", "Events", "Layers", "Type", "Preview"}
 	)
 	effects.ClipFiles = files
 	effects.ClipNames = {"orb", "projectile", "impact", "magic_circle"}

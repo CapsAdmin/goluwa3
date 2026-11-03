@@ -7,6 +7,9 @@ local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
 local particle_shader_library = import("lua/particle_shader_library.lua")
 local emitters = import("lua/emitters.lua")
+local npcs = import("lua/npcs.lua")
+local effects_stage = import("lua/jrpg/effects_stage.lua")
+local effects_drive = import("lua/jrpg/effects_drive.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local effects_schema = {}
 local EXPRESSION = "a number, the name of a track or param, or an expression: p.<param>, v.<track>, v.time, math functions"
@@ -398,6 +401,44 @@ function effects_schema.WithShaderParams(schema, data)
 	local out = table.shallow_copy(schema)
 	out.Fields = fields
 	return out
+end
+
+do
+	local fields = {
+		["Preview.Stage"] = {Options = effects_stage.Kinds, Description = "what the effect is played on"},
+		["Preview.Npc"] = {Options = ||->npcs.GetNames(), Description = "the npc to spawn when the stage is npc"},
+		["Preview.Camera"] = {Options = effects_stage.Cameras, Description = "a starting camera, View replaces it"},
+		["Preview.Exposure"] = {Options = effects_stage.ExposureNames},
+		["Preview.Duration"] = {Min = 0.1, Max = 30, Description = "seconds the play head runs, and when Loop plays it again"},
+		["Preview.Loop"] = {Description = "play again when the play head ends"},
+		["Preview.View"] = {Description = "the camera as an offset from the stage subject, set with FILE > save view as preview"},
+		["Preview.Params"] = {
+			Description = "values the effect is played with: numbers, strings, colors (keys named color), and the stage tokens $target, $target.health, $target.position, $chest, $ground and $normal",
+		},
+		["Preview.Drive"] = {
+			Description = "moves a point or a blade through the stage while the effect plays, for effects that follow a path",
+		},
+		["Drive.Type"] = {Options = effects_drive.Types},
+		["Drive.Time"] = {Min = 0.05, Max = 10},
+	}
+	local keys = {
+		Stage = "gizmo",
+		Npc = "citizen",
+		Camera = "front",
+		Exposure = "day",
+		Duration = 2,
+		Loop = true,
+		View = {Offset = {0, 1.5, 3.6}, Pitch = 0, Yaw = 0},
+		Params = {},
+		Drive = table.copy(effects_drive.Defaults.sweep),
+	}
+
+	for _, name in ipairs{"damage types", "status effects", "clips", "gpu emitters"} do
+		local schema = schemas[name]
+		schema.Fields = merge(schema.Fields, fields)
+		schema.Fields.Preview = {Keys = keys}
+		schema.Root.Keys = merge(schema.Root.Keys or {}, {Preview = {}})
+	end
 end
 
 effects_schema.Schemas = schemas

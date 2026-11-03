@@ -60,4 +60,17 @@ return {
 		},
 		{Type = "custom", When = "pillar", Script = "jrpg_magic_pillar"},
 	},
+	Preview = {
+		Params = {
+			entity = "$target",
+			position = "$target.position",
+			color = {0.5, 0.7, 1, 1},
+			size = 1,
+			strength = 1,
+			pillar = true,
+			cast_time = 1.5,
+			duration = 2.5,
+			spin = 0.5,
+		},
+	},
 }

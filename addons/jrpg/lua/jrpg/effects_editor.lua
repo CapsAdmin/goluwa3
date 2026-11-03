@@ -33,10 +33,7 @@ local effects_editor = {}
 local LEFT_WIDTH = 440
 local BOTTOM_HEIGHT = 260
 local UP = Vec3(0, 1, 0)
-local CAMERAS = {"front", "side", "high"}
 local GIZMO_MODES = {"move", "rotate", "combined"}
-local EXPOSURES = {day = 15, dusk = 11, night = 7}
-local EXPOSURE_NAMES = {"day", "dusk", "night"}
 effects_editor.LastCategory = "damage types"
 effects_editor.LastName = "fire"
 effects_editor.LastStage = "player"
@@ -52,12 +49,7 @@ effects_editor.CategoryNames = {
 	"scripts",
 }
 
-local function play_clip(stage, name, params)
-	params.duration = 2
-	params.position = stage.Chest:Copy()
-	params.color = params.color or Color(1, 0.6, 0.2, 1)
-	clips.Play("jrpg_" .. name, params)
-end
+local CLIP_DEFAULT_PARAMS = {size = 0.3, fade = 1, flicker = 1, lens_scale = 1, trail_radius = 0.03}
 
 local REF_CATEGORIES = {
 	status = "status effects",
@@ -104,20 +96,22 @@ effects_editor.Categories = {
 		Update = effects.UpdateClip,
 		Reload = effects.ReloadClip,
 		Save = effects.SaveClip,
-		Play = |stage, name|-> do
-			if name == "impact" then
-				effects.ShowImpact(stage.Chest, stage.Normal, "generic", 1.2, false, stage.Normal, 40)
-			elseif name == "magic_circle" then
-				effects.ShowMagicCircle(stage.Target, Color(0.5, 0.7, 1, 1), 1, 1.5, 1, true)
-			elseif name == "orb" then
-				play_clip(stage, name, {size = 0.3, alpha = 1, flicker = 1, lens_scale = 1})
-			elseif name == "flash" then
-				clips.Play("jrpg_flash", {entity = stage.Target, color = Color(1, 0.3, 0.2, 1), intensity = 1.2, duration = 1})
-			elseif name == "low_health" then
-				clips.Play("jrpg_low_health", {entity = stage.Target, health = stage.Target.health, duration = 2})
+		Play = |stage, name, session|-> do
+			local preview = session.Data.Preview
+			local params = {
+				position = stage.Chest:Copy(),
+				normal = stage.Normal:Copy(),
+				color = Color(1, 0.6, 0.2, 1),
+				duration = preview and preview.Duration or 2,
+			}
+
+			if preview and preview.Params then
+				table.merge(params, effects_stage.ResolveParams(stage, preview.Params))
 			else
-				play_clip(stage, name, {size = 0.3, fade = 1, flicker = 1, lens_scale = 1, trail_radius = 0.03})
+				table.merge(params, CLIP_DEFAULT_PARAMS)
 			end
+
+			clips.Play("jrpg_" .. name, params)
 		end,
 	},
 	overlays = {
@@ -156,7 +150,13 @@ effects_editor.Categories = {
 		Save = emitters.Save,
 		Duplicate = |name|->emitters.Create(emitters.GetNewName(name), name),
 		Play = |stage, name, session|-> do
-			effects_stage.PlayEmitter(stage, name, session.Inputs, session.Count)
+			effects_stage.PlayEmitter(
+				stage,
+				name,
+				session.Inputs,
+				session.Count,
+				session.Data.Preview and session.Data.Preview.Drive
+			)
 		end,
 	},
 	["grenade puffs"] = {
@@ -305,9 +305,69 @@ function effects_editor.Play(session)
 end
 
 function effects_editor.GetDuration(session)
+	local preview = session.Data.Preview
+
+	if preview and preview.Duration then return preview.Duration end
+
 	local duration = effects_editor.Categories[session.Category].Duration
 
 	return duration and duration(session.Data) or 1.5
+end
+
+function effects_editor.ApplyPreview(session)
+	local preview = session.Data.Preview
+
+	if not preview then return end
+
+	if
+		preview.Stage and
+		(
+			preview.Stage ~= session.StageKind or
+			preview.Stage == "npc" and
+			preview.Npc and
+			preview.Npc ~= session.NpcName
+		)
+	then
+		effects_editor.SetStage(session, preview.Stage, preview.Npc or session.NpcName)
+	end
+
+	if preview.Loop ~= nil then session.Loop = preview.Loop end
+
+	if preview.Exposure then
+		session.Exposure = preview.Exposure
+		session.View:SetExposureLock(effects_stage.Exposures[preview.Exposure])
+	end
+
+	if preview.View then
+		local offset = preview.View.Offset
+		view_camera.Set(
+			session.Fly,
+			effects_stage.GetSubject(session.Stage) + Vec3(offset[1], offset[2], offset[3]),
+			preview.View.Pitch,
+			preview.View.Yaw
+		)
+	elseif preview.Camera then
+		effects_editor.SetCamera(session, preview.Camera)
+	end
+end
+
+function effects_editor.SaveView(session)
+	local preview = session.Data.Preview or {}
+	local eye, pitch, yaw = view_camera.Get()
+	local offset = eye - effects_stage.GetSubject(session.Stage)
+	session.Data.Preview = preview
+	preview.Stage = session.StageKind
+	preview.Npc = session.StageKind == "npc" and session.NpcName or nil
+	preview.Exposure = session.Exposure
+	preview.Loop = session.Loop
+	preview.Camera = nil
+	preview.View = {
+		Offset = {math.round(offset.x, 3), math.round(offset.y, 3), math.round(offset.z, 3)},
+		Pitch = math.round(pitch, 2),
+		Yaw = math.round(yaw, 2),
+	}
+	session.LoadId = session.LoadId + 1
+	effects_editor.Commit(session, true)
 end
 
 function effects_editor.SetCamera(session, name)
@@ -348,7 +408,7 @@ function effects_editor.CreateSession()
 	}
 	session.View = View.New{
 		Priority = 1000,
-		ExposureLock = EXPOSURES.day,
+		ExposureLock = effects_stage.Exposures.day,
 		HidePlayer = false,
 		HideHud = true,
 	}
@@ -357,6 +417,7 @@ function effects_editor.CreateSession()
 	session.Fly = view_camera.Start(session.View, 6)
 	effects_editor.SetCamera(session, "front")
 	effects_editor.Load(session, effects_editor.LastCategory, effects_editor.LastName)
+	effects_editor.ApplyPreview(session)
 	effects_editor.Current = session
 	return session
 end
@@ -514,6 +575,16 @@ function effects_editor.BuildMenu(session, h)
 					OnClick = ||-> do
 						local category = effects_editor.Categories[session.Category]
 						effects_editor.Load(session, session.Category, category.Duplicate(session.Name))
+						effects_editor.ApplyPreview(session)
+						h.refresh()
+					end,
+				},
+				MenuItem{
+					Text = "save view as preview",
+					Icon = "file",
+					Disabled = not effects_editor.Categories[session.Category].Schema.Fields.Preview,
+					OnClick = ||-> do
+						effects_editor.SaveView(session)
 						h.refresh()
 					end,
 				},
@@ -576,6 +647,7 @@ local EffectsEditor = react.Component(
 
 					if category then
 						effects_editor.Open(session, category, name)
+						effects_editor.ApplyPreview(session)
 						h.refresh()
 					end
 				end
@@ -583,6 +655,7 @@ local EffectsEditor = react.Component(
 				function h.on_breadcrumb(index)
 					if index <= #session.Trail then
 						effects_editor.Back(session, index)
+						effects_editor.ApplyPreview(session)
 						h.refresh()
 					end
 				end
@@ -709,6 +782,7 @@ local EffectsEditor = react.Component(
 					130,
 					|value|-> do
 						effects_editor.Load(session, value)
+						effects_editor.ApplyPreview(session)
 						h.refresh()
 					end
 				),
@@ -719,6 +793,7 @@ local EffectsEditor = react.Component(
 					130,
 					|value|-> do
 						effects_editor.Load(session, session.Category, value)
+						effects_editor.ApplyPreview(session)
 						h.refresh()
 					end
 				),
@@ -738,7 +813,7 @@ local EffectsEditor = react.Component(
 			ui.Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center", Padding = Rect() + 6}}{
 				dropdown(
 					"camera",
-					CAMERAS,
+					effects_stage.Cameras,
 					session.Camera,
 					90,
 					|value|-> do
@@ -748,12 +823,12 @@ local EffectsEditor = react.Component(
 				),
 				dropdown(
 					"exposure",
-					EXPOSURE_NAMES,
+					effects_stage.ExposureNames,
 					session.Exposure,
 					90,
 					|value|-> do
 						session.Exposure = value
-						session.View:SetExposureLock(EXPOSURES[value])
+						session.View:SetExposureLock(effects_stage.Exposures[value])
 					end
 				),
 				not category.ReadOnly and ui.Button{
