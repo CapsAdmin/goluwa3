@@ -70,7 +70,8 @@ do
 		local definition = data_files.Realize(table.copy(data))
 		definition.Name = name
 		assert(definition.Color, "damage type " .. name .. " needs a color")
-		definition.Particles = table.merge(table.shallow_copy(DEFAULT_PARTICLES), definition.Particles or {})
+		definition.Particles = definition.Particles or {}
+		definition.ParticleBase = DEFAULT_PARTICLES
 		definition.Glow = definition.Glow or 1
 		definition.Overlay = definition.Overlay or "magic_generic"
 		definition.Flicker = definition.Flicker or 0

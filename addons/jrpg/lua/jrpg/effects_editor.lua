@@ -65,6 +65,7 @@ local REF_CATEGORIES = {
 	overlay = "overlays",
 	script = "scripts",
 	particle_shader = "particle shaders",
+	emitter = "gpu emitters",
 }
 effects_editor.Categories = {
 	["damage types"] = {

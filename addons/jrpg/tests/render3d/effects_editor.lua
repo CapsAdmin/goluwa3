@@ -39,19 +39,34 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 		end
 	end
 
-	effects_editor.Load(session, "status effects", "frozen")
-	local frozen_items = effects_editor.BuildItems(session, handlers)
-	local shader_row = find_text(frozen_items, "Shader")
+	effects_editor.Load(session, "status effects", "poison")
+	session.Data.Particles.Emitter = "frozen_snow"
+	local emitter_row = find_text(effects_editor.BuildItems(session, handlers), "Emitter")
+	T(emitter_row.Type)["=="]("enum")
+	T(emitter_row.RowButtons ~= nil)["=="](true)
+	effects_editor.Open(session, "gpu emitters", "frozen_snow")
+	T(session.Category)["=="]("gpu emitters")
+	effects_editor.Back(session, 1)
+	T(session.Name)["=="]("poison")
+	effects_editor.Load(session, "gpu emitters", "frozen_snow")
+	local frozen_snow_items = effects_editor.BuildItems(session, handlers)
+	local shader_row = find_text(frozen_snow_items, "Shader")
 	T(shader_row.Type)["=="]("enum")
 	T(shader_row.RowButtons ~= nil)["=="](true)
-	T(find_text(frozen_items, "Sway").Max)["=="](3)
-	T(find_text(frozen_items, "Flake").Type)["=="]("enum")
+	T(find_text(frozen_snow_items, "Sway").Max)["=="](3)
+	T(find_text(frozen_snow_items, "Flake").Type)["=="]("enum")
 	shader_row.OnChange(nil, "glow")
-	T(session.Data.Particles.Shader)["=="]("glow")
-	T(session.Data.Particles.ShaderParams)["=="](nil)
+	T(session.Data.Shader)["=="]("glow")
+	T(session.Data.ShaderParams)["=="](nil)
 	shader_row.OnChange(nil, "snow")
-	T(session.Data.Particles.ShaderParams.Sway)["=="](0.35)
+	T(session.Data.ShaderParams.Sway)["=="](0.35)
 	T(#effects_editor.GetProblems(session))["=="](0)
+	effects_editor.Load(session, "status effects", "poison")
+	session.Data.Particles.Shader = "snow"
+	session.Data.Particles.ShaderParams = {Sway = 0.2}
+	T(find_text(effects_editor.BuildItems(session, handlers), "Sway").Max)["=="](3)
+	session.Data.Particles.Emitter = "nope"
+	T(#effects_editor.GetProblems(session))["=="](1)
 	effects_editor.Load(session, "particle shaders", "snow")
 	local shader_items = effects_editor.BuildItems(session, handlers)
 	T(find_text(shader_items, "Update").Type)["=="]("code")
@@ -140,4 +155,28 @@ T.Test3D("the effects stage bursts one shot emitters and sweeps path emitters", 
 	for _, child in ipairs(Entity.World:GetChildrenList()) do
 		child:Remove()
 	end
+end)
+
+T.Test3D("a particles block starts from the emitter it names and its own keys win", function()
+	local effects = import("lua/jrpg/effects.lua")
+	local emitters = import("lua/emitters.lua")
+	local resolved = effects.GetParticles{
+		ParticleBase = {SpeedMin = 0.3, Spread = 180, Drag = 9},
+		Particles = {Emitter = "frozen_snow", SpeedMin = 0.5, ShaderParams = {Sway = 1}},
+	}
+	T(resolved.SpeedMin)["=="](0.5)
+	T(resolved.Spread)["=="](180)
+	T(resolved.Drag)["=="](3)
+	T(resolved.ShaderParams.Sway)["=="](1)
+	T(resolved.ShaderParams.Tumble)["=="](1.5)
+	T(emitters.Get("frozen_snow").ShaderParams.Sway)["=="](0.35)
+	local plain = effects.GetParticles{Particles = {Drag = 2}}
+	T(plain.Drag)["=="](2)
+	T(plain.Spread)["=="](nil)
+	local properties = effects.GetParticleProperties{
+		Color = emitters.Get("hit_normal").ColorStart,
+		Particles = {Emitter = "frozen_snow"},
+	}
+	T(properties.Shader)["=="]("snow")
+	T(properties.SpeedMax)["=="](emitters.Get("frozen_snow").SpeedMax)
 end)

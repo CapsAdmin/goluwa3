@@ -6,6 +6,7 @@ local status_effects = import("lua/jrpg/status_effects.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
 local particle_shader_library = import("lua/particle_shader_library.lua")
+local emitters = import("lua/emitters.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local effects_schema = {}
 local EXPRESSION = "a number, the name of a track or param, or an expression: p.<param>, v.<track>, v.time, math functions"
@@ -40,6 +41,7 @@ local refs = {
 	overlay = ||->surface_overlays.GetKindNames(),
 	texture = ||->vfx.GetTextureNames(),
 	particle_shader = ||->particle_shader_library.Names,
+	emitter = ||->emitters.Names,
 	flipbook = ||->vfx.GetFlipbookNames(),
 	sprite = ||->list.extend(vfx.GetFlipbookNames(), vfx.GetTextureNames()),
 	script = ||->sorted_names(clips.Scripts),
@@ -72,7 +74,11 @@ local COMMON = {
 	Names = {Display = "chips"},
 	Adjectives = {Display = "chips"},
 	["Think.Type"] = {Options = {"magic", "slash", "generic"}},
-	Particles = {Keys = {Shader = "snow"}},
+	Particles = {Keys = {Emitter = "hit_position", Shader = "snow"}},
+	["Particles.Emitter"] = {
+		Ref = "emitter",
+		Description = "start from this gpu emitter, the keys written here replace its values",
+	},
 	["Particles.Shader"] = {
 		Ref = "particle_shader",
 		Restructure = true,

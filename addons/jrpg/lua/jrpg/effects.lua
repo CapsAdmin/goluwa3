@@ -94,6 +94,7 @@ vfx.ClearBursts("jrpg_")
 local sprites = import("goluwa/render3d/sprites.lua")
 local hitmarkers = import("lua/hitmarkers.lua")
 local particle_shader_library = import("lua/particle_shader_library.lua")
+local emitters = import("lua/emitters.lua")
 particle_shader_library.Init()
 local screen_shake = import("lua/screen_shake.lua")
 local sounds = import("lua/sounds.lua")
@@ -200,6 +201,18 @@ do
 end
 
 do
+	function effects.GetParticles(definition)
+		local particles = table.shallow_copy(definition.ParticleBase or {})
+
+		if definition.Particles.Emitter then
+			table.merge(particles, emitters.Get(definition.Particles.Emitter))
+		end
+
+		table.merge(particles, definition.Particles)
+		particles.Emitter = nil
+		return particles
+	end
+
 	function effects.GetParticleProperties(definition, overrides)
 		local properties = {
 			MaxParticles = 512,
@@ -218,7 +231,7 @@ do
 			),
 		}
 
-		for key, value in pairs(definition.Particles) do
+		for key, value in pairs(effects.GetParticles(definition)) do
 			properties[key] = value
 		end
 
@@ -362,10 +375,11 @@ do
 				ColorEnd = Color(color.r, color.g, color.b, 0),
 			}
 			local speed = (speed_scale or 1) * (cut_scale or 1)
+			local particles = effects.GetParticles(definition)
 
 			if speed ~= 1 then
-				overrides.SpeedMin = definition.Particles.SpeedMin * speed
-				overrides.SpeedMax = definition.Particles.SpeedMax * speed
+				overrides.SpeedMin = particles.SpeedMin * speed
+				overrides.SpeedMax = particles.SpeedMax * speed
 			end
 
 			if cut then
@@ -376,8 +390,8 @@ do
 				overrides.Drag = CUT_DRAG
 				overrides.Fizzle = CUT_FIZZLE
 				overrides.FizzleStart = CUT_FIZZLE_START
-				overrides.LifetimeMin = definition.Particles.LifetimeMin * CUT_LIFETIME_SCALE * (cut_scale or 1)
-				overrides.LifetimeMax = definition.Particles.LifetimeMax * CUT_LIFETIME_SCALE * (cut_scale or 1)
+				overrides.LifetimeMin = particles.LifetimeMin * CUT_LIFETIME_SCALE * (cut_scale or 1)
+				overrides.LifetimeMax = particles.LifetimeMax * CUT_LIFETIME_SCALE * (cut_scale or 1)
 			end
 
 			vfx.DefineBurst(key, effects.GetParticleProperties(definition, overrides))
@@ -974,7 +988,7 @@ do
 						ShapeSize = p.entity.ragdoll and Vec3(0.12, 0.12, 0.12) or Vec3(0.3, 0.6, 0.3),
 					}
 
-					for key in pairs(definition.Particles) do
+					for key in pairs(effects.GetParticles(definition)) do
 						shape[key] = nil
 					end
 
