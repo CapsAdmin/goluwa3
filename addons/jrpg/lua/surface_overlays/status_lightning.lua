@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "status_lightning",
-	defaults = {
-		FadeIn = 0.2,
-		FadeOut = 0.4,
-		Intensity = 1,
-		Scale = 1.3,
-		Speed = 1,
-		Daylight = 1,
-		ColorA = Color(0.55, 0.7, 1.0, 1),
-		ColorB = Color(1, 1, 1, 1),
-		Params = {7, 0.9, 1.6},
-	},
 	glsl = [[
 		float step_time = t * 7.0;
 		float seed = floor(step_time);

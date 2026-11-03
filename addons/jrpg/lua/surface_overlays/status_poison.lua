@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "status_poison",
-	defaults = {
-		FadeIn = 0.6,
-		FadeOut = 0.8,
-		Intensity = 1,
-		Scale = 1.5,
-		Speed = 1,
-		Daylight = 1,
-		ColorA = Color(0.35, 1, 0.3, 1),
-		ColorB = Color(0.7, 1, 0.4, 1),
-		Params = {1.8, 1.1, 0.12},
-	},
 	glsl = [[
 		vec4 warp_a = overlay_noise_at(c, vec3(t * 0.04, 0.0, 0.0), l.scale * 0.3);
 		vec4 warp_b = overlay_noise_at(c, vec3(0.0, t * 0.04, 7.0), l.scale * 0.3);

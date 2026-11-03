@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "magic_generic",
-	defaults = {
-		FadeIn = 0.9,
-		FadeOut = 0.9,
-		Intensity = 1,
-		Scale = 1,
-		Speed = 1,
-		Daylight = 1,
-		ColorA = Color(1, 1, 1, 1),
-		ColorB = Color(1, 1, 1, 1),
-		Params = {1.4, 6.5, 0.5},
-	},
 	glsl = [[
 		vec4 p = vec4(c.P * l.scale, 0.2 + t * 0.03);
 		vec4 p1 = p * l.params.y;

@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "void_rift",
-	defaults = {
-		FadeIn = 1.0,
-		FadeOut = 1.0,
-		Intensity = 1,
-		Scale = 0.9,
-		Speed = 1,
-		Daylight = 1,
-		ColorA = Color(0.62, 0.15, 1.0, 1),
-		ColorB = Color(0.02, 0.0, 0.05, 1),
-		Params = {6},
-	},
 	glsl = [[
 		vec4 big = overlay_noise_at(c, vec3(0.0, t * 0.04, 0.0), l.scale);
 		vec4 fine = overlay_noise_at(c, vec3(t * 0.05, 0.0, 0.0), l.scale * 2.7);

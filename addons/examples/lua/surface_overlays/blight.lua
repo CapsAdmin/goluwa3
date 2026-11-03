@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "blight",
-	defaults = {
-		FadeIn = 3.0,
-		FadeOut = 2.0,
-		Intensity = 1,
-		Scale = 1.4,
-		Speed = 1,
-		Daylight = 0.9,
-		ColorA = Color(0.55, 1.0, 0.2, 1),
-		ColorB = Color(0.1, 0.08, 0.04, 1),
-		Params = {18},
-	},
 	glsl = [[
 		vec4 big = overlay_noise(c, l.scale);
 		vec4 fine = overlay_noise(c, l.scale * 3.1);

@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "status_decay",
-	defaults = {
-		FadeIn = 0.8,
-		FadeOut = 1.0,
-		Intensity = 1,
-		Scale = 1.4,
-		Speed = 1,
-		Daylight = 0.9,
-		ColorA = Color(0.75, 0.15, 0.7, 1),
-		ColorB = Color(0.06, 0.02, 0.08, 1),
-		Params = {2.4, 0.7},
-	},
 	glsl = [[
 		vec4 big = overlay_noise(c, l.scale);
 		vec4 fine = overlay_noise(c, l.scale * 3.1);

@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "aegis",
-	defaults = {
-		FadeIn = 0.5,
-		FadeOut = 0.8,
-		Intensity = 1,
-		Scale = 2.2,
-		Speed = 1,
-		Daylight = 1,
-		ColorA = Color(0.25, 0.8, 1.0, 1),
-		ColorB = Color(0.7, 0.95, 1.0, 1),
-		Params = {5},
-	},
 	glsl = [[
 		vec4 cells = overlay_noise(c, l.scale);
 		float rim = pow(1.0 - c.ndv, 2.5);

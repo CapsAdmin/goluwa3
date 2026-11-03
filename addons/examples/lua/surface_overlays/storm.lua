@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "storm",
-	defaults = {
-		FadeIn = 0.4,
-		FadeOut = 0.8,
-		Intensity = 1,
-		Scale = 1.3,
-		Speed = 1,
-		Daylight = 1,
-		ColorA = Color(0.55, 0.7, 1.0, 1),
-		ColorB = Color(1.0, 1.0, 1.0, 1),
-		Params = {14},
-	},
 	glsl = [[
 		float step_time = t * 6.0;
 		float seed = floor(step_time);

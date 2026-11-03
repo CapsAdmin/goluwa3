@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "gilded",
-	defaults = {
-		FadeIn = 1.6,
-		FadeOut = 1.2,
-		Intensity = 1,
-		Scale = 3,
-		Speed = 1,
-		Daylight = 0.5,
-		ColorA = Color(1.0, 0.72, 0.28, 1),
-		ColorB = Color(1.0, 0.95, 0.7, 1),
-		Params = {3},
-	},
 	glsl = [[
 		vec4 grain = overlay_noise(c, l.scale);
 		float d = grow * 1.3 - c.height - (grain.g - 0.5) * 0.2;

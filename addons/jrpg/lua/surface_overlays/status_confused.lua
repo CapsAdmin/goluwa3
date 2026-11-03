@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "status_confused",
-	defaults = {
-		FadeIn = 0.5,
-		FadeOut = 0.6,
-		Intensity = 1,
-		Scale = 1.2,
-		Speed = 1,
-		Daylight = 1,
-		ColorA = Color(1, 0.95, 0.4, 1),
-		ColorB = Color(1, 1, 1, 1),
-		Params = {1.4},
-	},
 	glsl = [[
 		vec4 n = overlay_noise_at(c, vec3(0.0, t * 0.1, 0.0), l.scale);
 		float angle = atan(c.P.z, c.P.x);

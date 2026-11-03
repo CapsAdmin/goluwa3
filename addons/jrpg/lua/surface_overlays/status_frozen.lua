@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "status_frozen",
-	defaults = {
-		FadeIn = 0.6,
-		FadeOut = 0.8,
-		Intensity = 1,
-		Scale = 1.3,
-		Speed = 1,
-		Daylight = 0.6,
-		ColorA = Color(0.6, 0.85, 1, 1),
-		ColorB = Color(0.2, 0.45, 0.8, 1),
-		Params = {1.6},
-	},
 	glsl = [[
 		OverlayCell cell = overlay_voronoi(c.P * l.scale * 6.0);
 		vec4 fine = overlay_noise(c, l.scale * 4.3);

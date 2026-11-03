@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "crystallize",
-	defaults = {
-		FadeIn = 1.4,
-		FadeOut = 1.2,
-		Intensity = 1,
-		Scale = 1.1,
-		Speed = 1,
-		Daylight = 0.6,
-		ColorA = Color(0.55, 0.85, 1.0, 1),
-		ColorB = Color(0.18, 0.4, 0.75, 1),
-		Params = {2.5},
-	},
 	glsl = [[
 		vec4 big = overlay_noise(c, l.scale);
 		vec4 fine = overlay_noise(c, l.scale * 4.3);

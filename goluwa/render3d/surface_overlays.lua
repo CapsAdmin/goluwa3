@@ -7,6 +7,7 @@ local store = import("goluwa/render3d/scene/store.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local surface_effects = import("goluwa/render3d/surface_effects.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local data_files = import("goluwa/data_files.lua")
 local exposure_compensation = import("goluwa/render3d/exposure_compensation.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local surface_overlays = {}
@@ -24,10 +25,35 @@ end
 
 local kinds = surface_overlays.kinds
 local kinds_by_name = {}
+surface_overlays.DefaultFiles = data_files.New("lua/surface_overlays/defaults/")
+
+function surface_overlays.SetDefaults(name, data)
+	surface_overlays.DefaultFiles:Remember(name, data)
+	kinds_by_name[name].defaults = data_files.Realize(table.copy(data))
+end
 
 for i, kind in ipairs(kinds) do
 	kind.index = i
 	kinds_by_name[kind.name] = kind
+	surface_overlays.SetDefaults(kind.name, import("lua/surface_overlays/defaults/" .. kind.name .. ".lua"))
+end
+
+function surface_overlays.GetKindNames()
+	local names = {}
+
+	for _, kind in ipairs(kinds) do
+		names[#names + 1] = kind.name
+	end
+
+	return names
+end
+
+function surface_overlays.ReloadDefaults(name)
+	surface_overlays.SetDefaults(name, surface_overlays.DefaultFiles:Read(name))
+end
+
+function surface_overlays.SaveDefaults(name)
+	return surface_overlays.DefaultFiles:Save(name)
 end
 
 local LAYER_FIELDS = [[

@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "status_fire",
-	defaults = {
-		FadeIn = 0.5,
-		FadeOut = 0.6,
-		Intensity = 2,
-		Scale = 1.6,
-		Speed = 0.7,
-		Daylight = 1.2,
-		ColorA = Color(1, 0.38, 0.05, 1),
-		ColorB = Color(1, 0.85, 0.35, 1),
-		Params = {1.1},
-	},
 	glsl = [[
 		float flame_time = t * 0.8;
 		vec3 uvw = c.P * l.scale + vec3(0.0, -flame_time, flame_time * 0.5);

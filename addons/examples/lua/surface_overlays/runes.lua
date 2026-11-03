@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "runes",
-	defaults = {
-		FadeIn = 1.2,
-		FadeOut = 1.0,
-		Intensity = 1,
-		Scale = 5,
-		Speed = 1,
-		Daylight = 1,
-		ColorA = Color(1.0, 0.55, 0.15, 1),
-		ColorB = Color(1.0, 0.9, 0.5, 1),
-		Params = {4, 12},
-	},
 	glsl = [[
 		float bands = max(l.params.y * 0.5, 3.0);
 		float ring = floor(c.height * bands);

@@ -1,17 +1,5 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	name = "prismatic",
-	defaults = {
-		FadeIn = 1.0,
-		FadeOut = 1.0,
-		Intensity = 1,
-		Scale = 0.8,
-		Speed = 1,
-		Daylight = 0,
-		ColorA = Color(1, 1, 1, 1),
-		ColorB = Color(1, 1, 1, 1),
-		Params = {1.6},
-	},
 	glsl = [[
 		vec4 n = overlay_noise_at(c, vec3(0.0, t * 0.06, 0.0), l.scale);
 		float hue = fract(c.ndv * l.params.x + n.r * 0.8 + t * 0.06);
