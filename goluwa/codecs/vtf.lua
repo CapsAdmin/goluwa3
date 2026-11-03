@@ -153,6 +153,8 @@ local function vtf_to_vulkan_format(format)
 	return format_map[format] or "undefined"
 end
 
+local VTF_RESOURCE_IMAGE_DATA = 0x30
+
 local function parse_header(buffer)
 	local header = {}
 	local signature = buffer:ReadBytes(4)
@@ -193,9 +195,12 @@ local function parse_header(buffer)
 		buffer:ReadBytes(3)
 		header.resource_count = buffer:ReadU32LE()
 		buffer:ReadBytes(8)
+		header.resources = {}
 
-		if header.resource_count > 0 then
-			buffer:ReadBytes(header.resource_count * 8)
+		for _ = 1, header.resource_count do
+			local tag = buffer:ReadByte() + buffer:ReadByte() * 256 + buffer:ReadByte() * 65536
+			buffer:ReadByte()
+			header.resources[tag] = buffer:ReadU32LE()
 		end
 	end
 
@@ -235,12 +240,18 @@ function vtf.DecodeBuffer(input_buffer)
 
 	if not header then return nil, err end
 
-	input_buffer:SetPosition(header.header_size)
+	local image_data_offset = header.resources and header.resources[VTF_RESOURCE_IMAGE_DATA]
 
-	if header.lowres_width > 0 and header.lowres_height > 0 then
-		local lowres_size = compute_image_size(header.lowres_width, header.lowres_height, 1, header.lowres_image_format)
+	if image_data_offset then
+		input_buffer:SetPosition(image_data_offset)
+	else
+		input_buffer:SetPosition(header.header_size)
 
-		if lowres_size then input_buffer:ReadBytes(lowres_size) end
+		if header.lowres_width > 0 and header.lowres_height > 0 then
+			local lowres_size = compute_image_size(header.lowres_width, header.lowres_height, 1, header.lowres_image_format)
+
+			if lowres_size then input_buffer:ReadBytes(lowres_size) end
+		end
 	end
 
 	local width = header.width
@@ -388,10 +399,85 @@ function vtf.DecodeBuffer(input_buffer)
 	data_buffer
 end
 
+local SHEET_RESOURCE = 0x10
+local u32_pointer = ffi.typeof("const uint32_t *")
+local f32_pointer = ffi.typeof("const float *")
+local byte_pointer = ffi.typeof("const uint8_t *")
+
+function vtf.ParseSheet(str)
+	if #str < 80 or str:sub(1, 4) ~= "VTF\0" then return end
+
+	local bytes = ffi.cast(byte_pointer, str)
+
+	local function u32(offset)
+		return ffi.cast(u32_pointer, bytes + offset)[0]
+	end
+
+	local function f32(offset)
+		return ffi.cast(f32_pointer, bytes + offset)[0]
+	end
+
+	if u32(8) < 3 then return end
+
+	for i = 0, u32(68) - 1 do
+		local entry = 80 + i * 8
+
+		if
+			bytes[entry] == SHEET_RESOURCE and
+			bytes[entry + 1] == 0 and
+			bytes[entry + 2] == 0
+		then
+			local position = u32(entry + 4) + 4
+			local version = u32(position)
+			local images = version == 0 and 1 or 4
+			local sheet = {sequences = {}}
+			local cursor = position + 8
+
+			for _ = 1, u32(position + 4) do
+				local sequence = {
+					id = u32(cursor),
+					clamp = u32(cursor + 4) ~= 0,
+					time = f32(cursor + 12),
+					frames = {},
+				}
+				local frame_count = u32(cursor + 8)
+				cursor = cursor + 16
+
+				for _ = 1, frame_count do
+					local frame = {time = f32(cursor), rect = {}}
+					cursor = cursor + 4
+
+					for image = 1, images do
+						if image == 1 then
+							frame.rect = {
+								f32(cursor),
+								f32(cursor + 4),
+								f32(cursor + 8),
+								f32(cursor + 12),
+							}
+						end
+
+						cursor = cursor + 16
+					end
+
+					sequence.frames[#sequence.frames + 1] = frame
+				end
+
+				sheet.sequences[#sheet.sequences + 1] = sequence
+			end
+
+			return sheet
+		end
+	end
+end
+
 function vtf.GetOpaqueBounds(meta, data)
 	local stride, color_offset = 4, 0
 
-	if meta.vtf_format == VTF_IMAGE_FORMAT.DXT3 or meta.vtf_format == VTF_IMAGE_FORMAT.DXT5 then
+	if
+		meta.vtf_format == VTF_IMAGE_FORMAT.DXT3 or
+		meta.vtf_format == VTF_IMAGE_FORMAT.DXT5
+	then
 		stride, color_offset = 8, 4
 	elseif meta.vtf_format ~= VTF_IMAGE_FORMAT.DXT1 then
 		return
@@ -416,11 +502,19 @@ function vtf.GetOpaqueBounds(meta, data)
 						c = c1
 					elseif index > 1 then
 						local r = (rshift(c0, 11) * (4 - index) + rshift(c1, 11) * (index - 1)) / 3
-						local g = (band(rshift(c0, 5), 63) * (4 - index) + band(rshift(c1, 5), 63) * (index - 1)) / 3
+						local g = (
+								band(rshift(c0, 5), 63) * (
+									4 - index
+								) + band(rshift(c1, 5), 63) * (
+									index - 1
+								)
+							) / 3
 						local b = (band(c0, 31) * (4 - index) + band(c1, 31) * (index - 1)) / 3
 
 						if c0 <= c1 then
-							r, g, b = (rshift(c0, 11) + rshift(c1, 11)) / 2, (band(rshift(c0, 5), 63) + band(rshift(c1, 5), 63)) / 2, (band(c0, 31) + band(c1, 31)) / 2
+							r, g, b = (rshift(c0, 11) + rshift(c1, 11)) / 2,
+							(band(rshift(c0, 5), 63) + band(rshift(c1, 5), 63)) / 2,
+							(band(c0, 31) + band(c1, 31)) / 2
 
 							if index == 3 then r, g, b = 0, 0, 0 end
 						end
