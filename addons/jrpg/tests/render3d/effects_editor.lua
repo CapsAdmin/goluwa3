@@ -76,20 +76,20 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 	T(find_text(shader_items, "Update").GetStatus())["=="](nil)
 	T(find_text(shader_items, "Sprite").Type)["=="]("string")
 	effects_editor.Load(session, "gpu emitters", "hit_force")
-	local force_items = effects_editor.BuildItems(session, handlers)
+	local force_items = effects_editor.BuildTestInputs(session)
 	T(find_text(force_items, "count").Value)["=="](24)
 	local strength = find_text(force_items, "Strength")
 	T(strength.Value)["=="](3)
 	T(strength.Max)["=="](12)
 	strength.OnChange(nil, 8)
 	T(session.Inputs.Strength)["=="](8)
-	T(find_text(effects_editor.BuildItems(session, handlers), "Strength").Value)["=="](8)
+	T(find_text(effects_editor.BuildTestInputs(session), "Strength").Value)["=="](8)
 	session.Data.Inputs.Strength.Targets[1][2] = "nope"
 	T(effects_editor.Apply(session))["=="](false)
 	session.Data.Inputs.Strength.Targets[1][2] = "set"
 	T(effects_editor.Apply(session))["=="](true)
 	effects_editor.Load(session, "gpu emitters", "melee_sparks")
-	T(find_text(effects_editor.BuildItems(session, handlers), "Tint").Type)["=="]("color")
+	T(find_text(effects_editor.BuildTestInputs(session), "Tint").Type)["=="]("color")
 	local range_items = effects_editor.BuildItems(session, handlers)
 	local size_start = find_text(range_items, "SizeStart (min, max)")
 	T(size_start.Type)["=="]("vec2")
@@ -359,4 +359,83 @@ T.Test3D("an effect's preview block sets the view, the duration and the play par
 	end
 
 	marker:Remove()
+end)
+
+T.Test3D("play restarts what it started, stop ends it and an applied edit restarts after a pause", function()
+	local Vec3 = import("goluwa/structs/vec3.lua")
+	local Entity = import("goluwa/entities/entity.lua")
+	local system = import("goluwa/system.lua")
+	local effects_editor = import("lua/jrpg/effects_editor.lua")
+	local stage = {Chest = Vec3(0, 1, 0), Normal = Vec3(0, 1, 0), Toward = Vec3(0, 0, 1)}
+	local session = {
+		LoadId = 0,
+		SelectId = 0,
+		Count = 24,
+		AutoRestart = true,
+		Loop = false,
+		Stage = stage,
+		StageKind = "gizmo",
+	}
+	local category = effects_editor.Categories["gpu emitters"]
+	local original = category.Play
+	local plays, stops = 0, 0
+	category.Play = function()
+		plays = plays + 1
+		return function()
+			stops = stops + 1
+		end
+	end
+	effects_editor.Load(session, "gpu emitters", "hit_force")
+	effects_editor.Play(session)
+	T(plays)["=="](1)
+	T(session.PlayStart ~= nil)["=="](true)
+	effects_editor.Play(session)
+	T(plays)["=="](2)
+	T(stops)["=="](1)
+	effects_editor.Stop(session)
+	T(stops)["=="](2)
+	T(session.PlayStart)["=="](nil)
+	effects_editor.Stop(session)
+	T(stops)["=="](2)
+	session.Data.Drag = 5
+	effects_editor.Commit(session, true)
+	T(session.RestartAt ~= nil)["=="](true)
+	local first = session.RestartAt
+	effects_editor.Tick(session, first - 0.01)
+	T(plays)["=="](2)
+	session.Data.Drag = 6
+	effects_editor.Commit(session, true)
+	T(session.RestartAt >= first)["=="](true)
+	effects_editor.Tick(session, session.RestartAt + 0.01)
+	T(plays)["=="](3)
+	T(session.RestartAt)["=="](nil)
+	session.Data.Inputs.Strength.Targets[1][2] = "nope"
+	effects_editor.Commit(session, true)
+	T(session.RestartAt)["=="](nil)
+	session.Data.Inputs.Strength.Targets[1][2] = "set_max"
+	session.AutoRestart = false
+	effects_editor.Commit(session, true)
+	T(session.RestartAt)["=="](nil)
+	session.AutoRestart = true
+	effects_editor.Step(session, false)
+	T(session.RestartAt)["=="](nil)
+	effects_editor.Step(session, false)
+	T(session.RestartAt ~= nil)["=="](true)
+	effects_editor.Stop(session)
+	T(session.RestartAt)["=="](nil)
+	session.Loop = true
+	effects_editor.Play(session)
+	local played = plays
+	effects_editor.Tick(session, system.GetElapsedTime() + 60)
+	T(plays)["=="](played + 1)
+	session.Loop = false
+	effects_editor.Tick(session, system.GetElapsedTime() + 120)
+	T(plays)["=="](played + 1)
+	effects_editor.Stop(session)
+	category.Play = original
+	T(effects_editor.BuildTestInputs(session)[1].Text)["=="]("count")
+
+	for _, child in ipairs(Entity.World:GetChildrenList()) do
+		child:Remove()
+	end
 end)

@@ -34,6 +34,9 @@ local LEFT_WIDTH = 440
 local BOTTOM_HEIGHT = 260
 local UP = Vec3(0, 1, 0)
 local GIZMO_MODES = {"move", "rotate", "combined"}
+local RESTART_DELAY = 0.25
+local PREVIEW_HEIGHT = 112
+local PREVIEW_INPUTS_HEIGHT = 230
 effects_editor.LastCategory = "damage types"
 effects_editor.LastName = "fire"
 effects_editor.LastStage = "player"
@@ -86,6 +89,10 @@ effects_editor.Categories = {
 		Save = status_effects.Save,
 		Play = |stage, name|-> do
 			status_effects.Set(stage.Target, name, 0.8)
+
+			return function()
+				status_effects.Clear(stage.Target)
+			end
 		end,
 	},
 	clips = {
@@ -111,7 +118,17 @@ effects_editor.Categories = {
 				table.merge(params, CLIP_DEFAULT_PARAMS)
 			end
 
-			effects_stage.PlayClip(stage, "jrpg_" .. name, params, preview and preview.Drive, preview and preview.Release)
+			local clip = effects_stage.PlayClip(
+				stage,
+				"jrpg_" .. name,
+				params,
+				preview and preview.Drive,
+				preview and preview.Release
+			)
+
+			return function()
+				clip:Stop()
+			end
 		end,
 	},
 	overlays = {
@@ -135,7 +152,11 @@ effects_editor.Categories = {
 		Save = particle_shader_library.Save,
 		Duplicate = |name|->particle_shader_library.Create(particle_shader_library.GetNewName(name), name),
 		Play = |stage, name|-> do
-			effects.PlayParticleShader(stage.Chest, name)
+			local emitter = effects.PlayParticleShader(stage.Chest, name)
+
+			return function()
+				if emitter:IsValid() then effects.vfx.StopEmitter(emitter, 1) end
+			end
 		end,
 	},
 	["gpu emitters"] = {
@@ -282,7 +303,8 @@ end
 
 function effects_editor.Commit(session, force)
 	session.History:Commit(session.Data, system.GetElapsedTime(), force)
-	effects_editor.Apply(session)
+
+	if effects_editor.Apply(session) then effects_editor.QueueRestart(session) end
 end
 
 function effects_editor.Step(session, redo)
@@ -293,16 +315,46 @@ function effects_editor.Step(session, redo)
 	session.Data = data
 	session.Selection = nil
 	session.LoadId = session.LoadId + 1
-	effects_editor.Apply(session)
+
+	if effects_editor.Apply(session) then effects_editor.QueueRestart(session) end
+end
+
+function effects_editor.Stop(session)
+	local stopper = session.Stopper
+	session.Stopper = nil
+	session.PlayStart = nil
+	session.RestartAt = nil
+
+	if stopper then stopper() end
+
+	effects_stage.StopDrive(session.Stage)
 end
 
 function effects_editor.Play(session)
 	local category = effects_editor.Categories[session.Category]
 
-	if category.Play then
-		local ok, err = pcall(category.Play, session.Stage, session.Name, session)
-		session.Status = ok and "" or tostring(err)
-		session.PlayStart = system.GetElapsedTime()
+	if not category.Play then return end
+
+	effects_editor.Stop(session)
+	local ok, result = pcall(category.Play, session.Stage, session.Name, session)
+	session.Status = ok and "" or tostring(result)
+	session.Stopper = ok and type(result) == "function" and result or nil
+	session.PlayStart = system.GetElapsedTime()
+end
+
+function effects_editor.QueueRestart(session)
+	if session.AutoRestart and effects_editor.Categories[session.Category].Play then
+		session.RestartAt = system.GetElapsedTime() + RESTART_DELAY
+	end
+end
+
+function effects_editor.Tick(session, now)
+	if session.RestartAt and now >= session.RestartAt then
+		effects_editor.Play(session)
+	elseif session.PlayStart and now - session.PlayStart > effects_editor.GetDuration(session) + 0.4 then
+		session.PlayStart = nil
+
+		if session.Loop then effects_editor.Play(session) end
 	end
 end
 
@@ -389,7 +441,10 @@ function effects_editor.SetCamera(session, name)
 end
 
 function effects_editor.SetStage(session, kind, npc_name)
-	if session.Stage then effects_stage.Remove(session.Stage) end
+	if session.Stage then
+		effects_editor.Stop(session)
+		effects_stage.Remove(session.Stage)
+	end
 
 	effects_editor.LastStage, effects_editor.LastNpc = kind, npc_name
 	session.Stage = effects_stage.New(kind, npc_name)
@@ -403,6 +458,7 @@ function effects_editor.CreateSession()
 		LoadId = 0,
 		SelectId = 0,
 		Loop = true,
+		AutoRestart = true,
 		Exposure = "day",
 		Camera = "front",
 		Count = 24,
@@ -446,51 +502,6 @@ function effects_editor.BuildItems(session, h)
 	session.Focus = nil
 	local items = data_items.Build(session.Data, options)
 	local selection = session.Selection
-
-	if category.TestInputs then
-		local children = {
-			{
-				Key = "/test/count",
-				Text = "count",
-				Description = "how many particles a burst spawns",
-				Type = "number",
-				Value = session.Count,
-				Precision = 0,
-				Min = 1,
-				Max = 200,
-				ShowSlider = true,
-				OnChange = |_, value|-> do
-					session.Count = value
-				end,
-			},
-		}
-
-		for name, spec in table.sorted_pairs(session.Data.Inputs or {}, |a, b|->a.key < b.key) do
-			local child = {
-				Key = "/test/input/" .. name,
-				Text = name,
-				Description = "an input the caller passes to this emitter, only used while playing here",
-				OnChange = |_, value|-> do
-					session.Inputs[name] = value
-				end,
-			}
-
-			if spec.DefaultColor then
-				child.Type = "color"
-				child.Value = session.Inputs[name] or Color(unpack(spec.DefaultColor))
-			else
-				child.Type = "number"
-				child.Value = session.Inputs[name] or spec.Default
-				child.Precision = 3
-				child.Min, child.Max = spec.Min, spec.Max
-				child.ShowSlider = spec.Min ~= nil and spec.Max ~= nil
-			end
-
-			children[#children + 1] = child
-		end
-
-		table.insert(items, 1, {Key = "/test", Text = "test inputs", Expanded = true, Children = children})
-	end
 
 	if selection then
 		local children
@@ -543,6 +554,53 @@ function effects_editor.BuildItems(session, h)
 		end
 
 		table.insert(items, 1, {Key = "/selected", Text = "selected key", Expanded = true, Children = children})
+	end
+
+	return items
+end
+
+function effects_editor.BuildTestInputs(session)
+	local items = {
+		{
+			Key = "/test/count",
+			Text = "count",
+			Description = "how many particles a burst spawns",
+			Type = "number",
+			Value = session.Count,
+			Precision = 0,
+			Min = 1,
+			Max = 200,
+			ShowSlider = true,
+			OnChange = |_, value|-> do
+				session.Count = value
+				effects_editor.QueueRestart(session)
+			end,
+		},
+	}
+
+	for name, spec in table.sorted_pairs(session.Data.Inputs or {}, |a, b|->a.key < b.key) do
+		local item = {
+			Key = "/test/input/" .. name,
+			Text = name,
+			Description = "an input the caller passes to this emitter, only used while playing here",
+			OnChange = |_, value|-> do
+				session.Inputs[name] = value
+				effects_editor.QueueRestart(session)
+			end,
+		}
+
+		if spec.DefaultColor then
+			item.Type = "color"
+			item.Value = session.Inputs[name] or Color(unpack(spec.DefaultColor))
+		else
+			item.Type = "number"
+			item.Value = session.Inputs[name] or spec.Default
+			item.Precision = 3
+			item.Min, item.Max = spec.Min, spec.Max
+			item.ShowSlider = spec.Min ~= nil and spec.Max ~= nil
+		end
+
+		items[#items + 1] = item
 	end
 
 	return items
@@ -617,6 +675,7 @@ local EffectsEditor = react.Component(
 		local version, set_version = react.UseState(0)
 		local session = react.UseResource(effects_editor.CreateSession, effects_editor.DestroySession, {})
 		local properties = react.UseRef()
+		local test_properties = react.UseRef()
 		local h = react.UseMemo(
 			||-> do
 				local h = {}
@@ -677,19 +736,9 @@ local EffectsEditor = react.Component(
 			|dt|-> do
 				view_camera.Update(session.Fly, math.min(dt, 0.1))
 				effects_stage.Update(session.Stage, session.View:GetPosition())
-				local now = system.GetElapsedTime()
+				effects_editor.Tick(session, system.GetElapsedTime())
 
-				if session.PlayStart then
-					local duration = effects_editor.GetDuration(session)
-
-					if now - session.PlayStart > duration + 0.4 then
-						session.PlayStart = nil
-
-						if session.Loop then effects_editor.Play(session) end
-					end
-
-					h.refresh()
-				end
+				if session.PlayStart then h.refresh() end
 			end
 		)
 		react.UseEvent(
@@ -717,6 +766,11 @@ local EffectsEditor = react.Component(
 		)
 		local category = effects_editor.Categories[session.Category]
 		local screen = Panel.World.transform:GetSize()
+		local preview_height = category.TestInputs and PREVIEW_INPUTS_HEIGHT or PREVIEW_HEIGHT
+		local test_items = react.UseMemo(
+			||->category.TestInputs and effects_editor.BuildTestInputs(session) or {},
+			{session.LoadId, session.Category}
+		)
 		local is_clip = session.Category == "clips"
 		local rows = is_clip and clip_edit.Rows(session.Data)
 		local playhead = session.PlayStart and
@@ -795,40 +849,8 @@ local EffectsEditor = react.Component(
 						h.refresh()
 					end
 				),
-				category.Play and ui.Button{
-					Text = "Play",
-					Mode = "outline",
-					Tooltip = "space",
-					OnClick = ||-> do
-						effects_editor.Play(session)
-						h.refresh()
-					end,
-				},
-				ui.Checkbox{Text = "Loop", Value = session.Loop, OnChange = |value|-> do
-					session.Loop = value
-				end},
 			},
 			ui.Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center", Padding = Rect() + 6}}{
-				dropdown(
-					"camera",
-					effects_stage.Cameras,
-					session.Camera,
-					90,
-					|value|-> do
-						effects_editor.SetCamera(session, value)
-						h.refresh()
-					end
-				),
-				dropdown(
-					"exposure",
-					effects_stage.ExposureNames,
-					session.Exposure,
-					90,
-					|value|-> do
-						session.Exposure = value
-						session.View:SetExposureLock(effects_stage.Exposures[value])
-					end
-				),
 				not category.ReadOnly and ui.Button{
 					Text = "Undo",
 					Mode = "outline",
@@ -847,40 +869,6 @@ local EffectsEditor = react.Component(
 						h.refresh()
 					end,
 				},
-			},
-			ui.Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center", Padding = Rect() + 6}}{
-				ui.Text{Text = "preview on", Color = "text_disabled", layout = {FitWidth = true}},
-				dropdown(
-					"stage",
-					effects_stage.Kinds,
-					session.StageKind,
-					90,
-					|value|-> do
-						effects_editor.SetStage(session, value, session.NpcName)
-						h.refresh()
-					end
-				),
-				session.StageKind == "npc" and dropdown(
-					"npc",
-					npcs.GetNames(),
-					session.NpcName,
-					130,
-					|value|-> do
-						effects_editor.SetStage(session, "npc", value)
-						h.refresh()
-					end
-				),
-				session.StageKind == "gizmo" and dropdown(
-					"gizmo_mode",
-					GIZMO_MODES,
-					session.GizmoMode,
-					110,
-					|value|-> do
-						session.GizmoMode = value
-						Gizmo.SetMode(value)
-						h.refresh()
-					end
-				),
 			},
 			Breadcrumb{
 				Items = effects_editor.GetTrailLabels(session),
@@ -912,6 +900,131 @@ local EffectsEditor = react.Component(
 					},
 				},
 			},
+			react.Portal{Target = Panel.World}{
+				ui.Window{
+					Key = "EffectsEditorPreview" .. preview_height,
+					Title = "PREVIEW",
+					Name = "effects editor preview",
+					RequestMouse = true,
+					Size = Vec2(screen.x - LEFT_WIDTH, preview_height),
+					Position = Vec2(LEFT_WIDTH, screen.y - preview_height),
+					Padding = Rect(),
+					Closable = false,
+					Minimizable = false,
+					Maximizable = false,
+					layout = {FitHeight = false, FitWidth = false},
+				}{
+					ui.Column{
+						layout = {
+							GrowWidth = 1,
+							GrowHeight = 1,
+							FitHeight = false,
+							AlignmentX = "stretch",
+							ChildGap = 6,
+							Padding = Rect() + 8,
+						},
+					}{
+						ui.Row{layout = {GrowWidth = 1, ChildGap = 8, AlignmentY = "center"}}{
+							category.Play and ui.Button{
+								Text = "Play",
+								Mode = "outline",
+								Tooltip = "space, plays again from the start",
+								OnClick = ||-> do
+									effects_editor.Play(session)
+									h.refresh()
+								end,
+							},
+							category.Play and ui.Button{
+								Text = "Stop",
+								Mode = "outline",
+								OnClick = ||-> do
+									effects_editor.Stop(session)
+									h.refresh()
+								end,
+							},
+							ui.Checkbox{Text = "Loop", Value = session.Loop, OnChange = |value|-> do
+								session.Loop = value
+							end},
+							ui.Checkbox{
+								Text = "Auto restart",
+								Value = session.AutoRestart,
+								OnChange = |value|-> do
+									session.AutoRestart = value
+								end,
+							},
+						},
+						ui.Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center"}}{
+							ui.Text{Text = "preview on", Color = "text_disabled", layout = {FitWidth = true}},
+							dropdown(
+								"stage",
+								effects_stage.Kinds,
+								session.StageKind,
+								90,
+								|value|-> do
+									effects_editor.SetStage(session, value, session.NpcName)
+									h.refresh()
+								end
+							),
+							session.StageKind == "npc" and dropdown(
+								"npc",
+								npcs.GetNames(),
+								session.NpcName,
+								130,
+								|value|-> do
+									effects_editor.SetStage(session, "npc", value)
+									h.refresh()
+								end
+							),
+							session.StageKind == "gizmo" and dropdown(
+								"gizmo_mode",
+								GIZMO_MODES,
+								session.GizmoMode,
+								110,
+								|value|-> do
+									session.GizmoMode = value
+									Gizmo.SetMode(value)
+									h.refresh()
+								end
+							),
+							dropdown(
+								"camera",
+								effects_stage.Cameras,
+								session.Camera,
+								90,
+								|value|-> do
+									effects_editor.SetCamera(session, value)
+									h.refresh()
+								end
+							),
+							dropdown(
+								"exposure",
+								effects_stage.ExposureNames,
+								session.Exposure,
+								90,
+								|value|-> do
+									session.Exposure = value
+									session.View:SetExposureLock(effects_stage.Exposures[value])
+								end
+							),
+							ui.Button{
+								Text = "Save view",
+								Mode = "outline",
+								Tooltip = "write the stage, camera, exposure and loop into the file's preview block",
+								Disabled = not category.Schema.Fields.Preview,
+								OnClick = ||-> do
+									effects_editor.SaveView(session)
+									h.refresh()
+								end,
+							},
+						},
+						category.TestInputs and ui.PropertyEditor{
+							Ref = test_properties,
+							Items = {{Key = "/test", Text = "test inputs", Expanded = true, Children = test_items}},
+							layout = {GrowWidth = 1, GrowHeight = 1, FitWidth = false},
+						},
+					},
+				},
+			},
 			is_clip and react.Portal{Target = Panel.World}{
 				ui.Window{
 					Key = "EffectsEditorTimeline",
@@ -919,7 +1032,7 @@ local EffectsEditor = react.Component(
 					Name = "effects editor timeline",
 					RequestMouse = true,
 					Size = Vec2(screen.x - LEFT_WIDTH, BOTTOM_HEIGHT),
-					Position = Vec2(LEFT_WIDTH, screen.y - BOTTOM_HEIGHT),
+					Position = Vec2(LEFT_WIDTH, screen.y - BOTTOM_HEIGHT - preview_height),
 					Padding = Rect(),
 					Closable = false,
 					Minimizable = false,
