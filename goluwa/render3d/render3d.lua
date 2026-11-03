@@ -625,6 +625,87 @@ function render3d.RebuildPipeline(bundle, name)
 	old:Remove()
 end
 
+do
+	local pending = {}
+
+	local function is_ready(pipeline)
+		local job = pipeline.pipeline.pipeline.job
+		return not job or job:IsDone()
+	end
+
+	function render3d.RebuildPipelinesAsync(bundle, names, on_done)
+		local include_names = {}
+
+		for _, name in ipairs(names) do
+			include_names[name] = true
+		end
+
+		local options = table.shallow_copy(bundle.options)
+		options.include_names = include_names
+		local fresh = {pipelines = {}, pipelines_i = {}, passes = {}, options = options}
+		local ok, err = xpcall(fill_pipeline_bundle, debug.traceback, fresh)
+
+		if not ok then
+			remove_pipeline_bundle(fresh)
+			error(err, 0)
+		end
+
+		pending[#pending + 1] = {bundle = bundle, fresh = fresh, on_done = on_done}
+	end
+
+	function render3d.IsRebuildingPipelines(bundle)
+		for _, entry in ipairs(pending) do
+			if entry.bundle == bundle then return true end
+		end
+
+		return false
+	end
+
+	event.AddListener("Update", "render3d_async_pipelines", function()
+		for i = #pending, 1, -1 do
+			local entry = pending[i]
+			local ready = true
+
+			for _, pipeline in pairs(entry.fresh.pipelines) do
+				if not is_ready(pipeline) then
+					ready = false
+
+					break
+				end
+			end
+
+			if ready then
+				table.remove(pending, i)
+				local bundle, fresh = entry.bundle, entry.fresh
+
+				if render3d.bundles[bundle] then
+					render.GetDevice():WaitIdle()
+
+					for name, pipeline in pairs(fresh.pipelines) do
+						local old = bundle.pipelines[name]
+
+						if old then
+							for index, other in ipairs(bundle.pipelines_i) do
+								if other == old then bundle.pipelines_i[index] = pipeline end
+							end
+
+							old:Remove()
+						else
+							bundle.pipelines_i[#bundle.pipelines_i + 1] = pipeline
+						end
+
+						bundle.pipelines[name] = pipeline
+					end
+				else
+					remove_pipeline_bundle(fresh)
+				end
+
+				if entry.on_done then entry.on_done() end
+			end
+		end
+	end)
+end
+
 event.AddListener("ModulesReloaded", "render3d_pipelines", function(paths)
 	local pass_paths = {}
 
