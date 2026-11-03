@@ -765,3 +765,35 @@ T.Test3D("an overlay preview lasts until cleared and its fade slider holds the l
 	T(effects_editor.GetOverlayFade(session))["=="](0)
 	category.Play = original
 end)
+
+T.Test3D("the vfx textures category edits a texture and keeps the last good one when the glsl is wrong", function()
+	local effects_editor = import("lua/jrpg/effects_editor.lua")
+	local vfx = import("goluwa/render3d/vfx.lua")
+	local session = {
+		LoadId = 0,
+		SelectId = 0,
+		Count = 24,
+		AutoRestart = true,
+		Loop = true,
+		Stage = {},
+		StageKind = "gizmo",
+	}
+	T(table.has_value(effects_editor.CategoryNames, "vfx textures") and true or false)["=="](true)
+	effects_editor.Load(session, "vfx textures", "fire")
+	T(session.Data.Columns)["=="](8)
+	T(session.Data.Source:find("flipbook_frame", 1, true) ~= nil)["=="](true)
+	T(#effects_editor.GetProblems(session))["=="](0)
+	T(effects_editor.GetTextureInfo("fire"))["=="]("8 x 8 frames of 256 px")
+	T(effects_editor.GetPreviewTexture("fire", "color"))["=="](vfx.GetFlipbook("fire").Texture)
+	T(#effects_editor.GetTexturePreviewViews("fire"))["=="](2)
+	T(#effects_editor.GetTexturePreviewViews("smoke"))["=="](3)
+	effects_editor.Load(session, "vfx textures", "glow")
+	T(effects_editor.GetTextureInfo("glow"))["=="]("256 x 256")
+	local source = session.Data.Source
+	session.Data.Source = source .. "\nbroken_call(1);\n"
+	T(effects_editor.Apply(session))["=="](false)
+	T(session.Status:find("line", 1, true) ~= nil)["=="](true)
+	session.Data.Source = source
+	T(effects_editor.Apply(session))["=="](true)
+	T(vfx.GetFileStatus("glow"))["=="](nil)
+end)

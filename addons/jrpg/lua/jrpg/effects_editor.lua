@@ -14,6 +14,7 @@ local easing = import("goluwa/math/easing.lua")
 local View = import("goluwa/render3d/view.lua")
 local clips = import("goluwa/render3d/clips.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
+local vfx = import("goluwa/render3d/vfx.lua")
 local surface_overlay_preview = import("goluwa/render3d/surface_overlay_preview.lua")
 local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
@@ -47,6 +48,7 @@ local PREVIEW_WIDTH = 420
 effects_editor.LastCategory = "damage types"
 effects_editor.LastName = "fire"
 effects_editor.OverlayPreviewShape = "sphere"
+effects_editor.TexturePreviewView = "color"
 effects_editor.LastStage = "player"
 effects_editor.LastNpc = effects_stage.DefaultNpc
 effects_editor.CategoryNames = {
@@ -54,6 +56,7 @@ effects_editor.CategoryNames = {
 	"status effects",
 	"clips",
 	"overlays",
+	"vfx textures",
 	"particle shaders",
 	"gpu emitters",
 	"source particles",
@@ -62,6 +65,8 @@ effects_editor.CategoryNames = {
 }
 
 local OVERLAY_WINDOW_HEADER = 70
+local TEXTURE_WINDOW_SIZE = 360
+local TEXTURE_CHECKER_TILES = 16
 local CLIP_DEFAULT_PARAMS = {size = 0.3, fade = 1, flicker = 1, lens_scale = 1, trail_radius = 0.03}
 
 local REF_CATEGORIES = {
@@ -71,6 +76,9 @@ local REF_CATEGORIES = {
 	script = "scripts",
 	particle_shader = "particle shaders",
 	emitter = "gpu emitters",
+	texture = "vfx textures",
+	flipbook = "vfx textures",
+	sprite = "vfx textures",
 }
 effects_editor.Categories = {
 	["damage types"] = {
@@ -162,6 +170,16 @@ effects_editor.Categories = {
 				session.OverlayHandles = nil
 			end
 		end,
+	},
+	["vfx textures"] = {
+		Texture = true,
+		Schema = effects_schema.Schemas["vfx textures"],
+		GetNames = ||->vfx.GetFileNames(),
+		GetSource = |name|->vfx.Files.Source[name],
+		Update = vfx.UpdateFile,
+		Reload = vfx.ReloadFile,
+		Save = vfx.SaveFile,
+		Duplicate = |name|->vfx.CreateFile(vfx.GetNewFileName(name), name),
 	},
 	["particle shaders"] = {
 		Schema = effects_schema.Schemas["particle shaders"],
@@ -503,6 +521,33 @@ function effects_editor.StartPreview(session)
 	elseif session.OverlayHandles then
 		effects_editor.Stop(session)
 	end
+end
+
+function effects_editor.GetPreviewTexture(name, view)
+	if vfx.IsFlipbook(name) then
+		local flipbook = vfx.GetFlipbook(name)
+		return view == "normal" and flipbook.Normal or flipbook.Texture
+	end
+
+	return vfx.GetTexture(name)
+end
+
+function effects_editor.GetTextureInfo(name)
+	if vfx.IsFlipbook(name) then
+		local flipbook = vfx.GetFlipbook(name)
+		return string.format("%d x %d frames of %d px", flipbook.Columns, flipbook.Rows, flipbook.TileSize)
+	end
+
+	local texture = vfx.GetTexture(name)
+	return string.format("%d x %d", texture:GetWidth(), texture:GetHeight())
+end
+
+function effects_editor.GetTexturePreviewViews(name)
+	if vfx.IsFlipbook(name) and vfx.GetFlipbook(name).Normal then
+		return {"color", "alpha", "normal"}
+	end
+
+	return {"color", "alpha"}
 end
 
 function effects_editor.RenderOverlayPreview(session)
@@ -1130,6 +1175,32 @@ local EffectsEditor = react.Component(
 			end,
 			{}
 		)
+		local draw_texture_preview = react.UseCallback(
+			|self|-> do
+				local size = self.Owner.transform:GetSize()
+				local texture = effects_editor.GetPreviewTexture(session.Name, effects_editor.TexturePreviewView)
+				local side = math.min(size.x, size.y)
+				local x, y = (size.x - side) / 2, (size.y - side) / 2
+				local tile = side / TEXTURE_CHECKER_TILES
+				render2d.SetTexture(nil)
+
+				for i = 0, TEXTURE_CHECKER_TILES - 1 do
+					for j = 0, TEXTURE_CHECKER_TILES - 1 do
+						local value = (i + j) % 2 == 0 and 0.32 or 0.22
+						render2d.SetColor(value, value, value, 1)
+						render2d.DrawRect(x + i * tile, y + j * tile, tile, tile)
+					end
+				end
+
+				render2d.PushSwizzleMode(effects_editor.TexturePreviewView == "alpha" and "aaa" or "none")
+				render2d.SetTexture(texture)
+				render2d.SetColor(1, 1, 1, 1)
+				render2d.DrawRect(x, y, side, side)
+				render2d.SetTexture(nil)
+				render2d.PopSwizzleMode()
+			end,
+			{}
+		)
 		local look = react.UseDrag{
 			OnDrag = |_, _, dx, dy|-> do
 				surface_overlay_preview.Look(dx, dy)
@@ -1275,7 +1346,7 @@ local EffectsEditor = react.Component(
 					},
 				},
 			},
-			react.Portal{Target = Panel.World}{
+			category.Play and react.Portal{Target = Panel.World}{
 				ui.Window{
 					Key = "EffectsEditorPreview",
 					Name = "effects editor preview",
@@ -1404,6 +1475,53 @@ local EffectsEditor = react.Component(
 							Name = "OverlayPreview",
 							OnDraw = draw_overlay_preview,
 							Drag = overlay_canvas_input,
+							layout = {GrowWidth = 1, GrowHeight = 1},
+						},
+					},
+				},
+			},
+			category.Texture and react.Portal{Target = Panel.World}{
+				ui.Window{
+					Key = "EffectsEditorTexturePreview",
+					Title = "TEXTURE PREVIEW",
+					Name = "effects editor texture preview",
+					RequestMouse = true,
+					Size = Vec2(TEXTURE_WINDOW_SIZE, TEXTURE_WINDOW_SIZE + OVERLAY_WINDOW_HEADER),
+					Position = Vec2(
+						math.floor((screen.x - TEXTURE_WINDOW_SIZE) / 2),
+						math.floor((screen.y - TEXTURE_WINDOW_SIZE - OVERLAY_WINDOW_HEADER) / 2)
+					),
+					Padding = Rect(),
+					Closable = false,
+					Minimizable = false,
+					Maximizable = false,
+					layout = {FitHeight = false, FitWidth = false},
+				}{
+					ui.Column{
+						layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch", ChildGap = 4},
+					}{
+						ui.Row{layout = {GrowWidth = 1, ChildGap = 8, AlignmentY = "center", Padding = Rect(6, 4, 6, 0)}}{
+							ui.Dropdown{
+								Key = "texture preview view",
+								Options = effects_editor.GetTexturePreviewViews(session.Name),
+								Value = effects_editor.TexturePreviewView,
+								Padding = "XS",
+								OnSelect = |value|-> do
+									effects_editor.TexturePreviewView = value
+									h.refresh()
+								end,
+								layout = {MinSize = Vec2(110, 0), MaxSize = Vec2(110, 0), GrowWidth = 0},
+							},
+							ui.Text{
+								Text = effects_editor.GetTextureInfo(session.Name),
+								Color = "text_disabled",
+								Font = "body XS",
+								IgnoreMouseInput = true,
+							},
+						},
+						Canvas{
+							Name = "TexturePreview",
+							OnDraw = draw_texture_preview,
 							layout = {GrowWidth = 1, GrowHeight = 1},
 						},
 					},

@@ -368,6 +368,7 @@ do
 	schemas.clips.Fields = merge(fields, schemas.clips.Fields)
 end
 local OVERLAY_SOURCE_DESCRIPTION = "glsl, the body of a function that changes the surface under a layer. In scope: Surface s (albedo, emissive, roughness_alpha, metallic, ao, alpha, N, world_pos), SurfaceWeather w, OverlayLayer l (l.color_a, l.color_b, l.scale, l.speed, l.intensity), OverlayContext c (P and N for noise, V, height 0 to 1, ndv), float age, t (age times speed), grow (0 to 1 over FadeIn), outro (1 to 0 over FadeOut) and fade (both times intensity). Every param is a float named after it in snake case (RayCount is ray_count). Helpers: overlay_noise(c, scale), overlay_noise_at, overlay_voronoi, overlay_fbm, overlay_hash, overlay_hue, overlay_reveal, overlay_cover, overlay_bump, overlay_set_roughness, overlay_tilt"
+local VFX_SOURCE_DESCRIPTION = "glsl. A texture is the body of a function that returns the vec4 color for uv (0 to 1, y down), for example `return vec4(vec3(v), v);`, or your own helpers and a full `vec4 shade(vec2 uv, vec3 _cube_dir)`. A flipbook (it has Columns) defines `vec4 flipbook_frame(vec2 local, float phase, float frame)`, and optionally `vec4 flipbook_normal(...)` with the same arguments for a normal map: local is 0 to 1 inside the frame, phase 0 to 2 pi over the frames. The noise helpers (value_noise3, pcg3d) are available"
 local PARAM_TYPES = {"float", "int", "bool", "vec3", "color", "texture"}
 local SOURCE_DESCRIPTION = "glsl with up to four functions, any you leave out do nothing (visibility counts as 1): void spawn(emitters_t e, uint index, uint generation, inout Particle p) runs once when a particle is born, after the common spawn; void update(emitters_t e, uint index, float dt, float t, inout Particle p) runs every frame before drag and integration, t is 0 to 1 over the lifetime; float visibility(emitters_t e, uint index, float t, Particle p) returns a number multiplied into the alpha; void shade(emitters_t e, uint index, float t, inout Particle p) runs after the common shading, p.radiance is the color. Every param is a name that reads e.params, so the functions need their e argument; helpers that read params take an emitters_t e too"
 local SOURCE_TEMPLATE = [[
@@ -378,6 +379,23 @@ local source_field = {
 	Code = "glsl",
 	Description = SOURCE_DESCRIPTION,
 	GetStatus = |data, options|->particle_shader_library.GetStatus(options.Name),
+}
+
+schemas["vfx textures"] = {
+	Refs = refs,
+	Fields = {
+		Size = {Min = 16, Max = 2048, Description = "width and height of a texture, 256 by default"},
+		Columns = {Min = 1, Max = 16, Description = "frames across, makes this a flipbook"},
+		Rows = {Min = 1, Max = 16},
+		TileSize = {Min = 16, Max = 512, Description = "pixels of one frame"},
+		MipLevels = {Min = 1, Max = 8},
+		Source = {
+			Code = "glsl",
+			Description = VFX_SOURCE_DESCRIPTION,
+			GetStatus = |data, options|->vfx.GetFileStatus(options.Name),
+		},
+	},
+	Root = {Keys = {Size = 256, Columns = 8, Rows = 8, TileSize = 256, MipLevels = 3}},
 }
 
 schemas["particle shaders"] = {
