@@ -51,7 +51,10 @@ function META:Remember(name, data)
 end
 
 function META:Save(name)
-	local path = vfs.GetAbsolutePath(self:GetPath(name))
+	local relative = self:GetPath(name)
+	local path = vfs.IsFile(relative) and
+		vfs.GetAbsolutePath(relative) or
+		vfs.GetAbsolutePath(self.Directory) .. name .. ".lua"
 	local file = assert(io.open(path, "wb"))
 	file:write(table.to_source(self.Source[name], self.KeyPriority))
 	file:close()
