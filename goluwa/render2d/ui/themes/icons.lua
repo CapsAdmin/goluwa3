@@ -314,6 +314,16 @@ add("Scene", "rotate", icons.refresh)
 add("Scene", "scale", path("M5 19L19 5", "M12.5 5H19V11.5", "M5 12.5V19H11.5"))
 add("Scene", "transform", path(ring(12, 12, 9), "M12 8V12 16M8 12H12 16"))
 add("Scene", "play", path("M8 4.5L19 12L8 19.5Z"))
+add("Scene", "stop", path("M6.5 6.5H17.5V17.5H6.5Z"))
+add(
+	"Scene",
+	"sound",
+	path(
+		"M4 9.5H8L13 5.5V18.5L8 14.5H4Z",
+		arc(13, 12, 4.5, 4.5, -45, 45, true),
+		arc(13, 12, 8, 8, -45, 45, true)
+	)
+)
 add(
 	"Interface",
 	"eye",

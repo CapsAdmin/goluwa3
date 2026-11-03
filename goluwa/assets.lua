@@ -898,6 +898,12 @@ assets.RegisterCategory(
 		roots = {"sound/", "sounds/"},
 		extensions = {".lua", ".wav", ".ogg", ".mp3"},
 		load = false,
+		get_value = function(entry)
+			return entry.path:sub(#entry.root + 1)
+		end,
+		get_path = function(value)
+			return "sound/" .. value
+		end,
 	}
 )
 assets.RegisterCategory("scenes", {

@@ -217,9 +217,7 @@ T.Test("Assets index builds a sorted folder tree with recursive counts", functio
 	T(folder.folders[1].name)["=="]("sub")
 	T(folder.folders[2].name)["=="]("Sub2")
 	T(index.folders["models/index_tree/sub/deeper/"].count)["=="](1)
-	T(
-		index.folders["models/index_tree/sub/deeper/"].parent == index.folders["models/index_tree/sub/"]
-	)["=="](true)
+	T(index.folders["models/index_tree/sub/deeper/"].parent == index.folders["models/index_tree/sub/"])["=="](true)
 	T(index.by_path["models/index_tree/sub2/d.mdl"].extension)["=="](".mdl")
 	T(index.by_path["models/index_tree/notes.txt"] == nil)["=="](true)
 	local previous = ""
@@ -273,6 +271,24 @@ T.Test("Assets index follows mounts and virtual assets without rescanning", func
 	local after = assets.GetIndex("models")
 	T(after == index)["=="](false)
 	T(after.by_path["models/index_follow/a.mdl"] == nil)["=="](true)
+end)
+
+T.Test("Assets sounds category maps entries to values relative to the sound folder and back", function()
+	local mount_root = "os:" .. vfs.GetStorageDirectory("shared") .. "asset_browser_sounds"
+	local sound_root = mount_root .. "/sound/browser"
+	assert(vfs.CreateDirectory(mount_root))
+	assert(vfs.CreateDirectory(mount_root .. "/sound"))
+	assert(vfs.CreateDirectory(sound_root))
+	assert(vfs.Write(sound_root .. "/hit.wav", "x"))
+	assert(vfs.Write(sound_root .. "/note.txt", "x"))
+	vfs.Mount(mount_root, "")
+	local category = assets.categories.sounds
+	local entry = assets.GetIndex("sounds").by_path["sound/browser/hit.wav"]
+	T(entry ~= nil)["=="](true)
+	T(assets.GetIndex("sounds").by_path["sound/browser/note.txt"])["=="](nil)
+	T(category.get_value(entry))["=="]("browser/hit.wav")
+	T(category.get_path("browser/hit.wav"))["=="]("sound/browser/hit.wav")
+	vfs.Unmount(mount_root, "")
 end)
 
 T.Test("vfs.FindRecursive lists every file below a folder across mounts", function()
