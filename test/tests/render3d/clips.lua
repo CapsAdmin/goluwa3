@@ -107,3 +107,43 @@ T.Test3D("A clip defines the bursts it lists", function()
 	)
 	T(vfx.HasBurst("test_clip_burst"))["=="](true)
 end)
+
+T.Test3D("A clip defined as pure data evaluates expressions and named scripts", function()
+	local seen, scripted = {}, 0
+	clips.RegisterScript("test_clip_script", {
+		Event = function()
+			scripted = scripted + 1
+		end,
+	})
+	clips.RegisterScript(
+		"test_clip_layer",
+		{
+			Update = function(p, v)
+				seen.grow = v.grow
+			end,
+		}
+	)
+	local source = {
+		Duration = 2,
+		Tracks = {
+			grow = {{0, 0, "1 - (1 - f) ^ 2"}, {1, 1}},
+			wave = "sin(f * pi)",
+		},
+		Events = {{0.5, Call = "test_clip_script"}},
+		Layers = {
+			{Type = "custom", Script = "test_clip_layer"},
+		},
+	}
+	clips.Define("test_data_clip", source)
+	T(clips.Source.test_data_clip)["=="](source)
+	T(type(source.Tracks.wave))["=="]("string")
+	local clip = clips.Play("test_data_clip", {position = Vec3(), color = Color(1, 0, 0, 1), base = 1})
+	clip:Update(0.25, 0.1)
+	T(scripted)["=="](0)
+	clip:Update(0.5, 0.1)
+	T(scripted)["=="](1)
+	T(math.abs(seen.grow - 0.75) < 1e-6)["=="](true)
+	T(math.abs(clip.values.wave - 1) < 1e-6)["=="](true)
+	T(math.abs(clip.values.grow - 0.75) < 1e-6)["=="](true)
+	clip:Remove()
+end)

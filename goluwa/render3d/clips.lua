@@ -10,6 +10,18 @@ local definitions = {}
 local WHITE = Color(1, 1, 1, 1)
 local BLACK = Color(0, 0, 0, 1)
 local UP = Vec3(0, 1, 0)
+clips.Source = {}
+clips.Scripts = {}
+
+function clips.RegisterScript(name, script)
+	clips.Scripts[name] = script
+end
+
+clips.RegisterScript("entity", {
+	Follow = function(p)
+		clips.FollowEntity(p)
+	end,
+})
 
 local function get(prop, p, v)
 	local kind = type(prop)
@@ -27,6 +39,42 @@ local function get(prop, p, v)
 	return prop(p, v)
 end
 
+local compile
+
+do
+	local env = setmetatable({pi = math.pi}, {__index = math})
+	local cache = {}
+
+	function clips.IsExpression(source)
+		return type(source) == "string" and not source:find("^[%a_][%w_]*$")
+	end
+
+	function compile(source, arguments)
+		local key = arguments .. "|" .. source
+		local fn = cache[key]
+
+		if not fn then
+			fn = assert(loadstring("local " .. arguments .. " = ...\nreturn " .. source, "=" .. source))
+			setfenv(fn, env)
+			cache[key] = fn
+		end
+
+		return fn
+	end
+end
+
+local EXPRESSION_KEYS = {
+	"Alpha",
+	"Radius",
+	"Brightness",
+	"Scale",
+	"Yaw",
+	"Size",
+	"Flicker",
+	"LensScale",
+	"Strength",
+	"Offset",
+}
 local LAYERS = {}
 
 do
@@ -238,7 +286,9 @@ do
 	local TRAIL = {}
 
 	local function setup_value(prop, p)
-		if type(prop) == "function" then return prop(p) end
+		if type(prop) == "function" then return prop(p, p) end
+
+		if type(prop) == "string" then return p[prop] end
 
 		return prop
 	end
@@ -310,11 +360,48 @@ local function make_debris_event(key, count, direction)
 	end
 end
 
-function clips.Define(name, definition)
+local function make_flash_event(entry)
+	local lumen = compile(tostring(entry.Lumen), "p")
+	local time = compile(tostring(entry.Time), "p")
+	local ox, oy, oz = unpack(entry.Offset or {0, 0, 0})
+	local normal_offset = entry.NormalOffset or 0
+	local color = entry.Color or "color"
+	local temp = Vec3()
+	return function(p)
+		local normal = p.normal
+		temp:Set(
+			p.position.x + ox + normal.x * normal_offset,
+			p.position.y + oy + normal.y * normal_offset,
+			p.position.z + oz + normal.z * normal_offset
+		)
+		vfx.Flash(temp, p[color], lumen(p), time(p))
+	end
+end
+
+local function resolve_script(name)
+	return clips.Scripts[name] or error("unknown clip script " .. tostring(name))
+end
+
+function clips.Define(name, source)
+	clips.Source[name] = source
+	local definition = table.copy(source)
+
+	if definition.Loop then definition.Duration = math.huge end
+
 	local tracks = {}
 	local names = {}
 
 	for key, spec in pairs(definition.Tracks or {}) do
+		if type(spec) == "string" then
+			spec = compile(spec, "f")
+		elseif type(spec) == "table" then
+			for _, entry in ipairs(spec) do
+				if clips.IsExpression(entry[3]) then
+					entry[3] = compile(entry[3], "f")
+				end
+			end
+		end
+
 		tracks[#tracks + 1] = track.New(spec)
 		names[#names + 1] = key
 	end
@@ -334,6 +421,10 @@ function clips.Define(name, definition)
 			entry = {entry[1], make_debris_event(entry.Debris, entry.Count, entry.Direction)}
 		elseif entry.Burst then
 			entry = {entry[1], make_burst_event(entry.Burst, entry.Count, entry.Direction)}
+		elseif entry.Flash then
+			entry = {entry[1], make_flash_event(entry)}
+		elseif entry.Call then
+			entry = {entry[1], resolve_script(entry.Call).Event}
 		end
 
 		events[i] = entry
@@ -344,12 +435,30 @@ function clips.Define(name, definition)
 	end)
 
 	for _, layer in ipairs(definition.Layers or {}) do
-		layer.type = LAYERS[layer.Type or "custom"] or error("unknown layer type " .. layer.Type)
+		layer.type = LAYERS[layer.Type or
+			"custom"] or
+			error("unknown layer type " .. tostring(layer.Type))
+
+		if layer.Script then
+			for key, value in pairs(resolve_script(layer.Script)) do
+				layer[key] = value
+			end
+		end
+
+		for _, key in ipairs(EXPRESSION_KEYS) do
+			if clips.IsExpression(layer[key]) then
+				layer[key] = compile(layer[key], "p, v")
+			end
+		end
 	end
+
+	local follow = definition.Follow
+
+	if type(follow) == "string" then follow = resolve_script(follow).Follow end
 
 	definitions[name] = {
 		Duration = definition.Duration,
-		Follow = definition.Follow,
+		Follow = follow,
 		EndWithEntity = definition.EndWithEntity,
 		Layers = definition.Layers or {},
 		events = events,
