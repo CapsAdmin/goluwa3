@@ -196,6 +196,163 @@ local function snapshot(values)
 	)
 end
 
+local function new_lists()
+	return {
+		sounds = {"ambient/fire/mtov_flame2.wav", "ambient/fire/ignite.wav", "physics/glass/glass_impact_bullet1.wav"},
+		words = {"misery", "sin", "suffering", "darkness", "hades", "corruption"},
+		wobble = {{3.1, 1.4}, {7.3, 0.5}},
+		layers = {{name = "ring", alpha = 1}, {name = "flare", alpha = 0.8}, {name = "glow", alpha = 0.4}},
+	}
+end
+
+local function build_list_items(lists, update)
+	local function actions(name, template)
+		local function change(fn)
+			local list = table.copy(lists[name])
+			fn(list)
+			update(name, list)
+		end
+
+		return {
+			Add = function()
+				change(function(list)
+					list[#list + 1] = template(list[#list])
+				end)
+			end,
+			Insert = function(index)
+				change(function(list)
+					table.insert(list, index, template(list[index] or list[#list]))
+				end)
+			end,
+			Duplicate = function(index)
+				change(function(list)
+					table.insert(list, index + 1, table.copy(list[index]))
+				end)
+			end,
+			Remove = function(index)
+				change(function(list)
+					table.remove(list, index)
+				end)
+			end,
+			Move = function(from, to)
+				change(function(list)
+					table.insert(list, to, table.remove(list, from))
+				end)
+			end,
+			Clear = function()
+				update(name, {})
+			end,
+			Sort = function()
+				change(function(list)
+					table.sort(list)
+				end)
+			end,
+		}
+	end
+
+	local function scalar_items(name, extra)
+		local items = {}
+
+		for i, value in ipairs(lists[name]) do
+			items[i] = table.merge(
+				{
+					Key = "lists/" .. name .. "/" .. i,
+					Type = "string",
+					Value = value,
+					OnChange = function(_, new)
+						lists[name][i] = new
+					end,
+				},
+				extra or {}
+			)
+		end
+
+		return items
+	end
+
+	local wobble_items = {}
+
+	for i, pair in ipairs(lists.wobble) do
+		wobble_items[i] = {
+			Key = "lists/wobble/" .. i,
+			Cells = {
+				{Key = "lists/wobble/" .. i .. "/1", Type = "number", Value = pair[1], ShowStepper = true, OnChange = function(_, new)
+					pair[1] = new
+				end},
+				{Key = "lists/wobble/" .. i .. "/2", Type = "number", Value = pair[2], ShowStepper = true, OnChange = function(_, new)
+					pair[2] = new
+				end},
+			},
+		}
+	end
+
+	local layer_items = {}
+
+	for i, layer in ipairs(lists.layers) do
+		layer_items[i] = {
+			Key = "lists/layers/" .. i .. "/" .. layer.name,
+			Text = layer.name,
+			Children = {
+				{Key = "lists/layers/" .. i .. "/name", Text = "name", Type = "string", Value = layer.name, OnChange = function(_, new)
+					layer.name = new
+				end},
+				{Key = "lists/layers/" .. i .. "/alpha", Text = "alpha", Type = "number", Value = layer.alpha, Min = 0, Max = 1, ShowSlider = true, OnChange = function(_, new)
+					layer.alpha = new
+				end},
+			},
+		}
+	end
+
+	return {
+		{
+			Key = "lists",
+			Text = "Lists",
+			Expanded = true,
+			Children = {
+				{
+					Key = "lists/sounds",
+					Text = "HitSounds",
+					Type = "list",
+					Items = scalar_items("sounds", {PlayAction = function() end}),
+					Actions = actions("sounds", function(last)
+						return last or ""
+					end),
+				},
+				{
+					Key = "lists/words",
+					Text = "Names",
+					Type = "list",
+					Display = "chips",
+					Items = scalar_items("words"),
+					Actions = actions("words", function()
+						return "word"
+					end),
+				},
+				{
+					Key = "lists/wobble",
+					Text = "Wobble",
+					Type = "list",
+					Display = "table",
+					Columns = {{Text = "frequency"}, {Text = "amplitude"}},
+					Items = wobble_items,
+					Actions = actions("wobble", function(last)
+						return last and {last[1] * 2, last[2] / 2} or {3, 1}
+					end),
+				},
+				{
+					Key = "lists/layers",
+					Text = "Layers",
+					Type = "list",
+					Items = layer_items,
+					Actions = actions("layers", function(last)
+						return {name = "layer", alpha = last and last.alpha or 1}
+					end),
+				},
+			},
+		},
+	}
+end
+
 return {
 	Name = "property editor",
 	Section = "Data",
@@ -204,6 +361,8 @@ return {
 		||-> do
 			local values, set_values = react.UseState(new_values)
 			local resets, set_resets = react.UseState(0)
+			local lists, set_lists = react.UseState(new_lists)
+			local list_version, set_list_version = react.UseState(0)
 			local inspector = react.UseRef()
 			local demo = react.UseResource(||->DemoObject.New(), |object|->object:Remove(), {})
 			local items = react.UseMemo(
@@ -216,6 +375,13 @@ return {
 					end
 				),
 				{resets}
+			)
+			local list_items = react.UseMemo(
+				||->build_list_items(lists, |name, list|-> do
+					lists[name] = list
+					set_list_version(|count|->count + 1)
+				end),
+				{list_version}
 			)
 			react.UseEffect(||->inspector.current:SetObject(demo), {demo})
 			return kit.Page{
@@ -246,6 +412,14 @@ return {
 								},
 							},
 						},
+					},
+				},
+				kit.Section{
+					Title = "Lists",
+					Description = "A node with Type = list. Rows have a drag handle, duplicate and delete buttons and a right click menu. Chips wrap, tables show one line per item, and group items expand. The header has the count, a + button and a menu with sort and clear. The owner keeps the data: every action calls back and the items are rebuilt.",
+				}{
+					ui.Frame{Padding = "XS", layout = {GrowWidth = 1, FitHeight = true}}{
+						ui.PropertyEditor{Key = list_version, Items = list_items},
 					},
 				},
 				kit.Section{
