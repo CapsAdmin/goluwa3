@@ -63,6 +63,9 @@ local COMMON = {
 	["Apply.Add"] = {Ref = "status"},
 	["Apply.Max"] = {Ref = "status"},
 	["Attributes[]"] = {Ref = "damage"},
+	["HitSounds[]"] = {Sound = true},
+	Names = {Display = "chips"},
+	Adjectives = {Display = "chips"},
 	["Think.Type"] = {Options = {"magic", "slash", "generic"}},
 }
 
@@ -125,6 +128,11 @@ local schemas = {
 					},
 				},
 				Attributes = {},
+				Wobble = {
+					Display = "table",
+					Columns = {{Text = "frequency", Key = 1, Min = 0}, {Text = "amplitude", Key = 2, Min = 0}},
+					Template = {3, 1},
+				},
 			}
 		),
 		Root = {
@@ -171,6 +179,13 @@ local schemas = {
 			},
 			Events = {Template = {0, Flash = true, Lumen = 10, Time = 0.3}},
 			Tracks = {NewKey = {Name = "track", Template = {{0, 0}, {1, 1}}}},
+			["Tracks.*"] = {
+				Display = "table",
+				Columns = {{Text = "time", Key = 1, Min = 0, Max = 1}, {Text = "value", Key = 2}},
+				Template = function(last)
+					return {math.min((last and last[1] or 0) + 0.1, 1), last and last[2] or 0}
+				end,
+			},
 		},
 		Root = {
 			Keys = {

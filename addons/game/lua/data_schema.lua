@@ -16,7 +16,7 @@ function data_schema.GetField(schema, parent_key, key)
 
 	if type(key) == "number" then return fields[tostring(parent_key) .. "[]"] end
 
-	return fields[key]
+	return fields[key] or fields[tostring(parent_key) .. ".*"]
 end
 
 function data_schema.GetOptions(field)

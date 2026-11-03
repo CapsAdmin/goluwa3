@@ -13,11 +13,13 @@ local View = import("goluwa/render3d/view.lua")
 local clips = import("goluwa/render3d/clips.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
+local view_camera = import("lua/view_camera.lua")
 local data_items = import("lua/data_items.lua")
 local data_schema = import("lua/data_schema.lua")
 local data_history = import("lua/data_history.lua")
-local actors = import("lua/actors.lua")
+local Gizmo = import("lua/gizmo.lua")
 local npcs = import("lua/npcs.lua")
+local sounds = import("lua/sounds.lua")
 local weapon_effects = import("lua/weapon_effects.lua")
 local grenade_effects = import("lua/grenade_effects.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
@@ -25,15 +27,19 @@ local status_effects = import("lua/jrpg/status_effects.lua")
 local effects = import("lua/jrpg/effects.lua")
 local effects_schema = import("lua/jrpg/effects_schema.lua")
 local clip_edit = import("lua/jrpg/clip_edit.lua")
+local effects_stage = import("lua/jrpg/effects_stage.lua")
 local effects_editor = {}
 local LEFT_WIDTH = 440
 local BOTTOM_HEIGHT = 260
 local UP = Vec3(0, 1, 0)
 local CAMERAS = {"front", "side", "high"}
+local GIZMO_MODES = {"move", "rotate", "combined"}
 local EXPOSURES = {day = 15, dusk = 11, night = 7}
 local EXPOSURE_NAMES = {"day", "dusk", "night"}
 effects_editor.LastCategory = "damage types"
 effects_editor.LastName = "fire"
+effects_editor.LastStage = "player"
+effects_editor.LastNpc = effects_stage.DefaultNpc
 effects_editor.CategoryNames = {
 	"damage types",
 	"status effects",
@@ -250,37 +256,37 @@ end
 function effects_editor.SetCamera(session, name)
 	local stage = session.Stage
 	local offsets = {front = Vec3(0, 0.5, 3.6), side = Vec3(3.6, 0.5, 0), high = Vec3(0, 3, 3)}
-	local forward, right = stage.Forward, Vec3(stage.Forward.z, 0, -stage.Forward.x)
+	local toward, right = stage.Toward, Vec3(stage.Toward.z, 0, -stage.Toward.x)
 	local offset = offsets[name]
-	local eye = stage.Anchor + forward * -offset.z + right * offset.x + Vec3(0, 1 + offset.y, 0)
+	local eye = effects_stage.GetSubject(stage) + toward * offset.z + right * offset.x + Vec3(0, 1 + offset.y, 0)
 	local direction = (stage.Chest - eye):GetNormalized()
-	session.View:SetPosition(eye)
-	session.View:SetRotation(QuatDeg3(math.deg(math.asin(direction.y)), math.deg(math.atan2(-direction.x, -direction.z)), 0))
-	stage.Normal = (eye - stage.Chest):GetNormalized()
+	view_camera.Set(
+		session.Fly,
+		eye,
+		math.deg(math.asin(direction.y)),
+		math.deg(math.atan2(-direction.x, -direction.z))
+	)
 	session.Camera = name
 end
 
+function effects_editor.SetStage(session, kind, npc_name)
+	if session.Stage then effects_stage.Remove(session.Stage) end
+
+	effects_editor.LastStage, effects_editor.LastNpc = kind, npc_name
+	session.Stage = effects_stage.New(kind, npc_name)
+	session.StageKind, session.NpcName = kind, npc_name
+
+	if session.Fly then effects_editor.SetCamera(session, session.Camera) end
+end
+
 function effects_editor.CreateSession()
-	local rig = assert(_G.PLAYER_RIG, "the effects editor previews in front of the local player")
-	local forward = actors.GetForward(rig):Copy()
-	forward.y = 0
-	forward = forward:GetNormalized()
-	local anchor = rig.transform:GetPosition() + forward * 5
-	local target = npcs.Spawn("citizen", anchor, 0)
-	target.ai_controller.Wander = false
 	local session = {
 		LoadId = 0,
 		SelectId = 0,
 		Loop = true,
 		Exposure = "day",
-		Stage = {
-			Target = target,
-			Anchor = anchor,
-			Forward = forward,
-			Chest = anchor + Vec3(0, 1.2, 0),
-			Ground = anchor,
-			Normal = forward * -1,
-		},
+		Camera = "front",
+		GizmoMode = Gizmo.GetMode(),
 	}
 	session.View = View.New{
 		Priority = 1000,
@@ -289,15 +295,19 @@ function effects_editor.CreateSession()
 		HideHud = true,
 	}
 	session.View:Activate()
+	effects_editor.SetStage(session, effects_editor.LastStage, effects_editor.LastNpc)
+	session.Fly = view_camera.Start(session.View, 6)
 	effects_editor.SetCamera(session, "front")
 	effects_editor.Load(session, effects_editor.LastCategory, effects_editor.LastName)
+	effects_editor.Current = session
 	return session
 end
 
 function effects_editor.DestroySession(session)
+	effects_editor.Current = nil
+	view_camera.Stop(session.Fly)
 	session.View:Remove()
-
-	if session.Stage.Target:IsValid() then session.Stage.Target:Remove() end
+	effects_stage.Remove(session.Stage)
 end
 
 function effects_editor.BuildItems(session, h)
@@ -308,7 +318,10 @@ function effects_editor.BuildItems(session, h)
 		Schema = category.Schema,
 		Open = h.open,
 		CanOpen = |ref|->REF_CATEGORIES[ref] ~= nil,
+		Focus = session.Focus,
+		PlaySound = |path|->sounds.Play(path, session.Stage.Chest, 0.8, 1),
 	}
+	session.Focus = nil
 	local items = data_items.Build(session.Data, options)
 	local selection = session.Selection
 
@@ -432,8 +445,10 @@ local EffectsEditor = react.Component(
 					h.refresh()
 				end
 
-				function h.restructured(keep_selection)
+				function h.restructured(keep_selection, focus)
 					if keep_selection ~= true then session.Selection = nil end
+
+					session.Focus = focus
 
 					session.LoadId = session.LoadId + 1
 					effects_editor.Commit(session, true)
@@ -465,7 +480,9 @@ local EffectsEditor = react.Component(
 		)
 		react.UseEvent(
 			"Update",
-			||-> do
+			|dt|-> do
+				view_camera.Update(session.Fly, math.min(dt, 0.1))
+				effects_stage.Update(session.Stage, session.View:GetPosition())
 				local now = system.GetElapsedTime()
 
 				if session.PlayStart then
@@ -634,6 +651,40 @@ local EffectsEditor = react.Component(
 						h.refresh()
 					end,
 				},
+			},
+			ui.Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center", Padding = Rect() + 6}}{
+				ui.Text{Text = "preview on", Color = "text_disabled", layout = {FitWidth = true}},
+				dropdown(
+					"stage",
+					effects_stage.Kinds,
+					session.StageKind,
+					90,
+					|value|-> do
+						effects_editor.SetStage(session, value, session.NpcName)
+						h.refresh()
+					end
+				),
+				session.StageKind == "npc" and dropdown(
+					"npc",
+					npcs.GetNames(),
+					session.NpcName,
+					130,
+					|value|-> do
+						effects_editor.SetStage(session, "npc", value)
+						h.refresh()
+					end
+				),
+				session.StageKind == "gizmo" and dropdown(
+					"gizmo_mode",
+					GIZMO_MODES,
+					session.GizmoMode,
+					110,
+					|value|-> do
+						session.GizmoMode = value
+						Gizmo.SetMode(value)
+						h.refresh()
+					end
+				),
 			},
 			ui.Text{
 				Text = session.Status ~= "" and session.Status or problem_text,

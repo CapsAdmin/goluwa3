@@ -13,24 +13,28 @@ T.Test("data items edit a plain table in place and skip functions", function()
 		On = true,
 		Mode = "c",
 		Layers = {{Name = "a"}, {Name = "b"}},
+		Words = {"b", "a"},
+		Pairs = {{1, 2}, {3, 4}},
 	}
 	local changes = 0
 	local restructured = 0
+	local focus
 	local items = data_items.Build(
 		data,
 		{
 			Changed = function()
 				changes = changes + 1
 			end,
-			Restructured = function()
+			Restructured = function(_, new_focus)
 				restructured = restructured + 1
+				focus = new_focus or focus
 			end,
 			Schema = {
 				Refs = {kind = {"a", "b"}},
 				Fields = {
 					Mode = {Ref = "kind"},
-					["Layers[]"] = {},
 					Layers = {Template = {Name = "new"}},
+					Pairs = {Display = "table", Columns = {{Text = "a", Key = 1}, {Text = "b", Key = 2}}},
 				},
 			},
 		}
@@ -53,25 +57,42 @@ T.Test("data items edit a plain table in place and skip functions", function()
 	T(changes)["=="](2)
 	T(by_text.Mode.Type)["=="]("enum")
 	T(by_text.Mode.Options[1].Text)["=="]("c (missing)")
-	local layers
 
-	for _, item in ipairs(items) do
-		if item.Text == "Layers" then layers = item end
-	end
-
-	local function find_action(group, text)
-		for _, child in ipairs(group.Children) do
-			if child.ButtonText == text then return child end
+	local function find(list, text)
+		for _, item in ipairs(list) do
+			if item.Text == text then return item end
 		end
 	end
 
-	find_action(layers.Children[1], "move down").OnAction()
+	local layers = find(items[1].Children, "Layers")
+	T(layers.Type)["=="]("list")
+	T(#layers.Items)["=="](2)
+	T(layers.Items[1].Text)["=="]("item")
+	layers.Actions.Move(1, 2)
 	T(data.Layers[1].Name)["=="]("b")
-	find_action(layers.Children[1], "duplicate").OnAction()
+	layers.Actions.Duplicate(1)
 	T(#data.Layers)["=="](3)
-	find_action(layers, "add item").OnAction()
+	layers.Actions.Add()
 	T(data.Layers[4].Name)["=="]("new")
-	find_action(layers.Children[1], "remove").OnAction()
+	layers.Actions.Remove(1)
 	T(#data.Layers)["=="](3)
-	T(restructured)["=="](4)
+	layers.Actions.Insert(1)
+	T(data.Layers[1].Name)["=="]("new")
+	T(focus.Path)["=="]("/Layers")
+	T(focus.Index)["=="](1)
+	layers.Actions.Clear()
+	T(#data.Layers)["=="](0)
+	local words = find(items[1].Children, "Words")
+	words.Actions.Paste("one\ntwo\n\nthree")
+	T(#data.Words)["=="](5)
+	words.Actions.Sort()
+	T(data.Words[1])["=="]("a")
+	T(words.Actions.Copy():find("\"one\"", 1, true) ~= nil)["=="](true)
+	words.Items[1].OnChange(nil, "z")
+	T(data.Words[1])["=="]("z")
+	local table_list = find(items[1].Children, "Pairs")
+	T(table_list.Display)["=="]("table")
+	table_list.Items[2].Cells[2].OnChange(nil, 9)
+	T(data.Pairs[2][2])["=="](9)
+	T(restructured)["=="](8)
 end)
