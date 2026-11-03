@@ -6,6 +6,7 @@ local status_effects = import("lua/jrpg/status_effects.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
 local particle_style_library = import("lua/particle_style_library.lua")
+local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local effects_schema = {}
 local EXPRESSION = "a number, the name of a track or param, or an expression: p.<param>, v.<track>, v.time, math functions"
 local LAYER_TYPES = {"sprite", "quad", "orb", "gpu_trail", "custom"}
@@ -240,6 +241,46 @@ local schemas = {
 		Root = {},
 	},
 }
+do
+	local EXCLUDED = {Visible = true, Playing = true, Loop = true, Duration = true, Seed = true, StyleParams = true}
+	local fields = {}
+	local keys = {}
+
+	for _, properties in ipairs{particle_emitter.common, particle_emitter.gpu} do
+		for _, entry in ipairs(properties) do
+			local name, default, check = entry[1], entry[2], entry[3]
+
+			if check and check.validate then
+				fields[name] = {Min = check.min, Max = check.max}
+			elseif check then
+				fields[name] = {Options = check}
+			end
+
+			if not EXCLUDED[name] then
+				if type(default) == "cdata" and default.r then
+					default = {default.r, default.g, default.b, default.a}
+				elseif type(default) == "cdata" then
+					default = {default.x, default.y, default.z}
+				end
+
+				keys[name] = default
+			end
+		end
+	end
+
+	fields.Style = {
+		Ref = "particle_style",
+		Restructure = true,
+		OnSet = function(data, name)
+			local defaults = particle_style_library.GetDefaults(name)
+			data.StyleParams = next(defaults) and defaults or nil
+		end,
+		Description = "how the particles are drawn and move beyond the common properties, see particle styles",
+	}
+	fields.StyleParams = {}
+	fields.ShapeSize = {Min = 0, Max = 100}
+	schemas.emitters = {Refs = refs, Fields = fields, Root = {Keys = keys}}
+end
 local PARAM_TYPES = {"float", "int", "bool", "vec3", "color", "texture"}
 local HOOK_DESCRIPTION = {
 	Spawn = "glsl run once when a particle is born, after the common spawn: p is the particle, e the emitter, index, generation, and every param by name",
@@ -284,6 +325,27 @@ schemas["particle styles"] = {
 		},
 	},
 }
+
+function effects_schema.WithEmitterStyleParams(schema, data)
+	if not data.Style then return schema end
+
+	local fields = table.shallow_copy(schema.Fields)
+	local keys = {}
+
+	for _, param in ipairs(particle_style_library.GetParams(data.Style)) do
+		local field = {Description = param.Description, Min = param.Min, Max = param.Max}
+
+		if param.Type == "texture" then field.Ref = "sprite" end
+
+		fields["StyleParams." .. param.Name] = field
+		keys[param.Name] = table.copy(param.Default)
+	end
+
+	fields.StyleParams = {Keys = keys}
+	local out = table.shallow_copy(schema)
+	out.Fields = fields
+	return out
+end
 
 function effects_schema.WithStyleParams(schema, data)
 	local style = data.Particles and data.Particles.Style

@@ -22,6 +22,7 @@ local Gizmo = import("lua/gizmo.lua")
 local npcs = import("lua/npcs.lua")
 local sounds = import("lua/sounds.lua")
 local weapon_effects = import("lua/weapon_effects.lua")
+local emitters = import("lua/emitters.lua")
 local grenade_effects = import("lua/grenade_effects.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
@@ -49,6 +50,7 @@ effects_editor.CategoryNames = {
 	"overlays",
 	"particle styles",
 	"weapon bursts",
+	"emitters",
 	"grenade puffs",
 	"scripts",
 }
@@ -157,6 +159,20 @@ effects_editor.Categories = {
 			for _, name in ipairs(weapon_effects.BurstNames) do
 				vfx.Burst(name, stage.Chest, stage.Normal, 24)
 			end
+		end,
+	},
+	emitters = {
+		Schema = effects_schema.Schemas.emitters,
+		GetSchema = effects_schema.WithEmitterStyleParams,
+		Duration = ||->3,
+		GetNames = ||->emitters.Names,
+		GetSource = |name|->emitters.Files.Source[name],
+		Update = emitters.Update,
+		Reload = emitters.Reload,
+		Save = emitters.Save,
+		Duplicate = |name|->emitters.Create(emitters.GetNewName(name), name),
+		Play = |stage, name|-> do
+			effects_stage.PlayEmitter(stage, name)
 		end,
 	},
 	["grenade puffs"] = {
