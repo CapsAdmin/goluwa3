@@ -224,6 +224,8 @@ gpu.system = particles.Register{
 				{"flipbook_frames", "int"},
 				{"flipbook_fps", "float"},
 				{"flipbook_random", "int"},
+				{"spin_min", "float"},
+				{"spin_max", "float"},
 				{"shape", "int"},
 				{"collision", "int"},
 				{"on_hit", "int"},
@@ -303,6 +305,8 @@ gpu.system = particles.Register{
 			entry.flipbook_frames = 1
 			entry.flipbook_fps = emitter.FlipbookFps
 			entry.flipbook_random = emitter.FlipbookRandomStart and 1 or 0
+			entry.spin_min = math.rad(emitter.SpinMin)
+			entry.spin_max = math.rad(emitter.SpinMax)
 
 			if entry.style ~= 0 then
 				styles.WriteParams(style, emitter.StyleParams, entry.params)
@@ -402,6 +406,10 @@ gpu.system = particles.Register{
 		emitters_t e = emitters_data.emitters[slot];
 		float t = clamp(p.age / p.life, 0.0, 1.0);
 		p.width = mix(e.size_start, e.size_end, t) * p.sprite.w;
+
+		if (e.spin_min != 0.0 || e.spin_max != 0.0) {
+			p.sprite.x += mix(e.spin_min, e.spin_max, pcg3d_unorm(uvec3(index, p.user.x, uint(e.seed) + 32452843u)).x) * dt;
+		}
 
 		if (e.flipbook_frames > 1) {
 			float frames = float(e.flipbook_frames);
