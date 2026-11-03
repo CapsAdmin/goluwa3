@@ -1142,20 +1142,6 @@ function META:build_item_group(list, item, index, path, level, is_last)
 		}
 	end
 
-	buttons[#buttons + 1] = {
-		Icon = "copy",
-		Tooltip = "Duplicate",
-		OnClick = function()
-			actions.Duplicate(index)
-		end,
-	}
-	buttons[#buttons + 1] = {
-		Icon = "close",
-		Tooltip = "Delete",
-		OnClick = function()
-			actions.Remove(index)
-		end,
-	}
 	local group = Collapsible{
 		Editor = self,
 		CategoryKey = item.Key,

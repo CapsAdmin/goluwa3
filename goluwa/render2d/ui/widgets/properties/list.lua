@@ -27,7 +27,6 @@ META:GetSet("Indent", 0)
 META:EndStorable()
 local GRIP_WIDTH = 16
 local INDEX_WIDTH = 22
-local ACTION_WIDTH = 22
 local DRAG_THRESHOLD = 4
 
 local function get_rows(list)
@@ -237,14 +236,6 @@ local function on_grip_input(grip, button, press)
 	end
 end
 
-local function on_duplicate(button)
-	button.List.Node.Actions.Duplicate(button.Index)
-end
-
-local function on_remove(button)
-	button.List.Node.Actions.Remove(button.Index)
-end
-
 function META:create_row(index, height)
 	local row = Panel.New{
 		Name = "property_list_row",
@@ -292,22 +283,23 @@ function META:create_row(index, height)
 	return row
 end
 
-function META:add_action_buttons(row, index)
-	IconButton{
-		Parent = row,
-		List = self,
-		Index = index,
-		Icon = "copy",
-		Tooltip = "Duplicate",
-		OnClick = on_duplicate,
-	}
-	IconButton{
-		Parent = row,
-		List = self,
-		Index = index,
-		Icon = "close",
-		Tooltip = "Delete",
-		OnClick = on_remove,
+function META:set_context_actions(item, index)
+	local actions = self.Node.Actions
+	item.ContextActions = {
+		{
+			Text = "Duplicate",
+			Icon = "copy",
+			OnClick = function()
+				actions.Duplicate(index)
+			end,
+		},
+		{
+			Text = "Remove",
+			Icon = "trash",
+			OnClick = function()
+				actions.Remove(index)
+			end,
+		},
 	}
 end
 
@@ -395,15 +387,7 @@ function META:create_chips(height)
 			OnDraw = draw_chip,
 			OnMouseInput = on_row_input,
 		}
-		item.ContextActions = {
-			{
-				Text = "Remove",
-				Icon = "trash",
-				OnClick = function()
-					node.Actions.Remove(index)
-				end,
-			},
-		}
+		self:set_context_actions(item, index)
 		local control = editor:create_control(item, self.Path .. "/" .. index, item.Key)
 		self:register_control(control, index)
 		control.layout:SetMinSize(Vec2(CHIP_MIN_TEXT_WIDTH, height))
@@ -477,16 +461,6 @@ function META:OnCreate()
 					{GrowWidth = 1, MinSize = Vec2(10, 0), FitWidth = false},
 			}
 		end
-
-		Panel.New{
-			Parent = head,
-			transform = true,
-			layout = {
-				MinSize = Vec2(ACTION_WIDTH * 2 + 4, 0),
-				MaxSize = Vec2(ACTION_WIDTH * 2 + 4, 0),
-				GrowWidth = 0,
-			},
-		}
 	end
 
 	for index, item in ipairs(node.Items) do
@@ -511,6 +485,7 @@ function META:OnCreate()
 
 		if display == "table" then
 			for column_index, cell in ipairs(item.Cells) do
+				self:set_context_actions(cell, index)
 				local control = editor:create_control(cell, self.Path .. "/" .. index .. "/" .. column_index, cell.Key)
 				stretch(control, node.Columns[column_index].Width, item_height)
 				row:AddChild(control)
@@ -518,6 +493,7 @@ function META:OnCreate()
 			end
 		else
 			self:add_index(row, index, item_height)
+			self:set_context_actions(item, index)
 			local control = editor:create_control(item, self.Path .. "/" .. index, item.Key)
 			stretch(control)
 			row:AddChild(control)
@@ -527,8 +503,6 @@ function META:OnCreate()
 				self.FocusControl = control
 			end
 		end
-
-		self:add_action_buttons(row, index)
 
 		::continue::
 	end

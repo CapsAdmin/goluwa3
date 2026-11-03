@@ -655,6 +655,9 @@ T.Test2D("property editor list nodes build rows and group items, route actions a
 	local rows = lists[1]._rows
 	T(#rows)["=="](3)
 	T(#lists[1]._drag_controls)["=="](3)
+	lists[1]._drag_controls[2].control.Node.ContextActions[2].OnClick()
+	T(log[1])["=="]("remove:2")
+	table.remove(log, 1)
 	T(lists[1]._drag_controls[1].control:GetEditClickCount())["=="](2)
 	lists[1]:begin_drag(1, rows[1].transform:LocalToGlobal(Vec2(4, 0)))
 	T(lists[1]._drag.ghost:IsValid())["=="](true)
@@ -726,9 +729,13 @@ T.Test2D("property editor chip lists drag with a ghost, edit on double click and
 	end
 
 	T(chips[1].Control:GetEditClickCount())["=="](2)
+	T(chips[2].Control.Node.ContextActions[1].Text)["=="]("Duplicate")
 	chips[2].Control.Node.ContextActions[1].OnClick()
-	T(log[1])["=="]("remove:2")
+	T(log[1])["=="]("duplicate:2")
+	chips[2].Control.Node.ContextActions[2].OnClick()
+	T(log[2])["=="]("remove:2")
 	log[1] = nil
+	log[2] = nil
 	local first = chips[1].transform:LocalToGlobal(Vec2(4, 4))
 	list:begin_drag(1, first)
 	T(list._drag.ghost:IsValid())["=="](true)
