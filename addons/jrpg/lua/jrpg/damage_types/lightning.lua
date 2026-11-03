@@ -1,31 +1,25 @@
-local Color = import("goluwa/structs/color.lua")
-local status_effects = import("lua/jrpg/status_effects.lua")
 return {
 	Name = "lightning",
-	Overlay = "status_lightning",
-	Color = Color(0.85, 0.88, 1, 1),
-	EndColor = Color(0.4, 0.5, 1, 1),
+	DisplayName = "Lightning",
+	Color = {0.85, 0.88, 1, 1},
+	EndColor = {0.4, 0.5, 1, 1},
 	Adjectives = {"shocking", "electrical", "electrifying", "charged"},
-	Names = {"lightning", "thunder", "zeus", "storms"},
-	Particles = {
-		GravityScale = 0,
-		SpeedMin = 2,
-		SpeedMax = 6,
-		LifetimeMin = 0.05,
-		LifetimeMax = 0.2,
-		SizeStart = 0.02,
-		SizeEnd = 0,
-		Drag = 0,
-	},
+	Apply = {{Divisor = 50, Max = "lightning"}},
 	Flicker = 1,
-	Light = 1.3,
+	Glow = 1,
 	HitSounds = {"ambient/energy/zap1.wav", "ambient/energy/zap2.wav", "ambient/energy/zap3.wav"},
-	OnDamage = function(victim, info)
-		status_effects.Set(
-			victim,
-			"lightning",
-			math.max(status_effects.Get(victim, "lightning"), info.Damage / 50),
-			info.Attacker
-		)
-	end,
+	Light = 1.3,
+	Names = {"lightning", "thunder", "zeus", "storms"},
+	Overlay = "status_lightning",
+	Particles = {
+		Drag = 0,
+		GravityScale = 0,
+		LifetimeMax = 0.2,
+		LifetimeMin = 0.05,
+		SizeEnd = 0,
+		SizeStart = 0.02,
+		SpeedMax = 6,
+		SpeedMin = 2,
+		Spread = 180,
+	},
 }

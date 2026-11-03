@@ -1,10 +1,23 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	Name = "generic",
 	DisplayName = "Arcane",
-	Color = Color(0.9, 0.92, 1, 1),
+	Color = {0.9, 0.92, 1, 1},
 	Adjectives = {"arcane", "mystic", "ethereal", "astral"},
-	Names = {"the arcane", "mysticism", "the aether"},
-	Particles = {GravityScale = 0.3, SpeedMin = 0.5, SpeedMax = 2},
+	Flicker = 0,
+	Glow = 1,
 	HitSounds = {"weapons/physcannon/energy_disintegrate4.wav"},
+	Light = 1,
+	Names = {"the arcane", "mysticism", "the aether"},
+	Overlay = "magic_generic",
+	Particles = {
+		Drag = 3,
+		GravityScale = 0.3,
+		LifetimeMax = 0.6,
+		LifetimeMin = 0.2,
+		SizeEnd = 0,
+		SizeStart = 0.04,
+		SpeedMax = 2,
+		SpeedMin = 0.5,
+		Spread = 180,
+	},
 }

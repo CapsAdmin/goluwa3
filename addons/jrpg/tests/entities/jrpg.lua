@@ -55,6 +55,55 @@ T.Test("every damage type and status effect is registered", function()
 	end
 end)
 
+local function assert_pure(value, path)
+	T(
+		type(value) ~= "function" and
+			type(value) ~= "cdata" and
+			type(value) ~= "userdata"
+	)["=="](true)
+
+	if type(value) == "table" then
+		for key, child in pairs(value) do
+			assert_pure(child, path .. "." .. tostring(key))
+		end
+	end
+end
+
+T.Test("damage types and status effects are registered from pure data that an editor can edit", function()
+	for _, name in ipairs(damage_types.Names) do
+		assert_pure(damage_types.Files.Source[name], name)
+	end
+
+	for _, name in ipairs(status_effects.Names) do
+		assert_pure(status_effects.Files.Source[name], name)
+	end
+
+	local data = table.copy(damage_types.Files.Source.fire)
+	data.Apply = {{Add = "poison", Divisor = 50}}
+	damage_types.Update("fire", data)
+	local victim = create_dummy(500)
+	damage.Deal(victim, {Damage = 50, Type = "magic", Attributes = {"fire"}})
+	T(status_effects.Get(victim, "poison"))["~"](1, 1e-6)
+	T(status_effects.Get(victim, "fire"))["=="](0)
+	damage_types.Reload("fire")
+	local burning = create_dummy(500)
+	damage.Deal(burning, {Damage = 50, Type = "magic", Attributes = {"fire"}})
+	T(status_effects.Get(burning, "fire"))["~"](0.5, 1e-6)
+end)
+
+T.Test("status effect behaviours are compiled from their data", function()
+	local frozen = status_effects.Registered.frozen
+	T(frozen.Speed(0.4))["~"](0.6, 1e-6)
+	T(frozen.Speed(0.8))["=="](0)
+	T(frozen.CanAttack(0.8))["=="](false)
+	T(frozen.AnimationSpeed(0.5))["~"](0.6, 1e-6)
+	T(status_effects.Registered.confused.Wobble(0, 1))["=="](0)
+	local victim = create_dummy(1000)
+	status_effects.Set(victim, "decay", 0.5)
+	tick(victim.status_effects, 2)
+	T(victim.health.Health < 1000)["=="](true)
+end)
+
 T.Test("the cut directions of a slash are in the actor's own right, up and forward", function()
 	local actors = import("lua/actors.lua")
 	local entity = create_dummy(10)

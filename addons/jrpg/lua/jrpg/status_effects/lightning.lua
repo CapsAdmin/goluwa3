@@ -1,50 +1,31 @@
-local Color = import("goluwa/structs/color.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
-local damage = import("lua/damage.lua")
-local actors = import("lua/actors.lua")
 return {
 	Name = "lightning",
 	Label = "SHK",
-	Negative = true,
-	Overlay = "status_lightning",
-	Color = Color(0.8, 0.85, 1, 1),
-	Rate = 0.15,
+	Color = {0.8, 0.85, 1, 1},
+	AttackFail = 0.5,
 	Decay = 0.25,
 	Flicker = 1,
+	Max = 1,
+	Negative = true,
+	Overlay = "status_lightning",
 	Particles = {
-		GravityScale = 0,
-		SpeedMin = 1.5,
-		SpeedMax = 4,
-		LifetimeMin = 0.04,
-		LifetimeMax = 0.12,
-		SizeStart = 0.015,
-		SizeEnd = 0,
 		Drag = 0,
-		Emissive = 6e5,
+		Emissive = 600000,
+		GravityScale = 0,
+		LifetimeMax = 0.12,
+		LifetimeMin = 0.04,
+		SizeEnd = 0,
+		SizeStart = 0.015,
+		SpeedMax = 4,
+		SpeedMin = 1.5,
 	},
-	CanAttack = function(amount)
-		return math.random() > amount * 0.5
-	end,
-	Think = function(entity, amount, source)
-		if math.random() ^ amount <= 0.8 then return end
-
-		local center = actors.GetCenter(entity)
-		local info = {
-			Attacker = source,
-			Damage = 1 + math.ceil(amount * 2),
-			Type = "magic",
-			Attributes = {"lightning"},
-			Status = "lightning",
-			Position = center,
-			Force = Vec3(math.randomf(-1, 1), math.randomf(0, 1), math.randomf(-1, 1)) * amount * 3,
-		}
-
-		if amount > 0.75 then
-			for _, other in ipairs(actors.Find(center, 3, entity)) do
-				damage.Deal(other, table.shallow_copy(info))
-			end
-		end
-
-		damage.Deal(entity, info)
-	end,
+	Rate = 0.15,
+	Think = {
+		Attributes = {"lightning"},
+		Damage = {Base = 1, PerAmount = 2},
+		Force = {Max = {1, 1, 1}, Min = {-1, 0, -1}, Scale = 3},
+		Gate = 0.8,
+		Spread = {Above = 0.75, Radius = 3},
+		Type = "magic",
+	},
 }

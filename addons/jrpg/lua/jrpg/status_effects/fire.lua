@@ -1,37 +1,23 @@
-local Color = import("goluwa/structs/color.lua")
-local damage = import("lua/damage.lua")
-local actors = import("lua/actors.lua")
 return {
 	Name = "fire",
 	Label = "BRN",
+	Color = {1, 0.45, 0.08, 1},
+	Decay = 0.2,
+	Max = 1,
 	Negative = true,
 	Overlay = "status_fire",
-	Color = Color(1, 0.45, 0.08, 1),
-	Rate = 0.4,
-	Decay = 0.2,
 	Particles = {
-		GravityScale = -0.8,
-		SpeedMin = 0.2,
-		SpeedMax = 0.8,
-		LifetimeMin = 0.3,
-		LifetimeMax = 0.7,
-		SizeStart = 0.09,
-		SizeEnd = 0.01,
+		ColorEnd = {0.7, 0.08, 0.01, 0},
 		Drag = 2,
-		Emissive = 4e5,
-		ColorEnd = Color(0.7, 0.08, 0.01, 0),
+		Emissive = 400000,
+		GravityScale = -0.8,
+		LifetimeMax = 0.7,
+		LifetimeMin = 0.3,
+		SizeEnd = 0.01,
+		SizeStart = 0.09,
+		SpeedMax = 0.8,
+		SpeedMin = 0.2,
 	},
-	Think = function(entity, amount, source)
-		damage.Deal(
-			entity,
-			{
-				Attacker = source,
-				Damage = 1 + math.ceil(amount * 5),
-				Type = "magic",
-				Attributes = {"fire"},
-				Status = "fire",
-				Position = actors.GetCenter(entity),
-			}
-		)
-	end,
+	Rate = 0.4,
+	Think = {Attributes = {"fire"}, Damage = {Base = 1, PerAmount = 5}, Type = "magic"},
 }

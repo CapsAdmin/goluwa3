@@ -1,7 +1,22 @@
-local Color = import("goluwa/structs/color.lua")
 return {
 	Name = "magic",
-	Color = Color(0.7, 0.55, 1, 1),
+	DisplayName = "Magic",
+	Color = {0.7, 0.55, 1, 1},
+	Adjectives = {"magic"},
+	Flicker = 0,
 	Glow = 0.8,
 	Light = 0.8,
+	Names = {"magic"},
+	Overlay = "magic_generic",
+	Particles = {
+		Drag = 3,
+		GravityScale = 0,
+		LifetimeMax = 0.6,
+		LifetimeMin = 0.2,
+		SizeEnd = 0,
+		SizeStart = 0.04,
+		SpeedMax = 1.5,
+		SpeedMin = 0.3,
+		Spread = 180,
+	},
 }
