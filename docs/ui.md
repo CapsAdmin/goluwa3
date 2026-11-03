@@ -69,6 +69,7 @@ Every distinct (font, size, weight) is its own font object whose glyphs are rast
 
 - `vfs.FindRecursive` and `assets.GetIndex(category)` (rebuilt on `vfs.mount_generation` change) are the cached asset index; `VirtualGrid` draws only visible cells (`CellAspect`, `Items`, silent `SelectedItem`, `KeepScroll`); `previews` budgets render work and evicts LRU. `picker.lua` is standalone (`picker.Start{mode, on_pick, ...}`) and imports the browser lazily because the browser imports it.
 - Stalls of 200-500 ms while scrolling are full GC cycles of the large heap, not the browser.
+- The `sounds` category (roots `sound/`, `sounds/`) is browsable like the others: tiles and the detail pane show a speaker icon, selecting a sound auditions it (`goluwa/audio/preview.lua`: one non spatial voice, `Play(value)`, `Stop`, `GetPath`, `GetProgress`; stopped when the selection changes or the window closes), double click plays, picking returns the value relative to `sound/` (`get_value`/`get_path` of the category), the same string the game data stores.
 
 # React style UI
 

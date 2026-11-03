@@ -36,17 +36,20 @@ local asset_info = import("lua/asset_info.lua")
 local prefab_tools = import("lua/prefab_tools.lua")
 local editor_history = import("lua/editor_history.lua")
 local picker = import("lua/picker.lua")
+local audio_preview = import("goluwa/audio/preview.lua")
 local kit = import("lua/editor_kit.lua")
 local ViewerWindow = kit.ViewerWindow
 local Canvas = kit.Canvas
-local DEFAULT_CATEGORIES = {"models", "textures", "materials", "prefabs", "components"}
+local DEFAULT_CATEGORIES = {"models", "textures", "materials", "prefabs", "sounds", "components"}
 local CATEGORY_ICONS = {
 	models = "cube",
 	textures = "image",
 	materials = "material",
 	prefabs = "layers",
+	sounds = "sound",
 	components = "component",
 }
+local ICON_TILES = {sounds = "sound", components = "component"}
 local PICK_MODES = {
 	models = "model",
 	prefabs = "prefab",
@@ -234,6 +237,10 @@ local function is_viewable_model(entry)
 	return entry.category == "models" and RENDER_3D and entry.extension ~= ".bsp"
 end
 
+local function get_sound_value(entry)
+	return assets.categories.sounds.get_value(entry)
+end
+
 local function open_model_viewer(entry)
 	import("lua/model_viewer.lua")(entry)
 end
@@ -289,6 +296,11 @@ local function activate_item(item, api)
 
 	if api.picking then return api.pick(item) end
 
+	if item.category == "sounds" then
+		audio_preview.Play(get_sound_value(item))
+		return
+	end
+
 	if is_viewable_model(item) then return open_model_viewer(item) end
 
 	if item.category == "textures" then open_texture_viewer(item) end
@@ -338,6 +350,15 @@ local function open_context_menu(item, api)
 				Icon = "check",
 				OnClick = function()
 					api.pick(entry)
+				end,
+			} or
+			nil,
+			entry.category == "sounds" and
+			MenuItem{
+				Text = "Play",
+				Icon = "play",
+				OnClick = function()
+					audio_preview.Play(get_sound_value(entry))
 				end,
 			} or
 			nil,
@@ -508,14 +529,14 @@ local function draw_item(item, index, x, y, w, h, selected, hovered)
 		render2d.Translatef(px + (pw - icon_size) / 2, py + (pw - icon_size) / 2)
 		theme.active:DrawIcon("folder", folder_icon_box, {color = colors.folder, inset = 0})
 		render2d.PopMatrix()
-	elseif item.category == "components" then
+	elseif ICON_TILES[item.category] then
 		local icon_size = pw * 0.5
 		folder_icon_box.x = icon_size
 		folder_icon_box.y = icon_size
 		render2d.DrawBox(px, py, pw, pw, 4, colors.preview_background)
 		render2d.PushMatrix()
 		render2d.Translatef(px + (pw - icon_size) / 2, py + (pw - icon_size) / 2)
-		theme.active:DrawIcon("component", folder_icon_box, {color = colors.icon, inset = 0})
+		theme.active:DrawIcon(ICON_TILES[item.category], folder_icon_box, {color = colors.icon, inset = 0})
 		render2d.PopMatrix()
 	else
 		local preview = previews.Request(item)
@@ -836,7 +857,9 @@ local StatusBar = react.Component(
 local function start_detail_preview(entry)
 	local detail = {entry = entry, ready = false}
 
-	if entry.category == "models" and entry.extension ~= ".bsp" then
+	if entry.category == "sounds" then
+		audio_preview.Play(get_sound_value(entry))
+	elseif entry.category == "models" and entry.extension ~= ".bsp" then
 		detail.entity = previews.CreateModelEntity(entry.path)
 		detail.owns_entity = detail.entity ~= nil
 		detail.preview = ModelPreview.New{
@@ -869,6 +892,13 @@ local function start_detail_preview(entry)
 end
 
 local function stop_detail_preview(detail)
+	if
+		detail.entry.category == "sounds" and
+		audio_preview.GetPath() == get_sound_value(detail.entry)
+	then
+		audio_preview.Stop()
+	end
+
 	if detail.owns_entity and detail.entity:IsValid() then detail.entity:Remove() end
 
 	if detail.preview and detail.preview:IsValid() then detail.preview:Remove() end
@@ -947,15 +977,25 @@ local function draw_detail_preview(self, entry, detail, view)
 	theme.active:DrawBoxShape(0, 0, size.x, size.y, {fill = colors.preview_background, radius = 6})
 	local pad = 8
 
-	if entry.category == "components" then
+	if ICON_TILES[entry.category] then
 		local icon_size = math.min(size.x, size.y) * 0.5
 		folder_icon_box.x = icon_size
 		folder_icon_box.y = icon_size
 		render2d.PushMatrix()
 		render2d.Translatef((size.x - icon_size) / 2, (size.y - icon_size) / 2)
-		theme.active:DrawIcon("component", folder_icon_box, {color = colors.icon, inset = 0})
+		theme.active:DrawIcon(ICON_TILES[entry.category], folder_icon_box, {color = colors.icon, inset = 0})
 		render2d.PopMatrix()
 		draw_centered_text(colors.font_strong, entry.name, 0, size.y - 30, size.x, 24, colors.preview_text)
+
+		if entry.category == "sounds" then
+			local bar_width = size.x - pad * 4
+			render2d.DrawBox(pad * 2, size.y - 40, bar_width, 6, 3, colors.badge_fill)
+
+			if audio_preview.GetPath() == get_sound_value(entry) then
+				render2d.DrawBox(pad * 2, size.y - 40, bar_width * audio_preview.GetProgress(), 6, 3, colors.primary)
+			end
+		end
+
 		return
 	end
 
@@ -1153,6 +1193,23 @@ local AssetDetails = react.Component(
 			Mode = "outline",
 			OnClick = ||->clipboard.Set(entry.path),
 		}
+
+		if entry.category == "sounds" then
+			actions[#actions + 1] = Button{
+				Key = "play",
+				Text = "Play",
+				Icon = "play",
+				Mode = "outline",
+				OnClick = ||->audio_preview.Play(get_sound_value(entry)),
+			}
+			actions[#actions + 1] = Button{
+				Key = "stop",
+				Text = "Stop",
+				Icon = "stop",
+				Mode = "outline",
+				OnClick = audio_preview.Stop,
+			}
+		end
 
 		if entry.category == "materials" then
 			actions[#actions + 1] = Button{
