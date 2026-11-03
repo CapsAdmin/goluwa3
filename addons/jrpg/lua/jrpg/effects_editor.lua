@@ -39,8 +39,7 @@ local BOTTOM_HEIGHT = 260
 local UP = Vec3(0, 1, 0)
 local GIZMO_MODES = {"move", "rotate", "combined"}
 local RESTART_DELAY = 0.25
-local PREVIEW_HEIGHT = 112
-local PREVIEW_INPUTS_HEIGHT = 230
+local PREVIEW_WIDTH = 420
 effects_editor.LastCategory = "damage types"
 effects_editor.LastName = "fire"
 effects_editor.LastStage = "player"
@@ -747,6 +746,7 @@ function effects_editor.BuildTestInputs(session)
 
 	return items
 end
+
 local function choice_items(list, current, on_pick)
 	return ||-> do
 		local items = {}
@@ -762,7 +762,6 @@ local function choice_items(list, current, on_pick)
 		return items
 	end
 end
-
 
 function effects_editor.BuildMenu(session, h)
 	return {
@@ -809,6 +808,7 @@ function effects_editor.BuildMenu(session, h)
 				},
 				MenuItem{Text = "close", Icon = "close", OnClick = ||->h.close()},
 			},
+		},
 		{
 			Text = "EDIT",
 			Items = ||-> {
@@ -907,7 +907,6 @@ function effects_editor.BuildMenu(session, h)
 					end,
 				},
 			},
-		},
 		},
 	}
 end
@@ -1014,7 +1013,7 @@ local EffectsEditor = react.Component(
 		)
 		local category = effects_editor.Categories[session.Category]
 		local screen = Panel.World.transform:GetSize()
-		local preview_height = category.TestInputs and PREVIEW_INPUTS_HEIGHT or PREVIEW_HEIGHT
+		local preview_position = react.UseMemo(||->Vec2(LEFT_WIDTH + 12, 12), {})
 		local test_items = react.UseMemo(
 			||->category.TestInputs and effects_editor.BuildTestInputs(session) or {},
 			{session.LoadId, session.Category}
@@ -1132,26 +1131,23 @@ local EffectsEditor = react.Component(
 			},
 			react.Portal{Target = Panel.World}{
 				ui.Window{
-					Key = "EffectsEditorPreview" .. preview_height,
-					Title = "PREVIEW",
+					Key = "EffectsEditorPreview",
 					Name = "effects editor preview",
 					RequestMouse = true,
-					Size = Vec2(screen.x - LEFT_WIDTH, preview_height),
-					Position = Vec2(LEFT_WIDTH, screen.y - preview_height),
+					Headerless = true,
+					Size = Vec2(PREVIEW_WIDTH, 0),
+					Position = preview_position,
 					Padding = Rect(),
-					Closable = false,
-					Minimizable = false,
-					Maximizable = false,
-					layout = {FitHeight = false, FitWidth = false},
+					layout = {FitHeight = true, FitWidth = true},
 				}{
 					ui.Column{
 						layout = {
 							GrowWidth = 1,
-							GrowHeight = 1,
-							FitHeight = false,
+							FitHeight = true,
 							AlignmentX = "stretch",
 							ChildGap = 6,
 							Padding = Rect() + 8,
+							MinSize = Vec2(PREVIEW_WIDTH, 0),
 						},
 					}{
 						ui.Row{layout = {GrowWidth = 1, ChildGap = 8, AlignmentY = "center"}}{
@@ -1186,7 +1182,7 @@ local EffectsEditor = react.Component(
 						category.TestInputs and ui.PropertyEditor{
 							Ref = test_properties,
 							Items = {{Key = "/test", Text = "test inputs", Expanded = true, Children = test_items}},
-							layout = {GrowWidth = 1, GrowHeight = 1, FitWidth = false},
+							layout = {GrowWidth = 1, FitHeight = true, FitWidth = false},
 						},
 					},
 				},
@@ -1198,7 +1194,7 @@ local EffectsEditor = react.Component(
 					Name = "effects editor timeline",
 					RequestMouse = true,
 					Size = Vec2(screen.x - LEFT_WIDTH, BOTTOM_HEIGHT),
-					Position = Vec2(LEFT_WIDTH, screen.y - BOTTOM_HEIGHT - preview_height),
+					Position = Vec2(LEFT_WIDTH, screen.y - BOTTOM_HEIGHT),
 					Padding = Rect(),
 					Closable = false,
 					Minimizable = false,
