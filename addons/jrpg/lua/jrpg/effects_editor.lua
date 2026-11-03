@@ -47,7 +47,7 @@ effects_editor.CategoryNames = {
 	"clips",
 	"overlays",
 	"particle shaders",
-	"emitters",
+	"gpu emitters",
 	"grenade puffs",
 	"scripts",
 }
@@ -143,8 +143,8 @@ effects_editor.Categories = {
 			effects.PlayParticleShader(stage.Chest, name)
 		end,
 	},
-	emitters = {
-		Schema = effects_schema.Schemas.emitters,
+	["gpu emitters"] = {
+		Schema = effects_schema.Schemas["gpu emitters"],
 		GetSchema = effects_schema.WithEmitterShaderParams,
 		Duration = ||->3,
 		GetNames = ||->emitters.Names,

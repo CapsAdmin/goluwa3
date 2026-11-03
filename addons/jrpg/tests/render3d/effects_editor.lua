@@ -58,7 +58,7 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 	T(find_text(shader_items, "Update").CodeLanguage)["=="]("glsl")
 	T(find_text(shader_items, "Update").GetStatus())["=="](nil)
 	T(find_text(shader_items, "Sprite").Type)["=="]("string")
-	effects_editor.Load(session, "emitters", "melee_sparks")
+	effects_editor.Load(session, "gpu emitters", "melee_sparks")
 	local emitter_items = effects_editor.BuildItems(session, handlers)
 	T(find_text(emitter_items, "RatePerMeter").Max)["=="](10000)
 	T(find_text(emitter_items, "Shape").Type)["=="]("enum")
@@ -66,7 +66,7 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 	session.Data.RatePerMeter = 40
 	T(effects_editor.Apply(session))["=="](true)
 	T(import("lua/emitters.lua").Get("melee_sparks").RatePerMeter)["=="](40)
-	effects_editor.Load(session, "emitters", "melee_sparks")
+	effects_editor.Load(session, "gpu emitters", "melee_sparks")
 	T(session.Data.RatePerMeter)["=="](40)
 	import("lua/emitters.lua").Reload("melee_sparks")
 	T(import("lua/emitters.lua").Get("melee_sparks").RatePerMeter)["=="](20)

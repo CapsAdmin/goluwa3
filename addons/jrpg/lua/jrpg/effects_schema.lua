@@ -278,7 +278,7 @@ do
 	}
 	fields.ShaderParams = {}
 	fields.ShapeSize = {Min = 0, Max = 100}
-	schemas.emitters = {Refs = refs, Fields = fields, Root = {Keys = keys}}
+	schemas["gpu emitters"] = {Refs = refs, Fields = fields, Root = {Keys = keys}}
 end
 local PARAM_TYPES = {"float", "int", "bool", "vec3", "color", "texture"}
 local HOOK_DESCRIPTION = {
