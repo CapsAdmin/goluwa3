@@ -9,6 +9,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local input = import("goluwa/input.lua")
 local system = import("goluwa/system.lua")
+local timer = import("goluwa/timer.lua")
 local easing = import("goluwa/math/easing.lua")
 local View = import("goluwa/render3d/view.lua")
 local clips = import("goluwa/render3d/clips.lua")
@@ -21,6 +22,9 @@ local Gizmo = import("lua/gizmo.lua")
 local npcs = import("lua/npcs.lua")
 local sounds = import("lua/sounds.lua")
 local emitters = import("lua/emitters.lua")
+local emitter_data = import("goluwa/render3d/emitter_data.lua")
+local pcf = import("lua/pcf.lua")
+local steam = import("goluwa/steam/steam.lua")
 local grenade_effects = import("lua/grenade_effects.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
@@ -48,6 +52,7 @@ effects_editor.CategoryNames = {
 	"overlays",
 	"particle shaders",
 	"gpu emitters",
+	"source particles",
 	"grenade puffs",
 	"scripts",
 }
@@ -180,6 +185,42 @@ effects_editor.Categories = {
 			)
 		end,
 	},
+	["source particles"] = {
+		Schema = effects_schema.Schemas["gpu emitters"],
+		GetSchema = effects_schema.WithEmitterShaderParams,
+		TestInputs = true,
+		Duration = ||->3,
+		Prepare = ||-> do
+			if #pcf.GetNames() == 0 then effects_editor.MountSourceContent() end
+		end,
+		GetNames = ||->effects_editor.GetSourceParticleNames(),
+		GetSource = |name|->effects_editor.GetSourceParticle(name),
+		GetNotes = |name|-> do
+			local system = pcf.GetSystem(name)
+
+			if not system then return "" end
+
+			local _, notes = pcf.Convert(system)
+			return pcf.DescribeNotes(system, notes)
+		end,
+		Update = |name, data|-> do
+			local key = "source " .. name
+			emitters.Files:Remember(key, data)
+			emitter_data.Set(key, data)
+		end,
+		Reload = |name|-> do
+			local key = "source " .. name
+			local data = pcf.Convert(pcf.GetSystem(name))
+			emitters.Files:Remember(key, data)
+			emitter_data.Set(key, data)
+		end,
+		Save = |name|-> do
+			local saved = name:lower():gsub("[^%w]+", "_")
+			emitters.Update(saved, table.copy(emitters.Files.Source["source " .. name]))
+			return emitters.Save(saved)
+		end,
+		Play = |stage, name, session|->effects_editor.PlaySourceParticle(stage, name, session),
+	},
 	["grenade puffs"] = {
 		Schema = effects_schema.Schemas["grenade puffs"],
 		Duration = ||->6,
@@ -217,6 +258,97 @@ effects_editor.Categories = {
 	},
 }
 
+function effects_editor.GetSourceParticleNames()
+	local names = pcf.GetNames()
+	return #names > 0 and names or {"no pcf files, run mount gmod"}
+end
+
+function effects_editor.GetSourceParticle(name)
+	local system = pcf.GetSystem(name)
+
+	if not system then return {MaxParticles = 1} end
+
+	local data = pcf.Convert(system)
+	local key = "source " .. name
+	emitters.Files:Remember(key, data)
+	emitter_data.Set(key, data)
+	return data
+end
+
+function effects_editor.MountSourceContent()
+	for _, game in ipairs{"gmod", "hl2"} do
+		pcall(steam.MountSourceGame, game)
+	end
+
+	pcf.Clear()
+end
+
+function effects_editor.ListSourceParticles(text)
+	if #pcf.GetNames() == 0 then
+		effects_editor.MountSourceContent()
+	end
+
+	local found = {}
+
+	for _, name in ipairs(pcf.GetNames()) do
+		if not text or name:lower():find(text:lower(), 1, true) then found[#found + 1] = name end
+	end
+
+	return found
+end
+
+function effects_editor.PlaySourceParticle(stage, name, session)
+	local entries, seen = {}, {}
+
+	local function collect(system_name, delay, depth)
+		if seen[system_name] or depth > 4 then return end
+
+		seen[system_name] = true
+		entries[#entries + 1] = {name = system_name, delay = delay}
+
+		for _, child in ipairs(pcf.GetChildren(system_name)) do
+			collect(child.name, delay + child.delay, depth + 1)
+		end
+	end
+
+	collect(name, 0, 0)
+	local stoppers = {}
+	local stopped = false
+
+	for _, entry in ipairs(entries) do
+		if entry.name ~= name then effects_editor.GetSourceParticle(entry.name) end
+
+		local function start()
+			if not stopped then
+				stoppers[#stoppers + 1] = effects_stage.PlayContinuousEmitter(stage, "source " .. entry.name, session.Inputs)
+			end
+		end
+
+		if entry.delay > 0 then timer.Delay(entry.delay, start) else start() end
+	end
+
+	return function()
+		stopped = true
+
+		for _, stopper in ipairs(stoppers) do
+			stopper()
+		end
+	end
+end
+
+function effects_editor.SelectSourceParticle(text)
+	if #pcf.GetNames() == 0 then
+		effects_editor.MountSourceContent()
+	end
+
+	local name = pcf.Find(text)
+
+	if not name then return nil, "no source particle matches " .. text end
+
+	effects_editor.LastCategory, effects_editor.LastName = "source particles", name
+	return name
+end
+
 function effects_editor.UsesScript(value, name)
 	if value == name then return true end
 
@@ -240,6 +372,12 @@ function effects_editor.GetProblems(session)
 	)
 end
 
+function effects_editor.Prepare(category_name)
+	local category = effects_editor.Categories[category_name]
+
+	if category.Prepare then category.Prepare() end
+end
+
 function effects_editor.Load(session, category_name, name)
 	local category = effects_editor.Categories[category_name]
 	session.Category = category_name
@@ -250,6 +388,7 @@ function effects_editor.Load(session, category_name, name)
 	session.Inputs = {}
 	session.History = data_history.New(session.Data)
 	session.Status = ""
+	session.Notes = category.GetNotes and category.GetNotes(session.Name) or ""
 	session.Selection = nil
 	session.LoadId = session.LoadId + 1
 	session.Problems = effects_editor.GetProblems(session)
@@ -476,6 +615,7 @@ function effects_editor.CreateSession()
 	effects_editor.SetStage(session, effects_editor.LastStage, effects_editor.LastNpc)
 	session.Fly = view_camera.Start(session.View, 6)
 	effects_editor.SetCamera(session, "front")
+	effects_editor.Prepare(effects_editor.LastCategory)
 	effects_editor.Load(session, effects_editor.LastCategory, effects_editor.LastName)
 	effects_editor.ApplyPreview(session)
 	effects_editor.Current = session
@@ -807,6 +947,7 @@ local EffectsEditor = react.Component(
 				Options = options,
 				Value = value,
 				Padding = "XS",
+				Searchable = true,
 				OnSelect = on_select,
 				layout = {MinSize = Vec2(width, 0), MaxSize = Vec2(width, 0), GrowWidth = 0},
 			}
@@ -835,6 +976,7 @@ local EffectsEditor = react.Component(
 					session.Category,
 					130,
 					|value|-> do
+						effects_editor.Prepare(value)
 						effects_editor.Load(session, value)
 						effects_editor.ApplyPreview(session)
 						h.refresh()
@@ -878,7 +1020,7 @@ local EffectsEditor = react.Component(
 				layout = {Padding = Rect(6, 0, 6, 4)},
 			},
 			ui.Text{
-				Text = session.Status ~= "" and session.Status or problem_text,
+				Text = session.Status ~= "" and session.Status or problem_text ~= "" and problem_text or session.Notes,
 				Color = session.Status ~= "" and "negative" or "text_disabled",
 				Font = "body XS",
 				IgnoreMouseInput = true,

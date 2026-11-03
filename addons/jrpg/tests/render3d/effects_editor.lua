@@ -588,3 +588,87 @@ T.Test3D("the preview block offers the keys that apply to the category and an np
 	effects_editor.SetStage = original
 	T(table.concat(calls, ","))["=="]("npc:antlion_worker,npc:antlion_worker,gizmo:antlion_worker")
 end)
+
+T.Test3D("the source particles category edits a converted pcf system without adding it to the emitter list", function()
+	local effects_editor = import("lua/jrpg/effects_editor.lua")
+	local emitters = import("lua/emitters.lua")
+	local pcf = import("lua/pcf.lua")
+	local system = {
+		name = "test_fire",
+		properties = {max_particles = 64, material = "particle\\fire_particle_1.vmt", radius = 5},
+		operators = {
+			emitters = {{name = "emit_continuously", ["emission_rate"] = 12}},
+			initializers = {
+				{name = "Lifetime Random", lifetime_min = 0.5, lifetime_max = 1.5},
+				{name = "Mystery Operator"},
+			},
+		},
+		children = {{name = "test_embers", delay = 0.5}},
+	}
+	system.file = "test_file"
+	local embers = {
+		name = "test_embers",
+		file = "test_file",
+		properties = {},
+		operators = {},
+		children = {},
+	}
+	local old_cache, old_lookup, old_by_name = pcf.names_cache, pcf.lookup, pcf.by_name
+	pcf.names_cache = {"test_file/test_embers", "test_file/test_fire"}
+	pcf.lookup = {["test_file/test_fire"] = system, ["test_file/test_embers"] = embers}
+	pcf.by_name = {test_fire = "test_file/test_fire", test_embers = "test_file/test_embers"}
+	local children = pcf.GetChildren("test_file/test_fire")
+	T(#children)["=="](1)
+	T(children[1].name)["=="]("test_file/test_embers")
+	T(children[1].delay)["=="](0.5)
+	local names_before = #emitters.Names
+	local session = {LoadId = 0, SelectId = 0, Count = 24}
+	effects_editor.Load(session, "source particles", "test_file/test_fire")
+	T(session.Data.Rate)["=="](12)
+	T(session.Data.ShaderParams.Sprite)["=="]("fire")
+	T(session.Data.Lifetime[2])["=="](1.5)
+	T(session.Notes:find("Mystery Operator", 1, true) ~= nil)["=="](true)
+	T(session.Notes:find("test_embers", 1, true) ~= nil)["=="](true)
+	session.Data.Shader = "sprite"
+	session.Data.ShaderParams = {Sprite = "lua/emitters/hit_force.lua"}
+	T(#effects_editor.GetProblems(session))["=="](0)
+	session.Data.ShaderParams.Sprite = "nothing/here.vtf"
+	T(#effects_editor.GetProblems(session))["=="](1)
+	session.Data.Shader, session.Data.ShaderParams = nil, nil
+	session.Data.Rate = 30
+	T(effects_editor.Apply(session))["=="](true)
+	T(emitters.Files.Source["source test_file/test_fire"].Rate)["=="](30)
+	T(#emitters.Names)["=="](names_before)
+	T(#effects_editor.ListSourceParticles("test_fire"))["=="](1)
+	T(#effects_editor.ListSourceParticles("nothing_like_this"))["=="](0)
+	T(effects_editor.SelectSourceParticle("test_fire"))["=="]("test_file/test_fire")
+	T(effects_editor.LastCategory)["=="]("source particles")
+	T(select(2, effects_editor.SelectSourceParticle("nothing_like_this")))["=="]("no source particle matches nothing_like_this")
+	pcf.names_cache, pcf.lookup, pcf.by_name = old_cache, old_lookup, old_by_name
+	effects_editor.LastCategory, effects_editor.LastName = "damage types", "fire"
+end)
+
+T.Test3D("source particles are only scanned once the source particles category is used", function()
+	local effects_editor = import("lua/jrpg/effects_editor.lua")
+	local pcf = import("lua/pcf.lua")
+	local scans = 0
+	local get_files = pcf.GetFiles
+	local old_cache, old_lookup = pcf.names_cache, pcf.lookup
+	pcf.names_cache, pcf.lookup = nil, nil
+	pcf.GetFiles = function(...)
+		scans = scans + 1
+		return {}
+	end
+	local session = {LoadId = 0, SelectId = 0, Count = 24}
+
+	for _, category in ipairs{"damage types", "status effects", "gpu emitters", "particle shaders"} do
+		effects_editor.Load(session, category)
+	end
+
+	T(scans)["=="](0)
+	effects_editor.Load(session, "source particles")
+	T(scans)[">"](0)
+	pcf.GetFiles = get_files
+	pcf.names_cache, pcf.lookup = old_cache, old_lookup
+	effects_editor.LastCategory, effects_editor.LastName = "damage types", "fire"
+end)

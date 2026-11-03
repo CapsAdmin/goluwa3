@@ -119,6 +119,15 @@ function effects_stage.PlayEmitter(self, name, inputs, count, drive)
 	)
 end
 
+function effects_stage.PlayContinuousEmitter(self, name, inputs)
+	effects_stage.StopDrive(self)
+	local entity = vfx.CreateEmitter("effects_editor_emitter", emitters.Get(name, inputs))
+	entity.transform:SetPosition(self.Chest)
+	return function()
+		if entity:IsValid() then vfx.StopEmitter(entity, DRIVE_LINGER) end
+	end
+end
+
 function effects_stage.PlayClip(self, name, params, drive, release)
 	local clip = clips.Play(name, params)
 
