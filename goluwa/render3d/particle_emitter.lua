@@ -20,6 +20,24 @@ local function ranged(min, max)
 	return {validate = "number", min = min, max = max}
 end
 
+local function validate_range(value, info)
+	if type(value) == "number" then return end
+
+	if
+		type(value) == "table" and
+		type(value[1]) == "number" and
+		type(value[2]) == "number"
+	then
+		return
+	end
+
+	error(string.format("property %q: expected a number or {min, max}", info.var_name), 3)
+end
+
+local function range_value(min, max)
+	return {validate = validate_range, min = min, max = max, type = "nil"}
+end
+
 particle_emitter.common = {
 	{"Visible", true, boolean, "Emission"},
 	{"Playing", true, boolean, "Emission"},
@@ -30,15 +48,13 @@ particle_emitter.common = {
 	{"Shape", "point", particle_emitter.SHAPES, "Shape"},
 	{"ShapeSize", Vec3(1, 1, 1), nil, "Shape"},
 	{"Spread", 20, ranged(0, 180), "Shape"},
-	{"LifetimeMin", 1, ranged(0.01, 60), "Motion"},
-	{"LifetimeMax", 2, ranged(0.01, 60), "Motion"},
-	{"SpeedMin", 1, ranged(0, 100), "Motion"},
-	{"SpeedMax", 3, ranged(0, 100), "Motion"},
+	{"Lifetime", {1, 2}, range_value(0.01, 60), "Motion", "range"},
+	{"Speed", {1, 3}, range_value(0, 100), "Motion", "range"},
 	{"InheritVelocity", 0, ranged(0, 1), "Motion"},
-	{"GravityScale", 1, ranged(-5, 5), "Motion"},
-	{"Drag", 0.1, ranged(0, 20), "Motion"},
-	{"SizeStart", 0.05, ranged(0.001, 10), "Look"},
-	{"SizeEnd", 0.05, ranged(0, 10), "Look"},
+	{"GravityScale", 1, range_value(-5, 5), "Motion", "range"},
+	{"Drag", 0.1, range_value(0, 20), "Motion", "range"},
+	{"SizeStart", 0.05, range_value(0.001, 10), "Look", "range"},
+	{"SizeEnd", 0.05, range_value(0, 10), "Look", "range"},
 	{"OnHit", "bounce", particle_emitter.ON_HIT, "Collision"},
 	{"Restitution", 0.5, ranged(0, 1), "Collision"},
 	{"Friction", 0.2, ranged(0, 1), "Collision"},
@@ -64,13 +80,11 @@ particle_emitter.gpu = {
 	{"Shader", "glow", nil, "Look"},
 	{"ShaderParams", nil, nil, "Look"},
 	{"RatePerMeter", 0, ranged(0, 10000), "Emission"},
-	{"SizeJitter", 0, ranged(0, 1), "Look"},
 	{"FlipbookFps", 0, ranged(0, 120), "Look"},
 	{"FlipbookRandomStart", false, boolean, "Look"},
 	{"Flatten", 0, ranged(0, 1), "Shape"},
 	{"Stretch", 0, ranged(0, 2), "Look"},
-	{"SpinMin", 0, ranged(-720, 720), "Look"},
-	{"SpinMax", 0, ranged(-720, 720), "Look"},
+	{"Spin", 0, range_value(-720, 720), "Look", "range"},
 	{"Collision", "none", particle_emitter.GPU_COLLISIONS, "Collision"},
 }
 particle_emitter.cpu = {
@@ -82,13 +96,31 @@ particle_emitter.cpu = {
 	},
 	{"Mesh", "quad", particle_emitter.MESHES, "Look"},
 	{"Material", nil, {type = "render3d_material"}, "Look"},
-	{"Spin", 0, ranged(-720, 720), "Motion"},
+	{"Spin", 0, range_value(-720, 720), "Motion", "range"},
 	{"FreezeAfter", 0, ranged(0, 60), "Motion"},
 	{"SwayAmount", 0, ranged(0, 10), "Motion"},
 	{"SwayRate", 1, ranged(0, 20), "Motion"},
 	{"RockAngle", 0, ranged(0, 180), "Motion"},
 	{"Collision", "none", particle_emitter.CPU_COLLISIONS, "Collision"},
 }
+
+function particle_emitter.GetRange(value)
+	if type(value) == "number" then return value, value end
+
+	return math.min(value[1], value[2]), math.max(value[1], value[2])
+end
+
+function particle_emitter.ScaleRange(value, factor)
+	if type(value) == "number" then return value * factor end
+
+	return {value[1] * factor, value[2] * factor}
+end
+
+function particle_emitter.AddRange(value, amount)
+	if type(value) == "number" then return value + amount end
+
+	return {value[1] + amount, value[2] + amount}
+end
 
 function particle_emitter.Add(emitter, backend)
 	emitter.particle_backend = backend

@@ -1,5 +1,6 @@
 local data_files = import("goluwa/data_files.lua")
 local Color = import("goluwa/structs/color.lua")
+local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local emitter_data = {}
 emitter_data.MAX_VARIANTS = 16
 local registry = {}
@@ -31,10 +32,14 @@ local function build(data, inputs)
 				if type(value) == "number" then
 					if mode == "set" then
 						properties[property] = value
+					elseif mode == "set_min" then
+						properties[property] = {value, select(2, particle_emitter.GetRange(properties[property]))}
+					elseif mode == "set_max" then
+						properties[property] = {(particle_emitter.GetRange(properties[property])), value}
 					elseif mode == "scale" then
-						properties[property] = properties[property] * value
+						properties[property] = particle_emitter.ScaleRange(properties[property], value)
 					elseif mode == "add" then
-						properties[property] = properties[property] + value
+						properties[property] = particle_emitter.AddRange(properties[property], value)
 					else
 						error("unknown input mode " .. tostring(mode) .. " on " .. input_name)
 					end

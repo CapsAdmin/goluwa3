@@ -7,13 +7,12 @@ return {
 	Drag = 0,
 	Emissive = 200000,
 	GravityScale = 0,
-	LifetimeMax = 0.9,
-	LifetimeMin = 0.9,
+	Lifetime = {0.9, 0.9},
 	Lit = false,
 	SizeEnd = 0.015,
 	SizeStart = 0.015,
-	SpeedMin = 0.1,
+	Speed = 0.1,
 	Inputs = {
-		Strength = {Default = 3, Min = 0.1, Max = 12, Targets = {{"SpeedMax", "set"}}},
+		Strength = {Default = 3, Min = 0.1, Max = 12, Targets = {{"Speed", "set_max"}}},
 	},
 }

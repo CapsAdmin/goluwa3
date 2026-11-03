@@ -45,7 +45,7 @@ return {
 		},
 	},
 	Update = [[
-p.width = mix(e.size_start, e.size_end, 1.0 - pow(1.0 - t, Grow)) * p.sprite.w;
+p.width = emitter_size_at(e, index, p, 1.0 - pow(1.0 - t, Grow)) * p.sprite.w;
 ]],
 	Visibility = [[
 return min(t / FadeIn, 1.0) * (1.0 - smoothstep(FadeStart, 1.0, t));

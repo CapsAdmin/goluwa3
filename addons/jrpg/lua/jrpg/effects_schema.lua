@@ -299,16 +299,16 @@ do
 	}
 	fields.ShaderParams = {}
 	fields.Inputs = {
-		NewKey = {Name = "Input", Template = {Default = 1, Min = 0, Max = 10, Targets = {{"SpeedMax", "set"}}}},
+		NewKey = {Name = "Input", Template = {Default = 1, Min = 0, Max = 10, Targets = {{"Speed", "set_max"}}}},
 		Description = "values the caller passes by name when it plays this emitter (emitters.Burst, emitters.Get), each one sets, scales or adds to properties; a color input has DefaultColor instead of Default and only sets the color",
 	}
 	fields.Targets = {
 		Display = "table",
 		Columns = {
 			{Text = "property", Key = 1, Options = input_targets},
-			{Text = "mode", Key = 2, Options = {"set", "scale", "add"}},
+			{Text = "mode", Key = 2, Options = {"set", "set_min", "set_max", "scale", "add"}},
 		},
-		Template = {"SpeedMax", "set"},
+		Template = {"Speed", "set_max"},
 	}
 	fields.ShapeSize = {Min = 0, Max = 100}
 	keys.Inputs = {}

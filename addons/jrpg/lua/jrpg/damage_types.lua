@@ -19,10 +19,8 @@ damage_types.Names = {
 }
 local DEFAULT_PARTICLES = {
 	Spread = 180,
-	SpeedMin = 0.3,
-	SpeedMax = 1.5,
-	LifetimeMin = 0.2,
-	LifetimeMax = 0.6,
+	Speed = {0.3, 1.5},
+	Lifetime = {0.2, 0.6},
 	SizeStart = 0.04,
 	SizeEnd = 0,
 	Drag = 3,

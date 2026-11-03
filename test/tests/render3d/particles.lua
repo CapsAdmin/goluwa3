@@ -202,8 +202,7 @@ T.Test3D("Graphics render3d particle emitter spawns the number its rate and burs
 		emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 0, -1))
 		emitter:SetRate(0)
 		emitter:SetMaxParticles(500)
-		emitter:SetLifetimeMin(30)
-		emitter:SetLifetimeMax(30)
+		emitter:SetLifetime(30)
 		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
 		step(draw, 3)
 		local def = particle_emitter_gpu.system
@@ -260,10 +259,8 @@ T.Test3D("Graphics render3d particle shaders run their glsl hooks with params, d
 			emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 0, -1))
 			emitter:SetRate(0)
 			emitter:SetMaxParticles(64)
-			emitter:SetLifetimeMin(30)
-			emitter:SetLifetimeMax(30)
-			emitter:SetSpeedMin(0)
-			emitter:SetSpeedMax(0)
+			emitter:SetLifetime(30)
+			emitter:SetSpeed(0)
 			emitter:SetGravityScale(0)
 			emitter:SetDrag(0)
 			emitter:SetShader("test_shader")
@@ -347,10 +344,8 @@ T.Test3D("Graphics render3d particle sprites play flipbook frames, spin, stretch
 			emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 0, -1))
 			emitter:SetRate(0)
 			emitter:SetMaxParticles(64)
-			emitter:SetLifetimeMin(1)
-			emitter:SetLifetimeMax(1)
-			emitter:SetSpeedMin(0)
-			emitter:SetSpeedMax(0)
+			emitter:SetLifetime(1)
+			emitter:SetSpeed(0)
 			emitter:SetGravityScale(0)
 			emitter:SetDrag(0)
 			emitter:SetShader("test_flipbook")
@@ -391,8 +386,7 @@ T.Test3D("Graphics render3d particle sprites play flipbook frames, spin, stretch
 			end
 
 			T(table.count(frames) > 8)["=="](true)
-			emitter:SetSpinMin(90)
-			emitter:SetSpinMax(90)
+			emitter:SetSpin(90)
 			emitter:Burst(32)
 			step(draw, 3)
 			records = particles.Download(def)
@@ -417,8 +411,7 @@ T.Test3D("Graphics render3d particle sprites play flipbook frames, spin, stretch
 
 			T(spun > 16)["=="](true)
 			emitter:SetStretch(0.05)
-			emitter:SetSpinMin(0)
-			emitter:SetSpinMax(0)
+			emitter:SetSpin(0)
 			emitter:Burst(32)
 			step(draw, 3)
 			records = particles.Download(def)
@@ -436,8 +429,7 @@ T.Test3D("Graphics render3d particle sprites play flipbook frames, spin, stretch
 
 			T(stretched)["=="](32)
 			emitter:SetStretch(0)
-			emitter:SetSpeedMin(2)
-			emitter:SetSpeedMax(2)
+			emitter:SetSpeed(2)
 			emitter:SetSpread(120)
 			emitter:SetFlatten(1)
 			emitter:Burst(32)
@@ -468,7 +460,7 @@ T.Test3D("Graphics render3d particle sprites play flipbook frames, spin, stretch
 	if not ok then error(err, 0) end
 end)
 
-T.Test3D("Graphics render3d particle emitter spawns along the path it moved through and jitters the size", function(draw)
+T.Test3D("Graphics render3d particle emitter spawns along the path it moved through and randomizes the size in a range", function(draw)
 	init()
 	local entity
 	local ok, err = pcall(function()
@@ -477,15 +469,12 @@ T.Test3D("Graphics render3d particle emitter spawns along the path it moved thro
 		emitter:SetRate(0)
 		emitter:SetRatePerMeter(100)
 		emitter:SetMaxParticles(512)
-		emitter:SetLifetimeMin(30)
-		emitter:SetLifetimeMax(30)
-		emitter:SetSpeedMin(0)
-		emitter:SetSpeedMax(0)
+		emitter:SetLifetime(30)
+		emitter:SetSpeed(0)
 		emitter:SetGravityScale(0)
 		emitter:SetDrag(0)
-		emitter:SetSizeStart(1)
-		emitter:SetSizeEnd(1)
-		emitter:SetSizeJitter(0.5)
+		emitter:SetSizeStart({0.5, 1.5})
+		emitter:SetSizeEnd({0.5, 1.5})
 		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
 		step_with_update(draw, 3)
 
@@ -535,11 +524,9 @@ T.Test3D("Graphics render3d particle emitter bursts at each queued position", fu
 		emitter:SetRate(0)
 		emitter:SetMaxParticles(200)
 		emitter:SetShape("point")
-		emitter:SetSpeedMin(0)
-		emitter:SetSpeedMax(0)
+		emitter:SetSpeed(0)
 		emitter:SetGravityScale(0)
-		emitter:SetLifetimeMin(30)
-		emitter:SetLifetimeMax(30)
+		emitter:SetLifetime(30)
 		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
 		step(draw, 3)
 		emitter:BurstAt(20, Vec3(-10, 0, -5), Vec3(0, 1, 0))
@@ -582,10 +569,8 @@ local function fire_at_wall(draw, collision)
 		emitter:SetRate(400)
 		emitter:SetMaxParticles(1500)
 		emitter:SetSpread(17)
-		emitter:SetSpeedMin(4)
-		emitter:SetSpeedMax(8)
-		emitter:SetLifetimeMin(1)
-		emitter:SetLifetimeMax(2.5)
+		emitter:SetSpeed({4, 8})
+		emitter:SetLifetime({1, 2.5})
 		emitter:SetCollision(collision)
 		step(draw, 90)
 		local def = particle_emitter_gpu.system
@@ -644,10 +629,8 @@ T.Test3D("Graphics render3d particle emitter in the gbuffer is queued as instanc
 		emitter:SetRate(60)
 		emitter:SetMaxParticles(400)
 		emitter:SetSpread(10)
-		emitter:SetSpeedMin(5)
-		emitter:SetSpeedMax(8)
-		emitter:SetLifetimeMin(20)
-		emitter:SetLifetimeMax(20)
+		emitter:SetSpeed({5, 8})
+		emitter:SetLifetime(20)
 		emitter:SetGravityScale(0)
 		emitter:SetSizeStart(0.2)
 		emitter:SetSizeEnd(0.2)
@@ -688,9 +671,9 @@ T.Test("Graphics render3d particle emitters differ by type in what they have", f
 	T(a.GetRate ~= nil and b.GetRate ~= nil and a.Burst ~= nil and b.Burst ~= nil)["=="](true)
 	T(a.GetColorEnd ~= nil and a.GetEmissive ~= nil and a.GetLit ~= nil)["=="](true)
 	T(b.GetColorEnd == nil and b.GetEmissive == nil and b.GetLit == nil)["=="](true)
-	T(b.GetMesh ~= nil and b.GetMaterial ~= nil and b.GetSpin ~= nil)["=="](true)
+	T(b.GetMesh ~= nil and b.GetMaterial ~= nil and b.GetFreezeAfter ~= nil)["=="](true)
 	T(b.GetColor == nil and b.GetRoughness == nil and b.GetMetallic == nil)["=="](true)
-	T(a.GetMesh == nil and a.GetMaterial == nil and a.GetSpin == nil)["=="](true)
+	T(a.GetMesh == nil and a.GetMaterial == nil and a.GetFreezeAfter == nil)["=="](true)
 	T(pcall(a.SetCollision, a, "scene_depth"))["=="](true)
 	T(pcall(b.SetCollision, b, "scene_depth"))["=="](false)
 	gpu:Remove()
@@ -717,10 +700,8 @@ T.Test3D("Graphics render3d cpu emitter draws refractive materials through the t
 		emitter:SetRate(0)
 		emitter:SetPlaying(false)
 		emitter:SetMaxParticles(50)
-		emitter:SetSpeedMin(0)
-		emitter:SetSpeedMax(0.5)
-		emitter:SetLifetimeMin(20)
-		emitter:SetLifetimeMax(20)
+		emitter:SetSpeed({0, 0.5})
+		emitter:SetLifetime(20)
 		emitter:SetGravityScale(0)
 		emitter:SetSizeStart(0.3)
 		emitter:SetSizeEnd(0.3)
@@ -730,6 +711,142 @@ T.Test3D("Graphics render3d cpu emitter draws refractive materials through the t
 		T(emitter.particle_state.cpu.translucent)["=="](true)
 		T(gbuffer_instancing.GetStats().queued_instances)["=="](0)
 		T(render3d.translucent_depth_far > 0)["=="](true)
+	end)
+
+	if entity then entity:Remove() end
+
+	restore()
+
+	if not ok then error(err, 0) end
+end)
+
+T.Test3D("Graphics render3d particle emitter randomizes drag, gravity and spin per particle inside their ranges", function(draw)
+	init()
+	local entity
+	local ok, err = pcall(function()
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(1, 0, 0))
+		emitter:SetRate(0)
+		emitter:SetPlaying(false)
+		emitter:SetMaxParticles(256)
+		emitter:SetLifetime(30)
+		emitter:SetSpeed(6)
+		emitter:SetSpread(0)
+		emitter:SetGravityScale({0, 2})
+		emitter:SetDrag({0, 3})
+		emitter:SetSizeStart(0.2)
+		emitter:SetSizeEnd(0.2)
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		emitter:Burst(200)
+		step_with_update(draw, 3)
+		step_with_update(draw, 20)
+		local def = particle_emitter_gpu.system
+		local records = particles.Download(def)
+		local min_x, max_x, min_y, max_y = math.huge, -math.huge, math.huge, -math.huge
+
+		for i = 0, def.GetCount() - 1 do
+			local p = records[i]
+
+			if p.life > 0 then
+				min_x = math.min(min_x, p.position[0])
+				max_x = math.max(max_x, p.position[0])
+				min_y = math.min(min_y, p.position[1])
+				max_y = math.max(max_y, p.position[1])
+			end
+		end
+
+		T(max_x - min_x > 1)["=="](true)
+		T(max_y - min_y > 0.5)["=="](true)
+		emitter:SetGravityScale(1)
+		emitter:SetDrag(1)
+		emitter:Restart()
+		emitter:Burst(200)
+		step_with_update(draw, 3)
+		step_with_update(draw, 20)
+		records = particles.Download(def)
+		local fixed_min_y, fixed_max_y = math.huge, -math.huge
+
+		for i = 0, def.GetCount() - 1 do
+			local p = records[i]
+
+			if p.life > 0 and p.age < 1 then
+				fixed_min_y = math.min(fixed_min_y, p.position[1])
+				fixed_max_y = math.max(fixed_max_y, p.position[1])
+			end
+		end
+
+		T(fixed_max_y - fixed_min_y < 0.05)["=="](true)
+	end)
+
+	if entity then entity:Remove() end
+
+	restore()
+
+	if not ok then error(err, 0) end
+end)
+
+T.Test("Graphics render3d particle emitter properties accept a number or a min max range", function()
+	local entity = Entity.New{Name = "range_emitter"}
+	entity:AddComponent("transform")
+	local emitter = entity:AddComponent("particle_emitter_gpu")
+	T(pcall(emitter.SetDrag, emitter, 2))["=="](true)
+	T(pcall(emitter.SetDrag, emitter, {1, 3}))["=="](true)
+	T(pcall(emitter.SetDrag, emitter, "x"))["=="](false)
+	T(pcall(emitter.SetDrag, emitter, {1}))["=="](false)
+	T(pcall(emitter.SetRate, emitter, {1, 2}))["=="](false)
+	local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
+	local low, high = particle_emitter.GetRange(4)
+	T(low)["=="](4)
+	T(high)["=="](4)
+	low, high = particle_emitter.GetRange({5, 2})
+	T(low)["=="](2)
+	T(high)["=="](5)
+	T(particle_emitter.ScaleRange({1, 2}, 3)[2])["=="](6)
+	T(particle_emitter.AddRange(1, 3))["=="](4)
+	entity:Remove()
+	local built = Entity.New{
+		Name = "range_emitter_data",
+		transform = {},
+		particle_emitter_gpu = {Speed = 2, Lifetime = {1, 2}, SizeStart = {0.1, 0.2}, Drag = 3},
+	}
+	T(built.particle_emitter_gpu:GetSpeed())["=="](2)
+	T(built.particle_emitter_gpu:GetLifetime()[2])["=="](2)
+	T(built.particle_emitter_gpu:GetSizeStart()[1])["=="](0.1)
+	built:Remove()
+end)
+
+T.Test3D("Graphics render3d cpu emitter randomizes speed, lifetime, drag and size per particle inside their ranges", function(draw)
+	init()
+	local entity
+	local ok, err = pcall(function()
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_cpu", Vec3(0, 0, -3), Vec3(0, 0, -1))
+		emitter:SetRate(0)
+		emitter:SetPlaying(false)
+		emitter:SetMaxParticles(100)
+		emitter:SetSpread(0)
+		emitter:SetSpeed({1, 5})
+		emitter:SetLifetime({10, 20})
+		emitter:SetGravityScale(0)
+		emitter:SetDrag({0, 2})
+		emitter:SetSizeStart({0.1, 0.3})
+		emitter:SetSizeEnd({0.1, 0.3})
+		emitter:Burst(60)
+		step_with_update(draw, 10)
+		local runtime = emitter.particle_state.cpu
+		local min_life, max_life, min_speed, max_speed = math.huge, -math.huge, math.huge, -math.huge
+
+		for i = 0, runtime.count - 1 do
+			local p = runtime.particles[i]
+			local speed = math.sqrt(p.vx ^ 2 + p.vy ^ 2 + p.vz ^ 2)
+			min_life, max_life = math.min(min_life, p.life), math.max(max_life, p.life)
+			min_speed, max_speed = math.min(min_speed, speed), math.max(max_speed, speed)
+		end
+
+		T(runtime.count)["=="](60)
+		T(min_life >= 10 and max_life <= 20 and max_life - min_life > 4)["=="](true)
+		T(min_speed < 3 and max_speed > 3 and max_speed < 5.01)["=="](true)
 	end)
 
 	if entity then entity:Remove() end

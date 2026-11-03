@@ -101,7 +101,7 @@ T.Test3D("A clip defines the bursts it lists", function()
 		"test_burst",
 		{
 			Duration = 0,
-			Bursts = {test_clip_burst = {MaxParticles = 16, Lit = false, SpeedMin = 1, SpeedMax = 2}},
+			Bursts = {test_clip_burst = {MaxParticles = 16, Lit = false, Speed = {1, 2}}},
 			Events = {{0, Burst = "test_clip_burst", Count = 4, Direction = "normal"}},
 		}
 	)
@@ -157,8 +157,8 @@ T.Test3D("A clip plays emitters named from the registry or written inline, with 
 		{
 			MaxParticles = 16,
 			Rate = 0,
-			SpeedMin = 1,
-			Inputs = {Strength = {Default = 1, Targets = {{"SpeedMax", "set"}}}},
+			Speed = 1,
+			Inputs = {Strength = {Default = 1, Targets = {{"Speed", "set_max"}}}},
 		}
 	)
 	clips.Define(
@@ -175,7 +175,7 @@ T.Test3D("A clip plays emitters named from the registry or written inline, with 
 				},
 				{
 					0,
-					Emitter = {MaxParticles = 8, Rate = 0, SpeedMin = 0.1, SpeedMax = 1},
+					Emitter = {MaxParticles = 8, Rate = 0, Speed = {0.1, 1}},
 					Count = 2,
 					Direction = "normal",
 				},

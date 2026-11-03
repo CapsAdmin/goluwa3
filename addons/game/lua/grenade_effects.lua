@@ -3,6 +3,7 @@ local new_event = import("goluwa/network/replicated_event.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local data_files = import("goluwa/data_files.lua")
+local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local grenade_effects = {}
 local FIRE = Color(1, 0.55, 0.15, 1)
 local EMBER = Color(0.55, 0.08, 0.02, 1)
@@ -157,7 +158,7 @@ end
 
 local function spawn_streamer(streamer, trail, head_radius)
 	streamer.age = -streamer.delay
-	streamer.linger = trail.LifetimeMax + 0.5
+	streamer.linger = select(2, particle_emitter.GetRange(trail.Lifetime)) + 0.5
 	streamer.trail = vfx.CreateEmitter("grenade_streamer", trail)
 	streamer_position.x, streamer_position.y, streamer_position.z = streamer.x, streamer.y, streamer.z
 	streamer.trail.transform:SetPosition(streamer_position)
@@ -172,12 +173,10 @@ local function spawn_streamer(streamer, trail, head_radius)
 				Rate = 60,
 				Shape = "point",
 				Spread = 180,
-				SpeedMin = 0,
-				SpeedMax = 0,
+				Speed = {0, 0},
 				Drag = 0,
 				GravityScale = 0,
-				LifetimeMin = 0.08,
-				LifetimeMax = 0.08,
+				Lifetime = {0.08, 0.08},
 				SizeStart = head_radius * 2,
 				SizeEnd = head_radius * 2,
 				ColorStart = Color(1, 0.4, 0.1, 1),
@@ -195,20 +194,38 @@ local function spawn_streamer(streamer, trail, head_radius)
 	streamers[#streamers + 1] = streamer
 end
 
-local function smoke_trail(rate, jitter, drag, buoyancy, life, radius_start, radius_end, grow, from, to, fade_in, fade_start, spin)
+local function smoke_trail(
+	rate,
+	jitter,
+	drag,
+	buoyancy,
+	life,
+	radius_start,
+	radius_end,
+	grow,
+	from,
+	to,
+	fade_in,
+	fade_start,
+	spin
+)
 	return {
 		Shader = "puff",
-		ShaderParams = {Sprite = "smoke", Grow = grow, ColorCurve = 1, FadeIn = fade_in, FadeStart = fade_start},
+		ShaderParams = {
+			Sprite = "smoke",
+			Grow = grow,
+			ColorCurve = 1,
+			FadeIn = fade_in,
+			FadeStart = fade_start,
+		},
 		MaxParticles = 256,
 		Rate = rate,
 		Shape = "point",
 		Spread = 180,
-		SpeedMin = 0,
-		SpeedMax = jitter * 1.7,
+		Speed = {0, jitter * 1.7},
 		Drag = drag,
 		GravityScale = -buoyancy / GRAVITY,
-		LifetimeMin = life * 0.85,
-		LifetimeMax = life,
+		Lifetime = {life * 0.85, life},
 		SizeStart = radius_start * 1.9,
 		SizeEnd = radius_end * 1.9,
 		ColorStart = from,
@@ -217,8 +234,7 @@ local function smoke_trail(rate, jitter, drag, buoyancy, life, radius_start, rad
 		Emissive = 0,
 		FlipbookFps = 14,
 		FlipbookRandomStart = true,
-		SpinMin = -spin,
-		SpinMax = spin,
+		Spin = {-spin, spin},
 		Collision = "none",
 	}
 end
@@ -242,10 +258,8 @@ local function spawn_arms_and_trails(position, ax, ay, az, k, floor)
 					MaxParticles = 64,
 					Shape = "point",
 					Spread = 0,
-					SpeedMin = 5 * speed,
-					SpeedMax = 9 * speed,
-					LifetimeMin = 0.35,
-					LifetimeMax = 0.6,
+					Speed = {5 * speed, 9 * speed},
+					Lifetime = {0.35, 0.6},
 					Drag = ARM_DRAG,
 					GravityScale = -1.2 * k / GRAVITY,
 					SizeStart = 0.26 * k,
@@ -417,10 +431,8 @@ local function spawn_fireball(position, normal, size)
 					Shape = "point",
 					Spread = style.Flat and 180 or 90,
 					Flatten = style.Flat and 1 or 0,
-					SpeedMin = style.Speed[1] * speed,
-					SpeedMax = style.Speed[2] * speed,
-					LifetimeMin = style.Life[1],
-					LifetimeMax = style.Life[2],
+					Speed = {style.Speed[1] * speed, style.Speed[2] * speed},
+					Lifetime = {style.Life[1], style.Life[2]},
 					Drag = style.Drag,
 					GravityScale = -style.Buoyancy * k / GRAVITY,
 					SizeStart = style.RadiusStart * k * 1.9,
@@ -431,8 +443,7 @@ local function spawn_fireball(position, normal, size)
 					Emissive = flipbook.Normal and 0 or style.Brightness * PUFF_EMISSIVE,
 					FlipbookFps = 16,
 					FlipbookRandomStart = true,
-					SpinMin = -28,
-					SpinMax = 28,
+					Spin = {-28, 28},
 					Collision = "none",
 				}
 			)
@@ -493,10 +504,8 @@ local function init()
 			Bursts = {
 				grenade_sparks = burst{
 					Spread = 160,
-					SpeedMin = 6,
-					SpeedMax = 22,
-					LifetimeMin = 0.4,
-					LifetimeMax = 1.1,
+					Speed = {6, 22},
+					Lifetime = {0.4, 1.1},
 					SizeStart = 0.025,
 					SizeEnd = 0,
 					Drag = 0.3,
@@ -508,10 +517,8 @@ local function init()
 				},
 				grenade_embers = burst{
 					Spread = 180,
-					SpeedMin = 1,
-					SpeedMax = 5,
-					LifetimeMin = 1.5,
-					LifetimeMax = 3,
+					Speed = {1, 5},
+					Lifetime = {1.5, 3},
 					SizeStart = 0.02,
 					SizeEnd = 0,
 					Drag = 1,
@@ -529,10 +536,8 @@ local function init()
 						Mesh = "shard",
 						MaxParticles = 128,
 						Spread = 90,
-						SpeedMin = 4,
-						SpeedMax = 14,
-						LifetimeMin = 1.2,
-						LifetimeMax = 2.2,
+						Speed = {4, 14},
+						Lifetime = {1.2, 2.2},
 						SizeStart = 0.07,
 						SizeEnd = 0.05,
 						GravityScale = 1,
@@ -550,10 +555,8 @@ local function init()
 						Mesh = "cube",
 						MaxParticles = 64,
 						Spread = 70,
-						SpeedMin = 2,
-						SpeedMax = 8,
-						LifetimeMin = 1.5,
-						LifetimeMax = 2.5,
+						Speed = {2, 8},
+						Lifetime = {1.5, 2.5},
 						SizeStart = 0.11,
 						SizeEnd = 0.09,
 						GravityScale = 1,

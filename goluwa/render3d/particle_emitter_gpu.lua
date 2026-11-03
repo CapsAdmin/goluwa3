@@ -158,6 +158,19 @@ gpu.base_declarations = glsl_common.GetNoiseGLSL() .. "#define GPU_EMITTER_COUNT
 			return vec3(dy.z - dz.y, dz.x - dx.z, dx.y - dy.x) / (2.0 * e);
 		}
 
+		vec3 emitter_random_a(emitters_t e, uint index, Particle p) {
+			return pcg3d_unorm(uvec3(index, p.user.x, uint(e.seed) + 32452843u));
+		}
+
+		vec3 emitter_random_b(emitters_t e, uint index, Particle p) {
+			return pcg3d_unorm(uvec3(index, p.user.x, uint(e.seed) + 49979687u));
+		}
+
+		float emitter_size_at(emitters_t e, uint index, Particle p, float f) {
+			vec3 r = emitter_random_a(e, index, p);
+			return mix(mix(e.size_start_min, e.size_start_max, r.y), mix(e.size_end_min, e.size_end_max, r.z), f);
+		}
+
 		vec3 get_random_unit_vector(vec2 r) {
 			float z = r.x * 2.0 - 1.0;
 			float phi = 6.2831853 * r.y;
@@ -205,10 +218,14 @@ gpu.system = particles.Register{
 				{"life_min", "float"},
 				{"life_max", "float"},
 				{"spread", "float"},
-				{"size_start", "float"},
-				{"size_end", "float"},
-				{"gravity", "float"},
-				{"drag", "float"},
+				{"size_start_min", "float"},
+				{"size_start_max", "float"},
+				{"size_end_min", "float"},
+				{"size_end_max", "float"},
+				{"gravity_min", "float"},
+				{"gravity_max", "float"},
+				{"drag_min", "float"},
+				{"drag_max", "float"},
 				{"restitution", "float"},
 				{"friction", "float"},
 				{"emissive", "float"},
@@ -229,7 +246,6 @@ gpu.system = particles.Register{
 				{"spin_max", "float"},
 				{"stretch", "float"},
 				{"flatten", "float"},
-				{"size_jitter", "float"},
 				{"path", "int"},
 				{"shape", "int"},
 				{"collision", "int"},
@@ -287,15 +303,13 @@ gpu.system = particles.Register{
 			write_vec3(entry.shape_size, size.x, size.y, size.z)
 			write_color(entry.color_start, emitter.ColorStart)
 			write_color(entry.color_end, emitter.ColorEnd)
-			entry.speed_min = emitter.SpeedMin
-			entry.speed_max = math.max(emitter.SpeedMax, emitter.SpeedMin)
-			entry.life_min = emitter.LifetimeMin
-			entry.life_max = math.max(emitter.LifetimeMax, emitter.LifetimeMin)
+			entry.speed_min, entry.speed_max = particle_emitter.GetRange(emitter.Speed)
+			entry.life_min, entry.life_max = particle_emitter.GetRange(emitter.Lifetime)
 			entry.spread = math.rad(emitter.Spread)
-			entry.size_start = emitter.SizeStart
-			entry.size_end = emitter.SizeEnd
-			entry.gravity = emitter.GravityScale
-			entry.drag = emitter.Drag
+			entry.size_start_min, entry.size_start_max = particle_emitter.GetRange(emitter.SizeStart)
+			entry.size_end_min, entry.size_end_max = particle_emitter.GetRange(emitter.SizeEnd)
+			entry.gravity_min, entry.gravity_max = particle_emitter.GetRange(emitter.GravityScale)
+			entry.drag_min, entry.drag_max = particle_emitter.GetRange(emitter.Drag)
 			entry.restitution = emitter.Restitution
 			entry.friction = emitter.Friction
 			entry.emissive = emitter.Emissive
@@ -337,11 +351,10 @@ gpu.system = particles.Register{
 			entry.flipbook_frames = 1
 			entry.flipbook_fps = emitter.FlipbookFps
 			entry.flipbook_random = emitter.FlipbookRandomStart and 1 or 0
-			entry.spin_min = math.rad(emitter.SpinMin)
-			entry.spin_max = math.rad(emitter.SpinMax)
+			local spin_min, spin_max = particle_emitter.GetRange(emitter.Spin)
+			entry.spin_min, entry.spin_max = math.rad(spin_min), math.rad(spin_max)
 			entry.stretch = emitter.Stretch
 			entry.flatten = emitter.Flatten
-			entry.size_jitter = emitter.SizeJitter
 
 			if entry.shader ~= 0 then
 				shaders.WriteParams(shader, emitter.ShaderParams, entry.params)
@@ -439,11 +452,10 @@ gpu.system = particles.Register{
 		p.position += p.velocity * elapsed;
 		p.age = elapsed;
 		p.life = mix(e.life_min, e.life_max, r3.z);
-		p.width = e.size_start;
+		p.width = e.size_start_min;
 		p.user.y = slot;
 		p.user.z = uint(e.uid);
-		float size_scale = 1.0 + (r.z * 2.0 - 1.0) * e.size_jitter;
-		p.sprite = e.stretch > 0.0 ? vec4(e.stretch, -float(e.sprite_slot), 0.0, size_scale) : vec4(r.x * 6.2831853, float(e.sprite_slot), 0.0, size_scale);
+		p.sprite = e.stretch > 0.0 ? vec4(e.stretch, -float(e.sprite_slot), 0.0, 1.0) : vec4(r.x * 6.2831853, float(e.sprite_slot), 0.0, 1.0);
 		emitter_shader_spawn(e, index, generation, p);
 	]],
 	update = [[
@@ -456,10 +468,12 @@ gpu.system = particles.Register{
 
 		emitters_t e = emitters_data.emitters[slot];
 		float t = clamp(p.age / p.life, 0.0, 1.0);
-		p.width = mix(e.size_start, e.size_end, t) * p.sprite.w;
+		vec3 random_a = emitter_random_a(e, index, p);
+		vec3 random_b = emitter_random_b(e, index, p);
+		p.width = mix(mix(e.size_start_min, e.size_start_max, random_a.y), mix(e.size_end_min, e.size_end_max, random_a.z), t) * p.sprite.w;
 
 		if (p.sprite.y > 0.0 && (e.spin_min != 0.0 || e.spin_max != 0.0)) {
-			p.sprite.x += mix(e.spin_min, e.spin_max, pcg3d_unorm(uvec3(index, p.user.x, uint(e.seed) + 32452843u)).x) * dt;
+			p.sprite.x += mix(e.spin_min, e.spin_max, random_a.x) * dt;
 		}
 
 		if (e.flipbook_frames > 1) {
@@ -478,7 +492,7 @@ gpu.system = particles.Register{
 			return;
 		}
 
-		p.velocity.y -= 9.81 * e.gravity * dt;
+		p.velocity.y -= 9.81 * mix(e.gravity_min, e.gravity_max, random_b.y) * dt;
 
 		if (e.flow > 0.0) p.velocity += emitter_flow(p.position, e.flow_scale, float(e.seed)) * e.flow * dt;
 
@@ -489,7 +503,7 @@ gpu.system = particles.Register{
 		}
 
 		emitter_shader_update(e, index, dt, t, p);
-		p.velocity *= exp(-e.drag * dt);
+		p.velocity *= exp(-mix(e.drag_min, e.drag_max, random_b.x) * dt);
 		p.position += p.velocity * dt;
 	]],
 	visibility = [[

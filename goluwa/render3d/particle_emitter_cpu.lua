@@ -21,6 +21,7 @@ local Particle = ffi.typeof([[struct {
 	float px, py, pz;
 	float age, life, angle;
 	float kx, ky, kz, phase;
+	float rs, re, rd, rg, rsp;
 	uint32_t stuck;
 }]])
 local ParticleArray = ffi.typeof("$[?]", Particle)
@@ -145,9 +146,8 @@ local function spawn(emitter, state, runtime)
 
 	if radial_x then dx, dy, dz = radial_x, radial_y, radial_z end
 
-	local speed = emitter.SpeedMin + (
-			math.max(emitter.SpeedMax, emitter.SpeedMin) - emitter.SpeedMin
-		) * random(state)
+	local speed_min, speed_max = particle_emitter.GetRange(emitter.Speed)
+	local speed = speed_min + (speed_max - speed_min) * random(state)
 	local inherit = emitter.InheritVelocity
 	local velocity = state.velocity
 	p.x, p.y, p.z = state.position.x + ox, state.position.y + oy, state.position.z + oz
@@ -156,9 +156,9 @@ local function spawn(emitter, state, runtime)
 	dy * speed + velocity.y * inherit,
 	dz * speed + velocity.z * inherit
 	p.age = 0
-	p.life = emitter.LifetimeMin + (
-			math.max(emitter.LifetimeMax, emitter.LifetimeMin) - emitter.LifetimeMin
-		) * random(state)
+	local life_min, life_max = particle_emitter.GetRange(emitter.Lifetime)
+	p.life = life_min + (life_max - life_min) * random(state)
+	p.rs, p.re, p.rd, p.rg, p.rsp = random(state), random(state), random(state), random(state), random(state)
 	p.angle = random(state) * 6.2831853
 	local kz = random(state) * 2 - 1
 	local kphi = random(state) * 6.2831853
@@ -173,8 +173,12 @@ local ray_direction = Vec3()
 
 local function step(emitter, runtime, dt)
 	local particles = runtime.particles
-	local gravity = 9.81 * emitter.GravityScale
-	local drag = math.exp(-emitter.Drag * dt)
+	local gravity_min, gravity_max = particle_emitter.GetRange(emitter.GravityScale)
+	local drag_min, drag_max = particle_emitter.GetRange(emitter.Drag)
+	local spin_min, spin_max = particle_emitter.GetRange(emitter.Spin)
+	local size_start_min, size_start_max = particle_emitter.GetRange(emitter.SizeStart)
+	local size_end_min, size_end_max = particle_emitter.GetRange(emitter.SizeEnd)
+	local fixed_drag = drag_min == drag_max and math.exp(-drag_min * dt)
 	local collides = emitter.Collision == "rays"
 	local on_hit = emitter.OnHit
 	local i = 0
@@ -195,18 +199,25 @@ local function step(emitter, runtime, dt)
 			end
 
 			if p.stuck == 0 then
-				p.vy = p.vy - gravity * dt
+				p.vy = p.vy - 9.81 * (gravity_min + (gravity_max - gravity_min) * p.rg) * dt
+				local drag = fixed_drag or math.exp(-(drag_min + (drag_max - drag_min) * p.rd) * dt)
 				p.vx, p.vy, p.vz = p.vx * drag, p.vy * drag, p.vz * drag
 				p.x, p.y, p.z = p.x + p.vx * dt, p.y + p.vy * dt, p.z + p.vz * dt
-				p.angle = p.angle + math.rad(emitter.Spin) * dt
+				p.angle = p.angle + math.rad(spin_min + (spin_max - spin_min) * p.rsp) * dt
 
 				if emitter.SwayAmount > 0 then
 					local t = p.age * emitter.SwayRate * 6.2831853 * (0.7 + 0.3 * (p.kx + 1))
 					local amount = emitter.SwayAmount * dt
 					local ph = p.phase
-					p.x = p.x + (math.sin(t + ph) + 0.6 * math.sin(t * 2.3 + ph * 1.7) + 0.4 * math.sin(t * 0.43 + ph * 3.1)) * amount
-					p.z = p.z + (math.sin(t * 0.8 + ph * 2.1) + 0.6 * math.sin(t * 1.9 + ph * 0.6) + 0.4 * math.sin(t * 0.37 + ph * 1.3)) * amount
-					p.y = p.y + (math.sin(t * 1.4 + ph * 0.8) + 0.5 * math.sin(t * 3.1 + ph)) * amount * 0.35
+					p.x = p.x + (
+							math.sin(t + ph) + 0.6 * math.sin(t * 2.3 + ph * 1.7) + 0.4 * math.sin(t * 0.43 + ph * 3.1)
+						) * amount
+					p.z = p.z + (
+							math.sin(t * 0.8 + ph * 2.1) + 0.6 * math.sin(t * 1.9 + ph * 0.6) + 0.4 * math.sin(t * 0.37 + ph * 1.3)
+						) * amount
+					p.y = p.y + (
+							math.sin(t * 1.4 + ph * 0.8) + 0.5 * math.sin(t * 3.1 + ph)
+						) * amount * 0.35
 				end
 
 				if collides and rays_left > 0 then
@@ -216,7 +227,9 @@ local function step(emitter, runtime, dt)
 					if distance > 1e-5 then
 						rays_left = rays_left - 1
 						local t = p.age / p.life
-						local radius = (emitter.SizeStart + (emitter.SizeEnd - emitter.SizeStart) * t) * 0.5
+						local size_start = size_start_min + (size_start_max - size_start_min) * p.rs
+						local size_end = size_end_min + (size_end_max - size_end_min) * p.re
+						local radius = (size_start + (size_end - size_start) * t) * 0.5
 						ray_origin.x, ray_origin.y, ray_origin.z = p.px, p.py, p.pz
 						ray_direction.x, ray_direction.y, ray_direction.z = dx, dy, dz
 						local hit = raycast.CastClosest(ray_origin, ray_direction, distance + radius)
@@ -339,6 +352,8 @@ do
 				local sizes = runtime.sizes
 				local quad = emitter.Mesh == "quad"
 				local rock = math.rad(emitter.RockAngle)
+				local size_start_min, size_start_max = particle_emitter.GetRange(emitter.SizeStart)
+				local size_end_min, size_end_max = particle_emitter.GetRange(emitter.SizeEnd)
 				runtime.translucent = translucent
 
 				for i = 0, runtime.count - 1 do
@@ -352,7 +367,12 @@ do
 					end
 
 					local t = p.age / p.life
-					local size = emitter.SizeStart + (emitter.SizeEnd - emitter.SizeStart) * t
+					local size_start = size_start_min + (size_start_max - size_start_min) * p.rs
+					local size = size_start + (
+							size_end_min + (
+								size_end_max - size_end_min
+							) * p.re - size_start
+						) * t
 					local prev_matrix = prev_matrices[i + 1]
 					sizes[i + 1] = size
 
@@ -361,7 +381,9 @@ do
 						write_matrix(prev_matrix, p.px, p.py, p.pz, size, rx, ry, rz, ux, uy, uz, bx, by, bz)
 					elseif rock > 0 then
 						local t = p.age * emitter.SwayRate * 6.2831853 * (0.7 + 0.3 * (p.kx + 1))
-						local theta = -0.9 + rock * (0.7 * math.sin(t * 1.3 + p.phase) + 0.4 * math.sin(t * 2.9 + p.phase * 2.3) + 0.25 * math.sin(t * 0.51 + p.phase * 0.7))
+						local theta = -0.9 + rock * (
+								0.7 * math.sin(t * 1.3 + p.phase) + 0.4 * math.sin(t * 2.9 + p.phase * 2.3) + 0.25 * math.sin(t * 0.51 + p.phase * 0.7)
+							)
 						write_rocking(matrix, p.x, p.y, p.z, size, p.angle, theta)
 						write_rocking(prev_matrix, p.px, p.py, p.pz, size, p.angle, theta)
 					else
@@ -400,7 +422,8 @@ do
 					far = math.max(far, distance)
 				end
 
-				local radius = math.max(emitter.SizeStart, emitter.SizeEnd)
+				local radius = select(2, particle_emitter.GetRange(emitter.SizeStart))
+				radius = math.max(radius, select(2, particle_emitter.GetRange(emitter.SizeEnd)))
 				render3d.ExtendTranslucentDepthRange(near - radius, far + radius)
 
 				if get_material(emitter):GetRefraction() > 0 then

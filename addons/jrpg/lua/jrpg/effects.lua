@@ -95,6 +95,7 @@ local sprites = import("goluwa/render3d/sprites.lua")
 local hitmarkers = import("lua/hitmarkers.lua")
 local particle_shader_library = import("lua/particle_shader_library.lua")
 local emitters = import("lua/emitters.lua")
+local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 particle_shader_library.Init()
 local screen_shake = import("lua/screen_shake.lua")
 local sounds = import("lua/sounds.lua")
@@ -254,10 +255,8 @@ do
 				Shape = "box",
 				ShapeSize = Vec3(1.6, 0.2, 1.6),
 				Spread = 180,
-				SpeedMin = 0.02,
-				SpeedMax = 0.15,
-				LifetimeMin = 1.6,
-				LifetimeMax = 3,
+				Speed = {0.02, 0.15},
+				Lifetime = {1.6, 3},
 				GravityScale = 0.15,
 				Drag = 3,
 				SizeStart = 0.05,
@@ -378,8 +377,7 @@ do
 			local particles = effects.GetParticles(definition)
 
 			if speed ~= 1 then
-				overrides.SpeedMin = particles.SpeedMin * speed
-				overrides.SpeedMax = particles.SpeedMax * speed
+				overrides.Speed = particle_emitter.ScaleRange(particles.Speed, speed)
 			end
 
 			if cut then
@@ -390,8 +388,7 @@ do
 				overrides.Drag = CUT_DRAG
 				overrides.Fizzle = CUT_FIZZLE
 				overrides.FizzleStart = CUT_FIZZLE_START
-				overrides.LifetimeMin = particles.LifetimeMin * CUT_LIFETIME_SCALE * (cut_scale or 1)
-				overrides.LifetimeMax = particles.LifetimeMax * CUT_LIFETIME_SCALE * (cut_scale or 1)
+				overrides.Lifetime = particle_emitter.ScaleRange(particles.Lifetime, CUT_LIFETIME_SCALE * (cut_scale or 1))
 			end
 
 			vfx.DefineBurst(key, effects.GetParticleProperties(definition, overrides))
@@ -823,10 +820,8 @@ function effects.ShowBlock(entity, position, normal, broken)
 				MaxParticles = 256,
 				Lit = false,
 				Spread = 50,
-				SpeedMin = 1,
-				SpeedMax = broken and 6 or 4,
-				LifetimeMin = 0.15,
-				LifetimeMax = 0.5,
+				Speed = {1, broken and 6 or 4},
+				Lifetime = {0.15, 0.5},
 				SizeStart = 0.02,
 				SizeEnd = 0,
 				Drag = 1.5,

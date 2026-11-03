@@ -21,12 +21,10 @@ return {
 	Particles = {
 		Drag = 2,
 		GravityScale = -0.3,
-		LifetimeMax = 1.2,
-		LifetimeMin = 0.6,
+		Lifetime = {0.6, 1.2},
 		SizeEnd = 0,
 		SizeStart = 0.04,
-		SpeedMax = 0.5,
-		SpeedMin = 0.1,
+		Speed = {0.1, 0.5},
 		Spread = 180,
 	},
 }

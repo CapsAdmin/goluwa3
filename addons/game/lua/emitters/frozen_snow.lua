@@ -2,8 +2,7 @@ return {
 	Drag = 3,
 	Emissive = 0,
 	GravityScale = 0.15,
-	LifetimeMax = 2.4,
-	LifetimeMin = 1.2,
+	Lifetime = {1.2, 2.4},
 	Lit = true,
 	Shader = "snow",
 	ShaderParams = {
@@ -16,6 +15,5 @@ return {
 	},
 	SizeEnd = 0.04,
 	SizeStart = 0.04,
-	SpeedMax = 0.15,
-	SpeedMin = 0.02,
+	Speed = {0.02, 0.15},
 }

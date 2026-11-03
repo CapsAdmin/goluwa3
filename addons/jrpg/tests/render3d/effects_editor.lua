@@ -217,12 +217,12 @@ T.Test3D("a particles block starts from the emitter it names and its own keys wi
 	T(frozen.Emitter)["=="](nil)
 	T(frozen.Shader)["=="]("snow")
 	T(frozen.ShaderParams.Sway)["=="](0.35)
-	T(frozen.SpeedMax)["=="](emitters.Get("frozen_snow").SpeedMax)
+	T(frozen.Speed[2])["=="](emitters.Get("frozen_snow").Speed[2])
 	local resolved = effects.GetParticles{
-		ParticleBase = {SpeedMin = 0.3, Spread = 180, Drag = 9},
-		Particles = {Emitter = "frozen_snow", SpeedMin = 0.5, ShaderParams = {Sway = 1}},
+		ParticleBase = {Speed = {0.3, 1}, Spread = 180, Drag = 9},
+		Particles = {Emitter = "frozen_snow", Speed = 0.5, ShaderParams = {Sway = 1}},
 	}
-	T(resolved.SpeedMin)["=="](0.5)
+	T(resolved.Speed)["=="](0.5)
 	T(resolved.Spread)["=="](180)
 	T(resolved.Drag)["=="](3)
 	T(resolved.ShaderParams.Sway)["=="](1)

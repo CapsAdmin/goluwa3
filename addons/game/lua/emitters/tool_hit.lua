@@ -7,11 +7,9 @@ return {
 	Drag = 3,
 	Emissive = 200000,
 	GravityScale = 0,
-	LifetimeMax = 0.35,
-	LifetimeMin = 0.15,
+	Lifetime = {0.15, 0.35},
 	Lit = false,
 	SizeEnd = 0,
 	SizeStart = 0.02,
-	SpeedMax = 2.5,
-	SpeedMin = 0.5,
+	Speed = {0.5, 2.5},
 }
