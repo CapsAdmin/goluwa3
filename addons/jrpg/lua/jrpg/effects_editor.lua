@@ -1,0 +1,762 @@
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Color = import("goluwa/structs/color.lua")
+local Rect = import("goluwa/structs/rect.lua")
+local react = import("goluwa/render2d/ui/react.lua")
+local ui = import("goluwa/render2d/ui/react_ui.lua")
+local Panel = import("goluwa/render2d/ui/panel.lua")
+local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
+local input = import("goluwa/input.lua")
+local system = import("goluwa/system.lua")
+local easing = import("goluwa/math/easing.lua")
+local View = import("goluwa/render3d/view.lua")
+local clips = import("goluwa/render3d/clips.lua")
+local vfx = import("goluwa/render3d/vfx.lua")
+local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
+local data_items = import("lua/data_items.lua")
+local data_schema = import("lua/data_schema.lua")
+local data_history = import("lua/data_history.lua")
+local actors = import("lua/actors.lua")
+local npcs = import("lua/npcs.lua")
+local weapon_effects = import("lua/weapon_effects.lua")
+local grenade_effects = import("lua/grenade_effects.lua")
+local damage_types = import("lua/jrpg/damage_types.lua")
+local status_effects = import("lua/jrpg/status_effects.lua")
+local effects = import("lua/jrpg/effects.lua")
+local effects_schema = import("lua/jrpg/effects_schema.lua")
+local clip_edit = import("lua/jrpg/clip_edit.lua")
+local effects_editor = {}
+local LEFT_WIDTH = 440
+local BOTTOM_HEIGHT = 260
+local UP = Vec3(0, 1, 0)
+local CAMERAS = {"front", "side", "high"}
+local EXPOSURES = {day = 15, dusk = 11, night = 7}
+local EXPOSURE_NAMES = {"day", "dusk", "night"}
+effects_editor.LastCategory = "damage types"
+effects_editor.LastName = "fire"
+effects_editor.CategoryNames = {
+	"damage types",
+	"status effects",
+	"clips",
+	"overlays",
+	"weapon bursts",
+	"grenade puffs",
+	"scripts",
+}
+
+local function play_clip(stage, name, params)
+	params.duration = 2
+	params.position = stage.Chest:Copy()
+	params.color = params.color or Color(1, 0.6, 0.2, 1)
+	clips.Play("jrpg_" .. name, params)
+end
+
+local REF_CATEGORIES = {
+	status = "status effects",
+	damage = "damage types",
+	overlay = "overlays",
+	script = "scripts",
+}
+effects_editor.Categories = {
+	["damage types"] = {
+		Schema = effects_schema.Schemas["damage types"],
+		GetNames = effects_schema.Refs.damage,
+		GetSource = |name|->damage_types.Files.Source[name],
+		Update = |name, data|-> do
+			damage_types.Update(name, data)
+			effects.ResetType(name)
+		end,
+		Reload = damage_types.Reload,
+		Save = damage_types.Save,
+		Play = |stage, name|-> do
+			effects.ShowImpact(stage.Chest, stage.Normal, name, 1.2, false, stage.Normal, 40)
+			effects.ShowHitOverlay(stage.Target, name)
+		end,
+	},
+	["status effects"] = {
+		Schema = effects_schema.Schemas["status effects"],
+		GetNames = effects_schema.Refs.status,
+		GetSource = |name|->status_effects.Files.Source[name],
+		Update = status_effects.Update,
+		Reload = status_effects.Reload,
+		Save = status_effects.Save,
+		Play = |stage, name|-> do
+			status_effects.Set(stage.Target, name, 0.8)
+		end,
+	},
+	clips = {
+		Schema = effects_schema.Schemas.clips,
+		Duration = |data|->data.Duration or 2,
+		GetNames = ||->effects.ClipNames,
+		GetSource = |name|->effects.ClipFiles.Source[name],
+		Update = effects.UpdateClip,
+		Reload = effects.ReloadClip,
+		Save = effects.SaveClip,
+		Play = |stage, name|-> do
+			if name == "impact" then
+				effects.ShowImpact(stage.Chest, stage.Normal, "generic", 1.2, false, stage.Normal, 40)
+			elseif name == "magic_circle" then
+				effects.ShowMagicCircle(stage.Target, Color(0.5, 0.7, 1, 1), 1, 1.5, 1, true)
+			elseif name == "orb" then
+				play_clip(stage, name, {size = 0.3, alpha = 1, flicker = 1, lens_scale = 1})
+			elseif name == "flash" then
+				clips.Play("jrpg_flash", {entity = stage.Target, color = Color(1, 0.3, 0.2, 1), intensity = 1.2, duration = 1})
+			elseif name == "low_health" then
+				clips.Play("jrpg_low_health", {entity = stage.Target, health = stage.Target.health, duration = 2})
+			else
+				play_clip(stage, name, {size = 0.3, fade = 1, flicker = 1, lens_scale = 1, trail_radius = 0.03})
+			end
+		end,
+	},
+	overlays = {
+		Schema = effects_schema.Schemas.overlays,
+		GetNames = ||->surface_overlays.GetKindNames(),
+		GetSource = |name|->surface_overlays.DefaultFiles.Source[name],
+		Update = surface_overlays.SetDefaults,
+		Reload = surface_overlays.ReloadDefaults,
+		Save = surface_overlays.SaveDefaults,
+		Play = |stage, name|-> do
+			effects.PlayOverlay(stage.Target, name, {Duration = 3})
+		end,
+	},
+	["weapon bursts"] = {
+		Schema = effects_schema.Schemas["weapon bursts"],
+		GetNames = ||->{"weapon_bursts"},
+		GetSource = ||->weapon_effects.BurstFiles.Source.weapon_bursts,
+		Update = |name, data|->weapon_effects.UpdateBursts(data),
+		Reload = weapon_effects.ReloadBursts,
+		Save = weapon_effects.SaveBursts,
+		Play = |stage|-> do
+			weapon_effects.Init()
+
+			for _, name in ipairs(weapon_effects.BurstNames) do
+				vfx.Burst(name, stage.Chest, stage.Normal, 24)
+			end
+		end,
+	},
+	["grenade puffs"] = {
+		Schema = effects_schema.Schemas["grenade puffs"],
+		Duration = ||->6,
+		GetNames = ||->{"grenade_puffs"},
+		GetSource = ||->grenade_effects.PuffFiles.Source.grenade_puffs,
+		Update = |name, data|->grenade_effects.UpdatePuffs(data),
+		Reload = grenade_effects.ReloadPuffs,
+		Save = grenade_effects.SavePuffs,
+		Play = |stage|-> do
+			grenade_effects.Explode(stage.Ground, UP, 3)
+		end,
+	},
+	scripts = {
+		ReadOnly = true,
+		Schema = {Refs = effects_schema.Refs, Fields = {}},
+		GetNames = effects_schema.Refs.script,
+		GetSource = |name|-> do
+			local script = clips.Scripts[name]
+			local functions, used_by = {}, {}
+
+			for key in pairs(script) do
+				functions[#functions + 1] = key
+			end
+
+			table.sort(functions)
+
+			for _, clip_name in ipairs(effects.ClipNames) do
+				if effects_editor.UsesScript(effects.ClipFiles.Source[clip_name], name) then
+					used_by[#used_by + 1] = clip_name
+				end
+			end
+
+			return {functions = functions, used_by = used_by}
+		end,
+	},
+}
+
+function effects_editor.UsesScript(value, name)
+	if value == name then return true end
+
+	if type(value) == "table" then
+		for _, child in pairs(value) do
+			if effects_editor.UsesScript(child, name) then return true end
+		end
+	end
+
+	return false
+end
+
+function effects_editor.GetProblems(session)
+	local category = effects_editor.Categories[session.Category]
+
+	if category.ReadOnly then return {} end
+
+	return data_schema.Check(category.Schema, session.Data)
+end
+
+function effects_editor.Load(session, category_name, name)
+	local category = effects_editor.Categories[category_name]
+	session.Category = category_name
+	session.Name = name or category.GetNames()[1]
+	session.Data = table.copy(category.GetSource(session.Name))
+	session.History = data_history.New(session.Data)
+	session.Status = ""
+	session.Selection = nil
+	session.LoadId = session.LoadId + 1
+	session.Problems = effects_editor.GetProblems(session)
+	effects_editor.LastCategory, effects_editor.LastName = session.Category, session.Name
+end
+
+function effects_editor.Apply(session)
+	local category = effects_editor.Categories[session.Category]
+
+	if category.ReadOnly then return false end
+
+	local ok, err = pcall(category.Update, session.Name, table.copy(session.Data))
+	session.Status = ok and "" or tostring(err):gsub("^.-:%d+: ", "")
+	session.Problems = effects_editor.GetProblems(session)
+	return ok
+end
+
+function effects_editor.Commit(session, force)
+	session.History:Commit(session.Data, system.GetElapsedTime(), force)
+	effects_editor.Apply(session)
+end
+
+function effects_editor.Step(session, redo)
+	local data = redo and session.History:DoRedo() or session.History:DoUndo()
+
+	if not data then return end
+
+	session.Data = data
+	session.Selection = nil
+	session.LoadId = session.LoadId + 1
+	effects_editor.Apply(session)
+end
+
+function effects_editor.Play(session)
+	local category = effects_editor.Categories[session.Category]
+
+	if category.Play then
+		local ok, err = pcall(category.Play, session.Stage, session.Name)
+		session.Status = ok and "" or tostring(err)
+		session.PlayStart = system.GetElapsedTime()
+	end
+end
+
+function effects_editor.GetDuration(session)
+	local duration = effects_editor.Categories[session.Category].Duration
+
+	return duration and duration(session.Data) or 1.5
+end
+
+function effects_editor.SetCamera(session, name)
+	local stage = session.Stage
+	local offsets = {front = Vec3(0, 0.5, 3.6), side = Vec3(3.6, 0.5, 0), high = Vec3(0, 3, 3)}
+	local forward, right = stage.Forward, Vec3(stage.Forward.z, 0, -stage.Forward.x)
+	local offset = offsets[name]
+	local eye = stage.Anchor + forward * -offset.z + right * offset.x + Vec3(0, 1 + offset.y, 0)
+	local direction = (stage.Chest - eye):GetNormalized()
+	session.View:SetPosition(eye)
+	session.View:SetRotation(QuatDeg3(math.deg(math.asin(direction.y)), math.deg(math.atan2(-direction.x, -direction.z)), 0))
+	stage.Normal = (eye - stage.Chest):GetNormalized()
+	session.Camera = name
+end
+
+function effects_editor.CreateSession()
+	local rig = assert(_G.PLAYER_RIG, "the effects editor previews in front of the local player")
+	local forward = actors.GetForward(rig):Copy()
+	forward.y = 0
+	forward = forward:GetNormalized()
+	local anchor = rig.transform:GetPosition() + forward * 5
+	local target = npcs.Spawn("citizen", anchor, 0)
+	target.ai_controller.Wander = false
+	local session = {
+		LoadId = 0,
+		SelectId = 0,
+		Loop = true,
+		Exposure = "day",
+		Stage = {
+			Target = target,
+			Anchor = anchor,
+			Forward = forward,
+			Chest = anchor + Vec3(0, 1.2, 0),
+			Ground = anchor,
+			Normal = forward * -1,
+		},
+	}
+	session.View = View.New{
+		Priority = 1000,
+		ExposureLock = EXPOSURES.day,
+		HidePlayer = false,
+		HideHud = true,
+	}
+	session.View:Activate()
+	effects_editor.SetCamera(session, "front")
+	effects_editor.Load(session, effects_editor.LastCategory, effects_editor.LastName)
+	return session
+end
+
+function effects_editor.DestroySession(session)
+	session.View:Remove()
+
+	if session.Stage.Target:IsValid() then session.Stage.Target:Remove() end
+end
+
+function effects_editor.BuildItems(session, h)
+	local category = effects_editor.Categories[session.Category]
+	local options = {
+		Changed = h.changed,
+		Restructured = h.restructured,
+		Schema = category.Schema,
+		Open = h.open,
+		CanOpen = |ref|->REF_CATEGORIES[ref] ~= nil,
+	}
+	local items = data_items.Build(session.Data, options)
+	local selection = session.Selection
+
+	if selection then
+		local children
+
+		if selection.Track then
+			local key = session.Data.Tracks[selection.Track][selection.Index]
+			local ease_names = {{Text = "(none)", Value = "(none)"}}
+
+			for _, name in ipairs(effects_schema.Refs.easing()) do
+				ease_names[#ease_names + 1] = {Text = name, Value = name}
+			end
+
+			children = {
+				{
+					Key = "key/time",
+					Text = "time",
+					Type = "number",
+					Value = key[1],
+					Precision = 3,
+					ShowStepper = true,
+					OnChange = |_, value|-> do
+						clip_edit.MoveKey(session.Data, {Track = selection.Track}, selection.Index, value)
+						h.changed()
+					end,
+				},
+				{
+					Key = "key/value",
+					Text = "value",
+					Type = "number",
+					Value = key[2],
+					Precision = 3,
+					ShowStepper = true,
+					OnChange = |_, value|-> do
+						key[2] = value
+						h.changed()
+					end,
+				},
+				{
+					Key = "key/ease",
+					Text = "ease",
+					Type = "enum",
+					Value = type(key[3]) == "string" and not clips.IsExpression(key[3]) and key[3] or "(none)",
+					Options = ease_names,
+					OnChange = |_, value|-> do
+						key[3] = value ~= "(none)" and value or nil
+						h.changed()
+					end,
+				},
+			}
+		else
+			children = data_items.BuildTable(session.Data.Events[selection.Index], options, "/key", "Events")
+		end
+
+		table.insert(items, 1, {Key = "/selected", Text = "selected key", Expanded = true, Children = children})
+	end
+
+	return items
+end
+
+function effects_editor.BuildMenu(session, h)
+	return {
+		{
+			Text = "FILE",
+			Items = ||-> {
+				MenuItem{
+					Text = "save",
+					Icon = "save",
+					OnClick = ||-> do
+						local category = effects_editor.Categories[session.Category]
+
+						if category.Save and effects_editor.Apply(session) then
+							session.Status = "saved " .. category.Save(session.Name)
+						end
+
+						h.refresh()
+					end,
+				},
+				MenuItem{
+					Text = "revert to file",
+					Icon = "file",
+					OnClick = ||-> do
+						local category = effects_editor.Categories[session.Category]
+
+						if category.Reload then
+							category.Reload(session.Name)
+							effects_editor.Load(session, session.Category, session.Name)
+						end
+
+						h.refresh()
+					end,
+				},
+				MenuItem{Text = "close", Icon = "close", OnClick = ||->h.close()},
+			},
+		},
+	}
+end
+
+local function is_typing()
+	local objects = import("goluwa/objects/objects.lua")
+	local focused = objects:GetFocusedObject()
+	return focused and focused:IsValid() and tostring(focused.Type):find("text") ~= nil
+end
+
+local EffectsEditor = react.Component(
+	|props|-> do
+		local version, set_version = react.UseState(0)
+		local session = react.UseResource(effects_editor.CreateSession, effects_editor.DestroySession, {})
+		local properties = react.UseRef()
+		local h = react.UseMemo(
+			||-> do
+				local h = {}
+
+				function h.refresh()
+					set_version(|value|->value + 1)
+				end
+
+				function h.changed()
+					effects_editor.Commit(session, false)
+					h.refresh()
+				end
+
+				function h.restructured(keep_selection)
+					if keep_selection ~= true then session.Selection = nil end
+
+					session.LoadId = session.LoadId + 1
+					effects_editor.Commit(session, true)
+					h.refresh()
+				end
+
+				function h.open(ref, name)
+					local category = REF_CATEGORIES[ref]
+
+					if category then
+						effects_editor.Load(session, category, name)
+						h.refresh()
+					end
+				end
+
+				function h.close()
+					props.OnClose()
+				end
+
+				function h.select(selection)
+					session.Selection = selection
+					session.SelectId = session.SelectId + 1
+					h.refresh()
+				end
+
+				return h
+			end,
+			{}
+		)
+		react.UseEvent(
+			"Update",
+			||-> do
+				local now = system.GetElapsedTime()
+
+				if session.PlayStart then
+					local duration = effects_editor.GetDuration(session)
+
+					if now - session.PlayStart > duration + 0.4 then
+						session.PlayStart = nil
+
+						if session.Loop then effects_editor.Play(session) end
+					end
+
+					h.refresh()
+				end
+			end
+		)
+		react.UseEvent(
+			"KeyInput",
+			|key, press|-> do
+				if not press or is_typing() then return end
+
+				if key == "space" then
+					effects_editor.Play(session)
+					h.refresh()
+					return true
+				end
+
+				if input.IsControlDown() and (key == "z" or key == "y") then
+					effects_editor.Step(session, key == "y")
+					h.refresh()
+					return true
+				end
+			end
+		)
+		local menu = react.UseMemo(||->effects_editor.BuildMenu(session, h), {})
+		local items = react.UseMemo(
+			||->effects_editor.BuildItems(session, h),
+			{session.LoadId, session.SelectId}
+		)
+		local category = effects_editor.Categories[session.Category]
+		local screen = Panel.World.transform:GetSize()
+		local is_clip = session.Category == "clips"
+		local rows = is_clip and clip_edit.Rows(session.Data)
+		local playhead = session.PlayStart and
+			math.clamp((system.GetElapsedTime() - session.PlayStart) / effects_editor.GetDuration(session), 0, 1) or
+			0
+		local selected_row
+
+		if is_clip and session.Selection then
+			for i, row in ipairs(rows) do
+				for j, key in ipairs(row.Keys) do
+					if
+						(
+							session.Selection.Track and
+							key.Track == session.Selection.Track and
+							key.Index == session.Selection.Index
+						) or
+						(
+							session.Selection.Event and
+							key.Event and
+							key.Index == session.Selection.Index
+						)
+					then
+						selected_row = {i, j}
+					end
+				end
+			end
+		end
+
+		local function dropdown(key, options, value, width, on_select)
+			return ui.Dropdown{
+				Key = key,
+				Options = options,
+				Value = value,
+				Padding = "XS",
+				OnSelect = on_select,
+				layout = {MinSize = Vec2(width, 0), MaxSize = Vec2(width, 0), GrowWidth = 0},
+			}
+		end
+
+		local problem_text = session.Problems[1] and
+			(#session.Problems .. " reference problems: " .. session.Problems[1]) or
+			""
+		return ui.Window{
+			Title = "EFFECTS EDITOR",
+			Name = "effects editor",
+			RequestMouse = true,
+			Size = Vec2(LEFT_WIDTH, screen.y),
+			Position = Vec2(0, 0),
+			Padding = Rect(),
+			Minimizable = false,
+			Maximizable = false,
+			layout = {FitHeight = false, FitWidth = false},
+			OnClose = props.OnClose,
+		}{
+			ui.MenuBar{MenuKey = "EffectsEditorMenuBarContextMenu", Items = menu, layout = {GrowWidth = 1}},
+			ui.Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center", Padding = Rect() + 6}}{
+				dropdown(
+					"category",
+					effects_editor.CategoryNames,
+					session.Category,
+					130,
+					|value|-> do
+						effects_editor.Load(session, value)
+						h.refresh()
+					end
+				),
+				dropdown(
+					"name" .. session.Category,
+					category.GetNames(),
+					session.Name,
+					130,
+					|value|-> do
+						effects_editor.Load(session, session.Category, value)
+						h.refresh()
+					end
+				),
+				category.Play and ui.Button{
+					Text = "Play",
+					Mode = "outline",
+					Tooltip = "space",
+					OnClick = ||-> do
+						effects_editor.Play(session)
+						h.refresh()
+					end,
+				},
+				ui.Checkbox{Text = "Loop", Value = session.Loop, OnChange = |value|-> do
+					session.Loop = value
+				end},
+			},
+			ui.Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center", Padding = Rect() + 6}}{
+				dropdown(
+					"camera",
+					CAMERAS,
+					session.Camera,
+					90,
+					|value|-> do
+						effects_editor.SetCamera(session, value)
+						h.refresh()
+					end
+				),
+				dropdown(
+					"exposure",
+					EXPOSURE_NAMES,
+					session.Exposure,
+					90,
+					|value|-> do
+						session.Exposure = value
+						session.View:SetExposureLock(EXPOSURES[value])
+					end
+				),
+				not category.ReadOnly and ui.Button{
+					Text = "Undo",
+					Mode = "outline",
+					Tooltip = "ctrl+z",
+					OnClick = ||-> do
+						effects_editor.Step(session, false)
+						h.refresh()
+					end,
+				},
+				not category.ReadOnly and ui.Button{
+					Text = "Redo",
+					Mode = "outline",
+					Tooltip = "ctrl+y",
+					OnClick = ||-> do
+						effects_editor.Step(session, true)
+						h.refresh()
+					end,
+				},
+			},
+			ui.Text{
+				Text = session.Status ~= "" and session.Status or problem_text,
+				Color = session.Status ~= "" and "negative" or "text_disabled",
+				Font = "body XS",
+				IgnoreMouseInput = true,
+				layout = {GrowWidth = 1},
+			},
+			ui.ScrollablePanel{ScrollX = false, ScrollY = true, Padding = "none", layout = {GrowWidth = 1, GrowHeight = 1}}{
+				ui.Panel{
+					Name = "PropertyEditorFrame",
+					transform = true,
+					layout = {
+						GrowWidth = 1,
+						FitHeight = true,
+						FitWidth = false,
+						MinSize = Vec2(LEFT_WIDTH - 24, 0),
+						Padding = Rect(2, 2, 2, 2),
+					},
+				}{
+					ui.PropertyEditor{
+						Ref = properties,
+						Items = items,
+						layout = {GrowWidth = 1, GrowHeight = 1, FitWidth = false, MinSize = Vec2(LEFT_WIDTH - 28, 0)},
+					},
+				},
+			},
+			is_clip and react.Portal{Target = Panel.World}{
+				ui.Window{
+					Key = "EffectsEditorTimeline",
+					Title = "TIMELINE",
+					Name = "effects editor timeline",
+					RequestMouse = true,
+					Size = Vec2(screen.x - LEFT_WIDTH, BOTTOM_HEIGHT),
+					Position = Vec2(LEFT_WIDTH, screen.y - BOTTOM_HEIGHT),
+					Padding = Rect(),
+					Closable = false,
+					Minimizable = false,
+					Maximizable = false,
+					layout = {FitHeight = false, FitWidth = false},
+				}{
+					ui.Column{
+						layout = {
+							GrowWidth = 1,
+							GrowHeight = 1,
+							FitHeight = false,
+							AlignmentX = "stretch",
+							ChildGap = 6,
+							Padding = Rect() + 8,
+						},
+					}{
+						ui.Row{layout = {GrowWidth = 1, ChildGap = 8, AlignmentY = "center"}}{
+							ui.Button{
+								Text = "Delete key",
+								Mode = "outline",
+								OnClick = ||-> do
+									if session.Selection then
+										clip_edit.RemoveKey(session.Data, session.Selection)
+										h.restructured()
+									end
+								end,
+							},
+							ui.Text{
+								Text = "click empty space on a row to add a key, drag to move, click a key to edit it",
+								Color = "text_disabled",
+								Font = "body XS",
+								IgnoreMouseInput = true,
+								layout = {GrowWidth = 1},
+							},
+						},
+						ui.Timeline{
+							Rows = rows,
+							Time = playhead,
+							Selection = selected_row,
+							OnSelect = |row, index|-> do
+								local key = row and rows[row].Keys[index]
+								h.select(key and {Track = key.Track, Event = key.Event and true, Index = key.Index} or nil)
+							end,
+							OnKeyMove = |row, index, time|-> do
+								clip_edit.MoveKey(session.Data, rows[row], index, time)
+								h.changed()
+
+								if properties.current and rows[row].Track then
+									properties.current:UpdateValueForKey("key/time", time)
+								end
+							end,
+							OnKeyDrop = ||-> do
+								if session.Data.Events then
+									local event = session.Selection and session.Selection.Event and
+										session.Data.Events[session.Selection.Index]
+									clip_edit.SortEvents(session.Data)
+
+									if event then
+										for index, other in ipairs(session.Data.Events) do
+											if other == event then session.Selection.Index = index end
+										end
+									end
+								end
+
+								h.restructured(true)
+							end,
+							OnKeyAdd = |row, time|-> do
+								local selection = clip_edit.AddKey(session.Data, rows[row], time)
+
+								if selection then
+									h.restructured(true)
+									h.select(selection)
+								end
+							end,
+							layout = {GrowWidth = 1, GrowHeight = 1},
+						},
+					},
+				},
+			},
+		}
+	end
+)
+
+function effects_editor.Create()
+	local root
+
+	root = react.Mount(EffectsEditor{OnClose = ||->root:Unmount()}, Panel.World)
+	return root:GetEntity()
+end
+
+return effects_editor

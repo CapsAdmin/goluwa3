@@ -77,6 +77,17 @@ do
 		glsl[name] = source
 	end
 
+	function vfx.GetTextureNames()
+		local names = {}
+
+		for name in pairs(glsl) do
+			names[#names + 1] = name
+		end
+
+		table.sort(names)
+		return names
+	end
+
 	function vfx.GetTexture(name)
 		if textures[name] then return textures[name] end
 
@@ -104,6 +115,17 @@ end
 do
 	local flipbooks = {}
 	local definitions = {}
+
+	function vfx.GetFlipbookNames()
+		local names = {}
+
+		for name in pairs(definitions) do
+			names[#names + 1] = name
+		end
+
+		table.sort(names)
+		return names
+	end
 
 	function vfx.RegisterFlipbook(name, definition)
 		definitions[name] = definition
