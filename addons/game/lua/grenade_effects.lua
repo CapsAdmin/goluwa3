@@ -1,6 +1,7 @@
 local new_event = import("goluwa/network/replicated_event.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local data_files = import("goluwa/data_files.lua")
 local grenade_effects = {}
 local FIRE = Color(1, 0.55, 0.15, 1)
 local EMBER = Color(0.55, 0.08, 0.02, 1)
@@ -28,89 +29,23 @@ local function burst(properties)
 	return properties
 end
 
-local PUFF_STYLES = {
-	{
-		Flipbook = "fire",
-		Count = 12,
-		Spawn = 0.25,
-		Lift = 0.5,
-		Speed = {1.5, 4},
-		Drag = 3,
-		Buoyancy = 1,
-		Life = {0.45, 0.8},
-		Delay = 0,
-		RadiusStart = 0.5,
-		RadiusEnd = 1.5,
-		Grow = 2.2,
-		From = {1, 0.9, 0.6},
-		To = {1, 0.55, 0.2},
-		ColorCurve = 0.7,
-		Brightness = 9,
-		FadeIn = 0.05,
-		FadeStart = 0.25,
-	},
-	{
-		Flipbook = "fire",
-		Count = 34,
-		Spawn = 0.5,
-		Lift = 0.5,
-		Speed = {3, 8},
-		Drag = 2.6,
-		Buoyancy = 2,
-		Life = {0.8, 1.5},
-		Delay = 0.03,
-		RadiusStart = 0.8,
-		RadiusEnd = 2.2,
-		Grow = 2,
-		From = {1, 0.5, 0.1},
-		To = {0.45, 0.06, 0.01},
-		ColorCurve = 0.6,
-		Brightness = 4,
-		FadeIn = 0.08,
-		FadeStart = 0.4,
-	},
-	{
-		Flipbook = "smoke",
-		Count = 34,
-		Spawn = 0.9,
-		Lift = 1,
-		Speed = {2, 5},
-		Drag = 1.6,
-		Buoyancy = 1.8,
-		Life = {3.5, 5.5},
-		Delay = 0.35,
-		RadiusStart = 1,
-		RadiusEnd = 3,
-		Grow = 1.4,
-		From = {0.045, 0.04, 0.036},
-		To = {0.16, 0.156, 0.151},
-		ColorCurve = 0.6,
-		Brightness = 1,
-		FadeIn = 0.1,
-		FadeStart = 0.5,
-	},
-	{
-		Flipbook = "smoke",
-		Flat = true,
-		Count = 22,
-		Spawn = 0.3,
-		Lift = 0.15,
-		Speed = {5, 9},
-		Drag = 3.5,
-		Buoyancy = 0.2,
-		Life = {1.2, 2},
-		Delay = 0,
-		RadiusStart = 0.5,
-		RadiusEnd = 1.6,
-		Grow = 1.6,
-		From = {0.5, 0.43, 0.33},
-		To = {0.55, 0.5, 0.42},
-		ColorCurve = 1,
-		Brightness = 1,
-		FadeIn = 0.1,
-		FadeStart = 0.45,
-	},
-}
+grenade_effects.PuffFiles = data_files.New("lua/effect_data/")
+local puff_styles
+
+function grenade_effects.UpdatePuffs(data)
+	grenade_effects.PuffFiles:Remember("grenade_puffs", data)
+	puff_styles = table.copy(data.Styles)
+end
+
+function grenade_effects.ReloadPuffs()
+	grenade_effects.UpdatePuffs(grenade_effects.PuffFiles:Read("grenade_puffs"))
+end
+
+function grenade_effects.SavePuffs()
+	return grenade_effects.PuffFiles:Save("grenade_puffs")
+end
+
+grenade_effects.UpdatePuffs(import("lua/effect_data/grenade_puffs.lua"))
 local TRACE_COUNT = 24
 local TRACE_DIRECTIONS = {}
 local trace_fractions = {}
@@ -362,7 +297,7 @@ local function spawn_fireball(position, normal, size)
 	local floor = ny > 0.7 and position.y + 0.1 or nil
 	local ax, ay, az = trace_blast(position, normal, size * 1.5)
 
-	for _, style in ipairs(PUFF_STYLES) do
+	for _, style in ipairs(puff_styles) do
 		local lift = style.Lift * k
 
 		for i = 1, style.Count do

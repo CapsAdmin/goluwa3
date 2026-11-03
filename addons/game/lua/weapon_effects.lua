@@ -1,6 +1,7 @@
 local new_event = import("goluwa/network/replicated_event.lua")
 local Color = import("goluwa/structs/color.lua")
 local clients = import("goluwa/network/clients.lua")
+local data_files = import("goluwa/data_files.lua")
 local weapon_effects = {}
 local FLASH_LUMEN = 40
 local FLASH_TIME = 0.06
@@ -35,76 +36,38 @@ local function enabled()
 	return RENDER_3D and import("goluwa/render/render.lua").IsInitialized()
 end
 
+weapon_effects.BurstFiles = data_files.New("lua/effect_data/")
+weapon_effects.BurstFiles:Remember("weapon_bursts", import("lua/effect_data/weapon_bursts.lua"))
+weapon_effects.BurstNames = {"tool_hit", "muzzle_flash", "hit_position", "hit_normal"}
+
+function weapon_effects.UpdateBursts(data)
+	vfx = vfx or import("goluwa/render3d/vfx.lua")
+	weapon_effects.BurstFiles:Remember("weapon_bursts", data)
+
+	for _, name in ipairs(weapon_effects.BurstNames) do
+		vfx.DefineBurst(name, burst(data_files.Realize(table.copy(data[name]))))
+	end
+end
+
+function weapon_effects.ReloadBursts()
+	weapon_effects.UpdateBursts(weapon_effects.BurstFiles:Read("weapon_bursts"))
+end
+
+function weapon_effects.SaveBursts()
+	return weapon_effects.BurstFiles:Save("weapon_bursts")
+end
+
 local function init()
 	if clips then return end
 
 	vfx = import("goluwa/render3d/vfx.lua")
 	clips = import("goluwa/render3d/clips.lua")
 	Beam = import("goluwa/render3d/beam.lua")
-	vfx.DefineBurst(
-		"tool_hit",
-		burst{
-			Spread = 50,
-			SpeedMin = 0.5,
-			SpeedMax = 2.5,
-			LifetimeMin = 0.15,
-			LifetimeMax = 0.35,
-			SizeStart = 0.02,
-			SizeEnd = 0,
-			Drag = 3,
-			Emissive = 2e5,
-			ColorStart = Color(0.5, 0.85, 1, 1),
-			ColorEnd = Color(0.2, 0.5, 1, 0),
-		}
-	)
-	vfx.DefineBurst(
-		"muzzle_flash",
-		burst{
-			Spread = 14,
-			SpeedMin = 3,
-			SpeedMax = 9,
-			LifetimeMin = 0.03,
-			LifetimeMax = 0.08,
-			SizeStart = 0.035,
-			SizeEnd = 0,
-			Drag = 2,
-			Emissive = 3e5,
-			ColorStart = Color(1, 0.8, 0.4, 1),
-			ColorEnd = Color(1, 0.35, 0.1, 0),
-		}
-	)
+	weapon_effects.UpdateBursts(weapon_effects.BurstFiles.Source.weapon_bursts)
 	clips.Define(
 		"weapon_hit",
 		{
 			Duration = 0,
-			Bursts = {
-				hit_position = burst{
-					Spread = 180,
-					SpeedMin = 0.2,
-					SpeedMax = 1,
-					LifetimeMin = 0.25,
-					LifetimeMax = 0.5,
-					SizeStart = 0.025,
-					SizeEnd = 0,
-					Drag = 4,
-					Emissive = 2e5,
-					ColorStart = Color(1, 1, 0.7, 1),
-					ColorEnd = Color(1, 0.8, 0.2, 0),
-				},
-				hit_normal = burst{
-					Spread = 0,
-					SpeedMin = 0.1,
-					SpeedMax = 0.9,
-					LifetimeMin = 0.9,
-					LifetimeMax = 0.9,
-					SizeStart = 0.015,
-					SizeEnd = 0.015,
-					Drag = 0,
-					Emissive = 2e5,
-					ColorStart = Color(0.2, 0.9, 1, 1),
-					ColorEnd = Color(0.2, 0.9, 1, 0),
-				},
-			},
 			Events = {
 				{0, Burst = "hit_position", Count = 24, Direction = "normal"},
 				{0, Burst = "hit_normal", Count = 16, Direction = "normal"},
@@ -142,6 +105,7 @@ local function init()
 	)
 end
 
+weapon_effects.Init = init
 weapon_effects.MuzzleFlash = new_event(
 	"weapon_muzzle_flash",
 	function(weapon, direction)
