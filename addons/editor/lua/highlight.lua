@@ -8,7 +8,7 @@ local system = import("goluwa/system.lua")
 local highlight = {}
 highlight.entity = NULL
 local MAX_GROUP_TARGETS = 400
-local MAX_UPLOADS_PER_FRAME = 900
+local MAX_UPLOADS_PER_FRAME = 480
 local targets = {}
 
 function highlight.SetEntity(entity)
@@ -92,6 +92,8 @@ event.AddListener("Draw3DForwardOverlay", "highlight", function()
 			render3d.SetWorldMatrix(ent.transform:GetWorldMatrix())
 
 			for _, polygon3d in ipairs((ent.brush or ent.displacement or ent.static_mesh):GetPolygons()) do
+				if uploads >= MAX_UPLOADS_PER_FRAME then break end
+
 				render3d.UploadForwardOverlayConstants()
 				polygon3d:Draw()
 				uploads = uploads + 1
