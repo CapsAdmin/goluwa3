@@ -106,16 +106,21 @@ function gpu.GetRanges()
 	return ranges
 end
 
-local function resolve_texture(name)
-	if type(name) ~= "string" then return name end
+local function resolve_sprite(name)
+	if type(name) ~= "string" then return name, 1, 1 end
 
 	local vfx = import("goluwa/render3d/vfx.lua")
 
-	if table.has_value(vfx.GetTextureNames(), name) then
-		return vfx.GetTexture(name)
+	if table.has_value(vfx.GetFlipbookNames(), name) then
+		local flipbook = vfx.GetFlipbook(name)
+		return flipbook.Texture, flipbook.Columns, flipbook.Rows
 	end
 
-	return import("goluwa/assets.lua").GetTexture(name)
+	if table.has_value(vfx.GetTextureNames(), name) then
+		return vfx.GetTexture(name), 1, 1
+	end
+
+	return import("goluwa/assets.lua").GetTexture(name), 1, 1
 end
 
 local function write_vec3(target, x, y, z)
@@ -216,6 +221,9 @@ gpu.system = particles.Register{
 				{"params", "vec4", styles.PARAM_FLOATS / 4},
 				{"style", "int"},
 				{"sprite_slot", "int"},
+				{"flipbook_frames", "int"},
+				{"flipbook_fps", "float"},
+				{"flipbook_random", "int"},
 				{"shape", "int"},
 				{"collision", "int"},
 				{"on_hit", "int"},
@@ -292,6 +300,9 @@ gpu.system = particles.Register{
 			local style = emitter.Style
 			entry.style = styles.GetId(style)
 			entry.sprite_slot = 0
+			entry.flipbook_frames = 1
+			entry.flipbook_fps = emitter.FlipbookFps
+			entry.flipbook_random = emitter.FlipbookRandomStart and 1 or 0
 
 			if entry.style ~= 0 then
 				styles.WriteParams(style, emitter.StyleParams, entry.params)
@@ -308,10 +319,13 @@ gpu.system = particles.Register{
 
 					if range.sprite_name ~= name then
 						range.sprite_name = name
-						range.sprite_texture = resolve_texture(name)
+						range.sprite_texture, range.sprite_columns, range.sprite_rows = resolve_sprite(name)
 					end
 
-					entry.sprite_slot = range.sprite_texture and particles.GetSpriteSlot(range.sprite_texture) or 0
+					if range.sprite_texture then
+						entry.sprite_slot = particles.GetSpriteSlot(range.sprite_texture, range.sprite_columns, range.sprite_rows)
+						entry.flipbook_frames = range.sprite_columns * range.sprite_rows
+					end
 				end
 			end
 
@@ -388,6 +402,17 @@ gpu.system = particles.Register{
 		emitters_t e = emitters_data.emitters[slot];
 		float t = clamp(p.age / p.life, 0.0, 1.0);
 		p.width = mix(e.size_start, e.size_end, t) * p.sprite.w;
+
+		if (e.flipbook_frames > 1) {
+			float frames = float(e.flipbook_frames);
+
+			if (e.flipbook_fps > 0.0) {
+				float start = e.flipbook_random != 0 ? floor(pcg3d_unorm(uvec3(index, p.user.x, uint(e.seed) + 15485863u)).x * frames) : 0.0;
+				p.sprite.z = mod(start + floor(p.age * e.flipbook_fps), frames);
+			} else {
+				p.sprite.z = min(floor(t * frames), frames - 1.0);
+			}
+		}
 
 		if (p.spare != 0u) {
 			p.velocity = vec3(0.0);

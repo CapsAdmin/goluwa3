@@ -42,8 +42,9 @@ local PARTICLE_BYTES = 96
 particles.MAX_SPRITE_TEXTURES = 16
 particles.systems = {}
 local sprite_textures = {}
+local sprite_grids = {}
 
-function particles.GetSpriteSlot(texture)
+function particles.GetSpriteSlot(texture, columns, rows)
 	for index, other in ipairs(sprite_textures) do
 		if other == texture then return index end
 	end
@@ -53,6 +54,7 @@ function particles.GetSpriteSlot(texture)
 		"too many particle sprite textures"
 	)
 	sprite_textures[#sprite_textures + 1] = texture
+	sprite_grids[#sprite_textures] = {columns, rows}
 	return #sprite_textures
 end
 
@@ -759,6 +761,7 @@ local draw_block = {
 		{"dt", "float"},
 		{"layer_active", "int"},
 		{"sprite_textures", "int", particles.MAX_SPRITE_TEXTURES},
+		{"sprite_grids", "vec4", particles.MAX_SPRITE_TEXTURES},
 		pools_and_systems,
 	},
 	write = function(self, block)
@@ -768,6 +771,8 @@ local draw_block = {
 
 		for index, texture in ipairs(sprite_textures) do
 			block.sprite_textures[index - 1] = self:GetTextureIndex(texture)
+			block.sprite_grids[index - 1][0] = sprite_grids[index][1]
+			block.sprite_grids[index - 1][1] = sprite_grids[index][2]
 		end
 
 		post_source.WritePreExposureBlock(self, block)
@@ -835,7 +840,7 @@ local function get_vertex_glsl(layer)
 				out_alpha = system.coverage_scale * p.visibility;
 				out_shape = vec3(sprite_across, sprite_along, -1.0);
 				out_motion = get_particle_screen_motion(sprite_position, sprite_position - p.velocity * particle_draw.dt);
-				out_sprite = vec2(p.sprite.y - 1.0, 0.0);
+				out_sprite = vec2(p.sprite.y - 1.0, p.sprite.z);
 				gl_Position = particle_draw.projection * particle_draw.view * vec4(sprite_position, 1.0);
 				return;
 			}
@@ -870,7 +875,17 @@ end
 
 local coverage_glsl = [[
 	vec4 get_particle_sprite() {
-		return texture(TEXTURE(particle_draw.sprite_textures[int(in_sprite.x + 0.5)]), in_shape.xy * 0.5 + 0.5);
+		int slot = int(in_sprite.x + 0.5);
+		vec2 grid = particle_draw.sprite_grids[slot].xy;
+		float frames = grid.x * grid.y;
+		vec2 uv = in_shape.xy * 0.5 + 0.5;
+
+		if (frames > 1.5) {
+			float frame = mod(floor(in_sprite.y + 0.5), frames);
+			uv = (vec2(mod(frame, grid.x), floor(frame / grid.x)) + uv) / grid;
+		}
+
+		return texture(TEXTURE(particle_draw.sprite_textures[slot]), uv);
 	}
 
 	vec3 get_particle_tint() {

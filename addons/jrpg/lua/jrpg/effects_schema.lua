@@ -1,3 +1,4 @@
+local list = import("goluwa/list.lua")
 local clips = import("goluwa/render3d/clips.lua")
 local easing = import("goluwa/math/easing.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
@@ -39,6 +40,7 @@ local refs = {
 	texture = ||->vfx.GetTextureNames(),
 	particle_style = ||->particle_style_library.Names,
 	flipbook = ||->vfx.GetFlipbookNames(),
+	sprite = ||->list.extend(vfx.GetFlipbookNames(), vfx.GetTextureNames()),
 	script = ||->sorted_names(clips.Scripts),
 	easing = ||->sorted_names(easing),
 	layer_type = LAYER_TYPES,
@@ -294,7 +296,7 @@ function effects_schema.WithStyleParams(schema, data)
 	for _, param in ipairs(particle_style_library.GetParams(style)) do
 		local field = {Description = param.Description, Min = param.Min, Max = param.Max}
 
-		if param.Type == "texture" then field.Ref = "texture" end
+		if param.Type == "texture" then field.Ref = "sprite" end
 
 		fields["Params." .. param.Name] = field
 		keys[param.Name] = table.copy(param.Default)

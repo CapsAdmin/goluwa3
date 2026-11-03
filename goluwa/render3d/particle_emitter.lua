@@ -63,6 +63,8 @@ particle_emitter.gpu = {
 	{"SaturationJitter", 0, ranged(0, 1), "Look"},
 	{"Style", "glow", nil, "Look"},
 	{"StyleParams", nil, nil, "Look"},
+	{"FlipbookFps", 0, ranged(0, 120), "Look"},
+	{"FlipbookRandomStart", false, boolean, "Look"},
 	{"Collision", "none", particle_emitter.GPU_COLLISIONS, "Collision"},
 }
 particle_emitter.cpu = {

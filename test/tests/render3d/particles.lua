@@ -330,6 +330,80 @@ T.Test3D("Graphics render3d particle styles run their glsl hooks with params, dr
 	if not ok then error(err, 0) end
 end)
 
+T.Test3D("Graphics render3d particle sprites play flipbook frames over life or at a frame rate", function(draw)
+	particle_styles.Register(
+		"test_flipbook",
+		{
+			Params = {{Name = "Sprite", Type = "texture", Default = "smoke"}},
+			Sprite = "Sprite",
+		}
+	)
+	particles.Recompile()
+	init()
+	local entity
+	local ok, err = xpcall(
+		function()
+			local emitter
+			emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 0, -1))
+			emitter:SetRate(0)
+			emitter:SetMaxParticles(64)
+			emitter:SetLifetimeMin(1)
+			emitter:SetLifetimeMax(1)
+			emitter:SetSpeedMin(0)
+			emitter:SetSpeedMax(0)
+			emitter:SetGravityScale(0)
+			emitter:SetDrag(0)
+			emitter:SetStyle("test_flipbook")
+			render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+			step(draw, 3)
+			emitter:Burst(32)
+			step(draw, 12)
+			local def = particle_emitter_gpu.system
+			local records = particles.Download(def)
+			local checked = 0
+
+			for i = 0, def.GetCount() - 1 do
+				local p = records[i]
+
+				if p.life > 0 then
+					checked = checked + 1
+					T(math.abs(p.sprite[2] - math.floor(p.age / p.life * 64)) <= 1)["=="](true)
+					T(p.sprite[2] > 8)["=="](true)
+				end
+			end
+
+			T(checked)["=="](32)
+			emitter:SetFlipbookFps(30)
+			emitter:SetFlipbookRandomStart(true)
+			emitter:Burst(32)
+			step(draw, 4)
+			records = particles.Download(def)
+			local frames = {}
+
+			for i = 0, def.GetCount() - 1 do
+				local p = records[i]
+
+				if p.life > 0 and p.age < STEP * 6 then
+					local frame = p.sprite[2]
+					T(frame >= 0 and frame < 64 and frame == math.floor(frame))["=="](true)
+					frames[frame] = true
+				end
+			end
+
+			T(table.count(frames) > 8)["=="](true)
+		end,
+		debug.traceback
+	)
+
+	if entity then entity:Remove() end
+
+	particle_styles.Remove("test_flipbook")
+	particles.Recompile()
+	restore()
+
+	if not ok then error(err, 0) end
+end)
+
 T.Test3D("Graphics render3d particle emitter bursts at each queued position", function(draw)
 	init()
 	local entity
