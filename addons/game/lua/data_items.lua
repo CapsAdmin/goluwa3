@@ -1,5 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Vec4 = import("goluwa/structs/vec4.lua")
 local Color = import("goluwa/structs/color.lua")
 local data_files = import("goluwa/data_files.lua")
 local data_schema = import("lua/data_schema.lua")
@@ -112,16 +113,24 @@ local function make_leaf(data, key, value, item_path, field, options)
 			item.ShowSlider = field.Max ~= nil
 		end
 	elseif kind == "string" then
-		item.Type = field and field.Sound and "sound" or "string"
+		item.Type = field and field.Sound and "sound" or field and field.Code and "code" or "string"
+
+		if item.Type == "code" then
+			item.CodeLanguage = field.Code
+			item.GetStatus = field.GetStatus and
+				function()
+					return field.GetStatus(data, options)
+				end
+		end
 	elseif kind == "boolean" then
 		item.Type = "boolean"
 	elseif data_files.IsColorKey(key) and kind == "table" and is_numbers(value, 3, 4) then
 		item.Type = "color"
 		item.Value = Color(value[1], value[2], value[3], value[4] or 1)
-	elseif kind == "table" and is_numbers(value, 2, 3) then
-		item.Type = #value == 2 and "vec2" or "vec3"
+	elseif kind == "table" and is_numbers(value, 2, 4) then
+		item.Type = ("vec%d"):format(#value)
 		item.Precision = 3
-		item.Value = (#value == 2 and Vec2 or Vec3)(unpack(value))
+		item.Value = (#value == 2 and Vec2 or #value == 3 and Vec3 or Vec4)(unpack(value))
 	else
 		return nil
 	end
@@ -139,11 +148,19 @@ local function make_leaf(data, key, value, item_path, field, options)
 			data[key] = {new.x, new.y}
 		elseif item.Type == "vec3" then
 			data[key] = {new.x, new.y, new.z}
+		elseif item.Type == "vec4" then
+			data[key] = {new.x, new.y, new.z, new.w}
 		else
 			data[key] = new
 		end
 
-		options.Changed()
+		if field and field.OnSet then field.OnSet(data, new) end
+
+		if field and field.Restructure then
+			options.Restructured(true)
+		else
+			options.Changed()
+		end
 	end
 	return item
 end

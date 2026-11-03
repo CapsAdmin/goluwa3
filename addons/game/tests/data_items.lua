@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
+local Vec4 = import("goluwa/structs/vec4.lua")
 local data_items = import("lua/data_items.lua")
 
 T.Test("data items edit a plain table in place and skip functions", function()
@@ -17,6 +18,9 @@ T.Test("data items edit a plain table in place and skip functions", function()
 		Pairs = {{1, 2}, {3, 4}},
 		Cue = "ambient/fire/ignite.wav",
 		Cues = {"a.wav", "b.wav"},
+		Hook = "return 1.0;",
+		Box = {1, 2, 3, 4},
+		Particles = {Style = "a", Params = {X = 1}},
 	}
 	local played = {}
 	local changes = 0
@@ -35,9 +39,23 @@ T.Test("data items edit a plain table in place and skip functions", function()
 			PlaySound = function(path)
 				played[#played + 1] = path
 			end,
+			Name = "x",
 			Schema = {
 				Refs = {kind = {"a", "b"}},
 				Fields = {
+					Hook = {
+						Code = "glsl",
+						GetStatus = function(_, options)
+							return "status " .. options.Name
+						end,
+					},
+					["Particles.Style"] = {
+						Options = {"a", "b"},
+						Restructure = true,
+						OnSet = function(particles, name)
+							particles.Params = {Y = 2}
+						end,
+					},
 					Cue = {Sound = true},
 					["Cues[]"] = {Sound = true},
 					Mode = {Ref = "kind"},
@@ -66,6 +84,26 @@ T.Test("data items edit a plain table in place and skip functions", function()
 	T(by_text.Mode.Type)["=="]("enum")
 	T(by_text.Mode.Options[1].Text)["=="]("c (missing)")
 	T(by_text.Mode.RowButtons)["=="](nil)
+	T(by_text.Hook.Type)["=="]("code")
+	T(by_text.Hook.CodeLanguage)["=="]("glsl")
+	T(by_text.Hook.GetStatus())["=="]("status x")
+	T(by_text.Box.Type)["=="]("vec4")
+	by_text.Box.OnChange(nil, Vec4(4, 3, 2, 1))
+	T(data.Box[1])["=="](4)
+	T(data.Box[4])["=="](1)
+	local style
+
+	for _, group in ipairs(items) do
+		for _, child in ipairs(group.Text == "Particles" and group.Children or {}) do
+			if child.Text == "Style" then style = child end
+		end
+	end
+
+	local restructures_before = restructured
+	style.OnChange(nil, "b")
+	T(data.Particles.Style)["=="]("b")
+	T(data.Particles.Params.Y)["=="](2)
+	T(restructured)["=="](restructures_before + 1)
 	T(by_text.Cue.Type)["=="]("sound")
 	by_text.Cue.PlayAction("x.wav")
 	T(played[1])["=="]("x.wav")
@@ -125,5 +163,5 @@ T.Test("data items edit a plain table in place and skip functions", function()
 	T(table_list.Display)["=="]("table")
 	table_list.Items[2].Cells[2].OnChange(nil, 9)
 	T(data.Pairs[2][2])["=="](9)
-	T(restructured)["=="](8)
+	T(restructured)["=="](9)
 end)
