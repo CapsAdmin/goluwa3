@@ -179,3 +179,29 @@ T.Test("AddGlobalEvent return values propagate through entity-like property flow
 	T(no_convert)["=="](nil)
 	theme_obj:RemoveEvent("OnEntitySetProperty")
 end)
+
+T.Test("AddGlobalEvent survives every registered object removing itself during dispatch", function()
+	local META = objects.CreateTemplate("test_global_event_remove_all")
+	META:GetSet("Val", 0)
+	META:Register()
+	local first = objects.CreateObject(META)
+	local second = objects.CreateObject(META)
+	local calls = 0
+	first:AddGlobalEvent("Test_RemoveAll", {func_name = "OnTestRemoveAll"})
+	second:AddGlobalEvent("Test_RemoveAll", {func_name = "OnTestRemoveAll"})
+
+	function first:OnTestRemoveAll()
+		calls = calls + 1
+		first:RemoveEvent("Test_RemoveAll")
+		second:RemoveEvent("Test_RemoveAll")
+	end
+
+	function second:OnTestRemoveAll()
+		calls = calls + 1
+	end
+
+	event.Call("Test_RemoveAll")
+	T(calls)["=="](1)
+	event.Call("Test_RemoveAll")
+	T(calls)["=="](1)
+end)

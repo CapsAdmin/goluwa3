@@ -432,7 +432,11 @@ do
 					local ra, rb, rc, rd, re
 
 					for i = 1, #events[event_type] do
-						local self = events[event_type][i]
+						local registered = events[event_type]
+
+						if not registered then break end
+
+						local self = registered[i]
 
 						if self then
 							local func = self[func_name]
