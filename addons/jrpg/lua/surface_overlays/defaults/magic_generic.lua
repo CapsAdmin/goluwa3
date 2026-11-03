@@ -7,5 +7,7 @@ return {
 	Daylight = 1,
 	ColorA = {1, 1, 1, 1},
 	ColorB = {1, 1, 1, 1},
-	Params = {1.4, 6.5, 0.5},
+	Emissive = 1.4,
+	PatternScale = 6.5,
+	Bump = 0.5,
 }

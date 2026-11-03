@@ -1,5 +1,8 @@
 return {
 	name = "status_confused",
+	params = {
+		{Name = "Emissive", Min = 0, Max = 40},
+	},
 	glsl = [[
 		vec4 n = overlay_noise_at(c, vec3(0.0, t * 0.1, 0.0), l.scale);
 		float angle = atan(c.P.z, c.P.x);
@@ -7,7 +10,7 @@ return {
 		float band = smoothstep(0.55, 0.95, swirl);
 		float stars = smoothstep(0.88, 0.95, n.r) * (0.5 + 0.5 * sin(t * 6.0 + n.a * 40.0));
 		vec3 color = mix(l.color_a.rgb, overlay_hue(fract(angle / 6.2831853 + t * 0.15)), 0.35);
-		s.emissive += (color * (band * 0.8 + pow(1.0 - c.ndv, 2.5) * 0.4) + l.color_b.rgb * stars * 1.6) * fade * l.params.x;
+		s.emissive += (color * (band * 0.8 + pow(1.0 - c.ndv, 2.5) * 0.4) + l.color_b.rgb * stars * 1.6) * fade * emissive;
 		overlay_cover(s, fade * (band * 0.4 + 0.1));
 	]],
 }

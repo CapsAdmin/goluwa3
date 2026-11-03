@@ -1,9 +1,14 @@
 return {
 	name = "status_poison",
+	params = {
+		{Name = "Emissive", Min = 0, Max = 40},
+		{Name = "BumpStrength", Min = 0, Max = 4},
+		{Name = "WarpAmount", Min = 0, Max = 1},
+	},
 	glsl = [[
 		vec4 warp_a = overlay_noise_at(c, vec3(t * 0.04, 0.0, 0.0), l.scale * 0.3);
 		vec4 warp_b = overlay_noise_at(c, vec3(0.0, t * 0.04, 7.0), l.scale * 0.3);
-		vec3 warp = (vec3(warp_a.r, warp_a.g, warp_b.r) - 0.5) * l.params.z;
+		vec3 warp = (vec3(warp_a.r, warp_a.g, warp_b.r) - 0.5) * warp_amount;
 		float inside = 0.0;
 		float rim = 0.0;
 		vec3 gradient = vec3(0.0);
@@ -27,13 +32,13 @@ return {
 		float burst = smoothstep(fizz_radius - 0.05, fizz_radius - 0.01, fizz.nearest) * (1.0 - smoothstep(fizz_radius - 0.01, fizz_radius + 0.015, fizz.nearest)) * pop * (1.0 - pop) * 4.0 * hosts;
 		gradient += fizz.offset * (body * 2.0 * 0.5 * l.scale * 7.0);
 
-		overlay_bump_gradient(s, c, gradient * fade, l.params.y);
+		overlay_bump_gradient(s, c, gradient * fade, bump_strength);
 		vec3 slime = s.albedo * vec3(0.45, 0.8, 0.35) + l.color_a.rgb * 0.06;
 		s.albedo = mix(s.albedo, mix(slime, l.color_a.rgb * 0.35, inside * 0.6), fade * 0.65);
 		overlay_set_roughness(s, 0.04, fade * max(inside, 0.4));
 		add_surface_film(w, fade * 0.6, 0.02);
 		float glow = inside * 0.05 + rim * 0.8 + pow(1.0 - c.ndv, 3.0) * 0.3;
-		s.emissive += (l.color_a.rgb * glow + l.color_b.rgb * (body * 0.45 + burst * 2.2)) * fade * l.params.x;
+		s.emissive += (l.color_a.rgb * glow + l.color_b.rgb * (body * 0.45 + burst * 2.2)) * fade * emissive;
 		overlay_cover(s, fade * (0.35 + inside * 0.35 + body * 0.2));
 	]],
 }

@@ -1,5 +1,8 @@
 return {
 	name = "void_rift",
+	params = {
+		{Name = "Emissive", Min = 0, Max = 40},
+	},
 	glsl = [[
 		vec4 big = overlay_noise_at(c, vec3(0.0, t * 0.04, 0.0), l.scale);
 		vec4 fine = overlay_noise_at(c, vec3(t * 0.05, 0.0, 0.0), l.scale * 2.7);
@@ -12,7 +15,7 @@ return {
 		float fine_crack = 1.0 - smoothstep(0.0, 0.06, fine.b);
 		float pulse = 0.65 + 0.35 * sin(t * 2.2 + big.a * 25.0);
 		float motes = smoothstep(0.93, 1.0, fine.g) * (0.5 + 0.5 * sin(t * 5.0 + fine.a * 60.0));
-		s.emissive += l.color_a.rgb * (crack * pulse + fine_crack * 0.35 + motes * 1.5) * m * l.params.x;
+		s.emissive += l.color_a.rgb * (crack * pulse + fine_crack * 0.35 + motes * 1.5) * m * emissive;
 		s.emissive += l.color_a.rgb * pow(1.0 - c.ndv, 4.0) * 0.6 * m;
 		s.ao = mix(s.ao, 1.0, m * 0.5);
 		overlay_cover(s, m * 0.95);

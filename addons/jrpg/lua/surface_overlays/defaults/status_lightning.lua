@@ -7,5 +7,7 @@ return {
 	Daylight = 1,
 	ColorA = {0.55, 0.7, 1.0, 1},
 	ColorB = {1, 1, 1, 1},
-	Params = {7, 0.9, 1.6},
+	Emissive = 7,
+	Jitter = 0.9,
+	BoltScale = 1.6,
 }

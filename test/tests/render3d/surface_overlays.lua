@@ -151,3 +151,24 @@ T.Test3D("a surface overlay layer can take its noise position from the uv", func
 	surface_overlays.Clear(sphere.visual)
 	sphere:Remove()
 end)
+
+T.Test3D("surface overlay params are named per kind and a config overrides the default", function()
+	local sphere = shapes.Sphere{
+		Position = Vec3(0, 0, 0),
+		Radius = 1,
+		Material = shapes.Material{Color = Color(1, 1, 1, 1), Roughness = 0.5, Metallic = 0},
+		Collision = false,
+		RigidBody = false,
+	}
+	local defaults = surface_overlays.DefaultFiles.Source.radiant
+	local plain = surface_overlays.Add(sphere.visual, "radiant")
+	local custom = surface_overlays.Add(sphere.visual, "radiant", {RayCount = 3})
+	T(math.abs(plain.layer.params[0] - defaults.Emissive))["<"](1e-6)
+	T(math.abs(plain.layer.params[1] - defaults.RayCount))["<"](1e-6)
+	T(math.abs(custom.layer.params[0] - defaults.Emissive))["<"](1e-6)
+	T(custom.layer.params[1])["=="](3)
+	T(custom.layer.params[2])["=="](0)
+	T(#surface_overlays.GetParams("charred"))["=="](0)
+	surface_overlays.Clear(sphere.visual)
+	sphere:Remove()
+end)

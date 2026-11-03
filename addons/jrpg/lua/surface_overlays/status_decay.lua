@@ -1,5 +1,9 @@
 return {
 	name = "status_decay",
+	params = {
+		{Name = "Emissive", Min = 0, Max = 40},
+		{Name = "TiltAmount", Min = 0, Max = 2},
+	},
 	glsl = [[
 		vec4 big = overlay_noise(c, l.scale);
 		vec4 fine = overlay_noise(c, l.scale * 3.1);
@@ -16,8 +20,8 @@ return {
 		s.albedo = mix(s.albedo, mix(l.color_b.rgb, l.color_a.rgb * 0.1, fine.r), cover * 0.9);
 		s.metallic *= 1.0 - cover;
 		overlay_set_roughness(s, 0.22, cover);
-		overlay_tilt(s, wobble * l.params.y, cover);
-		s.emissive += l.color_a.rgb * (frontier * 1.2 + pow(1.0 - c.ndv, 3.0) * 0.5 * fade) * l.params.x;
+		overlay_tilt(s, wobble * tilt_amount, cover);
+		s.emissive += l.color_a.rgb * (frontier * 1.2 + pow(1.0 - c.ndv, 3.0) * 0.5 * fade) * emissive;
 		s.ao *= 1.0 - cover * 0.4;
 		overlay_cover(s, cover);
 	]],

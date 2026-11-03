@@ -1,5 +1,8 @@
 return {
 	name = "crystallize",
+	params = {
+		{Name = "Emissive", Min = 0, Max = 40},
+	},
 	glsl = [[
 		vec4 big = overlay_noise(c, l.scale);
 		vec4 fine = overlay_noise(c, l.scale * 4.3);
@@ -12,7 +15,7 @@ return {
 		float edge = 1.0 - smoothstep(0.0, 0.07, big.b);
 		float glint = 0.5 + 0.5 * sin(t * 3.0 + big.a * 40.0);
 		float front = exp(-pow((grow * 1.25 - c.height - (fine.g - 0.5) * 0.3) * 9.0, 2.0)) * (1.0 - grow);
-		s.emissive += l.color_a.rgb * (edge * glint * 0.6 + front * 1.5 + pow(1.0 - c.ndv, 3.0) * 0.35) * m * l.params.x;
+		s.emissive += l.color_a.rgb * (edge * glint * 0.6 + front * 1.5 + pow(1.0 - c.ndv, 3.0) * 0.35) * m * emissive;
 		add_surface_film(w, m, 0.0004);
 		overlay_cover(s, m * 0.9);
 	]],

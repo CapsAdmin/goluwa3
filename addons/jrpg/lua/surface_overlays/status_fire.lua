@@ -1,5 +1,8 @@
 return {
 	name = "status_fire",
+	params = {
+		{Name = "Emissive", Min = 0, Max = 40},
+	},
 	glsl = [[
 		float flame_time = t * 0.8;
 		vec3 uvw = c.P * l.scale + vec3(0.0, -flame_time, flame_time * 0.5);
@@ -20,7 +23,7 @@ return {
 		float de = length(flow.xyz) * 0.4 + 0.2 - flow.w * 0.3;
 		vec3 flame = overlay_hsv(vec3((de - 0.375) * 0.2083, de * 1.25 + 0.2, de * 0.95));
 		float heat = smoothstep(0.5, 0.95, de);
-		s.emissive += flame * heat * fade * l.params.x;
+		s.emissive += flame * heat * fade * emissive;
 		s.albedo = mix(s.albedo, s.albedo * 0.15, fade * 0.7 * (1.0 - heat));
 		overlay_set_roughness(s, 0.85, fade * 0.5);
 		s.metallic *= 1.0 - fade * 0.6;

@@ -1,5 +1,8 @@
 return {
 	name = "blight",
+	params = {
+		{Name = "Emissive", Min = 0, Max = 40},
+	},
 	glsl = [[
 		vec4 big = overlay_noise(c, l.scale);
 		vec4 fine = overlay_noise(c, l.scale * 3.1);
@@ -13,7 +16,7 @@ return {
 		overlay_tilt(s, (fine.rgb - 0.5) * 0.9, cover * 0.7);
 		float vein = 1.0 - smoothstep(0.0, 0.08, big.b);
 		float throb = 0.6 + 0.4 * sin(t * 1.8 + big.a * 20.0);
-		s.emissive += l.color_a.rgb * (frontier * 1.4 + vein * throb * 0.9 * cover) * l.params.x * 0.5;
+		s.emissive += l.color_a.rgb * (frontier * 1.4 + vein * throb * 0.9 * cover) * emissive * 0.5;
 		s.ao *= 1.0 - cover * 0.4;
 		w.wet_scale *= 1.0 - cover;
 		overlay_cover(s, cover * l.intensity);

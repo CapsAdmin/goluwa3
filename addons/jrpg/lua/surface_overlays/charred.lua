@@ -1,5 +1,6 @@
 return {
 	name = "charred",
+	params = {},
 	glsl = [[
 		vec4 broad = overlay_noise(c, l.scale * 0.31);
 		vec4 cracks = overlay_noise(c, l.scale * 1.9);

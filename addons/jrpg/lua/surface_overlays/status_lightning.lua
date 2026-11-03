@@ -1,5 +1,10 @@
 return {
 	name = "status_lightning",
+	params = {
+		{Name = "Emissive", Min = 0, Max = 40},
+		{Name = "Jitter", Min = 0, Max = 3},
+		{Name = "BoltScale", Min = 0.2, Max = 8},
+	},
 	glsl = [[
 		float step_time = t * 7.0;
 		float seed = floor(step_time);
@@ -11,14 +16,14 @@ return {
 		for (int i = 0; i < 2; i++) {
 			float bolt_seed = seed * 2.0 + float(i);
 			vec3 dir = normalize(vec3(overlay_hash(bolt_seed) - 0.5, overlay_hash(bolt_seed + 7.0) - 0.5, overlay_hash(bolt_seed + 13.0) - 0.5) + vec3(0.0, 0.0001, 0.0));
-			vec3 q = c.P * l.params.z + vec3(bolt_seed * 7.3);
-			float along = dot(c.P * l.params.z, dir) + (overlay_hash(bolt_seed + 21.0) - 0.5) * 0.8;
-			float dist = abs(along + (2.0 * overlay_fbm(q, 6) - 1.0) * l.params.y);
+			vec3 q = c.P * bolt_scale + vec3(bolt_seed * 7.3);
+			float along = dot(c.P * bolt_scale, dir) + (overlay_hash(bolt_seed + 21.0) - 0.5) * 0.8;
+			float dist = abs(along + (2.0 * overlay_fbm(q, 6) - 1.0) * jitter);
 			bolt += 0.004 / (dist + 0.002) + 0.0015 / (dist + 0.025);
 		}
 
 		float charge = (pow(1.0 - c.ndv, 2.0) * 0.6 + 0.04) * (0.5 + 0.5 * sin(t * 9.0 + c.height * 12.0));
-		s.emissive += (l.color_b.rgb * min(bolt, 8.0) * strike * flicker * l.params.x + l.color_a.rgb * (charge + strike * 0.2)) * fade;
+		s.emissive += (l.color_b.rgb * min(bolt, 8.0) * strike * flicker * emissive + l.color_a.rgb * (charge + strike * 0.2)) * fade;
 		s.albedo = mix(s.albedo, s.albedo * vec3(0.5, 0.55, 0.75), fade * 0.5);
 		overlay_cover(s, fade * 0.7);
 	]],

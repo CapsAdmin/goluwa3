@@ -28,14 +28,23 @@ local kinds_by_name = {}
 surface_overlays.DefaultFiles = data_files.New("lua/surface_overlays/defaults/")
 
 function surface_overlays.SetDefaults(name, data)
+	for _, param in ipairs(kinds_by_name[name].params) do
+		assert(type(data[param.Name]) == "number", name .. " needs a number for " .. param.Name)
+	end
+
 	surface_overlays.DefaultFiles:Remember(name, data)
 	kinds_by_name[name].defaults = data_files.Realize(table.copy(data))
 end
 
 for i, kind in ipairs(kinds) do
+	assert(#kind.params <= 4, kind.name .. " has more than 4 params")
 	kind.index = i
 	kinds_by_name[kind.name] = kind
 	surface_overlays.SetDefaults(kind.name, import("lua/surface_overlays/defaults/" .. kind.name .. ".lua"))
+end
+
+function surface_overlays.GetParams(name)
+	return kinds_by_name[name].params
 end
 
 function surface_overlays.GetKindNames()
@@ -192,10 +201,10 @@ function surface_overlays.Add(visual, kind_name, config)
 	local uv_scale = config.UVScale
 	layer.uv_space = uv_scale and 1 or 0
 	layer.uv_scale[0], layer.uv_scale[1] = uv_scale and uv_scale[1] or 0, uv_scale and uv_scale[2] or 0
-	local params = config.Params or defaults.Params
 
 	for i = 1, 4 do
-		layer.params[i - 1] = params[i] or defaults.Params[i] or 0
+		local param = kind.params[i]
+		layer.params[i - 1] = param and (config[param.Name] or defaults[param.Name]) or 0
 	end
 
 	slot_table:Touch(state.slot)
@@ -331,9 +340,20 @@ function surface_overlays.GetGLSL(block_name)
 	local cases = {}
 
 	for _, kind in ipairs(kinds) do
+		local declarations = {}
+
+		for i, param in ipairs(kind.params) do
+			declarations[i] = string.format(
+				"float %s = l.params.%s;",
+				param.Name:gsub("(%l)(%u)", "%1_%2"):lower(),
+				("xyzw"):sub(i, i)
+			)
+		end
+
 		functions[#functions + 1] = string.format(
-			"void overlay_kind_%s(inout Surface s, inout SurfaceWeather w, OverlayLayer l, OverlayContext c, float age, float t, float grow, float outro, float fade) {\n%s\n}\n",
+			"void overlay_kind_%s(inout Surface s, inout SurfaceWeather w, OverlayLayer l, OverlayContext c, float age, float t, float grow, float outro, float fade) {\n%s\n%s\n}\n",
 			kind.name,
+			table.concat(declarations, "\n"),
 			kind.glsl
 		)
 		cases[#cases + 1] = string.format(

@@ -1,5 +1,8 @@
 return {
 	name = "gilded",
+	params = {
+		{Name = "Emissive", Min = 0, Max = 40},
+	},
 	glsl = [[
 		vec4 grain = overlay_noise(c, l.scale);
 		float d = grow * 1.3 - c.height - (grain.g - 0.5) * 0.2;
@@ -12,6 +15,6 @@ return {
 		vec3 ripple = (grain.rgb - 0.5) * 0.35;
 		overlay_tilt(s, ripple, m * 0.5);
 		overlay_cover(s, m);
-		s.emissive += l.color_b.rgb * (front * l.params.x + sweep * 0.12 * m);
+		s.emissive += l.color_b.rgb * (front * emissive + sweep * 0.12 * m);
 	]],
 }

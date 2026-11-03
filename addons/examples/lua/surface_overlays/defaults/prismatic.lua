@@ -7,5 +7,5 @@ return {
 	Daylight = 0,
 	ColorA = {1, 1, 1, 1},
 	ColorB = {1, 1, 1, 1},
-	Params = {1.6},
+	HueScale = 1.6,
 }

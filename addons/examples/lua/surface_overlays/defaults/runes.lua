@@ -7,5 +7,6 @@ return {
 	Daylight = 1,
 	ColorA = {1.0, 0.55, 0.15, 1},
 	ColorB = {1.0, 0.9, 0.5, 1},
-	Params = {4, 12},
+	Emissive = 4,
+	ColumnCount = 12,
 }

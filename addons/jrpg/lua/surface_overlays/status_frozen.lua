@@ -1,5 +1,8 @@
 return {
 	name = "status_frozen",
+	params = {
+		{Name = "Emissive", Min = 0, Max = 40},
+	},
 	glsl = [[
 		OverlayCell cell = overlay_voronoi(c.P * l.scale * 6.0);
 		vec4 fine = overlay_noise(c, l.scale * 4.3);
@@ -10,7 +13,7 @@ return {
 		s.metallic *= 1.0 - m;
 		overlay_set_roughness(s, 0.05, m);
 		float sparkle = pow(max(sin(t * 2.5 + cell.id.y * 40.0), 0.0), 24.0);
-		s.emissive += l.color_a.rgb * (sparkle * 0.5 + pow(1.0 - c.ndv, 3.0) * 0.45) * m * l.params.x;
+		s.emissive += l.color_a.rgb * (sparkle * 0.5 + pow(1.0 - c.ndv, 3.0) * 0.45) * m * emissive;
 		overlay_cover(s, m * 0.9);
 	]],
 }
