@@ -819,6 +819,8 @@ local Editor = react.Component(
 							hovered ~= Panel.World
 						)
 						or
+						MouseInput.IsPressCapturedByUI()
+						or
 						gizmo_status.active_drag or
 						gizmo_status.hovered_handle or
 						brush_editor.IsBusy()

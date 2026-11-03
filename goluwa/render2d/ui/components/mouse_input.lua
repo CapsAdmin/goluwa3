@@ -290,6 +290,14 @@ function META.GetHoveredObject()
 	return mouse_input.last_hovered
 end
 
+function META.IsPressCapturedByUI()
+	for _, pressed in pairs(mouse_input.pressed_entities) do
+		if pressed:IsValid() and pressed ~= Panel.World then return true end
+	end
+
+	return false
+end
+
 function META:IsHoveredExclusively(mouse_pos)
 	if mouse_pos then
 		if not Panel.World then return false end

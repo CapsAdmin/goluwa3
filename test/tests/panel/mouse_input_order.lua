@@ -109,3 +109,33 @@ T.Test("mouse input event order (local and global)", function()
 	window.GetSize = old_get_size
 	Panel.World = old_world
 end)
+
+T.Test2D("a press on a panel stays captured by the ui until release, wherever the mouse goes", function()
+	local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
+	local old_world = Panel.World
+	Panel.World = Panel.New{ComponentSet = {"transform", "visual"}}
+	Panel.World.transform:SetSize(Vec2(1000, 1000))
+	local pnl = Panel.New{Parent = Panel.World, transform = true, visual = true, mouse_input = true}
+	pnl.transform:SetSize(Vec2(100, 100))
+	local window = system.GetWindow()
+	local old_get_mouse_pos = window.GetMousePosition
+	local old_get_size = window.GetSize
+	local mouse = Vec2(50, 50)
+	window.GetMousePosition = function()
+		return mouse
+	end
+	window.GetSize = function()
+		return Vec2(1000, 1000)
+	end
+	T(MouseInput.IsPressCapturedByUI())["=="](false)
+	event.Call("MouseInput", "button_1", true)
+	T(MouseInput.IsPressCapturedByUI())["=="](true)
+	mouse = Vec2(500, 500)
+	event.CallUpdate()
+	T(MouseInput.IsPressCapturedByUI())["=="](true)
+	event.Call("MouseInput", "button_1", false)
+	T(MouseInput.IsPressCapturedByUI())["=="](false)
+	window.GetMousePosition = old_get_mouse_pos
+	window.GetSize = old_get_size
+	Panel.World = old_world
+end)

@@ -41,6 +41,7 @@ function view_camera.Update(state, dt)
 	camera.SetBlockDragging(
 		hovered:IsValid() and
 			hovered ~= Panel.World or
+			MouseInput.IsPressCapturedByUI() or
 			gizmo.active_drag ~= nil or
 			gizmo.hovered_handle ~= nil
 	)
