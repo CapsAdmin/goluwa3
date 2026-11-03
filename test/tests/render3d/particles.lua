@@ -12,6 +12,7 @@ local event = import("goluwa/event.lua")
 local test_scene = import("goluwa/render3d/test_scene.lua")
 local particle_emitter_gpu = import("goluwa/render3d/particle_emitter_gpu.lua")
 local particle_emitter_cpu = import("goluwa/render3d/particle_emitter_cpu.lua")
+local particle_styles = import("goluwa/render3d/particle_styles.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local STEP = 1 / 30
 
@@ -227,6 +228,103 @@ T.Test3D("Graphics render3d particle emitter spawns the number its rate and burs
 
 	if entity then entity:Remove() end
 
+	restore()
+
+	if not ok then error(err, 0) end
+end)
+
+T.Test3D("Graphics render3d particle styles run their glsl hooks with params, draw sprites and recompile at runtime", function(draw)
+	local function define(push)
+		particle_styles.Register(
+			"test_style",
+			{
+				Params = {
+					{Name = "Push", Type = "float", Default = 1},
+					{Name = "Direction", Type = "vec3", Default = {0, 0, 1}},
+					{Name = "Flake", Type = "texture", Default = "glow"},
+				},
+				Sprite = "Flake",
+				Spawn = "p.sprite.z = 0.25;",
+				Update = push,
+			}
+		)
+	end
+
+	define("p.velocity += Direction * Push * dt;")
+	particles.Recompile()
+	init()
+	local entity
+	local ok, err = xpcall(
+		function()
+			local emitter
+			emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 0, -1))
+			emitter:SetRate(0)
+			emitter:SetMaxParticles(64)
+			emitter:SetLifetimeMin(30)
+			emitter:SetLifetimeMax(30)
+			emitter:SetSpeedMin(0)
+			emitter:SetSpeedMax(0)
+			emitter:SetGravityScale(0)
+			emitter:SetDrag(0)
+			emitter:SetStyle("test_style")
+			emitter:SetStyleParams{Push = 6, Direction = {1, 0, 0}}
+			render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+			step(draw, 3)
+			emitter:Burst(32)
+			step(draw, 4)
+			local def = particle_emitter_gpu.system
+			local records = particles.Download(def)
+			local checked = 0
+
+			for i = 0, def.GetCount() - 1 do
+				local p = records[i]
+
+				if p.life > 0 then
+					checked = checked + 1
+					T(p.sprite[1] > 0.5)["=="](true)
+					T(math.abs(p.sprite[2] - 0.25) < 1e-4)["=="](true)
+					T(p.velocity[0] > 0.5)["=="](true)
+					T(math.abs(p.velocity[2]) < 1e-3)["=="](true)
+				end
+			end
+
+			T(checked)["=="](32)
+			define("p.velocity += vec3(0.0, 0.0, 1.0) * Push * dt;")
+			particles.Recompile()
+			emitter:Burst(32)
+			step(draw, 4)
+			records = particles.Download(def)
+			local along_z = 0
+
+			for i = 0, def.GetCount() - 1 do
+				local p = records[i]
+
+				if
+					p.life > 0 and
+					p.age < STEP * 6 and
+					p.velocity[2] > 0.5 and
+					math.abs(p.velocity[0]) < 1e-3
+				then
+					along_z = along_z + 1
+				end
+			end
+
+			T(along_z > 0)["=="](true)
+			define("p.velocity += nonsense * Push;")
+			local failed, message = pcall(particles.Recompile)
+			T(failed)["=="](false)
+			T(particle_styles.ParseError(message):find("test_style update line 1", 1, true) ~= nil)["=="](true)
+			define("p.velocity += vec3(0.0, 0.0, 1.0) * Push * dt;")
+			particles.Recompile()
+			step(draw, 2)
+		end,
+		debug.traceback
+	)
+
+	if entity then entity:Remove() end
+
+	particle_styles.Remove("test_style")
+	particles.Recompile()
 	restore()
 
 	if not ok then error(err, 0) end

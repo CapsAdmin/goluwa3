@@ -3,6 +3,7 @@ local system = import("goluwa/system.lua")
 local particles = import("goluwa/render3d/particles.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local styles = import("goluwa/render3d/particle_styles.lua")
 local gpu = {}
 gpu.MAX_EMITTERS = 128
 gpu.POOL_SIZE = 65536
@@ -105,6 +106,18 @@ function gpu.GetRanges()
 	return ranges
 end
 
+local function resolve_texture(name)
+	if type(name) ~= "string" then return name end
+
+	local vfx = import("goluwa/render3d/vfx.lua")
+
+	if table.has_value(vfx.GetTextureNames(), name) then
+		return vfx.GetTexture(name)
+	end
+
+	return import("goluwa/assets.lua").GetTexture(name)
+end
+
 local function write_vec3(target, x, y, z)
 	target[0], target[1], target[2] = x, y, z
 end
@@ -113,6 +126,39 @@ local function write_color(target, color)
 	target[0], target[1], target[2], target[3] = color.r, color.g, color.b, color.a
 end
 
+gpu.base_declarations = glsl_common.GetNoiseGLSL() .. "#define GPU_EMITTER_COUNT " .. gpu.MAX_EMITTERS .. "u\n" .. [[
+		uint find_emitter(uint index) {
+			for (int i = 0; i < emitters_data.emitter_count; i++) {
+				if (emitters_data.emitters[i].enabled != 0 && index >= uint(emitters_data.emitters[i].first) && index < uint(emitters_data.emitters[i].first + emitters_data.emitters[i].count)) return uint(i);
+			}
+
+			return GPU_EMITTER_COUNT;
+		}
+
+		bool get_particle_emitter(Particle p, out uint slot) {
+			slot = min(p.user.y, GPU_EMITTER_COUNT - 1u);
+			return emitters_data.emitters[slot].enabled != 0 && uint(emitters_data.emitters[slot].uid) == p.user.z;
+		}
+
+		vec3 emitter_flow_potential(vec3 q) {
+			return vec3(value_noise3(q), value_noise3(q + 31.4), value_noise3(q + 71.7));
+		}
+
+		vec3 emitter_flow(vec3 position, float scale, float seed) {
+			vec3 q = position * scale + vec3(seed, 0.0, 0.0);
+			float e = 0.15;
+			vec3 dx = emitter_flow_potential(q + vec3(e, 0.0, 0.0)) - emitter_flow_potential(q - vec3(e, 0.0, 0.0));
+			vec3 dy = emitter_flow_potential(q + vec3(0.0, e, 0.0)) - emitter_flow_potential(q - vec3(0.0, e, 0.0));
+			vec3 dz = emitter_flow_potential(q + vec3(0.0, 0.0, e)) - emitter_flow_potential(q - vec3(0.0, 0.0, e));
+			return vec3(dy.z - dz.y, dz.x - dx.z, dx.y - dy.x) / (2.0 * e);
+		}
+
+		vec3 get_random_unit_vector(vec2 r) {
+			float z = r.x * 2.0 - 1.0;
+			float phi = 6.2831853 * r.y;
+			return vec3(sqrt(1.0 - z * z) * vec2(cos(phi), sin(phi)), z);
+		}
+]]
 gpu.system = particles.Register{
 	name = "emitters",
 	max_count = gpu.POOL_SIZE,
@@ -167,6 +213,9 @@ gpu.system = particles.Register{
 				{"flow_scale", "float"},
 				{"sparkle", "float"},
 				{"saturation_jitter", "float"},
+				{"params", "vec4", styles.PARAM_FLOATS / 4},
+				{"style", "int"},
+				{"sprite_slot", "int"},
 				{"shape", "int"},
 				{"collision", "int"},
 				{"on_hit", "int"},
@@ -240,46 +289,41 @@ gpu.system = particles.Register{
 			entry.spawn_count = particle_emitter.Step(emitter, dt)
 			entry.uid = range.uid
 			entry.seed = emitter.Seed
+			local style = emitter.Style
+			entry.style = styles.GetId(style)
+			entry.sprite_slot = 0
+
+			if entry.style ~= 0 then
+				styles.WriteParams(style, emitter.StyleParams, entry.params)
+				local sprite_param = styles.GetSpriteParam(style)
+
+				if sprite_param then
+					local name = emitter.StyleParams and emitter.StyleParams[sprite_param]
+
+					if name == nil then
+						for _, param in ipairs(styles.Get(style).definition.Params) do
+							if param.Name == sprite_param then name = param.Default end
+						end
+					end
+
+					if range.sprite_name ~= name then
+						range.sprite_name = name
+						range.sprite_texture = resolve_texture(name)
+					end
+
+					entry.sprite_slot = range.sprite_texture and particles.GetSpriteSlot(range.sprite_texture) or 0
+				end
+			end
+
 			range.cursor = (range.cursor + entry.spawn_count) % range.count
 		end
 
 		block.emitter_count = slots
 		return block
 	end,
-	declarations = glsl_common.GetNoiseGLSL() .. "#define GPU_EMITTER_COUNT " .. gpu.MAX_EMITTERS .. "u\n" .. [[
-
-		uint find_emitter(uint index) {
-			for (int i = 0; i < emitters_data.emitter_count; i++) {
-				if (emitters_data.emitters[i].enabled != 0 && index >= uint(emitters_data.emitters[i].first) && index < uint(emitters_data.emitters[i].first + emitters_data.emitters[i].count)) return uint(i);
-			}
-
-			return GPU_EMITTER_COUNT;
-		}
-
-		bool get_particle_emitter(Particle p, out uint slot) {
-			slot = min(p.user.y, GPU_EMITTER_COUNT - 1u);
-			return emitters_data.emitters[slot].enabled != 0 && uint(emitters_data.emitters[slot].uid) == p.user.z;
-		}
-
-		vec3 emitter_flow_potential(vec3 q) {
-			return vec3(value_noise3(q), value_noise3(q + 31.4), value_noise3(q + 71.7));
-		}
-
-		vec3 emitter_flow(vec3 position, float scale, float seed) {
-			vec3 q = position * scale + vec3(seed, 0.0, 0.0);
-			float e = 0.15;
-			vec3 dx = emitter_flow_potential(q + vec3(e, 0.0, 0.0)) - emitter_flow_potential(q - vec3(e, 0.0, 0.0));
-			vec3 dy = emitter_flow_potential(q + vec3(0.0, e, 0.0)) - emitter_flow_potential(q - vec3(0.0, e, 0.0));
-			vec3 dz = emitter_flow_potential(q + vec3(0.0, 0.0, e)) - emitter_flow_potential(q - vec3(0.0, 0.0, e));
-			return vec3(dy.z - dz.y, dz.x - dx.z, dx.y - dy.x) / (2.0 * e);
-		}
-
-		vec3 get_random_unit_vector(vec2 r) {
-			float z = r.x * 2.0 - 1.0;
-			float phi = 6.2831853 * r.y;
-			return vec3(sqrt(1.0 - z * z) * vec2(cos(phi), sin(phi)), z);
-		}
-	]],
+	GetDeclarations = function()
+		return gpu.base_declarations .. styles.GetGLSL()
+	end,
 	should_spawn = [[
 		uint slot = find_emitter(index);
 
@@ -330,6 +374,8 @@ gpu.system = particles.Register{
 		p.width = e.size_start;
 		p.user.y = slot;
 		p.user.z = uint(e.uid);
+		p.sprite = vec4(r.x * 6.2831853, float(e.sprite_slot), 0.0, 1.0);
+		emitter_style_spawn(e, index, generation, p);
 	]],
 	update = [[
 		uint slot;
@@ -341,7 +387,7 @@ gpu.system = particles.Register{
 
 		emitters_t e = emitters_data.emitters[slot];
 		float t = clamp(p.age / p.life, 0.0, 1.0);
-		p.width = mix(e.size_start, e.size_end, t);
+		p.width = mix(e.size_start, e.size_end, t) * p.sprite.w;
 
 		if (p.spare != 0u) {
 			p.velocity = vec3(0.0);
@@ -358,6 +404,7 @@ gpu.system = particles.Register{
 			p.velocity += normalize(scatter + 1e-4) * e.fizzle * smoothstep(e.fizzle_start, 1.0, t) * dt;
 		}
 
+		emitter_style_update(e, index, dt, t, p);
 		p.velocity *= exp(-e.drag * dt);
 		p.position += p.velocity * dt;
 	]],
@@ -369,7 +416,8 @@ gpu.system = particles.Register{
 		emitters_t e = emitters_data.emitters[slot];
 		float seed = fract(sin(p.life * 12345.678) * 43758.5453);
 		float twinkle = 0.5 + 0.5 * sin(p.age * mix(18.0, 60.0, seed) + seed * 6.2831853);
-		return mix(e.color_start.a, e.color_end.a, clamp(p.age / p.life, 0.0, 1.0)) * mix(1.0, twinkle * twinkle, e.sparkle);
+		float t = clamp(p.age / p.life, 0.0, 1.0);
+		return mix(e.color_start.a, e.color_end.a, t) * mix(1.0, twinkle * twinkle, e.sparkle) * emitter_style_visibility(e, t, p);
 	]],
 	shade = [[
 		uint slot;
@@ -382,6 +430,7 @@ gpu.system = particles.Register{
 		float jitter = fract(sin(p.life * 4321.987 + 3.7) * 24634.6345);
 		tint = max(mix(vec3(luma), tint, 1.0 + (jitter - 0.5) * 2.0 * e.saturation_jitter), vec3(0.0));
 		p.radiance = tint * ((e.lit != 0 ? p.light : vec3(0.0)) + e.emissive * effect_exposure_gain(particle_data.pre_exposure_tex, e.exposure_compensation));
+		emitter_style_shade(e, clamp(p.age / p.life, 0.0, 1.0), p);
 	]],
 	collision_mode = [[
 		uint slot;

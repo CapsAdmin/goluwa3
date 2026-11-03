@@ -596,6 +596,35 @@ function render3d.RebuildPipelineBundle(bundle)
 	collectgarbage()
 end
 
+function render3d.RebuildPipeline(bundle, name)
+	local options = table.shallow_copy(bundle.options)
+	options.include_names = {[name] = true}
+	local fresh = {pipelines = {}, pipelines_i = {}, passes = {}, options = options}
+	local ok, err = xpcall(fill_pipeline_bundle, debug.traceback, fresh)
+
+	if not ok then
+		remove_pipeline_bundle(fresh)
+		error(err, 0)
+	end
+
+	local pipeline = fresh.pipelines[name]
+	local old = bundle.pipelines[name]
+
+	if not pipeline or not old then
+		remove_pipeline_bundle(fresh)
+		return
+	end
+
+	render.GetDevice():WaitIdle()
+
+	for i, other in ipairs(bundle.pipelines_i) do
+		if other == old then bundle.pipelines_i[i] = pipeline end
+	end
+
+	bundle.pipelines[name] = pipeline
+	old:Remove()
+end
+
 event.AddListener("ModulesReloaded", "render3d_pipelines", function(paths)
 	local pass_paths = {}
 

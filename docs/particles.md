@@ -41,6 +41,15 @@ A `particle_emitter_cpu` whose `Material` is transparent (refractive, translucen
 
 They run different code: a shape or force change that belongs in both has to be made in `particle_emitter_gpu.lua` (glsl) and `particle_emitter_cpu.lua`.
 
+## Styles
+
+A gpu emitter has a `Style` (a name, default `glow`) and `StyleParams` (a table of values by param name). `goluwa/render3d/particle_styles.lua` is the registry: `Register(name, {Params = {{Name, Type, Default, Min, Max, Group, Description}}, Sprite = "ParamName", Spawn, Update, Visibility, Shade})`. Param types are `float`, `int`, `bool`, `vec3`, `color` and `texture`; the numeric ones are packed in declaration order into 16 floats per emitter (`e.params`), textures are looked up by name (vfx procedural textures, then asset paths).
+
+- The hook bodies are glsl strings compiled into the shared `emitters` system after the common code, not instead of it: `Spawn` (`p`, `e`, `index`, `generation`), `Update` (`p`, `e`, `index`, `dt`, `t`, run before drag and integration), `Visibility` (returns a float multiplied into alpha) and `Shade` (after the common shading, `p.radiance`). Every param is a local of its own name. A style without a body adds nothing, so `glow` is an empty style.
+- `Sprite` names the texture param: those particles are drawn as camera facing textured quads (`p.sprite` = rotation, texture slot + 1, two free floats you can use, `p.sprite.w` scales the size curve) instead of capsules. Up to `MAX_SPRITE_TEXTURES` textures are in use at once.
+- The generated glsl is compiled once when the passes are built. After registering or changing a style call `particles.Recompile()`: it rebuilds only the `particles_simulate` pipeline, and throws the compiler error if the glsl is wrong (the old pipeline keeps running); `particle_styles.ParseError(message)` turns it into `style hook line N: message`. The style that is registered at that point is what the next compile uses, so undo a bad one before recompiling again.
+- The game side is `addons/game/lua/particle_style_library.lua` (data files in `lua/particle_styles/`, `Update` validates, recompiles only when the glsl or the param layout changed and restores the previous version on failure) and the effects editor category `particle styles`.
+
 ## Pitfalls
 
 - A block layout table must nest sub-layouts (`light_occlusion.GetBlockLayout()` as an element); `unpack(...)` in the middle only yields one field.

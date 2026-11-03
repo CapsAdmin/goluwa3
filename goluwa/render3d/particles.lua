@@ -38,8 +38,24 @@ local BINDING_FROXEL_GI_EMITTER = 18
 local BINDING_TLAS = 20
 local BINDING_HIT = 21
 local COLLISION_MODES = {shelter_map = 1, scene_depth = 2, rays = 3, per_particle = 4}
-local PARTICLE_BYTES = 80
+local PARTICLE_BYTES = 96
+particles.MAX_SPRITE_TEXTURES = 16
 particles.systems = {}
+local sprite_textures = {}
+
+function particles.GetSpriteSlot(texture)
+	for index, other in ipairs(sprite_textures) do
+		if other == texture then return index end
+	end
+
+	assert(
+		#sprite_textures < particles.MAX_SPRITE_TEXTURES,
+		"too many particle sprite textures"
+	)
+	sprite_textures[#sprite_textures + 1] = texture
+	return #sprite_textures
+end
+
 local system_layout = {
 	{"count", "int"},
 	{"first", "int"},
@@ -132,6 +148,7 @@ do
 		float width;
 		uint32_t user[3];
 		uint32_t spare;
+		float sprite[4];
 	}]])
 	assert(ffi.sizeof(Record) == PARTICLE_BYTES)
 	local RecordArray = ffi.typeof("$[?]", Record)
@@ -218,6 +235,7 @@ function particles.GetParticleGLSL()
 			float width;
 			uvec3 user;
 			uint spare;
+			vec4 sprite;
 		};
 
 		layout(buffer_reference, scalar) buffer ParticleBuffer { Particle p[]; };
@@ -337,7 +355,11 @@ function particles.GetSimulationGLSL()
 	local collision_modes = {}
 
 	for i, def in ipairs(particles.systems) do
-		functions[#functions + 1] = def.declarations .. string.format(
+		functions[#functions + 1] = (
+				def.GetDeclarations and
+				def.GetDeclarations() or
+				def.declarations
+			) .. string.format(
 				[[
 			void %s_spawn(uint index, uint generation, inout Particle p) {
 				%s
@@ -487,7 +509,7 @@ function particles.GetSimulationGLSL()
 
 			if (fresh) {
 				uint generation = p.user.x + 1u;
-				p = Particle(vec3(0.0), 0.0, vec3(0.0), 0.0, vec3(0.0), 0.0, vec3(0.0), 0.0, uvec3(generation, 0u, 0u), 0u);
+				p = Particle(vec3(0.0), 0.0, vec3(0.0), 0.0, vec3(0.0), 0.0, vec3(0.0), 0.0, uvec3(generation, 0u, 0u), 0u, vec4(0.0));
 
 				switch (system_index) {
 					]] .. table.concat(spawns, "\n") .. [[
@@ -736,12 +758,18 @@ local draw_block = {
 		{"depth_warp", "vec2"},
 		{"dt", "float"},
 		{"layer_active", "int"},
+		{"sprite_textures", "int", particles.MAX_SPRITE_TEXTURES},
 		pools_and_systems,
 	},
 	write = function(self, block)
 		render3d.WriteCameraBlock(self, block)
 		render3d.WritePreviousCameraBlock(self, block)
 		block.layer_active = post_source.IsEffectLayerActive() and 1 or 0
+
+		for index, texture in ipairs(sprite_textures) do
+			block.sprite_textures[index - 1] = self:GetTextureIndex(texture)
+		end
+
 		post_source.WritePreExposureBlock(self, block)
 		local b0, moments = translucent_moments.GetTextures()
 		block.b0_tex = self:GetTextureIndex(b0)
@@ -759,6 +787,7 @@ local vertex_outputs = {
 	{"alpha", "float"},
 	{"shape", "vec3"},
 	{"motion", "vec2"},
+	{"sprite", "vec2"},
 }
 
 local function get_vertex_glsl(layer)
@@ -792,6 +821,25 @@ local function get_vertex_glsl(layer)
 
 			vec3 camera = particle_draw.camera_position;
 			vec3 head = p.position;
+
+			if (p.sprite.y > 0.5) {
+				float sprite_across = float(gl_VertexIndex & 1) * 2.0 - 1.0;
+				float sprite_along = float(gl_VertexIndex >> 1) * 2.0 - 1.0;
+				float sprite_cos = cos(p.sprite.x);
+				float sprite_sin = sin(p.sprite.x);
+				vec2 corner = vec2(sprite_cos * sprite_across - sprite_sin * sprite_along, sprite_sin * sprite_across + sprite_cos * sprite_along);
+				mat3 view_basis = mat3(particle_draw.inv_view);
+				vec3 sprite_position = head + (view_basis[0] * corner.x + view_basis[1] * corner.y) * p.width * 0.5;
+				out_position = sprite_position;
+				out_radiance = p.radiance;
+				out_alpha = system.coverage_scale * p.visibility;
+				out_shape = vec3(sprite_across, sprite_along, -1.0);
+				out_motion = get_particle_screen_motion(sprite_position, sprite_position - p.velocity * particle_draw.dt);
+				out_sprite = vec2(p.sprite.y - 1.0, 0.0);
+				gl_Position = particle_draw.projection * particle_draw.view * vec4(sprite_position, 1.0);
+				return;
+			}
+
 			vec3 tail = head - p.velocity * min(system.streak_time, p.age);
 			vec3 to_particle = head - camera;
 			float dist = length(to_particle);
@@ -814,13 +862,24 @@ local function get_vertex_glsl(layer)
 			out_alpha = alpha / profile_average;
 			out_shape = vec3(across, along, core);
 			out_motion = get_particle_screen_motion(position, position - p.velocity * particle_draw.dt);
+			out_sprite = vec2(0.0);
 			gl_Position = particle_draw.projection * particle_draw.view * vec4(position, 1.0);
 		}
 	]]
 end
 
 local coverage_glsl = [[
+	vec4 get_particle_sprite() {
+		return texture(TEXTURE(particle_draw.sprite_textures[int(in_sprite.x + 0.5)]), in_shape.xy * 0.5 + 0.5);
+	}
+
+	vec3 get_particle_tint() {
+		return in_shape.z < -0.5 ? get_particle_sprite().rgb : vec3(1.0);
+	}
+
 	float get_particle_alpha() {
+		if (in_shape.z < -0.5) return min(in_alpha * get_particle_sprite().a, 1.0);
+
 		float end_distance = max(abs(in_shape.y) - in_shape.z, 0.0) / max(1.0 - in_shape.z, 1e-4);
 		return min(in_alpha * max(1.0 - in_shape.x * in_shape.x - end_distance * end_distance, 0.0), 1.0);
 	}
@@ -923,7 +982,7 @@ function particles.BuildPasses()
 							moments_warp_depth(distance(in_position, particle_draw.camera_position), particle_draw.depth_warp)
 						);
 						float alpha = get_particle_alpha();
-						set_color(vec4(min(in_radiance * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
+						set_color(vec4(min(in_radiance * get_particle_tint() * (alpha * get_pre_exposure()), vec3(65504.0)), alpha) * transmittance);
 						set_motion(vec4(in_motion, 1.0, 0.0) * transmittance);
 						set_additive(vec4(0.0));
 						set_modulate(vec4(1.0));
@@ -987,7 +1046,7 @@ function particles.BuildPostPasses()
 				shader = post_source.GetPreExposureGLSL("particle_draw") .. coverage_glsl .. [[
 					void main() {
 						float alpha = get_particle_alpha();
-						set_color(vec4(min(in_radiance * (alpha * get_pre_exposure()), vec3(65504.0)), alpha));
+						set_color(vec4(min(in_radiance * get_particle_tint() * (alpha * get_pre_exposure()), vec3(65504.0)), alpha));
 					}
 				]],
 			},
@@ -1004,6 +1063,21 @@ function particles.BuildPostPasses()
 			DepthCompareOp = "greater_or_equal",
 		},
 	}
+end
+
+function particles.Recompile()
+	local path = "goluwa/render3d/passes/particles.lua"
+	local old = import.loaded[path]
+	import.loaded[path] = nil
+	local fresh = import(path)
+
+	for bundle in pairs(render3d.bundles) do
+		for index, pass in ipairs(bundle.options.passes or {}) do
+			if pass == old then bundle.options.passes[index] = fresh end
+		end
+
+		render3d.RebuildPipeline(bundle, "particles_simulate")
+	end
 end
 
 event.AddListener("PreDraw3DTranslucent", "particles", function()

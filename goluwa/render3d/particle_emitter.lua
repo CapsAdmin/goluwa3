@@ -61,6 +61,8 @@ particle_emitter.gpu = {
 	{"FlowScale", 0.28, ranged(0.01, 20), "Motion"},
 	{"Sparkle", 0, ranged(0, 1), "Look"},
 	{"SaturationJitter", 0, ranged(0, 1), "Look"},
+	{"Style", "glow", nil, "Look"},
+	{"StyleParams", nil, nil, "Look"},
 	{"Collision", "none", particle_emitter.GPU_COLLISIONS, "Collision"},
 }
 particle_emitter.cpu = {
