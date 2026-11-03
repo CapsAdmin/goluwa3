@@ -1,3 +1,4 @@
+local vfs = import("goluwa/vfs.lua")
 local data_schema = {}
 
 local function resolve(value)
@@ -43,7 +44,13 @@ function data_schema.Check(schema, data)
 
 			if field and field.Ref then
 				if type(child) == "string" then
-					if not data_schema.Exists(schema, field.Ref, child) then
+					if
+						not data_schema.Exists(schema, field.Ref, child) and
+						not (
+							field.Paths and
+							vfs.IsFile(child)
+						)
+					then
 						problems[#problems + 1] = item_path .. ": unknown " .. field.Ref .. " " .. child
 					end
 				end

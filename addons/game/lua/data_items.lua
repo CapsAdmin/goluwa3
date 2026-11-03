@@ -4,6 +4,7 @@ local Vec4 = import("goluwa/structs/vec4.lua")
 local Color = import("goluwa/structs/color.lua")
 local data_files = import("goluwa/data_files.lua")
 local data_schema = import("lua/data_schema.lua")
+local vfs = import("goluwa/vfs.lua")
 local data_items = {}
 local ids = setmetatable({}, {__mode = "k"})
 local next_id = 0
@@ -167,7 +168,9 @@ local function make_leaf(data, key, value, item_path, field, options)
 			found = found or name == value
 		end
 
-		if not found then
+		if not found and field.Paths and vfs.IsFile(value) then
+			table.insert(item.Options, 1, {Text = value, Value = value})
+		elseif not found then
 			table.insert(item.Options, 1, {Text = value .. " (missing)", Value = value})
 		end
 	elseif kind == "number" then

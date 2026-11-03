@@ -401,7 +401,7 @@ function effects_schema.WithEmitterShaderParams(schema, data)
 	for _, param in ipairs(particle_shader_library.GetParams(data.Shader)) do
 		local field = {Description = param.Description, Min = param.Min, Max = param.Max}
 
-		if param.Type == "texture" then field.Ref = "sprite" end
+		if param.Type == "texture" then field.Ref, field.Paths = "sprite", true end
 
 		fields["ShaderParams." .. param.Name] = field
 		keys[param.Name] = table.copy(param.Default)
@@ -424,7 +424,7 @@ function effects_schema.WithShaderParams(schema, data)
 	for _, param in ipairs(particle_shader_library.GetParams(shader)) do
 		local field = {Description = param.Description, Min = param.Min, Max = param.Max}
 
-		if param.Type == "texture" then field.Ref = "sprite" end
+		if param.Type == "texture" then field.Ref, field.Paths = "sprite", true end
 
 		fields["ShaderParams." .. param.Name] = field
 		keys[param.Name] = table.copy(param.Default)
