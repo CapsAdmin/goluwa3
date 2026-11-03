@@ -30,6 +30,20 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 	end
 
 	effects_editor.Load(session, "damage types", "fire")
+	local overlay = effects_editor.Categories.overlays.GetNames()[1]
+	effects_editor.Open(session, "overlays", overlay)
+	effects_editor.Open(session, "clips", "impact")
+	T(#session.Trail)["=="](2)
+	T(table.concat(effects_editor.GetTrailLabels(session), ","))["=="]("fire," .. overlay .. ",impact")
+	effects_editor.Back(session, 2)
+	T(session.Category)["=="]("overlays")
+	T(session.Name)["=="](overlay)
+	T(#session.Trail)["=="](1)
+	effects_editor.Back(session, 1)
+	T(session.Name)["=="]("fire")
+	T(#session.Trail)["=="](0)
+	T(#effects_editor.GetTrailLabels(session))["=="](0)
+	effects_editor.Load(session, "damage types", "fire")
 	session.Data.Apply[2].Add = "nope"
 	T(#effects_editor.GetProblems(session))["=="](1)
 	session.Data.Apply[2].Add = "fire"

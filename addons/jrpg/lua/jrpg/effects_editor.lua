@@ -4,6 +4,7 @@ local Color = import("goluwa/structs/color.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
+local Breadcrumb = react.Element(import("goluwa/render2d/ui/widgets/breadcrumb.lua"))
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local input = import("goluwa/input.lua")
@@ -201,6 +202,7 @@ function effects_editor.Load(session, category_name, name)
 	local category = effects_editor.Categories[category_name]
 	session.Category = category_name
 	session.Name = name or category.GetNames()[1]
+	session.Trail = {}
 	session.Data = table.copy(category.GetSource(session.Name))
 	session.History = data_history.New(session.Data)
 	session.Status = ""
@@ -208,6 +210,39 @@ function effects_editor.Load(session, category_name, name)
 	session.LoadId = session.LoadId + 1
 	session.Problems = effects_editor.GetProblems(session)
 	effects_editor.LastCategory, effects_editor.LastName = session.Category, session.Name
+end
+
+function effects_editor.Open(session, category_name, name)
+	local trail = session.Trail
+	trail[#trail + 1] = {Category = session.Category, Name = session.Name}
+	effects_editor.Load(session, category_name, name)
+	session.Trail = trail
+end
+
+function effects_editor.Back(session, index)
+	local entry = session.Trail[index]
+	local trail = {table.unpack(session.Trail, 1, index - 1)}
+	effects_editor.Load(session, entry.Category, entry.Name)
+	session.Trail = trail
+end
+
+function effects_editor.GetTrailLabels(session)
+	if not session.Trail[1] then return {} end
+
+	local entries = {table.unpack(session.Trail)}
+	entries[#entries + 1] = {Category = session.Category, Name = session.Name}
+	local labels = {}
+	local counts = {}
+
+	for _, entry in ipairs(entries) do
+		counts[entry.Name] = (counts[entry.Name] or 0) + 1
+	end
+
+	for i, entry in ipairs(entries) do
+		labels[i] = counts[entry.Name] > 1 and entry.Name .. " (" .. entry.Category .. ")" or entry.Name
+	end
+
+	return labels
 end
 
 function effects_editor.Apply(session)
@@ -459,7 +494,14 @@ local EffectsEditor = react.Component(
 					local category = REF_CATEGORIES[ref]
 
 					if category then
-						effects_editor.Load(session, category, name)
+						effects_editor.Open(session, category, name)
+						h.refresh()
+					end
+				end
+
+				function h.on_breadcrumb(index)
+					if index <= #session.Trail then
+						effects_editor.Back(session, index)
 						h.refresh()
 					end
 				end
@@ -685,6 +727,11 @@ local EffectsEditor = react.Component(
 						h.refresh()
 					end
 				),
+			},
+			Breadcrumb{
+				Items = effects_editor.GetTrailLabels(session),
+				OnSelect = h.on_breadcrumb,
+				layout = {Padding = Rect(6, 0, 6, 4)},
 			},
 			ui.Text{
 				Text = session.Status ~= "" and session.Status or problem_text,
