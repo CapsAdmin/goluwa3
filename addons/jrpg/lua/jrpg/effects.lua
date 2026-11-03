@@ -7,6 +7,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 local actors = import("lua/actors.lua")
+local data_files = import("goluwa/data_files.lua")
 local effects = {}
 local visual = RENDER_3D and import("goluwa/render/render.lua").IsInitialized()
 effects.Visual = visual
@@ -279,6 +280,16 @@ do
 		entity.particle_emitter_cpu:BurstAt(count, position, direction)
 	end
 
+	function effects.ResetType(type_name)
+		vfx.ClearBursts("jrpg_" .. type_name)
+		local emitter = debris_emitters[type_name]
+
+		if emitter and emitter:IsValid() then emitter:Remove() end
+
+		debris_emitters[type_name] = nil
+		debris_materials[type_name] = nil
+	end
+
 	function effects.BurstType(type_name, position, direction, count, speed_scale, spread, cut, cut_scale)
 		local key = "jrpg_" .. type_name .. (
 				speed_scale and
@@ -338,189 +349,83 @@ end
 
 local TRAIL_LINGER = 1 / 0.6
 local TRAIL_STEP_ANGLE = 0.04
-local TRAIL_POINTS = 140
-local DARK_MATERIAL = {Additive = false, Translucent = true}
-clips.Define(
-	"jrpg_orb",
-	{
-		Duration = math.huge,
-		Layers = {
-			{
-				Type = "orb",
-				Size = "size",
-				Alpha = "alpha",
-				Flicker = "flicker",
-				LensScale = "lens_scale",
-			},
-		},
-	}
-)
-clips.Define(
-	"jrpg_projectile",
-	{
-		Duration = math.huge,
-		Layers = {
-			{
-				Type = "orb",
-				Size = "size",
-				Alpha = "fade",
-				Flicker = "flicker",
-				LensScale = "lens_scale",
-			},
-			{
-				Type = "gpu_trail",
-				Points = 20,
-				Texture = "orbit_trail",
-				Strength = 20,
-				Radius = function(p)
-					return p.trail_radius
-				end,
-				Alpha = "fade",
-			},
-		},
-	}
-)
-clips.Define(
+clips.RegisterScript(
 	"jrpg_magic_circle",
 	{
-		Duration = 2,
 		Follow = function(p)
 			clips.FollowEntity(p)
 			p.body_y = p.entity:IsValid() and actors.GetCenter(p.entity).y or p.position.y
 		end,
-		Tracks = {
-			main = {{0, 0}, {0.6, 1}},
-			diameter = {{0, 0, "outCubic"}, {0.15, 2}},
-			fade = function(f)
-				return math.sin(math.min(f * TRAIL_LINGER, 1) * math.pi) ^ 3
-			end,
-			trail_fade = function(f)
-				return (math.sin(f * math.pi) ^ 3) * 0.5
-			end,
-		},
-		Events = {
-			{
-				0,
-				function(p)
-					vfx.Flash(p.position + Vec3(0, 0.5, 0), p.color, 15 * p.strength, p.cast_time * 0.5)
-				end,
-			},
-		},
-		Layers = {
-			{
-				Type = "quad",
-				Texture = "magic_outer",
-				Material = DARK_MATERIAL,
-				Lift = 0.03,
-				Scale = "diameter",
-				ScaleBy = "size",
-				Yaw = function(p, v)
-					return p.spin + v.time * 0.8
-				end,
-				Alpha = "fade",
-			},
-			{
-				Type = "quad",
-				Texture = "magic_inner",
-				Material = DARK_MATERIAL,
-				Lift = 0.035,
-				Scale = "diameter",
-				ScaleBy = "size",
-				Yaw = function(p, v)
-					return p.spin - v.time * 1.28
-				end,
-				Alpha = "fade",
-			},
-			{
-				Type = "sprite",
-				Texture = "glow",
-				Flat = true,
-				Lift = 0.02,
-				Radius = 3.2,
-				ScaleBy = "size",
-				Brightness = function(p)
-					return p.strength * 60
-				end,
-				Alpha = function(p, v)
-					return 0.01 * v.fade * v.fade
-				end,
-			},
-			{
-				Type = "gpu_trail",
-				Count = 3,
-				Points = TRAIL_POINTS,
-				Radius = 0.05,
-				Texture = "orbit_trail",
-				Drift = 0.6,
-				Alpha = "trail_fade",
-				Strength = function(p)
-					return p.strength * 150
-				end,
-				Init = function(p, i)
-					local phase = i / 8 * math.pi * 2
-					local x = math.sin(phase + math.randomf(-1, 1))
-					local y = math.cos(phase + math.randomf(-1, 1))
-					local z = math.sin(-phase + math.randomf(-1, 1))
-					local length = math.sqrt(x * x + y * y + z * z)
-					local speed = math.randomf(3, 7.5)
-					return {
-						x = x / length,
-						y = y / length,
-						z = z / length,
-						speed = speed,
-						rate_x = speed * math.randomf(0.3, 1) * (math.random() < 0.5 and -1 or 1),
-						rate_y = speed * math.randomf(0.3, 1) * (math.random() < 0.5 and -1 or 1),
-						rate_z = speed * math.randomf(0.3, 1) * (math.random() < 0.5 and -1 or 1),
-						radius = math.randomf(0.45, 0.75),
-					}
-				end,
-				Push = function(p, v, trail, orbit, dt)
-					local position = p.position
-					local cx, cz = position.x, position.z
-					local radius = p.size * orbit.radius * v.diameter
-					local steps = math.clamp(math.ceil(orbit.speed * dt / TRAIL_STEP_ANGLE), 1, 16)
+	}
+)
+clips.RegisterScript(
+	"jrpg_magic_orbits",
+	{
+		Init = function(p, i)
+			local phase = i / 8 * math.pi * 2
+			local x = math.sin(phase + math.randomf(-1, 1))
+			local y = math.cos(phase + math.randomf(-1, 1))
+			local z = math.sin(-phase + math.randomf(-1, 1))
+			local length = math.sqrt(x * x + y * y + z * z)
+			local speed = math.randomf(3, 7.5)
+			return {
+				x = x / length,
+				y = y / length,
+				z = z / length,
+				speed = speed,
+				rate_x = speed * math.randomf(0.3, 1) * (math.random() < 0.5 and -1 or 1),
+				rate_y = speed * math.randomf(0.3, 1) * (math.random() < 0.5 and -1 or 1),
+				rate_z = speed * math.randomf(0.3, 1) * (math.random() < 0.5 and -1 or 1),
+				radius = math.randomf(0.45, 0.75),
+			}
+		end,
+		Push = function(p, v, trail, orbit, dt)
+			local position = p.position
+			local cx, cz = position.x, position.z
+			local radius = p.size * orbit.radius * v.diameter
+			local steps = math.clamp(math.ceil(orbit.speed * dt / TRAIL_STEP_ANGLE), 1, 16)
 
-					for step = 1, steps do
-						local t = v.time - dt * (steps - step) / steps
-						local ax, ay, az = t * orbit.rate_x, t * orbit.rate_y, t * orbit.rate_z
-						local sx, cx2, sy, cy2, sz, cz2 = math.sin(ax),
-						math.cos(ax),
-						math.sin(ay),
-						math.cos(ay),
-						math.sin(az),
-						math.cos(az)
-						local y1 = orbit.y * cx2 - orbit.z * sx
-						local z1 = orbit.y * sx + orbit.z * cx2
-						local x2 = orbit.x * cy2 + z1 * sy
-						local z2 = -orbit.x * sy + z1 * cy2
-						trail:ShiftXYZ(
-							cx + (x2 * cz2 - y1 * sz) * radius,
-							p.body_y + (x2 * sz + y1 * cz2) * radius,
-							cz + z2 * radius
-						)
-					end
-				end,
-			},
-			{
-				When = "pillar",
-				Setup = function(p, state)
-					state.pillar = vfx.AcquireTrail(p.color, p.strength * 30, 2, 1, vfx.GetTexture("beam"))
-					state.points = Beam.NewPoints(2)
-				end,
-				Update = function(p, v, state)
-					local position = p.position
-					state.points[1]:Set(position.x, position.y, position.z)
-					state.points[2]:Set(position.x, position.y + 1.5 * v.diameter, position.z)
-					state.pillar.beam:SetRadius(p.size * 0.35 * (1 - v.main * 0.5))
-					state.pillar.beam:SetRadiusEnd(nil)
-					state.pillar:SetAlpha(v.fade * 0.4)
-					state.pillar:SetPoints(state.points)
-				end,
-				Remove = function(p, state)
-					state.pillar:Release()
-				end,
-			},
-		},
+			for step = 1, steps do
+				local t = v.time - dt * (steps - step) / steps
+				local ax, ay, az = t * orbit.rate_x, t * orbit.rate_y, t * orbit.rate_z
+				local sx, cx2, sy, cy2, sz, cz2 = math.sin(ax),
+				math.cos(ax),
+				math.sin(ay),
+				math.cos(ay),
+				math.sin(az),
+				math.cos(az)
+				local y1 = orbit.y * cx2 - orbit.z * sx
+				local z1 = orbit.y * sx + orbit.z * cx2
+				local x2 = orbit.x * cy2 + z1 * sy
+				local z2 = -orbit.x * sy + z1 * cy2
+				trail:ShiftXYZ(
+					cx + (x2 * cz2 - y1 * sz) * radius,
+					p.body_y + (x2 * sz + y1 * cz2) * radius,
+					cz + z2 * radius
+				)
+			end
+		end,
+	}
+)
+clips.RegisterScript(
+	"jrpg_magic_pillar",
+	{
+		Setup = function(p, state)
+			state.pillar = vfx.AcquireTrail(p.color, p.strength * 30, 2, 1, vfx.GetTexture("beam"))
+			state.points = Beam.NewPoints(2)
+		end,
+		Update = function(p, v, state)
+			local position = p.position
+			state.points[1]:Set(position.x, position.y, position.z)
+			state.points[2]:Set(position.x, position.y + 1.5 * v.diameter, position.z)
+			state.pillar.beam:SetRadius(p.size * 0.35 * (1 - v.main * 0.5))
+			state.pillar.beam:SetRadiusEnd(nil)
+			state.pillar:SetAlpha(v.fade * 0.4)
+			state.pillar:SetPoints(state.points)
+		end,
+		Remove = function(p, state)
+			state.pillar:Release()
+		end,
 	}
 )
 
@@ -551,109 +456,69 @@ local SLASH_SOUNDS = {
 	"weapons/blade_slice_3.wav",
 	"weapons/blade_slice_4.wav",
 }
-clips.Define(
-	"jrpg_impact",
+clips.RegisterScript(
+	"jrpg_impact_bursts",
 	{
-		Duration = 0.45,
-		Tracks = {
-			ring = {{0, 0.3, "outCubic"}, {1, 2}},
-			flare = {
-				{
-					0,
-					0.8,
-					function(f)
-						return 1 - (1 - f) ^ 0.5
-					end,
-				},
-				{1, 0},
-			},
-			glow = {{0, 0.45}, {1, 1.35}},
-			fade = {{0, 1, "outQuart"}, {1, 0}},
-			glow_fade = {
-				{
-					0,
-					1,
-					function(f)
-						return 1 - (1 - f) ^ 6
-					end,
-				},
-				{1, 0},
-			},
-		},
-		Events = {
-			{
-				0,
-				function(p)
-					local spread = p.cut and SLASH_SPREAD or IMPACT_SPREAD
-					local sides = p.cut and 2 or 1
+		Event = function(p)
+			local spread = p.cut and SLASH_SPREAD or IMPACT_SPREAD
+			local sides = p.cut and 2 or 1
 
-					for side = 1, sides do
-						local direction = side == 1 and p.direction or p.direction * -1
-						effects.BurstType(
-							p.type_name,
-							p.position,
-							direction,
-							math.floor(p.count / sides),
-							nil,
-							spread,
-							p.cut,
-							p.cut_bucket
-						)
-						effects.BurstType(
-							p.type_name,
-							p.position,
-							direction,
-							math.floor(p.count * 0.6 / sides),
-							2.5,
-							spread,
-							p.cut,
-							p.cut_bucket
-						)
-					end
+			for side = 1, sides do
+				local direction = side == 1 and p.direction or p.direction * -1
+				effects.BurstType(
+					p.type_name,
+					p.position,
+					direction,
+					math.floor(p.count / sides),
+					nil,
+					spread,
+					p.cut,
+					p.cut_bucket
+				)
+				effects.BurstType(
+					p.type_name,
+					p.position,
+					direction,
+					math.floor(p.count * 0.6 / sides),
+					2.5,
+					spread,
+					p.cut,
+					p.cut_bucket
+				)
+			end
 
-					if p.debris then
-						effects.BurstDebris(p.type_name, p.position, p.direction, p.debris)
-					end
-
-					vfx.Flash(p.position + p.normal * 0.2, p.color, p.lumen, 0.35)
-				end,
-			},
-		},
-		Layers = {
-			{
-				Type = "sprite",
-				Texture = "ring",
-				Flat = true,
-				Lift = 0.02,
-				Tint = 0.4,
-				Radius = "ring",
-				ScaleBy = "size",
-				Brightness = 1.5,
-				Alpha = function(p, v)
-					return p.cut and 0 or v.fade
-				end,
-			},
-			{
-				Type = "sprite",
-				Texture = "flare",
-				Tint = 0.4,
-				Radius = "flare",
-				ScaleBy = "size",
-				Brightness = 3,
-				Alpha = "fade",
-			},
-			{
-				Type = "sprite",
-				Texture = "glow",
-				Tint = 0.4,
-				Radius = "glow",
-				ScaleBy = "size",
-				Brightness = 0.8,
-				Alpha = "glow_fade",
-			},
-		},
+			if p.debris then
+				effects.BurstDebris(p.type_name, p.position, p.direction, p.debris)
+			end
+		end,
 	}
 )
+
+do
+	local files = data_files.New(
+		"lua/jrpg/clips/",
+		{"Duration", "Loop", "Follow", "Tracks", "Events", "Layers", "Type"}
+	)
+	effects.ClipFiles = files
+	effects.ClipNames = {"orb", "projectile", "impact", "magic_circle"}
+
+	function effects.UpdateClip(name, data)
+		files:Remember(name, data)
+		clips.Define("jrpg_" .. name, data)
+	end
+
+	function effects.ReloadClip(name)
+		effects.UpdateClip(name, files:Read(name))
+	end
+
+	function effects.SaveClip(name)
+		return files:Save(name)
+	end
+
+	for _, name in ipairs(effects.ClipNames) do
+		effects.UpdateClip(name, import("lua/jrpg/clips/" .. name .. ".lua"))
+	end
+end
 
 function effects.ShowImpact(position, normal, type_name, strength, cut, direction, damage)
 	local definition = damage_types.Get(type_name)
@@ -718,6 +583,15 @@ function effects.ShowHitOverlay(entity, type_name)
 
 	for _, visual in ipairs(visuals) do
 		surface_overlays.Add(visual, definition.Overlay, config)
+	end
+end
+
+function effects.PlayOverlay(entity, kind, config)
+	local visuals = {}
+	collect_visuals(entity, visuals)
+
+	for _, visual in ipairs(visuals) do
+		surface_overlays.Add(visual, kind, config)
 	end
 end
 
@@ -795,42 +669,34 @@ event.AddListener("LateUpdate", "jrpg_overlays", function()
 	end
 end)
 
-clips.Define(
+clips.RegisterScript(
 	"jrpg_flash",
 	{
-		EndWithEntity = true,
-		Tracks = {decay = {{0, 1, "outQuad"}, {1, 0}}},
-		Layers = {
-			{
-				Update = function(p, v)
-					effects.AddOverlay(p.entity, p.color, p.intensity * v.decay, 0)
-				end,
-			},
-		},
+		Update = function(p, v)
+			effects.AddOverlay(p.entity, p.color, p.intensity * v.decay, 0)
+		end,
 	}
 )
+effects.ClipNames[#effects.ClipNames + 1] = "flash"
+effects.UpdateClip("flash", import("lua/jrpg/clips/flash.lua"))
 
 do
 	local LOW_HEALTH = 0.25
 	local LOW_HEALTH_COLOR = Color(1, 0.1, 0.05, 1)
 	local low_health_clips = {}
-	clips.Define(
+	clips.RegisterScript(
 		"jrpg_low_health",
 		{
-			Duration = math.huge,
-			EndWithEntity = true,
-			Layers = {
-				{
-					Update = function(p)
-						local f = p.health:GetFraction() / LOW_HEALTH
-						local rate = (1 - f) * 10 + 1
-						local t = 1 - (system.GetElapsedTime() * rate) % 1
-						effects.AddOverlay(p.entity, LOW_HEALTH_COLOR, t ^ 0.5 * 1.2, 0)
-					end,
-				},
-			},
+			Update = function(p)
+				local f = p.health:GetFraction() / LOW_HEALTH
+				local rate = (1 - f) * 10 + 1
+				local t = 1 - (system.GetElapsedTime() * rate) % 1
+				effects.AddOverlay(p.entity, LOW_HEALTH_COLOR, t ^ 0.5 * 1.2, 0)
+			end,
 		}
 	)
+	effects.ClipNames[#effects.ClipNames + 1] = "low_health"
+	effects.UpdateClip("low_health", import("lua/jrpg/clips/low_health.lua"))
 
 	event.AddListener("Update", "jrpg_low_health", function()
 		local rpg = Rpg.IsLocal()

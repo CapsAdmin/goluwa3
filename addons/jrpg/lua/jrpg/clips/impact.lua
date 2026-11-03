@@ -1,0 +1,45 @@
+return {
+	Duration = 0.45,
+	Tracks = {
+		ring = {{0, 0.3, "outCubic"}, {1, 2}},
+		flare = {{0, 0.8, "1 - (1 - f) ^ 0.5"}, {1, 0}},
+		glow = {{0, 0.45}, {1, 1.35}},
+		fade = {{0, 1, "outQuart"}, {1, 0}},
+		glow_fade = {{0, 1, "1 - (1 - f) ^ 6"}, {1, 0}},
+	},
+	Events = {
+		{0, Call = "jrpg_impact_bursts"},
+		{0, Flash = true, NormalOffset = 0.2, Lumen = "p.lumen", Time = 0.35},
+	},
+	Layers = {
+		{
+			Type = "sprite",
+			Texture = "ring",
+			Flat = true,
+			Lift = 0.02,
+			Tint = 0.4,
+			Radius = "ring",
+			ScaleBy = "size",
+			Brightness = 1.5,
+			Alpha = "p.cut and 0 or v.fade",
+		},
+		{
+			Type = "sprite",
+			Texture = "flare",
+			Tint = 0.4,
+			Radius = "flare",
+			ScaleBy = "size",
+			Brightness = 3,
+			Alpha = "fade",
+		},
+		{
+			Type = "sprite",
+			Texture = "glow",
+			Tint = 0.4,
+			Radius = "glow",
+			ScaleBy = "size",
+			Brightness = 0.8,
+			Alpha = "glow_fade",
+		},
+	},
+}
