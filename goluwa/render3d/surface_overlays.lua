@@ -80,6 +80,7 @@ local LAYER_FIELDS = [[
 	float params[4];
 	int32_t uv_space;
 	float uv_scale[2];
+	float hold;
 ]]
 local Layer = ffi.typeof("struct {" .. LAYER_FIELDS .. "}")
 local Slot = ffi.typeof(
@@ -199,6 +200,7 @@ function surface_overlays.Add(visual, kind_name, config)
 	write_color(layer.color_a, config.ColorA or defaults.ColorA, 1)
 	write_color(layer.color_b, config.ColorB or defaults.ColorB, 1)
 	local uv_scale = config.UVScale
+	layer.hold = -1
 	layer.uv_space = uv_scale and 1 or 0
 	layer.uv_scale[0], layer.uv_scale[1] = uv_scale and uv_scale[1] or 0, uv_scale and uv_scale[2] or 0
 
@@ -226,6 +228,35 @@ function handle_meta:SetIntensity(intensity)
 	slot_table:Touch(self.state.slot)
 end
 
+function handle_meta:SetFade(fade)
+	local layer = self.layer
+
+	if fade then
+		layer.hold = fade
+	elseif layer.hold >= 0 then
+		layer.start = surface_overlays.GetTime() - layer.hold * layer.fade_in
+		layer.hold = -1
+	end
+
+	slot_table:Touch(self.state.slot)
+end
+
+function handle_meta:GetFade()
+	if not self:IsActive() then return 0 end
+
+	local layer = self.layer
+
+	if layer.hold >= 0 then return layer.hold end
+
+	local age = surface_overlays.GetTime() - layer.start
+	local grow = math.clamp(age / math.max(layer.fade_in, 1e-3), 0, 1)
+	local outro = layer.duration > 0 and
+		1 - math.clamp((age - layer.duration) / math.max(layer.fade_out, 1e-3), 0, 1)
+		or
+		1
+	return grow * outro
+end
+
 function handle_meta:SetUVScale(x, y)
 	local scale = self.layer.uv_scale
 
@@ -238,6 +269,7 @@ end
 function handle_meta:Remove(fade_out)
 	if not self:IsActive() then return end
 
+	self:SetFade()
 	local layer = self.layer
 	layer.duration = math.max(surface_overlays.GetTime() - layer.start, 0.001)
 	layer.fade_out = fade_out or layer.fade_out
@@ -584,8 +616,9 @@ function surface_overlays.GetGLSL(block_name)
 
 				if (age < 0.0) continue;
 
-				float grow = clamp(age / max(l.fade_in, 1e-3), 0.0, 1.0);
-				float outro = l.duration > 0.0 ? 1.0 - clamp((age - l.duration) / max(l.fade_out, 1e-3), 0.0, 1.0) : 1.0;
+				bool held = l.hold >= 0.0;
+				float grow = held ? l.hold : clamp(age / max(l.fade_in, 1e-3), 0.0, 1.0);
+				float outro = l.duration > 0.0 && !held ? 1.0 - clamp((age - l.duration) / max(l.fade_out, 1e-3), 0.0, 1.0) : 1.0;
 				float fade = smoothstep(0.0, 1.0, grow) * smoothstep(0.0, 1.0, outro) * l.intensity;
 
 				if (fade <= 0.0) continue;

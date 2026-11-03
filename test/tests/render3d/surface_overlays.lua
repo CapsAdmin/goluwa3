@@ -172,3 +172,38 @@ T.Test3D("surface overlay params are named per kind and a config overrides the d
 	surface_overlays.Clear(sphere.visual)
 	sphere:Remove()
 end)
+
+T.Test3D("a surface overlay fade can be held, read and resumed", function()
+	local sphere = shapes.Sphere{
+		Position = Vec3(0, 0, 0),
+		Radius = 1,
+		Material = shapes.Material{Color = Color(1, 1, 1, 1), Roughness = 0.5, Metallic = 0},
+		Collision = false,
+		RigidBody = false,
+	}
+	local now = 100
+	local get_time = surface_overlays.GetTime
+
+	function surface_overlays.GetTime()
+		return now
+	end
+
+	local handle = surface_overlays.Add(sphere.visual, "crystallize", {FadeIn = 2, FadeOut = 1})
+	now = 101
+	T(math.abs(handle:GetFade() - 0.5))["<"](1e-6)
+	handle:SetFade(0.25)
+	now = 110
+	T(handle:GetFade())["=="](0.25)
+	handle:SetFade()
+	T(math.abs(handle:GetFade() - 0.25))["<"](1e-6)
+	now = 111
+	T(math.abs(handle:GetFade() - 0.75))["<"](1e-6)
+	handle:SetFade(0.5)
+	handle:Remove()
+	T(math.abs(handle:GetFade() - 0.5))["<"](1e-6)
+	now = 111.5
+	T(math.abs(handle:GetFade() - 0.375))["<"](1e-6)
+	surface_overlays.GetTime = get_time
+	surface_overlays.Clear(sphere.visual)
+	sphere:Remove()
+end)
