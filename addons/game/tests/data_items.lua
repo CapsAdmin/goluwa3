@@ -191,6 +191,25 @@ T.Test("data items show defaults for missing keys, group them and strip values t
 		end,
 	}
 	local items = data_items.Build(data, options)
+	local plain = data_items.Build(
+		{Count = 5, Nested = {Value = 1, Flag = true, Tint = {1, 0, 0, 1}}},
+		{
+			Schema = {Refs = {}, Fields = {}, Root = {}},
+			Name = "x",
+			Changed = function() end,
+			Restructured = function() end,
+		}
+	)
+
+	local function no_defaults(nodes)
+		for _, node in ipairs(nodes) do
+			T(node.Default)["=="](nil)
+
+			if node.Children then no_defaults(node.Children) end
+		end
+	end
+
+	no_defaults(plain)
 	T(#items)["=="](2)
 	T(items[1].Text)["=="]("Look")
 	T(items[2].Text)["=="]("Misc")

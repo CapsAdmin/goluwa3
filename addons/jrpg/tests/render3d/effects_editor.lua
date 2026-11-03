@@ -30,6 +30,14 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 		end
 	end
 
+	local function check_defaults(items, allowed)
+		for _, item in ipairs(items) do
+			if item.Type and item.Default ~= nil then T(allowed)["=="](true) end
+
+			if item.Children then check_defaults(item.Children, allowed) end
+		end
+	end
+
 	local function find_text(items, text)
 		for _, item in ipairs(items) do
 			if item.Text == text then return item end
@@ -38,6 +46,16 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 
 			if found then return found end
 		end
+	end
+
+	for _, case in ipairs{
+		{"damage types", "holy"},
+		{"status effects", "lightning"},
+		{"clips", "impact"},
+		{"particle shaders", "puff"},
+	} do
+		effects_editor.Load(session, case[1], case[2])
+		check_defaults(effects_editor.BuildItems(session, handlers), false)
 	end
 
 	effects_editor.Load(session, "status effects", "frozen")

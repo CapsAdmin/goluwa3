@@ -315,7 +315,7 @@ end
 function build(data, options, path, list_key)
 	local items = {}
 	local schema = options.Schema
-	local defaults = path == "" and schema and schema.Root and schema.Root.Defaults
+	local defaults = path == "" and schema and schema.Root and schema.Root.Defaults or nil
 	local keys = sorted_keys(data)
 
 	if defaults then
