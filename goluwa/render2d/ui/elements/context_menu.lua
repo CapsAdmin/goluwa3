@@ -184,7 +184,7 @@ function META:update_animations()
 		end,
 		to = self._closing and Vec2(1, 0) or Vec2(1, 1),
 		time = 0.2,
-		interpolation = "outExpo",
+		interpolation = self._closing and "inQuad" or "outExpo",
 		callback = function()
 			if self._closing then self:close_immediately() end
 		end,
@@ -198,8 +198,8 @@ function META:update_animations()
 			root.visual:SetDrawAlpha(value)
 		end,
 		to = self._closing and 0 or 1,
-		time = 1,
-		interpolation = "outExpo",
+		time = self._closing and 0.16 or 1,
+		interpolation = self._closing and "inQuad" or "outExpo",
 	}
 end
 
