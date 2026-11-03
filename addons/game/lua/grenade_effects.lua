@@ -1,3 +1,4 @@
+local event = import("goluwa/event.lua")
 local new_event = import("goluwa/network/replicated_event.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -11,10 +12,14 @@ local FLASH_COOL = Color(1, 0.3, 0.08, 1)
 local UP = Vec3(0, 1, 0)
 local TRAIL_COUNT = 10
 local GRAVITY = 9.8
+local PUFF_EMISSIVE = 14000
+local ARM_DRAG = 6
+local ARM_SPEED_PER_REACH = 6.4
+local ARM_STRETCH = 0.04
 local EXPLOSION_SPL = 150
 local EXPLOSION_KEEP = 0.35
 local SOUNDS = {"weapons/explode3.wav", "weapons/explode4.wav", "weapons/explode5.wav"}
-local clips, vfx, screen_shake, sounds, render3d, puffs, screen_fields, raycast
+local clips, vfx, screen_shake, sounds, render3d, screen_fields, raycast
 
 local function enabled()
 	return RENDER_3D and import("goluwa/render/render.lua").IsInitialized()
@@ -116,41 +121,148 @@ local function pick_open_direction(ax, ay, az, minimum)
 	return dx, dy, dz, fraction
 end
 
+local streamers = {}
+local streamer_position = Vec3()
+
+local function update_streamers(dt)
+	for i = #streamers, 1, -1 do
+		local streamer = streamers[i]
+		streamer.age = streamer.age + dt
+
+		if streamer.age >= streamer.life or (streamer.floor and streamer.y < streamer.floor) then
+			streamer.trail.particle_emitter_gpu:SetPlaying(false)
+			vfx.RemoveDelayed(streamer.trail, streamer.linger)
+
+			if streamer.head then
+				streamer.head.particle_emitter_gpu:SetPlaying(false)
+				vfx.RemoveDelayed(streamer.head, 1)
+			end
+
+			table.remove(streamers, i)
+		elseif streamer.age > 0 then
+			local drag = math.max(1 - streamer.drag * dt, 0)
+			streamer.vx = streamer.vx * drag
+			streamer.vy = streamer.vy * drag - streamer.gravity * dt
+			streamer.vz = streamer.vz * drag
+			streamer.x = streamer.x + streamer.vx * dt
+			streamer.y = streamer.y + streamer.vy * dt
+			streamer.z = streamer.z + streamer.vz * dt
+			streamer_position.x, streamer_position.y, streamer_position.z = streamer.x, streamer.y, streamer.z
+			streamer.trail.transform:SetPosition(streamer_position)
+
+			if streamer.head then streamer.head.transform:SetPosition(streamer_position) end
+		end
+	end
+end
+
+local function spawn_streamer(streamer, trail, head_radius)
+	streamer.age = -streamer.delay
+	streamer.linger = trail.LifetimeMax + 0.5
+	streamer.trail = vfx.CreateEmitter("grenade_streamer", trail)
+	streamer_position.x, streamer_position.y, streamer_position.z = streamer.x, streamer.y, streamer.z
+	streamer.trail.transform:SetPosition(streamer_position)
+
+	if head_radius > 0 then
+		streamer.head = vfx.CreateEmitter(
+			"grenade_streamer_head",
+			{
+				Style = "puff",
+				StyleParams = {Sprite = "fire", Grow = 1, ColorCurve = 1, FadeIn = 0.1, FadeStart = 0.6},
+				MaxParticles = 16,
+				Rate = 60,
+				Shape = "point",
+				Spread = 180,
+				SpeedMin = 0,
+				SpeedMax = 0,
+				Drag = 0,
+				GravityScale = 0,
+				LifetimeMin = 0.08,
+				LifetimeMax = 0.08,
+				SizeStart = head_radius * 2,
+				SizeEnd = head_radius * 2,
+				ColorStart = Color(1, 0.4, 0.1, 1),
+				ColorEnd = Color(1, 0.4, 0.1, 1),
+				Lit = false,
+				Emissive = 3 * PUFF_EMISSIVE,
+				FlipbookFps = 14,
+				FlipbookRandomStart = true,
+				Collision = "none",
+			}
+		)
+		streamer.head.transform:SetPosition(streamer_position)
+	end
+
+	streamers[#streamers + 1] = streamer
+end
+
+local function smoke_trail(rate, jitter, drag, buoyancy, life, radius_start, radius_end, grow, from, to, fade_in, fade_start, spin)
+	return {
+		Style = "puff",
+		StyleParams = {Sprite = "smoke", Grow = grow, ColorCurve = 1, FadeIn = fade_in, FadeStart = fade_start},
+		MaxParticles = 256,
+		Rate = rate,
+		Shape = "point",
+		Spread = 180,
+		SpeedMin = 0,
+		SpeedMax = jitter * 1.7,
+		Drag = drag,
+		GravityScale = -buoyancy / GRAVITY,
+		LifetimeMin = life * 0.85,
+		LifetimeMax = life,
+		SizeStart = radius_start * 1.9,
+		SizeEnd = radius_end * 1.9,
+		ColorStart = from,
+		ColorEnd = to,
+		Lit = true,
+		Emissive = 0,
+		FlipbookFps = 14,
+		FlipbookRandomStart = true,
+		SpinMin = -spin,
+		SpinMax = spin,
+		Collision = "none",
+	}
+end
+
 local function spawn_arms_and_trails(position, ax, ay, az, k, floor)
 	local ox, oy, oz = position.x + ax * 0.4 * k, position.y + ay * 0.4 * k, position.z + az * 0.4 * k
+	local origin = Vec3(ox, oy, oz)
 
 	for i = 1, 10 do
 		local dx, dy, dz, open = pick_open_direction(ax, ay, az, 0.3)
-		puffs.SpawnStreak{
-			Flipbook = "fire",
-			X = ox,
-			Y = oy,
-			Z = oz,
-			DX = dx,
-			DY = dy,
-			DZ = dz,
-			Delay = 0,
-			Life = math.randomf(0.35, 0.6),
-			Reach = math.randomf(5, 9) * k * math.min(open * 1.3, 1),
-			Grow = 2.5,
-			TailStart = 0.15,
-			TailEnd = 0.9,
-			Rise = 0.6 * k,
-			WidthStart = 0.26 * k,
-			WidthEnd = 0.12 * k,
-			R0 = 1,
-			G0 = 0.5,
-			B0 = 0.15,
-			R1 = 1,
-			G1 = 0.18,
-			B1 = 0.03,
-			ColorCurve = 0.7,
-			Brightness = 2.6,
-			FadeIn = 0.05,
-			FadeStart = 0.4,
-			Fps = math.randomf(12, 20),
-			Offset = math.random(0, 63),
-		}
+		local reach_scale = math.floor(math.min(open * 1.3, 1) * 10 + 0.5) / 10
+		local key = ("grenade_arm_%.2f_%.1f"):format(k, reach_scale)
+
+		if not vfx.HasBurst(key) then
+			local speed = k * reach_scale * ARM_SPEED_PER_REACH
+			vfx.DefineBurst(
+				key,
+				{
+					Style = "puff",
+					StyleParams = {Sprite = "fire", Grow = 1, ColorCurve = 0.7, FadeIn = 0.05, FadeStart = 0.4},
+					MaxParticles = 64,
+					Shape = "point",
+					Spread = 0,
+					SpeedMin = 5 * speed,
+					SpeedMax = 9 * speed,
+					LifetimeMin = 0.35,
+					LifetimeMax = 0.6,
+					Drag = ARM_DRAG,
+					GravityScale = -1.2 * k / GRAVITY,
+					SizeStart = 0.26 * k,
+					SizeEnd = 0.12 * k,
+					Stretch = ARM_STRETCH,
+					ColorStart = Color(1, 0.5, 0.15, 1),
+					ColorEnd = Color(1, 0.18, 0.03, 1),
+					Lit = false,
+					Emissive = 2.6 * PUFF_EMISSIVE,
+					FlipbookFps = 16,
+					FlipbookRandomStart = true,
+					Collision = "none",
+				}
+			)
+		end
+
+		vfx.Burst(key, origin, Vec3(dx, dy, dz), 1)
 	end
 
 	for i = 1, 6 do
@@ -158,47 +270,37 @@ local function spawn_arms_and_trails(position, ax, ay, az, k, floor)
 		dx, dy, dz = dx + ax * 0.6, dy + ay * 0.6, dz + az * 0.6
 		local length = math.sqrt(dx * dx + dy * dy + dz * dz)
 		local speed = math.randomf(7, 12) * k * (0.4 + 0.6 * open)
-		puffs.SpawnStreamer{
-			X = ox,
-			Y = oy,
-			Z = oz,
-			VX = dx / length * speed,
-			VY = dy / length * speed,
-			VZ = dz / length * speed,
-			Drag = 0.4,
-			Gravity = GRAVITY,
-			Floor = floor,
-			Delay = 0,
-			Life = math.randomf(0.8, 1.7),
-			Interval = 0.018,
-			Jitter = 0.4 * k,
-			HeadRadius = 0.28 * k,
-			HeadR = 3,
-			HeadG = 1.2,
-			HeadB = 0.3,
-			Template = {
-				Flipbook = "smoke",
-				Drag = 1.5,
-				Buoyancy = 0.8 * k,
-				Floor = floor,
-				Life = math.randomf(1.8, 3),
-				RadiusStart = 0.18 * k,
-				RadiusEnd = 0.5 * k,
-				Grow = 1.3,
-				R0 = 0.245,
-				G0 = 0.223,
-				B0 = 0.2,
-				R1 = 0.223,
-				G1 = 0.223,
-				B1 = 0.223,
-				ColorCurve = 1,
-				Brightness = 1,
-				FadeIn = 0.1,
-				FadeStart = 0.3,
-				Spin = math.randomf(-0.6, 0.6),
-				Fps = 14,
+		spawn_streamer(
+			{
+				x = ox,
+				y = oy,
+				z = oz,
+				vx = dx / length * speed,
+				vy = dy / length * speed,
+				vz = dz / length * speed,
+				drag = 0.4,
+				gravity = GRAVITY,
+				floor = floor,
+				delay = 0,
+				life = math.randomf(0.8, 1.7),
 			},
-		}
+			smoke_trail(
+				1 / 0.018,
+				0.4 * k,
+				1.5,
+				0.8 * k,
+				math.randomf(1.8, 3),
+				0.18 * k,
+				0.5 * k,
+				1.3,
+				Color(0.245, 0.223, 0.2, 1),
+				Color(0.223, 0.223, 0.223, 1),
+				0.1,
+				0.3,
+				34
+			),
+			0.28 * k
+		)
 	end
 end
 
@@ -232,7 +334,7 @@ local SMOKE_COLUMN_KINDS = {
 	},
 }
 
-local function spawn_smoke_columns(position, ax, ay, az, k, floor)
+local function spawn_smoke_columns(position, ax, ay, az, k)
 	for _ = 1, math.random(1, 3) do
 		local kind = SMOKE_COLUMN_KINDS[math.random(#SMOKE_COLUMN_KINDS)]
 		local dx, dy, dz = random_direction(ax, ay, az)
@@ -246,48 +348,36 @@ local function spawn_smoke_columns(position, ax, ay, az, k, floor)
 		local my = sy * kind.sideways + ay * kind.lift
 		local mz = sz * kind.sideways + az * kind.lift
 		local length = math.sqrt(mx * mx + my * my + mz * mz)
-		local life = math.randomf(kind.life[1], kind.life[2])
-		puffs.SpawnStreamer{
-			X = position.x + ax * 0.25 * k,
-			Y = position.y + ay * 0.25 * k,
-			Z = position.z + az * 0.25 * k,
-			VX = mx / length * speed,
-			VY = my / length * speed,
-			VZ = mz / length * speed,
-			Drag = kind.drag,
-			Gravity = kind.gravity * k,
-			Floor = nil,
-			Delay = math.randomf(0, 0.15),
-			Life = life,
-			Interval = 0.1,
-			Jitter = 0.4 * k,
-			HeadRadius = 0,
-			HeadR = 0,
-			HeadG = 0,
-			HeadB = 0,
-			Template = {
-				Flipbook = "smoke",
-				Drag = 1.2,
-				Buoyancy = kind.buoyancy * k,
-				Floor = floor,
-				Life = math.randomf(2, 3.5),
-				RadiusStart = 0.375 * k,
-				RadiusEnd = math.randomf(0.875, 1.75) * k,
-				Grow = 1.2,
-				R0 = 0.2,
-				G0 = 0.185,
-				B0 = 0.17,
-				R1 = 0.2,
-				G1 = 0.2,
-				B1 = 0.2,
-				ColorCurve = 1,
-				Brightness = 1,
-				FadeIn = 0.15,
-				FadeStart = 0.4,
-				Spin = math.randomf(-0.5, 0.5),
-				Fps = 14,
+		spawn_streamer(
+			{
+				x = position.x + ax * 0.25 * k,
+				y = position.y + ay * 0.25 * k,
+				z = position.z + az * 0.25 * k,
+				vx = mx / length * speed,
+				vy = my / length * speed,
+				vz = mz / length * speed,
+				drag = kind.drag,
+				gravity = kind.gravity * k,
+				delay = math.randomf(0, 0.15),
+				life = math.randomf(kind.life[1], kind.life[2]),
 			},
-		}
+			smoke_trail(
+				10,
+				0.4 * k,
+				1.2,
+				kind.buoyancy * k,
+				math.randomf(2, 3.5),
+				0.375 * k,
+				math.randomf(0.875, 1.75) * k,
+				1.2,
+				Color(0.2, 0.185, 0.17, 1),
+				Color(0.2, 0.2, 0.2, 1),
+				0.15,
+				0.4,
+				29
+			),
+			0
+		)
 	end
 end
 
@@ -296,73 +386,81 @@ local function spawn_fireball(position, normal, size)
 	local nx, ny, nz = normal.x, normal.y, normal.z
 	local floor = ny > 0.7 and position.y + 0.1 or nil
 	local ax, ay, az = trace_blast(position, normal, size * 1.5)
+	local open = 0
 
-	for _, style in ipairs(puff_styles) do
+	for i = 1, TRACE_COUNT do
+		open = open + trace_fractions[i]
+	end
+
+	local open_scale = math.floor((0.35 + 0.65 * open / TRACE_COUNT) * 10 + 0.5) / 10
+	local blast_axis = Vec3(ax, ay, az)
+
+	for style_index, style in ipairs(puff_styles) do
 		local lift = style.Lift * k
+		local key = ("grenade_puff_%d_%.2f_%.1f"):format(style_index, k, open_scale)
 
-		for i = 1, style.Count do
-			local dx, dy, dz = random_direction(ax, ay, az)
-
-			if style.Flat then
-				local along = dx * nx + dy * ny + dz * nz
-				dx, dy, dz = dx - along * nx, dy - along * ny, dz - along * nz
-				local length = math.sqrt(dx * dx + dy * dy + dz * dz)
-				dx, dy, dz = dx / length, dy / length, dz / length
-			end
-
-			local reach = style.Spawn * k * math.random()
-			local speed = math.randomf(style.Speed[1], style.Speed[2]) * k * (
-					0.35 + 0.65 * openness_at(dx, dy, dz)
-				)
-			puffs.Spawn{
-				Flipbook = style.Flipbook,
-				X = position.x + ax * lift + dx * reach,
-				Y = position.y + ay * lift + dy * reach,
-				Z = position.z + az * lift + dz * reach,
-				VX = dx * speed,
-				VY = dy * speed,
-				VZ = dz * speed,
-				Drag = style.Drag,
-				Buoyancy = style.Buoyancy * k,
-				Floor = floor,
-				Delay = math.randomf(0, style.Delay),
-				Life = math.randomf(style.Life[1], style.Life[2]),
-				RadiusStart = style.RadiusStart * k * math.randomf(0.75, 1.15),
-				RadiusEnd = style.RadiusEnd * k * math.randomf(0.75, 1.15),
-				Grow = style.Grow,
-				R0 = style.From[1],
-				G0 = style.From[2],
-				B0 = style.From[3],
-				R1 = style.To[1],
-				G1 = style.To[2],
-				B1 = style.To[3],
-				ColorCurve = style.ColorCurve,
-				Brightness = style.Brightness,
-				FadeIn = style.FadeIn,
-				FadeStart = style.FadeStart,
-				Roll = math.randomf(0, math.pi * 2),
-				Spin = math.randomf(-0.5, 0.5),
-				Fps = math.randomf(12, 20),
-				Offset = math.random(0, 63),
-			}
+		if not vfx.HasBurst(key) then
+			local flipbook = vfx.GetFlipbook(style.Flipbook)
+			local speed = k * open_scale
+			vfx.DefineBurst(
+				key,
+				{
+					Style = "puff",
+					StyleParams = {
+						Sprite = style.Flipbook,
+						Grow = style.Grow,
+						ColorCurve = style.ColorCurve,
+						FadeIn = style.FadeIn,
+						FadeStart = style.FadeStart,
+					},
+					MaxParticles = 128,
+					Shape = "point",
+					Spread = style.Flat and 180 or 90,
+					Flatten = style.Flat and 1 or 0,
+					SpeedMin = style.Speed[1] * speed,
+					SpeedMax = style.Speed[2] * speed,
+					LifetimeMin = style.Life[1],
+					LifetimeMax = style.Life[2],
+					Drag = style.Drag,
+					GravityScale = -style.Buoyancy * k / GRAVITY,
+					SizeStart = style.RadiusStart * k * 1.9,
+					SizeEnd = style.RadiusEnd * k * 1.9,
+					ColorStart = Color(style.From[1], style.From[2], style.From[3], 1),
+					ColorEnd = Color(style.To[1], style.To[2], style.To[3], 1),
+					Lit = flipbook.Normal ~= nil,
+					Emissive = flipbook.Normal and 0 or style.Brightness * PUFF_EMISSIVE,
+					FlipbookFps = 16,
+					FlipbookRandomStart = true,
+					SpinMin = -28,
+					SpinMax = 28,
+					Collision = "none",
+				}
+			)
 		end
+
+		vfx.Burst(
+			key,
+			Vec3(position.x + ax * lift, position.y + ay * lift, position.z + az * lift),
+			style.Flat and normal or blast_axis,
+			style.Count
+		)
 	end
 
 	spawn_arms_and_trails(position, ax, ay, az, k, floor)
-	spawn_smoke_columns(position, ax, ay, az, k, floor)
+	spawn_smoke_columns(position, ax, ay, az, k)
 end
 
 local function init()
 	if clips then return end
 
 	clips = import("goluwa/render3d/clips.lua")
-	puffs = import("goluwa/render3d/puffs.lua")
 	screen_fields = import("goluwa/render3d/screen_fields.lua")
 	vfx = import("goluwa/render3d/vfx.lua")
 	screen_shake = import("lua/screen_shake.lua")
 	sounds = import("lua/sounds.lua")
 	render3d = import("goluwa/render3d/render3d.lua")
 	raycast = import("goluwa/render3d/raycast.lua")
+	event.AddListener("Update", "grenade_streamers", update_streamers)
 	clips.Define(
 		"grenade_fuse",
 		{

@@ -342,47 +342,6 @@ function BATCH:AddAxial(x, y, z, ux, uy, uz, radius, r, g, b, a)
 	self:AddFlat(x, y, z, nx / side, ny / side, nz / side, radius, r, g, b, a * face, ux, uy, uz)
 end
 
-function BATCH:AddStreak(x, y, z, dx, dy, dz, length, width, r, g, b, a, frame)
-	if not frame_ready then begin_frame() end
-
-	local vx, vy, vz = camera_x - x, camera_y - y, camera_z - z
-	local distance = math.sqrt(vx * vx + vy * vy + vz * vz)
-	local along = vx * dx + vy * dy + vz * dz
-	local nx, ny, nz = vx - dx * along, vy - dy * along, vz - dz * along
-	local side = math.sqrt(nx * nx + ny * ny + nz * nz)
-	local face = math.clamp((side / distance - 0.1) / 0.4, 0, 1)
-
-	if face <= 0 then return end
-
-	nx, ny, nz = nx / side, ny / side, nz / side
-	local columns, rows = self.columns, self.rows
-	local u0, v0 = frame % columns / columns, math.floor(frame / columns) / rows
-	write(
-		self,
-		x,
-		y,
-		z,
-		dx * length,
-		dy * length,
-		dz * length,
-		(ny * dz - nz * dy) * width,
-		(nz * dx - nx * dz) * width,
-		(nx * dy - ny * dx) * width,
-		nx,
-		ny,
-		nz,
-		math.max(length, width) * 1.5,
-		r,
-		g,
-		b,
-		a * face,
-		u0,
-		v0,
-		u0 + 1 / columns,
-		v0 + 1 / rows
-	)
-end
-
 event.AddListener("LateUpdate", "sprite_batches", function()
 	frame_ready = false
 
