@@ -187,6 +187,7 @@ particle_emitter.gpu = {
 	{"RatePerMeter", 0, ranged(0, 10000), "Emission"},
 	{"FlipbookFps", 0, ranged(0, 120), "Look"},
 	{"FlipbookRandomStart", false, boolean, "Look"},
+	{"Sequence", 0, range_value(0, 4096), "Look", "range"},
 	{"Flatten", 0, ranged(0, 1), "Shape"},
 	{"Stretch", 0, ranged(0, 2), "Look"},
 	{"Spin", 0, range_value(-720, 720), "Look", "range"},

@@ -44,7 +44,7 @@ particles.systems = {}
 local sprite_textures = {}
 local sprite_grids = {}
 
-function particles.GetSpriteSlot(texture, columns, rows)
+function particles.GetSpriteSlot(texture, columns, rows, rects)
 	for index, other in ipairs(sprite_textures) do
 		if other == texture then return index end
 	end
@@ -54,7 +54,7 @@ function particles.GetSpriteSlot(texture, columns, rows)
 		"too many particle sprite textures"
 	)
 	sprite_textures[#sprite_textures + 1] = texture
-	sprite_grids[#sprite_textures] = {columns, rows}
+	sprite_grids[#sprite_textures] = {columns, rows, rects}
 	return #sprite_textures
 end
 
@@ -773,6 +773,7 @@ local draw_block = {
 			block.sprite_textures[index - 1] = self:GetTextureIndex(texture)
 			block.sprite_grids[index - 1][0] = sprite_grids[index][1]
 			block.sprite_grids[index - 1][1] = sprite_grids[index][2]
+			block.sprite_grids[index - 1][2] = sprite_grids[index][3] and self:GetTextureIndex(sprite_grids[index][3]) or -1
 		end
 
 		post_source.WritePreExposureBlock(self, block)
@@ -890,11 +891,16 @@ end
 local coverage_glsl = [[
 	vec4 get_particle_sprite() {
 		int slot = int(in_sprite.x + 0.5);
-		vec2 grid = particle_draw.sprite_grids[slot].xy;
+		vec4 grid_info = particle_draw.sprite_grids[slot];
+		vec2 grid = grid_info.xy;
 		float frames = grid.x * grid.y;
 		vec2 uv = in_shape.xy * 0.5 + 0.5;
 
-		if (frames > 1.5) {
+		if (grid_info.z > -0.5) {
+			float frame = mod(floor(in_sprite.y + 0.5), frames);
+			vec4 rect = texelFetch(TEXTURE(int(grid_info.z + 0.5)), ivec2(int(frame), 0), 0);
+			uv = mix(rect.xy, rect.zw, uv);
+		} else if (frames > 1.5) {
 			float frame = mod(floor(in_sprite.y + 0.5), frames);
 			uv = (vec2(mod(frame, grid.x), floor(frame / grid.x)) + uv) / grid;
 		}

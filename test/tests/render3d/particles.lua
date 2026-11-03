@@ -1238,3 +1238,78 @@ T.Test3D("Graphics render3d gpu emitter marks mirrored and ground oriented sprit
 
 	if not ok then error(err, 0) end
 end)
+
+T.Test3D("Graphics render3d gpu emitter picks a random sequence of a sprite sheet and animates inside it", function(draw)
+	init()
+	local sprite_sheets = import("goluwa/render3d/sprite_sheets.lua")
+	local sequences = {}
+
+	for s = 1, 4 do
+		sequences[s] = {id = s - 1, time = 1, frames = {}}
+
+		for f = 1, 3 do
+			sequences[s].frames[f] = {rect = {(f - 1) / 3, (s - 1) / 4, f / 3, s / 4}}
+		end
+	end
+
+	sprite_sheets.Define(
+		"test_sprite_sheet",
+		import("goluwa/render3d/vfx.lua").GetTexture("glow"),
+		sequences
+	)
+	particle_shaders.Register(
+		"test_sheet_sprite",
+		{
+			Params = {{Name = "Sprite", Type = "texture", Default = "smoke"}},
+			Sprite = "Sprite",
+		}
+	)
+	particles.Recompile()
+	local entity
+	local ok, err = pcall(function()
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 1, 0))
+		emitter:SetShader("test_sheet_sprite")
+		emitter:SetShaderParams({Sprite = "test_sprite_sheet"})
+		emitter:SetRate(100)
+		emitter:SetMaxParticles(512)
+		emitter:SetLifetime(4)
+		emitter:SetSpeed(0)
+		emitter:SetGravityScale(0)
+		emitter:SetDrag(0)
+		emitter:SetSequence({1, 2})
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		step_with_update(draw, 90)
+		local uid = emitter.gpu_range.uid
+		local records = particles.Download(particle_emitter_gpu.system)
+		local seen = {}
+		local checked = 0
+
+		for i = 0, particle_emitter_gpu.system.GetCount() - 1 do
+			local p = records[i]
+
+			if p.life > 0 and p.age > 0.3 and p.age < p.life and p.user[2] == uid then
+				local frame = p.sprite[2]
+				local t = p.age / p.life
+				checked = checked + 1
+				seen[math.floor(frame / 3)] = true
+				T(frame >= 3 and frame <= 8)["=="](true)
+				T(frame % 3)["=="](math.min(math.floor(t * 3), 2))
+			end
+		end
+
+		T(checked > 50)["=="](true)
+		T(seen[1])["=="](true)
+		T(seen[2])["=="](true)
+		T(seen[0])["=="](nil)
+		T(seen[3])["=="](nil)
+	end)
+
+	if entity then entity:Remove() end
+
+	particle_shaders.Remove("test_sheet_sprite")
+	particles.Recompile()
+	restore()
+
+	if not ok then error(err, 0) end
+end)

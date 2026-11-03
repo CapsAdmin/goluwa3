@@ -145,20 +145,26 @@ function gpu.GetRanges()
 end
 
 local function resolve_sprite(name)
-	if type(name) ~= "string" then return name, 1, 1 end
+	if type(name) ~= "string" then return name, 1, 1, nil, 1 end
 
 	local vfx = import("goluwa/render3d/vfx.lua")
 
 	if table.has_value(vfx.GetFlipbookNames(), name) then
 		local flipbook = vfx.GetFlipbook(name)
-		return flipbook.Texture, flipbook.Columns, flipbook.Rows
+		return flipbook.Texture, flipbook.Columns, flipbook.Rows, nil, flipbook.Frames
 	end
 
 	if table.has_value(vfx.GetTextureNames(), name) then
-		return vfx.GetTexture(name), 1, 1
+		return vfx.GetTexture(name), 1, 1, nil, 1
 	end
 
-	return import("goluwa/assets.lua").GetTexture(name), 1, 1
+	local sheet = import("goluwa/render3d/sprite_sheets.lua").Load(name)
+
+	if sheet.Rects then
+		return sheet.Texture, sheet.Frames, 1, sheet.Rects, sheet.SequenceFrames
+	end
+
+	return sheet.Texture, 1, 1, nil, 1
 end
 
 local function write_vec3(target, x, y, z)
@@ -313,9 +319,17 @@ gpu.system = particles.Register{
 				{"flipbook_frames", "int"},
 				{"flipbook_fps", "float"},
 				{"flipbook_random", "int"},
+				{"flipbook_sequence_frames", "int"},
+				{"sequence_min", "float"},
+				{"sequence_max", "float"},
 				{"spin_min", "float"},
 				{"spin_max", "float"},
 				{"stretch", "float"},
+				{"swirl", "float"},
+				{"min_speed", "float"},
+				{"flip_random", "float"},
+				{"orientation", "int"},
+				{"alpha_from_color", "int"},
 				{"flatten", "float"},
 				{"path", "int"},
 				{"shape", "int"},
@@ -325,11 +339,6 @@ gpu.system = particles.Register{
 				{"enabled", "int"},
 				{"first", "int"},
 				{"count", "int"},
-				{"swirl", "float"},
-				{"min_speed", "float"},
-				{"flip_random", "float"},
-				{"orientation", "int"},
-				{"alpha_from_color", "int"},
 				{"cursor", "int"},
 				{"spawn_count", "int"},
 				{"uid", "int"},
@@ -430,10 +439,17 @@ gpu.system = particles.Register{
 			entry.sprite_slot = 0
 			entry.flipbook_frames = 1
 			entry.flipbook_fps = emitter.FlipbookFps
+			entry.flipbook_sequence_frames = 1
+			entry.sequence_min, entry.sequence_max = particle_emitter.GetRange(emitter.Sequence)
 			entry.flipbook_random = emitter.FlipbookRandomStart and 1 or 0
 			local spin_min, spin_max = particle_emitter.GetRange(emitter.Spin)
 			entry.spin_min, entry.spin_max = math.rad(spin_min), math.rad(spin_max)
 			entry.stretch = emitter.Stretch
+			entry.swirl = emitter.Swirl
+			entry.min_speed = emitter.MinSpeed
+			entry.flip_random = emitter.FlipRandom
+			entry.orientation = ORIENTATIONS[emitter.Orientation]
+			entry.alpha_from_color = emitter.AlphaFromColor and 1 or 0
 			entry.flatten = emitter.Flatten
 
 			if entry.shader ~= 0 then
@@ -445,23 +461,24 @@ gpu.system = particles.Register{
 
 					if name == nil then
 						for _, param in ipairs(shaders.Get(shader).definition.Params) do
-			entry.swirl = emitter.Swirl
-			entry.min_speed = emitter.MinSpeed
-			entry.flip_random = emitter.FlipRandom
-			entry.orientation = ORIENTATIONS[emitter.Orientation]
-			entry.alpha_from_color = emitter.AlphaFromColor and 1 or 0
 							if param.Name == sprite_param then name = param.Default end
 						end
 					end
 
 					if range.sprite_name ~= name then
 						range.sprite_name = name
-						range.sprite_texture, range.sprite_columns, range.sprite_rows = resolve_sprite(name)
+						range.sprite_texture, range.sprite_columns, range.sprite_rows, range.sprite_rects, range.sprite_sequence_frames = resolve_sprite(name)
 					end
 
 					if range.sprite_texture then
-						entry.sprite_slot = particles.GetSpriteSlot(range.sprite_texture, range.sprite_columns, range.sprite_rows)
+						entry.sprite_slot = particles.GetSpriteSlot(
+							range.sprite_texture,
+							range.sprite_columns,
+							range.sprite_rows,
+							range.sprite_rects
+						)
 						entry.flipbook_frames = range.sprite_columns * range.sprite_rows
+						entry.flipbook_sequence_frames = range.sprite_sequence_frames
 					end
 				end
 			end
@@ -541,6 +558,12 @@ gpu.system = particles.Register{
 		p.user.y = slot;
 		p.user.z = uint(e.uid);
 		p.sprite = e.stretch > 0.0 ? vec4(e.stretch, -float(e.sprite_slot), 0.0, 1.0) : vec4(r.x * 6.2831853, float(e.sprite_slot), 0.0, 1.0);
+
+		if (e.flip_random > 0.0 && pcg3d_unorm(uvec3(index, generation, uint(e.seed) + 86028121u)).x < e.flip_random) p.spare |= 2u;
+
+		if (e.orientation == 1) p.spare |= 4u;
+
+		if (e.alpha_from_color != 0) p.spare |= 8u;
 		emitter_shader_spawn(e, index, generation, p);
 	]],
 	update = [[
@@ -558,23 +581,19 @@ gpu.system = particles.Register{
 		p.width = emitter_curve_size(slot, t, random_a.y) * p.sprite.w;
 
 		if (p.sprite.y > 0.0 && (e.spin_min != 0.0 || e.spin_max != 0.0)) {
-
-		if (e.flip_random > 0.0 && pcg3d_unorm(uvec3(index, generation, uint(e.seed) + 86028121u)).x < e.flip_random) p.spare |= 2u;
-
-		if (e.orientation == 1) p.spare |= 4u;
-
-		if (e.alpha_from_color != 0) p.spare |= 8u;
 			p.sprite.x += mix(e.spin_min, e.spin_max, random_a.x) * dt;
 		}
 
 		if (e.flipbook_frames > 1) {
-			float frames = float(e.flipbook_frames);
+			float frames = float(e.flipbook_sequence_frames);
+			vec3 sequence_random = pcg3d_unorm(uvec3(index, p.user.x, uint(e.seed) + 15485863u));
+			float sequence_first = floor(mix(e.sequence_min, e.sequence_max + 0.999, sequence_random.y)) * frames;
 
 			if (e.flipbook_fps > 0.0) {
-				float start = e.flipbook_random != 0 ? floor(pcg3d_unorm(uvec3(index, p.user.x, uint(e.seed) + 15485863u)).x * frames) : 0.0;
-				p.sprite.z = mod(start + floor(p.age * e.flipbook_fps), frames);
+				float start = e.flipbook_random != 0 ? floor(sequence_random.x * frames) : 0.0;
+				p.sprite.z = sequence_first + mod(start + floor(p.age * e.flipbook_fps), frames);
 			} else {
-				p.sprite.z = min(floor(t * frames), frames - 1.0);
+				p.sprite.z = sequence_first + min(floor(t * frames), frames - 1.0);
 			}
 		}
 
@@ -586,6 +605,14 @@ gpu.system = particles.Register{
 		}
 
 		p.velocity.y -= 9.81 * mix(e.gravity_min, e.gravity_max, random_b.y) * dt;
+
+		if (e.swirl != 0.0) {
+			vec3 around = p.position - e.position;
+			around -= e.axis * dot(around, e.axis);
+			float around_length = length(around);
+
+			if (around_length > 1e-4) p.velocity += cross(e.axis, around / around_length) * e.swirl * dt;
+		}
 
 		if (e.flow > 0.0) p.velocity += emitter_flow(p.position, e.flow_scale, float(e.seed)) * e.flow * dt;
 
@@ -606,14 +633,6 @@ gpu.system = particles.Register{
 
 		emitters_t e = emitters_data.emitters[slot];
 		float seed = fract(sin(p.life * 12345.678) * 43758.5453);
-		if (e.swirl != 0.0) {
-			vec3 around = p.position - e.position;
-			around -= e.axis * dot(around, e.axis);
-			float around_length = length(around);
-
-			if (around_length > 1e-4) p.velocity += cross(e.axis, around / around_length) * e.swirl * dt;
-		}
-
 		float twinkle = 0.5 + 0.5 * sin(p.age * mix(18.0, 60.0, seed) + seed * 6.2831853);
 		float t = clamp(p.age / p.life, 0.0, 1.0);
 		return emitter_curve_color(slot, t, emitter_random_a(e, index, p).z).a * mix(1.0, twinkle * twinkle, e.sparkle) * emitter_shader_visibility(e, index, t, p);
