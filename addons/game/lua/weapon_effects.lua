@@ -226,4 +226,43 @@ do
 	)
 end
 
+do
+	local surface_conditions
+
+	local function visual_enabled()
+		return RENDER_3D and import("goluwa/render/render.lua").IsInitialized()
+	end
+
+	function weapon_effects.GetSurfaceConditionNames()
+		local names = {}
+
+		if not visual_enabled() then return names end
+
+		surface_conditions = surface_conditions or import("goluwa/render3d/surface_conditions.lua")
+
+		for _, kind in ipairs(surface_conditions.kinds) do
+			names[#names + 1] = kind.name
+		end
+
+		return names
+	end
+
+	weapon_effects.TestSurfaceCondition = new_event(
+		"weapon_test_surface_condition",
+		function(kind, position, normal, radius, amount)
+			surface_conditions = surface_conditions or import("goluwa/render3d/surface_conditions.lua")
+			surface_conditions.Apply(kind, position, radius, amount, normal)
+		end,
+		visual_enabled
+	)
+	weapon_effects.ClearSurfaceConditions = new_event(
+		"weapon_clear_surface_conditions",
+		function()
+			surface_conditions = surface_conditions or import("goluwa/render3d/surface_conditions.lua")
+			surface_conditions.Clear()
+		end,
+		visual_enabled
+	)
+end
+
 return weapon_effects

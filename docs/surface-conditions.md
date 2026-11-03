@@ -36,7 +36,7 @@ What touching a condition does to a moving thing. A kind has an optional `exposu
 
 ## Gameplay
 
-Nothing in the game applies the field by itself: `Query` is the gameplay read, and the console has `surface_condition <kind> [radius] [amount]` (applies at the crosshair) and `surface_condition_clear`. The jrpg spells do not touch it; their looks are surface overlays on the victim.
+Nothing in the game applies the field by itself: `Query` is the gameplay read, and the console has `surface_condition <kind> [radius] [amount]` (applies at the crosshair) and `surface_condition_clear`. The jrpg spells do not touch it; their looks are surface overlays on the victim. The `surface_test` weapon (`lua/weapons/surface_test.lua`, slot 9, in the default loadout) is the way to try it by hand: left click applies the selected kind where you aim, reload cycles through every registered kind (a list on screen shows them, game kinds like poison included), F cycles the radius and right click clears everything. Stand an NPC or a prop in the result to see exposure.
 
 ## Verifying
 
