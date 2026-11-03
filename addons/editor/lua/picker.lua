@@ -531,18 +531,4 @@ function picker.PickAsset(category, current_value, callback)
 	}
 end
 
-event.AddListener("PickObject", "picker", function(what, callback, options)
-	if what == "material" then
-		picker.PickAsset("materials", nil, function(path)
-			callback(assets.GetMaterial(path))
-		end)
-	elseif what == "texture" then
-		picker.PickAsset("textures", nil, function(path)
-			callback(assets.GetTexture(path))
-		end)
-	elseif what == "asset" then
-		picker.PickAsset(options.category, options.path, callback)
-	end
-end)
-
 return picker
