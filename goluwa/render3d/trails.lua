@@ -26,9 +26,11 @@ local Header = ffi.typeof([[struct {
 	float drift;
 	float tint_end[3];
 	float flicker;
+	float taper;
 	float exposure_compensation;
 	int32_t count;
 	int32_t head;
+	int32_t filled;
 	int32_t texture_slot;
 	int32_t live;
 }]])
@@ -79,9 +81,11 @@ function trails.Acquire(config)
 	header.drift = config.drift or 0
 	header.tint_end[0], header.tint_end[1], header.tint_end[2] = config.r_end or config.r, config.g_end or config.g, config.b_end or config.b
 	header.flicker = config.flicker or 0
+	header.taper = config.taper or 0
 	header.exposure_compensation = config.exposure_compensation or 0
 	header.count = config.points
 	header.head = 0
+	header.filled = 0
 	header.texture_slot = get_texture_slot(config.texture)
 	header.live = 0
 	local object = objects[slot]
@@ -108,6 +112,7 @@ function META:Push(x, y, z)
 	if not self.primed then
 		self.primed = true
 		header.live = 1
+		header.filled = 1
 		active_count = active_count + 1
 		sum[0], sum[1], sum[2] = x * count, y * count, z * count
 
@@ -122,6 +127,7 @@ function META:Push(x, y, z)
 		sum[2] = sum[2] + z - points[o + 2]
 		points[o], points[o + 1], points[o + 2], points[o + 3] = x, y, z, now
 		header.head = (header.head + 1) % count
+		header.filled = math.min(header.filled + 1, count)
 	end
 
 	header.center[0], header.center[1], header.center[2] = sum[0] / count, sum[1] / count, sum[2] / count
@@ -250,9 +256,11 @@ local common_glsl = [[
 		float drift;
 		vec3 tint_end;
 		float flicker;
+		float taper;
 		float exposure_compensation;
 		int count;
 		int head;
+		int filled;
 		int texture_slot;
 		int live;
 	};
@@ -313,7 +321,9 @@ local vertex_glsl = common_glsl .. [[
 		across = length(across) < 1e-6 ? mat3(trail_draw.inv_view)[0] : normalize(across);
 		float t = s / float(max(header.count - 1, 1));
 		float pixel = dist * 2.0 / (abs(trail_draw.projection[1][1]) * trail_draw.render_size.y);
-		float radius = max(mix(header.radius_start, header.radius_end, t), pixel * 0.75);
+		float v = (s - float(header.count - header.filled)) / max(float(header.filled - 1), 1.0);
+		float taper = header.taper > 0.0 ? smoothstep(0.0, 1.0, clamp(v / header.taper, 0.0, 1.0)) * smoothstep(0.0, 1.0, clamp((1.0 - v) / header.taper, 0.0, 1.0)) : 1.0;
+		float radius = max(mix(header.radius_start, header.radius_end, t), pixel * 0.75) * taper;
 		vec3 world = position + across * side * radius;
 		out_position = world;
 		out_uv = vec2(side * 0.5 + 0.5, t * header.uv_scale + header.uv_offset);

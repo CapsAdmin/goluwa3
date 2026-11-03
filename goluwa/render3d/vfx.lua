@@ -355,83 +355,12 @@ local function get_tint_material(texture)
 end
 
 do
-	local function smooth_pass(from, to, count)
-		to[0], to[1], to[2] = from[0], from[1], from[2]
-		local last = (count - 1) * 3
-		to[last], to[last + 1], to[last + 2] = from[last], from[last + 1], from[last + 2]
-
-		for o = 3, last - 3, 3 do
-			to[o] = (from[o - 3] + from[o] * 2 + from[o + 3]) * 0.25
-			to[o + 1] = (from[o - 2] + from[o + 1] * 2 + from[o + 4]) * 0.25
-			to[o + 2] = (from[o - 1] + from[o + 2] * 2 + from[o + 5]) * 0.25
-		end
-	end
-
 	local function unwrap(history, head, count, out)
 		for i = 0, count - 1 do
 			local source = ((head + i) % count) * 3
 			local o = i * 3
 			out[o], out[o + 1], out[o + 2] = history[source], history[source + 1], history[source + 2]
 		end
-	end
-
-	local sqrt = math.sqrt
-
-	local function subdivide(from, count, subdivisions, to)
-		local o = 0
-
-		for i = 0, count - 2 do
-			local a = i * 3
-			local b = a + 3
-			local p1x, p1y, p1z = from[a], from[a + 1], from[a + 2]
-			local p2x, p2y, p2z = from[b], from[b + 1], from[b + 2]
-			local p0x, p0y, p0z, p3x, p3y, p3z
-
-			if i > 0 then
-				p0x, p0y, p0z = from[a - 3], from[a - 2], from[a - 1]
-			else
-				p0x, p0y, p0z = 2 * p1x - p2x, 2 * p1y - p2y, 2 * p1z - p2z
-			end
-
-			if i < count - 2 then
-				p3x, p3y, p3z = from[b + 3], from[b + 4], from[b + 5]
-			else
-				p3x, p3y, p3z = 2 * p2x - p1x, 2 * p2y - p1y, 2 * p2z - p1z
-			end
-
-			local d01 = (p1x - p0x) ^ 2 + (p1y - p0y) ^ 2 + (p1z - p0z) ^ 2
-			local d12 = (p2x - p1x) ^ 2 + (p2y - p1y) ^ 2 + (p2z - p1z) ^ 2
-			local d23 = (p3x - p2x) ^ 2 + (p3y - p2y) ^ 2 + (p3z - p2z) ^ 2
-			local t1 = math.max(sqrt(sqrt(d01)), 1e-3)
-			local t2 = t1 + math.max(sqrt(sqrt(d12)), 1e-3)
-			local t3 = t2 + math.max(sqrt(sqrt(d23)), 1e-3)
-
-			for step = 0, subdivisions - 1 do
-				local t = t1 + (t2 - t1) * step / subdivisions
-				local a1 = (t1 - t) / t1
-				local a1b = t / t1
-				local a2 = (t2 - t) / (t2 - t1)
-				local a2b = (t - t1) / (t2 - t1)
-				local a3 = (t3 - t) / (t3 - t2)
-				local a3b = (t - t2) / (t3 - t2)
-				local b1 = (t2 - t) / t2
-				local b1b = t / t2
-				local b2 = (t3 - t) / (t3 - t1)
-				local b2b = (t - t1) / (t3 - t1)
-				local c1 = (t2 - t) / (t2 - t1)
-				local c1b = (t - t1) / (t2 - t1)
-				local a1x, a1y, a1z = p0x * a1 + p1x * a1b, p0y * a1 + p1y * a1b, p0z * a1 + p1z * a1b
-				local a2x, a2y, a2z = p1x * a2 + p2x * a2b, p1y * a2 + p2y * a2b, p1z * a2 + p2z * a2b
-				local a3x, a3y, a3z = p2x * a3 + p3x * a3b, p2y * a3 + p3y * a3b, p2z * a3 + p3z * a3b
-				local b1x, b1y, b1z = a1x * b1 + a2x * b1b, a1y * b1 + a2y * b1b, a1z * b1 + a2z * b1b
-				local b2x, b2y, b2z = a2x * b2 + a3x * b2b, a2y * b2 + a3y * b2b, a2z * b2 + a3z * b2b
-				to[o], to[o + 1], to[o + 2] = b1x * c1 + b2x * c1b, b1y * c1 + b2y * c1b, b1z * c1 + b2z * c1b
-				o = o + 3
-			end
-		end
-
-		local last = (count - 1) * 3
-		to[o], to[o + 1], to[o + 2] = from[last], from[last + 1], from[last + 2]
 	end
 
 	local function fill(history, count, x, y, z)
@@ -484,116 +413,28 @@ do
 		local META = {}
 		META.__index = META
 
-		function vfx.AcquireTrail(color, strength, count, radius, texture, subdivisions, end_taper)
-			texture = texture or vfx.GetTexture("trail")
-			subdivisions = subdivisions or 1
-			local key = tostring(texture) .. count .. "x" .. subdivisions
-			local rendered = (count - 1) * subdivisions + 1
+		function vfx.AcquireBeam(color, strength, radius, texture)
+			local key = "beam" .. tostring(texture)
 			local object = acquire(key)
 
 			if not object then
 				object = setmetatable(
 					{
 						key = key,
-						beam = Beam.New{
-							Points = rendered,
-							Ribbon = true,
-							Radius = 0,
-							Material = get_tint_material(texture),
-						},
-						history = double_array(count * 3),
-						flat_a = double_array(count * 3),
-						flat_b = double_array(count * 3),
-						spline = double_array(rendered * 3),
-						count = count,
-						subdivisions = subdivisions,
+						beam = Beam.New{Points = 2, Ribbon = true, Radius = 0, Material = get_tint_material(texture)},
 					},
 					META
 				)
 			end
 
-			object.primed = false
-			object.head = 0
-			object.filled = 0
-			object.drift = 0
-			object.end_taper = end_taper or 0
-			object.beam:SetEndTaper(object.end_taper)
-			object.beam:SetRadius(0)
-			object.beam:SetRadiusEnd(radius)
+			object.beam:SetRadius(radius)
+			object.beam:SetRadiusEnd(nil)
 			set_tint(object, color, strength, 1)
 			return object
 		end
 
-		function META:ShiftXYZ(x, y, z, drift_dt)
-			local count = self.count
-
-			if not self.primed then
-				fill(self.history, count, x, y, z)
-				self.primed = true
-				self.beam:SetVisible(true)
-			end
-
-			local o = self.head * 3
-			self.history[o], self.history[o + 1], self.history[o + 2] = x, y, z
-			self.head = (self.head + 1) % count
-			self.filled = math.min(self.filled + 1, count)
-
-			if drift_dt then self.drift = self.drift + drift_dt end
-		end
-
-		function META:Shift(position, drift_dt)
-			self:ShiftXYZ(position.x, position.y, position.z, drift_dt)
-		end
-
-		function META:Rebuild()
-			local count = self.count
-			local history = self.history
-
-			if self.drift ~= 0 then
-				local cx, cy, cz = 0, 0, 0
-
-				for o = 0, count * 3 - 3, 3 do
-					cx, cy, cz = cx + history[o], cy + history[o + 1], cz + history[o + 2]
-				end
-
-				cx, cy, cz = cx / count, cy / count, cz / count
-				local drift = self.drift
-
-				for o = 0, count * 3 - 3, 3 do
-					history[o] = history[o] + (history[o] - cx) * drift
-					history[o + 1] = history[o + 1] + (history[o + 1] - cy) * drift
-					history[o + 2] = history[o + 2] + (history[o + 2] - cz) * drift
-				end
-
-				self.drift = 0
-			end
-
-			unwrap(history, self.head, count, self.flat_a)
-			smooth_pass(self.flat_a, self.flat_b, count)
-
-			if self.subdivisions == 1 then
-				smooth_pass(self.flat_b, self.flat_a, count)
-				smooth_pass(self.flat_a, self.flat_b, count)
-				self.beam:SetRibbonFlat(self.flat_b, 0, 1)
-			else
-				subdivide(self.flat_b, count, self.subdivisions, self.spline)
-
-				if self.end_taper > 0 then
-					local span = math.max(self.filled - 1, 1) * self.subdivisions
-					self.beam:SetRibbonFlat(
-						self.spline,
-						-(count - self.filled) * self.subdivisions / span,
-						(count - 1) * self.subdivisions / span
-					)
-				else
-					self.beam:SetRibbonFlat(self.spline, 0, 1)
-				end
-			end
-		end
-
-		function META:Push(position, drift_dt)
-			self:Shift(position, drift_dt)
-			self:Rebuild()
+		function META:SetRadius(radius)
+			self.beam:SetRadius(radius)
 		end
 
 		function META:SetPoints(points)
@@ -715,19 +556,10 @@ do
 	local META = {}
 	META.__index = META
 
-	function vfx.AcquireGpuTrail(
-		color,
-		strength,
-		count,
-		radius,
-		texture,
-		drift,
-		end_color,
-		flicker,
-		exposure_compensation
-	)
-		exposure_compensation = exposure_compensation or vfx.exposure_compensation.trails
-		end_color = end_color or color
+	function vfx.AcquireGpuTrail(config)
+		local color = config.Color
+		local strength = config.Strength
+		local end_color = config.EndColor or color
 		return setmetatable(
 			{
 				trail = trails.Acquire{
@@ -735,16 +567,17 @@ do
 					g = color.g * strength,
 					b = color.b * strength,
 					alpha = 1,
-					points = count,
+					points = config.Points,
 					radius_start = 0,
-					radius_end = radius,
-					texture = texture,
-					drift = drift,
+					radius_end = config.Radius,
+					texture = config.Texture,
+					drift = config.Drift,
 					r_end = end_color.r * strength,
 					g_end = end_color.g * strength,
 					b_end = end_color.b * strength,
-					flicker = flicker,
-					exposure_compensation = exposure_compensation,
+					flicker = config.Flicker,
+					taper = config.Taper,
+					exposure_compensation = config.ExposureCompensation or vfx.exposure_compensation.trails,
 				},
 				end_color = end_color,
 				color_r = color.r,
@@ -759,8 +592,6 @@ do
 	function META:ShiftXYZ(x, y, z)
 		self.trail:Push(x, y, z)
 	end
-
-	function META:Rebuild() end
 
 	function META:SetAlpha(alpha)
 		local strength = self.strength

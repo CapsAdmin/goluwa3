@@ -20,7 +20,6 @@ local COLOR = vertex_layout.GetFloatOffset("vertex_color")
 local Beam = objects.CreateTemplate("render3d_beam")
 Beam:GetSet("Radius", 0.02)
 Beam:GetSet("RadiusEnd", nil)
-Beam:GetSet("EndTaper", 0)
 Beam:GetSet("EndFade", 0)
 Beam:GetSet("UVByLength", false)
 
@@ -391,7 +390,6 @@ do
 
 		local radius_start = self.Radius
 		local radius_delta = (self.RadiusEnd or radius_start) - radius_start
-		local taper = self.EndTaper
 
 		for i = 0, count - 1 do
 			local o = i * 3
@@ -400,11 +398,6 @@ do
 			local minimum = work[w + 6] * min_radius_per_distance
 
 			if minimum > radius then radius = minimum end
-
-			if taper > 0 then
-				local v = i / (count - 1) * uv_scale + uv_offset
-				radius = radius * smooth_ramp(v / taper) * smooth_ramp((1 - v) / taper)
-			end
 
 			local px, py, pz = points[o], points[o + 1], points[o + 2]
 			local ox, oy, oz = work[w] * radius, work[w + 1] * radius, work[w + 2] * radius

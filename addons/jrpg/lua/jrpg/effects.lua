@@ -451,15 +451,14 @@ clips.RegisterScript(
 	"jrpg_magic_pillar",
 	{
 		Setup = function(p, state)
-			state.pillar = vfx.AcquireTrail(p.color, p.strength * 30, 2, 1, vfx.GetTexture("beam"))
+			state.pillar = vfx.AcquireBeam(p.color, p.strength * 30, 1, vfx.GetTexture("beam"))
 			state.points = Beam.NewPoints(2)
 		end,
 		Update = function(p, v, state)
 			local position = p.position
 			state.points[1]:Set(position.x, position.y, position.z)
 			state.points[2]:Set(position.x, position.y + 1.5 * v.diameter, position.z)
-			state.pillar.beam:SetRadius(p.size * 0.35 * (1 - v.main * 0.5))
-			state.pillar.beam:SetRadiusEnd(nil)
+			state.pillar:SetRadius(p.size * 0.35 * (1 - v.main * 0.5))
 			state.pillar:SetAlpha(v.fade * 0.4)
 			state.pillar:SetPoints(state.points)
 		end,

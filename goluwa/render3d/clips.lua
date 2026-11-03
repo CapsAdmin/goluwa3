@@ -302,16 +302,16 @@ do
 		state.data = {}
 
 		for i = 1, layer.Count or 1 do
-			state.trails[i] = vfx.AcquireGpuTrail(
-				color,
-				strength,
-				layer.Points,
-				radius,
-				texture,
-				layer.Drift or 0,
-				layer.EndColor and layer.EndColor(p),
-				layer.Flicker
-			)
+			state.trails[i] = vfx.AcquireGpuTrail{
+				Color = color,
+				Strength = strength,
+				Points = layer.Points,
+				Radius = radius,
+				Texture = texture,
+				Drift = layer.Drift,
+				EndColor = layer.EndColor and layer.EndColor(p),
+				Flicker = layer.Flicker,
+			}
 
 			if layer.Init then state.data[i] = layer.Init(p, i) end
 		end

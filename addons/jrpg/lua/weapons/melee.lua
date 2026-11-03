@@ -45,8 +45,7 @@ local SPARK_LINGER = 0.15
 local LINE_STRENGTH = 6
 local LINE_RADIUS = 0.03
 local LINE_POINTS = 48
-local LINE_SUBDIVISIONS = 4
-local LINE_END_TAPER = 0.8
+local LINE_TAPER = 0.8
 local SPARK_DENSITY = 20
 local SPARK_FADE = 1.6
 local WHITE = Color(1, 1, 1, 1)
@@ -551,7 +550,14 @@ function META:OnUpdate(dt)
 		end
 
 		self.trail = effects.vfx.AcquireSlashTrail(self.color, TRAIL_STRENGTH, TRAIL_POINTS, overlay.Overlay, overlay_config)
-		self.line = effects.vfx.AcquireTrail(self.color, LINE_STRENGTH, LINE_POINTS, LINE_RADIUS, nil, LINE_SUBDIVISIONS, LINE_END_TAPER)
+		self.line = effects.vfx.AcquireGpuTrail{
+			Color = self.color,
+			Strength = LINE_STRENGTH,
+			Points = LINE_POINTS,
+			Radius = LINE_RADIUS,
+			Texture = effects.vfx.GetTexture("trail"),
+			Taper = LINE_TAPER,
+		}
 	end
 
 	if not self.sparks then
@@ -586,7 +592,7 @@ function META:OnUpdate(dt)
 
 	self.sparks.transform:SetPosition(tip)
 	self.trail:Push(base, tip)
-	self.line:Push(tip)
+	self.line:ShiftXYZ(tip.x, tip.y, tip.z)
 end
 
 function META:EndTrail()
