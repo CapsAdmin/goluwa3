@@ -3,7 +3,7 @@ local system = import("goluwa/system.lua")
 local particles = import("goluwa/render3d/particles.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
-local styles = import("goluwa/render3d/particle_styles.lua")
+local shaders = import("goluwa/render3d/particle_shaders.lua")
 local gpu = {}
 gpu.MAX_EMITTERS = 128
 gpu.POOL_SIZE = 65536
@@ -219,8 +219,8 @@ gpu.system = particles.Register{
 				{"flow_scale", "float"},
 				{"sparkle", "float"},
 				{"saturation_jitter", "float"},
-				{"params", "vec4", styles.PARAM_FLOATS / 4},
-				{"style", "int"},
+				{"params", "vec4", shaders.PARAM_FLOATS / 4},
+				{"shader", "int"},
 				{"sprite_slot", "int"},
 				{"flipbook_frames", "int"},
 				{"flipbook_fps", "float"},
@@ -331,8 +331,8 @@ gpu.system = particles.Register{
 			entry.spawn_count = spawn_count
 			entry.uid = range.uid
 			entry.seed = emitter.Seed
-			local style = emitter.Style
-			entry.style = styles.GetId(style)
+			local shader = emitter.Shader
+			entry.shader = shaders.GetId(shader)
 			entry.sprite_slot = 0
 			entry.flipbook_frames = 1
 			entry.flipbook_fps = emitter.FlipbookFps
@@ -343,15 +343,15 @@ gpu.system = particles.Register{
 			entry.flatten = emitter.Flatten
 			entry.size_jitter = emitter.SizeJitter
 
-			if entry.style ~= 0 then
-				styles.WriteParams(style, emitter.StyleParams, entry.params)
-				local sprite_param = styles.GetSpriteParam(style)
+			if entry.shader ~= 0 then
+				shaders.WriteParams(shader, emitter.ShaderParams, entry.params)
+				local sprite_param = shaders.GetSpriteParam(shader)
 
 				if sprite_param then
-					local name = emitter.StyleParams and emitter.StyleParams[sprite_param]
+					local name = emitter.ShaderParams and emitter.ShaderParams[sprite_param]
 
 					if name == nil then
-						for _, param in ipairs(styles.Get(style).definition.Params) do
+						for _, param in ipairs(shaders.Get(shader).definition.Params) do
 							if param.Name == sprite_param then name = param.Default end
 						end
 					end
@@ -375,7 +375,7 @@ gpu.system = particles.Register{
 		return block
 	end,
 	GetDeclarations = function()
-		return gpu.base_declarations .. styles.GetGLSL()
+		return gpu.base_declarations .. shaders.GetGLSL()
 	end,
 	should_spawn = [[
 		uint slot = find_emitter(index);
@@ -444,7 +444,7 @@ gpu.system = particles.Register{
 		p.user.z = uint(e.uid);
 		float size_scale = 1.0 + (r.z * 2.0 - 1.0) * e.size_jitter;
 		p.sprite = e.stretch > 0.0 ? vec4(e.stretch, -float(e.sprite_slot), 0.0, size_scale) : vec4(r.x * 6.2831853, float(e.sprite_slot), 0.0, size_scale);
-		emitter_style_spawn(e, index, generation, p);
+		emitter_shader_spawn(e, index, generation, p);
 	]],
 	update = [[
 		uint slot;
@@ -488,7 +488,7 @@ gpu.system = particles.Register{
 			p.velocity += normalize(scatter + 1e-4) * e.fizzle * smoothstep(e.fizzle_start, 1.0, t) * dt;
 		}
 
-		emitter_style_update(e, index, dt, t, p);
+		emitter_shader_update(e, index, dt, t, p);
 		p.velocity *= exp(-e.drag * dt);
 		p.position += p.velocity * dt;
 	]],
@@ -501,7 +501,7 @@ gpu.system = particles.Register{
 		float seed = fract(sin(p.life * 12345.678) * 43758.5453);
 		float twinkle = 0.5 + 0.5 * sin(p.age * mix(18.0, 60.0, seed) + seed * 6.2831853);
 		float t = clamp(p.age / p.life, 0.0, 1.0);
-		return mix(e.color_start.a, e.color_end.a, t) * mix(1.0, twinkle * twinkle, e.sparkle) * emitter_style_visibility(e, t, p);
+		return mix(e.color_start.a, e.color_end.a, t) * mix(1.0, twinkle * twinkle, e.sparkle) * emitter_shader_visibility(e, t, p);
 	]],
 	shade = [[
 		uint slot;
@@ -514,7 +514,7 @@ gpu.system = particles.Register{
 		float jitter = fract(sin(p.life * 4321.987 + 3.7) * 24634.6345);
 		tint = max(mix(vec3(luma), tint, 1.0 + (jitter - 0.5) * 2.0 * e.saturation_jitter), vec3(0.0));
 		p.radiance = tint * ((e.lit != 0 ? p.light : vec3(0.0)) + e.emissive * effect_exposure_gain(particle_data.pre_exposure_tex, e.exposure_compensation));
-		emitter_style_shade(e, clamp(p.age / p.life, 0.0, 1.0), p);
+		emitter_shader_shade(e, clamp(p.age / p.life, 0.0, 1.0), p);
 	]],
 	collision_mode = [[
 		uint slot;

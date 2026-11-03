@@ -93,8 +93,8 @@ effects.vfx = vfx
 vfx.ClearBursts("jrpg_")
 local sprites = import("goluwa/render3d/sprites.lua")
 local hitmarkers = import("lua/hitmarkers.lua")
-local particle_style_library = import("lua/particle_style_library.lua")
-particle_style_library.Init()
+local particle_shader_library = import("lua/particle_shader_library.lua")
+particle_shader_library.Init()
 local screen_shake = import("lua/screen_shake.lua")
 local sounds = import("lua/sounds.lua")
 local StatusEffects = import("lua/components/status_effects.lua")
@@ -219,7 +219,7 @@ do
 		}
 
 		for key, value in pairs(definition.Particles) do
-			properties[key == "Params" and "StyleParams" or key] = value
+			properties[key] = value
 		end
 
 		for key, value in pairs(overrides or {}) do
@@ -229,12 +229,12 @@ do
 		return properties
 	end
 
-	function effects.PlayParticleStyle(position, name, duration)
+	function effects.PlayParticleShader(position, name, duration)
 		local properties = effects.GetParticleProperties(
 			{Color = Color(1, 1, 1, 1), Particles = {}},
 			{
-				Style = name,
-				StyleParams = particle_style_library.GetDefaults(name),
+				Shader = name,
+				ShaderParams = particle_shader_library.GetDefaults(name),
 				Playing = true,
 				Rate = 90,
 				MaxParticles = 512,
@@ -253,7 +253,7 @@ do
 				Lit = true,
 			}
 		)
-		local emitter = vfx.CreateEmitter("jrpg_style_" .. name, properties)
+		local emitter = vfx.CreateEmitter("jrpg_shader_" .. name, properties)
 		emitter.transform:SetPosition(position + Vec3(0, 1, 0))
 
 		timer.Delay(duration or 3, function()

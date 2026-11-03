@@ -5,7 +5,7 @@ local damage_types = import("lua/jrpg/damage_types.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
-local particle_style_library = import("lua/particle_style_library.lua")
+local particle_shader_library = import("lua/particle_shader_library.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local effects_schema = {}
 local EXPRESSION = "a number, the name of a track or param, or an expression: p.<param>, v.<track>, v.time, math functions"
@@ -39,7 +39,7 @@ local refs = {
 	end,
 	overlay = ||->surface_overlays.GetKindNames(),
 	texture = ||->vfx.GetTextureNames(),
-	particle_style = ||->particle_style_library.Names,
+	particle_shader = ||->particle_shader_library.Names,
 	flipbook = ||->vfx.GetFlipbookNames(),
 	sprite = ||->list.extend(vfx.GetFlipbookNames(), vfx.GetTextureNames()),
 	script = ||->sorted_names(clips.Scripts),
@@ -72,15 +72,15 @@ local COMMON = {
 	Names = {Display = "chips"},
 	Adjectives = {Display = "chips"},
 	["Think.Type"] = {Options = {"magic", "slash", "generic"}},
-	Particles = {Keys = {Style = "snow"}},
-	["Particles.Style"] = {
-		Ref = "particle_style",
+	Particles = {Keys = {Shader = "snow"}},
+	["Particles.Shader"] = {
+		Ref = "particle_shader",
 		Restructure = true,
 		OnSet = function(particles, name)
-			local defaults = particle_style_library.GetDefaults(name)
-			particles.Params = next(defaults) and defaults or nil
+			local defaults = particle_shader_library.GetDefaults(name)
+			particles.ShaderParams = next(defaults) and defaults or nil
 		end,
-		Description = "how the particles are drawn and move beyond the common properties, see particle styles",
+		Description = "how the particles are drawn and move beyond the common properties, see particle shaders",
 	},
 }
 
@@ -241,7 +241,7 @@ local schemas = {
 	},
 }
 do
-	local EXCLUDED = {Visible = true, Playing = true, Loop = true, Duration = true, Seed = true, StyleParams = true}
+	local EXCLUDED = {Visible = true, Playing = true, Loop = true, Duration = true, Seed = true, ShaderParams = true}
 	local fields = {}
 	local keys = {}
 
@@ -267,16 +267,16 @@ do
 		end
 	end
 
-	fields.Style = {
-		Ref = "particle_style",
+	fields.Shader = {
+		Ref = "particle_shader",
 		Restructure = true,
 		OnSet = function(data, name)
-			local defaults = particle_style_library.GetDefaults(name)
-			data.StyleParams = next(defaults) and defaults or nil
+			local defaults = particle_shader_library.GetDefaults(name)
+			data.ShaderParams = next(defaults) and defaults or nil
 		end,
-		Description = "how the particles are drawn and move beyond the common properties, see particle styles",
+		Description = "how the particles are drawn and move beyond the common properties, see particle shaders",
 	}
-	fields.StyleParams = {}
+	fields.ShaderParams = {}
 	fields.ShapeSize = {Min = 0, Max = 100}
 	schemas.emitters = {Refs = refs, Fields = fields, Root = {Keys = keys}}
 end
@@ -293,11 +293,11 @@ for _, hook in ipairs{"Spawn", "Update", "Visibility", "Shade"} do
 	hook_fields[hook] = {
 		Code = "glsl",
 		Description = HOOK_DESCRIPTION[hook],
-		GetStatus = |data, options|->particle_style_library.GetStatus(options.Name),
+		GetStatus = |data, options|->particle_shader_library.GetStatus(options.Name),
 	}
 end
 
-schemas["particle styles"] = {
+schemas["particle shaders"] = {
 	Refs = refs,
 	Labels = {Params = |param|->tostring(param.Name) .. " (" .. tostring(param.Type) .. ")"},
 	Fields = merge(
@@ -325,45 +325,45 @@ schemas["particle styles"] = {
 	},
 }
 
-function effects_schema.WithEmitterStyleParams(schema, data)
-	if not data.Style then return schema end
+function effects_schema.WithEmitterShaderParams(schema, data)
+	if not data.Shader then return schema end
 
 	local fields = table.shallow_copy(schema.Fields)
 	local keys = {}
 
-	for _, param in ipairs(particle_style_library.GetParams(data.Style)) do
+	for _, param in ipairs(particle_shader_library.GetParams(data.Shader)) do
 		local field = {Description = param.Description, Min = param.Min, Max = param.Max}
 
 		if param.Type == "texture" then field.Ref = "sprite" end
 
-		fields["StyleParams." .. param.Name] = field
+		fields["ShaderParams." .. param.Name] = field
 		keys[param.Name] = table.copy(param.Default)
 	end
 
-	fields.StyleParams = {Keys = keys}
+	fields.ShaderParams = {Keys = keys}
 	local out = table.shallow_copy(schema)
 	out.Fields = fields
 	return out
 end
 
-function effects_schema.WithStyleParams(schema, data)
-	local style = data.Particles and data.Particles.Style
+function effects_schema.WithShaderParams(schema, data)
+	local shader = data.Particles and data.Particles.Shader
 
-	if not style then return schema end
+	if not shader then return schema end
 
 	local fields = table.shallow_copy(schema.Fields)
 	local keys = {}
 
-	for _, param in ipairs(particle_style_library.GetParams(style)) do
+	for _, param in ipairs(particle_shader_library.GetParams(shader)) do
 		local field = {Description = param.Description, Min = param.Min, Max = param.Max}
 
 		if param.Type == "texture" then field.Ref = "sprite" end
 
-		fields["Params." .. param.Name] = field
+		fields["ShaderParams." .. param.Name] = field
 		keys[param.Name] = table.copy(param.Default)
 	end
 
-	fields.Params = {Keys = keys}
+	fields.ShaderParams = {Keys = keys}
 	local out = table.shallow_copy(schema)
 	out.Fields = fields
 	return out

@@ -1,10 +1,10 @@
 local vfs = import("goluwa/vfs.lua")
 local list = import("goluwa/list.lua")
 local data_files = import("goluwa/data_files.lua")
-local styles = import("goluwa/render3d/particle_styles.lua")
+local shaders = import("goluwa/render3d/particle_shaders.lua")
 local library = {}
 library.Files = data_files.New(
-	"lua/particle_styles/",
+	"lua/particle_shaders/",
 	{"Sprite", "Params", "Spawn", "Update", "Visibility", "Shade"}
 )
 library.Names = {}
@@ -64,7 +64,7 @@ end
 local function discover()
 	library.Names = {}
 
-	for _, file in ipairs(vfs.Find("lua/particle_styles/%.lua$")) do
+	for _, file in ipairs(vfs.Find("lua/particle_shaders/%.lua$")) do
 		library.Names[#library.Names + 1] = file:gsub("%.lua$", "")
 	end
 
@@ -73,7 +73,7 @@ end
 
 function library.Register(name, data)
 	library.Files:Remember(name, data)
-	styles.Register(name, data_files.Realize(table.copy(data)))
+	shaders.Register(name, data_files.Realize(table.copy(data)))
 	signatures[name] = get_signature(data)
 
 	if not table.has_value(library.Names, name) then
@@ -110,13 +110,13 @@ function library.Update(name, data)
 		return
 	end
 
-	local message = styles.ParseError(tostring(err):gsub("^.-:%d+: ", ""))
+	local message = shaders.ParseError(tostring(err):gsub("^.-:%d+: ", ""))
 	library.Errors[name] = message
 
 	if previous then
 		library.Register(name, previous)
 	else
-		styles.Remove(name)
+		shaders.Remove(name)
 		list.remove_value(library.Names, name)
 		library.Files.Source[name] = nil
 	end
@@ -138,11 +138,11 @@ function library.GetStatus(name)
 end
 
 function library.GetDefaults(name)
-	return styles.GetDefaults(name)
+	return shaders.GetDefaults(name)
 end
 
 function library.GetParams(name)
-	local entry = styles.Get(name)
+	local entry = shaders.Get(name)
 	return entry and entry.definition.Params or {}
 end
 

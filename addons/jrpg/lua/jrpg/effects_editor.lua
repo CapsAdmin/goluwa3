@@ -27,7 +27,7 @@ local status_effects = import("lua/jrpg/status_effects.lua")
 local effects = import("lua/jrpg/effects.lua")
 local effects_schema = import("lua/jrpg/effects_schema.lua")
 local clip_edit = import("lua/jrpg/clip_edit.lua")
-local particle_style_library = import("lua/particle_style_library.lua")
+local particle_shader_library = import("lua/particle_shader_library.lua")
 local effects_stage = import("lua/jrpg/effects_stage.lua")
 local effects_editor = {}
 local LEFT_WIDTH = 440
@@ -46,7 +46,7 @@ effects_editor.CategoryNames = {
 	"status effects",
 	"clips",
 	"overlays",
-	"particle styles",
+	"particle shaders",
 	"emitters",
 	"grenade puffs",
 	"scripts",
@@ -64,12 +64,12 @@ local REF_CATEGORIES = {
 	damage = "damage types",
 	overlay = "overlays",
 	script = "scripts",
-	particle_style = "particle styles",
+	particle_shader = "particle shaders",
 }
 effects_editor.Categories = {
 	["damage types"] = {
 		Schema = effects_schema.Schemas["damage types"],
-		GetSchema = effects_schema.WithStyleParams,
+		GetSchema = effects_schema.WithShaderParams,
 		GetNames = effects_schema.Refs.damage,
 		GetSource = |name|->damage_types.Files.Source[name],
 		Update = |name, data|-> do
@@ -87,7 +87,7 @@ effects_editor.Categories = {
 		Schema = effects_schema.Schemas["status effects"],
 		GetNames = effects_schema.Refs.status,
 		GetSource = |name|->status_effects.Files.Source[name],
-		GetSchema = effects_schema.WithStyleParams,
+		GetSchema = effects_schema.WithShaderParams,
 		Update = status_effects.Update,
 		Reload = status_effects.Reload,
 		Save = status_effects.Save,
@@ -130,22 +130,22 @@ effects_editor.Categories = {
 			effects.PlayOverlay(stage.Target, name, {Duration = 3})
 		end,
 	},
-	["particle styles"] = {
-		Schema = effects_schema.Schemas["particle styles"],
+	["particle shaders"] = {
+		Schema = effects_schema.Schemas["particle shaders"],
 		Duration = ||->5,
-		GetNames = ||->particle_style_library.Names,
-		GetSource = |name|->particle_style_library.Files.Source[name],
-		Update = particle_style_library.Update,
-		Reload = particle_style_library.Reload,
-		Save = particle_style_library.Save,
-		Duplicate = |name|->particle_style_library.Create(particle_style_library.GetNewName(name), name),
+		GetNames = ||->particle_shader_library.Names,
+		GetSource = |name|->particle_shader_library.Files.Source[name],
+		Update = particle_shader_library.Update,
+		Reload = particle_shader_library.Reload,
+		Save = particle_shader_library.Save,
+		Duplicate = |name|->particle_shader_library.Create(particle_shader_library.GetNewName(name), name),
 		Play = |stage, name|-> do
-			effects.PlayParticleStyle(stage.Chest, name)
+			effects.PlayParticleShader(stage.Chest, name)
 		end,
 	},
 	emitters = {
 		Schema = effects_schema.Schemas.emitters,
-		GetSchema = effects_schema.WithEmitterStyleParams,
+		GetSchema = effects_schema.WithEmitterShaderParams,
 		Duration = ||->3,
 		GetNames = ||->emitters.Names,
 		GetSource = |name|->emitters.Files.Source[name],

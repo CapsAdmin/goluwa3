@@ -1,9 +1,9 @@
 local T = import("test/environment.lua")
 local list = import("goluwa/list.lua")
-local library = import("lua/particle_style_library.lua")
-local styles = import("goluwa/render3d/particle_styles.lua")
+local library = import("lua/particle_shader_library.lua")
+local shaders = import("goluwa/render3d/particle_shaders.lua")
 
-T.Test("particle style library loads the shipped styles, rejects bad updates and names duplicates", function()
+T.Test("particle shader library loads the shipped shaders, rejects bad updates and names duplicates", function()
 	library.Init()
 	T(not not table.has_value(library.Names, "snow"))["=="](true)
 	T(not not table.has_value(library.Names, "glow"))["=="](true)
@@ -11,7 +11,7 @@ T.Test("particle style library loads the shipped styles, rejects bad updates and
 	T(defaults.Sway)["=="](0.35)
 	T(defaults.Wind[1])["=="](0.05)
 	T(defaults.Flake)["=="]("snowflake")
-	T(styles.GetSpriteParam("snow"))["=="]("Flake")
+	T(shaders.GetSpriteParam("snow"))["=="]("Flake")
 	local data = table.copy(library.Files.Source.snow)
 	data.Params[2].Name = "Flake"
 	local ok = pcall(library.Update, "snow", data)
@@ -24,12 +24,12 @@ T.Test("particle style library loads the shipped styles, rejects bad updates and
 	T(not not table.has_value(library.Names, "snow_2"))["=="](true)
 	T(library.GetNewName("snow"))["=="]("snow_3")
 	T(#library.GetParams("snow_2"))["=="](#library.GetParams("snow"))
-	styles.Remove("snow_2")
+	shaders.Remove("snow_2")
 	list.remove_value(library.Names, "snow_2")
 	library.Files.Source.snow_2 = nil
 end)
 
-T.Test("particle style params pack into the emitter block in declaration order", function()
+T.Test("particle shader params pack into the emitter block in declaration order", function()
 	library.Init()
 	local target = {}
 
@@ -37,8 +37,8 @@ T.Test("particle style params pack into the emitter block in declaration order",
 		target[i] = {[0] = 0, 0, 0, 0}
 	end
 
-	styles.WriteParams("snow", {Sway = 2, Wind = {1, 2, 3}}, target)
-	local entry = styles.Get("snow")
+	shaders.WriteParams("snow", {Sway = 2, Wind = {1, 2, 3}}, target)
+	local entry = shaders.Get("snow")
 	local offsets = {}
 
 	for _, item in ipairs(entry.layout) do

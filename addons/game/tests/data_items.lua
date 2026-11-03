@@ -20,7 +20,7 @@ T.Test("data items edit a plain table in place and skip functions", function()
 		Cues = {"a.wav", "b.wav"},
 		Hook = "return 1.0;",
 		Box = {1, 2, 3, 4},
-		Particles = {Style = "a", Params = {X = 1}},
+		Particles = {Shader = "a", ShaderParams = {X = 1}},
 	}
 	local played = {}
 	local changes = 0
@@ -49,11 +49,11 @@ T.Test("data items edit a plain table in place and skip functions", function()
 							return "status " .. options.Name
 						end,
 					},
-					["Particles.Style"] = {
+					["Particles.Shader"] = {
 						Options = {"a", "b"},
 						Restructure = true,
 						OnSet = function(particles, name)
-							particles.Params = {Y = 2}
+							particles.ShaderParams = {Y = 2}
 						end,
 					},
 					Cue = {Sound = true},
@@ -91,18 +91,18 @@ T.Test("data items edit a plain table in place and skip functions", function()
 	by_text.Box.OnChange(nil, Vec4(4, 3, 2, 1))
 	T(data.Box[1])["=="](4)
 	T(data.Box[4])["=="](1)
-	local style
+	local shader
 
 	for _, group in ipairs(items) do
 		for _, child in ipairs(group.Text == "Particles" and group.Children or {}) do
-			if child.Text == "Style" then style = child end
+			if child.Text == "Shader" then shader = child end
 		end
 	end
 
 	local restructures_before = restructured
-	style.OnChange(nil, "b")
-	T(data.Particles.Style)["=="]("b")
-	T(data.Particles.Params.Y)["=="](2)
+	shader.OnChange(nil, "b")
+	T(data.Particles.Shader)["=="]("b")
+	T(data.Particles.ShaderParams.Y)["=="](2)
 	T(restructured)["=="](restructures_before + 1)
 	T(by_text.Cue.Type)["=="]("sound")
 	by_text.Cue.PlayAction("x.wav")

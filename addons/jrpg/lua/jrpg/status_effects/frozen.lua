@@ -14,7 +14,7 @@ return {
 		LifetimeMax = 2.4,
 		LifetimeMin = 1.2,
 		Lit = true,
-		Params = {
+		ShaderParams = {
 			Flake = "snowflake",
 			Sway = 0.35,
 			SwayRate = 1.2,
@@ -26,7 +26,7 @@ return {
 		SizeStart = 0.04,
 		SpeedMax = 0.15,
 		SpeedMin = 0.02,
-		Style = "snow",
+		Shader = "snow",
 	},
 	Rate = 0.5,
 	SlowSlope = 1,

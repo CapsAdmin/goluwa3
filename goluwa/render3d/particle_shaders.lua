@@ -1,6 +1,6 @@
-local styles = {}
-styles.PARAM_FLOATS = 16
-styles.version = 0
+local shaders = {}
+shaders.PARAM_FLOATS = 16
+shaders.version = 0
 local definitions = {}
 local order = {}
 local SIZES = {float = 1, int = 1, bool = 1, vec3 = 3, color = 4, texture = 0}
@@ -37,26 +37,26 @@ local RESERVED = {
 	dt = true,
 	index = true,
 	generation = true,
-	style = true,
+	shader = true,
 }
-styles.Hooks = HOOKS
+shaders.Hooks = HOOKS
 
-function styles.Register(name, definition)
+function shaders.Register(name, definition)
 	assert(
 		type(name) == "string" and name:find("^[%w_]+$"),
-		"style names are letters, digits and underscores"
+		"shader names are letters, digits and underscores"
 	)
 	local layout = {}
 	local offset = 0
 	local seen = {}
 
 	for _, param in ipairs(definition.Params or {}) do
-		local size = assert(SIZES[param.Type], "unknown style param type " .. tostring(param.Type))
+		local size = assert(SIZES[param.Type], "unknown shader param type " .. tostring(param.Type))
 		assert(
 			param.Name:find("^[A-Za-z][%w_]*$") and
 				not RESERVED[param.Name] and
 				not seen[param.Name],
-			"bad style param name " .. param.Name
+			"bad shader param name " .. param.Name
 		)
 		seen[param.Name] = true
 
@@ -67,8 +67,8 @@ function styles.Register(name, definition)
 	end
 
 	assert(
-		offset <= styles.PARAM_FLOATS,
-		("style %s uses %d of %d param floats"):format(name, offset, styles.PARAM_FLOATS)
+		offset <= shaders.PARAM_FLOATS,
+		("shader %s uses %d of %d param floats"):format(name, offset, shaders.PARAM_FLOATS)
 	)
 
 	if definition.Sprite then
@@ -86,11 +86,11 @@ function styles.Register(name, definition)
 	end
 
 	definitions[name] = entry
-	styles.version = styles.version + 1
+	shaders.version = shaders.version + 1
 	return entry
 end
 
-function styles.Remove(name)
+function shaders.Remove(name)
 	if not definitions[name] then return end
 
 	definitions[name] = nil
@@ -103,18 +103,18 @@ function styles.Remove(name)
 		end
 	end
 
-	styles.version = styles.version + 1
+	shaders.version = shaders.version + 1
 end
 
-function styles.Get(name)
+function shaders.Get(name)
 	return definitions[name]
 end
 
-function styles.GetNames()
+function shaders.GetNames()
 	return {table.unpack(order)}
 end
 
-function styles.GetId(name)
+function shaders.GetId(name)
 	for index, other in ipairs(order) do
 		if other == name then return index end
 	end
@@ -122,7 +122,7 @@ function styles.GetId(name)
 	return 0
 end
 
-function styles.GetDefaults(name)
+function shaders.GetDefaults(name)
 	local defaults = {}
 	local entry = definitions[name]
 
@@ -135,7 +135,7 @@ function styles.GetDefaults(name)
 	return defaults
 end
 
-function styles.GetSpriteParam(name)
+function shaders.GetSpriteParam(name)
 	local entry = definitions[name]
 	return entry and entry.definition.Sprite
 end
@@ -143,7 +143,7 @@ end
 do
 	local FIELDS = {color = {"r", "g", "b", "a"}, vec3 = {"x", "y", "z"}}
 
-	function styles.WriteParams(name, values, target)
+	function shaders.WriteParams(name, values, target)
 		local entry = definitions[name]
 
 		if not entry then return end
@@ -213,25 +213,25 @@ local function get_locals(entry)
 	return table.concat(out, " ")
 end
 
-function styles.GetSourceId(style_id, hook_index)
-	return style_id * 10 + hook_index
+function shaders.GetSourceId(shader_id, hook_index)
+	return shader_id * 10 + hook_index
 end
 
-function styles.ParseError(message)
+function shaders.ParseError(message)
 	local source, line, text = message:match("(%d+):(%d+): error: ([^\n]*)")
 
 	if not source then return message end
 
 	source = tonumber(source)
-	local style = order[math.floor(source / 10)]
+	local shader = order[math.floor(source / 10)]
 	local hook = HOOKS[source % 10]
 
-	if not style or not hook then return message end
+	if not shader or not hook then return message end
 
-	return ("%s %s line %s: %s"):format(style, hook.name, line, text)
+	return ("%s %s line %s: %s"):format(shader, hook.name, line, text)
 end
 
-function styles.GetGLSL()
+function shaders.GetGLSL()
 	local out = {}
 
 	for hook_index, hook in ipairs(HOOKS) do
@@ -242,12 +242,12 @@ function styles.GetGLSL()
 			"e, index, dt, t, p" or
 			"e, t, p"
 
-		for style_id, name in ipairs(order) do
+		for shader_id, name in ipairs(order) do
 			local entry = definitions[name]
 			local body = entry.definition[hook.key]
 
 			if body and body:find("%S") then
-				local function_name = ("style_%d_%s"):format(style_id, hook.name)
+				local function_name = ("shader_%d_%s"):format(shader_id, hook.name)
 				out[#out + 1] = (
 					"%s %s(emitters_t e, %s) { %s\n#line 1 %d\n%s\n}\n"
 				):format(
@@ -255,24 +255,24 @@ function styles.GetGLSL()
 					function_name,
 					hook.signature,
 					get_locals(entry),
-					styles.GetSourceId(style_id, hook_index),
+					shaders.GetSourceId(shader_id, hook_index),
 					body
 				)
 				cases[#cases + 1] = hook.return_type == "float" and
 					(
 						"case %d: return %s(%s);"
-					):format(style_id, function_name, call) or
+					):format(shader_id, function_name, call) or
 					(
 						"case %d: %s(%s); break;"
-					):format(style_id, function_name, call)
+					):format(shader_id, function_name, call)
 			end
 		end
 
 		local dispatch = hook.return_type == "float" and
-			"switch (e.style) { %s default: break; } return 1.0;" or
-			"switch (e.style) { %s default: break; }"
+			"switch (e.shader) { %s default: break; } return 1.0;" or
+			"switch (e.shader) { %s default: break; }"
 		out[#out + 1] = (
-			"%s emitter_style_%s(emitters_t e, %s) { %s }\n"
+			"%s emitter_shader_%s(emitters_t e, %s) { %s }\n"
 		):format(
 			hook.return_type,
 			hook.name,
@@ -284,4 +284,4 @@ function styles.GetGLSL()
 	return table.concat(out, "\n")
 end
 
-return styles
+return shaders

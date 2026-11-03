@@ -12,7 +12,7 @@ local event = import("goluwa/event.lua")
 local test_scene = import("goluwa/render3d/test_scene.lua")
 local particle_emitter_gpu = import("goluwa/render3d/particle_emitter_gpu.lua")
 local particle_emitter_cpu = import("goluwa/render3d/particle_emitter_cpu.lua")
-local particle_styles = import("goluwa/render3d/particle_styles.lua")
+local particle_shaders = import("goluwa/render3d/particle_shaders.lua")
 local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local STEP = 1 / 30
 
@@ -233,10 +233,10 @@ T.Test3D("Graphics render3d particle emitter spawns the number its rate and burs
 	if not ok then error(err, 0) end
 end)
 
-T.Test3D("Graphics render3d particle styles run their glsl hooks with params, draw sprites and recompile at runtime", function(draw)
+T.Test3D("Graphics render3d particle shaders run their glsl hooks with params, draw sprites and recompile at runtime", function(draw)
 	local function define(push)
-		particle_styles.Register(
-			"test_style",
+		particle_shaders.Register(
+			"test_shader",
 			{
 				Params = {
 					{Name = "Push", Type = "float", Default = 1},
@@ -266,8 +266,8 @@ T.Test3D("Graphics render3d particle styles run their glsl hooks with params, dr
 			emitter:SetSpeedMax(0)
 			emitter:SetGravityScale(0)
 			emitter:SetDrag(0)
-			emitter:SetStyle("test_style")
-			emitter:SetStyleParams{Push = 6, Direction = {1, 0, 0}}
+			emitter:SetShader("test_shader")
+			emitter:SetShaderParams{Push = 6, Direction = {1, 0, 0}}
 			render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
 			step(draw, 3)
 			emitter:Burst(32)
@@ -313,7 +313,7 @@ T.Test3D("Graphics render3d particle styles run their glsl hooks with params, dr
 			define("p.velocity += nonsense * Push;")
 			local failed, message = pcall(particles.Recompile)
 			T(failed)["=="](false)
-			T(particle_styles.ParseError(message):find("test_style update line 1", 1, true) ~= nil)["=="](true)
+			T(particle_shaders.ParseError(message):find("test_shader update line 1", 1, true) ~= nil)["=="](true)
 			define("p.velocity += vec3(0.0, 0.0, 1.0) * Push * dt;")
 			particles.Recompile()
 			step(draw, 2)
@@ -323,7 +323,7 @@ T.Test3D("Graphics render3d particle styles run their glsl hooks with params, dr
 
 	if entity then entity:Remove() end
 
-	particle_styles.Remove("test_style")
+	particle_shaders.Remove("test_shader")
 	particles.Recompile()
 	restore()
 
@@ -331,7 +331,7 @@ T.Test3D("Graphics render3d particle styles run their glsl hooks with params, dr
 end)
 
 T.Test3D("Graphics render3d particle sprites play flipbook frames, spin, stretch along their velocity and flatten onto a plane", function(draw)
-	particle_styles.Register(
+	particle_shaders.Register(
 		"test_flipbook",
 		{
 			Params = {{Name = "Sprite", Type = "texture", Default = "smoke"}},
@@ -353,7 +353,7 @@ T.Test3D("Graphics render3d particle sprites play flipbook frames, spin, stretch
 			emitter:SetSpeedMax(0)
 			emitter:SetGravityScale(0)
 			emitter:SetDrag(0)
-			emitter:SetStyle("test_flipbook")
+			emitter:SetShader("test_flipbook")
 			render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
 			step(draw, 3)
 			emitter:Burst(32)
@@ -461,7 +461,7 @@ T.Test3D("Graphics render3d particle sprites play flipbook frames, spin, stretch
 
 	if entity then entity:Remove() end
 
-	particle_styles.Remove("test_flipbook")
+	particle_shaders.Remove("test_flipbook")
 	particles.Recompile()
 	restore()
 

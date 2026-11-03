@@ -166,8 +166,8 @@ local function spawn_streamer(streamer, trail, head_radius)
 		streamer.head = vfx.CreateEmitter(
 			"grenade_streamer_head",
 			{
-				Style = "puff",
-				StyleParams = {Sprite = "fire", Grow = 1, ColorCurve = 1, FadeIn = 0.1, FadeStart = 0.6},
+				Shader = "puff",
+				ShaderParams = {Sprite = "fire", Grow = 1, ColorCurve = 1, FadeIn = 0.1, FadeStart = 0.6},
 				MaxParticles = 16,
 				Rate = 60,
 				Shape = "point",
@@ -197,8 +197,8 @@ end
 
 local function smoke_trail(rate, jitter, drag, buoyancy, life, radius_start, radius_end, grow, from, to, fade_in, fade_start, spin)
 	return {
-		Style = "puff",
-		StyleParams = {Sprite = "smoke", Grow = grow, ColorCurve = 1, FadeIn = fade_in, FadeStart = fade_start},
+		Shader = "puff",
+		ShaderParams = {Sprite = "smoke", Grow = grow, ColorCurve = 1, FadeIn = fade_in, FadeStart = fade_start},
 		MaxParticles = 256,
 		Rate = rate,
 		Shape = "point",
@@ -237,8 +237,8 @@ local function spawn_arms_and_trails(position, ax, ay, az, k, floor)
 			vfx.DefineBurst(
 				key,
 				{
-					Style = "puff",
-					StyleParams = {Sprite = "fire", Grow = 1, ColorCurve = 0.7, FadeIn = 0.05, FadeStart = 0.4},
+					Shader = "puff",
+					ShaderParams = {Sprite = "fire", Grow = 1, ColorCurve = 0.7, FadeIn = 0.05, FadeStart = 0.4},
 					MaxParticles = 64,
 					Shape = "point",
 					Spread = 0,
@@ -405,8 +405,8 @@ local function spawn_fireball(position, normal, size)
 			vfx.DefineBurst(
 				key,
 				{
-					Style = "puff",
-					StyleParams = {
+					Shader = "puff",
+					ShaderParams = {
 						Sprite = style.Flipbook,
 						Grow = style.Grow,
 						ColorCurve = style.ColorCurve,
