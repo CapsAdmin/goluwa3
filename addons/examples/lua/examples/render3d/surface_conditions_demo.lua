@@ -1,6 +1,6 @@
 local system = import("goluwa/system.lua")
 local test_scene = import("goluwa/render3d/test_scene.lua")
-local surface_effects = import("goluwa/render3d/surface_effects.lua")
+local surface_conditions = import("goluwa/render3d/surface_conditions.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -77,11 +77,11 @@ test_scene.Box{
 }
 
 function demo.Start()
-	surface_effects.Clear()
-	surface_effects.Apply("fire", Vec3(-3.4, 0, 0.4), 1.2, 1)
-	surface_effects.Apply("frost", Vec3(0, 0, -3), 2.5, 1)
-	surface_effects.Apply("frost", Vec3(4.75, 0.75, 1.5), 1.2, 1, Vec3(-1, 0, 0))
-	surface_effects.Apply("poison", Vec3(5, 0, -5), 2, 1)
+	surface_conditions.Clear()
+	surface_conditions.Apply("fire", Vec3(-3.4, 0, 0.4), 1.2, 1)
+	surface_conditions.Apply("frost", Vec3(0, 0, -3), 2.5, 1)
+	surface_conditions.Apply("frost", Vec3(4.75, 0.75, 1.5), 1.2, 1, Vec3(-1, 0, 0))
+	surface_conditions.Apply("poison", Vec3(5, 0, -5), 2, 1)
 end
 
 test_scene.WhenReady(demo.Start)

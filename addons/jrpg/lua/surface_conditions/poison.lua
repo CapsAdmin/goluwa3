@@ -44,7 +44,6 @@ return {
 	particles = {
 		{
 			Name = "gas",
-			Inherit = 0.3,
 			Count = 6144,
 			Value = 0,
 			Rate = 0.5,

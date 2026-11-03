@@ -4,7 +4,7 @@ local particles = import("goluwa/render3d/particles.lua")
 translucent_extras.list = {
 	particles,
 	import("goluwa/render3d/trails.lua"),
-	import("goluwa/render3d/surface_effect_sheets.lua"),
+	import("goluwa/render3d/surface_condition_sheets.lua"),
 }
 translucent_extras.post_list = {particles}
 

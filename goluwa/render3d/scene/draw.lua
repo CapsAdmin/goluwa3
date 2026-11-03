@@ -232,7 +232,8 @@ local DRAW_DECLARATIONS = [[
 				uint mask_lod;
 				vec4 bounds;
 				vec2 lod;
-				vec3 effects;
+				float dynamic;
+				float overlay;
 			};
 
 			]] .. instances.RASTER_DATA_GLSL .. [[
@@ -432,11 +433,11 @@ function create_cull_pipeline()
 				return nearest_depth < sampled * (1.0 - compute.occlusion_depth_bias);
 			}
 
-			mat4 world_from(float m[12], float fade, float effects, float overlay) {
+			mat4 world_from(float m[12], float fade, float dynamic, float overlay) {
 				return mat4(
 					vec4(m[0], m[4], m[8], fade),
 					vec4(m[1], m[5], m[9], overlay),
-					vec4(m[2], m[6], m[10], effects),
+					vec4(m[2], m[6], m[10], dynamic),
 					vec4(m[3], m[7], m[11], 1.0)
 				);
 			}
@@ -525,8 +526,8 @@ function create_cull_pipeline()
 					ThicknessArray(ARGS.thicknesses).t[at] = thickness;
 				}
 
-				WorldArray(ARGS.worlds).w[at] = world_from(t.m, fade, inst.effects.x, inst.effects.z);
-				WorldArray(ARGS.prev_worlds).w[at] = world_from(raster.prev, 0.0, inst.effects.y, inst.effects.z);
+				WorldArray(ARGS.worlds).w[at] = world_from(t.m, fade, inst.dynamic, inst.overlay);
+				WorldArray(ARGS.prev_worlds).w[at] = world_from(raster.prev, 0.0, inst.dynamic, inst.overlay);
 			}
 		]],
 	}
@@ -942,7 +943,8 @@ function create_shadow_pipeline()
 				uint mask_lod;
 				vec4 bounds;
 				vec2 lod;
-				vec3 effects;
+				float dynamic;
+				float overlay;
 			};
 
 			]] .. instances.RASTER_DATA_GLSL .. [[

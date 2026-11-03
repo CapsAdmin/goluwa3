@@ -35,7 +35,6 @@ return {
 	particles = {
 		{
 			Name = "steam",
-			Inherit = 0.4,
 			Count = 2048,
 			Value = 0,
 			Rate = 3,

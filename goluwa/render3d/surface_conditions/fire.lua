@@ -10,7 +10,6 @@ local CONVECTION = 0.08
 local FLAME_HEIGHT = 1.5
 local WIND_BIAS = 0.25
 local CLIMB_BIAS = 0.9
-local EXCHANGE = 2
 
 local function flame(cell)
 	return math.smoothstep(0.15, 0.55, cell.heat) * math.smoothstep(0, 0.06, cell.fuel)
@@ -106,9 +105,6 @@ return {
 
 		return heat > 0 or cell.ignition > 0
 	end,
-	Exchange = function(sim, cell, around, dt)
-		if around.heat > 0.15 then ignite(sim, cell, around.heat * EXCHANGE * dt) end
-	end,
 	Site = function(cell)
 		local f = flame(cell)
 		return f, cell.heat * (1 - f * 0.4), f * 0.8 + cell.heat * 0.05, 0
@@ -145,7 +141,6 @@ return {
 	particles = {
 		{
 			Name = "smoke",
-			Inherit = 0.5,
 			Count = 16384,
 			Value = 1,
 			Rate = 2,
@@ -164,7 +159,6 @@ return {
 		},
 		{
 			Name = "embers",
-			Inherit = 0.7,
 			Count = 4096,
 			Value = 2,
 			Rate = 4,

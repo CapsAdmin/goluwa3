@@ -21,8 +21,7 @@ local InstanceData = ffi.typeof([[struct {
 	float radius;
 	float lod_near;
 	float lod_far;
-	float effect0;
-	float effect1;
+	float dynamic;
 	float overlay;
 }]])
 instances.MASK_SOLID = 0x01
@@ -246,12 +245,12 @@ function instances.SetMaterial(id, material_row)
 	return true
 end
 
-function instances.SetEffects(id, a, b)
+function instances.SetDynamic(id, dynamic)
 	local data = data_table:Get()[id]
 
-	if data.effect0 == a and data.effect1 == b then return end
+	if data.dynamic == dynamic then return end
 
-	data.effect0, data.effect1 = a, b
+	data.dynamic = dynamic
 	data_table:Touch(id)
 end
 
@@ -443,7 +442,8 @@ do
 					uint mask_lod;
 					vec4 bounds;
 					vec2 lod;
-					vec3 effects;
+					float dynamic;
+					float overlay;
 				};
 
 				struct mesh_row {

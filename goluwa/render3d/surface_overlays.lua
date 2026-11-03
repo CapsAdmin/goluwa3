@@ -5,7 +5,7 @@ local render = import("goluwa/render/render.lua")
 local vfs = import("goluwa/vfs.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
-local surface_effects = import("goluwa/render3d/surface_effects.lua")
+local surface_conditions = import("goluwa/render3d/surface_conditions.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local data_files = import("goluwa/data_files.lua")
 local exposure_compensation = import("goluwa/render3d/exposure_compensation.lua")
@@ -309,7 +309,7 @@ function surface_overlays.Update()
 end
 
 function surface_overlays.WriteBlock(self, block)
-	local noise = slot_table and #state_list > 0 and surface_effects.GetNoiseTexture()
+	local noise = slot_table and #state_list > 0 and surface_conditions.GetNoiseTexture()
 
 	if not noise then
 		block.overlay_slots = 0
@@ -599,7 +599,7 @@ event.AddListener(
 	function()
 		if #state_list == 0 then return end
 
-		surface_effects.GetNoiseTexture()
+		surface_conditions.GetNoiseTexture()
 		surface_overlays.Update()
 		store.FlushStaged(render.GetCommandBuffer())
 	end,

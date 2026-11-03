@@ -118,7 +118,8 @@ function create_pipeline()
 				uint mask_lod;
 				vec4 bounds;
 				vec2 lod;
-				vec3 effects;
+				float dynamic;
+				float overlay;
 			};
 
 			struct mesh_row {

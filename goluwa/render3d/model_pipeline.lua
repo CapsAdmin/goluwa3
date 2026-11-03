@@ -222,15 +222,8 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 		lines[#lines + 1] = "\tout_instance_overlay = " .. (options.instance_overlay_expr or "0.0") .. ";"
 	end
 
-	if options.instance_effects then
-		lines[#lines + 1] = "\tout_instance_effects_a = " .. (
-				options.instance_effects_a_expr or
-				"vec3(0.0)"
-			) .. ";"
-		lines[#lines + 1] = "\tout_instance_effects_b = " .. (
-				options.instance_effects_b_expr or
-				"vec3(0.0)"
-			) .. ";"
+	if options.instance_dynamic then
+		lines[#lines + 1] = "\tout_instance_dynamic = " .. (options.instance_dynamic_expr or "0.0") .. ";"
 	end
 
 	if options.instance_thickness_expr then
@@ -277,10 +270,10 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 
 	lines[#lines + 1] = "\tout_position = world_position;"
 
-	if options.instance_effects then
-		lines[#lines + 1] = "\tbool object_effects = out_instance_overlay > 0.0 || any(greaterThan(out_instance_effects_a + out_instance_effects_b, vec3(0.0)));"
-		lines[#lines + 1] = "\tout_effect_position = object_effects ? local_position : world_position;"
-		lines[#lines + 1] = "\tout_effect_normal = object_effects ? in_normal : world_normal;"
+	if options.effect_space then
+		lines[#lines + 1] = "\tbool overlaid = out_instance_overlay > 0.0;"
+		lines[#lines + 1] = "\tout_effect_position = overlaid ? local_position : world_position;"
+		lines[#lines + 1] = "\tout_effect_normal = overlaid ? in_normal : world_normal;"
 	end
 
 	if options.velocity then
@@ -330,9 +323,11 @@ local function get_vertex_stage_outputs(options)
 		outputs[#outputs + 1] = {"instance_overlay", "float"}
 	end
 
-	if options.instance_effects then
-		outputs[#outputs + 1] = {"instance_effects_a", "vec3"}
-		outputs[#outputs + 1] = {"instance_effects_b", "vec3"}
+	if options.instance_dynamic then
+		outputs[#outputs + 1] = {"instance_dynamic", "float"}
+	end
+
+	if options.effect_space then
 		outputs[#outputs + 1] = {"effect_position", "vec3"}
 		outputs[#outputs + 1] = {"effect_normal", "vec3"}
 	end
@@ -408,7 +403,8 @@ function model_pipeline.CreateVertexStage(options)
 		options.velocity or
 		options.lod_fade or
 		options.instance_overlay or
-		options.instance_effects
+		options.instance_dynamic or
+		options.effect_space
 	then
 		local outputs = model_pipeline.GetVertexAttributes()
 
@@ -422,9 +418,11 @@ function model_pipeline.CreateVertexStage(options)
 			outputs[#outputs + 1] = {"instance_overlay", "float"}
 		end
 
-		if options.instance_effects then
-			outputs[#outputs + 1] = {"instance_effects_a", "vec3"}
-			outputs[#outputs + 1] = {"instance_effects_b", "vec3"}
+		if options.instance_dynamic then
+			outputs[#outputs + 1] = {"instance_dynamic", "float"}
+		end
+
+		if options.effect_space then
 			outputs[#outputs + 1] = {"effect_position", "vec3"}
 			outputs[#outputs + 1] = {"effect_normal", "vec3"}
 		end
@@ -635,8 +633,7 @@ do
 	vertex_animation.PrevDetailTime = ]] .. options.prev_detail_time_expr .. [[;
 ]]
 		options.instance_overlay_expr = "world[1][3]"
-		options.instance_effects_a_expr = "multi_draw_instance_effects(world[2][3])"
-		options.instance_effects_b_expr = "multi_draw_instance_effects(multi_draw_instance_prev_world[2][3])"
+		options.instance_dynamic_expr = "world[2][3]"
 		return {
 			outputs = outputs,
 			batch_location = batch_location,
@@ -651,13 +648,6 @@ mat4 multi_draw_instance_world;
 mat4 multi_draw_instance_prev_world;
 PBRBatch_vertex_animation vertex_animation;
 
-vec3 multi_draw_instance_effects(float packed) {
-	uint bits = floatBitsToUint(packed);
-
-	if ((bits & 0xFF800000u) != 0x3F800000u) return vec3(0.0);
-
-	return vec3(uvec3(bits, bits >> 7u, bits >> 14u) & 127u) / 127.0;
-}
 ]],
 			shader = build_vertex_shader(
 				options,

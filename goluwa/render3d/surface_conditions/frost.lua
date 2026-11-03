@@ -46,11 +46,6 @@ return {
 		sim.Touch(cell)
 		return frost > 0 or cell.frost_target > 0
 	end,
-	Exchange = function(sim, cell, around, dt)
-		if around.frost > 0.3 and cell.frost_target < around.frost * SPREAD_FALLOFF then
-			cell.frost_target = around.frost * SPREAD_FALLOFF
-		end
-	end,
 	Site = function(cell)
 		return math.smoothstep(0.3, 0.9, cell.frost) * (cell.frost_target > 0 and 1 or 0.3),
 		0,
@@ -60,7 +55,6 @@ return {
 	particles = {
 		{
 			Name = "mist",
-			Inherit = 0.3,
 			Count = 4096,
 			Value = 0,
 			Rate = 0.5,

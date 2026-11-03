@@ -1,22 +1,22 @@
 local system = import("goluwa/system.lua")
 local particles = import("goluwa/render3d/particles.lua")
-local surface_effects = import("goluwa/render3d/surface_effects.lua")
+local surface_conditions = import("goluwa/render3d/surface_conditions.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
-local surface_effect_particles = {}
+local surface_condition_particles = {}
 local LINGER = 10
 local emitters = {}
 local pool_size = 0
 local last_active = -math.huge
 
-for _, kind in ipairs(surface_effects.kinds) do
+for _, kind in ipairs(surface_conditions.kinds) do
 	for _, def in ipairs(kind.particles or {}) do
 		emitters[#emitters + 1] = {kind = kind, def = def, first = pool_size, cursor = 0, accumulated = 0}
 		pool_size = pool_size + def.Count
 	end
 end
 
-surface_effect_particles.emitters = emitters
+surface_condition_particles.emitters = emitters
 
 local function write_color(target, color)
 	target[0], target[1], target[2], target[3] = color.r, color.g, color.b, color.a
@@ -26,8 +26,8 @@ local function write_range(target, range)
 	target[0], target[1] = range[1], range[2]
 end
 
-surface_effect_particles.system = particles.Register{
-	name = "surface_effects",
+surface_condition_particles.system = particles.Register{
+	name = "surface_conditions",
 	max_count = pool_size,
 	scatter_g = 0.35,
 	streak_time = 1 / 40,
@@ -35,7 +35,7 @@ surface_effect_particles.system = particles.Register{
 	depth_near = 0.1,
 	depth_far = 300,
 	IsActive = function()
-		if surface_effects.GetSiteCount() > 0 then
+		if surface_conditions.GetSiteCount() > 0 then
 			last_active = system.GetElapsedTime()
 			return true
 		end
@@ -65,7 +65,6 @@ surface_effect_particles.system = particles.Register{
 				{"emissive", "float"},
 				{"glow", "float"},
 				{"sparkle", "float"},
-				{"inherit", "float"},
 				{"value_index", "int"},
 				{"site_first", "int"},
 				{"site_count", "int"},
@@ -82,12 +81,12 @@ surface_effect_particles.system = particles.Register{
 	},
 	WriteBlock = function(self, block)
 		local dt = particles.GetStepTime()
-		block.sites = surface_effects.GetSitesAddress()
+		block.sites = surface_conditions.GetSitesAddress()
 
 		for i, emitter in ipairs(emitters) do
 			local def = emitter.def
 			local entry = block.se_emitters[i - 1]
-			local site_first, site_count, sums = surface_effects.GetKindSites(emitter.kind)
+			local site_first, site_count, sums = surface_conditions.GetKindSites(emitter.kind)
 			write_color(entry.color_start, def.ColorStart)
 			write_color(entry.color_end, def.ColorEnd)
 			write_range(entry.life, def.Life)
@@ -103,7 +102,6 @@ surface_effect_particles.system = particles.Register{
 			entry.emissive = def.Emissive or 0
 			entry.glow = def.Glow or 0
 			entry.sparkle = def.Sparkle or 0
-			entry.inherit = def.Inherit or 0
 			entry.value_index = def.Value
 			entry.site_first = site_first
 			entry.site_count = block.sites == 0 and 0 or site_count
@@ -125,16 +123,16 @@ surface_effect_particles.system = particles.Register{
 		end
 
 		atmosphere.GetWind():CopyToFloatPointer(block.wind)
-		block.time = surface_effects.GetTime()
+		block.time = surface_conditions.GetTime()
 		block.frame_time = dt
 		return block
 	end,
-	declarations = glsl_common.GetNoiseGLSL() .. surface_effects.GetBlackbodyGLSL() .. surface_effects.GetSitesGLSL() .. [[
+	declarations = glsl_common.GetNoiseGLSL() .. surface_conditions.GetBlackbodyGLSL() .. surface_conditions.GetSitesGLSL() .. [[
 		#define SE_EMITTER_COUNT ]] .. #emitters .. [[u
 
 		uint se_find_emitter(uint index) {
 			for (uint i = 0u; i < SE_EMITTER_COUNT; i++) {
-				se_emitters_t e = surface_effects_data.se_emitters[i];
+				se_emitters_t e = surface_conditions_data.se_emitters[i];
 
 				if (index >= uint(e.first) && index < uint(e.first + e.count)) return i;
 			}
@@ -143,11 +141,11 @@ surface_effect_particles.system = particles.Register{
 		}
 
 		se_emitters_t se_get_emitter(Particle p) {
-			return surface_effects_data.se_emitters[min(p.user.y, SE_EMITTER_COUNT - 1u)];
+			return surface_conditions_data.se_emitters[min(p.user.y, SE_EMITTER_COUNT - 1u)];
 		}
 	]],
 	should_spawn = [[
-		se_emitters_t e = surface_effects_data.se_emitters[se_find_emitter(index)];
+		se_emitters_t e = surface_conditions_data.se_emitters[se_find_emitter(index)];
 
 		if (e.site_count <= 0 || e.spawn_count <= 0) return false;
 
@@ -156,7 +154,7 @@ surface_effect_particles.system = particles.Register{
 	]],
 	spawn = [[
 		uint emitter_index = se_find_emitter(index);
-		se_emitters_t e = surface_effects_data.se_emitters[emitter_index];
+		se_emitters_t e = surface_conditions_data.se_emitters[emitter_index];
 		p.user.y = emitter_index;
 
 		if (e.site_count <= 0) {
@@ -164,8 +162,8 @@ surface_effect_particles.system = particles.Register{
 			return;
 		}
 
-		SurfaceEffectSites sites = SurfaceEffectSites(surface_effects_data.sites);
-		SurfaceEffectSite site;
+		SurfaceConditionSites sites = SurfaceConditionSites(surface_conditions_data.sites);
+		SurfaceConditionSite site;
 		float value = 0.0;
 
 		for (uint attempt = 0u; attempt < 4u; attempt++) {
@@ -191,8 +189,7 @@ surface_effect_particles.system = particles.Register{
 		float angle = r.x * 6.2831853;
 		vec3 disc = (t1 * cos(angle) + t2 * sin(angle)) * sqrt(r.y) * e.jitter;
 		p.position = site.position + n * 0.05 + disc + vec3(0.0, mix(e.height.x, e.height.y, r.z), 0.0);
-		p.velocity = vec3(0.0, mix(e.rise.x, e.rise.y, r2.x), 0.0) + (t1 * (r2.y - 0.5) + t2 * (r2.z - 0.5)) * 0.4 + surface_effects_data.wind * e.wind_scale * 0.3 + site.velocity * e.inherit;
-		p.position -= site.velocity * (fract(r.z * 17.3) * surface_effects_data.frame_time);
+		p.velocity = vec3(0.0, mix(e.rise.x, e.rise.y, r2.x), 0.0) + (t1 * (r2.y - 0.5) + t2 * (r2.z - 0.5)) * 0.4 + surface_conditions_data.wind * e.wind_scale * 0.3;
 		p.life = mix(e.life.x, e.life.y, fract(r2.x * 7.31 + r.z));
 		p.width = e.size.x;
 		p.user.z = floatBitsToUint(min(value, 1.0));
@@ -201,9 +198,9 @@ surface_effect_particles.system = particles.Register{
 		se_emitters_t e = se_get_emitter(p);
 		float t = clamp(p.age / p.life, 0.0, 1.0);
 		p.width = mix(e.size.x, e.size.y, pow(t, 0.6));
-		vec3 q = p.position * 0.8 + vec3(0.0, -surface_effects_data.time * 0.6, float(index & 7u) * 3.1);
+		vec3 q = p.position * 0.8 + vec3(0.0, -surface_conditions_data.time * 0.6, float(index & 7u) * 3.1);
 		vec3 swirl = vec3(value_noise3(q), value_noise3(q + 17.3), value_noise3(q + 41.7)) - 0.5;
-		vec3 target = surface_effects_data.wind * e.wind_scale;
+		vec3 target = surface_conditions_data.wind * e.wind_scale;
 		p.velocity += (vec3(0.0, e.buoyancy, 0.0) + swirl * e.turbulence * 4.0) * dt;
 		p.velocity -= (p.velocity - target) * (1.0 - exp(-e.drag * dt));
 		p.position += p.velocity * dt;
@@ -235,4 +232,4 @@ surface_effect_particles.system = particles.Register{
 		}
 	]],
 }
-return surface_effect_particles
+return surface_condition_particles

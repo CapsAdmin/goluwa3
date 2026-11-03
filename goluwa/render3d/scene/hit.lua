@@ -75,7 +75,8 @@ function hit.GetCoreGLSL()
 			uint mask_lod;
 			vec4 bounds;
 			vec2 lod;
-			vec3 effects;
+			float dynamic;
+			float overlay;
 		};
 
 		struct scene_tlas_instance {

@@ -7,7 +7,7 @@ local gbuffer_instancing = import("goluwa/render3d/gbuffer_instancing.lua")
 local gbuffer_extras = import("goluwa/render3d/gbuffer_extras.lua")
 local geometry_block = import("goluwa/render3d/geometry_block.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
-local surface_effects = import("goluwa/render3d/surface_effects.lua")
+local surface_conditions = import("goluwa/render3d/surface_conditions.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
@@ -51,7 +51,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		DepthClear = 0.0,
 		fragment = {
 			uniform_buffers = uniform_buffers,
-			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data") .. surface_weather.GetGLSL("gbuffer_data") .. surface_effects.GetGLSL("gbuffer_data") .. surface_overlays.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
+			shader = model_pipeline.BuildPBRSurfaceGlsl("gbuffer_data") .. surface_weather.GetGLSL("gbuffer_data") .. surface_conditions.GetGLSL("gbuffer_data") .. surface_overlays.GetGLSL("gbuffer_data") .. gbuffer_layout.GetEncodeGLSL() .. [[
 
 					vec3 get_screen_velocity(vec3 world_pos, vec3 prev_world_pos) {
 						vec4 clip = gbuffer_data.projection * gbuffer_data.view * vec4(world_pos, 1.0);
@@ -118,7 +118,8 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			velocity = true,
 			lod_fade = true,
 			instance_overlay = true,
-			instance_effects = true,
+			instance_dynamic = true,
+			effect_space = true,
 			camera_block_name = "gbuffer_data",
 			uniform_buffers = {
 				camera_block,
@@ -143,7 +144,8 @@ local function build_instanced_pass(fragment_shader)
 		velocity = true,
 		lod_fade = true,
 		instance_overlay = true,
-		instance_effects = true,
+		instance_dynamic = true,
+		effect_space = true,
 		camera_block_name = "gbuffer_data",
 		uniform_buffers = {
 			camera_block,
@@ -195,7 +197,8 @@ local function build_multi_draw_pass(fragment_shader)
 		velocity = true,
 		lod_fade = true,
 		instance_overlay = true,
-		instance_effects = true,
+		instance_dynamic = true,
+		effect_space = true,
 		camera_block_name = "gbuffer_data",
 		uniform_buffers = {camera_block, multi_draw_block},
 		batches_expr = "gbuffer_draw.batches",
@@ -325,15 +328,15 @@ local function build_ssdm_fragment_shader(write_depth)
 			surface.N = get_normal(displacement.uv, tbn);
 			SurfaceWeather weather;
 			prepare_surface_weather(surface, weather);
-			SurfaceEffects effects;
-			bool has_effects = sample_surface_effects(surface.world_pos, surface.geometric_N, in_instance_effects_a, in_instance_effects_b, in_effect_position, in_effect_normal, effects);
+			SurfaceConditions conditions;
+			bool has_conditions = sample_surface_conditions(surface.world_pos, surface.geometric_N, in_instance_dynamic, in_effect_position, in_effect_normal, conditions);
 
-			if (has_effects) weather_surface_effects(effects, weather);
+			if (has_conditions) weather_surface_conditions(conditions, weather);
 
 			apply_surface_weather(surface, weather);
 
-			if (has_effects) {
-				float consumed = apply_surface_effects(surface, weather, effects);
+			if (has_conditions) {
+				float consumed = apply_surface_conditions(surface, weather, conditions);
 
 				if (AlphaTest && consumed > fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))) discard;
 			}

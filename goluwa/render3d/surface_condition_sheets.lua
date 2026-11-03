@@ -5,21 +5,21 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
-local surface_effects = import("goluwa/render3d/surface_effects.lua")
+local surface_conditions = import("goluwa/render3d/surface_conditions.lua")
 local sheets = {}
-sheets.name = "surface_effect_sheets"
+sheets.name = "surface_condition_sheets"
 sheets.PER_SITE = 4
 sheets.OPACITY = 0.75
 sheets.GLOW = 0.35
-local kinds = surface_effects.kinds
+local kinds = surface_conditions.kinds
 
 function sheets.IsActive()
 	return render3d.IsPassEnabled("translucent") and
-		surface_effects.GetSiteCount() > 0 and
-		surface_effects.GetSitesAddress() ~= 0
+		surface_conditions.GetSiteCount() > 0 and
+		surface_conditions.GetSitesAddress() ~= 0
 end
 
-event.AddListener("PreDraw3DTranslucent", "surface_effect_sheets", function()
+event.AddListener("PreDraw3DTranslucent", "surface_condition_sheets", function()
 	if sheets.IsActive() then render3d.ExtendTranslucentDepthRange(0.1, 300) end
 end)
 
@@ -58,9 +58,9 @@ local draw_block = {
 		block.moments_tex = self:GetTextureIndex(moments)
 		translucent_moments.WriteDepthWarp(block.depth_warp)
 		block.depth_tex = self:GetTextureIndex(gbuffer_layout.GetDepthTexture())
-		block.noise_tex = self:GetTextureIndex(surface_effects.GetNoiseTexture())
-		block.sites = surface_effects.GetSitesAddress()
-		block.time = surface_effects.GetTime()
+		block.noise_tex = self:GetTextureIndex(surface_conditions.GetNoiseTexture())
+		block.sites = surface_conditions.GetSitesAddress()
+		block.time = surface_conditions.GetTime()
 		atmosphere.GetWind():CopyToFloatPointer(block.wind)
 
 		for _, kind in ipairs(kinds) do
@@ -97,7 +97,7 @@ function sheets.Draw(pipeline, cmd)
 	if not pipeline then return end
 
 	pipeline:UploadConstants()
-	cmd:Draw(4, surface_effects.GetSiteCount() * sheets.PER_SITE, 0, 0)
+	cmd:Draw(4, surface_conditions.GetSiteCount() * sheets.PER_SITE, 0, 0)
 end
 
 function sheets.BuildPasses()
@@ -122,11 +122,11 @@ function sheets.BuildPasses()
 	local vertex = {
 		outputs = vertex_outputs,
 		uniform_buffers = {draw_block},
-		shader = glsl_common.GetHashGLSL() .. surface_effects.GetSitesGLSL() .. [[
+		shader = glsl_common.GetHashGLSL() .. surface_conditions.GetSitesGLSL() .. [[
 					void main() {
 						uint site_index = uint(gl_InstanceIndex) / ]] .. sheets.PER_SITE .. [[u;
 						uint sheet = uint(gl_InstanceIndex) % ]] .. sheets.PER_SITE .. [[u;
-						SurfaceEffectSite site = SurfaceEffectSites(sheet_draw.sites).s[site_index];
+						SurfaceConditionSite site = SurfaceConditionSites(sheet_draw.sites).s[site_index];
 						uint kind = site.kind_seed & 15u;
 						sheet_kinds_t k = sheet_draw.sheet_kinds[kind];
 						float value = site.values[k.value_index];
@@ -155,8 +155,7 @@ function sheets.BuildPasses()
 						float width = k.width * mix(0.8, 1.2, fract(r.z * 7.31)) * (0.6 + 0.4 * value);
 						float across = float(gl_VertexIndex & 1) * 2.0 - 1.0;
 						float along = float(gl_VertexIndex >> 1);
-						height *= 1.0 + min(length(site.velocity) * 0.06, 0.6);
-						vec3 lean = (vec3(sheet_draw.wind.x, 0.0, sheet_draw.wind.z) * 0.08 - site.velocity * 0.13) * height;
+						vec3 lean = vec3(sheet_draw.wind.x, 0.0, sheet_draw.wind.z) * 0.08 * height;
 						float lean_length = length(lean);
 						lean *= min(lean_length, height * 1.4) / max(lean_length, 1e-4);
 						vec3 position = base + right * across * width * 0.5 + axis * (along - 0.1) * height + lean * along;
@@ -172,7 +171,7 @@ function sheets.BuildPasses()
 					}
 				]],
 	}
-	local fragment_common = translucent_moments.GLSL .. surface_effects.GetBlackbodyGLSL() .. [[
+	local fragment_common = translucent_moments.GLSL .. surface_conditions.GetBlackbodyGLSL() .. [[
 		vec4 sheet_noise(vec2 uv) {
 			return texture(TEXTURE(sheet_draw.noise_tex), uv);
 		}
@@ -217,7 +216,7 @@ function sheets.BuildPasses()
 	return {
 		table.merge(
 			{
-				name = "surface_effect_sheets_moments",
+				name = "surface_condition_sheets_moments",
 				draw_in_prerender = false,
 				dont_create_framebuffers = true,
 				ColorFormat = {
@@ -250,7 +249,7 @@ function sheets.BuildPasses()
 		),
 		table.merge(
 			{
-				name = "surface_effect_sheets_accumulate",
+				name = "surface_condition_sheets_accumulate",
 				draw_in_prerender = false,
 				dont_create_framebuffers = true,
 				ColorFormat = {
