@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
+local Matrix44 = import("goluwa/structs/matrix44.lua")
 local UIDebug = import("goluwa/render2d/ui/components/ui_debug.lua")
 local WALK_CONTINUE = 1
 local WALK_DESCEND = 2
@@ -12,6 +13,7 @@ META:GetSet("Visible", true)
 META:GetSet("Clipping", false)
 META:GetSet("DrawAlpha", 1)
 META:EndStorable()
+META:GetSet("Ghosted", false)
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
@@ -53,8 +55,11 @@ function META:IsHovered(mouse_pos)
 end
 
 local draw_recursive_cache_key = {}
-local draw_recursive_active = {}
-local draw_recursive_payloads = {}
+local main_active = {}
+local main_payloads = {}
+local ghost_translation = Matrix44(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
+local ghost_world = Matrix44()
+local drawing_ghost = false
 
 local function build_draw_recursive_traversal_recursive(owner, traversal)
 	local enter_index = traversal.count + 1
@@ -85,7 +90,7 @@ local function build_draw_recursive_traversal(owner)
 	return traversal
 end
 
-local function walk_draw_recursive(owner, context, on_enter, on_exit)
+local function walk_draw_recursive(owner, context, on_enter, on_exit, draw_recursive_active, draw_recursive_payloads)
 	local traversal = owner:GetCachedChildrenTraversal(draw_recursive_cache_key, build_draw_recursive_traversal)
 	local elements = traversal.elements
 	local exit = traversal.exit
@@ -131,16 +136,20 @@ local function draw_recursive_enter(_, owner)
 
 	if not current:GetVisible() then return WALK_SKIP_SUBTREE end
 
+	if current.Ghosted and not drawing_ghost then return WALK_SKIP_SUBTREE end
+
 	local transform = owner.transform
 
 	if not transform then return WALK_SKIP_SUBTREE end
 
 	if
 		not (
+			drawing_ghost or
 			(
 				owner.text and
 				owner.text:GetDisableViewportCulling()
-			) or
+			)
+			or
 			transform:IntersectsScrollViewport()
 		)
 	then
@@ -151,7 +160,12 @@ local function draw_recursive_enter(_, owner)
 
 	local clipping = current:GetClipping()
 	render2d.PushMatrix()
-	render2d.SetWorldMatrix(transform:GetWorldMatrix())
+
+	if drawing_ghost then
+		render2d.SetWorldMatrix(transform:GetWorldMatrix():GetMultiplied(ghost_translation, ghost_world))
+	else
+		render2d.SetWorldMatrix(transform:GetWorldMatrix())
+	end
 
 	if clipping then
 		render2d.PushClipRect(0, 0, transform.Size.x, transform.Size.y)
@@ -172,7 +186,24 @@ local function draw_recursive_leave(_, owner, state)
 end
 
 function META:DrawRecursive()
-	walk_draw_recursive(self.Owner, nil, draw_recursive_enter, draw_recursive_leave)
+	walk_draw_recursive(
+		self.Owner,
+		nil,
+		draw_recursive_enter,
+		draw_recursive_leave,
+		main_active,
+		main_payloads
+	)
+end
+
+function META:DrawGhost(offset_x, offset_y, alpha)
+	ghost_translation.m30 = offset_x
+	ghost_translation.m31 = offset_y
+	drawing_ghost = true
+	render2d.PushAlphaMultiplier(alpha)
+	walk_draw_recursive(self.Owner, nil, draw_recursive_enter, draw_recursive_leave, {}, {})
+	render2d.PopAlphaMultiplier()
+	drawing_ghost = false
 end
 
 function META:OnFirstCreated()

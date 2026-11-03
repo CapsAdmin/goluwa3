@@ -736,3 +736,30 @@ T.Test2D("property editor chip lists drag with a ghost, edit on double click and
 	T(list._drag)["=="](nil)
 	editor:Remove()
 end)
+
+T.Test2D("a ghost draws the source panel subtree at an offset with an alpha override", function()
+	local render2d = import("goluwa/render2d/render2d.lua")
+	local Ghost = import("goluwa/render2d/ui/elements/ghost.lua")
+	local draws = {}
+	local source = Panel.New{
+		Parent = Panel.World,
+		transform = {Size = Vec2(40, 20), Position = Vec2(100, 100)},
+		visual = true,
+		OnDraw = function()
+			draws[#draws + 1] = render2d.GetAlphaMultiplier()
+		end,
+	}
+	source.visual:DrawGhost(30, 40, 0.5)
+	T(#draws)["=="](1)
+	T(draws[1])["=="](0.5)
+	T(render2d.GetAlphaMultiplier())["=="](1)
+	local ghost = Ghost{Parent = Panel.World, Source = source, GrabPosition = Vec2(110, 110)}
+	T(ghost.Grab.x)["=="](10)
+	T(ghost.Grab.y)["=="](10)
+	T(source.visual:GetGhosted())["=="](true)
+	T(Panel.World.ChildrenMap[ghost] ~= nil)["=="](true)
+	ghost:Remove()
+	T(Panel.World.ChildrenMap[ghost])["=="](nil)
+	T(source.visual:GetGhosted())["=="](false)
+	source:Remove()
+end)
