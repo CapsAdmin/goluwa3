@@ -224,6 +224,12 @@ local function get_component_key_order(key, meta)
 	return declared_order(meta, key) or math.huge
 end
 
+local function add_components(self, names, props)
+	for _, name in ipairs(names) do
+		self:AddComponent(name, props[name], true)
+	end
+end
+
 local function apply_component_props(owner, component, props)
 	if type(props) ~= "table" then return end
 
@@ -472,8 +478,16 @@ function BaseEntity:OnConstruct(config)
 		add_unique(names, added, name)
 	end
 
-	for _, name in ipairs(names) do
-		self:AddComponent(name, props[name], true)
+	local added_ok, added_err = pcall(add_components, self, names, props)
+
+	if not added_ok then
+		local constructed = self.component_list
+
+		for i = #constructed, 1, -1 do
+			pcall(constructed[i].Remove, constructed[i])
+		end
+
+		error(added_err, 0)
 	end
 
 	if props.Events then
@@ -643,7 +657,13 @@ function BaseEntity:AddComponent(name, tbl, skip_init)
 	local meta = valid_components[name]
 	local component = self:CreateSubObject(meta)
 	self[name] = component
-	apply_component_props(self, component, tbl)
+	local ok, err = pcall(apply_component_props, self, component, tbl)
+
+	if not ok then
+		self[name] = nil
+		component:Remove()
+		error(err, 0)
+	end
 
 	if not skip_init then
 		if component.Initialize then component:Initialize() end

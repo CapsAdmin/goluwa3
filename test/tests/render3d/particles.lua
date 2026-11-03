@@ -855,3 +855,30 @@ T.Test3D("Graphics render3d cpu emitter randomizes speed, lifetime, drag and siz
 
 	if not ok then error(err, 0) end
 end)
+
+T.Test("Graphics render3d a gpu emitter entity that fails to construct leaves no emitter behind", function()
+	local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
+	local before = #particle_emitter.instances
+	local ok, err = pcall(
+		Entity.New,
+		{
+			Name = "bad_emitter",
+			transform = {},
+			particle_emitter_gpu = {MaxParticles = 100.5},
+		}
+	)
+	T(ok)["=="](false)
+	T(tostring(err):find("expected integer", 1, true) ~= nil)["=="](true)
+	T(#particle_emitter.instances)["=="](before)
+	ok = pcall(
+		Entity.New,
+		{
+			Name = "bad_emitter_2",
+			transform = {},
+			particle_emitter_gpu = {MaxParticles = 8},
+			particle_emitter_cpu = {MaxParticles = 8.5},
+		}
+	)
+	T(ok)["=="](false)
+	T(#particle_emitter.instances)["=="](before)
+end)
