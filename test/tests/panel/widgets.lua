@@ -1031,3 +1031,28 @@ T.Test2D("the ui theme leaves a numeric emitter size alone", function()
 	T(theme.active:OnEntitySetProperty(entity.particle_emitter_gpu, "Size", 0.05))["=="](0.05)
 	entity:Remove()
 end)
+
+T.Test2D("a headerless window has no title bar and moves by dragging its content area", function()
+	local window = Window{
+		Headerless = true,
+		Title = "hidden",
+		Size = Vec2(200, 100),
+		Position = Vec2(50, 60),
+	}{
+		Text{Text = "content"},
+	}
+	T(window._header)["=="](nil)
+	T(window._title)["=="](nil)
+	T(window._content.draggable ~= nil)["=="](true)
+	T(window._content.draggable:GetTarget())["=="](window)
+	T(window._content.OnDrag ~= nil)["=="](true)
+	local draggable = window._content.draggable
+	T(draggable:StartDragging("button_1"))["=="](true)
+	T(draggable:IsDragging())["=="](true)
+	draggable:StopDragging()
+	window:Remove()
+	local normal = Window{Title = "shown", Size = Vec2(200, 100)}{Text{Text = "content"}}
+	T(normal._header ~= nil)["=="](true)
+	T(normal._content.draggable)["=="](nil)
+	normal:Remove()
+end)

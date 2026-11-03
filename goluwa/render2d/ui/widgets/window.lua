@@ -26,6 +26,7 @@ META:GetSet("Maximizable", true)
 META:GetSet("Closable", true)
 META:GetSet("Pinnable", false)
 META:GetSet("Pinned", false)
+META:GetSet("Headerless", false)
 META:GetSet("MinSize", nil)
 META:GetSet("Padding", nil)
 META:EndStorable()
@@ -91,64 +92,67 @@ function META:OnCreate()
 	self.resizable:SetMinimumSize(self.MinSize or Vec2(100, 100))
 	self._minimized = false
 	self:CallOnRemove(remove_from_dock, "window_dock")
-	self._header = Panel.New{
-		Parent = self,
-		IsInternal = true,
-		Name = "window_header",
-		Window = self,
-		transform = true,
-		layout = {
-			Direction = "x",
-			AlignmentY = "center",
-			FitHeight = true,
-			Padding = "header_padding",
-		},
-		visual = true,
-		draggable = true,
-		mouse_input = {Cursor = "sizeall"},
-		clickable = true,
-		animation = true,
-		OnDraw = on_header_draw,
-		OnDrag = on_header_drag,
-		OnDragStopped = on_header_drag_stopped,
-		OnDoubleClick = on_header_double_click,
-	}
-	self._header.draggable:SetTarget(self)
-	self._title = Text{
-		Parent = self._header,
-		IsInternal = true,
-		Text = self.Title,
-		Font = "heading",
-		IgnoreMouseInput = true,
-		layout = {
-			GrowWidth = 1,
-			FitHeight = true,
-		},
-	}
 	self._header_icons = {}
 
-	for _, definition in ipairs(header_buttons) do
-		if self[definition.Prop] then
-			local button = Clickable{
-				Parent = self._header,
-				IsInternal = true,
-				Window = self,
-				Action = definition.Action,
-				Mode = "text",
-				Size = theme.Dynamic(get_header_button_size),
-				layout = {
-					Padding = "XXS",
-					FitWidth = false,
-					FitHeight = false,
-				},
-				OnClick = on_header_button_click,
-			}
-			self._header_icons[definition.Icon] = Icon{
-				Parent = button,
-				IsInternal = true,
-				Icon = definition.Icon,
-				Size = "header_icon",
-			}
+	if not self.Headerless then
+		self._header = Panel.New{
+			Parent = self,
+			IsInternal = true,
+			Name = "window_header",
+			Window = self,
+			transform = true,
+			layout = {
+				Direction = "x",
+				AlignmentY = "center",
+				FitHeight = true,
+				Padding = "header_padding",
+			},
+			visual = true,
+			draggable = true,
+			mouse_input = {Cursor = "sizeall"},
+			clickable = true,
+			animation = true,
+			OnDraw = on_header_draw,
+			OnDrag = on_header_drag,
+			OnDragStopped = on_header_drag_stopped,
+			OnDoubleClick = on_header_double_click,
+		}
+		self._header.draggable:SetTarget(self)
+		self._title = Text{
+			Parent = self._header,
+			IsInternal = true,
+			Text = self.Title,
+			Font = "heading",
+			IgnoreMouseInput = true,
+			layout = {
+				GrowWidth = 1,
+				FitHeight = true,
+			},
+		}
+
+		for _, definition in ipairs(header_buttons) do
+			if self[definition.Prop] then
+				local button = Clickable{
+					Parent = self._header,
+					IsInternal = true,
+					Window = self,
+					Action = definition.Action,
+					Mode = "text",
+					Size = theme.Dynamic(get_header_button_size),
+					layout = {
+						Padding = "XXS",
+						FitWidth = false,
+						FitHeight = false,
+					},
+					OnClick = on_header_button_click,
+				}
+				self._header_icons[definition.Icon] = Icon{
+					Parent = button,
+					IsInternal = true,
+					Icon = definition.Icon,
+					Size = "header_icon",
+				}
+			end
 		end
 	end
 
@@ -168,12 +172,19 @@ function META:OnCreate()
 		mouse_input = true,
 		clickable = true,
 		animation = true,
+		draggable = self.Headerless or nil,
+		Window = self,
 		OnDraw = on_content_draw,
 		OnPostDraw = on_content_post_draw,
+		OnDrag = self.Headerless and on_header_drag or nil,
+		OnDragStopped = self.Headerless and on_header_drag_stopped or nil,
 	}
+
+	if self.Headerless then self._content.draggable:SetTarget(self) end
+
 	self._content.style:SetForegroundColor(theme.active:GetContentForeground())
 
-	if self.Pinnable then self:RefreshPinIcon() end
+	if self.Pinnable and not self.Headerless then self:RefreshPinIcon() end
 end
 
 function META.OnHudChanged(window, hud) end
@@ -203,7 +214,8 @@ function META:SetHud(hud)
 		self.transform:SetSize(self._size_before_hud)
 	end
 
-	self._header.visual:SetVisible(not hud)
+	if self._header then self._header.visual:SetVisible(not hud) end
+
 	self.mouse_input:SetIgnoreMouseInput(hud)
 	self.layout:InvalidateLayout()
 	self.OnHudChanged(self, hud)
