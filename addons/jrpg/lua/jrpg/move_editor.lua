@@ -8,8 +8,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local objects = import("goluwa/objects/objects.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local View = import("goluwa/render3d/view.lua")
-local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
-local camera = import("lua/camera.lua")
+local view_camera = import("lua/view_camera.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local keyframes = import("lua/keyframes.lua")
 local actors = import("lua/actors.lua")
@@ -112,10 +111,7 @@ do
 		local focal = Panel.World.transform:GetHeight() / 2 / math.tan(render3d.GetMainCamera():GetFOV() / 2)
 		local yaw = math.deg(math.atan2(-direction.x, -direction.z) + math.atan(LEFT_WIDTH / 2 / focal))
 		local pitch = math.deg(math.asin(direction.y) - math.atan(BOTTOM_HEIGHT / 2 / focal))
-		camera.SetPosition(eye)
-		camera.SetRotation(QuatDeg3(pitch, yaw, 0))
-		camera.pitch = -math.rad(pitch)
-		camera.velocity = Vec3()
+		view_camera.Set(session.Fly, eye, pitch, yaw)
 		session.Camera = name
 	end
 end
@@ -144,10 +140,7 @@ function move_editor.CreateSession()
 		HideHud = true,
 	}
 	session.View:Activate()
-	session.SavedSpeed = camera.speed
-	session.SavedKeys = {camera.key_up, camera.key_down}
-	camera.speed = 6
-	camera.key_up, camera.key_down = "e", "q"
+	session.Fly = view_camera.Start(session.View, 6)
 	move_editor.SetCameraPreset(session, session.Camera)
 	move_editor.Current = session
 	return session
@@ -159,10 +152,7 @@ function move_editor.DestroySession(session)
 	if session.Preview then session.Preview:Stop() end
 
 	session.View:Remove()
-	camera.speed = session.SavedSpeed
-	camera.key_up, camera.key_down = unpack(session.SavedKeys)
-	camera.SetBlockMovement(false)
-	camera.SetBlockDragging(false)
+	view_camera.Stop(session.Fly)
 
 	if session.Victim:IsValid() then session.Victim:Remove() end
 end
@@ -612,13 +602,7 @@ local MoveEditor = react.Component(
 			"Update",
 			|dt|-> do
 				move_editor.Step(session, math.min(dt, 0.1))
-				local focused = objects:GetFocusedObject()
-				local hovered = MouseInput.GetHoveredObject()
-				camera.SetBlockMovement(focused:IsValid() and tostring(focused.Type):find("text") ~= nil)
-				camera.SetBlockDragging(hovered:IsValid() and hovered ~= Panel.World)
-				camera.Update(dt)
-				session.View:SetPosition(camera.GetPosition():Copy())
-				session.View:SetRotation(camera.GetRotation():Copy())
+				view_camera.Update(session.Fly, dt)
 
 				if session.Playing or session.ShownPhase ~= session.Phase then
 					session.ShownPhase = session.Phase
