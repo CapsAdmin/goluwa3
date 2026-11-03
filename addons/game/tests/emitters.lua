@@ -52,16 +52,17 @@ T.Test("emitter inputs set, scale and add properties and fall back to their defa
 	local data = table.copy(emitters.Files.Source.hit_force)
 	data.Inputs = {
 		Size = {Default = 2, Targets = {{"Size", "scale"}}},
-		Grow = {Default = 0.5, Targets = {{"Size", "add"}}},
+		Lift = {Default = 0.5, Targets = {{"Drag", "add"}}},
 	}
 	emitters.Update("input_test", data)
 	local properties = emitters.Get("input_test")
-	T(properties.Size)["=="](0.03 + 0.5)
-	T(emitters.Get("input_test", {Size = 1, Grow = 0}).Size)["=="](0.015)
+	T(properties.Size)["=="](0.03)
+	T(properties.Drag)["=="](0.5)
+	T(emitters.Get("input_test", {Size = 1, Lift = 0}).Size)["=="](0.015)
 	local curved = table.copy(data)
 	curved.Size = {Keys = {{0, 0.1}, {1, 0.4}}}
 	emitters.Update("input_curve", curved)
-	local scaled_curve = emitters.Get("input_curve", {Size = 2, Grow = 0}).Size
+	local scaled_curve = emitters.Get("input_curve", {Size = 2, Lift = 0}).Size
 	T(scaled_curve.Keys[1][2])["=="](0.2)
 	T(scaled_curve.Keys[2][2])["=="](0.8)
 	list.remove_value(emitters.Names, "input_curve")
