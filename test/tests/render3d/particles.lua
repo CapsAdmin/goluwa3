@@ -1070,25 +1070,6 @@ T.Test3D("Graphics render3d gpu emitter color picks a point between two colors p
 	if not ok then error(err, 0) end
 end)
 
-T.Test("a one shot emitter still emits when its first step is longer than its duration", function()
-	local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
-	local emitter = {
-		Playing = true,
-		Loop = false,
-		Duration = 0.1,
-		Rate = 100,
-		MaxParticles = 50,
-		particle_state = {time = 0, carry = 0, burst = 0},
-	}
-	T(particle_emitter.Step(emitter, 2))["=="](50)
-	T(particle_emitter.Step(emitter, 0.016))["=="](0)
-	emitter.particle_state = {time = 0, carry = 0, burst = 0}
-	T(particle_emitter.Step(emitter, 0.016))["=="](1)
-	T(particle_emitter.Step(emitter, 0.05))["=="](5)
-	T(particle_emitter.Step(emitter, 0.05))["=="](5)
-	T(particle_emitter.Step(emitter, 0.05))["=="](0)
-end)
-
 T.Test3D("Graphics render3d gpu emitter swirls around its axis", function(draw)
 	init()
 	local entity
@@ -1237,6 +1218,25 @@ T.Test3D("Graphics render3d gpu emitter marks mirrored and ground oriented sprit
 	restore()
 
 	if not ok then error(err, 0) end
+end)
+
+T.Test("a one shot emitter still emits when its first step is longer than its duration", function()
+	local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
+	local emitter = {
+		Playing = true,
+		Loop = false,
+		Duration = 0.1,
+		Rate = 100,
+		MaxParticles = 50,
+		particle_state = {time = 0, carry = 0, burst = 0},
+	}
+	T(particle_emitter.Step(emitter, 2))["=="](50)
+	T(particle_emitter.Step(emitter, 0.016))["=="](0)
+	emitter.particle_state = {time = 0, carry = 0, burst = 0}
+	T(particle_emitter.Step(emitter, 0.016))["=="](1)
+	T(particle_emitter.Step(emitter, 0.05))["=="](5)
+	T(particle_emitter.Step(emitter, 0.05))["=="](5)
+	T(particle_emitter.Step(emitter, 0.05))["=="](0)
 end)
 
 T.Test3D("Graphics render3d gpu emitter picks a random sequence of a sprite sheet and animates inside it", function(draw)

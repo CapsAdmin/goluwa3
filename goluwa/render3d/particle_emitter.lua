@@ -518,6 +518,8 @@ function particle_emitter.Step(emitter, dt)
 			state.carry = state.carry - whole
 			count = count + whole
 		end
+
+		state.time = state.time + dt
 	end
 
 	return math.min(count, emitter.MaxParticles)
@@ -525,8 +527,6 @@ end
 
 function particle_emitter.Sample(emitter, dt)
 	local state = emitter.particle_state
-
-		state.time = state.time + dt
 
 	if state.queue_head < state.queue_tail then
 		local queue = state.queue
