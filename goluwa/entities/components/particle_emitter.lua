@@ -1,6 +1,7 @@
 local objects = import("goluwa/objects/objects.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local ParticleEmitter = objects.CreateTemplate("particle_emitter")
+ParticleEmitter.Is2D = false
 ParticleEmitter:StartStorable()
 
 for _, property in ipairs(particle_emitter.common) do

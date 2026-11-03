@@ -1018,3 +1018,16 @@ T.Test2D("a searchable dropdown with thousands of options only builds the visibl
 	Panel.CloseContextMenu()
 	plain:Remove()
 end)
+
+T.Test2D("the ui theme leaves a numeric emitter size alone", function()
+	local Entity = import("goluwa/entities/entity.lua")
+	local theme = import("goluwa/render2d/ui/theme.lua")
+	local entity = Entity.New{
+		Name = "theme_size_emitter",
+		transform = {},
+		particle_emitter_gpu = {Size = 0.05},
+	}
+	T(entity.particle_emitter_gpu:GetSize())["=="](0.05)
+	T(theme.active:OnEntitySetProperty(entity.particle_emitter_gpu, "Size", 0.05))["=="](0.05)
+	entity:Remove()
+end)
