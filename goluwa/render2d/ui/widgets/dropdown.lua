@@ -264,7 +264,6 @@ end
 
 function META:build_scroll_menu(use_search, scroll_threshold)
 	local search_height = theme.active:GetInputHeight(self.FontSize)
-	local search_gap = theme.active:GetPadding("S")
 	local _, dropdown_y = self.transform:GetWorldMatrix():GetTranslation()
 	local world_height = Panel.World.transform:GetHeight()
 	local available_below = math.max(dropdown_y, world_height - (dropdown_y + self.transform:GetHeight()))
@@ -272,17 +271,12 @@ function META:build_scroll_menu(use_search, scroll_threshold)
 
 	if use_search then
 		search_height = math.min(search_height, math.max(0, available_below - 1))
-		search_gap = math.min(search_gap, math.max(0, available_below - search_height - 1))
-		body_height = math.max(80, self.SearchThreshold - search_height - search_gap)
+		body_height = math.max(80, self.SearchThreshold - search_height)
 	else
 		search_height = 0
-		search_gap = 0
 	end
 
-	body_height = math.max(
-		1,
-		math.min(body_height, math.max(1, available_below - search_height - search_gap))
-	)
+	body_height = math.max(1, math.min(body_height, math.max(1, available_below - search_height)))
 	local children = {}
 
 	if use_search then
@@ -334,7 +328,7 @@ function META:build_scroll_menu(use_search, scroll_threshold)
 	children[#children + 1] = self._results_panel
 	local menu = MenuContainer{
 		Name = use_search and "dropdown_search_menu" or "dropdown_scroll_menu",
-		layout = {ChildGap = search_gap},
+		layout = {ChildGap = 0},
 	}(children)
 	self:rebuild_results("")
 	local selected
@@ -363,6 +357,15 @@ function META:open_menu()
 	end
 
 	local options = self.Options
+	local longest = ""
+
+	for _, option in ipairs(options) do
+		local text = get_option_text(option)
+
+		if #text > #longest then longest = text end
+	end
+
+	self._menu_width = theme.active:GetFont("body", self.FontSize):GetTextSize(longest) + theme.active:GetPadding("M") * 2 + theme.active:GetPadding("L") * 2
 	local item_height = theme.active:ResolveFontSize(self.FontSize) + theme.active:GetPadding("M") * 2
 	local scroll_threshold = self.ScrollThreshold or self.SearchThreshold
 	local use_scroll = #options * item_height > scroll_threshold
@@ -388,6 +391,10 @@ function META:open_menu()
 		unpack(menu_items)
 	)
 	self:AddGlobalEvent("Update")
+	self:AddGlobalEvent(
+		"DropdownEscapeKey",
+		{event_name = "KeyInput", func_name = "OnEscapeKeyInput", priority = math.huge}
+	)
 	self:animate_indicator(1)
 
 	if use_search then
@@ -403,10 +410,15 @@ function META:OnUpdate()
 	if not self._menu or not self._menu:IsValid() then
 		self._menu = nil
 		self:RemoveEvent("Update")
+		self:RemoveEvent("DropdownEscapeKey")
 		return
 	end
 
-	local width = self.transform:GetWidth()
+	local x = self.transform:GetWorldMatrix():GetTranslation()
+	local width = math.max(
+		self.transform:GetWidth(),
+		math.min(self._menu_width, Panel.World.transform:GetWidth() - x)
+	)
 	local root = self._menu:GetRootMenu()
 	root.layout:SetMinSize(Vec2(width, 0))
 	root.layout:SetMaxSize(Vec2(width, 0))
@@ -414,6 +426,13 @@ function META:OnUpdate()
 	if self._results_panel and self._results_panel:IsValid() then
 		self._results_panel:GetViewport().layout:UpdateLayout()
 		self:show_window()
+	end
+end
+
+function META:OnEscapeKeyInput(key, press)
+	if press and key == "escape" then
+		Panel.CloseContextMenu()
+		return true
 	end
 end
 
