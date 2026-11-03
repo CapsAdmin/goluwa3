@@ -810,3 +810,170 @@ T.Test2D("sound property has a play button before the browse button and plays th
 	T(played)["=="]("ambient/fire/ignite.wav")
 	editor:Remove()
 end)
+
+T.Test2D("a curve row edits its keys in a curve editor window and writes the curve back through its node", function()
+	local written
+	local editor = PropertyEditor{
+		Items = {
+			{
+				Key = "group",
+				Text = "Group",
+				Children = {
+					{
+						Key = "group/size",
+						Text = "Size",
+						Type = "curve",
+						Kind = "scalar",
+						Min = 0,
+						Max = 2,
+						Value = {Keys = {{0, 0.5}, {1, 0.1}}},
+						OnChange = function(node, value)
+							written = value
+						end,
+					},
+				},
+			},
+		},
+	}
+	local control = editor._row_infos["group/size"].editor_panel
+	T(control.Name)["=="]("property_curve")
+	editor:open_curve_editor_window(control)
+	local window = Panel.World:GetKeyed("PropertyCurveEditorWindow/" .. control.PropertyKey)
+	local curve_editor
+
+	for _, child in ipairs(window:GetChildrenList()) do
+		if child.AddKey then curve_editor = child end
+	end
+
+	T(curve_editor ~= nil)["=="](true)
+	curve_editor.canvas.transform:SetSize(Vec2(440, 240))
+	curve_editor:AddKey(0.5, 1.5)
+	T(#written.Keys)["=="](3)
+	T(written.Keys[2][1])["=="](0.5)
+	T(written.Keys[2][2])["=="](1.5)
+	curve_editor:MoveKey(2, 0.75, 5)
+	T(written.Keys[2][1])["=="](0.75)
+	T(written.Keys[2][2])["=="](2)
+	curve_editor:MoveKey(2, 5, 1)
+	T(written.Keys[2][1])["=="](1)
+	curve_editor:MoveKey(2, 0.5, 1)
+	curve_editor:Select(nil)
+	T(#curve_editor:BuildItems()[1].Children)["=="](2)
+	curve_editor:Select(2)
+	local key_group = curve_editor:BuildItems()[1].Children[3]
+	T(key_group.Text)["=="]("key 2")
+	T(key_group.Children[1].Value)["=="](0.5)
+	key_group.Children[2].OnChange(nil, 0.25)
+	T(written.Keys[2][2])["=="](0.25)
+	key_group.Children[3].OnChange(nil, "smooth")
+	T(written.Keys[2][3])["=="]("smooth")
+	curve_editor:RemoveKey(2)
+	T(#written.Keys)["=="](2)
+	curve_editor:ApplyPreset{{0, 0}, {0.5, 1}, {1, 0}}
+	T(#written.Keys)["=="](3)
+	T(written.Keys[2][2])["=="](0.5)
+	curve_editor:BuildItems()[1].Children[1].OnChange(nil, true)
+	T(#written.MaxKeys)["=="](3)
+	T(#curve_editor:BuildItems()[1].Children)["=="](3)
+	curve_editor:BuildItems()[1].Children[2].OnChange(nil, "MaxKeys")
+	curve_editor:AddKey(0.25, 2)
+	T(#written.MaxKeys)["=="](4)
+	T(#written.Keys)["=="](3)
+	local canvas = curve_editor.canvas
+	local x, y = canvas:to_screen(0.25, 2)
+	canvas:OnMouseInput("button_1", true, Vec2(x, y))
+	T(curve_editor._selected)["=="](2)
+	T(canvas._drag ~= nil)["=="](true)
+	local drag_x, drag_y = canvas:to_screen(0.6, 1)
+	canvas:OnGlobalMouseMove(canvas.transform:LocalToGlobal(Vec2(drag_x, drag_y)))
+	T(math.abs(written.MaxKeys[2][1] - 0.5) < 1e-6)["=="](true)
+	canvas:OnMouseInput("button_1", false, Vec2(drag_x, drag_y))
+	T(canvas._drag)["=="](nil)
+	curve_editor:BuildItems()[1].Children[1].OnChange(nil, false)
+	T(written.MaxKeys)["=="](nil)
+	window:Remove()
+	editor:Remove()
+end)
+
+T.Test2D("a color curve row keeps rgba keys and a color range row writes both swatch colors back", function()
+	local curve_written, range_written
+	local editor = PropertyEditor{
+		Items = {
+			{
+				Key = "group",
+				Text = "Group",
+				Children = {
+					{
+						Key = "group/fade",
+						Text = "Color",
+						Type = "curve",
+						Kind = "color",
+						Value = {Keys = {{0, {1, 1, 1, 1}}, {1, {1, 0, 0, 0}}}},
+						OnChange = function(node, value)
+							curve_written = value
+						end,
+					},
+					{
+						Key = "group/pair",
+						Text = "Pair",
+						Type = "color_range",
+						Value = {{1, 0, 0, 1}, {0, 0, 1, 1}},
+						OnChange = function(node, value)
+							range_written = value
+						end,
+					},
+				},
+			},
+		},
+	}
+	local control = editor._row_infos["group/fade"].editor_panel
+	editor:open_curve_editor_window(control)
+	local window = Panel.World:GetKeyed("PropertyCurveEditorWindow/" .. control.PropertyKey)
+	local curve_editor
+
+	for _, child in ipairs(window:GetChildrenList()) do
+		if child.AddKey then curve_editor = child end
+	end
+
+	curve_editor.canvas.transform:SetSize(Vec2(440, 240))
+	curve_editor:AddKey(0.5, 0)
+	T(#curve_written.Keys)["=="](3)
+	T(math.abs(curve_written.Keys[2][2][2] - 0.5) < 1e-6)["=="](true)
+	T(math.abs(curve_written.Keys[2][2][4] - 0.5) < 1e-6)["=="](true)
+	curve_editor:Select(2)
+	local color_row = curve_editor:BuildItems()[1].Children[3].Children[2]
+	T(color_row.Type)["=="]("color")
+	color_row.OnChange(nil, Color(0, 1, 0, 0.75))
+	T(curve_written.Keys[2][2][2])["=="](1)
+	T(curve_written.Keys[2][2][4])["=="](0.75)
+	curve_editor:ApplyPreset{{0, 1}, {1, 0}}
+	T(curve_written.Keys[1][2][1])["=="](1)
+	T(curve_written.Keys[2][2][4])["=="](0)
+	window:Remove()
+	local range = editor._row_infos["group/pair"].editor_panel
+	T(range.Name)["=="]("property_color_range")
+	T(#range._swatches)["=="](2)
+	editor:open_color_picker_window{
+		Node = range.Node,
+		PropertyKey = "pair/2",
+		PropertyPath = range.PropertyPath,
+		GetValue = function()
+			return Color(0, 0, 1, 1)
+		end,
+		SetValue = function() end,
+	}
+	Panel.World:GetKeyed("PropertyColorPickerWindow/pair/2"):Remove()
+	range._swatches[1].OnClick(range._swatches[1])
+	local picker_window = Panel.World:GetKeyed("PropertyColorPickerWindow/" .. range.PropertyKey .. "/1")
+	local picker
+
+	for _, child in ipairs(picker_window:GetChildrenList()) do
+		if child.apply_hsva then picker = child end
+	end
+
+	picker:apply_hsva(0.5, 1, 1, 1, true)
+	T(range_written[1][2] > 0)["=="](true)
+	T(range_written[2][3])["=="](1)
+	picker_window:Remove()
+	editor:Remove()
+end)

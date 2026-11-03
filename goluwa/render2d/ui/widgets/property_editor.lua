@@ -21,6 +21,9 @@ local PropertyAsset = import("goluwa/render2d/ui/widgets/properties/asset.lua")
 local PropertySound = import("goluwa/render2d/ui/widgets/properties/sound.lua")
 local PropertyBoolean = import("goluwa/render2d/ui/widgets/properties/boolean.lua")
 local PropertyCode = import("goluwa/render2d/ui/widgets/properties/code.lua")
+local PropertyColorRange = import("goluwa/render2d/ui/widgets/properties/color_range.lua")
+local PropertyCurve = import("goluwa/render2d/ui/widgets/properties/curve.lua")
+local CurveEditor = import("goluwa/render2d/ui/widgets/curve_editor.lua")
 local PropertyDivider = import("goluwa/render2d/ui/widgets/properties/divider.lua")
 local PropertyList = import("goluwa/render2d/ui/widgets/properties/list.lua")
 local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
@@ -665,6 +668,35 @@ function META:open_color_picker_window(control)
 	)
 end
 
+function META:open_curve_editor_window(control)
+	local node = control.Node
+	local window_size = Vec2(440, 560)
+	local world_size = Panel.World.transform:GetSize()
+	local mouse_pos = system.GetWindow():GetMousePosition():Copy() + Vec2(16, 16)
+	mouse_pos.x = math.min(mouse_pos.x, math.max(world_size.x - window_size.x, 0))
+	mouse_pos.y = math.min(mouse_pos.y, math.max(world_size.y - window_size.y, 0))
+	Panel.World:Ensure(
+		Window{
+			Key = "PropertyCurveEditorWindow/" .. control.PropertyKey,
+			Title = "CURVE: " .. get_node_text(node, control.PropertyPath),
+			Size = window_size,
+			Position = mouse_pos,
+		}{
+			CurveEditor{
+				Value = control:GetValue(),
+				Kind = node.Kind,
+				Min = node.Min,
+				Max = node.Max,
+				Control = control,
+				OnChange = function(value, editor)
+					editor.Control:SetValue(value, true)
+				end,
+				layout = {GrowWidth = 1, GrowHeight = 1},
+			},
+		}
+	)
+end
+
 function META:create_control(node, path, key)
 	local kind = node.Type or node.Editor
 	kind = property_type_aliases[kind] or kind
@@ -800,6 +832,24 @@ function META:create_control(node, path, key)
 		else
 			control = PropertyAsset(shared)
 		end
+	elseif kind == "curve" then
+		shared.Value = node.Value
+		shared.Kind = node.Kind
+		shared.Min = node.Min
+		shared.Max = node.Max
+		shared.Size = size
+		shared.MinSize = size
+		shared.MaxSize = Vec2(0, size.y)
+		shared.layout = {FitWidth = false}
+		control = PropertyCurve(shared)
+	elseif kind == "color_range" then
+		shared.Value = node.Value
+		shared.RowHeight = row_height
+		shared.layout = {
+			MinSize = size,
+			MaxSize = Vec2(0, size.y),
+		}
+		control = PropertyColorRange(shared)
 	elseif kind == "code" then
 		shared.Value = node.Value == nil and "" or tostring(node.Value)
 		shared.Language = node.CodeLanguage

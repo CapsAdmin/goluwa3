@@ -234,7 +234,10 @@ T.Test("data items show defaults for missing keys, group them and strip values t
 	local spread = items[2].Children[3]
 	T(spread.Type)["=="]("vec2")
 	T(spread.Default)["=="](nil)
-	spread.ContextActions[1].OnClick()
+	T(spread.ContextActions[1].Text)["=="]("Random")
+	T(spread.ContextActions[1].Checked)["=="](true)
+	T(spread.ContextActions[2].Text)["=="]("Reset to the default")
+	spread.ContextActions[2].OnClick()
 	T(data.Spread)["=="](nil)
 	T(restructures)["=="](1)
 	data.Size = 0.5
@@ -347,4 +350,107 @@ T.Test("data items add optional keys through one add node and remove them from t
 	)
 	T(grouped[#grouped].Text)["=="]("optional")
 	T(grouped[#grouped].Children[1].Type)["=="]("add")
+end)
+
+T.Test("data items turn a number or color into a random range or a curve over life from its context menu", function()
+	local data = {Size = 0.5, TintColor = {1, 0, 0, 1}, Life = 2}
+	local restructures = 0
+	local schema = {
+		Refs = {},
+		Fields = {
+			Size = {Band = "scalar", Min = 0, Max = 2},
+			TintColor = {Band = "color"},
+			Life = {Range = true},
+		},
+		Root = {
+			Defaults = {
+				Size = 0.1,
+				TintColor = {1, 1, 1, 1},
+				Life = 1,
+				FadeColor = {Keys = {{0, {1, 1, 1, 1}}, {1, {1, 1, 1, 0}}}},
+			},
+		},
+	}
+	local options = {
+		Schema = schema,
+		Name = "x",
+		Changed = function() end,
+		Restructured = function()
+			restructures = restructures + 1
+		end,
+	}
+	schema.Fields.FadeColor = {Band = "color"}
+
+	local function rebuild()
+		local by_text = {}
+
+		for _, item in ipairs(data_items.Build(data, options)[1].Children) do
+			by_text[item.Text] = item
+		end
+
+		return by_text
+	end
+
+	local function action(item, text)
+		for _, entry in ipairs(item.ContextActions) do
+			if entry.Text == text then return entry end
+		end
+	end
+
+	local rows = rebuild()
+	T(rows.Size.Type)["=="]("number")
+	T(rows.TintColor.Type)["=="]("color")
+	T(rows.FadeColor.Type)["=="]("curve")
+	T(rows.FadeColor.Kind)["=="]("color")
+	T(rows.FadeColor.Default)["=="](rows.FadeColor.Value)
+	T(action(rows.Size, "Random").Checked)["=="](false)
+	T(action(rows.Size, "Curve over life").Checked)["=="](false)
+	T(action(rows.Life, "Curve over life"))["=="](nil)
+	action(rows.Size, "Random").OnClick()
+	T(data.Size[1])["=="](0.5)
+	T(data.Size[2])["=="](0.5)
+	rows = rebuild()
+	T(rows["Size (min, max)"].Type)["=="]("vec2")
+	T(rows.Size)["=="](nil)
+	data.Size = {0.2, 0.6}
+	rows = rebuild()
+	action(rows["Size (min, max)"], "Curve over life").OnClick()
+	T(data.Size.Keys[1][2])["=="](0.2)
+	T(data.Size.Keys[2][2])["=="](0.2)
+	T(data.Size.MaxKeys[2][2])["=="](0.6)
+	rows = rebuild()
+	T(rows.Size.Type)["=="]("curve")
+	T(rows.Size.Kind)["=="]("scalar")
+	T(rows.Size.Max)["=="](2)
+	T(action(rows.Size, "Random").Checked)["=="](true)
+	T(action(rows.Size, "Curve over life").Checked)["=="](true)
+	rows.Size.OnChange(nil, {Keys = {{0, 1}, {1, 0}}})
+	T(data.Size.Keys[1][2])["=="](1)
+	rows = rebuild()
+	action(rows.Size, "Random").OnClick()
+	T(data.Size.MaxKeys[1][2])["=="](1)
+	rows = rebuild()
+	action(rows.Size, "Random").OnClick()
+	T(data.Size.MaxKeys)["=="](nil)
+	rows = rebuild()
+	action(rows.Size, "Curve over life").OnClick()
+	T(data.Size)["=="](1)
+	action(rebuild().TintColor, "Random").OnClick()
+	T(data.TintColor[1][1])["=="](1)
+	T(data.TintColor[2][3])["=="](0)
+	rows = rebuild()
+	T(rows.TintColor.Type)["=="]("color_range")
+	rows.TintColor.OnChange(nil, {{0, 1, 0, 1}, {0, 0, 1, 1}})
+	T(data.TintColor[2][3])["=="](1)
+	action(rebuild().TintColor, "Random").OnClick()
+	T(data.TintColor[1])["=="](0)
+	data.TintColor = {1, 0, 0, 1}
+	action(rebuild().TintColor, "Curve over life").OnClick()
+	T(data.TintColor.Keys[2][2][1])["=="](1)
+	action(rebuild().TintColor, "Reset to the default").OnClick()
+	T(data.TintColor)["=="](nil)
+	local fade = action(rebuild().FadeColor, "Reset to the default")
+	T(fade)["=="](nil)
+	data_items.StripDefaults(data, {Root = schema.Root})
+	T(data.FadeColor)["=="](nil)
 end)

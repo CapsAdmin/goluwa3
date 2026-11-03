@@ -36,7 +36,7 @@ local function build_action_item(control, action)
 		Control = control,
 		Action = action,
 		Text = action.Text,
-		Icon = action.Icon,
+		Icon = action.Checked and "check" or action.Icon,
 		OnClick = on_context_action,
 	}
 end

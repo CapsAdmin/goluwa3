@@ -76,6 +76,77 @@ end
 
 local build
 
+local function copy_value(value)
+	return type(value) == "table" and table.copy(value) or value
+end
+
+local function band_mode(value, color)
+	if type(value) ~= "table" then return "constant" end
+
+	if value.Keys then return value.MaxKeys and "band" or "curve" end
+
+	if color and type(value[1]) == "number" then return "constant" end
+
+	return "range"
+end
+
+local function toggle_random(value, color)
+	local mode = band_mode(value, color)
+
+	if mode == "constant" then return {copy_value(value), copy_value(value)} end
+
+	if mode == "range" then
+		return color and copy_value(value[1]) or (value[1] + value[2]) / 2
+	end
+
+	if mode == "curve" then
+		return {Keys = value.Keys, MaxKeys = table.copy(value.Keys)}
+	end
+
+	return {Keys = value.Keys}
+end
+
+local function toggle_curve(value, color)
+	local mode = band_mode(value, color)
+
+	if mode == "constant" then
+		return {Keys = {{0, copy_value(value)}, {1, copy_value(value)}}}
+	end
+
+	if mode == "range" then
+		return {
+			Keys = {{0, copy_value(value[1])}, {1, copy_value(value[1])}},
+			MaxKeys = {{0, copy_value(value[2])}, {1, copy_value(value[2])}},
+		}
+	end
+
+	if mode == "curve" then return copy_value(value.Keys[1][2]) end
+
+	return {copy_value(value.Keys[1][2]), copy_value(value.MaxKeys[1][2])}
+end
+
+local function make_band_item(data, key, value, item_path, field, options)
+	local color = field.Band == "color"
+	local mode = band_mode(value, color)
+
+	if mode == "constant" or mode == "range" and not color then return end
+
+	return {
+		Key = item_path,
+		Text = field.Text or tostring(key),
+		Description = field.Description,
+		Type = mode == "range" and "color_range" or "curve",
+		Kind = field.Band,
+		Value = value,
+		Min = field.Min,
+		Max = field.Max,
+		OnChange = function(_, new)
+			data[key] = new
+			options.Changed()
+		end,
+	}
+end
+
 local function make_leaf(data, key, value, item_path, field, options)
 	local item = {Key = item_path, Text = field and field.Text or tostring(key)}
 	local kind = type(value)
@@ -349,7 +420,10 @@ function build(data, options, path, list_key, optional)
 		if field and field.Hidden then goto continue end
 
 		local item_path = path .. "/" .. tostring(key)
-		local item = make_leaf(data, key, value, item_path, field, options)
+		local item = field and
+			field.Band and
+			make_band_item(data, key, value, item_path, field, options) or
+			make_leaf(data, key, value, item_path, field, options)
 
 		if not item then
 			if is_array(value, field) then
@@ -391,21 +465,19 @@ function build(data, options, path, list_key, optional)
 		end
 
 		local buttons = {}
+		local composite = item.Type == "curve" or
+			item.Type == "color_range" or
+			item.Type == "vec2" and
+			field and
+			(
+				field.Range or
+				field.Band
+			)
 
 		if item.Type and default ~= nil then
 			if is_default then
 				item.Default = item.Value
-			elseif field and field.Range and item.Type == "vec2" then
-				item.ContextActions = {
-					{
-						Text = "Reset to the default",
-						OnClick = function()
-							data[key] = nil
-							options.Restructured()
-						end,
-					},
-				}
-			else
+			elseif not composite then
 				item.Default = make_leaf(
 						{},
 						key,
@@ -417,26 +489,50 @@ function build(data, options, path, list_key, optional)
 			end
 		end
 
-		if item.Type and field and field.Range then
-			if type(value) == "number" then
-				buttons[#buttons + 1] = {
-					Icon = "wand",
-					Tooltip = "randomize between a min and a max",
+		if item.Type and field and (field.Range or field.Band) then
+			local color = field.Band == "color"
+			item.ContextActions = item.ContextActions or {}
+			local mode = band_mode(value, color)
+
+			if item.Type == "vec2" then item.Text = item.Text .. " (min, max)" end
+
+			table.insert(
+				item.ContextActions,
+				{
+					Text = "Random",
+					Checked = mode == "range" or mode == "band",
 					OnClick = function()
-						data[key] = {value, value}
+						data[key] = toggle_random(value, color)
 						options.Restructured()
 					end,
 				}
-			elseif item.Type == "vec2" then
-				item.Text = item.Text .. " (min, max)"
-				buttons[#buttons + 1] = {
-					Icon = "close",
-					Tooltip = "use one value",
-					OnClick = function()
-						data[key] = (value[1] + value[2]) / 2
-						options.Restructured()
-					end,
-				}
+			)
+
+			if field.Band then
+				table.insert(
+					item.ContextActions,
+					{
+						Text = "Curve over life",
+						Checked = mode == "curve" or mode == "band",
+						OnClick = function()
+							data[key] = toggle_curve(value, color)
+							options.Restructured()
+						end,
+					}
+				)
+			end
+
+			if composite and not is_default then
+				table.insert(
+					item.ContextActions,
+					{
+						Text = "Reset to the default",
+						OnClick = function()
+							data[key] = nil
+							options.Restructured()
+						end,
+					}
+				)
 			end
 		end
 
