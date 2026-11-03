@@ -15,6 +15,7 @@ local View = import("goluwa/render3d/view.lua")
 local clips = import("goluwa/render3d/clips.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local surface_overlay_preview = import("goluwa/render3d/surface_overlay_preview.lua")
+local MouseInput = import("goluwa/render2d/ui/components/mouse_input.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local Canvas = import("lua/editor_kit.lua").Canvas
 local view_camera = import("lua/view_camera.lua")
@@ -988,6 +989,23 @@ local function is_typing()
 	return focused and focused:IsValid() and tostring(focused.Type):find("text") ~= nil
 end
 
+function effects_editor.FlyOverlayPreview(session, dt)
+	local hovered = MouseInput.GetHoveredObject()
+	local over = session.Category == "overlays" and hovered:IsValid() and hovered.Name == "OverlayPreview"
+	session.Fly.BlockMovement = over
+
+	if not over or is_typing() then return end
+
+	local speed = input.IsShiftDown() and 3 or 1
+	local forward = (input.IsKeyDown("w") and 1 or 0) - (input.IsKeyDown("s") and 1 or 0)
+	local right = (input.IsKeyDown("d") and 1 or 0) - (input.IsKeyDown("a") and 1 or 0)
+	local up = (input.IsKeyDown("e") and 1 or 0) - (input.IsKeyDown("q") and 1 or 0)
+
+	if forward ~= 0 or right ~= 0 or up ~= 0 then
+		surface_overlay_preview.Move(forward * speed, right * speed, up * speed, dt)
+	end
+end
+
 local EffectsEditor = react.Component(
 	|props|-> do
 		local version, set_version = react.UseState(0)
@@ -1054,6 +1072,7 @@ local EffectsEditor = react.Component(
 		react.UseEvent(
 			"Update",
 			|dt|-> do
+				effects_editor.FlyOverlayPreview(session, math.min(dt, 0.1))
 				view_camera.Update(session.Fly, math.min(dt, 0.1))
 				effects_stage.Update(session.Stage, session.View:GetPosition())
 				effects_editor.Tick(session, system.GetElapsedTime())
@@ -1109,6 +1128,31 @@ local EffectsEditor = react.Component(
 				render2d.PopColorUV()
 				render2d.PopTexture()
 			end,
+			{}
+		)
+		local look = react.UseDrag{
+			OnDrag = |_, _, dx, dy|-> do
+				surface_overlay_preview.Look(dx, dy)
+			end,
+		}
+		local overlay_canvas_input = react.UseMemo(
+			||-> {
+				OnMouseInput = function(self, button, press, local_position)
+					if press and button == "mwheel_up" then
+						surface_overlay_preview.Zoom(1)
+
+						return true
+					elseif press and button == "mwheel_down" then
+						surface_overlay_preview.Zoom(-1)
+
+						return true
+					end
+
+					return look.OnMouseInput(self, button, press, local_position)
+				end,
+				OnGlobalMouseMove = look.OnGlobalMouseMove,
+				OnGlobalMouseInput = look.OnGlobalMouseInput,
+			},
 			{}
 		)
 		local screen = Panel.World.transform:GetSize()
@@ -1350,7 +1394,7 @@ local EffectsEditor = react.Component(
 								layout = {MinSize = Vec2(110, 0), MaxSize = Vec2(110, 0), GrowWidth = 0},
 							},
 							ui.Text{
-								Text = surface_overlay_preview.GetShapeStatus(effects_editor.OverlayPreviewShape) or "",
+								Text = surface_overlay_preview.GetShapeStatus(effects_editor.OverlayPreviewShape) or "drag look, wasd qe fly, wheel zoom",
 								Color = "text_disabled",
 								Font = "body XS",
 								IgnoreMouseInput = true,
@@ -1359,6 +1403,7 @@ local EffectsEditor = react.Component(
 						Canvas{
 							Name = "OverlayPreview",
 							OnDraw = draw_overlay_preview,
+							Drag = overlay_canvas_input,
 							layout = {GrowWidth = 1, GrowHeight = 1},
 						},
 					},

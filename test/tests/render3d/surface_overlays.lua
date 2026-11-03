@@ -217,21 +217,37 @@ T.Test("overlay kinds are checked when registered", function()
 		return select(2, pcall(surface_overlays.Register, "overlay_check_kind", data))
 	end
 
-	T(broken(function(data)
-		data.Params = {{Name = "A", Default = 0}, {Name = "B", Default = 0}, {Name = "C", Default = 0}, {Name = "D", Default = 0}, {Name = "E", Default = 0}}
-	end):find("more than 4", 1, true) ~= nil)["=="](true)
-	T(broken(function(data)
-		data.Params = {{Name = "RayCount", Default = 1}, {Name = "RayCount", Default = 1}}
-	end):find("twice", 1, true) ~= nil)["=="](true)
-	T(broken(function(data)
-		data.Params = {{Name = "Fade", Default = 1}}
-	end):find("reserved", 1, true) ~= nil)["=="](true)
-	T(broken(function(data)
-		data.Params = {{Name = "lower", Default = 1}}
-	end):find("PascalCase", 1, true) ~= nil)["=="](true)
-	T(broken(function(data)
-		data.Params = {{Name = "Strength"}}
-	end):find("Default", 1, true) ~= nil)["=="](true)
+	T(
+		broken(function(data)
+				data.Params = {
+					{Name = "A", Default = 0},
+					{Name = "B", Default = 0},
+					{Name = "C", Default = 0},
+					{Name = "D", Default = 0},
+					{Name = "E", Default = 0},
+				}
+			end):find("more than 4", 1, true) ~= nil
+	)["=="](true)
+	T(
+		broken(function(data)
+				data.Params = {{Name = "RayCount", Default = 1}, {Name = "RayCount", Default = 1}}
+			end):find("twice", 1, true) ~= nil
+	)["=="](true)
+	T(
+		broken(function(data)
+				data.Params = {{Name = "Fade", Default = 1}}
+			end):find("reserved", 1, true) ~= nil
+	)["=="](true)
+	T(
+		broken(function(data)
+				data.Params = {{Name = "lower", Default = 1}}
+			end):find("PascalCase", 1, true) ~= nil
+	)["=="](true)
+	T(
+		broken(function(data)
+				data.Params = {{Name = "Strength"}}
+			end):find("Default", 1, true) ~= nil
+	)["=="](true)
 	T(broken(function(data)
 		data.Source = nil
 	end):find("Source", 1, true) ~= nil)["=="](true)
@@ -268,7 +284,7 @@ T.Test3D("the overlay preview draws each shape and follows the layer's fade", fu
 		local handle = surface_overlays.Add(sphere.visual, "status_fire", {})
 		handle:SetFade(fade)
 		local texture = preview.Render(width, height, shape, "status_fire", handle.layer, 3)
-		local r, g, b = texture:GetPixel(width / 2, height / 2)
+		local r, g, b = texture:GetPixel(texture:GetWidth() / 2, texture:GetHeight() / 2)
 		local corner = {texture:GetPixel(1, 1)}
 		surface_overlays.Clear(sphere.visual)
 		return r + g + b, corner[1] + corner[2] + corner[3], texture
@@ -277,12 +293,28 @@ T.Test3D("the overlay preview draws each shape and follows the layer's fade", fu
 	for _, shape in ipairs{"sphere", "box"} do
 		local off, background, texture = shade(shape, 0)
 		local on = shade(shape, 1)
-		T(texture:GetWidth())["=="](width)
-		T(texture:GetHeight())["=="](height)
+		T(texture:GetWidth())["=="](width * preview.SCALE)
+		T(texture:GetHeight())["=="](height * preview.SCALE)
 		T(off)[">"](background)
 		T(math.abs(on - off))[">"](0.05)
 	end
 
+	local start, start_yaw, start_pitch = preview.GetView()
+	start = start:Copy()
+	preview.Look(100, -40)
+	local _, yaw, pitch = preview.GetView()
+	T(yaw)["<"](start_yaw)
+	T(pitch)[">"](start_pitch)
+	preview.Look(0, 100000)
+	T(select(3, preview.GetView()))[">="](-1.5)
+	preview.Look(-100, 40)
+	preview.Move(1, 0, 0, 1)
+	local moved = preview.GetView()
+	T((moved - start):GetLength())[">"](0.1)
+	preview.Zoom(-1)
+	T((preview.GetView() - moved):GetLength())[">"](0.1)
+	shade("sphere", 1)
+	T(select(1, preview.GetView()) ~= nil)["=="](true)
 	T(preview.GetShapeStatus("sphere"))["=="](nil)
 	T(preview.Check("status_fire"))["=="](nil)
 	sphere:Remove()

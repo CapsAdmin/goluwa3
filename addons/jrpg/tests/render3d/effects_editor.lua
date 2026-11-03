@@ -681,6 +681,7 @@ end)
 
 T.Test3D("an overlay preview lasts until cleared and its fade slider holds the layers", function()
 	local Vec2 = import("goluwa/structs/vec2.lua")
+	local surface_overlay_preview = import("goluwa/render3d/surface_overlay_preview.lua")
 	local effects_editor = import("lua/jrpg/effects_editor.lua")
 	local session = {
 		LoadId = 0,
@@ -723,15 +724,13 @@ T.Test3D("an overlay preview lasts until cleared and its fade slider holds the l
 	T(category.Lasting)["=="](true)
 	session.Status = ""
 	effects_editor.RenderOverlayPreview(session)
-	T(session.Status)["=="](""
-)
+	T(session.Status)["=="]("")
 	T(effects_editor.OverlayPreviewTexture ~= nil)["=="](true)
 	effects_editor.OverlayPreviewCanvas = Vec2(200.6, 120)
 	effects_editor.RenderOverlayPreview(session)
-	T(effects_editor.OverlayPreviewTexture:GetWidth())["=="](200)
-	T(effects_editor.OverlayPreviewTexture:GetHeight())["=="](120)
-	T(session.Status)["=="](""
-)
+	T(effects_editor.OverlayPreviewTexture:GetWidth())["=="](200 * surface_overlay_preview.SCALE)
+	T(effects_editor.OverlayPreviewTexture:GetHeight())["=="](120 * surface_overlay_preview.SCALE)
+	T(session.Status)["=="]("")
 	effects_editor.OverlayPreviewCanvas = nil
 	session.AutoRestart = false
 	effects_editor.QueueRestart(session)

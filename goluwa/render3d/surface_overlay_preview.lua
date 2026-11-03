@@ -21,8 +21,13 @@ preview.MIN_SIZE = 16
 preview.SHAPES = {"sphere", "box", "kleiner"}
 preview.MODEL_PATH = "models/player/kleiner.mdl"
 preview.PADDING = 1.1
-preview.PITCH = 0.45
-preview.ORBIT_SPEED = 0.35
+preview.FOV = 50
+preview.SCALE = 2
+preview.LOOK_SENSITIVITY = 0.005
+preview.FLY_SPEED = 1.5
+preview.ZOOM_STEP = 0.5
+local START_YAW = 0.6
+local START_PITCH = -0.45
 preview.EXPOSURE_GAIN_EV = 4
 preview.EMISSIVE_SCALE = 1 / 40000
 local MAIN = [[
@@ -31,7 +36,7 @@ local MAIN = [[
 		Surface s;
 		default_surface_features(s);
 		s.world_pos = in_position;
-		s.V = normalize(preview_data.view_direction.xyz);
+		s.V = normalize(preview_data.camera_position.xyz - in_position);
 		s.N = normal;
 		s.geometric_N = normal;
 		float checker = mod(floor(in_uv.x * 8.0) + floor(in_uv.y * 8.0), 2.0);
@@ -121,9 +126,9 @@ local function write_block(self, block)
 		end
 	end
 
-	local view = frame.view
+	local position = frame.camera_position
 	local light = frame.light
-	block.view_direction[0], block.view_direction[1], block.view_direction[2] = view.x, view.y, view.z
+	block.camera_position[0], block.camera_position[1], block.camera_position[2] = position.x, position.y, position.z
 	block.light_direction[0], block.light_direction[1], block.light_direction[2] = light.x, light.y, light.z
 	local center = frame.center
 	block.bounds[0], block.bounds[1], block.bounds[2], block.bounds[3] = center.x, center.y, center.z, frame.radius
@@ -181,7 +186,7 @@ local function create_pipeline(name)
 						{"color_a", "vec4"},
 						{"color_b", "vec4"},
 						{"params", "vec4"},
-						{"view_direction", "vec4"},
+						{"camera_position", "vec4"},
 						{"light_direction", "vec4"},
 						{"bounds", "vec4"},
 					},
@@ -227,6 +232,7 @@ local function load_model()
 	if model_state.loading or model_state.meshes or model_state.error then return end
 
 	model_state.loading = true
+
 	model_loader.LoadModel(
 		preview.MODEL_PATH,
 		function(data)
@@ -255,16 +261,16 @@ end
 
 function preview.GetMeshes(shape)
 	if shape == "sphere" then
-		meshes.sphere = meshes.sphere or build_mesh(function(polygon)
-			shapes.BuildSphere(polygon, 0.5, 48, 32, 1)
-		end)
-
+		meshes.sphere = meshes.sphere or
+			build_mesh(function(polygon)
+				shapes.BuildSphere(polygon, 0.5, 48, 32, 1)
+			end)
 		return meshes.sphere
 	elseif shape == "box" then
-		meshes.box = meshes.box or build_mesh(function(polygon)
-			shapes.BuildCube(polygon, 1, 1, 4)
-		end)
-
+		meshes.box = meshes.box or
+			build_mesh(function(polygon)
+				shapes.BuildCube(polygon, 1, 1, 4)
+			end)
 		return meshes.box
 	end
 
@@ -317,26 +323,72 @@ local function get_fit(polygons)
 	return fit
 end
 
-local function configure_camera(polygons, yaw, width, height)
-	local fit = get_fit(polygons)
-	local center = fit.center
-	local view = Vec3(math.sin(yaw) * math.cos(preview.PITCH), math.sin(preview.PITCH), math.cos(yaw) * math.cos(preview.PITCH))
-	local rotation = Quat()
+local view = {position = Vec3(), yaw = START_YAW, pitch = START_PITCH}
+local view_polygons
+local rotation = Quat()
+
+local function update_rotation()
 	rotation:Identity()
-	rotation:RotateYaw(math.atan2(view.x, view.z))
-	rotation:RotatePitch(-math.asin(math.clamp(view.y, -1, 1)))
-	local forward = rotation:GetForward()
-	local half_height = math.max(fit.radius * preview.PADDING / math.min(width / height, 1), 1e-4)
-	local distance = fit.radius * 2 + 1
+	rotation:RotateYaw(view.yaw)
+	rotation:RotatePitch(view.pitch)
+end
+
+local function reset_view(fit)
+	view.yaw, view.pitch = START_YAW, START_PITCH
+	update_rotation()
+	view.position = fit.center - rotation:GetForward() * (
+			fit.radius / math.sin(math.rad(preview.FOV) / 2) * preview.PADDING
+		)
+end
+
+function preview.GetView()
+	return view.position, view.yaw, view.pitch
+end
+
+function preview.Look(dx, dy)
+	view.yaw = view.yaw - dx * preview.LOOK_SENSITIVITY
+	view.pitch = math.clamp(view.pitch - dy * preview.LOOK_SENSITIVITY, -1.5, 1.5)
+end
+
+function preview.Move(forward, right, up, seconds)
+	local fit = view_polygons and get_fit(view_polygons)
+
+	if not fit then return end
+
+	update_rotation()
+	local step = fit.radius * preview.FLY_SPEED * seconds
+	view.position = view.position + (
+			rotation:GetForward() * forward + rotation:GetRight() * right + Vec3(0, up, 0)
+		) * step
+end
+
+function preview.Zoom(steps)
+	local fit = view_polygons and get_fit(view_polygons)
+
+	if not fit then return end
+
+	update_rotation()
+	view.position = view.position + rotation:GetForward() * (steps * fit.radius * preview.ZOOM_STEP)
+end
+
+local function configure_camera(polygons, width, height)
+	local fit = get_fit(polygons)
+
+	if view_polygons ~= polygons then
+		view_polygons = polygons
+		reset_view(fit)
+	end
+
+	update_rotation()
 	camera = camera or Camera3D.New()
 	camera:SetViewport(Rect(0, 0, width, height))
-	camera:SetOrthoMode(true)
-	camera:SetOrthoHalfHeight(half_height)
-	camera:SetNearZ(0.01)
-	camera:SetFarZ(distance + fit.radius * 2)
-	camera:SetPosition(center - forward * distance)
+	camera:SetOrthoMode(false)
+	camera:SetFOV(math.rad(preview.FOV))
+	camera:SetNearZ(fit.radius * 0.02)
+	camera:SetFarZ(fit.radius * 100)
+	camera:SetPosition(view.position)
 	camera:SetRotation(rotation)
-	return center, view, fit.radius
+	return fit, rotation:GetForward(), rotation:GetRight()
 end
 
 local function draw_frame()
@@ -347,6 +399,7 @@ end
 
 function preview.Render(width, height, shape, name, layer, time)
 	local polygons = preview.GetMeshes(shape) or preview.GetMeshes("sphere")
+	width, height = width * preview.SCALE, height * preview.SCALE
 
 	if not framebuffer or framebuffer_width ~= width or framebuffer_height ~= height then
 		if framebuffer then framebuffer:Remove() end
@@ -364,16 +417,15 @@ function preview.Render(width, height, shape, name, layer, time)
 
 	local pipeline = get_pipeline(name)
 	frame.cmd = framebuffer:GetCommandBuffer()
-
-	local center, view, radius = configure_camera(polygons, time * preview.ORBIT_SPEED, width, height)
+	local fit, forward, right = configure_camera(polygons, width, height)
 	frame.meshes = polygons
 	frame.layer = layer
 	frame.time = time
 	frame.noise = surface_conditions.GetNoiseTexture()
-	frame.center = center
-	frame.radius = radius
-	frame.view = view
-	frame.light = (view + Vec3(0, 0.6, 0) + camera:GetRotation():GetRight() * 0.5):GetNormalized()
+	frame.center = fit.center
+	frame.radius = fit.radius
+	frame.camera_position = view.position
+	frame.light = (Vec3(0, 0.6, 0) + right * 0.5 - forward):GetNormalized()
 	frame.pipeline = pipeline
 	frame.pushed = false
 	local previous_world = render3d.GetWorldMatrix()

@@ -36,7 +36,11 @@ end
 function view_camera.Update(state, dt)
 	local focused = objects:GetFocusedObject()
 	local hovered = MouseInput.GetHoveredObject()
-	camera.SetBlockMovement(focused:IsValid() and tostring(focused.Type):find("text") ~= nil)
+	camera.SetBlockMovement(
+		state.BlockMovement == true or
+			focused:IsValid() and
+			tostring(focused.Type):find("text") ~= nil
+	)
 	local gizmo = Gizmo.GetStatus()
 	camera.SetBlockDragging(
 		hovered:IsValid() and
