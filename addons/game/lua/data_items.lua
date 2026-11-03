@@ -339,9 +339,15 @@ function build(data, options, path, list_key)
 			options.CanOpen(field.Ref) and
 			type(value) == "string"
 		then
-			items[#items + 1] = action(item_path .. "/open", "open " .. value, function()
-				options.Open(field.Ref, value)
-			end)
+			item.RowButtons = {
+				{
+					Icon = "arrow_right",
+					Tooltip = "Open " .. value,
+					OnClick = function()
+						options.Open(field.Ref, value)
+					end,
+				},
+			}
 		end
 
 		::continue::

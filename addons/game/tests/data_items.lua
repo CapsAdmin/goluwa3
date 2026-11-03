@@ -57,6 +57,23 @@ T.Test("data items edit a plain table in place and skip functions", function()
 	T(changes)["=="](2)
 	T(by_text.Mode.Type)["=="]("enum")
 	T(by_text.Mode.Options[1].Text)["=="]("c (missing)")
+	T(by_text.Mode.RowButtons)["=="](nil)
+	local opened
+	local openable = data_items.Build(
+		{Mode = "a"},
+		{
+			Open = function(ref, name)
+				opened = ref .. ":" .. name
+			end,
+			CanOpen = function()
+				return true
+			end,
+			Schema = {Refs = {kind = {"a", "b"}}, Fields = {Mode = {Ref = "kind"}}},
+		}
+	)
+	T(#openable[1].Children)["=="](1)
+	openable[1].Children[1].RowButtons[1].OnClick()
+	T(opened)["=="]("kind:a")
 
 	local function find(list, text)
 		for _, item in ipairs(list) do

@@ -22,6 +22,7 @@ local PropertyBoolean = import("goluwa/render2d/ui/widgets/properties/boolean.lu
 local PropertyCode = import("goluwa/render2d/ui/widgets/properties/code.lua")
 local PropertyDivider = import("goluwa/render2d/ui/widgets/properties/divider.lua")
 local PropertyList = import("goluwa/render2d/ui/widgets/properties/list.lua")
+local IconButton = import("goluwa/render2d/ui/widgets/icon_button.lua")
 local clipboard = import("goluwa/bindings/clipboard.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local PropertyEnum = import("goluwa/render2d/ui/widgets/properties/enum.lua")
@@ -927,6 +928,18 @@ function META:build_rows_panel(entries, indent)
 			},
 		}
 		editor_row:AddChild(info.editor_panel)
+
+		if entry.node.RowButtons then
+			for _, button in ipairs(entry.node.RowButtons) do
+				IconButton{
+					Parent = editor_row,
+					Icon = button.Icon,
+					Tooltip = button.Tooltip,
+					OnClick = button.OnClick,
+				}
+			end
+		end
+
 		right_children[i] = editor_row
 	end
 
