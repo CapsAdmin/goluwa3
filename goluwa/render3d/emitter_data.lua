@@ -28,24 +28,27 @@ local function build(data, inputs)
 		if value ~= nil then
 			for _, target in ipairs(spec.Targets) do
 				local property, mode = target[1], target[2]
+				local current = properties[property]
+
+				if current == nil then current = particle_emitter.GetDefault(property) end
 
 				if type(value) == "number" then
 					if mode == "set" then
 						properties[property] = value
 					elseif mode == "set_min" then
-						properties[property] = {value, select(2, particle_emitter.GetRange(properties[property]))}
+						properties[property] = {value, select(2, particle_emitter.GetRange(current))}
 					elseif mode == "set_max" then
-						properties[property] = {(particle_emitter.GetRange(properties[property])), value}
+						properties[property] = {(particle_emitter.GetRange(current)), value}
 					elseif mode == "scale" then
-						properties[property] = particle_emitter.ScaleRange(properties[property], value)
+						properties[property] = particle_emitter.ScaleRange(current, value)
 					elseif mode == "add" then
-						properties[property] = particle_emitter.AddRange(properties[property], value)
+						properties[property] = particle_emitter.AddRange(current, value)
 					else
 						error("unknown input mode " .. tostring(mode) .. " on " .. input_name)
 					end
 				else
 					assert(mode == "set", "color inputs only set, " .. input_name)
-					properties[property] = Color(value.r, value.g, value.b, properties[property].a)
+					properties[property] = Color(value.r, value.g, value.b, current.a)
 				end
 			end
 		end

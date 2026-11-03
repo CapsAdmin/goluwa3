@@ -64,3 +64,18 @@ T.Test("emitter inputs set, scale and add properties and fall back to their defa
 	list.remove_value(emitters.Names, "input_test")
 	emitters.Files.Source.input_test = nil
 end)
+
+T.Test("emitter inputs fall back to the component default of a property the file leaves out", function()
+	local data = {MaxParticles = 8, Inputs = {Tint = {DefaultColor = {1, 0, 0, 1}, Targets = {{"ColorEnd", "set"}}}}}
+	emitters.Update("default_fallback", data)
+	local properties = emitters.Get("default_fallback", {Tint = Color(0, 1, 0, 1)})
+	T(properties.ColorEnd.g)["=="](1)
+	T(properties.ColorEnd.a)["=="](0)
+	T(emitters.Get("default_fallback").ColorEnd.r)["=="](1)
+	local scaled = {Drag = nil, Inputs = {Strength = {Default = 3, Targets = {{"Drag", "scale"}}}}}
+	emitters.Update("default_fallback", scaled)
+	T(math.abs(emitters.Get("default_fallback").Drag - 0.3) < 1e-9)["=="](true)
+	local list = import("goluwa/list.lua")
+	list.remove_value(emitters.Names, "default_fallback")
+	emitters.Files.Source.default_fallback = nil
+end)

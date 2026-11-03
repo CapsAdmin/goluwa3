@@ -104,6 +104,24 @@ particle_emitter.cpu = {
 	{"Collision", "none", particle_emitter.CPU_COLLISIONS, "Collision"},
 }
 
+do
+	local defaults
+
+	function particle_emitter.GetDefault(name)
+		if not defaults then
+			defaults = {}
+
+			for _, properties in ipairs{particle_emitter.common, particle_emitter.gpu, particle_emitter.cpu} do
+				for _, entry in ipairs(properties) do
+					defaults[entry[1]] = defaults[entry[1]] or entry[2]
+				end
+			end
+		end
+
+		return defaults[name]
+	end
+end
+
 function particle_emitter.GetRange(value)
 	if type(value) == "number" then return value, value end
 
