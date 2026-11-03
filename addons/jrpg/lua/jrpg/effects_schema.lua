@@ -66,9 +66,12 @@ local COMMON = {
 	Decay = {Min = 0, Max = 1},
 	Max = {Min = 0.1, Max = 2},
 	Spread = {Min = 0, Max = 180},
-	SizeStart = {Min = 0, Max = 2},
-	SizeEnd = {Min = 0, Max = 2},
-	Drag = {Min = 0, Max = 10},
+	SizeStart = {Min = 0, Max = 2, Range = true},
+	SizeEnd = {Min = 0, Max = 2, Range = true},
+	Drag = {Min = 0, Max = 10, Range = true},
+	Speed = {Min = 0, Max = 100, Range = true},
+	Lifetime = {Min = 0.01, Max = 60, Range = true},
+	GravityScale = {Min = -5, Max = 5, Range = true},
 	["Apply.Remove"] = {Ref = "status"},
 	["Apply.Add"] = {Ref = "status"},
 	["Apply.Max"] = {Ref = "status"},
@@ -267,7 +270,7 @@ do
 			local name, default, check = entry[1], entry[2], entry[3]
 
 			if check and check.validate then
-				fields[name] = {Min = check.min, Max = check.max}
+				fields[name] = {Min = check.min, Max = check.max, Range = entry[5] == "range" or nil}
 			elseif check then
 				fields[name] = {Options = check}
 			end

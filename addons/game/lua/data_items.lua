@@ -346,6 +346,33 @@ function build(data, options, path, list_key)
 
 		items[#items + 1] = item
 
+		if item.Type and field and field.Range then
+			if type(value) == "number" then
+				item.RowButtons = {
+					{
+						Icon = "wand",
+						Tooltip = "randomize between a min and a max",
+						OnClick = function()
+							data[key] = {value, value}
+							options.Restructured()
+						end,
+					},
+				}
+			elseif item.Type == "vec2" then
+				item.Text = item.Text .. " (min, max)"
+				item.RowButtons = {
+					{
+						Icon = "reset",
+						Tooltip = "use one value",
+						OnClick = function()
+							data[key] = (value[1] + value[2]) / 2
+							options.Restructured()
+						end,
+					},
+				}
+			end
+		end
+
 		if
 			item.Type and
 			field and
