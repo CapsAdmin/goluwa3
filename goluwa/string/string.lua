@@ -19,6 +19,14 @@ do
 	end
 end
 
+function string.natural_key(str)
+	return (
+		str:lower():gsub("%d+", function(digits)
+			return #digits < 12 and ("0"):rep(12 - #digits) .. digits or digits
+		end)
+	)
+end
+
 function string.buildclass(...)
 	local classes = {...}
 	local check
