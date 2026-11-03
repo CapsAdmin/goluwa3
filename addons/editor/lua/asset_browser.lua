@@ -15,6 +15,7 @@ local Icon = react.Element(import("goluwa/render2d/ui/elements/icon.lua"))
 local Splitter = react.Element(import("goluwa/render2d/ui/elements/splitter.lua"))
 local ScrollablePanel = react.Element(import("goluwa/render2d/ui/elements/scrollable_panel.lua"))
 local VirtualGrid = react.Element(import("goluwa/render2d/ui/elements/virtual_grid.lua"))
+local TreeTable = react.Element(import("goluwa/render2d/ui/widgets/tree_table.lua"))
 local Slider = react.Element(import("goluwa/render2d/ui/elements/slider.lua"))
 local Column = react.Element(import("goluwa/render2d/ui/elements/column.lua"))
 local Row = react.Element(import("goluwa/render2d/ui/elements/row.lua"))
@@ -625,6 +626,76 @@ local function list_items(category, index, folder, query, recursive, cache)
 	end
 
 	return items
+end
+
+local SOUND_COLUMNS = {
+	{Key = "Text", Text = "Name", Grow = true, MinWidth = 140},
+	{
+		Key = "Size",
+		Text = "Size",
+		Width = 100,
+		Format = |value,node|->node.IsFolder and
+			(
+				value .. (
+					value == 1 and
+					" item" or
+					" items"
+				)
+			) or
+			asset_info.FormatBytes(value),
+	},
+	{Key = "Type", Text = "Type", Width = 70},
+}
+
+local function make_sound_node(item)
+	if item.is_folder then
+		local folder = item.folder
+		return {
+			Key = folder.path,
+			Text = item.name,
+			IsFolder = true,
+			Folder = folder,
+			Item = item,
+			Size = #folder.folders + #folder.entries,
+			Type = "folder",
+		}
+	end
+
+	return {
+		Key = item.path,
+		Text = item.name .. item.extension,
+		Item = item,
+		Size = item.size,
+		Type = item.extension:sub(2),
+	}
+end
+
+local function make_sound_nodes(items)
+	local nodes = {}
+
+	for index, item in ipairs(items) do
+		nodes[index] = make_sound_node(item)
+	end
+
+	return nodes
+end
+
+local function get_sound_children(node)
+	if not node.Children then
+		local children = {}
+
+		for _, folder in ipairs(node.Folder.folders) do
+			children[#children + 1] = make_sound_node({is_folder = true, folder = folder, name = folder.name})
+		end
+
+		for _, entry in ipairs(node.Folder.entries) do
+			children[#children + 1] = make_sound_node(entry)
+		end
+
+		node.Children = children
+	end
+
+	return node.Children
 end
 
 local function make_folder_node(folder)
@@ -1479,6 +1550,7 @@ local AssetBrowser = react.Component(
 		local selected_item, set_selected_item = react.UseState(start)
 		local query, set_query = react.UseState("")
 		local recursive, set_recursive = react.UseState(false)
+		local sound_tree, set_sound_tree = react.UseState(false)
 		local zoom, set_zoom = react.UseState(128)
 		local refresh, set_refresh = react.UseState(0)
 		local world_picking, set_world_picking = react.UseState(false)
@@ -1511,6 +1583,11 @@ local AssetBrowser = react.Component(
 			||->list_items(category, index, folder, applied_query, recursive, search.current),
 			{category, index, index.version, folder, applied_query, recursive}
 		)
+		local sound_nodes = react.UseMemo(
+			||->category == "sounds" and make_sound_nodes(items) or nil,
+			{category, items}
+		)
+		local sound_mode = sound_tree and not recursive and applied_query == "" and "tree" or "list"
 		local count_text = react.UseMemo(
 			||-> do
 				local asset_count = 0
@@ -1671,6 +1748,7 @@ local AssetBrowser = react.Component(
 						Color = "text_disabled",
 						layout = {FitWidth = true, MinSize = Vec2(80, 0)},
 					},
+					category ~= "sounds" and
 					Slider{
 						Mode = "horizontal",
 						Min = 72,
@@ -1679,6 +1757,16 @@ local AssetBrowser = react.Component(
 						OnChange = |value|->set_zoom(math.floor(value)),
 						Tooltip = "tile size",
 						layout = {MinSize = Vec2(110, 16), MaxSize = Vec2(110, 16), FitWidth = false},
+					},
+					category == "sounds" and
+					Button{
+						Key = "sound_tree",
+						Text = "Tree view",
+						Icon = "tree",
+						Mode = "outline",
+						Active = sound_mode == "tree",
+						Tooltip = "show folders as expandable rows instead of a flat list of the selected folder",
+						OnClick = ||->set_sound_tree(not sound_tree),
 					},
 					Button{
 						Text = "Subfolders",
@@ -1747,6 +1835,24 @@ local AssetBrowser = react.Component(
 								AlignmentY = "stretch",
 							},
 						}{
+							category == "sounds" and
+							TreeTable{
+								Mode = sound_mode,
+								Items = sound_nodes,
+								Columns = SOUND_COLUMNS,
+								SelectedKey = selected_item and (selected_item.path ?? selected_item.folder.path),
+								OnGetChildren = get_sound_children,
+								OnSelect = |node|->set_selected_item(node and node.Item),
+								OnActivate = |node|-> do
+									if node.IsFolder then
+										if sound_mode == "list" then navigate(node.Folder) end
+									else
+										activate_item(node.Item, api)
+									end
+								end,
+								OnContextMenu = |node|->open_context_menu(node.Item, api),
+								layout = {GrowWidth = 1, GrowHeight = 1},
+							} or
 							VirtualGrid{
 								Items = items,
 								SelectedItem = selected_item,
