@@ -1,0 +1,17 @@
+return {
+	MaxParticles = 256,
+	Spread = 0,
+	Collision = "none",
+	ColorEnd = {1, 0.3, 0.15, 0},
+	ColorStart = {1, 0.3, 0.15, 1},
+	Drag = 0,
+	Emissive = 200000,
+	GravityScale = 0,
+	LifetimeMax = 0.9,
+	LifetimeMin = 0.9,
+	Lit = false,
+	SizeEnd = 0.015,
+	SizeStart = 0.015,
+	SpeedMax = 3,
+	SpeedMin = 0.1,
+}
