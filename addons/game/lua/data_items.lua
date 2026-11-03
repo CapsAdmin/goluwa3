@@ -106,7 +106,6 @@ local function make_leaf(data, key, value, item_path, field, options)
 	elseif kind == "number" then
 		item.Type = "number"
 		item.Precision = field and field.Precision or 3
-		item.ShowStepper = true
 
 		if field and field.Min then
 			item.Min, item.Max = field.Min, field.Max
@@ -366,6 +365,16 @@ function build(data, options, path, list_key)
 		if item.Type and default ~= nil then
 			if is_default then
 				item.Default = item.Value
+			elseif field and field.Range and item.Type == "vec2" then
+				item.ContextActions = {
+					{
+						Text = "Reset to the default",
+						OnClick = function()
+							data[key] = nil
+							options.Restructured()
+						end,
+					},
+				}
 			else
 				item.Default = make_leaf(
 						{},
@@ -375,14 +384,6 @@ function build(data, options, path, list_key)
 						field,
 						options
 					).Value
-				buttons[#buttons + 1] = {
-					Icon = "reset",
-					Tooltip = "reset to the default",
-					OnClick = function()
-						data[key] = nil
-						options.Restructured()
-					end,
-				}
 			end
 		end
 

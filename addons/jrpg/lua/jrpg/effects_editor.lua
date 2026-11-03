@@ -459,7 +459,6 @@ function effects_editor.BuildItems(session, h)
 				Min = 1,
 				Max = 200,
 				ShowSlider = true,
-				ShowStepper = true,
 				OnChange = |_, value|-> do
 					session.Count = value
 				end,
@@ -483,7 +482,6 @@ function effects_editor.BuildItems(session, h)
 				child.Type = "number"
 				child.Value = session.Inputs[name] or spec.Default
 				child.Precision = 3
-				child.ShowStepper = true
 				child.Min, child.Max = spec.Min, spec.Max
 				child.ShowSlider = spec.Min ~= nil and spec.Max ~= nil
 			end
@@ -512,7 +510,6 @@ function effects_editor.BuildItems(session, h)
 					Type = "number",
 					Value = key[1],
 					Precision = 3,
-					ShowStepper = true,
 					OnChange = |_, value|-> do
 						clip_edit.MoveKey(session.Data, {Track = selection.Track}, selection.Index, value)
 						h.changed()
@@ -524,7 +521,6 @@ function effects_editor.BuildItems(session, h)
 					Type = "number",
 					Value = key[2],
 					Precision = 3,
-					ShowStepper = true,
 					OnChange = |_, value|-> do
 						key[2] = value
 						h.changed()

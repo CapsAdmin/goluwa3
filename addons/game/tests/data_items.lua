@@ -167,15 +167,15 @@ T.Test("data items edit a plain table in place and skip functions", function()
 end)
 
 T.Test("data items show defaults for missing keys, group them and strip values that equal their default", function()
-	local data = {Count = 5, Tint = {1, 0, 0, 1}}
+	local data = {Count = 5, Tint = {1, 0, 0, 1}, Spread = {1, 2}}
 	local schema = {
 		Refs = {},
-		Fields = {},
+		Fields = {Spread = {Range = true}},
 		Root = {
-			Defaults = {Count = 1, Size = 0.5, Tint = {1, 1, 1, 1}, Name = "a"},
+			Defaults = {Count = 1, Size = 0.5, Tint = {1, 1, 1, 1}, Name = "a", Spread = 0},
 			Groups = {
 				{Name = "Look", Keys = {"Size", "Tint"}},
-				{Name = "Misc", Keys = {"Count", "Name"}},
+				{Name = "Misc", Keys = {"Count", "Name", "Spread"}},
 			},
 		},
 	}
@@ -204,12 +204,16 @@ T.Test("data items show defaults for missing keys, group them and strip values t
 	local count, name = items[2].Children[1], items[2].Children[2]
 	T(count.Value)["=="](5)
 	T(count.Default)["=="](1)
-	T(count.RowButtons[1].Tooltip)["=="]("reset to the default")
+	T(count.RowButtons)["=="](nil)
+	T(count.ShowStepper)["=="](nil)
 	T(name.Value)["=="]("a")
 	size.OnChange(nil, 2)
 	T(data.Size)["=="](2)
-	count.RowButtons[1].OnClick()
-	T(data.Count)["=="](nil)
+	local spread = items[2].Children[3]
+	T(spread.Type)["=="]("vec2")
+	T(spread.Default)["=="](nil)
+	spread.ContextActions[1].OnClick()
+	T(data.Spread)["=="](nil)
 	T(restructures)["=="](1)
 	data.Size = 0.5
 	data.Name = "b"
