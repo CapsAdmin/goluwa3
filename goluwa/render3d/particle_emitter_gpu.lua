@@ -196,6 +196,7 @@ gpu.system = particles.Register{
 				{"position", "vec3"},
 				{"axis", "vec3"},
 				{"velocity", "vec3"},
+				{"previous", "vec3"},
 				{"shape_size", "vec3"},
 				{"color_start", "vec4"},
 				{"color_end", "vec4"},
@@ -228,6 +229,8 @@ gpu.system = particles.Register{
 				{"spin_max", "float"},
 				{"stretch", "float"},
 				{"flatten", "float"},
+				{"size_jitter", "float"},
+				{"path", "int"},
 				{"shape", "int"},
 				{"collision", "int"},
 				{"on_hit", "int"},
@@ -259,7 +262,20 @@ gpu.system = particles.Register{
 			local entry = block.emitters[range.slot]
 			slots = math.max(slots, range.slot + 1)
 			write_vec3(entry.position, state.position.x, state.position.y, state.position.z)
-			write_vec3(entry.axis, state.axis.x, state.axis.y, state.axis.z)
+			local following = emitter.RatePerMeter > 0 and state.moved > 1e-6
+
+			if following then
+				write_vec3(
+					entry.axis,
+					(state.previous.x - state.position.x) / state.moved,
+					(state.previous.y - state.position.y) / state.moved,
+					(state.previous.z - state.position.z) / state.moved
+				)
+			else
+				write_vec3(entry.axis, state.axis.x, state.axis.y, state.axis.z)
+			end
+
+			write_vec3(entry.previous, state.previous.x, state.previous.y, state.previous.z)
 			local inherit = emitter.InheritVelocity
 			write_vec3(
 				entry.velocity,
@@ -298,7 +314,21 @@ gpu.system = particles.Register{
 			entry.first = range.first
 			entry.count = range.count
 			entry.cursor = range.cursor
-			entry.spawn_count = particle_emitter.Step(emitter, dt)
+			local spawn_count = particle_emitter.Step(emitter, dt)
+			entry.path = 0
+
+			if following and emitter.Playing then
+				state.path_carry = state.path_carry + emitter.RatePerMeter * state.moved
+				local whole = math.floor(state.path_carry)
+				state.path_carry = state.path_carry - whole
+
+				if whole > 0 then
+					entry.path = 1
+					spawn_count = math.min(spawn_count + whole, emitter.MaxParticles)
+				end
+			end
+
+			entry.spawn_count = spawn_count
 			entry.uid = range.uid
 			entry.seed = emitter.Seed
 			local style = emitter.Style
@@ -311,6 +341,7 @@ gpu.system = particles.Register{
 			entry.spin_max = math.rad(emitter.SpinMax)
 			entry.stretch = emitter.Stretch
 			entry.flatten = emitter.Flatten
+			entry.size_jitter = emitter.SizeJitter
 
 			if entry.style ~= 0 then
 				styles.WriteParams(style, emitter.StyleParams, entry.params)
@@ -394,13 +425,25 @@ gpu.system = particles.Register{
 
 		if (length(flat_direction) > 1e-4) direction = normalize(mix(direction, flat_direction, e.flatten));
 
+		float elapsed = 0.0;
 		p.position = e.position + offset;
+
+		if (e.path != 0) {
+			uint local_index = index - uint(e.first);
+			float fraction = (float((local_index + uint(e.count) - uint(e.cursor)) % uint(e.count)) + r2.z) / float(e.spawn_count);
+			elapsed = (1.0 - fraction) * particle_data.dt;
+			p.position = mix(e.previous, e.position, fraction) + offset;
+		}
+
 		p.velocity = direction * mix(e.speed_min, e.speed_max, r3.y) + e.velocity;
+		p.position += p.velocity * elapsed;
+		p.age = elapsed;
 		p.life = mix(e.life_min, e.life_max, r3.z);
 		p.width = e.size_start;
 		p.user.y = slot;
 		p.user.z = uint(e.uid);
-		p.sprite = e.stretch > 0.0 ? vec4(e.stretch, -float(e.sprite_slot), 0.0, 1.0) : vec4(r.x * 6.2831853, float(e.sprite_slot), 0.0, 1.0);
+		float size_scale = 1.0 + (r.z * 2.0 - 1.0) * e.size_jitter;
+		p.sprite = e.stretch > 0.0 ? vec4(e.stretch, -float(e.sprite_slot), 0.0, size_scale) : vec4(r.x * 6.2831853, float(e.sprite_slot), 0.0, size_scale);
 		emitter_style_spawn(e, index, generation, p);
 	]],
 	update = [[

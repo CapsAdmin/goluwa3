@@ -63,6 +63,8 @@ particle_emitter.gpu = {
 	{"SaturationJitter", 0, ranged(0, 1), "Look"},
 	{"Style", "glow", nil, "Look"},
 	{"StyleParams", nil, nil, "Look"},
+	{"RatePerMeter", 0, ranged(0, 10000), "Emission"},
+	{"SizeJitter", 0, ranged(0, 1), "Look"},
 	{"FlipbookFps", 0, ranged(0, 120), "Look"},
 	{"FlipbookRandomStart", false, boolean, "Look"},
 	{"Flatten", 0, ranged(0, 1), "Shape"},
@@ -98,6 +100,9 @@ function particle_emitter.Add(emitter, backend)
 		queue_head = 1,
 		queue_tail = 1,
 		position = Vec3(),
+		previous = Vec3(),
+		moved = 0,
+		path_carry = 0,
 		axis = Vec3(0, 1, 0),
 		velocity = Vec3(),
 	}
@@ -166,6 +171,7 @@ function particle_emitter.Sample(emitter, dt)
 		state.position:Set(queue[head + 1], queue[head + 2], queue[head + 3])
 		state.axis:Set(queue[head + 4], queue[head + 5], queue[head + 6])
 		state.velocity:Set(0, 0, 0)
+		state.moved = 0
 		state.sampled = false
 		head = head + 7
 		state.queue_head = head
@@ -185,6 +191,15 @@ function particle_emitter.Sample(emitter, dt)
 		state.velocity.z = (z - position.z) / dt
 	end
 
+	local previous = state.previous
+
+	if state.sampled then
+		previous.x, previous.y, previous.z = position.x, position.y, position.z
+	else
+		previous.x, previous.y, previous.z = x, y, z
+	end
+
+	state.moved = math.sqrt((x - previous.x) ^ 2 + (y - previous.y) ^ 2 + (z - previous.z) ^ 2)
 	state.sampled = true
 	position.x, position.y, position.z = x, y, z
 	local length = math.sqrt(matrix.m10 ^ 2 + matrix.m11 ^ 2 + matrix.m12 ^ 2)

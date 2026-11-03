@@ -41,6 +41,8 @@ A `particle_emitter_cpu` whose `Material` is transparent (refractive, translucen
 
 They run different code: a shape or force change that belongs in both has to be made in `particle_emitter_gpu.lua` (glsl) and `particle_emitter_cpu.lua`.
 
+- `RatePerMeter` (gpu) spawns that many particles per metre the emitter moved since the last frame, spread along the segment between the two positions (with their sub frame age and offset, so fast sweeps leave no gaps), and points the emitter axis opposite to its motion so `Spread` is a cone behind it; `Rate` still adds on top. `SizeJitter` (0 to 1) scales each particle's size by a random factor of `1 +- SizeJitter`.
+
 ## Styles
 
 A gpu emitter has a `Style` (a name, default `glow`) and `StyleParams` (a table of values by param name). `goluwa/render3d/particle_styles.lua` is the registry: `Register(name, {Params = {{Name, Type, Default, Min, Max, Group, Description}}, Sprite = "ParamName", Spawn, Update, Visibility, Shade})`. Param types are `float`, `int`, `bool`, `vec3`, `color` and `texture`; the numeric ones are packed in declaration order into 16 floats per emitter (`e.params`), textures are looked up by name (vfx procedural textures, then asset paths).

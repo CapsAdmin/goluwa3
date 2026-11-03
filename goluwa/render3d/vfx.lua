@@ -867,6 +867,11 @@ do
 		return entity
 	end
 
+	function vfx.StopEmitter(entity, linger)
+		entity.particle_emitter_gpu:SetPlaying(false)
+		vfx.RemoveDelayed(entity, linger)
+	end
+
 	function vfx.SetExposureCompensation(category, amount)
 		assert(
 			vfx.exposure_compensation[category] ~= nil,

@@ -468,6 +468,64 @@ T.Test3D("Graphics render3d particle sprites play flipbook frames, spin, stretch
 	if not ok then error(err, 0) end
 end)
 
+T.Test3D("Graphics render3d particle emitter spawns along the path it moved through and jitters the size", function(draw)
+	init()
+	local entity
+	local ok, err = pcall(function()
+		local emitter
+		emitter, entity = add_emitter("particle_emitter_gpu", Vec3(0, 0, -5), Vec3(0, 0, -1))
+		emitter:SetRate(0)
+		emitter:SetRatePerMeter(100)
+		emitter:SetMaxParticles(512)
+		emitter:SetLifetimeMin(30)
+		emitter:SetLifetimeMax(30)
+		emitter:SetSpeedMin(0)
+		emitter:SetSpeedMax(0)
+		emitter:SetGravityScale(0)
+		emitter:SetDrag(0)
+		emitter:SetSizeStart(1)
+		emitter:SetSizeEnd(1)
+		emitter:SetSizeJitter(0.5)
+		render3d.GetCamera():SetPosition(Vec3(0, 0, 0))
+		step_with_update(draw, 3)
+
+		for i = 1, 6 do
+			entity.transform:SetPosition(Vec3(i * 0.5, 0, -5))
+			step_with_update(draw, 1)
+		end
+
+		local def = particle_emitter_gpu.system
+		local records = particles.Download(def)
+		local alive, min_x, max_x, min_width, max_width = 0, math.huge, -math.huge, math.huge, -math.huge
+
+		for i = 0, def.GetCount() - 1 do
+			local p = records[i]
+
+			if p.life > 0 then
+				alive = alive + 1
+				min_x = math.min(min_x, p.position[0])
+				max_x = math.max(max_x, p.position[0])
+				min_width = math.min(min_width, p.width)
+				max_width = math.max(max_width, p.width)
+			end
+		end
+
+		T(math.abs(alive - 300) <= 12)["=="](true)
+		T(min_x < 0.7)["=="](true)
+		T(max_x > 2.8)["=="](true)
+		T(min_width < 0.65)["=="](true)
+		T(max_width > 1.35)["=="](true)
+		step_with_update(draw, 3)
+		T(count_alive(particles.Download(def), def.GetCount()))["=="](alive)
+	end)
+
+	if entity then entity:Remove() end
+
+	restore()
+
+	if not ok then error(err, 0) end
+end)
+
 T.Test3D("Graphics render3d particle emitter bursts at each queued position", function(draw)
 	init()
 	local entity

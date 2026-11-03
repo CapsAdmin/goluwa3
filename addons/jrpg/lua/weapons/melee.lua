@@ -14,7 +14,6 @@ local grab = import("lua/grab.lua")
 local damage = import("lua/damage.lua")
 local effects = import("lua/jrpg/effects.lua")
 local sounds = import("lua/sounds.lua")
-local flow_ribbons = import("goluwa/render3d/flow_ribbons.lua")
 local effect_exposure = import("lua/jrpg/effect_exposure.lua")
 local META = objects.CreateTemplate("weapon_melee")
 META:StartStorable()
@@ -49,6 +48,7 @@ local LINE_POINTS = 48
 local LINE_SUBDIVISIONS = 4
 local LINE_END_TAPER = 0.8
 local SPARK_DENSITY = 20
+local SPARK_FADE = 1.6
 local WHITE = Color(1, 1, 1, 1)
 local SWING_SOUNDS = {"npc/zombie/claw_miss1.wav", "npc/zombie/claw_miss2.wav"}
 
@@ -521,10 +521,9 @@ function META:OnUpdate(dt)
 			self.linger = self.linger - dt
 
 			if self.linger > 0 then
-				local tip = get_world_position(instance:GetNode("blade_tip"))
-				self.sparks:Move(tip.x, tip.y, tip.z)
+				self.sparks.transform:SetPosition(get_world_position(instance:GetNode("blade_tip")))
 			else
-				self.sparks:Release()
+				effects.vfx.StopEmitter(self.sparks, SPARK_FADE)
 				self.sparks = nil
 			end
 		end
@@ -537,7 +536,7 @@ function META:OnUpdate(dt)
 
 	if not self.trail then
 		if self.sparks then
-			self.sparks:Release()
+			effects.vfx.StopEmitter(self.sparks, SPARK_FADE)
 			self.sparks = nil
 		end
 
@@ -556,15 +555,36 @@ function META:OnUpdate(dt)
 	end
 
 	if not self.sparks then
-		self.sparks = flow_ribbons.AcquireEmitter{
-			color = self.color,
-			core = WHITE,
-			density = SPARK_DENSITY,
-			exposure_compensation = effect_exposure.particles,
-		}
+		self.sparks = effects.vfx.CreateEmitter(
+			"melee_sparks",
+			{
+				MaxParticles = 512,
+				Rate = 0,
+				RatePerMeter = SPARK_DENSITY,
+				Shape = "point",
+				Spread = 80,
+				SpeedMin = 0.18,
+				SpeedMax = 0.66,
+				LifetimeMin = 0.75,
+				LifetimeMax = 1.5,
+				Drag = 12,
+				GravityScale = 0,
+				SizeStart = 0.004,
+				SizeEnd = 0.0014,
+				SizeJitter = 0.5,
+				ColorStart = WHITE,
+				ColorEnd = Color(self.color.r, self.color.g, self.color.b, 0),
+				Emissive = 4e5,
+				ExposureCompensation = effect_exposure.particles,
+				Lit = false,
+				Flow = 0.3,
+				Fizzle = 1,
+				Collision = "none",
+			}
+		)
 	end
 
-	self.sparks:Move(tip.x, tip.y, tip.z)
+	self.sparks.transform:SetPosition(tip)
 	self.trail:Push(base, tip)
 	self.line:Push(tip)
 end
@@ -598,7 +618,7 @@ function META:OnRemove()
 		entry.trail:Release()
 	end
 
-	if self.sparks then self.sparks:Release() end
+	if self.sparks then effects.vfx.StopEmitter(self.sparks, SPARK_FADE) end
 end
 
 return META:Register()
