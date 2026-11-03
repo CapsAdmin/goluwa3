@@ -4,6 +4,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local track = import("goluwa/math/track.lua")
 local sprites = import("goluwa/render3d/sprites.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
+local emitter_data = import("goluwa/render3d/emitter_data.lua")
 local system = import("goluwa/system.lua")
 local clips = {}
 local definitions = {}
@@ -341,6 +342,35 @@ do
 	LAYERS.gpu_trail = TRAIL
 end
 
+do
+	local EMITTER = {}
+
+	function EMITTER.Setup(layer, p, state)
+		local inputs
+
+		if layer.Inputs then
+			inputs = {}
+
+			for input_name, param in pairs(layer.Inputs) do
+				inputs[input_name] = p[param]
+			end
+		end
+
+		state.entity = vfx.CreateEmitter("clip_emitter", emitter_data.Get(layer.emitter_key, inputs))
+	end
+
+	function EMITTER.Update(layer, p, v, state)
+		local at = p[layer.At or "position"]
+		state.entity.transform:SetPosition(Vec3(at.x, at.y, at.z))
+	end
+
+	function EMITTER.Remove(layer, p, state)
+		vfx.StopEmitter(state.entity, layer.Linger or 2)
+	end
+
+	LAYERS.emitter = EMITTER
+end
+
 function clips.FollowEntity(p)
 	if p.entity:IsValid() then
 		local position = p.entity.transform:GetPosition()
@@ -351,6 +381,25 @@ end
 local function make_burst_event(key, count, direction)
 	return function(p)
 		vfx.Burst(key, p.position, p[direction], count)
+	end
+end
+
+local function make_emitter_event(key, entry)
+	local count, direction, when, inputs_map = entry.Count, entry.Direction, entry.When, entry.Inputs
+	return function(p)
+		if when and not p[when] then return end
+
+		local inputs
+
+		if inputs_map then
+			inputs = {}
+
+			for input_name, param in pairs(inputs_map) do
+				inputs[input_name] = p[param]
+			end
+		end
+
+		emitter_data.Burst(key, p.position, p[direction], count, inputs)
 	end
 end
 
@@ -417,7 +466,16 @@ function clips.Define(name, source)
 	end
 
 	for i, entry in ipairs(definition.Events or {}) do
-		if entry.Debris then
+		if entry.Emitter then
+			local key = entry.Emitter
+
+			if type(key) == "table" then
+				emitter_data.Set(name .. ":event" .. i, key)
+				key = name .. ":event" .. i
+			end
+
+			entry = {entry[1], make_emitter_event(key, entry)}
+		elseif entry.Debris then
 			entry = {entry[1], make_debris_event(entry.Debris, entry.Count, entry.Direction)}
 		elseif entry.Burst then
 			entry = {entry[1], make_burst_event(entry.Burst, entry.Count, entry.Direction)}
@@ -434,7 +492,16 @@ function clips.Define(name, source)
 		return a[1] < b[1]
 	end)
 
-	for _, layer in ipairs(definition.Layers or {}) do
+	for i, layer in ipairs(definition.Layers or {}) do
+		if layer.Type == "emitter" then
+			layer.emitter_key = layer.Emitter
+
+			if type(layer.Emitter) == "table" then
+				layer.emitter_key = name .. ":layer" .. i
+				emitter_data.Set(layer.emitter_key, layer.Emitter)
+			end
+		end
+
 		layer.type = LAYERS[layer.Type or
 			"custom"] or
 			error("unknown layer type " .. tostring(layer.Type))

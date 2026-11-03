@@ -153,7 +153,6 @@ T.Test3D("the effects stage bursts one shot emitters and sweeps path emitters", 
 		Toward = Vec3(0, 0, 1),
 	}
 	weapon_effects.Init()
-	T(vfx.HasBurst("hit_position"))["=="](true)
 	effects_stage.PlayEmitter(stage, "hit_position", {}, 24)
 	T(stage.Sweep)["=="](nil)
 	effects_stage.PlayEmitter(stage, "hit_force", {Strength = 5}, 10)

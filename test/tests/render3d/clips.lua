@@ -147,3 +147,64 @@ T.Test3D("A clip defined as pure data evaluates expressions and named scripts", 
 	T(math.abs(clip.values.grow - 0.75) < 1e-6)["=="](true)
 	clip:Remove()
 end)
+
+T.Test3D("A clip plays emitters named from the registry or written inline, with inputs from its params", function()
+	local Entity = import("goluwa/entities/entity.lua")
+	local vfx = import("goluwa/render3d/vfx.lua")
+	local emitter_data = import("goluwa/render3d/emitter_data.lua")
+	emitter_data.Set(
+		"test_named_emitter",
+		{
+			MaxParticles = 16,
+			Rate = 0,
+			SpeedMin = 1,
+			Inputs = {Strength = {Default = 1, Targets = {{"SpeedMax", "set"}}}},
+		}
+	)
+	clips.Define(
+		"test_emitters",
+		{
+			Duration = 1,
+			Events = {
+				{
+					0,
+					Emitter = "test_named_emitter",
+					Count = 2,
+					Direction = "normal",
+					Inputs = {Strength = "strength"},
+				},
+				{
+					0,
+					Emitter = {MaxParticles = 8, Rate = 0, SpeedMin = 0.1, SpeedMax = 1},
+					Count = 2,
+					Direction = "normal",
+				},
+				{
+					0,
+					Emitter = "test_named_emitter",
+					Count = 2,
+					Direction = "normal",
+					When = "missing",
+				},
+			},
+			Layers = {{Type = "emitter", Emitter = {MaxParticles = 8, Rate = 5}, At = "tip"}},
+		}
+	)
+	local clip = clips.Play(
+		"test_emitters",
+		{position = Vec3(), tip = Vec3(1, 2, 3), strength = 4, normal = Vec3(0, 1, 0)},
+		true
+	)
+	T(vfx.HasBurst("test_named_emitter:Strength=4"))["=="](true)
+	T(vfx.HasBurst("test_named_emitter"))["=="](false)
+	T(vfx.HasBurst("test_emitters:event2"))["=="](true)
+	clip:Update(0.1, 0.016)
+	local position = clip.states[1].entity.transform:GetPosition()
+	T(position.x)["=="](1)
+	T(position.y)["=="](2)
+	clip:Remove()
+
+	for _, child in ipairs(Entity.World:GetChildrenList()) do
+		child:Remove()
+	end
+end)

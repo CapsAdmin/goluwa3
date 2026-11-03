@@ -10,7 +10,7 @@ local emitters = import("lua/emitters.lua")
 local particle_emitter = import("goluwa/render3d/particle_emitter.lua")
 local effects_schema = {}
 local EXPRESSION = "a number, the name of a track or param, or an expression: p.<param>, v.<track>, v.time, math functions"
-local LAYER_TYPES = {"sprite", "quad", "orb", "gpu_trail", "custom"}
+local LAYER_TYPES = {"sprite", "quad", "orb", "gpu_trail", "emitter", "custom"}
 
 local function sorted_names(source)
 	local names = {}
@@ -181,6 +181,12 @@ local schemas = {
 			["Layers.Texture"] = {Ref = "texture"},
 			["Layers.Script"] = {Ref = "script"},
 			["Events.Call"] = {Ref = "script"},
+			["Layers.Emitter"] = {Ref = "emitter", Description = "a gpu emitter file by name, or write the properties inline"},
+			["Events.Emitter"] = {Ref = "emitter", Description = "a gpu emitter file by name, or write the properties inline"},
+			["Layers.At"] = {Description = "the param holding the point the emitter follows, position by default"},
+			["Layers.Inputs"] = {Description = "emitter input name to the param that feeds it"},
+			["Events.Inputs"] = {Description = "emitter input name to the param that feeds it"},
+			["Events.When"] = {Description = "only fire when this param is set"},
 			["Events.1"] = {Text = "time", Min = 0, Max = 1},
 			["Layers.Alpha"] = expression(),
 			["Layers.Radius"] = expression(),
@@ -303,6 +309,7 @@ do
 	fields.ShapeSize = {Min = 0, Max = 100}
 	keys.Inputs = {}
 	schemas["gpu emitters"] = {Refs = refs, Fields = fields, Root = {Keys = keys}}
+	schemas.clips.Fields = merge(fields, schemas.clips.Fields)
 end
 local PARAM_TYPES = {"float", "int", "bool", "vec3", "color", "texture"}
 local HOOK_DESCRIPTION = {

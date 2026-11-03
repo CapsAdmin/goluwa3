@@ -34,24 +34,20 @@ local function init()
 	vfx = import("goluwa/render3d/vfx.lua")
 	clips = import("goluwa/render3d/clips.lua")
 	Beam = import("goluwa/render3d/beam.lua")
-	emitters.DefineBurst("hit_position")
-	emitters.DefineBurst("hit_normal")
-	emitters.DefineBurst("muzzle_flash")
-	emitters.DefineBurst("tool_hit")
 	clips.Define(
 		"weapon_hit",
 		{
 			Duration = 0,
 			Events = {
-				{0, Burst = "hit_position", Count = 24, Direction = "normal"},
-				{0, Burst = "hit_normal", Count = 16, Direction = "normal"},
+				{0, Emitter = "hit_position", Count = 24, Direction = "normal"},
+				{0, Emitter = "hit_normal", Count = 16, Direction = "normal"},
 				{
 					0,
-					function(p)
-						if not p.force_direction then return end
-
-						emitters.Burst("hit_force", p.position, p.force_direction, 16, {Strength = p.speed})
-					end,
+					Emitter = "hit_force",
+					Count = 16,
+					Direction = "force_direction",
+					When = "force_direction",
+					Inputs = {Strength = "speed"},
 				},
 			},
 		}
@@ -64,7 +60,7 @@ weapon_effects.MuzzleFlash = new_event(
 	function(weapon, direction)
 		init()
 		local position = weapon.weapon:GetMuzzle().transform:GetWorldPosition()
-		vfx.Burst("muzzle_flash", position, direction, 18)
+		emitters.Burst("muzzle_flash", position, direction, 18)
 		vfx.Flash(position, FLASH_COLOR, FLASH_LUMEN, FLASH_TIME)
 		sounds = sounds or import("lua/sounds.lua")
 		sounds.Play(
@@ -136,7 +132,7 @@ do
 			trace.duration = TOOL_TRACE_TIME
 			trace.beam:SetVisible(true)
 			vfx.AddTimed(trace)
-			vfx.Burst("tool_hit", position, normal, 14)
+			emitters.Burst("tool_hit", position, normal, 14)
 		end,
 		enabled,
 		get_owner_client
