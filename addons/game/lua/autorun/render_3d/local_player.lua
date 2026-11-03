@@ -29,6 +29,7 @@ local rig = Entity.New{
 		"weapon_holder",
 		"player_avatar",
 		"health",
+		"surface_exposure",
 	},
 	camera = {
 		Active = true,

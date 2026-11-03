@@ -190,6 +190,75 @@ T.Test3D("surface conditions leave dynamic objects alone", function(draw)
 	ground:Remove()
 end)
 
+T.Test3D("surface conditions put overlays on entities that touch them", function(draw)
+	local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
+	local ground = slab(Vec3(0, -0.5, 0), Vec3(20, 1, 20), 1)
+	local crate = shapes.Box{
+		Position = Vec3(0, 0.5, 0),
+		Size = Vec3(1, 1, 1),
+		Material = shapes.Material{Color = Color(0.6, 0.5, 0.4, 1), Roughness = 0.8, Metallic = 0},
+		Collision = false,
+		RigidBody = false,
+	}
+	local exposure = crate:AddComponent("surface_exposure")
+	local get_time = surface_overlays.GetTime
+	local now = 100
+
+	function surface_overlays.GetTime()
+		return now
+	end
+
+	surface_conditions.SetExposure(
+		"fire",
+		{
+			{Overlay = "void_rift", Channel = "heat", Threshold = 0.2, FadeOut = 0.1},
+			{Overlay = "gilded", Channel = "heat", Threshold = 0.2, Latch = 2},
+		}
+	)
+	draw()
+
+	with_field(function()
+		local cells = surface_conditions.FindSurfaces(Vec3(0, 0, 0), 2, Vec3(0, 1, 0))
+
+		local function set_heat(heat)
+			for cell in pairs(cells) do
+				cell.heat = heat
+				surface_conditions.Touch(cell)
+			end
+		end
+
+		local function active_layers()
+			local count = 0
+
+			for _, state in pairs(exposure.states) do
+				if state.handles[1] and state.handles[1]:IsActive() then count = count + 1 end
+			end
+
+			return count
+		end
+
+		exposure:OnUpdate(1)
+		T(active_layers())["=="](0)
+		set_heat(1)
+		exposure:OnUpdate(1)
+		T(active_layers())["=="](2)
+		set_heat(0)
+		exposure:OnUpdate(1)
+		now = now + 1
+		T(active_layers())["=="](1)
+		exposure:OnUpdate(1)
+		T(active_layers())["=="](1)
+	end)
+
+	surface_conditions.SetExposure("fire", nil)
+	crate:Remove()
+	now = now + 10
+	surface_overlays.Update()
+	T(surface_overlays.GetActiveCount())["=="](0)
+	surface_overlays.GetTime = get_time
+	ground:Remove()
+end)
+
 T.Test3D("surface conditions rain damps fires that are open to the sky", function()
 	local weather = import("goluwa/render3d/weather.lua")
 	local ground = slab(Vec3(0, -0.5, 0), Vec3(16, 1, 8), 1)

@@ -72,6 +72,10 @@ local function cell_key(x, y, z)
 	return ((x + OFFSET) * SPAN + (y + OFFSET)) * SPAN + (z + OFFSET)
 end
 
+function surface_conditions.SetExposure(kind_name, entries)
+	kinds_by_name[kind_name].exposure = entries
+end
+
 function surface_conditions.GetCell(x, y, z)
 	return cells[cell_key(x, y, z)]
 end

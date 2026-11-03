@@ -130,6 +130,7 @@ function props.Spawn(model_path, position, rotation, on_spawn, options)
 						RestitutionCombineMode = "multiply",
 					},
 					fade_out = fade_out,
+					surface_exposure = RENDER_3D and {} or nil,
 					prefab = {Path = "prop_physics", Inputs = {Model = model_path, Offset = center * -1}},
 				}
 
@@ -232,6 +233,7 @@ function props.Spawn(model_path, position, rotation, on_spawn, options)
 					} or
 					nil,
 				fade_out = fade_out,
+				surface_exposure = RENDER_3D and {} or nil,
 				prefab = {
 					Path = "prop_physics",
 					Inputs = {Model = model_path, Offset = physics.center_of_mass * -1},

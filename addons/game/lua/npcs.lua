@@ -531,6 +531,7 @@ function npcs.Register(name, info)
 							} or
 							nil,
 						npc_sounds = info.Sounds and {Sounds = info.Sounds} or nil,
+						surface_exposure = RENDER_3D and {} or nil,
 						health = {
 							Health = info.Health or 50,
 							MaxHealth = info.Health or 50,
