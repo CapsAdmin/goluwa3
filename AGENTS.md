@@ -142,6 +142,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/ui.md](docs/ui.md): render2d/ui widgets, entity construction, input history, autocomplete, undo, icons, asset browser
 - [docs/wrappers.md](docs/wrappers.md): macos notes, Love2D and Garrysmod wrappers
 - [docs/vulkan-raytrace.md](docs/vulkan-raytrace.md): hardware ray tracing facts and gotchas
+- [docs/data-driven-effects.md](docs/data-driven-effects.md): effects, damage types and status effects as pure data files, clip expressions and scripts, the effects editor
 - [docs/jrpg.md](docs/jrpg.md): `!rpg` mode, damage types, status effects, magic, effect pools, pose actions
 - [docs/audio.md](docs/audio.md): the physically based mixer (delay lines, doppler, ears, reverb buses, loudness normalization, voice stealing), traced acoustics (reverb, occlusion, reflections, materials), impact and contact events (footsteps, physics impacts, scraping, rolling) and their sounds, offline measuring
 
