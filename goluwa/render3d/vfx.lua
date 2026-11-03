@@ -12,6 +12,8 @@ local trails = import("goluwa/render3d/trails.lua")
 local commands = import("goluwa/cli/commands.lua")
 local sprites = import("goluwa/render3d/sprites.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local data_files = import("goluwa/data_files.lua")
+local vfs = import("goluwa/vfs.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local vfx = {}
 local UP = Vec3(0, 1, 0)
@@ -21,115 +23,196 @@ vfx.exposure_compensation = {particles = 0, sprites = 0, trails = 0}
 
 do
 	local textures = {}
-	local glsl = {
-		glow = [[
-			float r = length(uv * 2.0 - 1.0);
-			float v = exp(-r * r * 5.0) * (1.0 - smoothstep(0.75, 1.0, r));
-			return vec4(vec3(v), v);
-		]],
-		ring = [[
-			float r = length(uv * 2.0 - 1.0);
-			float v = smoothstep(0.55, 0.92, r) * (1.0 - smoothstep(0.92, 1.0, r));
-			return vec4(vec3(v), v);
-		]],
-		lens = [[
-			vec2 p = uv * 2.0 - 1.0;
-			float r = length(p);
-			vec3 n = normalize(vec3(p * (0.6 + 2.0 * r * r), 0.6));
-			return vec4(n * 0.5 + 0.5, 1.0 - smoothstep(0.85, 1.0, r));
-		]],
-		lens_mask = [[
-			float r = length(uv * 2.0 - 1.0);
-			return vec4(1.0, 1.0, 1.0, 1.0 - smoothstep(0.85, 1.0, r));
-		]],
-		flare = [[
-			vec2 p = abs(uv * 2.0 - 1.0);
-			float v = exp(-p.x * 30.0) * (1.0 - p.y) + exp(-p.y * 30.0) * (1.0 - p.x);
-			v = clamp(v * 0.7 + exp(-dot(p, p) * 10.0), 0.0, 1.0);
-			return vec4(vec3(v), v);
-		]],
-		orbit_trail = [[
-			float d = abs(uv.x * 2.0 - 1.0);
-			float edge = max(step(d, 1.0 / 256.0), exp(-d * 14.0) * (1.0 - d));
-			float y = clamp(uv.y, 0.0, 1.0);
-			float v = edge * pow(y, 1.5) * (1.0 - smoothstep(0.8, 1.0, y));
-			return vec4(vec3(v), v);
-		]],
-		trail = [[
-			float edge = 1.0 - abs(uv.x * 2.0 - 1.0);
-			edge = edge * edge * (3.0 - 2.0 * edge);
-			float v = edge * pow(clamp(uv.y, 0.0, 1.0), 1.5);
-			return vec4(vec3(v), v);
-		]],
-		slash = [[
-			float along = clamp(uv.y, 0.0, 1.0);
-			float v = pow(uv.x, 2.5) * (1.0 - smoothstep(0.9, 1.0, uv.x)) * along * along;
-			return vec4(vec3(v), v);
-		]],
-		beam = [[
-			float edge = 1.0 - abs(uv.x * 2.0 - 1.0);
-			float v = edge * edge * (1.0 - smoothstep(0.6, 1.0, uv.y)) * smoothstep(0.0, 0.05, uv.y);
-			return vec4(vec3(v), v);
-		]],
+	local flipbooks = {}
+	local definitions = {}
+	local names = {textures = {}, flipbooks = {}}
+	local TEXTURE_CONFIG = {
+		format = "r8g8b8a8_unorm",
+		image = {usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"}},
+		sampler = {
+			min_filter = "linear",
+			mag_filter = "linear",
+			wrap_s = "clamp_to_edge",
+			wrap_t = "clamp_to_edge",
+		},
 	}
+	vfx.Files = data_files.New(
+		"lua/vfx_textures/",
+		{"Size", "Columns", "Rows", "TileSize", "MipLevels", "Source"}
+	)
+	vfx.Errors = {}
 
-	function vfx.RegisterTexture(name, source)
-		glsl[name] = source
+	local function create_texture(width, height, mip_map_levels, mipmapped_sampler)
+		local config = table.copy(TEXTURE_CONFIG)
+		config.width = width
+		config.height = height
+		config.mip_map_levels = mip_map_levels
+
+		if mipmapped_sampler then config.sampler.mipmap_mode = "linear" end
+
+		return Texture.New(config)
+	end
+
+	local function shade_texture(texture, definition)
+		texture:Shade("#line 1 1\n" .. definition.Source)
+	end
+
+	local function get_flipbook_source(definition, entry)
+		local columns, rows = definition.Columns, definition.Rows
+		return glsl_common.GetNoiseGLSL() .. string.format(
+				[[
+			const vec2 FLIPBOOK_GRID = vec2(%d.0, %d.0);
+			const float FLIPBOOK_FRAMES = %d.0;
+			#line 1 1
+			%s
+
+			vec4 shade(vec2 uv, vec3 _cube_dir) {
+				vec2 cell = floor(uv * FLIPBOOK_GRID);
+				float frame = cell.y * FLIPBOOK_GRID.x + cell.x;
+				return %s(fract(uv * FLIPBOOK_GRID), frame / FLIPBOOK_FRAMES * 6.2831853, frame);
+			}
+		]],
+				columns,
+				rows,
+				columns * rows,
+				definition.Source,
+				entry
+			)
+	end
+
+	local function bake_flipbook(texture, definition, entry)
+		texture:Shade(get_flipbook_source(definition, entry))
+	end
+
+	local function remove_name(list, name)
+		for i, other in ipairs(list) do
+			if other == name then
+				table.remove(list, i)
+				return
+			end
+		end
+	end
+
+	function vfx.RegisterFile(name, data)
+		assert(
+			type(name) == "string" and name:find("^[%w_]+$"),
+			"vfx texture names are letters, digits and underscores"
+		)
+		assert(type(data.Source) == "string", name .. " needs a Source")
+		local flipbook = data.Columns ~= nil
+
+		if flipbook then
+			for _, key in ipairs{"Columns", "Rows", "TileSize"} do
+				assert(
+					type(data[key]) == "number" and data[key] >= 1 and data[key] % 1 == 0,
+					name .. " needs a whole number " .. key
+				)
+			end
+
+			assert(
+				data.Source:find("flipbook_frame", 1, true),
+				name .. " needs a flipbook_frame function"
+			)
+		else
+			assert(
+				data.Size == nil or
+					type(data.Size) == "number" and
+					data.Size >= 1 and
+					data.Size % 1 == 0,
+				name .. " Size is a whole number"
+			)
+		end
+
+		local previous = definitions[name]
+		assert(
+			not previous or (previous.Columns ~= nil) == flipbook,
+			name .. " is already a " .. (flipbook and "texture" or "flipbook")
+		)
+		vfx.Files:Remember(name, data)
+		definitions[name] = data
+
+		if not previous then
+			local list = flipbook and names.flipbooks or names.textures
+			list[#list + 1] = name
+			table.sort(list)
+		end
+
+		if flipbook then
+			local baked = flipbooks[name]
+
+			if baked then
+				local same_size = baked.Columns == data.Columns and
+					baked.Rows == data.Rows and
+					baked.TileSize == data.TileSize and
+					(
+						baked.Normal ~= nil
+					) == (
+						data.Source:find("flipbook_normal", 1, true) ~= nil
+					)
+
+				if same_size then
+					bake_flipbook(baked.Texture, data, "flipbook_frame")
+
+					if baked.Normal then bake_flipbook(baked.Normal, data, "flipbook_normal") end
+				else
+					flipbooks[name] = nil
+					vfx.GetFlipbook(name)
+				end
+			end
+		else
+			local baked = textures[name]
+
+			if baked then
+				if baked:GetWidth() == (data.Size or 256) then
+					shade_texture(baked, data)
+				else
+					textures[name] = nil
+					vfx.GetTexture(name)
+				end
+			end
+		end
+	end
+
+	do
+		local files = {}
+
+		for _, file in ipairs(vfs.Find("lua/vfx_textures/%.lua$")) do
+			files[#files + 1] = file:gsub("%.lua$", "")
+		end
+
+		table.sort(files)
+
+		for _, name in ipairs(files) do
+			vfx.RegisterFile(name, vfx.Files:Read(name))
+		end
 	end
 
 	function vfx.GetTextureNames()
-		local names = {}
+		return table.copy(names.textures)
+	end
 
-		for name in pairs(glsl) do
-			names[#names + 1] = name
-		end
+	function vfx.GetFlipbookNames()
+		return table.copy(names.flipbooks)
+	end
 
-		table.sort(names)
-		return names
+	function vfx.IsFlipbook(name)
+		return definitions[name].Columns ~= nil
+	end
+
+	function vfx.GetFileNames()
+		return list.extend(table.copy(names.textures), names.flipbooks)
 	end
 
 	function vfx.GetTexture(name)
 		if textures[name] then return textures[name] end
 
-		local texture = Texture.New{
-			width = 256,
-			height = 256,
-			format = "r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			image = {
-				usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
-			},
-			sampler = {
-				min_filter = "linear",
-				mag_filter = "linear",
-				wrap_s = "clamp_to_edge",
-				wrap_t = "clamp_to_edge",
-			},
-		}
-		texture:Shade(glsl[name] or error("unknown vfx texture " .. tostring(name)))
+		local definition = definitions[name]
+		assert(definition and not definition.Columns, "unknown vfx texture " .. tostring(name))
+		local size = definition.Size or 256
+		local texture = create_texture(size, size, "auto")
+		shade_texture(texture, definition)
 		textures[name] = texture
 		return texture
-	end
-end
-
-do
-	local flipbooks = {}
-	local definitions = {}
-
-	function vfx.GetFlipbookNames()
-		local names = {}
-
-		for name in pairs(definitions) do
-			names[#names + 1] = name
-		end
-
-		table.sort(names)
-		return names
-	end
-
-	function vfx.RegisterFlipbook(name, definition)
-		definitions[name] = definition
-		flipbooks[name] = nil
 	end
 
 	function vfx.GetFlipbook(name)
@@ -137,139 +220,89 @@ do
 
 		if flipbook then return flipbook end
 
-		local definition = definitions[name] or error("unknown vfx flipbook " .. tostring(name))
+		local definition = definitions[name]
+		assert(definition and definition.Columns, "unknown vfx flipbook " .. tostring(name))
 		local columns, rows, tile = definition.Columns, definition.Rows, definition.TileSize
-		local noise_glsl = glsl_common.GetNoiseGLSL()
+		local texture = create_texture(columns * tile, rows * tile, definition.MipLevels or 3, true)
+		bake_flipbook(texture, definition, "flipbook_frame")
+		local normal
 
-		local function bake(entry)
-			local texture = Texture.New{
-				width = columns * tile,
-				height = rows * tile,
-				format = "r8g8b8a8_unorm",
-				mip_map_levels = definition.MipLevels or 3,
-				image = {
-					usage = {"sampled", "transfer_dst", "transfer_src", "color_attachment"},
-				},
-				sampler = {
-					min_filter = "linear",
-					mag_filter = "linear",
-					mipmap_mode = "linear",
-					wrap_s = "clamp_to_edge",
-					wrap_t = "clamp_to_edge",
-				},
-			}
-			texture:Shade(
-				noise_glsl .. string.format(
-						[[
-					const vec2 FLIPBOOK_GRID = vec2(%d.0, %d.0);
-					const float FLIPBOOK_FRAMES = %d.0;
-					%s
-
-					vec4 shade(vec2 uv, vec3 _cube_dir) {
-						vec2 cell = floor(uv * FLIPBOOK_GRID);
-						float frame = cell.y * FLIPBOOK_GRID.x + cell.x;
-						return %s(fract(uv * FLIPBOOK_GRID), frame / FLIPBOOK_FRAMES * 6.2831853, frame);
-					}
-				]],
-						columns,
-						rows,
-						columns * rows,
-						definition.GLSL,
-						entry
-					)
-			)
-			return texture
+		if definition.Source:find("flipbook_normal", 1, true) then
+			normal = create_texture(columns * tile, rows * tile, definition.MipLevels or 3, true)
+			bake_flipbook(normal, definition, "flipbook_normal")
 		end
 
 		flipbook = {
-			Texture = bake("flipbook_frame"),
-			Normal = definition.GLSL:find("flipbook_normal") and bake("flipbook_normal") or nil,
+			Texture = texture,
+			Normal = normal,
 			Columns = columns,
 			Rows = rows,
+			TileSize = tile,
 			Frames = columns * rows,
 		}
 		flipbooks[name] = flipbook
 		return flipbook
 	end
 
-	local SMOKE_FIELD_GLSL = [[
-				float smoke_fbm(vec3 q, float phase, int octaves) {
-					float sum = 0.0;
-					float amplitude = 0.5;
-					float norm = 0.0;
+	function vfx.ParseError(message)
+		local line, text = message:match("1:(%d+): error: ([^\n]*)")
 
-					for (int i = 0; i < octaves; i++) {
-						float a = phase * (i % 2 == 0 ? 1.0 : -1.0) + float(i) * 1.7;
-						vec3 orbit = vec3(cos(a), sin(a), float(i) * 5.3) * 0.5;
-						sum += value_noise3(q + orbit) * amplitude;
-						norm += amplitude;
-						amplitude *= 0.52;
-						q *= 2.03;
-					}
+		if not line then return message end
 
-					return sum / norm;
-				}
+		return ("line %s: %s"):format(line, text)
+	end
 
-				float smoke_fine(vec2 p, float phase) {
-					return smoke_fbm(vec3(p * 4.0, 9.0), phase, 4);
-				}
+	function vfx.UpdateFile(name, data)
+		local previous = vfx.Files.Source[name]
+		local ok, err = pcall(vfx.RegisterFile, name, data)
 
-				float smoke_height(vec2 p, float phase) {
-					vec3 q = vec3(p * 1.3, 0.0);
-					vec3 warp = vec3(smoke_fbm(q + vec3(7.1, 0.0, 0.0), phase, 2), smoke_fbm(q + vec3(0.0, 3.7, 0.0), phase, 2), 0.0);
-					float n = smoke_fbm(q + (warp - 0.5) * 1.1, phase, 5);
-					float fine = smoke_fine(p, phase);
-					float r = length(p);
-					float body = 1.0 - smoothstep(0.45, 1.0, r + (n - 0.5) * 1.0 + (fine - 0.5) * 0.3);
-					body *= 1.0 - smoothstep(0.8, 0.98, r);
-					return body * (0.1 + n * 1.5) * (0.7 + 0.6 * fine);
-				}
+		if ok then
+			ok, err = pcall(definitions[name].Columns and vfx.GetFlipbook or vfx.GetTexture, name)
+		end
 
-	]]
-	vfx.RegisterFlipbook(
-		"smoke",
-		{
-			Columns = 8,
-			Rows = 8,
-			TileSize = 256,
-			GLSL = SMOKE_FIELD_GLSL .. [[
-				vec4 flipbook_frame(vec2 local, float phase, float frame) {
-					vec2 p = local * 2.0 - 1.0;
-					float h = smoke_height(p, phase);
-					float crevice = smoothstep(0.1, 0.9, smoke_fine(p, phase));
-					return vec4(vec3(mix(0.55, 1.0, crevice) * (1.0 - 0.4 * smoothstep(0.2, 1.0, h))), smoothstep(0.1, 0.75, h));
-				}
+		if not ok then
+			if previous then
+				pcall(vfx.RegisterFile, name, previous)
+			else
+				local flipbook = definitions[name] and definitions[name].Columns ~= nil
+				definitions[name] = nil
+				vfx.Files.Source[name] = nil
+				remove_name(flipbook and names.flipbooks or names.textures, name)
+			end
 
-				vec4 flipbook_normal(vec2 local, float phase, float frame) {
-					vec2 p = local * 2.0 - 1.0;
-					const float e = 0.04;
-					vec2 slope = vec2(
-						smoke_height(p + vec2(e, 0.0), phase) - smoke_height(p - vec2(e, 0.0), phase),
-						smoke_height(p + vec2(0.0, e), phase) - smoke_height(p - vec2(0.0, e), phase)
-					) / (2.0 * e);
-					float r2 = min(dot(p, p), 0.95);
-					vec3 n = normalize(vec3(p - slope * 0.22, sqrt(1.0 - r2)));
-					return vec4(n * 0.5 + 0.5, 1.0);
-				}
-			]],
-		}
-	)
-	vfx.RegisterFlipbook(
-		"fire",
-		{
-			Columns = 8,
-			Rows = 8,
-			TileSize = 256,
-			GLSL = SMOKE_FIELD_GLSL .. [[
-				vec4 flipbook_frame(vec2 local, float phase, float frame) {
-					vec2 p = local * 2.0 - 1.0;
-					float h = smoke_height(p, phase);
-					float heat = clamp(pow(smoothstep(0.12, 0.85, h), 1.7) * (0.65 + 0.7 * smoke_fine(p, phase)), 0.0, 1.0);
-					return vec4(vec3(heat), heat);
-				}
-			]],
-		}
-	)
+			vfx.Errors[name] = vfx.ParseError(tostring(err))
+			error(vfx.Errors[name], 0)
+		end
+
+		vfx.Errors[name] = nil
+	end
+
+	function vfx.ReloadFile(name)
+		return vfx.UpdateFile(name, vfx.Files:Read(name))
+	end
+
+	function vfx.SaveFile(name)
+		return vfx.Files:Save(name)
+	end
+
+	function vfx.GetFileStatus(name)
+		return vfx.Errors[name]
+	end
+
+	function vfx.GetNewFileName(base)
+		local index = 2
+
+		while definitions[base .. "_" .. index] do
+			index = index + 1
+		end
+
+		return base .. "_" .. index
+	end
+
+	function vfx.CreateFile(name, from)
+		vfx.UpdateFile(name, table.copy(vfx.Files.Source[from]))
+		return name
+	end
 end
 
 do
