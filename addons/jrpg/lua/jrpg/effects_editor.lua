@@ -747,6 +747,22 @@ function effects_editor.BuildTestInputs(session)
 
 	return items
 end
+local function choice_items(list, current, on_pick)
+	return ||-> do
+		local items = {}
+
+		for _, value in ipairs(list) do
+			items[#items + 1] = MenuItem{
+				Text = value,
+				Icon = value == current and "check" or nil,
+				OnClick = ||->on_pick(value),
+			}
+		end
+
+		return items
+	end
+end
+
 
 function effects_editor.BuildMenu(session, h)
 	return {
@@ -778,15 +794,6 @@ function effects_editor.BuildMenu(session, h)
 					end,
 				},
 				MenuItem{
-					Text = "save view as preview",
-					Icon = "file",
-					Disabled = not effects_editor.Categories[session.Category].Schema.Fields.Preview,
-					OnClick = ||-> do
-						effects_editor.SaveView(session)
-						h.refresh()
-					end,
-				},
-				MenuItem{
 					Text = "revert to file",
 					Icon = "file",
 					OnClick = ||-> do
@@ -802,6 +809,105 @@ function effects_editor.BuildMenu(session, h)
 				},
 				MenuItem{Text = "close", Icon = "close", OnClick = ||->h.close()},
 			},
+		{
+			Text = "EDIT",
+			Items = ||-> {
+				MenuItem{
+					Text = "undo",
+					Icon = "undo",
+					Tooltip = "ctrl+z",
+					Disabled = effects_editor.Categories[session.Category].ReadOnly,
+					OnClick = ||-> do
+						effects_editor.Step(session, false)
+						h.refresh()
+					end,
+				},
+				MenuItem{
+					Text = "redo",
+					Icon = "redo",
+					Tooltip = "ctrl+y",
+					Disabled = effects_editor.Categories[session.Category].ReadOnly,
+					OnClick = ||-> do
+						effects_editor.Step(session, true)
+						h.refresh()
+					end,
+				},
+			},
+		},
+		{
+			Text = "VIEW",
+			Items = ||-> {
+				MenuItem{
+					Text = "stage",
+					Items = choice_items(
+						effects_stage.Kinds,
+						session.StageKind,
+						|value|-> do
+							effects_editor.SetStage(session, value, session.NpcName)
+							h.refresh()
+						end
+					),
+				},
+				MenuItem{
+					Text = "npc",
+					Disabled = session.StageKind ~= "npc",
+					Items = choice_items(
+						npcs.GetNames(),
+						session.NpcName,
+						|value|-> do
+							effects_editor.SetStage(session, "npc", value)
+							h.refresh()
+						end
+					),
+				},
+				MenuItem{
+					Text = "gizmo mode",
+					Disabled = session.StageKind ~= "gizmo",
+					Items = choice_items(
+						GIZMO_MODES,
+						session.GizmoMode,
+						|value|-> do
+							session.GizmoMode = value
+							Gizmo.SetMode(value)
+							h.refresh()
+						end
+					),
+				},
+				MenuItem{
+					Text = "camera",
+					Items = choice_items(
+						effects_stage.Cameras,
+						session.Camera,
+						|value|-> do
+							effects_editor.SetCamera(session, value)
+							h.refresh()
+						end
+					),
+				},
+				MenuItem{
+					Text = "exposure",
+					Items = choice_items(
+						effects_stage.ExposureNames,
+						session.Exposure,
+						|value|-> do
+							session.Exposure = value
+							session.View:SetExposureLock(effects_stage.Exposures[value])
+							h.refresh()
+						end
+					),
+				},
+				MenuItem{
+					Text = "save view as preview",
+					Icon = "file",
+					Tooltip = "write the stage, camera, exposure and loop into the file's preview block",
+					Disabled = not effects_editor.Categories[session.Category].Schema.Fields.Preview,
+					OnClick = ||-> do
+						effects_editor.SaveView(session)
+						h.refresh()
+					end,
+				},
+			},
+		},
 		},
 	}
 end
@@ -994,26 +1100,6 @@ local EffectsEditor = react.Component(
 					end
 				),
 			},
-			ui.Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center", Padding = Rect() + 6}}{
-				not category.ReadOnly and ui.Button{
-					Text = "Undo",
-					Mode = "outline",
-					Tooltip = "ctrl+z",
-					OnClick = ||-> do
-						effects_editor.Step(session, false)
-						h.refresh()
-					end,
-				},
-				not category.ReadOnly and ui.Button{
-					Text = "Redo",
-					Mode = "outline",
-					Tooltip = "ctrl+y",
-					OnClick = ||-> do
-						effects_editor.Step(session, true)
-						h.refresh()
-					end,
-				},
-			},
 			Breadcrumb{
 				Items = effects_editor.GetTrailLabels(session),
 				OnSelect = h.on_breadcrumb,
@@ -1094,70 +1180,6 @@ local EffectsEditor = react.Component(
 								Value = session.AutoRestart,
 								OnChange = |value|-> do
 									session.AutoRestart = value
-								end,
-							},
-						},
-						ui.Row{layout = {GrowWidth = 1, ChildGap = 6, AlignmentY = "center"}}{
-							ui.Text{Text = "preview on", Color = "text_disabled", layout = {FitWidth = true}},
-							dropdown(
-								"stage",
-								effects_stage.Kinds,
-								session.StageKind,
-								90,
-								|value|-> do
-									effects_editor.SetStage(session, value, session.NpcName)
-									h.refresh()
-								end
-							),
-							session.StageKind == "npc" and dropdown(
-								"npc",
-								npcs.GetNames(),
-								session.NpcName,
-								130,
-								|value|-> do
-									effects_editor.SetStage(session, "npc", value)
-									h.refresh()
-								end
-							),
-							session.StageKind == "gizmo" and dropdown(
-								"gizmo_mode",
-								GIZMO_MODES,
-								session.GizmoMode,
-								110,
-								|value|-> do
-									session.GizmoMode = value
-									Gizmo.SetMode(value)
-									h.refresh()
-								end
-							),
-							dropdown(
-								"camera",
-								effects_stage.Cameras,
-								session.Camera,
-								90,
-								|value|-> do
-									effects_editor.SetCamera(session, value)
-									h.refresh()
-								end
-							),
-							dropdown(
-								"exposure",
-								effects_stage.ExposureNames,
-								session.Exposure,
-								90,
-								|value|-> do
-									session.Exposure = value
-									session.View:SetExposureLock(effects_stage.Exposures[value])
-								end
-							),
-							ui.Button{
-								Text = "Save view",
-								Mode = "outline",
-								Tooltip = "write the stage, camera, exposure and loop into the file's preview block",
-								Disabled = not category.Schema.Fields.Preview,
-								OnClick = ||-> do
-									effects_editor.SaveView(session)
-									h.refresh()
 								end,
 							},
 						},
