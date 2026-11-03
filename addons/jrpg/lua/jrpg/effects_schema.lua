@@ -261,8 +261,10 @@ local schemas = {
 }
 do
 	local EXCLUDED = {Visible = true, Playing = true, Loop = true, Duration = true, Seed = true, ShaderParams = true}
+	local GROUP_ORDER = {"Emission", "Shape", "Motion", "Look", "Collision"}
 	local fields = {}
-	local keys = {}
+	local defaults = {}
+	local members = {}
 	local input_targets = {}
 
 	for _, properties in ipairs{particle_emitter.common, particle_emitter.gpu} do
@@ -286,9 +288,17 @@ do
 					default = {default.x, default.y, default.z}
 				end
 
-				keys[name] = default
+				defaults[name] = default
+				members[entry[4]] = members[entry[4]] or {}
+				table.insert(members[entry[4]], name)
 			end
 		end
+	end
+
+	local groups = {}
+
+	for _, group in ipairs(GROUP_ORDER) do
+		groups[#groups + 1] = {Name = group, Keys = members[group]}
 	end
 
 	fields.Shader = {
@@ -314,8 +324,11 @@ do
 		Template = {"Speed", "set_max"},
 	}
 	fields.ShapeSize = {Min = 0, Max = 100}
-	keys.Inputs = {}
-	schemas["gpu emitters"] = {Refs = refs, Fields = fields, Root = {Keys = keys}}
+	schemas["gpu emitters"] = {
+		Refs = refs,
+		Fields = fields,
+		Root = {Keys = {Inputs = {}}, Defaults = defaults, Groups = groups},
+	}
 	schemas.clips.Fields = merge(fields, schemas.clips.Fields)
 end
 local PARAM_TYPES = {"float", "int", "bool", "vec3", "color", "texture"}

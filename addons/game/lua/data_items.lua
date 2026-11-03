@@ -316,9 +316,25 @@ end
 function build(data, options, path, list_key)
 	local items = {}
 	local schema = options.Schema
+	local defaults = path == "" and schema and schema.Root and schema.Root.Defaults
+	local keys = sorted_keys(data)
 
-	for _, key in ipairs(sorted_keys(data)) do
+	if defaults then
+		for key in pairs(defaults) do
+			if data[key] == nil then keys[#keys + 1] = key end
+		end
+
+		table.sort(keys)
+	end
+
+	for _, key in ipairs(keys) do
 		local value = data[key]
+		local default = defaults and defaults[key]
+		local is_default = value == nil
+
+		if is_default then
+			value = type(default) == "table" and table.copy(default) or default
+		end
 
 		if type(value) == "function" then goto continue end
 
@@ -345,30 +361,50 @@ function build(data, options, path, list_key)
 		end
 
 		items[#items + 1] = item
+		local buttons = {}
+
+		if item.Type and default ~= nil then
+			if is_default then
+				item.Default = item.Value
+			else
+				item.Default = make_leaf(
+						{},
+						key,
+						type(default) == "table" and table.copy(default) or default,
+						item_path,
+						field,
+						options
+					).Value
+				buttons[#buttons + 1] = {
+					Icon = "reset",
+					Tooltip = "reset to the default",
+					OnClick = function()
+						data[key] = nil
+						options.Restructured()
+					end,
+				}
+			end
+		end
 
 		if item.Type and field and field.Range then
 			if type(value) == "number" then
-				item.RowButtons = {
-					{
-						Icon = "wand",
-						Tooltip = "randomize between a min and a max",
-						OnClick = function()
-							data[key] = {value, value}
-							options.Restructured()
-						end,
-					},
+				buttons[#buttons + 1] = {
+					Icon = "wand",
+					Tooltip = "randomize between a min and a max",
+					OnClick = function()
+						data[key] = {value, value}
+						options.Restructured()
+					end,
 				}
 			elseif item.Type == "vec2" then
 				item.Text = item.Text .. " (min, max)"
-				item.RowButtons = {
-					{
-						Icon = "reset",
-						Tooltip = "use one value",
-						OnClick = function()
-							data[key] = (value[1] + value[2]) / 2
-							options.Restructured()
-						end,
-					},
+				buttons[#buttons + 1] = {
+					Icon = "close",
+					Tooltip = "use one value",
+					OnClick = function()
+						data[key] = (value[1] + value[2]) / 2
+						options.Restructured()
+					end,
 				}
 			end
 		end
@@ -381,16 +417,16 @@ function build(data, options, path, list_key)
 			options.CanOpen(field.Ref) and
 			type(value) == "string"
 		then
-			item.RowButtons = {
-				{
-					Icon = "arrow_right",
-					Tooltip = "Open " .. value,
-					OnClick = function()
-						options.Open(field.Ref, value)
-					end,
-				},
+			buttons[#buttons + 1] = {
+				Icon = "arrow_right",
+				Tooltip = "Open " .. value,
+				OnClick = function()
+					options.Open(field.Ref, value)
+				end,
 			}
 		end
+
+		if #buttons > 0 then item.RowButtons = buttons end
 
 		::continue::
 	end
@@ -402,21 +438,77 @@ function data_items.BuildTable(data, options, path, list_key)
 	return build(data, options, path, list_key)
 end
 
+function data_items.StripDefaults(data, schema)
+	local defaults = schema.Root and schema.Root.Defaults
+
+	if not defaults then return end
+
+	for key, default in pairs(defaults) do
+		local value = data[key]
+
+		if
+			value ~= nil and
+			(
+				value == default or
+				type(value) == "table" and
+				type(default) == "table" and
+				table.equal(value, default)
+			)
+		then
+			data[key] = nil
+		end
+	end
+end
+
 function data_items.Build(data, options)
 	local items = build(data, options, "", "")
 	local top = {}
 	local general = {Key = "/general", Text = "general", Expanded = true, Children = {}}
+	local groups = options.Schema and options.Schema.Root and options.Schema.Root.Groups
+	local placed = {}
+
+	if groups then
+		local by_key = {}
+
+		for _, item in ipairs(items) do
+			by_key[item.Key] = item
+		end
+
+		for _, group in ipairs(groups) do
+			local node = {
+				Key = "/group/" .. group.Name,
+				Text = group.Name,
+				Expanded = true,
+				Children = {},
+			}
+
+			for _, key in ipairs(group.Keys) do
+				local item = by_key["/" .. key]
+
+				if item then
+					node.Children[#node.Children + 1] = item
+					placed[item] = true
+				end
+			end
+
+			if #node.Children > 0 then top[#top + 1] = node end
+		end
+	end
 
 	for _, item in ipairs(items) do
+		if placed[item] then goto continue end
+
 		if item.IsGroup then
 			item.IsGroup = nil
 			top[#top + 1] = item
 		else
 			general.Children[#general.Children + 1] = item
 		end
+
+		::continue::
 	end
 
-	local structure = {Key = "/structure", Text = "add / remove keys", Expanded = false, Children = {}}
+	local structure = {Key = "/structure", Text = "optional parts", Expanded = false, Children = {}}
 	add_structure_actions(structure.Children, data, "", options.Schema and options.Schema.Root, options)
 
 	if #general.Children > 0 then table.insert(top, 1, general) end

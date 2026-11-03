@@ -165,3 +165,57 @@ T.Test("data items edit a plain table in place and skip functions", function()
 	T(data.Pairs[2][2])["=="](9)
 	T(restructured)["=="](9)
 end)
+
+T.Test("data items show defaults for missing keys, group them and strip values that equal their default", function()
+	local data = {Count = 5, Tint = {1, 0, 0, 1}}
+	local schema = {
+		Refs = {},
+		Fields = {},
+		Root = {
+			Defaults = {Count = 1, Size = 0.5, Tint = {1, 1, 1, 1}, Name = "a"},
+			Groups = {
+				{Name = "Look", Keys = {"Size", "Tint"}},
+				{Name = "Misc", Keys = {"Count", "Name"}},
+			},
+		},
+	}
+	local changes, restructures = 0, 0
+	local options = {
+		Schema = schema,
+		Name = "x",
+		Changed = function()
+			changes = changes + 1
+		end,
+		Restructured = function()
+			restructures = restructures + 1
+		end,
+	}
+	local items = data_items.Build(data, options)
+	T(#items)["=="](2)
+	T(items[1].Text)["=="]("Look")
+	T(items[2].Text)["=="]("Misc")
+	local size, tint = items[1].Children[1], items[1].Children[2]
+	T(size.Text)["=="]("Size")
+	T(size.Value)["=="](0.5)
+	T(size.Default)["=="](0.5)
+	T(size.RowButtons)["=="](nil)
+	T(data.Size)["=="](nil)
+	T(tint.Type)["=="]("vec4") -- no Color in the key name, so a plain vec4
+	local count, name = items[2].Children[1], items[2].Children[2]
+	T(count.Value)["=="](5)
+	T(count.Default)["=="](1)
+	T(count.RowButtons[1].Tooltip)["=="]("reset to the default")
+	T(name.Value)["=="]("a")
+	size.OnChange(nil, 2)
+	T(data.Size)["=="](2)
+	count.RowButtons[1].OnClick()
+	T(data.Count)["=="](nil)
+	T(restructures)["=="](1)
+	data.Size = 0.5
+	data.Name = "b"
+	data.Tint = {1, 1, 1, 1}
+	data_items.StripDefaults(data, schema)
+	T(data.Size)["=="](nil)
+	T(data.Tint)["=="](nil)
+	T(data.Name)["=="]("b")
+end)

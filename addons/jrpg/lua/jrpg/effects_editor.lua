@@ -225,6 +225,7 @@ function effects_editor.Load(session, category_name, name)
 	session.Name = name or category.GetNames()[1]
 	session.Trail = {}
 	session.Data = table.copy(category.GetSource(session.Name))
+	data_items.StripDefaults(session.Data, category.Schema)
 	session.Inputs = {}
 	session.History = data_history.New(session.Data)
 	session.Status = ""
@@ -272,6 +273,7 @@ function effects_editor.Apply(session)
 
 	if category.ReadOnly then return false end
 
+	data_items.StripDefaults(session.Data, category.Schema)
 	local ok, err = pcall(category.Update, session.Name, table.copy(session.Data))
 	session.Status = ok and "" or tostring(err):gsub("^.-:%d+: ", "")
 	session.Problems = effects_editor.GetProblems(session)
