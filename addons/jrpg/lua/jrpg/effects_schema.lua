@@ -4,6 +4,7 @@ local damage_types = import("lua/jrpg/damage_types.lua")
 local status_effects = import("lua/jrpg/status_effects.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local vfx = import("goluwa/render3d/vfx.lua")
+local particle_style_library = import("lua/particle_style_library.lua")
 local effects_schema = {}
 local EXPRESSION = "a number, the name of a track or param, or an expression: p.<param>, v.<track>, v.time, math functions"
 local LAYER_TYPES = {"sprite", "quad", "orb", "gpu_trail", "custom"}
@@ -36,6 +37,7 @@ local refs = {
 	end,
 	overlay = ||->surface_overlays.GetKindNames(),
 	texture = ||->vfx.GetTextureNames(),
+	particle_style = ||->particle_style_library.Names,
 	flipbook = ||->vfx.GetFlipbookNames(),
 	script = ||->sorted_names(clips.Scripts),
 	easing = ||->sorted_names(easing),
@@ -67,6 +69,16 @@ local COMMON = {
 	Names = {Display = "chips"},
 	Adjectives = {Display = "chips"},
 	["Think.Type"] = {Options = {"magic", "slash", "generic"}},
+	Particles = {Keys = {Style = "snow"}},
+	["Particles.Style"] = {
+		Ref = "particle_style",
+		Restructure = true,
+		OnSet = function(particles, name)
+			local defaults = particle_style_library.GetDefaults(name)
+			particles.Params = next(defaults) and defaults or nil
+		end,
+		Description = "how the particles are drawn and move beyond the common properties, see particle styles",
+	},
 }
 
 local function merge(base, extra)
@@ -226,5 +238,73 @@ local schemas = {
 		Root = {},
 	},
 }
+local PARAM_TYPES = {"float", "int", "bool", "vec3", "color", "texture"}
+local HOOK_DESCRIPTION = {
+	Spawn = "glsl run once when a particle is born, after the common spawn: p is the particle, e the emitter, index, generation, and every param by name",
+	Update = "glsl run every frame before drag and integration: p, e, index, dt, t (0 to 1 over the lifetime) and every param by name",
+	Visibility = "glsl that returns a number multiplied into the particle's alpha: t, p, e and every param by name",
+	Shade = "glsl run after the common shading, p.radiance is the color: t, p, e and every param by name",
+}
+local hook_fields = {}
+
+for _, hook in ipairs{"Spawn", "Update", "Visibility", "Shade"} do
+	hook_fields[hook] = {
+		Code = "glsl",
+		Description = HOOK_DESCRIPTION[hook],
+		GetStatus = |data, options|->particle_style_library.GetStatus(options.Name),
+	}
+end
+
+schemas["particle styles"] = {
+	Refs = refs,
+	Labels = {Params = |param|->tostring(param.Name) .. " (" .. tostring(param.Type) .. ")"},
+	Fields = merge(
+		hook_fields,
+		{
+			Sprite = {Description = "the name of the texture param drawn for every particle, leave it out to draw the glow capsules"},
+			["Params.Type"] = {Options = PARAM_TYPES},
+			["Params.Default"] = {Description = "a number, true or false, a vec3, a color (four numbers, the name should end with Color) or a texture name"},
+			["Params.Group"] = {Options = {"Emission", "Shape", "Motion", "Look", "Collision"}},
+			Params = {
+				Template = function(last)
+					return {Name = "Param" .. math.random(100, 999), Type = "float", Default = 0, Min = 0, Max = 1, Group = "Look"}
+				end,
+			},
+		}
+	),
+	Root = {
+		Keys = {
+			Sprite = "Flake",
+			Spawn = "",
+			Update = "",
+			Visibility = "return 1.0;",
+			Shade = "",
+		},
+	},
+}
+
+function effects_schema.WithStyleParams(schema, data)
+	local style = data.Particles and data.Particles.Style
+
+	if not style then return schema end
+
+	local fields = table.shallow_copy(schema.Fields)
+	local keys = {}
+
+	for _, param in ipairs(particle_style_library.GetParams(style)) do
+		local field = {Description = param.Description, Min = param.Min, Max = param.Max}
+
+		if param.Type == "texture" then field.Ref = "texture" end
+
+		fields["Params." .. param.Name] = field
+		keys[param.Name] = table.copy(param.Default)
+	end
+
+	fields.Params = {Keys = keys}
+	local out = table.shallow_copy(schema)
+	out.Fields = fields
+	return out
+end
+
 effects_schema.Schemas = schemas
 return effects_schema

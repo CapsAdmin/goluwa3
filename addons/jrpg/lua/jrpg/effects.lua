@@ -2,6 +2,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local event = import("goluwa/event.lua")
 local new_event = import("goluwa/network/replicated_event.lua")
 local system = import("goluwa/system.lua")
+local timer = import("goluwa/timer.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
@@ -92,6 +93,8 @@ effects.vfx = vfx
 vfx.ClearBursts("jrpg_")
 local sprites = import("goluwa/render3d/sprites.lua")
 local hitmarkers = import("lua/hitmarkers.lua")
+local particle_style_library = import("lua/particle_style_library.lua")
+particle_style_library.Init()
 local screen_shake = import("lua/screen_shake.lua")
 local sounds = import("lua/sounds.lua")
 local StatusEffects = import("lua/components/status_effects.lua")
@@ -216,7 +219,7 @@ do
 		}
 
 		for key, value in pairs(definition.Particles) do
-			properties[key] = value
+			properties[key == "Params" and "StyleParams" or key] = value
 		end
 
 		for key, value in pairs(overrides or {}) do
@@ -224,6 +227,43 @@ do
 		end
 
 		return properties
+	end
+
+	function effects.PlayParticleStyle(position, name, duration)
+		local properties = effects.GetParticleProperties(
+			{Color = Color(1, 1, 1, 1), Particles = {}},
+			{
+				Style = name,
+				StyleParams = particle_style_library.GetDefaults(name),
+				Playing = true,
+				Rate = 90,
+				MaxParticles = 512,
+				Shape = "box",
+				ShapeSize = Vec3(1.6, 0.2, 1.6),
+				Spread = 180,
+				SpeedMin = 0.02,
+				SpeedMax = 0.15,
+				LifetimeMin = 1.6,
+				LifetimeMax = 3,
+				GravityScale = 0.15,
+				Drag = 3,
+				SizeStart = 0.05,
+				SizeEnd = 0.05,
+				Emissive = 0,
+				Lit = true,
+			}
+		)
+		local emitter = vfx.CreateEmitter("jrpg_style_" .. name, properties)
+		emitter.transform:SetPosition(position + Vec3(0, 1, 0))
+
+		timer.Delay(duration or 3, function()
+			if emitter:IsValid() then
+				emitter.particle_emitter_gpu:SetPlaying(false)
+				vfx.RemoveDelayed(emitter, 4)
+			end
+		end)
+
+		return emitter
 	end
 
 	local SPARK_SIZE = 0.012
@@ -920,19 +960,31 @@ do
 				local definition = p.definition
 				local emitter = state.emitter
 
+				if emitter and state.emitter_definition ~= definition then
+					emitter.particle_emitter_gpu:SetPlaying(false)
+					vfx.RemoveDelayed(emitter, 2)
+					emitter_count = emitter_count - 1
+					emitter = nil
+					state.emitter = nil
+				end
+
 				if not emitter and emitter_count < EMITTER_BUDGET then
 					emitter_count = emitter_count + 1
-					local properties = effects.GetParticleProperties(
-						definition,
-						{
-							Shape = "sphere",
-							ShapeSize = p.entity.ragdoll and Vec3(0.12, 0.12, 0.12) or Vec3(0.3, 0.6, 0.3),
-						}
-					)
+					local shape = {
+						Shape = "sphere",
+						ShapeSize = p.entity.ragdoll and Vec3(0.12, 0.12, 0.12) or Vec3(0.3, 0.6, 0.3),
+					}
+
+					for key in pairs(definition.Particles) do
+						shape[key] = nil
+					end
+
+					local properties = effects.GetParticleProperties(definition, shape)
 					properties.Playing = true
 					properties.MaxParticles = 256
 					emitter = vfx.CreateEmitter("jrpg_status_" .. definition.Name, properties)
 					state.emitter = emitter
+					state.emitter_definition = definition
 				end
 
 				if emitter then

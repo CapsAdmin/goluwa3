@@ -28,6 +28,7 @@ local status_effects = import("lua/jrpg/status_effects.lua")
 local effects = import("lua/jrpg/effects.lua")
 local effects_schema = import("lua/jrpg/effects_schema.lua")
 local clip_edit = import("lua/jrpg/clip_edit.lua")
+local particle_style_library = import("lua/particle_style_library.lua")
 local effects_stage = import("lua/jrpg/effects_stage.lua")
 local effects_editor = {}
 local LEFT_WIDTH = 440
@@ -46,6 +47,7 @@ effects_editor.CategoryNames = {
 	"status effects",
 	"clips",
 	"overlays",
+	"particle styles",
 	"weapon bursts",
 	"grenade puffs",
 	"scripts",
@@ -63,10 +65,12 @@ local REF_CATEGORIES = {
 	damage = "damage types",
 	overlay = "overlays",
 	script = "scripts",
+	particle_style = "particle styles",
 }
 effects_editor.Categories = {
 	["damage types"] = {
 		Schema = effects_schema.Schemas["damage types"],
+		GetSchema = effects_schema.WithStyleParams,
 		GetNames = effects_schema.Refs.damage,
 		GetSource = |name|->damage_types.Files.Source[name],
 		Update = |name, data|-> do
@@ -84,6 +88,7 @@ effects_editor.Categories = {
 		Schema = effects_schema.Schemas["status effects"],
 		GetNames = effects_schema.Refs.status,
 		GetSource = |name|->status_effects.Files.Source[name],
+		GetSchema = effects_schema.WithStyleParams,
 		Update = status_effects.Update,
 		Reload = status_effects.Reload,
 		Save = status_effects.Save,
@@ -124,6 +129,19 @@ effects_editor.Categories = {
 		Save = surface_overlays.SaveDefaults,
 		Play = |stage, name|-> do
 			effects.PlayOverlay(stage.Target, name, {Duration = 3})
+		end,
+	},
+	["particle styles"] = {
+		Schema = effects_schema.Schemas["particle styles"],
+		Duration = ||->5,
+		GetNames = ||->particle_style_library.Names,
+		GetSource = |name|->particle_style_library.Files.Source[name],
+		Update = particle_style_library.Update,
+		Reload = particle_style_library.Reload,
+		Save = particle_style_library.Save,
+		Duplicate = |name|->particle_style_library.Create(particle_style_library.GetNewName(name), name),
+		Play = |stage, name|-> do
+			effects.PlayParticleStyle(stage.Chest, name)
 		end,
 	},
 	["weapon bursts"] = {
@@ -195,7 +213,10 @@ function effects_editor.GetProblems(session)
 
 	if category.ReadOnly then return {} end
 
-	return data_schema.Check(category.Schema, session.Data)
+	return data_schema.Check(
+		category.GetSchema and category.GetSchema(category.Schema, session.Data) or category.Schema,
+		session.Data
+	)
 end
 
 function effects_editor.Load(session, category_name, name)
@@ -350,7 +371,8 @@ function effects_editor.BuildItems(session, h)
 	local options = {
 		Changed = h.changed,
 		Restructured = h.restructured,
-		Schema = category.Schema,
+		Name = session.Name,
+		Schema = category.GetSchema and category.GetSchema(category.Schema, session.Data) or category.Schema,
 		Open = h.open,
 		CanOpen = |ref|->REF_CATEGORIES[ref] ~= nil,
 		Focus = session.Focus,
@@ -433,6 +455,16 @@ function effects_editor.BuildMenu(session, h)
 							session.Status = "saved " .. category.Save(session.Name)
 						end
 
+						h.refresh()
+					end,
+				},
+				MenuItem{
+					Text = "duplicate",
+					Icon = "copy",
+					Disabled = not effects_editor.Categories[session.Category].Duplicate,
+					OnClick = ||-> do
+						local category = effects_editor.Categories[session.Category]
+						effects_editor.Load(session, session.Category, category.Duplicate(session.Name))
 						h.refresh()
 					end,
 				},

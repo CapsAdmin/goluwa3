@@ -29,6 +29,35 @@ T.Test3D("the effects editor loads, edits, undoes and checks every effect defini
 		end
 	end
 
+	local function find_text(items, text)
+		for _, item in ipairs(items) do
+			if item.Text == text then return item end
+
+			local found = item.Children and find_text(item.Children, text)
+
+			if found then return found end
+		end
+	end
+
+	effects_editor.Load(session, "status effects", "frozen")
+	local frozen_items = effects_editor.BuildItems(session, handlers)
+	local style_row = find_text(frozen_items, "Style")
+	T(style_row.Type)["=="]("enum")
+	T(style_row.RowButtons ~= nil)["=="](true)
+	T(find_text(frozen_items, "Sway").Max)["=="](3)
+	T(find_text(frozen_items, "Flake").Type)["=="]("enum")
+	style_row.OnChange(nil, "glow")
+	T(session.Data.Particles.Style)["=="]("glow")
+	T(session.Data.Particles.Params)["=="](nil)
+	style_row.OnChange(nil, "snow")
+	T(session.Data.Particles.Params.Sway)["=="](0.35)
+	T(#effects_editor.GetProblems(session))["=="](0)
+	effects_editor.Load(session, "particle styles", "snow")
+	local style_items = effects_editor.BuildItems(session, handlers)
+	T(find_text(style_items, "Update").Type)["=="]("code")
+	T(find_text(style_items, "Update").CodeLanguage)["=="]("glsl")
+	T(find_text(style_items, "Update").GetStatus())["=="](nil)
+	T(find_text(style_items, "Sprite").Type)["=="]("string")
 	effects_editor.Load(session, "damage types", "fire")
 	local overlay = effects_editor.Categories.overlays.GetNames()[1]
 	effects_editor.Open(session, "overlays", overlay)
