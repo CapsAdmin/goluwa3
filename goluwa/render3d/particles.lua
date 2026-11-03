@@ -371,7 +371,7 @@ function particles.GetSimulationGLSL()
 				%s
 			}
 
-			float %s_visibility(Particle p) {
+			float %s_visibility(uint index, Particle p) {
 				%s
 			}
 
@@ -379,7 +379,7 @@ function particles.GetSimulationGLSL()
 				%s
 			}
 
-			void %s_shade(inout Particle p) {
+			void %s_shade(uint index, inout Particle p) {
 				%s
 			}
 
@@ -408,7 +408,7 @@ function particles.GetSimulationGLSL()
 			)
 		spawns[#spawns + 1] = string.format("case %du: %s_spawn(index, generation, p); break;", i - 1, def.name)
 		updates[#updates + 1] = string.format("case %du: %s_update(index, dt, p); break;", i - 1, def.name)
-		shades[#shades + 1] = string.format("case %du: %s_shade(p); break;", i - 1, def.name)
+		shades[#shades + 1] = string.format("case %du: %s_shade(index, p); break;", i - 1, def.name)
 		should_spawns[#should_spawns + 1] = string.format("case %du: forced = %s_should_spawn(index); break;", i - 1, def.name)
 		collision_modes[#collision_modes + 1] = string.format("case %du: mode = %s_collision_mode(p); break;", i - 1, def.name)
 		collides[#collides + 1] = string.format(
@@ -416,7 +416,7 @@ function particles.GetSimulationGLSL()
 			i - 1,
 			def.name
 		)
-		visibilities[#visibilities + 1] = string.format("case %du: visibility *= %s_visibility(p); break;", i - 1, def.name)
+		visibilities[#visibilities + 1] = string.format("case %du: visibility *= %s_visibility(index, p); break;", i - 1, def.name)
 	end
 
 	return particles.GetCollisionGLSL() .. table.concat(functions, "\n") .. [[

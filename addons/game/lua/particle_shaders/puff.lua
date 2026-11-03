@@ -49,11 +49,11 @@ void update(emitters_t e, uint index, float dt, float t, inout Particle p) {
 	p.width = emitter_size_at(e, index, p, 1.0 - pow(1.0 - t, Grow)) * p.sprite.w;
 }
 
-float visibility(emitters_t e, float t, Particle p) {
+float visibility(emitters_t e, uint index, float t, Particle p) {
 	return min(t / FadeIn, 1.0) * (1.0 - smoothstep(FadeStart, 1.0, t));
 }
 
-void shade(emitters_t e, float t, inout Particle p) {
+void shade(emitters_t e, uint index, float t, inout Particle p) {
 	vec3 linear = mix(e.color_start.rgb, e.color_end.rgb, t);
 	vec3 curved = mix(e.color_start.rgb, e.color_end.rgb, pow(t, ColorCurve));
 	p.radiance *= curved / max(linear, vec3(1e-4));

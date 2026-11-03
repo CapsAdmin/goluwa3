@@ -515,7 +515,7 @@ gpu.system = particles.Register{
 		float seed = fract(sin(p.life * 12345.678) * 43758.5453);
 		float twinkle = 0.5 + 0.5 * sin(p.age * mix(18.0, 60.0, seed) + seed * 6.2831853);
 		float t = clamp(p.age / p.life, 0.0, 1.0);
-		return mix(e.color_start.a, e.color_end.a, t) * mix(1.0, twinkle * twinkle, e.sparkle) * emitter_shader_visibility(e, t, p);
+		return mix(e.color_start.a, e.color_end.a, t) * mix(1.0, twinkle * twinkle, e.sparkle) * emitter_shader_visibility(e, index, t, p);
 	]],
 	shade = [[
 		uint slot;
@@ -528,7 +528,7 @@ gpu.system = particles.Register{
 		float jitter = fract(sin(p.life * 4321.987 + 3.7) * 24634.6345);
 		tint = max(mix(vec3(luma), tint, 1.0 + (jitter - 0.5) * 2.0 * e.saturation_jitter), vec3(0.0));
 		p.radiance = tint * ((e.lit != 0 ? p.light : vec3(0.0)) + e.emissive * effect_exposure_gain(particle_data.pre_exposure_tex, e.exposure_compensation));
-		emitter_shader_shade(e, clamp(p.age / p.life, 0.0, 1.0), p);
+		emitter_shader_shade(e, index, clamp(p.age / p.life, 0.0, 1.0), p);
 	]],
 	collision_mode = [[
 		uint slot;

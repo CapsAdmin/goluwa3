@@ -19,14 +19,14 @@ local HOOKS = {
 	},
 	{
 		name = "visibility",
-		signature = "float t, Particle p",
-		call = "e, t, p",
+		signature = "uint index, float t, Particle p",
+		call = "e, index, t, p",
 		return_type = "float",
 	},
 	{
 		name = "shade",
-		signature = "float t, inout Particle p",
-		call = "e, t, p",
+		signature = "uint index, float t, inout Particle p",
+		call = "e, index, t, p",
 		return_type = "void",
 	},
 }

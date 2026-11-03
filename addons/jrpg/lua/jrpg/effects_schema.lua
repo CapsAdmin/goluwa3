@@ -332,7 +332,7 @@ do
 	schemas.clips.Fields = merge(fields, schemas.clips.Fields)
 end
 local PARAM_TYPES = {"float", "int", "bool", "vec3", "color", "texture"}
-local SOURCE_DESCRIPTION = "glsl with up to four functions, any you leave out do nothing (visibility counts as 1): void spawn(emitters_t e, uint index, uint generation, inout Particle p) runs once when a particle is born, after the common spawn; void update(emitters_t e, uint index, float dt, float t, inout Particle p) runs every frame before drag and integration, t is 0 to 1 over the lifetime; float visibility(emitters_t e, float t, Particle p) returns a number multiplied into the alpha; void shade(emitters_t e, float t, inout Particle p) runs after the common shading, p.radiance is the color. Every param is a name that reads e.params, so the functions need their e argument; helpers that read params take an emitters_t e too"
+local SOURCE_DESCRIPTION = "glsl with up to four functions, any you leave out do nothing (visibility counts as 1): void spawn(emitters_t e, uint index, uint generation, inout Particle p) runs once when a particle is born, after the common spawn; void update(emitters_t e, uint index, float dt, float t, inout Particle p) runs every frame before drag and integration, t is 0 to 1 over the lifetime; float visibility(emitters_t e, uint index, float t, Particle p) returns a number multiplied into the alpha; void shade(emitters_t e, uint index, float t, inout Particle p) runs after the common shading, p.radiance is the color. Every param is a name that reads e.params, so the functions need their e argument; helpers that read params take an emitters_t e too"
 local SOURCE_TEMPLATE = [[
 void update(emitters_t e, uint index, float dt, float t, inout Particle p) {
 }

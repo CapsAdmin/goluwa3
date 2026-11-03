@@ -65,7 +65,7 @@ T.Test("a particle shader source defines the hook functions it wants and the res
 		shader_module.Register,
 		"test_comment",
 		{
-			Source = "// void update(emitters_t e, uint index, float dt, float t, inout Particle p) {}\n/* float visibility(emitters_t e, float t, Particle p) { return 1.0; } */",
+			Source = "// void update(emitters_t e, uint index, float dt, float t, inout Particle p) {}\n/* float visibility(emitters_t e, uint index, float t, Particle p) { return 1.0; } */",
 		}
 	)
 	T(ok)["=="](false)
@@ -74,7 +74,7 @@ T.Test("a particle shader source defines the hook functions it wants and the res
 		"test_reserved",
 		{
 			Params = {{Name = "update", Type = "float", Default = 1}},
-			Source = "float visibility(emitters_t e, float t, Particle p) { return 1.0; }",
+			Source = "float visibility(emitters_t e, uint index, float t, Particle p) { return 1.0; }",
 		}
 	)
 	T(ok)["=="](false)
@@ -85,13 +85,13 @@ T.Test("a particle shader source defines the hook functions it wants and the res
 				{Name = "Gain", Type = "float", Default = 2},
 				{Name = "Tilt", Type = "vec3", Default = {0, 1, 0}},
 			},
-			Source = "float helper(emitters_t e) { return Gain; }\nfloat visibility(emitters_t e, float t, Particle p) { return helper(e) * Tilt.y; }",
+			Source = "float helper(emitters_t e) { return Gain; }\nfloat visibility(emitters_t e, uint index, float t, Particle p) { return helper(e) * Tilt.y; }",
 		}
 	)
 	shader_module.Register(
 		"test_update",
 		{
-			Source = "void update(emitters_t e, uint index, float dt, float t, inout Particle p) {\n}\nvoid shade(emitters_t e, float t, inout Particle p) {}",
+			Source = "void update(emitters_t e, uint index, float dt, float t, inout Particle p) {\n}\nvoid shade(emitters_t e, uint index, float t, inout Particle p) {}",
 		}
 	)
 	local glsl = shader_module.GetGLSL()
@@ -113,7 +113,11 @@ T.Test("a particle shader source defines the hook functions it wants and the res
 			) ~= nil
 	)["=="](true)
 	T(
-		glsl:find("case " .. id .. ": return shader_" .. id .. "_visibility(e, t, p);", 1, true) ~= nil
+		glsl:find(
+				"case " .. id .. ": return shader_" .. id .. "_visibility(e, index, t, p);",
+				1,
+				true
+			) ~= nil
 	)["=="](true)
 	T(glsl:find("case " .. id .. ": shader_" .. id .. "_spawn", 1, true) == nil)["=="](true)
 	T(shader_module.ParseError("0:3: error: foo\n"))["=="]("0:3: error: foo\n")
