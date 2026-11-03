@@ -505,8 +505,6 @@ function particle_emitter.Step(emitter, dt)
 	state.burst = 0
 
 	if emitter.Playing then
-		state.time = state.time + dt
-
 		if emitter.Loop or state.time <= emitter.Duration then
 			state.carry = state.carry + emitter.Rate * dt
 			local whole = math.floor(state.carry)
@@ -520,6 +518,8 @@ end
 
 function particle_emitter.Sample(emitter, dt)
 	local state = emitter.particle_state
+
+		state.time = state.time + dt
 
 	if state.queue_head < state.queue_tail then
 		local queue = state.queue
