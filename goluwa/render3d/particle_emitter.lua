@@ -65,6 +65,7 @@ particle_emitter.gpu = {
 	{"StyleParams", nil, nil, "Look"},
 	{"FlipbookFps", 0, ranged(0, 120), "Look"},
 	{"FlipbookRandomStart", false, boolean, "Look"},
+	{"Flatten", 0, ranged(0, 1), "Shape"},
 	{"Stretch", 0, ranged(0, 2), "Look"},
 	{"SpinMin", 0, ranged(-720, 720), "Look"},
 	{"SpinMax", 0, ranged(-720, 720), "Look"},

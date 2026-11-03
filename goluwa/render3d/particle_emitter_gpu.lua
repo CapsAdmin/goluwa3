@@ -227,6 +227,7 @@ gpu.system = particles.Register{
 				{"spin_min", "float"},
 				{"spin_max", "float"},
 				{"stretch", "float"},
+				{"flatten", "float"},
 				{"shape", "int"},
 				{"collision", "int"},
 				{"on_hit", "int"},
@@ -309,6 +310,7 @@ gpu.system = particles.Register{
 			entry.spin_min = math.rad(emitter.SpinMin)
 			entry.spin_max = math.rad(emitter.SpinMax)
 			entry.stretch = emitter.Stretch
+			entry.flatten = emitter.Flatten
 
 			if entry.style ~= 0 then
 				styles.WriteParams(style, emitter.StyleParams, entry.params)
@@ -387,6 +389,10 @@ gpu.system = particles.Register{
 		vec3 direction = axis * cos_theta + (across * cos(phi) + along * sin(phi)) * sqrt(1.0 - cos_theta * cos_theta);
 
 		if (e.shape == 1) direction = radial;
+
+		vec3 flat_direction = direction - axis * dot(direction, axis);
+
+		if (length(flat_direction) > 1e-4) direction = normalize(mix(direction, flat_direction, e.flatten));
 
 		p.position = e.position + offset;
 		p.velocity = direction * mix(e.speed_min, e.speed_max, r3.y) + e.velocity;

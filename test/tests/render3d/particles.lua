@@ -330,7 +330,7 @@ T.Test3D("Graphics render3d particle styles run their glsl hooks with params, dr
 	if not ok then error(err, 0) end
 end)
 
-T.Test3D("Graphics render3d particle sprites play flipbook frames over life or at a frame rate, spin and stretch along their velocity", function(draw)
+T.Test3D("Graphics render3d particle sprites play flipbook frames, spin, stretch along their velocity and flatten onto a plane", function(draw)
 	particle_styles.Register(
 		"test_flipbook",
 		{
@@ -435,6 +435,26 @@ T.Test3D("Graphics render3d particle sprites play flipbook frames over life or a
 			end
 
 			T(stretched)["=="](32)
+			emitter:SetStretch(0)
+			emitter:SetSpeedMin(2)
+			emitter:SetSpeedMax(2)
+			emitter:SetSpread(120)
+			emitter:SetFlatten(1)
+			emitter:Burst(32)
+			step(draw, 2)
+			records = particles.Download(def)
+			local flattened = 0
+
+			for i = 0, def.GetCount() - 1 do
+				local p = records[i]
+
+				if p.life > 0 and p.age < STEP * 4 then
+					flattened = flattened + 1
+					T(math.abs(p.velocity[2]) < 0.05)["=="](true)
+				end
+			end
+
+			T(flattened)["=="](32)
 		end,
 		debug.traceback
 	)
