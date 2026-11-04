@@ -15,6 +15,7 @@ META:GetSet("Time", 0)
 META:GetSet("Selection", nil)
 META:GetSet("Snap", 0.005)
 META:GetSet("LabelWidth", 96)
+META:GetSet("AxisPadding", 14)
 META:GetSet("RowHeight", 22)
 META:GetSet("RulerHeight", 22)
 META:EndStorable()
@@ -27,6 +28,7 @@ local MARQUEE_DISTANCE = 3
 local EDGE_RADIUS = 5
 local MIN_SCALE = 0.05
 local BAND_HEIGHT = 8
+local PLAYHEAD_HEIGHT = 7
 
 function META.OnScrub(time, timeline) end
 
@@ -45,6 +47,8 @@ function META.OnKeysTransform(anchor, scale, offset, first, timeline) end
 function META.OnKeysDrop(timeline) end
 
 function META.OnKeyMenu(row, index, timeline) end
+
+function META.OnRowAction(row, timeline) end
 
 function META:OnCreate()
 	META.BaseClass.OnCreate(self)
@@ -68,18 +72,30 @@ function META:GetViewRange()
 	return self._from, self._to
 end
 
+function META:get_axis_width()
+	return self.transform:GetWidth() - self.LabelWidth - self.AxisPadding * 2
+end
+
 function META:time_to_x(time)
-	local width = self.transform:GetWidth() - self.LabelWidth
-	return self.LabelWidth + (time - self._from) / (self._to - self._from) * width
+	local width = self:get_axis_width()
+	return self.LabelWidth + self.AxisPadding + (
+			time - self._from
+		) / (
+			self._to - self._from
+		) * width
 end
 
 function META:key_x(key)
-	return math.floor(self:time_to_x(key.Time) + 0.5)
+	return math.floor(self:time_to_x(key.Time)) + 0.5
 end
 
 function META:x_to_time(x)
-	local width = self.transform:GetWidth() - self.LabelWidth
-	return self._from + (x - self.LabelWidth) / width * (self._to - self._from)
+	local width = self:get_axis_width()
+	return self._from + (
+			x - self.LabelWidth - self.AxisPadding
+		) / width * (
+			self._to - self._from
+		)
 end
 
 function META:snap(time)
@@ -245,6 +261,12 @@ function META:OnMouseInput(button, press, local_pos)
 	end
 
 	local row, index = self:key_at(local_pos)
+	local button_row = self:row_at(local_pos.y)
+
+	if button_row and self.Rows[button_row].Button then
+		self.OnRowAction(button_row, self)
+		return true
+	end
 
 	if index and input.IsShiftDown() then
 		local selection = {}
@@ -396,7 +418,7 @@ function META:OnGlobalMouseMove(pos)
 	elseif drag.kind == "scrub" then
 		self:scrub_to(local_pos)
 	elseif drag.kind == "pan" then
-		local width = self.transform:GetWidth() - self.LabelWidth
+		local width = self:get_axis_width()
 		local span = drag.to - drag.from
 		local from = math.clamp(drag.from - (local_pos.x - drag.x) / width * span, 0, self.Length - span)
 		self._from, self._to = from, from + span
@@ -422,7 +444,9 @@ end
 do
 	local function draw_key(x, y, radius, round)
 		if round then
-			render2d.DrawFilledCircle(x, y, radius)
+			render2d.PushBorderRadius(radius)
+			render2d.DrawRectf(x - radius, y - radius, radius * 2, radius * 2)
+			render2d.PopBorderRadius()
 		else
 			render2d.DrawRectf(x, y, radius * 1.45, radius * 1.45, math.rad(45), radius * 0.725, radius * 0.725)
 		end
@@ -460,14 +484,19 @@ do
 			render2d.SetColor(border.r, border.g, border.b, 0.6)
 			render2d.DrawRect(x, ruler - 5, 1, size.y)
 			render2d.SetColor(disabled.r, disabled.g, disabled.b, 1)
-			font:DrawText(string.format("%g", math.floor(tick * 1e4 + 0.5) / 1e4), x + 3, 2)
+			local label = string.format("%g", math.floor(tick * 1e4 + 0.5) / 1e4)
+			local text_width, text_height = font:GetTextSize(label)
+			font:DrawText(label, x - text_width / 2, ruler - 6 - text_height)
 			tick = tick + step
 		end
 
 		for i, row in ipairs(rows) do
 			local y = ruler + (i - 1) * row_height
 
-			if i % 2 == 0 then
+			if row.Button then
+				render2d.SetColor(primary.r, primary.g, primary.b, 0.12)
+				render2d.DrawRect(label_width, y, size.x - label_width, row_height)
+			elseif i % 2 == 0 then
 				render2d.SetColor(alt.r, alt.g, alt.b, 0.5)
 				render2d.DrawRect(label_width, y, size.x - label_width, row_height)
 			end
@@ -496,7 +525,7 @@ do
 
 					if above_y and linked_row[link] ~= i then
 						render2d.SetColor(text.r, text.g, text.b, 0.45)
-						render2d.DrawRect(self:key_x(key) - 1, above_y, 2, cy - above_y)
+						render2d.DrawRect(math.floor(self:key_x(key)), above_y, 1, cy - above_y)
 					end
 
 					linked_row[link] = i
@@ -568,10 +597,19 @@ do
 			render2d.DrawRect(x + w - 1, y, 1, h)
 		end
 
-		local playhead = self:time_to_x(self.Time)
+		local playhead = math.floor(self:time_to_x(self.Time))
 		render2d.SetColor(primary.r, primary.g, primary.b, 1)
-		render2d.DrawRect(playhead - 0.5, 0, 2, size.y)
-		render2d.DrawRect(playhead - 5, 0, 10, ruler - 8)
+		render2d.DrawRect(playhead, 0, 1, size.y)
+		render2d.SetColor(primary.r, primary.g, primary.b, 0.5)
+		render2d.DrawRect(playhead - 1, PLAYHEAD_HEIGHT, 1, size.y - PLAYHEAD_HEIGHT)
+		render2d.DrawRect(playhead + 1, PLAYHEAD_HEIGHT, 1, size.y - PLAYHEAD_HEIGHT)
+		render2d.SetColor(primary.r, primary.g, primary.b, 1)
+
+		for row = 0, PLAYHEAD_HEIGHT - 1 do
+			local half = PLAYHEAD_HEIGHT - 1 - row
+			render2d.DrawRect(playhead - half, row, half * 2 + 1, 1)
+		end
+
 		render2d.PopClip()
 		render2d.SetColor(surface.r, surface.g, surface.b, 1)
 		render2d.DrawRect(0, 0, label_width, size.y)
@@ -580,7 +618,8 @@ do
 		render2d.DrawRect(0, ruler - 1, size.x, 1)
 
 		for i, row in ipairs(rows) do
-			render2d.SetColor(text.r, text.g, text.b, 1)
+			local c = row.Button and primary or text
+			render2d.SetColor(c.r, c.g, c.b, 1)
 			font:DrawText(row.Name, 6, ruler + (i - 1) * row_height + 4)
 		end
 	end

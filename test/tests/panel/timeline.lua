@@ -13,6 +13,7 @@ T.Test2D("timeline scrubs, selects, drags, adds and zooms", function()
 		Rows = rows,
 		Size = Vec2(1096, 200),
 		LabelWidth = 96,
+		AxisPadding = 0,
 		RulerHeight = 20,
 		RowHeight = 20,
 		OnScrub = function(time)
@@ -76,6 +77,7 @@ T.Test2D("timeline marquee selects keys, moves them together and scales the boun
 		Rows = rows,
 		Size = Vec2(1096, 200),
 		LabelWidth = 96,
+		AxisPadding = 0,
 		RulerHeight = 20,
 		RowHeight = 20,
 		OnSelectKeys = function(selection)
@@ -117,6 +119,13 @@ T.Test2D("timeline marquee selects keys, moves them together and scales the boun
 	T(log.transform[1])["=="](0.2)
 	T(math.abs(log.transform[2] - 1.5))["<"](0.0001)
 	timeline:OnGlobalMouseInput("button_1", false)
+	rows[3] = {Name = "+", Button = true, Keys = {}}
+	timeline.OnRowAction = function(row)
+		log.action = row
+	end
+	timeline:OnMouseInput("button_1", true, Vec2(10, 70))
+	T(log.action)["=="](3)
+	timeline:OnMouseInput("button_1", false, Vec2(10, 70))
 	timeline:OnMouseInput("button_2", true, Vec2(x(0.4), 30))
 	T(log.menu[1])["=="](1)
 	T(log.menu[2])["=="](2)
