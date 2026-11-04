@@ -10,6 +10,7 @@ local REFERENCE_SPEED = 220 * UNIT
 local SURGE = 0.3
 local DRIFT = 0.12
 local EASE = math.pi / 2
+local BLEND_RATE = 5
 local LOOK_PITCH = -1.1
 local HUNCH = -0.1875
 local HEAD_TUCK = -0.1125
@@ -53,23 +54,93 @@ local look = Quat()
 
 local function apply_turn(inst, target)
 	local axis = AXES[inst.arg]
-	target[axis[1]](target, axis[2] * inst.cycle)
+	target[axis[1]](target, axis[2] * ((inst.cycle + math.pi) % TURN - math.pi))
 end
 
 return {
 	roll = {
 		BoneKeys = {
 			Time = "cycle",
-			{Pivot = "waist", Chain = UPPER, Pitch = HUNCH, Wobble = WOBBLE, Frequency = 1, Offset = 1.3},
-			{Pivot = "neck", Chain = HEAD, Pitch = HEAD_TUCK, Wobble = WOBBLE, Frequency = 2, Offset = 2.6},
-			{Pivot = "thigh_r", Chain = LEG_R, Pitch = THIGH, Wobble = WOBBLE, Frequency = 1, Offset = 3.9},
-			{Pivot = "calf_r", Chain = LOWER_LEG_R, Pitch = CALF, Wobble = WOBBLE, Frequency = 3, Offset = 5.2},
-			{Pivot = "thigh_l", Chain = LEG_L, Pitch = THIGH, Wobble = WOBBLE, Frequency = 2, Offset = 6.5},
-			{Pivot = "calf_l", Chain = LOWER_LEG_L, Pitch = CALF, Wobble = WOBBLE, Frequency = 3, Offset = 7.8},
-			{Pivot = "upperarm_r", Chain = ARM_R, Pitch = UPPER_ARM, Wobble = WOBBLE, Frequency = 1, Offset = 9.1},
-			{Pivot = "forearm_r", Chain = FOREARM_R, Pitch = FOREARM, Wobble = WOBBLE, Frequency = 2, Offset = 10.4},
-			{Pivot = "upperarm_l", Chain = ARM_L, Pitch = UPPER_ARM, Wobble = WOBBLE, Frequency = 3, Offset = 11.7},
-			{Pivot = "forearm_l", Chain = FOREARM_L, Pitch = FOREARM, Wobble = WOBBLE, Frequency = 1, Offset = 13},
+			{
+				Pivot = "waist",
+				Chain = UPPER,
+				Pitch = HUNCH,
+				Wobble = WOBBLE,
+				Frequency = 1,
+				Offset = 1.3,
+			},
+			{
+				Pivot = "neck",
+				Chain = HEAD,
+				Pitch = HEAD_TUCK,
+				Wobble = WOBBLE,
+				Frequency = 2,
+				Offset = 2.6,
+			},
+			{
+				Pivot = "thigh_r",
+				Chain = LEG_R,
+				Pitch = THIGH,
+				Wobble = WOBBLE,
+				Frequency = 1,
+				Offset = 3.9,
+			},
+			{
+				Pivot = "calf_r",
+				Chain = LOWER_LEG_R,
+				Pitch = CALF,
+				Wobble = WOBBLE,
+				Frequency = 3,
+				Offset = 5.2,
+			},
+			{
+				Pivot = "thigh_l",
+				Chain = LEG_L,
+				Pitch = THIGH,
+				Wobble = WOBBLE,
+				Frequency = 2,
+				Offset = 6.5,
+			},
+			{
+				Pivot = "calf_l",
+				Chain = LOWER_LEG_L,
+				Pitch = CALF,
+				Wobble = WOBBLE,
+				Frequency = 3,
+				Offset = 7.8,
+			},
+			{
+				Pivot = "upperarm_r",
+				Chain = ARM_R,
+				Pitch = UPPER_ARM,
+				Wobble = WOBBLE,
+				Frequency = 1,
+				Offset = 9.1,
+			},
+			{
+				Pivot = "forearm_r",
+				Chain = FOREARM_R,
+				Pitch = FOREARM,
+				Wobble = WOBBLE,
+				Frequency = 2,
+				Offset = 10.4,
+			},
+			{
+				Pivot = "upperarm_l",
+				Chain = ARM_L,
+				Pitch = UPPER_ARM,
+				Wobble = WOBBLE,
+				Frequency = 3,
+				Offset = 11.7,
+			},
+			{
+				Pivot = "forearm_l",
+				Chain = FOREARM_L,
+				Pitch = FOREARM,
+				Wobble = WOBBLE,
+				Frequency = 1,
+				Offset = 13,
+			},
 		},
 		Kind = "state",
 		Enter = 0.15,
@@ -96,13 +167,24 @@ return {
 		Body = function(inst, pose, position, base)
 			local turned = base:Copy()
 			apply_turn(inst, turned)
-			local blend = math.min(inst.cycle / EASE, 1)
+			local target = math.min(inst.cycle / EASE, 1)
 
 			if inst.end_cycle then
-				blend = math.min(blend, (inst.end_cycle - inst.cycle) / EASE)
+				target = math.min(target, (inst.end_cycle - inst.cycle) / EASE)
 			end
 
-			local height = math.lerp(math.clamp(blend, 0, 1), PIVOT, PIVOT_HEIGHT)
+			target = math.clamp(target, 0, 1)
+			local blend = inst.blend
+
+			if blend then
+				blend = math.approach(blend, target, BLEND_RATE * (inst.time - inst.blend_time))
+			else
+				blend = target
+			end
+
+			inst.blend = blend
+			inst.blend_time = inst.time
+			local height = math.lerp(blend, PIVOT, PIVOT_HEIGHT)
 			local moved = position + base:VecMul(pivot) + Vec3(0, height - PIVOT, 0) - turned:VecMul(pivot)
 			position:Set(moved.x, moved.y, moved.z)
 			base:Set(turned.x, turned.y, turned.z, turned.w)
