@@ -158,7 +158,7 @@ function META:OnMouseInput(button, press, local_pos)
 
 	if button == "button_2" then
 		selected = nil
-		switch_time = system.GetElapsedTime()
+		switch_time = system.GetUnscaledElapsedTime()
 		return true
 	end
 
@@ -169,7 +169,7 @@ function META:OnMouseInput(button, press, local_pos)
 	if dx * dx + dy * dy < PIE_INNER * PIE_INNER then
 		if group then
 			selected = nil
-			switch_time = system.GetElapsedTime()
+			switch_time = system.GetUnscaledElapsedTime()
 		end
 
 		return true
@@ -179,7 +179,7 @@ function META:OnMouseInput(button, press, local_pos)
 
 	if index and not group then
 		selected = entries[index].id
-		switch_time = system.GetElapsedTime()
+		switch_time = system.GetUnscaledElapsedTime()
 	end
 
 	return true
@@ -189,7 +189,7 @@ function META:OnDraw()
 	local group, entries, total = collect()
 	local mouse = self.mouse_input:GetMousePosition()
 	local hovered = self.mouse_input.Hovered and entry_at(entries, mouse.x, mouse.y)
-	local ease = math.clamp((system.GetElapsedTime() - switch_time) / ZOOM_SECONDS, 0, 1)
+	local ease = math.clamp((system.GetUnscaledElapsedTime() - switch_time) / ZOOM_SECONDS, 0, 1)
 	ease = 1 - (1 - ease) * (1 - ease)
 	local scale = math.lerp(ease, 0.82, 1)
 	local alpha = math.lerp(ease, 0.2, 1)

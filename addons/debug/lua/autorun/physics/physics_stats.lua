@@ -183,7 +183,7 @@ perf.RegisterTab(
 			react.UseEvent(
 				"Update",
 				||-> do
-					local now = system.GetElapsedTime()
+					local now = system.GetUnscaledElapsedTime()
 
 					if not window.current then
 						window.current = {start = now, frames = 0, last_update = now}

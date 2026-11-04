@@ -6,7 +6,7 @@ killfeed.MaxEntries = 6
 
 function killfeed.Add(killer, victim)
 	local entries = killfeed.Entries
-	entries[#entries + 1] = {killer = killer, victim = victim, time = system.GetElapsedTime()}
+	entries[#entries + 1] = {killer = killer, victim = victim, time = system.GetUnscaledElapsedTime()}
 
 	if #entries > killfeed.MaxEntries then table.remove(entries, 1) end
 end

@@ -70,7 +70,7 @@ local function on_content_mouse_input(content, button, press, local_pos)
 		return true
 	end
 
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 
 	if
 		grid._last_click_index == index and

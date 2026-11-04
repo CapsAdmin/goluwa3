@@ -24,7 +24,7 @@ function META:Animate(config)
 end
 
 function META:CalcAnimations()
-	animations.Update(system.GetFrameTime(), self.Owner)
+	animations.Update(system.GetUnscaledFrameTime(), self.Owner)
 end
 
 function META:StopAnimations()

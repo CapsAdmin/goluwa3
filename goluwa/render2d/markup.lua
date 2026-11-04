@@ -180,7 +180,7 @@ function Markup:BeginLifeTime(time, fade_time)
 		self.editor.Buffer.chunks,
 		{
 			type = "start_fade",
-			val = system.GetElapsedTime() + time + fade_time,
+			val = system.GetUnscaledElapsedTime() + time + fade_time,
 			fade_time = fade_time,
 			time = time,
 		}
@@ -600,7 +600,7 @@ do
 	Markup.tags.blackhole = {
 		arguments = {1},
 		pre_draw = function(markup, self, x, y, force)
-			local delta = system.GetFrameTime() * 2
+			local delta = system.GetUnscaledFrameTime() * 2
 
 			for _, v in ipairs(markup.prepared_chunks) do
 				if v ~= self and v.w > 0 and v.h > 0 then
@@ -634,7 +634,7 @@ do
 			}
 		end,
 		pre_draw = function(markup, self, x, y, gravity_y, gravity_x, vx, vy, drag, rand_mult)
-			local dt = math.min(system.GetFrameTime(), 0.05)
+			local dt = math.min(system.GetUnscaledFrameTime(), 0.05)
 			local part = self.part
 			local bounds_width = markup.MaxWidth
 
@@ -1981,7 +1981,7 @@ end
 
 do
 	function Markup:ResetCaretBlink()
-		self.blink_offset = system.GetElapsedTime() - 0.251
+		self.blink_offset = system.GetUnscaledElapsedTime() - 0.251
 	end
 
 	function Markup:SetCaretPosition(x, y)
@@ -2435,7 +2435,7 @@ do
 
 		if button == "button_1" then
 			if press then
-				if self.last_click and self.last_click > system.GetElapsedTime() then
+				if self.last_click and self.last_click > system.GetUnscaledElapsedTime() then
 					self.times_clicked = (self.times_clicked or 1) + 1
 				else
 					self.times_clicked = 1
@@ -2450,7 +2450,7 @@ do
 					self:SelectCurrentLine()
 				end
 
-				self.last_click = system.GetElapsedTime() + 0.2
+				self.last_click = system.GetUnscaledElapsedTime() + 0.2
 
 				if self.times_clicked > 1 then return end
 			end
@@ -2611,7 +2611,7 @@ do
 					)
 				then
 					if chunk.type == "start_fade" then
-						local time = chunk.val - system.GetElapsedTime()
+						local time = chunk.val - system.GetUnscaledElapsedTime()
 
 						if time <= chunk.fade_time then
 							chunk.alpha = math.clamp(time / chunk.fade_time, 0, 1)
@@ -2811,7 +2811,10 @@ do
 	end
 
 	function Markup:IsCaretVisible()
-		return self.Editable and (system.GetElapsedTime() - self.blink_offset) % 0.5 > 0.25
+		return self.Editable and
+			(
+				system.GetUnscaledElapsedTime() - self.blink_offset
+			) % 0.5 > 0.25
 	end
 
 	function Markup:DrawCaret()

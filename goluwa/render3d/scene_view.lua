@@ -155,7 +155,7 @@ end
 function release_bundle(bundle)
 	bundle.users = bundle.users - 1
 
-	if bundle.users == 0 then bundle.idle_since = system.GetElapsedTime() end
+	if bundle.users == 0 then bundle.idle_since = system.GetUnscaledElapsedTime() end
 end
 
 function META:Render(cmd)
@@ -221,7 +221,7 @@ do
 	local pending = {}
 
 	event.AddListener("PreRenderPass", "render3d_scene_views", function()
-		local now = system.GetElapsedTime()
+		local now = system.GetUnscaledElapsedTime()
 
 		for key, bundle in pairs(bundles) do
 			if bundle.idle_since and now - bundle.idle_since > BUNDLE_IDLE_SECONDS then

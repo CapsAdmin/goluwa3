@@ -40,7 +40,7 @@ end
 function TrailRenderer:Update(dt)
 	if self.Paused then return end
 
-	local time = system.GetElapsedTime()
+	local time = system.GetUnscaledElapsedTime()
 	local cutoff = time - self.Duration
 
 	while #self.points > 0 and self.points[1].time < cutoff do
@@ -157,7 +157,7 @@ function TrailRenderer:AddPoint(x, y)
 
 	if #self.points >= self.MaxPoints then table.remove(self.points, 1) end
 
-	table.insert(self.points, {x = x, y = y, time = system.GetElapsedTime()})
+	table.insert(self.points, {x = x, y = y, time = system.GetUnscaledElapsedTime()})
 end
 
 function TrailRenderer:Clear()

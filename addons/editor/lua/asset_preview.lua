@@ -791,7 +791,7 @@ local steps = {
 
 function previews.Update()
 	previews.frame = previews.frame + 1
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 	local frame_wanted = next_wanted
 	next_wanted = wanted
 	wanted = frame_wanted

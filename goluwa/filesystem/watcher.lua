@@ -339,13 +339,13 @@ function hotreload.Start()
 
 			if not path:ends_with(".lua") and not path:ends_with(".nlua") then return end
 
-			if last_reloaded[path] and last_reloaded[path] > system.GetElapsedTime() then
+			if last_reloaded[path] and last_reloaded[path] > system.GetUnscaledElapsedTime() then
 				return
 			end
 
-			last_reloaded[path] = system.GetElapsedTime() + 0.2
+			last_reloaded[path] = system.GetUnscaledElapsedTime() + 0.2
 			hotreload.Reload(path)
-			last_reloaded[path] = system.GetElapsedTime() + 0.2
+			last_reloaded[path] = system.GetUnscaledElapsedTime() + 0.2
 		end,
 		true,
 		{".git", "gmod/src", "love/games"}

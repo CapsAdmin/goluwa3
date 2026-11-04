@@ -640,13 +640,13 @@ function META:GetWrappedSize(width)
 end
 
 function META:ResetCaretBlink()
-	self.caret_blink_reset_time = system.GetElapsedTime()
+	self.caret_blink_reset_time = system.GetUnscaledElapsedTime()
 end
 
 function META:IsCaretVisible()
 	return (
 			(
-				system.GetElapsedTime() - (
+				system.GetUnscaledElapsedTime() - (
 					self.caret_blink_reset_time or
 					0
 				)
@@ -1155,7 +1155,7 @@ function META:OnMouseInput(button, press, local_pos)
 		if press then
 			if self.editor then
 				self.preferred_caret_x = nil
-				local now = system.GetElapsedTime()
+				local now = system.GetUnscaledElapsedTime()
 				local index = self:GetIndexAtPosition(local_pos.x, local_pos.y)
 
 				if

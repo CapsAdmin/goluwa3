@@ -27,7 +27,7 @@ function META:OnMouseInput(button, press, pos)
 				self.is_pressing_left = false
 
 				if self.Owner.mouse_input:GetHovered() then
-					local now = system.GetElapsedTime()
+					local now = system.GetUnscaledElapsedTime()
 					local double_click_key = self:GetDoubleClickKey() or self.Owner
 					local last_click_time = shared_double_click_times[double_click_key]
 					local is_double_click = last_click_time and now - last_click_time <= self:GetDoubleClickTime()

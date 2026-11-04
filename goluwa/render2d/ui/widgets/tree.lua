@@ -74,7 +74,7 @@ function META:OnCreate()
 	self._drag_state = {active = false, source_key = nil, drop_info = nil}
 	self._row_click_times = {}
 	self._click_clock = 0
-	self._last_update_time = system.GetElapsedTime()
+	self._last_update_time = system.GetUnscaledElapsedTime()
 	self._pending_expand_animation_key = nil
 	self._mutation_blocked = 0
 	self._pending_refresh = false
@@ -91,11 +91,14 @@ function META:OnCreate()
 end
 
 function META:OnUpdate()
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 	self._click_clock = self._click_clock + math.min(now - self._last_update_time, self.DoubleClickTime / 2)
 	self._last_update_time = now
 
-	if self._pending_refresh and system.GetElapsedTime() >= self._refresh_deadline then
+	if
+		self._pending_refresh and
+		system.GetUnscaledElapsedTime() >= self._refresh_deadline
+	then
 		self._pending_refresh = false
 		self:Refresh(true)
 	end
@@ -233,7 +236,7 @@ function META:Rebuild(force)
 
 	if not force and self._refresh_debounce > 0 then
 		self._pending_refresh = true
-		self._refresh_deadline = system.GetElapsedTime() + self._refresh_debounce
+		self._refresh_deadline = system.GetUnscaledElapsedTime() + self._refresh_debounce
 		return self
 	end
 

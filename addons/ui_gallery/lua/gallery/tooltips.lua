@@ -4,7 +4,10 @@ local system = import("goluwa/system.lua")
 local kit = import("addons/ui_gallery/lua/gallery_kit.lua")
 
 local function elapsed_tooltip()
-	return string.format("Tooltip text can be computed: %.1f seconds since start", system.GetElapsedTime())
+	return string.format(
+		"Tooltip text can be computed: %.1f seconds since start",
+		system.GetUnscaledElapsedTime()
+	)
 end
 
 return {

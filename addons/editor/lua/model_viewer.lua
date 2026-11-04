@@ -65,7 +65,7 @@ local ModelView = react.Component(
 					"there is no model to view in " .. entry.path
 				)
 				local view = SceneView.New{TransparentSky = false}
-				local started = system.GetElapsedTime()
+				local started = system.GetUnscaledElapsedTime()
 				view:SetEnvironment(Environment.GetPreset(DEFAULT_ENVIRONMENT))
 
 				function view.OnDrawGeometry()
@@ -101,7 +101,7 @@ local ModelView = react.Component(
 				if not panel then return end
 
 				local view = state.view
-				local now = system.GetElapsedTime()
+				local now = system.GetUnscaledElapsedTime()
 				local dt = math.min(now - state.last_time, 0.1)
 				state.last_time = now
 				local canvas_size = panel.transform:GetSize()

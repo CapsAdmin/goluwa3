@@ -100,7 +100,7 @@ event.AddListener("DrawHUD", "toolgun_hud", function()
 	end
 
 	local w, h = render2d.GetSize()
-	local pulse = 7 + math.sin(system.GetElapsedTime() * 8) * 2
+	local pulse = 7 + math.sin(system.GetUnscaledElapsedTime() * 8) * 2
 
 	for _, target in ipairs(context.targets) do
 		local screen = render3d.GetMainCamera():WorldPositionToScreen(toolgun.GetTargetPosition(target), w, h)

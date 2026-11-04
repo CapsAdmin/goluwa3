@@ -29,7 +29,7 @@ end
 function META.OnDebugLayout(layout)
 	if not META.LayoutDebugEnabled then return end
 
-	layout.debug_layout_flash_time = system.GetElapsedTime and system.GetElapsedTime() or 0
+	layout.debug_layout_flash_time = system.GetUnscaledElapsedTime and system.GetUnscaledElapsedTime() or 0
 end
 
 local function draw_layout_debug_outline(owner)
@@ -45,7 +45,7 @@ local function draw_layout_debug_outline(owner)
 
 	if fade_duration <= 0 then return end
 
-	local elapsed_time = system.GetElapsedTime and system.GetElapsedTime() or 0
+	local elapsed_time = system.GetUnscaledElapsedTime and system.GetUnscaledElapsedTime() or 0
 	local alpha = 1 - ((elapsed_time - flashed_at) / fade_duration)
 
 	if alpha <= 0 then return end

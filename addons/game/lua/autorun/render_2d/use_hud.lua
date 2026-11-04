@@ -40,7 +40,7 @@ event.AddListener("DrawHUD", "use_hud", function()
 		return
 	end
 
-	local dt = system.GetFrameTime()
+	local dt = system.GetUnscaledFrameTime()
 	local target = targeting.Get()
 	local usable
 
@@ -83,7 +83,7 @@ event.AddListener("DrawHUD", "use_hud", function()
 	local pulse = 0
 
 	if current and current:IsValid() then
-		pulse = math.max(1 - (system.GetElapsedTime() - current.last_use) / PULSE_TIME, 0)
+		pulse = math.max(1 - (system.GetUnscaledElapsedTime() - current.last_use) / PULSE_TIME, 0)
 	end
 
 	local S = h / 1080
@@ -94,7 +94,7 @@ event.AddListener("DrawHUD", "use_hud", function()
 		{
 			kind = locked and "target" or "use",
 			alpha = ease,
-			time = system.GetElapsedTime(),
+			time = system.GetUnscaledElapsedTime(),
 		}
 	)
 

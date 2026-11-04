@@ -39,7 +39,7 @@ local TrailBar = react.Component(
 )
 
 local function draw_reticle(canvas)
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 	render2d.SetTexture(nil)
 	render2d.SetColor(0.12, 0.14, 0.18, 1)
 	render2d.DrawRoundedRect(0, 0, CANVAS, CANVAS, 6)

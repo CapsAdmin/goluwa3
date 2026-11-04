@@ -187,7 +187,7 @@ do
 		local precision = field.Precision
 
 		if accelerate then
-			local speed = math.abs(frame_delta.y) / math.max(system.GetFrameTime(), 1 / 240)
+			local speed = math.abs(frame_delta.y) / math.max(system.GetUnscaledFrameTime(), 1 / 240)
 			rate = rate * math.min(1 + (speed / ACCELERATION_SPEED) ^ 2, MAX_ACCELERATION)
 		end
 

@@ -25,7 +25,7 @@ function History:Push(entry)
 		entry.Undo and entry.Redo and entry.Name,
 		"a history entry needs Name, Undo and Redo"
 	)
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 
 	if self.depth > 0 then
 		self.group[#self.group + 1] = entry

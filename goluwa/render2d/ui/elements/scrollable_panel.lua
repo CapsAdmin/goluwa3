@@ -126,7 +126,7 @@ local function on_button_start_click(button)
 	scrollable:step_scroll(button.Axis, button.ScrollStep)
 	scrollable.repeat_button = button
 	scrollable.repeat_page_pos = nil
-	scrollable.repeat_time = system.GetElapsedTime() + REPEAT_DELAY
+	scrollable.repeat_time = system.GetUnscaledElapsedTime() + REPEAT_DELAY
 	return true
 end
 
@@ -138,7 +138,7 @@ local function on_track_start_click(track, button, press, pos)
 
 	scrollable.repeat_button = track
 	scrollable.repeat_page_pos = pos[axis]
-	scrollable.repeat_time = system.GetElapsedTime() + REPEAT_DELAY
+	scrollable.repeat_time = system.GetUnscaledElapsedTime() + REPEAT_DELAY
 	return true
 end
 
@@ -327,7 +327,7 @@ function META:begin_autoscroll(mouse_pos)
 	self.autoscroll_moved = false
 	self.autoscroll_sticky = false
 	self.autoscroll_position = self.Viewport.transform:GetScroll():Copy()
-	self.autoscroll_time = system.GetElapsedTime()
+	self.autoscroll_time = system.GetUnscaledElapsedTime()
 	local marker = self.AutoscrollMarker
 	marker.ScrollsY = self.ScrollY
 	marker.ScrollsX = self.ScrollX
@@ -430,7 +430,7 @@ function META:OnUpdate()
 
 	if self.autoscroll_origin then
 		if self.autoscroll_sticky or input.IsMouseDown("button_3") then
-			local now = system.GetElapsedTime()
+			local now = system.GetUnscaledElapsedTime()
 			self:update_autoscroll(system.GetWindow():GetMousePosition(), math.min(now - self.autoscroll_time, 0.1))
 			self.autoscroll_time = now
 		else
@@ -456,7 +456,7 @@ function META:OnUpdate()
 		return
 	end
 
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 
 	if now >= self.repeat_time then
 		if self.repeat_page_pos then

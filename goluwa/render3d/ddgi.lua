@@ -537,7 +537,7 @@ do
 		region.min_x, region.max_x = fit_region(0, position.x, bounds_min, bounds_max)
 		region.min_y, region.max_y = fit_region(1, position.y, bounds_min, bounds_max)
 		region.min_z, region.max_z = fit_region(2, position.z, bounds_min, bounds_max)
-		local frame_time = system.GetFrameTime()
+		local frame_time = system.GetUnscaledFrameTime()
 		local irradiance = render3d.pipelines.ddgi_irradiance
 		local framebuffers = irradiance and irradiance.framebuffers
 		local reset_mask = 0

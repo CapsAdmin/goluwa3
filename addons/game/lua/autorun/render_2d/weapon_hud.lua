@@ -32,7 +32,7 @@ event.AddListener("DrawHUD", "weapon_hud", function()
 	local right = holder:GetWeapon("right")
 	local left = holder:GetWeapon("left")
 	local chest = holder:GetWeapon("chest")
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 
 	if right ~= last_right or left ~= last_left or chest ~= last_chest then
 		last_right, last_left, last_chest = right, left, chest

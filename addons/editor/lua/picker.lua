@@ -39,7 +39,7 @@ do
 	end
 
 	function picker.GetNonvisualCandidates()
-		local now = system.GetElapsedTime()
+		local now = system.GetUnscaledElapsedTime()
 
 		if
 			nonvisual_candidates_dirty and

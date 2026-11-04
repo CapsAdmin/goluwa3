@@ -13,7 +13,7 @@ This demo uses one animated circular obstacle and one fixed rectangular card. Th
 ]]
 
 local function rebuild_layout(view, size)
-	local t = system.GetElapsedTime()
+	local t = system.GetUnscaledElapsedTime()
 	local region = {x = 28, y = 28, width = size.x - 56, height = size.y - 56}
 	local circle = {
 		kind = "circle",

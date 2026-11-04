@@ -46,7 +46,7 @@ local function ensure_started(now)
 	if started then return end
 
 	started = true
-	window_start = now or system.GetElapsedTime()
+	window_start = now or system.GetUnscaledElapsedTime()
 	reset_bucket(current)
 	reset_bucket(last_second)
 end
@@ -151,7 +151,7 @@ local function build_field_text(field, bucket)
 end
 
 function stats.RecordFrame(dt)
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 	ensure_started(now)
 	record_frametime_history(dt)
 	current.frames = current.frames + 1

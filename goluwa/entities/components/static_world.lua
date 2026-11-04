@@ -182,7 +182,7 @@ function META:MarkDirty(component)
 		return
 	end
 
-	self.collision_dirty[component] = system.GetElapsedTime()
+	self.collision_dirty[component] = system.GetUnscaledElapsedTime()
 
 	if not RENDER_2D then
 		component:UpdateRecord(record)
@@ -210,7 +210,7 @@ function META:BeginEdit(component, record)
 		primitives = {},
 		bounds = {},
 		entity = entity,
-		time = system.GetElapsedTime(),
+		time = system.GetUnscaledElapsedTime(),
 	}
 end
 
@@ -633,7 +633,7 @@ function META:RemoveCollider(record)
 end
 
 function META:OnUpdate()
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 
 	if (self.removed[1] or next(self.dirty)) and now - self.last_flush >= FLUSH_INTERVAL then
 		self.last_flush = now

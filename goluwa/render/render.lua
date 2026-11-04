@@ -465,7 +465,7 @@ end
 function render.EndFrame()
 	assert(render.cmd)
 
-	if render.stats then render_stats.RecordFrame(system.GetFrameTime()) end
+	if render.stats then render_stats.RecordFrame(system.GetUnscaledFrameTime()) end
 
 	run_flush_callbacks("end_frame")
 	render.target:EndFrame()
@@ -905,7 +905,15 @@ do
 			srcAccess = config.srcAccess or "color_attachment_write"
 		end
 
-		transition(resource, "transfer_src_optimal", config, srcStage, srcAccess, "transfer", "transfer_read")
+		transition(
+			resource,
+			"transfer_src_optimal",
+			config,
+			srcStage,
+			srcAccess,
+			"transfer",
+			"transfer_read"
+		)
 	end
 
 	function render.TransitionResourceToTransferDst(resource, config)
@@ -922,7 +930,15 @@ do
 			srcAccess = config.srcAccess or "color_attachment_write"
 		end
 
-		transition(resource, "transfer_dst_optimal", config, srcStage, srcAccess, "transfer", "transfer_write")
+		transition(
+			resource,
+			"transfer_dst_optimal",
+			config,
+			srcStage,
+			srcAccess,
+			"transfer",
+			"transfer_write"
+		)
 	end
 
 	function render.TransitionResourceToColorAttachment(resource, config)

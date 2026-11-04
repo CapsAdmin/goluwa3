@@ -160,7 +160,7 @@ function ensure_panel()
 				not state.pending_owner.mouse_input:GetHovered()
 			then
 				clear_pending(state.pending_owner)
-			elseif system.GetElapsedTime() >= state.pending_show_time then
+			elseif system.GetUnscaledElapsedTime() >= state.pending_show_time then
 				show_now(state.pending_owner, state.pending_source, state.pending_options)
 			end
 		end
@@ -211,7 +211,7 @@ function tooltip.Show(owner, source, options)
 	state.pending_owner = owner
 	state.pending_source = source
 	state.pending_options = options or {}
-	state.pending_show_time = system.GetElapsedTime() + get_delay(state.pending_options)
+	state.pending_show_time = system.GetUnscaledElapsedTime() + get_delay(state.pending_options)
 	ensure_panel()
 end
 

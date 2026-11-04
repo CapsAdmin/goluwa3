@@ -86,7 +86,7 @@ local function build_rows()
 		local s = terrain:GetStats()
 		local t = s.totals
 		local build = s.build
-		local now = system.GetElapsedTime()
+		local now = system.GetUnscaledElapsedTime()
 
 		if now - rate_time >= 1 then
 			rate = (build.built - rate_built) / (now - rate_time)

@@ -832,12 +832,12 @@ local Editor = react.Component(
 
 				if not f.camera_position or (position - f.camera_position):GetLength() > 0.001 then
 					f.camera_position = position:Copy()
-					f.camera_moved = system.GetElapsedTime()
+					f.camera_moved = system.GetUnscaledElapsedTime()
 					f.nearby_dirty = true
 				elseif
 					f.nearby and
 					f.nearby_dirty and
-					system.GetElapsedTime() - f.camera_moved >= NEARBY_SETTLE_TIME
+					system.GetUnscaledElapsedTime() - f.camera_moved >= NEARBY_SETTLE_TIME
 				then
 					f.nearby_dirty = false
 					tree.current:SetNearby(nearby.Collect(position, NEARBY_COUNT))

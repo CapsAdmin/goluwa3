@@ -872,10 +872,12 @@ do
 		local last_poll = react.UseRef()
 		latest.current = fn
 
-		if not last_poll.current then last_poll.current = system.GetElapsedTime() end
+		if not last_poll.current then
+			last_poll.current = system.GetUnscaledElapsedTime()
+		end
 
 		react.UseEvent("Update", function()
-			local now = system.GetElapsedTime()
+			local now = system.GetUnscaledElapsedTime()
 
 			if now - last_poll.current >= (interval or 0) then
 				last_poll.current = now
@@ -892,7 +894,7 @@ do
 
 		react.UseEffect(
 			function()
-				pending.current = {value = value, deadline = system.GetElapsedTime() + delay}
+				pending.current = {value = value, deadline = system.GetUnscaledElapsedTime() + delay}
 			end,
 			{value}
 		)
@@ -900,7 +902,7 @@ do
 		react.UseEvent("Update", function()
 			local change = pending.current
 
-			if change and system.GetElapsedTime() >= change.deadline then
+			if change and system.GetUnscaledElapsedTime() >= change.deadline then
 				pending.current = nil
 				set_debounced(change.value)
 			end

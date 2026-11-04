@@ -82,7 +82,7 @@ function TextUndo:Push(text, cursor)
 		kind = "delete"
 	end
 
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 	local merge = not self.sealed and
 		kind ~= "edit" and
 		current.kind == kind and

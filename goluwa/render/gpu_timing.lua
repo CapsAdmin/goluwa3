@@ -65,7 +65,7 @@ end
 function get_total_ms(name)
 	if name == TOTAL_NAME then return get_everything_ms() end
 
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 	local total
 
 	for _, pool in pairs(pools) do
@@ -171,7 +171,7 @@ local function read_back_pool(pool)
 		RESULT_FLAGS
 	)
 	local period = get_timestamp_period()
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 
 	for slot = 0, scope_count - 1 do
 		local begin_value = data[slot * 4 + 0]

@@ -60,7 +60,7 @@ local material = debug_draw.GetMaterial{
 event.AddListener("Draw3DForwardOverlay", "highlight", function()
 	if not highlight.entity:IsValid() then return end
 
-	local pulse = (math.sin(system.GetElapsedTime() * 6) + 1) * 0.5
+	local pulse = (math.sin(system.GetUnscaledElapsedTime() * 6) + 1) * 0.5
 	local alpha = 0.2 + pulse * 0.35
 	local emissive = 0.12 + pulse * 0.32
 	material:SetColorMultiplier(Color(1, 0.35 + pulse * 0.35, 0.15, alpha))
@@ -145,7 +145,7 @@ event.AddListener("Draw2D", "highlight", function()
 
 	if size.x <= 0 or size.y <= 0 then return end
 
-	local pulse = (math.sin(system.GetElapsedTime() * 6) + 1) * 0.5
+	local pulse = (math.sin(system.GetUnscaledElapsedTime() * 6) + 1) * 0.5
 	local fill_alpha = 0.05 + pulse * 0.08
 	local outline_alpha = 0.45 + pulse * 0.35
 	local masked, clip_x1, clip_y1, clip_x2, clip_y2 = ent.transform:BeginScrollViewportMask(0, 0, size.x, size.y)

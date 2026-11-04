@@ -149,7 +149,7 @@ do
 
 	function logging.LogFormatNoSpam(str, ...)
 		local str = string.format(str, ...)
-		local t = system.GetElapsedTime()
+		local t = system.GetUnscaledElapsedTime()
 
 		if not last[str] or last[str] < t then
 			logging.LogNewline(str)

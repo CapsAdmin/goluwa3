@@ -15,7 +15,7 @@ local notice = {text = "", time = -math.huge}
 
 local function notify(prefix, entry)
 	notice.text = prefix .. entry.Name
-	notice.time = system.GetElapsedTime()
+	notice.time = system.GetUnscaledElapsedTime()
 end
 
 event.AddListener("KeyInput", "game_history", function(key, press)
@@ -53,7 +53,7 @@ event.AddListener("GameHistoryApplied", "game_history", function(action, name)
 end)
 
 event.AddListener("DrawHUD", "game_history", function()
-	local age = system.GetElapsedTime() - notice.time
+	local age = system.GetUnscaledElapsedTime() - notice.time
 
 	if age > NOTICE_TIME then return end
 

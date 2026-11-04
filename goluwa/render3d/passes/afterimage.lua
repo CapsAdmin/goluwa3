@@ -221,7 +221,7 @@ afterimage.passes = {
 					local size = render.GetRenderImageSize()
 					render3d.WriteCameraBlock(self, block)
 					render3d.WritePreviousCameraBlock(self, block)
-					block.dt = math.clamp(system.GetFrameTime(), 0, 0.1)
+					block.dt = math.clamp(system.GetUnscaledFrameTime(), 0, 0.1)
 					block.history_valid = last_frame == frame - 1 and
 						last_width == size.x and
 						last_height == size.y and

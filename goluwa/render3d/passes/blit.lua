@@ -100,7 +100,7 @@ end
 local last_exposure_time
 
 local function get_exposure_dt()
-	local t = system.GetElapsedTime()
+	local t = system.GetUnscaledElapsedTime()
 	local dt = last_exposure_time and (t - last_exposure_time) or 1 / 60
 	last_exposure_time = t
 	return math.clamp(dt, 0.0, 0.1)
@@ -765,7 +765,7 @@ local white_balance_feedback_pass = {
 		{"tau", "float"},
 	},
 	write = function(self, block)
-		block.dt = math.clamp(system.GetFrameTime(), 0, 0.1)
+		block.dt = math.clamp(system.GetUnscaledFrameTime(), 0, 0.1)
 		block.tau = exposure_model.camera.tau_darken
 		return block
 	end,

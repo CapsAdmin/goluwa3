@@ -36,7 +36,11 @@ local function update_focus()
 	local view = View.GetActive()
 	local hit = raycast.CastClosestFromCamera(render3d.GetCamera(), is_not_ignored, view and view.Ignore)
 	local target = hit and math.max(hit.distance, MIN_FOCUS) or FAR_FOCUS
-	focus_distance = math.lerp(1 - math.exp(-system.GetFrameTime() / FOCUS_SECONDS), focus_distance, target)
+	focus_distance = math.lerp(
+		1 - math.exp(-system.GetUnscaledFrameTime() / FOCUS_SECONDS),
+		focus_distance,
+		target
+	)
 	return focus_distance
 end
 

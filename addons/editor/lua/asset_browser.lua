@@ -564,7 +564,7 @@ local function draw_item(item, index, x, y, w, h, selected, hovered)
 		elseif preview.status == "none" then
 			draw_centered_text(colors.font_strong, item.sub_label:upper(), px, py, pw, pw, colors.preview_text)
 		else
-			colors.pulse.a = 0.12 + 0.08 * math.sin(system.GetElapsedTime() * 5 + index)
+			colors.pulse.a = 0.12 + 0.08 * math.sin(system.GetUnscaledElapsedTime() * 5 + index)
 			render2d.DrawBox(px + pw * 0.3, py + pw * 0.45, pw * 0.4, pw * 0.1, 3, colors.pulse)
 		end
 	end

@@ -152,7 +152,7 @@ function TileView:OnDraw()
 	render2d.SetColor(PANEL.r, PANEL.g, PANEL.b, PANEL.a)
 	render2d.DrawRoundedRect(0, 0, size.x, size.y, 10)
 	gbuffer_inspect.SetPreview(self.OnSpec(self))
-	preview_time = system.GetElapsedTime()
+	preview_time = system.GetUnscaledElapsedTime()
 	render2d.DrawText{
 		text = self.OnTitle(self),
 		x = 12,
@@ -614,7 +614,7 @@ local function request_preview()
 	if browser.category ~= "sheets" then return end
 
 	gbuffer_inspect.SetPreview{mode = "sheet", names = browser.items.names}
-	preview_time = system.GetElapsedTime()
+	preview_time = system.GetUnscaledElapsedTime()
 end
 
 local function draw_tile(texture, index, count, x, y, w, h)
@@ -1321,7 +1321,7 @@ desktop.RegisterProgram{
 }
 
 event.AddListener("Update", "gbuffer_view_idle", function()
-	if gbuffer_inspect.GetPreview() and system.GetElapsedTime() - preview_time > 0.25 then
+	if gbuffer_inspect.GetPreview() and system.GetUnscaledElapsedTime() - preview_time > 0.25 then
 		gbuffer_inspect.SetPreview(nil)
 	end
 end)

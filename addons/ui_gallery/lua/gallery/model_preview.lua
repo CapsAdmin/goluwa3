@@ -191,7 +191,7 @@ local Tile = react.Component(
 			||-> do
 				if not state.entity:IsValid() or not state.preview:IsValid() then return end
 
-				local t = system.GetElapsedTime()
+				local t = system.GetUnscaledElapsedTime()
 				state.entity.transform:SetAngles(
 					Ang3(
 						base_angles.x + math.sin(t * (definition.pitch_speed or 0.65)) * (

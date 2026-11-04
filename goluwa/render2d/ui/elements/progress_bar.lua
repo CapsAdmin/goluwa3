@@ -68,7 +68,7 @@ end
 
 function META:OnDraw()
 	if self.tracker then
-		local shown, ghost = self.tracker:Update(self.Value, system.GetFrameTime(), system.GetElapsedTime())
+		local shown, ghost = self.tracker:Update(self.Value, system.GetUnscaledFrameTime(), system.GetUnscaledElapsedTime())
 		self:SetState("value", shown)
 		self:SetState("ghost", ghost)
 	end

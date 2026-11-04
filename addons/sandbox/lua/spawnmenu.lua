@@ -205,7 +205,7 @@ local function draw_tile(item, index, x, y, w, h, selected, hovered)
 	if preview.status == "ready" then
 		previews.Draw(preview, x + (w - size) / 2, y + 2, size, size)
 	elseif preview.status == "loading" or preview.status == "queued" then
-		colors.pulse.a = 0.12 + 0.08 * math.sin(system.GetElapsedTime() * 5 + index)
+		colors.pulse.a = 0.12 + 0.08 * math.sin(system.GetUnscaledElapsedTime() * 5 + index)
 		render2d.DrawBox(x + w * 0.3, y + (h - label_height) * 0.45, w * 0.4, 6, 3, colors.pulse)
 	end
 

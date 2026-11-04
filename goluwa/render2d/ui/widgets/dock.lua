@@ -83,7 +83,7 @@ function META:ActivateItem(key)
 end
 
 function META:Reveal(seconds)
-	self._reveal_until = system.GetElapsedTime() + (seconds or 1.5)
+	self._reveal_until = system.GetUnscaledElapsedTime() + (seconds or 1.5)
 end
 
 function META:OnUpdate()
@@ -100,7 +100,7 @@ function META:OnUpdate()
 	local size = transform:GetSize()
 	local margin = theme.active:ResolveSize(self.Margin)
 	local mouse = system.GetWindow():GetMousePosition()
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 	local shown_y = world_size.y - size.y - margin
 	local target = 0
 
@@ -121,7 +121,7 @@ function META:OnUpdate()
 	local previous = self._fraction
 	self._fraction = previous + (
 			target - previous
-		) * math.min(1, system.GetFrameTime() * self.SlideSpeed)
+		) * math.min(1, system.GetUnscaledFrameTime() * self.SlideSpeed)
 
 	if target == 0 and self._fraction < 0.01 then
 		self._fraction = 0
@@ -135,10 +135,7 @@ function META:OnUpdate()
 	end
 
 	transform:SetPosition(
-		Vec2(
-			(world_size.x - size.x) / 2,
-			world_size.y + (shown_y - world_size.y) * self._fraction
-		)
+		Vec2((world_size.x - size.x) / 2, world_size.y + (shown_y - world_size.y) * self._fraction)
 	)
 end
 

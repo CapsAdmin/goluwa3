@@ -15,7 +15,7 @@ local parts_scratch = {}
 event.AddListener("DrawHUD", "killfeed_hud", function()
 	if third_person.IsHudHidden() then return end
 
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 	local entries = killfeed.Entries
 
 	while entries[1] and now - entries[1].time > killfeed.Duration + FADE_TIME do
@@ -43,7 +43,9 @@ event.AddListener("DrawHUD", "killfeed_hud", function()
 		local width = PADDING * 2
 
 		for i = 1, 5, 2 do
-			if parts[i] then width = width + render2d.GetTextSize(parts[i], font, FONT_SIZE, weight) end
+			if parts[i] then
+				width = width + render2d.GetTextSize(parts[i], font, FONT_SIZE, weight)
+			end
 		end
 
 		local x = screen_w - MARGIN - width

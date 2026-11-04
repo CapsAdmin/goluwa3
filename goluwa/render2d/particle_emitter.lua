@@ -71,7 +71,7 @@ end
 function ParticleEmitter:Update(dt)
 	if self.Paused then return end
 
-	local time = system.GetElapsedTime()
+	local time = system.GetUnscaledElapsedTime()
 
 	if self.Rate == 0 then
 		self:Emit()
@@ -195,7 +195,7 @@ function ParticleEmitter:AddParticle(overrides)
 	end
 
 	overrides = overrides or {}
-	local time = system.GetElapsedTime()
+	local time = system.GetUnscaledElapsedTime()
 	local life = overrides.LifeTime or self.DefaultLifeTime
 	local p = {
 		Position = overrides.Position or self.Position:Copy(),

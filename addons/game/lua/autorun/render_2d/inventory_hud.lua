@@ -30,7 +30,13 @@ end
 
 event.AddListener("DrawHUD", "inventory_hud", function()
 	local target = inventory_menu.IsOpen() and 1 or 0
-	alpha = math.clamp(alpha + (target - alpha) * math.min(system.GetFrameTime() * FADE_SPEED, 1), 0, 1)
+	alpha = math.clamp(
+		alpha + (
+				target - alpha
+			) * math.min(system.GetUnscaledFrameTime() * FADE_SPEED, 1),
+		0,
+		1
+	)
 
 	if alpha < 0.01 and target == 0 then
 		alpha = 0
@@ -57,7 +63,7 @@ event.AddListener("DrawHUD", "inventory_hud", function()
 				screen.x,
 				screen.y,
 				46 * S,
-				{kind = "use", alpha = alpha, time = system.GetElapsedTime()}
+				{kind = "use", alpha = alpha, time = system.GetUnscaledElapsedTime()}
 			)
 			local title = current and current.weapon:GetTitle() or "Empty"
 			local title_w = render2d.GetTextSize(title, strong_font, 22 * S, strong_weight)

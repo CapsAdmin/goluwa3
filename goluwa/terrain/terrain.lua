@@ -190,12 +190,12 @@ function Terrain:ProcessBuildQueue()
 		do
 			built = built + 1
 			entry.loading = true
-			entry.requested_at = system.GetElapsedTime()
+			entry.requested_at = system.GetUnscaledElapsedTime()
 			self.Stats.requested = self.Stats.requested + 1
 
 			self.Source:RequestChunk(entry.request, function(chunk)
 				local stats = self.Stats
-				local latency = system.GetElapsedTime() - entry.requested_at
+				local latency = system.GetUnscaledElapsedTime() - entry.requested_at
 				entry.loading = false
 
 				if entry.cancelled then
@@ -514,7 +514,7 @@ function Terrain:RetireTiles()
 		end
 	end
 
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 	local due = self.BVHDue
 
 	for _, tile in pairs(self.Tiles) do
@@ -618,7 +618,11 @@ function Terrain:UpdateTiles(position, forward, half_angle)
 					tile.material = built.material
 
 					if tile.level < self.BVHLevels then
-						tile.bvh_time = system.GetElapsedTime() + (self.holding_scene_load and 0 or self.BVHDelay)
+						tile.bvh_time = system.GetUnscaledElapsedTime() + (
+								self.holding_scene_load and
+								0 or
+								self.BVHDelay
+							)
 					end
 
 					if tile.material:GetScatterSet() then

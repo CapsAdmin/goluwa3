@@ -548,9 +548,11 @@ local function pass_update()
 
 			gpu_timing.SetInfo("surfel_update", "hit samples", stats.hit_samples)
 
-			if system.GetElapsedTime() - (self.surfel_stats_logged or 0) < 2 then return end
+			if system.GetUnscaledElapsedTime() - (self.surfel_stats_logged or 0) < 2 then
+				return
+			end
 
-			self.surfel_stats_logged = system.GetElapsedTime()
+			self.surfel_stats_logged = system.GetUnscaledElapsedTime()
 			logf("[surfel_gi] hit samples %d\n", stats.hit_samples)
 
 			for c, cascade in ipairs(stats) do

@@ -20,7 +20,7 @@ function ViewPriority.GetHalfAngle(camera)
 end
 
 function ViewPriority:Update(position, forward, half_angle)
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 
 	if self.time then
 		local dt = math.max(now - self.time, 1e-3)

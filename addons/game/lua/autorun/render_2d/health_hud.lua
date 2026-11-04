@@ -29,11 +29,13 @@ event.AddListener("DrawHUD", "health_hud", function()
 	end
 
 	local health = rig.health
-	local now = system.GetElapsedTime()
-	local dt = system.GetFrameTime()
+	local now = system.GetUnscaledElapsedTime()
+	local dt = system.GetUnscaledFrameTime()
 	local fraction = health:GetFraction()
 
-	if state.health and health.Health ~= state.health then state.change_time = now end
+	if state.health and health.Health ~= state.health then
+		state.change_time = now
+	end
 
 	state.health = health.Health
 	local shown, ghost = tracker:Update(fraction, dt, now)
@@ -57,7 +59,11 @@ event.AddListener("DrawHUD", "health_hud", function()
 		render2d.PushMatrix()
 		render2d.PushAlphaMultiplier(alpha)
 		render2d.Translatef(MARGIN_X * S, MARGIN_Y * S)
-		active:DrawProgressBar(Vec2(width, bar_h), {value = shown, ghost = ghost, ghost_color = "negative"}, color)
+		active:DrawProgressBar(
+			Vec2(width, bar_h),
+			{value = shown, ghost = ghost, ghost_color = "negative"},
+			color
+		)
 		render2d.PopAlphaMultiplier()
 		render2d.PopMatrix()
 		local size = math.floor(19 * S)

@@ -46,7 +46,7 @@ end
 event.AddListener("Update", "impact_sound_panel", function()
 	if not sim.playing then return end
 
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 	local position = get_position()
 
 	if sim.rolling > 0 or sim.sliding > 0 then

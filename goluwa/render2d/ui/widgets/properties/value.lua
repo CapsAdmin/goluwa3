@@ -263,7 +263,7 @@ function META:OnMouseInput(button, press, local_pos)
 
 	if self._editing then return true end
 
-	local now = system.GetElapsedTime()
+	local now = system.GetUnscaledElapsedTime()
 
 	if now - self._last_click_time < 0.35 then
 		self._click_count = self._click_count + 1

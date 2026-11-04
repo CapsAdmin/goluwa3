@@ -132,14 +132,14 @@ function probe.Reset()
 	probe.block_stats = {}
 	probe.snapshots = {}
 	probe.cache_keys = {}
-	probe.last_reset_at = system.GetElapsedTime and system.GetElapsedTime() or 0
+	probe.last_reset_at = system.GetUnscaledElapsedTime and system.GetUnscaledElapsedTime() or 0
 
 	if probe.started_at == 0 then probe.started_at = probe.last_reset_at end
 end
 
 function probe.Start(reset)
 	probe.enabled = true
-	probe.started_at = system.GetElapsedTime and system.GetElapsedTime() or 0
+	probe.started_at = system.GetUnscaledElapsedTime and system.GetUnscaledElapsedTime() or 0
 
 	if reset ~= false then probe.Reset() end
 
@@ -206,8 +206,8 @@ end
 
 local function get_elapsed_window()
 	local elapsed = (
-			system.GetElapsedTime and
-			system.GetElapsedTime() or
+			system.GetUnscaledElapsedTime and
+			system.GetUnscaledElapsedTime() or
 			0
 		) - (
 			probe.last_reset_at or
