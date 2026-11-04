@@ -515,23 +515,33 @@ function move_editor.BuildMenu(session, h)
 		{
 			Text = "FILE",
 			Items = ||-> do
-				local load_items = {}
+				local function build_load_items()
+					local load_items = {}
 
-				for _, set_name in ipairs(move_editor.GetSetNames()) do
-					local moves = {}
+					for _, set_name in ipairs(move_editor.GetSetNames()) do
+						load_items[#load_items + 1] = MenuItem{
+							Text = set_name,
+							Icon = "folder",
+							Items = ||-> do
+								local moves = {}
 
-					for _, move_name in ipairs(get_move_names(movesets.Source[set_name])) do
-						moves[#moves + 1] = MenuItem{
-							Text = move_name,
-							Icon = "file",
-							OnClick = ||-> do
-								move_editor.LoadSet(session, set_name, move_name)
-								h.refresh()
+								for _, move_name in ipairs(get_move_names(movesets.Source[set_name])) do
+									moves[#moves + 1] = MenuItem{
+										Text = move_name,
+										Icon = "file",
+										OnClick = ||-> do
+											move_editor.LoadSet(session, set_name, move_name)
+											h.refresh()
+										end,
+									}
+								end
+
+								return moves
 							end,
 						}
 					end
 
-					load_items[#load_items + 1] = MenuItem{Text = set_name, Icon = "folder", Items = ||->moves}
+					return load_items
 				end
 
 				return {
@@ -546,7 +556,7 @@ function move_editor.BuildMenu(session, h)
 							h.refresh()
 						end,
 					},
-					MenuItem{Text = "load", Icon = "folder_open", Items = ||->load_items},
+					MenuItem{Text = "load", Icon = "folder_open", Items = build_load_items},
 					MenuItem{
 						Text = "revert to file",
 						Icon = "file",
