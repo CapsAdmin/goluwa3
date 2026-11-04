@@ -326,23 +326,42 @@ end
 
 local function border_layers(size, color, gap, top, bottom, left, right)
 	local layers = {}
+	local n = 0
+	local y0 = 0.5 + (top and gap or 0)
+	local side_h = size.y - 1 - y0 - (bottom and gap or 0)
 
-	local function add(x, y, w, h)
-		table.insert(layers, {color = color, alpha = 0.9, x = x, y = y, w = w, h = h})
+	if top then
+		n = n + 1
+		layers[n] = {
+			color = color,
+			alpha = 0.9,
+			x = 0.5 + gap,
+			y = 0.5,
+			w = size.x - 1 - gap * 2,
+			h = 1,
+		}
 	end
 
-	if top then add(0.5 + gap, 0.5, size.x - 1 - gap * 2, 1) end
-
-	if bottom then add(0.5 + gap, size.y - 1.5, size.x - 1 - gap * 2, 1) end
+	if bottom then
+		n = n + 1
+		layers[n] = {
+			color = color,
+			alpha = 0.9,
+			x = 0.5 + gap,
+			y = size.y - 1.5,
+			w = size.x - 1 - gap * 2,
+			h = 1,
+		}
+	end
 
 	if left then
-		local y0 = 0.5 + (top and gap or 0)
-		add(0.5, y0, 1, size.y - 1 - y0 - (bottom and gap or 0))
+		n = n + 1
+		layers[n] = {color = color, alpha = 0.9, x = 0.5, y = y0, w = 1, h = side_h}
 	end
 
 	if right then
-		local y0 = 0.5 + (top and gap or 0)
-		add(size.x - 1.5, y0, 1, size.y - 1 - y0 - (bottom and gap or 0))
+		n = n + 1
+		layers[n] = {color = color, alpha = 0.9, x = size.x - 1.5, y = y0, w = 1, h = side_h}
 	end
 
 	return layers
