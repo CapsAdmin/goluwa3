@@ -54,6 +54,27 @@ local function state_value_equals(a, b)
 	return true
 end
 
+local function create_state_keys(prefix)
+	return setmetatable(
+		{},
+		{
+			__index = function(keys, id)
+				local key = prefix .. tostring(id)
+				keys[id] = key
+				return key
+			end,
+		}
+	)
+end
+
+local stencil_reference_keys = create_state_keys("stencil_reference:")
+local stencil_compare_mask_keys = create_state_keys("stencil_compare_mask:")
+local stencil_write_mask_keys = create_state_keys("stencil_write_mask:")
+local stencil_op_keys = create_state_keys("stencil_op:")
+local color_blend_enable_keys = create_state_keys("color_blend_enable:")
+local color_write_mask_keys = create_state_keys("color_write_mask:")
+local color_blend_equation_keys = create_state_keys("color_blend_equation:")
+
 local function should_apply_dynamic_state(self, key, value)
 	self.dynamic_state_cache = self.dynamic_state_cache or {}
 	local cached = self.dynamic_state_cache[key]
@@ -308,12 +329,9 @@ function CommandBuffer:Begin()
 	self.keepalive_resources = nil
 	self.recording_serial = (self.recording_serial or 0) + 1
 	vulkan.assert(
-		vulkan.lib.vkBeginCommandBuffer(
-			self.ptr[0],
-			vulkan.vk.s.CommandBufferBeginInfo{
-				flags = "one_time_submit",
-			}
-		),
+		vulkan.lib.vkBeginCommandBuffer(self.ptr[0], vulkan.vk.s.CommandBufferBeginInfo{
+			flags = "one_time_submit",
+		}),
 		"failed to begin command buffer"
 	)
 	self.is_recording = true
@@ -588,13 +606,7 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 	local bind_key = pipeline_bind_point
 
 	if
-		descriptor_set_binding_matches(
-			self.bound_descriptor_sets[bind_key],
-			pipelineLayout,
-			descriptorSets,
-			dynamicOffsets,
-			firstSet
-		)
+		descriptor_set_binding_matches(self.bound_descriptor_sets[bind_key], pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
 	then
 		return
 	end
@@ -638,13 +650,7 @@ function CommandBuffer:BindDescriptorSets(pipeline_bind_point, pipelineLayout, d
 		dynamicOffsetCount,
 		pDynamicOffsets
 	)
-	self.bound_descriptor_sets[bind_key] = capture_descriptor_set_binding(
-		self.bound_descriptor_sets[bind_key],
-		pipelineLayout,
-		descriptorSets,
-		dynamicOffsets,
-		firstSet
-	)
+	self.bound_descriptor_sets[bind_key] = capture_descriptor_set_binding(self.bound_descriptor_sets[bind_key], pipelineLayout, descriptorSets, dynamicOffsets, firstSet)
 end
 
 function CommandBuffer:Draw(vertexCount, instanceCount, firstVertex, firstInstance)
@@ -967,7 +973,7 @@ end
 
 function CommandBuffer:SetStencilReference(face_mask, reference)
 	if
-		not should_apply_dynamic_state(self, "stencil_reference:" .. tostring(face_mask), reference)
+		not should_apply_dynamic_state(self, stencil_reference_keys[face_mask], reference)
 	then
 		return
 	end
@@ -977,7 +983,7 @@ end
 
 function CommandBuffer:SetStencilCompareMask(face_mask, compare_mask)
 	if
-		not should_apply_dynamic_state(self, "stencil_compare_mask:" .. tostring(face_mask), compare_mask)
+		not should_apply_dynamic_state(self, stencil_compare_mask_keys[face_mask], compare_mask)
 	then
 		return
 	end
@@ -987,7 +993,7 @@ end
 
 function CommandBuffer:SetStencilWriteMask(face_mask, write_mask)
 	if
-		not should_apply_dynamic_state(self, "stencil_write_mask:" .. tostring(face_mask), write_mask)
+		not should_apply_dynamic_state(self, stencil_write_mask_keys[face_mask], write_mask)
 	then
 		return
 	end
@@ -1013,7 +1019,7 @@ function CommandBuffer:SetStencilOp(face_mask, fail_op, pass_op, depth_fail_op, 
 	if
 		not should_apply_dynamic_state_tuple4(
 			self,
-			"stencil_op:" .. tostring(face_mask),
+			stencil_op_keys[face_mask],
 			fail_op,
 			pass_op,
 			depth_fail_op,
@@ -1063,11 +1069,7 @@ function CommandBuffer:SetColorBlendEnable(first_attachment, blend_enable)
 	end
 
 	if
-		not should_apply_dynamic_state(
-			self,
-			"color_blend_enable:" .. tostring(first_attachment or 0),
-			blend_enable
-		)
+		not should_apply_dynamic_state(self, color_blend_enable_keys[first_attachment or 0], blend_enable)
 	then
 		return
 	end
@@ -1099,11 +1101,7 @@ function CommandBuffer:SetColorWriteMask(first_attachment, color_write_mask)
 	if not vulkan.ext.vkCmdSetColorWriteMaskEXT then return end
 
 	if
-		not should_apply_dynamic_state(
-			self,
-			"color_write_mask:" .. tostring(first_attachment or 0),
-			color_write_mask
-		)
+		not should_apply_dynamic_state(self, color_write_mask_keys[first_attachment or 0], color_write_mask)
 	then
 		return
 	end
@@ -1187,11 +1185,7 @@ function CommandBuffer:SetColorBlendEquation(first_attachment, blend_equation)
 	if not vulkan.ext.vkCmdSetColorBlendEquationEXT then return end
 
 	if
-		not should_apply_dynamic_state(
-			self,
-			"color_blend_equation:" .. tostring(first_attachment or 0),
-			blend_equation
-		)
+		not should_apply_dynamic_state(self, color_blend_equation_keys[first_attachment or 0], blend_equation)
 	then
 		return
 	end
