@@ -27,7 +27,7 @@ end
 
 ChildWidget:Register()
 
-T.Test("inheritance - derived panel has parent components", function()
+T.Test2D("inheritance - derived panel has parent components", function()
 	local child = ChildWidget.New{}
 	T(child:IsValid())["=="](true)
 	T(child.transform)["~="](nil, "transform component should be inherited")
@@ -38,7 +38,7 @@ T.Test("inheritance - derived panel has parent components", function()
 	child:Remove()
 end)
 
-T.Test("inheritance - derived panel ComponentSet includes parent components", function()
+T.Test2D("inheritance - derived panel ComponentSet includes parent components", function()
 	local objects = import("goluwa/objects/objects.lua")
 	local child_meta = objects.GetRegistered("panel_test_child_widget")
 	T(child_meta)["~="](nil)
@@ -60,7 +60,7 @@ T.Test("inheritance - derived panel ComponentSet includes parent components", fu
 	T(has_animation)["=="](true, "animation should be in ComponentSet")
 end)
 
-T.Test("inheritance - BaseClass points to direct parent", function()
+T.Test2D("inheritance - BaseClass points to direct parent", function()
 	local objects = import("goluwa/objects/objects.lua")
 	local child_meta = objects.GetRegistered("panel_test_child_widget")
 	local parent_meta = objects.GetRegistered("panel_test_parent_widget")
@@ -69,7 +69,7 @@ T.Test("inheritance - BaseClass points to direct parent", function()
 	T(parent_meta.BaseClass)["~="](nil, "Parent's BaseClass should be set")
 end)
 
-T.Test("inheritance - derived panel OnCreate chain works", function()
+T.Test2D("inheritance - derived panel OnCreate chain works", function()
 	local child = ChildWidget.New{}
 	T(child:IsValid())["=="](true, "instance should be valid after OnCreate chain")
 	T(child.transform)["~="](nil, "transform from parent should exist")

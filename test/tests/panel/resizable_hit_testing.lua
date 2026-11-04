@@ -4,7 +4,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 
-T.Test("panel resize respects topmost hovered panel", function()
+T.Test2D("panel resize respects topmost hovered panel", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
 		ComponentSet = {"transform", "visual"},
@@ -44,7 +44,7 @@ T.Test("panel resize respects topmost hovered panel", function()
 	Panel.World = old_world
 end)
 
-T.Test("panel resize works on extended border of topmost panel", function()
+T.Test2D("panel resize works on extended border of topmost panel", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
 		ComponentSet = {"transform", "visual"},
@@ -84,7 +84,7 @@ T.Test("panel resize works on extended border of topmost panel", function()
 	Panel.World = old_world
 end)
 
-T.Test("panel resize works on the outside edge next to a child panel", function()
+T.Test2D("panel resize works on the outside edge next to a child panel", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
 		ComponentSet = {"transform", "visual"},
@@ -122,7 +122,7 @@ T.Test("panel resize works on the outside edge next to a child panel", function(
 	Panel.World = old_world
 end)
 
-T.Test("panel resize is not blocked by child global false return", function()
+T.Test2D("panel resize is not blocked by child global false return", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
 		ComponentSet = {"transform", "visual"},
@@ -165,7 +165,7 @@ T.Test("panel resize is not blocked by child global false return", function()
 	Panel.World = old_world
 end)
 
-T.Test("panel resize cursor stays locked during drag over child move handler", function()
+T.Test2D("panel resize cursor stays locked during drag over child move handler", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
 		ComponentSet = {"transform", "visual"},
@@ -221,7 +221,7 @@ T.Test("panel resize cursor stays locked during drag over child move handler", f
 	Panel.World = old_world
 end)
 
-T.Test("panel resize cursor updates immediately from child hover cursor", function()
+T.Test2D("panel resize cursor updates immediately from child hover cursor", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
 		ComponentSet = {"transform", "visual"},

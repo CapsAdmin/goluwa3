@@ -70,7 +70,7 @@ local function new_mock_font()
 	return font
 end
 
-T.Test("text component wrapped caret movement uses layout", function()
+T.Test2D("text component wrapped caret movement uses layout", function()
 	local pnl = Panel.New{
 		Name = "wrapped_text_component",
 		transform = true,
@@ -90,7 +90,7 @@ T.Test("text component wrapped caret movement uses layout", function()
 	pnl:Remove()
 end)
 
-T.Test("text component wrapped hit testing uses layout", function()
+T.Test2D("text component wrapped hit testing uses layout", function()
 	local pnl = Panel.New{
 		Name = "wrapped_text_hit_test",
 		transform = true,
@@ -110,7 +110,7 @@ T.Test("text component wrapped hit testing uses layout", function()
 	pnl:Remove()
 end)
 
-T.Test("text component justified hit testing respects stretched spaces", function()
+T.Test2D("text component justified hit testing respects stretched spaces", function()
 	local pnl = Panel.New{
 		Name = "justified_text_hit_test",
 		transform = true,
@@ -130,7 +130,7 @@ T.Test("text component justified hit testing respects stretched spaces", functio
 	pnl:Remove()
 end)
 
-T.Test("wrapped editable text preserves repeated trailing spaces", function()
+T.Test2D("wrapped editable text preserves repeated trailing spaces", function()
 	local parent = Panel.New{
 		Name = "wrapped_editable_text_spaces_parent",
 		transform = true,
@@ -153,7 +153,7 @@ T.Test("wrapped editable text preserves repeated trailing spaces", function()
 	parent:Remove()
 end)
 
-T.Test("wrapped editable text preserves tabs in layout positions", function()
+T.Test2D("wrapped editable text preserves tabs in layout positions", function()
 	local parent = Panel.New{
 		Name = "wrapped_editable_text_tabs_parent",
 		transform = true,
@@ -178,7 +178,7 @@ T.Test("wrapped editable text preserves tabs in layout positions", function()
 	parent:Remove()
 end)
 
-T.Test("wrapped text layout measure respects current width", function()
+T.Test2D("wrapped text layout measure respects current width", function()
 	local pnl = Panel.New{
 		Name = "wrapped_text_layout_measure",
 		transform = true,
@@ -195,7 +195,7 @@ T.Test("wrapped text layout measure respects current width", function()
 	pnl:Remove()
 end)
 
-T.Test("wrapped text layout measure respects parent width when WrapToParent is enabled", function()
+T.Test2D("wrapped text layout measure respects parent width when WrapToParent is enabled", function()
 	local parent = Panel.New{
 		Name = "wrapped_text_parent",
 		transform = true,
@@ -220,7 +220,7 @@ T.Test("wrapped text layout measure respects parent width when WrapToParent is e
 	parent:Remove()
 end)
 
-T.Test("text component caret moves to new line after trailing newline", function()
+T.Test2D("text component caret moves to new line after trailing newline", function()
 	local pnl = Panel.New{
 		Name = "caret_newline_test",
 		transform = true,

@@ -4,7 +4,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local Rect = import("goluwa/structs/rect.lua")
 
-T.Test("panel constructor 2d entities", function()
+T.Test2D("panel constructor 2d entities", function()
 	local pnl = Panel.New{
 		Name = "test_panel",
 		transform = true,
@@ -27,7 +27,7 @@ T.Test("panel constructor 2d entities", function()
 	T(txt:GetParent())["=="](pnl)
 end)
 
-T.Test("panel mouse input states", function()
+T.Test2D("panel mouse input states", function()
 	local pnl = Panel.New{
 		Name = "mouse_test",
 		transform = true,
@@ -41,7 +41,7 @@ T.Test("panel mouse input states", function()
 	T(pnl.mouse_input:GetCursor())["=="]("hand")
 end)
 
-T.Test("panel resize layout invalidation", function()
+T.Test2D("panel resize layout invalidation", function()
 	local parent = Panel.New{
 		Name = "parent",
 		transform = true,
@@ -67,7 +67,7 @@ T.Test("panel resize layout invalidation", function()
 	T(child.transform:GetSize())["=="](Vec2(300, 300))
 end)
 
-T.Test("panel flex layout", function()
+T.Test2D("panel flex layout", function()
 	local parent = Panel.New{
 		Name = "flex_parent",
 		transform = true,
@@ -88,7 +88,7 @@ T.Test("panel flex layout", function()
 	T(child2.transform:GetPosition())["=="](Vec2(0, 60))
 end)
 
-T.Test("panel animations basic", function()
+T.Test2D("panel animations basic", function()
 	local pnl = Panel.New{
 		Name = "anim_test",
 		transform = true,
@@ -160,7 +160,7 @@ T.Pending("panel mouse simulation and hover", function()
 	pnl:Remove()
 end)
 
-T.Test("panel key simulation", function()
+T.Test2D("panel key simulation", function()
 	local objects = import("goluwa/objects/objects.lua")
 	local event = import("goluwa/event.lua")
 	local pnl = Panel.New{

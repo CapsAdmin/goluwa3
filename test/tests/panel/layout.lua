@@ -12,7 +12,7 @@ local function NewBox(name, size)
 	return e
 end
 
-T.Test("layout - horizontal fit", function()
+T.Test2D("layout - horizontal fit", function()
 	local parent = NewBox("Parent", Vec2(100, 100))
 	parent:AddComponent("layout")
 	parent.layout:SetDirection("x")
@@ -32,7 +32,7 @@ T.Test("layout - horizontal fit", function()
 	parent:Remove()
 end)
 
-T.Test("layout - grow", function()
+T.Test2D("layout - grow", function()
 	local parent = NewBox("Parent", Vec2(200, 100))
 	parent:AddComponent("layout")
 	parent.layout:SetDirection("x")
@@ -53,7 +53,7 @@ T.Test("layout - grow", function()
 	parent:Remove()
 end)
 
-T.Test("layout - shrink", function()
+T.Test2D("layout - shrink", function()
 	local parent = NewBox("Parent", Vec2(120, 100))
 	parent:AddComponent("layout")
 	parent.layout:SetDirection("x")
@@ -75,7 +75,7 @@ T.Test("layout - shrink", function()
 	parent:Remove()
 end)
 
-T.Test("layout - alignment", function()
+T.Test2D("layout - alignment", function()
 	local parent = NewBox("Parent", Vec2(200, 200))
 	parent:AddComponent("layout")
 	parent.layout:SetDirection("y")
@@ -89,7 +89,7 @@ T.Test("layout - alignment", function()
 	parent:Remove()
 end)
 
-T.Test("layout - child self alignment overrides parent cross axis", function()
+T.Test2D("layout - child self alignment overrides parent cross axis", function()
 	local parent = NewBox("Parent", Vec2(200, 200))
 	parent:AddComponent("layout")
 	parent.layout:SetDirection("y")
@@ -104,7 +104,7 @@ T.Test("layout - child self alignment overrides parent cross axis", function()
 	parent:Remove()
 end)
 
-T.Test("layout - child self alignment can stretch on cross axis", function()
+T.Test2D("layout - child self alignment can stretch on cross axis", function()
 	local parent = NewBox("Parent", Vec2(200, 200))
 	parent:AddComponent("layout")
 	parent.layout:SetDirection("y")
@@ -119,7 +119,7 @@ T.Test("layout - child self alignment can stretch on cross axis", function()
 	parent:Remove()
 end)
 
-T.Test("layout - reactive invalidation", function()
+T.Test2D("layout - reactive invalidation", function()
 	local parent = NewBox("Parent", Vec2(100, 100))
 	parent:AddComponent("layout")
 	parent.layout:SetFitWidth(true)
@@ -135,7 +135,7 @@ T.Test("layout - reactive invalidation", function()
 	parent:Remove()
 end)
 
-T.Test("layout - collapse repro", function()
+T.Test2D("layout - collapse repro", function()
 	local parent = Panel.New{
 		Name = "Parent",
 		transform = true,
@@ -199,7 +199,7 @@ T.Test2D("layout - text content intrinsic size", function()
 	parent:Remove()
 end)
 
-T.Test("layout - nested grow and fit", function()
+T.Test2D("layout - nested grow and fit", function()
 	local outer = Panel.New{
 		Name = "Outer",
 		transform = true,
@@ -249,7 +249,7 @@ T.Test("layout - nested grow and fit", function()
 	outer:Remove()
 end)
 
-T.Test("layout - default cross axis stretch", function()
+T.Test2D("layout - default cross axis stretch", function()
 	local parent = Panel.New{
 		Name = "Parent",
 		transform = true,
@@ -273,7 +273,7 @@ T.Test("layout - default cross axis stretch", function()
 	parent:Remove()
 end)
 
-T.Test("layout - text wrapping", function()
+T.Test2D("layout - text wrapping", function()
 	local container = Panel.New{
 		Name = "WrapContainer",
 		transform = true,
@@ -511,7 +511,7 @@ T.Test2D("layout - wrapped text in nested fit layouts does not inflate on first 
 	outer_col:Remove()
 end)
 
-T.Test("layout - fit height parent defers child reflow", function()
+T.Test2D("layout - fit height parent defers child reflow", function()
 	local row = Panel.New{
 		Name = "Row",
 		transform = true,
@@ -580,7 +580,7 @@ T.Test("layout - fit height parent defers child reflow", function()
 	row:Remove()
 end)
 
-T.Test("layout - a floating child of a dirty parent still updates from the dirty queue", function()
+T.Test2D("layout - a floating child of a dirty parent still updates from the dirty queue", function()
 	local parent = NewBox("Parent", Vec2(400, 300))
 	parent:AddComponent("layout")
 	parent.layout:SetDirection("y")

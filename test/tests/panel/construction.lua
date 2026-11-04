@@ -13,7 +13,7 @@ local MenuContainer = import("goluwa/render2d/ui/elements/menu_container.lua")
 local MenuBar = import("goluwa/render2d/ui/widgets/menu_bar.lua")
 local order_log
 
-T.Test("derma skin images are available locally", function()
+T.Test2D("derma skin images are available locally", function()
 	local resource = import("goluwa/resource.lua")
 	local vfs = import("goluwa/vfs.lua")
 	resource.AddProvider("https://raw.githubusercontent.com/CapsAdmin/goluwa-assets/master/extras/", true)
@@ -71,7 +71,7 @@ local function create_ordered_template(name)
 	return META
 end
 
-T.Test("props are applied in declaration order, then alphabetically for undeclared setters", function()
+T.Test2D("props are applied in declaration order, then alphabetically for undeclared setters", function()
 	local Ordered = create_ordered_template("test_ordered_props")
 
 	for _ = 1, 5 do
@@ -82,7 +82,7 @@ T.Test("props are applied in declaration order, then alphabetically for undeclar
 	end
 end)
 
-T.Test("OnCreate runs after props are applied and never receives a props table", function()
+T.Test2D("OnCreate runs after props are applied and never receives a props table", function()
 	local META = Panel:CreateTemplate("test_oncreate_props")
 	META.CMP.transform = {}
 	META:GetSet("Label", "")
@@ -101,7 +101,7 @@ T.Test("OnCreate runs after props are applied and never receives a props table",
 	panel:Remove()
 end)
 
-T.Test("PropDefaults chain: derived defaults win over base, caller wins over both, nested tables merge", function()
+T.Test2D("PropDefaults chain: derived defaults win over base, caller wins over both, nested tables merge", function()
 	local Base = Panel:CreateTemplate("test_defaults_base")
 	Base.CMP.transform = {}
 	Base.CMP.layout = {}
@@ -135,7 +135,7 @@ T.Test("PropDefaults chain: derived defaults win over base, caller wins over bot
 	given:Remove()
 end)
 
-T.Test("construction does not mutate the caller's props", function()
+T.Test2D("construction does not mutate the caller's props", function()
 	local called
 	local props = {
 		Name = "Untouched",
@@ -157,8 +157,8 @@ end)
 
 T.Test2D("Ref and Parent are handled by the core for every widget", function()
 	local parent = Panel.New{}
-	local ref
-	local button = Button{
+	local ref local
+	button = Button{
 		Text = "x",
 		Parent = parent,
 		Ref = function(self)
@@ -171,7 +171,7 @@ T.Test2D("Ref and Parent are handled by the core for every widget", function()
 	parent:Remove()
 end)
 
-T.Test("nested prop tables and children merge into a flat construction", function()
+T.Test2D("nested prop tables and children merge into a flat construction", function()
 	local child = Panel.New{Name = "child"}
 	local panel = Panel.New{
 		Name = "first",
@@ -283,19 +283,11 @@ T.Test2D("derma theme loads its skin texture and samples its colors", function()
 	T(theme.active.SkinTexture ~= nil)["=="](true)
 	T(theme.active:GetColor("text_input").r < 0.2)["=="](true)
 	T(theme.active:ResolveButtonStyleContext({mode = "menu"}).foreground_token)["=="](nil)
-	T(
-		theme.active:ResolveButtonStyleContext{mode = "menu", button_color = "positive"}.foreground_token
-	)["=="](nil)
+	T(theme.active:ResolveButtonStyleContext{mode = "menu", button_color = "positive"}.foreground_token)["=="](nil)
 	T(theme.active:ResolveButtonStyleContext({mode = "text"}).foreground_token)["=="](nil)
-	T(
-		theme.active:ResolveButtonStyleContext{mode = "text", disabled = true}.foreground_token
-	)["=="]("text_disabled")
-	T(
-		theme.active:ResolveButtonStyleContext{mode = "outline", theme_role = "dropdown"}.foreground_token
-	)["=="]("text_combo")
-	T(
-		theme.active:ResolveButtonStyleContext({mode = "outline"}).foreground_token ~= "text_combo"
-	)["=="](true)
+	T(theme.active:ResolveButtonStyleContext{mode = "text", disabled = true}.foreground_token)["=="]("text_disabled")
+	T(theme.active:ResolveButtonStyleContext{mode = "outline", theme_role = "dropdown"}.foreground_token)["=="]("text_combo")
+	T(theme.active:ResolveButtonStyleContext({mode = "outline"}).foreground_token ~= "text_combo")["=="](true)
 	theme.LoadTheme(original)
 end)
 

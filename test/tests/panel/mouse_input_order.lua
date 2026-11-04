@@ -5,7 +5,7 @@ local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local objects = import("goluwa/objects/objects.lua")
 
-T.Test("mouse input event order (local and global)", function()
+T.Test2D("mouse input event order (local and global)", function()
 	local old_world = Panel.World
 	Panel.World = Panel.New{
 		ComponentSet = {"transform", "visual"},

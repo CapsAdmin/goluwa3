@@ -2,7 +2,7 @@ local T = import("test/environment.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 
-T.Test("panel children parenting via constructor", function()
+T.Test2D("panel children parenting via constructor", function()
 	local child = Panel.New({Name = "Child"})
 	local parent = Panel.New{Name = "Parent", Children = {child}}
 	T(child:GetParent())["=="](parent)
@@ -10,7 +10,7 @@ T.Test("panel children parenting via constructor", function()
 	T(parent:HasChild(child))["=="](true)
 end)
 
-T.Test("panel nested children parenting via constructor", function()
+T.Test2D("panel nested children parenting via constructor", function()
 	local child_child = Panel.New({Name = "GrandChild"})
 	local child = Panel.New{Name = "Child", Children = {child_child}}
 	local parent = Panel.New{Name = "Parent", Children = {child}}
@@ -20,7 +20,7 @@ T.Test("panel nested children parenting via constructor", function()
 	T(child:GetChildren()[1])["=="](child_child)
 end)
 
-T.Test("panel ui objects in config array are added as children not flattened", function()
+T.Test2D("panel ui objects in config array are added as children not flattened", function()
 	local child1 = Panel.New({Name = "Child1"})
 	local grandchild1 = Panel.New({Name = "GrandChild1"})
 	child1:AddChild(grandchild1)

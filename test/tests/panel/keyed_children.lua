@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 
-T.Test("panel keyed children basic", function()
+T.Test2D("panel keyed children basic", function()
 	local parent = Panel.New{
 		Name = "Parent",
 	}
@@ -21,7 +21,7 @@ T.Test("panel keyed children basic", function()
 	T(child2:IsValid())["=="](true)
 end)
 
-T.Test("panel keyed children cleanup", function()
+T.Test2D("panel keyed children cleanup", function()
 	local parent = Panel.New{
 		Name = "Parent",
 	}
@@ -36,7 +36,7 @@ T.Test("panel keyed children cleanup", function()
 	T(parent.keyed_children["MyKey"])["=="](nil)
 end)
 
-T.Test("panel removal unparents", function()
+T.Test2D("panel removal unparents", function()
 	local parent = import("goluwa/render2d/ui/panel.lua").World
 	local original_count = #parent:GetChildren()
 	local child = import("goluwa/render2d/ui/panel.lua").New{
@@ -47,7 +47,7 @@ T.Test("panel removal unparents", function()
 	T(#parent:GetChildren())["=="](original_count)
 end)
 
-T.Test("panel Ensure reuse", function()
+T.Test2D("panel Ensure reuse", function()
 	local parent = Panel.New{
 		Name = "Parent",
 	}
@@ -65,7 +65,7 @@ T.Test("panel Ensure reuse", function()
 	T(child1:GetName())["=="]("Child 1")
 end)
 
-T.Test("panel Ensure already created", function()
+T.Test2D("panel Ensure already created", function()
 	local parent = Panel.New({Name = "Parent"})
 	local child1 = Panel.New{
 		Parent = parent,
