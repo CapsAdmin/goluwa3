@@ -21,6 +21,8 @@ META.Network = {
 	ActionDirection = {"vec3", 0.05, "reliable", to_owner = true},
 	ActionStrength = {"number", 0.05, "reliable", to_owner = true},
 	Actions = {"number", 0.05, "reliable", to_owner = true},
+	Rewinds = {"number", 0.05, "reliable", to_owner = true},
+	RewindTime = {"number", 0.05, "reliable", to_owner = true},
 	LandHold = {"boolean", 0.05, "reliable", to_owner = true},
 	Focus = {"entity", 0.05, "reliable", to_owner = true},
 	FocusPoint = {"vec3", 0.05, "reliable", to_owner = true},
@@ -47,6 +49,8 @@ META:GetSet("ActionPart", "")
 META:GetSet("ActionDirection", Vec3(0, 0, 1))
 META:GetSet("ActionStrength", 1)
 META:GetSet("Actions", 0)
+META:GetSet("Rewinds", 0)
+META:GetSet("RewindTime", 0)
 META:IsSet("LandHold", false)
 META:GetSet("Focus", NULL)
 META:GetSet("FocusPoint", Vec3())
@@ -98,6 +102,7 @@ function META:Initialize()
 	self.seen_shots = self.Shots
 	self.seen_actions = self.Actions
 	self.seen_freezes = self.Freezes
+	self.seen_rewinds = self.Rewinds
 	self.predicted_actions = {}
 	self.freeze = 0
 	self.freeze_clock = false
@@ -141,6 +146,29 @@ function META:PlayAction(name, duration, part, direction, strength)
 	self:SetActionDirection(direction or Vec3(0, 0, 1))
 	self:SetActionStrength(strength or 1)
 	self:SetActions(self.Actions + 1)
+end
+
+function META:RewindAction(duration)
+	self:SetRewindTime(duration)
+	self:SetRewinds(self.Rewinds + 1)
+	self.seen_rewinds = self.Rewinds
+	self:StartRewind(duration)
+end
+
+function META:StartRewind(duration)
+	local anims = self.anims
+
+	for i = #anims, 1, -1 do
+		local inst = anims[i]
+
+		if inst.def.Kind == "action" and not inst.def.Passive then
+			if not inst.rewind then
+				inst.rewind = {from = inst.time, elapsed = 0, duration = duration}
+			end
+
+			return
+		end
+	end
 end
 
 function META:ScrubAction(name, duration, phase)
@@ -296,7 +324,7 @@ function META:GetActiveAction()
 
 	for i = #anims, 1, -1 do
 		if anims[i].def.Kind == "action" and not anims[i].def.Passive then
-			return anims[i].def.Name, anims[i].phase
+			return anims[i].def.Name, anims[i].phase, anims[i].rewind ~= nil
 		end
 	end
 end
@@ -445,6 +473,11 @@ function META:UpdateAnimations(dt)
 		end
 	end
 
+	if self.Rewinds ~= self.seen_rewinds then
+		self.seen_rewinds = self.Rewinds
+		self:StartRewind(self.RewindTime)
+	end
+
 	if self.Actions ~= self.seen_actions then
 		self.seen_actions = self.Actions
 
@@ -538,7 +571,14 @@ function META:UpdateAnimations(dt)
 		local inst = anims[i]
 		local def = inst.def
 		local kind = def.Kind
-		inst.time = inst.time + dt
+		local rewind = inst.rewind
+
+		if rewind then
+			rewind.elapsed = rewind.elapsed + dt
+			inst.time = rewind.from * math.max(1 - rewind.elapsed / rewind.duration, 0)
+		else
+			inst.time = inst.time + dt
+		end
 
 		if inst == scrubbed then
 			inst.time = scrub.time
@@ -557,7 +597,9 @@ function META:UpdateAnimations(dt)
 				inst.weight = inst.strength * fade * fade * (3 - 2 * fade)
 			end
 
-			if inst.time >= inst.duration then inst.dead = true end
+			if inst.time >= inst.duration or rewind and rewind.elapsed >= rewind.duration then
+				inst.dead = true
+			end
 		elseif kind == "impulse" then
 			inst.weight = inst.weight - dt * def.Decay
 
