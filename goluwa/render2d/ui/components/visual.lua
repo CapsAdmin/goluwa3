@@ -174,11 +174,11 @@ local function draw_recursive_enter(_, owner)
 	render2d.SetColor(1, 1, 1, current.DrawAlpha)
 	owner:CallLocalEvent("OnPreDraw")
 	owner:CallLocalEvent("OnDraw")
-	return WALK_CONTINUE, {clipping = clipping}
+	return WALK_CONTINUE, clipping
 end
 
-local function draw_recursive_leave(_, owner, state)
-	if state.clipping then render2d.PopClip() end
+local function draw_recursive_leave(_, owner, clipping)
+	if clipping then render2d.PopClip() end
 
 	UIDebug.OnDebugPostDraw(owner)
 	owner:CallLocalEvent("OnPostDraw")
