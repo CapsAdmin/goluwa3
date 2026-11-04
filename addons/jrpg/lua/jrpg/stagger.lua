@@ -158,8 +158,12 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 			info.Inflictor.weapon_melee and
 			not grab.IsHeld(victim)
 		then
+			local movement = victim.character_movement
 			ragdoll:Knockdown(
-				stagger.GetKnockdownVelocity(push, math.clamp(amount / knockdown - 1, 0, 1)) * stagger.DeathKnockdownScale,
+				movement and
+					movement:IsPinned() and
+					Vec3() or
+					stagger.GetKnockdownVelocity(push, math.clamp(amount / knockdown - 1, 0, 1)) * stagger.DeathKnockdownScale,
 				attacker
 			)
 		end
@@ -180,6 +184,11 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 
 	if
 		victim.ragdoll and
+		not (
+			victim.character_movement and
+			victim.character_movement:IsPinned()
+		)
+		and
 		forced ~= "stagger" and
 		(
 			forced == "knockdown" or
