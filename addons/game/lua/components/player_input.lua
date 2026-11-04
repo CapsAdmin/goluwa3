@@ -8,6 +8,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local UP = Vec3(0, 1, 0)
 local usercmd = import("goluwa/network/usercmd.lua")
+local View = import("goluwa/render3d/view.lua")
 local third_person = import("lua/third_person.lua")
 local camera_modes = import("lua/camera_modes.lua")
 local inventory_menu = import("lua/inventory_menu.lua")
@@ -215,7 +216,16 @@ end
 
 function META:IsReceivingInput()
 	local camera = self.Owner.camera
-	return camera ~= nil and (camera:IsRendered() or self.controls_override == true)
+
+	if camera == nil then return false end
+
+	local view = View.GetActive()
+	return camera:IsRendered() or
+		self.controls_override == true or
+		(
+			view ~= nil and
+			view:GetKeepControls()
+		)
 end
 
 function META:BuildCommand(cmd)
