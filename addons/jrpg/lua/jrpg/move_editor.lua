@@ -247,7 +247,57 @@ function move_editor.DeleteSelected(session)
 	return true
 end
 
+local function get_skeleton(session)
+	local animator = session.Grabber.animator
+	return animator and animator.skeleton
+end
+
+do
+	local SAMPLES = 160
+	local POSITION_WEIGHT = 2
+
+	function move_editor.GetWave(session, name)
+		local animator = session.Grabber.animator
+		local skeleton = get_skeleton(session)
+		local clip = skeleton and skeleton.ClipsByName[name]
+
+		if not clip then return end
+
+		local wave = session.Waves[name]
+
+		if wave then return wave end
+
+		local pose, previous = skeleton:NewPose(), skeleton:NewPose()
+		local values, peak = {}, 1e-6
+		pose:Sample(clip, 0, animator.pose_parameters)
+
+		for i = 1, SAMPLES do
+			previous:Copy(pose)
+			pose:Sample(clip, (i - 1) / (SAMPLES - 1), animator.pose_parameters)
+			local sum = 0
+
+			for k = 0, skeleton.BoneCount * 7 - 1 do
+				local weight = k % 7 < 3 and POSITION_WEIGHT or 1
+				sum = sum + math.abs(pose.data[k] - previous.data[k]) * weight
+			end
+
+			values[i] = sum
+			peak = math.max(peak, sum)
+		end
+
+		for i = 1, SAMPLES do
+			values[i] = math.sqrt(values[i] / peak)
+		end
+
+		wave = {Values = values, Duration = clip.Duration}
+		session.Waves[name] = wave
+		return wave
+	end
+end
+
 function move_editor.UseAttacker(session, set_name)
+	session.Waves = {}
+
 	if session.Preview then
 		session.Preview:Stop()
 		session.Preview = nil
@@ -284,7 +334,7 @@ function move_editor.LoadSet(session, set_name, move_name)
 	session.Data = table.copy(movesets.Source[set_name])
 
 	for _, move in pairs(session.Data.Moves) do
-		if move.Clip then move.Keys = move.Keys or {} end
+		if move.Clips then move.Keys = move.Keys or {} end
 	end
 
 	session.History = data_history.New(session.Data)
@@ -307,6 +357,10 @@ function move_editor.Restart(session)
 end
 
 function move_editor.Apply(session)
+	for _, move in pairs(session.Data.Moves) do
+		movesets.ResolveClipLinks(move)
+	end
+
 	local ok, err = pcall(movesets.Update, session.SetName, session.Data)
 	session.Status = ok and "" or tostring(err):gsub("^.-:%d+: ", "")
 
@@ -440,38 +494,6 @@ function move_editor.BuildItems(session, changed)
 		)
 	end
 
-	local skeleton = session.Grabber.animator and session.Grabber.animator.skeleton
-
-	if move.Clip and skeleton then
-		local options = {}
-
-		for i, clip in ipairs(skeleton.Clips) do
-			options[i] = {Text = string.format("%s (%.2fs)", clip.Name, clip.Duration), Value = clip.Name}
-		end
-
-		move_children[#move_children + 1] = {
-			Key = "move/Clip",
-			Text = "clip",
-			Type = "enum",
-			Value = move.Clip,
-			Options = options,
-			OnChange = |_, value|-> do
-				move.Clip = value
-				move.Duration = skeleton.ClipsByName[value].Duration
-				changed(true)
-			end,
-		}
-		move_children[#move_children + 1] = number_node(
-			"move/ClipSpeed",
-			"clip speed",
-			move.ClipSpeed or 0,
-			|value|-> do
-				move.ClipSpeed = value > 0 and value or nil
-				changed()
-			end
-		)
-	end
-
 	move_children[#move_children + 1] = number_node(
 		"move/FaceOut",
 		"face out",
@@ -491,6 +513,72 @@ function move_editor.BuildItems(session, changed)
 	}
 
 	if not selection then return items end
+
+	if selection.List == "Clips" then
+		local entry = selection.Entry
+		local skeleton = get_skeleton(session)
+		local options = {}
+
+		for i, clip in ipairs(skeleton and skeleton.Clips or {}) do
+			options[i] = {Text = string.format("%s (%.2fs)", clip.Name, clip.Duration), Value = clip.Name}
+		end
+
+		local function number_field(key, text, name, minimum)
+			return number_node(
+				key,
+				text,
+				entry[name] or 0,
+				|value|-> do
+					entry[name] = value > minimum and value or nil
+					changed()
+				end
+			)
+		end
+
+		items[#items + 1] = {
+			Key = "key",
+			Text = "clip",
+			Expanded = true,
+			Children = {
+				{
+					Key = "key/clip",
+					Text = "clip",
+					Type = "enum",
+					Value = entry[3],
+					Options = options,
+					OnChange = |_, value|-> do
+						entry[3] = value
+						entry.In, entry.Out = nil, nil
+						changed(true)
+					end,
+				},
+				number_node(
+					"key/time",
+					"from",
+					entry[1],
+					|value|-> do
+						entry[1] = value
+						move_edit.Sort(move.Clips)
+						changed()
+					end
+				),
+				number_node(
+					"key/to",
+					"to",
+					entry[2],
+					|value|-> do
+						entry[2] = value
+						changed()
+					end
+				),
+				number_field("key/in", "in", "In", -1),
+				number_field("key/out", "out", "Out", 0),
+				number_field("key/speed", "speed", "Speed", 0),
+				number_field("key/blend", "blend", "Blend", 0),
+			},
+		}
+		return items
+	end
 
 	if selection.List == "Locks" then
 		local entry = selection.Entry
@@ -1002,7 +1090,7 @@ local MoveEditor = react.Component(
 			}
 		)
 		local move = move_editor.GetMove(session)
-		local rows = move_edit.Rows(move)
+		local rows = move_edit.Rows(move, |name|->move_editor.GetWave(session, name))
 		local addable = move_edit.AddableTracks(move)
 
 		if addable[1] then rows[#rows + 1] = {Name = "+ add track", Button = true, Keys = {}} end
@@ -1116,6 +1204,41 @@ local MoveEditor = react.Component(
 
 								Panel.OpenContextMenu({}, items)
 							end,
+							OnKeyTrim = |row, index, edge, time|-> do
+								local entry = rows[row].Keys[index].Entry
+								local skeleton = get_skeleton(session)
+
+								if not skeleton then return end
+
+								local clip = skeleton.ClipsByName[entry[3]]
+								local from, out = entry.In or 0, entry.Out or clip.Duration
+								local rate = entry.Speed or (out - from) / ((entry[2] - entry[1]) * move.Duration)
+
+								if input.IsControlDown() then
+									entry[edge == "left" and 1 or 2] = time
+								elseif edge == "left" then
+									time = math.max(time, entry[1] - from / (rate * move.Duration))
+									entry.In = math.floor((from + (time - entry[1]) * move.Duration * rate) * 1e4 + 0.5) / 1e4
+									entry.In = entry.In > 0 and entry.In or nil
+									entry[1] = time
+								elseif entry.Speed then
+									entry[2] = time
+								else
+									time = math.min(time, entry[2] + (clip.Duration - out) / (rate * move.Duration))
+									entry.Out = math.floor((out - (entry[2] - time) * move.Duration * rate) * 1e4 + 0.5) / 1e4
+									entry.Out = entry.Out < clip.Duration and entry.Out or nil
+									entry[2] = time
+								end
+
+								h.changed()
+
+								if properties.current then
+									properties.current:UpdateValueForKey("key/time", entry[1])
+									properties.current:UpdateValueForKey("key/to", entry[2])
+									properties.current:UpdateValueForKey("key/in", entry.In or 0)
+									properties.current:UpdateValueForKey("key/out", entry.Out or 0)
+								end
+							end,
 							OnKeyResize = |row, index, time|-> do
 								local key = rows[row].Keys[index]
 
@@ -1131,18 +1254,81 @@ local MoveEditor = react.Component(
 									properties.current:UpdateValueForKey(key.Entry and "key/to" or "key/hold", key.Entry and time or key.Frame.hold)
 								end
 							end,
-							OnKeyMenu = |row, index|-> do
-								local count = #session.Selected
-								local linked = false
+							OnKeySlip = |row, index, delta, first|-> do
+								local entry = rows[row].Keys[index].Entry
+								local skeleton = get_skeleton(session)
 
-								for _, key in ipairs(session.Selected) do
-									linked = linked or move_edit.IsLinked(key)
+								if not skeleton then return end
+
+								local clip = skeleton.ClipsByName[entry[3]]
+
+								if first then
+									session.Slip = {In = entry.In or 0, Out = entry.Out or clip.Duration}
 								end
 
-								Panel.OpenContextMenu(
-									{},
-									{
-										MenuItem{
+								local origin = session.Slip
+								local span = origin.Out - origin.In
+								local rate = entry.Speed or span / ((entry[2] - entry[1]) * move.Duration)
+								local from = math.clamp(origin.In - delta * move.Duration * rate, 0, clip.Duration - span)
+								from = math.floor(from * 1e4 + 0.5) / 1e4
+								local out = math.floor((from + span) * 1e4 + 0.5) / 1e4
+								entry.In = from > 0 and from or nil
+								entry.Out = out < clip.Duration - 1e-3 and out or nil
+								h.changed(first)
+
+								if properties.current then
+									properties.current:UpdateValueForKey("key/in", entry.In or 0)
+									properties.current:UpdateValueForKey("key/out", entry.Out or 0)
+								end
+							end,
+							OnKeyMenu = |row, index, time|-> do
+								local count = #session.Selected
+								local linked = false
+								local key = rows[row].Keys[index]
+								local skeleton = get_skeleton(session)
+								local items = {}
+
+								for _, selected in ipairs(session.Selected) do
+									linked = linked or move_edit.IsLinked(selected)
+								end
+
+								if key.List == "Clips" then
+									items[#items + 1] = MenuItem{
+										Text = "split",
+										Disabled = not skeleton or time <= key.Time + 0.005 or time >= key.Until - 0.005,
+										OnClick = ||-> do
+											move_edit.SplitClip(move, key.Entry, time, skeleton.ClipsByName[key.Entry[3]].Duration)
+											h.changed(true)
+										end,
+									}
+								end
+
+								if key.Event then
+									items[#items + 1] = MenuItem{
+										Text = "link to clip",
+										Disabled = key.Event.Clip ~= nil,
+										OnClick = ||-> do
+											local linked_ok = move_edit.LinkEvent(
+												move,
+												key.Event,
+												|name|->skeleton and skeleton.ClipsByName[name] and skeleton.ClipsByName[name].Duration
+											)
+											session.Status = linked_ok and "" or "no clip under this event to link to"
+											h.changed(true)
+										end,
+									}
+									items[#items + 1] = MenuItem{
+										Text = "unlink from clip",
+										Disabled = key.Event.Clip == nil,
+										OnClick = ||-> do
+											move_edit.UnlinkEvent(key.Event)
+											h.changed(true)
+										end,
+									}
+								end
+
+								local base = {
+									MenuItem{
 											Text = "link",
 											Disabled = not move_edit.CanLink(session.Selected),
 											OnClick = ||-> do
@@ -1162,21 +1348,24 @@ local MoveEditor = react.Component(
 											Tooltip = "delete",
 											OnClick = ||->h.delete(),
 										},
-									}
-								)
+}
+
+								for _, item in ipairs(base) do
+									items[#items + 1] = item
+								end
+
+								Panel.OpenContextMenu({}, items)
 							end,
 							OnKeyMove = |row, index, time|-> do
 								local key = rows[row].Keys[index]
 
-								if key.Entry then
-									if key.List == "Locks" then
-										key.Entry[2] = math.min(time + key.Entry[2] - key.Entry[1], 1)
-									end
-
+								if key.List == "Clips" or key.List == "Locks" then
+									move_edit.PlaceBlock(move[key.List], key.Entry, time, key.List == "Clips")
+								elseif key.Entry then
 									key.Entry[1] = time
 									move_edit.Sort(move[key.List])
 								elseif key.Event then
-									key.Event.At = time
+									move_edit.SetEventTime(move, key.Event, time)
 									move_edit.SortEvents(move)
 								else
 									move_edit.MoveFrame(move, key.Frame, time)
@@ -1199,6 +1388,27 @@ local MoveEditor = react.Component(
 								elseif name == "shots" then
 									move_editor.Select(session, {Entry = move_edit.AddEntry(move, "Shots", time, {camera_shots.Battle}), List = "Shots"})
 									h.changed(true)
+								elseif name == "clips" then
+									local skeleton = get_skeleton(session)
+									local last = move.Clips and move.Clips[#move.Clips]
+									local clip_name = last and last[3] or skeleton and skeleton.Clips[1].Name
+									local following
+
+									for _, clip in ipairs(move.Clips or {}) do
+										if clip[1] >= time and (not following or clip[1] < following) then
+											following = clip[1]
+										end
+									end
+
+									local to = math.min(time + 0.2, following or 1)
+
+									if not clip_name then
+										session.Status = "this character has no animation clips to add"
+										h.refresh()
+									elseif to > time then
+										move_editor.Select(session, {Entry = move_edit.AddEntry(move, "Clips", time, {to, clip_name}), List = "Clips"})
+										h.changed(true)
+									end
 								elseif name == "locks" then
 									move_editor.Select(session, {Entry = move_edit.AddEntry(move, "Locks", time, {math.min(time + 0.1, 1)}), List = "Locks"})
 									h.changed(true)

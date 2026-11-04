@@ -215,7 +215,7 @@ end)
 
 T.Test("a clip move shows strike and cast rows instead of the weapon event rows", function()
 	local move = {
-		Clip = "attackA",
+		Clips = {{0, 1, "attackA"}},
 		Duration = 1,
 		Keys = {},
 		Events = {{At = 0.5, Type = "strike", Damage = 10, Range = 2}},
@@ -230,4 +230,126 @@ T.Test("a clip move shows strike and cast rows instead of the weapon event rows"
 	local event = move_edit.AddEvent(move, "cast", 0.2)
 	T(event.Element)["=="]("fire")
 	T(move_edit.GetEventFields("cast")[2].String)["=="](true)
+end)
+
+T.Test("clips are block rows that carry their trim, move with their length and sort with the move", function()
+	local move = {Duration = 2, Keys = {}, Clips = {{0, 0.5, "a"}, {0.5, 1, "b", In = 0.2}}}
+	local rows = move_edit.Rows(move, |name|->{Values = {0, 1}, Duration = 2})
+	local keys = find_row(rows, "clips").Keys
+	T(rows[1].Name)["=="]("clips")
+	T(#keys)["=="](2)
+	T(keys[2].Block)["=="](true)
+	T(keys[2].Until)["=="](1)
+	T(keys[2].Wave.From)["=="](0.1)
+	T(keys[2].Wave.To)["=="](1)
+	local grabbed = move_edit.Grab{{Entry = move.Clips[1], List = "Clips"}}
+	move_edit.Transform(move, grabbed, 0, 1, 0.1, 0.005)
+	T(math.abs(move.Clips[1][1] - 0.1))["<"](0.006)
+	T(math.abs(move.Clips[1][2] - 0.6))["<"](0.006)
+	local added = move_edit.AddEntry(move, "Clips", 0.9, {1, "c"})
+	T(move.Clips[3])["=="](added)
+	move_edit.RemoveKey(move, {Entry = added, List = "Clips"})
+	T(#move.Clips)["=="](2)
+end)
+
+T.Test("dragging a clip block past its neighbours reorders them and keeps every block clear of the others", function()
+	local list = {{0, 0.3, "a"}, {0.3, 0.6, "b"}, {0.6, 1, "c"}}
+	local c = list[3]
+	move_edit.PlaceBlock(list, c, 0)
+	T(list[1])["=="](c)
+	T(c[1])["=="](0)
+	T(math.abs(c[2] - 0.4))["<"](1e-9)
+	T(math.abs(list[2][1] - 0.4))["<"](1e-9)
+	T(math.abs(list[3][2] - 1))["<"](1e-9)
+
+	for i = 2, #list do
+		T(list[i][1] >= list[i - 1][2] - 1e-9)["=="](true)
+	end
+
+	local a = list[2]
+	move_edit.PlaceBlock(list, a, 0.9)
+	T(a[2] <= 1)["=="](true)
+	T(list[3])["=="](a)
+end)
+
+T.Test("scaling or moving a group of clips keeps their ends snapped together so the move stays valid", function()
+	import("lua/npcs.lua")
+	local data = table.copy(movesets.Source.npc_zombie)
+	local move = data.Moves.frenzy
+	local keys = {}
+
+	for _, clip in ipairs(move.Clips) do
+		keys[#keys + 1] = {Entry = clip, List = "Clips"}
+	end
+
+	local grabbed = move_edit.Grab(keys)
+
+	for _, scale in ipairs{0.5, 0.83, 0.37, 1} do
+		move_edit.Transform(move, grabbed, 0, scale, 0, 0.005)
+		T(pcall(movesets.Validate, "npc_zombie", data))["=="](true)
+	end
+end)
+
+T.Test("a clip splits in two with the trim carried over and its linked strikes follow their half", function()
+	local move = {
+		Duration = 2,
+		Keys = {},
+		Clips = {{0, 1, "a", Id = "c1", Out = 4}},
+		Events = {
+			{At = 0.25, Type = "strike", Damage = 1, Range = 1},
+			{At = 0.75, Type = "strike", Damage = 1, Range = 1},
+		},
+	}
+	T(move_edit.LinkEvent(move, move.Events[1], |name|->4))["=="](true)
+	T(move_edit.LinkEvent(move, move.Events[2], |name|->4))["=="](true)
+	T(move.Events[1].Time)["=="](1)
+	T(move.Events[2].Time)["=="](3)
+	local right = move_edit.SplitClip(move, move.Clips[1], 0.5, 4)
+	T(move.Clips[1][2])["=="](0.5)
+	T(move.Clips[1].Out)["=="](2)
+	T(right[1])["=="](0.5)
+	T(right.In)["=="](2)
+	T(right.Out)["=="](4)
+	T(move.Events[1].Clip)["=="]("c1")
+	T(move.Events[2].Clip)["=="](right.Id)
+	movesets.ResolveClipLinks(move)
+	T(math.abs(move.Events[1].At - 0.25))["<"](1e-9)
+	T(math.abs(move.Events[2].At - 0.75))["<"](1e-9)
+end)
+
+T.Test("a strike linked to a clip keeps its place in the clip when the clip moves or stretches", function()
+	local move = {
+		Duration = 2,
+		Keys = {},
+		Clips = {{0.2, 0.6, "a", Id = "c1", Out = 4}},
+		Events = {{At = 0.4, Type = "strike", Damage = 1, Range = 1}},
+	}
+	T(move_edit.LinkEvent(move, move.Events[1], |name|->4))["=="](true)
+	local time = move.Events[1].Time
+	T(math.abs(time - 2))["<"](1e-9)
+	move.Clips[1][1], move.Clips[1][2] = 0.3, 0.9
+	movesets.ResolveClipLinks(move)
+	T(math.abs(move.Events[1].At - 0.6))["<"](1e-9)
+	move.Clips[1].In = 1
+	movesets.ResolveClipLinks(move)
+	T(move.Events[1].At >= 0.3 and move.Events[1].At <= 0.9)["=="](true)
+	move_edit.UnlinkEvent(move.Events[1])
+	T(move.Events[1].Clip)["=="](nil)
+end)
+
+T.Test("a clip dragged partly onto its neighbour crossfades with it and one dragged further swaps places", function()
+	local list = {{0, 0.4, "a"}, {0.4, 0.8, "b"}}
+	local b = list[2]
+	T(move_edit.PlaceBlock(list, b, 0.3, true))["=="](true)
+	T(math.abs(b[1] - 0.3))["<"](1e-9)
+	T(math.abs(list[1][2] - 0.4))["<"](1e-9)
+	move_edit.PlaceBlock(list, b, 0.25, true)
+	T(math.abs(b[1] - 0.25))["<"](1e-9)
+	T(list[1][3])["=="]("a")
+	T(math.abs(list[1][1]))["<"](1e-9)
+	move_edit.PlaceBlock(list, b, -0.2, true)
+	T(list[1])["=="](b)
+	T(b[1])["=="](0)
+	T(list[2][1] >= b[2] - 0.2 - 1e-9)["=="](true)
+	T(list[2][1] < b[2])["=="](true)
 end)

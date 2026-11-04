@@ -20,7 +20,10 @@ function move_edit.GetEventTypes(move)
 		used[event.Type] = true
 	end
 
-	local defaults = move.Clip and move_edit.ClipEventTypes or move_edit.WeaponEventTypes
+	local defaults = move.Keys and
+		move.Keys[1] and
+		move_edit.WeaponEventTypes or
+		move_edit.ClipEventTypes
 	local types = {}
 
 	for _, event_type in ipairs(move_edit.EventTypes) do
@@ -234,6 +237,91 @@ function move_edit.RemoveEntry(move, list, entry)
 	if not move[list][1] then move[list] = nil end
 end
 
+function move_edit.PlaceBlock(list, entry, at, crossfade)
+	local length = entry[2] - entry[1]
+	local originals = {}
+
+	for i, other in ipairs(list) do
+		originals[i] = {other[1], other[2]}
+	end
+
+	at = math.clamp(at, 0, 1 - length)
+	local threshold = at < entry[1] and at or at + length
+	local before, after = {}, {}
+
+	for _, other in ipairs(list) do
+		if other ~= entry then
+			if (other[1] + other[2]) / 2 < threshold then
+				before[#before + 1] = other
+			else
+				after[#after + 1] = other
+			end
+		end
+	end
+
+	table.sort(before, function(a, b)
+		return a[1] < b[1]
+	end)
+
+	table.sort(after, function(a, b)
+		return a[1] < b[1]
+	end)
+
+	entry[1], entry[2] = at, at + length
+
+	local function allowed(a, b)
+		return crossfade and math.min(a[2] - a[1], b[2] - b[1]) / 2 or 0
+	end
+
+	local edge, current = at, entry
+
+	for i = #before, 1, -1 do
+		local other = before[i]
+		local limit = edge + allowed(other, current)
+
+		if other[2] > limit then
+			other[1], other[2] = limit - (other[2] - other[1]), limit
+		end
+
+		edge, current = other[1], other
+	end
+
+	edge, current = entry[2], entry
+
+	for _, other in ipairs(after) do
+		local limit = edge - allowed(other, current)
+
+		if other[1] < limit then
+			other[1], other[2] = limit, limit + (other[2] - other[1])
+		end
+
+		edge, current = other[2], other
+	end
+
+	move_edit.Sort(list)
+	local valid = true
+
+	for i, other in ipairs(list) do
+		valid = valid and
+			other[1] >= -1e-9 and
+			other[2] <= 1 + 1e-9 and
+			(
+				i < 3 or
+				other[1] >= list[i - 2][2] - 1e-9
+			)
+	end
+
+	if not valid then
+		for i, other in ipairs(originals) do
+			list[i][1], list[i][2] = other[1], other[2]
+		end
+
+		move_edit.Sort(list)
+	end
+
+	return valid
+end
+
 function move_edit.RemoveKey(move, key)
 	if key.Entry then
 		move_edit.RemoveEntry(move, key.List, key.Entry)
@@ -252,6 +340,113 @@ function move_edit.RemoveKeys(move, keys)
 	end
 end
 
+local MIN_BLOCK = 0.005
+
+function move_edit.NewClipId(move)
+	local used = {}
+
+	for _, clip in ipairs(move.Clips or {}) do
+		used[clip.Id or ""] = true
+	end
+
+	local n = 1
+
+	while used["c" .. n] do
+		n = n + 1
+	end
+
+	return "c" .. n
+end
+
+function move_edit.SplitClip(move, entry, time, clip_length)
+	local from = entry.In or 0
+	local out = entry.Out or clip_length
+	local rate = entry.Speed or (out - from) / ((entry[2] - entry[1]) * move.Duration)
+	local source = from + (time - entry[1]) * move.Duration * rate
+	local right = {time, entry[2], entry[3], In = source, Out = entry.Out, Speed = entry.Speed}
+	entry[2] = time
+
+	if not entry.Speed then entry.Out = source end
+
+	if entry.Id then
+		right.Id = move_edit.NewClipId(move)
+
+		for _, event in ipairs(move.Events or {}) do
+			if event.Clip == entry.Id and event.Time >= source then event.Clip = right.Id end
+		end
+	end
+
+	table.insert(move.Clips, move_edit.Find(move.Clips, entry) + 1, right)
+	move_edit.Sort(move.Clips)
+	return right
+end
+
+function move_edit.LinkEvent(move, event, get_length)
+	local target
+
+	for _, clip in ipairs(move.Clips or {}) do
+		if event.At >= clip[1] and event.At <= clip[2] then target = clip end
+	end
+
+	local length = target and (target.Out or get_length(target[3]))
+
+	if not length then return false end
+
+	target.Id = target.Id or move_edit.NewClipId(move)
+	target.Out = length
+	local rate = target.Speed or
+		(
+			length - (
+				target.In or
+				0
+			)
+		) / (
+			(
+				target[2] - target[1]
+			) * move.Duration
+		)
+	event.Clip = target.Id
+	event.Time = (target.In or 0) + (event.At - target[1]) * move.Duration * rate
+	return true
+end
+
+function move_edit.UnlinkEvent(event)
+	event.Clip, event.Time = nil, nil
+end
+
+function move_edit.SetEventTime(move, event, time)
+	if not event.Clip then
+		event.At = time
+		return
+	end
+
+	for _, clip in ipairs(move.Clips) do
+		if clip.Id == event.Clip then
+			local rate = clip.Speed or
+				(
+					(
+						clip.Out or
+						0
+					) - (
+						clip.In or
+						0
+					)
+				) / (
+					(
+						clip[2] - clip[1]
+					) * move.Duration
+				)
+			event.Time = (clip.In or 0) + (math.clamp(time, clip[1], clip[2]) - clip[1]) * move.Duration * rate
+		end
+	end
+end
+
+function move_edit.GetEventClip(move, event)
+	for _, clip in ipairs(move.Clips or {}) do
+		if event.Clip and clip.Id == event.Clip then return clip end
+	end
+end
+
 function move_edit.Grab(keys)
 	local grabbed = {}
 	local seen = {}
@@ -266,7 +461,7 @@ function move_edit.Grab(keys)
 				Event = key.Event ~= nil,
 				Time = key.Event and key.Event.At or target[1],
 				Hold = key.Frame and key.Frame.hold or nil,
-				Length = key.List == "Locks" and target[2] - target[1] or nil,
+				End = (key.List == "Locks" or key.List == "Clips") and target[2] or nil,
 			}
 		end
 	end
@@ -287,7 +482,13 @@ function move_edit.Transform(move, grabbed, anchor, scale, offset, snap)
 
 			if item.Hold then item.Target.hold = item.Hold * scale end
 
-			if item.Length then item.Target[2] = math.min(time + item.Length * scale, 1) end
+			if item.End then
+				local finish = anchor + (item.End - anchor) * scale + offset
+
+				if snap > 0 then finish = math.floor(finish / snap + 0.5) * snap end
+
+				item.Target[2] = math.min(math.max(finish, time + MIN_BLOCK), 1)
+			end
 		end
 	end
 
@@ -300,6 +501,8 @@ function move_edit.Transform(move, grabbed, anchor, scale, offset, snap)
 	if move.Faces then move_edit.Sort(move.Faces) end
 
 	if move.Locks then move_edit.Sort(move.Locks) end
+
+	if move.Clips then move_edit.Sort(move.Clips) end
 end
 
 function move_edit.Split(move, frame, track_name)
@@ -532,7 +735,7 @@ function move_edit.SetEventValue(event, field, index, value)
 	event[field.Name] = values
 end
 
-function move_edit.Rows(move)
+function move_edit.Rows(move, get_wave)
 	local rows = {{Name = "pose", Color = "primary", Keys = {}}}
 	local by_track = {}
 
@@ -570,7 +773,29 @@ function move_edit.Rows(move)
 		end
 	end
 
-	local shot_keys, face_keys = {}, {}
+	local shot_keys, face_keys, clip_keys = {}, {}, {}
+
+	for _, clip in ipairs(move.Clips or {}) do
+		local wave = get_wave and get_wave(clip[3])
+		clip_keys[#clip_keys + 1] = {
+			Time = clip[1],
+			Until = clip[2],
+			Label = clip[3],
+			Entry = clip,
+			List = "Clips",
+			Link = clip,
+			Block = true,
+			Wave = wave and
+				{
+					Values = wave.Values,
+					From = (clip.In or 0) / wave.Duration,
+					To = (clip.Out or wave.Duration) / wave.Duration,
+				} or
+				nil,
+		}
+	end
+
+	table.insert(rows, 1, {Name = "clips", Color = "primary", Keys = clip_keys})
 
 	for _, shot in ipairs(move.Shots or {}) do
 		shot_keys[#shot_keys + 1] = {Time = shot[1], Label = shot[2], Entry = shot, List = "Shots"}
@@ -600,7 +825,12 @@ function move_edit.Rows(move)
 
 		for _, event in ipairs(move.Events or {}) do
 			if event.Type == event_type then
-				keys[#keys + 1] = {Time = event.At, Label = event_type, Event = event}
+				keys[#keys + 1] = {
+					Time = event.At,
+					Label = event_type,
+					Event = event,
+					Link = move_edit.GetEventClip(move, event),
+				}
 			end
 		end
 
