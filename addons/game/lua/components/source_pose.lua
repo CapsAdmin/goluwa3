@@ -1,4 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
+local clip_redirect = import("lua/clip_redirect.lua")
 local biped = import("lua/biped.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local leg_pose = import("lua/leg_pose.lua")
@@ -56,6 +57,7 @@ local STEP_FLOOR_RISE = 0.02
 local STEP_MAX_RATE = 4
 local UP = Vec3(0, 1, 0)
 local SPRINT_MAX_RATE = 1.5
+local gait_context = {Forward = 1}
 local GAIT_SPEED = {
 	crouch = PLAYER_WALK_SPEED * 0.6,
 	walk = PLAYER_WALK_SPEED,
@@ -186,12 +188,14 @@ function META:GetOverride(pose, suffix, clips)
 	end
 end
 
-function META:SwitchSequence(animator, sequence, override)
+function META:SwitchSequence(animator, sequence, override, redirect)
 	self.sequence = sequence
-	animator:SetLoop(not override or override.def.Loop ~= false)
+	animator:SetLoop(not override or override.def.Loop ~= false or (redirect and redirect.Loop))
 	animator:SetSequence(sequence)
 
 	if override and override.def.Loop == false then animator:Restart() end
+
+	if redirect and redirect.StartTime then animator:SetTime(redirect.StartTime) end
 end
 
 local function find_creature_sequence(pose, clips)
@@ -371,6 +375,20 @@ function META:UpdatePlayer(animator, pose, dt)
 	local weapon = holder and holder:GetWeapon("right")
 	local suffix = weapon and not weapon.weapon:IsSheathed() and weapon.weapon:GetStance() or "all"
 	sequence, override = self:GetOverride(pose, suffix, clips)
+	local redirect = override and override.redirect
+
+	if redirect and redirect.Hold then
+		self.hold_sequence, self.hold_inst, self.hold_time = sequence, override, redirect.Hold
+	elseif self.hold_time then
+		self.hold_time = self.hold_time - dt
+
+		if self.hold_time <= 0 or pose.airborne or speed > PLAYER_WALK_SPEED * 0.5 then
+			self.hold_time = nil
+		else
+			sequence, override = self.hold_sequence, self.hold_inst
+		end
+	end
+
 	local air_crouch = crouching and pose.airborne and override and override.def.Kind == "state"
 	local sprinting = not crouching and not pose.airborne and speed > PLAYER_RUN_SPEED * SPRINT_START
 	self.sprinting = sprinting
@@ -408,13 +426,22 @@ function META:UpdatePlayer(animator, pose, dt)
 		sequence = "walk_" .. suffix
 	end
 
+	if not override and not air_crouch and speed >= 0.15 then
+		gait_context.Forward = forward_speed / speed
+		sequence, redirect = clip_redirect.Resolve(gait, sequence, clips, gait_context)
+	end
+
 	local clip = animator.skeleton.ClipsByName[sequence]
 	local reference = GAIT_SPEED[gait]
 	local native = clip and not override and get_native_speed(clip) or 0
 
 	if native > 0 then reference = native end
 
-	if gait == "sprint" then
+	if redirect and redirect.SpeedScale then
+		reference = reference * redirect.SpeedScale
+	end
+
+	if gait == "sprint" and (not redirect or redirect.SprintCap ~= false) then
 		reference = math.max(reference, GAIT_SPEED.sprint / SPRINT_MAX_RATE)
 	end
 
@@ -430,7 +457,7 @@ function META:UpdatePlayer(animator, pose, dt)
 	end
 
 	if sequence ~= self.sequence then
-		self:SwitchSequence(animator, sequence, override)
+		self:SwitchSequence(animator, sequence, override, redirect)
 	end
 
 	if segment then
@@ -446,7 +473,7 @@ function META:UpdatePlayer(animator, pose, dt)
 		rate = math.clamp(
 			speed * pose_variation.GetStrideScale(forward_speed, right_speed, crouching) / reference,
 			0.4,
-			2
+			redirect and redirect.MaxRate or 2
 		)
 	end
 

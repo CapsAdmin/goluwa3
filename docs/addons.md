@@ -13,6 +13,7 @@ All of them always load, they are not exclusive modes.
 - `game` is the base: characters, ragdolls, outfits, health and damage, weapons (`weapons.Register`, `weapons.Loadout`), the physgun, npcs, the third person camera, the default huds, killfeed, usable items.
 - `sandbox` (depends on `game`): the toolgun and its tools, constraints, spawn menu, props, interactives (doors, lamps), undo history.
 - `jrpg` (depends on `game`): the rpg systems, magic, potions, sword and shield, status effects, damage types, its hud, and the battlecam, hitmarkers and item highlighting. The last four work without `!rpg` being on; they are on as soon as the addon loads.
+- `assets` (depends on `game`): content packs and what plugs them into the game. The animation pack answers `RedirectSourceClip` events (see [animation-and-source.md](animation-and-source.md)) and has the `bake_clips` command. The whole addon is git-ignored and exists only on the machine that has the pack; the game and the engine work without it (no listener, the gmod sequences play).
 
 Rules for layering: the base never imports from a gamemode. A gamemode extends the base through registries and overridable functions (`weapons.Register`, `weapons.Loadout` and `weapons.AddRootComponent` from an autorun, `camera_modes.Register` for camera modes like the battlecam, `third_person.IsDefaultHudReplaced`). When the base needs something a gamemode would also use, it belongs in the base (`lua/actors.lua`).
 

@@ -1,4 +1,5 @@
 local UNIT = import("goluwa/source_engine/units.lua").meters
+local clip_redirect = import("lua/clip_redirect.lua")
 local REFERENCE_SPEED = 200 * UNIT
 local MAX_RATIO = 1.5
 local TILT = 0.3
@@ -45,10 +46,23 @@ return {
 		Sequence = function(inst, suffix, clips)
 			if inst.weight <= 0.5 then return end
 
-			local jump = clips.jump_holding_jump
+			local start, start_redirect = clip_redirect.Resolve("jump_start", "jump_holding_jump", clips)
 
-			if jump then
-				return inst.time < jump.Duration and "jump_holding_jump" or "jump_holding_glide"
+			if clips[start] then
+				if
+					inst.time < clips[start].Duration - (
+						start_redirect and
+						start_redirect.StartTime or
+						0
+					)
+				then
+					inst.redirect = start_redirect
+					return start
+				end
+
+				local loop, loop_redirect = clip_redirect.Resolve("jump_loop", "jump_holding_glide", clips)
+				inst.redirect = loop_redirect
+				return loop
 			end
 
 			return "jump_" .. (suffix == "all" and "passive" or suffix)
@@ -66,8 +80,13 @@ return {
 		Loop = false,
 		Crouch = true,
 		Sequence = function(inst, suffix, clips)
-			if inst.weight > inst.strength * 0.25 and clips.jump_holding_land then
-				return "jump_holding_land"
+			if inst.weight > inst.strength * 0.25 then
+				local name, redirect = clip_redirect.Resolve("land", "jump_holding_land", clips)
+
+				if clips[name] then
+					inst.redirect = redirect
+					return name
+				end
 			end
 		end,
 		BoneKeys = {
