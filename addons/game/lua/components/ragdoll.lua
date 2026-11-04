@@ -19,7 +19,7 @@ local aim_pose = import("lua/aim_pose.lua")
 local knockout_pose = import("lua/knockout_pose.lua")
 local META = objects.CreateTemplate("ragdoll")
 -- an empty Network table is what makes the component part of the spawn packet
-META.Network = {Limp = {"boolean", 0.1, "reliable", to_owner = true}}
+	META.Network = {Limp = {"boolean", 0.1, "reliable", to_owner = true}}
 META:IsSet("Limp", false)
 META:StartStorable()
 META:GetSet("CorpseTime", 0)
@@ -322,7 +322,11 @@ function META:GetPartTarget(definition)
 	Quat.SetVecMul(world_offset, rotation, local_center)
 	Quat.SetMul(world_rotation, rotation, local_rotation)
 	local position = transform:GetPosition()
-	world_offset:Set(world_offset.x + position.x, world_offset.y + position.y, world_offset.z + position.z)
+	world_offset:Set(
+		world_offset.x + position.x,
+		world_offset.y + position.y,
+		world_offset.z + position.z
+	)
 	return world_offset, world_rotation
 end
 
@@ -335,7 +339,11 @@ function META:UpdateTargets(dt)
 		local last = part.last_target
 
 		if last and dt > 0 then
-			part.pose_velocity:Set((position.x - last.x) / dt, (position.y - last.y) / dt, (position.z - last.z) / dt)
+			part.pose_velocity:Set(
+				(position.x - last.x) / dt,
+				(position.y - last.y) / dt,
+				(position.z - last.z) / dt
+			)
 		end
 
 		part.target_position:Set(position.x, position.y, position.z)
@@ -736,7 +744,8 @@ function META:MakeDynamic(part, keep_pose, jitter)
 	if jitter then
 		jitter_x, jitter_z = math.randomf(-RELEASE_JITTER, RELEASE_JITTER),
 		math.randomf(-RELEASE_JITTER, RELEASE_JITTER)
-		spin_x, spin_z = math.randomf(-RELEASE_SPIN, RELEASE_SPIN), math.randomf(-RELEASE_SPIN, RELEASE_SPIN)
+		spin_x, spin_z = math.randomf(-RELEASE_SPIN, RELEASE_SPIN),
+		math.randomf(-RELEASE_SPIN, RELEASE_SPIN)
 	end
 
 	body:SetVelocity(Vec3(velocity.x + jitter_x, velocity.y, velocity.z + jitter_z))
@@ -1057,7 +1066,8 @@ do
 		self.frozen_count = self.frozen_count - 1
 		body:SetMotionType("dynamic")
 		body:Wake()
-		self.hold = self.hold or {value = SETTLE_LIMP, held = false, timer = 0, target = SETTLE_LIMP}
+		self.hold = self.hold or
+			{value = SETTLE_LIMP, held = false, timer = 0, target = SETTLE_LIMP}
 	end
 end
 
@@ -1068,7 +1078,21 @@ function META:StartFling(floor)
 	self.fling_floor = floor
 end
 
+function META:IsLaunchDelayed()
+	local pose = self.Owner.character_pose
+	return pose and pose:IsFrozen()
+end
+
 function META:Knockdown(velocity, source)
+	if self:IsLaunchDelayed() then
+		self.delayed_knock = {velocity = velocity:Copy(), source = source}
+		return
+	end
+
+	self:LaunchKnockdown(velocity, source)
+end
+
+function META:LaunchKnockdown(velocity, source)
 	self.knocked_by = source
 
 	if self.BoxRagdoll then
@@ -1238,7 +1262,11 @@ function META:UpdateKnockoutRotation(body, dt)
 	)
 	Quat.SetVecMul(world_offset, rotation, knockout_local)
 	self.Owner.transform:SetPosition(
-		Vec3(position.x + world_offset.x, position.y + world_offset.y, position.z + world_offset.z)
+		Vec3(
+			position.x + world_offset.x,
+			position.y + world_offset.y,
+			position.z + world_offset.z
+		)
 	)
 	self.Owner.transform:SetRotation(rotation:Copy())
 end
@@ -1465,6 +1493,26 @@ end
 function META:OnDeath(info)
 	if not network.HasAuthority() or not self:GetProfile() then return end
 
+	if self:IsLaunchDelayed() then
+		self.delayed_death = info
+		return
+	end
+
+	self:LaunchDeath(info)
+end
+
+function META:FlushDelayedLaunch()
+	local knock = self.delayed_knock
+	local death = self.delayed_death
+	self.delayed_knock = nil
+	self.delayed_death = nil
+
+	if knock then self:LaunchKnockdown(knock.velocity, knock.source) end
+
+	if death and self.Owner.health:IsDead() then self:LaunchDeath(death) end
+end
+
+function META:LaunchDeath(info)
 	if not self.parts[1] then self:Build() end
 
 	if self.BoxRagdoll then
@@ -1874,6 +1922,12 @@ function META:OnPhysicsUpdate(dt)
 
 	if not self.parts[1] then self:Build() end
 
+	if self.delayed_knock or self.delayed_death then
+		if self:IsLaunchDelayed() then return end
+
+		self:FlushDelayedLaunch()
+	end
+
 	if self.box_entity then
 		self:UpdateBox(dt)
 		return
@@ -1931,11 +1985,17 @@ function META:OnPhysicsUpdate(dt)
 		local root = self.parts[1]
 		local target = root.target_position
 		local position = owner.transform:GetPosition()
-		local dx, dy, dz = root.body.Position.x - target.x, root.body.Position.y - target.y, root.body.Position.z - target.z
+		local dx, dy, dz = root.body.Position.x - target.x,
+		root.body.Position.y - target.y,
+		root.body.Position.z - target.z
 		owner.transform:SetPosition(Vec3(position.x + dx, position.y + dy, position.z + dz))
 
 		for _, part in ipairs(self.parts) do
-			part.target_position:Set(part.target_position.x + dx, part.target_position.y + dy, part.target_position.z + dz)
+			part.target_position:Set(
+				part.target_position.x + dx,
+				part.target_position.y + dy,
+				part.target_position.z + dz
+			)
 
 			if part.anchor_target then
 				part.anchor_target:Set(part.anchor_target.x + dx, part.anchor_target.y + dy, part.anchor_target.z + dz)
@@ -2159,7 +2219,9 @@ do
 			for i = 0, count - 1 do
 				if not self.free_part_bones[i] then
 					local parent = parents[i]
-					locals[i] = parent >= 0 and worlds[i]:GetMultiplied(worlds[parent]:GetInverse()) or worlds[i]
+					locals[i] = parent >= 0 and
+						worlds[i]:GetMultiplied(worlds[parent]:GetInverse()) or
+						worlds[i]
 				end
 			end
 
