@@ -96,3 +96,80 @@ T.Test("events can be added, moved in order and given their fields", function()
 	T(fields[1].Name)["=="]("Cut")
 	T(fields[1].Count)["=="](3)
 end)
+
+T.Test("removing and transforming selected keys keeps frames and events ordered", function()
+	local move = table.copy(movesets.Source.sword.Moves.dive_throw)
+	local rows = move_edit.Rows(move)
+	local carry = find_row(rows, "carry")
+	local count = #move.Keys
+	local keys = {
+		{Frame = carry.Keys[1].Frame, Track = "carry"},
+		{Frame = carry.Keys[2].Frame, Track = "carry"},
+		{Event = find_row(rows, "latch").Keys[1].Event},
+	}
+	local grabbed = move_edit.Grab(keys)
+	local first_time = carry.Keys[1].Time
+	local latch_time = keys[3].Event.At
+	move_edit.Transform(move, grabbed, first_time, 2, 0, 0.005)
+	T(carry.Keys[1].Frame[1])["=="](first_time)
+	T(
+		math.abs(carry.Keys[2].Frame[1] - (first_time + (carry.Keys[2].Time - first_time) * 2))
+	)["<"](0.006)
+	T(math.abs(keys[3].Event.At - (first_time + (latch_time - first_time) * 2)))["<"](0.006)
+
+	for i = 2, #move.Keys do
+		T(move.Keys[i][1] >= move.Keys[i - 1][1])["=="](true)
+	end
+
+	move_edit.Transform(move, grabbed, 0, 1, 0.1, 0.005)
+	T(math.abs(keys[1].Frame[1] - (first_time + 0.1)))["<"](0.006)
+	move_edit.RemoveKeys(move, keys)
+	T(find_row(move_edit.Rows(move), "latch").Keys[1])["=="](nil)
+	T(#find_row(move_edit.Rows(move), "carry").Keys)["=="](1)
+	T(#move.Keys <= count)["=="](true)
+end)
+
+T.Test("unlinking a key moves its track or pose into a frame of its own", function()
+	local move = table.copy(movesets.Source.sword.Moves.dive_throw)
+	local frame = move.Keys[3]
+	local pose_name = frame[2]
+	T(type(pose_name))["=="]("string")
+	T(move_edit.IsLinked{Frame = frame, Track = "body"})["=="](true)
+	local count = #move.Keys
+	local body = move_edit.Unlink(move, {Frame = frame, Track = "body"})
+	T(body.Frame ~= frame)["=="](true)
+	T(body.Frame.body ~= nil)["=="](true)
+	T(frame.body)["=="](nil)
+	T(#move.Keys)["=="](count + 1)
+	T(move_edit.IsLinked(body))["=="](false)
+	local pose = move_edit.Unlink(move, {Frame = frame})
+	T(pose.Frame[2])["=="](pose_name)
+	T(frame[2])["=="](nil)
+end)
+
+T.Test("linking selected keys merges them into the earliest frame unless a track would repeat", function()
+	local move = table.copy(movesets.Source.sword.Moves.dive_throw)
+	local frame = move.Keys[3]
+	local pose_name = frame[2]
+	local body = move_edit.Unlink(move, {Frame = frame, Track = "body"})
+	local pose = {Frame = frame}
+	T(move_edit.CanLink({body, pose}))["=="](true)
+	T(move_edit.CanLink({body}))["=="](false)
+	local count = #move.Keys
+	local linked = move_edit.Link(move, {body, pose})
+	T(linked[1].Frame)["=="](linked[2].Frame)
+	T(linked[1].Frame[2])["=="](pose_name)
+	T(linked[1].Frame.body ~= nil)["=="](true)
+	T(#move.Keys)["=="](count - 1)
+	T(move_edit.IsLinked(linked[1]))["=="](true)
+	local other
+
+	for _, candidate in ipairs(move.Keys) do
+		if candidate ~= linked[1].Frame and candidate.body ~= nil then
+			other = candidate
+		end
+	end
+
+	T(other ~= nil)["=="](true)
+	T(move_edit.CanLink{{Frame = other, Track = "body"}, linked[1]})["=="](false)
+end)

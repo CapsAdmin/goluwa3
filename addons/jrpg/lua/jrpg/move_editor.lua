@@ -17,6 +17,9 @@ local jrpg = import("lua/jrpg/jrpg.lua")
 local movesets = import("lua/movesets.lua")
 local move_edit = import("lua/jrpg/move_edit.lua")
 local move_preview = import("lua/jrpg/move_preview.lua")
+local data_history = import("lua/data_history.lua")
+local input = import("goluwa/input.lua")
+local system = import("goluwa/system.lua")
 local move_editor = {}
 local LEFT_WIDTH = 400
 local BOTTOM_HEIGHT = 320
@@ -70,22 +73,26 @@ local function get_pose_names(data)
 	return names
 end
 
-local function find_selection(rows, selection)
-	if not selection then return end
+local function find_selection(rows, selected)
+	local found = {}
 
-	for i, row in ipairs(rows) do
-		for j, key in ipairs(row.Keys) do
-			if
-				selection.Event and
-				key.Event == selection.Event or
-				selection.Frame and
-				key.Frame == selection.Frame and
-				key.Track == selection.Track
-			then
-				return {i, j}
+	for _, selection in ipairs(selected) do
+		for i, row in ipairs(rows) do
+			for j, key in ipairs(row.Keys) do
+				if
+					selection.Event and
+					key.Event == selection.Event or
+					selection.Frame and
+					key.Frame == selection.Frame and
+					key.Track == selection.Track
+				then
+					found[#found + 1] = {i, j}
+				end
 			end
 		end
 	end
+
+	return found
 end
 
 do
@@ -132,6 +139,7 @@ function move_editor.CreateSession()
 		Speed = 1,
 		Status = "",
 		SelectId = 0,
+		Selected = {},
 	}
 	session.View = View.New{
 		Priority = 1000,
@@ -157,14 +165,77 @@ function move_editor.DestroySession(session)
 	if session.Victim:IsValid() then session.Victim:Remove() end
 end
 
-function move_editor.Select(session, selection)
-	session.Selection = selection
+function move_editor.SelectMany(session, selected)
+	session.Selected = selected
+	session.Selection = #selected == 1 and selected[1] or nil
 	session.SelectId = session.SelectId + 1
+end
+
+function move_editor.Select(session, selection)
+	move_editor.SelectMany(session, selection and {selection} or {})
+end
+
+function move_editor.Commit(session, force)
+	session.History:Commit(session.Data, system.GetElapsedTime(), force or session.ForceCommit)
+	session.ForceCommit = false
+end
+
+function move_editor.StepHistory(session, redo)
+	local data = redo and session.History:DoRedo() or session.History:DoUndo()
+
+	if not data then return end
+
+	session.Data = data
+	move_editor.Select(session, nil)
+	move_editor.Apply(session)
+end
+
+function move_editor.SelectAll(session, rows)
+	local selected = {}
+
+	for _, row in ipairs(rows) do
+		for _, key in ipairs(row.Keys) do
+			selected[#selected + 1] = {Frame = key.Frame, Track = key.Track, Event = key.Event}
+		end
+	end
+
+	move_editor.SelectMany(session, selected)
+end
+
+function move_editor.UnlinkSelected(session)
+	local move = move_editor.GetMove(session)
+	local unlinked = false
+
+	for i, key in ipairs(session.Selected) do
+		if move_edit.IsLinked(key) then
+			session.Selected[i] = move_edit.Unlink(move, key)
+			unlinked = true
+		end
+	end
+
+	move_editor.SelectMany(session, session.Selected)
+	return unlinked
+end
+
+function move_editor.LinkSelected(session)
+	if not move_edit.CanLink(session.Selected) then return false end
+
+	move_editor.SelectMany(session, move_edit.Link(move_editor.GetMove(session), session.Selected))
+	return true
+end
+
+function move_editor.DeleteSelected(session)
+	if not session.Selected[1] then return false end
+
+	move_edit.RemoveKeys(move_editor.GetMove(session), session.Selected)
+	move_editor.Select(session, nil)
+	return true
 end
 
 function move_editor.LoadSet(session, set_name, move_name)
 	session.SetName = set_name
 	session.Data = table.copy(movesets.Source[set_name])
+	session.History = data_history.New(session.Data)
 	session.MoveName = move_name or get_move_names(session.Data)[1]
 	move_editor.Select(session, nil)
 	move_editor.Restart(session)
@@ -265,10 +336,6 @@ local function vector_node(key, text, kind, values, on_change, precision)
 	}
 end
 
-local function action_node(key, text, on_action)
-	return {Key = key, Text = "", Type = "action", ButtonText = text, OnAction = on_action}
-end
-
 function move_editor.BuildItems(session, changed)
 	local move = move_editor.GetMove(session)
 	local selection = session.Selection
@@ -350,15 +417,6 @@ function move_editor.BuildItems(session, changed)
 			end
 		end
 
-		children[#children + 1] = action_node(
-			"key/delete",
-			"Delete event",
-			||-> do
-				move_edit.RemoveEvent(move, event)
-				move_editor.Select(session, nil)
-				changed()
-			end
-		)
 		items[#items + 1] = {Key = "key", Text = event.Type .. " event", Expanded = true, Children = children}
 		return items
 	end
@@ -428,15 +486,6 @@ function move_editor.BuildItems(session, changed)
 					changed()
 				end,
 			},
-			action_node(
-				"key/delete",
-				"Delete key",
-				||-> do
-					move_edit.RemoveFrame(move, frame)
-					move_editor.Select(session, nil)
-					changed()
-				end
-			),
 		},
 	}
 	local names = move_edit.GetTracks(frame)
@@ -484,26 +533,6 @@ function move_editor.BuildItems(session, changed)
 			end
 		end
 
-		if #names > 1 or type(frame[2]) == "string" then
-			children[#children + 1] = action_node(
-				track_name .. "/split",
-				"Split to its own key",
-				||-> do
-					move_editor.Select(session, {Frame = move_edit.Split(move, frame, track_name), Track = track_name})
-					changed()
-				end
-			)
-		end
-
-		children[#children + 1] = action_node(
-			track_name .. "/remove",
-			"Remove " .. track_name,
-			||-> do
-				move_edit.RemoveTrack(move, frame, track_name)
-				move_editor.Select(session, nil)
-				changed()
-			end
-		)
 		items[#items + 1] = {Key = track_name, Text = track_name, Expanded = true, Children = children}
 	end
 
@@ -570,6 +599,35 @@ function move_editor.BuildMenu(session, h)
 				}
 			end,
 		},
+		{
+			Text = "EDIT",
+			Items = ||-> {
+				MenuItem{
+					Text = "undo",
+					Icon = "undo",
+					Tooltip = "ctrl+z",
+					OnClick = ||-> do
+						move_editor.StepHistory(session, false)
+						h.refresh()
+					end,
+				},
+				MenuItem{
+					Text = "redo",
+					Icon = "redo",
+					Tooltip = "ctrl+y",
+					OnClick = ||-> do
+						move_editor.StepHistory(session, true)
+						h.refresh()
+					end,
+				},
+				MenuItem{
+					Text = "delete selected keys",
+					Icon = "trash",
+					Tooltip = "delete",
+					OnClick = ||->h.delete(),
+				},
+			},
+		},
 	}
 end
 
@@ -594,9 +652,14 @@ local MoveEditor = react.Component(
 					set_version(|value|->value + 1)
 				end
 
-				function h.changed()
+				function h.changed(force)
 					move_editor.Apply(session)
+					move_editor.Commit(session, force)
 					set_version(|value|->value + 1)
+				end
+
+				function h.delete()
+					if move_editor.DeleteSelected(session) then h.changed(true) end
 				end
 
 				function h.close()
@@ -623,18 +686,37 @@ local MoveEditor = react.Component(
 		react.UseEvent(
 			"KeyInput",
 			|key, press|-> do
-				if key ~= "space" then return end
-
 				local focused = objects:GetFocusedObject()
 
 				if focused and focused:IsValid() and tostring(focused.Type):find("text") then return end
 
-				if press then
-					move_editor.TogglePlaying(session)
-					h.refresh()
+				if key == "space" then
+					if press then
+						move_editor.TogglePlaying(session)
+						h.refresh()
+					end
+
+					return true
 				end
 
-				return true
+				if not press then return end
+
+				if input.IsControlDown() and (key == "z" or key == "y") then
+					move_editor.StepHistory(session, key == "y" or input.IsShiftDown())
+					h.refresh()
+					return true
+				end
+
+				if input.IsControlDown() and key == "a" then
+					move_editor.SelectAll(session, move_edit.Rows(move_editor.GetMove(session)))
+					h.refresh()
+					return true
+				end
+
+				if key == "delete" then
+					h.delete()
+					return true
+				end
 			end
 		)
 		local items = react.UseMemo(
@@ -784,7 +866,7 @@ local MoveEditor = react.Component(
 						ui.Timeline{
 							Rows = rows,
 							Time = session.Phase,
-							Selection = find_selection(rows, session.Selection),
+							Selection = find_selection(rows, session.Selected),
 							OnScrub = |time|-> do
 								session.Playing = false
 								session.Phase = time
@@ -792,8 +874,63 @@ local MoveEditor = react.Component(
 							end,
 							OnSelect = |row, index|-> do
 								local key = row and rows[row].Keys[index]
+								session.ForceCommit = true
 								move_editor.Select(session, key and {Frame = key.Frame, Track = key.Track, Event = key.Event} or nil)
 								h.refresh()
+							end,
+							OnSelectKeys = |list|-> do
+								local selected = {}
+
+								for i, item in ipairs(list) do
+									local key = rows[item[1]].Keys[item[2]]
+									selected[i] = {Frame = key.Frame, Track = key.Track, Event = key.Event}
+								end
+
+								move_editor.SelectMany(session, selected)
+								h.refresh()
+							end,
+							OnKeysTransform = |anchor, scale, offset, first, timeline|-> do
+								if first then session.Grabbed = move_edit.Grab(session.Selected) end
+
+								move_edit.Transform(move, session.Grabbed, anchor, scale, offset, timeline:GetSnap())
+								h.changed(first)
+							end,
+							OnKeysDrop = ||-> do
+								session.Grabbed = nil
+							end,
+							OnKeyMenu = |row, index|-> do
+								local count = #session.Selected
+								local linked = false
+
+								for _, key in ipairs(session.Selected) do
+									linked = linked or move_edit.IsLinked(key)
+								end
+
+								Panel.OpenContextMenu(
+									{},
+									{
+										MenuItem{
+											Text = "link",
+											Disabled = not move_edit.CanLink(session.Selected),
+											OnClick = ||-> do
+												if move_editor.LinkSelected(session) then h.changed(true) end
+											end,
+										},
+										MenuItem{
+											Text = "unlink",
+											Disabled = not linked,
+											OnClick = ||-> do
+												if move_editor.UnlinkSelected(session) then h.changed(true) end
+											end,
+										},
+										MenuItem{
+											Text = count > 1 and "remove " .. count .. " keys" or "remove",
+											Icon = "trash",
+											Tooltip = "delete",
+											OnClick = ||->h.delete(),
+										},
+									}
+								)
 							end,
 							OnKeyMove = |row, index, time|-> do
 								local key = rows[row].Keys[index]

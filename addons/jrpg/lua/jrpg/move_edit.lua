@@ -186,6 +186,63 @@ function move_edit.RemovePose(move, frame)
 	if move_edit.IsFrameEmpty(frame) then move_edit.RemoveFrame(move, frame) end
 end
 
+function move_edit.RemoveKey(move, key)
+	if key.Event then
+		move_edit.RemoveEvent(move, key.Event)
+	elseif key.Track then
+		move_edit.RemoveTrack(move, key.Frame, key.Track)
+	else
+		move_edit.RemovePose(move, key.Frame)
+	end
+end
+
+function move_edit.RemoveKeys(move, keys)
+	for _, key in ipairs(keys) do
+		move_edit.RemoveKey(move, key)
+	end
+end
+
+function move_edit.Grab(keys)
+	local grabbed = {}
+	local seen = {}
+
+	for _, key in ipairs(keys) do
+		local target = key.Event or key.Frame
+
+		if not seen[target] then
+			seen[target] = true
+			grabbed[#grabbed + 1] = {
+				Target = target,
+				Event = key.Event ~= nil,
+				Time = key.Event and key.Event.At or key.Frame[1],
+				Hold = not key.Event and key.Frame.hold or nil,
+			}
+		end
+	end
+
+	return grabbed
+end
+
+function move_edit.Transform(move, grabbed, anchor, scale, offset, snap)
+	for _, item in ipairs(grabbed) do
+		local time = anchor + (item.Time - anchor) * scale + offset
+
+		if snap > 0 then time = math.floor(time / snap + 0.5) * snap end
+
+		if item.Event then
+			item.Target.At = time
+		else
+			item.Target[1] = time
+
+			if item.Hold then item.Target.hold = item.Hold * scale end
+		end
+	end
+
+	move_edit.Sort(move.Keys)
+
+	if move.Events then move_edit.SortEvents(move) end
+end
+
 function move_edit.Split(move, frame, track_name)
 	local split = {frame[1], [track_name] = frame[track_name]}
 	frame[track_name] = nil
@@ -202,6 +259,133 @@ function move_edit.Split(move, frame, track_name)
 	if move_edit.IsFrameEmpty(frame) then move_edit.RemoveFrame(move, frame) end
 
 	return split
+end
+
+function move_edit.IsLinked(key)
+	if key.Event then return false end
+
+	local frame = key.Frame
+	local count = #move_edit.GetTracks(frame) + (type(frame[2]) == "string" and 1 or 0)
+	return count > 1
+end
+
+do
+	local function ease_of(frame, track)
+		local ease = frame.ease
+
+		if type(ease) == "table" then return ease[track] or "smooth" end
+
+		return ease or "smooth"
+	end
+
+	local function plan_link(keys)
+		local target
+
+		for _, key in ipairs(keys) do
+			if key.Event then return end
+
+			if not target or key.Frame[1] < target[1] then target = key.Frame end
+		end
+
+		if not target then return end
+
+		local tracks = {}
+		local has_pose = type(target[2]) == "string"
+		local moved = {}
+
+		for name in pairs(TRACKS) do
+			tracks[name] = target[name] ~= nil
+		end
+
+		for _, key in ipairs(keys) do
+			if key.Frame ~= target then
+				if key.Track then
+					if tracks[key.Track] then return end
+
+					tracks[key.Track] = true
+				else
+					if has_pose then return end
+
+					has_pose = true
+				end
+
+				moved[#moved + 1] = key
+			end
+		end
+
+		if not moved[1] then return end
+
+		return target, moved
+	end
+
+	function move_edit.CanLink(keys)
+		return plan_link(keys) ~= nil
+	end
+
+	function move_edit.Link(move, keys)
+		local target, moved = plan_link(keys)
+		local eases = {}
+
+		for name in pairs(TRACKS) do
+			if target[name] ~= nil then eases[name] = ease_of(target, name) end
+		end
+
+		for _, key in ipairs(moved) do
+			if key.Track then
+				eases[key.Track] = ease_of(key.Frame, key.Track)
+				local value = key.Frame[key.Track]
+				move_edit.RemoveTrack(move, key.Frame, key.Track)
+				target[key.Track] = value
+			else
+				local pose = key.Frame[2]
+				move_edit.RemovePose(move, key.Frame)
+				target[2] = pose
+			end
+		end
+
+		local first, uniform = next(eases)
+
+		if first then
+			uniform = true
+
+			for _, ease in pairs(eases) do
+				uniform = uniform and ease == eases[first]
+			end
+
+			if uniform then
+				move_edit.SetEase(target, eases[first])
+			else
+				local table_ease = {}
+
+				for name, ease in pairs(eases) do
+					table_ease[name] = ease ~= "smooth" and ease or nil
+				end
+
+				target.ease = table_ease
+			end
+		end
+
+		local linked = {}
+
+		for i, key in ipairs(keys) do
+			linked[i] = {Frame = target, Track = key.Track}
+		end
+
+		return linked
+	end
+end
+
+function move_edit.Unlink(move, key)
+	local frame = key.Frame
+
+	if key.Track then
+		return {Frame = move_edit.Split(move, frame, key.Track), Track = key.Track}
+	end
+
+	local split = {frame[1], frame[2], ease = type(frame.ease) ~= "table" and frame.ease or nil}
+	frame[2] = nil
+	table.insert(move.Keys, move_edit.Find(move.Keys, frame) + 1, split)
+	return {Frame = split}
 end
 
 function move_edit.SetTrackValue(frame, track_name, index, value)
@@ -297,6 +481,7 @@ function move_edit.Rows(move)
 				Until = frame.hold and frame[1] + frame.hold,
 				Label = frame[2],
 				Frame = frame,
+				Link = frame,
 			}
 		end
 	end
@@ -310,6 +495,7 @@ function move_edit.Rows(move)
 					Time = frame[1],
 					Until = frame.hold and frame[1] + frame.hold,
 					Frame = frame,
+					Link = frame,
 					Track = track.Name,
 				}
 			end
