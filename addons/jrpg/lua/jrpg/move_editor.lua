@@ -21,9 +21,11 @@ local move_preview = import("lua/jrpg/move_preview.lua")
 local data_history = import("lua/data_history.lua")
 local camera_shots = import("lua/camera_shots.lua")
 local faces = import("lua/faces.lua")
+local damage_types = import("lua/jrpg/damage_types.lua")
 local input = import("goluwa/input.lua")
 local system = import("goluwa/system.lua")
 local move_editor = {}
+local NPC_OFFSET = 3
 local LEFT_WIDTH = 400
 local BOTTOM_HEIGHT = 320
 local TIMELINE_RULER = 22
@@ -139,6 +141,7 @@ function move_editor.CreateSession()
 	local victim = npcs.Spawn("citizen", grabber.transform:GetPosition() + forward * 2.6, 0)
 	victim.ai_controller.Wander = false
 	local session = {
+		Player = grabber,
 		Grabber = grabber,
 		Victim = victim,
 		Camera = "three",
@@ -168,6 +171,8 @@ function move_editor.DestroySession(session)
 	move_editor.Current = nil
 
 	if session.Preview then session.Preview:Stop() end
+
+	if session.Npc and session.Npc:IsValid() then session.Npc:Remove() end
 
 	session.View:Remove()
 	view_camera.Stop(session.Fly)
@@ -242,9 +247,46 @@ function move_editor.DeleteSelected(session)
 	return true
 end
 
+function move_editor.UseAttacker(session, set_name)
+	if session.Preview then
+		session.Preview:Stop()
+		session.Preview = nil
+	end
+
+	local npc_name = set_name:match("^npc_(.+)$")
+
+	if session.Npc and session.Npc:IsValid() then session.Npc:Remove() end
+
+	session.Npc = nil
+
+	if npc_name then
+		local player = session.Player
+		local forward = actors.GetForward(player)
+		local position = player.transform:GetPosition() + Vec3(forward.z, 0, -forward.x) * NPC_OFFSET
+		local npc = npcs.Spawn(npc_name, position, 0)
+		npc.ai_controller.Wander = false
+		session.Npc = npc
+		session.Grabber = npc
+		session.Victim.character_movement:TeleportTo(position + actors.GetForward(npc) * 2.6)
+	else
+		session.Grabber = session.Player
+		session.Victim.character_movement:TeleportTo(
+			session.Player.transform:GetPosition() + actors.GetForward(session.Player) * 2.6
+		)
+	end
+
+	move_editor.SetCameraPreset(session, session.Camera)
+end
+
 function move_editor.LoadSet(session, set_name, move_name)
+	move_editor.UseAttacker(session, set_name)
 	session.SetName = set_name
 	session.Data = table.copy(movesets.Source[set_name])
+
+	for _, move in pairs(session.Data.Moves) do
+		if move.Clip then move.Keys = move.Keys or {} end
+	end
+
 	session.History = data_history.New(session.Data)
 	session.MoveName = move_name or get_move_names(session.Data)[1]
 	move_editor.Select(session, nil)
@@ -318,7 +360,7 @@ end
 function move_editor.Step(session, dt)
 	local registered = movesets.Get(session.SetName).Moves[session.MoveName]
 	local holder = session.Grabber.weapon_holder
-	local weapon = holder:FindWeapon("weapon_" .. session.SetName)
+	local weapon = holder and holder:FindWeapon("weapon_" .. session.SetName)
 
 	if weapon and holder:GetWeapon("right") ~= weapon then holder:Equip(weapon, "right") end
 
@@ -525,25 +567,42 @@ function move_editor.BuildItems(session, changed)
 
 		for _, field in ipairs(move_edit.GetEventFields(event.Type)) do
 			local values = move_edit.GetEventValues(event, field) or {}
-
-			for i = 1, field.Count do
-				values[i] = values[i] or 0
-			end
-
 			local key = "key/" .. field.Name
 			local text = field.Name:lower()
 
-			if field.Count == 1 then
+			if field.String then
+				local options = {}
+
+				for i, name in ipairs(damage_types.Names) do
+					options[i] = {Text = name, Value = name}
+				end
+
+				children[#children + 1] = {
+					Key = key,
+					Text = text,
+					Type = "enum",
+					Value = event[field.Name] or damage_types.Names[1],
+					Options = options,
+					OnChange = |_, value|-> do
+						event[field.Name] = value
+						changed()
+					end,
+				}
+			elseif field.Count == 1 then
 				children[#children + 1] = number_node(
 					key,
 					text,
-					values[1],
+					values[1] or 0,
 					|value|-> do
 						move_edit.SetEventValue(event, field, 1, value)
 						changed()
 					end
 				)
 			else
+				for i = 1, field.Count do
+					values[i] = values[i] or 0
+				end
+
 				children[#children + 1] = vector_node(
 					key,
 					text,
@@ -722,7 +781,8 @@ function move_editor.BuildMenu(session, h)
 						Icon = "save",
 						OnClick = ||-> do
 							if move_editor.Apply(session) then
-								session.Status = "saved " .. movesets.Save(session.SetName)
+								local ok, result = pcall(movesets.Save, session.SetName)
+								session.Status = ok and "saved " .. result or tostring(result):gsub("^.-:%d+: ", "")
 							end
 
 							h.refresh()
@@ -733,8 +793,14 @@ function move_editor.BuildMenu(session, h)
 						Text = "revert to file",
 						Icon = "file",
 						OnClick = ||-> do
-							movesets.Reload(session.SetName)
-							move_editor.LoadSet(session, session.SetName, session.MoveName)
+							local ok, err = pcall(movesets.Reload, session.SetName)
+
+							if ok then
+								move_editor.LoadSet(session, session.SetName, session.MoveName)
+							else
+								session.Status = tostring(err):gsub("^.-:%d+: ", "")
+							end
+
 							h.refresh()
 						end,
 					},

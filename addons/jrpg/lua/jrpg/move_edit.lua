@@ -4,10 +4,34 @@ local movesets = import("lua/movesets.lua")
 local move_edit = {}
 move_edit.EventDefaults = {
 	hit = {Cut = {0, 0, 1}},
+	strike = {Damage = 10, Range = 2},
+	cast = {Element = "fire", Damage = 10},
 	latch = {Range = 2.5},
 	release = {Damage = 1, Inherit = 1, Throw = {0, 1, 2}},
 }
-move_edit.EventTypes = {"hit", "latch", "release"}
+move_edit.EventTypes = {"hit", "strike", "cast", "latch", "release"}
+move_edit.ClipEventTypes = {strike = true, cast = true}
+move_edit.WeaponEventTypes = {hit = true, latch = true, release = true}
+
+function move_edit.GetEventTypes(move)
+	local used = {}
+
+	for _, event in ipairs(move.Events or {}) do
+		used[event.Type] = true
+	end
+
+	local defaults = move.Clip and move_edit.ClipEventTypes or move_edit.WeaponEventTypes
+	local types = {}
+
+	for _, event_type in ipairs(move_edit.EventTypes) do
+		if used[event_type] or defaults[event_type] then
+			types[#types + 1] = event_type
+		end
+	end
+
+	return types
+end
+
 move_edit.Eases = {"smooth", "linear", "in", "out"}
 local TRACKS = {}
 
@@ -470,7 +494,11 @@ function move_edit.GetEventFields(event_type)
 	local fields = {}
 
 	for key, kind in pairs(movesets.EventTypes[event_type].keys) do
-		fields[#fields + 1] = {Name = key, Count = kind == "number" and 1 or kind}
+		fields[#fields + 1] = {
+			Name = key,
+			Count = (kind == "number" or kind == "string") and 1 or kind,
+			String = kind == "string",
+		}
 	end
 
 	table.sort(fields, function(a, b)
@@ -567,7 +595,7 @@ function move_edit.Rows(move)
 	rows[#rows + 1] = {Name = "faces", Color = "neutral", Keys = face_keys}
 	rows[#rows + 1] = {Name = "locks", Color = "prefab", Keys = lock_keys}
 
-	for _, event_type in ipairs(move_edit.EventTypes) do
+	for _, event_type in ipairs(move_edit.GetEventTypes(move)) do
 		local keys = {}
 
 		for _, event in ipairs(move.Events or {}) do

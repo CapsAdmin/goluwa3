@@ -212,3 +212,22 @@ T.Test("locks are rows of ranges that move and scale with their length and valid
 	T(movesets.IsLocking({Locks = {lock}}, 0.3))["=="](true)
 	T(movesets.IsLocking({Locks = {lock}}, 0.5))["=="](false)
 end)
+
+T.Test("a clip move shows strike and cast rows instead of the weapon event rows", function()
+	local move = {
+		Clip = "attackA",
+		Duration = 1,
+		Keys = {},
+		Events = {{At = 0.5, Type = "strike", Damage = 10, Range = 2}},
+	}
+	local rows = move_edit.Rows(move)
+	T(#find_row(rows, "strike").Keys)["=="](1)
+	T(find_row(rows, "cast") ~= nil)["=="](true)
+	T(find_row(rows, "hit"))["=="](nil)
+	local weapon_rows = move_edit.Rows(table.copy(movesets.Source.sword.Moves.light_1))
+	T(find_row(weapon_rows, "hit") ~= nil)["=="](true)
+	T(find_row(weapon_rows, "strike"))["=="](nil)
+	local event = move_edit.AddEvent(move, "cast", 0.2)
+	T(event.Element)["=="]("fire")
+	T(move_edit.GetEventFields("cast")[2].String)["=="](true)
+end)
