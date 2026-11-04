@@ -13,6 +13,7 @@ stagger.KnockdownMinDamage = 40
 stagger.KnockdownSpeed = 5
 stagger.KnockdownMaxSpeed = 9
 stagger.KnockdownLift = 3
+stagger.DeathKnockdownScale = 1
 stagger.Duration = 0.85
 stagger.FreezeFraction = 0.3
 stagger.Hitstop = 0.08
@@ -158,7 +159,7 @@ event.AddListener("HealthDamaged", "jrpg_stagger", function(victim, amount, max_
 			not grab.IsHeld(victim)
 		then
 			ragdoll:Knockdown(
-				stagger.GetKnockdownVelocity(push, math.clamp(amount / knockdown - 1, 0, 1)),
+				stagger.GetKnockdownVelocity(push, math.clamp(amount / knockdown - 1, 0, 1)) * stagger.DeathKnockdownScale,
 				attacker
 			)
 		end
