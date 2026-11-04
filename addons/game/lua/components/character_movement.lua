@@ -22,8 +22,10 @@ META:GetSet("Acceleration", 10)
 META:GetSet("AirAcceleration", 10)
 META:GetSet("Friction", 6)
 META:GetSet("StopSpeed", 100 * UNIT)
-META:GetSet("JumpSpeed", 196.75 * UNIT)
+META:GetSet("JumpSpeed", 215.5 * UNIT)
 META:GetSet("Gravity", 600 * UNIT)
+META:GetSet("RiseGravity", 1.2)
+META:GetSet("FallGravity", 1.6)
 META:GetSet("StepHeight", 18 * UNIT)
 META:GetSet("GroundReach", 2 * UNIT)
 META:IsSet("StickToGround", true)
@@ -1349,6 +1351,10 @@ do
 			if ground_body then
 				local carry = get_carry_velocity(ground_body, body:GetOriginPosition(), dt)
 				base_x, base_y, base_z = carry.x, carry.y, carry.z
+			end
+
+			if not grounded and self.hang <= 0 then
+				y = y - self.Gravity * dt * ((y > 0 and self.RiseGravity or self.FallGravity) - 1)
 			end
 
 			self.previous_velocity:Set(x, y, z)
