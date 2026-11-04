@@ -991,9 +991,11 @@ event.AddListener("DrawHUD", "jrpg_hud", function(dt)
 	end
 end)
 
-event.AddListener("DrawHUD", "jrpg_hitmarkers", function()
-	if third_person.IsHudHidden() then return end
+if render3d then
+	event.AddListener("DrawHUD", "jrpg_hitmarkers", function()
+		if third_person.IsHudHidden() then return end
 
-	local w, h = render2d.GetSize()
-	hitmarkers.Draw(render3d.GetMainCamera(), w, h, system.GetElapsedTime(), system.GetFrameTime())
-end)
+		local w, h = render2d.GetSize()
+		hitmarkers.Draw(render3d.GetMainCamera(), w, h, system.GetElapsedTime(), system.GetFrameTime())
+	end)
+end
