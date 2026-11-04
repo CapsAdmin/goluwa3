@@ -46,6 +46,12 @@ A LuaJIT fork in `local_stuff/LuaJIT-Profiler` (pinned to the flake's rev) adds 
 - RENDER VIEWS (`addons/debug/lua/autorun/render_3d/render_views.lua`, `gbuffer_view <field|sheet|targets|off>`) shows gbuffer fields, pass debug textures and lighting term switches; the GBUFFER LAYOUT tab shows how fields are packed.
 - `GOLUWA_DUMP_SHADERS=1` writes every stitched GLSL stage to `storage/shader_source/<pass name>.<stage ext>` (`.vert .frag .comp .rgen` ...). Each file compiles standalone: `glslc --target-env=vulkan1.3 file`. Pipelines without `name` fall back to the creating Lua file; same-name variants get a crc suffix.
 
+# Game speed
+
+- The `time_scale` pvar (`system.SetTimeScale`, `GOLUWA_PVARS="time_scale=0.1"`) scales the game clock: the `dt` of `Update` events, `system.GetFrameTime()` and `system.GetElapsedTime()` all follow it, so physics, animation, timers, particles and effects slow down together. 0 freezes them (`dt` is 0, so code dividing by `dt` is a bug).
+- `system.GetUnscaledFrameTime()` and `system.GetUnscaledElapsedTime()` ignore the scale. Anything that is not simulating the world uses them: UI animation, tooltips, debounces, stats and profiling, file watching, HUD fades, camera-independent debug tools. A new feature picks game time for what the world does and real time for what the person at the keyboard sees.
+- `system.SetElapsedTime` (tests, blocking waits) moves both clocks.
+
 # LuaJIT optimization notes
 
 See performance.md "LuaJIT".

@@ -181,7 +181,19 @@ end)
 local function run_game(startup_command)
 	startup.Begin("run_game")
 	startup.Begin("pvars and repl")
-	import("goluwa/cli/pvars.lua").Initialize()
+	local pvars = import("goluwa/cli/pvars.lua")
+	pvars.Initialize()
+	pvars.StartGroup("Engine", "Time", {store = false})
+	pvars.Setup2{
+		key = "time_scale",
+		default = 1,
+		min = 0,
+		max = 10,
+		friendly = "game speed",
+		help = "multiplier on the game clock: 1 is normal, below 1 slows animation, physics and effects down for debugging, 0 freezes them. UI and debug tools keep running in real time",
+		callback = system.SetTimeScale,
+	}
+	pvars.EndGroup()
 
 	if not _WORKER_THREAD then import("goluwa/cli/repl.lua").Initialize() end
 
@@ -391,10 +403,9 @@ crash_trace.Run(function()
 
 	while system.IsRunning() and not os.exitcode do
 		local time = system.GetTime()
-		local dt = time - (last_time or 0)
-		system.SetFrameTime(dt)
+		local dt = system.AdvanceFrameTime(time - (last_time or 0))
 		system.SetFrameNumber(i)
-		system.SetElapsedTime(system.GetElapsedTime() + dt)
+		system.AdvanceElapsedTime()
 		local update_start = startup.Start()
 		event.CallUpdate(dt)
 

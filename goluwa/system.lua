@@ -77,13 +77,34 @@ end
 
 do
 	local frame_time = 0.1
+	local unscaled_frame_time = 0.1
+	local time_scale = 1
 
 	function system.GetFrameTime()
 		return frame_time
 	end
 
+	function system.GetUnscaledFrameTime()
+		return unscaled_frame_time
+	end
+
 	function system.SetFrameTime(dt)
 		frame_time = dt
+		unscaled_frame_time = time_scale > 0 and dt / time_scale or dt
+	end
+
+	function system.AdvanceFrameTime(unscaled_dt)
+		unscaled_frame_time = unscaled_dt
+		frame_time = unscaled_dt * time_scale
+		return frame_time
+	end
+
+	function system.GetTimeScale()
+		return time_scale
+	end
+
+	function system.SetTimeScale(scale)
+		time_scale = math.max(scale, 0)
 	end
 end
 
@@ -113,13 +134,24 @@ end
 
 do
 	local elapsed_time = 0
+	local unscaled_elapsed_time = 0
 
 	function system.GetElapsedTime()
 		return elapsed_time
 	end
 
+	function system.GetUnscaledElapsedTime()
+		return unscaled_elapsed_time
+	end
+
 	function system.SetElapsedTime(num)
+		unscaled_elapsed_time = unscaled_elapsed_time + (num - elapsed_time)
 		elapsed_time = num
+	end
+
+	function system.AdvanceElapsedTime()
+		elapsed_time = elapsed_time + system.GetFrameTime()
+		unscaled_elapsed_time = unscaled_elapsed_time + system.GetUnscaledFrameTime()
 	end
 end
 
