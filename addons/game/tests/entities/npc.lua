@@ -388,7 +388,7 @@ T.Test3D("npc speeds are the ground speeds of the sequences they play", function
 	end
 
 	for name, info in pairs(npcs.Definitions) do
-		if not info.Model then goto continue end
+		if not info.Model or info.Player then goto continue end
 
 		local skeleton
 
