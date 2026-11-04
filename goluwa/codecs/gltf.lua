@@ -42,8 +42,40 @@ local function get_directory(path)
 	return path:match("(.*/)") or ""
 end
 
-local function load_buffer(base_dir, buffer_info)
-	if buffer_info.uri then
+local GLB_MAGIC = "glTF"
+local GLB_CHUNK_JSON = 0x4E4F534A
+local GLB_CHUNK_BIN = 0x004E4942
+local U32_PTR = ffi.typeof("const uint32_t *")
+local CHAR_PTR = ffi.typeof("const char *")
+
+local function split_glb(data)
+	local header = ffi.cast(U32_PTR, ffi.cast(CHAR_PTR, data) + 4)
+
+	if header[0] ~= 2 then error("Only GLB version 2 is supported", 0) end
+
+	local json_data, bin_data
+	local offset = 12
+
+	while offset + 8 <= #data do
+		local chunk = ffi.cast(U32_PTR, ffi.cast(CHAR_PTR, data) + offset)
+		local chunk_size = chunk[0]
+
+		if chunk[1] == GLB_CHUNK_JSON then
+			json_data = data:sub(offset + 9, offset + 8 + chunk_size)
+		elseif chunk[1] == GLB_CHUNK_BIN then
+			bin_data = data:sub(offset + 9, offset + 8 + chunk_size)
+		end
+
+		offset = offset + 8 + chunk_size
+	end
+
+	return json_data, bin_data
+end
+
+local function load_buffer(base_dir, buffer_info, embedded)
+	if not buffer_info.uri then
+		return embedded
+	else
 		if buffer_info.uri:match("^data:") then
 			local base64_data = buffer_info.uri:match("^data:[^;]+;base64,(.+)$")
 
@@ -170,6 +202,14 @@ function gltf.Load(path)
 
 	if not json_data then return nil, "Failed to read file: " .. path end
 
+	local embedded_bin
+
+	if json_data:sub(1, 4) == GLB_MAGIC then
+		json_data, embedded_bin = split_glb(json_data)
+
+		if not json_data then return nil, "GLB has no JSON chunk" end
+	end
+
 	local gltf_data = json.decode(json_data)
 
 	if not gltf_data.asset or gltf_data.asset.version ~= "2.0" then
@@ -206,7 +246,7 @@ function gltf.Load(path)
 
 	if gltf_data.buffers then
 		for i, buffer_info in ipairs(gltf_data.buffers) do
-			local buffer_data = load_buffer(base_dir, buffer_info)
+			local buffer_data = load_buffer(base_dir, buffer_info, i == 1 and embedded_bin or nil)
 
 			if buffer_data then
 				local c_buffer = ffi.new("uint8_t[?]", #buffer_data)
@@ -227,6 +267,8 @@ function gltf.Load(path)
 		images = {},
 		nodes = {},
 		scenes = {},
+		skins = {},
+		animations = {},
 	}
 
 	if gltf_data.images then
@@ -289,6 +331,7 @@ function gltf.Load(path)
 			result.nodes[i] = {
 				name = node_info.name,
 				mesh = node_info.mesh,
+				skin = node_info.skin,
 				camera = node_info.camera,
 				children = node_info.children,
 				translation = node_info.translation or {0, 0, 0},
@@ -317,9 +360,45 @@ function gltf.Load(path)
 		end
 	end
 
+	if gltf_data.skins then
+		for i, skin_info in ipairs(gltf_data.skins) do
+			result.skins[i] = {
+				name = skin_info.name,
+				joints = skin_info.joints,
+				skeleton = skin_info.skeleton,
+				inverse_bind_matrices = skin_info.inverseBindMatrices and
+					read_accessor_raw(gltf_data, skin_info.inverseBindMatrices, buffers),
+			}
+		end
+	end
+
+	if gltf_data.animations then
+		for i, animation_info in ipairs(gltf_data.animations) do
+			local animation = {name = animation_info.name, samplers = {}, channels = {}}
+
+			for j, sampler_info in ipairs(animation_info.samplers) do
+				animation.samplers[j] = {
+					interpolation = sampler_info.interpolation or "LINEAR",
+					input = read_accessor_raw(gltf_data, sampler_info.input, buffers),
+					output = read_accessor_raw(gltf_data, sampler_info.output, buffers),
+				}
+			end
+
+			for j, channel_info in ipairs(animation_info.channels) do
+				animation.channels[j] = {
+					sampler = animation.samplers[channel_info.sampler + 1],
+					node = channel_info.target.node,
+					path = channel_info.target.path,
+				}
+			end
+
+			result.animations[i] = animation
+		end
+	end
+
 	result.scene = gltf_data.scene or 0
 	return result
 end
 
-gltf.file_extensions = {"gltf"}
+gltf.file_extensions = {"gltf", "glb"}
 return gltf
