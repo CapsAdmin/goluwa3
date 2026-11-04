@@ -10,6 +10,15 @@ local CRASH_TICKS = 2
 local RUN_LEAD = 1.1
 local LAND_DIVE_SPEED = 16
 local LAND_HOLD_MAX = 4
+local REWIND_TIME = 0.2
+local WALL_GRACE = 0.1
+local WALL_MIN_SPEED = 2
+local WALL_RATIO = 0.3
+local WALL_TICKS = 3
+
+local function owner_origin(owner)
+	return owner.rigid_body:GetPosition():Copy()
+end
 
 function META:Initialize()
 	self.frame = {}
@@ -30,6 +39,11 @@ function META:Begin(move, duration, listener, authority, target)
 	self.slow_ticks = 0
 	self.land_time = 0
 	self.land_drop = 0
+	self.wall_ticks = 0
+	self.drive_speed = 0
+	self.drive_x, self.drive_z = 0, 0
+	self.rewind_time = nil
+	self.rewind_origin = owner_origin(self.Owner)
 	local frame = movesets.NewFrame(self.Owner, move, self.frame, target)
 	pose:SetFocusOn(frame.target, frame.point)
 
@@ -47,7 +61,36 @@ function META:Begin(move, duration, listener, authority, target)
 	return frame
 end
 
+function META:IsRewinding()
+	return self.rewind_time ~= nil
+end
+
+function META:Rewind(authority, wall)
+	local owner = self.Owner
+	local pose = owner.character_pose
+	self.rewind_time = 0
+	self.rewind_from = owner_origin(owner)
+
+	if pose:IsLandHold() then pose:SetLandHold(false) end
+
+	pose:RewindAction(REWIND_TIME)
+	local pending
+
+	if wall and authority then
+		for i = self.next_event, #self.move.Events do
+			if self.move.Events[i].Type == "hit" then
+				pending = self.move.Events[i]
+
+				break
+			end
+		end
+	end
+
+	self.listener:OnMoveCanceled(self.move, pending)
+end
+
 function META:Cancel()
+	self.rewind_time = nil
 	self.move = nil
 	self.listener = nil
 	local pose = self.Owner.character_pose
@@ -82,6 +125,27 @@ do
 			return "interrupted"
 		end
 
+		if self.rewind_time then
+			self.rewind_time = self.rewind_time + dt
+			local t = math.min(self.rewind_time / REWIND_TIME, 1)
+			local from, origin = self.rewind_from, self.rewind_origin
+			local drive = self.drive
+			drive.x = math.lerp(t, from.x, origin.x)
+			drive.z = math.lerp(t, from.z, origin.z)
+			drive.y = move.Vertical and
+				math.lerp(t, from.y, origin.y) or
+				owner.rigid_body:GetPosition().y
+			owner.character_movement:Drive(drive, move.Vertical)
+
+			if t >= 1 then
+				self.move = nil
+				self.rewind_time = nil
+				return "canceled", move
+			end
+
+			return
+		end
+
 		self.time = self.time + dt
 		local frame = self.frame
 
@@ -92,6 +156,19 @@ do
 		then
 			self.predicted_focus = pose.FocusPoint
 			movesets.Anchor(frame, pose.FocusPoint:Copy())
+		end
+
+		if not move.Crash and self.time > WALL_GRACE then
+			local position = owner.rigid_body:GetPosition()
+			local dx, dz = position.x - self.drive_x, position.z - self.drive_z
+			local speed = math.sqrt(dx * dx + dz * dz) / dt
+			local blocked = self.drive_speed > WALL_MIN_SPEED and speed < self.drive_speed * WALL_RATIO
+			self.wall_ticks = blocked and self.wall_ticks + 1 or 0
+
+			if self.wall_ticks >= WALL_TICKS then
+				self:Rewind(authority, true)
+				return
+			end
 		end
 
 		local f = math.min(self.time / self.duration, 1)
@@ -131,6 +208,10 @@ do
 			end
 		end
 
+		local position = body:GetPosition()
+		local dx, dz = self.drive.x - position.x, self.drive.z - position.z
+		self.drive_speed = math.sqrt(dx * dx + dz * dz) / dt
+		self.drive_x, self.drive_z = position.x, position.z
 		owner.character_movement:Drive(self.drive, move.Vertical)
 		local event = move.Events[self.next_event]
 
@@ -150,6 +231,8 @@ do
 				self.move = nil
 				return "finished", move
 			end
+
+			if self.rewind_time then return end
 
 			event = move.Events[self.next_event]
 		end

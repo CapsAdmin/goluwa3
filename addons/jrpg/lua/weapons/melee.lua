@@ -232,7 +232,7 @@ end
 function META:Hit(hit, forward)
 	local weapon = self.Owner.weapon
 	local holder = self:GetHolder()
-	local _, _, hits = slash.Strike(
+	local _, _, hits, _, hit_world = slash.Strike(
 		holder,
 		self.Owner,
 		forward,
@@ -243,6 +243,8 @@ function META:Hit(hit, forward)
 		"slash",
 		weapon.Attributes
 	)
+
+	if hit_world and #hits == 0 then self:GetRunner():Rewind() end
 
 	local knock = hit.Knock
 
@@ -384,6 +386,30 @@ function META:OnMoveInterrupted()
 	self.queued = nil
 end
 
+function META:OnMoveCanceled(move, wall_hit)
+	if self.grabbed then self:EndGrab(Vec3()) end
+
+	if wall_hit then
+		local weapon = self.Owner.weapon
+		local forward = self:GetRunner():GetStrikeForward()
+		local cut = (
+			Vec3(-forward.z, 0, forward.x) * wall_hit.Cut.x + Vec3(0, wall_hit.Cut.y, 0) + forward * wall_hit.Cut.z
+		):GetNormalized()
+		slash.StrikeWorld(
+			self:GetHolder(),
+			forward,
+			cut,
+			wall_hit.Range or self.Range,
+			"slash",
+			weapon.Attributes,
+			wall_hit.Damage,
+			self.Damage * wall_hit.Damage * weapon:GetDamageScale()
+		)
+	end
+
+	self.queued = nil
+end
+
 function META:Step(dt, cmd, authority)
 	local ticks = cmd.number - self.last_number
 	self.last_number = cmd.number
@@ -471,14 +497,14 @@ function META:OnUpdate(dt)
 	local holder = self:GetHolder()
 	local pose = holder:IsValid() and holder.character_pose
 	local weapon = self.Owner.weapon
-	local name, phase
+	local name, phase, rewinding
 
 	if pose and weapon:IsEquipped() and not weapon:IsSheathed() then
-		name, phase = pose:GetActiveAction()
+		name, phase, rewinding = pose:GetActiveAction()
 	end
 
 	local move = name and movesets.GetMove(name)
-	local swing = move and movesets.IsSwinging(move, phase)
+	local swing = move and not rewinding and movesets.IsSwinging(move, phase)
 
 	if swing and swing ~= self.swing then
 		sounds.PlayRandom(SWING_SOUNDS, holder.transform:GetPosition(), 0.7, math.randomf(1, 1.3) * self.SwingPitch)

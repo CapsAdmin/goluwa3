@@ -879,3 +879,123 @@ T.TestPhysics("an unkillable victim reacts to a lethal hit, survives it and rege
 	run(8, {victim.character_pose})
 	T(victim.ragdoll.Limp)["=="](false)
 end)
+
+T.TestPhysics("a move that runs into a wall is canceled and plays backwards to where it started", function()
+	create_ground()
+	Entity.New{
+		transform = {Position = Vec3(0, 1, -1.1), Scale = Vec3(10, 2, 0.2)},
+		rigid_body = {
+			MotionType = "static",
+			WorldGeometry = true,
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+		},
+	}
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
+	run(0.5)
+	local pose = attacker.character_pose
+	local runner = attacker.move_runner or sword.weapon_melee:GetRunner()
+	sword.weapon_melee:Request("heavy", attacker.character_movement:GetCommand(), true)
+	local canceled_at, phase_before
+	local effects = import("lua/jrpg/effects.lua")
+	local impact = effects.Impact
+	local impacts = 0
+	effects.Impact = function(...)
+		impacts = impacts + 1
+		return impact(...)
+	end
+
+	for i = 1, 90 do
+		run(1 / 60, {pose})
+
+		if runner:IsRewinding() then
+			local _, phase, rewinding = pose:GetActiveAction()
+
+			if not canceled_at then
+				canceled_at = i
+				phase_before = phase
+				T(rewinding)["=="](true)
+			elseif phase then
+				T(phase <= phase_before)["=="](true)
+				phase_before = phase
+			end
+		end
+	end
+
+	effects.Impact = impact
+	T(impacts > 0)["=="](true)
+	T(canceled_at ~= nil)["=="](true)
+	T(runner:IsPlaying())["=="](false)
+	T(pose:GetActiveAction())["=="](nil)
+	T(attacker.transform:GetPosition().z > -0.3)["=="](true)
+end)
+
+T.TestPhysics("a move canceled by a wall before its hit still makes the impact on the wall", function()
+	create_ground()
+	Entity.New{
+		transform = {Position = Vec3(0, 1, -1.1), Scale = Vec3(10, 2, 0.2)},
+		rigid_body = {
+			MotionType = "static",
+			WorldGeometry = true,
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+		},
+	}
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
+	run(0.5)
+	local effects = import("lua/jrpg/effects.lua")
+	local impact = effects.Impact
+	local impacts = 0
+	effects.Impact = function(...)
+		impacts = impacts + 1
+		return impact(...)
+	end
+	sword.weapon_melee:Request("light", attacker.character_movement:GetCommand(), true)
+	run(0.1, {attacker.character_pose})
+	T(impacts)["=="](0)
+	local runner = attacker.move_runner
+	runner:Rewind(true, true)
+	effects.Impact = impact
+	T(impacts > 0)["=="](true)
+	T(runner:IsRewinding())["=="](true)
+end)
+
+T.TestPhysics("a swing that strikes a wall from a distance is canceled, but one that hits a victim is not", function()
+	create_ground()
+	Entity.New{
+		transform = {Position = Vec3(0, 1, -1.4), Scale = Vec3(10, 2, 0.2)},
+		rigid_body = {
+			MotionType = "static",
+			WorldGeometry = true,
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+		},
+	}
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
+	run(0.5)
+	local runner = attacker.move_runner or sword.weapon_melee:GetRunner()
+	sword.weapon_melee:Request("light", attacker.character_movement:GetCommand(), true)
+	local rewound = false
+
+	for _ = 1, 60 do
+		run(1 / 60, {attacker.character_pose})
+		rewound = rewound or runner:IsRewinding()
+	end
+
+	T(rewound)["=="](true)
+	local fighter = create_character(Vec3(5, 0.05, 0))
+	local victim = create_character(Vec3(5, 0.05, -2.2), 1000)
+	local blade = fighter.weapon_holder:Give("weapon_sword", PLAIN)
+	run(0.5)
+	local fighter_runner = blade.weapon_melee:GetRunner()
+	blade.weapon_melee:Request("light", fighter.character_movement:GetCommand(), true)
+	rewound = false
+
+	for _ = 1, 60 do
+		run(1 / 60, {fighter.character_pose})
+		rewound = rewound or fighter_runner:IsRewinding()
+	end
+
+	T(victim.health:GetHealth() < 1000)["=="](true)
+	T(rewound)["=="](false)
+end)

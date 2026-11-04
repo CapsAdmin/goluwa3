@@ -515,6 +515,8 @@ end
 
 function META:OnMoveInterrupted() end
 
+function META:OnMoveCanceled() end
+
 function META:UpdateTarget(position)
 	local owner = self.Owner
 	local target = self.target
