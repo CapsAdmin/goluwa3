@@ -494,6 +494,16 @@ function move_editor.BuildItems(session, changed)
 		)
 	end
 
+	move_children[#move_children + 1] = {
+		Key = "move/Rewind",
+		Text = "rewind on block",
+		Type = "boolean",
+		Value = move.Rewind ~= false,
+		OnChange = |_, value|-> do
+			move.Rewind = (not value) and false or nil
+			changed()
+		end,
+	}
 	move_children[#move_children + 1] = number_node(
 		"move/FaceOut",
 		"face out",

@@ -1147,3 +1147,34 @@ T.TestPhysics("a pinned victim stays where it is, is not knocked down by a big h
 	T(victim.character_movement:IsPinned())["=="](false)
 	T(victim.rigid_body:GetCollisionEnabled())["=="](true)
 end)
+
+T.TestPhysics("a move that does not rewind keeps going when it is blocked and ends where it ends up", function()
+	create_ground()
+	Entity.New{
+		transform = {Position = Vec3(0, 1, -1.1), Scale = Vec3(10, 2, 0.2)},
+		rigid_body = {
+			MotionType = "static",
+			WorldGeometry = true,
+			Shape = BoxShape.New(Vec3(1, 1, 1)),
+		},
+	}
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
+	run(0.5)
+	local pose = attacker.character_pose
+	local runner = sword.weapon_melee:GetRunner()
+	local move = movesets.Get("sword").Heavy
+	move.Rewind = false
+	sword.weapon_melee:Request("heavy", attacker.character_movement:GetCommand(), true)
+	local rewound = false
+
+	for _ = 1, 90 do
+		run(1 / 60, {pose})
+		rewound = rewound or runner:IsRewinding()
+	end
+
+	move.Rewind = true
+	T(rewound)["=="](false)
+	T(runner:IsPlaying())["=="](false)
+	T(attacker.transform:GetPosition().z > -1)["=="](true)
+end)

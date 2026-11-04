@@ -83,6 +83,7 @@ local MOVE_KEYS = {
 	Faces = true,
 	Locks = true,
 	Follow = true,
+	Rewind = true,
 }
 local GRIP_HANDS = {right = true, left = true}
 local GUARD_ENTER = 0.08
@@ -169,6 +170,10 @@ local function validate_move(move, poses, path)
 	end
 
 	assert(type(move.Duration) == "number", path .. ".Duration must be a number")
+	assert(
+		move.Rewind == nil or type(move.Rewind) == "boolean",
+		path .. ".Rewind must be a boolean"
+	)
 	assert(
 		move.Follow == nil or type(move.Follow) == "number" and move.Follow >= 0,
 		path .. ".Follow must be a number of at least 0"
@@ -480,6 +485,7 @@ function movesets.Register(name, def, path)
 		move.Group = move.Group or "melee"
 		move.PoseWeapon = move.PoseWeapon ~= false
 		move.Face = move.Face ~= false
+		move.Rewind = move.Rewind ~= false
 		move.Stamina = move.Stamina or 10
 		move.Reach = move.Reach or 4
 		move.Approach = move.Approach or 0.5
@@ -608,6 +614,7 @@ do
 		"Faces",
 		"Locks",
 		"Follow",
+		"Rewind",
 		"Events",
 		"At",
 		"Type",

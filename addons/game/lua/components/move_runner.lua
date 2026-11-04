@@ -70,7 +70,7 @@ function META:IsRewinding()
 end
 
 function META:Rewind(authority, wall)
-	if self.rewind_time then return end
+	if self.rewind_time or not self.move.Rewind then return end
 
 	local owner = self.Owner
 	local pose = owner.character_pose
@@ -176,7 +176,7 @@ do
 			self.anchor:CopyFrom(frame.point)
 		end
 
-		if not move.Crash and self.time > WALL_GRACE then
+		if move.Rewind and not move.Crash and self.time > WALL_GRACE and not pose:IsFrozen() then
 			local position = owner.rigid_body:GetPosition()
 			local dx, dz = position.x - self.drive_x, position.z - self.drive_z
 			local speed = math.sqrt(dx * dx + dz * dz) / dt

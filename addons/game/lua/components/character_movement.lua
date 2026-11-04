@@ -1386,6 +1386,22 @@ do
 			return
 		end
 
+		local drive = self.drive
+
+		if drive then
+			self.drive = nil
+			local position = body:GetPosition()
+			local target = Vec3(drive.x, self.drive_vertical and drive.y or position.y, drive.z)
+			local velocity = (target - position) / dt
+			local speed = velocity:GetLength()
+
+			if speed > DRIVE_MAX_SPEED then velocity = velocity / speed * DRIVE_MAX_SPEED end
+
+			body:SetVelocity(velocity)
+			body:SetAngularVelocity(Vec3())
+			return
+		end
+
 		if not active then
 			self.fly_speed_multiplier = 1
 			body:SetVelocity(Vec3())

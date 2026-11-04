@@ -5,6 +5,7 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
+Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
 import("addons/game/lua/autorun/characters.lua")
 
 local function run(seconds)
@@ -88,4 +89,31 @@ T.TestPhysics("a pinned character ignores lunges and pushes until the pin runs o
 	movement:Lunge(Vec3(0, 0, -1), 0.5, 0, 0.15)
 	T(movement.lunge ~= nil)["=="](true)
 	entity:Remove()
+end)
+
+T.TestPhysics("a driven player in fly mode follows the drive target", function()
+	local player = Entity.New{
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"health",
+		},
+		transform = {Position = Vec3(0, 5, 0)},
+		player_controller = {Source = "queue"},
+		health = {Health = 100, MaxHealth = 100},
+	}
+	player.player_controller.cmd.mode = "fly"
+	player.character_movement:TeleportTo(Vec3(0, 5, 0))
+	run(0.3)
+	local start = player.transform:GetPosition():Copy()
+
+	for _ = 1, 30 do
+		player.character_movement:Drive(player.rigid_body:GetPosition() + Vec3(0.05, 0, 0))
+		run(1 / 60)
+	end
+
+	T(player.transform:GetPosition().x - start.x)[">"](0.5)
+	player:Remove()
 end)
