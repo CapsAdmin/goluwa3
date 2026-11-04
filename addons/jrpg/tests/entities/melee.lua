@@ -1057,3 +1057,60 @@ T.TestPhysics("a hit taken during a move stops it without rewinding", function()
 	T(runner:IsRewinding())["=="](false)
 	T(sword.weapon_melee.queued)["=="](nil)
 end)
+
+T.TestPhysics("a swing blocked by a guard is canceled, a swing that breaks the guard is not", function()
+	create_ground()
+	local attacker = create_character(Vec3(0, 0.05, 0))
+	local blocker = create_character(Vec3(0, 0.05, -1.8), 1000)
+	jrpg.SetEnabled(blocker, true)
+	local shield = blocker.weapon_holder:FindWeapon("weapon_greatsword")
+	blocker.weapon_holder:Equip(shield, "right")
+	local sword = attacker.weapon_holder:Give("weapon_sword", PLAIN)
+	run(0.5)
+	blocker.ai_controller:Teleport(Vec3(0, 0.05, -1.8), math.pi)
+	run(0.1)
+	local script = shield.weapon_melee
+	script:Step(1 / 60, command(blocker, -1, BUTTON.ATTACK2), true)
+	script.guard.Raised = script.guard.Raised - 1
+	script.UpdateGuard = function() end
+	T(blocker.character_pose:IsBlocking())["=="](true)
+	local stamina = blocker.rpg:GetStamina()
+	local runner = sword.weapon_melee:GetRunner()
+	sword.weapon_melee:Request("light", attacker.character_movement:GetCommand(), true)
+	local rewound = false
+	local lowest = stamina
+
+	for _ = 1, 60 do
+		run(1 / 60, {attacker.character_pose, blocker.character_pose})
+		rewound = rewound or runner:IsRewinding()
+		lowest = math.min(lowest, blocker.rpg:GetStamina())
+	end
+
+	T(lowest < stamina)["=="](true)
+	T(rewound)["=="](true)
+	local second = create_character(Vec3(6, 0.05, 0))
+	local weak = create_character(Vec3(6, 0.05, -1.8), 1000)
+	jrpg.SetEnabled(weak, true)
+	local guard = weak.weapon_holder:FindWeapon("weapon_greatsword")
+	weak.weapon_holder:Equip(guard, "right")
+	local blade = second.weapon_holder:Give("weapon_sword", PLAIN)
+	run(0.5)
+	weak.ai_controller:Teleport(Vec3(6, 0.05, -1.8), math.pi)
+	run(0.1)
+	local weak_script = guard.weapon_melee
+	weak_script:Step(1 / 60, command(weak, -1, BUTTON.ATTACK2), true)
+	weak_script.guard.Raised = weak_script.guard.Raised - 1
+	weak_script.UpdateGuard = function() end
+	weak.rpg:SetStamina(1)
+	local second_runner = blade.weapon_melee:GetRunner()
+	blade.weapon_melee:Request("light", second.character_movement:GetCommand(), true)
+	rewound = false
+
+	for _ = 1, 60 do
+		run(1 / 60, {second.character_pose, weak.character_pose})
+		rewound = rewound or second_runner:IsRewinding()
+	end
+
+	T(weak.rpg:IsStunned())["=="](true)
+	T(rewound)["=="](false)
+end)

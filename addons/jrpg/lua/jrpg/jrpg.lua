@@ -259,6 +259,7 @@ event.AddListener("ModifyDamage", "jrpg", function(victim, info)
 					gap:GetLength() < PARRY_RANGE
 				then
 					info.Cancel = true
+					info.Block = "parry"
 					effects.Block(victim, get_shield_point(victim, to_attacker), to_attacker, false)
 					effects.Text(victim, "PARRY", jrpg.Colors.neon)
 
@@ -278,6 +279,7 @@ event.AddListener("ModifyDamage", "jrpg", function(victim, info)
 					pose:SetBlocking(false)
 				end
 
+				info.Block = broken and "broken" or "block"
 				effects.Block(victim, get_shield_point(victim, to_attacker), to_attacker, broken)
 				info.Damage = info.Damage - blocked
 				info.Part = nil

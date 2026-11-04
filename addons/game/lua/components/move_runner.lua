@@ -67,6 +67,8 @@ function META:IsRewinding()
 end
 
 function META:Rewind(authority, wall)
+	if self.rewind_time then return end
+
 	local owner = self.Owner
 	local pose = owner.character_pose
 	self.rewind_time = 0

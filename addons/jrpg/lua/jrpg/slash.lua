@@ -130,21 +130,19 @@ function slash.Strike(
 				end
 			end
 
-			damage.Deal(
-				victim,
-				{
-					Attacker = holder,
-					Inflictor = inflictor,
-					Damage = amount,
-					Type = type_name,
-					Attributes = attributes,
-					Position = point,
-					Normal = normal,
-					Force = cut * 5 * scale,
-					Part = part,
-					Direction = cut,
-				}
-			)
+			local info = {
+				Attacker = holder,
+				Inflictor = inflictor,
+				Damage = amount,
+				Type = type_name,
+				Attributes = attributes,
+				Position = point,
+				Normal = normal,
+				Force = cut * 5 * scale,
+				Part = part,
+				Direction = cut,
+			}
+			damage.Deal(victim, info)
 
 			if surface then
 				effects.Impact(
@@ -166,7 +164,13 @@ function slash.Strike(
 				effects.Impact(point, normal, attributes[1] or type_name, scale, cut, nil, amount)
 			end
 
-			hits[#hits + 1] = {victim = victim, point = point, normal = normal, part = part}
+			hits[#hits + 1] = {
+				victim = victim,
+				point = point,
+				normal = normal,
+				part = part,
+				block = info.Block,
+			}
 			hit_any = true
 		end
 	end

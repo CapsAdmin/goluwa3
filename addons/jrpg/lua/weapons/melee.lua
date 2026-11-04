@@ -244,7 +244,19 @@ function META:Hit(hit, forward)
 		weapon.Attributes
 	)
 
-	if hit_world and #hits == 0 then self:GetRunner():Rewind() end
+	local blocked, landed = false, false
+
+	for _, victim_hit in ipairs(hits) do
+		if victim_hit.block == "block" then
+			blocked = true
+		elseif victim_hit.block ~= "parry" then
+			landed = true
+		end
+	end
+
+	if hit_world and #hits == 0 or blocked and not landed then
+		self:GetRunner():Rewind()
+	end
 
 	local knock = hit.Knock
 
@@ -254,12 +266,14 @@ function META:Hit(hit, forward)
 		if victim:IsValid() then
 			victim.character_movement:IgnoreImpacts()
 
-			if #weapon.Attributes == 0 then
-				effects.HitOverlay(victim, "slash")
-			end
+			if not victim_hit.block then
+				if #weapon.Attributes == 0 then
+					effects.HitOverlay(victim, "slash")
+				end
 
-			for _, name in ipairs(weapon.Attributes) do
-				effects.HitOverlay(victim, name)
+				for _, name in ipairs(weapon.Attributes) do
+					effects.HitOverlay(victim, name)
+				end
 			end
 		end
 
@@ -267,7 +281,15 @@ function META:Hit(hit, forward)
 
 		local ragdoll = victim:IsValid() and victim.ragdoll
 
-		if knock and (alive or ragdoll and victim.health:IsDead()) then
+		if
+			knock and
+			victim_hit.block ~= "block" and
+			(
+				alive or
+				ragdoll and
+				victim.health:IsDead()
+			)
+		then
 			local push = knock.z
 
 			if push < 0 then
