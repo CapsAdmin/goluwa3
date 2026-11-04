@@ -71,6 +71,8 @@ function META:Stop()
 		victim.character_movement:TeleportTo(self.VictimHome)
 	end
 
+			if grab.IsAwaitingBones(victim, move.CarryBones) then return end
+
 	grab.Unpuppet(self.Grabber)
 	self.Grabber.character_movement:TeleportTo(self.GrabberHome)
 	self.Grabber.character_pose:EndScrub()

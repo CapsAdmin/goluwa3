@@ -286,6 +286,17 @@ function grab.Unpuppet(character)
 	character.character_movement:Unlatch()
 end
 
+function grab.IsAwaitingBones(victim, names)
+	local pose = victim.source_pose
+	return names ~= nil and
+		pose ~= nil and
+		not (
+			pose.bones and
+			pose.bones[names[1]] and
+			pose.bones[names[2]]
+		)
+end
+
 function grab.GetCarryBones(victim, names)
 	local bones = victim.source_pose and victim.source_pose.bones
 
