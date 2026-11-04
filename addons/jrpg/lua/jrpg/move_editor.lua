@@ -5,6 +5,8 @@ local Rect = import("goluwa/structs/rect.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
+local render2d = import("goluwa/render2d/render2d.lua")
+local theme = import("goluwa/render2d/ui/theme.lua")
 local objects = import("goluwa/objects/objects.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local View = import("goluwa/render3d/view.lua")
@@ -28,6 +30,18 @@ local move_editor = {}
 local NPC_OFFSET = 3
 local LEFT_WIDTH = 400
 local BOTTOM_HEIGHT = 320
+local MOVES_HEIGHT = 210
+local STRIP_HEIGHT = 16
+local MOVE_COLUMNS = {
+	{Key = "Text", Text = "Move", Grow = true, MinWidth = 100},
+	{Key = "Time", Text = "Time", Width = 52},
+	{
+		Key = "Ticks",
+		Text = "Keys",
+		Width = 118,
+		Draw = |node, x, y, width, height|->move_editor.DrawTicks(node.Ticks, x, y, width, height),
+	},
+}
 local TIMELINE_RULER = 22
 local TIMELINE_ROW = 22
 local TIMELINE_CHROME = 34 + 6 * 2
@@ -332,9 +346,13 @@ function move_editor.LoadSet(session, set_name, move_name)
 	move_editor.UseAttacker(session, set_name)
 	session.SetName = set_name
 	session.Data = table.copy(movesets.Source[set_name])
+	session.Baseline = movesets.ReadFile(set_name)
+	session.TickCache = {}
 
-	for _, move in pairs(session.Data.Moves) do
-		if move.Clips then move.Keys = move.Keys or {} end
+	for _, data in ipairs{session.Data, session.Baseline} do
+		for _, move in pairs(data.Moves) do
+			if move.Clips then move.Keys = move.Keys or {} end
+		end
 	end
 
 	session.History = data_history.New(session.Data)
@@ -347,6 +365,103 @@ function move_editor.GetMove(session)
 	return session.Data.Moves[session.MoveName]
 end
 
+function move_editor.GetTicks(session, move_name)
+	local cache = session.TickCache
+	local ticks = cache[move_name]
+
+	if ticks then return ticks end
+
+	local rows = {}
+
+	for _, row in ipairs(move_edit.Rows(session.Data.Moves[move_name])) do
+		if row.Keys[1] then rows[#rows + 1] = row end
+	end
+
+	ticks = {}
+
+	for lane, row in ipairs(rows) do
+		for _, key in ipairs(row.Keys) do
+			ticks[#ticks + 1] = {lane = lane, lanes = #rows, from = key.Time, to = key.Until or key.Time, color = row.Color}
+		end
+	end
+
+	cache[move_name] = ticks
+	return ticks
+end
+
+function move_editor.DrawTicks(ticks, x, y, width, height)
+	local active = theme.active
+	local strip_x, strip_y = x + 4, y + math.floor((height - STRIP_HEIGHT) / 2)
+	local strip_width = width - 8
+
+	for _, tick in ipairs(ticks) do
+		local lane_height = math.max(1, math.floor(STRIP_HEIGHT / tick.lanes))
+		local color = active:GetColor(tick.color or "primary")
+		render2d.SetColor(color.r, color.g, color.b, 0.9)
+		render2d.DrawRect(
+			strip_x + math.floor(tick.from * (strip_width - 2)),
+			strip_y + (tick.lane - 1) * lane_height,
+			math.max(2, math.floor((tick.to - tick.from) * (strip_width - 2)) + 2),
+			lane_height
+		)
+	end
+end
+
+function move_editor.GetMoveNodes(session)
+	local nodes = {}
+
+	for _, name in ipairs(get_move_names(session.Data)) do
+		nodes[#nodes + 1] = {
+			Key = name,
+			Text = name,
+			Icon = move_editor.IsDirty(session, name) and "save" or "file",
+			Time = string.format("%.2fs", session.Data.Moves[name].Duration),
+			Ticks = move_editor.GetTicks(session, name),
+		}
+	end
+
+	return nodes
+end
+
+function move_editor.IsDirty(session, move_name)
+	return not table.equal(session.Data.Moves[move_name], session.Baseline.Moves[move_name])
+end
+
+function move_editor.GetDirtyNames(session)
+	local names = {}
+
+	for _, name in ipairs(get_move_names(session.Data)) do
+		if move_editor.IsDirty(session, name) then names[#names + 1] = name end
+	end
+
+	return names
+end
+
+function move_editor.SwitchMove(session, move_name)
+	session.MoveName = move_name
+	move_editor.Select(session, nil)
+	move_editor.Restart(session)
+end
+
+function move_editor.StepMove(session, offset)
+	local names = get_move_names(session.Data)
+
+	for i, name in ipairs(names) do
+		if name == session.MoveName then
+			move_editor.SwitchMove(session, names[(i - 1 + offset) % #names + 1])
+
+			return
+		end
+	end
+end
+
+function move_editor.RevertMove(session, move_name)
+	session.Data.Moves[move_name] = table.copy(session.Baseline.Moves[move_name])
+	move_editor.Select(session, nil)
+	move_editor.Apply(session)
+	move_editor.Commit(session, true)
+end
+
 function move_editor.Restart(session)
 	if session.Preview then
 		session.Preview:Stop()
@@ -357,6 +472,7 @@ function move_editor.Restart(session)
 end
 
 function move_editor.Apply(session)
+	session.TickCache = {}
 	for _, move in pairs(session.Data.Moves) do
 		movesets.ResolveClipLinks(move)
 	end
@@ -913,6 +1029,11 @@ function move_editor.BuildMenu(session, h)
 							if move_editor.Apply(session) then
 								local ok, result = pcall(movesets.Save, session.SetName)
 								session.Status = ok and "saved " .. result or tostring(result):gsub("^.-:%d+: ", "")
+
+								if ok then
+									session.Baseline = table.copy(session.Data)
+									session.TickCache = {}
+								end
 							end
 
 							h.refresh()
@@ -1084,6 +1205,12 @@ local MoveEditor = react.Component(
 					return true
 				end
 
+				if input.IsAltDown() and (key == "up" or key == "down") then
+					move_editor.StepMove(session, key == "up" and -1 or 1)
+					h.refresh()
+					return true
+				end
+
 				if key == "delete" then
 					h.delete()
 					return true
@@ -1107,6 +1234,8 @@ local MoveEditor = react.Component(
 
 		local timeline_height = TIMELINE_CHROME + TIMELINE_RULER + #rows * TIMELINE_ROW
 
+		local move_nodes = react.UseMemo(||->move_editor.GetMoveNodes(session), {session.TickCache})
+
 		local screen = Panel.World.transform:GetSize()
 		local registered = movesets.Get(session.SetName).Moves[session.MoveName]
 
@@ -1117,7 +1246,7 @@ local MoveEditor = react.Component(
 		end
 
 		return ui.Window{
-			Title = "MOVE EDITOR",
+			Title = move_editor.GetDirtyNames(session)[1] and "MOVE EDITOR *" or "MOVE EDITOR",
 			Name = "move editor",
 			RequestMouse = true,
 			Size = Vec2(LEFT_WIDTH, screen.y),
@@ -1129,6 +1258,36 @@ local MoveEditor = react.Component(
 			OnClose = props.OnClose,
 		}{
 			ui.MenuBar{MenuKey = "MoveEditorMenuBarContextMenu", Items = menu, layout = {GrowWidth = 1}},
+			ui.TreeTable{
+				Mode = "list",
+				AlternateRows = false,
+				Items = move_nodes,
+				Columns = MOVE_COLUMNS,
+				SelectedKey = session.MoveName,
+				OnSelect = |node|-> do
+					if node and node.Key ~= session.MoveName then
+						move_editor.SwitchMove(session, node.Key)
+						h.refresh()
+					end
+				end,
+				OnContextMenu = |node|-> do
+					Panel.OpenContextMenu(
+						{},
+						{
+							MenuItem{
+								Text = "revert",
+								Icon = "undo",
+								Disabled = not move_editor.IsDirty(session, node.Key),
+								OnClick = ||-> do
+									move_editor.RevertMove(session, node.Key)
+									h.refresh()
+								end,
+							},
+						}
+					)
+				end,
+				layout = {GrowWidth = 1, GrowHeight = 0, MinSize = Vec2(0, MOVES_HEIGHT), MaxSize = Vec2(0, MOVES_HEIGHT)},
+			},
 			ui.ScrollablePanel{ScrollX = false, ScrollY = true, Padding = "none", layout = {GrowWidth = 1, GrowHeight = 1}}{
 				ui.Panel{
 					Name = "PropertyEditorFrame",

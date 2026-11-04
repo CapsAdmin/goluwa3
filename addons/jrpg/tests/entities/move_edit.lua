@@ -353,3 +353,30 @@ T.Test("a clip dragged partly onto its neighbour crossfades with it and one drag
 	T(list[2][1] >= b[2] - 0.2 - 1e-9)["=="](true)
 	T(list[2][1] < b[2])["=="](true)
 end)
+
+T.Test("the move editor marks moves that differ from the file, steps between moves and reverts one", function()
+	local data_history = import("lua/data_history.lua")
+	local move_editor = import("lua/jrpg/move_editor.lua")
+	local data = movesets.ReadFile("sword")
+	local session = {
+		SetName = "sword",
+		Data = data,
+		Baseline = movesets.ReadFile("sword"),
+		History = data_history.New(data),
+		Selected = {},
+		SelectId = 0,
+		MoveName = "light_1",
+	}
+	T(#move_editor.GetDirtyNames(session))["=="](0)
+	local duration = data.Moves.light_1.Duration
+	data.Moves.light_1.Duration = duration + 0.1
+	T(move_editor.GetDirtyNames(session)[1])["=="]("light_1")
+	move_editor.StepMove(session, 1)
+	T(session.MoveName)["~="]("light_1")
+	move_editor.StepMove(session, -1)
+	T(session.MoveName)["=="]("light_1")
+	move_editor.RevertMove(session, "light_1")
+	T(session.Data.Moves.light_1.Duration)["=="](duration)
+	T(#move_editor.GetDirtyNames(session))["=="](0)
+	T(movesets.Get("sword").Moves.light_1.Duration)["=="](duration)
+end)
