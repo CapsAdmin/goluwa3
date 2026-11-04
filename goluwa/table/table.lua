@@ -276,6 +276,16 @@ do
 
 			return text == "-0" and "0" or text
 		elseif kind == "string" then
+			if value:find("\n", 1, true) and not value:find("[^\n\t\32-\126]") then
+				local level = ""
+
+				while (value .. "]"):find("]" .. level .. "]", 1, true) do
+					level = level .. "="
+				end
+
+				return "[" .. level .. "[" .. "\n" .. value .. "]" .. level .. "]"
+			end
+
 			return format("%q", value)
 		elseif kind == "boolean" then
 			return tostring(value)
