@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
@@ -966,11 +967,9 @@ local function draw_defeat(w, h, now, rig)
 end
 
 event.AddListener("DrawHUD", "jrpg_hud", function(dt)
-	local rig = _G.PLAYER_RIG
+	local rig = players.GetLocal()
 
-	if not (rig and rig:IsValid() and rig.rpg) or third_person.IsHudHidden() then
-		return
-	end
+	if not (rig and rig.rpg) or third_person.IsHudHidden() then return end
 
 	dt = system.GetFrameTime()
 	local now = system.GetElapsedTime()

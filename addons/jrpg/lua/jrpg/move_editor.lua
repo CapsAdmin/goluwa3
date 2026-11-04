@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Ang3 = import("goluwa/structs/ang3.lua")
@@ -149,7 +150,7 @@ do
 end
 
 function move_editor.CreateSession()
-	local grabber = assert(_G.PLAYER_RIG, "the move editor previews on the local player")
+	local grabber = assert(players.GetLocal(), "the move editor previews on the local player")
 	jrpg.SetEnabled(grabber, true)
 	local forward = actors.GetForward(grabber)
 	local victim = npcs.Spawn("citizen", grabber.transform:GetPosition() + forward * 2.6, 0)

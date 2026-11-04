@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local players = import("lua/players.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local audio = import("goluwa/audio.lua")
@@ -831,7 +832,7 @@ end
 function showcase.Goto(name)
 	for _, scene in ipairs(showcase.scenes) do
 		if scene.name == name then
-			local rig = _G.PLAYER_RIG
+			local rig = players.GetLocal()
 
 			if rig then
 				rig.character_movement:TeleportTo(scene.listener + Vec3(0, 0.05, 0))

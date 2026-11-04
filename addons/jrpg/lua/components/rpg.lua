@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local objects = import("goluwa/objects/objects.lua")
 local network = import("goluwa/network/network.lua")
 local event = import("goluwa/event.lua")
@@ -39,8 +40,8 @@ local MANA_IDLE_REGEN = 8
 local SAVE_PATH = "data/jrpg/%s.txt"
 
 function META.IsLocal()
-	local rig = _G.PLAYER_RIG
-	return rig ~= nil and rig:IsValid() and rig.rpg ~= nil
+	local rig = players.GetLocal()
+	return rig ~= nil and rig.rpg ~= nil
 end
 
 function META:Initialize()

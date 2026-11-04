@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Color = import("goluwa/structs/color.lua")
@@ -1652,7 +1653,7 @@ local AssetBrowser = react.Component(
 			picker.Start{
 				mode = PICK_MODES[category],
 				hide_desktop = true,
-				entity_blacklist = (category == "models" or category == "prefabs") and {_G.PLAYER_RIG} or nil,
+				entity_blacklist = (category == "models" or category == "prefabs") and {players.GetLocal()} or nil,
 				on_pick = |value,extra|->select_picked(api, value, extra),
 				on_stop = ||-> do
 					world_pick.current.owns = false

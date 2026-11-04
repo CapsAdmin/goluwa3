@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local event = import("goluwa/event.lua")
 local commands = import("goluwa/cli/commands.lua")
 local message = import("goluwa/network/message.lua")
@@ -105,9 +106,9 @@ function jrpg.Toggle(entity, cheat)
 end
 
 local function get_command_entity(client)
-	if client and _G.GetPlayerEntity then return _G.GetPlayerEntity(client) end
+	if client then return players.Get(client) end
 
-	return _G.PLAYER_RIG
+	return players.GetLocal()
 end
 
 local function run_command(client, what, argument)
@@ -146,7 +147,7 @@ end)
 
 commands.Add("level=string|nil", function(name)
 	if not name then
-		local rpg = _G.PLAYER_RIG and _G.PLAYER_RIG.rpg
+		local rpg = players.GetLocal() and players.GetLocal().rpg
 
 		for _, attribute in ipairs(attributes.List) do
 			logf(
@@ -171,11 +172,11 @@ commands.Add("status=string,number[1]", function(name, amount)
 end)
 
 event.AddListener("RPGEnabled", "jrpg", function(entity)
-	if entity == _G.PLAYER_RIG then battlecam.SetEnabled(true) end
+	if players.IsLocal(entity) then battlecam.SetEnabled(true) end
 end)
 
 event.AddListener("RPGDisabled", "jrpg", function(entity)
-	if entity == _G.PLAYER_RIG then battlecam.SetEnabled(false) end
+	if players.IsLocal(entity) then battlecam.SetEnabled(false) end
 end)
 
 event.AddListener("PlayerRespawn", "jrpg", function(entity)

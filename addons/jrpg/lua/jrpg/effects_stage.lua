@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -40,7 +41,7 @@ local NORMAL_LENGTH = 0.6
 local DRIVE_LINGER = 3
 
 function effects_stage.New(kind, npc_name)
-	local rig = assert(_G.PLAYER_RIG, "the effects editor previews on the local player")
+	local rig = assert(players.GetLocal(), "the effects editor previews on the local player")
 	local forward = actors.GetForward(rig):Copy()
 	forward.y = 0
 	forward = forward:GetNormalized()

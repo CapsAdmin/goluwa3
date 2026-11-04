@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -300,5 +301,5 @@ end
 local camera = render3d.GetCamera()
 camera:SetPosition(Vec3(0.5, 1.7, 5))
 camera:SetAngles(Deg3(-5, 180, 0))
-PLAYER_RIG.character_movement:SetEyePosition(camera:GetPosition())
-PLAYER_RIG.player_input:SyncFromCamera(camera)
+players.GetLocal().character_movement:SetEyePosition(camera:GetPosition())
+players.GetLocal().player_input:SyncFromCamera(camera)

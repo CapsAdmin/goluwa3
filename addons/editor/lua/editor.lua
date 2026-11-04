@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -974,8 +975,8 @@ local Editor = react.Component(
 				tree.current:CollapseOwnerGroup(Entity.World, Entity.World)
 
 				if not props.SelectedEntityGUID then
-					local player = _G.PLAYER_RIG
-					local outfit = player and player:IsValid() and player.player_avatar.outfit
+					local player = players.GetLocal()
+					local outfit = player and player.player_avatar.outfit
 
 					if outfit and outfit:IsValid() then
 						h.set_selected_target(outfit)

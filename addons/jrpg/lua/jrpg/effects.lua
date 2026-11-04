@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local event = import("goluwa/event.lua")
 local new_event = import("goluwa/network/replicated_event.lua")
@@ -712,7 +713,7 @@ function effects.ShowDamage(entity, type_name, amount, max_health, raw_amount, p
 			}
 		)
 
-		if entity == _G.PLAYER_RIG and amount > 0 then
+		if players.IsLocal(entity) and amount > 0 then
 			screen_shake.Add(math.min(fraction * 0.6, 0.12), 1, 0.4)
 		end
 	end
@@ -786,7 +787,7 @@ function effects.ShowStagger(victim, attacker, hitstop, direction)
 		0.9,
 		math.randomf(0.8, 1)
 	)
-	local rig = _G.PLAYER_RIG
+	local rig = players.GetLocal()
 
 	if rig and (rig == victim or rig == attacker) then
 		local camera = render3d.GetCamera()

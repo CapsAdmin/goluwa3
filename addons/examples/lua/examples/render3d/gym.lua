@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -652,7 +653,7 @@ event.AddListener("PhysicsUpdate", "gym_movers", function(dt)
 end)
 
 event.AddListener("Update", "gym_labels", function()
-	local rig = _G.PLAYER_RIG
+	local rig = players.GetLocal()
 
 	if not rig or not rig:IsValid() then return end
 
@@ -682,7 +683,7 @@ event.AddListener("Update", "gym_labels", function()
 end)
 
 event.AddListener("Draw2D", "gym_overlay", function()
-	local rig = _G.PLAYER_RIG
+	local rig = players.GetLocal()
 
 	if not rig or not rig:IsValid() then return end
 
@@ -771,7 +772,7 @@ end)
 function gym.Goto(name)
 	for _, entry in ipairs(gym.stations) do
 		if entry.name == name then
-			_G.PLAYER_RIG.character_movement:TeleportTo(entry.position)
+			players.GetLocal().character_movement:TeleportTo(entry.position)
 			return entry
 		end
 	end

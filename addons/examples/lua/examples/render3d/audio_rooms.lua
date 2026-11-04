@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local audio = import("goluwa/audio.lua")
@@ -382,7 +383,7 @@ end
 function audio_rooms.Goto(name)
 	for _, room in ipairs(audio_rooms.rooms) do
 		if room.name:find(name, 1, true) then
-			_G.PLAYER_RIG.character_movement:TeleportTo(room.origin + Vec3(room.size.x / 2, 0.05, room.size.z / 2))
+			players.GetLocal().character_movement:TeleportTo(room.origin + Vec3(room.size.x / 2, 0.05, room.size.z / 2))
 			return room
 		end
 	end
