@@ -29,6 +29,11 @@ Format-neutral: an `animator` component (`goluwa/entities/components/animator.lu
 - Generated VTFs need flag 0x2000 (EIGHTBITALPHA) or source ignores alpha masks. Source envmap masks only scale intensity; the engine's `RoughnessMaskOnlyScalesSpecular` flag mirrors that.
 - The png and bmp decoders write the bottom row first, jpg/dds/vtf the top row (see ui.md).
 
+### Clip banks (glTF animation packs on Source rigs)
+
+- `gltf.Load` reads `.glb` and returns `skins` and `animations`. `animation_bank.FromGltf(path, fps, prefix)` samples every clip of the first skin at a fixed rate into local position + quaternion per joint (glTF space, no scale: an animated scale is an error, interpolation must be LINEAR). `glw --cli --one-frame bake_clips <glb> <prefix> [fps]` (`addons/assets/lua/autorun/bake_clips.lua`) writes `<name>.clips` beside it; rebake when the glb changes (a test compares them).
+- `.clips` (`goluwa/codecs/clip_bank.lua`): a header, a `string.buffer` meta (prefix, bone names, parents, per clip name/fps/frames/loop/offset) and raw float32 poses, 7 floats per bone like `Skeleton` poses, so frames are read in place. Loop is detected from the first and last frame.
+
 ## Threaded codecs
 
 `goluwa/thread_pool.lua` runs a multi-line Lua source string as a job on persistent worker states (`r_codec_threads` pvar, 0 = inline). `thread_pool.Run(source, input, size)` returns a job; `job:Await()` gives `meta, blob`. Jobs return a plain `meta` table plus an optional blob (string or `uint8_t[?]`). Inputs under `thread_pool.inline_threshold` run inline, and `_G.thread_pool_job` is set inside jobs so nested `Run` stays inline. Codecs export `thread_job` and `ThreadCost(str)`; `codec.DecodeFileAsync` uses them. Model decoders use `model_loader.AddThreadedDecoder` (see performance.md "Startup time").
