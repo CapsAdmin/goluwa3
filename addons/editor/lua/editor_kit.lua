@@ -12,7 +12,7 @@ kit.ViewerWindow = react.Component(
 			Title = props.Title,
 			Size = props.Size,
 			Padding = "none",
-			Position = position,
+			Position = props.Position ?? position,
 			layout = props.layout,
 			Ref = props.Ref,
 		}{props.children}

@@ -16,6 +16,7 @@ local SceneView = import("goluwa/render3d/scene_view.lua")
 local Environment = import("goluwa/render3d/environment.lua")
 local OrbitCamera = import("goluwa/render3d/orbit_camera.lua")
 local previews = import("lua/asset_preview.lua")
+local clip_browser = import("lua/clip_browser.lua")
 local kit = import("lua/editor_kit.lua")
 local ViewerWindow = kit.ViewerWindow
 local Canvas = kit.Canvas
@@ -58,12 +59,15 @@ local ModelView = react.Component(
 		local entry = props.Entry
 		local canvas = react.UseRef()
 		local status, set_status = react.UseState("loading...")
+		local has_clips, set_has_clips = react.UseState(false)
 		local state = react.UseResource(
 			||-> do
 				local entity = assert(
 					previews.CreateModelEntity(entry.path),
 					"there is no model to view in " .. entry.path
 				)
+				entity:AddComponent("animator")
+				entity.animator:SetBlendTime(0)
 				local view = SceneView.New{TransparentSky = false}
 				local started = system.GetUnscaledElapsedTime()
 				view:SetEnvironment(Environment.GetPreset(DEFAULT_ENVIRONMENT))
@@ -88,6 +92,10 @@ local ModelView = react.Component(
 			end,
 			|state|-> do
 				state.view:Remove()
+
+				if state.clip_window and state.clip_window:IsValid() then
+					state.clip_window:Remove()
+				end
 
 				if state.entity:IsValid() then state.entity:Remove() end
 			end,
@@ -153,6 +161,19 @@ local ModelView = react.Component(
 				end
 
 				local changed = false
+				local animator = state.entity.animator
+				local skeleton = state.visual.Skeleton
+
+				if skeleton and animator.skeleton ~= skeleton then
+					animator:Bind(skeleton)
+					set_has_clips(#skeleton.Clips > 0)
+				end
+
+				if animator.skeleton and animator.targets[1] then
+					if animator.Playing or animator.dirty then changed = true end
+
+					animator:Animate(dt)
+				end
 
 				if state.drag then
 					-- the release isn't seen when it happens outside of the canvas
@@ -295,6 +316,22 @@ local ModelView = react.Component(
 						OnChange = |value|->state.view:SetExposureCompensation(value),
 						Tooltip = "exposure compensation in stops",
 						layout = {MinSize = Vec2(140, 16), MaxSize = Vec2(140, 16), FitWidth = false},
+					},
+					has_clips and
+					Button{
+						Text = "Clips",
+						Mode = "outline",
+						OnClick = ||-> do
+							state.clip_window = react.OpenWindow(
+								"ModelViewerClips/" .. entry.path,
+								clip_browser,
+								{
+									Title = "CLIPS " .. entry.path:match("[^/]+$"):upper(),
+									Animator = state.entity.animator,
+									Skeleton = state.visual.Skeleton,
+								}
+							)
+						end,
 					},
 					Button{
 						Text = "Reset view",
