@@ -357,6 +357,7 @@ function META:AddDonorClips(skeleton)
 	end
 
 	import("goluwa/render3d/model_decoders/mdl.lua").AddAnimations(skeleton, donor, is_donor_clip, DONOR_BIND_BONES)
+	import("goluwa/render3d/animation_retarget.lua").AddBanks(skeleton)
 end
 
 function META:UpdatePlayer(animator, pose, dt)
