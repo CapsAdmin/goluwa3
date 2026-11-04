@@ -752,24 +752,22 @@ return function(META)
 			if event.type == "key" then
 				if event.pressed then
 					if event.is_repeat then
-						if self:OnKeyInputRepeat(event.key) == false then break end
+						self:OnKeyInputRepeat(event.key)
 					else
-						if self:OnKeyInput(event.key, true) == false then break end
+						self:OnKeyInput(event.key, true)
 					end
 				else
-					if self:OnKeyInput(event.key, false) == false then break end
+					self:OnKeyInput(event.key, false)
 				end
 			elseif event.type == "char" then
-				if self:OnCharInput(event.char) == false then break end
+				self:OnCharInput(event.char)
 			elseif event.type == "mouse_button" then
-				if self:OnMouseInput(event.button, event.pressed) == false then break end
+				self:OnMouseInput(event.button, event.pressed)
 			elseif event.type == "mouse_move" then
 				self:SetMouseDelta(self:GetMouseDelta() + Vec2(event.delta_x, event.delta_y))
 				self:OnCursorPosition(Vec2(event.x, event.y))
 			elseif event.type == "mouse_scroll" then
-				if self:OnMouseScroll(Vec2(event.delta_x, event.delta_y)) == false then
-					break
-				end
+				self:OnMouseScroll(Vec2(event.delta_x, event.delta_y))
 			elseif event.type == "window_close" then
 				self:OnClose()
 			elseif event.type == "window_focus" then
