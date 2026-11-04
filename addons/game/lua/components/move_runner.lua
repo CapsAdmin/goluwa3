@@ -40,6 +40,7 @@ function META:Begin(move, duration, listener, authority, target)
 	self.land_time = 0
 	self.land_drop = 0
 	self.wall_ticks = 0
+	self.flinching = pose:IsPlaying("flinch")
 	self.drive_speed = 0
 	self.drive_x, self.drive_z = 0, 0
 	self.rewind_time = nil
@@ -124,6 +125,17 @@ do
 			listener:OnMoveInterrupted()
 			return "interrupted"
 		end
+
+		local flinching = pose:IsPlaying("flinch")
+
+		if flinching and not self.flinching then
+			local listener = self.listener
+			self:Cancel()
+			listener:OnMoveInterrupted()
+			return "interrupted"
+		end
+
+		self.flinching = flinching
 
 		if self.rewind_time then
 			self.rewind_time = self.rewind_time + dt

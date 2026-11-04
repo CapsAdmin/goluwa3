@@ -49,7 +49,7 @@ A move is one timeline of keys on a normalized clock (see `keyframes.lua`). `Car
 
 ## Canceling a move
 
-`move_runner:Rewind()` cancels the running move: no more events, the body is driven from where it is back to where the move began and `character_pose:RewindAction` plays the action's clock backwards, both over 0.2 s, then `Step` returns `"canceled"`. The runner calls it itself when a non-`Crash` move is driven but the body barely moves for a few ticks (a wall; measured from the position change, since the body velocity is the commanded one before the solve). The listener gets `OnMoveCanceled(move)`. `pose:GetActiveAction()` returns a third value, true while rewinding, so swing trails and sounds skip it.
+`move_runner:Rewind()` cancels the running move: no more events, the body is driven from where it is back to where the move began and `character_pose:RewindAction` plays the action's clock backwards, both over 0.2 s, then `Step` returns `"canceled"`. The runner calls it itself when a non-`Crash` move is driven but the body barely moves for a few ticks (a wall; measured from the position change, since the body velocity is the commanded one before the solve). The listener gets `OnMoveCanceled(move)`. Taking a hit that starts a new `flinch` (or a stun) during a move ends it at once with `OnMoveInterrupted`, no rewind: the runner watches the pose for a flinch that was not playing when the move began, so predicting clients see it too. `pose:GetActiveAction()` returns a third value, true while rewinding, so swing trails and sounds skip it.
 
 ## Previewing a move
 
