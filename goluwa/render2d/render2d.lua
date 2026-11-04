@@ -223,6 +223,12 @@ render2d.state = {
 		pipeline_state = {
 			dirty = true,
 			synced_pipeline = nil,
+			applied_pipeline = nil,
+			applied_blend = nil,
+			applied_depth_mode = nil,
+			applied_depth_write = nil,
+			applied_stencil_mode = nil,
+			applied_stencil_ref = nil,
 		},
 		frame = {
 			next_rect_batch_instance_buffer_slot = 1,
@@ -608,34 +614,52 @@ local function sync_pipeline_state(force)
 	local depth_mode_name = depth_state.mode or DEFAULT_DEPTH_MODE
 	local stencil_ref = stencil_state.ref ~= nil and stencil_state.ref or 1
 	local cmd = assert(render.GetCommandBuffer())
-	pipeline:SetBlend(blend_mode.blend)
-	pipeline:SetSrcColorBlendFactor(blend_mode.src_color_blend_factor)
-	pipeline:SetDstColorBlendFactor(blend_mode.dst_color_blend_factor)
-	pipeline:SetColorBlendOp(blend_mode.color_blend_op)
-	pipeline:SetSrcAlphaBlendFactor(blend_mode.src_alpha_blend_factor)
-	pipeline:SetDstAlphaBlendFactor(blend_mode.dst_alpha_blend_factor)
-	pipeline:SetAlphaBlendOp(blend_mode.alpha_blend_op)
-	pipeline:SetColorWriteMask(stencil_mode_def.color_write_mask or blend_mode.color_write_mask)
-	pipeline:SetDepthTest(depth_mode_name ~= DEFAULT_DEPTH_MODE)
-	pipeline:SetDepthWrite(depth_state.write == true)
-	pipeline:SetDepthCompareOp(depth_mode_to_compare_op[depth_mode_name] or "always")
-	pipeline:SetStencilTest(stencil_mode_def.stencil_test)
+	local applied = render2d.state.runtime.pipeline_state
 
-	do
-		pipeline:SetFrontStencilFailOp(stencil_mode_def.front.fail_op)
-		pipeline:SetFrontStencilPassOp(stencil_mode_def.front.pass_op)
-		pipeline:SetFrontStencilDepthFailOp(stencil_mode_def.front.depth_fail_op)
-		pipeline:SetFrontStencilCompareOp(stencil_mode_def.front.compare_op)
-		pipeline:SetFrontStencilReference(stencil_ref)
-		pipeline:SetFrontStencilCompareMask(0xFF)
-		pipeline:SetFrontStencilWriteMask(0xFF)
-		pipeline:SetBackStencilFailOp(stencil_mode_def.front.fail_op)
-		pipeline:SetBackStencilPassOp(stencil_mode_def.front.pass_op)
-		pipeline:SetBackStencilDepthFailOp(stencil_mode_def.front.depth_fail_op)
-		pipeline:SetBackStencilCompareOp(stencil_mode_def.front.compare_op)
-		pipeline:SetBackStencilReference(stencil_ref)
-		pipeline:SetBackStencilCompareMask(0xFF)
-		pipeline:SetBackStencilWriteMask(0xFF)
+	if
+		applied.applied_pipeline ~= pipeline or
+		applied.applied_blend ~= blend_mode or
+		applied.applied_depth_mode ~= depth_mode_name or
+		applied.applied_depth_write ~= depth_state.write or
+		applied.applied_stencil_mode ~= stencil_state.mode or
+		applied.applied_stencil_ref ~= stencil_ref
+	then
+		pipeline:SetBlend(blend_mode.blend)
+		pipeline:SetSrcColorBlendFactor(blend_mode.src_color_blend_factor)
+		pipeline:SetDstColorBlendFactor(blend_mode.dst_color_blend_factor)
+		pipeline:SetColorBlendOp(blend_mode.color_blend_op)
+		pipeline:SetSrcAlphaBlendFactor(blend_mode.src_alpha_blend_factor)
+		pipeline:SetDstAlphaBlendFactor(blend_mode.dst_alpha_blend_factor)
+		pipeline:SetAlphaBlendOp(blend_mode.alpha_blend_op)
+		pipeline:SetColorWriteMask(stencil_mode_def.color_write_mask or blend_mode.color_write_mask)
+		pipeline:SetDepthTest(depth_mode_name ~= DEFAULT_DEPTH_MODE)
+		pipeline:SetDepthWrite(depth_state.write == true)
+		pipeline:SetDepthCompareOp(depth_mode_to_compare_op[depth_mode_name] or "always")
+		pipeline:SetStencilTest(stencil_mode_def.stencil_test)
+
+		do
+			pipeline:SetFrontStencilFailOp(stencil_mode_def.front.fail_op)
+			pipeline:SetFrontStencilPassOp(stencil_mode_def.front.pass_op)
+			pipeline:SetFrontStencilDepthFailOp(stencil_mode_def.front.depth_fail_op)
+			pipeline:SetFrontStencilCompareOp(stencil_mode_def.front.compare_op)
+			pipeline:SetFrontStencilReference(stencil_ref)
+			pipeline:SetFrontStencilCompareMask(0xFF)
+			pipeline:SetFrontStencilWriteMask(0xFF)
+			pipeline:SetBackStencilFailOp(stencil_mode_def.front.fail_op)
+			pipeline:SetBackStencilPassOp(stencil_mode_def.front.pass_op)
+			pipeline:SetBackStencilDepthFailOp(stencil_mode_def.front.depth_fail_op)
+			pipeline:SetBackStencilCompareOp(stencil_mode_def.front.compare_op)
+			pipeline:SetBackStencilReference(stencil_ref)
+			pipeline:SetBackStencilCompareMask(0xFF)
+			pipeline:SetBackStencilWriteMask(0xFF)
+		end
+
+		applied.applied_pipeline = pipeline
+		applied.applied_blend = blend_mode
+		applied.applied_depth_mode = depth_mode_name
+		applied.applied_depth_write = depth_state.write
+		applied.applied_stencil_mode = stencil_state.mode
+		applied.applied_stencil_ref = stencil_ref
 	end
 
 	pipeline:Bind(cmd, render.GetCurrentFrame())
