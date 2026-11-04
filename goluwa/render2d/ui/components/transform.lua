@@ -90,11 +90,17 @@ function META:GetHeight()
 end
 
 function META:SetWidth(w)
-	self:SetSize(Vec2(w, self.Size.y))
+	w = math.floor(w + 0.5)
+	local size = self.Size
+
+	if size.x ~= w then self:SetSize(Vec2(w, size.y)) end
 end
 
 function META:SetHeight(h)
-	self:SetSize(Vec2(self.Size.x, h))
+	h = math.floor(h + 0.5)
+	local size = self.Size
+
+	if size.y ~= h then self:SetSize(Vec2(size.x, h)) end
 end
 
 function META:GetX()
@@ -106,11 +112,17 @@ function META:GetY()
 end
 
 function META:SetX(x)
-	self:SetPosition(Vec2(x, self.Position.y))
+	x = math.floor(x + 0.5)
+	local position = self.Position
+
+	if position.x ~= x then self:SetPosition(Vec2(x, position.y)) end
 end
 
 function META:SetY(y)
-	self:SetPosition(Vec2(self.Position.x, y))
+	y = math.floor(y + 0.5)
+	local position = self.Position
+
+	if position.y ~= y then self:SetPosition(Vec2(position.x, y)) end
 end
 
 function META:GetAxisLength(axis)
