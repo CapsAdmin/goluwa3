@@ -634,6 +634,8 @@ function META:UpdateAnimations(dt)
 				if inst.cycle >= inst.end_cycle then
 					inst.cycle = inst.end_cycle
 					inst.settled = true
+
+					if def.Settled then def.Settled(inst, self) end
 				end
 			else
 				inst.settled = true

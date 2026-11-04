@@ -149,6 +149,9 @@ return {
 		Crouch = true,
 		Locomotion = false,
 		Legs = false,
+		Settled = function(inst, pose)
+			pose:Trigger("get_up", 1)
+		end,
 		Advance = function(inst, pose, dt)
 			local speed = math.clamp(
 				math.sqrt(pose.forward_speed ^ 2 + pose.right_speed ^ 2) / REFERENCE_SPEED,
@@ -188,6 +191,18 @@ return {
 			local moved = position + base:VecMul(pivot) + Vec3(0, height - PIVOT, 0) - turned:VecMul(pivot)
 			position:Set(moved.x, moved.y, moved.z)
 			base:Set(turned.x, turned.y, turned.z, turned.w)
+		end,
+	},
+	get_up = {
+		Kind = "action",
+		Passive = true,
+		Duration = 0.5,
+		Exit = 0.15,
+		Speed = 1.4,
+		Loop = false,
+		Crouch = true,
+		Sequence = function(inst, suffix, clips)
+			if clips.Crouch_to_stand then return "Crouch_to_stand" end
 		end,
 	},
 }

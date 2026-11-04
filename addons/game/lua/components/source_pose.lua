@@ -90,9 +90,14 @@ local ARM_BONES = {
 	"hand_l",
 }
 local native_speeds = setmetatable({}, {__mode = "k"})
+local DONOR_GET_UP = "models/kleiner"
 
 local function is_donor_clip(name)
 	return name:starts_with("jump_holding_")
+end
+
+local function is_get_up_clip(name)
+	return name == "Crouch_to_stand"
 end
 
 local function get_native_speed(clip)
@@ -360,7 +365,9 @@ function META:AddDonorClips(skeleton)
 		end
 	end
 
-	import("goluwa/render3d/model_decoders/mdl.lua").AddAnimations(skeleton, donor, is_donor_clip, DONOR_BIND_BONES)
+	local mdl_decoder = import("goluwa/render3d/model_decoders/mdl.lua")
+	mdl_decoder.AddAnimations(skeleton, donor, is_donor_clip, DONOR_BIND_BONES)
+	mdl_decoder.AddAnimations(skeleton, DONOR_GET_UP, is_get_up_clip, DONOR_BIND_BONES)
 	import("goluwa/render3d/animation_retarget.lua").AddBanks(skeleton)
 end
 
