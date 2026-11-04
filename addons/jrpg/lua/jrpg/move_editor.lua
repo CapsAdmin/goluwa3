@@ -23,6 +23,9 @@ local system = import("goluwa/system.lua")
 local move_editor = {}
 local LEFT_WIDTH = 400
 local BOTTOM_HEIGHT = 320
+local TIMELINE_RULER = 22
+local TIMELINE_ROW = 22
+local TIMELINE_CHROME = 34 + 6 * 2
 local CAMERAS = {"three", "side", "front"}
 local SPEEDS = {"1", "0.5", "0.25", "0.1"}
 local DEG = 180 / math.pi
@@ -628,6 +631,30 @@ function move_editor.BuildMenu(session, h)
 				},
 			},
 		},
+		{
+			Text = "VIEW",
+			Items = ||-> {
+				MenuItem{
+					Text = "camera",
+					Items = ||-> do
+						local items = {}
+
+						for _, name in ipairs(CAMERAS) do
+							items[#items + 1] = MenuItem{
+								Text = name,
+								Icon = name == session.Camera and "check" or nil,
+								OnClick = ||-> do
+									move_editor.SetCameraPreset(session, name)
+									h.refresh()
+								end,
+							}
+						end
+
+						return items
+					end,
+				},
+			},
+		},
 	}
 end
 
@@ -726,6 +753,11 @@ local MoveEditor = react.Component(
 		local move = move_editor.GetMove(session)
 		local rows = move_edit.Rows(move)
 		local addable = move_edit.AddableTracks(move)
+
+		if addable[1] then rows[#rows + 1] = {Name = "+ add track", Button = true, Keys = {}} end
+
+		local timeline_height = TIMELINE_CHROME + TIMELINE_RULER + #rows * TIMELINE_ROW
+
 		local screen = Panel.World.transform:GetSize()
 		local registered = movesets.Get(session.SetName).Moves[session.MoveName]
 
@@ -770,15 +802,12 @@ local MoveEditor = react.Component(
 			react.Portal{Target = Panel.World}{
 				ui.Window{
 					Key = "MoveEditorTimeline",
-					Title = "TIMELINE",
 					Name = "move editor timeline",
 					RequestMouse = true,
-					Size = Vec2(screen.x - LEFT_WIDTH, BOTTOM_HEIGHT),
-					Position = Vec2(LEFT_WIDTH, screen.y - BOTTOM_HEIGHT),
+					Headerless = true,
+					Size = Vec2(screen.x - LEFT_WIDTH, timeline_height),
+					Position = Vec2(LEFT_WIDTH, screen.y - timeline_height),
 					Padding = Rect(),
-					Closable = false,
-					Minimizable = false,
-					Maximizable = false,
 					layout = {FitHeight = false, FitWidth = false},
 				}{
 					ui.Column{
@@ -787,82 +816,8 @@ local MoveEditor = react.Component(
 							GrowHeight = 1,
 							FitHeight = false,
 							AlignmentX = "stretch",
-							ChildGap = 6,
-							Padding = Rect() + 8,
 						},
 					}{
-						ui.Row{layout = {GrowWidth = 1, ChildGap = 8, AlignmentY = "center"}}{
-							ui.Button{
-								Text = session.Playing and "Pause" or "Play",
-								Mode = "outline",
-								Tooltip = "space",
-								OnClick = ||-> do
-									move_editor.TogglePlaying(session)
-									h.refresh()
-								end,
-							},
-							ui.Button{
-								Text = "Stop",
-								Mode = "outline",
-								OnClick = ||-> do
-									session.Playing = false
-									session.Phase = 0
-									h.refresh()
-								end,
-							},
-							ui.Checkbox{
-								Text = "Loop",
-								Value = session.Loop,
-								OnChange = |value|-> do
-									session.Loop = value
-								end,
-							},
-							ui.Text{Text = "Speed", Color = "text_disabled", layout = {FitWidth = true}},
-							ui.Dropdown{
-								Key = "speed",
-								Options = SPEEDS,
-								Value = tostring(session.Speed),
-								Padding = "XS",
-								OnSelect = |value|-> do
-									session.Speed = tonumber(value)
-								end,
-								layout = {MinSize = Vec2(70, 0), MaxSize = Vec2(70, 0), GrowWidth = 0},
-							},
-							ui.Text{Text = "Camera", Color = "text_disabled", layout = {FitWidth = true}},
-							ui.Dropdown{
-								Key = "camera",
-								Options = CAMERAS,
-								Value = session.Camera,
-								Padding = "XS",
-								OnSelect = |value|-> do
-									move_editor.SetCameraPreset(session, value)
-								end,
-								layout = {MinSize = Vec2(90, 0), MaxSize = Vec2(90, 0), GrowWidth = 0},
-							},
-							#addable > 0 and ui.Dropdown{
-								Key = "addtrack" .. #addable,
-								Options = {"add track", unpack(addable)},
-								Value = "add track",
-								Padding = "XS",
-								OnSelect = |value|-> do
-									if value ~= "add track" then add_track_key(value, session.Phase) end
-								end,
-								layout = {MinSize = Vec2(110, 0), MaxSize = Vec2(110, 0), GrowWidth = 0},
-							},
-							ui.Text{
-								Text = string.format("%s / %s   %.3f   %.2fs", session.SetName, session.MoveName, session.Phase, session.Phase * registered.Duration),
-								Color = "text_disabled",
-								IgnoreMouseInput = true,
-								layout = {FitWidth = true},
-							},
-							ui.Text{
-								Text = session.Status,
-								Color = "negative",
-								Font = "body XS",
-								IgnoreMouseInput = true,
-								layout = {GrowWidth = 1},
-							},
-						},
 						ui.Timeline{
 							Rows = rows,
 							Time = session.Phase,
@@ -897,6 +852,18 @@ local MoveEditor = react.Component(
 							end,
 							OnKeysDrop = ||-> do
 								session.Grabbed = nil
+							end,
+							OnRowAction = ||-> do
+								local items = {}
+
+								for _, name in ipairs(addable) do
+									items[#items + 1] = MenuItem{
+										Text = name,
+										OnClick = ||->add_track_key(name, session.Phase),
+									}
+								end
+
+								Panel.OpenContextMenu({}, items)
 							end,
 							OnKeyMenu = |row, index|-> do
 								local count = #session.Selected
@@ -962,6 +929,57 @@ local MoveEditor = react.Component(
 								end
 							end,
 							layout = {GrowWidth = 1, GrowHeight = 1},
+						},
+						ui.Row{layout = {GrowWidth = 1, ChildGap = 8, AlignmentY = "center", Padding = Rect() + 6}}{
+							ui.Button{
+								Text = session.Playing and "Pause" or "Play",
+								Mode = "outline",
+								Tooltip = "space",
+								OnClick = ||-> do
+									move_editor.TogglePlaying(session)
+									h.refresh()
+								end,
+							},
+							ui.Button{
+								Text = "Stop",
+								Mode = "outline",
+								OnClick = ||-> do
+									session.Playing = false
+									session.Phase = 0
+									h.refresh()
+								end,
+							},
+							ui.Checkbox{
+								Text = "Loop",
+								Value = session.Loop,
+								OnChange = |value|-> do
+									session.Loop = value
+								end,
+							},
+							ui.Text{Text = "Speed", Color = "text_disabled", layout = {FitWidth = true}},
+							ui.Dropdown{
+								Key = "speed",
+								Options = SPEEDS,
+								Value = tostring(session.Speed),
+								Padding = "XS",
+								OnSelect = |value|-> do
+									session.Speed = tonumber(value)
+								end,
+								layout = {MinSize = Vec2(70, 0), MaxSize = Vec2(70, 0), GrowWidth = 0},
+							},
+							ui.Text{
+								Text = string.format("%s / %s   %.3f   %.2fs", session.SetName, session.MoveName, session.Phase, session.Phase * registered.Duration),
+								Color = "text_disabled",
+								IgnoreMouseInput = true,
+								layout = {FitWidth = true},
+							},
+							ui.Text{
+								Text = session.Status,
+								Color = "negative",
+								Font = "body XS",
+								IgnoreMouseInput = true,
+								layout = {GrowWidth = 1},
+							},
 						},
 					},
 				},
