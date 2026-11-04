@@ -38,6 +38,7 @@ local SET_KEYS = {
 	Special = true,
 	Guard = true,
 	Poses = true,
+	Gestures = true,
 	Moves = true,
 }
 local SLOTS = {
@@ -65,6 +66,7 @@ local MOVE_KEYS = {
 	Face = true,
 	FaceOut = true,
 	Clips = true,
+	Overlays = true,
 	Sound = true,
 	Speed = true,
 	Crash = true,
@@ -115,13 +117,18 @@ local EVENT_TYPES = {
 	},
 }
 movesets.EventTypes = EVENT_TYPES
-local KEY_FIELDS = {ease = true, hold = true}
+local KEY_FIELDS = {ease = true, hold = true, Block = true, Edge = true, Time = true}
+local OVERLAY_FIELDS = {In = true, Out = true, Speed = true, FadeIn = true, FadeOut = true}
+local LINK_EDGES = {arrive = true, depart = true}
 local CLIP_FIELDS = {In = true, Out = true, Speed = true, Blend = true}
 local CLIP_ID = "Id"
 local TRACKS = {}
+local OVERLAY_TRACKS = {}
 
 for _, track in ipairs(keyframes.Tracks) do
 	TRACKS[track.Name] = track
+
+	if track.Overlay then OVERLAY_TRACKS[track.Name] = track end
 end
 
 local function check_plain(value, path)
@@ -155,7 +162,7 @@ end
 local function validate_pose(pose, path)
 	for key, value in pairs(pose) do
 		if key ~= "base" then
-			local track = assert(TRACKS[key], path .. " has an unknown track " .. tostring(key))
+			local track = assert(OVERLAY_TRACKS[key], path .. " has an unknown track " .. tostring(key))
 			assert(
 				type(value) == "number" or type(value) == "table" and #value <= #track.Rest,
 				path .. "." .. key .. " takes at most " .. #track.Rest .. " numbers"
@@ -164,7 +171,48 @@ local function validate_pose(pose, path)
 	end
 end
 
-local function validate_move(move, poses, path)
+local function validate_gesture(gesture, poses, path)
+	for key in pairs(gesture) do
+		assert(
+			key == "Duration" or key == "Keys",
+			path .. " has an unknown field " .. tostring(key)
+		)
+	end
+
+	assert(
+		type(gesture.Duration) == "number" and gesture.Duration > 0,
+		path .. ".Duration must be above 0"
+	)
+	assert(type(gesture.Keys) == "table" and gesture.Keys[1], path .. " needs Keys")
+	local last = -1
+
+	for i, frame in ipairs(gesture.Keys) do
+		local at = path .. ".Keys[" .. i .. "]"
+		assert(
+			type(frame[1]) == "number" and frame[1] > last and frame[1] <= gesture.Duration,
+			at .. " needs a time in order within the Duration"
+		)
+		last = frame[1]
+		assert(
+			frame[2] == nil or poses[frame[2]],
+			at .. " names an unknown pose " .. tostring(frame[2])
+		)
+
+		for field, value in pairs(frame) do
+			if type(field) == "string" and field ~= "ease" then
+				local track = assert(OVERLAY_TRACKS[field], at .. " has an unknown track " .. field)
+				assert(
+					type(value) == "number" or type(value) == "table" and #value <= #track.Rest,
+					at .. "." .. field .. " takes at most " .. #track.Rest .. " numbers"
+				)
+			elseif field == "ease" then
+				assert(animations.Eases[value], at .. ".ease must be smooth, linear, in or out")
+			end
+		end
+	end
+end
+
+local function validate_move(move, poses, gestures, path)
 	for key in pairs(move) do
 		assert(MOVE_KEYS[key], path .. " has an unknown field " .. tostring(key))
 	end
@@ -212,7 +260,7 @@ local function validate_move(move, poses, path)
 			move.Land <= 1,
 		path .. ".Land must be a phase between 0 and 1"
 	)
-	assert(move.Keys or move.Clips, path .. " needs Keys or Clips")
+	assert(move.Keys or move.Clips or move.Overlays, path .. " needs Keys, Clips or Overlays")
 	local previous = {}
 
 	for i, frame in ipairs(move.Keys or {}) do
@@ -221,10 +269,24 @@ local function validate_move(move, poses, path)
 			type(frame[1]) == "number" and frame[1] >= 0 and frame[1] <= 1,
 			at .. " needs a time between 0 and 1"
 		)
-		assert(
-			frame[2] == nil or poses[frame[2]],
-			at .. " names an unknown pose " .. tostring(frame[2])
-		)
+		assert(frame[2] == nil, at .. " cannot name a pose, pose tracks belong in Overlays")
+
+		if frame.Block ~= nil then
+			assert(
+				LINK_EDGES[frame.Edge] or type(frame.Time) == "number",
+				at .. " is linked to a block and needs an Edge of arrive or depart, or a Time in its pose animation"
+			)
+			local found
+
+			for _, overlay in ipairs(move.Overlays or {}) do
+				found = found or overlay.Id == frame.Block
+			end
+
+			assert(
+				found,
+				at .. " is linked to an overlay Id that does not exist: " .. tostring(frame.Block)
+			)
+		end
 
 		for key, value in pairs(frame) do
 			if type(key) == "string" then
@@ -232,6 +294,7 @@ local function validate_move(move, poses, path)
 				assert(track or KEY_FIELDS[key], at .. " has an unknown field " .. key)
 
 				if track then
+					assert(not track.Overlay, at .. "." .. key .. " is a pose track and belongs in Overlays")
 					assert(
 						type(value) == "number" or type(value) == "table" and #value <= #track.Rest,
 						at .. "." .. key .. " takes at most " .. #track.Rest .. " numbers"
@@ -311,6 +374,54 @@ local function validate_move(move, poses, path)
 
 		if i > 2 then
 			assert(clip[1] >= move.Clips[i - 2][2], at .. " overlaps two clips at once")
+		end
+	end
+
+	for i, overlay in ipairs(move.Overlays or {}) do
+		local at = path .. ".Overlays[" .. i .. "]"
+		assert(
+			type(overlay[1]) == "number" and
+				type(overlay[2]) == "number" and
+				overlay[1] >= 0 and
+				overlay[1] < overlay[2] and
+				overlay[2] <= 1,
+			at .. " needs a start and an end between 0 and 1"
+		)
+		assert(
+			type(overlay[3]) == "string" and (poses[overlay[3]] or gestures[overlay[3]]),
+			at .. " names an unknown pose " .. tostring(overlay[3])
+		)
+
+		for key, value in pairs(overlay) do
+			if key ~= 1 and key ~= 2 and key ~= 3 then
+				if OVERLAY_FIELDS[key] then
+					assert(type(value) == "number", at .. "." .. key .. " must be a number")
+				elseif key == "Id" then
+					assert(type(value) == "string", at .. ".Id must be a string")
+				elseif key == "Ease" then
+					assert(animations.Eases[value], at .. ".Ease must be smooth, linear, in or out")
+				else
+					local track = assert(OVERLAY_TRACKS[key], at .. " has an unknown field " .. tostring(key))
+					assert(
+						type(value) == "number" or type(value) == "table" and #value <= #track.Rest,
+						at .. "." .. key .. " takes at most " .. #track.Rest .. " numbers"
+					)
+				end
+			end
+		end
+
+		assert(
+			not overlay.In or not overlay.Out or overlay.In < overlay.Out,
+			at .. " needs In before Out"
+		)
+		assert(not overlay.Speed or overlay.Speed > 0, at .. ".Speed must be above 0")
+
+		if i > 1 then
+			assert(overlay[1] >= move.Overlays[i - 1][1], at .. " starts before the overlay before it")
+		end
+
+		if i > 2 then
+			assert(overlay[1] >= move.Overlays[i - 2][2], at .. " overlaps two overlays at once")
 		end
 	end
 
@@ -394,13 +505,22 @@ function movesets.Validate(name, def)
 	end
 
 	local poses = setmetatable(def.Poses or {}, {__index = keyframes.Poses})
+	local gestures = def.Gestures or {}
 
 	for pose_name, pose in pairs(def.Poses or {}) do
 		validate_pose(pose, name .. ".Poses." .. pose_name)
 	end
 
+	for gesture_name, gesture in pairs(gestures) do
+		assert(
+			not poses[gesture_name],
+			name .. ".Gestures." .. gesture_name .. " has the name of a pose"
+		)
+		validate_gesture(gesture, poses, name .. ".Gestures." .. gesture_name)
+	end
+
 	for move_name, move in pairs(def.Moves) do
-		validate_move(move, poses, name .. ".Moves." .. move_name)
+		validate_move(move, poses, gestures, name .. ".Moves." .. move_name)
 	end
 
 	for _, key in ipairs(SLOTS) do
@@ -416,7 +536,56 @@ function movesets.Validate(name, def)
 	)
 end
 
-function movesets.ResolveClipLinks(move)
+function movesets.ResolveClipLinks(move, gestures)
+	local frames = move.Keys
+
+	if frames and move.Overlays then
+		local arrive, depart = keyframes.GetOverlayTimes(move.Overlays, move.Duration)
+
+		for _, frame in ipairs(frames) do
+			if frame.Block then
+				for i, overlay in ipairs(move.Overlays) do
+					if overlay.Id == frame.Block then
+						if frame.Time then
+							local length = gestures[overlay[3]].Duration
+							local from = overlay.In or 0
+							local rate = overlay.Speed or
+								(
+									(
+										overlay.Out or
+										length
+									) - from
+								) / (
+									(
+										overlay[2] - overlay[1]
+									) * move.Duration
+								)
+							frame[1] = math.clamp(
+								overlay[1] + (frame.Time - from) / (rate * move.Duration),
+								overlay[1],
+								overlay[2]
+							)
+						else
+							frame[1] = frame.Edge == "arrive" and arrive[i] or depart[i]
+						end
+					end
+				end
+			end
+		end
+
+		for i = 2, #frames do
+			local item = frames[i]
+			local j = i - 1
+
+			while j >= 1 and frames[j][1] > item[1] do
+				frames[j + 1] = frames[j]
+				j = j - 1
+			end
+
+			frames[j + 1] = item
+		end
+	end
+
 	local events = move.Events
 
 	if not events or not move.Clips then return end
@@ -467,14 +636,16 @@ end
 
 function movesets.Register(name, def, path)
 	for _, move in pairs(def.Moves) do
-		movesets.ResolveClipLinks(move)
+		movesets.ResolveClipLinks(move, def.Gestures)
 	end
 
 	movesets.Validate(name, def)
 	movesets.Paths[name] = path or movesets.Paths[name]
 	movesets.Source[name] = table.copy(def)
 	local poses = def.Poses
+	local gestures = def.Gestures
 	def.Poses = nil
+	def.Gestures = nil
 	def.Name = name
 	def.ComboWindow = def.ComboWindow or 0.5
 	def.Combo = def.Combo or {}
@@ -509,7 +680,7 @@ function movesets.Register(name, def, path)
 		end
 
 		move.Cancel = math.max(move.Cancel or 0.8, last_event)
-		keyframes.Register(move.Action, move, poses)
+		keyframes.Register(move.Action, move, poses, gestures)
 		move.MotionKeys = move.MotionKeys or {{0, 0, 0, 0, 0}, {1, 0, 0, 0, 0}}
 		move.Vertical = move.Hover == true
 
@@ -540,7 +711,7 @@ function movesets.Register(name, def, path)
 					Enter = GUARD_ENTER,
 					Exit = GUARD_EXIT,
 					PoseWeapon = true,
-					Keys = {{0, def.Guard}},
+					Overlays = {{0, 1, def.Guard, FadeIn = 0, FadeOut = 0}},
 				},
 				poses
 			).Name
@@ -585,6 +756,7 @@ do
 		"Guard",
 		"ComboWindow",
 		"Poses",
+		"Gestures",
 		"Moves",
 		"Duration",
 		"Stamina",
@@ -609,6 +781,7 @@ do
 		"Dodge",
 		"Land",
 		"Clips",
+		"Overlays",
 		"Keys",
 		"Shots",
 		"Faces",

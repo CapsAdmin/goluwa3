@@ -7,6 +7,7 @@ local keyframes = {}
 keyframes.Tracks = {
 	{
 		Name = "aim",
+		Overlay = true,
 		Key = "AimKeys",
 		Rest = {0, 0},
 		Labels = {"yaw", "pitch"},
@@ -14,6 +15,7 @@ keyframes.Tracks = {
 	},
 	{
 		Name = "hand",
+		Overlay = true,
 		Key = "HandKeys",
 		Rest = {0, 0, 0, 0, 0, 0},
 		Labels = {"x", "y", "z", "pitch", "yaw", "roll"},
@@ -21,6 +23,7 @@ keyframes.Tracks = {
 	},
 	{
 		Name = "torso",
+		Overlay = true,
 		Key = "TorsoKeys",
 		Rest = {0},
 		Labels = {"pitch"},
@@ -28,6 +31,7 @@ keyframes.Tracks = {
 	},
 	{
 		Name = "head",
+		Overlay = true,
 		Key = "HeadKeys",
 		Rest = {1, 0, 0, 0},
 		Labels = {"follow", "nod", "turn", "tilt"},
@@ -35,6 +39,7 @@ keyframes.Tracks = {
 	},
 	{
 		Name = "pelvis",
+		Overlay = true,
 		Key = "PelvisKeys",
 		Rest = {0, 0, 0, 0, 0, 0},
 		Labels = {"x", "y", "z", "yaw", "pitch", "roll"},
@@ -185,17 +190,14 @@ local function add_key(rows, t, values, ease, track)
 	rows[#rows + 1] = row
 end
 
-local function expand(frames, poses)
+local function expand(frames)
 	local expanded = {}
 
 	for _, frame in ipairs(frames) do
-		local pose = type(frame[2]) == "string" and resolve_pose(frame[2], poses) or nil
 		local entry = {t = frame[1], ease = frame.ease, values = {}}
 
 		for _, track in ipairs(keyframes.Tracks) do
 			local value = frame[track.Name]
-
-			if value == nil and pose then value = pose[track.Name] end
 
 			if value ~= nil then entry.values[track.Name] = to_values(track, value) end
 		end
@@ -437,33 +439,409 @@ do
 	end
 end
 
-function keyframes.Compile(def, poses)
+do
+	local DEFAULT_FADE = 0.1
+	local EPS = 1e-7
+	local STEP = 1e-5
+	local SAMPLES_PER_SECOND = 24
+	local MAX_SAMPLES = 48
+	local EASES = animations.Eases
+	keyframes.DefaultFade = DEFAULT_FADE
+	keyframes.OverlayTracks = {}
+
+	for _, track in ipairs(keyframes.Tracks) do
+		if track.Overlay then table.insert(keyframes.OverlayTracks, track) end
+	end
+
+	function keyframes.GetOverlayTimes(overlays, duration)
+		local arrive, depart, covered_in, covered_out = {}, {}, {}, {}
+
+		for i, entry in ipairs(overlays) do
+			local previous, following = overlays[i - 1], overlays[i + 1]
+			local from, to = entry[1], entry[2]
+			covered_in[i] = previous ~= nil and previous[2] > from
+			covered_out[i] = following ~= nil and following[1] < to
+			local a = covered_in[i] and
+				previous[2] or
+				math.min(from + (entry.FadeIn or DEFAULT_FADE) / duration, to)
+			local d = covered_out[i] and
+				following[1] or
+				math.max(to - (entry.FadeOut or DEFAULT_FADE) / duration, from)
+
+			if a > d then
+				a = (a + d) / 2
+				d = a
+			end
+
+			arrive[i], depart[i] = a, d
+		end
+
+		return arrive, depart, covered_in, covered_out
+	end
+
+	local function fill(track, value)
+		local values = to_values(track, value)
+		local filled = {}
+
+		for i = 1, #track.Rest do
+			filled[i] = values[i] == nil and track.Rest[i] or values[i]
+		end
+
+		return filled
+	end
+
+	local function resolve_clip(pose, poses)
+		local clip = {Duration = pose.Duration or 0, values = {}, rows = {}}
+
+		for _, track in ipairs(keyframes.OverlayTracks) do
+			if pose[track.Name] ~= nil then
+				clip.values[track.Name] = fill(track, pose[track.Name])
+			end
+		end
+
+		for _, key in ipairs(pose.Keys or {}) do
+			local base = type(key[2]) == "string" and resolve_pose(key[2], poses) or nil
+
+			for _, track in ipairs(keyframes.OverlayTracks) do
+				local value = key[track.Name]
+
+				if value == nil and base then value = base[track.Name] end
+
+				if value ~= nil then
+					local rows = clip.rows[track.Name] or {}
+					clip.rows[track.Name] = rows
+					local row = {key[1], ease = key.ease}
+
+					for i, v in ipairs(fill(track, value)) do
+						row[i + 1] = v
+					end
+
+					rows[#rows + 1] = row
+				end
+			end
+		end
+
+		return clip
+	end
+
+	local function get_blocks(def, poses, gestures)
+		local blocks = {}
+		local arrive, depart, covered_in, covered_out = keyframes.GetOverlayTimes(def.Overlays, (def.Duration or 1))
+
+		for i, entry in ipairs(def.Overlays) do
+			local clip = resolve_clip(gestures and gestures[entry[3]] or resolve_pose(entry[3], poses), poses)
+			local block = {
+				entry = entry,
+				clip = clip,
+				from = entry[1],
+				to = entry[2],
+				arrive = arrive[i],
+				depart = depart[i],
+				covered_in = covered_in[i],
+				covered_out = covered_out[i],
+				values = {},
+				rows = {},
+			}
+
+			for _, track in ipairs(keyframes.OverlayTracks) do
+				local name = track.Name
+
+				if entry[name] ~= nil then
+					block.values[name] = fill(track, entry[name])
+				elseif clip.rows[name] then
+					block.rows[name] = clip.rows[name]
+				else
+					block.values[name] = clip.values[name] or fill(track, track.Rest)
+				end
+			end
+
+			blocks[i] = block
+		end
+
+		return blocks
+	end
+
+	local function get_local_time(def, block, f)
+		local entry, duration = block.entry, block.clip.Duration
+		local from = entry.In or 0
+		local out = entry.Out or duration
+		local into = (f - block.from) * (def.Duration or 1)
+
+		if entry.Speed then
+			local span = out - from
+			return from + (span > 0 and into * entry.Speed % span or 0)
+		end
+
+		local length = (block.to - block.from) * (def.Duration or 1)
+		return from + (out - from) * math.min(into / length, 1)
+	end
+
+	local function sample_block(def, block, track, f, out)
+		local rows = block.rows[track.Name]
+
+		if rows then
+			return animations.SampleKeys(rows, get_local_time(def, block, f), out, #track.Rest)
+		end
+
+		local values = block.values[track.Name]
+
+		for i = 1, #track.Rest do
+			out[i] = values[i]
+		end
+
+		return out
+	end
+
+	local function wrap_turns(track, value, out)
+		for i = 1, #track.Rest do
+			out[i] = track.Rest[i]
+		end
+
+		for _, i in ipairs(track.Radians or {}) do
+			out[i] = math.floor(value[i] / math.tau + 0.5) * math.tau
+		end
+
+		return out
+	end
+
+	local scratch = {{}, {}, {}}
+
+	local function sample_enveloped(def, block, track, f, out)
+		local value = sample_block(def, block, track, f, out)
+
+		if not block.covered_in and f < block.arrive then
+			local r = EASES[block.entry.Ease or
+			"smooth"]((f - block.from) / (block.arrive - block.from))
+
+			for i = 1, #track.Rest do
+				value[i] = track.Rest[i] + (value[i] - track.Rest[i]) * r
+			end
+		end
+
+		if not block.covered_out and f > block.depart then
+			local r = EASES.smooth((block.to - f) / (block.to - block.depart))
+			local target = wrap_turns(track, value, scratch[3])
+
+			for i = 1, #track.Rest do
+				value[i] = target[i] + (value[i] - target[i]) * r
+			end
+		end
+
+		return value
+	end
+
+	local function find_active(blocks, f)
+		local later, earlier
+
+		for i = #blocks, 1, -1 do
+			local block = blocks[i]
+
+			if f >= block.from and (f < block.to or block.to >= 1) then
+				if not later then
+					later = block
+				else
+					earlier = block
+
+					break
+				end
+			end
+		end
+
+		return later, earlier
+	end
+
+	local function sample_lane(def, blocks, track, f, out)
+		local later, earlier = find_active(blocks, f)
+
+		if not later then
+			for i = 1, #track.Rest do
+				out[i] = track.Rest[i]
+			end
+
+			return out
+		end
+
+		if not earlier then return sample_enveloped(def, later, track, f, out) end
+
+		local a = sample_enveloped(def, earlier, track, f, scratch[1])
+		local b = sample_enveloped(def, later, track, f, scratch[2])
+		local x = EASES[later.entry.Ease or
+		"smooth"](math.clamp((f - later.from) / (earlier.to - later.from), 0, 1))
+
+		for i = 1, #track.Rest do
+			out[i] = a[i] + (b[i] - a[i]) * x
+		end
+
+		return out
+	end
+
+	local function get_span(def, block, track, x0, x1)
+		local rows = block.rows[track.Name]
+
+		if not rows then return "constant" end
+
+		if block.entry.Speed then return end
+
+		local t0, t1 = get_local_time(def, block, x0), get_local_time(def, block, x1)
+
+		if t1 <= rows[1][1] + 1e-9 or t0 >= rows[#rows][1] - 1e-9 then
+			return "constant"
+		end
+
+		for k = 2, #rows do
+			if math.abs(rows[k - 1][1] - t0) < 1e-6 and math.abs(rows[k][1] - t1) < 1e-6 then
+				return "segment", rows[k].ease
+			end
+		end
+	end
+
+	local function build_overlay_rows(def, blocks, track)
+		local points = {0, 1}
+
+		for _, block in ipairs(blocks) do
+			table.insert(points, block.from)
+			table.insert(points, block.to)
+			table.insert(points, block.arrive)
+			table.insert(points, block.depart)
+			local rows = block.rows[track.Name]
+
+			if rows and not block.entry.Speed then
+				local from = block.entry.In or 0
+				local span = (block.entry.Out or block.clip.Duration) - from
+
+				for _, row in ipairs(rows) do
+					local phase = block.from + (row[1] - from) / span * (block.to - block.from)
+
+					if phase > block.from and phase < block.to then table.insert(points, phase) end
+				end
+			end
+		end
+
+		table.sort(points)
+		local rows = {}
+		local count = #track.Rest
+		local from_value, to_value, middle = {}, {}, {}
+
+		local function add(x, values, ease)
+			local last = rows[#rows]
+
+			if last and x <= last[1] + 1e-9 then
+				local same = true
+
+				for i = 1, count do
+					same = same and math.abs(last[i + 1] - values[i]) < 1e-6
+				end
+
+				if same then return end
+
+				x = last[1] + STEP
+			end
+
+			local row = {x, ease = ease}
+
+			for i = 1, count do
+				row[i + 1] = values[i]
+			end
+
+			rows[#rows + 1] = row
+		end
+
+		for i = 1, #points - 1 do
+			local x0, x1 = points[i], points[i + 1]
+
+			if x1 - x0 > 1e-9 then
+				local mid = (x0 + x1) / 2
+				local later, earlier = find_active(blocks, mid)
+				local ease
+				local exact = true
+
+				if later and earlier then
+					ease = later.entry.Ease or "smooth"
+					exact = get_span(def, later, track, x0, x1) == "constant" and
+						get_span(def, earlier, track, x0, x1) == "constant"
+				elseif later then
+					local span, span_ease = get_span(def, later, track, x0, x1)
+
+					if not later.covered_in and mid < later.arrive then
+						ease = later.entry.Ease or "smooth"
+						exact = span == "constant"
+					elseif not later.covered_out and mid > later.depart then
+						ease = "smooth"
+						exact = span == "constant"
+					else
+						exact = span ~= nil
+						ease = span_ease
+					end
+				end
+
+				add(x0, sample_lane(def, blocks, track, x0 + EPS, from_value))
+
+				if exact then
+					add(x1, sample_lane(def, blocks, track, x1 - EPS, to_value), ease)
+				else
+					local samples = math.clamp(
+						math.ceil((x1 - x0) * (def.Duration or 1) * SAMPLES_PER_SECOND),
+						2,
+						MAX_SAMPLES
+					)
+
+					for k = 1, samples - 1 do
+						local x = x0 + (x1 - x0) * k / samples
+						add(x, sample_lane(def, blocks, track, x, middle), "linear")
+					end
+
+					add(x1, sample_lane(def, blocks, track, x1 - EPS, to_value), "linear")
+				end
+			end
+		end
+
+		return rows
+	end
+
+	function keyframes.CompileOverlays(def, poses, gestures)
+		local blocks = get_blocks(def, poses, gestures)
+		local rows = {}
+
+		for _, track in ipairs(keyframes.OverlayTracks) do
+			rows[track.Name] = build_overlay_rows(def, blocks, track)
+		end
+
+		return rows
+	end
+end
+
+function keyframes.Compile(def, poses, gestures)
 	def.Kind = def.Kind or "action"
-	local frames = expand(def.Keys or {}, poses)
+	local frames = expand(def.Keys or {})
+	local overlay_rows = def.Overlays and keyframes.CompileOverlays(def, poses, gestures)
 
 	for _, track in ipairs(keyframes.Tracks) do
 		local rows = {}
 
-		for _, frame in ipairs(frames) do
-			local values = frame.values[track.Name]
+		if track.Overlay then
+			rows = overlay_rows and overlay_rows[track.Name] or rows
+		else
+			for _, frame in ipairs(frames) do
+				local values = frame.values[track.Name]
 
-			if values then
-				if not rows[1] and frame.t > 0 then
-					add_key(rows, 0, track.Rest, nil, track)
+				if values then
+					if not rows[1] and frame.t > 0 then
+						add_key(rows, 0, track.Rest, nil, track)
+					end
+
+					add_key(
+						rows,
+						frame.t,
+						values,
+						type(frame.ease) == "table" and frame.ease[track.Name] or frame.ease,
+						track
+					)
 				end
-
-				add_key(
-					rows,
-					frame.t,
-					values,
-					type(frame.ease) == "table" and frame.ease[track.Name] or frame.ease,
-					track
-				)
 			end
 		end
 
 		if rows[1] and not is_rest(rows, track.Rest) then
-			if rows[#rows][1] < 1 and not track.Extend then
+			if not track.Overlay and rows[#rows][1] < 1 and not track.Extend then
 				local last = rows[#rows]
 				local values = {unpack(track.Rest)}
 
@@ -521,8 +899,8 @@ function keyframes.Compile(def, poses)
 	return def
 end
 
-function keyframes.Register(name, def, poses)
-	animations.Register(name, keyframes.Compile(def, poses))
+function keyframes.Register(name, def, poses, gestures)
+	animations.Register(name, keyframes.Compile(def, poses, gestures))
 	return def
 end
 

@@ -371,7 +371,7 @@ T.Test("moveset data is validated with a message that names the field", function
 	local Vec3 = import("goluwa/structs/vec3.lua")
 
 	local function move(extra)
-		return table.merge({Duration = 1, Keys = {{0.5, torso = 1}}}, extra or {})
+		return table.merge({Duration = 1, Keys = {{0.5, body = {0, 0, 0}}}}, extra or {})
 	end
 
 	check(
@@ -398,14 +398,35 @@ T.Test("moveset data is validated with a message that names the field", function
 		".At must be in order"
 	)
 	check({Moves = {a = move{Keys = {{0.5, wobble = 1}}}}}, "unknown field wobble")
-	check({Moves = {a = move{Keys = {{0.5, "nope"}}}}}, "unknown pose nope")
+	check({Moves = {a = move{Keys = {{0.5, "nope"}}}}}, "cannot name a pose")
+	check(
+		{Moves = {a = move{Keys = {{0.5, torso = 1}}}}},
+		"is a pose track and belongs in Overlays"
+	)
+	check({Moves = {a = move{Overlays = {{0, 1, "nope"}}}}}, "unknown pose nope")
+	check(
+		{Moves = {a = move{Overlays = {{0, 1, "rest", Ease = "wobble"}}}}},
+		"Ease must be"
+	)
+	check(
+		{
+			Moves = {a = move{Overlays = {{0, 0.6, "rest"}, {0.2, 0.8, "rest"}, {0.4, 1, "rest"}}}},
+		},
+		"overlaps two overlays at once"
+	)
+	check(
+		{
+			Moves = {a = move{Keys = {{0.5, body = {0, 0, 0}, Block = "gone", Edge = "arrive"}}}},
+		},
+		"overlay Id that does not exist"
+	)
 	check(
 		{Moves = {a = move{Keys = {{0.5, motion = {0, 1, 1, 1, 1}}}}}},
 		"takes at most 4 numbers"
 	)
 	check(
-		{Moves = {a = move{Keys = {{0.5, torso = 1}, {0.4, torso = 0}}}}},
-		"not later than the previous torso key"
+		{Moves = {a = move{Keys = {{0.5, body = {0, 0, 0}}, {0.4, body = {0, 0, 0}}}}}},
+		"not later than the previous body key"
 	)
 	check({Crouch = "nope", Moves = {a = move()}}, "Crouch names an unknown move nope")
 	check({Guard = "nope", Moves = {a = move()}}, "Guard names an unknown pose nope")

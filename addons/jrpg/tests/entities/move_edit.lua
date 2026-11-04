@@ -40,20 +40,26 @@ end)
 
 T.Test("move rows list a key per frame that sets a track and the events", function()
 	local move = table.copy(movesets.Source.sword.Moves.dive_throw)
-	local rows = move_edit.Rows(move)
+	local rows = move_edit.Rows(move, movesets.Source.sword)
 	T(#find_row(rows, "carry").Keys)["=="](3)
 	T(#find_row(rows, "grip").Keys)["=="](4)
 	T(#find_row(rows, "latch").Keys)["=="](1)
 	T(#find_row(rows, "release").Keys)["=="](1)
 	T(#find_row(rows, "hit").Keys)["=="](0)
-	T(find_row(rows, "pose").Keys[1].Label)["=="]("thrust_windup")
+	T(find_row(rows, "poses").Keys[1].Label)["=="]("dive_throw")
+	T(#find_row(rows, "poses").Keys[1].Marks > 2)["=="](true)
+	T(find_row(rows, "poses").Keys[1].Entry)["=="](move.Overlays[1])
+	T(find_row(rows, "poses").Keys[1].Link)["=="](move.Overlays[1])
+	T(find_row(rows, "body").Keys[1].Link)["=="](move.Overlays[1])
 	T(find_row(rows, "carry").Keys[1].Frame[1])["=="](0.4)
 end)
 
 T.Test("moving, splitting and removing keys keeps the frames ordered and valid", function()
-	local data = table.copy(movesets.Source.sword)
+	local pristine = table.copy(movesets.Source.sword)
+	local data = table.copy(pristine)
 	local move = data.Moves.dive_throw
-	local frame = move.Keys[1]
+	local frame = move.Keys[4]
+	T(frame.carry ~= nil and frame.grip ~= nil)["=="](true)
 	local count = #move.Keys
 	local index = move_edit.MoveFrame(move, frame, 0.5)
 	T(move.Keys[index])["=="](frame)
@@ -62,19 +68,19 @@ T.Test("moving, splitting and removing keys keeps the frames ordered and valid",
 		T(move.Keys[i][1] >= move.Keys[i - 1][1])["=="](true)
 	end
 
-	local split = move_edit.Split(move, frame, "body")
-	T(split.body)["~="](nil)
-	T(frame.body)["=="](nil)
-	T(frame[2])["=="]("thrust_windup")
-	move_edit.RemoveTrack(move, split, "body")
+	local split = move_edit.Split(move, frame, "grip")
+	T(split.grip)["~="](nil)
+	T(frame.grip)["=="](nil)
+	T(frame.carry)["~="](nil)
+	move_edit.RemoveTrack(move, split, "grip")
 	T(#move.Keys)["=="](count)
-	move_edit.RemovePose(move, frame)
+	move_edit.RemoveTrack(move, frame, "carry")
 	T(#move.Keys)["=="](count - 1)
-	local added = move_edit.AddTrackKey(move, "torso", 0.3, {0.2})
+	local added = move_edit.AddTrackKey(move, "attach", 0.3, {0.5})
 	T(move.Keys[move_edit.Find(move.Keys, added)])["=="](added)
 	movesets.Update("sword", data)
-	T(movesets.Get("sword").Moves.dive_throw.TorsoKeys ~= nil)["=="](true)
-	movesets.Update("sword", table.copy(movesets.Source.sword))
+	T(movesets.Get("sword").Moves.dive_throw.AttachKeys ~= nil)["=="](true)
+	movesets.Update("sword", pristine)
 end)
 
 T.Test("sampling a track returns the values in the units the file uses", function()
@@ -99,7 +105,7 @@ end)
 
 T.Test("removing and transforming selected keys keeps frames and events ordered", function()
 	local move = table.copy(movesets.Source.sword.Moves.dive_throw)
-	local rows = move_edit.Rows(move)
+	local rows = move_edit.Rows(move, movesets.Source.sword)
 	local carry = find_row(rows, "carry")
 	local count = #move.Keys
 	local keys = {
@@ -124,59 +130,100 @@ T.Test("removing and transforming selected keys keeps frames and events ordered"
 	move_edit.Transform(move, grabbed, 0, 1, 0.1, 0.005)
 	T(math.abs(keys[1].Frame[1] - (first_time + 0.1)))["<"](0.006)
 	move_edit.RemoveKeys(move, keys)
-	T(find_row(move_edit.Rows(move), "latch").Keys[1])["=="](nil)
-	T(#find_row(move_edit.Rows(move), "carry").Keys)["=="](1)
+	T(find_row(move_edit.Rows(move, movesets.Source.sword), "latch").Keys[1])["=="](nil)
+	T(#find_row(move_edit.Rows(move, movesets.Source.sword), "carry").Keys)["=="](1)
 	T(#move.Keys <= count)["=="](true)
 end)
 
-T.Test("unlinking a key moves its track or pose into a frame of its own", function()
+T.Test("unlinking a key moves its track into a frame of its own", function()
 	local move = table.copy(movesets.Source.sword.Moves.dive_throw)
-	local frame = move.Keys[3]
-	local pose_name = frame[2]
-	T(type(pose_name))["=="]("string")
-	T(move_edit.IsLinked{Frame = frame, Track = "body"})["=="](true)
+	local frame = move.Keys[4]
+	T(move_edit.IsLinked{Frame = frame, Track = "carry"})["=="](true)
 	local count = #move.Keys
-	local body = move_edit.Unlink(move, {Frame = frame, Track = "body"})
-	T(body.Frame ~= frame)["=="](true)
-	T(body.Frame.body ~= nil)["=="](true)
-	T(frame.body)["=="](nil)
+	local carry = move_edit.Unlink(move, {Frame = frame, Track = "carry"})
+	T(carry.Frame ~= frame)["=="](true)
+	T(carry.Frame.carry ~= nil)["=="](true)
+	T(frame.carry)["=="](nil)
 	T(#move.Keys)["=="](count + 1)
-	T(move_edit.IsLinked(body))["=="](false)
-	local pose = move_edit.Unlink(move, {Frame = frame})
-	T(pose.Frame[2])["=="](pose_name)
-	T(frame[2])["=="](nil)
+	T(move_edit.IsLinked(carry))["=="](false)
 end)
 
 T.Test("linking selected keys merges them into the earliest frame unless a track would repeat", function()
 	local move = table.copy(movesets.Source.sword.Moves.dive_throw)
-	local frame = move.Keys[3]
-	local pose_name = frame[2]
-	local body = move_edit.Unlink(move, {Frame = frame, Track = "body"})
-	local pose = {Frame = frame}
-	T(move_edit.CanLink({body, pose}))["=="](true)
-	T(move_edit.CanLink({body}))["=="](false)
+	local frame = move.Keys[4]
+	local carry = move_edit.Unlink(move, {Frame = frame, Track = "carry"})
+	local grip = {Frame = frame, Track = "grip"}
+	T(move_edit.CanLink({carry, grip}))["=="](true)
+	T(move_edit.CanLink({carry}))["=="](false)
 	local count = #move.Keys
-	local linked = move_edit.Link(move, {body, pose})
+	local linked = move_edit.Link(move, {carry, grip})
 	T(linked[1].Frame)["=="](linked[2].Frame)
-	T(linked[1].Frame[2])["=="](pose_name)
-	T(linked[1].Frame.body ~= nil)["=="](true)
+	T(linked[1].Frame.grip ~= nil)["=="](true)
+	T(linked[1].Frame.carry ~= nil)["=="](true)
 	T(#move.Keys)["=="](count - 1)
 	T(move_edit.IsLinked(linked[1]))["=="](true)
 	local other
 
 	for _, candidate in ipairs(move.Keys) do
-		if candidate ~= linked[1].Frame and candidate.body ~= nil then
+		if candidate ~= linked[1].Frame and candidate.carry ~= nil then
 			other = candidate
 		end
 	end
 
 	T(other ~= nil)["=="](true)
-	T(move_edit.CanLink{{Frame = other, Track = "body"}, linked[1]})["=="](false)
+	T(move_edit.CanLink{{Frame = other, Track = "carry"}, linked[1]})["=="](false)
+end)
+
+T.Test("frames link to a pose block by its arrive or depart time and follow it", function()
+	local move = {
+		Duration = 1.4,
+		Overlays = {{0.1, 0.6, "thrust_windup", FadeIn = 0.14, FadeOut = 0.14, Id = "x"}},
+		Keys = {},
+	}
+	local overlay = move.Overlays[1]
+	local frame = move_edit.AddTrackKey(move, "grip", 0.55, {1})
+	move_edit.LinkFrame(move, {}, frame, overlay)
+	T(frame.Block)["=="]("x")
+	T(frame.Edge)["=="]("depart")
+	T(frame[1])["~"](0.5, 1e-9)
+	T(move_edit.GetBlock(move, frame))["=="](overlay)
+	overlay[2] = 0.8
+	movesets.ResolveClipLinks(move, {})
+	T(frame[1])["~"](0.7, 1e-9)
+	T(move_edit.IsLinked{Frame = frame, Track = "grip"})["=="](true)
+	local row = find_row(move_edit.Rows(move, {}), "grip")
+	T(row.Keys[1].Link)["=="](overlay)
+	move_edit.UnlinkFrame(frame)
+	T(frame.Block)["=="](nil)
+	move_edit.LinkFrame(move, {}, frame, overlay)
+	move_edit.RemoveEntry(move, "Overlays", overlay)
+	T(frame.Block)["=="](nil)
+end)
+
+T.Test("a pose block splits in two and its linked departure keys follow the second half", function()
+	local move = {
+		Duration = 1.4,
+		Overlays = {{0.1, 0.9, "thrust", FadeOut = 0.14, Id = "x"}},
+		Keys = {},
+	}
+	local overlay = move.Overlays[1]
+	local frame = move_edit.AddTrackKey(move, "grip", 0.85, {1})
+	move_edit.LinkFrame(move, {}, frame, overlay)
+	T(frame.Edge)["=="]("depart")
+	local right = move_edit.SplitClip(move, "Overlays", overlay, 0.5, nil)
+	T(overlay[2])["=="](0.5)
+	T(right[1])["=="](0.5)
+	T(right[2])["=="](0.9)
+	T(right.FadeOut)["=="](0.14)
+	T(overlay.FadeOut)["=="](nil)
+	T(right.Id ~= overlay.Id)["=="](true)
+	T(frame.Block)["=="](right.Id)
+	T(#move.Overlays)["=="](2)
 end)
 
 T.Test("shots and faces are rows of entries that can be added, moved and removed", function()
 	local move = table.copy(movesets.Source.sword.Moves.verdict)
-	local rows = move_edit.Rows(move)
+	local rows = move_edit.Rows(move, {})
 	T(#find_row(rows, "shots").Keys)["=="](#move.Shots)
 	T(#find_row(rows, "faces").Keys)["=="](#move.Faces)
 	T(find_row(rows, "shots").Keys[1].Entry)["=="](move.Shots[1])
@@ -200,7 +247,7 @@ T.Test("locks are rows of ranges that move and scale with their length and valid
 	local data = table.copy(movesets.Source.sword)
 	local move = data.Moves.light_1
 	local lock = move_edit.AddEntry(move, "Locks", 0.2, {0.3})
-	T(find_row(move_edit.Rows(move), "locks").Keys[1].Until)["=="](0.3)
+	T(find_row(move_edit.Rows(move, {}), "locks").Keys[1].Until)["=="](0.3)
 	local grabbed = move_edit.Grab{{Entry = lock, List = "Locks"}}
 	move_edit.Transform(move, grabbed, 0.2, 2, 0, 0.005)
 	T(lock[1])["=="](0.2)
@@ -220,11 +267,11 @@ T.Test("a clip move shows strike and cast rows instead of the weapon event rows"
 		Keys = {},
 		Events = {{At = 0.5, Type = "strike", Damage = 10, Range = 2}},
 	}
-	local rows = move_edit.Rows(move)
+	local rows = move_edit.Rows(move, {})
 	T(#find_row(rows, "strike").Keys)["=="](1)
 	T(find_row(rows, "cast") ~= nil)["=="](true)
 	T(find_row(rows, "hit"))["=="](nil)
-	local weapon_rows = move_edit.Rows(table.copy(movesets.Source.sword.Moves.light_1))
+	local weapon_rows = move_edit.Rows(table.copy(movesets.Source.sword.Moves.light_1), movesets.Source.sword)
 	T(find_row(weapon_rows, "hit") ~= nil)["=="](true)
 	T(find_row(weapon_rows, "strike"))["=="](nil)
 	local event = move_edit.AddEvent(move, "cast", 0.2)
@@ -234,7 +281,7 @@ end)
 
 T.Test("clips are block rows that carry their trim, move with their length and sort with the move", function()
 	local move = {Duration = 2, Keys = {}, Clips = {{0, 0.5, "a"}, {0.5, 1, "b", In = 0.2}}}
-	local rows = move_edit.Rows(move, |name|->{Values = {0, 1}, Duration = 2})
+	local rows = move_edit.Rows(move, {}, |name|->{Values = {0, 1}, Duration = 2})
 	local keys = find_row(rows, "clips").Keys
 	T(rows[1].Name)["=="]("clips")
 	T(#keys)["=="](2)
@@ -304,7 +351,7 @@ T.Test("a clip splits in two with the trim carried over and its linked strikes f
 	T(move_edit.LinkEvent(move, move.Events[2], |name|->4))["=="](true)
 	T(move.Events[1].Time)["=="](1)
 	T(move.Events[2].Time)["=="](3)
-	local right = move_edit.SplitClip(move, move.Clips[1], 0.5, 4)
+	local right = move_edit.SplitClip(move, "Clips", move.Clips[1], 0.5, 4)
 	T(move.Clips[1][2])["=="](0.5)
 	T(move.Clips[1].Out)["=="](2)
 	T(right[1])["=="](0.5)
@@ -415,4 +462,121 @@ T.Test("ghost phases are spread over the whole move, around the playhead or at t
 	for i = 2, #phases do
 		T(phases[i] > phases[i - 1])["=="](true)
 	end
+end)
+
+T.Test("a pose block is only added where fewer than two blocks already cover the range", function()
+	local move = {
+		Duration = 1,
+		Overlays = {{0, 0.5, "a"}, {0.3, 0.8, "b"}},
+		Keys = {},
+	}
+	T(move_edit.AddOverlay(move, 0.4, "c"))["=="](nil)
+	local added = move_edit.AddOverlay(move, 0.85, "c")
+	T(added ~= nil)["=="](true)
+	T(added[1])["=="](0.85)
+	T(added[2] <= 1)["=="](true)
+	T(#move.Overlays)["=="](3)
+end)
+
+T.Test("merging pose blocks into one pose animation keeps the curves and linked keys, and splitting restores them", function()
+	local keyframes = import("lua/keyframes.lua")
+	local animations = import("lua/animations.lua")
+
+	local function build()
+		return {
+			Duration = 1.2,
+			Overlays = {
+				{0, 0.4, "windup_right", FadeIn = 0.18, Ease = "out"},
+				{0.2, 0.7, "cut_left", Ease = "in", Id = "b"},
+				{0.45, 1, "windup_right", FadeOut = 0.24},
+			},
+			Keys = {{0.5, body = {0, 0, 0, 0, 0, 0}, Block = "b", Edge = "depart"}},
+		}
+	end
+
+	local function compare(a, b)
+		local out_a, out_b = {0, 0}, {0, 0}
+
+		for i = 0, 200 do
+			animations.SampleKeys(a.AimKeys, i / 200, out_a, 2)
+			animations.SampleKeys(b.AimKeys, i / 200, out_b, 2)
+			T(math.abs(out_a[1] - out_b[1]))["<"](0.01)
+			T(math.abs(out_a[2] - out_b[2]))["<"](0.01)
+		end
+	end
+
+	local reference = build()
+	movesets.ResolveClipLinks(reference, {})
+	local before = keyframes.Compile(table.copy(reference))
+	local move, data = build(), {}
+	movesets.ResolveClipLinks(move, data.Gestures)
+	local merged = move_edit.MergeOverlays(move, data, 1, 3, "swing")
+	T(#move.Overlays)["=="](1)
+	T(merged[3])["=="]("swing")
+	T(data.Gestures.swing.Duration)["~"](1.2, 1e-3)
+	T(#data.Gestures.swing.Keys >= 4)["=="](true)
+	T(move.Keys[1].Edge)["=="](nil)
+	T(move.Keys[1].Time ~= nil)["=="](true)
+	T(move_edit.CanMerge(move, data, 1, 1))["=="](false)
+	movesets.ResolveClipLinks(move, data.Gestures)
+	T(move.Keys[1][1])["~"](reference.Keys[1][1], 2e-3)
+	compare(before, keyframes.Compile(table.copy(move), nil, data.Gestures))
+	merged.In = 0.3
+	movesets.ResolveClipLinks(move, data.Gestures)
+	T(move.Keys[1][1] < reference.Keys[1][1])["=="](true)
+	merged.In = nil
+	local blocks = move_edit.SplitGesture(move, data, merged)
+	T(#blocks)["=="](3)
+	T(data.Gestures.swing)["=="](nil)
+	movesets.ResolveClipLinks(move, data.Gestures)
+	T(move.Keys[1][1])["~"](reference.Keys[1][1], 2e-3)
+	compare(before, keyframes.Compile(table.copy(move), nil, {}))
+end)
+
+T.Test("pose animation keys are added and removed and the gesture stays valid", function()
+	local move = {Duration = 1, Overlays = {{0, 1, "swing"}}, Keys = {}}
+	local data = {
+		Gestures = {
+			swing = {Duration = 1, Keys = {{0, "windup_right"}, {1, "cut_left", ease = "in"}}},
+		},
+	}
+	local key = move_edit.AddGestureKey(move, data, move.Overlays[1], 0.5)
+	T(key[1])["~"](0.5, 1e-9)
+	T(#data.Gestures.swing.Keys)["=="](3)
+	T(move_edit.AddGestureKey(move, data, move.Overlays[1], 0.5))["=="](nil)
+	T(move_edit.RemoveGestureKey(data, move.Overlays[1], key))["=="](true)
+	T(#data.Gestures.swing.Keys)["=="](2)
+	T(#move_edit.GetGestureMarks(move, data, move.Overlays[1]))["=="](2)
+	local def = {Poses = {}, Gestures = data.Gestures, Moves = {a = move}}
+	T(pcall(movesets.Validate, "test", def))["=="](true)
+	data.Gestures.swing.Keys[2][1] = 2
+	T(pcall(movesets.Validate, "test", def))["=="](false)
+end)
+
+T.Test("a pose animation shows its activity as a wave that is flat while it holds and high while it moves", function()
+	local data = {
+		Gestures = {
+			swing = {
+				Duration = 1,
+				Keys = {
+					{0, "windup_right"},
+					{0.4, "windup_right"},
+					{0.6, "cut_left", ease = "linear"},
+					{1, "cut_left"},
+				},
+			},
+		},
+	}
+	local values = move_edit.GetGestureActivity(data, "swing", 101)
+	T(#values)["=="](101)
+	T(values[10])["<"](0.05)
+	T(values[50])[">"](0.9)
+	T(values[90])["<"](0.05)
+	local move = {Duration = 1, Overlays = {{0, 1, "swing"}}, Keys = {}}
+	local row = find_row(
+		move_edit.Rows(move, data, nil, |name|->move_edit.GetGestureActivity(data, name, 32)),
+		"poses"
+	)
+	T(#row.Keys[1].Wave.Values)["=="](32)
+	T(row.Keys[1].Wave.To)["=="](1)
 end)

@@ -31,17 +31,93 @@ return {
 			torso = 0.3,
 		},
 	},
+	Gestures = {
+		bonk = {
+			Duration = 0.9,
+			Keys = {
+				{0.36, "overhead", ease = "out"},
+				{0.45, "overhead"},
+				{0.558, "slam", ease = "in"},
+				{0.684, "slam"},
+			},
+		},
+		golf_swing = {
+			Duration = 1.2,
+			Keys = {
+				{0.48, "low_right", ease = "out", pelvis = {0.05, -0.2, 0.05, -0.4}},
+				{0.624, "low_right", pelvis = {0.05, -0.2, 0.05, -0.4}},
+				{0.744, "high_left", ease = "in"},
+				{0.924, "high_left"},
+			},
+		},
+		hop_back = {
+			Duration = 0.6,
+			Keys = {
+				{0, "crouch_low"},
+				{0.09, "guard_shovel", ease = "out"},
+				{0.36, "crouch_low", ease = "out"},
+			},
+		},
+		scoop = {
+			Duration = 0.7,
+			Keys = {
+				{0.21, "low_right", ease = "out"},
+				{0.252, "low_right"},
+				{0.378, "toss", ease = "in"},
+				{0.462, "toss"},
+			},
+		},
+		six_feet_under = {
+			Duration = 3.2,
+			Keys = {
+				{0.256, "dig", ease = "in"},
+				{0.512, "toss", ease = "out"},
+				{0.768, "dig", ease = "in"},
+				{1.024, "toss", ease = "out"},
+				{1.216, "toss"},
+				{1.536, "low_right", ease = "out"},
+				{1.664, "low_right"},
+				{1.792, "high_left", ease = "in"},
+				{2.048, "skyward", ease = "out"},
+				{2.304, "overhead", ease = "out"},
+				{2.496, "slam", ease = "in"},
+				{2.816, "slam"},
+			},
+		},
+		spade_drop = {
+			Duration = 0.7,
+			Keys = {
+				{0.154, "overhead", ease = "out"},
+				{0.196, "overhead"},
+				{0.294, "dig", ease = "in"},
+				{0.434, "dig"},
+			},
+		},
+		trench_charge = {
+			Duration = 0.8,
+			Keys = {
+				{0.144, "thrust_windup", ease = "out"},
+				{0.336, "thrust", ease = "in"},
+				{0.496, "thrust"},
+			},
+		},
+		whack = {
+			Duration = 0.6,
+			Keys = {
+				{0.192, "windup_right", ease = "out"},
+				{0.228, "windup_right"},
+				{0.324, "cut_left", ease = "in"},
+				{0.396, "cut_left"},
+			},
+		},
+	},
 	Moves = {
 		bonk = {
 			Duration = 0.9,
 			Stamina = 18,
 			Approach = 0.8,
-			Keys = {
-				{0.2, motion = {0, 0, 0}},
-				{0.4, "overhead", ease = "out", hold = 0.1},
-				{0.6, motion = {0, 1.2, 1}},
-				{0.62, "slam", ease = "in", hold = 0.14},
-			},
+			Overlays = {{0, 1, "bonk", Ease = "out", FadeIn = 0.36, FadeOut = 0.216}},
+			Keys = {{0.2, motion = {0, 0, 0}}, {0.6, motion = {0, 1.2, 1}}},
 			Events = {
 				{
 					At = 0.62,
@@ -57,11 +133,18 @@ return {
 			Duration = 1.2,
 			Stamina = 30,
 			Approach = 1,
+			Overlays = {{0, 1, "golf_swing", Ease = "out", FadeIn = 0.48, FadeOut = 0.276, Id = "p1"}},
 			Keys = {
 				{0.15, motion = {0, 0, 0}},
-				{0.4, "low_right", ease = "out", hold = 0.12, pelvis = {0.05, -0.2, 0.05, -0.4}},
 				{0.6, ease = "in", motion = {0, 1.2, 1}},
-				{0.62, "high_left", body = {0, 0, 0, 0.6, 0.1}, ease = "in", hold = 0.15},
+				{
+					0.62,
+					Block = "p1",
+					Time = 0.744,
+					body = {0, 0, 0, 0.6, 0.1},
+					ease = "in",
+					hold = 0.15,
+				},
 				{0.95, body = {0, 0, 0, 0, 0}},
 			},
 			Events = {
@@ -83,23 +166,19 @@ return {
 			Next = "trench_charge",
 			Relative = true,
 			Dodge = {0, 0.45},
+			Overlays = {{0, 1, "hop_back", FadeIn = 0, FadeOut = 0.24, Id = "p1"}},
 			Keys = {
-				{0, "crouch_low", motion = {0, 0, 0, 0}},
-				{0.15, "guard_shovel", ease = "out", motion = {0, 0.8, 1, 0.5}},
+				{0, Block = "p1", Time = 0, motion = {0, 0, 0, 0}},
+				{0.15, Block = "p1", Time = 0.09, ease = "out", motion = {0, 0.8, 1, 0.5}},
 				{0.5, ease = "in", motion = {0, 2.6, 1, 0}},
-				{0.6, "crouch_low", ease = "out"},
 			},
 		},
 		scoop = {
 			Duration = 0.7,
 			Stamina = 14,
 			Approach = 0.6,
-			Keys = {
-				{0.2, motion = {0, 0, 0}},
-				{0.3, "low_right", ease = "out", hold = 0.06},
-				{0.52, motion = {0, 1.2, 1}},
-				{0.54, "toss", ease = "in", hold = 0.12},
-			},
+			Overlays = {{0, 1, "scoop", Ease = "out", FadeIn = 0.21, FadeOut = 0.238}},
+			Keys = {{0.2, motion = {0, 0, 0}}, {0.52, motion = {0, 1.2, 1}}},
 			Events = {
 				{
 					At = 0.54,
@@ -117,21 +196,38 @@ return {
 			Reach = 6,
 			Approach = 4,
 			Retreat = 1,
+			Overlays = {
+				{0, 1, "six_feet_under", Ease = "in", FadeIn = 0.256, FadeOut = 0.384, Id = "p1"},
+			},
 			Keys = {
 				{0, motion = {0, 0, 0, 0}},
-				{0.08, "dig", ease = "in"},
-				{0.16, "toss", ease = "out"},
-				{0.24, "dig", ease = "in"},
-				{0.32, "toss", ease = "out", hold = 0.06},
 				{0.44, motion = {0, 0, 0, 0}},
-				{0.48, "low_right", ease = "out", hold = 0.04},
 				{0.52, ease = "in", motion = {0, 1.2, 1, 0}},
-				{0.56, "high_left", body = {0, 0.1, 0, 0, 0.15}, ease = "in"},
+				{
+					0.5599999999999999,
+					Block = "p1",
+					Time = 1.792,
+					body = {0, 0.1, 0, 0, 0.15},
+					ease = "in",
+				},
 				{0.62, motion = {0, 1.2, 1, 0}},
-				{0.64, "skyward", body = {0, 0, 0, 0, 0}, ease = "out"},
+				{0.64, Block = "p1", Time = 2.048, body = {0, 0, 0, 0, 0}, ease = "out"},
+				{
+					0.7199999999999999,
+					Block = "p1",
+					Time = 2.304,
+					body = {0, 0, 0, 0, -0.2},
+					ease = "out",
+				},
 				{0.72, ease = "out", motion = {0, 1, 1, 1.9}},
-				{0.72, "overhead", body = {0, 0, 0, 0, -0.2}, ease = "out"},
-				{0.78, "slam", body = {0, 0, 0, 0, -0.4}, ease = "in", hold = 0.1},
+				{
+					0.7799999999999999,
+					Block = "p1",
+					Time = 2.496,
+					body = {0, 0, 0, 0, -0.4},
+					ease = "in",
+					hold = 0.1,
+				},
 				{0.78, ease = "in", motion = {0, 1, 1, 0.4}},
 				{0.88, ease = "in", motion = {0, 1.1, 1, 0}},
 			},
@@ -171,12 +267,8 @@ return {
 			Approach = 1,
 			Hover = true,
 			Land = 0.42,
-			Keys = {
-				{0.15, motion = {0, 0, 0, 0}},
-				{0.22, "overhead", ease = "out", hold = 0.06},
-				{0.42, "dig", ease = "in", hold = 0.2},
-				{0.42, ease = "in", motion = {0, 1, 1, -6}},
-			},
+			Overlays = {{0, 1, "spade_drop", Ease = "out", FadeIn = 0.154, FadeOut = 0.266}},
+			Keys = {{0.15, motion = {0, 0, 0, 0}}, {0.42, ease = "in", motion = {0, 1, 1, -6}}},
 			Events = {
 				{
 					At = 0.42,
@@ -194,24 +286,16 @@ return {
 			Stamina = 16,
 			Reach = 6,
 			Approach = 4,
-			Keys = {
-				{0.1, motion = {0, 0, 0}},
-				{0.18, "thrust_windup", ease = "out"},
-				{0.42, "thrust", ease = "in", hold = 0.2},
-				{0.42, ease = "in", motion = {0, 1, 1}},
-			},
+			Overlays = {{0, 1, "trench_charge", Ease = "out", FadeIn = 0.144, FadeOut = 0.304}},
+			Keys = {{0.1, motion = {0, 0, 0}}, {0.42, ease = "in", motion = {0, 1, 1}}},
 			Events = {{At = 0.42, Type = "hit", Cut = {0, 0, 1}, Damage = 1.6, Knock = {0, 2, 6}}},
 		},
 		whack = {
 			Duration = 0.6,
 			Stamina = 12,
 			Approach = 0.6,
-			Keys = {
-				{0.2, motion = {0, 0, 0}},
-				{0.32, "windup_right", ease = "out", hold = 0.06},
-				{0.52, motion = {0, 1.2, 1}},
-				{0.54, "cut_left", ease = "in", hold = 0.12},
-			},
+			Overlays = {{0, 1, "whack", Ease = "out", FadeIn = 0.192, FadeOut = 0.204}},
+			Keys = {{0.2, motion = {0, 0, 0}}, {0.52, motion = {0, 1.2, 1}}},
 			Events = {
 				{
 					At = 0.54,

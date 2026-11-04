@@ -37,6 +37,7 @@ do
 			return 1 - (1 - t) ^ 3
 		end,
 	}
+	animations.Eases = EASES
 
 	function animations.SampleKeys(keys, f, out, count)
 		local last = #keys

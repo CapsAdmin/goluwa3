@@ -95,8 +95,6 @@ function move_edit.GetGroups(track_name)
 end
 
 function move_edit.IsFrameEmpty(frame)
-	if frame[2] ~= nil then return false end
-
 	for name in pairs(TRACKS) do
 		if frame[name] ~= nil then return false end
 	end
@@ -188,13 +186,6 @@ function move_edit.AddTrackKey(move, track_name, time, values)
 	return frame
 end
 
-function move_edit.AddPoseKey(move, time, pose)
-	local frame = {time, pose}
-	table.insert(move.Keys, frame)
-	move_edit.Sort(move.Keys)
-	return frame
-end
-
 function move_edit.RemoveFrame(move, frame)
 	table.remove(move.Keys, move_edit.Find(move.Keys, frame))
 end
@@ -203,12 +194,6 @@ function move_edit.RemoveTrack(move, frame, track_name)
 	frame[track_name] = nil
 
 	if type(frame.ease) == "table" then frame.ease[track_name] = nil end
-
-	if move_edit.IsFrameEmpty(frame) then move_edit.RemoveFrame(move, frame) end
-end
-
-function move_edit.RemovePose(move, frame)
-	frame[2] = nil
 
 	if move_edit.IsFrameEmpty(frame) then move_edit.RemoveFrame(move, frame) end
 end
@@ -233,6 +218,12 @@ end
 
 function move_edit.RemoveEntry(move, list, entry)
 	table.remove(move[list], move_edit.Find(move[list], entry))
+
+	if list == "Overlays" and entry.Id then
+		for _, frame in ipairs(move.Keys) do
+			if frame.Block == entry.Id then move_edit.UnlinkFrame(frame) end
+		end
+	end
 
 	if not move[list][1] then move[list] = nil end
 end
@@ -327,10 +318,8 @@ function move_edit.RemoveKey(move, key)
 		move_edit.RemoveEntry(move, key.List, key.Entry)
 	elseif key.Event then
 		move_edit.RemoveEvent(move, key.Event)
-	elseif key.Track then
-		move_edit.RemoveTrack(move, key.Frame, key.Track)
 	else
-		move_edit.RemovePose(move, key.Frame)
+		move_edit.RemoveTrack(move, key.Frame, key.Track)
 	end
 end
 
@@ -342,43 +331,459 @@ end
 
 local MIN_BLOCK = 0.005
 
-function move_edit.NewClipId(move)
+function move_edit.NewBlockId(move, list)
+	local prefix = list == "Clips" and "c" or "p"
 	local used = {}
 
-	for _, clip in ipairs(move.Clips or {}) do
-		used[clip.Id or ""] = true
+	for _, entry in ipairs(move[list] or {}) do
+		used[entry.Id or ""] = true
 	end
 
 	local n = 1
 
-	while used["c" .. n] do
+	while used[prefix .. n] do
 		n = n + 1
 	end
 
-	return "c" .. n
+	return prefix .. n
 end
 
-function move_edit.SplitClip(move, entry, time, clip_length)
-	local from = entry.In or 0
-	local out = entry.Out or clip_length
-	local rate = entry.Speed or (out - from) / ((entry[2] - entry[1]) * move.Duration)
-	local source = from + (time - entry[1]) * move.Duration * rate
-	local right = {time, entry[2], entry[3], In = source, Out = entry.Out, Speed = entry.Speed}
-	entry[2] = time
+function move_edit.SplitClip(move, list, entry, time, length)
+	local right = {time, entry[2], entry[3], FadeOut = entry.FadeOut}
+	local source
 
-	if not entry.Speed then entry.Out = source end
+	if length then
+		local from = entry.In or 0
+		local out = entry.Out or length
+		local rate = entry.Speed or (out - from) / ((entry[2] - entry[1]) * move.Duration)
+		source = from + (time - entry[1]) * move.Duration * rate
+		right.In, right.Out, right.Speed = source, entry.Out, entry.Speed
 
-	if entry.Id then
-		right.Id = move_edit.NewClipId(move)
+		if not entry.Speed then entry.Out = source end
+	end
 
-		for _, event in ipairs(move.Events or {}) do
-			if event.Clip == entry.Id and event.Time >= source then event.Clip = right.Id end
+	for key, value in pairs(entry) do
+		if type(key) == "string" and (move_edit.TrackByName[key] or key == "Ease") then
+			right[key] = table.copy(value)
 		end
 	end
 
-	table.insert(move.Clips, move_edit.Find(move.Clips, entry) + 1, right)
-	move_edit.Sort(move.Clips)
+	entry[2] = time
+	entry.FadeOut = nil
+
+	if entry.Id then
+		right.Id = move_edit.NewBlockId(move, list)
+
+		if list == "Clips" then
+			for _, event in ipairs(move.Events or {}) do
+				if event.Clip == entry.Id and event.Time >= source then event.Clip = right.Id end
+			end
+		else
+			for _, frame in ipairs(move.Keys) do
+				if frame.Block == entry.Id and frame.Edge == "depart" then
+					frame.Block = right.Id
+				end
+			end
+		end
+	end
+
+	table.insert(move[list], move_edit.Find(move[list], entry) + 1, right)
+	move_edit.Sort(move[list])
 	return right
+end
+
+function move_edit.AddOverlay(move, time, pose)
+	local following
+
+	for _, overlay in ipairs(move.Overlays or {}) do
+		if overlay[1] >= time and (not following or overlay[1] < following) then
+			following = overlay[1]
+		end
+	end
+
+	local to = math.min(time + 0.2, following or 1)
+
+	if to <= time then return end
+
+	local covering = 0
+
+	for _, overlay in ipairs(move.Overlays or {}) do
+		if overlay[1] < to and overlay[2] > time then covering = covering + 1 end
+	end
+
+	if covering > 1 then return end
+
+	return move_edit.AddEntry(move, "Overlays", time, {to, pose})
+end
+
+local function round_time(value)
+	return math.floor(value * 1e4 + 0.5) / 1e4
+end
+
+local function get_gesture(data, entry)
+	return data.Gestures and data.Gestures[entry[3]]
+end
+
+function move_edit.GetGesturePhase(move, entry, length, time)
+	local from = entry.In or 0
+	local rate = entry.Speed or
+		(
+			(
+				entry.Out or
+				length
+			) - from
+		) / (
+			(
+				entry[2] - entry[1]
+			) * move.Duration
+		)
+	return entry[1] + (time - from) / (rate * move.Duration)
+end
+
+function move_edit.NewGestureName(data, base)
+	local name, n = base, 1
+
+	while
+		keyframes.Poses[name] or
+		data.Poses and
+		data.Poses[name] or
+		data.Gestures and
+		data.Gestures[name]
+	do
+		n = n + 1
+		name = base .. "_" .. n
+	end
+
+	return name
+end
+
+function move_edit.AddGestureKey(move, data, entry, phase)
+	local gesture = get_gesture(data, entry)
+	local from = entry.In or 0
+	local rate = entry.Speed or
+		(
+			(
+				entry.Out or
+				gesture.Duration
+			) - from
+		) / (
+			(
+				entry[2] - entry[1]
+			) * move.Duration
+		)
+	local time = round_time(math.clamp(from + (phase - entry[1]) * move.Duration * rate, 0, gesture.Duration))
+	local nearest
+
+	for _, key in ipairs(gesture.Keys) do
+		if math.abs(key[1] - time) < 1e-4 then return end
+
+		if not nearest or math.abs(key[1] - time) < math.abs(nearest[1] - time) then
+			nearest = key
+		end
+	end
+
+	local key = {time, nearest[2], ease = nearest.ease}
+
+	for name in pairs(move_edit.TrackByName) do
+		if nearest[name] ~= nil then key[name] = table.copy(nearest[name]) end
+	end
+
+	table.insert(gesture.Keys, key)
+	move_edit.Sort(gesture.Keys)
+	return key
+end
+
+function move_edit.RemoveGestureKey(data, entry, key)
+	local gesture = get_gesture(data, entry)
+
+	if #gesture.Keys < 2 then return false end
+
+	table.remove(gesture.Keys, move_edit.Find(gesture.Keys, key))
+	return true
+end
+
+function move_edit.GetGestureActivity(data, name, count)
+	local gesture = data.Gestures[name]
+	local rows = keyframes.CompileOverlays(
+		{Duration = gesture.Duration, Overlays = {{0, 1, name, FadeIn = 0, FadeOut = 0}}},
+		data.Poses,
+		data.Gestures
+	)
+	local values, previous, sample, peak = {}, {}, {}, 1e-6
+
+	for i = 1, count do
+		local sum = 0
+
+		for _, track in ipairs(keyframes.OverlayTracks) do
+			animations.SampleKeys(rows[track.Name], (i - 1) / (count - 1), sample, #track.Rest)
+
+			for j = 1, #track.Rest do
+				local key = track.Name .. j
+
+				if i > 1 then sum = sum + math.abs(sample[j] - previous[key]) end
+
+				previous[key] = sample[j]
+			end
+		end
+
+		values[i] = sum
+		peak = math.max(peak, sum)
+	end
+
+	for i = 1, count do
+		values[i] = math.sqrt(values[i] / peak)
+	end
+
+	return values
+end
+
+function move_edit.GetGestureMarks(move, data, entry)
+	local gesture = get_gesture(data, entry)
+
+	if not gesture then return end
+
+	local marks = {}
+
+	for _, key in ipairs(gesture.Keys) do
+		local phase = move_edit.GetGesturePhase(move, entry, gesture.Duration, key[1])
+
+		if phase >= entry[1] and phase <= entry[2] then marks[#marks + 1] = phase end
+	end
+
+	return marks
+end
+
+function move_edit.CanMerge(move, data, first, last)
+	if not first or first >= last then return false end
+
+	for index = first, last do
+		if not move.Overlays[index] or get_gesture(data, move.Overlays[index]) then
+			return false
+		end
+	end
+
+	return true
+end
+
+function move_edit.MergeOverlays(move, data, first, last, base)
+	if not move_edit.CanMerge(move, data, first, last) then return end
+
+	local overlays = move.Overlays
+	local arrive, depart = keyframes.GetOverlayTimes(overlays, move.Duration)
+	local start, stop = overlays[first][1], overlays[last][2]
+	local duration = round_time((stop - start) * move.Duration)
+	local keys, times = {}, {}
+	local previous = -1
+
+	local function add(entry, time, ease)
+		time = math.min(math.max(round_time(time), previous + 1e-4), duration)
+		previous = time
+		local key = {time, entry[3], ease = ease}
+
+		for name in pairs(move_edit.TrackByName) do
+			if entry[name] ~= nil then key[name] = table.copy(entry[name]) end
+		end
+
+		keys[#keys + 1] = key
+		return time
+	end
+
+	for index = first, last do
+		local entry = overlays[index]
+		times[index] = {arrive = add(entry, (arrive[index] - start) * move.Duration, entry.Ease)}
+
+		if depart[index] - arrive[index] > 1e-6 then
+			times[index].depart = add(entry, (depart[index] - start) * move.Duration)
+		end
+	end
+
+	data.Gestures = data.Gestures or {}
+	local name = move_edit.NewGestureName(data, base)
+	data.Gestures[name] = {Duration = duration, Keys = keys}
+	local merged = {
+		start,
+		stop,
+		name,
+		FadeIn = overlays[first].FadeIn,
+		FadeOut = overlays[last].FadeOut,
+		Ease = overlays[first].Ease,
+	}
+	local links = {}
+
+	for index = first, last do
+		if overlays[index].Id then links[overlays[index].Id] = times[index] end
+	end
+
+	for _ = first, last do
+		table.remove(overlays, first)
+	end
+
+	table.insert(overlays, first, merged)
+
+	for _, frame in ipairs(move.Keys) do
+		local target = frame.Block and links[frame.Block]
+
+		if target then
+			merged.Id = merged.Id or move_edit.NewBlockId(move, "Overlays")
+			frame.Time = frame.Edge == "depart" and (target.depart or target.arrive) or target.arrive
+			frame.Block, frame.Edge = merged.Id, nil
+		end
+	end
+
+	return merged
+end
+
+function move_edit.CanSplit(move, data, entry)
+	local gesture = get_gesture(data, entry)
+
+	if not gesture then return false end
+
+	for _, key in ipairs(gesture.Keys) do
+		if not key[2] then return false end
+	end
+
+	return true
+end
+
+function move_edit.SplitGesture(move, data, entry)
+	if not move_edit.CanSplit(move, data, entry) then return end
+
+	local gesture = get_gesture(data, entry)
+	local length = gesture.Duration
+	local from_time, out_time = entry.In or 0, entry.Out or length
+	local steps = {}
+
+	for _, key in ipairs(gesture.Keys) do
+		if key[1] >= from_time - 1e-6 and key[1] <= out_time + 1e-6 then
+			local last = steps[#steps]
+			local plain = key.ease == nil
+
+			if last and plain and last.pose == key[2] then
+				last.depart = key[1]
+			else
+				steps[#steps + 1] = {pose = key[2], arrive = key[1], depart = key[1], ease = key.ease, key = key}
+			end
+		end
+	end
+
+	if not steps[1] then return end
+
+	local blocks = {}
+
+	for n, step in ipairs(steps) do
+		local block = {}
+		block[1] = n == 1 and
+			entry[1] or
+			round_time(move_edit.GetGesturePhase(move, entry, length, steps[n - 1].depart))
+		block[2] = n == #steps and
+			entry[2] or
+			round_time(move_edit.GetGesturePhase(move, entry, length, steps[n + 1].arrive))
+		block[3] = step.pose
+
+		for track in pairs(move_edit.TrackByName) do
+			if step.key[track] ~= nil then block[track] = table.copy(step.key[track]) end
+		end
+
+		if step.ease then block.Ease = step.ease end
+
+		if n == 1 then
+			block.FadeIn = round_time(
+				(
+						math.max(move_edit.GetGesturePhase(move, entry, length, step.arrive), block[1]) - block[1]
+					) * move.Duration
+			)
+		end
+
+		if n == #steps then
+			block.FadeOut = round_time(
+				(
+						block[2] - math.min(move_edit.GetGesturePhase(move, entry, length, step.depart), block[2])
+					) * move.Duration
+			)
+		end
+
+		blocks[n] = block
+	end
+
+	local index = move_edit.Find(move.Overlays, entry)
+	table.remove(move.Overlays, index)
+
+	for n = #blocks, 1, -1 do
+		table.insert(move.Overlays, index, blocks[n])
+	end
+
+	for _, frame in ipairs(move.Keys) do
+		if entry.Id and frame.Block == entry.Id and frame.Time then
+			local best, best_distance
+
+			for n, step in ipairs(steps) do
+				for _, edge in ipairs{"arrive", "depart"} do
+					local distance = math.abs(step[edge] - frame.Time)
+
+					if not best_distance or distance < best_distance then
+						best, best_distance = {n, edge}, distance
+					end
+				end
+			end
+
+			blocks[best[1]].Id = blocks[best[1]].Id or move_edit.NewBlockId(move, "Overlays")
+			frame.Block, frame.Edge, frame.Time = blocks[best[1]].Id, best[2], nil
+		end
+	end
+
+	local used
+
+	for _, other in ipairs(move.Overlays) do
+		used = used or other[3] == entry[3]
+	end
+
+	if not used then data.Gestures[entry[3]] = nil end
+
+	return blocks
+end
+
+function move_edit.GetBlock(move, frame)
+	for _, overlay in ipairs(move.Overlays or {}) do
+		if frame.Block and overlay.Id == frame.Block then return overlay end
+	end
+end
+
+function move_edit.LinkFrame(move, data, frame, overlay)
+	overlay.Id = overlay.Id or move_edit.NewBlockId(move, "Overlays")
+	frame.Block = overlay.Id
+	local gesture = get_gesture(data, overlay)
+
+	if gesture then
+		local best, best_distance
+
+		for _, key in ipairs(gesture.Keys) do
+			local distance = math.abs(frame[1] - move_edit.GetGesturePhase(move, overlay, gesture.Duration, key[1]))
+
+			if not best_distance or distance < best_distance then
+				best, best_distance = key[1], distance
+			end
+		end
+
+		frame.Edge, frame.Time = nil, best
+		frame[1] = math.clamp(
+			move_edit.GetGesturePhase(move, overlay, gesture.Duration, best),
+			overlay[1],
+			overlay[2]
+		)
+	else
+		local arrive, depart = keyframes.GetOverlayTimes(move.Overlays, move.Duration)
+		local index = move_edit.Find(move.Overlays, overlay)
+		local near_arrive = math.abs(frame[1] - arrive[index]) <= math.abs(frame[1] - depart[index])
+		frame.Edge = near_arrive and "arrive" or "depart"
+		frame.Time = nil
+		frame[1] = near_arrive and arrive[index] or depart[index]
+	end
+
+	move_edit.Sort(move.Keys)
+end
+
+function move_edit.UnlinkFrame(frame)
+	frame.Block, frame.Edge, frame.Time = nil, nil, nil
 end
 
 function move_edit.LinkEvent(move, event, get_length)
@@ -392,7 +797,7 @@ function move_edit.LinkEvent(move, event, get_length)
 
 	if not length then return false end
 
-	target.Id = target.Id or move_edit.NewClipId(move)
+	target.Id = target.Id or move_edit.NewBlockId(move, "Clips")
 	target.Out = length
 	local rate = target.Speed or
 		(
@@ -461,7 +866,14 @@ function move_edit.Grab(keys)
 				Event = key.Event ~= nil,
 				Time = key.Event and key.Event.At or target[1],
 				Hold = key.Frame and key.Frame.hold or nil,
-				End = (key.List == "Locks" or key.List == "Clips") and target[2] or nil,
+				End = (
+						key.List == "Locks" or
+						key.List == "Clips" or
+						key.List == "Overlays"
+					)
+					and
+					target[2] or
+					nil,
 			}
 		end
 	end
@@ -503,6 +915,21 @@ function move_edit.Transform(move, grabbed, anchor, scale, offset, snap)
 	if move.Locks then move_edit.Sort(move.Locks) end
 
 	if move.Clips then move_edit.Sort(move.Clips) end
+
+	if move.Overlays then
+		move_edit.Sort(move.Overlays)
+		local moved = {}
+
+		for _, item in ipairs(grabbed) do
+			moved[item.Target] = true
+		end
+
+		for _, item in ipairs(grabbed) do
+			local block = item.Target.Block and move_edit.GetBlock(move, item.Target)
+
+			if block and not moved[block] then move_edit.UnlinkFrame(item.Target) end
+		end
+	end
 end
 
 function move_edit.Split(move, frame, track_name)
@@ -527,8 +954,7 @@ function move_edit.IsLinked(key)
 	if key.Event or key.Entry then return false end
 
 	local frame = key.Frame
-	local count = #move_edit.GetTracks(frame) + (type(frame[2]) == "string" and 1 or 0)
-	return count > 1
+	return #move_edit.GetTracks(frame) > 1 or frame.Block ~= nil
 end
 
 do
@@ -552,7 +978,6 @@ do
 		if not target then return end
 
 		local tracks = {}
-		local has_pose = type(target[2]) == "string"
 		local moved = {}
 
 		for name in pairs(TRACKS) do
@@ -561,16 +986,9 @@ do
 
 		for _, key in ipairs(keys) do
 			if key.Frame ~= target then
-				if key.Track then
-					if tracks[key.Track] then return end
+				if tracks[key.Track] then return end
 
-					tracks[key.Track] = true
-				else
-					if has_pose then return end
-
-					has_pose = true
-				end
-
+				tracks[key.Track] = true
 				moved[#moved + 1] = key
 			end
 		end
@@ -593,16 +1011,10 @@ do
 		end
 
 		for _, key in ipairs(moved) do
-			if key.Track then
-				eases[key.Track] = ease_of(key.Frame, key.Track)
-				local value = key.Frame[key.Track]
-				move_edit.RemoveTrack(move, key.Frame, key.Track)
-				target[key.Track] = value
-			else
-				local pose = key.Frame[2]
-				move_edit.RemovePose(move, key.Frame)
-				target[2] = pose
-			end
+			eases[key.Track] = ease_of(key.Frame, key.Track)
+			local value = key.Frame[key.Track]
+			move_edit.RemoveTrack(move, key.Frame, key.Track)
+			target[key.Track] = value
 		end
 
 		local first, uniform = next(eases)
@@ -638,16 +1050,7 @@ do
 end
 
 function move_edit.Unlink(move, key)
-	local frame = key.Frame
-
-	if key.Track then
-		return {Frame = move_edit.Split(move, frame, key.Track), Track = key.Track}
-	end
-
-	local split = {frame[1], frame[2], ease = type(frame.ease) ~= "table" and frame.ease or nil}
-	frame[2] = nil
-	table.insert(move.Keys, move_edit.Find(move.Keys, frame) + 1, split)
-	return {Frame = split}
+	return {Frame = move_edit.Split(move, key.Frame, key.Track), Track = key.Track}
 end
 
 function move_edit.SetTrackValue(frame, track_name, index, value)
@@ -735,22 +1138,9 @@ function move_edit.SetEventValue(event, field, index, value)
 	event[field.Name] = values
 end
 
-function move_edit.Rows(move, get_wave)
-	local rows = {{Name = "pose", Color = "primary", Keys = {}}}
+function move_edit.Rows(move, data, get_wave, get_gesture_wave)
+	local rows = {}
 	local by_track = {}
-
-	for _, frame in ipairs(move.Keys) do
-		if type(frame[2]) == "string" then
-			local keys = rows[1].Keys
-			keys[#keys + 1] = {
-				Time = frame[1],
-				Until = frame.hold and frame[1] + frame.hold,
-				Label = frame[2],
-				Frame = frame,
-				Link = frame,
-			}
-		end
-	end
 
 	for _, track in ipairs(keyframes.Tracks) do
 		local keys = {}
@@ -761,7 +1151,7 @@ function move_edit.Rows(move, get_wave)
 					Time = frame[1],
 					Until = frame.hold and frame[1] + frame.hold,
 					Frame = frame,
-					Link = frame,
+					Link = move_edit.GetBlock(move, frame) or frame,
 					Track = track.Name,
 				}
 			end
@@ -796,6 +1186,31 @@ function move_edit.Rows(move, get_wave)
 	end
 
 	table.insert(rows, 1, {Name = "clips", Color = "primary", Keys = clip_keys})
+	local overlay_keys = {}
+
+	for _, overlay in ipairs(move.Overlays or {}) do
+		local gesture = data.Gestures and data.Gestures[overlay[3]]
+		local wave = gesture and get_gesture_wave and get_gesture_wave(overlay[3])
+		overlay_keys[#overlay_keys + 1] = {
+			Time = overlay[1],
+			Until = overlay[2],
+			Label = overlay[3],
+			Entry = overlay,
+			List = "Overlays",
+			Link = overlay,
+			Block = true,
+			Marks = move_edit.GetGestureMarks(move, data, overlay),
+			Wave = wave and
+				{
+					Values = wave,
+					From = (overlay.In or 0) / gesture.Duration,
+					To = (overlay.Out or gesture.Duration) / gesture.Duration,
+				} or
+				nil,
+		}
+	end
+
+	table.insert(rows, 2, {Name = "poses", Color = "primary", Keys = overlay_keys})
 
 	for _, shot in ipairs(move.Shots or {}) do
 		shot_keys[#shot_keys + 1] = {Time = shot[1], Label = shot[2], Entry = shot, List = "Shots"}
@@ -852,7 +1267,9 @@ function move_edit.AddableTracks(move)
 	local names = {}
 
 	for _, track in ipairs(keyframes.Tracks) do
-		if not present[track.Name] then names[#names + 1] = track.Name end
+		if not present[track.Name] and not track.Overlay then
+			names[#names + 1] = track.Name
+		end
 	end
 
 	return names

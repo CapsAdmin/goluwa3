@@ -270,6 +270,80 @@ function move_editor.LinkSelected(session)
 	return true
 end
 
+function move_editor.GetMergeRange(session)
+	local move = move_editor.GetMove(session)
+	local first, last, count = math.huge, 0, 0
+
+	for _, key in ipairs(session.Selected) do
+		if key.List ~= "Overlays" then return end
+
+		local index = move_edit.Find(move.Overlays, key.Entry)
+		first, last, count = math.min(first, index), math.max(last, index), count + 1
+	end
+
+	if count < 2 or last - first + 1 ~= count then return end
+
+	if not move_edit.CanMerge(move, session.Data, first, last) then return end
+
+	return first, last
+end
+
+function move_editor.MergeSelected(session)
+	local first, last = move_editor.GetMergeRange(session)
+
+	if not first then return false end
+
+	local merged = move_edit.MergeOverlays(move_editor.GetMove(session), session.Data, first, last, session.MoveName)
+
+	move_editor.Select(session, {Entry = merged, List = "Overlays"})
+	return true
+end
+
+function move_editor.GetLinkTargets(session)
+	local overlay, frames = nil, {}
+
+	for _, key in ipairs(session.Selected) do
+		if key.List == "Overlays" then
+			if overlay then return end
+
+			overlay = key.Entry
+		elseif key.Frame then
+			frames[#frames + 1] = key.Frame
+		else
+			return
+		end
+	end
+
+	if overlay and frames[1] then return overlay, frames end
+end
+
+function move_editor.LinkSelectedToBlock(session)
+	local overlay, frames = move_editor.GetLinkTargets(session)
+
+	if not overlay then return false end
+
+	local move = move_editor.GetMove(session)
+
+	for _, frame in ipairs(frames) do
+		move_edit.LinkFrame(move, session.Data, frame, overlay)
+	end
+
+	return true
+end
+
+function move_editor.UnlinkSelectedFromBlock(session)
+	local unlinked = false
+
+	for _, key in ipairs(session.Selected) do
+		if key.Frame and key.Frame.Block then
+			move_edit.UnlinkFrame(key.Frame)
+			unlinked = true
+		end
+	end
+
+	return unlinked
+end
+
 function move_editor.DeleteSelected(session)
 	if not session.Selected[1] then return false end
 
@@ -278,9 +352,31 @@ function move_editor.DeleteSelected(session)
 	return true
 end
 
+local function get_block_sources(data)
+	local names = get_pose_names(data)
+
+	for name in pairs(data.Gestures or {}) do
+		names[#names + 1] = name
+	end
+
+	table.sort(names)
+	return names
+end
+
 local function get_skeleton(session)
 	local animator = session.Grabber.animator
 	return animator and animator.skeleton
+end
+
+local function get_source_length(session, key)
+	if key.List == "Overlays" then
+		local gesture = session.Data.Gestures and session.Data.Gestures[key.Entry[3]]
+		return gesture and gesture.Duration
+	end
+
+	local skeleton = get_skeleton(session)
+	local clip = skeleton and skeleton.ClipsByName[key.Entry[3]]
+	return clip and clip.Duration
 end
 
 do
@@ -324,6 +420,17 @@ do
 		session.Waves[name] = wave
 		return wave
 	end
+end
+
+function move_editor.GetGestureWave(session, name)
+	local wave = session.GestureWaves[name]
+
+	if not wave then
+		wave = move_edit.GetGestureActivity(session.Data, name, 160)
+		session.GestureWaves[name] = wave
+	end
+
+	return wave
 end
 
 function move_editor.RemoveActors(session)
@@ -421,10 +528,11 @@ function move_editor.LoadSet(session, set_name, move_name)
 	session.Data = table.copy(movesets.Source[set_name])
 	session.Baseline = movesets.ReadFile(set_name)
 	session.TickCache = {}
+	session.GestureWaves = {}
 
 	for _, data in ipairs{session.Data, session.Baseline} do
 		for _, move in pairs(data.Moves) do
-			if move.Clips then move.Keys = move.Keys or {} end
+			move.Keys = move.Keys or {}
 		end
 	end
 
@@ -446,7 +554,7 @@ function move_editor.GetTicks(session, move_name)
 
 	local rows = {}
 
-	for _, row in ipairs(move_edit.Rows(session.Data.Moves[move_name])) do
+	for _, row in ipairs(move_edit.Rows(session.Data.Moves[move_name], session.Data)) do
 		if row.Keys[1] then rows[#rows + 1] = row end
 	end
 
@@ -546,8 +654,9 @@ end
 
 function move_editor.Apply(session)
 	session.TickCache = {}
+	session.GestureWaves = {}
 	for _, move in pairs(session.Data.Moves) do
-		movesets.ResolveClipLinks(move)
+		movesets.ResolveClipLinks(move, session.Data.Gestures)
 	end
 
 	local ok, err = pcall(movesets.Update, session.SetName, session.Data)
@@ -609,7 +718,7 @@ function move_editor.GetGhostPhases(session)
 		from = math.max(session.Phase - session.GhostWindow, 0)
 		to = math.min(session.Phase + session.GhostWindow, 1)
 	elseif mode == "selection" then
-		rows = move_edit.Rows(move_editor.GetMove(session))
+		rows = move_edit.Rows(move_editor.GetMove(session), session.Data)
 		local found = find_selection(rows, session.Selected)
 
 		if not found[1] then return {} end
@@ -627,7 +736,7 @@ function move_editor.GetGhostPhases(session)
 	local limit = move_ghost.MaxCount
 
 	if session.GhostSource == "one per key" then
-		rows = rows or move_edit.Rows(move_editor.GetMove(session))
+		rows = rows or move_edit.Rows(move_editor.GetMove(session), session.Data)
 		local times = {}
 
 		for _, row in ipairs(rows) do
@@ -889,6 +998,221 @@ function move_editor.BuildItems(session, changed)
 		return items
 	end
 
+	if selection.List == "Overlays" then
+		local entry = selection.Entry
+		local options = {}
+
+		for i, name in ipairs(get_block_sources(session.Data)) do
+			options[i] = {Text = name, Value = name}
+		end
+
+		local ease_options = {}
+
+		for i, name in ipairs(move_edit.Eases) do
+			ease_options[i] = {Text = name, Value = name}
+		end
+
+		local function number_field(key, text, name, minimum)
+			return number_node(
+				key,
+				text,
+				entry[name] or 0,
+				|value|-> do
+					entry[name] = value > minimum and value or nil
+					changed()
+				end
+			)
+		end
+
+		local children = {
+			{
+				Key = "key/pose",
+				Text = "pose",
+				Type = "enum",
+				Value = entry[3],
+				Options = options,
+				OnChange = |_, value|-> do
+					entry[3] = value
+					entry.In, entry.Out = nil, nil
+					changed(true)
+				end,
+			},
+			number_node(
+				"key/time",
+				"from",
+				entry[1],
+				|value|-> do
+					entry[1] = value
+					move_edit.Sort(move.Overlays)
+					changed()
+				end
+			),
+			number_node(
+				"key/to",
+				"to",
+				entry[2],
+				|value|-> do
+					entry[2] = value
+					changed()
+				end
+			),
+			{
+				Key = "key/ease",
+				Text = "ease",
+				Type = "enum",
+				Value = entry.Ease or "smooth",
+				Options = ease_options,
+				OnChange = |_, value|-> do
+					entry.Ease = value ~= "smooth" and value or nil
+					changed()
+				end,
+			},
+			number_node(
+				"key/fade_in",
+				"fade in",
+				entry.FadeIn or keyframes.DefaultFade,
+				|value|-> do
+					entry.FadeIn = value
+					changed()
+				end
+			),
+			number_node(
+				"key/fade_out",
+				"fade out",
+				entry.FadeOut or keyframes.DefaultFade,
+				|value|-> do
+					entry.FadeOut = value
+					changed()
+				end
+			),
+			number_field("key/in", "in", "In", -1),
+			number_field("key/out", "out", "Out", 0),
+			number_field("key/speed", "speed", "Speed", 0),
+		}
+		items[#items + 1] = {Key = "key", Text = "pose block", Expanded = true, Children = children}
+		local gesture = session.Data.Gestures and session.Data.Gestures[entry[3]]
+
+		if gesture then
+			local pose_options = {}
+
+			for i, name in ipairs(get_pose_names(session.Data)) do
+				pose_options[i] = {Text = name, Value = name}
+			end
+
+			local gesture_children = {
+				number_node(
+					"gesture/length",
+					"length (s)",
+					gesture.Duration,
+					|value|-> do
+						gesture.Duration = math.max(value, gesture.Keys[#gesture.Keys][1])
+						changed()
+					end
+				),
+			}
+
+			for i, gesture_key in ipairs(gesture.Keys) do
+				gesture_children[#gesture_children + 1] = {
+					Key = "gesture/" .. i,
+					Text = string.format("key %d", i),
+					Expanded = false,
+					Children = {
+						number_node(
+							"gesture/" .. i .. "/time",
+							"time (s)",
+							gesture_key[1],
+							|value|-> do
+								gesture_key[1] = math.clamp(value, 0, gesture.Duration)
+								move_edit.Sort(gesture.Keys)
+								session.SelectId = session.SelectId + 1
+								changed()
+							end
+						),
+						{
+							Key = "gesture/" .. i .. "/pose",
+							Text = "pose",
+							Type = "enum",
+							Value = gesture_key[2] or pose_options[1].Value,
+							Options = pose_options,
+							OnChange = |_, value|-> do
+								gesture_key[2] = value
+								changed()
+							end,
+						},
+						{
+							Key = "gesture/" .. i .. "/ease",
+							Text = "ease",
+							Type = "enum",
+							Value = gesture_key.ease or "smooth",
+							Options = ease_options,
+							OnChange = |_, value|-> do
+								gesture_key.ease = value ~= "smooth" and value or nil
+								changed()
+							end,
+						},
+					},
+				}
+			end
+
+			items[#items + 1] = {Key = "gesture", Text = "pose animation", Expanded = true, Children = gesture_children}
+		end
+
+		local resolved = keyframes.CompileOverlays(
+			{Duration = move.Duration, Overlays = {{0, 1, entry[3], FadeIn = 0, FadeOut = 0}}},
+			session.Data.Poses,
+			session.Data.Gestures
+		)
+
+		for _, track in ipairs(keyframes.OverlayTracks) do
+			local values = entry[track.Name] ~= nil and
+				move_edit.GetValues(entry, track.Name) or
+				move_edit.Sample({[track.Key] = resolved[track.Name]}, track.Name, 0)
+			local track_children = {}
+
+			for _, group in ipairs(move_edit.GetGroups(track.Name)) do
+				local scale = group.Radians and DEG or 1
+				local group_values = {}
+
+				for i, index in ipairs(group.Indices) do
+					group_values[i] = values[index] * scale
+				end
+
+				local key = track.Name .. "/" .. group.Label
+
+				local function apply(out)
+					for i, index in ipairs(group.Indices) do
+						move_edit.SetTrackValue(entry, track.Name, index, out[i] / scale)
+					end
+
+					changed()
+				end
+
+				if group.Type == "number" then
+					track_children[#track_children + 1] = number_node(
+						key,
+						group.Label,
+						group_values[1],
+						|value|->apply({value}),
+						group.Radians and 1 or 3
+					)
+				else
+					track_children[#track_children + 1] = vector_node(
+						key,
+						group.Label,
+						group.Type,
+						group_values,
+						apply,
+						group.Radians and 1 or 3
+					)
+				end
+			end
+
+			items[#items + 1] = {Key = track.Name, Text = track.Name .. " (override)", Expanded = false, Children = track_children}
+		end
+
+		return items
+	end
+
 	if selection.List == "Locks" then
 		local entry = selection.Entry
 		items[#items + 1] = {
@@ -1061,12 +1385,6 @@ function move_editor.BuildItems(session, changed)
 		ease_options[i] = {Text = name, Value = name}
 	end
 
-	local pose_options = {{Text = "none", Value = "none"}}
-
-	for _, name in ipairs(get_pose_names(session.Data)) do
-		pose_options[#pose_options + 1] = {Text = name, Value = name}
-	end
-
 	items[#items + 1] = {
 		Key = "key",
 		Text = "key",
@@ -1077,6 +1395,7 @@ function move_editor.BuildItems(session, changed)
 				"time",
 				frame[1],
 				|value|-> do
+					move_edit.UnlinkFrame(frame)
 					move_edit.MoveFrame(move, frame, value)
 					changed()
 				end
@@ -1103,17 +1422,6 @@ function move_editor.BuildItems(session, changed)
 						move_edit.SetEase(frame, value)
 					end
 
-					changed()
-				end,
-			},
-			{
-				Key = "key/pose",
-				Text = "pose",
-				Type = "enum",
-				Value = type(frame[2]) == "string" and frame[2] or "none",
-				Options = pose_options,
-				OnChange = |_, value|-> do
-					frame[2] = value ~= "none" and value or nil
 					changed()
 				end,
 			},
@@ -1504,7 +1812,7 @@ local MoveEditor = react.Component(
 				end
 
 				if input.IsControlDown() and key == "a" then
-					move_editor.SelectAll(session, move_edit.Rows(move_editor.GetMove(session)))
+					move_editor.SelectAll(session, move_edit.Rows(move_editor.GetMove(session), session.Data))
 					h.refresh()
 					return true
 				end
@@ -1531,7 +1839,12 @@ local MoveEditor = react.Component(
 			}
 		)
 		local move = move_editor.GetMove(session)
-		local rows = move_edit.Rows(move, |name|->move_editor.GetWave(session, name))
+		local rows = move_edit.Rows(
+			move,
+			session.Data,
+			|name|->move_editor.GetWave(session, name),
+			|name|->move_editor.GetGestureWave(session, name)
+		)
 		local addable = move_edit.AddableTracks(move)
 
 		if addable[1] then rows[#rows + 1] = {Name = "+ add track", Button = true, Keys = {}} end
@@ -1679,11 +1992,23 @@ local MoveEditor = react.Component(
 							end,
 							OnKeyTrim = |row, index, edge, time|-> do
 								local entry = rows[row].Keys[index].Entry
-								local skeleton = get_skeleton(session)
+								local length = get_source_length(session, rows[row].Keys[index])
 
-								if not skeleton then return end
+								if not length and rows[row].Keys[index].List == "Clips" then return end
 
-								local clip = skeleton.ClipsByName[entry[3]]
+								if not length then
+									entry[edge == "left" and 1 or 2] = time
+									h.changed()
+
+									if properties.current then
+										properties.current:UpdateValueForKey("key/time", entry[1])
+										properties.current:UpdateValueForKey("key/to", entry[2])
+									end
+
+									return
+								end
+
+								local clip = {Duration = length}
 								local from, out = entry.In or 0, entry.Out or clip.Duration
 								local rate = entry.Speed or (out - from) / ((entry[2] - entry[1]) * move.Duration)
 
@@ -1729,11 +2054,11 @@ local MoveEditor = react.Component(
 							end,
 							OnKeySlip = |row, index, delta, first|-> do
 								local entry = rows[row].Keys[index].Entry
-								local skeleton = get_skeleton(session)
+								local length = get_source_length(session, rows[row].Keys[index])
 
-								if not skeleton then return end
+								if not length then return end
 
-								local clip = skeleton.ClipsByName[entry[3]]
+								local clip = {Duration = length}
 
 								if first then
 									session.Slip = {In = entry.In or 0, Out = entry.Out or clip.Duration}
@@ -1770,11 +2095,93 @@ local MoveEditor = react.Component(
 										Text = "split",
 										Disabled = not skeleton or time <= key.Time + 0.005 or time >= key.Until - 0.005,
 										OnClick = ||-> do
-											move_edit.SplitClip(move, key.Entry, time, skeleton.ClipsByName[key.Entry[3]].Duration)
+											move_edit.SplitClip(move, "Clips", key.Entry, time, skeleton.ClipsByName[key.Entry[3]].Duration)
 											h.changed(true)
 										end,
 									}
 								end
+
+								if key.List == "Overlays" then
+									local gesture = session.Data.Gestures and session.Data.Gestures[key.Entry[3]]
+									items[#items + 1] = MenuItem{
+										Text = "merge into pose animation",
+										Disabled = move_editor.GetMergeRange(session) == nil,
+										OnClick = ||-> do
+											if move_editor.MergeSelected(session) then h.changed(true) end
+										end,
+									}
+									items[#items + 1] = MenuItem{
+										Text = "split pose animation into blocks",
+										Disabled = not gesture or not move_edit.CanSplit(move, session.Data, key.Entry),
+										OnClick = ||-> do
+											move_edit.SplitGesture(move, session.Data, key.Entry)
+											move_editor.Select(session, nil)
+											h.changed(true)
+										end,
+									}
+
+									if gesture then
+										items[#items + 1] = MenuItem{
+											Text = "add pose key here",
+											OnClick = ||-> do
+												move_edit.AddGestureKey(move, session.Data, key.Entry, time)
+												session.SelectId = session.SelectId + 1
+												h.changed(true)
+											end,
+										}
+										items[#items + 1] = MenuItem{
+											Text = "remove pose key",
+											Disabled = #gesture.Keys < 2,
+											Items = ||-> do
+												local removers = {}
+
+												for i, gesture_key in ipairs(gesture.Keys) do
+													removers[i] = MenuItem{
+														Text = string.format("key %d (%.3fs)", i, gesture_key[1]),
+														OnClick = ||-> do
+															if move_edit.RemoveGestureKey(session.Data, key.Entry, gesture_key) then
+																session.SelectId = session.SelectId + 1
+																h.changed(true)
+															end
+														end,
+													}
+												end
+
+												return removers
+											end,
+										}
+									end
+
+									items[#items + 1] = MenuItem{
+										Text = "split",
+										Disabled = time <= key.Time + 0.005 or time >= key.Until - 0.005,
+										OnClick = ||-> do
+											move_edit.SplitClip(move, "Overlays", key.Entry, time, get_source_length(session, key))
+											h.changed(true)
+										end,
+									}
+								end
+
+								local block_linked = false
+
+								for _, selected in ipairs(session.Selected) do
+									block_linked = block_linked or selected.Frame ~= nil and selected.Frame.Block ~= nil
+								end
+
+								items[#items + 1] = MenuItem{
+									Text = "link to pose block",
+									Disabled = move_editor.GetLinkTargets(session) == nil,
+									OnClick = ||-> do
+										if move_editor.LinkSelectedToBlock(session) then h.changed(true) end
+									end,
+								}
+								items[#items + 1] = MenuItem{
+									Text = "unlink from pose block",
+									Disabled = not block_linked,
+									OnClick = ||-> do
+										if move_editor.UnlinkSelectedFromBlock(session) then h.changed(true) end
+									end,
+								}
 
 								if key.Event then
 									items[#items + 1] = MenuItem{
@@ -1832,8 +2239,8 @@ local MoveEditor = react.Component(
 							OnKeyMove = |row, index, time|-> do
 								local key = rows[row].Keys[index]
 
-								if key.List == "Clips" or key.List == "Locks" then
-									move_edit.PlaceBlock(move[key.List], key.Entry, time, key.List == "Clips")
+								if key.List == "Clips" or key.List == "Locks" or key.List == "Overlays" then
+									move_edit.PlaceBlock(move[key.List], key.Entry, time, key.List ~= "Locks")
 								elseif key.Entry then
 									key.Entry[1] = time
 									move_edit.Sort(move[key.List])
@@ -1841,6 +2248,7 @@ local MoveEditor = react.Component(
 									move_edit.SetEventTime(move, key.Event, time)
 									move_edit.SortEvents(move)
 								else
+									move_edit.UnlinkFrame(key.Frame)
 									move_edit.MoveFrame(move, key.Frame, time)
 								end
 
@@ -1853,9 +2261,17 @@ local MoveEditor = react.Component(
 							OnKeyAdd = |row, time|-> do
 								local name = rows[row].Name
 
-								if name == "pose" then
-									move_editor.Select(session, {Frame = move_edit.AddPoseKey(move, time, get_pose_names(session.Data)[1])})
-									h.changed()
+								if name == "poses" then
+									local last = move.Overlays and move.Overlays[#move.Overlays]
+									local overlay = move_edit.AddOverlay(move, time, last and last[3] or get_pose_names(session.Data)[1])
+
+									if overlay then
+										move_editor.Select(session, {Entry = overlay, List = "Overlays"})
+										h.changed(true)
+									else
+										session.Status = "no room for a pose block here, two already overlap"
+										h.refresh()
+									end
 								elseif move_edit.TrackByName[name] then
 									add_track_key(name, time)
 								elseif name == "shots" then

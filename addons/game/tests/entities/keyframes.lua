@@ -6,33 +6,114 @@ local POSES = {
 	strike = {base = "windup", aim = {0.8, -0.3}, torso = -0.25},
 }
 
-T.Test("keyframes compile named poses into tracks that start and end at rest", function()
+T.Test("overlay blocks compile into pose tracks that crossfade where they overlap and fall back to rest", function()
 	local def = keyframes.Compile(
 		{
-			Keys = {
-				{0.3, "windup", ease = "out", hold = 0.1},
-				{0.6, "strike", ease = "in"},
+			Duration = 1,
+			Overlays = {
+				{0, 0.4, "windup", FadeIn = 0.1, FadeOut = 0.1},
+				{0.3, 0.7, "strike", Ease = "linear", FadeOut = 0.1},
 			},
 		},
 		POSES
 	)
 	T(def.Kind)["=="]("action")
-	T(#def.AimKeys)["=="](5)
 	T(def.AimKeys[1][1])["=="](0)
-	T(def.AimKeys[2][2])["=="](-0.7)
-	T(def.AimKeys[2].ease)["=="]("out")
-	T(def.AimKeys[3][1])["~"](0.4, 1e-9)
-	T(def.AimKeys[3][2])["=="](-0.7)
-	T(def.AimKeys[4][2])["=="](0.8)
-	T(def.AimKeys[5][1])["=="](1)
-	T(def.AimKeys[5][2])["=="](0)
-	T(def.HeadKeys[1][2])["=="](1)
-	T(def.HeadKeys[4][2])["=="](0.1)
+	T(def.AimKeys[#def.AimKeys][1])["=="](1)
 	T(def.HandKeys)["=="](nil)
 	T(def.Body)["=="](nil)
 	local out = {0, 0}
+	animations.SampleKeys(def.AimKeys, 0.2, out, 2)
+	T(out[1])["~"](-0.7, 1e-6)
 	animations.SampleKeys(def.AimKeys, 0.35, out, 2)
-	T(out[1])["=="](-0.7)
+	T(out[1])["~"]((-0.7 + 0.8) / 2, 1e-3)
+	animations.SampleKeys(def.AimKeys, 0.5, out, 2)
+	T(out[1])["~"](0.8, 1e-6)
+	animations.SampleKeys(def.AimKeys, 0.9, out, 2)
+	T(out[1])["~"](0, 1e-6)
+	animations.SampleKeys(def.HeadKeys, 0.2, out, 1)
+	T(out[1])["~"](0.1, 1e-6)
+	animations.SampleKeys(def.HeadKeys, 0.9, out, 1)
+	T(out[1])["~"](1, 1e-6)
+end)
+
+T.Test("an overlay fades in from rest over its fade and a block with no neighbour falls back to rest", function()
+	local def = keyframes.Compile(
+		{
+			Duration = 2,
+			Overlays = {{0.25, 0.75, "windup", FadeIn = 0.2, FadeOut = 0.4, Ease = "linear"}},
+		},
+		POSES
+	)
+	local out = {0, 0}
+	animations.SampleKeys(def.AimKeys, 0.2, out, 2)
+	T(out[1])["~"](0, 1e-6)
+	animations.SampleKeys(def.AimKeys, 0.3, out, 2)
+	T(out[1])["~"](-0.7 * 0.5, 1e-3)
+	animations.SampleKeys(def.AimKeys, 0.5, out, 2)
+	T(out[1])["~"](-0.7, 1e-6)
+	animations.SampleKeys(def.AimKeys, 0.65, out, 2)
+	T(out[1] > -0.7 and out[1] < 0)["=="](true)
+	animations.SampleKeys(def.AimKeys, 0.8, out, 2)
+	T(out[1])["~"](0, 1e-6)
+end)
+
+T.Test("a gesture plays like a clip and its block trims and stretches it", function()
+	local gestures = {
+		swing = {
+			Duration = 0.5,
+			Keys = {{0, aim = {0, 0}}, {0.5, aim = {1, 0}, ease = "linear"}},
+		},
+	}
+	local def = keyframes.Compile(
+		{Duration = 1, Overlays = {{0, 1, "swing", FadeIn = 0, FadeOut = 0}}},
+		POSES,
+		gestures
+	)
+	local out = {0, 0}
+	animations.SampleKeys(def.AimKeys, 0.5, out, 2)
+	T(out[1])["~"](0.5, 0.03)
+	local trimmed = keyframes.Compile(
+		{Duration = 1, Overlays = {{0, 1, "swing", FadeIn = 0, FadeOut = 0, In = 0.25}}},
+		POSES,
+		gestures
+	)
+	animations.SampleKeys(trimmed.AimKeys, 0.5, out, 2)
+	T(out[1])["~"](0.75, 0.03)
+	local slow = keyframes.Compile(
+		{
+			Duration = 1,
+			Overlays = {{0, 1, "swing", FadeIn = 0, FadeOut = 0, Speed = 0.5}},
+		},
+		POSES,
+		gestures
+	)
+	animations.SampleKeys(slow.AimKeys, 0.5, out, 2)
+	T(out[1])["~"](0.5, 0.03)
+	animations.SampleKeys(slow.AimKeys, 0.75, out, 2)
+	T(out[1])["~"](0.75, 0.05)
+end)
+
+T.Test("frame keys linked to an overlay take its arrive and depart times", function()
+	local movesets = import("lua/movesets.lua")
+	local move = {
+		Duration = 1,
+		Overlays = {
+			{0, 0.5, "windup", FadeIn = 0.1, Id = "a"},
+			{0.3, 0.9, "strike", Id = "b"},
+		},
+		Keys = {
+			{0.9, body = {0, 0, 0}, Block = "b", Edge = "depart"},
+			{0.1, motion = {0, 0, 0, 0}, Block = "b", Edge = "arrive"},
+			{0.4, grip = 1},
+		},
+	}
+	movesets.ResolveClipLinks(move)
+	T(move.Keys[1].grip)["=="](1)
+	T(move.Keys[2][1])["~"](0.5, 1e-9)
+	T(move.Keys[2].motion ~= nil)["=="](true)
+	T(move.Keys[3][1])["~"](0.8, 1e-9)
+	T(move.Keys[3].body ~= nil)["=="](true)
 end)
 
 T.Test("a lifted or flipped body turns the leg ik off and gets a body hook", function()
@@ -45,7 +126,7 @@ T.Test("a lifted or flipped body turns the leg ik off and gets a body hook", fun
 end)
 
 T.Test("keyframes out of order are an error", function()
-	local ok = pcall(keyframes.Compile, {Keys = {{0.5, torso = 1}, {0.4, torso = 0}}})
+	local ok = pcall(keyframes.Compile, {Keys = {{0.5, body = {0, 0, 0}}, {0.4, body = {0, 1, 0}}}})
 	T(ok)["=="](false)
 end)
 
