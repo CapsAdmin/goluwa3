@@ -17,6 +17,7 @@ Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.l
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 import("lua/weapons.lua")
 local npcs = import("lua/npcs.lua")
+local movesets = import("lua/movesets.lua")
 local simulation_lod = import("lua/simulation_lod.lua")
 
 local function create_box(position, size, world)
@@ -409,7 +410,7 @@ T.Test3D("npc speeds are the ground speeds of the sequences they play", function
 
 		T(skeleton.ClipsByName[info.Idle]:GetGroundSpeed(params))["=="](0)
 
-		for _, move in pairs(info.Moves or {}) do
+		for _, move in pairs(info.Moveset and movesets.Source[npcs.GetPrefabName(name)].Moves or {}) do
 			T(skeleton.ClipsByName[move.Clip] ~= nil)["=="](true)
 		end
 

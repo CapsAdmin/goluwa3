@@ -1,0 +1,41 @@
+return {
+	Moves = {
+		charge_crash = {
+			Duration = 2,
+			Next = "stunned",
+			Face = false,
+			Clip = "charge_crash02",
+			PoseWeapon = false,
+		},
+		charge_run = {
+			Duration = 3,
+			Next = "charge_stop",
+			Face = false,
+			Clip = "charge_loop",
+			ClipSpeed = 1,
+			Speed = 8.9,
+			Crash = "charge_crash",
+			PoseWeapon = false,
+			Events = {{At = 0.03, Type = "strike", Damage = 60, Force = 14, Range = 2.4, Until = 1}},
+		},
+		charge_stop = {Duration = 1.2, Face = false, Clip = "charge_stop", PoseWeapon = false},
+		charge_windup = {
+			Duration = 1.2,
+			Next = "charge_run",
+			Face = false,
+			Clip = "charge_startfast",
+			Sound = "Charge",
+			PoseWeapon = false,
+		},
+		roar = {Duration = 1.6, Face = false, Clip = "short_roar", PoseWeapon = false},
+		shove = {
+			Duration = 1.4,
+			Face = false,
+			Clip = "shove",
+			Sound = "Attack",
+			PoseWeapon = false,
+			Events = {{At = 0.5, Type = "strike", Damage = 40, Range = 3.64}},
+		},
+		stunned = {Duration = 2.5, Face = false, Clip = "stunned_01", PoseWeapon = false},
+	},
+}

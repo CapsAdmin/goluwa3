@@ -14,31 +14,6 @@ local PlayerController = import("lua/components/player_controller.lua")
 local AIController = import("lua/components/ai_controller.lua")
 local eyes = RENDER_3D and import("goluwa/entities/components/eyes.lua")
 local npcs = {}
-
-local function creature_move(move)
-	move.Face = false
-	move.PoseWeapon = false
-	return move
-end
-
-local function claw(clip, duration, delay, damage, range)
-	return creature_move{
-		Clip = clip,
-		Sound = "Attack",
-		Duration = duration,
-		Events = {{At = delay / duration, Type = "strike", Damage = damage, Range = range}},
-	}
-end
-
-local function cast(clip, duration, delay, element, damage)
-	return creature_move{
-		Clip = clip,
-		Sound = "Attack",
-		Duration = duration,
-		Events = {{At = delay / duration, Type = "cast", Element = element, Damage = damage}},
-	}
-end
-
 npcs.Definitions = {
 	citizen = {
 		Biped = true,
@@ -80,7 +55,7 @@ npcs.Definitions = {
 		Run = "walk",
 		WalkSpeed = 45,
 		RunSpeed = 45,
-		Moves = {claw = claw("attackA", 1.26, 0.6, 18, 1.96)},
+		Moveset = true,
 		Attacks = {{Move = "claw", Range = 1.4, Interval = 1.8}},
 		Sounds = voices.zombie,
 	},
@@ -93,7 +68,7 @@ npcs.Definitions = {
 		RunSpeed = 140,
 		Radius = 20,
 		Height = 84,
-		Moves = {zap = cast("zapattack1", 0.9, 0.5, "lightning", 20)},
+		Moveset = true,
 		Attacks = {{Move = "zap", Range = 12, Interval = 2.5}},
 		Sounds = voices.vortigaunt,
 	},
@@ -108,7 +83,7 @@ npcs.Definitions = {
 		Radius = 28,
 		Height = 56,
 		TurnSpeed = 12,
-		Moves = {claw = claw("attack1", 0.84, 0.3, 12, 2.52)},
+		Moveset = true,
 		Attacks = {{Move = "claw", Range = 1.8, Interval = 1.2}},
 		Sounds = voices.antlion,
 	},
@@ -124,7 +99,7 @@ npcs.Definitions = {
 		Height = 14,
 		TurnSpeed = 14,
 		StepHeight = 8,
-		Moves = {claw = claw("attack", 0.84, 0.3, 6, 1.26)},
+		Moveset = true,
 		Attacks = {{Move = "claw", Range = 0.9, Interval = 1.2}},
 		Sounds = voices.headcrab,
 	},
@@ -181,7 +156,7 @@ npcs.Definitions = {
 		Run = "Run",
 		WalkSpeed = 55,
 		RunSpeed = 218,
-		Moves = {claw = claw("BR2_Attack", 0.7, 0.3, 10, 1.82)},
+		Moveset = true,
 		Attacks = {{Move = "claw", Range = 1.3, Interval = 1.0}},
 		Sounds = voices.zombie_fast,
 	},
@@ -194,7 +169,7 @@ npcs.Definitions = {
 		WalkSpeed = 56,
 		RunSpeed = 154,
 		Health = 120,
-		Moves = {claw = claw("melee_01", 1.4, 0.5, 25, 2.1)},
+		Moveset = true,
 		Attacks = {{Move = "claw", Range = 1.5, Interval = 2.0}},
 		Sounds = voices.zombie_poison,
 	},
@@ -277,7 +252,7 @@ npcs.Definitions = {
 		WalkSpeed = 35,
 		RunSpeed = 193,
 		Health = 80,
-		Moves = {claw = claw("attackA", 1.12, 0.6, 20, 1.96)},
+		Moveset = true,
 		Attacks = {{Move = "claw", Range = 1.4, Interval = 1.6}},
 		Sounds = voices.zombie_soldier,
 	},
@@ -292,7 +267,7 @@ npcs.Definitions = {
 		Height = 28,
 		StepHeight = 8,
 		Health = 25,
-		Moves = {claw = claw("attack", 1.26, 0.5, 10, 1.54)},
+		Moveset = true,
 		Attacks = {{Move = "claw", Range = 1.1, Interval = 1.8}},
 		Sounds = voices.zombie_torso,
 	},
@@ -309,7 +284,7 @@ npcs.Definitions = {
 		TurnSpeed = 14,
 		StepHeight = 8,
 		Health = 40,
-		Moves = {claw = claw("Spitattack", 0.84, 0.3, 14, 1.26)},
+		Moveset = true,
 		Attacks = {{Move = "claw", Range = 0.9, Interval = 1.2}},
 		Sounds = voices.headcrab_black,
 	},
@@ -325,7 +300,7 @@ npcs.Definitions = {
 		Height = 56,
 		TurnSpeed = 12,
 		Health = 40,
-		Moves = {claw = claw("attack1", 0.84, 0.3, 10, 2.52)},
+		Moveset = true,
 		Attacks = {{Move = "claw", Range = 1.8, Interval = 1.2}},
 		Sounds = voices.antlion_worker,
 	},
@@ -344,28 +319,7 @@ npcs.Definitions = {
 		Health = 400,
 		Alert = "roar",
 		AttackRange = 25,
-		Moves = {
-			roar = creature_move{Clip = "short_roar", Duration = 1.6},
-			shove = claw("shove", 1.4, 0.7, 40, 3.64),
-			charge_windup = creature_move{
-				Clip = "charge_startfast",
-				Sound = "Charge",
-				Duration = 1.2,
-				Next = "charge_run",
-			},
-			charge_run = creature_move{
-				Clip = "charge_loop",
-				ClipSpeed = 1,
-				Duration = 3,
-				Speed = 8.9,
-				Crash = "charge_crash",
-				Next = "charge_stop",
-				Events = {{At = 0.03, Until = 1, Type = "strike", Damage = 60, Range = 2.4, Force = 14}},
-			},
-			charge_stop = creature_move{Clip = "charge_stop", Duration = 1.2},
-			charge_crash = creature_move{Clip = "charge_crash02", Duration = 2, Next = "stunned"},
-			stunned = creature_move{Clip = "stunned_01", Duration = 2.5},
-		},
+		Moveset = true,
 		Attacks = {
 			{Move = "shove", Range = 2.6, Interval = 2},
 			{Move = "charge_windup", Range = 22, MinRange = 8, Interval = 12},
@@ -385,7 +339,7 @@ npcs.Definitions = {
 		TurnSpeed = 8,
 		StepHeight = 24,
 		Health = 200,
-		Moves = {claw = claw("meleeleft", 1.05, 0.4, 30, 3.08)},
+		Moveset = true,
 		Attacks = {{Move = "claw", Range = 2.2, Interval = 1.5}},
 		Sounds = voices.hunter,
 	},
@@ -399,7 +353,7 @@ npcs.Definitions = {
 		Radius = 20,
 		Height = 84,
 		Health = 80,
-		Moves = {zap = cast("zapattack1", 0.9, 0.5, "lightning", 20)},
+		Moveset = true,
 		Attacks = {{Move = "zap", Range = 12, Interval = 2.5}},
 		Sounds = voices.vortigaunt_slave,
 	},
@@ -434,8 +388,9 @@ function npcs.GetPrefabName(name)
 end
 
 function npcs.Register(name, info)
-	if info.Moves then
-		movesets.Register(npcs.GetPrefabName(name), table.copy({Moves = info.Moves}))
+	if info.Moveset then
+		local path = "lua/npc_movesets/" .. name .. ".lua"
+		movesets.Register(npcs.GetPrefabName(name), import(path), path)
 	end
 
 	local npc = {
@@ -445,7 +400,7 @@ function npcs.Register(name, info)
 		Radius = info.Radius and info.Radius * UNIT,
 		Height = info.Height and info.Height * UNIT,
 		StepHeight = info.StepHeight and info.StepHeight * UNIT,
-		Moveset = info.Moves and npcs.GetPrefabName(name) or "",
+		Moveset = info.Moveset and npcs.GetPrefabName(name) or "",
 		Attacks = info.Attacks,
 		Alert = info.Alert,
 		AttackRange = info.AttackRange,
