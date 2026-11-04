@@ -7,10 +7,10 @@ local accumulated_frames = 0
 local accumulated_gpu_ms = 0
 local wait_at_start = 0
 
-event.AddListener("Update", "window_title", function(dt)
+event.AddListener("Update", "window_title", function()
 	if not system.IsWindowOpen(index) then return end
 
-	accumulated_time = accumulated_time + dt
+	accumulated_time = accumulated_time + system.GetUnscaledFrameTime()
 	accumulated_frames = accumulated_frames + 1
 	accumulated_gpu_ms = accumulated_gpu_ms + gpu_timing.GetMilliseconds("gpu_total")
 
