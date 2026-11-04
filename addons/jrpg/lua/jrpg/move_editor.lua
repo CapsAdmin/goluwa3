@@ -973,6 +973,8 @@ local function add_track_items(items, holder, get_base, changed, suffix)
 	end
 end
 
+move_editor.AddTrackItems = add_track_items
+
 function move_editor.BuildItems(session, changed)
 	local move = move_editor.GetMove(session)
 	local selection = session.Selection
