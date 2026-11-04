@@ -260,6 +260,15 @@ function META:show_window(force)
 			self._results_panel:GetViewport().layout:UpdateLayout()
 		end
 	end
+
+	local fitted = math.max(1, math.min(self._max_body_height, #self.Options * self._item_height))
+
+	if fitted ~= self._body_height then
+		self._body_height = fitted
+		self._results_panel.layout:SetMinSize(Vec2(0, fitted))
+		self._results_panel.layout:SetMaxSize(Vec2(0, fitted))
+		self._results_panel:GetViewport().layout:UpdateLayout()
+	end
 end
 
 function META:build_scroll_menu(use_search, scroll_threshold)
@@ -324,6 +333,7 @@ function META:build_scroll_menu(use_search, scroll_threshold)
 	self._built_first = 1
 	self._built_last = 0
 	self._body_height = body_height
+	self._max_body_height = body_height
 	self._item_height = theme.active:ResolveFontSize(self.FontSize) + theme.active:GetPadding("M") * 2
 	children[#children + 1] = self._results_panel
 	local menu = MenuContainer{
