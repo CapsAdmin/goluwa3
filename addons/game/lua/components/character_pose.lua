@@ -186,6 +186,19 @@ end
 
 function META:EndScrub()
 	self.scrub = nil
+	self.preview_motion = nil
+end
+
+function META:SetPreviewMotion(velocity, distance)
+	local motion = self.preview_motion
+
+	if not motion then
+		motion = {velocity = Vec3(), distance = 0}
+		self.preview_motion = motion
+	end
+
+	motion.velocity:CopyFrom(velocity)
+	motion.distance = distance
 end
 
 function META:StartAction(name, duration, part, strength)
@@ -793,12 +806,19 @@ function META:OnUpdate(dt)
 	local _, entity_rotation = transform:GetRenderPositionRotation()
 	entity_rotation = entity_rotation or transform:GetRotation()
 	local body = owner.rigid_body
-	local velocity = movement and body:GetVelocity() or transform:GetRenderVelocity()
+	local preview_motion = self.preview_motion
+	local velocity = preview_motion and
+		preview_motion.velocity or
+		movement and
+		body:GetVelocity()
+		or
+		transform:GetRenderVelocity()
 	self.forward_speed = velocity:Dot(entity_rotation:GetForward())
 	self.right_speed = velocity:Dot(entity_rotation:GetRight())
 	self.vertical_speed = velocity.y
 	local seat = self:GetSeatComponent()
 	self.grounded = seat ~= nil or
+		preview_motion ~= nil or
 		movement and
 		movement:GetGrounded()
 		or
@@ -809,7 +829,7 @@ function META:OnUpdate(dt)
 	local speed = math.sqrt(self.forward_speed ^ 2 + self.right_speed ^ 2)
 
 	if movement then
-		self:SetDistance(movement.distance)
+		self:SetDistance(preview_motion and preview_motion.distance or movement.distance)
 		local last_velocity = self.last_velocity
 
 		if last_velocity and dt > 0 then

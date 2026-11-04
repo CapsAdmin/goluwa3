@@ -7,6 +7,9 @@ local move_preview = {}
 local META = {}
 META.__index = META
 local motion = Vec3()
+local before, after = Vec3(), Vec3()
+local velocity = Vec3()
+local SPAN = 0.01
 
 function move_preview.Start(grabber, victim, move)
 	local frame = {}
@@ -25,6 +28,7 @@ function move_preview.Start(grabber, victim, move)
 			Frame = frame,
 			Puppet = puppet,
 			Ground = grabber.transform:GetPosition().y,
+			Distance = 0,
 			GrabberHome = grabber.transform:GetPosition():Copy(),
 			VictimHome = victim.transform:GetPosition():Copy(),
 		},
@@ -32,12 +36,33 @@ function move_preview.Start(grabber, victim, move)
 	)
 end
 
-function META:SetPhase(f)
+function META:SetPhase(f, dt)
 	local move = self.Move
 	local victim = self.Victim
 	self.Grabber.character_pose:ScrubAction(move.Action, move.Duration, f)
 	local _, height = movesets.SampleMotion(move, f, self.Frame, self.Frame.point, motion)
 	self.Puppet.Position:Set(motion.x, self.Ground + (move.Vertical and math.max(height, 0) or 0), motion.z)
+	local pose = self.Grabber.character_pose
+	velocity:Set(0, 0, 0)
+
+	if dt then
+		local from, to = math.max(f - SPAN, 0), math.min(f + SPAN, 1)
+		local _, from_height = movesets.SampleMotion(move, from, self.Frame, self.Frame.point, before)
+		local _, to_height = movesets.SampleMotion(move, to, self.Frame, self.Frame.point, after)
+		local seconds = (to - from) * move.Duration
+
+		if seconds > 0 then
+			velocity:Set(
+				(after.x - before.x) / seconds,
+				move.Vertical and (to_height - from_height) / seconds or 0,
+				(after.z - before.z) / seconds
+			)
+		end
+
+		self.Distance = self.Distance + math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z) * dt
+	end
+
+	pose:SetPreviewMotion(velocity, self.Distance)
 	local latch = movesets.GetEvent(move, "latch")
 
 	if not latch then return end
