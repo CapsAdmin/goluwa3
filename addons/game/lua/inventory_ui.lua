@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local event = import("goluwa/event.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Rect = import("goluwa/structs/rect.lua")
@@ -156,7 +157,7 @@ local InventoryMenu = react.Component(
 		)
 
 		for i, other in ipairs(subjects) do
-			names[i] = other == _G.PLAYER_RIG and "You" or (other:GetName() .. " " .. i)
+			names[i] = players.IsLocal(other) and "You" or (other:GetName() .. " " .. i)
 		end
 
 		return ui.Panel{

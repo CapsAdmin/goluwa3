@@ -8,6 +8,7 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local NetworkComponent = import("goluwa/entities/components/network.lua")
 local spawning = import("lua/spawning.lua")
+local players = import("lua/players.lua")
 local CharacterMovement = import("lua/components/character_movement.lua")
 local outfit = import("lua/outfit.lua")
 import("lua/weapons.lua")
@@ -23,21 +24,15 @@ local RELAY_BATCH = 4
 local OUTFIT_PUSH_DELAY = 0.2
 
 if SERVER then
-	local players = {}
-
-	function _G.GetPlayerEntity(client)
-		return players[client:GetUniqueID()]
-	end
-
 	event.AddListener("ClientWorldReady", "network_players", function(client)
 		if client:IsBot() then return end
 
 		local uid = client:GetUniqueID()
 
-		if players[uid] and players[uid]:IsValid() then return end
+		if players.Get(client) then return end
 
 		local position, rotation = spawning.Pick()
-		players[uid] = Entity.New{
+		local player = Entity.New{
 			Name = client:GetNick(),
 			ComponentSet = {
 				"transform",
@@ -55,8 +50,9 @@ if SERVER then
 			player_avatar = {},
 			network = {NetworkOwner = uid, Predicted = true},
 		}
-		spawning.SendStart(client, players[uid], position, rotation)
-		players[uid].weapon_holder:GiveLoadout()
+		players.Register(client, player)
+		spawning.SendStart(client, player, position, rotation)
+		player.weapon_holder:GiveLoadout()
 	end)
 
 	event.AddListener("EntityPermission", "network_players", function(client, action, name)
@@ -66,18 +62,17 @@ if SERVER then
 	end)
 
 	event.AddListener("ClientLeft", "network_players", function(client)
-		local uid = client:GetUniqueID()
-		local ent = players[uid]
+		local ent = players.Get(client)
 
-		if ent and ent:IsValid() then ent:Remove() end
+		if ent then ent:Remove() end
 
-		players[uid] = nil
+		players.Unregister(client)
 	end)
 
 	packet.AddListener("usercmd", function(buffer, client)
-		local ent = players[client:GetUniqueID()]
+		local ent = players.Get(client)
 
-		if not ent or not ent:IsValid() then return end
+		if not ent then return end
 
 		local commands = usercmd.ReadBatch(buffer)
 		ent.player_controller:PushCommands(commands)
@@ -88,8 +83,10 @@ if SERVER then
 	end)
 
 	timer.Repeat("network_players_ack", ACK_INTERVAL, function()
-		for uid, ent in pairs(players) do
-			if ent:IsValid() then
+		for _, client in ipairs(clients.GetAll()) do
+			local ent = players.Get(client)
+
+			if ent then
 				local processed = ent.player_controller.processed
 				local buffer = packet.CreateBuffer()
 				buffer:WriteU32(processed.number)
@@ -97,7 +94,7 @@ if SERVER then
 				buffer:WriteVec3(processed.velocity)
 				buffer:WriteBoolean(ent.character_pose:IsHolding())
 				buffer:WriteDouble(processed.distance)
-				packet.Send("player_ack", buffer, clients.GetByUniqueID(uid), "sequenced")
+				packet.Send("player_ack", buffer, client, "sequenced")
 			end
 		end
 	end)

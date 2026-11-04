@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
@@ -27,7 +28,7 @@ local prompt_alpha = 0
 local locked
 
 event.AddListener("DrawHUD", "use_hud", function()
-	local rig = _G.PLAYER_RIG
+	local rig = players.GetLocal()
 
 	if
 		not (

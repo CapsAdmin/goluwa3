@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local physics = import("goluwa/physics.lua")
@@ -27,8 +28,8 @@ local seat_position = Vec3()
 local seat_rotation = Quat()
 
 local function get_seat()
-	local rig = _G.PLAYER_RIG
-	return rig and rig:IsValid() and rig.character_pose:GetSeatComponent()
+	local rig = players.GetLocal()
+	return rig and rig.character_pose:GetSeatComponent()
 end
 
 local function is_static_geometry(entity)

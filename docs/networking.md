@@ -19,6 +19,8 @@ Server authoritative, Source/GMod style. Server: `luajit glw --server` (physics 
 
 # Players
 
+Find players with `players` (`addons/game/lua/players.lua`), never a global: `players.Get(client)` (client or server, nil when it has none), `players.GetLocal()` (this process's own rig, nil on a dedicated server), `players.IsLocal(entity)` and `players.GetClient(entity)`. Code that runs on the server must go through the entity or the client, not `GetLocal`.
+
 A player is one entity with `transform`, `rigid_body`, `player_controller`, `character_movement`, `character_pose`, `attachment_points`, `procedural_pose`, `weapon_holder`, `player_avatar` and, for the local one, `camera` and `player_input`. The player entity is deliberately not a prefab: remote clients only get `transform`, `rigid_body`, `network` and `player_avatar` from the spawn packet.
 
 - The owner's rig is the same entity as the server's player: `player_start` carries the server player's network id and the client links its predicted rig to it (`network.Link`), so the owner never receives the player root itself (it is predicted) but receives everything else the server makes under it. Entities whose `network` has `SendToOwner` (weapons) are replicated to their owner too, so weapon state, effects and entity references work the same for the owner as for everyone else. A client therefore must not create networked children itself while linked (local loadout is removed on link and given again on `Disconnected`).

@@ -3,6 +3,7 @@ local system = import("goluwa/system.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local event = import("goluwa/event.lua")
 local network = import("goluwa/network/network.lua")
+local players = import("lua/players.lua")
 local SpawnPoint = import("goluwa/entities/components/spawn_point.lua")
 import("lua/weapons.lua")
 import("lua/damage.lua")
@@ -41,7 +42,7 @@ local rig = Entity.New{
 		Networked = true,
 	},
 }
-_G.PLAYER_RIG = rig
+players.SetLocal(rig)
 rig.weapon_holder:GiveLoadout()
 rig.character_movement:SetEyePosition(cam:GetPosition())
 rig.player_input:SyncFromCamera(cam)

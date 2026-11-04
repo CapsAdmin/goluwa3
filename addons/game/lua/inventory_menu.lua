@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local event = import("goluwa/event.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
@@ -28,7 +29,7 @@ function inventory_menu.GetSubject()
 end
 
 function inventory_menu.RefreshSubjects()
-	local rig = _G.PLAYER_RIG
+	local rig = players.GetLocal()
 	local position = rig.transform:GetPosition()
 	subjects = {rig}
 
@@ -93,7 +94,7 @@ function inventory_menu.GetCandidates(place)
 end
 
 function inventory_menu.Open()
-	if not (_G.PLAYER_RIG and _G.PLAYER_RIG:IsValid()) then return end
+	if not players.GetLocal() then return end
 
 	state.open = true
 	state.subject, state.place = 1, "right"
@@ -120,7 +121,7 @@ function inventory_menu.Equip(weapon, place)
 	local subject = inventory_menu.GetSubject()
 	local holder = subject.weapon_holder
 
-	if subject == _G.PLAYER_RIG then
+	if players.IsLocal(subject) then
 		local input = subject.player_input
 
 		if weapon then

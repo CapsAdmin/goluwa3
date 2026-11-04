@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local system = import("goluwa/system.lua")
@@ -14,7 +15,7 @@ local last_right, last_left, last_chest
 local last_change = -math.huge
 
 event.AddListener("DrawHUD", "weapon_hud", function()
-	local rig = _G.PLAYER_RIG
+	local rig = players.GetLocal()
 
 	if
 		not (

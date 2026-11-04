@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
@@ -9,9 +10,9 @@ local AIM_DISTANCE = 100
 local settings = third_person.Settings
 
 event.AddListener("DrawHUD", "crosshair", function()
-	local rig = _G.PLAYER_RIG
+	local rig = players.GetLocal()
 
-	if not (rig and rig:IsValid()) then return end
+	if not rig then return end
 
 	if camera_modes.GetActive() then return end
 
