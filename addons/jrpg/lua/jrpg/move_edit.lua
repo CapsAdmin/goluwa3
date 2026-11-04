@@ -205,6 +205,8 @@ function move_edit.GetKeyIdentity(key)
 		Event = key.Event,
 		Entry = key.Entry,
 		List = key.List,
+		Owner = key.Owner,
+		Gesture = key.Gesture,
 	}
 end
 
@@ -314,7 +316,9 @@ function move_edit.PlaceBlock(list, entry, at, crossfade)
 end
 
 function move_edit.RemoveKey(move, key)
-	if key.Entry then
+	if key.Gesture then
+		move_edit.RemoveGestureKey(key.Gesture, key.Entry)
+	elseif key.Entry then
 		move_edit.RemoveEntry(move, key.List, key.Entry)
 	elseif key.Event then
 		move_edit.RemoveEvent(move, key.Event)
@@ -440,6 +444,55 @@ function move_edit.GetGesturePhase(move, entry, length, time)
 	return entry[1] + (time - from) / (rate * move.Duration)
 end
 
+function move_edit.GetGestureTime(move, entry, length, phase)
+	local from = entry.In or 0
+	local rate = entry.Speed or
+		(
+			(
+				entry.Out or
+				length
+			) - from
+		) / (
+			(
+				entry[2] - entry[1]
+			) * move.Duration
+		)
+	return from + (phase - entry[1]) * move.Duration * rate
+end
+
+function move_edit.CountGestureUses(data, name)
+	local count = 0
+
+	for _, move in pairs(data.Moves) do
+		for _, overlay in ipairs(move.Overlays or {}) do
+			if overlay[3] == name then count = count + 1 end
+		end
+	end
+
+	return count
+end
+
+function move_edit.SetGestureKeyTime(gesture, key, time)
+	local index = move_edit.Find(gesture.Keys, key)
+	local previous, following = gesture.Keys[index - 1], gesture.Keys[index + 1]
+	key[1] = math.clamp(
+		time,
+		previous and previous[1] + 1e-3 or 0,
+		following and following[1] - 1e-3 or gesture.Duration
+	)
+	return key[1]
+end
+
+function move_edit.NormalizeGesture(gesture)
+	move_edit.Sort(gesture.Keys)
+	local previous = -1
+
+	for _, key in ipairs(gesture.Keys) do
+		key[1] = math.min(math.max(key[1], previous + 1e-3), gesture.Duration)
+		previous = key[1]
+	end
+end
+
 function move_edit.NewGestureName(data, base)
 	local name, n = base, 1
 
@@ -493,9 +546,7 @@ function move_edit.AddGestureKey(move, data, entry, phase)
 	return key
 end
 
-function move_edit.RemoveGestureKey(data, entry, key)
-	local gesture = get_gesture(data, entry)
-
+function move_edit.RemoveGestureKey(gesture, key)
 	if #gesture.Keys < 2 then return false end
 
 	table.remove(gesture.Keys, move_edit.Find(gesture.Keys, key))
@@ -852,7 +903,7 @@ function move_edit.GetEventClip(move, event)
 	end
 end
 
-function move_edit.Grab(keys)
+function move_edit.Grab(keys, move)
 	local grabbed = {}
 	local seen = {}
 
@@ -864,7 +915,14 @@ function move_edit.Grab(keys)
 			grabbed[#grabbed + 1] = {
 				Target = target,
 				Event = key.Event ~= nil,
-				Time = key.Event and key.Event.At or target[1],
+				Gesture = key.Gesture,
+				Owner = key.Owner,
+				Time = key.Event and
+					key.Event.At or
+					key.Gesture and
+					move_edit.GetGesturePhase(move, key.Owner, key.Gesture.Duration, target[1])
+					or
+					target[1],
 				Hold = key.Frame and key.Frame.hold or nil,
 				End = (
 						key.List == "Locks" or
@@ -882,12 +940,24 @@ function move_edit.Grab(keys)
 end
 
 function move_edit.Transform(move, grabbed, anchor, scale, offset, snap)
+	local touched = {}
+	local grabbed_targets = {}
+
+	for _, item in ipairs(grabbed) do
+		grabbed_targets[item.Target] = true
+	end
+
 	for _, item in ipairs(grabbed) do
 		local time = anchor + (item.Time - anchor) * scale + offset
 
 		if snap > 0 then time = math.floor(time / snap + 0.5) * snap end
 
-		if item.Event then
+		if item.Gesture then
+			if not grabbed_targets[item.Owner] then
+				item.Target[1] = move_edit.GetGestureTime(move, item.Owner, item.Gesture.Duration, time)
+				touched[item.Gesture] = true
+			end
+		elseif item.Event then
 			item.Target.At = time
 		else
 			item.Target[1] = time
@@ -902,6 +972,10 @@ function move_edit.Transform(move, grabbed, anchor, scale, offset, snap)
 				item.Target[2] = math.min(math.max(finish, time + MIN_BLOCK), 1)
 			end
 		end
+	end
+
+	for gesture in pairs(touched) do
+		move_edit.NormalizeGesture(gesture)
 	end
 
 	move_edit.Sort(move.Keys)
@@ -1138,7 +1212,7 @@ function move_edit.SetEventValue(event, field, index, value)
 	event[field.Name] = values
 end
 
-function move_edit.Rows(move, data, get_wave, get_gesture_wave)
+function move_edit.Rows(move, data, get_wave, get_gesture_wave, open)
 	local rows = {}
 	local by_track = {}
 
@@ -1211,6 +1285,28 @@ function move_edit.Rows(move, data, get_wave, get_gesture_wave)
 	end
 
 	table.insert(rows, 2, {Name = "poses", Color = "primary", Keys = overlay_keys})
+	local opened = open and data.Gestures and data.Gestures[open[3]]
+
+	if opened then
+		local gesture_keys = {}
+
+		for _, gesture_key in ipairs(opened.Keys) do
+			local phase = move_edit.GetGesturePhase(move, open, opened.Duration, gesture_key[1])
+
+			if phase >= open[1] - 1e-6 and phase <= open[2] + 1e-6 then
+				gesture_keys[#gesture_keys + 1] = {
+					Time = phase,
+					Label = gesture_key[2],
+					Entry = gesture_key,
+					List = "GestureKeys",
+					Owner = open,
+					Gesture = opened,
+				}
+			end
+		end
+
+		table.insert(rows, 3, {Name = "keys", Color = "primary", Keys = gesture_keys})
+	end
 
 	for _, shot in ipairs(move.Shots or {}) do
 		shot_keys[#shot_keys + 1] = {Time = shot[1], Label = shot[2], Entry = shot, List = "Shots"}

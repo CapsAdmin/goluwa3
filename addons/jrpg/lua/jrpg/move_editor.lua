@@ -215,6 +215,30 @@ function move_editor.SelectMany(session, selected)
 	session.Selected = selected
 	session.Selection = #selected == 1 and selected[1] or nil
 	session.SelectId = session.SelectId + 1
+	local data = session.Data
+	local open, other
+
+	for _, key in ipairs(selected) do
+		if key.List == "GestureKeys" then
+			open = open or key.Owner
+		elseif key.List == "Overlays" and data.Gestures and data.Gestures[key.Entry[3]] then
+			open = open or key.Entry
+		else
+			other = true
+		end
+	end
+
+	if open then
+		session.OpenBlock = open
+	elseif other then
+		session.OpenBlock = nil
+	end
+end
+
+function move_editor.GetOpenBlock(session)
+	local open = session.OpenBlock
+
+	if open and move_edit.Find(move_editor.GetMove(session).Overlays or {}, open) then return open end
 end
 
 function move_editor.Select(session, selection)
@@ -747,6 +771,12 @@ function move_editor.GetGhostPhases(session)
 			end
 		end
 
+		for _, overlay in ipairs(move_editor.GetMove(session).Overlays or {}) do
+			for _, mark in ipairs(move_edit.GetGestureMarks(move_editor.GetMove(session), session.Data, overlay) or {}) do
+				if mark >= from - 1e-4 and mark <= to + 1e-4 then times[#times + 1] = mark end
+			end
+		end
+
 		table.sort(times)
 
 		for _, time in ipairs(times) do
@@ -884,6 +914,65 @@ local function vector_node(key, text, kind, values, on_change, precision)
 	}
 end
 
+local function get_use_text(data, name)
+	local count = move_edit.CountGestureUses(data, name)
+	return count .. (count == 1 and " block" or " blocks")
+end
+
+local function add_track_items(items, holder, get_base, changed, suffix)
+	for _, track in ipairs(keyframes.OverlayTracks) do
+		local values = holder[track.Name] ~= nil and move_edit.GetValues(holder, track.Name) or get_base(track)
+		local children = {}
+
+		for _, group in ipairs(move_edit.GetGroups(track.Name)) do
+			local scale = group.Radians and DEG or 1
+			local group_values = {}
+
+			for i, index in ipairs(group.Indices) do
+				group_values[i] = values[index] * scale
+			end
+
+			local key = track.Name .. "/" .. group.Label
+
+			local function apply(out)
+				if holder[track.Name] == nil then holder[track.Name] = table.copy(values) end
+
+				for i, index in ipairs(group.Indices) do
+					move_edit.SetTrackValue(holder, track.Name, index, out[i] / scale)
+				end
+
+				changed()
+			end
+
+			if group.Type == "number" then
+				children[#children + 1] = number_node(
+					key,
+					group.Label,
+					group_values[1],
+					|value|->apply({value}),
+					group.Radians and 1 or 3
+				)
+			else
+				children[#children + 1] = vector_node(
+					key,
+					group.Label,
+					group.Type,
+					group_values,
+					apply,
+					group.Radians and 1 or 3
+				)
+			end
+		end
+
+		items[#items + 1] = {
+			Key = track.Name,
+			Text = track.Name .. suffix,
+			Expanded = holder[track.Name] ~= nil,
+			Children = children,
+		}
+	end
+end
+
 function move_editor.BuildItems(session, changed)
 	local move = move_editor.GetMove(session)
 	local selection = session.Selection
@@ -998,6 +1087,71 @@ function move_editor.BuildItems(session, changed)
 		return items
 	end
 
+	if selection.List == "GestureKeys" then
+		local gesture_key, gesture, owner = selection.Entry, selection.Gesture, selection.Owner
+		local pose_options = {{Text = "none", Value = "none"}}
+		local ease_options = {}
+
+		for _, name in ipairs(get_pose_names(session.Data)) do
+			pose_options[#pose_options + 1] = {Text = name, Value = name}
+		end
+
+		for i, name in ipairs(move_edit.Eases) do
+			ease_options[i] = {Text = name, Value = name}
+		end
+
+		items[#items + 1] = {
+			Key = "key",
+			Text = string.format("pose key (animation used by %s)", get_use_text(session.Data, owner[3])),
+			Expanded = true,
+			Children = {
+				number_node(
+					"key/time",
+					"time (s)",
+					gesture_key[1],
+					|value|-> do
+						move_edit.SetGestureKeyTime(gesture, gesture_key, value)
+						changed()
+					end
+				),
+				{
+					Key = "key/pose",
+					Text = "pose",
+					Type = "enum",
+					Value = gesture_key[2] or "none",
+					Options = pose_options,
+					OnChange = |_, value|-> do
+						gesture_key[2] = value ~= "none" and value or nil
+						session.SelectId = session.SelectId + 1
+						changed()
+					end,
+				},
+				{
+					Key = "key/ease",
+					Text = "ease",
+					Type = "enum",
+					Value = gesture_key.ease or "smooth",
+					Options = ease_options,
+					OnChange = |_, value|-> do
+						gesture_key.ease = value ~= "smooth" and value or nil
+						changed()
+					end,
+				},
+			},
+		}
+		add_track_items(
+			items,
+			gesture_key,
+			|track|-> do
+				local base = gesture_key[2] and keyframes.ResolvePose(gesture_key[2], session.Data.Poses)[track.Name]
+				return move_edit.GetValues({[track.Name] = base or track.Rest}, track.Name)
+			end,
+			changed,
+			" (override)"
+		)
+		return items
+	end
+
 	if selection.List == "Overlays" then
 		local entry = selection.Entry
 		local options = {}
@@ -1089,8 +1243,15 @@ function move_editor.BuildItems(session, changed)
 			number_field("key/out", "out", "Out", 0),
 			number_field("key/speed", "speed", "Speed", 0),
 		}
-		items[#items + 1] = {Key = "key", Text = "pose block", Expanded = true, Children = children}
 		local gesture = session.Data.Gestures and session.Data.Gestures[entry[3]]
+		items[#items + 1] = {
+			Key = "key",
+			Text = gesture and
+				string.format("pose block (animation used by %s)", get_use_text(session.Data, entry[3])) or
+				"pose block",
+			Expanded = true,
+			Children = children,
+		}
 
 		if gesture then
 			local pose_options = {}
@@ -1122,9 +1283,7 @@ function move_editor.BuildItems(session, changed)
 							"time (s)",
 							gesture_key[1],
 							|value|-> do
-								gesture_key[1] = math.clamp(value, 0, gesture.Duration)
-								move_edit.Sort(gesture.Keys)
-								session.SelectId = session.SelectId + 1
+								move_edit.SetGestureKeyTime(gesture, gesture_key, value)
 								changed()
 							end
 						),
@@ -1162,54 +1321,13 @@ function move_editor.BuildItems(session, changed)
 			session.Data.Poses,
 			session.Data.Gestures
 		)
-
-		for _, track in ipairs(keyframes.OverlayTracks) do
-			local values = entry[track.Name] ~= nil and
-				move_edit.GetValues(entry, track.Name) or
-				move_edit.Sample({[track.Key] = resolved[track.Name]}, track.Name, 0)
-			local track_children = {}
-
-			for _, group in ipairs(move_edit.GetGroups(track.Name)) do
-				local scale = group.Radians and DEG or 1
-				local group_values = {}
-
-				for i, index in ipairs(group.Indices) do
-					group_values[i] = values[index] * scale
-				end
-
-				local key = track.Name .. "/" .. group.Label
-
-				local function apply(out)
-					for i, index in ipairs(group.Indices) do
-						move_edit.SetTrackValue(entry, track.Name, index, out[i] / scale)
-					end
-
-					changed()
-				end
-
-				if group.Type == "number" then
-					track_children[#track_children + 1] = number_node(
-						key,
-						group.Label,
-						group_values[1],
-						|value|->apply({value}),
-						group.Radians and 1 or 3
-					)
-				else
-					track_children[#track_children + 1] = vector_node(
-						key,
-						group.Label,
-						group.Type,
-						group_values,
-						apply,
-						group.Radians and 1 or 3
-					)
-				end
-			end
-
-			items[#items + 1] = {Key = track.Name, Text = track.Name .. " (override)", Expanded = false, Children = track_children}
-		end
-
+		add_track_items(
+			items,
+			entry,
+			|track|->move_edit.Sample({[track.Key] = resolved[track.Name]}, track.Name, 0),
+			changed,
+			" (override)"
+		)
 		return items
 	end
 
@@ -1843,7 +1961,8 @@ local MoveEditor = react.Component(
 			move,
 			session.Data,
 			|name|->move_editor.GetWave(session, name),
-			|name|->move_editor.GetGestureWave(session, name)
+			|name|->move_editor.GetGestureWave(session, name),
+			move_editor.GetOpenBlock(session)
 		)
 		local addable = move_edit.AddableTracks(move)
 
@@ -1970,7 +2089,7 @@ local MoveEditor = react.Component(
 								h.refresh()
 							end,
 							OnKeysTransform = |anchor, scale, offset, first, timeline|-> do
-								if first then session.Grabbed = move_edit.Grab(session.Selected) end
+								if first then session.Grabbed = move_edit.Grab(session.Selected, move) end
 
 								move_edit.Transform(move, session.Grabbed, anchor, scale, offset, timeline:GetSnap())
 								h.changed(first)
@@ -2139,7 +2258,7 @@ local MoveEditor = react.Component(
 													removers[i] = MenuItem{
 														Text = string.format("key %d (%.3fs)", i, gesture_key[1]),
 														OnClick = ||-> do
-															if move_edit.RemoveGestureKey(session.Data, key.Entry, gesture_key) then
+															if move_edit.RemoveGestureKey(gesture, gesture_key) then
 																session.SelectId = session.SelectId + 1
 																h.changed(true)
 															end
@@ -2238,8 +2357,15 @@ local MoveEditor = react.Component(
 							end,
 							OnKeyMove = |row, index, time|-> do
 								local key = rows[row].Keys[index]
+								local panel_time = time
 
-								if key.List == "Clips" or key.List == "Locks" or key.List == "Overlays" then
+								if key.List == "GestureKeys" then
+									panel_time = move_edit.SetGestureKeyTime(
+										key.Gesture,
+										key.Entry,
+										move_edit.GetGestureTime(move, key.Owner, key.Gesture.Duration, time)
+									)
+								elseif key.List == "Clips" or key.List == "Locks" or key.List == "Overlays" then
 									move_edit.PlaceBlock(move[key.List], key.Entry, time, key.List ~= "Locks")
 								elseif key.Entry then
 									key.Entry[1] = time
@@ -2255,13 +2381,29 @@ local MoveEditor = react.Component(
 								h.changed()
 
 								if properties.current then
-									properties.current:UpdateValueForKey("key/time", time)
+									properties.current:UpdateValueForKey("key/time", panel_time)
 								end
 							end,
 							OnKeyAdd = |row, time|-> do
 								local name = rows[row].Name
 
-								if name == "poses" then
+								if name == "keys" then
+									local open = move_editor.GetOpenBlock(session)
+									local gesture_key = open and move_edit.AddGestureKey(move, session.Data, open, time)
+
+									if gesture_key then
+										move_editor.Select(
+											session,
+											{
+												Entry = gesture_key,
+												List = "GestureKeys",
+												Owner = open,
+												Gesture = session.Data.Gestures[open[3]],
+											}
+										)
+										h.changed(true)
+									end
+								elseif name == "poses" then
 									local last = move.Overlays and move.Overlays[#move.Overlays]
 									local overlay = move_edit.AddOverlay(move, time, last and last[3] or get_pose_names(session.Data)[1])
 

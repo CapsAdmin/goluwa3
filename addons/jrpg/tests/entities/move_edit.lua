@@ -113,7 +113,7 @@ T.Test("removing and transforming selected keys keeps frames and events ordered"
 		{Frame = carry.Keys[2].Frame, Track = "carry"},
 		{Event = find_row(rows, "latch").Keys[1].Event},
 	}
-	local grabbed = move_edit.Grab(keys)
+	local grabbed = move_edit.Grab(keys, move)
 	local first_time = carry.Keys[1].Time
 	local latch_time = keys[3].Event.At
 	move_edit.Transform(move, grabbed, first_time, 2, 0, 0.005)
@@ -329,7 +329,7 @@ T.Test("scaling or moving a group of clips keeps their ends snapped together so 
 		keys[#keys + 1] = {Entry = clip, List = "Clips"}
 	end
 
-	local grabbed = move_edit.Grab(keys)
+	local grabbed = move_edit.Grab(keys, move)
 
 	for _, scale in ipairs{0.5, 0.83, 0.37, 1} do
 		move_edit.Transform(move, grabbed, 0, scale, 0, 0.005)
@@ -544,7 +544,7 @@ T.Test("pose animation keys are added and removed and the gesture stays valid", 
 	T(key[1])["~"](0.5, 1e-9)
 	T(#data.Gestures.swing.Keys)["=="](3)
 	T(move_edit.AddGestureKey(move, data, move.Overlays[1], 0.5))["=="](nil)
-	T(move_edit.RemoveGestureKey(data, move.Overlays[1], key))["=="](true)
+	T(move_edit.RemoveGestureKey(data.Gestures.swing, key))["=="](true)
 	T(#data.Gestures.swing.Keys)["=="](2)
 	T(#move_edit.GetGestureMarks(move, data, move.Overlays[1]))["=="](2)
 	local def = {Poses = {}, Gestures = data.Gestures, Moves = {a = move}}
@@ -579,4 +579,57 @@ T.Test("a pose animation shows its activity as a wave that is flat while it hold
 	)
 	T(#row.Keys[1].Wave.Values)["=="](32)
 	T(row.Keys[1].Wave.To)["=="](1)
+end)
+
+T.Test("an opened pose animation gets a row of keys that drag, transform and remove in gesture seconds", function()
+	local data = {
+		Gestures = {
+			swing = {
+				Duration = 1,
+				Keys = {{0, "windup_right"}, {0.4, "cut_left", ease = "in"}, {0.8, "cut_left"}},
+			},
+		},
+		Moves = {},
+	}
+	local move = {
+		Duration = 2,
+		Overlays = {{0.25, 0.75, "swing", In = 0.2, Out = 0.8}},
+		Keys = {},
+	}
+	data.Moves.a = move
+	T(find_row(move_edit.Rows(move, data), "keys"))["=="](nil)
+	local rows = move_edit.Rows(move, data, nil, nil, move.Overlays[1])
+	local keys = find_row(rows, "keys").Keys
+	T(#keys)["=="](2)
+	T(keys[1].Time)["~"](0.25 + 0.2 / 1.2, 1e-9)
+	T(keys[1].Entry)["=="](data.Gestures.swing.Keys[2])
+	T(keys[1].Owner)["=="](move.Overlays[1])
+	T(move_edit.CountGestureUses(data, "swing"))["=="](1)
+	local selected = {move_edit.GetKeyIdentity(keys[1])}
+	local grabbed = move_edit.Grab(selected, move)
+	move_edit.Transform(move, grabbed, 0, 1, 0.05, 0)
+	T(data.Gestures.swing.Keys[2][1])["~"](move_edit.GetGestureTime(move, move.Overlays[1], 1, keys[1].Time + 0.05), 1e-9)
+	T(data.Gestures.swing.Keys[2][1] > 0.4)["=="](true)
+	move_edit.Transform(move, grabbed, 0, 1, 5, 0)
+	T(data.Gestures.swing.Keys[2][1] <= 1)["=="](true)
+	local order = data.Gestures.swing.Keys
+
+	for i = 2, #order do
+		T(order[i][1] > order[i - 1][1])["=="](true)
+	end
+
+	move_edit.RemoveKey(move, selected[1])
+	T(#data.Gestures.swing.Keys)["=="](2)
+	T(move_edit.RemoveGestureKey(data.Gestures.swing, data.Gestures.swing.Keys[1]))["=="](true)
+	T(move_edit.RemoveGestureKey(data.Gestures.swing, data.Gestures.swing.Keys[1]))["=="](false)
+end)
+
+T.Test("setting a pose key's time keeps it between its neighbours so a drag never reorders the keys", function()
+	local gesture = {Duration = 1, Keys = {{0, "a"}, {0.4, "b"}, {0.8, "c"}}}
+	local middle = gesture.Keys[2]
+	T(move_edit.SetGestureKeyTime(gesture, middle, 0.6))["=="](0.6)
+	T(move_edit.SetGestureKeyTime(gesture, middle, 5))["~"](0.799, 1e-9)
+	T(move_edit.SetGestureKeyTime(gesture, middle, -5))["~"](0.001, 1e-9)
+	T(gesture.Keys[2])["=="](middle)
+	T(move_edit.SetGestureKeyTime(gesture, gesture.Keys[3], 5))["=="](1)
 end)
