@@ -253,7 +253,7 @@ function META:update_height()
 	local body = self._body.transform
 	local clip_w = clip:GetWidth()
 
-	if body:GetWidth() ~= clip_w then body:SetWidth(clip_w) end
+	if clip_w > 0 and body:GetWidth() ~= clip_w then body:SetWidth(clip_w) end
 
 	local height = body:GetHeight()
 	local target = height * self.OpenFraction
