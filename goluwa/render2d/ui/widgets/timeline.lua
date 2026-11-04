@@ -787,6 +787,14 @@ do
 						font:DrawText(key.Label, bx + 6, by + 2)
 					end
 
+					if key.Marks then
+						render2d.SetColor(surface.r, surface.g, surface.b, 0.9)
+
+						for _, mark in ipairs(key.Marks) do
+							render2d.DrawRect(math.floor(self:time_to_x(mark)), by + bh - 6, 1, 6)
+						end
+					end
+
 					render2d.PopClip()
 					render2d.SetColor(text.r, text.g, text.b, selected and 1 or 0.6)
 					render2d.DrawRect(bx, by, bw, 1)
