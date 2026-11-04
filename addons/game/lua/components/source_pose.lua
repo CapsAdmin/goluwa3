@@ -225,8 +225,27 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 	end
 
 	self.reaction_inst = nil
-	local action = pose:GetActiveAction()
+	local action, phase = pose:GetActiveAction()
 	local move = action and movesets.GetMove(action)
+
+	if move and move.Clip and pose.scrub then
+		if self.scrubbed ~= move.Clip then
+			self.scrubbed = move.Clip
+			self.sequence = move.Clip
+			animator:SetLoop(false)
+			animator:SetSequence(move.Clip)
+		end
+
+		animator:SetPlaying(false)
+		animator:SetTime(phase * skeleton.ClipsByName[move.Clip].Duration)
+		return
+	end
+
+	if self.scrubbed then
+		self.scrubbed = nil
+		self.clip_actions = nil
+		animator:SetPlaying(true)
+	end
 
 	if move and move.Clip then
 		local clip = skeleton.ClipsByName[move.Clip]
