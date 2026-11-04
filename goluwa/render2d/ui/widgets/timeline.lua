@@ -29,6 +29,7 @@ local EDGE_RADIUS = 5
 local MIN_SCALE = 0.05
 local BAND_HEIGHT = 8
 local PLAYHEAD_HEIGHT = 7
+local BAR_PICK = 5
 
 function META.OnScrub(time, timeline) end
 
@@ -47,6 +48,8 @@ function META.OnKeysTransform(anchor, scale, offset, first, timeline) end
 function META.OnKeysDrop(timeline) end
 
 function META.OnKeyMenu(row, index, timeline) end
+
+function META.OnKeyResize(row, index, time, timeline) end
 
 function META.OnRowAction(row, timeline) end
 
@@ -89,6 +92,10 @@ function META:key_x(key)
 	return math.floor(self:time_to_x(key.Time)) + 0.5
 end
 
+function META:key_end_x(key)
+	return math.floor(self:time_to_x(key.Until)) + 0.5
+end
+
 function META:x_to_time(x)
 	local width = self:get_axis_width()
 	return self._from + (
@@ -118,17 +125,43 @@ function META:key_at(local_pos)
 
 	if not row or local_pos.x < self.LabelWidth then return end
 
-	local best, best_distance
+	local best, best_distance, part
+	local keys = self.Rows[row].Keys
 
-	for index, key in ipairs(self.Rows[row].Keys) do
+	for index, key in ipairs(keys) do
 		local distance = math.abs(self:time_to_x(key.Time) - local_pos.x)
 
 		if distance <= PICK_RADIUS and (not best_distance or distance <= best_distance) then
-			best, best_distance = index, distance
+			best, best_distance, part = index, distance, "start"
+		end
+
+		if key.Until and key.Until > key.Time then
+			distance = math.abs(self:time_to_x(key.Until) - local_pos.x)
+
+			if distance <= PICK_RADIUS and (not best_distance or distance < best_distance) then
+				best, best_distance, part = index, distance, "end"
+			end
 		end
 	end
 
-	return row, best
+	if best then return row, best, part end
+
+	if
+		math.abs(local_pos.y - (self.RulerHeight + (row - 0.5) * self.RowHeight)) <= BAR_PICK
+	then
+		for index, key in ipairs(keys) do
+			if
+				key.Until and
+				local_pos.x > self:time_to_x(key.Time)
+				and
+				local_pos.x < self:time_to_x(key.Until)
+			then
+				return row, index, "bar"
+			end
+		end
+	end
+
+	return row
 end
 
 function META:scrub_to(local_pos)
@@ -260,7 +293,7 @@ function META:OnMouseInput(button, press, local_pos)
 		return true
 	end
 
-	local row, index = self:key_at(local_pos)
+	local row, index, part = self:key_at(local_pos)
 	local button_row = self:row_at(local_pos.y)
 
 	if button_row and self.Rows[button_row].Button then
@@ -283,6 +316,12 @@ function META:OnMouseInput(button, press, local_pos)
 		if not found then selection[#selection + 1] = {row, index} end
 
 		self.OnSelectKeys(selection, self)
+	elseif index and part == "end" then
+		if not self:is_selected(row, index) or #self.Selection > 1 then
+			self.OnSelect(row, index, self)
+		end
+
+		self._drag = {kind = "resize", row = row, index = index, moved = false}
 	elseif index and self:is_selected(row, index) and #self.Selection > 1 then
 		local first, last = self:get_selection_bounds()
 		self:begin_keys_drag(local_pos, "move", first, last)
@@ -319,7 +358,7 @@ function META:end_drag(local_pos)
 
 	if not drag then return end
 
-	if drag.kind == "key" and drag.moved then
+	if (drag.kind == "key" or drag.kind == "resize") and drag.moved then
 		self.OnKeyDrop(drag.row, drag.index, self)
 	elseif drag.kind == "marquee" then
 		if not drag.moved then
@@ -391,6 +430,19 @@ function META:OnGlobalMouseMove(pos)
 		end
 
 		self.OnSelectKeys(selection, self)
+	elseif drag.kind == "resize" then
+		local keys = self.Rows[drag.row].Keys
+		local key, following = keys[drag.index], keys[drag.index + 1]
+		local time = math.clamp(
+			self:snap(self:x_to_time(local_pos.x)),
+			key.Time + self.Snap,
+			following and following.Time - self.Snap or self.Length
+		)
+
+		if time ~= key.Until then
+			drag.moved = true
+			self.OnKeyResize(drag.row, drag.index, time, self)
+		end
 	elseif drag.kind == "move" or drag.kind == "left" or drag.kind == "right" then
 		local anchor, scale, offset = 0, 1, 0
 		local time = self:x_to_time(local_pos.x)
@@ -503,11 +555,11 @@ do
 
 			local color = row.Color and active:GetColor(row.Color) or primary
 
-			for _, key in ipairs(row.Keys) do
+			for j, key in ipairs(row.Keys) do
 				if key.Until and key.Until > key.Time then
 					local x = self:key_x(key)
-					render2d.SetColor(color.r, color.g, color.b, 0.35)
-					render2d.DrawRect(x, y + row_height / 2 - 2, self:time_to_x(key.Until) - x, 4)
+					render2d.SetColor(color.r, color.g, color.b, self:is_selected(i, j) and 0.6 or 0.35)
+					render2d.DrawRect(x, y + row_height / 2 - 2, self:key_end_x(key) - x, 4)
 				end
 			end
 		end
@@ -562,6 +614,18 @@ do
 
 				render2d.SetColor(color.r, color.g, color.b, 1)
 				draw_key(x, cy, KEY_RADIUS, row.Round)
+
+				if key.Until and key.Until > key.Time then
+					local end_x = self:key_end_x(key)
+
+					if self:is_selected(i, j) then
+						render2d.SetColor(text.r, text.g, text.b, 1)
+						draw_key(end_x, cy, KEY_RADIUS + 2, row.Round)
+					end
+
+					render2d.SetColor(color.r, color.g, color.b, 1)
+					draw_key(end_x, cy, KEY_RADIUS, row.Round)
+				end
 
 				if key.Label and self._to - self._from < self.Length * 0.6 then
 					render2d.SetColor(text.r, text.g, text.b, 0.8)

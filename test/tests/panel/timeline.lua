@@ -131,3 +131,50 @@ T.Test2D("timeline marquee selects keys, moves them together and scales the boun
 	T(log.menu[2])["=="](2)
 	timeline:Remove()
 end)
+
+T.Test2D("timeline keys with an until have an end handle to resize and a bar that selects them", function()
+	local log = {}
+	local rows = {{Name = "a", Keys = {{Time = 0.2, Until = 0.4}, {Time = 0.7}}}}
+	local timeline = Timeline{
+		Rows = rows,
+		Size = Vec2(1096, 100),
+		LabelWidth = 96,
+		AxisPadding = 0,
+		RulerHeight = 20,
+		RowHeight = 20,
+		OnSelect = function(row, index)
+			log.selected = {row, index}
+		end,
+		OnKeyResize = function(row, index, time)
+			log.resized = time
+			rows[row].Keys[index].Until = time
+		end,
+		OnKeyMove = function(row, index, time)
+			log.moved = time
+		end,
+	}
+	timeline.transform:SetSize(Vec2(1096, 100))
+	timeline.transform:SetPosition(Vec2(0, 0))
+	local x = |time|->96 + time * 1000
+	local row, index, part = timeline:key_at(Vec2(x(0.3), 30))
+	T(index)["=="](1)
+	T(part)["=="]("bar")
+	row, index, part = timeline:key_at(Vec2(x(0.4), 30))
+	T(part)["=="]("end")
+	timeline:OnMouseInput("button_1", true, Vec2(x(0.4), 30))
+	T(log.selected[2])["=="](1)
+	timeline:OnGlobalMouseMove(Vec2(x(0.55), 30))
+	T(log.resized)["=="](0.55)
+	timeline:OnGlobalMouseMove(Vec2(x(0.9), 30))
+	T(log.resized)["=="](0.7 - timeline:GetSnap())
+	timeline:OnGlobalMouseMove(Vec2(x(0.1), 30))
+	T(log.resized)["=="](0.2 + timeline:GetSnap())
+	timeline:OnGlobalMouseInput("button_1", false)
+	rows[1].Keys[1].Until = 0.4
+	log.moved = nil
+	timeline:OnMouseInput("button_1", true, Vec2(x(0.3), 30))
+	T(log.selected[2])["=="](1)
+	timeline:OnGlobalMouseMove(Vec2(x(0.35), 30))
+	T(log.moved)["~"](0.25, 0.006)
+	timeline:Remove()
+end)
