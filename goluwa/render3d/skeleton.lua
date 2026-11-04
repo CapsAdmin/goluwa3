@@ -87,27 +87,104 @@ function Skeleton:GetBoneIndex(name)
 	end
 end
 
-function Skeleton:BlendPoses(a, b, t, out)
+local function blend_bone(a, b, t, out, o)
 	local s = 1 - t
+	out[o] = a[o] * s + b[o] * t
+	out[o + 1] = a[o + 1] * s + b[o + 1] * t
+	out[o + 2] = a[o + 2] * s + b[o + 2] * t
+	local ax, ay, az, aw = a[o + 3], a[o + 4], a[o + 5], a[o + 6]
+	local bx, by, bz, bw = b[o + 3], b[o + 4], b[o + 5], b[o + 6]
+
+	if ax * bx + ay * by + az * bz + aw * bw < 0 then
+		bx, by, bz, bw = -bx, -by, -bz, -bw
+	end
+
+	local x, y, z, w = ax * s + bx * t, ay * s + by * t, az * s + bz * t, aw * s + bw * t
+	local inv = 1 / math.sqrt(x * x + y * y + z * z + w * w)
+	out[o + 3] = x * inv
+	out[o + 4] = y * inv
+	out[o + 5] = z * inv
+	out[o + 6] = w * inv
+end
+
+function Skeleton:BlendPoses(a, b, t, out)
+	for i = 0, self.BoneCount - 1 do
+		blend_bone(a, b, t, out, i * 7)
+	end
+end
+
+function Skeleton:BlendPosesMasked(a, b, weights, out)
+	for i = 0, self.BoneCount - 1 do
+		local weight = weights[i]
+
+		if weight >= 1 then
+			ffi.copy(out + i * 7, b + i * 7, 28)
+		elseif weight > 0 then
+			blend_bone(a, b, weight, out, i * 7)
+		elseif out ~= a then
+			ffi.copy(out + i * 7, a + i * 7, 28)
+		end
+	end
+end
+
+function Skeleton:CreateBoneMask(roots, weight)
+	local mask = Floats(self.BoneCount)
+	local inside = {}
+
+	for _, name in ipairs(roots) do
+		inside[assert(self:GetBoneIndex(name), "no bone " .. name)] = true
+	end
 
 	for i = 0, self.BoneCount - 1 do
-		local o = i * 7
-		out[o] = a[o] * s + b[o] * t
-		out[o + 1] = a[o + 1] * s + b[o + 1] * t
-		out[o + 2] = a[o + 2] * s + b[o + 2] * t
-		local ax, ay, az, aw = a[o + 3], a[o + 4], a[o + 5], a[o + 6]
-		local bx, by, bz, bw = b[o + 3], b[o + 4], b[o + 5], b[o + 6]
+		local parent = self.parents[i]
 
-		if ax * bx + ay * by + az * bz + aw * bw < 0 then
-			bx, by, bz, bw = -bx, -by, -bz, -bw
+		if parent >= 0 and inside[parent] then inside[i] = true end
+
+		mask[i] = inside[i] and weight or 0
+	end
+
+	return mask
+end
+
+do
+	local function sample_mix(clip, cycle, params, out)
+		local layers = clip.layers
+		layers[1].clip:Sample(cycle, params, out)
+
+		for i = 2, #layers do
+			local layer = layers[i]
+			layer.clip:Sample(cycle, params, layer.scratch)
+			clip.skeleton:BlendPosesMasked(out, layer.scratch, layer.weights, out)
+		end
+	end
+
+	local function get_mix_ground_speed(clip, params)
+		return clip.layers[clip.ground_speed_layer].clip:GetGroundSpeed(params)
+	end
+
+	function Skeleton:AddMixClip(config)
+		local layers = {}
+
+		for i, layer in ipairs(config.Layers) do
+			layers[i] = {
+				clip = assert(self.ClipsByName[layer.Clip], "no clip " .. layer.Clip),
+				scratch = i > 1 and self:CreatePose() or nil,
+				weights = i > 1 and
+					self:CreateBoneMask(layer.Bones or {self.BoneNames[1]}, layer.Weight or 1) or
+					nil,
+			}
 		end
 
-		local x, y, z, w = ax * s + bx * t, ay * s + by * t, az * s + bz * t, aw * s + bw * t
-		local inv = 1 / math.sqrt(x * x + y * y + z * z + w * w)
-		out[o + 3] = x * inv
-		out[o + 4] = y * inv
-		out[o + 5] = z * inv
-		out[o + 6] = w * inv
+		self:AddClip{
+			Name = config.Name,
+			Duration = layers[1].clip.Duration,
+			Loop = layers[1].clip.Loop,
+			Sample = sample_mix,
+			GetGroundSpeed = get_mix_ground_speed,
+			skeleton = self,
+			layers = layers,
+			ground_speed_layer = config.GroundSpeedLayer or 1,
+		}
 	end
 end
 
