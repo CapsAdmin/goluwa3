@@ -7,9 +7,9 @@ return {
 	Shader = "snow",
 	ShaderParams = {
 		Flake = "snowflake",
+		SizeVariation = 0.5,
 		Sway = 0.35,
 		SwayRate = 1.2,
-		SizeVariation = 0.5,
 		Tumble = 1.5,
 		Wind = {0.05, 0, 0},
 	},

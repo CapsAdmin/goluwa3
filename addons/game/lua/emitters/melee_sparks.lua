@@ -1,9 +1,4 @@
 return {
-	MaxParticles = 512,
-	Rate = 0,
-	RatePerMeter = 20,
-	Shape = "point",
-	Spread = 80,
 	Collision = "none",
 	Color = {Keys = {{0, {1, 1, 1, 1}}, {1, {1, 1, 1, 0}}}},
 	Drag = 12,
@@ -11,11 +6,14 @@ return {
 	Fizzle = 1,
 	Flow = 0.3,
 	GravityScale = 0,
+	Inputs = {Tint = {DefaultColor = {1, 1, 1, 1}, Targets = {{"Color", "set_last"}}}},
 	Lifetime = {0.75, 1.5},
 	Lit = false,
+	MaxParticles = 512,
+	Rate = 0,
+	RatePerMeter = 20,
+	Shape = "point",
 	Size = {Keys = {{0, 0.002}, {1, 0.0007}}, MaxKeys = {{0, 0.006}, {1, 0.0021}}},
 	Speed = {0.18, 0.66},
-	Inputs = {
-		Tint = {DefaultColor = {1, 1, 1, 1}, Targets = {{"Color", "set_last"}}},
-	},
+	Spread = 80,
 }
