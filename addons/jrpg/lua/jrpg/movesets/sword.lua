@@ -211,7 +211,7 @@ return {
 				{0.5, motion = {0, 1.1, 1}},
 				{0.52, "cut_left", ease = "in", hold = 0.1},
 			},
-			Events = {{At = 0.52, Type = "hit", Cut = {-0.94, -0.33, 0}, Swing = {0.36, 0.56}}},
+			Events = {{At = 0.5, Type = "hit", Cut = {-0.94, -0.33, 0}, Swing = {0.36, 0.56}}},
 		},
 		light_2 = {
 			Duration = 0.5,
@@ -221,10 +221,10 @@ return {
 			Keys = {
 				{0.25, motion = {0, 0, 0}},
 				{0.3, "windup_left", ease = "out", hold = 0.06},
-				{0.5, motion = {-15, 1.1, 1}},
+				{0.485, motion = {-15, 1.1, 1}},
 				{0.52, "cut_right", ease = "in", hold = 0.1},
 			},
-			Events = {{At = 0.52, Type = "hit", Cut = {0.93, 0.37, 0}, Swing = {0.36, 0.56}}},
+			Events = {{At = 0.485, Type = "hit", Cut = {0.93, 0.37, 0}, Swing = {0.36, 0.56}}},
 		},
 		light_3 = {
 			Duration = 0.7,
