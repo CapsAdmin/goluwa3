@@ -407,7 +407,14 @@ function keyframes.Compile(def, poses)
 
 		if rows[1] and not is_rest(rows, track.Rest) then
 			if rows[#rows][1] < 1 and not track.Extend then
-				add_key(rows, 1, track.Rest, nil, track)
+				local last = rows[#rows]
+				local values = {unpack(track.Rest)}
+
+				for _, i in ipairs(track.Radians or {}) do
+					values[i] = math.floor(last[i + 1] / math.tau + 0.5) * math.tau
+				end
+
+				add_key(rows, 1, values, nil, track)
 			end
 
 			def[track.Key] = rows
