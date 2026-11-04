@@ -6,6 +6,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
 Entity.RegisterComponent("ai_controller", import("lua/components/ai_controller.lua"))
+Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
 Entity.RegisterComponent("weapon", import("lua/components/weapon.lua"))
 Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
 import("lua/weapons.lua")
@@ -998,4 +999,43 @@ T.TestPhysics("a swing that strikes a wall from a distance is canceled, but one 
 
 	T(victim.health:GetHealth() < 1000)["=="](true)
 	T(rewound)["=="](false)
+end)
+
+T.TestPhysics("an armed npc closes to the sword's range and uses more than one move", function()
+	create_ground()
+	local npc = create_character(Vec3(0, 0.05, 0), 1000)
+	npc.ai_controller:SetFaction("enemy")
+	npc.ai_controller:SetWalkSpeed(3)
+	npc.ai_controller:SetRunSpeed(3)
+	local sword = npc.weapon_holder:Give("weapon_sword", PLAIN)
+	local player = Entity.New{
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"health",
+		},
+		transform = {Position = Vec3(6, 0.05, 0)},
+		player_controller = {Source = "queue"},
+		health = {Health = 1000, MaxHealth = 1000},
+	}
+	player.player_controller.cmd.mode = "walk"
+	player.character_movement:TeleportTo(Vec3(6, 0.05, 0))
+	local runner = sword.weapon_melee:GetRunner()
+	local seen = {}
+	local closest = math.huge
+
+	for _ = 1, 15 * 60 do
+		run(1 / 60, {npc.character_pose})
+		local move = runner:IsPlaying() and runner.move
+
+		if move then seen[move] = true end
+
+		closest = math.min(closest, npc.transform:GetPosition():Distance(player.transform:GetPosition()))
+	end
+
+	T(closest < sword.weapon_melee.Range)["=="](true)
+	T(player.health.Health < player.health.MaxHealth)["=="](true)
+	T(table.count(seen) > 1)["=="](true)
 end)

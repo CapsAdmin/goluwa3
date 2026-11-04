@@ -12,6 +12,8 @@ local simulation_lod = import("lua/simulation_lod.lua")
 local movesets = import("lua/movesets.lua")
 local BUTTON = usercmd.BUTTON
 local NO_ATTACKS = {}
+local MELEE_STAND_SHARE = 0.8
+local MELEE_BUTTONS = {BUTTON.ATTACK1, BUTTON.ATTACK1, BUTTON.ATTACK2, BUTTON.RELOAD}
 local IDLE_MIN = 5
 local IDLE_MAX = 14
 local META = objects.CreateTemplate("ai_controller")
@@ -412,6 +414,11 @@ function META:IsArmed()
 	return holder ~= nil and holder:GetWeapon("right") ~= nil
 end
 
+function META:GetMelee()
+	local weapon = self.Owner.weapon_holder:GetWeapon("right")
+	return weapon and weapon.weapon_melee
+end
+
 function META:CanFight()
 	return self:IsArmed() or #self.Attacks > 0
 end
@@ -610,6 +617,7 @@ function META:NextCommand(dt)
 	local pose = owner.character_pose
 	local stunned = pose ~= nil and (pose:IsStunned() or pose:IsFrozen())
 	local runner = owner.move_runner
+	local melee, melee_reach
 
 	if runner and runner:IsPlaying() and runner.listener == self then
 		local state, ended = runner:Step(dt, true)
@@ -625,7 +633,25 @@ function META:NextCommand(dt)
 		self.time = self.time + dt
 		self.stuck_position = nil
 
-		if not self:IsArmed() and not stunned then self:Fight(target, position) end
+		if not stunned then
+			if not self:IsArmed() then
+				self:Fight(target, position)
+			else
+				melee = self:GetMelee()
+
+				if melee then
+					local offset = target.transform:GetPosition() - position
+					offset.y = 0
+					local distance = offset:GetLength()
+					melee_reach = self:GetReach(position, target, distance)
+
+					if melee_reach > melee.Range * MELEE_STAND_SHARE and distance > 1e-3 then
+						self.dir_x, self.dir_z = offset.x / distance, offset.z / distance
+						self.chasing = true
+					end
+				end
+			end
+		end
 	else
 		if not target then
 			self.target = nil
@@ -692,10 +718,14 @@ function META:NextCommand(dt)
 			self:CanFight() and
 			not stunned and
 			math.abs(delta) < AIM_TOLERANCE and
-			self.time >= self.next_fire
+			self.time >= self.next_fire and
+			(
+				not melee or
+				melee_reach <= melee.Range
+			)
 		then
 			self.next_fire = self.time + self.FireInterval * math.randomf(0.7, 1.3)
-			cmd.buttons = bit.bor(cmd.buttons, BUTTON.ATTACK1)
+			cmd.buttons = bit.bor(cmd.buttons, melee and MELEE_BUTTONS[math.random(#MELEE_BUTTONS)] or BUTTON.ATTACK1)
 			aim_yaw = aim_yaw + math.randomf(-self.AimError, self.AimError)
 			pitch = pitch + math.randomf(-self.AimError, self.AimError)
 		end
