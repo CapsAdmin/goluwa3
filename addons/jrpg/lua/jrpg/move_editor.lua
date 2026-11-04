@@ -440,6 +440,38 @@ function move_editor.BuildItems(session, changed)
 		)
 	end
 
+	local skeleton = session.Grabber.animator and session.Grabber.animator.skeleton
+
+	if move.Clip and skeleton then
+		local options = {}
+
+		for i, clip in ipairs(skeleton.Clips) do
+			options[i] = {Text = string.format("%s (%.2fs)", clip.Name, clip.Duration), Value = clip.Name}
+		end
+
+		move_children[#move_children + 1] = {
+			Key = "move/Clip",
+			Text = "clip",
+			Type = "enum",
+			Value = move.Clip,
+			Options = options,
+			OnChange = |_, value|-> do
+				move.Clip = value
+				move.Duration = skeleton.ClipsByName[value].Duration
+				changed(true)
+			end,
+		}
+		move_children[#move_children + 1] = number_node(
+			"move/ClipSpeed",
+			"clip speed",
+			move.ClipSpeed or 0,
+			|value|-> do
+				move.ClipSpeed = value > 0 and value or nil
+				changed()
+			end
+		)
+	end
+
 	move_children[#move_children + 1] = number_node(
 		"move/FaceOut",
 		"face out",
@@ -962,7 +994,12 @@ local MoveEditor = react.Component(
 		)
 		local items = react.UseMemo(
 			||->move_editor.BuildItems(session, h.changed),
-			{session.SelectId, session.SetName, session.MoveName}
+			{
+				session.SelectId,
+				session.SetName,
+				session.MoveName,
+				session.Grabber.animator ~= nil and session.Grabber.animator.skeleton ~= nil,
+			}
 		)
 		local move = move_editor.GetMove(session)
 		local rows = move_edit.Rows(move)
