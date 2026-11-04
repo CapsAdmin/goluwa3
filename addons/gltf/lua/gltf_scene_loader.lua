@@ -81,52 +81,7 @@ local function set_node_transform(transform, node)
 	end
 end
 
-local function build_vertex_data(primitive)
-	local position = primitive.attributes.POSITION
-	local normal = primitive.attributes.NORMAL
-	local texcoord = primitive.attributes.TEXCOORD_0
-	local tangent = primitive.attributes.TANGENT
-
-	if not position then return nil, "POSITION attribute is required" end
-
-	local vertex_count = position.count
-	local vertices = Polygon3D.VertexType(vertex_count)
-	local min_x, min_y, min_z = math.huge, math.huge, math.huge
-	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
-
-	for i = 0, vertex_count - 1 do
-		local vertex = vertices[i]
-		local px, py, pz = position.data[i * 3 + 0], position.data[i * 3 + 1], position.data[i * 3 + 2]
-		vertex.position[0], vertex.position[1], vertex.position[2] = px, py, pz
-		min_x, min_y, min_z = math.min(min_x, px), math.min(min_y, py), math.min(min_z, pz)
-		max_x, max_y, max_z = math.max(max_x, px), math.max(max_y, py), math.max(max_z, pz)
-
-		if normal then
-			vertex.normal[0], vertex.normal[1], vertex.normal[2] = normal.data[i * 3 + 0], normal.data[i * 3 + 1], normal.data[i * 3 + 2]
-		else
-			vertex.normal[0], vertex.normal[1], vertex.normal[2] = 0, 0, 1
-		end
-
-		if texcoord then
-			vertex.uv[0], vertex.uv[1] = texcoord.data[i * 2 + 0], 1 - texcoord.data[i * 2 + 1]
-		end
-
-		if tangent then
-			vertex.tangent[0], vertex.tangent[1], vertex.tangent[2], vertex.tangent[3] = tangent.data[i * 4 + 0],
-			tangent.data[i * 4 + 1],
-			tangent.data[i * 4 + 2],
-			tangent.data[i * 4 + 3]
-		else
-			vertex.tangent[0], vertex.tangent[1], vertex.tangent[2], vertex.tangent[3] = 1, 0, 0, 1
-		end
-
-		vertex.texture_blend = 0
-		vertex.vertex_color[0], vertex.vertex_color[1], vertex.vertex_color[2], vertex.vertex_color[3] = 1, 1, 1, 1
-	end
-
-	return vertices, vertex_count, AABB(min_x, min_y, min_z, max_x, max_y, max_z)
-end
-
+local build_vertex_data = import("goluwa/render3d/model_decoders/gltf.lua").BuildVertices
 local MAX_SAMPLED_MIP_LOD = 4
 
 local function translate_gltf_sampler(sampler_info)
