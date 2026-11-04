@@ -63,22 +63,20 @@ local function flush_chunk(chunks, positions, chunk_buffer, chunk_start, stop_co
 	return nil
 end
 
-local function build_display_line(font, line_text, natural_width, target_width, justify)
-	local chars = utf8.to_list(line_text)
+local display_line_meta = {}
+
+function display_line_meta.__index(line, key)
+	if key ~= "positions" and key ~= "chunks" then return nil end
+
+	local font = line.font
+	local extra_per_space = line.extra_per_space
 	local positions = {0}
 	local chunks = {}
-	local space_count = count_expandable_spaces(line_text)
-	local extra_per_space = 0
-	local justified = false
 	local prefix = {}
 	local extra_seen = 0
 	local chunk_start = nil
 	local chunk_buffer = {}
-
-	if justify and space_count > 0 and natural_width < target_width then
-		extra_per_space = (target_width - natural_width) / space_count
-		justified = extra_per_space > 0
-	end
+	local chars = utf8.to_list(line.text)
 
 	for i, char in ipairs(chars) do
 		if char ~= " " then
@@ -95,15 +93,36 @@ local function build_display_line(font, line_text, natural_width, target_width, 
 	end
 
 	flush_chunk(chunks, positions, chunk_buffer, chunk_start, #chars + 1)
-	return {
-		text = line_text,
-		positions = positions,
-		chunks = chunks,
-		natural_width = natural_width,
-		width = positions[#chars + 1] or natural_width,
-		extra_per_space = extra_per_space,
-		justified = justified,
-	}
+	rawset(line, "positions", positions)
+	rawset(line, "chunks", chunks)
+	return rawget(line, key)
+end
+
+local function build_display_line(font, line_text, natural_width, target_width, justify)
+	local extra_per_space = 0
+	local space_count = 0
+
+	if justify then
+		space_count = count_expandable_spaces(line_text)
+
+		if space_count > 0 and natural_width < target_width then
+			extra_per_space = (target_width - natural_width) / space_count
+		end
+	end
+
+	return setmetatable(
+		{
+			font = font,
+			text = line_text,
+			natural_width = natural_width,
+			width = line_text == "" and
+				0 or
+				font:GetTextSize(line_text) + extra_per_space * space_count,
+			extra_per_space = extra_per_space,
+			justified = extra_per_space > 0,
+		},
+		display_line_meta
+	)
 end
 
 local function get_line_column_offset(font, line_text, col, display_line)
