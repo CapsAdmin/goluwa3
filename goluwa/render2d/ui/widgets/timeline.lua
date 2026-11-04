@@ -30,6 +30,9 @@ local MIN_SCALE = 0.05
 local BAND_HEIGHT = 8
 local PLAYHEAD_HEIGHT = 7
 local BAR_PICK = 5
+local BLOCK_EDGE = 5
+local BLOCK_MIN = 0.01
+local BLOCK_PARTS = {"left", "right"}
 
 function META.OnScrub(time, timeline) end
 
@@ -47,9 +50,13 @@ function META.OnKeysTransform(anchor, scale, offset, first, timeline) end
 
 function META.OnKeysDrop(timeline) end
 
-function META.OnKeyMenu(row, index, timeline) end
+function META.OnKeyMenu(row, index, time, timeline) end
+
+function META.OnKeySlip(row, index, delta, first, timeline) end
 
 function META.OnKeyResize(row, index, time, timeline) end
+
+function META.OnKeyTrim(row, index, edge, time, timeline) end
 
 function META.OnRowAction(row, timeline) end
 
@@ -127,15 +134,58 @@ function META:key_at(local_pos)
 
 	local best, best_distance, part
 	local keys = self.Rows[row].Keys
+	local edge_index, edge_part, edge_distance
+
+	for index, key in ipairs(keys) do
+		if key.Block then
+			for _, part_name in ipairs(BLOCK_PARTS) do
+				local edge_x = part_name == "left" and self:key_x(key) or self:key_end_x(key)
+				local distance = math.abs(local_pos.x - edge_x)
+				local same_side = part_name == "right" and
+					local_pos.x <= edge_x or
+					part_name == "left" and
+					local_pos.x > edge_x
+
+				if
+					distance <= BLOCK_EDGE and
+					(
+						not edge_distance or
+						distance < edge_distance or
+						distance == edge_distance and
+						same_side
+					)
+				then
+					edge_index, edge_part, edge_distance = index, part_name, distance
+				end
+			end
+		end
+	end
+
+	if edge_index then return row, edge_index, edge_part end
+
+	for index = #keys, 1, -1 do
+		local key = keys[index]
+
+		if key.Block and local_pos.x > self:key_x(key) and local_pos.x < self:key_end_x(key) then
+			return row, index, "bar"
+		end
+	end
 
 	for index, key in ipairs(keys) do
 		local distance = math.abs(self:time_to_x(key.Time) - local_pos.x)
 
-		if distance <= PICK_RADIUS and (not best_distance or distance <= best_distance) then
+		if
+			not key.Block and
+			distance <= PICK_RADIUS and
+			(
+				not best_distance or
+				distance <= best_distance
+			)
+		then
 			best, best_distance, part = index, distance, "start"
 		end
 
-		if key.Until and key.Until > key.Time then
+		if key.Until and key.Until > key.Time and not key.Block then
 			distance = math.abs(self:time_to_x(key.Until) - local_pos.x)
 
 			if distance <= PICK_RADIUS and (not best_distance or distance < best_distance) then
@@ -230,7 +280,18 @@ end
 function META:OnMouseMove(local_pos)
 	local drag = self._drag
 	local band = drag and drag.kind or self:band_at(local_pos)
-	self.mouse_input:SetCursor((band == "left" or band == "right") and "horizontal_resize" or "arrow")
+
+	if not band or band == "move" then
+		local _, _, part = self:key_at(local_pos)
+		band = part
+	end
+
+	local resize = band == "left" or
+		band == "right" or
+		band == "end" or
+		band == "trim" or
+		band == "resize"
+	self.mouse_input:SetCursor(resize and "horizontal_resize" or "arrow")
 end
 
 function META:OnMouseInput(button, press, local_pos)
@@ -261,7 +322,7 @@ function META:OnMouseInput(button, press, local_pos)
 		if index then
 			if not self:is_selected(row, index) then self.OnSelect(row, index, self) end
 
-			self.OnKeyMenu(row, index, self)
+			self.OnKeyMenu(row, index, self:snap(self:x_to_time(local_pos.x)), self)
 		end
 
 		return true
@@ -316,6 +377,30 @@ function META:OnMouseInput(button, press, local_pos)
 		if not found then selection[#selection + 1] = {row, index} end
 
 		self.OnSelectKeys(selection, self)
+	elseif index and (part == "left" or part == "right") then
+		if not self:is_selected(row, index) or #self.Selection > 1 then
+			self.OnSelect(row, index, self)
+		end
+
+		self._drag = {kind = "trim", edge = part, row = row, index = index, moved = false}
+	elseif
+		index and
+		part == "bar" and
+		self.Rows[row].Keys[index].Block and
+		input.IsAltDown()
+	then
+		if not self:is_selected(row, index) or #self.Selection > 1 then
+			self.OnSelect(row, index, self)
+		end
+
+		self._drag = {
+			kind = "slip",
+			row = row,
+			index = index,
+			grab = self:x_to_time(local_pos.x),
+			first = true,
+			moved = false,
+		}
 	elseif index and part == "end" then
 		if not self:is_selected(row, index) or #self.Selection > 1 then
 			self.OnSelect(row, index, self)
@@ -328,11 +413,13 @@ function META:OnMouseInput(button, press, local_pos)
 		self._drag.narrow = {row, index}
 	elseif index then
 		self.OnSelect(row, index, self)
+		local key = self.Rows[row].Keys[index]
 		self._drag = {
 			kind = "key",
 			row = row,
 			index = index,
-			grab = self.Rows[row].Keys[index].Time - self:x_to_time(local_pos.x),
+			ref = key.Entry or key.Event or key.Frame,
+			grab = key.Time - self:x_to_time(local_pos.x),
 			moved = false,
 		}
 	elseif row and double and local_pos.x >= self.LabelWidth then
@@ -358,7 +445,16 @@ function META:end_drag(local_pos)
 
 	if not drag then return end
 
-	if (drag.kind == "key" or drag.kind == "resize") and drag.moved then
+	if
+		(
+			drag.kind == "key" or
+			drag.kind == "resize" or
+			drag.kind == "trim" or
+			drag.kind == "slip"
+		)
+		and
+		drag.moved
+	then
 		self.OnKeyDrop(drag.row, drag.index, self)
 	elseif drag.kind == "marquee" then
 		if not drag.moved then
@@ -430,6 +526,35 @@ function META:OnGlobalMouseMove(pos)
 		end
 
 		self.OnSelectKeys(selection, self)
+	elseif drag.kind == "slip" then
+		local delta = self:x_to_time(local_pos.x) - drag.grab
+		drag.moved = true
+		self.OnKeySlip(drag.row, drag.index, delta, drag.first, self)
+		drag.first = false
+	elseif drag.kind == "trim" then
+		local keys = self.Rows[drag.row].Keys
+		local key, previous, following = keys[drag.index], keys[drag.index - 1], keys[drag.index + 1]
+		local time = self:snap(self:x_to_time(local_pos.x))
+
+		if drag.edge == "left" then
+			time = math.clamp(time, previous and previous.Time + BLOCK_MIN or 0, key.Until - BLOCK_MIN)
+
+			if time ~= key.Time then
+				drag.moved = true
+				self.OnKeyTrim(drag.row, drag.index, "left", time, self)
+			end
+		else
+			time = math.clamp(
+				time,
+				key.Time + BLOCK_MIN,
+				following and following.Until - BLOCK_MIN or self.Length
+			)
+
+			if time ~= key.Until then
+				drag.moved = true
+				self.OnKeyTrim(drag.row, drag.index, "right", time, self)
+			end
+		end
 	elseif drag.kind == "resize" then
 		local keys = self.Rows[drag.row].Keys
 		local key, following = keys[drag.index], keys[drag.index + 1]
@@ -477,12 +602,22 @@ function META:OnGlobalMouseMove(pos)
 	else
 		local keys = self.Rows[drag.row].Keys
 		local time = self:snap(self:x_to_time(local_pos.x) + drag.grab)
-		local previous, following = keys[drag.index - 1], keys[drag.index + 1]
-		time = math.clamp(
-			time,
-			previous and previous.Time + self.Snap or 0,
-			following and following.Time - self.Snap or self.Length
-		)
+
+		for index, other in ipairs(keys) do
+			if
+				drag.ref and
+				(
+					other.Entry == drag.ref or
+					other.Event == drag.ref or
+					other.Frame == drag.ref
+				)
+			then
+				drag.index = index
+			end
+		end
+
+		local key = keys[drag.index]
+		time = math.clamp(time, 0, self.Length - (key.Block and key.Until - key.Time or 0))
 
 		if time ~= keys[drag.index].Time then
 			drag.moved = true
@@ -556,7 +691,7 @@ do
 			local color = row.Color and active:GetColor(row.Color) or primary
 
 			for j, key in ipairs(row.Keys) do
-				if key.Until and key.Until > key.Time then
+				if key.Until and key.Until > key.Time and not key.Block then
 					local x = self:key_x(key)
 					render2d.SetColor(color.r, color.g, color.b, self:is_selected(i, j) and 0.6 or 0.35)
 					render2d.DrawRect(x, y + row_height / 2 - 2, self:key_end_x(key) - x, 4)
@@ -580,8 +715,10 @@ do
 						render2d.DrawRect(math.floor(self:key_x(key)), above_y, 1, cy - above_y)
 					end
 
-					linked_row[link] = i
-					linked_y[link] = cy
+					if not above_y then
+						linked_row[link] = i
+						linked_y[link] = cy
+					end
 				end
 			end
 		end
@@ -604,7 +741,70 @@ do
 			for j, key in ipairs(row.Keys) do
 				local x = self:key_x(key)
 
-				if self:is_selected(i, j) then
+				if key.Block then
+					local selected = self:is_selected(i, j)
+					local bx, by = math.floor(x), y + 2
+					local bw, bh = math.floor(self:key_end_x(key)) - bx, row_height - 4
+					local wave = key.Wave
+					local drag = self._drag
+					local count = wave and #wave.Values
+					local per_fraction = wave and bw / math.max(wave.To - wave.From, 1e-6)
+
+					if wave and drag and drag.kind == "slip" and drag.row == i and drag.index == j then
+						local left, right = math.floor(wave.From * per_fraction), math.floor((1 - wave.To) * per_fraction)
+						render2d.SetColor(color.r, color.g, color.b, 0.15)
+						render2d.DrawRect(bx - left, by, left, bh)
+						render2d.DrawRect(bx + bw, by, right, bh)
+						render2d.SetColor(text.r, text.g, text.b, 0.4)
+
+						for px = -left, bw + right - 1, 2 do
+							if px < 0 or px >= bw then
+								local f = wave.From + px / per_fraction
+								local v = wave.Values[math.clamp(math.floor(f * (count - 1) + 0.5) + 1, 1, count)]
+								local h = math.max(v * (bh - 6), 1)
+								render2d.DrawRect(bx + px, by + bh / 2 - h / 2, 1, h)
+							end
+						end
+					end
+
+					render2d.SetColor(color.r, color.g, color.b, selected and 0.95 or 0.8)
+					render2d.DrawRect(bx, by, bw, bh)
+					render2d.PushClipRect(bx, by, bw, bh)
+
+					if wave then
+						render2d.SetColor(surface.r, surface.g, surface.b, 0.5)
+
+						for px = 0, bw - 1, 2 do
+							local f = wave.From + px / per_fraction
+							local v = wave.Values[math.clamp(math.floor(f * (count - 1) + 0.5) + 1, 1, count)]
+							local h = math.max(v * (bh - 6), 1)
+							render2d.DrawRect(bx + px, by + bh / 2 - h / 2, 1, h)
+						end
+					end
+
+					if key.Label then
+						render2d.SetColor(surface.r, surface.g, surface.b, 1)
+						font:DrawText(key.Label, bx + 6, by + 2)
+					end
+
+					render2d.PopClip()
+					render2d.SetColor(text.r, text.g, text.b, selected and 1 or 0.6)
+					render2d.DrawRect(bx, by, bw, 1)
+					render2d.DrawRect(bx, by + bh - 1, bw, 1)
+					render2d.DrawRect(bx, by, 2, bh)
+					render2d.DrawRect(bx + bw - 2, by, 2, bh)
+					local previous = row.Keys[j - 1]
+
+					if previous and previous.Block and key.Time < previous.Until then
+						local ox = math.floor(x)
+						local ow = math.floor(self:key_end_x(previous)) - ox
+						render2d.SetColor(surface.r, surface.g, surface.b, 0.35)
+						render2d.DrawRect(ox, by, ow, bh)
+						render2d.SetColor(surface.r, surface.g, surface.b, 0.9)
+						render2d.DrawLine(ox, by + bh, ox + ow, by, 2)
+						render2d.DrawLine(ox, by, ox + ow, by + bh, 2)
+					end
+				elseif self:is_selected(i, j) then
 					render2d.SetColor(text.r, text.g, text.b, 1)
 					draw_key(x, cy, KEY_RADIUS + 2, row.Round)
 				elseif key.Link and selected_links[key.Link] then
@@ -612,10 +812,12 @@ do
 					draw_key(x, cy, KEY_RADIUS + 2, row.Round)
 				end
 
-				render2d.SetColor(color.r, color.g, color.b, 1)
-				draw_key(x, cy, KEY_RADIUS, row.Round)
+				if not key.Block then
+					render2d.SetColor(color.r, color.g, color.b, 1)
+					draw_key(x, cy, KEY_RADIUS, row.Round)
+				end
 
-				if key.Until and key.Until > key.Time then
+				if key.Until and key.Until > key.Time and not key.Block then
 					local end_x = self:key_end_x(key)
 
 					if self:is_selected(i, j) then
@@ -627,7 +829,7 @@ do
 					draw_key(end_x, cy, KEY_RADIUS, row.Round)
 				end
 
-				if key.Label and self._to - self._from < self.Length * 0.6 then
+				if key.Label and not key.Block and self._to - self._from < self.Length * 0.6 then
 					render2d.SetColor(text.r, text.g, text.b, 0.8)
 					font:DrawText(key.Label, x + KEY_RADIUS + 3, y + 4)
 				end
