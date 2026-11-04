@@ -17,7 +17,6 @@ local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local keyframes = import("lua/keyframes.lua")
 local actors = import("lua/actors.lua")
 local npcs = import("lua/npcs.lua")
-local jrpg = import("lua/jrpg/jrpg.lua")
 local movesets = import("lua/movesets.lua")
 local move_edit = import("lua/jrpg/move_edit.lua")
 local move_preview = import("lua/jrpg/move_preview.lua")
@@ -334,6 +333,15 @@ function move_editor.RemoveActors(session)
 
 	session.Stage = {}
 
+	if session.Given then
+		if session.Given:IsValid() then session.Given:Remove() end
+
+		session.Given = nil
+		local holder = session.Player.weapon_holder
+
+		if not holder:GetWeapon("right") then holder:EquipFirst() end
+	end
+
 	if session.Npc and session.Npc:IsValid() then session.Npc:Remove() end
 
 	session.Npc = nil
@@ -371,7 +379,11 @@ function move_editor.UseAttacker(session, set_name)
 		session.Grabber = attacker
 		session.Victim = victim
 	else
-		jrpg.SetEnabled(player, true)
+		local holder = player.weapon_holder
+
+		if not npc_name and not holder:FindWeapon("weapon_" .. set_name) then
+			session.Given = holder:Give("weapon_" .. set_name)
+		end
 
 		if not (session.PlayerVictim and session.PlayerVictim:IsValid()) then
 			session.PlayerVictim = npcs.Spawn(
