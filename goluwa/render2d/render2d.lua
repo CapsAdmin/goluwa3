@@ -296,21 +296,12 @@ local vec_spec_by_component_count = {
 	[4] = {type = "vec4", format = "r32g32b32a32_sfloat"},
 }
 
-local function snapshot_passthrough(name, snapshot_field, component_count, fragment_values, extra_write)
+local function snapshot_passthrough(name, component_count, fragment_values)
 	local spec = vec_spec_by_component_count[component_count]
 	return {
 		name = name,
 		type = spec.type,
 		format = spec.format,
-		write = function(vertex, entry, state, rect_state_snapshot)
-			if component_count == 1 then
-				vertex[name] = rect_state_snapshot[snapshot_field]
-			else
-				ffi.copy(vertex[name], rect_state_snapshot[snapshot_field], float_size * component_count)
-			end
-
-			if extra_write then extra_write(vertex, entry, state, rect_state_snapshot) end
-		end,
 		fragment_values = fragment_values,
 	}
 end
@@ -318,32 +309,13 @@ end
 local rect_batch_fragment_passthrough_fields = {
 	snapshot_passthrough(
 		"batch_global_color",
-		"global_color",
 		4,
-		{{"draw.global_color", "batch_global_color", "in_batch_global_color"}},
-		function(vertex, entry, state)
-			vertex.batch_global_color[3] = vertex.batch_global_color[3] * state.alpha_multiplier
-		end
+		{{"draw.global_color", "batch_global_color", "in_batch_global_color"}}
 	),
 	{
 		name = "batch_uv_transform",
 		type = "vec4",
 		format = "r32g32b32a32_sfloat",
-		write = function(
-			vertex,
-			entry,
-			state,
-			rect_state_snapshot,
-			uv_off_x,
-			uv_off_y,
-			uv_scale_x,
-			uv_scale_y
-		)
-			vertex.batch_uv_transform[0] = uv_off_x
-			vertex.batch_uv_transform[1] = uv_off_y
-			vertex.batch_uv_transform[2] = uv_scale_x
-			vertex.batch_uv_transform[3] = uv_scale_y
-		end,
 		fragment_values = {
 			{"draw.sdf_uv_offset", "batch_uv_offset", "in_batch_uv_transform.xy"},
 			{"draw.sdf_uv_scale", "batch_uv_scale", "in_batch_uv_transform.zw"},
@@ -353,19 +325,12 @@ local rect_batch_fragment_passthrough_fields = {
 		name = "batch_shape_state",
 		type = "vec4",
 		format = "r32g32b32a32_sfloat",
-		write = function(vertex, entry, state, rect_state_snapshot)
-			vertex.batch_shape_state[0] = 0
-			vertex.batch_shape_state[1] = 0
-			vertex.batch_shape_state[2] = rect_state_snapshot.flags
-			vertex.batch_shape_state[3] = 0
-		end,
 		fragment_values = {
 			{"draw.flags", {"int", "batch_flags"}, "int(round(in_batch_shape_state.z))"},
 		},
 	},
 	snapshot_passthrough(
 		"batch_border_radius",
-		"border_radius",
 		4,
 		{{"shape.border_radius", "batch_border_radius", "in_batch_border_radius"}}
 	),
@@ -373,12 +338,6 @@ local rect_batch_fragment_passthrough_fields = {
 		name = "batch_rect_geometry",
 		type = "vec4",
 		format = "r32g32b32a32_sfloat",
-		write = function(vertex, entry, state, rect_state_snapshot)
-			vertex.batch_rect_geometry[0] = entry.qw
-			vertex.batch_rect_geometry[1] = entry.qh
-			vertex.batch_rect_geometry[2] = entry.w
-			vertex.batch_rect_geometry[3] = entry.h
-		end,
 		fragment_values = {
 			{"shape.rect_size", "batch_rect_size", "in_batch_rect_geometry.xy"},
 			{"shape.sdf_rect_size", "batch_sdf_rect_size", "in_batch_rect_geometry.zw"},
@@ -388,13 +347,6 @@ local rect_batch_fragment_passthrough_fields = {
 		name = "batch_material_state",
 		type = "vec3",
 		format = "r32g32b32_sfloat",
-		write = function(vertex, entry, state, rect_state_snapshot)
-			vertex.batch_material_state[0] = rect_state_snapshot.sdf_threshold
-			vertex.batch_material_state[1] = rect_state_snapshot.sdf_texel_range
-			vertex.batch_material_state[2] = state.texture and
-				render2d.rect_batch_pipeline:GetTextureIndex(state.texture) or
-				-1
-		end,
 		fragment_values = {
 			{"shape.sdf_threshold", "batch_sdf_threshold", "in_batch_material_state.x"},
 			{"shape.sdf_texel_range", "batch_sdf_texel_range", "in_batch_material_state.y"},
@@ -409,11 +361,6 @@ local rect_batch_fragment_passthrough_fields = {
 		name = "batch_sdf_texture_index",
 		type = "float",
 		format = "r32_sfloat",
-		write = function(vertex, entry, state, rect_state_snapshot)
-			vertex.batch_sdf_texture_index = state.sdf_texture and
-				render2d.rect_batch_pipeline:GetTextureIndex(state.sdf_texture) or
-				-1
-		end,
 		fragment_values = {
 			{
 				"draw.sdf_texture_index",
@@ -426,12 +373,6 @@ local rect_batch_fragment_passthrough_fields = {
 		name = "batch_color_uv_transform",
 		type = "vec4",
 		format = "r32g32b32a32_sfloat",
-		write = function(vertex, entry, state, rect_state_snapshot)
-			vertex.batch_color_uv_transform[0] = rect_state_snapshot.color_uv_offset[0]
-			vertex.batch_color_uv_transform[1] = rect_state_snapshot.color_uv_offset[1]
-			vertex.batch_color_uv_transform[2] = rect_state_snapshot.color_uv_scale[0]
-			vertex.batch_color_uv_transform[3] = rect_state_snapshot.color_uv_scale[1]
-		end,
 		fragment_values = {
 			{
 				"draw.color_uv_offset",
@@ -443,7 +384,6 @@ local rect_batch_fragment_passthrough_fields = {
 	},
 	snapshot_passthrough(
 		"batch_color_uv_rotation",
-		"color_uv_rotation",
 		1,
 		{
 			{
@@ -455,7 +395,6 @@ local rect_batch_fragment_passthrough_fields = {
 	),
 	snapshot_passthrough(
 		"batch_outline_width",
-		"outline_width",
 		1,
 		{{"shape.outline_width", "batch_outline_width", "in_batch_outline_width"}}
 	),
@@ -463,12 +402,6 @@ local rect_batch_fragment_passthrough_fields = {
 		name = "batch_sdf_tuning",
 		type = "vec4",
 		format = "r32g32b32a32_sfloat",
-		write = function(vertex, entry, state, rect_state_snapshot)
-			vertex.batch_sdf_tuning[0] = rect_state_snapshot.sdf_bias
-			vertex.batch_sdf_tuning[1] = rect_state_snapshot.sdf_gamma
-			vertex.batch_sdf_tuning[2] = rect_state_snapshot.sdf_softness
-			vertex.batch_sdf_tuning[3] = rect_state_snapshot.subpixel_strength
-		end,
 		fragment_values = {
 			{"shape.sdf_bias", "batch_sdf_bias", "in_batch_sdf_tuning.x"},
 			{"shape.sdf_gamma", "batch_sdf_gamma", "in_batch_sdf_tuning.y"},
@@ -478,7 +411,6 @@ local rect_batch_fragment_passthrough_fields = {
 	},
 	snapshot_passthrough(
 		"batch_sdf_uv_bounds",
-		"sdf_uv_bounds",
 		4,
 		{{"draw.sdf_uv_bounds", "batch_sdf_uv_bounds", "in_batch_sdf_uv_bounds"}}
 	),
@@ -731,6 +663,83 @@ end
 render2d.batch_counters = new_batch_counters()
 render2d.last_batch_counters = new_batch_counters()
 
+local function write_rect_batch_instance(vertex, entry)
+	local state = entry.state
+	local snapshot = state.rect_state_snapshot
+	local uv_offset = snapshot.sdf_uv_offset
+	local uv_scale = snapshot.sdf_uv_scale
+	local off_x = uv_offset[0]
+	local off_y = uv_offset[1]
+	local scale_x = uv_scale[0]
+	local scale_y = uv_scale[1]
+	local margin = entry.margin
+
+	if margin > 0 and entry.w > 0 and entry.h > 0 then
+		scale_x = scale_x * (entry.qw / entry.w)
+		scale_y = scale_y * (entry.qh / entry.h)
+		off_x = off_x - (margin / entry.w) * uv_scale[0]
+		off_y = off_y - (margin / entry.h) * uv_scale[1]
+	end
+
+	entry.draw_matrix:CopyToFloatPointer(vertex.pvw)
+	local global_color = snapshot.global_color
+	local out = vertex.batch_global_color
+	out[0] = global_color[0]
+	out[1] = global_color[1]
+	out[2] = global_color[2]
+	out[3] = global_color[3] * state.alpha_multiplier
+	out = vertex.batch_uv_transform
+	out[0] = off_x
+	out[1] = off_y
+	out[2] = scale_x
+	out[3] = scale_y
+	out = vertex.batch_shape_state
+	out[0] = 0
+	out[1] = 0
+	out[2] = snapshot.flags
+	out[3] = 0
+	local border_radius = snapshot.border_radius
+	out = vertex.batch_border_radius
+	out[0] = border_radius[0]
+	out[1] = border_radius[1]
+	out[2] = border_radius[2]
+	out[3] = border_radius[3]
+	out = vertex.batch_rect_geometry
+	out[0] = entry.qw
+	out[1] = entry.qh
+	out[2] = entry.w
+	out[3] = entry.h
+	out = vertex.batch_material_state
+	out[0] = snapshot.sdf_threshold
+	out[1] = snapshot.sdf_texel_range
+	out[2] = state.texture and
+		render2d.rect_batch_pipeline:GetTextureIndex(state.texture) or
+		-1
+	vertex.batch_sdf_texture_index = state.sdf_texture and
+		render2d.rect_batch_pipeline:GetTextureIndex(state.sdf_texture) or
+		-1
+	local color_uv_offset = snapshot.color_uv_offset
+	local color_uv_scale = snapshot.color_uv_scale
+	out = vertex.batch_color_uv_transform
+	out[0] = color_uv_offset[0]
+	out[1] = color_uv_offset[1]
+	out[2] = color_uv_scale[0]
+	out[3] = color_uv_scale[1]
+	vertex.batch_color_uv_rotation = snapshot.color_uv_rotation
+	vertex.batch_outline_width = snapshot.outline_width
+	out = vertex.batch_sdf_tuning
+	out[0] = snapshot.sdf_bias
+	out[1] = snapshot.sdf_gamma
+	out[2] = snapshot.sdf_softness
+	out[3] = snapshot.subpixel_strength
+	local uv_bounds = snapshot.sdf_uv_bounds
+	out = vertex.batch_sdf_uv_bounds
+	out[0] = uv_bounds[0]
+	out[1] = uv_bounds[1]
+	out[2] = uv_bounds[2]
+	out[3] = uv_bounds[3]
+end
+
 function render2d.FlushBatches(reason)
 	do
 		if render2d.state.runtime.batch.state.is_flushing then return false end
@@ -786,35 +795,10 @@ function render2d.FlushBatches(reason)
 
 			local vertices = instance_buffer:GetVertices()
 			render2d.state.runtime.frame.next_rect_batch_instance_buffer_slot = slot + 1
+			local entries = segment.entries
 
-			for i, entry in ipairs(segment.entries) do
-				local off_x = entry.state.rect_state_snapshot.sdf_uv_offset[0]
-				local off_y = entry.state.rect_state_snapshot.sdf_uv_offset[1]
-				local scale_x = entry.state.rect_state_snapshot.sdf_uv_scale[0]
-				local scale_y = entry.state.rect_state_snapshot.sdf_uv_scale[1]
-				local margin = entry.margin or 0
-
-				if margin > 0 and entry.w > 0 and entry.h > 0 then
-					scale_x = scale_x * (entry.qw / entry.w)
-					scale_y = scale_y * (entry.qh / entry.h)
-					off_x = off_x - (margin / entry.w) * entry.state.rect_state_snapshot.sdf_uv_scale[0]
-					off_y = off_y - (margin / entry.h) * entry.state.rect_state_snapshot.sdf_uv_scale[1]
-				end
-
-				entry.draw_matrix:CopyToFloatPointer(vertices[i - 1].pvw)
-
-				for _, field in ipairs(rect_batch_fragment_passthrough_fields) do
-					field.write(
-						vertices[i - 1],
-						entry,
-						entry.state,
-						entry.state.rect_state_snapshot,
-						off_x,
-						off_y,
-						scale_x,
-						scale_y
-					)
-				end
+			for i = 1, #entries do
+				write_rect_batch_instance(vertices[i - 1], entries[i])
 			end
 
 			instance_buffer:Upload()
