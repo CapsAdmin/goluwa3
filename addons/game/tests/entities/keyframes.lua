@@ -126,3 +126,28 @@ T.Test("attach keys weigh the victim between where it was latched and the carry 
 	T(keyframes.EvaluateAttach(keyframes.Compile({Keys = {{0.5, aim = {0.1}}}}, POSES), 0.3))["=="](1)
 	T(pcall(keyframes.Compile, {Keys = {{0.5, attach = {0}}}}, POSES))["=="](false)
 end)
+
+T.Test("a move holds facing its target to the end when its face out is zero", function()
+	local Vec3 = import("goluwa/structs/vec3.lua")
+	local Quat = import("goluwa/structs/quat.lua")
+	local pose = {
+		GetFacingPoint = function()
+			return Vec3(10, 0, 0)
+		end,
+	}
+	local yaws = {}
+
+	for i, face_out in ipairs{0.2, 0} do
+		local rotation = Quat(0, 0, 0, 1)
+		keyframes.ApplyBody(
+			{def = {Face = true, FaceOut = face_out}, phase = 1, weight = 1},
+			pose,
+			Vec3(0, 0, 0),
+			rotation
+		)
+		yaws[i] = math.abs(rotation.y)
+	end
+
+	T(yaws[1])["=="](0)
+	T(yaws[2] > 0.1)["=="](true)
+end)

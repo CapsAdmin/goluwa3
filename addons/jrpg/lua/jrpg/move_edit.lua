@@ -242,6 +242,7 @@ function move_edit.Grab(keys)
 				Event = key.Event ~= nil,
 				Time = key.Event and key.Event.At or target[1],
 				Hold = key.Frame and key.Frame.hold or nil,
+				Length = key.List == "Locks" and target[2] - target[1] or nil,
 			}
 		end
 	end
@@ -261,6 +262,8 @@ function move_edit.Transform(move, grabbed, anchor, scale, offset, snap)
 			item.Target[1] = time
 
 			if item.Hold then item.Target.hold = item.Hold * scale end
+
+			if item.Length then item.Target[2] = math.min(time + item.Length * scale, 1) end
 		end
 	end
 
@@ -271,6 +274,8 @@ function move_edit.Transform(move, grabbed, anchor, scale, offset, snap)
 	if move.Shots then move_edit.Sort(move.Shots) end
 
 	if move.Faces then move_edit.Sort(move.Faces) end
+
+	if move.Locks then move_edit.Sort(move.Locks) end
 end
 
 function move_edit.Split(move, frame, track_name)
@@ -552,8 +557,15 @@ function move_edit.Rows(move)
 		}
 	end
 
+	local lock_keys = {}
+
+	for _, lock in ipairs(move.Locks or {}) do
+		lock_keys[#lock_keys + 1] = {Time = lock[1], Until = lock[2], Entry = lock, List = "Locks"}
+	end
+
 	rows[#rows + 1] = {Name = "shots", Color = "positive", Keys = shot_keys}
 	rows[#rows + 1] = {Name = "faces", Color = "neutral", Keys = face_keys}
+	rows[#rows + 1] = {Name = "locks", Color = "prefab", Keys = lock_keys}
 
 	for _, event_type in ipairs(move_edit.EventTypes) do
 		local keys = {}

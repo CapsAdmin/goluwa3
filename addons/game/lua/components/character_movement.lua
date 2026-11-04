@@ -85,7 +85,23 @@ function META:IsRolling()
 	return self.roll ~= nil and not self.roll.leaving
 end
 
+function META:IsPinned()
+	return self.pinned > 0
+end
+
+function META:Pin(duration)
+	if self.pinned <= 0 then
+		self.pin_position:CopyFrom(self.Owner.transform:GetPosition())
+	end
+
+	self.pinned = duration
+	self.lunge = nil
+	self.push = nil
+end
+
 function META:Lunge(direction, distance, delay, duration)
+	if self.pinned > 0 then return end
+
 	self.lunge = {
 		direction = direction:Copy(),
 		distance = distance,
@@ -106,6 +122,8 @@ function META:IgnoreImpacts()
 end
 
 function META:Push(velocity)
+	if self.pinned > 0 then return end
+
 	self.push = self.push and self.push + velocity or velocity:Copy()
 end
 
@@ -135,6 +153,8 @@ function META:Initialize()
 	self.ignore_impacts = false
 	self.hang = 0
 	self.hang_length = 0
+	self.pinned = 0
+	self.pin_position = Vec3()
 	self.previous_velocity = Vec3()
 	self.previous_valid = false
 	self.dead = false
@@ -285,6 +305,26 @@ do
 		local rotation = latch:Step(seat_position, dt)
 		transform:SetPosition(seat_position:Copy())
 		transform:SetRotation(rotation:Copy())
+	end
+
+	function META:UpdatePinned(dt)
+		local body = self.Owner.rigid_body
+
+		if not self.pin_applied then
+			self.pin_applied = true
+			self.ground_body = nil
+			self.was_grounded = false
+			self.roll = nil
+			self.lunge = nil
+			self.push = nil
+			self.drive = nil
+			body:SetCollisionEnabled(false)
+			body:SetMotionType("kinematic")
+			body:SetVelocity(Vec3())
+		end
+
+		self.pinned = math.max(self.pinned - dt, 0)
+		self.Owner.transform:SetPosition(self.pin_position:Copy())
 	end
 
 	function META:Unlatch()
@@ -881,6 +921,16 @@ do
 		end
 
 		if seat then return self:UpdateSeated(seat, cmd) end
+
+		if self.pinned > 0 and not (health and health:IsDead()) then
+			return self:UpdatePinned(dt)
+		end
+
+		if self.pin_applied then
+			self.pin_applied = false
+			self.pinned = 0
+			self:Reset(self.Mode)
+		end
 
 		if self.seated then self:LeaveSeat() end
 

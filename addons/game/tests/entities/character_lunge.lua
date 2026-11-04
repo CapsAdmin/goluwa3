@@ -71,3 +71,21 @@ T.TestPhysics("a lunge or a drive into a wall deals no impact damage", function(
 	T(entity.health:GetHealth())["=="](100)
 	entity:Remove()
 end)
+
+T.TestPhysics("a pinned character ignores lunges and pushes until the pin runs out", function()
+	local entity = Entity.New{
+		ComponentSet = {"transform", "ai_controller", "character_pose", "health"},
+		transform = {Position = Vec3(0, 0.05, 0)},
+		ai_controller = {Wander = false},
+	}
+	local movement = entity.character_movement
+	movement:Pin(0.2)
+	movement:Lunge(Vec3(0, 0, -1), 0.5, 0, 0.15)
+	movement:Push(Vec3(0, 0, -3))
+	T(movement.lunge)["=="](nil)
+	T(movement.push)["=="](nil)
+	run(0.5)
+	movement:Lunge(Vec3(0, 0, -1), 0.5, 0, 0.15)
+	T(movement.lunge ~= nil)["=="](true)
+	entity:Remove()
+end)

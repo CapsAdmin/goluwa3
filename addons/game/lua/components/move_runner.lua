@@ -10,6 +10,7 @@ local CRASH_TICKS = 2
 local RUN_LEAD = 1.1
 local LAND_DIVE_SPEED = 16
 local LAND_HOLD_MAX = 4
+local LOCK_PIN = 0.1
 local REWIND_TIME = 0.2
 local WALL_GRACE = 0.1
 local WALL_MIN_SPEED = 2
@@ -23,6 +24,7 @@ end
 function META:Initialize()
 	self.frame = {}
 	self.drive = Vec3()
+	self.anchor = Vec3()
 end
 
 function META:IsPlaying()
@@ -46,6 +48,7 @@ function META:Begin(move, duration, listener, authority, target)
 	self.rewind_time = nil
 	self.rewind_origin = owner_origin(self.Owner)
 	local frame = movesets.NewFrame(self.Owner, move, self.frame, target)
+	self.anchor:CopyFrom(frame.point)
 	pose:SetFocusOn(frame.target, frame.point)
 
 	if frame.target then camera_modes.AttackTarget(self.Owner, frame.target) end
@@ -170,6 +173,7 @@ do
 		then
 			self.predicted_focus = pose.FocusPoint
 			movesets.Anchor(frame, pose.FocusPoint:Copy())
+			self.anchor:CopyFrom(frame.point)
 		end
 
 		if not move.Crash and self.time > WALL_GRACE then
@@ -201,7 +205,28 @@ do
 
 		if pose:IsLandHold() ~= landing then pose:SetLandHold(landing) end
 
-		local _, height = movesets.SampleMotion(move, f, frame, frame.point, self.drive)
+		if authority and movesets.IsLocking(move, f) then
+			local victim = movesets.GetVictim(pose)
+
+			if victim and victim.character_movement then
+				victim.character_movement:Pin(LOCK_PIN)
+			end
+		end
+
+		local target = frame.target
+
+		if move.Follow and target and target:IsValid() and actors.IsAlive(target) then
+			local live = actors.GetCenter(target)
+			local k = 1 - math.exp(-move.Follow * dt)
+			local anchor = self.anchor
+			anchor:Set(
+				anchor.x + (live.x - anchor.x) * k,
+				anchor.y + (live.y - anchor.y) * k,
+				anchor.z + (live.z - anchor.z) * k
+			)
+		end
+
+		local _, height = movesets.SampleMotion(move, f, frame, self.anchor, self.drive)
 		local body = owner.rigid_body
 
 		if move.Vertical then

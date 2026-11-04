@@ -199,7 +199,8 @@ do
 		if not point then return end
 
 		local f = inst.phase
-		local blend = math.min(f / keyframes.FaceIn, (1 - f) / keyframes.FaceOut, 1)
+		local face_out = inst.def.FaceOut or keyframes.FaceOut
+		local blend = math.min(f / keyframes.FaceIn, face_out > 0 and (1 - f) / face_out or 1, 1)
 		blend = blend * blend * (3 - 2 * blend) * inst.weight
 		local forward = rotation:GetForward()
 		local dx, dz = point.x - position.x, point.z - position.z

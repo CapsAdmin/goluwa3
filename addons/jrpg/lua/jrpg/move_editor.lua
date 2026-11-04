@@ -40,6 +40,7 @@ local MOVE_FIELDS = {
 	{"Approach", "approach"},
 	{"Retreat", "retreat"},
 	{"Cancel", "cancel"},
+	{"Follow", "follow"},
 }
 
 function move_editor.GetSetNames()
@@ -397,6 +398,15 @@ function move_editor.BuildItems(session, changed)
 		)
 	end
 
+	move_children[#move_children + 1] = number_node(
+		"move/FaceOut",
+		"face out",
+		move.FaceOut or keyframes.FaceOut,
+		|value|-> do
+			move.FaceOut = value
+			changed()
+		end
+	)
 	local items = {
 		{
 			Key = "move",
@@ -407,6 +417,37 @@ function move_editor.BuildItems(session, changed)
 	}
 
 	if not selection then return items end
+
+	if selection.List == "Locks" then
+		local entry = selection.Entry
+		items[#items + 1] = {
+			Key = "key",
+			Text = "victim lock",
+			Expanded = true,
+			Children = {
+				number_node(
+					"key/time",
+					"from",
+					entry[1],
+					|value|-> do
+						entry[1] = value
+						move_edit.Sort(move.Locks)
+						changed()
+					end
+				),
+				number_node(
+					"key/to",
+					"to",
+					entry[2],
+					|value|-> do
+						entry[2] = value
+						changed()
+					end
+				),
+			},
+		}
+		return items
+	end
 
 	if selection.Entry then
 		local entry, list = selection.Entry, selection.List
@@ -972,6 +1013,21 @@ local MoveEditor = react.Component(
 
 								Panel.OpenContextMenu({}, items)
 							end,
+							OnKeyResize = |row, index, time|-> do
+								local key = rows[row].Keys[index]
+
+								if key.Entry then
+									key.Entry[2] = time
+								else
+									key.Frame.hold = time - key.Frame[1]
+								end
+
+								h.changed()
+
+								if properties.current then
+									properties.current:UpdateValueForKey(key.Entry and "key/to" or "key/hold", key.Entry and time or key.Frame.hold)
+								end
+							end,
 							OnKeyMenu = |row, index|-> do
 								local count = #session.Selected
 								local linked = false
@@ -1010,6 +1066,10 @@ local MoveEditor = react.Component(
 								local key = rows[row].Keys[index]
 
 								if key.Entry then
+									if key.List == "Locks" then
+										key.Entry[2] = math.min(time + key.Entry[2] - key.Entry[1], 1)
+									end
+
 									key.Entry[1] = time
 									move_edit.Sort(move[key.List])
 								elseif key.Event then
@@ -1035,6 +1095,9 @@ local MoveEditor = react.Component(
 									add_track_key(name, time)
 								elseif name == "shots" then
 									move_editor.Select(session, {Entry = move_edit.AddEntry(move, "Shots", time, {camera_shots.Battle}), List = "Shots"})
+									h.changed(true)
+								elseif name == "locks" then
+									move_editor.Select(session, {Entry = move_edit.AddEntry(move, "Locks", time, {math.min(time + 0.1, 1)}), List = "Locks"})
 									h.changed(true)
 								elseif name == "faces" then
 									move_editor.Select(session, {Entry = move_edit.AddEntry(move, "Faces", time, {"neutral"}), List = "Faces"})

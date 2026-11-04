@@ -195,3 +195,20 @@ T.Test("shots and faces are rows of entries that can be added, moved and removed
 	move_edit.RemoveKey(plain, key)
 	T(plain.Shots)["=="](nil)
 end)
+
+T.Test("locks are rows of ranges that move and scale with their length and validate in order", function()
+	local data = table.copy(movesets.Source.sword)
+	local move = data.Moves.light_1
+	local lock = move_edit.AddEntry(move, "Locks", 0.2, {0.3})
+	T(find_row(move_edit.Rows(move), "locks").Keys[1].Until)["=="](0.3)
+	local grabbed = move_edit.Grab{{Entry = lock, List = "Locks"}}
+	move_edit.Transform(move, grabbed, 0.2, 2, 0, 0.005)
+	T(lock[1])["=="](0.2)
+	T(math.abs(lock[2] - 0.4))["<"](0.006)
+	T(pcall(movesets.Validate, "sword", data))["=="](true)
+	lock[2] = 0.1
+	T(pcall(movesets.Validate, "sword", data))["=="](false)
+	lock[2] = 0.4
+	T(movesets.IsLocking({Locks = {lock}}, 0.3))["=="](true)
+	T(movesets.IsLocking({Locks = {lock}}, 0.5))["=="](false)
+end)

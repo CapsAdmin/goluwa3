@@ -63,6 +63,7 @@ local MOVE_KEYS = {
 	Branch = true,
 	Next = true,
 	Face = true,
+	FaceOut = true,
 	Clip = true,
 	Sound = true,
 	ClipSpeed = true,
@@ -81,6 +82,8 @@ local MOVE_KEYS = {
 	Events = true,
 	Shots = true,
 	Faces = true,
+	Locks = true,
+	Follow = true,
 }
 local GRIP_HANDS = {right = true, left = true}
 local GUARD_ENTER = 0.08
@@ -166,6 +169,17 @@ local function validate_move(move, poses, path)
 
 	assert(type(move.Duration) == "number", path .. ".Duration must be a number")
 	assert(
+		move.Follow == nil or type(move.Follow) == "number" and move.Follow >= 0,
+		path .. ".Follow must be a number of at least 0"
+	)
+	assert(
+		move.FaceOut == nil or
+			type(move.FaceOut) == "number" and
+			move.FaceOut >= 0 and
+			move.FaceOut <= 1,
+		path .. ".FaceOut must be a number between 0 and 1"
+	)
+	assert(
 		move.Clip == nil or type(move.Clip) == "string",
 		path .. ".Clip must be a sequence name"
 	)
@@ -247,6 +261,22 @@ local function validate_move(move, poses, path)
 			at .. " names an unknown shot " .. tostring(shot[2])
 		)
 		last = shot[1]
+	end
+
+	last = 0
+	last = 0
+
+	for i, lock in ipairs(move.Locks or {}) do
+		local at = path .. ".Locks[" .. i .. "]"
+		assert(
+			type(lock[1]) == "number" and
+				type(lock[2]) == "number" and
+				lock[1] >= last and
+				lock[1] < lock[2] and
+				lock[2] <= 1,
+			at .. " needs a start and an end in order between 0 and 1"
+		)
+		last = lock[2]
 	end
 
 	last = 0
@@ -358,6 +388,7 @@ function movesets.Register(name, def, path)
 		move.Approach = move.Approach or 0.5
 		move.Retreat = move.Retreat or 0.3
 		move.Events = move.Events or {}
+		move.Locks = move.Locks or {}
 		local last_event = 0
 
 		for _, event in ipairs(move.Events) do
@@ -461,6 +492,7 @@ do
 		"Branch",
 		"Next",
 		"Face",
+		"FaceOut",
 		"Clip",
 		"Sound",
 		"ClipSpeed",
@@ -478,6 +510,8 @@ do
 		"Keys",
 		"Shots",
 		"Faces",
+		"Locks",
+		"Follow",
 		"Events",
 		"At",
 		"Type",
@@ -534,6 +568,14 @@ function movesets.IsDodging(pose)
 	local move, phase = movesets.GetActive(pose)
 	local dodge = move and move.Dodge
 	return dodge ~= nil and phase >= dodge[1] and phase <= dodge[2]
+end
+
+function movesets.IsLocking(move, phase)
+	for _, lock in ipairs(move.Locks) do
+		if phase >= lock[1] and phase <= lock[2] then return true end
+	end
+
+	return false
 end
 
 function movesets.IsSwinging(move, phase)
