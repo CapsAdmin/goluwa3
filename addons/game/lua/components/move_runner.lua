@@ -98,7 +98,7 @@ function META:Cancel()
 	self.listener = nil
 	local pose = self.Owner.character_pose
 
-	if pose:IsLandHold() then pose:SetLandHold(false) end
+	if pose and pose:IsLandHold() then pose:SetLandHold(false) end
 end
 
 function META:GetStrikeForward()
