@@ -3,18 +3,18 @@ return {
 	Layers = {
 		{
 			Type = "orb",
-			Size = "size",
 			Alpha = "fade",
 			Flicker = "flicker",
 			LensScale = "lens_scale",
+			Size = "size",
 		},
 		{
 			Type = "gpu_trail",
-			Points = 20,
-			Texture = "orbit_trail",
-			Strength = 20,
-			Radius = "trail_radius",
 			Alpha = "fade",
+			Points = 20,
+			Radius = "trail_radius",
+			Strength = 20,
+			Texture = "orbit_trail",
 		},
 	},
 }

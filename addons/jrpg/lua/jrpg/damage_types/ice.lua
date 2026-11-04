@@ -3,8 +3,8 @@ return {
 	DisplayName = "Ice",
 	Color = {0.6, 0.82, 1, 1},
 	EndColor = {0.9, 0.97, 1, 1},
-	Adjectives = {"cold", "frozen", "freezing", "chilled", "iced", "arctic", "frosted"},
 	Apply = {{Remove = "fire"}, {Add = "frozen", Divisor = 100}},
+	Adjectives = {"cold", "frozen", "freezing", "chilled", "iced", "arctic", "frosted"},
 	Debris = {
 		Count = 14,
 		Emitter = {

@@ -2,8 +2,8 @@ return {
 	Name = "wind",
 	DisplayName = "Wind",
 	Color = {0.75, 1, 0.9, 1},
-	Adjectives = {"windy", "stormy", "gusty", "drafty", "airy", "windswept"},
 	Apply = {{Add = "confused", Divisor = 200}},
+	Adjectives = {"windy", "stormy", "gusty", "drafty", "airy", "windswept"},
 	Flicker = 0,
 	Glow = 0.8,
 	HitSounds = {

@@ -3,6 +3,7 @@ return {
 	DisplayName = "Dark",
 	Color = {1, 0.2, 0.8, 1},
 	EndColor = {0.15, 0, 0.2, 1},
+	Apply = {{Add = "decay", Divisor = 150}},
 	Adjectives = {
 		"eerie",
 		"ghastly",
@@ -16,7 +17,6 @@ return {
 		"hateful",
 		"wrathful",
 	},
-	Apply = {{Add = "decay", Divisor = 150}},
 	Flicker = 0,
 	Glow = 1.2,
 	HitSounds = {"ambient/levels/citadel/portal_beam_shoot5.wav"},

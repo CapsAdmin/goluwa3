@@ -3,8 +3,8 @@ return {
 	DisplayName = "Holy",
 	Color = {1, 0.82, 0.55, 1},
 	EndColor = {1, 1, 0.9, 1},
-	Adjectives = {"angelic", "divine", "spiritual", "sublime", "celestial", "spirited"},
 	Apply = {{HealAttacker = 0.25}},
+	Adjectives = {"angelic", "divine", "spiritual", "sublime", "celestial", "spirited"},
 	Debris = {
 		Count = 8,
 		Emitter = {

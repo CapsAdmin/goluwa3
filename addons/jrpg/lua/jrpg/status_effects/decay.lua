@@ -2,6 +2,12 @@ return {
 	Name = "decay",
 	Label = "DCY",
 	Color = {0.75, 0.15, 0.7, 1},
+	Think = {
+		Attributes = {"dark"},
+		Damage = {Base = 1, PerAmount = 3},
+		DrainMana = 4,
+		Type = "magic",
+	},
 	Decay = 0.1,
 	Max = 1,
 	Negative = true,
@@ -16,10 +22,4 @@ return {
 		Speed = {0.05, 0.3},
 	},
 	Rate = 0.5,
-	Think = {
-		Attributes = {"dark"},
-		Damage = {Base = 1, PerAmount = 3},
-		DrainMana = 4,
-		Type = "magic",
-	},
 }

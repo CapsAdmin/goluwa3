@@ -3,8 +3,8 @@ return {
 	DisplayName = "Poison",
 	Color = {0.4, 1, 0.35, 1},
 	EndColor = {0.15, 0.45, 0.05, 1},
-	Adjectives = {"poisonous", "venomous", "toxic", "infected", "diseased"},
 	Apply = {{Add = "poison", Divisor = 100}},
+	Adjectives = {"poisonous", "venomous", "toxic", "infected", "diseased"},
 	Flicker = 0,
 	Glow = 0.8,
 	HitSounds = {

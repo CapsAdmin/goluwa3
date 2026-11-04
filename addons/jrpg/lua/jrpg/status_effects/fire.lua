@@ -2,6 +2,7 @@ return {
 	Name = "fire",
 	Label = "BRN",
 	Color = {1, 0.45, 0.08, 1},
+	Think = {Attributes = {"fire"}, Damage = {Base = 1, PerAmount = 5}, Type = "magic"},
 	Decay = 0.2,
 	Max = 1,
 	Negative = true,
@@ -16,5 +17,4 @@ return {
 		Speed = {0.2, 0.8},
 	},
 	Rate = 0.4,
-	Think = {Attributes = {"fire"}, Damage = {Base = 1, PerAmount = 5}, Type = "magic"},
 }

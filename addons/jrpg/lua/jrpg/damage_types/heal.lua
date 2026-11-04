@@ -3,7 +3,6 @@ return {
 	DisplayName = "Heal",
 	Color = {0.55, 1, 0.6, 1},
 	EndColor = {0.9, 1, 0.9, 1},
-	Adjectives = {"healing", "curative", "medicinal", "soothing"},
 	Apply = {
 		{Remove = "poison"},
 		{Remove = "decay"},
@@ -11,6 +10,7 @@ return {
 		{Remove = "frozen"},
 		{Remove = "confused"},
 	},
+	Adjectives = {"healing", "curative", "medicinal", "soothing"},
 	Flicker = 0,
 	Glow = 1,
 	Heals = true,

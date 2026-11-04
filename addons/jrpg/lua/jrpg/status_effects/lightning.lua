@@ -2,6 +2,14 @@ return {
 	Name = "lightning",
 	Label = "SHK",
 	Color = {0.8, 0.85, 1, 1},
+	Think = {
+		Attributes = {"lightning"},
+		Damage = {Base = 1, PerAmount = 2},
+		Force = {Max = {1, 1, 1}, Min = {-1, 0, -1}, Scale = 3},
+		Gate = 0.8,
+		Spread = {Above = 0.75, Radius = 3},
+		Type = "magic",
+	},
 	AttackFail = 0.5,
 	Decay = 0.25,
 	Flicker = 1,
@@ -17,12 +25,4 @@ return {
 		Speed = {1.5, 4},
 	},
 	Rate = 0.15,
-	Think = {
-		Attributes = {"lightning"},
-		Damage = {Base = 1, PerAmount = 2},
-		Force = {Max = {1, 1, 1}, Min = {-1, 0, -1}, Scale = 3},
-		Gate = 0.8,
-		Spread = {Above = 0.75, Radius = 3},
-		Type = "magic",
-	},
 }
