@@ -402,6 +402,7 @@ function META:ApplyCrouchAlpha(alpha)
 	local radius, height = self:GetDimensions(alpha)
 	local shape = body:GetPhysicsShape()
 	local feet = body:GetOriginPosition():Copy()
+	local start_y = feet.y
 
 	if shape and shape.GetTypeName and shape:GetTypeName() == "capsule" then
 		shape:SetRadius(radius)
@@ -419,6 +420,8 @@ function META:ApplyCrouchAlpha(alpha)
 
 	local velocity = body:GetVelocity():Copy()
 	local angular_velocity = body:GetAngularVelocity():Copy()
+	local offset = self.Owner.transform.RenderOffset
+	offset.y = offset.y - (feet.y - start_y)
 	body:SetCenterOffset(Vec3(0, height * 0.5, 0))
 	self.Owner.transform:SetPosition(feet)
 	body:SynchronizeFromTransform()
