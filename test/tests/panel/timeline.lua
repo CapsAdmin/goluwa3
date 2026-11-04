@@ -64,3 +64,61 @@ T.Test2D("timeline scrubs, selects, drags, adds and zooms", function()
 	T(to)["=="](1)
 	timeline:Remove()
 end)
+
+T.Test2D("timeline marquee selects keys, moves them together and scales the bounds", function()
+	local log = {}
+	local rows = {
+		{Name = "a", Keys = {{Time = 0.2}, {Time = 0.4}, {Time = 0.9}}},
+		{Name = "b", Keys = {{Time = 0.3}}},
+	}
+	local timeline
+	timeline = Timeline{
+		Rows = rows,
+		Size = Vec2(1096, 200),
+		LabelWidth = 96,
+		RulerHeight = 20,
+		RowHeight = 20,
+		OnSelectKeys = function(selection)
+			log.selection = selection
+			timeline:SetSelection(selection)
+		end,
+		OnKeysTransform = function(anchor, scale, offset, first)
+			log.transform = {anchor, scale, offset, first}
+		end,
+		OnKeysDrop = function()
+			log.dropped = true
+		end,
+		OnKeyMenu = function(row, index)
+			log.menu = {row, index}
+		end,
+	}
+	timeline.transform:SetSize(Vec2(1096, 200))
+	timeline.transform:SetPosition(Vec2(0, 0))
+	local x = |time|->96 + time * 1000
+	timeline:OnMouseInput("button_1", true, Vec2(x(0.1), 25))
+	timeline:OnGlobalMouseMove(Vec2(x(0.5), 55))
+	T(#log.selection)["=="](3)
+	timeline:OnGlobalMouseInput("button_1", false)
+	T(#timeline:GetSelection())["=="](3)
+	timeline:OnMouseInput("button_1", true, Vec2(x(0.4), 30))
+	timeline:OnGlobalMouseMove(Vec2(x(0.5), 30))
+	T(log.transform[1])["=="](0)
+	T(log.transform[2])["=="](1)
+	T(math.abs(log.transform[3] - 0.1))["<"](0.0001)
+	T(log.transform[4])["=="](true)
+	timeline:OnGlobalMouseInput("button_1", false)
+	T(log.dropped)["=="](true)
+	timeline:OnMouseMove(Vec2(x(0.4), 16))
+	T(timeline.mouse_input:GetCursor())["=="]("horizontal_resize")
+	timeline:OnMouseMove(Vec2(x(0.3), 16))
+	T(timeline.mouse_input:GetCursor())["=="]("arrow")
+	timeline:OnMouseInput("button_1", true, Vec2(x(0.4), 16))
+	timeline:OnGlobalMouseMove(Vec2(x(0.5), 16))
+	T(log.transform[1])["=="](0.2)
+	T(math.abs(log.transform[2] - 1.5))["<"](0.0001)
+	timeline:OnGlobalMouseInput("button_1", false)
+	timeline:OnMouseInput("button_2", true, Vec2(x(0.4), 30))
+	T(log.menu[1])["=="](1)
+	T(log.menu[2])["=="](2)
+	timeline:Remove()
+end)

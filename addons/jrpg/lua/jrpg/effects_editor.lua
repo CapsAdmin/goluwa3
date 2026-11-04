@@ -1255,7 +1255,7 @@ local EffectsEditor = react.Component(
 							key.Index == session.Selection.Index
 						)
 					then
-						selected_row = {i, j}
+						selected_row = {{i, j}}
 					end
 				end
 			end

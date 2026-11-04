@@ -42,7 +42,7 @@ return {
 						Time = time,
 						Selection = selection,
 						OnScrub = set_time,
-						OnSelect = |row, index|->set_selection(row and {row, index}),
+						OnSelect = |row, index|->set_selection(row and {{row, index}}),
 						OnKeyMove = |row, index, t|-> do
 							local copy = copy_rows(rows)
 							copy[row].Keys[index].Time = t
