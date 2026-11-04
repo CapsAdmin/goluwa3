@@ -8,8 +8,8 @@ return {
 	ColorA = {1, 0.55, 0.15, 1},
 	ColorB = {1, 0.9, 0.5, 1},
 	Params = {
-		{Name = "Emissive", Default = 4, Min = 0, Max = 40},
-		{Name = "ColumnCount", Default = 12, Min = 2, Max = 32},
+		{Default = 4, Max = 40, Min = 0, Name = "Emissive"},
+		{Default = 12, Max = 32, Min = 2, Name = "ColumnCount"},
 	},
 	Source = [[
 float bands = max(column_count * 0.5, 3.0);

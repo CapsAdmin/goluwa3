@@ -7,9 +7,7 @@ return {
 	Daylight = 1,
 	ColorA = {0.55, 0.7, 1, 1},
 	ColorB = {1, 1, 1, 1},
-	Params = {
-		{Name = "Emissive", Default = 14, Min = 0, Max = 40},
-	},
+	Params = {{Default = 14, Max = 40, Min = 0, Name = "Emissive"}},
 	Source = [[
 float step_time = t * 6.0;
 float seed = floor(step_time);

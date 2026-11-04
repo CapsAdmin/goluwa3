@@ -7,9 +7,7 @@ return {
 	Daylight = 0.6,
 	ColorA = {0.6, 0.85, 1, 1},
 	ColorB = {0.2, 0.45, 0.8, 1},
-	Params = {
-		{Name = "Emissive", Default = 1.6, Min = 0, Max = 40},
-	},
+	Params = {{Default = 1.6, Max = 40, Min = 0, Name = "Emissive"}},
 	Source = [[
 OverlayCell cell = overlay_voronoi(c.P * l.scale * 6.0);
 vec4 fine = overlay_noise(c, l.scale * 4.3);

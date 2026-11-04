@@ -7,9 +7,7 @@ return {
 	Daylight = 1.2,
 	ColorA = {1, 0.38, 0.05, 1},
 	ColorB = {1, 0.85, 0.35, 1},
-	Params = {
-		{Name = "Emissive", Default = 1.1, Min = 0, Max = 40},
-	},
+	Params = {{Default = 1.1, Max = 40, Min = 0, Name = "Emissive"}},
 	Source = [[
 float flame_time = t * 0.8;
 vec3 uvw = c.P * l.scale + vec3(0.0, -flame_time, flame_time * 0.5);

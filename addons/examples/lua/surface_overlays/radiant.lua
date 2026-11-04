@@ -8,8 +8,8 @@ return {
 	ColorA = {1, 0.82, 0.45, 1},
 	ColorB = {1, 1, 0.95, 1},
 	Params = {
-		{Name = "Emissive", Default = 1.6, Min = 0, Max = 40},
-		{Name = "RayCount", Default = 7, Min = 0, Max = 24},
+		{Default = 1.6, Max = 40, Min = 0, Name = "Emissive"},
+		{Default = 7, Max = 24, Min = 0, Name = "RayCount"},
 	},
 	Source = [[
 vec4 n = overlay_noise(c, l.scale);

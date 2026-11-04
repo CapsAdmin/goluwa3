@@ -7,9 +7,7 @@ return {
 	Daylight = 1,
 	ColorA = {0.25, 0.8, 1, 1},
 	ColorB = {0.7, 0.95, 1, 1},
-	Params = {
-		{Name = "Emissive", Default = 5, Min = 0, Max = 40},
-	},
+	Params = {{Default = 5, Max = 40, Min = 0, Name = "Emissive"}},
 	Source = [[
 vec4 cells = overlay_noise(c, l.scale);
 float rim = pow(1.0 - c.ndv, 2.5);

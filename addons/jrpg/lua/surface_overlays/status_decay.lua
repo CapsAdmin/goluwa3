@@ -8,8 +8,8 @@ return {
 	ColorA = {0.75, 0.15, 0.7, 1},
 	ColorB = {0.06, 0.02, 0.08, 1},
 	Params = {
-		{Name = "Emissive", Default = 2.4, Min = 0, Max = 40},
-		{Name = "TiltAmount", Default = 0.7, Min = 0, Max = 2},
+		{Default = 2.4, Max = 40, Min = 0, Name = "Emissive"},
+		{Default = 0.7, Max = 2, Min = 0, Name = "TiltAmount"},
 	},
 	Source = [[
 vec4 big = overlay_noise(c, l.scale);

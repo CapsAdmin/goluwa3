@@ -7,9 +7,7 @@ return {
 	Daylight = 0.5,
 	ColorA = {1, 0.72, 0.28, 1},
 	ColorB = {1, 0.95, 0.7, 1},
-	Params = {
-		{Name = "Emissive", Default = 3, Min = 0, Max = 40},
-	},
+	Params = {{Default = 3, Max = 40, Min = 0, Name = "Emissive"}},
 	Source = [[
 vec4 grain = overlay_noise(c, l.scale);
 float d = grow * 1.3 - c.height - (grain.g - 0.5) * 0.2;

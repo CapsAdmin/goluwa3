@@ -7,9 +7,7 @@ return {
 	Daylight = 0,
 	ColorA = {1, 1, 1, 1},
 	ColorB = {1, 1, 1, 1},
-	Params = {
-		{Name = "HueScale", Default = 1.6, Min = 0, Max = 8},
-	},
+	Params = {{Default = 1.6, Max = 8, Min = 0, Name = "HueScale"}},
 	Source = [[
 vec4 n = overlay_noise_at(c, vec3(0.0, t * 0.06, 0.0), l.scale);
 float hue = fract(c.ndv * hue_scale + n.r * 0.8 + t * 0.06);

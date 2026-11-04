@@ -7,9 +7,7 @@ return {
 	Daylight = 0.6,
 	ColorA = {0.55, 0.85, 1, 1},
 	ColorB = {0.18, 0.4, 0.75, 1},
-	Params = {
-		{Name = "Emissive", Default = 2.5, Min = 0, Max = 40},
-	},
+	Params = {{Default = 2.5, Max = 40, Min = 0, Name = "Emissive"}},
 	Source = [[
 vec4 big = overlay_noise(c, l.scale);
 vec4 fine = overlay_noise(c, l.scale * 4.3);

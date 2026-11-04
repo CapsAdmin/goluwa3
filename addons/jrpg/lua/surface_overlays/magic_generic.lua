@@ -8,9 +8,9 @@ return {
 	ColorA = {1, 1, 1, 1},
 	ColorB = {1, 1, 1, 1},
 	Params = {
-		{Name = "Emissive", Default = 1.4, Min = 0, Max = 40},
-		{Name = "PatternScale", Default = 6.5, Min = 1, Max = 16},
-		{Name = "Bump", Default = 0.5, Min = 0, Max = 2},
+		{Default = 1.4, Max = 40, Min = 0, Name = "Emissive"},
+		{Default = 6.5, Max = 16, Min = 1, Name = "PatternScale"},
+		{Default = 0.5, Max = 2, Min = 0, Name = "Bump"},
 	},
 	Source = [[
 vec4 p = vec4(c.P * l.scale, 0.2 + t * 0.03);

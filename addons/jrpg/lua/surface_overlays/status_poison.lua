@@ -8,9 +8,9 @@ return {
 	ColorA = {0.35, 1, 0.3, 1},
 	ColorB = {0.7, 1, 0.4, 1},
 	Params = {
-		{Name = "Emissive", Default = 1.8, Min = 0, Max = 40},
-		{Name = "BumpStrength", Default = 1.1, Min = 0, Max = 4},
-		{Name = "WarpAmount", Default = 0.12, Min = 0, Max = 1},
+		{Default = 1.8, Max = 40, Min = 0, Name = "Emissive"},
+		{Default = 1.1, Max = 4, Min = 0, Name = "BumpStrength"},
+		{Default = 0.12, Max = 1, Min = 0, Name = "WarpAmount"},
 	},
 	Source = [[
 vec4 warp_a = overlay_noise_at(c, vec3(t * 0.04, 0.0, 0.0), l.scale * 0.3);

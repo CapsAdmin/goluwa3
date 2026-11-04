@@ -8,9 +8,9 @@ return {
 	ColorA = {0.55, 0.7, 1, 1},
 	ColorB = {1, 1, 1, 1},
 	Params = {
-		{Name = "Emissive", Default = 7, Min = 0, Max = 40},
-		{Name = "Jitter", Default = 0.9, Min = 0, Max = 3},
-		{Name = "BoltScale", Default = 1.6, Min = 0.2, Max = 8},
+		{Default = 7, Max = 40, Min = 0, Name = "Emissive"},
+		{Default = 0.9, Max = 3, Min = 0, Name = "Jitter"},
+		{Default = 1.6, Max = 8, Min = 0.2, Name = "BoltScale"},
 	},
 	Source = [[
 float step_time = t * 7.0;

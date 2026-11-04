@@ -7,9 +7,7 @@ return {
 	Daylight = 1,
 	ColorA = {1, 0.95, 0.4, 1},
 	ColorB = {1, 1, 1, 1},
-	Params = {
-		{Name = "Emissive", Default = 1.4, Min = 0, Max = 40},
-	},
+	Params = {{Default = 1.4, Max = 40, Min = 0, Name = "Emissive"}},
 	Source = [[
 vec4 n = overlay_noise_at(c, vec3(0.0, t * 0.1, 0.0), l.scale);
 float angle = atan(c.P.z, c.P.x);
