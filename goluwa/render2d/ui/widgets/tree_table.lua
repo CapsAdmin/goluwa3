@@ -817,22 +817,26 @@ function META:draw_rows(content)
 				avail = x + column_width - 8 - text_x
 			end
 
-			local raw = self.OnGetCell(node, column)
-			local text = raw == nil and "" or tostring(column.Format and column.Format(raw, node) or raw)
-			local cell = node_cache[column_index]
+			if column.Draw then
+				column.Draw(node, x, y, column_width, row_height)
+			else
+				local raw = self.OnGetCell(node, column)
+				local text = raw == nil and "" or tostring(column.Format and column.Format(raw, node) or raw)
+				local cell = node_cache[column_index]
 
-			if not cell or cell.text ~= text or cell.width ~= avail then
-				cell = {text = text, width = avail, elided = font:ElideText(text, math.max(avail, 1))}
-				node_cache[column_index] = cell
+				if not cell or cell.text ~= text or cell.width ~= avail then
+					cell = {text = text, width = avail, elided = font:ElideText(text, math.max(avail, 1))}
+					node_cache[column_index] = cell
+				end
+
+				draw_text(
+					font,
+					cell.elided,
+					text_x,
+					y + text_y,
+					column_index == 1 and text_color or disabled
+				)
 			end
-
-			draw_text(
-				font,
-				cell.elided,
-				text_x,
-				y + text_y,
-				column_index == 1 and text_color or disabled
-			)
 		end
 	end
 end
