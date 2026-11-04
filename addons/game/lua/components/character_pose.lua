@@ -126,6 +126,7 @@ function META:Initialize()
 	self.rate_variation = self.rate_scale
 	self.last_velocity = nil
 	self.acceleration_forward = 0
+	self.lean_speed = 0
 	self.acceleration_right = 0
 	self.lean_forward = 0
 	self.lean_side = 0
@@ -859,17 +860,19 @@ function META:OnUpdate(dt)
 		end
 
 		local target_side, target_forward = 0, 0
+		self.lean_speed = math.max(speed, self.lean_speed - pose_variation.LeanSpeedDecay * dt)
 
 		if not dead and self.grounded and not seat and not (movement and movement.latch) then
 			local max_lean = pose_variation.MaxLean
+			local gain = math.clamp(self.lean_speed / pose_variation.SpeedLeanSpeed, 0, 1)
 			target_side = math.clamp(
-				math.atan(self.acceleration_right / pose_variation.Gravity) * pose_variation.LeanSideGain,
+				max_lean * math.clamp(self.acceleration_right / pose_variation.LeanAcceleration, -1, 1) * pose_variation.LeanSideGain * gain,
 				-max_lean,
 				max_lean
 			)
 			target_forward = math.clamp(
-				math.atan(self.acceleration_forward / pose_variation.Gravity) * pose_variation.LeanForwardGain,
-				-max_lean,
+				max_lean * math.clamp(self.acceleration_forward / pose_variation.LeanAcceleration, -1, 1) * pose_variation.LeanForwardGain * gain + pose_variation.SpeedLean * math.clamp(self.forward_speed / pose_variation.SpeedLeanSpeed, 0, 1.5),
+				-pose_variation.MaxLeanBack,
 				max_lean
 			)
 		end

@@ -1,8 +1,13 @@
 local pose_variation = {}
 pose_variation.Gravity = 9.81
-pose_variation.LeanSideGain = 1
-pose_variation.LeanForwardGain = 0.6
-pose_variation.MaxLean = 0.2
+pose_variation.LeanAcceleration = 40
+pose_variation.LeanSideGain = 1.6
+pose_variation.LeanForwardGain = 1
+pose_variation.MaxLean = 0.4
+pose_variation.MaxLeanBack = 0.2
+pose_variation.LeanSpeedDecay = 6
+pose_variation.SpeedLean = 0.12
+pose_variation.SpeedLeanSpeed = 7
 pose_variation.MaxAcceleration = 60
 pose_variation.AccelerationFollow = 8
 pose_variation.LeanFollow = 10

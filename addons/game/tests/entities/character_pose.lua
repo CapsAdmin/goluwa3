@@ -134,7 +134,10 @@ T.TestPhysics("a character leans into its acceleration and stands up again at a 
 	T(peak)[">"](0.02)
 	T(peak)["<="](pose_variation.MaxLean + 1e-6)
 	run(240, 1)
-	T(math.abs(pose.lean_forward))["<"](0.02)
+	T(pose.lean_forward)["~"](
+		pose_variation.SpeedLean * math.clamp(pose.forward_speed / pose_variation.SpeedLeanSpeed, 0, 1.5),
+		0.02
+	)
 	local lowest = 0
 
 	for _ = 1, 30 do
