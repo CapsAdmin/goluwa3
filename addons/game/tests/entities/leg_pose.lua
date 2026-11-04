@@ -107,7 +107,23 @@ T.Test("a nearly straight leg has no stable knee direction and bends forward", f
 	leg_pose.Apply(bones, 0.02, 0, 0, NORMALS)
 	local bend, axis = knee_direction(bones)
 	local forward = (Vec3(0, 0, -1) - axis * Vec3(0, 0, -1):Dot(axis)):GetNormalized()
-	T(bend:Dot(forward))[">"](0.95)
+	T(bend:Dot(forward))[">"](0.9)
+end)
+
+T.Test("a straight leg that folds splays both knees outwards instead of straight ahead", function()
+	local bones = create_bones()
+	leg_pose.Apply(bones, 0, 0, -0.35, NORMALS)
+
+	for _, side in ipairs{"r", "l"} do
+		local foot, thigh, knee = position(bones, "foot_" .. side),
+		position(bones, "thigh_" .. side),
+		position(bones, "calf_" .. side)
+		local axis = (foot - thigh):GetNormalized()
+		local bend = ((knee - thigh) - axis * (knee - thigh):Dot(axis)):GetNormalized()
+		local forward = (Vec3(0, 0, -1) - axis * Vec3(0, 0, -1):Dot(axis)):GetNormalized()
+		T(bend:Dot(forward))[">"](leg_pose.KneeForward)
+		T(bend.x * (side == "r" and 1 or -1))[">"](0.1)
+	end
 end)
 
 T.Test("pelvis keys move the body over planted feet and the legs keep their bone lengths", function()
@@ -217,4 +233,33 @@ T.Test("the sole of a tip bone is the lowest hull vertex of its solid, in the bo
 	T(soles[1] ~= false)["=="](true)
 	T(soles[1]:Distance(Vec3(0, 0, -0.8)))["<"](1e-6)
 	T(soles[2])["=="](false)
+end)
+
+T.Test("the knees turn with a pelvis yaw instead of staying on the model forward", function()
+	local animations = import("lua/animations.lua")
+	animations.Register(
+		"leg_yaw_test",
+		{
+			Kind = "action",
+			PelvisKeys = {{0, 0, 0, 0, 0, 0, 0}, {1, 0, -0.35, 0, 0.9, 0, 0}},
+		}
+	)
+	local inst = animations.NewInstance("leg_yaw_test", 1)
+	inst.phase = 1
+	local turn = 0.9 * leg_pose.KneeYawFollow
+	local aimed = Vec3(-math.sin(turn), 0, -math.cos(turn))
+
+	for _, side_name in ipairs{"r", "l"} do
+		local bones = create_bones()
+		local state = leg_pose.NewState()
+		leg_pose.ApplyKeys(bones, {anims = {inst}}, 1, state)
+		leg_pose.Apply(bones, 0, 0, 0, NORMALS, state)
+		local foot, thigh, knee = position(bones, "foot_" .. side_name),
+		position(bones, "thigh_" .. side_name),
+		position(bones, "calf_" .. side_name)
+		local axis = (foot - thigh):GetNormalized()
+		local bend = ((knee - thigh) - axis * (knee - thigh):Dot(axis)):GetNormalized()
+		local reference = (aimed - axis * aimed:Dot(axis)):GetNormalized()
+		T(bend:Dot(reference))[">"](leg_pose.KneeForward - 0.02)
+	end
 end)
