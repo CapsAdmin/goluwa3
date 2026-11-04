@@ -21,14 +21,20 @@ local jrpg = import("lua/jrpg/jrpg.lua")
 local movesets = import("lua/movesets.lua")
 local move_edit = import("lua/jrpg/move_edit.lua")
 local move_preview = import("lua/jrpg/move_preview.lua")
+local move_ghost = import("lua/jrpg/move_ghost.lua")
+local move_stage = import("lua/jrpg/move_stage.lua")
 local data_history = import("lua/data_history.lua")
 local camera_shots = import("lua/camera_shots.lua")
 local faces = import("lua/faces.lua")
 local damage_types = import("lua/jrpg/damage_types.lua")
 local input = import("goluwa/input.lua")
+local physics = import("goluwa/physics.lua")
 local system = import("goluwa/system.lua")
 local move_editor = {}
 local NPC_OFFSET = 3
+local STAGE_DISTANCE = 6
+local STAGE_GAP = 2.6
+local STAGE_RAISE = 3
 local LEFT_WIDTH = 400
 local BOTTOM_HEIGHT = 320
 local MOVES_HEIGHT = 210
@@ -47,6 +53,9 @@ local TIMELINE_RULER = 22
 local TIMELINE_ROW = 22
 local TIMELINE_CHROME = 34 + 6 * 2
 local CAMERAS = {"three", "side", "front"}
+local GHOST_MODES = {"off", "whole move", "around playhead", "selection"}
+local GHOST_SOURCES = {"evenly spaced", "one per key"}
+local GHOST_COUNTS = {3, 6, 9, 12}
 local SPEEDS = {"1", "0.5", "0.25", "0.1"}
 local DEG = 180 / math.pi
 move_editor.LastSet = "sword"
@@ -150,15 +159,15 @@ do
 end
 
 function move_editor.CreateSession()
-	local grabber = assert(players.GetLocal(), "the move editor previews on the local player")
-	jrpg.SetEnabled(grabber, true)
-	local forward = actors.GetForward(grabber)
-	local victim = npcs.Spawn("citizen", grabber.transform:GetPosition() + forward * 2.6, 0)
-	victim.ai_controller.Wander = false
+	local player = assert(players.GetLocal(), "the move editor needs the local player")
 	local session = {
-		Player = grabber,
-		Grabber = grabber,
-		Victim = victim,
+		Player = player,
+		Grabber = player,
+		PreviewOn = "stage",
+		AttackerName = "player",
+		VictimName = "citizen",
+		Procedural = true,
+		Stage = {},
 		Camera = "three",
 		Phase = 0,
 		Playing = false,
@@ -167,6 +176,11 @@ function move_editor.CreateSession()
 		Status = "",
 		SelectId = 0,
 		Selected = {},
+		Ghosts = {},
+		GhostMode = "off",
+		GhostSource = "evenly spaced",
+		GhostCount = 6,
+		GhostWindow = 0.15,
 	}
 	session.View = View.New{
 		Priority = 1000,
@@ -187,12 +201,15 @@ function move_editor.DestroySession(session)
 
 	if session.Preview then session.Preview:Stop() end
 
-	if session.Npc and session.Npc:IsValid() then session.Npc:Remove() end
+	move_ghost.Clear(session)
+	move_editor.RemoveActors(session)
+
+	if session.PlayerVictim and session.PlayerVictim:IsValid() then
+		session.PlayerVictim:Remove()
+	end
 
 	session.View:Remove()
 	view_camera.Stop(session.Fly)
-
-	if session.Victim:IsValid() then session.Victim:Remove() end
 end
 
 function move_editor.SelectMany(session, selected)
@@ -310,6 +327,18 @@ do
 	end
 end
 
+function move_editor.RemoveActors(session)
+	for _, entity in ipairs(session.Stage) do
+		if entity:IsValid() then entity:Remove() end
+	end
+
+	session.Stage = {}
+
+	if session.Npc and session.Npc:IsValid() then session.Npc:Remove() end
+
+	session.Npc = nil
+end
+
 function move_editor.UseAttacker(session, set_name)
 	session.Waves = {}
 
@@ -318,26 +347,57 @@ function move_editor.UseAttacker(session, set_name)
 		session.Preview = nil
 	end
 
+	move_ghost.Clear(session)
+	move_editor.RemoveActors(session)
+	local player = session.Player
 	local npc_name = set_name:match("^npc_(.+)$")
 
-	if session.Npc and session.Npc:IsValid() then session.Npc:Remove() end
-
-	session.Npc = nil
-
-	if npc_name then
-		local player = session.Player
+	if session.PreviewOn == "stage" then
 		local forward = actors.GetForward(player)
-		local position = player.transform:GetPosition() + Vec3(forward.z, 0, -forward.x) * NPC_OFFSET
-		local npc = npcs.Spawn(npc_name, position, 0)
-		npc.ai_controller.Wander = false
-		session.Npc = npc
-		session.Grabber = npc
-		session.Victim.character_movement:TeleportTo(position + actors.GetForward(npc) * 2.6)
-	else
-		session.Grabber = session.Player
-		session.Victim.character_movement:TeleportTo(
-			session.Player.transform:GetPosition() + actors.GetForward(session.Player) * 2.6
+		local origin = player.transform:GetPosition() + forward * STAGE_DISTANCE
+		local from = origin + Vec3(0, STAGE_RAISE, 0)
+		local ground = physics.RayCast(from, Vec3(0, -1, 0), STAGE_RAISE * 4, player)
+
+		if ground then origin.y = from.y - ground.distance end
+
+		local rotation = player.transform:GetRotation()
+		local attacker = move_stage.SpawnAttacker(set_name, session.AttackerName, origin, rotation)
+		local victim = move_stage.SpawnNpc(
+			session.VictimName,
+			origin + actors.GetForward(attacker) * STAGE_GAP,
+			rotation
 		)
+		session.Stage = {attacker, victim}
+		session.Grabber = attacker
+		session.Victim = victim
+	else
+		jrpg.SetEnabled(player, true)
+
+		if not (session.PlayerVictim and session.PlayerVictim:IsValid()) then
+			session.PlayerVictim = npcs.Spawn(
+				session.VictimName,
+				player.transform:GetPosition() + actors.GetForward(player) * STAGE_GAP,
+				0
+			)
+			session.PlayerVictim.ai_controller.Wander = false
+		end
+
+		session.Victim = session.PlayerVictim
+
+		if npc_name then
+			local forward = actors.GetForward(player)
+			local position = player.transform:GetPosition() + Vec3(forward.z, 0, -forward.x) * NPC_OFFSET
+			local npc = npcs.Spawn(npc_name, position, 0)
+			npc.ai_controller.Wander = false
+			session.Npc = npc
+			session.Grabber = npc
+			session.Victim.character_movement:TeleportTo(position + actors.GetForward(npc) * STAGE_GAP)
+		else
+			session.Grabber = player
+			session.Victim.character_movement:TeleportTo(
+				player.transform:GetPosition() + actors.GetForward(player) * STAGE_GAP
+			)
+		end
 	end
 
 	move_editor.SetCameraPreset(session, session.Camera)
@@ -528,14 +588,116 @@ function move_editor.TogglePlaying(session)
 	if session.Playing and session.Phase >= 1 then session.Phase = 0 end
 end
 
+function move_editor.GetGhostPhases(session)
+	local mode = session.GhostMode
+	local from, to = 0, 1
+	local rows
+
+	if mode == "around playhead" then
+		from = math.max(session.Phase - session.GhostWindow, 0)
+		to = math.min(session.Phase + session.GhostWindow, 1)
+	elseif mode == "selection" then
+		rows = move_edit.Rows(move_editor.GetMove(session))
+		local found = find_selection(rows, session.Selected)
+
+		if not found[1] then return {} end
+
+		from, to = math.huge, -math.huge
+
+		for _, item in ipairs(found) do
+			local key = rows[item[1]].Keys[item[2]]
+			from = math.min(from, key.Time)
+			to = math.max(to, key.Until or key.Time)
+		end
+	end
+
+	local phases = {}
+	local limit = move_ghost.MaxCount
+
+	if session.GhostSource == "one per key" then
+		rows = rows or move_edit.Rows(move_editor.GetMove(session))
+		local times = {}
+
+		for _, row in ipairs(rows) do
+			for _, key in ipairs(row.Keys) do
+				for _, time in ipairs{key.Time, key.Until} do
+					if time >= from - 1e-4 and time <= to + 1e-4 then times[#times + 1] = time end
+				end
+			end
+		end
+
+		table.sort(times)
+
+		for _, time in ipairs(times) do
+			if not phases[1] or time - phases[#phases] > 1e-3 then phases[#phases + 1] = time end
+		end
+
+		if #phases > limit then
+			local thinned = {}
+
+			for i = 1, limit do
+				thinned[i] = phases[math.floor((i - 1) * (#phases - 1) / (limit - 1) + 1.5)]
+			end
+
+			phases = thinned
+		end
+	else
+		local count = session.GhostCount
+
+		for i = 1, count do
+			phases[i] = count > 1 and from + (to - from) * (i - 1) / (count - 1) or (from + to) / 2
+		end
+	end
+
+	if mode == "around playhead" then
+		local kept = {}
+
+		for _, phase in ipairs(phases) do
+			if math.abs(phase - session.Phase) > 0.005 then kept[#kept + 1] = phase end
+		end
+
+		phases = kept
+	end
+
+	return phases
+end
+
+function move_editor.UpdateGhost(session)
+	if session.GhostMode == "off" then
+		if session.Ghosts[1] then move_ghost.Clear(session) end
+
+		return
+	end
+
+	local mode = session.GhostMode
+	local signature = table.concat(
+		{
+			mode,
+			session.GhostSource,
+			session.GhostCount,
+			session.GhostWindow,
+			session.MoveName,
+			tostring(session.TickCache),
+			tostring(session.Preview),
+			mode == "around playhead" and session.Phase or "",
+			mode == "selection" and session.SelectId or "",
+		},
+		"|"
+	)
+
+	local stamp = session.MoveName .. tostring(session.TickCache) .. tostring(session.Preview)
+
+	if signature ~= session.GhostSignature then
+		session.GhostSignature = signature
+		session.GhostPhases = move_editor.GetGhostPhases(session)
+	end
+
+	move_ghost.Show(session, session.GhostPhases, system.GetElapsedTime(), stamp)
+end
+
 function move_editor.Step(session, dt)
 	local registered = movesets.Get(session.SetName).Moves[session.MoveName]
-	local holder = session.Grabber.weapon_holder
-	local weapon = holder and holder:FindWeapon("weapon_" .. session.SetName)
-
-	if weapon and holder:GetWeapon("right") ~= weapon then holder:Equip(weapon, "right") end
-
-	if weapon then weapon.weapon:SetDrawn(true) end
+	move_stage.Arm(session.Grabber, session.SetName)
 
 	if not session.Preview then
 		if not session.Victim:IsValid() then return end
@@ -544,8 +706,10 @@ function move_editor.Step(session, dt)
 	end
 
 	session.Preview.Move = registered
+	local moved
 
 	if session.Playing then
+		moved = dt * session.Speed
 		session.Phase = session.Phase + dt * session.Speed / registered.Duration
 
 		if session.Phase >= 1 then
@@ -554,7 +718,13 @@ function move_editor.Step(session, dt)
 		end
 	end
 
-	session.Preview:SetPhase(session.Phase)
+	if session.PreviewOn == "stage" then
+		move_stage.Hold(session.Grabber)
+		move_stage.Hold(session.Victim)
+	end
+
+	session.Preview:SetPhase(session.Phase, session.Procedural and moved or nil)
+	move_editor.UpdateGhost(session)
 end
 
 local function number_node(key, text, value, on_change, precision)
@@ -1107,6 +1277,127 @@ function move_editor.BuildMenu(session, h)
 								end,
 							}
 						end
+
+						return items
+					end,
+				},
+				MenuItem{
+					Text = "preview on",
+					Items = ||-> {
+						MenuItem{
+							Text = "stage",
+							Icon = session.PreviewOn == "stage" and "check" or nil,
+							OnClick = ||-> do
+								session.PreviewOn = "stage"
+								move_editor.UseAttacker(session, session.SetName)
+								h.refresh()
+							end,
+						},
+						MenuItem{
+							Text = "player and npc",
+							Icon = session.PreviewOn == "player" and "check" or nil,
+							OnClick = ||-> do
+								session.PreviewOn = "player"
+								move_editor.UseAttacker(session, session.SetName)
+								h.refresh()
+							end,
+						},
+					},
+				},
+				MenuItem{
+					Text = "attacker",
+					Items = ||-> do
+						local items = {}
+
+						for _, name in ipairs{"player", table.unpack(npcs.GetNames())} do
+							items[#items + 1] = MenuItem{
+								Text = name,
+								Icon = name == session.AttackerName and "check" or nil,
+								OnClick = ||-> do
+									session.AttackerName = name
+									move_editor.UseAttacker(session, session.SetName)
+									h.refresh()
+								end,
+							}
+						end
+
+						return items
+					end,
+				},
+				MenuItem{
+					Text = "victim",
+					Items = ||-> do
+						local items = {}
+
+						for _, name in ipairs(npcs.GetNames()) do
+							items[#items + 1] = MenuItem{
+								Text = name,
+								Icon = name == session.VictimName and "check" or nil,
+								OnClick = ||-> do
+									session.VictimName = name
+									move_editor.UseAttacker(session, session.SetName)
+									h.refresh()
+								end,
+							}
+						end
+
+						return items
+					end,
+				},
+				MenuItem{
+					Text = "procedural animation",
+					Icon = session.Procedural and "check" or nil,
+					OnClick = ||-> do
+						session.Procedural = not session.Procedural
+						h.refresh()
+					end,
+				},
+				MenuItem{
+					Text = "ghost",
+					Items = ||-> do
+						local items = {}
+
+						for _, mode in ipairs(GHOST_MODES) do
+							items[#items + 1] = MenuItem{
+								Text = mode,
+								Icon = mode == session.GhostMode and "check" or nil,
+								OnClick = ||-> do
+									session.GhostMode = mode
+									h.refresh()
+								end,
+							}
+						end
+
+						items[#items + 1] = MenuItem{
+							Text = "poses",
+							Items = ||-> do
+								local sources = {}
+
+								for _, source in ipairs(GHOST_SOURCES) do
+									sources[#sources + 1] = MenuItem{
+										Text = source,
+										Icon = source == session.GhostSource and "check" or nil,
+										OnClick = ||-> do
+											session.GhostSource = source
+											h.refresh()
+										end,
+									}
+								end
+
+								for _, count in ipairs(GHOST_COUNTS) do
+									sources[#sources + 1] = MenuItem{
+										Text = count .. " ghosts",
+										Icon = count == session.GhostCount and "check" or nil,
+										OnClick = ||-> do
+											session.GhostCount = count
+											h.refresh()
+										end,
+									}
+								end
+
+								return sources
+							end,
+						}
 
 						return items
 					end,

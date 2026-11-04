@@ -71,6 +71,8 @@ function META:SetPhase(f, dt)
 
 	if f >= latch.At then
 		if not latched then
+			if grab.IsAwaitingBones(victim, move.CarryBones) then return end
+
 			grab.Latch(
 				self.Grabber,
 				victim,
@@ -95,8 +97,6 @@ function META:Stop()
 		grab.Detach(victim)
 		victim.character_movement:TeleportTo(self.VictimHome)
 	end
-
-			if grab.IsAwaitingBones(victim, move.CarryBones) then return end
 
 	grab.Unpuppet(self.Grabber)
 	self.Grabber.character_movement:TeleportTo(self.GrabberHome)

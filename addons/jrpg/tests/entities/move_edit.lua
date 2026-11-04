@@ -380,3 +380,39 @@ T.Test("the move editor marks moves that differ from the file, steps between mov
 	T(#move_editor.GetDirtyNames(session))["=="](0)
 	T(movesets.Get("sword").Moves.light_1.Duration)["=="](duration)
 end)
+
+T.Test("ghost phases are spread over the whole move, around the playhead or at the keys", function()
+	local move_editor = import("lua/jrpg/move_editor.lua")
+	local data = movesets.ReadFile("sword")
+	local session = {
+		Data = data,
+		MoveName = "light_1",
+		Phase = 0.5,
+		Selected = {},
+		GhostMode = "whole move",
+		GhostSource = "evenly spaced",
+		GhostCount = 5,
+		GhostWindow = 0.2,
+	}
+	local phases = move_editor.GetGhostPhases(session)
+	T(#phases)["=="](5)
+	T(phases[1])["=="](0)
+	T(phases[5])["=="](1)
+	session.GhostMode = "around playhead"
+	phases = move_editor.GetGhostPhases(session)
+
+	for _, phase in ipairs(phases) do
+		T(phase >= 0.3 - 1e-6 and phase <= 0.7 + 1e-6 and math.abs(phase - 0.5) > 0.005)["=="](true)
+	end
+
+	session.GhostMode = "selection"
+	T(#move_editor.GetGhostPhases(session))["=="](0)
+	session.GhostMode = "whole move"
+	session.GhostSource = "one per key"
+	phases = move_editor.GetGhostPhases(session)
+	T(#phases > 0 and #phases <= 12)["=="](true)
+
+	for i = 2, #phases do
+		T(phases[i] > phases[i - 1])["=="](true)
+	end
+end)
