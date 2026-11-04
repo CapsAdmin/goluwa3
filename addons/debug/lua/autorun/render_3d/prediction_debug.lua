@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local commands = import("goluwa/cli/commands.lua")
 local event = import("goluwa/event.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
@@ -289,7 +290,7 @@ event.AddListener(
 	function(cmd, dt)
 		if not enabled or not network.IsConnected() then return end
 
-		local rig = _G.PLAYER_RIG
+		local rig = players.GetLocal()
 
 		if not rig then return end
 

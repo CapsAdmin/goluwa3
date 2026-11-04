@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local event = import("goluwa/event.lua")
 local network = import("goluwa/network/network.lua")
 local message = import("goluwa/network/message.lua")
@@ -98,7 +99,7 @@ end
 
 if SERVER then
 	message.AddListener("toolgun_state", function(client, selected, tool_name, settings)
-		local player = _G.GetPlayerEntity(client)
+		local player = players.Get(client)
 		local tool = toolgun.Tools[tool_name]
 
 		if not (player and player:IsValid() and tool and toolgun.Tools[selected]) then
@@ -134,14 +135,6 @@ function toolgun.IsProp(entity)
 		not entity.character_movement and
 		not entity.ragdoll_part and
 		not entity:GetTransient()
-end
-
-function toolgun.GetClient(player)
-	if player == _G.PLAYER_RIG or not player.network then
-		return clients.GetLocalClient()
-	end
-
-	return clients.GetByUniqueID(player.network:GetNetworkOwner())
 end
 
 do
@@ -280,12 +273,12 @@ function toolgun.CreateConstraint(player, first, second, properties, anchor0, an
 		network = SERVER and {} or nil,
 		constraint = properties,
 	}
-	entity:SetOwnedBy(toolgun.GetClient(player))
+	entity:SetOwnedBy(players.GetClient(player))
 	return entity
 end
 
 local function is_local(player)
-	return not SERVER or player == _G.PLAYER_RIG
+	return not SERVER or players.IsLocal(player)
 end
 
 local Context = {}
@@ -329,7 +322,7 @@ function Context:Record(entry)
 		return
 	end
 
-	local client = toolgun.GetClient(player)
+	local client = players.GetClient(player)
 
 	if client:IsValid() then game_history.GetHistory(client):Push(entry) end
 end

@@ -8,6 +8,7 @@ Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.l
 import("lua/weapons.lua")
 import("lua/interactives.lua")
 local spawn_requests = import("lua/spawn_requests.lua")
+local players = import("lua/players.lua")
 local history = import("lua/game_history.lua").history
 
 local function find(name)
@@ -20,7 +21,7 @@ end
 
 T.Test("spawn requests spawn locally when there is no server and can be undone", function()
 	local player = Entity.New{ComponentSet = {"transform", "weapon_holder"}}
-	_G.PLAYER_RIG = player
+	players.SetLocal(player)
 	local before = #history:GetEntries()
 	spawn_requests.Spawn("weapon", "weapon_grenade", Vec3(0, 0, 3), 0)
 	local weapon = find("weapon_grenade")
@@ -32,7 +33,7 @@ T.Test("spawn requests spawn locally when there is no server and can be undone",
 	T(find("weapon_grenade"):IsValid())["=="](true)
 	find("weapon_grenade"):Remove()
 	player:Remove()
-	_G.PLAYER_RIG = nil
+	players.SetLocal(nil)
 end)
 
 T.Test("spawn requests only know how to spawn what the sandbox offers", function()

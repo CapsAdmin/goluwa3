@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local commands = import("goluwa/cli/commands.lua")
 local system = import("goluwa/system.lua")
@@ -150,9 +151,9 @@ local function build_rows()
 		end
 
 		line(string.format("networked entities %d", entities))
-		local rig = _G.PLAYER_RIG
+		local rig = players.GetLocal()
 
-		if rig and rig:IsValid() then
+		if rig then
 			local controller = rig.player_controller
 			line(
 				string.format("commands %d  synced %s", controller.number, tostring(controller.synced == true))

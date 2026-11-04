@@ -1,6 +1,7 @@
 local Entity = import("goluwa/entities/entity.lua")
 local event = import("goluwa/event.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
+local players = import("lua/players.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 shapes.Box{
@@ -67,7 +68,7 @@ event.AddListener("Update", "e2e_server", function(dt)
 		killed = true
 
 		for _, client in ipairs(clients.GetAll()) do
-			local player = _G.GetPlayerEntity(client)
+			local player = players.Get(client)
 
 			if player and player:IsValid() then
 				player.health:TakeDamage(damage.Info{Damage = 1000000})

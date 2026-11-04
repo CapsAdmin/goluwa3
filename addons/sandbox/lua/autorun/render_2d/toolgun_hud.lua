@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
@@ -18,9 +19,9 @@ local texts = {}
 local MOUSE_LABELS = {[BUTTON.ATTACK1] = "LMB", [BUTTON.ATTACK2] = "RMB"}
 
 event.AddListener("DrawHUD", "toolgun_hud", function()
-	local rig = _G.PLAYER_RIG
+	local rig = players.GetLocal()
 
-	if not (rig and rig:IsValid()) or third_person.IsHudHidden() or spawnmenu.IsShown() then
+	if not rig or third_person.IsHudHidden() or spawnmenu.IsShown() then
 		return
 	end
 

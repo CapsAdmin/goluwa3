@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local toolgun = import("lua/toolgun.lua")
 local game_history = import("lua/game_history.lua")
 local props = import("lua/props.lua")
@@ -53,7 +54,7 @@ return toolgun.Register{
 				end
 
 				local body = balloon.rigid_body
-				balloon:SetOwnedBy(toolgun.GetClient(player))
+				balloon:SetOwnedBy(players.GetClient(player))
 				body:SetGravityScale(-lift / body:GetMass())
 				body:SetAirLinearDamping(1)
 				body:SetLinearDamping(1)

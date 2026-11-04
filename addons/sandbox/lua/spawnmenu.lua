@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Rect = import("goluwa/structs/rect.lua")
@@ -61,7 +62,7 @@ local function get_aim()
 	local camera = render3d.GetCamera()
 	local origin = camera:GetPosition()
 	local forward = camera:GetRotation():GetForward()
-	local hit = physics.Sweep(origin, forward * SPAWN_RANGE, 0, _G.PLAYER_RIG, nil, TRACE_OPTIONS)
+	local hit = physics.Sweep(origin, forward * SPAWN_RANGE, 0, players.GetLocal(), nil, TRACE_OPTIONS)
 	local position = hit and hit.position or origin + forward * DEFAULT_DISTANCE
 	local yaw = math.atan2(-forward.x, -forward.z)
 	return position, yaw
@@ -732,7 +733,7 @@ local UtilitiesPage = react.Component(
 )
 local function select_tool(name)
 	toolgun.Select(name)
-	local holder = _G.PLAYER_RIG.weapon_holder
+	local holder = players.GetLocal().weapon_holder
 	local weapon = holder:FindWeapon("weapon_toolgun")
 
 	if weapon then holder:Equip(weapon, "right") end
@@ -746,7 +747,7 @@ local function build_tool_items(tool, on_change)
 			Key = setting.Key,
 			Text = setting.Text,
 			Type = setting.Type,
-			Value = toolgun.GetSetting(_G.PLAYER_RIG, tool.Name, setting.Key),
+			Value = toolgun.GetSetting(players.GetLocal(), tool.Name, setting.Key),
 			Default = setting.Default,
 			Min = setting.Min,
 			Max = setting.Max,
@@ -763,7 +764,7 @@ end
 
 local ToolsPage = react.Component(
 	||-> do
-		local selected, set_selected = react.UseState(toolgun.GetSelected(_G.PLAYER_RIG))
+		local selected, set_selected = react.UseState(toolgun.GetSelected(players.GetLocal()))
 		local revision, set_revision = react.UseState(0)
 		local editing = react.UseRef(false)
 		local tool = toolgun.Tools[selected]
@@ -912,7 +913,7 @@ function spawnmenu.Show()
 	root.transform:SetSize(Panel.World.transform:GetSize())
 	root.visual:SetVisible(true)
 	shown_setter(true)
-	_G.PLAYER_RIG.player_input:SetKeyboardMovement(true)
+	players.GetLocal().player_input:SetKeyboardMovement(true)
 end
 
 function spawnmenu.Hide()
@@ -920,7 +921,7 @@ function spawnmenu.Hide()
 
 	root.visual:SetVisible(false)
 	shown_setter(false)
-	_G.PLAYER_RIG.player_input:SetKeyboardMovement(false)
+	players.GetLocal().player_input:SetKeyboardMovement(false)
 end
 
 function spawnmenu.IsEditing()

@@ -1,3 +1,5 @@
+local players = import("lua/players.lua")
+
 if not RENDER_3D then return end
 
 local event = import("goluwa/event.lua")
@@ -76,18 +78,6 @@ end
 
 local function get_body_debug_id(body)
 	return tostring(body)
-end
-
-local function get_local_player_entity()
-	local world = Entity.World
-
-	if world and world.GetKeyed then
-		local rig = world:GetKeyed("player_camera_rig")
-
-		if rig and rig.IsValid and rig:IsValid() then return rig end
-	end
-
-	return nil
 end
 
 local function get_body_render_position_rotation(body)
@@ -395,7 +385,7 @@ local function get_look_body_hit()
 
 	local origin = cam:GetPosition()
 	local forward = cam:GetRotation():GetForward()
-	local ignore_entity = get_local_player_entity()
+	local ignore_entity = players.GetLocal()
 	local hit = damage.Sweep(origin, forward * 300, ignore_entity)
 
 	if hit then
@@ -761,7 +751,7 @@ end
 
 local function draw_character_overlay()
 	local camera_position = render3d.GetCamera():GetPosition()
-	local local_player = get_local_player_entity()
+	local local_player = players.GetLocal()
 
 	for _, component in ipairs(RagdollPart.Instances or {}) do
 		local entity = component.Owner
@@ -849,7 +839,7 @@ local function draw_character_overlay()
 end
 
 local function draw_weapon_trace()
-	local player = get_local_player_entity()
+	local player = players.GetLocal()
 
 	if not (player and player.character_movement) then return end
 

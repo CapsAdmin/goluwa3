@@ -3,6 +3,7 @@ local network = import("goluwa/network/network.lua")
 local clients = import("goluwa/network/clients.lua")
 local permissions = import("goluwa/entities/permissions.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local players = import("lua/players.lua")
 local weapons = import("lua/weapons.lua")
 local npcs = import("lua/npcs.lua")
 local interactives = import("lua/interactives.lua")
@@ -120,7 +121,7 @@ end
 
 if SERVER then
 	message.AddListener("sandbox_give", function(client, name, roll)
-		local player = _G.GetPlayerEntity(client)
+		local player = players.Get(client)
 
 		if not (player and player:IsValid()) then return end
 
@@ -139,7 +140,7 @@ if SERVER then
 	end)
 
 	message.AddListener("sandbox_spawn", function(client, kind, name, position, yaw, options)
-		local player = _G.GetPlayerEntity(client)
+		local player = players.Get(client)
 
 		if not (player and player:IsValid()) then return end
 
@@ -201,7 +202,7 @@ if CLIENT then
 			return
 		end
 
-		_G.PLAYER_RIG.weapon_holder:Give(name, roll)
+		players.GetLocal().weapon_holder:Give(name, roll)
 	end
 
 	function spawn_requests.Spawn(kind, name, position, yaw, options)
@@ -211,7 +212,7 @@ if CLIENT then
 		end
 
 		spawners[kind](
-			_G.PLAYER_RIG,
+			players.GetLocal(),
 			name,
 			position,
 			yaw,

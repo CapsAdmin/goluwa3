@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local toolgun = import("lua/toolgun.lua")
 local game_history = import("lua/game_history.lua")
 local scene = import("goluwa/entities/scene.lua")
@@ -47,7 +48,7 @@ return toolgun.Register{
 		end
 
 		local roots, spawned = scene.Deserialize(data, Entity.World, {regenerate_guids = true})
-		local client = toolgun.GetClient(context:GetPlayer())
+		local client = players.GetClient(context:GetPlayer())
 		local entries = {}
 
 		for _, root in ipairs(roots) do

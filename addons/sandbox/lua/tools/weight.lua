@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local toolgun = import("lua/toolgun.lua")
 local game_history = import("lua/game_history.lua")
 return toolgun.Register{
@@ -35,7 +36,7 @@ return toolgun.Register{
 	RightClick = function(context, trace)
 		if not toolgun.IsProp(trace.entity) then return false end
 
-		if context:GetPlayer() == _G.PLAYER_RIG then
+		if players.IsLocal(context:GetPlayer()) then
 			toolgun.SetSetting("weight", "Mass", math.round(trace.entity.rigid_body:GetMass(), 1))
 		end
 

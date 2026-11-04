@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local toolgun = import("lua/toolgun.lua")
 local game_history = import("lua/game_history.lua")
 local props = import("lua/props.lua")
@@ -58,7 +59,7 @@ return toolgun.Register{
 					return
 				end
 
-				lamp:SetOwnedBy(toolgun.GetClient(player))
+				lamp:SetOwnedBy(players.GetClient(player))
 				Entity.New{
 					Name = "light",
 					Parent = lamp,

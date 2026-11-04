@@ -1,3 +1,4 @@
+local players = import("lua/players.lua")
 local event = import("goluwa/event.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
@@ -12,9 +13,9 @@ local HINTS = {
 }
 
 event.AddListener("DrawHUD", "vehicle_hud", function()
-	local rig = _G.PLAYER_RIG
+	local rig = players.GetLocal()
 
-	if not (rig and rig:IsValid()) or third_person.IsHudHidden() then return end
+	if not rig or third_person.IsHudHidden() then return end
 
 	local seat = rig.character_pose:GetSeat()
 
