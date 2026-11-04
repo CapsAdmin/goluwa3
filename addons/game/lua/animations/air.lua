@@ -28,12 +28,20 @@ local BODY = {
 	"foot_l",
 }
 
+local function get_flip(inst, pose)
+	if pose.airborne or not inst.flip then
+		inst.flip = math.clamp(pose.vertical_speed / FLIP_SPEED, -1, 1)
+	end
+
+	return inst.flip
+end
+
 local function tilt_pitch(inst, pose)
-	return -math.clamp(pose.forward_speed / REFERENCE_SPEED, -MAX_RATIO, MAX_RATIO) * TILT * math.clamp(pose.vertical_speed / FLIP_SPEED, -1, 1)
+	return -math.clamp(pose.forward_speed / REFERENCE_SPEED, -MAX_RATIO, MAX_RATIO) * TILT * get_flip(inst, pose)
 end
 
 local function tilt_roll(inst, pose)
-	return -math.clamp(pose.right_speed / REFERENCE_SPEED, -MAX_RATIO, MAX_RATIO) * TILT * math.clamp(pose.vertical_speed / FLIP_SPEED, -1, 1)
+	return -math.clamp(pose.right_speed / REFERENCE_SPEED, -MAX_RATIO, MAX_RATIO) * TILT * get_flip(inst, pose)
 end
 
 return {
@@ -41,10 +49,10 @@ return {
 		BoneKeys = {{Pivot = "body", Chain = BODY, Pitch = tilt_pitch, Roll = tilt_roll}},
 		Kind = "state",
 		Enter = 0.08,
-		Exit = 0.12,
+		Exit = 0.35,
 		Loop = false,
 		Sequence = function(inst, suffix, clips)
-			if inst.weight <= 0.5 then return end
+			if not inst.on or inst.weight <= 0.5 then return end
 
 			local start, start_redirect = clip_redirect.Resolve("jump_start", "jump_holding_jump", clips)
 

@@ -282,6 +282,23 @@ T.Test("the air state follows the airborne flag and a hard landing triggers the 
 	entity:Remove()
 end)
 
+T.Test("the air state keeps its tilt after landing", function()
+	local entry = animations.Get("air").BoneKeys[1]
+	local inst = animations.NewInstance("air", 1)
+	local falling = {
+		forward_speed = 5,
+		right_speed = 0,
+		vertical_speed = -5,
+		airborne = true,
+		seed = 0,
+	}
+	local tilt = entry.Pitch(inst, falling)
+	T(tilt > 0)["=="](true)
+	falling.vertical_speed = 0
+	falling.airborne = false
+	T(entry.Pitch(inst, falling))["=="](tilt)
+end)
+
 T.Test("the air state tilts the body with the ground speeds while rising and the other way while falling", function()
 	local def = animations.Get("air")
 	local inst = animations.NewInstance("air", 1)
@@ -292,6 +309,7 @@ T.Test("the air state tilts the body with the ground speeds while rising and the
 			forward_speed = forward,
 			right_speed = right,
 			vertical_speed = vertical,
+			airborne = true,
 			seed = 0,
 		}
 	end
