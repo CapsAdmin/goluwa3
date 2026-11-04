@@ -18,6 +18,46 @@ local function to_attacker_side(normal, to_attacker)
 	return normal
 end
 
+function slash.StrikeWorld(holder, forward, cut, range, type_name, attributes, scale, amount)
+	local center = actors.GetCenter(holder)
+	local hit_any = false
+	local world_points = {}
+
+	for _, sample in ipairs(WORLD_SAMPLES) do
+		local direction = (forward + cut * sample):GetNormalized()
+		local trace = damage.Sweep(center, direction * range, holder)
+		local struck = trace and trace.entity and damage.GetVictim(trace.entity)
+
+		if struck and not (struck.health and not struck.health:IsDead()) then
+			local fresh = true
+
+			for _, other in ipairs(world_points) do
+				if (other - trace.point):GetLength() < WORLD_SPACING then
+					fresh = false
+
+					break
+				end
+			end
+
+			if fresh then
+				world_points[#world_points + 1] = trace.point
+				effects.Impact(
+					trace.point,
+					trace.normal,
+					attributes[1] or type_name,
+					scale,
+					cut,
+					(cut + trace.normal * SPRAY_TILT):GetNormalized(),
+					amount
+				)
+				hit_any = true
+			end
+		end
+	end
+
+	return hit_any
+end
+
 function slash.Strike(
 	holder,
 	inflictor,
@@ -131,39 +171,9 @@ function slash.Strike(
 		end
 	end
 
-	local world_points = {}
+	local hit_world = slash.StrikeWorld(holder, forward, cut, range, type_name, attributes, scale, amount)
 
-	for _, sample in ipairs(WORLD_SAMPLES) do
-		local direction = (forward + cut * sample):GetNormalized()
-		local trace = damage.Sweep(center, direction * range, holder)
-		local struck = trace and trace.entity and damage.GetVictim(trace.entity)
-
-		if struck and not (struck.health and not struck.health:IsDead()) then
-			local fresh = true
-
-			for _, other in ipairs(world_points) do
-				if (other - trace.point):GetLength() < WORLD_SPACING then
-					fresh = false
-
-					break
-				end
-			end
-
-			if fresh then
-				world_points[#world_points + 1] = trace.point
-				effects.Impact(
-					trace.point,
-					trace.normal,
-					attributes[1] or type_name,
-					scale,
-					cut,
-					(cut + trace.normal * SPRAY_TILT):GetNormalized(),
-					amount
-				)
-				hit_any = true
-			end
-		end
-	end
+	if hit_world then hit_any = true end
 
 	for _, body in ipairs(RigidBody.Instances) do
 		local owner = body.Owner
@@ -187,7 +197,11 @@ function slash.Strike(
 		end
 	end
 
-	return hit_any, cut, hits, stab and forward * -1 or plane_normal:GetNormalized()
+	return hit_any,
+	cut,
+	hits,
+	stab and forward * -1 or plane_normal:GetNormalized(),
+	hit_world
 end
 
 return slash
