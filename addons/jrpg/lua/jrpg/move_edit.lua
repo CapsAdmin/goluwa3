@@ -186,8 +186,34 @@ function move_edit.RemovePose(move, frame)
 	if move_edit.IsFrameEmpty(frame) then move_edit.RemoveFrame(move, frame) end
 end
 
+function move_edit.GetKeyIdentity(key)
+	return {
+		Frame = key.Frame,
+		Track = key.Track,
+		Event = key.Event,
+		Entry = key.Entry,
+		List = key.List,
+	}
+end
+
+function move_edit.AddEntry(move, list, time, entry)
+	table.insert(entry, 1, time)
+	move[list] = move[list] or {}
+	table.insert(move[list], entry)
+	move_edit.Sort(move[list])
+	return entry
+end
+
+function move_edit.RemoveEntry(move, list, entry)
+	table.remove(move[list], move_edit.Find(move[list], entry))
+
+	if not move[list][1] then move[list] = nil end
+end
+
 function move_edit.RemoveKey(move, key)
-	if key.Event then
+	if key.Entry then
+		move_edit.RemoveEntry(move, key.List, key.Entry)
+	elseif key.Event then
 		move_edit.RemoveEvent(move, key.Event)
 	elseif key.Track then
 		move_edit.RemoveTrack(move, key.Frame, key.Track)
@@ -207,15 +233,15 @@ function move_edit.Grab(keys)
 	local seen = {}
 
 	for _, key in ipairs(keys) do
-		local target = key.Event or key.Frame
+		local target = key.Event or key.Entry or key.Frame
 
 		if not seen[target] then
 			seen[target] = true
 			grabbed[#grabbed + 1] = {
 				Target = target,
 				Event = key.Event ~= nil,
-				Time = key.Event and key.Event.At or key.Frame[1],
-				Hold = not key.Event and key.Frame.hold or nil,
+				Time = key.Event and key.Event.At or target[1],
+				Hold = key.Frame and key.Frame.hold or nil,
 			}
 		end
 	end
@@ -241,6 +267,10 @@ function move_edit.Transform(move, grabbed, anchor, scale, offset, snap)
 	move_edit.Sort(move.Keys)
 
 	if move.Events then move_edit.SortEvents(move) end
+
+	if move.Shots then move_edit.Sort(move.Shots) end
+
+	if move.Faces then move_edit.Sort(move.Faces) end
 end
 
 function move_edit.Split(move, frame, track_name)
@@ -262,7 +292,7 @@ function move_edit.Split(move, frame, track_name)
 end
 
 function move_edit.IsLinked(key)
-	if key.Event then return false end
+	if key.Event or key.Entry then return false end
 
 	local frame = key.Frame
 	local count = #move_edit.GetTracks(frame) + (type(frame[2]) == "string" and 1 or 0)
@@ -282,7 +312,7 @@ do
 		local target
 
 		for _, key in ipairs(keys) do
-			if key.Event then return end
+			if key.Event or key.Entry then return end
 
 			if not target or key.Frame[1] < target[1] then target = key.Frame end
 		end
@@ -506,6 +536,24 @@ function move_edit.Rows(move)
 			rows[#rows + 1] = {Name = track.Name, Color = "text_disabled", Keys = keys}
 		end
 	end
+
+	local shot_keys, face_keys = {}, {}
+
+	for _, shot in ipairs(move.Shots or {}) do
+		shot_keys[#shot_keys + 1] = {Time = shot[1], Label = shot[2], Entry = shot, List = "Shots"}
+	end
+
+	for _, face in ipairs(move.Faces or {}) do
+		face_keys[#face_keys + 1] = {
+			Time = face[1],
+			Label = (face[2] or "-") .. (face.victim and " / " .. face.victim or ""),
+			Entry = face,
+			List = "Faces",
+		}
+	end
+
+	rows[#rows + 1] = {Name = "shots", Color = "positive", Keys = shot_keys}
+	rows[#rows + 1] = {Name = "faces", Color = "neutral", Keys = face_keys}
 
 	for _, event_type in ipairs(move_edit.EventTypes) do
 		local keys = {}

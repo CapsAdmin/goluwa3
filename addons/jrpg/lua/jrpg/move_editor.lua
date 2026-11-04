@@ -8,6 +8,7 @@ local Panel = import("goluwa/render2d/ui/panel.lua")
 local objects = import("goluwa/objects/objects.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local View = import("goluwa/render3d/view.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local view_camera = import("lua/view_camera.lua")
 local MenuItem = import("goluwa/render2d/ui/elements/context_menu_item.lua")
 local keyframes = import("lua/keyframes.lua")
@@ -18,6 +19,8 @@ local movesets = import("lua/movesets.lua")
 local move_edit = import("lua/jrpg/move_edit.lua")
 local move_preview = import("lua/jrpg/move_preview.lua")
 local data_history = import("lua/data_history.lua")
+local camera_shots = import("lua/camera_shots.lua")
+local faces = import("lua/faces.lua")
 local input = import("goluwa/input.lua")
 local system = import("goluwa/system.lua")
 local move_editor = {}
@@ -83,6 +86,8 @@ local function find_selection(rows, selected)
 		for i, row in ipairs(rows) do
 			for j, key in ipairs(row.Keys) do
 				if
+					selection.Entry and
+					key.Entry == selection.Entry or
 					selection.Event and
 					key.Event == selection.Event or
 					selection.Frame and
@@ -151,6 +156,7 @@ function move_editor.CreateSession()
 		HideHud = true,
 	}
 	session.View:Activate()
+	session.BaseFOV = session.View:GetFOV()
 	session.Fly = view_camera.Start(session.View, 6)
 	move_editor.SetCameraPreset(session, session.Camera)
 	move_editor.Current = session
@@ -198,7 +204,7 @@ function move_editor.SelectAll(session, rows)
 
 	for _, row in ipairs(rows) do
 		for _, key in ipairs(row.Keys) do
-			selected[#selected + 1] = {Frame = key.Frame, Track = key.Track, Event = key.Event}
+			selected[#selected + 1] = move_edit.GetKeyIdentity(key)
 		end
 	end
 
@@ -266,6 +272,40 @@ function move_editor.Apply(session)
 	end
 
 	return ok
+end
+
+function move_editor.UpdateCamera(session, dt)
+	local shots = movesets.Get(session.SetName).Moves[session.MoveName].Shots
+	local index, name = 0, nil
+
+	if session.PreviewShots and shots then
+		index, name = camera_shots.Sample(shots, session.Phase)
+	end
+
+	if not name or name == camera_shots.Battle then
+		if session.ShotIndex then
+			session.ShotIndex = nil
+			session.View:SetFOV(session.BaseFOV)
+			render3d.CutCamera()
+		end
+
+		view_camera.Update(session.Fly, dt)
+		return
+	end
+
+	local attacker = session.Grabber
+	local to_victim = actors.GetCenter(session.Victim) - actors.GetCenter(attacker)
+	to_victim.y = 0
+	local forward = to_victim:GetLength() > 1e-3 and to_victim:GetNormalized() or actors.GetForward(attacker)
+	local def = camera_shots.Shots[name]
+	local origin, look = camera_shots.Place(def, attacker, forward, Vec3(-forward.z, 0, forward.x))
+	session.View:SetPosition(origin)
+	session.View:SetRotation(Quat():SetLookDirection((look - origin):GetNormalized()))
+	session.View:SetFOV(math.rad(def.Fov))
+
+	if session.ShotIndex ~= index then render3d.CutCamera() end
+
+	session.ShotIndex = index
 end
 
 function move_editor.TogglePlaying(session)
@@ -367,6 +407,65 @@ function move_editor.BuildItems(session, changed)
 	}
 
 	if not selection then return items end
+
+	if selection.Entry then
+		local entry, list = selection.Entry, selection.List
+		local shot = list == "Shots"
+		local children = {
+			number_node(
+				"key/time",
+				"time",
+				entry[1],
+				|value|-> do
+					entry[1] = value
+					move_edit.Sort(move[list])
+					changed()
+				end
+			),
+		}
+		local names = {}
+
+		for name in pairs(shot and camera_shots.Shots or faces.Presets) do
+			names[#names + 1] = name
+		end
+
+		table.sort(names)
+		table.insert(names, 1, shot and camera_shots.Battle or "none")
+		local options = {}
+
+		for i, name in ipairs(names) do
+			options[i] = {Text = name, Value = name}
+		end
+
+		children[#children + 1] = {
+			Key = "key/value",
+			Text = shot and "shot" or "face",
+			Type = "enum",
+			Value = entry[2] or "none",
+			Options = options,
+			OnChange = |_, value|-> do
+				entry[2] = value ~= "none" and value or nil
+				changed()
+			end,
+		}
+
+		if not shot then
+			children[#children + 1] = {
+				Key = "key/victim",
+				Text = "victim",
+				Type = "enum",
+				Value = entry.victim or "none",
+				Options = options,
+				OnChange = |_, value|-> do
+					entry.victim = value ~= "none" and value or nil
+					changed()
+				end,
+			}
+		end
+
+		items[#items + 1] = {Key = "key", Text = shot and "shot" or "face", Expanded = true, Children = children}
+		return items
+	end
 
 	if selection.Event then
 		local event = selection.Event
@@ -653,6 +752,14 @@ function move_editor.BuildMenu(session, h)
 						return items
 					end,
 				},
+				MenuItem{
+					Text = "preview shots",
+					Icon = session.PreviewShots and "check" or nil,
+					OnClick = ||-> do
+						session.PreviewShots = not session.PreviewShots
+						h.refresh()
+					end,
+				},
 			},
 		},
 	}
@@ -702,7 +809,7 @@ local MoveEditor = react.Component(
 			"Update",
 			|dt|-> do
 				move_editor.Step(session, math.min(dt, 0.1))
-				view_camera.Update(session.Fly, dt)
+				move_editor.UpdateCamera(session, dt)
 
 				if session.Playing or session.ShownPhase ~= session.Phase then
 					session.ShownPhase = session.Phase
@@ -830,7 +937,7 @@ local MoveEditor = react.Component(
 							OnSelect = |row, index|-> do
 								local key = row and rows[row].Keys[index]
 								session.ForceCommit = true
-								move_editor.Select(session, key and {Frame = key.Frame, Track = key.Track, Event = key.Event} or nil)
+								move_editor.Select(session, key and move_edit.GetKeyIdentity(key) or nil)
 								h.refresh()
 							end,
 							OnSelectKeys = |list|-> do
@@ -838,7 +945,7 @@ local MoveEditor = react.Component(
 
 								for i, item in ipairs(list) do
 									local key = rows[item[1]].Keys[item[2]]
-									selected[i] = {Frame = key.Frame, Track = key.Track, Event = key.Event}
+									selected[i] = move_edit.GetKeyIdentity(key)
 								end
 
 								move_editor.SelectMany(session, selected)
@@ -902,7 +1009,10 @@ local MoveEditor = react.Component(
 							OnKeyMove = |row, index, time|-> do
 								local key = rows[row].Keys[index]
 
-								if key.Event then
+								if key.Entry then
+									key.Entry[1] = time
+									move_edit.Sort(move[key.List])
+								elseif key.Event then
 									key.Event.At = time
 									move_edit.SortEvents(move)
 								else
@@ -923,6 +1033,12 @@ local MoveEditor = react.Component(
 									h.changed()
 								elseif move_edit.TrackByName[name] then
 									add_track_key(name, time)
+								elseif name == "shots" then
+									move_editor.Select(session, {Entry = move_edit.AddEntry(move, "Shots", time, {camera_shots.Battle}), List = "Shots"})
+									h.changed(true)
+								elseif name == "faces" then
+									move_editor.Select(session, {Entry = move_edit.AddEntry(move, "Faces", time, {"neutral"}), List = "Faces"})
+									h.changed(true)
 								else
 									move_editor.Select(session, {Event = move_edit.AddEvent(move, name, time)})
 									h.changed()
