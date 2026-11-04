@@ -56,7 +56,16 @@ npcs.Definitions = {
 		WalkSpeed = 45,
 		RunSpeed = 45,
 		Moveset = true,
-		Attacks = {{Move = "claw", Range = 1.4, Interval = 1.8}},
+		Attacks = {
+			{Move = "frenzy", Range = 1.4, Interval = 9},
+			{Move = "claw", Range = 1.4, Interval = 2.4},
+			{Move = "claw_b", Range = 1.4, Interval = 2.6},
+			{Move = "claw_c", Range = 1.4, Interval = 3},
+			{Move = "claw_d", Range = 1.4, Interval = 2.8},
+			{Move = "swat_left", Range = 1.3, Interval = 2},
+			{Move = "swat_right", Range = 1.3, Interval = 2.2},
+			{Move = "kick", Range = 1.2, Interval = 3.5},
+		},
 		Sounds = voices.zombie,
 	},
 	vortigaunt = {

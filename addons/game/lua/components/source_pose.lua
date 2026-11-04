@@ -12,6 +12,7 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local animations = import("lua/animations.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local movesets = import("lua/movesets.lua")
+local keyframes = import("lua/keyframes.lua")
 local impacts = import("lua/impacts.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local META = objects.CreateTemplate("source_pose")
@@ -27,6 +28,7 @@ META:IsSet("LegIK", false)
 META:GetSet("LegRig", NO_RIG)
 META:GetSet("SocketProfile", "source_humanoid")
 META:EndStorable()
+local CLIP_BLEND = 0.15
 local START_SPEED = 0.3
 local STOP_SPEED = 0.12
 local RUN_MARGIN = 1.1
@@ -208,6 +210,30 @@ end
 
 local EYE_LOOK_DISTANCE = 10
 
+function META:DriveClip(animator, segment, time, other, other_time, weight)
+	if self.clip_segment ~= segment then
+		self.base_blend = self.base_blend or animator.BlendTime
+		self.clip_segment = segment
+		self.sequence = segment[3]
+		animator:SetBlendTime(segment.Blend or CLIP_BLEND)
+		animator:SetLoop(false)
+		animator:SetSequence(segment[3])
+	end
+
+	animator:SetPlaying(false)
+	animator:SetTime(time)
+	animator:SetBlendClip(other and other[3], other_time, weight)
+end
+
+function META:ReleaseClip(animator)
+	if not self.clip_segment then return end
+
+	self.clip_segment = nil
+	animator:SetBlendClip(nil)
+	animator:SetPlaying(true)
+	animator:SetBlendTime(self.base_blend)
+end
+
 function META:UpdateCreature(animator, skeleton, pose, dt)
 	local reaction, inst = find_creature_sequence(pose, skeleton.ClipsByName)
 
@@ -227,46 +253,18 @@ function META:UpdateCreature(animator, skeleton, pose, dt)
 	self.reaction_inst = nil
 	local action, phase = pose:GetActiveAction()
 	local move = action and movesets.GetMove(action)
+	local segment, time, _, other, other_time, weight
 
-	if move and move.Clip and pose.scrub then
-		if self.scrubbed ~= move.Clip then
-			self.scrubbed = move.Clip
-			self.sequence = move.Clip
-			animator:SetLoop(false)
-			animator:SetSequence(move.Clip)
-		end
+	if move and move.Clips then
+		segment, time, _, other, other_time, weight = keyframes.SampleClip(move, phase, skeleton.ClipsByName)
+	end
 
-		animator:SetPlaying(false)
-		animator:SetTime(phase * skeleton.ClipsByName[move.Clip].Duration)
+	if segment then
+		self:DriveClip(animator, segment, time, other, other_time, weight)
 		return
 	end
 
-	if self.scrubbed then
-		self.scrubbed = nil
-		self.clip_actions = nil
-		animator:SetPlaying(true)
-	end
-
-	if move and move.Clip then
-		local clip = skeleton.ClipsByName[move.Clip]
-
-		if self.clip_actions ~= pose.Actions then
-			self.clip_actions = pose.Actions
-			self.sequence = move.Clip
-			animator:SetLoop(move.ClipSpeed ~= nil)
-			animator:SetSequence(move.Clip)
-			animator:Restart()
-		end
-
-		animator:SetSpeed(
-			(
-					move.ClipSpeed or
-					clip.Duration / pose.ActionDuration
-				) * pose:GetTimeScale() * pose.rate_variation
-		)
-		return
-	end
-
+	self:ReleaseClip(animator)
 	local forward_speed = pose.forward_speed
 	local left_speed = -pose.right_speed
 	local speed = math.sqrt(forward_speed * forward_speed + left_speed * left_speed)
@@ -419,8 +417,28 @@ function META:UpdatePlayer(animator, pose, dt)
 		reference = math.max(reference, GAIT_SPEED.sprint / SPRINT_MAX_RATE)
 	end
 
+	local segment, clip_time, _, other, other_time, weight
+
+	if override and override.def.Clips then
+		segment, clip_time, _, other, other_time, weight = keyframes.SampleClip(override.def, override.phase, clips)
+	end
+
+	if segment and self.clip_segment ~= segment then
+		self.base_blend = self.base_blend or animator.BlendTime
+		animator:SetBlendTime(segment.Blend or CLIP_BLEND)
+	end
+
 	if sequence ~= self.sequence then
 		self:SwitchSequence(animator, sequence, override)
+	end
+
+	if segment then
+		self.clip_segment = segment
+		animator:SetPlaying(false)
+		animator:SetTime(clip_time)
+		animator:SetBlendClip(other and other[3], other_time, weight)
+	else
+		self:ReleaseClip(animator)
 	end
 
 	if speed >= 0.15 and not override and not air_crouch then

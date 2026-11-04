@@ -339,3 +339,21 @@ T.TestPhysics("an unarmed npc that retaliates follows whoever hit it, stops two 
 	T(npc.transform:GetPosition().z > 3)["=="](true)
 	T(npc.transform:GetRotation():GetForward().z > 0.5)["=="](true)
 end)
+
+T.Test("the zombie has several attacks and a frenzy that chains four clips with a strike in each", function()
+	local npcs = import("lua/npcs.lua")
+	local set = movesets.Get("npc_zombie")
+	local frenzy = set.Moves.frenzy
+	T(#frenzy.Clips)["=="](4)
+	T(#frenzy.Events)["=="](4)
+
+	for i, clip in ipairs(frenzy.Clips) do
+		T(frenzy.Events[i].At > clip[1] and frenzy.Events[i].At < clip[2])["=="](true)
+	end
+
+	T(#npcs.Definitions.zombie.Attacks >= 5)["=="](true)
+
+	for _, attack in ipairs(npcs.Definitions.zombie.Attacks) do
+		T(set.Moves[attack.Move] ~= nil)["=="](true)
+	end
+end)

@@ -82,6 +82,57 @@ keyframes.FaceOut = 0.2
 local AIRBORNE_LIFT = 0.15
 local AIRBORNE_TILT = 0.3
 
+do
+	local function get_time(def, segment, phase, clip)
+		local from = segment.In or 0
+		local into = (phase - segment[1]) * def.Duration
+
+		if segment.Speed then
+			local span = (segment.Out or clip.Duration) - from
+			return from + (span > 0 and into * segment.Speed % span or 0)
+		end
+
+		local length = (segment[2] - segment[1]) * def.Duration
+		return from + ((segment.Out or clip.Duration) - from) * math.min(into / length, 1)
+	end
+
+	function keyframes.SampleClip(def, phase, clips)
+		local segments = def.Clips
+		local incoming, incoming_clip
+
+		for i = #segments, 1, -1 do
+			local segment = segments[i]
+
+			if phase >= segment[1] and (phase < segment[2] or segment[2] >= 1) then
+				local clip = clips[segment[3]]
+
+				if clip then
+					if not incoming then
+						incoming, incoming_clip = segment, clip
+					else
+						local t = math.clamp((phase - incoming[1]) / (segment[2] - incoming[1]), 0, 1)
+						return segment,
+						get_time(def, segment, phase, clip),
+						clip,
+						incoming,
+						get_time(def, incoming, phase, incoming_clip),
+						t * t * (3 - 2 * t)
+					end
+				end
+			end
+		end
+
+		if incoming then
+			return incoming, get_time(def, incoming, phase, incoming_clip), incoming_clip
+		end
+	end
+end
+
+function keyframes.ClipSequence(inst, suffix, clips)
+	local segment = keyframes.SampleClip(inst.def, inst.phase, clips)
+	return segment and segment[3]
+end
+
 function keyframes.AddPoses(poses)
 	for name, pose in pairs(poses) do
 		keyframes.Poses[name] = pose
@@ -432,6 +483,11 @@ function keyframes.Compile(def, poses)
 	end
 
 	if def.BodyKeys or def.Face then def.Body = keyframes.ApplyBody end
+
+	if def.Clips then
+		def.Sequence = keyframes.ClipSequence
+		def.Loop = false
+	end
 
 	if def.CarryKeys then
 		assert(

@@ -151,3 +151,19 @@ T.Test("a move holds facing its target to the end when its face out is zero", fu
 	T(yaws[1])["=="](0)
 	T(yaws[2] > 0.1)["=="](true)
 end)
+
+T.Test("overlapping clips sample both with a smooth weight for the incoming one", function()
+	local def = {Duration = 2, Clips = {{0, 0.6, "a"}, {0.4, 1, "b", In = 0.5}}}
+	local clips = {a = {Duration = 3}, b = {Duration = 3}}
+	local segment, time, _, other, other_time, weight = keyframes.SampleClip(def, 0.2, clips)
+	T(segment)["=="](def.Clips[1])
+	T(other)["=="](nil)
+	segment, time, _, other, other_time, weight = keyframes.SampleClip(def, 0.5, clips)
+	T(segment)["=="](def.Clips[1])
+	T(other)["=="](def.Clips[2])
+	T(weight > 0 and weight < 1)["=="](true)
+	T(other_time)["~"](0.5 + 0.1 * 2 * (3 - 0.5) / 1.2, 1e-9)
+	segment, time, _, other = keyframes.SampleClip(def, 0.8, clips)
+	T(segment)["=="](def.Clips[2])
+	T(other)["=="](nil)
+end)

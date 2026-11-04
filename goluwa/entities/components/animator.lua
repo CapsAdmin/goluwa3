@@ -83,8 +83,16 @@ function Animator:Restart()
 	self.dirty = true
 end
 
+function Animator:SetBlendClip(name, seconds, weight)
+	self.blend_sequence = name
+	self.blend_time = seconds
+	self.blend_weight = weight
+	self.dirty = true
+end
+
 function Animator:SetTime(seconds)
 	self.time = seconds
+	self.seek_time = self.clip_dirty and seconds or nil
 	self.dirty = true
 end
 
@@ -167,6 +175,8 @@ function Animator:Bind(skeleton)
 	self.pose = skeleton:NewPose()
 	self.clip_pose = skeleton:NewPose()
 	self.fade_pose = skeleton:NewPose()
+	self.blend_pose = skeleton:NewPose()
+	self.mix_pose = skeleton:NewPose()
 	local parts = {}
 	local by_skin = {}
 	local model_extent = 0
@@ -409,6 +419,8 @@ end
 
 function Animator:ResolveClip()
 	self.clip_dirty = false
+	local seek_time = self.seek_time
+	self.seek_time = nil
 	local skeleton = self.skeleton
 	local clip = skeleton.ClipsByName[self.Sequence]
 
@@ -429,7 +441,7 @@ function Animator:ResolveClip()
 	if clip == self.clip then return end
 
 	if self.clip then
-		self.time = 0
+		self.time = seek_time or 0
 
 		if self.BlendTime > 0 then
 			self.fade_pose:Copy(self.pose)
@@ -498,6 +510,16 @@ function Animator:Animate(dt)
 			end
 
 			self.clip_pose:Sample(clip, cycle, self.pose_parameters)
+			local blend_clip = self.blend_sequence and self.skeleton.ClipsByName[self.blend_sequence]
+
+			if blend_clip then
+				local blend_cycle = blend_clip.Duration > 0 and
+					math.clamp(self.blend_time / blend_clip.Duration, 0, 1) or
+					0
+				self.blend_pose:Sample(blend_clip, blend_cycle, self.pose_parameters)
+				self.mix_pose:Blend(self.clip_pose, self.blend_pose, self.blend_weight)
+				self.clip_pose:Copy(self.mix_pose)
+			end
 
 			if self.fade then
 				self.fade = self.fade + dt / self.BlendTime

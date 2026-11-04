@@ -64,9 +64,8 @@ local MOVE_KEYS = {
 	Next = true,
 	Face = true,
 	FaceOut = true,
-	Clip = true,
+	Clips = true,
 	Sound = true,
-	ClipSpeed = true,
 	Speed = true,
 	Crash = true,
 	PoseWeapon = true,
@@ -116,6 +115,8 @@ local EVENT_TYPES = {
 }
 movesets.EventTypes = EVENT_TYPES
 local KEY_FIELDS = {ease = true, hold = true}
+local CLIP_FIELDS = {In = true, Out = true, Speed = true, Blend = true}
+local CLIP_ID = "Id"
 local TRACKS = {}
 
 for _, track in ipairs(keyframes.Tracks) do
@@ -180,14 +181,6 @@ local function validate_move(move, poses, path)
 		path .. ".FaceOut must be a number between 0 and 1"
 	)
 	assert(
-		move.Clip == nil or type(move.Clip) == "string",
-		path .. ".Clip must be a sequence name"
-	)
-	assert(
-		move.ClipSpeed == nil or type(move.ClipSpeed) == "number",
-		path .. ".ClipSpeed must be a number"
-	)
-	assert(
 		move.Sound == nil or type(move.Sound) == "string",
 		path .. ".Sound must be a sound role"
 	)
@@ -214,7 +207,7 @@ local function validate_move(move, poses, path)
 			move.Land <= 1,
 		path .. ".Land must be a phase between 0 and 1"
 	)
-	assert(move.Keys or move.Clip, path .. " needs Keys or a Clip")
+	assert(move.Keys or move.Clips, path .. " needs Keys or Clips")
 	local previous = {}
 
 	for i, frame in ipairs(move.Keys or {}) do
@@ -279,6 +272,43 @@ local function validate_move(move, poses, path)
 		last = lock[2]
 	end
 
+	for i, clip in ipairs(move.Clips or {}) do
+		local at = path .. ".Clips[" .. i .. "]"
+		assert(
+			type(clip[1]) == "number" and
+				type(clip[2]) == "number" and
+				clip[1] >= 0 and
+				clip[1] < clip[2] and
+				clip[2] <= 1,
+			at .. " needs a start and an end between 0 and 1"
+		)
+		assert(type(clip[3]) == "string", at .. " needs a sequence name")
+
+		for key, value in pairs(clip) do
+			assert(
+				key == 1 or
+					key == 2 or
+					key == 3 or
+					CLIP_FIELDS[key] and
+					type(value) == "number" or
+					key == CLIP_ID and
+					type(value) == "string",
+				at .. " has an unknown or mistyped field " .. tostring(key)
+			)
+		end
+
+		assert(not clip.In or not clip.Out or clip.In < clip.Out, at .. " needs In before Out")
+		assert(not clip.Speed or clip.Speed > 0, at .. ".Speed must be above 0")
+
+		if i > 1 then
+			assert(clip[1] >= move.Clips[i - 1][1], at .. " starts before the clip before it")
+		end
+
+		if i > 2 then
+			assert(clip[1] >= move.Clips[i - 2][2], at .. " overlaps two clips at once")
+		end
+	end
+
 	last = 0
 
 	for i, face in ipairs(move.Faces or {}) do
@@ -317,8 +347,22 @@ local function validate_move(move, poses, path)
 		)
 		last = event.At
 
+		if event.Clip ~= nil then
+			assert(type(event.Time) == "number", at .. " is linked to a clip and needs a Time")
+			local found
+
+			for _, clip in ipairs(move.Clips or {}) do
+				found = found or clip.Id == event.Clip
+			end
+
+			assert(
+				found,
+				at .. " is linked to a clip Id that does not exist: " .. tostring(event.Clip)
+			)
+		end
+
 		for key, value in pairs(event) do
-			if key ~= "At" and key ~= "Type" then
+			if key ~= "At" and key ~= "Type" and key ~= "Clip" and key ~= "Time" then
 				local kind = assert(spec.keys[key], at .. " (" .. event.Type .. ") has an unknown field " .. key)
 
 				if kind == "number" then
@@ -367,7 +411,60 @@ function movesets.Validate(name, def)
 	)
 end
 
+function movesets.ResolveClipLinks(move)
+	local events = move.Events
+
+	if not events or not move.Clips then return end
+
+	for _, event in ipairs(events) do
+		if event.Clip then
+			for _, clip in ipairs(move.Clips) do
+				if clip.Id == event.Clip then
+					local rate = clip.Speed or
+						(
+							(
+								clip.Out or
+								0
+							) - (
+								clip.In or
+								0
+							)
+						) / (
+							(
+								clip[2] - clip[1]
+							) * move.Duration
+						)
+
+					if rate > 0 then
+						event.At = math.clamp(
+							clip[1] + (event.Time - (clip.In or 0)) / (rate * move.Duration),
+							clip[1],
+							clip[2]
+						)
+					end
+				end
+			end
+		end
+	end
+
+	for i = 2, #events do
+		local item = events[i]
+		local j = i - 1
+
+		while j >= 1 and events[j].At > item.At do
+			events[j + 1] = events[j]
+			j = j - 1
+		end
+
+		events[j + 1] = item
+	end
+end
+
 function movesets.Register(name, def, path)
+	for _, move in pairs(def.Moves) do
+		movesets.ResolveClipLinks(move)
+	end
+
 	movesets.Validate(name, def)
 	movesets.Paths[name] = path or movesets.Paths[name]
 	movesets.Source[name] = table.copy(def)
@@ -493,9 +590,7 @@ do
 		"Next",
 		"Face",
 		"FaceOut",
-		"Clip",
 		"Sound",
-		"ClipSpeed",
 		"Speed",
 		"Crash",
 		"PoseWeapon",
@@ -507,6 +602,7 @@ do
 		"Relative",
 		"Dodge",
 		"Land",
+		"Clips",
 		"Keys",
 		"Shots",
 		"Faces",
