@@ -620,12 +620,16 @@ do
 		"Type",
 	}
 
-	function movesets.Reload(name)
+	function movesets.ReadFile(name)
 		local path = assert(
 			movesets.Paths[name] and vfs.GetAbsolutePath(movesets.Paths[name]),
 			"there is no file for moveset " .. name
 		)
-		return movesets.Update(name, assert(loadfile(path))())
+		return assert(loadfile(path))()
+	end
+
+	function movesets.Reload(name)
+		return movesets.Update(name, movesets.ReadFile(name))
 	end
 
 	function movesets.Save(name)
