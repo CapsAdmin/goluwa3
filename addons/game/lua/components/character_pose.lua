@@ -114,6 +114,7 @@ function META:Initialize()
 	self.forced_crouch = false
 	self.locomotion = true
 	self.legs = true
+	self.leg_block = 0
 	self.viewing = false
 	self.airborne = false
 	self.fall_speed = 0
@@ -563,6 +564,7 @@ function META:UpdateAnimations(dt)
 	local forced_crouch = false
 	local locomotion = true
 	local legs = true
+	local leg_block = 0
 	local viewing = false
 	local scrub = self.scrub
 	local scrubbed
@@ -660,7 +662,10 @@ function META:UpdateAnimations(dt)
 
 			if def.Locomotion == false and inst.weight > 0.5 then locomotion = false end
 
-			if def.Legs == false and inst.weight > 0.001 then legs = false end
+			if def.Legs == false and inst.weight > 0.001 then
+				legs = false
+				leg_block = math.max(leg_block, inst.weight)
+			end
 
 			if def.View then viewing = true end
 		end
@@ -670,6 +675,7 @@ function META:UpdateAnimations(dt)
 	self.forced_crouch = forced_crouch
 	self.locomotion = locomotion
 	self.legs = legs
+	self.leg_block = leg_block
 	self.viewing = viewing
 end
 

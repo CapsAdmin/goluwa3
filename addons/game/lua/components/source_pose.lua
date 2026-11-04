@@ -631,6 +631,12 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 	return plane
 end
 
+local leg_before = {}
+
+for _, name in ipairs(aim_pose.Bones) do
+	leg_before[name] = Matrix44():Identity()
+end
+
 function META:UpdateLegs(character, pose, dt, bones)
 	local plane = self:UpdateFeet(character, pose, dt, bones, FEET)
 	local shift = self.leg_shift
@@ -840,7 +846,21 @@ do
 			if def.Bones then def.Bones(bones, inst, pose) end
 		end
 
-		if pose.legs then self:UpdateLegs(pose.Owner, pose, dt, bones) end
+		if pose.leg_block < 0.999 then
+			if pose.leg_block > 0 then
+				for _, name in ipairs(aim_pose.Bones) do
+					aim_pose.CopyMatrix(leg_before[name], bones[name])
+				end
+			end
+
+			self:UpdateLegs(pose.Owner, pose, dt, bones)
+
+			if pose.leg_block > 0 then
+				for _, name in ipairs(aim_pose.Bones) do
+					aim_pose.BlendMatrix(bones[name], leg_before[name], bones[name], 1 - pose.leg_block)
+				end
+			end
+		end
 
 		local seat_weight = animations.GetWeight(pose, "seat")
 
