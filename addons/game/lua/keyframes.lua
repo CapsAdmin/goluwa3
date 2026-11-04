@@ -212,11 +212,16 @@ do
 		rotation:Set(faced.x, faced.y, faced.z, faced.w)
 	end
 
+	local function fade_angle(angle, weight)
+		local turns = math.floor(angle / math.tau + 0.5) * math.tau
+		return turns + (angle - turns) * weight
+	end
+
 	local function apply_body_keys(keys, phase, weight, position, rotation)
 		animations.SampleKeys(keys, phase, sample, 9)
 		faced:Set(rotation.x, rotation.y, rotation.z, rotation.w)
 		turn:Set(rotation.x, rotation.y, rotation.z, rotation.w)
-		turn:RotateYaw(sample[4] * weight):RotatePitch(sample[5] * weight):RotateRoll(sample[6] * weight)
+		turn:RotateYaw(fade_angle(sample[4], weight)):RotatePitch(fade_angle(sample[5], weight)):RotateRoll(fade_angle(sample[6], weight))
 		pivot:Set(sample[7], sample[8], sample[9])
 		offset:Set(sample[1] * weight, sample[2] * weight, sample[3] * weight)
 		local moved = position + faced:VecMul(offset) + faced:VecMul(pivot) - turn:VecMul(pivot)
