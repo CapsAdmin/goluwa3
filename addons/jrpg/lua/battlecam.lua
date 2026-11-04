@@ -266,7 +266,7 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	local orbiting = false
 
 	if target then
-		target_point:CopyFrom(target:GetPosition())
+		target_point:CopyFrom(targeting.GetPosition())
 		local to_target = target_point - pivot
 		local distance = to_target:GetLength()
 		local flat = math.sqrt(to_target.x * to_target.x + to_target.z * to_target.z)
@@ -400,7 +400,7 @@ function battlecam.ApplyMovement(player_input, dt, attacking)
 	local move = player_input.move_local
 
 	if target then
-		local to_target = target:GetPosition() - pivot
+		local to_target = targeting.GetPosition() - pivot
 		local flat = math.sqrt(to_target.x * to_target.x + to_target.z * to_target.z)
 		target_yaw = math.atan2(-to_target.x, -to_target.z)
 		target_pitch = math.atan2(to_target.y, math.max(flat, 1e-3))

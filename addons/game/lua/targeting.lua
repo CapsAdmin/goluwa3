@@ -19,6 +19,7 @@ local function is_valid_target(body, owner)
 	local entity = body.Owner
 	return entity ~= owner and
 		not body.TraceOwner and
+		not body.BoxRagdoll and
 		not body.WorldGeometry and
 		not body:IsStatic()
 		and
@@ -42,6 +43,17 @@ function targeting.Get()
 	if target and not target:IsValid() then target = nil end
 
 	return target
+end
+
+function targeting.GetPosition()
+	local owner = target.Owner
+	local ragdoll = owner.ragdoll
+
+	if ragdoll and ragdoll.box_entity and owner.health:IsDead() then
+		return ragdoll.box_entity.rigid_body:GetPosition()
+	end
+
+	return target:GetPosition()
 end
 
 function targeting.Set(body)
