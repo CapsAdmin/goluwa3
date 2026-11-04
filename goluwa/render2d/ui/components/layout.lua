@@ -620,9 +620,8 @@ function META:Arrange()
 		self.busy = self.busy - 1
 
 		if self.pending_child_reflow then
-			local pending_child_reflow = self.pending_child_reflow
 			self.pending_child_reflow = false
-			self:SetDirty(pending_child_reflow)
+			self:InvalidateLayout()
 		end
 
 		return
@@ -954,9 +953,8 @@ function META:Arrange()
 	self.busy = self.busy - 1
 
 	if self.pending_child_reflow then
-		local pending_child_reflow = self.pending_child_reflow
 		self.pending_child_reflow = false
-		self:SetDirty(pending_child_reflow)
+		self:InvalidateLayout()
 	end
 end
 
