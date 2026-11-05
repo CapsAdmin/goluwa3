@@ -421,8 +421,8 @@ function Texture.New(config)
 			end
 
 			evict_texture_cache_entry(self)
-			self:MakeReady()
 			self.reflectivity = reflectivity
+			self:MakeReady()
 			return
 		end
 
@@ -447,8 +447,8 @@ function Texture.New(config)
 					tostring(config.path or config.cache_key or "<decoded>")
 				)
 				evict_texture_cache_entry(self)
-				self:MakeReady()
 				self.reflectivity = reflectivity
+				self:MakeReady()
 				return
 			end
 
@@ -564,8 +564,8 @@ function Texture.New(config)
 			end
 		end
 
-		self:MakeReady()
 		self.reflectivity = reflectivity
+		self:MakeReady()
 	end
 
 	if cache_key then texture_cache[cache_key] = self end
