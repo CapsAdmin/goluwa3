@@ -73,8 +73,7 @@ local function allocate(count)
 		first = range.first + range.count
 	end
 
-	assert(first + count <= gpu.POOL_SIZE, "the gpu particle pool is full")
-	return first
+	if first + count <= gpu.POOL_SIZE then return first end
 end
 
 local function sync()
@@ -107,28 +106,32 @@ local function sync()
 		then
 			if #ranges >= gpu.MAX_EMITTERS then break end
 
-			local slot = 0
-			local taken = {}
+			local first = allocate(emitter.MaxParticles)
 
-			for _, range in ipairs(ranges) do
-				taken[range.slot] = true
+			if first then
+				local slot = 0
+				local taken = {}
+
+				for _, range in ipairs(ranges) do
+					taken[range.slot] = true
+				end
+
+				while taken[slot] do
+					slot = slot + 1
+				end
+
+				local range = {
+					emitter = emitter,
+					first = first,
+					count = emitter.MaxParticles,
+					slot = slot,
+					uid = next_uid,
+					cursor = 0,
+				}
+				next_uid = next_uid + 1
+				ranges[#ranges + 1] = range
+				emitter.gpu_range = range
 			end
-
-			while taken[slot] do
-				slot = slot + 1
-			end
-
-			local range = {
-				emitter = emitter,
-				first = allocate(emitter.MaxParticles),
-				count = emitter.MaxParticles,
-				slot = slot,
-				uid = next_uid,
-				cursor = 0,
-			}
-			next_uid = next_uid + 1
-			ranges[#ranges + 1] = range
-			emitter.gpu_range = range
 		end
 	end
 

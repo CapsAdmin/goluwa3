@@ -677,6 +677,34 @@ T.Test("Graphics render3d particle emitters differ by type in what they have", f
 	cpu:Remove()
 end)
 
+T.Test("Graphics render3d gpu emitters that do not fit the pool wait for room instead of failing", function()
+	local emitters = {}
+
+	for i = 1, 3 do
+		local entity = Entity.New{Name = "pool_emitter" .. i}
+		entity:AddComponent("transform")
+		local emitter = entity:AddComponent("particle_emitter_gpu")
+		emitter:SetMaxParticles(math.floor(particle_emitter_gpu.POOL_SIZE / 2) - 1000)
+		emitters[i] = entity
+	end
+
+	local function sync()
+		system.SetFrameNumber(system.GetFrameNumber() + 1)
+		return particle_emitter_gpu.GetRanges()
+	end
+
+	T(#sync())["=="](2)
+	T(emitters[1].particle_emitter_gpu.gpu_range ~= nil)["=="](true)
+	T(emitters[2].particle_emitter_gpu.gpu_range ~= nil)["=="](true)
+	T(emitters[3].particle_emitter_gpu.gpu_range == nil)["=="](true)
+	emitters[1]:Remove()
+	T(#sync())["=="](2)
+	T(emitters[3].particle_emitter_gpu.gpu_range ~= nil)["=="](true)
+	emitters[2]:Remove()
+	emitters[3]:Remove()
+	T(#sync())["=="](0)
+end)
+
 T.Test3D("Graphics render3d cpu emitter draws refractive materials through the translucent pass", function(draw)
 	init()
 	local entity
