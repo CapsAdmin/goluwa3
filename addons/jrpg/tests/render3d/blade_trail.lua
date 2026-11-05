@@ -15,6 +15,7 @@ T.Test3D("the blade trail clip follows the base and tip params and fades out whe
 		position = Vec3(0, 2, 0),
 	}
 	local clip = clips.Play("jrpg_blade_trail", params, true)
+	T(clip.states[3].entity.transform:GetPosition():Distance(params.position))["<"](0.001)
 
 	for i = 1, 5 do
 		params.tip:Set(i * 0.2, 2, 0)

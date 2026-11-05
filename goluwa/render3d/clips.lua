@@ -384,6 +384,7 @@ do
 		end
 
 		state.entity = vfx.CreateEmitter("clip_emitter", emitter_data.Get(layer.emitter_key, inputs))
+		EMITTER.Update(layer, p, nil, state)
 	end
 
 	function EMITTER.Update(layer, p, v, state)
