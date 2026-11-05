@@ -113,3 +113,28 @@ T.Test("PNG encode writes the adler32 of the data when the first sum wraps to ze
 	local stored = data:byte(last - 3) * 16777216 + data:byte(last - 2) * 65536 + data:byte(last - 1) * 256 + data:byte(last)
 	T(stored)["=="](s2 * 65536 + s1)
 end)
+
+T.Test("png encode round trips sizes where a deflate block ends exactly on a row", function()
+	local ffi = require("ffi")
+	local png = import("goluwa/codecs/png.lua")
+	local codec = import("goluwa/codec.lua")
+
+	for _, case in ipairs{{256, 256, "gray"}, {255, 255, "gray"}, {128, 512, "rgba"}, {13107, 5, "gray"}} do
+		local width, height, mode = case[1], case[2], case[3]
+		local channels = mode == "gray" and 1 or 4
+		local pixels = ffi.new("uint8_t[?]", width * height * channels)
+
+		for i = 0, width * height * channels - 1 do
+			pixels[i] = (i * 31 + math.floor(i / 7)) % 256
+		end
+
+		local file = png.Encode(width, height, mode)
+		file:write(pixels)
+		local decoded = assert(codec.DecodeData("x.png", file:getData()))
+		T(decoded.width)["=="](width)
+		T(decoded.height)["=="](height)
+		local last_row = (height - 1) * width * channels
+		T(decoded.data[0])["=="](pixels[last_row])
+		T(decoded.data[(height - 1) * width * 4])["=="](pixels[0])
+	end
+end)

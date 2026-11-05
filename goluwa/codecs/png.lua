@@ -524,7 +524,7 @@ function Png:write(pixels, count)
 	self.header_buffer = header
 
 	while count > 0 and not self.done do
-		if deflateFilled == 0 and (positionX > 0 or positionY == 0) then
+		if deflateFilled == 0 then
 			local size = min(DEFLATE_MAX_BLOCK_SIZE, uncompRemain)
 			local isLast = (uncompRemain <= DEFLATE_MAX_BLOCK_SIZE) and 1 or 0
 			header[0] = band(isLast, 0xFF)
@@ -604,7 +604,9 @@ local function begin(width, height, colorMode)
 	colorMode = colorMode or "rgb"
 	local bytesPerPixel, colorType
 
-	if colorMode == "rgb" then
+	if colorMode == "gray" then
+		bytesPerPixel, colorType = 1, 0
+	elseif colorMode == "rgb" then
 		bytesPerPixel, colorType = 3, 2
 	elseif colorMode == "rgba" then
 		bytesPerPixel, colorType = 4, 6
