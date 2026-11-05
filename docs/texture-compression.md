@@ -20,3 +20,5 @@ Pitfalls:
 - dds data is read in buffer order, top row first like a vtf, so (unlike png, which the engine's codec flips) a dds renders correctly on Source geometry as written.
 - `bc.Decode` leaves the channels a format does not have at zero (bc4 fills red, bc5 red and green).
 - A `config.srgb` texture load turns `_unorm` into `_srgb` by itself, so the format name in the dds does not decide the color space on load.
+
+bc7 mode 6 has one p bit per endpoint shared by all four channels, so values of different parity in one block (a metallic 0 next to an ambient occlusion or alpha of 255) cannot both be exact: one channel is off by one. It is inherent to the mode, not an encoder bug.
