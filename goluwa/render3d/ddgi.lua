@@ -723,6 +723,7 @@ function ddgi.GetDefinesGLSL()
 		// as unsigned), so shift into the positive range before wrapping
 		#define DDGI_WRAP(v, n) (((v) + (n) * 65536) %% (n))
 		#define DDGI_VISIBILITY_MASK %d
+		#define DDGI_SCENE_MASK %d
 		#define DDGI_DISABLED_PROBE_FRAMES 8u
 
 		bool ddgi_probe_idle(float data_w, bool current, int probe, int c, uint frame) {
@@ -746,7 +747,8 @@ function ddgi.GetDefinesGLSL()
 		ddgi.HALF_PRECISION_RAYS and 6 or 12,
 		ddgi.HALF_PRECISION_RAYS and 2048 or 0,
 		ddgi.LIGHT_SAMPLES,
-		ddgi.ALPHA_TEST and scene_instances.MASK_SOLID or 0xFF
+		ddgi.ALPHA_TEST and scene_instances.MASK_GI_SOLID or scene_instances.MASK_GI,
+		scene_instances.MASK_GI
 	)
 end
 
@@ -2093,7 +2095,7 @@ void main()
             if (weight > 0.0 && dist > DDGI_SHADOW_OFFSET) {
                 payload.hit_t = 1.0;
                 payload.sun = 0u;
-                traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin, 0.0, to_point / dist, dist - DDGI_SHADOW_OFFSET, 0);
+                traceRayEXT(scene, shadow_flags, DDGI_SCENE_MASK, 0, 0, 0, origin, 0.0, to_point / dist, dist - DDGI_SHADOW_OFFSET, 0);
 
                 if (payload.hit_t < 0.0) result = uvec4(floatBitsToUint(weight), uint(emitter), 0u, 0u);
             }
@@ -2106,7 +2108,7 @@ void main()
     vec3 dir = ddgi_ray_direction(ray, uint(params.uniform_rays), params.rotation, tile, ddgi_guide_valid(tile, world, c));
     payload.sun = 0u;
     float pull = DDGI_ORIGIN_PULL * params.cascades[c].w;
-    traceRayEXT(scene, DDGI_SCENE_FLAGS, 0xFF, 0, 0, 0, origin - dir * pull, params.tmin, dir, params.max_ray_distance + pull, 0);
+    traceRayEXT(scene, DDGI_SCENE_FLAGS, DDGI_SCENE_MASK, 0, 0, 0, origin - dir * pull, params.tmin, dir, params.max_ray_distance + pull, 0);
     float hit_t = payload.hit_t >= 0.0 ? max(payload.hit_t - pull, 1e-5) : payload.hit_t;
     uint instance = payload.instance;
     uint primitive = payload.primitive;
@@ -2122,7 +2124,7 @@ void main()
         if (dot(hit_normal, sun_direction) > 0.0) {
             payload.hit_t = 1.0;
             payload.sun = 1u;
-            traceRayEXT(scene, shadow_flags, 0xFF, 0, 0, 0, origin + dir * hit_t + hit_normal * DDGI_SHADOW_OFFSET, 0.0, sun_direction, params.max_ray_distance, 0);
+            traceRayEXT(scene, shadow_flags, DDGI_SCENE_MASK, 0, 0, 0, origin + dir * hit_t + hit_normal * DDGI_SHADOW_OFFSET, 0.0, sun_direction, params.max_ray_distance, 0);
 
             if (payload.hit_t < 0.0) sun_visible = 1u;
         }

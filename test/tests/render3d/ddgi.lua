@@ -157,6 +157,73 @@ do
 		if not ok then error(err, 0) end
 	end)
 
+	T.Test3DRayTracing("Graphics render3d ddgi rays skip moving instances until they settle", function(draw)
+		local polygon3d = Polygon3D.New()
+		shapes.BuildCube(polygon3d, 1)
+		polygon3d:BuildBoundingBox()
+		polygon3d:Upload()
+		local created = {}
+		use_ddgi()
+		render3d.camera:SetPosition(Vec3(0, 4, 10))
+		local floor = Entity.New{Name = "ddgi_moving_slab"}
+		created[#created + 1] = floor
+		floor:AddComponent("transform")
+		floor.transform:SetPosition(Vec3(0, -0.5, 0))
+		floor.transform:SetScale(Vec3(100, 0.5, 100))
+		floor:AddComponent(
+			"rigid_body",
+			{
+				MotionType = "kinematic",
+				Shape = import("goluwa/physics/shapes/box.lua").New(Vec3(1, 1, 1)),
+			}
+		)
+		floor:AddComponent("visual")
+		local p = Entity.New{Name = "ddgi_moving_slab_p", Parent = floor}
+		p:AddComponent("transform")
+		p:AddComponent("visual_primitive"):SetPolygon3D(polygon3d)
+		p.visual_primitive:SetMaterial(Material.New{ColorMultiplier = Color(0.8, 0.8, 0.8, 1), MetallicMultiplier = 0})
+		floor.visual:BuildAABB()
+		local ok, err = pcall(function()
+			local function probe_hits()
+				local state = ddgi.GetFrameState()
+				local hits = ffi.cast("float*", ddgi.GetRayHitBuffer():Map(0, ddgi.GetRayHitBuffer():GetSize()))
+				local cascade = state.cascades[1]
+				local probe = 0 + cascade.size.x * (2 + cascade.size.y * 0)
+				local count = 0
+
+				for ray = 0, ddgi.GetUniformRays() - 1 do
+					if hits[(probe * (ddgi.RAYS_PER_PROBE + ddgi.EMITTER_SAMPLES) + ray) * 4] >= 0 then
+						count = count + 1
+					end
+				end
+
+				return count
+			end
+
+			for _ = 1, 4 do
+				draw()
+			end
+
+			T(probe_hits())["=="](0)
+			import("goluwa/system.lua").SetFrameNumber(import("goluwa/system.lua").GetFrameNumber() + 40)
+
+			for _ = 1, 4 do
+				draw()
+			end
+
+			T(probe_hits() > ddgi.GetUniformRays() / 4)["=="](true)
+		end)
+
+		for _, e in ipairs(created) do
+			e:Remove()
+		end
+
+		restore()
+		polygon3d:Remove()
+
+		if not ok then error(err, 0) end
+	end)
+
 	T.Test3DRayTracing("Graphics render3d ddgi a room lit through a pinhole is as bright as its slow average", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)

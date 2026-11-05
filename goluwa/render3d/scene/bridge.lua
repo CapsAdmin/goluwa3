@@ -1,4 +1,5 @@
 local render = import("goluwa/render/render.lua")
+local system = import("goluwa/system.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
@@ -13,6 +14,8 @@ local bounds_dirty = false
 local emissive_visuals = setmetatable({}, {__mode = "k"})
 bridge.emitter_version = 0
 local MAX_DIRTY_BOXES = 64
+local GI_SETTLE_FRAMES = 30
+local NOT_GI_BITS = bit.bnot(instances.MASK_GI_BITS)
 local dirty_queues = {}
 
 function bridge.CreateDirtyQueue()
@@ -276,6 +279,15 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	item.raster = (drawn or translucent) or nil
 end
 
+local function item_mask(item, frame)
+	item.gi_on = not item.gi_never and
+		(
+			item.gi_always or
+			frame - item.moved_frame >= GI_SETTLE_FRAMES
+		)
+	return item.gi_on and item.gi_mask or bit.band(item.gi_mask, NOT_GI_BITS)
+end
+
 function bridge.UpdateVisual(visual, is_dynamic)
 	if not visual:IsValid() or visual.scene_removed then
 		cpu_drawn[visual] = nil
@@ -290,6 +302,7 @@ function bridge.UpdateVisual(visual, is_dynamic)
 	local emissive = false
 	local hidden = not visual.Visible
 	local has_cpu_entry = false
+	local frame = system.GetFrameNumber()
 
 	for _, entry in ipairs(visual:GetLODRenderEntries()) do
 		local mesh = entry.polygon3d.mesh
@@ -309,9 +322,12 @@ function bridge.UpdateVisual(visual, is_dynamic)
 
 			if r + g + b > 0 and (entry.lod_level or 0) == 0 then emissive = true end
 
+			local gear = false
+
 			if hidden or not visual.InSceneBVH then
 				mask = 0
 			elseif is_character_gear(visual.Owner) then
+				gear = true
 				mask = bit.bor(mask, instances.MASK_SELF)
 			end
 
@@ -330,11 +346,16 @@ function bridge.UpdateVisual(visual, is_dynamic)
 					instances.SetMatrix(item.id, matrix)
 					item.matrix = matrix
 					item.matrix_version = matrix_version
+					item.moved_frame = frame
 					changed = true
 				end
 
+				item.gi_mask = mask
+				item.gi_flags = flags
+				item.gi_always = not is_dynamic or nil
+				item.gi_never = gear or nil
 				local material_changed = instances.SetMaterial(item.id, material_row)
-				local mask_changed = instances.SetMask(item.id, mask, flags)
+				local mask_changed = instances.SetMask(item.id, item_mask(item, frame), flags)
 				changed = material_changed or mask_changed or changed
 				emitter_changed = material_changed or mask_changed or emitter_changed
 			else
@@ -347,11 +368,16 @@ function bridge.UpdateVisual(visual, is_dynamic)
 				end
 
 				item = item or {}
+				item.moved_frame = frame
+				item.gi_mask = mask
+				item.gi_flags = flags
+				item.gi_always = not is_dynamic or nil
+				item.gi_never = gear or nil
 				item.id = instances.Add(
 					mesh_row,
 					material_row,
 					matrix,
-					mask,
+					item_mask(item, frame),
 					flags,
 					entry.lod_level,
 					entry.lod_last,
@@ -435,6 +461,8 @@ function bridge.GetCPUDrawnVisuals()
 end
 
 function bridge.RefreshDynamic()
+	local frame = system.GetFrameNumber()
+
 	for visual in pairs(dynamic) do
 		local list = visual.scene_instances
 		local changed = false
@@ -459,7 +487,17 @@ function bridge.RefreshDynamic()
 				instances.SetMatrix(item.id, matrix)
 				item.matrix = matrix
 				item.matrix_version = matrix_version
+				item.moved_frame = frame
 				changed = true
+			end
+
+			if
+				not item.gi_never and
+				item.gi_on ~= (
+					frame - item.moved_frame >= GI_SETTLE_FRAMES
+				)
+			then
+				instances.SetMask(item.id, item_mask(item, frame), item.gi_flags)
 			end
 		end
 

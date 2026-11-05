@@ -312,7 +312,7 @@ local function pass_shade()
 					float shadow_distance = max(picked_ray[k].w - DDGI_SHADOW_OFFSET, 0.0);
 					#if defined(DDGI_VISIBILITY_RAYS) && RT_HIT_SHADOWS
 					rayQueryEXT query;
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, P, 0.0, picked_ray[k].xyz, shadow_distance);
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsTerminateOnFirstHitEXT, DDGI_SCENE_MASK, P, 0.0, picked_ray[k].xyz, shadow_distance);
 
 					while (rayQueryProceedEXT(query)) {
 						if (ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))].glass == 0) rayQueryConfirmIntersectionEXT(query);
@@ -1106,7 +1106,7 @@ local function pass_scene_debug()
 			) .. [[
 			bool debug_trace(vec3 O, vec3 D, out ddgi_debug_hit hit) {
 				rayQueryEXT query;
-				rayQueryInitializeEXT(query, ddgi_scene, DDGI_SCENE_FLAGS, 0xFF, O, 0.0, D, ddgi_data.ddgi_max_distance);
+				rayQueryInitializeEXT(query, ddgi_scene, DDGI_SCENE_FLAGS, DDGI_SCENE_MASK, O, 0.0, D, ddgi_data.ddgi_max_distance);
 
 				while (rayQueryProceedEXT(query)) {
 		]] .. (

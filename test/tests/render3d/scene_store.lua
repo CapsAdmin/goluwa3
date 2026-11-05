@@ -12,6 +12,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
+local system = import("goluwa/system.lua")
 local RESULT_COUNT = 8
 
 local function trace(tlas, cmd, results, origin)
@@ -348,4 +349,58 @@ T.Test3D("Graphics render3d scene store follows a skinned mesh in the ray traced
 	T(read_results(draw, rt.GetTLAS, origin)[1])["=="](0)
 	animator:Unbind()
 	entity:Remove()
+end)
+
+T.Test3D("Graphics render3d scene store keeps moving instances out of the gi rays until they settle", function(draw)
+	if not render.GetDevice().ray_query_supported then return end
+
+	local function gi_bits(visual)
+		local id = visual.scene_instances[1].id
+		return bit.band(instances.GetDataTable():Get()[id].mask_lod, instances.MASK_GI_BITS)
+	end
+
+	local function settle()
+		system.SetFrameNumber(system.GetFrameNumber() + 40)
+		draw()
+		draw()
+	end
+
+	local static = shapes.Box{Name = "scene_store_gi_static", Position = Vec3(0, 0, -4), Collision = false}
+	local mover = shapes.Box{
+		Name = "scene_store_gi_mover",
+		Position = Vec3(3, 0, -4),
+		RigidBody = {MotionType = "kinematic"},
+	}
+	local gear = Entity.New{Name = "scene_store_gi_gear"}
+	gear.weapon_holder = true
+	gear:AddComponent("transform")
+	gear.transform:SetPosition(Vec3(-3, 0, -4))
+	gear:AddComponent("visual")
+	local gear_primitive = Entity.New{Name = "scene_store_gi_gear_primitive", Parent = gear}
+	gear_primitive:AddComponent("transform")
+	local cube = Polygon3D.New()
+	shapes.BuildCube(cube, 1)
+	cube:BuildBoundingBox()
+	cube:Upload()
+	gear_primitive:AddComponent("visual_primitive"):SetPolygon3D(cube)
+	gear.visual:BuildAABB()
+	draw()
+	draw()
+	T(gi_bits(static.visual))["=="](instances.MASK_GI_BITS)
+	T(gi_bits(mover.visual))["=="](0)
+	T(gi_bits(gear.visual))["=="](0)
+	settle()
+	T(gi_bits(static.visual))["=="](instances.MASK_GI_BITS)
+	T(gi_bits(mover.visual))["=="](instances.MASK_GI_BITS)
+	T(gi_bits(gear.visual))["=="](0)
+	mover.transform:SetPosition(Vec3(3, 1, -4))
+	draw()
+	draw()
+	T(gi_bits(mover.visual))["=="](0)
+	settle()
+	T(gi_bits(mover.visual))["=="](instances.MASK_GI_BITS)
+	static:Remove()
+	mover:Remove()
+	gear:Remove()
+	cube:Remove()
 end)
