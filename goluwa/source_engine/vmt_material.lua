@@ -1052,17 +1052,14 @@ do
 		self:SetRoughnessMultiplier(0.5)
 
 		if vmt.mraotexture then
-			local metallic, roughness, occlusion = 1, 1, 1
+			local metallic, roughness = 1, 1
 
-			if vmt.mraoscale then
-				metallic, roughness, occlusion = get_rgb(vmt.mraoscale)
-			end
+			if vmt.mraoscale then metallic, roughness = get_rgb(vmt.mraoscale) end
 
 			self:SetMetallicRoughnessTexture(ctx.linear(vmt.mraotexture))
-			self:SetMetallicRoughnessIsMRAO(true)
+			self:SetMetallicRoughnessIsMR(true)
 			self:SetMetallicMultiplier(metallic)
 			self:SetRoughnessMultiplier(roughness)
-			self:SetAmbientOcclusionMultiplier(occlusion)
 		end
 
 		if vmt.emissiontexture then

@@ -73,7 +73,7 @@ T.Test3D("material_bake reproduces a material's albedo, normal and roughness fro
 	local checks = {
 		{1, {0, 1, 2}, 12, "albedo"},
 		{2, {0, 1}, 6, "normal"},
-		{3, {0, 1, 2}, 8, "metallic roughness ao"},
+		{3, {0, 1}, 8, "metallic roughness"},
 	}
 
 	for _, check in ipairs(checks) do
@@ -240,7 +240,7 @@ T.Test3D("material_bake bakes both layers of a vertex blend", function()
 	T(copy:GetMetallicRoughness2Texture() ~= nil)["=="](true)
 	local after = material_bake.Render(copy, SIZE, SIZE)
 
-	for attachment, channels in pairs{[1] = {0, 1, 2}, [2] = {0, 1}, [3] = {0, 1, 2}} do
+	for attachment, channels in pairs{[1] = {0, 1, 2}, [2] = {0, 1}, [3] = {0, 1}} do
 		local worst, mean = compare(
 			original:GetAttachment(attachment):Download(),
 			after:GetAttachment(attachment):Download(),

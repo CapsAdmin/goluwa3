@@ -18,7 +18,7 @@ local fs = import("goluwa/filesystem/fs.lua")
 local crypto = import("goluwa/crypto.lua")
 local objects = import("goluwa/objects/objects.lua")
 local material_bake = {}
-material_bake.Version = 1
+material_bake.Version = 2
 material_bake.CacheDirectory = "storage/cache/baked_materials/"
 pvars.StartGroup("Rendering", "Materials", {store = false})
 material_bake.enabled = pvars.Setup2{
@@ -100,7 +100,7 @@ local function create_pipeline()
 		ColorFormat = {
 			{"r8g8b8a8_srgb", {"bake_albedo", "rgba"}},
 			{"r8g8b8a8_unorm", {"bake_normal", "rgba"}},
-			{"r8g8b8a8_unorm", {"bake_mrao", "rgba"}},
+			{"r8g8b8a8_unorm", {"bake_mr", "rgba"}},
 			{"r8g8b8a8_srgb", {"bake_emissive", "rgba"}},
 		},
 		RasterizationSamples = "1",
@@ -126,7 +126,7 @@ local function create_pipeline()
 				vec3 n = get_normal_map(uv);
 				set_bake_albedo(vec4(albedo, alpha));
 				set_bake_normal(vec4(n.xy * 0.5 + 0.5, 0.0, 1.0));
-				set_bake_mrao(vec4(s.metallic, sqrt(s.roughness_alpha), s.ao, 1.0));
+				set_bake_mr(vec4(s.metallic, sqrt(s.roughness_alpha), 0.0, 0.0));
 				set_bake_emissive(vec4(get_emissive(uv) / EMISSIVE_REFERENCE_LUMINANCE, 1.0));
 			}
 		]],
@@ -183,7 +183,7 @@ end
 
 -- Bakes the material into three compressed textures, returned as dds strings:
 -- Albedo (bc7 srgb, alpha is the material's alpha), Normal (bc5, the xy the shader would use) and
--- MetallicRoughness (bc7 linear: r metallic, g roughness, b ambient occlusion, the MRAO layout).
+-- MetallicRoughness (bc7 linear: r metallic, g roughness, the MetallicRoughnessIsMR layout).
 -- Emissive (bc7 srgb, the color before EmissiveMultiplier) is added when the material emits.
 -- Texture transforms are not part of the bake, they stay on the material.
 function material_bake.Bake(material, width, height)
@@ -373,7 +373,7 @@ function material_bake.Apply(material, textures)
 	material:SetAlbedoTexture(textures.Albedo)
 	material:SetNormalTexture(textures.Normal)
 	material:SetMetallicRoughnessTexture(textures.MetallicRoughness)
-	material:SetMetallicRoughnessIsMRAO(true)
+	material:SetMetallicRoughnessIsMR(true)
 	material:SetAlbedo2Texture(textures.Albedo2)
 	material:SetNormal2Texture(textures.Normal2)
 	material:SetMetallicRoughness2Texture(textures.MetallicRoughness2)
@@ -394,7 +394,6 @@ function material_bake.Apply(material, textures)
 	material:SetNormalAlphaIsCoverage(false)
 	material:SetMetallicTexture(nil)
 	material:SetRoughnessTexture(nil)
-	material:SetAmbientOcclusionTexture(nil)
 	material:SetRoughnessMultiplier(1)
 	material:SetRoughnessMin(0)
 	material:SetRoughnessMax(1)
@@ -405,7 +404,6 @@ function material_bake.Apply(material, textures)
 	material:SetMetallicFromRoughnessMask(false)
 	material:SetAlbedoTextureAlphaIsRoughness(false)
 	material:SetAlbedoLuminanceIsRoughness(false)
-	material:SetAmbientOcclusionMultiplier(1)
 	material:SetDerivedRoughnessAlbedo(0)
 	material:SetDerivedRoughnessNormal(0)
 	material:SetDerivedRoughnessMetal(0)
@@ -420,7 +418,6 @@ local TEXTURE_GETTERS = {
 	"GetMetallicRoughnessTexture",
 	"GetMetallicTexture",
 	"GetRoughnessTexture",
-	"GetAmbientOcclusionTexture",
 	"GetEmissiveTexture",
 }
 local READY_GETTERS = {unpack(TEXTURE_GETTERS)}

@@ -253,11 +253,6 @@ local function build_material(gltf_data, material_index)
 		config.NormalMapMultiplier = info.normal_texture.scale or 1
 	end
 
-	if info.occlusion_texture then
-		config.AmbientOcclusionTexture = load_texture(gltf_data, info.occlusion_texture)
-		config.AmbientOcclusionMultiplier = info.occlusion_texture.strength or 1
-	end
-
 	if info.emissive_texture then
 		config.EmissiveTexture = load_texture(gltf_data, info.emissive_texture, true)
 		config.EmissiveTextureIsColor = true

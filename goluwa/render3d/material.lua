@@ -42,8 +42,6 @@ Material:GetSet("MetallicMaskMin", 0.0)
 Material:GetSet("MetallicMaskMax", 1.0)
 Material:GetSet("EmissiveAlphaFloor", 0.0)
 Material:GetSet("SpecularMultiplier", 1.0)
-Material:GetSet("AmbientOcclusionTexture", nil, {type = "render_texture"})
-Material:GetSet("AmbientOcclusionMultiplier", 1.0)
 
 for _, feature in ipairs(surface_features.list) do
 	if feature.params then
@@ -139,7 +137,7 @@ Material:GetSet("RoughnessMaskOnlyScalesSpecular", false, {callback = "Invalidat
 Material:GetSet("InvertRoughnessTexture", false, {callback = "InvalidateFlags"})
 Material:GetSet("MetallicFromRoughnessMask", false, {callback = "InvalidateFlags"})
 Material:GetSet(
-	"MetallicRoughnessIsMRAO",
+	"MetallicRoughnessIsMR",
 	false,
 	{callback = "InvalidateFlags", requires = "MetallicRoughnessTexture"}
 )
@@ -451,7 +449,7 @@ local FLAGS = {
 	"SharpAlpha",
 	"DecalFade",
 	"BentNormals",
-	"MetallicRoughnessIsMRAO",
+	"MetallicRoughnessIsMR",
 	"HeightTextureIsAlpha",
 	"VertexTint",
 	"Unlit",

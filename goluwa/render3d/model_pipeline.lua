@@ -85,17 +85,7 @@ local PBR_AUX_FIELDS = {
 		name = "MetallicRoughness2Texture",
 		getter = "GetMetallicRoughness2Texture",
 	},
-	{
-		type = "texture",
-		name = "AmbientOcclusionTexture",
-		getter = "GetAmbientOcclusionTexture",
-	},
 	{type = "texture", name = "EmissiveTexture", getter = "GetEmissiveTexture"},
-	{
-		type = "float",
-		name = "AmbientOcclusionMultiplier",
-		getter = "GetAmbientOcclusionMultiplier",
-	},
 	{type = "vec4", name = "EmissiveMultiplier", getter = "GetEmissiveMultiplier"},
 	{type = "texture", name = "MetallicTexture", getter = "GetMetallicTexture"},
 	{type = "texture", name = "RoughnessTexture", getter = "GetRoughnessTexture"},
@@ -868,8 +858,6 @@ do
 				material:GetMetallicRoughnessTexture() ~= nil or
 				material:GetMetallicTexture() ~= nil or
 				material:GetRoughnessTexture() ~= nil or
-				material:GetAmbientOcclusionTexture() ~= nil or
-				material:GetAmbientOcclusionMultiplier() ~= 1.0 or
 				material:GetEmissiveTexture() ~= nil or
 				material:GetAlbedoAlphaIsEmissive() or
 				material:GetAdditive() or
@@ -2292,7 +2280,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 						packed_texel = mix(packed_texel, texture(TEXTURE(aux_model.MetallicRoughness2Texture), uv).rgb, get_texture_blend_uv(uv));
 					}
 
-					val = MetallicRoughnessIsMRAO ? packed_texel.r : packed_texel.b;
+					val = MetallicRoughnessIsMR ? packed_texel.r : packed_texel.b;
 				} else {
 					val = factor_model.MetallicMultiplier;
 					val = clamp(val, 0, 1);
@@ -2377,25 +2365,11 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			}
 
 			float get_ao(vec2 uv) {
-				if (aux_model.AmbientOcclusionTexture == -1) {
-					if (MetallicRoughnessIsMRAO && aux_model.MetallicRoughnessTexture != -1) {
-						float ao = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).b;
-
-						if (aux_model.MetallicRoughness2Texture != -1) {
-							ao = mix(ao, texture(TEXTURE(aux_model.MetallicRoughness2Texture), uv).b, get_texture_blend_uv(uv));
-						}
-
-						return ao * aux_model.AmbientOcclusionMultiplier;
-					}
-
-					if (terrain_model.TerrainMaterialTexture != -1) {
-						return get_terrain_weighted_value(uv, terrain_model.TerrainLayerAmbientOcclusion, terrain_model.TerrainLayerAmbientOcclusion2) * terrain_layer_cache.ao * aux_model.AmbientOcclusionMultiplier;
-					}
-
-					return 1.0 * aux_model.AmbientOcclusionMultiplier;
+				if (terrain_model.TerrainMaterialTexture != -1) {
+					return get_terrain_weighted_value(uv, terrain_model.TerrainLayerAmbientOcclusion, terrain_model.TerrainLayerAmbientOcclusion2) * terrain_layer_cache.ao;
 				}
 
-				return texture(TEXTURE(aux_model.AmbientOcclusionTexture), uv).r * aux_model.AmbientOcclusionMultiplier;
+				return 1.0;
 			}
 
 			]] .. surface_features.GetSurfaceGLSL() .. surface_features.GetInitFunctionGLSL() .. [[
