@@ -23,6 +23,7 @@ Material:GetSet(
 	nil,
 	{type = "render_texture", callback = "InvalidateRayMaterial"}
 )
+Material:GetSet("MetallicRoughness2Texture", nil, {type = "render_texture"})
 Material:GetSet(
 	"MetallicTexture",
 	nil,

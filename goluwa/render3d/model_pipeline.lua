@@ -82,6 +82,11 @@ local PBR_AUX_FIELDS = {
 	},
 	{
 		type = "texture",
+		name = "MetallicRoughness2Texture",
+		getter = "GetMetallicRoughness2Texture",
+	},
+	{
+		type = "texture",
 		name = "AmbientOcclusionTexture",
 		getter = "GetAmbientOcclusionTexture",
 	},
@@ -2253,7 +2258,13 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				} else if (aux_model.RoughnessTexture != -1) {
 					return texture(TEXTURE(aux_model.RoughnessTexture), uv).r;
 				} else if (aux_model.MetallicRoughnessTexture != -1) {
-					return texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).g;
+					float roughness = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).g;
+
+					if (aux_model.MetallicRoughness2Texture != -1) {
+						roughness = mix(roughness, texture(TEXTURE(aux_model.MetallicRoughness2Texture), uv).g, get_texture_blend_uv(uv));
+					}
+
+					return roughness;
 				}
 
 				return -1.0;
@@ -2276,6 +2287,11 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					val = texture(TEXTURE(aux_model.MetallicTexture), uv).r;
 				} else if (aux_model.MetallicRoughnessTexture != -1) {
 					vec3 packed_texel = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).rgb;
+
+					if (aux_model.MetallicRoughness2Texture != -1) {
+						packed_texel = mix(packed_texel, texture(TEXTURE(aux_model.MetallicRoughness2Texture), uv).rgb, get_texture_blend_uv(uv));
+					}
+
 					val = MetallicRoughnessIsMRAO ? packed_texel.r : packed_texel.b;
 				} else {
 					val = factor_model.MetallicMultiplier;
@@ -2363,7 +2379,13 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			float get_ao(vec2 uv) {
 				if (aux_model.AmbientOcclusionTexture == -1) {
 					if (MetallicRoughnessIsMRAO && aux_model.MetallicRoughnessTexture != -1) {
-						return texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).b * aux_model.AmbientOcclusionMultiplier;
+						float ao = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).b;
+
+						if (aux_model.MetallicRoughness2Texture != -1) {
+							ao = mix(ao, texture(TEXTURE(aux_model.MetallicRoughness2Texture), uv).b, get_texture_blend_uv(uv));
+						}
+
+						return ao * aux_model.AmbientOcclusionMultiplier;
 					}
 
 					if (terrain_model.TerrainMaterialTexture != -1) {
