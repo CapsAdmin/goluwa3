@@ -8,7 +8,11 @@ local OPTIONS = {IncludeRigidBodies = true, IgnoreKinematicBodies = false}
 local function is_occluder(entity)
 	local body = entity.rigid_body
 
-	if not body or body:IsStatic() or body:IsKinematic() then return true end
+	if not body then return true end
+
+	if body.CollisionMask == 0 then return false end
+
+	if body:IsStatic() or body:IsKinematic() then return true end
 
 	if body:GetShapeType() == "capsule" then return false end
 

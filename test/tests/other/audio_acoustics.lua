@@ -1154,6 +1154,35 @@ T.TestPhysics("audio acoustics occludes a source behind a static wall", function
 	end
 end)
 
+T.TestPhysics("audio acoustics lets sound through bodies that collide with nothing but not through a door", function()
+	local Entity = import("goluwa/entities/entity.lua")
+	local BoxShape = import("goluwa/physics/shapes/box.lua")
+	local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
+	local listener = Vec3(0, 1.7, 0)
+	local source = Vec3(0, 1.7, -10)
+	local tracer = acoustics_cpu.New()
+
+	local function blocked()
+		local through = acoustics.ProbeTransmission(tracer, listener, source, audio.speed_of_sound)
+		return through.leaves > 0
+	end
+
+	local hitbox = Entity.New{
+		transform = {Position = Vec3(0, 1.7, -5)},
+		rigid_body = {Shape = CapsuleShape.New(0.3, 1.2), MotionType = "kinematic", CollisionMask = 0},
+	}
+	import("goluwa/physics.lua").Update(1 / 60)
+	T(blocked())["=="](false)
+	hitbox:Remove()
+	local door = Entity.New{
+		transform = {Position = Vec3(0, 1.7, -5)},
+		rigid_body = {Shape = BoxShape.New(Vec3(2, 3, 0.1)), MotionType = "kinematic"},
+	}
+	import("goluwa/physics.lua").Update(1 / 60)
+	T(blocked())["=="](true)
+	door:Remove()
+end)
+
 T.Test("audio sounds ramp in and out instead of clicking on a non zero sample", function()
 	with_offline_mixer(function(ctx)
 		local frames = 4410
