@@ -261,12 +261,21 @@ local function build_ssdm_fragment_shader(write_depth)
 
 			vec3 grad_u = (dp2perp * duv1.x + dp1perp * duv2.x) / det;
 			vec3 grad_v = (dp2perp * duv1.y + dp1perp * duv2.y) / det;
-			float thickness = displacement_model.HeightScale / sqrt(max(length(grad_u) * length(grad_v), 1e-12));
 			vec3 V = get_view_dir_world(in_position);
-			float view_n = max(dot(V, N), 0.05);
+			float facing = dot(V, N);
+			float view_n = max(facing, 0.05);
+			vec2 height_size = vec2(textureSize(TEXTURE(displacement_model.HeightTexture), 0));
+			float texels_per_pixel = max(length(duv1 * height_size), length(duv2 * height_size));
+			float fade = (1.0 - smoothstep(2.0, 6.0, texels_per_pixel)) * smoothstep(0.04, 0.2, facing);
+
+			if (fade <= 0.0) {
+				return data;
+			}
+
+			float thickness = displacement_model.HeightScale * fade / sqrt(max(length(grad_u) * length(grad_v), 1e-12));
 			vec2 uv_per_depth = -vec2(dot(grad_u, V), dot(grad_v, V)) / view_n;
 			float midlevel = displacement_model.HeightMidlevel;
-			int layer_count = get_height_layers();
+			int layer_count = clamp(int(float(get_height_layers()) * (0.5 + 1.5 * (1.0 - view_n))), 4, 64);
 			float layer_height = 1.0 / float(layer_count);
 			vec2 top_uv = in_uv - uv_per_depth * (1.0 - midlevel) * thickness;
 			vec2 uv_step = uv_per_depth * thickness * layer_height;
@@ -274,7 +283,6 @@ local function build_ssdm_fragment_shader(write_depth)
 			vec2 current_uv = top_uv;
 			float current_height = textureGrad(TEXTURE(displacement_model.HeightTexture), current_uv, duv1, duv2).r;
 			float previous_level = level;
-			float previous_height = current_height;
 
 			for (int i = 0; i < 64; i++) {
 				if (i >= layer_count || level <= current_height) {
@@ -282,16 +290,32 @@ local function build_ssdm_fragment_shader(write_depth)
 				}
 
 				previous_level = level;
-				previous_height = current_height;
 				level -= layer_height;
 				current_uv += uv_step;
 				current_height = textureGrad(TEXTURE(displacement_model.HeightTexture), current_uv, duv1, duv2).r;
 			}
 
-			float after = current_height - level;
-			float before = previous_height - previous_level;
-			float weight = abs(after - before) > 0.0001 ? clamp(after / (after - before), 0.0, 1.0) : 0.0;
-			float hit_level = mix(level, previous_level, weight);
+			float hit_level = level;
+
+			if (level <= current_height) {
+				float below = level;
+				float above = previous_level;
+
+				for (int i = 0; i < 5; i++) {
+					float mid = 0.5 * (below + above);
+					vec2 mid_uv = top_uv + uv_per_depth * (1.0 - mid) * thickness;
+					float mid_height = textureGrad(TEXTURE(displacement_model.HeightTexture), mid_uv, duv1, duv2).r;
+
+					if (mid <= mid_height) {
+						below = mid;
+					} else {
+						above = mid;
+					}
+				}
+
+				hit_level = 0.5 * (below + above);
+			}
+
 			data.uv = top_uv + uv_per_depth * (1.0 - hit_level) * thickness;
 			data.height = (hit_level - midlevel) * thickness;
 			data.world_pos = in_position + V * (max(data.height, 0.0) / view_n);
@@ -352,7 +376,7 @@ local function build_ssdm_fragment_shader(write_depth)
 			}
 
 			write_surface_features(surface);
-			write_velocity(in_position, in_prev_position);
+			write_velocity(displacement.world_pos, in_prev_position + (displacement.world_pos - in_position));
 			]] .. (
 			write_depth and
 			[[

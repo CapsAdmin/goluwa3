@@ -86,3 +86,7 @@ Pitfalls:
 ## Test3D
 
 `T.Test3D(name, function(draw)` runs a minimal bundle: `Init3D` initializes render3d with only the gbuffer and blit passes, so the forward overlay, lighting and translucent passes do not exist and `T.GetScreenPixel` reads the blitted gbuffer. Tests that need other passes re-initialize render3d with their own list (see `test/tests/render3d/translucent.lua`). `draw()` runs a whole frame including PreRenderPass listeners. Before trusting a screen pixel test of a pass, check the pass is in the bundle and read a no-geometry baseline. The brdf LUT asset is nil there, so non-zero metallic renders black. If numbers repeat between draws, grep the output for descriptor ring errors (a body once failed after 16 draws). Full engine checks use `--3d` scratch scripts with `Screenshot`/`Shot`.
+
+## Parallax
+
+`get_ssdm_data` in `passes/gbuffer.lua` marches the height texture: `HeightLayers` is scaled by the view angle (half head-on, up to four times that at grazing, 64 at most), the hit between the last two layers is bisected five times (a linear blend between two samples shows terraces at grazing angles), and the relief thickness fades out when a height texel is under about a third of a pixel and towards the horizon (`facing` 0.04 to 0.2). The displaced position gives depth and lighting; the velocity uses it too. It does not shade itself: shadow maps and local lights see the flat surface. A max-mip march or cone steps would be the next step if layers still show.
