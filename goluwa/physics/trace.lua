@@ -5,6 +5,7 @@ local stats = import("goluwa/physics/stats.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local trace = {}
 local EMPTY_OPTIONS = {}
+local get_candidate_aabb = sweep_candidates.GetRigidBodyCandidateAABB
 
 local function normalize_query_options(options)
 	if options == nil then return EMPTY_OPTIONS end
@@ -51,7 +52,21 @@ function trace.RayCast(physics, origin, direction, max_distance, ignore_entity, 
 		ray_aabb.max_y = math.max(origin.y, end_y) + trace_radius
 		ray_aabb.max_z = math.max(origin.z, end_z) + trace_radius
 		table.clear(ray_bodies)
-		sweep_candidates.CollectRigidBodyCandidates(physics, ray_aabb, ignore_entity, filter_fn, options, ray_bodies)
+		local candidates = options.Candidates
+
+		if candidates then
+			for i = 1, #candidates do
+				local body = candidates[i]
+				local bounds = get_candidate_aabb(body)
+
+				if bounds and AABB.IsBoxIntersecting(ray_aabb, bounds) then
+					ray_bodies[#ray_bodies + 1] = body
+				end
+			end
+		else
+			sweep_candidates.CollectRigidBodyCandidates(physics, ray_aabb, ignore_entity, filter_fn, options, ray_bodies)
+		end
+
 		local ignore_world = options.IgnoreWorld == true
 
 		for i = 1, #ray_bodies do

@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local Physics = import("goluwa/physics/physics.lua")
+local sweep_candidates = import("goluwa/physics/sweep_candidates.lua")
 local physics = {}
 local tickrate = pvars.Setup2{
 	key = "phys_tickrate",
@@ -70,6 +71,10 @@ end
 
 function physics.RayCast(...)
 	return physics.instance.RayCast(...)
+end
+
+function physics.CollectRayCandidates(aabb, ignore_entity, filter_fn, options, out)
+	return sweep_candidates.CollectRigidBodyCandidates(physics.instance, aabb, ignore_entity, filter_fn, options, out)
 end
 
 function physics.GetHitNormal(...)

@@ -145,3 +145,27 @@ T.TestPhysics("ray casts report where they leave solids and which side of a mesh
 	T(inside.normal.x)["<"](-0.999)
 	brush:Remove()
 end)
+
+T.TestPhysics("a ray against a candidate list hits what a ray collecting its own candidates hits", function()
+	local entities = create_scene()
+	local AABB = import("goluwa/structs/aabb.lua")
+	local candidates = physics.CollectRayCandidates(AABB(-5, -5, -5, 450, 5, 450), nil, nil, OPTIONS, {})
+	T(#candidates >= #entities)["=="](true)
+	local listed = {
+		IgnoreRigidBodies = false,
+		IgnoreKinematicBodies = false,
+		Candidates = candidates,
+	}
+	local origin = Vec3(0, 0, 0.2)
+	local own = physics.RayCast(origin, DIAGONAL, 1000, nil, nil, OPTIONS)
+	local from_list = physics.RayCast(origin, DIAGONAL, 1000, nil, nil, listed)
+	T(from_list.entity == own.entity)["=="](true)
+	T(from_list.distance)["~"](own.distance, 1e-6)
+	T(physics.RayCast(origin, DIAGONAL, 13, nil, nil, listed) == nil)["=="](true)
+	local axis = physics.RayCast(Vec3(-5, 0, 100), Vec3(1, 0, 0), 500, nil, nil, listed)
+	T(axis.distance)["~"](4.5, 1e-3)
+
+	for _, entity in ipairs(entities) do
+		entity:Remove()
+	end
+end)
