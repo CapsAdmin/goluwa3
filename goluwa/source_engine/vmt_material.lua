@@ -1080,35 +1080,72 @@ do
 		self:SetHeightMidlevel(vmt.parallaxcenter or PARALLAX_DEFAULT_CENTER)
 	end
 
+	local function estimate_pbr_from_properties(surfaceprop)
+		local density = get_prop(surfaceprop, "density") or 1000
+		local elasticity = get_prop(surfaceprop, "elasticity") or 0.25
+		local audioreflectivity = get_prop(surfaceprop, "audioreflectivity") or 0.5
+		local friction = get_prop(surfaceprop, "friction") or 0.5
+		local metallic = 0.0
+
+		if density > 6000 and audioreflectivity > 0.8 then
+			metallic = 1.0
+		elseif density > 4000 and audioreflectivity > 0.6 then
+			metallic = 0.7
+		end
+
+		local roughness = 0.5
+		roughness = roughness + (friction - 0.5) * 0.4
+		roughness = roughness - (audioreflectivity - 0.5) * 0.3
+		roughness = roughness - elasticity * 0.2
+		return {math.clamp(roughness, 0.04, 1.0), metallic},
+		{
+			density = density,
+			elasticity = elasticity,
+			audioreflectivity = audioreflectivity,
+			friction = friction,
+		}
+	end
+
+	function vmt_material.GetSurfacePrior(vmt_path, vmt, model_surfaceprop)
+		local class
+
+		if vmt.surfaceprop then
+			class = get_prop(vmt.surfaceprop, "surfaceprop_name")
+
+			if class then class = class:lower() end
+
+			class = class or get_prop(vmt.surfaceprop, "gamematerial")
+		end
+
+		if not class and FEATURES.detail_keywords and type(vmt.detail) == "string" then
+			class = find_family(file_path.GetFileNameFromPath(vmt.detail):lower())
+		end
+
+		if not class and FEATURES.model_surfaceprop then class = model_surfaceprop end
+
+		if not class and FEATURES.path_keywords then class = find_family(vmt_path) end
+
+		local family = class and find_family(class)
+		local pbr = class and (surfaceprop_pbr[class] or (family and surfaceprop_pbr[family]))
+
+		if not pbr and vmt.surfaceprop then
+			pbr = estimate_pbr_from_properties(vmt.surfaceprop)
+		end
+
+		if not pbr then return nil end
+
+		return {class = class, family = family, roughness = pbr[1], metallic = pbr[2]}
+	end
+
 	local function apply_surfaceprop_fallback(self, vmt, ctx)
 		local name = ctx.class
 		local pbr = surfaceprop_pbr[name] or (ctx.family and surfaceprop_pbr[ctx.family])
 
 		if not pbr and vmt.surfaceprop then
-			local density = get_prop(vmt.surfaceprop, "density") or 1000
-			local elasticity = get_prop(vmt.surfaceprop, "elasticity") or 0.25
-			local audioreflectivity = get_prop(vmt.surfaceprop, "audioreflectivity") or 0.5
-			local friction = get_prop(vmt.surfaceprop, "friction") or 0.5
-			self.vmt_surfaceprop = {
-				name_not_found = name,
-				density = density,
-				elasticity = elasticity,
-				audioreflectivity = audioreflectivity,
-				friction = friction,
-			}
-			local metallic = 0.0
-
-			if density > 6000 and audioreflectivity > 0.8 then
-				metallic = 1.0
-			elseif density > 4000 and audioreflectivity > 0.6 then
-				metallic = 0.7
-			end
-
-			local roughness = 0.5
-			roughness = roughness + (friction - 0.5) * 0.4
-			roughness = roughness - (audioreflectivity - 0.5) * 0.3
-			roughness = roughness - elasticity * 0.2
-			pbr = {math.clamp(roughness, 0.04, 1.0), metallic}
+			local properties
+			pbr, properties = estimate_pbr_from_properties(vmt.surfaceprop)
+			properties.name_not_found = name
+			self.vmt_surfaceprop = properties
 		end
 
 		if not pbr then return end
@@ -1200,6 +1237,25 @@ do
 		end)
 	end
 
+	local OVERRIDE_SRGB_SLOTS = {Albedo = true, Emissive = true}
+
+	local function apply_texture_override(self, override, ctx)
+		for slot, path in pairs(override.textures) do
+			local load = OVERRIDE_SRGB_SLOTS[slot] and ctx.srgb or ctx.linear
+			self["Set" .. slot .. "Texture"](self, load(path))
+		end
+
+		if override.textures.Metallic or override.textures.MetallicRoughness then
+			self:SetMetallicMultiplier(1)
+		end
+
+		if override.properties then
+			for name, value in pairs(override.properties) do
+				self["Set" .. name](self, value)
+			end
+		end
+	end
+
 	function on_load_vmt(self, vmt)
 		local private_prefix = self.private_prefix
 		local srgb, linear = SRGBTexture, LinearTexture
@@ -1263,9 +1319,18 @@ do
 		end
 
 		self:SetSurfaceType(self.model_surfaceprop or class or "default")
-		load_textures(self, vmt, ctx)
+		local override = Material.GetTextureOverride(self.vmt_path, vmt, self)
+		local replaced = override and override.textures
 
-		if shader == "eyes" then
+		if replaced then
+			apply_texture_override(self, override, ctx)
+		else
+			load_textures(self, vmt, ctx)
+		end
+
+		if replaced then
+
+		elseif shader == "eyes" then
 			self:SetRoughnessMultiplier(EYE_ROUGHNESS)
 
 			if self.vmt_variant == "iris" then
@@ -1284,9 +1349,9 @@ do
 			end
 		end
 
-		apply_parallax(self, vmt, ctx)
+		if not replaced then apply_parallax(self, vmt, ctx) end
 
-		if FEATURES.micro_detail and type(vmt.detail) == "string" then
+		if not replaced and FEATURES.micro_detail and type(vmt.detail) == "string" then
 			local scale = tonumber(vmt.detailscale) or MICRO_DETAIL_DEFAULT_SCALE
 			self:SetMicroDetailTexture(ctx.linear(vmt.detail))
 			self:SetMicroDetailTiling(Vec2(scale, scale))
@@ -1295,7 +1360,7 @@ do
 			self:SetMicroDetailNormal(MICRO_DETAIL_NORMAL * blend)
 		end
 
-		if vmt.selfillum == 1 then
+		if vmt.selfillum == 1 and not replaced then
 			if vmt.selfillumtint then
 				if typex(vmt.selfillumtint) == "vec3" then
 					self:SetEmissiveMultiplier(Color(vmt.selfillumtint.x, vmt.selfillumtint.y, vmt.selfillumtint.z, 1))
@@ -1425,11 +1490,11 @@ do
 			self:SetMetallicMultiplier(0)
 			self:SetRoughnessMultiplier(0.04)
 			self:SetSpecularMultiplier(1)
-		elseif FEATURES.albedo_gain and OVERBRIGHT_SHADERS[shader] then
+		elseif not replaced and FEATURES.albedo_gain and OVERBRIGHT_SHADERS[shader] then
 			apply_albedo_gain(self, ctx)
 		end
 
-		if FEATURES.derived_roughness and not is_glass and shader ~= "eyes" then
+		if not replaced and FEATURES.derived_roughness and not is_glass and shader ~= "eyes" then
 			apply_derived_roughness(self)
 		end
 
@@ -1486,6 +1551,12 @@ do
 				self:SetRoughnessMax(math.max(self.RoughnessMax, HAIR_ROUGHNESS))
 				self:SetRoughnessMultiplier(math.max(self.RoughnessMultiplier, HAIR_ROUGHNESS))
 			end
+		end
+
+		if override and override.tint then
+			local tint, color = override.tint, self.ColorMultiplier:Copy()
+			color.r, color.g, color.b = color.r * tint.r, color.g * tint.g, color.b * tint.b
+			self:SetColorMultiplier(color)
 		end
 
 		material_proxies.Attach(self, vmt.source_text)
@@ -1657,6 +1728,16 @@ function vmt_material.Reload(material)
 	end, function(err)
 		logn("vmt reload failed for ", material.vmt_path, ": ", err)
 	end)
+end
+
+function vmt_material.GetLiveMaterials()
+	return live_materials
+end
+
+function vmt_material.ReloadPath(vmt_path)
+	for material in pairs(live_materials) do
+		if material.vmt_path == vmt_path then vmt_material.Reload(material) end
+	end
 end
 
 function vmt_material.ReloadAll()

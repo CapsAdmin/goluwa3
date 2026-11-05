@@ -104,3 +104,60 @@ T.Test3D("vmt materials take their acoustic absorption from surfaceprop chains b
 	T(fence.y)[">"](0.7)
 	T(ceiling.y)[">"](0.5)
 end)
+
+T.Test3D("a registered texture override replaces the source texture conversion", function()
+	local function make()
+		return {
+			shader = "lightmappedgeneric",
+			basetexture = "test/override_source",
+			envmap = "env_cubemap",
+			phong = 1,
+			alphatest = 1,
+			nocull = 1,
+			source_text = "",
+		}
+	end
+
+	local material = Material.New{}
+	material:SetName("materials/test/override.vmt")
+	material.vmt_path = "materials/test/override.vmt"
+
+	Material.RegisterTextureOverride("test", function(path)
+		if path ~= "materials/test/override.vmt" then return end
+
+		return {
+			textures = {
+				Albedo = "test/override_albedo",
+				Normal = "test/override_normal",
+				MetallicRoughness = "test/override_mr",
+			},
+			properties = {HeightScale = 0.25},
+		}
+	end)
+
+	vmt_material.Apply(material, make())
+	Material.RegisterTextureOverride("test", nil)
+	T(material:GetAlbedoTexture() ~= nil)["=="](true)
+	T(material:GetNormalTexture() ~= nil)["=="](true)
+	T(material:GetMetallicRoughnessTexture() ~= nil)["=="](true)
+	T(material:GetMetallicMultiplier())["=="](1)
+	T(material:GetHeightScale())["=="](0.25)
+	T(material:GetAlphaTest())["=="](true)
+	T(material:GetDoubleSided())["=="](true)
+	T(material:GetAlbedoLuminanceIsRoughness())["=="](false)
+	local source = Material.New{}
+	source.vmt_path = "materials/test/override.vmt"
+	vmt_material.Apply(source, make())
+	T(source:GetMetallicRoughnessTexture())["=="](nil)
+end)
+
+T.Test3D("vmt_material.GetSurfacePrior resolves the class from the model surface property or the path", function()
+	local metal = vmt_material.GetSurfacePrior("materials/foo.vmt", {}, "metalpanel")
+	T(metal.class)["=="]("metalpanel")
+	T(metal.roughness)["=="](0.3)
+	T(metal.metallic)["=="](1)
+	local brick = vmt_material.GetSurfacePrior("materials/brick/wall.vmt", {})
+	T(brick.class)["=="]("brick")
+	T(brick.metallic)["=="](0)
+	T(vmt_material.GetSurfacePrior("materials/foo.vmt", {}))["=="](nil)
+end)

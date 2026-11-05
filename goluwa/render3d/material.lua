@@ -750,6 +750,22 @@ do
 	end
 
 	do
+		local texture_overrides = {}
+
+		function Material.RegisterTextureOverride(name, find)
+			texture_overrides[name] = find
+		end
+
+		function Material.GetTextureOverride(vmt_path, vmt, material)
+			for _, find in pairs(texture_overrides) do
+				local override = find(vmt_path, vmt, material)
+
+				if override then return override end
+			end
+		end
+	end
+
+	do
 		local override_cache = {}
 
 		function Material.GetOverrideFromPath(path)
