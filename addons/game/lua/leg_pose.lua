@@ -59,72 +59,87 @@ local function solve_reach(bones, leg, target_x, target_y, target_z, flexion)
 	ks[15] = clamped
 end
 
-local function solve_knee(bones, leg)
-	local ks = knee_solution
-	local calf = bones[leg.calf]
-	local dx, dy, dz = ks[10], ks[11], ks[12]
-	local bx, by, bz, bend
+local solve_knee
 
-	do
-		local kx, ky, kz = calf.m30 - ks[1], calf.m31 - ks[2], calf.m32 - ks[3]
-		local pole_along = kx * dx + ky * dy + kz * dz
-		bx, by, bz = kx - dx * pole_along, ky - dy * pole_along, kz - dz * pole_along
-		bend = math.sqrt(bx * bx + by * by + bz * bz)
+do
+	local function get_forward(dx, dy, dz, turn)
+		local sin_turn, cos_turn = math.sin(turn), math.cos(turn)
+		local ahead = -sin_turn * dx - cos_turn * dz
+		local fx, fy, fz = -sin_turn - ahead * dx, -ahead * dy, -cos_turn - ahead * dz
+		local forward_length = math.sqrt(fx * fx + fy * fy + fz * fz)
+		return fx / forward_length,
+		fy / forward_length,
+		fz / forward_length,
+		forward_length
 	end
 
-	local turn = ks[16] * leg_pose.KneeYawFollow
-	local sin_turn, cos_turn = math.sin(turn), math.cos(turn)
-	local ahead = -sin_turn * dx - cos_turn * dz
-	local fx, fy, fz = -sin_turn - ahead * dx, -ahead * dy, -cos_turn - ahead * dz
-	local forward_length = math.sqrt(fx * fx + fy * fy + fz * fz)
-
-	if forward_length > 1e-4 then
-		fx, fy, fz = fx / forward_length, fy / forward_length, fz / forward_length
-		local lateral = bones[leg.thigh].m30 < 0 and -1 or 1
-		local right_x, right_z = cos_turn * lateral, -sin_turn * lateral
+	local function get_splay(dx, dy, dz, fx, fy, fz, turn, lateral)
+		local right_x, right_z = math.cos(turn) * lateral, -math.sin(turn) * lateral
 		local across = right_x * dx + right_z * dz
 		local ox, oy, oz = right_x - across * dx, -across * dy, right_z - across * dz
 		local along_forward = ox * fx + oy * fy + oz * fz
 		ox, oy, oz = ox - fx * along_forward, oy - fy * along_forward, oz - fz * along_forward
 		local outward_length = math.sqrt(ox * ox + oy * oy + oz * oz)
-		local splay_x, splay_y, splay_z = fx, fy, fz
 
 		if outward_length > 1e-4 then
 			local cosine, sine = math.cos(leg_pose.KneeSplay), math.sin(leg_pose.KneeSplay) / outward_length
-			splay_x, splay_y, splay_z = fx * cosine + ox * sine, fy * cosine + oy * sine, fz * cosine + oz * sine
+			return fx * cosine + ox * sine, fy * cosine + oy * sine, fz * cosine + oz * sine
 		end
 
-		if bend < 1e-4 then
-			bx, by, bz, bend = splay_x, splay_y, splay_z, 1
-		else
-			local trust = math.clamp(bend / leg_pose.KneeTrust, 0, 1)
-			bx = bx / bend * trust + splay_x * (1 - trust)
-			by = by / bend * trust + splay_y * (1 - trust)
-			bz = bz / bend * trust + splay_z * (1 - trust)
+		return fx, fy, fz
+	end
+
+	function solve_knee(bones, leg)
+		local ks = knee_solution
+		local calf = bones[leg.calf]
+		local dx, dy, dz = ks[10], ks[11], ks[12]
+		local bx, by, bz, bend
+
+		do
+			local kx, ky, kz = calf.m30 - ks[1], calf.m31 - ks[2], calf.m32 - ks[3]
+			local pole_along = kx * dx + ky * dy + kz * dz
+			bx, by, bz = kx - dx * pole_along, ky - dy * pole_along, kz - dz * pole_along
 			bend = math.sqrt(bx * bx + by * by + bz * bz)
 		end
 
-		bx, by, bz = bx / bend, by / bend, bz / bend
-		local facing = bx * fx + by * fy + bz * fz
+		local turn = ks[16] * leg_pose.KneeYawFollow
+		local fx, fy, fz, forward_length = get_forward(dx, dy, dz, turn)
 
-		if facing < leg_pose.KneeForward then
-			local sx, sy, sz = dy * fz - dz * fy, dz * fx - dx * fz, dx * fy - dy * fx
-			local side = bx * sx + by * sy + bz * sz < 0 and -1 or 1
-			local rest = math.sqrt(1 - leg_pose.KneeForward * leg_pose.KneeForward)
-			bx = fx * leg_pose.KneeForward + sx * side * rest
-			by = fy * leg_pose.KneeForward + sy * side * rest
-			bz = fz * leg_pose.KneeForward + sz * side * rest
+		if forward_length > 1e-4 then
+			local splay_x, splay_y, splay_z = get_splay(dx, dy, dz, fx, fy, fz, turn, bones[leg.thigh].m30 < 0 and -1 or 1)
+
+			if bend < 1e-4 then
+				bx, by, bz, bend = splay_x, splay_y, splay_z, 1
+			else
+				local trust = math.clamp(bend / leg_pose.KneeTrust, 0, 1)
+				bx = bx / bend * trust + splay_x * (1 - trust)
+				by = by / bend * trust + splay_y * (1 - trust)
+				bz = bz / bend * trust + splay_z * (1 - trust)
+				bend = math.sqrt(bx * bx + by * by + bz * bz)
+			end
+
+			bx, by, bz = bx / bend, by / bend, bz / bend
+			local facing = bx * fx + by * fy + bz * fz
+
+			if facing < leg_pose.KneeForward then
+				local sx, sy, sz = dy * fz - dz * fy, dz * fx - dx * fz, dx * fy - dy * fx
+				local side = bx * sx + by * sy + bz * sz < 0 and -1 or 1
+				local rest = math.sqrt(1 - leg_pose.KneeForward * leg_pose.KneeForward)
+				bx = fx * leg_pose.KneeForward + sx * side * rest
+				by = fy * leg_pose.KneeForward + sy * side * rest
+				bz = fz * leg_pose.KneeForward + sz * side * rest
+			end
+		else
+			bx, by, bz = 0, 0, -1
 		end
-	else
-		bx, by, bz = 0, 0, -1
-	end
 
-	local along, height, clamped = ks[13], ks[14], ks[15]
-	local tx, ty, tz = ks[1], ks[2], ks[3]
-	ks[4], ks[5], ks[6] = tx + dx * along + bx * height,
-	ty + dy * along + by * height,
-	tz + dz * along + bz * height
-	ks[7], ks[8], ks[9] = tx + dx * clamped, ty + dy * clamped, tz + dz * clamped
+		local along, height, clamped = ks[13], ks[14], ks[15]
+		local tx, ty, tz = ks[1], ks[2], ks[3]
+		ks[4], ks[5], ks[6] = tx + dx * along + bx * height,
+		ty + dy * along + by * height,
+		tz + dz * along + bz * height
+		ks[7], ks[8], ks[9] = tx + dx * clamped, ty + dy * clamped, tz + dz * clamped
+	end
 end
 
 local function solve_bend(bones, leg)
