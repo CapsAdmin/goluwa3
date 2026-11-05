@@ -421,12 +421,19 @@ return {
 
 				vec4 mean = vec4(0.0);
 				vec4 mean_squared = vec4(0.0);
+				vec4 wide_mean = vec4(0.0);
+				vec4 wide_squared = vec4(0.0);
 
-				for (int y = -1; y <= 1; y++) {
-					for (int x = -1; x <= 1; x++) {
+				for (int y = -2; y <= 2; y++) {
+					for (int x = -2; x <= 2; x++) {
 						vec4 neighbor = texelFetch(TEXTURE(temporal_data.raw_ao_tex), clamp(pos + ivec2(x, y), ivec2(0), size - 1), 0);
-						mean += neighbor;
-						mean_squared += neighbor * neighbor;
+						wide_mean += neighbor;
+						wide_squared += neighbor * neighbor;
+
+						if (abs(x) <= 1 && abs(y) <= 1) {
+							mean += neighbor;
+							mean_squared += neighbor * neighbor;
+						}
 					}
 				}
 
@@ -434,9 +441,12 @@ return {
 				current.rgb = min(current.rgb, around.rgb * 2.0 + vec3(50.0 * get_pre_exposure()));
 				mean /= 9.0;
 				vec4 sigma = sqrt(max(mean_squared / 9.0 - mean * mean, vec4(0.0)));
+				wide_mean /= 25.0;
+				float wide_error = sqrt(max(wide_squared.a / 25.0 - wide_mean.a * wide_mean.a, 0.0)) / 5.0;
 				vec4 history = texture(TEXTURE(temporal_data.history_ao_tex), history_uv);
 				history.rgb *= get_pre_exposure() / get_previous_pre_exposure();
 				history = clamp(history, mean - 2.0 * sigma, mean + 2.0 * sigma);
+				history_weight *= 1.0 - smoothstep(wide_error, 3.0 * wide_error + 0.02, abs(history.a - wide_mean.a));
 				vec4 history_bent = texture(TEXTURE(temporal_data.history_bent_tex), history_uv);
 				imageStore(out_color, pos, mix(current, history, history_weight));
 				imageStore(out_bent_normal, pos, vec4(mix(current_bent.xyz, history_bent.xyz, history_weight), current_bent.w));
