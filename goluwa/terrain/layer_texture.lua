@@ -1,19 +1,6 @@
 local Texture = import("goluwa/render/texture.lua")
 local noise = import("goluwa/terrain/noise.lua")
 local layer_texture = {}
-local DEFAULT_AO_GLSL = [=[
-	float h = layer_height(uv);
-	float around = 0.0;
-	float radius = texel * 6.0;
-
-	for (int i = 0; i < 8; i++) {
-		float a = float(i) * 0.7853981;
-		around += layer_height(uv + vec2(cos(a), sin(a)) * radius);
-	}
-
-	float cavity = clamp((around / 8.0 - h) * 6.0, 0.0, 1.0);
-	return clamp((1.0 - cavity * 0.6) * mix(0.75, 1.0, h), 0.0, 1.0);
-]=]
 
 local function make_texture(size)
 	return Texture.New{
@@ -53,10 +40,6 @@ function layer_texture.BakeNormal(config)
 	local depth = config.Depth or 0.05
 	local header = build_header(config, size) .. string.format(
 			[=[
-float layer_ambient_occlusion(vec2 uv) {
-%s
-}
-
 vec3 layer_normal(vec2 uv) {
 	float hl = layer_height(uv - vec2(texel, 0.0));
 	float hr = layer_height(uv + vec2(texel, 0.0));
@@ -66,14 +49,13 @@ vec3 layer_normal(vec2 uv) {
 	return normalize(vec3((hl - hr) * depth, (hd - hu) * depth, texel * 2.0));
 }
 ]=],
-			config.AmbientOcclusion or DEFAULT_AO_GLSL,
 			depth
 		)
 	local texture = make_texture(size)
 	texture:Shade(
 		[=[
 		vec3 n = layer_normal(uv);
-		return vec4(n * 0.5 + 0.5, layer_ambient_occlusion(uv));
+		return vec4(n * 0.5 + 0.5, 1.0);
 	]=],
 		{header = header}
 	)

@@ -38,7 +38,7 @@ local decode_pass = {
 
 			if (x == 0) value = vec4(gbuffer_albedo(uv), gbuffer_alpha(uv));
 			if (x == 1) value = vec4(gbuffer_normal(uv), gbuffer_specular(uv) * 0.04);
-			if (x == 2) value = vec4(gbuffer_metallic(uv), gbuffer_roughness(uv), gbuffer_ao(uv), gbuffer_transmission(uv));
+			if (x == 2) value = vec4(gbuffer_metallic(uv), gbuffer_roughness(uv), 0.0, gbuffer_transmission(uv));
 			if (x == 3) value = vec4(gbuffer_transmission_color(uv), gbuffer_transmission_scattering(uv));
 			if (x == 4) value = vec4(gbuffer_normal(pixel), gbuffer_specular(pixel) * 0.04);
 			if (x == 5) value = vec4(gbuffer_clearcoat(uv), gbuffer_clearcoat_roughness(uv), gbuffer_clearcoat_rain(uv), 0.0);

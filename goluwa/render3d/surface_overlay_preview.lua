@@ -43,7 +43,6 @@ local MAIN = [[
 		s.albedo = vec3(mix(0.5, 0.8, checker));
 		s.metallic = 0.0;
 		s.roughness_alpha = 0.16;
-		s.ao = 1.0;
 
 		OverlayContext c;
 		c.P = in_effect_position;
@@ -81,7 +80,7 @@ local MAIN = [[
 		float specular = pow(max(dot(s.N, half_vector), 0.0), 2.0 / alpha - 2.0) * (1.0 - alpha) * 0.5;
 		float diffuse = max(dot(s.N, light), 0.0) + 0.15 * (0.5 + 0.5 * s.N.y);
 		vec3 f0 = mix(vec3(0.04), s.albedo, s.metallic);
-		vec3 color = (s.albedo * (1.0 - s.metallic) * diffuse + f0 * specular) * s.ao + s.emissive * PREVIEW_EMISSIVE_SCALE;
+		vec3 color = (s.albedo * (1.0 - s.metallic) * diffuse + f0 * specular) + s.emissive * PREVIEW_EMISSIVE_SCALE;
 		set_color(vec4(1.0 - exp(-color), 1.0));
 	}
 ]]

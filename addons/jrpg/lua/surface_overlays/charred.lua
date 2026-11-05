@@ -22,6 +22,5 @@ s.albedo = mix(s.albedo, s.albedo * l.color_b.rgb, scorch * 0.85);
 s.albedo = mix(s.albedo, mix(charcoal, l.color_a.rgb, ash * 0.75), charred);
 overlay_set_roughness(s, 0.8, charred);
 s.metallic *= 1.0 - charred;
-s.ao *= 1.0 - crack * charred * 0.6;
 ]],
 }

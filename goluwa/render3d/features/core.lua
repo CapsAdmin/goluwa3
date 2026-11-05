@@ -17,7 +17,6 @@ return {
 			decode = "v * v",
 			material = "get_roughness(uv)",
 		},
-		{name = "ao", kind = "unorm8", default = "1.0", material = "get_ao(uv)"},
 	},
 	surface_members = [[
 		vec3 albedo;
@@ -44,7 +43,6 @@ return {
 		w.rain = 0.0;
 	]],
 	weather = [[
-		s.ao = mix(s.ao, 1.0, w.snow);
 		s.emissive *= 1.0 - w.snow;
 	]],
 	gbuffer_write = [[

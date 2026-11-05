@@ -200,7 +200,6 @@ return {
 				s.albedo = mix(s.albedo, mix(charcoal, vec3(0.2, 0.19, 0.18), ash * 0.75), charred);
 				s.roughness_alpha = mix(s.roughness_alpha, 0.8, charred);
 				s.metallic *= 1.0 - charred;
-				s.ao *= 1.0 - crack * charred * 0.6;
 				vec3 crack_tilt = (vec3(cracks.a, fract(cracks.a * 7.31), fract(cracks.a * 13.7)) - 0.5) * 0.5;
 				s.N = normalize(s.N + (crack_tilt - s.geometric_N * dot(crack_tilt, s.geometric_N)) * charred * (1.0 - crack));
 				float pulse = effect_noise(e.P + vec3(0.0, -BLOCK.effect_time * 0.25, 0.0), e.N, 0.8).g;

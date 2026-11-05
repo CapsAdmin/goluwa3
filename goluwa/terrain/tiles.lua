@@ -251,7 +251,6 @@ end
 local LAYER_VALUES = {
 	{"Scales", "scale", 1},
 	{"Roughness", "roughness", 1},
-	{"AmbientOcclusion", "ao", 1},
 	{"DetailStrength", "detail", 0},
 	{"AdditiveDetail", "additive_detail", 0},
 	{"Specular", "specular", 1},

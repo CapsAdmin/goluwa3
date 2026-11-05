@@ -837,7 +837,7 @@ local passes = {
 
 					vec2 env_brdf = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(NdotV, perceptual_roughness)).rg;
 					vec3 F_ambient = F_SchlickRoughness(F0, NdotV, perceptual_roughness);
-					vec3 ambient_diffuse = (1.0 - F_ambient) * (1.0 - metallic) * irradiance * diffuse_albedo * get_ao(in_uv);
+					vec3 ambient_diffuse = (1.0 - F_ambient) * (1.0 - metallic) * irradiance * diffuse_albedo;
 					vec3 ambient_specular = reflection * (F0 * env_brdf.x + F90(F0) * env_brdf.y) * GGXEnergyCompensation(F0, env_brdf);
 					float fresnel_front = fresnel_dielectric(NdotV, 1.0 / refraction.ior);
 					vec3 pane_reflectance = vec3(fresnel_front);

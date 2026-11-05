@@ -91,7 +91,6 @@ return {
 				s.metallic *= 1.0 - cover;
 				vec3 tilt = (micro.rgb - 0.5) * mix(0.3, 0.9, feather);
 				s.N = normalize(mix(s.N, normalize(s.geometric_N + tilt - s.geometric_N * dot(tilt, s.geometric_N)), cover * 0.7));
-				s.ao = mix(s.ao, 1.0, density * 0.5);
 				w.rain *= 1.0 - cover;
 			}
 

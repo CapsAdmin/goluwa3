@@ -205,9 +205,7 @@ function layer_textures.Get(name)
 		string.format(
 			[=[
 			vec3 n = tile_normal(uv, %f, %f);
-			float h = layer_height(uv);
-			float ao = mix(0.55, 1.0, smoothstep(0.0, 0.7, h));
-			return vec4(n * 0.5 + 0.5, ao);
+			return vec4(n * 0.5 + 0.5, 1.0);
 		]=],
 			layer.normal_strength,
 			1 / TEXTURE_SIZE

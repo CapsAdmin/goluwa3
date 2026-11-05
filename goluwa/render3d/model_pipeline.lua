@@ -1691,10 +1691,9 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return t;
 			}
 
-			vec4 sample_terrain_layer_normal_texel(int tex, vec2 uv, float anti_tiling) {
+			vec3 sample_terrain_layer_normal_texel(int tex, vec2 uv, float anti_tiling) {
 				vec4 t = texture(TEXTURE(tex), uv);
 				vec3 tn = t.xyz * 2.0 - 1.0;
-				float ao = t.a;
 
 				if (anti_tiling > 0.0) {
 					vec4 t2 = texture(TEXTURE(tex), terrain_tiling_variant(uv));
@@ -1702,10 +1701,9 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					tn2.xy = tn2.xy * TERRAIN_TILING_TURN;
 					float m = terrain_tiling_mask(uv) * anti_tiling;
 					tn = mix(tn, tn2, m);
-					ao = mix(ao, t2.a, m);
 				}
 
-				return vec4(tn, ao);
+				return tn;
 			}
 
 			vec4 sample_terrain_layer_triplanar(int tex, TerrainLayerUV uv, vec3 blend, float anti_tiling) {
@@ -1726,32 +1724,28 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return result;
 			}
 
-			vec4 sample_terrain_layer_normal_triplanar(int tex, TerrainLayerUV uv, vec3 blend, vec3 N, float anti_tiling) {
+			vec3 sample_terrain_layer_normal_triplanar(int tex, TerrainLayerUV uv, vec3 blend, vec3 N, float anti_tiling) {
 				vec3 n = vec3(0.0);
-				float ao = 0.0;
 
 				if (blend.y > 0.001) {
-					vec4 t = sample_terrain_layer_normal_texel(tex, uv.y, anti_tiling);
+					vec3 t = sample_terrain_layer_normal_texel(tex, uv.y, anti_tiling);
 					vec3 tn = vec3(t.xy + N.xz, abs(t.z) * N.y);
 					n += tn.xzy * blend.y;
-					ao += t.a * blend.y;
 				}
 
 				if (blend.x > 0.001) {
-					vec4 t = sample_terrain_layer_normal_texel(tex, uv.x, anti_tiling);
+					vec3 t = sample_terrain_layer_normal_texel(tex, uv.x, anti_tiling);
 					vec3 tn = vec3(t.xy + N.zy, abs(t.z) * N.x);
 					n += tn.zyx * blend.x;
-					ao += t.a * blend.x;
 				}
 
 				if (blend.z > 0.001) {
-					vec4 t = sample_terrain_layer_normal_texel(tex, uv.z, anti_tiling);
+					vec3 t = sample_terrain_layer_normal_texel(tex, uv.z, anti_tiling);
 					vec3 tn = vec3(t.xy + N.xy, abs(t.z) * N.z);
 					n += tn.xyz * blend.z;
-					ao += t.a * blend.z;
 				}
 
-				return vec4(n, ao);
+				return n;
 			}
 
 			vec2 terrain_layer_parallax(int height_tex, vec2 uv, vec2 view_uv, float view_n, float displacement) {
@@ -1842,7 +1836,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec3 albedo;
 				float roughness;
 				vec3 normal;
-				float ao;
 				float normal_weight;
 			};
 
@@ -1867,7 +1860,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				float far_b = far.z > 0.0 ? smoothstep(far.w * 0.5, far.w, distance_to_camera) : 0.0;
 				float fade = fade_distance > 0.0 ? smoothstep(fade_distance * 0.5, fade_distance, distance_to_camera) : 0.0;
 				vec4 albedo = vec4(0.0);
-				vec4 n = vec4(0.0);
+				vec3 n = vec3(0.0);
 
 				for (int i = 0; i < 3; i++) {
 					float w = (i == 0 ? (1.0 - far_a) * (1.0 - far_b) : (i == 1 ? far_a * (1.0 - far_b) : far_b)) * (1.0 - fade);
@@ -1893,7 +1886,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					}
 
 					if (normal_tex != -1) {
-						n += vec4(N, 1.0) * fade;
+						n += N * fade;
 					}
 				}
 
@@ -1919,8 +1912,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				}
 
 				if (normal_tex != -1) {
-					s.normal += n.xyz * weight;
-					s.ao += n.w * weight;
+					s.normal += n * weight;
 					s.normal_weight += weight;
 				}
 			}
@@ -1930,7 +1922,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				s.albedo = vec3(0.0);
 				s.roughness = 0.0;
 				s.normal = vec3(0.0);
-				s.ao = 0.0;
 				s.normal_weight = 0.0;
 				vec4 weights, weights2;
 				get_terrain_material_weights_both_uv(uv, weights, weights2);
@@ -1945,7 +1936,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					s.albedo = base;
 					s.roughness = 1.0;
 					s.normal = N;
-					s.ao = 1.0;
 					terrain_layer_cache = s;
 					return;
 				}
@@ -2014,10 +2004,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				if (s.normal_weight > 0.001) {
 					s.normal = normalize(mix(N, normalize(s.normal), s.normal_weight));
-					s.ao = mix(1.0, s.ao / s.normal_weight, s.normal_weight);
 				} else {
 					s.normal = N;
-					s.ao = 1.0;
 				}
 
 				terrain_layer_cache = s;
@@ -2362,14 +2350,6 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				}
 
 				return clamp(val, 0.0, 2.0);
-			}
-
-			float get_ao(vec2 uv) {
-				if (terrain_model.TerrainMaterialTexture != -1) {
-					return get_terrain_weighted_value(uv, terrain_model.TerrainLayerAmbientOcclusion, terrain_model.TerrainLayerAmbientOcclusion2) * terrain_layer_cache.ao;
-				}
-
-				return 1.0;
 			}
 
 			]] .. surface_features.GetSurfaceGLSL() .. surface_features.GetInitFunctionGLSL() .. [[

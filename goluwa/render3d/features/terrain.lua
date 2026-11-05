@@ -48,7 +48,6 @@ local function layer_values(suffix, requires)
 	end
 
 	values("Roughness", Color(1.0, 1.0, 1.0, 1.0))
-	values("AmbientOcclusion", Color(1.0, 1.0, 1.0, 1.0))
 	values("DetailStrength", Color(0.0, 0.0, 0.0, 0.0), ray)
 	values("AdditiveDetail", Color(0.0, 0.0, 0.0, 0.0), ray)
 	values("Specular", Color(1.0, 1.0, 1.0, 1.0))
