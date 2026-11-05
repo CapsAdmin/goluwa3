@@ -233,3 +233,12 @@ T.Test("vfs writes into new folders under data", function()
 	fs.remove_directory(folder .. "nested")
 	fs.remove_directory(folder)
 end)
+
+T.Test("fs.remove_directory_recursive removes nested files and folders", function()
+	local root = "storage/userdata/test_remove_recursive/"
+	assert(fs.create_directory_recursive(root .. "a/b"))
+	assert(fs.write_file(root .. "a/b/file.txt", "x"))
+	assert(fs.write_file(root .. "a/other.txt", "y"))
+	T(fs.remove_directory_recursive("storage/userdata/test_remove_recursive"))["=="](true)
+	T(fs.exists(root))["=="](false)
+end)

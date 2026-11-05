@@ -39,6 +39,27 @@ function fs.iterate(dir, pattern)
 	end
 end
 
+function fs.remove_directory_recursive(path)
+	local files, err = fs.get_files(path)
+
+	if not files then return nil, err end
+
+	for _, name in ipairs(files) do
+		local found = path .. "/" .. name
+		local ok, remove_err
+
+		if fs.get_type(found) == "directory" then
+			ok, remove_err = fs.remove_directory_recursive(found)
+		else
+			ok, remove_err = fs.remove_file(found)
+		end
+
+		if not ok then return nil, remove_err end
+	end
+
+	return fs.remove_directory(path)
+end
+
 function fs.get_parent_directory(path)
 	return file_path.GetParentDirectoryFromPath(path)
 end
