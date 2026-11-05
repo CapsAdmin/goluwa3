@@ -824,6 +824,14 @@ do
 		return math.max(0.12, math.sqrt(alpha))
 	end
 
+	local function on_albedo_ready(self, albedo, callback)
+		if self.deferred_adjustments then
+			table.insert(self.deferred_adjustments, {albedo, callback})
+		else
+			albedo:AddOnReady(callback)
+		end
+	end
+
 	local function load_textures(self, vmt, ctx)
 		local srgb, linear = ctx.srgb, ctx.linear
 
@@ -895,7 +903,7 @@ do
 		set_estimated_metal(self, phong_metal)
 		local generation = self.vmt_generation
 
-		albedo:AddOnReady(function(texture)
+		on_albedo_ready(self, albedo, function(texture)
 			local refl = texture.reflectivity
 
 			if not self:IsValid() or generation ~= self.vmt_generation then return end
@@ -1190,7 +1198,7 @@ do
 
 		local generation = self.vmt_generation
 
-		albedo:AddOnReady(function(texture)
+		on_albedo_ready(self, albedo, function(texture)
 			local refl = texture.reflectivity
 
 			if not refl or not self:IsValid() or generation ~= self.vmt_generation then
@@ -1217,7 +1225,7 @@ do
 		local target = family and ALBEDO_TARGETS[family]
 		local generation = self.vmt_generation
 
-		albedo:AddOnReady(function(texture)
+		on_albedo_ready(self, albedo, function(texture)
 			local refl = texture.reflectivity
 
 			if not refl or not self:IsValid() or generation ~= self.vmt_generation then
@@ -1259,13 +1267,25 @@ do
 	function on_load_vmt(self, vmt)
 		local private_prefix = self.private_prefix
 		local srgb, linear = SRGBTexture, LinearTexture
+		local defer = import("goluwa/render3d/material_bake.lua").enabled:Get()
+		self.deferred_adjustments = defer and {} or nil
 
-		if private_prefix then
+		if private_prefix or defer then
 			srgb = function(path)
-				return Texture.New{path = path, srgb = true, cache_key = private_prefix .. "srgb|" .. path}
+				return Texture.New{
+					path = path,
+					srgb = true,
+					defer = defer,
+					cache_key = private_prefix and private_prefix .. "srgb|" .. path,
+				}
 			end
 			linear = function(path)
-				return Texture.New{path = path, srgb = false, cache_key = private_prefix .. "linear|" .. path}
+				return Texture.New{
+					path = path,
+					srgb = false,
+					defer = defer,
+					cache_key = private_prefix and private_prefix .. "linear|" .. path,
+				}
 			end
 		end
 
@@ -1560,6 +1580,7 @@ do
 		end
 
 		material_proxies.Attach(self, vmt.source_text)
+		import("goluwa/render3d/material_bake.lua").Request(self)
 		local color = self.ColorMultiplier
 		local flags = {}
 

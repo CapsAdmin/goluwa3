@@ -340,6 +340,16 @@ function Texture:__tostring2()
 	return "[" .. tostring(self.config.path) .. "]"
 end
 
+function Texture:IsFallback()
+	return fallback_texture:IsValid() and self.image == fallback_texture.image
+end
+
+function Texture:Load()
+	local start_loading = self.deferred_load
+	self.deferred_load = nil
+	start_loading()
+end
+
 function Texture.New(config)
 	assert(render.CanCreateResources(), "Texture.New requires render.Initialize() first")
 	config = config or {}
@@ -347,6 +357,9 @@ function Texture.New(config)
 
 	if cache_key and texture_cache[cache_key] then
 		local cached = texture_cache[cache_key]
+
+		if cached.deferred_load and not config.defer then cached:Load() end
+
 		enqueue_on_ready(cached, config.on_ready)
 		return cached
 	end
@@ -575,24 +588,32 @@ function Texture.New(config)
 		self.image = fallback.image
 		self.view = fallback.view
 
-		resource.Download(config.path):Then(function(p)
-			codec.DecodeFileAsync(p, function(img, err)
-				if img then
-					local started = startup.Start()
-					load(img)
-					startup.Add("texture upload", started)
-					import("goluwa/event.lua").Call("TextureViewChanged", self)
-				else
-					print("Warning: Failed to load texture:", config.path, err)
-					evict_texture_cache_entry(self)
-					self:MakeReady()
-				end
+		local function start_loading()
+			resource.Download(config.path):Then(function(p)
+				codec.DecodeFileAsync(p, function(img, err)
+					if img then
+						local started = startup.Start()
+						load(img)
+						startup.Add("texture upload", started)
+						import("goluwa/event.lua").Call("TextureViewChanged", self)
+					else
+						print("Warning: Failed to load texture:", config.path, err)
+						evict_texture_cache_entry(self)
+						self:MakeReady()
+					end
+				end)
+			end):Catch(function(err)
+				print("Warning: Failed to download texture:", config.path, err)
+				evict_texture_cache_entry(self)
+				self:MakeReady()
 			end)
-		end):Catch(function(err)
-			print("Warning: Failed to download texture:", config.path, err)
-			evict_texture_cache_entry(self)
-			self:MakeReady()
-		end)
+		end
+
+		if config.defer then
+			self.deferred_load = start_loading
+		else
+			start_loading()
+		end
 	elseif config.decoded then
 		load(config.decoded)
 	else
