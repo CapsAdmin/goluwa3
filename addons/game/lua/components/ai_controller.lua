@@ -60,6 +60,7 @@ local TARGET_INTERVAL = 0.25
 local TARGET_CHEST = 0.6
 local AIM_TOLERANCE = 0.04
 local PLAYER_FACTION = "friend"
+local FREE_FOR_ALL = "ffa"
 local FOLLOW_START_DISTANCE = 4
 local PURSUE_START_DISTANCE = 2.5
 local FOLLOW_STAND_DISTANCE = 2
@@ -68,6 +69,7 @@ local FOLLOW_REPATH_DISTANCE = 3.5
 local FOLLOW_PATH_INTERVAL = 0.5
 local NO_CONTROLLERS = {}
 local target_sources = {}
+META.FreeForAll = FREE_FOR_ALL
 
 function GridNav.IsObstacle(body)
 	local owner = body.Owner
@@ -539,6 +541,7 @@ function META:UpdateTarget(position)
 		if self:CanFight() then
 			local eye = position + owner.character_movement:GetViewOffset()
 			local nearest = self.AttackRange
+			local free_for_all = self.Faction == FREE_FOR_ALL
 			target_sources[1] = PlayerController.Instances or NO_CONTROLLERS
 			target_sources[2] = META.Instances
 
@@ -549,10 +552,14 @@ function META:UpdateTarget(position)
 					if
 						controller ~= self and
 						(
-							source_index == 1 and
-							PLAYER_FACTION or
-							controller.Faction
-						) ~= self.Faction and
+							free_for_all or
+							(
+								source_index == 1 and
+								PLAYER_FACTION or
+								controller.Faction
+							) ~= self.Faction
+						)
+						and
 						candidate.health and
 						candidate.character_movement and
 						not controller.far and

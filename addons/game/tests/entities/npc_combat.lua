@@ -264,6 +264,16 @@ T.TestPhysics("npcs of the same faction leave each other alone", function()
 	T(second.health.Health)["=="](second.health.MaxHealth)
 end)
 
+T.TestPhysics("free for all npcs shoot each other though they share a faction", function()
+	create_ground()
+	local ffa = import("lua/components/ai_controller.lua").FreeForAll
+	local first = create_gunman(Vec3(0, 0.05, 0), ffa)
+	local second = create_gunman(Vec3(6, 0.05, 0), ffa)
+	run(4)
+	T(first.health.Health < first.health.MaxHealth)["=="](true)
+	T(second.health.Health < second.health.MaxHealth)["=="](true)
+end)
+
 T.TestPhysics("an armed npc with nothing to shoot at wanders", function()
 	create_ground()
 	local gunman = create_gunman(Vec3(0, 0.05, 0), "friend")
