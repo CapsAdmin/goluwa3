@@ -1183,6 +1183,42 @@ T.TestPhysics("audio acoustics lets sound through bodies that collide with nothi
 	door:Remove()
 end)
 
+T.TestPhysics("audio a probe with a candidate list measures what a probe tracing each ray alone does", function()
+	local Entity = import("goluwa/entities/entity.lua")
+	local BoxShape = import("goluwa/physics/shapes/box.lua")
+	local walls = {}
+
+	for _, offset in ipairs{{0, -4}, {2, -7}, {-1.5, -9}} do
+		walls[#walls + 1] = Entity.New{
+			transform = {Position = Vec3(offset[1], 2, offset[2])},
+			rigid_body = {Shape = BoxShape.New(Vec3(1.5, 4, 0.3)), MotionType = "static"},
+		}
+	end
+
+	local tracer = acoustics_cpu.New()
+	local speed = audio.speed_of_sound
+
+	for _, source in ipairs{Vec3(0, 1.7, -12), Vec3(1, 1.2, -6), Vec3(-3, 1.7, -5), Vec3(2, 1.7, 8)} do
+		local listener = Vec3(0, 1.7, 0)
+		local fresnel, transmission, detour = tracer:Probe(listener, source, speed)
+		tracer.candidates = nil
+		local alone_fresnel = acoustics.FresnelProbe(tracer, listener, source, speed, 4)
+		local alone_transmission = acoustics.ProbeTransmission(tracer, listener, source, speed)
+		local alone_detour = acoustics.DetourProbe(tracer, listener, source, 24)
+
+		for band = 1, 3 do
+			T(fresnel[band])["=="](alone_fresnel[band])
+			T(transmission.leaves)["=="](alone_transmission.leaves)
+		end
+
+		T(detour)["=="](alone_detour)
+	end
+
+	for _, wall in ipairs(walls) do
+		wall:Remove()
+	end
+end)
+
 T.Test("audio sounds ramp in and out instead of clicking on a non zero sample", function()
 	with_offline_mixer(function(ctx)
 		local frames = 4410
