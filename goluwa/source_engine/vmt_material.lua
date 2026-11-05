@@ -1,6 +1,8 @@
+local ffi = require("ffi")
 local tasks = import("goluwa/tasks.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Texture = import("goluwa/render/texture.lua")
+local height_from_normals = import("goluwa/render/height_from_normals.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
@@ -726,6 +728,18 @@ local MICRO_DETAIL_NORMAL = 3
 local DERIVED_ROUGHNESS_METAL = 2
 local DERIVED_SPECULAR_CAVITY = 0.8
 local METAL_ROUGHNESS_BIAS = 0.25
+local NORMAL_PARALLAX = {
+	["nature/cliffface001a_normal"] = 1 / 32,
+	["nature/rockwall021b_normal"] = 1 / 32,
+	["nature/rockwall021c_normal"] = 1 / 32,
+	["nature/rockwall021d_normal"] = 1 / 32,
+	["nature/rockwall001a_normal"] = 1 / 32,
+	["nature/rockwall_citadel02a_normal"] = 1 / 32,
+	["nature/cavewall005a_normal"] = 1 / 32,
+	["stone/stonecolumn001a_normal"] = 1 / 32,
+	["esther/nature/rock/caverock_001_n"] = 1 / 32,
+	["esther/nature/rock/caverock_002_n"] = 1 / 32,
+}
 local SELFILLUM_ALPHA_FLOOR = 0.1
 local PARALLAX_DEFAULT_SCALE = 0.025
 local PARALLAX_DEFAULT_CENTER = 0.5
@@ -834,6 +848,77 @@ do
 
 	local function load_textures(self, vmt, ctx)
 		local srgb, linear = ctx.srgb, ctx.linear
+	local function generate_height(self, height_cut, bumpmap)
+		local normal, generation = self:GetNormalTexture(), self.vmt_generation
+
+		normal:AddOnReady(function(texture)
+			local size = texture:GetWidth()
+
+			if
+				not self:IsValid() or
+				generation ~= self.vmt_generation or
+				texture:IsFallback() or
+				size ~= texture:GetHeight()
+				or
+				bit.band(size, size - 1) ~= 0
+			then
+				return
+			end
+
+			local buffer = height_from_normals.Solve(texture, 2, size * height_cut)
+			local heights = ffi.cast("float*", buffer:Map())
+			local count = size * size
+			local lo, hi = math.huge, -math.huge
+
+			for i = 0, count - 1 do
+				lo, hi = math.min(lo, heights[i]), math.max(hi, heights[i])
+			end
+
+			local bins = {}
+
+			for i = 1, 256 do
+				bins[i] = 0
+			end
+
+			for i = 0, count - 1 do
+				local bin = math.min(256, math.floor((heights[i] - lo) / (hi - lo) * 255) + 1)
+				bins[bin] = bins[bin] + 1
+			end
+
+			local sum, low_bin, high_bin = 0, 1, 256
+
+			for i = 1, 256 do
+				sum = sum + bins[i]
+
+				if sum < count * 0.01 then low_bin = i end
+
+				if sum <= count * 0.99 then high_bin = i end
+			end
+
+			local p_lo = lo + (hi - lo) * low_bin / 256
+			local p_hi = lo + (hi - lo) * (high_bin + 1) / 256
+			local relief = ffi.new("uint8_t[?]", count)
+
+			for i = 0, count - 1 do
+				relief[i] = math.floor(math.min(math.max((heights[i] - p_lo) / (p_hi - p_lo), 0), 1) * 255 + 0.5)
+			end
+
+			buffer:Remove()
+			self:SetHeightTexture(
+				Texture.New{
+					buffer = relief,
+					width = size,
+					height = size,
+					format = "r8_unorm",
+					mip_map_levels = "auto",
+					cache_key = "height|" .. bumpmap,
+				}
+			)
+			self:SetHeightScale(math.clamp((p_hi - p_lo) / size, 0.005, 0.05))
+			self:SetHeightMidlevel(0.5)
+		end)
+	end
+
 
 		if vmt.basetexture then self:SetAlbedoTexture(srgb(vmt.basetexture)) end
 
@@ -1353,6 +1438,13 @@ do
 			if self.vmt_variant == "iris" then
 				self:SetAlbedoTexture(srgb(vmt.iris))
 				self:SetAlphaTest(true)
+			end
+			local bumpmap = type(vmt.bumpmap) == "string" and
+				vmt.bumpmap:lower():match("materials/(.-)%.vtf$")
+			local height_cut = bumpmap and NORMAL_PARALLAX[bumpmap]
+
+			if height_cut and self:GetNormalTexture() then
+				generate_height(self, height_cut, bumpmap)
 			end
 		elseif shader == "pbr" then
 			apply_pbr(self, vmt, ctx)
