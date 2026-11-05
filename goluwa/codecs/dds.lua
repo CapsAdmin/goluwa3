@@ -632,4 +632,33 @@ function dds.DecodeBuffer(inputBuffer, opts)
 	data_buffer
 end
 
+local DDS_HEADER_FLAGS = 0x1 + 0x2 + 0x4 + 0x1000 + 0x20000 + 0x80000
+local DDSCAPS_COMPLEX = 0x8
+local DDSCAPS_TEXTURE = 0x1000
+local DDSCAPS_MIPMAP = 0x400000
+local DDPF_FOURCC_FLAG = 0x4
+
+-- dxgi_name is a DXGI_FORMAT key (BC7_UNORM_SRGB, BC5_UNORM, ...), levels are the mips as strings,
+-- largest first. Always writes the dx10 header, that is what bc4, bc5 and bc7 need.
+function dds.Encode(dxgi_name, width, height, levels)
+	local dxgi = assert(DXGI_FORMAT[dxgi_name], dxgi_name)
+	local header = ffi.new("uint32_t[37]")
+	header[0] = DDS_MAGIC
+	header[1] = 124
+	header[2] = DDS_HEADER_FLAGS
+	header[3] = height
+	header[4] = width
+	header[5] = #levels[1]
+	header[6] = 1
+	header[7] = #levels
+	header[19] = 32
+	header[20] = DDPF_FOURCC_FLAG
+	header[21] = FOURCC_DX10
+	header[27] = DDSCAPS_TEXTURE + (#levels > 1 and DDSCAPS_COMPLEX + DDSCAPS_MIPMAP or 0)
+	header[32] = dxgi
+	header[33] = 3
+	header[35] = 1
+	return ffi.string(header, 148) .. table.concat(levels)
+end
+
 return dds
