@@ -145,6 +145,28 @@ T.TestPhysics("a cheap corpse has no muscle springs or forced ccd and only touch
 	character:Remove()
 end)
 
+T.TestPhysics("a cheap corpse with a limb that keeps spinning in place sleeps after the settle time", function()
+	create_ground()
+	local character = create_character()
+	character.ragdoll:SetCheapCorpse(true)
+	run(character, 1)
+	character.health:TakeDamage(damage.Info{Damage = 1000})
+	local limb = character.ragdoll.parts[#character.ragdoll.parts].body
+
+	local function jitter(seconds)
+		for _ = 1, seconds * 60 do
+			limb.AngularVelocity:Set(0, 8, 0)
+			run(character, 1 / 60)
+		end
+	end
+
+	jitter(2)
+	T(character.ragdoll.corpse_static == true)["=="](false)
+	jitter(6)
+	T(character.ragdoll.corpse_static == true)["=="](true)
+	character:Remove()
+end)
+
 T.TestPhysics("a cheap corpse turns static once it sleeps and is dynamic again when revived", function()
 	create_ground()
 	local character = create_character()

@@ -19,7 +19,7 @@ local aim_pose = import("lua/aim_pose.lua")
 local knockout_pose = import("lua/knockout_pose.lua")
 local META = objects.CreateTemplate("ragdoll")
 -- an empty Network table is what makes the component part of the spawn packet
-	META.Network = {Limp = {"boolean", 0.1, "reliable", to_owner = true}}
+META.Network = {Limp = {"boolean", 0.1, "reliable", to_owner = true}}
 META:IsSet("Limp", false)
 META:StartStorable()
 META:GetSet("CorpseTime", 0)
@@ -51,6 +51,7 @@ local REST_TIME = 1.5
 local CORPSE_REST_SPEED = 0.6
 local CORPSE_REST_SPIN = 4
 local CORPSE_REST_TIME = 0.25
+local CORPSE_SETTLE_TIME = 4
 local GROUND_PROBE = 4
 local STAND_HEIGHT = 0.05
 local PART_LINEAR_DAMPING = 0.1
@@ -132,6 +133,7 @@ function META:Initialize()
 	self.global_active = false
 	self.previous_velocities = {}
 	self.dead_time = 0
+	self.corpse_age = 0
 	self.rest_time = 0
 	self.corpse_still = 0
 	self.time = 0
@@ -322,11 +324,7 @@ function META:GetPartTarget(definition)
 	Quat.SetVecMul(world_offset, rotation, local_center)
 	Quat.SetMul(world_rotation, rotation, local_rotation)
 	local position = transform:GetPosition()
-	world_offset:Set(
-		world_offset.x + position.x,
-		world_offset.y + position.y,
-		world_offset.z + position.z
-	)
+	world_offset:Set(world_offset.x + position.x, world_offset.y + position.y, world_offset.z + position.z)
 	return world_offset, world_rotation
 end
 
@@ -339,11 +337,7 @@ function META:UpdateTargets(dt)
 		local last = part.last_target
 
 		if last and dt > 0 then
-			part.pose_velocity:Set(
-				(position.x - last.x) / dt,
-				(position.y - last.y) / dt,
-				(position.z - last.z) / dt
-			)
+			part.pose_velocity:Set((position.x - last.x) / dt, (position.y - last.y) / dt, (position.z - last.z) / dt)
 		end
 
 		part.target_position:Set(position.x, position.y, position.z)
@@ -854,21 +848,25 @@ function META:UpdateRest(dt)
 			return
 		end
 
-		local still, grounded = true, false
+		self.corpse_age = self.corpse_age + dt
+		local still, grounded, slow = true, false, true
 
 		for _, part in ipairs(self.parts) do
 			local body = part.body
 
-			if
-				body.Velocity:GetLength() > CORPSE_REST_SPEED or
-				body.AngularVelocity:GetLength() > CORPSE_REST_SPIN
-			then
-				still = false
+			if body.Velocity:GetLength() > CORPSE_REST_SPEED then
+				still, slow = false, false
 
 				break
 			end
 
+			if body.AngularVelocity:GetLength() > CORPSE_REST_SPIN then still = false end
+
 			if body.Grounded then grounded = true end
+		end
+
+		if slow and self.corpse_age >= CORPSE_SETTLE_TIME then
+			still, grounded = true, true
 		end
 
 		if still and grounded then
@@ -965,6 +963,7 @@ function META:Capture()
 	self.global_active = false
 	self.previous_velocities = {}
 	self.dead_time = 0
+	self.corpse_age = 0
 	self.rest_time = 0
 	self:SetLimp(false)
 	self:UpdateTargets(0)
@@ -1347,6 +1346,7 @@ function META:StandFromBox()
 	self:RemoveBox()
 	self.global_active = false
 	self.dead_time = 0
+	self.corpse_age = 0
 	self.flinging = false
 	self.thrown = false
 	self.fling = 0
@@ -1517,6 +1517,7 @@ function META:LaunchDeath(info)
 
 	if self.BoxRagdoll then
 		self.dead_time = 0
+		self.corpse_age = 0
 
 		if not self.box_entity then
 			self:EnterBox(self.Owner.rigid_body:GetVelocity():Copy())
@@ -1607,6 +1608,7 @@ function META:BeginBlend()
 	self.impulses = {}
 	self.global_active = false
 	self.dead_time = 0
+	self.corpse_age = 0
 	self.flinging = false
 	self.thrown = false
 	self.fling = 0
@@ -1991,11 +1993,7 @@ function META:OnPhysicsUpdate(dt)
 		owner.transform:SetPosition(Vec3(position.x + dx, position.y + dy, position.z + dz))
 
 		for _, part in ipairs(self.parts) do
-			part.target_position:Set(
-				part.target_position.x + dx,
-				part.target_position.y + dy,
-				part.target_position.z + dz
-			)
+			part.target_position:Set(part.target_position.x + dx, part.target_position.y + dy, part.target_position.z + dz)
 
 			if part.anchor_target then
 				part.anchor_target:Set(part.anchor_target.x + dx, part.anchor_target.y + dy, part.anchor_target.z + dz)
