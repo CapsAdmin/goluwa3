@@ -18,7 +18,14 @@ local fs = import("goluwa/filesystem/fs.lua")
 local crypto = import("goluwa/crypto.lua")
 local objects = import("goluwa/objects/objects.lua")
 local material_bake = {}
-material_bake.Version = 2
+material_bake.estimators = {albedo = true, roughness = true, normal = true}
+material_bake.estimator_params = {
+	flatten = 0.35,
+	local_contrast = 0.4,
+	saturation = 0.8,
+	normal = 0.5,
+	normal_noise = 0.33,
+}
 material_bake.CacheDirectory = "storage/cache/baked_materials/"
 pvars.StartGroup("Rendering", "Materials", {store = false})
 material_bake.enabled = pvars.Setup2{
@@ -64,6 +71,10 @@ local function get_quad()
 	return quad
 end
 
+local render_tileable = false
+local render_normal_estimate = true
+local render_texel = 1 / 256
+
 local function get_uniform_buffers()
 	local buffers = {
 		{
@@ -73,6 +84,16 @@ local function get_uniform_buffers()
 				{"terrain_only", "int"},
 				{"normal_map_strength", "float"},
 				{"noise_phase", "float"},
+				{"estimate_albedo", "int"},
+				{"estimate_tileable", "int"},
+				{"estimate_roughness", "int"},
+				{"estimate_texel", "float"},
+				{"estimate_flatten", "float"},
+				{"estimate_local_contrast", "float"},
+				{"estimate_saturation", "float"},
+				{"estimate_normal", "int"},
+				{"estimate_normal_strength", "float"},
+				{"estimate_normal_noise", "float"},
 			},
 			write = function(self, block)
 				block.camera_position[0] = 0
@@ -81,6 +102,16 @@ local function get_uniform_buffers()
 				block.terrain_only = 0
 				block.normal_map_strength = 1
 				block.noise_phase = 0
+				block.estimate_albedo = material_bake.estimators.albedo and 1 or 0
+				block.estimate_tileable = render_tileable and 1 or 0
+				block.estimate_roughness = material_bake.estimators.roughness and 1 or 0
+				block.estimate_texel = render_texel
+				block.estimate_flatten = material_bake.estimator_params.flatten
+				block.estimate_local_contrast = material_bake.estimator_params.local_contrast
+				block.estimate_saturation = material_bake.estimator_params.saturation
+				block.estimate_normal = (material_bake.estimators.normal and render_normal_estimate) and 1 or 0
+				block.estimate_normal_noise = material_bake.estimator_params.normal_noise
+				block.estimate_normal_strength = material_bake.estimator_params.normal
 				return block
 			end,
 		},
@@ -91,6 +122,172 @@ local function get_uniform_buffers()
 	end
 
 	return buffers
+end
+
+local BAKE_FRAGMENT = [[
+
+			vec3 blurred_albedo(vec2 uv, float radius) {
+				vec3 sum = vec3(0.0);
+
+				for (int i = 0; i < 12; i++) {
+					float angle = float(i) * 2.399963;
+					float distance = sqrt((float(i) + 0.5) / 12.0) * radius;
+					sum += get_albedo_world(uv + vec2(cos(angle), sin(angle)) * distance, vec3(0.0));
+				}
+
+				return sum / 12.0;
+			}
+
+			vec3 estimate_albedo(vec3 albedo, vec2 uv) {
+				if (bake_data.estimate_albedo == 0) return albedo;
+
+				float lum = max(luminance(albedo), 0.001);
+
+				if (bake_data.estimate_tileable != 0) {
+					float mid_lum = max(luminance(blurred_albedo(uv, 0.06)), 0.001);
+					float coarse_lum = max(luminance(blurred_albedo(uv, 0.3)), 0.001);
+					float global_lum = 0.25 * (
+						luminance(blurred_albedo(uv + vec2(0.25, 0.25), 0.3)) +
+						luminance(blurred_albedo(uv + vec2(0.75, 0.25), 0.3)) +
+						luminance(blurred_albedo(uv + vec2(0.25, 0.75), 0.3)) +
+						luminance(blurred_albedo(uv + vec2(0.75, 0.75), 0.3))
+					);
+					albedo *= clamp(pow(global_lum / coarse_lum, bake_data.estimate_flatten), 0.6, 1.6);
+					albedo *= clamp(pow(lum / mid_lum, -bake_data.estimate_local_contrast), 0.7, 1.4);
+				}
+
+				float high = max(albedo.r, max(albedo.g, albedo.b));
+				float saturation = high > 0.001 ? (high - min(albedo.r, min(albedo.g, albedo.b))) / high : 0.0;
+
+				if (saturation > 0.001) {
+					albedo = vec3(high) - (vec3(high) - albedo) * (pow(saturation, bake_data.estimate_saturation) / saturation);
+				}
+
+				vec3 smooth_albedo = blurred_albedo(uv, bake_data.estimate_texel * 4.0);
+				float local_lum = luminance(smooth_albedo);
+				float darkness = 1.0 - smoothstep(0.003, 0.02, local_lum);
+				albedo = mix(albedo, smooth_albedo, 0.5 * darkness);
+				float lift = clamp(0.035 / max(local_lum, 0.0005), 1.0, 6.0);
+				vec2 grain_seed = gl_FragCoord.xy;
+				float grain = fract(sin(dot(grain_seed, vec2(12.9898, 78.233))) * 43758.5453) + fract(sin(dot(grain_seed, vec2(39.3468, 11.135))) * 24634.6345) - 1.0;
+				albedo = albedo * lift + vec3(0.006) + vec3(grain * 0.0006 * lift * darkness);
+				return albedo * min(1.0, 0.9 / max(max(albedo.r, albedo.g), max(albedo.b, 0.001)));
+			}
+
+			float noise_hash(vec2 p) {
+				return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+			}
+
+			float value_noise(vec2 p) {
+				vec2 cell = floor(p);
+				vec2 f = fract(p);
+				f = f * f * (3.0 - 2.0 * f);
+				return mix(mix(noise_hash(cell), noise_hash(cell + vec2(1.0, 0.0)), f.x), mix(noise_hash(cell + vec2(0.0, 1.0)), noise_hash(cell + vec2(1.0, 1.0)), f.x), f.y);
+			}
+
+			float shading_height(vec2 uv) {
+				vec2 source_size = vec2(textureSize(TEXTURE(model.AlbedoTexture), 0));
+				float source_texel = 1.0 / max(source_size.x, source_size.y);
+				vec2 warp = (vec2(value_noise(uv * source_size * 0.9), value_noise(uv * source_size * 0.9 + 17.3)) - 0.5) * bake_data.estimate_normal_noise / source_size;
+				vec2 p = uv + warp;
+				float small = max(luminance(blurred_albedo(p, source_texel * 2.0)), 0.002);
+				float large = max(luminance(blurred_albedo(p, source_texel * 16.0)), 0.002);
+				float height = clamp(log(small / large), -0.6, 0.15) + (value_noise(uv * source_size * 2.3 + 5.1) - 0.5) * 0.06 * bake_data.estimate_normal_noise;
+				return height * smoothstep(0.01, 0.04, small);
+			}
+
+			vec3 estimate_normal(vec3 n, vec2 uv) {
+				vec2 source_size = vec2(textureSize(TEXTURE(model.AlbedoTexture), 0));
+				float step_size = bake_data.estimate_texel * 1.5;
+				vec2 slope = vec2(
+					shading_height(uv + vec2(step_size, 0.0)) - shading_height(uv - vec2(step_size, 0.0)),
+					shading_height(uv + vec2(0.0, step_size)) - shading_height(uv - vec2(0.0, step_size))
+				) * (2.0 / (step_size * max(source_size.x, source_size.y)));
+				return normalize(vec3(n.xy - slope * bake_data.estimate_normal_strength, n.z));
+			}
+
+			float estimate_roughness(float perceptual, vec2 uv) {
+				float radius = bake_data.estimate_texel * 3.0;
+				float lum_mean = 0.0;
+				float lum_square = 0.0;
+				vec2 slope_mean = vec2(0.0);
+				vec2 slope_square = vec2(0.0);
+
+				for (int i = 0; i < 12; i++) {
+					float angle = float(i) * 2.399963;
+					vec2 offset = vec2(cos(angle), sin(angle)) * sqrt((float(i) + 0.5) / 12.0) * radius;
+					float lum = luminance(get_albedo_world(uv + offset, vec3(0.0)));
+					vec2 slope = get_normal_map(uv + offset).xy;
+					lum_mean += lum;
+					lum_square += lum * lum;
+					slope_mean += slope;
+					slope_square += slope * slope;
+				}
+
+				lum_mean /= 12.0;
+				vec2 slope_variance = max(slope_square / 12.0 - (slope_mean / 12.0) * (slope_mean / 12.0), vec2(0.0));
+				float contrast = sqrt(max(lum_square / 12.0 - lum_mean * lum_mean, 0.0)) / max(lum_mean, 0.02);
+				float alpha = perceptual * perceptual;
+				alpha = sqrt(alpha * alpha + 2.0 * (slope_variance.x + slope_variance.y));
+				return clamp(sqrt(alpha) + 0.35 * clamp(contrast - 0.2, -0.1, 0.5), 0.04, 1.0);
+			}
+
+			void main() {
+				vec2 uv = in_uv;
+				Surface s;
+				init_surface_features(s, uv);
+
+				if (bake_data.estimate_roughness != 0 && get_roughness_texel(uv) < 0.0) {
+					float perceptual = estimate_roughness(sqrt(s.roughness_alpha), uv);
+					s.roughness_alpha = perceptual * perceptual;
+				}
+
+				float alpha = get_alpha_uv(uv);
+				vec3 albedo = estimate_albedo(get_albedo_world(uv, vec3(0.0)), uv);
+
+				vec3 n = get_normal_map(uv);
+
+				if (bake_data.estimate_normal != 0 && model.NormalTexture == -1 && !has_heightmap() && model.AlbedoTexture != -1) {
+					n = estimate_normal(n, uv);
+				}
+				set_bake_albedo(vec4(albedo, alpha));
+				set_bake_normal(vec4(n.xy * 0.5 + 0.5, 0.0, 1.0));
+				set_bake_mr(vec4(s.metallic, sqrt(s.roughness_alpha), clamp(s.specular * 0.5, 0.0, 1.0), 0.0));
+				set_bake_emissive(vec4(get_emissive(uv) / EMISSIVE_REFERENCE_LUMINANCE, 1.0));
+			}
+]]
+local get_fragment_source
+
+do
+	local source
+
+	function get_fragment_source()
+		source = source or model_pipeline.BuildPBRSurfaceGlsl("bake_data") .. BAKE_FRAGMENT
+		return source
+	end
+end
+
+local function to_hex(raw)
+	return (raw:gsub(".", function(c)
+		return string.format("%02x", c:byte())
+	end))
+end
+
+-- the cache is valid for exactly this source: this file, the encoder and the generated surface shader
+do
+	local version
+
+	function material_bake.GetVersion()
+		if not version then
+			version = "v" .. to_hex(
+					crypto.SHA1(
+						fs.read_file("goluwa/render3d/material_bake.lua") .. fs.read_file("goluwa/render/texture_compress.lua") .. get_fragment_source()
+					)
+				):sub(1, 10)
+		end
+
+		return version
+	end
 end
 
 local function create_pipeline()
@@ -115,21 +312,7 @@ local function create_pipeline()
 		},
 		fragment = {
 			uniform_buffers = get_uniform_buffers(),
-			shader = model_pipeline.BuildPBRSurfaceGlsl("bake_data") .. [[
-
-			void main() {
-				vec2 uv = in_uv;
-				Surface s;
-				init_surface_features(s, uv);
-				float alpha = get_alpha_uv(uv);
-				vec3 albedo = get_albedo_world(uv, vec3(0.0));
-				vec3 n = get_normal_map(uv);
-				set_bake_albedo(vec4(albedo, alpha));
-				set_bake_normal(vec4(n.xy * 0.5 + 0.5, 0.0, 1.0));
-				set_bake_mr(vec4(s.metallic, sqrt(s.roughness_alpha), 0.0, 0.0));
-				set_bake_emissive(vec4(get_emissive(uv) / EMISSIVE_REFERENCE_LUMINANCE, 1.0));
-			}
-		]],
+			shader = get_fragment_source(),
 		},
 		CullMode = "none",
 		DepthTest = false,
@@ -145,9 +328,11 @@ end
 
 -- Evaluates the material's own surface shader code over uv space into render targets, one texel per
 -- uv texel: albedo (rgb in the encoding of the target, alpha is the material's alpha), normal (xy in rg)
--- and metallic, roughness, ambient occlusion in rgb. Returns the framebuffer, its attachments are
+-- and metallic, roughness, specular scale in rgb. Returns the framebuffer, its attachments are
 -- Textures 1 to 4: the fourth is the emissive color without the multiplier, which stays on the material.
-function material_bake.Render(material, width, height)
+-- skip_normal_estimate leaves the normal of a material without one flat (Bake renders that normal
+-- on its own at twice the size).
+function material_bake.Render(material, width, height, skip_normal_estimate)
 	pipeline = pipeline or create_pipeline()
 	local framebuffer = Framebuffer.New{
 		width = width,
@@ -159,8 +344,13 @@ function material_bake.Render(material, width, height)
 	}
 	local previous_material = render3d.GetMaterial()
 	local previous_world = render3d.GetWorldMatrix()
+	render_tileable = not tostring(material.vmt_path):find("^materials/models/")
+	render_texel = 1 / width
+	render_normal_estimate = not skip_normal_estimate
 	local micro_detail = material:GetMicroDetailTexture()
 	local emissive_multiplier = material:GetEmissiveMultiplier()
+	local specular_multiplier = material:GetSpecularMultiplier()
+	material:SetSpecularMultiplier(1)
 	material:SetMicroDetailTexture(nil)
 	material:SetEmissiveMultiplier(Color(1, 1, 1, 1))
 	render3d.SetMaterial(material)
@@ -175,6 +365,7 @@ function material_bake.Render(material, width, height)
 	render3d.SetWorldMatrix(previous_world)
 	material:SetMicroDetailTexture(micro_detail)
 	material:SetEmissiveMultiplier(emissive_multiplier)
+	material:SetSpecularMultiplier(specular_multiplier)
 
 	if not ok then error(err, 0) end
 
@@ -183,11 +374,24 @@ end
 
 -- Bakes the material into three compressed textures, returned as dds strings:
 -- Albedo (bc7 srgb, alpha is the material's alpha), Normal (bc5, the xy the shader would use) and
--- MetallicRoughness (bc7 linear: r metallic, g roughness, the MetallicRoughnessIsMR layout).
+-- MetallicRoughness (bc7 linear: r metallic, g roughness, b specular scale / 2 with the cavity damping in it).
 -- Emissive (bc7 srgb, the color before EmissiveMultiplier) is added when the material emits.
 -- Texture transforms are not part of the bake, they stay on the material.
+function material_bake.WantsNormalEstimate(material)
+	return material_bake.estimators.normal and
+		not material:GetNormalTexture()
+		and
+		not (
+			material:GetHeightTexture() and
+			material:GetHeightScale() > 0
+		)
+		and
+		material:GetAlbedoTexture() ~= nil
+end
+
 function material_bake.Bake(material, width, height)
-	local framebuffer = material_bake.Render(material, width, height)
+	local estimate_normal = material_bake.WantsNormalEstimate(material)
+	local framebuffer = material_bake.Render(material, width, height, estimate_normal)
 	local result = {
 		Albedo = texture_compress.Recompress{
 			sources = {{texture = framebuffer:GetAttachment(1)}},
@@ -222,6 +426,7 @@ function material_bake.Bake(material, width, height)
 		layer2:SetAlbedo2Texture(nil)
 		layer2:SetNormal2Texture(nil)
 		layer2:SetBlendTexture(nil)
+		layer2.vmt_path = material.vmt_path
 		local width2, height2 = 4, 4
 
 		for _, texture in ipairs{material:GetAlbedo2Texture(), material:GetNormal2Texture() or false} do
@@ -230,7 +435,7 @@ function material_bake.Bake(material, width, height)
 			end
 		end
 
-		local framebuffer2 = material_bake.Render(layer2, width2, height2)
+		local framebuffer2 = material_bake.Render(layer2, width2, height2, true)
 		result.Albedo2 = texture_compress.Recompress{
 			sources = {{texture = framebuffer2:GetAttachment(1)}},
 			edit = "vec4 edit(ivec2 position, ivec2 size, vec4 texel) { return vec4(from_linear(texel.rgb), texel.a); }",
@@ -256,6 +461,17 @@ function material_bake.Bake(material, width, height)
 		}
 		framebuffer2:Remove()
 		layer2:Remove()
+	end
+
+	if estimate_normal then
+		local normal_framebuffer = material_bake.Render(material, math.min(width * 2, 2048), math.min(height * 2, 2048))
+		result.Normal = texture_compress.Recompress{
+			sources = {{texture = normal_framebuffer:GetAttachment(2)}},
+			format = "bc5",
+			kind = "normal",
+			wrap = true,
+		}
+		normal_framebuffer:Remove()
 	end
 
 	if material_bake.Emits(material) then
@@ -374,6 +590,7 @@ function material_bake.Apply(material, textures)
 	material:SetNormalTexture(textures.Normal)
 	material:SetMetallicRoughnessTexture(textures.MetallicRoughness)
 	material:SetMetallicRoughnessIsMR(true)
+	material:SetPackedSpecularScale(2)
 	material:SetAlbedo2Texture(textures.Albedo2)
 	material:SetNormal2Texture(textures.Normal2)
 	material:SetMetallicRoughness2Texture(textures.MetallicRoughness2)
@@ -408,6 +625,7 @@ function material_bake.Apply(material, textures)
 	material:SetDerivedRoughnessNormal(0)
 	material:SetDerivedRoughnessMetal(0)
 	material:SetDerivedSpecularCavity(0)
+	material:SetDerivedSpecularRoughness(0)
 	material.baked = true
 end
 
@@ -427,7 +645,7 @@ table.insert(READY_GETTERS, "GetNormal2Texture")
 -- a key for everything the bake reads: every property and the identity of the textures, nil when a
 -- texture has no path to identify it by
 function material_bake.GetKey(material)
-	local parts = {"v" .. material_bake.Version}
+	local parts = {material_bake.GetVersion()}
 
 	for _, info in ipairs(objects.GetStorableVariables(material)) do
 		if not SKIPPED_VARIABLES[info.var_name] then
@@ -444,9 +662,7 @@ function material_bake.GetKey(material)
 	end
 
 	table.sort(parts)
-	local hash = crypto.SHA1(table.concat(parts, "\n")):gsub(".", function(c)
-		return string.format("%02x", c:byte())
-	end)
+	local hash = to_hex(crypto.SHA1(table.concat(parts, "\n")))
 	local name = material.vmt_path:gsub("^materials/maps/[^/]+/", ""):gsub("^materials/", ""):gsub("%.vmt$", ""):gsub("_%-?%d+_%-?%d+_%-?%d+$", ""):gsub("[^%w]+", "_"):sub(1, 80)
 	return name .. "_" .. hash
 end
@@ -477,7 +693,7 @@ local function slots_of(material)
 end
 
 local function cache_path(key)
-	return material_bake.CacheDirectory .. "v" .. material_bake.Version .. "/" .. key .. "/"
+	return material_bake.CacheDirectory .. material_bake.GetVersion() .. "/" .. key .. "/"
 end
 
 local function has_cache(material, key)
@@ -503,7 +719,7 @@ do
 		if pruned and not force then return end
 
 		pruned = true
-		local current = "v" .. material_bake.Version
+		local current = material_bake.GetVersion()
 
 		for _, name in ipairs(fs.get_files(material_bake.CacheDirectory) or {}) do
 			if name ~= current then
