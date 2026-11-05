@@ -85,6 +85,7 @@ local PBR_AUX_FIELDS = {
 		name = "MetallicRoughness2Texture",
 		getter = "GetMetallicRoughness2Texture",
 	},
+	{type = "float", name = "PackedSpecularScale", getter = "GetPackedSpecularScale"},
 	{type = "texture", name = "EmissiveTexture", getter = "GetEmissiveTexture"},
 	{type = "vec4", name = "EmissiveMultiplier", getter = "GetEmissiveMultiplier"},
 	{type = "texture", name = "MetallicTexture", getter = "GetMetallicTexture"},
@@ -2344,6 +2345,16 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 			float get_specular(vec2 uv) {
 				float val = factor_model.SpecularMultiplier * get_gloss(uv);
+
+				if (aux_model.PackedSpecularScale > 0.0 && aux_model.MetallicRoughnessTexture != -1) {
+					float packed_specular = texture(TEXTURE(aux_model.MetallicRoughnessTexture), uv).b;
+
+					if (aux_model.MetallicRoughness2Texture != -1) {
+						packed_specular = mix(packed_specular, texture(TEXTURE(aux_model.MetallicRoughness2Texture), uv).b, get_texture_blend_uv(uv));
+					}
+
+					val = factor_model.SpecularMultiplier * packed_specular * aux_model.PackedSpecularScale;
+				}
 
 				if (terrain_model.TerrainMaterialTexture != -1) {
 					val *= get_terrain_weighted_value(uv, terrain_model.TerrainLayerSpecular, terrain_model.TerrainLayerSpecular2);

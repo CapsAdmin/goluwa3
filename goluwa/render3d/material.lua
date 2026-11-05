@@ -24,6 +24,7 @@ Material:GetSet(
 	{type = "render_texture", callback = "InvalidateRayMaterial"}
 )
 Material:GetSet("MetallicRoughness2Texture", nil, {type = "render_texture"})
+Material:GetSet("PackedSpecularScale", 0.0, {requires = "MetallicRoughnessTexture"})
 Material:GetSet(
 	"MetallicTexture",
 	nil,

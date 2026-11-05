@@ -722,12 +722,12 @@ local CHROME_ROUGHNESS = 0.05
 local SSBUMP_MASK_ROUGHNESS = 0.25
 local DERIVED_ROUGHNESS_ALBEDO = 1.5
 local DERIVED_ROUGHNESS_NORMAL = 2
-local MICRO_DETAIL_ROUGHNESS = 0.6
+local MICRO_DETAIL_ROUGHNESS = 0.2
 local MICRO_DETAIL_DEFAULT_SCALE = 4
-local MICRO_DETAIL_NORMAL = 3
+local MICRO_DETAIL_NORMAL = 1
 local DERIVED_ROUGHNESS_METAL = 2
 local DERIVED_SPECULAR_CAVITY = 0.8
-local METAL_ROUGHNESS_BIAS = 0.25
+local DERIVED_SPECULAR_ROUGHNESS = 0.5
 local NORMAL_PARALLAX = {
 	["nature/cliffface001a_normal"] = 1 / 32,
 	["nature/rockwall021b_normal"] = 1 / 32,
@@ -740,6 +740,8 @@ local NORMAL_PARALLAX = {
 	["esther/nature/rock/caverock_001_n"] = 1 / 32,
 	["esther/nature/rock/caverock_002_n"] = 1 / 32,
 }
+local SURFACEPROP_METAL_VOTE = 0.3
+local METAL_ROUGHNESS_BIAS = 0.25
 local SELFILLUM_ALPHA_FLOOR = 0.1
 local PARALLAX_DEFAULT_SCALE = 0.025
 local PARALLAX_DEFAULT_CENTER = 0.5
@@ -846,8 +848,6 @@ do
 		end
 	end
 
-	local function load_textures(self, vmt, ctx)
-		local srgb, linear = ctx.srgb, ctx.linear
 	local function generate_height(self, height_cut, bumpmap)
 		local normal, generation = self:GetNormalTexture(), self.vmt_generation
 
@@ -919,6 +919,8 @@ do
 		end)
 	end
 
+	local function load_textures(self, vmt, ctx)
+		local srgb, linear = ctx.srgb, ctx.linear
 
 		if vmt.basetexture then self:SetAlbedoTexture(srgb(vmt.basetexture)) end
 
@@ -1253,7 +1255,14 @@ do
 		end
 
 		self:SetRoughnessMultiplier(roughness)
-		set_estimated_metal(self, pbr[2] > 0.5 and vmt.translucent ~= 1 and vmt.additive ~= 1 and 1.0 or 0.0)
+		set_estimated_metal(
+			self,
+			pbr[2] > 0.5 and
+				vmt.translucent ~= 1 and
+				vmt.additive ~= 1 and
+				SURFACEPROP_METAL_VOTE or
+				0.0
+		)
 	end
 
 	local function apply_derived_roughness(self)
@@ -1268,6 +1277,8 @@ do
 
 		local base = self.RoughnessMultiplier
 		local albedo = self:GetAlbedoTexture()
+
+		if albedo then self:SetDerivedMetalAlbedo(1) end
 
 		if self:GetNormalTexture() then
 			self:SetDerivedRoughnessNormal(base * DERIVED_ROUGHNESS_NORMAL)
@@ -1428,6 +1439,13 @@ do
 			apply_texture_override(self, override, ctx)
 		else
 			load_textures(self, vmt, ctx)
+			local bumpmap = type(vmt.bumpmap) == "string" and
+				vmt.bumpmap:lower():match("materials/(.-)%.vtf$")
+			local height_cut = bumpmap and NORMAL_PARALLAX[bumpmap]
+
+			if height_cut and self:GetNormalTexture() then
+				generate_height(self, height_cut, bumpmap)
+			end
 		end
 
 		if replaced then
@@ -1438,13 +1456,6 @@ do
 			if self.vmt_variant == "iris" then
 				self:SetAlbedoTexture(srgb(vmt.iris))
 				self:SetAlphaTest(true)
-			end
-			local bumpmap = type(vmt.bumpmap) == "string" and
-				vmt.bumpmap:lower():match("materials/(.-)%.vtf$")
-			local height_cut = bumpmap and NORMAL_PARALLAX[bumpmap]
-
-			if height_cut and self:GetNormalTexture() then
-				generate_height(self, height_cut, bumpmap)
 			end
 		elseif shader == "pbr" then
 			apply_pbr(self, vmt, ctx)
@@ -1605,6 +1616,10 @@ do
 
 		if not replaced and FEATURES.derived_roughness and not is_glass and shader ~= "eyes" then
 			apply_derived_roughness(self)
+
+			if self:GetAlbedoTexture() then
+				self:SetDerivedSpecularRoughness(DERIVED_SPECULAR_ROUGHNESS)
+			end
 		end
 
 		do
