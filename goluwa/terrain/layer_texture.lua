@@ -35,6 +35,16 @@ function layer_texture.BakeAlbedo(config)
 	return texture
 end
 
+function layer_texture.BakeHeight(config)
+	local size = config.Size or 512
+	local texture = make_texture(size)
+	texture:Shade(
+		"float h = clamp(layer_height(uv), 0.0, 1.0); return vec4(h, h, h, 1.0);",
+		{header = build_header(config, size)}
+	)
+	return texture
+end
+
 function layer_texture.BakeNormal(config)
 	local size = config.Size or 512
 	local depth = config.Depth or 0.05

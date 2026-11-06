@@ -235,6 +235,71 @@ LAYERS.sand = {
 		return vec4(col, 0.92 - pebbles.x * 0.2);
 	]=],
 }
+LAYERS.boulders = {
+	Size = 1024,
+	Depth = 0.3,
+	Height = [=[
+		vec3 boulder_cell(vec2 uv) {
+			vec2 w = tile_warp(uv + 0.21, 4.0, 0.035);
+			vec3 c = tile_cells(w, 7.0);
+			float radius = mix(0.42, 0.78, tile_hash(c.yz + 1.7));
+			float peak = mix(0.55, 1.0, tile_hash(c.yz + 8.3));
+			float t = clamp(c.x / radius, 0.0, 1.0);
+			return vec3(smoothstep(0.0, 0.45, 1.0 - t * t) * peak, c.yz);
+		}
+
+		float layer_height(vec2 uv) {
+			vec3 b = boulder_cell(uv);
+			float chips = tile_fbm(uv + 3.7, 48.0, 3, 0.55);
+			float grit = tile_fbm(uv + 1.1, 200.0, 2, 0.5);
+			return b.x * 0.82 + chips * 0.12 * b.x + grit * 0.04;
+		}
+	]=],
+	Albedo = [=[
+		float h = layer_height(uv);
+		vec3 b = boulder_cell(uv);
+		float tone = tile_hash(b.yz + 4.4);
+		float lichen = smoothstep(0.6, 0.78, tile_fbm(uv + 4.4, 14.0, 4, 0.5)) * b.x;
+		vec3 col = mix(vec3(0.2, 0.195, 0.19), vec3(0.36, 0.3, 0.23), tone);
+		col = mix(col, vec3(0.3, 0.36, 0.2), lichen * 0.5);
+		col *= mix(0.45, 1.15, smoothstep(0.0, 0.7, h));
+		col *= mix(0.9, 1.1, tile_fbm(uv + 2.0, 120.0, 2, 0.5));
+		return vec4(col, 0.78 - h * 0.1);
+	]=],
+}
+LAYERS.gravel = {
+	Size = 1024,
+	Depth = 0.12,
+	Height = [=[
+		vec3 gravel_cell(vec2 uv) {
+			vec2 w = tile_warp(uv + 0.37, 9.0, 0.02);
+			vec3 c = tile_cells(w, 46.0);
+			float radius = mix(0.35, 0.62, tile_hash(c.yz + 2.9));
+			float peak = mix(0.5, 1.0, tile_hash(c.yz + 6.1));
+			float t = clamp(c.x / radius, 0.0, 1.0);
+			return vec3(smoothstep(0.0, 0.5, 1.0 - t * t) * peak, c.yz);
+		}
+
+		float layer_height(vec2 uv) {
+			vec3 g = gravel_cell(uv);
+			float sand = tile_fbm(uv, 12.0, 3, 0.5);
+			float grit = tile_fbm(uv + 5.5, 220.0, 2, 0.5);
+			return g.x * 0.85 + sand * 0.07 + grit * 0.05;
+		}
+	]=],
+	Albedo = [=[
+		float h = layer_height(uv);
+		vec3 g = gravel_cell(uv);
+		float a = tile_hash(g.yz + 3.3);
+		float b = tile_hash(g.yz + 9.9);
+		vec3 stone = mix(vec3(0.34, 0.31, 0.27), vec3(0.09, 0.085, 0.08), a);
+		stone = mix(stone, vec3(0.3, 0.19, 0.12), smoothstep(0.75, 0.95, b) * 0.7);
+		vec3 sand = mix(vec3(0.16, 0.13, 0.09), vec3(0.24, 0.2, 0.14), tile_fbm(uv + 7.7, 6.0, 3, 0.5));
+		vec3 col = mix(sand, stone, smoothstep(0.08, 0.35, g.x));
+		col *= mix(0.55, 1.1, smoothstep(0.0, 0.6, h));
+		return vec4(col, 0.86);
+	]=],
+}
 local terrain_textures = {}
 
 for name, config in pairs(LAYERS) do
@@ -249,7 +314,13 @@ for name, config in pairs(LAYERS) do
 		return layer_texture.BakeNormal(config)
 	end)
 
-	terrain_textures[name] = {albedo = albedo_path, normal = normal_path}
+	local height_path = "textures/terrain/" .. name .. "_height.lua"
+
+	assets.RegisterVirtualTexture(height_path, function()
+		return layer_texture.BakeHeight(config)
+	end)
+
+	terrain_textures[name] = {albedo = albedo_path, normal = normal_path, height = height_path}
 end
 
 return terrain_textures
