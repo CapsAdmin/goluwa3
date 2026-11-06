@@ -34,6 +34,7 @@ end
 
 T.Test("audio compatibility API", function()
 	audio.StopAll()
+	audio.listener_motion = {}
 	audio.SetDistanceModel("linear")
 	audio.SetListenerPosition(Vec3(1, 2, 3))
 	audio.SetListenerOrientation(Vec3(0, 0, -1), Vec3(0, 1, 0))
