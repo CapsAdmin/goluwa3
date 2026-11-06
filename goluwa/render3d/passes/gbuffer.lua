@@ -446,7 +446,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 
 			if (s.terrain) {
 				r.uv = (p.xz - s.bounds.xy) / s.bounds.z;
-				r.valid = all(greaterThanEqual(r.uv, vec2(0.0))) && all(lessThanEqual(r.uv, vec2(1.0)));
+				r.valid = all(greaterThanEqual(r.uv, vec2(-1e-3))) && all(lessThanEqual(r.uv, vec2(1.0 + 1e-3)));
 				float ground = terrain_shell_ground(r.uv);
 				r.level = (p.y - ground) / s.lift;
 
