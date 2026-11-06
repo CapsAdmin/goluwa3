@@ -2,20 +2,25 @@ local ffi = require("ffi")
 local setmetatable = import("goluwa/table/setmetatable_gc.lua")
 local process = {}
 
+if ffi.os == "Windows" then
+	ffi.cdef[[
+		uint32_t GetLastError();
+		uint32_t FormatMessageA(
+			uint32_t dwFlags,
+			const void* lpSource,
+			uint32_t dwMessageId,
+			uint32_t dwLanguageId,
+			char* lpBuffer,
+			uint32_t nSize,
+			va_list *Arguments
+		);
+	]]
+else
+	ffi.cdef("const char *strerror(int);")
+end
+
 local function lasterror(num)
 	if ffi.os == "Windows" then
-		ffi.cdef[[
-			uint32_t GetLastError();
-			uint32_t FormatMessageA(
-				uint32_t dwFlags,
-				const void* lpSource,
-				uint32_t dwMessageId,
-				uint32_t dwLanguageId,
-				char* lpBuffer,
-				uint32_t nSize,
-				va_list *Arguments
-			);
-		]]
 		local error_str = ffi.new("uint8_t[?]", 1024)
 		local FORMAT_MESSAGE_FROM_SYSTEM = 0x00001000
 		local FORMAT_MESSAGE_IGNORE_INSERTS = 0x00000200
@@ -28,7 +33,6 @@ local function lasterror(num)
 
 		return err or tostring(code), code
 	else
-		ffi.cdef("const char *strerror(int);")
 		num = num or ffi.errno()
 		local err = ffi.string(ffi.C.strerror(num))
 		return err == "" and tostring(num) or err, num
