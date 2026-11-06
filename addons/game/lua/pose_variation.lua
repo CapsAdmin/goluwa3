@@ -44,10 +44,12 @@ function pose_variation.HashSeed(key)
 		return value - math.floor(value)
 	end
 
+	-- 16777619 is 2^24 + 403; multiplying as one double exceeds 2^53 and rounds differently in the jit (fused multiply add) than in the interpreter
 	local hash = 2166136261
 
 	for i = 1, #key do
-		hash = bit.bxor(hash, key:byte(i)) * 16777619 % 4294967296
+		hash = bit.bxor(hash, key:byte(i)) % 4294967296
+		hash = (bit.lshift(hash, 24) + hash * 403) % 4294967296
 	end
 
 	return hash / 4294967296
