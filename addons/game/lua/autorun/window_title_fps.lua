@@ -19,10 +19,12 @@ event.AddListener("Update", "window_title", function()
 		local cpu_ms = (accumulated_time - (wait - wait_at_start)) / accumulated_frames * 1000
 		system.GetWindow():SetTitle(
 			string.format(
-				"FPS: %d | cpu: %.2f ms | gpu: %.2f ms",
+				"FPS: %d | cpu: %.2f ms | gpu: %.2f ms | vram: %s | ram: %s",
 				math.round(accumulated_frames / accumulated_time),
 				cpu_ms,
-				accumulated_gpu_ms / accumulated_frames
+				accumulated_gpu_ms / accumulated_frames,
+				string.size_format(render.GetVRAMUsage()),
+				string.size_format(system.GetRAMUsage())
 			)
 		)
 		wait_at_start = wait
