@@ -1,7 +1,6 @@
 local T = import("test/environment.lua")
 local test_render = import("test/test_render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
-local event = import("goluwa/event.lua")
 test_render.Init()
 
 local function create_compute_pipeline()
@@ -24,12 +23,16 @@ local function create_compute_pipeline()
 	}
 end
 
-T.Test("Graphics compute pipeline stops listening to textures when it is removed", function()
-	local pipeline = create_compute_pipeline()
-	local internal = pipeline.pipeline
-	T(event.IsListenerActive("TextureViewChanged", internal))["=="](true)
-	T(event.IsListenerActive("TextureRemoved", internal))["=="](true)
-	pipeline:Remove()
-	T(event.IsListenerActive("TextureViewChanged", internal))["=="](false)
-	T(event.IsListenerActive("TextureRemoved", internal))["=="](false)
+T.Test("Removing a pipeline keeps the shared bindless layout and set alive", function()
+	local first = create_compute_pipeline()
+	local second = create_compute_pipeline()
+	local state = second.pipeline.bindless
+	T(first.pipeline.bindless == state)["=="](true)
+	first:Remove()
+	second:Remove()
+	T(state.layout:IsValid())["=="](true)
+	T(state.layout.ptr[0] ~= nil)["=="](true)
+	local third = create_compute_pipeline()
+	T(third.pipeline.bindless == state)["=="](true)
+	third:Remove()
 end)

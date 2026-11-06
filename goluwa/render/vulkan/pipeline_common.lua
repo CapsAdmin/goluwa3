@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local render_stats = import("goluwa/render/stats.lua")
+local bindless = import("goluwa/render/vulkan/bindless.lua")
 local Hash = import("goluwa/hash.lua")
 local Texture
 local pipeline_common = {}
@@ -200,17 +201,9 @@ function pipeline_common.get_fallback_sampler(self)
 	return resolve_sampler_config(pipeline_common.get_fallback_sampler_config(self))
 end
 
-function pipeline_common.get_bindless_texture_set_index(self)
-	return #self.descriptor_set_layouts > 1 and 1 or 0
-end
-
 function pipeline_common.get_descriptor_binding_count(self, set_index, binding_index)
 	local set_counts = self.descriptor_binding_counts and self.descriptor_binding_counts[set_index]
 	return set_counts and set_counts[binding_index] or nil
-end
-
-function pipeline_common.get_bindless_binding_capacity(self, binding_index)
-	return pipeline_common.get_descriptor_binding_count(self, pipeline_common.get_bindless_texture_set_index(self), binding_index)
 end
 
 local function build_texture_descriptor_entry(self, tex)
@@ -231,201 +224,6 @@ local function build_texture_descriptor_entry(self, tex)
 	}
 end
 
-local function get_texture_descriptor_write_count(array)
-	local count = #array
-
-	while count > 0 do
-		local entry = array[count]
-
-		if entry and entry.texture ~= nil then break end
-
-		count = count - 1
-	end
-
-	return count
-end
-
-local function mark_all_descriptor_frames_dirty(self)
-	local dirty = self.bindless_descriptor_sets_dirty
-
-	for frame_i = 1, #self.descriptor_sets do
-		dirty[frame_i] = true
-	end
-end
-
-local function release_texture_index(self, tex, set_index)
-	set_index = set_index or 0
-
-	if not tex or type(tex) ~= "table" then return end
-
-	local slot = tex.IsCubemap and tex:IsCubemap() and self.cubemap_slot or self.texture_slot
-	local index = slot.registry[tex]
-
-	if index then
-		slot.registry[tex] = nil
-		table.insert(slot.free_list, index)
-		slot.array[index + 1] = build_texture_descriptor_entry(self)
-		self.texture_index_releases = self.texture_index_releases + 1
-		mark_all_descriptor_frames_dirty(self)
-	end
-end
-
-local function acquire_texture_index(self, slot, tex)
-	local index = slot.registry[tex]
-	local view = tex:GetView()
-
-	if index and view then
-		local entry = slot.array[index + 1]
-
-		if entry and entry.view == view then return index end
-	end
-
-	local next_entry = build_texture_descriptor_entry(self, tex)
-
-	if index then
-		local entry = slot.array[index + 1]
-
-		if
-			next_entry.view and
-			next_entry.sampler and
-			(
-				entry == nil or
-				entry.view ~= next_entry.view
-			)
-		then
-			slot.array[index + 1] = next_entry
-			mark_all_descriptor_frames_dirty(self)
-		end
-
-		return index
-	end
-
-	local free_list = slot.free_list
-
-	if #free_list > 0 then
-		index = table.remove(free_list)
-	else
-		local next_index = self[slot.next_index_key]
-		local limit = self[slot.limit_key]
-
-		if next_index >= limit then error(slot.full_message .. limit) end
-
-		index = next_index
-		self[slot.next_index_key] = next_index + 1
-	end
-
-	slot.registry[tex] = index
-	slot.array[index + 1] = next_entry
-	mark_all_descriptor_frames_dirty(self)
-	return index
-end
-
-local function get_texture_index(self, tex, set_index)
-	if not tex then return -1 end
-
-	set_index = set_index or 0
-	return acquire_texture_index(self, self.texture_slot, tex)
-end
-
-local function get_cubemap_texture_index(self, tex, set_index)
-	if not tex then return -1 end
-
-	set_index = set_index or 0
-	return acquire_texture_index(self, self.cubemap_slot, tex)
-end
-
-local function build_view_descriptor_entry(self, tex)
-	local view
-
-	if tex then view = tex.GetView and tex:GetView() or tex.view end
-
-	if not view then view = self:GetFallbackView() end
-
-	return {texture = tex, view = view}
-end
-
-local function release_view_index(self, tex)
-	if not tex or type(tex) ~= "table" then return end
-
-	local slot = self.view_slot
-	local index = slot.registry[tex]
-
-	if index then
-		slot.registry[tex] = nil
-		table.insert(slot.free_list, index)
-		slot.array[index + 1] = build_view_descriptor_entry(self)
-		mark_all_descriptor_frames_dirty(self)
-	end
-end
-
-local function acquire_view_index(self, tex)
-	local slot = self.view_slot
-	local index = slot.registry[tex]
-	local view = tex.GetView and tex:GetView() or tex.view
-
-	if index and view then
-		local entry = slot.array[index + 1]
-
-		if entry and entry.view == view then return index end
-	end
-
-	local next_entry = build_view_descriptor_entry(self, tex)
-
-	if index then
-		local entry = slot.array[index + 1]
-
-		if next_entry.view and (entry == nil or entry.view ~= next_entry.view) then
-			slot.array[index + 1] = next_entry
-			mark_all_descriptor_frames_dirty(self)
-		end
-
-		return index
-	end
-
-	local free_list = slot.free_list
-	local new_index
-
-	if #free_list > 0 then
-		new_index = table.remove(free_list)
-	else
-		local limit = self.max_texture_views
-
-		if slot.next_index >= limit then
-			error("View registry full! Max descriptors: " .. limit)
-		end
-
-		new_index = slot.next_index
-		slot.next_index = new_index + 1
-	end
-
-	slot.registry[tex] = new_index
-	slot.array[new_index + 1] = next_entry
-	mark_all_descriptor_frames_dirty(self)
-	return new_index
-end
-
-local function get_view_index(self, tex)
-	if not tex then return -1 end
-
-	return acquire_view_index(self, tex)
-end
-
-local function refresh_texture_view(self, tex)
-	if self.texture_slot.registry[tex] then
-		acquire_texture_index(self, self.texture_slot, tex)
-	end
-
-	if self.cubemap_slot.registry[tex] then
-		acquire_texture_index(self, self.cubemap_slot, tex)
-	end
-
-	if self.view_slot.registry[tex] then acquire_view_index(self, tex) end
-end
-
-local function get_texture_index_releases(self)
-	return self.texture_index_releases
-end
-
 local function get_sampler_slot_cache_key(config)
 	local hash = pipeline_common.get_sampler_config_hash(config)
 
@@ -436,86 +234,97 @@ local function get_sampler_slot_cache_key(config)
 	return hash
 end
 
-local function acquire_sampler_index(self, config)
-	local slot = self.sampler_slot
-	local cache_key = get_sampler_slot_cache_key(config)
-	local index = slot.registry[cache_key]
+local function acquire_sampled_texture_index(self, slot, tex)
+	local _, hash = pipeline_common.resolve_sampler_binding(self, tex)
+	local sub_key = hash == nil and
+		NIL_SAMPLER_CONFIG_CACHE_KEY or
+		hash == false and
+		FALSE_SAMPLER_CONFIG_CACHE_KEY or
+		hash
+	local by_key = slot.registry[tex]
+	local index = by_key and by_key[sub_key]
 
-	if index then return index end
+	if index then
+		local entry = slot.entries[index + 1]
 
-	local sampler = resolve_sampler_config(config)
-	local limit = self.max_texture_samplers
-
-	if slot.next_index >= limit then
-		error("Sampler registry full! Max descriptors: " .. limit)
+		if
+			entry.view == tex:GetView() and
+			entry.layout == (
+				tex.sampled_layout or
+				"shader_read_only_optimal"
+			)
+		then
+			return index
+		end
 	end
 
-	local new_index = slot.next_index
-	slot.next_index = new_index + 1
-	slot.registry[cache_key] = new_index
-	slot.array[new_index + 1] = {sampler = sampler}
-	mark_all_descriptor_frames_dirty(self)
-	return new_index
+	return bindless.Acquire(self.bindless, slot, tex, sub_key, build_texture_descriptor_entry(self, tex))
+end
+
+local function get_texture_index(self, tex)
+	if not tex then return -1 end
+
+	return acquire_sampled_texture_index(self, self.bindless.textures, tex)
+end
+
+local function get_cubemap_texture_index(self, tex)
+	if not tex then return -1 end
+
+	return acquire_sampled_texture_index(self, self.bindless.cubemaps, tex)
+end
+
+local function get_view_index(self, tex)
+	if not tex then return -1 end
+
+	local view = tex.GetView and tex:GetView() or tex.view or self:GetFallbackView()
+	local slot = self.bindless.views
+	local by_key = slot.registry[tex]
+	local index = by_key and by_key[true]
+
+	if index and slot.entries[index + 1].view == view then return index end
+
+	return bindless.Acquire(self.bindless, slot, tex, true, {texture = tex, view = view})
 end
 
 local function get_sampler_index(self, config)
-	return acquire_sampler_index(self, config)
+	local key = get_sampler_slot_cache_key(config)
+	local slot = self.bindless.samplers
+	local by_key = slot.registry[key]
+
+	if by_key then return by_key[true] end
+
+	return bindless.Acquire(self.bindless, slot, key, true, {sampler = resolve_sampler_config(config)})
+end
+
+local function release_texture_index(self, tex)
+	if type(tex) ~= "table" then return end
+
+	bindless.Release(self.bindless, tex)
+end
+
+local function get_texture_index_releases(self)
+	return self.bindless.releases
 end
 
 function pipeline_common.bind_texture_registry(META)
-	function META:InitializeTextureRegistry()
-		self.texture_registry = setmetatable({}, {__mode = "k"})
-		self.texture_array = {}
-		self.next_texture_index = 0
-		self.texture_free_list = {}
-		self.texture_index_releases = 0
-		self.cubemap_registry = setmetatable({}, {__mode = "k"})
-		self.cubemap_array = {}
-		self.next_cubemap_index = 0
-		self.cubemap_free_list = {}
-		self.bindless_descriptor_sets_dirty = {}
-		self.texture_slot = {
-			registry = self.texture_registry,
-			array = self.texture_array,
-			free_list = self.texture_free_list,
-			next_index_key = "next_texture_index",
-			limit_key = "max_textures",
-			binding_index = 0,
-			full_message = "Texture registry full for binding 0! Max descriptors: ",
-		}
-		self.cubemap_slot = {
-			registry = self.cubemap_registry,
-			array = self.cubemap_array,
-			free_list = self.cubemap_free_list,
-			next_index_key = "next_cubemap_index",
-			limit_key = "max_cubemaps",
-			binding_index = 1,
-			full_message = "Cubemap registry full for binding 1! Max descriptors: ",
-		}
-		self.view_registry = table.weak("k")
-		self.view_array = {}
-		self.view_slot = {
-			registry = self.view_registry,
-			array = self.view_array,
-			free_list = {},
-			next_index = 0,
-		}
-		self.sampler_array = {}
-		self.sampler_slot = {
-			registry = {},
-			array = self.sampler_array,
-			next_index = 0,
-		}
+	function META:InitializeTextureRegistry(device)
+		local state = bindless.Get(device)
+
+		if not state.fallback_view then
+			state.fallback_view = pipeline_common.get_fallback_view(self)
+			state.fallback_sampler = pipeline_common.get_fallback_sampler(self)
+		end
+
+		self.bindless = state
 	end
 
 	META.BuildTextureDescriptorEntry = build_texture_descriptor_entry
 	META.GetTextureIndex = get_texture_index
 	META.GetCubeMapTextureIndex = get_cubemap_texture_index
 	META.ReleaseTextureIndex = release_texture_index
+	META.ReleaseViewIndex = release_texture_index
 	META.GetViewIndex = get_view_index
-	META.RefreshTextureView = refresh_texture_view
 	META.GetTextureIndexReleases = get_texture_index_releases
-	META.ReleaseViewIndex = release_view_index
 	META.GetSamplerIndex = get_sampler_index
 end
 
@@ -640,12 +449,7 @@ function pipeline_common.update_storage_buffer_array(self, frame_index, binding_
 
 	if render.stats then render_stats.AddDescriptorWrites(count) end
 
-	self.vulkan_instance.device:UpdateDescriptorSetBufferArray(
-		self.descriptor_sets[frame_index][set_index + 1],
-		binding_index,
-		buffer_infos,
-		count
-	)
+	self.vulkan_instance.device:UpdateDescriptorSetBufferArray(self.descriptor_sets[frame_index][set_index + 1], binding_index, buffer_infos, count)
 end
 
 function pipeline_common.update_sampled_image_descriptor_set_array(self, frame_index, binding_index, set_index, view_array, override_count)

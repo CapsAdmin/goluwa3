@@ -107,7 +107,9 @@ function RayTracingPipeline.New(device, config)
 		layouts = {}
 
 		for set_index, bindings in ipairs(config.descriptor_sets) do
-			layouts[set_index] = DescriptorSetLayout.New(device, bindings)
+			layouts[set_index] = config.shared_set_layouts and
+				config.shared_set_layouts[set_index] or
+				DescriptorSetLayout.New(device, bindings)
 		end
 
 		local push_constants = nil

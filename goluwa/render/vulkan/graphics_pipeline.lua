@@ -11,6 +11,7 @@ local system = import("goluwa/system.lua")
 local ffi = require("ffi")
 local Hash = import("goluwa/hash.lua")
 local common = import("goluwa/render/vulkan/pipeline_common.lua")
+local bindless = import("goluwa/render/vulkan/bindless.lua")
 local GraphicsPipeline = objects.CreateTemplate("render_graphics_pipeline")
 local state_keys = {}
 local state_defaults = {}
@@ -1828,7 +1829,10 @@ function GraphicsPipeline.New(vulkan_instance, config)
 						count = ds.count or 1,
 						update_after_bind = ds.update_after_bind or false,
 					}
-					pool_size_map[ds.type] = (pool_size_map[ds.type] or 0) + (ds.count or 1)
+
+					if set_index ~= bindless.SET_INDEX then
+						pool_size_map[ds.type] = (pool_size_map[ds.type] or 0) + (ds.count or 1)
+					end
 
 					if ds.type == "uniform_buffer_dynamic" or ds.type == "storage_buffer_dynamic" then
 						dynamic_descriptor_count = dynamic_descriptor_count + 1
@@ -1865,24 +1869,31 @@ function GraphicsPipeline.New(vulkan_instance, config)
 
 	local descriptorSetLayouts = {}
 	local max_set_index = 0
+	local bindless_state = bindless.Get(vulkan_instance.device)
+	local uses_bindless = layout_maps[bindless.SET_INDEX] ~= nil
 
 	for set_index, _ in pairs(layout_maps) do
 		max_set_index = math.max(max_set_index, set_index)
 	end
 
 	for set_index = 0, max_set_index do
-		local layout_map = layout_maps[set_index] or {}
-		local layout = {}
+		if set_index == bindless.SET_INDEX and uses_bindless then
+			descriptorSetLayouts[set_index + 1] = bindless_state.layout
+			descriptor_binding_counts[set_index] = bindless_state.binding_counts
+		else
+			local layout_map = layout_maps[set_index] or {}
+			local layout = {}
 
-		for _, l in pairs(layout_map) do
-			table.insert(layout, l)
+			for _, l in pairs(layout_map) do
+				table.insert(layout, l)
+			end
+
+			table.sort(layout, function(a, b)
+				return a.binding_index < b.binding_index
+			end)
+
+			descriptorSetLayouts[set_index + 1] = DescriptorSetLayout.New(vulkan_instance.device, layout)
 		end
-
-		table.sort(layout, function(a, b)
-			return a.binding_index < b.binding_index
-		end)
-
-		descriptorSetLayouts[set_index + 1] = DescriptorSetLayout.New(vulkan_instance.device, layout)
 	end
 
 	local pool_sizes = {}
@@ -1920,22 +1931,31 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	local descriptor_set_count = config.DescriptorSetCount or 1
 	local descriptorPools = {}
 	local descriptorSets = {}
+	local own_set_count = #descriptorSetLayouts - (uses_bindless and 1 or 0)
 
-	for frame = 1, descriptor_set_count do
-		local frame_pool_sizes = {}
+	if own_set_count > 0 then
+		local pool_sizes_for_all_sets = {}
 
 		for i, pool_size in ipairs(pool_sizes) do
-			frame_pool_sizes[i] = {
-				type = pool_size.type,
-				count = pool_size.count,
-			}
+			pool_sizes_for_all_sets[i] = {type = pool_size.type, count = pool_size.count * descriptor_set_count}
 		end
 
-		descriptorPools[frame] = DescriptorPool.New(vulkan_instance.device, frame_pool_sizes, #descriptorSetLayouts)
+		if not pool_sizes_for_all_sets[1] then
+			pool_sizes_for_all_sets[1] = {type = "sampler", count = 1}
+		end
+
+		descriptorPools[1] = DescriptorPool.New(vulkan_instance.device, pool_sizes_for_all_sets, own_set_count * descriptor_set_count)
+	end
+
+	for frame = 1, descriptor_set_count do
 		local frameSets = {}
 
 		for i, layout in ipairs(descriptorSetLayouts) do
-			frameSets[i] = descriptorPools[frame]:AllocateDescriptorSet(layout)
+			if layout == bindless_state.layout then
+				frameSets[i] = bindless_state.set
+			else
+				frameSets[i] = descriptorPools[1]:AllocateDescriptorSet(layout)
+			end
 		end
 
 		descriptorSets[frame] = frameSets
@@ -2010,27 +2030,8 @@ function GraphicsPipeline.New(vulkan_instance, config)
 	build_cache_region_funcs(self)
 	build_bind_state_cache(self)
 	build_bind_state_funcs(self)
-	self:InitializeTextureRegistry()
+	self:InitializeTextureRegistry(vulkan_instance.device)
 	self.PushConstants = common.push_constants
-	self.max_textures = common.get_bindless_binding_capacity(self, 0) or 0
-	self.max_cubemaps = common.get_bindless_binding_capacity(self, 1) or 0
-	self.max_texture_views = common.get_bindless_binding_capacity(self, 2) or 0
-	self.max_texture_samplers = common.get_bindless_binding_capacity(self, 3) or 0
-	local event = import("goluwa/event.lua")
-
-	event.AddListener("TextureRemoved", self, function(removed_tex)
-		if not render.GetDevice():IsValid() then return end
-
-		if render.shutting_down then return end
-
-		local set_index = #self.descriptor_set_layouts > 1 and 1 or 0
-		self:ReleaseTextureIndex(removed_tex, set_index)
-		self:ReleaseViewIndex(removed_tex)
-	end)
-
-	event.AddListener("TextureViewChanged", self, function(tex)
-		self:RefreshTextureView(tex)
-	end)
 
 	for frame_index = 1, descriptor_set_count do
 		for i, stage in ipairs(config.shader_stages) do
@@ -2173,20 +2174,6 @@ function GraphicsPipeline:BindDescriptors(cmd, frame_index, dynamic_offsets)
 			frame_index = 1
 		end
 
-		do
-			if
-				self.bindless_descriptor_sets_dirty and
-				self.bindless_descriptor_sets_dirty[frame_index]
-			then
-				local set_index = common.get_bindless_texture_set_index(self)
-				self:UpdateDescriptorSetArray(frame_index, 0, set_index, self.texture_array)
-				self:UpdateDescriptorSetArray(frame_index, 1, set_index, self.cubemap_array)
-				self:UpdateSampledImageDescriptorSetArray(frame_index, 2, set_index, self.view_array)
-				self:UpdateSamplerDescriptorSetArray(frame_index, 3, set_index, self.sampler_array)
-				self.bindless_descriptor_sets_dirty[frame_index] = nil
-			end
-		end
-
 		local sets = self.descriptor_sets[frame_index] or self.descriptor_sets[1]
 
 		if sets then
@@ -2293,10 +2280,6 @@ function GraphicsPipeline:ApplyProperties(properties)
 end
 
 function GraphicsPipeline:OnRemove()
-	local event = import("goluwa/event.lua")
-	event.RemoveListener("TextureRemoved", self)
-	event.RemoveListener("TextureViewChanged", self)
-
 	if self.descriptorPools then
 		for _, pool in pairs(self.descriptorPools) do
 			pool:Remove()
@@ -2328,7 +2311,7 @@ function GraphicsPipeline:OnRemove()
 
 	if self.descriptor_set_layouts then
 		for _, layout in pairs(self.descriptor_set_layouts) do
-			layout:Remove()
+			if layout ~= self.bindless.layout then layout:Remove() end
 		end
 	end
 

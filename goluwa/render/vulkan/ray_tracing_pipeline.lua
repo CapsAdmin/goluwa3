@@ -2,8 +2,7 @@ local objects = import("goluwa/objects/objects.lua")
 local DescriptorPool = import("goluwa/render/vulkan/internal/descriptor_pool.lua")
 local InternalRayTracingPipeline = import("goluwa/render/vulkan/internal/ray_tracing_pipeline.lua")
 local common = import("goluwa/render/vulkan/pipeline_common.lua")
-local render = import("goluwa/render/render.lua")
-local event = import("goluwa/event.lua")
+local bindless = import("goluwa/render/vulkan/bindless.lua")
 local RayTracingPipeline = objects.CreateTemplate("render_ray_tracing_pipeline")
 
 local function pool_sizes_from_bindings(descriptor_sets)
@@ -27,40 +26,15 @@ end
 
 common.bind_texture_registry(RayTracingPipeline)
 
-local function bindless_bindings()
-	local capacities = render.GetBindlessDescriptorCapacities()
-	return {
-		{
-			binding_index = 0,
-			type = "combined_image_sampler",
-			stageFlags = "all",
-			count = capacities.textures,
-		},
-		{
-			binding_index = 1,
-			type = "combined_image_sampler",
-			stageFlags = "all",
-			count = capacities.cubemaps,
-		},
-		{
-			binding_index = 2,
-			type = "sampled_image",
-			stageFlags = "all",
-			count = capacities.views,
-		},
-		{
-			binding_index = 3,
-			type = "sampler",
-			stageFlags = "all",
-			count = capacities.samplers,
-		},
-	}
-end
-
 function RayTracingPipeline.New(device, config)
 	local set_bindings = config.descriptor_sets
+	local bindless_state = bindless.Get(device)
+	local shared_set_layouts
 
-	if config.bindless then set_bindings = {set_bindings[1], bindless_bindings()} end
+	if config.bindless then
+		set_bindings = {set_bindings[1], {}}
+		shared_set_layouts = {[2] = bindless_state.layout}
+	end
 
 	local internal = InternalRayTracingPipeline.New(
 		device,
@@ -68,13 +42,13 @@ function RayTracingPipeline.New(device, config)
 			name = config.name,
 			stages = config.stages,
 			descriptor_sets = set_bindings,
+			shared_set_layouts = shared_set_layouts,
 			max_recursion_depth = config.max_recursion_depth,
 			max_ray_payload_size = config.max_ray_payload_size,
 			push_constants_size = config.push_constants_size,
 		}
 	)
 	local set_count = config.DescriptorSetCount or 1
-	local pool_sizes = pool_sizes_from_bindings(set_bindings)
 	local set_layouts = internal.set_layouts or {}
 	local descriptor_pools = {}
 	local descriptor_sets = {}
@@ -88,13 +62,29 @@ function RayTracingPipeline.New(device, config)
 		end
 	end
 
+	if config.bindless then binding_counts[1] = bindless_state.binding_counts end
+
 	if #set_layouts > 0 then
+		local own_set_count = #set_layouts - (config.bindless and 1 or 0)
+		local pool_sizes = pool_sizes_from_bindings({set_bindings[1]})
+
+		for _, pool_size in ipairs(pool_sizes) do
+			pool_size.count = pool_size.count * set_count
+		end
+
+		if not pool_sizes[1] then pool_sizes[1] = {type = "sampler", count = 1} end
+
+		descriptor_pools[1] = DescriptorPool.New(device, pool_sizes, own_set_count * set_count)
+
 		for frame = 1, set_count do
-			descriptor_pools[frame] = DescriptorPool.New(device, pool_sizes, #set_layouts)
 			descriptor_sets[frame] = {}
 
 			for i, layout in ipairs(set_layouts) do
-				descriptor_sets[frame][i] = descriptor_pools[frame]:AllocateDescriptorSet(layout)
+				if layout == bindless_state.layout then
+					descriptor_sets[frame][i] = bindless_state.set
+				else
+					descriptor_sets[frame][i] = descriptor_pools[1]:AllocateDescriptorSet(layout)
+				end
 			end
 		end
 	end
@@ -111,25 +101,8 @@ function RayTracingPipeline.New(device, config)
 	}
 
 	if config.bindless then
-		self:InitializeTextureRegistry()
-		self.max_textures = binding_counts[1][0]
-		self.max_cubemaps = binding_counts[1][1]
-		self.max_texture_views = binding_counts[1][2]
-		self.max_texture_samplers = binding_counts[1][3]
+		self:InitializeTextureRegistry(device)
 		self.sampler_config = common.normalize_pipeline_sampler_config(nil)
-
-		event.AddListener("TextureRemoved", self, function(removed_tex)
-			if not render.GetDevice():IsValid() then return end
-
-			if render.shutting_down then return end
-
-			self:ReleaseTextureIndex(removed_tex, 1)
-			self:ReleaseViewIndex(removed_tex)
-		end)
-
-		event.AddListener("TextureViewChanged", self, function(tex)
-			self:RefreshTextureView(tex)
-		end)
 	end
 
 	return self
@@ -143,23 +116,10 @@ end
 
 function RayTracingPipeline:DispatchRays(cmd, width, height, depth, frame_index)
 	frame_index = frame_index or 1
-	local dirty = self.bindless_descriptor_sets_dirty
-
-	if dirty and dirty[frame_index] then
-		self:UpdateDescriptorSetArray(frame_index, 0, 1, self.texture_array)
-		self:UpdateDescriptorSetArray(frame_index, 1, 1, self.cubemap_array)
-		self:UpdateSampledImageDescriptorSetArray(frame_index, 2, 1, self.view_array)
-		self:UpdateSamplerDescriptorSetArray(frame_index, 3, 1, self.sampler_array)
-		dirty[frame_index] = nil
-	end
-
 	self.internal:DispatchRays(cmd, width, height, depth, self.descriptor_sets[frame_index])
 end
 
 function RayTracingPipeline:OnRemove()
-	local event = import("goluwa/event.lua")
-	event.RemoveListener("TextureRemoved", self)
-	event.RemoveListener("TextureViewChanged", self)
 	self.internal:OnRemove()
 
 	for _, pool in ipairs(self.descriptor_pools) do
