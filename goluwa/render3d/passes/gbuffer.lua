@@ -190,7 +190,7 @@ local function build_multi_draw_pass(fragment_shader)
 	pass.on_draw = nil
 	pass.on_pre_draw = nil
 	pass.vertex = model_pipeline.CreateMultiDrawVertexStage{
-		shell_offset_expr = "world_normal * ((abs(in_tangent.w) > 1.5 && abs(in_tangent.w) < 2.5) || abs(in_tangent.w) > 3.5 ? 0.0 : batch_data.b[batch_index].m_displacement_model.HeightShell * (1.0 - batch_data.b[batch_index].m_displacement_model.HeightMidlevel)) + world_normal * (abs(in_tangent.w) > 1.5 ? 0.0 : batch_data.b[batch_index].m_terrain_model.TerrainShell * 1.1)",
+		shell_offset_expr = "world_normal * batch_data.b[batch_index].m_displacement_model.HeightShell * (((abs(in_tangent.w) > 1.5 && abs(in_tangent.w) < 2.5) || abs(in_tangent.w) > 3.5 ? 0.0 : 1.0) - batch_data.b[batch_index].m_displacement_model.HeightMidlevel) + world_normal * (abs(in_tangent.w) > 1.5 ? 0.0 : batch_data.b[batch_index].m_terrain_model.TerrainShell * 1.1)",
 		normal = true,
 		tangent = true,
 		uv = true,
@@ -273,6 +273,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			mat4 world;
 			mat3 normal_matrix;
 			float lift;
+			float sink;
 		};
 
 		uint prism_index(PrismMesh mesh, uint tri, uint k) {
@@ -317,12 +318,15 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				i0 = prism_index(mesh, tri, 0u);
 				i1 = prism_index(mesh, tri, 1u);
 				i2 = prism_index(mesh, tri, 2u);
-				vec3 b0 = prism_position(mesh, i0);
-				vec3 b1 = prism_position(mesh, i1);
-				vec3 b2 = prism_position(mesh, i2);
-				vec3 d0 = prism_normal(mesh, i0) * mesh.lift;
-				vec3 d1 = prism_normal(mesh, i1) * mesh.lift;
-				vec3 d2 = prism_normal(mesh, i2) * mesh.lift;
+				vec3 n0 = prism_normal(mesh, i0);
+				vec3 n1 = prism_normal(mesh, i1);
+				vec3 n2 = prism_normal(mesh, i2);
+				vec3 b0 = prism_position(mesh, i0) - n0 * mesh.sink;
+				vec3 b1 = prism_position(mesh, i1) - n1 * mesh.sink;
+				vec3 b2 = prism_position(mesh, i2) - n2 * mesh.sink;
+				vec3 d0 = n0 * mesh.lift;
+				vec3 d1 = n1 * mesh.lift;
+				vec3 d2 = n2 * mesh.lift;
 				vec3 face = normalize(cross(b1 - b0, b2 - b0));
 				float rise = dot(d0 + d1 + d2, face) / 3.0;
 				lambda = dot(p - b0, face) / (abs(rise) < 1e-6 ? 1e-6 : rise);
@@ -525,7 +529,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			r.valid = prism_locate(s.mesh, s.tri, p, s.hops, lambda, r.uv, r.corners, r.weights);
 			r.level = lambda;
 			float h = textureGrad(TEXTURE(displacement_model.HeightTexture), r.uv, s.duv1, s.duv2).r;
-			r.clearance = min((s.midlevel + lambda * (1.0 - s.midlevel) - h) * s.shell, lambda * s.lift);
+			r.clearance = (lambda - h) * s.shell;
 			return r;
 		}
 
@@ -616,7 +620,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 
 			SSDMData data;
 			data.uv = hit.uv;
-			data.height = clamp(hit.level, 0.0, 1.0) * s.lift;
+			data.height = (clamp(hit.level, 0.0, 1.0) - s.midlevel) * s.lift;
 			data.world_pos = eye + dir * hi;
 			data.texture_pos = hit.foot;
 			data.normal = vec3(0.0);
@@ -636,6 +640,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 		SSDMData get_terrain_shell_data(float shell, inout mat3 tbn) {
 			ShellState s;
 			s.terrain = true;
+			s.midlevel = 0.0;
 			s.bounds = terrain_model.TerrainBounds;
 			s.shell = shell;
 			s.lift = shell * 1.1;
@@ -663,7 +668,8 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			s.mesh.world = PrismInstanceData(gbuffer_draw.instances).worlds[in_instance];
 			s.mesh.normal_matrix = transpose(inverse(mat3(s.mesh.world)));
 			s.midlevel = displacement_model.HeightMidlevel;
-			s.mesh.lift = shell * (1.0 - s.midlevel);
+			s.mesh.lift = shell;
+			s.mesh.sink = shell * s.midlevel;
 			s.tri = in_triangle;
 			s.duv1 = duv1;
 			s.duv2 = duv2;

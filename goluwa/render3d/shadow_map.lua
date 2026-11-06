@@ -205,6 +205,7 @@ local ShadowBatchRecord = ffi.typeof(
 		float base_transform_v[4];
 		float bump_transform_u[4];
 		float bump_transform_v[4];
+		float shell_sink;
 		$ anim;
 	}]],
 	ffi.typeof(model_pipeline.GetVertexAnimationUniformBufferDecl())
@@ -257,6 +258,7 @@ do
 		vec4 base_transform_v;
 		vec4 bump_transform_u;
 		vec4 bump_transform_v;
+		float shell_sink;
 		VertexAnimation_t anim;
 	};
 
@@ -344,6 +346,11 @@ local function build_shadow_multi_draw_vertex_stage(linear_depth_output)
 				vec2 uv = vec2(data.v[uv_at], data.v[uv_at + 1u]);
 				shadow_world = ShadowInstanceData(pc.instances).worlds[gl_InstanceIndex];
 				vec3 world_pos = (shadow_world * vec4(local_pos, 1.0)).xyz;
+
+				if (SHADOW_BATCH[batch_index].shell_sink > 0.0) {
+					uint normal_at = base + SHADOW_VERTEX_NORMAL;
+					world_pos -= normalize(transpose(inverse(mat3(shadow_world))) * vec3(data.v[normal_at], data.v[normal_at + 1u], data.v[normal_at + 2u])) * SHADOW_BATCH[batch_index].shell_sink;
+				}
 
 				if (
 					(floatBitsToUint(shadow_world[3][3]) & 0x80000000u) != 0u ||
@@ -1479,6 +1486,7 @@ local function write_shadow_batch_record(self, pipeline, record, batch)
 	record.flags = material:GetShadowFlags()
 	record.color_multiplier_a = material:GetShadowOpacity()
 	record.alpha_cutoff = material:GetAlphaCutoff()
+	record.shell_sink = material:GetHeightShell() * material:GetHeightMidlevel()
 	write_shadow_uv_data(
 		record,
 		material,
