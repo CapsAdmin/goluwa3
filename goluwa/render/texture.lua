@@ -591,6 +591,8 @@ function Texture.New(config)
 		local function start_loading()
 			resource.Download(config.path):Then(function(p)
 				codec.DecodeFileAsync(p, function(img, err)
+					if not self:IsValid() then return end
+
 					if img then
 						local started = startup.Start()
 						load(img)
@@ -1031,9 +1033,9 @@ function Texture:OnRemove()
 		texture_cache[cache_key] = nil
 	end
 
-	if fallback_texture == self then fallback_texture = nil end
+	if fallback_texture == self then fallback_texture = NULL end
 
-	if self.image and self.image.Remove then self.image:Remove() end
+	if self.image and not self:IsFallback() then self.image:Remove() end
 
 	self.view = nil
 	self.image = nil
