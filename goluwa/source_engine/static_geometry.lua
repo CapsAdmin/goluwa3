@@ -456,6 +456,29 @@ end
 function static_geometry.UploadBatch(batch)
 	batch.mesh:BuildBoundingBox()
 	batch.mesh:BuildTangents()
+
+	if batch.material.height_shell then
+		local vertices = batch.mesh.Vertices
+		local world_area, uv_area = 0, 0
+
+		for i = 1, math.min(#vertices - 2, 192), 3 do
+			local a, b, c = vertices[i], vertices[i + 1], vertices[i + 2]
+			world_area = world_area + (b.pos - a.pos):GetCross(c.pos - a.pos):GetLength()
+			uv_area = uv_area + math.abs((b.uv.x - a.uv.x) * (c.uv.y - a.uv.y) - (c.uv.x - a.uv.x) * (b.uv.y - a.uv.y))
+		end
+
+		if uv_area > 0 then
+			local tile = math.sqrt(world_area / uv_area)
+			local margin = tile * 0.05
+			local aabb = batch.mesh:GetAABB()
+			aabb.min_x, aabb.min_y, aabb.min_z = aabb.min_x - margin, aabb.min_y - margin, aabb.min_z - margin
+			aabb.max_x, aabb.max_y, aabb.max_z = aabb.max_x + margin, aabb.max_y + margin, aabb.max_z + margin
+			batch.material.shell_tile_meters = tile
+			vmt_material.UpdateHeightShell(batch.material)
+			batch.mesh:AddHeightShell()
+		end
+	end
+
 	batch.mesh:Upload(nil)
 	batch.is_new = nil
 end

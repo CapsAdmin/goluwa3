@@ -916,6 +916,7 @@ do
 			)
 			self:SetHeightScale(math.clamp((p_hi - p_lo) / size, 0.005, 0.05))
 			self:SetHeightMidlevel(0.5)
+			vmt_material.UpdateHeightShell(self)
 		end)
 	end
 
@@ -1444,6 +1445,7 @@ do
 			local height_cut = bumpmap and NORMAL_PARALLAX[bumpmap]
 
 			if height_cut and self:GetNormalTexture() then
+				self.height_shell = true
 				generate_height(self, height_cut, bumpmap)
 			end
 		end
@@ -1803,6 +1805,17 @@ function vmt_material.SetModelSurfaceProperty(material, name)
 
 	if material.vmt and not material.vmt_has_own_class then
 		vmt_material.Apply(material, material.vmt)
+	end
+end
+
+function vmt_material.UpdateHeightShell(material)
+	if
+		material.height_shell and
+		material.shell_tile_meters and
+		material:GetHeightTexture()
+	then
+		material:SetHeightMidlevel(0)
+		material:SetHeightShell(material:GetHeightScale() * material.shell_tile_meters)
 	end
 end
 
