@@ -181,16 +181,21 @@ end
 
 function PipelineCache:GetData()
 	local size = SizeBox()
-	vulkan.assert(
-		vulkan.lib.vkGetPipelineCacheData(self.device.ptr[0], self.ptr[0], size, nil),
-		"failed to get pipeline cache size"
-	)
-	local data = ByteArray(size[0])
-	vulkan.assert(
-		vulkan.lib.vkGetPipelineCacheData(self.device.ptr[0], self.ptr[0], size, data),
-		"failed to get pipeline cache data"
-	)
-	return ffi.string(data, size[0])
+
+	while true do
+		vulkan.assert(
+			vulkan.lib.vkGetPipelineCacheData(self.device.ptr[0], self.ptr[0], size, nil),
+			"failed to get pipeline cache size"
+		)
+		local data = ByteArray(size[0])
+		local result = vulkan.lib.vkGetPipelineCacheData(self.device.ptr[0], self.ptr[0], size, data)
+
+		-- pipelines compiling on other threads can grow the cache between the size query and the read
+		if bit.tobit(result) ~= vulkan.vk.VkResult.VK_INCOMPLETE then
+			vulkan.assert(result, "failed to get pipeline cache data")
+			return ffi.string(data, size[0])
+		end
+	end
 end
 
 function PipelineCache:OnRemove()
