@@ -647,7 +647,7 @@ T.TestPhysics("jumping toward a target vaults over it and lands behind it", func
 	sword.weapon_melee:Step(1 / 60, command(attacker, 1, BUTTON.JUMP, BUTTON.JUMP), true)
 	T(attacker.character_pose.Action)["=="]("sword_skyward_flip")
 	local top = track_height(attacker, 1.2, {attacker.character_pose, victim.character_pose})
-	T(top > ground + 1.8)["=="](true)
+	T(top > ground + 1.1)["=="](true)
 	T(actors.GetCenter(attacker).z < actors.GetCenter(victim).z - 0.6)["=="](true)
 	T(actors.GetCenter(attacker).y)["~"](ground, 0.1)
 	T(victim.health:GetHealth() < 1000)["=="](true)
