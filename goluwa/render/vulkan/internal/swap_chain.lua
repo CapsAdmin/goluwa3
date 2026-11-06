@@ -6,6 +6,7 @@ local Swapchain = objects.CreateTemplate("vulkan_swap_chain")
 local VkImageArray = ffi.typeof("$[?]", vulkan.vk.VkImage)
 local VkSwapchainKHRBox = ffi.typeof("$[1]", vulkan.vk.VkSwapchainKHR)
 local VkImageBox = ffi.typeof("$[1]", vulkan.vk.VkImage)
+local VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR = 1
 
 local function get_image_count(config)
 	local desired = config.image_count or config.surface_capabilities.minImageCount
@@ -19,6 +20,16 @@ end
 
 function Swapchain.New(config)
 	local ptr = VkSwapchainKHRBox()
+	local current_transform = tonumber(config.surface_capabilities.currentTransform)
+	local pre_transform = config.pre_transform or
+		(
+			bit.band(
+				tonumber(config.surface_capabilities.supportedTransforms),
+				VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+			) ~= 0 and
+			VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR or
+			current_transform
+		)
 	vulkan.assert(
 		vulkan.lib.vkCreateSwapchainKHR(
 			config.device.ptr[0],
@@ -31,7 +42,7 @@ function Swapchain.New(config)
 				imageArrayLayers = 1,
 				imageUsage = config.image_usage or {"color_attachment", "transfer_dst", "transfer_src"},
 				imageSharingMode = "exclusive",
-				preTransform = config.pre_transform or config.surface_capabilities.currentTransform,
+				preTransform = pre_transform,
 				compositeAlpha = config.composite_alpha or "opaque_khr",
 				presentMode = config.present_mode or "fifo_khr",
 				clipped = config.clipped ~= nil and (config.clipped and 1 or 0) or 1,
@@ -52,6 +63,8 @@ function Swapchain.New(config)
 		height = config.surface_capabilities.currentExtent.height,
 		old_swapchain = config.old_swapchain,
 		surface = config.surface,
+		-- the compositor rotates for us, so presents stay suboptimal and rebuilding would not change that
+		suboptimal_expected = pre_transform ~= current_transform,
 	}
 end
 
@@ -151,7 +164,7 @@ function Swapchain:Present(renderFinishedSemaphore, deviceQueue, imageIndex)
 	if result == vulkan.vk.VkResult.VK_ERROR_OUT_OF_DATE_KHR then
 		return false
 	elseif result == vulkan.vk.VkResult.VK_SUBOPTIMAL_KHR then
-		return false
+		return self.suboptimal_expected
 	elseif result ~= vulkan.vk.VkResult.VK_SUCCESS then
 		error("failed to present: " .. vulkan.vk.str.VkResult(result))
 	end
