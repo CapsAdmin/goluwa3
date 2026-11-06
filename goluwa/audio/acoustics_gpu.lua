@@ -936,7 +936,9 @@ function acoustics_gpu.New(budget)
 	)
 	self.pipeline = build_pipeline(math.max(render.GetSwapchainImageCount() or 1, 1))
 
-	if PHYSICS then self.cpu = import("goluwa/audio/acoustics_cpu.lua").New() end
+	if PHYSICS and import("goluwa/physics.lua").instance then
+		self.cpu = import("goluwa/audio/acoustics_cpu.lua").New()
+	end
 
 	self.listener_id = "audio_acoustics_gpu_" .. tostring(self)
 

@@ -1,5 +1,6 @@
 local codec = import("goluwa/codec.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local event = import("goluwa/event.lua")
 local audio = import("goluwa/audio/state.lua")
 local spatial = import("goluwa/audio/spatial.lua")
 local sound = import("goluwa/audio/sound.lua")
@@ -145,20 +146,24 @@ function audio.SetupAcoustics(mode)
 
 	if mode == "off" then return audio.SetAcousticsTracer(nil) end
 
-	if
-		mode ~= "cpu" and
-		RENDER_3D and
-		import("goluwa/render/render.lua").GetDevice().ray_query_supported
-	then
-		return audio.SetAcousticsTracer(import("goluwa/audio/acoustics_gpu.lua").New())
+	if mode ~= "cpu" and RENDER_3D then
+		local render = import("goluwa/render/render.lua")
+
+		if render.IsInitialized() and render.GetDevice().ray_query_supported then
+			return audio.SetAcousticsTracer(import("goluwa/audio/acoustics_gpu.lua").New())
+		end
 	end
 
-	if mode ~= "gpu" and PHYSICS then
+	if mode ~= "gpu" and PHYSICS and import("goluwa/physics.lua").instance then
 		return audio.SetAcousticsTracer(import("goluwa/audio/acoustics_cpu.lua").New())
 	end
 
 	audio.SetAcousticsTracer(nil)
 end
+
+event.AddListener("RendererReady", "audio_acoustics", function()
+	if audio.initialized then audio.SetupAcoustics() end
+end)
 
 spatial.Attach(audio)
 sound.Attach(audio)
