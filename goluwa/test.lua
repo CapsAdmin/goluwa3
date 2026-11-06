@@ -36,6 +36,7 @@ local IS_TERMINAL = true
 local NO_SUMMARY = false
 local NAME_PATTERN = nil
 local FAILURES_ONLY = false
+local RUN_SLOW = false
 local completed_test_count = 0
 local has_failed_tests = false
 local collecting_test_definitions = nil
@@ -194,6 +195,16 @@ local function matches_name_pattern(name)
 		NAME_PATTERN == "" or
 		NAME_PATTERN == "all" or
 		name:find(NAME_PATTERN, nil, true)
+end
+
+function test.IsSlowRun()
+	return RUN_SLOW
+end
+
+function test.Slow(define, name, cb)
+	if RUN_SLOW then return define(name, cb) end
+
+	return test.Skip(name, "slow, run with --slow")
 end
 
 function test.Skip(name, reason)
@@ -1352,6 +1363,10 @@ commands.Add({
 			type = "boolean",
 			description = "Only print failed tests and the final summary",
 		},
+		slow = {
+			type = "boolean",
+			description = "Also run the tests marked slow (long convergence runs and exhaustive sweeps)",
+		},
 		worker = {
 			type = "string",
 			description = "Run only this test file in this process and print its result, used by the runner for each file",
@@ -1366,6 +1381,7 @@ commands.Add({
 	local parallel = flags["no-parallel"] ~= true
 	local summary = flags["no-summary"] ~= true
 	local failures_only = flags["failures-only"] == true
+	RUN_SLOW = flags.slow == true
 	local name_pattern = flags["name-pattern"]
 	if os.getenv("GOLUWA_VALIDATE") ~= "0" then process.setenv("GOLUWA_VALIDATE", "1") end
 
@@ -1543,6 +1559,8 @@ commands.Add({
 				if verbose then args[#args + 1] = "--verbose" end
 
 				if failures_only then args[#args + 1] = "--failures-only" end
+
+				if RUN_SLOW then args[#args + 1] = "--slow" end
 
 				table.insert(
 					running,

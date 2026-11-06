@@ -222,7 +222,7 @@ do
 		if not ok then error(err, 0) end
 	end)
 
-	T.Test3DRayTracing("Graphics render3d ddgi a room lit through a pinhole is as bright as its slow average", function(draw)
+	T.Slow(T.Test3DRayTracing, "Graphics render3d ddgi a room lit through a pinhole is as bright as its slow average", function(draw)
 		local polygon3d = Polygon3D.New()
 		shapes.BuildCube(polygon3d, 1)
 		polygon3d:BuildBoundingBox()

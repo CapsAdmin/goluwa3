@@ -4,7 +4,7 @@ local theme = import("goluwa/render2d/ui/theme.lua")
 local vfs = import("goluwa/vfs.lua")
 local react = import("goluwa/render2d/ui/react.lua")
 local Gallery = import("addons/ui_gallery/lua/gallery_browser.lua")
-local names = theme.GetAvailable()
+local names = T.IsSlowRun() and theme.GetAvailable() or {false}
 local original
 local theme_index = 1
 local page_index = 0
@@ -26,12 +26,12 @@ local function get_page_area(window)
 	return second
 end
 
-T.Test2DFrames("ui gallery builds every page in every theme", #names * (#vfs.Find("lua/gallery/%.lua$") + 2), function()
+T.Test2DFrames("ui gallery builds every page in the active theme, or in every theme with --slow", #names * (#vfs.Find("lua/gallery/%.lua$") + 2), function()
 	if theme_index > #names then return end
 
 	if not gallery then
 		original = original or theme.active:GetName()
-		theme.LoadTheme(names[theme_index])
+		theme.LoadTheme(names[theme_index] or original)
 		gallery = Gallery{Size = Vec2(1000, 700), Position = Vec2(0, 0)}
 		items = find_all(gallery, "panel_context_menu_item")
 		T(#items)[">"](10)
@@ -62,7 +62,7 @@ T.Test2D("ui gallery follows theme changes through its dropdown without being re
 	local first = theme.active:GetName()
 	local other
 
-	for _, name in ipairs(names) do
+	for _, name in ipairs(theme.GetAvailable()) do
 		if name ~= first then
 			other = name
 
