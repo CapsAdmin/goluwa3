@@ -23,7 +23,7 @@ The weight texture of a tile (`SplatSize` texels, baked by the source's `terrain
 - `fade_distance`: fade to the layer's average color (the smallest mip, so the layer's textures need mips: `mip_map_levels = "auto"`; `detail_strength` has the same need).
 - `anti_tiling`: samples a rotated and shifted copy and mixes by noise; costs a second fetch.
 - `TriplanarSharpness` on the source: exponent of the triplanar weights.
-- `cover_slope`, `cover_start`, `cover_range`, `cover_power`, `cover_blend`: a covering layer (snow) laid over the others, covering ground flatter than a slope that grows with height.
+- `cover_slope`, `cover_start`, `cover_range`, `cover_power`, `cover_blend`: a covering layer (snow) laid over the others, covering ground flatter than a slope that grows with height. With `cover_depth` (metres) it has real depth in the height shell: under cover the relief is `max(rock relief, cover_depth + its own height * height_scale * scale)`, so it fills hollows and rocks taller than it poke through.
 
 ## What the Limcore reference does that tiles do not
 

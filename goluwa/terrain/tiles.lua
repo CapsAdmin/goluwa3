@@ -160,9 +160,19 @@ function tiles.GetShell(layers)
 	local shell = 0
 
 	for _, layer in ipairs(layers) do
-		if layer.height and layer.height_scale then
-			shell = math.max(shell, layer.height_scale * (layer.scale or 1))
-		end
+		local relief = (
+				layer.height and
+				layer.height_scale or
+				0
+			) * (
+				layer.scale or
+				1
+			) + (
+				layer.cover_depth or
+				0
+			)
+
+		if relief > 0 then shell = math.max(shell, relief) end
 	end
 
 	return shell
@@ -313,6 +323,7 @@ local LAYER_VALUES = {
 	{"CoverRange", "cover_range", 1000},
 	{"CoverPower", "cover_power", 1},
 	{"CoverBlend", "cover_blend", 0.05},
+	{"CoverDepth", "cover_depth", 0},
 }
 
 function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)

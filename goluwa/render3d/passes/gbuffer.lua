@@ -400,12 +400,12 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			TerrainShellCoarse c;
 			c.normal = get_terrain_world_normal(uv);
 			vec4 present = step(vec4(0.001), texture(TEXTURE(terrain_model.TerrainMaterialTexture), uv)) + step(vec4(0.001), terrain_model.TerrainLayerCoverSlope);
-			vec4 relief = terrain_model.TerrainLayerHeightScales * terrain_model.TerrainLayerScales * min(present, vec4(1.0));
+			vec4 relief = (terrain_model.TerrainLayerHeightScales * terrain_model.TerrainLayerScales + terrain_model.TerrainLayerCoverDepth) * min(present, vec4(1.0));
 			c.max_relief = max(max(relief.x, relief.y), max(relief.z, relief.w));
 
 			if (terrain_model.TerrainMaterial2Texture != -1) {
 				vec4 present2 = step(vec4(0.001), texture(TEXTURE(terrain_model.TerrainMaterial2Texture), uv)) + step(vec4(0.001), terrain_model.TerrainLayerCoverSlope2);
-				vec4 relief2 = terrain_model.TerrainLayerHeightScales2 * terrain_model.TerrainLayerScales2 * min(present2, vec4(1.0));
+				vec4 relief2 = (terrain_model.TerrainLayerHeightScales2 * terrain_model.TerrainLayerScales2 + terrain_model.TerrainLayerCoverDepth2) * min(present2, vec4(1.0));
 				c.max_relief = max(c.max_relief, max(max(relief2.x, relief2.y), max(relief2.z, relief2.w)));
 			}
 
@@ -422,7 +422,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			return w;
 		}
 
-		float terrain_shell_relief_set(vec4 weights, ivec4 height_textures, vec4 height_scales, vec4 scales, vec4 height_blend, vec3 q, vec3 blend, vec2 gx[3], vec2 gy[3], inout float weight_sum) {
+		float terrain_shell_relief_set(vec4 weights, ivec4 height_textures, vec4 height_scales, vec4 scales, vec4 height_blend, vec4 cover_slope, vec4 cover_depth, vec3 q, vec3 blend, vec2 gx[3], vec2 gy[3], inout float weight_sum, inout float cover_amount, inout float cover_level) {
 			float relief = 0.0;
 
 			for (int i = 0; i < 4; i++) {
@@ -431,6 +431,13 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				}
 
 				float h = height_textures[i] != -1 ? sample_terrain_layer_height(height_textures[i], q, max(scales[i], 0.0001), blend, gx, gy) : 0.5;
+
+				if (cover_slope[i] > 0.0) {
+					cover_amount += weights[i];
+					cover_level += weights[i] * (cover_depth[i] + (height_textures[i] != -1 ? h * height_scales[i] * scales[i] : 0.0));
+					continue;
+				}
+
 				float w = weights[i] * mix(1.0, h * 2.0, height_blend[i]);
 				weight_sum += w;
 
@@ -444,13 +451,21 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 
 		float terrain_shell_relief(vec3 q, TerrainShellWeights w, vec2 gx[3], vec2 gy[3]) {
 			float weight_sum = 0.0;
-			float relief = terrain_shell_relief_set(w.weights, ivec4(terrain_model.TerrainLayer1HeightTexture, terrain_model.TerrainLayer2HeightTexture, terrain_model.TerrainLayer3HeightTexture, terrain_model.TerrainLayer4HeightTexture), terrain_model.TerrainLayerHeightScales, terrain_model.TerrainLayerScales, terrain_model.TerrainLayerHeightBlend, q, w.blend, gx, gy, weight_sum);
+			float cover_amount = 0.0;
+			float cover_level = 0.0;
+			float relief = terrain_shell_relief_set(w.weights, ivec4(terrain_model.TerrainLayer1HeightTexture, terrain_model.TerrainLayer2HeightTexture, terrain_model.TerrainLayer3HeightTexture, terrain_model.TerrainLayer4HeightTexture), terrain_model.TerrainLayerHeightScales, terrain_model.TerrainLayerScales, terrain_model.TerrainLayerHeightBlend, terrain_model.TerrainLayerCoverSlope, terrain_model.TerrainLayerCoverDepth, q, w.blend, gx, gy, weight_sum, cover_amount, cover_level);
 
 			if (terrain_model.TerrainMaterial2Texture != -1) {
-				relief += terrain_shell_relief_set(w.weights2, ivec4(terrain_model.TerrainLayer5HeightTexture, terrain_model.TerrainLayer6HeightTexture, terrain_model.TerrainLayer7HeightTexture, terrain_model.TerrainLayer8HeightTexture), terrain_model.TerrainLayerHeightScales2, terrain_model.TerrainLayerScales2, terrain_model.TerrainLayerHeightBlend2, q, w.blend, gx, gy, weight_sum);
+				relief += terrain_shell_relief_set(w.weights2, ivec4(terrain_model.TerrainLayer5HeightTexture, terrain_model.TerrainLayer6HeightTexture, terrain_model.TerrainLayer7HeightTexture, terrain_model.TerrainLayer8HeightTexture), terrain_model.TerrainLayerHeightScales2, terrain_model.TerrainLayerScales2, terrain_model.TerrainLayerHeightBlend2, terrain_model.TerrainLayerCoverSlope2, terrain_model.TerrainLayerCoverDepth2, q, w.blend, gx, gy, weight_sum, cover_amount, cover_level);
 			}
 
-			return relief / max(weight_sum, 0.0001);
+			float base = weight_sum > 0.0001 ? relief / weight_sum : 0.0;
+
+			if (cover_amount <= 0.0) {
+				return base;
+			}
+
+			return mix(base, max(base, cover_level / cover_amount), min(cover_amount, 1.0));
 		}
 
 		struct ShellState {
