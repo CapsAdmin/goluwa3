@@ -245,7 +245,7 @@ LAYERS.boulders = {
 			float radius = mix(0.42, 0.78, tile_hash(c.yz + 1.7));
 			float peak = mix(0.55, 1.0, tile_hash(c.yz + 8.3));
 			float t = clamp(c.x / radius, 0.0, 1.0);
-			return vec3(smoothstep(0.0, 0.45, 1.0 - t * t) * peak, c.yz);
+			return vec3(sqrt(1.0 - t * t) * peak, c.yz);
 		}
 
 		float layer_height(vec2 uv) {
@@ -277,7 +277,7 @@ LAYERS.gravel = {
 			float radius = mix(0.35, 0.62, tile_hash(c.yz + 2.9));
 			float peak = mix(0.5, 1.0, tile_hash(c.yz + 6.1));
 			float t = clamp(c.x / radius, 0.0, 1.0);
-			return vec3(smoothstep(0.0, 0.5, 1.0 - t * t) * peak, c.yz);
+			return vec3(sqrt(1.0 - t * t) * peak, c.yz);
 		}
 
 		float layer_height(vec2 uv) {

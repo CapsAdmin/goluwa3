@@ -66,7 +66,7 @@ _G.rocky_terrain = Terrain.New(
 						7,
 						{
 							height = terrain_textures.boulders.height,
-							height_scale = 0.06,
+							height_scale = 0.1,
 							height_blend = 1,
 						}
 					),
