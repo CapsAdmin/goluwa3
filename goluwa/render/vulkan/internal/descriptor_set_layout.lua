@@ -42,6 +42,13 @@ function DescriptorSetLayout.New(device, bindings)
 			)
 		end
 
+		if b.update_unused_while_pending then
+			binding_flags = bit.bor(
+				binding_flags,
+				vulkan.vk.VkDescriptorBindingFlagBits.VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT
+			)
+		end
+
 		bindingFlagsArray[i - 1] = binding_flags
 	end
 

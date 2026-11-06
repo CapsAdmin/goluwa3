@@ -334,7 +334,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 			descriptorBindingStorageBufferUpdateAfterBind = availableVulkan12Features.descriptorBindingStorageBufferUpdateAfterBind,
 			descriptorBindingUniformTexelBufferUpdateAfterBind = 0,
 			descriptorBindingStorageTexelBufferUpdateAfterBind = 0,
-			descriptorBindingUpdateUnusedWhilePending = 0,
+			descriptorBindingUpdateUnusedWhilePending = availableVulkan12Features.descriptorBindingUpdateUnusedWhilePending,
 			descriptorBindingVariableDescriptorCount = 0,
 			samplerFilterMinmax = 0,
 			imagelessFramebuffer = 0,
@@ -936,8 +936,10 @@ function Device:UpdateDescriptorSetArray(
 	texture_array,
 	fallback_view,
 	fallback_sampler,
-	override_count
+	override_count,
+	first_index
 )
+	first_index = first_index or 0
 	local count = override_count or #texture_array
 
 	if count == 0 then return end
@@ -947,7 +949,7 @@ function Device:UpdateDescriptorSetArray(
 	local fallback_sampler_handle = fallback_sampler and fallback_sampler.ptr and fallback_sampler.ptr[0]
 
 	for i = 1, count do
-		local tex = texture_array[i]
+		local tex = texture_array[first_index + i]
 		local view_handle = nil
 		local sampler_handle = nil
 
@@ -982,14 +984,22 @@ function Device:UpdateDescriptorSetArray(
 	descriptorWrites[0].sType = vulkan.vk.e.VkStructureType("write_descriptor_set")
 	descriptorWrites[0].dstSet = descriptorSet.ptr[0]
 	descriptorWrites[0].dstBinding = binding_index
-	descriptorWrites[0].dstArrayElement = 0
+	descriptorWrites[0].dstArrayElement = first_index
 	descriptorWrites[0].descriptorType = vulkan.vk.e.VkDescriptorType("combined_image_sampler")
 	descriptorWrites[0].descriptorCount = count
 	descriptorWrites[0].pImageInfo = imageInfoArray
 	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)
 end
 
-function Device:UpdateSampledImageDescriptorSetArray(descriptorSet, binding_index, view_array, fallback_view, override_count)
+function Device:UpdateSampledImageDescriptorSetArray(
+	descriptorSet,
+	binding_index,
+	view_array,
+	fallback_view,
+	override_count,
+	first_index
+)
+	first_index = first_index or 0
 	local count = override_count or #view_array
 
 	if count == 0 then return end
@@ -998,7 +1008,7 @@ function Device:UpdateSampledImageDescriptorSetArray(descriptorSet, binding_inde
 	local fallback_view_handle = fallback_view and fallback_view.ptr and fallback_view.ptr[0]
 
 	for i = 1, count do
-		local entry = view_array[i]
+		local entry = view_array[first_index + i]
 		local view_handle = nil
 
 		if type(entry) == "table" and entry.view and type(entry.view.ptr) == "cdata" then
@@ -1024,14 +1034,22 @@ function Device:UpdateSampledImageDescriptorSetArray(descriptorSet, binding_inde
 	descriptorWrites[0].sType = vulkan.vk.e.VkStructureType("write_descriptor_set")
 	descriptorWrites[0].dstSet = descriptorSet.ptr[0]
 	descriptorWrites[0].dstBinding = binding_index
-	descriptorWrites[0].dstArrayElement = 0
+	descriptorWrites[0].dstArrayElement = first_index
 	descriptorWrites[0].descriptorType = vulkan.vk.e.VkDescriptorType("sampled_image")
 	descriptorWrites[0].descriptorCount = count
 	descriptorWrites[0].pImageInfo = imageInfoArray
 	vulkan.lib.vkUpdateDescriptorSets(self.ptr[0], 1, descriptorWrites, 0, nil)
 end
 
-function Device:UpdateSamplerDescriptorSetArray(descriptorSet, binding_index, sampler_array, fallback_sampler, override_count)
+function Device:UpdateSamplerDescriptorSetArray(
+	descriptorSet,
+	binding_index,
+	sampler_array,
+	fallback_sampler,
+	override_count,
+	first_index
+)
+	first_index = first_index or 0
 	local count = override_count or #sampler_array
 
 	if count == 0 then return end
@@ -1040,7 +1058,7 @@ function Device:UpdateSamplerDescriptorSetArray(descriptorSet, binding_index, sa
 	local fallback_sampler_handle = fallback_sampler and fallback_sampler.ptr and fallback_sampler.ptr[0]
 
 	for i = 1, count do
-		local entry = sampler_array[i]
+		local entry = sampler_array[first_index + i]
 		local sampler_handle = nil
 
 		if type(entry) == "table" and entry.sampler and type(entry.sampler.ptr) == "cdata" then
@@ -1062,7 +1080,7 @@ function Device:UpdateSamplerDescriptorSetArray(descriptorSet, binding_index, sa
 	descriptorWrites[0].sType = vulkan.vk.e.VkStructureType("write_descriptor_set")
 	descriptorWrites[0].dstSet = descriptorSet.ptr[0]
 	descriptorWrites[0].dstBinding = binding_index
-	descriptorWrites[0].dstArrayElement = 0
+	descriptorWrites[0].dstArrayElement = first_index
 	descriptorWrites[0].descriptorType = vulkan.vk.e.VkDescriptorType("sampler")
 	descriptorWrites[0].descriptorCount = count
 	descriptorWrites[0].pImageInfo = imageInfoArray
