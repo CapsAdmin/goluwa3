@@ -181,12 +181,12 @@ local function verify(scenario, observer_output, bot_output)
 	)
 	local linked, own_weapons, own_equipped = bot_output:match("BOT_OWN_WEAPONS linked=(%a+) replicated=(%d+) equipped=(%d+)")
 	check(
-		linked == "true" and tonumber(own_weapons) == 7 and tonumber(own_equipped) >= 2,
+		linked == "true" and tonumber(own_weapons) == 9 and tonumber(own_equipped) >= 2,
 		"the owner did not get its player linked and its weapons replicated and equipped: " .. tostring(linked) .. " " .. tostring(own_weapons) .. " " .. tostring(own_equipped)
 	)
 	local list, saw_physgun, active = observer_output:match("OBSERVER_WEAPONS list=([%w_,]+) physgun=(%a+) active=([%w_]+)")
 	check(
-		list == "weapon_camera,weapon_flashlight,weapon_hands,weapon_physgun,weapon_pistol,weapon_sword,weapon_toolgun",
+		list == "weapon_camera,weapon_flashlight,weapon_hands,weapon_physgun,weapon_pistol,weapon_sound_test,weapon_surface_test,weapon_sword,weapon_toolgun",
 		"the weapon children were not replicated: " .. tostring(list)
 	)
 	check(saw_physgun == "true", "the physgun was never the replicated active weapon")

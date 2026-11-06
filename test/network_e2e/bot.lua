@@ -38,6 +38,7 @@ event.AddListener("CreateMove", "e2e_bot", function(owner, cmd)
 	if elapsed > 0.8 then cmd.buttons = cmd.buttons + BUTTON.ATTACK1 end
 
 	cmd.view = QuatDeg3(-15, math.floor(elapsed / 1.5) * 90, 0)
+	cmd.aim = cmd.view
 
 	if elapsed > 0.3 and elapsed < 3 then cmd.select = 1 end
 
