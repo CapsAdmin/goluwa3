@@ -28,7 +28,6 @@ local current_wait = nil
 local current_file_timeout_deadline = nil
 local tests_by_file = {}
 local current_test_start_time = nil
-local current_test_start_gc = nil
 local on_test_file_complete = nil
 local LOGGING = false
 local VERBOSE = false
@@ -242,23 +241,17 @@ function test._CreateTestTask(name, cb, start, stop, options)
 	options = options or {}
 	local unref = system.KeepAlive("test: " .. name)
 	local test_file_name = current_test_name
-	local test_file_start_time = current_test_start_time
+	local test_file_start_time = current_test_start_time or system.GetTime()
 	total_test_count = total_test_count + 1
 	tests_by_file[current_test_name] = (tests_by_file[current_test_name] or 0) + 1
-
-	if tests_by_file[current_test_name] == 1 then
-		current_test_start_time = system.GetTime()
-		current_test_start_gc = collectgarbage("count")
-	end
-
 	local test_start_time = system.GetTime()
 	local test_start_gc = collectgarbage("count")
-	local task_failed = false
-	local task_error = nil
 	local task = tasks.CreateTask(
 		function(task_self)
 			task_self.is_test_task = true
 			current_running_test_name = name
+			test_start_time = system.GetTime()
+			test_start_gc = collectgarbage("count")
 			task_self.test_timeout_time = test.ResetCurrentFileTimeout()
 
 			if task_self.test_timeout_time and system.GetTime() > task_self.test_timeout_time then
@@ -422,15 +415,9 @@ end
 function test._CreatePendingTask(name, options)
 	options = options or {}
 	local test_file_name = current_test_name
-	local test_file_start_time = current_test_start_time
+	local test_file_start_time = current_test_start_time or system.GetTime()
 	total_test_count = total_test_count + 1
 	tests_by_file[current_test_name] = (tests_by_file[current_test_name] or 0) + 1
-
-	if tests_by_file[current_test_name] == 1 then
-		current_test_start_time = system.GetTime()
-		current_test_start_gc = collectgarbage("count")
-	end
-
 	local task = tasks.CreateTask(
 		function(task_self)
 			current_running_test_name = name
@@ -714,7 +701,6 @@ do
 		tests_by_file = {}
 		current_test_name = ""
 		current_test_start_time = nil
-		current_test_start_gc = nil
 		current_running_test_name = ""
 		current_file_timeout_deadline = nil
 		total_gc = 0
@@ -783,6 +769,7 @@ do
 
 		current_test_name = test_item.name
 		current_running_test_name = ""
+		current_test_start_time = system.GetTime()
 		test.ResetCurrentFileTimeout()
 		local file_test_count_before = tests_by_file[current_test_name] or 0
 
