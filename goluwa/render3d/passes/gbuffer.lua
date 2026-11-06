@@ -296,7 +296,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			return vec2(mesh.vertices.v[at], mesh.vertices.v[at + 1u]);
 		}
 
-		bool prism_locate(PrismMesh mesh, inout uint tri, vec3 p, out float lambda, out vec2 uv) {
+		bool prism_locate(PrismMesh mesh, inout uint tri, vec3 p, int max_hops, out float lambda, out vec2 uv) {
 			uint i0 = 0u;
 			uint i1 = 0u;
 			uint i2 = 0u;
@@ -304,7 +304,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			bool inside = false;
 			lambda = 0.0;
 
-			for (int hop = 0; hop < 24; hop++) {
+			for (int hop = 0; hop < max_hops; hop++) {
 				i0 = prism_index(mesh, tri, 0u);
 				i1 = prism_index(mesh, tri, 1u);
 				i2 = prism_index(mesh, tri, 2u);
@@ -431,6 +431,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			float lift;
 			float max_step;
 			float escape;
+			int hops;
 		};
 
 		struct ShellSample {
@@ -458,90 +459,57 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			}
 
 			float lambda;
-			r.valid = prism_locate(s.mesh, s.tri, p, lambda, r.uv);
+			r.valid = prism_locate(s.mesh, s.tri, p, s.hops, lambda, r.uv);
 			r.level = lambda;
 			float h = textureGrad(TEXTURE(displacement_model.HeightTexture), r.uv, s.duv1, s.duv2).r;
 			r.clearance = min((s.midlevel + lambda * (1.0 - s.midlevel) - h) * s.shell, lambda * s.lift);
 			return r;
 		}
 
-		SSDMData shell_trace(inout ShellState s, bool base_copy, bool side) {
+		SSDMData shell_trace(inout ShellState s, bool base_copy, bool side, vec3 outward) {
 			vec3 eye = gbuffer_data.camera_position.xyz;
 			vec3 to_fragment = in_position - eye;
 			float t_fragment = length(to_fragment);
 			vec3 dir = to_fragment / t_fragment;
 			float facing = dot(dir, normalize(in_normal));
-			bool entering = !base_copy && facing < 0.0;
+			bool entering = side ? dot(dir, outward) < 0.0 : !base_copy && facing < 0.0;
+			float t = t_fragment;
 
-			if (side) {
-				ShellSample ahead = shell_sample(s, in_position + dir * 0.005);
-				entering = ahead.valid;
+			if (!entering) {
+				int hops = s.hops;
+				s.hops = 256;
+				ShellSample at_eye = shell_sample(s, eye);
+				s.hops = hops;
 
-				if (entering && (ahead.level < 0.0 || ahead.level > 1.0)) {
+				if (!at_eye.valid || at_eye.level < 0.0 || at_eye.level > 1.5) {
 					discard;
 				}
+
+				t = 0.0;
 			}
 
 			float min_dt = s.shell / 16.0;
 			float pixel_angle = 2.0 / (abs(gbuffer_data.projection[1][1]) * gbuffer_data.render_size.y);
-			float t = t_fragment;
+			float descent = max(-facing, 0.0) + 0.25;
 			float lo = -1.0;
 			float hi = -1.0;
+			float air_t = -1.0;
 
-			if (!entering && s.terrain) {
-				ShellSample at_eye = shell_sample(s, eye);
-
-				if (!at_eye.valid || at_eye.level < 0.0 || at_eye.level > 1.0) {
-					discard;
-				}
-
-				entering = true;
-				t = 0.0;
-			}
-
-			if (entering) {
-				float descent = max(-facing, 0.0) + 0.25;
-				float air_t = -1.0;
-
-				for (int i = 0; i < 128; i++) {
-					ShellSample r = shell_sample(s, eye + dir * t);
-
-					if (!r.valid || (i > 0 && r.level > s.escape)) {
-						break;
-					}
-
-					if (r.clearance <= 0.0 || r.level < 0.0) {
-						lo = air_t < 0.0 ? t : air_t;
-						hi = t;
-						break;
-					}
-
-					air_t = t;
-					t += clamp(r.clearance / descent * 0.8, max(min_dt, t * pixel_angle * 2.0), max(s.max_step, t * pixel_angle * 4.0));
-				}
-			} else {
-				float rise = max(facing, 0.0) + 0.25;
+			for (int i = 0; i < 128; i++) {
 				ShellSample r = shell_sample(s, eye + dir * t);
-				bool rock = r.clearance <= 0.0;
 
-				for (int i = 0; i < 128 && t > 0.0; i++) {
-					float next_t = max(t - clamp(abs(r.clearance) / rise * 0.8, max(min_dt, t * pixel_angle * 2.0), max(s.max_step, t * pixel_angle * 4.0)), 0.0);
-					r = shell_sample(s, eye + dir * next_t);
-
-					if (!r.valid || r.level > s.escape) {
-						break;
-					}
-
-					bool next_rock = r.clearance <= 0.0 || r.level < 0.0;
-
-					if (rock && !next_rock) {
-						lo = next_t;
-						hi = t;
-					}
-
-					t = next_t;
-					rock = next_rock;
+				if (!r.valid || (i > 0 && r.level > s.escape)) {
+					break;
 				}
+
+				if (r.clearance <= 0.0 || r.level < 0.0) {
+					lo = air_t < 0.0 ? t : air_t;
+					hi = t;
+					break;
+				}
+
+				air_t = t;
+				t += clamp(r.clearance / descent * 0.8, max(min_dt, t * pixel_angle * 2.0), max(s.max_step, t * pixel_angle * 4.0));
 			}
 
 			if (hi < 0.0) {
@@ -580,6 +548,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			s.lift = shell * 1.1;
 			s.max_step = shell * 3.0;
 			s.escape = 1.25;
+			s.hops = 0;
 			s.refresh = 0.5 / s.bounds.z;
 			s.weights = terrain_shell_weights(in_uv);
 			float scale = max(terrain_model.TerrainLayerScales.y, 0.0001);
@@ -587,7 +556,8 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			s.gy = vec2[3](dFdy(in_position.zy) / scale, dFdy(in_position.xz) / scale, dFdy(in_position.xy) / scale);
 			vec2 edge = min(in_uv, 1.0 - in_uv);
 			bool side = min(edge.x, edge.y) < 1e-4;
-			return shell_trace(s, !side && abs(in_tangent.w) > 1.5, side);
+			vec2 out_uv = edge.x < edge.y ? vec2(in_uv.x < 0.5 ? -1.0 : 1.0, 0.0) : vec2(0.0, in_uv.y < 0.5 ? -1.0 : 1.0);
+			return shell_trace(s, !side && abs(in_tangent.w) > 1.5, side, vec3(out_uv.x, 0.0, out_uv.y));
 		}
 
 		SSDMData get_prism_data(float shell, vec2 duv1, vec2 duv2) {
@@ -609,13 +579,19 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			s.lift = s.mesh.lift;
 			s.max_step = shell * 0.15;
 			s.escape = 4.0;
+			s.hops = 24;
 			bool side = abs(in_tangent.w) > 2.5;
+
+			vec3 face = normalize(cross(dFdx(in_position), dFdy(in_position)));
+			vec3 outward = face;
 
 			if (side) {
 				s.tri = uint(s.mesh.vertices.v[prism_index(s.mesh, in_triangle, 0u) * PRISM_VERTEX_STRIDE + PRISM_VERTEX_PIVOT] + 0.5);
+				vec3 middle = (prism_position(s.mesh, prism_index(s.mesh, s.tri, 0u)) + prism_position(s.mesh, prism_index(s.mesh, s.tri, 1u)) + prism_position(s.mesh, prism_index(s.mesh, s.tri, 2u))) / 3.0;
+				outward = face * sign(dot(face, in_position - middle));
 			}
 
-			return shell_trace(s, !side && abs(in_tangent.w) > 1.5, side);
+			return shell_trace(s, !side && abs(in_tangent.w) > 1.5, side, outward);
 		}
 ]=] or
 			""
