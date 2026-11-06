@@ -554,6 +554,11 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			for (int i = 0; i < 128; i++) {
 				ShellSample r = shell_sample(s, eye + dir * t);
 
+				if (!r.valid && side && entering && t < t_fragment + s.shell * 0.1) {
+					t += s.shell * 0.01;
+					continue;
+				}
+
 				if (!r.valid || (i > 0 && r.level > s.escape)) {
 					break;
 				}
