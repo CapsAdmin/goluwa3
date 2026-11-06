@@ -141,7 +141,6 @@ function PipelineCache.New(device, initial_data)
 	return PipelineCache:CreateObject{
 		device = device,
 		ptr = ptr,
-		initial_data = initial_data,
 		generation = 0,
 		jobs = {},
 	}
