@@ -10,6 +10,9 @@
 
 ## Keeping tests fast
 
+- A cold pipeline cache (new machine, new driver, or `GOLUWA_VULKAN`/`VK_DRIVER_FILES` changed) makes the first full run several times slower and kills files at the 120 s limit: gbuffer pipelines take up to a minute each to compile. Run the suite twice before judging times or failures, and set the same driver as for the engine. More `--jobs` than the default is slower on an 8 core Mac (6 jobs: slower and files time out).
+- Tests that need game content (gmod) start with `T.HasGmod()` and return `T.Unavailable(...)` / `T.Skip(...)` without it.
+
 - `Texture:GetPixel` downloads the whole texture on every call. Read many pixels from one `texture:Download()`.
 - `render3d.Initialize` rebuilds every pass. Do it once per test at most, not once to set up and again to restore; nothing after the file needs the old passes.
 - Each file pays for a process, a render device and pipeline creation (about 0.3 s before its first test); tiny render files are cheaper merged into a related file, long files are faster split.
