@@ -424,6 +424,11 @@ function ShaderSource:RecycleTexture(texture)
 end
 
 function ShaderSource:ReleaseChunk(chunk)
+	if chunk.height_texture then
+		chunk.height_texture:Remove()
+		chunk.height_texture = nil
+	end
+
 	for i = 1, #CHUNK_TEXTURES do
 		local name = CHUNK_TEXTURES[i]
 

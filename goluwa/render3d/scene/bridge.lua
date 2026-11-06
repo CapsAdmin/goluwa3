@@ -251,7 +251,7 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 		if visual.UseOcclusionCulling then flags = flags + instances.RASTER_OCCLUSION end
 	end
 
-	if flags ~= 0 and material:HasHeightMap() then
+	if flags ~= 0 and material:MarchesRelief() then
 		flags = flags + instances.RASTER_HEIGHT_MAP
 	end
 

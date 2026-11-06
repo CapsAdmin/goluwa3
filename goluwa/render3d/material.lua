@@ -162,7 +162,7 @@ function Material:Touch()
 end
 
 function Material:GetRasterBothFaces()
-	return self.DoubleSided or self.HeightShell > 0
+	return self.DoubleSided or self.HeightShell > 0 or self.TerrainShell > 0
 end
 
 function Material:GetCullMode()
@@ -384,8 +384,12 @@ function Material:HasHeightMap()
 	return self.HeightTexture ~= nil and self.HeightScale > 0
 end
 
+function Material:MarchesRelief()
+	return self:HasHeightMap() or self.TerrainShell > 0
+end
+
 function Material:WritesFragmentDepth()
-	return self:HasHeightMap() or self.Decal
+	return self:MarchesRelief() or self.Decal
 end
 
 function Material:HasVertexAnimation()

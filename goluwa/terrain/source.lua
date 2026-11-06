@@ -57,6 +57,11 @@ function TerrainSource:ReleaseChunk(chunk)
 		chunk.color_texture = nil
 	end
 
+	if chunk.height_texture then
+		chunk.height_texture:Remove()
+		chunk.height_texture = nil
+	end
+
 	chunk.heights = nil
 end
 

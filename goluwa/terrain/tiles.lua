@@ -5,6 +5,7 @@ local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local assets = import("goluwa/assets.lua")
+local Texture = RENDER_2D and import("goluwa/render/texture.lua")
 local tiles = {}
 local VertexType = Polygon3D.VertexType
 local Index16Array = ffi.typeof("uint16_t[?]")
@@ -13,7 +14,7 @@ local IndexBuffer = RENDER_2D and import("goluwa/render/index_buffer.lua")
 local VertexSize = ffi.sizeof(VertexType(1))
 local templates = {[false] = {}, [true] = {}}
 
-local function get_template(cells, step, host)
+local function get_template(cells, step, host, shell)
 	local by_step = templates[host][cells]
 
 	if not by_step then
@@ -21,14 +22,16 @@ local function get_template(cells, step, host)
 		templates[host][cells] = by_step
 	end
 
-	local template = by_step[step]
+	local key = shell and -step or step
+	local template = by_step[key]
 
 	if template then return template end
 
 	local samples = cells + 1
 	local grid_count = samples * samples
-	local vertex_count = grid_count + samples * 4
-	local index_count = cells * cells * 6 + cells * 4 * 6
+	local base_start = grid_count + samples * 4
+	local vertex_count = base_start + (shell and grid_count or 0)
+	local index_count = cells * cells * 6 * (shell and 2 or 1) + cells * 4 * 6
 	local vertices = VertexType(vertex_count)
 	local indices = vertex_count > 65535 and Index32Array(index_count) or Index16Array(index_count)
 	local uv_scale = 1 / cells
@@ -60,6 +63,16 @@ local function get_template(cells, step, host)
 		ffi.copy(vertices[east + i], vertices[i * samples + cells], VertexSize)
 	end
 
+	if shell then
+		for i = grid_count, vertex_count - 1 do
+			if i >= base_start then
+				ffi.copy(vertices[i], vertices[i - base_start], VertexSize)
+			end
+
+			vertices[i].tangent[3] = -2
+		end
+	end
+
 	local index = 0
 
 	for z = 0, cells - 1 do
@@ -76,6 +89,14 @@ local function get_template(cells, step, host)
 			indices[index + 5] = p11
 			index = index + 6
 		end
+	end
+
+	if shell then
+		for i = 0, cells * cells * 6 - 1 do
+			indices[index + i] = indices[i] + base_start
+		end
+
+		index = index + cells * cells * 6
 	end
 
 	for i = 0, cells - 1 do
@@ -131,11 +152,23 @@ local function get_template(cells, step, host)
 			) or
 			indices,
 	}
-	by_step[step] = template
+	by_step[key] = template
 	return template
 end
 
-function tiles.BuildPolygon(chunk, skirt_depth, stride, mode)
+function tiles.GetShell(layers)
+	local shell = 0
+
+	for _, layer in ipairs(layers) do
+		if layer.height and layer.height_scale then
+			shell = math.max(shell, layer.height_scale * (layer.scale or 1))
+		end
+	end
+
+	return shell
+end
+
+function tiles.BuildPolygon(chunk, skirt_depth, stride, mode, shell)
 	local request = chunk.request
 	local full_samples = request.samples
 	local heights = chunk.heights
@@ -143,7 +176,7 @@ function tiles.BuildPolygon(chunk, skirt_depth, stride, mode)
 	local cells = (full_samples - 1) / stride
 	local samples = cells + 1
 	local grid_count = samples * samples
-	local template = get_template(cells, step, mode == "host")
+	local template = get_template(cells, step, mode == "host", shell and shell > 0)
 	local vertex_count = template.vertex_count
 	local vertices = VertexType(vertex_count)
 	ffi.copy(vertices, template.vertices, VertexSize * vertex_count)
@@ -215,6 +248,15 @@ function tiles.BuildPolygon(chunk, skirt_depth, stride, mode)
 		east.normal[2] = edge.normal[2]
 	end
 
+	if shell and shell > 0 then
+		local base_start = grid_count + samples * 4
+
+		for i = 0, grid_count - 1 do
+			ffi.copy(vertices[base_start + i].position, vertices[i].position, 12)
+			ffi.copy(vertices[base_start + i].normal, vertices[i].normal, 12)
+		end
+	end
+
 	local polygon = Polygon3D.New()
 	polygon:SetGridCells(cells)
 	polygon:UploadVertexArray(
@@ -229,7 +271,7 @@ function tiles.BuildPolygon(chunk, skirt_depth, stride, mode)
 			chunk.min_height - skirt_depth,
 			0,
 			request.size,
-			chunk.max_height,
+			chunk.max_height + (shell or 0) * 1.1,
 			request.size
 		)
 	)
@@ -273,7 +315,7 @@ local LAYER_VALUES = {
 	{"CoverBlend", "cover_blend", 0.05},
 }
 
-function tiles.CreateMaterial(chunk, layers, scatter_set, source)
+function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 	local material = Material.New()
 	material:SetNormalTexture(chunk.normal_texture)
 	material:SetTerrainMaterialTexture(chunk.splat_texture)
@@ -283,6 +325,19 @@ function tiles.CreateMaterial(chunk, layers, scatter_set, source)
 	material:SetTerrainTriplanarSharpness(source.TriplanarSharpness)
 	material:SetRoughnessMultiplier(1)
 	material:SetMetallicMultiplier(0)
+
+	if shell and shell > 0 and chunk.heights then
+		chunk.height_texture = chunk.height_texture or
+			Texture.New{
+				buffer = chunk.heights,
+				width = chunk.request.samples,
+				height = chunk.request.samples,
+				format = "r32_sfloat",
+			}
+		material:SetTerrainHeightTexture(chunk.height_texture)
+		material:SetTerrainShell(shell)
+	end
+
 	local layer_count = chunk.splat2_texture and 8 or 4
 
 	for i = 1, layer_count do

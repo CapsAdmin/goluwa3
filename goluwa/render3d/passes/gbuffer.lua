@@ -190,7 +190,7 @@ local function build_multi_draw_pass(fragment_shader)
 	pass.on_draw = nil
 	pass.on_pre_draw = nil
 	pass.vertex = model_pipeline.CreateMultiDrawVertexStage{
-		shell_expr = "((abs(in_tangent.w) > 1.5 && abs(in_tangent.w) < 2.5) || abs(in_tangent.w) > 3.5 ? 0.0 : batch_data.b[batch_index].m_displacement_model.HeightShell * (1.0 - batch_data.b[batch_index].m_displacement_model.HeightMidlevel))",
+		shell_offset_expr = "world_normal * ((abs(in_tangent.w) > 1.5 && abs(in_tangent.w) < 2.5) || abs(in_tangent.w) > 3.5 ? 0.0 : batch_data.b[batch_index].m_displacement_model.HeightShell * (1.0 - batch_data.b[batch_index].m_displacement_model.HeightMidlevel)) + vec3(0.0, abs(in_tangent.w) > 1.5 ? 0.0 : batch_data.b[batch_index].m_terrain_model.TerrainShell * 1.1, 0.0)",
 		normal = true,
 		tangent = true,
 		uv = true,
@@ -361,138 +361,261 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			return inside;
 		}
 
-		bool prism_in_rock(float lambda, float midlevel, vec2 uv, vec2 duv1, vec2 duv2) {
-			if (lambda <= 0.0) return true;
-			if (lambda >= 1.0) return false;
-			return midlevel + lambda * (1.0 - midlevel) <= textureGrad(TEXTURE(displacement_model.HeightTexture), uv, duv1, duv2).r;
+		float terrain_shell_ground(vec2 uv) {
+			vec2 size = vec2(textureSize(TEXTURE(terrain_model.TerrainHeightTexture), 0));
+			return textureLod(TEXTURE(terrain_model.TerrainHeightTexture), (clamp(uv, 0.0, 1.0) * (size - 1.0) + 0.5) / size, 0.0).r;
 		}
 
-		SSDMData get_prism_data(float shell, vec2 duv1, vec2 duv2) {
-			SSDMData data;
-			data.uv = in_uv;
-			data.height = 0.0;
-			data.world_pos = in_position;
-			float midlevel = displacement_model.HeightMidlevel;
+		struct TerrainShellWeights {
+			vec4 weights;
+			vec4 weights2;
+			vec3 blend;
+			vec2 uv;
+		};
+
+		TerrainShellWeights terrain_shell_weights(vec2 uv) {
+			TerrainShellWeights w;
+			w.uv = clamp(uv, 0.0, 1.0);
+			get_terrain_material_weights_both_uv(w.uv, w.weights, w.weights2);
+			vec3 blend = get_terrain_triplanar_weights(get_terrain_world_normal(w.uv));
+			blend *= step(vec3(0.2), blend);
+			w.blend = blend / max(blend.x + blend.y + blend.z, 0.0001);
+			return w;
+		}
+
+		float terrain_shell_relief_set(vec4 weights, ivec4 height_textures, vec4 height_scales, vec4 scales, vec4 height_blend, vec3 q, vec3 blend, vec2 gx[3], vec2 gy[3], inout float weight_sum) {
+			float relief = 0.0;
+
+			for (int i = 0; i < 4; i++) {
+				if (weights[i] <= 0.001) {
+					continue;
+				}
+
+				float h = height_textures[i] != -1 ? sample_terrain_layer_height(height_textures[i], q, max(scales[i], 0.0001), blend, gx, gy) : 0.5;
+				float w = weights[i] * mix(1.0, h * 2.0, height_blend[i]);
+				weight_sum += w;
+
+				if (height_textures[i] != -1) {
+					relief += w * h * height_scales[i] * scales[i];
+				}
+			}
+
+			return relief;
+		}
+
+		float terrain_shell_clearance(vec3 p, float ground, TerrainShellWeights w, vec2 gx[3], vec2 gy[3]) {
+			vec3 q = vec3(p.x, ground, p.z);
+			float weight_sum = 0.0;
+			float relief = terrain_shell_relief_set(w.weights, ivec4(terrain_model.TerrainLayer1HeightTexture, terrain_model.TerrainLayer2HeightTexture, terrain_model.TerrainLayer3HeightTexture, terrain_model.TerrainLayer4HeightTexture), terrain_model.TerrainLayerHeightScales, terrain_model.TerrainLayerScales, terrain_model.TerrainLayerHeightBlend, q, w.blend, gx, gy, weight_sum);
+
+			if (terrain_model.TerrainMaterial2Texture != -1) {
+				relief += terrain_shell_relief_set(w.weights2, ivec4(terrain_model.TerrainLayer5HeightTexture, terrain_model.TerrainLayer6HeightTexture, terrain_model.TerrainLayer7HeightTexture, terrain_model.TerrainLayer8HeightTexture), terrain_model.TerrainLayerHeightScales2, terrain_model.TerrainLayerScales2, terrain_model.TerrainLayerHeightBlend2, q, w.blend, gx, gy, weight_sum);
+			}
+
+			return p.y - ground - relief / max(weight_sum, 0.0001);
+		}
+
+		struct ShellState {
+			bool terrain;
 			PrismMesh mesh;
-			uvec4 addresses = PBRBatchData(gbuffer_draw.batches).b[in_batch].addresses;
-			mesh.vertices = PrismVertexData(packUint2x32(addresses.xy));
-			mesh.indexed = (addresses.z | addresses.w) != 0u;
-			mesh.indices = PrismIndexData(packUint2x32(addresses.zw));
-			mesh.index_32 = PBRBatchData(gbuffer_draw.batches).b[in_batch].index_is_32 != 0u;
-			mesh.world = PrismInstanceData(gbuffer_draw.instances).worlds[in_instance];
-			mesh.normal_matrix = transpose(inverse(mat3(mesh.world)));
-			mesh.lift = shell * (1.0 - midlevel);
-			bool skirt = abs(in_tangent.w) > 2.5;
-			bool base_copy = !skirt && abs(in_tangent.w) > 1.5;
+			uint tri;
+			float midlevel;
+			vec2 duv1;
+			vec2 duv2;
+			vec3 bounds;
+			TerrainShellWeights weights;
+			float refresh;
+			vec2 gx[3];
+			vec2 gy[3];
+			float shell;
+			float lift;
+			float max_step;
+			float escape;
+		};
+
+		struct ShellSample {
+			bool valid;
+			float level;
+			float clearance;
+			vec2 uv;
+		};
+
+		ShellSample shell_sample(inout ShellState s, vec3 p) {
+			ShellSample r;
+
+			if (s.terrain) {
+				r.uv = (p.xz - s.bounds.xy) / s.bounds.z;
+				r.valid = all(greaterThanEqual(r.uv, vec2(0.0))) && all(lessThanEqual(r.uv, vec2(1.0)));
+				float ground = terrain_shell_ground(r.uv);
+				r.level = (p.y - ground) / s.lift;
+
+				if (distance(r.uv, s.weights.uv) > s.refresh) {
+					s.weights = terrain_shell_weights(r.uv);
+				}
+
+				r.clearance = terrain_shell_clearance(p, ground, s.weights, s.gx, s.gy);
+				return r;
+			}
+
+			float lambda;
+			r.valid = prism_locate(s.mesh, s.tri, p, lambda, r.uv);
+			r.level = lambda;
+			float h = textureGrad(TEXTURE(displacement_model.HeightTexture), r.uv, s.duv1, s.duv2).r;
+			r.clearance = min((s.midlevel + lambda * (1.0 - s.midlevel) - h) * s.shell, lambda * s.lift);
+			return r;
+		}
+
+		SSDMData shell_trace(inout ShellState s, bool base_copy, bool side) {
 			vec3 eye = gbuffer_data.camera_position.xyz;
 			vec3 to_fragment = in_position - eye;
 			float t_fragment = length(to_fragment);
 			vec3 dir = to_fragment / t_fragment;
-			float along_normal = dot(dir, normalize(in_normal));
-			uint tri = in_triangle;
-			vec2 uv = in_uv;
-			float lambda = base_copy ? 0.0 : 1.0;
-			bool forward = along_normal < 0.0 && !base_copy;
+			float facing = dot(dir, normalize(in_normal));
+			bool entering = !base_copy && facing < 0.0;
 
-			if (base_copy && along_normal >= 0.0) {
-				discard;
+			if (side) {
+				ShellSample ahead = shell_sample(s, in_position + dir * 0.005);
+				entering = ahead.valid;
+
+				if (entering && (ahead.level < 0.0 || ahead.level > 1.0)) {
+					discard;
+				}
 			}
 
-			if (skirt) {
-				tri = uint(mesh.vertices.v[prism_index(mesh, in_triangle, 0u) * PRISM_VERTEX_STRIDE + PRISM_VERTEX_PIVOT] + 0.5);
-				prism_locate(mesh, tri, in_position, lambda, uv);
-				uint probe_tri = tri;
-				float probe_lambda;
-				vec2 probe_uv;
-				bool interior_toward_eye = prism_locate(mesh, probe_tri, eye + dir * max(t_fragment - 0.02, 0.0), probe_lambda, probe_uv);
-				forward = !interior_toward_eye;
-			}
-
-			float direction = forward ? 1.0 : -1.0;
-			float base_dt = mesh.lift / float(get_height_layers() * 2) / max(abs(along_normal), 0.1);
-			float dt = base_dt;
+			float min_dt = s.shell / 16.0;
+			float pixel_angle = 2.0 / (abs(gbuffer_data.projection[1][1]) * gbuffer_data.render_size.y);
 			float t = t_fragment;
-			bool rock = prism_in_rock(lambda, midlevel, uv, duv1, duv2);
-			uint rock_tri = tri;
-			float free_t = -1.0;
-			float rock_t = -1.0;
+			float lo = -1.0;
+			float hi = -1.0;
 
-			if (forward && rock) {
-				free_t = t;
-				rock_t = t;
+			if (!entering && s.terrain) {
+				ShellSample at_eye = shell_sample(s, eye);
+
+				if (!at_eye.valid || at_eye.level < 0.0 || at_eye.level > 1.0) {
+					discard;
+				}
+
+				entering = true;
+				t = 0.0;
 			}
 
-			for (int i = 0; i < 256 && !(forward && rock_t >= 0.0); i++) {
-				float next_t = t + direction * dt;
+			if (entering) {
+				float descent = max(-facing, 0.0) + 0.25;
+				float air_t = -1.0;
 
-				if (next_t <= 0.0) {
-					break;
+				for (int i = 0; i < 128; i++) {
+					ShellSample r = shell_sample(s, eye + dir * t);
+
+					if (!r.valid || (i > 0 && r.level > s.escape)) {
+						break;
+					}
+
+					if (r.clearance <= 0.0 || r.level < 0.0) {
+						lo = air_t < 0.0 ? t : air_t;
+						hi = t;
+						break;
+					}
+
+					air_t = t;
+					t += clamp(r.clearance / descent * 0.8, max(min_dt, t * pixel_angle * 2.0), max(s.max_step, t * pixel_angle * 4.0));
 				}
+			} else {
+				float rise = max(facing, 0.0) + 0.25;
+				ShellSample r = shell_sample(s, eye + dir * t);
+				bool rock = r.clearance <= 0.0;
 
-				float next_lambda;
-				vec2 next_uv;
-				bool valid = prism_locate(mesh, tri, eye + dir * next_t, next_lambda, next_uv);
+				for (int i = 0; i < 128 && t > 0.0; i++) {
+					float next_t = max(t - clamp(abs(r.clearance) / rise * 0.8, max(min_dt, t * pixel_angle * 2.0), max(s.max_step, t * pixel_angle * 4.0)), 0.0);
+					r = shell_sample(s, eye + dir * next_t);
 
-				if (!valid || next_lambda < -0.25 || next_lambda > 1.25) {
-					break;
+					if (!r.valid || r.level > s.escape) {
+						break;
+					}
+
+					bool next_rock = r.clearance <= 0.0 || r.level < 0.0;
+
+					if (rock && !next_rock) {
+						lo = next_t;
+						hi = t;
+					}
+
+					t = next_t;
+					rock = next_rock;
 				}
-
-				bool next_rock = prism_in_rock(next_lambda, midlevel, next_uv, duv1, duv2);
-
-				if (!next_rock && next_lambda > 0.0 && next_lambda < 1.0) {
-					float gap = midlevel + next_lambda * (1.0 - midlevel) - textureGrad(TEXTURE(displacement_model.HeightTexture), next_uv, duv1, duv2).r;
-					dt = clamp(gap * mesh.lift / max(abs(along_normal), 0.05) * 0.5, mesh.lift / 256.0, base_dt);
-				} else {
-					dt = base_dt;
-				}
-
-				if (forward && next_rock && !rock) {
-					free_t = t;
-					rock_t = next_t;
-					rock_tri = tri;
-				} else if (!forward && rock && !next_rock) {
-					free_t = next_t;
-					rock_t = t;
-					rock_tri = tri;
-				}
-
-				t = next_t;
-				rock = next_rock;
 			}
 
-			if (rock_t < 0.0) {
+			if (hi < 0.0) {
 				discard;
 			}
 
-			tri = rock_tri;
-			float lo = min(free_t, rock_t);
-			float hi = max(free_t, rock_t);
-
-			for (int i = 0; i < 12 && hi - lo > 1e-5; i++) {
+			for (int i = 0; i < 6 && lo < hi; i++) {
 				float mid = 0.5 * (lo + hi);
-				float mid_lambda;
-				vec2 mid_uv;
-				bool mid_valid = prism_locate(mesh, tri, eye + dir * mid, mid_lambda, mid_uv);
+				ShellSample r = shell_sample(s, eye + dir * mid);
 
-				if (mid_valid && prism_in_rock(mid_lambda, midlevel, mid_uv, duv1, duv2)) {
+				if (r.valid && (r.clearance <= 0.0 || r.level < 0.0)) {
 					hi = mid;
 				} else {
 					lo = mid;
 				}
 			}
 
-			float hit_lambda;
-			vec2 hit_uv;
-			bool inside = prism_locate(mesh, tri, eye + dir * hi, hit_lambda, hit_uv);
+			ShellSample hit = shell_sample(s, eye + dir * hi);
 
-			if (!inside || (displacement_model.HeightShellClip > 0.5 && (hit_uv.x < -0.001 || hit_uv.y < -0.001 || hit_uv.x > 1.001 || hit_uv.y > 1.001))) {
+			if (!hit.valid || (!s.terrain && displacement_model.HeightShellClip > 0.5 && (hit.uv.x < -0.001 || hit.uv.y < -0.001 || hit.uv.x > 1.001 || hit.uv.y > 1.001))) {
 				discard;
 			}
 
-			data.uv = hit_uv;
-			data.height = clamp(hit_lambda, 0.0, 1.0) * mesh.lift;
+			SSDMData data;
+			data.uv = hit.uv;
+			data.height = clamp(hit.level, 0.0, 1.0) * s.lift;
 			data.world_pos = eye + dir * hi;
 			return data;
+		}
+
+		SSDMData get_terrain_shell_data(float shell) {
+			ShellState s;
+			s.terrain = true;
+			s.bounds = terrain_model.TerrainBounds;
+			s.shell = shell;
+			s.lift = shell * 1.1;
+			s.max_step = shell * 3.0;
+			s.escape = 1.25;
+			s.refresh = 0.5 / s.bounds.z;
+			s.weights = terrain_shell_weights(in_uv);
+			float scale = max(terrain_model.TerrainLayerScales.y, 0.0001);
+			s.gx = vec2[3](dFdx(in_position.zy) / scale, dFdx(in_position.xz) / scale, dFdx(in_position.xy) / scale);
+			s.gy = vec2[3](dFdy(in_position.zy) / scale, dFdy(in_position.xz) / scale, dFdy(in_position.xy) / scale);
+			vec2 edge = min(in_uv, 1.0 - in_uv);
+			bool side = min(edge.x, edge.y) < 1e-4;
+			return shell_trace(s, !side && abs(in_tangent.w) > 1.5, side);
+		}
+
+		SSDMData get_prism_data(float shell, vec2 duv1, vec2 duv2) {
+			ShellState s;
+			s.terrain = false;
+			uvec4 addresses = PBRBatchData(gbuffer_draw.batches).b[in_batch].addresses;
+			s.mesh.vertices = PrismVertexData(packUint2x32(addresses.xy));
+			s.mesh.indexed = (addresses.z | addresses.w) != 0u;
+			s.mesh.indices = PrismIndexData(packUint2x32(addresses.zw));
+			s.mesh.index_32 = PBRBatchData(gbuffer_draw.batches).b[in_batch].index_is_32 != 0u;
+			s.mesh.world = PrismInstanceData(gbuffer_draw.instances).worlds[in_instance];
+			s.mesh.normal_matrix = transpose(inverse(mat3(s.mesh.world)));
+			s.midlevel = displacement_model.HeightMidlevel;
+			s.mesh.lift = shell * (1.0 - s.midlevel);
+			s.tri = in_triangle;
+			s.duv1 = duv1;
+			s.duv2 = duv2;
+			s.shell = shell;
+			s.lift = s.mesh.lift;
+			s.max_step = shell * 0.15;
+			s.escape = 4.0;
+			bool side = abs(in_tangent.w) > 2.5;
+
+			if (side) {
+				s.tri = uint(s.mesh.vertices.v[prism_index(s.mesh, in_triangle, 0u) * PRISM_VERTEX_STRIDE + PRISM_VERTEX_PIVOT] + 0.5);
+			}
+
+			return shell_trace(s, !side && abs(in_tangent.w) > 1.5, side);
 		}
 ]=] or
 			""
@@ -508,6 +631,11 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			vec2 duv1 = dFdx(in_uv);
 			vec2 duv2 = dFdy(in_uv);
 
+]] .. (
+			prism and
+			"\t\t\tif (terrain_model.TerrainShell > 0.0) return get_terrain_shell_data(terrain_model.TerrainShell);\n" or
+			""
+		) .. [[
 			if (!has_heightmap()) {
 				return data;
 			}

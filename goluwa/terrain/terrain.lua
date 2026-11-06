@@ -43,6 +43,7 @@ function Terrain.New(config)
 	self.SplatSize = config.SplatSize or 128
 	self.ColorSize = config.ColorSize
 	self.ShadowLevels = config.ShadowLevels or self.Levels
+	self.ShellLevels = config.ShellLevels or 2
 	self.BVHLevels = config.BVHLevels or self.Levels
 	self.BVHDelay = config.BVHDelay or 0
 	self.BVHPerFrame = config.BVHPerFrame or 8
@@ -326,11 +327,11 @@ function Terrain:CreateTile(want, chunk)
 	}
 	primitive_entity:AddComponent("transform")
 	local primitive = primitive_entity:AddComponent("visual_primitive")
-	local polygon = tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level), 1)
+	local layers = chunk.layers or self.Source:GetLayers()
+	local shell = level < self.ShellLevels and tiles.GetShell(layers) or 0
+	local polygon = tiles.BuildPolygon(chunk, self:GetLevelSkirtDepth(level), 1, nil, shell)
 	primitive:SetPolygon3D(polygon)
-	primitive:SetMaterial(
-		tiles.CreateMaterial(chunk, chunk.layers or self.Source:GetLayers(), self.ScatterSet, self.Source)
-	)
+	primitive:SetMaterial(tiles.CreateMaterial(chunk, layers, self.ScatterSet, self.Source, shell))
 	visual:BuildAABB()
 	return {
 		key = want.key,

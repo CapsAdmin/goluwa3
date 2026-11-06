@@ -76,8 +76,14 @@ add{
 	default = Vec3(0, 0, 0),
 	callback = ray,
 	requires = "TerrainMaterialTexture",
-	block = false,
 }
+add{
+	name = "TerrainShell",
+	default = 0.0,
+	callback = "InvalidateFlags",
+	requires = "TerrainMaterialTexture",
+}
+texture("TerrainHeightTexture", "TerrainMaterialTexture")
 
 for layer = 1, 4 do
 	texture("TerrainLayer" .. layer .. "Texture", "TerrainMaterialTexture", ray)

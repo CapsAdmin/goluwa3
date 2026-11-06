@@ -256,8 +256,8 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	}]]
 	end
 
-	if options.shell_expr then
-		lines[#lines + 1] = "\tvec3 shell_offset = world_normal * (" .. options.shell_expr .. ");"
+	if options.shell_offset_expr then
+		lines[#lines + 1] = "\tvec3 shell_offset = " .. options.shell_offset_expr .. ";"
 		lines[#lines + 1] = "\tworld_position += shell_offset;"
 
 		if options.velocity then
@@ -1978,6 +1978,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				vec3 V = normalize(to_camera);
 				float distance_to_camera = length(to_camera);
 				float fade = 1.0 - pow(min(distance_to_camera / max(terrain_model.TerrainLayerHeightDistance, 0.001), 1.0), 4.0);
+				fade *= terrain_model.TerrainShell > 0.0 ? 0.0 : 1.0;
 				vec4 displacement = terrain_model.TerrainLayerHeightScales * fade;
 				ivec4 albedo_textures = ivec4(terrain_model.TerrainLayer1Texture, terrain_model.TerrainLayer2Texture, terrain_model.TerrainLayer3Texture, terrain_model.TerrainLayer4Texture);
 				ivec4 normal_textures = ivec4(terrain_model.TerrainLayer1NormalTexture, terrain_model.TerrainLayer2NormalTexture, terrain_model.TerrainLayer3NormalTexture, terrain_model.TerrainLayer4NormalTexture);
