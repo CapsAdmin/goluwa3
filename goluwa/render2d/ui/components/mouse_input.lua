@@ -592,7 +592,7 @@ end
 
 function META:OnLastRemoved()
 	event.RemoveListener("MouseInput", "ecs_gui_system")
-	event.RemoveListener("Update", "ecs_gui_system")
+	event.RemoveListener("PreUpdate", "ecs_gui_system")
 end
 
 return META:Register()
