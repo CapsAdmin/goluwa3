@@ -226,6 +226,15 @@ function system.Sleep(seconds)
 end
 
 do
+	local current_process
+
+	function system.GetRAMUsage()
+		current_process = current_process or import("goluwa/bindings/process.lua").get_current()
+		return current_process:get_residential_memory_kb() * 1024
+	end
+end
+
+do
 	local function read_file(path)
 		local file = io.open(path, "rb")
 

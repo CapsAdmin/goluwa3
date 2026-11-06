@@ -1055,6 +1055,20 @@ function render.GetDevice()
 	return vulkan_instance.device
 end
 
+do
+	local vulkan_memory = import("goluwa/render/vulkan/internal/memory.lua")
+
+	function render.GetVRAMUsage()
+		local bytes = 0
+
+		for _, memory in pairs(vulkan_memory.Instances) do
+			if memory:IsValid() then bytes = bytes + tonumber(memory.size) end
+		end
+
+		return bytes
+	end
+end
+
 function render.GetPhysicalDevice()
 	return vulkan_instance.physical_device
 end
