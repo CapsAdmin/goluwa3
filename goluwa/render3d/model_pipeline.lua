@@ -1749,22 +1749,14 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return n;
 			}
 
-			vec2 terrain_layer_parallax(int height_tex, vec2 uv, vec2 view_uv, float view_n, float displacement) {
-				const int STEPS = 15;
-				vec2 uv_dx = dFdx(uv);
-				vec2 uv_dy = dFdy(uv);
-				vec2 delta = -view_uv / max(view_n, 0.05) * displacement / float(STEPS);
-				float layer = 1.0;
-				float height = textureGrad(TEXTURE(height_tex), uv, uv_dx, uv_dy).r;
-				vec2 prev_uv = uv;
-				float prev_above = layer - height;
+			float sample_terrain_layer_height(int height_tex, vec3 p, float safe_scale, vec3 blend, vec2 gx[3], vec2 gy[3]) {
+				vec2 uv[3] = vec2[3](p.zy / safe_scale, p.xz / safe_scale, p.xy / safe_scale);
+				float h = 0.0;
 
-				for (int i = 0; i < STEPS && height < layer; i++) {
-					prev_uv = uv;
-					prev_above = layer - height;
-					uv += delta;
-					layer -= 1.0 / float(STEPS);
-					height = textureGrad(TEXTURE(height_tex), uv, uv_dx, uv_dy).r;
+				for (int i = 0; i < 3; i++) {
+					if (blend[i] > 0.001) {
+						h += textureGrad(TEXTURE(height_tex), uv[i], gx[i], gy[i]).r * blend[i];
+					}
 				}
 
 				float below = height - layer;

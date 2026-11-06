@@ -18,6 +18,7 @@ The weight texture of a tile (`SplatSize` texels, baked by the source's `terrain
 
 - `slope_min`, `slope_max`, `slope_blend`: steepness from the detail normal; put slope rules here rather than in the splat. Scatter applies the same rules (`goluwa/render3d/terrain_layer_rules.lua` is the glsl both include), so what grows on a layer is where the layer shows.
 - `height_blend`: scales the weight by the layer's height texture so transitions follow the grain.
+- `height_scale` (with a `height` texture, `layer_texture.BakeHeight`): parallax relief as a fraction of the layer scale. The march is one ray in world space along the surface normal with the triplanar height sampled at each step, ground at the real surface and rocks rising from it; marching each projection along its own axis made rocks lean and swim with the view.
 - `far_scale`/`far_distance`, `far_scale_b`/`far_distance_b`: extra texture scales the layer fades to with distance, against visible repeats.
 - `fade_distance`: fade to the layer's average color (the smallest mip, so the layer's textures need mips: `mip_map_levels = "auto"`; `detail_strength` has the same need).
 - `anti_tiling`: samples a rotated and shifted copy and mixes by noise; costs a second fetch.
