@@ -86,7 +86,8 @@ T.Pending("mdl rendering", function(draw)
 end)
 
 T.Test("mdl eyeballs come out in model space as engine units", function()
-	steam.MountSourceGame("gmod")
+	if not T.HasGmod() then return T.Unavailable("gmod content not mounted") end
+
 	local meta = import("goluwa/codecs/mdl.lua").Decode(vfs.Read("models/player/alyx.mdl"))
 	local eyeballs = meta.bodypart_models[1][1].eyeballs
 	T(#eyeballs)["=="](2)
@@ -103,7 +104,8 @@ T.Test("mdl eyeballs come out in model space as engine units", function()
 end)
 
 T.Test("mdl ragdoll models report a solid per physics bone placed at its bone", function()
-	steam.MountSourceGame("gmod")
+	if not T.HasGmod() then return T.Unavailable("gmod content not mounted") end
+
 	local model_loader = import("goluwa/render3d/model_loader.lua")
 	local loaded
 
@@ -126,7 +128,8 @@ T.Test("mdl ragdoll models report a solid per physics bone placed at its bone", 
 end)
 
 T.Test("mdl models without ragdoll constraints have no ragdoll data", function()
-	steam.MountSourceGame("gmod")
+	if not T.HasGmod() then return T.Unavailable("gmod content not mounted") end
+
 	local model_loader = import("goluwa/render3d/model_loader.lua")
 	local loaded
 

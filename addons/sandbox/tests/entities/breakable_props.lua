@@ -11,7 +11,13 @@ local props = import("lua/props.lua")
 local prop_data = import("goluwa/source_engine/prop_data.lua")
 Entity.RegisterComponent("breakable", import("lua/components/breakable.lua"))
 Entity.RegisterComponent("fade_out", import("lua/components/fade_out.lua"))
-steam.MountSourceGame("gmod")
+
+if not T.HasGmod() then
+	do
+		return T.Skip("source engine props and ragdolls", "gmod content not mounted")
+	end
+end
+
 local CRATE = "models/props_junk/wood_crate001a.mdl"
 
 T.Test("prop data reads breakability, gibs and sounds from the model", function()

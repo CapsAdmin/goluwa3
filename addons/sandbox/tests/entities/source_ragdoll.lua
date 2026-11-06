@@ -8,7 +8,13 @@ local Quat = import("goluwa/structs/quat.lua")
 import("addons/game/lua/autorun/characters.lua")
 local props = import("lua/props.lua")
 local npcs = import("lua/npcs.lua")
-steam.MountSourceGame("gmod")
+
+if not T.HasGmod() then
+	do
+		return T.Skip("source engine props and ragdolls", "gmod content not mounted")
+	end
+end
+
 local GIB = "models/props_junk/cardboard_box002a_gib01.mdl"
 
 local function create_ground()

@@ -181,6 +181,9 @@ local test_render = import("test/test_render.lua")
 local T = import("goluwa/test.lua")
 local steam = import("goluwa/steam/steam.lua")
 local gmod_initialized_files = {}
+T.HasGmod = function()
+	return steam.MountSourceGame("gmod") ~= nil
+end
 T.TestGmod = function(name, cb, gamemode)
 	gamemode = gamemode or "sandbox"
 	return T.Test(name, function()
