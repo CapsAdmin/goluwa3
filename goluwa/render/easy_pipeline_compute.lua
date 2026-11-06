@@ -269,12 +269,14 @@ do
 			push_constant_glsl = "layout(push_constant, scalar) uniform ComputeConstants {\n" .. glsl_meta.build_glsl_fields(block.block) .. "} compute;\n\n"
 		end
 
-		local descriptor_sets = glsl_meta.build_base_descriptor_sets(
-			bindless_texture_capacity,
-			bindless_cubemap_capacity,
-			bindless_view_capacity,
-			bindless_sampler_capacity
-		)
+		local descriptor_sets = config.Bindless == false and
+			{} or
+			glsl_meta.build_base_descriptor_sets(
+				bindless_texture_capacity,
+				bindless_cubemap_capacity,
+				bindless_view_capacity,
+				bindless_sampler_capacity
+			)
 
 		for _, info in ipairs(config.storage_images or {}) do
 			descriptor_sets[#descriptor_sets + 1] = {

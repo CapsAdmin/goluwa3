@@ -13,6 +13,7 @@ local function get_pipelines()
 		combine = EasyPipeline.Compute{
 			name = "msdf_combine",
 			DescriptorSetCount = COMPUTE_DESCRIPTOR_SET_COUNT,
+			Bindless = false,
 			LocalSize = {x = 8, y = 8, z = 1},
 			storage_images = {{binding = 0}},
 			storage_buffers = {{binding = 1}},
