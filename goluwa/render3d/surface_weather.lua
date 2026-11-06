@@ -326,27 +326,22 @@ function surface_weather.GetGLSL(block_name)
 			return textureLod(TEXTURE(]] .. block_name .. [[.snow_map_texture), uv, 0.0).rg;
 		}
 
-		// bilinear where the four texels lie on one surface, the nearest texel across a ledge; blending a ledge with the
-		// ground under it puts snow on the wall between them
+		// blending each texel's clamped inside distance instead of its snow top runs ledge outlines between texel centres;
+		// the tolerance under the top is capped by the snow's thickness or steep faces turn white in texel sized patches
+		float snow_texel_inside(vec2 s, float z, float bias, float jump) {
+			return clamp(min(z - s.r, s.g + min(bias, s.g - s.r) - z), -jump, jump);
+		}
+
 		bool snow_map_inside(vec3 c, float bias, float jump) {
 			ivec2 size = textureSize(TEXTURE(]] .. block_name .. [[.snow_map_texture), 0);
 			vec2 f = c.xy * vec2(size) - 0.5;
 			ivec2 i = clamp(ivec2(floor(f)), ivec2(0), size - 2);
 			vec2 w = clamp(f - vec2(i), 0.0, 1.0);
-			vec2 s00 = texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i, 0).rg;
-			vec2 s10 = texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i + ivec2(1, 0), 0).rg;
-			vec2 s01 = texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i + ivec2(0, 1), 0).rg;
-			vec2 s11 = texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i + ivec2(1, 1), 0).rg;
-			vec4 tops = vec4(s00.g, s10.g, s01.g, s11.g);
-			vec2 snow;
-
-			if (max(max(tops.x, tops.y), max(tops.z, tops.w)) - min(min(tops.x, tops.y), min(tops.z, tops.w)) < jump) {
-				snow = mix(mix(s00, s10, w.x), mix(s01, s11, w.x), w.y);
-			} else {
-				snow = w.y < 0.5 ? (w.x < 0.5 ? s00 : s10) : (w.x < 0.5 ? s01 : s11);
-			}
-
-			return c.z >= snow.r && c.z <= snow.g + bias;
+			float i00 = snow_texel_inside(texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i, 0).rg, c.z, bias, jump);
+			float i10 = snow_texel_inside(texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i + ivec2(1, 0), 0).rg, c.z, bias, jump);
+			float i01 = snow_texel_inside(texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i + ivec2(0, 1), 0).rg, c.z, bias, jump);
+			float i11 = snow_texel_inside(texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i + ivec2(1, 1), 0).rg, c.z, bias, jump);
+			return mix(mix(i00, i10, w.x), mix(i01, i11, w.x), w.y) >= 0.0;
 		}
 
 		// marches the view ray towards the fragment through the snow lying on the topmost surface (the snow map, built from
