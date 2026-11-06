@@ -30,12 +30,12 @@ T.Test("gfonts hotswap", function()
 	local initial_ttf = font:GetFontPath()
 	T(initial_ttf)["~="](nil)
 
-	T.WaitUntil(
+	T.WaitUntilReal(
 		function()
 			return font:GetFontPath() ~= initial_ttf
 		end,
-		5,
-		"Font did not update within timeout"
+		10,
+		"the font to swap to its downloaded file"
 	)
 
 	local new_ttf = font:GetFontPath()
