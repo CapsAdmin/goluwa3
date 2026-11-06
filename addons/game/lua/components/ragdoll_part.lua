@@ -33,16 +33,19 @@ function META:OnCollisionEnter(other, info)
 
 	self:OnCollisionStay(other)
 
-	if not self.Character.ragdoll.thrown then return end
+	local character_ragdoll = self.Character.ragdoll
 
-	local velocity = info.self_body.Velocity
+	if not character_ragdoll.thrown then return end
+
+	-- the contact is solved before this event, so the speed of the hit is the one the part had when the step began
+	local velocity = character_ragdoll.previous_velocities[character_ragdoll.part_by_name[self.Group]] or info.self_body.Velocity
 	local relative = info.other_body and velocity - info.other_body.Velocity or velocity
 
 	if relative:GetLength() < CHAIN_SPEED then return end
 
 	local victim = other.ragdoll_part and other.ragdoll_part.Character or other
 	local ragdoll = victim.ragdoll
-	local source = self.Character.ragdoll.knocked_by
+	local source = character_ragdoll.knocked_by
 
 	if
 		not ragdoll or

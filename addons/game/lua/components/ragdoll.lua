@@ -1680,10 +1680,10 @@ function META:CheckImpact()
 	local previous = self.previous_velocities
 	local worst = 0
 
-	for i, part in ipairs(self.parts) do
+	for _, part in ipairs(self.parts) do
 		local body = part.body
 		local velocity = body.Velocity
-		local last = previous[i]
+		local last = previous[part]
 
 		if last then
 			if part.touched and not self.held[body] then
@@ -1695,7 +1695,7 @@ function META:CheckImpact()
 
 			last:Set(velocity.x, velocity.y, velocity.z)
 		else
-			previous[i] = velocity:Copy()
+			previous[part] = velocity:Copy()
 		end
 
 		part.touched = false
