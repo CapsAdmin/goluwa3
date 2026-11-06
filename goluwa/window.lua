@@ -11,6 +11,7 @@ Window:GetSet("Title", "no title")
 Window:GetSet("AppID", "goluwa")
 Window:GetSet("Size", Vec2())
 Window:GetSet("MouseDelta", Vec2())
+Window:GetSet("MouseScrollPixels", Vec2(40, 40))
 Window:GetSet("MouseTrapped", false)
 Window:GetSet("Cursor", "arrow")
 Window:IsSet("Focused", false)
@@ -282,15 +283,23 @@ function Window:OnMouseInput(key, press)
 	return event.Call("MouseInput", key, press)
 end
 
-function Window:OnMouseScroll(dir)
+local WHEEL_NOTCH_PIXELS = 40
+
+function Window:OnMouseScroll(dir, precise)
 	local b = event.Call("WindowMouseScroll", self, dir)
 
 	if b ~= nil then return b end
 
 	local x, y = dir:Unpack()
 
+	if precise then
+		self.MouseScrollPixels = Vec2(math.abs(x), math.abs(y))
+	else
+		self.MouseScrollPixels = Vec2(WHEEL_NOTCH_PIXELS, WHEEL_NOTCH_PIXELS)
+	end
+
 	if y ~= 0 then
-		for _ = 1, math.abs(y) do
+		for _ = 1, precise and 1 or math.abs(y) do
 			if y > 0 then
 				self:OnMouseInput("mwheel_up", true)
 			else
@@ -308,7 +317,7 @@ function Window:OnMouseScroll(dir)
 	end
 
 	if x ~= 0 then
-		for _ = 1, math.abs(x) do
+		for _ = 1, precise and 1 or math.abs(x) do
 			if x > 0 then
 				self:OnMouseInput("mwheel_left", true)
 			else

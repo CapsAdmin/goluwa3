@@ -95,6 +95,10 @@ do
 			self.mouse_delta = delta
 		end
 
+		function window:GetMouseScrollPixels()
+			return Vec2(40, 40)
+		end
+
 		function window:ShouldWarpMouseWhenCaptured()
 			return true
 		end

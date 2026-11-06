@@ -809,7 +809,8 @@ function META:handle_wheel_scroll(target, button)
 	local effective_view_size = Vec2(state.available_w, state.available_h)
 	local scroll = target.transform:GetScroll():Copy()
 	local next_scroll = scroll:Copy()
-	local delta = (button == "mwheel_up" and -40 or 40)
+	local pixels = system.GetWindow():GetMouseScrollPixels().y
+	local delta = button == "mwheel_up" and -pixels or pixels
 	local is_shift = input.IsKeyDown("left_shift") or input.IsKeyDown("right_shift")
 
 	if (self.ScrollX and not self.ScrollY) or (self.ScrollX and is_shift) then

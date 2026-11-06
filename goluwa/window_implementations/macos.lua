@@ -57,9 +57,7 @@ return function(META)
 
 		for _, event in ipairs(events) do
 			if event.type == "key_press" then
-				if event.char and event.char ~= "" then
-					self:OnCharInput(event.char)
-				end
+				if event.char and event.char ~= "" then self:OnCharInput(event.char) end
 
 				if event.is_repeat then
 					self:OnKeyInputRepeat(event.key)
@@ -71,14 +69,13 @@ return function(META)
 			elseif event.type == "mouse_button" then
 				local button = button_translate[event.button] or event.button
 				local pressed = event.action == "pressed"
-
 				self:OnMouseInput(button, pressed)
 			elseif event.type == "mouse_move" then
 				self.last_mouse_pos = Vec2(event.x, event.y)
 				self:SetMouseDelta(self:GetMouseDelta() + Vec2(event.delta_x, event.delta_y))
 				self:OnCursorPosition(self.last_mouse_pos)
 			elseif event.type == "mouse_scroll" then
-				self:OnMouseScroll(Vec2(event.delta_x, event.delta_y))
+				self:OnMouseScroll(Vec2(event.delta_x, event.delta_y), event.precise)
 			elseif event.type == "drop" then
 				self:OnDrop(event.paths)
 			elseif event.type == "window_close" then

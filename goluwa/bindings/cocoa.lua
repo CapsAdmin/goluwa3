@@ -82,6 +82,7 @@ local cocoa_objc = objc.bind{
 				characters = "@@:",
 				deltaX = "d@:",
 				deltaY = "d@:",
+				hasPreciseScrollingDeltas = "B@:",
 				isARepeat = "B@:",
 				keyCode = "Q@:",
 				locationInWindow = "{CGPoint=dd}@:",
@@ -669,6 +670,7 @@ local function convert_nsevent(nsevent, window)
 			y = y,
 			delta_x = NSEvent.scrollingDeltaX(nsevent),
 			delta_y = NSEvent.scrollingDeltaY(nsevent),
+			precise = NSEvent.hasPreciseScrollingDeltas(nsevent) ~= 0,
 			modifiers = modifiers,
 		}
 	end
