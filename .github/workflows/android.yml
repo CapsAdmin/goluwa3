@@ -1,0 +1,35 @@
+name: android
+on:
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install ninja
+        run: sudo apt-get install -y ninja-build
+
+      - name: shaderc ref
+        id: ref
+        run: echo "shaderc_ref=$(sed -n '/shaderc = {/,/}/s/.*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            android/build/arm64-v8a/libshaderc_shared.so
+            android/build/x86_64/libshaderc_shared.so
+          key: android-shaderc-${{ steps.ref.outputs.shaderc_ref }}
+
+      - name: build
+        env:
+          ABIS: arm64-v8a x86_64
+        run: |
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME"
+          android/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: goluwa-apk
+          path: android/build/goluwa.apk

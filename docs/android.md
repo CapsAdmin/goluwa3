@@ -1,0 +1,26 @@
+# Android
+
+`android/` holds the only C in the repository: `main.c`, a NativeActivity entry built on the NDK's `android_native_app_glue`. It routes stdout and stderr to logcat (tag `goluwa`), puts the `struct android_app` address in `GOLUWA_ANDROID_APP`, sets `HOME` and the working directory to the app's internal files directory, builds `arg` from `args.txt` there, one argument per line (default `--2d`) and runs `goluwa/main.lua`. Everything else is LuaJIT.
+
+## Building and running
+
+- `nix develop .#android` gives the SDK, NDK, emulator and build tools (entering it accepts the Android SDK license). CI builds the same APK with `.github/workflows/android.yml`.
+- `android/build.sh` builds LuaJIT, `libgoluwa.so` and shaderc for each ABI in `$ABIS` (default `arm64-v8a`; add `x86_64` for the emulator) and signs `android/build/goluwa.apk` with a generated debug key. shaderc is built once per ABI and cached.
+- `android/deploy.sh [engine args]` installs the APK, packs `glw`, `goluwa/` and `addons/` (without tests and the big content folders) into a tar, unpacks it into the app's internal files directory with `run-as` (adb cannot write to `/sdcard/Android/data` on Android 11 and later), writes `args.txt`, starts the activity and follows logcat. The Lua tree is not in the APK, so changing Lua only needs a deploy, not a rebuild.
+- `android/emulator.sh` creates and boots an x86_64 AVD with the host GPU (pass `-no-window` to run it headless, `adb exec-out screencap -p` takes screenshots). Its Vulkan is a translation layer over the host driver that aborts the whole emulator on structs it does not know, so it is stricter than desktop drivers about chaining feature structs for unsupported extensions.
+
+## Simulating a phone GPU on desktop
+
+The Khronos profiles layer (`VK_LAYER_KHRONOS_profiles`, built from KhronosGroup/Vulkan-Profiles, not in nixpkgs) makes the desktop GPU report only what a given device supports. Real device profiles come from `https://vulkan.gpuinfo.org/api/v3/getprofile.php?id=<report id>` (the S24 Ultra, SM-S928B, has reports there). Run with `VK_LAYER_PATH` pointing at the built layer, `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation:VK_LAYER_KHRONOS_profiles` (validation first so it checks against the simulated device), `VK_KHRONOS_PROFILES_PROFILE_FILE=<json>` and `VK_KHRONOS_PROFILES_SIMULATE_CAPABILITIES=SIMULATE_API_VERSION_BIT,SIMULATE_FEATURES_BIT,SIMULATE_PROPERTIES_BIT,SIMULATE_EXTENSIONS_BIT,SIMULATE_FORMATS_BIT`. It only removes capabilities: it cannot add what the host lacks (ASTC on desktop) and says nothing about speed, tiling or memory size. The first run compiles every pipeline cold because the simulated device misses the pipeline cache.
+
+## Platform layer
+
+- `jit.os` is `"Linux"` on Android. `goluwa/bindings/android.lua` has `android.active` (any Android process, Termux included) and `android.app` (only inside the APK). Check them before the Linux branches.
+- The window is `window_implementations/android.lua`: it pumps the glue's looper itself (`android_app_read_cmd`, `pre_exec`, `post_exec`) and reads the input queue directly, so no C callbacks into Lua exist. Losing the window (home, rotation into another activity) shuts the engine down.
+- Input maps onto the mouse and keyboard events the engine already has. Touch: a tap is a `button_1` click, a drag past a small slop is a `button_1` drag, holding still for half a second is a `button_2` click, two fingers moving vertically are wheel steps. A mouse (Bluetooth, DeX) gives buttons from the button state (a down without button bits counts as `button_1`), hover and the scroll axes. Keys are mapped from Android keycodes, with US layout characters for `CharInput`. Text edits send `TextInputStart` and `TextInputStop`, which show and hide the soft keyboard.
+- `ANativeActivity_showSoftInput` does nothing on current Android: it targets NativeActivity's content view, which the input method service never serves. `android.ShowSoftKeyboard` calls `InputMethodManager.showSoftInput` on the decor view through JNI from Lua instead. The emulator hides the soft keyboard while it has a hardware keyboard unless `settings put secure show_ime_with_hard_keyboard 1`.
+- `adb shell input` covers taps, swipes, long presses (`swipe x y x y 900`), `text`, `keyevent` and `mouse tap`; it has no multi-touch or wheel.
+- `libgoluwa.so` is linked with `-z global` so `ffi.C` resolves the LuaJIT API for worker thread states. NDK libraries other than libc (`android`, `aaudio`, `vulkan`) go through `ffi.load`.
+- The swapchain uses the identity transform when the surface allows it and lets the compositor rotate, so a landscape app on a portrait panel presents `VK_SUBOPTIMAL_KHR` every frame. The swapchain knows it chose that and does not rebuild for it. Pre-rotating in the renderer would save the compositor pass.
+- shaderc is loaded from the APK's native library directory. Shared libraries cannot be loaded from `/sdcard`.
+- Bionic differs from glibc in places that matter for ffi: `sysconf` constants, no `libpthread`, `backtrace` only from API 33.

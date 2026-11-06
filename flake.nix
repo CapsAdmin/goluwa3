@@ -224,6 +224,43 @@
 
         # CI shell uses lavapipe (software Vulkan) for reproducible headless runs
         devShells.ci = ciShell;
+
+        # entering this shell accepts the Android SDK license
+        devShells.android =
+          let
+            androidPkgs = import nixpkgs {
+              inherit system;
+              config = {
+                android_sdk.accept_license = true;
+                allowUnfree = true;
+              };
+            };
+            androidComposition = androidPkgs.androidenv.composeAndroidPackages {
+              platformVersions = [ "34" ];
+              buildToolsVersions = [ "34.0.0" ];
+              includeNDK = true;
+              includeEmulator = true;
+              includeSystemImages = true;
+              systemImageTypes = [ "google_apis" ];
+              abiVersions = [ "x86_64" ];
+            };
+            sdk = "${androidComposition.androidsdk}/libexec/android-sdk";
+          in
+          pkgs.mkShell {
+            name = "goluwa3-android";
+            buildInputs = with pkgs; [
+              androidComposition.androidsdk
+              jdk17
+              cmake
+              ninja
+              python3
+              git
+              zip
+            ];
+            ANDROID_HOME = sdk;
+            ANDROID_SDK_ROOT = sdk;
+            ANDROID_NDK_ROOT = "${sdk}/ndk-bundle";
+          };
       }
     );
 }

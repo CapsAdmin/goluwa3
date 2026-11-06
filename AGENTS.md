@@ -145,6 +145,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/prefabs-and-scripts.md](docs/prefabs-and-scripts.md): prefabs, the script component, the use system
 - [docs/ui.md](docs/ui.md): render2d/ui widgets, entity construction, input history, autocomplete, undo, icons, asset browser
 - [docs/wrappers.md](docs/wrappers.md): macos notes, Love2D and Garrysmod wrappers
+- [docs/android.md](docs/android.md): the NativeActivity shim, building and deploying the APK, the emulator, bionic and platform layer differences
 - [docs/vulkan-raytrace.md](docs/vulkan-raytrace.md): hardware ray tracing facts and gotchas
 - [docs/data-driven-effects.md](docs/data-driven-effects.md): effects, damage types and status effects as pure data files, clip expressions and scripts, particle shaders with glsl hooks, the effects editor
 - [docs/jrpg.md](docs/jrpg.md): `!rpg` mode, damage types, status effects, magic, effect pools, pose actions

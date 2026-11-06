@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.goluwa.engine" android:versionCode="1" android:versionName="0.1">
+	<uses-permission android:name="android.permission.INTERNET" />
+	<application android:label="Goluwa" android:hasCode="false" android:debuggable="true" android:extractNativeLibs="true">
+		<activity android:name="android.app.NativeActivity" android:exported="true" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|navigation|uiMode|density" android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+			<meta-data android:name="android.app.lib_name" android:value="goluwa" />
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+		</activity>
+	</application>
+</manifest>
