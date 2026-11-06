@@ -105,6 +105,9 @@ local local_center = Vec3()
 local world_offset = Vec3()
 local local_rotation = Quat()
 local world_rotation = Quat()
+local pose_bone_rotation = Quat()
+local pose_bone_direction = Vec3()
+local pose_bone_frame = Quat()
 local blend_position = Vec3()
 
 function META:Initialize()
@@ -316,7 +319,20 @@ function META:GetPartTarget(definition)
 		if offset then dx, dy, dz = dx + offset.x, dy + offset.y, dz + offset.z end
 
 		local_center:Set(from.m30 + dx * 0.5, from.m31 + dy * 0.5, from.m32 + dz * 0.5)
-		aim_pose.SetBetween(local_rotation, 0, 1, 0, dx, dy, dz)
+		-- the arc is taken in the bone's frame: from world up it flips the twist of limbs that hang down whenever the body tilts
+		local bone_rotation = bones[definition.Bone]:GetRotation(pose_bone_rotation):Conjugate()
+		pose_bone_direction:Set(dx, dy, dz)
+		Quat.SetVecMul(pose_bone_direction, bone_rotation, pose_bone_direction)
+		aim_pose.SetBetween(
+			pose_bone_frame,
+			0,
+			1,
+			0,
+			pose_bone_direction.x,
+			pose_bone_direction.y,
+			pose_bone_direction.z
+		)
+		Quat.SetMul(local_rotation, bone_rotation:Conjugate(), pose_bone_frame)
 	end
 
 	local transform = self.Owner.transform
