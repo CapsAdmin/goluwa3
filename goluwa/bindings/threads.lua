@@ -282,7 +282,11 @@ else
 
 		int usleep(unsigned int usecs);
 	]]
-	local pt = ffi.load("pthread")
+	local pt = pcall(function()
+			return ffi.C.pthread_create
+		end) and
+		ffi.C or
+		ffi.load("pthread")
 
 	local function check_pthread(int)
 		if int == 0 then return end
