@@ -1160,7 +1160,7 @@ function test.ScreenAlbedoPixel(x, y, r, g, b, a, tolerance, msg)
 end
 
 function test.AssertTextureRegion(tbl)
-	local tex = tbl.tex
+	local image = tbl.tex:Download()
 	local mode = tbl.mode or "any"
 	local rect = tbl.rect
 	local hit
@@ -1168,7 +1168,7 @@ function test.AssertTextureRegion(tbl)
 
 	for y = rect[2], rect[4] do
 		for x = rect[1], rect[3] do
-			local r, g, b, a = tex:GetPixel(x, y)
+			local r, g, b, a = image:GetPixel(x, y)
 			local ok = tbl.color(r / 255, g / 255, b / 255, a / 255)
 
 			if ok then

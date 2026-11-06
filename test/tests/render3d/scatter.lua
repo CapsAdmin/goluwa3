@@ -295,12 +295,12 @@ local function draw_red_share(draw, set, tilt)
 		end
 	end)
 	local red, total = 0, 0
-	local texture = gbuffer_layout.GetTexture("albedo")
+	local image = gbuffer_layout.GetTexture("albedo"):Download()
 	local size = render.GetRenderImageSize()
 
 	for y = -8, 8 do
 		for x = -8, 8 do
-			local r, g = texture:GetPixel(math.floor(size.x / 2) + x * 8, math.floor(size.y / 2) + y * 8)
+			local r, g = image:GetPixel(math.floor(size.x / 2) + x * 8, math.floor(size.y / 2) + y * 8)
 			total = total + 1
 
 			if r > 150 and g < 100 then red = red + 1 end
