@@ -13,7 +13,7 @@ climate.DEFAULTS = {
 	wetness = 0,
 	snow_depth = 0,
 	temperature = 15,
-	wind = Vec3(1, 0, 0.35):GetNormalized() * 4,
+	wind = Vec3(0, 0, 0),
 	aerosol_visibility = atmosphere.DEFAULT_AEROSOL_VISIBILITY,
 	ground_fog_visibility = atmosphere.DEFAULT_GROUND_FOG_VISIBILITY,
 	aerosol_angstrom = atmosphere.DEFAULT_AEROSOL.angstrom,
@@ -303,6 +303,7 @@ climate.presets = {
 		},
 	},
 	windy = {
+		wind = Vec3(1, 0, 0.35):GetNormalized() * 4,
 		clouds = {
 			{
 				name = "low",
