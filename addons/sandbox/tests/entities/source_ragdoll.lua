@@ -7,6 +7,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 import("addons/game/lua/autorun/characters.lua")
 local props = import("lua/props.lua")
+local npcs = import("lua/npcs.lua")
 steam.MountSourceGame("gmod")
 local GIB = "models/props_junk/cardboard_box002a_gib01.mdl"
 
@@ -312,7 +313,7 @@ T.TestPhysics("a ragdoll of a character model weighs what the standing character
 	local citizen
 
 	props.Spawn(
-		"models/humans/group01/female_01.mdl",
+		npcs.Definitions.citizen_female.Model,
 		Vec3(0, 1, 0),
 		Quat():Identity(),
 		function(entity)
