@@ -671,10 +671,10 @@ local passes = {
 					vec3 reflection = vec3(0.0);
 
 					vec3 trace_origin = world_pos + (dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N) * 0.02;
-					bool reflection_rough = perceptual_roughness > SCENE_REFLECTION_MIRROR_THRESHOLD;
 					int reflection_rays = 0;
 					float reflection_limit = 0.0;
 					#ifdef SCENE_REFLECTION
+					bool reflection_rough = perceptual_roughness > SCENE_REFLECTION_MIRROR_THRESHOLD;
 					if (traced_weight > 0.0 && scene_reflection_ready()) {
 						reflection_rays = refractive ? scene_reflection_ray_count(perceptual_roughness, lighting_data.rough_rays) : 1;
 						reflection_limit = scene_reflection_hit_luminance_limit(perceptual_roughness, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), lighting_data.reflection_gi_end);
@@ -819,7 +819,9 @@ local passes = {
 						reflection = blend_probe_reflections(mix(irradiance, sky_reflection, sky_visibility), R, perceptual_roughness, world_pos);
 					}
 
+					#ifdef SCENE_REFLECTION
 					if (reflection_rays > 0) reflection = mix(reflection, reflection_sum / float(reflection_rays), traced_weight);
+					#endif
 
 					vec3 background = vec3(0.0);
 
