@@ -433,6 +433,10 @@ function PhysicalDevice:GetRobustness2Features()
 end
 
 function PhysicalDevice:GetExtendedDynamicStateFeatures()
+	if self.extended_dynamic_state_features then
+		return self.extended_dynamic_state_features
+	end
+
 	local queryFeaturesV3 = VkPhysicalDeviceExtendedDynamicState3FeaturesEXTBox(
 		vulkan.vk.s.PhysicalDeviceExtendedDynamicState3FeaturesEXT{
 			sType = "physical_device_extended_dynamic_state_3_features_ext",
@@ -473,7 +477,7 @@ function PhysicalDevice:GetExtendedDynamicStateFeatures()
 	local queryFeaturesV2 = VkPhysicalDeviceExtendedDynamicState2FeaturesEXTBox(
 		vulkan.vk.s.PhysicalDeviceExtendedDynamicState2FeaturesEXT{
 			sType = "physical_device_extended_dynamic_state_2_features_ext",
-			pNext = queryFeaturesV3,
+			pNext = nil,
 			extendedDynamicState2 = 0,
 			extendedDynamicState2LogicOp = 0,
 			extendedDynamicState2PatchControlPoints = 0,
@@ -482,17 +486,31 @@ function PhysicalDevice:GetExtendedDynamicStateFeatures()
 	local queryFeaturesV1 = VkPhysicalDeviceExtendedDynamicStateFeaturesEXTBox(
 		vulkan.vk.s.PhysicalDeviceExtendedDynamicStateFeaturesEXT{
 			sType = "physical_device_extended_dynamic_state_features_ext",
-			pNext = queryFeaturesV2,
+			pNext = nil,
 			extendedDynamicState = 0,
 		}
 	)
+	local available_extensions = self:GetAvailableDeviceExtensions()
+	local chain = nil
+
+	for _, query in ipairs{
+		{"VK_EXT_extended_dynamic_state3", queryFeaturesV3},
+		{"VK_EXT_extended_dynamic_state2", queryFeaturesV2},
+		{"VK_EXT_extended_dynamic_state", queryFeaturesV1},
+	} do
+		if table.has_value(available_extensions, query[1]) then
+			query[2][0].pNext = chain
+			chain = query[2]
+		end
+	end
+
 	local queryDeviceFeatures = vulkan.vk.s.PhysicalDeviceFeatures2{
 		sType = "physical_device_features_2",
-		pNext = queryFeaturesV1,
+		pNext = chain,
 		features = vulkan.vk.VkPhysicalDeviceFeatures(),
 	}
 	vulkan.lib.vkGetPhysicalDeviceFeatures2(self.ptr[0], queryDeviceFeatures)
-	return {
+	self.extended_dynamic_state_features = {
 		extendedDynamicState = queryFeaturesV1[0].extendedDynamicState == 1,
 		extendedDynamicState2 = queryFeaturesV2[0].extendedDynamicState2 == 1,
 		extendedDynamicState2LogicOp = queryFeaturesV2[0].extendedDynamicState2LogicOp == 1,
@@ -529,6 +547,7 @@ function PhysicalDevice:GetExtendedDynamicStateFeatures()
 		extendedDynamicState3RepresentativeFragmentTestEnable = queryFeaturesV3[0].extendedDynamicState3RepresentativeFragmentTestEnable == 1,
 		extendedDynamicState3ShadingRateImageEnable = queryFeaturesV3[0].extendedDynamicState3ShadingRateImageEnable == 1,
 	}
+	return self.extended_dynamic_state_features
 end
 
 function PhysicalDevice:GetDynamicRenderingFeatures()
