@@ -369,18 +369,28 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			return textureLod(TEXTURE(terrain_model.TerrainHeightTexture), (clamp(uv, 0.0, 1.0) * (size - 1.0) + 0.5) / size, 0.0).r;
 		}
 
+		// steepest side the layer relief is assumed to have; lower values step over the flanks of boulders
+		const float TERRAIN_SHELL_RELIEF_SLOPE = 0.9;
+
 		struct TerrainShellWeights {
 			vec4 weights;
 			vec4 weights2;
 			vec3 blend;
 			vec2 uv;
+			vec2 slope;
+			float max_relief;
 		};
 
 		TerrainShellWeights terrain_shell_weights(vec2 uv) {
 			TerrainShellWeights w;
 			w.uv = clamp(uv, 0.0, 1.0);
 			get_terrain_material_weights_both_uv(w.uv, w.weights, w.weights2);
-			vec3 blend = get_terrain_triplanar_weights(get_terrain_world_normal(w.uv));
+			vec3 normal = get_terrain_world_normal(w.uv);
+			w.slope = -normal.xz / max(normal.y, 0.1);
+			vec4 relief = terrain_model.TerrainLayerHeightScales * terrain_model.TerrainLayerScales * step(vec4(0.001), w.weights);
+			vec4 relief2 = terrain_model.TerrainLayerHeightScales2 * terrain_model.TerrainLayerScales2 * step(vec4(0.001), w.weights2);
+			w.max_relief = max(max(max(relief.x, relief.y), max(relief.z, relief.w)), max(max(relief2.x, relief2.y), max(relief2.z, relief2.w)));
+			vec3 blend = get_terrain_triplanar_weights(normal);
 			blend = max(blend - 0.2, vec3(0.0));
 			w.blend = blend / max(blend.x + blend.y + blend.z, 0.0001);
 			return w;
@@ -529,7 +539,15 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				}
 
 				air_t = t;
-				t += clamp(r.clearance / descent * 0.8, max(min_dt, t * pixel_angle * 2.0), max(s.max_step, t * pixel_angle * 4.0));
+				float advance = r.clearance / descent;
+
+				if (s.terrain) {
+					float ground_approach = max(dot(s.weights.slope, dir.xz) - dir.y, 0.0) + 0.05;
+					float headroom = r.level * s.lift - s.weights.max_relief;
+					advance = max(headroom / ground_approach, r.clearance / (ground_approach + TERRAIN_SHELL_RELIEF_SLOPE * length(dir.xz)));
+				}
+
+				t += clamp(advance * 0.8, max(min_dt, t * pixel_angle * 2.0), max(s.max_step, t * pixel_angle * 4.0));
 			}
 
 			if (hi < 0.0) {
