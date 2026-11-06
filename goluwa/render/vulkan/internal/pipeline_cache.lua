@@ -52,12 +52,13 @@ local CREATE_JOB = [[
 		return ffi.cast("void *", loadstring("return " .. text)())
 	end
 
-	local start = os.clock()
+	local get_time = import("goluwa/bindings/time.lua")
+	local start = get_time()
 	local result = create(handle(input.device), handle(input.cache), 1, handle(input.info), nil, handle(input.out))
 
 	if result ~= 0 then error("failed to create pipeline: VkResult " .. result) end
 
-	return (os.clock() - start) * 1000
+	return (get_time() - start) * 1000
 ]]
 
 function PipelineCache:RunCreate(create, info, out, ray_tracing)
