@@ -257,6 +257,9 @@ function render.Shutdown()
 	render.shutting_down = false
 end
 
+-- drivers match cached pipelines without fully hashing descriptor set layouts, so bump this when layout semantics change
+local PIPELINE_CACHE_HEADER = "goluwa pipeline cache 2\n"
+
 local function start_saving_pipeline_cache(path, saved_size)
 	local saved_generation = vulkan_instance:GetPipelineCacheGeneration()
 	local saved_time = -math.huge
@@ -281,10 +284,14 @@ local function start_saving_pipeline_cache(path, saved_size)
 		saved_size = size
 
 		if jit.os == "Windows" then
-			assert(fs.write_file(path, vulkan_instance:GetPipelineCacheData()))
+			assert(
+				fs.write_file(path, PIPELINE_CACHE_HEADER .. vulkan_instance:GetPipelineCacheData())
+			)
 		else
 			local temp_path = path .. "." .. tostring(system.GetTimeNS()):strip_suffix("ULL") .. ".tmp"
-			assert(fs.write_file(temp_path, vulkan_instance:GetPipelineCacheData()))
+			assert(
+				fs.write_file(temp_path, PIPELINE_CACHE_HEADER .. vulkan_instance:GetPipelineCacheData())
+			)
 			assert(os.rename(temp_path, path))
 		end
 	end
@@ -304,8 +311,20 @@ function render.Initialize(config)
 
 	startup.End("locate shaderc")
 	render.initializing = true
-	local pipeline_cache_path = vfs.GetStorageDirectory("cache") .. (config.pipeline_cache_name or "vulkan_pipeline_cache") .. ".bin"
+	local pipeline_cache_path = vfs.GetStorageDirectory("cache") .. (
+			config.pipeline_cache_name or
+			"vulkan_pipeline_cache"
+		) .. ".bin"
 	local pipeline_cache_data = fs.read_file(pipeline_cache_path)
+
+	if
+		pipeline_cache_data and
+		pipeline_cache_data:sub(1, #PIPELINE_CACHE_HEADER) == PIPELINE_CACHE_HEADER
+	then
+		pipeline_cache_data = pipeline_cache_data:sub(#PIPELINE_CACHE_HEADER + 1)
+	else
+		pipeline_cache_data = nil
+	end
 
 	if not is_headless then
 		local wnd = assert(
