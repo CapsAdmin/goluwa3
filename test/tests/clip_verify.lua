@@ -23,6 +23,12 @@ local function check(label, cx, cy, cw, ch)
 			T(blue(R, midy))["=="](false)
 			T(blue(midx, Tp - 1))["=="](false)
 			T(blue(midx, B))["=="](false)
+
+			if jit.os == "OSX" then
+				L, R = math.ceil(cx), math.floor(cx + cw)
+				Tp, B = math.ceil(cy), math.floor(cy + ch)
+			end
+
 			T(blue(L, midy))["=="](true)
 			T(blue(R - 1, midy))["=="](true)
 			T(blue(midx, Tp))["=="](true)
