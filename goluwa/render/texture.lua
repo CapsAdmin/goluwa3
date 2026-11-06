@@ -1322,8 +1322,8 @@ function Texture:Shade(glsl, extra_config)
 							#extension GL_EXT_nonuniform_qualifier : require
 							%s
 
-							layout(binding = 0) uniform sampler2D textures[%d];
-							layout(binding = 1) uniform samplerCube cubemaps[%d];
+							layout(set = 1, binding = 0) uniform sampler2D textures[%d];
+							layout(set = 1, binding = 1) uniform samplerCube cubemaps[%d];
 							#define TEXTURE(idx) textures[nonuniformEXT(idx)]
 							#define CUBEMAP(idx) cubemaps[nonuniformEXT(idx)]
 
@@ -1366,11 +1366,13 @@ function Texture:Shade(glsl, extra_config)
 					type = "combined_image_sampler",
 					binding_index = 0,
 					count = bindless_texture_capacity,
+					set_index = 1,
 				},
 				{
 					type = "combined_image_sampler",
 					binding_index = 1,
 					count = bindless_cubemap_capacity,
+					set_index = 1,
 				},
 			},
 		}
