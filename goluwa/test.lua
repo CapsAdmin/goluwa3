@@ -591,7 +591,6 @@ function test.FindTests(path_pattern)
 	local roots = {
 		{
 			full = current_directory .. "/test/tests/",
-			prefix = "test/tests/",
 			keep_relative_name = false,
 		},
 	}
@@ -599,18 +598,14 @@ function test.FindTests(path_pattern)
 
 	if fs.is_directory(addons_directory) then
 		for _, addon_name in ipairs(fs.get_files(addons_directory) or {}) do
-			local addon_path = addons_directory .. addon_name
-			local tests_directory = addon_path .. "/tests/"
+			local tests_directory = addons_directory .. addon_name .. "/tests/"
 
-			if fs.is_directory(tests_directory) then
-				table.insert(
-					roots,
-					{
-						full = tests_directory,
-						prefix = tests_directory:gsub(current_directory .. "/", ""),
-						keep_relative_name = true,
-					}
-				)
+			if
+				not addon_name:starts_with("__") and
+				not addon_name:starts_with(".") and
+				fs.is_directory(tests_directory)
+			then
+				table.insert(roots, {full = tests_directory, keep_relative_name = true})
 			end
 		end
 	end
@@ -620,8 +615,8 @@ function test.FindTests(path_pattern)
 	for _, root in ipairs(roots) do
 		for _, path in ipairs(fs.get_files_recursive(root.full) or {}) do
 			if fs.is_file(path) then
-				local relative_path = path:gsub(current_directory .. "/", "")
-				local name = root.keep_relative_name and relative_path or path:gsub(root.full, "")
+				local relative_path = path:replace(current_directory .. "/", "")
+				local name = root.keep_relative_name and relative_path or path:replace(root.full, "")
 
 				if
 					not path_pattern or
