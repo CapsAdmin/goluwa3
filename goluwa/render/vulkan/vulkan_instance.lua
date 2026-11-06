@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local android = import("goluwa/bindings/android.lua")
 local Instance = import("goluwa/render/vulkan/internal/instance.lua")
 local Device = import("goluwa/render/vulkan/internal/device.lua")
 local PhysicalDevice = import("goluwa/render/vulkan/internal/physical_device.lua")
@@ -35,7 +36,9 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 	local surface_ext
 
 	if not is_headless then
-		surface_ext = jit.os == "OSX" and
+		surface_ext = android.active and
+			"VK_KHR_android_surface" or
+			jit.os == "OSX" and
 			"VK_EXT_metal_surface" or
 			jit.os == "Windows" and
 			"VK_KHR_win32_surface" or

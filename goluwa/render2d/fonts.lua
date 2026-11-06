@@ -1,4 +1,5 @@
 local fs = import("goluwa/filesystem/fs.lua")
+local android = import("goluwa/bindings/android.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Color = import("goluwa/structs/color.lua")
 local SDFFont = import("goluwa/render2d/fonts/sdf.lua")
@@ -98,6 +99,8 @@ function fonts.GetSystemFonts()
 		if local_app_data then
 			table.insert(paths, local_app_data .. "/Microsoft/Windows/Fonts")
 		end
+	elseif android.active then
+		table.insert(paths, "/system/fonts")
 	elseif jit.os == "OSX" then
 		table.insert(paths, "/System/Library/Fonts")
 		table.insert(paths, "/Library/Fonts")
@@ -177,6 +180,8 @@ function fonts.GetDefaultSystemFontPath()
 
 	if jit.os == "Windows" then
 		return os.getenv("WINDIR") .. "/Fonts/arial.ttf"
+	elseif android.active then
+		return "/system/fonts/Roboto-Regular.ttf"
 	elseif jit.os == "OSX" then
 		return "/Library/Fonts/Arial Unicode.ttf"
 	elseif jit.os == "Linux" then

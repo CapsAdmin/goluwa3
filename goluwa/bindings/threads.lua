@@ -320,7 +320,11 @@ else
 
 	local FLAG_SC_NPROCESSORS_ONLN = 83
 
-	if jit.os == "OSX" then FLAG_SC_NPROCESSORS_ONLN = 58 end
+	if jit.os == "OSX" then
+		FLAG_SC_NPROCESSORS_ONLN = 58
+	elseif import("goluwa/bindings/android.lua").active then
+		FLAG_SC_NPROCESSORS_ONLN = 0x61
+	end
 
 	function threads.get_thread_count()
 		return tonumber(ffi.C.sysconf(FLAG_SC_NPROCESSORS_ONLN))

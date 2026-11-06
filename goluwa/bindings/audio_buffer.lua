@@ -361,6 +361,68 @@ elseif ffi.os == "Windows" then
 		audio._hdrs = nil
 		audio._config = nil
 	end
+elseif import("goluwa/bindings/android.lua").active then
+	local aaudio = ffi.load("aaudio")
+	ffi.cdef[[
+		int32_t AAudio_createStreamBuilder(void **builder);
+		void AAudioStreamBuilder_setFormat(void *builder, int32_t format);
+		void AAudioStreamBuilder_setChannelCount(void *builder, int32_t channel_count);
+		void AAudioStreamBuilder_setSampleRate(void *builder, int32_t sample_rate);
+		void AAudioStreamBuilder_setPerformanceMode(void *builder, int32_t mode);
+		int32_t AAudioStreamBuilder_openStream(void *builder, void **stream);
+		int32_t AAudioStreamBuilder_delete(void *builder);
+		int32_t AAudioStream_requestStart(void *stream);
+		int32_t AAudioStream_requestStop(void *stream);
+		int32_t AAudioStream_close(void *stream);
+		int32_t AAudioStream_write(void *stream, const void *buffer, int32_t num_frames, int64_t timeout_nanoseconds);
+		int32_t AAudioStream_getSampleRate(void *stream);
+		const char *AAudio_convertResultToText(int32_t result);
+	]]
+	local AAUDIO_FORMAT_PCM_FLOAT = 2
+	local AAUDIO_PERFORMANCE_MODE_LOW_LATENCY = 12
+
+	local function check(result, what)
+		if result < 0 then
+			error(what .. ": " .. ffi.string(aaudio.AAudio_convertResultToText(result)), 2)
+		end
+	end
+
+	function audio.start(config)
+		config = config or {}
+		config.sample_rate = config.sample_rate or 44100
+		config.buffer_size = config.buffer_size or 512
+		config.channels = config.channels or 2
+		local builder = ffi.new("void *[1]")
+		check(aaudio.AAudio_createStreamBuilder(builder), "AAudio_createStreamBuilder")
+		aaudio.AAudioStreamBuilder_setFormat(builder[0], AAUDIO_FORMAT_PCM_FLOAT)
+		aaudio.AAudioStreamBuilder_setChannelCount(builder[0], config.channels)
+		aaudio.AAudioStreamBuilder_setSampleRate(builder[0], config.sample_rate)
+		aaudio.AAudioStreamBuilder_setPerformanceMode(builder[0], AAUDIO_PERFORMANCE_MODE_LOW_LATENCY)
+		local stream = ffi.new("void *[1]")
+		local result = aaudio.AAudioStreamBuilder_openStream(builder[0], stream)
+		aaudio.AAudioStreamBuilder_delete(builder[0])
+		check(result, "AAudioStreamBuilder_openStream")
+		check(aaudio.AAudioStream_requestStart(stream[0]), "AAudioStream_requestStart")
+		config.sample_rate = aaudio.AAudioStream_getSampleRate(stream[0])
+		audio._stream = stream[0]
+		audio._config = config
+		audio._buf = ffi.new("float[?]", config.buffer_size * config.channels)
+		return config
+	end
+
+	function audio.update()
+		local config = audio._config
+		audio.callback(audio._buf, config.buffer_size * config.channels, config)
+		aaudio.AAudioStream_write(audio._stream, audio._buf, config.buffer_size, 1000000000)
+	end
+
+	function audio.stop()
+		aaudio.AAudioStream_requestStop(audio._stream)
+		aaudio.AAudioStream_close(audio._stream)
+		audio._stream = nil
+		audio._config = nil
+		audio._buf = nil
+	end
 elseif ffi.os == "Linux" then
 	local alsa = find_library_linux("libasound")
 	ffi.cdef[[

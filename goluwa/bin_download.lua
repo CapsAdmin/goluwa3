@@ -2,6 +2,8 @@ local system = import("goluwa/system.lua")
 local sleep = import("goluwa/bindings/threads.lua").sleep
 local bin_download = {}
 bin_download.platform = (
+		import("goluwa/bindings/android.lua").active and
+		"android" or
 		jit.os == "Windows" and
 		"windows" or
 		jit.os == "OSX" and

@@ -328,7 +328,9 @@ function Window:OnMouseScroll(dir)
 	return event.Call("MouseScroll", dir)
 end
 
-if jit.os == "OSX" then
+if import("goluwa/bindings/android.lua").app then
+	import("goluwa/window_implementations/android.lua")(Window)
+elseif jit.os == "OSX" then
 	import("goluwa/window_implementations/macos.lua")(Window)
 elseif jit.os == "Windows" then
 	import("goluwa/window_implementations/windows.lua")(Window)

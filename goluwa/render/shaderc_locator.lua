@@ -3,6 +3,7 @@ local vfs = import("goluwa/vfs.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local shaderc = import("goluwa/bindings/shaderc.lua")
 local bin_download = import("goluwa/bin_download.lua")
+local android = import("goluwa/bindings/android.lua")
 local locator = {}
 local SMOKE_SOURCE = "#version 450\nlayout(local_size_x = 1) in;\nvoid main() {}\n"
 local SPIRV_MAGIC = 0x07230203
@@ -352,6 +353,11 @@ function locator.Prompt(reason)
 end
 
 function locator.Locate()
+	if android.active then
+		assert(try_load("libshaderc_shared.so"))
+		return
+	end
+
 	fs.create_directory_recursive(locator.GetDirectory())
 
 	if os.getenv("GOLUWA_FORCE_DOWNLOAD") == "1" then

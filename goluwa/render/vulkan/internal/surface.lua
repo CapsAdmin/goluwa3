@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local android = import("goluwa/bindings/android.lua")
 local Surface = objects.CreateTemplate("vulkan_surface")
 local VkSurfaceKHRBox = ffi.typeof("$[1]", vulkan.vk.VkSurfaceKHR)
 local WIN32_SURFACE_CREATE_INFO_T = ffi.typeof([[struct {
@@ -17,7 +18,14 @@ function Surface.New(instance, surface_handle, display_handle)
 	local info
 	local vkCreateSurface
 
-	if jit.os == "OSX" then
+	if android.active then
+		assert(surface_handle ~= nil, "surface_handle cannot be nil")
+		info = vulkan.vk.s.AndroidSurfaceCreateInfoKHR{
+			flags = 0,
+			window = ffi.cast("struct ANativeWindow *", surface_handle),
+		}
+		vkCreateSurface = instance:GetExtension("vkCreateAndroidSurfaceKHR")
+	elseif jit.os == "OSX" then
 		assert(surface_handle ~= nil, "surface_handle cannot be nil")
 		info = vulkan.vk.s.MetalSurfaceCreateInfoEXT{
 			flags = 0,
