@@ -299,6 +299,7 @@ local DesktopView = react.Component(
 		local version, set_version = react.UseState(0)
 		local menu_items = react.UseMemo(build_menu_items, {version})
 		react.UseEvent("DesktopChanged", ||->set_version(|current|->current + 1))
+			react.UseEvent("WindowFramebufferResized", |_, size|->root.transform:SetSize(size))
 		return ui.Panel{
 			Ref = |entity|-> do
 				root = entity ?? NULL
