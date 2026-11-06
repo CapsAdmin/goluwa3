@@ -89,6 +89,31 @@ if jit.os ~= "Windows" then
                     int64_t __unused[3];
                 }
             ]])
+			elseif jit.arch == "arm64" then
+				stat_struct = ffi.typeof([[
+                struct {
+                    uint64_t st_dev;
+                    uint64_t st_ino;
+                    uint32_t st_mode;
+                    uint32_t st_nlink;
+                    uint32_t st_uid;
+                    uint32_t st_gid;
+                    uint64_t st_rdev;
+                    uint64_t __pad1;
+                    int64_t st_size;
+                    int32_t st_blksize;
+                    int32_t __pad2;
+                    int64_t st_blocks;
+                    int64_t st_atime;
+                    uint64_t st_atime_nsec;
+                    int64_t st_mtime;
+                    uint64_t st_mtime_nsec;
+                    int64_t st_ctime;
+                    uint64_t st_ctime_nsec;
+                    uint32_t __unused4;
+                    uint32_t __unused5;
+                }
+            ]])
 			else
 				stat_struct = ffi.typeof([[
                 struct {
@@ -126,6 +151,11 @@ if jit.os ~= "Windows" then
 			stat_func = ffi.C.stat64
 			ffi.cdef[[int lstat64(const char *path, void *buf);]]
 			stat_func_link = ffi.C.lstat64
+		elseif jit.arch == "arm64" then
+			ffi.cdef[[int stat(const char *path, void *buf);]]
+			stat_func = ffi.C.stat
+			ffi.cdef[[int lstat(const char *path, void *buf);]]
+			stat_func_link = ffi.C.lstat
 		else
 			ffi.cdef("unsigned long syscall(int number, ...);")
 			local arch = jit.arch
