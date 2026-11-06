@@ -115,6 +115,7 @@ compute(x + y)
 # Docs
 System specific notes live in `docs/`. Read the relevant file before working in that area.
 
+- [docs/testing.md](docs/testing.md): how the test runner runs files, the timing report, the `--slow` tier, keeping tests fast and independent
 - [docs/screenshots-and-cameras.md](docs/screenshots-and-cameras.md): `Screenshot`, `Shot`, moving the camera
 - [docs/debugging-and-profiling.md](docs/debugging-and-profiling.md): print helpers, the JIT profiler, optimization notes
 - [docs/mcp.md](docs/mcp.md): the always-on MCP server in every instance, probing a running client and server (`addons/mcp/mcp`)
