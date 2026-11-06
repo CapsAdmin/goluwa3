@@ -304,7 +304,7 @@ function render.Initialize(config)
 
 	startup.End("locate shaderc")
 	render.initializing = true
-	local pipeline_cache_path = vfs.GetStorageDirectory("cache") .. "vulkan_pipeline_cache.bin"
+	local pipeline_cache_path = vfs.GetStorageDirectory("cache") .. (config.pipeline_cache_name or "vulkan_pipeline_cache") .. ".bin"
 	local pipeline_cache_data = fs.read_file(pipeline_cache_path)
 
 	if not is_headless then

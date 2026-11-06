@@ -18,7 +18,12 @@ local height = 512
 function test_render.Init()
 	if not test_render.init then
 		render = import("goluwa/render/render.lua")
-		render.Initialize{headless = true, width = width, height = height}
+		render.Initialize{
+			headless = true,
+			width = width,
+			height = height,
+			pipeline_cache_name = "vulkan_pipeline_cache_test",
+		}
 		test_render.init = true
 	end
 end
