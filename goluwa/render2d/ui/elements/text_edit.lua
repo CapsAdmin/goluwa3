@@ -1,5 +1,6 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
 local system = import("goluwa/system.lua")
+local event = import("goluwa/event.lua")
 local Rect = import("goluwa/structs/rect.lua")
 local Panel = import("goluwa/render2d/ui/panel.lua")
 local Text = import("goluwa/render2d/ui/elements/text.lua")
@@ -63,10 +64,12 @@ local function on_text_focus(text)
 	end
 
 	last_focused_text = text
+	event.Call("TextInputStart", text)
 end
 
 local function on_text_unfocus(text)
 	text.mouse_input:SetRequestMouse(false)
+	event.Call("TextInputStop", text)
 end
 
 local function on_text_cursor_moved(text)
