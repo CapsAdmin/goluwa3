@@ -344,6 +344,35 @@ function surface_weather.GetGLSL(block_name)
 			return mix(mix(i00, i10, w.x), mix(i01, i11, w.x), w.y) >= 0.0;
 		}
 
+		vec4 snow_bspline_weights(float t) {
+			float t2 = t * t;
+			float t3 = t2 * t;
+			return vec4(1.0 - 3.0 * t + 3.0 * t2 - t3, 4.0 - 6.0 * t2 + 3.0 * t3, 1.0 + 3.0 * t + 3.0 * t2 - 3.0 * t3, t3) / 6.0;
+		}
+
+		bool snow_map_inside_smooth(vec3 c, float bias, float jump) {
+			ivec2 size = textureSize(TEXTURE(]] .. block_name .. [[.snow_map_texture), 0);
+			vec2 f = c.xy * vec2(size) - 0.5;
+			ivec2 i = ivec2(floor(f));
+			vec2 t = f - vec2(i);
+			vec4 wx = snow_bspline_weights(t.x);
+			vec4 wy = snow_bspline_weights(t.y);
+			float sum = 0.0;
+
+			for (int y = 0; y < 4; y++) {
+				float row = 0.0;
+
+				for (int x = 0; x < 4; x++) {
+					ivec2 q = clamp(i + ivec2(x - 1, y - 1), ivec2(0), size - 1);
+					row += wx[x] * snow_texel_inside(texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), q, 0).rg, c.z, bias, jump);
+				}
+
+				sum += wy[y] * row;
+			}
+
+			return sum >= 0.0;
+		}
+
 		// marches the view ray towards the fragment through the snow lying on the topmost surface (the snow map, built from
 		// the shelter map); a point is in snow when it lies between the snow top and the surface it lies on
 		bool march_snow_cover(vec3 eye, inout vec3 world_pos, vec3 surface_normal, out vec3 normal) {
@@ -384,7 +413,7 @@ function surface_weather.GetGLSL(block_name)
 				if (i > steps) break;
 
 				float f = float(i) / float(steps);
-				if (snow_map_inside(mix(a, b, f), i == steps ? max(bias, own_bias) : bias, jump)) {
+				if (i == steps ? snow_map_inside_smooth(b, max(bias, own_bias), jump) : snow_map_inside(mix(a, b, f), bias, jump)) {
 					hit = f;
 					break;
 				}
@@ -400,7 +429,7 @@ function surface_weather.GetGLSL(block_name)
 
 				for (int i = 0; i < 6; i++) {
 					float mid = 0.5 * (lo + hi);
-					if (snow_map_inside(mix(a, b, mid), bias, jump)) {
+					if (snow_map_inside_smooth(mix(a, b, mid), bias, jump)) {
 						hi = mid;
 					} else {
 						lo = mid;
