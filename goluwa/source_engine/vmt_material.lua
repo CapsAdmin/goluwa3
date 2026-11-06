@@ -1,4 +1,3 @@
-local ffi = require("ffi")
 local tasks = import("goluwa/tasks.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Texture = import("goluwa/render/texture.lua")
@@ -865,56 +864,9 @@ do
 				return
 			end
 
-			local buffer = height_from_normals.Solve(texture, 2, size * height_cut)
-			local heights = ffi.cast("float*", buffer:Map())
-			local count = size * size
-			local lo, hi = math.huge, -math.huge
-
-			for i = 0, count - 1 do
-				lo, hi = math.min(lo, heights[i]), math.max(hi, heights[i])
-			end
-
-			local bins = {}
-
-			for i = 1, 256 do
-				bins[i] = 0
-			end
-
-			for i = 0, count - 1 do
-				local bin = math.min(256, math.floor((heights[i] - lo) / (hi - lo) * 255) + 1)
-				bins[bin] = bins[bin] + 1
-			end
-
-			local sum, low_bin, high_bin = 0, 1, 256
-
-			for i = 1, 256 do
-				sum = sum + bins[i]
-
-				if sum < count * 0.01 then low_bin = i end
-
-				if sum <= count * 0.99 then high_bin = i end
-			end
-
-			local p_lo = lo + (hi - lo) * low_bin / 256
-			local p_hi = lo + (hi - lo) * (high_bin + 1) / 256
-			local relief = ffi.new("uint8_t[?]", count)
-
-			for i = 0, count - 1 do
-				relief[i] = math.floor(math.min(math.max((heights[i] - p_lo) / (p_hi - p_lo), 0), 1) * 255 + 0.5)
-			end
-
-			buffer:Remove()
-			self:SetHeightTexture(
-				Texture.New{
-					buffer = relief,
-					width = size,
-					height = size,
-					format = "r8_unorm",
-					mip_map_levels = "auto",
-					cache_key = "height|" .. bumpmap,
-				}
-			)
-			self:SetHeightScale(math.clamp((p_hi - p_lo) / size, 0.005, 0.05))
+			local height, relief = height_from_normals.CreateHeightTexture(texture, height_cut, "height|" .. bumpmap)
+			self:SetHeightTexture(height)
+			self:SetHeightScale(math.clamp(relief, 0.005, 0.05))
 			self:SetHeightMidlevel(0.5)
 			vmt_material.UpdateHeightShell(self)
 		end)

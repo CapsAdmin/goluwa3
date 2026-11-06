@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local bit = require("bit")
 local render = import("goluwa/render/render.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local Texture = import("goluwa/render/texture.lua")
 local height_from_normals = {}
 local GROUP_SIZE = 64
 local TWO_PI = 2 * math.pi
@@ -29,7 +30,7 @@ shaders.gradient = {
 
 			vec2 xy = texelFetch(normals, ivec2(int(id) % n, int(id) / n), 0).xy * 2.0 - 1.0;
 			float nz = sqrt(max(1.0 - dot(xy, xy), 0.0025));
-			dest[id] = vec2(-xy.x / nz, -xy.y / nz);
+			dest[id] = vec2(-xy.x / nz, -xy.y / nz * params[1]);
 		}
 	]],
 }
@@ -196,15 +197,16 @@ do
 	-- to tile. `cutoff` (cycles over the texture, default 2) removes the slowest frequencies, the
 	-- drift a tiling solve cannot know. `height_cut` fades out everything finer than that many
 	-- cycles (a parallax method smears steep narrow grooves). Returns a buffer of n * n floats, in
-	-- texels of height for a slope measured in texels (`ffi.cast("float*", buffer:Map())`).
-	function height_from_normals.Solve(normals, cutoff, height_cut)
+	-- texels of height for a slope measured in texels (`ffi.cast("float*", buffer:Map())`). `flip_green`
+	-- is for normal maps whose green points down (DirectX).
+	function height_from_normals.Solve(normals, cutoff, height_cut, flip_green)
 		local n = normals:GetWidth()
 		assert(
 			n == normals:GetHeight() and bit.band(n, n - 1) == 0,
 			"normals must be a square power of two texture"
 		)
 		local a, b = create_buffer(n * n * 8), create_buffer(n * n * 8)
-		run("gradient", {a}, {n}, n * n, normals)
+		run("gradient", {a}, {n, flip_green and -1 or 1}, n * n, normals)
 		a, b = transform_2d(a, b, n, false)
 		run("solve", {a, b}, {n, cutoff or 2, height_cut or 0}, n * n)
 		a, b = transform_2d(b, a, n, true)
@@ -214,6 +216,61 @@ do
 		b:Remove()
 		return height
 	end
+end
+
+-- Solves the height of a square power of two normal texture and normalises it to 8 bits (1% to 99% of the
+-- solved range). Returns the r8 texture and the solved relief as a fraction of the texture size, the depth
+-- the normals describe. `height_cut` is a fraction of the size, see Solve.
+function height_from_normals.CreateHeightTexture(normals, height_cut, cache_key, flip_green)
+	local size = normals:GetWidth()
+	local buffer = height_from_normals.Solve(normals, 2, size * height_cut, flip_green)
+	local heights = ffi.cast("float*", buffer:Map())
+	local count = size * size
+	local lo, hi = math.huge, -math.huge
+
+	for i = 0, count - 1 do
+		lo, hi = math.min(lo, heights[i]), math.max(hi, heights[i])
+	end
+
+	local bins = {}
+
+	for i = 1, 256 do
+		bins[i] = 0
+	end
+
+	for i = 0, count - 1 do
+		local bin = math.min(256, math.floor((heights[i] - lo) / (hi - lo) * 255) + 1)
+		bins[bin] = bins[bin] + 1
+	end
+
+	local sum, low_bin, high_bin = 0, 1, 256
+
+	for i = 1, 256 do
+		sum = sum + bins[i]
+
+		if sum < count * 0.01 then low_bin = i end
+
+		if sum <= count * 0.99 then high_bin = i end
+	end
+
+	local p_lo = lo + (hi - lo) * low_bin / 256
+	local p_hi = lo + (hi - lo) * (high_bin + 1) / 256
+	local relief = ffi.new("uint8_t[?]", count)
+
+	for i = 0, count - 1 do
+		relief[i] = math.floor(math.min(math.max((heights[i] - p_lo) / (p_hi - p_lo), 0), 1) * 255 + 0.5)
+	end
+
+	buffer:Remove()
+	return Texture.New{
+		buffer = relief,
+		width = size,
+		height = size,
+		format = "r8_unorm",
+		mip_map_levels = "auto",
+		cache_key = cache_key,
+	},
+	(p_hi - p_lo) / size
 end
 
 return height_from_normals
