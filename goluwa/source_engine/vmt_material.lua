@@ -866,7 +866,7 @@ do
 
 			local height, relief = height_from_normals.CreateHeightTexture(texture, height_cut, "height|" .. bumpmap)
 			self:SetHeightTexture(height)
-			self:SetHeightScale(math.clamp(relief, 0.005, 0.05))
+			self:SetHeightScale(math.clamp(relief, 0.005, 0.05) / 3)
 			self:SetHeightMidlevel(0)
 			vmt_material.UpdateHeightShell(self)
 		end)
