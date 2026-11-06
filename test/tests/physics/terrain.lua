@@ -6,7 +6,7 @@ local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local physics = import("goluwa/physics.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 
 local function analytic_height(x, z)
 	return 10 + math.sin(x * 0.1) * 3 + math.cos(z * 0.07) * 2

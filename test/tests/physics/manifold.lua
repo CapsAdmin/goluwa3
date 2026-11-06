@@ -3,7 +3,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local manifold = import("goluwa/physics/manifold.lua")
 local contact_solver = import("goluwa/physics/contact_solver.lua")
 local contact_store = import("goluwa/physics/contact_store.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 
 local function create_mock_body(data)
 	data = data or {}

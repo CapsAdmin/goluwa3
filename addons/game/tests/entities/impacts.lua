@@ -6,7 +6,7 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 import("addons/game/lua/autorun/impacts.lua")
 
 local function create_concrete_ground()

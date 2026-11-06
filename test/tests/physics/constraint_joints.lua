@@ -7,7 +7,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local constraints = import("goluwa/physics/constraints.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 local DT = 1 / 120
 
 local function gravity()

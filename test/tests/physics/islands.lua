@@ -1,6 +1,6 @@
 local T = import("test/environment.lua")
 local islands = import("goluwa/physics/islands.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local next_entry_id = 0
 

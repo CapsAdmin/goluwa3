@@ -7,7 +7,7 @@ local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 local DROP = 1.5
 
 local function drop_box(ground)

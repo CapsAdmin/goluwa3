@@ -4,7 +4,7 @@ local event = import("goluwa/event.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 
 local function create_box_ground()
 	local ground = Entity.New({Name = "contact_ground"})

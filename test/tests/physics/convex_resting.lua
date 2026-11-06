@@ -6,7 +6,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local ConvexShape = import("goluwa/physics/shapes/convex.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 
 local function create_brush(mins, maxs)
 	return {

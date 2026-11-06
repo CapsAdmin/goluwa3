@@ -2,7 +2,7 @@ local T = import("test/environment.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 
 T.TestPhysics("Heightmap shape enumerates triangles and computes bounds", function()
 	local shape = HeightmapShape.New{

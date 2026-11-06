@@ -3,7 +3,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local broadphase = import("goluwa/physics/broadphase.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 local identity_rotation = Quat(0, 0, 0, 1)
 
 local function set_mock_bounds(body, current_bounds, previous_bounds)

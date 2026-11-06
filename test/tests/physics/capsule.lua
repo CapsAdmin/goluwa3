@@ -8,7 +8,7 @@ local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 local CCD_FIXED_STEPS = {1 / 60}
 
 local function with_ccd(config)

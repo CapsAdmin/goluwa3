@@ -5,7 +5,7 @@ local AABB = import("goluwa/structs/aabb.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 
 local function create_brush_primitive(mins, maxs)
 	return {

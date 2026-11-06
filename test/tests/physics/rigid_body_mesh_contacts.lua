@@ -5,7 +5,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 
 local function add_triangle(poly, a, b, c)
 	poly:AddVertex({pos = a})

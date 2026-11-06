@@ -7,7 +7,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local CompoundShape = import("goluwa/physics/shapes/compound.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 local sphere_shape = SphereShape.New
 local compound_shape = CompoundShape.New
 

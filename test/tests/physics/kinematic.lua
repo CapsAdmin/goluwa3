@@ -1,5 +1,5 @@
 local T = import("test/environment.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 local physics = import("goluwa/physics.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")

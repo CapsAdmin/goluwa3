@@ -1,7 +1,7 @@
 local T = import("test/environment.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local polyhedron_solver = import("goluwa/physics/pair_solvers/polyhedron.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 
 local function create_mock_body(vertices)
 	local body = test_helpers.CreateStubBody()

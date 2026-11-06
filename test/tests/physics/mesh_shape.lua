@@ -3,7 +3,7 @@ local physics = import("goluwa/physics.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
-local test_helpers = import("test/tests/physics/test_helpers.lua")
+local test_helpers = import("test/physics_helpers.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 
