@@ -236,24 +236,34 @@ T.Test3DRayTracing = function(name, cb)
 		test_render.Draw3D(cb)
 	end)
 end
-T.TestPhysics = function(name, cb)
-	return T.Test(name, function()
-		local physics = import("goluwa/physics.lua")
 
-		if not physics.instance then physics.Initialize() end
+do
+	local slow_step_time
 
-		local Entity = import("goluwa/entities/entity.lua")
-		-- a slow tick (jit warmup, validation layers, other test files) would put islands to sleep and make results depend on machine speed
-		local slow_step_time = physics.instance.SlowStepTime
-		physics.instance.SlowStepTime = math.huge
-		cb()
-		physics.instance.SlowStepTime = slow_step_time
-
-		for _, ent in ipairs(Entity.World:GetChildrenList()) do
+	local function clear_world(physics)
+		for _, ent in ipairs(import("goluwa/entities/entity.lua").World:GetChildrenList()) do
 			if ent:IsValid() then ent:Remove() end
 		end
 
 		physics.ResetState()
-	end)
+	end
+
+	T.TestPhysics = function(name, cb)
+		return T.Test(name, function()
+			local physics = import("goluwa/physics.lua")
+
+			if not physics.instance then physics.Initialize() end
+
+			-- a test that errors never reaches the cleanup after cb, so its bodies would fall into the next test
+			clear_world(physics)
+			slow_step_time = slow_step_time or physics.instance.SlowStepTime
+			-- a slow tick (jit warmup, validation layers, other test files) would put islands to sleep and make results depend on machine speed
+			physics.instance.SlowStepTime = math.huge
+			cb()
+			physics.instance.SlowStepTime = slow_step_time
+			clear_world(physics)
+		end)
+	end
 end
+
 return T
