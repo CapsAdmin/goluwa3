@@ -1053,6 +1053,8 @@ function Visual:SetModelPath(path)
 
 			local mesh = data.mesh
 
+			if mesh.mesh == NULL then return end
+
 			if not mesh.mesh:IsValid() then
 				logf("%s model %q has a removed mesh\n", self, path)
 				self:MakeError()
