@@ -612,7 +612,7 @@ function test.FindTests(path_pattern)
 
 	for _, root in ipairs(roots) do
 		for _, path in ipairs(fs.get_files_recursive(root.full) or {}) do
-			if fs.is_file(path) then
+			if path:ends_with(".lua") and fs.is_file(path) then
 				local relative_path = path:replace(current_directory .. "/", "")
 				local name = root.keep_relative_name and relative_path or path:replace(root.full, "")
 
