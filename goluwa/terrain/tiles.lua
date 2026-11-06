@@ -267,12 +267,12 @@ function tiles.BuildPolygon(chunk, skirt_depth, stride, mode, shell)
 		false,
 		mode or "owned",
 		AABB(
-			0,
+			-(shell or 0) * 1.1,
 			chunk.min_height - skirt_depth,
-			0,
-			request.size,
+			-(shell or 0) * 1.1,
+			request.size + (shell or 0) * 1.1,
 			chunk.max_height + (shell or 0) * 1.1,
-			request.size
+			request.size + (shell or 0) * 1.1
 		)
 	)
 	return polygon

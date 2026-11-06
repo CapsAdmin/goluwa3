@@ -190,7 +190,7 @@ local function build_multi_draw_pass(fragment_shader)
 	pass.on_draw = nil
 	pass.on_pre_draw = nil
 	pass.vertex = model_pipeline.CreateMultiDrawVertexStage{
-		shell_offset_expr = "world_normal * ((abs(in_tangent.w) > 1.5 && abs(in_tangent.w) < 2.5) || abs(in_tangent.w) > 3.5 ? 0.0 : batch_data.b[batch_index].m_displacement_model.HeightShell * (1.0 - batch_data.b[batch_index].m_displacement_model.HeightMidlevel)) + vec3(0.0, abs(in_tangent.w) > 1.5 ? 0.0 : batch_data.b[batch_index].m_terrain_model.TerrainShell * 1.1, 0.0)",
+		shell_offset_expr = "world_normal * ((abs(in_tangent.w) > 1.5 && abs(in_tangent.w) < 2.5) || abs(in_tangent.w) > 3.5 ? 0.0 : batch_data.b[batch_index].m_displacement_model.HeightShell * (1.0 - batch_data.b[batch_index].m_displacement_model.HeightMidlevel)) + world_normal * (abs(in_tangent.w) > 1.5 ? 0.0 : batch_data.b[batch_index].m_terrain_model.TerrainShell * 1.1)",
 		normal = true,
 		tangent = true,
 		uv = true,
@@ -246,6 +246,8 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			vec2 uv;
 			float height;
 			vec3 world_pos;
+			vec3 texture_pos;
+			vec3 normal;
 		};
 
 		vec3 get_view_dir_world(vec3 world_pos) {
@@ -386,14 +388,13 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 		};
 
 		struct TerrainShellCoarse {
-			vec2 slope;
+			vec3 normal;
 			float max_relief;
 		};
 
 		TerrainShellCoarse terrain_shell_coarse(vec2 uv) {
 			TerrainShellCoarse c;
-			vec3 normal = get_terrain_world_normal(uv);
-			c.slope = -normal.xz / max(normal.y, 0.1);
+			c.normal = get_terrain_world_normal(uv);
 			vec4 present = step(vec4(0.001), texture(TEXTURE(terrain_model.TerrainMaterialTexture), uv)) + step(vec4(0.001), terrain_model.TerrainLayerCoverSlope);
 			vec4 relief = terrain_model.TerrainLayerHeightScales * terrain_model.TerrainLayerScales * min(present, vec4(1.0));
 			c.max_relief = max(max(relief.x, relief.y), max(relief.z, relief.w));
@@ -437,8 +438,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			return relief;
 		}
 
-		float terrain_shell_clearance(vec3 p, float ground, TerrainShellWeights w, vec2 gx[3], vec2 gy[3]) {
-			vec3 q = vec3(p.x, ground, p.z);
+		float terrain_shell_relief(vec3 q, TerrainShellWeights w, vec2 gx[3], vec2 gy[3]) {
 			float weight_sum = 0.0;
 			float relief = terrain_shell_relief_set(w.weights, ivec4(terrain_model.TerrainLayer1HeightTexture, terrain_model.TerrainLayer2HeightTexture, terrain_model.TerrainLayer3HeightTexture, terrain_model.TerrainLayer4HeightTexture), terrain_model.TerrainLayerHeightScales, terrain_model.TerrainLayerScales, terrain_model.TerrainLayerHeightBlend, q, w.blend, gx, gy, weight_sum);
 
@@ -446,7 +446,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				relief += terrain_shell_relief_set(w.weights2, ivec4(terrain_model.TerrainLayer5HeightTexture, terrain_model.TerrainLayer6HeightTexture, terrain_model.TerrainLayer7HeightTexture, terrain_model.TerrainLayer8HeightTexture), terrain_model.TerrainLayerHeightScales2, terrain_model.TerrainLayerScales2, terrain_model.TerrainLayerHeightBlend2, q, w.blend, gx, gy, weight_sum);
 			}
 
-			return p.y - ground - relief / max(weight_sum, 0.0001);
+			return relief / max(weight_sum, 0.0001);
 		}
 
 		struct ShellState {
@@ -491,18 +491,24 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			vec2 uv;
 			uvec3 corners;
 			vec3 weights;
+			vec3 foot;
 		};
 
 		ShellSample shell_sample(inout ShellState s, vec3 p) {
 			ShellSample r;
 
 			if (s.terrain) {
-				r.uv = (p.xz - s.bounds.xy) / s.bounds.z;
-				r.valid = all(greaterThanEqual(r.uv, vec2(-1e-3))) && all(lessThanEqual(r.uv, vec2(1.0 + 1e-3)));
-				float ground = terrain_shell_ground(r.uv);
-				r.level = (p.y - ground) / s.lift;
-				s.coarse = terrain_shell_coarse(clamp(r.uv, 0.0, 1.0));
-				float headroom = p.y - ground - s.coarse.max_relief;
+				vec2 uv = (p.xz - s.bounds.xy) / s.bounds.z;
+				s.coarse = terrain_shell_coarse(clamp(uv, 0.0, 1.0));
+				vec3 normal = s.coarse.normal;
+				float height = (p.y - terrain_shell_ground(uv)) * normal.y;
+				vec3 foot = p - normal * height;
+				r.foot = foot;
+				r.uv = (foot.xz - s.bounds.xy) / s.bounds.z;
+				float margin = s.lift / s.bounds.z + 1e-3;
+				r.valid = all(greaterThanEqual(r.uv, vec2(-margin))) && all(lessThanEqual(r.uv, vec2(1.0 + margin)));
+				r.level = height / s.lift;
+				float headroom = height - s.coarse.max_relief;
 
 				if (headroom > 0.0) {
 					r.clearance = headroom;
@@ -510,11 +516,12 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				}
 
 				s.weights = terrain_shell_weights(r.uv);
-				r.clearance = terrain_shell_clearance(p, ground, s.weights, s.gx, s.gy);
+				r.clearance = height - terrain_shell_relief(foot, s.weights, s.gx, s.gy);
 				return r;
 			}
 
 			float lambda;
+			r.foot = p;
 			r.valid = prism_locate(s.mesh, s.tri, p, s.hops, lambda, r.uv, r.corners, r.weights);
 			r.level = lambda;
 			float h = textureGrad(TEXTURE(displacement_model.HeightTexture), r.uv, s.duv1, s.duv2).r;
@@ -573,9 +580,10 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				float advance = r.clearance / descent;
 
 				if (s.terrain) {
-					float ground_approach = max(dot(s.coarse.slope, dir.xz) - dir.y, 0.0) + 0.05;
+					float along = dot(dir, s.coarse.normal);
+					float ground_approach = max(-along, 0.0) + 0.05;
 					float headroom = r.level * s.lift - s.coarse.max_relief;
-					advance = max(headroom / ground_approach, r.clearance / (ground_approach + TERRAIN_SHELL_RELIEF_SLOPE * length(dir.xz)));
+					advance = max(headroom / ground_approach, r.clearance / (ground_approach + TERRAIN_SHELL_RELIEF_SLOPE * sqrt(max(1.0 - along * along, 0.0))));
 				}
 
 				t += clamp(advance * 0.8, max(min_dt, t * pixel_angle * 2.0), max(s.max_step, t * pixel_angle * 4.0));
@@ -610,6 +618,18 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			data.uv = hit.uv;
 			data.height = clamp(hit.level, 0.0, 1.0) * s.lift;
 			data.world_pos = eye + dir * hi;
+			data.texture_pos = hit.foot;
+			data.normal = vec3(0.0);
+
+			if (s.terrain) {
+				vec3 n = s.coarse.normal;
+				vec3 t1 = normalize(cross(n, abs(n.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+				vec3 t2 = cross(n, t1);
+				float e = max(hi * pixel_angle, 0.005);
+				float dx = terrain_shell_relief(hit.foot + t1 * e, s.weights, s.gx, s.gy) - terrain_shell_relief(hit.foot - t1 * e, s.weights, s.gx, s.gy);
+				float dy = terrain_shell_relief(hit.foot + t2 * e, s.weights, s.gx, s.gy) - terrain_shell_relief(hit.foot - t2 * e, s.weights, s.gx, s.gy);
+				data.normal = normalize(n - (t1 * dx + t2 * dy) / (2.0 * e));
+			}
 			return data;
 		}
 
@@ -674,6 +694,8 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			data.uv = in_uv;
 			data.height = 0.0;
 			data.world_pos = in_position;
+			data.texture_pos = in_position;
+			data.normal = vec3(0.0);
 			vec3 dp1 = dFdx(in_position);
 			vec3 dp2 = dFdy(in_position);
 			vec2 duv1 = dFdx(in_uv);
@@ -767,6 +789,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			data.uv = top_uv + uv_per_depth * (1.0 - hit_level) * thickness;
 			data.height = (hit_level - midlevel) * thickness;
 			data.world_pos = in_position + V * (max(data.height, 0.0) / view_n);
+			data.texture_pos = data.world_pos;
 			return data;
 		}
 
@@ -793,11 +816,11 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			Surface surface;
 			surface.world_pos = displacement.world_pos;
 			surface.geometric_N = tbn[2];
-			prepare_terrain_layers(displacement.uv, displacement.world_pos);
+			prepare_terrain_layers(displacement.uv, displacement.texture_pos);
 			init_surface_features(surface, displacement.uv);
 			surface.alpha = alpha;
 			surface.albedo = get_albedo_world(displacement.uv, displacement.world_pos);
-			surface.N = get_normal(displacement.uv, tbn);
+			surface.N = dot(displacement.normal, displacement.normal) > 0.0 ? displacement.normal : get_normal(displacement.uv, tbn);
 			SurfaceWeather weather;
 			prepare_surface_weather(surface, weather);
 			SurfaceConditions conditions;
