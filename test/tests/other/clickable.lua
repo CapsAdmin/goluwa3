@@ -3,7 +3,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Clickable = import("goluwa/render2d/ui/elements/clickable.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 
-T.Test("clickable creates panel with correct name and initial state", function()
+T.Test2D("clickable creates panel with correct name and initial state", function()
 	if not theme.active then theme.Initialize() end
 
 	local col = Clickable{
@@ -24,7 +24,7 @@ T.Test("clickable creates panel with correct name and initial state", function()
 	)
 end)
 
-T.Test("clickable state updates via SetState", function()
+T.Test2D("clickable state updates via SetState", function()
 	local col = Clickable{
 		Size = Vec2(200, 50),
 		OnClick = function() end,
@@ -37,7 +37,7 @@ T.Test("clickable state updates via SetState", function()
 	assert(col:GetState("disabled") == true, "Expected disabled to be true after setting")
 end)
 
-T.Test("clickable respects Disabled prop", function()
+T.Test2D("clickable respects Disabled prop", function()
 	local disabled_col = Clickable{
 		Size = Vec2(200, 50),
 		Disabled = true,
@@ -49,7 +49,7 @@ T.Test("clickable respects Disabled prop", function()
 	)
 end)
 
-T.Test("clickable respects Mode prop", function()
+T.Test2D("clickable respects Mode prop", function()
 	local outline_col = Clickable{
 		Size = Vec2(200, 50),
 		Mode = "outline",
