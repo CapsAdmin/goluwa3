@@ -235,7 +235,13 @@ layout(buffer_reference, scalar) readonly buffer PrismInstanceData { mat4 worlds
 end
 
 local function build_ssdm_fragment_shader(write_depth, prism)
-	return [[
+	-- shell hits of entry fragments lie behind them, so the rasterized depth is a bound that keeps early depth rejection; hits marched from an eye inside the relief lie in front and only matter when something else sits between them and their exit surface
+	return (
+			write_depth and
+			prism and
+			"layout(depth_less) out float gl_FragDepth;\n" or
+			""
+		) .. [[
 		struct SSDMData {
 			vec2 uv;
 			float height;
@@ -377,20 +383,35 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			vec4 weights2;
 			vec3 blend;
 			vec2 uv;
+		};
+
+		struct TerrainShellCoarse {
 			vec2 slope;
 			float max_relief;
 		};
+
+		TerrainShellCoarse terrain_shell_coarse(vec2 uv) {
+			TerrainShellCoarse c;
+			vec3 normal = get_terrain_world_normal(uv);
+			c.slope = -normal.xz / max(normal.y, 0.1);
+			vec4 present = step(vec4(0.001), texture(TEXTURE(terrain_model.TerrainMaterialTexture), uv)) + step(vec4(0.001), terrain_model.TerrainLayerCoverSlope);
+			vec4 relief = terrain_model.TerrainLayerHeightScales * terrain_model.TerrainLayerScales * min(present, vec4(1.0));
+			c.max_relief = max(max(relief.x, relief.y), max(relief.z, relief.w));
+
+			if (terrain_model.TerrainMaterial2Texture != -1) {
+				vec4 present2 = step(vec4(0.001), texture(TEXTURE(terrain_model.TerrainMaterial2Texture), uv)) + step(vec4(0.001), terrain_model.TerrainLayerCoverSlope2);
+				vec4 relief2 = terrain_model.TerrainLayerHeightScales2 * terrain_model.TerrainLayerScales2 * min(present2, vec4(1.0));
+				c.max_relief = max(c.max_relief, max(max(relief2.x, relief2.y), max(relief2.z, relief2.w)));
+			}
+
+			return c;
+		}
 
 		TerrainShellWeights terrain_shell_weights(vec2 uv) {
 			TerrainShellWeights w;
 			w.uv = clamp(uv, 0.0, 1.0);
 			get_terrain_material_weights_both_uv(w.uv, w.weights, w.weights2);
-			vec3 normal = get_terrain_world_normal(w.uv);
-			w.slope = -normal.xz / max(normal.y, 0.1);
-			vec4 relief = terrain_model.TerrainLayerHeightScales * terrain_model.TerrainLayerScales * step(vec4(0.001), w.weights);
-			vec4 relief2 = terrain_model.TerrainLayerHeightScales2 * terrain_model.TerrainLayerScales2 * step(vec4(0.001), w.weights2);
-			w.max_relief = max(max(max(relief.x, relief.y), max(relief.z, relief.w)), max(max(relief2.x, relief2.y), max(relief2.z, relief2.w)));
-			vec3 blend = get_terrain_triplanar_weights(normal);
+			vec3 blend = get_terrain_triplanar_weights(get_terrain_world_normal(w.uv));
 			blend = max(blend - 0.2, vec3(0.0));
 			w.blend = blend / max(blend.x + blend.y + blend.z, 0.0001);
 			return w;
@@ -437,6 +458,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			vec2 duv2;
 			vec3 bounds;
 			TerrainShellWeights weights;
+			TerrainShellCoarse coarse;
 			vec2 gx[3];
 			vec2 gy[3];
 			float shell;
@@ -479,11 +501,15 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				r.valid = all(greaterThanEqual(r.uv, vec2(-1e-3))) && all(lessThanEqual(r.uv, vec2(1.0 + 1e-3)));
 				float ground = terrain_shell_ground(r.uv);
 				r.level = (p.y - ground) / s.lift;
+				s.coarse = terrain_shell_coarse(clamp(r.uv, 0.0, 1.0));
+				float headroom = p.y - ground - s.coarse.max_relief;
 
-				if (r.uv != s.weights.uv) {
-					s.weights = terrain_shell_weights(r.uv);
+				if (headroom > 0.0) {
+					r.clearance = headroom;
+					return r;
 				}
 
+				s.weights = terrain_shell_weights(r.uv);
 				r.clearance = terrain_shell_clearance(p, ground, s.weights, s.gx, s.gy);
 				return r;
 			}
@@ -542,8 +568,8 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				float advance = r.clearance / descent;
 
 				if (s.terrain) {
-					float ground_approach = max(dot(s.weights.slope, dir.xz) - dir.y, 0.0) + 0.05;
-					float headroom = r.level * s.lift - s.weights.max_relief;
+					float ground_approach = max(dot(s.coarse.slope, dir.xz) - dir.y, 0.0) + 0.05;
+					float headroom = r.level * s.lift - s.coarse.max_relief;
 					advance = max(headroom / ground_approach, r.clearance / (ground_approach + TERRAIN_SHELL_RELIEF_SLOPE * length(dir.xz)));
 				}
 
@@ -591,7 +617,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			s.max_step = shell * 3.0;
 			s.escape = 1.25;
 			s.hops = 0;
-			s.weights = terrain_shell_weights(in_uv);
+			s.weights.uv = vec2(-1.0);
 			float scale = max(terrain_model.TerrainLayerScales.y, 0.0001);
 			s.gx = vec2[3](dFdx(in_position.zy) / scale, dFdx(in_position.xz) / scale, dFdx(in_position.xy) / scale);
 			s.gy = vec2[3](dFdy(in_position.zy) / scale, dFdy(in_position.xz) / scale, dFdy(in_position.xy) / scale);
