@@ -1568,7 +1568,12 @@ do
 			apply_albedo_gain(self, ctx)
 		end
 
-		if not replaced and FEATURES.derived_roughness and not is_glass and shader ~= "eyes" then
+		if
+			not replaced and
+			FEATURES.derived_roughness and
+			not is_glass and
+			shader ~= "eyes"
+		then
 			apply_derived_roughness(self)
 
 			if self:GetAlbedoTexture() then
