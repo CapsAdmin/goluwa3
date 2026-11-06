@@ -1,3 +1,4 @@
+local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local event = import("goluwa/event.lua")
 local model_pipeline = import("goluwa/render3d/model_pipeline.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
@@ -189,6 +190,7 @@ local function build_multi_draw_pass(fragment_shader)
 	pass.on_draw = nil
 	pass.on_pre_draw = nil
 	pass.vertex = model_pipeline.CreateMultiDrawVertexStage{
+		shell_expr = "((abs(in_tangent.w) > 1.5 && abs(in_tangent.w) < 2.5) || abs(in_tangent.w) > 3.5 ? 0.0 : batch_data.b[batch_index].m_displacement_model.HeightShell * (1.0 - batch_data.b[batch_index].m_displacement_model.HeightMidlevel))",
 		normal = true,
 		tangent = true,
 		uv = true,
@@ -211,11 +213,27 @@ local function build_multi_draw_pass(fragment_shader)
 		prev_detail_time_expr = "gbuffer_draw.prev_detail_time",
 	}
 	pass.fragment.uniform_buffers = {camera_block, multi_draw_block}
-	pass.fragment.custom_declarations = string.format("layout(location = %d) flat in uint in_batch;\n", pass.vertex.batch_location) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(gbuffer_draw.batches).b[in_batch]")
+	pass.fragment.custom_declarations = string.format(
+			"layout(location = %d) flat in uint in_batch;\nlayout(location = %d) flat in uint in_instance;\nlayout(location = %d) flat in uint in_triangle;\n",
+			pass.vertex.batch_location,
+			pass.vertex.batch_location + 1,
+			pass.vertex.batch_location + 2
+		) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(gbuffer_draw.batches).b[in_batch]") .. [[
+layout(buffer_reference, scalar) readonly buffer PrismVertexData { float v[]; };
+layout(buffer_reference, scalar) readonly buffer PrismIndexData { uint i[]; };
+layout(buffer_reference, scalar) readonly buffer PrismInstanceData { mat4 worlds[]; };
+]] .. string.format(
+			"const uint PRISM_VERTEX_STRIDE = %du;\nconst uint PRISM_VERTEX_POSITION = %du;\nconst uint PRISM_VERTEX_NORMAL = %du;\nconst uint PRISM_VERTEX_UV = %du;\nconst uint PRISM_VERTEX_PIVOT = %du;\n",
+			vertex_layout.FloatStride,
+			vertex_layout.GetFloatOffset("position"),
+			vertex_layout.GetFloatOffset("normal"),
+			vertex_layout.GetFloatOffset("uv"),
+			vertex_layout.GetFloatOffset("pivot")
+		)
 	return pass
 end
 
-local function build_ssdm_fragment_shader(write_depth)
+local function build_ssdm_fragment_shader(write_depth, prism)
 	return [[
 		struct SSDMData {
 			vec2 uv;
@@ -236,6 +254,250 @@ local function build_ssdm_fragment_shader(write_depth)
 		const float DECAL_DEPTH_BIAS_RELATIVE = 0.002;
 		const float DECAL_DEPTH_BIAS_ABSOLUTE = 0.002;
 
+		]] .. (
+			prism and
+			[=[		struct PrismMesh {
+			PrismVertexData vertices;
+			PrismIndexData indices;
+			bool indexed;
+			bool index_32;
+			mat4 world;
+			mat3 normal_matrix;
+			float lift;
+		};
+
+		uint prism_index(PrismMesh mesh, uint tri, uint k) {
+			uint index = tri * 3u + k;
+
+			if (!mesh.indexed) {
+				return index;
+			}
+
+			if (mesh.index_32) {
+				return mesh.indices.i[index];
+			}
+
+			uint word = mesh.indices.i[index >> 1];
+			return (index & 1u) != 0u ? word >> 16 : word & 0xFFFFu;
+		}
+
+		vec3 prism_position(PrismMesh mesh, uint index) {
+			uint at = index * PRISM_VERTEX_STRIDE + PRISM_VERTEX_POSITION;
+			return (mesh.world * vec4(mesh.vertices.v[at], mesh.vertices.v[at + 1u], mesh.vertices.v[at + 2u], 1.0)).xyz;
+		}
+
+		vec3 prism_normal(PrismMesh mesh, uint index) {
+			uint at = index * PRISM_VERTEX_STRIDE + PRISM_VERTEX_NORMAL;
+			return normalize(mesh.normal_matrix * vec3(mesh.vertices.v[at], mesh.vertices.v[at + 1u], mesh.vertices.v[at + 2u]));
+		}
+
+		vec2 prism_uv(PrismMesh mesh, uint index) {
+			uint at = index * PRISM_VERTEX_STRIDE + PRISM_VERTEX_UV;
+			return vec2(mesh.vertices.v[at], mesh.vertices.v[at + 1u]);
+		}
+
+		bool prism_locate(PrismMesh mesh, inout uint tri, vec3 p, out float lambda, out vec2 uv) {
+			uint i0 = 0u;
+			uint i1 = 0u;
+			uint i2 = 0u;
+			vec3 b = vec3(1.0, 0.0, 0.0);
+			bool inside = false;
+			lambda = 0.0;
+
+			for (int hop = 0; hop < 24; hop++) {
+				i0 = prism_index(mesh, tri, 0u);
+				i1 = prism_index(mesh, tri, 1u);
+				i2 = prism_index(mesh, tri, 2u);
+				vec3 b0 = prism_position(mesh, i0);
+				vec3 b1 = prism_position(mesh, i1);
+				vec3 b2 = prism_position(mesh, i2);
+				vec3 d0 = prism_normal(mesh, i0) * mesh.lift;
+				vec3 d1 = prism_normal(mesh, i1) * mesh.lift;
+				vec3 d2 = prism_normal(mesh, i2) * mesh.lift;
+				vec3 face = normalize(cross(b1 - b0, b2 - b0));
+				float rise = dot(d0 + d1 + d2, face) / 3.0;
+				lambda = dot(p - b0, face) / (abs(rise) < 1e-6 ? 1e-6 : rise);
+
+				for (int k = 0; k < 3; k++) {
+					vec3 v0 = b0 + d0 * lambda;
+					float f = dot(p - v0, cross(b1 + d1 * lambda - v0, b2 + d2 * lambda - v0));
+					float l2 = lambda + 1e-3;
+					vec3 w0 = b0 + d0 * l2;
+					float f2 = dot(p - w0, cross(b1 + d1 * l2 - w0, b2 + d2 * l2 - w0));
+					float df = (f2 - f) / 1e-3;
+					lambda -= abs(df) > 1e-12 ? f / df : 0.0;
+				}
+
+				vec3 v0 = b0 + d0 * lambda;
+				vec3 e1 = b1 + d1 * lambda - v0;
+				vec3 e2 = b2 + d2 * lambda - v0;
+				vec3 n = cross(e1, e2);
+				float nn = max(dot(n, n), 1e-20);
+				vec3 w = p - v0;
+				b.y = dot(cross(w, e2), n) / nn;
+				b.z = dot(cross(e1, w), n) / nn;
+				b.x = 1.0 - b.y - b.z;
+				float lowest = min(b.x, min(b.y, b.z));
+
+				if (lowest >= -1e-4) {
+					inside = true;
+					break;
+				}
+
+				uint pivot_at = i0 * PRISM_VERTEX_STRIDE + PRISM_VERTEX_PIVOT;
+				int slot = b.x == lowest ? 0 : (b.y == lowest ? 1 : 2);
+				float next = mesh.vertices.v[pivot_at + uint(slot)];
+
+				if (next < 0.0) {
+					break;
+				}
+
+				tri = uint(next + 0.5);
+			}
+
+			b = max(b, vec3(0.0));
+			b /= max(b.x + b.y + b.z, 1e-6);
+			uv = prism_uv(mesh, i0) * b.x + prism_uv(mesh, i1) * b.y + prism_uv(mesh, i2) * b.z;
+			return inside;
+		}
+
+		bool prism_in_rock(float lambda, float midlevel, vec2 uv, vec2 duv1, vec2 duv2) {
+			if (lambda <= 0.0) return true;
+			if (lambda >= 1.0) return false;
+			return midlevel + lambda * (1.0 - midlevel) <= textureGrad(TEXTURE(displacement_model.HeightTexture), uv, duv1, duv2).r;
+		}
+
+		SSDMData get_prism_data(float shell, vec2 duv1, vec2 duv2) {
+			SSDMData data;
+			data.uv = in_uv;
+			data.height = 0.0;
+			data.world_pos = in_position;
+			float midlevel = displacement_model.HeightMidlevel;
+			PrismMesh mesh;
+			uvec4 addresses = PBRBatchData(gbuffer_draw.batches).b[in_batch].addresses;
+			mesh.vertices = PrismVertexData(packUint2x32(addresses.xy));
+			mesh.indexed = (addresses.z | addresses.w) != 0u;
+			mesh.indices = PrismIndexData(packUint2x32(addresses.zw));
+			mesh.index_32 = PBRBatchData(gbuffer_draw.batches).b[in_batch].index_is_32 != 0u;
+			mesh.world = PrismInstanceData(gbuffer_draw.instances).worlds[in_instance];
+			mesh.normal_matrix = transpose(inverse(mat3(mesh.world)));
+			mesh.lift = shell * (1.0 - midlevel);
+			bool skirt = abs(in_tangent.w) > 2.5;
+			bool base_copy = !skirt && abs(in_tangent.w) > 1.5;
+			vec3 eye = gbuffer_data.camera_position.xyz;
+			vec3 to_fragment = in_position - eye;
+			float t_fragment = length(to_fragment);
+			vec3 dir = to_fragment / t_fragment;
+			float along_normal = dot(dir, normalize(in_normal));
+			uint tri = in_triangle;
+			vec2 uv = in_uv;
+			float lambda = base_copy ? 0.0 : 1.0;
+			bool forward = along_normal < 0.0 && !base_copy;
+
+			if (base_copy && along_normal >= 0.0) {
+				discard;
+			}
+
+			if (skirt) {
+				tri = uint(mesh.vertices.v[prism_index(mesh, in_triangle, 0u) * PRISM_VERTEX_STRIDE + PRISM_VERTEX_PIVOT] + 0.5);
+				prism_locate(mesh, tri, in_position, lambda, uv);
+				uint probe_tri = tri;
+				float probe_lambda;
+				vec2 probe_uv;
+				bool interior_toward_eye = prism_locate(mesh, probe_tri, eye + dir * max(t_fragment - 0.02, 0.0), probe_lambda, probe_uv);
+				forward = !interior_toward_eye;
+			}
+
+			float direction = forward ? 1.0 : -1.0;
+			float base_dt = mesh.lift / float(get_height_layers() * 2) / max(abs(along_normal), 0.1);
+			float dt = base_dt;
+			float t = t_fragment;
+			bool rock = prism_in_rock(lambda, midlevel, uv, duv1, duv2);
+			uint rock_tri = tri;
+			float free_t = -1.0;
+			float rock_t = -1.0;
+
+			if (forward && rock) {
+				free_t = t;
+				rock_t = t;
+			}
+
+			for (int i = 0; i < 256 && !(forward && rock_t >= 0.0); i++) {
+				float next_t = t + direction * dt;
+
+				if (next_t <= 0.0) {
+					break;
+				}
+
+				float next_lambda;
+				vec2 next_uv;
+				bool valid = prism_locate(mesh, tri, eye + dir * next_t, next_lambda, next_uv);
+
+				if (!valid || next_lambda < -0.25 || next_lambda > 1.25) {
+					break;
+				}
+
+				bool next_rock = prism_in_rock(next_lambda, midlevel, next_uv, duv1, duv2);
+
+				if (!next_rock && next_lambda > 0.0 && next_lambda < 1.0) {
+					float gap = midlevel + next_lambda * (1.0 - midlevel) - textureGrad(TEXTURE(displacement_model.HeightTexture), next_uv, duv1, duv2).r;
+					dt = clamp(gap * mesh.lift / max(abs(along_normal), 0.05) * 0.5, mesh.lift / 256.0, base_dt);
+				} else {
+					dt = base_dt;
+				}
+
+				if (forward && next_rock && !rock) {
+					free_t = t;
+					rock_t = next_t;
+					rock_tri = tri;
+				} else if (!forward && rock && !next_rock) {
+					free_t = next_t;
+					rock_t = t;
+					rock_tri = tri;
+				}
+
+				t = next_t;
+				rock = next_rock;
+			}
+
+			if (rock_t < 0.0) {
+				discard;
+			}
+
+			tri = rock_tri;
+			float lo = min(free_t, rock_t);
+			float hi = max(free_t, rock_t);
+
+			for (int i = 0; i < 12 && hi - lo > 1e-5; i++) {
+				float mid = 0.5 * (lo + hi);
+				float mid_lambda;
+				vec2 mid_uv;
+				bool mid_valid = prism_locate(mesh, tri, eye + dir * mid, mid_lambda, mid_uv);
+
+				if (mid_valid && prism_in_rock(mid_lambda, midlevel, mid_uv, duv1, duv2)) {
+					hi = mid;
+				} else {
+					lo = mid;
+				}
+			}
+
+			float hit_lambda;
+			vec2 hit_uv;
+			bool inside = prism_locate(mesh, tri, eye + dir * hi, hit_lambda, hit_uv);
+
+			if (!inside || (displacement_model.HeightShellClip > 0.5 && (hit_uv.x < -0.001 || hit_uv.y < -0.001 || hit_uv.x > 1.001 || hit_uv.y > 1.001))) {
+				discard;
+			}
+
+			data.uv = hit_uv;
+			data.height = clamp(hit_lambda, 0.0, 1.0) * mesh.lift;
+			data.world_pos = eye + dir * hi;
+			return data;
+		}
+]=] or
+			""
+		) .. [[
+
 		SSDMData get_ssdm_data(mat3 tbn) {
 			SSDMData data;
 			data.uv = in_uv;
@@ -249,6 +511,16 @@ local function build_ssdm_fragment_shader(write_depth)
 			if (!has_heightmap()) {
 				return data;
 			}
+
+]] .. (
+			prism and
+			[=[
+			if (displacement_model.HeightShell > 0.0) {
+				return get_prism_data(displacement_model.HeightShell, duv1, duv2);
+			}
+]=] or
+			""
+		) .. [[
 
 			vec3 N = tbn[2];
 			vec3 dp2perp = cross(dp2, N);
@@ -414,7 +686,7 @@ for _, write_depth in ipairs({false, true}) do
 	fallback_anim.dont_create_framebuffers = true
 	local instanced = build_instanced_pass(fragment_shader)
 	instanced.name = "gbuffer_instanced" .. suffix
-	local multi_draw = build_multi_draw_pass(fragment_shader)
+	local multi_draw = build_multi_draw_pass(build_ssdm_fragment_shader(write_depth, true))
 	multi_draw.name = "gbuffer_multi_draw" .. suffix
 	list.insert(passes, fallback)
 	list.insert(passes, fallback_anim)

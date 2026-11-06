@@ -24,6 +24,17 @@ return {
 			requires = {"HeightTexture", "HeightScale"},
 		},
 		{
+			name = "HeightShell",
+			default = 0.0,
+			callback = "InvalidateFlags",
+			requires = {"HeightTexture", "HeightScale"},
+		},
+		{
+			name = "HeightShellClip",
+			default = 0.0,
+			requires = {"HeightTexture", "HeightScale"},
+		},
+		{
 			name = "HeightLayers",
 			kind = "int",
 			default = 24,

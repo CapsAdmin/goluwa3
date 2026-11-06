@@ -234,7 +234,7 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	if translucent then
 		flags = flags + instances.RASTER_TRANSLUCENT
 
-		if material:GetDoubleSided() then
+		if material:GetRasterBothFaces() then
 			flags = flags + instances.RASTER_DOUBLE_SIDED
 		end
 
@@ -244,7 +244,7 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 	if drawn then
 		flags = flags + instances.RASTER_DRAW
 
-		if material:GetDoubleSided() then
+		if material:GetRasterBothFaces() then
 			flags = flags + instances.RASTER_DOUBLE_SIDED
 		end
 

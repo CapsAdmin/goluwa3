@@ -8,6 +8,7 @@ local ffi = require("ffi")
 local vertex_math = import("goluwa/render3d/vertex_math.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local tasks = import("goluwa/tasks.lua")
+local skinning = import("goluwa/render3d/skinning.lua")
 local Polygon3D = objects.CreateTemplate("render3d_polygon_3d")
 
 function Polygon3D.New()
@@ -43,6 +44,110 @@ function Polygon3D:AddVertex(vertex)
 	if vertex.pos then self.AABB:ExpandVec3(vertex.pos) end
 
 	self.i = self.i + 1
+end
+
+do
+	local function position_key(pos)
+		return math.floor(pos.x * 10000 + 0.5) .. "," .. math.floor(pos.y * 10000 + 0.5) .. "," .. math.floor(pos.z * 10000 + 0.5)
+	end
+
+	function Polygon3D:AddHeightShell()
+		local vertices = self.Vertices
+		local count = self.i - 1
+		local triangles = count / 3
+		local keys = {}
+		local edges = {}
+
+		for i = 1, count do
+			keys[i] = position_key(vertices[i].pos)
+		end
+
+		for tri = 0, triangles - 1 do
+			for k = 0, 2 do
+				local ka, kb = keys[tri * 3 + (k + 1) % 3 + 1], keys[tri * 3 + (k + 2) % 3 + 1]
+				local key = ka < kb and ka .. "|" .. kb or kb .. "|" .. ka
+				local list = edges[key]
+
+				if not list then
+					list = {}
+					edges[key] = list
+				end
+
+				list[#list + 1] = {tri, k}
+			end
+		end
+
+		local neighbors = {}
+
+		for _, list in pairs(edges) do
+			for _, entry in ipairs(list) do
+				for _, other in ipairs(list) do
+					if other[1] ~= entry[1] then
+						neighbors[entry[1] * 3 + entry[2]] = other[1]
+
+						break
+					end
+				end
+			end
+		end
+
+		for tri = 0, triangles - 1 do
+			local n0, n1, n2 = neighbors[tri * 3] or -1, neighbors[tri * 3 + 1] or -1, neighbors[tri * 3 + 2] or -1
+
+			for k = 1, 3 do
+				local copy = table.copy(vertices[tri * 3 + k])
+				copy.pivot = {n0, n1, n2}
+				copy.vertex_color = {0, 0, 0, skinning.MOTION_THRESHOLD - 1}
+				vertices[tri * 3 + k] = copy
+			end
+
+			for k = 1, 3 do
+				local v = vertices[tri * 3 + k]
+				local t = v.tangent
+				self:AddVertex{
+					pos = v.pos,
+					uv = v.uv,
+					normal = v.normal,
+					tangent = {x = t.x, y = t.y, z = t.z, w = t.w * 2},
+					texture_blend = v.texture_blend,
+					vertex_color = {0, 0, 0, skinning.MOTION_THRESHOLD - 1},
+					pivot = {
+						n0 >= 0 and n0 + triangles or -1,
+						n1 >= 0 and n1 + triangles or -1,
+						n2 >= 0 and n2 + triangles or -1,
+					},
+				}
+			end
+		end
+
+		for tri = 0, triangles - 1 do
+			for k = 0, 2 do
+				if not neighbors[tri * 3 + k] then
+					local a = vertices[tri * 3 + (k + 1) % 3 + 1]
+					local b = vertices[tri * 3 + (k + 2) % 3 + 1]
+
+					local function skirt(v, top)
+						local t = v.tangent
+						return {
+							pos = v.pos,
+							uv = v.uv,
+							normal = v.normal,
+							tangent = {x = t.x, y = t.y, z = t.z, w = top and 3 or 4},
+							vertex_color = {0, 0, 0, skinning.MOTION_THRESHOLD - 1},
+							pivot = {tri, -1, -1},
+						}
+					end
+
+					self:AddVertex(skirt(a, true))
+					self:AddVertex(skirt(b, true))
+					self:AddVertex(skirt(b, false))
+					self:AddVertex(skirt(a, true))
+					self:AddVertex(skirt(b, false))
+					self:AddVertex(skirt(a, false))
+				end
+			end
+		end
+	end
 end
 
 function Polygon3D:Clear()

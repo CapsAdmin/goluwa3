@@ -151,7 +151,7 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 	slot_groups = slot_groups or
 		store.CreateTable{name = "draw_slot_groups", ctype = "uint32_t", capacity = 4096}
 	local slot = slot_of[id]
-	local set = (material:GetDoubleSided() and 1 or 0) + (material:HasHeightMap() and 2 or 0)
+	local set = (material:GetRasterBothFaces() and 1 or 0) + (material:HasHeightMap() and 2 or 0)
 
 	if (translucent_ids[id] or false) ~= (translucent or false) then
 		translucent_ids[id] = translucent or nil

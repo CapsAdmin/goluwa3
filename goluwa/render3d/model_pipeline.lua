@@ -256,6 +256,15 @@ local function build_vertex_shader(options, world_expr, prev_world_expr, main_pr
 	}]]
 	end
 
+	if options.shell_expr then
+		lines[#lines + 1] = "\tvec3 shell_offset = world_normal * (" .. options.shell_expr .. ");"
+		lines[#lines + 1] = "\tworld_position += shell_offset;"
+
+		if options.velocity then
+			lines[#lines + 1] = "\tprev_world_position += shell_offset;"
+		end
+	end
+
 	if options.camera_block_name then
 		lines[#lines + 1] = (
 			"\tgl_Position = %s.projection * %s.view * vec4(world_position, 1.0);"
@@ -607,6 +616,8 @@ do
 				"uint(gl_DrawID)"
 			) .. [[;
 	out_batch = batch_index;
+	out_instance = uint(gl_InstanceIndex);
+	out_triangle = uint(gl_VertexIndex) / 3u;
 	PBRBatchData batch_data = PBRBatchData(]] .. options.batches_expr .. [[);
 	uvec4 addresses = batch_data.b[batch_index].addresses;
 
@@ -640,6 +651,12 @@ layout(buffer_reference, scalar) readonly buffer PBRBatchInstanceData { mat4 wor
 layout(buffer_reference, scalar) readonly buffer PBRBatchIdData { uvec2 ids[]; };
 layout(buffer_reference, scalar) readonly buffer PBRBatchThicknessData { float t[]; };
 layout(location = ]] .. batch_location .. [[) flat out uint out_batch;
+layout(location = ]] .. (
+					batch_location + 1
+				) .. [[) flat out uint out_instance;
+layout(location = ]] .. (
+					batch_location + 2
+				) .. [[) flat out uint out_triangle;
 mat4 multi_draw_instance_world;
 mat4 multi_draw_instance_prev_world;
 PBRBatch_vertex_animation vertex_animation;
@@ -1759,27 +1776,51 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					}
 				}
 
-				float below = height - layer;
-				return mix(prev_uv, uv, prev_above / max(prev_above + below, 0.0001));
+				return h / max(blend.x + blend.y + blend.z, 0.001);
 			}
 
 			TerrainLayerUV get_terrain_layer_uv(int height_tex, vec3 world_pos, float scale, vec3 blend, vec3 N, vec3 V, float displacement) {
 				float safe_scale = max(scale, 0.0001);
-				vec2 uv[3] = vec2[3](world_pos.zy / safe_scale, world_pos.xz / safe_scale, world_pos.xy / safe_scale);
+				vec3 p = world_pos;
 
 				if (height_tex != -1 && displacement > 0.0) {
-					vec2 view_uv[3] = vec2[3](V.zy, V.xz, V.xy);
-					vec3 view_n = V * sign(N);
+					const int STEPS = 24;
+					float facing = dot(V, N);
+					float fade = smoothstep(0.05, 0.25, facing);
+					float depth = displacement * safe_scale * fade;
 
-					// one call site, the driver takes seconds per pipeline when each projection inlines its own march
-					for (int i = 0; i < 3; i++) {
-						if (blend[i] > 0.001) {
-							uv[i] = terrain_layer_parallax(height_tex, uv[i], view_uv[i], view_n[i], displacement);
+					if (depth > 0.0) {
+						vec2 gx[3] = vec2[3](dFdx(world_pos.zy) / safe_scale, dFdx(world_pos.xz) / safe_scale, dFdx(world_pos.xy) / safe_scale);
+						vec2 gy[3] = vec2[3](dFdy(world_pos.zy) / safe_scale, dFdy(world_pos.xz) / safe_scale, dFdy(world_pos.xy) / safe_scale);
+						vec3 to_top = V * (depth / max(facing, 0.05));
+						float level = 1.0;
+						float prev_level = 1.0;
+						float height = sample_terrain_layer_height(height_tex, world_pos + to_top, safe_scale, blend, gx, gy);
+
+						for (int i = 0; i < STEPS && height < level; i++) {
+							prev_level = level;
+							level -= 1.0 / float(STEPS);
+							height = sample_terrain_layer_height(height_tex, world_pos + to_top * level, safe_scale, blend, gx, gy);
 						}
+
+						float lo = level;
+						float hi = prev_level;
+
+						for (int i = 0; i < 4; i++) {
+							float mid = 0.5 * (lo + hi);
+
+							if (mid <= sample_terrain_layer_height(height_tex, world_pos + to_top * mid, safe_scale, blend, gx, gy)) {
+								lo = mid;
+							} else {
+								hi = mid;
+							}
+						}
+
+						p = world_pos + to_top * (0.5 * (lo + hi));
 					}
 				}
 
-				return TerrainLayerUV(uv[0], uv[1], uv[2]);
+				return TerrainLayerUV(p.zy / safe_scale, p.xz / safe_scale, p.xy / safe_scale);
 			}
 
 			]=] .. terrain_layer_rules .. [=[
@@ -2113,7 +2154,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			mat3 get_tbn() {
 				vec3 normal = normalize(in_normal);
 				vec3 tangent = normalize(in_tangent.xyz);
-				vec3 bitangent = cross(normal, tangent) * in_tangent.w;
+				vec3 bitangent = cross(normal, tangent) * sign(in_tangent.w);
 
 				if (DoubleSided && gl_FrontFacing) {
 					tangent = -tangent;

@@ -161,8 +161,12 @@ function Material:Touch()
 	objects.version_log[version % objects.VERSION_LOG_SIZE] = self
 end
 
+function Material:GetRasterBothFaces()
+	return self.DoubleSided or self.HeightShell > 0
+end
+
 function Material:GetCullMode()
-	return self.DoubleSided and "none" or orientation.CULL_MODE
+	return self:GetRasterBothFaces() and "none" or orientation.CULL_MODE
 end
 
 do
