@@ -11,6 +11,7 @@ local ShadowMap = import("goluwa/render3d/shadow_map.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
+local snow_cover = import("goluwa/render3d/snow_cover.lua")
 local precipitation = import("goluwa/render3d/precipitation.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local quality = import("goluwa/render3d/quality.lua")
@@ -28,7 +29,7 @@ local RAIN_SPREAD = 0.05
 local SNOW_SPREAD = 0.3
 local WIND_TURBULENCE = 0.25
 local MAX_SHELTER_SLANT = 4
-local SHELTER_SIZE = 1024
+local SHELTER_SIZE = 2048
 local SHELTER_HALF_SIZE = 96
 local SHELTER_DEPTH = 600
 local SHELTER_SNAP_TEXELS = 64
@@ -686,7 +687,10 @@ function weather.Initialize()
 				)
 		)
 
-		if not weather.shelter_map.enabled then return end
+		if not weather.shelter_map.enabled then
+			snow_cover.Update(weather.shelter_map)
+			return
+		end
 
 		local wind = atmosphere.GetWind()
 		local snowing = precipitation.GetSnow() > precipitation.GetRain() or
@@ -722,6 +726,7 @@ function weather.Initialize()
 					math.floor(cam:Dot(dir) / step + 0.5) * step
 				)
 		)
+		snow_cover.Update(weather.shelter_map)
 	end)
 
 	event.AddListener("Update", "weather", function(dt)

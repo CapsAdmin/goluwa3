@@ -10,6 +10,7 @@ surface_weather.rain_rate = 0
 surface_weather.precipitation_direction = Vec3(0, 1, 0)
 surface_weather.precipitation_spread = 0.2
 surface_weather.shelter_map = nil
+surface_weather.snow_map = nil
 surface_weather.SNOW_MATERIAL = "materials/examples/snow.lua"
 surface_weather.SNOW_TEXTURE_SIZE = 2.4
 surface_weather.snow_material = nil
@@ -28,6 +29,7 @@ surface_weather.block = {
 	{"surface_snow_depth", "float"},
 	{"surface_snow_wetness", "float"},
 	{"shelter_texture", "int"},
+	{"snow_map_texture", "int"},
 	{"shelter_texel_size", "float"},
 	{"precipitation_spread", "float"},
 	{"surface_frame", "int"},
@@ -68,10 +70,15 @@ function surface_weather.WriteBlock(self, block)
 
 	if map and map:IsEnabled() and map:IsCascadeSampleable(1) then
 		block.shelter_texture = self:GetTextureIndex(map:GetDepthTexture(1))
+		block.snow_map_texture = surface_weather.snow_map and
+			block.surface_snow_depth > 0 and
+			self:GetTextureIndex(surface_weather.snow_map) or
+			-1
 		block.shelter_texel_size = map:GetCascadeTexelWorldSize(1)
 		map:GetLightSpaceMatrix(1):CopyToFloatPointer(block.shelter_matrix)
 	else
 		block.shelter_texture = -1
+		block.snow_map_texture = -1
 	end
 
 	block.precipitation_spread = surface_weather.precipitation_spread
@@ -313,6 +320,118 @@ function surface_weather.GetGLSL(block_name)
 		const float RAIN_RUNOFF_ROUGHNESS = 0.3;
 		const vec2 SHELTER_TAPS[4] = vec2[4](vec2(0.2, 0.55), vec2(-0.55, 0.2), vec2(-0.2, -0.55), vec2(0.55, -0.2));
 
+		float surface_snow_force = 0.0;
+
+		vec2 snow_map_sample(vec2 uv) {
+			return textureLod(TEXTURE(]] .. block_name .. [[.snow_map_texture), uv, 0.0).rg;
+		}
+
+		// bilinear where the four texels lie on one surface, the nearest texel across a ledge; blending a ledge with the
+		// ground under it puts snow on the wall between them
+		bool snow_map_inside(vec3 c, float bias, float jump) {
+			ivec2 size = textureSize(TEXTURE(]] .. block_name .. [[.snow_map_texture), 0);
+			vec2 f = c.xy * vec2(size) - 0.5;
+			ivec2 i = clamp(ivec2(floor(f)), ivec2(0), size - 2);
+			vec2 w = clamp(f - vec2(i), 0.0, 1.0);
+			vec2 s00 = texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i, 0).rg;
+			vec2 s10 = texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i + ivec2(1, 0), 0).rg;
+			vec2 s01 = texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i + ivec2(0, 1), 0).rg;
+			vec2 s11 = texelFetch(TEXTURE(]] .. block_name .. [[.snow_map_texture), i + ivec2(1, 1), 0).rg;
+			vec4 tops = vec4(s00.g, s10.g, s01.g, s11.g);
+			vec2 snow;
+
+			if (max(max(tops.x, tops.y), max(tops.z, tops.w)) - min(min(tops.x, tops.y), min(tops.z, tops.w)) < jump) {
+				snow = mix(mix(s00, s10, w.x), mix(s01, s11, w.x), w.y);
+			} else {
+				snow = w.y < 0.5 ? (w.x < 0.5 ? s00 : s10) : (w.x < 0.5 ? s01 : s11);
+			}
+
+			return c.z >= snow.r && c.z <= snow.g + bias;
+		}
+
+		// marches the view ray towards the fragment through the snow lying on the topmost surface (the snow map, built from
+		// the shelter map); a point is in snow when it lies between the snow top and the surface it lies on
+		bool march_snow_cover(vec3 eye, inout vec3 world_pos, vec3 surface_normal, out vec3 normal) {
+			normal = vec3(0.0, 1.0, 0.0);
+			int tex = ]] .. block_name .. [[.snow_map_texture;
+			float depth = ]] .. block_name .. [[.surface_snow_depth;
+
+			if (tex == -1 || depth <= 0.0) return false;
+
+			mat4 m = ]] .. block_name .. [[.shelter_matrix;
+			vec3 row_x = vec3(m[0].x, m[1].x, m[2].x);
+			vec3 row_y = vec3(m[0].y, m[1].y, m[2].y);
+			vec3 row_z = vec3(m[0].z, m[1].z, m[2].z);
+			float depth_per_meter = length(row_z);
+			vec3 to_fragment = world_pos - eye;
+			float t_end = length(to_fragment);
+			vec3 dir = to_fragment / t_end;
+			float rise = max(dot(-dir, -row_z / depth_per_meter), 0.08);
+			float t_start = max(t_end - depth * 1.2 / rise, 0.0);
+			vec3 a = (m * vec4(eye + dir * t_start, 1.0)).xyz;
+			vec3 b = (m * vec4(world_pos, 1.0)).xyz;
+			a.xy = a.xy * 0.5 + 0.5;
+			b.xy = b.xy * 0.5 + 0.5;
+
+			if (any(lessThan(min(a.xy, b.xy), vec2(0.0))) || any(greaterThan(max(a.xy, b.xy), vec2(1.0)))) return false;
+
+			// only the fragment itself may sit a texel's slope below the top surface it was rasterised into; any other point
+			// that far under the top surface is under a ledge
+			float up = max(dot(surface_normal, -row_z / depth_per_meter), 0.0);
+			float bias = 0.05 * depth_per_meter;
+			float jump = (0.1 + ]] .. block_name .. [[.shelter_texel_size) * depth_per_meter;
+			float own_bias = (0.05 + ]] .. block_name .. [[.shelter_texel_size * 1.5 * sqrt(max(1.0 - up * up, 0.0)) / max(up, 0.2)) * depth_per_meter * step(0.2, up);
+			int steps = clamp(int((t_end - t_start) / (depth * 0.1)), 8, 64);
+			float previous = 0.0;
+			float hit = -1.0;
+
+			for (int i = 0; i <= 64; i++) {
+				if (i > steps) break;
+
+				float f = float(i) / float(steps);
+				if (snow_map_inside(mix(a, b, f), i == steps ? max(bias, own_bias) : bias, jump)) {
+					hit = f;
+					break;
+				}
+
+				previous = f;
+			}
+
+			if (hit < 0.0) return false;
+
+			if (hit > 0.0) {
+				float lo = previous;
+				float hi = hit;
+
+				for (int i = 0; i < 6; i++) {
+					float mid = 0.5 * (lo + hi);
+					if (snow_map_inside(mix(a, b, mid), bias, jump)) {
+						hi = mid;
+					} else {
+						lo = mid;
+					}
+				}
+
+				hit = hi;
+			}
+
+			vec3 c = mix(a, b, hit);
+			world_pos = mix(eye + dir * t_start, world_pos, hit);
+			float e = 1.0 / float(textureSize(TEXTURE(tex), 0).x);
+			float center = snow_map_sample(c.xy).r;
+			float sl = snow_map_sample(c.xy - vec2(e, 0.0)).r;
+			float sr = snow_map_sample(c.xy + vec2(e, 0.0)).r;
+			float sd = snow_map_sample(c.xy - vec2(0.0, e)).r;
+			float su = snow_map_sample(c.xy + vec2(0.0, e)).r;
+			sl = sl > 1.5 ? center : sl;
+			sr = sr > 1.5 ? center : sr;
+			sd = sd > 1.5 ? center : sd;
+			su = su > 1.5 ? center : su;
+			vec2 gradient = vec2(sr - sl, su - sd) / (2.0 * e);
+			normal = normalize(gradient.x * 0.5 * row_x + gradient.y * 0.5 * row_y - row_z);
+			return true;
+		}
+
 		float get_precipitation_exposure(vec3 world_pos, vec3 normal) {
 			vec3 dir = ]] .. block_name .. [[.precipitation_direction;
 			float facing = smoothstep(-0.3, 0.2, dot(normal, dir));
@@ -435,7 +554,7 @@ function surface_weather.GetGLSL(block_name)
 			float patches = snow_patches(s.world_pos.xz);
 			float hold = smoothstep(0.5, 0.87, s.geometric_N.y + (patches - 0.5) * 0.3);
 			float amount = snow_depth / SNOW_FULL_COVER_DEPTH * exposure * w.snow_scale - (1.0 - clamp(s.N.y, 0.0, 1.0)) * 0.3;
-			float cover = smoothstep(patches * 0.7, patches * 0.7 + 0.3, amount) * hold;
+			float cover = max(smoothstep(patches * 0.7, patches * 0.7 + 0.3, amount) * hold, surface_snow_force);
 
 			if (cover <= 0.0) return 0.0;
 

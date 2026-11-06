@@ -234,11 +234,12 @@ layout(buffer_reference, scalar) readonly buffer PrismInstanceData { mat4 worlds
 	return pass
 end
 
-local function build_ssdm_fragment_shader(write_depth, prism)
+local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 	-- shell hits of entry fragments lie behind them, so the rasterized depth is a bound that keeps early depth rejection; hits marched from an eye inside the relief lie in front and only matter when something else sits between them and their exit surface
 	return (
 			write_depth and
 			prism and
+			not nearer and
 			"layout(depth_less) out float gl_FragDepth;\n" or
 			""
 		) .. [[
@@ -819,6 +820,13 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			discard_lod_fade();
 			mat3 tbn = get_tbn();
 			SSDMData displacement = get_ssdm_data(tbn);
+			vec3 snow_normal;
+
+			if (march_snow_cover(gbuffer_data.camera_position.xyz, displacement.world_pos, tbn[2], snow_normal)) {
+				displacement.normal = snow_normal;
+				displacement.texture_pos = displacement.world_pos;
+				surface_snow_force = 1.0;
+			}
 			float alpha = get_alpha_uv(displacement.uv);
 
 			if (Decal && DecalFade) {
@@ -836,7 +844,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 
 			Surface surface;
 			surface.world_pos = displacement.world_pos;
-			surface.geometric_N = tbn[2];
+			surface.geometric_N = surface_snow_force > 0.0 ? snow_normal : tbn[2];
 			prepare_terrain_layers(displacement.uv, displacement.texture_pos);
 			init_surface_features(surface, displacement.uv);
 			surface.alpha = alpha;
@@ -874,7 +882,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			[[
 			vec3 depth_position = displacement.world_pos;
 
-			if (Decal) {
+			if (Decal && surface_snow_force <= 0.0) {
 				vec3 to_camera = gbuffer_data.camera_position.xyz - depth_position;
 				float camera_distance = max(length(to_camera), 0.0001);
 				depth_position += to_camera / camera_distance * (camera_distance * DECAL_DEPTH_BIAS_RELATIVE + DECAL_DEPTH_BIAS_ABSOLUTE);
@@ -909,6 +917,14 @@ for _, write_depth in ipairs({false, true}) do
 	local multi_draw = build_multi_draw_pass(build_ssdm_fragment_shader(write_depth, true))
 	multi_draw.name = "gbuffer_multi_draw" .. suffix
 	list.insert(passes, fallback)
+
+	if write_depth then
+		-- snow lying on everything moves hits nearer than the triangle, so this one cannot promise depth_less
+		local snow = build_multi_draw_pass(build_ssdm_fragment_shader(true, true, true))
+		snow.name = "gbuffer_multi_draw_snow"
+		list.insert(passes, snow)
+	end
+
 	list.insert(passes, fallback_anim)
 	list.insert(passes, instanced)
 	list.insert(passes, multi_draw)

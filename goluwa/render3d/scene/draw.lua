@@ -7,6 +7,7 @@ local system = import("goluwa/system.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local lod = import("goluwa/render3d/lod.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
+local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
@@ -17,7 +18,7 @@ local render3d
 local draw = {}
 local LOCAL_SIZE = 64
 local COMMAND_SIZE = 20
-local GROUPS = 4
+local GROUPS = 6
 local DEAD_MESH = {
 	IsValid = function()
 		return false
@@ -548,12 +549,14 @@ local function get_finalize_pipeline()
 			{"count", "int"},
 			{"capacity", "int"},
 			{"kind", "int"},
+			{"force_depth", "int"},
 		},
 		write = function(self, block)
 			block.args = state.args_address
 			block.count = state.group_count
 			block.capacity = state.group_capacity
 			block.kind = state.kind
+			block.force_depth = surface_weather.snow_map and surface_weather.snow_depth > 0 and 1 or 0
 			return block
 		end,
 		custom_declarations = DRAW_DECLARATIONS,
@@ -570,7 +573,7 @@ local function get_finalize_pipeline()
 				if (instance_count == 0u) return;
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
-				uint set = compute.kind == 0 ? group.set : (group.set & 1u);
+				uint set = compute.kind == 0 ? (compute.force_depth != 0 ? 4u + (group.set & 1u) : group.set) : (group.set & 1u);
 				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
 				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + packed_index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.base);
 			}

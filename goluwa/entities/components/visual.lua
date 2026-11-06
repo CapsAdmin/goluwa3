@@ -2545,11 +2545,12 @@ function Visual:OnFirstCreated()
 	event.AddListener("Draw3DGeometry", "visual_geometry_draw", function()
 		store_pipelines[1] = render3d.pipelines.gbuffer_multi_draw
 		store_pipelines[2] = render3d.pipelines.gbuffer_multi_draw_height_map
+		store_pipelines[3] = render3d.pipelines.gbuffer_multi_draw_snow
 		local camera_position = render3d.GetCamera():GetPosition()
 
 		if
 			not visual.noculling and
-			store_pipelines[2] and
+			store_pipelines[3] and
 			scene_draw.Draw(gbuffer_instancing, store_pipelines)
 		then
 			for component in pairs(scene_bridge.GetCPUDrawnVisuals()) do
