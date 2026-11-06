@@ -89,8 +89,6 @@ do
 			passes = {
 				import("goluwa/render3d/passes/gbuffer.lua"),
 				import("goluwa/render3d/passes/ddgi.lua"),
-				import("goluwa/render3d/passes/lighting.lua"),
-				import("goluwa/render3d/passes/blit.lua"),
 			},
 		}
 	end
@@ -245,35 +243,52 @@ do
 		add_slab(polygon3d, created, Vec3(gap / 2, 5, -gap / 2), Vec3(6, 5.4, gap / 2))
 		local pvars = import("goluwa/cli/pvars.lua")
 
-		local function gi_average(frames)
-			ddgi.ResetHistory()
-
-			for _ = 1, frames do
-				draw()
-			end
-
+		local function gi_average()
 			local sum = 0
 
-			for _ = 1, 12 do
-				draw()
+			for _ = 1, 24 do
+				for _ = 1, 5 do
+					draw()
+				end
+
 				local r, g, b = gi_mean()
 				sum = sum + r + g + b
 			end
 
-			return sum / 12
+			return sum / 24
 		end
 
+		local hysteresis = pvars.Get("ddgi_hysteresis")
+		local change_power = pvars.Get("ddgi_change_power")
 		local ok, err = pcall(function()
-			local default = (gi_average(600) + gi_average(600) + gi_average(600)) / 3
+			ddgi.ResetHistory()
+
+			for _ = 1, 400 do
+				draw()
+			end
+
 			pvars.SetSession("ddgi_hysteresis", 0.998)
 			pvars.SetSession("ddgi_change_power", 1)
-			local slow = gi_average(1500)
+
+			for _ = 1, 900 do
+				draw()
+			end
+
+			local slow = gi_average()
+			pvars.SetSession("ddgi_hysteresis", hysteresis)
+			pvars.SetSession("ddgi_change_power", change_power)
+
+			for _ = 1, 60 do
+				draw()
+			end
+
+			local default = gi_average()
 			T(slow > 0)["=="](true)
 			T(default >= slow * 0.7)["=="](true)
 			T(default <= slow * 1.35)["=="](true)
 		end)
-		pvars.SetSession("ddgi_hysteresis", 0.99)
-		pvars.SetSession("ddgi_change_power", 4)
+		pvars.SetSession("ddgi_hysteresis", hysteresis)
+		pvars.SetSession("ddgi_change_power", change_power)
 
 		for _, e in ipairs(created) do
 			if e:IsValid() then e:Remove() end
