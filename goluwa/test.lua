@@ -823,6 +823,10 @@ do
 		return true
 	end
 
+	function test.GetFileResults(name)
+		return test_results[name]
+	end
+
 	function test.EndTests(no_summary)
 		local luajit_startup_time = _G.EARLY_STARTUP_TIME or 0
 		local actual_total = os.clock() - luajit_startup_time
@@ -1234,9 +1238,83 @@ local commands = import("goluwa/cli/commands.lua")
 local json = import("goluwa/codecs/json.lua")
 local vfs = import("goluwa/vfs.lua")
 -- eight render test processes at once trip the metal command queue timeout on apple integrated gpus
-local MAX_PARALLEL_FILES = jit.os == "OSX" and 4 or 8
+local MAX_PARALLEL_FILES = jit.os == "OSX" and 4 or math.max(1, math.floor(threads.get_thread_count() / 2))
 local MIN_MEMORY_HEADROOM = 4 * 1024 ^ 3
 local UNKNOWN_FILE_DURATION = 5
+local KILL_FILE_SECONDS = 120
+local RESULT_MARKER = "@@goluwa test result@@"
+
+function test.FormatTimingReport(file_reports, info)
+	local tests = {}
+	local summed = 0
+
+	for _, file in ipairs(file_reports) do
+		file.test_time = 0
+
+		for _, timing in ipairs(file.timings) do
+			file.test_time = file.test_time + timing.time
+			table.insert(tests, {file = file.name, name = timing.name, time = timing.time})
+		end
+
+		summed = summed + file.wall
+	end
+
+	table.sort(file_reports, function(a, b)
+		return a.wall > b.wall
+	end)
+
+	table.sort(tests, function(a, b)
+		return a.time > b.time
+	end)
+
+	local function format_files(limit)
+		local lines = {
+			string.format("%8s %8s %8s %8s %6s  %s", "wall", "load", "tests", "rest", "count", "file"),
+		}
+
+		for i = 1, math.min(limit, #file_reports) do
+			local file = file_reports[i]
+			table.insert(
+				lines,
+				string.format(
+					"%7.2fs %7.2fs %7.2fs %7.2fs %6d  %s%s",
+					file.wall,
+					file.load_time,
+					file.test_time,
+					math.max(0, file.wall - file.load_time - file.test_time),
+					#file.timings,
+					file.name,
+					file.failed and " (failed)" or ""
+				)
+			)
+		end
+
+		return table.concat(lines, "\n") .. "\n"
+	end
+
+	local lines = {
+		string.format(
+			"%s: %d tests in %d files, %d jobs, %.2fs wall, %.2fs summed over files (%.1f files running on average)",
+			os.date("%Y-%m-%d %H:%M:%S"),
+			info.test_count,
+			info.file_count,
+			info.jobs,
+			info.wall,
+			summed,
+			summed / math.max(info.wall, 0.001)
+		),
+		"",
+		"files by wall time of their process: load is starting the process and running the file body, tests is the sum of its tests, rest is waiting between ticks and shutdown",
+		format_files(math.huge),
+		"slowest tests",
+	}
+
+	for i = 1, math.min(100, #tests) do
+		table.insert(lines, string.format("%7.2fs  %s  %s", tests[i].time, tests[i].file, tests[i].name))
+	end
+
+	return table.concat(lines, "\n") .. "\n", "slowest test files:\n" .. format_files(10)
+end
 
 commands.Add({
 	aliases = "test",
@@ -1260,11 +1338,11 @@ commands.Add({
 		},
 		jobs = {
 			type = "number",
-			description = "Maximum number of test files running at once (default 8, 4 on macOS)",
+			description = "Maximum number of test files running at once (default half the cores, 4 on macOS)",
 		},
 		["no-parallel"] = {
 			type = "boolean",
-			description = "Disable parallel file execution when running separate processes",
+			description = "Run one test file at a time",
 		},
 		["no-summary"] = {
 			type = "boolean",
@@ -1273,6 +1351,10 @@ commands.Add({
 		["failures-only"] = {
 			type = "boolean",
 			description = "Only print failed tests and the final summary",
+		},
+		worker = {
+			type = "string",
+			description = "Run only this test file in this process and print its result, used by the runner for each file",
 		},
 	},
 }, function(path_pattern, flags)
@@ -1285,11 +1367,111 @@ commands.Add({
 	local summary = flags["no-summary"] ~= true
 	local failures_only = flags["failures-only"] == true
 	local name_pattern = flags["name-pattern"]
-	process.setenv("GOLUWA_VALIDATE", "1")
+	if os.getenv("GOLUWA_VALIDATE") ~= "0" then process.setenv("GOLUWA_VALIDATE", "1") end
 
 	if name_pattern == "" or name_pattern == "all" then name_pattern = nil end
 
 	path_pattern = flags["path-pattern"] or path_pattern
+
+	if flags.worker then
+		local item
+
+		for _, test_item in ipairs(test.FindTests(flags.worker)) do
+			if test_item.path == flags.worker then item = test_item end
+		end
+
+		assert(item, "no test file " .. flags.worker)
+		local shutdown_code = nil
+		system.ShutDown = function(code)
+			shutdown_code = code or 0
+		end
+		test.BeginTests(true, false, nil, verbose, true, name_pattern, failures_only)
+		test.SetTestPaths({item})
+		local ok, has_tests = pcall(test.RunSingleTestSet, item)
+
+		if not ok then
+			io.write(colors.red(tostring(has_tests)), "\n")
+			io.flush()
+			os.realexit(1)
+		end
+
+		local run_start = system.GetTime()
+
+		if has_tests then
+			-- raw tasks created inside tests can outlive the test tasks and keep the file running, only count test tasks
+			tasks.IsBusy = function(exclude)
+				for task in pairs(tasks.created) do
+					if task ~= exclude and task.is_test_task then return true end
+				end
+
+				return false
+			end
+			local next_warn = run_start + 10
+
+			while shutdown_code == nil do
+				local now = system.GetTime()
+
+				if now >= test.GetCurrentFileTimeoutDeadline() then
+					io.stderr:write(
+						string.format(
+							"[timeout] file '%s' stalled while running '%s'\n",
+							item.name,
+							test.GetCurrentRunningTestName()
+						)
+					)
+					shutdown_code = 1
+
+					break
+				end
+
+				if now >= next_warn then
+					local waiting_for = test.GetCurrentWaitDescription()
+					io.stderr:write(
+						string.format(
+							"[warning] %s: '%s' has been running for %ds%s\n",
+							item.name,
+							test.GetCurrentRunningTestName(),
+							math.floor(now - run_start),
+							waiting_for and (", waiting for " .. waiting_for) or ""
+						)
+					)
+					next_warn = now + 10
+				end
+
+				system.SetElapsedTime(system.GetElapsedTime() + 0.016)
+				event.CallUpdate(0.016)
+				system.Sleep(0.001)
+			end
+
+			event.Call("ShutDown")
+		elseif test.GetSkippedFileReason() then
+			io.write(string.format("%s skipped: %s\n", item.name, test.GetSkippedFileReason()))
+		end
+
+		test.EndTests(true)
+		local timings = {}
+		local exit_code = shutdown_code or 0
+
+		for i, res in ipairs(test.GetFileResults(item.name) and test.GetFileResults(item.name).tests or {}) do
+			timings[i] = {name = res.name, time = res.time}
+
+			if res.success == false and not res.unavailable_reason then exit_code = 1 end
+		end
+
+		io.write(
+			RESULT_MARKER,
+			json.encode{
+				test_count = #timings,
+				test_file_count = has_tests and 1 or 0,
+				timings = timings,
+				run_time = system.GetTime() - run_start,
+			},
+			"\n"
+		)
+		io.flush()
+		os.realexit(exit_code)
+		return
+	end
 
 	if separate then
 		local tests = test.FindTests(path_pattern)
@@ -1308,124 +1490,13 @@ commands.Add({
 			)
 		end
 
-		local thread_worker = [[
-			local crash_trace = import("goluwa/bindings/crash_trace.lua")
-			local input = ...
-			crash_trace.Install()
-			return crash_trace.Run(function()
-			local io = require("io")
-			local output_parts = {}
-			local function capture(...)
-				for i = 1, select("#", ...) do
-					table.insert(output_parts, tostring(select(i, ...)))
-				end
-			end
-			-- must be set before helpers.test is required, it aliases io.write locally
-			io.write = capture
-			io.flush = function() end
-
-			-- ShutDown would kill the whole process from a thread, capture the exit code instead
-			local shutdown_code = nil
-			local has_tests = false
-			local system = import("goluwa/system.lua")
-			local vfs = import("goluwa/vfs.lua")
-			local event = import("goluwa/event.lua")
-
-			import.loadfile = vfs.LoadFile
-			vfs.MountStorageDirectories()
-			system.ShutDown = function(code) shutdown_code = code or 0 os.exitcode = code end
-
-			local ok, run_err = pcall(function()
-				local t = import("goluwa/test.lua")
-				t.BeginTests(true, false, nil, input.verbose, true, input.name_pattern, input.failures_only)
-				t.SetTestPaths({{name = input.name, path = input.path}})
-				has_tests = t.RunSingleTestSet({name = input.name, path = input.path})
-
-				if not has_tests then
-					local skip_reason = t.GetSkippedFileReason()
-
-					if skip_reason then
-						io.write(string.format("%s skipped: %s\n", input.name, skip_reason))
-					end
-
-					t.EndTests(true)
-					return
-				end
-
-			local task = import("goluwa/tasks.lua")
-
-			-- raw tasks created inside tests can outlive the test tasks and block shutdown_code, only count test tasks
-			task.IsBusy = function(exclude)
-				for task in pairs(task.created) do
-					if task ~= exclude and task.is_test_task then return true end
-				end
-				return false
-			end
-
-			local start_t = system.GetTime()
-			local next_warn = start_t + 10
-			local stderr = io.stderr
-
-			while shutdown_code == nil do
-				local now = system.GetTime()
-				local deadline = t.GetCurrentFileTimeoutDeadline and t.GetCurrentFileTimeoutDeadline() or nil
-
-				if deadline and now >= deadline then
-					local running_test = t.GetCurrentRunningTestName and t.GetCurrentRunningTestName() or input.name
-					stderr:write(string.format("[timeout] file '%s' stalled while running '%s'\n", input.name, running_test))
-					stderr:flush()
-					shutdown_code = 1
-					break
-				end
-
-				if now >= next_warn then
-					local running_test = t.GetCurrentRunningTestName and t.GetCurrentRunningTestName() or ""
-					local waiting_for = t.GetCurrentWaitDescription and t.GetCurrentWaitDescription() or nil
-					stderr:write(
-						string.format(
-							"[warning] %s: %s has been running for %ds%s\n",
-							input.name,
-							running_test ~= "" and ("'" .. running_test .. "'") or "tests",
-							math.floor(now - start_t),
-							waiting_for and (", waiting for " .. waiting_for) or ""
-						)
-					)
-					stderr:flush()
-					next_warn = now + 5
-				end
-
-				local dt = 0.016
-				system.SetElapsedTime(system.GetElapsedTime() + dt)
-				event.CallUpdate(dt)
-				system.Sleep(0.001)
-			end
-
-			event.Call("ShutDown")
-			t.EndTests(true)
-			end)
-
-			if not ok then
-				return {output = tostring(run_err), exit_code = 1, test_count = 0, test_file_count = 0}
-			end
-
-			local output = table.concat(output_parts)
-			local test_count = tonumber(output:match("#tests=(%d+)") or "0")
-			local exit_code = shutdown_code or (output:find("\xe2\x9c\x97") ~= nil and 1 or 0)
-			os.exitcode = exit_code
-			return {
-				output = output,
-				exit_code = exit_code,
-				test_count = test_count,
-				test_file_count = has_tests and 1 or 0,
-			}
-			end)
-		]]
 		local start_time = system.GetTime()
 		local total_exit_code = 0
 		local total_test_count = 0
 		local total_test_file_count = 0
 		local failed_files = 0
 		local failed_file_names = {}
+		local file_reports = {}
 		local running = {}
 		local pending = {}
 		local max_running = parallel and
@@ -1438,22 +1509,6 @@ commands.Add({
 		if durations_content and durations_content ~= "" then
 			durations = json.decode(durations_content)
 		end
-
-		pcall(import("goluwa/render/vulkan/loader_locator.lua").Locate)
-		local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-		local keepalive_instance = require("ffi").typeof("$[1]", vulkan.vk.VkInstance)()
-		vulkan.assert(
-			vulkan.lib.vkCreateInstance(
-				vulkan.vk.s.InstanceCreateInfo{
-					flags = 0,
-					enabledLayerCount = 0,
-					enabledExtensionCount = 0,
-				},
-				nil,
-				keepalive_instance
-			),
-			"failed to create keepalive instance"
-		)
 
 		for i, test_item in ipairs(tests) do
 			pending[i] = test_item
@@ -1468,11 +1523,9 @@ commands.Add({
 			return a.name < b.name
 		end)
 
-		print(
-			max_running == 1 and
-				"Running tests in threads..." or
-				"Running " .. max_running .. " tests in parallel threads..."
-		)
+		print("Running " .. max_running .. " test files at once, one process each...")
+		local executable = process.get_executable_path()
+		local script = vfs.GetStorageDirectory("root") .. "glw"
 
 		while #pending > 0 or #running > 0 do
 			while #running < max_running and #pending > 0 do
@@ -1483,89 +1536,119 @@ commands.Add({
 				end
 
 				local test_item = table.remove(pending, 1)
-				local ok, thread_or_err = pcall(function()
-					local t = threads.new(thread_worker)
-					t:run{
-						path = test_item.path,
-						name = test_item.name,
-						verbose = verbose,
-						failures_only = failures_only,
-						name_pattern = name_pattern,
-					}
-					return t
-				end)
+				local args = {script, "test", "--worker=" .. test_item.path}
 
-				if ok then
-					thread_or_err.test_name = test_item.name
-					thread_or_err.start_time = system.GetTime()
-					thread_or_err.next_warn_time = system.GetTime() + 30
-					table.insert(running, thread_or_err)
-				else
-					io.write(
-						"failed to start thread for " .. test_item.name .. ": " .. tostring(thread_or_err) .. "\n"
-					)
-					total_exit_code = 1
-					failed_files = failed_files + 1
-					table.insert(failed_file_names, test_item.name)
-				end
+				if name_pattern then args[#args + 1] = "--name-pattern=" .. name_pattern end
+
+				if verbose then args[#args + 1] = "--verbose" end
+
+				if failures_only then args[#args + 1] = "--failures-only" end
+
+				table.insert(
+					running,
+					{
+						proc = assert(process.spawn{command = executable, args = args, stdout = "pipe", stderr = "pipe"}),
+						test_name = test_item.name,
+						start_time = system.GetTime(),
+						next_warn_time = system.GetTime() + 30,
+						stdout = {},
+						stderr = {},
+						stderr_line = "",
+					}
+				)
 			end
 
 			for i = #running, 1, -1 do
-				local t = running[i]
+				local job = running[i]
+				local done, exit_code = job.proc:try_wait()
 
-				if t.next_warn_time and system.GetTime() >= t.next_warn_time then
-					local elapsed = math.floor(system.GetTime() - t.start_time)
+				repeat
+					local chunk = job.proc:read(65536)
+					job.stdout[#job.stdout + 1] = chunk
+				until chunk == ""
+
+				repeat
+					local chunk = job.proc:read_err(65536)
+					job.stderr_line = job.stderr_line .. chunk
+
+					for line in job.stderr_line:gmatch("([^\n]*\n)") do
+						if line:starts_with("[warning]") or line:starts_with("[timeout]") then
+							io.write(colors.yellow(line))
+							io.flush()
+							job.next_warn_time = system.GetTime() + 15
+						else
+							job.stderr[#job.stderr + 1] = line
+						end
+					end
+
+					job.stderr_line = job.stderr_line:match("([^\n]*)$")
+				until chunk == ""
+
+				if not done and system.GetTime() >= job.next_warn_time then
 					io.write(
 						colors.yellow(
 							string.format(
-								"[warning] %s has been running for %ds without reporting progress\n",
-								t.test_name,
-								elapsed
+								"[warning] %s has been running for %ds\n",
+								job.test_name,
+								math.floor(system.GetTime() - job.start_time)
 							)
 						)
 					)
 					io.flush()
-					t.next_warn_time = system.GetTime() + 10
+					job.next_warn_time = system.GetTime() + 10
 				end
 
-				local status = threads.get_status(t)
+				if
+					not done and
+					not job.killed and
+					system.GetTime() - job.start_time > KILL_FILE_SECONDS
+				then
+					job.proc:kill(process.SIGKILL)
+					job.killed = true
+				end
 
-				if status and status ~= 0 then
-					local result, join_err = t:join()
+				if done then
+					job.stderr[#job.stderr + 1] = job.stderr_line
+					job.proc:close()
+					table.remove(running, i)
+					durations[job.test_name] = system.GetTime() - job.start_time
+					local output = table.concat(job.stdout)
+					local result_json = output:match(RESULT_MARKER .. "([^\n]*)\n")
+					local result = result_json and json.decode(result_json)
+					output = output:gsub(RESULT_MARKER .. "[^\n]*\n", ""):gsub("#tests=%d+\n", "") .. table.concat(job.stderr)
 
-					if not result then join_err = "thread result is falsy" end
-
-					if join_err then
-						io.write("thread error for " .. t.test_name .. ": " .. tostring(join_err) .. "\n")
+					if exit_code ~= 0 then
 						total_exit_code = 1
 						failed_files = failed_files + 1
-						table.insert(failed_file_names, t.test_name)
-					else
-						if result.exit_code ~= 0 then
-							total_exit_code = 1
-							failed_files = failed_files + 1
-							table.insert(failed_file_names, t.test_name)
+						local reason = job.killed and
+							string.format(" (killed after %ds)", KILL_FILE_SECONDS) or
+							exit_code > 128 and
+							string.format(" (crashed, signal %d)", exit_code - 128) or
+							""
+						table.insert(failed_file_names, job.test_name .. reason)
+
+						if reason ~= "" or not result then
+							output = output .. colors.red("test file failed: " .. job.test_name .. reason) .. "\n"
 						end
-
-						total_test_count = total_test_count + (result.test_count or 0)
-						total_test_file_count = total_test_file_count + (result.test_file_count or 0)
-						local final_output = result.output
-						final_output = final_output:gsub("\n#tests=%d+\n", "\n")
-						final_output = final_output:gsub("#tests=%d+\n", "")
-
-						if result.exit_code ~= 0 and #final_output == 0 then
-							io.write(colors.red("test file failed: " .. t.test_name) .. "\n")
-						end
-
-						if #final_output > 0 then io.write(final_output) end
-
-						io.flush()
 					end
 
-					durations[t.test_name] = system.GetTime() - t.start_time
-					t:close()
-					collectgarbage("collect")
-					table.remove(running, i)
+					io.write(output)
+					io.flush()
+
+					if result then
+						total_test_count = total_test_count + result.test_count
+						total_test_file_count = total_test_file_count + result.test_file_count
+						table.insert(
+							file_reports,
+							{
+								name = job.test_name,
+								wall = durations[job.test_name],
+								load_time = durations[job.test_name] - result.run_time,
+								timings = result.timings,
+								failed = exit_code ~= 0,
+							}
+						)
+					end
 				end
 			end
 
@@ -1585,7 +1668,29 @@ commands.Add({
 		end
 
 		fs.create_directory_recursive(vfs.GetStorageDirectory("storage") .. "logs/")
+		local existing_names = {}
+
+		for _, test_item in ipairs(test.FindTests()) do
+			existing_names[test_item.name] = true
+		end
+
+		for name in pairs(durations) do
+			if not existing_names[name] then durations[name] = nil end
+		end
+
 		fs.write_file(durations_path, json.encode(durations))
+		local report_path = vfs.GetStorageDirectory("storage") .. "logs/test_report.txt"
+		local report, slowest_files = test.FormatTimingReport(
+			file_reports,
+			{
+				wall = end_time - start_time,
+				jobs = max_running,
+				test_count = total_test_count,
+				file_count = total_test_file_count,
+			}
+		)
+		fs.write_file(report_path, report)
+		io.write("\n", slowest_files, "full timing report: ", report_path, "\n\n")
 		io.write("ran " .. total_test_count .. " tests in " .. total_test_file_count .. " files\n")
 		io.write("total time: " .. string.format("%.2f", end_time - start_time) .. "s\n")
 		io.flush()
