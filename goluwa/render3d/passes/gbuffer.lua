@@ -223,12 +223,13 @@ layout(buffer_reference, scalar) readonly buffer PrismVertexData { float v[]; };
 layout(buffer_reference, scalar) readonly buffer PrismIndexData { uint i[]; };
 layout(buffer_reference, scalar) readonly buffer PrismInstanceData { mat4 worlds[]; };
 ]] .. string.format(
-			"const uint PRISM_VERTEX_STRIDE = %du;\nconst uint PRISM_VERTEX_POSITION = %du;\nconst uint PRISM_VERTEX_NORMAL = %du;\nconst uint PRISM_VERTEX_UV = %du;\nconst uint PRISM_VERTEX_PIVOT = %du;\n",
+			"const uint PRISM_VERTEX_STRIDE = %du;\nconst uint PRISM_VERTEX_POSITION = %du;\nconst uint PRISM_VERTEX_NORMAL = %du;\nconst uint PRISM_VERTEX_UV = %du;\nconst uint PRISM_VERTEX_PIVOT = %du;\nconst uint PRISM_VERTEX_TANGENT = %du;\n",
 			vertex_layout.FloatStride,
 			vertex_layout.GetFloatOffset("position"),
 			vertex_layout.GetFloatOffset("normal"),
 			vertex_layout.GetFloatOffset("uv"),
-			vertex_layout.GetFloatOffset("pivot")
+			vertex_layout.GetFloatOffset("pivot"),
+			vertex_layout.GetFloatOffset("tangent")
 		)
 	return pass
 end
@@ -296,7 +297,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			return vec2(mesh.vertices.v[at], mesh.vertices.v[at + 1u]);
 		}
 
-		bool prism_locate(PrismMesh mesh, inout uint tri, vec3 p, int max_hops, out float lambda, out vec2 uv) {
+		bool prism_locate(PrismMesh mesh, inout uint tri, vec3 p, int max_hops, out float lambda, out vec2 uv, out uvec3 corners, out vec3 weights) {
 			uint i0 = 0u;
 			uint i1 = 0u;
 			uint i2 = 0u;
@@ -358,6 +359,8 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			b = max(b, vec3(0.0));
 			b /= max(b.x + b.y + b.z, 1e-6);
 			uv = prism_uv(mesh, i0) * b.x + prism_uv(mesh, i1) * b.y + prism_uv(mesh, i2) * b.z;
+			corners = uvec3(i0, i1, i2);
+			weights = b;
 			return inside;
 		}
 
@@ -378,7 +381,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			w.uv = clamp(uv, 0.0, 1.0);
 			get_terrain_material_weights_both_uv(w.uv, w.weights, w.weights2);
 			vec3 blend = get_terrain_triplanar_weights(get_terrain_world_normal(w.uv));
-			blend *= step(vec3(0.2), blend);
+			blend = max(blend - 0.2, vec3(0.0));
 			w.blend = blend / max(blend.x + blend.y + blend.z, 0.0001);
 			return w;
 		}
@@ -424,7 +427,6 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			vec2 duv2;
 			vec3 bounds;
 			TerrainShellWeights weights;
-			float refresh;
 			vec2 gx[3];
 			vec2 gy[3];
 			float shell;
@@ -434,11 +436,29 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			int hops;
 		};
 
+		mat3 prism_frame(PrismMesh mesh, uvec3 corners, vec3 weights) {
+			vec3 n = vec3(0.0);
+			vec4 t = vec4(0.0);
+
+			for (int k = 0; k < 3; k++) {
+				uint at = corners[k] * PRISM_VERTEX_STRIDE;
+				n += vec3(mesh.vertices.v[at + PRISM_VERTEX_NORMAL], mesh.vertices.v[at + PRISM_VERTEX_NORMAL + 1u], mesh.vertices.v[at + PRISM_VERTEX_NORMAL + 2u]) * weights[k];
+				t += vec4(mesh.vertices.v[at + PRISM_VERTEX_TANGENT], mesh.vertices.v[at + PRISM_VERTEX_TANGENT + 1u], mesh.vertices.v[at + PRISM_VERTEX_TANGENT + 2u], mesh.vertices.v[at + PRISM_VERTEX_TANGENT + 3u]) * weights[k];
+			}
+
+			vec3 normal = normalize(mesh.normal_matrix * n);
+			vec3 tangent = normalize(mat3(mesh.world) * t.xyz);
+			tangent = normalize(tangent - normal * dot(normal, tangent));
+			return mat3(tangent, cross(normal, tangent) * sign(t.w), normal);
+		}
+
 		struct ShellSample {
 			bool valid;
 			float level;
 			float clearance;
 			vec2 uv;
+			uvec3 corners;
+			vec3 weights;
 		};
 
 		ShellSample shell_sample(inout ShellState s, vec3 p) {
@@ -450,7 +470,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				float ground = terrain_shell_ground(r.uv);
 				r.level = (p.y - ground) / s.lift;
 
-				if (distance(r.uv, s.weights.uv) > s.refresh) {
+				if (r.uv != s.weights.uv) {
 					s.weights = terrain_shell_weights(r.uv);
 				}
 
@@ -459,14 +479,14 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			}
 
 			float lambda;
-			r.valid = prism_locate(s.mesh, s.tri, p, s.hops, lambda, r.uv);
+			r.valid = prism_locate(s.mesh, s.tri, p, s.hops, lambda, r.uv, r.corners, r.weights);
 			r.level = lambda;
 			float h = textureGrad(TEXTURE(displacement_model.HeightTexture), r.uv, s.duv1, s.duv2).r;
 			r.clearance = min((s.midlevel + lambda * (1.0 - s.midlevel) - h) * s.shell, lambda * s.lift);
 			return r;
 		}
 
-		SSDMData shell_trace(inout ShellState s, bool base_copy, bool side, vec3 outward) {
+		SSDMData shell_trace(inout ShellState s, bool base_copy, bool side, vec3 outward, inout mat3 tbn) {
 			vec3 eye = gbuffer_data.camera_position.xyz;
 			vec3 to_fragment = in_position - eye;
 			float t_fragment = length(to_fragment);
@@ -533,6 +553,10 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				discard;
 			}
 
+			if (!s.terrain) {
+				tbn = prism_frame(s.mesh, hit.corners, hit.weights);
+			}
+
 			SSDMData data;
 			data.uv = hit.uv;
 			data.height = clamp(hit.level, 0.0, 1.0) * s.lift;
@@ -540,7 +564,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			return data;
 		}
 
-		SSDMData get_terrain_shell_data(float shell) {
+		SSDMData get_terrain_shell_data(float shell, inout mat3 tbn) {
 			ShellState s;
 			s.terrain = true;
 			s.bounds = terrain_model.TerrainBounds;
@@ -549,7 +573,6 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			s.max_step = shell * 3.0;
 			s.escape = 1.25;
 			s.hops = 0;
-			s.refresh = 0.5 / s.bounds.z;
 			s.weights = terrain_shell_weights(in_uv);
 			float scale = max(terrain_model.TerrainLayerScales.y, 0.0001);
 			s.gx = vec2[3](dFdx(in_position.zy) / scale, dFdx(in_position.xz) / scale, dFdx(in_position.xy) / scale);
@@ -557,10 +580,10 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			vec2 edge = min(in_uv, 1.0 - in_uv);
 			bool side = min(edge.x, edge.y) < 1e-4;
 			vec2 out_uv = edge.x < edge.y ? vec2(in_uv.x < 0.5 ? -1.0 : 1.0, 0.0) : vec2(0.0, in_uv.y < 0.5 ? -1.0 : 1.0);
-			return shell_trace(s, !side && abs(in_tangent.w) > 1.5, side, vec3(out_uv.x, 0.0, out_uv.y));
+			return shell_trace(s, !side && abs(in_tangent.w) > 1.5, side, vec3(out_uv.x, 0.0, out_uv.y), tbn);
 		}
 
-		SSDMData get_prism_data(float shell, vec2 duv1, vec2 duv2) {
+		SSDMData get_prism_data(float shell, vec2 duv1, vec2 duv2, inout mat3 tbn) {
 			ShellState s;
 			s.terrain = false;
 			uvec4 addresses = PBRBatchData(gbuffer_draw.batches).b[in_batch].addresses;
@@ -591,13 +614,13 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 				outward = face * sign(dot(face, in_position - middle));
 			}
 
-			return shell_trace(s, !side && abs(in_tangent.w) > 1.5, side, outward);
+			return shell_trace(s, !side && abs(in_tangent.w) > 1.5, side, outward, tbn);
 		}
 ]=] or
 			""
 		) .. [[
 
-		SSDMData get_ssdm_data(mat3 tbn) {
+		SSDMData get_ssdm_data(inout mat3 tbn) {
 			SSDMData data;
 			data.uv = in_uv;
 			data.height = 0.0;
@@ -609,7 +632,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 
 ]] .. (
 			prism and
-			"\t\t\tif (terrain_model.TerrainShell > 0.0) return get_terrain_shell_data(terrain_model.TerrainShell);\n" or
+			"\t\t\tif (terrain_model.TerrainShell > 0.0) return get_terrain_shell_data(terrain_model.TerrainShell, tbn);\n" or
 			""
 		) .. [[
 			if (!has_heightmap()) {
@@ -620,7 +643,7 @@ local function build_ssdm_fragment_shader(write_depth, prism)
 			prism and
 			[=[
 			if (displacement_model.HeightShell > 0.0) {
-				return get_prism_data(displacement_model.HeightShell, duv1, duv2);
+				return get_prism_data(displacement_model.HeightShell, duv1, duv2, tbn);
 			}
 ]=] or
 			""
