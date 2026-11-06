@@ -668,8 +668,8 @@ local function convert_nsevent(nsevent, window)
 			type = "mouse_scroll",
 			x = x,
 			y = y,
-			delta_x = NSEvent.scrollingDeltaX(nsevent),
-			delta_y = NSEvent.scrollingDeltaY(nsevent),
+			delta_x = -NSEvent.scrollingDeltaX(nsevent),
+			delta_y = -NSEvent.scrollingDeltaY(nsevent),
 			precise = NSEvent.hasPreciseScrollingDeltas(nsevent) ~= 0,
 			modifiers = modifiers,
 		}
