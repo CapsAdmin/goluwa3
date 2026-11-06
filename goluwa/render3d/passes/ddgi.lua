@@ -584,27 +584,31 @@ local IRRADIANCE_INTEGRATE = {
 	declare = [[
 
 		float ray_cap = 1e30;
+		float ray_q_mean = 1.0;
 
 		if (ddgi_data.ddgi_ray_clamp > 0.0) {
 			float ray_sum = 0.0;
 			float ray_count = 0.0;
-			float top_luma = 0.0;
+			float ray_hits = 0.0;
+			float top_contribution = 0.0;
 			float top_q = 0.0;
 
 			for (int r = 0; r < DDGI_RAYS; r++) {
 				if (s_ray[r].a < 0.0) continue;
 
-				float l = luminance(s_ray[r].rgb);
-				ray_sum += l * s_q[r];
+				float contribution = luminance(s_ray[r].rgb) * s_q[r];
+				ray_sum += contribution;
 				ray_count += s_q[r];
+				ray_hits += 1.0;
 
-				if (l > top_luma) {
-					top_luma = l;
+				if (contribution > top_contribution) {
+					top_contribution = contribution;
 					top_q = s_q[r];
 				}
 			}
 
-			ray_cap = ddgi_data.ddgi_ray_clamp * max((ray_sum - top_luma * top_q) / max(ray_count - top_q, 1e-4), 1e-4);
+			ray_q_mean = max(ray_count / max(ray_hits, 1.0), 1e-6);
+			ray_cap = ddgi_data.ddgi_ray_clamp * max((ray_sum - top_contribution) / max(ray_count - top_q, 1e-4), 1e-4);
 		}
 	]],
 	loop = [[
@@ -615,9 +619,9 @@ local IRRADIANCE_INTEGRATE = {
 		if (w <= 0.0) continue;
 
 		vec3 radiance = ray.rgb;
-		float radiance_luma = luminance(radiance);
+		float contribution = luminance(radiance) * s_q[r] / ray_q_mean;
 
-		if (radiance_luma > ray_cap) radiance *= ray_cap / radiance_luma;
+		if (contribution > ray_cap) radiance *= ray_cap / contribution;
 
 		sum += vec4(radiance * w, ray.a >= DDGI_MISS_DISTANCE * 0.5 ? w * (ray.a / DDGI_MISS_DISTANCE * 2.0 - 1.0) : 0.0);
 		weight_sum += w;
