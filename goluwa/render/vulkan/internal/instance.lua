@@ -125,9 +125,9 @@ function Instance.New(extensions, layers)
 	local self = Instance:CreateObject({})
 	local version = vulkan.vk.VK_API_VERSION_1_4
 	local appInfo = vulkan.vk.s.ApplicationInfo{
-		pApplicationName = "MoltenVK LuaJIT Example",
+		pApplicationName = "Goluwa",
 		applicationVersion = 1,
-		pEngineName = "No Engine",
+		pEngineName = "Goluwa",
 		engineVersion = 1,
 		apiVersion = version,
 	}
