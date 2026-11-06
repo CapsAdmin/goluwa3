@@ -105,8 +105,10 @@ T.Test2D("mouse input event order (local and global)", function()
 
 	T(move_calls[1])["=="]("p1")
 	T(move_calls[2])["=="]("p2")
+	event.Call("MouseInput", "button_1", false)
 	window.GetMousePosition = old_get_mouse_pos
 	window.GetSize = old_get_size
+	Panel.World:Remove()
 	Panel.World = old_world
 end)
 
@@ -137,5 +139,6 @@ T.Test2D("a press on a panel stays captured by the ui until release, wherever th
 	T(MouseInput.IsPressCapturedByUI())["=="](false)
 	window.GetMousePosition = old_get_mouse_pos
 	window.GetSize = old_get_size
+	Panel.World:Remove()
 	Panel.World = old_world
 end)
