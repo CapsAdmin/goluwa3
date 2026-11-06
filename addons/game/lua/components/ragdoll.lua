@@ -640,12 +640,8 @@ function META:SetCheapJoint(part)
 		joint.Friction = 0
 		joint.FrictionImpulse = 0
 	else
-		joint.TwistMin = nil
-		joint.TwistMax = nil
 		joint.TwistFriction = 0
 		joint.SwingFriction = 0
-		joint.LowerImpulses[1] = 0
-		joint.UpperImpulses[1] = 0
 		joint.FrictionImpulses = {0, 0, 0}
 	end
 end
