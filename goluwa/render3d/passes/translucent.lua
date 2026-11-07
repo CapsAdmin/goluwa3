@@ -626,6 +626,15 @@ local passes = {
 						return;
 					}
 
+					if (Modulate) {
+						vec3 factor = 4.5948 * albedo * color_model.ColorMultiplier.rgb;
+						set_color(vec4(0.0));
+						set_motion(vec4(0.0));
+						set_additive(vec4(0.0));
+						set_modulate(vec4(mix(vec3(1.0), factor, transmittance * color_model.ColorMultiplier.a), 1.0));
+						return;
+					}
+
 					float perceptual_roughness = sqrt(roughness);
 					float diffuse_transmission = get_transmission(in_uv);
 					float refraction_amount = refraction.amount * (1.0 - overlay_cover);
@@ -854,15 +863,6 @@ local passes = {
 
 
 					set_modulate(vec4(1.0));
-
-					if (Modulate) {
-						vec3 factor = 4.5948 * albedo * color_model.ColorMultiplier.rgb;
-						set_color(vec4(0.0));
-						set_motion(vec4(0.0));
-						set_additive(vec4(0.0));
-						set_modulate(vec4(mix(vec3(1.0), factor, transmittance * color_model.ColorMultiplier.a), 1.0));
-						return;
-					}
 
 					if (Additive) {
 						vec3 emission = DisplayReferred ? get_albedo_uv(in_uv) * color_model.ColorMultiplier.a / ]] .. string.format("%.1f", post_source.PRE_EXPOSURE_HEADROOM) .. [[ : get_emissive(in_uv) * color_model.ColorMultiplier.a * get_pre_exposure();
