@@ -21,19 +21,16 @@ local ACTIVE_BODIES = {}
 local SYNCED_BODIES = {}
 local TOUCHED_BODIES = {}
 local listed_epoch = -1
+local refresh_body_lists
 local sync_stamp = 0
 
-local function refresh_body_lists(bodies)
-	if listed_epoch == RigidBody.ActivityEpoch then return end
+local ACTIVE_INDEX = {}
+local listed_structure = -1
 
-	listed_epoch = RigidBody.ActivityEpoch
-	local active_count = 0
-
-	for i = 1, #bodies do
-		local body = bodies[i]
-
-		if body.MotionType ~= "static" then
-			if
+do
+	local function is_active_body(body)
+		return body.MotionType ~= "static" and
+			(
 				body.Awake or
 				body.MotionType ~= "dynamic" or
 				not (
@@ -41,15 +38,59 @@ local function refresh_body_lists(bodies)
 				)
 				or
 				body:HasKinematicController()
-			then
-				active_count = active_count + 1
-				ACTIVE_BODIES[active_count] = body
-			end
-		end
+			)
 	end
 
-	for i = #ACTIVE_BODIES, active_count + 1, -1 do
-		ACTIVE_BODIES[i] = nil
+	function refresh_body_lists(bodies)
+		if listed_epoch == RigidBody.ActivityEpoch then return end
+
+		listed_epoch = RigidBody.ActivityEpoch
+		local changes = RigidBody.ActivityChanges
+
+		if listed_structure ~= RigidBody.StructureEpoch then
+			listed_structure = RigidBody.StructureEpoch
+			local active_count = 0
+			table.clear(ACTIVE_INDEX)
+
+			for i = 1, #bodies do
+				local body = bodies[i]
+
+				if is_active_body(body) then
+					active_count = active_count + 1
+					ACTIVE_BODIES[active_count] = body
+					ACTIVE_INDEX[body] = active_count
+				end
+			end
+
+			for i = #ACTIVE_BODIES, active_count + 1, -1 do
+				ACTIVE_BODIES[i] = nil
+			end
+		else
+			for i = 1, #changes do
+				local body = changes[i]
+				local index = ACTIVE_INDEX[body]
+
+				if is_active_body(body) then
+					if not index then
+						local count = #ACTIVE_BODIES + 1
+						ACTIVE_BODIES[count] = body
+						ACTIVE_INDEX[body] = count
+					end
+				elseif index then
+					local count = #ACTIVE_BODIES
+					local last = ACTIVE_BODIES[count]
+					ACTIVE_BODIES[index] = last
+					ACTIVE_INDEX[last] = index
+					ACTIVE_BODIES[count] = nil
+					ACTIVE_INDEX[body] = nil
+				end
+			end
+		end
+
+		for i = 1, #changes do
+			changes[i].ActivityQueued = false
+			changes[i] = nil
+		end
 	end
 end
 

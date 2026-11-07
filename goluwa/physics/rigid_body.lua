@@ -96,11 +96,24 @@ RigidBody:GetSet("GroundRollingFriction", 0)
 RigidBody:GetSet("GroundEntity", nil)
 RigidBody:GetSet("GroundBody", nil)
 RigidBody.ActivityEpoch = 0
+RigidBody.StructureEpoch = 0
+RigidBody.ActivityChanges = {}
 RigidBody.TransformDirtyBodies = {}
 RigidBody.RemovedBodies = {}
 
 function RigidBody:OnActivityChanged()
 	RigidBody.ActivityEpoch = RigidBody.ActivityEpoch + 1
+
+	if self.ActivityQueued then return end
+
+	self.ActivityQueued = true
+	local changes = RigidBody.ActivityChanges
+	changes[#changes + 1] = self
+end
+
+function RigidBody:OnStructureChanged()
+	RigidBody.ActivityEpoch = RigidBody.ActivityEpoch + 1
+	RigidBody.StructureEpoch = RigidBody.StructureEpoch + 1
 end
 
 function RigidBody:OnCollisionEnabledChanged()
@@ -294,7 +307,7 @@ function RigidBody:Initialize()
 	end
 
 	self:MarkTransformDirty()
-	self:OnActivityChanged()
+	self:OnStructureChanged()
 end
 
 function RigidBody:OnMotionTypeChanged()
@@ -310,7 +323,7 @@ function RigidBody:OnMotionTypeChanged()
 
 	self:RefreshMassProperties()
 	islands.RemoveBody(self)
-	self:OnActivityChanged()
+	self:OnStructureChanged()
 end
 
 function RigidBody:GetCollisionProbeDistance()
@@ -558,7 +571,7 @@ end
 function RigidBody:OnRemove()
 	local removed = RigidBody.RemovedBodies
 	removed[#removed + 1] = self
-	self:OnActivityChanged()
+	self:OnStructureChanged()
 	islands.RemoveBody(self)
 	remove_world_geometry_body(self)
 	local bodies = RigidBody.Instances
@@ -980,7 +993,7 @@ function RigidBody:Wake()
 
 	if not self.Awake then
 		self.Awake = true
-		RigidBody.ActivityEpoch = RigidBody.ActivityEpoch + 1
+		self:OnActivityChanged()
 		self.SleepTimer = 0
 		self.ReadyToSleepPass = nil
 		stats:Count("woken_bodies")
@@ -992,7 +1005,7 @@ function RigidBody:Sleep()
 
 	if self.Awake then
 		stats:Count("slept_bodies")
-		RigidBody.ActivityEpoch = RigidBody.ActivityEpoch + 1
+		self:OnActivityChanged()
 		self:MarkTransformDirty()
 		local transform = self.Owner.transform
 
@@ -1871,6 +1884,7 @@ RigidBody.FieldLayout = {
 	"ShapeType",
 	"shape_load_id",
 	"sleep_after_shapes",
+	"ActivityQueued",
 	"ComputedMass",
 	"LocalBounds",
 	"CollisionLocalPoints",
