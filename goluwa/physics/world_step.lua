@@ -405,7 +405,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 			if simulation_islands and simulation_islands[1] then
 				local woke_any
-				woke_any, newly_awoken_bodies = islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
+				woke_any, newly_awoken_bodies = islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies, RigidBody.ActivityEpoch, SYNCED_BODIES, ACTIVE_BODIES)
 
 				if woke_any then
 					for body_index = 1, #newly_awoken_bodies do
@@ -428,7 +428,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 					simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver, RigidBody.ActivityEpoch)
 
 					if simulation_islands and simulation_islands[1] then
-						islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
+						islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies, RigidBody.ActivityEpoch, SYNCED_BODIES, ACTIVE_BODIES)
 					end
 				end
 			end

@@ -19,6 +19,10 @@ local anchor_comp_seen = {}
 local anchor_comp_stamp = 0
 local moved_anchor_seen = table.weak("k")
 local needs_body_scan = true
+local anchor_islands = table.weak("k")
+local pending_islands = {}
+local awake_islands = {}
+local prepared_epoch = -1
 local scanned_epoch = -1
 local scanned_count = -1
 local prepare_stamp = 0
@@ -78,8 +82,27 @@ local function get_body_rank(body)
 	return rank
 end
 
+local function touch_island(island)
+	if island.pending then return end
+
+	island.pending = true
+	pending_islands[#pending_islands + 1] = island
+end
+
+local function drop_anchor_memberships(island)
+	local bodies = island.bodies
+
+	for i = 1, #bodies do
+		local set = anchor_islands[bodies[i]]
+
+		if set then set[island] = nil end
+	end
+end
+
 local function add_member(island, body)
 	if island.body_set[body] then return end
+
+	touch_island(island)
 
 	island.body_set[body] = true
 	island.bodies[#island.bodies + 1] = body
@@ -93,11 +116,25 @@ local function add_member(island, body)
 			island.root_rank = rank
 			island.root = body
 		end
+	else
+		local set = anchor_islands[body]
+
+		if not set then
+			set = {}
+			anchor_islands[body] = set
+		end
+
+		set[island] = true
 	end
 end
 
 local function remove_member(island, body)
 	if not island.body_set[body] then return end
+
+	touch_island(island)
+	local set = anchor_islands[body]
+
+	if set then set[island] = nil end
 
 	island.body_set[body] = nil
 	local bodies = island.bodies
@@ -167,6 +204,7 @@ end
 
 local function destroy_island(island)
 	needs_body_scan = true
+	drop_anchor_memberships(island)
 	local bodies = island.bodies
 
 	for i = 1, #bodies do
@@ -189,6 +227,7 @@ local function destroy_island(island)
 end
 
 local function add_pair_slot(island, key, pair)
+	touch_island(island)
 	local pairs = island.pairs
 	local slot = #pairs + 1
 	pairs[slot] = pair
@@ -197,6 +236,7 @@ local function add_pair_slot(island, key, pair)
 end
 
 local function remove_pair_slot(island, key)
+	touch_island(island)
 	local slot = island.pair_slot[key]
 
 	if not slot then return end
@@ -271,6 +311,7 @@ local function merge_islands(island_a, island_b)
 		end
 	end
 
+	drop_anchor_memberships(other)
 	other.pair_links = {}
 	other.pair_slot = {}
 	other.pair_keys = {}
@@ -352,6 +393,8 @@ local function refresh_constraint_summary(island)
 end
 
 local function clear_membership(island)
+	drop_anchor_memberships(island)
+	touch_island(island)
 	local bodies = island.bodies
 
 	for i = 1, #bodies do
@@ -818,126 +861,192 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 	return active_islands
 end
 
+local prepare_wakes = 0
+
 local function wake_dynamic_body(body, awake_dynamic_bodies, newly_awoken_bodies)
 	if not is_dynamic_body(body) then return false end
 
 	if body:GetAwake() then return false end
 
 	body:Wake()
+	prepare_wakes = prepare_wakes + 1
 	awake_dynamic_bodies[#awake_dynamic_bodies + 1] = body
 	newly_awoken_bodies[#newly_awoken_bodies + 1] = body
 	return true
 end
 
-function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
+local function prepare_island(island, stamp, newly_awoken_bodies)
+	local woke_any = false
+	local dynamic_bodies = island.dynamic_bodies
+	local awake_dynamic_bodies = island.awake_dynamic_bodies
+	local active_dynamic_count = 0
+	list.clear(awake_dynamic_bodies)
+	island.awake_dynamic_bodies = awake_dynamic_bodies
+
+	for body_index = 1, #dynamic_bodies do
+		local body = dynamic_bodies[body_index]
+
+		if body:GetAwake() then
+			awake_dynamic_bodies[#awake_dynamic_bodies + 1] = body
+			active_dynamic_count = active_dynamic_count + 1
+		end
+	end
+
+	island.active_dynamic_count = active_dynamic_count
+	island.sleeping = active_dynamic_count == 0
+
+	for body_index = 1, #(island.bodies or {}) do
+		local body = island.bodies[body_index]
+
+		if is_anchor_body(body) and is_body_transform_moving(body) then
+			moved_anchor_seen[body] = stamp
+		end
+	end
+
+	for body_index = 1, #dynamic_bodies do
+		local body = dynamic_bodies[body_index]
+
+		if not body:GetAwake() and body:GetGrounded() then
+			local ground_body = body.GroundBody
+
+			if
+				ground_body and
+				ground_body ~= body and
+				(
+					is_body_transform_moving(ground_body) or
+					(
+						is_dynamic_body(ground_body) and
+						ground_body:GetAwake()
+					)
+				)
+			then
+				if wake_dynamic_body(body, awake_dynamic_bodies, newly_awoken_bodies) then
+					stats:Count("wake_ground")
+					active_dynamic_count = active_dynamic_count + 1
+					woke_any = true
+				end
+			end
+		end
+	end
+
+	for pair_index = 1, #(island.pairs or {}) do
+		local pair = island.pairs[pair_index]
+		local body_a = pair.entry_a.body
+		local body_b = pair.entry_b.body
+
+		if
+			is_dynamic_body(body_a) and
+			not body_a:GetAwake()
+			and
+			moved_anchor_seen[body_b] == stamp
+		then
+			if wake_dynamic_body(body_a, awake_dynamic_bodies, newly_awoken_bodies) then
+				stats:Count("wake_anchor")
+				active_dynamic_count = active_dynamic_count + 1
+				woke_any = true
+			end
+		end
+
+		if
+			is_dynamic_body(body_b) and
+			not body_b:GetAwake()
+			and
+			moved_anchor_seen[body_a] == stamp
+		then
+			if wake_dynamic_body(body_b, awake_dynamic_bodies, newly_awoken_bodies) then
+				stats:Count("wake_anchor")
+				active_dynamic_count = active_dynamic_count + 1
+				woke_any = true
+			end
+		end
+	end
+
+	if active_dynamic_count > 0 and island.has_constraints then
+		for body_index = 1, #(island.constraint_dynamic_bodies or {}) do
+			local body = island.constraint_dynamic_bodies[body_index]
+
+			if wake_dynamic_body(body, awake_dynamic_bodies, newly_awoken_bodies) then
+				stats:Count("wake_constraint")
+				active_dynamic_count = active_dynamic_count + 1
+				woke_any = true
+			end
+		end
+	end
+
+	island.active_dynamic_count = active_dynamic_count
+	island.sleeping = active_dynamic_count == 0
+	return woke_any
+end
+
+function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies, activity_epoch, synced_bodies, active_bodies)
 	newly_awoken_bodies = newly_awoken_bodies or {}
 	list.clear(newly_awoken_bodies)
 	local woke_any = false
 	prepare_stamp = prepare_stamp + 1
 	local stamp = prepare_stamp
+	prepare_wakes = 0
 
-	for island_index = 1, #(simulation_islands or {}) do
-		local island = simulation_islands[island_index]
-		local dynamic_bodies = island.dynamic_bodies
-		local awake_dynamic_bodies = island.awake_dynamic_bodies
-		local active_dynamic_count = 0
-		list.clear(awake_dynamic_bodies)
-		island.awake_dynamic_bodies = awake_dynamic_bodies
+	if prepared_epoch ~= activity_epoch then
+		list.clear(awake_islands)
 
-		for body_index = 1, #dynamic_bodies do
-			local body = dynamic_bodies[body_index]
+		for island_index = 1, #(simulation_islands or {}) do
+			local island = simulation_islands[island_index]
+			island.pending = nil
 
-			if body:GetAwake() then
-				awake_dynamic_bodies[#awake_dynamic_bodies + 1] = body
-				active_dynamic_count = active_dynamic_count + 1
+			if prepare_island(island, stamp, newly_awoken_bodies) then woke_any = true end
+
+			if island.active_dynamic_count > 0 then
+				awake_islands[#awake_islands + 1] = island
 			end
 		end
 
-		island.active_dynamic_count = active_dynamic_count
-		island.sleeping = active_dynamic_count == 0
+		list.clear(pending_islands)
+		prepared_epoch = activity_epoch + prepare_wakes
+		return woke_any, newly_awoken_bodies
+	end
 
-		for body_index = 1, #(island.bodies or {}) do
-			local body = island.bodies[body_index]
+	for i = 1, 2 do
+		local bodies = i == 1 and synced_bodies or active_bodies
+
+		for body_index = 1, #bodies do
+			local body = bodies[body_index]
 
 			if is_anchor_body(body) and is_body_transform_moving(body) then
 				moved_anchor_seen[body] = stamp
-			end
-		end
+				local set = anchor_islands[body]
 
-		for body_index = 1, #dynamic_bodies do
-			local body = dynamic_bodies[body_index]
-
-			if not body:GetAwake() and body:GetGrounded() then
-				local ground_body = body.GroundBody
-
-				if
-					ground_body and
-					ground_body ~= body and
-					(
-						is_body_transform_moving(ground_body) or
-						(
-							is_dynamic_body(ground_body) and
-							ground_body:GetAwake()
-						)
-					)
-				then
-					if wake_dynamic_body(body, awake_dynamic_bodies, newly_awoken_bodies) then
-						stats:Count("wake_ground")
-						active_dynamic_count = active_dynamic_count + 1
-						woke_any = true
+				if set then
+					for island in pairs(set) do
+						touch_island(island)
 					end
 				end
 			end
 		end
-
-		for pair_index = 1, #(island.pairs or {}) do
-			local pair = island.pairs[pair_index]
-			local body_a = pair.entry_a.body
-			local body_b = pair.entry_b.body
-
-			if
-				is_dynamic_body(body_a) and
-				not body_a:GetAwake()
-				and
-				moved_anchor_seen[body_b] == stamp
-			then
-				if wake_dynamic_body(body_a, awake_dynamic_bodies, newly_awoken_bodies) then
-					stats:Count("wake_anchor")
-					active_dynamic_count = active_dynamic_count + 1
-					woke_any = true
-				end
-			end
-
-			if
-				is_dynamic_body(body_b) and
-				not body_b:GetAwake()
-				and
-				moved_anchor_seen[body_a] == stamp
-			then
-				if wake_dynamic_body(body_b, awake_dynamic_bodies, newly_awoken_bodies) then
-					stats:Count("wake_anchor")
-					active_dynamic_count = active_dynamic_count + 1
-					woke_any = true
-				end
-			end
-		end
-
-		if active_dynamic_count > 0 and island.has_constraints then
-			for body_index = 1, #(island.constraint_dynamic_bodies or {}) do
-				local body = island.constraint_dynamic_bodies[body_index]
-
-				if wake_dynamic_body(body, awake_dynamic_bodies, newly_awoken_bodies) then
-					stats:Count("wake_constraint")
-					active_dynamic_count = active_dynamic_count + 1
-					woke_any = true
-				end
-			end
-		end
-
-		island.active_dynamic_count = active_dynamic_count
-		island.sleeping = active_dynamic_count == 0
 	end
 
+	for i = 1, #awake_islands do
+		touch_island(awake_islands[i])
+	end
+
+	list.clear(awake_islands)
+	local index = 1
+
+	while index <= #pending_islands do
+		local island = pending_islands[index]
+		island.pending = nil
+		index = index + 1
+
+		if island_pos[island] then
+			if prepare_island(island, stamp, newly_awoken_bodies) then woke_any = true end
+
+			if island.active_dynamic_count > 0 then
+				awake_islands[#awake_islands + 1] = island
+			end
+		end
+	end
+
+	list.clear(pending_islands)
+	prepared_epoch = activity_epoch + prepare_wakes
 	return woke_any, newly_awoken_bodies
 end
 
@@ -1063,6 +1172,10 @@ function islands.ResetState()
 	spare_constraint_list = {}
 	next_body_rank = 0
 	needs_body_scan = true
+	anchor_islands = table.weak("k")
+	list.clear(pending_islands)
+	list.clear(awake_islands)
+	prepared_epoch = -1
 end
 
 islands.ResetState()
