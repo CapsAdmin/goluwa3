@@ -24,7 +24,6 @@ local REMOVED_SET = {}
 local listed_epoch = -1
 local refresh_body_lists
 local sync_stamp = 0
-
 local ACTIVE_INDEX = {}
 local listed_once = false
 
@@ -49,23 +48,13 @@ do
 		if listed_epoch == RigidBody.ActivityEpoch then return end
 
 		listed_epoch = RigidBody.ActivityEpoch
-		local changes = RigidBody.ActivityChanges
-		local drained_count = #changes
+		local drained = RigidBody.ActivityChanges
+		RigidBody.ActivityChanges = DRAINED
+		DRAINED = drained
+		local drained_count = #drained
 
 		for i = 1, drained_count do
-			local body = changes[i]
-			DRAINED[i] = body
-			body.ActivityQueued = false
-		end
-
-		local total = #changes
-
-		for i = 1, total - drained_count do
-			changes[i] = changes[drained_count + i]
-		end
-
-		for i = total, total - drained_count + 1, -1 do
-			changes[i] = nil
+			drained[i].ActivityQueued = false
 		end
 
 		if not listed_once then
@@ -88,7 +77,7 @@ do
 			end
 		else
 			for i = 1, drained_count do
-				local body = DRAINED[i]
+				local body = drained[i]
 				local index = ACTIVE_INDEX[body]
 
 				if is_active_body(body) then
@@ -109,7 +98,7 @@ do
 		end
 
 		for i = drained_count, 1, -1 do
-			DRAINED[i] = nil
+			drained[i] = nil
 		end
 	end
 end
@@ -311,7 +300,6 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 	do
 		local removed_bodies = RigidBody.RemovedBodies
-
 		local removed_count = #removed_bodies
 
 		for i = 1, removed_count do
@@ -425,7 +413,13 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 			if simulation_islands and simulation_islands[1] then
 				local woke_any
-				woke_any, newly_awoken_bodies = islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies, RigidBody.ActivityEpoch, SYNCED_BODIES, ACTIVE_BODIES)
+				woke_any, newly_awoken_bodies = islands.PrepareSimulationIslands(
+					simulation_islands,
+					newly_awoken_bodies,
+					RigidBody.ActivityEpoch,
+					SYNCED_BODIES,
+					ACTIVE_BODIES
+				)
 
 				if woke_any then
 					for body_index = 1, #newly_awoken_bodies do
@@ -448,7 +442,13 @@ function world_step.UpdateRigidBodies(physics, dt)
 					simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver, RigidBody.ActivityEpoch)
 
 					if simulation_islands and simulation_islands[1] then
-						islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies, RigidBody.ActivityEpoch, SYNCED_BODIES, ACTIVE_BODIES)
+						islands.PrepareSimulationIslands(
+							simulation_islands,
+							newly_awoken_bodies,
+							RigidBody.ActivityEpoch,
+							SYNCED_BODIES,
+							ACTIVE_BODIES
+						)
 					end
 				end
 			end
