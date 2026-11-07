@@ -43,11 +43,30 @@ do
 			)
 	end
 
+	local DRAINED = {}
+
 	function refresh_body_lists(bodies)
 		if listed_epoch == RigidBody.ActivityEpoch then return end
 
 		listed_epoch = RigidBody.ActivityEpoch
 		local changes = RigidBody.ActivityChanges
+		local drained_count = #changes
+
+		for i = 1, drained_count do
+			local body = changes[i]
+			DRAINED[i] = body
+			body.ActivityQueued = false
+		end
+
+		local total = #changes
+
+		for i = 1, total - drained_count do
+			changes[i] = changes[drained_count + i]
+		end
+
+		for i = total, total - drained_count + 1, -1 do
+			changes[i] = nil
+		end
 
 		if not listed_once then
 			listed_once = true
@@ -68,8 +87,8 @@ do
 				ACTIVE_BODIES[i] = nil
 			end
 		else
-			for i = 1, #changes do
-				local body = changes[i]
+			for i = 1, drained_count do
+				local body = DRAINED[i]
 				local index = ACTIVE_INDEX[body]
 
 				if is_active_body(body) then
@@ -89,9 +108,8 @@ do
 			end
 		end
 
-		for i = 1, #changes do
-			changes[i].ActivityQueued = false
-			changes[i] = nil
+		for i = drained_count, 1, -1 do
+			DRAINED[i] = nil
 		end
 	end
 end
