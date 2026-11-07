@@ -565,6 +565,18 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			float facing = dot(dir, normalize(in_normal));
 			bool entering = side ? dot(dir, outward) < 0.0 : !base_copy && facing < 0.0;
 			float t = t_fragment;
+			float pixel_angle = 2.0 / (abs(gbuffer_data.projection[1][1]) * gbuffer_data.render_size.y);
+
+			if (!s.terrain && entering && !side && s.lift < t_fragment * pixel_angle * 0.5) {
+				float h = textureGrad(TEXTURE(displacement_model.HeightTexture), in_uv, s.duv1, s.duv2).r;
+				SSDMData flat_data;
+				flat_data.uv = in_uv;
+				flat_data.height = (h - s.midlevel) * s.lift;
+				flat_data.world_pos = in_position + dir * ((1.0 - h) * s.lift / max(-facing, 0.25));
+				flat_data.texture_pos = flat_data.world_pos;
+				flat_data.normal = vec3(0.0);
+				return flat_data;
+			}
 
 			if (!entering) {
 				int hops = s.hops;
@@ -580,7 +592,6 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			}
 
 			float min_dt = s.shell / 16.0;
-			float pixel_angle = 2.0 / (abs(gbuffer_data.projection[1][1]) * gbuffer_data.render_size.y);
 			float descent = max(-facing, 0.0) + 0.25;
 			float lo = -1.0;
 			float hi = -1.0;
