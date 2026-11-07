@@ -3,6 +3,7 @@ local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local pipeline_names = import("goluwa/render/vulkan/internal/pipeline_names.lua")
+local pipeline_statistics = import("goluwa/render/vulkan/internal/pipeline_statistics.lua")
 local GraphicsPipeline = objects.CreateTemplate("vulkan_graphics_pipeline")
 local EnumArray = ffi.typeof("uint32_t[?]")
 local VkVertexInputBindingDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputBindingDescription)
@@ -343,6 +344,11 @@ function GraphicsPipeline:Wait()
 		self.job = nil
 		self.device.pipeline_cache:WaitForJob(job, "graphics", self.config.name)
 		pipeline_names.Register("graphics", self.ptr[0], self.config.name)
+
+		if self.device.capture_pipeline_statistics then
+			pipeline_statistics.Report(self.device, self.ptr[0], "graphics", self.config.name)
+		end
+
 		self.keep = nil
 	end
 end

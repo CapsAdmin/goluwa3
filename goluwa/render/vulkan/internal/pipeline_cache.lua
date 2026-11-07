@@ -62,6 +62,13 @@ local CREATE_JOB = [[
 ]]
 
 function PipelineCache:RunCreate(create, info, out, ray_tracing)
+	if self.device.capture_pipeline_statistics then
+		info[0].flags = bit.bor(
+			info[0].flags,
+			vulkan.vk.VkPipelineCreateFlagBits.VK_PIPELINE_CREATE_CAPTURE_STATISTICS_BIT_KHR
+		)
+	end
+
 	local job = thread_pool.Run(
 		CREATE_JOB,
 		{

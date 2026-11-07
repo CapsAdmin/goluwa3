@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local pipeline_statistics = import("goluwa/render/vulkan/internal/pipeline_statistics.lua")
 local system = import("goluwa/system.lua")
 local RENDER_NOOP = _G.RENDER_NOOP or false
 local Device = objects.CreateTemplate("vulkan_device")
@@ -28,6 +29,7 @@ local VkWriteAccelerationStructureKHR = ffi.typeof([[struct {
 	uint32_t accelerationStructureCount;
 	void* pAccelerationStructures;
 }]])
+local VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHRBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR)
 local VkPhysicalDeviceMaintenance4FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceMaintenance4Features)
 local VkPhysicalDeviceSynchronization2FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceSynchronization2Features)
 local VkPhysicalDeviceVulkan11FeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceVulkan11Features)
@@ -386,6 +388,25 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		)
 	end
 
+	local pipeline_statistics_gpu = pipeline_statistics.GPUS[ffi.string(physical_device:GetProperties().deviceName)]
+	local capture_pipeline_statistics = (
+			pipeline_statistics.ENABLED or
+			pipeline_statistics_gpu ~= nil
+		)
+		and
+		table.has_value(available_extensions, "VK_KHR_pipeline_executable_properties")
+
+	if capture_pipeline_statistics then
+		table.insert(finalExtensions, "VK_KHR_pipeline_executable_properties")
+		pNextChain = VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHRBox(
+			vulkan.vk.s.PhysicalDevicePipelineExecutablePropertiesFeaturesKHR{
+				sType = "physical_device_pipeline_executable_properties_features_khr",
+				pNext = pNextChain,
+				pipelineExecutableInfo = 1,
+			}
+		)
+	end
+
 	local queuePriority = ffi.new("float[1]", 1.0)
 	local queueCreateInfo = VkDeviceQueueCreateInfoBox(
 		vulkan.vk.s.DeviceQueueCreateInfo{
@@ -527,6 +548,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		ray_tracing_supported = ray_tracing_supported,
 		ray_query_supported = ray_query_supported,
 		ray_reorder = ray_reorder,
+		capture_pipeline_statistics = capture_pipeline_statistics,
+		pipeline_statistics_gpu = pipeline_statistics_gpu,
 	}
 	device.vkSetDebugUtilsObjectNameEXT = device:TryGetExtension("vkSetDebugUtilsObjectNameEXT")
 	device.vkSetDebugUtilsObjectTagEXT = device:TryGetExtension("vkSetDebugUtilsObjectTagEXT")
