@@ -1617,6 +1617,14 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return ]=] .. camera_block_name .. [=[.terrain_only != 0;
 			}
 
+			#ifndef TERRAIN_LAYERS
+			#define TERRAIN_LAYERS 1
+			#endif
+
+			bool has_terrain_layers() {
+				return TERRAIN_LAYERS != 0 && terrain_model.TerrainMaterialTexture != -1;
+			}
+
 			bool has_heightmap() {
 				return displacement_model.HeightTexture != -1 && displacement_model.HeightScale > 0.0;
 			}
@@ -1829,7 +1837,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				weights = vec4(0.0);
 				weights2 = vec4(0.0);
 
-				if (terrain_model.TerrainMaterialTexture == -1) {
+				if (!has_terrain_layers()) {
 					return;
 				}
 
@@ -2051,7 +2059,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			}
 
 			void prepare_terrain_layers(vec2 uv, vec3 world_pos) {
-				if (terrain_model.TerrainMaterialTexture != -1) compute_terrain_layer_sample(uv, world_pos);
+				if (has_terrain_layers()) compute_terrain_layer_sample(uv, world_pos);
 			}
 
 			float get_terrain_weighted_value(vec4 values, vec4 values2) {
@@ -2080,7 +2088,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			}
 
 			vec3 get_albedo_world(vec2 uv, vec3 world_pos) {
-				if (terrain_model.TerrainMaterialTexture != -1) {
+				if (has_terrain_layers()) {
 					return get_terrain_albedo_uv(uv, world_pos);
 				}
 
@@ -2221,7 +2229,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			vec3 get_normal(vec2 uv, mat3 tbn) {
 				vec3 N = get_combined_normal(uv, tbn);
 
-				if (terrain_model.TerrainMaterialTexture != -1) {
+				if (has_terrain_layers()) {
 					return terrain_layer_cache.normal;
 				}
 
@@ -2321,7 +2329,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				float val = get_roughness_texel(uv);
 
 				if (val < 0.0) {
-					if (terrain_model.TerrainMaterialTexture != -1) {
+					if (has_terrain_layers()) {
 						val = get_terrain_weighted_value(terrain_model.TerrainLayerRoughness, terrain_model.TerrainLayerRoughness2) * terrain_layer_cache.roughness;
 					} else {
 						val = factor_model.RoughnessMultiplier;
@@ -2389,7 +2397,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					val = factor_model.SpecularMultiplier * packed_specular * aux_model.PackedSpecularScale;
 				}
 
-				if (terrain_model.TerrainMaterialTexture != -1) {
+				if (has_terrain_layers()) {
 					val *= get_terrain_weighted_value(terrain_model.TerrainLayerSpecular, terrain_model.TerrainLayerSpecular2);
 				}
 

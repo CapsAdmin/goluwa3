@@ -18,7 +18,7 @@ local render3d
 local draw = {}
 local LOCAL_SIZE = 64
 local COMMAND_SIZE = 20
-local GROUPS = 6
+local GROUPS = 10
 local DEAD_MESH = {
 	IsValid = function()
 		return false
@@ -153,7 +153,19 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 	slot_groups = slot_groups or
 		store.CreateTable{name = "draw_slot_groups", ctype = "uint32_t", capacity = 4096}
 	local slot = slot_of[id]
-	local set = (material:GetRasterBothFaces() and 1 or 0) + (material:MarchesRelief() and 2 or 0)
+	local set = (
+			material:GetRasterBothFaces() and
+			1 or
+			0
+		) + (
+			material:MarchesRelief() and
+			2 or
+			0
+		) + (
+			material:GetTerrainMaterialTexture() and
+			6 or
+			0
+		)
 	height_shell_ids[id] = polygon3d and polygon3d.shell_grid and true or nil
 
 	if (translucent_ids[id] or false) ~= (translucent or false) then

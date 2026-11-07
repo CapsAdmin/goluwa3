@@ -2549,9 +2549,11 @@ function Visual:OnFirstCreated()
 		store_pipelines[1] = render3d.pipelines.gbuffer_multi_draw
 		store_pipelines[2] = render3d.pipelines.gbuffer_multi_draw_height_map
 		store_pipelines[3] = render3d.pipelines.gbuffer_multi_draw_snow
+		store_pipelines[4] = render3d.pipelines.gbuffer_multi_draw_terrain
+		store_pipelines[5] = render3d.pipelines.gbuffer_multi_draw_terrain_height_map
 		local camera_position = render3d.GetCamera():GetPosition()
 		store_drawn = not visual.noculling and
-			store_pipelines[3] ~= nil and
+			store_pipelines[5] ~= nil and
 			scene_draw.Draw(gbuffer_instancing, store_pipelines, 1, 1)
 
 		if store_drawn then
@@ -2577,7 +2579,7 @@ function Visual:OnFirstCreated()
 
 	event.AddListener("Draw3DDisplacedGeometry", "visual_geometry_draw", function()
 		if store_drawn then
-			scene_draw.Draw(gbuffer_instancing, store_pipelines, 2, 3)
+			scene_draw.Draw(gbuffer_instancing, store_pipelines, 2, 5)
 		end
 	end)
 

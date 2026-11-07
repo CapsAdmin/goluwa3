@@ -188,7 +188,7 @@ local multi_draw_block = {
 	end,
 }
 
-local function build_multi_draw_pass(fragment_shader)
+local function build_multi_draw_pass(fragment_shader, terrain_layers)
 	local pass = build_base_pass(fragment_shader, true)
 	pass.name = "gbuffer_multi_draw"
 	pass.draw_in_prerender = false
@@ -220,7 +220,8 @@ local function build_multi_draw_pass(fragment_shader)
 	}
 	pass.fragment.uniform_buffers = {camera_block, multi_draw_block}
 	pass.fragment.custom_declarations = string.format(
-			"layout(location = %d) flat in uint in_batch;\nlayout(location = %d) flat in uint in_instance;\nlayout(location = %d) flat in uint in_triangle;\n",
+			"#define TERRAIN_LAYERS %d\nlayout(location = %d) flat in uint in_batch;\nlayout(location = %d) flat in uint in_instance;\nlayout(location = %d) flat in uint in_triangle;\n",
+			terrain_layers and 1 or 0,
 			pass.vertex.batch_location,
 			pass.vertex.batch_location + 1,
 			pass.vertex.batch_location + 2
@@ -746,7 +747,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 
 ]] .. (
 			prism and
-			"\t\t\tif (terrain_model.TerrainShell > 0.0) return get_terrain_shell_data(terrain_model.TerrainShell, tbn);\n" or
+			"\t\t\tif (TERRAIN_LAYERS != 0 && terrain_model.TerrainShell > 0.0) return get_terrain_shell_data(terrain_model.TerrainShell, tbn);\n" or
 			""
 		) .. [[
 			if (!has_heightmap()) {
@@ -935,13 +936,15 @@ for _, write_depth in ipairs({false, true}) do
 	fallback_anim.dont_create_framebuffers = true
 	local instanced = build_instanced_pass(fragment_shader)
 	instanced.name = "gbuffer_instanced" .. suffix
-	local multi_draw = build_multi_draw_pass(build_ssdm_fragment_shader(write_depth, true))
+	local multi_draw = build_multi_draw_pass(build_ssdm_fragment_shader(write_depth, true), false)
 	multi_draw.name = "gbuffer_multi_draw" .. suffix
+	local terrain = build_multi_draw_pass(build_ssdm_fragment_shader(write_depth, true), true)
+	terrain.name = "gbuffer_multi_draw_terrain" .. suffix
 	list.insert(passes, fallback)
 
 	if write_depth then
 		-- snow lying on everything moves hits nearer than the triangle, so this one cannot promise depth_less
-		local snow = build_multi_draw_pass(build_ssdm_fragment_shader(true, true, true))
+		local snow = build_multi_draw_pass(build_ssdm_fragment_shader(true, true, true), true)
 		snow.name = "gbuffer_multi_draw_snow"
 		list.insert(passes, snow)
 	end
@@ -949,6 +952,7 @@ for _, write_depth in ipairs({false, true}) do
 	list.insert(passes, fallback_anim)
 	list.insert(passes, instanced)
 	list.insert(passes, multi_draw)
+	list.insert(passes, terrain)
 end
 
 for _, extra in ipairs(gbuffer_extras) do
