@@ -236,6 +236,10 @@ function Window:OnCursorPosition(pos)
 	return event.Call("WindowCursorPosition", self, pos)
 end
 
+function Window:OnTouch(id, phase, pos)
+	return event.Call("TouchInput", id, phase, pos)
+end
+
 function Window:OnDrop(paths)
 	return event.Call("WindowDrop", self, paths)
 end

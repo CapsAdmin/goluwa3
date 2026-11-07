@@ -18,6 +18,7 @@ ffi.cdef[[
 	int32_t AInputEvent_getSource(const void *event);
 	int32_t AMotionEvent_getAction(const void *event);
 	size_t AMotionEvent_getPointerCount(const void *event);
+	int32_t AMotionEvent_getPointerId(const void *event, size_t pointer_index);
 	float AMotionEvent_getX(const void *event, size_t pointer_index);
 	float AMotionEvent_getY(const void *event, size_t pointer_index);
 	int32_t AMotionEvent_getButtonState(const void *event);
@@ -97,6 +98,8 @@ android.MOTION_EVENT_ACTION_UP = 1
 android.MOTION_EVENT_ACTION_MOVE = 2
 android.MOTION_EVENT_ACTION_CANCEL = 3
 android.MOTION_EVENT_ACTION_POINTER_DOWN = 5
+android.MOTION_EVENT_ACTION_POINTER_UP = 6
+android.MOTION_EVENT_ACTION_POINTER_INDEX_SHIFT = 8
 android.MOTION_EVENT_ACTION_SCROLL = 8
 android.MOTION_EVENT_AXIS_VSCROLL = 9
 android.MOTION_EVENT_AXIS_HSCROLL = 10

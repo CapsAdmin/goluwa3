@@ -57,6 +57,7 @@ return function(META)
 		self.native_height = lib.ANativeWindow_getHeight(app.window)
 		lib.ANativeActivity_setWindowFlags(app.activity, android.WINDOW_FLAG_KEEP_SCREEN_ON, 0)
 		self.touch = {active = false}
+		self.touches_owned = {}
 		self.mouse_button_state = 0
 		event.AddListener("TextInputStart", self, android.ShowSoftKeyboard)
 		event.AddListener("TextInputStop", self, android.HideSoftKeyboard)
@@ -232,6 +233,50 @@ return function(META)
 		return true
 	end
 
+	-- a TouchInput listener that returns true for a pointer's down owns that pointer until it lifts, and it no longer acts as the mouse
+	function META:DispatchTouches(event, action)
+		local owned = self.touches_owned
+		local raw_action = lib.AMotionEvent_getAction(event)
+		local index = bit.rshift(raw_action, android.MOTION_EVENT_ACTION_POINTER_INDEX_SHIFT)
+		local had_owned = next(owned) ~= nil
+
+		if action == android.MOTION_EVENT_ACTION_MOVE then
+			for i = 0, tonumber(lib.AMotionEvent_getPointerCount(event)) - 1 do
+				local id = lib.AMotionEvent_getPointerId(event, i)
+
+				if owned[id] then self:OnTouch(id, "move", pointer(event, i)) end
+			end
+		elseif
+			action == android.MOTION_EVENT_ACTION_DOWN or
+			action == android.MOTION_EVENT_ACTION_POINTER_DOWN
+		then
+			if action == android.MOTION_EVENT_ACTION_DOWN then index = 0 end
+
+			local id = lib.AMotionEvent_getPointerId(event, index)
+
+			if self:OnTouch(id, "down", pointer(event, index)) then owned[id] = true end
+		elseif
+			action == android.MOTION_EVENT_ACTION_UP or
+			action == android.MOTION_EVENT_ACTION_POINTER_UP
+		then
+			if action == android.MOTION_EVENT_ACTION_UP then index = 0 end
+
+			local id = lib.AMotionEvent_getPointerId(event, index)
+
+			if owned[id] then
+				owned[id] = nil
+				self:OnTouch(id, "up", pointer(event, index))
+			end
+		elseif action == android.MOTION_EVENT_ACTION_CANCEL then
+			for id in pairs(owned) do
+				owned[id] = nil
+				self:OnTouch(id, "up", Vec2(0, 0))
+			end
+		end
+
+		return had_owned or next(owned) ~= nil
+	end
+
 	function META:OnAndroidInput(event)
 		if not self.initialized then return false end
 
@@ -242,7 +287,7 @@ return function(META)
 
 			if bit.band(lib.AInputEvent_getSource(event), android.INPUT_SOURCE_MOUSE_BITS) ~= 0 then
 				self:OnAndroidMouse(event, action)
-			else
+			elseif not self:DispatchTouches(event, action) then
 				self:OnAndroidTouch(event, action)
 			end
 
