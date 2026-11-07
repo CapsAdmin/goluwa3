@@ -4,7 +4,7 @@ local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
 local vfs = import("goluwa/vfs.lua")
 local store = import("goluwa/render3d/scene/store.lua")
-local instances = import("goluwa/render3d/scene/instances.lua")
+local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local surface_conditions = import("goluwa/render3d/surface_conditions.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local data_files = import("goluwa/data_files.lua")
@@ -21,7 +21,18 @@ surface_overlays.kinds = {}
 surface_overlays.Errors = {}
 surface_overlays.Files = data_files.New(
 	"lua/surface_overlays/",
-	{"FadeIn", "FadeOut", "Intensity", "Scale", "Speed", "Daylight", "ColorA", "ColorB", "Params", "Source"}
+	{
+		"FadeIn",
+		"FadeOut",
+		"Intensity",
+		"Scale",
+		"Speed",
+		"Daylight",
+		"ColorA",
+		"ColorB",
+		"Params",
+		"Source",
+	}
 )
 local kinds = surface_overlays.kinds
 local kinds_by_name = {}
@@ -42,7 +53,10 @@ function surface_overlays.GetParamIdentifier(name)
 end
 
 function surface_overlays.Register(name, data)
-	assert(type(name) == "string" and name:find("^[%w_]+$"), "overlay names are letters, digits and underscores")
+	assert(
+		type(name) == "string" and name:find("^[%w_]+$"),
+		"overlay names are letters, digits and underscores"
+	)
 	assert(type(data.Source) == "string", name .. " needs a Source")
 	local params = data.Params or {}
 	assert(#params <= 4, name .. " has more than 4 params")
@@ -54,10 +68,16 @@ function surface_overlays.Register(name, data)
 			name .. " param names are PascalCase letters and digits"
 		)
 		local identifier = surface_overlays.GetParamIdentifier(param.Name)
-		assert(not RESERVED_PARAMS[identifier], name .. " param " .. param.Name .. " is a reserved glsl name")
+		assert(
+			not RESERVED_PARAMS[identifier],
+			name .. " param " .. param.Name .. " is a reserved glsl name"
+		)
 		assert(not seen[identifier], name .. " has the param " .. param.Name .. " twice")
 		seen[identifier] = true
-		assert(type(param.Default) == "number", name .. " param " .. param.Name .. " needs a number Default")
+		assert(
+			type(param.Default) == "number",
+			name .. " param " .. param.Name .. " needs a number Default"
+		)
 	end
 
 	surface_overlays.Files:Remember(name, data)
@@ -199,7 +219,11 @@ do
 
 		surface_overlays.Errors[name] = nil
 
-		if kinds_by_name[name].signature ~= previous_signature and RENDER_3D and render.IsInitialized() then
+		if
+			kinds_by_name[name].signature ~= previous_signature and
+			RENDER_3D and
+			render.IsInitialized()
+		then
 			rebuild.at = system.GetTime() + REBUILD_DELAY
 		end
 	end
@@ -282,7 +306,7 @@ local function release_state(state)
 
 	if list then
 		for i = 1, #list do
-			instances.SetOverlay(list[i].id, 0)
+			scene_draw.SetOverlay(list[i].id, 0)
 		end
 	end
 
@@ -509,7 +533,7 @@ function surface_overlays.Update()
 
 				if list then
 					for j = 1, #list do
-						instances.SetOverlay(list[j].id, state.slot)
+						scene_draw.SetOverlay(list[j].id, state.slot)
 					end
 				end
 			end
@@ -547,17 +571,17 @@ local function get_kind_glsl(kind)
 	end
 
 	return string.format(
-			"void overlay_kind_%s(inout Surface s, inout SurfaceWeather w, OverlayLayer l, OverlayContext c, float age, float t, float grow, float outro, float fade) {\n%s\n#line 1 %d\n%s\n}\n",
-			kind.name,
-			table.concat(declarations, "\n"),
-			kind.index,
-			kind.glsl
-		),
-		string.format(
-			"case %d: overlay_kind_%s(s, w, l, layer_context, age, t, grow, outro, fade); break;",
-			kind.index,
-			kind.name
-		)
+		"void overlay_kind_%s(inout Surface s, inout SurfaceWeather w, OverlayLayer l, OverlayContext c, float age, float t, float grow, float outro, float fade) {\n%s\n#line 1 %d\n%s\n}\n",
+		kind.name,
+		table.concat(declarations, "\n"),
+		kind.index,
+		kind.glsl
+	),
+	string.format(
+		"case %d: overlay_kind_%s(s, w, l, layer_context, age, t, grow, outro, fade); break;",
+		kind.index,
+		kind.name
+	)
 end
 
 local function get_helpers_glsl()
@@ -782,7 +806,8 @@ local APPLY_LAYER_GLSL = [[
 function surface_overlays.GetPreviewGLSL(name)
 	local kind = kinds_by_name[name]
 	local source, case = get_kind_glsl(kind)
-	return get_helpers_glsl() .. source .. APPLY_LAYER_GLSL:gsub("CASES", case), kind.index
+	return get_helpers_glsl() .. source .. APPLY_LAYER_GLSL:gsub("CASES", case),
+	kind.index
 end
 
 function surface_overlays.ParseError(message)
@@ -813,10 +838,14 @@ function surface_overlays.GetGLSL(block_name)
 
 		layout(buffer_reference, scalar) readonly buffer SurfaceOverlaySlots { OverlaySlot slots[]; };
 
+		#ifndef SURFACE_OVERLAYS
+		#define SURFACE_OVERLAYS 1
+		#endif
+
 		void apply_surface_overlays(inout Surface s, inout SurfaceWeather w, float slot_value, vec3 noise_P, vec3 noise_N, vec2 uv) {
 			int slot_index = int(slot_value + 0.5);
 
-			if (slot_index <= 0 || BLOCK.overlay_slots == 0ul) return;
+			if (SURFACE_OVERLAYS == 0 || slot_index <= 0 || BLOCK.overlay_slots == 0ul) return;
 
 			OverlaySlot slot = SurfaceOverlaySlots(BLOCK.overlay_slots).slots[slot_index];
 			OverlayContext c;

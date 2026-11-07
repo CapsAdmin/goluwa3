@@ -33,6 +33,7 @@ local slot_rows
 local translucent_ids = {}
 local translucent_count = 0
 local height_shell_ids = {}
+local overlay_ids = {}
 draw.serial = 0
 local CHANGE_LOG_SIZE = 65536
 local changes = {log = {}, size = CHANGE_LOG_SIZE}
@@ -153,19 +154,16 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 	slot_groups = slot_groups or
 		store.CreateTable{name = "draw_slot_groups", ctype = "uint32_t", capacity = 4096}
 	local slot = slot_of[id]
-	local set = (
-			material:GetRasterBothFaces() and
-			1 or
-			0
-		) + (
-			material:MarchesRelief() and
-			2 or
-			0
-		) + (
-			material:GetTerrainMaterialTexture() and
-			6 or
-			0
-		)
+	local set = material:GetRasterBothFaces() and 1 or 0
+
+	if overlay_ids[id] then
+		set = set + 4
+	else
+		if material:MarchesRelief() then set = set + 2 end
+
+		if material:GetTerrainMaterialTexture() then set = set + 6 end
+	end
+
 	height_shell_ids[id] = polygon3d and polygon3d.shell_grid and true or nil
 
 	if (translucent_ids[id] or false) ~= (translucent or false) then
@@ -205,12 +203,34 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 	changes.log[draw.serial % CHANGE_LOG_SIZE] = slot + 1
 end
 
+function draw.SetOverlay(id, slot)
+	instances.SetOverlay(id, slot)
+
+	if (overlay_ids[id] or false) == (slot > 0) then return end
+
+	overlay_ids[id] = slot > 0 or nil
+	local slot_index = slot_of[id]
+
+	if not slot_index then return end
+
+	local row = rows[slot_index + 1]
+	draw.SetRow(
+		id,
+		row.mesh,
+		row.material,
+		row.first_polygon3d,
+		translucent_ids[id],
+		row.group.mesh_row
+	)
+end
+
 function draw.ClearRow(id)
 	local slot = slot_of[id]
 
 	if not slot then return end
 
 	height_shell_ids[id] = nil
+	overlay_ids[id] = nil
 
 	if translucent_ids[id] then
 		translucent_ids[id] = nil
