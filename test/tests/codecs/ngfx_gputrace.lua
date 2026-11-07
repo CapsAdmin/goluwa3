@@ -1,6 +1,7 @@
 local T = import("test/environment.lua")
 local ffi = require("ffi")
 local lz4 = import("goluwa/codecs/lz4.lua")
+local protobuf = import("goluwa/codecs/protobuf.lua")
 local crypto = import("goluwa/crypto.lua")
 local uint8_ptr_t = ffi.typeof("const uint8_t *")
 
@@ -51,4 +52,15 @@ T.Test("lz4 encodes byte for byte like LZ4_compress_default", function()
 
 	local out, size = lz4.EncodeBlock(ffi.cast(uint8_ptr_t, "abc"), 3)
 	T(ffi.string(out, size))["=="]("\x30abc")
+end)
+
+T.Test("protobuf decodes varints, strings and nested messages", function()
+	local src = "\x08\x96\x01\x12\x05hello\x1a\x04\x08\xff\xff\x03\x20\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01"
+	local ptr = ffi.cast(uint8_ptr_t, src)
+	local fields = protobuf.Decode(ptr, 0, #src)
+	T(protobuf.Find(fields, 1)[3])["=="](150)
+	T(protobuf.String(ptr, protobuf.Find(fields, 2)))["=="]("hello")
+	local nested = protobuf.Find(fields, 3)
+	T(protobuf.Decode(ptr, nested[3], nested[4])[1][3])["=="](65535)
+	T(tostring(protobuf.Find(fields, 4)[3]))["=="]("18446744073709551615ULL")
 end)
