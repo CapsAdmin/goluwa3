@@ -675,6 +675,13 @@ local ACOUSTIC_WORDS = {
 	{"water", "water"},
 }
 local OVERBRIGHT_SHADERS = {lightmappedgeneric = true, worldvertextransition = true}
+local UNLIT_SHADERS = {
+	unlitgeneric = true,
+	unlittwotexture = true,
+	de_unlitthreetexture = true,
+	sprite = true,
+	spritecard = true,
+}
 local MAX_ALBEDO = 0.9
 local CLOTH_WORDS = {
 	"cloth",
@@ -1462,6 +1469,8 @@ do
 			self:SetAdditive(true)
 			self:SetDisplayReferred(true)
 			self:SetTranslucent(true)
+
+			if UNLIT_SHADERS[shader] then self:SetUnlit(true) end
 		end
 
 		if shader == "decalmodulate" or shader == "modulate" then
