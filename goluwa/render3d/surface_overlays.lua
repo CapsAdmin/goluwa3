@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local shader_features = import("goluwa/render3d/shader_features.lua")
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local render = import("goluwa/render/render.lua")
@@ -838,9 +839,7 @@ function surface_overlays.GetGLSL(block_name)
 
 		layout(buffer_reference, scalar) readonly buffer SurfaceOverlaySlots { OverlaySlot slots[]; };
 
-		#ifndef SURFACE_OVERLAYS
-		#define SURFACE_OVERLAYS 1
-		#endif
+		]] .. shader_features.GetDefaultGLSL("overlays") .. [[
 
 		void apply_surface_overlays(inout Surface s, inout SurfaceWeather w, float slot_value, vec3 noise_P, vec3 noise_N, vec2 uv) {
 			int slot_index = int(slot_value + 0.5);

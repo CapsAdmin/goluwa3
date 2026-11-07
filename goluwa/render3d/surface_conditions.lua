@@ -14,6 +14,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local shader_features = import("goluwa/render3d/shader_features.lua")
 local vfs = import("goluwa/vfs.lua")
 local surface_conditions = {}
 surface_conditions.CELL_SIZE = 0.5
@@ -247,7 +248,6 @@ function surface_conditions.Reach(cell, tx, ty, tz)
 	local step = CELL * 1.5
 	local lift = CELL * 0.4
 	local px, py, pz, nx, ny, nz = cell.px, cell.py, cell.pz, cell.nx, cell.ny, cell.nz
-
 	local tx2, ty2, tz2 = px + tx * step, py + ty * step, pz + tz * step
 	local x, y, z = math.floor(tx2 * INV_CELL), math.floor(ty2 * INV_CELL), math.floor(tz2 * INV_CELL)
 	local key = cell_key(x, y, z)
@@ -820,8 +820,18 @@ do
 
 	function surface_conditions.FlushGPU(cmd)
 		if not hash_table then
-			hash_table = store.CreateTable{name = "surface_condition_hash", ctype = HashSlot, capacity = 256, staged = true}
-			brick_table = store.CreateTable{name = "surface_condition_bricks", ctype = BrickRow, capacity = 256, staged = true}
+			hash_table = store.CreateTable{
+				name = "surface_condition_hash",
+				ctype = HashSlot,
+				capacity = 256,
+				staged = true,
+			}
+			brick_table = store.CreateTable{
+				name = "surface_condition_bricks",
+				ctype = BrickRow,
+				capacity = 256,
+				staged = true,
+			}
 			rebuild_hash(256)
 
 			for _, cell in pairs(cells) do
@@ -835,7 +845,6 @@ do
 				local cell = dirty[i]
 				dirty[i] = nil
 				cell.dirty = false
-
 				local brick = cell.brick or get_brick(cell)
 				local word0, word1, word2 = pack(cell, 0), pack(cell, 4), pack_normal(cell)
 
@@ -1059,6 +1068,7 @@ function surface_conditions.GetGLSL(block_name)
 
 	local glsl = (
 		surface_conditions.GetCommonGLSL(block_name) .. [[
+		]] .. shader_features.GetDefaultGLSL("conditions") .. [[
 		layout(buffer_reference, scalar) readonly buffer SurfaceConditionHash { ivec4 slots[]; };
 		layout(buffer_reference, scalar) readonly buffer SurfaceConditionBricks { uvec3 cells[]; };
 
@@ -1141,7 +1151,7 @@ function surface_conditions.GetGLSL(block_name)
 			e.N = normalize(noise_N);
 			bool found = false;
 
-			if (dynamic < 0.5 && BLOCK.effect_hash_mask >= 0 && all(greaterThanEqual(P, BLOCK.effect_min)) && all(lessThanEqual(P, BLOCK.effect_max))) {
+			if (SURFACE_CONDITIONS != 0 && dynamic < 0.5 && BLOCK.effect_hash_mask >= 0 && all(greaterThanEqual(P, BLOCK.effect_min)) && all(lessThanEqual(P, BLOCK.effect_max))) {
 				found = sample_surface_condition_field(P, N, e);
 			}
 
@@ -1301,9 +1311,7 @@ do
 		end
 
 		for s, slot in pairs(slots) do
-			if not used[s] then
-				slot.target_lumen = 0
-			end
+			if not used[s] then slot.target_lumen = 0 end
 		end
 	end
 

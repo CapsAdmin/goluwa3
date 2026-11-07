@@ -10,6 +10,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local terrain_layer_rules = import("goluwa/render3d/terrain_layer_rules.lua")
 local vegetation_pushers = import("goluwa/render3d/vegetation_pushers.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
+local shader_features = import("goluwa/render3d/shader_features.lua")
 local trace_break = import("goluwa/jit/tracebreak.lua")
 local model_pipeline = {}
 local SURFACE_MATERIAL_FIELDS = {
@@ -1617,9 +1618,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				return ]=] .. camera_block_name .. [=[.terrain_only != 0;
 			}
 
-			#ifndef TERRAIN_LAYERS
-			#define TERRAIN_LAYERS 1
-			#endif
+			]=] .. shader_features.GetDefaultGLSL("terrain") .. [=[
 
 			bool has_terrain_layers() {
 				return TERRAIN_LAYERS != 0 && terrain_model.TerrainMaterialTexture != -1;
