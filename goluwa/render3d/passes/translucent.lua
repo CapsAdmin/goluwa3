@@ -179,6 +179,7 @@ table.insert(
 		upload_scope = "frame",
 	}
 )
+render3d.translucent_multi_draw_pipelines = {}
 
 local function bind_surface(surface, cmd)
 	if not surface then return end
@@ -221,6 +222,7 @@ local passes = {
 		on_pre_draw = function(self, cmd)
 			bind_surface(render3d.pipelines.translucent_surface, cmd)
 			bind_surface(render3d.pipelines.translucent_surface_multi_draw, cmd)
+			bind_surface(render3d.pipelines.translucent_surface_multi_draw_full, cmd)
 			render3d.refraction_source_requested = false
 			render3d.translucent_depth_near = math.huge
 			render3d.translucent_depth_far = 0
@@ -233,7 +235,8 @@ local passes = {
 
 			render3d.translucent_pipeline = render3d.pipelines.translucent_moments_surface
 			render3d.translucent_scope = "translucent_moments"
-			render3d.translucent_multi_draw_pipeline = render3d.pipelines.translucent_moments_surface_multi_draw
+			render3d.translucent_multi_draw_pipelines[1] = render3d.pipelines.translucent_moments_surface_multi_draw
+			render3d.translucent_multi_draw_pipelines[2] = render3d.pipelines.translucent_moments_surface_multi_draw_full
 			event.Call("Draw3DTranslucent")
 			translucent_extras.Draw("moments", cmd)
 		end,
@@ -308,7 +311,8 @@ local passes = {
 
 			render3d.translucent_pipeline = render3d.pipelines.translucent_surface
 			render3d.translucent_scope = "translucent_accumulate"
-			render3d.translucent_multi_draw_pipeline = render3d.pipelines.translucent_surface_multi_draw
+			render3d.translucent_multi_draw_pipelines[1] = render3d.pipelines.translucent_surface_multi_draw
+			render3d.translucent_multi_draw_pipelines[2] = render3d.pipelines.translucent_surface_multi_draw_full
 			event.Call("Draw3DTranslucent")
 			translucent_extras.Draw("accumulate", cmd)
 		end,
@@ -1075,14 +1079,14 @@ local multi_draw_block = {
 	end,
 }
 
-local function build_multi_draw_pass(source, uniform_buffers, with_thickness)
+local function build_multi_draw_pass(source, uniform_buffers, with_thickness, full)
 	local pass = {}
 
 	for k, v in pairs(source) do
 		pass[k] = v
 	end
 
-	pass.name = source.name .. "_multi_draw"
+	pass.name = source.name .. "_multi_draw" .. (full and "_full" or "")
 	pass.vertex = model_pipeline.CreateMultiDrawVertexStage{
 		normal = true,
 		tangent = true,
@@ -1123,7 +1127,12 @@ local function build_multi_draw_pass(source, uniform_buffers, with_thickness)
 	fragment.custom_declarations = (
 			source.fragment.custom_declarations or
 			""
-		) .. string.format("layout(location = %d) flat in uint in_batch;\n", pass.vertex.batch_location) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(translucent_draw.batches).b[in_batch]")
+		) .. string.format(
+			"#define TERRAIN_LAYERS %d\n#define SURFACE_OVERLAYS %d\nlayout(location = %d) flat in uint in_batch;\n",
+			full and 1 or 0,
+			full and 1 or 0,
+			pass.vertex.batch_location
+		) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(translucent_draw.batches).b[in_batch]")
 
 	if with_thickness then
 		fragment.custom_declarations = fragment.custom_declarations .. [[
@@ -1163,24 +1172,32 @@ do
 	local list = {}
 
 	for i, pass in ipairs(passes) do
-		if pass.name == "translucent_moments_surface" then
-			table.insert(
-				list,
-				build_multi_draw_pass(pass, {camera_block, moments_uniform_buffers[#moments_uniform_buffers]}, false)
-			)
-		elseif pass.name == "translucent_surface" then
-			table.insert(
-				list,
-				build_multi_draw_pass(
-					pass,
-					{
-						camera_block,
-						surface_uniform_buffers[#surface_uniform_buffers - 1],
-						surface_uniform_buffers[#surface_uniform_buffers],
-					},
-					true
+		for _, full in ipairs{false, true} do
+			if pass.name == "translucent_moments_surface" then
+				table.insert(
+					list,
+					build_multi_draw_pass(
+						pass,
+						{camera_block, moments_uniform_buffers[#moments_uniform_buffers]},
+						false,
+						full
+					)
 				)
-			)
+			elseif pass.name == "translucent_surface" then
+				table.insert(
+					list,
+					build_multi_draw_pass(
+						pass,
+						{
+							camera_block,
+							surface_uniform_buffers[#surface_uniform_buffers - 1],
+							surface_uniform_buffers[#surface_uniform_buffers],
+						},
+						true,
+						full
+					)
+				)
+			end
 		end
 	end
 

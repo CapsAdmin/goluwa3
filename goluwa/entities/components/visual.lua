@@ -2797,10 +2797,8 @@ function Visual:OnFirstCreated()
 		end)
 
 		event.AddListener("Draw3DTranslucent", "visual_translucent_draw", function()
-			local multi_draw_pipeline = render3d.translucent_multi_draw_pipeline
-
-			if multi_draw_pipeline then
-				scene_draw.DrawTranslucent(gbuffer_instancing, multi_draw_pipeline)
+			if render3d.translucent_multi_draw_pipelines[2] then
+				scene_draw.DrawTranslucent(gbuffer_instancing, render3d.translucent_multi_draw_pipelines)
 			end
 
 			gpu_timing.SetInfo(render3d.translucent_scope, "cpu_draws", draw_count)

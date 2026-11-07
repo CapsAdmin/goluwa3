@@ -618,7 +618,7 @@ local function get_finalize_pipeline()
 				if (instance_count == 0u) return;
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
-				uint set = compute.kind == 0 ? (compute.force_depth != 0 ? 4u + (group.set & 1u) : group.set) : (group.set & 1u);
+				uint set = compute.kind == 0 ? (compute.force_depth != 0 ? 4u + (group.set & 1u) : group.set) : (group.set & 1u) + (group.set >= 4u ? 2u : 0u);
 				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
 				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + packed_index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.base);
 			}
@@ -922,7 +922,7 @@ function draw.Draw(gbuffer_instancing, pipelines, first, last)
 	return true
 end
 
-function draw.DrawTranslucent(gbuffer_instancing, pipeline)
+function draw.DrawTranslucent(gbuffer_instancing, pipelines)
 	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[1] == 0 then
 		return false
 	end
@@ -933,24 +933,42 @@ function draw.DrawTranslucent(gbuffer_instancing, pipeline)
 	local count = frame_state.group_counts[1]
 	render3d = render3d or import("goluwa/render3d/render3d.lua")
 	gpu_timing.SetInfo(render3d.translucent_scope, "store_slots", frame_state.counts[1])
-	local batch_table = batch_tables[pipeline]
 
-	if not batch_table then
-		batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_groups", group_changes)
-		batch_tables[pipeline] = batch_table
+	for i, pipeline in ipairs(pipelines) do
+		local batch_table = batch_tables[pipeline]
+
+		if not batch_table then
+			batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_groups", group_changes)
+			batch_tables[pipeline] = batch_table
+		end
+
+		pipeline.draw_batches_address = batch_table:Update(pipeline, groups, draw.group_serial, system.GetFrameNumber())
+		pipeline.draw_instances_address = buffers.worlds_address
+		pipeline.draw_prev_instances_address = buffers.prev_worlds_address
+		pipeline.draw_thicknesses_address = buffers.thicknesses_address
+		pipeline.draw_batch_ids_address = buffers.batch_ids_address
+		pipeline:UploadConstants()
+		cmd:SetCullMode(orientation.CULL_MODE)
+		cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
+		cmd:DrawIndexedIndirectCount(
+			buffers.commands,
+			(i - 1) * 2 * group_size,
+			buffers.counts,
+			(i - 1) * 2 * 4,
+			count,
+			COMMAND_SIZE
+		)
+		cmd:SetCullMode("none")
+		cmd:DrawIndexedIndirectCount(
+			buffers.commands,
+			((i - 1) * 2 + 1) * group_size,
+			buffers.counts,
+			((i - 1) * 2 + 1) * 4,
+			count,
+			COMMAND_SIZE
+		)
 	end
 
-	pipeline.draw_batches_address = batch_table:Update(pipeline, groups, draw.group_serial, system.GetFrameNumber())
-	pipeline.draw_instances_address = buffers.worlds_address
-	pipeline.draw_prev_instances_address = buffers.prev_worlds_address
-	pipeline.draw_thicknesses_address = buffers.thicknesses_address
-	pipeline.draw_batch_ids_address = buffers.batch_ids_address
-	pipeline:UploadConstants()
-	cmd:SetCullMode(orientation.CULL_MODE)
-	cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-	cmd:DrawIndexedIndirectCount(buffers.commands, 0, buffers.counts, 0, count, COMMAND_SIZE)
-	cmd:SetCullMode("none")
-	cmd:DrawIndexedIndirectCount(buffers.commands, group_size, buffers.counts, 4, count, COMMAND_SIZE)
 	return true
 end
 
