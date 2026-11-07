@@ -45,6 +45,51 @@ end
 
 local TOTAL_NAME = "gpu_total"
 local get_total_ms
+local BUSY_NAMES = {"gpu_frame", "gpu_compute"}
+local busy_begins = {}
+local busy_ends = {}
+
+local function add_busy_interval(count, begin_ms, end_ms)
+	local i = count
+
+	while i > 0 and busy_begins[i] > begin_ms do
+		busy_begins[i + 1] = busy_begins[i]
+		busy_ends[i + 1] = busy_ends[i]
+		i = i - 1
+	end
+
+	busy_begins[i + 1] = begin_ms
+	busy_ends[i + 1] = end_ms
+	return count + 1
+end
+
+local function get_busy_ms(frame, now)
+	local count = 0
+
+	for _, pool in pairs(pools) do
+		for _, name in ipairs(BUSY_NAMES) do
+			local time = pool.gpu_timing_times[name]
+
+			if time and now - time <= STALE_SECONDS and pool.gpu_timing_frames[name] == frame then
+				count = add_busy_interval(count, pool.gpu_timing_begin[name], pool.gpu_timing_end[name])
+			end
+		end
+	end
+
+	local busy = 0
+	local run_begin, run_end = busy_begins[1], busy_ends[1]
+
+	for i = 2, count do
+		if busy_begins[i] > run_end then
+			busy = busy + run_end - run_begin
+			run_begin = busy_begins[i]
+		end
+
+		run_end = math.max(run_end, busy_ends[i])
+	end
+
+	return busy + run_end - run_begin
+end
 
 local function get_everything_ms()
 	local total
@@ -78,21 +123,17 @@ function get_total_ms(name)
 
 	if not newest then return nil end
 
+	if name == "gpu_frame" then return get_busy_ms(newest, now) end
+
 	local total = 0
-	local first = math.huge
-	local last = -math.huge
 
 	for _, pool in pairs(pools) do
 		local time = pool.gpu_timing_times[name]
 
 		if time and now - time <= STALE_SECONDS and pool.gpu_timing_frames[name] == newest then
 			total = total + pool.gpu_timing_ms[name]
-			first = math.min(first, pool.gpu_timing_begin[name])
-			last = math.max(last, pool.gpu_timing_end[name])
 		end
 	end
-
-	if name == "gpu_frame" then return last - first end
 
 	return total
 end
