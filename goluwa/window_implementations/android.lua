@@ -323,12 +323,16 @@ return function(META)
 
 	function META:ToggleFullscreen() end
 
-	function META:CaptureMouse() end
+	function META:CaptureMouse()
+		self.mouse_captured = true
+	end
 
-	function META:ReleaseMouse() end
+	function META:ReleaseMouse()
+		self.mouse_captured = false
+	end
 
 	function META:IsMouseCaptured()
-		return false
+		return self.mouse_captured == true
 	end
 
 	function META:SetCursor(mode)
