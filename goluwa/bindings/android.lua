@@ -10,6 +10,7 @@ ffi.cdef[[
 	int32_t ANativeWindow_getWidth(void *window);
 	int32_t ANativeWindow_getHeight(void *window);
 	int32_t ANativeWindow_setBuffersGeometry(void *window, int32_t width, int32_t height, int32_t format);
+	void ANativeActivity_setWindowFlags(void *activity, uint32_t add_flags, uint32_t remove_flags);
 	int32_t AInputQueue_getEvent(void *queue, void **outEvent);
 	int32_t AInputQueue_preDispatchEvent(void *queue, void *event);
 	void AInputQueue_finishEvent(void *queue, void *event, int handled);
@@ -104,6 +105,7 @@ android.KEY_EVENT_ACTION_UP = 1
 android.META_SHIFT_ON = 0x1
 android.META_ALT_ON = 0x2
 android.META_CTRL_ON = 0x1000
+android.WINDOW_FLAG_KEEP_SCREEN_ON = 0x80
 android.META_CAPS_LOCK_ON = 0x100000
 android.KEYCODES = {
 	[4] = "escape",

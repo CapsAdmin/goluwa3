@@ -55,6 +55,7 @@ return function(META)
 		self.cached_size = get_size():Copy()
 		self.native_width = lib.ANativeWindow_getWidth(app.window)
 		self.native_height = lib.ANativeWindow_getHeight(app.window)
+		lib.ANativeActivity_setWindowFlags(app.activity, android.WINDOW_FLAG_KEEP_SCREEN_ON, 0)
 		self.touch = {active = false}
 		self.mouse_button_state = 0
 		event.AddListener("TextInputStart", self, android.ShowSoftKeyboard)
