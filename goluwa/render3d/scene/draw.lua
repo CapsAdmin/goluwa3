@@ -214,6 +214,13 @@ function draw.ClearRow(id)
 	changes.log[draw.serial % CHANGE_LOG_SIZE] = slot + 1
 end
 
+-- Adreno indexes a constant block array with a loop counter wrongly, so planes are read with constant indices
+local OUTSIDE_PLANE_DECLARATIONS = [[
+			bool outside_plane(vec4 plane, raster_data raster) {
+				vec3 p = vec3(plane.x > 0.0 ? raster.box_max.x : raster.box_min.x, plane.y > 0.0 ? raster.box_max.y : raster.box_min.y, plane.z > 0.0 ? raster.box_max.z : raster.box_min.z);
+				return dot(plane.xyz, p) + plane.w < 0.0;
+			}
+]]
 local DRAW_DECLARATIONS = [[
 			#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 			#extension GL_EXT_buffer_reference : require
@@ -359,7 +366,7 @@ function create_cull_pipeline()
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = 0) uniform sampler2D source_depth_tex;
-		]] .. DRAW_DECLARATIONS,
+		]] .. DRAW_DECLARATIONS .. OUTSIDE_PLANE_DECLARATIONS,
 		shader = [[
 
 			bool select_lod(uint level, uint last, float near_ratio, float far_ratio, float ratio, out float fade) {
@@ -470,12 +477,14 @@ function create_cull_pipeline()
 						if (dot(d, d) > raster.cull_distance * raster.cull_distance) return;
 					}
 
-					for (int i = 0; i < 6; i++) {
-						vec4 plane = compute.frustum_planes[i];
-						vec3 p = vec3(plane.x > 0.0 ? raster.box_max.x : raster.box_min.x, plane.y > 0.0 ? raster.box_max.y : raster.box_min.y, plane.z > 0.0 ? raster.box_max.z : raster.box_min.z);
-
-						if (dot(plane.xyz, p) + plane.w < 0.0) return;
-					}
+					if (
+						outside_plane(compute.frustum_planes[0], raster) ||
+						outside_plane(compute.frustum_planes[1], raster) ||
+						outside_plane(compute.frustum_planes[2], raster) ||
+						outside_plane(compute.frustum_planes[3], raster) ||
+						outside_plane(compute.frustum_planes[4], raster) ||
+						outside_plane(compute.frustum_planes[5], raster)
+					) return;
 
 					if (!inside && compute.viewport_height > 0.0 && inst.bounds.w > 0.0) {
 						vec4 clip = compute.view_projection * vec4(inst.bounds.xyz, 1.0);
@@ -991,7 +1000,7 @@ function create_shadow_pipeline()
 			layout(buffer_reference, scalar) readonly buffer SlotArray { uint r[]; };
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { shadow_args a; };
 			#define ARGS ArgsRef(compute.args).a
-		]],
+		]] .. OUTSIDE_PLANE_DECLARATIONS,
 		shader = [[
 
 			bool select_shadow_lod(uint flags, uint level, uint last, float near_ratio, float far_ratio, float ratio) {
@@ -1027,12 +1036,13 @@ function create_shadow_pipeline()
 				}
 
 				if (casts && compute.culling_enabled != 0) {
-					for (int i = 0; i < 5; i++) {
-						vec4 plane = compute.planes[i];
-						vec3 p = vec3(plane.x > 0.0 ? raster.box_max.x : raster.box_min.x, plane.y > 0.0 ? raster.box_max.y : raster.box_min.y, plane.z > 0.0 ? raster.box_max.z : raster.box_min.z);
-
-						if (dot(plane.xyz, p) + plane.w < 0.0) casts = false;
-					}
+					if (
+						outside_plane(compute.planes[0], raster) ||
+						outside_plane(compute.planes[1], raster) ||
+						outside_plane(compute.planes[2], raster) ||
+						outside_plane(compute.planes[3], raster) ||
+						outside_plane(compute.planes[4], raster)
+					) casts = false;
 
 					if (casts && compute.min_caster_extent > 0.0) {
 						vec3 half_size = 0.5 * (raster.box_max - raster.box_min);

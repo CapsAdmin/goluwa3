@@ -2905,11 +2905,13 @@ do
 
 						float reach = radius * 1.25 + 0.25;
 
-						for (int p = 0; p < 5; p++) {
-							vec4 plane = compute.planes[p];
-
-							if (dot(plane.xyz, center) + plane.w < -reach) return;
-						}
+						if (
+							dot(compute.planes[0].xyz, center) + compute.planes[0].w < -reach ||
+							dot(compute.planes[1].xyz, center) + compute.planes[1].w < -reach ||
+							dot(compute.planes[2].xyz, center) + compute.planes[2].w < -reach ||
+							dot(compute.planes[3].xyz, center) + compute.planes[3].w < -reach ||
+							dot(compute.planes[4].xyz, center) + compute.planes[4].w < -reach
+						) return;
 					}
 
 					uint slot = atomicAdd(ShadowCounts(compute.out_counts).n[proto * 2u + kind], 1u);
