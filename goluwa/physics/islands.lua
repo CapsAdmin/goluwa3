@@ -1050,6 +1050,10 @@ function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodie
 	return woke_any, newly_awoken_bodies
 end
 
+function islands.GetAwakeIslands()
+	return awake_islands
+end
+
 function islands.FinalizeSimulationIslands(simulation_islands)
 	local slept_any = false
 

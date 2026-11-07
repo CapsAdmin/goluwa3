@@ -350,6 +350,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 	local has_fluid = fluid.HasRegions()
 	local rigid_body_pairs
 	local simulation_islands
+	local solve_islands
 	local constraints = physics.GetConstraints()
 
 	if time_islands then table.clear(island_times) end
@@ -401,6 +402,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 			stats:PopTime()
 			stats:PushTime("islands")
 			simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver, RigidBody.ActivityEpoch)
+			solve_islands = islands.GetAwakeIslands()
 			local newly_awoken_bodies = NEWLY_AWOKEN_BODIES
 
 			if simulation_islands and simulation_islands[1] then
@@ -436,8 +438,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 			if simulation_islands and simulation_islands[1] then
 				local up = physics.Up
 
-				for island_index = 1, #simulation_islands do
-					solve_order.Build(simulation_islands[island_index], up.x, up.y, up.z)
+				for island_index = 1, #solve_islands do
+					solve_order.Build(solve_islands[island_index], up.x, up.y, up.z)
 				end
 			end
 
@@ -462,8 +464,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PushTime("constraints")
 
 		if simulation_islands and simulation_islands[1] then
-			for island_index = 1, #simulation_islands do
-				local island = simulation_islands[island_index]
+			for island_index = 1, #solve_islands do
+				local island = solve_islands[island_index]
 
 				if not islands.IsSleepingIsland(island) then
 					solver:WarmStartConstraints(sub_dt, island.constraints)
@@ -476,8 +478,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PopTime()
 
 		for iter = 1, iterations do
-			for island_index = 1, #simulation_islands do
-				local island = simulation_islands[island_index]
+			for island_index = 1, #solve_islands do
+				local island = solve_islands[island_index]
 
 				if not islands.IsSleepingIsland(island) then
 					local island_start = time_islands and get_time()
@@ -518,8 +520,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 		stats:PushTime("relax")
 
 		for relax_index = 1, relax_iterations do
-			for island_index = 1, #simulation_islands do
-				local island = simulation_islands[island_index]
+			for island_index = 1, #solve_islands do
+				local island = solve_islands[island_index]
 
 				if
 					not islands.IsSleepingIsland(island) and
@@ -559,7 +561,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 		end
 
 		if simulation_islands and simulation_islands[1] then
-			islands.FinalizeSimulationIslands(simulation_islands)
+			islands.FinalizeSimulationIslands(solve_islands)
 		end
 
 		RigidBody.EndSleepPass()
@@ -570,8 +572,8 @@ function world_step.UpdateRigidBodies(physics, dt)
 
 	for _ = 1, RESTITUTION_ITERATIONS do
 		if simulation_islands and simulation_islands[1] then
-			for island_index = 1, #simulation_islands do
-				local island = simulation_islands[island_index]
+			for island_index = 1, #solve_islands do
+				local island = solve_islands[island_index]
 
 				if not islands.IsSleepingIsland(island) then
 					solver:ApplyRestitution(island.pairs, sub_dt)
