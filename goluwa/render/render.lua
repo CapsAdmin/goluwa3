@@ -1054,6 +1054,10 @@ function render.GetDevice()
 	return vulkan_instance.device
 end
 
+function render.GetQueue()
+	return vulkan_instance.queue
+end
+
 do
 	local vulkan_memory = import("goluwa/render/vulkan/internal/memory.lua")
 
