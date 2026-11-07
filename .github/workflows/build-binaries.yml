@@ -6,7 +6,7 @@ on:
         description: which binary to build and release
         type: choice
         options:
-          - shaderc
+          - glslang
           - luajit
           - kosmickrisp
           - all
@@ -19,7 +19,7 @@ jobs:
   ref:
     runs-on: ubuntu-latest
     outputs:
-      shaderc_ref: ${{ steps.ref.outputs.shaderc_ref }}
+      glslang_ref: ${{ steps.ref.outputs.glslang_ref }}
       luajit_ref: ${{ steps.ref.outputs.luajit_ref }}
       mesa_ref: ${{ steps.ref.outputs.mesa_ref }}
       loader_ref: ${{ steps.ref.outputs.loader_ref }}
@@ -28,9 +28,9 @@ jobs:
       - uses: actions/checkout@v4
       - id: ref
         run: |
-          ref=$(sed -n '/shaderc = {/,/}/s/.*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)
+          ref=$(sed -n '/glslang = {/,/}/s/^[[:space:]]*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)
           test -n "$ref"
-          echo "shaderc_ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "glslang_ref=$ref" >> "$GITHUB_OUTPUT"
           ref=$(sed -n '/luajit = {/,/}/s/.*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)
           test -n "$ref"
           echo "luajit_ref=$ref" >> "$GITHUB_OUTPUT"
@@ -44,35 +44,32 @@ jobs:
           test -n "$ref"
           echo "spirv_tools_ref=$ref" >> "$GITHUB_OUTPUT"
 
-  shaderc:
+  glslang:
     needs: ref
-    if: inputs.component == 'shaderc' || inputs.component == 'all'
+    if: inputs.component == 'glslang' || inputs.component == 'all'
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: windows-x64
             runner: windows-latest
-            library: shaderc_shared.dll
+            prefix: ""
             extension: dll
           - platform: linux-x64
             runner: ubuntu-22.04
-            library: libshaderc_shared.so
+            prefix: lib
             extension: so
           - platform: macos-arm64
             runner: macos-14
-            library: libshaderc_shared.dylib
+            prefix: lib
             extension: dylib
     runs-on: ${{ matrix.runner }}
     env:
-      SHADERC_REF: ${{ needs.ref.outputs.shaderc_ref }}
+      GLSLANG_REF: ${{ needs.ref.outputs.glslang_ref }}
     steps:
-      - name: fetch shaderc
+      - name: fetch glslang
         shell: bash
-        run: |
-          git clone --depth 1 --branch "$SHADERC_REF" https://github.com/google/shaderc shaderc
-          cd shaderc
-          python3 utils/git-sync-deps
+        run: git clone --depth 1 --branch "$GLSLANG_REF" https://github.com/KhronosGroup/glslang glslang
 
       - name: install ninja
         if: runner.os == 'Linux'
@@ -89,63 +86,64 @@ jobs:
         shell: bash
         run: |
           python -m pip install ninja
-          cd shaderc
+          cd glslang
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
-            -DSHADERC_ENABLE_SHARED_CRT=OFF
-          cmake --build build --target shaderc_shared
-          cp build/libshaderc/${{ matrix.library }} ../${{ matrix.library }}
+            -DBUILD_SHARED_LIBS=ON -DENABLE_OPT=OFF -DENABLE_GLSLANG_BINARIES=OFF -DGLSLANG_TESTS=OFF \
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          cmake --build build
 
       - name: build (linux, static libstdc++)
         if: runner.os == 'Linux'
         run: |
-          cd shaderc
+          cd glslang
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+            -DBUILD_SHARED_LIBS=ON -DENABLE_OPT=OFF -DENABLE_GLSLANG_BINARIES=OFF -DGLSLANG_TESTS=OFF \
             -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
-          cmake --build build --target shaderc_shared
-          cp -L build/libshaderc/${{ matrix.library }} ../${{ matrix.library }}
+          cmake --build build
 
       - name: build (macos)
         if: runner.os == 'macOS'
         run: |
           brew install ninja
-          cd shaderc
+          cd glslang
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+            -DBUILD_SHARED_LIBS=ON -DENABLE_OPT=OFF -DENABLE_GLSLANG_BINARIES=OFF -DGLSLANG_TESTS=OFF \
             -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
-          cmake --build build --target shaderc_shared
-          cp -L build/libshaderc/${{ matrix.library }} ../${{ matrix.library }}
+          cmake --build build
+
+      - name: collect libraries
+        shell: bash
+        run: |
+          mkdir out
+          find glslang/build -name "${{ matrix.prefix }}glslang.${{ matrix.extension }}" | head -1 | xargs -I{} cp -L {} out/${{ matrix.prefix }}glslang-${{ matrix.platform }}.${{ matrix.extension }}
+          find glslang/build -name "${{ matrix.prefix }}glslang-default-resource-limits.${{ matrix.extension }}" | head -1 | xargs -I{} cp -L {} out/${{ matrix.prefix }}glslang-default-resource-limits-${{ matrix.platform }}.${{ matrix.extension }}
+          test "$(ls out | wc -l)" = 2
+          cp glslang/LICENSE.txt out/glslang-LICENSE.txt
 
       - name: show dependencies
         continue-on-error: true
         shell: bash
         run: |
-          case "${{ runner.os }}" in
-            Windows) dumpbin //dependents ${{ matrix.library }} ;;
-            Linux) ldd ${{ matrix.library }} ;;
-            macOS) otool -L ${{ matrix.library }} ;;
-          esac
-
-      - name: rename for upload
-        shell: bash
-        run: |
-          mkdir out
-          cp ${{ matrix.library }} out/shaderc_shared-${{ matrix.platform }}.${{ matrix.extension }}
-          cp shaderc/LICENSE out/shaderc-LICENSE.txt
+          for f in out/*.${{ matrix.extension }}; do
+            case "${{ runner.os }}" in
+              Windows) dumpbin //dependents $f ;;
+              Linux) ldd $f ;;
+              macOS) otool -L $f ;;
+            esac
+          done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: shaderc-${{ matrix.platform }}
+          name: glslang-${{ matrix.platform }}
           path: out/*
 
   release:
-    needs: [ref, shaderc]
-    if: inputs.component == 'shaderc' || inputs.component == 'all'
+    needs: [ref, glslang]
+    if: inputs.component == 'glslang' || inputs.component == 'all'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      SHADERC_REF: ${{ needs.ref.outputs.shaderc_ref }}
+      GLSLANG_REF: ${{ needs.ref.outputs.glslang_ref }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -158,13 +156,13 @@ jobs:
           {
             echo "## sha256 for goluwa/bin_manifest.lua"
             echo '```'
-            sha256sum shaderc_shared-* | tee /dev/stderr
+            sha256sum *glslang-*.so *glslang-*.dll *glslang-*.dylib 2>/dev/null | tee /dev/stderr
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          gh release create "shaderc-$SHADERC_REF" shaderc_shared-* shaderc-LICENSE.txt \
+          gh release create "glslang-$GLSLANG_REF" *glslang-*.so *glslang-*.dll *glslang-*.dylib glslang-LICENSE.txt \
             --repo "$GITHUB_REPOSITORY" \
-            --title "shaderc $SHADERC_REF" \
-            --notes "shaderc $SHADERC_REF built from https://github.com/google/shaderc at tag $SHADERC_REF by build-binaries.yml, unmodified. Apache-2.0, see shaderc-LICENSE.txt. Hashes are pinned in goluwa/bin_manifest.lua." \
+            --title "glslang $GLSLANG_REF" \
+            --notes "glslang $GLSLANG_REF built from https://github.com/KhronosGroup/glslang at tag $GLSLANG_REF by build-binaries.yml, unmodified, as shared libraries without the SPIR-V optimizer. BSD-3-Clause and others, see glslang-LICENSE.txt. Hashes are pinned in goluwa/bin_manifest.lua." \
             --prerelease
 
   luajit:

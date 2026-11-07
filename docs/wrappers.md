@@ -20,7 +20,7 @@ They let scripts written for those engines run here, in `addons/love/*` and `add
 
 The Windows code path is mostly untested on real Windows; wine is the only check available on Linux.
 
-- Use the real MSVC build from the `luajit-c6ffc14` release (`luajit.exe` + `lua51.dll`); a mingw build lacks some CRT functions. Put `shaderc_shared-windows-x64.dll` in `storage/bin/libshaderc/` by hand (wine's TLS fails the downloader). Run from the repo root: `WINEDEBUG=-all wine /path/to/luajit.exe glw --2d --background --validate --one-frame lua "print(1)"`.
+- Use the real MSVC build from the `luajit-c6ffc14` release (`luajit.exe` + `lua51.dll`); a mingw build lacks some CRT functions. Put `glslang-windows-x64.dll` and `glslang-default-resource-limits-windows-x64.dll` in `storage/bin/libglslang/` by hand (wine's TLS fails the downloader). Run from the repo root: `WINEDEBUG=-all wine /path/to/luajit.exe glw --2d --background --validate --one-frame lua "print(1)"`.
 - LuaJIT raises Lua errors as SEH exceptions, and a vectored handler is a Lua callback into the main state, so there is no vectored `crash_trace` handler on Windows; only `SetUnhandledExceptionFilter` is used.
 - Do not serialise worker threads with a process-wide mutex (nested threads deadlock); concurrent lua states are fine.
 - `process.setenv` must also call `_putenv_s` (`os.getenv` reads the CRT environment). Child process command lines need MSVCRT quoting; tests that spawn children use `process.get_executable_path()`, not `luajit`/`sh`/`ls`.

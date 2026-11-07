@@ -11,16 +11,18 @@ jobs:
       - name: install ninja
         run: sudo apt-get install -y ninja-build
 
-      - name: shaderc ref
+      - name: glslang ref
         id: ref
-        run: echo "shaderc_ref=$(sed -n '/shaderc = {/,/}/s/.*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)" >> "$GITHUB_OUTPUT"
+        run: echo "glslang_ref=$(sed -n '/glslang = {/,/}/s/^[[:space:]]*ref = "\(.*\)".*/\1/p' goluwa/bin_manifest.lua | head -1)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/cache@v4
         with:
           path: |
-            android/build/arm64-v8a/libshaderc_shared.so
-            android/build/x86_64/libshaderc_shared.so
-          key: android-shaderc-${{ steps.ref.outputs.shaderc_ref }}
+            android/build/arm64-v8a/libglslang.so
+            android/build/arm64-v8a/libglslang-default-resource-limits.so
+            android/build/x86_64/libglslang.so
+            android/build/x86_64/libglslang-default-resource-limits.so
+          key: android-glslang-${{ steps.ref.outputs.glslang_ref }}
 
       - name: build
         env:

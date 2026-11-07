@@ -18,7 +18,7 @@ manifest_ref() {
 }
 
 luajit_ref="$(manifest_ref luajit)"
-shaderc_ref="$(manifest_ref shaderc)"
+glslang_ref="$(manifest_ref glslang)"
 toolchain="$(echo "$ndk"/toolchains/llvm/prebuilt/*)"
 build_tools="$(ls -d "$sdk"/build-tools/* | sort -V | tail -1)"
 platform="$(ls -d "$sdk"/platforms/android-* | sort -V | tail -1)"
@@ -33,9 +33,8 @@ fi
 git -C "$out/src/luajit" fetch -q origin
 git -C "$out/src/luajit" checkout -q "$luajit_ref"
 
-if [ ! -d "$out/src/shaderc" ]; then
-	git clone --depth 1 --branch "$shaderc_ref" https://github.com/google/shaderc "$out/src/shaderc"
-	(cd "$out/src/shaderc" && python3 utils/git-sync-deps)
+if [ ! -d "$out/src/glslang" ]; then
+	git clone --depth 1 --branch "$glslang_ref" https://github.com/KhronosGroup/glslang "$out/src/glslang"
 fi
 
 rm -rf "$out/stage"
@@ -71,18 +70,20 @@ for abi in $abis; do
 		-Wl,-soname,libgoluwa.so -Wl,-z,global -Wl,-z,max-page-size=16384 \
 		-u ANativeActivity_onCreate -landroid -llog -lm -ldl
 
-	if [ ! -f "$abi_out/libshaderc_shared.so" ]; then
-		cmake -S "$out/src/shaderc" -B "$abi_out/shaderc" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+	if [ ! -f "$abi_out/libglslang.so" ]; then
+		cmake -S "$out/src/glslang" -B "$abi_out/glslang" -G Ninja -DCMAKE_BUILD_TYPE=Release \
 			-DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
 			-DANDROID_ABI="$abi" -DANDROID_PLATFORM="android-$api" -DANDROID_STL=c++_static \
 			-DCMAKE_SHARED_LINKER_FLAGS="-Wl,-z,max-page-size=16384" \
-			-DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
-			-DSPIRV_SKIP_EXECUTABLES=ON -DSPIRV_SKIP_TESTS=ON -DENABLE_GLSLANG_BINARIES=OFF
-		cmake --build "$abi_out/shaderc" --target shaderc_shared
-		cp -L "$abi_out/shaderc/libshaderc/libshaderc_shared.so" "$abi_out/libshaderc_shared.so"
+			-DBUILD_SHARED_LIBS=ON -DENABLE_OPT=OFF -DENABLE_GLSLANG_BINARIES=OFF -DGLSLANG_TESTS=OFF
+		cmake --build "$abi_out/glslang"
+		cp -L "$(find "$abi_out/glslang" -name libglslang.so | head -1)" "$abi_out/libglslang.so"
+		cp -L "$(find "$abi_out/glslang" -name libglslang-default-resource-limits.so | head -1)" "$abi_out/libglslang-default-resource-limits.so"
 	fi
 
-	"$toolchain/bin/llvm-strip" --strip-unneeded -o "$out/stage/lib/$abi/libshaderc_shared.so" "$abi_out/libshaderc_shared.so"
+	for library in libglslang libglslang-default-resource-limits; do
+		"$toolchain/bin/llvm-strip" --strip-unneeded -o "$out/stage/lib/$abi/$library.so" "$abi_out/$library.so"
+	done
 done
 
 if [ ! -f "$out/debug.keystore" ]; then
