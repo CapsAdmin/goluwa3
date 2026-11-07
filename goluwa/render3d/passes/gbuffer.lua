@@ -39,13 +39,16 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			gbuffer_instancing.Reset()
 			event.Call("PreDraw3D", dt)
 			event.Call("Draw3DGeometry", dt)
-			gbuffer_instancing.Flush()
 
 			for _, extra in ipairs(gbuffer_extras) do
 				local pipeline = render3d.pipelines[extra.name]
 
 				if pipeline then extra.Draw(pipeline, cmd) end
 			end
+
+			-- displaced surfaces (terrain) are the most expensive per pixel and write their own depth, so they go last, where meshes and scatter drawn before them reject most of their fragments early
+			event.Call("Draw3DDisplacedGeometry", dt)
+			gbuffer_instancing.Flush()
 		end,
 		ColorFormat = gbuffer_layout.color_format,
 		DepthFormat = gbuffer_layout.DEPTH_FORMAT,

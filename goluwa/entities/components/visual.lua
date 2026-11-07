@@ -2543,18 +2543,18 @@ end
 function Visual:OnFirstCreated()
 	local main_visible_components = {}
 	local store_pipelines = {}
+	local store_drawn = false
 
 	event.AddListener("Draw3DGeometry", "visual_geometry_draw", function()
 		store_pipelines[1] = render3d.pipelines.gbuffer_multi_draw
 		store_pipelines[2] = render3d.pipelines.gbuffer_multi_draw_height_map
 		store_pipelines[3] = render3d.pipelines.gbuffer_multi_draw_snow
 		local camera_position = render3d.GetCamera():GetPosition()
+		store_drawn = not visual.noculling and
+			store_pipelines[3] ~= nil and
+			scene_draw.Draw(gbuffer_instancing, store_pipelines, 1, 1)
 
-		if
-			not visual.noculling and
-			store_pipelines[3] and
-			scene_draw.Draw(gbuffer_instancing, store_pipelines)
-		then
+		if store_drawn then
 			for component in pairs(scene_bridge.GetCPUDrawnVisuals()) do
 				if component.Visible and not component:IsCulled() then
 					for _, entry in ipairs(component:GetLODEntriesAt(camera_position)) do
@@ -2572,6 +2572,12 @@ function Visual:OnFirstCreated()
 			for _, entry in ipairs(component:GetLODEntriesAt(camera_position)) do
 				draw_geometry_entry(component, entry)
 			end
+		end
+	end)
+
+	event.AddListener("Draw3DDisplacedGeometry", "visual_geometry_draw", function()
+		if store_drawn then
+			scene_draw.Draw(gbuffer_instancing, store_pipelines, 2, 3)
 		end
 	end)
 

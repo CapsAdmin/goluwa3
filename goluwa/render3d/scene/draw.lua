@@ -808,7 +808,7 @@ function draw.IsCulled()
 	return frame_state.frame == system.GetFrameNumber()
 end
 
-function draw.Draw(gbuffer_instancing, pipelines)
+function draw.Draw(gbuffer_instancing, pipelines, first, last)
 	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[0] == 0 then
 		return false
 	end
@@ -820,7 +820,8 @@ function draw.Draw(gbuffer_instancing, pipelines)
 	local count = frame_state.group_counts[0]
 	gpu_culling.MarkMainViewDrawn()
 
-	for i, pipeline in ipairs(pipelines) do
+	for i = first, last do
+		local pipeline = pipelines[i]
 		local batch_table = batch_tables[pipeline]
 
 		if not batch_table then
