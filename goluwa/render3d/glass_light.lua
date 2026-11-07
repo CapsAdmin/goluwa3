@@ -4,6 +4,7 @@ local ddgi = import("goluwa/render3d/ddgi.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local Material = import("goluwa/render3d/material.lua")
+local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local glass_light = {}
 glass_light.RAY_QUERY = render.GetDevice().ray_query_supported
 glass_light.SUN_DISTANCE = 300
@@ -77,7 +78,7 @@ function glass_light.GetGLSL(scene_name)
 		vec3 get_glass_light_ray(vec3 origin, vec3 dir, float distance) {
 			vec3 transmitted = vec3(1.0);
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsCullOpaqueEXT, 0x02, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
+			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsCullOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
 
 			while (rayQueryProceedEXT(query)) {
 				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];

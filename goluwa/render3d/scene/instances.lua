@@ -30,6 +30,7 @@ instances.MASK_DECAL = 0x04
 instances.MASK_SELF = 0x08
 instances.MASK_GI = 0x10
 instances.MASK_GI_SOLID = 0x20
+instances.MASK_GLASS = 0x40
 instances.MASK_GI_BITS = 0x30
 instances.FLAG_DOUBLE_SIDED = 1
 instances.FLAG_ALPHA_TEST = 2
@@ -314,6 +315,8 @@ function instances.GetMaterialFlags(material)
 		instances.MASK_SEE_THROUGH or
 		bit.bor(instances.MASK_SOLID, instances.MASK_GI_SOLID)
 	mask = bit.bor(mask, instances.MASK_GI)
+
+	if material:IsGlass() then mask = bit.bor(mask, instances.MASK_GLASS) end
 
 	if material:GetDoubleSided() then
 		flags = flags + instances.FLAG_DOUBLE_SIDED
