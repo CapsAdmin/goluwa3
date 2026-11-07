@@ -1847,11 +1847,26 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				}
 
 				float steepness = 1.0 - (N.y * 0.5 + 0.5);
-				weights *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin, terrain_model.TerrainLayerSlopeMax, terrain_model.TerrainLayerSlopeBlend);
-				weights2 *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin2, terrain_model.TerrainLayerSlopeMax2, terrain_model.TerrainLayerSlopeBlend2);
+				bool has_second_set = terrain_model.TerrainMaterial2Texture != -1;
 
-				vec4 cover = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope, terrain_model.TerrainLayerCoverStart, terrain_model.TerrainLayerCoverRange, terrain_model.TerrainLayerCoverPower, terrain_model.TerrainLayerCoverBlend);
-				vec4 cover2 = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope2, terrain_model.TerrainLayerCoverStart2, terrain_model.TerrainLayerCoverRange2, terrain_model.TerrainLayerCoverPower2, terrain_model.TerrainLayerCoverBlend2);
+				if (any(greaterThan(terrain_model.TerrainLayerSlopeMin, vec4(-1.0))) || any(lessThan(terrain_model.TerrainLayerSlopeMax, vec4(2.0)))) {
+					weights *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin, terrain_model.TerrainLayerSlopeMax, terrain_model.TerrainLayerSlopeBlend);
+				}
+
+				if (has_second_set && (any(greaterThan(terrain_model.TerrainLayerSlopeMin2, vec4(-1.0))) || any(lessThan(terrain_model.TerrainLayerSlopeMax2, vec4(2.0))))) {
+					weights2 *= get_terrain_slope_mask(steepness, terrain_model.TerrainLayerSlopeMin2, terrain_model.TerrainLayerSlopeMax2, terrain_model.TerrainLayerSlopeBlend2);
+				}
+
+				bool has_cover = any(greaterThan(terrain_model.TerrainLayerCoverSlope, vec4(0.0))) || (has_second_set && any(greaterThan(terrain_model.TerrainLayerCoverSlope2, vec4(0.0))));
+				vec4 cover = vec4(0.0);
+				vec4 cover2 = vec4(0.0);
+
+				if (has_cover) {
+					cover = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope, terrain_model.TerrainLayerCoverStart, terrain_model.TerrainLayerCoverRange, terrain_model.TerrainLayerCoverPower, terrain_model.TerrainLayerCoverBlend);
+					cover2 = get_terrain_cover(steepness, in_position.y, terrain_model.TerrainLayerCoverSlope2, terrain_model.TerrainLayerCoverStart2, terrain_model.TerrainLayerCoverRange2, terrain_model.TerrainLayerCoverPower2, terrain_model.TerrainLayerCoverBlend2);
+				}
+
+
 				weights *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope, vec4(0.0)));
 				weights2 *= vec4(lessThanEqual(terrain_model.TerrainLayerCoverSlope2, vec4(0.0)));
 				float weight_sum = dot(weights, vec4(1.0)) + dot(weights2, vec4(1.0));
@@ -1866,7 +1881,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 
 				float cover_sum = dot(cover, vec4(1.0)) + dot(cover2, vec4(1.0));
 
-				if (cover_sum > 0.0001) {
+				if (has_cover && cover_sum > 0.0001) {
 					float covered = max(max(max(cover.x, cover.y), max(cover.z, cover.w)), max(max(cover2.x, cover2.y), max(cover2.z, cover2.w)));
 					weights = weights * (1.0 - covered) + cover * (covered / cover_sum);
 					weights2 = weights2 * (1.0 - covered) + cover2 * (covered / cover_sum);
