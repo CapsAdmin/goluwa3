@@ -2,6 +2,7 @@ local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local pipeline_names = import("goluwa/render/vulkan/internal/pipeline_names.lua")
 local GraphicsPipeline = objects.CreateTemplate("vulkan_graphics_pipeline")
 local EnumArray = ffi.typeof("uint32_t[?]")
 local VkVertexInputBindingDescriptionArray = ffi.typeof("$[?]", vulkan.vk.VkVertexInputBindingDescription)
@@ -341,6 +342,7 @@ function GraphicsPipeline:Wait()
 	if job then
 		self.job = nil
 		self.device.pipeline_cache:WaitForJob(job, "graphics", self.config.name)
+		pipeline_names.Register("graphics", self.ptr[0], self.config.name)
 		self.keep = nil
 	end
 end

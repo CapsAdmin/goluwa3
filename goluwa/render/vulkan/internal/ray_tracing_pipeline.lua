@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local pipeline_names = import("goluwa/render/vulkan/internal/pipeline_names.lua")
 local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
 local render = import("goluwa/render/render.lua")
 local ShaderModule = import("goluwa/render/vulkan/internal/shader_module.lua")
@@ -175,6 +176,7 @@ function RayTracingPipeline:Wait()
 	local device = self.device
 	local group_count = self.group_count
 	device.pipeline_cache:WaitForJob(job, "ray tracing", self.name)
+	pipeline_names.Register("raytracing", self.ptr[0], self.name)
 
 	for _, module in ipairs(self.keep[5]) do
 		module:Remove()

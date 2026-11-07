@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
+local pipeline_names = import("goluwa/render/vulkan/internal/pipeline_names.lua")
 local ComputePipeline = objects.CreateTemplate("vulkan_compute_pipeline")
 local VkPipelineBox = ffi.typeof("$[1]", vulkan.vk.VkPipeline)
 local VkComputePipelineCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkComputePipelineCreateInfo)
@@ -36,6 +37,7 @@ function ComputePipeline:Wait()
 	if job then
 		self.job = nil
 		self.device.pipeline_cache:WaitForJob(job, "compute", self.name)
+		pipeline_names.Register("compute", self.ptr[0], self.name)
 		self.keep = nil
 	end
 end
