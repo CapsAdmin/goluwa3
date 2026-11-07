@@ -44,6 +44,7 @@ do
 			"Path to given binary",
 			"terminator_CreateInstance",
 			"because it is a duplicate of",
+			"doesn't match the currentTransform",
 		}
 
 		local function debug_callback(messageSeverity, messageType, pCallbackData, pUserData)
