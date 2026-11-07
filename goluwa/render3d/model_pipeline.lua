@@ -1734,16 +1734,12 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			vec4 sample_terrain_layer_triplanar(int tex, TerrainLayerUV uv, vec3 blend, float anti_tiling) {
 				vec4 result = vec4(0.0);
 
-				if (blend.y > 0.001) {
-					result += sample_terrain_layer_texel(tex, uv.y, anti_tiling) * blend.y;
-				}
+				for (int a = 0; a < 3; a++) {
+					float w = a == 0 ? blend.y : (a == 1 ? blend.x : blend.z);
 
-				if (blend.x > 0.001) {
-					result += sample_terrain_layer_texel(tex, uv.x, anti_tiling) * blend.x;
-				}
-
-				if (blend.z > 0.001) {
-					result += sample_terrain_layer_texel(tex, uv.z, anti_tiling) * blend.z;
+					if (w > 0.001) {
+						result += sample_terrain_layer_texel(tex, a == 0 ? uv.y : (a == 1 ? uv.x : uv.z), anti_tiling) * w;
+					}
 				}
 
 				return result;
@@ -1752,22 +1748,14 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 			vec3 sample_terrain_layer_normal_triplanar(int tex, TerrainLayerUV uv, vec3 blend, vec3 N, float anti_tiling) {
 				vec3 n = vec3(0.0);
 
-				if (blend.y > 0.001) {
-					vec3 t = sample_terrain_layer_normal_texel(tex, uv.y, anti_tiling);
-					vec3 tn = vec3(t.xy + N.xz, abs(t.z) * N.y);
-					n += tn.xzy * blend.y;
-				}
+				for (int a = 0; a < 3; a++) {
+					float w = a == 0 ? blend.y : (a == 1 ? blend.x : blend.z);
 
-				if (blend.x > 0.001) {
-					vec3 t = sample_terrain_layer_normal_texel(tex, uv.x, anti_tiling);
-					vec3 tn = vec3(t.xy + N.zy, abs(t.z) * N.x);
-					n += tn.zyx * blend.x;
-				}
-
-				if (blend.z > 0.001) {
-					vec3 t = sample_terrain_layer_normal_texel(tex, uv.z, anti_tiling);
-					vec3 tn = vec3(t.xy + N.xy, abs(t.z) * N.z);
-					n += tn.xyz * blend.z;
+					if (w > 0.001) {
+						vec3 t = sample_terrain_layer_normal_texel(tex, a == 0 ? uv.y : (a == 1 ? uv.x : uv.z), anti_tiling);
+						vec3 tn = vec3(t.xy + (a == 0 ? N.xz : (a == 1 ? N.zy : N.xy)), abs(t.z) * (a == 0 ? N.y : (a == 1 ? N.x : N.z)));
+						n += (a == 0 ? tn.xzy : (a == 1 ? tn.zyx : tn.xyz)) * w;
+					}
 				}
 
 				return n;
