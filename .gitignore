@@ -5,3 +5,5 @@ storage/
 test/tmp/
 tmp/
 android/build/
+# made by nsight graphics's overlay
+imgui.ini
