@@ -104,7 +104,8 @@ local function write_shadow_uv_data(data, material, normal_texture_index)
 end
 
 local function sample_shadow_texture(texture, uv)
-	return "textureLod(textures[nonuniformEXT(" .. texture .. ")], " .. uv .. ", 0.0)"
+	-- one mip sharper than the shadow texel's footprint: mip 0 misses the cache on every fragment of a far cascade, and the footprint mip thins alpha tested foliage
+	return "texture(textures[nonuniformEXT(" .. texture .. ")], " .. uv .. ", -1.0)"
 end
 
 local function build_shadow_alpha_glsl(block)
