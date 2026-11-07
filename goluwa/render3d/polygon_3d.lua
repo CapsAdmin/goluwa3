@@ -51,12 +51,101 @@ do
 		return math.floor(pos.x * 10000 + 0.5) .. "," .. math.floor(pos.y * 10000 + 0.5) .. "," .. math.floor(pos.z * 10000 + 0.5)
 	end
 
+	local SHELL_GRID_CELLS = 32
+
+	local function build_shell_grid(vertices, triangles)
+		local bounds = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+		local boxes = {}
+
+		for tri = 0, triangles - 1 do
+			local box = AABB(math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge)
+
+			for k = 1, 3 do
+				box:ExpandVec3(vertices[tri * 3 + k].pos)
+			end
+
+			boxes[tri + 1] = box
+			bounds:Expand(box)
+		end
+
+		local cell = math.max(
+				bounds.max_x - bounds.min_x,
+				bounds.max_y - bounds.min_y,
+				bounds.max_z - bounds.min_z,
+				1e-3
+			) / SHELL_GRID_CELLS
+		local cells = {}
+
+		for _, box in ipairs(boxes) do
+			for z = math.floor((box.min_z - bounds.min_z) / cell), math.floor((box.max_z - bounds.min_z) / cell) do
+				for y = math.floor((box.min_y - bounds.min_y) / cell), math.floor((box.max_y - bounds.min_y) / cell) do
+					for x = math.floor((box.min_x - bounds.min_x) / cell), math.floor((box.max_x - bounds.min_x) / cell) do
+						local key = (z * (SHELL_GRID_CELLS + 1) + y) * (SHELL_GRID_CELLS + 1) + x
+						local list = cells[key]
+
+						if not list then
+							list = {}
+							cells[key] = list
+						end
+
+						list[#list + 1] = box
+					end
+				end
+			end
+		end
+
+		return {bounds = bounds, cell = cell, cells = cells}
+	end
+
+	function Polygon3D:IsNearHeightShell(x, y, z, radius)
+		local grid = self.shell_grid
+		local bounds = grid.bounds
+
+		if
+			x < bounds.min_x - radius or
+			y < bounds.min_y - radius or
+			z < bounds.min_z - radius or
+			x > bounds.max_x + radius or
+			y > bounds.max_y + radius or
+			z > bounds.max_z + radius
+		then
+			return false
+		end
+
+		local cell = grid.cell
+		local cells = grid.cells
+		local last = SHELL_GRID_CELLS
+
+		for cz = math.max(math.floor((z - radius - bounds.min_z) / cell), 0), math.min(math.floor((z + radius - bounds.min_z) / cell), last) do
+			for cy = math.max(math.floor((y - radius - bounds.min_y) / cell), 0), math.min(math.floor((y + radius - bounds.min_y) / cell), last) do
+				for cx = math.max(math.floor((x - radius - bounds.min_x) / cell), 0), math.min(math.floor((x + radius - bounds.min_x) / cell), last) do
+					local list = cells[(cz * (last + 1) + cy) * (last + 1) + cx]
+
+					if list then
+						for _, box in ipairs(list) do
+							local dx = math.max(box.min_x - x, x - box.max_x, 0)
+							local dy = math.max(box.min_y - y, y - box.max_y, 0)
+							local dz = math.max(box.min_z - z, z - box.max_z, 0)
+
+							if dx * dx + dy * dy + dz * dz <= radius * radius then
+								return true
+							end
+						end
+					end
+				end
+			end
+		end
+
+		return false
+	end
+
 	function Polygon3D:AddHeightShell()
 		local vertices = self.Vertices
 		local count = self.i - 1
 		local triangles = count / 3
 		local keys = {}
 		local edges = {}
+		self.shell_grid = build_shell_grid(vertices, triangles)
 
 		for i = 1, count do
 			keys[i] = position_key(vertices[i].pos)

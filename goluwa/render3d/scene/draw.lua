@@ -32,6 +32,7 @@ local free_slots = {}
 local slot_rows
 local translucent_ids = {}
 local translucent_count = 0
+local height_shell_ids = {}
 draw.serial = 0
 local CHANGE_LOG_SIZE = 65536
 local changes = {log = {}, size = CHANGE_LOG_SIZE}
@@ -153,6 +154,7 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 		store.CreateTable{name = "draw_slot_groups", ctype = "uint32_t", capacity = 4096}
 	local slot = slot_of[id]
 	local set = (material:GetRasterBothFaces() and 1 or 0) + (material:MarchesRelief() and 2 or 0)
+	height_shell_ids[id] = polygon3d and polygon3d.shell_grid and true or nil
 
 	if (translucent_ids[id] or false) ~= (translucent or false) then
 		translucent_ids[id] = translucent or nil
@@ -195,6 +197,8 @@ function draw.ClearRow(id)
 	local slot = slot_of[id]
 
 	if not slot then return end
+
+	height_shell_ids[id] = nil
 
 	if translucent_ids[id] then
 		translucent_ids[id] = nil
@@ -800,6 +804,34 @@ function draw.Cull(
 		frame_state.counts[kind] = count
 		frame_state.group_counts[kind] = group_count
 	end
+end
+
+function draw.IsEyeNearHeightShell(eye)
+	local tlas = instances.GetTables():Get()
+
+	for id in pairs(height_shell_ids) do
+		local row = rows[slot_of[id] + 1]
+		local m = tlas[id].transform.matrix
+		local a, b, c = m[0][0], m[0][1], m[0][2]
+		local d, e, f = m[1][0], m[1][1], m[1][2]
+		local g, h, i = m[2][0], m[2][1], m[2][2]
+		local x, y, z = eye.x - m[0][3], eye.y - m[1][3], eye.z - m[2][3]
+		local det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+		local min_scale = math.sqrt(math.min(a * a + d * d + g * g, b * b + e * e + h * h, c * c + f * f + i * i))
+
+		if
+			row.first_polygon3d:IsNearHeightShell(
+				((e * i - f * h) * x + (c * h - b * i) * y + (b * f - c * e) * z) / det,
+				((f * g - d * i) * x + (a * i - c * g) * y + (c * d - a * f) * z) / det,
+				((d * h - e * g) * x + (b * g - a * h) * y + (a * e - b * d) * z) / det,
+				row.material:GetHeightShell() * 2 / min_scale
+			)
+		then
+			return true
+		end
+	end
+
+	return false
 end
 
 local batch_tables = setmetatable({}, {__mode = "k"})

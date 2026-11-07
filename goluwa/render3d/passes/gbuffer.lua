@@ -12,10 +12,13 @@ local surface_conditions = import("goluwa/render3d/surface_conditions.lua")
 local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
+local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local camera_block = geometry_block.New("gbuffer_data", {
 	{"normal_source", "int"},
+	{"eye_near_height_shell", "int"},
 }, function(self, block)
 	block.normal_source = gbuffer_inspect.GetNormalSourceIndex()
+	block.eye_near_height_shell = scene_draw.IsEyeNearHeightShell(render3d.GetCamera():GetPosition()) and 1 or 0
 end)
 
 local function build_base_pass(fragment_shader, enable_vertex_animation)
@@ -490,6 +493,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			float max_step;
 			float escape;
 			int hops;
+			int eye_hops;
 		};
 
 		mat3 prism_frame(PrismMesh mesh, uvec3 corners, vec3 weights) {
@@ -564,7 +568,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 
 			if (!entering) {
 				int hops = s.hops;
-				s.hops = 256;
+				s.hops = s.eye_hops;
 				ShellSample at_eye = shell_sample(s, eye);
 				s.hops = hops;
 
@@ -667,6 +671,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			s.max_step = shell * 3.0;
 			s.escape = 1.25;
 			s.hops = 0;
+			s.eye_hops = 0;
 			s.weights.uv = vec2(-1.0);
 			float scale = max(terrain_model.TerrainLayerScales.y, 0.0001);
 			s.gx = vec2[3](dFdx(in_position.zy) / scale, dFdx(in_position.xz) / scale, dFdx(in_position.xy) / scale);
@@ -698,6 +703,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			s.max_step = shell * 0.15;
 			s.escape = 4.0;
 			s.hops = 24;
+			s.eye_hops = gbuffer_data.eye_near_height_shell != 0 ? 256 : 0;
 			bool side = abs(in_tangent.w) > 2.5;
 
 			vec3 face = normalize(cross(dFdx(in_position), dFdy(in_position)));
