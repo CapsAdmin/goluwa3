@@ -18,6 +18,9 @@ local constraint_body_stamp = 0
 local anchor_comp_seen = {}
 local anchor_comp_stamp = 0
 local moved_anchor_seen = table.weak("k")
+local needs_body_scan = true
+local scanned_epoch = -1
+local scanned_count = -1
 local prepare_stamp = 0
 
 local function get_pair_key(entry_a, entry_b)
@@ -34,7 +37,7 @@ local function get_pair_key(entry_a, entry_b)
 end
 
 local function is_dynamic_body(body)
-	return body and body:IsDynamic() and body:HasSolverMass()
+	return body and body.MotionType == "dynamic" and body.InverseMass > 0
 end
 
 local function is_anchor_body(body)
@@ -44,20 +47,23 @@ end
 local function is_body_transform_moving(body)
 	if not body then return false end
 
-	local previous_position = body:GetPreviousPosition()
-	local current_position = body:GetPosition()
+	local previous_position = body.PreviousPosition
+	local current_position = body.Position
+	local dx = current_position.x - previous_position.x
+	local dy = current_position.y - previous_position.y
+	local dz = current_position.z - previous_position.z
 
-	if (current_position - previous_position):GetLength() > 0.0001 then
-		return true
-	end
+	if dx * dx + dy * dy + dz * dz > 0.0001 * 0.0001 then return true end
 
-	local previous_rotation = body:GetPreviousRotation()
-	local current_rotation = body:GetRotation()
-	local dot = math.min(1, math.max(-1, math.abs(previous_rotation:Dot(current_rotation))))
-
-	if 1 - dot > 0.0001 then return true end
-
-	return false
+	local previous_rotation = body.PreviousRotation
+	local current_rotation = body.Rotation
+	local dot = math.min(
+		1,
+		math.abs(
+			previous_rotation.x * current_rotation.x + previous_rotation.y * current_rotation.y + previous_rotation.z * current_rotation.z + previous_rotation.w * current_rotation.w
+		)
+	)
+	return 1 - dot > 0.0001
 end
 
 local function get_body_rank(body)
@@ -160,6 +166,7 @@ local function create_island(root_body)
 end
 
 local function destroy_island(island)
+	needs_body_scan = true
 	local bodies = island.bodies
 
 	for i = 1, #bodies do
@@ -614,15 +621,21 @@ local function split_island(island)
 	island.dirty = false
 end
 
-function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, solver)
+function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, solver, activity_epoch)
 	constraints = constraints or {}
 	candidate_pairs = candidate_pairs or {}
 
-	for i = 1, #bodies do
-		local body = bodies[i]
+	if needs_body_scan or scanned_epoch ~= activity_epoch or scanned_count ~= #bodies then
+		scanned_epoch = activity_epoch
+		scanned_count = #bodies
+		needs_body_scan = false
 
-		if is_dynamic_body(body) and body_island[body] == nil then
-			create_island(body)
+		for i = 1, #bodies do
+			local body = bodies[i]
+
+			if is_dynamic_body(body) and body_island[body] == nil then
+				create_island(body)
+			end
 		end
 	end
 
@@ -635,27 +648,19 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 		local pair = candidate_pairs[i]
 		local body_a = pair.entry_a.body
 		local body_b = pair.entry_b.body
+		local dynamic_a = is_dynamic_body(body_a)
 
-		if not (is_dynamic_body(body_a) or is_dynamic_body(body_b)) then
-			goto continue_pair
-		end
+		if not (dynamic_a or is_dynamic_body(body_b)) then goto continue_pair end
 
 		if solver and not solver:IslandPairFilter(pair) then goto continue_pair end
 
 		local key = get_pair_key(pair.entry_a, pair.entry_b)
+		local link = prev_pair_links[key]
 
-		if prev_pair_links[key] then
-			local island
-
-			if is_dynamic_body(body_a) then
-				island = body_island[body_a]
-			elseif is_dynamic_body(body_b) then
-				island = body_island[body_b]
-			end
+		if link then
+			local island = body_island[dynamic_a and body_a or body_b]
 
 			if island then
-				local link = prev_pair_links[key]
-
 				if link.a ~= body_a or link.b ~= body_b then
 					link.a = body_a
 					link.b = body_b
@@ -996,6 +1001,7 @@ end
 function islands.RemoveBody(body)
 	if not body then return end
 
+	needs_body_scan = true
 	body_island[body] = nil
 
 	for i = #active_islands, 1, -1 do
@@ -1025,6 +1031,7 @@ function islands.ResetState()
 	spare_constraints = {}
 	spare_constraint_list = {}
 	next_body_rank = 0
+	needs_body_scan = true
 end
 
 islands.ResetState()

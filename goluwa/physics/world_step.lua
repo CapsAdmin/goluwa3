@@ -339,7 +339,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 			rigid_body_pairs = build_candidate_pairs(physics, bodies)
 			stats:PopTime()
 			stats:PushTime("islands")
-			simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
+			simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver, RigidBody.ActivityEpoch)
 			local newly_awoken_bodies = NEWLY_AWOKEN_BODIES
 
 			if simulation_islands and simulation_islands[1] then
@@ -364,7 +364,7 @@ function world_step.UpdateRigidBodies(physics, dt)
 					rigid_body_pairs = build_candidate_pairs(physics, bodies)
 					stats:PopTime()
 					stats:PushTime("islands")
-					simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver)
+					simulation_islands = islands.UpdateSimulationIslands(bodies, rigid_body_pairs, constraints, solver, RigidBody.ActivityEpoch)
 
 					if simulation_islands and simulation_islands[1] then
 						islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies)
