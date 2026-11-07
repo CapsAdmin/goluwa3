@@ -96,7 +96,6 @@ RigidBody:GetSet("GroundRollingFriction", 0)
 RigidBody:GetSet("GroundEntity", nil)
 RigidBody:GetSet("GroundBody", nil)
 RigidBody.ActivityEpoch = 0
-RigidBody.StructureEpoch = 0
 RigidBody.ActivityChanges = {}
 RigidBody.TransformDirtyBodies = {}
 RigidBody.RemovedBodies = {}
@@ -109,11 +108,6 @@ function RigidBody:OnActivityChanged()
 	self.ActivityQueued = true
 	local changes = RigidBody.ActivityChanges
 	changes[#changes + 1] = self
-end
-
-function RigidBody:OnStructureChanged()
-	RigidBody.ActivityEpoch = RigidBody.ActivityEpoch + 1
-	RigidBody.StructureEpoch = RigidBody.StructureEpoch + 1
 end
 
 function RigidBody:OnCollisionEnabledChanged()
@@ -307,7 +301,7 @@ function RigidBody:Initialize()
 	end
 
 	self:MarkTransformDirty()
-	self:OnStructureChanged()
+	self:OnActivityChanged()
 end
 
 function RigidBody:OnMotionTypeChanged()
@@ -323,7 +317,7 @@ function RigidBody:OnMotionTypeChanged()
 
 	self:RefreshMassProperties()
 	islands.RemoveBody(self)
-	self:OnStructureChanged()
+	self:OnActivityChanged()
 end
 
 function RigidBody:GetCollisionProbeDistance()
@@ -571,7 +565,7 @@ end
 function RigidBody:OnRemove()
 	local removed = RigidBody.RemovedBodies
 	removed[#removed + 1] = self
-	self:OnStructureChanged()
+	self:OnActivityChanged()
 	islands.RemoveBody(self)
 	remove_world_geometry_body(self)
 end

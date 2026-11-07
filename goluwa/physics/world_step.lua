@@ -26,11 +26,12 @@ local refresh_body_lists
 local sync_stamp = 0
 
 local ACTIVE_INDEX = {}
-local listed_structure = -1
+local listed_once = false
 
 do
 	local function is_active_body(body)
-		return body.MotionType ~= "static" and
+		return body:IsValid() and
+			body.MotionType ~= "static" and
 			(
 				body.Awake or
 				body.MotionType ~= "dynamic" or
@@ -48,8 +49,8 @@ do
 		listed_epoch = RigidBody.ActivityEpoch
 		local changes = RigidBody.ActivityChanges
 
-		if listed_structure ~= RigidBody.StructureEpoch then
-			listed_structure = RigidBody.StructureEpoch
+		if not listed_once then
+			listed_once = true
 			local active_count = 0
 			table.clear(ACTIVE_INDEX)
 
