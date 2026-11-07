@@ -20,6 +20,7 @@ local NEWLY_AWOKEN_BODIES = {}
 local ACTIVE_BODIES = {}
 local SYNCED_BODIES = {}
 local TOUCHED_BODIES = {}
+local REMOVED_SET = {}
 local listed_epoch = -1
 local refresh_body_lists
 local sync_stamp = 0
@@ -292,9 +293,27 @@ function world_step.UpdateRigidBodies(physics, dt)
 	do
 		local removed_bodies = RigidBody.RemovedBodies
 
-		for i = 1, #removed_bodies do
-			physics.broadphase:RemoveBody(removed_bodies[i])
+		local removed_count = #removed_bodies
+
+		for i = 1, removed_count do
+			local body = removed_bodies[i]
+			physics.broadphase:RemoveBody(body)
+			REMOVED_SET[body] = true
 			removed_bodies[i] = nil
+		end
+
+		if removed_count > 0 then
+			for i = 1, #bodies do
+				local body = bodies[i]
+				local ground_body = body.GroundBody
+
+				if ground_body and (REMOVED_SET[ground_body] or REMOVED_SET[ground_body.Body]) then
+					body:SetGrounded(false)
+					body:Wake()
+				end
+			end
+
+			table.clear(REMOVED_SET)
 		end
 
 		local synced_bodies = SYNCED_BODIES
