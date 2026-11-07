@@ -1267,6 +1267,7 @@ do
 	}
 	local OP_STRING, OP_EXT_INST_IMPORT, OP_EXT_INST, OP_ENTRY_POINT, OP_CONSTANT = 7, 11, 12, 15, 43
 	local OP_LINE, OP_NO_LINE, OP_LABEL, OP_FUNCTION_END = 8, 317, 248, 56
+	local DEBUG_FUNCTION, DEBUG_FUNCTION_DEFINITION = 20, 101
 	local DEBUG_SOURCE, DEBUG_SOURCE_CONTINUED, DEBUG_LINE, DEBUG_NO_LINE = 35, 102, 103, 104
 
 	local function uleb(ptr, pos)
@@ -1447,12 +1448,20 @@ do
 	end
 
 	-- {models = {[model] = true}, sources = {[id] = {name, text}}, source_of = {}, line_of = {}, code = {}}
-	-- where the per instruction tables are indexed by instruction number (0 = first after the header)
+	-- where the per instruction tables are indexed by instruction number (0 = first after the header), and
+	-- function_at holds {name, source, line} at the instructions that define a function
 	local function parse_spirv(ptr, size)
 		local words = ffi.cast(uint32_ptr_t, ptr)
 		local word_count = size / 4
-		local strings, constants, debug_sets, sources = {}, {}, {}, {}
-		local module = {models = {}, sources = sources, source_of = {}, line_of = {}, code = {}}
+		local strings, constants, debug_sets, sources, debug_functions = {}, {}, {}, {}, {}
+		local module = {
+			models = {},
+			sources = sources,
+			source_of = {},
+			line_of = {},
+			code = {},
+			function_at = {},
+		}
 		local current_source, current_line
 		local last_source
 		local index = 0
@@ -1492,6 +1501,14 @@ do
 						text = length > 6 and strings[words[i + 6]] or "",
 					}
 					sources[words[i + 2]] = last_source
+				elseif instruction == DEBUG_FUNCTION then
+					debug_functions[words[i + 2]] = {
+						name = strings[words[i + 5]],
+						source = words[i + 7],
+						line = constants[words[i + 8]],
+					}
+				elseif instruction == DEBUG_FUNCTION_DEFINITION then
+					module.function_at[index] = debug_functions[words[i + 5]]
 				elseif instruction == DEBUG_SOURCE_CONTINUED and last_source then
 					last_source.text = last_source.text .. (strings[words[i + 5]] or "")
 				elseif instruction == DEBUG_LINE then
@@ -1603,6 +1620,93 @@ do
 		return good / #cubin.lines
 	end
 
+	local function split_lines(text)
+		local lines = {}
+
+		for line in (text .. "\n"):gmatch("(.-)\r?\n") do
+			lines[#lines + 1] = line
+		end
+
+		return lines
+	end
+
+	-- glslang numbers lines in the preprocessed copy of the source, which the spir-v holds after the original,
+	-- and a `#line n` directive sets the number of the line below it, so the numbers of code after a snippet
+	-- with `#line 1 id` restart at 1. Several physical lines can share a number: a function body starts at
+	-- its declaration (name and number from DebugFunction), and the physical line of an instruction is the
+	-- candidate closest to the one before it.
+	local function resolve_source_lines(module)
+		if module.lines_resolved then return end
+
+		module.lines_resolved = true
+		local candidates_of = {}
+
+		for id, source in pairs(module.sources) do
+			local text = source.text
+			local first = text:find("#version", 1, true)
+			local second = first and text:find("#version", first + 1, true)
+			local preprocessed = split_lines(second and text:sub(second) or text)
+			source.line_texts = second and split_lines(text:sub(1, second - 1)) or preprocessed
+			local candidates = {}
+			local number = 1
+
+			for physical, line in ipairs(preprocessed) do
+				local directive = line:match("^%s*#%s*line%s+(%d+)")
+
+				if directive then
+					number = tonumber(directive)
+				else
+					candidates[number] = candidates[number] or {}
+					table.insert(candidates[number], physical)
+					number = number + 1
+				end
+			end
+
+			candidates_of[id] = candidates
+		end
+
+		local cursor = 1
+		local last_number, last_source, last_physical
+
+		for index = 0, module.instruction_count - 1 do
+			local declared = module.function_at[index]
+
+			if declared then
+				for _, physical in ipairs(candidates_of[declared.source][declared.line] or {}) do
+					if module.sources[declared.source].line_texts[physical]:find(declared.name, 1, true) then
+						cursor = physical
+
+						break
+					end
+				end
+
+				last_number = nil
+			end
+
+			local number = module.line_of[index]
+			local source = module.source_of[index]
+
+			if number and candidates_of[source] then
+				if number ~= last_number or source ~= last_source then
+					last_number, last_source, last_physical = number, source, nil
+					local best_distance
+
+					for _, physical in ipairs(candidates_of[source][number] or {}) do
+						local distance = math.abs(physical - cursor)
+
+						if not best_distance or distance < best_distance then
+							best_distance, last_physical = distance, physical
+						end
+					end
+
+					cursor = last_physical or cursor
+				end
+
+				module.line_of[index] = last_physical
+			end
+		end
+	end
+
 	-- the spir-v module a cubin was compiled from. The modules of a pipeline are stored right before its
 	-- first code blob; ray tracing stages share modules across pipelines, so those take the module of the
 	-- same stage whose instructions fit the line table best.
@@ -1654,22 +1758,11 @@ do
 		end
 
 		if module then
+			resolve_source_lines(module)
 			region.source = {cubin = cubin, module = module, extension = STAGE_EXTENSIONS[cubin.stage]}
 		end
 
 		return region.source
-	end
-
-	local function source_line_text(source, line)
-		if not source.line_texts then
-			source.line_texts = {}
-
-			for text in (source.text .. "\n"):gmatch("(.-)\r?\n") do
-				source.line_texts[#source.line_texts + 1] = text
-			end
-		end
-
-		return source.line_texts[line]
 	end
 
 	-- warp samples of a pipeline folded per glsl line, most sampled first:
@@ -1720,7 +1813,7 @@ do
 							by_key[key] = {
 								file = file,
 								line = line,
-								text = text and source_line_text(text, line) or "",
+								text = text and text.line_texts[line] or "",
 								samples = 0,
 								stalls = {},
 							}
