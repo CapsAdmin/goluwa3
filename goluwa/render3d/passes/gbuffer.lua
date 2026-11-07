@@ -428,10 +428,9 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			return c;
 		}
 
-		TerrainShellWeights terrain_shell_weights(vec2 uv) {
+		TerrainShellWeights terrain_shell_weights(vec2 uv, vec3 normal) {
 			TerrainShellWeights w;
 			w.uv = clamp(uv, 0.0, 1.0);
-			vec3 normal = get_terrain_world_normal(w.uv);
 			get_terrain_material_weights_both_uv(w.uv, normal, w.weights, w.weights2);
 			vec3 blend = get_terrain_triplanar_weights(normal);
 			blend = max(blend - 0.2, vec3(0.0));
@@ -552,7 +551,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 					return r;
 				}
 
-				s.weights = terrain_shell_weights(r.uv);
+				s.weights = terrain_shell_weights(r.uv, normal);
 				r.clearance = height - terrain_shell_relief(foot, s.weights, s.gx, s.gy);
 				return r;
 			}
