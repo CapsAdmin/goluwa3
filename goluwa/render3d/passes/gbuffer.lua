@@ -667,9 +667,10 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 				vec3 t1 = normalize(cross(n, abs(n.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
 				vec3 t2 = cross(n, t1);
 				float e = max(hi * pixel_angle, 0.005);
-				float dx = terrain_shell_relief(hit.foot + t1 * e, s.weights, s.gx, s.gy) - terrain_shell_relief(hit.foot - t1 * e, s.weights, s.gx, s.gy);
-				float dy = terrain_shell_relief(hit.foot + t2 * e, s.weights, s.gx, s.gy) - terrain_shell_relief(hit.foot - t2 * e, s.weights, s.gx, s.gy);
-				data.normal = normalize(n - (t1 * dx + t2 * dy) / (2.0 * e));
+				float center = hit.level * s.lift - hit.clearance;
+				float dx = terrain_shell_relief(hit.foot + t1 * e, s.weights, s.gx, s.gy) - center;
+				float dy = terrain_shell_relief(hit.foot + t2 * e, s.weights, s.gx, s.gy) - center;
+				data.normal = normalize(n - (t1 * dx + t2 * dy) / e);
 			}
 			return data;
 		}
