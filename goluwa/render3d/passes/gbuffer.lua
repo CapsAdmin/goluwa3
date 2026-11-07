@@ -416,8 +416,9 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 		TerrainShellWeights terrain_shell_weights(vec2 uv) {
 			TerrainShellWeights w;
 			w.uv = clamp(uv, 0.0, 1.0);
-			get_terrain_material_weights_both_uv(w.uv, w.weights, w.weights2);
-			vec3 blend = get_terrain_triplanar_weights(get_terrain_world_normal(w.uv));
+			vec3 normal = get_terrain_world_normal(w.uv);
+			get_terrain_material_weights_both_uv(w.uv, normal, w.weights, w.weights2);
+			vec3 blend = get_terrain_triplanar_weights(normal);
 			blend = max(blend - 0.2, vec3(0.0));
 			w.blend = blend / max(blend.x + blend.y + blend.z, 0.0001);
 			return w;
