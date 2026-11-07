@@ -1,6 +1,7 @@
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
+local RigidBody = import("goluwa/physics/rigid_body.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
 local draw = import("goluwa/render3d/scene/draw.lua")
@@ -470,6 +471,21 @@ function bridge.RefreshDynamic()
 		for i = 1, #list do
 			local item = list[i]
 			local transform = item.entry.transform
+
+			if
+				item.settled and
+				not transform.WorldMatrixDirty and
+				item.matrix_version == transform.WorldMatrixVersion
+			then
+				if item.settled_epoch == RigidBody.ActivityEpoch then
+					goto continue_item
+				elseif transform:IsRenderSettled() then
+					item.settled_epoch = RigidBody.ActivityEpoch
+
+					goto continue_item
+				end
+			end
+
 			local matrix = transform:GetWorldMatrix()
 			local matrix_version = transform:GetWorldMatrixVersion()
 			-- called every frame even when the row is not written: it rolls the transform's render history
@@ -482,8 +498,9 @@ function bridge.RefreshDynamic()
 			end
 
 			item.seen_version = matrix_version
+			local moved_now = item.matrix_version ~= matrix_version
 
-			if item.matrix_version ~= matrix_version then
+			if moved_now then
 				instances.SetMatrix(item.id, matrix)
 				item.matrix = matrix
 				item.matrix_version = matrix_version
@@ -499,6 +516,16 @@ function bridge.RefreshDynamic()
 			then
 				instances.SetMask(item.id, item_mask(item, frame), item.gi_flags)
 			end
+
+			item.settled = not moved_now and
+				(
+					item.gi_never or
+					item.gi_on == (
+						frame - item.moved_frame >= GI_SETTLE_FRAMES
+					)
+				)
+
+			::continue_item::
 		end
 
 		if changed then

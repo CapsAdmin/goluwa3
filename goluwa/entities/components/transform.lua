@@ -262,6 +262,32 @@ function META:ShouldUseInterpolatedPhysicsTransform()
 	return should_interpolate
 end
 
+function META:IsRenderSettled()
+	local transform = self
+
+	while transform do
+		local owner = transform.Owner
+		local body = owner.rigid_body
+
+		if
+			transform.Attachment ~= "root" or
+			transform.FrozenWorldMatrix or
+			(
+				body and
+				body.MotionType ~= "static" and
+				body.Awake
+			)
+		then
+			return false
+		end
+
+		local parent = owner:GetParent()
+		transform = parent and parent.transform
+	end
+
+	return true
+end
+
 function META:IsFrameDynamic()
 	local frame = system.GetFrameNumber()
 

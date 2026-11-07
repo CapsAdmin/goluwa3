@@ -994,6 +994,13 @@ function RigidBody:Sleep()
 		stats:Count("slept_bodies")
 		RigidBody.ActivityEpoch = RigidBody.ActivityEpoch + 1
 		self:MarkTransformDirty()
+		local transform = self.Owner.transform
+
+		if transform then
+			transform.LocalMatrixDirty = true
+			transform.WorldMatrixDirty = true
+			transform:InvalidateChildWorldMatrices()
+		end
 	end
 
 	self.Awake = false
@@ -1348,6 +1355,7 @@ local interpolation = pvars.Setup2{
 function RigidBody:ShouldInterpolateTransform()
 	return interpolation:Get() and
 		self:IsDynamic() and
+		self.Awake and
 		self.StepStartPosition and
 		self.StepStartRotation and
 		self.Position and
