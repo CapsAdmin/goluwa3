@@ -413,7 +413,7 @@ function RoomMap:OnDraw()
 			render2d.SetColor(r, g, b, 1)
 
 			if math.abs(n.y) < 0.7 then
-				local along = n:GetCross(UP):GetNormalized() * math.clamp(math.sqrt(reflector.weight) * 0.5, 0.5, self.radius * 0.4)
+				local along = n:GetCross(UP):GetNormalized() * math.clamp(math.sqrt(env:GetReflectorWeight(reflector)) * 0.5, 0.5, self.radius * 0.4)
 				local ax, ay = project(map, center - along)
 				local bx, by = project(map, center + along)
 				local nx, ny = project(map, center + n * (self.radius * 0.05))
@@ -701,7 +701,7 @@ local function draw_world()
 		local n = Vec3(reflector.normal[1], reflector.normal[2], reflector.normal[3]):GetNormalized()
 		local center = Vec3(reflector.position[1], reflector.position[2], reflector.position[3]) / reflector.count
 		local r, g, b = absorption_color(reflector.absorption[2] / reflector.count)
-		local side = math.clamp(math.sqrt(reflector.weight) * 0.5, 0.5, 8)
+		local side = math.clamp(math.sqrt(env:GetReflectorWeight(reflector)) * 0.5, 0.5, 8)
 		local dot = math.clamp(n:GetDot(UP), -1, 1)
 		local axis = UP:GetCross(n)
 		local rotation = axis:IsZero() and

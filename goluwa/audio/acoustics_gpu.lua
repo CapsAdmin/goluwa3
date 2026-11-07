@@ -810,14 +810,24 @@ function META:ReadResult(job, slot)
 		end
 	end
 
-	local samples = result.samples
+	local sample_count = math.min(job.sample_count, job.rays)
+	local hits = 0
 
-	for i = 0, math.min(job.sample_count, job.rays) - 1 do
+	for i = 0, sample_count - 1 do
+		if out[SAMPLE_BASE + i * SAMPLE_FLOATS + 6] > 0 then hits = hits + 1 end
+	end
+
+	local samples = table.new(hits * SAMPLE_FLOATS, 0)
+	result.samples = samples
+	local n = 0
+
+	for i = 0, sample_count - 1 do
 		local at = SAMPLE_BASE + i * SAMPLE_FLOATS
 
 		if out[at + 6] > 0 then
 			for k = 0, SAMPLE_FLOATS - 1 do
-				samples[#samples + 1] = out[at + k]
+				n = n + 1
+				samples[n] = out[at + k]
 			end
 		end
 	end

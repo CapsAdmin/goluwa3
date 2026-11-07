@@ -1005,7 +1005,9 @@ do
 			out[o + 5] = material and material.absorption[1] or 0
 			out[o + 6] = material and material.absorption[2] or 0
 			out[o + 7] = material and material.absorption[3] or 0
-			out[o + 8] = material and math.min(material.scattering[2] * acoustics.scattering_scale, 1) or 0
+			out[o + 8] = material and
+				math.min(material.scattering[2] * acoustics.scattering_scale, 1) or
+				0
 			out[o + 9], out[o + 10], out[o + 11], out[o + 12] = 1, 1, 1, 0
 
 			if distance and q[at + 9] ~= 0 then
@@ -1118,6 +1120,9 @@ function acoustics.New(audio, tracer)
 	self.tracer = tracer
 	self.stats = acoustics.NewStats()
 	self.reflectors = {}
+	self.reflector_scale = 1
+	self.reflector_candidates = {}
+	self.reflector_culled = 0
 	self.openings = {}
 	self.ambience = acoustics.NewAmbience()
 	self.random = math.random
@@ -1519,13 +1524,17 @@ end
 
 function META:GetTopReflectors()
 	local list = {}
+	local scale = self.reflector_scale
+	local candidates = self.reflector_candidates
 
-	for _, reflector in pairs(self.reflectors) do
+	for key, reflector in pairs(candidates) do
 		if
-			reflector.weight >= acoustics.MIN_REFLECTOR_AREA and
-			reflector.count >= acoustics.MIN_REFLECTOR_HITS
+			reflector.weight * scale >= acoustics.MIN_REFLECTOR_AREA and
+			reflector.count * scale >= acoustics.MIN_REFLECTOR_HITS
 		then
 			list[#list + 1] = reflector
+		else
+			candidates[key] = nil
 		end
 	end
 
@@ -1561,25 +1570,46 @@ function META:GetTopReflectors()
 	return list
 end
 
+function META:GetReflectorWeight(reflector)
+	return reflector.weight * self.reflector_scale
+end
+
 function META:AbsorbReflectors(job, result, decay)
-	for key, reflector in pairs(self.reflectors) do
-		reflector.weight = reflector.weight * decay
-		reflector.count = reflector.count * decay
+	local scale = self.reflector_scale * decay
 
-		for i = 1, 3 do
-			reflector.position[i] = reflector.position[i] * decay
-			reflector.normal[i] = reflector.normal[i] * decay
-			reflector.absorption[i] = reflector.absorption[i] * decay
-			reflector.scattering[i] = reflector.scattering[i] * decay
+	if scale < 1e-60 then
+		for _, reflector in pairs(self.reflectors) do
+			reflector.weight = reflector.weight * scale
+			reflector.count = reflector.count * scale
+
+			for i = 1, 3 do
+				reflector.position[i] = reflector.position[i] * scale
+				reflector.normal[i] = reflector.normal[i] * scale
+				reflector.absorption[i] = reflector.absorption[i] * scale
+				reflector.scattering[i] = reflector.scattering[i] * scale
+			end
+
+			for i = 1, 6 do
+				reflector.spread[i] = reflector.spread[i] * scale
+			end
 		end
 
-		for i = 1, 6 do
-			reflector.spread[i] = reflector.spread[i] * decay
-		end
-
-		if reflector.weight < 0.01 then self.reflectors[key] = nil end
+		scale = 1
 	end
 
+	self.reflector_scale = scale
+	self.reflector_culled = self.reflector_culled + 1
+
+	if self.reflector_culled >= 16 then
+		self.reflector_culled = 0
+		local floor = 0.01 / scale
+
+		for key, reflector in pairs(self.reflectors) do
+			if reflector.weight < floor then self.reflectors[key] = nil end
+		end
+	end
+
+	local weight = 1 / scale
 	local s = result.samples
 	local solid_angle = 4 * math.pi / job.rays
 
@@ -1611,24 +1641,35 @@ function META:AbsorbReflectors(job, result, decay)
 			self.reflectors[key] = reflector
 		end
 
-		reflector.weight = reflector.weight + solid_angle * distance * distance / math.max(s[at + 8], 0.2) * job.rays / job.sample_count
-		reflector.count = reflector.count + 1
+		reflector.weight = reflector.weight + weight * solid_angle * distance * distance / math.max(s[at + 8], 0.2) * job.rays / job.sample_count
+		reflector.count = reflector.count + weight
 		reflector.seen = job.time
 		local spread = reflector.spread
-		spread[1], spread[2], spread[3] = spread[1] + px * px, spread[2] + py * py, spread[3] + pz * pz
-		spread[4], spread[5], spread[6] = spread[4] + px * py, spread[5] + px * pz, spread[6] + py * pz
-		reflector.position[1] = reflector.position[1] + px
-		reflector.position[2] = reflector.position[2] + py
-		reflector.position[3] = reflector.position[3] + pz
-		reflector.normal[1] = reflector.normal[1] + nx
-		reflector.normal[2] = reflector.normal[2] + ny
-		reflector.normal[3] = reflector.normal[3] + nz
-		reflector.absorption[1] = reflector.absorption[1] + s[at + 9]
-		reflector.absorption[2] = reflector.absorption[2] + s[at + 10]
-		reflector.absorption[3] = reflector.absorption[3] + s[at + 11]
-		reflector.scattering[1] = reflector.scattering[1] + s[at + 12]
-		reflector.scattering[2] = reflector.scattering[2] + s[at + 13]
-		reflector.scattering[3] = reflector.scattering[3] + s[at + 14]
+		spread[1], spread[2], spread[3] = spread[1] + weight * px * px,
+		spread[2] + weight * py * py,
+		spread[3] + weight * pz * pz
+		spread[4], spread[5], spread[6] = spread[4] + weight * px * py,
+		spread[5] + weight * px * pz,
+		spread[6] + weight * py * pz
+		reflector.position[1] = reflector.position[1] + weight * px
+		reflector.position[2] = reflector.position[2] + weight * py
+		reflector.position[3] = reflector.position[3] + weight * pz
+		reflector.normal[1] = reflector.normal[1] + weight * nx
+		reflector.normal[2] = reflector.normal[2] + weight * ny
+		reflector.normal[3] = reflector.normal[3] + weight * nz
+		reflector.absorption[1] = reflector.absorption[1] + weight * s[at + 9]
+		reflector.absorption[2] = reflector.absorption[2] + weight * s[at + 10]
+		reflector.absorption[3] = reflector.absorption[3] + weight * s[at + 11]
+		reflector.scattering[1] = reflector.scattering[1] + weight * s[at + 12]
+		reflector.scattering[2] = reflector.scattering[2] + weight * s[at + 13]
+		reflector.scattering[3] = reflector.scattering[3] + weight * s[at + 14]
+
+		if
+			reflector.weight * scale >= acoustics.MIN_REFLECTOR_AREA and
+			reflector.count * scale >= acoustics.MIN_REFLECTOR_HITS
+		then
+			self.reflector_candidates[reflector.key] = reflector
+		end
 
 		::continue::
 	end
