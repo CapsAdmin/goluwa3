@@ -574,7 +574,7 @@ do
 
 					next_auto_binding = assign_auto_binding(block, next_auto_binding, uniform_buffer_types)
 					glsl_meta.hoist_inline_block_metadata(block)
-					block.block = glsl_meta.flatten_fields(block.block)
+					block.block = glsl_meta.pad_uniform_buffer_uint64(glsl_meta.flatten_fields(block.block))
 
 					if not block.block[1] then
 						error("Uniform buffer " .. block.name .. " has no fields!")

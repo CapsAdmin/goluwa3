@@ -446,6 +446,27 @@ local function align_offset(offset, alignment)
 	return math.ceil(offset / alignment) * alignment
 end
 
+-- Adreno reads a uint64_t at an offset of 8 modulo 16 in a uniform block as the one after it
+local function pad_uniform_buffer_uint64(fields)
+	local padded = {}
+	local offset = 0
+
+	for _, field in ipairs(fields) do
+		if field[2] == "uint64_t" and offset % 16 ~= 0 then
+			for _ = 1, (16 - offset % 16) / 4 do
+				table.insert(padded, {"_uint64_pad_" .. #padded, "int"})
+			end
+
+			offset = align_offset(offset, 16)
+		end
+
+		offset = align_offset(offset, get_scalar_layout_alignment(field[2])) + get_scalar_field_size(field)
+		table.insert(padded, field)
+	end
+
+	return padded
+end
+
 local function clone_constant_block(block)
 	local copy = {}
 
@@ -531,10 +552,7 @@ local function normalize_block_source(block, size, alignment, kind)
 	end
 
 	if offset < 0 then
-		error(
-			string.format("%s '%s' source offset must be >= 0", kind, tostring(block.name)),
-			3
-		)
+		error(string.format("%s '%s' source offset must be >= 0", kind, tostring(block.name)), 3)
 	end
 
 	local source_size = ffi.sizeof(source_ctype)
@@ -919,6 +937,7 @@ return {
 	normalize_block_source = normalize_block_source,
 	get_scalar_block_alignment = get_scalar_block_alignment,
 	align_offset = align_offset,
+	pad_uniform_buffer_uint64 = pad_uniform_buffer_uint64,
 	hoist_inline_block_metadata = hoist_inline_block_metadata,
 	clone_constant_block = clone_constant_block,
 	normalize_block_type_name = normalize_block_type_name,
