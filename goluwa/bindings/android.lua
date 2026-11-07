@@ -9,6 +9,7 @@ ffi.cdef[[
 	int ALooper_pollOnce(int timeoutMillis, int *outFd, int *outEvents, void **outData);
 	int32_t ANativeWindow_getWidth(void *window);
 	int32_t ANativeWindow_getHeight(void *window);
+	int32_t ANativeWindow_setBuffersGeometry(void *window, int32_t width, int32_t height, int32_t format);
 	int32_t AInputQueue_getEvent(void *queue, void **outEvent);
 	int32_t AInputQueue_preDispatchEvent(void *queue, void *event);
 	void AInputQueue_finishEvent(void *queue, void *event, int handled);

@@ -6,11 +6,38 @@ return function(META)
 	local APP_CMD = android.APP_CMD
 	local lib = android.lib
 	local app = android.app
+	local size, scale
+
+	local function get_size()
+		if size then return size end
+
+		local full_width = lib.ANativeWindow_getWidth(app.window)
+		local full_height = lib.ANativeWindow_getHeight(app.window)
+		local target = import("goluwa/render3d/quality.lua").Get().android_render_height
+		scale = 1
+
+		if target > 0 and target < full_height then
+			scale = target / full_height
+			size = Vec2(math.floor(full_width * scale / 2 + 0.5) * 2, target)
+			lib.ANativeWindow_setBuffersGeometry(app.window, size.x, size.y, 0)
+		else
+			size = Vec2(full_width, full_height)
+		end
+
+		return size
+	end
 
 	function META.GetDesktopSize()
 		if app.window == nil then return nil end
 
-		return Vec2(lib.ANativeWindow_getWidth(app.window), lib.ANativeWindow_getHeight(app.window))
+		return get_size():Copy()
+	end
+
+	local function pointer(event, index)
+		return Vec2(
+			lib.AMotionEvent_getX(event, index) * scale,
+			lib.AMotionEvent_getY(event, index) * scale
+		)
 	end
 
 	function META:Initialize()
@@ -25,7 +52,9 @@ return function(META)
 			android.Poll(100, self)
 		end
 
-		self.cached_size = Vec2(lib.ANativeWindow_getWidth(app.window), lib.ANativeWindow_getHeight(app.window))
+		self.cached_size = get_size():Copy()
+		self.native_width = lib.ANativeWindow_getWidth(app.window)
+		self.native_height = lib.ANativeWindow_getHeight(app.window)
 		self.touch = {active = false}
 		self.mouse_button_state = 0
 		event.AddListener("TextInputStart", self, android.ShowSoftKeyboard)
@@ -64,7 +93,7 @@ return function(META)
 	end
 
 	function META:OnAndroidMouse(event, action)
-		self:MoveCursor(Vec2(lib.AMotionEvent_getX(event, 0), lib.AMotionEvent_getY(event, 0)))
+		self:MoveCursor(pointer(event, 0))
 
 		if action == android.MOTION_EVENT_ACTION_SCROLL then
 			self:OnMouseScroll(
@@ -92,7 +121,7 @@ return function(META)
 
 	function META:OnAndroidTouch(event, action)
 		local touch = self.touch
-		local pos = Vec2(lib.AMotionEvent_getX(event, 0), lib.AMotionEvent_getY(event, 0))
+		local pos = pointer(event, 0)
 
 		if action == android.MOTION_EVENT_ACTION_DOWN then
 			touch.active = true
@@ -107,12 +136,12 @@ return function(META)
 
 			touch.pressed = false
 			touch.scrolling = true
-			touch.scroll_y = (pos.y + lib.AMotionEvent_getY(event, 1)) / 2
+			touch.scroll_y = (pos.y + pointer(event, 1).y) / 2
 		elseif action == android.MOTION_EVENT_ACTION_MOVE then
 			if touch.scrolling then
 				if lib.AMotionEvent_getPointerCount(event) < 2 then return end
 
-				local y = (pos.y + lib.AMotionEvent_getY(event, 1)) / 2
+				local y = (pos.y + pointer(event, 1).y) / 2
 
 				while math.abs(y - touch.scroll_y) >= SCROLL_STEP do
 					local direction = y > touch.scroll_y and 1 or -1
@@ -231,8 +260,10 @@ return function(META)
 		local width = lib.ANativeWindow_getWidth(app.window)
 		local height = lib.ANativeWindow_getHeight(app.window)
 
-		if width ~= self.cached_size.x or height ~= self.cached_size.y then
-			self.cached_size = Vec2(width, height)
+		if width ~= self.native_width or height ~= self.native_height then
+			self.native_width, self.native_height = width, height
+			size = nil
+			self.cached_size = get_size():Copy()
 			self:OnSizeChanged(self.cached_size:Copy())
 			self:OnFramebufferResized(self.cached_size:Copy())
 		end
