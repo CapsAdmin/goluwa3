@@ -2,6 +2,7 @@ local T = import("test/environment.lua")
 local ffi = require("ffi")
 local lz4 = import("goluwa/codecs/lz4.lua")
 local protobuf = import("goluwa/codecs/protobuf.lua")
+local ngfx_gputrace = import("goluwa/codecs/ngfx_gputrace.lua")
 local crypto = import("goluwa/crypto.lua")
 local uint8_ptr_t = ffi.typeof("const uint8_t *")
 
@@ -64,3 +65,109 @@ T.Test("protobuf decodes varints, strings and nested messages", function()
 	T(protobuf.Decode(ptr, nested[3], nested[4])[1][3])["=="](65535)
 	T(tostring(protobuf.Find(fields, 4)[3]))["=="]("18446744073709551615ULL")
 end)
+
+local sample = "/home/caps/Documents/NVIDIA Nsight Graphics/luajit-2.1.ROLLING_2026_11_07_10_42_46.ngfx-gputrace"
+
+if io.open(sample, "rb") then
+	T.Test("ngfx gputrace reads the report", function()
+		local trace = ngfx_gputrace.Open(sample)
+		T(trace:GetInfoValue("GPU", "Device Name"))["=="]("NVIDIA GeForce RTX 4090")
+		T(trace:GetScreenshot().png:sub(2, 4))["=="]("PNG")
+		T(trace:GetApiCallCounts().vkQueueSubmit)["=="](6)
+		T(#trace:GetProcesses() > 0)["=="](true)
+		local profile = trace:GetPipelineProfile()
+		T(profile.sample_count)["=="](1960458)
+		T(profile.profiles[1].samples > 0)["=="](true)
+		local frames = trace:GetFrameTimings()
+		T(#frames)["=="](3)
+		local traced = trace:GetTracedFrame()
+		T(traced.start_ns >= -100000 and traced.start_ns < 100000)["=="](true)
+		T(math.abs((traced.end_ns - traced.start_ns) - profile.duration_ns) < 1e6)["=="](true)
+		local timed_events = 0
+
+		for _, bucket in ipairs(traced.buckets) do
+			T(bucket.end_ns >= bucket.start_ns)["=="](true)
+			timed_events = timed_events + #bucket.events
+		end
+
+		T(timed_events)["=="](94)
+
+		if import("goluwa/codecs/ngfx_perfworks.lua").FindLibrary() then
+			local counters = trace:GetCounters()
+			T(counters.chip_name)["=="]("AD102")
+			local names = {}
+
+			for _, column in ipairs(counters.columns) do
+				names[column.name] = true
+			end
+
+			T(names.sm and names.l2 and names.vram and names.rt)["=="](true)
+			local averages = trace:GetCounterAverages(traced.start_ns, traced.end_ns)
+			T(averages.sm > 1 and averages.sm < 100)["=="](true)
+			T(counters.starts[1] > -1e6 and counters.starts[1] < 1e6)["=="](true)
+		end
+
+		T(trace:GetReport():find("pipelines by warp samples", 1, true) ~= nil)["=="](true)
+	end)
+end
+
+local named_sample = "/home/caps/Documents/NVIDIA Nsight Graphics/luajit-2.1.ROLLING_2026_11_07_12_13_15.ngfx-gputrace"
+
+if io.open(named_sample, "rb") and ngfx_gputrace.GetKeystream() then
+	T.Test("ngfx gputrace decodes shader blobs and maps samples to glsl lines", function()
+		local trace = ngfx_gputrace.Open(named_sample)
+		local kinds = {}
+
+		for i = 0, #trace:GetBlobs() - 1 do
+			local kind = trace:GetBlobKind(i)
+			kinds[kind] = (kinds[kind] or 0) + 1
+		end
+
+		T(kinds.spirv)["=="](75)
+		T(kinds.cubin)["=="](178)
+		local profile = trace:GetPipelineProfile()
+		local pipeline = profile.profiles[1].pipeline
+		local source = trace:GetSourceProfile(pipeline)
+		T(source.unmapped < source.samples * 0.05)["=="](true)
+		T(source.lines[1].file:find("^gbuffer_multi_draw") ~= nil)["=="](true)
+		T(source.lines[1].text:find("plant_bound", 1, true) ~= nil)["=="](true)
+		T(profile.unattributed.samples < profile.sample_count * 0.01)["=="](true)
+		T(trace.internal_pipeline ~= nil)["=="](true)
+
+		for _, entry in ipairs(profile.profiles) do
+			local name = entry.pipeline and entry.pipeline.name
+
+			if name == "ddgi_shade" then
+				local rt = trace:GetSourceProfile(entry.pipeline)
+				T(rt.lines[1].file)["=="]("ddgi_shade.rgen")
+				T(rt.unmapped < rt.samples * 0.05)["=="](true)
+			elseif name == "motion_blur" then
+				local top, best = nil, 0
+
+				for reason, n in pairs(entry.stalls) do
+					if n > best then top, best = reason, n end
+				end
+
+				T(ngfx_gputrace.STALL_REASONS[top])["=="]("long_scoreboard")
+			end
+		end
+	end)
+end
+
+local old_sample = "/home/caps/Documents/NVIDIA Nsight Graphics/luajit-2.1.ROLLING_2026_11_07_09_44_38.ngfx-gputrace"
+
+if io.open(old_sample, "rb") and ngfx_gputrace.GetKeystream() then
+	T.Test("ngfx gputrace decodes the blobs of Nsight 2026.3 (lz4 before the keystream)", function()
+		local trace = ngfx_gputrace.Open(old_sample)
+		T(trace.version)["=="](10)
+		local kinds = {}
+
+		for i = 0, #trace:GetBlobs() - 1 do
+			local kind = trace:GetBlobKind(i)
+			kinds[kind] = (kinds[kind] or 0) + 1
+		end
+
+		T(kinds.spirv)["=="](76)
+		T(kinds.cubin)["=="](271)
+	end)
+end

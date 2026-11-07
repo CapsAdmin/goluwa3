@@ -29,6 +29,7 @@ vfs.MountStorageDirectories()
 _G.R = vfs.GetAbsolutePath
 import("goluwa/test.lua")
 import("goluwa/cli/bench.lua")
+import("goluwa/cli/ngfx.lua")
 startup.End("core modules")
 commands.Add{
 	command = "global_flags",
@@ -386,7 +387,7 @@ crash_trace.Run(function()
 				system.ShutDown(1)
 				return
 			end
-		elseif remaining_args and remaining_args[1] == "bench" then
+		elseif remaining_args and (remaining_args[1] == "bench" or remaining_args[1] == "ngfx") then
 			commands.RunArguments({"global_flags", "--cli"})
 		else
 			commands.RunArguments({"global_flags", "--3d"})
