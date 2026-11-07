@@ -269,9 +269,13 @@ local function pass_shade()
 				while (light_bits != 0u) {
 					int i = w * 32 + findLSB(light_bits);
 					light_bits &= light_bits - 1u;
-					lights_t light = ddgi_data.lights[i];
 
-					if (get_light_type(light) == 0) continue;
+					vec4 light_position = ddgi_data.lights[i].position;
+					vec3 to_light = light_position.xyz - P;
+
+					if (light_position.w == 0.0 || dot(to_light, to_light) >= ddgi_data.lights[i].params.x * ddgi_data.lights[i].params.x || (light_position.w != 2.0 && dot(N, to_light) <= 0.0)) continue;
+
+					lights_t light = ddgi_data.lights[i];
 
 					vec3 light_to_surface;
 					float attenuation;
@@ -282,7 +286,6 @@ local function pass_shade()
 
 					if (light_NoL <= 0.0) continue;
 
-					vec3 to_light = light.position.xyz - P;
 					float light_dist = length(to_light);
 					attenuation *= get_light_falloff(light, light_dist) / max(get_light_falloff(light, max(light_dist, radius)), 0.0025);
 					vec3 light_radiance = light.color.rgb * light.color.a * attenuation * (light_NoL / 3.14159265359);
