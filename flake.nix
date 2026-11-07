@@ -104,7 +104,7 @@
             vulkan-loader
             vulkan-validation-layers
             vulkan-tools        # vulkaninfo
-            shaderc             # GLSL to SPIRV compiler - glslc
+            glslang             # GLSL to SPIRV compiler
             mesa                # lavapipe CPU-based Vulkan implementation
 
             # Wayland development
@@ -121,7 +121,7 @@
           ];
 
           # Force lavapipe by putting mesa drivers first and setting VK_ICD_FILENAMES
-          LD_LIBRARY_PATH = with pkgs; "${mesa}/lib:${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib:${wayland}/lib:${libxkbcommon}/lib:${openssl.out}/lib";
+          LD_LIBRARY_PATH = with pkgs; "${mesa}/lib:${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${glslang}/lib:${wayland}/lib:${libxkbcommon}/lib:${openssl.out}/lib";
           VULKAN_SDK = "${pkgs.vulkan-headers}";
           VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
 
@@ -173,7 +173,7 @@
             vulkan-loader
             vulkan-validation-layers
             vulkan-tools        # vulkaninfo
-            shaderc             # GLSL to SPIRV compiler - glslc
+            glslang             # GLSL to SPIRV compiler
             vulkan-tools-lunarg # vkconfig
             mesa                # lavapipe CPU-based Vulkan implementation
             
@@ -192,7 +192,7 @@
             gdb                 # GNU debugger
           ];
 
-          LD_LIBRARY_PATH = with pkgs; "${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${shaderc.lib}/lib:${wayland}/lib:${libxkbcommon}/lib:${renderdoc}/lib:${openssl.out}/lib:${mesa}/lib";
+          LD_LIBRARY_PATH = with pkgs; "${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${glslang}/lib:${wayland}/lib:${libxkbcommon}/lib:${renderdoc}/lib:${openssl.out}/lib:${mesa}/lib";
           VULKAN_SDK = "${pkgs.vulkan-headers}";
           VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
           RENDERDOC_LIB = "${pkgs.renderdoc}/lib/librenderdoc.so";

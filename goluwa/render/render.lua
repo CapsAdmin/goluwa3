@@ -78,7 +78,7 @@ function render.GetBindlessDescriptorCapacities()
 	}
 end
 
-local shaderc = import("goluwa/bindings/shaderc.lua")
+local glslang = import("goluwa/bindings/glslang.lua")
 render.available = true
 local VulkanInstance = import("goluwa/render/vulkan/vulkan_instance.lua")
 local event = import("goluwa/event.lua")
@@ -303,13 +303,13 @@ end
 function render.Initialize(config)
 	config = config or {}
 	local is_headless = config.headless
-	startup.Begin("locate shaderc")
+	startup.Begin("locate glslang")
 
-	if not shaderc.initialized then
-		import("goluwa/render/shaderc_locator.lua").Locate()
+	if not glslang.initialized then
+		import("goluwa/render/glslang_locator.lua").Locate()
 	end
 
-	startup.End("locate shaderc")
+	startup.End("locate glslang")
 	render.initializing = true
 	local pipeline_cache_path = vfs.GetStorageDirectory("cache") .. (
 			config.pipeline_cache_name or

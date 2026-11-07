@@ -2,7 +2,7 @@ local startup = import("goluwa/startup.lua")
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
 local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
-local shaderc = import("goluwa/bindings/shaderc.lua")
+local glslang = import("goluwa/bindings/glslang.lua")
 local fs = import("goluwa/filesystem/fs.lua")
 local crypto = import("goluwa/crypto.lua")
 local ShaderModule = objects.CreateTemplate("vulkan_shader_module")
@@ -37,7 +37,7 @@ local function ensure_disk_cache_dir()
 end
 
 local function get_source_key(glsl)
-	return shaderc.identity .. "\0" .. glsl
+	return glslang.identity .. (glslang.debug_info and ":debug" or "") .. "\0" .. glsl
 end
 
 local function disk_cache_path(glsl, shader_type)
@@ -76,7 +76,7 @@ local function load_disk_cache(path, glsl)
 		data:sub(CACHE_HEADER_SIZE + spirv_size + 1) ~= source_key
 	then
 		return nil,
-		"made from other glsl or by another shaderc, a hash collision or a stale file"
+		"made from other glsl or by another glslang, a hash collision or a stale file"
 	end
 
 	local copy = ffi.new("uint8_t[?]", spirv_size)
@@ -158,7 +158,10 @@ do
 		if written[path] == glsl then return end
 
 		if written[path] then
-			path = dump_dir .. base .. "_" .. crypto.CRC32(glsl) .. "." .. (extensions[type] or type)
+			path = dump_dir .. base .. "_" .. crypto.CRC32(glsl) .. "." .. (
+					extensions[type] or
+					type
+				)
 		end
 
 		written[path] = glsl
@@ -188,10 +191,10 @@ local function get_or_create_cached_module(device, glsl, type, name)
 		local reason = spirv_size
 		local start = os.clock()
 		local started = startup.Start()
-		spirv_data, spirv_size = shaderc.compile(glsl, type)
-		startup.Add("shader: shaderc compile", started)
+		spirv_data, spirv_size = glslang.compile(glsl, type)
+		startup.Add("shader: glslang compile", started)
 		logf(
-			"[shader] shaderc compiled %s %s glsl to spir-v %s (%d bytes of glsl) in %.0f ms%s\n",
+			"[shader] glslang compiled %s %s glsl to spir-v %s (%d bytes of glsl) in %.0f ms%s\n",
 			name or "unnamed",
 			type,
 			path:match("([^/]+)%.spv$"),
