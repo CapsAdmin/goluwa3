@@ -633,14 +633,14 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 					advance = max(headroom / ground_approach, r.clearance / (ground_approach + TERRAIN_SHELL_RELIEF_SLOPE * sqrt(max(1.0 - along * along, 0.0))));
 				}
 
-				t += clamp(advance * 0.8, max(min_dt, t * pixel_angle * 2.0), max(s.max_step, t * pixel_angle * 4.0));
+				t += clamp(advance * 0.8, max(min_dt, t * pixel_angle * 3.0), max(s.max_step, t * pixel_angle * 6.0));
 			}
 
 			if (hi < 0.0) {
 				discard;
 			}
 
-			for (int i = 0; i < 6 && lo < hi; i++) {
+			for (int i = 0; i < 4 && lo < hi; i++) {
 				float mid = 0.5 * (lo + hi);
 				ShellSample r = shell_sample(s, eye + dir * mid);
 
