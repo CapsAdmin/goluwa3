@@ -66,13 +66,25 @@ function get_total_ms(name)
 	if name == TOTAL_NAME then return get_everything_ms() end
 
 	local now = system.GetUnscaledElapsedTime()
-	local total
+	local newest
 
 	for _, pool in pairs(pools) do
 		local time = pool.gpu_timing_times[name]
 
 		if time and now - time <= STALE_SECONDS then
-			total = (total or 0) + pool.gpu_timing_ms[name]
+			newest = math.max(newest or 0, pool.gpu_timing_frames[name])
+		end
+	end
+
+	if not newest then return nil end
+
+	local total = 0
+
+	for _, pool in pairs(pools) do
+		local time = pool.gpu_timing_times[name]
+
+		if time and now - time <= STALE_SECONDS and pool.gpu_timing_frames[name] == newest then
+			total = total + pool.gpu_timing_ms[name]
 		end
 	end
 
@@ -139,6 +151,7 @@ local function get_pool(cmd)
 	pool = QueryPool.New(render.GetDevice(), "timestamp", MAX_SCOPES * 2)
 	pool.gpu_timing_ms = {}
 	pool.gpu_timing_times = {}
+	pool.gpu_timing_frames = {}
 	pool.gpu_timing_used = {}
 	pool.gpu_timing_skipped = {}
 	pools[cmd] = pool
@@ -184,6 +197,7 @@ local function read_back_pool(pool)
 			local ms = tonumber(end_value - begin_value) * period / 1e6
 			pool.gpu_timing_ms[name] = ms
 			pool.gpu_timing_times[name] = now
+			pool.gpu_timing_frames[name] = pool.gpu_timing_recorded_frame
 			last_ms[name] = ms
 		end
 	end
@@ -198,6 +212,7 @@ function gpu_timing.BeginCommandBuffer(cmd)
 
 	pool:Reset(cmd, 0, MAX_SCOPES * 2)
 	pool.gpu_timing_recorded = true
+	pool.gpu_timing_recorded_frame = system.GetFrameNumber()
 	pool.gpu_timing_used = {}
 	pool.gpu_timing_skipped = {}
 end
