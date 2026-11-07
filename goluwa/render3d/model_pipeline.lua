@@ -1919,6 +1919,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				float fade = fade_distance > 0.0 ? smoothstep(fade_distance * 0.5, fade_distance, distance_to_camera) : 0.0;
 				vec4 albedo = vec4(0.0);
 				vec3 n = vec3(0.0);
+				anti_tiling *= 1.0 - smoothstep(100.0, 200.0, distance_to_camera);
 
 				for (int i = 0; i < 3; i++) {
 					float w = (i == 0 ? (1.0 - far_a) * (1.0 - far_b) : (i == 1 ? far_a * (1.0 - far_b) : far_b)) * (1.0 - fade);
@@ -1986,7 +1987,8 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 				get_terrain_material_weights_both_uv(uv, N, weights, weights2);
 				s.weights = weights;
 				s.weights2 = weights2;
-				vec3 blend = get_terrain_triplanar_weights(N);
+				vec3 blend = max(get_terrain_triplanar_weights(N) - 0.05, vec3(0.0));
+				blend /= max(blend.x + blend.y + blend.z, 0.0001);
 				vec4 scales = terrain_model.TerrainLayerScales;
 				vec4 detail = terrain_model.TerrainLayerDetailStrength;
 				vec4 additive_detail = terrain_model.TerrainLayerAdditiveDetail;
