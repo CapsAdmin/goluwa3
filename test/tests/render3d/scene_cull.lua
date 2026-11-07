@@ -6,6 +6,8 @@ local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Visual = import("goluwa/entities/components/visual.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
+local shader_features = import("goluwa/render3d/shader_features.lua")
+local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -363,4 +365,57 @@ T.Test3D("Graphics render3d the visibility estimate sees a row in front of anoth
 	occluder:Remove()
 	behind:Remove()
 	aside:Remove()
+end)
+
+T.Test3D("Graphics render3d a row with a surface overlay draws through the overlay variant and goes back without it", function(draw)
+	configure_camera()
+	local entity = spawn(Vec3(0, 0, -4), 1)
+	local plain = scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, 0)
+	local overlay = scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, shader_features.OVERLAYS)
+	draw_frames(draw)
+	T(scene_draw.GetDrawnVariants(0)[plain])["=="](true)
+	T(scene_draw.GetDrawnVariants(0)[overlay])["=="](false)
+	surface_overlays.Add(entity.visual, "void_rift", {FadeIn = 0.01, Duration = 0})
+
+	T.WaitUntilReal(
+		function()
+			draw()
+			return scene_draw.GetDrawnVariants(0)[overlay]
+		end,
+		60,
+		"the overlay variant"
+	)
+
+	T(scene_draw.GetDrawnVariants(0)[plain])["=="](false)
+	surface_overlays.Clear(entity.visual)
+	draw_frames(draw)
+	T(scene_draw.GetDrawnVariants(0)[plain])["=="](true)
+	T(scene_draw.GetDrawnVariants(0)[overlay])["=="](false)
+	entity:Remove()
+end)
+
+T.Slow(T.Test3D, "Graphics render3d every shader feature compiles on its own in the multi draw variants", function(draw)
+	local pipelines = {}
+
+	for _, feature in ipairs(shader_features.list) do
+		for _, shape in ipairs{scene_draw.SHAPE_PLAIN, scene_draw.SHAPE_RELIEF, scene_draw.SHAPE_NEARER} do
+			pipelines[#pipelines + 1] = render3d.GetPipelineVariant("gbuffer_multi_draw", scene_draw.GetVariant(shape, feature.bit))
+		end
+
+		for _, name in ipairs{"translucent_moments_surface_multi_draw", "translucent_surface_multi_draw"} do
+			pipelines[#pipelines + 1] = render3d.GetPipelineVariant(name, scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, feature.bit))
+		end
+	end
+
+	T.WaitUntilReal(
+		function()
+			for _, pipeline in ipairs(pipelines) do
+				if not render3d.IsPipelineReady(pipeline) then return false end
+			end
+
+			return true
+		end,
+		600,
+		"the variant pipelines"
+	)
 end)

@@ -14,11 +14,20 @@ local meshes = import("goluwa/render3d/scene/meshes.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
+local shader_features = import("goluwa/render3d/shader_features.lua")
 local render3d
+local surface_conditions
 local draw = {}
 local LOCAL_SIZE = 64
 local COMMAND_SIZE = 20
-local GROUPS = 10
+draw.SHAPE_PLAIN = 0
+draw.SHAPE_RELIEF = 1
+draw.SHAPE_NEARER = 2
+local SHAPES = 3
+local VARIANTS = SHAPES * shader_features.COUNT
+local GROUPS = VARIANTS * 2
+local ARGS_REMAP = 14
+draw.VARIANTS = VARIANTS
 local DEAD_MESH = {
 	IsValid = function()
 		return false
@@ -34,6 +43,45 @@ local translucent_ids = {}
 local translucent_count = 0
 local height_shell_ids = {}
 local overlay_ids = {}
+local variant_rows = {[0] = {}, [1] = {}}
+local variant_kinds = {}
+
+for variant = 0, VARIANTS - 1 do
+	variant_rows[0][variant] = 0
+	variant_rows[1][variant] = 0
+end
+
+function draw.GetVariant(shape, bits)
+	return shape + SHAPES * bits
+end
+
+function draw.GetVariantShape(variant)
+	return variant % SHAPES
+end
+
+function draw.GetVariantBits(variant)
+	return math.floor(variant / SHAPES)
+end
+
+function draw.SetVariantKind(kind, names, features, shaped)
+	variant_kinds[kind] = {
+		names = names,
+		features = features,
+		shaped = shaped,
+		full = (shaped and draw.SHAPE_NEARER or draw.SHAPE_PLAIN) + SHAPES * features,
+	}
+end
+
+local function count_row(row, delta)
+	if row.drawn then
+		variant_rows[0][row.variant] = variant_rows[0][row.variant] + delta
+	end
+
+	if row.translucent then
+		variant_rows[1][row.variant] = variant_rows[1][row.variant] + delta
+	end
+end
+
 draw.serial = 0
 local CHANGE_LOG_SIZE = 65536
 local changes = {log = {}, size = CHANGE_LOG_SIZE}
@@ -148,22 +196,24 @@ local function release_group(group)
 	note_group_change(group.id)
 end
 
-function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
+function draw.SetRow(id, mesh, material, polygon3d, drawn, translucent, mesh_row)
 	slot_rows = slot_rows or
 		store.CreateTable{name = "draw_slot_rows", ctype = "uint32_t", capacity = 4096}
 	slot_groups = slot_groups or
 		store.CreateTable{name = "draw_slot_groups", ctype = "uint32_t", capacity = 4096}
 	local slot = slot_of[id]
-	local set = material:GetRasterBothFaces() and 1 or 0
+	local bits = 0
 
-	if overlay_ids[id] then
-		set = set + 4
-	else
-		if material:MarchesRelief() then set = set + 2 end
-
-		if material:GetTerrainMaterialTexture() then set = set + 6 end
+	if material:GetTerrainMaterialTexture() then
+		bits = bits + shader_features.TERRAIN
 	end
 
+	if overlay_ids[id] then bits = bits + shader_features.OVERLAYS end
+
+	local variant = draw.GetVariant(material:MarchesRelief() and draw.SHAPE_RELIEF or draw.SHAPE_PLAIN, bits)
+	local set = (material:GetRasterBothFaces() and 1 or 0) + 2 * variant
+	drawn = drawn or nil
+	translucent = translucent or nil
 	height_shell_ids[id] = polygon3d and polygon3d.shell_grid and true or nil
 
 	if (translucent_ids[id] or false) ~= (translucent or false) then
@@ -175,8 +225,17 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 		local row = rows[slot + 1]
 
 		if row.mesh == mesh and row.material == material and row.set == set then
+			if row.drawn ~= drawn or row.translucent ~= translucent then
+				count_row(row, -1)
+				row.drawn = drawn
+				row.translucent = translucent
+				count_row(row, 1)
+			end
+
 			return
 		end
+
+		count_row(row, -1)
 
 		if row.group then release_group(row.group) end
 	else
@@ -189,16 +248,21 @@ function draw.SetRow(id, mesh, material, polygon3d, translucent, mesh_row)
 
 	local group = acquire_group(mesh, material, polygon3d, mesh_row, set)
 	slot_groups:Get()[slot] = group.id - 1
-	rows[slot + 1] = setmetatable(
+	local row = setmetatable(
 		{
 			mesh = mesh,
 			material = material,
 			first_polygon3d = polygon3d,
 			set = set,
+			variant = variant,
+			drawn = drawn,
+			translucent = translucent,
 			group = group,
 		},
 		ROW_META
 	)
+	rows[slot + 1] = row
+	count_row(row, 1)
 	draw.serial = draw.serial + 1
 	changes.log[draw.serial % CHANGE_LOG_SIZE] = slot + 1
 end
@@ -219,7 +283,8 @@ function draw.SetOverlay(id, slot)
 		row.mesh,
 		row.material,
 		row.first_polygon3d,
-		translucent_ids[id],
+		row.drawn,
+		row.translucent,
 		row.group.mesh_row
 	)
 end
@@ -237,9 +302,10 @@ function draw.ClearRow(id)
 		translucent_count = translucent_count - 1
 	end
 
-	local group = rows[slot + 1].group
+	local row = rows[slot + 1]
+	count_row(row, -1)
 
-	if group then release_group(group) end
+	if row.group then release_group(row.group) end
 
 	rows[slot + 1] = DEAD_ROW
 	slot_rows:Get()[slot] = 0xFFFFFFFF
@@ -334,6 +400,7 @@ local DRAW_DECLARATIONS = [[
 				uint64_t group_table;
 				uint64_t group_counts;
 				uint64_t batch_ids;
+				uint remap[]] .. VARIANTS .. [[];
 			};
 
 			layout(buffer_reference, scalar) readonly buffer ArgsRef { draw_args a; };
@@ -593,15 +660,11 @@ local function get_finalize_pipeline()
 			{"args", "uint64_t"},
 			{"count", "int"},
 			{"capacity", "int"},
-			{"kind", "int"},
-			{"force_depth", "int"},
 		},
 		write = function(self, block)
 			block.args = state.args_address
 			block.count = state.group_count
 			block.capacity = state.group_capacity
-			block.kind = state.kind
-			block.force_depth = surface_weather.snow_map and surface_weather.snow_depth > 0 and 1 or 0
 			return block
 		end,
 		custom_declarations = DRAW_DECLARATIONS,
@@ -618,7 +681,7 @@ local function get_finalize_pipeline()
 				if (instance_count == 0u) return;
 
 				mesh_row mesh = MeshArray(ARGS.meshes).m[group.mesh_row];
-				uint set = compute.kind == 0 ? (compute.force_depth != 0 ? 4u + (group.set & 1u) : group.set) : (group.set & 1u) + (group.set >= 4u ? 2u : 0u);
+				uint set = ARGS.remap[group.set >> 1u] * 2u + (group.set & 1u);
 				uint packed_index = atomicAdd(CountArray(ARGS.counts).n[set], 1u);
 				CommandArray(ARGS.commands).c[uint(compute.capacity) * set + packed_index] = draw_command(mesh.triangle_count * 3u, instance_count, mesh.pool_first_index, 0, group.base);
 			}
@@ -723,7 +786,75 @@ local function ensure_buffers(kind, instance_capacity, group_count)
 	return buffers
 end
 
-local frame_state = {frame = -1, counts = {[0] = 0, 0}, group_counts = {[0] = 0, 0}}
+local frame_state = {
+	frame = -1,
+	counts = {[0] = 0, 0},
+	group_counts = {[0] = 0, 0},
+	drawn = {[0] = {}, {}},
+	global_bits = {[0] = 0, 0},
+}
+
+local function is_variant_ready(kind, variant)
+	if variant == kind.full then return true end
+
+	local ready = true
+
+	for _, name in ipairs(kind.names) do
+		if not render3d.IsPipelineReady(render3d.GetPipelineVariant(name, variant)) then
+			ready = false
+		end
+	end
+
+	return ready
+end
+
+local function resolve_variants(kind_index, remap)
+	local kind = variant_kinds[kind_index]
+	local counts = variant_rows[kind_index]
+	local drawn = frame_state.drawn[kind_index]
+	local available = render3d.HasPipelineVariants(kind.names[1])
+	local nearer = kind.shaped and surface_weather.snow_map and surface_weather.snow_depth > 0
+	local global_bits = kind_index == 0 and
+		surface_conditions.IsFieldActive() and
+		shader_features.CONDITIONS or
+		0
+	frame_state.global_bits[kind_index] = global_bits
+
+	for variant = 0, VARIANTS - 1 do
+		local target = kind.full
+
+		if counts[variant] > 0 then
+			if available then
+				local shape = kind.shaped and
+					(
+						nearer and
+						draw.SHAPE_NEARER or
+						draw.GetVariantShape(variant)
+					)
+					or
+					draw.SHAPE_PLAIN
+				local wanted = draw.GetVariant(
+					shape,
+					bit.band(bit.bor(draw.GetVariantBits(variant), global_bits), kind.features)
+				)
+
+				if is_variant_ready(kind, wanted) then target = wanted end
+			end
+
+			drawn[target] = true
+		end
+
+		remap[variant] = target
+	end
+end
+
+function draw.GetDrawnVariants(kind)
+	return frame_state.drawn[kind]
+end
+
+function draw.GetGlobalBits(kind)
+	return frame_state.global_bits[kind]
+end
 
 function draw.Cull(
 	cmd,
@@ -742,9 +873,16 @@ function draw.Cull(
 	frame_state.group_counts[0] = 0
 	frame_state.group_counts[1] = 0
 
+	for variant = 0, VARIANTS - 1 do
+		frame_state.drawn[0][variant] = false
+		frame_state.drawn[1][variant] = false
+	end
+
 	if count == 0 then return end
 
 	store.FlushStaged(cmd)
+	render3d = render3d or import("goluwa/render3d/render3d.lua")
+	surface_conditions = surface_conditions or import("goluwa/render3d/surface_conditions.lua")
 	local pipeline = get_cull_pipeline()
 	local finalize = get_finalize_pipeline()
 	local group_count = #groups
@@ -782,13 +920,14 @@ function draw.Cull(
 
 		if not args then
 			args = render.CreateBuffer{
-				byte_size = 128,
+				byte_size = ARGS_REMAP * 8 + VARIANTS * 4,
 				buffer_usage = {"storage_buffer", "shader_device_address"},
 				memory_property = {"host_visible", "host_coherent"},
 				label = "scene_draw.args",
 			}
 			ring[ring_slot] = args
 			args.pointer = ffi.cast("uint64_t *", args:Map())
+			args.remap = ffi.cast("uint32_t *", args.pointer + ARGS_REMAP)
 			args.address = tonumber(args:GetDeviceAddress())
 		end
 
@@ -806,6 +945,7 @@ function draw.Cull(
 		args.pointer[11] = group_table:GetAddress()
 		args.pointer[12] = buffers.group_counts_address
 		args.pointer[13] = buffers.batch_ids_address
+		resolve_variants(kind, args.remap)
 		state.kind = kind
 		state.args_address = args.address
 		state.camera = camera_position
@@ -872,103 +1012,78 @@ function draw.IsCulled()
 	return frame_state.frame == system.GetFrameNumber()
 end
 
-function draw.Draw(gbuffer_instancing, pipelines, first, last)
+local function draw_variants(gbuffer_instancing, kind, name, displaced)
+	local buffers = buffer_sets[kind]
+	local cmd = render.GetCommandBuffer()
+	local group_size = buffers.group_capacity * COMMAND_SIZE
+	local count = frame_state.group_counts[kind]
+	local drawn = frame_state.drawn[kind]
+
+	for variant = 0, VARIANTS - 1 do
+		if
+			drawn[variant] and
+			(
+				displaced == nil or
+				(
+					draw.GetVariantShape(variant) ~= draw.SHAPE_PLAIN or
+					bit.band(draw.GetVariantBits(variant), shader_features.TERRAIN) ~= 0
+				) == displaced
+			)
+		then
+			local pipeline = render3d.GetPipelineVariant(name, variant)
+			local batch_table = batch_tables[pipeline]
+
+			if not batch_table then
+				batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_groups", group_changes)
+				batch_tables[pipeline] = batch_table
+			end
+
+			pipeline.draw_batches_address = batch_table:Update(pipeline, groups, draw.group_serial, system.GetFrameNumber())
+			pipeline.draw_instances_address = buffers.worlds_address
+			pipeline.draw_prev_instances_address = buffers.prev_worlds_address
+			pipeline.draw_thicknesses_address = buffers.thicknesses_address
+			pipeline.draw_batch_ids_address = buffers.batch_ids_address
+			pipeline:UploadConstants()
+			cmd:SetCullMode(orientation.CULL_MODE)
+			cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
+			cmd:DrawIndexedIndirectCount(
+				buffers.commands,
+				variant * 2 * group_size,
+				buffers.counts,
+				variant * 2 * 4,
+				count,
+				COMMAND_SIZE
+			)
+			cmd:SetCullMode("none")
+			cmd:DrawIndexedIndirectCount(
+				buffers.commands,
+				(variant * 2 + 1) * group_size,
+				buffers.counts,
+				(variant * 2 + 1) * 4,
+				count,
+				COMMAND_SIZE
+			)
+		end
+	end
+end
+
+function draw.Draw(gbuffer_instancing, name, displaced)
 	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[0] == 0 then
 		return false
 	end
 
-	local buffers = buffer_sets[0]
-	local cmd = render.GetCommandBuffer()
-	local stride = COMMAND_SIZE
-	local group_size = buffers.group_capacity * stride
-	local count = frame_state.group_counts[0]
 	gpu_culling.MarkMainViewDrawn()
-
-	for i = first, last do
-		local pipeline = pipelines[i]
-		local batch_table = batch_tables[pipeline]
-
-		if not batch_table then
-			batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_groups", group_changes)
-			batch_tables[pipeline] = batch_table
-		end
-
-		pipeline.draw_batches_address = batch_table:Update(pipeline, groups, draw.group_serial, system.GetFrameNumber())
-		pipeline.draw_instances_address = buffers.worlds_address
-		pipeline.draw_prev_instances_address = buffers.prev_worlds_address
-		pipeline.draw_batch_ids_address = buffers.batch_ids_address
-		pipeline:UploadConstants()
-		cmd:SetCullMode(orientation.CULL_MODE)
-		cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-		cmd:DrawIndexedIndirectCount(
-			buffers.commands,
-			(i - 1) * 2 * group_size,
-			buffers.counts,
-			(i - 1) * 2 * 4,
-			count,
-			stride
-		)
-		cmd:SetCullMode("none")
-		cmd:DrawIndexedIndirectCount(
-			buffers.commands,
-			((i - 1) * 2 + 1) * group_size,
-			buffers.counts,
-			((i - 1) * 2 + 1) * 4,
-			count,
-			stride
-		)
-	end
-
+	draw_variants(gbuffer_instancing, 0, name, displaced)
 	return true
 end
 
-function draw.DrawTranslucent(gbuffer_instancing, pipelines)
+function draw.DrawTranslucent(gbuffer_instancing, name)
 	if frame_state.frame ~= system.GetFrameNumber() or frame_state.counts[1] == 0 then
 		return false
 	end
 
-	local buffers = buffer_sets[1]
-	local cmd = render.GetCommandBuffer()
-	local group_size = buffers.group_capacity * COMMAND_SIZE
-	local count = frame_state.group_counts[1]
-	render3d = render3d or import("goluwa/render3d/render3d.lua")
 	gpu_timing.SetInfo(render3d.translucent_scope, "store_slots", frame_state.counts[1])
-
-	for i, pipeline in ipairs(pipelines) do
-		local batch_table = batch_tables[pipeline]
-
-		if not batch_table then
-			batch_table = gbuffer_instancing.NewBatchTable(pipeline.name .. "_scene_groups", group_changes)
-			batch_tables[pipeline] = batch_table
-		end
-
-		pipeline.draw_batches_address = batch_table:Update(pipeline, groups, draw.group_serial, system.GetFrameNumber())
-		pipeline.draw_instances_address = buffers.worlds_address
-		pipeline.draw_prev_instances_address = buffers.prev_worlds_address
-		pipeline.draw_thicknesses_address = buffers.thicknesses_address
-		pipeline.draw_batch_ids_address = buffers.batch_ids_address
-		pipeline:UploadConstants()
-		cmd:SetCullMode(orientation.CULL_MODE)
-		cmd:BindIndexBuffer(index_pool.GetBuffer(), 0, "uint32")
-		cmd:DrawIndexedIndirectCount(
-			buffers.commands,
-			(i - 1) * 2 * group_size,
-			buffers.counts,
-			(i - 1) * 2 * 4,
-			count,
-			COMMAND_SIZE
-		)
-		cmd:SetCullMode("none")
-		cmd:DrawIndexedIndirectCount(
-			buffers.commands,
-			((i - 1) * 2 + 1) * group_size,
-			buffers.counts,
-			((i - 1) * 2 + 1) * 4,
-			count,
-			COMMAND_SIZE
-		)
-	end
-
+	draw_variants(gbuffer_instancing, 1, name, nil)
 	return true
 end
 

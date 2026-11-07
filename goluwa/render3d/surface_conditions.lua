@@ -976,8 +976,12 @@ do
 		{"effect_max", "vec3"},
 	}
 
+	function surface_conditions.IsFieldActive()
+		return brick_count > 0 and hash_table ~= nil and noise_texture ~= nil
+	end
+
 	function surface_conditions.WriteBlock(self, block)
-		if brick_count == 0 or not hash_table or not noise_texture then
+		if not surface_conditions.IsFieldActive() then
 			block.effect_hash_mask = -1
 			return block
 		end

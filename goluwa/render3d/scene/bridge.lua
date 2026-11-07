@@ -271,7 +271,7 @@ local function set_raster(visual, item, entry, material, mesh, mesh_row, matrix)
 
 	if flags ~= 0 then
 		meshes.EnsureRaster(mesh_row)
-		draw.SetRow(item.id, mesh, material, entry.polygon3d, translucent, mesh_row)
+		draw.SetRow(item.id, mesh, material, entry.polygon3d, drawn, translucent, mesh_row)
 	else
 		draw.ClearRow(item.id)
 	end

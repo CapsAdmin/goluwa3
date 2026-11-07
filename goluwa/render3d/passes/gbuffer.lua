@@ -13,6 +13,7 @@ local surface_overlays = import("goluwa/render3d/surface_overlays.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local scene_draw = import("goluwa/render3d/scene/draw.lua")
+local shader_features = import("goluwa/render3d/shader_features.lua")
 local camera_block = geometry_block.New("gbuffer_data", {
 	{"normal_source", "int"},
 	{"eye_near_height_shell", "int"},
@@ -21,6 +22,14 @@ local camera_block = geometry_block.New("gbuffer_data", {
 	block.eye_near_height_shell = scene_draw.IsEyeNearHeightShell(render3d.GetCamera():GetPosition()) and 1 or 0
 end)
 
+local function get_extra_pipeline(extra)
+	local pipeline = render3d.GetPipelineVariant(extra.name, scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, scene_draw.GetGlobalBits(0)))
+
+	if render3d.IsPipelineReady(pipeline) then return pipeline end
+
+	return render3d.GetPipelineVariant(extra.name, scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, 0))
+end
+
 local function build_base_pass(fragment_shader, enable_vertex_animation)
 	local uniform_buffers = model_pipeline.GetPBRUniformBuffers()
 	table.insert(uniform_buffers, 1, camera_block)
@@ -28,7 +37,7 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 		name = "gbuffer",
 		on_pre_draw = function(self, cmd)
 			for _, extra in ipairs(gbuffer_extras) do
-				if render3d.pipelines[extra.name] then extra.PreDraw(cmd) end
+				if render3d.HasPipelineVariants(extra.name) then extra.PreDraw(cmd) end
 			end
 		end,
 		on_draw = function(self, cmd)
@@ -44,9 +53,9 @@ local function build_base_pass(fragment_shader, enable_vertex_animation)
 			event.Call("Draw3DGeometry", dt)
 
 			for _, extra in ipairs(gbuffer_extras) do
-				local pipeline = render3d.pipelines[extra.name]
-
-				if pipeline then extra.Draw(pipeline, cmd) end
+				if render3d.HasPipelineVariants(extra.name) then
+					extra.Draw(get_extra_pipeline(extra), cmd)
+				end
 			end
 
 			-- displaced surfaces (terrain) are the most expensive per pixel and write their own depth, so they go last, where meshes and scatter drawn before them reject most of their fragments early
@@ -188,7 +197,7 @@ local multi_draw_block = {
 	end,
 }
 
-local function build_multi_draw_pass(fragment_shader, terrain_layers, overlays)
+local function build_multi_draw_pass(fragment_shader, bits)
 	local pass = build_base_pass(fragment_shader, true)
 	pass.name = "gbuffer_multi_draw"
 	pass.draw_in_prerender = false
@@ -219,10 +228,8 @@ local function build_multi_draw_pass(fragment_shader, terrain_layers, overlays)
 		prev_detail_time_expr = "gbuffer_draw.prev_detail_time",
 	}
 	pass.fragment.uniform_buffers = {camera_block, multi_draw_block}
-	pass.fragment.custom_declarations = string.format(
-			"#define TERRAIN_LAYERS %d\n#define SURFACE_OVERLAYS %d\nlayout(location = %d) flat in uint in_batch;\nlayout(location = %d) flat in uint in_instance;\nlayout(location = %d) flat in uint in_triangle;\n",
-			terrain_layers and 1 or 0,
-			overlays and 1 or 0,
+	pass.fragment.custom_declarations = shader_features.GetDefines(bits) .. string.format(
+			"layout(location = %d) flat in uint in_batch;\nlayout(location = %d) flat in uint in_instance;\nlayout(location = %d) flat in uint in_triangle;\n",
 			pass.vertex.batch_location,
 			pass.vertex.batch_location + 1,
 			pass.vertex.batch_location + 2
@@ -938,23 +945,47 @@ for _, write_depth in ipairs({false, true}) do
 	fallback_anim.dont_create_framebuffers = true
 	local instanced = build_instanced_pass(fragment_shader)
 	instanced.name = "gbuffer_instanced" .. suffix
-	local multi_draw = build_multi_draw_pass(build_ssdm_fragment_shader(write_depth, true), false, false)
-	multi_draw.name = "gbuffer_multi_draw" .. suffix
-	local terrain = build_multi_draw_pass(build_ssdm_fragment_shader(write_depth, true), true, false)
-	terrain.name = "gbuffer_multi_draw_terrain" .. suffix
 	list.insert(passes, fallback)
-
-	if write_depth then
-		-- snow lying on everything moves hits nearer than the triangle, so this one cannot promise depth_less; rows with surface overlays draw through it too
-		local snow = build_multi_draw_pass(build_ssdm_fragment_shader(true, true, true), true, true)
-		snow.name = "gbuffer_multi_draw_snow"
-		list.insert(passes, snow)
-	end
-
 	list.insert(passes, fallback_anim)
 	list.insert(passes, instanced)
-	list.insert(passes, multi_draw)
-	list.insert(passes, terrain)
+end
+
+do
+	local SHAPE_NAMES = {
+		[scene_draw.SHAPE_PLAIN] = "plain",
+		[scene_draw.SHAPE_RELIEF] = "relief",
+		[scene_draw.SHAPE_NEARER] = "nearer",
+	}
+	local TERRAIN = shader_features.TERRAIN
+	render3d.RegisterPipelineVariants(
+		"gbuffer_multi_draw",
+		{
+			prewarm = {
+				scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, 0),
+				scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, 0),
+				scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, TERRAIN),
+				scene_draw.GetVariant(scene_draw.SHAPE_RELIEF, TERRAIN),
+				scene_draw.GetVariant(scene_draw.SHAPE_NEARER, shader_features.ALL),
+			},
+			label = function(variant)
+				local features = shader_features.GetName(scene_draw.GetVariantBits(variant))
+				return SHAPE_NAMES[scene_draw.GetVariantShape(variant)] .. (
+						features ~= "" and
+						"," .. features or
+						""
+					)
+			end,
+			build = function(variant)
+				local shape = scene_draw.GetVariantShape(variant)
+				-- snow lying on everything moves hits nearer than the triangle, so the nearer shape cannot promise depth_less
+				return build_multi_draw_pass(
+					build_ssdm_fragment_shader(shape ~= scene_draw.SHAPE_PLAIN, true, shape == scene_draw.SHAPE_NEARER),
+					scene_draw.GetVariantBits(variant)
+				)
+			end,
+		}
+	)
+	scene_draw.SetVariantKind(0, {"gbuffer_multi_draw"}, shader_features.ALL, true)
 end
 
 for _, extra in ipairs(gbuffer_extras) do

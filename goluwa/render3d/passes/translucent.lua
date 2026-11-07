@@ -22,6 +22,8 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
 local translucent_extras = import("goluwa/render3d/translucent_extras.lua")
 local Texture = import("goluwa/render/texture.lua")
+local shader_features = import("goluwa/render3d/shader_features.lua")
+local scene_draw = import("goluwa/render3d/scene/draw.lua")
 local BINDING_CAMERA = 3
 local BINDING_LIGHT_GRID = 20
 local BINDING_OCCLUSION_MAP = 21
@@ -179,7 +181,8 @@ table.insert(
 		upload_scope = "frame",
 	}
 )
-render3d.translucent_multi_draw_pipelines = {}
+local SURFACE_VARIANTS = "translucent_surface_multi_draw"
+local MOMENTS_VARIANTS = "translucent_moments_surface_multi_draw"
 
 local function bind_surface(surface, cmd)
 	if not surface then return end
@@ -221,8 +224,15 @@ local passes = {
 		ClearColors = {{0, 0, 0, 0}, {0, 0, 0, 0}},
 		on_pre_draw = function(self, cmd)
 			bind_surface(render3d.pipelines.translucent_surface, cmd)
-			bind_surface(render3d.pipelines.translucent_surface_multi_draw, cmd)
-			bind_surface(render3d.pipelines.translucent_surface_multi_draw_full, cmd)
+
+			if render3d.HasPipelineVariants(SURFACE_VARIANTS) then
+				for variant, drawn in pairs(scene_draw.GetDrawnVariants(1)) do
+					if drawn then
+						bind_surface(render3d.GetPipelineVariant(SURFACE_VARIANTS, variant), cmd)
+					end
+				end
+			end
+
 			render3d.refraction_source_requested = false
 			render3d.translucent_depth_near = math.huge
 			render3d.translucent_depth_far = 0
@@ -235,8 +245,7 @@ local passes = {
 
 			render3d.translucent_pipeline = render3d.pipelines.translucent_moments_surface
 			render3d.translucent_scope = "translucent_moments"
-			render3d.translucent_multi_draw_pipelines[1] = render3d.pipelines.translucent_moments_surface_multi_draw
-			render3d.translucent_multi_draw_pipelines[2] = render3d.pipelines.translucent_moments_surface_multi_draw_full
+			render3d.translucent_variants = MOMENTS_VARIANTS
 			event.Call("Draw3DTranslucent")
 			translucent_extras.Draw("moments", cmd)
 		end,
@@ -311,8 +320,7 @@ local passes = {
 
 			render3d.translucent_pipeline = render3d.pipelines.translucent_surface
 			render3d.translucent_scope = "translucent_accumulate"
-			render3d.translucent_multi_draw_pipelines[1] = render3d.pipelines.translucent_surface_multi_draw
-			render3d.translucent_multi_draw_pipelines[2] = render3d.pipelines.translucent_surface_multi_draw_full
+			render3d.translucent_variants = SURFACE_VARIANTS
 			event.Call("Draw3DTranslucent")
 			translucent_extras.Draw("accumulate", cmd)
 		end,
@@ -1079,14 +1087,14 @@ local multi_draw_block = {
 	end,
 }
 
-local function build_multi_draw_pass(source, uniform_buffers, with_thickness, full)
+local function build_multi_draw_pass(source, uniform_buffers, with_thickness, bits)
 	local pass = {}
 
 	for k, v in pairs(source) do
 		pass[k] = v
 	end
 
-	pass.name = source.name .. "_multi_draw" .. (full and "_full" or "")
+	pass.name = source.name .. "_multi_draw"
 	pass.vertex = model_pipeline.CreateMultiDrawVertexStage{
 		normal = true,
 		tangent = true,
@@ -1127,12 +1135,7 @@ local function build_multi_draw_pass(source, uniform_buffers, with_thickness, fu
 	fragment.custom_declarations = (
 			source.fragment.custom_declarations or
 			""
-		) .. string.format(
-			"#define TERRAIN_LAYERS %d\n#define SURFACE_OVERLAYS %d\nlayout(location = %d) flat in uint in_batch;\n",
-			full and 1 or 0,
-			full and 1 or 0,
-			pass.vertex.batch_location
-		) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(translucent_draw.batches).b[in_batch]")
+		) .. shader_features.GetDefines(bits) .. string.format("layout(location = %d) flat in uint in_batch;\n", pass.vertex.batch_location) .. model_pipeline.BuildPBRBatchRecordGlsl("PBRBatchData(translucent_draw.batches).b[in_batch]")
 
 	if with_thickness then
 		fragment.custom_declarations = fragment.custom_declarations .. [[
@@ -1169,41 +1172,53 @@ local function build_multi_draw_pass(source, uniform_buffers, with_thickness, fu
 end
 
 do
-	local list = {}
+	local FEATURES = shader_features.TERRAIN + shader_features.OVERLAYS
+	local sources = {}
 
-	for i, pass in ipairs(passes) do
-		for _, full in ipairs{false, true} do
-			if pass.name == "translucent_moments_surface" then
-				table.insert(
-					list,
-					build_multi_draw_pass(
-						pass,
-						{camera_block, moments_uniform_buffers[#moments_uniform_buffers]},
-						false,
-						full
-					)
-				)
-			elseif pass.name == "translucent_surface" then
-				table.insert(
-					list,
-					build_multi_draw_pass(
-						pass,
-						{
-							camera_block,
-							surface_uniform_buffers[#surface_uniform_buffers - 1],
-							surface_uniform_buffers[#surface_uniform_buffers],
-						},
-						true,
-						full
-					)
-				)
-			end
-		end
+	for _, pass in ipairs(passes) do
+		sources[pass.name] = pass
 	end
 
-	for _, pass in ipairs(list) do
-		table.insert(passes, pass)
+	local function register(name, build)
+		render3d.RegisterPipelineVariants(
+			name,
+			{
+				prewarm = {
+					scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, 0),
+					scene_draw.GetVariant(scene_draw.SHAPE_PLAIN, FEATURES),
+				},
+				label = function(variant)
+					local features = shader_features.GetName(scene_draw.GetVariantBits(variant))
+					return features ~= "" and features or "lean"
+				end,
+				build = build,
+			}
+		)
 	end
+
+	register(MOMENTS_VARIANTS, function(variant)
+		return build_multi_draw_pass(
+			sources.translucent_moments_surface,
+			{camera_block, moments_uniform_buffers[#moments_uniform_buffers]},
+			false,
+			scene_draw.GetVariantBits(variant)
+		)
+	end)
+
+	register(SURFACE_VARIANTS, function(variant)
+		return build_multi_draw_pass(
+			sources.translucent_surface,
+			{
+				camera_block,
+				surface_uniform_buffers[#surface_uniform_buffers - 1],
+				surface_uniform_buffers[#surface_uniform_buffers],
+			},
+			true,
+			scene_draw.GetVariantBits(variant)
+		)
+	end)
+
+	scene_draw.SetVariantKind(1, {MOMENTS_VARIANTS, SURFACE_VARIANTS}, FEATURES, false)
 end
 
 for _, extra in ipairs(translucent_extras.list) do

@@ -169,6 +169,10 @@ do
 				end
 			end
 
+			for name in pairs(bundle.variants) do
+				names[#names + 1] = name
+			end
+
 			if names[1] then
 				rebuild.active = rebuild.active + 1
 				local ok, err = pcall(render3d.RebuildPipelinesAsync, bundle, names, on_rebuild_done)

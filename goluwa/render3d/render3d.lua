@@ -454,6 +454,19 @@ function render3d.IsTemporalAntiAliasingEnabled()
 		render3d.IsAntiAliasingEnabled("ssaa")
 end
 
+local variant_builders = {}
+
+local function create_pipeline_variant(bundle, name, variant)
+	local builder = variant_builders[name]
+	local config = builder.build(variant)
+	config.name = name .. "[" .. builder.label(variant) .. "]"
+	local pipeline = decorate_pipeline_instance(EasyPipeline.New(config), config)
+	bundle.variants[name][variant] = pipeline
+	bundle.pipelines_i[#bundle.pipelines_i + 1] = pipeline
+	bundle.pipelines[config.name] = pipeline
+	return pipeline
+end
+
 local function fill_pipeline_bundle(bundle)
 	local options = bundle.options
 	local framebuffer_size = options.framebuffer_size
@@ -461,6 +474,7 @@ local function fill_pipeline_bundle(bundle)
 	local include_names = options.include_names
 	local exclude_names = options.exclude_names or {}
 	local pass_name_of_module = {}
+	bundle.variants = {}
 
 	for _, entry in ipairs(default_passes) do
 		local module = import(entry[2])
@@ -548,6 +562,63 @@ local function fill_pipeline_bundle(bundle)
 			bundle.pipelines[name] = pipeline
 		end
 	end
+
+	for name, builder in pairs(variant_builders) do
+		if
+			not exclude_names[name] and
+			(
+				not include_names or
+				include_names[name]
+			)
+			and
+			(
+				not filter or
+				filter(name, builder) ~= false
+			)
+		then
+			bundle.variants[name] = {}
+
+			for _, variant in ipairs(builder.prewarm) do
+				create_pipeline_variant(bundle, name, variant)
+			end
+		end
+	end
+end
+
+local function adopt_pipeline_variants(bundle, fresh)
+	for name, fresh_variants in pairs(fresh.variants) do
+		for variant, old in pairs(bundle.variants[name] or {}) do
+			if not fresh_variants[variant] then
+				list.remove_value(bundle.pipelines_i, old)
+				bundle.pipelines[old.name] = nil
+				old:Remove()
+			end
+		end
+
+		bundle.variants[name] = fresh_variants
+	end
+end
+
+function render3d.RegisterPipelineVariants(name, builder)
+	variant_builders[name] = builder
+end
+
+function render3d.HasPipelineVariants(name)
+	return bundle_of_pipelines[render3d.pipelines].variants[name] ~= nil
+end
+
+function render3d.GetPipelineVariants(name)
+	return bundle_of_pipelines[render3d.pipelines].variants[name]
+end
+
+function render3d.GetPipelineVariant(name, variant)
+	local bundle = bundle_of_pipelines[render3d.pipelines]
+	return bundle.variants[name][variant] or create_pipeline_variant(bundle, name, variant)
+end
+
+function render3d.IsPipelineReady(pipeline)
+	local job = pipeline.pipeline.pipeline.job
+	return not job or job:IsDone()
 end
 
 function render3d.CreatePipelineBundle(options)
@@ -593,6 +664,7 @@ function render3d.RebuildPipelineBundle(bundle)
 		bundle.pipelines_i[i] = pipeline
 	end
 
+	bundle.variants = fresh.variants
 	collectgarbage()
 end
 
@@ -628,11 +700,6 @@ end
 do
 	local pending = {}
 
-	local function is_ready(pipeline)
-		local job = pipeline.pipeline.pipeline.job
-		return not job or job:IsDone()
-	end
-
 	function render3d.RebuildPipelinesAsync(bundle, names, on_done)
 		local include_names = {}
 
@@ -667,7 +734,7 @@ do
 			local ready = true
 
 			for _, pipeline in pairs(entry.fresh.pipelines) do
-				if not is_ready(pipeline) then
+				if not render3d.IsPipelineReady(pipeline) then
 					ready = false
 
 					break
@@ -696,6 +763,8 @@ do
 
 						bundle.pipelines[name] = pipeline
 					end
+
+					adopt_pipeline_variants(bundle, fresh)
 				else
 					remove_pipeline_bundle(fresh)
 				end

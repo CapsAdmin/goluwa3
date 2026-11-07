@@ -2542,19 +2542,13 @@ end
 
 function Visual:OnFirstCreated()
 	local main_visible_components = {}
-	local store_pipelines = {}
 	local store_drawn = false
 
 	event.AddListener("Draw3DGeometry", "visual_geometry_draw", function()
-		store_pipelines[1] = render3d.pipelines.gbuffer_multi_draw
-		store_pipelines[2] = render3d.pipelines.gbuffer_multi_draw_height_map
-		store_pipelines[3] = render3d.pipelines.gbuffer_multi_draw_snow
-		store_pipelines[4] = render3d.pipelines.gbuffer_multi_draw_terrain
-		store_pipelines[5] = render3d.pipelines.gbuffer_multi_draw_terrain_height_map
 		local camera_position = render3d.GetCamera():GetPosition()
 		store_drawn = not visual.noculling and
-			store_pipelines[5] ~= nil and
-			scene_draw.Draw(gbuffer_instancing, store_pipelines, 1, 1)
+			render3d.HasPipelineVariants("gbuffer_multi_draw") and
+			scene_draw.Draw(gbuffer_instancing, "gbuffer_multi_draw", false)
 
 		if store_drawn then
 			for component in pairs(scene_bridge.GetCPUDrawnVisuals()) do
@@ -2579,7 +2573,7 @@ function Visual:OnFirstCreated()
 
 	event.AddListener("Draw3DDisplacedGeometry", "visual_geometry_draw", function()
 		if store_drawn then
-			scene_draw.Draw(gbuffer_instancing, store_pipelines, 2, 5)
+			scene_draw.Draw(gbuffer_instancing, "gbuffer_multi_draw", true)
 		end
 	end)
 
@@ -2797,8 +2791,8 @@ function Visual:OnFirstCreated()
 		end)
 
 		event.AddListener("Draw3DTranslucent", "visual_translucent_draw", function()
-			if render3d.translucent_multi_draw_pipelines[2] then
-				scene_draw.DrawTranslucent(gbuffer_instancing, render3d.translucent_multi_draw_pipelines)
+			if render3d.HasPipelineVariants(render3d.translucent_variants) then
+				scene_draw.DrawTranslucent(gbuffer_instancing, render3d.translucent_variants)
 			end
 
 			gpu_timing.SetInfo(render3d.translucent_scope, "cpu_draws", draw_count)
