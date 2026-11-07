@@ -4,6 +4,8 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local RENDER_NOOP = _G.RENDER_NOOP or false
 local Queue = objects.CreateTemplate("vulkan_queue")
 local VkQueueBox = ffi.typeof("$[1]", vulkan.vk.VkQueue)
+local VkSemaphoreArray = ffi.typeof("$[?]", vulkan.vk.VkSemaphore)
+local UInt32Array = ffi.typeof("uint32_t[?]")
 
 function Queue.New(device, graphicsQueueFamily)
 	local ptr = VkQueueBox()
@@ -79,6 +81,48 @@ function Queue:Submit(commandBuffer, imageAvailableSemaphore, renderFinishedSema
 		"failed to submit queue"
 	)
 	self:TrackSubmission(commandBuffer, inFlightFence, {imageAvailableSemaphore, renderFinishedSemaphore})
+end
+
+function Queue:SubmitWith(commandBuffer, waits, signals, fence)
+	if RENDER_NOOP then
+		local submission = self:TrackSubmission(commandBuffer, fence, {})
+
+		if fence then self:RetireFence(fence) end
+
+		return submission
+	end
+
+	local wait_semaphores = VkSemaphoreArray(math.max(#waits, 1))
+	local wait_stages = UInt32Array(math.max(#waits, 1))
+	local signal_semaphores = VkSemaphoreArray(math.max(#signals, 1))
+
+	for i, wait in ipairs(waits) do
+		wait_semaphores[i - 1] = wait.semaphore.ptr[0]
+		wait_stages[i - 1] = vulkan.vk.e.VkPipelineStageFlagBits(wait.stage)
+	end
+
+	for i, semaphore in ipairs(signals) do
+		signal_semaphores[i - 1] = semaphore.ptr[0]
+	end
+
+	vulkan.assert(
+		vulkan.lib.vkQueueSubmit(
+			self.ptr[0],
+			1,
+			vulkan.vk.s.SubmitInfo{
+				waitSemaphoreCount = #waits,
+				pWaitSemaphores = wait_semaphores,
+				pWaitDstStageMask = wait_stages,
+				commandBufferCount = 1,
+				pCommandBuffers = commandBuffer.ptr,
+				signalSemaphoreCount = #signals,
+				pSignalSemaphores = signal_semaphores,
+			},
+			fence and fence.ptr[0] or nil
+		),
+		"failed to submit queue"
+	)
+	return self:TrackSubmission(commandBuffer, fence, {waits, signals})
 end
 
 function Queue:SubmitNoWait(commandBuffer, fence)

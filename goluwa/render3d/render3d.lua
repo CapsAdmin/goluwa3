@@ -32,6 +32,8 @@ local function decorate_pipeline_instance(pipeline, config)
 	pipeline.draw_in_prerender = config.draw_in_prerender ~= false
 	pipeline.is_enabled = config.is_enabled
 	pipeline.present_texture = config.present_texture
+	pipeline.queue = config.queue
+	pipeline.compute_input = config.compute_input
 	return pipeline
 end
 
@@ -841,6 +843,63 @@ function render3d.Initialize(config)
 	local startup_pass_names = table.weak("k")
 	local Visual = import("goluwa/entities/components/visual.lua").Library
 
+	local function is_pass_drawn(pipeline, water_needed, ocean_enabled)
+		local is_wave_pass = pipeline.name:starts_with("ocean_waves")
+		local is_water_pass = is_wave_pass or pipeline.name == "water" or pipeline.name == "water_resolve"
+		return pipeline.name ~= "blit" and
+			pipeline.draw_in_prerender and
+			(
+				not pipeline.is_enabled or
+				pipeline.is_enabled()
+			)
+			and
+			not (
+				is_water_pass and
+				not water_needed
+			)
+			and
+			not (
+				is_wave_pass and
+				not ocean_enabled
+			)
+	end
+
+	local function draw_pass(pipeline)
+		if
+			(
+				pipeline.name:starts_with("ocean_waves") or
+				pipeline.name == "water" or
+				pipeline.name == "water_resolve"
+			)
+			and
+			not pipeline.framebuffers
+		then
+			pipeline:RecreateFramebuffers()
+
+			if not pipeline.config.FramebufferSize then
+				pipeline:AddGlobalEvent("WindowFramebufferResized")
+			end
+		end
+
+		local pass_started = startup.Start()
+		pipeline:Draw()
+
+		if not startup.ready_time then
+			local pass_name = startup_pass_names[pipeline]
+
+			if not pass_name then
+				pass_name = "render pass: " .. pipeline.name
+				startup_pass_names[pipeline] = pass_name
+			end
+
+			startup.Add(pass_name, pass_started)
+		end
+
+		if pipeline.name == "gbuffer" then
+			gpu_culling.PrepareMainViewHiZ(render.GetCommandBuffer())
+		end
+	end
+
 	event.AddListener(
 		"PreFrame",
 		"render3d_scene",
@@ -888,56 +947,52 @@ function render3d.Initialize(config)
 
 		local ocean_enabled = render3d.IsOceanEnabled()
 		local water_needed = render3d.IsWaterEnabled()
+		local last_compute
 
-		for _, pipeline in ipairs(render3d.pipelines_i) do
-			local is_wave_pass = pipeline.name:starts_with("ocean_waves")
-			local is_water_pass = is_wave_pass or pipeline.name == "water" or pipeline.name == "water_resolve"
-
-			if
-				pipeline.name ~= "blit" and
-				pipeline.draw_in_prerender and
-				(
-					not pipeline.is_enabled or
-					pipeline.is_enabled()
-				)
-				and
-				not (
-					is_water_pass and
-					not water_needed
-				)
-				and
-				not (
-					is_wave_pass and
-					not ocean_enabled
-				)
-			then
-				if is_water_pass and not pipeline.framebuffers then
-					pipeline:RecreateFramebuffers()
-
-					if not pipeline.config.FramebufferSize then
-						pipeline:AddGlobalEvent("WindowFramebufferResized")
-					end
-				end
-
-				local pass_started = startup.Start()
-				pipeline:Draw()
-
-				if not startup.ready_time then
-					local pass_name = startup_pass_names[pipeline]
-
-					if not pass_name then
-						pass_name = "render pass: " .. pipeline.name
-						startup_pass_names[pipeline] = pass_name
-					end
-
-					startup.Add(pass_name, pass_started)
-				end
-
-				if pipeline.name == "gbuffer" then
-					gpu_culling.PrepareMainViewHiZ(render.GetCommandBuffer())
+		if render.HasComputeQueue() then
+			for i, pipeline in ipairs(render3d.pipelines_i) do
+				if
+					pipeline.queue == "compute" and
+					is_pass_drawn(pipeline, water_needed, ocean_enabled)
+				then
+					last_compute = i
 				end
 			end
 		end
+
+		if last_compute then
+			for _, pipeline in ipairs(render3d.pipelines_i) do
+				if pipeline.compute_input and is_pass_drawn(pipeline, water_needed, ocean_enabled) then
+					draw_pass(pipeline)
+				end
+			end
+
+			render.BeginCompute()
+		end
+
+		for i, pipeline in ipairs(render3d.pipelines_i) do
+			if
+				not (
+					last_compute and
+					pipeline.compute_input
+				) and
+				is_pass_drawn(pipeline, water_needed, ocean_enabled)
+			then
+				if last_compute and i > last_compute and render.IsComputing() then
+					render.JoinCompute()
+				end
+
+				if last_compute and pipeline.queue == "compute" then
+					render.PushCommandBuffer(render.BeginCompute())
+					draw_pass(pipeline)
+					render.PopCommandBuffer()
+				else
+					draw_pass(pipeline)
+				end
+			end
+		end
+
+		if last_compute then render.JoinCompute() end
 	end)
 
 	event.AddListener("Draw", "render3d", function(dt)

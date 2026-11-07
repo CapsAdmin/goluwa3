@@ -124,6 +124,20 @@ function PhysicalDevice:FindGraphicsQueueFamily(surface)
 	return graphicsQueueFamily
 end
 
+function PhysicalDevice:FindComputeQueueFamily()
+	for i, queueFamily in ipairs(self:GetQueueFamilyProperties()) do
+		local queueFlags = queueFamily.queueFlags
+
+		if
+			bit.band(queueFlags, vulkan.vk.VkQueueFlagBits.VK_QUEUE_COMPUTE_BIT) ~= 0 and
+			bit.band(queueFlags, vulkan.vk.VkQueueFlagBits.VK_QUEUE_GRAPHICS_BIT) == 0 and
+			queueFamily.timestampValidBits > 0
+		then
+			return i - 1
+		end
+	end
+end
+
 function PhysicalDevice:GetSurfaceFormats(surface)
 	local formatCount = ffi.new("uint32_t[1]", 0)
 	local result_code = vulkan.lib.vkGetPhysicalDeviceSurfaceFormatsKHR(self.ptr[0], surface.ptr[0], formatCount, nil)

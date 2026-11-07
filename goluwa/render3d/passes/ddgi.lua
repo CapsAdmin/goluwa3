@@ -1382,14 +1382,20 @@ end
 
 if not ddgi.RTSupported() then return {} end
 
-return {
+local passes = {
 	pass_trace(),
 	pass_shade(),
 	pass_update("ddgi_irradiance", ddgi.IRRADIANCE_TEXELS, IRRADIANCE_INTEGRATE),
 	pass_update("ddgi_distance", ddgi.DISTANCE_TEXELS, DISTANCE_INTEGRATE),
 	pass_probe_data(),
 	pass_guide(),
-	pass_resolve(),
-	pass_probe_debug(),
-	pass_scene_debug(),
 }
+
+for _, pass in ipairs(passes) do
+	pass.queue = "compute"
+end
+
+list.insert(passes, pass_resolve())
+list.insert(passes, pass_probe_debug())
+list.insert(passes, pass_scene_debug())
+return passes

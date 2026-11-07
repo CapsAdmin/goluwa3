@@ -1140,6 +1140,22 @@ function render.GetCommandPool()
 	return vulkan_instance.command_pool
 end
 
+function render.HasComputeQueue()
+	return vulkan_instance.compute_queue ~= nil
+end
+
+function render.BeginCompute()
+	return render.target:BeginCompute()
+end
+
+function render.IsComputing()
+	return render.target:IsComputing()
+end
+
+function render.JoinCompute()
+	render.target:JoinCompute()
+end
+
 function render.GetCurrentFrame()
 	return render.target:GetCurrentFrame()
 end

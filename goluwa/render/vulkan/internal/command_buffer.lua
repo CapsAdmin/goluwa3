@@ -297,6 +297,7 @@ function CommandBuffer.New(command_pool)
 	return CommandBuffer:CreateObject{
 		ptr = ptr,
 		command_pool = command_pool,
+		compute_only = command_pool.compute_only,
 		is_recording = false,
 		recording_serial = 0,
 	}
@@ -1414,10 +1415,60 @@ local buffer_barrier_capacity = 8
 local dependency_info = vulkan.vk.VkDependencyInfo()
 dependency_info.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_DEPENDENCY_INFO
 local memory_read_write = vulkan.vk.e.VkAccessFlagBits({"memory_read", "memory_write"})
+-- barriers written for the graphics queue name graphics stages and accesses; on a compute only queue they become all
+-- commands and memory access, the semaphores between the queues order the graphics side
+local COMPUTE_QUEUE_STAGES = vulkan.vk.e.VkPipelineStageFlagBits{
+	"top_of_pipe",
+	"bottom_of_pipe",
+	"draw_indirect",
+	"compute_shader",
+	"transfer",
+	"host",
+	"all_commands",
+	"acceleration_structure_build_khr",
+	"ray_tracing_shader_khr",
+}
+local COMPUTE_QUEUE_ACCESS = vulkan.vk.e.VkAccessFlagBits{
+	"indirect_command_read",
+	"uniform_read",
+	"shader_read",
+	"shader_write",
+	"transfer_read",
+	"transfer_write",
+	"host_read",
+	"host_write",
+	"memory_read",
+	"memory_write",
+	"acceleration_structure_read_khr",
+	"acceleration_structure_write_khr",
+}
+local ALL_COMMANDS = vulkan.vk.e.VkPipelineStageFlagBits("all_commands")
+
+local function queue_stage(self, mask)
+	if self.compute_only and bit.band(mask, bit.bnot(COMPUTE_QUEUE_STAGES)) ~= 0 then
+		return ALL_COMMANDS
+	end
+
+	return mask
+end
+
+local function queue_access(self, mask)
+	if self.compute_only and bit.band(mask, bit.bnot(COMPUTE_QUEUE_ACCESS)) ~= 0 then
+		return bit.bor(bit.band(mask, COMPUTE_QUEUE_ACCESS), memory_read_write)
+	end
+
+	return mask
+end
 
 function CommandBuffer:PipelineBarrier(config)
-	local srcStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.srcStage or "compute"))
-	local dstStage = vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.dstStage or "fragment"))
+	local srcStage = queue_stage(
+		self,
+		vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.srcStage or "compute"))
+	)
+	local dstStage = queue_stage(
+		self,
+		vulkan.vk.e.VkPipelineStageFlagBits(translate_stage(config.dstStage or "fragment"))
+	)
 	local imageBarriers = nil
 	local imageBarrierCount = 0
 	local bufferBarriers = nil
@@ -1476,8 +1527,8 @@ function CommandBuffer:PipelineBarrier(config)
 			imb.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2
 			imb.srcStageMask = srcStage
 			imb.dstStageMask = dstStage
-			imb.srcAccessMask = vulkan.vk.e.VkAccessFlagBits(barrier.srcAccessMask or "none")
-			imb.dstAccessMask = vulkan.vk.e.VkAccessFlagBits(barrier.dstAccessMask or "none")
+			imb.srcAccessMask = queue_access(self, vulkan.vk.e.VkAccessFlagBits(barrier.srcAccessMask or "none"))
+			imb.dstAccessMask = queue_access(self, vulkan.vk.e.VkAccessFlagBits(barrier.dstAccessMask or "none"))
 			imb.oldLayout = vulkan.vk.e.VkImageLayout(old_layout)
 			imb.newLayout = vulkan.vk.e.VkImageLayout(new_layout)
 			imb.srcQueueFamilyIndex = 0xFFFFFFFF
@@ -1516,8 +1567,11 @@ function CommandBuffer:PipelineBarrier(config)
 			bmb.sType = vulkan.vk.VkStructureType.VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2
 			bmb.srcStageMask = srcStage
 			bmb.dstStageMask = dstStage
-			bmb.srcAccessMask = vulkan.vk.e.VkAccessFlagBits(barrier.srcAccessMask or "host_write")
-			bmb.dstAccessMask = vulkan.vk.e.VkAccessFlagBits(barrier.dstAccessMask or "vertex_attribute_read")
+			bmb.srcAccessMask = queue_access(self, vulkan.vk.e.VkAccessFlagBits(barrier.srcAccessMask or "host_write"))
+			bmb.dstAccessMask = queue_access(
+				self,
+				vulkan.vk.e.VkAccessFlagBits(barrier.dstAccessMask or "vertex_attribute_read")
+			)
 			bmb.srcQueueFamilyIndex = 0xFFFFFFFF
 			bmb.dstQueueFamilyIndex = 0xFFFFFFFF
 			bmb.buffer = barrier.buffer.ptr[0]

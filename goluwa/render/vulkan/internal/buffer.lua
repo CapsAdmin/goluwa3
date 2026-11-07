@@ -79,9 +79,9 @@ function Buffer.New(config)
 				flags = 0,
 				size = size,
 				usage = usage,
-				sharingMode = "exclusive",
-				queueFamilyIndexCount = 0,
-				pQueueFamilyIndices = nil,
+				sharingMode = device.queue_family_count > 1 and "concurrent" or "exclusive",
+				queueFamilyIndexCount = device.queue_family_count > 1 and device.queue_family_count or 0,
+				pQueueFamilyIndices = device.queue_family_count > 1 and device.queue_family_indices or nil,
 			},
 			nil,
 			ptr

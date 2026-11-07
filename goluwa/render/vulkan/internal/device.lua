@@ -54,11 +54,12 @@ local RAY_REORDER_EXTENSIONS = {
 	ext = "VK_EXT_ray_tracing_invocation_reorder",
 	nv = "VK_NV_ray_tracing_invocation_reorder",
 }
-local VkDeviceQueueCreateInfoBox = ffi.typeof("$[1]", vulkan.vk.VkDeviceQueueCreateInfo)
+local VkDeviceQueueCreateInfoArray = ffi.typeof("$[?]", vulkan.vk.VkDeviceQueueCreateInfo)
+local UInt32Array = ffi.typeof("uint32_t[?]")
 local VkPhysicalDeviceShaderDemoteToHelperInvocationFeaturesBox = ffi.typeof("$[1]", vulkan.vk.VkPhysicalDeviceShaderDemoteToHelperInvocationFeatures)
 local VkDeviceBox = ffi.typeof("$[1]", vulkan.vk.VkDevice)
 
-function Device.New(physical_device, extensions, graphicsQueueFamily)
+function Device.New(physical_device, extensions, graphicsQueueFamily, computeQueueFamily)
 	local available_extensions = physical_device:GetAvailableDeviceExtensions()
 	local finalExtensions = {}
 
@@ -408,14 +409,17 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 	end
 
 	local queuePriority = ffi.new("float[1]", 1.0)
-	local queueCreateInfo = VkDeviceQueueCreateInfoBox(
-		vulkan.vk.s.DeviceQueueCreateInfo{
-			queueFamilyIndex = graphicsQueueFamily,
+	local queueFamilies = {graphicsQueueFamily, computeQueueFamily}
+	local queueCreateInfo = VkDeviceQueueCreateInfoArray(#queueFamilies)
+
+	for i, family in ipairs(queueFamilies) do
+		queueCreateInfo[i - 1] = vulkan.vk.s.DeviceQueueCreateInfo{
+			queueFamilyIndex = family,
 			queueCount = 1,
 			pQueuePriorities = queuePriority,
 			flags = 0,
 		}
-	)
+	end
 
 	if
 		table.has_value(available_extensions, "VK_KHR_shader_demote_to_helper_invocation")
@@ -510,7 +514,7 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 
 	local deviceCreateInfo = vulkan.vk.s.DeviceCreateInfo{
 		pNext = pNextChain,
-		queueCreateInfoCount = 1,
+		queueCreateInfoCount = #queueFamilies,
 		pQueueCreateInfos = queueCreateInfo,
 		enabledExtensionCount = #finalExtensions,
 		ppEnabledExtensionNames = deviceExtensions,
@@ -550,6 +554,8 @@ function Device.New(physical_device, extensions, graphicsQueueFamily)
 		ray_reorder = ray_reorder,
 		capture_pipeline_statistics = capture_pipeline_statistics,
 		pipeline_statistics_gpu = pipeline_statistics_gpu,
+		queue_family_count = #queueFamilies,
+		queue_family_indices = UInt32Array(#queueFamilies, queueFamilies),
 	}
 	device.vkSetDebugUtilsObjectNameEXT = device:TryGetExtension("vkSetDebugUtilsObjectNameEXT")
 	device.vkSetDebugUtilsObjectTagEXT = device:TryGetExtension("vkSetDebugUtilsObjectTagEXT")

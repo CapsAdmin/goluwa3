@@ -79,14 +79,20 @@ function get_total_ms(name)
 	if not newest then return nil end
 
 	local total = 0
+	local first = math.huge
+	local last = -math.huge
 
 	for _, pool in pairs(pools) do
 		local time = pool.gpu_timing_times[name]
 
 		if time and now - time <= STALE_SECONDS and pool.gpu_timing_frames[name] == newest then
 			total = total + pool.gpu_timing_ms[name]
+			first = math.min(first, pool.gpu_timing_begin[name])
+			last = math.max(last, pool.gpu_timing_end[name])
 		end
 	end
+
+	if name == "gpu_frame" then return last - first end
 
 	return total
 end
@@ -152,6 +158,8 @@ local function get_pool(cmd)
 	pool.gpu_timing_ms = {}
 	pool.gpu_timing_times = {}
 	pool.gpu_timing_frames = {}
+	pool.gpu_timing_begin = {}
+	pool.gpu_timing_end = {}
 	pool.gpu_timing_used = {}
 	pool.gpu_timing_skipped = {}
 	pools[cmd] = pool
@@ -198,6 +206,8 @@ local function read_back_pool(pool)
 			pool.gpu_timing_ms[name] = ms
 			pool.gpu_timing_times[name] = now
 			pool.gpu_timing_frames[name] = pool.gpu_timing_recorded_frame
+			pool.gpu_timing_begin[name] = tonumber(begin_value) * period / 1e6
+			pool.gpu_timing_end[name] = tonumber(end_value) * period / 1e6
 			last_ms[name] = ms
 		end
 	end
@@ -374,7 +384,7 @@ do
 		capture.frames = capture.frames + 1
 
 		for _, name in ipairs(slot_order) do
-			capture.sums[name] = (capture.sums[name] or 0) + (last_ms[name] or 0)
+			capture.sums[name] = (capture.sums[name] or 0) + (get_total_ms(name) or 0)
 		end
 	end)
 

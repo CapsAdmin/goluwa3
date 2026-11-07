@@ -57,9 +57,12 @@ function Image.New(config)
 				samples = config.samples or "1",
 				tiling = config.tiling or "optimal",
 				usage = config.usage,
-				sharingMode = config.sharing_mode or "exclusive",
+				sharingMode = config.device.queue_family_count > 1 and "concurrent" or "exclusive",
 				initialLayout = config.initial_layout or "undefined",
-				queueFamilyIndexCount = 0,
+				queueFamilyIndexCount = config.device.queue_family_count > 1 and config.device.queue_family_count or 0,
+				pQueueFamilyIndices = config.device.queue_family_count > 1 and
+					config.device.queue_family_indices or
+					nil,
 			},
 			nil,
 			ptr

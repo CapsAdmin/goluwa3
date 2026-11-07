@@ -84,6 +84,7 @@ end
 local noise_pass = {
 	name = "clouds_noise",
 	ComputePass = true,
+	compute_input = true,
 	ColorFormat = dummy_color_format(),
 	FramebufferSize = {x = 1, y = 1},
 	framebuffer_count = 1,
@@ -187,6 +188,7 @@ local noise_pass = {
 local shadow_pass = {
 	name = "clouds_shadow",
 	ComputePass = true,
+	compute_input = true,
 	ColorFormat = dummy_color_format(),
 	FramebufferSize = {x = 1, y = 1},
 	framebuffer_count = 1,

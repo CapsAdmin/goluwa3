@@ -94,6 +94,7 @@ end
 light_grid.pass = {
 	name = "light_grid",
 	ComputePass = true,
+	compute_input = true,
 	ColorFormat = {{"r8_unorm", {"light_grid_dummy", "r"}}},
 	FramebufferSize = {x = 1, y = 1},
 	framebuffer_count = 1,

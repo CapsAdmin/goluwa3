@@ -164,10 +164,26 @@ function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
 		end
 	end
 
-	self.device = Device.New(self.physical_device, device_extensions, self.graphics_queue_family)
+	if os.getenv("GOLUWA_ASYNC_COMPUTE") ~= "0" then
+		self.compute_queue_family = self.physical_device:FindComputeQueueFamily()
+	end
+
+	self.device = Device.New(
+		self.physical_device,
+		device_extensions,
+		self.graphics_queue_family,
+		self.compute_queue_family
+	)
 	self.device.pipeline_cache = PipelineCache.New(self.device, pipeline_cache_data)
 	self.command_pool = CommandPool.New(self.device, self.graphics_queue_family)
 	self.queue = self.device:GetQueue(self.graphics_queue_family)
+
+	if self.compute_queue_family then
+		self.compute_command_pool = CommandPool.New(self.device, self.compute_queue_family)
+		self.compute_command_pool.compute_only = true
+		self.compute_queue = self.device:GetQueue(self.compute_queue_family)
+	end
+
 	return self
 end
 
@@ -248,6 +264,8 @@ function VulkanInstance:OnRemove()
 	if self.device and self.device:IsValid() then self.device:WaitIdle() end
 
 	if self.command_pool then self.command_pool:Remove() end
+
+	if self.compute_command_pool then self.compute_command_pool:Remove() end
 
 	if self.device then self.device.pipeline_cache:Remove() end
 

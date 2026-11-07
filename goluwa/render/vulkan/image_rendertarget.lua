@@ -528,6 +528,131 @@ local function build_render_config(self, load_op)
 	return render_config
 end
 
+local function get_frame_part(self, frame_index)
+	self.frame_parts = self.frame_parts or {}
+	local part = self.frame_parts[frame_index]
+
+	if not part then
+		local device = self.vulkan_instance.device
+		part = {
+			command_buffers = {},
+			graphics_done = Semaphore.New(device),
+			compute_done = Semaphore.New(device),
+		}
+		self.frame_parts[frame_index] = part
+	end
+
+	return part
+end
+
+local function take_keepalive(part, cmd)
+	for _, resource in ipairs(cmd.keepalive_resources or {}) do
+		part.keepalive[#part.keepalive + 1] = resource
+	end
+
+	cmd.keepalive_resources = nil
+end
+
+local function take_waits(part)
+	local waits = part.waits
+	part.waits = {}
+	return waits
+end
+
+function ImageRenderTarget:SplitFrame(signal)
+	local part = self.frame_part
+	local cmd = self.frame_cmd
+	gpu_timing.EndScope(cmd, "gpu_frame")
+	cmd:End()
+	take_keepalive(part, cmd)
+	self.vulkan_instance.queue:SubmitWith(cmd, take_waits(part), signal and {signal} or {}, nil)
+	part.used = part.used + 1
+	local next_cmd = part.command_buffers[part.used]
+
+	if not next_cmd then
+		next_cmd = self.vulkan_instance.command_pool:AllocateCommandBuffer()
+		part.command_buffers[part.used] = next_cmd
+	end
+
+	next_cmd:Reset()
+	next_cmd:Begin()
+	gpu_timing.BeginCommandBuffer(next_cmd)
+	gpu_timing.BeginScope(next_cmd, "gpu_frame")
+
+	for i, stacked in ipairs(render.command_buffer_stack) do
+		if stacked == cmd then render.command_buffer_stack[i] = next_cmd end
+	end
+
+	self.frame_cmd = next_cmd
+	return next_cmd
+end
+
+function ImageRenderTarget:BeginCompute()
+	local part = self.frame_part
+
+	if part.compute_recording then return part.compute_cmd end
+
+	assert(not part.compute_submitted, "the compute queue runs one segment per frame")
+	self:SplitFrame(part.graphics_done)
+	local cmd = part.compute_cmd
+
+	if not cmd then
+		cmd = self.vulkan_instance.compute_command_pool:AllocateCommandBuffer()
+		part.compute_cmd = cmd
+	end
+
+	cmd:Reset()
+	cmd:Begin()
+	gpu_timing.BeginCommandBuffer(cmd)
+	gpu_timing.BeginScope(cmd, "gpu_compute")
+	part.compute_recording = true
+	return cmd
+end
+
+function ImageRenderTarget:IsComputing()
+	return self.frame_part ~= nil and self.frame_part.compute_recording == true
+end
+
+local function submit_compute(self)
+	local part = self.frame_part
+	local cmd = part.compute_cmd
+	gpu_timing.EndScope(cmd, "gpu_compute")
+	cmd:End()
+	take_keepalive(part, cmd)
+	self.vulkan_instance.compute_queue:SubmitWith(
+		cmd,
+		{{semaphore = part.graphics_done, stage = "all_commands"}},
+		{part.compute_done},
+		nil
+	)
+	part.compute_recording = false
+	part.compute_submitted = true
+end
+
+function ImageRenderTarget:JoinCompute()
+	local part = self.frame_part
+
+	if not part.compute_recording then return end
+
+	submit_compute(self)
+	self:SplitFrame(nil)
+	part.waits[#part.waits + 1] = {semaphore = part.compute_done, stage = "all_commands"}
+end
+
+local function finish_frame_parts(self, command_buffer)
+	local part = self.frame_part
+
+	if part.compute_recording then
+		submit_compute(self)
+		part.waits[#part.waits + 1] = {semaphore = part.compute_done, stage = "all_commands"}
+	end
+
+	take_keepalive(part, command_buffer)
+	command_buffer.keepalive_resources = part.keepalive
+	part.keepalive = {}
+	return take_waits(part)
+end
+
 function ImageRenderTarget:BeginFrame()
 	local frame_index = (self.current_frame % #self.textures) + 1
 	self.captured_this_frame = false
@@ -570,15 +695,24 @@ function ImageRenderTarget:BeginFrame()
 	end
 
 	self.current_frame = frame_index
-	local cmd = self:GetCommandBuffer()
+	local part = get_frame_part(self, frame_index)
+	part.used = 0
+	part.keepalive = {}
+	part.waits = {}
+	part.compute_recording = false
+	part.compute_submitted = false
+	self.frame_part = part
+	local cmd = self.command_buffers[frame_index]
+	self.frame_cmd = cmd
 	cmd:Reset()
 	cmd:Begin()
 	gpu_timing.BeginFrame(cmd)
-	transition_render_attachments(self, cmd)
 	local extent = self:GetExtent()
 	render.PushCommandBuffer(cmd)
 	event.Call("PreRenderPass")
 	render.PopCommandBuffer()
+	cmd = self.frame_cmd
+	transition_render_attachments(self, cmd)
 	cmd:BeginRendering(build_render_config(self))
 	cmd:SetViewport(0, 0, extent.width, extent.height, 0, 1)
 	cmd:SetScissor(0, 0, extent.width, extent.height)
@@ -586,7 +720,7 @@ function ImageRenderTarget:BeginFrame()
 end
 
 function ImageRenderTarget:EndFrame()
-	local command_buffer = self.command_buffers[self.current_frame]
+	local command_buffer = self.frame_cmd
 	command_buffer:EndRendering()
 	event.Call("PostRenderPass", command_buffer)
 	local output = self.textures[self.texture_index]
@@ -611,6 +745,7 @@ function ImageRenderTarget:EndFrame()
 	)
 	gpu_timing.EndScope(command_buffer, "gpu_frame")
 	command_buffer:End()
+	local waits = finish_frame_parts(self, command_buffer)
 
 	if RENDER_NOOP and not self.config.offscreen then return end
 
@@ -620,19 +755,27 @@ function ImageRenderTarget:EndFrame()
 
 		if not RENDER_NOOP then fence:Reset() end
 
-		queue:SubmitNoWait(command_buffer, fence)
+		queue:SubmitWith(command_buffer, waits, {}, fence)
 
 		if not RENDER_NOOP then fence:Wait() end
 
 		queue:RetireFence(fence)
 	else
-		local acquire_semaphore = self.captured_this_frame and
-			nil or
-			self.image_available_semaphores[self.current_frame]
-		self.vulkan_instance.queue:Submit(
+		if not self.captured_this_frame then
+			table.insert(
+				waits,
+				1,
+				{
+					semaphore = self.image_available_semaphores[self.current_frame],
+					stage = "color_attachment_output",
+				}
+			)
+		end
+
+		self.vulkan_instance.queue:SubmitWith(
 			command_buffer,
-			acquire_semaphore,
-			self.render_finished_semaphores[self.texture_index],
+			waits,
+			{self.render_finished_semaphores[self.texture_index]},
 			self.in_flight_fences[self.current_frame]
 		)
 
@@ -690,9 +833,20 @@ function ImageRenderTarget:Capture()
 	cmd:End()
 	local fence = Fence.New(device)
 	fence:Reset()
-	local acquire_semaphore = self.image_available_semaphores and
-		self.image_available_semaphores[self.current_frame]
-	queue:SubmitFenced(cmd, acquire_semaphore, fence)
+	local waits = finish_frame_parts(self, cmd)
+
+	if self.image_available_semaphores then
+		table.insert(
+			waits,
+			1,
+			{
+				semaphore = self.image_available_semaphores[self.current_frame],
+				stage = "color_attachment_output",
+			}
+		)
+	end
+
+	queue:SubmitWith(cmd, waits, {}, fence)
 	fence:Wait()
 	queue:RetireFence(fence)
 	local mapped = assert(staging:Map(), "capture: failed to map staging buffer")
@@ -758,7 +912,7 @@ function ImageRenderTarget:RebuildFramebuffers()
 end
 
 function ImageRenderTarget:GetCommandBuffer()
-	return self.command_buffers[self.current_frame]
+	return self.frame_cmd or self.command_buffers[self.current_frame]
 end
 
 function ImageRenderTarget:GetCurrentFrame()

@@ -477,7 +477,6 @@ function Texture.New(config)
 				image_type = image_config.image_type,
 				depth = image_config.depth,
 				array_layers = image_config.array_layers,
-				sharing_mode = image_config.sharing_mode,
 				initial_layout = image_config.initial_layout,
 				flags = image_config.flags,
 			}
