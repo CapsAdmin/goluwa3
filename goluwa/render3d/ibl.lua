@@ -382,7 +382,7 @@ function ibl.GetProbeReflectionGLSLCode(uniform_name)
 				float normalized_weight_sum = 0.0;
 				float max_weight = 0.0;
 
-				for (int i = 0; i < 64; i++) {
+				for (int i = 0; i < ]] .. uniform_name .. [[.probe_count; i++) {
 					int color_tex = ]] .. uniform_name .. [[.probe_color_textures[i];
 					int depth_tex = ]] .. uniform_name .. [[.probe_depth_textures[i];
 					if (color_tex == -1) continue;

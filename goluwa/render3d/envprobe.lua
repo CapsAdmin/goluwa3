@@ -514,11 +514,13 @@ function envprobe.GetProbeBlockLayout()
 		{"probe_color_textures", "int", envprobe.MAX_UPLOADED_PROBES},
 		{"probe_depth_textures", "int", envprobe.MAX_UPLOADED_PROBES},
 		{"probe_positions", "vec4", envprobe.MAX_UPLOADED_PROBES},
+		{"probe_count", "int"},
 	}
 end
 
 function envprobe.WriteProbeBlock(self, block, camera_position)
 	local max_probes = envprobe.MAX_UPLOADED_PROBES
+	block.probe_count = 0
 
 	for i = 0, max_probes - 1 do
 		block.probe_color_textures[i] = -1
@@ -541,6 +543,7 @@ function envprobe.WriteProbeBlock(self, block, camera_position)
 
 	camera_position = camera_position or render3d.GetCamera():GetPosition()
 	local probes = envprobe.GetProbesNear(camera_position, max_probes)
+	block.probe_count = math.min(#probes, max_probes)
 
 	for i = 0, max_probes - 1 do
 		local probe = probes[i + 1]
@@ -599,10 +602,7 @@ function envprobe.Initialize()
 	envprobe.camera:SetNearZ(0.1)
 	envprobe.camera:SetFarZ(1000)
 	envprobe.environment_probe.needs_update = true
-	render3d.SetEnvironmentTexture(
-		envprobe.environment_probe.color_equirect,
-		envprobe.environment_probe.irradiance_equirect
-	)
+	render3d.SetEnvironmentTexture(envprobe.environment_probe.color_equirect, envprobe.environment_probe.irradiance_equirect)
 	envprobe.MarkAllReflectionProbesDirty()
 	envprobe.InitializeCubemapLayouts()
 end
