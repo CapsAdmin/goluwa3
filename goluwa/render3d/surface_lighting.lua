@@ -103,6 +103,7 @@ function surface_lighting.GetGLSL(block_name)
 		#endif
 
 		#define LIGHT_MIN_SCREEN_RADIANCE 0.0002
+		#define GLASS_LIGHT_MIN_SCREEN_RADIANCE 0.002
 
 		vec3 get_primary_sun_direction() {
 			vec3 sunDir = ]] .. block_name .. [[.primary_sun_direction.xyz;
@@ -220,7 +221,7 @@ function surface_lighting.GetGLSL(block_name)
 				if (radiance.r + radiance.g + radiance.b <= 0.0) continue;
 
 				#ifdef GLASS_LIGHT
-				if (]] .. block_name .. [[.glass_light != 0) {
+				if (]] .. block_name .. [[.glass_light != 0 && brightest * shadow_factor * get_exposure() >= GLASS_LIGHT_MIN_SCREEN_RADIANCE) {
 					float glass_distance = type == 0 ? GLASS_SUN_DISTANCE : (type == 2 ? 50.0 : max(length(light.position.xyz - s.world_pos) - 0.05, 0.0));
 					float glass_search = type == 0 && shadow_factor < 0.999 ? clamp(shadow_texel_world_size * 3.0, 0.05, 0.5) : 0.0;
 					radiance *= get_glass_light(s.world_pos + shadow_N * 0.02, L, glass_distance, glass_search);
