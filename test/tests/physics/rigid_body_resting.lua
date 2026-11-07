@@ -238,3 +238,30 @@ T.TestPhysics("Sleeping body wakes and falls when the body it rests on is remove
 	sphere_ent:Remove()
 	ground:Remove()
 end)
+
+T.TestPhysics("Sleeping sphere wakes and moves when a falling sphere lands on it", function()
+	local ground = create_flat_ground("struck_sleeper_ground")
+	local sleeper_ent = Entity.New({Name = "struck_sleeper"})
+	sleeper_ent:AddComponent("transform")
+	sleeper_ent.transform:SetPosition(Vec3(0, 2, 0))
+	local sleeper = sleeper_ent:AddComponent("rigid_body", {
+		Shape = sphere_shape(0.5),
+		Radius = 0.5,
+	})
+	test_helpers.SimulateSettled(sleeper, 600)
+	T(sleeper:GetAwake())["=="](false)
+	local before = sleeper_ent.transform:GetPosition():Copy()
+	local striker_ent = Entity.New({Name = "struck_sleeper_striker"})
+	striker_ent:AddComponent("transform")
+	striker_ent.transform:SetPosition(Vec3(0.3, 6, 0))
+	striker_ent:AddComponent("rigid_body", {
+		Shape = sphere_shape(0.5),
+		Radius = 0.5,
+	})
+	test_helpers.Simulate(240)
+	local after = sleeper_ent.transform:GetPosition()
+	T((after - before):GetLength())[">"](0.05)
+	striker_ent:Remove()
+	sleeper_ent:Remove()
+	ground:Remove()
+end)

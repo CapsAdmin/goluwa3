@@ -646,49 +646,80 @@ function islands.UpdateSimulationIslands(bodies, candidate_pairs, constraints, s
 
 	for i = 1, #candidate_pairs do
 		local pair = candidate_pairs[i]
+
+		if pair.settled_epoch == activity_epoch then
+			local key = pair.settled_key
+			local link = pair.settled_link
+
+			if prev_pair_links[key] == link then
+				if link then
+					curr_links[key] = link
+					curr_link_keys[#curr_link_keys + 1] = key
+				end
+
+				goto continue_pair
+			end
+		end
+
 		local body_a = pair.entry_a.body
 		local body_b = pair.entry_b.body
 		local dynamic_a = is_dynamic_body(body_a)
-
-		if not (dynamic_a or is_dynamic_body(body_b)) then goto continue_pair end
-
-		if solver and not solver:IslandPairFilter(pair) then goto continue_pair end
-
+		local dynamic_b = is_dynamic_body(body_b)
 		local key = get_pair_key(pair.entry_a, pair.entry_b)
-		local link = prev_pair_links[key]
+		local asleep = not (dynamic_a and body_a.Awake) and not (dynamic_b and body_b.Awake)
 
-		if link then
-			local island = body_island[dynamic_a and body_a or body_b]
+		if not (dynamic_a or dynamic_b) or solver and not solver:IslandPairFilter(pair) then
+			if asleep then
+				pair.settled_epoch = activity_epoch
+				pair.settled_key = key
+				pair.settled_link = nil
+			end
 
-			if island then
-				if link.a ~= body_a or link.b ~= body_b then
-					link.a = body_a
-					link.b = body_b
+			goto continue_pair
+		end
+
+		do
+			local link = prev_pair_links[key]
+
+			if link then
+				local island = body_island[dynamic_a and body_a or body_b]
+
+				if island then
+					if link.a ~= body_a or link.b ~= body_b then
+						link.a = body_a
+						link.b = body_b
+					end
+
+					curr_links[key] = link
+					curr_link_keys[#curr_link_keys + 1] = key
+					local slot = island.pair_slot[key]
+
+					if slot and island.pairs[slot] ~= pair then
+						island.pairs[slot] = pair
+					elseif not slot then
+						island.pair_links[key] = link
+						add_pair_slot(island, key, pair)
+					end
+
+					island = attach_body(island, body_a)
+					island = attach_body(island, body_b)
 				end
-
-				curr_links[key] = link
+			else
+				curr_links[key] = {a = body_a, b = body_b}
 				curr_link_keys[#curr_link_keys + 1] = key
-				local slot = island.pair_slot[key]
+				local island = link_bodies(body_a, body_b)
 
-				if slot and island.pairs[slot] ~= pair then
-					island.pairs[slot] = pair
-				elseif not slot then
-					island.pair_links[key] = link
+				if island then
+					island.pair_links[key] = curr_links[key]
 					add_pair_slot(island, key, pair)
 				end
-
-				island = attach_body(island, body_a)
-				island = attach_body(island, body_b)
 			end
-		else
-			curr_links[key] = {a = body_a, b = body_b}
-			curr_link_keys[#curr_link_keys + 1] = key
-			local island = link_bodies(body_a, body_b)
+		end
 
-			if island then
-				island.pair_links[key] = curr_links[key]
-				add_pair_slot(island, key, pair)
-			end
+		if asleep and curr_links[key] then
+			pair.settled_epoch = activity_epoch
+			pair.settled_key = key
+			pair.settled_link = curr_links[key]
 		end
 
 		::continue_pair::
