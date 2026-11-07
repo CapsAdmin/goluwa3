@@ -7,6 +7,7 @@ local VkImageArray = ffi.typeof("$[?]", vulkan.vk.VkImage)
 local VkSwapchainKHRBox = ffi.typeof("$[1]", vulkan.vk.VkSwapchainKHR)
 local VkImageBox = ffi.typeof("$[1]", vulkan.vk.VkImage)
 local VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR = 1
+local VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR = 1
 
 local function get_image_count(config)
 	local desired = config.image_count or config.surface_capabilities.minImageCount
@@ -43,7 +44,15 @@ function Swapchain.New(config)
 				imageUsage = config.image_usage or {"color_attachment", "transfer_dst", "transfer_src"},
 				imageSharingMode = "exclusive",
 				preTransform = pre_transform,
-				compositeAlpha = config.composite_alpha or "opaque_khr",
+				compositeAlpha = config.composite_alpha or
+					(
+						bit.band(
+							tonumber(config.surface_capabilities.supportedCompositeAlpha),
+							VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR
+						) ~= 0 and
+						"opaque_khr" or
+						"inherit_khr"
+					),
 				presentMode = config.present_mode or "fifo_khr",
 				clipped = config.clipped ~= nil and (config.clipped and 1 or 0) or 1,
 				oldSwapchain = config.old_swapchain and config.old_swapchain.ptr[0],

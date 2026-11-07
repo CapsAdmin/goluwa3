@@ -341,7 +341,6 @@ function render.Initialize(config)
 			present_mode = "immediate_khr",
 			enable_hdr = _G.HDR,
 			image_count = nil,
-			composite_alpha = "opaque_khr",
 			width = size.x,
 			height = size.y,
 			samples = config.samples,

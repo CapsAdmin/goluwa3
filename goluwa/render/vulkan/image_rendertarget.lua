@@ -23,7 +23,6 @@ local default_config = {
 	enable_hdr = false,
 	present_mode = "fifo_khr",
 	image_count = nil,
-	composite_alpha = "opaque_khr",
 	clipped = true,
 	image_usage = nil,
 	acquire_timeout = ffi.cast("uint64_t", -1),
