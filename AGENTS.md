@@ -13,9 +13,9 @@ Goluwa is a game engine written entirely in LuaJIT and ffi, without any third pa
 Use luajit installed on the system. `glw` is a lua script without a .lua extension that simply calls into `goluwa/main.lua` with the remaining arguments. Optional engine flags come first, then a command, followed by the command's arguments. `main.lua` sets up a default global environment globals, but scripts mostly uses import statements, ie `local Vec3 = import("goluwa/structs/vec3.lua")`
 
 - The file watcher is off by default, pass --hot-reload to reload lua files on change while developing
-- Use the --validate flag to prevent the engine from running forever after a lua error. It also enables the Vulkan validation layers (off by default) and exits on the first validation error, which roughly triples CPU frame time, so never benchmark with it
+- `--exit-on-error` makes the engine exit on a Lua error (and on a Vulkan validation message when the layers are on) instead of running forever. `--vulkan-validate` enables the Vulkan validation layers (off by default), which roughly triples CPU frame time, so never benchmark with it
 
-- Always pass `--background` and `--validate` when launching the engine with a window (`--2d`, `--3d`, `shot`, `test`, screenshots, ad hoc scripts). `--background` opens the window minimized so it does not steal the user's focus (Wayland), and `--validate` makes errors and validation messages exit instead of hanging. Example: `luajit glw --2d --background --validate --screenshot lua "./tmp/script.lua"`. The only exception is performance measurement, where `--validate` must be left off (it triples CPU frame time) but `--background` should still be used.
+- Always pass `--background` and `--exit-on-error` when launching the engine with a window (`--2d`, `--3d`, `shot`, `test`, screenshots, ad hoc scripts). `--background` opens the window minimized so it does not steal the user's focus (Wayland), and `--exit-on-error` makes errors exit instead of hanging. Add `--vulkan-validate` when the change touches rendering or Vulkan usage, so validation messages are reported (and exit, with `--exit-on-error`). Example: `luajit glw --2d --background --exit-on-error --screenshot lua "./tmp/script.lua"`. Performance measurement keeps `--background` and leaves `--vulkan-validate` off (it triples CPU frame time).
 
 - The engine in --3d mode starts in about 2 seconds, --2d is less than one second, and --cli/--headless is instant. Therefore, using `timeout` for more than 20 seconds is most likely not needed.
 
@@ -33,7 +33,7 @@ Use luajit installed on the system. `glw` is a lua script without a .lua extensi
 
 - When running the engine without the `--one-frame` or `--screenshot` flag, it will run forever. In which case you must use the timeout command or call `system.ShutDown()` manually at some point
 
-- `--cli` scripts keep the engine running after the script finishes (`--validate` only ends it on a Lua error). End scratch scripts run with `--cli` with `os.exit(0)`, or use `--one-frame` in 2d/3d mode. A hung run blocks the call until its timeout.
+- `--cli` scripts keep the engine running after the script finishes (`--exit-on-error` only ends it on a Lua error). End scratch scripts run with `--cli` with `os.exit(0)`, or use `--one-frame` in 2d/3d mode. A hung run blocks the call until its timeout.
 
 - Scratch scripts that flip a pvar must use `pvars.SetSession`; `pvars.Set` writes the user's `pvars.txt` for good. Pvars that shaders and passes are built from ("build time" ones like `r_rt_hit_*`, `reflection_reorder`) are read when the passes are made, before a script runs, so a script's `SetSession` comes too late for them: put `GOLUWA_PVARS="key=value key=value"` in the environment instead.
 

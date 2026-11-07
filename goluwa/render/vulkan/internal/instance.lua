@@ -37,7 +37,7 @@ do
 		local table_concat = table.concat
 		local ipairs = ipairs
 		local ffi_new = ffi.new
-		local exit_on_error = os.getenv("GOLUWA_VALIDATE_EXIT") == "1"
+		local exit_on_error = os.getenv("GOLUWA_EXIT_ON_ERROR") == "1"
 
 		local suppressed_warnings = {
 			"vk_loader_settings.json",

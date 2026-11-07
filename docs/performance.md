@@ -4,7 +4,7 @@ Re-measure before trusting any number; run-to-run variance is large (see below).
 
 ## Measuring correctly
 
-- Never benchmark with `--validate` (validation roughly triples CPU frame time). Always pass `--background`. A stray engine process doubles GPU numbers: check `pgrep -af "[l]uajit glw"` first.
+- Never benchmark with `--vulkan-validate` (validation roughly triples CPU frame time). Always pass `--background`. A stray engine process doubles GPU numbers: check `pgrep -af "[l]uajit glw"` first.
 - The JIT profiler (`PROF`, see debugging-and-profiling.md) only samples Lua CPU time. Time blocked in fence waits does not show up, so "slow frame but idle profile" means a GPU sync. It also pins C/FFI time on the wrong line, so confirm a hotspot with direct timing before optimizing. Never start `PROF` twice in one run.
 - Time with `system.GetTime()`, never `os.clock()` (CPU time over all threads).
 - Swapchain acquire / frame fence wait > 0 means GPU bound. About 0 with a bimodal frame-time histogram means a mid-frame CPU-GPU drain. The first `render.SubmitAndWait` of a frame blocks until the GPU finishes earlier frames, so its duration is about the GPU frame time.

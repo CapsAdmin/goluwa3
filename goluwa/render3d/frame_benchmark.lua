@@ -84,7 +84,7 @@ function frame_benchmark.Run(config)
 
 	if os.getenv("GOLUWA_VALIDATE") == "1" then
 		print_result(
-			"WARNING: --validate enables the Vulkan validation layers, cpu times are about 3x too high"
+			"WARNING: --vulkan-validate enables the Vulkan validation layers, cpu times are about 3x too high"
 		)
 	end
 

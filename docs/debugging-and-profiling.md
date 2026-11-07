@@ -3,7 +3,7 @@
 Temporary print logging and code edits are fine for finding causes; remove them afterwards.
 
 - `table.print(tbl)`, `print_once(...)`, `debug.trace()` (traceback of the caller), `print(x) os.realexit(0)` (print and force exit).
-- `--validate` turns Lua errors and Vulkan validation messages into an exit instead of a hang. `GOLUWA_VALIDATE=1 VK_LAYER_VALIDATE_SYNC=1` runs the layers and the sync checks without exiting on the first message.
+- `--exit-on-error` turns Lua errors (and Vulkan validation messages, when the layers are on) into an exit instead of a hang. `--vulkan-validate` enables the validation layers; without `--exit-on-error` it reports messages and keeps running. `GOLUWA_VALIDATE=1 VK_LAYER_VALIDATE_SYNC=1` runs the layers and the sync checks.
 
 ## Device lost
 
@@ -45,7 +45,7 @@ A LuaJIT fork in `local_stuff/LuaJIT-Profiler` (pinned to the flake's rev) adds 
 - PERF (`h` toggles, `addons/debug/.../perf_window.lua`) is a `Tabs` window; features add tabs with `perf.RegisterTab(name, order, view)` (`addons/debug/lua/perf.lua`, `view` is a react component, see ui.md). Only the open tab of a shown window is mounted, so what a tab does on mount/unmount is its data collection (the PHYSICS tab enables `physics/stats` in an effect). Polled tabs pass `Rows = react.UsePoll(build_rows, perf.POLL_INTERVAL)` to a `StatTable` (`widgets/stat_table.lua`), keeping `build_rows` a plain function so the console dump commands (`vram_dump`, `physics_stats`, `net_stats`, `terrain_stats`, ...) print the same rows. `perf <tab>` opens the window on a tab. `render.stats` counting is only on while the PERF window is open.
 - RENDER VIEWS (`addons/debug/lua/autorun/render_3d/render_views.lua`, `gbuffer_view <field|sheet|targets|off>`) shows gbuffer fields, pass debug textures and lighting term switches; the GBUFFER LAYOUT tab shows how fields are packed.
 - `GOLUWA_DUMP_SHADERS=1` writes every stitched GLSL stage to `storage/shader_source/<pass name>.<stage ext>` (`.vert .frag .comp .rgen` ...). Each file compiles standalone: `glslang -V --target-env vulkan1.3 file`. Pipelines without `name` fall back to the creating Lua file; same-name variants get a crc suffix.
-- `GOLUWA_SHADER_DEBUG=1` compiles every shader with `NonSemantic.Shader.DebugInfo` (source and function info), which Nsight Graphics needs for source-level shader hotspots and nested calls in the flame graph. Shaders are compiled with the SPIR-V optimizer off either way; the cache key includes the flag. Do not combine it with `--validate`: spirv-val rejects the debug info of some shaders (a `DebugTypeMember` column past its source line's length).
+- `GOLUWA_SHADER_DEBUG=1` compiles every shader with `NonSemantic.Shader.DebugInfo` (source and function info), which Nsight Graphics needs for source-level shader hotspots and nested calls in the flame graph. Shaders are compiled with the SPIR-V optimizer off either way; the cache key includes the flag. Do not combine it with `--vulkan-validate`: spirv-val rejects the debug info of some shaders (a `DebugTypeMember` column past its source line's length).
 
 # Game speed
 

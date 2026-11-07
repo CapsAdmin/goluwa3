@@ -20,10 +20,10 @@ They let scripts written for those engines run here, in `addons/love/*` and `add
 
 The Windows code path is mostly untested on real Windows; wine is the only check available on Linux.
 
-- Use the real MSVC build from the `luajit-c6ffc14` release (`luajit.exe` + `lua51.dll`); a mingw build lacks some CRT functions. Put `glslang-windows-x64.dll` and `glslang-default-resource-limits-windows-x64.dll` in `storage/bin/libglslang/` by hand (wine's TLS fails the downloader). Run from the repo root: `WINEDEBUG=-all wine /path/to/luajit.exe glw --2d --background --validate --one-frame lua "print(1)"`.
+- Use the real MSVC build from the `luajit-c6ffc14` release (`luajit.exe` + `lua51.dll`); a mingw build lacks some CRT functions. Put `glslang-windows-x64.dll` and `glslang-default-resource-limits-windows-x64.dll` in `storage/bin/libglslang/` by hand (wine's TLS fails the downloader). Run from the repo root: `WINEDEBUG=-all wine /path/to/luajit.exe glw --2d --background --exit-on-error --one-frame lua "print(1)"`.
 - LuaJIT raises Lua errors as SEH exceptions, and a vectored handler is a Lua callback into the main state, so there is no vectored `crash_trace` handler on Windows; only `SetUnhandledExceptionFilter` is used.
 - Do not serialise worker threads with a process-wide mutex (nested threads deadlock); concurrent lua states are fine.
 - `process.setenv` must also call `_putenv_s` (`os.getenv` reads the CRT environment). Child process command lines need MSVCRT quoting; tests that spawn children use `process.get_executable_path()`, not `luajit`/`sh`/`ls`.
 - Vulkan `VkResult` values come back unsigned from LuaJIT: run them through `bit.tobit` before comparing with the negative enum values.
 - Paths are ANSI (`...A` apis, `fopen`, `io.open`, `ffi.load`), no wide variants; the engine mostly uses relative paths, so a non-ascii install path works only if its characters fit the system code page.
-- `luajit.exe glw --cli --no-audio --validate test async/` and `test render2d/render2d.lua` pass under wine.
+- `luajit.exe glw --cli --no-audio --exit-on-error test async/` and `test render2d/render2d.lua` pass under wine.

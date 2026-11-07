@@ -55,9 +55,13 @@ commands.Add{
 		renderdoc = {type = "boolean", description = "Attach RenderDoc for debugging"},
 		["no-audio"] = {type = "boolean", description = "Disable audio"},
 		["no-physics"] = {type = "boolean", description = "Disable physics"},
-		validate = {
+		["exit-on-error"] = {
 			type = "boolean",
-			description = "Exit on any error or Vulkan validation message and enable the validation layers",
+			description = "Exit on any Lua error, and on any Vulkan validation message when the layers are on",
+		},
+		["vulkan-validate"] = {
+			type = "boolean",
+			description = "Enable the Vulkan validation layers (roughly triples CPU frame time)",
 		},
 		hdr = {
 			type = "boolean",
@@ -86,10 +90,9 @@ commands.Add{
 
 		if flags.background then process.setenv("GOLUWA_BACKGROUND", "1") end
 
-		if flags.validate then
-			process.setenv("GOLUWA_VALIDATE", "1")
-			process.setenv("GOLUWA_VALIDATE_EXIT", "1")
-		end
+		if flags["vulkan-validate"] then process.setenv("GOLUWA_VALIDATE", "1") end
+
+		if flags["exit-on-error"] then process.setenv("GOLUWA_EXIT_ON_ERROR", "1") end
 
 		if not flags["no-physics"] then
 			_G.PHYSICS = RENDER_3D or flags["physics"] or SERVER
@@ -167,7 +170,7 @@ commands.Add{
 			end)
 		end
 
-		if flags.validate then
+		if flags["exit-on-error"] then
 			local protected_call = import("goluwa/protected_call.lua")
 			protected_call.debug = true
 		end
@@ -326,7 +329,11 @@ local function run_game(startup_command)
 			local arguments = {"--server"}
 
 			if os.getenv("GOLUWA_VALIDATE") == "1" then
-				table.insert(arguments, "--validate")
+				table.insert(arguments, "--vulkan-validate")
+			end
+
+			if os.getenv("GOLUWA_EXIT_ON_ERROR") == "1" then
+				table.insert(arguments, "--exit-on-error")
 			end
 
 			if startup_command then
@@ -375,7 +382,10 @@ crash_trace.Run(function()
 		end
 
 		if captured_flags[1] then
-			commands.RunArguments({"global_flags", unpack(captured_flags)})
+			if not commands.RunArguments({"global_flags", unpack(captured_flags)}) then
+				system.ShutDown(1)
+				return
+			end
 		elseif remaining_args and remaining_args[1] == "bench" then
 			commands.RunArguments({"global_flags", "--cli"})
 		else
