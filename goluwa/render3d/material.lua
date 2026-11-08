@@ -749,6 +749,10 @@ do
 		return Texture.New(config)
 	end
 
+	-- material source path (a vmt cache key) to the path of a material file that replaces it, set
+	-- by the scene being read
+	Material.path_aliases = {}
+
 	function Material.RegisterOverrideLoader(extension, load)
 		override_loaders[extension] = load
 	end
@@ -773,6 +777,26 @@ do
 		local override_cache = {}
 
 		function Material.GetOverrideFromPath(path)
+			local alias = Material.path_aliases[path]
+
+			if type(alias) == "string" then
+				return nil, select(2, Material.GetOverrideFromPath(alias))
+			elseif alias then
+				return setmetatable(
+					{},
+					{
+						__index = function(slots, slot)
+							local target = alias[slot]
+
+							if not target then return nil end
+
+							slots[slot] = select(2, Material.GetOverrideFromPath(target))
+							return slots[slot]
+						end,
+					}
+				)
+			end
+
 			local cached = override_cache[path]
 
 			if not cached then

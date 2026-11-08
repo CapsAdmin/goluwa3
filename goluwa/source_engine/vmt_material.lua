@@ -1798,6 +1798,10 @@ function vmt_material.FromVMT(path, private_prefix, variant)
 	local material_key = variant and cache_key .. "|" .. variant or cache_key
 
 	if not private_prefix then
+		local alias = Material.path_aliases[material_key]
+
+		if alias then return select(2, Material.GetOverrideFromPath(alias)) end
+
 		local cached_material = vmt_material_cache[material_key]
 
 		if cached_material then

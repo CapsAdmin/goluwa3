@@ -529,6 +529,7 @@ function mtl_material.FromCryMTL(path, sub_material)
 	local self = Material.New()
 	self:SetName(path .. (sub_material and ("/" .. sub_material) or ""))
 	self.cry_mtl_path = path
+	self.cry_sub_material = sub_material
 	self.upload_cache_key = cache_key
 	cry_mtl_material_cache[cache_key] = self
 	local document, err = load_cry_mtl_document(path)

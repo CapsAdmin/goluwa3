@@ -5,6 +5,7 @@ local file_path = import("goluwa/filesystem/path.lua")
 local objects = import("goluwa/objects/objects.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
+local event = import("goluwa/event.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local material_file = {}
 material_file.Extension = ".mat"
@@ -24,6 +25,7 @@ local SKIPPED_PROPERTIES = {Name = true, OriginalMaterial = true}
 -- returns nil for an object that has none (it is listed in Meta.unserialized), from_reference gets
 -- the context of the file being loaded
 local reference_types = {}
+material_file.ReferenceTypes = reference_types
 
 function material_file.RegisterReferenceType(type, to_reference, from_reference)
 	reference_types[type] = {to_reference = to_reference, from_reference = from_reference}
@@ -32,6 +34,8 @@ end
 -- a name in the material's own directory wins over the same name looked up globally. One cached
 -- directory listing answers every texture of the material, no per file probing.
 material_file.RegisterReferenceType("render_texture", function(texture, context)
+	if texture == Texture.GetFallback() then return {fallback = true} end
+
 	local path = context.relative_paths and context.relative_paths[texture] or texture.config.path
 
 	if not path then return nil end
@@ -41,12 +45,17 @@ material_file.RegisterReferenceType("render_texture", function(texture, context)
 		srgb = texture.config.srgb or false,
 	}
 end, function(reference, context)
-	return Texture.New{
-		path = context.listing[reference.path] and
-			context.directory .. reference.path or
-			reference.path,
-		srgb = reference.srgb,
-	}
+	if reference.fallback then return Texture.GetFallback() end
+
+	local path = reference.path
+
+	if path:starts_with("../") or path:starts_with("./") then
+		path = file_path.Normalize(context.directory .. path)
+	elseif context.listing[path] then
+		path = context.directory .. path
+	end
+
+	return Texture.New{path = path, srgb = reference.srgb}
 end)
 
 material_file.RegisterReferenceType("render3d_scatter_set", function(set)
@@ -146,6 +155,28 @@ function material_file.Load(path)
 
 	return material, file
 end
+
+material_file.AliasFileName = "materials/index.lua"
+
+event.AddListener("SceneReading", "material_file", function(directory)
+	local data = fs.exists(directory .. material_file.AliasFileName) and
+		fs.read_file(directory .. material_file.AliasFileName)
+	local aliases = {}
+
+	for key, target in pairs(data and assert(codec.Decode("luadata", data)) or {}) do
+		if type(target) == "table" then
+			aliases[key] = {}
+
+			for slot, path in pairs(target) do
+				aliases[key][slot] = directory .. path
+			end
+		else
+			aliases[key] = directory .. target
+		end
+	end
+
+	Material.path_aliases = aliases
+end)
 
 Material.RegisterOverrideLoader(".mat", function(path)
 	return nil, assert(material_file.Load(path))
