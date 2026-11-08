@@ -40,7 +40,6 @@ local DEFAULT_DISTANCE = 3
 local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 local LEFT_TABS = {"Spawnlists", "Weapons", "Interactive", "Vehicles", "NPCs"}
 local root = NULL
-local shown_setter
 local colors = {}
 
 local function refresh_colors()
@@ -726,7 +725,7 @@ local UtilitiesPage = react.Component(
 				layout = {GrowWidth = 1, GrowHeight = 1, FitHeight = false, AlignmentX = "stretch"},
 			}{
 				program and
-				program.Content{Key = program.Name, Shown = props.Shown, BarHidden = false},
+				program.Content{Key = program.Name, BarHidden = false},
 			},
 		}
 	end
@@ -848,19 +847,9 @@ local LEFT_PAGES = {
 }
 local SpawnMenu = react.Component(
 	||-> do
-		local shown, set_shown = react.UseState(false)
 		local tab, set_tab = react.UseState("Spawnlists")
 		local right_tab, set_right_tab = react.UseState("Tools")
 		local width = react.UseMemo(||->Panel.World.transform:GetSize().x, {})
-		react.UseEffect(
-			||-> do
-				shown_setter = set_shown
-				return ||-> do
-					shown_setter = nil
-				end
-			end,
-			{}
-		)
 		return ui.Panel{
 			Ref = |entity|-> do
 				root = entity ?? NULL
@@ -895,7 +884,7 @@ local SpawnMenu = react.Component(
 				}{
 					ui.Frame{Key = "tools", Tab = "Tools", Padding = "S", layout = PAGE_LAYOUT}{ToolsPage{}},
 					ui.Frame{Key = "utilities", Tab = "Utilities", Padding = "S", layout = PAGE_LAYOUT}{
-						UtilitiesPage{Shown = shown},
+						UtilitiesPage{},
 					},
 				},
 			},
@@ -912,7 +901,6 @@ function spawnmenu.Show()
 
 	root.transform:SetSize(Panel.World.transform:GetSize())
 	root.visual:SetVisible(true)
-	shown_setter(true)
 	players.GetLocal().player_input:SetKeyboardMovement(true)
 end
 
@@ -920,7 +908,6 @@ function spawnmenu.Hide()
 	if not spawnmenu.IsShown() then return end
 
 	root.visual:SetVisible(false)
-	shown_setter(false)
 	players.GetLocal().player_input:SetKeyboardMovement(false)
 end
 
