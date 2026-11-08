@@ -24,9 +24,38 @@ local gpu_culling = import("goluwa/render3d/gpu_culling.lua")
 local water = import("goluwa/render3d/water.lua")
 local fluid = import("goluwa/physics/fluid.lua")
 local light_components = import("goluwa/entities/components/light.lua")
+local wireframe
+
+local function is_gbuffer_pipeline(pipeline)
+	return pipeline.name:find("^gbuffer") and not pipeline.name:find("^gbuffer_inspect")
+end
+
+local function apply_wireframe(pipeline)
+	pipeline.pipeline:SetPolygonMode(wireframe:Get() and "line" or "fill")
+end
+
+pvars.StartGroup("Rendering", "Debug", {store = false})
+wireframe = pvars.Setup2{
+	key = "r_wireframe",
+	default = false,
+	help = "draw the geometry of the gbuffer as lines, to see the triangles of the scene",
+	callback = function()
+		for bundle in pairs(render3d.bundles) do
+			for _, pipeline in ipairs(bundle.pipelines_i) do
+				if is_gbuffer_pipeline(pipeline) then apply_wireframe(pipeline) end
+			end
+		end
+	end,
+}
+pvars.EndGroup()
 
 local function decorate_pipeline_instance(pipeline, config)
 	pipeline.name = config.name
+
+	if is_gbuffer_pipeline(pipeline) and wireframe:Get() then
+		apply_wireframe(pipeline)
+	end
+
 	pipeline.pre_render = config.pre_render
 	pipeline.post_draw = config.post_draw
 	pipeline.draw_in_prerender = config.draw_in_prerender ~= false

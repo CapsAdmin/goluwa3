@@ -415,6 +415,12 @@ end
 
 local LIGHTING_MODES = {
 	{
+		name = "wireframe",
+		key = "r_wireframe",
+		value = true,
+		description = "the geometry drawn as lines, lit like the surfaces they belong to, to see the triangles and levels of detail of the scene (lines do not hide each other)",
+	},
+	{
 		name = "direct light only",
 		key = "lighting_debug_direct",
 		value = true,
