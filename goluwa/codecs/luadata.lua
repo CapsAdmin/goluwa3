@@ -99,6 +99,7 @@ local is_func_ok = opcode_checker(whitelist)
 local ffi = require("ffi")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local Vec4 = import("goluwa/structs/vec4.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local luadata = {}
@@ -137,13 +138,34 @@ local function format_float32(var)
 
 		if a[0] == b[0] then return str end
 	end
+
+	return ("%.17g"):format(var)
+end
+
+-- a multiline string is written as a long bracket string. The lexer drops a first newline and
+-- folds carriage returns, so a leading newline is doubled and a string with \r or \0 stays quoted
+local function format_string(var)
+	if not var:find("\n", 1, true) or var:find("[%z\r]") then
+		return ("%q"):format(var)
+	end
+
+	local level = var:sub(-1) == "]" and 1 or 0
+
+	while var:find("]" .. ("="):rep(level) .. "]", 1, true) do
+		level = level + 1
+	end
+
+	local equals = ("="):rep(level)
+	return "[" .. equals .. "[" .. (
+			var:sub(1, 1) == "\n" and
+			"\n" or
+			""
+		) .. var .. "]" .. equals .. "]"
 end
 
 luadata.Types = {
 	["number"] = format_number,
-	["string"] = function(var)
-		return ("%q"):format(var)
-	end,
+	["string"] = format_string,
 	["boolean"] = function(var)
 		return var and "true" or "false"
 	end,
@@ -154,6 +176,16 @@ luadata.Types = {
 		return (
 			"Vec3(%s, %s, %s)"
 		):format(format_float32(var.x), format_float32(var.y), format_float32(var.z))
+	end,
+	["vec4"] = function(var)
+		return (
+			"Vec4(%s, %s, %s, %s)"
+		):format(
+			format_float32(var.x),
+			format_float32(var.y),
+			format_float32(var.z),
+			format_float32(var.w)
+		)
 	end,
 	["quat"] = function(var)
 		return (
@@ -282,8 +314,10 @@ function luadata.ToString(var)
 	return func and func(var)
 end
 
-function luadata.Encode(tbl)
+function luadata.Encode(tbl, as_lua)
 	if luadata.Hushed then return end
+
+	if as_lua then return "return " .. encode_table(tbl, 0) .. "\n" end
 
 	return (encode_table(tbl, 0):sub(4, -3):gsub("\n\t", "\n"))
 end
@@ -291,13 +325,17 @@ end
 local env = {
 	Vec2 = Vec2,
 	Vec3 = Vec3,
+	Vec4 = Vec4,
 	Quat = Quat,
 	Color = Color,
 }
 
 -- TODO: Bytecode analysis for bad loop and string functions?
 function luadata.Decode(str, nojail)
-	local func, err = loadstring(string.format("return { %s }", str), "luadata_decode")
+	local func, err = loadstring(
+		str:find("^%s*return%s*{") and str or string.format("return { %s }", str),
+		"luadata_decode"
+	)
 
 	if not func then return nil, err end
 
