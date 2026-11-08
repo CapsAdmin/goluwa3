@@ -11,6 +11,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local texture_compress = import("goluwa/render/texture_compress.lua")
 local codec = import("goluwa/codec.lua")
 local Texture = import("goluwa/render/texture.lua")
+local Material = import("goluwa/render3d/material.lua")
 local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -586,6 +587,10 @@ function material_bake.CreateTextures(baked)
 end
 
 function material_bake.Apply(material, textures)
+	if textures.Albedo2 then
+		textures.Albedo2.is_grass_texture = Material.IsGrassTexture(material:GetAlbedo2Texture())
+	end
+
 	material:SetAlbedoTexture(textures.Albedo)
 	material:SetNormalTexture(textures.Normal)
 	material:SetMetallicRoughnessTexture(textures.MetallicRoughness)
