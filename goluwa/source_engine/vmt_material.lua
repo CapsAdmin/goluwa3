@@ -1652,6 +1652,15 @@ do
 		end
 
 		material_proxies.Attach(self, vmt.source_text)
+		self.source_meta = {
+			engine = "source",
+			path = vmt.fullpath,
+			resolved_path = vmt.resolved_path,
+			shader = vmt.shader,
+			family = class,
+			surfaceprop = self.vmt_surfaceprop,
+			vmt = vmt.source_text:gsub("\r\n", "\n"),
+		}
 		import("goluwa/render3d/material_bake.lua").Request(self)
 		local color = self.ColorMultiplier
 		local flags = {}

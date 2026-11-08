@@ -4,6 +4,7 @@ local assets = import("goluwa/assets.lua")
 local previews = import("lua/asset_preview.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local objects = import("goluwa/objects/objects.lua")
+local material_bake = import("goluwa/render3d/material_bake.lua")
 local tostring_object = import("goluwa/tostring_object.lua").tostring_object
 local asset_info = {}
 
@@ -98,6 +99,32 @@ function asset_info.GetMaterialSection(material)
 
 	table.sort(flags)
 	rows[#rows + 1] = {"flags", #flags > 0 and table.concat(flags, ", ") or "none"}
+	local meta = material_bake.GetMeta(material)
+
+	if meta then
+		rows[#rows + 1] = {
+			"baked",
+			meta.bake.version .. " " .. meta.bake.width .. " x " .. meta.bake.height,
+		}
+
+		if meta.source then
+			rows[#rows + 1] = {"source", tostring(meta.source.engine) .. ": " .. tostring(meta.source.path)}
+			rows[#rows + 1] = {"family", tostring(meta.source.family)}
+		end
+
+		local names = {}
+
+		for name in pairs(meta.inputs) do
+			names[#names + 1] = name
+		end
+
+		table.sort(names)
+
+		for _, name in ipairs(names) do
+			rows[#rows + 1] = {"from " .. name:gsub("Texture$", ""):lower(), tostring(meta.inputs[name].path)}
+		end
+	end
+
 	return section
 end
 

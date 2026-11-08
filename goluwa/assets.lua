@@ -867,7 +867,7 @@ assets.RegisterCategory(
 	"materials",
 	{
 		roots = {"materials/", "objects/"},
-		extensions = {".lua", ".vmt", ".mtl"},
+		extensions = {".lua", ".vmt", ".mtl", ".mat"},
 		load = function(path, options)
 			if get_extension(path) == ".lua" then
 				local material, err = load_lua_asset(path)

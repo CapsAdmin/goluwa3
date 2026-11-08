@@ -12,6 +12,7 @@ local texture_compress = import("goluwa/render/texture_compress.lua")
 local codec = import("goluwa/codec.lua")
 local Texture = import("goluwa/render/texture.lua")
 local Material = import("goluwa/render3d/material.lua")
+local material_file = import("goluwa/render3d/material_file.lua")
 local Color = import("goluwa/structs/color.lua")
 local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -282,7 +283,7 @@ do
 		if not version then
 			version = "v" .. to_hex(
 					crypto.SHA1(
-						fs.read_file("goluwa/render3d/material_bake.lua") .. fs.read_file("goluwa/render/texture_compress.lua") .. get_fragment_source()
+						fs.read_file("goluwa/render3d/material_bake.lua") .. fs.read_file("goluwa/render3d/material_file.lua") .. fs.read_file("goluwa/render/texture_compress.lua") .. get_fragment_source()
 					)
 				):sub(1, 10)
 		end
@@ -571,7 +572,7 @@ function material_bake.CanBake(material)
 end
 
 -- replaces the textures and every property that only existed to derive them with the baked set
-local SRGB_SLOTS = {Albedo = true, Albedo2 = true, Emissive = true}
+local SRGB_SLOTS = material_file.SRGBSlots
 
 function material_bake.CreateTextures(baked)
 	local textures = {}
@@ -634,7 +635,7 @@ function material_bake.Apply(material, textures)
 	material.baked = true
 end
 
-local SKIPPED_VARIABLES = {Name = true, Flags = true, OriginalMaterial = true}
+local SKIPPED_VARIABLES = {Name = true, OriginalMaterial = true}
 local TEXTURE_GETTERS = {
 	"GetAlbedoTexture",
 	"GetNormalTexture",
@@ -672,15 +673,7 @@ function material_bake.GetKey(material)
 	return name .. "_" .. hash
 end
 
-local FILES = {
-	Albedo = "albedo.dds",
-	Normal = "normal.dds",
-	MetallicRoughness = "metallicroughness.dds",
-	Emissive = "emissive.dds",
-	Albedo2 = "albedo2.dds",
-	Normal2 = "normal2.dds",
-	MetallicRoughness2 = "metallicroughness2.dds",
-}
+local FILES = material_file.TextureFiles
 
 local function slots_of(material)
 	local slots = {"Albedo", "Normal", "MetallicRoughness"}
@@ -697,24 +690,77 @@ local function slots_of(material)
 	return slots
 end
 
-local function cache_path(key)
+function material_bake.GetCachePath(key)
 	return material_bake.CacheDirectory .. material_bake.GetVersion() .. "/" .. key .. "/"
 end
 
 local function has_cache(material, key)
+	if not fs.exists(material_bake.GetCachePath(key) .. material_file.FileName) then
+		return false
+	end
+
 	for _, slot in ipairs(slots_of(material)) do
-		if not fs.exists(cache_path(key) .. FILES[slot]) then return false end
+		if not fs.exists(material_bake.GetCachePath(key) .. FILES[slot]) then
+			return false
+		end
 	end
 
 	return true
 end
 
 local function save_cache(key, baked)
-	assert(fs.create_directory_recursive(cache_path(key)))
+	assert(fs.create_directory_recursive(material_bake.GetCachePath(key)))
 
 	for slot, data in pairs(baked) do
-		assert(fs.write_file(cache_path(key) .. FILES[slot], data))
+		assert(fs.write_file(material_bake.GetCachePath(key) .. FILES[slot], data))
 	end
+end
+
+-- everything known about a bake for investigation: where the material came from (the loader's
+-- source_meta), the properties it had when it was baked, its input textures and what the bake did
+local function build_meta(material, key, width, height)
+	local properties, inputs = {}, {}
+
+	for _, info in ipairs(objects.GetStorableVariables(material)) do
+		if not SKIPPED_VARIABLES[info.var_name] then
+			local value = material[info.get_name](material)
+
+			if type(value) == "table" and value.config then
+				inputs[info.var_name] = {
+					path = value.config.path,
+					width = value:GetWidth(),
+					height = value:GetHeight(),
+				}
+			elseif tostring(value) ~= tostring(info.default) then
+				properties[info.var_name] = type(value) == "table" and tostring(value) or value
+			end
+		end
+	end
+
+	return {
+		source = material.source_meta,
+		key = key,
+		input_properties = properties,
+		inputs = inputs,
+		bake = {
+			version = material_bake.GetVersion(),
+			width = width,
+			height = height,
+			layer_kind = material_bake.GetLayerKind(material),
+			estimated_normal = material_bake.WantsNormalEstimate(material),
+			emits = material_bake.Emits(material),
+			slots = slots_of(material),
+			estimators = table.copy(material_bake.estimators),
+			estimator_params = table.copy(material_bake.estimator_params),
+		},
+	}
+end
+
+function material_bake.GetMeta(material)
+	local data = material.bake_key and
+		fs.read_file(material_bake.GetCachePath(material.bake_key) .. material_file.FileName)
+	local file = data and codec.Decode("luadata", data)
+	return file and file.Meta
 end
 
 do
@@ -737,7 +783,7 @@ end
 local function apply_cached(material, generation, key)
 	material_bake.ReleaseAdjustments(material, false)
 	material_bake.LoadDeferred(material, true)
-	local directory = cache_path(key)
+	local directory = material_bake.GetCachePath(key)
 	local textures = {}
 	local pending = 0
 
@@ -751,6 +797,7 @@ local function apply_cached(material, generation, key)
 		if material.baked or material.vmt_generation ~= generation then return end
 
 		stats.cached = stats.cached + 1
+		material.bake_key = key
 		material_bake.Apply(material, textures)
 	end
 
@@ -803,8 +850,23 @@ local function process(material, generation, key)
 
 	local baked = material_bake.Bake(material, width, height)
 	save_cache(key, baked)
+	local meta = build_meta(material, key, width, height)
 	stats.baked = stats.baked + 1
-	material_bake.Apply(material, material_bake.CreateTextures(baked))
+	material.bake_key = key
+	local textures = material_bake.CreateTextures(baked)
+	material_bake.Apply(material, textures)
+	local relative_paths = {}
+
+	for slot, texture in pairs(textures) do
+		relative_paths[texture] = FILES[slot]
+	end
+
+	assert(
+		fs.write_file(
+			material_bake.GetCachePath(key) .. material_file.FileName,
+			material_file.Serialize(material, material_bake.GetCachePath(key), meta, relative_paths)
+		)
+	)
 	return true
 end
 
