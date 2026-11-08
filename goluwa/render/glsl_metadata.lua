@@ -904,6 +904,7 @@ local function get_color_formats(config)
 						name = format[2][1],
 						attachment_index = i,
 						swizzle = format[2][2],
+						scale = format[2][3],
 					}
 				)
 			else
@@ -916,6 +917,7 @@ local function get_color_formats(config)
 						name = format[2][1],
 						attachment_index = i,
 						swizzle = format[2][2],
+						scale = format[2][3],
 					}
 				)
 			end

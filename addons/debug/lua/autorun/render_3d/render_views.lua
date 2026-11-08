@@ -641,7 +641,8 @@ local function draw_tile(texture, index, count, x, y, w, h)
 end
 
 local function draw_pass_texture(texture, view, x, y, w, h)
-	render2d.SetColor(1, 1, 1, 1)
+	local scale = view.scale or 1
+	render2d.SetColor(scale, scale, scale, 1)
 	render2d.PushColorUV(0, 1, 1, 0)
 	render2d.PushSwizzleMode(SWIZZLES[view.swizzle] or "none")
 	render2d.SetTexture(texture)

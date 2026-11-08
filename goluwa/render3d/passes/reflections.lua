@@ -222,7 +222,10 @@ return {
 			return render3d.pipelines.reflections_trace:GetFramebuffer(1):GetAttachment(1)
 		end,
 		ColorFormat = {
-			{"r16g16b16a16_sfloat", {"reflection_raw", "rgba"}},
+			{
+				"r16g16b16a16_sfloat",
+				{"reflection_raw", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
 			{"r16_sfloat", {"reflection_raw_distance", "r"}},
 		},
 		framebuffer_count = 1,
@@ -547,7 +550,10 @@ return {
 		name = "reflections",
 		ComputePass = true,
 		ColorFormat = {
-			{"r16g16b16a16_sfloat", {"reflections", "rgba"}},
+			{
+				"r16g16b16a16_sfloat",
+				{"reflections", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
 			{"r16_sfloat", {"reflection_depth", "r"}},
 		},
 		framebuffer_count = 2,
