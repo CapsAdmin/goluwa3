@@ -57,7 +57,7 @@ function render.FlushCallbacks(reason)
 end
 
 render.default_bindless_descriptor_capacities = {
-	textures = 4096,
+	textures = 1048576,
 	cubemaps = 256,
 	views = 256,
 	samplers = 32,
@@ -156,26 +156,12 @@ local function refresh_bindless_descriptor_capacities()
 
 	if sampled_image_limit and sampled_image_limit > 0 then
 		sampled_image_limit = math.max(1, sampled_image_limit - RESERVED_DESCRIPTOR_MARGIN)
-		local image_budget = textures + cubemaps + views
-
-		if image_budget > sampled_image_limit then
-			local scale = sampled_image_limit / image_budget
-			textures = math.max(1, math.floor(textures * scale))
-			cubemaps = math.max(0, math.floor(cubemaps * scale))
-			views = math.max(0, sampled_image_limit - textures - cubemaps)
-		end
+		textures = math.max(1, math.min(textures, sampled_image_limit - cubemaps - views))
 	end
 
 	if sampler_limit and sampler_limit > 0 then
 		sampler_limit = math.max(1, sampler_limit - RESERVED_DESCRIPTOR_MARGIN)
-		local sampler_budget = textures + cubemaps + samplers
-
-		if sampler_budget > sampler_limit then
-			local scale = sampler_limit / sampler_budget
-			textures = math.max(1, math.floor(textures * scale))
-			cubemaps = math.max(0, math.floor(cubemaps * scale))
-			samplers = math.max(0, sampler_limit - textures - cubemaps)
-		end
+		textures = math.max(1, math.min(textures, sampler_limit - cubemaps - samplers))
 	end
 
 	render.bindless_descriptor_capacities = {
