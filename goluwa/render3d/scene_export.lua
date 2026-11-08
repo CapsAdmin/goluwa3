@@ -49,13 +49,13 @@ function scene_export.Save(name, options)
 		failed = {},
 		mismatched = {},
 		unserialized = {},
+		missing_textures = {},
 		skipped_models = {},
 		dropped = {},
 		bytes = 0,
 	}
 	local terrain_files = {}
 
-	if options.terrain then
 	if fs.exists(scene.GetSceneDirectory(name)) then
 		assert(fs.remove_directory_recursive(scene.GetSceneDirectory(name)))
 	end
@@ -70,6 +70,7 @@ function scene_export.Save(name, options)
 		assert(os.rename(scene.GetSceneDirectory(name):sub(1, -2), final_directory:sub(1, -2)))
 	end
 
+	if options.terrain then
 		for _, record in ipairs(data.entities) do
 			local properties = record.components.terrain
 
@@ -134,8 +135,12 @@ function scene_export.Save(name, options)
 				material.bake_key and
 				file_name and
 				material_bake.GetCachePath(material.bake_key) .. file_name
+			local texture_data = path and options.textures and (vfs.Read(path) or fs.read_file(path))
 
-			if path and options.textures then
+			if path and options.textures and not texture_data then
+				stats.missing_textures[path] = material:GetName()
+				relative_paths[info.texture] = path
+			elseif texture_data then
 				local copied_name = file_path.GetFileNameFromPath(path)
 
 				if copied[copied_name] then
@@ -143,7 +148,6 @@ function scene_export.Save(name, options)
 				end
 
 				copied[copied_name] = true
-				local texture_data = assert(vfs.Read(path) or fs.read_file(path))
 				assert(fs.write_file(directory .. copied_name, texture_data))
 				relative_paths[info.texture] = copied_name
 				stats.copied_textures = stats.copied_textures + 1

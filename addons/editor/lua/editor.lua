@@ -173,7 +173,7 @@ local function make_menu_items(h)
 									options.materials = options.materials or options.textures or options.models
 									local stats = scene_export.Save(name, options)
 									logf(
-										"saved %d root entities to %s, %d materials, %d models, %d terrains, %d textures (%.1f mb), %d failed to load back, %d differ after loading\n",
+										"saved %d root entities to %s, %d materials, %d models, %d terrains, %d textures (%.1f mb), %d failed to load back, %d differ after loading, %d textures could not be read\n",
 										stats.entities,
 										scene.GetPath(name),
 										stats.materials,
@@ -182,7 +182,8 @@ local function make_menu_items(h)
 										stats.copied_textures,
 										stats.bytes / 1048576,
 										table.count(stats.failed),
-										table.count(stats.mismatched)
+										table.count(stats.mismatched),
+										table.count(stats.missing_textures)
 									)
 								end,
 							}
