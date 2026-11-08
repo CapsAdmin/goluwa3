@@ -66,6 +66,11 @@ local occlusion_enabled = pvars.Setup2{
 	default = true,
 	help = "skip the scattered models the previous frame's depth hides from the camera (terrain, rocks, other trees)",
 }
+local lod_enabled = pvars.Setup2{
+	key = "r_scatter_lod",
+	default = true,
+	help = "draw the coarse mesh level of detail of the models that have one between the full model and its billboard",
+}
 local billboard_scale = pvars.Setup2{
 	key = "r_scatter_billboard_distance",
 	default = 0.75,
@@ -1132,20 +1137,58 @@ function create_compute_passes()
 					float switch_distance = proto.bounds.z;
 					float band = proto.bounds.w;
 					float blend = switch_distance > 0.0 ? clamp((d - switch_distance * (1.0 - band)) / (2.0 * switch_distance * band), 0.0, 1.0) : 0.0;
+					uint mid_index = proto.info2.z;
+					float mid_distance = mid_index != 0u ? proto.limits.x : 0.0;
+					float mid_blend = mid_distance > 0.0 ? clamp((d - mid_distance * (1.0 - band)) / (2.0 * mid_distance * band), 0.0, 1.0) : 0.0;
 
 					if (proto.info.w != 0u) {
-						bool billboard_shadow = switch_distance > 0.0 && d >= switch_distance;
-						uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, billboard_shadow ? 3u : 2u)], 1u);
+						if (switch_distance > 0.0 && d >= switch_distance) {
+							uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 3u)], 1u);
 
-						if (slot < (billboard_shadow ? proto.info4.y : proto.info3.y)) {
-							world[0][3] = 0.0;
-							scatter_output[(billboard_shadow ? proto.info4.x : proto.info3.x) + slot] = world;
+							if (slot < proto.info4.y) {
+								world[0][3] = 0.0;
+								scatter_output[proto.info4.x + slot] = world;
+							}
+						} else if (mid_distance > 0.0 && d >= mid_distance) {
+							ScatterPrototype mid = scatter_prototypes[mid_index - 1u];
+							uint slot = atomicAdd(scatter_counts[scatter_counter(mid_index - 1u, 2u)], 1u);
+
+							if (slot < mid.info3.y) {
+								world[0][3] = 0.0;
+								scatter_output[mid.info3.x + slot] = world;
+							}
+						} else {
+							uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 2u)], 1u);
+
+							if (slot < proto.info3.y) {
+								world[0][3] = 0.0;
+								scatter_output[proto.info3.x + slot] = world;
+							}
 						}
 					}
 
 					if (!in_view || scatter_occluded(bounds_center, bounds_radius)) return;
 
-					if (switch_distance == 0.0 || blend < 1.0) {
+					if (mid_distance > 0.0) {
+						if (mid_blend < 1.0) {
+							uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 0u)], 1u);
+
+							if (slot < proto.info.y) {
+								world[0][3] = mid_blend;
+								scatter_output[proto.info.x + slot] = world;
+							}
+						}
+
+						if (mid_blend > 0.0 && (switch_distance == 0.0 || blend < 1.0)) {
+							ScatterPrototype mid = scatter_prototypes[mid_index - 1u];
+							uint slot = atomicAdd(scatter_counts[scatter_counter(mid_index - 1u, 0u)], 1u);
+
+							if (slot < mid.info.y) {
+								world[0][3] = mid_blend < 1.0 ? mid_blend - 1.0 : (switch_distance > 0.0 ? blend : lod_fade);
+								scatter_output[mid.info.x + slot] = world;
+							}
+						}
+					} else if (switch_distance == 0.0 || blend < 1.0) {
 						uint slot = atomicAdd(scatter_counts[scatter_counter(proto_index, 0u)], 1u);
 
 						if (slot < proto.info.y) {
@@ -1442,6 +1485,10 @@ local function write_prototype(
 	out.info4[1] = proto.shadow_billboard_room
 	out.info4[2] = shadow_out_billboard_base
 	out.limits[3] = proto.align_steep
+	local mid = proto.mid
+	local has_mid = mid and mid.state == "ready" and proto.sized_mid > 0
+	out.info2[2] = has_mid and mid.index + 1 or 0
+	out.limits[0] = has_mid and proto.sized_mid or 0
 	out.limits[2] = RAY_QUERY and
 		proto.conform and
 		proto.state == "ready" and
@@ -1488,6 +1535,23 @@ local function get_switch(proto)
 	)
 end
 
+local function get_mid_switch(proto)
+	local mid = proto.mid
+
+	if not (mid and mid.state == "ready" and lod_enabled:Get()) then return 0 end
+
+	local switch = get_switch(proto)
+	local far = proto.max_distance * proto.distance_multiplier * get_reach(proto)
+	return math.min(
+		proto.lod_distance * proto.distance_multiplier * (
+				switch > 0 and
+				billboard_scale:Get() or
+				1
+			),
+		(switch > 0 and switch or far) * 0.5
+	)
+end
+
 local function estimate_room(proto, from, to, view)
 	local set = proto.set
 	local far = proto.max_distance * proto.distance_multiplier * proto.reach
@@ -1514,7 +1578,47 @@ local function estimate_room(proto, from, to, view)
 	return math.max(math.ceil(count * scatter.GROW_MARGIN), scatter.MIN_ROOM)
 end
 
+local function size_mid(mid)
+	local proto = mid.parent
+	mid.reach = 1
+	mid.sized_density = mid.density_multiplier
+	mid.sized_distance = mid.distance_multiplier
+	mid.sized_reach = 1
+	mid.sized_scale = billboard_scale:Get()
+	mid.sized_switch = 0
+	mid.sized_mid = 0
+	mid.capacity = scatter.MIN_ROOM
+	mid.shadow_capacity = scatter.MIN_ROOM
+	local from = proto.sized_mid
+
+	if from > 0 then
+		local far = proto.max_distance * proto.distance_multiplier * proto.reach
+		local switch = proto.sized_switch
+		local last = switch > 0 and switch or far
+		mid.capacity = estimate_room(
+			proto,
+			from * (1 - proto.billboard_fade),
+			math.min(last * (switch > 0 and 1 + proto.billboard_fade or 1), far),
+			proto.shadow and 1 or 0.5
+		)
+
+		if proto.shadow then
+			mid.shadow_capacity = estimate_room(proto, from, last, 1)
+		end
+	end
+
+	mid.peak = mid.capacity / scatter.GROW_MARGIN
+	mid.far_capacity = scatter.MIN_ROOM
+	mid.far_peak = mid.far_capacity / scatter.GROW_MARGIN
+	mid.shadow_peak = mid.shadow_capacity / scatter.GROW_MARGIN
+	mid.shadow_billboard_capacity = scatter.MIN_ROOM
+	mid.shadow_billboard_peak = mid.shadow_billboard_capacity / scatter.GROW_MARGIN
+	layout_dirty = true
+end
+
 local function size_prototype(proto)
+	if proto.parent then return size_mid(proto) end
+
 	local set = proto.set
 	proto.reach = get_reach(proto)
 	local far = proto.max_distance * proto.distance_multiplier * proto.reach
@@ -1524,7 +1628,9 @@ local function size_prototype(proto)
 	proto.sized_reach = proto.reach
 	proto.sized_scale = billboard_scale:Get()
 	proto.sized_switch = switch
-	local model_end = switch > 0 and math.min(switch * (1 + proto.billboard_fade), far) or far
+	proto.sized_mid = get_mid_switch(proto)
+	local first = proto.sized_mid > 0 and proto.sized_mid or switch
+	local model_end = first > 0 and math.min(first * (1 + proto.billboard_fade), far) or far
 	local placed_room = proto.placed and math.max(proto.placed_count or 0, scatter.MIN_ROOM)
 
 	if proto.max_instances then
@@ -1545,7 +1651,7 @@ local function size_prototype(proto)
 	proto.shadow_capacity = scatter.MIN_ROOM
 
 	if proto.shadow then
-		proto.shadow_capacity = placed_room or estimate_room(proto, 0, switch > 0 and switch or far, 1)
+		proto.shadow_capacity = placed_room or estimate_room(proto, 0, first > 0 and first or far, 1)
 	end
 
 	proto.shadow_peak = proto.shadow_capacity / scatter.GROW_MARGIN
@@ -1557,6 +1663,8 @@ local function size_prototype(proto)
 
 	proto.shadow_billboard_peak = proto.shadow_billboard_capacity / scatter.GROW_MARGIN
 	layout_dirty = true
+
+	if proto.mid then size_mid(proto.mid) end
 end
 
 local function assign_bases()
@@ -2623,25 +2731,29 @@ function scatter.PreDraw(cmd)
 	apply_unit_counts(b, ring)
 
 	for _, proto in ipairs(protos) do
-		local wanted_reach = get_reach(proto)
+		if not proto.parent then
+			local wanted_reach = get_reach(proto)
 
-		if
-			proto.sized_density ~= proto.density_multiplier or
-			proto.sized_distance ~= proto.distance_multiplier or
-			proto.sized_reach ~= wanted_reach
-		then
-			bake_epoch = bake_epoch + 1
-		end
+			if
+				proto.sized_density ~= proto.density_multiplier or
+				proto.sized_distance ~= proto.distance_multiplier or
+				proto.sized_reach ~= wanted_reach
+			then
+				bake_epoch = bake_epoch + 1
+			end
 
-		if
-			proto.sized_density ~= proto.density_multiplier or
-			proto.sized_distance ~= proto.distance_multiplier or
-			proto.sized_reach ~= wanted_reach or
-			proto.sized_scale ~= billboard_scale:Get()
-			or
-			proto.sized_switch ~= get_switch(proto)
-		then
-			size_prototype(proto)
+			if
+				proto.sized_density ~= proto.density_multiplier or
+				proto.sized_distance ~= proto.distance_multiplier or
+				proto.sized_reach ~= wanted_reach or
+				proto.sized_scale ~= billboard_scale:Get()
+				or
+				proto.sized_switch ~= get_switch(proto)
+				or
+				proto.sized_mid ~= get_mid_switch(proto)
+			then
+				size_prototype(proto)
+			end
 		end
 	end
 

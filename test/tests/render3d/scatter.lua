@@ -193,6 +193,30 @@ T.Test("scatter prototypes conform to the ground only when asked", function()
 	T(build_prototype{conform = true}.conform)["=="](true)
 end)
 
+T.Test("scatter set lods are normalized and get a companion prototype", function()
+	local proto = build_prototype{lod = {distance = 40, fade = 0.2}}
+	T(proto.lod_distance)["=="](40)
+	T(proto.billboard_fade)["=="](0.2)
+	T(proto.mid.parent)["=="](proto)
+	T(proto.mid.state)["=="]("loading")
+	T(build_prototype().mid)["=="](nil)
+
+	raises(function()
+		build_prototype{lod = {far = 1}}
+	end, "unknown lod key far")
+
+	raises(function()
+		build_prototype{lod = {}}
+	end, "needs a distance")
+
+	raises(
+		function()
+			build_prototype{lod = {distance = 10}, placed = true}
+		end,
+		"cannot have a lod"
+	)
+end)
+
 T.Test("scatter set billboards are normalized and need a path", function()
 	local proto = build_prototype{billboard = true}
 	T(proto.billboard_distance)["=="](150)
@@ -250,11 +274,9 @@ end
 
 local cube_count = 0
 
-local function create_red_cubes(overrides)
-	-- a cube of its own size, meshes with the same vertices are shared and a mesh of an earlier test may be on its way out
-	cube_count = cube_count + 1
+local function create_cube(size, color, lod_level)
 	local cube = Polygon3D.New()
-	shapes.BuildCube(cube, 0.25 + cube_count * 0.001)
+	shapes.BuildCube(cube, size)
 	local indices = {}
 
 	for i = 1, #cube.Vertices do
@@ -262,10 +284,23 @@ local function create_red_cubes(overrides)
 	end
 
 	cube:Upload(indices)
-	local material = Material.New{ColorMultiplier = Color(1, 0, 0, 1)}
+	cube:SetLODLevel(lod_level or 0)
+	return {mesh = cube, material = Material.New{ColorMultiplier = color}}
+end
+
+local function create_red_cubes(overrides)
+	-- a cube of its own size, meshes with the same vertices are shared and a mesh of an earlier test may be on its way out
+	cube_count = cube_count + 1
+	local entries = {create_cube(0.25 + cube_count * 0.001, Color(1, 0, 0, 1))}
+
+	if overrides and overrides.green_lod then
+		entries[2] = create_cube(0.25 + cube_count * 0.001 + 0.0005, Color(0, 1, 0, 1), 1)
+		overrides.green_lod = nil
+	end
+
 	local definition = {
 		model = function()
-			return {{mesh = cube, material = material}}
+			return entries
 		end,
 		density = 6,
 		max_distance = 40,
@@ -280,7 +315,7 @@ local function create_red_cubes(overrides)
 	return ScatterSet.New{Name = "test_cubes_" .. cube_count, Prototypes = {definition}}
 end
 
-local function draw_red_share(draw, set, tilt)
+local function draw_color_share(draw, set, tilt, is_color)
 	local camera = render3d.GetCamera()
 	camera:SetFOV(math.rad(60))
 	camera:SetNearZ(0.1)
@@ -303,7 +338,7 @@ local function draw_red_share(draw, set, tilt)
 			local r, g = image:GetPixel(math.floor(size.x / 2) + x * 8, math.floor(size.y / 2) + y * 8)
 			total = total + 1
 
-			if r > 150 and g < 100 then red = red + 1 end
+			if is_color(r, g) then red = red + 1 end
 		end
 	end
 
@@ -314,10 +349,33 @@ local function draw_red_share(draw, set, tilt)
 	return red / total
 end
 
+local function is_red(r, g)
+	return r > 150 and g < 100
+end
+
+local function is_green(r, g)
+	return g > 150 and r < 100
+end
+
+local function draw_red_share(draw, set, tilt)
+	return draw_color_share(draw, set, tilt, is_red)
+end
+
 T.Test3D("Graphics render3d scatter grows a set on a surface", function(draw)
 	local set = create_red_cubes()
 	T(draw_red_share(draw, set))[">"](0.15)
 	set:Remove()
+end)
+
+T.Test3D("Graphics render3d scatter swaps a model for its coarse lod past the lod distance", function(draw)
+	local near = create_red_cubes{green_lod = true, lod = {distance = 1000}}
+	T(draw_color_share(draw, near, 0, is_red))[">"](0.15)
+	T(draw_color_share(draw, near, 0, is_green))["=="](0)
+	near:Remove()
+	local far = create_red_cubes{green_lod = true, lod = {distance = 1}}
+	T(draw_color_share(draw, far, 0, is_green))[">"](0.15)
+	T(draw_color_share(draw, far, 0, is_red))["<"](0.05)
+	far:Remove()
 end)
 
 T.Test3D("Graphics render3d scatter keeps off slopes it is not set to grow on", function(draw)

@@ -21,6 +21,7 @@ local DEFAULTS = {
 	shadow = true,
 	bvh = true,
 	billboard = false,
+	lod = false,
 	cluster = {scale = 8, amount = 0},
 	layers = {1, 1, 1, 1},
 	slope = {0, 90, 10},
@@ -52,6 +53,7 @@ local COLOR_KEYS = {
 	tint_amount = true,
 }
 local CLUSTER_KEYS = {scale = true, amount = true}
+local LOD_KEYS = {distance = true, fade = true}
 
 local function to_range(value, name)
 	if type(value) == "number" then return {value, value} end
@@ -138,6 +140,7 @@ local function normalize_prototype(definition, set_name, index)
 		bvh = get("bvh"),
 		billboard_distance = 0,
 		billboard_fade = 0.15,
+		lod_distance = 0,
 		cluster_scale = cluster.scale or DEFAULTS.cluster.scale,
 		cluster_amount = cluster.amount or DEFAULTS.cluster.amount,
 		layers = {layers[1], layers[2], layers[3], layers[4]},
@@ -185,6 +188,22 @@ local function normalize_prototype(definition, set_name, index)
 		)
 	end
 
+	local lod = get("lod")
+
+	if lod then
+		assert(not proto.placed, name .. " is placed and cannot have a lod")
+		check_keys(lod, LOD_KEYS, "lod")
+		proto.lod_distance = lod.distance
+		proto.billboard_fade = lod.fade or proto.billboard_fade
+		assert(
+			proto.lod_distance and
+				proto.lod_distance > 0 and
+				proto.billboard_fade > 0 and
+				proto.billboard_fade < 1,
+			name .. ".lod needs a distance and a fade between 0 and 1"
+		)
+	end
+
 	assert(proto.density > 0, name .. ".density must be above zero")
 	assert(
 		proto.max_instances == nil or proto.max_instances > 0,
@@ -194,6 +213,21 @@ local function normalize_prototype(definition, set_name, index)
 		proto.full_density_distance > 0 and proto.max_distance > 0,
 		name .. " distances must be above zero"
 	)
+
+	if proto.lod_distance > 0 then
+		next_uid = next_uid + 1
+		local mid = table.shallow_copy(proto)
+		mid.uid = next_uid
+		mid.name = name .. ".lod"
+		mid.parent = proto
+		mid.state = "loading"
+		mid.parts = {}
+		mid.max_instances = nil
+		mid.billboard_distance = 0
+		mid.lod_distance = 0
+		proto.mid = mid
+	end
+
 	return proto
 end
 
@@ -244,6 +278,8 @@ end
 function ScatterSet:UpdateMultipliers()
 	for _, proto in ipairs(self.protos) do
 		apply_multipliers(self, proto)
+
+		if proto.mid then apply_multipliers(self, proto.mid) end
 	end
 end
 
@@ -261,6 +297,11 @@ function ScatterSet:BuildPrototypes()
 	for _, proto in ipairs(built) do
 		proto.set = self
 		apply_multipliers(self, proto)
+
+		if proto.mid then
+			proto.mid.set = self
+			apply_multipliers(self, proto.mid)
+		end
 	end
 
 	if active[self] then ScatterSet.Rebuild() end
@@ -277,7 +318,7 @@ local function finish_loading(proto, entries)
 	local min_x, min_y, min_z = math.huge, math.huge, math.huge
 	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
 	proto.parts = {}
-	proto.lod_parts = nil
+	local lod_parts
 	local lod_level = 0
 	local override_slots, override_material
 
@@ -315,15 +356,21 @@ local function finish_loading(proto, entries)
 
 			if level > lod_level then
 				lod_level = level
-				proto.lod_parts = {}
+				lod_parts = {}
 			end
 
 			if level == lod_level then
-				proto.lod_parts[#proto.lod_parts + 1] = {
-					mesh = mesh,
-					polygon = polygon,
-					material = entry.material or render3d.GetDefaultMaterial(),
-				}
+				local material = entry.material or render3d.GetDefaultMaterial()
+
+				if override_slots then
+					material = override_slots[polygon:GetMaterialSlot()] or material
+				elseif override_material then
+					material = override_material
+				end
+
+				if proto.bending then material:SetBending(proto.bending) end
+
+				lod_parts[#lod_parts + 1] = {mesh = mesh, polygon = polygon, material = material}
 			end
 		end
 	end
@@ -331,13 +378,31 @@ local function finish_loading(proto, entries)
 	if not proto.parts[1] then
 		proto.state = "failed"
 		logf("scatter prototype %s has no meshes\n", proto.name)
+
+		if proto.mid then proto.mid.state = "failed" end
 	else
 		proto.state = "ready"
+
+		if proto.mid then
+			proto.mid.parts = lod_parts or {}
+			proto.mid.state = lod_parts and "ready" or "failed"
+
+			if not lod_parts then
+				logf("scatter prototype %s asks for a lod but its model has none\n", proto.name)
+			end
+		end
+
 		proto.height = math.max(max_y, 0.01)
 		proto.footprint = 0.25 * ((max_x - min_x) + (max_z - min_z))
 		proto.radius = math.sqrt(
 			math.max(min_x * min_x, max_x * max_x) + math.max(min_y * min_y, max_y * max_y) + math.max(min_z * min_z, max_z * max_z)
 		)
+
+		if proto.mid then
+			proto.mid.height = proto.height
+			proto.mid.footprint = proto.footprint
+			proto.mid.radius = proto.radius
+		end
 
 		if proto.billboard_radii then
 			proto.billboard_distance = proto.billboard_radii * proto.radius
@@ -369,6 +434,9 @@ local function load_prototype(proto)
 			nil,
 			function(err)
 				proto.state = "failed"
+
+				if proto.mid then proto.mid.state = "failed" end
+
 				logf("scatter prototype %s failed to load %s: %s\n", proto.name, source, err)
 				ScatterSet.version = ScatterSet.version + 1
 			end
@@ -395,6 +463,16 @@ function ScatterSet.Rebuild()
 			assert(#prototypes < ScatterSet.MAX_PROTOTYPES, "too many scatter prototypes in use")
 			prototypes[#prototypes + 1] = proto
 			proto.index = #prototypes - 1
+		end
+	end
+
+	for _, set in ipairs(sets) do
+		for _, proto in ipairs(set.protos) do
+			if proto.mid then
+				assert(#prototypes < ScatterSet.MAX_PROTOTYPES, "too many scatter prototypes in use")
+				prototypes[#prototypes + 1] = proto.mid
+				proto.mid.index = #prototypes - 1
+			end
 		end
 	end
 
