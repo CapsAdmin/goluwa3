@@ -291,6 +291,9 @@ do
 			path = "rasterizer.line_width",
 			validate = "number",
 			dynamic_state = "line_width",
+			setter = function(cmd, cache, val)
+				cmd:SetLineWidth(val)
+			end,
 			has_dynamic_state = has_dynamic_state_basic,
 		}
 	)

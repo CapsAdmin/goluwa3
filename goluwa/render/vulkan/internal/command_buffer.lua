@@ -759,6 +759,12 @@ function CommandBuffer:SetCullMode(cull_mode)
 	end
 end
 
+function CommandBuffer:SetLineWidth(width)
+	if not should_apply_dynamic_state(self, "line_width", width) then return end
+
+	vulkan.lib.vkCmdSetLineWidth(self.ptr[0], width)
+end
+
 function CommandBuffer:SetFrontFace(front_face)
 	if not should_apply_dynamic_state(self, "front_face", front_face or "clockwise") then
 		return
