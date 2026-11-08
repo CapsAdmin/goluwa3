@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local FlagSet = import("goluwa/render/flag_set.lua")
 local typeof
 local FIELD_TYPE_BYTE_SIZE = {
 	float = 4,
@@ -57,6 +58,8 @@ local function flatten_fields(fields, out)
 	for _, field in ipairs(fields) do
 		if type(field[1]) == "table" then
 			flatten_fields(field, out)
+		elseif getmetatable(field[2]) == FlagSet then
+			flatten_fields(field[2]:GetBlockFields(field[1]), out)
 		else
 			table.insert(out, field)
 		end

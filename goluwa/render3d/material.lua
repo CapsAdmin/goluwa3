@@ -10,6 +10,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
+local FlagSet = import("goluwa/render/flag_set.lua")
 local Material = objects.CreateTemplate("render3d_material")
 Material:StartStorable({versioned = true})
 Material:StartCategory("Albedo")
@@ -151,7 +152,6 @@ Material:StartCategory("Source")
 Material:GetSet("OriginalMaterial", "", {multiline = true})
 Material:EndCategory()
 Material:EndStorable()
-Material:GetSet("Flags", 0)
 Material.property_version = 0
 
 function Material:Touch()
@@ -348,7 +348,7 @@ end
 
 function Material:ResetToDefaults()
 	for _, info in ipairs(objects.GetStorableVariables(self)) do
-		if info.var_name ~= "Name" and info.var_name ~= "Flags" then
+		if info.var_name ~= "Name" then
 			self[info.set_name](self, info.copy and info.copy() or info.default)
 		end
 	end
@@ -464,14 +464,13 @@ local FLAGS = {
 	"Unlit",
 	"SimpleLighting",
 }
-Material.FlagBits = {}
+Material.FlagSet = FlagSet.New(FLAGS)
+Material.flag_words = Material.FlagSet:NewWords()
 
-for i, flag_name in ipairs(FLAGS) do
+for _, flag_name in ipairs(FLAGS) do
 	if not Material["Get" .. flag_name] then
 		error("Material is missing flag getter: " .. flag_name)
 	end
-
-	Material.FlagBits[flag_name] = bit.lshift(1, i - 1)
 end
 
 Material.flags_generation = 0
@@ -530,15 +529,23 @@ function Material:InvalidateFlags()
 	self:InvalidateSceneKey()
 	self:InvalidateEmission()
 	self:InvalidateRayMaterial()
-	local flags = 0
+	local words = rawget(self, "flag_words")
 
-	for i, flag_name in ipairs(FLAGS) do
+	if not words then
+		words = Material.FlagSet:NewWords()
+		self.flag_words = words
+	end
+
+	for word = 0, Material.FlagSet:GetWordCount() - 1 do
+		words[word] = 0
+	end
+
+	for _, flag_name in ipairs(FLAGS) do
 		if self["Get" .. flag_name](self) then
-			flags = bit.bor(flags, bit.lshift(1, i - 1))
+			Material.FlagSet:Set(words, flag_name, true)
 		end
 	end
 
-	self.Flags = flags
 	self:InvalidateShadow()
 end
 
@@ -573,8 +580,8 @@ end
 function Material:GetDebugFlagMap()
 	local tbl = {}
 
-	for i, flag_name in ipairs(FLAGS) do
-		tbl[flag_name] = bit.band(self.Flags, bit.lshift(1, i - 1)) ~= 0
+	for _, flag_name in ipairs(FLAGS) do
+		tbl[flag_name] = Material.FlagSet:Has(self.flag_words, flag_name)
 	end
 
 	return tbl
@@ -597,7 +604,8 @@ function Material:GetTextures()
 end
 
 do
-	local LUMINANCE_BIT = Material.FlagBits.AlbedoLuminanceIsRoughness
+	local LUMINANCE_WORD = Material.FlagSet:GetWord("AlbedoLuminanceIsRoughness")
+	local LUMINANCE_MASK = Material.FlagSet:GetMask("AlbedoLuminanceIsRoughness")
 	pvars.StartGroup("Rendering", "Materials", {store = false})
 	local luminance_roughness = pvars.Setup2{
 		key = "r_albedo_luminance_roughness",
@@ -611,29 +619,31 @@ do
 	}
 	pvars.EndGroup()
 
-	function Material:GetFillFlags()
+	function Material:GetFillFlags(word)
 		if
+			word == LUMINANCE_WORD and
 			luminance_roughness:Get() and
 			self.Refraction == 0 and
 			not self:HasExplicitRoughnessTexture()
 		then
-			return bit.bor(self.Flags, LUMINANCE_BIT)
+			return bit.bor(self.flag_words[word], LUMINANCE_MASK)
 		end
 
-		return self.Flags
+		return self.flag_words[word]
 	end
 end
 
 do
-	local TRANSLUCENT_FLAG = Material.FlagBits.Translucent
+	local TRANSLUCENT_WORD = Material.FlagSet:GetWord("Translucent")
+	local TRANSLUCENT_MASK = Material.FlagSet:GetMask("Translucent")
 	local REFRACTION_TRANSMITTANCE = 0.9
 
-	function Material:GetShadowFlags()
-		if self.Refraction > 0 or self.Additive then
-			return bit.bor(self.Flags, TRANSLUCENT_FLAG)
+	function Material:GetShadowFlags(word)
+		if word == TRANSLUCENT_WORD and (self.Refraction > 0 or self.Additive) then
+			return bit.bor(self.flag_words[word], TRANSLUCENT_MASK)
 		end
 
-		return self.Flags
+		return self.flag_words[word]
 	end
 
 	function Material:GetShadowOpacity()
@@ -691,20 +701,6 @@ function Material:InvalidateShadow()
 	end
 
 	self.ray_shadow_opacity = opacity
-end
-
-function Material:GetLightFlags()
-	return self.Flags
-end
-
-function Material.BuildGlslFlags(var_name)
-	local str = ""
-
-	for i, flag_name in ipairs(FLAGS) do
-		str = str .. "#define " .. flag_name .. " ((" .. var_name .. " & " .. tostring(bit.lshift(1, i - 1)) .. ") != 0)\n"
-	end
-
-	return str
 end
 
 do

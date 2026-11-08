@@ -6,26 +6,27 @@ local Visual = import("goluwa/entities/components/visual.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local TRANSLUCENT_FLAG = Material.FlagBits.Translucent
+local TRANSLUCENT_WORD = Material.FlagSet:GetWord("Translucent")
+local TRANSLUCENT_FLAG = Material.FlagSet:GetMask("Translucent")
 
 T.Test("Graphics render3d translucent materials stop the share of light their alpha covers", function()
 	local material = Material.New{Translucent = true, ColorMultiplier = Color(1, 1, 1, 0.75)}
 	T(material:GetShadowOpacity())["~"](0.75)
 	T(material:GetRayShadowOpacity())["~"](0.75)
-	T(bit.band(material:GetShadowFlags(), TRANSLUCENT_FLAG))["=="](TRANSLUCENT_FLAG)
+	T(bit.band(material:GetShadowFlags(TRANSLUCENT_WORD), TRANSLUCENT_FLAG))["=="](TRANSLUCENT_FLAG)
 end)
 
 T.Test("Graphics render3d additive materials stop no light", function()
 	local material = Material.New{Additive = true, Translucent = true}
 	T(material:GetShadowOpacity())["=="](0)
 	T(material:GetRayShadowOpacity())["=="](0)
-	T(bit.band(material:GetShadowFlags(), TRANSLUCENT_FLAG))["=="](TRANSLUCENT_FLAG)
+	T(bit.band(material:GetShadowFlags(TRANSLUCENT_WORD), TRANSLUCENT_FLAG))["=="](TRANSLUCENT_FLAG)
 end)
 
 T.Test("Graphics render3d refracting materials stop what their faces reflect and their tint absorbs", function()
 	local clear = Material.New{Refraction = 1}
 	T(clear:GetShadowOpacity())["~"](0.1)
-	T(bit.band(clear:GetShadowFlags(), TRANSLUCENT_FLAG))["=="](TRANSLUCENT_FLAG)
+	T(bit.band(clear:GetShadowFlags(TRANSLUCENT_WORD), TRANSLUCENT_FLAG))["=="](TRANSLUCENT_FLAG)
 	local tinted = Material.New{Refraction = 1, ColorMultiplier = Color(0.4, 0.7, 1, 1)}
 	T(tinted:GetShadowOpacity() > clear:GetShadowOpacity())["=="](true)
 	T(tinted:GetShadowOpacity() < 1)["=="](true)

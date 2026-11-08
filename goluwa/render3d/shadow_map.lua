@@ -193,12 +193,19 @@ local function get_cascade_depth_format(cascade_formats, cascade_index, default_
 	return cascade_formats[cascade_index] or default_format
 end
 
+local shadow_flag_fields = Material.FlagSet:GetBlockFields("flags")
 local ShadowBatchRecord = ffi.typeof(
 	[[struct {
 		uint32_t addresses[4];
 		uint32_t index_is_32;
 		int32_t albedo_texture_index;
-		int32_t flags;
+		]] .. table.concat(
+			list.map(shadow_flag_fields, function(field)
+				return "int32_t " .. field[1] .. ";"
+			end),
+			" "
+		) .. [[
+
 		float color_multiplier_a;
 		float alpha_cutoff;
 		int32_t normal_texture_index;
@@ -251,7 +258,13 @@ do
 		uvec4 addresses;
 		uint index_is_32;
 		int albedo_texture_index;
-		int flags;
+]] .. table.concat(
+			list.map(shadow_flag_fields, function(field)
+				return "\t\tint " .. field[1] .. ";"
+			end),
+			"\n"
+		) .. [[
+
 		float color_multiplier_a;
 		float alpha_cutoff;
 		int normal_texture_index;
@@ -410,7 +423,7 @@ local function build_shadow_multi_draw_fragment_stage(bindless_texture_capacity,
 				linear_depth_output and
 				"layout(location = 2) in vec3 in_world_pos;\nlayout(location = 0) out float out_distance;" or
 				""
-			) .. "\n" .. Material.BuildGlslFlags("SHADOW_BATCH[in_batch].flags") .. build_shadow_alpha_glsl("SHADOW_BATCH[in_batch]") .. model_pipeline.BuildAlphaDiscardGlsl("SHADOW_BATCH[in_batch].alpha_cutoff", "alpha") .. (
+			) .. "\n" .. Material.FlagSet:BuildGlsl("SHADOW_BATCH[in_batch].flags") .. build_shadow_alpha_glsl("SHADOW_BATCH[in_batch]") .. model_pipeline.BuildAlphaDiscardGlsl("SHADOW_BATCH[in_batch].alpha_cutoff", "alpha") .. (
 				linear_depth_output and
 				[[
 					void main() {
@@ -1484,7 +1497,12 @@ end
 local function write_shadow_batch_record(self, pipeline, record, batch)
 	local material = batch.material
 	record.albedo_texture_index = cache_shadow_material_texture_indices(self, material, pipeline).albedo_texture_index
-	record.flags = material:GetShadowFlags()
+	record.flags = material:GetShadowFlags(0)
+
+	for word = 1, Material.FlagSet:GetWordCount() - 1 do
+		record[Material.FlagSet.GetFieldName("flags", word)] = material:GetShadowFlags(word)
+	end
+
 	record.color_multiplier_a = material:GetShadowOpacity()
 	record.alpha_cutoff = material:GetAlphaCutoff()
 	record.shell_sink = material:GetHeightShell() * material:GetHeightMidlevel()

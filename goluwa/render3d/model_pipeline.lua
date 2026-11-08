@@ -14,7 +14,7 @@ local shader_features = import("goluwa/render3d/shader_features.lua")
 local trace_break = import("goluwa/jit/tracebreak.lua")
 local model_pipeline = {}
 local SURFACE_MATERIAL_FIELDS = {
-	{type = "int", name = "Flags", getter = "GetFillFlags"},
+	{type = "flags", name = "Flags", getter = "GetFillFlags"},
 	{type = "texture", name = "AlbedoTexture", getter = "GetAlbedoTexture"},
 	{type = "texture", name = "NormalTexture", getter = "GetNormalTexture"},
 	{type = "texture", name = "EmissiveTexture", getter = "GetEmissiveTexture"},
@@ -30,7 +30,7 @@ local SURFACE_MATERIAL_FIELDS = {
 	{type = "float", name = "OcclusionSoftness", getter = "GetOcclusionSoftness"},
 }
 local PBR_MATERIAL_FIELDS = {
-	{type = "int", name = "Flags", getter = "GetFillFlags"},
+	{type = "flags", name = "Flags", getter = "GetFillFlags"},
 	{type = "texture", name = "AlbedoTexture", getter = "GetAlbedoTexture"},
 	{type = "texture", name = "NormalTexture", getter = "GetNormalTexture"},
 }
@@ -93,7 +93,7 @@ local PBR_AUX_FIELDS = {
 	{type = "texture", name = "RoughnessTexture", getter = "GetRoughnessTexture"},
 }
 local PROBE_MATERIAL_FIELDS = {
-	{type = "int", name = "Flags", getter = "GetFillFlags"},
+	{type = "flags", name = "Flags", getter = "GetFillFlags"},
 	{type = "texture", name = "AlbedoTexture", getter = "GetAlbedoTexture"},
 	{type = "texture", name = "Albedo2Texture", getter = "GetAlbedo2Texture"},
 	{type = "texture", name = "NormalTexture", getter = "GetNormalTexture"},
@@ -676,11 +676,15 @@ end
 local function build_material_block(field_defs)
 	local block = {}
 
-	for i, def in ipairs(field_defs) do
+	for _, def in ipairs(field_defs) do
 		if def.type == "texture" then
-			block[i] = {def.name, "int"}
+			block[#block + 1] = {def.name, "int"}
+		elseif def.type == "flags" then
+			for _, field in ipairs(Material.FlagSet:GetBlockFields(def.name)) do
+				block[#block + 1] = field
+			end
 		else
-			block[i] = {def.name, def.type}
+			block[#block + 1] = {def.name, def.type}
 		end
 	end
 
@@ -705,7 +709,16 @@ local function build_material_block_writer(name, field_defs)
 			"material." .. def.name or
 			"material:" .. def.getter .. "()"
 
-		if def.type == "texture" then
+		if def.type == "flags" then
+			for word = 0, Material.FlagSet:GetWordCount() - 1 do
+				lines[#lines + 1] = string.format(
+					"\tblock.%s = material:%s(%d)",
+					Material.FlagSet.GetFieldName(def.name, word),
+					def.getter,
+					word
+				)
+			end
+		elseif def.type == "texture" then
 			lines[#lines + 1] = string.format("\tblock.%s = self:GetTextureIndex(%s)", def.name, value)
 		elseif def.type == "vec2" or def.type == "vec3" or def.type == "vec4" then
 			lines[#lines + 1] = string.format("\t%s:CopyToFloatPointer(block.%s)", value, def.name)
@@ -1465,7 +1478,7 @@ function model_pipeline.BuildNormalDecodeGlsl()
 end
 
 function model_pipeline.BuildSurfaceSamplingGlsl()
-	return Material.BuildGlslFlags("model.Flags") .. model_pipeline.BuildNormalDecodeGlsl() .. [[
+	return Material.FlagSet:BuildGlsl("model.Flags") .. model_pipeline.BuildNormalDecodeGlsl() .. [[
 
 			vec4 get_surface_color() {
 				vec4 color = model.ColorMultiplier;
@@ -1609,7 +1622,7 @@ function model_pipeline.GetPBRUniformBuffers()
 end
 
 function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
-	return glsl_common.GetLuminanceGLSL() .. Material.BuildGlslFlags("model.Flags") .. [=[
+	return glsl_common.GetLuminanceGLSL() .. Material.FlagSet:BuildGlsl("model.Flags") .. [=[
 			vec3 get_surface_camera_position() {
 				return ]=] .. camera_block_name .. [=[.camera_position;
 			}

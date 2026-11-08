@@ -77,7 +77,7 @@ T.Test3D("Material:Copy keeps every property and shares nothing mutable with the
 	T(copy:GetRoughnessMultiplier())["=="](0.3)
 	T(copy:GetAlphaTest())["=="](true)
 	T(copy:GetDoubleSided())["=="](true)
-	T(copy.Flags)["=="](source.Flags)
+	T(copy.flag_words[0])["=="](source.flag_words[0])
 	T(copy.vmt_surfaceprop)["=="](source.vmt_surfaceprop)
 	copy:GetColorMultiplier().g = 1
 	copy:SetRoughnessMultiplier(0.9)
