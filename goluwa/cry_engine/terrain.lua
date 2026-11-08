@@ -3,28 +3,6 @@ local Color = import("goluwa/structs/color.lua")
 local Texture = import("goluwa/render/texture.lua")
 local ffi = require("ffi")
 local terrain = {}
-
-local function get_or_create_cry_height_texture(terrain)
-	if terrain.height_texture and terrain.height_texture:IsValid() then
-		return terrain.height_texture
-	end
-
-	terrain.height_texture = Texture.New{
-		width = terrain.height_sample_width,
-		height = terrain.height_sample_height,
-		format = "r16_unorm",
-		buffer = terrain.height_samples or terrain.height_data,
-		mip_map_levels = 1,
-		sampler = {
-			min_filter = "linear",
-			mag_filter = "linear",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		},
-	}
-	return terrain.height_texture
-end
-
 local get_or_create_cry_albedo_texture
 
 do
@@ -121,27 +99,6 @@ do
 	end
 end
 
-local function get_or_create_cry_surface_index_texture(terrain)
-	if terrain.surface_index_texture and terrain.surface_index_texture:IsValid() then
-		return terrain.surface_index_texture
-	end
-
-	terrain.surface_index_texture = Texture.New{
-		width = terrain.surface_slot_width,
-		height = terrain.surface_slot_height,
-		format = "r8_unorm",
-		buffer = terrain.surface_indices,
-		mip_map_levels = 1,
-		sampler = {
-			min_filter = "nearest",
-			mag_filter = "nearest",
-			wrap_s = "clamp_to_edge",
-			wrap_t = "clamp_to_edge",
-		},
-	}
-	return terrain.surface_index_texture
-end
-
 local function get_or_create_cry_terrain_layers(terrain)
 	if terrain.detail_layers then return terrain.detail_layers end
 
@@ -186,245 +143,43 @@ local function get_or_create_cry_terrain_layers(terrain)
 	return layers
 end
 
-local guess_cry_surface_color
-guess_cry_surface_color = function(surface_type)
-	local key = (
-			(
-				surface_type and
-				surface_type.name
-			)
-			or
-			""
-		) .. " " .. (
-			(
-				surface_type and
-				surface_type.detail_material
-			)
-			or
-			""
-		)
-	key = key:lower()
-
-	if
-		key:find("grass", 1, true) or
-		key:find("fern", 1, true) or
-		key:find("leaf", 1, true)
-	then
-		return Color(0.28, 0.40, 0.18, 1)
-	end
-
-	if key:find("sand", 1, true) or key:find("beach", 1, true) then
-		return Color(0.72, 0.66, 0.46, 1)
-	end
-
-	if
-		key:find("cliff", 1, true) or
-		key:find("rock", 1, true) or
-		key:find("stone", 1, true) or
-		key:find("pep", 1, true)
-	then
-		return Color(0.47, 0.45, 0.42, 1)
-	end
-
-	if
-		key:find("road", 1, true) or
-		key:find("asphalt", 1, true) or
-		key:find("con", 1, true)
-	then
-		return Color(0.36, 0.35, 0.33, 1)
-	end
-
-	if
-		key:find("soil", 1, true) or
-		key:find("earth", 1, true) or
-		key:find("ground", 1, true) or
-		key:find("mud", 1, true)
-	then
-		return Color(0.41, 0.31, 0.21, 1)
-	end
-
-	if
-		key:find("river", 1, true) or
-		key:find("wet", 1, true) or
-		key:find("underwater", 1, true)
-	then
-		return Color(0.30, 0.34, 0.30, 1)
-	end
-
-	return Color(0.5, 0.48, 0.43, 1)
-end
-
-local function build_cry_terrain_source(terrain)
-	local ShaderSource = import("goluwa/terrain/shader_source.lua")
-	local world_size = math.max(terrain.world_size or 0, 1)
+-- the terrain of a level in the data of the engine's heightmap source (see
+-- terrain/heightmap_source.lua): the cover sectors become the color map, the surface types the layers.
+-- The world of cry has x and z swapped and mirrored in the map, hence the uv.
+function terrain.Translate(level_data)
+	local terrain = level_data.terrain
 	local has_layers = terrain.surface_indices ~= nil
-	local detail_layers = has_layers and get_or_create_cry_terrain_layers(terrain) or nil
-	local surface_indices = terrain.surface_indices
-	local index_width = terrain.surface_slot_width
-	local index_height = terrain.surface_slot_height
-	local cells_per_meter_x = has_layers and index_width / world_size or 0
-	local cells_per_meter_y = has_layers and index_height / world_size or 0
-	return ShaderSource.New{
-		Textures = {
-			get_or_create_cry_height_texture(terrain),
-			get_or_create_cry_albedo_texture(terrain),
-			has_layers and get_or_create_cry_surface_index_texture(terrain) or nil,
+	return {
+		size = math.max(terrain.world_size or 0, 1),
+		origin = {0, 0},
+		uv = {0, -1, 1, 0},
+		outside = "zero",
+		max_height = terrain.heightmap_max_height,
+		height = {
+			width = terrain.height_sample_width,
+			height = terrain.height_sample_height,
+			samples = assert(terrain.height_samples),
 		},
-		HeightGLSL = string.format(
-			[[
-
-			vec2 cry_terrain_uv(vec2 world) {
-				return clamp(vec2(-world.y / %.6f, world.x / %.6f), vec2(0.0), vec2(1.0));
-			}
-
-			float terrain_height(vec2 world) {
-				vec2 uv = vec2(-world.y / %.6f, world.x / %.6f);
-
-				if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
-
-				return texture(TEXTURE(terrain_bake.texture0), uv + vec2(%.9f, %.9f)).r * %.6f;
-			}
-		]],
-			world_size,
-			world_size,
-			world_size,
-			world_size,
-			0.5 / terrain.height_sample_width,
-			0.5 / terrain.height_sample_height,
-			terrain.heightmap_max_height
-		),
-		SplatGLSL = has_layers and
-			[[
-
-			int cry_terrain_slot(int id) {
-				if (id == terrain_bake.layer1) return 1;
-				if (id == terrain_bake.layer2) return 2;
-				if (id == terrain_bake.layer3) return 3;
-				if (id == terrain_bake.layer4) return 4;
-				if (id == terrain_bake.layer5) return 5;
-				if (id == terrain_bake.layer6) return 6;
-				if (id == terrain_bake.layer7) return 7;
-				return 0;
-			}
-
-			vec4 cry_terrain_slot_weights(vec2 world, int first_slot) {
-				ivec2 size = textureSize(TEXTURE(terrain_bake.texture2), 0);
-				vec2 p = cry_terrain_uv(world) * vec2(size) - 0.5;
-				ivec2 base = ivec2(floor(p));
-				vec2 f = p - vec2(base);
-				vec4 weights = vec4(0.0);
-
-				for (int i = 0; i < 4; i++) {
-					ivec2 offset = ivec2(i & 1, i >> 1);
-					ivec2 cell = clamp(base + offset, ivec2(0), size - 1);
-					int id = int(texelFetch(TEXTURE(terrain_bake.texture2), cell, 0).r * 255.0 + 0.5);
-					float weight = (offset.x == 1 ? f.x : 1.0 - f.x) * (offset.y == 1 ? f.y : 1.0 - f.y);
-					int slot = cry_terrain_slot(id) - first_slot;
-
-					if (slot >= 0 && slot < 4) weights[slot] += weight;
-				}
-
-				return weights;
-			}
-
-			vec4 terrain_splat(vec2 world, float h, vec3 n) {
-				return cry_terrain_slot_weights(world, 0);
-			}
-		]] or
+		color = get_or_create_cry_albedo_texture(terrain),
+		indices = has_layers and
+			{
+				width = terrain.surface_slot_width,
+				height = terrain.surface_slot_height,
+				samples = terrain.surface_indices,
+			} or
 			nil,
-		Splat2GLSL = has_layers and
-			[[
-
-			vec4 terrain_splat2(vec2 world, float h, vec3 n) {
-				return cry_terrain_slot_weights(world, 4);
-			}
-		]] or
-			nil,
-		ColorGLSL = [[
-			vec3 terrain_color(vec2 world, float h, vec3 n) {
-				return texture(TEXTURE(terrain_bake.texture1), cry_terrain_uv(world)).rgb;
-			}
-		]],
-		ColorFormat = "r8g8b8a8_srgb",
-		SelectChunkLayers = has_layers and
-			function(request)
-				local first_row = math.clamp(math.floor(request.min_x * cells_per_meter_y), 0, index_height - 1)
-				local last_row = math.clamp(
-					math.ceil((request.min_x + request.size) * cells_per_meter_y),
-					0,
-					index_height - 1
-				)
-				local first_column = math.clamp(
-					math.floor(-(request.min_z + request.size) * cells_per_meter_x),
-					0,
-					index_width - 1
-				)
-				local last_column = math.clamp(math.ceil(-request.min_z * cells_per_meter_x), 0, index_width - 1)
-				local stride = math.max(math.floor(math.max(last_row - first_row, last_column - first_column) / 64), 1)
-				local counts = {}
-				local ids = {}
-
-				for row = first_row, last_row, stride do
-					for column = first_column, last_column, stride do
-						local id = surface_indices[row * index_width + column]
-
-						if id ~= 0 and detail_layers[id] then
-							if not counts[id] then ids[#ids + 1] = id end
-
-							counts[id] = (counts[id] or 0) + 1
-						end
-					end
-				end
-
-				table.sort(ids, function(a, b)
-					return counts[a] > counts[b]
-				end)
-
-				local layers = {}
-
-				for i = 9, #ids do
-					ids[i] = nil
-				end
-
-				for i, id in ipairs(ids) do
-					layers[i] = detail_layers[id]
-				end
-
-				return layers, ids
-			end or
-			nil,
-		MinHeight = 0,
-		MaxHeight = terrain.heightmap_max_height,
-		Layers = {},
+		layers = has_layers and get_or_create_cry_terrain_layers(terrain) or nil,
 	}
 end
 
+-- adds a terrain component with the level's terrain to parent
 function terrain.SpawnTerrain(level_data, parent)
-	local terrain = level_data and level_data.terrain
+	local source = level_data and level_data.terrain
 
-	if not terrain or not terrain.height_data then return nil end
+	if not source or not source.height_data then return nil end
 
-	local Terrain = import("goluwa/terrain/terrain.lua")
-	local renderer = Terrain.New{
-		Name = "cry_terrain",
-		Source = build_cry_terrain_source(terrain),
-		Levels = 6,
-		GridSize = 4,
-		BaseChunkSize = 64,
-		Samples = 65,
-		DetailSize = 256,
-		ColorSize = 256,
-		BuildsPerFrame = 2,
-		Physics = {
-			chunk_size = 64,
-			samples = 65,
-			radius = 2,
-		},
-	}:Start()
-	renderer.Root:SetName("cry_terrain")
-	renderer.Root.spawned_from_cry_level = true
-	parent:AddChild(renderer.Root)
-	return renderer
+	parent:AddComponent("terrain"):SetData(terrain.Translate(level_data))
+	return parent
 end
 
 function terrain.ApplyVegetationMaterialState(level_data)

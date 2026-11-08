@@ -328,6 +328,7 @@ local LAYER_VALUES = {
 
 function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 	local material = Material.New()
+	material.terrain_tile = true
 	material:SetNormalTexture(chunk.normal_texture)
 	material:SetTerrainMaterialTexture(chunk.splat_texture)
 	material:SetTerrainMaterial2Texture(chunk.splat2_texture)

@@ -906,6 +906,7 @@ assets.RegisterCategory(
 		end,
 	}
 )
+assets.RegisterCategory("terrains", {roots = {"terrains/"}, extensions = {".lua"}, load = false})
 assets.RegisterCategory("scenes", {
 	roots = {"scenes/"},
 	extensions = {".lua"},

@@ -47,6 +47,7 @@ function Entity.GetValidComponents()
 		valid_components.displacement = import("goluwa/entities/components/displacement.lua")
 		valid_components.static_mesh = import("goluwa/entities/components/static_mesh.lua")
 		valid_components.decal = import("goluwa/entities/components/decal.lua")
+		valid_components.terrain = import("goluwa/entities/components/terrain.lua")
 		valid_components.cry_level = import("goluwa/entities/components/cry_level.lua")
 	end
 
