@@ -792,8 +792,7 @@ do
 	end
 end
 
-function scene.Save(name)
-	local data = scene.Serialize()
+function scene.Write(name, data)
 	local path = scene.GetPath(name)
 	assert(vfs.CreateDirectoriesFromPath("os:" .. path))
 	local ok, err = vfs.Write(path, scene.Encode(data))
@@ -805,7 +804,33 @@ function scene.Save(name)
 	return #data.entities
 end
 
+function scene.Save(name)
+	return scene.Write(name, scene.Serialize())
+end
+
+-- an asset path property written as "./x" refers to the scene's own directory
+local function resolve_relative_assets(data, directory)
+	local valid_components = Entity.GetValidComponents()
+
+	for _, record in ipairs(data.entities) do
+		for name, properties in pairs(record.components) do
+			local class = valid_components[name]
+
+			if class then
+				for _, info in ipairs(objects.GetStorableVariables(class)) do
+					local value = info.asset and properties[info.var_name]
+
+					if type(value) == "string" and value:starts_with("./") then
+						properties[info.var_name] = directory .. value:sub(3)
+					end
+				end
+			end
+		end
+	end
+end
+
 local function read_scene(name)
+	event.Call("SceneReading", scene.GetSceneDirectory(name))
 	local str, err = vfs.Read(scene.GetPath(name))
 
 	if not str then
@@ -818,6 +843,7 @@ local function read_scene(name)
 		error("failed to decode scene " .. name .. ": " .. tostring(decode_err), 0)
 	end
 
+	resolve_relative_assets(data, scene.GetSceneDirectory(name))
 	return data
 end
 
