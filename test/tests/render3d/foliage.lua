@@ -334,6 +334,31 @@ T.Test3D("foliage textures and materials are assets and draw the same from the s
 	T(low)["<"](100)
 end)
 
+T.Test3D("foliage trees come with a coarse level of detail of the same tree", function()
+	local entry = assert(assets.GetModel(foliage.GetModelPath("trees", "oak_a"))).value
+	local parts = entry.create_primitives{}
+	local full, coarse = 0, 0
+
+	for _, part in ipairs(parts) do
+		local triangles = part.mesh:GetMesh().index_buffer:GetIndexCount() / 3
+
+		if part.mesh:GetLODLevel() == 0 then
+			full = full + triangles
+		else
+			T(part.mesh:GetLODLevel())["=="](1)
+			coarse = coarse + triangles
+		end
+	end
+
+	T(full)[">"](0)
+	T(coarse)[">"](0)
+	T(coarse)["<"](full / 2)
+	local plain = foliage.Build("oak", {seed = 1})
+	local lod = foliage.Build("oak", {seed = 1, lod = 1})
+	T(plain[1].mesh:GetAABB().max_y)["=="](lod[1].mesh:GetAABB().max_y)
+	T(foliage.generators.boulder.lods)["=="](nil)
+end)
+
 T.Test("foliage scatter sets only grow registered foliage models", function()
 	local sets = import("lua/foliage/scatter_sets.lua")
 	local count = 0

@@ -73,6 +73,7 @@ local classes = {
 	},
 	rock = {
 		distance_response = 0.6,
+		lod = {distance = 60},
 		shadow = true,
 		bvh = true,
 		max_distance = 240,
@@ -90,6 +91,7 @@ local classes = {
 	tree = {
 		distance_response = 1,
 		billboard = {distance = 150},
+		lod = {distance = 45},
 		shadow = true,
 		bvh = true,
 		max_distance = 450,

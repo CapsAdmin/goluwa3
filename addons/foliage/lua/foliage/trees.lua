@@ -1,5 +1,6 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local MeshBuilder = import("lua/foliage/mesh_builder.lua")
+local lod = import("goluwa/render3d/lod.lua")
 local foliage = import("lua/foliage/foliage.lua")
 local trees = {}
 local cos, sin, rad, sqrt, abs, max, min, floor = math.cos, math.sin, math.rad, math.sqrt, math.abs, math.max, math.min, math.floor
@@ -162,7 +163,21 @@ function trees.NewCards()
 	return {}
 end
 
-function trees.AddCard(cards, rng, base, up, facing, size, roll, phase, stiffness, flex, atlas, aspect, chain)
+function trees.AddCard(
+	cards,
+	rng,
+	base,
+	up,
+	facing,
+	size,
+	roll,
+	phase,
+	stiffness,
+	flex,
+	atlas,
+	aspect,
+	chain
+)
 	up = up:GetNormalized()
 	local side = up:GetCross(facing)
 
@@ -203,15 +218,26 @@ do
 		return nearest
 	end
 
-	function trees.BuildCards(cards, bend, trunk)
+	local LOD_CARD_KEEP = 3
+	local LOD_CARD_GROW = 1.7
+
+	function trees.BuildCards(cards, bend, trunk, coarse)
 		local mesh = MeshBuilder.New()
 
-		for _, card in ipairs(cards) do
+		for i, card in ipairs(cards) do
+			if coarse and i % LOD_CARD_KEEP ~= 0 then goto skip end
+
 			local first = mesh:GetVertexCount()
 
 			if card.chain then mesh:SetChain(unpack(card.chain)) else mesh:ClearChain() end
 
 			local c, r, u, n = card.center, card.side, card.up, card.normal
+
+			if coarse then
+				c = c + u * (LOD_CARD_GROW - 1)
+				r, u = r * LOD_CARD_GROW, u * LOD_CARD_GROW
+			end
+
 			local uv = card.uv
 			local out = c - nearest_on(trunk, c)
 
@@ -238,6 +264,8 @@ do
 			end
 
 			mesh:Quad(first, first + 1, first + 2, first + 3)
+
+			::skip::
 		end
 
 		return mesh
@@ -254,6 +282,18 @@ local function shape_ratio(state, y)
 end
 
 local add_branch
+
+local function every_other_point(points)
+	local out = {}
+
+	for i = 1, #points, 2 do
+		out[#out + 1] = points[i]
+	end
+
+	if out[#out] ~= points[#points] then out[#out + 1] = points[#points] end
+
+	return out
+end
 
 local function add_children(state, level, points, length, phase, reach)
 	local spec = state.config.levels[level + 1]
@@ -363,8 +403,30 @@ function add_branch(state, level, start, dir, length, radius, phase, reach, root
 
 	if level == 0 then state.trunk[#state.trunk + 1] = points end
 
-	if radius >= config.min_radius then
-		trees.AddTube(state.wood, points, spec.sides, config.bark_tile, phase, stiffness, true)
+	if
+		radius >= config.min_radius and
+		not (
+			config.lod > 0 and
+			level > 1 and
+			level >= #config.levels
+		)
+	then
+		local tube_points, sides = points, spec.sides
+
+		if config.lod > 0 then
+			tube_points = every_other_point(points)
+			sides = max(3, floor(sides * 0.45))
+		elseif level >= 1 then
+			sides = max(3, min(sides, 4))
+
+			if level >= 2 then
+				tube_points = {points[1], points[#points]}
+			elseif #points > 4 then
+				tube_points = every_other_point(points)
+			end
+		end
+
+		trees.AddTube(state.wood, tube_points, sides, config.bark_tile, phase, stiffness, true)
 	end
 
 	local leaves = config.leaves
@@ -483,10 +545,7 @@ function trees.BuildTree(config, rng)
 		height = height,
 		wood = MeshBuilder.New(),
 		cards = trees.NewCards(),
-		crown_shape = assert(
-			CROWN_SHAPES[config.crown_shape],
-			"unknown crown shape " .. tostring(config.crown_shape)
-		),
+		crown_shape = assert(CROWN_SHAPES[config.crown_shape], "unknown crown shape " .. tostring(config.crown_shape)),
 		reference = build_references(config, height),
 		center = Vec3(0, 0, 0),
 		trunk = {},
@@ -521,17 +580,31 @@ function trees.BuildTree(config, rng)
 	local parts = {}
 	local top = height
 	local root = trees.RootChain(state.trunk[1])
+	local lod_level = config.lod
+	local lod_distance = lod_level > 0 and lod.CRY_RADII_PER_LEVEL * lod_level or 0
 
 	if not state.wood:IsEmpty() then
 		parts[#parts + 1] = {
-			mesh = state.wood:Build{bend_height = top, name = "foliage_wood", root_chain = root},
+			mesh = state.wood:Build{
+				bend_height = top,
+				name = "foliage_wood",
+				root_chain = root,
+				lod_level = lod_level,
+				lod_distance = lod_distance,
+			},
 			material = foliage.GetMaterial(config.bark),
 		}
 	end
 
 	if state.cards[1] then
 		parts[#parts + 1] = {
-			mesh = trees.BuildCards(state.cards, config.leaves.bend, state.trunk):Build{bend_height = top, name = "foliage_leaves", root_chain = root},
+			mesh = trees.BuildCards(state.cards, config.leaves.bend, state.trunk, lod_level > 0):Build{
+				bend_height = top,
+				name = "foliage_leaves",
+				root_chain = root,
+				lod_level = lod_level,
+				lod_distance = lod_distance,
+			},
 			material = foliage.GetMaterial(config.leaves.material),
 		}
 	end
@@ -562,6 +635,7 @@ local function species(overrides)
 			up = 0,
 		},
 		levels = {},
+		lod = 0,
 		flex = 0.1,
 		min_radius = 0.004,
 		bark = "oak_bark",
@@ -639,6 +713,7 @@ local function add_species(name, category, defaults)
 			category = category,
 			defaults = defaults,
 			build = trees.BuildTree,
+			lods = 1,
 		}
 	)
 end

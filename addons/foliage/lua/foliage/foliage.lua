@@ -167,7 +167,22 @@ function foliage.RegisterModel(path, name, config)
 							merged[key] = value
 						end
 
-						return foliage.Build(name, merged)
+						local parts = foliage.Build(name, merged)
+						local lods = foliage.generators[name].lods
+
+						if not lods then return parts end
+
+						parts = table.shallow_copy(parts)
+
+						for level = 1, lods do
+							merged.lod = level
+
+							for _, part in ipairs(foliage.Build(name, merged)) do
+								parts[#parts + 1] = part
+							end
+						end
+
+						return parts
 					end,
 				}
 			end,
