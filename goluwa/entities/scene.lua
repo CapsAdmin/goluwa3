@@ -515,9 +515,15 @@ function scene.GetDirectory()
 	return vfs.GetStorageDirectory("storage") .. "scenes/"
 end
 
-function scene.GetPath(name)
+scene.FileName = "scene.scene"
+
+function scene.GetSceneDirectory(name)
 	assert(name:find("^[%w_%-%. ]+$"), "invalid scene name: " .. name)
-	return scene.GetDirectory() .. name .. ".scene"
+	return scene.GetDirectory() .. name .. "/"
+end
+
+function scene.GetPath(name)
+	return scene.GetSceneDirectory(name) .. scene.FileName
 end
 
 do
