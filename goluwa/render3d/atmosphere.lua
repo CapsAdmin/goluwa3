@@ -1106,8 +1106,8 @@ end
 
 do
 	local EYE_FALLOFF = math.exp(-SEA_LEVEL_EYE_HEIGHT / GROUND_FOG_SCALE_HEIGHT)
-	atmosphere.DEFAULT_AEROSOL_VISIBILITY = 55000
-	atmosphere.DEFAULT_GROUND_FOG_VISIBILITY = 140000
+	atmosphere.DEFAULT_AEROSOL_VISIBILITY = 90000
+	atmosphere.DEFAULT_GROUND_FOG_VISIBILITY = 200000
 	atmosphere.aerosol_visibility = atmosphere.aerosol_visibility or atmosphere.DEFAULT_AEROSOL_VISIBILITY
 	atmosphere.ground_fog_visibility = atmosphere.ground_fog_visibility or atmosphere.DEFAULT_GROUND_FOG_VISIBILITY
 	atmosphere.precipitation_extinction = atmosphere.precipitation_extinction or 0
