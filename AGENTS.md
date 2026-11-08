@@ -137,6 +137,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/characters.md](docs/characters.md): the shared character (controller, pose state, biped skeleton, drivers, sockets)
 - [docs/weapons.md](docs/weapons.md): weapons in the right and left hand and on body mounts, button routing, selection, posing both hands
 - [docs/animation-and-source.md](docs/animation-and-source.md): skeletal animation, Source content, threaded codecs
+- [docs/scene-export.md](docs/scene-export.md): saving a scene as a directory with its materials, textures and models, the `.mesh` model file
 - [docs/texture-compression.md](docs/texture-compression.md): the gpu block compressor (bc7 mode 6, bc5, bc4, mips) that writes dds files, how it is verified, limits
 - [docs/material-baking.md](docs/material-baking.md): baking flag derived roughness, metallic, normals and tints into cached compressed textures (`r_bake_materials`), what is not baked yet
 - [docs/networking.md](docs/networking.md): server/client, replication, players, visibility, ownership and permissions

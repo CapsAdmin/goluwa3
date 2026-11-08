@@ -158,6 +158,8 @@ local function make_menu_items(h)
 								Text = f.scene_name or "scene",
 								Options = {
 									{Key = "materials", Text = "materials", Value = f.scene_save_options.materials},
+									{Key = "models", Text = "models (with their materials)", Value = f.scene_save_options.models},
+									{Key = "terrain", Text = "terrain", Value = f.scene_save_options.terrain},
 									{
 										Key = "textures",
 										Text = "textures (with their materials)",
@@ -168,13 +170,15 @@ local function make_menu_items(h)
 									name = name:gsub("[^%w_%-%. ]", "_")
 									f.scene_name = name
 									f.scene_save_options = options
-									options.materials = options.materials or options.textures
+									options.materials = options.materials or options.textures or options.models
 									local stats = scene_export.Save(name, options)
 									logf(
-										"saved %d root entities to %s, %d materials, %d textures (%.1f mb), %d failed to load back, %d differ after loading\n",
+										"saved %d root entities to %s, %d materials, %d models, %d terrains, %d textures (%.1f mb), %d failed to load back, %d differ after loading\n",
 										stats.entities,
 										scene.GetPath(name),
 										stats.materials,
+										stats.models,
+										stats.terrains,
 										stats.copied_textures,
 										stats.bytes / 1048576,
 										table.count(stats.failed),
