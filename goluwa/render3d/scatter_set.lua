@@ -210,6 +210,12 @@ function ScatterSet:OnConstruct()
 end
 
 local CONFIG_KEYS = {"Name", "DensityMultiplier", "DistanceMultiplier", "Prototypes"}
+local named = setmetatable({}, {__mode = "v"})
+local factories = {}
+
+function ScatterSet.Get(name)
+	return named[name] or (factories[name] and factories[name]())
+end
 
 function ScatterSet.New(config)
 	local self = ScatterSet:CreateObject()
@@ -224,6 +230,8 @@ function ScatterSet.New(config)
 	for key in pairs(config) do
 		if not known[key] then error("unknown scatter set key " .. tostring(key), 2) end
 	end
+
+	if self.Name ~= "" then named[self.Name] = self end
 
 	return self
 end
@@ -491,4 +499,5 @@ function ScatterSet.GetGrass()
 	return grass
 end
 
+factories.grass = ScatterSet.GetGrass
 return ScatterSet:Register()
