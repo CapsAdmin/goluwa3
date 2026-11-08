@@ -512,6 +512,29 @@ local function get_encoder(format)
 	8
 end
 
+local function get_dds_name(format, kind)
+	if format == "bc7" then
+		return kind == "srgb" and "BC7_UNORM_SRGB" or "BC7_UNORM"
+	end
+
+	return format == "bc5" and "BC5_UNORM" or "BC4_UNORM"
+end
+
+local function encode_level(pipeline, block_bytes, current, level_width, level_height, channel)
+	local blocks_x, blocks_y = math.ceil(level_width / 4), math.ceil(level_height / 4)
+	local blocks = create_buffer(blocks_x * blocks_y * block_bytes, true)
+	run(
+		pipeline,
+		current,
+		blocks,
+		{level_width, level_height, blocks_x, blocks_y, channel or 0},
+		blocks_x * blocks_y
+	)
+	local encoded = ffi.string(blocks:Map(), blocks_x * blocks_y * block_bytes)
+	blocks:Remove()
+	return encoded
+end
+
 -- takes over `current`, a level 0 buffer of width * height rgba floats, builds the mips and encodes
 -- every level, returns the dds
 local function encode_chain(current, width, height, config)
@@ -526,17 +549,7 @@ local function encode_chain(current, width, height, config)
 	local level_width, level_height = width, height
 
 	for level = 1, level_count do
-		local blocks_x, blocks_y = math.ceil(level_width / 4), math.ceil(level_height / 4)
-		local blocks = create_buffer(blocks_x * blocks_y * block_bytes, true)
-		run(
-			pipeline,
-			current,
-			blocks,
-			{level_width, level_height, blocks_x, blocks_y, config.channel or 0},
-			blocks_x * blocks_y
-		)
-		levels[level] = ffi.string(blocks:Map(), blocks_x * blocks_y * block_bytes)
-		blocks:Remove()
+		levels[level] = encode_level(pipeline, block_bytes, current, level_width, level_height, config.channel)
 
 		if level < level_count then
 			local next_width, next_height = math.max(level_width / 2, 1), math.max(level_height / 2, 1)
@@ -565,19 +578,7 @@ local function encode_chain(current, width, height, config)
 	end
 
 	current:Remove()
-	local name = format == "bc7" and
-		(
-			kind == "srgb" and
-			"BC7_UNORM_SRGB" or
-			"BC7_UNORM"
-		)
-		or
-		(
-			format == "bc5" and
-			"BC5_UNORM" or
-			"BC4_UNORM"
-		)
-	return dds.Encode(name, width, height, levels)
+	return dds.Encode(get_dds_name(format, kind), width, height, levels)
 end
 
 -- Encodes an image into block compressed mips on the gpu and returns a ready dds file as a string.
@@ -594,6 +595,33 @@ function texture_compress.Compress(config)
 	end
 
 	return encode_chain(current, width, height, config)
+end
+
+-- Encodes mips that already exist (the caller filtered them, e.g. to keep alpha test coverage) instead of
+-- building them. config: levels (a list of {pixels = r8g8b8a8, width, height}, level 0 first), format,
+-- kind and channel as in Compress
+function texture_compress.CompressLevels(config)
+	local pipeline, block_bytes = get_encoder(config.format)
+	local levels = {}
+
+	for i, level in ipairs(config.levels) do
+		local current = create_buffer(level.width * level.height * 16)
+		local floats = ffi.cast("float*", current:Map())
+
+		for j = 0, level.width * level.height * 4 - 1 do
+			floats[j] = level.pixels[j] / 255
+		end
+
+		levels[i] = encode_level(pipeline, block_bytes, current, level.width, level.height, config.channel)
+		current:Remove()
+	end
+
+	return dds.Encode(
+		get_dds_name(config.format, config.kind),
+		config.levels[1].width,
+		config.levels[1].height,
+		levels
+	)
 end
 
 local MAX_SOURCES = 4

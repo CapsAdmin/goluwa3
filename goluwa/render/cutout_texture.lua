@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local Texture = import("goluwa/render/texture.lua")
+local texture_compress = import("goluwa/render/texture_compress.lua")
 local cutout_texture = {}
 cutout_texture.DILATE_PASSES = 8
 
@@ -147,6 +148,23 @@ function cutout_texture.BuildMipChain(pixels, width, height, cutoff)
 	end
 
 	return data, levels, total
+end
+
+function cutout_texture.Compress(pixels, width, height, config)
+	cutout_texture.Dilate(
+		pixels,
+		width,
+		height,
+		config.tile_width or width,
+		config.dilate_passes or cutout_texture.DILATE_PASSES
+	)
+	local data, levels = cutout_texture.BuildMipChain(pixels, width, height, config.cutoff or 0.5)
+
+	for _, level in ipairs(levels) do
+		level.pixels = data + level.offset
+	end
+
+	return texture_compress.CompressLevels{levels = levels, format = "bc7", kind = "srgb"}
 end
 
 function cutout_texture.New(pixels, width, height, config)
