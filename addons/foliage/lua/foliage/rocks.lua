@@ -170,7 +170,7 @@ end
 local DEFAULTS = {
 	size = {0.6, 0.9},
 	stretch = {{0.9, 1.1}, {0.65, 0.8}, {0.8, 1}},
-	resolution = 14,
+	resolution = 9,
 	noise = 0.22,
 	frequency = 1.3,
 	octaves = 4,
@@ -224,7 +224,7 @@ rock(
 		facet_depth = {0.45, 0.75},
 		flatten = 0.7,
 		sink = 0.08,
-		resolution = 16,
+		resolution = 10,
 		material = "rock_basalt",
 	}
 )
@@ -250,7 +250,7 @@ rock(
 		sink = 0.2,
 		count = 9,
 		spread = 0.35,
-		resolution = 5,
+		resolution = 3,
 		material = "rock_river",
 	}
 )
@@ -266,7 +266,7 @@ rock(
 		facet_depth = {0.55, 0.8},
 		count = 5,
 		spread = 0.7,
-		resolution = 8,
+		resolution = 5,
 		material = "rock_granite",
 	}
 )
