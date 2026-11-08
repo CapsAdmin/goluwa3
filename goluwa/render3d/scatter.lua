@@ -61,11 +61,6 @@ local billboards_enabled = pvars.Setup2{
 	default = true,
 	help = "draw the prototypes that have a billboard as one past their billboard distance",
 }
-local occlusion_enabled = pvars.Setup2{
-	key = "r_scatter_occlusion",
-	default = true,
-	help = "skip the scattered models the previous frame's depth hides from the camera (terrain, rocks, other trees)",
-}
 local lod_enabled = pvars.Setup2{
 	key = "r_scatter_lod",
 	default = true,
@@ -271,7 +266,6 @@ local BINDING_OUTPUT = 13
 local BINDING_UNITS = 14
 local BINDING_BLOCKS = 15
 local BINDING_UNIT_COUNTS = 16
-local BINDING_HIZ = 17
 local RAY_QUERY = render.GetDevice().ray_query_supported
 local COMMON_GLSL = glsl_common.GetNoiseGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 	#define SCATTER_TILE_CELLS ]] .. scatter.TILE_CELLS .. [[
@@ -550,7 +544,6 @@ local cull_block = {
 	{"block_count", "int"},
 	{"unit_base", "int"},
 	{"block_base", "int"},
-	{"occlusion_max_mip", "int"},
 }
 local conform_block = {
 	{"unit_offset", "int"},
@@ -589,7 +582,6 @@ local function write_cull_block(self, block)
 	block.block_count = self.block_count or 0
 	block.unit_base = self.unit_base or 0
 	block.block_base = self.block_base or 0
-	block.occlusion_max_mip = self.occlusion_max_mip or -1
 	return block
 end
 
@@ -982,15 +974,9 @@ function create_compute_passes()
 			nil,
 		cull = EasyPipeline.Compute{
 			name = "scatter_cull",
-			DescriptorSetCount = render.GetSwapchainImageCount(),
+			DescriptorSetCount = 1,
 			LocalSize = {x = 64, y = 1, z = 1},
 			descriptor_sets = {
-				{
-					type = "combined_image_sampler",
-					binding_index = BINDING_HIZ,
-					stageFlags = "compute",
-					set_index = 0,
-				},
 				storage_buffer(BINDING_PROTOTYPES, "prototypes", "compute"),
 				storage_buffer(BINDING_ARGS, "args", "compute"),
 				storage_buffer(BINDING_INSTANCES, "baked", "compute"),
@@ -1047,47 +1033,6 @@ function create_compute_passes()
 		return true;
 	}
 
-	layout(set = 0, binding = ]] .. BINDING_HIZ .. [[) uniform sampler2D scatter_hiz_tex;
-
-	bool scatter_occluded(vec3 center, float radius) {
-		if (compute.occlusion_max_mip < 0) return false;
-
-		vec2 min_uv = vec2(1.0);
-		vec2 max_uv = vec2(0.0);
-		float nearest_depth = 0.0;
-
-		for (int i = 0; i < 8; i++) {
-			vec3 corner = center + radius * vec3((i & 1) != 0 ? 1.0 : -1.0, (i & 2) != 0 ? 1.0 : -1.0, (i & 4) != 0 ? 1.0 : -1.0);
-			vec4 clip = compute.view_projection * vec4(corner, 1.0);
-
-			if (clip.w <= 0.0) return false;
-
-			vec3 ndc = clip.xyz / clip.w;
-			vec2 uv = ndc.xy * 0.5 + 0.5;
-			min_uv = min(min_uv, uv);
-			max_uv = max(max_uv, uv);
-			nearest_depth = max(nearest_depth, ndc.z);
-		}
-
-		if (max_uv.x < 0.0 || max_uv.y < 0.0 || min_uv.x > 1.0 || min_uv.y > 1.0) return false;
-
-		vec2 hiz_size = vec2(textureSize(scatter_hiz_tex, 0));
-		vec2 margin = 2.0 / hiz_size;
-		min_uv = clamp(min_uv - margin, vec2(0.0), vec2(1.0));
-		max_uv = clamp(max_uv + margin, vec2(0.0), vec2(1.0));
-		vec2 span = max_uv - min_uv;
-		int mip_level = clamp(int(ceil(log2(max(max(span.x * hiz_size.x, span.y * hiz_size.y), 1.0)))), 0, compute.occlusion_max_mip);
-		ivec2 mip_size = textureSize(scatter_hiz_tex, mip_level);
-		vec2 texels = hiz_size / exp2(float(mip_level));
-		ivec2 texel_min = ivec2(clamp(floor(min_uv * texels), vec2(0.0), vec2(mip_size - 1)));
-		ivec2 texel_max = ivec2(clamp(floor(max_uv * texels), vec2(0.0), vec2(mip_size - 1)));
-		float sampled = min(
-			min(texelFetch(scatter_hiz_tex, texel_min, mip_level).r, texelFetch(scatter_hiz_tex, ivec2(texel_max.x, texel_min.y), mip_level).r),
-			min(texelFetch(scatter_hiz_tex, ivec2(texel_min.x, texel_max.y), mip_level).r, texelFetch(scatter_hiz_tex, texel_max, mip_level).r)
-		);
-		return nearest_depth < sampled * 0.997;
-	}
-
 	bool scatter_sphere_visible(vec3 center, float radius) {
 		for (int i = 0; i < 4; i++) {
 			vec4 plane = scatter_frustum_plane(i);
@@ -1129,9 +1074,7 @@ function create_compute_passes()
 					world[0].xyz *= widen;
 					world[2].xyz *= widen;
 					world[2][3] = 0.0;
-					vec3 bounds_center = position + vec3(0.0, proto.bounds.y * size_y * 0.5, 0.0);
-					float bounds_radius = proto.bounds.x * max(size_xz, size_y);
-					bool in_view = scatter_sphere_visible(bounds_center, bounds_radius);
+					bool in_view = scatter_sphere_visible(position + vec3(0.0, proto.bounds.y * size_y * 0.5, 0.0), proto.bounds.x * max(size_xz, size_y));
 
 					float lod_fade = lod_keep >= 0.999 ? 0.0 : 1.0 - clamp((lod_keep - need) / (lod_keep * 0.3), 0.0, 1.0);
 					float switch_distance = proto.bounds.z;
@@ -1167,7 +1110,7 @@ function create_compute_passes()
 						}
 					}
 
-					if (!in_view || scatter_occluded(bounds_center, bounds_radius)) return;
+					if (!in_view) return;
 
 					if (mid_distance > 0.0) {
 						if (mid_blend < 1.0) {
@@ -2899,21 +2842,7 @@ function scatter.PreDraw(cmd)
 		passes.cull.block_count = block_count
 		passes.cull.unit_base = unit_base
 		passes.cull.block_base = block_base
-		local hiz, fallback_hiz = gpu_culling.GetMainViewHiZ()
-		local bound = hiz or fallback_hiz
-		passes.cull.occlusion_max_mip = hiz and occlusion_enabled:Get() and hiz.max_mip or -1
-		passes.cull:UpdateDescriptorSet(
-			"combined_image_sampler",
-			render.GetCurrentFrame(),
-			BINDING_HIZ,
-			0,
-			bound.view,
-			bound.sampler,
-			nil,
-			nil,
-			"general"
-		)
-		passes.cull:Dispatch(cmd, block_count, 1, 1, render.GetCurrentFrame())
+		passes.cull:Dispatch(cmd, block_count, 1, 1, 1)
 	end
 
 	barrier(cmd, b.args, "compute", "compute", "shader_write", "shader_read")

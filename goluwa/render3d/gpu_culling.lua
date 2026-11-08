@@ -314,12 +314,11 @@ function gpu_culling.MarkMainViewDrawn()
 end
 
 function gpu_culling.GetMainViewHiZ()
-	local state = get_main_view_hiz_state()
-
 	if gpu_culling.GetOcclusionMode() ~= "hiz" or not gpu_culling.culling_enabled then
-		return nil, state.buffers[1], state.height
+		return nil
 	end
 
+	local state = get_main_view_hiz_state()
 	return state.latest, state.buffers[1], state.height
 end
 
