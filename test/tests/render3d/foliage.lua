@@ -1,5 +1,7 @@
 local T = import("test/environment.lua")
 local ffi = require("ffi")
+local codec = import("goluwa/codec.lua")
+local bc = import("goluwa/codecs/bc.lua")
 local assets = import("goluwa/assets.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
@@ -285,38 +287,49 @@ T.Test3D("foliage textures and materials are assets and draw the same from the s
 	local path = foliage.GetTexturePath("oak_bark", "albedo")
 	T(assets.ResolvePath(path, "textures"))["=="](path)
 	local small = {seed = 3, width = 32, height = 32}
-	local a = textures.Build("bark", "albedo", small):Download()
-	local b = textures.Build("bark", "albedo", small):Download()
-	local c = textures.Build("bark", "albedo", {seed = 4, width = 32, height = 32}):Download()
-	T(ffi.string(a.pixels, a.size) == ffi.string(b.pixels, b.size))["=="](true)
-	T(ffi.string(a.pixels, a.size) ~= ffi.string(c.pixels, c.size))["=="](true)
-	local leaves = textures.Build("leaves", "albedo", {seed = 3, width = 128, height = 32}):Download()
+	local a = textures.BuildData("bark", "albedo", small)
+	local b = textures.BuildData("bark", "albedo", small)
+	local c = textures.BuildData("bark", "albedo", {seed = 4, width = 32, height = 32})
+	T(a == b)["=="](true)
+	T(a ~= c)["=="](true)
+
+	local function decode(data, format)
+		local info = assert(codec.DecodeData("x.dds", data))
+		local mip = info.mip_info[1]
+		return bc.Decode(format, info.data + mip.offset, mip.width, mip.height), mip
+	end
+
+	local leaves = decode(textures.BuildData("leaves", "albedo", {seed = 3, width = 128, height = 32}), "bc7")
 	local clear, solid = 0, 0
 
-	for i = 3, leaves.size - 1, 4 do
-		if leaves.pixels[i] < 128 then clear = clear + 1 else solid = solid + 1 end
+	for i = 3, 128 * 32 * 4 - 1, 4 do
+		if leaves[i] < 128 then clear = clear + 1 else solid = solid + 1 end
 	end
 
 	T(clear)[">"](0)
 	T(solid)[">"](0)
 
-	local function roughness_range(downloaded)
+	local function roughness_range(pixels, count)
 		local low, high = 255, 0
 
-		for i = 0, downloaded.size - 1 do
-			low = math.min(low, downloaded.pixels[i])
-			high = math.max(high, downloaded.pixels[i])
+		for i = 0, count - 1 do
+			low = math.min(low, pixels[i * 4])
+			high = math.max(high, pixels[i * 4])
 		end
 
 		return low, high
 	end
 
-	local bark = textures.Build("bark", "roughness", {seed = 3, width = 64, height = 64}):Download()
-	T(bark.size)["=="](64 * 64)
-	local low, high = roughness_range(bark)
+	local bark, mip = decode(textures.BuildData("bark", "roughness", {seed = 3, width = 64, height = 64}), "bc4")
+	T(mip.width * mip.height)["=="](64 * 64)
+	local low, high = roughness_range(bark, 64 * 64)
 	T(high - low)[">"](25)
 	low = roughness_range(
-		textures.Build("leaves", "roughness", {seed = 3, width = 256, height = 64, berries = 6}):Download()
+		decode(
+			textures.BuildData("leaves", "roughness", {seed = 3, width = 256, height = 64, berries = 6}),
+			"bc4"
+		),
+		256 * 64
 	)
 	T(low)["<"](100)
 end)

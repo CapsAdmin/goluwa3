@@ -2,6 +2,10 @@ local ffi = require("ffi")
 local assets = import("goluwa/assets.lua")
 local Texture = import("goluwa/render/texture.lua")
 local cutout_texture = import("goluwa/render/cutout_texture.lua")
+local texture_compress = import("goluwa/render/texture_compress.lua")
+local codec = import("goluwa/codec.lua")
+local fs = import("goluwa/filesystem/fs.lua")
+local crypto = import("goluwa/crypto.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local textures = {}
 textures.kinds = {}
@@ -351,19 +355,42 @@ do
 		wrap_t = "clamp_to_edge",
 		anisotropy = 8,
 	}
+	local CACHE_DIRECTORY = "storage/cache/foliage_textures/"
+	local COMPRESSION = {
+		albedo = {format = "bc7", kind = "srgb"},
+		normal = {format = "bc5", kind = "normal"},
+		roughness = {format = "bc4", kind = "linear"},
+		transmission = {format = "bc7", kind = "linear"},
+	}
+	local version
 
-	function textures.Build(kind_name, channel, config)
+	function textures.BuildData(kind_name, channel, config)
 		local resolved, kind = textures.Resolve(kind_name, config)
 		local main = assert(MAIN[channel], "unknown foliage texture channel " .. tostring(channel))
 		local glsl = build_constants(kind_name, kind, resolved) .. COMMON .. kind.glsl .. NORMAL .. main
 		local width, height = resolved.width, resolved.height
-		local srgb = channel == "albedo"
+		local cutout = kind.cutout and channel == "albedo"
+		local compression = COMPRESSION[channel]
 
-		if kind.cutout and channel == "albedo" then
+		if not version then
+			version = crypto.SHA1(
+				fs.read_file("addons/foliage/lua/foliage/textures.lua") .. fs.read_file("goluwa/render/cutout_texture.lua") .. fs.read_file("goluwa/render/texture_compress.lua")
+			)
+		end
+
+		local key = crypto.SHA1(
+			version .. glsl .. channel .. tostring(kind.wrap) .. tostring(cutout and resolved.atlas or 1)
+		):gsub(".", function(c)
+			return ("%02x"):format(c:byte())
+		end)
+		local path = CACHE_DIRECTORY .. key .. ".dds"
+		local data = fs.read_file(path)
+
+		if not data then
 			local canvas = Texture.New{
 				width = width,
 				height = height,
-				format = "r8g8b8a8_srgb",
+				format = channel == "albedo" and "r8g8b8a8_srgb" or "r8g8b8a8_unorm",
 				mip_map_levels = 1,
 				sampler = CLAMP,
 			}
@@ -372,30 +399,33 @@ do
 			canvas:Remove()
 			local pixels = ffi.new("uint8_t[?]", width * height * 4)
 			ffi.copy(pixels, downloaded.pixels, width * height * 4)
-			return cutout_texture.New(
-				pixels,
-				width,
-				height,
-				{
-					tile_width = width / (resolved.atlas or 1),
-					sampler = kind.wrap and REPEAT or CLAMP,
+
+			if cutout then
+				data = cutout_texture.Compress(pixels, width, height, {tile_width = width / (resolved.atlas or 1)})
+			else
+				data = texture_compress.Compress{
+					pixels = pixels,
+					width = width,
+					height = height,
+					format = compression.format,
+					kind = compression.kind,
+					wrap = kind.wrap,
 				}
-			)
+			end
+
+			assert(fs.create_directory_recursive(CACHE_DIRECTORY))
+			assert(fs.write_file(path, data))
 		end
 
-		local texture = Texture.New{
-			width = width,
-			height = height,
-			format = srgb and
-				"r8g8b8a8_srgb" or
-				channel == "roughness" and
-				"r8_unorm" or
-				"r8g8b8a8_unorm",
-			mip_map_levels = "auto",
-			sampler = kind.wrap and REPEAT or CLAMP,
+		return data
+	end
+
+	function textures.Build(kind_name, channel, config)
+		return Texture.New{
+			decoded = assert(codec.DecodeData("foliage.dds", textures.BuildData(kind_name, channel, config))),
+			srgb = channel == "albedo",
+			sampler = select(2, textures.Resolve(kind_name, config)).wrap and REPEAT or CLAMP,
 		}
-		texture:Shade(glsl)
-		return texture
 	end
 end
 
