@@ -31,8 +31,8 @@ material_bake.CacheDirectory = "storage/cache/baked_materials/"
 pvars.StartGroup("Rendering", "Materials", {store = false})
 material_bake.enabled = pvars.Setup2{
 	key = "r_bake_materials",
-	default = false,
-	help = "bakes what a material's flags derive (roughness, metallic, normals, tints) into compressed textures once, cached under storage/cache",
+	default = true,
+	help = "bakes what a material's flags derive (roughness, metallic, normals, tints) and the estimators into compressed textures once, cached under storage/cache. the vmt loader requests it",
 }
 pvars.EndGroup()
 local stats = {baked = 0, cached = 0, skipped = {}, failed = 0, requested = 0, processed = 0}

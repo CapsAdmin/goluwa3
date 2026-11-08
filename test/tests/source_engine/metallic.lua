@@ -4,6 +4,7 @@ local steam = import("goluwa/steam/steam.lua")
 local Material = import("goluwa/render3d/material.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local vmt_material = import("goluwa/source_engine/vmt_material.lua")
+local material_bake = import("goluwa/render3d/material_bake.lua")
 
 local function apply(vmt, path)
 	local material = Material.New{}
@@ -94,6 +95,8 @@ T.Test3D("source materials: metallic estimate on gmod content", function()
 	end
 
 	local materials = {}
+	local request = material_bake.Request
+	material_bake.Request = material_bake.LoadDeferred
 
 	for i, info in ipairs(vmts) do
 		materials[i] = vmt_material.FromVMT("materials/" .. info[1] .. ".vmt")
@@ -138,6 +141,8 @@ T.Test3D("source materials: metallic estimate on gmod content", function()
 
 		tasks.Wait(0.05)
 	end
+
+	material_bake.Request = request
 
 	for i, info in ipairs(vmts) do
 		T(materials[i].Error)["=="](nil)
