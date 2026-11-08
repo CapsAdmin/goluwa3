@@ -1349,6 +1349,17 @@ local function get_fullscreen_labels(view)
 	return labels
 end
 
+event.AddListener("PreDraw2D", "gbuffer_view_pass_fullscreen", function()
+	if not pass_fullscreen then return end
+
+	local texture = get_pass_texture(pass_fullscreen)
+
+	if texture then
+		local size = render3d.GetRenderSize()
+		draw_pass_texture(texture, pass_fullscreen.view, 0, 0, size.x, size.y)
+	end
+end)
+
 event.AddListener("Draw2D", "gbuffer_view_fullscreen", function()
 	if lighting_fullscreen then
 		render2d.DrawText{
@@ -1365,13 +1376,6 @@ event.AddListener("Draw2D", "gbuffer_view_fullscreen", function()
 	end
 
 	if pass_fullscreen then
-		local texture = get_pass_texture(pass_fullscreen)
-		local size = render3d.GetRenderSize()
-
-		if texture then
-			draw_pass_texture(texture, pass_fullscreen.view, 0, 0, size.x, size.y)
-		end
-
 		render2d.DrawText{
 			text = pass_fullscreen.title .. "  (escape to leave)",
 			x = 12,
