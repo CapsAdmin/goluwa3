@@ -110,7 +110,7 @@ end
 function material_file.Load(path)
 	local data, err = vfs.Read(path) or fs.read_file(path)
 
-	if not data then return nil, err end
+	if not data then return nil, err or ("material file not found: " .. path) end
 
 	local file, decode_err = codec.Decode("luadata", data)
 
