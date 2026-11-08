@@ -57,7 +57,7 @@ local screenspace_roughness = pvars.Setup2{
 }
 local reorder = pvars.Setup2{
 	key = "reflection_reorder",
-	default = true,
+	default = false,
 	help = "the reflection rays are traced from a ray generation shader with a hit object and the threads are reordered by what they hit before it is shaded, off traces with ray queries in a compute shader. needs ray tracing invocation reorder, built into the shader",
 }
 pvars.EndGroup()
