@@ -598,7 +598,6 @@ local WeatherEditor = react.Component(
 )
 local WeatherView = react.Component(
 	||-> do
-		local shown, set_shown = react.UseState(true)
 		local size = react.UseMemo(||->Vec2(WIDTH, Panel.World.transform:GetSize().y - DESKTOP_BAR), {})
 		return ui.Window{
 			Title = "WEATHER",
@@ -607,11 +606,10 @@ local WeatherView = react.Component(
 			Size = size,
 			Position = Vec2(0, DESKTOP_BAR),
 			MinSize = Vec2(WIDTH, 200),
-			OnVisibilityChanged = |_,visible|->set_shown(visible),
-		}{shown and WeatherEditor{}}
+		}{WeatherEditor{}}
 	end
 )
-local WeatherContent = react.Component(|props|->props.Shown ~= false and WeatherEditor{})
+local WeatherContent = WeatherEditor
 desktop.RegisterProgram{
 	Name = "Weather",
 	Icon = "sun",

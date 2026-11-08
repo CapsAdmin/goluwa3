@@ -269,15 +269,13 @@ local ImpactSoundContent = react.Component(
 )
 local ImpactSoundView = react.Component(
 	||-> do
-		local shown, set_shown = react.UseState(true)
 		return ui.Window{
 			Title = "IMPACT SOUNDS",
 			Pinnable = true,
 			Padding = "none",
 			Size = Vec2(320, 780),
 			Position = Vec2(0, 104),
-			OnVisibilityChanged = |_, visible| -> set_shown(visible),
-		}{shown and ImpactSoundContent{}}
+		}{ImpactSoundContent{}}
 	end
 )
 desktop.RegisterProgram{

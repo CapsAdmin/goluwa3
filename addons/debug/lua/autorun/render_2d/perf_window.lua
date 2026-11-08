@@ -12,7 +12,6 @@ local PerfView = react.Component(
 	|props|-> do
 		local tabs = react.UseMemo(perf.GetTabs, {})
 		local hud, set_hud = react.UseState(false)
-		local shown, set_shown = react.UseState(true)
 		local active, set_active = react.UseState(||->tabs[1].name)
 		react.UseEvent("PerfTab", set_active)
 		return ui.Window{
@@ -23,7 +22,6 @@ local PerfView = react.Component(
 			Size = Vec2(WIDTH, HEIGHT),
 			MinSize = Vec2(WIDTH, HEIGHT),
 			OnHudChanged = |_,value|->set_hud(value),
-			OnVisibilityChanged = |_,visible|->set_shown(visible),
 		}{
 			ui.Tabs{
 				Value = active,
@@ -34,7 +32,6 @@ local PerfView = react.Component(
 				list.map(
 					tabs,
 					|tab|->ui.Column{Key = tab.name, Tab = tab.name, layout = {GrowWidth = 1, AlignmentX = "center"}}{
-						shown and
 						active == tab.name and
 						tab.view{},
 					}

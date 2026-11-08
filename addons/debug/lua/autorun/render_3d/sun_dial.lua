@@ -555,7 +555,6 @@ local SunDialContent = react.Component(
 				Tab = "Dial",
 				layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"},
 			}{
-				props.Shown and
 				tab == "Dial" and
 				SunDial{},
 			},
@@ -564,7 +563,6 @@ local SunDialContent = react.Component(
 				Tab = "Shadows",
 				layout = {GrowWidth = 1, GrowHeight = 1, AlignmentX = "stretch"},
 			}{
-				props.Shown and
 				tab == "Shadows" and
 				SunShadowEditor{Height = HEIGHT - 24},
 			},
@@ -573,7 +571,6 @@ local SunDialContent = react.Component(
 )
 local SunDialWindow = react.Component(
 	||-> do
-		local shown, set_shown = react.UseState(true)
 		local hud, set_hud = react.UseState(false)
 		local position = react.UseMemo(
 			||-> do
@@ -591,8 +588,7 @@ local SunDialWindow = react.Component(
 			MinSize = Vec2(WIDTH, HEIGHT + HEADER + TAB_BAR),
 			Position = position,
 			OnHudChanged = |_,value|->set_hud(value),
-			OnVisibilityChanged = |_,visible|->set_shown(visible),
-		}{SunDialContent{Shown = shown, BarHidden = hud}}
+		}{SunDialContent{BarHidden = hud}}
 	end
 )
 desktop.RegisterProgram{

@@ -209,7 +209,6 @@ local LookEditor = react.Component(
 )
 local LookView = react.Component(
 	||-> do
-		local shown, set_shown = react.UseState(true)
 		local size = react.UseMemo(||->Vec2(WIDTH, Panel.World.transform:GetSize().y - DESKTOP_BAR), {})
 		return ui.Window{
 			Title = "LOOK",
@@ -218,11 +217,10 @@ local LookView = react.Component(
 			Size = size,
 			Position = Vec2(0, DESKTOP_BAR),
 			MinSize = Vec2(WIDTH, 200),
-			OnVisibilityChanged = |_,visible|->set_shown(visible),
-		}{shown and LookEditor{}}
+		}{LookEditor{}}
 	end
 )
-local LookContent = react.Component(|props|->props.Shown ~= false and LookEditor{})
+local LookContent = LookEditor
 desktop.RegisterProgram{
 	Name = "Look",
 	Icon = "eye",
