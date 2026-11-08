@@ -29,6 +29,7 @@ local Window = react.Element(import("goluwa/render2d/ui/widgets/window.lua"))
 local PanelElement = react.Element(Panel)
 local nearby = import("lua/nearby.lua")
 local scene = import("goluwa/entities/scene.lua")
+local scene_export = import("goluwa/render3d/scene_export.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local prefab_tools = import("lua/prefab_tools.lua")
 local network = import("goluwa/network/network.lua")
@@ -155,10 +156,30 @@ local function make_menu_items(h)
 							name_prompt{
 								Title = "SAVE SCENE",
 								Text = f.scene_name or "scene",
-								OnSubmit = function(name)
+								Options = {
+									{Key = "materials", Text = "materials", Value = f.scene_save_options.materials},
+									{
+										Key = "textures",
+										Text = "textures (with their materials)",
+										Value = f.scene_save_options.textures,
+									},
+								},
+								OnSubmit = function(name, options)
 									name = name:gsub("[^%w_%-%. ]", "_")
 									f.scene_name = name
-									logn("saved ", scene.Save(name), " root entities to ", scene.GetPath(name))
+									f.scene_save_options = options
+									options.materials = options.materials or options.textures
+									local stats = scene_export.Save(name, options)
+									logf(
+										"saved %d root entities to %s, %d materials, %d textures (%.1f mb), %d failed to load back, %d differ after loading\n",
+										stats.entities,
+										scene.GetPath(name),
+										stats.materials,
+										stats.copied_textures,
+										stats.bytes / 1048576,
+										table.count(stats.failed),
+										table.count(stats.mismatched)
+									)
 								end,
 							}
 						end,
@@ -169,10 +190,8 @@ local function make_menu_items(h)
 						Items = function()
 							local items = {}
 
-							for _, file_name in ipairs(vfs.Find(scene.GetDirectory()) or {}) do
-								local name = file_name:match("^(.+)%.scene$")
-
-								if name then
+							for _, name in ipairs(vfs.Find(scene.GetDirectory()) or {}) do
+								if name:find("^[%w_%-%. ]+$") and vfs.IsFile(scene.GetPath(name)) then
 									items[#items + 1] = MenuItem{
 										Text = name,
 										Icon = "file",
@@ -520,7 +539,13 @@ local Editor = react.Component(
 		local tree_scroll = react.UseRef()
 		local property_scroll = react.UseRef()
 		local property_editor = react.UseRef()
-		local flags = react.UseRef{stack = {}, transient = false, nearby = false, nearby_dirty = true}
+		local flags = react.UseRef{
+			stack = {},
+			transient = false,
+			nearby = false,
+			nearby_dirty = true,
+			scene_save_options = {},
+		}
 		local edit_stack, set_edit_stack = react.UseState({})
 		local playing, set_playing = react.UseState(false)
 		local sync, sync_properties = react.UseState(0)
