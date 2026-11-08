@@ -20,7 +20,8 @@ local MODEL_REFERENCES = {
 	{"scatter_placements", "Model"},
 }
 
--- Saves the scene to storage/scenes/<name>/scene.scene. With options.materials every material the
+-- Saves the scene to storage/scenes/<name>/scene.scene. The files are written to <name>.saving and
+-- replace <name> when everything is written, so a failed save leaves the old scene as it was. With options.materials every material the
 -- scene draws with is written to <name>/materials/<id>/material.mat. With options.textures their
 -- textures are copied next to the material file (baked textures from the cache, originals out of
 -- mounted archives) so the file refers to them relatively, otherwise it keeps the paths it has.
@@ -35,6 +36,9 @@ function scene_export.Save(name, options)
 		options.materials or not (options.textures or options.models),
 		"textures and models are saved with materials"
 	)
+	local final_name = name
+	name = name .. ".saving"
+	local final_directory = scene.GetSceneDirectory(final_name)
 	local data = scene.Serialize()
 	local stats = {
 		entities = #data.entities,
@@ -52,6 +56,20 @@ function scene_export.Save(name, options)
 	local terrain_files = {}
 
 	if options.terrain then
+	if fs.exists(scene.GetSceneDirectory(name)) then
+		assert(fs.remove_directory_recursive(scene.GetSceneDirectory(name)))
+	end
+
+	local function commit()
+		scene.Write(name, data)
+
+		if fs.exists(final_directory) then
+			assert(fs.remove_directory_recursive(final_directory))
+		end
+
+		assert(os.rename(scene.GetSceneDirectory(name):sub(1, -2), final_directory:sub(1, -2)))
+	end
+
 		for _, record in ipairs(data.entities) do
 			local properties = record.components.terrain
 
@@ -72,15 +90,12 @@ function scene_export.Save(name, options)
 	end
 
 	if not options.materials then
-		scene.Write(name, data)
+		commit()
 		return stats
 	end
 
 	local scene_directory = scene.GetSceneDirectory(name)
 	local root = scene_directory .. "materials/"
-
-	if fs.exists(root) then assert(fs.remove_directory_recursive(root)) end
-
 	assert(fs.create_directory_recursive(root))
 	local used = {}
 	local material_paths = {}
@@ -204,11 +219,6 @@ function scene_export.Save(name, options)
 
 	if options.models then
 		local models_root = scene_directory .. "models/"
-
-		if fs.exists(models_root) then
-			assert(fs.remove_directory_recursive(models_root))
-		end
-
 		local exported = {}
 		local used_models = {}
 
@@ -310,7 +320,7 @@ function scene_export.Save(name, options)
 			codec.Encode("luadata", aliases, true)
 		)
 	)
-	scene.Write(name, data)
+	commit()
 	return stats
 end
 
