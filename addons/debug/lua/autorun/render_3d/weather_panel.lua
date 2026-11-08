@@ -375,7 +375,7 @@ local function build_items()
 					"weather/ground_fog",
 					"ground fog visibility",
 					1.5,
-					5.5,
+					6.5,
 					2,
 					function()
 						return math.log10(weather.GetGroundFogVisibility())
