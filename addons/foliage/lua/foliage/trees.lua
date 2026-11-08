@@ -218,8 +218,8 @@ do
 		return nearest
 	end
 
-	local LOD_CARD_KEEP = 3
-	local LOD_CARD_GROW = 1.7
+	local LOD_CARD_KEEP = 4
+	local LOD_CARD_GROW = 2
 
 	function trees.BuildCards(cards, bend, trunk, coarse)
 		local mesh = MeshBuilder.New()
