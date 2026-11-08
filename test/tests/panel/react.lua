@@ -589,6 +589,32 @@ T.Test2D("react use poll recomputes every update without an interval, rarely wit
 	T(slow_calls)["=="](1)
 end)
 
+T.Test2D("react use poll pauses while its host is hidden and keeps its state", function()
+	local event = import("goluwa/event.lua")
+	local calls = 0
+	local Polled = react.Component(
+		|props|-> do
+			react.UsePoll(||-> do
+				calls = calls + 1
+				return calls
+			end)
+			return Text{Text = "polled"}
+		end
+	)
+	local root = react.Mount(Column{}{Polled{}}, Panel.World)
+	local column = root:GetEntity()
+	event.CallUpdate(0.016)
+	T(calls)["=="](2)
+	column.visual:SetVisible(false)
+	event.CallUpdate(0.016)
+	event.CallUpdate(0.016)
+	T(calls)["=="](2)
+	column.visual:SetVisible(true)
+	event.CallUpdate(0.016)
+	T(calls)["=="](3)
+	root:Unmount()
+end)
+
 T.Test2D("react use debounce follows a value on the first update after its delay and not before", function()
 	local event = import("goluwa/event.lua")
 	local Shown = react.Component(

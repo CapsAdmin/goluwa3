@@ -866,10 +866,21 @@ do
 		return hook.value
 	end
 
+	local function is_hidden(entity)
+		while entity:IsValid() do
+			if entity.visual and not entity.visual:GetVisible() then return true end
+
+			entity = entity:GetParent()
+		end
+
+		return false
+	end
+
 	function react.UsePoll(fn, interval)
 		local value, set_value = react.UseState(fn)
 		local latest = react.UseRef()
 		local last_poll = react.UseRef()
+		local host = current_inst.host_inst
 		latest.current = fn
 
 		if not last_poll.current then
@@ -879,7 +890,17 @@ do
 		react.UseEvent("Update", function()
 			local now = system.GetUnscaledElapsedTime()
 
-			if now - last_poll.current >= (interval or 0) then
+			if
+				now - last_poll.current >= (
+					interval or
+					0
+				)
+				and
+				not (
+					host and
+					is_hidden(host.entity)
+				)
+			then
 				last_poll.current = now
 				set_value(latest.current())
 			end
