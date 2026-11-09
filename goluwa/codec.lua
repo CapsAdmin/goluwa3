@@ -191,7 +191,54 @@ function codec.DecodeData(path, file_content, lib)
 	return nil, last_err or ("no decoder accepted " .. tostring(path))
 end
 
+local read_job_sources = {}
+
+local function get_read_job_source(job_source)
+	local source = read_job_sources[job_source]
+
+	if not source then
+		source = [[
+			local path = ...
+			local file = assert(io.open(path, "rb"))
+			local content = file:read("*a")
+			file:close()
+			return assert(load(]] .. string.format("%q", job_source) .. [[, "=thread_pool_job"))(content)
+		]]
+		read_job_sources[job_source] = source
+	end
+
+	return source
+end
+
+local decode_file_async
+
+-- a real file on disk is read by the worker that decodes it, so the main thread never copies its bytes
 function codec.DecodeFileAsync(path, callback)
+	local thread_pool = import("goluwa/thread_pool.lua")
+	local data = vfs.TranslatePath(path)[1]
+	local mod = data and data.context.Name == "os" and codec.GuessFormatFromPath(path)
+
+	if mod and mod.thread_job and thread_pool.GetMaxThreads() > 0 then
+		local full_path = data.path_info.full_path
+		local attributes = fs.get_attributes(full_path)
+
+		if attributes and attributes.size >= thread_pool.inline_threshold then
+			thread_pool.Run(get_read_job_source(mod.thread_job), full_path, attributes.size):OnDone(function(job)
+				if job.err then
+					decode_file_async(path, callback)
+				else
+					callback(codec.AttachBlob(job.meta, job.blob))
+				end
+			end)
+
+			return
+		end
+	end
+
+	decode_file_async(path, callback)
+end
+
+function decode_file_async(path, callback)
 	vfs.Prefetch(path, function()
 		local file_content = vfs.Read(path)
 		local mod = file_content and codec.GuessFormat(path, file_content)
