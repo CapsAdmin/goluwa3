@@ -339,7 +339,7 @@ function triangle_mesh.GetPolygonTriangles(poly)
 		triangles_cache.count_a == vertex_count and
 		triangles_cache.count_b == index_count
 	then
-		return triangles_cache.value, triangle_count
+		return triangles_cache.value, #triangles_cache.value
 	end
 
 	local triangles = {}
