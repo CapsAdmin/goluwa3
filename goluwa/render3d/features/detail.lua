@@ -11,6 +11,8 @@ return {
 			material:GetNormal2Texture() ~= nil or
 			material:GetBlendTexture() ~= nil or
 			material:GetDetailTexture() ~= nil or
+			material:GetDetailColorTexture() ~= nil or
+			material:GetDetailNormalTexture() ~= nil or
 			material:GetGroundColorTexture() ~= nil or
 			material.has_uv_transform
 	end,
@@ -49,6 +51,24 @@ return {
 		},
 		{name = "DetailBumpScale", default = 1.0, requires = "DetailTexture"},
 		{name = "DetailBlendAmount", default = 0.0, requires = "DetailTexture"},
+		{
+			name = "DetailColorTexture",
+			kind = "texture",
+			type = "render_texture",
+			callback = ray,
+			requires = "AlbedoTexture",
+		},
+		{
+			name = "DetailColorMode",
+			default = 0.0,
+			requires = "DetailColorTexture",
+		},
+		{
+			name = "DetailNormalTexture",
+			kind = "texture",
+			type = "render_texture",
+			requires = "NormalTexture",
+		},
 		{
 			name = "MultiplyAlbedo2",
 			default = false,

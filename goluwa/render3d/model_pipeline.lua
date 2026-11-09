@@ -2165,6 +2165,21 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					rgb1 = mix(rgb1, rgb1 * detail, detail_model.DetailBlendAmount);
 				}
 
+				if (detail_model.DetailColorTexture != -1) {
+					vec3 detail_color = texture(TEXTURE(detail_model.DetailColorTexture), base_uv(uv) * detail_model.DetailTiling).rgb;
+
+					if (detail_model.DetailColorMode < 1.5) {
+						rgb1 *= mix(vec3(1.0), detail_color * 1.9922, detail_model.DetailBlendAmount);
+					} else {
+						vec3 gamma = pow(max(rgb1, vec3(0.0)), vec3(1.0 / 2.2));
+						detail_color *= 0.9961;
+						vec3 screen = 1.0 - (1.0 - detail_color) * (1.0 - gamma) * 2.0;
+						vec3 multiply = detail_color * gamma * 2.0;
+						vec3 overlay = mix(multiply, screen, greaterThanEqual(gamma, vec3(0.5)));
+						rgb1 = mix(rgb1, pow(max(overlay, vec3(0.0)), vec3(2.2)), detail_model.DetailBlendAmount);
+					}
+				}
+
 				return blend_ground_color(rgb1 * tint, world_pos);
 			}
 
@@ -2252,6 +2267,12 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					vec2 detail = texture(TEXTURE(detail_model.DetailTexture), detail_uv).xy + texture(TEXTURE(detail_model.DetailTexture), detail_uv * 2.0).xy;
 					detail = (detail - 1.0) * detail_model.DetailBumpScale;
 					N.xy += detail;
+				}
+
+				if (detail_model.DetailNormalTexture != -1) {
+					vec3 detail_normal = decode_normal_map(texture(TEXTURE(detail_model.DetailNormalTexture), base_uv(uv) * detail_model.DetailTiling).xy);
+					detail_normal = mix(vec3(0.0, 0.0, 1.0), detail_normal, detail_model.DetailBlendAmount * detail_model.DetailBumpScale);
+					N = normalize(N * detail_normal.z + vec3(N.z * detail_normal.z * detail_normal.xy, 0.0));
 				}
 
 				if (micro_detail_model.MicroDetailTexture != -1 && micro_detail_model.MicroDetailNormal > 0.0) {

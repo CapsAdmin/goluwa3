@@ -17,11 +17,20 @@ local EDITS = {
 			return vec4(n.xy * 0.5 + 0.5, 0.0, texel.b);
 		}
 	]],
+	detail_normal = [[
+		vec4 edit(ivec2 position, ivec2 size, vec4 texel) {
+			vec2 t = vec2(texel.r + texel.g - 1.003922, texel.r - texel.g);
+			vec3 n = normalize(vec3(t, 1.0 - abs(t.x) - abs(t.y)));
+			n.y = -n.y;
+			return vec4(n.xy * 0.5 + 0.5, 0.0, 1.0);
+		}
+	]],
 	channel = "vec4 edit(ivec2 position, ivec2 size, vec4 texel) { return texel; }",
 	blend_mask = "vec4 edit(ivec2 position, ivec2 size, vec4 texel) { return vec4(0.1, texel.r, 0.0, 0.0); }",
 }
 local CONFIGS = {
 	normal = {format = "bc7", kind = "linear"},
+	detail_normal = {format = "bc7", kind = "linear"},
 	blend_mask = {format = "bc7", kind = "linear"},
 	alpha = {format = "bc4", kind = "linear", channel = 3, edit = "channel"},
 	green = {format = "bc4", kind = "linear", channel = 1, edit = "channel"},

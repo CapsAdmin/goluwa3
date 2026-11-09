@@ -1,6 +1,8 @@
 local vfs = import("goluwa/vfs.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Color = import("goluwa/structs/color.lua")
+local Vec2 = import("goluwa/structs/vec2.lua")
+local Vec4 = import("goluwa/structs/vec4.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
 local texture_convert = import("goluwa/source_engine/source2/texture_convert.lua")
 local material = {}
@@ -74,7 +76,9 @@ function material.FromVMAT(path, tint)
 
 	if tint and (info.tint_mask or info.blend) then tint = nil end
 
-	if tint and tint[1] >= 0.97 and tint[2] >= 0.97 and tint[3] >= 0.97 then tint = nil end
+	if tint and tint[1] >= 0.97 and tint[2] >= 0.97 and tint[3] >= 0.97 then
+		tint = nil
+	end
 
 	local key = info.path
 
@@ -137,6 +141,43 @@ function material.FromVMAT(path, tint)
 
 		metalness = ((floats.g_flMetalnessA or 0) + (floats.g_flMetalnessB or 0)) / 2
 		self:SetMetallicMultiplier(metalness)
+	end
+
+	local scale = vectors.g_vTexCoordScale or {1, 1}
+	local offset = vectors.g_vTexCoordOffset or {0, 0}
+
+	if scale[1] ~= 1 or scale[2] ~= 1 or offset[1] ~= 0 or offset[2] ~= 0 then
+		self:SetBaseTextureTransformU(Vec4(scale[1], 0, offset[1], 0))
+		self:SetBaseTextureTransformV(Vec4(0, scale[2], offset[2], 0))
+		self:SetBumpTransformU(Vec4(scale[1], 0, offset[1], 0))
+		self:SetBumpTransformV(Vec4(0, scale[2], offset[2], 0))
+		self.has_uv_transform = true
+	end
+
+	local scale2 = vectors.g_vTexCoordScale2
+
+	if info.blend and scale2 and (scale2[1] ~= 1 or scale2[2] ~= 1) then
+		self:SetTexture2TransformU(Vec4(scale2[1], 0, 0, 0))
+		self:SetTexture2TransformV(Vec4(0, scale2[2], 0, 0))
+		self.has_uv_transform = true
+	end
+
+	local detail_mode = ints.F_DETAIL_TEXTURE or 0
+
+	if detail_mode > 0 and not textures.g_tDetailMask and not info.blend then
+		local detail_scale = vectors.g_vDetailTexCoordScale or {1, 1}
+		self:SetDetailTiling(Vec2(detail_scale[1], detail_scale[2]))
+		self:SetDetailBlendAmount(floats.g_flDetailBlendFactor or 1)
+		self:SetDetailBumpScale(floats.g_flDetailNormalStrength or 1)
+
+		if detail_mode ~= 3 and textures.g_tDetail then
+			self:SetDetailColorTexture(Material.LinearTexture(textures.g_tDetail))
+			self:SetDetailColorMode(detail_mode == 1 and 1 or 2)
+		end
+
+		if detail_mode >= 3 and textures.g_tNormalDetail then
+			self:SetDetailNormalTexture(texture_convert.Get(textures.g_tNormalDetail, "detail_normal"))
+		end
 	end
 
 	local color = vectors.g_vColorTint or {1, 1, 1}
