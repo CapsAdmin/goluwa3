@@ -37,6 +37,14 @@ local function mip_size(info, width, height, depth)
 	return width * height * depth * info.pixel
 end
 
+vtex_c.thread_job = [[
+	local input = ...
+	local Buffer = import("goluwa/structs/buffer.lua")
+	local vtex_c = import("goluwa/codecs/vtex_c.lua")
+	local meta, data = vtex_c.DecodeBuffer(Buffer.New(input, #input))
+	return meta, data
+]]
+
 function vtex_c.DecodeBuffer(buffer)
 	local src = buffer:GetBuffer()
 	local total = buffer:GetSize()

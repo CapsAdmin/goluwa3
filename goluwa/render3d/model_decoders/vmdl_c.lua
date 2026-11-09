@@ -31,9 +31,14 @@ function vmdl_c.BuildPolygon(buffers, draw_call, name, info)
 	local texcoord = vbib.GetField(vb, "TEXCOORD", 0)
 	local color = info.blend and vbib.GetField(vb, "COLOR")
 
-	if color and color.format ~= F.R8G8B8A8_UNORM and color.format ~= F.R32G32B32A32_FLOAT then
+	if
+		color and
+		color.format ~= F.R8G8B8A8_UNORM and
+		color.format ~= F.R32G32B32A32_FLOAT
+	then
 		color = nil
 	end
+
 	local vertices = VertexType(vertex_count)
 	local min_x, min_y, min_z = math.huge, math.huge, math.huge
 	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
@@ -120,13 +125,21 @@ end
 function vmdl_c.EmitMesh(data, buffers, path, mesh_callback)
 	for _, object in ipairs(data.m_sceneObjects) do
 		for _, draw_call in ipairs(object.m_drawCalls) do
+			s2_material.Prefetch(draw_call.m_material)
+		end
+	end
+
+	for _, object in ipairs(data.m_sceneObjects) do
+		for _, draw_call in ipairs(object.m_drawCalls) do
 			if
 				draw_call.m_nPrimitiveType == "RENDER_PRIM_TRIANGLES" and
 				draw_call.m_nIndexCount > 0
 			then
 				local info = s2_material.GetInfo(draw_call.m_material)
-				mesh_callback(vmdl_c.BuildPolygon(buffers, draw_call, path, info), s2_material.FromVMAT(draw_call.m_material))
-
+				mesh_callback(
+					vmdl_c.BuildPolygon(buffers, draw_call, path, info),
+					s2_material.FromVMAT(draw_call.m_material)
+				)
 				tasks.Wait()
 			end
 		end
@@ -197,12 +210,15 @@ local function decode_vmdl(path, full_path, mesh_callback, physics_callback)
 
 	for _, embedded in ipairs(control and control.embedded_meshes or {}) do
 		if
-			bit.band(masks[external + embedded.mesh_index + 1] or
-				(
-					embedded.mesh_index == 0 and
-					1 or
-					0
-				), 1) ~= 0
+			bit.band(
+				masks[external + embedded.mesh_index + 1] or
+					(
+						embedded.mesh_index == 0 and
+						1 or
+						0
+					),
+				1
+			) ~= 0
 		then
 			vmdl_c.EmitMesh(
 				resource.ReadKV3(res, embedded.data_block),

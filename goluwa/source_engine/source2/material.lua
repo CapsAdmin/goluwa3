@@ -71,6 +71,79 @@ function material.GetInfo(path)
 	return info
 end
 
+local function get_plan(info)
+	local textures, ints = info.textures, info.ints
+	local plan = {
+		albedo_path = textures.g_tColor or textures.g_tColorA,
+		normal_path = textures.g_tNormal or textures.g_tNormalA,
+		conversions = {},
+	}
+	local conversions = plan.conversions
+	plan.tinted = plan.albedo_path and
+		info.tint_mask and
+		not info.blend and
+		not (
+			info.alpha_test or
+			info.translucent
+		)
+		and
+		textures.g_tTintMask
+
+	if plan.tinted then
+		conversions[#conversions + 1] = {"tint_mask", {plan.albedo_path, textures.g_tTintMask}}
+	end
+
+	if plan.normal_path then
+		conversions[#conversions + 1] = {"normal", {plan.normal_path}}
+	end
+
+	if ints.F_METALNESS_TEXTURE == 1 then
+		if not (info.alpha_test or info.translucent) and plan.albedo_path then
+			plan.metal_path, plan.metal_kind = plan.albedo_path, "alpha"
+		elseif textures.g_tMetalness then
+			plan.metal_path, plan.metal_kind = textures.g_tMetalness, "green"
+		end
+
+		if plan.metal_path then
+			conversions[#conversions + 1] = {plan.metal_kind, {plan.metal_path}}
+		end
+	end
+
+	if info.blend and textures.g_tColorB then
+		if textures.g_tNormalB then
+			conversions[#conversions + 1] = {"normal", {textures.g_tNormalB}}
+		end
+
+		if textures.g_tMask then
+			conversions[#conversions + 1] = {"blend_mask", {textures.g_tMask}}
+		end
+	end
+
+	if
+		(
+			ints.F_DETAIL_TEXTURE or
+			0
+		) >= 3 and
+		not textures.g_tDetailMask and
+		not info.blend and
+		textures.g_tNormalDetail
+	then
+		conversions[#conversions + 1] = {"detail_normal", {textures.g_tNormalDetail}}
+	end
+
+	return plan
+end
+
+function material.Prefetch(path)
+	local info = material.GetInfo(path)
+
+	if materials[info.path] or info.no_draw or info.unreadable then return end
+
+	for _, conversion in ipairs(get_plan(info).conversions) do
+		texture_convert.Prefetch(conversion[2], conversion[1])
+	end
+end
+
 function material.FromVMAT(path)
 	local info = material.GetInfo(path)
 	local key = info.path
@@ -92,10 +165,14 @@ function material.FromVMAT(path)
 	end
 
 	local textures, ints, floats, vectors = info.textures, info.ints, info.floats, info.vectors
-	local albedo_path = textures.g_tColor or textures.g_tColorA
-	local normal_path = textures.g_tNormal or textures.g_tNormalA
+	local plan = get_plan(info)
+	local albedo_path, normal_path = plan.albedo_path, plan.normal_path
 
-	if albedo_path and info.tint_mask and not info.blend and not (info.alpha_test or info.translucent) and textures.g_tTintMask then
+	for _, conversion in ipairs(plan.conversions) do
+		texture_convert.Prefetch(conversion[2], conversion[1])
+	end
+
+	if plan.tinted then
 		self:SetAlbedoTexture(texture_convert.GetTintedAlbedo(albedo_path, textures.g_tTintMask))
 		self:SetBlendTintByBaseAlpha(true)
 	elseif albedo_path then
@@ -110,10 +187,8 @@ function material.FromVMAT(path)
 	local metalness = floats.g_flMetalness or 0
 
 	if ints.F_METALNESS_TEXTURE == 1 then
-		if not (info.alpha_test or info.translucent) and albedo_path then
-			self:SetMetallicTexture(texture_convert.Get(albedo_path, "alpha"))
-		elseif textures.g_tMetalness then
-			self:SetMetallicTexture(texture_convert.Get(textures.g_tMetalness, "green"))
+		if plan.metal_path then
+			self:SetMetallicTexture(texture_convert.Get(plan.metal_path, plan.metal_kind))
 		end
 
 		metalness = 1

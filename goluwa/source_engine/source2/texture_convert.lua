@@ -5,6 +5,7 @@ local codec = import("goluwa/codec.lua")
 local tasks = import("goluwa/tasks.lua")
 local Texture = import("goluwa/render/texture.lua")
 local texture_compress = import("goluwa/render/texture_compress.lua")
+local thread_pool = import("goluwa/thread_pool.lua")
 local vtex_c = import("goluwa/codecs/vtex_c.lua")
 local texture_convert = {}
 texture_convert.CacheDirectory = "storage/cache/source2_textures/"
@@ -42,20 +43,54 @@ local CONFIGS = {
 	alpha = {format = "bc4", kind = "linear", channel = 3, edit = "channel"},
 	green = {format = "bc4", kind = "linear", channel = 1, edit = "channel"},
 }
+local MAX_PENDING = 24
+local pending = {}
+local pending_count = 0
+
+local function get_cache_file(vtex_paths, kind)
+	local edit = EDITS[CONFIGS[kind].edit or kind]
+	local name = vtex_paths[1]:gsub("[^%w]+", "_"):sub(-60)
+	return texture_convert.CacheDirectory .. name .. "_" .. kind .. "_" .. crypto.CRC32(table.concat(vtex_paths, "|") .. kind .. edit) .. ".dds"
+end
+
+local function start_decode(vtex_path)
+	local data = assert(vfs.Read(vtex_path))
+	local entry = {job = thread_pool.Run(vtex_c.thread_job, data, #data)}
+	pending[vtex_path] = entry
+	pending_count = pending_count + 1
+	return entry
+end
+
+local function take_decode(vtex_path)
+	local entry = pending[vtex_path] or start_decode(vtex_path)
+	pending[vtex_path] = nil
+	pending_count = pending_count - 1
+	-- a task wait here lets whole frames render between the conversion's gpu submits
+	entry.job:Block()
+	assert(not entry.job.err, entry.job.err)
+	return assert(codec.AttachBlob(entry.job.meta, entry.job.blob))
+end
+
+-- starts decoding the sources of a conversion on the worker threads so that convert finds them done
+function texture_convert.Prefetch(vtex_paths, kind)
+	if fs.exists(get_cache_file(vtex_paths, kind)) then return end
+
+	for _, vtex_path in ipairs(vtex_paths) do
+		if pending_count >= MAX_PENDING then return end
+
+		if not pending[vtex_path] then start_decode(vtex_path) end
+	end
+end
 
 local function convert(vtex_paths, kind, srgb)
 	local config = CONFIGS[kind]
-	local edit = EDITS[config.edit or kind]
-	local name = vtex_paths[1]:gsub("[^%w]+", "_"):sub(-60)
-	local key = table.concat(vtex_paths, "|") .. kind .. edit
-	local file = texture_convert.CacheDirectory .. name .. "_" .. kind .. "_" .. crypto.CRC32(key) .. ".dds"
+	local file = get_cache_file(vtex_paths, kind)
 
 	if not fs.exists(file) then
 		local sources, textures = {}, {}
 
 		for i, vtex_path in ipairs(vtex_paths) do
-			local data = assert(vfs.Read(vtex_path))
-			local info = assert(codec.DecodeWithModule(vtex_path, data, vtex_c))
+			local info = take_decode(vtex_path)
 			info.vulkan_format = info.vulkan_format:gsub("_srgb", "_unorm")
 			textures[i] = Texture.New{decoded = info}
 			sources[i] = {texture = textures[i]}
@@ -69,7 +104,7 @@ local function convert(vtex_paths, kind, srgb)
 
 		local dds = texture_compress.Recompress{
 			sources = sources,
-			edit = edit,
+			edit = EDITS[config.edit or kind],
 			format = config.format,
 			kind = config.kind,
 			channel = config.channel,
