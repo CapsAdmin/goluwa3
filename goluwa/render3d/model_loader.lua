@@ -204,6 +204,7 @@ import.loaded["goluwa/render3d/model_loader.lua"] = model_loader
 import("goluwa/render3d/model_decoders/mdl.lua")
 import("goluwa/render3d/model_decoders/gltf.lua")
 import("goluwa/render3d/model_decoders/mesh.lua")
+import("goluwa/render3d/model_decoders/vmdl_c.lua")
 model_loader.AddThreadedDecoder("cgf", import("goluwa/render3d/model_decoders/cgf.lua").Decoder)
 import("goluwa/render3d/model_decoders/bsp.lua")
 import("goluwa/cry_engine/cry_engine.lua")
