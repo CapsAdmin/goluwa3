@@ -194,8 +194,10 @@ local function decode_vmdl(path, full_path, mesh_callback, physics_callback)
 							vertices[v] = {pos = Vec3(p[0], p[1], p[2])}
 						end
 
-						for k = 1, packed.index_count do
+						for k = 1, packed.index_count - 2, 3 do
 							indices[k] = packed.indices[k - 1]
+							indices[k + 1] = packed.indices[k + 1]
+							indices[k + 2] = packed.indices[k]
 						end
 
 						physics.children[i] = {Shape = MeshShape.New{Vertices = vertices, indices = indices}}
