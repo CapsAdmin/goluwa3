@@ -114,9 +114,7 @@ function game.GetMountableGames()
 	local games = {}
 
 	for _, info in ipairs(steam.GetSourceGames()) do
-		if info.filesystem.steamappid and not info.gameinfo_path:ends_with(".gi") then
-			games[#games + 1] = info
-		end
+		if info.filesystem.steamappid then games[#games + 1] = info end
 	end
 
 	return games
@@ -136,13 +134,18 @@ function game.GetGameImage(info)
 end
 
 function game.ListLooseMaps(info)
+	if info.source2 then
+		return import("goluwa/source_engine/source2/world.lua").ListMaps(info)
+	end
+
 	local names = {}
 	local seen = {}
 
 	for _, path in ipairs(info.filesystem.searchpaths) do
 		if
 			path:starts_with(info.vdf_directory) and
-			not path:ends_with("*") and
+			not path:ends_with("*")
+			and
 			not path:ends_with(".vpk/")
 		then
 			for _, file in ipairs(vfs.Find("os:" .. path .. "maps/%.bsp$")) do
@@ -252,7 +255,6 @@ do
 		local maps = {}
 		local seen = {}
 		local mounted_games = {}
-
 		local ranks = {}
 
 		for rank, info in ipairs(game.GetMountableGames()) do

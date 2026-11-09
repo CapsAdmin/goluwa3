@@ -14,6 +14,7 @@ local game = import("goluwa/source_engine/game.lua")
 local bsp = import("goluwa/source_engine/bsp.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local map_scene = import("goluwa/source_engine/map_scene.lua")
+local source2_world = import("goluwa/source_engine/source2/world.lua")
 import("goluwa/source_engine/lights.lua")
 local source_engine = {}
 
@@ -55,6 +56,10 @@ function source_engine.Load(name)
 
 		return
 	end
+
+	local source2_game = source2_world.FindMap(name)
+
+	if source2_game then return source2_world.Load(name, source2_game) end
 
 	local path = game.GetMapPath(name)
 	startup.Begin("mount source games")
@@ -176,6 +181,8 @@ engines.Register(
 	{
 		Find = function(name)
 			if tonumber(name) then return name end
+
+			if source2_world.FindMap(name) then return name end
 
 			return game.FindMap(name)
 		end,

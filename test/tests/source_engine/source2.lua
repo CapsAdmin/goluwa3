@@ -1,0 +1,69 @@
+local T = import("test/environment.lua")
+local ffi = require("ffi")
+local steam = import("goluwa/steam/steam.lua")
+local vfs = import("goluwa/vfs.lua")
+local codec = import("goluwa/codec.lua")
+local kv3 = import("goluwa/source_engine/source2/kv3.lua")
+local resource = import("goluwa/source_engine/source2/resource.lua")
+local vbib = import("goluwa/source_engine/source2/vbib.lua")
+local vtex_c = import("goluwa/codecs/vtex_c.lua")
+local entity_lump = import("goluwa/source_engine/source2/entity_lump.lua")
+
+T.Test("source 2 text kv3", function()
+	local data = kv3.DecodeText([[<!-- kv3 encoding:text:version{e21c7f3c} format:generic:version{7412167c} -->
+{
+	name = "a b"
+	flag = true
+	"quoted.key" = -1.5
+	list = [ 1, 2, "x" ]
+	res = resource:"a/b.vmat"
+}]])
+	T(data.name)["=="]("a b")
+	T(data.flag)["=="](true)
+	T(data["quoted.key"])["=="](-1.5)
+	T(#data.list)["=="](3)
+	T(data.res)["=="]("a/b.vmat")
+end)
+
+T.Test("source 2 entity key hash", function()
+	T(entity_lump.Hash("classname"))["=="](3323665506)
+	T(entity_lump.Hash("origin"))["=="](3827302934)
+end)
+
+T.Test("source 2 alyx resources", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local res = resource.Load(vfs, "models/props_c17/oildrum001.vmdl_c")
+	local control = resource.ReadKV3(res, "CTRL")
+	local lod0 = control.embedded_meshes[1]
+	local mesh = resource.ReadKV3(res, lod0.data_block)
+	local buffers = vbib.Parse(res.data, res.list[lod0.vbib_block].offset)
+	local draw_call = mesh.m_sceneObjects[1].m_drawCalls[1]
+	local vb = buffers.vertex[draw_call.m_vertexBuffers[1].m_hBuffer]
+	local ib = buffers.index[draw_call.m_indexBuffer.m_hBuffer]
+	T(vb.element_count > 0)["=="](true)
+	local position = vbib.GetField(vb, "POSITION")
+	local normal = vbib.GetField(vb, "NORMAL")
+
+	for i = 0, vb.element_count - 1 do
+		local x, y, z = vbib.Read(vb, position, i)
+		T(math.abs(x) < 100 and math.abs(y) < 100 and math.abs(z) < 100)["=="](true)
+		local nx, ny, nz = vbib.ReadNormalTangent(vb, normal, i)
+		T(math.abs(nx * nx + ny * ny + nz * nz - 1) < 0.01)["=="](true)
+	end
+
+	local indices = ffi.cast(ib.element_size == 2 and "const uint16_t *" or "const uint32_t *", ib.data)
+
+	for i = 0, draw_call.m_nIndexCount - 1 do
+		T(indices[draw_call.m_nStartIndex + i] < draw_call.m_nVertexCount)["=="](true)
+	end
+
+	local material = resource.ReadKV3(resource.Load(vfs, "materials/models/props/hooks_2.vmat_c"))
+	local data = vfs.Read(material.m_textureParams[2].m_pValue .. "_c")
+	local img = codec.DecodeWithModule("x.vtex_c", data, vtex_c)
+	T(img.width > 0 and img.mip_count > 0)["=="](true)
+	T(img.vulkan_format)["=="]("bc7_unorm_block")
+end)

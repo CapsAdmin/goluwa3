@@ -643,6 +643,11 @@ return function(steam)
 		end
 
 		for _, tbl in ipairs(collect_gameinfos()) do
+			if tbl.gameinfo_path:ends_with(".gi") then
+				tbl.source2 = true
+				tbl.filesystem.steamappid = tonumber(tbl.appid)
+			end
+
 			if not tbl.filesystem.steamappid or not done[tbl.filesystem.steamappid] then
 				if tbl.filesystem.steamappid then
 					done[tbl.filesystem.steamappid] = true
@@ -661,7 +666,17 @@ return function(steam)
 				tbl.name = name
 				local gameinfo = tbl
 
-				if tbl.filesystem then
+				if tbl.source2 then
+					local fixed = {}
+
+					for _, dir in ipairs{tbl.vdf_directory, tbl.game_dir .. "game/core/"} do
+						fixed[#fixed + 1] = dir .. "pak01_dir.vpk/"
+						fixed[#fixed + 1] = dir
+					end
+
+					tbl.filesystem.searchpaths = fixed
+					list.insert(found, tbl)
+				elseif tbl.filesystem then
 					local fixed = {}
 					local done = {}
 

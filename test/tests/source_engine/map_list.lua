@@ -38,6 +38,17 @@ T.Test("source games that can be mounted have art and a name", function()
 	end
 
 	for _, info in ipairs(game.GetMountableGames()) do
-		T(info.gameinfo_path:ends_with(".gi"))["=="](false)
+		T(info.gameinfo_path:ends_with(".gi"))["=="](info.source2 == true)
 	end
+end)
+
+T.Test("source 2 maps are listed from the game's maps directory", function()
+	local alyx = steam.FindSourceGame(546560)
+
+	if not alyx then return T.Unavailable("half-life: alyx is not installed") end
+
+	local map = find_map(engines.GetMaps(), "a2_pistol")
+	T(map ~= nil)["=="](true)
+	T(map.game)["=="](546560)
+	T(find_map(engines.GetMaps(), "a2_pistol_commentary") == nil)["=="](true)
 end)
