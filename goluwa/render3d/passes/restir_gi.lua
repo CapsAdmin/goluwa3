@@ -42,6 +42,7 @@ local function restir_uniform(trace)
 		{"temporal", "int"},
 		{"max_history", "float"},
 		{"permutation", "int"},
+		{"history_cap", "float"},
 		{"hit_gi_share", "float"},
 		{"ray_share", "int"},
 		{"boiling_filter", "float"},
@@ -124,6 +125,7 @@ local function restir_uniform(trace)
 			block.temporal = restir_gi.temporal:Get() and 1 or 0
 			block.max_history = restir_gi.max_history:Get()
 			block.permutation = restir_gi.permutation:Get() and 1 or 0
+			block.history_cap = restir_gi.GetHistoryCap()
 			block.hit_gi_share = restir_gi.hit_gi_share:Get()
 			block.ray_share = restir_gi.GetRayShare()
 			block.boiling_filter = restir_gi.boiling_filter:Get()
@@ -1006,7 +1008,7 @@ local function pass_accumulate()
 					}
 				}
 
-				history_length = min(history_length + 1.0, restir_data.accumulation);
+				history_length = min(history_length + 1.0, min(restir_data.accumulation, restir_data.history_cap));
 				float alpha = 1.0 / history_length;
 				vec2 moments = mix(history_moments.yz, vec2(current_luminance, current_luminance * current_luminance), alpha);
 				imageStore(out_color, pos, mix(history, current, alpha));

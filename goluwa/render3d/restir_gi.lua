@@ -1,6 +1,7 @@
 local pvars = import("goluwa/cli/pvars.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
+local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local restir_gi = {}
 restir_gi.RESOLUTION_SCALES = {full = 1, half = 0.5, quarter = 0.25}
 pvars.StartGroup("Lighting", "ReSTIR GI", {store = false, prefix = "restir_gi_"})
@@ -103,6 +104,13 @@ restir_gi.accumulation = pvars.Setup2{
 	max = 100000,
 	help = "most frames the denoiser averages. with temporal and spatial reuse and the filter off and a still camera a very large number accumulates a reference",
 }
+restir_gi.light_change = pvars.Setup2{
+	key = "restir_gi_light_change",
+	default = 0.25,
+	min = 0,
+	max = 10,
+	help = "when the sun or moon changes in a frame by more than this (its relative change in illuminance plus how far its direction moved), the denoiser keeps only a few frames of history everywhere for a moment. exponential averaging otherwise takes as many history lengths to follow a drop as the drop has orders of magnitude (day to night is seconds). 0 is off",
+}
 restir_gi.filter = pvars.Setup2{
 	key = "restir_gi_filter",
 	default = true,
@@ -121,6 +129,41 @@ restir_gi.debug = pvars.Setup2{
 	help = "shows the gi irradiance the lighting gets instead of the lit scene",
 }
 pvars.EndGroup()
+
+do
+	local LIGHT_CHANGE_FRAMES = 60
+	local LIGHT_CHANGE_HISTORY = 4
+	local last_frame = -1
+	local cap = math.huge
+	local fast_until = -1
+	local reference
+
+	function restir_gi.GetHistoryCap()
+		local frame = system.GetFrameNumber()
+
+		if frame == last_frame then return cap end
+
+		last_frame = frame
+		local lights = render3d.GetLights()
+		local direction = directional_shadows.GetPrimarySunDirection(lights)
+		local illuminance = directional_shadows.GetPrimarySunIlluminance(lights) * math.smoothstep(-0.08, 0.02, direction.y)
+		local threshold = restir_gi.light_change:Get()
+
+		if reference and threshold > 0 then
+			local change = math.abs(illuminance - reference.illuminance) / math.max(illuminance, reference.illuminance, 1e-3) + (
+					direction - reference.direction
+				):GetLength()
+
+			if change > threshold then fast_until = frame + LIGHT_CHANGE_FRAMES end
+		end
+
+		reference = reference or {}
+		reference.illuminance = illuminance
+		reference.direction = direction:Copy()
+		cap = frame <= fast_until and LIGHT_CHANGE_HISTORY or math.huge
+		return cap
+	end
+end
 
 function restir_gi.GetRayShare()
 	return restir_gi.RAY_SHARES[restir_gi.rays:Get()]
