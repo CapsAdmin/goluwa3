@@ -65,7 +65,8 @@ function material.GetInfo(path)
 	end
 
 	info.blend = BLEND_SHADERS[info.shader] == true
-	info.translucent = info.ints.F_TRANSLUCENT == 1 or info.shader == "vr_glass.vfx"
+	info.decal = info.shader == "vr_static_overlay.vfx"
+	info.translucent = info.ints.F_TRANSLUCENT == 1 or info.shader == "vr_glass.vfx" or info.decal
 	info.alpha_test = info.ints.F_ALPHA_TEST == 1
 	info.tint_mask = info.ints.F_TINT_MASK == 1 or info.ints.F_ENABLE_TINT_MASKS == 1
 	return info
@@ -257,6 +258,12 @@ function material.FromVMAT(path)
 	end
 
 	if info.translucent then self:SetTranslucent(true) end
+
+	if info.decal then
+		self:SetDecal(true)
+		self:SetDithered(true)
+		self:SetColorMultiplier(Color(color[1], color[2], color[3], floats.g_flOpacityScale or 1))
+	end
 
 	if ints.F_RENDER_BACKFACES == 1 then self:SetDoubleSided(true) end
 

@@ -10,6 +10,7 @@ local resource = import("goluwa/source_engine/source2/resource.lua")
 local vphys = import("goluwa/source_engine/source2/vphys.lua")
 local s2_material = import("goluwa/source_engine/source2/material.lua")
 local f32_ptr_t = ffi.typeof("const float *")
+local DECAL_LIFT = 0.03
 local job = [=[
 	local input = ...
 	return import("goluwa/source_engine/source2/mesh_pack.lua").PackModel(input)
@@ -60,6 +61,26 @@ local function finish(path, input, meta, blob_table, mesh_callback, physics_call
 			end
 		end
 
+		local bounds = entry.bounds
+
+		if s2_material.GetInfo(entry.material).decal then
+			for i = 0, entry.vertex_count - 1 do
+				local v = vertices[i]
+				v.position[0] = v.position[0] + v.normal[0] * DECAL_LIFT
+				v.position[1] = v.position[1] + v.normal[1] * DECAL_LIFT
+				v.position[2] = v.position[2] + v.normal[2] * DECAL_LIFT
+			end
+
+			bounds = {
+				bounds[1] - DECAL_LIFT,
+				bounds[2] - DECAL_LIFT,
+				bounds[3] - DECAL_LIFT,
+				bounds[4] + DECAL_LIFT,
+				bounds[5] + DECAL_LIFT,
+				bounds[6] + DECAL_LIFT,
+			}
+		end
+
 		local polygon = Polygon3D.New()
 		polygon:UploadVertexArray(
 			vertices,
@@ -68,7 +89,7 @@ local function finish(path, input, meta, blob_table, mesh_callback, physics_call
 			entry.index_count,
 			true,
 			nil,
-			AABB(unpack(entry.bounds))
+			AABB(unpack(bounds))
 		)
 		polygon:SetName(path)
 		mesh_callback(polygon, s2_material.FromVMAT(entry.material))
