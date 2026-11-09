@@ -85,3 +85,18 @@ T.Test("source 2 world physics", function()
 
 	T(meshes > 0)["=="](true)
 end)
+
+T.Test("source 2 material info", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local material = import("goluwa/source_engine/source2/material.lua")
+	local complex = material.GetInfo("materials/models/props/hooks_2.vmat")
+	T(complex.shader)["=="]("vr_complex.vfx")
+	T(complex.textures.g_tNormal ~= nil)["=="](true)
+	T(complex.blend)["=="](false)
+	T(material.GetInfo("materials/blend/concrete_5_floor_2_to_5b.vmat").blend)["=="](true)
+	T(material.GetInfo("materials/tools/toolsblocklight.vmat").no_draw)["=="](true)
+end)

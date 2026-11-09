@@ -20,7 +20,7 @@ local u32_ptr_t = ffi.typeof("const uint32_t *")
 local f32_ptr_t = ffi.typeof("const float *")
 local F = vbib.FORMAT
 
-function vmdl_c.BuildPolygon(buffers, draw_call, name)
+function vmdl_c.BuildPolygon(buffers, draw_call, name, info)
 	local vb = buffers.vertex[draw_call.m_vertexBuffers[1].m_hBuffer]
 	local ib = buffers.index[draw_call.m_indexBuffer.m_hBuffer]
 	local base = draw_call.m_nBaseVertex
@@ -29,6 +29,12 @@ function vmdl_c.BuildPolygon(buffers, draw_call, name)
 	local position = assert(vbib.GetField(vb, "POSITION"), "no POSITION")
 	local normal = vbib.GetField(vb, "NORMAL")
 	local texcoord = vbib.GetField(vb, "TEXCOORD", 0)
+	local color = vbib.GetField(vb, "COLOR")
+	local tint_r, tint_g, tint_b = 0, 0, 0
+
+	if color and color.format ~= F.R8G8B8A8_UNORM and color.format ~= F.R32G32B32A32_FLOAT then
+		color = nil
+	end
 	local vertices = VertexType(vertex_count)
 	local min_x, min_y, min_z = math.huge, math.huge, math.huge
 	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
@@ -66,6 +72,14 @@ function vmdl_c.BuildPolygon(buffers, draw_call, name)
 		end
 
 		v.texture_blend = 0
+
+		if color then
+			local r, g, b = vbib.Read(vb, color, base + i)
+			tint_r, tint_g, tint_b = tint_r + r, tint_g + g, tint_b + b
+
+			if info.blend then v.texture_blend = r end
+		end
+
 		v.vertex_color[0], v.vertex_color[1], v.vertex_color[2], v.vertex_color[3] = 1, 1, 1, 1
 	end
 
@@ -104,6 +118,11 @@ function vmdl_c.BuildPolygon(buffers, draw_call, name)
 		AABB(min_x, min_y, min_z, max_x, max_y, max_z)
 	)
 	polygon:SetName(name)
+
+	if color and vertex_count > 0 then
+		return polygon, {tint_r / vertex_count, tint_g / vertex_count, tint_b / vertex_count}
+	end
+
 	return polygon
 end
 
@@ -114,8 +133,9 @@ function vmdl_c.EmitMesh(data, buffers, path, mesh_callback)
 				draw_call.m_nPrimitiveType == "RENDER_PRIM_TRIANGLES" and
 				draw_call.m_nIndexCount > 0
 			then
-				local polygon = vmdl_c.BuildPolygon(buffers, draw_call, path)
-				mesh_callback(polygon, s2_material.FromVMAT(draw_call.m_material))
+				local info = s2_material.GetInfo(draw_call.m_material)
+				local polygon, tint = vmdl_c.BuildPolygon(buffers, draw_call, path, info)
+				mesh_callback(polygon, s2_material.FromVMAT(draw_call.m_material, tint))
 
 				tasks.Wait()
 			end
