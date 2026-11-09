@@ -58,6 +58,13 @@ restir_gi.boiling_filter = pvars.Setup2{
 	max = 100,
 	help = "a reservoir whose light is more than this many times the mean of its 8x8 pixel group drops its history for this frame's sample. it darkens shade lit through small gaps, where the few reservoirs that found the gap are rightly far brighter than the rest. 0 is off",
 }
+restir_gi.hit_gi_share = pvars.Setup2{
+	key = "restir_gi_hit_gi_share",
+	default = 0.25,
+	min = 0.05,
+	max = 1,
+	help = "share of frames an 8x8 pixel group looks its off screen ray hits up in the world cache (the light past the first bounce, with its visibility rays), scaled up by 1/share when it does. unbiased and leak free at any share, lower is cheaper and noisier",
+}
 restir_gi.spatial = pvars.Setup2{
 	key = "restir_gi_spatial",
 	default = true,

@@ -537,6 +537,10 @@ function scene_reflection.GetGLSL(block_name, shared)
 			if (scene_hit_screen_gi(P, hit_N, screen_gi)) return radiance + albedo * screen_gi;
 			#endif
 
+			#ifdef SCENE_HIT_GI_SHARE
+			if (SCENE_HIT_GI_SHARE <= 0.0) return radiance;
+			#endif
+
 			float weight;
 			vec4 gi = gi_sample_irradiance(P, hit_N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight);
 
@@ -555,6 +559,10 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 				gi.rgb = sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, hit_N) * open_sky;
 			}
+
+			#ifdef SCENE_HIT_GI_SHARE
+			gi.rgb /= SCENE_HIT_GI_SHARE;
+			#endif
 
 			return radiance + albedo * gi.rgb;
 		}

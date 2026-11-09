@@ -42,6 +42,7 @@ local function restir_uniform(trace)
 		{"temporal", "int"},
 		{"max_history", "float"},
 		{"permutation", "int"},
+		{"hit_gi_share", "float"},
 		{"ray_share", "int"},
 		{"boiling_filter", "float"},
 		{"spatial", "int"},
@@ -123,6 +124,7 @@ local function restir_uniform(trace)
 			block.temporal = restir_gi.temporal:Get() and 1 or 0
 			block.max_history = restir_gi.max_history:Get()
 			block.permutation = restir_gi.permutation:Get() and 1 or 0
+			block.hit_gi_share = restir_gi.hit_gi_share:Get()
 			block.ray_share = restir_gi.GetRayShare()
 			block.boiling_filter = restir_gi.boiling_filter:Get()
 			block.spatial = restir_gi.spatial:Get() and 1 or 0
@@ -355,6 +357,15 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		return dot(weights, vec4(1.0)) > 0.0;
 	}
 ]]
+-- the world cache lookup at off screen hits (light past the first bounce) runs for a whole thread group on one frame in 1/share and counts 1/share as much: a linear estimate, so no bias and nothing leaks, and coherent per group, so the warps that skip it skip its visibility rays
+local HIT_GI_SHARE_GLSL = [[
+	float restir_hit_gi_share = 1.0;
+
+	void restir_pick_hit_gi(ivec2 group) {
+		int period = int(round(1.0 / restir_data.hit_gi_share));
+		restir_hit_gi_share = period <= 1 || (group.x + group.y * 3 + restir_data.frame) % period == 0 ? 1.0 / float(max(period, 1)) : 0.0;
+	}
+]]
 -- hits the camera saw last frame read this gi's own result there instead of the world cache, probe caches leak at the foot of walls
 local SCREEN_GI_GLSL = [[
 	#define SCENE_HIT_SCREEN_GI
@@ -384,7 +395,7 @@ local SCREEN_GI_GLSL = [[
 		return !any(isnan(irradiance));
 	}
 ]]
-local TRACE_GLSL = "#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. glsl_common.GetBlueNoiseGLSL() .. SURFACE_GLSL .. SCREEN_GI_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("restir_data") .. [[
+local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. glsl_common.GetBlueNoiseGLSL() .. SURFACE_GLSL .. SCREEN_GI_GLSL .. HIT_GI_SHARE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("restir_data") .. [[
 			vec3 restir_cosine_direction(vec3 N, vec2 xi) {
 				vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
 				vec3 T = normalize(cross(up, N));
@@ -489,6 +500,8 @@ local function pass_candidates()
 					imageStore(out_c, pos, vec4(0.0));
 					return;
 				}
+
+				restir_pick_hit_gi(ivec2(gl_WorkGroupID.xy));
 
 					vec3 origin = restir_ray_origin(gpos, P, N, view_depth, depth);
 					vec3 geometric_N = normalize(origin - P);
