@@ -67,3 +67,21 @@ T.Test("source 2 alyx resources", function()
 	T(img.width > 0 and img.mip_count > 0)["=="](true)
 	T(img.vulkan_format)["=="]("bc7_unorm_block")
 end)
+
+T.Test("source 2 world physics", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	vfs.Mount(info.vdf_directory .. "maps/a2_pistol.vpk/")
+	local children = import("goluwa/source_engine/source2/vphys.lua").Load("maps/a2_pistol/world_physics.vphys_c")
+	T(#children > 1000)["=="](true)
+	local meshes = 0
+
+	for _, child in ipairs(children) do
+		if child.Shape and child.Shape:GetTypeName() == "mesh" then meshes = meshes + 1 end
+	end
+
+	T(meshes > 0)["=="](true)
+end)

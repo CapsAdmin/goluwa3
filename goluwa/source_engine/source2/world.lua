@@ -165,9 +165,6 @@ function world.Translate(name)
 				components = {
 					transform = {Position = position, Rotation = rotation, Size = size ~= 1 and size or nil},
 					visual = {ModelPath = model_path},
-					rigid_body = not model_path:find("_mesh_model%d") and
-						{ShapeModelPath = model_path, MotionType = "static", WorldGeometry = true} or
-						nil,
 				},
 			}
 
@@ -183,6 +180,19 @@ function world.Translate(name)
 		tasks.Wait()
 	end
 
+	add{
+		guid = root .. ":physics",
+		parent = root,
+		properties = {Name = "world_physics"},
+		components = {
+			transform = {},
+			rigid_body = {
+				ShapeModelPath = "maps/" .. name .. "/world_physics.vphys_c",
+				MotionType = "static",
+				WorldGeometry = true,
+			},
+		},
+	}
 	local classes = {}
 
 	for _, lump_path in ipairs(world_data.m_entityLumps) do

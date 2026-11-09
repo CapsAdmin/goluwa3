@@ -5,8 +5,6 @@ local tasks = import("goluwa/tasks.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local AABB = import("goluwa/structs/aabb.lua")
-local Vec3 = import("goluwa/structs/vec3.lua")
-local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
 local vbib = import("goluwa/source_engine/source2/vbib.lua")
 local s2_material = import("goluwa/source_engine/source2/material.lua")
@@ -108,7 +106,7 @@ function vmdl_c.BuildPolygon(buffers, draw_call, name)
 	return polygon
 end
 
-function vmdl_c.EmitMesh(data, buffers, path, mesh_callback, shapes)
+function vmdl_c.EmitMesh(data, buffers, path, mesh_callback)
 	for _, object in ipairs(data.m_sceneObjects) do
 		for _, draw_call in ipairs(object.m_drawCalls) do
 			if
@@ -118,27 +116,23 @@ function vmdl_c.EmitMesh(data, buffers, path, mesh_callback, shapes)
 				local polygon = vmdl_c.BuildPolygon(buffers, draw_call, path)
 				mesh_callback(polygon, s2_material.FromVMAT(draw_call.m_material))
 
-				if shapes then shapes[#shapes + 1] = polygon.packed end
-
 				tasks.Wait()
 			end
 		end
 	end
 end
 
-function vmdl_c.LoadMesh(path, mesh_callback, shapes)
+function vmdl_c.LoadMesh(path, mesh_callback)
 	local res = resource.Load(vfs, path)
 	vmdl_c.EmitMesh(
 		resource.ReadKV3(res),
 		vbib.Parse(res.data, res.blocks.VBIB.offset),
 		path,
-		mesh_callback,
-		shapes
+		mesh_callback
 	)
 end
 
-local function decode_vmdl(path, full_path, mesh_callback, physics_callback)
-	local shapes = {}
+local function decode_vmdl(path, full_path, mesh_callback)
 	local res = resource.Load(vfs, full_path)
 	local ok, data = pcall(resource.ReadKV3, res)
 	local external = 0
@@ -153,7 +147,7 @@ local function decode_vmdl(path, full_path, mesh_callback, physics_callback)
 
 	for i, mesh in ipairs(data.m_refMeshes) do
 		if bit.band(masks[i] or 1, 1) ~= 0 then
-			vmdl_c.LoadMesh(mesh .. "_c", mesh_callback, shapes)
+			vmdl_c.LoadMesh(mesh .. "_c", mesh_callback)
 		end
 	end
 
@@ -172,42 +166,10 @@ local function decode_vmdl(path, full_path, mesh_callback, physics_callback)
 				resource.ReadKV3(res, embedded.data_block),
 				vbib.Parse(res.data, res.list[embedded.vbib_block].offset),
 				path,
-				mesh_callback,
-				shapes
+				mesh_callback
 			)
 		end
 	end
-
-	physics_callback(
-		setmetatable(
-			{},
-			{
-				__index = function(physics, key)
-					setmetatable(physics, nil)
-					physics.children = {}
-
-					for i, packed in ipairs(shapes) do
-						local vertices, indices = {}, {}
-
-						for v = 1, packed.vertex_count do
-							local p = packed.vertices[v - 1].position
-							vertices[v] = {pos = Vec3(p[0], p[1], p[2])}
-						end
-
-						for k = 1, packed.index_count - 2, 3 do
-							indices[k] = packed.indices[k - 1]
-							indices[k + 1] = packed.indices[k + 1]
-							indices[k + 2] = packed.indices[k]
-						end
-
-						physics.children[i] = {Shape = MeshShape.New{Vertices = vertices, indices = indices}}
-					end
-
-					return physics[key]
-				end,
-			}
-		)
-	)
 end
 
 model_loader.AddModelDecoder("vmdl_c", decode_vmdl)
