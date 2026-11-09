@@ -71,27 +71,9 @@ function material.GetInfo(path)
 	return info
 end
 
-local function quantize(value)
-	return math.floor(value * 16 + 0.5) / 16
-end
-
--- tint: the average vertex color of a mesh, applied to the albedo as the shaders do. A material with
--- a tint mask is not tinted, the mask decides per texel and cannot be applied per mesh
-function material.FromVMAT(path, tint)
+function material.FromVMAT(path)
 	local info = material.GetInfo(path)
-
-	if tint and (info.tint_mask or info.blend) then tint = nil end
-
-	if tint and tint[1] >= 0.97 and tint[2] >= 0.97 and tint[3] >= 0.97 then
-		tint = nil
-	end
-
 	local key = info.path
-
-	if tint then
-		tint = {quantize(tint[1]), quantize(tint[2]), quantize(tint[3])}
-		key = key .. "|" .. tint[1] .. "," .. tint[2] .. "," .. tint[3]
-	end
 
 	if materials[key] then return materials[key] end
 
@@ -113,7 +95,12 @@ function material.FromVMAT(path, tint)
 	local albedo_path = textures.g_tColor or textures.g_tColorA
 	local normal_path = textures.g_tNormal or textures.g_tNormalA
 
-	if albedo_path then self:SetAlbedoTexture(Material.SRGBTexture(albedo_path)) end
+	if albedo_path and info.tint_mask and not info.blend and not (info.alpha_test or info.translucent) and textures.g_tTintMask then
+		self:SetAlbedoTexture(texture_convert.GetTintedAlbedo(albedo_path, textures.g_tTintMask))
+		self:SetBlendTintByBaseAlpha(true)
+	elseif albedo_path then
+		self:SetAlbedoTexture(Material.SRGBTexture(albedo_path))
+	end
 
 	if normal_path then
 		self:SetNormalTexture(texture_convert.Get(normal_path, "normal"))
@@ -187,8 +174,7 @@ function material.FromVMAT(path, tint)
 	end
 
 	local color = vectors.g_vColorTint or {1, 1, 1}
-	tint = tint or {1, 1, 1}
-	self:SetColorMultiplier(Color(color[1] * tint[1], color[2] * tint[2], color[3] * tint[3], 1))
+	self:SetColorMultiplier(Color(color[1], color[2], color[3], 1))
 
 	if info.alpha_test then
 		self:SetAlphaTest(true)

@@ -8,6 +8,7 @@ Visual.Is3D = true
 local BVH = import("goluwa/physics/bvh.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local Material = import("goluwa/render3d/material.lua")
+local Color = import("goluwa/structs/color.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local render = import("goluwa/render/render.lua")
@@ -668,6 +669,7 @@ Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 1000000)
 Visual:GetSet("Billboard", false)
 Visual:GetSet("ClipBounds", nil, {type = "table"})
+Visual:GetSet("Tint", nil, {type = "table", callback = "InvalidateRenderEntries"})
 Visual:GetSet("ModelPath", "", {asset = "models"})
 Visual:GetSet(
 	"MaterialOverridePath",
@@ -1319,10 +1321,46 @@ function Visual:GetWorldAABB()
 	return world_aabb
 end
 
+local tinted_materials = table.weak("k")
+
+local function get_tinted_material(material, tint)
+	local variants = tinted_materials[material]
+
+	if not variants then
+		variants = {}
+		tinted_materials[material] = variants
+	end
+
+	local key = tint[1] .. "," .. tint[2] .. "," .. tint[3]
+	local variant = variants[key]
+
+	if not variant then
+		variant = material:Copy()
+		local color = material:GetColorMultiplier()
+		variant:SetColorMultiplier(Color(color.r * tint[1], color.g * tint[2], color.b * tint[3], color.a))
+		variants[key] = variant
+	end
+
+	return variant
+end
+
+-- Tint multiplies the material's ColorMultiplier, so a material with BlendTintByBaseAlpha is only tinted where its
+-- base alpha says so
 function Visual:GetResolvedMaterial(entry)
 	if entry.polygon3d.LODBillboard then return entry.material end
 
-	return self.MaterialOverride or entry.material or render3d.GetDefaultMaterial()
+	local material = self.MaterialOverride or entry.material or render3d.GetDefaultMaterial()
+	local tint = self.Tint
+
+	if not tint then return material end
+
+	if entry.tinted_source ~= material or entry.tinted_for ~= tint then
+		entry.tinted_source = material
+		entry.tinted_for = tint
+		entry.tinted_material = get_tinted_material(material, tint)
+	end
+
+	return entry.tinted_material
 end
 
 function Visual:GetBVHRenderEntries()

@@ -20,6 +20,14 @@ local PROP_MOTION = {
 	prop_dynamic = "static",
 	prop_dynamic_override = "static",
 }
+
+-- the entity color is sRGB, the shaders multiply it into linear albedo
+local function get_tint(color)
+	if not color or (color[1] >= 250 and color[2] >= 250 and color[3] >= 250) then return nil end
+
+	return {(color[1] / 255) ^ 2.2, (color[2] / 255) ^ 2.2, (color[3] / 255) ^ 2.2}
+end
+
 local axis_x = Vec3(1, 0, 0)
 local axis_y = Vec3(0, 1, 0)
 local axis_z = Vec3(0, 0, 1)
@@ -259,7 +267,7 @@ function world.Translate(name, has_skybox)
 								Rotation = rotation,
 								Size = entity.scales and entity.scales[1] ~= 1 and entity.scales[1] or nil,
 							},
-							visual = {ModelPath = model_path},
+							visual = {ModelPath = model_path, Tint = get_tint(entity.rendercolor)},
 							rigid_body = motion and
 								{ShapeModelPath = model_path, MotionType = motion, WorldGeometry = motion == "static" or nil} or
 								nil,

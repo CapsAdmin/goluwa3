@@ -29,8 +29,7 @@ function vmdl_c.BuildPolygon(buffers, draw_call, name, info)
 	local position = assert(vbib.GetField(vb, "POSITION"), "no POSITION")
 	local normal = vbib.GetField(vb, "NORMAL")
 	local texcoord = vbib.GetField(vb, "TEXCOORD", 0)
-	local color = vbib.GetField(vb, "COLOR")
-	local tint_r, tint_g, tint_b = 0, 0, 0
+	local color = info.blend and vbib.GetField(vb, "COLOR")
 
 	if color and color.format ~= F.R8G8B8A8_UNORM and color.format ~= F.R32G32B32A32_FLOAT then
 		color = nil
@@ -74,10 +73,7 @@ function vmdl_c.BuildPolygon(buffers, draw_call, name, info)
 		v.texture_blend = 0
 
 		if color then
-			local r, g, b = vbib.Read(vb, color, base + i)
-			tint_r, tint_g, tint_b = tint_r + r, tint_g + g, tint_b + b
-
-			if info.blend then v.texture_blend = r end
+			if info.blend then v.texture_blend = (vbib.Read(vb, color, base + i)) end
 		end
 
 		v.vertex_color[0], v.vertex_color[1], v.vertex_color[2], v.vertex_color[3] = 1, 1, 1, 1
@@ -118,11 +114,6 @@ function vmdl_c.BuildPolygon(buffers, draw_call, name, info)
 		AABB(min_x, min_y, min_z, max_x, max_y, max_z)
 	)
 	polygon:SetName(name)
-
-	if color and vertex_count > 0 then
-		return polygon, {tint_r / vertex_count, tint_g / vertex_count, tint_b / vertex_count}
-	end
-
 	return polygon
 end
 
@@ -134,8 +125,7 @@ function vmdl_c.EmitMesh(data, buffers, path, mesh_callback)
 				draw_call.m_nIndexCount > 0
 			then
 				local info = s2_material.GetInfo(draw_call.m_material)
-				local polygon, tint = vmdl_c.BuildPolygon(buffers, draw_call, path, info)
-				mesh_callback(polygon, s2_material.FromVMAT(draw_call.m_material, tint))
+				mesh_callback(vmdl_c.BuildPolygon(buffers, draw_call, path, info), s2_material.FromVMAT(draw_call.m_material))
 
 				tasks.Wait()
 			end

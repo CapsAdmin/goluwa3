@@ -343,6 +343,7 @@ function Material:Copy()
 	end
 
 	copy.vmt_surfaceprop = self.vmt_surfaceprop
+	copy.has_uv_transform = self.has_uv_transform
 	return copy
 end
 
