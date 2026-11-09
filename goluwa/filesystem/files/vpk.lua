@@ -7,7 +7,7 @@ CONTEXT.Extension = "vpk"
 CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")
 
 function CONTEXT:OnParseArchive(file, archive_path)
-	file:ReadStructure([[
+	local header = file:ReadStructure([[
 			long signature = 0x55aa1234;
 			long version;
 			long tree_length;
@@ -17,6 +17,7 @@ function CONTEXT:OnParseArchive(file, archive_path)
 			padding long unknown_3;
 			padding long unknown_4;
 		]])
+	local data_start = file:GetPosition() + header.tree_length
 
 	while true do
 		local extension = file:ReadString()
@@ -47,8 +48,12 @@ function CONTEXT:OnParseArchive(file, archive_path)
 				entry.full_path = directory .. "/" .. entry.file_name
 
 				if entry.archive_index == 0x7FFF then
-					entry.size = entry.preload_length
-					entry.offset = entry.preload_offset
+					if entry.preload_length > 0 then
+						entry.size = entry.preload_length
+						entry.offset = entry.preload_offset
+					else
+						entry.offset = entry.offset + data_start
+					end
 				end
 
 				entry.preload_data = file:ReadBytes(entry.preload_length)
