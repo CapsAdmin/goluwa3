@@ -72,7 +72,7 @@ restir_gi.spatial = pvars.Setup2{
 }
 restir_gi.spatial_samples = pvars.Setup2{
 	key = "restir_gi_spatial_samples",
-	default = 4,
+	default = 2,
 	integer = true,
 	min = 1,
 	max = 16,
