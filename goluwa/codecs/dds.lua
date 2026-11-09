@@ -413,6 +413,20 @@ dds.thread_job = [[
 	return meta, data
 ]]
 
+local FOURCC_DX10 = 0x30315844
+
+function dds.ThreadCost(str)
+	if #str < 148 then return #str end
+
+	local header = ffi.cast(UInt32Ptr, str)
+
+	if band(header[20], DDPF_FOURCC) == 0 or header[21] == FOURCC_ATI2 then return #str end
+
+	if header[21] == FOURCC_DX10 and (header[32] < 70 or header[32] > 99) then return #str end
+
+	return 0
+end
+
 function dds.DecodeBuffer(inputBuffer, opts)
 	opts = opts or {}
 	local magic = inputBuffer:ReadU32LE()
