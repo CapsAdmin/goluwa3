@@ -399,6 +399,181 @@ local function build_faces(points, plane_groups, plane_epsilon, epsilon)
 	return finalize_convex_hull(points, faces, indices, epsilon)
 end
 
+local function register_plane(
+	points,
+	xs,
+	ys,
+	zs,
+	centroid,
+	plane_groups,
+	plane_group_by_key,
+	plane_epsilon,
+	i,
+	nx,
+	ny,
+	nz
+)
+	local normal = Vec3(nx, ny, nz)
+	local a = points[i]
+
+	if normal:Dot(centroid - a) > 0 then normal = normal * -1 end
+
+	local plane_distance = normal:Dot(a)
+	local key = vec3_key(normal, plane_epsilon) .. ":" .. quantize(plane_distance, plane_epsilon)
+	local group = plane_group_by_key[key]
+
+	if not group then
+		group = {
+			normal = normal,
+			distance = plane_distance,
+			vertices = {},
+			vertex_set = {},
+		}
+		plane_group_by_key[key] = group
+		plane_groups[#plane_groups + 1] = group
+	end
+
+	for m = 1, #points do
+		if
+			not group.vertex_set[m] and
+			math.abs(xs[m] * group.normal.x + ys[m] * group.normal.y + zs[m] * group.normal.z - group.distance) <= plane_epsilon
+		then
+			group.vertex_set[m] = true
+			group.vertices[#group.vertices + 1] = m
+		end
+	end
+end
+
+-- incremental hull, returns a flat list of triangle vertex indices on the hull or nil when the points are flat
+local function find_hull_triangles(xs, ys, zs, count, epsilon)
+	local i1 = 1
+
+	for i = 2, count do
+		if xs[i] < xs[i1] then i1 = i end
+	end
+
+	local i2, best = nil, 0
+
+	for i = 1, count do
+		local dx, dy, dz = xs[i] - xs[i1], ys[i] - ys[i1], zs[i] - zs[i1]
+		local distance = dx * dx + dy * dy + dz * dz
+
+		if distance > best then i2, best = i, distance end
+	end
+
+	local best_extent = best
+
+	if not i2 or math.sqrt(best) <= epsilon then return nil end
+
+	local dx, dy, dz = xs[i2] - xs[i1], ys[i2] - ys[i1], zs[i2] - zs[i1]
+	local i3
+	best = 0
+
+	for i = 1, count do
+		local px, py, pz = xs[i] - xs[i1], ys[i] - ys[i1], zs[i] - zs[i1]
+		local cx, cy, cz = dy * pz - dz * py, dz * px - dx * pz, dx * py - dy * px
+		local area = cx * cx + cy * cy + cz * cz
+
+		if area > best then i3, best = i, area end
+	end
+
+	if not i3 or math.sqrt(best) / math.sqrt(dx * dx + dy * dy + dz * dz) <= epsilon then
+		return nil
+	end
+
+	local px, py, pz = xs[i3] - xs[i1], ys[i3] - ys[i1], zs[i3] - zs[i1]
+	local bx, by, bz = dy * pz - dz * py, dz * px - dx * pz, dx * py - dy * px
+	local base_length = math.sqrt(bx * bx + by * by + bz * bz)
+	bx, by, bz = bx / base_length, by / base_length, bz / base_length
+	local i4
+	best = 0
+
+	for i = 1, count do
+		local distance = math.abs((xs[i] - xs[i1]) * bx + (ys[i] - ys[i1]) * by + (zs[i] - zs[i1]) * bz)
+
+		if distance > best then i4, best = i, distance end
+	end
+
+	if not i4 or best <= epsilon then return nil end
+
+	local visible_epsilon = 1e-9 * math.sqrt(best_extent)
+	local ix = (xs[i1] + xs[i2] + xs[i3] + xs[i4]) / 4
+	local iy = (ys[i1] + ys[i2] + ys[i3] + ys[i4]) / 4
+	local iz = (zs[i1] + zs[i2] + zs[i3] + zs[i4]) / 4
+	local fa, fb, fc, fnx, fny, fnz, fd, alive = {}, {}, {}, {}, {}, {}, {}, {}
+	local face_count = 0
+
+	local function add_face(a, b, c)
+		local ux, uy, uz = xs[b] - xs[a], ys[b] - ys[a], zs[b] - zs[a]
+		local vx, vy, vz = xs[c] - xs[a], ys[c] - ys[a], zs[c] - zs[a]
+		local nx, ny, nz = uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+		local length = math.sqrt(nx * nx + ny * ny + nz * nz)
+
+		if length <= 1e-12 then return end
+
+		nx, ny, nz = nx / length, ny / length, nz / length
+
+		if nx * (ix - xs[a]) + ny * (iy - ys[a]) + nz * (iz - zs[a]) > 0 then
+			b, c = c, b
+			nx, ny, nz = -nx, -ny, -nz
+		end
+
+		face_count = face_count + 1
+		fa[face_count], fb[face_count], fc[face_count] = a, b, c
+		fnx[face_count], fny[face_count], fnz[face_count] = nx, ny, nz
+		fd[face_count] = nx * xs[a] + ny * ys[a] + nz * zs[a]
+		alive[face_count] = true
+	end
+
+	add_face(i1, i2, i3)
+	add_face(i1, i2, i4)
+	add_face(i1, i3, i4)
+	add_face(i2, i3, i4)
+	local stride = count + 1
+
+	for p = 1, count do
+		if p ~= i1 and p ~= i2 and p ~= i3 and p ~= i4 then
+			local x, y, z = xs[p], ys[p], zs[p]
+			local visible, visible_count = {}, 0
+			local edges = {}
+
+			for f = 1, face_count do
+				if alive[f] and fnx[f] * x + fny[f] * y + fnz[f] * z - fd[f] > visible_epsilon then
+					visible_count = visible_count + 1
+					visible[visible_count] = f
+					edges[fa[f] * stride + fb[f]] = true
+					edges[fb[f] * stride + fc[f]] = true
+					edges[fc[f] * stride + fa[f]] = true
+				end
+			end
+
+			for n = 1, visible_count do
+				local f = visible[n]
+				alive[f] = false
+				local a, b, c = fa[f], fb[f], fc[f]
+
+				if not edges[b * stride + a] then add_face(a, b, p) end
+
+				if not edges[c * stride + b] then add_face(b, c, p) end
+
+				if not edges[a * stride + c] then add_face(c, a, p) end
+			end
+		end
+	end
+
+	local triangles = {}
+
+	for f = 1, face_count do
+		if alive[f] then
+			triangles[#triangles + 1] = fa[f]
+			triangles[#triangles + 1] = fb[f]
+			triangles[#triangles + 1] = fc[f]
+		end
+	end
+
+	return triangles
+end
+
 local function build_convex_hull(points, epsilon)
 	epsilon = epsilon or 0.0001
 	points = dedupe_points(points, epsilon)
@@ -420,6 +595,34 @@ local function build_convex_hull(points, epsilon)
 
 	for i = 1, count do
 		xs[i], ys[i], zs[i] = points[i].x, points[i].y, points[i].z
+	end
+
+	local triangles = find_hull_triangles(xs, ys, zs, count, plane_epsilon)
+
+	if triangles then
+		for t = 1, #triangles, 3 do
+			local i, j, k = triangles[t], triangles[t + 1], triangles[t + 2]
+			local abx, aby, abz = xs[j] - xs[i], ys[j] - ys[i], zs[j] - zs[i]
+			local acx, acy, acz = xs[k] - xs[i], ys[k] - ys[i], zs[k] - zs[i]
+			local nx, ny, nz = aby * acz - abz * acy, abz * acx - abx * acz, abx * acy - aby * acx
+			local length = math.sqrt(nx * nx + ny * ny + nz * nz)
+			register_plane(
+				points,
+				xs,
+				ys,
+				zs,
+				centroid,
+				plane_groups,
+				plane_group_by_key,
+				plane_epsilon,
+				i,
+				nx / length,
+				ny / length,
+				nz / length
+			)
+		end
+
+		return build_faces(points, plane_groups, plane_epsilon, epsilon)
 	end
 
 	for i = 1, count - 2 do
@@ -455,37 +658,20 @@ local function build_convex_hull(points, epsilon)
 
 				if positive and negative then goto continue end
 
-				local normal = Vec3(nx, ny, nz)
-				local a = points[i]
-
-				if normal:Dot(centroid - a) > 0 then normal = normal * -1 end
-
-				local plane_distance = normal:Dot(a)
-				local key = vec3_key(normal, plane_epsilon) .. ":" .. quantize(plane_distance, plane_epsilon)
-				local group = plane_group_by_key[key]
-
-				if not group then
-					group = {
-						normal = normal,
-						distance = plane_distance,
-						vertices = {},
-						vertex_set = {},
-					}
-					plane_group_by_key[key] = group
-					plane_groups[#plane_groups + 1] = group
-				end
-
-				for m = 1, count do
-					if
-						not group.vertex_set[m] and
-						math.abs(
-							xs[m] * group.normal.x + ys[m] * group.normal.y + zs[m] * group.normal.z - group.distance
-						) <= plane_epsilon
-					then
-						group.vertex_set[m] = true
-						group.vertices[#group.vertices + 1] = m
-					end
-				end
+				register_plane(
+					points,
+					xs,
+					ys,
+					zs,
+					centroid,
+					plane_groups,
+					plane_group_by_key,
+					plane_epsilon,
+					i,
+					nx,
+					ny,
+					nz
+				)
 
 				::continue::
 			end
@@ -655,38 +841,6 @@ do
 		end
 
 		return {ConvexHull = build_convex_hull(points), Position = center}
-	end
-
-	-- planes: {normal = Vec3, dist = number} with normal . p = dist, the faces of a hull whose points are given.
-	-- Falls back to searching for the planes when they do not account for every point.
-	function convex_hull.FromPointsAndPlanes(points, planes)
-		local min = Vec3(math.huge, math.huge, math.huge)
-		local max = Vec3(-math.huge, -math.huge, -math.huge)
-
-		for _, point in ipairs(points) do
-			min.x, min.y, min.z = math.min(min.x, point.x), math.min(min.y, point.y), math.min(min.z, point.z)
-			max.x, max.y, max.z = math.max(max.x, point.x), math.max(max.y, point.y), math.max(max.z, point.z)
-		end
-
-		local center = (min + max) * 0.5
-
-		for _, point in ipairs(points) do
-			point.x, point.y, point.z = point.x - center.x, point.y - center.y, point.z - center.z
-		end
-
-		local shifted = {}
-
-		for i, plane in ipairs(planes) do
-			shifted[i] = {normal = plane.normal, dist = plane.dist - plane.normal:Dot(center)}
-		end
-
-		local hull = convex_hull.BuildFromPlanes(points, shifted)
-
-		if not hull or #hull.vertices < #dedupe_points(points, 0.0001) then
-			hull = build_convex_hull(points)
-		end
-
-		return {ConvexHull = hull, Position = center}
 	end
 end
 

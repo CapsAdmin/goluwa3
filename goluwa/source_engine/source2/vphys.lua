@@ -75,20 +75,14 @@ end
 
 local capsule_hulls = {}
 
-local function add_hull_points(children, points, planes)
-	local child
+local function add_hull_points(children, points)
+	local polygon = {Vertices = {}}
 
-	if planes then
-		child = convex_hull.FromPointsAndPlanes(points, planes)
-	else
-		local polygon = {Vertices = {}}
-
-		for i, point in ipairs(points) do
-			polygon.Vertices[i] = {pos = point}
-		end
-
-		child = convex_hull.FromPolygon3D(polygon)
+	for i, point in ipairs(points) do
+		polygon.Vertices[i] = {pos = point}
 	end
+
+	local child = convex_hull.FromPolygon3D(polygon)
 
 	if child.ConvexHull then children[#children + 1] = child end
 end
@@ -108,14 +102,7 @@ function vphys.Append(children, data)
 				points[i] = to_engine(v[1], v[2], v[3])
 			end
 
-			local planes = {}
-
-			for i, plane in ipairs(hull.m_Hull.m_Planes) do
-				local n = plane.m_vNormal
-				planes[i] = {normal = Vec3(-n[2], n[3], -n[1]), dist = plane.m_flOffset * SCALE}
-			end
-
-			add_hull_points(children, points, planes)
+			add_hull_points(children, points)
 		end
 
 		for _, sphere in ipairs(shape.m_spheres) do
