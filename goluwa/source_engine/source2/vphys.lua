@@ -54,7 +54,11 @@ local function add_mesh(children, mesh)
 				index = #chunk.vertices
 				chunk.remap[source_index] = index
 				chunk.vertices[index + 1] = {
-					pos = to_engine(vertices[source_index * 3], vertices[source_index * 3 + 1], vertices[source_index * 3 + 2]),
+					pos = to_engine(
+						vertices[source_index * 3],
+						vertices[source_index * 3 + 1],
+						vertices[source_index * 3 + 2]
+					),
 				}
 			end
 
@@ -69,20 +73,27 @@ local function add_mesh(children, mesh)
 	end
 end
 
-local function add_hull_points(children, points)
-	local polygon = {Vertices = {}}
+local capsule_hulls = {}
 
-	for i, point in ipairs(points) do
-		polygon.Vertices[i] = {pos = point}
+local function add_hull_points(children, points, planes)
+	local child
+
+	if planes then
+		child = convex_hull.FromPointsAndPlanes(points, planes)
+	else
+		local polygon = {Vertices = {}}
+
+		for i, point in ipairs(points) do
+			polygon.Vertices[i] = {pos = point}
+		end
+
+		child = convex_hull.FromPolygon3D(polygon)
 	end
-
-	local child = convex_hull.FromPolygon3D(polygon)
 
 	if child.ConvexHull then children[#children + 1] = child end
 end
 
 function vphys.Append(children, data)
-
 	for _, part in ipairs(data.m_parts) do
 		local shape = part.m_rnShape
 
@@ -97,7 +108,14 @@ function vphys.Append(children, data)
 				points[i] = to_engine(v[1], v[2], v[3])
 			end
 
-			add_hull_points(children, points)
+			local planes = {}
+
+			for i, plane in ipairs(hull.m_Hull.m_Planes) do
+				local n = plane.m_vNormal
+				planes[i] = {normal = Vec3(-n[2], n[3], -n[1]), dist = plane.m_flOffset * SCALE}
+			end
+
+			add_hull_points(children, points, planes)
 		end
 
 		for _, sphere in ipairs(shape.m_spheres) do
@@ -111,18 +129,29 @@ function vphys.Append(children, data)
 		for _, capsule in ipairs(shape.m_capsules) do
 			local a, b = capsule.m_Capsule.m_vCenter[1], capsule.m_Capsule.m_vCenter[2]
 			local radius = capsule.m_Capsule.m_flRadius * SCALE
-			local points = {}
+			local from, to = to_engine(a[1], a[2], a[3]), to_engine(b[1], b[2], b[3])
+			local half = (to - from) * 0.5
+			local key = string.format("%.4f:%.4f:%.4f:%.4f", half.x, half.y, half.z, radius)
+			local cached = capsule_hulls[key]
 
-			for _, end_point in ipairs{to_engine(a[1], a[2], a[3]), to_engine(b[1], b[2], b[3])} do
-				for _, direction in ipairs(DIRECTIONS) do
-					points[#points + 1] = end_point + direction * radius
+			if not cached then
+				local vertices = {}
+
+				for _, end_point in ipairs{half, half * -1} do
+					for _, direction in ipairs(DIRECTIONS) do
+						vertices[#vertices + 1] = {pos = end_point + direction * radius}
+					end
 				end
+
+				cached = convex_hull.FromPolygon3D({Vertices = vertices})
+				capsule_hulls[key] = cached
 			end
 
-			add_hull_points(children, points)
+			if cached.ConvexHull then
+				children[#children + 1] = {ConvexHull = cached.ConvexHull, Position = cached.Position + (from + to) * 0.5}
+			end
 		end
 	end
-
 end
 
 function vphys.FromData(data)

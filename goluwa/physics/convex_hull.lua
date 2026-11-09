@@ -415,27 +415,33 @@ local function build_convex_hull(points, epsilon)
 	local plane_groups = {}
 	local plane_group_by_key = {}
 	local plane_epsilon = math.max(epsilon * 4, 0.000000001)
+	local count = #points
+	local xs, ys, zs = {}, {}, {}
 
-	for i = 1, #points - 2 do
-		local a = points[i]
+	for i = 1, count do
+		xs[i], ys[i], zs[i] = points[i].x, points[i].y, points[i].z
+	end
 
-		for j = i + 1, #points - 1 do
-			local b = points[j]
+	for i = 1, count - 2 do
+		local ax, ay, az = xs[i], ys[i], zs[i]
 
-			for k = j + 1, #points do
-				local c = points[k]
-				local normal = (b - a):GetCross(c - a)
-				local length = normal:GetLength()
+		for j = i + 1, count - 1 do
+			local abx, aby, abz = xs[j] - ax, ys[j] - ay, zs[j] - az
+
+			for k = j + 1, count do
+				local acx, acy, acz = xs[k] - ax, ys[k] - ay, zs[k] - az
+				local nx, ny, nz = aby * acz - abz * acy, abz * acx - abx * acz, abx * acy - aby * acx
+				local length = math.sqrt(nx * nx + ny * ny + nz * nz)
 
 				if length <= plane_epsilon then goto continue end
 
-				normal = normal / length
+				nx, ny, nz = nx / length, ny / length, nz / length
 				local positive = false
 				local negative = false
 
-				for m = 1, #points do
+				for m = 1, count do
 					if m ~= i and m ~= j and m ~= k then
-						local distance = (points[m] - a):Dot(normal)
+						local distance = (xs[m] - ax) * nx + (ys[m] - ay) * ny + (zs[m] - az) * nz
 
 						if distance > plane_epsilon then
 							positive = true
@@ -448,6 +454,9 @@ local function build_convex_hull(points, epsilon)
 				end
 
 				if positive and negative then goto continue end
+
+				local normal = Vec3(nx, ny, nz)
+				local a = points[i]
 
 				if normal:Dot(centroid - a) > 0 then normal = normal * -1 end
 
@@ -466,10 +475,12 @@ local function build_convex_hull(points, epsilon)
 					plane_groups[#plane_groups + 1] = group
 				end
 
-				for m = 1, #points do
+				for m = 1, count do
 					if
 						not group.vertex_set[m] and
-						math.abs(points[m]:Dot(group.normal) - group.distance) <= plane_epsilon
+						math.abs(
+							xs[m] * group.normal.x + ys[m] * group.normal.y + zs[m] * group.normal.z - group.distance
+						) <= plane_epsilon
 					then
 						group.vertex_set[m] = true
 						group.vertices[#group.vertices + 1] = m
@@ -644,6 +655,38 @@ do
 		end
 
 		return {ConvexHull = build_convex_hull(points), Position = center}
+	end
+
+	-- planes: {normal = Vec3, dist = number} with normal . p = dist, the faces of a hull whose points are given.
+	-- Falls back to searching for the planes when they do not account for every point.
+	function convex_hull.FromPointsAndPlanes(points, planes)
+		local min = Vec3(math.huge, math.huge, math.huge)
+		local max = Vec3(-math.huge, -math.huge, -math.huge)
+
+		for _, point in ipairs(points) do
+			min.x, min.y, min.z = math.min(min.x, point.x), math.min(min.y, point.y), math.min(min.z, point.z)
+			max.x, max.y, max.z = math.max(max.x, point.x), math.max(max.y, point.y), math.max(max.z, point.z)
+		end
+
+		local center = (min + max) * 0.5
+
+		for _, point in ipairs(points) do
+			point.x, point.y, point.z = point.x - center.x, point.y - center.y, point.z - center.z
+		end
+
+		local shifted = {}
+
+		for i, plane in ipairs(planes) do
+			shifted[i] = {normal = plane.normal, dist = plane.dist - plane.normal:Dot(center)}
+		end
+
+		local hull = convex_hull.BuildFromPlanes(points, shifted)
+
+		if not hull or #hull.vertices < #dedupe_points(points, 0.0001) then
+			hull = build_convex_hull(points)
+		end
+
+		return {ConvexHull = hull, Position = center}
 	end
 end
 
