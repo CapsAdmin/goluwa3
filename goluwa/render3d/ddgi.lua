@@ -2088,7 +2088,7 @@ void main()
         if (params.emitter_count > 0) {
             int emitter;
             vec3 point;
-            float weight = emitter_pick_sample(index, params.frame, params.emitter_count, origin, vec3(0.0), params.light_radius * params.cascades[c].w, emitter, point);
+            float weight = emitter_pick_sample(index, params.frame, origin, vec3(0.0), params.light_radius * params.cascades[c].w, emitter, point);
             vec3 to_point = point - origin;
             float dist = length(to_point);
 

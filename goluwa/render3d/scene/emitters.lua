@@ -23,12 +23,10 @@ local additive = pvars.Setup2{
 }
 pvars.EndGroup()
 emitters.DOUBLE_SIDED = 0x80000000
-local EMITTER_WORDS = 4
 local HEADER_WORDS = 4
-local SOURCE_WORDS = 8
-emitters.LOCAL_SOURCES = 512
-local SCAN_SIZE = 256
-emitters.EMITTER_WORDS = EMITTER_WORDS
+local EMITTER_WORDS = 4
+local NODE_WORDS = 12
+local LOCAL_SIZE = 256
 local list = {count = 0, version = -1}
 local Source = ffi.typeof([[struct {
 	uint32_t first;
@@ -40,7 +38,6 @@ local Source = ffi.typeof([[struct {
 local SourceArray = ffi.typeof("$[?]", Source)
 local sources_buffer
 local words_buffer
-local sums_base = 0
 local built_frame = -1
 
 function emitters.Get(include_additive)
@@ -89,21 +86,28 @@ end
 
 do
 	local pipelines
-	local uniform = {
+	local constants = {
 		source_count = 0,
 		triangle_count = 0,
-		block_count = 0,
-		sums_base = 0,
-		source_base = 0,
+		leaf_count = 0,
+		node_base = 0,
+		key_base = 0,
+		level = 0,
+		sort_k = 0,
+		sort_j = 0,
 	}
 	local bound = {}
 	local uploaded_version = -1
+	local sorted_version = -1
+	local sorted_buffer
 
 	local function create_pipelines()
 		local slots = math.max(render.GetSwapchainImageCount() or 1, 1)
 		local declarations = hit.GetGLSL(0) .. [[
 			#define EMITTER_HEADER ]] .. HEADER_WORDS .. [[u
-			#define EMITTER_SOURCE_WORDS ]] .. SOURCE_WORDS .. [[u
+			#define EMITTER_NODE_WORDS ]] .. NODE_WORDS .. [[u
+			#define EMITTER_DOUBLE_SIDED 0x80000000u
+			#define EMITTER_PI 3.14159265359
 
 			struct emitter_source {
 				uint first;
@@ -115,7 +119,6 @@ do
 
 			layout(scalar, set = 0, binding = 4) readonly buffer EmitterSources { emitter_source sources[]; };
 			layout(scalar, set = 0, binding = 5) buffer EmitterWords { uint words[]; };
-			shared float scan_data[]] .. SCAN_SIZE .. [[];
 
 			uint ordered_bits(float f) {
 				uint bits = floatBitsToUint(f);
@@ -125,19 +128,69 @@ do
 			float ordered_float(uint key) {
 				return uintBitsToFloat((key & 0x80000000u) != 0u ? key & 0x7FFFFFFFu : ~key);
 			}
+		]]
+		local helpers = [[
+			uint bounds_base() {
+				return uint(compute.key_base) + 2u * uint(compute.leaf_count);
+			}
 
-			float block_scan(uint lid, float v) {
-				scan_data[lid] = v;
-				barrier();
+			uint source_of(uint t) {
+				uint lo = 0u;
+				uint hi = uint(compute.source_count) - 1u;
 
-				for (uint offset = 1u; offset < ]] .. SCAN_SIZE .. [[u; offset <<= 1u) {
-					float add = lid >= offset ? scan_data[lid - offset] : 0.0;
-					barrier();
-					scan_data[lid] += add;
-					barrier();
+				while (lo < hi) {
+					uint mid = (lo + hi + 1u) >> 1u;
+
+					if (sources[mid].first <= t) {
+						lo = mid;
+					} else {
+						hi = mid - 1u;
+					}
 				}
 
-				return scan_data[lid];
+				return lo;
+			}
+
+			scene_triangle triangle_of(uint t, out uint s) {
+				s = source_of(t);
+				return scene_hit_tri(sources[s].instance, t - sources[s].first);
+			}
+
+			uint node_at(uint node) {
+				return uint(compute.node_base) + node * EMITTER_NODE_WORDS;
+			}
+
+			void write_node(uint node, vec3 lo, vec3 hi, float power, vec3 axis, float cos_o, uint triangle) {
+				uint at = node_at(node);
+				words[at] = floatBitsToUint(lo.x);
+				words[at + 1u] = floatBitsToUint(lo.y);
+				words[at + 2u] = floatBitsToUint(lo.z);
+				words[at + 3u] = floatBitsToUint(power);
+				words[at + 4u] = floatBitsToUint(hi.x);
+				words[at + 5u] = floatBitsToUint(hi.y);
+				words[at + 6u] = floatBitsToUint(hi.z);
+				words[at + 7u] = floatBitsToUint(cos_o);
+				words[at + 8u] = floatBitsToUint(axis.x);
+				words[at + 9u] = floatBitsToUint(axis.y);
+				words[at + 10u] = floatBitsToUint(axis.z);
+				words[at + 11u] = triangle;
+			}
+
+			void read_node(uint node, out vec3 lo, out vec3 hi, out float power, out vec3 axis, out float cos_o) {
+				uint at = node_at(node);
+				lo = vec3(uintBitsToFloat(words[at]), uintBitsToFloat(words[at + 1u]), uintBitsToFloat(words[at + 2u]));
+				power = uintBitsToFloat(words[at + 3u]);
+				hi = vec3(uintBitsToFloat(words[at + 4u]), uintBitsToFloat(words[at + 5u]), uintBitsToFloat(words[at + 6u]));
+				cos_o = uintBitsToFloat(words[at + 7u]);
+				axis = vec3(uintBitsToFloat(words[at + 8u]), uintBitsToFloat(words[at + 9u]), uintBitsToFloat(words[at + 10u]));
+			}
+
+			uint morton_bits(uint v) {
+				v = (v * 0x00010001u) & 0xFF0000FFu;
+				v = (v * 0x00000101u) & 0x0F00F00Fu;
+				v = (v * 0x00000011u) & 0xC30C30C3u;
+				v = (v * 0x00000005u) & 0x49249249u;
+				return v;
 			}
 		]]
 
@@ -145,7 +198,7 @@ do
 			return EasyPipeline.Compute{
 				name = name,
 				DescriptorSetCount = slots,
-				LocalSize = {x = SCAN_SIZE, y = 1, z = 1},
+				LocalSize = {x = LOCAL_SIZE, y = 1, z = 1},
 				storage_buffers = {
 					{binding_index = 0},
 					{binding_index = 1},
@@ -153,173 +206,36 @@ do
 					{binding_index = 4},
 					{binding_index = 5},
 				},
-				uniform_buffers = {
-					{
-						name = "emitter_data",
-						binding_index = 3,
-						block = {
-							{"source_count", "int"},
-							{"triangle_count", "int"},
-							{"block_count", "int"},
-							{"sums_base", "int"},
-							{"source_base", "int"},
-						},
-						write = function(self, block)
-							block.source_count = uniform.source_count
-							block.triangle_count = uniform.triangle_count
-							block.block_count = uniform.block_count
-							block.sums_base = uniform.sums_base
-							block.source_base = uniform.source_base
-							return block
-						end,
-					},
+				block = {
+					{"source_count", "int"},
+					{"triangle_count", "int"},
+					{"leaf_count", "int"},
+					{"node_base", "int"},
+					{"key_base", "int"},
+					{"level", "int"},
+					{"sort_k", "int"},
+					{"sort_j", "int"},
 				},
+				write = function(self, block)
+					for key, value in pairs(constants) do
+						block[key] = value
+					end
+
+					return block
+				end,
 				custom_declarations = declarations,
-				shader = shader,
+				shader = helpers .. shader,
 			}
 		end
 
 		pipelines = {
-			power = create(
-				"scene_emitter_power",
-				[[
-				void main() {
-					uint t = gl_GlobalInvocationID.x;
-					uint lid = gl_LocalInvocationID.x;
-					float power = 0.0;
-
-					if (t < uint(emitter_data.triangle_count)) {
-						uint lo = 0u;
-						uint hi = uint(emitter_data.source_count) - 1u;
-
-						while (lo < hi) {
-							uint mid = (lo + hi + 1u) >> 1u;
-
-							if (sources[mid].first <= t) {
-								lo = mid;
-							} else {
-								hi = mid - 1u;
-							}
-						}
-
-						emitter_source source = sources[lo];
-						uint primitive = t - source.first;
-
-						if ((scene_instance_flags(source.instance) & 16u) == 0u) {
-							scene_triangle tri = scene_hit_tri(source.instance, primitive);
-							power = 0.5 * length(cross(tri.e1, tri.e2)) * source.luminance;
-
-							if (!(power > 0.0)) power = 0.0;
-
-							vec3 low = min(tri.v0, min(tri.v0 + tri.e1, tri.v0 + tri.e2));
-							vec3 high = max(tri.v0, max(tri.v0 + tri.e1, tri.v0 + tri.e2));
-							uint bounds = uint(emitter_data.source_base) + lo * EMITTER_SOURCE_WORDS;
-
-							for (uint i = 0u; i < 3u; i++) {
-								atomicMin(words[bounds + i], ordered_bits(low[i]));
-								atomicMax(words[bounds + 3u + i], ordered_bits(high[i]));
-							}
-						}
-
-						uint at = EMITTER_HEADER + t * 4u;
-						words[at] = source.instance;
-						words[at + 1u] = primitive | source.flags;
-						words[at + 3u] = floatBitsToUint(power);
-					}
-
-					float sum = block_scan(lid, power);
-
-					if (t < uint(emitter_data.triangle_count)) words[EMITTER_HEADER + t * 4u + 2u] = floatBitsToUint(sum);
-
-					if (lid == ]] .. SCAN_SIZE - 1 .. [[u) words[emitter_data.sums_base + gl_WorkGroupID.x] = floatBitsToUint(sum);
-				}
-			]]
-			),
-			blocks = create(
-				"scene_emitter_blocks",
-				[[
-				void main() {
-					uint lid = gl_LocalInvocationID.x;
-					uint count = uint(emitter_data.block_count);
-					float carry = 0.0;
-
-					for (uint base = 0u; base < count; base += ]] .. SCAN_SIZE .. [[u) {
-						uint index = base + lid;
-						float sum = block_scan(lid, index < count ? uintBitsToFloat(words[emitter_data.sums_base + index]) : 0.0);
-
-						if (index < count) words[emitter_data.sums_base + index] = floatBitsToUint(carry + sum);
-
-						float chunk = scan_data[]] .. SCAN_SIZE - 1 .. [[];
-						barrier();
-						carry += chunk;
-					}
-				}
-			]]
-			),
-			cdf = create(
-				"scene_emitter_cdf",
-				[[
-				void main() {
-					uint t = gl_GlobalInvocationID.x;
-					uint count = uint(emitter_data.triangle_count);
-					float total = uintBitsToFloat(words[emitter_data.sums_base + uint(emitter_data.block_count) - 1u]);
-
-					if (t == 0u) {
-						words[0] = floatBitsToUint(total);
-						words[1] = count;
-						words[2] = uint(emitter_data.source_count);
-						words[3] = uint(emitter_data.source_base);
-					}
-
-					if (t >= count) return;
-
-					uint block = t / ]] .. SCAN_SIZE .. [[u;
-					float offset = block > 0u ? uintBitsToFloat(words[emitter_data.sums_base + block - 1u]) : 0.0;
-					uint at = EMITTER_HEADER + t * 4u + 2u;
-					float cdf = total > 0.0 ? (uintBitsToFloat(words[at]) + offset) / total : 0.0;
-
-					if (t == count - 1u) cdf = 1.0;
-
-					words[at] = floatBitsToUint(cdf);
-				}
-			]]
-			),
-			guide = create(
-				"scene_emitter_guide",
-				[[
-				void main() {
-					uint k = gl_GlobalInvocationID.x;
-					uint count = uint(emitter_data.triangle_count);
-
-					if (k > count) return;
-
-					float u = float(k) / float(count);
-					uint lo = 0u;
-					uint hi = count - 1u;
-
-					while (lo < hi) {
-						uint mid = (lo + hi) >> 1u;
-
-						if (uintBitsToFloat(words[EMITTER_HEADER + mid * 4u + 2u]) <= u) {
-							lo = mid + 1u;
-						} else {
-							hi = mid;
-						}
-					}
-
-					words[EMITTER_HEADER + count * 4u + k] = lo;
-				}
-			]]
-			),
 			bounds = create(
 				"scene_emitter_bounds",
 				[[
 				void main() {
-					uint s = gl_GlobalInvocationID.x;
+					if (gl_GlobalInvocationID.x != 0u) return;
 
-					if (s >= uint(emitter_data.source_count)) return;
-
-					uint at = uint(emitter_data.source_base) + s * EMITTER_SOURCE_WORDS;
+					uint at = bounds_base();
 
 					for (uint i = 0u; i < 3u; i++) {
 						words[at + i] = 0xFFFFFFFFu;
@@ -328,35 +244,180 @@ do
 				}
 			]]
 			),
-			sources = create(
-				"scene_emitter_sources",
+			centroids = create(
+				"scene_emitter_centroids",
 				[[
-				float cdf_at(uint t) {
-					return uintBitsToFloat(words[EMITTER_HEADER + t * 4u + 2u]);
-				}
-
 				void main() {
-					uint s = gl_GlobalInvocationID.x;
+					uint t = gl_GlobalInvocationID.x;
 
-					if (s >= uint(emitter_data.source_count)) return;
+					if (t >= uint(compute.triangle_count)) return;
 
+					uint s;
+					scene_triangle tri = triangle_of(t, s);
+					vec3 center = tri.v0 + (tri.e1 + tri.e2) / 3.0;
+					uint at = bounds_base();
+
+					for (uint i = 0u; i < 3u; i++) {
+						atomicMin(words[at + i], ordered_bits(center[i]));
+						atomicMax(words[at + 3u + i], ordered_bits(center[i]));
+					}
+				}
+			]]
+			),
+			keys = create(
+				"scene_emitter_keys",
+				[[
+				void main() {
+					uint j = gl_GlobalInvocationID.x;
+
+					if (j >= uint(compute.leaf_count)) return;
+
+					uint key = 0xFFFFFFFFu;
+
+					if (j < uint(compute.triangle_count)) {
+						uint s;
+						scene_triangle tri = triangle_of(j, s);
+						uint at = bounds_base();
+						vec3 lo = vec3(ordered_float(words[at]), ordered_float(words[at + 1u]), ordered_float(words[at + 2u]));
+						vec3 hi = vec3(ordered_float(words[at + 3u]), ordered_float(words[at + 4u]), ordered_float(words[at + 5u]));
+						uvec3 cell = uvec3(clamp((tri.v0 + (tri.e1 + tri.e2) / 3.0 - lo) / max(hi - lo, vec3(1e-6)), 0.0, 1.0) * 1023.0);
+						key = morton_bits(cell.x) << 2u | morton_bits(cell.y) << 1u | morton_bits(cell.z);
+					}
+
+					words[uint(compute.key_base) + 2u * j] = key;
+					words[uint(compute.key_base) + 2u * j + 1u] = j;
+				}
+			]]
+			),
+			sort = create(
+				"scene_emitter_sort",
+				[[
+				void main() {
+					uint i = gl_GlobalInvocationID.x;
+					uint l = i ^ uint(compute.sort_j);
+
+					if (i >= uint(compute.leaf_count) || l <= i) return;
+
+					uint a = uint(compute.key_base) + 2u * i;
+					uint b = uint(compute.key_base) + 2u * l;
+					uint key_a = words[a];
+					uint key_b = words[b];
+
+					if ((key_a > key_b) == ((i & uint(compute.sort_k)) == 0u)) {
+						uint index_a = words[a + 1u];
+						words[a] = key_b;
+						words[a + 1u] = words[b + 1u];
+						words[b] = key_a;
+						words[b + 1u] = index_a;
+					}
+				}
+			]]
+			),
+			leaves = create(
+				"scene_emitter_leaves",
+				[[
+				void main() {
+					uint j = gl_GlobalInvocationID.x;
+
+					if (j == 0u) {
+						words[1] = uint(compute.triangle_count);
+						words[2] = uint(compute.leaf_count);
+						words[3] = uint(compute.node_base);
+					}
+
+					if (j >= uint(compute.leaf_count)) return;
+
+					uint t = words[uint(compute.key_base) + 2u * j + 1u];
+					uint node = uint(compute.leaf_count) + j;
+
+					if (t >= uint(compute.triangle_count)) {
+						write_node(node, vec3(0.0), vec3(0.0), 0.0, vec3(0.0, 0.0, 1.0), 1.0, 0u);
+						return;
+					}
+
+					uint s;
+					scene_triangle tri = triangle_of(t, s);
 					emitter_source source = sources[s];
-					uint at = uint(emitter_data.source_base) + s * EMITTER_SOURCE_WORDS;
-					vec3 lo = vec3(ordered_float(words[at]), ordered_float(words[at + 1u]), ordered_float(words[at + 2u]));
-					vec3 hi = vec3(ordered_float(words[at + 3u]), ordered_float(words[at + 4u]), ordered_float(words[at + 5u]));
+					float power = 0.0;
 
-					uint last = source.first + source.triangle_count - 1u;
-					float power = (cdf_at(last) - (source.first > 0u ? cdf_at(source.first - 1u) : 0.0)) * uintBitsToFloat(words[0]);
-					vec3 center = (lo + hi) * 0.5;
-					bool empty = words[at] == 0xFFFFFFFFu;
-					words[at] = floatBitsToUint(center.x);
-					words[at + 1u] = floatBitsToUint(center.y);
-					words[at + 2u] = floatBitsToUint(center.z);
-					words[at + 3u] = floatBitsToUint(empty ? 0.0 : length(hi - lo) * 0.5);
-					words[at + 4u] = floatBitsToUint(empty ? 0.0 : max(power, 0.0));
-					words[at + 5u] = source.first;
-					words[at + 6u] = source.triangle_count;
-					words[at + 7u] = 0u;
+					if ((scene_instance_flags(source.instance) & 16u) == 0u) {
+						power = 0.5 * length(cross(tri.e1, tri.e2)) * source.luminance;
+
+						if (!(power > 0.0) || isinf(power)) power = 0.0;
+					}
+
+					uint at = EMITTER_HEADER + t * 4u;
+					words[at] = source.instance;
+					words[at + 1u] = (t - source.first) | source.flags;
+					words[at + 2u] = 0u;
+					words[at + 3u] = floatBitsToUint(power);
+					vec3 a = tri.v0 + tri.e1;
+					vec3 b = tri.v0 + tri.e2;
+					// cross(e1, e2) points into the mesh, the light leaves the other side; a leaf keeps its plane offset where nodes keep the cone angle
+					write_node(node, min(tri.v0, min(a, b)), max(tri.v0, max(a, b)), power, -tri.normal, dot(-tri.normal, tri.v0), t | (source.flags & EMITTER_DOUBLE_SIDED));
+				}
+			]]
+			),
+			level = create(
+				"scene_emitter_level",
+				[[
+				void main() {
+					uint first = 1u << uint(compute.level);
+					uint node = first + gl_GlobalInvocationID.x;
+
+					if (node >= first * 2u) return;
+
+					vec3 lo_a, hi_a, axis_a, lo_b, hi_b, axis_b;
+					float power_a, cos_a, power_b, cos_b;
+					read_node(node * 2u, lo_a, hi_a, power_a, axis_a, cos_a);
+					read_node(node * 2u + 1u, lo_b, hi_b, power_b, axis_b, cos_b);
+
+					if (node * 2u >= uint(compute.leaf_count)) {
+						cos_a = (words[node_at(node * 2u) + 11u] & EMITTER_DOUBLE_SIDED) != 0u ? -1.0 : 1.0;
+						cos_b = (words[node_at(node * 2u + 1u) + 11u] & EMITTER_DOUBLE_SIDED) != 0u ? -1.0 : 1.0;
+					}
+
+					if (!(power_b > 0.0)) {
+						write_node(node, lo_a, hi_a, power_a, axis_a, cos_a, 0u);
+					} else if (!(power_a > 0.0)) {
+						write_node(node, lo_b, hi_b, power_b, axis_b, cos_b, 0u);
+					} else {
+						float theta_a = acos(clamp(cos_a, -1.0, 1.0));
+						float theta_b = acos(clamp(cos_b, -1.0, 1.0));
+
+						if (theta_b > theta_a) {
+							vec3 axis = axis_a;
+							axis_a = axis_b;
+							axis_b = axis;
+							float theta = theta_a;
+							theta_a = theta_b;
+							theta_b = theta;
+						}
+
+						float theta_d = acos(clamp(dot(axis_a, axis_b), -1.0, 1.0));
+						vec3 axis = axis_a;
+						float theta_o = theta_a;
+
+						if (min(theta_d + theta_b, EMITTER_PI) > theta_a + 1e-5) {
+							theta_o = 0.5 * (theta_a + theta_d + theta_b);
+							vec3 k = cross(axis_a, axis_b);
+							float k_length = length(k);
+
+							if (theta_o >= EMITTER_PI || k_length < 1e-6) {
+								theta_o = EMITTER_PI;
+							} else {
+								float rotate = theta_o - theta_a;
+								axis = normalize(axis_a * cos(rotate) + cross(k / k_length, axis_a) * sin(rotate));
+							}
+						}
+
+						write_node(node, min(lo_a, lo_b), max(hi_a, hi_b), power_a + power_b, axis, cos(theta_o), 0u);
+					}
+
+					if (node == 1u) {
+						float total = uintBitsToFloat(words[node_at(1u) + 3u]);
+						words[0] = floatBitsToUint(total);
+					}
 				}
 			]]
 			),
@@ -385,6 +446,14 @@ do
 		end
 	end
 
+	local function dispatch(cmd, slot, buffers, name, threads)
+		local pipeline = pipelines[name]
+		bind(pipeline, slot, buffers)
+		pipeline:UploadConstants()
+		pipeline.pipeline:Dispatch(cmd, math.ceil(threads / LOCAL_SIZE), 1, 1, slot, pipeline.dynamic_offsets)
+		cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+	end
+
 	function emitters.Build(cmd, include_additive)
 		local frame = system.GetFrameNumber()
 		local emitter_list = emitters.Get(include_additive)
@@ -398,10 +467,15 @@ do
 		if not pipelines then create_pipelines() end
 
 		local count = emitter_list.count
-		local blocks = math.ceil(count / SCAN_SIZE)
-		local source_base = HEADER_WORDS + count * EMITTER_WORDS + count + 1
-		local words = source_base + emitter_list.source_count * SOURCE_WORDS
-		local needed = (words + blocks) * 4
+		local leaf_count = 2
+
+		while leaf_count < count do
+			leaf_count = leaf_count * 2
+		end
+
+		local node_base = HEADER_WORDS + count * EMITTER_WORDS
+		local key_base = node_base + 2 * leaf_count * NODE_WORDS
+		local needed = (key_base + 2 * leaf_count + 6) * 4
 
 		if not words_buffer or words_buffer:GetSize() < needed then
 			if words_buffer then words_buffer:Remove() end
@@ -439,12 +513,11 @@ do
 			uploaded_version = emitter_list.sources_version
 		end
 
-		sums_base = words
-		uniform.source_count = emitter_list.source_count
-		uniform.triangle_count = count
-		uniform.block_count = blocks
-		uniform.sums_base = sums_base
-		uniform.source_base = source_base
+		constants.source_count = emitter_list.source_count
+		constants.triangle_count = count
+		constants.leaf_count = leaf_count
+		constants.node_base = node_base
+		constants.key_base = key_base
 		local slot = (
 				(
 					render.GetCurrentFrame() or
@@ -452,6 +525,7 @@ do
 				) - 1
 			) % math.max(render.GetSwapchainImageCount() or 1, 1) + 1
 		local buffers = {sources_buffer, words_buffer}
+		render.PushCommandBuffer(cmd)
 		cmd:PipelineBarrier{
 			srcStage = {
 				"host",
@@ -464,34 +538,35 @@ do
 			memoryBarrier = true,
 		}
 
-		for i, name in ipairs{"bounds", "power", "blocks", "cdf", "guide", "sources"} do
-			local pipeline = pipelines[name]
-			bind(pipeline, slot, buffers)
-			pipeline:UploadConstants()
-			pipeline.pipeline:Dispatch(
-				cmd,
-				name == "blocks" and
-					1 or
-					name == "guide" and
-					math.ceil((count + 1) / SCAN_SIZE)
-					or
-					(
-						name == "sources" or
-						name == "bounds"
-					)
-					and
-					math.ceil(emitter_list.source_count / SCAN_SIZE)
-					or
-					blocks,
-				1,
-				1,
-				slot,
-				pipeline.dynamic_offsets
-			)
+		if sorted_version ~= emitter_list.sources_version or sorted_buffer ~= words_buffer then
+			sorted_version = emitter_list.sources_version
+			sorted_buffer = words_buffer
+			dispatch(cmd, slot, buffers, "bounds", 1)
+			dispatch(cmd, slot, buffers, "centroids", count)
+			dispatch(cmd, slot, buffers, "keys", leaf_count)
+			local k = 2
 
-			if i < 6 then
-				cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+			while k <= leaf_count do
+				local j = k / 2
+
+				while j >= 1 do
+					constants.sort_k = k
+					constants.sort_j = j
+					dispatch(cmd, slot, buffers, "sort", leaf_count)
+					j = j / 2
+				end
+
+				k = k * 2
 			end
+		end
+
+		dispatch(cmd, slot, buffers, "leaves", leaf_count)
+		local level = math.floor(math.log(leaf_count) / math.log(2) + 0.5) - 1
+
+		while level >= 0 do
+			constants.level = level
+			dispatch(cmd, slot, buffers, "level", 2 ^ level)
+			level = level - 1
 		end
 
 		cmd:PipelineBarrier{
@@ -499,6 +574,7 @@ do
 			dstStage = {"compute", "ray_tracing_shader_khr"},
 			memoryBarrier = true,
 		}
+		render.PopCommandBuffer()
 		return words_buffer
 	end
 
@@ -542,11 +618,9 @@ end
 function emitters.GetGLSL()
 	return glsl_common.GetHashGLSL() .. [[
 		#define EMITTER_HEADER ]] .. HEADER_WORDS .. [[u
-		#define EMITTER_SOURCE_WORDS ]] .. SOURCE_WORDS .. [[u
-		#define EMITTER_CANDIDATES 16
-		#define EMITTER_LOCAL_CANDIDATES 4
-		#define EMITTER_LOCAL_SOURCES ]] .. emitters.LOCAL_SOURCES .. [[
-
+		#define EMITTER_NODE_WORDS ]] .. NODE_WORDS .. [[u
+		#define EMITTER_CANDIDATES 4
+		#define EMITTER_CLUSTER 4
 		#define EMITTER_DOUBLE_SIDED 0x80000000u
 
 		vec4 emitter_random(uint index, uint frame, uint candidate) {
@@ -561,28 +635,8 @@ function emitters.GetGLSL()
 			return emitter_words[EMITTER_HEADER + uint(e) * 4u + 1u];
 		}
 
-		float emitter_cdf(int e) {
-			return uintBitsToFloat(emitter_words[EMITTER_HEADER + uint(e) * 4u + 2u]);
-		}
-
-		int emitter_search(float u, int lo, int hi) {
-			while (lo < hi) {
-				int mid = (lo + hi) / 2;
-
-				if (emitter_cdf(mid) <= u) {
-					lo = mid + 1;
-				} else {
-					hi = mid;
-				}
-			}
-
-			return lo;
-		}
-
-		int emitter_pick(float u, int count) {
-			uint guide = EMITTER_HEADER + uint(count) * 4u;
-			uint bucket = min(uint(u * float(count)), uint(count) - 1u);
-			return emitter_search(u, int(emitter_words[guide + bucket]), int(emitter_words[guide + bucket + 1u]));
+		float emitter_power(int e) {
+			return uintBitsToFloat(emitter_words[EMITTER_HEADER + uint(e) * 4u + 3u]);
 		}
 
 		vec3 emitter_point(scene_triangle tri, vec2 u) {
@@ -604,116 +658,165 @@ function emitters.GetGLSL()
 			return max(facing, 0.0) * receiving / max(dist2, radius * radius);
 		}
 
-		float emitter_pick_global(uint index, uint frame, int emitter_count, vec3 origin, vec3 normal, float radius, out int emitter) {
-			float weights[EMITTER_CANDIDATES];
-			int picked[EMITTER_CANDIDATES];
-			float total = 0.0;
+		float emitter_cos_sub(float sin_a, float cos_a, float sin_b, float cos_b) {
+			return cos_a > cos_b ? 1.0 : cos_a * cos_b + sin_a * sin_b;
+		}
 
-			for (uint k = 0u; k < uint(EMITTER_CANDIDATES); k++) {
-				vec4 u = emitter_random(index, frame, k);
-				picked[k] = emitter_pick(u.x, emitter_count);
-				weights[k] = emitter_target(picked[k], u.yz, origin, normal, radius) * uintBitsToFloat(emitter_words[0]);
-				total += weights[k];
+		float emitter_sin_sub(float sin_a, float cos_a, float sin_b, float cos_b) {
+			return cos_a > cos_b ? 0.0 : sin_a * cos_b - cos_a * sin_b;
+		}
+
+		float emitter_node_importance(uint node, vec3 origin, vec3 normal, float radius) {
+			uint at = emitter_words[3] + node * EMITTER_NODE_WORDS;
+			float power = uintBitsToFloat(emitter_words[at + 3u]);
+
+			if (!(power > 0.0)) return 0.0;
+
+			vec3 lo = vec3(uintBitsToFloat(emitter_words[at]), uintBitsToFloat(emitter_words[at + 1u]), uintBitsToFloat(emitter_words[at + 2u]));
+			vec3 hi = vec3(uintBitsToFloat(emitter_words[at + 4u]), uintBitsToFloat(emitter_words[at + 5u]), uintBitsToFloat(emitter_words[at + 6u]));
+			float cos_o = uintBitsToFloat(emitter_words[at + 7u]);
+			vec3 axis = vec3(uintBitsToFloat(emitter_words[at + 8u]), uintBitsToFloat(emitter_words[at + 9u]), uintBitsToFloat(emitter_words[at + 10u]));
+
+			if (normal != vec3(0.0) && dot(normal, (lo + hi) * 0.5 - origin) + dot(abs(normal), (hi - lo) * 0.5) <= 0.0) return 0.0;
+
+			if (node >= emitter_words[2]) {
+				bool double_sided = (emitter_words[at + 11u] & EMITTER_DOUBLE_SIDED) != 0u;
+
+				if (!double_sided && dot(axis, origin) <= cos_o) return 0.0;
+
+				cos_o = double_sided ? -1.0 : 1.0;
+			}
+			vec3 to_origin = origin - (lo + hi) * 0.5;
+			float r2 = dot(hi - lo, hi - lo) * 0.25;
+			float d2 = dot(to_origin, to_origin);
+			vec3 wi = d2 > 0.0 ? to_origin * inversesqrt(d2) : vec3(0.0, 1.0, 0.0);
+			float cos_b = d2 > r2 ? sqrt(1.0 - r2 / d2) : -1.0;
+			float sin_b = sqrt(max(1.0 - cos_b * cos_b, 0.0));
+			float cos_w = dot(axis, wi);
+			float sin_w = sqrt(max(1.0 - cos_w * cos_w, 0.0));
+			float sin_o = sqrt(max(1.0 - cos_o * cos_o, 0.0));
+			float cos_x = emitter_cos_sub(sin_w, cos_w, sin_o, cos_o);
+			float sin_x = emitter_sin_sub(sin_w, cos_w, sin_o, cos_o);
+			float cos_p = emitter_cos_sub(sin_x, cos_x, sin_b, cos_b);
+
+			if (cos_p <= 0.0) return 0.0;
+
+			vec3 outside = max(max(lo - origin, origin - hi), vec3(0.0));
+			float importance = power * cos_p / max(dot(outside, outside), radius * radius);
+
+			if (normal != vec3(0.0)) {
+				float cos_i = -dot(normal, wi);
+				float cos_pi = emitter_cos_sub(sqrt(max(1.0 - cos_i * cos_i, 0.0)), cos_i, sin_b, cos_b);
+
+				if (cos_pi <= 0.0) return 0.0;
+
+				importance *= cos_pi;
 			}
 
-			emitter = 0;
+			return importance;
+		}
 
-			if (!(total > 0.0)) return 0.0;
+		int emitter_tree_pick(float u, uint seed, vec3 origin, vec3 normal, float radius, out float pdf) {
+			uint leaf_count = emitter_words[2];
+			uint span = min(uint(EMITTER_CLUSTER), leaf_count);
+			uint node = 1u;
+			pdf = 1.0;
 
-			float pick = emitter_random(index, frame, 0x5bd1e995u).x * total;
-			uint chosen = uint(EMITTER_CANDIDATES) - 1u;
+			while (node < leaf_count / span) {
+				// rescaling u at every level runs out of bits a few unlikely branches down, so each level adds fresh ones
+				seed = seed * 747796405u + 2891336453u;
+				u = fract(u + float((seed ^ (seed >> 16u)) >> 8u) / 16777216.0);
+				float a = emitter_node_importance(node * 2u, origin, normal, radius);
+				float b = emitter_node_importance(node * 2u + 1u, origin, normal, radius);
+
+				if (!(a + b > 0.0)) return -1;
+
+				float p = a / (a + b);
+
+				if (u < p) {
+					u /= p;
+					pdf *= p;
+					node = node * 2u;
+				} else {
+					u = (u - p) / (1.0 - p);
+					pdf *= 1.0 - p;
+					node = node * 2u + 1u;
+				}
+
+				u = min(u, 0.99999994);
+			}
+
+			uint first = node * span;
+			float importances[EMITTER_CLUSTER];
+			float total = 0.0;
+
+			for (uint i = 0u; i < span; i++) {
+				importances[i] = emitter_node_importance(first + i, origin, normal, radius);
+				total += importances[i];
+			}
+
+			if (!(total > 0.0)) return -1;
+
+			seed = seed * 747796405u + 2891336453u;
+			float pick = fract(u + float((seed ^ (seed >> 16u)) >> 8u) / 16777216.0) * total;
 			float running = 0.0;
+			uint leaf = first + span - 1u;
+			float chosen = 0.0;
 
-			for (uint k = 0u; k < uint(EMITTER_CANDIDATES); k++) {
-				running += weights[k];
+			for (uint i = 0u; i < span; i++) {
+				running += importances[i];
 
-				if (pick < running) {
-					chosen = k;
-					break;
+				if (importances[i] > 0.0) {
+					leaf = first + i;
+					chosen = importances[i];
+
+					if (pick < running) break;
 				}
 			}
 
-			emitter = int(uint(picked[chosen]) | (chosen << 26u));
-			return total / float(EMITTER_CANDIDATES);
+			pdf *= chosen / total;
+			return int(emitter_words[emitter_words[3] + leaf * EMITTER_NODE_WORDS + 11u] & ~EMITTER_DOUBLE_SIDED);
 		}
 
-		bool emitter_local_candidates(uint index, uint frame, int source_count, vec3 origin, vec3 normal, float radius, out int triangles[EMITTER_LOCAL_CANDIDATES], out float weights[EMITTER_LOCAL_CANDIDATES]) {
-			uint source_base = emitter_words[3];
-			vec4 stream = emitter_random(index, frame, 0x68bc21ebu);
-			int picked[EMITTER_LOCAL_CANDIDATES];
-			float picked_weight[EMITTER_LOCAL_CANDIDATES];
-			float total = 0.0;
+		bool emitter_candidates(uint index, uint frame, vec3 origin, vec3 normal, float radius, out int triangles[EMITTER_CANDIDATES], out float weights[EMITTER_CANDIDATES]) {
+			bool found = false;
 
-			for (int k = 0; k < EMITTER_LOCAL_CANDIDATES; k++) {
-				picked[k] = 0;
-				picked_weight[k] = 0.0;
-				triangles[k] = 0;
-				weights[k] = 0.0;
-			}
-
-			for (int s = 0; s < source_count; s++) {
-				uint at = source_base + uint(s) * EMITTER_SOURCE_WORDS;
-				float power = uintBitsToFloat(emitter_words[at + 4u]);
-
-				if (!(power > 0.0)) continue;
-
-				float source_radius = uintBitsToFloat(emitter_words[at + 3u]);
-				vec3 to_center = vec3(uintBitsToFloat(emitter_words[at]), uintBitsToFloat(emitter_words[at + 1u]), uintBitsToFloat(emitter_words[at + 2u])) - origin;
-
-				if (normal != vec3(0.0) && dot(normal, to_center) < -source_radius) continue;
-
-				float w = power / max(dot(to_center, to_center), max(source_radius * source_radius, radius * radius));
-				total += w;
-				float p = w / total;
-
-				for (int k = 0; k < EMITTER_LOCAL_CANDIDATES; k++) {
-					if (stream[k] < p) {
-						picked[k] = s;
-						picked_weight[k] = w;
-						stream[k] /= p;
-					} else {
-						stream[k] = (stream[k] - p) / (1.0 - p);
-					}
-				}
-			}
-
-			if (!(total > 0.0)) return false;
-
-			for (int k = 0; k < EMITTER_LOCAL_CANDIDATES; k++) {
-				if (picked_weight[k] <= 0.0) continue;
-
-				uint at = source_base + uint(picked[k]) * EMITTER_SOURCE_WORDS;
-				int first = int(emitter_words[at + 5u]);
-				int last = first + int(emitter_words[at + 6u]) - 1;
+			for (int k = 0; k < EMITTER_CANDIDATES; k++) {
 				vec4 u = emitter_random(index, frame, uint(k));
-				float lo = first > 0 ? emitter_cdf(first - 1) : 0.0;
-				triangles[k] = emitter_search(mix(lo, emitter_cdf(last), u.x), first, last);
-				weights[k] = emitter_target(triangles[k], u.yz, origin, normal, radius) * total * uintBitsToFloat(emitter_words[at + 4u]) / picked_weight[k];
+				float pdf;
+				int e = emitter_tree_pick(u.x, pcg4d(uvec4(index, uint(k), frame, 0x27d4eb2du)).x, origin, normal, radius, pdf);
+				triangles[k] = max(e, 0);
+				weights[k] = 0.0;
+
+				if (e < 0 || !(pdf > 0.0)) continue;
+
+				weights[k] = emitter_target(e, u.yz, origin, normal, radius) * emitter_power(e) / pdf;
+				found = found || weights[k] > 0.0;
 			}
 
-			return true;
+			return found;
 		}
 
-		float emitter_pick_local(uint index, uint frame, int source_count, vec3 origin, vec3 normal, float radius, out int emitter) {
-			int triangles[EMITTER_LOCAL_CANDIDATES];
-			float weights[EMITTER_LOCAL_CANDIDATES];
+		float emitter_pick(uint index, uint frame, vec3 origin, vec3 normal, float radius, out int emitter) {
+			int triangles[EMITTER_CANDIDATES];
+			float weights[EMITTER_CANDIDATES];
 			emitter = 0;
 
-			if (!emitter_local_candidates(index, frame, source_count, origin, normal, radius, triangles, weights)) return 0.0;
+			if (!emitter_candidates(index, frame, origin, normal, radius, triangles, weights)) return 0.0;
 
 			float sum = 0.0;
 
-			for (int k = 0; k < EMITTER_LOCAL_CANDIDATES; k++) {
+			for (int k = 0; k < EMITTER_CANDIDATES; k++) {
 				sum += weights[k];
 			}
 
 			if (!(sum > 0.0)) return 0.0;
 
 			float pick = emitter_random(index, frame, 0x5bd1e995u).x * sum;
-			int chosen = EMITTER_LOCAL_CANDIDATES - 1;
+			int chosen = EMITTER_CANDIDATES - 1;
 			float running = 0.0;
 
-			for (int k = 0; k < EMITTER_LOCAL_CANDIDATES; k++) {
+			for (int k = 0; k < EMITTER_CANDIDATES; k++) {
 				running += weights[k];
 
 				if (pick < running) {
@@ -723,7 +826,7 @@ function emitters.GetGLSL()
 			}
 
 			emitter = int(uint(triangles[chosen]) | (uint(chosen) << 26u));
-			return sum / float(EMITTER_LOCAL_CANDIDATES);
+			return sum / float(EMITTER_CANDIDATES);
 		}
 
 		vec3 emitter_candidate_point(uint index, uint frame, int emitter) {
@@ -731,17 +834,8 @@ function emitters.GetGLSL()
 			return emitter_point(scene_hit_tri(emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED), emitter_random(index, frame, uint(emitter) >> 26u).yz);
 		}
 
-		float emitter_pick_sample(uint index, uint frame, int emitter_count, vec3 origin, vec3 normal, float radius, out int emitter, out vec3 point) {
-			float weight = emitter_pick_global(index, frame, emitter_count, origin, normal, radius, emitter);
-			point = weight > 0.0 ? emitter_candidate_point(index, frame, emitter) : origin;
-			return weight;
-		}
-
-		float emitter_pick_sample_local(uint index, uint frame, int emitter_count, vec3 origin, vec3 normal, float radius, out int emitter, out vec3 point) {
-			int source_count = int(emitter_words[2]);
-			float weight = source_count <= EMITTER_LOCAL_SOURCES ?
-				emitter_pick_local(index, frame, source_count, origin, normal, radius, emitter) :
-				emitter_pick_global(index, frame, emitter_count, origin, normal, radius, emitter);
+		float emitter_pick_sample(uint index, uint frame, vec3 origin, vec3 normal, float radius, out int emitter, out vec3 point) {
+			float weight = emitter_pick(index, frame, origin, normal, radius, emitter);
 			point = weight > 0.0 ? emitter_candidate_point(index, frame, emitter) : origin;
 			return weight;
 		}
@@ -765,10 +859,10 @@ function emitters.GetLightGLSL()
 			return ddgi_emission(tri, ddgi_albedo(material, point)) / (dot(material.emissive, vec3(0.2126, 0.7152, 0.0722)) * receiving) * weight;
 		}
 
-		vec3 emitter_sample_light(uint index, uint frame, int emitter_count, vec3 origin, vec3 normal, float radius, out vec3 dir, out float dist) {
+		vec3 emitter_sample_light(uint index, uint frame, vec3 origin, vec3 normal, float radius, out vec3 dir, out float dist) {
 			int emitter;
 			vec3 point;
-			float weight = emitter_pick_sample_local(index, frame, emitter_count, origin, normal, radius, emitter, point);
+			float weight = emitter_pick_sample(index, frame, origin, normal, radius, emitter, point);
 			return emitter_light(emitter, point, origin, normal, weight, dir, dist);
 		}
 	]]

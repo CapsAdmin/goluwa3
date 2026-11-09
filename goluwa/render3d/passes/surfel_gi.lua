@@ -1107,7 +1107,7 @@ local function pass_emitters()
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform image2D surfel_emitter;
 		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
 		shader = "#define SURFEL_UNSCALED\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("surfel_data") .. atmosphere.GetGLSLDefines("surfel_data", "surfel_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("surfel_data") .. scene_emitters.GetGLSL() .. scene_emitters.GetLightGLSL() .. [[
-			#define SURFEL_EMITTER_SAMPLES EMITTER_LOCAL_CANDIDATES
+			#define SURFEL_EMITTER_SAMPLES EMITTER_CANDIDATES
 
 			void main() {
 				int g = int(gl_GlobalInvocationID.x);
@@ -1132,30 +1132,16 @@ local function pass_emitters()
 					float size = surfel_cell_size(surfel_packed_level(packed));
 					vec3 origin = surfel.xyz + N * (0.01 + 0.05 * size);
 
-					int source_count = int(emitter_words[2]);
-					bool local = source_count <= EMITTER_LOCAL_SOURCES;
-					int triangles[EMITTER_LOCAL_CANDIDATES];
-					float weights[EMITTER_LOCAL_CANDIDATES];
+					int triangles[EMITTER_CANDIDATES];
+					float weights[EMITTER_CANDIDATES];
 					uint frame = uint(surfel_data.surfel_frame);
+					bool found = emitter_candidates(uint(g), frame, origin, N, size, triangles, weights);
 
-					if (local && !emitter_local_candidates(uint(g), frame, source_count, origin, N, size, triangles, weights)) {
-						local = false;
-						source_count = 0;
-					}
-
-					for (int k = 0; k < SURFEL_EMITTER_SAMPLES; k++) {
+					for (int k = 0; k < SURFEL_EMITTER_SAMPLES && found; k++) {
 						vec3 dir;
 						float dist;
-						vec3 light;
-
-						if (local) {
-							int emitter = triangles[k];
-							light = emitter_light(emitter, emitter_candidate_point(uint(g), frame, int(uint(emitter) | (uint(k) << 26u))), origin, N, weights[k], dir, dist);
-						} else if (source_count > 0) {
-							light = emitter_sample_light(uint(g * SURFEL_EMITTER_SAMPLES + k), frame, emitter_count, origin, N, size, dir, dist);
-						} else {
-							continue;
-						}
+						int emitter = triangles[k];
+						vec3 light = emitter_light(emitter, emitter_candidate_point(uint(g), frame, int(uint(emitter) | (uint(k) << 26u))), origin, N, weights[k], dir, dist);
 
 						if (dot(dir, N) <= 0.0 || !(dot(light, vec3(1.0)) > 0.0)) continue;
 

@@ -534,7 +534,7 @@ local function pass_candidates()
 					if (emitter_count > 0) {
 						int emitter;
 						vec3 point;
-						float weight = emitter_pick_sample_local(uint(pos.y * size.x + pos.x), frame, emitter_count, origin, N, 0.05, emitter, point);
+						float weight = emitter_pick_sample(uint(pos.y * size.x + pos.x), frame, origin, N, 0.05, emitter, point);
 						vec3 to_point = point - origin;
 						float dist = length(to_point);
 						vec3 L_dir = to_point / max(dist, 1e-6);

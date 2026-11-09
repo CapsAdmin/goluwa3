@@ -365,7 +365,7 @@ local gi_pass = {
 					if (emitter_count > 0) {
 						vec3 to_light;
 						float dist;
-						vec3 light = emitter_sample_light(froxel_hash(uvec3(quad)), uint(froxel_data.frame), emitter_count, P, vec3(0.0), 0.1 + depth * 0.01, to_light, dist);
+						vec3 light = emitter_sample_light(froxel_hash(uvec3(quad)), uint(froxel_data.frame), P, vec3(0.0), 0.1 + depth * 0.01, to_light, dist);
 
 						if (dot(light, vec3(1.0)) > 0.0 && (dist <= 0.02 || scene_reflection_visible(P, to_light, dist - 0.02))) {
 							if (froxel_data.glass_light != 0) light *= get_glass_light(P, to_light, dist, 0.0);
