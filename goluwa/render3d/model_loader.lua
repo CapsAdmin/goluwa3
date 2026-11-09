@@ -48,34 +48,74 @@ end
 
 model_loader.model_cache = {}
 model_loader.model_loads = utility.CreateLoadCache(model_loader.model_cache, 0.004)
+local threaded_decoders = {}
+local preloaded = {}
+local preload_queue = {}
+local preload_head = 1
+local preload_in_flight = 0
+local PRELOAD_WINDOW = 48
+
+local function pump_preload()
+	while preload_in_flight < PRELOAD_WINDOW and preload_head <= #preload_queue do
+		local path = preload_queue[preload_head]
+		preload_head = preload_head + 1
+		local callback = model_loader.FindModelDecoder(path)
+		local decoder = threaded_decoders[callback]
+
+		if decoder and not preloaded[path] and not model_loader.model_cache[path] then
+			local input, size = decoder.Gather(path, path)
+			preloaded[path] = {input = input, size = size, job = thread_pool.Run(decoder.job, input, size)}
+			preload_in_flight = preload_in_flight + 1
+		end
+	end
+end
+
+-- Starts the worker jobs of threaded decoders for paths (readable through the vfs) that are about to be loaded,
+-- at most PRELOAD_WINDOW unconsumed at a time. A load that never comes keeps its slot.
+function model_loader.Preload(paths)
+	preload_queue = paths
+	preload_head = 1
+	pump_preload()
+end
 
 function model_loader.AddThreadedDecoder(id, decoder, ext)
-	model_loader.AddModelDecoder(
-		id,
-		function(
+	local function callback(
+		path,
+		full_path,
+		mesh_callback,
+		physics_callback,
+		skeleton_callback,
+		bounds_callback
+	)
+		local entry = preloaded[path]
+		local input, size, job
+
+		if entry then
+			preloaded[path] = nil
+			preload_in_flight = preload_in_flight - 1
+			input, size, job = entry.input, entry.size, entry.job
+		else
+			input, size = decoder.Gather(path, full_path)
+			job = thread_pool.Run(decoder.job, input, size)
+		end
+
+		pump_preload()
+		local meta, blob = job:Await()
+		return decoder.Finish(
 			path,
 			full_path,
+			input,
+			meta,
+			blob,
 			mesh_callback,
 			physics_callback,
 			skeleton_callback,
 			bounds_callback
 		)
-			local input, size = decoder.Gather(path, full_path)
-			local meta, blob = thread_pool.Run(decoder.job, input, size):Await()
-			return decoder.Finish(
-				path,
-				full_path,
-				input,
-				meta,
-				blob,
-				mesh_callback,
-				physics_callback,
-				skeleton_callback,
-				bounds_callback
-			)
-		end,
-		ext
-	)
+	end
+
+	threaded_decoders[callback] = decoder
+	model_loader.AddModelDecoder(id, callback, ext)
 end
 
 local function fail_model_load(loads, path, reason)

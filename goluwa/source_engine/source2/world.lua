@@ -413,6 +413,19 @@ function world.Load(name, info)
 			startup.Begin("source 2 translate")
 			local scene_data = world.Translate(name, has_skybox)
 			startup.End("source 2 translate")
+			local model_paths, seen = {}, {}
+
+			for _, record in ipairs(scene_data.entities) do
+				local visual = record.components and record.components.visual
+				local model_path = visual and visual.ModelPath
+
+				if model_path and not seen[model_path] then
+					seen[model_path] = true
+					model_paths[#model_paths + 1] = model_path
+				end
+			end
+
+			import("goluwa/render3d/model_loader.lua").Preload(model_paths)
 			scene.Deserialize(
 				scene_data,
 				Entity.World,

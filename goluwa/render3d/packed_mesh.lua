@@ -9,6 +9,16 @@ local index_types = {
 }
 local VERTEX_BYTES = ffi.sizeof(VertexType(1)[0])
 
+function packed_mesh.PackArrays(builder, vertices, vertex_count, indices, index_count, index_size)
+	return {
+		vertex_count = vertex_count,
+		index_count = index_count,
+		index_size = index_size,
+		vertex_offset = builder:Add(vertices, vertex_count * VERTEX_BYTES),
+		index_offset = builder:Add(indices, index_count * index_size),
+	}
+end
+
 function packed_mesh.PackPolygon(builder, polygon)
 	local vertices, vertex_count = polygon:PackVertices()
 
@@ -23,13 +33,7 @@ function packed_mesh.PackPolygon(builder, polygon)
 		array[i - 1] = indices[i] - 1
 	end
 
-	return {
-		vertex_count = vertex_count,
-		index_count = index_count,
-		index_size = index_size,
-		vertex_offset = builder:Add(vertices, vertex_count * VERTEX_BYTES),
-		index_offset = builder:Add(array, index_count * index_size),
-	}
+	return packed_mesh.PackArrays(builder, vertices, vertex_count, array, index_count, index_size)
 end
 
 function packed_mesh.Unpack(info, blob_table)
