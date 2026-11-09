@@ -452,6 +452,12 @@ do
 		palette[i] = emissive_mat(c, 4 + i * 1.5)
 	end
 
+	local groups = {}
+
+	for i = 1, #palette do
+		groups[i] = {}
+	end
+
 	local seed = 7
 
 	local function random()
@@ -502,12 +508,27 @@ do
 
 		if position.y < 0.2 then position.y = 0.2 end
 
-		box(
-			"emitter_room_emitter_" .. i,
-			position,
-			extent,
-			palette[math.floor(random() * #palette) + 1]
-		)
+		local group = groups[math.floor(random() * #palette) + 1]
+		group[#group + 1] = {position = position, half = extent / 2}
+	end
+
+	for i, group in ipairs(groups) do
+		shapes.Polygon{
+			Name = "emitter_room_emitters_" .. i,
+			Material = palette[i],
+			RigidBody = static_body,
+			Polygon = function(poly)
+				for _, emitter in ipairs(group) do
+					local p, e = emitter.position, emitter.half
+					shapes.BuildPlane(poly, p + Vec3(e.x, 0, 0), Vec3(1, 0, 0), e.z, e.y)
+					shapes.BuildPlane(poly, p - Vec3(e.x, 0, 0), Vec3(-1, 0, 0), e.z, e.y)
+					shapes.BuildPlane(poly, p + Vec3(0, e.y, 0), Vec3(0, 1, 0), e.x, e.z)
+					shapes.BuildPlane(poly, p - Vec3(0, e.y, 0), Vec3(0, -1, 0), e.x, e.z)
+					shapes.BuildPlane(poly, p + Vec3(0, 0, e.z), Vec3(0, 0, 1), e.x, e.y)
+					shapes.BuildPlane(poly, p - Vec3(0, 0, e.z), Vec3(0, 0, -1), e.x, e.y)
+				end
+			end,
+		}
 	end
 end
 
