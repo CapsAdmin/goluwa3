@@ -166,7 +166,7 @@ function world.Translate(name)
 					transform = {Position = position, Rotation = rotation, Size = size ~= 1 and size or nil},
 					visual = {ModelPath = model_path},
 					rigid_body = not model_path:find("_mesh_model%d") and
-						{ShapeModelPath = model_path, MotionType = "static"} or
+						{ShapeModelPath = model_path, MotionType = "static", WorldGeometry = true} or
 						nil,
 				},
 			}

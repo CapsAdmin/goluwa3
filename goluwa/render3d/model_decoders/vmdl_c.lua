@@ -5,6 +5,7 @@ local tasks = import("goluwa/tasks.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
 local vbib = import("goluwa/source_engine/source2/vbib.lua")
@@ -117,7 +118,7 @@ function vmdl_c.EmitMesh(data, buffers, path, mesh_callback, shapes)
 				local polygon = vmdl_c.BuildPolygon(buffers, draw_call, path)
 				mesh_callback(polygon, s2_material.FromVMAT(draw_call.m_material))
 
-				if shapes then shapes[#shapes + 1] = polygon end
+				if shapes then shapes[#shapes + 1] = polygon.packed end
 
 				tasks.Wait()
 			end
@@ -185,8 +186,19 @@ local function decode_vmdl(path, full_path, mesh_callback, physics_callback)
 					setmetatable(physics, nil)
 					physics.children = {}
 
-					for i, polygon in ipairs(shapes) do
-						physics.children[i] = {Shape = MeshShape.New(polygon)}
+					for i, packed in ipairs(shapes) do
+						local vertices, indices = {}, {}
+
+						for v = 1, packed.vertex_count do
+							local p = packed.vertices[v - 1].position
+							vertices[v] = {pos = Vec3(p[0], p[1], p[2])}
+						end
+
+						for k = 1, packed.index_count do
+							indices[k] = packed.indices[k - 1]
+						end
+
+						physics.children[i] = {Shape = MeshShape.New{Vertices = vertices, indices = indices}}
 					end
 
 					return physics[key]
