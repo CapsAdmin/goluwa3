@@ -969,8 +969,22 @@ do
 			return fd
 		end
 
+		local scratch, scratch_size = nil, 0
+		local MAX_SCRATCH = 64 * 1024 * 1024
+
 		function fs.fd_read(fd, size)
-			local buffer = ffi.new("uint8_t[?]", size)
+			local buffer
+
+			if size > MAX_SCRATCH then
+				buffer = ffi.new("uint8_t[?]", size)
+			else
+				if size > scratch_size then
+					scratch, scratch_size = ffi.new("uint8_t[?]", size), size
+				end
+
+				buffer = scratch
+			end
+
 			local bytes_read = ffi.C.read(fd, buffer, size)
 
 			if bytes_read == -1 then return nil, last_error() end
