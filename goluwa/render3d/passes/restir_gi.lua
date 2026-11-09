@@ -790,7 +790,7 @@ local function pass_spatial()
 		ComputePass = true,
 		ColorFormat = {
 			{
-				"r16g16b16a16_sfloat",
+				"r32g32b32a32_sfloat",
 				{"restir_raw", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
 			},
 		},
@@ -804,7 +804,7 @@ local function pass_spatial()
 			scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
 		end,
 		custom_declarations = [[
-			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_raw;
+			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_raw;
 		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. SURFACE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("restir_data") .. [[
 
@@ -921,7 +921,7 @@ local function pass_spatial()
 					sky_flags = int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), clamp(partner, ivec2(0), size - 1), 0).w + 0.5);
 				}
 
-				imageStore(out_raw, pos, vec4(min(irradiance, vec3(65000.0)), (sky_flags & RESTIR_FLAG_MISS) != 0 ? 1.0 : 0.0));
+				imageStore(out_raw, pos, vec4(irradiance, (sky_flags & RESTIR_FLAG_MISS) != 0 ? 1.0 : 0.0));
 			}
 		]],
 	}
