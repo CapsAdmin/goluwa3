@@ -23,7 +23,9 @@ local PROP_MOTION = {
 
 -- the entity color is sRGB, the shaders multiply it into linear albedo
 local function get_tint(color)
-	if not color or (color[1] >= 250 and color[2] >= 250 and color[3] >= 250) then return nil end
+	if not color or (color[1] >= 250 and color[2] >= 250 and color[3] >= 250) then
+		return nil
+	end
 
 	return {(color[1] / 255) ^ 2.2, (color[2] / 255) ^ 2.2, (color[3] / 255) ^ 2.2}
 end
@@ -269,7 +271,11 @@ function world.Translate(name, has_skybox)
 							},
 							visual = {ModelPath = model_path, Tint = get_tint(entity.rendercolor)},
 							rigid_body = motion and
-								{ShapeModelPath = model_path, MotionType = motion, WorldGeometry = motion == "static" or nil} or
+								{
+									ShapeModelPath = model_path,
+									MotionType = motion,
+									WorldGeometry = motion == "static" or nil,
+								} or
 								nil,
 						},
 					}
@@ -352,11 +358,17 @@ function world.Translate(name, has_skybox)
 			for _, object in ipairs(data.m_sceneObjects) do
 				if not object.m_renderableModel:find("_blocklight%.vmdl$") then
 					local m = object.m_vTransform
-					local position, rotation, size = matrix_to_transform({
-						{m[1][1], m[1][2], m[1][3], (m[1][4] - origin[1]) * scale},
-						{m[2][1], m[2][2], m[2][3], (m[2][4] - origin[2]) * scale},
-						{m[3][1], m[3][2], m[3][3], (m[3][4] - origin[3]) * scale},
-					})
+					local position, rotation, size = matrix_to_transform{
+						{m[1][1], m[1][2], m[1][3], (
+							m[1][4] - origin[1]
+						) * scale},
+						{m[2][1], m[2][2], m[2][3], (
+							m[2][4] - origin[2]
+						) * scale},
+						{m[3][1], m[3][2], m[3][3], (
+							m[3][4] - origin[3]
+						) * scale},
+					}
 					sky_count = sky_count + 1
 					add{
 						guid = root .. ":sky:" .. sky_count,
@@ -364,7 +376,10 @@ function world.Translate(name, has_skybox)
 						properties = {Name = "sky object"},
 						components = {
 							transform = {Position = position, Rotation = rotation, Size = size * scale},
-							visual = {ModelPath = normalize_path(object.m_renderableModel) .. "_c", ClipBounds = clip_bounds},
+							visual = {
+								ModelPath = normalize_path(object.m_renderableModel) .. "_c",
+								ClipBounds = clip_bounds,
+							},
 						},
 					}
 				end
