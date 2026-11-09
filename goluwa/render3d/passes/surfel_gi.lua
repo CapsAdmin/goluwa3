@@ -1378,6 +1378,9 @@ local function pass_resolve()
 	return {
 		name = "surfel_resolve",
 		ComputePass = true,
+		is_enabled = function()
+			return not gi.IsPerPixel()
+		end,
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"surfel_screen", "rgba"}},
 			{"r16g16b16a16_sfloat", {"surfel_screen_geometry", "rgba"}},

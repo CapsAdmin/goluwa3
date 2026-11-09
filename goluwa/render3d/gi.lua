@@ -2,6 +2,7 @@ local render = import("goluwa/render/render.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local surfel_gi = import("goluwa/render3d/surfel_gi.lua")
+local restir_gi = import("goluwa/render3d/restir_gi.lua")
 local gi = {}
 gi.MODES = {none = 0, ddgi = 1, surfels = 2}
 gi.MIN_WEIGHT = ddgi.MIN_WEIGHT
@@ -14,12 +15,18 @@ function gi.GetMode()
 	return "none"
 end
 
+function gi.IsPerPixel()
+	return render3d.IsPassEnabled("restir_gi")
+end
+
 local function resolve_attachment(name, index)
 	local resolve = render3d.pipelines[name]
 	return resolve and resolve:GetFramebuffer(1):GetAttachment(index) or nil
 end
 
 function gi.GetScreenTexture()
+	if gi.IsPerPixel() then return restir_gi.GetOutputTexture(1) end
+
 	local mode = gi.GetMode()
 
 	if mode == "ddgi" then return ddgi.GetScreenTexture() end
@@ -30,6 +37,8 @@ function gi.GetScreenTexture()
 end
 
 function gi.GetScreenGeometryTexture()
+	if gi.IsPerPixel() then return restir_gi.GetOutputTexture(2) end
+
 	local mode = gi.GetMode()
 
 	if mode == "ddgi" then return ddgi.GetScreenGeometryTexture() end
@@ -40,6 +49,8 @@ function gi.GetScreenGeometryTexture()
 end
 
 function gi.GetScreenSpecularTexture()
+	if gi.IsPerPixel() then return nil end
+
 	local mode = gi.GetMode()
 
 	if mode == "ddgi" then return ddgi.GetScreenSpecularTexture() end
@@ -50,6 +61,8 @@ function gi.GetScreenSpecularTexture()
 end
 
 function gi.IsDebugGI()
+	if gi.IsPerPixel() then return restir_gi.IsDebugGI() end
+
 	local mode = gi.GetMode()
 
 	if mode == "ddgi" then return ddgi.IsDebugGI() end
@@ -68,6 +81,7 @@ end
 function gi.ResetHistory()
 	ddgi.ResetHistory()
 	surfel_gi.ResetHistory()
+	restir_gi.ResetHistory()
 end
 
 function gi.GetProbeBlockLayout()

@@ -351,6 +351,7 @@ local default_passes = {
 	{"ambient_occlusion", "goluwa/render3d/passes/ambient_occlusion.lua"},
 	{"ddgi", "goluwa/render3d/passes/ddgi.lua", gi = "ddgi"},
 	{"surfel_gi", "goluwa/render3d/passes/surfel_gi.lua", gi = "surfels"},
+	{"restir_gi", "goluwa/render3d/passes/restir_gi.lua", gi = "restir"},
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
 	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},
@@ -411,10 +412,21 @@ pvars.StartGroup("Lighting", "Global illumination", {store = false})
 local gi_mode = pvars.Setup2{
 	key = "r_gi",
 	default = "ddgi",
-	enums = {"ddgi", "surfels", "none"},
-	help = "the global illumination: ddgi probe cascades, surfel radiance cascades, or none (the sky's irradiance). the other system's passes are not built",
+	enums = {"ddgi", "surfels", "restir", "none"},
+	help = "the global illumination: ddgi probe cascades, surfel radiance cascades, restir (a ray per pixel, resampled across neighbouring pixels and frames, with r_gi_cache for the light past the first bounce) or none (the sky's irradiance). the other systems' passes are not built",
 	callback = function(value, initial)
 		if initial then return end
+
+		rebuild_default_bundles()
+	end,
+}
+local gi_cache = pvars.Setup2{
+	key = "r_gi_cache",
+	default = "ddgi",
+	enums = {"ddgi", "surfels", "none"},
+	help = "the world space gi under r_gi restir: restir's rays read it where they hit for every bounce after the first, and the fog, water, glass and reflections light with it. none lights the hits with the sky through a few rays",
+	callback = function(value, initial)
+		if initial or gi_mode:Get() ~= "restir" then return end
 
 		rebuild_default_bundles()
 	end,
@@ -423,6 +435,14 @@ pvars.EndGroup()
 
 function render3d.GetGIMode()
 	return gi_mode:Get()
+end
+
+local function is_gi_pass_wanted(name)
+	local mode = gi_mode:Get()
+
+	if mode == "restir" then return name == "restir" or name == gi_cache:Get() end
+
+	return name == mode
 end
 
 function render3d.IsBundlePassEnabled(bundle, name)
@@ -522,9 +542,8 @@ local function fill_pipeline_bundle(bundle)
 			if
 				(
 					not entry.gi or
-					entry.gi == gi_mode:Get()
-				)
-				and
+					is_gi_pass_wanted(entry.gi)
+				) and
 				(
 					not entry.optional or
 					pass_vars[entry[1]]:Get()

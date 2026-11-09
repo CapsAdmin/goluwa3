@@ -159,6 +159,7 @@ return {
 					{"thin_specular", "float"},
 					{"rough_sky", "float"},
 					{"gi_reflection_direction", "int"},
+					{"gi_per_pixel", "int"},
 				},
 				write = function(self, block)
 					surface_lighting.WriteBlock(self, block)
@@ -184,6 +185,7 @@ return {
 					block.thin_specular = thin_specular:Get()
 					block.rough_sky = rough_sky:Get()
 					block.gi_reflection_direction = gi_reflection_direction:Get() and 1 or 0
+					block.gi_per_pixel = gi.IsPerPixel() and 1 or 0
 
 					if render3d.IsPassEnabled("ambient_occlusion") then
 						block.ambient_occlusion_tex = self:GetTextureIndex(render3d.pipelines.ambient_occlusion_blur:GetFramebuffer(1):GetAttachment(1))
@@ -413,7 +415,7 @@ return {
 				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
 				vec3 specular_albedo = (s.F0 * envBRDF.x + F90(s.F0) * envBRDF.y) * GGXEnergyCompensation(s.F0, envBRDF);
 				vec3 kD_ambient = max(1.0 - specular_albedo, vec3(0.0)) * (1.0 - s.metallic);
-				vec3 ambient_diffuse = kD_ambient * (irradiance * ambient_occlusion + bounce) * s.albedo;
+				vec3 ambient_diffuse = kD_ambient * (lighting_data.gi_per_pixel != 0 ? irradiance : irradiance * ambient_occlusion + bounce) * s.albedo;
 
 				vec3 ambient_specular = reflection * specular_albedo;
 				ambient_specular *= SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness);

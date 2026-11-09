@@ -12,6 +12,7 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local gi = import("goluwa/render3d/gi.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
@@ -1246,6 +1247,9 @@ local function pass_resolve()
 	return {
 		name = "ddgi_resolve",
 		ComputePass = true,
+		is_enabled = function()
+			return not gi.IsPerPixel()
+		end,
 		ColorFormat = {
 			{"r16g16b16a16_sfloat", {"ddgi_screen", "rgba"}},
 			{"r16g16b16a16_sfloat", {"ddgi_screen_geometry", "rgba"}},

@@ -531,6 +531,12 @@ function scene_reflection.GetGLSL(block_name, shared)
 			return radiance;
 			#endif
 
+			#ifdef SCENE_HIT_SCREEN_GI
+			vec3 screen_gi;
+
+			if (scene_hit_screen_gi(P, hit_N, screen_gi)) return radiance + albedo * screen_gi;
+			#endif
+
 			float weight;
 			vec4 gi = gi_sample_irradiance(P, hit_N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight);
 
