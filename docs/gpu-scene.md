@@ -27,6 +27,7 @@ Visuals with `InSceneBVH = false` are not ray traced (mask 0) but are still draw
 
 ## Rules
 
+- An instance mask is one surface kind (`MASK_SOLID`, `MASK_SEE_THROUGH`, `MASK_DECAL`, plus `MASK_SELF`/`MASK_GLASS`) with the GI bits on top. A ray that should skip a kind uses a cull mask built from the kinds it keeps (`instances.MASK_SURFACES` leaves out decals), never all bits minus one kind: the GI bits are on decals too, so such a mask still hits them.
 - Everything the gpu reads of a row must stay valid for frames in flight: freed rows keep their data `RETIRE_FRAMES` before being zeroed, `Buffer` releases are deferred by submission serial, and growing a table keeps the old buffer for a few frames. Reading a zeroed mesh row makes a ray read address 0 and loses the device.
 - Build the TLAS outside a render pass and before the passes that trace.
 - DDGI's ray pipeline payload size must equal `Payload` (`max_ray_payload_size`); a bigger payload than declared is a device lost, not a validation error.

@@ -32,10 +32,7 @@ local BINDING_SCREEN_DEBUG = 15
 local BINDING_EMITTERS = 16
 local SCENE_BINDINGS = {scene = 10, hit = 30, materials = 11, light_grid = 12}
 -- decals float a hair above the surface they decorate: a surfel on that surface would trace into their undersides and stay black
-local NO_DECALS_GLSL = string.format(
-	"#define SCENE_REFLECTION_MASK 0x%02X\n",
-	bit.band(0xFF, bit.bnot(scene_instances.MASK_DECAL))
-)
+local NO_DECALS_GLSL = string.format("#define SCENE_REFLECTION_MASK 0x%02X\n", scene_instances.MASK_SURFACES)
 local SOLID_MASK = string.format("0x%02X", scene_instances.MASK_SOLID)
 local DUMMY_FORMAT = {{"r8_unorm", {"surfel_dummy", "r"}}}
 

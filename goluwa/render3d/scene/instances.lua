@@ -32,6 +32,13 @@ instances.MASK_GI = 0x10
 instances.MASK_GI_SOLID = 0x20
 instances.MASK_GLASS = 0x40
 instances.MASK_GI_BITS = 0x30
+-- every instance kind but decals; the gi bits ride on decals too, so a mask that clears only MASK_DECAL still hits them
+instances.MASK_SURFACES = bit.bor(
+	instances.MASK_SOLID,
+	instances.MASK_SEE_THROUGH,
+	instances.MASK_SELF,
+	instances.MASK_GLASS
+)
 instances.FLAG_DOUBLE_SIDED = 1
 instances.FLAG_ALPHA_TEST = 2
 instances.FLAG_EMISSIVE = 4
