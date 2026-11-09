@@ -12,6 +12,14 @@ local entity_lump = import("goluwa/source_engine/source2/entity_lump.lua")
 local world = {}
 local Color = import("goluwa/structs/color.lua")
 local LIGHT_BRIGHTNESS = 300
+local PROP_MOTION = {
+	prop_physics = "dynamic",
+	prop_physics_override = "dynamic",
+	prop_physics_multiplayer = "dynamic",
+	func_physbox = "dynamic",
+	prop_dynamic = "static",
+	prop_dynamic_override = "static",
+}
 local axis_x = Vec3(1, 0, 0)
 local axis_y = Vec3(0, 1, 0)
 local axis_z = Vec3(0, 0, 1)
@@ -125,7 +133,7 @@ local function parse_vector(value)
 	return Vec3(value[1], value[2], value[3])
 end
 
-function world.Translate(name)
+function world.Translate(name, has_skybox)
 	local weather = import("goluwa/render3d/weather.lua")
 	local records = {}
 	local root = "source2:" .. name
@@ -141,12 +149,26 @@ function world.Translate(name)
 	local world_data = resource.ReadKV3(resource.Load(vfs, "maps/" .. name .. "/world.vwrld_c"))
 	local object_count = 0
 	local lowest = math.huge
+	local mins, maxs = {math.huge, math.huge, math.huge}, {-math.huge, -math.huge, -math.huge}
 
 	for _, node in ipairs(world_data.m_worldNodes) do
 		lowest = math.min(lowest, node.m_vMinBounds[3])
+
+		for i = 1, 3 do
+			mins[i] = math.min(mins[i], node.m_vMinBounds[i])
+			maxs[i] = math.max(maxs[i], node.m_vMaxBounds[i])
+		end
 	end
 
 	atmosphere.OceanLevel = lowest * units.meters - 2
+	local clip_bounds = {
+		-maxs[2] * units.meters,
+		mins[3] * units.meters,
+		-maxs[1] * units.meters,
+		-mins[2] * units.meters,
+		maxs[3] * units.meters,
+		-mins[1] * units.meters,
+	}
 
 	for _, node in ipairs(world_data.m_worldNodes) do
 		local prefix = normalize_path(node.m_worldNodePrefix)
@@ -219,11 +241,14 @@ function world.Translate(name)
 					entity.model and
 					(
 						class:find("^prop_") or
-						class:find("^item_")
+						class:find("^item_") or
+						class == "func_physbox"
 					)
 					and
 					entity.model:find("%.vmdl$")
 				then
+					local motion = PROP_MOTION[class]
+					local model_path = normalize_path(entity.model) .. "_c"
 					add{
 						guid = guid,
 						parent = root,
@@ -234,7 +259,10 @@ function world.Translate(name)
 								Rotation = rotation,
 								Size = entity.scales and entity.scales[1] ~= 1 and entity.scales[1] or nil,
 							},
-							visual = {ModelPath = normalize_path(entity.model) .. "_c"},
+							visual = {ModelPath = model_path},
+							rigid_body = motion and
+								{ShapeModelPath = model_path, MotionType = motion, WorldGeometry = motion == "static" or nil} or
+								nil,
 						},
 					}
 				elseif (class == "light_omni" or class == "light_spot") and entity.color then
@@ -294,6 +322,50 @@ function world.Translate(name)
 		end
 	end
 
+	if has_skybox then
+		local sky_name = name .. "_skybox"
+		local sky_world = resource.ReadKV3(resource.Load(vfs, "maps/" .. name .. "/" .. sky_name .. "/world.vwrld_c"))
+		local scale, origin = 1, {0, 0, 0}
+
+		for _, lump_path in ipairs(sky_world.m_entityLumps) do
+			for _, entity in ipairs(entity_lump.Load(vfs, normalize_path(lump_path) .. "_c")) do
+				if entity.classname == "sky_camera" then
+					scale = entity.scale or scale
+					origin = entity.origin or origin
+				end
+			end
+		end
+
+		local sky_count = 0
+
+		for _, node in ipairs(sky_world.m_worldNodes) do
+			local data = resource.ReadKV3(resource.Load(vfs, normalize_path(node.m_worldNodePrefix) .. ".vwnod_c"))
+
+			for _, object in ipairs(data.m_sceneObjects) do
+				if not object.m_renderableModel:find("_blocklight%.vmdl$") then
+					local m = object.m_vTransform
+					local position, rotation, size = matrix_to_transform({
+						{m[1][1], m[1][2], m[1][3], (m[1][4] - origin[1]) * scale},
+						{m[2][1], m[2][2], m[2][3], (m[2][4] - origin[2]) * scale},
+						{m[3][1], m[3][2], m[3][3], (m[3][4] - origin[3]) * scale},
+					})
+					sky_count = sky_count + 1
+					add{
+						guid = root .. ":sky:" .. sky_count,
+						parent = root,
+						properties = {Name = "sky object"},
+						components = {
+							transform = {Position = position, Rotation = rotation, Size = size * scale},
+							visual = {ModelPath = normalize_path(object.m_renderableModel) .. "_c", ClipBounds = clip_bounds},
+						},
+					}
+				end
+			end
+
+			tasks.Wait()
+		end
+	end
+
 	logn("translated ", #records, " source 2 records")
 	return {version = scene.Version, entities = records}
 end
@@ -301,6 +373,11 @@ end
 function world.Load(name, info)
 	steam.MountSourceGame(info)
 	vfs.Mount(world.GetMapDirectory(info) .. name .. ".vpk/")
+	local sky_path = world.GetMapDirectory(info) .. name .. "/" .. name .. "_skybox.vpk"
+	local has_skybox = vfs.IsFile("os:" .. sky_path)
+
+	if has_skybox then vfs.Mount(sky_path .. "/") end
+
 	scene.Clear()
 	local task = tasks.CreateTask()
 	task:SetName("source 2 map load")
@@ -311,7 +388,7 @@ function world.Load(name, info)
 		scene.BeginSpawning()
 		local ok, err = pcall(function()
 			startup.Begin("source 2 translate")
-			local scene_data = world.Translate(name)
+			local scene_data = world.Translate(name, has_skybox)
 			startup.End("source 2 translate")
 			scene.Deserialize(
 				scene_data,

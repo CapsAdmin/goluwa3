@@ -120,6 +120,7 @@ local KEYS = {
 	"brightness_lightmaps",
 	"angles_lightmaps",
 	"sundirection",
+	"scale",
 	"fogcolor",
 }
 local hash_to_name = {}

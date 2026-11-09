@@ -7,6 +7,7 @@ local model_loader = import("goluwa/render3d/model_loader.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
 local vbib = import("goluwa/source_engine/source2/vbib.lua")
+local vphys = import("goluwa/source_engine/source2/vphys.lua")
 local s2_material = import("goluwa/source_engine/source2/material.lua")
 local units = import("goluwa/source_engine/units.lua")
 local SCALE = units.meters
@@ -132,7 +133,7 @@ function vmdl_c.LoadMesh(path, mesh_callback)
 	)
 end
 
-local function decode_vmdl(path, full_path, mesh_callback)
+local function decode_vmdl(path, full_path, mesh_callback, physics_callback)
 	local res = resource.Load(vfs, full_path)
 	local ok, data = pcall(resource.ReadKV3, res)
 	local external = 0
@@ -152,6 +153,37 @@ local function decode_vmdl(path, full_path, mesh_callback)
 	end
 
 	local control = res.blocks.CTRL and resource.ReadKV3(res, "CTRL")
+	local physics_blocks = {}
+
+	if control and control.embedded_physics then
+		physics_blocks[1] = control.embedded_physics.phys_data_block
+	end
+
+	if #physics_blocks > 0 or #(data.m_refPhysicsData or {}) > 0 then
+		physics_callback(
+			setmetatable(
+				{},
+				{
+					__index = function(physics, key)
+						setmetatable(physics, nil)
+						physics.children = {}
+
+						for _, block in ipairs(physics_blocks) do
+							local ok, block_data = pcall(resource.ReadKV3, res, block)
+
+							if ok then vphys.Append(physics.children, block_data) end
+						end
+
+						for _, ref in ipairs(data.m_refPhysicsData or {}) do
+							vphys.Append(physics.children, resource.ReadKV3(resource.Load(vfs, ref .. "_c")))
+						end
+
+						return physics[key]
+					end,
+				}
+			)
+		)
+	end
 
 	for _, embedded in ipairs(control and control.embedded_meshes or {}) do
 		if

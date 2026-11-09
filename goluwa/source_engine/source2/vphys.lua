@@ -81,9 +81,7 @@ local function add_hull_points(children, points)
 	if child.ConvexHull then children[#children + 1] = child end
 end
 
-function vphys.Load(path)
-	local data = resource.ReadKV3(resource.Load(vfs, path))
-	local children = {}
+function vphys.Append(children, data)
 
 	for _, part in ipairs(data.m_parts) do
 		local shape = part.m_rnShape
@@ -125,7 +123,16 @@ function vphys.Load(path)
 		end
 	end
 
+end
+
+function vphys.FromData(data)
+	local children = {}
+	vphys.Append(children, data)
 	return children
+end
+
+function vphys.Load(path)
+	return vphys.FromData(resource.ReadKV3(resource.Load(vfs, path)))
 end
 
 return vphys
