@@ -43,6 +43,7 @@ local function restir_uniform(trace)
 		{"max_history", "float"},
 		{"permutation", "int"},
 		{"history_cap", "float"},
+		{"filter_history", "float"},
 		{"hit_gi_share", "float"},
 		{"ray_share", "int"},
 		{"boiling_filter", "float"},
@@ -126,6 +127,7 @@ local function restir_uniform(trace)
 			block.max_history = restir_gi.max_history:Get()
 			block.permutation = restir_gi.permutation:Get() and 1 or 0
 			block.history_cap = restir_gi.GetHistoryCap()
+			block.filter_history = restir_gi.filter_history:Get()
 			block.hit_gi_share = restir_gi.hit_gi_share:Get()
 			block.ray_share = restir_gi.GetRayShare()
 			block.boiling_filter = restir_gi.boiling_filter:Get()
@@ -1067,13 +1069,13 @@ local function pass_filter(name, source_field, radius_scale, seed)
 				vec4 center = texelFetch(TEXTURE(RESTIR_FILTER_SOURCE), pos, 0);
 				vec4 result = center;
 
-				if (restir_data.filter_enabled != 0) {
+				if (restir_data.filter_enabled != 0 && texelFetch(TEXTURE(restir_data.accum_moments_tex), pos, 0).x < restir_data.filter_history + 1.0) {
 					vec3 moments = texelFetch(TEXTURE(restir_data.accum_moments_tex), pos, 0).xyz;
 					float history_length = max(moments.x, 1.0);
 					float center_luminance = luminance(center.rgb);
 					// the temporal variance means little with a few frames of history
 					float luminance_scale = history_length < 4.0 ? 0.0 : 1.0 / (4.0 * sqrt(max(moments.z - moments.y * moments.y, 0.0)) + 0.1 * center_luminance + 1e-6);
-					float radius = max(restir_data.filter_radius * ]] .. radius_scale .. [[ * mix(1.0, 0.5, saturate(history_length / 16.0)), 1.0);
+					float radius = restir_data.filter_radius * ]] .. radius_scale .. [[ * saturate(1.0 - (history_length - 1.0) / restir_data.filter_history);
 					float turn = restir_random(pos, ]] .. seed .. [[u) * 6.28318530718;
 					float plane_tolerance = 0.01 + 0.01 * view_depth;
 					vec4 sum = center;

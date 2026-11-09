@@ -98,7 +98,7 @@ restir_gi.validation = pvars.Setup2{
 }
 restir_gi.accumulation = pvars.Setup2{
 	key = "restir_gi_accumulation",
-	default = 32,
+	default = 64,
 	integer = true,
 	min = 1,
 	max = 100000,
@@ -118,10 +118,17 @@ restir_gi.filter = pvars.Setup2{
 }
 restir_gi.filter_radius = pvars.Setup2{
 	key = "restir_gi_filter_radius",
-	default = 6,
+	default = 24,
 	min = 1,
 	max = 32,
 	help = "radius in gi pixels of the spatial filter on a pixel with no history",
+}
+restir_gi.filter_history = pvars.Setup2{
+	key = "restir_gi_filter_history",
+	default = 8,
+	min = 1,
+	max = 100,
+	help = "frames of history after which the spatial filter is off: its radius falls from restir_gi_filter_radius on a pixel with no history to nothing here, so only what the camera just revealed is blurred and settled surfaces keep their detail",
 }
 restir_gi.debug = pvars.Setup2{
 	key = "restir_gi_debug",
