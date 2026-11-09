@@ -1,6 +1,7 @@
 local commands = import("goluwa/cli/commands.lua")
 local utility = import("goluwa/utility.lua")
 local event = import("goluwa/event.lua")
+local tasks = import("goluwa/tasks.lua")
 local engines = {}
 local registered = {}
 
@@ -45,7 +46,7 @@ function engines.Load(name)
 	local engine, id, engine_name = engines.Find(name)
 	engines.loaded_map = engine_name .. ":" .. id
 	event.Call("SceneLoad", name)
-	return engine.Load(id)
+	return tasks.RunBlocking(engine.Load, id)
 end
 
 local function get_sorted_engines()

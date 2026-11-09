@@ -164,7 +164,10 @@ local function clip_bounds(info)
 end
 
 function map_scene.Translate(data, map_name, map_path, offset)
-	assert(tasks.GetActiveTask(), "map_scene.Translate must run inside a task")
+	assert(
+		tasks.GetActiveTask() or not tasks.IsEnabled(),
+		"map_scene.Translate must run inside a task"
+	)
 	local records = {}
 	local root_guid = "bsp:" .. map_name
 

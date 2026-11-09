@@ -51,7 +51,7 @@ function source_engine.Load(name)
 			)
 			steam.MountSourceGame(appid)
 			vfs.Mount(path, "maps/")
-			source_engine.Load(map_name)
+			tasks.RunBlocking(source_engine.Load, map_name)
 		end)
 
 		return

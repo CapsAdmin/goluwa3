@@ -304,6 +304,19 @@ function tasks.CreateTask(on_start, on_finish, now, on_error, options)
 	return self
 end
 
+-- runs fn with tasks disabled so that every task started inside runs to completion instead of
+-- yielding frames, for loading whole scenes where the engine is not interactive anyway
+function tasks.RunBlocking(fn, ...)
+	local was_enabled = tasks.enabled
+	tasks.enabled = false
+	local results = table.pack(pcall(fn, ...))
+	tasks.enabled = was_enabled
+
+	if not results[1] then error(results[2], 0) end
+
+	return unpack(results, 2, results.n)
+end
+
 function tasks.GetActiveTask()
 	return tasks.coroutine_lookup[coroutine.running()]
 end
