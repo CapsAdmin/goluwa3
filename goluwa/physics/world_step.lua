@@ -306,6 +306,13 @@ function world_step.UpdateRigidBodies(physics, dt)
 			local body = removed_bodies[i]
 			physics.broadphase:RemoveBody(body)
 			REMOVED_SET[body] = true
+		end
+
+		for i = removed_count + 1, #removed_bodies do
+			removed_bodies[i - removed_count] = removed_bodies[i]
+		end
+
+		for i = #removed_bodies, math.max(#removed_bodies - removed_count + 1, 1), -1 do
 			removed_bodies[i] = nil
 		end
 
