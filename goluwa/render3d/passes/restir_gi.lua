@@ -144,11 +144,11 @@ local function restir_uniform(trace)
 			block.history_c_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 3))
 			block.history_geometry_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 4))
 			block.history_receiver_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 5))
-			-- read before the filter pass rewrites them, so they hold last frame's gi
+			-- last frame's raw estimate, read before the spatial pass rewrites it: feeding back the denoised output makes every bounce wait on its history
 			block.screen_gi_tex = block.history_valid == 1 and
-				self:GetTextureIndex(attachment("restir_gi_filter", 1, 1)) or
+				self:GetTextureIndex(attachment("restir_gi_spatial", 1, 1)) or
 				-1
-			block.screen_geometry_tex = self:GetTextureIndex(attachment("restir_gi_filter", 1, 2))
+			block.screen_geometry_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 4))
 			block.candidate_a_tex = self:GetTextureIndex(attachment("restir_gi_candidates", 1, 1))
 			block.candidate_b_tex = self:GetTextureIndex(attachment("restir_gi_candidates", 1, 2))
 			block.candidate_c_tex = self:GetTextureIndex(attachment("restir_gi_candidates", 1, 3))
