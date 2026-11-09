@@ -80,7 +80,9 @@ T.Test("source 2 world physics", function()
 	local meshes = 0
 
 	for _, child in ipairs(children) do
-		if child.Shape and child.Shape:GetTypeName() == "mesh" then meshes = meshes + 1 end
+		if child.Shape and child.Shape:GetTypeName() == "mesh" then
+			meshes = meshes + 1
+		end
 	end
 
 	T(meshes > 0)["=="](true)
@@ -99,6 +101,10 @@ T.Test("source 2 material info", function()
 	T(complex.blend)["=="](false)
 	T(material.GetInfo("materials/blend/concrete_5_floor_2_to_5b.vmat").blend)["=="](true)
 	T(material.GetInfo("materials/tools/toolsblocklight.vmat").no_draw)["=="](true)
+	local legacy = material.GetInfo("materials/architecture/hotspot/concrete_hs01a.vmat")
+	T(legacy.shader)["=="]("vr_simple_2way_blend.vfx")
+	T(legacy.textures.g_tColorA ~= nil)["=="](true)
+	T(legacy.blend)["=="](true)
 	local detail = material.GetInfo("materials/concrete/concrete_bunker_1_hs.vmat")
 	T(detail.ints.F_DETAIL_TEXTURE)["=="](4)
 	T(detail.textures.g_tNormalDetail ~= nil)["=="](true)

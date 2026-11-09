@@ -4,6 +4,7 @@ local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
+local legacy_material = import("goluwa/source_engine/source2/legacy_material.lua")
 local texture_convert = import("goluwa/source_engine/source2/texture_convert.lua")
 local material = {}
 local infos = {}
@@ -29,7 +30,12 @@ function material.GetInfo(path)
 	end
 
 	local ok, data = pcall(function()
-		return resource.ReadKV3(resource.Load(vfs, path .. "_c"))
+		local res = resource.Load(vfs, path .. "_c")
+		local read_ok, kv3_data = pcall(resource.ReadKV3, res)
+
+		if read_ok then return kv3_data end
+
+		return legacy_material.Read(res)
 	end)
 
 	if not ok then
