@@ -60,10 +60,10 @@ restir_gi.boiling_filter = pvars.Setup2{
 }
 restir_gi.hit_gi_share = pvars.Setup2{
 	key = "restir_gi_hit_gi_share",
-	default = 0.25,
+	default = 1,
 	min = 0.05,
 	max = 1,
-	help = "share of frames an 8x8 pixel group looks its off screen ray hits up in the world cache (the light past the first bounce, with its visibility rays), scaled up by 1/share when it does. unbiased and leak free at any share, lower is cheaper and noisier",
+	help = "share of frames an 8x8 pixel group looks its off screen ray hits up in the world cache (the light past the first bounce, with its visibility rays), scaled up by 1/share when it does. unbiased and leak free at any share and the cheapest saving in the candidate pass (a quarter saved 1.8 ms in foliage), but the groups that looked up stand out as mottling while the camera moves and the denoiser has little history: 0.5 is faint, 0.25 clearly visible",
 }
 restir_gi.spatial = pvars.Setup2{
 	key = "restir_gi_spatial",

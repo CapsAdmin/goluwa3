@@ -363,7 +363,9 @@ local HIT_GI_SHARE_GLSL = [[
 
 	void restir_pick_hit_gi(ivec2 group) {
 		int period = int(round(1.0 / restir_data.hit_gi_share));
-		restir_hit_gi_share = period <= 1 || (group.x + group.y * 3 + restir_data.frame) % period == 0 ? 1.0 / float(max(period, 1)) : 0.0;
+		// a hashed phase per group: a linear one lines the groups that look up on the same frame up into diagonal bands
+		int phase = int(pcg3d(uvec3(uvec2(group), 0x2545F491u)).x % uint(max(period, 1)));
+		restir_hit_gi_share = period <= 1 || (phase + restir_data.frame) % period == 0 ? 1.0 / float(max(period, 1)) : 0.0;
 	}
 ]]
 -- hits the camera saw last frame read this gi's own result there instead of the world cache, probe caches leak at the foot of walls
