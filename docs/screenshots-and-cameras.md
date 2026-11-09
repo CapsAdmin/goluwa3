@@ -29,3 +29,25 @@ To move the camera do not write to `render3d.GetCamera()` (the player's view ove
 A camera that jumps (a cinematic cut) calls `render3d.CutCamera()` in that frame: the previous view and projection read as the current ones, so the jump makes no motion vectors or motion blur, and TAA drops its history.
 
 For A/B comparisons freeze time-driven effects and lock exposure (see performance.md "Measuring correctly"). After a camera change, let temporal history converge before capturing (a few dozen frames).
+
+## Motion maps
+
+`MotionRecorder` (`goluwa/render/motion_recorder.lua`) debugs motion without saving frames: each frame the swapchain is copied to one of two gpu textures and a compute pass runs your glsl on every block of pixels (`mm.block` wide) of the pair, writing one `vec4` per cell into a single buffer. Nothing is read back until the end, so recording does not stall the frame. It compares what is presented, so it works in 2D and 3D and sees TAA jitter, GI flicker and UI.
+
+The default (`MotionRecorder.Diff`) is the mean signed and absolute luma difference of each 4x4 block, which leaves only what changed. `MotionRecorder.Flow` block matches for a motion vector per cell (radius `p0`; motion beyond it per frame is not tracked). Your own preset is a table:
+
+```lua
+MotionRecorder.Record(3, function(map) -- seconds, then one readback
+    map:GetStats()                  -- per frame: mean, max, active fraction of the magnitude; z, w mean of channels 3, 4
+    map:SaveSheet("tmp/sheet.png")  -- contact sheet of frames
+    map:SaveHeatmap("tmp/heat.png") -- where it changed over the whole recording
+    map:SaveFrame(i, "tmp/f.png")
+end, {
+    block = 8, p0 = 2, scale = 0.2, -- p0..p3 are read with param(0..3)
+    glsl = [[vec4 analyze(ivec2 cell, ivec2 origin) { return vec4(cur_luma(origin) - prev_luma(origin)); }]],
+    magnitude = function(x, y, z, w) return math.abs(x) end, -- stats and heatmap
+    draw = function(x, y, z, w, scale) return x / scale, 0, 0 end, -- r, g, b in 0..1 per cell
+})
+```
+
+The glsl can use `fetch_prev`/`fetch_cur`, `prev_luma`/`cur_luma` (sqrt of luminance) and `mm.block`; unset fields come from `Diff`. Periodic spikes in `active` while the camera is still point at temporal effects updating in bursts. A fixed view repro is the pattern in `tmp/motion/construct.lua`.
