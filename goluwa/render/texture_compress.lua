@@ -400,12 +400,13 @@ local downsample_code = [[
 	}
 ]]
 local pipelines = {}
+local MAX_LEVELS = 16
 
 local function get_pipeline(name, declaration_code, shader)
 	if not pipelines[name] then
 		pipelines[name] = EasyPipeline.Compute{
 			name = "texture_compress_" .. name,
-			DescriptorSetCount = 1,
+			DescriptorSetCount = MAX_LEVELS,
 			LocalSize = {x = GROUP_SIZE, y = 1, z = 1},
 			storage_buffers = {{binding_index = 0}, {binding_index = 1}, {binding_index = 2}},
 			custom_declarations = declaration_code,
@@ -416,18 +417,26 @@ local function get_pipeline(name, declaration_code, shader)
 	return pipelines[name]
 end
 
-local function create_buffer(size, readback)
+local function create_buffer(size, mode)
 	return render.CreateBuffer{
 		byte_size = size,
 		buffer_usage = {"storage_buffer"},
-		memory_property = readback and
-			{"host_visible", "host_coherent", "host_cached"} or
+		memory_property = (
+				mode == "readback" and
+				{"host_visible", "host_coherent", "host_cached"}
+			)
+			or
+			(
+				mode == "device" and
+				{"device_local"}
+			)
+			or
 			{"host_visible", "host_coherent"},
 		label = "texture_compress",
 	}
 end
 
-local function run(pipeline, source, dest, params, thread_count)
+local function record(cmd, pipeline, set_index, source, dest, params, thread_count)
 	local param_buffer = create_buffer(#params * 4)
 	local mapped = ffi.cast("uint32_t*", param_buffer:Map())
 
@@ -435,12 +444,18 @@ local function run(pipeline, source, dest, params, thread_count)
 		mapped[i - 1] = value
 	end
 
-	pipeline:UpdateDescriptorSet("storage_buffer", 1, 0, 0, source, source:GetSize())
-	pipeline:UpdateDescriptorSet("storage_buffer", 1, 1, 0, dest, dest:GetSize())
-	pipeline:UpdateDescriptorSet("storage_buffer", 1, 2, 0, param_buffer, param_buffer:GetSize())
+	pipeline:UpdateDescriptorSet("storage_buffer", set_index, 0, 0, source, source:GetSize())
+	pipeline:UpdateDescriptorSet("storage_buffer", set_index, 1, 0, dest, dest:GetSize())
+	pipeline:UpdateDescriptorSet("storage_buffer", set_index, 2, 0, param_buffer, param_buffer:GetSize())
+	pipeline.pipeline:Dispatch(cmd, math.ceil(thread_count / GROUP_SIZE), 1, 1, set_index)
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+	return param_buffer
+end
+
+local function run(pipeline, source, dest, params, thread_count)
 	local cmd = render.GetCommandPool():AllocateCommandBuffer()
 	cmd:Begin()
-	pipeline.pipeline:Dispatch(cmd, math.ceil(thread_count / GROUP_SIZE), 1, 1, 1)
+	local param_buffer = record(cmd, pipeline, 1, source, dest, params, thread_count)
 	cmd:PipelineBarrier{srcStage = "compute", dstStage = "host", memoryBarrier = true}
 	cmd:End()
 	render.SubmitAndWait(cmd)
@@ -522,7 +537,7 @@ end
 
 local function encode_level(pipeline, block_bytes, current, level_width, level_height, channel)
 	local blocks_x, blocks_y = math.ceil(level_width / 4), math.ceil(level_height / 4)
-	local blocks = create_buffer(blocks_x * blocks_y * block_bytes, true)
+	local blocks = create_buffer(blocks_x * blocks_y * block_bytes, "readback")
 	run(
 		pipeline,
 		current,
@@ -536,8 +551,9 @@ local function encode_level(pipeline, block_bytes, current, level_width, level_h
 end
 
 -- takes over `current`, a level 0 buffer of width * height rgba floats, builds the mips and encodes
--- every level, returns the dds
-local function encode_chain(current, width, height, config)
+-- every level in one submit, returns the dds. `cmd` is an open command buffer with work already
+-- recorded that produced `current`, it is ended and submitted here
+local function encode_chain(current, width, height, config, cmd)
 	local format = config.format
 	local kind = config.kind or "linear"
 	local pipeline, block_bytes = get_encoder(format)
@@ -545,18 +561,37 @@ local function encode_chain(current, width, height, config)
 	local level_count = config.mips == false and
 		1 or
 		math.floor(math.log(math.max(width, height)) / math.log(2)) + 1
-	local levels = {}
+	assert(level_count <= MAX_LEVELS, "texture has too many mip levels")
+
+	if not cmd then
+		cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
+	end
+
+	local blocks, params, temporary = {}, {}, {}
 	local level_width, level_height = width, height
 
 	for level = 1, level_count do
-		levels[level] = encode_level(pipeline, block_bytes, current, level_width, level_height, config.channel)
+		local blocks_x, blocks_y = math.ceil(level_width / 4), math.ceil(level_height / 4)
+		blocks[level] = create_buffer(blocks_x * blocks_y * block_bytes, "readback")
+		params[#params + 1] = record(
+			cmd,
+			pipeline,
+			level,
+			current,
+			blocks[level],
+			{level_width, level_height, blocks_x, blocks_y, config.channel or 0},
+			blocks_x * blocks_y
+		)
 
 		if level < level_count then
-			local next_width, next_height = math.max(level_width / 2, 1), math.max(level_height / 2, 1)
-			next_width, next_height = math.floor(next_width), math.floor(next_height)
-			local next_buffer = create_buffer(next_width * next_height * 16)
-			run(
+			local next_width = math.max(math.floor(level_width / 2), 1)
+			local next_height = math.max(math.floor(level_height / 2), 1)
+			local next_buffer = create_buffer(next_width * next_height * 16, "device")
+			params[#params + 1] = record(
+				cmd,
 				down_pipeline,
+				level,
 				current,
 				next_buffer,
 				{
@@ -571,13 +606,34 @@ local function encode_chain(current, width, height, config)
 				},
 				next_width * next_height
 			)
-			current:Remove()
+			temporary[#temporary + 1] = current
 			current = next_buffer
 			level_width, level_height = next_width, next_height
 		end
 	end
 
-	current:Remove()
+	temporary[#temporary + 1] = current
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "host", memoryBarrier = true}
+	cmd:End()
+	render.SubmitAndWait(cmd)
+	local levels = {}
+	level_width, level_height = width, height
+
+	for level = 1, level_count do
+		local size = math.ceil(level_width / 4) * math.ceil(level_height / 4) * block_bytes
+		levels[level] = ffi.string(blocks[level]:Map(), size)
+		blocks[level]:Remove()
+		level_width, level_height = math.max(math.floor(level_width / 2), 1), math.max(math.floor(level_height / 2), 1)
+	end
+
+	for _, buffer in ipairs(params) do
+		buffer:Remove()
+	end
+
+	for _, buffer in ipairs(temporary) do
+		buffer:Remove()
+	end
+
 	return dds.Encode(get_dds_name(format, kind), width, height, levels)
 end
 
@@ -762,7 +818,7 @@ function texture_compress.Recompress(config)
 		if i == 1 then width, height = source_width, source_height end
 	end
 
-	local dest = create_buffer(width * height * 16)
+	local dest = create_buffer(width * height * 16, "device")
 	local param_buffer = create_buffer(EDIT_PARAM_COUNT * 4)
 	local mapped = ffi.cast("float*", param_buffer:Map())
 
@@ -781,10 +837,9 @@ function texture_compress.Recompress(config)
 
 	pipeline.pipeline:Dispatch(cmd, math.ceil(width * height / GROUP_SIZE), 1, 1, 1)
 	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
-	cmd:End()
-	render.SubmitAndWait(cmd)
+	local result = encode_chain(dest, width, height, config, cmd)
 	param_buffer:Remove()
-	return encode_chain(dest, width, height, config)
+	return result
 end
 
 return texture_compress
