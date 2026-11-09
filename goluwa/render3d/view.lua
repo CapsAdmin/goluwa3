@@ -121,20 +121,35 @@ commands.Add("copyview", function()
 	local clipboard = import("goluwa/bindings/clipboard.lua")
 	local engines = import("goluwa/engines.lua")
 	local raycast = import("goluwa/render3d/raycast.lua")
-	local cam = active[1]
+	local exposure = import("goluwa/render3d/exposure.lua")
+	local post_source = import("goluwa/render3d/post_source.lua")
+	local cam = render3d.GetMainCamera()
 	local str = ""
 
 	if engines.loaded_map then
 		str = str .. "map = " .. engines.loaded_map .. "\n"
 	end
 
-	str = str .. "pos = " .. tostring(cam.Position) .. "\n"
-	str = str .. "ang = " .. tostring(cam.Rotation:GetAngles()) .. "\n"
-	str = str .. "fov = " .. tostring(cam.FOV) .. "\n"
-	str = str .. "sun = " .. tostring(weather.GetSunRotation()) .. "\n"
+	str = str .. "pos = " .. tostring(cam:GetPosition()) .. "\n"
+	str = str .. "rot = " .. tostring(cam:GetRotation()) .. "\n"
+	str = str .. "fov = " .. tostring(cam:GetFOV()) .. "\n"
 	str = str .. string.format("time = %.4f\n", weather.GetTime())
 	local latitude, longitude = weather.GetLocation()
 	str = str .. string.format("latitude = %.6f\nlongitude = %.6f\n", latitude, longitude)
+	local exposure_texture = post_source.GetExposureTexture(true)
+
+	if exposure_texture then
+		local view = active[1]
+		local current, metered_ev = exposure_texture:Download():GetPixelFloat(0, 0)
+		local compensation = view and view.ExposureCompensation or exposure.GetCompensation()
+		str = str .. string.format(
+				"ev = %.3f\nmetered_ev = %.3f\neye = %s\n",
+				exposure.LOG_EXPOSURE_AT_EV0 - math.log(current, 2) + compensation,
+				metered_ev,
+				tostring(exposure.IsEye())
+			)
+	end
+
 	local hit = raycast.CastClosestFromCamera(render3d.GetCamera())
 
 	if hit and hit.primitive then
