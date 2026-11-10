@@ -31,7 +31,7 @@ local function make_polygon()
 end
 
 local function make_skin()
-	local indices = ffi.new("uint8_t[?]", 16)
+	local indices = ffi.new("uint16_t[?]", 16)
 	local weights = ffi.new("float[?]", 16)
 
 	for i = 0, 3 do
@@ -39,6 +39,7 @@ local function make_skin()
 		weights[i * 4] = 1
 	end
 
+	indices[13] = 700
 	return {BoneIndices = indices, BoneWeights = weights, Flexes = {}}
 end
 
@@ -121,6 +122,7 @@ T.Test3D("model_file round trips meshes, skin, skeleton and physics", function()
 
 	local skin = reader.Skin(header.skins[info.skin])
 	T(skin.BoneIndices[4])["=="](1)
+	T(skin.BoneIndices[13])["=="](700)
 	T(skin.BoneWeights[8])["=="](1)
 	local skeleton = reader.Skeleton(header.skeleton)
 	T(skeleton.BoneCount)["=="](2)

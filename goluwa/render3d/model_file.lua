@@ -1,4 +1,5 @@
 local ffi = require("ffi")
+local u16_array_t = ffi.typeof("uint16_t[?]")
 local codec = import("goluwa/codec.lua")
 local vertex_layout = import("goluwa/render3d/vertex_layout.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
@@ -9,7 +10,7 @@ local model_file = {}
 model_file.Extension = ".mesh"
 model_file.FileName = "model.mesh"
 local MAGIC = "GLWM"
-local VERSION = 2
+local VERSION = 3
 
 local function u32(value)
 	return string.char(
@@ -136,6 +137,7 @@ function model_file.Serialize(model)
 				header.skins[#header.skins + 1] = {
 					indices_offset = add(skin.BoneIndices, ffi.sizeof(skin.BoneIndices)),
 					indices_bytes = ffi.sizeof(skin.BoneIndices),
+					indices_type = ffi.istype(u16_array_t, skin.BoneIndices) and "uint16_t" or "uint8_t",
 					weights_offset = add(skin.BoneWeights, ffi.sizeof(skin.BoneWeights)),
 					weights_bytes = ffi.sizeof(skin.BoneWeights),
 				}
@@ -253,7 +255,11 @@ function model_file.Read(data)
 
 	function reader.Skin(info)
 		return {
-			BoneIndices = copy("uint8_t", info.indices_offset, info.indices_bytes),
+			BoneIndices = copy(
+				info.indices_type,
+				info.indices_offset,
+				info.indices_bytes / ffi.sizeof(info.indices_type)
+			),
 			BoneWeights = copy("float", info.weights_offset, info.weights_bytes / 4),
 			Flexes = {},
 		}

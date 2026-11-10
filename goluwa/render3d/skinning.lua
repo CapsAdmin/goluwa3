@@ -155,11 +155,11 @@ local function get_pipeline()
 				SkinDestination destination = SkinDestination(packUint2x32(job.destination));
 				SkinBone bone = SkinBones(packUint2x32(job.bones)).b[i];
 				SkinMatrices matrices = SkinMatrices(packUint2x32(job.matrices));
-				mat4x3 m = skin_matrix(matrices, bone.indices & 0xFFu) * bone.w0;
+				mat4x3 m = skin_matrix(matrices, bone.indices & 0x3FFu) * bone.w0;
 
 				if (bone.w0 < 0.9999) {
-					if (bone.w1 > 0.0) m += skin_matrix(matrices, (bone.indices >> 8u) & 0xFFu) * bone.w1;
-					if (bone.w2 > 0.0) m += skin_matrix(matrices, (bone.indices >> 16u) & 0xFFu) * bone.w2;
+					if (bone.w1 > 0.0) m += skin_matrix(matrices, (bone.indices >> 10u) & 0x3FFu) * bone.w1;
+					if (bone.w2 > 0.0) m += skin_matrix(matrices, (bone.indices >> 20u) & 0x3FFu) * bone.w2;
 				}
 
 				uint o = i * SKIN_VERTEX_STRIDE;
@@ -228,12 +228,7 @@ function skinning.GetBoneBuffer(skin, vertex_count)
 
 	for i = 0, vertex_count - 1 do
 		local s = i * 4
-		data[s] = bit.bor(
-			indices[s],
-			bit.lshift(indices[s + 1], 8),
-			bit.lshift(indices[s + 2], 16),
-			bit.lshift(indices[s + 3], 24)
-		)
+		data[s] = bit.bor(indices[s], bit.lshift(indices[s + 1], 10), bit.lshift(indices[s + 2], 20))
 		floats[s + 1] = weights[s]
 		floats[s + 2] = weights[s + 1]
 		floats[s + 3] = weights[s + 2]
