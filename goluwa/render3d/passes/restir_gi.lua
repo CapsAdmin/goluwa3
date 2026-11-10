@@ -223,6 +223,8 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	#define RESTIR_FLAG_TRACED 16
 	// the ray was drawn from a mix with the probe guide: only cosine rays count toward the sky visibility, scaled by their share
 	#define RESTIR_FLAG_GUIDE_MIX 32
+	#define RESTIR_FLAG_LIGHT_CHANGED 64
+	#define RESTIR_CHANGED_HISTORY 4.0
 	#define RESTIR_SKY_DEPTH 65504.0
 
 	struct restir_sample {
@@ -332,20 +334,6 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		if (cos_r <= 0.0 || cos_q <= 1e-4) return 0.0;
 
 		return cos_r / cos_q * q2 / max(r2, 1e-12);
-	}
-
-	// a light that moved or changed in the last second and lights P by more than a tenth of its gi (irradiance / pi): its history is cut there, or the old light trails behind for the whole history
-	#define RESTIR_CHANGED_HISTORY 4.0
-
-	bool restir_light_changed(vec3 P, float gi_luminance) {
-		for (int i = 0; i < restir_data.changed_light_count; i++) {
-			vec4 sphere = restir_data.changed_lights[i];
-			float d = max(distance(P, sphere.xyz) - sphere.w, 0.05);
-
-			if (restir_data.changed_light_intensities[i].x / (RESTIR_PI * d * d) > 0.1 * gi_luminance) return true;
-		}
-
-		return false;
 	}
 
 	bool restir_traces(ivec2 pos) {
@@ -458,6 +446,22 @@ local SCREEN_GI_GLSL = [[
 ]]
 local RESOLVE_GLSL = [[
 	restir_sample restir_resolve(restir_sample s) {
+	// a light that moved, turned or changed in the last second, that the receiver sees (one ray toward the sphere around its recent path) and that gives it more than a tenth of its last denoised gi: its history is cut there, or the old light trails behind. the test must not read this frame's or a reservoir's noisy estimate, cutting the dark ones and keeping the bright ones brightens everything
+	bool restir_light_changed(vec3 origin, float gi_luminance) {
+		for (int i = 0; i < restir_data.changed_light_count; i++) {
+			vec4 sphere = restir_data.changed_lights[i];
+			vec3 to_light = sphere.xyz - origin;
+			float dist = length(to_light);
+			float d = max(dist - sphere.w, 0.05);
+
+			if (restir_data.changed_light_intensities[i].x / (RESTIR_PI * d * d) <= 0.1 * gi_luminance) continue;
+
+			if (dist <= sphere.w || scene_reflection_visible(origin, to_light / dist, dist - sphere.w)) return true;
+		}
+
+		return false;
+	}
+
 		if (s.kind != RESTIR_EMITTER) return s;
 
 		uint packed = uint(s.id.z);
@@ -770,6 +774,9 @@ local function pass_temporal()
 					M = traces ? 1.0 : 0.0;
 					flags = traces ? RESTIR_FLAG_TRACED | (miss ? RESTIR_FLAG_MISS : 0) | (candidate_flags & RESTIR_FLAG_GUIDE_MIX) : 0;
 					ivec2 base;
+					bool light_changed = restir_data.changed_light_count > 0 && restir_light_changed(restir_ray_origin(gpos, P, N, view_depth, depth), luminance(texelFetch(TEXTURE(restir_data.accum_history_tex), pos, 0).rgb));
+
+					if (light_changed) flags |= RESTIR_FLAG_LIGHT_CHANGED;
 					vec4 weights;
 
 					float prev_depth;
@@ -830,7 +837,7 @@ local function pass_temporal()
 
 						float h_target = luminance(h.L) * h_cosine;
 
-						if (restir_light_changed(P, h_target * h_W / RESTIR_PI)) h_M = min(h_M, 1.0);
+						if (light_changed) h_M = min(h_M, 1.0);
 						float h_jacobian = restir_jacobian(h, P, h_receiver);
 
 						// on a frame without a new sample the reservoir and the receiver it was found from are kept as they are, so the next traced frame reconnects it once against a new sample to weigh it by. reconnecting it every frame without one lets the receiver's jitter multiply into W unchecked (dots at creases)
@@ -1198,7 +1205,7 @@ local function pass_accumulate()
 					}
 				}
 
-				if (restir_light_changed(P, max(history_moments.y, current_luminance))) history_length = min(history_length, RESTIR_CHANGED_HISTORY - 1.0);
+				if ((int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), pos, 0).w + 0.5) & RESTIR_FLAG_LIGHT_CHANGED) != 0) history_length = min(history_length, RESTIR_CHANGED_HISTORY - 1.0);
 
 				history_length = min(history_length + 1.0, min(restir_data.accumulation, restir_data.history_cap));
 				float alpha = 1.0 / history_length;
