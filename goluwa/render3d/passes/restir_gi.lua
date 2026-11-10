@@ -316,11 +316,12 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	}
 
 	// the gi pixel's centre is reprojected, not the screen pixel it samples this frame, or a still view resamples its history bilinearly every frame and smears it
-	bool restir_history_taps(ivec2 pos, ivec2 gpos, vec3 P, vec3 N, ivec2 size, out ivec2 base, out vec4 weights, out float prev_depth, out float tolerance) {
+	bool restir_history_taps(ivec2 pos, ivec2 gpos, vec3 P, vec3 N, ivec2 size, out ivec2 base, out vec4 weights, out float prev_depth, out float tolerance, out float moved) {
 		weights = vec4(0.0);
 		base = ivec2(0);
 		prev_depth = 0.0;
 		tolerance = 0.0;
+		moved = 0.0;
 
 		if (restir_data.history_valid == 0) return false;
 
@@ -347,6 +348,7 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		if (prev_depth <= 1e-5 || any(lessThan(prev_uv, vec2(0.0))) || any(greaterThan(prev_uv, vec2(1.0)))) return false;
 
 		vec2 position = prev_uv * vec2(size) - 0.5;
+		moved = length(position - vec2(pos));
 		base = ivec2(floor(position));
 		vec2 f = position - vec2(base);
 		vec3 V = normalize(restir_data.camera_position - P);
@@ -645,6 +647,15 @@ local function pass_temporal()
 						miss = (candidate_flags & RESTIR_FLAG_MISS) != 0;
 					}
 
+					// the candidates weighed their sample from the lifted ray origin, history and neighbours weigh from the surface point: mixing the two targets darkens creases, where near hit points look different from each
+					if (traces) {
+						vec3 fresh_dir;
+						float fresh_dist;
+						float target_here = luminance(chosen.L) * restir_receiver_cosine(chosen, P, N, fresh_dir, fresh_dist);
+						w_sum = chosen_target > 0.0 ? w_sum * target_here / chosen_target : 0.0;
+						chosen_target = target_here;
+					}
+
 					fresh = chosen;
 					fresh_W = chosen_target > 0.0 ? w_sum / chosen_target : 0.0;
 					// a pixel that traced nothing this frame enters the resampling with no confidence, its history keeps all the weight
@@ -656,7 +667,9 @@ local function pass_temporal()
 					float prev_depth;
 					float tolerance;
 
-					if (restir_data.temporal != 0 && restir_history_taps(pos, gpos, P, N, size, base, weights, prev_depth, tolerance)) {
+					float moved;
+
+					if (restir_data.temporal != 0 && restir_history_taps(pos, gpos, P, N, size, base, weights, prev_depth, tolerance, moved)) {
 						float pick = restir_random(pos, 2u) * dot(weights, vec4(1.0));
 						int tap = 3;
 
@@ -682,7 +695,8 @@ local function pass_temporal()
 						float h_M;
 						int h_flags;
 						restir_sample h = restir_load(restir_data.history_a_tex, restir_data.history_b_tex, restir_data.history_c_tex, q, h_W, h_M, h_flags);
-						h_M = min(h_M, restir_data.max_history);
+						// a sample carried along with the motion for its whole history draws a streak, so a moving pixel keeps a shorter one
+						h_M = min(h_M, restir_data.max_history / (1.0 + moved));
 						vec3 h_dir;
 						float h_dist;
 						float h_cosine = restir_receiver_cosine(h, P, N, h_dir, h_dist);
@@ -720,6 +734,7 @@ local function pass_temporal()
 							vec3 unused_dir;
 							float unused_dist;
 							float fresh_there = h_M * luminance(chosen.L) * restir_receiver_cosine(chosen, h_receiver, h_normal, unused_dir, unused_dist) * restir_jacobian(chosen, h_receiver, P);
+
 							float fresh_target = M * chosen_target;
 							w_sum *= fresh_target + fresh_there > 0.0 ? fresh_target / (fresh_target + fresh_there) : 1.0;
 
@@ -977,7 +992,9 @@ local function pass_accumulate()
 				float prev_depth;
 				float tolerance;
 
-				if (restir_history_taps(pos, gpos, P, N, size, base, weights, prev_depth, tolerance)) {
+				float moved;
+
+				if (restir_history_taps(pos, gpos, P, N, size, base, weights, prev_depth, tolerance, moved)) {
 					float total = 0.0;
 
 					for (int i = 0; i < 4; i++) {

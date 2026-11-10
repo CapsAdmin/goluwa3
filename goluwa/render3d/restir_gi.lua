@@ -36,8 +36,8 @@ restir_gi.rays = pvars.Setup2{
 }
 restir_gi.temporal = pvars.Setup2{
 	key = "restir_gi_temporal",
-	default = false,
-	help = "each pixel's reservoir keeps its sample from last frame and resamples it against this frame's. it leaves bright dots along creases (a hit point beside the receiver, reconnected to the receiver's next jittered position) and measured no quieter than the denoiser's own accumulation with every pixel tracing. restir_gi_rays half and quarter need it: a pixel that did not trace has no sample of its own hemisphere without it and the shade comes out dark",
+	default = true,
+	help = "each pixel's reservoir keeps its sample from last frame and resamples it against this frame's, so a rare bright sample (sky through a small opening, a hidden emitter) lasts several frames instead of flashing as a firefly. a moving pixel keeps a shorter history so samples are not dragged into streaks. restir_gi_rays half and quarter need it: a pixel that did not trace has no sample of its own hemisphere without it and the shade comes out dark",
 }
 restir_gi.max_history = pvars.Setup2{
 	key = "restir_gi_max_history",
@@ -49,8 +49,8 @@ restir_gi.max_history = pvars.Setup2{
 }
 restir_gi.permutation = pvars.Setup2{
 	key = "restir_gi_permutation",
-	default = true,
-	help = "each frame every pixel takes its old reservoir from a neighbour (the same swap for the whole screen), so a lucky bright sample wanders instead of staying a blotch for its whole history",
+	default = false,
+	help = "each frame every pixel takes its old reservoir from a neighbour (the same swap for the whole screen), so a lucky bright sample wanders instead of staying a blotch for its whole history. it brings fireflies back (a swapped sample is weighed at a receiver it was not found from) and the motion scaled history already keeps moving samples from streaking",
 }
 restir_gi.boiling_filter = pvars.Setup2{
 	key = "restir_gi_boiling_filter",
