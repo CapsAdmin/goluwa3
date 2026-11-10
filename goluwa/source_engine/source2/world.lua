@@ -174,6 +174,28 @@ function world.Translate(name, sky_path)
 	end
 
 	add{guid = root, properties = {Name = name}, components = {transform = {}}}
+	local groups = {}
+
+	local function group(key)
+		local entry = groups[key]
+
+		if not entry then
+			entry = {
+				count = 0,
+				record = add{
+					guid = root .. ":group:" .. key,
+					parent = root,
+					properties = {Name = key},
+					components = {transform = {}},
+				},
+			}
+			groups[key] = entry
+		end
+
+		entry.count = entry.count + 1
+		return entry.record.guid
+	end
+
 	local atmosphere = {Climate = {}}
 	add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
 	local world_data = resource.ReadKV3(resource.Load(vfs, "maps/" .. name .. "/world.vwrld_c"))
@@ -213,7 +235,7 @@ function world.Translate(name, sky_path)
 				blocklight_count = blocklight_count + 1
 				add{
 					guid = root .. ":blocklight:" .. blocklight_count,
-					parent = root,
+					parent = group("blocklight"),
 					properties = {Name = "blocklight"},
 					components = {
 						transform = {Position = position, Rotation = rotation, Size = size ~= 1 and size or nil},
@@ -224,7 +246,7 @@ function world.Translate(name, sky_path)
 				object_count = object_count + 1
 				add{
 					guid = root .. ":object:" .. object_count,
-					parent = root,
+					parent = group("world geometry"),
 					properties = {Name = "object"},
 					components = {
 						transform = {Position = position, Rotation = rotation, Size = size ~= 1 and size or nil},
@@ -245,7 +267,7 @@ function world.Translate(name, sky_path)
 
 	add{
 		guid = root .. ":physics",
-		parent = root,
+		parent = group("physics"),
 		properties = {Name = "world_physics"},
 		components = {
 			transform = {},
@@ -305,8 +327,8 @@ function world.Translate(name, sky_path)
 					local model_path = normalize_path(entity.model) .. "_c"
 					add{
 						guid = guid,
-						parent = root,
-						properties = {Name = class},
+						parent = group(class),
+						properties = {Name = entity.targetname or class},
 						components = {
 							transform = {
 								Position = position,
@@ -370,15 +392,15 @@ function world.Translate(name, sky_path)
 
 					add{
 						guid = guid,
-						parent = root,
+						parent = group(class),
 						properties = {Name = class},
 						components = components,
 					}
 				elseif class == "info_player_start" then
 					add{
 						guid = guid,
-						parent = root,
-						properties = {Name = class},
+						parent = group(class),
+						properties = {Name = entity.targetname or class},
 						components = {
 							transform = {
 								Position = position,
@@ -440,8 +462,8 @@ function world.Translate(name, sky_path)
 
 			add{
 				guid = item.guid,
-				parent = root,
-				properties = {Name = class},
+				parent = group(class),
+				properties = {Name = entity.targetname or class},
 				components = {
 					transform = {},
 					map_constraint = {
@@ -498,7 +520,7 @@ function world.Translate(name, sky_path)
 					sky_count = sky_count + 1
 					add{
 						guid = root .. ":sky:" .. sky_count,
-						parent = root,
+						parent = group("sky objects"),
 						properties = {Name = "sky object"},
 						components = {
 							transform = {Position = position, Rotation = rotation, Size = size * scale},
@@ -522,6 +544,10 @@ end
 function world.Load(name, info)
 	steam.MountSourceGame(info)
 	vfs.Mount(world.GetMapDirectory(info) .. name .. ".vpk/")
+	for key, entry in pairs(groups) do
+		entry.record.properties.Name = key .. " (" .. entry.count .. ")"
+	end
+
 	local sky_path = world.FindSkybox(name)
 
 	if sky_path and vfs.IsFile("os:" .. info.vdf_directory .. sky_path .. ".vpk") then
