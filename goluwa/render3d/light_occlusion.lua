@@ -7,6 +7,7 @@ local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
 local bridge = import("goluwa/render3d/scene/bridge.lua")
+local instances = import("goluwa/render3d/scene/instances.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local system = import("goluwa/system.lua")
@@ -257,7 +258,7 @@ local function build_trace_pipeline()
 
 			]] .. (
 					hit.IsSupported() and
-					hit.GetTraceGLSL("light_occlusion_scene") or
+					hit.GetTraceGLSL("light_occlusion_scene", instances.MASK_LIGHT_BODY) or
 					hit.GetStubTraceGLSL()
 				) .. [[
 

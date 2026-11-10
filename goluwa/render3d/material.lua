@@ -78,6 +78,7 @@ Material:GetSet(
 	{callback = "InvalidateEmission"}
 )
 Material:GetSet("EmitsLight", true, {callback = "InvalidateEmission"})
+Material:GetSet("IgnoredByLightOcclusion", false, {callback = "InvalidateSceneKey"})
 Material:GetSet(
 	"EmissiveTextureIsColor",
 	false,

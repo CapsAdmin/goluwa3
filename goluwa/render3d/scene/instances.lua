@@ -31,6 +31,7 @@ instances.MASK_SELF = 0x08
 instances.MASK_GI = 0x10
 instances.MASK_GI_SOLID = 0x20
 instances.MASK_GLASS = 0x40
+instances.MASK_LIGHT_BODY = 0x80
 instances.MASK_GI_BITS = 0x30
 -- every instance kind but decals; the gi bits ride on decals too, so a mask that clears only MASK_DECAL still hits them
 instances.MASK_SURFACES = bit.bor(
@@ -324,6 +325,10 @@ function instances.GetMaterialFlags(material)
 	mask = bit.bor(mask, instances.MASK_GI)
 
 	if material:IsGlass() then mask = bit.bor(mask, instances.MASK_GLASS) end
+
+	if material:GetIgnoredByLightOcclusion() then
+		mask = bit.bor(mask, instances.MASK_LIGHT_BODY)
+	end
 
 	if material:GetDoubleSided() then
 		flags = flags + instances.FLAG_DOUBLE_SIDED
