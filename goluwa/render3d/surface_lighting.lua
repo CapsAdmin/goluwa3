@@ -187,7 +187,7 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 					// the map cannot see occluders closer than a few texels (single sided walls meeting at a corner), inside the soft filter's receiver plane tolerance, or with a penumbra under a texel
 					if (shadow_factor > 0.0 && ]] .. block_name .. [[.shadows.sun_contact_ray > 0.0) {
-						shadow_factor *= get_sun_contact_visibility(s.world_pos + shadow_N * max(shadow_texel_world_size * 0.1, 0.002), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach));
+						shadow_factor *= get_sun_contact_visibility(s.world_pos + shadow_N * (0.0001 + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach));
 					}
 				}
 
