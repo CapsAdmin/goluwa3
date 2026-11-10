@@ -153,7 +153,7 @@ local function add_unique_edge(edges, seen, a, b)
 end
 
 local function finalize_convex_hull(points, faces, indices, epsilon)
-	if not faces[1] then return nil end
+	if not faces[4] then return nil end
 
 	local used = {}
 	local remap = {}
@@ -436,7 +436,9 @@ local function register_plane(
 	for m = 1, #points do
 		if
 			not group.vertex_set[m] and
-			math.abs(xs[m] * group.normal.x + ys[m] * group.normal.y + zs[m] * group.normal.z - group.distance) <= plane_epsilon
+			math.abs(
+				xs[m] * group.normal.x + ys[m] * group.normal.y + zs[m] * group.normal.z - group.distance
+			) <= plane_epsilon
 		then
 			group.vertex_set[m] = true
 			group.vertices[#group.vertices + 1] = m
@@ -575,7 +577,22 @@ local function find_hull_triangles(xs, ys, zs, count, epsilon)
 end
 
 local function build_convex_hull(points, epsilon)
-	epsilon = epsilon or 0.0001
+	if not epsilon then
+		local extent = 0
+		local first = points[1]
+
+		for _, point in ipairs(points) do
+			extent = math.max(
+				extent,
+				math.abs(point.x - first.x),
+				math.abs(point.y - first.y),
+				math.abs(point.z - first.z)
+			)
+		end
+
+		epsilon = math.min(0.0001, extent * 1e-4)
+	end
+
 	points = dedupe_points(points, epsilon)
 
 	if #points < 4 then return nil end

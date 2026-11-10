@@ -637,3 +637,41 @@ T.TestPhysics("Fast rotating rigid convex body remains detectable at smaller fix
 		end)
 	end
 end)
+
+T.Test("convex hulls of centimeter sized parts keep their faces", function()
+	local scale = 0.02
+	local vertices = {}
+
+	for x = -1, 1, 2 do
+		for y = -1, 1, 2 do
+			for z = -1, 1, 2 do
+				vertices[#vertices + 1] = {pos = Vec3(x * scale, y * scale * 0.3, z * scale)}
+				vertices[#vertices + 1] = {pos = Vec3(x * scale * 0.9, y * scale * 0.3 + y * 0.0003, z * scale * 0.9)}
+			end
+		end
+	end
+
+	local hull = convex_hull.FromPolygon3D({Vertices = vertices}).ConvexHull
+	T(hull ~= nil)["=="](true)
+	T(#hull.faces)[">="](6)
+	local mn, mx = hull.bounds_min, hull.bounds_max
+
+	for _, face in ipairs(hull.faces) do
+		local point = hull.vertices[face.indices[1]]
+		local offset = face.normal:Dot(point)
+
+		for _, vertex in ipairs(hull.vertices) do
+			T(face.normal:Dot(vertex) - offset)["<"](1e-6)
+		end
+	end
+
+	T(mx.x - mn.x)[">"](scale * 1.5)
+	T(mx.y - mn.y)[">"](scale * 0.5)
+	local flat = {}
+
+	for i = 1, 6 do
+		flat[i] = {pos = Vec3(math.cos(i) * scale, 0, math.sin(i) * scale)}
+	end
+
+	T(convex_hull.FromPolygon3D({Vertices = flat}).ConvexHull)["=="](nil)
+end)
