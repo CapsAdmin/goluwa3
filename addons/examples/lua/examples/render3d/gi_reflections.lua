@@ -714,6 +714,131 @@ do
 	end)
 end
 
+do
+	local cx, cz, fy, half, h, slot_x, slot = 170, -60, 1.5, 4, 4, 169, 0.4
+	local top = fy + h
+	local name = "single_sided_room"
+
+	local function plane(suffix, position, normal, size_x, size_y, material)
+		shapes.Polygon{
+			Name = name .. "_" .. suffix,
+			Material = material or white,
+			RigidBody = static_body,
+			Polygon = function(poly)
+				shapes.BuildPlane(poly, position, normal, size_x, size_y)
+			end,
+		}
+	end
+
+	for i, corner in ipairs{Vec2(-1, -1), Vec2(1, -1), Vec2(-1, 1), Vec2(1, 1)} do
+		box(
+			name .. "_stilt_" .. i,
+			Vec3(cx + corner.x * (half - 0.2), fy / 2, cz + corner.y * (half - 0.2)),
+			Vec3(0.2, fy, 0.2),
+			grey
+		)
+	end
+
+	plane(
+		"floor",
+		Vec3(cx, fy, cz),
+		Vec3(0, 1, 0),
+		half,
+		half,
+		mat(Color(0.5, 0.5, 0.5, 1), 0.05)
+	)
+	local left_end, right_start = slot_x - slot / 2, slot_x + slot / 2
+	plane(
+		"roof_left",
+		Vec3((cx - half + left_end) / 2, top, cz),
+		Vec3(0, -1, 0),
+		(left_end - cx + half) / 2,
+		half
+	)
+	plane(
+		"roof_right",
+		Vec3((right_start + cx + half) / 2, top, cz),
+		Vec3(0, -1, 0),
+		(cx + half - right_start) / 2,
+		half
+	)
+	plane("back", Vec3(cx, fy + h / 2, cz - half), Vec3(0, 0, 1), half, h / 2)
+	plane("left", Vec3(cx - half, fy + h / 2, cz), Vec3(1, 0, 0), half, h / 2)
+	plane("right", Vec3(cx + half, fy + h / 2, cz), Vec3(-1, 0, 0), half, h / 2)
+	local hole_x, hole_y, hole = cx + 1.5, fy + 1.6, 0.36
+	local front_z = cz + half
+	plane(
+		"front_left",
+		Vec3((cx - half + hole_x - hole) / 2, fy + h / 2, front_z),
+		Vec3(0, 0, -1),
+		(hole_x - hole - cx + half) / 2,
+		h / 2
+	)
+	plane(
+		"front_right",
+		Vec3((hole_x + hole + cx + half) / 2, fy + h / 2, front_z),
+		Vec3(0, 0, -1),
+		(cx + half - hole_x - hole) / 2,
+		h / 2
+	)
+	plane(
+		"front_below",
+		Vec3(hole_x, (fy + hole_y - hole) / 2, front_z),
+		Vec3(0, 0, -1),
+		hole,
+		(hole_y - hole - fy) / 2
+	)
+	plane(
+		"front_above",
+		Vec3(hole_x, (hole_y + hole + top) / 2, front_z),
+		Vec3(0, 0, -1),
+		hole,
+		(top - hole_y - hole) / 2
+	)
+
+	for i, z in ipairs{cz - 2, cz + 2} do
+		box(name .. "_beam_" .. i, Vec3(cx, top, z), Vec3(half * 2, 0.35, 0.3), grey)
+	end
+
+	shapes.Capsule{
+		Name = name .. "_pipe",
+		Position = Vec3(right_start + 0.4, top - 0.25, cz),
+		Rotation = QuatDeg3(90, 0, 0),
+		Radius = 0.12,
+		Height = half * 2 - 0.2,
+		Material = orange,
+		RigidBody = static_body,
+	}
+	sphere(name .. "_wall_ball", Vec3(cx + half, fy + 1.5, cz - 1.5), 0.6, cyan)
+	sphere(name .. "_hole_ball", Vec3(hole_x, hole_y, front_z), 0.5, magenta)
+	local blocker = shapes.Box{
+		Name = name .. "_hole_blocker",
+		Position = Vec3(hole_x, hole_y, front_z),
+		Size = Vec3(hole * 2, hole * 2, 0.02),
+		Material = grey,
+		Collision = false,
+		RigidBody = false,
+	}
+
+	for i = -6, 6 do
+		box(
+			name .. "_scaffold_" .. i,
+			Vec3(cx + 10 + i * 1.5, top + 17, cz + 15),
+			Vec3(0.4, 0.4, 30),
+			grey
+		)
+	end
+
+	blocker.visual:SetViewHidden(true)
+	blocker.visual:SetRaycast(false)
+	sphere(
+		name .. "_floor_ball",
+		Vec3(cx + 2.5, fy + 0.45, cz + 2.8),
+		0.5,
+		mat(Color(0.9, 0.9, 0.9, 1), 0.15)
+	)
+end
+
 for i, x in ipairs{-40, 0, 40, 80, 120, 160, 200} do
 	box("lamp_post_" .. i, Vec3(x, 1.6, -30), Vec3(0.15, 3.2, 0.15), grey)
 	point_light("lamp_post_light_" .. i, Vec3(x + 0.4, 3.2, -30), warm, 1500, 16)
