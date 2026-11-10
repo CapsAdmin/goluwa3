@@ -109,8 +109,22 @@ function mdl_decoder.Gather(path, full_path)
 	local masks = {}
 
 	if ok then
-		masks = data.m_refLODGroupMasks or {}
 		external = #data.m_refMeshes
+		local lods = data.m_refLODGroupMasks or {}
+		local groups = data.m_refMeshGroupMasks or {}
+		local default = data.m_nDefaultMeshGroupMask or -1
+		local count = math.max(#lods, #groups)
+		local any = false
+
+		-- a mesh is drawn when it is in the most detailed lod and in a mesh group that is on by default
+		for i = 1, count do
+			local lod_ok = bit.band(lods[i] or 1, 1) ~= 0
+			local group_ok = bit.band(groups[i] or -1, default) ~= 0
+			masks[i] = lod_ok and group_ok and 1 or 0
+			any = any or masks[i] == 1
+		end
+
+		if not any then masks = data.m_refLODGroupMasks or {} end
 	else
 		data = {m_refMeshes = {}}
 	end
