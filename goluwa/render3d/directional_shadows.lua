@@ -276,6 +276,8 @@ local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 				return smoothstep(0.0, 0.1, dot(normal, light_dir));
 			}
 
+			float shadow_ray_reach = 0.0;
+
 			const float SOFT_SHADOW_MAX_BLOCKER_DISTANCE = 30.0;
 			const float SOFT_SHADOW_MAX_TEXELS = 32.0;
 
@@ -317,6 +319,8 @@ local SHADOW_PROJECTION_GLSL = glsl_common.GetHashGLSL() .. [[
 				float radius_texels = min(blocker_distance * sun_radius_tan / texel_world_size, SOFT_SHADOW_MAX_TEXELS);
 
 				if (radius_texels <= filter_radius_texels) return -1.0;
+
+				shadow_ray_reach = max(shadow_ray_reach, max(max(search_texels * 0.7, radius_texels) * texel_world_size * tan_slope, min(blocker_distance, texel_world_size / sun_radius_tan)));
 
 				const vec2 POISSON_DISK[12] = vec2[12](
 					]] .. POISSON_DISK_VALUES .. [[
@@ -447,6 +451,7 @@ function directional_shadows.GetSurfaceDirectionalShadowGLSL(block_name, result_
 			}
 
 			float DIRECTIONAL_SHADOW_FN(vec3 world_pos, vec3 normal, vec3 light_dir) {
+				shadow_ray_reach = 0.0;
 				float shadow = calculateShadowUnfaded(world_pos, normal, light_dir);
 
 

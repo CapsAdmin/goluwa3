@@ -185,9 +185,9 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 				) {
 					shadow_factor = calculateShadow(s.world_pos, shadow_N, L) * shadow_facing;
 
-					// single sided walls meeting at a corner leave the occluder's silhouette on the receiver, the map reads lit for a few texels
+					// the map cannot see occluders closer than a few texels (single sided walls meeting at a corner), inside the soft filter's receiver plane tolerance, or with a penumbra under a texel
 					if (shadow_factor > 0.0 && ]] .. block_name .. [[.shadows.sun_contact_ray > 0.0) {
-						shadow_factor *= get_sun_contact_visibility(s.world_pos + shadow_N * max(shadow_texel_world_size * 0.1, 0.002), L, shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray);
+						shadow_factor *= get_sun_contact_visibility(s.world_pos + shadow_N * max(shadow_texel_world_size * 0.1, 0.002), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach));
 					}
 				}
 
