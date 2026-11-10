@@ -6,6 +6,7 @@ local MeshShape = import("goluwa/physics/shapes/mesh.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local convex_hull = import("goluwa/physics/convex_hull.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
+local surface_properties = import("goluwa/source_engine/source2/surface_properties.lua")
 local units = import("goluwa/source_engine/units.lua")
 local vphys = {}
 local SCALE = units.meters
@@ -29,9 +30,9 @@ local function to_engine(x, y, z)
 end
 
 local function add_mesh(children, mesh)
-	local vertices = ffi.cast(f32_ptr_t, mesh.m_Vertices)
 	if type(mesh.m_Triangles) ~= "string" then return end
 
+	local vertices = ffi.cast(f32_ptr_t, mesh.m_Vertices)
 	local triangles = ffi.cast(i32_ptr_t, mesh.m_Triangles)
 	local chunks = {}
 
@@ -89,15 +90,79 @@ local function add_hull_points(children, points)
 	if child.ConvexHull then children[#children + 1] = child end
 end
 
-function vphys.Append(children, data)
+function vphys.NewBody()
+	return {
+		mass = 0,
+		linear_damping = 0,
+		angular_damping = 0,
+		weight = 0,
+		friction = 0,
+		elasticity = 0,
+		density = 0,
+	}
+end
+
+local function add_surface(body, hashes, index, weight)
+	local surface = surface_properties.GetByHash(hashes[index + 1])
+	body.weight = body.weight + weight
+	body.friction = body.friction + surface.friction * weight
+	body.elasticity = body.elasticity + surface.elasticity * weight
+	body.density = body.density + surface.density * weight
+end
+
+-- the engine has one material per body, so the surfaces of all shapes are averaged by triangle (a hull counts as one)
+function vphys.GetBodyProperties(body)
+	local properties = {
+		Friction = body.friction / body.weight,
+		Restitution = body.elasticity / body.weight,
+		FrictionCombineMode = "multiply",
+		RestitutionCombineMode = "multiply",
+	}
+
+	if body.mass == 0 then
+		properties.Density = body.density / body.weight
+	else
+		properties.Mass = body.mass
+		properties.AutomaticMass = false
+		properties.LinearDamping = body.linear_damping / body.mass
+		properties.AirLinearDamping = properties.LinearDamping
+		properties.AngularDamping = body.angular_damping / body.mass
+		properties.AirAngularDamping = properties.AngularDamping
+	end
+
+	return properties
+end
+
+function vphys.Append(children, data, body)
+	local hashes = data.m_surfacePropertyHashes
+
 	for _, part in ipairs(data.m_parts) do
 		local shape = part.m_rnShape
+		body.mass = body.mass + part.m_flMass
+		body.linear_damping = body.linear_damping + part.m_flLinearDamping * part.m_flMass
+		body.angular_damping = body.angular_damping + part.m_flAngularDamping * part.m_flMass
 
 		for _, mesh in ipairs(shape.m_meshes) do
 			add_mesh(children, mesh.m_Mesh)
+			local materials = mesh.m_Mesh.m_Materials
+
+			if materials[1] then
+				local counts = {}
+
+				for i = 1, #materials do
+					counts[materials[i]] = (counts[materials[i]] or 0) + 1
+				end
+
+				for index, count in pairs(counts) do
+					add_surface(body, hashes, index, count)
+				end
+			else
+				add_surface(body, hashes, mesh.m_nSurfacePropertyIndex, #mesh.m_Mesh.m_Triangles / 12)
+			end
 		end
 
 		for _, hull in ipairs(shape.m_hulls) do
+			add_surface(body, hashes, hull.m_nSurfacePropertyIndex, 1)
 			local points = {}
 
 			for i, v in ipairs(hull.m_Hull.m_Vertices) do
@@ -108,6 +173,7 @@ function vphys.Append(children, data)
 		end
 
 		for _, sphere in ipairs(shape.m_spheres) do
+			add_surface(body, hashes, sphere.m_nSurfacePropertyIndex, 1)
 			local c = sphere.m_Sphere.m_vCenter
 			children[#children + 1] = {
 				Shape = SphereShape.New(sphere.m_Sphere.m_flRadius * SCALE),
@@ -116,6 +182,7 @@ function vphys.Append(children, data)
 		end
 
 		for _, capsule in ipairs(shape.m_capsules) do
+			add_surface(body, hashes, capsule.m_nSurfacePropertyIndex, 1)
 			local a, b = capsule.m_Capsule.m_vCenter[1], capsule.m_Capsule.m_vCenter[2]
 			local radius = capsule.m_Capsule.m_flRadius * SCALE
 			local from, to = to_engine(a[1], a[2], a[3]), to_engine(b[1], b[2], b[3])
@@ -144,9 +211,9 @@ function vphys.Append(children, data)
 end
 
 function vphys.FromData(data)
-	local children = {}
-	vphys.Append(children, data)
-	return children
+	local children, body = {}, vphys.NewBody()
+	vphys.Append(children, data, body)
+	return children, body.weight > 0 and vphys.GetBodyProperties(body) or nil
 end
 
 function vphys.Load(path)

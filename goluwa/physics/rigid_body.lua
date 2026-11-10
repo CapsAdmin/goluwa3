@@ -591,6 +591,10 @@ function RigidBody:LoadShapeModel()
 			local children = model.physics.children
 			self.shape_model_static = self.MotionType == "static"
 
+			for key, value in pairs(model.physics.body or {}) do
+				self["Set" .. key](self, value)
+			end
+
 			if self.shape_model_static then
 				self.CenterOffset = nil
 			else

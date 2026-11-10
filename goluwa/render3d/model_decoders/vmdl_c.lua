@@ -27,17 +27,20 @@ local function finish(path, input, meta, blob_table, mesh_callback, physics_call
 					__index = function(physics, key)
 						setmetatable(physics, nil)
 						physics.children = {}
+						local body = vphys.NewBody()
 
 						if meta.physics_block ~= nil then
 							local res = resource.Parse(input.model)
 							local ok, block_data = pcall(resource.ReadKV3, res, meta.physics_block)
 
-							if ok then vphys.Append(physics.children, block_data) end
+							if ok then vphys.Append(physics.children, block_data, body) end
 						end
 
 						for _, ref in ipairs(physics_refs) do
-							vphys.Append(physics.children, resource.ReadKV3(resource.Load(vfs, ref .. "_c")))
+							vphys.Append(physics.children, resource.ReadKV3(resource.Load(vfs, ref .. "_c")), body)
 						end
+
+						if body.weight > 0 then physics.body = vphys.GetBodyProperties(body) end
 
 						return physics[key]
 					end,

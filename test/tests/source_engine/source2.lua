@@ -75,8 +75,10 @@ T.Test("source 2 world physics", function()
 
 	steam.MountSourceGame(info)
 	vfs.Mount(info.vdf_directory .. "maps/a2_pistol.vpk/")
-	local children = import("goluwa/source_engine/source2/vphys.lua").Load("maps/a2_pistol/world_physics.vphys_c")
+	local children, body = import("goluwa/source_engine/source2/vphys.lua").Load("maps/a2_pistol/world_physics.vphys_c")
 	T(#children > 1000)["=="](true)
+	T(body.Friction > 0.5 and body.Friction <= 1)["=="](true)
+	T(body.FrictionCombineMode)["=="]("multiply")
 	local meshes = 0
 
 	for _, child in ipairs(children) do
@@ -86,6 +88,19 @@ T.Test("source 2 world physics", function()
 	end
 
 	T(meshes > 0)["=="](true)
+end)
+
+T.Test("source 2 surface properties", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local surface_properties = import("goluwa/source_engine/source2/surface_properties.lua")
+	local default = surface_properties.GetByHash(1977497166)
+	T(default.friction)["=="](0.8)
+	T(default.elasticity)["=="](0.25)
+	T(surface_properties.GetByHash(0))["=="](default)
 end)
 
 T.Test("source 2 material info", function()
