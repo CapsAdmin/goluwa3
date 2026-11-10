@@ -6,13 +6,21 @@ local outfit = import("lua/outfit.lua")
 local outfit_source = import("lua/outfit_source.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local biped = import("lua/biped.lua")
+local rig_profiles = import("lua/rig_profiles.lua")
 local clients = import("goluwa/network/clients.lua")
 local View = import("goluwa/render3d/view.lua")
 local third_person = import("lua/third_person.lua")
 local camera_modes = import("lua/camera_modes.lua")
 local META = objects.CreateTemplate("player_avatar")
 local HEAD_MAX_LAG = 0.04
-local HEAD_BONES = {biped.SourceBones.head, biped.SourceBones.neck, biped.SourceBones.chest}
+local HEAD_BONES = {}
+
+for _, profile in ipairs{rig_profiles.ValveBiped, rig_profiles.Alyx} do
+	for _, name in ipairs{"head", "neck", "chest"} do
+		HEAD_BONES[#HEAD_BONES + 1] = profile.Bones[name]
+	end
+end
+
 local NO_BONES = {}
 -- an empty Network table is what makes the component part of the spawn packet
 META.Network = {}

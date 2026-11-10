@@ -28,12 +28,14 @@ function picker.GetItems()
 
 	if outfit_source.IsAvailable() then
 		for _, model in ipairs(outfit_source.Models) do
-			items[#items + 1] = {
-				label = model:match("([^/]+)%.mdl$"),
-				name = outfit_source.Name,
-				model = model,
-				inputs = {Model = model},
-			}
+			if outfit_source.IsModelAvailable(model) then
+				items[#items + 1] = {
+					label = outfit_source.GetLabel(model),
+					name = outfit_source.Name,
+					model = model,
+					inputs = {Model = model},
+				}
+			end
 		end
 	end
 

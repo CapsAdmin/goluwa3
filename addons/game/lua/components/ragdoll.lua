@@ -2108,13 +2108,11 @@ function META:ClearRig()
 		self.free_set = {}
 	elseif rig then
 		for _, name in ipairs(aim_pose.Bones) do
-			if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
+			biped.ClearBone(rig, name)
 		end
 
 		for _, part in ipairs(self.profile.Parts) do
-			if biped.HasBone(rig, part.Bone) then
-				rig:ClearBone(biped.SourceBones[part.Bone])
-			end
+			biped.ClearBone(rig, part.Bone)
 		end
 
 		for _, name in ipairs(self.free_set) do
@@ -2206,7 +2204,7 @@ do
 			self.free_part_bones = {}
 
 			for _, definition in ipairs(self.profile.Parts) do
-				local name = self.profile.Model and definition.Bone or biped.SourceBones[definition.Bone]
+				local name = self.profile.Model and definition.Bone or biped.GetBoneName(rig, definition.Bone)
 				local index = name and rig.bone_indices[name:lower()]
 
 				if index then self.free_part_bones[index] = true end
@@ -2306,10 +2304,12 @@ do
 				limp[part.definition.Name] = true
 
 				if biped.HasBone(rig, part.definition.Bone) then
-					local name = biped.SourceBones[part.definition.Bone]
+					local key = part.definition.Bone
+					local name = biped.GetBoneName(rig, key)
 					local index = rig.bone_indices[name:lower()]
-					calibrate_frame(self, part, entity_rotation, rig:GetBone(name))
-					rig:SetBone(name, get_part_bone(self, part, entity_rotation, worlds[index]), "model")
+					calibrate_frame(self, part, entity_rotation, biped.GetBone(rig, key))
+					biped.ToRigFrame(rig, key, get_part_bone(self, part, entity_rotation, worlds[index]))
+					rig:SetBone(name, worlds[index], "model")
 					affected[index] = true
 				end
 			else
@@ -2318,12 +2318,8 @@ do
 		end
 
 		for _, name in ipairs(aim_pose.Bones) do
-			if
-				limp[self.owner_of[name]] and
-				not self.part_bones[name] and
-				biped.HasBone(rig, name)
-			then
-				rig:ClearBone(biped.SourceBones[name])
+			if limp[self.owner_of[name]] and not self.part_bones[name] then
+				biped.ClearBone(rig, name)
 			end
 		end
 
@@ -2332,9 +2328,9 @@ do
 		self.driven_rig = rig
 
 		if armature then
-			for name, source in pairs(biped.SourceBones) do
+			for name in pairs(biped.SourceBones) do
 				if limp[self.owner_of[name]] and biped.HasBone(rig, name) then
-					armature:SetBone(name, rig:GetBone(source), "model")
+					armature:SetBone(name, biped.GetBone(rig, name), "model")
 				end
 			end
 		end

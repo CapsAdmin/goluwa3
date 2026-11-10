@@ -1,6 +1,8 @@
 local objects = import("goluwa/objects/objects.lua")
 local clip_redirect = import("lua/clip_redirect.lua")
 local biped = import("lua/biped.lua")
+local rig_profiles = import("lua/rig_profiles.lua")
+local vfs = import("goluwa/vfs.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local leg_pose = import("lua/leg_pose.lua")
 local bone_keys = import("lua/bone_keys.lua")
@@ -91,6 +93,8 @@ local ARM_BONES = {
 }
 local native_speeds = setmetatable({}, {__mode = "k"})
 local DONOR_GET_UP = "models/kleiner"
+local ALYX_CLIP_DONORS = {male = "models/player/kleiner", female = "models/player/alyx"}
+local clip_donors = {}
 
 local function is_donor_clip(name)
 	return name:starts_with("jump_holding_")
@@ -355,16 +359,35 @@ function META:AddDonorClips(skeleton)
 
 	skeleton.donor_checked = true
 	local path = self.Owner.model:GetModelPath():lower()
-	local donor = DONOR_MALE
+	local female = false
 
 	for _, mark in ipairs(FEMALE_MARKS) do
 		if path:find(mark, 1, true) then
-			donor = DONOR_FEMALE
+			female = true
 
 			break
 		end
 	end
 
+	if rig_profiles.Get(skeleton).Name == "alyx" then
+		local donor_path = female and ALYX_CLIP_DONORS.female or ALYX_CLIP_DONORS.male
+
+		if vfs.IsFile(donor_path .. ".mdl") then
+			local animation_retarget = import("goluwa/render3d/animation_retarget.lua")
+			local donor = clip_donors[donor_path]
+
+			if not donor then
+				donor = import("goluwa/render3d/model_decoders/mdl.lua").LoadSkeleton(donor_path)
+				clip_donors[donor_path] = donor
+			end
+
+			animation_retarget.AddSkeleton(skeleton, donor, animation_retarget.ValveBipedToAlyx)
+		end
+
+		return
+	end
+
+	local donor = female and DONOR_FEMALE or DONOR_MALE
 	local mdl_decoder = import("goluwa/render3d/model_decoders/mdl.lua")
 	mdl_decoder.AddAnimations(skeleton, donor, is_donor_clip, DONOR_BIND_BONES)
 	mdl_decoder.AddAnimations(skeleton, DONOR_GET_UP, is_get_up_clip, DONOR_BIND_BONES)
@@ -796,7 +819,7 @@ do
 		local before = self.prev_bones
 
 		for _, name in ipairs(aim_pose.Bones) do
-			if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
+			biped.ClearBone(rig, name)
 		end
 
 		biped.ReadBones(rig, bones)
@@ -875,7 +898,7 @@ do
 
 		for _, name in ipairs(aim_pose.Bones) do
 			if biped.HasBone(rig, name) then
-				rig:SetBone(biped.SourceBones[name], bones[name], "model")
+				biped.WriteBone(rig, name, bones[name])
 			end
 		end
 
@@ -1051,7 +1074,7 @@ function META:UpdateCreatureLegs(rig, pose, dt)
 	local bones = self.bones
 
 	for _, name in ipairs(aim_pose.Bones) do
-		if biped.HasBone(rig, name) then rig:ClearBone(biped.SourceBones[name]) end
+		biped.ClearBone(rig, name)
 	end
 
 	if self.character.health:IsDead() then return end
@@ -1066,9 +1089,7 @@ function META:UpdateCreatureLegs(rig, pose, dt)
 	if pose.legs then self:UpdateLegs(pose.Owner, pose, dt, bones) end
 
 	for _, name in ipairs(aim_pose.Bones) do
-		if biped.HasBone(rig, name) then
-			rig:SetBone(biped.SourceBones[name], bones[name], "model")
-		end
+		if biped.HasBone(rig, name) then biped.WriteBone(rig, name, bones[name]) end
 	end
 
 	rig:Compute()
@@ -1107,8 +1128,10 @@ function META:OnUpdate(dt)
 		animator:Refresh()
 
 		if host then
-			for name, source in pairs(biped.SourceBones) do
-				host.armature:SetBone(name, rig:GetBone(source), "model")
+			for name in pairs(biped.SourceBones) do
+				if biped.HasBone(rig, name) then
+					host.armature:SetBone(name, biped.GetBone(rig, name), "model")
+				end
 			end
 		end
 	end

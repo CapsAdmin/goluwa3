@@ -113,6 +113,64 @@ T.Test3D("the source outfit animates a gmod player model from the movement of th
 	pvars.SetSession("cl_outfit", "player_outfit")
 end)
 
+T.Test3D("an alyx character walks and runs on the gmod clips retargeted onto its rig", function()
+	steam.MountSourceGame("gmod")
+	local alyx = steam.FindSourceGame(546560)
+
+	if alyx then steam.MountSourceGame(alyx) end
+
+	local eli = "models/characters/eli/eli.vmdl_c"
+
+	if not (vfs.IsFile(outfit_source.Model) and vfs.IsFile(eli)) then
+		return T.Unavailable("gmod and alyx content not mounted")
+	end
+
+	pvars.SetSession("cl_outfit", outfit_source.Name)
+	pvars.SetSession("cl_outfit_model", eli)
+	local player = Entity.New{transform = {Position = Vec3(0, 0, 0)}, player_avatar = {}, character_pose = {}}
+	local model
+
+	T.WaitUntil(
+		function()
+			local outfit = player.player_avatar.outfit
+			model = outfit and outfit:GetChildren()[1]
+			return model and
+				model.animator and
+				model.animator:GetRig() and
+				model.source_pose and
+				player.player_avatar.armature
+		end,
+		30
+	)
+
+	local animator = model.animator
+
+	local function step(seconds, velocity)
+		player.transform.RenderVelocity = velocity
+		player.transform.RenderVelocityFrame = system.GetFrameNumber()
+
+		for _ = 1, seconds * 60 do
+			player.character_pose:OnUpdate(1 / 60)
+			model.source_pose:OnUpdate(1 / 60)
+		end
+	end
+
+	step(0.5, Vec3(0, 0, 0))
+	T(animator:GetSequence())["=="]("idle_all_01")
+	T(animator:GetClip() ~= nil)["=="](true)
+	T(player.player_avatar.armature:GetBoneMatrix("head").m31)[">"](1)
+	step(1, Vec3(0, 0, -1.5))
+	T(animator:GetSequence())["=="]("walk_all")
+	T(animator:GetClip():GetGroundSpeed{move_x = 1, move_y = 0})[">"](0.5)
+	T(animator:GetSpeed())["~"](1, 0.3)
+	step(1, Vec3(0, 0, -4))
+	T(animator:GetSequence())["=="]("run_all_01")
+	T(math.abs(select(2, animator:GetRig():GetBonePosition("pelvis")) - 0.7) < 0.1)["=="](true)
+	player:Remove()
+	pvars.SetSession("cl_outfit", "player_outfit")
+	pvars.SetSession("cl_outfit_model", outfit_source.Model)
+end)
+
 T.Test3D("the head camera of the source outfit follows the head bone and stays within two capsule radii", function()
 	steam.MountSourceGame("gmod")
 

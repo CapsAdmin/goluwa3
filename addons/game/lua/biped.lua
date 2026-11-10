@@ -3,6 +3,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local eye_pose = import("lua/eye_pose.lua")
+local rig_profiles = import("lua/rig_profiles.lua")
 local biped = {}
 biped.SkeletonName = "biped"
 biped.Height = 72 * UNIT
@@ -346,34 +347,98 @@ biped.Profiles = {
 		},
 	},
 }
-biped.SourceBones = {
-	body = "ValveBiped.Bip01_Pelvis",
-	waist = "ValveBiped.Bip01_Spine",
-	spine = "ValveBiped.Bip01_Spine1",
-	chest = "ValveBiped.Bip01_Spine2",
-	back = "ValveBiped.Bip01_Spine4",
-	neck = "ValveBiped.Bip01_Neck1",
-	head = "ValveBiped.Bip01_Head1",
-	clavicle_r = "ValveBiped.Bip01_R_Clavicle",
-	upperarm_r = "ValveBiped.Bip01_R_UpperArm",
-	forearm_r = "ValveBiped.Bip01_R_Forearm",
-	hand_r = "ValveBiped.Bip01_R_Hand",
-	clavicle_l = "ValveBiped.Bip01_L_Clavicle",
-	upperarm_l = "ValveBiped.Bip01_L_UpperArm",
-	forearm_l = "ValveBiped.Bip01_L_Forearm",
-	hand_l = "ValveBiped.Bip01_L_Hand",
-	thigh_r = "ValveBiped.Bip01_R_Thigh",
-	calf_r = "ValveBiped.Bip01_R_Calf",
-	foot_r = "ValveBiped.Bip01_R_Foot",
-	thigh_l = "ValveBiped.Bip01_L_Thigh",
-	calf_l = "ValveBiped.Bip01_L_Calf",
-	foot_l = "ValveBiped.Bip01_L_Foot",
-}
+biped.SourceBones = rig_profiles.ValveBiped.Bones
 local IDENTITY = Matrix44():Identity()
 
+local function apply_fix(matrix, fix)
+	local r00, r01, r02 = matrix.m00, matrix.m10, matrix.m20
+	local r10, r11, r12 = matrix.m01, matrix.m11, matrix.m21
+	local r20, r21, r22 = matrix.m02, matrix.m12, matrix.m22
+	local f1, f2, f3, f4, f5, f6, f7, f8, f9 = fix[1], fix[2], fix[3], fix[4], fix[5], fix[6], fix[7], fix[8], fix[9]
+	matrix.m00 = r00 * f1 + r01 * f4 + r02 * f7
+	matrix.m10 = r00 * f2 + r01 * f5 + r02 * f8
+	matrix.m20 = r00 * f3 + r01 * f6 + r02 * f9
+	matrix.m01 = r10 * f1 + r11 * f4 + r12 * f7
+	matrix.m11 = r10 * f2 + r11 * f5 + r12 * f8
+	matrix.m21 = r10 * f3 + r11 * f6 + r12 * f9
+	matrix.m02 = r20 * f1 + r21 * f4 + r22 * f7
+	matrix.m12 = r20 * f2 + r21 * f5 + r22 * f8
+	matrix.m22 = r20 * f3 + r21 * f6 + r22 * f9
+end
+
+local scratch = Matrix44():Identity()
+local MATRIX_FIELDS = {
+	"m00",
+	"m01",
+	"m02",
+	"m03",
+	"m10",
+	"m11",
+	"m12",
+	"m13",
+	"m20",
+	"m21",
+	"m22",
+	"m23",
+	"m30",
+	"m31",
+	"m32",
+	"m33",
+}
+
+function biped.GetProfile(rig)
+	return rig_profiles.Get(rig.skeleton)
+end
+
+function biped.GetBoneName(rig, name)
+	return rig_profiles.Get(rig.skeleton).Bones[name]
+end
+
 function biped.HasBone(rig, name)
-	local source = biped.SourceBones[name]
+	local source = rig_profiles.Get(rig.skeleton).Bones[name]
 	return source ~= nil and rig.bone_indices[source:lower()] ~= nil
+end
+
+-- the bone in the canonical frame of its biped name (what the pose code works with), not the rig's own axes
+function biped.GetBone(rig, name, out)
+	local profile = rig_profiles.Get(rig.skeleton)
+	local matrix = rig:GetBone(profile.Bones[name], out)
+	local frame = profile.Frames[name]
+
+	if frame then apply_fix(matrix, frame.fix) end
+
+	return matrix
+end
+
+-- turns a matrix in the canonical frame of a biped bone into the rig's frame, in place
+function biped.ToRigFrame(rig, name, matrix)
+	local frame = rig_profiles.Get(rig.skeleton).Frames[name]
+
+	if frame then apply_fix(matrix, frame.unfix) end
+
+	return matrix
+end
+
+function biped.WriteBone(rig, name, matrix)
+	local profile = rig_profiles.Get(rig.skeleton)
+	local frame = profile.Frames[name]
+
+	if frame then
+		for _, field in ipairs(MATRIX_FIELDS) do
+			scratch[field] = matrix[field]
+		end
+
+		apply_fix(scratch, frame.unfix)
+		matrix = scratch
+	end
+
+	rig:SetBone(profile.Bones[name], matrix, "model")
+end
+
+function biped.ClearBone(rig, name)
+	if biped.HasBone(rig, name) then
+		rig:ClearBone(rig_profiles.Get(rig.skeleton).Bones[name])
+	end
 end
 
 function biped.ReadBones(rig, bones)
@@ -381,7 +446,7 @@ function biped.ReadBones(rig, bones)
 		local name, parent = entry[1], entry[2]
 
 		if biped.HasBone(rig, name) then
-			bones[name] = rig:GetBone(biped.SourceBones[name])
+			bones[name] = biped.GetBone(rig, name)
 		elseif parent then
 			bones[name] = IDENTITY:GetMultiplied(bones[parent])
 		end
