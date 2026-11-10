@@ -6,7 +6,8 @@ local Matrix44 = import("goluwa/structs/matrix44.lua")
 local NODES = 4
 local SPACING = 0.1
 
-local function create_cloth()
+local function create_cloth(options)
+	options = options or {}
 	local bones = NODES + 1
 	local bind = ffi.new("float[?]", bones * Skeleton.PoseSize)
 	local inverse = ffi.new("float[?]", bones * Skeleton.MatrixSize)
@@ -33,7 +34,11 @@ local function create_cloth()
 	}
 	local node_bone = ffi.new("int32_t[?]", NODES, {1, 2, 3, 4})
 	local inv_mass = ffi.new("float[?]", NODES, {0, 1, 1, 1})
-	local attraction = ffi.new("float[?]", NODES)
+	local attraction = ffi.new(
+		"float[?]",
+		NODES,
+		{0, options.attraction or 0, options.attraction or 0, options.attraction or 0}
+	)
 	local gravity = ffi.new("float[?]", NODES, {9.8, 9.8, 9.8, 9.8})
 	local target_start = ffi.new("int32_t[?]", NODES + 1, {0, 1, 2, 3, 4})
 	local target_bone = ffi.new("int32_t[?]", NODES, {0, 0, 0, 0})
@@ -41,7 +46,7 @@ local function create_cloth()
 	local target_alpha = ffi.new("float[?]", NODES, {1, 1, 1, 1})
 
 	for i = 0, NODES - 1 do
-		target_offset[i * 3 + 1] = -SPACING * i
+		target_offset[i * 3 + 1] = options.target_y and options.target_y[i + 1] or -SPACING * i
 	end
 
 	local rod_nodes = ffi.new("int32_t[?]", (NODES - 1) * 2)
@@ -65,6 +70,13 @@ local function create_cloth()
 		target_alpha = target_alpha,
 		rod_nodes = rod_nodes,
 		rod_limits = rod_limits,
+		bend_count = options.bend_count or 0,
+		bend_nodes = options.bend_nodes or ffi.new("int32_t[1]"),
+		bend_rest = options.bend_rest or ffi.new("float[1]"),
+		capsule_count = options.capsule_count or 0,
+		capsule_bone = options.capsule_bone or ffi.new("int32_t[1]"),
+		capsule_points = options.capsule_points or ffi.new("float[6]"),
+		capsule_radius = options.capsule_radius or ffi.new("float[2]"),
 	}
 	return skeleton
 end
@@ -128,4 +140,56 @@ T.Test("cloth trails behind a moving entity", function()
 	end
 
 	T(select(1, node_position(rig, NODES)) < -0.01)["=="](true)
+end)
+
+T.Test("a bend constraint pushes the ends of a folded strip of nodes apart", function()
+	local function ends_distance(options)
+		options.attraction = 0.6
+		options.target_y = {0, -SPACING, -2 * SPACING, -SPACING}
+		local skeleton = create_cloth(options)
+		local rig = create_rig(skeleton)
+		local cloth = Cloth.New(skeleton)
+		local matrix = Matrix44()
+
+		for _ = 1, 60 do
+			cloth:Advance(1 / 60, matrix)
+			skeleton:ComputeSkinMatrices(rig.pose.data, rig.matrices, rig.world)
+			cloth:Apply(rig)
+		end
+
+		local ax, ay, az = node_position(rig, 2)
+		local bx, by, bz = node_position(rig, 4)
+		return math.sqrt((ax - bx) ^ 2 + (ay - by) ^ 2 + (az - bz) ^ 2)
+	end
+
+	local loose = ends_distance{}
+	local stiff = ends_distance{
+		bend_count = 1,
+		bend_nodes = ffi.new("int32_t[2]", {1, 3}),
+		bend_rest = ffi.new("float[1]", {SPACING * 2}),
+	}
+	T(stiff > loose + 0.01)["=="](true)
+end)
+
+T.Test("cloth nodes are pushed out of a body capsule", function()
+	local skeleton = create_cloth{
+		capsule_count = 1,
+		capsule_bone = ffi.new("int32_t[1]", {0}),
+		capsule_points = ffi.new("float[6]", {0, -0.25, 0, 0, -0.25, 0}),
+		capsule_radius = ffi.new("float[2]", {0.2, 0.2}),
+	}
+	local rig = create_rig(skeleton)
+	local cloth = Cloth.New(skeleton)
+	local matrix = Matrix44()
+
+	for _ = 1, 120 do
+		cloth:Advance(1 / 60, matrix)
+		skeleton:ComputeSkinMatrices(rig.pose.data, rig.matrices, rig.world)
+		cloth:Apply(rig)
+	end
+
+	for bone = 2, NODES do
+		local x, y, z = node_position(rig, bone)
+		T(math.sqrt(x * x + (y + 0.25) ^ 2 + z * z) >= 0.2 - 1e-3)["=="](true)
+	end
 end)

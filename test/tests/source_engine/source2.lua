@@ -313,6 +313,8 @@ T.Test("source 2 skinned models pack a skeleton, weights and clips", function()
 	T(#skeleton.names > 500 and #skeleton.names <= 1024)["=="](true)
 	T(skeleton.cloth.count)["=="](495)
 	T(skeleton.cloth.rod_count)["=="](2717)
+	T(skeleton.cloth.bend_count)["=="](1566)
+	T(skeleton.cloth.capsule_count)["=="](13)
 	T(skeleton.names[1])["=="]("pelvis")
 	T(skeleton.parents[1])["=="](-1)
 	local ref_pose

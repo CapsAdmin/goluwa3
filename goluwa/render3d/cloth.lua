@@ -7,6 +7,8 @@ local MAX_DT = 0.1
 local DAMPING = 3
 local ITERATIONS = 3
 local ATTRACTION_RATE = 60
+local BEND_STIFFNESS = 0.35
+local COLLISION_MARGIN = 0.01
 local TELEPORT_DISTANCE = 2
 local Doubles = ffi.typeof("double[?]")
 
@@ -23,6 +25,7 @@ function Cloth.New(skeleton)
 			current_matrix = Doubles(12),
 			next_matrix = Doubles(12),
 			transform = Doubles(12),
+			capsules = Doubles(math.max(desc.capsule_count * 8, 1)),
 			bind_rotation = ffi.new("float[?]", skeleton.BoneCount * 9),
 			dt = 0,
 			initialized = false,
@@ -140,6 +143,24 @@ function Cloth:Apply(rig)
 	local inv_mass, attraction, gravity = desc.inv_mass, desc.attraction, desc.gravity
 	local world, matrices = rig.world, rig.matrices
 	compute_targets(desc, world, target)
+	local capsules = self.capsules
+
+	for c = 0, desc.capsule_count - 1 do
+		local w = desc.capsule_bone[c] * 12
+		local o = c * 8
+
+		for end_point = 0, 1 do
+			local px, py, pz = desc.capsule_points[c * 6 + end_point * 3],
+			desc.capsule_points[c * 6 + end_point * 3 + 1],
+			desc.capsule_points[c * 6 + end_point * 3 + 2]
+			capsules[o + end_point * 3] = world[w] * px + world[w + 1] * py + world[w + 2] * pz + world[w + 3]
+			capsules[o + end_point * 3 + 1] = world[w + 4] * px + world[w + 5] * py + world[w + 6] * pz + world[w + 7]
+			capsules[o + end_point * 3 + 2] = world[w + 8] * px + world[w + 9] * py + world[w + 10] * pz + world[w + 11]
+		end
+
+		capsules[o + 6], capsules[o + 7] = desc.capsule_radius[c * 2], desc.capsule_radius[c * 2 + 1]
+	end
+
 	local dt = math.min(self.dt, MAX_DT)
 	self.dt = 0
 
@@ -176,6 +197,7 @@ function Cloth:Apply(rig)
 		local h = dt / steps
 		local damping = 1 - math.min(DAMPING * h, 1)
 		local rod_nodes, rod_limits = desc.rod_nodes, desc.rod_limits
+		local bend_nodes, bend_rest = desc.bend_nodes, desc.bend_rest
 
 		for _ = 1, steps do
 			for node = 0, count - 1 do
@@ -198,7 +220,7 @@ function Cloth:Apply(rig)
 				end
 			end
 
-			for _ = 1, ITERATIONS do
+			for iteration = 1, ITERATIONS do
 				for rod = 0, desc.rod_count - 1 do
 					local a, b = rod_nodes[rod * 2] * 3, rod_nodes[rod * 2 + 1] * 3
 					local wa, wb = inv_mass[rod_nodes[rod * 2]], inv_mass[rod_nodes[rod * 2 + 1]]
@@ -220,6 +242,66 @@ function Cloth:Apply(rig)
 							position[b + 1] = position[b + 1] - dy * correction * wb
 							position[b + 2] = position[b + 2] - dz * correction * wb
 						end
+					end
+				end
+
+				for bend = 0, desc.bend_count - 1 do
+					local first, second = bend_nodes[bend * 2], bend_nodes[bend * 2 + 1]
+					local a, b = first * 3, second * 3
+					local wa, wb = inv_mass[first], inv_mass[second]
+					local total = wa + wb
+
+					if total > 0 then
+						local dx, dy, dz = position[b] - position[a],
+						position[b + 1] - position[a + 1],
+						position[b + 2] - position[a + 2]
+						local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+						if distance > 1e-9 then
+							local correction = (distance - bend_rest[bend]) / distance / total * BEND_STIFFNESS
+							position[a] = position[a] + dx * correction * wa
+							position[a + 1] = position[a + 1] + dy * correction * wa
+							position[a + 2] = position[a + 2] + dz * correction * wa
+							position[b] = position[b] - dx * correction * wb
+							position[b + 1] = position[b + 1] - dy * correction * wb
+							position[b + 2] = position[b + 2] - dz * correction * wb
+						end
+					end
+				end
+
+				for node = 0, iteration == ITERATIONS and count - 1 or -1 do
+					if inv_mass[node] > 0 then
+						local o = node * 3
+						local px, py, pz = position[o], position[o + 1], position[o + 2]
+
+						for c = 0, desc.capsule_count * 8 - 8, 8 do
+							local ax, ay, az = capsules[c], capsules[c + 1], capsules[c + 2]
+							local abx, aby, abz = capsules[c + 3] - ax, capsules[c + 4] - ay, capsules[c + 5] - az
+							local length = abx * abx + aby * aby + abz * abz
+							local t = length > 0 and
+								math.min(math.max(((px - ax) * abx + (py - ay) * aby + (pz - az) * abz) / length, 0), 1) or
+								0
+							local cx, cy, cz = ax + abx * t, ay + aby * t, az + abz * t
+							local radius = capsules[c + 6] + (capsules[c + 7] - capsules[c + 6]) * t + COLLISION_MARGIN
+							local dx, dy, dz = px - cx, py - cy, pz - cz
+							local distance_squared = dx * dx + dy * dy + dz * dz
+
+							if distance_squared < radius * radius then
+								local tx, ty, tz = target[o] - cx, target[o + 1] - cy, target[o + 2] - cz
+								local target_squared = tx * tx + ty * ty + tz * tz
+
+								if target_squared > 1e-12 and tx * dx + ty * dy + tz * dz < 0 then
+									dx, dy, dz, distance_squared = tx, ty, tz, target_squared
+								end
+
+								if distance_squared > 1e-12 then
+									local scale = radius / math.sqrt(distance_squared)
+									px, py, pz = cx + dx * scale, cy + dy * scale, cz + dz * scale
+								end
+							end
+						end
+
+						position[o], position[o + 1], position[o + 2] = px, py, pz
 					end
 				end
 			end

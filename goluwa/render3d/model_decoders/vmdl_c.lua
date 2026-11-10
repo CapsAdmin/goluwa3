@@ -108,6 +108,13 @@ local function build_skeleton(input, info, blob_table)
 			target_alpha = copy_array(blob_table, offsets.target_alpha, "float", cloth.target_count),
 			rod_nodes = copy_array(blob_table, offsets.rod_nodes, "int32_t", cloth.rod_count * 2),
 			rod_limits = copy_array(blob_table, offsets.rod_limits, "float", cloth.rod_count * 2),
+			bend_count = cloth.bend_count,
+			bend_nodes = copy_array(blob_table, offsets.bend_nodes, "int32_t", math.max(cloth.bend_count * 2, 1)),
+			bend_rest = copy_array(blob_table, offsets.bend_rest, "float", math.max(cloth.bend_count, 1)),
+			capsule_count = cloth.capsule_count,
+			capsule_bone = copy_array(blob_table, offsets.capsule_bone, "int32_t", math.max(cloth.capsule_count, 1)),
+			capsule_points = copy_array(blob_table, offsets.capsule_points, "float", math.max(cloth.capsule_count * 6, 1)),
+			capsule_radius = copy_array(blob_table, offsets.capsule_radius, "float", math.max(cloth.capsule_count * 2, 1)),
 		}
 	end
 

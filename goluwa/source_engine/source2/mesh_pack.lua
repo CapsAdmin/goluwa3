@@ -332,6 +332,8 @@ function mesh_pack.PackModel(input)
 						count = packed.count,
 						target_count = packed.target_count,
 						rod_count = packed.rod_count,
+						bend_count = packed.bend_count,
+						capsule_count = packed.capsule_count,
 						offsets = {},
 					}
 

@@ -510,6 +510,45 @@ function animation.ReadCloth(model_data, fe)
 	end
 
 	cloth.entries = entries
+	cloth.bends = {}
+
+	-- an axial edge is two strips of three nodes in a line (node 1 and 2 are the middles, 3 and 5, 4 and 6 the ends)
+	for _, edge in ipairs(fe.m_AxialEdges) do
+		local n = edge.nNode
+
+		for _, ends in ipairs{{n[3], n[5]}, {n[4], n[6]}} do
+			local a, b = fe.m_InitPose[ends[1] + 1], fe.m_InitPose[ends[2] + 1]
+			cloth.bends[#cloth.bends + 1] = {
+				ends[1],
+				ends[2],
+				math.sqrt((a[1] - b[1]) ^ 2 + (a[2] - b[2]) ^ 2 + (a[3] - b[3]) ^ 2) * SCALE,
+			}
+		end
+	end
+
+	cloth.capsules = {}
+
+	for _, capsule in ipairs(fe.m_TaperedCapsuleRigids) do
+		local bone = bone_of[names[capsule.nNode + 1]]
+
+		if bone then
+			local a, b = capsule.vCenter[1], capsule.vCenter[2]
+			cloth.capsules[#cloth.capsules + 1] = {
+				bone = bone,
+				points = {
+					-a[2] * SCALE,
+					a[3] * SCALE,
+					-a[1] * SCALE,
+					-b[2] * SCALE,
+					b[3] * SCALE,
+					-b[1] * SCALE,
+				},
+				radii = {capsule.flRadius[1] * SCALE, capsule.flRadius[2] * SCALE},
+			}
+			cloth.target_bones[bone] = true
+		end
+	end
+
 	return cloth
 end
 
@@ -556,11 +595,42 @@ function animation.PackCloth(cloth, new_index)
 		rod_limits[(i - 1) * 2], rod_limits[(i - 1) * 2 + 1] = rod.flMinDist * SCALE, rod.flMaxDist * SCALE
 	end
 
+	local bend_count = #cloth.bends
+	local bend_nodes = ffi.new("int32_t[?]", math.max(bend_count * 2, 1))
+	local bend_rest = ffi.new("float[?]", math.max(bend_count, 1))
+
+	for i, bend in ipairs(cloth.bends) do
+		bend_nodes[(i - 1) * 2], bend_nodes[(i - 1) * 2 + 1] = bend[1], bend[2]
+		bend_rest[i - 1] = bend[3]
+	end
+
+	local capsule_count = #cloth.capsules
+	local capsule_bone = ffi.new("int32_t[?]", math.max(capsule_count, 1))
+	local capsule_points = ffi.new("float[?]", math.max(capsule_count * 6, 1))
+	local capsule_radius = ffi.new("float[?]", math.max(capsule_count * 2, 1))
+
+	for i, capsule in ipairs(cloth.capsules) do
+		capsule_bone[i - 1] = new_index[capsule.bone]
+
+		for k = 1, 6 do
+			capsule_points[(i - 1) * 6 + k - 1] = capsule.points[k]
+		end
+
+		capsule_radius[(i - 1) * 2], capsule_radius[(i - 1) * 2 + 1] = capsule.radii[1], capsule.radii[2]
+	end
+
 	return {
 		count = count,
 		target_count = targets,
 		rod_count = rod_count,
+		bend_count = bend_count,
+		capsule_count = capsule_count,
 		arrays = {
+			bend_nodes = bend_nodes,
+			bend_rest = bend_rest,
+			capsule_bone = capsule_bone,
+			capsule_points = capsule_points,
+			capsule_radius = capsule_radius,
 			node_bone = node_bone,
 			inv_mass = inv_mass,
 			attraction = attraction,
