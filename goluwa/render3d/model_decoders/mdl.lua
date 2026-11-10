@@ -1398,6 +1398,10 @@ end
 local mdl_decoder = {job = job_source}
 mdl_decoder.AddAnimations = add_donor_animations
 
+function mdl_decoder.LoadSkeleton(path)
+	return load_skeleton(path, {})
+end
+
 function mdl_decoder.Gather(path, full_path)
 	local companion_path = path
 
