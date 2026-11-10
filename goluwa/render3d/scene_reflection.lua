@@ -534,7 +534,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			#ifdef SCENE_HIT_SCREEN_GI
 			vec3 screen_gi;
 
-			if (scene_hit_screen_gi(P, hit_N, screen_gi)) return radiance + albedo * screen_gi;
+			if (scene_hit_screen_gi(P, hit_N, t, screen_gi)) return radiance + albedo * screen_gi;
 			#endif
 
 			#ifdef SCENE_HIT_GI_SHARE

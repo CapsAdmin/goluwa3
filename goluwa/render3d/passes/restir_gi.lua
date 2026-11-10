@@ -419,7 +419,8 @@ local HIT_GI_SHARE_GLSL = [[
 local SCREEN_GI_GLSL = [[
 	#define SCENE_HIT_SCREEN_GI
 
-	bool scene_hit_screen_gi(vec3 P, vec3 N, out vec3 irradiance) {
+	// a hit this close to the ray's origin (the other wall at a crease) reads the accumulated estimate, not the raw one: the screen there holds light partly from the receiver itself, and with reservoirs keeping the samples whose noisy read came out high, the raw loop between two walls glows along every crease
+	bool scene_hit_screen_gi(vec3 P, vec3 N, float t, out vec3 irradiance) {
 		irradiance = vec3(0.0);
 
 		if (restir_data.screen_gi_tex < 0) return false;
@@ -440,12 +441,11 @@ local SCREEN_GI_GLSL = [[
 
 		if (dot(geometry.xyz, N) < 0.8 || abs(geometry.w - view_depth) > 0.02 * view_depth + 0.02) return false;
 
-		irradiance = texelFetch(TEXTURE(restir_data.screen_gi_tex), texel, 0).rgb;
+		irradiance = texelFetch(TEXTURE(t < 0.05 * view_depth ? restir_data.accum_history_tex : restir_data.screen_gi_tex), texel, 0).rgb;
 		return !any(isnan(irradiance));
 	}
 ]]
 local RESOLVE_GLSL = [[
-	restir_sample restir_resolve(restir_sample s) {
 	// a light that moved, turned or changed in the last second, that the receiver sees (one ray toward the sphere around its recent path) and that gives it more than a tenth of its last denoised gi: its history is cut there, or the old light trails behind. the test must not read this frame's or a reservoir's noisy estimate, cutting the dark ones and keeping the bright ones brightens everything
 	bool restir_light_changed(vec3 origin, float gi_luminance) {
 		for (int i = 0; i < restir_data.changed_light_count; i++) {
@@ -462,6 +462,7 @@ local RESOLVE_GLSL = [[
 		return false;
 	}
 
+	restir_sample restir_resolve(restir_sample s) {
 		if (s.kind != RESTIR_EMITTER) return s;
 
 		uint packed = uint(s.id.z);
@@ -773,10 +774,10 @@ local function pass_temporal()
 					// a pixel that traced nothing this frame enters the resampling with no confidence, its history keeps all the weight
 					M = traces ? 1.0 : 0.0;
 					flags = traces ? RESTIR_FLAG_TRACED | (miss ? RESTIR_FLAG_MISS : 0) | (candidate_flags & RESTIR_FLAG_GUIDE_MIX) : 0;
-					ivec2 base;
 					bool light_changed = restir_data.changed_light_count > 0 && restir_light_changed(restir_ray_origin(gpos, P, N, view_depth, depth), luminance(texelFetch(TEXTURE(restir_data.accum_history_tex), pos, 0).rgb));
 
 					if (light_changed) flags |= RESTIR_FLAG_LIGHT_CHANGED;
+					ivec2 base;
 					vec4 weights;
 
 					float prev_depth;
