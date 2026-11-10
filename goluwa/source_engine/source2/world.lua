@@ -26,6 +26,7 @@ local BLACKLISTED_MODELS = {
 	["models/props/interactive/washing_machine01a_loader.vmdl"] = true,
 }
 local BLACKLISTED_MODEL_PREFIX = "models/props/max/handposes/"
+local STATIC_COLLISION_GROUP = 4
 
 -- the entity color is sRGB, the shaders multiply it into linear albedo
 local function get_tint(color)
@@ -252,10 +253,13 @@ function world.Translate(name, sky_path)
 				ShapeModelPath = "maps/" .. name .. "/world_physics.vphys_c",
 				MotionType = "static",
 				WorldGeometry = true,
+				CollisionGroup = STATIC_COLLISION_GROUP,
 			},
 		},
 	}
 	local classes = {}
+	local placed = {}
+	local constraint_entities = {}
 
 	for _, lump_path in ipairs(world_data.m_entityLumps) do
 		for index, entity in ipairs(entity_lump.Load(vfs, normalize_path(lump_path) .. "_c")) do
@@ -315,11 +319,26 @@ function world.Translate(name, sky_path)
 									ShapeModelPath = model_path,
 									MotionType = motion,
 									WorldGeometry = motion == "static" or nil,
+									CollisionGroup = motion == "static" and STATIC_COLLISION_GROUP or nil,
 								} or
 								nil,
 						},
 					}
 
+					if entity.targetname and motion then
+						placed[entity.targetname] = {guid = guid, position = position, rotation = rotation}
+					end
+				elseif
+					class == "phys_hinge_local" or
+					class == "phys_slideconstraint" or
+					class == "phys_constraint"
+				then
+					constraint_entities[#constraint_entities + 1] = {
+						entity = entity,
+						position = position,
+						rotation = rotation,
+						guid = guid,
+					}
 				elseif (class == "light_omni" or class == "light_spot") and entity.color then
 					local color = entity.color
 					local range = entity.range or 0
@@ -375,6 +394,73 @@ function world.Translate(name, sky_path)
 
 			tasks.Wait()
 		end
+	end
+
+	for _, item in ipairs(constraint_entities) do
+		local entity, class = item.entity, item.entity.classname
+		local first = entity.attach1 and placed[entity.attach1]
+
+		if not first then goto next_constraint end
+
+		do
+			local second = entity.attach2 and entity.attach2 ~= "" and placed[entity.attach2] or nil
+			local kind, anchor, axis, friction = "weld", item.position, Vec3(0, 1, 0), 0
+			local has_limits, lower, upper = false, 0, 0
+
+			if class == "phys_hinge_local" then
+				local axis_points = {}
+
+				for point in entity.hingeaxis:gmatch("[^,]+") do
+					local x, y, z = point:match("(%S+)%s+(%S+)%s+(%S+)")
+					axis_points[#axis_points + 1] = item.position + item.rotation:VecMul(units.PositionToEngine(Vec3(tonumber(x), tonumber(y), tonumber(z))))
+				end
+
+				kind = "hinge"
+				anchor = axis_points[1]
+				axis = (axis_points[1] - axis_points[2]):GetNormalized()
+				friction = entity.hingefriction or 0
+				local min, max, initial = entity.min_rotation or 0, entity.max_rotation or 0, entity.initial_rotation or 0
+				has_limits = min ~= 0 or max ~= 0
+				lower, upper = math.rad(min - initial), math.rad(max - initial)
+			elseif class == "phys_slideconstraint" then
+				local x, y, z = entity.slideaxis:match("(%S+)%s+(%S+)%s+(%S+)")
+				local travel_vector = units.PositionToEngine(Vec3(tonumber(x), tonumber(y), tonumber(z))) - item.position
+				local travel = travel_vector:GetLength()
+				local start = entity.initialoffset or 0
+				kind = "slider"
+				axis = travel_vector / -travel
+				friction = entity.slidefriction or 0
+				has_limits = true
+				lower, upper = -start * travel, (1 - start) * travel
+			end
+
+			local function to_local(placement, position)
+				return placement.rotation:GetConjugated():VecMul(position - placement.position)
+			end
+
+			add{
+				guid = item.guid,
+				parent = root,
+				properties = {Name = class},
+				components = {
+					transform = {},
+					map_constraint = {
+						Kind = kind,
+						Entity0 = first.guid,
+						Entity1 = second and second.guid or "",
+						Anchor0 = to_local(first, anchor),
+						Axis0 = first.rotation:GetConjugated():VecMul(axis),
+						HasLimits = has_limits,
+						Lower = lower,
+						Upper = upper,
+						Friction = friction,
+						IgnoredGroup = STATIC_COLLISION_GROUP,
+					},
+				},
+			}
+		end
+
+		::next_constraint::
 	end
 
 	if sky_path then

@@ -123,6 +123,18 @@ local KEYS = {
 	"scale",
 	"fogcolor",
 	"targetmapname",
+	"attach1",
+	"attach2",
+	"hingeaxis",
+	"hingefriction",
+	"min_rotation",
+	"max_rotation",
+	"initial_rotation",
+	"slideaxis",
+	"slidefriction",
+	"initialoffset",
+	"enablelinearconstraint",
+	"enableangularconstraint",
 }
 local hash_to_name = {}
 

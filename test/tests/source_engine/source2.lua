@@ -141,7 +141,7 @@ T.Test("source 2 maps name their skybox in a skybox_reference entity", function(
 	T(world.FindSkybox("a2_headcrabs_tunnel"))["=="](nil)
 end)
 
-T.Test("source 2 maps keep vr hand poses out", function()
+T.Test("source 2 maps keep vr hand poses out and build their constraints", function()
 	local info = steam.FindSourceGame(546560)
 
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
@@ -149,18 +149,38 @@ T.Test("source 2 maps keep vr hand poses out", function()
 	steam.MountSourceGame(info)
 	local world = import("goluwa/source_engine/source2/world.lua")
 	vfs.Mount(world.GetMapDirectory(info) .. "a3_hotel_street.vpk/")
-	local banned = 0
+	local data = world.Translate("a3_hotel_street", nil)
+	local kinds, banned, drawer = {}, 0, nil
 
-	for _, record in ipairs(world.Translate("a3_hotel_street", nil).entities) do
-		local visual = record.components and record.components.visual
+	for _, record in ipairs(data.entities) do
+		local components = record.components
+		local visual = components and components.visual
 		local path = visual and visual.ModelPath or ""
 
-		if path:find("handposes/", 1, true) or path:find("washing_machine01a_door", 1, true) or path:find("washing_machine01a_loader", 1, true) then
+		if
+			path:find("handposes/", 1, true) or
+			path:find("washing_machine01a_door", 1, true) or
+			path:find("washing_machine01a_loader", 1, true)
+		then
 			banned = banned + 1
+		end
+
+		local constraint = components and components.map_constraint
+
+		if constraint then
+			kinds[constraint.Kind] = (kinds[constraint.Kind] or 0) + 1
+
+			if constraint.Kind == "slider" then drawer = drawer or constraint end
 		end
 	end
 
 	T(banned)["=="](0)
+	T(kinds.hinge > 50)["=="](true)
+	T(kinds.slider > 20)["=="](true)
+	T(kinds.weld >= 1)["=="](true)
+	T(drawer.HasLimits)["=="](true)
+	T(drawer.Upper - drawer.Lower)[">"](0.3)
+	T(drawer.Entity0 ~= "")["=="](true)
 end)
 
 T.Test("source 2 surface properties", function()
