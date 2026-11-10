@@ -291,35 +291,69 @@ T.Test("source 2 models are listed by the asset index", function()
 	T(index.by_path["models/props/traffic_drum/traffic_drum.vmdl_c"] ~= nil)["=="](true)
 end)
 
-T.Test("source 2 default animation pose", function()
+T.Test("source 2 skinned models pack a skeleton, weights and clips", function()
 	local info = steam.FindSourceGame(546560)
 
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
+	local mesh_pack = import("goluwa/source_engine/source2/mesh_pack.lua")
 	local animation = import("goluwa/source_engine/source2/animation.lua")
-	local res = resource.Load(vfs, "models/a2_destruction/a2_beam_destruciton.vmdl_c")
+	local res = resource.Load(vfs, "models/characters/eli/eli.vmdl_c")
 	local model_data = resource.ReadKV3(res)
-	local default = animation.GetDefaultAnimation(res)
-	T(default)["=="](1)
+	local meta, blob = mesh_pack.PackModel{
+		path = "eli",
+		model = res.data,
+		masks = model_data.m_refLODGroupMasks,
+		external = 0,
+		meshes = {},
+	}
+	local skeleton = meta.skeleton
+	T(#skeleton.names)["=="](#skeleton.kept)
+	T(#skeleton.names > 500 and #skeleton.names <= 1024)["=="](true)
+	T(skeleton.cloth.count)["=="](495)
+	T(skeleton.cloth.rod_count)["=="](2717)
+	T(skeleton.names[1])["=="]("pelvis")
+	T(skeleton.parents[1])["=="](-1)
+	local ref_pose
 
-	local function moved_bones(index)
-		local bones, pose = animation.GetPose(res, model_data, index, 0)
-		local moved = 0
-
-		for i, bone in ipairs(bones) do
-			local a, b = bone.position, pose[i].position
-
-			if math.abs(a[1] - b[1]) + math.abs(a[2] - b[2]) + math.abs(a[3] - b[3]) > 0.5 then
-				moved = moved + 1
-			end
-		end
-
-		return moved
+	for _, clip in ipairs(skeleton.clips) do
+		if clip.name == "ref_pose" then ref_pose = clip end
 	end
 
-	T(moved_bones(1) > 200)["=="](true)
-	T(moved_bones(3))["=="](0)
+	T(ref_pose.frame_count)["=="](1)
+
+	for _, entry in ipairs(meta.entries) do
+		local weights = ffi.cast("const float *", blob + entry.bone_weights_offset)
+		local indices = ffi.cast("const uint16_t *", blob + entry.bone_ids_offset)
+
+		for v = 0, entry.vertex_count - 1 do
+			T(math.abs(weights[v * 4] + weights[v * 4 + 1] + weights[v * 4 + 2] - 1) < 1e-4)["=="](true)
+			T(weights[v * 4 + 3])["=="](0)
+
+			for k = 0, 3 do
+				T(indices[v * 4 + k] < #skeleton.names)["=="](true)
+			end
+		end
+	end
+
+	local bind = ffi.cast("const float *", blob + skeleton.bind_offset)
+	local pose = ffi.new("float[?]", #skeleton.kept * 7)
+	animation.NewDecoder(res, animation.ReadBones(model_data, skeleton.cloth_parents), skeleton.kept):ReadFrame(ref_pose.animation, 0, pose)
+
+	for k = 0, #skeleton.kept - 1 do
+		local o = k * 7
+
+		for c = 0, 2 do
+			T(math.abs(pose[o + c] - bind[o + c]) < 1e-3)["=="](true)
+		end
+
+		T(
+			math.abs(
+					pose[o + 3] * bind[o + 3] + pose[o + 4] * bind[o + 4] + pose[o + 5] * bind[o + 5] + pose[o + 6] * bind[o + 6]
+				) > 0.999
+		)["=="](true)
+	end
 end)
 
 T.Test("source 2 material info", function()

@@ -535,6 +535,10 @@ function Animator:Animate(dt)
 		end
 	end
 
+	if rig.cloth then
+		rig:SimulateCloth(dt, self.Owner.transform:GetWorldMatrix())
+	end
+
 	if not (pose_changed or rig.dirty or rig.needs_skin) then
 		return self:Settle()
 	end

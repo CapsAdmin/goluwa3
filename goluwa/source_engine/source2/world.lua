@@ -40,6 +40,24 @@ end
 local axis_x = Vec3(1, 0, 0)
 local axis_y = Vec3(0, 1, 0)
 local axis_z = Vec3(0, 0, 1)
+local has_animation
+
+do
+	local cache = {}
+
+	function has_animation(model_path)
+		local value = cache[model_path]
+
+		if value == nil then
+			local file = assert(vfs.Open(model_path))
+			value = resource.Parse(file:ReadBytes(math.min(file:GetSize(), 1024))).blocks.ANIM ~= nil
+			file:Close()
+			cache[model_path] = value
+		end
+
+		return value
+	end
+end
 
 local function normalize_path(path)
 	return (path:gsub("\\", "/"):lower())
@@ -336,6 +354,7 @@ function world.Translate(name, sky_path)
 								Size = entity.scales and entity.scales[1] ~= 1 and entity.scales[1] or nil,
 							},
 							visual = {ModelPath = model_path, Tint = get_tint(entity.rendercolor)},
+							animator = has_animation(model_path) and {Playing = false} or nil,
 							rigid_body = motion and
 								{
 									ShapeModelPath = model_path,

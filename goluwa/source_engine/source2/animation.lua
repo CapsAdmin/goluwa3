@@ -1,11 +1,13 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local resource = import("goluwa/source_engine/source2/resource.lua")
+local units = import("goluwa/source_engine/units.lua")
 local animation = {}
 local u16_ptr_t = ffi.typeof("const uint16_t *")
 local i16_ptr_t = ffi.typeof("const int16_t *")
 local f32_ptr_t = ffi.typeof("const float *")
 local QUATERNION_SCALE = 0.70710677 / 16384
+local SCALE = units.meters
 
 local function half(h)
 	local e = bit.band(bit.rshift(h, 10), 31)
@@ -98,24 +100,6 @@ local function mat_vec(m, x, y, z)
 	return m[1] * x + m[2] * y + m[3] * z,
 	m[4] * x + m[5] * y + m[6] * z,
 	m[7] * x + m[8] * y + m[9] * z
-end
-
-local function read_skeleton(model_data)
-	local skeleton = model_data.m_modelSkeleton
-	local bones = {}
-
-	for i, name in ipairs(skeleton.m_boneName) do
-		local p, q = skeleton.m_bonePosParent[i], skeleton.m_boneRotParent[i]
-		bones[i] = {
-			name = name,
-			parent = skeleton.m_nParent[i] + 1,
-			position = {p[1], p[2], p[3]},
-			rotation = {q[1], q[2], q[3], q[4]},
-			scale = skeleton.m_boneScaleParent and skeleton.m_boneScaleParent[i] or 1,
-		}
-	end
-
-	return bones
 end
 
 local CHANNEL_ATTRIBUTES = {Position = "position", Angle = "rotation", Scale = "scale"}
@@ -215,53 +199,6 @@ local function read_segment(segment, decoder_names, channels, pose, frame)
 	end
 end
 
--- the index of the animation the first sequence plays, nil when the model has none or it is a delta
-function animation.GetDefaultAnimation(res)
-	local sequences = resource.ReadKV3(res, "ASEQ")
-	local animations = resource.ReadKV3(res, "ANIM").m_animArray
-	local sequence = sequences.m_localS1SeqDescArray[1]
-	local reference = sequence and sequence.m_fetch.m_localReferenceArray[1]
-	local name = reference and sequences.m_localSequenceNameArray[reference + 1]
-
-	for i, anim in ipairs(animations) do
-		if name and anim.m_name:lower() == name:lower() then
-			if anim.m_flags.m_bDelta then return nil end
-
-			return i
-		end
-	end
-end
-
--- the pose of a frame of one of the model's animations as local bone transforms
-function animation.GetPose(res, model_data, animation_index, frame)
-	local bones = read_skeleton(model_data)
-	local anim_data = resource.ReadKV3(res, "ANIM")
-	local anim = anim_data.m_animArray[animation_index]
-	local pose = {}
-
-	for i, bone in ipairs(bones) do
-		pose[i] = {position = bone.position, rotation = bone.rotation, scale = bone.scale}
-	end
-
-	local decoder_names = {}
-
-	for i, decoder in ipairs(anim_data.m_decoderArray) do
-		decoder_names[i - 1] = decoder.m_szName
-	end
-
-	local channels = build_channels(resource.ReadKV3(res, "AGRP").m_decodeKey, bones)
-
-	for _, block in ipairs(anim.m_pData.m_frameblockArray) do
-		if frame >= block.m_nStartFrame and frame <= block.m_nEndFrame then
-			for _, segment_index in ipairs(block.m_segmentIndexArray) do
-				read_segment(anim_data.m_segmentArray[segment_index + 1], decoder_names, channels, pose, frame - block.m_nStartFrame)
-			end
-		end
-	end
-
-	return bones, pose
-end
-
 local function model_space(bones, locals)
 	local result = {}
 
@@ -290,53 +227,366 @@ local function model_space(bones, locals)
 	return result
 end
 
--- one affine transform per bone that takes a vertex from the bind pose to the pose: v' = M v + t
-function animation.BuildSkin(bones, pose)
-	local bind, posed = model_space(bones, bones), model_space(bones, pose)
-	local skin = {}
+-- source (x, y, z) in inches is engine (-y, z, -x) in meters, a proper rotation, so quaternions swap axes the same way
+local function write_engine_pose(position, rotation, out, offset)
+	out[offset], out[offset + 1], out[offset + 2] = -position[2] * SCALE, position[3] * SCALE, -position[1] * SCALE
+	out[offset + 3], out[offset + 4], out[offset + 5], out[offset + 6] = -rotation[2], rotation[3], -rotation[1], rotation[4]
+end
 
-	for i = 1, #bones do
-		local b, p = bind[i], posed[i]
-		local k = p.scale / b.scale
-		local bm, pm = b.matrix, p.matrix
-		local m = {}
+-- the model's bones (1 based, parent 0 for roots). Cloth bones are roots in the file: cloth_parents (0 based bone to 0 based bone) makes each a child of the animated bone it rigidly follows, keeping its bind pose in the model
+function animation.ReadBones(model_data, cloth_parents)
+	local skeleton = model_data.m_modelSkeleton
+	local bones = {}
 
-		for row = 0, 2 do
-			for column = 0, 2 do
-				m[row * 3 + column + 1] = k * (
-						pm[row * 3 + 1] * bm[column * 3 + 1] + pm[row * 3 + 2] * bm[column * 3 + 2] + pm[row * 3 + 3] * bm[column * 3 + 3]
-					)
-			end
-		end
-
-		local tx, ty, tz = mat_vec(m, b.x, b.y, b.z)
-		skin[i] = {m = m, x = p.x - tx, y = p.y - ty, z = p.z - tz}
+	for i, name in ipairs(skeleton.m_boneName) do
+		local p, q = skeleton.m_bonePosParent[i], skeleton.m_boneRotParent[i]
+		bones[i] = {
+			name = name,
+			parent = skeleton.m_nParent[i] + 1,
+			position = {p[1], p[2], p[3]},
+			rotation = {q[1], q[2], q[3], q[4]},
+			scale = skeleton.m_boneScaleParent and skeleton.m_boneScaleParent[i] or 1,
+		}
 	end
 
-	return skin
+	if cloth_parents then
+		local bind = model_space(bones, bones)
+
+		for child, parent in pairs(cloth_parents) do
+			local c, p = bind[child + 1], bind[parent + 1]
+			local inverse = {p.rotation[1] * -1, p.rotation[2] * -1, p.rotation[3] * -1, p.rotation[4]}
+			local x, y, z = mat_vec(quat_matrix(inverse), c.x - p.x, c.y - p.y, c.z - p.z)
+			local bone = bones[child + 1]
+			bone.parent = parent + 1
+			bone.position = {x / p.scale, y / p.scale, z / p.scale}
+			bone.rotation = quat_mul(inverse, c.rotation)
+		end
+	end
+
+	return bones
 end
 
--- the skin of the first frame of the model's default animation, nil when there is none
-function animation.GetDefaultSkin(res, model_data)
-	local default = animation.GetDefaultAnimation(res)
+-- the bones a model's skin needs: the ones its vertices are weighted to and their ancestors, in skeleton order
+function animation.GetKeptBones(bones, used)
+	local keep = {}
 
-	if not default then return nil end
+	for bone in pairs(used) do
+		bone = bone + 1
 
-	return animation.BuildSkin(animation.GetPose(res, model_data, default, 0))
+		while bone > 0 and not keep[bone] do
+			keep[bone] = true
+			bone = bones[bone].parent
+		end
+	end
+
+	local kept, new_index = {}, {}
+
+	for bone = 1, #bones do
+		if keep[bone] then
+			kept[#kept + 1] = bone - 1
+			new_index[bone - 1] = #kept - 1
+			assert(bones[bone].parent < bone, "source 2 bones are not ordered parent first")
+		end
+	end
+
+	return kept, new_index
 end
 
--- the skin transforms indexed by the bone index a mesh's vertices carry (0 based)
-function animation.GetMeshSkin(model_data, skin, mesh_index)
+-- engine axes as source axis and sign: x = -y, y = z, z = -x
+local AXES = {{2, -1}, {3, 1}, {1, -1}}
+
+-- engine skeleton data for the kept bones: names, parents, local bind poses and inverse model bind matrices (3x4, row major)
+function animation.GetBindData(bones, kept, new_index)
+	local bind = model_space(bones, bones)
+	local names, parents = {}, {}
+	local bind_local = ffi.new("float[?]", #kept * 7)
+	local inverse_bind = ffi.new("float[?]", #kept * 12)
+
+	for k, bone_index in ipairs(kept) do
+		local bone = bones[bone_index + 1]
+		names[k] = bone.name
+		parents[k] = bone.parent > 0 and new_index[bone.parent - 1] or -1
+		write_engine_pose(bone.position, bone.rotation, bind_local, (k - 1) * 7)
+		local b = bind[bone_index + 1]
+		local m = b.matrix
+		local inv_scale = 1 / b.scale
+		local r = {
+			m[1] * inv_scale,
+			m[4] * inv_scale,
+			m[7] * inv_scale,
+			m[2] * inv_scale,
+			m[5] * inv_scale,
+			m[8] * inv_scale,
+			m[3] * inv_scale,
+			m[6] * inv_scale,
+			m[9] * inv_scale,
+		}
+		local t = {mat_vec(r, b.x, b.y, b.z)}
+		local o = (k - 1) * 12
+
+		for row = 1, 3 do
+			local source_row, sign = AXES[row][1], AXES[row][2]
+
+			for column = 1, 3 do
+				inverse_bind[o + (row - 1) * 4 + column - 1] = sign * AXES[column][2] * r[(source_row - 1) * 3 + AXES[column][1]]
+			end
+
+			inverse_bind[o + (row - 1) * 4 + 3] = -sign * t[source_row] * SCALE
+		end
+	end
+
+	return names, parents, bind_local, inverse_bind
+end
+
+-- the model's sequences that play one non delta animation: name, animation index, fps, frame count and looping
+function animation.GetClips(res)
+	local sequences = resource.ReadKV3(res, "ASEQ")
+	local animations = resource.ReadKV3(res, "ANIM").m_animArray
+	local by_name = {}
+	local clips = {}
+
+	for i, anim in ipairs(animations) do
+		by_name[anim.m_name:lower()] = i
+	end
+
+	for i, sequence in ipairs(sequences.m_localS1SeqDescArray) do
+		local reference = sequence.m_fetch.m_localReferenceArray[1]
+		local name = reference and sequences.m_localSequenceNameArray[reference + 1]
+		local index = name and by_name[name:lower()]
+
+		if
+			index and
+			not animations[index].m_flags.m_bDelta and
+			animations[index].m_pData.m_nFrames > 0
+		then
+			local anim = animations[index]
+			clips[#clips + 1] = {
+				name = sequence.m_sName,
+				animation = index,
+				fps = anim.fps,
+				frame_count = anim.m_pData.m_nFrames,
+				loop = anim.m_flags.m_bLooping,
+			}
+		end
+	end
+
+	return clips
+end
+
+local Decoder = {}
+Decoder.__index = Decoder
+
+-- reads single frames of a model's animations as engine local poses of the kept bones
+function animation.NewDecoder(res, bones, kept)
+	local anim_data = resource.ReadKV3(res, "ANIM")
+	local decoder_names = {}
+	local pose = {}
+
+	for i, decoder in ipairs(anim_data.m_decoderArray) do
+		decoder_names[i - 1] = decoder.m_szName
+	end
+
+	for i in ipairs(bones) do
+		pose[i] = {}
+	end
+
+	return setmetatable(
+		{
+			bones = bones,
+			kept = kept,
+			anim_data = anim_data,
+			decoder_names = decoder_names,
+			channels = build_channels(resource.ReadKV3(res, "AGRP").m_decodeKey, bones),
+			pose = pose,
+		},
+		Decoder
+	)
+end
+
+function Decoder:ReadFrame(animation_index, frame, out)
+	local pose, bones = self.pose, self.bones
+
+	for i, bone in ipairs(bones) do
+		local p = pose[i]
+		p.position, p.rotation, p.scale = bone.position, bone.rotation, bone.scale
+	end
+
+	local anim = self.anim_data.m_animArray[animation_index]
+
+	for _, block in ipairs(anim.m_pData.m_frameblockArray) do
+		if frame >= block.m_nStartFrame and frame <= block.m_nEndFrame then
+			for _, segment_index in ipairs(block.m_segmentIndexArray) do
+				read_segment(
+					self.anim_data.m_segmentArray[segment_index + 1],
+					self.decoder_names,
+					self.channels,
+					pose,
+					frame - block.m_nStartFrame
+				)
+			end
+		end
+	end
+
+	for k, bone_index in ipairs(self.kept) do
+		local p = pose[bone_index + 1]
+		write_engine_pose(p.position, p.rotation, out, (k - 1) * 7)
+	end
+end
+
+-- the cloth (finite element) model of a vphys: node count, per node mass, gravity and animation attraction, distance rods and the animated bones each node is attached to
+function animation.ReadCloth(model_data, fe)
+	local skeleton = model_data.m_modelSkeleton
+	local bone_of = {}
+
+	for i, name in ipairs(skeleton.m_boneName) do
+		bone_of[name] = i - 1
+	end
+
+	local names = fe.m_CtrlName
+	local count = fe.m_nNodeCount
+	local cloth = {
+		count = count,
+		node_bone = {},
+		inv_mass = fe.m_NodeInvMasses,
+		attraction = {},
+		gravity = {},
+		rods = fe.m_Rods,
+		targets = {},
+		parents = {},
+		target_bones = {},
+	}
+	local entries = {}
+
+	for node = 0, count - 1 do
+		cloth.node_bone[node] = bone_of[names[node + 1]]
+		local integrator = fe.m_NodeIntegrator[node + 1]
+		cloth.attraction[node] = integrator.flAnimationVertexAttraction
+		cloth.gravity[node] = integrator.flGravity * SCALE
+		entries[node] = {}
+	end
+
+	local function add_target(node, parent_name, offset, alpha)
+		local bone = bone_of[parent_name]
+		local list = entries[node]
+		list[#list + 1] = {
+			bone = bone,
+			x = -offset[2] * SCALE,
+			y = offset[3] * SCALE,
+			z = -offset[1] * SCALE,
+			alpha = alpha,
+		}
+		cloth.target_bones[bone] = true
+	end
+
+	for _, offset in ipairs(fe.m_CtrlOffsets) do
+		local child = bone_of[names[offset.nCtrlChild + 1]]
+		local parent = bone_of[names[offset.nCtrlParent + 1]]
+
+		if child and parent and skeleton.m_nParent[child + 1] < 0 then
+			cloth.parents[child] = parent
+		end
+
+		cloth.rigid = cloth.rigid or {}
+		cloth.rigid[offset.nCtrlChild] = {names[offset.nCtrlParent + 1], offset.vOffset}
+	end
+
+	local soft_count = {}
+
+	for _, offset in ipairs(fe.m_CtrlSoftOffsets) do
+		add_target(offset.nCtrlChild, names[offset.nCtrlParent + 1], offset.vOffset, offset.flAlpha)
+		soft_count[offset.nCtrlChild] = true
+	end
+
+	for node = 0, count - 1 do
+		if not soft_count[node] then
+			local rigid = cloth.rigid and cloth.rigid[node]
+
+			if rigid then
+				add_target(node, rigid[1], rigid[2], 1)
+			elseif cloth.node_bone[node] then
+				add_target(node, names[node + 1], {0, 0, 0}, 1)
+			end
+		end
+	end
+
+	cloth.entries = entries
+	return cloth
+end
+
+-- the cloth as flat arrays for the kept bones (bone indices are engine skeleton indices, -1 for none)
+function animation.PackCloth(cloth, new_index)
+	local count = cloth.count
+	local node_bone = ffi.new("int32_t[?]", count)
+	local inv_mass = ffi.new("float[?]", count)
+	local attraction = ffi.new("float[?]", count)
+	local gravity = ffi.new("float[?]", count)
+	local target_start = ffi.new("int32_t[?]", count + 1)
+	local targets = 0
+
+	for node = 0, count - 1 do
+		node_bone[node] = cloth.node_bone[node] and new_index[cloth.node_bone[node]] or -1
+		inv_mass[node] = cloth.inv_mass[node + 1]
+		attraction[node] = cloth.attraction[node]
+		gravity[node] = cloth.gravity[node]
+		target_start[node] = targets
+		targets = targets + #cloth.entries[node]
+	end
+
+	target_start[count] = targets
+	local target_bone = ffi.new("int32_t[?]", targets)
+	local target_offset = ffi.new("float[?]", targets * 3)
+	local target_alpha = ffi.new("float[?]", targets)
+	local k = 0
+
+	for node = 0, count - 1 do
+		for _, entry in ipairs(cloth.entries[node]) do
+			target_bone[k] = new_index[entry.bone]
+			target_offset[k * 3], target_offset[k * 3 + 1], target_offset[k * 3 + 2] = entry.x, entry.y, entry.z
+			target_alpha[k] = entry.alpha
+			k = k + 1
+		end
+	end
+
+	local rod_count = #cloth.rods
+	local rod_nodes = ffi.new("int32_t[?]", rod_count * 2)
+	local rod_limits = ffi.new("float[?]", rod_count * 2)
+
+	for i, rod in ipairs(cloth.rods) do
+		rod_nodes[(i - 1) * 2], rod_nodes[(i - 1) * 2 + 1] = rod.nNode[1], rod.nNode[2]
+		rod_limits[(i - 1) * 2], rod_limits[(i - 1) * 2 + 1] = rod.flMinDist * SCALE, rod.flMaxDist * SCALE
+	end
+
+	return {
+		count = count,
+		target_count = targets,
+		rod_count = rod_count,
+		arrays = {
+			node_bone = node_bone,
+			inv_mass = inv_mass,
+			attraction = attraction,
+			gravity = gravity,
+			target_start = target_start,
+			target_bone = target_bone,
+			target_offset = target_offset,
+			target_alpha = target_alpha,
+			rod_nodes = rod_nodes,
+			rod_limits = rod_limits,
+		},
+	}
+end
+
+-- the model bone a mesh's local bone index refers to
+function animation.GetMeshBones(model_data, mesh_index)
 	local starts, remap = model_data.m_remappingTableStarts, model_data.m_remappingTable
 	local first = starts[mesh_index + 1]
 	local count = (starts[mesh_index + 2] or #remap) - first
-	local mesh_skin = {}
+	local bones = {}
 
 	for i = 0, count - 1 do
-		mesh_skin[i] = skin[remap[first + i + 1] + 1]
+		bones[i] = remap[first + i + 1]
 	end
 
-	return mesh_skin
+	return bones
 end
 
 return animation

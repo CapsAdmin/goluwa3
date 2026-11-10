@@ -16,8 +16,10 @@ local float_array_t = ffi.typeof("float[?]")
 local u16_ptr_t = ffi.typeof("const uint16_t *")
 local u32_ptr_t = ffi.typeof("const uint32_t *")
 local F = vbib.FORMAT
+local MAX_INFLUENCES = 3
+local MAX_BONES = 1024
 
-function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
+function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, bone_map)
 	local vb = buffers.vertex[draw_call.m_vertexBuffers[1].m_hBuffer]
 	local ib = buffers.index[draw_call.m_indexBuffer.m_hBuffer]
 	local base = draw_call.m_nBaseVertex
@@ -27,8 +29,10 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
 	local normal = vbib.GetField(vb, "NORMAL")
 	local texcoord = vbib.GetField(vb, "TEXCOORD", 0)
 	local color = vbib.GetField(vb, "COLOR") or vbib.GetField(vb, "TEXCOORD", 4)
-	local blend_indices = skin and vbib.GetField(vb, "BLENDINDICES")
-	local blend_weights = skin and vbib.GetField(vb, "BLENDWEIGHT")
+	local blend_indices = bone_map and vbib.GetField(vb, "BLENDINDICES")
+	local blend_weights = bone_map and vbib.GetField(vb, "BLENDWEIGHT")
+	local bone_ids = blend_indices and blend_weights and ffi.new("uint16_t[?]", vertex_count * 4)
+	local bone_weights = bone_ids and float_array_t(vertex_count * 4)
 
 	if
 		color and
@@ -58,41 +62,24 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
 			nx, ny, nz, tx, ty, tz, ts = vbib.ReadNormalTangent(vb, normal, base + i)
 		end
 
-		if blend_indices and blend_weights then
+		if bone_ids then
 			local i1, i2, i3, i4 = vbib.Read(vb, blend_indices, base + i)
 			local w1, w2, w3, w4 = vbib.Read(vb, blend_weights, base + i)
-			local total = w1 + w2 + w3 + w4
-			local sx, sy, sz, snx, sny, snz, stx, sty, stz = 0, 0, 0, 0, 0, 0, 0, 0, 0
-
-			for j = 1, 4 do
-				local bone = skin[(j == 1 and i1 or j == 2 and i2 or j == 3 and i3 or i4)]
-				local weight = (j == 1 and w1 or j == 2 and w2 or j == 3 and w3 or w4) / total
-
-				if bone and weight > 0 then
-					local m = bone.m
-					sx = sx + weight * (m[1] * x + m[2] * y + m[3] * z + bone.x)
-					sy = sy + weight * (m[4] * x + m[5] * y + m[6] * z + bone.y)
-					sz = sz + weight * (m[7] * x + m[8] * y + m[9] * z + bone.z)
-
-					if nx then
-						snx = snx + weight * (m[1] * nx + m[2] * ny + m[3] * nz)
-						sny = sny + weight * (m[4] * nx + m[5] * ny + m[6] * nz)
-						snz = snz + weight * (m[7] * nx + m[8] * ny + m[9] * nz)
-						stx = stx + weight * (m[1] * tx + m[2] * ty + m[3] * tz)
-						sty = sty + weight * (m[4] * tx + m[5] * ty + m[6] * tz)
-						stz = stz + weight * (m[7] * tx + m[8] * ty + m[9] * tz)
-					end
-				end
-			end
-
-			x, y, z = sx, sy, sz
-
-			if nx then
-				local nl = math.sqrt(snx * snx + sny * sny + snz * snz)
-				local tl = math.sqrt(stx * stx + sty * sty + stz * stz)
-				nx, ny, nz = snx / nl, sny / nl, snz / nl
-				tx, ty, tz = stx / tl, sty / tl, stz / tl
-			end
+			mesh_pack.GetVertexBones(
+				bone_map.bones,
+				bone_map.new_index,
+				i1,
+				i2,
+				i3,
+				i4,
+				w1,
+				w2,
+				w3,
+				w4,
+				bone_ids,
+				bone_weights,
+				i * 4
+			)
 		end
 
 		local px, py, pz = -y * SCALE, z * SCALE, -x * SCALE
@@ -171,19 +158,78 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
 
 	entry.bounds = {min_x, min_y, min_z, max_x, max_y, max_z}
 
+	if bone_ids then
+		entry.bone_ids_offset = builder:Add(bone_ids, vertex_count * 8)
+		entry.bone_weights_offset = builder:Add(bone_weights, vertex_count * 16)
+	end
+
 	if blend then entry.blend_offset = builder:Add(blend, vertex_count * 4) end
 
 	return entry
 end
 
-function mesh_pack.PackMeshes(builder, entries, data, buffers, name, skin)
+do
+	local indices, weights = {}, {}
+
+	-- the MAX_INFLUENCES heaviest bones of a vertex, largest weight first, in indices and weights
+	local function select_influences(i1, i2, i3, i4, w1, w2, w3, w4)
+		indices[1], indices[2], indices[3], indices[4] = i1, i2, i3, i4
+		weights[1], weights[2], weights[3], weights[4] = w1, w2, w3, w4
+
+		for m = 1, MAX_INFLUENCES do
+			local best = m
+
+			for n = m + 1, 4 do
+				if weights[n] > weights[best] then best = n end
+			end
+
+			indices[m], indices[best] = indices[best], indices[m]
+			weights[m], weights[best] = weights[best], weights[m]
+		end
+	end
+
+	function mesh_pack.MarkUsedBones(buffers, draw_call, bones, used)
+		local vb = buffers.vertex[draw_call.m_vertexBuffers[1].m_hBuffer]
+		local blend_indices = vbib.GetField(vb, "BLENDINDICES")
+		local blend_weights = vbib.GetField(vb, "BLENDWEIGHT")
+
+		if not (blend_indices and blend_weights) then return end
+
+		for i = 0, draw_call.m_nVertexCount - 1 do
+			local row = draw_call.m_nBaseVertex + i
+			local i1, i2, i3, i4 = vbib.Read(vb, blend_indices, row)
+			local w1, w2, w3, w4 = vbib.Read(vb, blend_weights, row)
+			select_influences(i1, i2, i3, i4, w1, w2, w3, w4)
+
+			for m = 1, MAX_INFLUENCES do
+				if weights[m] > 0 then used[bones[indices[m]]] = true end
+			end
+		end
+	end
+
+	function mesh_pack.GetVertexBones(bones, new_index, i1, i2, i3, i4, w1, w2, w3, w4, out_ids, out_weights, offset)
+		select_influences(i1, i2, i3, i4, w1, w2, w3, w4)
+		local total = weights[1] + weights[2] + weights[3]
+
+		for m = 1, MAX_INFLUENCES do
+			local used = weights[m] > 0
+			out_ids[offset + m - 1] = used and new_index[bones[indices[m]]] or 0
+			out_weights[offset + m - 1] = used and weights[m] / total or 0
+		end
+
+		out_ids[offset + 3] = 0
+		out_weights[offset + 3] = 0
+	end
+end
+
+function mesh_pack.PackMeshes(builder, entries, data, buffers, name, bone_map)
 	for _, object in ipairs(data.m_sceneObjects) do
 		for _, draw_call in ipairs(object.m_drawCalls) do
 			if
 				draw_call.m_nPrimitiveType == "RENDER_PRIM_TRIANGLES" and
 				draw_call.m_nIndexCount > 0
 			then
-				entries[#entries + 1] = mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
+				entries[#entries + 1] = mesh_pack.PackDrawCall(builder, buffers, draw_call, name, bone_map)
 			end
 		end
 	end
@@ -213,14 +259,13 @@ function mesh_pack.PackModel(input)
 			meta.physics_block = control.embedded_physics.phys_data_block
 		end
 
-		local model_data, skin
+		local model_data
 
 		if res.blocks.ANIM and res.blocks.AGRP and res.blocks.ASEQ then
 			model_data = resource.ReadKV3(res)
-			local ok, result = pcall(animation.GetDefaultSkin, res, model_data)
-
-			if ok then skin = result end
 		end
+
+		local meshes = {}
 
 		for _, embedded in ipairs(control and control.embedded_meshes or {}) do
 			if
@@ -234,15 +279,72 @@ function mesh_pack.PackModel(input)
 					1
 				) ~= 0
 			then
-				mesh_pack.PackMeshes(
-					builder,
-					entries,
-					resource.ReadKV3(res, embedded.data_block),
-					vbib.Parse(res.data, res.list[embedded.vbib_block].offset),
-					input.path,
-					skin and animation.GetMeshSkin(model_data, skin, embedded.mesh_index)
-				)
+				meshes[#meshes + 1] = {
+					data = resource.ReadKV3(res, embedded.data_block),
+					buffers = vbib.Parse(res.data, res.list[embedded.vbib_block].offset),
+					bones = model_data and animation.GetMeshBones(model_data, embedded.mesh_index),
+				}
 			end
+		end
+
+		local new_index
+
+		if model_data then
+			local fe = res.blocks.PHYS and resource.ReadKV3(res, "PHYS").m_pFeModel
+			local cloth = fe and fe.m_nNodeCount > 0 and animation.ReadCloth(model_data, fe)
+			local bones = animation.ReadBones(model_data, cloth and cloth.parents)
+			local used = {}
+
+			for _, mesh in ipairs(meshes) do
+				for _, object in ipairs(mesh.data.m_sceneObjects) do
+					for _, draw_call in ipairs(object.m_drawCalls) do
+						mesh_pack.MarkUsedBones(mesh.buffers, draw_call, mesh.bones, used)
+					end
+				end
+			end
+
+			if next(used) then
+				for bone in pairs(cloth and cloth.target_bones or {}) do
+					used[bone] = true
+				end
+
+				for bone, name in ipairs(model_data.m_modelSkeleton.m_boneName) do
+					if name:sub(1, 1) ~= "$" then used[bone - 1] = true end
+				end
+
+				local kept
+				kept, new_index = animation.GetKeptBones(bones, used)
+				assert(#kept <= MAX_BONES, input.path .. ": more than " .. MAX_BONES .. " skinned bones")
+				local names, parents, bind_local, inverse_bind = animation.GetBindData(bones, kept, new_index)
+				meta.skeleton = {
+					names = names,
+					parents = parents,
+					kept = kept,
+					cloth_parents = cloth and cloth.parents,
+					clips = animation.GetClips(res),
+					bind_offset = builder:Add(bind_local),
+					inverse_bind_offset = builder:Add(inverse_bind),
+				}
+
+				if cloth then
+					local packed = animation.PackCloth(cloth, new_index)
+					meta.skeleton.cloth = {
+						count = packed.count,
+						target_count = packed.target_count,
+						rod_count = packed.rod_count,
+						offsets = {},
+					}
+
+					for name, array in pairs(packed.arrays) do
+						meta.skeleton.cloth.offsets[name] = builder:Add(array)
+					end
+				end
+			end
+		end
+
+		for _, mesh in ipairs(meshes) do
+			local bone_map = new_index and {bones = mesh.bones, new_index = new_index}
+			mesh_pack.PackMeshes(builder, entries, mesh.data, mesh.buffers, input.path, bone_map)
 		end
 	end
 

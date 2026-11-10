@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local skinning = import("goluwa/render3d/skinning.lua")
+local Cloth = import("goluwa/render3d/cloth.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Rig = {}
@@ -43,6 +44,7 @@ function Rig.New(skeleton, parts)
 	end
 
 	self.skinned = {}
+	self.cloth = skeleton.Cloth and Cloth.New(skeleton)
 	local weight_count = 0
 
 	for _, part in ipairs(parts) do
@@ -316,8 +318,16 @@ function Rig:Compute()
 		self.world,
 		self.overrides.count > 0 and self.overrides or nil
 	)
+
+	if self.cloth then self.cloth:Apply(self) end
+
 	self.dirty = false
 	self.needs_skin = true
+end
+
+function Rig:SimulateCloth(dt, matrix)
+	self.cloth:Advance(dt, matrix)
+	self.dirty = true
 end
 
 function Rig:Skin()
