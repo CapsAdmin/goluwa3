@@ -122,6 +122,7 @@ local KEYS = {
 	"sundirection",
 	"scale",
 	"fogcolor",
+	"targetmapname",
 }
 local hash_to_name = {}
 

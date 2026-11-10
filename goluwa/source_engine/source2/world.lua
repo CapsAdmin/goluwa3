@@ -143,7 +143,20 @@ local function parse_vector(value)
 	return Vec3(value[1], value[2], value[3])
 end
 
-function world.Translate(name, has_skybox)
+-- the map names its skybox in a skybox_reference entity, as a path under maps/ without the extension
+function world.FindSkybox(name)
+	local world_data = resource.ReadKV3(resource.Load(vfs, "maps/" .. name .. "/world.vwrld_c"))
+
+	for _, lump_path in ipairs(world_data.m_entityLumps) do
+		for _, entity in ipairs(entity_lump.Load(vfs, normalize_path(lump_path) .. "_c")) do
+			if entity.classname == "skybox_reference" and entity.targetmapname then
+				return entity.targetmapname:match("^(.+)%.vmap$")
+			end
+		end
+	end
+end
+
+function world.Translate(name, sky_path)
 	local weather = import("goluwa/render3d/weather.lua")
 	local records = {}
 	local root = "source2:" .. name
@@ -347,9 +360,8 @@ function world.Translate(name, has_skybox)
 		end
 	end
 
-	if has_skybox then
-		local sky_name = name .. "_skybox"
-		local sky_world = resource.ReadKV3(resource.Load(vfs, "maps/" .. name .. "/" .. sky_name .. "/world.vwrld_c"))
+	if sky_path then
+		local sky_world = resource.ReadKV3(resource.Load(vfs, sky_path .. "/world.vwrld_c"))
 		local scale, origin = 1, {0, 0, 0}
 
 		for _, lump_path in ipairs(sky_world.m_entityLumps) do
@@ -407,10 +419,13 @@ end
 function world.Load(name, info)
 	steam.MountSourceGame(info)
 	vfs.Mount(world.GetMapDirectory(info) .. name .. ".vpk/")
-	local sky_path = world.GetMapDirectory(info) .. name .. "/" .. name .. "_skybox.vpk"
-	local has_skybox = vfs.IsFile("os:" .. sky_path)
+	local sky_path = world.FindSkybox(name)
 
-	if has_skybox then vfs.Mount(sky_path .. "/") end
+	if sky_path and vfs.IsFile("os:" .. info.vdf_directory .. sky_path .. ".vpk") then
+		vfs.Mount(info.vdf_directory .. sky_path .. ".vpk/")
+	else
+		sky_path = nil
+	end
 
 	scene.Clear()
 	local task = tasks.CreateTask()
@@ -422,7 +437,7 @@ function world.Load(name, info)
 		scene.BeginSpawning()
 		local ok, err = pcall(function()
 			startup.Begin("source 2 translate")
-			local scene_data = world.Translate(name, has_skybox)
+			local scene_data = world.Translate(name, sky_path)
 			startup.End("source 2 translate")
 			local model_paths, seen = {}, {}
 

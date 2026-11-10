@@ -119,6 +119,28 @@ T.Test("source 2 world physics", function()
 	T(meshes > 0)["=="](true)
 end)
 
+T.Test("source 2 maps name their skybox in a skybox_reference entity", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local world = import("goluwa/source_engine/source2/world.lua")
+
+	for name, expected in pairs{
+		a3_hotel_street = "maps/a3_hotel_street/hotel_street_skybox_static",
+		a3_c17_processing_plant = "maps/a3_c17_processing_plant/skybox",
+		a2_pistol = "maps/a2_pistol/a2_pistol_skybox",
+	} do
+		vfs.Mount(world.GetMapDirectory(info) .. name .. ".vpk/")
+		T(world.FindSkybox(name))["=="](expected)
+		T(vfs.IsFile("os:" .. info.vdf_directory .. expected .. ".vpk"))["=="](true)
+	end
+
+	vfs.Mount(world.GetMapDirectory(info) .. "a2_headcrabs_tunnel.vpk/")
+	T(world.FindSkybox("a2_headcrabs_tunnel"))["=="](nil)
+end)
+
 T.Test("source 2 surface properties", function()
 	local info = steam.FindSourceGame(546560)
 
