@@ -2,6 +2,8 @@ local pvars = import("goluwa/cli/pvars.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local system = import("goluwa/system.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
+local bridge = import("goluwa/render3d/scene/bridge.lua")
+local materials = import("goluwa/render3d/scene/materials.lua")
 local restir_gi = {}
 restir_gi.RESOLUTION_SCALES = {full = 1, half = 0.5, quarter = 0.25}
 pvars.StartGroup("Lighting", "ReSTIR GI", {store = false, prefix = "restir_gi_"})
@@ -176,6 +178,121 @@ do
 		reference.direction = direction:Copy()
 		cap = frame <= fast_until and LIGHT_CHANGE_HISTORY or math.huge
 		return cap
+	end
+end
+
+do
+	local CHANGE_FRAMES = 60
+	restir_gi.MAX_CHANGED_LIGHTS = 8
+	local tracked = setmetatable({}, {__mode = "k"})
+	local changed = {}
+	local last_frame = -1
+
+	local function track(key, x, y, z, size, intensity, frame)
+		local t = tracked[key]
+
+		if not t then
+			t = {path = {}}
+			tracked[key] = t
+		end
+
+		if
+			t.x and
+			(
+				math.abs(x - t.x) + math.abs(y - t.y) + math.abs(z - t.z) > 1e-3 or
+				math.abs(intensity - t.intensity) > 0.02 * math.max(intensity, t.intensity)
+			)
+		then
+			t.until_frame = frame + CHANGE_FRAMES
+			t.path[#t.path + 1] = {frame = frame, x = t.x, y = t.y, z = t.z, intensity = t.intensity}
+		end
+
+		t.x, t.y, t.z, t.intensity = x, y, z, intensity
+
+		while t.path[1] and t.path[1].frame < frame - CHANGE_FRAMES do
+			table.remove(t.path, 1)
+		end
+
+		if not t.until_frame or t.until_frame < frame then return end
+
+		local lo_x, lo_y, lo_z, hi_x, hi_y, hi_z, strongest = x, y, z, x, y, z, intensity
+
+		for _, p in ipairs(t.path) do
+			lo_x, lo_y, lo_z = math.min(lo_x, p.x), math.min(lo_y, p.y), math.min(lo_z, p.z)
+			hi_x, hi_y, hi_z = math.max(hi_x, p.x), math.max(hi_y, p.y), math.max(hi_z, p.z)
+			strongest = math.max(strongest, p.intensity)
+		end
+
+		changed[#changed + 1] = {
+			x = (lo_x + hi_x) * 0.5,
+			y = (lo_y + hi_y) * 0.5,
+			z = (lo_z + hi_z) * 0.5,
+			radius = 0.5 * math.sqrt((hi_x - lo_x) ^ 2 + (hi_y - lo_y) ^ 2 + (hi_z - lo_z) ^ 2) + size,
+			intensity = strongest,
+		}
+	end
+
+	local function by_intensity(a, b)
+		return a.intensity > b.intensity
+	end
+
+	function restir_gi.GetChangedLights()
+		local frame = system.GetFrameNumber()
+
+		if frame == last_frame then return changed end
+
+		last_frame = frame
+		table.clear(changed)
+
+		for visual in pairs(bridge.GetEmissiveVisuals()) do
+			local aabb = visual.Visible and visual:GetWorldAABB()
+
+			if aabb then
+				local luminance = 0
+
+				for _, item in ipairs(visual.scene_instances) do
+					local r, g, b = materials.GetEmissive(item.material)
+					luminance = math.max(luminance, 0.2126 * r + 0.7152 * g + 0.0722 * b)
+				end
+
+				local sx, sy, sz = aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z
+				track(
+					visual,
+					(aabb.min_x + aabb.max_x) * 0.5,
+					(aabb.min_y + aabb.max_y) * 0.5,
+					(aabb.min_z + aabb.max_z) * 0.5,
+					0.5 * math.sqrt(sx * sx + sy * sy + sz * sz),
+					luminance * render3d.EMISSIVE_REFERENCE_LUMINANCE * math.max(sx * sy, sy * sz, sx * sz),
+					frame
+				)
+			end
+		end
+
+		for _, light in ipairs(render3d.GetLights()) do
+			if light.Type ~= "light_sun" and light.Type ~= "light_directional" then
+				local x, y, z = light.Owner.transform:GetWorldMatrix():GetTranslation()
+				local color = light.Color
+				track(
+					light,
+					x,
+					y,
+					z,
+					light.SourceRadius,
+					(
+							0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b
+						) * light:GetColorScale() * light:GetPhotometricAmount() * light:GetInverseEmissionSolidAngle(),
+					frame
+				)
+			end
+		end
+
+		table.sort(changed, by_intensity)
+
+		for i = #changed, restir_gi.MAX_CHANGED_LIGHTS + 1, -1 do
+			changed[i] = nil
+		end
+
+		return changed
 	end
 end
 

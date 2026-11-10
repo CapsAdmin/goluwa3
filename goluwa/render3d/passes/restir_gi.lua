@@ -43,6 +43,9 @@ local function restir_uniform(trace)
 		{"max_history", "float"},
 		{"permutation", "int"},
 		{"history_cap", "float"},
+		{"changed_light_count", "int"},
+		{"changed_lights", "vec4", restir_gi.MAX_CHANGED_LIGHTS},
+		{"changed_light_intensities", "vec4", restir_gi.MAX_CHANGED_LIGHTS},
 		{"filter_history", "float"},
 		{"hit_gi_share", "float"},
 		{"guided", "float"},
@@ -129,6 +132,17 @@ local function restir_uniform(trace)
 			block.max_history = restir_gi.max_history:Get()
 			block.permutation = restir_gi.permutation:Get() and 1 or 0
 			block.history_cap = restir_gi.GetHistoryCap()
+			local changed = restir_gi.GetChangedLights()
+			block.changed_light_count = #changed
+
+			for i, light in ipairs(changed) do
+				block.changed_lights[i - 1][0] = light.x
+				block.changed_lights[i - 1][1] = light.y
+				block.changed_lights[i - 1][2] = light.z
+				block.changed_lights[i - 1][3] = light.radius
+				block.changed_light_intensities[i - 1][0] = light.intensity
+			end
+
 			block.filter_history = restir_gi.filter_history:Get()
 			block.hit_gi_share = restir_gi.hit_gi_share:Get()
 			block.guided = restir_gi.guided:Get()
@@ -318,6 +332,20 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		if (cos_r <= 0.0 || cos_q <= 1e-4) return 0.0;
 
 		return cos_r / cos_q * q2 / max(r2, 1e-12);
+	}
+
+	// a light that moved or changed in the last second and lights P by more than a tenth of its gi (irradiance / pi): its history is cut there, or the old light trails behind for the whole history
+	#define RESTIR_CHANGED_HISTORY 4.0
+
+	bool restir_light_changed(vec3 P, float gi_luminance) {
+		for (int i = 0; i < restir_data.changed_light_count; i++) {
+			vec4 sphere = restir_data.changed_lights[i];
+			float d = max(distance(P, sphere.xyz) - sphere.w, 0.05);
+
+			if (restir_data.changed_light_intensities[i].x / (RESTIR_PI * d * d) > 0.1 * gi_luminance) return true;
+		}
+
+		return false;
 	}
 
 	bool restir_traces(ivec2 pos) {
@@ -801,6 +829,8 @@ local function pass_temporal()
 						}
 
 						float h_target = luminance(h.L) * h_cosine;
+
+						if (restir_light_changed(P, h_target * h_W / RESTIR_PI)) h_M = min(h_M, 1.0);
 						float h_jacobian = restir_jacobian(h, P, h_receiver);
 
 						// on a frame without a new sample the reservoir and the receiver it was found from are kept as they are, so the next traced frame reconnects it once against a new sample to weigh it by. reconnecting it every frame without one lets the receiver's jitter multiply into W unchecked (dots at creases)
@@ -1167,6 +1197,8 @@ local function pass_accumulate()
 						if ((int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), q, 0).w + 0.5) & RESTIR_FLAG_CHANGED) != 0) history_length = min(history_length, 2.0);
 					}
 				}
+
+				if (restir_light_changed(P, max(history_moments.y, current_luminance))) history_length = min(history_length, RESTIR_CHANGED_HISTORY - 1.0);
 
 				history_length = min(history_length + 1.0, min(restir_data.accumulation, restir_data.history_cap));
 				float alpha = 1.0 / history_length;
