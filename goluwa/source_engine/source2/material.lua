@@ -24,6 +24,11 @@ function material.GetInfo(path)
 	local info = {path = path, ints = {}, floats = {}, vectors = {}, textures = {}}
 	infos[path] = info
 
+	if path:find("^materials/tools/tools%a*blocklight") then
+		info.block_light = true
+		return info
+	end
+
 	if path:starts_with("materials/tools/") then
 		info.no_draw = true
 		return info
@@ -159,6 +164,8 @@ function material.FromVMAT(path)
 		self:SetNoDraw(true)
 		return self
 	end
+
+	if info.block_light then return self end
 
 	if info.unreadable then
 		self:SetColorMultiplier(Color(0.5, 0.5, 0.5, 1))

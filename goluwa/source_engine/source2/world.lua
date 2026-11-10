@@ -158,6 +158,7 @@ function world.Translate(name, has_skybox)
 	add{guid = "atmosphere", components = {atmosphere_controller = atmosphere}}
 	local world_data = resource.ReadKV3(resource.Load(vfs, "maps/" .. name .. "/world.vwrld_c"))
 	local object_count = 0
+	local blocklight_count = 0
 	local lowest = math.huge
 	local mins, maxs = {math.huge, math.huge, math.huge}, {-math.huge, -math.huge, -math.huge}
 
@@ -185,22 +186,32 @@ function world.Translate(name, has_skybox)
 		local data = resource.ReadKV3(resource.Load(vfs, prefix .. ".vwnod_c"))
 
 		for _, object in ipairs(data.m_sceneObjects) do
-			if object.m_renderableModel:find("_blocklight%.vmdl$") then goto skip end
-
 			local position, rotation, size = matrix_to_transform(object.m_vTransform)
 			local model_path = normalize_path(object.m_renderableModel) .. "_c"
-			object_count = object_count + 1
-			add{
-				guid = root .. ":object:" .. object_count,
-				parent = root,
-				properties = {Name = "object"},
-				components = {
-					transform = {Position = position, Rotation = rotation, Size = size ~= 1 and size or nil},
-					visual = {ModelPath = model_path},
-				},
-			}
 
-			::skip::
+			if object.m_renderableModel:find("_blocklight%.vmdl$") then
+				blocklight_count = blocklight_count + 1
+				add{
+					guid = root .. ":blocklight:" .. blocklight_count,
+					parent = root,
+					properties = {Name = "blocklight"},
+					components = {
+						transform = {Position = position, Rotation = rotation, Size = size ~= 1 and size or nil},
+						visual = {ModelPath = model_path, ViewHidden = true, Raycast = false},
+					},
+				}
+			else
+				object_count = object_count + 1
+				add{
+					guid = root .. ":object:" .. object_count,
+					parent = root,
+					properties = {Name = "object"},
+					components = {
+						transform = {Position = position, Rotation = rotation, Size = size ~= 1 and size or nil},
+						visual = {ModelPath = model_path},
+					},
+				}
+			end
 		end
 
 		for _, aggregate in ipairs(data.m_aggregateSceneObjects or {}) do
