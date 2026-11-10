@@ -869,6 +869,10 @@ do
 			control.result_data = result_ptr
 			control.result_data_len = result_len
 			threads.signal_pool_done(control)
+			payload, result, blob = nil, nil, nil
+
+			-- jobs allocate mostly through big ffi buffers and strings, which never trigger a collector step
+			if collectgarbage("count") > 128 * 1024 then collectgarbage() end
 		end
 
 		return thread_id
@@ -963,7 +967,12 @@ do
 		local blob
 
 		if blob_len > 0 then
-			blob = {ptr = blob_ptr, len = tonumber(blob_len), owner = ffi.gc(owner, ffi.C.free)}
+			blob = {
+				ptr = blob_ptr,
+				len = tonumber(blob_len),
+				owner = ffi.gc(owner, ffi.C.free),
+				malloced = true,
+			}
 		else
 			ffi.C.free(owner)
 		end
