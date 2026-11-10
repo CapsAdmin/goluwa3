@@ -795,16 +795,7 @@ function ddgi.GetRayDirectionGLSL()
 			return vec3(clamp(aim.xy, vec2(DDGI_AIM_SIZE * 0.5), vec2(1.0 - DDGI_AIM_SIZE * 0.5)), aim.z * DDGI_AIM_SHARE);
 		}
 
-		vec3 ddgi_ray_direction(uint index, uint uniform_count, vec4 q, ivec2 tile, bool guided) {
-			if (index < uniform_count) return ddgi_fibonacci(index, uniform_count, q);
-
-			uint k = index - uniform_count;
-			uint guided_count = uint(DDGI_RAYS) - uniform_count;
-
-			if (!guided) return ddgi_fibonacci(k, guided_count, q);
-
-			vec3 jitter = fract(abs(q.xyz) * 1000.0 + q.w * 7.0);
-			float u = fract((float(k) + 0.5) / float(guided_count) + jitter.x);
+		vec3 ddgi_guide_sample(float u, vec2 inner, float aim_pick, ivec2 tile) {
 			int lo = 0;
 			int hi = DDGI_GUIDE_CELLS - 1;
 
@@ -818,18 +809,15 @@ function ddgi.GetRayDirectionGLSL()
 				}
 			}
 
-			vec2 inner = fract(vec2(0.7548776662, 0.5698402910) * float(k) + jitter.yz);
 			vec3 aim = ddgi_guide_aim(DDGI_GUIDE_FETCH(ddgi_guide_texel(tile, lo)).a);
 
-			if (fract(float(k) * 0.8191725134 + jitter.y * 7.0) < aim.z) inner = aim.xy + (inner - 0.5) * DDGI_AIM_SIZE;
+			if (aim_pick < aim.z) inner = aim.xy + (inner - 0.5) * DDGI_AIM_SIZE;
 
 			vec2 p = (vec2(lo % DDGI_GUIDE_TEXELS, lo / DDGI_GUIDE_TEXELS) + inner) / float(DDGI_GUIDE_TEXELS) * 2.0 - 1.0;
 			return oct_decode(p);
 		}
 
-		float ddgi_ray_weight(vec3 d, uint uniform_count, ivec2 tile, bool guided) {
-			if (!guided || uniform_count >= uint(DDGI_RAYS)) return 1.0;
-
+		float ddgi_guide_density(vec3 d, ivec2 tile) {
 			vec2 scaled = (oct_encode(d) * 0.5 + 0.5) * float(DDGI_GUIDE_TEXELS);
 			ivec2 cell = clamp(ivec2(scaled), ivec2(0), ivec2(DDGI_GUIDE_TEXELS - 1));
 			vec4 texel = DDGI_GUIDE_FETCH(tile * DDGI_GUIDE_TEXELS + cell);
@@ -838,9 +826,26 @@ function ddgi.GetRayDirectionGLSL()
 			float in_cell = (1.0 - aim.z) + (all(lessThanEqual(offset, vec2(DDGI_AIM_SIZE * 0.5))) ? aim.z / (DDGI_AIM_SIZE * DDGI_AIM_SIZE) : 0.0);
 			vec3 a = abs(d);
 			float l1 = a.x + a.y + a.z;
-			float density = texel.g * in_cell * float(DDGI_GUIDE_TEXELS * DDGI_GUIDE_TEXELS) * 0.25 / (l1 * l1 * l1);
+			return texel.g * in_cell * float(DDGI_GUIDE_TEXELS * DDGI_GUIDE_TEXELS) * 0.25 / (l1 * l1 * l1);
+		}
+
+		vec3 ddgi_ray_direction(uint index, uint uniform_count, vec4 q, ivec2 tile, bool guided) {
+			if (index < uniform_count) return ddgi_fibonacci(index, uniform_count, q);
+
+			uint k = index - uniform_count;
+			uint guided_count = uint(DDGI_RAYS) - uniform_count;
+
+			if (!guided) return ddgi_fibonacci(k, guided_count, q);
+
+			vec3 jitter = fract(abs(q.xyz) * 1000.0 + q.w * 7.0);
+			return ddgi_guide_sample(fract((float(k) + 0.5) / float(guided_count) + jitter.x), fract(vec2(0.7548776662, 0.5698402910) * float(k) + jitter.yz), fract(float(k) * 0.8191725134 + jitter.y * 7.0), tile);
+		}
+
+		float ddgi_ray_weight(vec3 d, uint uniform_count, ivec2 tile, bool guided) {
+			if (!guided || uniform_count >= uint(DDGI_RAYS)) return 1.0;
+
 			float share = float(uniform_count) / float(DDGI_RAYS);
-			return 1.0 / (share + (1.0 - share) * density * 12.5663706144);
+			return 1.0 / (share + (1.0 - share) * ddgi_guide_density(d, tile) * 12.5663706144);
 		}
 	]]
 end

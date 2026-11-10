@@ -66,6 +66,13 @@ restir_gi.hit_gi_share = pvars.Setup2{
 	max = 1,
 	help = "share of frames an 8x8 pixel group looks its off screen ray hits up in the world cache (the light past the first bounce, with its visibility rays), scaled up by 1/share when it does. unbiased and leak free at any share and the cheapest saving in the candidate pass (a quarter saved 1.8 ms in foliage), but the groups that looked up stand out as mottling while the camera moves and the denoiser has little history: 0.5 is faint, 0.25 clearly visible",
 }
+restir_gi.guided = pvars.Setup2{
+	key = "restir_gi_guided",
+	default = 0.5,
+	min = 0,
+	max = 0.95,
+	help = "share of the gi rays aimed by the nearest ddgi probe's radiance guide instead of the cosine, weighted by the mix of both densities so it stays unbiased. light through a small opening or from a sunlit patch next to a dark room is found that much more often instead of as rare bright samples. only with the ddgi cache",
+}
 restir_gi.spatial = pvars.Setup2{
 	key = "restir_gi_spatial",
 	default = true,

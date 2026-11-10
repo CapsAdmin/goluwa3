@@ -45,6 +45,7 @@ local function restir_uniform(trace)
 		{"history_cap", "float"},
 		{"filter_history", "float"},
 		{"hit_gi_share", "float"},
+		{"guided", "float"},
 		{"ray_share", "int"},
 		{"boiling_filter", "float"},
 		{"spatial", "int"},
@@ -130,6 +131,7 @@ local function restir_uniform(trace)
 			block.history_cap = restir_gi.GetHistoryCap()
 			block.filter_history = restir_gi.filter_history:Get()
 			block.hit_gi_share = restir_gi.hit_gi_share:Get()
+			block.guided = restir_gi.guided:Get()
 			block.ray_share = restir_gi.GetRayShare()
 			block.boiling_filter = restir_gi.boiling_filter:Get()
 			block.spatial = restir_gi.spatial:Get() and 1 or 0
@@ -205,6 +207,8 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	#define RESTIR_FLAG_MISS 4
 	#define RESTIR_FLAG_CHANGED 8
 	#define RESTIR_FLAG_TRACED 16
+	// the ray was drawn from a mix with the probe guide: only cosine rays count toward the sky visibility, scaled by their share
+	#define RESTIR_FLAG_GUIDE_MIX 32
 	#define RESTIR_SKY_DEPTH 65504.0
 
 	struct restir_sample {
@@ -523,17 +527,53 @@ local function pass_candidates()
 					float w_sum = 0.0;
 					int emitter_count = ddgi_data.ddgi_emitter_count;
 
+					float guided_share = 0.0;
+					bool guided = false;
+
 					{
 						vec2 xi = blue_noise_r2(blue_noise_texel(TEXTURE(restir_data.blue_noise_tex), pos).rg, float(frame % 4096u));
 						vec3 dir = restir_cosine_direction(N, xi);
-						float below = dot(dir, geometric_N);
+						ivec2 guide_tile = ivec2(0);
 
-						if (below < 0.01) dir = normalize(dir + geometric_N * (0.01 - 2.0 * below));
+						if (restir_data.guided > 0.0 && ddgi_data.ddgi_cascade_count > 0 && ddgi_data.ddgi_guide_tex >= 0 && ddgi_data.ddgi_uniform_rays < DDGI_RAYS) {
+							for (int c = 0; c < ddgi_data.ddgi_cascade_count; c++) {
+								float spacing = ddgi_spacing(c);
+								vec3 grid = (P + N * (0.5 * spacing)) / spacing - vec3(ddgi_volume_base(c));
 
-						float ray_cosine = max(dot(N, dir), 1e-4);
-						chosen = restir_trace(origin, dir, false, miss);
-						chosen_target = luminance(chosen.L) * ray_cosine;
-						w_sum = chosen_target / (ray_cosine / RESTIR_PI);
+								if (any(lessThan(grid, vec3(0.0))) || any(greaterThan(grid, vec3(ddgi_volume_size(c) - 1)))) continue;
+
+								ivec3 world = ddgi_volume_base(c) + ivec3(floor(grid + 0.5));
+								guide_tile = ddgi_tile(ddgi_slot(world, c), c);
+
+								if (ddgi_guide_valid(guide_tile, world, c)) guided_share = restir_data.guided;
+
+								break;
+							}
+						}
+
+						guided = guided_share > 0.0 && restir_random(pos, 40u) < guided_share;
+
+						if (guided) {
+							dir = ddgi_guide_sample(restir_random(pos, 41u), vec2(restir_random(pos, 42u), restir_random(pos, 43u)), restir_random(pos, 44u), guide_tile);
+						} else {
+							float below = dot(dir, geometric_N);
+
+							if (below < 0.01) dir = normalize(dir + geometric_N * (0.01 - 2.0 * below));
+						}
+
+						float ray_cosine = dot(N, dir);
+
+						if (ray_cosine > 0.0 && dot(dir, geometric_N) > 0.0) {
+							ray_cosine = max(ray_cosine, 1e-4);
+							float pdf = (1.0 - guided_share) * ray_cosine / RESTIR_PI + (guided_share > 0.0 ? guided_share * ddgi_guide_density(dir, guide_tile) : 0.0);
+							chosen = restir_trace(origin, dir, false, miss);
+							chosen_target = luminance(chosen.L) * ray_cosine;
+							w_sum = chosen_target / pdf;
+						} else {
+							chosen = restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMPTY);
+						}
+
+						miss = miss && !guided;
 					}
 
 					if (emitter_count > 0) {
@@ -573,7 +613,7 @@ local function pass_candidates()
 
 				imageStore(out_a, pos, vec4(chosen.x, w_sum));
 				imageStore(out_b, pos, vec4(chosen.L, chosen_target));
-				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | (miss ? RESTIR_FLAG_MISS : 0))));
+				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | (miss ? RESTIR_FLAG_MISS : 0) | (guided_share > 0.0 ? RESTIR_FLAG_GUIDE_MIX : 0))));
 			}
 		]],
 	}
@@ -639,11 +679,13 @@ local function pass_temporal()
 					float chosen_target = 0.0;
 					float w_sum = 0.0;
 
+					int candidate_flags = 0;
+
 					if (traces) {
 						vec4 candidate_a = texelFetch(TEXTURE(restir_data.candidate_a_tex), pos, 0);
 						vec4 candidate_b = texelFetch(TEXTURE(restir_data.candidate_b_tex), pos, 0);
 						vec4 candidate_c = texelFetch(TEXTURE(restir_data.candidate_c_tex), pos, 0);
-						int candidate_flags = int(candidate_c.w + 0.5);
+						candidate_flags = int(candidate_c.w + 0.5);
 						chosen = restir_sample(candidate_a.xyz, candidate_c.xyz, candidate_b.rgb, candidate_flags & 3);
 						w_sum = candidate_a.w;
 						chosen_target = candidate_b.w;
@@ -663,7 +705,7 @@ local function pass_temporal()
 					fresh_W = chosen_target > 0.0 ? w_sum / chosen_target : 0.0;
 					// a pixel that traced nothing this frame enters the resampling with no confidence, its history keeps all the weight
 					M = traces ? 1.0 : 0.0;
-					flags = traces ? RESTIR_FLAG_TRACED | (miss ? RESTIR_FLAG_MISS : 0) : 0;
+					flags = traces ? RESTIR_FLAG_TRACED | (miss ? RESTIR_FLAG_MISS : 0) | (candidate_flags & RESTIR_FLAG_GUIDE_MIX) : 0;
 					ivec2 base;
 					vec4 weights;
 
@@ -981,7 +1023,7 @@ local function pass_spatial()
 					sky_flags = int(texelFetch(TEXTURE(restir_data.reservoir_c_tex), clamp(partner, ivec2(0), size - 1), 0).w + 0.5);
 				}
 
-				imageStore(out_raw, pos, vec4(irradiance, (sky_flags & RESTIR_FLAG_MISS) != 0 ? 1.0 : 0.0));
+				imageStore(out_raw, pos, vec4(irradiance, (sky_flags & RESTIR_FLAG_MISS) == 0 ? 0.0 : (sky_flags & RESTIR_FLAG_GUIDE_MIX) != 0 ? 1.0 / max(1.0 - restir_data.guided, 0.05) : 1.0));
 
 				if (!(picked_W >= 0.0 && picked_W < 1e30)) {
 					picked_W = 0.0;
