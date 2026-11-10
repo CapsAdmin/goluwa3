@@ -57,6 +57,16 @@ Screenshot A/B: freeze time-driven things (`system.SetElapsedTime` from a high p
 - `r_feature_culling` (gpu_culling.lua) switches off visibility culling to get the worst case: every visible-flagged visual drawn every frame. LOD selection is separate (`lod_level 0` for the most detailed case).
 - Terrain/scatter streaming: bvh proxies are rays-only host copies at a coarser stride; bake height once per chunk into a field texture; share one index buffer per tile shape.
 
+## Texture memory
+
+Texture VRAM is usually most of a big map's footprint (the fixed render targets, GI and buffers are about 3 GiB). Measure with `vulkan_memory.Instances` grouped by `debug_name` (`vram_dump`), and compare `nvidia-smi` of the process, not the tracked total alone.
+
+- `r_max_texture_size` drops the mips of compressed texture files above that size at upload (0 is no limit). It applies to `path` textures only, never to `decoded` ones, so conversions (`texture_convert`) always see the full image.
+- Streaming (`Texture.New{stream = true}`, `r_texture_streaming`, source 2 materials and their converted textures ask for it): the texture keeps only the mips up to `r_texture_stream_base_size` resident and sets `texture.stream`. `render3d/texture_streaming.lua` decides what each needs and `Texture:RequestStreamLevel` / `UploadStreamLevel` swap the image (the view changes through `TextureViewChanged`, so bindless descriptors follow; the sampler `MaxLod` is open because the mip count changes).
+- Demand is the texels needed per pixel, not visibility (culling is on the GPU): every pass over `Visual.Instances` (a slice per frame) takes the nearest distance to a visual's bounds, `pixels per meter = height / (2 d tan(fov / 2))`, divided by the uv density of its polygon (sampled from the packed vertices) and the material's uv scale. Direction is ignored on purpose, so turning never pops. `r_texture_stream_budget` (MiB) caps what stays resident: upgrades that do not fit make the textures needing the least cut back, nothing is cut below the budget.
+- Never block on a stream: decode runs on workers (`codec.DecodeFileAsync` reads the byte range itself, also from an archive entry, `vfs.GetReadLocation`), the main thread only creates the image, copies into a staging buffer and submits without waiting. The upload's final barrier makes the data visible to everything submitted later, so the swap happens at once; `Texture.PollStreamUploads` retires the fences. Main thread work per request or upload must stay around a millisecond: reading a 20 MB archive file on the main thread cost 50 ms and showed as hitches on every teleport.
+- Test it with a harness that teleports a `View` to random visuals and prints frame times and `texture.stream` states, with the streamer on and off (`r_texture_streaming=0`) so hitches that are not the streamer's can be told apart.
+
 ## Caches and the slow first start
 
 1. `storage/cache/shaders/<crc32>_<length>.spv` (`shader_module.lua`): header, SPIR-V, then the GLSL it came from; a hit needs identical GLSL. Misses log `[shader] glslang compiled ...` (GLSL to SPIR-V only; the driver step logs `[pipeline] the driver compiled ...`). glslang is fast, this is not the slow part.

@@ -279,3 +279,62 @@ T.Test3D("textures drop mips above r_max_texture_size", function()
 	T(widths[2])["=="]("16:5")
 	T(widths[3])["=="]("1:1")
 end)
+
+T.Test3D("streamed textures keep small mips and swap in bigger ones", function()
+	local fs = import("goluwa/filesystem/fs.lua")
+	local pvars = import("goluwa/cli/pvars.lua")
+	local Texture = import("goluwa/render/texture.lua")
+	local source = texture_compress.Compress{
+		pixels = make_image(64, 64),
+		width = 64,
+		height = 64,
+		format = "bc7",
+		kind = "linear",
+	}
+	local file = "storage/cache/test_streamed_texture.dds"
+	fs.create_directory_recursive("storage/cache/")
+	assert(fs.write_file(file, source))
+	pvars.SetSession("r_texture_stream_base_size", 8)
+	pvars.SetSession("r_max_texture_size", 0)
+	Texture.ClearCache()
+	local texture = Texture.New{path = file, stream = true}
+
+	T.WaitUntilReal(
+		function()
+			return texture:IsReady() and texture.stream ~= nil
+		end,
+		10,
+		"the texture to load"
+	)
+
+	local stream = texture.stream
+	T(texture:GetImage().width)["=="](8)
+	T(texture:GetMipMapLevels())["=="](4)
+	T(stream.drop)["=="](3)
+	T(stream.bytes)["=="](stream.bytes_from[4])
+	texture:RequestStreamLevel(1)
+
+	T.WaitUntilReal(function()
+		return stream.pending ~= nil
+	end, 10, "the bigger mips to decode")
+
+	texture:UploadStreamLevel(stream.pending, 1)
+	stream.pending = nil
+	T(texture:GetImage().width)["=="](32)
+	T(texture:GetMipMapLevels())["=="](6)
+	T(stream.drop)["=="](1)
+	T(stream.bytes)["=="](stream.bytes_from[2])
+	texture:RequestStreamLevel(3)
+
+	T.WaitUntilReal(function()
+		return stream.pending ~= nil
+	end, 10, "the smaller mips to decode")
+
+	texture:UploadStreamLevel(stream.pending, 3)
+	T(texture:GetImage().width)["=="](8)
+	Texture.PollStreamUploads()
+	texture:Remove()
+	pvars.SetSession("r_texture_stream_base_size", 256)
+	Texture.ClearCache()
+	fs.remove_file(file)
+end)

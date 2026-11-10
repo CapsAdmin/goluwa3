@@ -6,6 +6,7 @@ local Vec4 = import("goluwa/structs/vec4.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
 local legacy_material = import("goluwa/source_engine/source2/legacy_material.lua")
 local texture_convert = import("goluwa/source_engine/source2/texture_convert.lua")
+import("goluwa/render3d/texture_streaming.lua")
 local material = {}
 local infos = {}
 local materials = {}
@@ -184,7 +185,7 @@ function material.FromVMAT(path)
 		self:SetAlbedoTexture(texture_convert.GetTintedAlbedo(albedo_path, textures.g_tTintMask))
 		self:SetBlendTintByBaseAlpha(true)
 	elseif albedo_path then
-		self:SetAlbedoTexture(Material.SRGBTexture(albedo_path))
+		self:SetAlbedoTexture(Material.SRGBTexture(albedo_path, {stream = true}))
 	end
 
 	if normal_path then
@@ -205,7 +206,7 @@ function material.FromVMAT(path)
 	self:SetMetallicMultiplier(metalness)
 
 	if info.blend and textures.g_tColorB then
-		self:SetAlbedo2Texture(Material.SRGBTexture(textures.g_tColorB))
+		self:SetAlbedo2Texture(Material.SRGBTexture(textures.g_tColorB, {stream = true}))
 
 		if textures.g_tNormalB then
 			self:SetNormal2Texture(texture_convert.Get(textures.g_tNormalB, "normal"))
@@ -247,7 +248,7 @@ function material.FromVMAT(path)
 		self:SetDetailBumpScale(floats.g_flDetailNormalStrength or 1)
 
 		if detail_mode ~= 3 and textures.g_tDetail then
-			self:SetDetailColorTexture(Material.LinearTexture(textures.g_tDetail))
+			self:SetDetailColorTexture(Material.LinearTexture(textures.g_tDetail, {stream = true}))
 			self:SetDetailColorMode(detail_mode == 1 and 1 or 2)
 		end
 

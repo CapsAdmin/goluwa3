@@ -736,11 +736,11 @@ do
 		return material_cache_stats
 	end
 
-	function Material.SRGBTexture(path)
-		return Texture.New{
-			path = path,
-			srgb = true,
-		}
+	function Material.SRGBTexture(path, config)
+		config = config or {}
+		config.path = path
+		config.srgb = true
+		return Texture.New(config)
 	end
 
 	function Material.LinearTexture(path, config)

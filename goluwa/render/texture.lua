@@ -21,6 +21,18 @@ local max_texture_size = pvars.Setup2{
 	integer = true,
 	help = "largest width or height a compressed texture file is uploaded with, bigger mips are dropped (0 is no limit)",
 }
+local stream_base_size = pvars.Setup2{
+	key = "r_texture_stream_base_size",
+	default = 256,
+	min = 1,
+	integer = true,
+	help = "largest width or height of the mips a streamed texture keeps resident before something needs it",
+}
+local streaming_enabled = pvars.Setup2{
+	key = "r_texture_streaming",
+	default = true,
+	help = "textures that ask for it (source 2 materials) keep only small mips resident and load bigger ones as they get close",
+}
 pvars.EndGroup()
 local texture_cache = {}
 local shade_pipeline_cache = {}
@@ -247,6 +259,7 @@ local function build_texture_cache_key(config)
 			"srgb=" .. hash_key_value(config.srgb),
 			"format=" .. hash_key_value(config.format),
 			"mip_map_levels=" .. hash_key_value(config.mip_map_levels),
+			"stream=" .. hash_key_value(config.stream),
 			"sampler=" .. hash_key_value(build_sampler_config_key(config.sampler)),
 			"image=" .. hash_key_value(config.image),
 			"view=" .. hash_key_value(config.view),
@@ -360,6 +373,8 @@ function Texture:Load()
 	start_loading()
 end
 
+local streamed_textures = setmetatable({}, {__mode = "k"})
+
 local function can_crop(info, is_compressed)
 	return info and
 		is_compressed and
@@ -448,17 +463,56 @@ function Texture.New(config)
 			end
 		end
 
+		local stream
+
 		if config.path and can_crop(vulkan_info, is_compressed) then
-			local limit = max_texture_size:Get()
 			local mip_info = vulkan_info.mip_info
+			local last = vulkan_info.mip_count - 1
+			local limit = max_texture_size:Get()
 			local drop = 0
 
-			while
-				limit > 0 and
-				drop < vulkan_info.mip_count - 1 and
-				math.max(mip_info[drop + 1].width, mip_info[drop + 1].height) > limit
-			do
-				drop = drop + 1
+			if limit > 0 then
+				while
+					drop < last and
+					math.max(mip_info[drop + 1].width, mip_info[drop + 1].height) > limit
+				do
+					drop = drop + 1
+				end
+			end
+
+			local cap_drop = drop
+
+			if config.stream and streaming_enabled:Get() then
+				local base_size = stream_base_size:Get()
+
+				while
+					drop < last and
+					math.max(mip_info[drop + 1].width, mip_info[drop + 1].height) > base_size
+				do
+					drop = drop + 1
+				end
+
+				if drop > cap_drop then
+					stream = {
+						file_mips = mip_info,
+						min_drop = cap_drop,
+						base_drop = drop,
+						drop = drop,
+						wanted = drop,
+						need = 0,
+						need_next = 0,
+						full_size = math.max(mip_info[cap_drop + 1].width, mip_info[cap_drop + 1].height),
+						bytes_from = {},
+					}
+					local bytes = 0
+
+					for i = #mip_info, 1, -1 do
+						bytes = bytes + mip_info[i].size
+						stream.bytes_from[i] = bytes
+					end
+
+					stream.bytes = stream.bytes_from[drop + 1]
+				end
 			end
 
 			if drop > 0 then
@@ -579,6 +633,8 @@ function Texture.New(config)
 		self.mip_map_levels = mip_levels
 		local sampler_config = config.sampler
 
+		if stream and sampler_config == nil then sampler_config = {max_lod = 16} end
+
 		if config.sampler == false then
 			self.SamplerEnabled = false
 			config.sampler = false
@@ -602,6 +658,11 @@ function Texture.New(config)
 		self.view = view
 		self.format = format
 		self.is_compressed = is_compressed
+
+		if stream then
+			self.stream = stream
+			streamed_textures[self] = true
+		end
 
 		if self.debug_name then
 			self:SetDebugName(self.debug_name)
@@ -664,6 +725,7 @@ function Texture.New(config)
 
 					if img then
 						local started = startup.Start()
+						self.resolved_path = p
 						load(img)
 						startup.Add("texture upload", started)
 						import("goluwa/event.lua").Call("TextureViewChanged", self)
@@ -990,6 +1052,128 @@ function Texture:UploadCompressed(data, vulkan_info)
 	render.SubmitAndWait(cmd)
 	cmd:Remove()
 	staging_buffer:Remove()
+end
+
+do
+	local inflight = {}
+	local free_fences = {}
+
+	function Texture.GetStreamed()
+		return streamed_textures
+	end
+
+	function Texture.PollStreamUploads()
+		local queue = render.GetQueue()
+
+		for i = #inflight, 1, -1 do
+			local upload = inflight[i]
+
+			if upload.fence:IsSignaled() then
+				queue:RetireFence(upload.fence)
+				upload.cmd:Remove()
+				upload.staging:Remove()
+				free_fences[#free_fences + 1] = upload.fence
+				table.remove(inflight, i)
+			end
+		end
+	end
+
+	function Texture:RequestStreamLevel(drop)
+		local stream = self.stream
+
+		if stream.loading then return end
+
+		stream.loading = true
+		stream.target = drop
+
+		codec.DecodeFileAsync(self.resolved_path, function(img, err)
+			stream.loading = false
+
+			if not self:IsValid() then return end
+
+			if img then
+				stream.pending = img
+			else
+				wlog("texture stream %s: %s", tostring(self.config.path), tostring(err))
+				stream.target = nil
+			end
+		end)
+	end
+
+	-- the decoded file has every mip, the new image gets the ones from `drop` on and replaces the resident one
+	-- without waiting for the gpu: the transition makes the data visible to everything submitted after it
+	function Texture:UploadStreamLevel(img, drop)
+		local stream = self.stream
+		local kept, data = crop_mips(img, img.data, drop)
+		local device = render.GetDevice()
+		local image = render.CreateImage{
+			width = kept.width,
+			height = kept.height,
+			format = self.format,
+			usage = {"sampled", "transfer_dst"},
+			properties = "device_local",
+			mip_levels = kept.mip_count,
+		}
+		image:SetDebugName(tostring(self.config.path) .. " image")
+		local view = image:CreateView{format = self.format}
+		local staging = Buffer.New{
+			device = device,
+			size = kept.data_size,
+			usage = "transfer_src",
+			properties = {"host_visible", "host_coherent"},
+			name = "texture stream staging",
+		}
+		staging:CopyData(data, kept.data_size)
+		local cmd = render.GetCommandPool():AllocateCommandBuffer()
+		cmd:Begin()
+		render.TransitionResourceTo(
+			image,
+			"transfer_dst_optimal",
+			{
+				cmd = cmd,
+				srcStage = "top_of_pipe",
+				srcAccess = "none",
+				dstStage = "transfer",
+				dstAccess = "transfer_write",
+				base_mip_level = 0,
+				level_count = kept.mip_count,
+			}
+		)
+
+		for mip = 1, kept.mip_count do
+			local info = kept.mip_info[mip]
+			cmd:CopyBufferToImageMip(staging, image, info.width, info.height, mip - 1, info.offset, info.size)
+		end
+
+		render.TransitionResourceFrom(
+			image,
+			"shader_read_only_optimal",
+			{
+				cmd = cmd,
+				srcStage = "transfer",
+				srcAccess = "transfer_write",
+				dstStage = "all_commands",
+				dstAccess = "memory_read",
+				base_mip_level = 0,
+				level_count = kept.mip_count,
+			}
+		)
+		cmd:End()
+		local fence = table.remove(free_fences) or
+			import("goluwa/render/vulkan/internal/fence.lua").New(device)
+		fence:Reset()
+		render.GetQueue():SubmitNoWait(cmd, fence)
+		inflight[#inflight + 1] = {fence = fence, cmd = cmd, staging = staging}
+		local old_image, old_view = self.image, self.view
+		self.image = image
+		self.view = view
+		self.mip_map_levels = kept.mip_count
+		stream.drop = drop
+		stream.bytes = stream.bytes_from[drop + 1]
+		import("goluwa/event.lua").Call("TextureViewChanged", self)
+		old_view:Remove()
+		old_image:Remove()
+	end
 end
 
 function Texture:GetImage()

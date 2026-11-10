@@ -118,7 +118,7 @@ local function convert(vtex_paths, kind, srgb)
 		assert(fs.write_file(file, dds))
 	end
 
-	return Texture.New{path = file, srgb = srgb or false}
+	return Texture.New{path = file, srgb = srgb or false, stream = true}
 end
 
 -- kind: "normal" (hemi octahedron rg and roughness in b to xy and roughness in a), "alpha" or
