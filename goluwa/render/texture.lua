@@ -729,6 +729,8 @@ function Texture.New(config)
 						self.resolved_path = p
 						load(img)
 
+						if not self.animated_image then codec.ReleaseBlob(img) end
+
 						startup.Add("texture upload", started)
 						import("goluwa/event.lua").Call("TextureViewChanged", self)
 					else
@@ -1191,6 +1193,7 @@ do
 			import("goluwa/render/vulkan/internal/fence.lua").New(device)
 		fence:Reset()
 		render.GetQueue():SubmitNoWait(cmd, fence)
+		codec.ReleaseBlob(img)
 		stream.uploading = true
 		inflight[#inflight + 1] = {
 			fence = fence,

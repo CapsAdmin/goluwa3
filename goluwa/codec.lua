@@ -100,6 +100,22 @@ function codec.AttachBlob(img, blob)
 	return img
 end
 
+-- frees the bytes behind a decoded image that came from a worker, its data and buffer must not be used afterwards
+function codec.ReleaseBlob(img)
+	local blob = img.blob
+
+	if not blob then return end
+
+	import("goluwa/bindings/threads.lua").release_blob(blob)
+	img.data = nil
+	img.buffer = nil
+
+	if img.attached_image then
+		img.attached_image.data = nil
+		img.attached_image.buffer = nil
+	end
+end
+
 function codec.DecodeWithModule(path, file_content, mod)
 	local decode = mod.decode_buffer or mod.DecodeBuffer
 	local decoded, extra

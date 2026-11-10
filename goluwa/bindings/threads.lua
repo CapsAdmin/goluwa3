@@ -982,6 +982,18 @@ do
 		return nil, payload.err
 	end
 
+	-- the collector counts a result buffer as a pointer, not the megabytes behind it, so a load that decodes
+	-- gigabytes of textures piles them up unfreed: whoever is done with the data frees it
+	function threads.release_blob(blob)
+		if not blob.malloced then return end
+
+		blob.malloced = false
+		ffi.gc(blob.owner, nil)
+		ffi.C.free(blob.owner)
+		blob.owner = nil
+		blob.ptr = nil
+	end
+
 	function pool_meta:submit_all(work_items)
 		assert(
 			#work_items == self.num_threads,
