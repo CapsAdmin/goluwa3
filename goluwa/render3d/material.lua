@@ -331,19 +331,22 @@ function Material.New(config)
 	return self
 end
 
-function Material:Copy()
-	local copy = Material.New()
-
-	for _, info in ipairs(objects.GetStorableVariables(self)) do
-		local value = self[info.get_name](self)
+function Material:CopyFrom(source)
+	for _, info in ipairs(objects.GetStorableVariables(source)) do
+		local value = source[info.get_name](source)
 
 		if type(value) == "cdata" and value.Copy then value = value:Copy() end
 
-		copy[info.set_name](copy, value)
+		self[info.set_name](self, value)
 	end
 
-	copy.vmt_surfaceprop = self.vmt_surfaceprop
-	copy.has_uv_transform = self.has_uv_transform
+	self.vmt_surfaceprop = source.vmt_surfaceprop
+	self.has_uv_transform = source.has_uv_transform
+end
+
+function Material:Copy()
+	local copy = Material.New()
+	copy:CopyFrom(self)
 	return copy
 end
 
@@ -480,8 +483,6 @@ Material.scene_dirty_materials = Material.scene_dirty_materials or {}
 function Material:InvalidateSceneKey()
 	Material.scene_dirty_materials[self] = true
 end
-
-Material.emission_dirty_materials = Material.emission_dirty_materials or {}
 
 function Material:InvalidateEmission()
 	self:InvalidateSceneKey()

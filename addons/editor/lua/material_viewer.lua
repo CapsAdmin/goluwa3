@@ -23,6 +23,7 @@ local WINDOW_SIZE = Vec2(1000, 680)
 local MaterialView = react.Component(
 	|props|-> do
 		local source = props.Source
+		local original = react.UseMemo(||->source:Copy(), {})
 		local material, set_material = react.UseState(||->source:Copy())
 		local editor = react.UseRef()
 		local view = react.UseResource(
@@ -96,11 +97,21 @@ local MaterialView = react.Component(
 							layout = {GrowWidth = 1},
 						},
 						Button{
+							Text = "Apply",
+							Icon = "check",
+							Mode = "outline",
+							Tooltip = "write these values to the material, updating everything that uses it",
+							OnClick = ||->source:CopyFrom(material),
+						},
+						Button{
 							Text = "Reset",
 							Icon = "refresh",
 							Mode = "outline",
-							Tooltip = "go back to the material this was opened from",
-							OnClick = ||->set_material(source:Copy()),
+							Tooltip = "restore the material this was opened from, both the original and the copy here",
+							OnClick = ||-> do
+								source:CopyFrom(original)
+								set_material(original:Copy())
+							end,
 						},
 					},
 					ScrollablePanel{ScrollX = false, ScrollY = true, layout = {GrowWidth = 1, GrowHeight = 1}}{
