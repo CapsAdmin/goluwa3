@@ -12,6 +12,7 @@ local ddgi = import("goluwa/render3d/ddgi.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
+local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local surface_lighting = {}
 surface_lighting.block = {
 	render3d.camera_block,
@@ -78,7 +79,7 @@ function surface_lighting.GetDeclarationGLSL(grid_binding, occlusion_binding)
 	return light_occlusion.GetDeclarationGLSL(occlusion_binding) .. light_grid.GetGLSL(grid_binding)
 end
 
-function surface_lighting.GetGLSL(block_name)
+function surface_lighting.GetGLSL(block_name, ray_scene)
 	return atmosphere.GetGLSLDefines(block_name, block_name .. ".primary_sun_illuminance") .. atmosphere.GetGLSLCode() .. post_source.GetPreExposureGLSL(block_name) .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. [[
 
@@ -101,6 +102,19 @@ function surface_lighting.GetGLSL(block_name)
 			return vec3(1.0);
 		}
 		#endif
+
+		float get_sun_contact_visibility(vec3 origin, vec3 dir, float distance) {
+			]] .. (
+			ray_scene and
+			[[
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, ]] .. ray_scene .. [[, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, distance);
+			while (rayQueryProceedEXT(query)) {}
+			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
+			]] or
+			"return 1.0;"
+		) .. [[
+		}
 
 		#define LIGHT_MIN_SCREEN_RADIANCE 0.0002
 		#define GLASS_LIGHT_MIN_SCREEN_RADIANCE 0.002
@@ -170,6 +184,11 @@ function surface_lighting.GetGLSL(block_name)
 					type == 0
 				) {
 					shadow_factor = calculateShadow(s.world_pos, shadow_N, L) * shadow_facing;
+
+					// single sided walls meeting at a corner leave the occluder's silhouette on the receiver, the map reads lit for a few texels
+					if (shadow_factor > 0.0 && ]] .. block_name .. [[.shadows.sun_contact_ray > 0.0) {
+						shadow_factor *= get_sun_contact_visibility(s.world_pos + shadow_N * max(shadow_texel_world_size * 0.1, 0.002), L, shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray);
+					}
 				}
 
 				bool screen_marchable = true;

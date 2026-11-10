@@ -317,7 +317,7 @@ return {
 				glass_light.RAY_QUERY and
 				glass_light.GetGLSL("glass_light_scene") or
 				""
-			) .. surface_lighting.GetGLSL("lighting_data") .. ddgi.GetScreenSampleGLSL("lighting_data") .. [[
+			) .. surface_lighting.GetGLSL("lighting_data", glass_light.RAY_QUERY and "glass_light_scene") .. ddgi.GetScreenSampleGLSL("lighting_data") .. [[
 
 			]] .. ibl.GetReflectionQuadGLSL() .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 

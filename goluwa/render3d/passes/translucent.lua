@@ -390,7 +390,7 @@ local passes = {
 					scene_reflection.RAY_QUERY and
 					glass_light.GetGLSL("ddgi_scene") or
 					""
-				) .. surface_lighting.GetGLSL("lighting_data") .. gi.GetCommonGLSL() .. (
+				) .. surface_lighting.GetGLSL("lighting_data", scene_reflection.RAY_QUERY and "ddgi_scene") .. gi.GetCommonGLSL() .. (
 					scene_reflection.RAY_QUERY and
 					scene_reflection.GetGLSL("lighting_data", true) .. scene_reflection.GetDirectionGLSL()
 					or

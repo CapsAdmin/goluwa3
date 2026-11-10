@@ -53,6 +53,7 @@ function scene_lights.BuildShadowsBlockLayout()
 		{"noise_phase", "float"},
 		{"sun_normal_bias", "float"},
 		{"sun_light_bias", "float"},
+		{"sun_contact_ray", "float"},
 		unpack(clouds.GetShadowBlockLayout()),
 	}
 
@@ -320,6 +321,7 @@ function scene_lights.WriteShadowBlock(self, shadow_block, lights)
 	shadow_block.noise_phase = render3d.GetNoisePhase()
 	shadow_block.sun_normal_bias = directional_shadows.bias.normal
 	shadow_block.sun_light_bias = directional_shadows.bias.light
+	shadow_block.sun_contact_ray = directional_shadows.bias.contact
 	clouds.WriteShadowBlock(self, shadow_block)
 	terrain_shadow.WriteShadowBlock(self, shadow_block)
 

@@ -185,6 +185,13 @@ local SHADOW_GROUPS = {
 				"how far the point is moved towards the sun, scaled so that 1 is the default. lower stops light from leaking at the base of a wall, below 0 it moves away from the sun, too low shows acne",
 				{Min = -10, Max = 10, Precision = 2, ShowSlider = true},
 			},
+			{
+				"contact",
+				"contact ray",
+				"number",
+				"texels a ray traces towards the sun from every lit point, catching occluders too close for the map, like single sided walls meeting at a corner. 0 turns it off",
+				{Min = 0, Max = 32, Precision = 1, ShowSlider = true},
+			},
 		},
 	},
 }

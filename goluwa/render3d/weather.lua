@@ -530,7 +530,7 @@ local SUN_SHADOW_DEFAULTS = {
 		min_caster_texel_size = 1,
 		update_interval = 1,
 	},
-	bias = {normal = 1, light = 1},
+	bias = {normal = 1, light = 1, contact = 8},
 }
 local SUN_SHADOW_STRUCTURE = {enabled = true, count = true, size = true, format = true}
 weather.sun_shadow = table.copy(SUN_SHADOW_DEFAULTS)
@@ -542,6 +542,7 @@ end
 local function apply_sun_shadow()
 	directional_shadows.bias.normal = weather.sun_shadow.bias.normal
 	directional_shadows.bias.light = weather.sun_shadow.bias.light
+	directional_shadows.bias.contact = weather.sun_shadow.bias.contact
 	local cascades = weather.sun_shadow.cascades
 	local exact = weather.sun_shadow.exact
 	local map = weather.shadow_maps.sun

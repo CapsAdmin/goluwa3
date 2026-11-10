@@ -6,7 +6,7 @@ local terrain_shadow = import("goluwa/render3d/terrain_shadow.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local directional_shadows = {}
 directional_shadows.MAX_CASCADES = 4
-directional_shadows.bias = {normal = 1, light = 1}
+directional_shadows.bias = {normal = 1, light = 1, contact = 8}
 
 function directional_shadows.GetPrimarySun(lights)
 	for i, light in ipairs(lights) do
