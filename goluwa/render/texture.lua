@@ -1069,6 +1069,8 @@ do
 	end
 
 	function Texture.PollStreamUploads()
+		if not inflight[1] and not retired[1] then return end
+
 		local queue = render.GetQueue()
 		local frame = system.GetFrameNumber()
 
@@ -1082,8 +1084,9 @@ do
 				free_fences[#free_fences + 1] = upload.fence
 				table.remove(inflight, i)
 				local texture = upload.texture
-				local stream = texture.stream
+				local stream = upload.stream
 				stream.target = nil
+				stream.uploading = false
 
 				if texture:IsValid() then
 					retired[#retired + 1] = {image = texture.image, view = texture.view, frame = frame}
@@ -1092,7 +1095,6 @@ do
 					texture.mip_map_levels = upload.mip_levels
 					stream.drop = upload.drop
 					stream.bytes = stream.bytes_from[upload.drop + 1]
-					stream.uploading = false
 					import("goluwa/event.lua").Call("TextureViewChanged", texture)
 				else
 					retired[#retired + 1] = {image = upload.image, view = upload.view, frame = frame}
@@ -1200,6 +1202,7 @@ do
 			cmd = cmd,
 			staging = staging,
 			texture = self,
+			stream = stream,
 			image = image,
 			view = view,
 			drop = drop,
@@ -1319,6 +1322,8 @@ function Texture:OnRemove()
 	end
 
 	if fallback_texture == self then fallback_texture = NULL end
+
+	streamed_textures[self] = nil
 
 	if self.image and not self:IsFallback() then self.image:Remove() end
 
