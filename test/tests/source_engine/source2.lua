@@ -141,6 +141,28 @@ T.Test("source 2 maps name their skybox in a skybox_reference entity", function(
 	T(world.FindSkybox("a2_headcrabs_tunnel"))["=="](nil)
 end)
 
+T.Test("source 2 maps keep vr hand poses out", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local world = import("goluwa/source_engine/source2/world.lua")
+	vfs.Mount(world.GetMapDirectory(info) .. "a3_hotel_street.vpk/")
+	local banned = 0
+
+	for _, record in ipairs(world.Translate("a3_hotel_street", nil).entities) do
+		local visual = record.components and record.components.visual
+		local path = visual and visual.ModelPath or ""
+
+		if path:find("handposes/", 1, true) or path:find("washing_machine01a_door", 1, true) or path:find("washing_machine01a_loader", 1, true) then
+			banned = banned + 1
+		end
+	end
+
+	T(banned)["=="](0)
+end)
+
 T.Test("source 2 surface properties", function()
 	local info = steam.FindSourceGame(546560)
 

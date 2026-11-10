@@ -20,6 +20,12 @@ local PROP_MOTION = {
 	prop_dynamic = "static",
 	prop_dynamic_override = "static",
 }
+-- hand pose markers and the washing machine's loader and door are set up for vr grabbing and fall apart without its logic
+local BLACKLISTED_MODELS = {
+	["models/props/interactive/washing_machine01a_door.vmdl"] = true,
+	["models/props/interactive/washing_machine01a_loader.vmdl"] = true,
+}
+local BLACKLISTED_MODEL_PREFIX = "models/props/max/handposes/"
 
 -- the entity color is sRGB, the shaders multiply it into linear albedo
 local function get_tint(color)
@@ -258,6 +264,16 @@ function world.Translate(name, sky_path)
 
 			if not entity.origin then goto continue end
 
+			if class == "prop_handpose" then goto continue end
+
+			if entity.model then
+				local model = normalize_path(entity.model)
+
+				if BLACKLISTED_MODELS[model] or model:starts_with(BLACKLISTED_MODEL_PREFIX) then
+					goto continue
+				end
+			end
+
 			do
 				local position = units.PositionToEngine(parse_vector(entity.origin))
 				local rotation = entity.angles and angles_to_rotation(entity.angles) or Quat(0, 0, 0, 1)
@@ -303,6 +319,7 @@ function world.Translate(name, sky_path)
 								nil,
 						},
 					}
+
 				elseif (class == "light_omni" or class == "light_spot") and entity.color then
 					local color = entity.color
 					local range = entity.range or 0
