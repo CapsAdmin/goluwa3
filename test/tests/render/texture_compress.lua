@@ -242,3 +242,40 @@ T.Test3D("texture_compress recompress keeps a texture, edits it and blends sourc
 
 	T(psnr(mixed, target, width * height, {0, 1, 2}) > 36)["=="](true)
 end)
+
+T.Test3D("textures drop mips above r_max_texture_size", function()
+	local fs = import("goluwa/filesystem/fs.lua")
+	local pvars = import("goluwa/cli/pvars.lua")
+	local Texture = import("goluwa/render/texture.lua")
+	local source = texture_compress.Compress{
+		pixels = make_image(64, 64),
+		width = 64,
+		height = 64,
+		format = "bc7",
+		kind = "linear",
+	}
+	local file = "storage/cache/test_max_texture_size.dds"
+	fs.create_directory_recursive("storage/cache/")
+	assert(fs.write_file(file, source))
+	local widths = {}
+
+	for _, limit in ipairs{0, 16, 1} do
+		pvars.SetSession("r_max_texture_size", limit)
+		Texture.ClearCache()
+		local texture = Texture.New{path = file}
+
+		T.WaitUntilReal(function()
+			return texture:IsReady()
+		end, 10, "the texture to load")
+
+		widths[#widths + 1] = texture:GetImage().width .. ":" .. texture:GetMipMapLevels()
+		texture:Remove()
+	end
+
+	pvars.SetSession("r_max_texture_size", 0)
+	Texture.ClearCache()
+	fs.remove_file(file)
+	T(widths[1])["=="]("64:7")
+	T(widths[2])["=="]("16:5")
+	T(widths[3])["=="]("1:1")
+end)

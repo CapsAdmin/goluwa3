@@ -12,6 +12,16 @@ local ImageView = import("goluwa/render/vulkan/internal/image_view.lua")
 local Image = import("goluwa/render/vulkan/internal/image.lua")
 local codec = import("goluwa/codec.lua")
 local resource = import("goluwa/resource.lua")
+local pvars = import("goluwa/cli/pvars.lua")
+pvars.StartGroup("Engine", "Textures", {prefix = "texture_"})
+local max_texture_size = pvars.Setup2{
+	key = "r_max_texture_size",
+	default = 0,
+	min = 0,
+	integer = true,
+	help = "largest width or height a compressed texture file is uploaded with, bigger mips are dropped (0 is no limit)",
+}
+pvars.EndGroup()
 local texture_cache = {}
 local shade_pipeline_cache = {}
 local DEFAULT_SAMPLER_ANISOTROPY = 16
@@ -350,6 +360,46 @@ function Texture:Load()
 	start_loading()
 end
 
+local function can_crop(info, is_compressed)
+	return info and
+		is_compressed and
+		info.mip_count > 1 and
+		info.depth == 1 and
+		(
+			info.array_size or
+			1
+		) == 1 and
+		not info.attached_image and
+		not (
+			info.frames and
+			info.frames > 1
+		)
+end
+
+local function crop_mips(info, data, drop)
+	local mip_info = info.mip_info
+	local base = mip_info[drop + 1]
+	local kept = setmetatable({}, {__index = info})
+	kept.width = base.width
+	kept.height = base.height
+	kept.mip_count = info.mip_count - drop
+	kept.mip_info = {}
+
+	for i = 1, kept.mip_count do
+		local source = mip_info[drop + i]
+		kept.mip_info[i] = {
+			width = source.width,
+			height = source.height,
+			depth = source.depth,
+			size = source.size,
+			offset = source.offset - base.offset,
+		}
+	end
+
+	kept.data_size = info.data_size - base.offset
+	return kept, ffi.cast("uint8_t *", data) + base.offset
+end
+
 function Texture.New(config)
 	assert(render.CanCreateResources(), "Texture.New requires render.Initialize() first")
 	config = config or {}
@@ -395,6 +445,26 @@ function Texture.New(config)
 			else
 				config.format = config.format or "r8g8b8a8_unorm"
 				buffer_data = img.buffer:GetBuffer()
+			end
+		end
+
+		if config.path and can_crop(vulkan_info, is_compressed) then
+			local limit = max_texture_size:Get()
+			local mip_info = vulkan_info.mip_info
+			local drop = 0
+
+			while
+				limit > 0 and
+				drop < vulkan_info.mip_count - 1 and
+				math.max(mip_info[drop + 1].width, mip_info[drop + 1].height) > limit
+			do
+				drop = drop + 1
+			end
+
+			if drop > 0 then
+				vulkan_info, buffer_data = crop_mips(vulkan_info, buffer_data, drop)
+				config.width = vulkan_info.width
+				config.height = vulkan_info.height
 			end
 		end
 
