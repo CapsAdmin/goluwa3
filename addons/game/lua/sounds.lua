@@ -9,8 +9,14 @@ local REFERENCE_DISTANCE = 2
 local AUDIBLE = 10 ^ (-45 / 20)
 local voices = {}
 local missing = {}
+local missing_generation = vfs.mount_generation
 
 function sounds.CreateSource(path)
+	if missing_generation ~= vfs.mount_generation then
+		missing = {}
+		missing_generation = vfs.mount_generation
+	end
+
 	if missing[path] then return end
 
 	local full_path = "sound/" .. path
@@ -56,8 +62,6 @@ local function get_voice(path)
 	local entry = voices[path]
 
 	if not entry then
-		if missing[path] then return end
-
 		local first = sounds.CreateSource(path)
 
 		if not first then return end
