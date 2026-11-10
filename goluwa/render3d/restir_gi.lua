@@ -258,8 +258,10 @@ do
 				local luminance = 0
 
 				for _, item in ipairs(visual.scene_instances) do
-					local r, g, b = materials.GetEmissive(item.material)
-					luminance = math.max(luminance, 0.2126 * r + 0.7152 * g + 0.0722 * b)
+					if item.material:GetEmitsLight() then
+						local r, g, b = materials.GetEmissive(item.material)
+						luminance = math.max(luminance, 0.2126 * r + 0.7152 * g + 0.0722 * b)
+					end
 				end
 
 				local sx, sy, sz = aabb.max_x - aabb.min_x, aabb.max_y - aabb.min_y, aabb.max_z - aabb.min_z

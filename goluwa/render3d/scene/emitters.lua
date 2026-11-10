@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local EasyPipeline = import("goluwa/render/easy_pipeline.lua")
+local Material = import("goluwa/render3d/material.lua")
 local bridge = import("goluwa/render3d/scene/bridge.lua")
 local materials = import("goluwa/render3d/scene/materials.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
@@ -41,7 +42,11 @@ local words_buffer
 local built_frame = -1
 
 function emitters.Get(include_additive)
-	if list.version == bridge.emitter_version and list.additive == include_additive then
+	if
+		list.version == bridge.emitter_version and
+		list.generation == Material.emission_generation and
+		list.additive == include_additive
+	then
 		return list
 	end
 
@@ -60,7 +65,7 @@ function emitters.Get(include_additive)
 					and
 					material:GetEmissiveTexture() == nil
 
-				if luminance > 0 and (include_additive or not additive) then
+				if luminance > 0 and material:GetEmitsLight() and (include_additive or not additive) then
 					count = count + 1
 					sources[count] = {
 						first = total,
@@ -79,6 +84,7 @@ function emitters.Get(include_additive)
 	list.count = total
 	list.additive = include_additive
 	list.version = bridge.emitter_version
+	list.generation = Material.emission_generation
 	list.sources_version = (list.sources_version or 0) + 1
 	list.sources = sources
 	return list

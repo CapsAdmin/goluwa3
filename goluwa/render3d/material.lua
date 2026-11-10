@@ -77,6 +77,7 @@ Material:GetSet(
 	Color(1.0, 1.0, 1.0, 1.0),
 	{callback = "InvalidateEmission"}
 )
+Material:GetSet("EmitsLight", true, {callback = "InvalidateEmission"})
 Material:GetSet(
 	"EmissiveTextureIsColor",
 	false,
@@ -484,7 +485,10 @@ function Material:InvalidateSceneKey()
 	Material.scene_dirty_materials[self] = true
 end
 
+Material.emission_generation = Material.emission_generation or 0
+
 function Material:InvalidateEmission()
+	Material.emission_generation = Material.emission_generation + 1
 	self:InvalidateSceneKey()
 	self:InvalidateRayMaterial()
 end
