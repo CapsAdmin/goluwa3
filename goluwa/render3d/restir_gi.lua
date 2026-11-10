@@ -188,7 +188,7 @@ do
 	local changed = {}
 	local last_frame = -1
 
-	local function track(key, x, y, z, size, intensity, frame)
+	local function track(key, x, y, z, size, intensity, rotation, frame)
 		local t = tracked[key]
 
 		if not t then
@@ -201,6 +201,9 @@ do
 			(
 				math.abs(x - t.x) + math.abs(y - t.y) + math.abs(z - t.z) > 1e-3 or
 				math.abs(intensity - t.intensity) > 0.02 * math.max(intensity, t.intensity)
+				or
+				rotation and
+				math.abs(rotation.x * t.qx + rotation.y * t.qy + rotation.z * t.qz + rotation.w * t.qw) < 0.99999
 			)
 		then
 			t.until_frame = frame + CHANGE_FRAMES
@@ -208,6 +211,10 @@ do
 		end
 
 		t.x, t.y, t.z, t.intensity = x, y, z, intensity
+
+		if rotation then
+			t.qx, t.qy, t.qz, t.qw = rotation.x, rotation.y, rotation.z, rotation.w
+		end
 
 		while t.path[1] and t.path[1].frame < frame - CHANGE_FRAMES do
 			table.remove(t.path, 1)
@@ -263,6 +270,7 @@ do
 					(aabb.min_z + aabb.max_z) * 0.5,
 					0.5 * math.sqrt(sx * sx + sy * sy + sz * sz),
 					luminance * render3d.EMISSIVE_REFERENCE_LUMINANCE * math.max(sx * sy, sy * sz, sx * sz),
+					false,
 					frame
 				)
 			end
@@ -281,6 +289,7 @@ do
 					(
 							0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b
 						) * light:GetColorScale() * light:GetPhotometricAmount() * light:GetInverseEmissionSolidAngle(),
+					light.Owner.transform:GetRotation(),
 					frame
 				)
 			end
