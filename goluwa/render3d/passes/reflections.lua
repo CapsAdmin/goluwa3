@@ -458,7 +458,7 @@ return {
 
 				#ifdef SCENE_REFLECTION
 				if (scene_reflection_ready() && hit.a < 0.999) {
-					vec3 origin = world_pos + geometric_N * (0.02 + 0.002 * -pos_vs.z);
+					vec3 origin = world_pos + geometric_N * (0.0002 + 0.0001 * -pos_vs.z);
 					float traced_t;
 					vec3 traced = trace_scene_reflection(origin, R_world, N, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
 					reflection_hit_distance = traced_t;
