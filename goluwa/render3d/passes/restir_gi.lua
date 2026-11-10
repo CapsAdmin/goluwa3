@@ -216,7 +216,25 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 		vec3 n;
 		vec3 L;
 		int kind;
+		vec3 id;
 	};
+
+	// an emitter sample is kept as its triangle (instance, primitive, packed barycentrics and side) and placed on it each time it is read, so a sample on a moving light moves with it instead of lighting the spot the light left
+	vec3 restir_stored_x(restir_sample s) {
+		return s.kind == RESTIR_EMITTER ? s.id : s.x;
+	}
+
+	// an emitter sample's contribution weight crosses frames per area of the emitter, which a moving emitter keeps, and is turned into solid angle at its receiver from where the emitter is now: kept per solid angle, a sample whose emitter moved closer keeps its old weight under a larger target and flares
+	float restir_emitter_area_factor(restir_sample s, vec3 receiver) {
+		vec3 to_receiver = receiver - s.x;
+		float d2 = dot(to_receiver, to_receiver);
+		return abs(dot(s.n, to_receiver)) * inversesqrt(max(d2, 1e-12)) / max(d2, 1e-12);
+	}
+
+	vec3 restir_emitter_id(uint instance, uint primitive, vec2 uv, bool flipped) {
+		uvec2 q = uvec2(clamp(uv, 0.0, 1.0) * 2047.0 + 0.5);
+		return vec3(float(instance), float(primitive), float(q.x | (q.y << 11u) | (flipped ? 1u << 22u : 0u)));
+	}
 
 	bool restir_surface(ivec2 pos, ivec2 size, out ivec2 gpos, out vec3 P, out vec3 N, out float view_depth, out float depth) {
 		ivec2 gsize = textureSize(TEXTURE(restir_data.depth_tex), 0);
@@ -269,7 +287,7 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 			flags = 0;
 		}
 
-		return restir_sample(a.xyz, c.xyz, max(b.rgb, vec3(0.0)), flags & 3);
+		return restir_sample(a.xyz, c.xyz, max(b.rgb, vec3(0.0)), flags & 3, a.xyz);
 	}
 
 	float restir_receiver_cosine(restir_sample s, vec3 P, vec3 N, out vec3 dir, out float dist) {
@@ -410,6 +428,18 @@ local SCREEN_GI_GLSL = [[
 		return !any(isnan(irradiance));
 	}
 ]]
+local RESOLVE_GLSL = [[
+	restir_sample restir_resolve(restir_sample s) {
+		if (s.kind != RESTIR_EMITTER) return s;
+
+		uint packed = uint(s.id.z);
+		vec2 uv = vec2(float(packed & 2047u), float((packed >> 11u) & 2047u)) / 2047.0;
+		scene_triangle tri = scene_hit_tri(uint(s.id.x), uint(s.id.y));
+		s.x = tri.v0 + tri.e1 * uv.x + tri.e2 * uv.y;
+		s.n = (packed & (1u << 22u)) != 0u ? tri.normal : -tri.normal;
+		return s;
+	}
+]]
 local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCENE_HIT_SKY_RAYS 1\n#define SCENE_HIT_EMISSION (ddgi_data.ddgi_emitter_count == 0)\n" .. NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. glsl_common.GetBlueNoiseGLSL() .. SURFACE_GLSL .. SCREEN_GI_GLSL .. HIT_GI_SHARE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("restir_data") .. [[
 			vec3 restir_cosine_direction(vec3 N, vec2 xi) {
 				vec3 up = abs(N.y) < 0.999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
@@ -430,7 +460,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				miss = !trace_scene_hit(origin, dir, 0.0, SCENE_REFLECTION_MAX_DISTANCE, t, instance, primitive, barycentrics);
 
 				if (miss) {
-					s = restir_sample(dir, vec3(0.0), ddgi_sky(dir), RESTIR_SKY);
+					s = restir_sample(dir, vec3(0.0), ddgi_sky(dir), RESTIR_SKY, vec3(0.0));
 					t = SCENE_REFLECTION_MAX_DISTANCE;
 				} else {
 					scene_triangle tri = scene_hit_tri(instance, primitive);
@@ -440,8 +470,8 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 
 					vec3 P = origin + dir * t;
 					s = emitter ?
-						restir_sample(P, hit_N, ddgi_emission(tri, ddgi_albedo(ddgi_materials[tri.material], P)), RESTIR_EMITTER) :
-						restir_sample(P, hit_N, shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), RESTIR_SURFACE);
+						restir_sample(P, hit_N, ddgi_emission(tri, ddgi_albedo(ddgi_materials[tri.material], P)), RESTIR_EMITTER, restir_emitter_id(instance, primitive, barycentrics, dot(hit_N, tri.normal) > 0.0)) :
+						restir_sample(P, hit_N, shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), RESTIR_SURFACE, vec3(0.0));
 				}
 
 				if (restir_data.glass_light != 0) s.L *= get_glass_light(origin, dir, t, 0.0);
@@ -449,7 +479,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				s.L = min(max(s.L, vec3(0.0)), vec3(1e9));
 				return s;
 			}
-]]
+]] .. RESOLVE_GLSL
 
 -- traces this frame's new candidates for the pixels whose turn it is, one thread per tracing pixel so no warp traces a few rays at the cost of a full one
 local function pass_candidates()
@@ -570,7 +600,7 @@ local function pass_candidates()
 							chosen_target = luminance(chosen.L) * ray_cosine;
 							w_sum = chosen_target / pdf;
 						} else {
-							chosen = restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMPTY);
+							chosen = restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMPTY, vec3(0.0));
 						}
 
 						miss = miss && !guided;
@@ -604,14 +634,18 @@ local function pass_candidates()
 								w_sum += w;
 
 								if (restir_random(pos, 1u) * w_sum < w) {
-									chosen = restir_sample(point, emitter_N, L, RESTIR_EMITTER);
+									vec2 uv = emitter_random(uint(pos.y * size.x + pos.x), frame, uint(emitter) >> 26u).yz;
+
+									if (uv.x + uv.y > 1.0) uv = 1.0 - uv;
+
+									chosen = restir_sample(point, emitter_N, L, RESTIR_EMITTER, restir_emitter_id(emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED, uv, dot(emitter_N, tri.normal) > 0.0));
 									chosen_target = target;
 								}
 							}
 						}
 					}
 
-				imageStore(out_a, pos, vec4(chosen.x, w_sum));
+				imageStore(out_a, pos, vec4(restir_stored_x(chosen), w_sum));
 				imageStore(out_b, pos, vec4(chosen.L, chosen_target));
 				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | (miss ? RESTIR_FLAG_MISS : 0) | (guided_share > 0.0 ? RESTIR_FLAG_GUIDE_MIX : 0))));
 			}
@@ -656,7 +690,7 @@ local function pass_temporal()
 			void main() {
 				ivec2 pos = get_screen_pos();
 				ivec2 size = imageSize(out_a);
-				restir_sample chosen = restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMPTY);
+				restir_sample chosen = restir_sample(vec3(0.0), vec3(0.0), vec3(0.0), RESTIR_EMPTY, vec3(0.0));
 				restir_sample fresh = chosen;
 				float W = 0.0;
 				float fresh_W = 0.0;
@@ -686,7 +720,7 @@ local function pass_temporal()
 						vec4 candidate_b = texelFetch(TEXTURE(restir_data.candidate_b_tex), pos, 0);
 						vec4 candidate_c = texelFetch(TEXTURE(restir_data.candidate_c_tex), pos, 0);
 						candidate_flags = int(candidate_c.w + 0.5);
-						chosen = restir_sample(candidate_a.xyz, candidate_c.xyz, candidate_b.rgb, candidate_flags & 3);
+						chosen = restir_resolve(restir_sample(candidate_a.xyz, candidate_c.xyz, candidate_b.rgb, candidate_flags & 3, candidate_a.xyz));
 						w_sum = candidate_a.w;
 						chosen_target = candidate_b.w;
 						miss = (candidate_flags & RESTIR_FLAG_MISS) != 0;
@@ -739,7 +773,7 @@ local function pass_temporal()
 						float h_W;
 						float h_M;
 						int h_flags;
-						restir_sample h = restir_load(restir_data.history_a_tex, restir_data.history_b_tex, restir_data.history_c_tex, q, h_W, h_M, h_flags);
+						restir_sample h = restir_resolve(restir_load(restir_data.history_a_tex, restir_data.history_b_tex, restir_data.history_c_tex, q, h_W, h_M, h_flags));
 						// a sample carried along with the motion for its whole history draws a streak, so a moving pixel keeps a shorter one
 						h_M = min(h_M, restir_data.max_history / (1.0 + moved));
 						vec3 h_dir;
@@ -747,6 +781,8 @@ local function pass_temporal()
 						float h_cosine = restir_receiver_cosine(h, P, N, h_dir, h_dist);
 						vec3 h_receiver = texelFetch(TEXTURE(restir_data.history_receiver_tex), q, 0).xyz;
 						vec3 h_normal = texelFetch(TEXTURE(restir_data.history_geometry_tex), q, 0).xyz;
+
+						if (h.kind == RESTIR_EMITTER) h_W *= restir_emitter_area_factor(h, h_receiver);
 
 						if (restir_data.validation != 0 && h.kind != RESTIR_EMPTY && h_M > 1.0 && ((pos.x + pos.y * 2 + int(frame)) & 3) == 0) {
 							// retraced from where the sample was found: from this frame's screen pixel it often lands on another leaf or edge and the history is thrown away
@@ -834,7 +870,7 @@ local function pass_temporal()
 					return;
 				}
 
-				imageStore(out_a, pos, vec4(chosen.x, W));
+				imageStore(out_a, pos, vec4(restir_stored_x(chosen), W));
 				imageStore(out_b, pos, vec4(chosen.L, M));
 				imageStore(out_c, pos, vec4(chosen.n, float(chosen.kind | flags)));
 				imageStore(out_geometry, pos, vec4(N, view_depth));
@@ -877,7 +913,7 @@ local function pass_spatial()
 			layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D out_c;
 			layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_receiver;
 		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
-		shader = NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. SURFACE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("restir_data") .. [[
+		shader = NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. SURFACE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("restir_data") .. RESOLVE_GLSL .. [[
 
 			void main() {
 				ivec2 pos = get_screen_pos();
@@ -903,7 +939,7 @@ local function pass_spatial()
 				float W;
 				float M;
 				int flags;
-				restir_sample own = restir_load(restir_data.reservoir_a_tex, restir_data.reservoir_b_tex, restir_data.reservoir_c_tex, pos, W, M, flags);
+				restir_sample own = restir_resolve(restir_load(restir_data.reservoir_a_tex, restir_data.reservoir_b_tex, restir_data.reservoir_c_tex, pos, W, M, flags));
 				vec3 dir;
 				float dist;
 				float own_cosine = restir_receiver_cosine(own, P, N, dir, dist);
@@ -943,7 +979,7 @@ local function pass_spatial()
 						restir_sample s;
 
 						if (q != pos && all(greaterThanEqual(q, ivec2(0))) && all(lessThan(q, size)) && restir_surface(q, size, q_gpos, q_P, q_N, q_view_depth, q_depth) && dot(N, q_N) >= 0.9 && abs(dot(N, q_P - P)) <= plane_tolerance) {
-							s = restir_load(restir_data.reservoir_a_tex, restir_data.reservoir_b_tex, restir_data.reservoir_c_tex, q, q_W, q_M, q_flags);
+							s = restir_resolve(restir_load(restir_data.reservoir_a_tex, restir_data.reservoir_b_tex, restir_data.reservoir_c_tex, q, q_W, q_M, q_flags));
 						}
 
 						if (q_M <= 0.0) {
@@ -1030,10 +1066,17 @@ local function pass_spatial()
 					picked_M = 0.0;
 				}
 
-				imageStore(out_a, pos, vec4(picked.x, picked_W));
+				vec3 picked_receiver = picked_own ? texelFetch(TEXTURE(restir_data.receiver_tex), pos, 0).xyz : P;
+
+				if (picked.kind == RESTIR_EMITTER) {
+					float area_factor = restir_emitter_area_factor(picked, picked_receiver);
+					picked_W = area_factor > 1e-6 ? picked_W / area_factor : 0.0;
+				}
+
+				imageStore(out_a, pos, vec4(restir_stored_x(picked), picked_W));
 				imageStore(out_b, pos, vec4(picked.L, picked_M));
 				imageStore(out_c, pos, vec4(picked.n, float(picked.kind | (flags & ~3))));
-				imageStore(out_receiver, pos, vec4(picked_own ? texelFetch(TEXTURE(restir_data.receiver_tex), pos, 0).xyz : P, 0.0));
+				imageStore(out_receiver, pos, vec4(picked_receiver, 0.0));
 			}
 		]],
 	}
