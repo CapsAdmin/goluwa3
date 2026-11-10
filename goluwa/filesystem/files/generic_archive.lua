@@ -282,6 +282,32 @@ function CONTEXT:TranslateArchivePath(file_info)
 	return file_info.archive_path
 end
 
+-- the os file, offset and size holding the bytes of an entry, nothing for entries that are stored in the archive's directory
+function CONTEXT:GetReadLocation(path_info)
+	local tree, relative, archive_path = self:GetFileTree(path_info)
+
+	if not tree then return end
+
+	local file_info = tree:GetEntry(relative)
+
+	if
+		not file_info or
+		file_info.is_dir or
+		(
+			file_info.preload_data and
+			#file_info.preload_data > 0
+		)
+	then
+		return
+	end
+
+	local os_path = self:TranslateArchivePath(file_info, archive_path)
+
+	if os_path:starts_with("os:") then
+		return os_path:sub(4), file_info.offset, file_info.size
+	end
+end
+
 local cache = table.weak("kv")
 
 function CONTEXT:Open(path_info, mode, ...)

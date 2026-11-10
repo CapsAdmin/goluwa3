@@ -68,6 +68,35 @@ T.Test("source 2 alyx resources", function()
 	T(img.vulkan_format)["=="]("bc7_unorm_block")
 end)
 
+T.Test("textures inside archives decode on a worker that reads the bytes itself", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local material = resource.ReadKV3(resource.Load(vfs, "materials/models/props/hooks_2.vmat_c"))
+	local path = material.m_textureParams[2].m_pValue .. "_c"
+	local location, offset, size = vfs.GetReadLocation(path)
+	T(location ~= nil and offset >= 0 and size > 16384)["=="](true)
+	local expected = assert(codec.DecodeWithModule("x.vtex_c", vfs.Read(path), vtex_c))
+	local async
+
+	codec.DecodeFileAsync(path, function(img, err)
+		async = img or err
+	end)
+
+	T.WaitUntilReal(function()
+		return async ~= nil
+	end, 20, "the archive texture to decode")
+
+	T(type(async))["=="]("table")
+	T(async.width)["=="](expected.width)
+	T(async.mip_count)["=="](expected.mip_count)
+	T(async.data_size)["=="](expected.data_size)
+	T(ffi.string(async.data, 4096))["=="](ffi.string(expected.data, 4096))
+	T(ffi.string(async.data + async.data_size - 4096, 4096))["=="](ffi.string(expected.data + expected.data_size - 4096, 4096))
+end)
+
 T.Test("source 2 world physics", function()
 	local info = steam.FindSourceGame(546560)
 

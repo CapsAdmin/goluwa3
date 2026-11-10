@@ -358,6 +358,24 @@ end
 
 import.loaded["goluwa/filesystem/vfs.lua"] = vfs
 
+-- the os file, offset and size that hold the bytes of a file, for a loose file or an entry of an archive
+function vfs.GetReadLocation(path)
+	for _, data in ipairs(vfs.TranslatePath(path)) do
+		local context = data.context
+
+		if context.Name == "os" then
+			local full_path = data.path_info.full_path
+			local attributes = import("goluwa/filesystem/fs.lua").get_attributes(full_path)
+
+			if attributes then return full_path, 0, attributes.size end
+		elseif context.GetReadLocation then
+			local location, offset, size = context:CreateObject():GetReadLocation(data.path_info)
+
+			if location then return location, offset, size end
+		end
+	end
+end
+
 function vfs.Prefetch(path, callback)
 	local data = vfs.TranslatePath(path)[1]
 
