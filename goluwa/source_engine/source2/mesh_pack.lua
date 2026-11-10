@@ -26,7 +26,7 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
 	local position = assert(vbib.GetField(vb, "POSITION"), "no POSITION")
 	local normal = vbib.GetField(vb, "NORMAL")
 	local texcoord = vbib.GetField(vb, "TEXCOORD", 0)
-	local color = vbib.GetField(vb, "COLOR")
+	local color = vbib.GetField(vb, "COLOR") or vbib.GetField(vb, "TEXCOORD", 4)
 	local blend_indices = skin and vbib.GetField(vb, "BLENDINDICES")
 	local blend_weights = skin and vbib.GetField(vb, "BLENDWEIGHT")
 
