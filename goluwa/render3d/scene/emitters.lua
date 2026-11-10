@@ -619,8 +619,10 @@ function emitters.GetGLSL()
 	return glsl_common.GetHashGLSL() .. [[
 		#define EMITTER_HEADER ]] .. HEADER_WORDS .. [[u
 		#define EMITTER_NODE_WORDS ]] .. NODE_WORDS .. [[u
+		#ifndef EMITTER_CANDIDATES
 		#define EMITTER_CANDIDATES 4
-		#define EMITTER_CLUSTER 4
+		#endif
+		#define EMITTER_CLUSTER 16
 		#define EMITTER_DOUBLE_SIDED 0x80000000u
 
 		vec4 emitter_random(uint index, uint frame, uint candidate) {
@@ -666,23 +668,24 @@ function emitters.GetGLSL()
 			return cos_a > cos_b ? 0.0 : sin_a * cos_b - cos_a * sin_b;
 		}
 
-		float emitter_node_importance(uint node, vec3 origin, vec3 normal, float radius) {
+		// x weighs a node by the distance to its box, y by the distance to its centre: the box overrates a big node that holds the receiver but whose emitters are far (it starves a small light beside the receiver), the centre underrates one whose near corner touches the receiver
+		vec2 emitter_node_importance(uint node, vec3 origin, vec3 normal, float radius) {
 			uint at = emitter_words[3] + node * EMITTER_NODE_WORDS;
 			float power = uintBitsToFloat(emitter_words[at + 3u]);
 
-			if (!(power > 0.0)) return 0.0;
+			if (!(power > 0.0)) return vec2(0.0);
 
 			vec3 lo = vec3(uintBitsToFloat(emitter_words[at]), uintBitsToFloat(emitter_words[at + 1u]), uintBitsToFloat(emitter_words[at + 2u]));
 			vec3 hi = vec3(uintBitsToFloat(emitter_words[at + 4u]), uintBitsToFloat(emitter_words[at + 5u]), uintBitsToFloat(emitter_words[at + 6u]));
 			float cos_o = uintBitsToFloat(emitter_words[at + 7u]);
 			vec3 axis = vec3(uintBitsToFloat(emitter_words[at + 8u]), uintBitsToFloat(emitter_words[at + 9u]), uintBitsToFloat(emitter_words[at + 10u]));
 
-			if (normal != vec3(0.0) && dot(normal, (lo + hi) * 0.5 - origin) + dot(abs(normal), (hi - lo) * 0.5) <= 0.0) return 0.0;
+			if (normal != vec3(0.0) && dot(normal, (lo + hi) * 0.5 - origin) + dot(abs(normal), (hi - lo) * 0.5) <= 0.0) return vec2(0.0);
 
 			if (node >= emitter_words[2]) {
 				bool double_sided = (emitter_words[at + 11u] & EMITTER_DOUBLE_SIDED) != 0u;
 
-				if (!double_sided && dot(axis, origin) <= cos_o) return 0.0;
+				if (!double_sided && dot(axis, origin) <= cos_o) return vec2(0.0);
 
 				cos_o = double_sided ? -1.0 : 1.0;
 			}
@@ -699,16 +702,16 @@ function emitters.GetGLSL()
 			float sin_x = emitter_sin_sub(sin_w, cos_w, sin_o, cos_o);
 			float cos_p = emitter_cos_sub(sin_x, cos_x, sin_b, cos_b);
 
-			if (cos_p <= 0.0) return 0.0;
+			if (cos_p <= 0.0) return vec2(0.0);
 
 			vec3 outside = max(max(lo - origin, origin - hi), vec3(0.0));
-			float importance = power * cos_p / max(dot(outside, outside), radius * radius);
+			vec2 importance = power * cos_p / vec2(max(dot(outside, outside), radius * radius), max(d2, max(r2, radius * radius)));
 
 			if (normal != vec3(0.0)) {
 				float cos_i = -dot(normal, wi);
 				float cos_pi = emitter_cos_sub(sqrt(max(1.0 - cos_i * cos_i, 0.0)), cos_i, sin_b, cos_b);
 
-				if (cos_pi <= 0.0) return 0.0;
+				if (cos_pi <= 0.0) return vec2(0.0);
 
 				importance *= cos_pi;
 			}
@@ -716,30 +719,33 @@ function emitters.GetGLSL()
 			return importance;
 		}
 
-		int emitter_tree_pick(float u, uint seed, vec3 origin, vec3 normal, float radius, out float pdf) {
+		// walks by one of the two weighings and returns the average of both paths' probabilities, so neither can leave an emitter all but unpicked
+		int emitter_tree_pick(float u, uint seed, bool by_centre, vec3 origin, vec3 normal, float radius, out float pdf) {
 			uint leaf_count = emitter_words[2];
 			uint span = min(uint(EMITTER_CLUSTER), leaf_count);
 			uint node = 1u;
-			pdf = 1.0;
+			vec2 path = vec2(1.0);
+			pdf = 0.0;
 
 			while (node < leaf_count / span) {
 				// rescaling u at every level runs out of bits a few unlikely branches down, so each level adds fresh ones
 				seed = seed * 747796405u + 2891336453u;
 				u = fract(u + float((seed ^ (seed >> 16u)) >> 8u) / 16777216.0);
-				float a = emitter_node_importance(node * 2u, origin, normal, radius);
-				float b = emitter_node_importance(node * 2u + 1u, origin, normal, radius);
+				vec2 a = emitter_node_importance(node * 2u, origin, normal, radius);
+				vec2 b = emitter_node_importance(node * 2u + 1u, origin, normal, radius);
 
-				if (!(a + b > 0.0)) return -1;
+				if (!(a.x + b.x > 0.0)) return -1;
 
-				float p = a / (a + b);
+				vec2 p = a / (a + b);
+				float q = by_centre ? p.y : p.x;
 
-				if (u < p) {
-					u /= p;
-					pdf *= p;
+				if (u < q) {
+					u /= q;
+					path *= p;
 					node = node * 2u;
 				} else {
-					u = (u - p) / (1.0 - p);
-					pdf *= 1.0 - p;
+					u = (u - q) / (1.0 - q);
+					path *= 1.0 - p;
 					node = node * 2u + 1u;
 				}
 
@@ -747,26 +753,26 @@ function emitters.GetGLSL()
 			}
 
 			uint first = node * span;
-			float importances[EMITTER_CLUSTER];
-			float total = 0.0;
+			vec2 importances[EMITTER_CLUSTER];
+			vec2 total = vec2(0.0);
 
 			for (uint i = 0u; i < span; i++) {
 				importances[i] = emitter_node_importance(first + i, origin, normal, radius);
 				total += importances[i];
 			}
 
-			if (!(total > 0.0)) return -1;
+			if (!(total.x > 0.0)) return -1;
 
 			seed = seed * 747796405u + 2891336453u;
-			float pick = fract(u + float((seed ^ (seed >> 16u)) >> 8u) / 16777216.0) * total;
+			float pick = fract(u + float((seed ^ (seed >> 16u)) >> 8u) / 16777216.0) * (by_centre ? total.y : total.x);
 			float running = 0.0;
 			uint leaf = first + span - 1u;
-			float chosen = 0.0;
+			vec2 chosen = vec2(0.0);
 
 			for (uint i = 0u; i < span; i++) {
-				running += importances[i];
+				running += by_centre ? importances[i].y : importances[i].x;
 
-				if (importances[i] > 0.0) {
+				if (importances[i].x > 0.0) {
 					leaf = first + i;
 					chosen = importances[i];
 
@@ -774,7 +780,8 @@ function emitters.GetGLSL()
 				}
 			}
 
-			pdf *= chosen / total;
+			path *= chosen / total;
+			pdf = 0.5 * (path.x + path.y);
 			return int(emitter_words[emitter_words[3] + leaf * EMITTER_NODE_WORDS + 11u] & ~EMITTER_DOUBLE_SIDED);
 		}
 
@@ -784,7 +791,7 @@ function emitters.GetGLSL()
 			for (int k = 0; k < EMITTER_CANDIDATES; k++) {
 				vec4 u = emitter_random(index, frame, uint(k));
 				float pdf;
-				int e = emitter_tree_pick(u.x, pcg4d(uvec4(index, uint(k), frame, 0x27d4eb2du)).x, origin, normal, radius, pdf);
+				int e = emitter_tree_pick(u.x, pcg4d(uvec4(index, uint(k), frame, 0x27d4eb2du)).x, (k & 1) != 0, origin, normal, radius, pdf);
 				triangles[k] = max(e, 0);
 				weights[k] = 0.0;
 

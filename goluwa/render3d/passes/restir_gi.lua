@@ -523,7 +523,8 @@ local function pass_candidates()
 			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_b;
 			layout(set = 0, binding = 2, rgba16f) uniform writeonly image2D out_c;
 		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
-		shader = TRACE_GLSL .. scene_emitters.GetGLSL() .. [[
+		-- temporal and spatial reuse stand in for more candidates: one by each of the emitter tree's weighings
+		shader = TRACE_GLSL .. "#define EMITTER_CANDIDATES 2\n" .. scene_emitters.GetGLSL() .. [[
 
 			void main() {
 				ivec2 id = get_screen_pos();
@@ -780,9 +781,9 @@ local function pass_temporal()
 						float h_dist;
 						float h_cosine = restir_receiver_cosine(h, P, N, h_dir, h_dist);
 						vec3 h_receiver = texelFetch(TEXTURE(restir_data.history_receiver_tex), q, 0).xyz;
-						vec3 h_normal = texelFetch(TEXTURE(restir_data.history_geometry_tex), q, 0).xyz;
 
 						if (h.kind == RESTIR_EMITTER) h_W *= restir_emitter_area_factor(h, h_receiver);
+						vec3 h_normal = texelFetch(TEXTURE(restir_data.history_geometry_tex), q, 0).xyz;
 
 						if (restir_data.validation != 0 && h.kind != RESTIR_EMPTY && h_M > 1.0 && ((pos.x + pos.y * 2 + int(frame)) & 3) == 0) {
 							// retraced from where the sample was found: from this frame's screen pixel it often lands on another leaf or edge and the history is thrown away
