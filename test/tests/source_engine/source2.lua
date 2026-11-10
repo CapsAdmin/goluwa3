@@ -183,6 +183,26 @@ T.Test("source 2 maps keep vr hand poses out and build their constraints", funct
 	T(drawer.Entity0 ~= "")["=="](true)
 end)
 
+T.Test("xen foliage materials get subsurface scattering and transmission", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local material = import("goluwa/source_engine/source2/material.lua")
+	local Material = import("goluwa/render3d/material.lua")
+	local foam = material.GetInfo("materials/models/props/xen/xen_foam_straight_anchor01_to_xen_cleanup.vmat")
+	T(foam.shader)["=="]("vr_xen_foliage.vfx")
+	local self = Material.New()
+	material.ApplyXenFoliage(self, foam)
+	T(self:GetSubsurface())["=="](1)
+	T(self:GetSubsurfaceColor().r > self:GetSubsurfaceColor().b)["=="](true)
+	T(self:GetSubsurfaceRadius())["=="](7.5)
+	T(self:GetSubsurfaceColor().g < 0.3)["=="](true)
+	T(self:GetDiffuseTransmission() > 0.35 and self:GetDiffuseTransmission() < 0.6)["=="](true)
+	T(self:GetTransmissionColor().g > self:GetTransmissionColor().b)["=="](true)
+end)
+
 T.Test("source 2 surface properties", function()
 	local info = steam.FindSourceGame(546560)
 
