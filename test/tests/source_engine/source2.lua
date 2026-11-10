@@ -235,6 +235,18 @@ T.Test("source 2 draw call tints reach the model as tinted entries", function()
 	T(tints.b696[1] > tints.b696[2] and tints.b696[2] > tints.b696[3])["=="](true)
 end)
 
+T.Test3D("source 2 material color tints are srgb", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local material = import("goluwa/source_engine/source2/material.lua")
+	local color = material.FromVMAT("materials/models/props/junk/plasticbucket001.vmat"):GetColorMultiplier()
+	T(math.abs(color.r - 0.737) < 0.01)["=="](true)
+	T(color.g < 0.07 and color.b < 0.05)["=="](true)
+end)
+
 T.Test("source 2 surface properties", function()
 	local info = steam.FindSourceGame(546560)
 

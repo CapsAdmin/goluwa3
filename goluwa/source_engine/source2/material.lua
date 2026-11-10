@@ -291,7 +291,12 @@ function material.FromVMAT(path)
 		end
 	end
 
-	local color = vectors.g_vColorTint or {1, 1, 1}
+	local tint = vectors.g_vColorTint or {1, 1, 1}
+	local color = {
+		math.srgb_to_linear(tint[1]),
+		math.srgb_to_linear(tint[2]),
+		math.srgb_to_linear(tint[3]),
+	}
 	self:SetColorMultiplier(Color(color[1], color[2], color[3], 1))
 
 	if info.alpha_test then
