@@ -64,6 +64,7 @@ local function restir_uniform(trace)
 		{"history_c_tex", "int"},
 		{"history_geometry_tex", "int"},
 		{"history_receiver_tex", "int"},
+		{"receiver_tex", "int"},
 		{"screen_gi_tex", "int"},
 		{"screen_geometry_tex", "int"},
 		{"candidate_a_tex", "int"},
@@ -143,11 +144,13 @@ local function restir_uniform(trace)
 			block.reservoir_b_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 2))
 			block.reservoir_c_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 3))
 			block.geometry_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 4))
-			block.history_a_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 1))
-			block.history_b_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 2))
-			block.history_c_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 3))
+			block.receiver_tex = self:GetTextureIndex(attachment("restir_gi_temporal", current, 5))
+			-- the history is last frame's spatial output, read before the spatial pass rewrites it: a sample one pixel found spreads to its neighbours and stays
+			block.history_a_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 2))
+			block.history_b_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 3))
+			block.history_c_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 4))
 			block.history_geometry_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 4))
-			block.history_receiver_tex = self:GetTextureIndex(attachment("restir_gi_temporal", previous, 5))
+			block.history_receiver_tex = self:GetTextureIndex(attachment("restir_gi_spatial", 1, 5))
 			-- last frame's raw estimate, read before the spatial pass rewrites it: feeding back the denoised output makes every bounce wait on its history
 			block.screen_gi_tex = block.history_valid == 1 and
 				self:GetTextureIndex(attachment("restir_gi_spatial", 1, 1)) or
@@ -808,11 +811,18 @@ local function pass_spatial()
 				"r32g32b32a32_sfloat",
 				{"restir_raw", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
 			},
+			{"r32g32b32a32_sfloat", {"restir_spatial_position", "rgb", 0.01}},
+			{
+				"r32g32b32a32_sfloat",
+				{"restir_spatial_radiance", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
+			},
+			{"r16g16b16a16_sfloat", {"restir_spatial_normal", "rgb"}},
+			{"r32g32b32a32_sfloat", {"restir_spatial_receiver", "rgb", 0.01}},
 		},
 		framebuffer_count = 1,
 		scale = restir_gi.GetScale,
 		LocalSize = LOCAL_SIZE,
-		storage_images = storage_images(1),
+		storage_images = storage_images(5),
 		descriptor_sets = scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute"),
 		uniform_buffers = {restir_uniform(true), scene_reflection.GetDDGIUniformBuffer(BINDING_GI)},
 		on_pre_draw = function(self, cmd, frame, desc)
@@ -820,6 +830,10 @@ local function pass_spatial()
 		end,
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba32f) uniform writeonly image2D out_raw;
+			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_a;
+			layout(set = 0, binding = 2, rgba32f) uniform writeonly image2D out_b;
+			layout(set = 0, binding = 3, rgba16f) uniform writeonly image2D out_c;
+			layout(set = 0, binding = 4, rgba32f) uniform writeonly image2D out_receiver;
 		]] .. scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS),
 		shader = NO_DECALS_GLSL .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. SURFACE_GLSL .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("restir_data") .. atmosphere.GetGLSLDefines("restir_data", "restir_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("restir_data") .. [[
 
@@ -837,6 +851,10 @@ local function pass_spatial()
 
 				if (!restir_surface(pos, size, gpos, P, N, view_depth, depth)) {
 					imageStore(out_raw, pos, vec4(0.0, 0.0, 0.0, 1.0));
+					imageStore(out_a, pos, vec4(0.0));
+					imageStore(out_b, pos, vec4(0.0));
+					imageStore(out_c, pos, vec4(0.0));
+					imageStore(out_receiver, pos, vec4(0.0));
 					return;
 				}
 
@@ -849,6 +867,13 @@ local function pass_spatial()
 				float own_cosine = restir_receiver_cosine(own, P, N, dir, dist);
 				float own_target = luminance(own.L) * own_cosine;
 				vec3 irradiance = own.L * (own_cosine * W);
+				// the reservoir handed to next frame: one sample resampled from this pixel's and its neighbours' by the same weights as the irradiance
+				restir_sample picked = own;
+				float picked_target = own_target;
+				float picked_sum = 0.0;
+				float picked_M = M;
+				bool picked_own = true;
+				float picked_W = W;
 
 				// pairwise mis: neighbours get little say over light only this pixel can find (the wall beside it in a crease)
 				if (restir_data.spatial != 0 && scene_reflection_ready()) {
@@ -885,6 +910,7 @@ local function pass_spatial()
 						}
 
 						valid += 1.0;
+						picked_M += q_M;
 
 						vec3 q_dir;
 						float q_dist;
@@ -918,7 +944,26 @@ local function pass_spatial()
 						float target_there = q_M * luminance(s.L) * restir_receiver_cosine(s, q_P, q_N, q_dir, q_dist) / jacobian;
 						float weight = target_there / (target_here + target_there);
 						neighbours += s.L * (weight * s_cosine * jacobian * q_W);
+						float w = luminance(s.L) * s_cosine * weight * jacobian * q_W;
+						picked_sum += w;
+
+						if (restir_random(pos, 16u + uint(i)) * picked_sum < w) {
+							picked = s;
+							picked_target = luminance(s.L) * s_cosine;
+							picked_own = false;
+						}
 					}
+
+					float own_w = M > 0.0 ? own_target * W * own_weight : 0.0;
+					picked_sum += own_w;
+
+					if (picked_sum > 0.0 && restir_random(pos, 15u) * picked_sum < own_w) {
+						picked = own;
+						picked_target = own_target;
+						picked_own = true;
+					}
+
+					picked_W = picked_target > 0.0 ? picked_sum / (M > 0.0 ? k : max(valid, 1.0)) / picked_target : 0.0;
 
 					// with no reservoir of its own (not traced yet), the pairs with missing neighbours have no one to give their weight to
 					irradiance = M > 0.0 ? (irradiance * own_weight + neighbours) / k : neighbours / max(valid, 1.0);
@@ -937,6 +982,16 @@ local function pass_spatial()
 				}
 
 				imageStore(out_raw, pos, vec4(irradiance, (sky_flags & RESTIR_FLAG_MISS) != 0 ? 1.0 : 0.0));
+
+				if (!(picked_W >= 0.0 && picked_W < 1e30)) {
+					picked_W = 0.0;
+					picked_M = 0.0;
+				}
+
+				imageStore(out_a, pos, vec4(picked.x, picked_W));
+				imageStore(out_b, pos, vec4(picked.L, picked_M));
+				imageStore(out_c, pos, vec4(picked.n, float(picked.kind | (flags & ~3))));
+				imageStore(out_receiver, pos, vec4(picked_own ? texelFetch(TEXTURE(restir_data.receiver_tex), pos, 0).xyz : P, 0.0));
 			}
 		]],
 	}
