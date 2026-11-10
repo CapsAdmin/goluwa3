@@ -30,6 +30,8 @@ end
 
 local function add_mesh(children, mesh)
 	local vertices = ffi.cast(f32_ptr_t, mesh.m_Vertices)
+	if type(mesh.m_Triangles) ~= "string" then return end
+
 	local triangles = ffi.cast(i32_ptr_t, mesh.m_Triangles)
 	local chunks = {}
 

@@ -583,7 +583,7 @@ function RigidBody:LoadShapeModel()
 		function(model)
 			if not self:IsValid() or self.shape_load_id ~= load_id then return end
 
-			if not model.physics then
+			if not model.physics or not model.physics.children[1] then
 				wlog("rigid_body: %s has no collision data", path)
 				return
 			end
