@@ -484,7 +484,8 @@ end
 Material.emission_dirty_materials = Material.emission_dirty_materials or {}
 
 function Material:InvalidateEmission()
-	Material.emission_dirty_materials[self] = true
+	self:InvalidateSceneKey()
+	self:InvalidateRayMaterial()
 end
 
 Material.ray_material_generation = 0
