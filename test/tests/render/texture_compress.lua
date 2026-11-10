@@ -320,6 +320,17 @@ T.Test3D("streamed textures keep small mips and swap in bigger ones", function()
 
 	texture:UploadStreamLevel(stream.pending, 1)
 	stream.pending = nil
+	T(texture:GetImage().width)["=="](8)
+
+	T.WaitUntilReal(
+		function()
+			Texture.PollStreamUploads()
+			return not stream.uploading
+		end,
+		10,
+		"the upload to finish"
+	)
+
 	T(texture:GetImage().width)["=="](32)
 	T(texture:GetMipMapLevels())["=="](6)
 	T(stream.drop)["=="](1)
@@ -331,8 +342,17 @@ T.Test3D("streamed textures keep small mips and swap in bigger ones", function()
 	end, 10, "the smaller mips to decode")
 
 	texture:UploadStreamLevel(stream.pending, 3)
+
+	T.WaitUntilReal(
+		function()
+			Texture.PollStreamUploads()
+			return not stream.uploading
+		end,
+		10,
+		"the upload to finish"
+	)
+
 	T(texture:GetImage().width)["=="](8)
-	Texture.PollStreamUploads()
 	texture:Remove()
 	pvars.SetSession("r_texture_stream_base_size", 256)
 	Texture.ClearCache()

@@ -180,7 +180,6 @@ function texture_streaming.Update()
 			upload_bytes = upload_bytes + stream.bytes_from[stream.target + 1]
 			texture:UploadStreamLevel(stream.pending, stream.target)
 			stream.pending = nil
-			stream.target = nil
 			uploads = uploads + 1
 		end
 
@@ -188,7 +187,7 @@ function texture_streaming.Update()
 
 		if stream.pending then
 			total = total + stream.bytes_from[stream.target + 1] - stream.bytes
-		elseif stream.loading then
+		elseif stream.loading or stream.uploading then
 			loading = loading + 1
 			total = total + stream.bytes_from[stream.target + 1] - stream.bytes
 		elseif stream.wanted < stream.drop then

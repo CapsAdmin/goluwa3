@@ -13,6 +13,7 @@ local Image = import("goluwa/render/vulkan/internal/image.lua")
 local codec = import("goluwa/codec.lua")
 local resource = import("goluwa/resource.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local system = import("goluwa/system.lua")
 pvars.StartGroup("Engine", "Textures", {prefix = "texture_"})
 local max_texture_size = pvars.Setup2{
 	key = "r_max_texture_size",
@@ -727,6 +728,7 @@ function Texture.New(config)
 						local started = startup.Start()
 						self.resolved_path = p
 						load(img)
+
 						startup.Add("texture upload", started)
 						import("goluwa/event.lua").Call("TextureViewChanged", self)
 					else
@@ -1056,7 +1058,9 @@ end
 
 do
 	local inflight = {}
+	local retired = {}
 	local free_fences = {}
+	local RETIRE_FRAMES = 16
 
 	function Texture.GetStreamed()
 		return streamed_textures
@@ -1064,6 +1068,7 @@ do
 
 	function Texture.PollStreamUploads()
 		local queue = render.GetQueue()
+		local frame = system.GetFrameNumber()
 
 		for i = #inflight, 1, -1 do
 			local upload = inflight[i]
@@ -1074,7 +1079,30 @@ do
 				upload.staging:Remove()
 				free_fences[#free_fences + 1] = upload.fence
 				table.remove(inflight, i)
+				local texture = upload.texture
+				local stream = texture.stream
+				stream.target = nil
+
+				if texture:IsValid() then
+					retired[#retired + 1] = {image = texture.image, view = texture.view, frame = frame}
+					texture.image = upload.image
+					texture.view = upload.view
+					texture.mip_map_levels = upload.mip_levels
+					stream.drop = upload.drop
+					stream.bytes = stream.bytes_from[upload.drop + 1]
+					stream.uploading = false
+					import("goluwa/event.lua").Call("TextureViewChanged", texture)
+				else
+					retired[#retired + 1] = {image = upload.image, view = upload.view, frame = frame}
+				end
 			end
+		end
+
+		-- frames recorded before the swap, on any queue, may still read the old image
+		while retired[1] and frame - retired[1].frame >= RETIRE_FRAMES do
+			local item = table.remove(retired, 1)
+			item.view:Remove()
+			item.image:Remove()
 		end
 	end
 
@@ -1100,8 +1128,8 @@ do
 		end)
 	end
 
-	-- the decoded file has every mip, the new image gets the ones from `drop` on and replaces the resident one
-	-- without waiting for the gpu: the transition makes the data visible to everything submitted after it
+	-- the decoded file has every mip, the new image gets the ones from `drop` on. It replaces the resident one only
+	-- once the upload finished (PollStreamUploads): a frame recorded earlier must never sample it before it is written
 	function Texture:UploadStreamLevel(img, drop)
 		local stream = self.stream
 		local kept, data = crop_mips(img, img.data, drop)
@@ -1163,16 +1191,17 @@ do
 			import("goluwa/render/vulkan/internal/fence.lua").New(device)
 		fence:Reset()
 		render.GetQueue():SubmitNoWait(cmd, fence)
-		inflight[#inflight + 1] = {fence = fence, cmd = cmd, staging = staging}
-		local old_image, old_view = self.image, self.view
-		self.image = image
-		self.view = view
-		self.mip_map_levels = kept.mip_count
-		stream.drop = drop
-		stream.bytes = stream.bytes_from[drop + 1]
-		import("goluwa/event.lua").Call("TextureViewChanged", self)
-		old_view:Remove()
-		old_image:Remove()
+		stream.uploading = true
+		inflight[#inflight + 1] = {
+			fence = fence,
+			cmd = cmd,
+			staging = staging,
+			texture = self,
+			image = image,
+			view = view,
+			drop = drop,
+			mip_levels = kept.mip_count,
+		}
 	end
 end
 
