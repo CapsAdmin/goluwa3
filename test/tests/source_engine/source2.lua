@@ -103,6 +103,16 @@ T.Test("source 2 surface properties", function()
 	T(surface_properties.GetByHash(0))["=="](default)
 end)
 
+T.Test("source 2 models are listed by the asset index", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local index = import("goluwa/assets.lua").GetIndex("models")
+	T(index.by_path["models/props/traffic_drum/traffic_drum.vmdl_c"] ~= nil)["=="](true)
+end)
+
 T.Test("source 2 material info", function()
 	local info = steam.FindSourceGame(546560)
 

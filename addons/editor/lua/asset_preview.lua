@@ -457,7 +457,15 @@ local function step_model(state, now, budget)
 
 	budget.renders = budget.renders - 1
 	collect_model_info(state, visual)
-	render.preview:SetViewOffset(state.entry.extension == ".mdl" and SOURCE_VIEW_OFFSET or DEFAULT_VIEW_OFFSET)
+	render.preview:SetViewOffset(
+		(
+				state.entry.extension == ".mdl" or
+				state.entry.extension == ".vmdl_c"
+			)
+			and
+			SOURCE_VIEW_OFFSET or
+			DEFAULT_VIEW_OFFSET
+	)
 	render.preview:SetTarget(visual)
 	render.preview:Refresh()
 	render.preview:SetTarget(nil)

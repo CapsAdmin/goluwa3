@@ -799,7 +799,7 @@ assets.RegisterCategory(
 	"models",
 	{
 		roots = {"models/", "objects/"},
-		extensions = {".lua", ".mdl", ".bsp", ".gltf", ".glb", ".obj", ".cgf"},
+		extensions = {".lua", ".mdl", ".vmdl_c", ".bsp", ".gltf", ".glb", ".obj", ".cgf"},
 		build_cache_key = default_cache_key,
 		loads_virtual = true,
 		load = function(path, options, entry)
