@@ -10,6 +10,7 @@ vbib.FORMAT = {
 	R16G16B16A16_FLOAT = 10,
 	R16G16B16A16_UNORM = 11,
 	R16G16B16A16_UINT = 12,
+	R16G16B16A16_SINT = 14,
 	R32G32_FLOAT = 16,
 	R8G8B8A8_UNORM = 28,
 	R8G8B8A8_UINT = 30,
@@ -129,6 +130,14 @@ function vbib.Read(buffer, field, vertex)
 		return v[0] / 32767, v[1] / 32767
 	elseif f == F.R8G8B8A8_UNORM then
 		return p[0] / 255, p[1] / 255, p[2] / 255, p[3] / 255
+	elseif f == F.R8G8B8A8_UINT then
+		return p[0], p[1], p[2], p[3]
+	elseif f == F.R16G16B16A16_UINT then
+		local v = ffi.cast(u16_t, p)
+		return v[0], v[1], v[2], v[3]
+	elseif f == F.R16G16B16A16_SINT then
+		local v = ffi.cast(i16_t, p)
+		return v[0], v[1], v[2], v[3]
 	elseif f == F.R32_UINT then
 		return ffi.cast(u32_t, p)[0]
 	end
