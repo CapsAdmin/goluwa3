@@ -11,7 +11,7 @@ local resource = import("goluwa/source_engine/source2/resource.lua")
 local entity_lump = import("goluwa/source_engine/source2/entity_lump.lua")
 local world = {}
 local Color = import("goluwa/structs/color.lua")
-local LIGHT_BRIGHTNESS = 300
+local LIGHT_BRIGHTNESS = 64
 local PROP_MOTION = {
 	prop_physics = "dynamic",
 	prop_physics_override = "dynamic",
@@ -362,17 +362,24 @@ function world.Translate(name, sky_path)
 						guid = guid,
 					}
 				elseif (class == "light_omni" or class == "light_spot") and entity.color then
-					local color = entity.color
+					local color = Color(
+						(entity.color[1] / 255) ^ 2.2,
+						(entity.color[2] / 255) ^ 2.2,
+						(entity.color[3] / 255) ^ 2.2,
+						1
+					)
 					local range = entity.range or 0
 					local info = {
 						_light = {
-							r = color[1] / 255,
-							g = color[2] / 255,
-							b = color[3] / 255,
+							r = color.r,
+							g = color.g,
+							b = color.b,
 							brightness = (entity.brightness or 1) * LIGHT_BRIGHTNESS,
 						},
-						_fifty_percent_distance = range * 0.5,
-						_zero_percent_distance = range,
+						_constant_attn = entity.attenuation0 or 0,
+						_linear_attn = entity.attenuation1 or 0,
+						_quadratic_attn = entity.attenuation2 or 0,
+						_range = range,
 					}
 					local components = {
 						transform = {Position = position, Rotation = rotation},
@@ -381,26 +388,26 @@ function world.Translate(name, sky_path)
 
 					if class == "light_spot" then
 						components.light_spot = {
-							Color = Color(color[1] / 255, color[2] / 255, color[3] / 255, 1),
+							Color = color,
 							InnerCone = math.max(entity.innerconeangle or 0, 1),
 							OuterCone = entity.outerconeangle or 45,
 						}
 						components.transform.Rotation = QuatDeg3(-entity.angles[1], entity.angles[2], 0)
 					else
-						components.light_point = {Color = Color(color[1] / 255, color[2] / 255, color[3] / 255, 1)}
+						components.light_point = {Color = color}
 					end
 
 					add{
 						guid = guid,
 						parent = group(class),
-						properties = {Name = class},
+						properties = {Name = entity.targetname or class},
 						components = components,
 					}
 				elseif class == "info_player_start" then
 					add{
 						guid = guid,
 						parent = group(class),
-						properties = {Name = entity.targetname or class},
+						properties = {Name = class},
 						components = {
 							transform = {
 								Position = position,
@@ -537,6 +544,10 @@ function world.Translate(name, sky_path)
 		end
 	end
 
+	for key, entry in pairs(groups) do
+		entry.record.properties.Name = key .. " (" .. entry.count .. ")"
+	end
+
 	logn("translated ", #records, " source 2 records")
 	return {version = scene.Version, entities = records}
 end
@@ -544,10 +555,6 @@ end
 function world.Load(name, info)
 	steam.MountSourceGame(info)
 	vfs.Mount(world.GetMapDirectory(info) .. name .. ".vpk/")
-	for key, entry in pairs(groups) do
-		entry.record.properties.Name = key .. " (" .. entry.count .. ")"
-	end
-
 	local sky_path = world.FindSkybox(name)
 
 	if sky_path and vfs.IsFile("os:" .. info.vdf_directory .. sky_path .. ".vpk") then

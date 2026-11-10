@@ -140,7 +140,7 @@ do
 		return {
 			color = Color(light.r, light.g, light.b, 1),
 			intensity = brightness * s ^ 2 * intensity_scale,
-			range = d50 > 0 and d0 * s or 0,
+			range = d50 > 0 and d0 * s or (tonumber(info._range) or 0) * s * distance_pvar:Get(),
 			source_radius = source_radius,
 			constant_falloff = core,
 			linear_falloff = l * s,
