@@ -354,7 +354,8 @@ function Polygon3D:GetVertexPosition(i)
 	return pos.x, pos.y, pos.z
 end
 
-function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
+-- without keep_inside the triangles that lie wholly inside the box are removed, with it only the ones that touch it stay
+function Polygon3D:ClipToWorldAABB(world_matrix, aabb, keep_inside)
 	local inside = {}
 	local any_inside = false
 
@@ -369,7 +370,11 @@ function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
 		any_inside = any_inside or inside[i]
 	end
 
-	if not any_inside then return self end
+	if not any_inside then
+		if keep_inside then return nil end
+
+		return self
+	end
 
 	local vertices = self:GetVertices()
 	local indices = self.indices
@@ -378,8 +383,15 @@ function Polygon3D:CopyOutsideWorldAABB(world_matrix, aabb)
 
 	for i = 1, #indices - 2, 3 do
 		local a, b, c = indices[i], indices[i + 1], indices[i + 2]
+		local dropped
 
-		if inside[a] and inside[b] and inside[c] then
+		if keep_inside then
+			dropped = not (inside[a] or inside[b] or inside[c])
+		else
+			dropped = inside[a] and inside[b] and inside[c]
+		end
+
+		if dropped then
 			removed = removed + 1
 		else
 			copy:AddVertex(vertices[a])

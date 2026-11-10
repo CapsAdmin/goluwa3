@@ -332,4 +332,36 @@ T.Test3D("Polygon3D", function(draw)
 		poly:BuildBoundingBox()
 		T(poly.AABB)["~="](nil)
 	end)
+
+	T.Test3D("Graphics Polygon3D ClipToWorldAABB removes or keeps the triangles in a box", function()
+		local AABB = import("goluwa/structs/aabb.lua")
+		local identity = Matrix44():Identity()
+		local box = AABB(-1, -1, -1, 1, 1, 1)
+
+		local function build()
+			local vertices = Polygon3D.VertexType(6)
+			local indices = ffi.new("uint16_t[6]", 0, 1, 2, 3, 4, 5)
+
+			for triangle, offset in ipairs{0, 10} do
+				local first = (triangle - 1) * 3
+
+				for corner, point in ipairs{{0, 0}, {0.5, 0}, {0, 0.5}} do
+					local position = vertices[first + corner - 1].position
+					position[0], position[1], position[2] = offset + point[1], 0, point[2]
+				end
+			end
+
+			local poly = Polygon3D.New()
+			poly:UploadVertexArray(vertices, 6, indices, 6, true)
+			return poly
+		end
+
+		local outside = build():ClipToWorldAABB(identity, box, false)
+		T(outside:GetVertexCount())["=="](3)
+		T(outside:GetVertexPosition(1))["=="](10)
+		local inside = build():ClipToWorldAABB(identity, box, true)
+		T(inside:GetVertexCount())["=="](3)
+		T(inside:GetVertexPosition(1))["=="](0)
+		T(build():ClipToWorldAABB(identity, AABB(50, 50, 50, 60, 60, 60), true))["=="](nil)
+	end)
 end)

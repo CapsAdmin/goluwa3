@@ -670,6 +670,7 @@ Visual:GetSet("UseOcclusionCulling", true)
 Visual:GetSet("CullDistance", 1000000)
 Visual:GetSet("Billboard", false)
 Visual:GetSet("ClipBounds", nil, {type = "table"})
+Visual:GetSet("ClipKeepInside", false)
 Visual:GetSet("Tint", nil, {type = "table", callback = "InvalidateRenderEntries"})
 Visual:GetSet("ModelPath", "", {asset = "models"})
 Visual:GetSet(
@@ -1067,7 +1068,7 @@ function Visual:SetModelPath(path)
 			primitive_index = primitive_index + 1
 
 			if self.ClipWorldAABB then
-				mesh = mesh:CopyOutsideWorldAABB(self.Owner.transform:GetWorldMatrix(), self.ClipWorldAABB)
+				mesh = mesh:ClipToWorldAABB(self.Owner.transform:GetWorldMatrix(), self.ClipWorldAABB, self.ClipKeepInside)
 
 				if not mesh then return end
 			end
