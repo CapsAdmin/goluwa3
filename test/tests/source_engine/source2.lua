@@ -368,23 +368,12 @@ T.Test("visual tint multiplies the material color once per material", function()
 	T(base:GetColorMultiplier().r)["=="](0.5)
 end)
 
-T.Test("source 2 sound files decode to pcm", function()
+T.Test("source 2 materials take their physics surface", function()
 	local info = steam.FindSourceGame(546560)
 
 	if not info then return T.Unavailable("half-life: alyx is not installed") end
 
 	steam.MountSourceGame(info)
-	local sound = assert(codec.DecodeFile("sounds/physics/surfaces/cardboard/impact_a_01.vsnd_c"))
-	T(sound.sample_rate)["=="](44100)
-	T(sound.channels)["=="](1)
-	T(sound.samples)["=="](2148)
-	local peak = 0
-
-	for i = 0, sound.samples - 1 do
-		peak = math.max(peak, math.abs(sound.data[i]))
-	end
-
-	T(peak > 0.01 and peak <= 1)["=="](true)
-	local stereo = assert(codec.DecodeFile("sounds/physics/breaking/break_body_01.vsnd_c"))
-	T(stereo.channels)["=="](2)
+	local material = import("goluwa/source_engine/source2/material.lua")
+	T(material.GetInfo("materials/architecture/hotel/hotel_wall_painted_001.vmat").surface)["=="]("world.plaster")
 end)

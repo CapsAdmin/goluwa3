@@ -76,6 +76,10 @@ function material.GetInfo(path)
 		end
 	end
 
+	for _, p in ipairs(data.m_stringAttributes) do
+		if p.m_name == "PhysicsSurfaceProperties" then info.surface = p.m_value end
+	end
+
 	info.blend = BLEND_SHADERS[info.shader] == true
 	info.decal = info.shader == "vr_static_overlay.vfx"
 	info.translucent = info.ints.F_TRANSLUCENT == 1 or info.shader == "vr_glass.vfx" or info.decal
@@ -212,6 +216,8 @@ function material.FromVMAT(path)
 		self:SetColorMultiplier(Color(0.5, 0.5, 0.5, 1))
 		return self
 	end
+
+	if info.surface then self:SetSurfaceType(info.surface) end
 
 	local textures, ints, floats, vectors = info.textures, info.ints, info.floats, info.vectors
 	local plan = get_plan(info)

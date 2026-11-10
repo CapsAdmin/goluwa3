@@ -58,6 +58,7 @@ function legacy_material.Read(res)
 		m_floatParams = {},
 		m_vectorParams = {},
 		m_textureParams = {},
+		m_stringAttributes = {},
 	}
 	local start, count = array_at(base + 8)
 
