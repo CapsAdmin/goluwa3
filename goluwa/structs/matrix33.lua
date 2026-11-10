@@ -39,8 +39,9 @@ end
 function META.GetInverse(m, o)
 	o = o or META.CType()
 	local det = m:GetDeterminant()
+	local scale = (math.abs(m.m00) + math.abs(m.m11) + math.abs(m.m22)) / 3
 
-	if math.abs(det) <= 1e-12 then return o:SetZero() end
+	if math.abs(det) <= 1e-12 * scale * scale * scale then return o:SetZero() end
 
 	local inv_det = 1 / det
 	o.m00 = (m.m11 * m.m22 - m.m12 * m.m21) * inv_det

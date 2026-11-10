@@ -1,0 +1,16 @@
+local T = import("test/environment.lua")
+local Matrix33 = import("goluwa/structs/matrix33.lua")
+
+T.Test("Matrix33 inverse of a small diagonal matrix", function()
+	local inverse = Matrix33():SetDiagonal(2e-5, 4e-5, 5e-5):GetInverse(Matrix33())
+	T(math.abs(inverse.m00 * 2e-5 - 1) < 1e-9)["=="](true)
+	T(math.abs(inverse.m11 * 4e-5 - 1) < 1e-9)["=="](true)
+	T(math.abs(inverse.m22 * 5e-5 - 1) < 1e-9)["=="](true)
+end)
+
+T.Test("Matrix33 inverse of a singular matrix is zero", function()
+	local inverse = Matrix33():SetDiagonal(1, 0, 1):GetInverse(Matrix33())
+	T(inverse.m00)["=="](0)
+	T(inverse.m11)["=="](0)
+	T(inverse.m22)["=="](0)
+end)
