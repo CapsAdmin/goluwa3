@@ -16,6 +16,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local map_scene = import("goluwa/source_engine/map_scene.lua")
 local source2_world = import("goluwa/source_engine/source2/world.lua")
 import("goluwa/source_engine/lights.lua")
+import("goluwa/source_engine/fixture_emission.lua")
 local source_engine = {}
 
 local function wait_for_map(path, skybox)
