@@ -5,6 +5,7 @@ local vertex_math = import("goluwa/render3d/vertex_math.lua")
 local blob = import("goluwa/codecs/internal/blob.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
 local vbib = import("goluwa/source_engine/source2/vbib.lua")
+local animation = import("goluwa/source_engine/source2/animation.lua")
 local units = import("goluwa/source_engine/units.lua")
 local SCALE = units.meters
 local mesh_pack = {}
@@ -16,7 +17,7 @@ local u16_ptr_t = ffi.typeof("const uint16_t *")
 local u32_ptr_t = ffi.typeof("const uint32_t *")
 local F = vbib.FORMAT
 
-function mesh_pack.PackDrawCall(builder, buffers, draw_call, name)
+function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
 	local vb = buffers.vertex[draw_call.m_vertexBuffers[1].m_hBuffer]
 	local ib = buffers.index[draw_call.m_indexBuffer.m_hBuffer]
 	local base = draw_call.m_nBaseVertex
@@ -26,6 +27,8 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name)
 	local normal = vbib.GetField(vb, "NORMAL")
 	local texcoord = vbib.GetField(vb, "TEXCOORD", 0)
 	local color = vbib.GetField(vb, "COLOR")
+	local blend_indices = skin and vbib.GetField(vb, "BLENDINDICES")
+	local blend_weights = skin and vbib.GetField(vb, "BLENDWEIGHT")
 
 	if
 		color and
@@ -43,6 +46,49 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name)
 	for i = 0, vertex_count - 1 do
 		local v = vertices[i]
 		local x, y, z = vbib.Read(vb, position, base + i)
+		local nx, ny, nz, tx, ty, tz, ts
+
+		if normal then
+			nx, ny, nz, tx, ty, tz, ts = vbib.ReadNormalTangent(vb, normal, base + i)
+		end
+
+		if blend_indices and blend_weights then
+			local i1, i2, i3, i4 = vbib.Read(vb, blend_indices, base + i)
+			local w1, w2, w3, w4 = vbib.Read(vb, blend_weights, base + i)
+			local total = w1 + w2 + w3 + w4
+			local sx, sy, sz, snx, sny, snz, stx, sty, stz = 0, 0, 0, 0, 0, 0, 0, 0, 0
+
+			for j = 1, 4 do
+				local bone = skin[(j == 1 and i1 or j == 2 and i2 or j == 3 and i3 or i4)]
+				local weight = (j == 1 and w1 or j == 2 and w2 or j == 3 and w3 or w4) / total
+
+				if bone and weight > 0 then
+					local m = bone.m
+					sx = sx + weight * (m[1] * x + m[2] * y + m[3] * z + bone.x)
+					sy = sy + weight * (m[4] * x + m[5] * y + m[6] * z + bone.y)
+					sz = sz + weight * (m[7] * x + m[8] * y + m[9] * z + bone.z)
+
+					if nx then
+						snx = snx + weight * (m[1] * nx + m[2] * ny + m[3] * nz)
+						sny = sny + weight * (m[4] * nx + m[5] * ny + m[6] * nz)
+						snz = snz + weight * (m[7] * nx + m[8] * ny + m[9] * nz)
+						stx = stx + weight * (m[1] * tx + m[2] * ty + m[3] * tz)
+						sty = sty + weight * (m[4] * tx + m[5] * ty + m[6] * tz)
+						stz = stz + weight * (m[7] * tx + m[8] * ty + m[9] * tz)
+					end
+				end
+			end
+
+			x, y, z = sx, sy, sz
+
+			if nx then
+				local nl = math.sqrt(snx * snx + sny * sny + snz * snz)
+				local tl = math.sqrt(stx * stx + sty * sty + stz * stz)
+				nx, ny, nz = snx / nl, sny / nl, snz / nl
+				tx, ty, tz = stx / tl, sty / tl, stz / tl
+			end
+		end
+
 		local px, py, pz = -y * SCALE, z * SCALE, -x * SCALE
 		v.position[0], v.position[1], v.position[2] = px, py, pz
 
@@ -59,7 +105,6 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name)
 		if pz > max_z then max_z = pz end
 
 		if normal then
-			local nx, ny, nz, tx, ty, tz, ts = vbib.ReadNormalTangent(vb, normal, base + i)
 			v.normal[0], v.normal[1], v.normal[2] = -ny, nz, -nx
 			v.tangent[0], v.tangent[1], v.tangent[2], v.tangent[3] = -ty, tz, -tx, ts
 		else
@@ -106,14 +151,14 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name)
 	return entry
 end
 
-function mesh_pack.PackMeshes(builder, entries, data, buffers, name)
+function mesh_pack.PackMeshes(builder, entries, data, buffers, name, skin)
 	for _, object in ipairs(data.m_sceneObjects) do
 		for _, draw_call in ipairs(object.m_drawCalls) do
 			if
 				draw_call.m_nPrimitiveType == "RENDER_PRIM_TRIANGLES" and
 				draw_call.m_nIndexCount > 0
 			then
-				entries[#entries + 1] = mesh_pack.PackDrawCall(builder, buffers, draw_call, name)
+				entries[#entries + 1] = mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
 			end
 		end
 	end
@@ -143,6 +188,15 @@ function mesh_pack.PackModel(input)
 			meta.physics_block = control.embedded_physics.phys_data_block
 		end
 
+		local model_data, skin
+
+		if res.blocks.ANIM and res.blocks.AGRP and res.blocks.ASEQ then
+			model_data = resource.ReadKV3(res)
+			local ok, result = pcall(animation.GetDefaultSkin, res, model_data)
+
+			if ok then skin = result end
+		end
+
 		for _, embedded in ipairs(control and control.embedded_meshes or {}) do
 			if
 				bit.band(
@@ -160,7 +214,8 @@ function mesh_pack.PackModel(input)
 					entries,
 					resource.ReadKV3(res, embedded.data_block),
 					vbib.Parse(res.data, res.list[embedded.vbib_block].offset),
-					input.path
+					input.path,
+					skin and animation.GetMeshSkin(model_data, skin, embedded.mesh_index)
 				)
 			end
 		end

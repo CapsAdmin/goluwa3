@@ -113,6 +113,37 @@ T.Test("source 2 models are listed by the asset index", function()
 	T(index.by_path["models/props/traffic_drum/traffic_drum.vmdl_c"] ~= nil)["=="](true)
 end)
 
+T.Test("source 2 default animation pose", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local animation = import("goluwa/source_engine/source2/animation.lua")
+	local res = resource.Load(vfs, "models/a2_destruction/a2_beam_destruciton.vmdl_c")
+	local model_data = resource.ReadKV3(res)
+	local default = animation.GetDefaultAnimation(res)
+	T(default)["=="](1)
+
+	local function moved_bones(index)
+		local bones, pose = animation.GetPose(res, model_data, index, 0)
+		local moved = 0
+
+		for i, bone in ipairs(bones) do
+			local a, b = bone.position, pose[i].position
+
+			if math.abs(a[1] - b[1]) + math.abs(a[2] - b[2]) + math.abs(a[3] - b[3]) > 0.5 then
+				moved = moved + 1
+			end
+		end
+
+		return moved
+	end
+
+	T(moved_bones(1) > 200)["=="](true)
+	T(moved_bones(3))["=="](0)
+end)
+
 T.Test("source 2 material info", function()
 	local info = steam.FindSourceGame(546560)
 
