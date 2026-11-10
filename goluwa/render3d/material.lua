@@ -352,6 +352,31 @@ function Material:Copy()
 	return copy
 end
 
+do
+	local tinted_variants = table.weak("k")
+
+	function Material:GetTinted(tint)
+		local variants = tinted_variants[self]
+
+		if not variants then
+			variants = {}
+			tinted_variants[self] = variants
+		end
+
+		local key = tint[1] .. "," .. tint[2] .. "," .. tint[3]
+		local variant = variants[key]
+
+		if not variant then
+			variant = self:Copy()
+			local color = self:GetColorMultiplier()
+			variant:SetColorMultiplier(Color(color.r * tint[1], color.g * tint[2], color.b * tint[3], color.a))
+			variants[key] = variant
+		end
+
+		return variant
+	end
+end
+
 function Material:ResetToDefaults()
 	for _, info in ipairs(objects.GetStorableVariables(self)) do
 		if info.var_name ~= "Name" then

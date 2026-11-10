@@ -1322,29 +1322,6 @@ function Visual:GetWorldAABB()
 	return world_aabb
 end
 
-local tinted_materials = table.weak("k")
-
-local function get_tinted_material(material, tint)
-	local variants = tinted_materials[material]
-
-	if not variants then
-		variants = {}
-		tinted_materials[material] = variants
-	end
-
-	local key = tint[1] .. "," .. tint[2] .. "," .. tint[3]
-	local variant = variants[key]
-
-	if not variant then
-		variant = material:Copy()
-		local color = material:GetColorMultiplier()
-		variant:SetColorMultiplier(Color(color.r * tint[1], color.g * tint[2], color.b * tint[3], color.a))
-		variants[key] = variant
-	end
-
-	return variant
-end
-
 -- Tint multiplies the material's ColorMultiplier, so a material with BlendTintByBaseAlpha is only tinted where its
 -- base alpha says so
 function Visual:GetResolvedMaterial(entry)
@@ -1358,7 +1335,7 @@ function Visual:GetResolvedMaterial(entry)
 	if entry.tinted_source ~= material or entry.tinted_for ~= tint then
 		entry.tinted_source = material
 		entry.tinted_for = tint
-		entry.tinted_material = get_tinted_material(material, tint)
+		entry.tinted_material = material:GetTinted(tint)
 	end
 
 	return entry.tinted_material

@@ -203,6 +203,38 @@ T.Test("xen foliage materials get subsurface scattering and transmission", funct
 	T(self:GetTransmissionColor().g > self:GetTransmissionColor().b)["=="](true)
 end)
 
+T.Test("source 2 draw call tints reach the model as tinted entries", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local world = import("goluwa/source_engine/source2/world.lua")
+	vfs.Mount(world.GetMapDirectory(info) .. "a1_intro_world.vpk/")
+	local resource = import("goluwa/source_engine/source2/resource.lua")
+	local mesh_pack = import("goluwa/source_engine/source2/mesh_pack.lua")
+	local tints = {}
+
+	for _, batch in ipairs{"b696", "b1071"} do
+		local path = "maps/a1_intro_world/worldnodes/node000_lr0_" .. batch .. "_im1_cb1_vism" .. (
+				batch == "b696" and
+				"23" or
+				"28"
+			) .. "_mt_hotel_wall_painted_001.vmdl_c"
+		local res = resource.Load(vfs, path)
+		local input = {path = path, model = res.data, meshes = {}}
+
+		for _, mesh in ipairs(resource.ReadKV3(res).m_refMeshes) do
+			input.meshes[#input.meshes + 1] = vfs.Read(mesh .. "_c")
+		end
+
+		tints[batch] = mesh_pack.PackModel(input).entries[1].tint
+	end
+
+	T(tints.b1071)["=="](nil)
+	T(tints.b696[1] > tints.b696[2] and tints.b696[2] > tints.b696[3])["=="](true)
+end)
+
 T.Test("source 2 surface properties", function()
 	local info = steam.FindSourceGame(546560)
 

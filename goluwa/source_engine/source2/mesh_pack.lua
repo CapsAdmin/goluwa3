@@ -144,6 +144,12 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
 	assert(min_x == min_x and max_x - min_x < 1e6, name .. ": invalid positions")
 	local entry = packed_mesh.PackArrays(builder, vertices, vertex_count, indices, index_count, index_size)
 	entry.material = draw_call.m_material
+	local tint = draw_call.m_vTintColor
+
+	if tint and (tint[1] < 0.999 or tint[2] < 0.999 or tint[3] < 0.999) then
+		entry.tint = {tint[1], tint[2], tint[3]}
+	end
+
 	entry.bounds = {min_x, min_y, min_z, max_x, max_y, max_z}
 
 	if blend then entry.blend_offset = builder:Add(blend, vertex_count * 4) end

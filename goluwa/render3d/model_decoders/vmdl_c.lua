@@ -95,7 +95,11 @@ local function finish(path, input, meta, blob_table, mesh_callback, physics_call
 			AABB(unpack(bounds))
 		)
 		polygon:SetName(path)
-		mesh_callback(polygon, s2_material.FromVMAT(entry.material))
+		local material = s2_material.FromVMAT(entry.material)
+
+		if entry.tint then material = material:GetTinted(entry.tint) end
+
+		mesh_callback(polygon, material)
 		tasks.Wait()
 	end
 end
