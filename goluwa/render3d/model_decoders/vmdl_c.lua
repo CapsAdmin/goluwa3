@@ -99,6 +99,8 @@ local function finish(path, input, meta, blob_table, mesh_callback, physics_call
 
 		if entry.tint then material = material:GetTinted(entry.tint) end
 
+		if entry.foliage then polygon:SetBendHeight(bounds[5]) end
+
 		mesh_callback(polygon, material)
 		tasks.Wait()
 	end

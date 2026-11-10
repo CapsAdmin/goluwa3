@@ -247,6 +247,27 @@ T.Test3D("source 2 material color tints are srgb", function()
 	T(color.g < 0.07 and color.b < 0.05)["=="](true)
 end)
 
+T.Test3D("source 2 foliage animation becomes engine vegetation bending", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local resource = import("goluwa/source_engine/source2/resource.lua")
+	local mesh_pack = import("goluwa/source_engine/source2/mesh_pack.lua")
+	local material = import("goluwa/source_engine/source2/material.lua")
+	local path = "models/props_foliage/foliage_weed_001a.vmdl_c"
+	local res = resource.Load(vfs, path)
+	local meta = mesh_pack.PackModel{path = path, model = res.data, meshes = {}, masks = {}, external = 0}
+	T(meta.entries[1].foliage)["=="](true)
+	local moving = material.FromVMAT("materials/models/props_foliage/foliage_weed_001.vmat")
+	T(moving:GetDetailBending())["=="]("leaves")
+	T(math.abs(moving:GetBending() - 3.5) < 0.01)["=="](true)
+	local still = material.FromVMAT("materials/models/props_foliage/foliage_weed_001_nomotion.vmat")
+	T(still:GetDetailBending())["=="]("none")
+	T(still:GetBending())["=="](0)
+end)
+
 T.Test("source 2 surface properties", function()
 	local info = steam.FindSourceGame(546560)
 

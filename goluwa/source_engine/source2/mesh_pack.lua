@@ -38,6 +38,12 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
 		color = nil
 	end
 
+	local motion = vbib.GetField(vb, "TEXCOORD", 3)
+	local pivot = vbib.GetField(vb, "TEXCOORD", 4)
+	local foliage = motion and
+		pivot and
+		motion.format == F.R32G32B32_FLOAT and
+		pivot.format == F.R32G32B32_FLOAT
 	local vertices = VertexType(vertex_count)
 	local blend = color and float_array_t(vertex_count)
 	local min_x, min_y, min_z = math.huge, math.huge, math.huge
@@ -121,7 +127,19 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
 
 		if color then blend[i] = (vbib.Read(vb, color, base + i)) end
 
-		v.vertex_color[0], v.vertex_color[1], v.vertex_color[2], v.vertex_color[3] = 1, 1, 1, 1
+		if foliage then
+			local frond, branch, seed = vbib.Read(vb, motion, base + i)
+			local qx, qy, qz = vbib.Read(vb, pivot, base + i)
+			local phase = 0
+
+			if qx ~= 0 or qy ~= 0 or qz ~= 0 then
+				phase = (math.sin(qx * 12.9898 + qy * 78.233 + qz * 37.719) * 43758.5453 + seed * 7.3) % 1
+			end
+
+			v.vertex_color[0], v.vertex_color[1], v.vertex_color[2], v.vertex_color[3] = frond, phase, 1 - math.max(frond, branch), 1
+		else
+			v.vertex_color[0], v.vertex_color[1], v.vertex_color[2], v.vertex_color[3] = 1, 1, 1, 1
+		end
 	end
 
 	local index_size = vertex_count > 65535 and 4 or 2
@@ -144,6 +162,7 @@ function mesh_pack.PackDrawCall(builder, buffers, draw_call, name, skin)
 	assert(min_x == min_x and max_x - min_x < 1e6, name .. ": invalid positions")
 	local entry = packed_mesh.PackArrays(builder, vertices, vertex_count, indices, index_count, index_size)
 	entry.material = draw_call.m_material
+	entry.foliage = foliage or nil
 	local tint = draw_call.m_vTintColor
 
 	if tint and (tint[1] < 0.999 or tint[2] < 0.999 or tint[3] < 0.999) then

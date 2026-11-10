@@ -11,6 +11,12 @@ local material = {}
 local infos = {}
 local materials = {}
 local BLEND_SHADERS = {["vr_simple_2way_blend.vfx"] = true}
+local INCHES = 0.0254
+local TREE_HEIGHT = 5.2
+local TREE_TRUNK_DEFLECTION = 0.04
+local TREE_BRANCH_DEFLECTION = 0.012
+local TREE_BRANCH_AMPLITUDE = 0.2
+local TREE_LEAF_AMPLITUDE = 0.08
 
 local function normalize(path)
 	return (path:lower():gsub("\\", "/"))
@@ -310,6 +316,19 @@ function material.FromVMAT(path)
 		self:SetDecal(true)
 		self:SetDithered(true)
 		self:SetColorMultiplier(Color(color[1], color[2], color[3], floats.g_flOpacityScale or 1))
+	end
+
+	if (ints.F_FOLIAGE_ANIMATION or 0) > 0 then
+		local size = (floats.g_flTrunkDeflectionEnd or 36) * INCHES / TREE_HEIGHT
+		self:SetBending((floats.g_flTrunkDeflection or 0) / TREE_TRUNK_DEFLECTION)
+		self:SetDetailBending("leaves")
+		self:SetBendDetailBranchAmplitude(
+			TREE_BRANCH_AMPLITUDE * (
+					floats.g_flBranchDeflection or
+					0
+				) / TREE_BRANCH_DEFLECTION * size
+		)
+		self:SetBendDetailLeafAmplitude(TREE_LEAF_AMPLITUDE * (floats.g_flFrondFlutter or 0) * size)
 	end
 
 	if info.shader == "vr_xen_foliage.vfx" then
