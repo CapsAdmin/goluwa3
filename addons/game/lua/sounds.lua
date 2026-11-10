@@ -19,7 +19,7 @@ function sounds.CreateSource(path)
 
 	if missing[path] then return end
 
-	local full_path = "sound/" .. path
+	local full_path = path:starts_with("sounds/") and path or "sound/" .. path
 
 	if not vfs.IsFile(full_path) then
 		missing[path] = true
