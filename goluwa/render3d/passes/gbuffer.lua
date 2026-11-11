@@ -855,7 +855,6 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			if (march_snow_cover(gbuffer_data.camera_position.xyz, displacement.world_pos, tbn[2], snow_normal)) {
 				displacement.normal = snow_normal;
 				displacement.texture_pos = displacement.world_pos;
-				surface_snow_force = 1.0;
 			}
 			float alpha = get_alpha_uv(displacement.uv);
 

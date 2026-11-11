@@ -447,12 +447,17 @@ function surface_weather.GetGLSL(block_name)
 			float sr = snow_map_sample(c.xy + vec2(e, 0.0)).r;
 			float sd = snow_map_sample(c.xy - vec2(0.0, e)).r;
 			float su = snow_map_sample(c.xy + vec2(0.0, e)).r;
-			sl = sl > 1.5 ? center : sl;
-			sr = sr > 1.5 ? center : sr;
-			sd = sd > 1.5 ? center : sd;
-			su = su > 1.5 ? center : su;
-			vec2 gradient = vec2(sr - sl, su - sd) / (2.0 * e);
+			float w_l = sl < 1.5 ? 1.0 - smoothstep(0.5, 1.0, abs(sl - center) / jump) : 0.0;
+			float w_r = sr < 1.5 ? 1.0 - smoothstep(0.5, 1.0, abs(sr - center) / jump) : 0.0;
+			float w_d = sd < 1.5 ? 1.0 - smoothstep(0.5, 1.0, abs(sd - center) / jump) : 0.0;
+			float w_u = su < 1.5 ? 1.0 - smoothstep(0.5, 1.0, abs(su - center) / jump) : 0.0;
+			vec2 gradient = vec2(
+				(w_r * (sr - center) + w_l * (center - sl)) / max(w_l + w_r, 1.0),
+				(w_u * (su - center) + w_d * (center - sd)) / max(w_d + w_u, 1.0)
+			) / e;
 			normal = normalize(gradient.x * 0.5 * row_x + gradient.y * 0.5 * row_y - row_z);
+			vec2 top = snow_map_sample(c.xy);
+			surface_snow_force = smoothstep(0.0, SNOW_FULL_COVER_DEPTH, (top.g - top.r) / depth_per_meter);
 			return true;
 		}
 

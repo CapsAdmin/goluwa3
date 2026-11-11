@@ -9,7 +9,8 @@ snow_cover.EDGE_JUMP = 0.1
 snow_cover.LIP = 1.5
 snow_cover.MAX_LIP_TEXELS = 24
 snow_cover.SMOOTH = 0.5
-snow_cover.MAX_SMOOTH_TEXELS = 6
+snow_cover.MAX_SMOOTH_TEXELS = 24
+snow_cover.EDGE_RADIUS = 8
 local SLOTS = 4
 local state = {}
 local params = {}
@@ -93,7 +94,7 @@ local function get_pipeline()
 
 						if (any(lessThan(q, ivec2(0))) || any(greaterThanEqual(q, ivec2(snow_params.size)))) break;
 
-						if (shelter_depth(q) > d + jump) {
+						if (abs(shelter_depth(q) - d) > jump) {
 							nearest = float(r);
 							break;
 						}
@@ -109,71 +110,170 @@ local function get_pipeline()
 	return state.pipeline
 end
 
-local function get_smooth_pipeline()
-	if state.smooth_pipeline then return state.smooth_pipeline end
+local get_edge_pipeline
 
-	state.smooth_pipeline = EasyPipeline.Compute{
-		name = "snow_cover_smooth",
-		DescriptorSetCount = SLOTS,
-		LocalSize = {x = 8, y = 8, z = 1},
-		storage_images = {{binding_index = 0}, {binding_index = 1}},
-		uniform_buffers = {
-			{
-				name = "smooth_params",
-				binding_index = 2,
-				block = {
-					{"size", "int"},
-					{"radius", "int"},
-					{"jump", "float"},
+do
+	local pipeline
+
+	function get_edge_pipeline()
+		if pipeline then return pipeline end
+
+		pipeline = EasyPipeline.Compute{
+			name = "snow_cover_edge",
+			DescriptorSetCount = SLOTS,
+			LocalSize = {x = 8, y = 8, z = 1},
+			storage_images = {{binding_index = 0}, {binding_index = 1}},
+			uniform_buffers = {
+				{
+					name = "edge_params",
+					binding_index = 2,
+					block = {
+						{"size", "int"},
+						{"radius", "int"},
+						{"jump", "float"},
+					},
+					write = function(self, block)
+						block.size = params.size
+						block.radius = snow_cover.EDGE_RADIUS
+						block.jump = params.jump * params.depth_per_meter
+						return block
+					end,
 				},
-				write = function(self, block)
-					block.size = params.size
-					block.radius = params.smooth_radius
-					block.jump = params.jump * params.depth_per_meter
-					return block
-				end,
 			},
-		},
-		custom_declarations = [[
-			layout(set = 0, binding = 0, rg32f) uniform readonly image2D raw_map;
-			layout(set = 0, binding = 1, rg32f) uniform writeonly image2D snow_map;
-		]],
-		shader = [[
-			void main() {
-				ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+			custom_declarations = [[
+				layout(set = 0, binding = 0, rg32f) uniform writeonly image2D edge_map;
+				layout(set = 0, binding = 1, rg32f) uniform readonly image2D raw_map;
+			]],
+			shader = [[
+				void main() {
+					ivec2 p = ivec2(gl_GlobalInvocationID.xy);
 
-				if (p.x >= smooth_params.size || p.y >= smooth_params.size) return;
+					if (p.x >= edge_params.size || p.y >= edge_params.size) return;
 
-				vec2 center = imageLoad(raw_map, p).rg;
+					vec2 center = imageLoad(raw_map, p).rg;
 
-				if (center.r > 1.5) {
-					imageStore(snow_map, p, vec4(center, 0.0, 0.0));
-					return;
+					if (center.r > 1.5) {
+						imageStore(edge_map, p, vec4(0.0));
+						return;
+					}
+
+					int radius = edge_params.radius;
+					float sigma = float(radius) * 0.4;
+					float weights[33];
+
+					for (int i = 0; i <= radius; i++) {
+						weights[i] = exp(-float(i * i) / (2.0 * sigma * sigma));
+					}
+
+					float same = 0.0;
+					float total = 0.0;
+
+					for (int y = -radius; y <= radius; y++) {
+						for (int x = -radius; x <= radius; x++) {
+							ivec2 q = clamp(p + ivec2(x, y), ivec2(0), ivec2(edge_params.size - 1));
+							vec2 n = imageLoad(raw_map, q).rg;
+							float w = weights[abs(x)] * weights[abs(y)];
+							total += w;
+							same += n.r < 1.5 && abs(n.g - center.g) < edge_params.jump ? w : 0.0;
+						}
+					}
+
+					imageStore(edge_map, p, vec4(same / total, 0.0, 0.0, 0.0));
 				}
+			]],
+		}
+		return pipeline
+	end
+end
 
-				int radius = smooth_params.radius;
-				float sigma = float(radius) * 0.5 + 0.5;
-				float sum = 0.0;
-				float weight_sum = 0.0;
+local get_smooth_pipeline
 
-				for (int y = -radius; y <= radius; y++) {
-					for (int x = -radius; x <= radius; x++) {
-						ivec2 q = clamp(p + ivec2(x, y), ivec2(0), ivec2(smooth_params.size - 1));
-						vec2 n = imageLoad(raw_map, q).rg;
+do
+	local pipelines = {}
+
+	function get_smooth_pipeline(axis)
+		if pipelines[axis] then return pipelines[axis] end
+
+		pipelines[axis] = EasyPipeline.Compute{
+			name = "snow_cover_smooth_" .. axis,
+			DescriptorSetCount = SLOTS,
+			LocalSize = {x = 8, y = 8, z = 1},
+			storage_images = axis == 1 and
+				{{binding_index = 0}, {binding_index = 1}, {binding_index = 3}} or
+				{{binding_index = 0}, {binding_index = 1}},
+			uniform_buffers = {
+				{
+					name = "smooth_params",
+					binding_index = 2,
+					block = {
+						{"size", "int"},
+						{"radius", "int"},
+						{"axis", "int"},
+						{"jump", "float"},
+					},
+					write = function(self, block)
+						block.size = params.size
+						block.radius = params.smooth_radius
+						block.axis = axis
+						block.jump = params.jump * params.depth_per_meter
+						return block
+					end,
+				},
+			},
+			custom_declarations = [[
+				layout(set = 0, binding = 0, rg32f) uniform readonly image2D source_map;
+			]] .. (
+					axis == 1 and
+					[[
+				layout(set = 0, binding = 1, rg32f) uniform writeonly image2D target_map;
+				layout(set = 0, binding = 3, rg32f) uniform readonly image2D edge_map;
+				#define STORE_RESULT(p, value, center) imageStore(target_map, p, vec4(value, 0.0, 0.0))
+				#define EDGE_FADE(p) smoothstep(0.5, 0.92, imageLoad(edge_map, p).r)
+			]] or
+					[[
+				layout(set = 0, binding = 1, rg32f) uniform writeonly image2D target_map;
+				#define STORE_RESULT(p, value, center) imageStore(target_map, p, vec4(value, 0.0, 0.0))
+				#define EDGE_FADE(p) 1.0
+			]]
+				),
+			shader = [[
+				void main() {
+					ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+
+					if (p.x >= smooth_params.size || p.y >= smooth_params.size) return;
+
+					vec2 center = imageLoad(source_map, p).rg;
+
+					if (center.r > 1.5) {
+						STORE_RESULT(p, center, center);
+						return;
+					}
+
+					bool first = smooth_params.axis == 0;
+					ivec2 step_dir = first ? ivec2(1, 0) : ivec2(0, 1);
+					int radius = smooth_params.radius;
+					float sigma = float(radius) * 0.5 + 0.5;
+					float sum = 0.0;
+					float weight_sum = 0.0;
+
+					for (int i = -radius; i <= radius; i++) {
+						ivec2 q = clamp(p + step_dir * i, ivec2(0), ivec2(smooth_params.size - 1));
+						vec2 n = imageLoad(source_map, q).rg;
 
 						if (n.r > 1.5 || abs(n.g - center.g) > smooth_params.jump) continue;
 
-						float w = exp(-float(x * x + y * y) / (2.0 * sigma * sigma));
-						sum += (n.g - n.r) * w;
+						float w = exp(-float(i * i) / (2.0 * sigma * sigma));
+						sum += (first ? n.g - n.r : n.r) * w;
 						weight_sum += w;
 					}
-				}
 
-				imageStore(snow_map, p, vec4(center.g - sum / weight_sum, center.g, 0.0, 0.0));
-			}
-		]],
-	}
-	return state.smooth_pipeline
+					float thickness = sum / weight_sum * EDGE_FADE(p);
+					STORE_RESULT(p, vec2(first ? thickness : center.g - thickness, center.g), center);
+				}
+			]],
+		}
+		return pipelines[axis]
+	end
 end
 
 function snow_cover.Build(map, cmd)
@@ -181,7 +281,21 @@ function snow_cover.Build(map, cmd)
 	local size = shelter:GetWidth()
 
 	if not state.texture or state.texture:GetWidth() ~= size then
+		state.blurred = Texture.New{
+			width = size,
+			height = size,
+			format = "r32g32_sfloat",
+			mip_map_levels = 1,
+			image = {usage = {"storage"}},
+		}
 		state.raw = Texture.New{
+			width = size,
+			height = size,
+			format = "r32g32_sfloat",
+			mip_map_levels = 1,
+			image = {usage = {"storage"}},
+		}
+		state.edge = Texture.New{
 			width = size,
 			height = size,
 			format = "r32g32_sfloat",
@@ -217,18 +331,39 @@ function snow_cover.Build(map, cmd)
 		math.min(math.ceil(depth * snow_cover.SMOOTH / texel), snow_cover.MAX_SMOOTH_TEXELS),
 		1
 	)
-	local pipeline = get_pipeline()
 	local slot = ((render.GetCurrentFrame() or 1) - 1) % SLOTS + 1
+	local groups = math.ceil(size / 8)
+	local pipeline = get_pipeline()
 	pipeline:BindStorageImage(cmd, slot, 0, state.raw)
 	pipeline:BindSampledImage(cmd, slot, 1, shelter)
 	pipeline:UploadConstants()
-	pipeline.pipeline:Dispatch(cmd, math.ceil(size / 8), math.ceil(size / 8), 1, slot, pipeline.dynamic_offsets)
+	pipeline.pipeline:Dispatch(cmd, groups, groups, 1, slot, pipeline.dynamic_offsets)
 	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
-	local smooth = get_smooth_pipeline()
-	smooth:BindStorageImage(cmd, slot, 0, state.raw)
-	smooth:BindStorageImage(cmd, slot, 1, state.texture)
-	smooth:UploadConstants()
-	smooth.pipeline:Dispatch(cmd, math.ceil(size / 8), math.ceil(size / 8), 1, slot, smooth.dynamic_offsets)
+	local edge = get_edge_pipeline()
+	edge:BindStorageImage(cmd, slot, 0, state.edge)
+	edge:BindStorageImage(cmd, slot, 1, state.raw)
+	edge:UploadConstants()
+	edge.pipeline:Dispatch(cmd, groups, groups, 1, slot, edge.dynamic_offsets)
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+	local horizontal = get_smooth_pipeline(0)
+	horizontal:BindStorageImage(cmd, slot, 0, state.raw)
+	horizontal:BindStorageImage(cmd, slot, 1, state.blurred)
+	horizontal:UploadConstants()
+	horizontal.pipeline:Dispatch(
+		cmd,
+		math.ceil(size / 8),
+		math.ceil(size / 8),
+		1,
+		slot,
+		horizontal.dynamic_offsets
+	)
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+	local vertical = get_smooth_pipeline(1)
+	vertical:BindStorageImage(cmd, slot, 0, state.blurred)
+	vertical:BindStorageImage(cmd, slot, 1, state.texture)
+	vertical:BindStorageImage(cmd, slot, 3, state.edge)
+	vertical:UploadConstants()
+	vertical.pipeline:Dispatch(cmd, math.ceil(size / 8), math.ceil(size / 8), 1, slot, vertical.dynamic_offsets)
 	render.TransitionResourceToShaderRead(state.texture, {cmd = cmd})
 	surface_weather.snow_map = state.texture
 end
