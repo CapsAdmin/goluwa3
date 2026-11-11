@@ -246,7 +246,7 @@ local function get_allowed_extensions(category)
 end
 
 do
-	local function make_entry(category, path, root, kind, size, source)
+	local function make_entry(category, path, root, kind, size, source, game)
 		local dir, file = path:match("^(.*/)([^/]*)$")
 		local name, ext = file:match("^(.*)(%.[^.]*)$")
 
@@ -263,6 +263,7 @@ do
 			dir_path = dir,
 			size = size,
 			source = source,
+			game = game,
 		}
 	end
 
@@ -411,7 +412,7 @@ do
 
 				if accepts and not accepts(lower, ext) then return end
 
-				found[lower] = {path, size, data.context.Name}
+				found[lower] = {path, size, data.context.Name, data.userdata and data.userdata.game}
 				paths[#paths + 1] = lower
 			end)
 		end
@@ -420,7 +421,12 @@ do
 
 		for _, lower in ipairs(paths) do
 			local info = found[lower]
-			add_entry(index, category, make_entry(category, info[1], nil, nil, info[2], info[3]), false)
+			add_entry(
+				index,
+				category,
+				make_entry(category, info[1], nil, nil, info[2], info[3], info[4]),
+				false
+			)
 		end
 
 		for virtual_path, virtual_asset in pairs(assets.virtual_assets) do
