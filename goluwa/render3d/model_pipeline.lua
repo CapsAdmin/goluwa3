@@ -1168,7 +1168,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 				return min(distance(point, on_ab), distance(point, on_bc));
 			}
 
-			vec3 vegetation_polyline_turn(VegetationPushers pushers, int pusher_count, vec3 origin, float plant_bound, vec3 pivot, vec3 mid, vec3 tip) {
+			vec3 vegetation_polyline_turn(VegetationPushers pushers, int pusher_count, vec3 origin, float plant_bound, float plant_height, vec3 pivot, vec3 mid, vec3 tip) {
 				vec3 chain = tip - pivot;
 				vec3 chain_direction = dot(chain, chain) > 0.0001 ? normalize(chain) : vec3(0.0, 1.0, 0.0);
 				vec3 turn = vec3(0.0);
@@ -1184,6 +1184,10 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 						vec4 shape = vec4(pose.xyz, rounding);
 				
 						if (pose.w == 0.0 || distance(origin, shape.xyz) > plant_bound + reach + length(half_size)) continue;
+
+						// a dynamic plant's own collision body would otherwise push it: skip a body of about the plant's height that holds the plant's root
+						vec3 root_offset = origin - shape.xyz;
+						if (abs(root_offset.x) < half_size.x && abs(root_offset.z) < half_size.z && root_offset.y > -half_size.y - 0.3 && root_offset.y < half_size.y && half_size.y * 2.0 > plant_height * 0.3 && half_size.y * 2.0 < plant_height * 1.2) continue;
 				
 						vec2 away = origin.xz - shape.xz;
 						float away_length = length(away);
@@ -1258,6 +1262,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 					VegetationPushers pushers = get_vegetation_pushers();
 					int pusher_count = int(pushers.p[0].x);
 					float plant_bound = (vertex_animation.PushRadius + vertex_animation.BendHeight) * length(world_matrix3[0]);
+					float plant_height = vertex_animation.BendHeight * length(world_matrix3[0]);
 					vec4 push_color = clamp(vertex_color, 0.0, 1.0);
 					float height_fraction = clamp(pos.y / max(vertex_animation.BendHeight, 0.01), 0.0, 1.0);
 					float flex = vertex_animation.DetailBending == 0 ? 0.1 : clamp(0.2 + 0.8 * (1.0 - push_color.b) + 0.25 * push_color.r, 0.0, 1.0);
@@ -1277,7 +1282,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 						float attached = distance(pivot, root_pivot) > 0.05 ? 1.0 - smoothstep(0.1 * root_length, 0.25 * root_length, vegetation_polyline_distance(pivot, root_pivot, root_mid, root_tip)) : 0.0;
 
 						if (attached > 0.0) {
-							vec3 root_rotation = vegetation_polyline_turn(pushers, pusher_count, origin, plant_bound, root_pivot, root_mid, root_tip) * (vertex_animation.RootFlex * vertex_animation.PushBending * attached);
+							vec3 root_rotation = vegetation_polyline_turn(pushers, pusher_count, origin, plant_bound, plant_height, root_pivot, root_mid, root_tip) * (vertex_animation.RootFlex * vertex_animation.PushBending * attached);
 							target = vegetation_rotate(target, root_pivot, root_rotation);
 							pivot = vegetation_rotate(pivot, root_pivot, root_rotation);
 							chain_mid = vegetation_rotate(chain_mid, root_pivot, root_rotation);
@@ -1285,7 +1290,7 @@ function model_pipeline.BuildVertexAnimationGlsl(world_matrix_expr, camera_posit
 						}
 					}
 
-					vec3 rotation = vegetation_polyline_turn(pushers, pusher_count, origin, plant_bound, pivot, chain_mid, chain_tip) * (flex * vertex_animation.PushBending);
+					vec3 rotation = vegetation_polyline_turn(pushers, pusher_count, origin, plant_bound, plant_height, pivot, chain_mid, chain_tip) * (flex * vertex_animation.PushBending);
 					pos += inv_world_matrix3 * (vegetation_rotate(target, pivot, rotation) - world_pos);
 				}
 
