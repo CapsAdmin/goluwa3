@@ -5,6 +5,7 @@ local game = {
 	CRYSIS_APPID = 17300,
 }
 local mounts = {}
+local content_mounts = {}
 local mount_root
 local cached_game
 
@@ -167,32 +168,49 @@ function game.ResolveMaterialPath(level_dir, material_path)
 	)
 end
 
-function game.EnsureLevelMounts(level_dir)
+local function mount_directory(list, where, game_info)
+	where = ensure_trailing_slash(where)
+
+	if vfs.IsDirectory(where) then
+		vfs.Mount(where, "", game_info)
+		list[#list + 1] = {where = where, to = ""}
+	end
+end
+
+function game.IsMounted()
+	return #content_mounts > 0
+end
+
+function game.MountContent()
+	if game.IsMounted() then return end
+
 	local cry_game, err = game.FindCryGame()
 
 	if not cry_game then error(err) end
+
+	local game_info = {game = cry_game.name}
+	mount_directory(content_mounts, cry_game.game_dir .. "Game/Objects.pak/", game_info)
+	mount_directory(content_mounts, cry_game.game_dir .. "Game/Textures.pak/", game_info)
+	mount_directory(content_mounts, cry_game.game_dir .. "Game/GameData.pak/", game_info)
+	mount_directory(content_mounts, cry_game.game_dir .. "Game/Localized/english.pak/", game_info)
+end
+
+function game.UnmountContent()
+	content_mounts = clear_mounts(content_mounts)
+end
+
+function game.EnsureLevelMounts(level_dir)
+	game.MountContent()
 
 	if mount_root == level_dir then return end
 
 	mounts = clear_mounts(mounts)
 	mount_root = level_dir
-
-	local function mount(where, to)
-		where = ensure_trailing_slash(where)
-
-		if vfs.IsDirectory(where) then
-			vfs.Mount(where, to or "")
-			mounts[#mounts + 1] = {where = where, to = to or ""}
-		end
-	end
-
-	mount(cry_game.game_dir .. "Game/Objects.pak/")
-	mount(cry_game.game_dir .. "Game/Textures.pak/")
-	mount(cry_game.game_dir .. "Game/GameData.pak/")
-	mount(cry_game.game_dir .. "Game/Localized/english.pak/")
-	mount(level_dir .. "level.pak/")
-	mount(level_dir .. "terraintexture.pak/")
-	mount(level_dir .. (level_dir:match("/([^/]+)/$") or "") .. ".cry/")
+	local cry_game = game.FindCryGame()
+	local game_info = {game = cry_game.name}
+	mount_directory(mounts, level_dir .. "level.pak/", game_info)
+	mount_directory(mounts, level_dir .. "terraintexture.pak/", game_info)
+	mount_directory(mounts, level_dir .. (level_dir:match("/([^/]+)/$") or "") .. ".cry/", game_info)
 end
 
 return game

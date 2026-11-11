@@ -61,10 +61,13 @@ engines.Register(
 					id = cry_game.appid,
 					name = cry_game.name,
 					image = steam.GetGameImage(cry_game.appid, "header"),
-					mounted = true,
+					mounted = game.IsMounted(),
+					mountable = true,
 				},
 			}
 		end,
+		MountGame = game.MountContent,
+		UnmountGame = game.UnmountContent,
 		GetMaps = function()
 			local maps = {}
 			local cry_game = game.FindCryGame()
