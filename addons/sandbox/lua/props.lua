@@ -89,7 +89,7 @@ function props.Spawn(model_path, position, rotation, on_spawn, options)
 			done = true
 			local physics = model.physics
 
-			if not physics then
+			if not physics or not physics.mass then
 				local min, max = model.bounds.min, model.bounds.max
 				local size = Vec3(
 					math.max(max.x - min.x, MIN_BOX_EXTENT),

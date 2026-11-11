@@ -13,7 +13,8 @@ local game_history = import("lua/game_history.lua")
 local spawn_requests = {}
 spawn_requests.Range = 40
 local RANGE_SLACK = 10
-local PROP_PATTERN = "^models/[%w_%-%./]+$"
+local PROP_PATTERN = "^(%a+)/[%w_%-%./]+$"
+local PROP_ROOTS = {models = true, objects = true}
 local MAX_NAME_LENGTH = 200
 local MAX_NPC_HEALTH = 1e6
 local REACTIONS = {flinch = true, stagger = true, knockdown = true}
@@ -45,7 +46,8 @@ function validators.npc(name)
 end
 
 function validators.prop(name)
-	return name:find(PROP_PATTERN) ~= nil and not name:find("..", 1, true)
+	local root = name:match(PROP_PATTERN)
+	return root ~= nil and PROP_ROOTS[root:lower()] == true and not name:find("..", 1, true)
 end
 
 function option_validators.weapon(roll)

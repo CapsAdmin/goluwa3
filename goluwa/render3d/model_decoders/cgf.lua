@@ -887,17 +887,26 @@ function cgf.PackModel(input)
 	end
 
 	local bend_height = 0
+	local bounds = {math.huge, math.huge, math.huge, -math.huge, -math.huge, -math.huge}
 
 	for _, entry in ipairs(entries) do
 		if entry.lod_level == 0 then
 			for _, vertex in ipairs(entry.vertices) do
-				bend_height = math.max(bend_height, vertex.pos.y)
+				local pos = vertex.pos
+				bend_height = math.max(bend_height, pos.y)
+				bounds[1] = math.min(bounds[1], pos.x)
+				bounds[2] = math.min(bounds[2], pos.y)
+				bounds[3] = math.min(bounds[3], pos.z)
+				bounds[4] = math.max(bounds[4], pos.x)
+				bounds[5] = math.max(bounds[5], pos.y)
+				bounds[6] = math.max(bounds[6], pos.z)
 			end
 		end
 	end
 
 	local builder = blob.New()
 	meta.bend_height = bend_height
+	meta.bounds = bounds
 	meta.root_chains = {}
 
 	for _, entry in ipairs(entries) do
@@ -930,7 +939,22 @@ function cgf.ExtractPhysics(data)
 	return physics
 end
 
-function cgf.Decoder.Finish(path, full_path, input, meta, blob_table, mesh_callback, physics_callback)
+function cgf.Decoder.Finish(
+	path,
+	full_path,
+	input,
+	meta,
+	blob_table,
+	mesh_callback,
+	physics_callback,
+	skeleton_callback,
+	bounds_callback
+)
+	if meta.bounds then
+		local bounds = meta.bounds
+		bounds_callback(Vec3(bounds[1], bounds[2], bounds[3]), Vec3(bounds[4], bounds[5], bounds[6]))
+	end
+
 	if meta.has_physics then
 		local data = input.data
 		physics_callback(
