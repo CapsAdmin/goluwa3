@@ -52,6 +52,7 @@ function TerrainPhysics:CreateCollider(key, chunk_x, chunk_z, chunk)
 	}
 	entity:AddComponent("transform")
 	entity.transform:SetPosition(Vec3((chunk_x + 0.5) * self.ChunkSize, 0, (chunk_z + 0.5) * self.ChunkSize))
+	entity.terrain_data = self.Terrain.Source.Data
 	entity:AddComponent(
 		"rigid_body",
 		{

@@ -1400,6 +1400,18 @@ function level.Load(level_dir)
 					{prototype.material_path} or
 					cgf_decoder.GetMaterialPaths(prototype.model_path)
 				prototype.material_paths = material_paths
+				prototype.surface = "wood"
+
+				for _, material_path in ipairs(material_paths) do
+					for _, material in ipairs(mtl_material.FromCryMTLList(material_path)) do
+						local surface = material:GetSurfaceType()
+
+						if surface == "rock" or surface == "boulder" then
+							prototype.surface = surface
+						end
+					end
+				end
+
 				prototype.has_physics = cgf_decoder.HasPhysics(prototype.model_path)
 				prototype.fit_to_terrain = level.IsVegetationFitToTerrain(material_paths)
 

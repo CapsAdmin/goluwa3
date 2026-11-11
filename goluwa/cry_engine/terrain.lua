@@ -129,6 +129,7 @@ local function get_or_create_cry_terrain_layers(terrain)
 					specular = material:GetSpecularMultiplier(),
 					scatter = 0,
 					roughness = 1,
+					surface = material:GetSurfaceType(),
 				}
 			else
 				wlog(

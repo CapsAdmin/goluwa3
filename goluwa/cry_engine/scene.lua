@@ -392,6 +392,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 
 		for _, entry in ipairs(data.vegetation_entries or {}) do
 			if data.vegetation_prototypes.by_id[entry.prototype_id].has_physics then
+				entry.surface = data.vegetation_prototypes.by_id[entry.prototype_id].surface
 				physics_entries[#physics_entries + 1] = entry
 			end
 		end
@@ -433,6 +434,7 @@ function cry_scene.Translate(data, level_name, level_path, options)
 							RequireShapeModel = true,
 							MotionType = "static",
 							Friction = FRICTION,
+							SurfaceType = entry.surface,
 						},
 					},
 				}

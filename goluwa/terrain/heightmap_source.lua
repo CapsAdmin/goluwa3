@@ -245,4 +245,17 @@ function HeightmapSource.SampleHeight(data, x, z)
 	return raw / 65535 * data.max_height
 end
 
+-- the surface type of the layer under a world position, nil without layers
+function HeightmapSource.SampleSurface(data, x, z)
+	local indices = data.indices
+
+	if not indices then return nil end
+
+	local size = math.max(data.size, 1)
+	local row = math.clamp(math.floor(x * indices.height / size), 0, indices.height - 1)
+	local column = math.clamp(math.floor(-z * indices.width / size), 0, indices.width - 1)
+	local layer = data.layers and data.layers[indices.samples[row * indices.width + column]]
+	return layer and layer.surface
+end
+
 return HeightmapSource

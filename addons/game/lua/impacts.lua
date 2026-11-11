@@ -1,16 +1,25 @@
 local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
 local system = import("goluwa/system.lua")
+local HeightmapSource = import("goluwa/terrain/heightmap_source.lua")
 local impacts = {}
 
 local function get_surface(hit)
+	local terrain_data = hit.entity.terrain_data
+
+	if terrain_data then
+		return HeightmapSource.SampleSurface(terrain_data, hit.position.x, hit.position.z) or
+			"default"
+	end
+
 	local material = physics.GetHitMaterial(hit)
-	return material and
-		material:GetSurfaceType() or
+
+	if material then return material:GetSurfaceType(), material end
+
+	return hit.entity.rigid_body.SurfaceType or
 		hit.entity.ragdoll_part and
 		"flesh" or
-		"default",
-	material
+		"default"
 end
 
 function impacts.Fire(entity, part, kind, hit, speed, mass, size, other_hit)
