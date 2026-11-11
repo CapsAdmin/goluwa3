@@ -304,33 +304,35 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 				0
 			)
 		)
-	local triangle_center = triangle_geometry.GetTriangleCenter(v0, v1, v2)
-	local triangle_center_world = use_local_space and mesh_body:LocalToWorld(triangle_center) or triangle_center
 	local found_contact = false
 	local e1x, e1y, e1z = v1.x - v0.x, v1.y - v0.y, v1.z - v0.z
 	local e2x, e2y, e2z = v2.x - v0.x, v2.y - v0.y, v2.z - v0.z
 	local nx, ny, nz = e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x
 	local normal_length = math.sqrt(nx * nx + ny * ny + nz * nz)
 	local plane_cutoff = normal_length > EPSILON and combined_margin * normal_length or math.huge
-	local face_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, EPSILON)
-
-	if not face_normal then return state, false end
+	local face_normal
+	local triangle_center_world
 
 	for _, sample in ipairs(samples) do
 		if support_only and not sample.is_support then goto continue end
 
 		local query_point = use_local_space and sample.mesh_point or sample.point
+		local plane_distance = (query_point.x - v0.x) * nx + (query_point.y - v0.y) * ny + (query_point.z - v0.z) * nz
 
 		if
-			(
-				query_point.x - v0.x
-			) * nx + (
-				query_point.y - v0.y
-			) * ny + (
-				query_point.z - v0.z
-			) * nz >= plane_cutoff
+			plane_distance >= plane_cutoff or
+			plane_distance < -MAX_SAMPLE_DEPTH * normal_length
 		then
 			goto continue
+		end
+
+		if not face_normal then
+			face_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, EPSILON)
+
+			if not face_normal then return state, found_contact end
+
+			local triangle_center = triangle_geometry.GetTriangleCenter(v0, v1, v2)
+			triangle_center_world = use_local_space and mesh_body:LocalToWorld(triangle_center) or triangle_center
 		end
 
 		local signed_distance = (query_point - v0):Dot(face_normal)
