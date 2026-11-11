@@ -7,6 +7,7 @@ local react = import("goluwa/render2d/ui/react.lua")
 local ui = import("goluwa/render2d/ui/react_ui.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
 local desktop = import("goluwa/render2d/ui/desktop.lua")
+local tooltip = import("goluwa/render2d/ui/tooltip.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local physics = import("goluwa/physics.lua")
@@ -260,7 +261,15 @@ local TileGrid = react.Component(
 )
 
 local make_tree_item
+local TOOLTIP_OPTIONS = {Delay = 0.4, MaxWidth = 560}
 
+local function show_entry_tooltip(grid, entry)
+	if entry then
+		tooltip.Show(grid:GetContentPanel(), (entry.game ?? entry.source) .. "\n" .. entry.path, TOOLTIP_OPTIONS)
+	else
+		tooltip.Hide()
+	end
+end
 local function ensure_item_children(item)
 	if item.ChildrenLoaded then return false end
 
@@ -320,6 +329,7 @@ local ModelsPage = react.Component(
 		local applied_query = react.UseDebounce(query, 0.12)
 		local expanded = react.UseRef({})
 		local tree = react.UseRef()
+		local grid = react.UseRef()
 		react.UseEffect(
 			||->model_families.Listen(||->set_version(|v|->v + 1)),
 			{}
@@ -404,6 +414,7 @@ local ModelsPage = react.Component(
 					},
 				}{
 					ui.VirtualGrid{
+						Ref = grid,
 						Items = items,
 						CellWidth = LABELED_TILE_SIZE,
 						ExtraHeight = 0,
@@ -412,7 +423,10 @@ local ModelsPage = react.Component(
 						OnDrawItem = draw_tile,
 						OnClick = spawnmenu.Spawn,
 						OnContextMenu = open_entry_menu,
-						OnHoverItem = set_hovered,
+						OnHoverItem = |entry|-> do
+							set_hovered(entry)
+							show_entry_tooltip(grid.current, entry)
+						end,
 						layout = {GrowWidth = 1, GrowHeight = 1},
 					},
 					ui.Text{
