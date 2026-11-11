@@ -33,6 +33,9 @@ local MAX_PITCH = 2
 local ATTACK = 0.08
 local RELEASE = 0.15
 local STALE = 0.1
+-- every new one-shot is probed for occlusion on Play, and a burst of hundreds of impacts in one frame would not be heard apart anyway
+local MAX_IMPACTS_PER_FRAME = 6
+local MAX_LOOP_STARTS_PER_FRAME = 2
 local physics_sounds = {}
 
 function physics_sounds.GetSurfaces()
@@ -56,6 +59,42 @@ local function get_damping_gain(found, other)
 end
 
 local last_played = table.weak("k")
+local pending = {}
+local pending_count = 0
+local loop_starts = 0
+
+local function queue_impact(path, position, volume, pitch, skip)
+	local level = sounds.GetLevel(position, volume)
+
+	if not sounds.IsAudible(position, volume) then return end
+
+	local impact
+
+	if pending_count < MAX_IMPACTS_PER_FRAME then
+		pending_count = pending_count + 1
+		impact = pending[pending_count]
+
+		if not impact then
+			impact = {position = Vec3()}
+			pending[pending_count] = impact
+		end
+	else
+		for i = 1, pending_count do
+			if pending[i].level < level and (not impact or pending[i].level < impact.level) then
+				impact = pending[i]
+			end
+		end
+
+		if not impact then return end
+	end
+
+	impact.path = path
+	impact.position:Set(position.x, position.y, position.z)
+	impact.volume = volume
+	impact.pitch = pitch
+	impact.skip = skip
+	impact.level = level
+end
 
 event.AddListener("Impact", "physics_impacts", function(info)
 	if info.Kind ~= "physics" or info.Speed < MIN_SPEED then return end
@@ -80,7 +119,7 @@ event.AddListener("Impact", "physics_impacts", function(info)
 	if index == paths.last then index = index % #paths + 1 end
 
 	paths.last = index
-	sounds.Play(
+	queue_impact(
 		paths[index],
 		info.Position,
 		gain * get_mass_gain(info.Mass) * math.min(info.Speed / LOUD_SPEED, 1),
@@ -89,6 +128,17 @@ event.AddListener("Impact", "physics_impacts", function(info)
 				1 - math.clamp((info.Speed - MIN_SPEED) / (LOUD_SPEED - MIN_SPEED), 0, 1)
 			)
 	)
+end)
+
+event.AddListener("LateUpdate", "physics_impacts", function()
+	for i = 1, pending_count do
+		local impact = pending[i]
+		sounds.Play(impact.path, impact.position, impact.volume, impact.pitch, impact.skip)
+		impact.path = nil
+	end
+
+	pending_count = 0
+	loop_starts = 0
 end)
 
 local voices = table.weak("k")
@@ -136,6 +186,8 @@ local function drive(owner, path, volume, pitch, low, mid, high, position, now)
 	local voice = owner[path]
 
 	if not voice then
+		if loop_starts >= MAX_LOOP_STARTS_PER_FRAME then return end
+
 		local quietest
 
 		if #active >= MAX_LOOPS then
@@ -156,6 +208,7 @@ local function drive(owner, path, volume, pitch, low, mid, high, position, now)
 
 		if not source then return end
 
+		loop_starts = loop_starts + 1
 		voice = {source = source, owner = owner, path = path, volume = 0, tone = Vec3(1, 1, 1)}
 		owner[path] = voice
 		active[#active + 1] = voice
