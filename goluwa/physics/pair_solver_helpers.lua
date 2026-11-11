@@ -415,6 +415,9 @@ function pair_solver_helpers.GetSafeCollisionNormal(delta, relative_velocity, fa
 	return nil, 0
 end
 
+local POINT_SWEEP_START = Vec3()
+local POINT_SWEEP_END = Vec3()
+
 function pair_solver_helpers.FindEarliestBodyPointSweepHit(
 	body,
 	previous_position,
@@ -431,8 +434,8 @@ function pair_solver_helpers.FindEarliestBodyPointSweepHit(
 	current_rotation = current_rotation or body:GetRotation()
 
 	for _, local_point in ipairs(local_points) do
-		local start_world = body:GeometryLocalToWorld(local_point, previous_position, previous_rotation)
-		local end_world = body:GeometryLocalToWorld(local_point, current_position, current_rotation)
+		local start_world = body:GeometryLocalToWorld(local_point, previous_position, previous_rotation, POINT_SWEEP_START)
+		local end_world = body:GeometryLocalToWorld(local_point, current_position, current_rotation, POINT_SWEEP_END)
 		local hit = evaluate_hit(evaluate_context, start_world, end_world, local_point)
 
 		if hit and (not best_hit or hit.t < best_hit.t) then best_hit = hit end
@@ -453,7 +456,7 @@ function pair_solver_helpers.GetBodySweepMotion(body)
 	out.previous_rotation = body:GetPreviousRotation()
 	out.current_position = body:GetPosition()
 	out.current_rotation = body:GetRotation()
-	out.movement = out.current_position - out.previous_position
+	out.movement = Vec3.SetSub(out.movement or Vec3(), out.current_position, out.previous_position)
 	return out
 end
 
