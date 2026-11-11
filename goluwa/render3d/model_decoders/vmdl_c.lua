@@ -7,6 +7,7 @@ local model_loader = import("goluwa/render3d/model_loader.lua")
 local packed_mesh = import("goluwa/render3d/packed_mesh.lua")
 local Skeleton = import("goluwa/render3d/skeleton.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
 local animation = import("goluwa/source_engine/source2/animation.lua")
 local vphys = import("goluwa/source_engine/source2/vphys.lua")
@@ -133,7 +134,16 @@ local function build_skeleton(input, info, blob_table)
 	return skeleton
 end
 
-local function finish(path, input, meta, blob_table, mesh_callback, physics_callback, skeleton_callback)
+local function finish(
+	path,
+	input,
+	meta,
+	blob_table,
+	mesh_callback,
+	physics_callback,
+	skeleton_callback,
+	bounds_callback
+)
 	local physics_refs = input.physics_refs or {}
 
 	if meta.physics_block ~= nil or #physics_refs > 0 then
@@ -170,8 +180,18 @@ local function finish(path, input, meta, blob_table, mesh_callback, physics_call
 		skeleton_callback(build_skeleton(input, meta.skeleton, blob_table))
 	end
 
+	local min_x, min_y, min_z = math.huge, math.huge, math.huge
+	local max_x, max_y, max_z = -math.huge, -math.huge, -math.huge
+
 	for _, entry in ipairs(meta.entries) do
 		s2_material.Prefetch(entry.material)
+		local b = entry.bounds
+		min_x, min_y, min_z = math.min(min_x, b[1]), math.min(min_y, b[2]), math.min(min_z, b[3])
+		max_x, max_y, max_z = math.max(max_x, b[4]), math.max(max_y, b[5]), math.max(max_z, b[6])
+	end
+
+	if #meta.entries > 0 then
+		bounds_callback(Vec3(min_x, min_y, min_z), Vec3(max_x, max_y, max_z))
 	end
 
 	for _, entry in ipairs(meta.entries) do
@@ -293,9 +313,19 @@ function mdl_decoder.Finish(
 	blob_table,
 	mesh_callback,
 	physics_callback,
-	skeleton_callback
+	skeleton_callback,
+	bounds_callback
 )
-	finish(path, input, meta, blob_table, mesh_callback, physics_callback, skeleton_callback)
+	finish(
+		path,
+		input,
+		meta,
+		blob_table,
+		mesh_callback,
+		physics_callback,
+		skeleton_callback,
+		bounds_callback
+	)
 end
 
 local mesh_decoder = {job = job}
