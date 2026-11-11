@@ -419,6 +419,12 @@ local function find_contact_sat_fallback(collider, polyhedron, v0, v1, v2, optio
 	}
 end
 
+local PENETRATION_TRIANGLE_CENTER = Vec3()
+local PENETRATION_CENTER_DELTA = Vec3()
+local PENETRATION_TRIANGLE_NORMAL = Vec3()
+local PENETRATION_EDGE_A = Vec3()
+local PENETRATION_EDGE_B = Vec3()
+
 local function find_penetration(poly_vertices, collider_position, v0, v1, v2, options)
 	options = options or {}
 	local epsilon = options.epsilon or DEFAULT_EPSILON
@@ -428,13 +434,20 @@ local function find_penetration(poly_vertices, collider_position, v0, v1, v2, op
 		return nil
 	end
 
-	local triangle_center = triangle_geometry.GetTriangleCenter(v0, v1, v2)
-	local center_delta = collider_position - triangle_center
+	local triangle_center = PENETRATION_TRIANGLE_CENTER
+	triangle_center.x = (v0.x + v1.x + v2.x) / 3
+	triangle_center.y = (v0.y + v1.y + v2.y) / 3
+	triangle_center.z = (v0.z + v1.z + v2.z) / 3
+	local center_delta = Vec3.SetSub(PENETRATION_CENTER_DELTA, collider_position, triangle_center)
 	local margin_overlap = (options.collider_margin or 0) + triangle_slop
 	local support_axis_y = math.max(options.min_ground_normal_y or 0, 0.5)
-	local triangle_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, epsilon)
+	local triangle_normal = Vec3.SetCross(
+		PENETRATION_TRIANGLE_NORMAL,
+		Vec3.SetSub(PENETRATION_EDGE_A, v1, v0),
+		Vec3.SetSub(PENETRATION_EDGE_B, v2, v0)
+	):Normalize()
 
-	if not triangle_normal then return nil end
+	if triangle_normal:GetLength() <= epsilon then return nil end
 
 	local query_vertices = fill_triangle_prism_vertices(
 		TRIANGLE_PRISM_VERTICES_SCRATCH,
@@ -449,6 +462,11 @@ local function find_penetration(poly_vertices, collider_position, v0, v1, v2, op
 	)
 	local penetration = gjk_epa.Penetration(poly_vertices, query_vertices, center_delta)
 
+	if penetration and not penetration.intersect then
+		local distance = penetration.distance
+		return nil, distance and distance.distance or penetration.gjk.separation
+	end
+
 	if
 		not (
 			penetration and
@@ -461,6 +479,9 @@ local function find_penetration(poly_vertices, collider_position, v0, v1, v2, op
 		return nil
 	end
 
+	triangle_center = triangle_center:Copy()
+	center_delta = center_delta:Copy()
+	triangle_normal = triangle_normal:Copy()
 	local normal = orient_triangle_normal(penetration.normal, triangle_normal, center_delta, options.outward_winding)
 
 	if not normal then return nil end
@@ -515,9 +536,11 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 		return nil
 	end
 
-	local penetration = polyhedron_triangle_contacts.FindPenetration(collider, polyhedron, v0, v1, v2, options)
+	local penetration, separation = polyhedron_triangle_contacts.FindPenetration(collider, polyhedron, v0, v1, v2, options)
 
 	if not penetration then
+		if separation and separation > separation_threshold then return nil end
+
 		if not should_try_sat_fallback(collider, v0, v1, v2, options) then return nil end
 
 		return find_contact_sat_fallback(collider, polyhedron, v0, v1, v2, options, poly_vertices)
