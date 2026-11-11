@@ -1,5 +1,6 @@
 local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local AABB = import("goluwa/structs/aabb.lua")
 local physics_constants = import("goluwa/physics/constants.lua")
 local contact_resolution = import("goluwa/physics/contact_resolution.lua")
 local contact_solver = import("goluwa/physics/contact_solver.lua")
@@ -541,11 +542,49 @@ function Solver:RecordManifoldContacts()
 	end
 end
 
+do
+	local bounds_a = AABB(0, 0, 0, 0, 0, 0)
+	local bounds_b = AABB(0, 0, 0, 0, 0, 0)
+	local RESTING_SPEED = 0.5
+	local LINK_MARGIN = 0.15
+	local LINK_TRAVEL_TIME = 0.05
+
+	local function is_resting_prop(body)
+		return body.CanSleep and
+			body:IsDynamic() and
+			not body:HasKinematicController() and
+			body.Velocity:GetLength() < RESTING_SPEED
+	end
+
+	local function is_far_from_mover(mover, prop)
+		if mover.CanSleep or not mover:GetAwake() or not is_resting_prop(prop) then
+			return false
+		end
+
+		local a = mover:GetBroadphaseAABB(nil, nil, bounds_a)
+		local b = prop:GetBroadphaseAABB(nil, nil, bounds_b)
+		local margin = LINK_MARGIN + mover.Velocity:GetLength() * LINK_TRAVEL_TIME
+		return a.min_x - margin > b.max_x or
+			b.min_x - margin > a.max_x or
+			a.min_y - margin > b.max_y or
+			b.min_y - margin > a.max_y or
+			a.min_z - margin > b.max_z or
+			b.min_z - margin > a.max_z
+	end
+
+	-- the look ahead of a body that never sleeps would otherwise chain every resting prop in front of it into its island
+	function Solver:IsPairFarApart(body_a, body_b)
+		return is_far_from_mover(body_a, body_b) or is_far_from_mover(body_b, body_a)
+	end
+end
+
 function Solver:IslandPairFilter(pair)
 	local body_a = pair.entry_a.body
 	local body_b = pair.entry_b.body
 
 	if not body_a:ShouldCollide(body_b) then return false end
+
+	if self:IsPairFarApart(body_a, body_b) then return false end
 
 	if body_a:GetAwake() or body_b:GetAwake() then return true end
 
