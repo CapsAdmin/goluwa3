@@ -25,11 +25,44 @@ for x = -1, 1 do
 	end
 end
 
-local function to_engine(x, y, z)
+local function to_engine(x, y, z, pose)
+	if pose then
+		x, y, z = pose[1] * x + pose[2] * y + pose[3] * z + pose[4],
+		pose[5] * x + pose[6] * y + pose[7] * z + pose[8],
+		pose[9] * x + pose[10] * y + pose[11] * z + pose[12]
+	end
+
 	return Vec3(-y * SCALE, z * SCALE, -x * SCALE)
 end
 
-local function add_mesh(children, mesh)
+-- shapes of a part are in the space of its bone; the bind pose (3x4, row major) places them in the model
+local function get_part_pose(data, part_index)
+	local poses = data.m_bindPose
+	local pose = poses and poses[#poses == #data.m_parts and part_index or 1]
+
+	if not pose or #pose < 12 then return nil end
+
+	if
+		pose[1] == 1 and
+		pose[2] == 0 and
+		pose[3] == 0 and
+		pose[4] == 0 and
+		pose[5] == 0 and
+		pose[6] == 1 and
+		pose[7] == 0 and
+		pose[8] == 0 and
+		pose[9] == 0 and
+		pose[10] == 0 and
+		pose[11] == 1 and
+		pose[12] == 0
+	then
+		return nil
+	end
+
+	return pose
+end
+
+local function add_mesh(children, mesh, pose)
 	if type(mesh.m_Triangles) ~= "string" then return end
 
 	local vertices = ffi.cast(f32_ptr_t, mesh.m_Vertices)
@@ -38,10 +71,13 @@ local function add_mesh(children, mesh)
 
 	for t = 0, #mesh.m_Triangles / 12 - 1 do
 		local a, b, c = triangles[t * 3], triangles[t * 3 + 1], triangles[t * 3 + 2]
-		local cx = (vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3
-		local cy = (vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3
-		local cz = (vertices[a * 3 + 2] + vertices[b * 3 + 2] + vertices[c * 3 + 2]) / 3
-		local ex, ey, ez = -cy * SCALE, cz * SCALE, -cx * SCALE
+		local center = to_engine(
+			(vertices[a * 3] + vertices[b * 3] + vertices[c * 3]) / 3,
+			(vertices[a * 3 + 1] + vertices[b * 3 + 1] + vertices[c * 3 + 1]) / 3,
+			(vertices[a * 3 + 2] + vertices[b * 3 + 2] + vertices[c * 3 + 2]) / 3,
+			pose
+		)
+		local ex, ey, ez = center.x, center.y, center.z
 		local key = math.floor(ex / CHUNK_SIZE) .. ":" .. math.floor(ey / CHUNK_SIZE) .. ":" .. math.floor(ez / CHUNK_SIZE)
 		local chunk = chunks[key]
 
@@ -60,7 +96,8 @@ local function add_mesh(children, mesh)
 					pos = to_engine(
 						vertices[source_index * 3],
 						vertices[source_index * 3 + 1],
-						vertices[source_index * 3 + 2]
+						vertices[source_index * 3 + 2],
+						pose
 					),
 				}
 			end
@@ -136,14 +173,15 @@ end
 function vphys.Append(children, data, body)
 	local hashes = data.m_surfacePropertyHashes
 
-	for _, part in ipairs(data.m_parts) do
+	for part_index, part in ipairs(data.m_parts) do
 		local shape = part.m_rnShape
+		local pose = get_part_pose(data, part_index)
 		body.mass = body.mass + part.m_flMass
 		body.linear_damping = body.linear_damping + part.m_flLinearDamping * part.m_flMass
 		body.angular_damping = body.angular_damping + part.m_flAngularDamping * part.m_flMass
 
 		for _, mesh in ipairs(shape.m_meshes) do
-			add_mesh(children, mesh.m_Mesh)
+			add_mesh(children, mesh.m_Mesh, pose)
 			local materials = mesh.m_Mesh.m_Materials
 
 			if materials[1] then
@@ -166,7 +204,7 @@ function vphys.Append(children, data, body)
 			local points = {}
 
 			for i, v in ipairs(hull.m_Hull.m_Vertices) do
-				points[i] = to_engine(v[1], v[2], v[3])
+				points[i] = to_engine(v[1], v[2], v[3], pose)
 			end
 
 			add_hull_points(children, points)
@@ -177,7 +215,7 @@ function vphys.Append(children, data, body)
 			local c = sphere.m_Sphere.m_vCenter
 			children[#children + 1] = {
 				Shape = SphereShape.New(sphere.m_Sphere.m_flRadius * SCALE),
-				Position = to_engine(c[1], c[2], c[3]),
+				Position = to_engine(c[1], c[2], c[3], pose),
 			}
 		end
 
@@ -185,7 +223,7 @@ function vphys.Append(children, data, body)
 			add_surface(body, hashes, capsule.m_nSurfacePropertyIndex, 1)
 			local a, b = capsule.m_Capsule.m_vCenter[1], capsule.m_Capsule.m_vCenter[2]
 			local radius = capsule.m_Capsule.m_flRadius * SCALE
-			local from, to = to_engine(a[1], a[2], a[3]), to_engine(b[1], b[2], b[3])
+			local from, to = to_engine(a[1], a[2], a[3], pose), to_engine(b[1], b[2], b[3], pose)
 			local half = (to - from) * 0.5
 			local key = string.format("%.4f:%.4f:%.4f:%.4f", half.x, half.y, half.z, radius)
 			local cached = capsule_hulls[key]
