@@ -5,6 +5,7 @@ local bit = require("bit")
 local deflate = import("goluwa/codecs/deflate.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local vfs = import("goluwa/filesystem/vfs.lua")
+local Tree = import("goluwa/structs/tree.lua")
 local objects = import("goluwa/objects/objects.lua")
 local CONTEXT = objects.CreateTemplate("file_system_zip")
 CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")
@@ -164,7 +165,8 @@ function CONTEXT:Prefetch(path_info, callback)
 
 	if
 		not file_info or
-		file_info.is_dir or
+		not Tree.IsLeaf(file_info)
+		or
 		file_info.inflated or
 		file_info.compressionMethod ~= 8
 	then
@@ -207,7 +209,7 @@ function CONTEXT:Open(path_info, mode, ...)
 
 		if not file_info then return false, "file not found in archive" end
 
-		if file_info.is_dir then return false, "file is a directory" end
+		if not Tree.IsLeaf(file_info) then return false, "file is a directory" end
 
 		self.position = 0
 		self.file_info = file_info

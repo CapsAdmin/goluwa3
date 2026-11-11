@@ -5,6 +5,7 @@ CONTEXT.Name = "valve package"
 CONTEXT.NameEndsWith = "_dir"
 CONTEXT.Extension = "vpk"
 CONTEXT.Base = import("goluwa/filesystem/files/generic_archive.lua")
+CONTEXT.PreloadAll = true
 
 function CONTEXT:OnParseArchive(file, archive_path)
 	local header = file:ReadStructure([[
@@ -43,9 +44,7 @@ function CONTEXT:OnParseArchive(file, archive_path)
 						unsigned short terminator;
 						bufferpos preload_offset;
 					]])
-				entry.file_name = name .. "." .. extension
-				entry.file_name = entry.file_name
-				entry.full_path = directory .. "/" .. entry.file_name
+				entry.full_path = directory .. "/" .. name .. "." .. extension
 
 				if entry.archive_index == 0x7FFF then
 					if entry.preload_length > 0 then
@@ -56,7 +55,10 @@ function CONTEXT:OnParseArchive(file, archive_path)
 					end
 				end
 
-				entry.preload_data = file:ReadBytes(entry.preload_length)
+				if entry.preload_length > 0 then
+					entry.preload_data = file:ReadBytes(entry.preload_length)
+				end
+
 				entry.size = entry.size + entry.preload_length
 				entry.preload_offset = nil
 				entry.preload_length = nil

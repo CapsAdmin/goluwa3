@@ -1,50 +1,47 @@
 local objects = import("goluwa/objects/objects.lua")
 local META = objects.CreateTemplate("tree")
 
+function META.IsLeaf(node)
+	return type(node.size) == "number"
+end
+
+local is_leaf = META.IsLeaf
+
 function META:SetEntry(str, value)
-	local keys = str:split(self.delimiter)
-	local next = self.tree
+	local node = self.tree
+	local parent_key
+	local pattern = "[^" .. self.delimiter .. "]+"
 
-	for _, key in ipairs(keys) do
-		if key ~= "" then
-			if type(next[key]) ~= "table" then next[key] = {} end
+	for key in str:gmatch(pattern) do
+		if parent_key then
+			local child = node[parent_key]
 
-			next = next[key]
+			if not child or is_leaf(child) then
+				child = {}
+				node[parent_key] = child
+			end
+
+			node = child
 		end
+
+		parent_key = key
 	end
 
-	next.k = str
-	next.v = value
+	node[parent_key] = value
 end
 
 function META:GetEntry(str)
-	local keys = str:split(self.delimiter)
-	local next = self.tree
+	local node = self.tree
 
-	for _, key in ipairs(keys) do
-		if key ~= "" then
-			if not next[key] then return false, "key " .. key .. " not found" end
+	for key in str:gmatch("[^" .. self.delimiter .. "]+") do
+		if is_leaf(node) then return false, "key " .. key .. " not found" end
 
-			next = next[key]
-		end
+		node = node[key]
+
+		if not node then return false, "key " .. key .. " not found" end
 	end
 
-	return next.v
-end
-
-function META:GetChildren(str)
-	local keys = str:split(self.delimiter)
-	local next = self.tree
-
-	for _, key in ipairs(keys) do
-		if key ~= "" then
-			if not next[key] then return false, "not found" end
-
-			next = next[key]
-		end
-	end
-
-	return next
+	return node
 end
 
 function META.New(delimiter, tree)

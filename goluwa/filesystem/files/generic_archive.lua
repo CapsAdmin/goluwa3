@@ -10,40 +10,12 @@ CONTEXT.Name = "generic_archive"
 CONTEXT.Position = 0
 
 function CONTEXT:AddEntry(entry)
-	self.tree.done_directories = self.tree.done_directories or {}
-	local directory = entry.full_path:match("(.+)/") or "./"
-	entry.file_name = entry.full_path:match(".+/(.+)") or entry.full_path
 	entry.size = tonumber(entry.size) or 0
 	entry.offset = tonumber(entry.offset) or 0
-	entry.is_file = true
 	local full_path = entry.full_path
 	entry.full_path = nil
+	entry.file_name = nil
 	self.tree:SetEntry(full_path, entry)
-	self.tree:SetEntry(
-		directory,
-		{
-			path = directory,
-			is_dir = true,
-			file_name = directory:match(".+/(.+)") or directory,
-		}
-	)
-
-	for i = #directory, 1, -1 do
-		local char = directory:sub(i, i)
-
-		if char == "/" then
-			local dir = directory:sub(0, i)
-
-			if dir == "" or self.tree.done_directories[dir] then break end
-
-			local file_name = dir:match(".+/(.+)") or dir
-
-			if file_name:sub(-1) == "/" then file_name = file_name:sub(0, -2) end
-
-			self.tree:SetEntry(dir, {path = dir, is_dir = true, file_name = file_name})
-			self.tree.done_directories[dir] = true
-		end
-	end
 end
 
 local cache = {}
@@ -92,9 +64,7 @@ function CONTEXT:GetArchiveVersion(archive_path)
 	return vfs.GetLastModified(archive_path) or ""
 end
 
-function CONTEXT:GetFileTree(path_info)
-	if never then return false, "recursive call to GetFileTree" end
-
+function CONTEXT:SplitArchivePath(path_info)
 	local extensions = self.Extension
 
 	if type(extensions) == "string" then extensions = {extensions} end
@@ -111,6 +81,14 @@ function CONTEXT:GetFileTree(path_info)
 		if archive_path then break end
 	end
 
+	return archive_path, relative
+end
+
+function CONTEXT:GetFileTree(path_info)
+	if never then return false, "recursive call to GetFileTree" end
+
+	local archive_path, relative = self:SplitArchivePath(path_info)
+
 	if not archive_path then
 		return false, "not a valid archive path: " .. path_info.full_path
 	end
@@ -125,8 +103,7 @@ function CONTEXT:GetFileTree(path_info)
 		modified_cache[archive_path] = modified
 	end
 
-	local last_modified = modified.value
-	local cache_key = archive_path .. last_modified
+	local cache_key = "tree2:" .. archive_path .. modified.value
 
 	if get_cache(cache_key) then
 		return get_cache(cache_key), relative, archive_path
@@ -169,7 +146,6 @@ function CONTEXT:GetFileTree(path_info)
 	local tree = Tree.New("/")
 	self.tree = tree
 	local ok, err = self:OnParseArchive(file, archive_path)
-	self.tree.done_directories = nil
 	file:Close()
 
 	if not ok then return false, err end
@@ -187,11 +163,21 @@ function CONTEXT:IsFile(path_info)
 
 	local entry, err = tree:GetEntry(relative)
 
-	if entry and entry.is_file then return true end
+	if entry and Tree.IsLeaf(entry) then return true end
 end
 
 function CONTEXT:IsFolder(path_info)
-	local tree, relative, archive_path = self:GetFileTree(path_info)
+	local archive_path, relative = self:SplitArchivePath(path_info)
+
+	if archive_path and relative == "" and not never then
+		never = not self.NestedArchives
+		local archive_exists = vfs.IsFile(archive_path)
+		never = false
+		return archive_exists
+	end
+
+	local tree
+	tree, relative, archive_path = self:GetFileTree(path_info)
 
 	if relative == "" then return true end
 
@@ -199,7 +185,7 @@ function CONTEXT:IsFolder(path_info)
 
 	local entry = tree:GetEntry(relative)
 
-	if entry and entry.is_dir then return true end
+	if entry and not Tree.IsLeaf(entry) then return true end
 end
 
 function CONTEXT:GetFiles(path_info)
@@ -207,14 +193,16 @@ function CONTEXT:GetFiles(path_info)
 
 	if not tree then return tree, relative end
 
-	local children, err = tree:GetChildren(relative:match("(.*)/") or relative)
+	local children, err = tree:GetEntry(relative:match("(.*)/") or relative)
 
 	if not children then return false, err end
 
 	local out = {}
 
-	for _, v in pairs(children) do
-		if type(v) == "table" and v.v then list.insert(out, v.v.file_name) end
+	if Tree.IsLeaf(children) then return out end
+
+	for name in pairs(children) do
+		out[#out + 1] = name
 	end
 
 	return out
@@ -223,20 +211,16 @@ end
 do
 	local function walk(node, prefix, callback)
 		for name, child in pairs(node) do
-			if name ~= "k" and name ~= "v" then
-				local entry = child.v
-
-				if entry and entry.is_file then
-					callback(prefix .. name, entry.size)
-				else
-					walk(child, prefix .. name .. "/", callback)
-				end
+			if Tree.IsLeaf(child) then
+				callback(prefix .. name, child.size)
+			else
+				walk(child, prefix .. name .. "/", callback)
 			end
 		end
 	end
 
 	function CONTEXT:GetFilesRecursive(path_info, callback, virtual_path)
-		local tree, relative = self:GetFileTree(path_info)
+				local tree, relative = self:GetFileTree(path_info)
 
 		if not tree then return end
 
@@ -244,6 +228,8 @@ do
 		local real = {}
 
 		for key in relative:gmatch("[^/]+") do
+			if Tree.IsLeaf(node) then return end
+
 			local child = node[key]
 
 			if child then
@@ -252,7 +238,7 @@ do
 				local lower = key:lower()
 
 				for name, other in pairs(node) do
-					if name ~= "k" and name ~= "v" and name:lower() == lower then
+					if name:lower() == lower then
 						child = other
 						real[#real + 1] = name
 
@@ -265,6 +251,8 @@ do
 
 			node = child
 		end
+
+		if Tree.IsLeaf(node) then return end
 
 		local prefix = virtual_path
 
@@ -292,7 +280,8 @@ function CONTEXT:GetReadLocation(path_info)
 
 	if
 		not file_info or
-		file_info.is_dir or
+		not Tree.IsLeaf(file_info)
+		or
 		(
 			file_info.preload_data and
 			#file_info.preload_data > 0
@@ -320,7 +309,11 @@ function CONTEXT:Open(path_info, mode, ...)
 
 		if not file_info then return false, "file not found in archive" end
 
-		if file_info.is_dir then return false, "file is a directory" end
+		if not Tree.IsLeaf(file_info) then return false, "file is a directory" end
+
+		if self.PreloadAll and not file_info.preload_data then
+			file_info.preload_data = ""
+		end
 
 		local archive_path = self:TranslateArchivePath(file_info, archive_path)
 		local file, err = get_cache(archive_path) or vfs.Open(archive_path)
