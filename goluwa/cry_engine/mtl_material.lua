@@ -8,6 +8,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local bit = require("bit")
 local surface_types = import("goluwa/cry_engine/surface_types.lua")
+local FOLIAGE_WIND_EMISSION = Vec3(0.3, 0.6, 0.8)
 local Material = import("goluwa/render3d/material.lua")
 local mtl_material = {}
 mtl_material.DIFFUSE_COLOR_SCALE = 2
@@ -240,6 +241,10 @@ local function apply_cry_material_node(self, material_node, material_path)
 
 	if attrs.SurfaceType and attrs.SurfaceType ~= "" then
 		self:SetSurfaceType(surface_types.Translate(attrs.SurfaceType))
+
+		if self:GetSurfaceType() == "foliage" or self:GetSurfaceType() == "grass" then
+			self:SetAcousticWindEmission(FOLIAGE_WIND_EMISSION)
+		end
 	end
 
 	local function has_gen(name)

@@ -325,6 +325,7 @@ local LAYER_VALUES = {
 	{"CoverBlend", "cover_blend", 0.05},
 	{"CoverDepth", "cover_depth", 0},
 }
+local TERRAIN_WIND_EMISSION = Vec3(0.15, 0.3, 0.4)
 
 function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 	local material = Material.New()
@@ -337,6 +338,7 @@ function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 	material:SetTerrainTriplanarSharpness(source.TriplanarSharpness)
 	material:SetRoughnessMultiplier(1)
 	material:SetMetallicMultiplier(0)
+	material:SetAcousticWindEmission(TERRAIN_WIND_EMISSION)
 
 	if shell and shell > 0 and chunk.heights then
 		chunk.height_texture = chunk.height_texture or
