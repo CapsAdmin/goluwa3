@@ -189,17 +189,25 @@ function triangle_geometry.ClosestPointOnTriangle(point, a, b, c)
 	return a + (b - a) * (vb * denom) + (c - a) * (vc * denom)
 end
 
-function triangle_geometry.PointInTriangle(point, a, b, c, normal, epsilon)
-	epsilon = epsilon or 0.00001
-	return (
-			b - a
-		):GetCross(point - a):Dot(normal) >= -epsilon and
-		(
-			c - b
-		):GetCross(point - b):Dot(normal) >= -epsilon and
-		(
-			a - c
-		):GetCross(point - c):Dot(normal) >= -epsilon
+do
+	local function edge_side(from, to, point, normal)
+		local ex, ey, ez = to.x - from.x, to.y - from.y, to.z - from.z
+		local px, py, pz = point.x - from.x, point.y - from.y, point.z - from.z
+		return (
+				ey * pz - ez * py
+			) * normal.x + (
+				ez * px - ex * pz
+			) * normal.y + (
+				ex * py - ey * px
+			) * normal.z
+	end
+
+	function triangle_geometry.PointInTriangle(point, a, b, c, normal, epsilon)
+		epsilon = epsilon or 0.00001
+		return edge_side(a, b, point, normal) >= -epsilon and
+			edge_side(b, c, point, normal) >= -epsilon and
+			edge_side(c, a, point, normal) >= -epsilon
+	end
 end
 
 local function consider_segment_triangle_closest_points(segment_point, triangle_point, best)
