@@ -170,6 +170,10 @@ function META:SetLeader(leader)
 	if usable then usable:SetPrompt(leader and "stay" or "follow") end
 end
 
+function META:OnCanUse()
+	return not self.Owner.health:IsDead()
+end
+
 function META:OnTakeDamage(info)
 	local attacker = info.Attacker
 
