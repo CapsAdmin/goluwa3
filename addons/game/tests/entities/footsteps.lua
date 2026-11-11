@@ -104,6 +104,52 @@ T.Test3D("a walking source npc fires alternating footstep impacts from its foot 
 	floor:Remove()
 end)
 
+T.Test3D("eli walks with a metal impact from the prosthetic left foot on top of every footstep", function()
+	steam.MountSourceGame("gmod")
+
+	if not vfs.IsFile("models/player/eli.mdl") then
+		return T.Unavailable("gmod content not mounted")
+	end
+
+	if not physics.instance then physics.Initialize() end
+
+	local floor = create_floor()
+	local entity = npcs.Spawn("eli", Vec3(0, 0.05, 0), 0)
+	entity.ai_controller:SetWander(false)
+	local steps, metal = {}, {}
+
+	event.AddListener("Impact", "footsteps_test", function(info)
+		if info.Entity == entity then
+			steps[#steps + 1] = info
+		elseif info.Other == entity then
+			metal[#metal + 1] = info
+		end
+	end)
+
+	T.WaitUntil(function()
+		return entity.animator and entity.animator:GetRig() ~= nil
+	end, 30)
+
+	entity.ai_controller:MoveTo(Vec3(0, 0, -40), true)
+
+	T.WaitUntil(function()
+		return #steps >= 6
+	end, 20)
+
+	event.RemoveListener("Impact", "footsteps_test")
+	T(#metal >= 2)["=="](true)
+	T(#metal < #steps)["=="](true)
+
+	for _, info in ipairs(metal) do
+		T(info.Entity)["=="](floor)
+		T(info.Surface)["=="]("metal")
+		T(info.Foot)["=="](nil)
+	end
+
+	entity:Remove()
+	floor:Remove()
+end)
+
 T.Test3D("a walking zombie fires footstep impacts from its foot ik and plays its own footstep sounds", function()
 	steam.MountSourceGame("gmod")
 

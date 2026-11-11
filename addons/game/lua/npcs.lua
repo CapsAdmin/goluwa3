@@ -207,7 +207,6 @@ npcs.Definitions = {
 		RunSpeed = 209,
 		Health = 80,
 		Sounds = voices.eli,
-		FootSurfaces = {["ValveBiped.Bip01_L_Foot"] = "metal"},
 	},
 	odessa = {
 		Biped = true,
@@ -464,13 +463,7 @@ function npcs.Register(name, info)
 								Profile = not info.Biped and "model" or info.Ragdoll,
 							} or
 							nil,
-						npc_sounds = (
-								info.Sounds or
-								info.FootSurfaces
-							)
-							and
-							{Sounds = info.Sounds, FootSurfaces = info.FootSurfaces} or
-							nil,
+						npc_sounds = info.Sounds and {Sounds = info.Sounds} or nil,
 						surface_exposure = RENDER_3D and {} or nil,
 						health = {
 							Health = info.Health or 50,

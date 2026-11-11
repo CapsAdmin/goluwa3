@@ -2,6 +2,7 @@ local event = import("goluwa/event.lua")
 local physics = import("goluwa/physics.lua")
 local system = import("goluwa/system.lua")
 local HeightmapSource = import("goluwa/terrain/heightmap_source.lua")
+local foot_surfaces = import("lua/foot_surfaces.lua")
 local impacts = {}
 
 local function get_surface(hit)
@@ -49,15 +50,15 @@ function impacts.FireFootstep(character, part, hit, speed)
 	if ragdoll and ragdoll:HasLimp() then return end
 
 	impacts.Fire(character, part, part, hit, speed)
-	local surface = character.npc_sounds and character.npc_sounds.FootSurfaces[part]
+	local foot_surface = foot_surfaces.Get(character)[part]
 
-	if surface then
+	if foot_surface then
 		event.Call(
 			"Impact",
 			{
 				Entity = hit.entity,
 				Other = character,
-				Surface = surface,
+				Surface = foot_surface,
 				OtherSurface = get_surface(hit),
 				Position = hit.position,
 				Normal = hit.normal,
