@@ -227,6 +227,30 @@ local function build_dispatch_query_aabb(body, other_body, bounds)
 	return query
 end
 
+-- the colliders of two compound bodies are only paired when their own bounds come close, not every collider of one with every collider of the other
+local COLLIDER_BOUNDS_A = {}
+local COLLIDER_BOUNDS_B = {}
+local COLLIDER_PAIR_PAD = 0.02
+
+local function fill_collider_bounds(list, count, out, pad)
+	for i = 1, count do
+		local bounds = out[i]
+
+		if not bounds then
+			bounds = AABB(0, 0, 0, 0, 0, 0)
+			out[i] = bounds
+		end
+
+		list[i]:GetBroadphaseAABB(nil, nil, bounds)
+		bounds.min_x = bounds.min_x - pad
+		bounds.min_y = bounds.min_y - pad
+		bounds.min_z = bounds.min_z - pad
+		bounds.max_x = bounds.max_x + pad
+		bounds.max_y = bounds.max_y + pad
+		bounds.max_z = bounds.max_z + pad
+	end
+end
+
 function pair_solver_helpers.DispatchColliderPairs(solver, pair, dt, mode)
 	local step_stamp = solver.StepStamp
 	local handled = false
@@ -263,11 +287,48 @@ function pair_solver_helpers.DispatchColliderPairs(solver, pair, dt, mode)
 		if not body_a:ShouldCollide(body_b) then return false end
 	end
 
+	local filter = count_a * count_b > 1
+
+	if filter then
+		local body_a = pair.entry_a.body
+		local body_b = pair.entry_b.body
+		local va, vb = body_a.Velocity, body_b.Velocity
+		local dx, dy, dz = va.x - vb.x, va.y - vb.y, va.z - vb.z
+		local pad = math.max(
+				(
+						body_a:GetCollisionMargin() or
+						0
+					) + (
+						body_a:GetCollisionProbeDistance() or
+						0
+					) + (
+						body_b:GetCollisionMargin() or
+						0
+					) + (
+						body_b:GetCollisionProbeDistance() or
+						0
+					),
+				physics_constants.DEFAULT_COLLISION_MARGIN
+			) + math.sqrt(dx * dx + dy * dy + dz * dz) * dt + COLLIDER_PAIR_PAD
+		fill_collider_bounds(list_a, count_a, COLLIDER_BOUNDS_A, pad)
+		fill_collider_bounds(list_b, count_b, COLLIDER_BOUNDS_B, 0)
+	end
+
 	for i = 1, count_a do
 		for j = 1, count_b do
 			local manifold = contact_resolution.GetPairManifold(solver.PersistentManifolds, list_a[i], list_b[j])
 
 			if manifold and not manifold.solve_a then manifold = nil end
+
+			if
+				filter and
+				not manifold and
+				not AABB.IsBoxIntersecting(COLLIDER_BOUNDS_A[i], COLLIDER_BOUNDS_B[j])
+			then
+				stats:Count("collider_pairs_culled")
+
+				goto continue
+			end
 
 			local usable = false
 
@@ -292,6 +353,8 @@ function pair_solver_helpers.DispatchColliderPairs(solver, pair, dt, mode)
 
 				if found and result then handled = true end
 			end
+
+			::continue::
 		end
 	end
 
