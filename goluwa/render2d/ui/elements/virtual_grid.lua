@@ -27,6 +27,8 @@ function META.OnSelect(item, index) end
 
 function META.OnClick(item, index) end
 
+function META.OnPressCell(item, index, cell_x, cell_y) end
+
 local function on_content_draw(content)
 	content.Grid:draw_items(content)
 end
@@ -60,6 +62,17 @@ local function on_content_mouse_input(content, button, press, local_pos)
 	local index = grid:get_index_at(local_pos.x, local_pos.y)
 
 	if not index then return end
+
+	if button == "button_1" then
+		local zero = index - 1
+		local padding = grid.ContentPadding
+		local cell_x = local_pos.x - (padding + (zero % grid._columns) * grid._pitch_x)
+		local cell_y = local_pos.y - (padding + math.floor(zero / grid._columns) * grid._pitch_y)
+
+		if grid.OnPressCell(grid._items[index], index, cell_x, cell_y) then
+			return true
+		end
+	end
 
 	grid:SetSelectedIndex(index)
 

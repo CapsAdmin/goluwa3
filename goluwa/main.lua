@@ -182,6 +182,8 @@ commands.Add("lua=string", function(code, ...)
 	return lrun.Execute(code, {log_error = false, arguments = {...}})
 end)
 
+local NON_INTERACTIVE_COMMANDS = {test = true, bench = true, ngfx = true, shot = true, lua = true}
+
 local function run_game(startup_command)
 	startup.Begin("run_game")
 	startup.Begin("pvars and repl")
@@ -292,6 +294,16 @@ local function run_game(startup_command)
 		vfs.MountAddons("os:downloads/")
 		vfs.InitAddons()
 		startup.End("mount addons")
+	end
+
+	if
+		RENDER_3D and
+		not NON_INTERACTIVE_COMMANDS[startup_command and
+		startup_command[1]]
+	then
+		startup.Begin("mount checked games")
+		import("goluwa/engines.lua").MountCheckedGames()
+		startup.End("mount checked games")
 	end
 
 	if RENDER_2D then

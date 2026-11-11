@@ -1,4 +1,5 @@
 local Vec2 = import("goluwa/structs/vec2.lua")
+local Color = import("goluwa/structs/color.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local render2d = import("goluwa/render2d/render2d.lua")
 local theme = import("goluwa/render2d/ui/theme.lua")
@@ -27,7 +28,10 @@ local group_maps_pvar = pvars.Setup2{
 	help = "group the maps of the load window by name prefix",
 }
 local chain_levels_pvar = import("goluwa/source_engine/game.lua").chain_levels_pvar
-local HINT = "double click a map to load it, mounting a game lists the maps it keeps in packages"
+local HINT = "double click a map to load it. tick a game to mount it now and at every start, double click a cover to tick it"
+local CHECK_SIZE = 22
+local CHECK_MARGIN = 8
+local WHITE = Color(1, 1, 1, 1)
 local textures = {}
 local colors = {}
 -- the png and bmp decoders write the bottom row first, the others the top row
@@ -135,20 +139,38 @@ local function draw_game(game, index, x, y, w, h, selected, hovered)
 	draw_text(colors.font_strong, name, x + inset * 2, y + h - 34, {r = 1, g = 1, b = 1, a = 1})
 	draw_text(
 		colors.font_small,
-		game.mountable and
-			(
-				game.mounted and
-				"mounted" or
-				"not mounted"
-			)
-			or
-			"always available",
+		game.mounted and "mounted" or "not mounted",
 		x + inset * 2,
 		y + h - 18,
 		game.mounted and
 			{r = 0.5, g = 1, b = 0.5, a = 1} or
 			{r = 0.85, g = 0.85, b = 0.85, a = 1}
 	)
+
+	if not game.mountable then return end
+
+	local box_x, box_y = x + CHECK_MARGIN, y + CHECK_MARGIN
+	render2d.DrawBox(
+		box_x,
+		box_y,
+		CHECK_SIZE,
+		CHECK_SIZE,
+		4,
+		game.checked and colors.primary or colors.shade,
+		{r = 1, g = 1, b = 1, a = 1},
+		-1
+	)
+
+	if game.checked then
+		render2d.PushMatrix()
+		render2d.Translatef(box_x, box_y)
+		theme.active:DrawSVGIcon(
+			"check",
+			Vec2(CHECK_SIZE, CHECK_SIZE),
+			{size = CHECK_SIZE - 4, inset = 1, color = WHITE}
+		)
+		render2d.PopMatrix()
+	end
 end
 
 local function draw_map(map, index, x, y, w, h, selected, hovered)
@@ -200,6 +222,7 @@ local function load_data()
 	local by_key = {[ALL_KEY] = ALL_GAMES}
 
 	for _, game in ipairs(games) do
+		game.checked = engines.IsGameChecked(game.engine, game.id)
 		items[#items + 1] = game
 		by_key[game_key_of(game)] = game
 	end
@@ -304,15 +327,10 @@ local LoadView = react.Component(
 		local map = selected_map and list.has_value(maps, selected_map) ? selected_map : nil
 		local input_height = theme.active:GetInputHeight("M")
 
-		local function toggle_mount()
-			if not selected_game.mountable then return end
+		local function toggle_game(game)
+			if game.all or not game.mountable then return end
 
-			if selected_game.mounted then
-				engines.UnmountGame(selected_game.engine, selected_game.id)
-			else
-				engines.MountGame(selected_game.engine, selected_game.id)
-			end
-
+			engines.SetGameChecked(game.engine, game.id, not game.checked)
 			set_data(load_data())
 		end
 
@@ -384,12 +402,6 @@ local LoadView = react.Component(
 							ChildGap = 4,
 						},
 					}{
-						Button{
-							Text = selected_game.mountable ? (selected_game.mounted ? "Unmount" : "Mount") : (selected_game.all ? "Mount" : "Always available"),
-							Disabled = not selected_game.mountable,
-							OnClick = toggle_mount,
-							layout = {GrowWidth = 1},
-						},
 						VirtualGrid{
 							CellWidth = 280,
 							CellAspect = 0.34,
@@ -404,7 +416,20 @@ local LoadView = react.Component(
 								set_game_key(game_key_of(game))
 								set_open_group(nil)
 							end,
-							OnActivate = toggle_mount,
+							OnPressCell = |game,_,cell_x,cell_y|-> do
+								if
+									game.mountable and
+									cell_x >= CHECK_MARGIN and
+									cell_x <= CHECK_MARGIN + CHECK_SIZE and
+									cell_y >= CHECK_MARGIN and
+									cell_y <= CHECK_MARGIN + CHECK_SIZE
+								then
+									toggle_game(game)
+
+									return true
+								end
+							end,
+							OnActivate = toggle_game,
 							layout = {GrowWidth = 1, GrowHeight = 1},
 						},
 					},

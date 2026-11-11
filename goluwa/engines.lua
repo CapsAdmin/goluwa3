@@ -2,8 +2,20 @@ local commands = import("goluwa/cli/commands.lua")
 local utility = import("goluwa/utility.lua")
 local event = import("goluwa/event.lua")
 local tasks = import("goluwa/tasks.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local engines = {}
 local registered = {}
+local ENGINE_MODULES = {
+	source = "goluwa/source_engine/source_engine.lua",
+	cry = "goluwa/cry_engine/cry_engine.lua",
+}
+pvars.StartGroup("Engine", "Load window", {prefix = "load_"})
+local checked_games_pvar = pvars.Setup2{
+	key = "load_checked_games",
+	default = "",
+	help = "games ticked in the load window as engine:id, comma separated. they are mounted at startup",
+}
+pvars.EndGroup()
 
 function engines.Register(name, engine)
 	registered[name] = engine
@@ -101,6 +113,52 @@ end
 
 function engines.UnmountGame(engine_name, id)
 	registered[engine_name].UnmountGame(id)
+end
+
+local function get_game_key(engine_name, id)
+	return engine_name .. ":" .. tostring(id)
+end
+
+function engines.IsGameChecked(engine_name, id)
+	local key = get_game_key(engine_name, id)
+
+	for checked in checked_games_pvar:Get():gmatch("[^,]+") do
+		if checked == key then return true end
+	end
+
+	return false
+end
+
+function engines.SetGameChecked(engine_name, id, checked)
+	if checked then
+		engines.MountGame(engine_name, id)
+	else
+		engines.UnmountGame(engine_name, id)
+	end
+
+	local key = get_game_key(engine_name, id)
+	local keys = {}
+
+	for existing in checked_games_pvar:Get():gmatch("[^,]+") do
+		if existing ~= key then keys[#keys + 1] = existing end
+	end
+
+	if checked then keys[#keys + 1] = key end
+
+	checked_games_pvar:Set(table.concat(keys, ","))
+end
+
+function engines.MountCheckedGames()
+	for key in checked_games_pvar:Get():gmatch("[^,]+") do
+		local engine_name, id = key:match("^(%w+):(.+)$")
+
+		if engine_name and ENGINE_MODULES[engine_name] then
+			import(ENGINE_MODULES[engine_name])
+			local ok, err = pcall(engines.MountGame, engine_name, tonumber(id) or id)
+
+			if not ok then logf("could not mount %s: %s\n", key, tostring(err)) end
+		end
+	end
 end
 
 function engines.LoadMap(map)
