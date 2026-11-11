@@ -87,8 +87,8 @@ do
 	local math_max = math.max
 	local huge = math.huge
 
-	-- the triangle plane and the three planes through its edges along the normal are separating axes that need no gjk
-	function is_separated_by_triangle_prism(poly_vertices, v0, v1, v2, threshold)
+	-- the triangle plane and the three planes through its edges along the normal are separating axes that need no gjk; a hull swept by a translation covers its start and end projections
+	function is_separated_by_triangle_prism(poly_vertices, v0, v1, v2, threshold, mx, my, mz)
 		local ax, ay, az = v0.x, v0.y, v0.z
 		local bx, by, bz = v1.x, v1.y, v1.z
 		local cx, cy, cz = v2.x, v2.y, v2.z
@@ -131,6 +131,15 @@ do
 			out2 = math_min(out2, m2x * px + m2y * py + m2z * pz - edge2)
 		end
 
+		if mx then
+			local d = nx * mx + ny * my + nz * mz
+			low = math_min(low, low + d)
+			high = math_max(high, high + d)
+			out0 = math_min(out0, out0 + m0x * mx + m0y * my + m0z * mz)
+			out1 = math_min(out1, out1 + m1x * mx + m1y * my + m1z * mz)
+			out2 = math_min(out2, out2 + m2x * mx + m2y * my + m2z * mz)
+		end
+
 		return low - plane > threshold or
 			plane - high > threshold or
 			out0 > threshold or
@@ -138,6 +147,8 @@ do
 			out2 > threshold
 	end
 end
+
+polyhedron_triangle_contacts.IsSeparatedByTrianglePrism = is_separated_by_triangle_prism
 
 local function fill_triangle_vertices(out, v0, v1, v2)
 	out = out or {}

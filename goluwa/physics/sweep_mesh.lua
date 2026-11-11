@@ -396,18 +396,28 @@ function sweep_polyhedron_against_triangle(
 			(physics_constants.DEFAULT_COLLISION_MARGIN or 0) * 0.5,
 			0.0005
 		)
-		local prism_vertices = fill_triangle_prism_vertices(
-			TRIANGLE_SWEEP_PRISM_VERTICES,
-			v0,
-			v1,
-			v2,
-			triangle_normal,
-			math_max(
-				(collider:GetCollisionMargin() or 0) * 0.5,
-				(physics_constants.DEFAULT_COLLISION_MARGIN or 0) * 0.5,
-				0.0005
-			)
+		local half_thickness = math_max(
+			(collider:GetCollisionMargin() or 0) * 0.5,
+			(physics_constants.DEFAULT_COLLISION_MARGIN or 0) * 0.5,
+			0.0005
 		)
+
+		if
+			polyhedron_triangle_contacts.IsSeparatedByTrianglePrism(
+				polyhedron_cache.GetPolyhedronWorldVertices(get_polyhedron_sweep_proxy(collider, start_position, rotation), polyhedron),
+				v0,
+				v1,
+				v2,
+				hit_distance + half_thickness + 0.001,
+				movement.x * sweep_fraction,
+				movement.y * sweep_fraction,
+				movement.z * sweep_fraction
+			)
+		then
+			return nil
+		end
+
+		local prism_vertices = fill_triangle_prism_vertices(TRIANGLE_SWEEP_PRISM_VERTICES, v0, v1, v2, triangle_normal, half_thickness)
 		local context = POLYHEDRON_TRIANGLE_SWEEP_CONTEXT
 		context.sweep_fraction = sweep_fraction
 		context.start_position = start_position
