@@ -395,7 +395,14 @@ function cry_scene.Translate(data, level_name, level_path, options)
 		for _, entry in ipairs(data.vegetation_entries or {}) do
 			local prototype = data.vegetation_prototypes.by_id[entry.prototype_id]
 
-			if prototype.category == "Bushes" or prototype.category == "Groundplants" then
+			if
+				prototype.category == "Trees" or
+				prototype.category == "Palms" or
+				prototype.category == "Background_Trees"
+			then
+				local position = units.ToEngine(entry.position)
+				foliage_field.AddCanopy(position.x, position.z, math.max(3 * prototype.size * entry.scale, 2.5))
+			elseif prototype.category == "Bushes" or prototype.category == "Groundplants" then
 				local position = units.ToEngine(entry.position)
 				foliage_field.AddInstance(
 					position.x,
