@@ -47,7 +47,8 @@ local vfx = RENDER_3D and import("goluwa/render3d/vfx.lua")
 local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local META = objects.CreateTemplate("weapon_physgun")
 META:GetSet("GrabReach", 10000)
-META:GetSet("ScrollStep", 0.75)
+META:GetSet("ScrollStep", 0.15)
+META:GetSet("ScrollMinDistance", 0.05)
 META:GetSet("PositionStrength", 22)
 META:GetSet("VelocityResponse", 18)
 META:GetSet("MaxHoldLinearSpeed", 45)
@@ -277,7 +278,7 @@ function META:Release()
 end
 
 function META:AdjustHoldDistance(delta)
-	self.held_distance = math.max((self.held_distance or 0) + delta, 0)
+	self.held_distance = math.max(self.held_distance + delta * math.max(self.held_distance, self.ScrollMinDistance), 0)
 end
 
 function META:CanHoldBody(body)
