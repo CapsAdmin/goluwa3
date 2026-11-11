@@ -847,6 +847,48 @@ local function visit_primitive_bvh_leaf_collect(node, context, best_hit, best_di
 	return best_hit, best_distance
 end
 
+local ray_misses_local_aabb
+
+do
+	local math_min = math.min
+	local math_max = math.max
+	local huge = math.huge
+
+	function ray_misses_local_aabb(ray, m, bounds, closest_distance)
+		local origin, direction = ray.origin, ray.direction
+		local ox, oy, oz = origin.x, origin.y, origin.z
+		local dx, dy, dz = direction.x, direction.y, direction.z
+		local div = ox * m.m03 + oy * m.m13 + oz * m.m23 + m.m33
+		local lox = (ox * m.m00 + oy * m.m10 + oz * m.m20 + m.m30) / div
+		local loy = (ox * m.m01 + oy * m.m11 + oz * m.m21 + m.m31) / div
+		local loz = (ox * m.m02 + oy * m.m12 + oz * m.m22 + m.m32) / div
+		local ldx = m.m00 * dx + m.m10 * dy + m.m20 * dz
+		local ldy = m.m01 * dx + m.m11 * dy + m.m21 * dz
+		local ldz = m.m02 * dx + m.m12 * dy + m.m22 * dz
+		local ix = ldx ~= 0 and 1 / ldx or huge
+		local iy = ldy ~= 0 and 1 / ldy or huge
+		local iz = ldz ~= 0 and 1 / ldz or huge
+		local tx1 = (bounds.min_x - lox) * ix
+		local tx2 = (bounds.max_x - lox) * ix
+		local tmin = math_min(tx1, tx2)
+		local tmax = math_max(tx1, tx2)
+		local ty1 = (bounds.min_y - loy) * iy
+		local ty2 = (bounds.max_y - loy) * iy
+		tmin = math_max(tmin, math_min(ty1, ty2))
+		tmax = math_min(tmax, math_max(ty1, ty2))
+		local tz1 = (bounds.min_z - loz) * iz
+		local tz2 = (bounds.max_z - loz) * iz
+		tmin = math_max(tmin, math_min(tz1, tz2))
+		tmax = math_min(tmax, math_max(tz1, tz2))
+		return not (
+				tmax >= tmin and
+				tmax >= 0 and
+				tmin <= ray.max_distance
+			) or
+			tmin > closest_distance
+	end
+end
+
 local function test_model_closest(
 	ray,
 	model,
@@ -860,24 +902,27 @@ local function test_model_closest(
 	closest_distance,
 	skip_model_aabb
 )
+	if not model.Visible or not model.Raycast then return nil end
+
+	local world_to_local, local_to_world = get_model_transforms(model)
+	local local_aabb = get_spatial_local_aabb(model)
+
+	if
+		not skip_model_aabb and
+		local_aabb and
+		world_to_local and
+		ray_misses_local_aabb(ray, world_to_local, local_aabb, closest_distance)
+	then
+		return nil
+	end
+
 	if filter_fn and not filter_fn(model.Owner, a, b, c, d, e, f) then return nil end
 
 	local primitives = get_spatial_primitives(model)
 
-	if not model.Visible or not model.Raycast or not (primitives and primitives[1]) then
-		return nil
-	end
+	if not (primitives and primitives[1]) then return nil end
 
-	local world_to_local, local_to_world = get_model_transforms(model)
 	local local_ray = transform_ray(ray, world_to_local)
-	local local_aabb = get_spatial_local_aabb(model)
-
-	if not skip_model_aabb and local_aabb then
-		local aabb_hit, model_tmin = BVH.RayAABBIntersection(local_ray, local_aabb)
-
-		if not aabb_hit or model_tmin > closest_distance then return nil end
-	end
-
 	local closest_hit = nil
 	local primitive_acceleration = get_model_primitive_acceleration(model)
 
