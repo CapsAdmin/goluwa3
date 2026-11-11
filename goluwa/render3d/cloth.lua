@@ -1,13 +1,15 @@
 local ffi = require("ffi")
 local Cloth = {}
 Cloth.__index = Cloth
-local SUBSTEP = 1 / 60
-local MAX_SUBSTEPS = 4
+local SUBSTEP = 1 / 120
+local MAX_SUBSTEPS = 8
 local MAX_DT = 0.1
-local DAMPING = 3
+local DAMPING = 8
+local STEP_DAMPING = math.exp(-DAMPING * SUBSTEP)
 local ITERATIONS = 3
-local ATTRACTION_RATE = 60
 local BEND_STIFFNESS = 0.35
+local BEND_STEP = 1 - (1 - BEND_STIFFNESS) ^ (SUBSTEP * 60)
+local GRAVITY_SCALE = 1.6
 local COLLISION_MARGIN = 0.01
 local TELEPORT_DISTANCE = 2
 local Doubles = ffi.typeof("double[?]")
@@ -22,16 +24,29 @@ function Cloth.New(skeleton)
 			position = Doubles(count * 3),
 			previous = Doubles(count * 3),
 			target = Doubles(count * 3),
+			target_previous = Doubles(count * 3),
+			step_pull = Doubles(count),
+			target_start = Doubles(count * 3),
 			current_matrix = Doubles(12),
 			next_matrix = Doubles(12),
 			transform = Doubles(12),
 			capsules = Doubles(math.max(desc.capsule_count * 8, 1)),
+			capsules_previous = Doubles(math.max(desc.capsule_count * 8, 1)),
+			capsules_start = Doubles(math.max(desc.capsule_count * 8, 1)),
+			step_capsules = Doubles(math.max(desc.capsule_count * 8, 1)),
 			bind_rotation = ffi.new("float[?]", skeleton.BoneCount * 9),
 			dt = 0,
+			accumulator = 0,
+			render = Doubles(count * 3),
 			initialized = false,
 		},
 		Cloth
 	)
+
+	for node = 0, count - 1 do
+		self.step_pull[node] = 1 - (1 - desc.attraction[node]) ^ (SUBSTEP * 60)
+	end
+
 	local bind = skeleton.BindLocal
 	local rotation = self.bind_rotation
 
@@ -138,6 +153,8 @@ end
 
 -- called after the rig computed the animated pose: simulates the nodes and replaces the world and skin matrices of the cloth bones
 function Cloth:Apply(rig)
+	if not self.initialized and self.dt == 0 then return end
+
 	local desc, position, previous, target = self.desc, self.position, self.previous, self.target
 	local count = desc.count
 	local inv_mass, attraction, gravity = desc.inv_mass, desc.attraction, desc.gravity
@@ -168,9 +185,12 @@ function Cloth:Apply(rig)
 		self.initialized = true
 		ffi.copy(position, target, count * 24)
 		ffi.copy(previous, target, count * 24)
+		ffi.copy(self.target_previous, target, count * 24)
+		ffi.copy(self.capsules_previous, capsules, desc.capsule_count * 64)
 		ffi.copy(self.current_matrix, self.next_matrix, 96)
 	elseif dt > 0 then
-		local transform = self.transform
+		local transform, target_previous, target_start, step_pull = self.transform, self.target_previous, self.target_start, self.step_pull
+		local capsules_previous, capsules_start, step_capsules = self.capsules_previous, self.capsules_start, self.step_capsules
 		local down_x, down_y, down_z = get_transform(self.current_matrix, self.next_matrix, transform)
 		ffi.copy(self.current_matrix, self.next_matrix, 96)
 		local t00, t01, t02, t03 = transform[0], transform[1], transform[2], transform[3]
@@ -180,8 +200,14 @@ function Cloth:Apply(rig)
 		if t03 * t03 + t13 * t13 + t23 * t23 > TELEPORT_DISTANCE * TELEPORT_DISTANCE then
 			ffi.copy(position, target, count * 24)
 			ffi.copy(previous, target, count * 24)
+			ffi.copy(target_start, target, count * 24)
+			ffi.copy(capsules_start, capsules, desc.capsule_count * 64)
 		else
 			for node = 0, count * 3 - 3, 3 do
+				local x, y, z = target_previous[node], target_previous[node + 1], target_previous[node + 2]
+				target_start[node], target_start[node + 1], target_start[node + 2] = t00 * x + t01 * y + t02 * z + t03,
+				t10 * x + t11 * y + t12 * z + t13,
+				t20 * x + t21 * y + t22 * z + t23
 				local x, y, z = position[node], position[node + 1], position[node + 2]
 				position[node], position[node + 1], position[node + 2] = t00 * x + t01 * y + t02 * z + t03,
 				t10 * x + t11 * y + t12 * z + t13,
@@ -191,37 +217,108 @@ function Cloth:Apply(rig)
 				t10 * x + t11 * y + t12 * z + t13,
 				t20 * x + t21 * y + t22 * z + t23
 			end
+
+			for k = 0, desc.capsule_count * 8 - 8, 8 do
+				for e = k, k + 3, 3 do
+					local x, y, z = capsules_previous[e], capsules_previous[e + 1], capsules_previous[e + 2]
+					capsules_start[e], capsules_start[e + 1], capsules_start[e + 2] = t00 * x + t01 * y + t02 * z + t03,
+					t10 * x + t11 * y + t12 * z + t13,
+					t20 * x + t21 * y + t22 * z + t23
+				end
+			end
 		end
 
-		local steps = math.min(math.ceil(dt / SUBSTEP), MAX_SUBSTEPS)
-		local h = dt / steps
-		local damping = 1 - math.min(DAMPING * h, 1)
+		local accumulator = self.accumulator + dt
+		local start_time = self.accumulator
+		local steps = math.min(math.floor(accumulator / SUBSTEP), MAX_SUBSTEPS)
+		self.accumulator = steps == MAX_SUBSTEPS and 0 or accumulator - steps * SUBSTEP
 		local rod_nodes, rod_limits = desc.rod_nodes, desc.rod_limits
 		local bend_nodes, bend_rest = desc.bend_nodes, desc.bend_rest
 
-		for _ = 1, steps do
+		for step = 1, steps do
+			local blend = math.min((step * SUBSTEP - start_time) / dt, 1)
+
+			for k = 0, desc.capsule_count * 8 - 8, 8 do
+				for e = k, k + 5 do
+					step_capsules[e] = capsules_start[e] + (capsules[e] - capsules_start[e]) * blend
+				end
+
+				step_capsules[k + 6], step_capsules[k + 7] = capsules[k + 6], capsules[k + 7]
+			end
+
 			for node = 0, count - 1 do
 				local o = node * 3
 
 				if inv_mass[node] > 0 then
 					local x, y, z = position[o], position[o + 1], position[o + 2]
-					local g = gravity[node] * h * h
-					local nx = x + (x - previous[o]) * damping + down_x * g
-					local ny = y + (y - previous[o + 1]) * damping + down_y * g
-					local nz = z + (z - previous[o + 2]) * damping + down_z * g
+					local g = gravity[node] * GRAVITY_SCALE * SUBSTEP * SUBSTEP
+					local nx = x + (x - previous[o]) * STEP_DAMPING + down_x * g
+					local ny = y + (y - previous[o + 1]) * STEP_DAMPING + down_y * g
+					local nz = z + (z - previous[o + 2]) * STEP_DAMPING + down_z * g
 					previous[o], previous[o + 1], previous[o + 2] = x, y, z
-					local pull = 1 - (1 - attraction[node]) ^ (ATTRACTION_RATE * h)
-					position[o] = nx + (target[o] - nx) * pull
-					position[o + 1] = ny + (target[o + 1] - ny) * pull
-					position[o + 2] = nz + (target[o + 2] - nz) * pull
+					local pull = step_pull[node]
+					position[o] = nx + (target_start[o] + (target[o] - target_start[o]) * blend - nx) * pull
+					position[o + 1] = ny + (
+							target_start[o + 1] + (
+								target[o + 1] - target_start[o + 1]
+							) * blend - ny
+						) * pull
+					position[o + 2] = nz + (
+							target_start[o + 2] + (
+								target[o + 2] - target_start[o + 2]
+							) * blend - nz
+						) * pull
 				else
-					position[o], position[o + 1], position[o + 2] = target[o], target[o + 1], target[o + 2]
-					previous[o], previous[o + 1], previous[o + 2] = target[o], target[o + 1], target[o + 2]
+					local tx = target_start[o] + (target[o] - target_start[o]) * blend
+					local ty = target_start[o + 1] + (target[o + 1] - target_start[o + 1]) * blend
+					local tz = target_start[o + 2] + (target[o + 2] - target_start[o + 2]) * blend
+					position[o], position[o + 1], position[o + 2] = tx, ty, tz
+					previous[o], previous[o + 1], previous[o + 2] = tx, ty, tz
 				end
 			end
 
-			for iteration = 1, ITERATIONS do
-				for rod = 0, desc.rod_count - 1 do
+			for iteration = 1, ITERATIONS + 1 do
+				for node = 0, count - 1 do
+					if inv_mass[node] > 0 then
+						local o = node * 3
+						local px, py, pz = position[o], position[o + 1], position[o + 2]
+
+						for c = 0, desc.capsule_count * 8 - 8, 8 do
+							local ax, ay, az = step_capsules[c], step_capsules[c + 1], step_capsules[c + 2]
+							local abx, aby, abz = step_capsules[c + 3] - ax, step_capsules[c + 4] - ay, step_capsules[c + 5] - az
+							local length = abx * abx + aby * aby + abz * abz
+							local t = length > 0 and
+								math.min(math.max(((px - ax) * abx + (py - ay) * aby + (pz - az) * abz) / length, 0), 1) or
+								0
+							local cx, cy, cz = ax + abx * t, ay + aby * t, az + abz * t
+							local radius = step_capsules[c + 6] + (
+									step_capsules[c + 7] - step_capsules[c + 6]
+								) * t + COLLISION_MARGIN
+							local dx, dy, dz = px - cx, py - cy, pz - cz
+							local distance_squared = dx * dx + dy * dy + dz * dz
+
+							if distance_squared < radius * radius then
+								local tx, ty, tz = target_start[o] + (target[o] - target_start[o]) * blend - cx,
+								target_start[o + 1] + (target[o + 1] - target_start[o + 1]) * blend - cy,
+								target_start[o + 2] + (target[o + 2] - target_start[o + 2]) * blend - cz
+								local target_squared = tx * tx + ty * ty + tz * tz
+
+								if target_squared > 1e-12 and tx * dx + ty * dy + tz * dz < 0 then
+									dx, dy, dz, distance_squared = tx, ty, tz, target_squared
+								end
+
+								if distance_squared > 1e-12 then
+									local scale = radius / math.sqrt(distance_squared)
+									px, py, pz = cx + dx * scale, cy + dy * scale, cz + dz * scale
+								end
+							end
+						end
+
+						position[o], position[o + 1], position[o + 2] = px, py, pz
+					end
+				end
+
+				for rod = 0, iteration <= ITERATIONS and desc.rod_count - 1 or -1 do
 					local a, b = rod_nodes[rod * 2] * 3, rod_nodes[rod * 2 + 1] * 3
 					local wa, wb = inv_mass[rod_nodes[rod * 2]], inv_mass[rod_nodes[rod * 2 + 1]]
 					local total = wa + wb
@@ -245,7 +342,7 @@ function Cloth:Apply(rig)
 					end
 				end
 
-				for bend = 0, desc.bend_count - 1 do
+				for bend = 0, iteration <= ITERATIONS and desc.bend_count - 1 or -1 do
 					local first, second = bend_nodes[bend * 2], bend_nodes[bend * 2 + 1]
 					local a, b = first * 3, second * 3
 					local wa, wb = inv_mass[first], inv_mass[second]
@@ -258,7 +355,7 @@ function Cloth:Apply(rig)
 						local distance = math.sqrt(dx * dx + dy * dy + dz * dz)
 
 						if distance > 1e-9 then
-							local correction = (distance - bend_rest[bend]) / distance / total * BEND_STIFFNESS
+							local correction = (distance - bend_rest[bend]) / distance / total * BEND_STEP
 							position[a] = position[a] + dx * correction * wa
 							position[a + 1] = position[a + 1] + dy * correction * wa
 							position[a + 2] = position[a + 2] + dz * correction * wa
@@ -268,43 +365,23 @@ function Cloth:Apply(rig)
 						end
 					end
 				end
-
-				for node = 0, iteration == ITERATIONS and count - 1 or -1 do
-					if inv_mass[node] > 0 then
-						local o = node * 3
-						local px, py, pz = position[o], position[o + 1], position[o + 2]
-
-						for c = 0, desc.capsule_count * 8 - 8, 8 do
-							local ax, ay, az = capsules[c], capsules[c + 1], capsules[c + 2]
-							local abx, aby, abz = capsules[c + 3] - ax, capsules[c + 4] - ay, capsules[c + 5] - az
-							local length = abx * abx + aby * aby + abz * abz
-							local t = length > 0 and
-								math.min(math.max(((px - ax) * abx + (py - ay) * aby + (pz - az) * abz) / length, 0), 1) or
-								0
-							local cx, cy, cz = ax + abx * t, ay + aby * t, az + abz * t
-							local radius = capsules[c + 6] + (capsules[c + 7] - capsules[c + 6]) * t + COLLISION_MARGIN
-							local dx, dy, dz = px - cx, py - cy, pz - cz
-							local distance_squared = dx * dx + dy * dy + dz * dz
-
-							if distance_squared < radius * radius then
-								local tx, ty, tz = target[o] - cx, target[o + 1] - cy, target[o + 2] - cz
-								local target_squared = tx * tx + ty * ty + tz * tz
-
-								if target_squared > 1e-12 and tx * dx + ty * dy + tz * dz < 0 then
-									dx, dy, dz, distance_squared = tx, ty, tz, target_squared
-								end
-
-								if distance_squared > 1e-12 then
-									local scale = radius / math.sqrt(distance_squared)
-									px, py, pz = cx + dx * scale, cy + dy * scale, cz + dz * scale
-								end
-							end
-						end
-
-						position[o], position[o + 1], position[o + 2] = px, py, pz
-					end
-				end
 			end
+		end
+
+		ffi.copy(target_previous, target, count * 24)
+		ffi.copy(capsules_previous, capsules, desc.capsule_count * 64)
+	end
+
+	local render = self.render
+	local alpha = self.accumulator / SUBSTEP
+
+	for node = 0, count * 3 - 3, 3 do
+		if inv_mass[node / 3] > 0 then
+			for axis = node, node + 2 do
+				render[axis] = previous[axis] + (position[axis] - previous[axis]) * alpha
+			end
+		else
+			render[node], render[node + 1], render[node + 2] = target[node], target[node + 1], target[node + 2]
 		end
 	end
 
@@ -333,15 +410,15 @@ function Cloth:Apply(rig)
 			world[w], world[w + 1], world[w + 2], world[w + 3] = a00 * r00 + a01 * r10 + a02 * r20,
 			a00 * r01 + a01 * r11 + a02 * r21,
 			a00 * r02 + a01 * r12 + a02 * r22,
-			position[o]
+			render[o]
 			world[w + 4], world[w + 5], world[w + 6], world[w + 7] = a10 * r00 + a11 * r10 + a12 * r20,
 			a10 * r01 + a11 * r11 + a12 * r21,
 			a10 * r02 + a11 * r12 + a12 * r22,
-			position[o + 1]
+			render[o + 1]
 			world[w + 8], world[w + 9], world[w + 10], world[w + 11] = a20 * r00 + a21 * r10 + a22 * r20,
 			a20 * r01 + a21 * r11 + a22 * r21,
 			a20 * r02 + a21 * r12 + a22 * r22,
-			position[o + 2]
+			render[o + 2]
 			local m00, m01, m02, m03 = world[w], world[w + 1], world[w + 2], world[w + 3]
 			local m10, m11, m12, m13 = world[w + 4], world[w + 5], world[w + 6], world[w + 7]
 			local m20, m21, m22, m23 = world[w + 8], world[w + 9], world[w + 10], world[w + 11]

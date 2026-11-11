@@ -193,3 +193,38 @@ T.Test("cloth nodes are pushed out of a body capsule", function()
 		T(math.sqrt(x * x + (y + 0.25) ^ 2 + z * z) >= 0.2 - 1e-3)["=="](true)
 	end
 end)
+
+T.Test("cloth settles at the same place whatever the frame time", function()
+	local function settle(frame_time)
+		local skeleton = create_cloth{attraction = 0.3, target_y = {0, -0.05, -0.1, -0.15}}
+		local rig = create_rig(skeleton)
+		local cloth = Cloth.New(skeleton)
+		local matrix = Matrix44()
+
+		for i = 1, 600 do
+			cloth:Advance(frame_time * (1 + 0.4 * math.sin(i * 1.7)), matrix)
+			skeleton:ComputeSkinMatrices(rig.pose.data, rig.matrices, rig.world)
+			cloth:Apply(rig)
+		end
+
+		local _, y = node_position(rig, NODES)
+		local jitter = 0
+
+		for i = 1, 200 do
+			cloth:Advance(frame_time * (1 + 0.4 * math.sin(i * 1.7)), matrix)
+			skeleton:ComputeSkinMatrices(rig.pose.data, rig.matrices, rig.world)
+			cloth:Apply(rig)
+			local _, y2 = node_position(rig, NODES)
+			jitter = math.max(jitter, math.abs(y2 - y))
+			y = y2
+		end
+
+		return y, jitter
+	end
+
+	local slow, slow_jitter = settle(1 / 30)
+	local fast, fast_jitter = settle(1 / 144)
+	T(slow_jitter < 1e-3)["=="](true)
+	T(fast_jitter < 1e-3)["=="](true)
+	T(math.abs(slow - fast) < 5e-3)["=="](true)
+end)
