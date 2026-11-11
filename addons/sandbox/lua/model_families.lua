@@ -415,49 +415,55 @@ local RULES = {
 	},
 }
 local SUBSTRING_WORDS = {glass = true, plank = true, crate = true, stone = true}
-local word_cache = {}
-local rule_index
 local state = {}
 local listeners = {}
 local hulls
 
-local function get_words(token)
-	local words = word_cache[token]
-
-	if words then return words end
-
-	words = {token}
-	local stripped = token:gsub("%d+%a?$", "")
-
-	if stripped ~= token and #stripped > 0 then words[2] = stripped end
-
-	word_cache[token] = words
-	return words
-end
-
 do
-	local function matches(tokens, word)
-		local long = #word >= 6 or SUBSTRING_WORDS[word]
+	local function get_words(token)
+		local words = {token}
+		local stripped = token:gsub("%d+%a?$", "")
 
-		for _, token in ipairs(tokens) do
-			for _, candidate in ipairs(get_words(token)) do
-				if candidate == word or (long and candidate:find(word, 1, true)) then
-					return true
+		if stripped ~= token and #stripped > 0 then words[2] = stripped end
+
+		return words
+	end
+
+	local token_keys = {}
+
+	function model_families.GetTokenKeys(token)
+		local keys = token_keys[token]
+
+		if keys then return keys end
+
+		keys = {}
+		local words = get_words(token)
+
+		for group_index, group in ipairs(RULES) do
+			for family_index, family in ipairs(group[2]) do
+				for _, word in ipairs(family[2]) do
+					local long = #word >= 6 or SUBSTRING_WORDS[word]
+					local hit = false
+
+					for _, candidate in ipairs(words) do
+						if candidate == word or (long and candidate:find(word, 1, true)) then
+							hit = true
+
+							break
+						end
+					end
+
+					if hit then
+						keys[#keys + 1] = group_index * 100 + family_index
+
+						break
+					end
 				end
 			end
 		end
 
-		return false
-	end
-
-	local function tokenize(path)
-		local tokens = {}
-
-		for token in path:sub(8):gmatch("[%a%d]+") do
-			tokens[#tokens + 1] = token
-		end
-
-		return tokens
+		token_keys[token] = keys
+		return keys
 	end
 
 	function model_families.IsUseful(entry)
@@ -478,26 +484,6 @@ do
 		end
 
 		return true
-	end
-
-	function model_families.Classify(entry)
-		local tokens = tokenize(entry.lower_path)
-		local found
-
-		for group_index, group in ipairs(RULES) do
-			for family_index, family in ipairs(group[2]) do
-				for _, word in ipairs(family[2]) do
-					if matches(tokens, word) then
-						found = found or {}
-						found[#found + 1] = {group_index, family_index}
-
-						break
-					end
-				end
-			end
-		end
-
-		return found
 	end
 end
 
@@ -644,16 +630,19 @@ function model_families.Get()
 
 	groups[#groups + 1] = size_group
 	local eligible = {}
+	local marks = {}
 
 	for _, entry in ipairs(index.entries) do
 		if model_families.IsUseful(entry) then
 			eligible[#eligible + 1] = entry
-			local found = model_families.Classify(entry)
 
-			if found then
-				for _, pair in ipairs(found) do
-					local node = lookup[pair[1] * 100 + pair[2]]
-					node.Entries[#node.Entries + 1] = entry
+			for token in entry.lower_path:sub(8):gmatch("[%a%d]+") do
+				for _, key in ipairs(model_families.GetTokenKeys(token)) do
+					if marks[key] ~= entry then
+						marks[key] = entry
+						local node_entries = lookup[key].Entries
+						node_entries[#node_entries + 1] = entry
+					end
 				end
 			end
 		end
