@@ -22,6 +22,7 @@ local SOLVE_MESH_POLYHEDRON_CONTEXT = {
 	samples = nil,
 	combined_margin = 0,
 	use_local_space = false,
+	reuse_world_vertices = true,
 }
 local TRIANGLE_QUERY_OPTIONS = {
 	epsilon = EPSILON,

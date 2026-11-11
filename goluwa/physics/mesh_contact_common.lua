@@ -266,6 +266,9 @@ CAPSULE_TRIANGLE_CONTACT_HANDLERS.Query = query_mesh_capsule_contact
 CAPSULE_TRIANGLE_CONTACT_HANDLERS.GetDelta = get_mesh_capsule_delta
 CAPSULE_TRIANGLE_CONTACT_HANDLERS.GetFallbackDelta = get_mesh_capsule_fallback_delta
 CAPSULE_TRIANGLE_CONTACT_HANDLERS.GetContactPoints = get_mesh_capsule_contact_points
+local WORLD_V0 = Vec3()
+local WORLD_V1 = Vec3()
+local WORLD_V2 = Vec3()
 
 local function invoke_overlapping_mesh_triangle(v0, v1, v2, triangle_index, context)
 	stats:Count("mesh_triangles")
@@ -279,6 +282,14 @@ local function invoke_overlapping_mesh_triangle(v0, v1, v2, triangle_index, cont
 
 	if user_context and user_context.use_local_space then
 		stop = context.callback(v0, v1, v2, triangle_index, user_context) == true
+	elseif user_context and user_context.reuse_world_vertices then
+		stop = context.callback(
+				mesh_body:LocalToWorld(v0, nil, nil, WORLD_V0),
+				mesh_body:LocalToWorld(v1, nil, nil, WORLD_V1),
+				mesh_body:LocalToWorld(v2, nil, nil, WORLD_V2),
+				triangle_index,
+				user_context
+			) == true
 	else
 		stop = context.callback(
 				mesh_body:LocalToWorld(v0),
