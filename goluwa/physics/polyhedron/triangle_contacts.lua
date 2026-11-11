@@ -94,13 +94,13 @@ end
 
 local function fill_triangle_prism_vertices(out, v0, v1, v2, normal, half_thickness)
 	out = out or {}
-	local offset = normal * half_thickness
-	out[1] = v0 + offset
-	out[2] = v1 + offset
-	out[3] = v2 + offset
-	out[4] = v0 - offset
-	out[5] = v1 - offset
-	out[6] = v2 - offset
+	local ox, oy, oz = normal.x * half_thickness, normal.y * half_thickness, normal.z * half_thickness
+	set_prism_vertex(out, 1, v0.x + ox, v0.y + oy, v0.z + oz)
+	set_prism_vertex(out, 2, v1.x + ox, v1.y + oy, v1.z + oz)
+	set_prism_vertex(out, 3, v2.x + ox, v2.y + oy, v2.z + oz)
+	set_prism_vertex(out, 4, v0.x - ox, v0.y - oy, v0.z - oz)
+	set_prism_vertex(out, 5, v1.x - ox, v1.y - oy, v1.z - oz)
+	set_prism_vertex(out, 6, v2.x - ox, v2.y - oy, v2.z - oz)
 
 	for i = 7, #out do
 		out[i] = nil
@@ -121,6 +121,12 @@ end
 
 local function get_best_face_alignment(polyhedron, rotation, normal)
 	local best_alignment = -math.huge
+
+local function set_prism_vertex(out, index, x, y, z)
+	local vertex = out[index]
+
+	if vertex then vertex:Set(x, y, z) else out[index] = Vec3(x, y, z) end
+end
 
 	for _, face in ipairs(polyhedron.faces or {}) do
 		best_alignment = math.max(best_alignment, rotation:VecMul(face.normal):GetNormalized():Dot(normal))

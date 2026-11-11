@@ -1202,7 +1202,7 @@ do
 	local segment_triangle_sq = triangle_scalar.SegmentToTriangleSq
 	local triangle_normal_raw = triangle_scalar.TriangleNormalRaw
 
-	local function get_segment_reject_sq(start_position, end_position, v0, v1, v2, epsilon)
+	local function get_segment_reject_sq(start_position, end_x, end_y, end_z, v0, v1, v2, epsilon)
 		local nx, ny, nz, normal_len_sq = triangle_normal_raw(v0, v1, v2)
 		local face_normal = nil
 
@@ -1216,9 +1216,9 @@ do
 			start_position.x,
 			start_position.y,
 			start_position.z,
-			end_position.x,
-			end_position.y,
-			end_position.z,
+			end_x,
+			end_y,
+			end_z,
 			v0,
 			v1,
 			v2,
@@ -1347,8 +1347,16 @@ do
 
 	function sweep_sphere_against_triangle(start_position, movement, radius, v0, v1, v2, max_fraction)
 		local epsilon = get_sweep_epsilon(start_position, movement)
-		local end_position = start_position + movement * max_fraction
-		local reject_sq, segment_x, segment_y, segment_z = get_segment_reject_sq(start_position, end_position, v0, v1, v2, epsilon)
+		local reject_sq, segment_x, segment_y, segment_z = get_segment_reject_sq(
+			start_position,
+			start_position.x + movement.x * max_fraction,
+			start_position.y + movement.y * max_fraction,
+			start_position.z + movement.z * max_fraction,
+			v0,
+			v1,
+			v2,
+			epsilon
+		)
 		local reach = radius + epsilon
 
 		if reject_sq and reject_sq > reach * reach then return nil end
