@@ -5,18 +5,14 @@ local sounds = import("lua/sounds.lua")
 local META = objects.CreateTemplate("npc_sounds")
 local NO_SOUNDS = {}
 META:GetSet("Sounds", NO_SOUNDS)
+META:GetSet("FootSurfaces", NO_SOUNDS)
 local MIN_STEP_SPEED = 0.3
 local PAIN_INTERVAL = 0.6
-
-META.Broadcast = new_event(
-	"npc_sound",
-	function(entity, role, position)
-		if entity:IsValid() then entity.npc_sounds:Play(role, position) end
-	end,
-	function()
-		return AUDIO and CLIENT
-	end
-)
+META.Broadcast = new_event("npc_sound", function(entity, role, position)
+	if entity:IsValid() then entity.npc_sounds:Play(role, position) end
+end, function()
+	return AUDIO and CLIENT
+end)
 
 function META:Initialize()
 	self.next_pain = 0

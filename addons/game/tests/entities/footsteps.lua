@@ -41,7 +41,7 @@ end
 
 local function check_steps(impacts, floor, min_speed, max_speed)
 	for i, info in ipairs(impacts) do
-		T(info.Kind)["=="]("footstep")
+		T(info.Foot)["=="](info.Part)
 		T(info.Surface)["=="]("default")
 		T(info.Other)["=="](floor)
 		T(math.abs(info.Position.y) < 0.01)["=="](true)
@@ -164,7 +164,7 @@ T.Test3D("a walking antlion plants all four weight bearing legs through limb ik"
 
 	for _, info in ipairs(impacts) do
 		parts[info.Part] = true
-		T(info.Kind)["=="]("footstep")
+		T(info.Foot)["=="](info.Part)
 	end
 
 	T(table.count(parts))["=="](4)

@@ -8,6 +8,7 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local SphereShape = import("goluwa/physics/shapes/sphere.lua")
 local test_helpers = import("test/physics_helpers.lua")
 import("addons/game/lua/autorun/impacts.lua")
+Entity.RegisterComponent("npc_sounds", import("lua/components/npc_sounds.lua"))
 
 local function create_concrete_ground()
 	local poly = Polygon3D.New()
@@ -39,9 +40,7 @@ T.TestPhysics("a physics impact fires an Impact from each side with the surface 
 	local impacts = {}
 
 	event.AddListener("Impact", "impacts_test", function(info)
-		if info.Kind == "physics" and info.Speed > 3 then
-			impacts[#impacts + 1] = info
-		end
+		if not info.Foot and info.Speed > 3 then impacts[#impacts + 1] = info end
 	end)
 
 	test_helpers.Simulate(240)
@@ -100,5 +99,40 @@ T.TestPhysics("a rolling ball fires a Contact from each side, rolling on the bal
 	T(last_ground.Roll)["=="](last_ball.Roll)
 	T(last_ball.Mass)["=="](ball.rigid_body:GetMass())
 	ball:Remove()
+	ground:Remove()
+end)
+
+T.TestPhysics("a foot with a surface override fires a second impact with that surface", function()
+	local ground = create_concrete_ground()
+	local character = Entity.New({Name = "impact_character"})
+	character:AddComponent("transform")
+	character.transform:SetPosition(Vec3(0, 20, 0))
+	character:AddComponent("rigid_body", {Shape = BoxShape.New(Vec3(0.3, 0.9, 0.3))})
+	character:AddComponent("npc_sounds", {FootSurfaces = {metal_foot = "metal"}})
+	local fired = {}
+
+	event.AddListener("Impact", "impacts_test", function(info)
+		fired[#fired + 1] = info
+	end)
+
+	local hit = {entity = ground, position = Vec3(0, 0, 0), normal = Vec3(0, 1, 0)}
+	import("lua/impacts.lua").FireFootstep(character, "plain_foot", hit, 2)
+	T(#fired)["=="](1)
+	T(fired[1].Foot)["=="]("plain_foot")
+	T(fired[1].Entity)["=="](character)
+	T(fired[1].Surface)["=="]("default")
+	fired = {}
+	import("lua/impacts.lua").FireFootstep(character, "metal_foot", hit, 2)
+	T(#fired)["=="](2)
+	T(fired[1].Foot)["=="]("metal_foot")
+	T(fired[1].Surface)["=="]("default")
+	T(fired[2].Foot)["=="](nil)
+	T(fired[2].Entity)["=="](ground)
+	T(fired[2].Other)["=="](character)
+	T(fired[2].Surface)["=="]("metal")
+	T(fired[2].OtherSurface)["=="]("default")
+	T(fired[2].Mass)["=="](character.rigid_body:GetMass())
+	event.RemoveListener("Impact", "impacts_test")
+	character:Remove()
 	ground:Remove()
 end)

@@ -104,7 +104,7 @@ local function queue_impact(path, position, volume, pitch, skip)
 end
 
 event.AddListener("Impact", "physics_impacts", function(info)
-	if info.Kind ~= "physics" or info.Speed < MIN_SPEED then return end
+	if info.Foot or info.Speed < MIN_SPEED then return end
 
 	local now = system.GetElapsedTime()
 	local row = last_played[info.Entity]

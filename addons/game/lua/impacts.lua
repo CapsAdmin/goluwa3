@@ -22,14 +22,14 @@ local function get_surface(hit)
 		"default"
 end
 
-function impacts.Fire(entity, part, kind, hit, speed, mass, size, other_hit)
+function impacts.Fire(entity, part, foot, hit, speed, mass, size, other_hit)
 	local surface, material = get_surface(hit)
 	event.Call(
 		"Impact",
 		{
 			Entity = entity,
 			Part = part,
-			Kind = kind,
+			Foot = foot,
 			Surface = surface,
 			OtherSurface = other_hit and (get_surface(other_hit)),
 			Material = material,
@@ -48,7 +48,24 @@ function impacts.FireFootstep(character, part, hit, speed)
 
 	if ragdoll and ragdoll:HasLimp() then return end
 
-	impacts.Fire(character, part, "footstep", hit, speed)
+	impacts.Fire(character, part, part, hit, speed)
+	local surface = character.npc_sounds and character.npc_sounds.FootSurfaces[part]
+
+	if surface then
+		event.Call(
+			"Impact",
+			{
+				Entity = hit.entity,
+				Other = character,
+				Surface = surface,
+				OtherSurface = get_surface(hit),
+				Position = hit.position,
+				Normal = hit.normal,
+				Speed = speed,
+				Mass = character.rigid_body:GetMass(),
+			}
+		)
+	end
 end
 
 do
@@ -82,9 +99,9 @@ do
 		local part = entity.ragdoll_part
 
 		if part then
-			impacts.Fire(part.Character, part.Group, "physics", hit, speed, mass, size, other_hit)
+			impacts.Fire(part.Character, part.Group, nil, hit, speed, mass, size, other_hit)
 		else
-			impacts.Fire(entity, nil, "physics", hit, speed, mass, size, other_hit)
+			impacts.Fire(entity, nil, nil, hit, speed, mass, size, other_hit)
 		end
 	end
 

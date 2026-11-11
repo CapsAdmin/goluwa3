@@ -95,7 +95,6 @@ event.AddListener("Update", "impact_sound_panel", function()
 		{
 			Entity = entity_b,
 			Other = entity_a,
-			Kind = "physics",
 			Surface = sim.surface_a,
 			OtherSurface = sim.surface_b,
 			Size = sim.size_a * DRUM_SIZE,
@@ -110,7 +109,6 @@ event.AddListener("Update", "impact_sound_panel", function()
 		{
 			Entity = entity_a,
 			Other = entity_b,
-			Kind = "physics",
 			Surface = sim.surface_b,
 			OtherSurface = sim.surface_a,
 			Size = sim.size_b * DRUM_SIZE,

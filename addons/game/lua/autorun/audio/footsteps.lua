@@ -5,7 +5,7 @@ local LOUD_SPEED = 3
 local QUIET = 0.15
 
 event.AddListener("Impact", "footsteps", function(info)
-	if info.Kind ~= "footstep" then return end
+	if not info.Foot then return end
 
 	local voice = info.Entity.npc_sounds
 
