@@ -625,6 +625,17 @@ local function expand_simplex_to_tetrahedron(simplex, vertices_a, vertices_b)
 end
 
 local DEFAULT_SIMPLEX = {}
+-- results are filled in place: every caller reads them before the next query
+local INTERSECT_RESULT = {}
+
+local function set_intersect_result(intersect, simplex, iterations, separation)
+	local result = INTERSECT_RESULT
+	result.intersect = intersect
+	result.simplex = simplex
+	result.iterations = iterations
+	result.separation = separation
+	return result
+end
 
 function gjk_epa.Intersect(vertices_a, vertices_b, initial_direction, simplex)
 	if not (vertices_a and vertices_a[1] and vertices_b and vertices_b[1]) then
@@ -663,12 +674,7 @@ function gjk_epa.Intersect(vertices_a, vertices_b, initial_direction, simplex)
 		local reach = support.point:Dot(direction)
 
 		if reach <= EPSILON then
-			return {
-				intersect = false,
-				simplex = simplex,
-				iterations = iteration,
-				separation = -reach / direction:GetLength(),
-			}
+			return set_intersect_result(false, simplex, iteration, -reach / direction:GetLength())
 		end
 
 		simplex[#simplex + 1] = support
@@ -676,29 +682,25 @@ function gjk_epa.Intersect(vertices_a, vertices_b, initial_direction, simplex)
 		simplex = updated_simplex or simplex
 
 		if contains_origin then
-			return {
-				intersect = true,
-				simplex = simplex,
-				iterations = iteration,
-			}
+			return set_intersect_result(true, simplex, iteration, nil)
 		end
 
 		direction = updated_direction or direction
 
 		if direction:GetLength() <= EPSILON then
-			return {
-				intersect = true,
-				simplex = simplex,
-				iterations = iteration,
-			}
+			return set_intersect_result(true, simplex, iteration, nil)
 		end
 	end
 
-	return {
-		intersect = false,
-		simplex = simplex,
-		iterations = GJK_MAX_ITERATIONS,
-	}
+	return set_intersect_result(false, simplex, GJK_MAX_ITERATIONS, nil)
+end
+
+local PENETRATION_MISS = {intersect = false}
+
+local function set_penetration_miss(gjk_result, distance_result)
+	PENETRATION_MISS.gjk = gjk_result
+	PENETRATION_MISS.distance = distance_result
+	return PENETRATION_MISS
 end
 
 function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
@@ -708,10 +710,7 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 
 	if not (gjk_result.intersect and gjk_result.simplex) then
 		if (gjk_result.separation or 0) > EPSILON * 10 then
-			return {
-				intersect = false,
-				gjk = gjk_result,
-			}
+			return set_penetration_miss(gjk_result, nil)
 		end
 
 		local distance_result = gjk_epa.Distance(vertices_a, vertices_b, initial_direction, gjk_result.simplex)
@@ -726,11 +725,7 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 				) > EPSILON
 			)
 		then
-			return {
-				intersect = false,
-				gjk = gjk_result,
-				distance = distance_result,
-			}
+			return set_penetration_miss(gjk_result, distance_result)
 		end
 
 		gjk_result = {
@@ -744,10 +739,7 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 		not gjk_result.simplex[4] and
 		not expand_simplex_to_tetrahedron(gjk_result.simplex, vertices_a, vertices_b)
 	then
-		return {
-			intersect = false,
-			gjk = gjk_result,
-		}
+		return set_penetration_miss(gjk_result, nil)
 	end
 
 	local vertices = EPA_VERTICES
@@ -784,12 +776,7 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 
 	clear_array(faces, face_count + 1)
 
-	if not faces[1] then
-		return {
-			intersect = false,
-			gjk = gjk_result,
-		}
-	end
+	if not faces[1] then return set_penetration_miss(gjk_result, nil) end
 
 	for iteration = 1, EPA_MAX_ITERATIONS do
 		if #faces > EPA_MAX_FACES or #vertices > EPA_MAX_VERTICES then break end
@@ -871,12 +858,7 @@ function gjk_epa.Penetration(vertices_a, vertices_b, initial_direction, simplex)
 
 	local fallback_face = get_closest_face(faces)
 
-	if not fallback_face then
-		return {
-			intersect = false,
-			gjk = gjk_result,
-		}
-	end
+	if not fallback_face then return set_penetration_miss(gjk_result, nil) end
 
 	local point_a, point_b = get_face_witness(vertices, fallback_face)
 	return {
