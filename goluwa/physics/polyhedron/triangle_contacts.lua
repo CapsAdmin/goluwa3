@@ -79,6 +79,36 @@ do
 	end
 end
 
+local is_separated_by_triangle_plane
+
+do
+	local math_sqrt = math.sqrt
+	local math_min = math.min
+	local math_max = math.max
+
+	function is_separated_by_triangle_plane(poly_vertices, v0, v1, v2, threshold)
+		local e1x, e1y, e1z = v1.x - v0.x, v1.y - v0.y, v1.z - v0.z
+		local e2x, e2y, e2z = v2.x - v0.x, v2.y - v0.y, v2.z - v0.z
+		local nx, ny, nz = e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x
+		local length = math_sqrt(nx * nx + ny * ny + nz * nz)
+
+		if length < 1e-12 then return false end
+
+		nx, ny, nz = nx / length, ny / length, nz / length
+		local plane = nx * v0.x + ny * v0.y + nz * v0.z
+		local low, high = math.huge, -math.huge
+
+		for i = 1, #poly_vertices do
+			local p = poly_vertices[i]
+			local d = nx * p.x + ny * p.y + nz * p.z
+			low = math_min(low, d)
+			high = math_max(high, d)
+		end
+
+		return low - plane > threshold or plane - high > threshold
+	end
+end
+
 local function fill_triangle_vertices(out, v0, v1, v2)
 	out = out or {}
 	out[1] = v0
@@ -90,6 +120,12 @@ local function fill_triangle_vertices(out, v0, v1, v2)
 	end
 
 	return out
+end
+
+local function set_prism_vertex(out, index, x, y, z)
+	local vertex = out[index]
+
+	if vertex then vertex:Set(x, y, z) else out[index] = Vec3(x, y, z) end
 end
 
 local function fill_triangle_prism_vertices(out, v0, v1, v2, normal, half_thickness)
@@ -121,12 +157,6 @@ end
 
 local function get_best_face_alignment(polyhedron, rotation, normal)
 	local best_alignment = -math.huge
-
-local function set_prism_vertex(out, index, x, y, z)
-	local vertex = out[index]
-
-	if vertex then vertex:Set(x, y, z) else out[index] = Vec3(x, y, z) end
-end
 
 	for _, face in ipairs(polyhedron.faces or {}) do
 		best_alignment = math.max(best_alignment, rotation:VecMul(face.normal):GetNormalized():Dot(normal))
@@ -442,15 +472,15 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 
 	if not poly_vertices[1] then return nil end
 
+	local separation_threshold = math.max(collider:GetCollisionMargin() or 0, options.collider_margin or 0) + triangle_slop + 0.01
+
+	if is_separated_by_triangle_plane(poly_vertices, v0, v1, v2, separation_threshold) then
+		return nil
+	end
+
 	if
 		collider:GetShapeType() == "box" and
-		polyhedron_triangle_contacts.IsBoxSeparatedByFaceAxis(
-			collider,
-			v0,
-			v1,
-			v2,
-			math.max(collider:GetCollisionMargin() or 0, options.collider_margin or 0) + triangle_slop + 0.01
-		)
+		polyhedron_triangle_contacts.IsBoxSeparatedByFaceAxis(collider, v0, v1, v2, separation_threshold)
 	then
 		return nil
 	end
