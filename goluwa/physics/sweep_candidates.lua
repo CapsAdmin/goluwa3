@@ -190,6 +190,59 @@ local function store_candidate_pose(
 	cache.previous_rw = previous_rotation and previous_rotation.w or nil
 end
 
+local CANDIDATE_AABB_CURRENT = AABB(0, 0, 0, 0, 0, 0)
+local CANDIDATE_AABB_PREVIOUS = AABB(0, 0, 0, 0, 0, 0)
+local get_body_bounds
+
+do
+	local math_abs = math.abs
+
+	local function is_hull_body(body)
+		if body.candidate_hull_version == body.ColliderVersion then
+			return body.candidate_hull
+		end
+
+		local hull = body:IsDynamic()
+
+		for _, collider in ipairs(body:GetColliders()) do
+			if collider:GetShapeType() ~= "convex" then hull = false end
+		end
+
+		body.candidate_hull = hull
+		body.candidate_hull_version = body.ColliderVersion
+		return hull
+	end
+
+	-- a moving body is queried at a new pose many times per step; the rotated box of its local hull points bounds it without transforming every hull vertex
+	function get_body_bounds(body, position, rotation, out)
+		if not is_hull_body(body) then
+			return body:GetBroadphaseAABB(position, rotation, out)
+		end
+
+		body:GetHalfExtents()
+		local local_bounds = body.LocalBounds
+		local min, max = local_bounds.min, local_bounds.max
+		local cx, cy, cz = (min.x + max.x) * 0.5, (min.y + max.y) * 0.5, (min.z + max.z) * 0.5
+		local hx, hy, hz = (max.x - min.x) * 0.5, (max.y - min.y) * 0.5, (max.z - min.z) * 0.5
+		local x, y, z, w = rotation.x, rotation.y, rotation.z, rotation.w
+		local xx, yy, zz = x * x, y * y, z * z
+		local xy, xz, yz = x * y, x * z, y * z
+		local wx, wy, wz = w * x, w * y, w * z
+		local m00, m01, m02 = 1 - 2 * (yy + zz), 2 * (xy - wz), 2 * (xz + wy)
+		local m10, m11, m12 = 2 * (xy + wz), 1 - 2 * (xx + zz), 2 * (yz - wx)
+		local m20, m21, m22 = 2 * (xz - wy), 2 * (yz + wx), 1 - 2 * (xx + yy)
+		local wcx = position.x + m00 * cx + m01 * cy + m02 * cz
+		local wcy = position.y + m10 * cx + m11 * cy + m12 * cz
+		local wcz = position.z + m20 * cx + m21 * cy + m22 * cz
+		local ex = math_abs(m00) * hx + math_abs(m01) * hy + math_abs(m02) * hz
+		local ey = math_abs(m10) * hx + math_abs(m11) * hy + math_abs(m12) * hz
+		local ez = math_abs(m20) * hx + math_abs(m21) * hy + math_abs(m22) * hz
+		out.min_x, out.min_y, out.min_z = wcx - ex, wcy - ey, wcz - ez
+		out.max_x, out.max_y, out.max_z = wcx + ex, wcy + ey, wcz + ez
+		return out
+	end
+end
+
 local function get_rigid_body_candidate_aabb(body)
 	local current_position = body:GetPosition()
 	local current_rotation = body:GetRotation()
@@ -216,7 +269,7 @@ local function get_rigid_body_candidate_aabb(body)
 		return cache.bounds
 	end
 
-	local bounds = body:GetBroadphaseAABB(current_position, current_rotation, CANDIDATE_AABB_CURRENT)
+	local bounds = get_body_bounds(body, current_position, current_rotation, CANDIDATE_AABB_CURRENT)
 
 	if not bounds or not has_previous then
 		cache = cache or {}
@@ -246,7 +299,7 @@ local function get_rigid_body_candidate_aabb(body)
 		return get_cached_candidate_aabb(cache, bounds)
 	end
 
-	local previous_bounds = body:GetBroadphaseAABB(previous_position, previous_rotation, CANDIDATE_AABB_PREVIOUS)
+	local previous_bounds = get_body_bounds(body, previous_position, previous_rotation, CANDIDATE_AABB_PREVIOUS)
 	cache = cache or {}
 	body.sweep_candidate_aabb_cache = cache
 	store_candidate_pose(
@@ -340,8 +393,6 @@ end
 local EMPTY_OPTIONS = {}
 local query_entry_cache = {}
 local untracked_cache = {stamp = nil, instance_count = nil, body_entries = nil, bodies = {}}
-local CANDIDATE_AABB_CURRENT = AABB(0, 0, 0, 0, 0, 0)
-local CANDIDATE_AABB_PREVIOUS = AABB(0, 0, 0, 0, 0, 0)
 
 local function get_untracked_bodies(broadphase)
 	local cache = untracked_cache
