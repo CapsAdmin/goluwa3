@@ -187,7 +187,13 @@ T.Test("Simulation islands merge when a new pair links two dynamic bodies", func
 	local dynamic_b = create_mock_body("dynamic_b", "dynamic")
 	local built = build_islands({dynamic_a, dynamic_b}, {}, {})
 	T(#built)["=="](2)
-	built = islands.UpdateSimulationIslands({dynamic_a, dynamic_b}, {create_pair(dynamic_a, dynamic_b)}, {}, nil, next_epoch())
+	built = islands.UpdateSimulationIslands(
+		{dynamic_a, dynamic_b},
+		{create_pair(dynamic_a, dynamic_b)},
+		{},
+		nil,
+		next_epoch()
+	)
 	T(#built)["=="](1)
 	T(#built[1].dynamic_bodies)["=="](2)
 	T(#built[1].pairs)["=="](1)
@@ -213,10 +219,22 @@ T.Test("Simulation islands keep links alive while pairs keep being candidates", 
 	local dynamic_b = create_mock_body("dynamic_b", "dynamic")
 	local built = build_islands({dynamic_a, dynamic_b}, {create_pair(dynamic_a, dynamic_b)}, {})
 	T(#built)["=="](1)
-	built = islands.UpdateSimulationIslands({dynamic_a, dynamic_b}, {create_pair(dynamic_a, dynamic_b)}, {}, nil, next_epoch())
+	built = islands.UpdateSimulationIslands(
+		{dynamic_a, dynamic_b},
+		{create_pair(dynamic_a, dynamic_b)},
+		{},
+		nil,
+		next_epoch()
+	)
 	T(#built)["=="](1)
 	T(#built[1].pairs)["=="](1)
-	built = islands.UpdateSimulationIslands({dynamic_a, dynamic_b}, {create_pair(dynamic_a, dynamic_b)}, {}, nil, next_epoch())
+	built = islands.UpdateSimulationIslands(
+		{dynamic_a, dynamic_b},
+		{create_pair(dynamic_a, dynamic_b)},
+		{},
+		nil,
+		next_epoch()
+	)
 	T(#built)["=="](1)
 	T(#built[1].pairs)["=="](1)
 end)
@@ -338,7 +356,7 @@ T.Test("Simulation islands wait for sleep delay before sleeping constrained dyna
 	T(dynamic_b.SleepCount)["=="](1)
 end)
 
-T.Test("Simulation islands do not force sleep single dynamic bodies constrained only to world anchors", function()
+T.Test("Simulation islands sleep single dynamic bodies constrained only to world anchors", function()
 	local dynamic = create_mock_body("dynamic", "dynamic")
 	dynamic.Awake = true
 	dynamic.ReadyToSleep = true
@@ -347,10 +365,10 @@ T.Test("Simulation islands do not force sleep single dynamic bodies constrained 
 	})
 	islands.PrepareSimulationIslands(built, nil, next_epoch(), {}, {})
 	local slept_any = islands.FinalizeSimulationIslands(built)
-	T(slept_any)["=="](false)
-	T(islands.IsSleepingIsland(built[1]))["=="](false)
-	T(dynamic:GetAwake())["=="](true)
-	T(dynamic.SleepCount)["=="](0)
+	T(slept_any)["=="](true)
+	T(islands.IsSleepingIsland(built[1]))["=="](true)
+	T(dynamic:GetAwake())["=="](false)
+	T(dynamic.SleepCount)["=="](1)
 end)
 
 T.Test("Simulation islands only wake sleeping bodies for anchors that moved this step", function()

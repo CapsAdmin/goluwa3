@@ -103,7 +103,6 @@ local function add_member(island, body)
 	if island.body_set[body] then return end
 
 	touch_island(island)
-
 	island.body_set[body] = true
 	island.bodies[#island.bodies + 1] = body
 
@@ -978,7 +977,13 @@ local function prepare_island(island, stamp, newly_awoken_bodies)
 	return woke_any
 end
 
-function islands.PrepareSimulationIslands(simulation_islands, newly_awoken_bodies, activity_epoch, synced_bodies, active_bodies)
+function islands.PrepareSimulationIslands(
+	simulation_islands,
+	newly_awoken_bodies,
+	activity_epoch,
+	synced_bodies,
+	active_bodies
+)
 	newly_awoken_bodies = newly_awoken_bodies or {}
 	list.clear(newly_awoken_bodies)
 	local woke_any = false
@@ -1063,7 +1068,7 @@ function islands.FinalizeSimulationIslands(simulation_islands)
 		if island.has_constraints then
 			local dynamic_bodies = island.dynamic_bodies
 			local has_awake_dynamic_body = false
-			local can_sleep_island = #dynamic_bodies > 1
+			local can_sleep_island = #dynamic_bodies > 0
 
 			for body_index = 1, #dynamic_bodies do
 				local body = dynamic_bodies[body_index]
