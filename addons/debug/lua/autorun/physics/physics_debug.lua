@@ -4,6 +4,7 @@ if not RENDER_3D then return end
 
 local event = import("goluwa/event.lua")
 local input = import("goluwa/input.lua")
+local commands = import("goluwa/cli/commands.lua")
 local physics = import("goluwa/physics.lua")
 local debug_draw = import("goluwa/debug_draw.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -1312,6 +1313,37 @@ local function cleanup_removed_bodies()
 		end
 	end
 end
+
+commands.Add("physics_sleep", function()
+	local bodies = RigidBody.Instances
+	local total = 0
+	local awake = 0
+
+	for i = 1, #bodies do
+		local body = bodies[i]
+
+		if body:HasSolverMass() then
+			total = total + 1
+
+			if body.Awake then
+				awake = awake + 1
+				body:Sleep()
+			end
+		end
+	end
+
+	logn(
+		"[physics sleep] ",
+		awake,
+		" of ",
+		total,
+		" bodies were awake, put ",
+		awake,
+		" to sleep"
+	)
+end)
+
+input.Bind("x", "physics_sleep")
 
 input.Bind("n", "physics_debug", function()
 	debug_enabled = not debug_enabled
