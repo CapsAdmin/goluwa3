@@ -1,9 +1,19 @@
 local nodes = import("lua/weapon_nodes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local BODY = {Color = Color(0.8, 0.82, 0.85, 1), Roughness = 0.35, Metallic = 0.7}
-local HANDLE = {Color = Color(0.1, 0.1, 0.12, 1), Roughness = 0.6, Metallic = 0.2}
-local MUZZLE = {Color = Color(0.1, 0.8, 0.5, 1), Roughness = 0.2, Metallic = 0.3}
+local Quat = import("goluwa/structs/quat.lua")
+local model_replacements = import("lua/model_replacements.lua")
+local PLACEHOLDER = {Color = Color(0.8, 0.82, 0.85, 1), Roughness = 0.35, Metallic = 0.7}
+model_replacements.Register(
+	"toolgun",
+	{
+		Game = 546560,
+		Path = "models/weapons/vr_alyxtool/alyx_tool_lhand.vmdl_c",
+		Position = Vec3(0, 0, -0.085),
+		Rotation = Quat(0, 0, 0, 1),
+		Scale = Vec3(1.7, 1.7, 1.7),
+	}
+)
 return {
 	Values = {
 		WorldSize = Vec3(0.05, 0.18, 0.32),
@@ -11,11 +21,11 @@ return {
 		Slot = 6,
 		DisplayName = "Tool gun",
 		FireRate = 0.2,
+		Replacement = "toolgun",
 	},
 	Nodes = {
-		nodes.Handle("handle", 0.022, 0.12, Vec3(0, 0, 0), HANDLE),
-		nodes.Box("body", Vec3(0.045, 0.06, 0.2), Vec3(0, 0.09, -0.08), BODY),
-		nodes.Muzzle(0.015, 0.12, Vec3(0, 0.09, -0.3), MUZZLE),
+		nodes.Replacement(Vec3(0.07, 0.045, 0.31), Vec3(0, 0, -0.1), PLACEHOLDER),
+		nodes.Marker("muzzle", Vec3(0, 0, -0.26)),
 	},
 	Source = [=====[local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
