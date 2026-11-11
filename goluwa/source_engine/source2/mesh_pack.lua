@@ -261,7 +261,7 @@ function mesh_pack.PackModel(input)
 
 		local model_data
 
-		if res.blocks.ANIM and res.blocks.AGRP and res.blocks.ASEQ then
+		if res.blocks.ANIM and res.blocks.AGRP and res.blocks.ASEQ and resource.IsKV3(res) then
 			model_data = resource.ReadKV3(res)
 		end
 

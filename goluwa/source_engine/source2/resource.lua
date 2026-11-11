@@ -33,6 +33,11 @@ function resource.ReadKV3(res, block_name)
 	return kv3.Decode(str, 0)
 end
 
+function resource.IsKV3(res, block_name)
+	local block = res.blocks[block_name or "DATA"]
+	return kv3.Is(res.data, block.offset)
+end
+
 function resource.Load(vfs, path)
 	local str = assert(vfs.Read(path))
 	return resource.Parse(str)

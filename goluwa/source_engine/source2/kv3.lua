@@ -333,6 +333,13 @@ function kv3.DecodeLegacy(str, start)
 	return read_value(read_type())
 end
 
+function kv3.Is(str, start)
+	if str:find("^%s*<!%-%-", start + 1) then return true end
+
+	local magic = ffi.cast(u32_t, ffi.cast(u8_t, str) + start)[0]
+	return magic == 0x03564B56 or magic - magic % 256 == MAGIC_BASE
+end
+
 -- the flat tables returned by Decode are plain lua tables: objects have string keys, arrays are 1 based
 function kv3.Decode(str, start, finish)
 	start = start or 0
