@@ -232,19 +232,6 @@ function assets.ResolvePath(path, category_name, all_candidates)
 	return nil, candidates
 end
 
-local function get_allowed_extensions(category)
-	if category.allowed_extensions then return category.allowed_extensions end
-
-	local allowed = {}
-
-	for _, ext in ipairs(category.extensions) do
-		allowed[ext] = true
-	end
-
-	category.allowed_extensions = allowed
-	return allowed
-end
-
 do
 	local function make_entry(category, path, root, kind, size, source, game)
 		local dir, file = path:match("^(.*/)([^/]*)$")
@@ -382,7 +369,6 @@ do
 	end
 
 	local function build_index(category)
-		local allowed = get_allowed_extensions(category)
 		local accepts = category.accepts
 		local index = {
 			category = category.name,
@@ -397,24 +383,20 @@ do
 		local paths = {}
 
 		for _, root in ipairs(category.roots) do
-			vfs.FindRecursive(root, function(path, size, data)
-				local ext = path:match("(%.[^./]+)$")
+			vfs.FindRecursive(
+				root,
+				function(path, size, data, ext)
+					local lower = path:lower()
 
-				if not ext then return end
+					if found[lower] then return end
 
-				ext = ext:lower()
+					if accepts and not accepts(lower, ext) then return end
 
-				if not allowed[ext] then return end
-
-				local lower = path:lower()
-
-				if found[lower] then return end
-
-				if accepts and not accepts(lower, ext) then return end
-
-				found[lower] = {path, size, data.context.Name, data.userdata and data.userdata.game}
-				paths[#paths + 1] = lower
-			end)
+					found[lower] = {path, size, data.context.Name, data.userdata and data.userdata.game}
+					paths[#paths + 1] = lower
+				end,
+				category.extensions
+			)
 		end
 
 		table.sort(paths)

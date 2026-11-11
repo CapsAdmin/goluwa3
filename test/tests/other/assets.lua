@@ -301,6 +301,24 @@ T.Test("vfs.FindRecursive lists every file below a folder across mounts", functi
 		sizes = sizes + 1
 	end)
 
+	T.Test("vfs.FindRecursive with extensions only reports matching files", function()
+		local mount_root = write_index_fixture("find_recursive_ext")
+		local found = {}
+
+		vfs.FindRecursive(
+			"models/find_recursive_ext/",
+			function(path, size, data, ext)
+				found[path] = ext
+			end,
+			{".mdl"}
+		)
+
+		T(found["models/find_recursive_ext/a.mdl"])["=="](".mdl")
+		T(found["models/find_recursive_ext/Sub2/D.MDL"])["=="](".mdl")
+		T(found["models/find_recursive_ext/sub/deeper/c.lua"])["=="](nil)
+		cleanup_mounted_asset_root(mount_root)
+	end)
+
 	T(sizes)["=="](6)
 	T(found["models/find_recursive/a.mdl"])["=="]("os")
 	T(found["models/find_recursive/sub/deeper/c.lua"])["=="]("os")

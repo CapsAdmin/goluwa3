@@ -97,16 +97,51 @@ function vfs.Find(path, full_path, reverse_sort, start, plain, verbose)
 	}
 end
 
-function vfs.FindRecursive(path, callback)
+function vfs.CreateExtensionFilter(extensions)
+	local set = {}
+	local length_set = {}
+	local lengths = {}
+
+	for _, ext in ipairs(extensions) do
+		set[ext] = true
+
+		if not length_set[#ext] then
+			length_set[#ext] = true
+			lengths[#lengths + 1] = #ext
+		end
+	end
+
+	return {set = set, lengths = lengths}
+end
+
+function vfs.MatchExtension(filter, name)
+	local set = filter.set
+	local lengths = filter.lengths
+
+	for i = 1, #lengths do
+		local tail = name:sub(-lengths[i])
+
+		if set[tail] then return tail end
+
+		tail = tail:lower()
+
+		if set[tail] then return tail end
+	end
+end
+
+function vfs.FindRecursive(path, callback, extensions)
 	if not path:ends_with("/") then path = path .. "/" end
+
+	local filter = extensions and vfs.CreateExtensionFilter(extensions)
 
 	for _, data in ipairs(vfs.TranslatePath(path, true)) do
 		data.context:GetFilesRecursive(
 			data.path_info,
-			function(file_path, size)
-				callback(file_path, size, data)
+			function(file_path, size, ext)
+				callback(file_path, size, data, ext)
 			end,
-			path
+			path,
+			filter
 		)
 	end
 end

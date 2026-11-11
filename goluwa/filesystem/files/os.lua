@@ -37,12 +37,19 @@ function CONTEXT:GetFiles(path_info)
 	return files
 end
 
-function CONTEXT:GetFilesRecursive(path_info, callback, virtual_path)
+function CONTEXT:GetFilesRecursive(path_info, callback, virtual_path, filter)
 	local path = path_info.full_path
 	local files = fs.walk(path, nil, {}, nil, true)
 
 	for i = 1, files.n or 0 do
-		callback(virtual_path .. files[i]:sub(#path + 1))
+		local file = files[i]
+		local ext
+
+		if filter then ext = vfs.MatchExtension(filter, file) end
+
+		if not filter or ext then
+			callback(virtual_path .. file:sub(#path + 1), nil, ext)
+		end
 	end
 end
 

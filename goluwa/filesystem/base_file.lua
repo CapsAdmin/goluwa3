@@ -90,7 +90,7 @@ function CONTEXT:GetFiles(path_info)
 	error(self.Name .. ": not implemented")
 end
 
-function CONTEXT:GetFilesRecursive(path_info, callback, virtual_path)
+function CONTEXT:GetFilesRecursive(path_info, callback, virtual_path, filter)
 	error(self.Name .. ": not implemented")
 end
 
