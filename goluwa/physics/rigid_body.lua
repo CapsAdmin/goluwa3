@@ -42,6 +42,8 @@ RigidBody:GetSet("Shape", nil, {callback = "OnGeometryChanged"})
 RigidBody:GetSet("Shapes", nil, {callback = "OnGeometryChanged"})
 RigidBody:StartStorable()
 RigidBody:GetSet("ShapeModelPath", "", {callback = "LoadShapeModel", asset = "models"})
+-- map placed props whose model has no collision get none instead of the default box, which would start them stuck in what they were placed on
+RigidBody:GetSet("RequireShapeModel", false, {callback = "OnRequireShapeModelChanged"})
 RigidBody:GetSet(
 	"MotionType",
 	"dynamic",
@@ -604,6 +606,17 @@ function RigidBody.CenterChildren(source)
 	return children, center
 end
 
+function RigidBody:SkipMissingShapeModel()
+	self:SetMotionType("static")
+	self:SetCollisionEnabled(false)
+end
+
+function RigidBody:OnRequireShapeModelChanged()
+	if self.RequireShapeModel and self.shape_model_missing then
+		self:SkipMissingShapeModel()
+	end
+end
+
 function RigidBody:LoadShapeModel()
 	local path = self.ShapeModelPath
 
@@ -618,10 +631,15 @@ function RigidBody:LoadShapeModel()
 			if not self:IsValid() or self.shape_load_id ~= load_id then return end
 
 			if not model.physics or not model.physics.children[1] then
+				self.shape_model_missing = true
 				wlog("rigid_body: %s has no collision data", path)
+
+				if self.RequireShapeModel then self:SkipMissingShapeModel() end
+
 				return
 			end
 
+			self.shape_model_missing = nil
 			local children = model.physics.children
 			self.shape_model_static = self.MotionType == "static"
 

@@ -358,6 +358,7 @@ function world.Translate(name, sky_path)
 							rigid_body = motion and
 								{
 									ShapeModelPath = model_path,
+									RequireShapeModel = true,
 									MotionType = motion,
 									WorldGeometry = motion == "static" or nil,
 									CollisionGroup = motion == "static" and STATIC_COLLISION_GROUP or nil,

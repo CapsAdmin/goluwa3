@@ -37,6 +37,7 @@ local function build_rigid_body(entry)
 	local physics = entry.physics
 	local body = {
 		ShapeModelPath = entry.model_path,
+		RequireShapeModel = true,
 		MotionType = physics.motion,
 		Friction = FRICTION,
 	}
@@ -427,7 +428,12 @@ function cry_scene.Translate(data, level_name, level_path, options)
 							Rotation = rotation_matrix:GetRotation(Quat()):GetNormalized(),
 							Scale = Vec3(entry.scale, entry.scale, entry.scale),
 						},
-						rigid_body = {ShapeModelPath = entry.model_path, MotionType = "static", Friction = FRICTION},
+						rigid_body = {
+							ShapeModelPath = entry.model_path,
+							RequireShapeModel = true,
+							MotionType = "static",
+							Friction = FRICTION,
+						},
 					},
 				}
 			end

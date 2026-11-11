@@ -500,6 +500,7 @@ function map_scene.Translate(data, map_name, map_path, offset)
 						network = SERVER and {} or nil,
 						rigid_body = {
 							ShapeModelPath = entry.model_path,
+							RequireShapeModel = true,
 							MotionType = entry.motion_type,
 							Mass = mass,
 							Inertia = physics.inertia,
