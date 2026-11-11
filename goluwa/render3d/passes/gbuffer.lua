@@ -852,9 +852,13 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 			SSDMData displacement = get_ssdm_data(tbn);
 			vec3 snow_normal;
 
+			if (SnowBackdrop && dot(normalize(displacement.world_pos - gbuffer_data.camera_position.xyz), gbuffer_data.precipitation_direction) > 0.5) discard;
+
 			if (march_snow_cover(gbuffer_data.camera_position.xyz, displacement.world_pos, tbn[2], snow_normal)) {
 				displacement.normal = snow_normal;
 				displacement.texture_pos = displacement.world_pos;
+			} else if (SnowBackdrop) {
+				discard;
 			}
 			float alpha = get_alpha_uv(displacement.uv);
 

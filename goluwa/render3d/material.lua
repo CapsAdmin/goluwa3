@@ -95,6 +95,7 @@ Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
 Material:GetSet("Decal", false, {callback = "InvalidateFlags"})
 Material:GetSet("SharpAlpha", false, {callback = "InvalidateFlags"})
 Material:GetSet("DecalFade", false, {callback = "InvalidateFlags"})
+Material:GetSet("SnowBackdrop", false, {callback = "InvalidateFlags"})
 Material:GetSet("Dithered", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaCutoff", 0.5, {callback = "InvalidateColor", requires = "AlphaTest"})
 Material:GetSet("Additive", false, {callback = "InvalidateFlags"})
@@ -420,7 +421,7 @@ function Material:MarchesRelief()
 end
 
 function Material:WritesFragmentDepth()
-	return self:MarchesRelief() or self.Decal
+	return self:MarchesRelief() or self.Decal or self.SnowBackdrop
 end
 
 function Material:HasVertexAnimation()
@@ -488,6 +489,7 @@ local FLAGS = {
 	"Decal",
 	"SharpAlpha",
 	"DecalFade",
+	"SnowBackdrop",
 	"BentNormals",
 	"MetallicRoughnessIsMR",
 	"HeightTextureIsAlpha",
