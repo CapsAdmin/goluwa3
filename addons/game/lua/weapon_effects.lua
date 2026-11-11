@@ -10,7 +10,7 @@ local FLASH_COLOR = Color(1, 0.65, 0.3, 1)
 local TOOL_COLOR = Color(0.3, 0.7, 1, 1)
 local TOOL_TRACE_TIME = 0.15
 local TOOL_TRACE_RADIUS = 0.012
-local PISTOL_SOUNDS = {"weapons/pistol/pistol_fire2.wav", "weapons/pistol/pistol_fire3.wav"}
+local PISTOL_SOUNDS = {"weapons/alyx_gun/alyx_gun_fire5.wav", "weapons/alyx_gun/alyx_gun_fire6.wav"}
 local PISTOL_SPL = 140
 local PISTOL_KEEP = 0.12
 local vfx
