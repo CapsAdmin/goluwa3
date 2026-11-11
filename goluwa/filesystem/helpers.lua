@@ -35,11 +35,37 @@ do
 		local names = {}
 
 		for _, name in ipairs(vfs.GetFiles{path = dir, no_sort = true}) do
-			names[name:lower()] = name
+			local lower = name:lower()
+			local variants = names[lower]
+
+			if not variants then
+				variants = {}
+				names[lower] = variants
+			end
+
+			if not list.has_value(variants, name) then variants[#variants + 1] = name end
 		end
 
 		directory_case_cache[dir] = {names = names}
 		return names
+	end
+
+	local function find_variant(parts, directory, i)
+		local variants = get_directory_names(directory)[parts[i]:lower()]
+
+		if not variants then return end
+
+		for _, name in ipairs(variants) do
+			local next_path = directory .. name
+
+			if i == #parts then
+				if vfs.IsFile(next_path) then return next_path end
+			else
+				local found = find_variant(parts, next_path .. "/", i + 1)
+
+				if found then return found end
+			end
+		end
 	end
 
 	function vfs.FindMixedCasePath(path)
@@ -72,22 +98,11 @@ do
 			parts[#parts + 1] = str
 		end
 
-		for i = 1, #parts do
-			local found = get_directory_names(dir)[parts[i]:lower()]
+		local found = find_variant(parts, dir, 1)
 
-			if not found then
-				mixed_case_path_cache[path] = false
-				return nil
-			end
-
-			dir = dir .. found .. "/"
-		end
-
-		dir = dir:sub(1, -2)
-
-		if vfs.IsFile(dir) then
-			mixed_case_path_cache[path] = dir
-			return dir
+		if found then
+			mixed_case_path_cache[path] = found
+			return found
 		end
 
 		mixed_case_path_cache[path] = false
@@ -335,7 +350,6 @@ add_helper(
 
 					path = path:sub(#(dir .. "/") + 1)
 					local base = vfs.GetStorageDirectory(dir == "data" and "userdata" or dir)
-
 					local dir = ""
 
 					for folder in path:gmatch("(.-/)") do
