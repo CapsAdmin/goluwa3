@@ -535,9 +535,7 @@ function Animator:Animate(dt)
 		end
 	end
 
-	if rig.cloth then
-		rig:SimulateCloth(dt, self.Owner.transform:GetWorldMatrix())
-	end
+	if rig.cloth then self.cloth_dt = (self.cloth_dt or 0) + dt end
 
 	if not (pose_changed or rig.dirty or rig.needs_skin) then
 		return self:Settle()
@@ -558,6 +556,16 @@ function Animator:Refresh()
 end
 
 function Animator:OnFirstCreated()
+	event.AddListener("LateUpdate", "animator_cloth", function()
+		for _, animator in ipairs(Animator.Instances) do
+			if animator.cloth_dt then
+				animator.rig:SimulateCloth(animator.cloth_dt, animator.Owner.transform:GetWorldMatrix())
+				animator.cloth_dt = nil
+				animator:Refresh()
+			end
+		end
+	end)
+
 	event.AddListener("Update", "animators", function(dt)
 		local camera = import("goluwa/render3d/render3d.lua").GetCamera():GetPosition()
 		local now = system.GetElapsedTime()
@@ -590,6 +598,7 @@ end
 
 function Animator:OnLastRemoved()
 	event.RemoveListener("Update", "animators")
+	event.RemoveListener("LateUpdate", "animator_cloth")
 end
 
 return Animator:Register()
