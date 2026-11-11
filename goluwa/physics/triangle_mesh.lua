@@ -208,6 +208,121 @@ function triangle_mesh.GetPolygonTriangleLocalVertices(poly, triangle_index)
 	return v0, v1, v2, i0, i1, i2
 end
 
+do
+	local POSITION_QUANTUM = 10000
+	local COPLANAR_DOT = math.cos(math.rad(5))
+	local CONVEX_DEPTH = 0.0001
+
+	local function get_vertex_id(ids, vertex)
+		local key = math.floor(vertex.x * POSITION_QUANTUM + 0.5) .. "," .. math.floor(vertex.y * POSITION_QUANTUM + 0.5) .. "," .. math.floor(vertex.z * POSITION_QUANTUM + 0.5)
+		local id = ids[key]
+
+		if not id then
+			id = ids.count + 1
+			ids.count = id
+			ids[key] = id
+		end
+
+		return id
+	end
+
+	local function get_normal(a, b, c)
+		local e1x, e1y, e1z = b.x - a.x, b.y - a.y, b.z - a.z
+		local e2x, e2y, e2z = c.x - a.x, c.y - a.y, c.z - a.z
+		local nx, ny, nz = e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x
+		local length = math.sqrt(nx * nx + ny * ny + nz * nz)
+
+		if length <= 1e-12 then return 0, 0, 0 end
+
+		return nx / length, ny / length, nz / length
+	end
+
+	-- an edge is active when it is a real crease: a boundary, or folded convexly away from a neighbour. Contacts on a flat seam or in a concave fold belong to the faces, and edge normals there are what makes bodies snag
+	function triangle_mesh.GetPolygonActiveEdges(poly)
+		local cache = get_polygon_cache(poly)
+
+		if cache.active_edges then return cache.active_edges end
+
+		local triangles = triangle_mesh.GetPolygonTriangles(poly)
+		local active = {}
+		cache.active_edges = active
+
+		if not triangles then return active end
+
+		local ids = {count = 0}
+		local edges = {}
+		local records = {}
+
+		for i, triangle in ipairs(triangles) do
+			local corners = {triangle.v0, triangle.v1, triangle.v2}
+			local vertex_ids = {
+				get_vertex_id(ids, corners[1]),
+				get_vertex_id(ids, corners[2]),
+				get_vertex_id(ids, corners[3]),
+			}
+			local nx, ny, nz = get_normal(corners[1], corners[2], corners[3])
+			records[i] = {
+				triangle = triangle,
+				corners = corners,
+				ids = vertex_ids,
+				nx = nx,
+				ny = ny,
+				nz = nz,
+			}
+
+			for k = 1, 3 do
+				local a, b = vertex_ids[k], vertex_ids[k % 3 + 1]
+				local key = math.min(a, b) * 4294967296 + math.max(a, b)
+				local list = edges[key]
+
+				if not list then
+					list = {}
+					edges[key] = list
+				end
+
+				list[#list + 1] = i
+			end
+		end
+
+		for i, record in ipairs(records) do
+			for k = 1, 3 do
+				local a, b = record.ids[k], record.ids[k % 3 + 1]
+				local list = edges[math.min(a, b) * 4294967296 + math.max(a, b)]
+				local is_active = true
+				local origin = record.corners[k]
+
+				for _, other_index in ipairs(list) do
+					if other_index ~= i then
+						local other = records[other_index]
+						local dot = record.nx * other.nx + record.ny * other.ny + record.nz * other.nz
+
+						for c = 1, 3 do
+							local id = other.ids[c]
+
+							if id ~= a and id ~= b then
+								local w = other.corners[c]
+								local depth = (
+										w.x - origin.x
+									) * record.nx + (
+										w.y - origin.y
+									) * record.ny + (
+										w.z - origin.z
+									) * record.nz
+
+								if dot >= COPLANAR_DOT or depth > -CONVEX_DEPTH then is_active = false end
+							end
+						end
+					end
+				end
+
+				active[record.triangle.triangle_index * 3 + k - 1] = is_active
+			end
+		end
+
+		return active
+	end
+end
+
 function triangle_mesh.GetFeaturePositionKey(position, epsilon)
 	if not position then return nil end
 

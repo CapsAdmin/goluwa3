@@ -439,6 +439,51 @@ local function is_behind_triangle(point, v0, v1, v2)
 		) < 0
 end
 
+local touches_active_edge
+
+do
+	local triangle_mesh = import("goluwa/physics/triangle_mesh.lua")
+	local EDGE_REACH = 0.01
+
+	local function edge_distance_sq(point, a, b)
+		local ex, ey, ez = b.x - a.x, b.y - a.y, b.z - a.z
+		local px, py, pz = point.x - a.x, point.y - a.y, point.z - a.z
+		local length_sq = ex * ex + ey * ey + ez * ez
+		local t = length_sq > 0 and
+			math.clamp((px * ex + py * ey + pz * ez) / length_sq, 0, 1) or
+			0
+		local dx, dy, dz = px - ex * t, py - ey * t, pz - ez * t
+		return dx * dx + dy * dy + dz * dz
+	end
+
+	-- a contact normal off the face only stands where the hull touches a real crease (an active edge); on a flat seam or in a concave fold it is the face pushing, and an edge normal there is what snags and rocks bodies
+	function touches_active_edge(entry, triangle_index, contacts, v0, v1, v2)
+		local active = entry and entry.polygon and triangle_mesh.GetPolygonActiveEdges(entry.polygon)
+
+		if not active then return true end
+
+		local base = triangle_index * 3
+		local reach_sq = EDGE_REACH * EDGE_REACH
+
+		for i = 1, #contacts do
+			local point = contacts[i].point_b
+
+			if
+				active[base] and
+				edge_distance_sq(point, v0, v1) <= reach_sq or
+				active[base + 1] and
+				edge_distance_sq(point, v1, v2) <= reach_sq or
+				active[base + 2] and
+				edge_distance_sq(point, v2, v0) <= reach_sq
+			then
+				return true
+			end
+		end
+
+		return false
+	end
+end
+
 local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, context)
 	local mesh_body = context.mesh_body
 	local poly_body = context.poly_body
@@ -477,6 +522,14 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 		result.contacts[1] and
 		triangle_contact_queries.GetTriangleFaceNormal(query_v0, query_v1, query_v2, EPSILON)
 	local face_dot = face_normal and result.normal:Dot(face_normal) or 0
+
+	if
+		face_normal and
+		math.abs(face_dot) < FACE_SNAP_DOT and
+		not touches_active_edge(context.entry, triangle_index, result.contacts, query_v0, query_v1, query_v2)
+	then
+		face_dot = face_dot >= 0 and 1 or -1
+	end
 
 	if math.abs(face_dot) >= MIN_FACE_NORMAL_DOT then
 		if math.abs(face_dot) >= FACE_SNAP_DOT then
