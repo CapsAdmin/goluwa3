@@ -518,6 +518,7 @@ function bridge.RefreshDynamic()
 			end
 
 			item.settled = not moved_now and
+				item.prev_version == item.seen_version and
 				(
 					item.gi_never or
 					item.gi_on == (
