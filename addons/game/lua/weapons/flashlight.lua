@@ -2,9 +2,12 @@ local nodes = import("lua/weapon_nodes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
-local BODY = {Color = Color(0.12, 0.12, 0.13, 1), Roughness = 0.55, Metallic = 0.6}
-local STRAP = {Color = Color(0.2, 0.16, 0.12, 1), Roughness = 0.9, Metallic = 0}
-local LENS = {Color = Color(0.85, 0.88, 0.9, 1), Roughness = 0.05, Metallic = 0.2}
+local BULB = {
+	Color = Color(1, 0.92, 0.7, 1),
+	Roughness = 0.3,
+	Metallic = 0,
+	EmissiveMultiplier = Color(8, 7, 5, 1),
+}
 return {
 	Components = {weapon_switch = {}},
 	Values = {
@@ -18,7 +21,6 @@ return {
 		FireRate = 0.2,
 	},
 	Nodes = {
-		nodes.Box("strap", Vec3(0.09, 0.02, 0.012), Vec3(), STRAP),
 		{
 			guid = "lamp",
 			parent = "model",
@@ -26,28 +28,16 @@ return {
 			components = {transform = {Position = FORWARD * 0.03}},
 		},
 		{
-			guid = "housing",
+			guid = "bulb",
 			parent = "lamp",
-			properties = {Name = "housing"},
+			properties = {Name = "bulb"},
 			components = {
-				transform = {Position = FORWARD * 0.02},
+				transform = {},
+				visibility = {},
 				model = {
-					ModelPath = "models/box.lua",
-					ModelOptions = {size = Vec3(0.05, 0.05, 0.08)},
-					MaterialConfig = BODY,
-				},
-			},
-		},
-		{
-			guid = "lens",
-			parent = "lamp",
-			properties = {Name = "lens"},
-			components = {
-				transform = {Position = FORWARD * 0.065},
-				model = {
-					ModelPath = "models/box.lua",
-					ModelOptions = {size = Vec3(0.042, 0.042, 0.01)},
-					MaterialConfig = LENS,
+					ModelPath = "models/sphere.lua",
+					ModelOptions = {radius = 0.04},
+					MaterialConfig = BULB,
 				},
 			},
 		},
@@ -95,8 +85,13 @@ function META:OnWeaponPredictPrimary()
 	return false
 end
 
+function META:OnWeaponEquip()
+	self.Owner.prefab:GetNode("bulb").visibility:SetVisible(false)
+end
+
 function META:OnWeaponHolster()
 	self.Owner.weapon_switch:SetOn(false)
+	self.Owner.prefab:GetNode("bulb").visibility:SetVisible(true)
 end
 
 function META:OnUpdate()
