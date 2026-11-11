@@ -243,11 +243,22 @@ local function evaluate_polyhedron_pair_distance_at_transforms(poly_a, position_
 	local vertices_b = polyhedron_cache.FillPolyhedronWorldVertices(poly_b, position_b, rotation_b, scratch.vertices_b)
 	scratch.vertices_a = vertices_a
 	scratch.vertices_b = vertices_b
+	local result_index = scratch.result_index + 1
+	local out = scratch.results[result_index]
+
+	if not out then
+		out = {}
+		scratch.results[result_index] = out
+	end
+
+	scratch.result_index = result_index
 	local distance = gjk_epa.Distance(
 		vertices_a,
 		vertices_b,
-		scratch.last_normal or (position_b - position_a),
-		scratch.distance_simplex
+		scratch.last_normal or
+			Vec3.SetSub(scratch.initial_direction, position_b, position_a),
+		scratch.distance_simplex,
+		out
 	)
 	scratch.distance_simplex = distance and distance.simplex or scratch.distance_simplex
 
@@ -275,8 +286,14 @@ find_distance_swept_polyhedron_pair_hit = function(body_a, body_b, poly_a, poly_
 		{
 			vertices_a = {},
 			vertices_b = {},
+			results = {},
+			result_index = 0,
+			initial_direction = Vec3(),
+			position_a = Vec3(),
+			position_b = Vec3(),
 		}
 	poly_a._PolyhedronDistanceSweepScratch = scratch
+	scratch.result_index = 0
 	scratch.last_normal = get_cached_pair_axis(body_a, body_b)
 	local context = POLYHEDRON_DISTANCE_SWEEP_CONTEXT
 	context.poly_a = poly_a
@@ -293,6 +310,14 @@ find_distance_swept_polyhedron_pair_hit = function(body_a, body_b, poly_a, poly_
 		body_b.GetCollisionMargin and body_b:GetCollisionMargin() or 0,
 		physics_constants.DEFAULT_COLLISION_MARGIN or 0
 	)
+
+	-- the sweep only translates the start poses, so the distance cannot shrink by more than the relative movement
+	if
+		polyhedron_distance_sweep_evaluate(context, 0).distance > hit_distance + relative_movement:GetLength() + 0.001
+	then
+		return nil
+	end
+
 	local hit = pair_solver_helpers.FindDistanceSweepHit(
 		polyhedron_distance_sweep_evaluate,
 		hit_distance,
@@ -464,14 +489,17 @@ temporal_toi_intersects = function(context, t)
 	return nil
 end
 polyhedron_distance_sweep_evaluate = function(context, t)
+	local scratch = context.scratch
+	local start_a, movement_a = context.previous_position_a, context.movement_a
+	local start_b, movement_b = context.previous_position_b, context.movement_b
 	return evaluate_polyhedron_pair_distance_at_transforms(
 		context.poly_a,
-		context.previous_position_a + context.movement_a * t,
+		scratch.position_a:Set(start_a.x + movement_a.x * t, start_a.y + movement_a.y * t, start_a.z + movement_a.z * t),
 		context.rotation_a,
 		context.poly_b,
-		context.previous_position_b + context.movement_b * t,
+		scratch.position_b:Set(start_b.x + movement_b.x * t, start_b.y + movement_b.y * t, start_b.z + movement_b.z * t),
 		context.rotation_b,
-		context.scratch
+		scratch
 	)
 end
 point_sweep_against_polyhedron = function(context, start_world, end_world, local_point)
