@@ -79,33 +79,63 @@ do
 	end
 end
 
-local is_separated_by_triangle_plane
+local is_separated_by_triangle_prism
 
 do
 	local math_sqrt = math.sqrt
 	local math_min = math.min
 	local math_max = math.max
+	local huge = math.huge
 
-	function is_separated_by_triangle_plane(poly_vertices, v0, v1, v2, threshold)
-		local e1x, e1y, e1z = v1.x - v0.x, v1.y - v0.y, v1.z - v0.z
-		local e2x, e2y, e2z = v2.x - v0.x, v2.y - v0.y, v2.z - v0.z
-		local nx, ny, nz = e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x
+	-- the triangle plane and the three planes through its edges along the normal are separating axes that need no gjk
+	function is_separated_by_triangle_prism(poly_vertices, v0, v1, v2, threshold)
+		local ax, ay, az = v0.x, v0.y, v0.z
+		local bx, by, bz = v1.x, v1.y, v1.z
+		local cx, cy, cz = v2.x, v2.y, v2.z
+		local e0x, e0y, e0z = bx - ax, by - ay, bz - az
+		local e1x, e1y, e1z = cx - bx, cy - by, cz - bz
+		local e2x, e2y, e2z = ax - cx, ay - cy, az - cz
+		local nx, ny, nz = e0y * -e2z - e0z * -e2y, e0z * -e2x - e0x * -e2z, e0x * -e2y - e0y * -e2x
 		local length = math_sqrt(nx * nx + ny * ny + nz * nz)
 
 		if length < 1e-12 then return false end
 
 		nx, ny, nz = nx / length, ny / length, nz / length
-		local plane = nx * v0.x + ny * v0.y + nz * v0.z
-		local low, high = math.huge, -math.huge
+		local m0x, m0y, m0z = e0y * nz - e0z * ny, e0z * nx - e0x * nz, e0x * ny - e0y * nx
+		local m1x, m1y, m1z = e1y * nz - e1z * ny, e1z * nx - e1x * nz, e1x * ny - e1y * nx
+		local m2x, m2y, m2z = e2y * nz - e2z * ny, e2z * nx - e2x * nz, e2x * ny - e2y * nx
+		local l0 = math_sqrt(m0x * m0x + m0y * m0y + m0z * m0z)
+		local l1 = math_sqrt(m1x * m1x + m1y * m1y + m1z * m1z)
+		local l2 = math_sqrt(m2x * m2x + m2y * m2y + m2z * m2z)
+
+		if l0 < 1e-12 or l1 < 1e-12 or l2 < 1e-12 then return false end
+
+		m0x, m0y, m0z = m0x / l0, m0y / l0, m0z / l0
+		m1x, m1y, m1z = m1x / l1, m1y / l1, m1z / l1
+		m2x, m2y, m2z = m2x / l2, m2y / l2, m2z / l2
+		local plane = nx * ax + ny * ay + nz * az
+		local edge0 = m0x * ax + m0y * ay + m0z * az
+		local edge1 = m1x * bx + m1y * by + m1z * bz
+		local edge2 = m2x * cx + m2y * cy + m2z * cz
+		local low, high = huge, -huge
+		local out0, out1, out2 = huge, huge, huge
 
 		for i = 1, #poly_vertices do
 			local p = poly_vertices[i]
-			local d = nx * p.x + ny * p.y + nz * p.z
+			local px, py, pz = p.x, p.y, p.z
+			local d = nx * px + ny * py + nz * pz
 			low = math_min(low, d)
 			high = math_max(high, d)
+			out0 = math_min(out0, m0x * px + m0y * py + m0z * pz - edge0)
+			out1 = math_min(out1, m1x * px + m1y * py + m1z * pz - edge1)
+			out2 = math_min(out2, m2x * px + m2y * py + m2z * pz - edge2)
 		end
 
-		return low - plane > threshold or plane - high > threshold
+		return low - plane > threshold or
+			plane - high > threshold or
+			out0 > threshold or
+			out1 > threshold or
+			out2 > threshold
 	end
 end
 
@@ -474,7 +504,7 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 
 	local separation_threshold = math.max(collider:GetCollisionMargin() or 0, options.collider_margin or 0) + triangle_slop + 0.01
 
-	if is_separated_by_triangle_plane(poly_vertices, v0, v1, v2, separation_threshold) then
+	if is_separated_by_triangle_prism(poly_vertices, v0, v1, v2, separation_threshold) then
 		return nil
 	end
 
