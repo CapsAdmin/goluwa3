@@ -19,6 +19,19 @@ function nodes.Box(name, size, position, material)
 	}
 end
 
+function nodes.Replacement(size, position, material)
+	return nodes.Box("replacement", size, position, material)
+end
+
+function nodes.Marker(name, position)
+	return {
+		guid = name,
+		parent = "model",
+		properties = {Name = name},
+		components = {transform = {Position = position}},
+	}
+end
+
 function nodes.Cylinder(name, radius, length, position, material, along_aim)
 	return {
 		guid = name,

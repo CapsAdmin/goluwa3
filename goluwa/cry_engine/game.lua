@@ -1,6 +1,7 @@
 local vfs = import("goluwa/vfs.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local steam = import("goluwa/steam/steam.lua")
+local event = import("goluwa/event.lua")
 local game = {
 	CRYSIS_APPID = 17300,
 }
@@ -193,6 +194,7 @@ function game.MountContent()
 	mount_directory(content_mounts, cry_game.game_dir .. "Game/Textures.pak/", game_info)
 	mount_directory(content_mounts, cry_game.game_dir .. "Game/GameData.pak/", game_info)
 	mount_directory(content_mounts, cry_game.game_dir .. "Game/Localized/english.pak/", game_info)
+	event.Call("SourceGameMounted", game_info)
 end
 
 function game.UnmountContent()
