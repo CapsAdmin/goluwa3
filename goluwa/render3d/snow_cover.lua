@@ -10,6 +10,8 @@ snow_cover.LIP = 1.5
 snow_cover.MAX_LIP_TEXELS = 24
 snow_cover.SMOOTH = 0.5
 snow_cover.MAX_SMOOTH_TEXELS = 24
+snow_cover.TILE_NEAR = 8
+snow_cover.TILE_FAR = 8
 snow_cover.EDGE_RADIUS = 8
 local SLOTS = 4
 local state = {}
@@ -276,6 +278,64 @@ do
 	end
 end
 
+local get_tile_pipeline
+
+do
+	local pipelines = {}
+
+	function get_tile_pipeline(level)
+		if pipelines[level] then return pipelines[level] end
+
+		local margin = level == 1 and 2 or 1
+		pipelines[level] = EasyPipeline.Compute{
+			name = "snow_cover_tiles_" .. level,
+			DescriptorSetCount = SLOTS,
+			LocalSize = {x = 8, y = 8, z = 1},
+			storage_images = {{binding_index = 0}, {binding_index = 1}},
+			uniform_buffers = {
+				{
+					name = "tile_params",
+					binding_index = 2,
+					block = {
+						{"block", "int"},
+						{"margin", "int"},
+					},
+					write = function(self, block)
+						block.block = level == 1 and snow_cover.TILE_NEAR or snow_cover.TILE_FAR
+						block.margin = margin
+						return block
+					end,
+				},
+			},
+			custom_declarations = [[
+				layout(set = 0, binding = 0, rg32f) uniform writeonly image2D tile_map;
+				layout(set = 0, binding = 1, rg32f) uniform readonly image2D source_map;
+			]],
+			shader = [[
+				void main() {
+					ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+
+					if (any(greaterThanEqual(p, imageSize(tile_map)))) return;
+
+					ivec2 source_size = imageSize(source_map);
+					ivec2 low = p * tile_params.block - tile_params.margin;
+					ivec2 high = (p + 1) * tile_params.block - 1 + tile_params.margin;
+					float top = 2.0;
+
+					for (int y = low.y; y <= high.y; y++) {
+						for (int x = low.x; x <= high.x; x++) {
+							top = min(top, imageLoad(source_map, clamp(ivec2(x, y), ivec2(0), source_size - 1)).r);
+						}
+					}
+
+					imageStore(tile_map, p, vec4(top, 0.0, 0.0, 0.0));
+				}
+			]],
+		}
+		return pipelines[level]
+	end
+end
+
 function snow_cover.Build(map, cmd)
 	local shelter = map:GetDepthTexture(1)
 	local size = shelter:GetWidth()
@@ -301,6 +361,32 @@ function snow_cover.Build(map, cmd)
 			format = "r32g32_sfloat",
 			mip_map_levels = 1,
 			image = {usage = {"storage"}},
+		}
+		state.near_tiles = Texture.New{
+			width = size / snow_cover.TILE_NEAR,
+			height = size / snow_cover.TILE_NEAR,
+			format = "r32g32_sfloat",
+			mip_map_levels = 1,
+			image = {usage = {"sampled", "storage"}},
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
+		}
+		state.far_tiles = Texture.New{
+			width = size / snow_cover.TILE_NEAR / snow_cover.TILE_FAR,
+			height = size / snow_cover.TILE_NEAR / snow_cover.TILE_FAR,
+			format = "r32g32_sfloat",
+			mip_map_levels = 1,
+			image = {usage = {"sampled", "storage"}},
+			sampler = {
+				min_filter = "nearest",
+				mag_filter = "nearest",
+				wrap_s = "clamp_to_edge",
+				wrap_t = "clamp_to_edge",
+			},
 		}
 		state.texture = Texture.New{
 			width = size,
@@ -364,8 +450,38 @@ function snow_cover.Build(map, cmd)
 	vertical:BindStorageImage(cmd, slot, 3, state.edge)
 	vertical:UploadConstants()
 	vertical.pipeline:Dispatch(cmd, math.ceil(size / 8), math.ceil(size / 8), 1, slot, vertical.dynamic_offsets)
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+	local near_tiles = get_tile_pipeline(1)
+	near_tiles:BindStorageImage(cmd, slot, 0, state.near_tiles)
+	near_tiles:BindStorageImage(cmd, slot, 1, state.texture)
+	near_tiles:UploadConstants()
+	near_tiles.pipeline:Dispatch(
+		cmd,
+		math.ceil(size / snow_cover.TILE_NEAR / 8),
+		math.ceil(size / snow_cover.TILE_NEAR / 8),
+		1,
+		slot,
+		near_tiles.dynamic_offsets
+	)
+	cmd:PipelineBarrier{srcStage = "compute", dstStage = "compute", memoryBarrier = true}
+	local far_tiles = get_tile_pipeline(2)
+	far_tiles:BindStorageImage(cmd, slot, 0, state.far_tiles)
+	far_tiles:BindStorageImage(cmd, slot, 1, state.near_tiles)
+	far_tiles:UploadConstants()
+	far_tiles.pipeline:Dispatch(
+		cmd,
+		math.ceil(size / snow_cover.TILE_NEAR / snow_cover.TILE_FAR / 8),
+		math.ceil(size / snow_cover.TILE_NEAR / snow_cover.TILE_FAR / 8),
+		1,
+		slot,
+		far_tiles.dynamic_offsets
+	)
 	render.TransitionResourceToShaderRead(state.texture, {cmd = cmd})
+	render.TransitionResourceToShaderRead(state.near_tiles, {cmd = cmd})
+	render.TransitionResourceToShaderRead(state.far_tiles, {cmd = cmd})
 	surface_weather.snow_map = state.texture
+	surface_weather.snow_near_tiles = state.near_tiles
+	surface_weather.snow_far_tiles = state.far_tiles
 end
 
 function snow_cover.Update(map)
@@ -373,6 +489,8 @@ function snow_cover.Update(map)
 
 	if surface_weather.snow_depth < snow_cover.MIN_DEPTH or not rendered then
 		surface_weather.snow_map = nil
+		surface_weather.snow_near_tiles = nil
+		surface_weather.snow_far_tiles = nil
 		state.key = nil
 		return
 	end

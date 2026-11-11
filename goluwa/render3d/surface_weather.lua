@@ -11,6 +11,8 @@ surface_weather.precipitation_direction = Vec3(0, 1, 0)
 surface_weather.precipitation_spread = 0.2
 surface_weather.shelter_map = nil
 surface_weather.snow_map = nil
+surface_weather.snow_near_tiles = nil
+surface_weather.snow_far_tiles = nil
 surface_weather.SNOW_MATERIAL = "materials/examples/snow.lua"
 surface_weather.SNOW_TEXTURE_SIZE = 2.4
 surface_weather.snow_material = nil
@@ -30,6 +32,8 @@ surface_weather.block = {
 	{"surface_snow_wetness", "float"},
 	{"shelter_texture", "int"},
 	{"snow_map_texture", "int"},
+	{"snow_near_tiles_texture", "int"},
+	{"snow_far_tiles_texture", "int"},
 	{"shelter_texel_size", "float"},
 	{"precipitation_spread", "float"},
 	{"surface_frame", "int"},
@@ -73,6 +77,12 @@ function surface_weather.WriteBlock(self, block)
 		block.snow_map_texture = surface_weather.snow_map and
 			block.surface_snow_depth > 0 and
 			self:GetTextureIndex(surface_weather.snow_map) or
+			-1
+		block.snow_near_tiles_texture = block.snow_map_texture ~= -1 and
+			self:GetTextureIndex(surface_weather.snow_near_tiles) or
+			-1
+		block.snow_far_tiles_texture = block.snow_map_texture ~= -1 and
+			self:GetTextureIndex(surface_weather.snow_far_tiles) or
 			-1
 		block.shelter_texel_size = map:GetCascadeTexelWorldSize(1)
 		map:GetLightSpaceMatrix(1):CopyToFloatPointer(block.shelter_matrix)
@@ -407,27 +417,78 @@ function surface_weather.GetGLSL(block_name)
 			float bias = 0.05 * depth_per_meter;
 			float jump = (0.1 + ]] .. block_name .. [[.shelter_texel_size) * depth_per_meter;
 			float own_bias = (0.05 + ]] .. block_name .. [[.shelter_texel_size * 1.5 * sqrt(max(1.0 - up * up, 0.0)) / max(up, 0.2)) * depth_per_meter * step(0.2, up);
-			int steps = clamp(int((t_end - t_start) / (depth * 0.05)), 8, 256);
-			int coarse = t_start > 0.0 ? 48 : 0;
-			float window = t_start / t_end;
-			float previous = 0.0;
+			vec3 ray = b - start;
+			vec2 safe_ray = vec2(ray.x != 0.0 ? ray.x : 1e-9, ray.y != 0.0 ? ray.y : 1e-9);
+			vec2 edge_a = (vec2(0.0) - start.xy) / safe_ray;
+			vec2 edge_b = (vec2(1.0) - start.xy) / safe_ray;
+			float f_in = max(max(min(edge_a.x, edge_b.x), min(edge_a.y, edge_b.y)), 0.0);
+			float f_out = min(min(max(edge_a.x, edge_b.x), max(edge_a.y, edge_b.y)), 1.0);
+
+			if (f_in > f_out) return false;
+
+			float window = max(t_start / t_end, f_in);
+			int steps = clamp(int((f_out - window) * t_end / (depth * 0.05)), 8, 128);
+			float coarse_step = max(window - f_in, 0.0) / 48.0;
+			float fine_step = max(f_out - window, 0.0) / float(steps);
+			ivec2 near_size = textureSize(TEXTURE(]] .. block_name .. [[.snow_near_tiles_texture), 0);
+			ivec2 far_size = textureSize(TEXTURE(]] .. block_name .. [[.snow_far_tiles_texture), 0);
+			float f = f_in;
+			float previous = f_in;
 			float hit = -1.0;
 
-			for (int i = 0; i <= 304; i++) {
-				if (i > coarse + steps) break;
-
-				float f = i < coarse ? window * float(i) / float(coarse) : window + (1.0 - window) * float(i - coarse) / float(steps);
+			for (int i = 0; i < 400; i++) {
 				vec3 p = mix(start, b, f);
+
+				if (snow_map_contains(p)) {
+					// a tile holds the highest snow top of its texels and a margin; a ray that stays above it over the tile cannot be in snow
+					float skip_to = -1.0;
+
+					for (int level = 0; level < 2; level++) {
+						ivec2 tiles = level == 0 ? far_size : near_size;
+						ivec2 tile = min(ivec2(p.xy * vec2(tiles)), tiles - 1);
+						float top = texelFetch(TEXTURE(level == 0 ? ]] .. block_name .. [[.snow_far_tiles_texture : ]] .. block_name .. [[.snow_near_tiles_texture), tile, 0).r;
+
+						if (p.z < top) {
+							vec2 low = vec2(tile) / vec2(tiles);
+							vec2 high = vec2(tile + 1) / vec2(tiles);
+							vec2 exit_f = vec2(
+								ray.x > 0.0 ? (high.x - p.x) / ray.x : ray.x < 0.0 ? (low.x - p.x) / ray.x : 1e9,
+								ray.y > 0.0 ? (high.y - p.y) / ray.y : ray.y < 0.0 ? (low.y - p.y) / ray.y : 1e9
+							);
+							float next = f + min(exit_f.x, exit_f.y) + 1e-5;
+							float lattice_step = next < window ? coarse_step : fine_step;
+							float lattice_base = next < window ? f_in : window;
+							next = min(lattice_base + ceil((next - lattice_base) / max(lattice_step, 1e-7)) * lattice_step, f_out);
+
+							if (mix(start, b, next).z < top) {
+								skip_to = next;
+								break;
+							}
+						}
+					}
+
+					if (skip_to > f) {
+						f = skip_to;
+						previous = f;
+
+						if (f >= f_out) break;
+
+						continue;
+					}
+				}
 
 				if (
 					snow_map_contains(p) &&
-					(i == coarse + steps ? snow_map_inside_smooth(b, max(bias, own_bias), jump) : snow_map_inside(p, bias, jump))
+					(f >= 1.0 ? snow_map_inside_smooth(b, max(bias, own_bias), jump) : snow_map_inside(p, bias, jump))
 				) {
 					hit = f;
 					break;
 				}
 
+				if (f >= f_out) break;
+
 				previous = f;
+				f = min(f + (f < window ? coarse_step : fine_step), f_out);
 			}
 
 			if (hit < 0.0) return false;
