@@ -418,6 +418,125 @@ local CLUSTER_MEMBERS = {}
 local CLUSTER_USED = {}
 local CLUSTER_MATCH_DOT = 0.9
 local MAX_CLUSTER_MANIFOLDS = 4
+-- contacts regenerated from a bumpy triangle soup come and go from step to step as the nearest triangles change, and a body balanced on the ones that happen to be found rocks; points found in earlier steps stay in their manifold while both bodies still hold them (Bullet's persistent manifold)
+local PERSIST_BREAK_DEPTH = 0.05
+local PERSIST_DRIFT = 0.02
+local PERSIST_MERGE = 0.03
+local PERSIST_MAX_CONTACTS = 4
+local PERSIST_MAX_STEPS = 6
+local merge_persisted_contacts
+
+do
+	local POINT_A = Vec3()
+	local POINT_B = Vec3()
+
+	local function contact_depth(c, nx, ny, nz)
+		return (
+				c.point_a.x - c.point_b.x
+			) * nx + (
+				c.point_a.y - c.point_b.y
+			) * ny + (
+				c.point_a.z - c.point_b.z
+			) * nz
+	end
+
+	local function reduce(contacts, normal)
+		if #contacts <= PERSIST_MAX_CONTACTS then return contacts end
+
+		local nx, ny, nz = normal.x, normal.y, normal.z
+		local chosen = {}
+		local best, best_value = nil, -math.huge
+
+		for i = 1, #contacts do
+			local value = contact_depth(contacts[i], nx, ny, nz)
+
+			if value > best_value then best, best_value = i, value end
+		end
+
+		chosen[1] = contacts[best]
+		contacts[best] = false
+
+		while #chosen < PERSIST_MAX_CONTACTS do
+			local pick, pick_value = nil, -1
+
+			for i = 1, #contacts do
+				local c = contacts[i]
+
+				if c then
+					local nearest = math.huge
+
+					for j = 1, #chosen do
+						local o = chosen[j].point_b
+						local dx, dy, dz = c.point_b.x - o.x, c.point_b.y - o.y, c.point_b.z - o.z
+						nearest = math.min(nearest, dx * dx + dy * dy + dz * dz)
+					end
+
+					if nearest > pick_value then pick, pick_value = i, nearest end
+				end
+			end
+
+			if not pick then break end
+
+			chosen[#chosen + 1] = contacts[pick]
+			contacts[pick] = false
+		end
+
+		return chosen
+	end
+
+	function merge_persisted_contacts(member, body_a, body_b, normal, contacts)
+		local count = member.n or 0
+		local cs = member.cs
+
+		if
+			count == 0 or
+			not cs or
+			member.idle or
+			not member.normal or
+			member.normal:Dot(normal) < CLUSTER_MATCH_DOT
+		then
+			return contacts
+		end
+
+		local merged = contacts and {unpack(contacts)} or {}
+		local nx, ny, nz = normal.x, normal.y, normal.z
+
+		for i = 0, count - 1 do
+			local c = cs[i]
+			POINT_A:Set(c.lax, c.lay, c.laz)
+			POINT_B:Set(c.lbx, c.lby, c.lbz)
+			local pa = body_a:LocalToWorld(POINT_A)
+			local pb = body_b:LocalToWorld(POINT_B)
+			local dx, dy, dz = pa.x - pb.x, pa.y - pb.y, pa.z - pb.z
+			local depth = dx * nx + dy * ny + dz * nz
+			local tx, ty, tz = dx - nx * depth, dy - ny * depth, dz - nz * depth
+
+			if
+				depth >= -PERSIST_BREAK_DEPTH and
+				tx * tx + ty * ty + tz * tz <= PERSIST_DRIFT * PERSIST_DRIFT
+			then
+				local duplicate = false
+
+				for j = 1, #merged do
+					local o = merged[j].point_b
+					local ex, ey, ez = o.x - pb.x, o.y - pb.y, o.z - pb.z
+
+					if ex * ex + ey * ey + ez * ez <= PERSIST_MERGE * PERSIST_MERGE then
+						duplicate = true
+
+						break
+					end
+				end
+
+				if not duplicate then
+					merged[#merged + 1] = {point_a = pa, point_b = pb, normal = normal}
+				end
+			end
+		end
+
+		return reduce(merged, normal)
+	end
+end
 
 function contact_resolution.ResolvePairClusters(body_a, body_b, clusters, cluster_count, dt, options)
 	if body_a.InverseMass + body_b.InverseMass <= 0 then return false end
@@ -484,13 +603,15 @@ function contact_resolution.ResolvePairClusters(body_a, body_b, clusters, cluste
 
 		if pick then
 			used[pick] = true
+			local member = members[pick]
+			member.persist_steps = 0
 			fill_manifold(
-				members[pick],
+				member,
 				body_a,
 				body_b,
 				cluster.normal,
 				cluster.overlap,
-				cluster.contacts,
+				merge_persisted_contacts(member, body_a, body_b, cluster.normal, cluster.contacts),
 				options,
 				solver
 			)
@@ -501,9 +622,28 @@ function contact_resolution.ResolvePairClusters(body_a, body_b, clusters, cluste
 		local member = members[member_index]
 
 		if not used[member_index] and not member.idle then
-			member.idle = true
-			member.n = 0
-			member.overlap = -1
+			local kept = (
+					member.persist_steps or
+					0
+				) < PERSIST_MAX_STEPS and
+				merge_persisted_contacts(member, body_a, body_b, member.normal, nil)
+
+			if kept and kept[1] then
+				member.persist_steps = (member.persist_steps or 0) + 1
+				local deepest = -math.huge
+				local normal = member.normal
+
+				for i = 1, #kept do
+					local c = kept[i]
+					deepest = math.max(deepest, (c.point_a - c.point_b):Dot(normal))
+				end
+
+				fill_manifold(member, body_a, body_b, normal, deepest, kept, options, solver)
+			else
+				member.idle = true
+				member.n = 0
+				member.overlap = -1
+			end
 		end
 	end
 
