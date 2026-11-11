@@ -2,8 +2,19 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local system = import("goluwa/system.lua")
 local assets = import("goluwa/assets.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_weather = {}
+pvars.StartGroup("Environment", "Snow", {prefix = "snow_"})
+local march_steps = pvars.Setup2{
+	key = "snow_march_steps",
+	default = 128,
+	integer = true,
+	min = 16,
+	max = 256,
+	help = "most steps a view ray takes through the snow over the shelter map. the cost is mostly far geometry behind deep snow, fewer steps are cheaper but let far drifts thin out and the rim of a drift scallop",
+}
+pvars.EndGroup()
 surface_weather.wetness = 0
 surface_weather.snow_depth = 0
 surface_weather.rain_rate = 0
@@ -32,6 +43,7 @@ surface_weather.block = {
 	{"surface_snow_wetness", "float"},
 	{"shelter_texture", "int"},
 	{"snow_map_texture", "int"},
+	{"snow_march_steps", "int"},
 	{"snow_near_tiles_texture", "int"},
 	{"snow_far_tiles_texture", "int"},
 	{"shelter_texel_size", "float"},
@@ -70,6 +82,7 @@ function surface_weather.WriteBlock(self, block)
 	block.surface_wetness = surface_weather.GetWetness()
 	block.surface_snow_depth = atmosphere.IsEnabled() and surface_weather.snow_depth or 0
 	block.surface_snow_wetness = surface_weather.GetSnowWetness()
+	block.snow_march_steps = march_steps:Get()
 	local map = surface_weather.shelter_map
 
 	if map and map:IsEnabled() and map:IsCascadeSampleable(1) then
@@ -427,7 +440,7 @@ function surface_weather.GetGLSL(block_name)
 			if (f_in > f_out) return false;
 
 			float window = max(t_start / t_end, f_in);
-			int steps = clamp(int((f_out - window) * t_end / (depth * 0.05)), 8, 128);
+			int steps = clamp(int((f_out - window) * t_end / (depth * 0.05)), 8, ]] .. block_name .. [[.snow_march_steps);
 			float coarse_step = max(window - f_in, 0.0) / 48.0;
 			float fine_step = max(f_out - window, 0.0) / float(steps);
 			ivec2 near_size = textureSize(TEXTURE(]] .. block_name .. [[.snow_near_tiles_texture), 0);
