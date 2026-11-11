@@ -88,9 +88,12 @@ local function build_games(entries)
 		end
 
 		local node = game
+		local first = true
 
 		for segment in entry.dir_path:gmatch("([^/]+)/") do
-			if segment ~= "models" or node ~= game then
+			if first then
+				first = false
+			else
 				local child = node.by_name[segment]
 
 				if not child then

@@ -24,6 +24,8 @@ local EXCLUDED_PREFIXES = {
 	"models/humans/",
 	"models/characters/",
 	"models/gibs/",
+	"objects/weapons/",
+	"objects/characters/",
 	"models/bots/",
 	"models/workshop/",
 	"models/workshop_partner/",
@@ -60,6 +62,7 @@ local EXCLUDED_PREFIXES = {
 }
 local EXCLUDED_NAME_PATTERNS = {
 	"_lod%d*$",
+	"_distance$",
 	"lod%d+$",
 	"_phys[%a]*$",
 	"_collide",
@@ -467,7 +470,7 @@ do
 	end
 
 	function model_families.IsUseful(entry)
-		if entry.extension ~= ".mdl" then return false end
+		if entry.extension ~= ".mdl" and entry.extension ~= ".cgf" then return false end
 
 		local lower = entry.lower_path
 
@@ -634,7 +637,7 @@ function model_families.Get()
 
 	for _, entry in ipairs(index.entries) do
 		if model_families.IsUseful(entry) then
-			eligible[#eligible + 1] = entry
+			if entry.extension == ".mdl" then eligible[#eligible + 1] = entry end
 
 			for token in entry.lower_path:sub(8):gmatch("[%a%d]+") do
 				for _, key in ipairs(model_families.GetTokenKeys(token)) do
