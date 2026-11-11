@@ -279,6 +279,12 @@ local function resolve_mesh_polyhedron_state(mesh_body, poly_body, state, dt)
 	return contact_resolution.ResolvePairClusters(mesh_body, poly_body, CLUSTERS, cluster_count, dt)
 end
 
+local SAMPLE_FACE_NORMAL = Vec3()
+local SAMPLE_EDGE_A = Vec3()
+local SAMPLE_EDGE_B = Vec3()
+local SAMPLE_TRIANGLE_CENTER = Vec3()
+local SAMPLE_PROJECTED = Vec3()
+
 function mesh_polyhedron_contacts.AccumulateSampleContacts(
 	state,
 	mesh_body,
@@ -327,19 +333,38 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 		end
 
 		if not face_normal then
-			face_normal = triangle_contact_queries.GetTriangleFaceNormal(v0, v1, v2, EPSILON)
+			face_normal = Vec3.SetCross(
+				SAMPLE_FACE_NORMAL,
+				Vec3.SetSub(SAMPLE_EDGE_A, v1, v0),
+				Vec3.SetSub(SAMPLE_EDGE_B, v2, v0)
+			):Normalize()
 
-			if not face_normal then return state, found_contact end
+			if face_normal:GetLength() <= EPSILON then return state, found_contact end
 
-			local triangle_center = triangle_geometry.GetTriangleCenter(v0, v1, v2)
-			triangle_center_world = use_local_space and mesh_body:LocalToWorld(triangle_center) or triangle_center
+			triangle_center_world = SAMPLE_TRIANGLE_CENTER
+			triangle_center_world.x = (v0.x + v1.x + v2.x) / 3
+			triangle_center_world.y = (v0.y + v1.y + v2.y) / 3
+			triangle_center_world.z = (v0.z + v1.z + v2.z) / 3
+
+			if use_local_space then
+				triangle_center_world = mesh_body:LocalToWorld(triangle_center_world)
+			end
 		end
 
-		local signed_distance = (query_point - v0):Dot(face_normal)
+		local signed_distance = (
+				query_point.x - v0.x
+			) * face_normal.x + (
+				query_point.y - v0.y
+			) * face_normal.y + (
+				query_point.z - v0.z
+			) * face_normal.z
 
 		if signed_distance < -MAX_SAMPLE_DEPTH then goto continue end
 
-		local projected = query_point - face_normal * signed_distance
+		local projected = SAMPLE_PROJECTED
+		projected.x = query_point.x - face_normal.x * signed_distance
+		projected.y = query_point.y - face_normal.y * signed_distance
+		projected.z = query_point.z - face_normal.z * signed_distance
 
 		if triangle_geometry.PointInTriangle(projected, v0, v1, v2, face_normal) then
 			local position = use_local_space and mesh_body:LocalToWorld(projected) or projected
@@ -347,16 +372,32 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 				mesh_body:GetRotation():VecMul(face_normal):GetNormalized() or
 				face_normal
 
-			if
-				not SOLVE_MESH_POLYHEDRON_CONTEXT.outward_winding and
-				(
-					poly_body:GetPosition() - triangle_center_world
-				):Dot(normal) < 0
-			then
-				normal = normal * -1
+			if not SOLVE_MESH_POLYHEDRON_CONTEXT.outward_winding then
+				local center = poly_body:GetPosition()
+
+				if
+					(
+						center.x - triangle_center_world.x
+					) * normal.x + (
+						center.y - triangle_center_world.y
+					) * normal.y + (
+						center.z - triangle_center_world.z
+					) * normal.z < 0
+				then
+					normal = normal * -1
+				end
 			end
 
-			local overlap = combined_margin - (sample.point - position):Dot(normal)
+			local point = sample.point
+			local overlap = combined_margin - (
+					(
+						point.x - position.x
+					) * normal.x + (
+						point.y - position.y
+					) * normal.y + (
+						point.z - position.z
+					) * normal.z
+				)
 
 			if overlap > EPSILON then
 				found_contact = true

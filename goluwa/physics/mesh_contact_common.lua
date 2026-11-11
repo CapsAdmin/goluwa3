@@ -17,6 +17,7 @@ local CAPSULE_TRIANGLE_CONTACT_HANDLERS = {}
 local MAX_SPECULATIVE_DISTANCE = 0.5
 local FACE_BEHIND_DOT = 0.99
 local LOCAL_SPACE_NARROW_PHASE_ENABLED = true
+local EXPANDED_CONTACT_AABB = {}
 
 function mesh_contact_common.BuildExpandedWorldContactAABB(bounds, body, extra_body, extra_pad)
 	local margin = body and (body:GetCollisionMargin() or 0) or 0
@@ -31,14 +32,14 @@ function mesh_contact_common.BuildExpandedWorldContactAABB(bounds, body, extra_b
 			extra_pad or
 			0
 		)
-	return {
-		min_x = bounds.min_x - pad,
-		min_y = bounds.min_y - pad,
-		min_z = bounds.min_z - pad,
-		max_x = bounds.max_x + pad,
-		max_y = bounds.max_y + pad,
-		max_z = bounds.max_z + pad,
-	}
+	local out = EXPANDED_CONTACT_AABB
+	out.min_x = bounds.min_x - pad
+	out.min_y = bounds.min_y - pad
+	out.min_z = bounds.min_z - pad
+	out.max_x = bounds.max_x + pad
+	out.max_y = bounds.max_y + pad
+	out.max_z = bounds.max_z + pad
+	return out
 end
 
 function mesh_contact_common.GetMeshShape(body)
@@ -392,14 +393,23 @@ local function solve_best_triangle_contact_callback(v0, v1, v2, triangle_index, 
 	target.contacts[1].point_b = best.point_b
 end
 
+local OTHER_BODY_AABB = AABB(0, 0, 0, 0, 0, 0)
+local LOCAL_CONTACT_AABB = AABB(0, 0, 0, 0, 0, 0)
+
 function mesh_contact_common.ForEachOverlappingMeshTriangle(mesh_body, mesh_shape, other_body, callback, context, extra_pad)
-	local bounds = mesh_contact_common.BuildExpandedWorldContactAABB(other_body:GetBroadphaseAABB(), mesh_body, other_body, extra_pad)
+	local bounds = mesh_contact_common.BuildExpandedWorldContactAABB(
+		other_body:GetBroadphaseAABB(nil, nil, OTHER_BODY_AABB),
+		mesh_body,
+		other_body,
+		extra_pad
+	)
 	local local_bounds = AABB.BuildLocalAABBFromWorldAABBInternal(
 		bounds,
 		mesh_body.WorldToLocal,
 		mesh_body,
 		mesh_body:GetPosition(),
-		mesh_body:GetRotation()
+		mesh_body:GetRotation(),
+		LOCAL_CONTACT_AABB
 	)
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.mesh_body = mesh_body
 	OVERLAPPING_TRIANGLE_CALLBACK_CONTEXT.callback = callback
