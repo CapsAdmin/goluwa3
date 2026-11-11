@@ -3,6 +3,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local HeightmapShape = import("goluwa/physics/shapes/heightmap.lua")
 local RigidBody = import("goluwa/physics/rigid_body.lua")
+local foliage_field = import("goluwa/foliage_field.lua")
 local TerrainPhysics = {}
 TerrainPhysics.__index = TerrainPhysics
 
@@ -18,6 +19,7 @@ function TerrainPhysics.New(terrain, config)
 	self.Root = Entity.New{Name = terrain.Name .. "_physics", Parent = terrain.Root}
 	self.Root:AddComponent("transform")
 	self.anchors = {}
+	foliage_field.SetTerrain(terrain.Source.Data)
 	return self
 end
 
@@ -127,6 +129,8 @@ function TerrainPhysics:Update(camera_position)
 end
 
 function TerrainPhysics:Remove()
+	foliage_field.SetTerrain(nil)
+
 	for key, collider in pairs(self.Colliders) do
 		if collider.entity then collider.entity:Remove() end
 

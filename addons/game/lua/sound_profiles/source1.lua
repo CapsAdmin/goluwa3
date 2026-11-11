@@ -635,4 +635,16 @@ do
 	end
 end
 
+do
+	local set = {gain = 10 ^ (-24 / 20), last = 0}
+
+	for i = 1, 4 do
+		set[i] = "player/footsteps/grass" .. i .. ".wav"
+	end
+
+	function profile.GetFoliage()
+		return set
+	end
+end
+
 return profile

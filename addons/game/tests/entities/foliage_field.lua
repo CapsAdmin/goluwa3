@@ -1,0 +1,12 @@
+local T = import("test/environment.lua")
+local foliage_field = import("goluwa/foliage_field.lua")
+
+T.Test("foliage field covers the cells around an instance near its height", function()
+	foliage_field.Clear()
+	foliage_field.AddInstance(10, 5, 20, 1)
+	T(foliage_field.Sample(10, 6, 20) > 0)["=="](true)
+	T(foliage_field.Sample(10, 12, 20))["=="](0)
+	T(foliage_field.Sample(40, 6, 20))["=="](0)
+	foliage_field.Clear()
+	T(foliage_field.Sample(10, 6, 20))["=="](0)
+end)

@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local level = import("goluwa/cry_engine/level.lua")
 local units = import("goluwa/cry_engine/units.lua")
+local foliage_field = import("goluwa/foliage_field.lua")
 local cry_water = import("goluwa/cry_engine/water.lua")
 local water = import("goluwa/render3d/water.lua")
 local fluid = import("goluwa/physics/fluid.lua")
@@ -389,6 +390,21 @@ function cry_scene.Translate(data, level_name, level_path, options)
 
 	do
 		local physics_entries = {}
+		foliage_field.Clear()
+
+		for _, entry in ipairs(data.vegetation_entries or {}) do
+			local prototype = data.vegetation_prototypes.by_id[entry.prototype_id]
+
+			if prototype.category == "Bushes" or prototype.category == "Groundplants" then
+				local position = units.ToEngine(entry.position)
+				foliage_field.AddInstance(
+					position.x,
+					position.y,
+					position.z,
+					math.max(0.6 * prototype.size * entry.scale, 0.4)
+				)
+			end
+		end
 
 		for _, entry in ipairs(data.vegetation_entries or {}) do
 			if data.vegetation_prototypes.by_id[entry.prototype_id].has_physics then

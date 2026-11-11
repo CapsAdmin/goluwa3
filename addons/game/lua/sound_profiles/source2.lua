@@ -276,4 +276,16 @@ function profile.GetFootstep(surface, speed)
 		gaits.step
 end
 
+do
+	local set = {gain = 10 ^ (-20 / 20), last = 0}
+
+	for i = 1, 5 do
+		set[i] = "sounds/world/foliage/foliage_interact_0" .. i .. ".vsnd_c"
+	end
+
+	function profile.GetFoliage()
+		return set
+	end
+end
+
 return profile
