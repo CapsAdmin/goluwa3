@@ -907,6 +907,7 @@ return function(steam)
 			for _, v in pairs(vfs.GetMounts()) do
 				if
 					v.userdata and
+					v.userdata.filesystem and
 					v.userdata.filesystem.steamappid == game_info.filesystem.steamappid
 				then
 					vfs.Unmount(v.full_where, v.full_to)
