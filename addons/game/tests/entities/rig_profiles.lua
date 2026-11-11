@@ -55,6 +55,10 @@ T.Test("the alyx rig profile names every biped bone and fixes the frames the pos
 	local profile = rig_profiles.Get(skeleton)
 	T(profile.Name)["=="]("alyx")
 
+	for _, name in ipairs(profile.Eyes) do
+		T(skeleton:GetBoneIndex(name) ~= nil)["=="](true)
+	end
+
 	for key in pairs(rig_profiles.ValveBiped.Bones) do
 		T(skeleton:GetBoneIndex(profile.Bones[key]) ~= nil)["=="](true)
 	end

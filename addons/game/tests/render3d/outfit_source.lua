@@ -213,14 +213,14 @@ T.Test3D("the head camera of the source outfit follows the head bone and stays w
 	pvars.SetSession("cl_outfit_head_camera", true)
 	avatar:UpdateHeadOffset(1 / 60)
 	local rig = avatar:GetEyeRig()
-	T(#rig.skeleton.Eyes)[">="](1)
+	T(#avatar.eye_bones)[">="](1)
 	local middle = Vec3()
 
-	for _, eye in ipairs(rig.skeleton.Eyes) do
-		middle = middle + Vec3(rig:GetBonePosition(eye.name))
+	for _, eye in ipairs(avatar.eye_bones) do
+		middle = middle + Vec3(rig:GetBonePosition(eye))
 	end
 
-	middle = middle / #rig.skeleton.Eyes
+	middle = middle / #avatar.eye_bones
 	local expected = middle - player.character_movement:GetEyeOffset()
 	local offset = avatar:GetHeadOffset()
 	local limit = player.character_movement:GetRadius() * 2

@@ -50,6 +50,7 @@ rig_profiles.Alyx = {
 		calf_l = "leg_lower_L",
 		foot_l = "ankle_L",
 	},
+	Eyes = {"eye_L", "eye_R"},
 	Fingers = {
 		hand_r = {fingers = "finger_middle_0_R", thumb = "finger_thumb_0_R"},
 		hand_l = {fingers = "finger_middle_0_L", thumb = "finger_thumb_0_L"},
@@ -241,6 +242,7 @@ do
 		resolved = {
 			Name = profile.Name,
 			Bones = profile.Bones,
+			Eyes = profile.Eyes,
 			Frames = profile.Fingers and rig_profiles.GetFrames(skeleton, profile) or {},
 		}
 		cache[skeleton] = resolved

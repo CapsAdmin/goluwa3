@@ -117,9 +117,19 @@ function META:GetEyeRig()
 	if not self.eye_rig and outfit_entity then
 		for _, child in ipairs(outfit_entity:GetChildrenList()) do
 			local rig = child.animator and child.animator:GetRig()
+			local eye_bones = rig and rig_profiles.Get(rig.skeleton).Eyes
 
-			if rig and rig.skeleton.Eyes and #rig.skeleton.Eyes > 0 then
+			if rig and not eye_bones and rig.skeleton.Eyes then
+				eye_bones = {}
+
+				for i, eye in ipairs(rig.skeleton.Eyes) do
+					eye_bones[i] = eye.name
+				end
+			end
+
+			if eye_bones and #eye_bones > 0 then
 				self.eye_rig = rig
+				self.eye_bones = eye_bones
 
 				break
 			end
@@ -155,11 +165,11 @@ function META:UpdateHeadOffset(dt)
 	if rig then
 		local movement = owner.character_movement
 		local _, rotation = owner.transform:GetRenderPositionRotation()
-		local eyes = rig.skeleton.Eyes
+		local eyes = self.eye_bones
 		local sum_x, sum_y, sum_z = 0, 0, 0
 
 		for _, eye in ipairs(eyes) do
-			local ex, ey, ez = rig:GetBonePosition(eye.name)
+			local ex, ey, ez = rig:GetBonePosition(eye)
 			sum_x, sum_y, sum_z = sum_x + ex, sum_y + ey, sum_z + ez
 		end
 
