@@ -421,6 +421,24 @@ function mesh_polyhedron_contacts.AccumulateSampleContacts(
 	return state, found_contact
 end
 
+local function is_behind_triangle(point, v0, v1, v2)
+	local e1x, e1y, e1z = v1.x - v0.x, v1.y - v0.y, v1.z - v0.z
+	local e2x, e2y, e2z = v2.x - v0.x, v2.y - v0.y, v2.z - v0.z
+	return (
+			point.x - v0.x
+		) * (
+			e1y * e2z - e1z * e2y
+		) + (
+			point.y - v0.y
+		) * (
+			e1z * e2x - e1x * e2z
+		) + (
+			point.z - v0.z
+		) * (
+			e1x * e2y - e1y * e2x
+		) < 0
+end
+
 local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, context)
 	local mesh_body = context.mesh_body
 	local poly_body = context.poly_body
@@ -433,6 +451,14 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 		query_v0 = mesh_body:LocalToWorld(v0)
 		query_v1 = mesh_body:LocalToWorld(v1)
 		query_v2 = mesh_body:LocalToWorld(v2)
+	end
+
+	-- a closed mesh pushes along its outward faces, so a face the body center is behind (the underside of a blob lying in the floor) would push it into the floor
+	if
+		context.outward_winding and
+		is_behind_triangle(poly_body:GetPosition(), query_v0, query_v1, query_v2)
+	then
+		return false
 	end
 
 	TRIANGLE_QUERY_OPTIONS.triangle_slop = context.combined_margin
