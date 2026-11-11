@@ -274,7 +274,8 @@ local function get_collider_candidate_aabb(collider)
 		previous_rotation and
 		true or
 		false
-	local cache = collider.sweep_candidate_aabb_cache
+	-- a collider reads missing fields through to its body, which would share the body's cache
+	local cache = rawget(collider, "sweep_candidate_aabb_cache")
 
 	if
 		matches_candidate_pose(
