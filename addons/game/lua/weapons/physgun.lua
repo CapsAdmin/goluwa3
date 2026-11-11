@@ -1,9 +1,19 @@
 local nodes = import("lua/weapon_nodes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local BODY = {Color = Color(0.3, 0.32, 0.36, 1), Roughness = 0.35, Metallic = 0.8}
-local HANDLE = {Color = Color(1, 0.45, 0.05, 1), Roughness = 0.6, Metallic = 0.1}
-local MUZZLE = {Color = Color(0.1, 0.35, 1, 1), Roughness = 0.3, Metallic = 0.3}
+local Quat = import("goluwa/structs/quat.lua")
+local model_replacements = import("lua/model_replacements.lua")
+local PLACEHOLDER = {Color = Color(0.3, 0.32, 0.36, 1), Roughness = 0.35, Metallic = 0.8}
+model_replacements.Register(
+	"physgun",
+	{
+		Game = "crysis",
+		Path = "Objects/Weapons/US/MOAR/MOAR_tp.cgf",
+		Position = Vec3(0, 0.09, 0),
+		Rotation = Quat(0, 0, 0, 1),
+		Scale = Vec3(0.7, 0.7, 0.7),
+	}
+)
 return {
 	Components = {tool_beam = {}},
 	Values = {
@@ -16,12 +26,11 @@ return {
 		AlwaysPose = true,
 		SupportGrip = Vec3(0, 0, -0.3),
 		HoldOffset = Vec3(0.09, -0.21, 0.25),
+		Replacement = "physgun",
 	},
 	Nodes = {
-		nodes.Handle("handle", 0.022, 0.12, Vec3(0, 0, 0), HANDLE),
-		nodes.Handle("support_handle", 0.022, 0.12, Vec3(0, 0, -0.3), HANDLE),
-		nodes.Box("body", Vec3(0.07, 0.07, 0.5), Vec3(0, 0.095, -0.2), BODY),
-		nodes.Muzzle(0.035, 0.12, Vec3(0, 0.095, -0.57), MUZZLE),
+		nodes.Replacement(Vec3(0.2, 0.2, 0.62), Vec3(0, 0.09, -0.28), PLACEHOLDER),
+		nodes.Marker("muzzle", Vec3(0, 0.095, -0.57)),
 	},
 	Source = [=====[local objects = import("goluwa/objects/objects.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
