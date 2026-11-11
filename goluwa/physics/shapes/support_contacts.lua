@@ -124,7 +124,38 @@ local function is_any_sweep_candidate(physics, body, support_points, owner, filt
 	local candidates = SWEEP_CANDIDATES
 	table.clear(candidates)
 	sweep_candidates.CollectRigidBodyCandidates(physics, bounds, owner, filter_function, nil, candidates)
-	return candidates[1] ~= nil
+	return candidates[1] ~= nil, min_y
+end
+
+-- a collider of a compound body that sits well above the body's lowest point rests on the body's own lower colliders, so it is not probed
+local COMPOUND_SUPPORT_HEIGHT = 0.25
+local FLOOR_POINT = Vec3()
+
+local function get_compound_floor_y(rigid_body, stamp)
+	local cache = rigid_body._SupportFloor
+
+	if cache and cache.stamp == stamp then return cache.y end
+
+	if not cache then
+		cache = {}
+		rigid_body._SupportFloor = cache
+	end
+
+	local floor_y = math.huge
+	local colliders = rigid_body:GetColliders()
+
+	for i = 1, #colliders do
+		local collider = colliders[i]
+		local points = collider:GetSupportLocalPoints()
+
+		for j = 1, #points do
+			floor_y = math.min(floor_y, collider:GeometryLocalToWorld(points[j], nil, nil, FLOOR_POINT).y)
+		end
+	end
+
+	cache.stamp = stamp
+	cache.y = floor_y
+	return floor_y
 end
 
 function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solve_contact_context, support_points)
@@ -133,8 +164,17 @@ function support_contacts.ForEachPointSweepContact(body, dt, solve_contact, solv
 	local owner = body:GetOwner()
 	local filter_function = body:GetFilterFunction()
 	fill_cast_vectors(cast_up, cast_distance)
+	local has_candidate, min_y = is_any_sweep_candidate(physics, body, support_points, owner, filter_function)
 
-	if not is_any_sweep_candidate(physics, body, support_points, owner, filter_function) then
+	if not has_candidate then return end
+
+	local rigid_body = body.Body
+
+	if
+		rigid_body and
+		#rigid_body:GetColliders() > 1 and
+		min_y > get_compound_floor_y(rigid_body, physics.solver.CollideStamp) + COMPOUND_SUPPORT_HEIGHT
+	then
 		return
 	end
 
