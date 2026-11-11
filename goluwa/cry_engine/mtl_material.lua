@@ -7,6 +7,7 @@ local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local bit = require("bit")
+local surface_types = import("goluwa/cry_engine/surface_types.lua")
 local Material = import("goluwa/render3d/material.lua")
 local mtl_material = {}
 mtl_material.DIFFUSE_COLOR_SCALE = 2
@@ -236,6 +237,10 @@ local function apply_cry_material_node(self, material_node, material_path)
 	local gen_mask = tonumber(attrs.GenMask) or 0
 	local shader_masks = GEN_MASKS[shader] or {}
 	local mtl_flags = tonumber(attrs.MtlFlags) or 0
+
+	if attrs.SurfaceType and attrs.SurfaceType ~= "" then
+		self:SetSurfaceType(surface_types.Translate(attrs.SurfaceType))
+	end
 
 	local function has_gen(name)
 		return shader_masks[name] ~= nil and bit.band(gen_mask, shader_masks[name]) ~= 0

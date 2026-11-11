@@ -63,14 +63,65 @@ local function load()
 	end
 end
 
+local SURFACES = {
+	default = "default",
+	concrete = "world.concrete",
+	concrete_block = "prop.concrete_block",
+	brick = "world.brick",
+	rock = "world.rock",
+	boulder = "world.boulder",
+	gravel = "world.gravel",
+	asphalt = "world.asphalt",
+	tile = "tile",
+	porcelain = "prop.porcelain",
+	pottery = "prop.pottery",
+	dirt = "world.dirt",
+	grass = "world.grass",
+	sand = "world.sand",
+	snow = "world.snow",
+	mud = "world.mud",
+	ice = "world.ice",
+	carpet = "world.carpet",
+	foliage = "world.foliage",
+	metal = "world.metal",
+	metal_vent = "world.metal_vent",
+	metal_box = "prop.metal_box",
+	metal_barrel = "prop.metal_barrel",
+	canister = "prop.metal_gas_canister",
+	computer = "prop.computer",
+	metal_grate = "world.metal_grate",
+	chainlink = "world.chainlink",
+	chain = "prop.chain",
+	ladder = "world.ladder",
+	grenade = "prop.metal_grenade",
+	paintcan = "prop.metal_paintcan",
+	popcan = "prop.metal_popcan",
+	weapon = "base.weapon",
+	vehicle = "world.metal_vehicle_ext",
+	wood = "base.wood",
+	wood_solid = "world.wood_solid",
+	wood_box = "prop.wood_box",
+	wood_crate = "prop.wood_crate",
+	wood_furniture = "prop.wood_furniture",
+	wood_panel = "world.wood_panel",
+	wood_plank = "prop.wood_plank",
+	plastic = "world.plastic",
+	plastic_barrel = "prop.plastic_barrel",
+	glass = "world.glass",
+	glass_bottle = "prop.glass_bottle_small",
+	cardboard = "world.cardboard",
+	paper_cup = "prop.paper_cup",
+	drywall = "world.drywall",
+	ceiling_tile = "world.ceiling_tile",
+	rubber = "base.rubber",
+	flesh = "prop.flesh",
+	bloody_flesh = "prop.flesh_bloody",
+	squishy = "prop.watermelon",
+	water = "world.water",
+}
+
 local function find_surface(name)
-	name = name:lower()
-	return surfaces[name] or
-		surfaces["world." .. name] or
-		surfaces["prop." .. name] or
-		surfaces["base." .. name] or
-		surfaces[name:match("^[^_]+")] or
-		surfaces.default
+	return surfaces[assert(SURFACES[name], "unknown surface type " .. tostring(name))]
 end
 
 local function resolve_event(name)
@@ -160,7 +211,7 @@ function profile.GetImpact(surface)
 		hardness_entry = surfaces[hardness_entry.base]
 	end
 
-	local legacy = source1.GetImpact((surface:gsub("^%a+%.", "")))
+	local legacy = source1.GetImpact(surface)
 	set = {
 		gain = 1,
 		hardness = hardness_entry and hardness_entry.audioparams.audiohardnessfactor or 0.5,
@@ -223,22 +274,6 @@ function profile.GetFootstep(surface, speed)
 		speed >= RUN_STEP_SPEED and
 		gaits.run or
 		gaits.step
-end
-
-function profile.GetSurfaces()
-	if not surfaces then load() end
-
-	local list = {}
-
-	for name, entry in pairs(surfaces) do
-		list[#list + 1] = {Text = name, Value = name}
-	end
-
-	table.sort(list, function(a, b)
-		return a.Text < b.Text
-	end)
-
-	return list
 end
 
 return profile

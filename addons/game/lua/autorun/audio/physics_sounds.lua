@@ -1,6 +1,7 @@
 local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local surface_types = import("goluwa/surface_types.lua")
 local sounds = import("lua/sounds.lua")
 local sound_profiles = import("lua/sound_profiles.lua")
 local MIN_SPEED = 1
@@ -39,7 +40,13 @@ local MAX_LOOP_STARTS_PER_FRAME = 2
 local physics_sounds = {}
 
 function physics_sounds.GetSurfaces()
-	return sound_profiles.Get().GetSurfaces()
+	local list = {}
+
+	for i, name in ipairs(surface_types.List) do
+		list[i] = {Text = name, Value = name}
+	end
+
+	return list
 end
 
 local function get_pitch(size)

@@ -1,5 +1,6 @@
 local vfs = import("goluwa/vfs.lua")
 local Material = import("goluwa/render3d/material.lua")
+local surface_types = import("goluwa/source_engine/surface_types.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
@@ -217,7 +218,9 @@ function material.FromVMAT(path)
 		return self
 	end
 
-	if info.surface then self:SetSurfaceType(info.surface) end
+	if info.surface then
+		self:SetSurfaceType(surface_types.Translate(info.surface))
+	end
 
 	local textures, ints, floats, vectors = info.textures, info.ints, info.floats, info.vectors
 	local plan = get_plan(info)

@@ -238,94 +238,58 @@ do
 	local SURFACES = {
 		default = "concrete",
 		concrete = "concrete",
+		concrete_block = "concrete_block",
+		brick = "rock",
+		rock = "rock",
+		boulder = "boulder",
+		gravel = "rock",
 		asphalt = "concrete",
 		tile = "concrete",
-		ice = "concrete",
-		gmod_ice = "concrete",
-		concrete_block = "concrete_block",
-		rock = "rock",
-		brick = "rock",
-		stone = "rock",
-		gravel = "rock",
 		porcelain = "rock",
-		boulder = "boulder",
-		cavern_rock = "boulder",
+		pottery = "pottery",
 		dirt = "dirt",
 		grass = "dirt",
 		sand = "dirt",
-		antlionsand = "dirt",
 		snow = "dirt",
 		mud = "dirt",
-		slime = "dirt",
-		slipperyslime = "dirt",
-		floatingstandable = "dirt",
+		ice = "concrete",
 		carpet = "carpet",
+		foliage = "wood_solid",
 		metal = "metal",
-		solidmetal = "metal",
-		metalpanel = "metal",
-		combine_metal = "metal",
-		slipperymetal = "metal",
-		metal_bouncy = "metal",
-		ladder = "metal",
-		gunship = "metal",
-		strider = "metal",
-		roller = "metal",
+		metal_vent = "metal_vent",
 		metal_box = "metal_box",
-		metalvent = "metal_vent",
 		metal_barrel = "metal_barrel",
-		floating_metal_barrel = "metal_barrel",
 		canister = "canister",
-		gm_torpedo = "canister",
 		computer = "computer",
-		metalgrate = "metal_grate",
+		metal_grate = "metal_grate",
 		chainlink = "chainlink",
 		chain = "chain",
+		ladder = "metal",
 		grenade = "grenade",
 		paintcan = "paintcan",
 		popcan = "popcan",
 		weapon = "weapon",
-		crowbar = "weapon",
-		metalvehicle = "vehicle",
-		jalopy = "vehicle",
+		vehicle = "vehicle",
 		wood = "wood",
-		wood_lowdensity = "wood",
-		woodladder = "wood",
-		hay = "wood",
 		wood_solid = "wood_solid",
-		foliage = "wood_solid",
 		wood_box = "wood_box",
 		wood_crate = "wood_crate",
 		wood_furniture = "wood_furniture",
 		wood_panel = "wood_panel",
 		wood_plank = "wood_plank",
 		plastic = "plastic",
-		plastic_box = "plastic",
-		item = "plastic",
 		plastic_barrel = "plastic_barrel",
 		glass = "glass",
-		combine_glass = "glass",
-		glassbottle = "glass_bottle",
-		pottery = "pottery",
+		glass_bottle = "glass_bottle",
 		cardboard = "cardboard",
-		paper = "cardboard",
-		papercup = "paper_cup",
-		plaster = "drywall",
+		paper_cup = "paper_cup",
+		drywall = "drywall",
 		ceiling_tile = "ceiling_tile",
 		rubber = "rubber",
-		rubbertire = "rubber",
-		jeeptire = "rubber",
-		jalopytire = "rubber",
 		flesh = "flesh",
-		alienflesh = "flesh",
-		armorflesh = "flesh",
-		antlion = "flesh",
-		hunter = "flesh",
-		player = "flesh",
-		bloodyflesh = "bloody_flesh",
-		zombieflesh = "bloody_flesh",
-		watermelon = "squishy",
+		bloody_flesh = "bloody_flesh",
+		squishy = "squishy",
 		water = "water",
-		wade = "water",
 	}
 	local LOOPS = {
 		concrete = {
@@ -536,45 +500,17 @@ do
 		found.smooth, found.rough, found.roll = loops[1], loops[2], loops[3]
 	end
 
-	function profile.GetSurfaces()
-		local list = {}
-
-		for name in pairs(SETS) do
-			local surface = name
-
-			if SURFACES[name] ~= name then
-				for key, set_name in pairs(SURFACES) do
-					if set_name == name and (SURFACES[surface] ~= name or #key < #surface) then
-						surface = key
-					end
-				end
-			end
-
-			list[#list + 1] = {Text = name, Value = surface}
-		end
-
-		table.sort(list, function(a, b)
-			return a.Text < b.Text
-		end)
-
-		return list
-	end
-
 	local resolved = {}
 
-	local function get_set(surface)
+	function profile.GetImpact(surface)
 		local found = resolved[surface]
 
 		if not found then
-			found = SETS[SURFACES[surface] or SURFACES[surface:match("^[^_]+")] or SURFACES.default]
+			found = assert(SETS[assert(SURFACES[surface], "unknown surface type " .. tostring(surface))])
 			resolved[surface] = found
 		end
 
 		return found
-	end
-
-	function profile.GetImpact(surface)
-		return get_set(surface)
 	end
 end
 
@@ -636,88 +572,66 @@ do
 		brick = "concrete",
 		rock = "concrete",
 		boulder = "concrete",
-		cavern_rock = "concrete",
-		stone = "concrete",
-		porcelain = "concrete",
-		asphalt = "concrete",
-		dirt = "dirt",
-		carpet = "dirt",
-		floatingstandable = "dirt",
-		grass = "grass",
-		hay = "grass",
-		foliage = "grass",
 		gravel = "gravel",
+		asphalt = "concrete",
+		tile = "tile",
+		porcelain = "concrete",
+		pottery = "concrete",
+		dirt = "dirt",
+		grass = "grass",
 		sand = "sand",
-		antlionsand = "sand",
 		snow = "snow",
-		ice = "ice",
-		gmod_ice = "ice",
 		mud = "mud",
-		slime = "mud",
-		slipperyslime = "mud",
+		ice = "ice",
+		carpet = "dirt",
+		foliage = "grass",
 		metal = "metal",
-		solidmetal = "metal",
-		metalpanel = "metal",
-		metalvehicle = "metal",
-		combine_metal = "metal",
-		canister = "metal",
-		slipperymetal = "metal",
+		metal_vent = "duct",
 		metal_box = "metal_box",
 		metal_barrel = "metal_box",
+		canister = "metal",
 		computer = "metal_box",
-		popcan = "metal_box",
-		paintcan = "metal_box",
-		metalgrate = "metalgrate",
-		metalvent = "duct",
+		metal_grate = "metalgrate",
 		chainlink = "chainlink",
 		chain = "chainlink",
 		ladder = "ladder",
-		tile = "tile",
-		glass = "glass",
-		combine_glass = "glass",
-		plaster = "drywall",
-		ceiling_tile = "ceiling_tile",
+		grenade = "metal",
+		paintcan = "metal_box",
+		popcan = "metal_box",
+		weapon = "weapon",
+		vehicle = "metal",
 		wood = "wood",
 		wood_solid = "wood",
-		wood_lowdensity = "wood",
-		woodladder = "wood",
-		wood_panel = "woodpanel",
 		wood_box = "wood_box",
 		wood_crate = "wood_box",
 		wood_furniture = "wood_box",
+		wood_panel = "woodpanel",
 		wood_plank = "wood_box",
-		rubber = "rubber",
-		rubbertire = "rubber",
-		cardboard = "cardboard",
-		paper = "cardboard",
 		plastic = "plastic",
-		plastic_box = "plastic",
-		item = "plastic",
 		plastic_barrel = "plastic_barrel",
-		water = "slosh",
+		glass = "glass",
+		glass_bottle = "glass",
+		cardboard = "cardboard",
+		paper_cup = "cardboard",
+		drywall = "drywall",
+		ceiling_tile = "ceiling_tile",
+		rubber = "rubber",
 		flesh = "flesh",
-		alienflesh = "flesh",
-		zombieflesh = "flesh",
-		armorflesh = "flesh",
-		bloodyflesh = "flesh",
-		antlion = "flesh",
-		weapon = "weapon",
+		bloody_flesh = "flesh",
+		squishy = "flesh",
+		water = "slosh",
 	}
 	local resolved = {}
 
-	local function get_set(surface)
-		local set = resolved[surface]
+	function profile.GetFootstep(surface, speed)
+		local found = resolved[surface]
 
-		if not set then
-			set = SETS[SURFACES[surface] or SURFACES[surface:match("^[^_]+")] or SURFACES.default]
-			resolved[surface] = set
+		if not found then
+			found = assert(SETS[assert(SURFACES[surface], "unknown surface type " .. tostring(surface))])
+			resolved[surface] = found
 		end
 
-		return set
-	end
-
-	function profile.GetFootstep(surface, speed)
-		return get_set(surface)
+		return found
 	end
 end
 

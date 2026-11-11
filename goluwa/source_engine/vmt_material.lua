@@ -9,6 +9,7 @@ local Vec4 = import("goluwa/structs/vec4.lua")
 local Material = import("goluwa/render3d/material.lua")
 local acoustics = import("goluwa/audio/acoustics.lua")
 local material_proxies = import("goluwa/source_engine/material_proxies.lua")
+local surface_types = import("goluwa/source_engine/surface_types.lua")
 local vmt_loader = import("goluwa/source_engine/vmt.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local vmt_material = {}
@@ -1391,7 +1392,7 @@ do
 			self:SetAcousticWindEmission(Vec3(w[1], w[2], w[3]))
 		end
 
-		self:SetSurfaceType(self.model_surfaceprop or class or "default")
+		self:SetSurfaceType(surface_types.Translate(self.model_surfaceprop or class or "default"))
 		local override = Material.GetTextureOverride(self.vmt_path, vmt, self)
 		local replaced = override and override.textures
 
@@ -1776,7 +1777,7 @@ function vmt_material.SetModelSurfaceProperty(material, name)
 	if not name or material.model_surfaceprop then return end
 
 	material.model_surfaceprop = name:lower()
-	material:SetSurfaceType(material.model_surfaceprop)
+	material:SetSurfaceType(surface_types.Translate(material.model_surfaceprop))
 
 	if material.vmt and not material.vmt_has_own_class then
 		vmt_material.Apply(material, material.vmt)
