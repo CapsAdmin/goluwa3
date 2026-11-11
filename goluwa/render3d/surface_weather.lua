@@ -373,6 +373,10 @@ function surface_weather.GetGLSL(block_name)
 			return sum >= 0.0;
 		}
 
+		bool snow_map_contains(vec3 p) {
+			return all(greaterThanEqual(p.xy, vec2(0.0))) && all(lessThanEqual(p.xy, vec2(1.0)));
+		}
+
 		// marches the view ray towards the fragment through the snow lying on the topmost surface (the snow map, built from
 		// the shelter map); a point is in snow when it lies between the snow top and the surface it lies on
 		bool march_snow_cover(vec3 eye, inout vec3 world_pos, vec3 surface_normal, out vec3 normal) {
@@ -390,14 +394,12 @@ function surface_weather.GetGLSL(block_name)
 			vec3 to_fragment = world_pos - eye;
 			float t_end = length(to_fragment);
 			vec3 dir = to_fragment / t_end;
-			float rise = max(dot(-dir, -row_z / depth_per_meter), 0.08);
+			float rise = max(dot(-dir, -row_z / depth_per_meter), 0.02);
 			float t_start = max(t_end - depth * 1.2 / rise, 0.0);
-			vec3 a = (m * vec4(eye + dir * t_start, 1.0)).xyz;
+			vec3 start = (m * vec4(eye, 1.0)).xyz;
 			vec3 b = (m * vec4(world_pos, 1.0)).xyz;
-			a.xy = a.xy * 0.5 + 0.5;
+			start.xy = start.xy * 0.5 + 0.5;
 			b.xy = b.xy * 0.5 + 0.5;
-
-			if (any(lessThan(min(a.xy, b.xy), vec2(0.0))) || any(greaterThan(max(a.xy, b.xy), vec2(1.0)))) return false;
 
 			// only the fragment itself may sit a texel's slope below the top surface it was rasterised into; any other point
 			// that far under the top surface is under a ledge
@@ -405,15 +407,22 @@ function surface_weather.GetGLSL(block_name)
 			float bias = 0.05 * depth_per_meter;
 			float jump = (0.1 + ]] .. block_name .. [[.shelter_texel_size) * depth_per_meter;
 			float own_bias = (0.05 + ]] .. block_name .. [[.shelter_texel_size * 1.5 * sqrt(max(1.0 - up * up, 0.0)) / max(up, 0.2)) * depth_per_meter * step(0.2, up);
-			int steps = clamp(int((t_end - t_start) / (depth * 0.1)), 8, 64);
+			int steps = clamp(int((t_end - t_start) / (depth * 0.05)), 8, 256);
+			int coarse = t_start > 0.0 ? 48 : 0;
+			float window = t_start / t_end;
 			float previous = 0.0;
 			float hit = -1.0;
 
-			for (int i = 0; i <= 64; i++) {
-				if (i > steps) break;
+			for (int i = 0; i <= 304; i++) {
+				if (i > coarse + steps) break;
 
-				float f = float(i) / float(steps);
-				if (i == steps ? snow_map_inside_smooth(b, max(bias, own_bias), jump) : snow_map_inside(mix(a, b, f), bias, jump)) {
+				float f = i < coarse ? window * float(i) / float(coarse) : window + (1.0 - window) * float(i - coarse) / float(steps);
+				vec3 p = mix(start, b, f);
+
+				if (
+					snow_map_contains(p) &&
+					(i == coarse + steps ? snow_map_inside_smooth(b, max(bias, own_bias), jump) : snow_map_inside(p, bias, jump))
+				) {
 					hit = f;
 					break;
 				}
@@ -429,7 +438,7 @@ function surface_weather.GetGLSL(block_name)
 
 				for (int i = 0; i < 6; i++) {
 					float mid = 0.5 * (lo + hi);
-					if (snow_map_inside_smooth(mix(a, b, mid), bias, jump)) {
+					if (snow_map_contains(mix(start, b, mid)) && snow_map_inside_smooth(mix(start, b, mid), bias, jump)) {
 						hi = mid;
 					} else {
 						lo = mid;
@@ -439,8 +448,8 @@ function surface_weather.GetGLSL(block_name)
 				hit = hi;
 			}
 
-			vec3 c = mix(a, b, hit);
-			world_pos = mix(eye + dir * t_start, world_pos, hit);
+			vec3 c = mix(start, b, hit);
+			world_pos = mix(eye, world_pos, hit);
 			float e = 1.0 / float(textureSize(TEXTURE(tex), 0).x);
 			float center = snow_map_sample(c.xy).r;
 			float sl = snow_map_sample(c.xy - vec2(e, 0.0)).r;
