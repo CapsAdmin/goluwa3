@@ -570,6 +570,40 @@ function RigidBody:OnRemove()
 	remove_world_geometry_body(self)
 end
 
+function RigidBody.CenterChildren(source)
+	local weighted = Vec3(0, 0, 0)
+	local total = 0
+	local children = {}
+
+	for i, child in ipairs(source) do
+		child = child.Polygon3D and ConvexHull.FromPolygon3D(child.Polygon3D) or child
+		children[i] = child
+		local hull = child.ConvexHull
+		local weight = hull and
+			(
+				hull.bounds_max.x - hull.bounds_min.x
+			) * (
+				hull.bounds_max.y - hull.bounds_min.y
+			) * (
+				hull.bounds_max.z - hull.bounds_min.z
+			)
+			or
+			1
+		weighted = weighted + (child.Position or Vec3(0, 0, 0)) * weight
+		total = total + weight
+	end
+
+	local center = weighted / total
+
+	for i, child in ipairs(children) do
+		child = table.shallow_copy(child)
+		child.Position = (child.Position or Vec3(0, 0, 0)) - center
+		children[i] = child
+	end
+
+	return children, center
+end
+
 function RigidBody:LoadShapeModel()
 	local path = self.ShapeModelPath
 
@@ -598,37 +632,9 @@ function RigidBody:LoadShapeModel()
 			if self.shape_model_static then
 				self.CenterOffset = nil
 			else
-				local weighted = Vec3(0, 0, 0)
-				local total = 0
-				children = {}
-
-				for i, child in ipairs(model.physics.children) do
-					child = child.Polygon3D and ConvexHull.FromPolygon3D(child.Polygon3D) or child
-					children[i] = child
-					local hull = child.ConvexHull
-					local weight = hull and
-						(
-							hull.bounds_max.x - hull.bounds_min.x
-						) * (
-							hull.bounds_max.y - hull.bounds_min.y
-						) * (
-							hull.bounds_max.z - hull.bounds_min.z
-						)
-						or
-						1
-					weighted = weighted + (child.Position or Vec3(0, 0, 0)) * weight
-					total = total + weight
-				end
-
-				local center = weighted / total
+				local center
+				children, center = RigidBody.CenterChildren(model.physics.children)
 				local scale = self.Owner.transform and self.Owner.transform.temp_scale
-
-				for i, child in ipairs(children) do
-					child = table.shallow_copy(child)
-					child.Position = (child.Position or Vec3(0, 0, 0)) - center
-					children[i] = child
-				end
-
 				self.CenterOffset = scale and
 					Vec3(center.x * scale.x, center.y * scale.y, center.z * scale.z) or
 					center

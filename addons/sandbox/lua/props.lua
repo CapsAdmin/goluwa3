@@ -1,10 +1,11 @@
 local prefab = import("goluwa/entities/prefab.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local BoxShape = import("goluwa/physics/shapes/box.lua")
+local convex_hull = import("goluwa/physics/convex_hull.lua")
 local model_loader = import("goluwa/render3d/model_loader.lua")
 local surface_properties = import("goluwa/source_engine/surface_properties.lua")
 local prop_data = import("goluwa/source_engine/prop_data.lua")
+local RigidBody = import("goluwa/physics/rigid_body.lua")
 local props = {}
 prefab.Register(
 		"prop_physics",
@@ -89,25 +90,29 @@ function props.Spawn(model_path, position, rotation, on_spawn, options)
 			done = true
 			local physics = model.physics
 
-			if not physics or not physics.mass then
-				local min, max = model.bounds.min, model.bounds.max
-				local size = Vec3(
-					math.max(max.x - min.x, MIN_BOX_EXTENT),
-					math.max(max.y - min.y, MIN_BOX_EXTENT),
-					math.max(max.z - min.z, MIN_BOX_EXTENT)
-				)
-				local center = (min + max) * 0.5
-				local lowest = math.huge
+			if not physics then
+				local points = {}
+				local vegetation = false
 
-				for _, sign_x in ipairs({-1, 1}) do
-					for _, sign_y in ipairs({-1, 1}) do
-						for _, sign_z in ipairs({-1, 1}) do
-							lowest = math.min(
-								lowest,
-								rotation:VecMul(center + Vec3(sign_x * size.x, sign_y * size.y, sign_z * size.z) * 0.5).y
-							)
+				for _, entry in ipairs(model) do
+					local mesh = entry.mesh
+
+					if mesh:GetLODLevel() == 0 then
+						if mesh:GetBendHeight() > 0 then vegetation = true end
+
+						for _, vertex in ipairs(mesh.packed and mesh:GetVertices() or mesh.Vertices) do
+							points[#points + 1] = vertex
 						end
 					end
+				end
+
+				local child = convex_hull.FromPolygon3D({Vertices = points})
+				local center = child.Position
+				local size = child.ConvexHull.bounds_max - child.ConvexHull.bounds_min
+				local lowest = math.huge
+
+				for _, vertex in ipairs(child.ConvexHull.vertices) do
+					lowest = math.min(lowest, rotation:VecMul(center + vertex).y)
 				end
 
 				local surface = surface_properties.Get("default")
@@ -120,9 +125,49 @@ function props.Spawn(model_path, position, rotation, on_spawn, options)
 					},
 					network = SERVER and {} or nil,
 					rigid_body = {
-						Shape = BoxShape.New(size),
+						ConvexHull = child.ConvexHull,
 						MotionType = "dynamic",
-						Mass = size.x * size.y * size.z * BOX_DENSITY,
+						CollideWorldOnly = vegetation,
+						Mass = math.max(size.x * size.y * size.z, MIN_BOX_EXTENT ^ 3) * BOX_DENSITY,
+						AutomaticMass = false,
+						Friction = surface.friction,
+						Restitution = surface.elasticity,
+						FrictionCombineMode = "multiply",
+						RestitutionCombineMode = "multiply",
+					},
+					fade_out = fade_out,
+					surface_exposure = RENDER_3D and {} or nil,
+					prefab = {Path = "prop_physics", Inputs = {Model = model_path, Offset = center * -1}},
+				}
+
+				if on_spawn then on_spawn(entity) end
+
+				return
+			end
+
+			if not physics.mass then
+				local children, center = RigidBody.CenterChildren(physics.children)
+				local lowest = get_lowest({children = children}, rotation) + rotation:VecMul(center).y
+				local volume = 0
+
+				for _, child in ipairs(children) do
+					local size = child.ConvexHull.bounds_max - child.ConvexHull.bounds_min
+					volume = volume + size.x * size.y * size.z
+				end
+
+				local surface = surface_properties.Get("default")
+				local entity = Entity.New{
+					Transient = false,
+					Name = model_path:match("([^/]+)%.%w+$") or model_path,
+					transform = {
+						Position = position + Vec3(0, exact and 0 or CLEARANCE - lowest, 0) + rotation:VecMul(center),
+						Rotation = rotation,
+					},
+					network = SERVER and {} or nil,
+					rigid_body = {
+						ShapeModelPath = model_path,
+						MotionType = "dynamic",
+						Mass = math.max(volume, MIN_BOX_EXTENT ^ 3) * BOX_DENSITY,
 						AutomaticMass = false,
 						Friction = surface.friction,
 						Restitution = surface.elasticity,
