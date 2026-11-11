@@ -24,6 +24,19 @@ local SINGLE_CONTACT_SCRATCH = {
 	{},
 }
 local SUPPORT_CONTACT_SCRATCH = {}
+local EMPTY_OPTIONS = {}
+local FIND_PENETRATION_OPTIONS = {}
+local FACE_CONTACT_OPTIONS = {
+	triangle_slop = 0,
+	max_contacts = 4,
+	scratch = FACE_CONTACT_SCRATCH,
+	out = FACE_CONTACT_SCRATCH.contacts,
+}
+local SUPPORT_CONTACT_OPTIONS = {
+	merge_distance = 0,
+	max_contacts = 4,
+	scratch = SUPPORT_CONTACT_SCRATCH,
+}
 local TRIANGLE_VERTICES_SCRATCH = {}
 local TRIANGLE_EDGE_SCRATCH = {}
 local TRIANGLE_PRISM_VERTICES_SCRATCH = {}
@@ -286,6 +299,7 @@ local function find_contact_sat_fallback(collider, polyhedron, v0, v1, v2, optio
 
 	if not (normal and overlap and overlap > epsilon) then return nil end
 
+	FACE_CONTACT_OPTIONS.triangle_slop = triangle_slop
 	local contacts = chosen and
 		chosen.kind == "face" and
 		polyhedron_face_contacts.BuildPolyhedronTriangleFaceContacts(
@@ -294,26 +308,18 @@ local function find_contact_sat_fallback(collider, polyhedron, v0, v1, v2, optio
 			triangle_vertices,
 			chosen,
 			normal,
-			{
-				triangle_slop = triangle_slop,
-				max_contacts = 4,
-				scratch = FACE_CONTACT_SCRATCH,
-				out = FACE_CONTACT_SCRATCH.contacts,
-			}
+			FACE_CONTACT_OPTIONS
 		) or
 		nil
 
 	if not contacts or #contacts < 3 then
+		SUPPORT_CONTACT_OPTIONS.merge_distance = manifold_merge_distance
 		contacts = convex_manifold.BuildAndMergeSupportPairContacts(
 			contacts,
 			poly_vertices,
 			triangle_vertices,
 			normal * -1,
-			{
-				merge_distance = manifold_merge_distance,
-				max_contacts = 4,
-				scratch = SUPPORT_CONTACT_SCRATCH,
-			}
+			SUPPORT_CONTACT_OPTIONS
 		)
 	end
 
@@ -404,7 +410,11 @@ local function find_penetration(poly_vertices, collider_position, v0, v1, v2, op
 end
 
 function polyhedron_triangle_contacts.FindPenetration(collider, polyhedron, v0, v1, v2, options)
-	options = options or {}
+	options = options or EMPTY_OPTIONS
+	FIND_PENETRATION_OPTIONS.epsilon = options.epsilon
+	FIND_PENETRATION_OPTIONS.triangle_slop = options.triangle_slop
+	FIND_PENETRATION_OPTIONS.collider_margin = options.collider_margin or collider:GetCollisionMargin() or 0
+	FIND_PENETRATION_OPTIONS.min_ground_normal_y = options.min_ground_normal_y or collider:GetMinGroundNormalY()
 	return find_penetration(
 		options.poly_vertices or
 			polyhedron_cache.GetPolyhedronWorldVertices(collider, polyhedron),
@@ -412,12 +422,7 @@ function polyhedron_triangle_contacts.FindPenetration(collider, polyhedron, v0, 
 		v0,
 		v1,
 		v2,
-		{
-			epsilon = options.epsilon,
-			triangle_slop = options.triangle_slop,
-			collider_margin = options.collider_margin or collider:GetCollisionMargin() or 0,
-			min_ground_normal_y = options.min_ground_normal_y or collider:GetMinGroundNormalY(),
-		}
+		FIND_PENETRATION_OPTIONS
 	)
 end
 
@@ -469,6 +474,7 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 		),
 		normal
 	)
+	FACE_CONTACT_OPTIONS.triangle_slop = triangle_slop
 	contacts = contacts or
 		chosen and
 		chosen.kind == "face" and
@@ -478,27 +484,19 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 			triangle_vertices,
 			chosen,
 			normal,
-			{
-				triangle_slop = triangle_slop,
-				max_contacts = 4,
-				scratch = FACE_CONTACT_SCRATCH,
-				out = FACE_CONTACT_SCRATCH.contacts,
-			}
+			FACE_CONTACT_OPTIONS
 		)
 		or
 		nil
 
 	if not contacts or #contacts < 3 then
+		SUPPORT_CONTACT_OPTIONS.merge_distance = manifold_merge_distance
 		contacts = convex_manifold.BuildAndMergeSupportPairContacts(
 			contacts,
 			poly_vertices,
 			triangle_vertices,
 			normal * -1,
-			{
-				merge_distance = manifold_merge_distance,
-				max_contacts = 4,
-				scratch = SUPPORT_CONTACT_SCRATCH,
-			}
+			SUPPORT_CONTACT_OPTIONS
 		)
 	end
 

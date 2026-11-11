@@ -23,6 +23,12 @@ local SOLVE_MESH_POLYHEDRON_CONTEXT = {
 	combined_margin = 0,
 	use_local_space = false,
 }
+local TRIANGLE_QUERY_OPTIONS = {
+	epsilon = EPSILON,
+	triangle_slop = 0,
+	manifold_merge_distance = CONTACT_MERGE_DISTANCE,
+	outward_winding = false,
+}
 
 local function quantize_sample_coord(value)
 	if value >= 0 then return math.floor(value * 100000 + 0.5) end
@@ -385,18 +391,15 @@ local function solve_mesh_polyhedron_triangle(v0, v1, v2, triangle_index, contex
 		query_v2 = mesh_body:LocalToWorld(v2)
 	end
 
+	TRIANGLE_QUERY_OPTIONS.triangle_slop = context.combined_margin
+	TRIANGLE_QUERY_OPTIONS.outward_winding = context.outward_winding
 	local result = triangle_contact_queries.QueryPolyhedron(
 		poly_body,
 		context.polyhedron,
 		query_v0,
 		query_v1,
 		query_v2,
-		{
-			epsilon = EPSILON,
-			triangle_slop = context.combined_margin,
-			manifold_merge_distance = CONTACT_MERGE_DISTANCE,
-			outward_winding = context.outward_winding,
-		}
+		TRIANGLE_QUERY_OPTIONS
 	)
 	local face_normal = result and
 		result.normal and
