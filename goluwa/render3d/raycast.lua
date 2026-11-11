@@ -904,6 +904,16 @@ local function test_model_closest(
 )
 	if not model.Visible or not model.Raycast then return nil end
 
+	if not skip_model_aabb then
+		local world_aabb = model:GetWorldAABB()
+
+		if world_aabb then
+			local aabb_hit, model_tmin = BVH.RayAABBIntersection(ray, world_aabb)
+
+			if not aabb_hit or model_tmin > closest_distance then return nil end
+		end
+	end
+
 	local world_to_local, local_to_world = get_model_transforms(model)
 	local local_aabb = get_spatial_local_aabb(model)
 
