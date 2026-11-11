@@ -388,6 +388,7 @@ local types_len_map = {
 	double = 8,
 }
 local unpackers = {}
+local byte_unpackers = {}
 local unpack_number
 
 if LITTLE_ENDIAN then
@@ -446,12 +447,9 @@ local unpack_array = function(buf, offset, n)
 	return offset, r
 end
 unpackers.dynamic = function(buf, offset)
-	assert(offset, "non nil offset is expected")
-
 	if offset >= buf.size then return nil, nil end
 
-	local obj_type = type_for(buf.data[offset])
-	return unpackers[obj_type](buf, offset)
+	return byte_unpackers[buf.data[offset]](buf, offset)
 end
 unpackers.undefined = function(buf, offset)
 	error("unimplemented")
@@ -473,8 +471,21 @@ unpackers.uint8 = function(buf, offset)
 
 	return offset + 2, buf.data[offset + 1]
 end
-unpackers.uint16 = unpacker_number
-unpackers.uint32 = unpacker_number
+unpackers.uint16 = function(buf, offset)
+	local data = buf.data
+
+	if offset + 2 >= buf.size then return nil, nil end
+
+	return offset + 3, data[offset + 1] * 256 + data[offset + 2]
+end
+unpackers.uint32 = function(buf, offset)
+	local data = buf.data
+
+	if offset + 4 >= buf.size then return nil, nil end
+
+	return offset + 5,
+	data[offset + 1] * 16777216 + data[offset + 2] * 65536 + data[offset + 3] * 256 + data[offset + 4]
+end
 unpackers.uint64 = unpacker_number
 unpackers.fixnum_neg = function(buf, offset)
 	return offset + 1, ffi.cast("int8_t *", buf.data)[offset]
@@ -484,8 +495,28 @@ unpackers.int8 = function(buf, offset)
 
 	return offset + 2, ffi.cast("int8_t *", buf.data + offset + 1)[0]
 end
-unpackers.int16 = unpacker_number
-unpackers.int32 = unpacker_number
+unpackers.int16 = function(buf, offset)
+	local data = buf.data
+
+	if offset + 2 >= buf.size then return nil, nil end
+
+	local v = data[offset + 1] * 256 + data[offset + 2]
+
+	if v >= 32768 then v = v - 65536 end
+
+	return offset + 3, v
+end
+unpackers.int32 = function(buf, offset)
+	local data = buf.data
+
+	if offset + 4 >= buf.size then return nil, nil end
+
+	local v = data[offset + 1] * 16777216 + data[offset + 2] * 65536 + data[offset + 3] * 256 + data[offset + 4]
+
+	if v >= 2147483648 then v = v - 4294967296 end
+
+	return offset + 5, v
+end
 unpackers.int64 = unpacker_number
 unpackers.float = unpacker_number
 unpackers.double = unpacker_number
@@ -568,6 +599,11 @@ unpackers.map32 = function(buf, offset)
 	local n = unpack_number(buf, offset, "uint32_t *", 4)
 	return unpack_map(buf, offset + 5, n)
 end
+
+for byte = 0, 255 do
+	byte_unpackers[byte] = unpackers[type_for(byte)]
+end
+
 local ljp_pack = function(data)
 	sbuffer_init(buffer)
 	packers.dynamic(data)
