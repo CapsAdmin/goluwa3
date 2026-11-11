@@ -12,6 +12,7 @@ local resource = import("goluwa/source_engine/source2/resource.lua")
 local animation = import("goluwa/source_engine/source2/animation.lua")
 local vphys = import("goluwa/source_engine/source2/vphys.lua")
 local s2_material = import("goluwa/source_engine/source2/material.lua")
+local render = import("goluwa/render/render.lua")
 local f32_ptr_t = ffi.typeof("const float *")
 local DECAL_LIFT = 0.03
 local job = [=[
@@ -193,6 +194,9 @@ local function finish(
 	if #meta.entries > 0 then
 		bounds_callback(Vec3(min_x, min_y, min_z), Vec3(max_x, max_y, max_z))
 	end
+
+	-- headless and server processes only need the physics and bounds, the meshes and materials are gpu resources
+	if not render.CanCreateResources() then return end
 
 	for _, entry in ipairs(meta.entries) do
 		local vertices, indices = packed_mesh.Unpack(entry, blob_table)
