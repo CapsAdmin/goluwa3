@@ -8,11 +8,11 @@ local model_replacements = import("lua/model_replacements.lua")
 model_replacements.Register(
 	"sword",
 	{
-		Game = "gmod",
-		Path = "models/weapons/w_crowbar.mdl",
-		Position = FORWARD * 0.383,
-		Rotation = Quat():SetAngles(Vec3(0, math.pi, 0)),
-		Scale = Vec3(1.66, 1.66, 1.66),
+		Game = 546560,
+		Path = "models/weapons/vr_crowbar/crowbar.vmdl_c",
+		Position = FORWARD * 0.28 + Vec3(0, 0.04, 0),
+		Rotation = Quat(0, 0, 0, 1),
+		Scale = Vec3(1.7, 1.7, 1.7),
 	}
 )
 return {
