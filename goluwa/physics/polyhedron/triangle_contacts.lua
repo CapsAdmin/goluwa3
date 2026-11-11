@@ -150,6 +150,16 @@ end
 
 polyhedron_triangle_contacts.IsSeparatedByTrianglePrism = is_separated_by_triangle_prism
 
+-- support pairs match each hull point with the nearest triangle vertex, which for a large triangle is metres away and turns a resting contact into a long lever; the triangle side belongs where the hull point meets the triangle
+local function snap_contacts_to_triangle(contacts, v0, v1, v2)
+	if not contacts then return end
+
+	for i = 1, #contacts do
+		local contact = contacts[i]
+		contact.point_b = triangle_geometry.ClosestPointOnTriangle(contact.point_a, v0, v1, v2):Copy()
+	end
+end
+
 local function fill_triangle_vertices(out, v0, v1, v2)
 	out = out or {}
 	out[1] = v0
@@ -398,6 +408,7 @@ local function find_contact_sat_fallback(collider, polyhedron, v0, v1, v2, optio
 			normal * -1,
 			SUPPORT_CONTACT_OPTIONS
 		)
+		snap_contacts_to_triangle(contacts, v0, v1, v2)
 	end
 
 	if contacts and contacts[1] then
@@ -598,6 +609,7 @@ function polyhedron_triangle_contacts.FindContact(collider, polyhedron, v0, v1, 
 			normal * -1,
 			SUPPORT_CONTACT_OPTIONS
 		)
+		snap_contacts_to_triangle(contacts, v0, v1, v2)
 	end
 
 	if contacts and contacts[1] then
