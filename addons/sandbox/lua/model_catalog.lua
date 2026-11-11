@@ -1,7 +1,40 @@
 local assets = import("goluwa/assets.lua")
+local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
+local vfs = import("goluwa/vfs.lua")
 local model_families = import("lua/model_families.lua")
 local spawnlists = import("lua/spawnlists.lua")
 local model_catalog = {}
+local MOUNT_SETTLE_TIME = 0.5
+
+do
+	local listeners = {}
+	local seen = vfs.mount_generation
+	local changed_at
+
+	event.AddListener("Update", "model_catalog_mounts", function()
+		if vfs.mount_generation ~= seen then
+			seen = vfs.mount_generation
+			changed_at = system.GetUnscaledElapsedTime()
+		end
+
+		if changed_at and system.GetUnscaledElapsedTime() - changed_at >= MOUNT_SETTLE_TIME then
+			changed_at = nil
+
+			for fn in pairs(listeners) do
+				fn(seen)
+			end
+		end
+	end)
+
+	function model_catalog.ListenMounts(fn)
+		listeners[fn] = true
+		return function()
+			listeners[fn] = nil
+		end
+	end
+end
+
 function model_catalog.Collect(node)
 	if node.All then return node.All end
 

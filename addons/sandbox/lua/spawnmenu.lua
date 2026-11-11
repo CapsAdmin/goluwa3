@@ -309,7 +309,9 @@ end
 
 local ModelsPage = react.Component(
 	||-> do
-		local roots = react.UseMemo(model_catalog.Build, {})
+		local generation, set_generation = react.UseState(0)
+		react.UseEffect(||->model_catalog.ListenMounts(||->set_generation(|g|->g + 1)), {})
+		local roots = react.UseMemo(model_catalog.Build, {generation})
 		local tree_items = react.UseMemo(
 			||-> do
 				local items = {}
@@ -348,9 +350,11 @@ local ModelsPage = react.Component(
 		local pending, total = model_families.GetPending()
 		react.UseLayoutEffect(
 			||-> do
+				set_selected(roots[1])
+
 				if tree.current then tree.current:SetSelectedKey(tree_items[1].Key) end
 			end,
-			{}
+			{tree_items}
 		)
 		local status = hovered and hovered.path or ("%d models"):format(#items)
 
