@@ -43,9 +43,10 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local event = import("goluwa/event.lua")
 local Beam = RENDER_3D and import("goluwa/render3d/beam.lua")
+local vfx = RENDER_3D and import("goluwa/render3d/vfx.lua")
+local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local META = objects.CreateTemplate("weapon_physgun")
-META:GetSet("MinHoldDistance", 1)
-META:GetSet("MaxGrabDistance", 12)
+META:GetSet("GrabReach", 10000)
 META:GetSet("ScrollStep", 0.75)
 META:GetSet("PositionStrength", 22)
 META:GetSet("VelocityResponse", 18)
@@ -62,6 +63,10 @@ end
 local BUTTON = usercmd.BUTTON
 local BEAM_POINTS = 24
 local BEAM_COLOR = Color(0.25, 0.55, 1, 1)
+local BEAM_STRENGTH = 10
+local BEAM_RADIUS = 0.015
+local BEAM_START_BACK = 0.2
+local BEAM_MIN_PIXEL = 0.0015
 local beam_owners = table.weak("k")
 local AIM_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 
@@ -120,7 +125,7 @@ end
 function META:Initialize()
 	self.held_body = nil
 	self.held_local_point = Vec3()
-	self.held_distance = self.MinHoldDistance
+	self.held_distance = 0
 	self.held_rotation_offset = Quat():Identity()
 	self.block_grab_until_primary_release = false
 	self.frozen_bodies = table.weak("k")
@@ -130,6 +135,8 @@ function META:Initialize()
 
 	if RENDER_3D then
 		self.beam_points = Beam.NewPoints(BEAM_POINTS)
+		self.beam_left = Beam.NewPoints(BEAM_POINTS)
+		self.beam_right = Beam.NewPoints(BEAM_POINTS)
 		self.beam_control = Vec3()
 		self.beam_start = Vec3()
 		self.beam_end = Vec3()
@@ -138,8 +145,8 @@ function META:Initialize()
 end
 
 function META:UpdateBeamAim(origin, forward)
-	local hit = physics.Sweep(origin, forward * self.MaxGrabDistance, 0, self.Owner:GetParent(), nil, AIM_OPTIONS)
-	local point = hit and hit.point or origin + forward * self.MaxGrabDistance
+	local hit = physics.Sweep(origin, forward * self.GrabReach, 0, self.Owner:GetParent(), nil, AIM_OPTIONS)
+	local point = hit and hit.point or origin + forward * self.GrabReach
 	self.beam_aim:Set(point.x, point.y, point.z)
 	self.beam_forward:Set(forward.x, forward.y, forward.z)
 end
@@ -180,9 +187,15 @@ function META:UpdateBeam()
 		self:UpdateBeamAim(camera and camera:GetViewPosition() or get_origin(character), forward)
 	end
 
-	local muzzle = self.Owner.weapon:GetMuzzle().transform:GetWorldPosition()
+	local muzzle_transform = self.Owner.weapon:GetMuzzle().transform
+	local muzzle = muzzle_transform:GetWorldPosition()
+	local barrel = muzzle_transform:GetWorldRotation():GetForward()
 	local start = self.beam_start
-	start:Set(muzzle.x, muzzle.y, muzzle.z)
+	start:Set(
+		muzzle.x - barrel.x * BEAM_START_BACK,
+		muzzle.y - barrel.y * BEAM_START_BACK,
+		muzzle.z - barrel.z * BEAM_START_BACK
+	)
 	local finish = self.beam_end
 
 	if body and body:IsValid() then
@@ -199,25 +212,44 @@ function META:UpdateBeam()
 		Beam.Line(start, finish, self.beam_points)
 	end
 
-	local muzzle_transform = self.Owner.weapon:GetMuzzle().transform
-
 	if not beam then
 		beam = Beam.New{
 			Parent = muzzle_transform.Owner,
 			Points = BEAM_POINTS,
-			Radius = 0.02,
-			Material = Beam.CreateMaterial(BEAM_COLOR, 40),
+			Ribbon = true,
+			Material = Beam.CreateRibbonMaterial(BEAM_COLOR, BEAM_STRENGTH, vfx.GetTexture("trail")),
 		}
 		self.beam = beam
 	end
 
 	local inverse = muzzle_transform:GetWorldMatrixInverse()
+	local world_camera = render3d.GetCamera():GetPosition()
+	local camera_x, camera_y, camera_z = inverse:TransformVectorUnpacked(world_camera.x, world_camera.y, world_camera.z)
+	local points = self.beam_points
 
-	for _, point in ipairs(self.beam_points) do
+	for i = 1, BEAM_POINTS do
+		local point = points[i]
 		point:Set(inverse:TransformVectorUnpacked(point.x, point.y, point.z))
 	end
 
-	beam:SetPoints(self.beam_points)
+	for i = 1, BEAM_POINTS do
+		local point = points[i]
+		local before = points[i > 1 and i - 1 or i]
+		local after = points[i < BEAM_POINTS and i + 1 or i]
+		local tx, ty, tz = after.x - before.x, after.y - before.y, after.z - before.z
+		local vx, vy, vz = camera_x - point.x, camera_y - point.y, camera_z - point.z
+		local sx, sy, sz = ty * vz - tz * vy, tz * vx - tx * vz, tx * vy - ty * vx
+		local length = math.sqrt(sx * sx + sy * sy + sz * sz)
+
+		if length < 1e-6 then sx, sy, sz, length = 1, 0, 0, 1 end
+
+		local scale = math.max(BEAM_RADIUS, math.sqrt(vx * vx + vy * vy + vz * vz) * BEAM_MIN_PIXEL) / length
+		sx, sy, sz = sx * scale, sy * scale, sz * scale
+		self.beam_left[i]:Set(point.x - sx, point.y - sy, point.z - sz)
+		self.beam_right[i]:Set(point.x + sx, point.y + sy, point.z + sz)
+	end
+
+	beam:SetStripPoints(self.beam_left, self.beam_right, 1, -0.2)
 	beam:SetVisible(true)
 end
 
@@ -240,16 +272,12 @@ function META:Release()
 
 	self.held_body = nil
 	self.held_local_point = Vec3()
-	self.held_distance = self.MinHoldDistance
+	self.held_distance = 0
 	self.held_rotation_offset = Quat():Identity()
 end
 
 function META:AdjustHoldDistance(delta)
-	self.held_distance = math.clamp(
-		(self.held_distance or self.MinHoldDistance) + delta,
-		self.MinHoldDistance,
-		self.MaxGrabDistance
-	)
+	self.held_distance = math.max((self.held_distance or 0) + delta, 0)
 end
 
 function META:CanHoldBody(body)
@@ -324,7 +352,7 @@ end
 function META:FindBody(cmd)
 	local player = self.Owner:GetParent()
 	local origin = get_origin(player)
-	local movement = cmd.aim:GetForward() * self.MaxGrabDistance
+	local movement = cmd.aim:GetForward() * self.GrabReach
 	local hit = physics.Sweep(
 		origin,
 		movement,
@@ -388,7 +416,7 @@ function META:TryAcquireBody(cmd)
 	self.held_original_group = body:GetCollisionGroup()
 	body:SetCollisionGroup(usercmd.HELD_COLLISION_GROUP)
 	self.held_local_point = body:GetRotation():GetConjugated():VecMul(grab_point - body:GetOriginPosition())
-	self.held_distance = math.clamp(hit.distance or self.MinHoldDistance, self.MinHoldDistance, self.MaxGrabDistance)
+	self.held_distance = hit.distance or 0
 	self.held_rotation_offset = (cmd.aim:GetConjugated() * body:GetRotation()):GetNormalized()
 
 	if body.SetGrounded then body:SetGrounded(false) end
@@ -580,7 +608,7 @@ if RENDER_3D then
 				physgun:UpdateBeam()
 			end
 		end,
-		{priority = 200}
+		{priority = 50}
 	)
 end
 
