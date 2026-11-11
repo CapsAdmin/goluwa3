@@ -16,7 +16,9 @@ local clipboard = import("goluwa/bindings/clipboard.lua")
 local objects = import("goluwa/objects/objects.lua")
 local system = import("goluwa/system.lua")
 local previews = import("lua/asset_preview.lua")
-local spawnlists = import("lua/spawnlists.lua")
+local assets = import("goluwa/assets.lua")
+local model_catalog = import("lua/model_catalog.lua")
+local model_families = import("lua/model_families.lua")
 local weapons = import("lua/weapons.lua")
 local weapon_categories = import("lua/weapon_categories.lua")
 local npcs = import("lua/npcs.lua")
@@ -38,7 +40,7 @@ local PAGE_LAYOUT = {
 local SPAWN_RANGE = 40
 local DEFAULT_DISTANCE = 3
 local TRACE_OPTIONS = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
-local LEFT_TABS = {"Spawnlists", "Weapons", "Interactive", "Vehicles", "NPCs"}
+local LEFT_TABS = {"Models", "Weapons", "Interactive", "Vehicles", "NPCs"}
 local root = NULL
 local colors = {}
 
@@ -165,7 +167,7 @@ end
 
 function spawnmenu.Spawn(entry)
 	local position, yaw = get_aim()
-	local kind = entry.kind or "prop"
+	local kind = entry.category == "models" and "prop" or entry.kind
 	local name = kind == "prop" and entry.path or entry.spawn_name
 	spawn_requests.Spawn(kind, name, position, yaw, get_spawn_options(kind))
 end
@@ -198,27 +200,27 @@ local function draw_tile(item, index, x, y, w, h, selected, hovered)
 		hovered and colors.primary or colors.border,
 		hovered and -2 or -1
 	)
-	local label_height = item.label and LABEL_HEIGHT or 0
+	local label = item.label ?? item.name
 	local preview = previews.Request(item)
-	local size = math.min(w, h - label_height) - 4
+	local size = math.min(w, h - LABEL_HEIGHT) - 4
 
 	if preview.status == "ready" then
 		previews.Draw(preview, x + (w - size) / 2, y + 2, size, size)
 	elseif preview.status == "loading" or preview.status == "queued" then
 		colors.pulse.a = 0.12 + 0.08 * math.sin(system.GetUnscaledElapsedTime() * 5 + index)
-		render2d.DrawBox(x + w * 0.3, y + (h - label_height) * 0.45, w * 0.4, 6, 3, colors.pulse)
+		render2d.DrawBox(x + w * 0.3, y + (h - LABEL_HEIGHT) * 0.45, w * 0.4, 6, 3, colors.pulse)
 	end
 
-	if item.label then
+	do
 		if item.label_width ~= w then
 			item.label_width = w
-			item.elided = colors.font:ElideText(item.label, w - 4)
+			item.elided = colors.font:ElideText(label, w - 4)
 		end
 
 		local tw = colors.font:GetTextSize(item.elided)
 		render2d.SetTexture(nil)
 		render2d.SetColor(1, 1, 1, 1)
-		colors.font:DrawText(item.elided, x + (w - tw) / 2, y + h - label_height + 3, 0)
+		colors.font:DrawText(item.elided, x + (w - tw) / 2, y + h - LABEL_HEIGHT + 3, 0)
 	end
 end
 
@@ -257,82 +259,93 @@ local TileGrid = react.Component(
 	end
 )
 
-local function make_tree_items(roots, counter)
-	local items = {}
+local make_tree_item
 
-	for _, node in ipairs(roots) do
-		counter.count += 1
-		items[#items + 1] = {
-			Key = "list" .. counter.count,
-			Text = node.Name,
-			Icon = #node.Children > 0 and
-				(
-					|_,expanded|->expanded and
-					"folder_open" or
-					"folder"
-				)
-				or
-				"layers",
-			List = node,
-			Children = make_tree_items(node.Children, counter),
-		}
+local function ensure_item_children(item)
+	if item.ChildrenLoaded then return false end
+
+	item.ChildrenLoaded = true
+	item.Children = {}
+
+	for _, child in ipairs(item.Source.Children) do
+		item.Children[#item.Children + 1] = make_tree_item(child, item.Key .. "/" .. child.Name, item.Depth + 1)
 	end
 
-	return items
+	return true
 end
 
-local SpawnlistsPage = react.Component(
+function make_tree_item(node, key, depth)
+	local branch = #node.Children > 0
+	local item = {
+		Key = key,
+		Text = node.Name,
+		Source = node,
+		Depth = depth,
+		Icon = branch and
+			(
+				|_,expanded|->expanded and
+				"folder_open" or
+				"folder"
+			)
+			or
+			"layers",
+		Children = branch and {__lazy = true} or {},
+		ChildrenLoaded = not branch,
+	}
+
+	if branch and depth < 2 then ensure_item_children(item) end
+
+	return item
+end
+
+local ModelsPage = react.Component(
 	||-> do
-		local roots = react.UseMemo(spawnlists.Load, {})
-		local everything = react.UseMemo(||->spawnlists.GetEntries(roots), {roots})
+		local roots = react.UseMemo(model_catalog.Build, {})
 		local tree_items = react.UseMemo(
-			||->{
-				{
-					Key = "root",
-					Text = "Your Spawnlists",
-					Icon = "folder_open",
-					Children = make_tree_items(roots, {count = 0}),
-				},
-			},
+			||-> do
+				local items = {}
+
+				for _, node in ipairs(roots) do
+					items[#items + 1] = make_tree_item(node, node.Name, 0)
+				end
+
+				return items
+			end,
 			{roots}
 		)
-		local list, set_list = react.UseState(roots[1])
+		local selected, set_selected = react.UseState(roots[1])
 		local query, set_query = react.UseState("")
+		local version, set_version = react.UseState(0)
+		local hovered, set_hovered = react.UseState()
 		local applied_query = react.UseDebounce(query, 0.12)
-		local expanded = react.UseRef({root = true})
+		local expanded = react.UseRef({})
 		local tree = react.UseRef()
+		react.UseEffect(
+			||->model_families.Listen(||->set_version(|v|->v + 1)),
+			{}
+		)
 		local items = react.UseMemo(
 			||-> do
-				local text = applied_query:lower():match("^%s*(.-)%s*$")
+				local scope = model_catalog.Collect(selected)
+				local text = applied_query:match("^%s*(.-)%s*$")
 
-				if text == "" then return list and list.Entries ?? {} end
+				if text == "" then return scope end
 
-				local found = {}
-
-				for _, entry in ipairs(everything) do
-					if entry.lower_path:find(text, 1, true) then found[#found + 1] = entry end
-				end
-
-				return found
+				return assets.Search("models", text, {entries = scope})
 			end,
-			{list, applied_query, everything}
+			{selected, applied_query, version}
 		)
+		local pending, total = model_families.GetPending()
 		react.UseLayoutEffect(
 			||-> do
-				if tree.current then
-					tree.current:SetSelectedKey(tree_items[1].Children[1].Key)
-				end
+				if tree.current then tree.current:SetSelectedKey(tree_items[1].Key) end
 			end,
 			{}
 		)
+		local status = hovered and hovered.path or ("%d models"):format(#items)
 
-		if #roots == 0 then
-			return ui.Text{
-				Text = "no spawnlists found, mount Garry's Mod to get settings/spawnlist_default",
-				Color = "text_disabled",
-				Wrap = true,
-				layout = {GrowWidth = 1},
-			}
+		if pending > 0 then
+			status = status .. ("  (sizes %d%%)"):format(math.floor((1 - pending / total) * 100))
 		end
 
 		return ui.Column{
@@ -369,15 +382,46 @@ local SpawnlistsPage = react.Component(
 						LabelGrow = true,
 						layout = {GrowWidth = 1, FitHeight = true},
 						OnIsExpanded = |_,_,key|->expanded.current[key] == true,
-						OnToggle = |_,is_expanded,key|-> do
+						OnToggle = |node,is_expanded,key|-> do
 							expanded.current[key] = is_expanded == true
+
+							if is_expanded and ensure_item_children(node) then
+								tree.current:RefreshBranchForKey(key)
+							end
 						end,
 						OnSelect = |node|-> do
-							if node then set_list(node.List) end
+							if node then set_selected(node.Source) end
 						end,
 					},
 				},
-				TileGrid{Items = items},
+				ui.Column{
+					layout = {
+						GrowWidth = 1,
+						GrowHeight = 1,
+						FitHeight = false,
+						ChildGap = 4,
+						AlignmentX = "stretch",
+					},
+				}{
+					ui.VirtualGrid{
+						Items = items,
+						CellWidth = LABELED_TILE_SIZE,
+						ExtraHeight = 0,
+						Gap = 4,
+						ContentPadding = 4,
+						OnDrawItem = draw_tile,
+						OnClick = spawnmenu.Spawn,
+						OnContextMenu = open_entry_menu,
+						OnHoverItem = set_hovered,
+						layout = {GrowWidth = 1, GrowHeight = 1},
+					},
+					ui.Text{
+						Text = status,
+						Color = "text_disabled",
+						Elide = true,
+						layout = {GrowWidth = 1, FitWidth = false},
+					},
+				},
 			},
 		}
 	end
@@ -839,7 +883,7 @@ local ToolsPage = react.Component(
 	end
 )
 local LEFT_PAGES = {
-	Spawnlists = ||->SpawnlistsPage{},
+	Models = ||->ModelsPage{},
 	Weapons = ||->WeaponsPage{},
 	Interactive = ||->ListPage{Make = make_interactive_entries},
 	Vehicles = ||->ListPage{Make = make_vehicle_entries},
@@ -847,7 +891,7 @@ local LEFT_PAGES = {
 }
 local SpawnMenu = react.Component(
 	||-> do
-		local tab, set_tab = react.UseState("Spawnlists")
+		local tab, set_tab = react.UseState("Models")
 		local right_tab, set_right_tab = react.UseState("Tools")
 		local width = react.UseMemo(||->Panel.World.transform:GetSize().x, {})
 		return ui.Panel{

@@ -1,5 +1,6 @@
 local vfs = import("goluwa/vfs.lua")
 local steam = import("goluwa/steam/steam.lua")
+local assets = import("goluwa/assets.lua")
 local spawnlists = {}
 local DEFAULT_DIRECTORY = "settings/spawnlist_default/"
 local USER_DIRECTORY = "settings/spawnlist/"
@@ -22,6 +23,10 @@ local function find_files(directory)
 end
 
 local function make_entry(path)
+	local indexed = assets.GetIndex("models").by_path[path:lower()]
+
+	if indexed then return indexed end
+
 	return {
 		category = "models",
 		path = path,
@@ -81,27 +86,6 @@ function spawnlists.Load()
 	end
 
 	return roots
-end
-
-function spawnlists.GetEntries(roots)
-	local entries = {}
-	local seen = {}
-
-	local function add(nodes)
-		for _, node in ipairs(nodes) do
-			for _, entry in ipairs(node.Entries) do
-				if not seen[entry.lower_path] then
-					seen[entry.lower_path] = true
-					entries[#entries + 1] = entry
-				end
-			end
-
-			add(node.Children)
-		end
-	end
-
-	add(roots)
-	return entries
 end
 
 return spawnlists
