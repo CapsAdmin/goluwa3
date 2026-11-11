@@ -1,9 +1,19 @@
 local nodes = import("lua/weapon_nodes.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
-local BODY = {Color = Color(0.16, 0.17, 0.2, 1), Roughness = 0.3, Metallic = 0.9}
-local HANDLE = {Color = Color(0.36, 0.22, 0.12, 1), Roughness = 0.8, Metallic = 0}
-local MUZZLE = {Color = Color(0.04, 0.04, 0.05, 1), Roughness = 0.25, Metallic = 0.9}
+local Quat = import("goluwa/structs/quat.lua")
+local model_replacements = import("lua/model_replacements.lua")
+local PLACEHOLDER = {Color = Color(0.16, 0.17, 0.2, 1), Roughness = 0.3, Metallic = 0.9}
+model_replacements.Register(
+	"pistol",
+	{
+		Game = 546560,
+		Path = "models/weapons/vr_pistol/vr_pistol.vmdl_c",
+		Position = Vec3(0, 0.02, 0.03),
+		Rotation = Quat(0, 0, 0, 1),
+		Scale = Vec3(1.15, 1.15, 1.15),
+	}
+)
 return {
 	Values = {
 		WorldSize = Vec3(0.05, 0.18, 0.32),
@@ -16,11 +26,11 @@ return {
 		Holster = true,
 		AimSlack = true,
 		Rollable = true,
+		Replacement = "pistol",
 	},
 	Nodes = {
-		nodes.Handle("handle", 0.022, 0.12, Vec3(0, 0, 0), HANDLE),
-		nodes.Box("body", Vec3(0.045, 0.06, 0.2), Vec3(0, 0.09, -0.08), BODY),
-		nodes.Muzzle(0.015, 0.12, Vec3(0, 0.09, -0.3), MUZZLE),
+		nodes.Replacement(Vec3(0.03, 0.14, 0.2), Vec3(0, 0.02, -0.07), PLACEHOLDER),
+		nodes.Marker("muzzle", Vec3(0, 0.07, -0.2)),
 	},
 	Source = [=====[local objects = import("goluwa/objects/objects.lua")
 local damage = import("lua/damage.lua")
