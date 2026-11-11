@@ -745,7 +745,7 @@ return function(steam)
 										if test:ends_with(".vpk") and not vfs.IsFile("os:" .. test) then
 											local vpk_path = test:gsub("%.vpk$", "_dir.vpk") .. "/"
 
-											if not done[vpk_path] then
+											if not done[vpk_path] and vfs.IsDirectory(vpk_path) then
 												list.insert(fixed, vpk_path)
 												done[vpk_path] = true
 											end
@@ -756,7 +756,7 @@ return function(steam)
 								if path:ends_with(".vpk") and not vfs.IsFile("os:" .. path) then
 									local vpk_path = path:gsub("%.vpk$", "_dir.vpk") .. "/"
 
-									if not done[vpk_path] then
+									if not done[vpk_path] and vfs.IsDirectory(vpk_path) then
 										list.insert(fixed, vpk_path)
 										done[vpk_path] = true
 									end
