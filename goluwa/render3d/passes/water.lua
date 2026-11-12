@@ -1490,7 +1490,7 @@ list.insert(
 				return len * mix((first - last) / mix(x, vec3(1.0), near_zero), series, near_zero);
 			}
 
-			const float WATER_LIGHT_RANGE = 40.0;
+			#define WATER_LIGHT_RANGE (40.0 * water_data.view_scale)
 			const int WATER_LIGHT_SAMPLES = 4;
 			const int WATER_LIGHT_MAX_PER_SAMPLE = 6;
 
@@ -1508,9 +1508,9 @@ list.insert(
 				float visibility = 0.0;
 
 				if (dot(sun_light, sun_light) > 0.0 && water_feature(WATER_SHAFTS)) {
-					float shadow_len = min(len, 60.0);
+					float shadow_len = min(len, 60.0 * water_data.view_scale);
 
-					float shaft_focus = 1.0 - smoothstep(25.0, 140.0, distance(origin, water_data.camera_position.xyz));
+					float shaft_focus = 1.0 - smoothstep(25.0 * water_data.view_scale, 140.0 * water_data.view_scale, distance(origin, water_data.camera_position.xyz));
 
 					int shaft_samples = min(len < 2.0 ? 2 : (len < 8.0 ? 4 : 8), water_data.shaft_samples);
 
@@ -1626,7 +1626,7 @@ list.insert(
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
 				float depth = max(w.surface_y - world_pos.y, 0.0);
 				if (depth <= 0.0) return vec3(1.0);
-				float blur = clamp(smoothstep(4.0 * fade, 30.0 * fade, depth) + smoothstep(0.3, 2.0, footprint), 0.0, 1.0);
+				float blur = clamp(smoothstep(4.0 * fade * water_data.view_scale, 30.0 * fade * water_data.view_scale, depth) + smoothstep(0.3 * water_data.view_scale, 2.0 * water_data.view_scale, footprint), 0.0, 1.0);
 				if (blur >= 1.0) return vec3(1.0);
 
 				if (blur >= 0.5) {
