@@ -325,6 +325,42 @@ function META:GetRange()
 	math.min(#self._items, (math.floor((y2 - padding) / self._pitch_y) + 1) * self._columns)
 end
 
+-- what is drawn now, for automation: {item, index, text, x, y, w, h} with screen rects
+function META:GetDrawnItems()
+	local out = {}
+	local content = self._content
+
+	if not self._columns or not content.transform:GetVisibleLocalRect() then
+		return out
+	end
+
+	local first, last = self:GetRange()
+	local padding = self.ContentPadding
+	local cell_width = self._pitch_x - self.Gap
+
+	for index = first, last do
+		local zero = index - 1
+		local item = self._items[index]
+		local pos = content.transform:LocalToGlobal(
+			Vec2(
+				padding + (zero % self._columns) * self._pitch_x,
+				padding + math.floor(zero / self._columns) * self._pitch_y
+			)
+		)
+		out[#out + 1] = {
+			item = item,
+			index = index,
+			text = type(item) == "table" and (item.Text or item.name or item.Name) or tostring(item),
+			x = pos.x,
+			y = pos.y,
+			w = cell_width,
+			h = self._cell_height,
+		}
+	end
+
+	return out
+end
+
 function META:ScrollToIndex(index)
 	local zero = index - 1
 	local padding = self.ContentPadding

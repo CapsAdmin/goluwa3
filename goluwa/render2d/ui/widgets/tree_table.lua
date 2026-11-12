@@ -621,6 +621,34 @@ function META:SelectNode(node)
 	return self
 end
 
+-- the rows drawn now, for automation: {node, index, text, x, y, w, h} with screen rects
+function META:GetDrawnItems()
+	local out = {}
+	local content = self._scroll and self:GetContentPanel()
+	local _, y1, _, y2 = content and content.transform:GetVisibleLocalRect()
+
+	if not y1 then return out end
+
+	local row_height = get_row_height(self)
+	local width = content.transform:GetWidth()
+
+	for index = math.max(1, math.floor(y1 / row_height) + 1), math.min(#self._rows, math.floor(y2 / row_height) + 1) do
+		local node = self._rows[index].node
+		local pos = content.transform:LocalToGlobal(Vec2(0, (index - 1) * row_height))
+		out[#out + 1] = {
+			node = node,
+			index = index,
+			text = node.Text,
+			x = pos.x,
+			y = pos.y,
+			w = width,
+			h = row_height,
+		}
+	end
+
+	return out
+end
+
 function META:get_row_at(y)
 	local index = math.floor(y / get_row_height(self)) + 1
 
