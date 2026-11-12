@@ -45,7 +45,9 @@ function META:Build(level_dir)
 	local data = level.Load(level_dir)
 
 	if RENDER_3D then
-		if self.Owner.terrain then return end
+		local existing = self.Owner.terrain
+
+		if existing and (existing.Path ~= "" or existing.Heights ~= "") then return end
 
 		local terrain = import("goluwa/cry_engine/terrain.lua")
 		self.spawned_terrain = terrain.SpawnTerrain(data, self.Owner) ~= nil

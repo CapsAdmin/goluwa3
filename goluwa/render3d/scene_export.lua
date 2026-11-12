@@ -73,9 +73,9 @@ function scene_export.Save(name, options)
 	if options.terrain then
 		for _, record in ipairs(data.entities) do
 			local properties = record.components.terrain
+			local component = properties and objects.created_objects_guid[record.guid].terrain
 
-			if properties then
-				local component = objects.created_objects_guid[record.guid].terrain
+			if component and not component:IsEditable() then
 				local terrain_data = component:GetData()
 				stats.terrains = stats.terrains + 1
 				local directory = scene.GetSceneDirectory(name) .. "terrain" .. (

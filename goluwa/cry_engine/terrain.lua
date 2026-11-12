@@ -173,14 +173,17 @@ function terrain.Translate(level_data)
 	}
 end
 
--- adds a terrain component with the level's terrain to parent
+-- puts the level's terrain into the terrain component of parent, returns parent when it added the component
 function terrain.SpawnTerrain(level_data, parent)
 	local source = level_data and level_data.terrain
 
 	if not source or not source.height_data then return nil end
 
-	parent:AddComponent("terrain"):SetData(terrain.Translate(level_data))
-	return parent
+	local component = parent.terrain
+	local spawned = component == nil
+	component = component or parent:AddComponent("terrain")
+	component:SetData(terrain.Translate(level_data))
+	return spawned and parent or nil
 end
 
 function terrain.ApplyVegetationMaterialState(level_data)

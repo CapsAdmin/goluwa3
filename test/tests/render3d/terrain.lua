@@ -1,4 +1,5 @@
 local T = import("test/environment.lua")
+local ffi = require("ffi")
 local ShaderSource = import("goluwa/terrain/shader_source.lua")
 local tiles = import("goluwa/terrain/tiles.lua")
 
@@ -108,4 +109,49 @@ T.Test3D("Terrain shader source derives the splat and color from the baked heigh
 	r = chunk.color_texture:Download():GetPixel(4, 4)
 	T(math.abs(r - (10 + 18 * 0.5) * 2.55))["<="](1.5)
 	source:ReleaseChunk(chunk)
+end)
+
+T.Test3D("Editable terrain keeps its maps in its properties", function()
+	local Entity = import("goluwa/entities/entity.lua")
+	local Vec3 = import("goluwa/structs/vec3.lua")
+	local HeightmapSource = import("goluwa/terrain/heightmap_source.lua")
+	local scene = import("goluwa/entities/scene.lua")
+	local entity = Entity.New{Name = "editable_terrain", Transient = false}
+	entity:AddComponent("transform"):SetPosition(Vec3(5, 3, 7))
+	local terrain = entity:AddComponent("terrain")
+	terrain:SetSize(128)
+	terrain:SetResolution(65)
+
+	T.WaitUntil(function()
+		return terrain:IsEditable() and terrain.renderer ~= nil
+	end)
+
+	local data = terrain:GetData()
+	T(math.abs(HeightmapSource.SampleHeight(data, 0, 0)))["<"](0.01)
+	T(math.abs(HeightmapSource.SampleHeight(data, -63, 40)))["<"](0.01)
+	ffi.fill(data.height.samples, 65 * 65 * 2, 255)
+	data.indices.samples[0] = 3
+	terrain:UpdateRegion(-64, -64, 64, 64)
+	terrain:CommitMaps()
+	T(#terrain:GetHeights())["=="](65 * 65 * 2)
+	T(#terrain:GetLayerMap())["=="](65 * 65)
+	local x, y, z = terrain.renderer.Root.transform:GetWorldMatrix():GetTranslation()
+	T(math.abs(x) + math.abs(y) + math.abs(z))["<"](0.001)
+	local record = scene.Decode(scene.Encode(scene.SerializeEntities{entity})).entities[1]
+	local copy = Entity.New{Name = "editable_terrain_copy"}
+	copy:AddComponent("transform")
+	local copied = copy:AddComponent("terrain")
+
+	for key, value in pairs(record.components.terrain) do
+		copied["Set" .. key](copied, value)
+	end
+
+	T.WaitUntil(function()
+		return copied:IsEditable()
+	end)
+
+	T(math.abs(HeightmapSource.SampleHeight(copied:GetData(), 10, -20) - 48))["<"](0.01)
+	T(copied:GetData().indices.samples[0])["=="](3)
+	entity:Remove()
+	copy:Remove()
 end)

@@ -300,6 +300,16 @@ LAYERS.gravel = {
 		return vec4(col, 0.86);
 	]=],
 }
+local terrain_component = import("goluwa/entities/components/terrain.lua")
+local LAYER_SETTINGS = {
+	grass = {scale = 3, surface = "grass"},
+	dirt = {scale = 3, surface = "dirt"},
+	rock = {scale = 8, surface = "rock"},
+	snow = {scale = 6, surface = "snow"},
+	sand = {scale = 3, surface = "sand"},
+	boulders = {scale = 7, surface = "boulder", height_scale = 0.1, height_blend = 1},
+	gravel = {scale = 2.5, surface = "gravel", height_scale = 0.025, height_blend = 1},
+}
 local terrain_textures = {}
 
 for name, config in pairs(LAYERS) do
@@ -321,6 +331,18 @@ for name, config in pairs(LAYERS) do
 	end)
 
 	terrain_textures[name] = {albedo = albedo_path, normal = normal_path, height = height_path}
+	local settings = LAYER_SETTINGS[name]
+	terrain_component.RegisterLayer(
+		name,
+		table.merge(
+			{
+				albedo = albedo_path,
+				normal = normal_path,
+				height = settings.height_scale and height_path or nil,
+			},
+			settings
+		)
+	)
 end
 
 return terrain_textures
