@@ -59,6 +59,7 @@ T.Test("The default outfit places the eye and limbs where the pose bones are", f
 	player.player_avatar = {
 		first_person = false,
 	}
+	player.character_movement = {Scale = 1}
 	prefab.Register("test_outfit_eye", outfit.GetDefault())
 	local instance = Entity.New{Parent = player, prefab = {Path = "test_outfit_eye"}}
 	local rig = instance.prefab:GetNode("rig")

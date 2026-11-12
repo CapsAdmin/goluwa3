@@ -38,6 +38,7 @@ local RUN_MARGIN = 1.1
 local YAW_FOLLOW = 10
 local MIN_RATE = 0.3
 local MAX_RATE = 2.5
+local armature_bone = Matrix44():Identity()
 local PLAYER_WALK_SPEED = 100 * UNIT
 local PLAYER_RUN_SPEED = 200 * UNIT
 local SPRINT_START = 1.5
@@ -537,8 +538,15 @@ function META:UpdatePlayer(animator, pose, dt)
 	animator:SetPoseParameterByName("vertical_velocity", math.clamp(pose.vertical_speed / 4, -1, 1))
 end
 
+function META:GetBodyScale()
+	local movement = self.character.character_movement
+	return movement and movement.Scale or 1
+end
+
 function META:UpdateGroundSink(character, pose, dt)
 	local target = 0
+	local movement = character.character_movement
+	local max_sink = MAX_SINK * (movement and movement.Scale or 1)
 
 	if pose.grounded and physics.instance and not pose:GetSeat():IsValid() then
 		local transform = character.transform
@@ -546,13 +554,13 @@ function META:UpdateGroundSink(character, pose, dt)
 		local hit = physics.RayCast(
 			Vec3(position.x, position.y + SINK_PROBE, position.z),
 			DOWN,
-			SINK_PROBE + MAX_SINK * 2,
+			SINK_PROBE + max_sink * 2,
 			character,
 			nil,
 			SINK_OPTIONS
 		)
 
-		if hit then target = math.clamp(position.y - hit.position.y, 0, MAX_SINK) end
+		if hit then target = math.clamp(position.y - hit.position.y, 0, max_sink) end
 	end
 
 	self.ground_sink = self.ground_sink + (target - self.ground_sink) * math.min(dt * SINK_FOLLOW, 1)
@@ -570,7 +578,9 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 	local rotation = world:GetRotation():GetConjugated()
 	local ground = self.leg_ground
 	local mean = 0
-	local scale = self.leg_scale
+	local movement = character.character_movement
+	local owner_scale = movement and movement.Scale or 1
+	local scale = self.leg_scale * owner_scale
 
 	if not self.leg_ready then
 		self.leg_ready = true
@@ -609,7 +619,7 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 		end
 
 		local step = self.steps[i]
-		local height = sy + self.ground_sink
+		local height = sy * owner_scale + self.ground_sink
 		local rate = math.max((height - step.height) / dt, -STEP_MAX_RATE)
 		step.height = height
 
@@ -670,12 +680,14 @@ end
 function META:UpdateLegs(character, pose, dt, bones)
 	local plane = self:UpdateFeet(character, pose, dt, bones, FEET)
 	local shift = self.leg_shift
+	local movement = character.character_movement
+	local owner_scale = movement and movement.Scale or 1
 	leg_pose.ApplyKeys(bones, pose, self.held_l and not self.held_r and -1 or 1, self.leg_state)
 	leg_pose.Apply(
 		bones,
-		shift[1],
-		shift[2],
-		math.clamp(self.pelvis_ground - plane, -LEG_DROP, LEG_RISE),
+		shift[1] / owner_scale,
+		shift[2] / owner_scale,
+		math.clamp((self.pelvis_ground - plane) / owner_scale, -LEG_DROP, LEG_RISE),
 		self.leg_normals,
 		self.leg_state
 	)
@@ -772,6 +784,8 @@ do
 	end
 
 	function META:MirrorBones(rig, armature, pose, dt)
+		local movement = pose.Owner.character_movement
+		local scale = movement and movement.Scale or 1
 		local holder = pose.Owner.weapon_holder
 		local right = holder and holder:GetPosedWeapon("right") or false
 		local left = holder and holder:GetPosedWeapon("left") or false
@@ -863,8 +877,10 @@ do
 			end
 		end
 
+		local body_scale = self:GetBodyScale()
+
 		for _, name in ipairs(aim_pose.Bones) do
-			bones[name].m31 = bones[name].m31 - self.ground_sink
+			bones[name].m31 = bones[name].m31 - self.ground_sink / body_scale
 		end
 
 		for i = 1, #pose.anims do
@@ -931,7 +947,11 @@ do
 				end
 			end
 
-			armature:SetBone(name, matrix, "model")
+			aim_pose.CopyMatrix(armature_bone, matrix)
+			armature_bone.m30 = armature_bone.m30 * scale
+			armature_bone.m31 = armature_bone.m31 * scale
+			armature_bone.m32 = armature_bone.m32 * scale
+			armature:SetBone(name, armature_bone, "model")
 		end
 
 		-- reading the pure animation above left the skin matrices without the overrides, and the skin is read after every update
@@ -1018,11 +1038,12 @@ function META:UpdateCreatureLimbs(rig, pose, dt)
 	end
 
 	self:UpdateGroundSink(self.character, pose, dt)
-	bones[root].m31 = bones[root].m31 - self.ground_sink
+	local body_scale = self:GetBodyScale()
+	bones[root].m31 = bones[root].m31 - self.ground_sink / body_scale
 
 	for i, limb in ipairs(limbs) do
 		for _, name in ipairs(limb.bones) do
-			bones[name].m31 = bones[name].m31 - self.ground_sink
+			bones[name].m31 = bones[name].m31 - self.ground_sink / body_scale
 		end
 
 		local sole = self.limb_soles[i]
@@ -1037,13 +1058,15 @@ function META:UpdateCreatureLimbs(rig, pose, dt)
 	end
 
 	local scale = self.leg_scale
+	local movement = pose.Owner.character_movement
+	local owner_scale = movement and movement.Scale or 1
 	local plane = self:UpdateFeet(pose.Owner, pose, dt, bones, self.limb_feet, self.limb_samples)
-	local body_shift = math.clamp(self.pelvis_ground - plane, -LEG_DROP * scale, LEG_RISE * scale)
+	local body_shift = math.clamp((self.pelvis_ground - plane) / owner_scale, -LEG_DROP * scale, LEG_RISE * scale)
 
 	for i, limb in ipairs(limbs) do
 		local tip = bones[limb.foot]
 		local target = self.limb_targets[i]
-		target.x, target.y, target.z = tip.m30, tip.m31 + self.leg_shift[i], tip.m32
+		target.x, target.y, target.z = tip.m30, tip.m31 + self.leg_shift[i] / owner_scale, tip.m32
 	end
 
 	bones[root].m31 = bones[root].m31 + body_shift
@@ -1081,9 +1104,10 @@ function META:UpdateCreatureLegs(rig, pose, dt)
 
 	biped.ReadBones(rig, bones)
 	self:UpdateGroundSink(self.character, pose, dt)
+	local body_scale = self:GetBodyScale()
 
 	for _, name in ipairs(aim_pose.Bones) do
-		bones[name].m31 = bones[name].m31 - self.ground_sink
+		bones[name].m31 = bones[name].m31 - self.ground_sink / body_scale
 	end
 
 	if pose.legs then self:UpdateLegs(pose.Owner, pose, dt, bones) end
@@ -1130,7 +1154,12 @@ function META:OnUpdate(dt)
 		if host then
 			for name in pairs(biped.SourceBones) do
 				if biped.HasBone(rig, name) then
-					host.armature:SetBone(name, biped.GetBone(rig, name), "model")
+					aim_pose.CopyMatrix(armature_bone, biped.GetBone(rig, name))
+					local scale = host.character_movement and host.character_movement.Scale or 1
+					armature_bone.m30 = armature_bone.m30 * scale
+					armature_bone.m31 = armature_bone.m31 * scale
+					armature_bone.m32 = armature_bone.m32 * scale
+					host.armature:SetBone(name, armature_bone, "model")
 				end
 			end
 		end
@@ -1144,7 +1173,13 @@ function META:OnUpdate(dt)
 			biped.ReadBones(rig, self.look_bones)
 			local head = self.look_bones.head
 			owner.eyes:SetLookTarget(
-				character.transform:GetPosition() + character.transform:GetRotation():VecMul(Vec3(head.m30, head.m31, head.m32)) + pose.aim_rotation:GetForward() * EYE_LOOK_DISTANCE
+				character.transform:GetPosition() + character.transform:GetRotation():VecMul(
+						Vec3(head.m30, head.m31, head.m32) * (
+								character.character_movement and
+								character.character_movement.Scale or
+								1
+							)
+					) + pose.aim_rotation:GetForward() * EYE_LOOK_DISTANCE
 			)
 		else
 			self:UpdateCreature(animator, animator.skeleton, pose, dt)

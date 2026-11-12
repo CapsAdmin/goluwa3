@@ -271,13 +271,13 @@ do
 		return turns + (angle - turns) * weight
 	end
 
-	local function apply_body_keys(keys, phase, weight, position, rotation)
+	local function apply_body_keys(keys, phase, weight, position, rotation, scale)
 		animations.SampleKeys(keys, phase, sample, 9)
 		faced:Set(rotation.x, rotation.y, rotation.z, rotation.w)
 		turn:Set(rotation.x, rotation.y, rotation.z, rotation.w)
 		turn:RotateYaw(fade_angle(sample[4], weight)):RotatePitch(fade_angle(sample[5], weight)):RotateRoll(fade_angle(sample[6], weight))
-		pivot:Set(sample[7], sample[8], sample[9])
-		offset:Set(sample[1] * weight, sample[2] * weight, sample[3] * weight)
+		pivot:Set(sample[7] * scale, sample[8] * scale, sample[9] * scale)
+		offset:Set(sample[1] * weight * scale, sample[2] * weight * scale, sample[3] * weight * scale)
 		local moved = position + faced:VecMul(offset) + faced:VecMul(pivot) - turn:VecMul(pivot)
 		position:Set(moved.x, moved.y, moved.z)
 		rotation:Set(turn.x, turn.y, turn.z, turn.w)
@@ -289,7 +289,15 @@ do
 		if def.Face then face(inst, pose, position, rotation) end
 
 		if def.BodyKeys then
-			apply_body_keys(def.BodyKeys, inst.phase, inst.weight, position, rotation)
+			local movement = pose.Owner.character_movement
+			apply_body_keys(
+				def.BodyKeys,
+				inst.phase,
+				inst.weight,
+				position,
+				rotation,
+				movement and movement.Scale or 1
+			)
 		end
 	end
 
@@ -298,7 +306,7 @@ do
 		rotation:Set(0, 0, 0, 1)
 
 		if def.BodyKeys then
-			apply_body_keys(def.BodyKeys, phase, 1, position, rotation)
+			apply_body_keys(def.BodyKeys, phase, 1, position, rotation, 1)
 		end
 
 		return position, rotation

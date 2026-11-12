@@ -188,7 +188,14 @@ return {
 			inst.blend = blend
 			inst.blend_time = inst.time
 			local height = math.lerp(blend, PIVOT, PIVOT_HEIGHT)
-			local moved = position + base:VecMul(pivot) + Vec3(0, height - PIVOT, 0) - turned:VecMul(pivot)
+			local movement = pose.Owner.character_movement
+			local moved = position + (
+					base:VecMul(pivot) + Vec3(0, height - PIVOT, 0) - turned:VecMul(pivot)
+				) * (
+					movement and
+					movement.Scale or
+					1
+				)
 			position:Set(moved.x, moved.y, moved.z)
 			base:Set(turned.x, turned.y, turned.z, turned.w)
 		end,

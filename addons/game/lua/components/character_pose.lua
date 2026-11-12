@@ -822,9 +822,10 @@ function META:OnUpdate(dt)
 		body:GetVelocity()
 		or
 		transform:GetRenderVelocity()
-	self.forward_speed = velocity:Dot(entity_rotation:GetForward())
-	self.right_speed = velocity:Dot(entity_rotation:GetRight())
-	self.vertical_speed = velocity.y
+	local scale = owner.character_movement and owner.character_movement.Scale or 1
+	self.forward_speed = velocity:Dot(entity_rotation:GetForward()) / scale
+	self.right_speed = velocity:Dot(entity_rotation:GetRight()) / scale
+	self.vertical_speed = velocity.y / scale
 	local seat = self:GetSeatComponent()
 	self.grounded = seat ~= nil or
 		preview_motion ~= nil or
@@ -838,7 +839,7 @@ function META:OnUpdate(dt)
 	local speed = math.sqrt(self.forward_speed ^ 2 + self.right_speed ^ 2)
 
 	if movement then
-		self:SetDistance(preview_motion and preview_motion.distance or movement.distance)
+		self:SetDistance((preview_motion and preview_motion.distance or movement.distance) / scale)
 		local last_velocity = self.last_velocity
 
 		if last_velocity and dt > 0 then

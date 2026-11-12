@@ -173,10 +173,12 @@ function META:UpdateHeadOffset(dt)
 			sum_x, sum_y, sum_z = sum_x + ex, sum_y + ey, sum_z + ez
 		end
 
+		local scale = movement.Scale / #eyes
+		sum_x, sum_y, sum_z = sum_x * scale, sum_y * scale, sum_z * scale
 		local world = (
 				rotation or
 				owner.transform:GetRotation()
-			):VecMul(Vec3(sum_x / #eyes, sum_y / #eyes, sum_z / #eyes)) - movement:GetEyeOffset()
+			):VecMul(Vec3(sum_x, sum_y, sum_z)) - movement:GetEyeOffset()
 		x, y, z = world.x, vertical and world.y or 0, world.z
 	end
 
@@ -238,7 +240,20 @@ function META:UpdateOutfit()
 	end
 
 	self.outfit_revision = definition.revision
+	self.outfit_scale = nil
 	self:ApplyFirstPerson()
+end
+
+function META:UpdateOutfitScale()
+	local movement = self.Owner.character_movement
+	local scale = movement and movement.Scale or 1
+
+	if self.outfit_scale == scale or self.outfit_name ~= outfit_source.Name then
+		return
+	end
+
+	self.outfit_scale = scale
+	self.outfit:EnsureComponent("transform"):SetScale(Vec3(scale, scale, scale))
 end
 
 function META:OnUpdate(dt)
@@ -257,7 +272,10 @@ function META:OnUpdate(dt)
 
 	self:UpdateOutfit()
 
-	if self.outfit then self:UpdateWeaponHidden() end
+	if self.outfit then
+		self:UpdateOutfitScale()
+		self:UpdateWeaponHidden()
+	end
 end
 
 return META:Register()

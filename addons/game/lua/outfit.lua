@@ -104,6 +104,12 @@ function META:Initialize()
 	end
 
 	self.nodes = nodes
+	self.base_scales = {}
+
+	for name, node in pairs(nodes) do
+		self.base_scales[name] = node.transform:GetScale():Copy()
+	end
+
 	self:AddGlobalEvent("Update")
 end
 
@@ -124,6 +130,16 @@ function META:OnUpdate()
 	local avatar = player.player_avatar
 	local bones = player.procedural_pose:GetBones()
 	local nodes = self.nodes
+	local scale = player.character_movement.Scale
+
+	if self.applied_scale ~= scale then
+		self.applied_scale = scale
+
+		for name, node in pairs(nodes) do
+			node.transform:SetScale(self.base_scales[name] * scale)
+		end
+	end
+
 	local neck = bones.neck
 	nodes.eye.transform:SetPosition(Vec3(neck.m30, neck.m31, neck.m32))
 	nodes.eye.transform:SetRotation(neck:GetRotation())

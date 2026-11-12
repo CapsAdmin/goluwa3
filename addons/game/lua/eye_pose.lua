@@ -70,11 +70,13 @@ local function write_limb(matrix, from, to)
 	write(matrix, from, scratch)
 end
 
-local function ground_foot(foot, owner)
-	local plane = foot.y - FOOT_HEIGHT
+local function ground_foot(foot, owner, scale)
+	local foot_height = FOOT_HEIGHT * scale
+	local ground_bound = GROUND_BOUND * scale
+	local plane = foot.y - foot_height
 	local hit = physics.instance and
-		physics.RayCast(Vec3(foot.x, plane + GROUND_BOUND, foot.z), DOWN, GROUND_BOUND * 2, owner)
-	foot.y = (hit and hit.position.y or plane) + FOOT_HEIGHT - FOOT_SINK
+		physics.RayCast(Vec3(foot.x, plane + ground_bound, foot.z), DOWN, ground_bound * 2, owner)
+	foot.y = (hit and hit.position.y or plane) + foot_height - FOOT_SINK * scale
 	return foot, hit
 end
 
@@ -86,40 +88,40 @@ local seat_grip_rotation = Quat()
 local hand_keys = {0, 0, 0, 0, 0, 0}
 local hand_shift = Vec3()
 
-local function get_weapon_hold(weapon, aim, eye_height, sign)
+local function get_weapon_hold(weapon, aim, eye_height, sign, scale)
 	if weapon:IsHeldAtEye() then
-		return Vec3(0, eye_height, 0) - aim:GetForward() * EYE_HOLD_BACK
+		return Vec3(0, eye_height, 0) - aim:GetForward() * (EYE_HOLD_BACK * scale)
 	end
 
-	local offset = weapon:GetHoldOffset()
+	local offset = weapon:GetHoldOffset() * scale
 
 	if weapon:IsHoldFromHead() then
 		return Vec3(0, eye_height, 0) + aim:VecMul(Vec3(offset.x * sign, offset.y, offset.z))
 	end
 
 	hand_shift:Set(
-		WEAPON_OFFSET.x * sign + hand_keys[1] * sign,
-		WEAPON_OFFSET.y + hand_keys[2],
-		WEAPON_OFFSET.z + hand_keys[3]
+		(WEAPON_OFFSET.x * sign + hand_keys[1] * sign) * scale,
+		(WEAPON_OFFSET.y + hand_keys[2]) * scale,
+		(WEAPON_OFFSET.z + hand_keys[3]) * scale
 	)
 	return Vec3(0, eye_height, 0) + aim:VecMul(hand_shift) + Vec3(offset.x * sign, offset.y, offset.z)
 end
 
 -- the second result is true when the hand is the support hand of a two handed weapon
-local function get_hand_target(entity, sign, aim, eye_height)
+local function get_hand_target(entity, sign, aim, eye_height, scale)
 	if not (entity and entity:IsValid()) then return end
 
 	local weapon = entity.weapon
 
 	if not weapon:IsTwoHanded() then
-		return get_weapon_hold(weapon, aim, eye_height, sign)
+		return get_weapon_hold(weapon, aim, eye_height, sign, scale)
 	end
 
-	local hold = get_weapon_hold(weapon, aim, eye_height, 1)
+	local hold = get_weapon_hold(weapon, aim, eye_height, 1, scale)
 
 	if sign == 1 then return hold end
 
-	return hold + aim:VecMul(weapon:GetSupportGrip()), true
+	return hold + aim:VecMul(weapon:GetSupportGrip() * scale), true
 end
 
 local function track_weapon(side, weapon)
@@ -145,6 +147,17 @@ function eye_pose.New()
 end
 
 function eye_pose.Compute(state, bones, owner, dt)
+	local movement = owner.character_movement
+	local scale = movement and movement.Scale or 1
+	local EYE_RADIUS = EYE_RADIUS * scale
+	local ARM_LENGTH = ARM_LENGTH * scale
+	local LEG_LENGTH = LEG_LENGTH * scale
+	local FOOT_HEIGHT = FOOT_HEIGHT * scale
+	local BODY_DROP = BODY_DROP * scale
+	local HEIGHT = HEIGHT * scale
+	local CROUCH_HEIGHT = CROUCH_HEIGHT * scale
+	local STEP_LIFT = STEP_LIFT * scale
+	local SEAT_EYE_HEIGHT = SEAT_EYE_HEIGHT * scale
 	local pose = owner.character_pose
 	local transform = owner.transform
 	local view = pose.pitch
@@ -162,7 +175,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local holder = owner.weapon_holder
 	local posed_right = holder and holder:GetPosedWeapon("right")
 	local posed_left = holder and holder:GetPosedWeapon("left")
-	local eye_height = math.lerp(crouch, eye_pose.EyeHeight, eye_pose.CrouchEyeHeight)
+	local eye_height = math.lerp(crouch, eye_pose.EyeHeight, eye_pose.CrouchEyeHeight) * scale
 	local seat_weight = animations.GetWeight(pose, "seat")
 	local seat = seat_weight > 0.001 and pose:GetSeatComponent() or nil
 	eye_height = math.lerp(seat_weight, eye_height, SEAT_EYE_HEIGHT)
@@ -190,11 +203,15 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local block_weight = animations.GetWeight(pose, "block")
 	local ready_weight = animations.GetWeight(pose, "ready")
 	local holding = hold_weight > 0.001
-	local hold_height = eye_height - (1 - ready_weight) * LOWER_DROP
-	local block_hold = holding and get_hand_target(sides[2].held, 1, hold_aim, hold_height) or nil
+	local hold_height = eye_height - (1 - ready_weight) * LOWER_DROP * scale
+	local block_hold = holding and
+		get_hand_target(sides[2].held, 1, hold_aim, hold_height, scale) or
+		nil
 
 	if block_weight > 0.001 and not block_hold then
-		block_hold = Vec3(0, math.lerp(crouch, HEIGHT, CROUCH_HEIGHT) * 0.5 + WEAPON_RAISE, 0) + view:GetForward() * WEAPON_FORWARD
+		block_hold = Vec3(0, math.lerp(crouch, HEIGHT, CROUCH_HEIGHT) * 0.5 + WEAPON_RAISE * scale, 0) + view:GetForward() * (
+				WEAPON_FORWARD * scale
+			)
 	end
 
 	local smoothed = state.velocity
@@ -206,11 +223,11 @@ function eye_pose.Compute(state, bones, owner, dt)
 	state.velocity = smoothed
 	local speed = smoothed:GetLength()
 	state.roll = state.roll + (
-			math.clamp(-smoothed.x * 0.12, -0.6, 0.6) - state.roll
+			math.clamp(-smoothed.x * 0.12 / scale, -0.6, 0.6) - state.roll
 		) * math.min(dt * 6, 1)
 	state.phase = pose.Distance * 1.5 + pose.seed * math.pi * 2
 	local look = view:GetForward()
-	local lean = (look + smoothed * 0.05):GetNormalized()
+	local lean = (look + smoothed * (0.05 / scale)):GetNormalized()
 	aim_pose.SetBetween(scratch, look.x, look.y, look.z, lean.x, lean.y, lean.z)
 	pose_variation.GetLean(tilt, pose.lean_side, pose.lean_forward)
 	local rotation = tilt * QuatFromAxis(state.roll, lean) * scratch * view
@@ -232,10 +249,10 @@ function eye_pose.Compute(state, bones, owner, dt)
 	local move_dir = speed > 0.1 and smoothed / speed or ZERO
 	local knee_pole = Vec3(lean.x, 0, lean.z)
 	local foot_yaw = QuatFromAxis(math.atan2(-lean.x, -lean.z), UP)
-	local step_duration = math.max(0.1, 0.22 - speed * 0.015)
+	local step_duration = math.max(0.1, 0.22 - speed / scale * 0.015)
 	local lead = smoothed * (step_duration * 0.5)
 	local trigger = 0.35 * EYE_RADIUS + lead:GetLength() * 1.6
-	local swing_amount = (1 - hold_weight) * math.min(speed / 3, 1) * ARM_LENGTH * 0.7
+	local swing_amount = (1 - hold_weight) * math.min(speed / scale / 3, 1) * ARM_LENGTH * 0.7
 
 	if knee_pole:GetLength() < 1e-3 then knee_pole = Vec3(0, 0, -1) end
 
@@ -246,7 +263,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 		local sign = side.sign
 		local name = side.name
 		local shoulder = tilt:VecMul(upright + torso:VecMul(Vec3(sign * 0.85 * EYE_RADIUS, 0, 0.1 * EYE_RADIUS)))
-		local hip = tilt:VecMul(upright + Vec3(sign * HIP_OFFSET.x, HIP_OFFSET.y, HIP_OFFSET.z))
+		local hip = tilt:VecMul(upright + Vec3(sign * HIP_OFFSET.x, HIP_OFFSET.y, HIP_OFFSET.z) * scale)
 		local hang = (
 			tilted_torso:VecMul(Vec3(sign * 0.7, -0.5, 0.3)) + Vec3(sign * 0.35, -0.9, 0.1)
 		):GetNormalized()
@@ -260,13 +277,13 @@ function eye_pose.Compute(state, bones, owner, dt)
 		local supporting = false
 
 		if holding then
-			local new_target, new_support = get_hand_target(side.held, sign, hold_aim, hold_height)
+			local new_target, new_support = get_hand_target(side.held, sign, hold_aim, hold_height, scale)
 			local mixed = new_target or free
 			local mixed_grip = new_target and 1 or 0
 			supporting = new_support
 
 			if side.prev ~= nil then
-				local prev_target = get_hand_target(side.prev, sign, hold_aim, hold_height)
+				local prev_target = get_hand_target(side.prev, sign, hold_aim, hold_height, scale)
 				local prev_grip = prev_target and 1 or 0
 				prev_target = prev_target or free
 				local eased = side.switch * side.switch * (3 - 2 * side.switch)
@@ -279,7 +296,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 		end
 
 		if sign == -1 and block_weight > 0.001 then
-			local block_target = block_hold + aim:VecMul(eye_pose.BlockGrip)
+			local block_target = block_hold + aim:VecMul(eye_pose.BlockGrip * scale)
 			target = target + (block_target - target) * block_weight
 			grip_weight = grip_weight + (1 - grip_weight) * block_weight
 		end
@@ -349,13 +366,13 @@ function eye_pose.Compute(state, bones, owner, dt)
 
 			foot = side.planted
 		elseif not side.planted or (side.planted - home):GetLength() > LEG_LENGTH * 2 then
-			side.planted = ground_foot(target_foot, owner)
+			side.planted = ground_foot(target_foot, owner, scale)
 			side.step_time = nil
 			side.fall = 0
 			foot = side.planted
 		elseif side.fall > 0 then
 			local hit
-			side.planted, hit = ground_foot(side.planted, owner)
+			side.planted, hit = ground_foot(side.planted, owner, scale)
 
 			if hit then impacts.FireFootstep(owner, side.part, hit, side.fall) end
 
@@ -366,7 +383,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 
 			if side.step_time >= 1 then
 				local hit
-				side.planted, hit = ground_foot(target_foot, owner)
+				side.planted, hit = ground_foot(target_foot, owner, scale)
 
 				if hit then
 					impacts.FireFootstep(owner, side.part, hit, math.pi * STEP_LIFT / step_duration)
@@ -375,7 +392,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 				side.step_time = nil
 				foot = side.planted
 			else
-				ground_foot(target_foot, owner)
+				ground_foot(target_foot, owner, scale)
 				local t = side.step_time * side.step_time * (3 - 2 * side.step_time)
 				foot = side.step_from + (target_foot - side.step_from) * t
 				foot.y = foot.y + math.sin(side.step_time * math.pi) * STEP_LIFT
@@ -401,7 +418,7 @@ function eye_pose.Compute(state, bones, owner, dt)
 				local foot_world = seat_foot.transform:GetWorldMatrix()
 				target_local = world_inverse:TransformVector(Vec3(foot_world.m30, foot_world.m31, foot_world.m32))
 			else
-				target_local = Vec3(SEAT_FOOT.x * sign, SEAT_FOOT.y, SEAT_FOOT.z)
+				target_local = Vec3(SEAT_FOOT.x * sign, SEAT_FOOT.y, SEAT_FOOT.z) * scale
 			end
 
 			foot_local = foot_local + (target_local - foot_local) * seat_weight
