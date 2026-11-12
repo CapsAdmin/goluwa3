@@ -119,11 +119,13 @@ function froxel_fog.BindVolume(pipeline, frame)
 	pipeline:UpdateDescriptorSet("combined_image_sampler", frame, 0, 2, froxels.integrated)
 end
 
-froxel_fog.SLICE_GLSL = (
-	[[
+function froxel_fog.GetSliceGLSL(block)
+	return (
+		(
+			[[
 	const float FROXEL_SLICES = %d.0;
 	const float FROXEL_FAR = %.1f;
-	const float FROXEL_DEPTH_KNEE = %.1f;
+	#define FROXEL_DEPTH_KNEE (%.1f * @@BLOCK@@.view_scale)
 
 	float froxel_slice_depth(float s) {
 		return FROXEL_DEPTH_KNEE * (pow(1.0 + FROXEL_FAR / FROXEL_DEPTH_KNEE, s / FROXEL_SLICES) - 1.0);
@@ -135,10 +137,12 @@ froxel_fog.SLICE_GLSL = (
 
 	float froxel_surface_limit(float surface_depth) {
 		float s = froxel_slice_coord(surface_depth);
-		return max(surface_depth - max(0.5 * (froxel_slice_depth(s + 1.0) - froxel_slice_depth(s)), 0.05), 0.0);
+		return max(surface_depth - max(0.5 * (froxel_slice_depth(s + 1.0) - froxel_slice_depth(s)) , 0.05 * @@BLOCK@@.view_scale), 0.0);
 	}
 ]]
-):format(froxel_fog.SLICES, froxel_fog.FAR, froxel_fog.DEPTH_KNEE)
+		):format(froxel_fog.SLICES, froxel_fog.FAR, froxel_fog.DEPTH_KNEE):gsub("@@BLOCK@@", block)
+	)
+end
 
 function froxel_fog.GetViewDirGLSL(block)
 	return [[
