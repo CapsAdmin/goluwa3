@@ -2,6 +2,7 @@
 # usage: mcp list
 #        mcp <client|server|port> tools
 #        mcp <client|server|port> lua '<code>'
+#        mcp <client|server|port> steps <file>   (one "<tool> <json arguments>" per line, # comments)
 #        mcp <client|server|port> <tool> ['<json arguments>']
 dir="$(cd "$(dirname "$0")/../.." && pwd)/storage/mcp"
 
@@ -18,6 +19,17 @@ instances() {
 
 if [ "$1" = list ] || [ -z "$1" ]; then
 	instances | jq -r '.[] | "\(.role)\t\(.port)\tpid \(.pid)\t\(.args | join(" "))"'
+	exit 0
+fi
+
+if [ "$2" = steps ]; then
+	while IFS= read -r line || [ -n "$line" ]; do
+		case "$line" in "" | \#*) continue ;; esac
+		tool="${line%% *}"
+		args="${line#"$tool"}"
+		echo "> $line"
+		"$0" "$1" "$tool" ${args:+"$args"} || exit 1
+	done < "${3:-/dev/stdin}"
 	exit 0
 fi
 

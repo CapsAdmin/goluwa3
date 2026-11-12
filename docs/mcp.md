@@ -8,3 +8,13 @@
 - Tool calls run in a task between frames: a hung frame or a lost device can not be probed, and a slow `run_lua` stalls the game. `run_lua` can change state, so treat it as read only unless asked.
 - Logs come from the `StdOutWrite` event, not `storage/logs/log.txt`, which every process truncates and writes.
 - There is no authentication: anything on the machine can run lua in the process. Do not bind it to another address.
+
+## Driving the UI like a user
+
+`addons/mcp/lua/mcp_ui_tools.lua` (2D processes) drives the UI through the window's own input path (`addons/mcp/lua/ui_driver.lua`): the window reports a virtual cursor (`window.ui_driver_position`) and the tools call `OnCursorPosition`, `OnMouseInput`, `OnMouseScroll`, `OnKeyInput` and `OnCharInput` with real frames in between, so hover, focus, menus, drags and key state behave as with a mouse and keyboard. Prefer this over calling widget functions, so input quirks show up.
+
+- `ui_tree` lists shown panels as `#id type name text icon tip hint flags [x y w h]`; `ui_find` returns matches. Targets are queries: `text` (case insensitive substring, exact matches first, `exact`), `type`, `name`, `icon`, `tooltip`, `hint` (a text field's placeholder), `editable`, `id` (from `ui_tree`), `index`, `within` (any query for an ancestor), `row` (a property editor row's label, the target is its value control) and `item` (rows and tiles drawn by virtual widgets: `VirtualGrid` and `TreeTable` report them through `GetDrawnItems()`). Unknown query fields are errors. A match scrolled out of a scroll view is scrolled into view first.
+- `ui_click` (`button`, `count` 2 for a double click, `modifiers`), `ui_move`, `ui_drag` (`to_target`/`to_x`/`to_dx`...), `ui_mouse` (press or release), `ui_scroll`, `ui_key` (`"ctrl+z"`, `hold` with `seconds` for camera keys), `ui_type` (`select_all`, `\n` presses enter), `ui_wait`. Each reports what is hovered and focused afterwards and the panels that appeared (menus, windows).
+- `addons/mcp/mcp <role> steps <file>` replays a file of `<tool> <json>` lines. Put such files in `./tmp/`; pin the editor camera with a `run_lua` step before anything that depends on what is under the cursor.
+- Property editor numbers need a double click to edit; theme drawing dispatches on `Name`, so identify sliders and similar widgets with a `Tooltip`, not a `Name`.
+
