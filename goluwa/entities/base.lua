@@ -553,7 +553,8 @@ function BaseEntity:OnPostCreate()
 
 	if parent and parent:IsValid() and self:GetKey() ~= "" then set_keyed(self) end
 
-	Visibility.Refresh(self)
+	-- OnParent is not called while the object is constructed (events are suppressed)
+	notify_parented(self, parent)
 
 	for _, component in ipairs(self.component_list) do
 		if component.OnEntityConstructed then component:OnEntityConstructed() end
