@@ -62,6 +62,8 @@ function static_geometry.GetBatch(state, texname, group, kind, material)
 
 	if not batch then
 		local mesh = Polygon3D.New()
+		-- batches are uploaded again on every edit: content deduplication would hash the whole batch each time
+		mesh.Dynamic = true
 		material = material or vmt_material.FromVMT("materials/" .. texname .. ".vmt")
 		mesh:SetName(state.name .. ": " .. texname)
 		mesh.material = material
