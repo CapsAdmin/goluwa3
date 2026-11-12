@@ -515,6 +515,11 @@ function npcs.Spawn(name, position, yaw, options)
 	}
 
 	if entity.ai_controller:HasAuthority() then
+		if options and options.Scale then
+			entity.transform:SetScale(Vec3(options.Scale, options.Scale, options.Scale))
+			entity.character_movement:SetScale(options.Scale)
+		end
+
 		entity.ai_controller:Teleport(position, yaw)
 
 		if options then

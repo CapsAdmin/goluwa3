@@ -88,6 +88,12 @@ function option_validators.npc(options)
 			options.God == nil or
 			type(options.God) == "boolean"
 		)
+		and
+		(
+			options.Scale == nil or
+			type(options.Scale) == "number" and
+			options.Scale > 0
+		)
 end
 
 function spawners.weapon(player, name, position, yaw, done, roll)

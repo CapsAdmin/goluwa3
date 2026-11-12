@@ -76,7 +76,7 @@ local function new_roll()
 end
 
 local weapon_state = {roll = new_roll()}
-local npc_state = {roll = new_roll(), weapon = "", hostile = false, reaction = "", health = 0, god = false}
+local npc_state = {roll = new_roll(), weapon = "", hostile = false, reaction = "", health = 0, god = false, scale = ""}
 
 local function get_spawn_options(kind)
 	if kind == "weapon" then return weapons.Roller and weapon_state.roll or nil end
@@ -89,6 +89,7 @@ local function get_spawn_options(kind)
 			Reaction = npc_state.reaction ~= "" and npc_state.reaction or nil,
 			Health = npc_state.health > 0 and npc_state.health or nil,
 			God = npc_state.god or nil,
+			Scale = tonumber(npc_state.scale),
 		}
 	end
 end
@@ -642,6 +643,21 @@ local NpcOptions = react.Component(
 					OnSelect = |value|-> do
 						npc_state.health = value
 						set_health(value)
+					end,
+				},
+				ui.Text{Text = "Scale", Color = "text_disabled"},
+				ui.TextEdit{
+					Hint = "1",
+					Text = npc_state.scale,
+					Wrap = false,
+					ScrollX = false,
+					ScrollY = false,
+					ScrollbarVisible = false,
+					Size = Vec2(70, 26),
+					MinSize = Vec2(70, 26),
+					MaxSize = Vec2(70, 26),
+					OnTextChanged = |_, text|-> do
+						npc_state.scale = text
 					end,
 				},
 				ui.Checkbox{
