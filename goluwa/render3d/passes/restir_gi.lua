@@ -271,7 +271,7 @@ local SURFACE_GLSL = glsl_common.GetConstantsGLSL() .. glsl_common.GetHashGLSL()
 	// a pixel at a crease reconstructs a hair behind one of its two planes, lift it off every neighbouring pixel's plane it lies on
 	vec3 restir_ray_origin(ivec2 gpos, vec3 P, vec3 N, float view_depth, float depth) {
 		vec3 V = normalize(restir_data.camera_position - P);
-		float offset = 0.01 + 0.001 * view_depth;
+		float offset = 0.01 * restir_data.view_scale + 0.001 * view_depth;
 		vec3 pull = get_geometric_normal(gpos, P, depth, V, N);
 		ivec2 gsize = textureSize(TEXTURE(restir_data.depth_tex), 0);
 
@@ -452,7 +452,7 @@ local RESOLVE_GLSL = [[
 			vec4 sphere = restir_data.changed_lights[i];
 			vec3 to_light = sphere.xyz - origin;
 			float dist = length(to_light);
-			float d = max(dist - sphere.w, 0.05);
+			float d = max(dist - sphere.w, 0.05 * restir_data.view_scale);
 
 			if (restir_data.changed_light_intensities[i].x / (RESTIR_PI * d * d) <= 0.1 * gi_luminance) continue;
 
@@ -649,7 +649,7 @@ local function pass_candidates()
 						vec3 L_dir = to_point / max(dist, 1e-6);
 						float cosine = dot(N, L_dir);
 
-						if (weight > 0.0 && cosine > 0.0 && dist > 0.02 && scene_reflection_visible(origin, L_dir, dist - 0.02)) {
+						if (weight > 0.0 && cosine > 0.0 && dist > 0.02 * restir_data.view_scale && scene_reflection_visible(origin, L_dir, dist - 0.02 * restir_data.view_scale)) {
 							int e = int(uint(emitter) & 0x03FFFFFFu);
 							scene_triangle tri = scene_hit_tri(emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED);
 							ddgi_material material = ddgi_materials[tri.material];
@@ -824,7 +824,7 @@ local function pass_temporal()
 						if (restir_data.validation != 0 && h.kind != RESTIR_EMPTY && h_M > 1.0 && ((pos.x + pos.y * 2 + int(frame)) & 3) == 0) {
 							// retraced from where the sample was found: from this frame's screen pixel it often lands on another leaf or edge and the history is thrown away
 							bool h_miss;
-							vec3 h_origin = h_receiver + h_normal * (0.01 + 0.001 * view_depth);
+							vec3 h_origin = h_receiver + h_normal * (0.01 * restir_data.view_scale + 0.001 * view_depth);
 							vec3 to_h = h.kind == RESTIR_SKY ? h.x : normalize(h.x - h_origin);
 							restir_sample retraced = restir_trace(h_origin, to_h, h.kind == RESTIR_EMITTER, h_miss);
 							bool moved = retraced.kind != h.kind || (restir_is_point(h.kind) && distance(retraced.x, h.x) > 0.05 * distance(h.x, h_origin) + 0.02);
@@ -1036,10 +1036,10 @@ local function pass_spatial()
 						// a neighbour that cannot see this pixel's sample could not have found it, crediting it anyway darkens light found through gaps (canopies)
 						if (own_at_q > 0.0 && own_target > 0.0 && restir_data.visibility != 0) {
 							vec3 q_origin = restir_ray_origin(q_gpos, q_P, q_N, q_view_depth, q_depth);
-							vec3 to_own = own.kind == RESTIR_SKY ? own.x * SCENE_REFLECTION_MAX_DISTANCE : own.x + own.n * 0.01 - q_origin;
+							vec3 to_own = own.kind == RESTIR_SKY ? own.x * SCENE_REFLECTION_MAX_DISTANCE : own.x + own.n * 0.01 * restir_data.view_scale - q_origin;
 							float own_length = length(to_own);
 
-							if (!scene_reflection_visible(q_origin, to_own / own_length, own.kind == RESTIR_SKY ? own_length : max(own_length - 0.03, 0.0))) own_at_q = 0.0;
+							if (!scene_reflection_visible(q_origin, to_own / own_length, own.kind == RESTIR_SKY ? own_length : max(own_length - 0.03 * restir_data.view_scale, 0.0))) own_at_q = 0.0;
 						}
 
 						own_weight += own_target * M / k + own_at_q > 0.0 ? own_target * M / k / (own_target * M / k + own_at_q) : 1.0;
@@ -1051,10 +1051,10 @@ local function pass_spatial()
 						if (!(jacobian > 0.0 && jacobian < 1e20) || s_cosine <= 0.0 || q_W <= 0.0 || luminance(s.L) <= 0.0) continue;
 
 						if (restir_data.visibility != 0) {
-							vec3 to_sample = s.kind == RESTIR_SKY ? s.x * SCENE_REFLECTION_MAX_DISTANCE : s.x + s.n * 0.01 - origin;
+							vec3 to_sample = s.kind == RESTIR_SKY ? s.x * SCENE_REFLECTION_MAX_DISTANCE : s.x + s.n * 0.01 * restir_data.view_scale - origin;
 							float ray_length = length(to_sample);
 
-							if (!scene_reflection_visible(origin, to_sample / ray_length, s.kind == RESTIR_SKY ? ray_length : max(ray_length - 0.03, 0.0))) continue;
+							if (!scene_reflection_visible(origin, to_sample / ray_length, s.kind == RESTIR_SKY ? ray_length : max(ray_length - 0.03 * restir_data.view_scale, 0.0))) continue;
 						}
 
 						float target_here = luminance(s.L) * s_cosine * M / k;

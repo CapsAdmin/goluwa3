@@ -142,7 +142,7 @@ local HITS_GLSL = [[
 	#define SURFEL_HIT_SAMPLES ]] .. surfel_gi.HIT_SAMPLES .. [[
 
 	// a sample at a crease lies on both surfaces (a hair outside one of them in depth precision), and rays from it see through the other one: pull it off both, along the normals of the neighbouring pixels whose plane it lies on (never toward the camera, which can see through single sided planes)
-	#define SURFEL_SAMPLE_PULL 0.01
+	#define SURFEL_SAMPLE_PULL (0.01 * surfel_data.view_scale)
 
 ]]
 local TABLE_GLSL = [[
@@ -381,7 +381,7 @@ local function visit_glsl(touch)
 
 						if (g >= 0 && surfel_table[g].election == vote) {
 							vec4 current = imageLoad(out_surfel, surfel_slot_texel(g));
-							float bias = 0.01 + 0.05 * surfel_cell_size_at(level + l);
+							float bias = 0.01 * surfel_data.view_scale + 0.05 * surfel_cell_size_at(level + l);
 
 							bool screen = index < SURFEL_TOUCH_SAMPLES;
 							vec3 current_N = surfel_unpack_normal(current.w);
@@ -752,7 +752,7 @@ local function pass_visibility()
 					return;
 				}
 
-				float bias = 0.01 + 0.05 * surfel_cell_size(surfel_packed_level(int(key.w)));
+				float bias = 0.01 * surfel_data.view_scale + 0.05 * surfel_cell_size(surfel_packed_level(int(key.w)));
 				vec4 surfel = texelFetch(TEXTURE(ddgi_data.surfel_tex), slot_texel, 0);
 				vec4 target = texelFetch(TEXTURE(ddgi_data.surfel_tex), surfel_slot_texel(other), 0);
 				vec3 surfel_N = surfel_unpack_normal(surfel.w);
@@ -850,7 +850,7 @@ local function pass_merge_visibility()
 					int packed = max(int(texelFetch(TEXTURE(ddgi_data.surfel_key_tex), slot_texel, 0).w), 1);
 					int level = surfel_packed_level(packed);
 					vec3 N = surfel_unpack_normal(surfel.w);
-					float bias = 0.01 + 0.05 * surfel_cell_size(level - c);
+					float bias = 0.01 * surfel_data.view_scale + 0.05 * surfel_cell_size(level - c);
 					vec3 origin = surfel.xyz + N * bias;
 					vec3 f;
 					int coarse = surfel_find(surfel_merge_corner(c, surfel.xyz, level, surfel_packed_bucket(packed), corner, f), surfel_pack(level + 1, surfel_packed_bucket(packed)), c + 1);
@@ -988,7 +988,7 @@ local function pass_trace()
 				vec3 N = surfel_unpack_normal(surfel.w);
 				float size0 = surfel_cell_size(level - c);
 				bool last = c == SURFEL_CASCADES - 1;
-				float bias = 0.01 + 0.05 * size0;
+				float bias = 0.01 * surfel_data.view_scale + 0.05 * size0;
 				vec3 origin = surfel.xyz + N * bias;
 				uint visible = last ? 0u : surfel_table[g].merge_visible;
 
@@ -1130,7 +1130,7 @@ local function pass_emitters()
 					vec3 N = surfel_unpack_normal(surfel.w);
 					int packed = max(int(texelFetch(TEXTURE(ddgi_data.surfel_key_tex), slot_texel, 0).w), 1);
 					float size = surfel_cell_size(surfel_packed_level(packed));
-					vec3 origin = surfel.xyz + N * (0.01 + 0.05 * size);
+					vec3 origin = surfel.xyz + N * (0.01 * surfel_data.view_scale + 0.05 * size);
 
 					int triangles[EMITTER_CANDIDATES];
 					float weights[EMITTER_CANDIDATES];
@@ -1145,7 +1145,7 @@ local function pass_emitters()
 
 						if (dot(dir, N) <= 0.0 || !(dot(light, vec3(1.0)) > 0.0)) continue;
 
-						if (dist > 0.02 && !scene_reflection_visible(origin, dir, dist - 0.02)) continue;
+						if (dist > 0.02 * surfel_data.view_scale && !scene_reflection_visible(origin, dir, dist - 0.02 * surfel_data.view_scale)) continue;
 
 						if (surfel_data.glass_light != 0) light *= get_glass_light(origin, dir, dist, 0.0);
 

@@ -814,7 +814,7 @@ function surfel_gi.GetLookupGLSL()
 						vec3 own_N = surfel_unpack_normal(own_surfel.w);
 						float own_lift = surfel_curvature_lift(P, N, own_surfel.xyz, own_N);
 
-						if (visibility && SURFEL_ON(SURFEL_FEATURE_OWN_CHECK) && ddgi_probe_hidden(P + N * own_lift, N, own_surfel.xyz + own_N * (0.01 + 0.05 * size + own_lift), size)) {
+						if (visibility && SURFEL_ON(SURFEL_FEATURE_OWN_CHECK) && ddgi_probe_hidden(P + N * own_lift, N, own_surfel.xyz + own_N * (0.01 * ddgi_data.ddgi_view_scale + 0.05 * size + own_lift), size)) {
 							hidden = 0u;
 							own_hidden = true;
 							check_level = true;
@@ -855,7 +855,7 @@ function surfel_gi.GetLookupGLSL()
 						vec3 neighbour_N = surfel_unpack_normal(surfel.w);
 						float lift = surfel_curvature_lift(P, N, surfel.xyz, neighbour_N);
 
-						if (ddgi_probe_hidden(P + N * lift, N, surfel.xyz + neighbour_N * (0.01 + 0.05 * size + lift), size)) continue;
+						if (ddgi_probe_hidden(P + N * lift, N, surfel.xyz + neighbour_N * (0.01 * ddgi_data.ddgi_view_scale + 0.05 * size + lift), size)) continue;
 					}
 					#endif
 

@@ -246,7 +246,7 @@ local function pass_shade()
 					float fog = ddgi_ground_fog_sun_transmittance(fog_altitude, L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y);
 					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P) * fog;
 
-					if (ddgi_data.glass_light != 0) direct *= get_glass_light(P + N * 0.02, L, ddgi_data.ddgi_max_distance, 0.0);
+					if (ddgi_data.glass_light != 0) direct *= get_glass_light(P + N * 0.02 * ddgi_data.ddgi_view_scale, L, ddgi_data.ddgi_max_distance, 0.0);
 				}
 
 				#if RT_HIT_LIGHTS == 0
@@ -418,7 +418,7 @@ local function pass_shade()
 
 				vec3 P = origin + dir * t;
 				vec3 albedo = ddgi_hit_albedo(material, P, hit.y, hit.z) * ddgi_bounce_share(material);
-				vec3 surface = P + N * 0.02;
+				vec3 surface = P + N * 0.02 * ddgi_data.ddgi_view_scale;
 				float light_radius = ddgi_data.ddgi_light_radius * ddgi_spacing(c);
 				vec4 u = emitter_random(hit_index, uint(ddgi_data.ddgi_frame), 0u);
 				vec3 radiance = albedo * ddgi_direct_light(surface, N, hit.w != 0u, light_radius, u);

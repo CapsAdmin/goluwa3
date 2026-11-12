@@ -395,7 +395,7 @@ local passes = {
 					scene_reflection.GetGLSL("lighting_data", true) .. scene_reflection.GetDirectionGLSL()
 					or
 					""
-				) .. screen_refraction.GetGLSL("lighting_data") .. translucent_moments.GLSL .. froxel_fog.SLICE_GLSL .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
+				) .. screen_refraction.GetGLSL("lighting_data") .. translucent_moments.GLSL .. froxel_fog.GetSliceGLSL("lighting_data") .. froxel_fog.GetViewDirGLSL("lighting_data") .. [[
 				float get_fog_sun_visibility(vec3 world_pos, vec3 sun_dir) {
 					return calculateShadow(world_pos, sun_dir, sun_dir) * get_cloud_shadow(world_pos);
 				}
@@ -488,7 +488,7 @@ local passes = {
 							#ifdef SCENE_REFLECTION
 							if (scene_reflection_ready()) {
 								// a ray that leaves a solid nearly along its surface must start outside it, or it meets the solid again
-								refraction_ray_origin[refraction_ray_count] = exit_pos + exit_normal * 0.05 + ray_dir * 0.02;
+								refraction_ray_origin[refraction_ray_count] = exit_pos + exit_normal * 0.05 * lighting_data.view_scale + ray_dir * 0.02 * lighting_data.view_scale;
 								refraction_ray_dir[refraction_ray_count] = ray_dir;
 								refraction_ray_channel[refraction_ray_count] = channel;
 								refraction_ray_weight[refraction_ray_count] = weight;
@@ -691,7 +691,7 @@ local passes = {
 					vec3 raw_R = reflect(-V, N);
 					vec3 reflection = vec3(0.0);
 
-					vec3 trace_origin = world_pos + (dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N) * 0.02;
+					vec3 trace_origin = world_pos + (dot(geometric_N, V) < 0.0 ? -geometric_N : geometric_N) * 0.02 * lighting_data.view_scale;
 					int reflection_rays = 0;
 					float reflection_limit = 0.0;
 					#ifdef SCENE_REFLECTION

@@ -720,7 +720,7 @@ function ddgi.GetDefinesGLSL()
 		#define DDGI_DIRECTION_BITS %du
 		#define DDGI_DIRECTION_OFFSET %.1f
 		#define DDGI_SUN_VISIBLE_BIT 0x80000000u
-		#define DDGI_SHADOW_OFFSET 0.02
+		#define DDGI_SHADOW_OFFSET (0.02 * ddgi_data.ddgi_view_scale)
 		#define DDGI_ORIGIN_PULL 0.001
 		#define DDGI_LIGHT_SAMPLES %d
 		#define DDGI_BACKFACE_SCALE 0.2
@@ -2104,10 +2104,10 @@ void main()
             vec3 to_point = point - origin;
             float dist = length(to_point);
 
-            if (weight > 0.0 && dist > DDGI_SHADOW_OFFSET) {
+            if (weight > 0.0 && dist > (0.04 * params.cascades[0].w)) {
                 payload.hit_t = 1.0;
                 payload.sun = 0u;
-                traceRayEXT(scene, shadow_flags, DDGI_SCENE_MASK, 0, 0, 0, origin, 0.0, to_point / dist, dist - DDGI_SHADOW_OFFSET, 0);
+                traceRayEXT(scene, shadow_flags, DDGI_SCENE_MASK, 0, 0, 0, origin, 0.0, to_point / dist, dist - (0.04 * params.cascades[0].w), 0);
 
                 if (payload.hit_t < 0.0) result = uvec4(floatBitsToUint(weight), uint(emitter), 0u, 0u);
             }
@@ -2136,7 +2136,7 @@ void main()
         if (dot(hit_normal, sun_direction) > 0.0) {
             payload.hit_t = 1.0;
             payload.sun = 1u;
-            traceRayEXT(scene, shadow_flags, DDGI_SCENE_MASK, 0, 0, 0, origin + dir * hit_t + hit_normal * DDGI_SHADOW_OFFSET, 0.0, sun_direction, params.max_ray_distance, 0);
+            traceRayEXT(scene, shadow_flags, DDGI_SCENE_MASK, 0, 0, 0, origin + dir * hit_t + hit_normal * (0.04 * params.cascades[0].w), 0.0, sun_direction, params.max_ray_distance, 0);
 
             if (payload.hit_t < 0.0) sun_visible = 1u;
         }

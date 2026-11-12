@@ -380,7 +380,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			}
 
 			vec3 P = origin + dir * t;
-			vec3 surface = P + hit_N * 0.02;
+			vec3 surface = P + hit_N * 0.02 * ]] .. block_name .. [[.view_scale;
 			vec3 albedo = ddgi_albedo(material, P);
 
 			#if RT_HIT_TEXTURES
@@ -479,11 +479,11 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 					float dist = picked_ray[k].w;
 
-					if (RT_HIT_SHADOWS != 0 && dist > 0.05 && !scene_reflection_visible(surface, picked_ray[k].xyz, dist - 0.05)) continue;
+					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_reflection_visible(surface, picked_ray[k].xyz, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
 
 					vec3 contribution = picked_light[k];
 
-					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light(surface, picked_ray[k].xyz, max(dist - 0.05, 0.0), 0.0);
+					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
 
 					radiance += contribution * (total / (picked_weight[k] * float(RT_HIT_LIGHT_SAMPLES)));
 				}
@@ -518,9 +518,9 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 					float dist = dot(light.position.xyz - surface, L);
 
-					if (RT_HIT_SHADOWS != 0 && dist > 0.05 && !scene_reflection_visible(surface, L, dist - 0.05)) continue;
+					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_reflection_visible(surface, L, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
 
-					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light(surface, L, max(dist - 0.05, 0.0), 0.0);
+					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
 
 					radiance += contribution * light_weight;
 				}
