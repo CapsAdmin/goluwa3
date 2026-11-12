@@ -110,6 +110,7 @@ local function get_uniform_buffers(with_ddgi)
 				{"env_tex", "int"},
 				{"history_tex", "int"},
 				{"history_depth_tex", "int"},
+				{"history_moment_tex", "int"},
 				{"frame_index", "int"},
 				{"rough_rays", "int"},
 				{"debug_scene", "int"},
@@ -166,9 +167,11 @@ local function get_uniform_buffers(with_ddgi)
 					local history_fb = reflections:GetFramebuffer((frame + 1) % 2 + 1)
 					block.history_tex = self:GetTextureIndex(history_fb:GetAttachment(1))
 					block.history_depth_tex = self:GetTextureIndex(history_fb:GetAttachment(2))
+					block.history_moment_tex = self:GetTextureIndex(history_fb:GetAttachment(3))
 				else
 					block.history_tex = -1
 					block.history_depth_tex = -1
+					block.history_moment_tex = -1
 				end
 
 				if RAY_QUERY then
@@ -579,6 +582,7 @@ return {
 				{"reflections", "rgb", 1 / post_source.UNEXPOSED_SDR_WHITE},
 			},
 			{"r16_sfloat", {"reflection_depth", "r"}},
+			{"r32_sfloat", {"reflection_moment", "r"}},
 		},
 		framebuffer_count = 2,
 		LocalSize = COMPUTE_LOCAL_SIZE,
@@ -593,11 +597,17 @@ return {
 				attachment = 2,
 				dst_stage = {"compute", "fragment"},
 			},
+			{
+				binding_index = 2,
+				attachment = 3,
+				dst_stage = {"compute", "fragment"},
+			},
 		},
 		uniform_buffers = get_uniform_buffers(false),
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_reflection;
 			layout(set = 0, binding = 1, r16f) uniform writeonly image2D out_reflection_depth;
+			layout(set = 0, binding = 2, r32f) uniform writeonly image2D out_reflection_moment;
 		]],
 		shader = compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. scene_reflection.CONSTANTS_GLSL .. [[
 		]] .. ibl.GetReflectionQuadGLSL() .. screen_reconstruct.GetWorldPosFromUVGLSL("reflection_data") .. shared_glsl .. [[
@@ -618,6 +628,7 @@ return {
 				if (depth <= 0.0) {
 					imageStore(out_reflection, pos, vec4(0.0));
 					imageStore(out_reflection_depth, pos, vec4(0.0));
+					imageStore(out_reflection_moment, pos, vec4(0.0));
 					return;
 				}
 
@@ -736,6 +747,7 @@ return {
 
 				bool has_current = has_own || total_weight > 0.0;
 				vec4 result = filtered;
+				float moment = luminance(filtered.rgb) * luminance(filtered.rgb);
 
 				if (reflection_data.history_tex != -1) {
 					vec2 prev_uv;
@@ -774,16 +786,20 @@ return {
 
 							if (abs(history_depth - prev_depth) < prev_depth * 0.05 + 0.02) {
 								vec4 history = texture(TEXTURE(reflection_data.history_tex), prev_uv);
+								float history_moment = texture(TEXTURE(reflection_data.history_moment_tex), prev_uv).r;
 
-								if (!any(isnan(history))) {
+								if (!any(isnan(history)) && !isnan(history_moment)) {
 									if (!has_current) {
 										result = history;
+										moment = history_moment;
 									} else {
-										vec3 clamp_extent = deviation * REFLECTION_CLAMP_SIGMA + filtered.rgb * 0.05 + 0.001;
+										float history_deviation = sqrt(max(history_moment - luminance(history.rgb) * luminance(history.rgb), 0.0)) * smoothstep(SCENE_REFLECTION_MIRROR_THRESHOLD, 0.25, roughness);
+										vec3 clamp_extent = (deviation + history_deviation) * REFLECTION_CLAMP_SIGMA + filtered.rgb * 0.05 + 0.001;
 										history.rgb = clamp(history.rgb, filtered.rgb - clamp_extent, filtered.rgb + clamp_extent);
 										if (alpha_min <= alpha_max) history.a = clamp(history.a, alpha_min, alpha_max);
 										float history_weight = mix(REFLECTION_HIST_LO, REFLECTION_HIST_HI, smoothstep(0.0, 0.3, roughness)) * history_weight_scale;
 										result = mix(filtered, history, history_weight);
+										moment = mix(moment, history_moment, history_weight);
 									}
 								}
 							}
@@ -793,6 +809,7 @@ return {
 
 				imageStore(out_reflection, pos, result);
 				imageStore(out_reflection_depth, pos, vec4(view_depth));
+				imageStore(out_reflection_moment, pos, vec4(moment));
 			}
 		]],
 	},
