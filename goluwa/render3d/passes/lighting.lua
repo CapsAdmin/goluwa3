@@ -143,7 +143,6 @@ return {
 					{"gi_debug", "int"},
 					{"direct_debug", "int"},
 					{"reflection_tex", "int"},
-					{"reflection_phase", "int"},
 					{"reflection_gi_start", "float"},
 					{"reflection_gi_end", "float"},
 					{"ambient_occlusion_tex", "int"},
@@ -201,7 +200,6 @@ return {
 						local current_idx = system.GetFrameNumber() % 2 + 1
 						local current_reflections_fb = render3d.pipelines.reflections:GetFramebuffer(current_idx)
 						block.reflection_tex = self:GetTextureIndex(current_reflections_fb:GetAttachment(1))
-						block.reflection_phase = render3d.GetTemporalFrame()
 					else
 						block.reflection_tex = -1
 					end
@@ -320,7 +318,7 @@ return {
 				""
 			) .. surface_lighting.GetGLSL("lighting_data", glass_light.RAY_QUERY and "glass_light_scene") .. ddgi.GetScreenSampleGLSL("lighting_data") .. [[
 
-			]] .. ibl.GetReflectionQuadGLSL() .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
+			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
 			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback, vec2 reflection_uv, float specular_occlusion) {
 				vec3 raw_R = reflect(-V, normal);

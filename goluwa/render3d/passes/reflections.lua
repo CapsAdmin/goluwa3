@@ -13,6 +13,7 @@ local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
+local render = import("goluwa/render/render.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
 local RAY_QUERY = scene_reflection.RAY_QUERY
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
@@ -33,19 +34,14 @@ local resolution = pvars.Setup2{
 	key = "reflection_resolution",
 	default = "half",
 	enums = {"full", "half", "quarter"},
-	help = "the resolution the reflections are traced and filtered at, relative to the screen. full traces a ray for every pixel (4 times the work of half), quarter a ray for every 4 by 4 pixels. the filter radius is the same on screen at every resolution",
-	callback = function()
-		local pipelines = render3d.pipelines
-
-		if pipelines and pipelines.reflections_trace then
-			pipelines.reflections_trace:RecreateFramebuffers()
-			pipelines.reflections:RecreateFramebuffers()
-		end
-	end,
+	help = "how densely the reflections are traced, relative to the screen. a block of pixels (2 by 2 at half) traces the rays of one of its pixels, a different one each frame, and the filter and the history are kept for every pixel. a block whose pixels are all smooth enough for a single ray traces every pixel instead (a normal mapped mirror stays sharp). full traces every pixel (4 times the rays of half on rough surfaces), quarter a 4 by 4 block. the filter radius is the same on screen at every resolution",
 }
 
-local function get_scale()
-	return SCALES[resolution:Get()]
+local function get_trace_size()
+	local size = render.GetRenderImageSize()
+	local scale = SCALES[resolution:Get()]
+	return math.max(1, math.floor(size.x * scale + 0.5)),
+	math.max(1, math.floor(size.y * scale + 0.5))
 end
 
 pvars.EndGroup()
@@ -54,18 +50,17 @@ local shared_glsl = [[
 			#define SCREENSPACE_BINARY_STEPS 6
 			#define SCREENSPACE_STRIDE 2.0
 			#define SCREENSPACE_MAX_DISTANCE (80.0 * reflection_data.view_scale)
-			#define REFLECTION_ROUGHNESS_CUTOFF (reflection_data.roughness_cutoff)
 			#define SCREENSPACE_CONE_TAPS 9
 			#define REFLECTION_CLAMP_SIGMA 3.0
 			#define REFLECTION_HIST_LO 0.9
 			#define REFLECTION_HIST_HI 0.97
 			#define REFLECTION_SPATIAL_NORMAL_POWER 32.0
 			#define REFLECTION_FILTER_TAPS 16
+			#define REFLECTION_PIXEL_CANDIDATES 4
 			ivec2 reflection_size;
 			ivec2 gbuffer_size;
 			vec4 inv_projection_row_z;
 			vec4 inv_projection_row_w;
-			float max_hit_luminance;
 
 			float linearize_depth(vec2 uv, float depth) {
 				vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
@@ -121,6 +116,7 @@ local function get_uniform_buffers(with_ddgi)
 				{"raw_tex", "int"},
 				{"raw_distance_tex", "int"},
 				{"filter_radius", "float"},
+				{"trace_size", "ivec2"},
 				{"roughness_cutoff", "float"},
 				{"hit_reprojection", "int"},
 				{"jitter_shift", "vec2"},
@@ -147,6 +143,7 @@ local function get_uniform_buffers(with_ddgi)
 				block.debug_scene = debug_scene:Get() and 1 or 0
 				block.filter_radius = filter_radius:Get()
 				block.hit_reprojection = hit_reprojection:Get() and 1 or 0
+				block.trace_size[0], block.trace_size[1] = get_trace_size()
 				local _, gi_end = ibl.GetReflectionGIRange()
 				block.roughness_cutoff = gi_end
 				local camera = render3d.GetCamera()
@@ -225,8 +222,12 @@ return {
 			{"r16_sfloat", {"reflection_raw_distance", "r"}},
 		},
 		framebuffer_count = 1,
-		scale = get_scale,
 		LocalSize = COMPUTE_LOCAL_SIZE,
+		on_draw = function(self, cmd, fb, frame, desc)
+			self:UploadConstants()
+			local width, height = get_trace_size()
+			self.pipeline:DispatchForSize(cmd, width, height, 1, desc, self.dynamic_offsets)
+		end,
 		ray_generation = RAY_QUERY and
 			scene_reflection.GetRayGeneration(scene_reflection.IsReordered()) or
 			nil,
@@ -272,6 +273,7 @@ return {
 		]] .. screen_reconstruct.GetGeometricNormalGLSL("reflection_data", {world_pos_function = "get_world_pos"}) .. [[
 		]] .. shared_glsl .. scene_reflection.GetDirectionGLSL() .. [[
 
+			float max_hit_luminance;
 			float reflection_hit_distance;
 			vec2 blue_noise(ivec2 pixel, int sample_index) {
 				vec2 xi = blue_noise_texel(TEXTURE(reflection_data.blue_noise_tex), pixel).rg;
@@ -410,8 +412,6 @@ return {
 			}
 
 			vec4 cast_reflection_ray(vec3 world_pos, vec3 pos_vs, vec3 N, vec3 geometric_N, vec3 V, float roughness, vec2 xi) {
-				if (roughness > REFLECTION_ROUGHNESS_CUTOFF) return vec4(0.0);
-
 				N = bend_normal_to_view(N, V);
 				float environment_roughness;
 				vec3 R_world = scene_reflection_direction(N, V, roughness, xi, environment_roughness);
@@ -450,74 +450,124 @@ return {
 			vec2 debug_uv;
 ]] .. screen_reconstruct.GetWorldRayGLSL("reflection_data", {uv_expr = "debug_uv", function_name = "get_debug_ray"}) .. [[
 
+			float get_reflection_footprint(float view_depth, vec3 N, vec3 V) {
+				return view_depth / sqrt(max(abs(dot(N, V)), 0.01)) * 2.0 * reflection_data.inv_projection[1][1] / float(gbuffer_size.y);
+			}
+
+			float get_reflection_roughness(ivec2 gbuffer_pos, vec3 world_pos, float footprint, inout vec3 N) {
+				float roughness = sqrt(gbuffer_roughness(gbuffer_pos));
+				]] .. surface_features.GetReflectionGLSL() .. [[
+
+				return roughness;
+			}
+
+			int get_reflection_rays(ivec2 gbuffer_pos, out bool smooth_surface) {
+				smooth_surface = true;
+				float depth = gbuffer_depth(gbuffer_pos);
+
+				if (depth <= 0.0) return 0;
+
+				vec3 world_pos = get_world_pos((vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size), depth);
+				vec3 V = normalize(reflection_data.camera_position.xyz - world_pos);
+				vec3 N = gbuffer_normal(gbuffer_pos);
+				float roughness = get_reflection_roughness(gbuffer_pos, world_pos, get_reflection_footprint(-(reflection_data.view * vec4(world_pos, 1.0)).z, N, V), N);
+
+				if (roughness > reflection_data.roughness_cutoff) return 0;
+
+				int rays = scene_reflection_ray_count(roughness, reflection_data.rough_rays);
+				smooth_surface = rays <= 1;
+				return rays;
+			}
+
+			vec4 trace_reflection_pixel(ivec2 gbuffer_pos, int rays, out float hit_distance) {
+				hit_distance = 0.0;
+
+				if (rays == 0) return vec4(0.0);
+
+				float depth = gbuffer_depth(gbuffer_pos);
+				vec3 N = gbuffer_normal(gbuffer_pos);
+				vec3 world_pos = get_world_pos((vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size), depth);
+				vec3 pos_vs = (reflection_data.view * vec4(world_pos, 1.0)).xyz;
+				vec3 V = normalize(reflection_data.camera_position.xyz - world_pos);
+				vec3 geometric_N = get_geometric_normal(gbuffer_pos, world_pos, depth, V, N);
+				float roughness = get_reflection_roughness(gbuffer_pos, world_pos, get_reflection_footprint(-pos_vs.z, geometric_N, V), N);
+				vec4 sum = vec4(0.0);
+				float found = 0.0;
+				float distance_sum = 0.0;
+
+				for (int ray = 0; ray < rays; ray++) {
+					reflection_hit_distance = 0.0;
+					vec4 sample_hit = cast_reflection_ray(world_pos, pos_vs, N, geometric_N, V, roughness, blue_noise(gbuffer_pos, ray));
+					sum += vec4(sample_hit.rgb * sample_hit.a, sample_hit.a);
+					found += sample_hit.a;
+					distance_sum += reflection_hit_distance * sample_hit.a;
+				}
+
+				if (found <= 0.0) return vec4(0.0);
+
+				hit_distance = distance_sum / found;
+				return vec4(sum.rgb / found, found / float(rays));
+			}
+
 			void main() {
-				ivec2 pos = get_screen_pos();
-				reflection_size = imageSize(out_raw);
+				ivec2 block = get_screen_pos();
+				reflection_size = reflection_data.trace_size;
 				gbuffer_size = textureSize(TEXTURE(reflection_data.depth_tex), 0);
+
+				if (!is_screen_pos_in_bounds(block, reflection_size)) return;
+
 				mat4 inv_projection = reflection_data.inv_projection;
 				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
 				max_hit_luminance = reflection_data.exposure_tex != -1 ? SCENE_REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
-				bool in_bounds = is_screen_pos_in_bounds(pos, reflection_size);
+				ivec2 first = block * gbuffer_size / reflection_size;
+				ivec2 extent = (block + 1) * gbuffer_size / reflection_size - first;
+				int pixel_count = extent.x * extent.y;
 
 				#ifdef SCENE_REFLECTION
 				if (reflection_data.debug_scene != 0) {
-					if (!in_bounds) return;
-
-					debug_uv = (vec2(pos) + 0.5) / vec2(reflection_size);
+					debug_uv = (vec2(block) + 0.5) / vec2(reflection_size);
 					vec3 debug_dir = get_debug_ray();
 					float debug_t;
 					vec3 radiance = trace_scene_reflection(reflection_data.camera_position.xyz, debug_dir, -debug_dir, 0.0, SCENE_REFLECTION_MAX_DISTANCE, debug_t);
-					imageStore(out_raw, pos, vec4(clamp(radiance * get_exposure(), 0.0, 1.0), 1.0));
-					imageStore(out_raw_distance, pos, vec4(0.0));
+
+					for (int i = 0; i < pixel_count; i++) {
+						imageStore(out_raw, first + ivec2(i % extent.x, i / extent.x), vec4(clamp(radiance * get_exposure(), 0.0, 1.0), 1.0));
+						imageStore(out_raw_distance, first + ivec2(i % extent.x, i / extent.x), vec4(0.0));
+					}
+
 					return;
 				}
 				#endif
 
-				ivec2 gbuffer_pos = min(get_reflection_gbuffer_pos(pos, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
-				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
-				float depth = in_bounds ? gbuffer_depth(gbuffer_pos) : 1.0;
-				vec4 current = vec4(0.0);
-				float hit_distance = 0.0;
-				vec3 N = vec3(0.0, 1.0, 0.0);
-				vec3 world_pos = vec3(0.0);
-				float roughness = 1.0;
-				float view_depth = 0.0;
+				ivec2 phase_pixel = min(get_reflection_gbuffer_pos(block, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
+				int phase_index = (phase_pixel.y - first.y) * extent.x + phase_pixel.x - first.x;
+				int candidates = min(pixel_count, REFLECTION_PIXEL_CANDIDATES);
+				int candidate_rays[REFLECTION_PIXEL_CANDIDATES];
+				bool per_pixel = true;
 
-				if (depth > 0.0) {
-					N = gbuffer_normal(gbuffer_pos);
-					roughness = sqrt(gbuffer_roughness(gbuffer_pos));
-					world_pos = get_world_pos(uv, depth);
-					vec3 pos_vs = (reflection_data.view * vec4(world_pos, 1.0)).xyz;
-					view_depth = -pos_vs.z;
-					vec3 V = normalize(reflection_data.camera_position.xyz - world_pos);
-					vec3 geometric_N = get_geometric_normal(gbuffer_pos, world_pos, depth, V, N);
+				for (int i = 0; i < candidates; i++) {
+					int index = (phase_index + i) % pixel_count;
+					bool smooth_surface;
+					candidate_rays[i] = get_reflection_rays(first + ivec2(index % extent.x, index / extent.x), smooth_surface);
 
-					float footprint = view_depth / sqrt(max(abs(dot(geometric_N, V)), 0.01)) * 2.0 * reflection_data.inv_projection[1][1] / float(gbuffer_size.y);
-					]] .. surface_features.GetReflectionGLSL() .. [[
-
-					int rays = scene_reflection_ray_count(roughness, reflection_data.rough_rays);
-					vec4 sum = vec4(0.0);
-					float found = 0.0;
-					float distance_sum = 0.0;
-
-					for (int ray = 0; ray < rays; ray++) {
-						reflection_hit_distance = 0.0;
-						vec4 sample_hit = cast_reflection_ray(world_pos, pos_vs, N, geometric_N, V, roughness, blue_noise(pos, ray));
-						sum += vec4(sample_hit.rgb * sample_hit.a, sample_hit.a);
-						found += sample_hit.a;
-						distance_sum += reflection_hit_distance * sample_hit.a;
+					if (!smooth_surface) {
+						per_pixel = false;
+						break;
 					}
-
-					hit_distance = found > 0.0 ? distance_sum / found : 0.0;
-
-					current = found > 0.0 ? vec4(sum.rgb / found, found / float(rays)) : vec4(0.0);
 				}
 
-				if (!in_bounds) return;
+				for (int i = 0; i < pixel_count; i++) {
+					ivec2 pixel = first + ivec2(i % extent.x, i / extent.x);
+					int slot = (i - phase_index + pixel_count) % pixel_count;
+					vec4 value = vec4(0.0, 0.0, 0.0, -1.0);
+					float hit_distance = 0.0;
 
-				imageStore(out_raw, pos, current);
-				imageStore(out_raw_distance, pos, vec4(hit_distance));
+					if (slot == 0 || per_pixel && slot < candidates) value = trace_reflection_pixel(pixel, candidate_rays[slot], hit_distance);
+
+					imageStore(out_raw, pixel, value);
+					imageStore(out_raw_distance, pixel, vec4(hit_distance));
+				}
 			}
 		]],
 	},
@@ -532,7 +582,6 @@ return {
 			{"r16_sfloat", {"reflection_depth", "r"}},
 		},
 		framebuffer_count = 2,
-		scale = get_scale,
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {
 			{
@@ -556,18 +605,16 @@ return {
 
 			void main() {
 				ivec2 pos = get_screen_pos();
-				reflection_size = imageSize(out_reflection);
 				gbuffer_size = textureSize(TEXTURE(reflection_data.depth_tex), 0);
+				reflection_size = reflection_data.trace_size;
+
+				if (!is_screen_pos_in_bounds(pos, imageSize(out_reflection))) return;
+
 				mat4 inv_projection = reflection_data.inv_projection;
 				inv_projection_row_z = vec4(inv_projection[0][2], inv_projection[1][2], inv_projection[2][2], inv_projection[3][2]);
 				inv_projection_row_w = vec4(inv_projection[0][3], inv_projection[1][3], inv_projection[2][3], inv_projection[3][3]);
-				max_hit_luminance = reflection_data.exposure_tex != -1 ? SCENE_REFLECTION_MAX_HIT_LUMINANCE / max(texture(TEXTURE(reflection_data.exposure_tex), vec2(0.5)).r, 1e-8) : 1e30;
-
-				if (!is_screen_pos_in_bounds(pos, reflection_size)) return;
-
-				ivec2 gbuffer_pos = min(get_reflection_gbuffer_pos(pos, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
-				vec2 uv = (vec2(gbuffer_pos) + 0.5) / vec2(gbuffer_size);
-				float depth = gbuffer_depth(gbuffer_pos);
+				vec2 uv = (vec2(pos) + 0.5) / vec2(gbuffer_size);
+				float depth = gbuffer_depth(pos);
 
 				if (depth <= 0.0) {
 					imageStore(out_reflection, pos, vec4(0.0));
@@ -575,9 +622,12 @@ return {
 					return;
 				}
 
-				vec4 current = texelFetch(TEXTURE(reflection_data.raw_tex), pos, 0);
-				vec3 N = gbuffer_normal(gbuffer_pos);
-				float roughness = sqrt(gbuffer_roughness(gbuffer_pos));
+				ivec2 block = get_reflection_block(pos, gbuffer_size, reflection_size);
+				ivec2 block_pixel = min(get_reflection_gbuffer_pos(block, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
+				vec4 own = texelFetch(TEXTURE(reflection_data.raw_tex), pos, 0);
+				bool has_own = own.a >= 0.0;
+				vec3 N = gbuffer_normal(pos);
+				float roughness = sqrt(gbuffer_roughness(pos));
 				float view_depth = -linearize_depth(uv, depth);
 				vec3 moment1 = vec3(0.0);
 				vec3 moment2 = vec3(0.0);
@@ -587,9 +637,19 @@ return {
 				float alpha_min = 1.0;
 				float alpha_max = 0.0;
 
-				float hit_distance = texelFetch(TEXTURE(reflection_data.raw_distance_tex), pos, 0).r;
+				if (has_own) {
+					moment1 = own.rgb * own.a;
+					moment2 = own.rgb * own.rgb * own.a;
+					color_weight = own.a;
+					alpha_accum = own.a;
+					total_weight = 1.0;
+					alpha_min = own.a;
+					alpha_max = own.a;
+				}
 
-				bool has_hit = hit_distance > 0.0 && current.a > 0.5;
+				ivec2 hit_pixel = has_own ? pos : block_pixel;
+				float hit_distance = texelFetch(TEXTURE(reflection_data.raw_distance_tex), hit_pixel, 0).r;
+				bool has_hit = hit_distance > 0.0 && texelFetch(TEXTURE(reflection_data.raw_tex), hit_pixel, 0).a > 0.5;
 
 				if (hit_distance <= 0.0) hit_distance = 1000.0;
 
@@ -597,8 +657,8 @@ return {
 				float texel_size = view_depth * 2.0 * reflection_data.inv_projection[1][1] / float(reflection_size.y);
 				ivec2 texel_step = gbuffer_size / reflection_size;
 				float normal_change = max(
-					length(gbuffer_normal(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1)) - N),
-					length(gbuffer_normal(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1)) - N)
+					length(gbuffer_normal(min(pos + ivec2(texel_step.x, 0), gbuffer_size - 1)) - N),
+					length(gbuffer_normal(min(pos + ivec2(0, texel_step.y), gbuffer_size - 1)) - N)
 				);
 				float hit_shift_per_texel = texel_size + 2.0 * hit_distance * normal_change;
 				float max_radius = max(1.0, reflection_data.filter_radius * 2.0 / float(texel_step.x));
@@ -606,7 +666,24 @@ return {
 				float disc_turn = 6.2831853 * fract(52.9829189 * fract(dot(vec2(pos), vec2(0.06711056, 0.00583715))));
 				vec3 center_world = get_world_pos(uv, depth);
 
-				for (int tap = 0; tap <= REFLECTION_FILTER_TAPS; tap++) {
+				bool mirror = has_own && roughness <= 0.02;
+
+				for (int i = 0; mirror && i < 9; i++) {
+					ivec2 neighbour = clamp(pos + ivec2(i % 3 - 1, i / 3 - 1), ivec2(0), gbuffer_size - 1);
+					vec4 sample_value = texelFetch(TEXTURE(reflection_data.raw_tex), neighbour, 0);
+
+					if (i == 4 || sample_value.a < 0.0) continue;
+
+					moment1 += sample_value.rgb * sample_value.a;
+					moment2 += sample_value.rgb * sample_value.rgb * sample_value.a;
+					color_weight += sample_value.a;
+					alpha_accum += sample_value.a;
+					total_weight += 1.0;
+					alpha_min = min(alpha_min, sample_value.a);
+					alpha_max = max(alpha_max, sample_value.a);
+				}
+
+				for (int tap = 0; !mirror && tap <= REFLECTION_FILTER_TAPS; tap++) {
 					vec2 offset = vec2(0.0);
 
 					if (tap > 0) {
@@ -614,20 +691,23 @@ return {
 						offset = vec2(cos(angle), sin(angle)) * sqrt((float(tap) - 0.5) / float(REFLECTION_FILTER_TAPS)) * disc_radius;
 					}
 
-					ivec2 sample_pos = pos + ivec2(round(offset));
+					ivec2 sample_block = block + ivec2(round(offset));
 
-					if (any(lessThan(sample_pos, ivec2(0))) || any(greaterThanEqual(sample_pos, reflection_size))) continue;
+					if (any(lessThan(sample_block, ivec2(0))) || any(greaterThanEqual(sample_block, reflection_size))) continue;
 
-					ivec2 sample_gbuffer_pos = min(get_reflection_gbuffer_pos(sample_pos, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
-					float sample_gbuffer_depth = gbuffer_depth(sample_gbuffer_pos);
+					ivec2 sample_pos = min(get_reflection_gbuffer_pos(sample_block, reflection_data.frame_index, gbuffer_size, reflection_size), gbuffer_size - 1);
 
-					if (sample_gbuffer_depth <= 0.0) continue;
+					if (has_own && sample_pos == pos) continue;
 
-					vec3 sample_world = get_world_pos((vec2(sample_gbuffer_pos) + 0.5) / vec2(gbuffer_size), sample_gbuffer_depth);
+					float sample_depth = gbuffer_depth(sample_pos);
+
+					if (sample_depth <= 0.0) continue;
+
+					vec3 sample_world = get_world_pos((vec2(sample_pos) + 0.5) / vec2(gbuffer_size), sample_depth);
 					float plane_distance = abs(dot(N, sample_world - center_world));
 					float depth_weight = exp(-plane_distance / max(view_depth * 0.03, 0.03));
-					float normal_weight = pow(max(dot(N, gbuffer_normal(sample_gbuffer_pos)), 0.0), REFLECTION_SPATIAL_NORMAL_POWER);
-					float roughness_weight = 1.0 - clamp(abs(sqrt(gbuffer_roughness(sample_gbuffer_pos)) - roughness) * 6.0, 0.0, 1.0);
+					float normal_weight = pow(max(dot(N, gbuffer_normal(sample_pos)), 0.0), REFLECTION_SPATIAL_NORMAL_POWER);
+					float roughness_weight = 1.0 - clamp(abs(sqrt(gbuffer_roughness(sample_pos)) - roughness) * 6.0, 0.0, 1.0);
 					float weight = depth_weight * normal_weight * roughness_weight;
 
 					if (weight <= 0.0001) continue;
@@ -643,16 +723,19 @@ return {
 					alpha_max = max(alpha_max, sample_value.a);
 				}
 
-				vec4 filtered = current;
-				vec3 mean = current.rgb;
+				vec4 filtered = has_own ? own : vec4(0.0);
 				vec3 deviation = vec3(0.0);
 
 				if (color_weight > 0.0001) {
-					mean = moment1 / color_weight;
+					vec3 mean = moment1 / color_weight;
 					deviation = sqrt(max(moment2 / color_weight - mean * mean, vec3(0.0)));
-					filtered = mix(current, vec4(mean, alpha_accum / total_weight), smoothstep(0.02, 0.15, roughness));
+					vec4 spatial = vec4(mean, alpha_accum / total_weight);
+					filtered = has_own ? mix(own, spatial, smoothstep(0.02, 0.15, roughness)) : spatial;
+				} else if (total_weight > 0.0) {
+					filtered = vec4(0.0);
 				}
 
+				bool has_current = has_own || total_weight > 0.0;
 				vec4 result = filtered;
 
 				if (reflection_data.history_tex != -1) {
@@ -661,17 +744,18 @@ return {
 					bool has_motion = fetch_surface_motion(uv, prev_uv, prev_depth);
 
 					if (has_motion) {
-						prev_uv += (vec2(pos) + 0.5) / vec2(reflection_size) - uv;
 						float history_weight_scale = 1.0;
 						vec2 surface_prev_uv = prev_uv;
 
 						if (reflection_data.hit_reprojection != 0 && has_hit) {
 							vec3 view_ray = normalize(center_world - reflection_data.camera_position.xyz);
-							vec3 step_x_world = get_world_pos((vec2(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1)) + 0.5) / vec2(gbuffer_size), gbuffer_depth(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1))) - center_world;
-							vec3 step_y_world = get_world_pos((vec2(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1)) + 0.5) / vec2(gbuffer_size), gbuffer_depth(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1))) - center_world;
+							ivec2 step_x = min(pos + ivec2(1, 0), gbuffer_size - 1);
+							ivec2 step_y = min(pos + ivec2(0, 1), gbuffer_size - 1);
+							vec3 step_x_world = get_world_pos((vec2(step_x) + 0.5) / vec2(gbuffer_size), gbuffer_depth(step_x)) - center_world;
+							vec3 step_y_world = get_world_pos((vec2(step_y) + 0.5) / vec2(gbuffer_size), gbuffer_depth(step_y)) - center_world;
 							float curvature = 0.5 * (
-								dot(gbuffer_normal(min(gbuffer_pos + ivec2(texel_step.x, 0), gbuffer_size - 1)) - N, step_x_world) / max(dot(step_x_world, step_x_world), 1e-8) +
-								dot(gbuffer_normal(min(gbuffer_pos + ivec2(0, texel_step.y), gbuffer_size - 1)) - N, step_y_world) / max(dot(step_y_world, step_y_world), 1e-8)
+								dot(gbuffer_normal(step_x) - N, step_x_world) / max(dot(step_x_world, step_x_world), 1e-8) +
+								dot(gbuffer_normal(step_y) - N, step_y_world) / max(dot(step_y_world, step_y_world), 1e-8)
 							);
 							float image_scale = 1.0 + 2.0 * curvature * hit_distance;
 							float image_distance = image_scale > 0.2 ? hit_distance / image_scale : 0.0;
@@ -682,7 +766,7 @@ return {
 								vec2 image_shift = image_clip.xy / image_clip.w * 0.5 - static_clip.xy / static_clip.w * 0.5;
 								float uncorrected = smoothstep(0.1, 0.5, roughness);
 								prev_uv += image_shift * (1.0 - uncorrected);
-								history_weight_scale = 1.0 - 0.5 * smoothstep(1.0, 6.0, length(image_shift * uncorrected * vec2(reflection_size)));
+								history_weight_scale = 1.0 - 0.5 * smoothstep(1.0, 6.0, length(image_shift * uncorrected * vec2(gbuffer_size)));
 							}
 						}
 
@@ -693,11 +777,15 @@ return {
 								vec4 history = texture(TEXTURE(reflection_data.history_tex), prev_uv);
 
 								if (!any(isnan(history))) {
-									vec3 clamp_extent = deviation * REFLECTION_CLAMP_SIGMA + mean * 0.05 + 0.001;
-									history.rgb = clamp(history.rgb, mean - clamp_extent, mean + clamp_extent);
-									if (alpha_min <= alpha_max) history.a = clamp(history.a, alpha_min, alpha_max);
-									float history_weight = mix(REFLECTION_HIST_LO, REFLECTION_HIST_HI, smoothstep(0.0, 0.3, roughness));
-									result = mix(filtered, history, history_weight * history_weight_scale);
+									if (!has_current) {
+										result = history;
+									} else {
+										vec3 clamp_extent = deviation * REFLECTION_CLAMP_SIGMA + filtered.rgb * 0.05 + 0.001;
+										history.rgb = clamp(history.rgb, filtered.rgb - clamp_extent, filtered.rgb + clamp_extent);
+										if (alpha_min <= alpha_max) history.a = clamp(history.a, alpha_min, alpha_max);
+										float history_weight = mix(REFLECTION_HIST_LO, REFLECTION_HIST_HI, smoothstep(0.0, 0.3, roughness)) * history_weight_scale;
+										result = mix(filtered, history, history_weight);
+									}
 								}
 							}
 						}
