@@ -53,7 +53,7 @@ local shared_glsl = [[
 			#define SCREENSPACE_MAX_STEPS 48
 			#define SCREENSPACE_BINARY_STEPS 6
 			#define SCREENSPACE_STRIDE 2.0
-			#define SCREENSPACE_MAX_DISTANCE 80.0
+			#define SCREENSPACE_MAX_DISTANCE (80.0 * reflection_data.view_scale)
 			#define REFLECTION_ROUGHNESS_CUTOFF (reflection_data.roughness_cutoff)
 			#define SCREENSPACE_CONE_TAPS 9
 			#define REFLECTION_CLAMP_SIGMA 3.0
@@ -305,8 +305,8 @@ return {
 			vec4 trace_screenspace_direction(vec3 pos_vs, vec3 R_vs, float roughness, float jitter) {
 				float ray_len = SCREENSPACE_MAX_DISTANCE;
 
-				if (pos_vs.z + R_vs.z * ray_len > -0.05) {
-					ray_len = (-0.05 - pos_vs.z) / R_vs.z;
+				if (pos_vs.z + R_vs.z * ray_len > -0.05 * reflection_data.view_scale) {
+					ray_len = (-0.05 * reflection_data.view_scale - pos_vs.z) / R_vs.z;
 				}
 
 				if (ray_len <= 1e-4) return vec4(0.0);
@@ -341,7 +341,7 @@ return {
 						float z_surf = linearize_depth(uv, depth);
 
 						if (z_ray < z_surf) {
-							float thickness = max(0.15, -z_surf * 0.03) + abs(z_ray - z_prev);
+							float thickness = max(0.15 * reflection_data.view_scale, -z_surf * 0.03) + abs(z_ray - z_prev);
 							float depth_diff = z_surf - z_ray;
 
 							if (depth_diff < thickness) {
@@ -384,7 +384,7 @@ return {
 								float edge_fade = 1.0 - pow(max(abs(uv.x - 0.5), abs(uv.y - 0.5)) * 2.0, 3.0);
 								edge_fade *= 1.0 - pow(max(abs(last_frame_uv.x - 0.5), abs(last_frame_uv.y - 0.5)) * 2.0, 3.0);
 								float dist_fade = 1.0 - smoothstep(SCREENSPACE_MAX_DISTANCE * 0.7, SCREENSPACE_MAX_DISTANCE, length(hit_vs - pos_vs));
-								float thick_conf = 1.0 - saturate(refined_diff / max(0.15, -z_surf * 0.03));
+								float thick_conf = 1.0 - saturate(refined_diff / max(0.15 * reflection_data.view_scale, -z_surf * 0.03));
 								vec3 hit_color;
 
 								if (roughness > SCENE_REFLECTION_MIRROR_THRESHOLD) {

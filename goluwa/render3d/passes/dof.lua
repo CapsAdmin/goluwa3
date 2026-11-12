@@ -35,7 +35,8 @@ end
 local function update_focus()
 	local view = View.GetActive()
 	local hit = raycast.CastClosestFromCamera(render3d.GetCamera(), is_not_ignored, view and view.Ignore)
-	local target = hit and math.max(hit.distance, MIN_FOCUS) or FAR_FOCUS
+	local scale = render3d.GetViewScale()
+	local target = hit and math.max(hit.distance, MIN_FOCUS * scale) or FAR_FOCUS * scale
 	focus_distance = math.lerp(
 		1 - math.exp(-system.GetUnscaledFrameTime() / FOCUS_SECONDS),
 		focus_distance,
@@ -77,7 +78,7 @@ return {
 						local height = render3d.GetRenderSize().y
 						local focal_mm = SENSOR_HEIGHT_MM / 2 / math.tan(render3d.GetCamera():GetFOV() / 2)
 						block.focus = focus
-						block.coc_k = 0.5 * focal_mm * focal_mm / math.max(focus * 1000 - focal_mm, 1) * height / SENSOR_HEIGHT_MM
+						block.coc_k = 0.5 * focal_mm * focal_mm / math.max(focus / render3d.GetViewScale() * 1000 - focal_mm, 1) * height / SENSOR_HEIGHT_MM
 						block.max_radius = max_radius:Get()
 						block.frame = system.GetFrameNumber()
 						return block

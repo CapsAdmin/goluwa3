@@ -895,7 +895,7 @@ list.insert(
 				set_color(vec4(min(color * get_pre_exposure(), vec3(65504.0)), alpha));
 			}
 
-			const float WATER_NEAR_PLANE = 0.1;
+			#define WATER_NEAR_PLANE (0.1 * water_data.view_scale)
 			const float WATER_TRACE_RANGE = 1000000.0;
 			const float WATER_MAX_SLOPE = 1.5;
 			const vec3 WATER_MOLECULAR_SCATTERING = vec3(]] .. water.MOLECULAR_SCATTERING.x .. ", " .. water.MOLECULAR_SCATTERING.y .. ", " .. water.MOLECULAR_SCATTERING.z .. [[);

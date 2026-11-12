@@ -208,7 +208,7 @@ function particles.WriteSystems(block)
 		entry.scatter_g = def.scatter_g
 		entry.forward_fraction = def.forward_fraction
 		entry.fade_time = def.fade_time
-		entry.fade_near = def.fade_near
+		entry.fade_near = def.fade_near * render3d.GetViewScale()
 		entry.fade_far = def.fade_far
 		entry.collision = def.collision and
 			assert(COLLISION_MODES[def.collision], "unknown collision " .. def.collision) or

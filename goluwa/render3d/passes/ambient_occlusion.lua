@@ -128,13 +128,13 @@ return {
 				float random_offset = noise.x;
 				float random_rotation = noise.y * 6.28318;
 
-				float world_radius = 2.0;
+				float world_radius = 2.0 * lighting_data.view_scale;
 				float screen_radius = (world_radius * lighting_data.projection[0][0]) / (-p.z * 2.0);
 
 				const int Nd = 3; 
 				const int Ns = 6; 
 				const uint Nb = 32;
-				float thickness = 0.5;
+				float thickness = 0.5 * lighting_data.view_scale;
 				float thin_thickness = 0.03;
 
 				float history_scale = get_pre_exposure() / get_previous_pre_exposure();
