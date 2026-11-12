@@ -9,19 +9,38 @@ local gbuffer_layout = import("goluwa/render3d/gbuffer_layout.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local COMPUTE_LOCAL_SIZE = {x = 8, y = 8, z = 1}
-local BIT_COUNT = 32
+local RAY_COUNT = 32
+local SAMPLE_COUNT = ambient_occlusion.GetSamples()
+local SAMPLE_SKEW = 3.5
+local GOLDEN_ANGLE = math.pi * (3 - math.sqrt(5))
 local SCALE = 0.5
 local RATIO = math.floor(1 / SCALE + 0.5)
 local BLUR_DISTANCE_SIGMA = 2
 local BLUR_DEPTH_SIGMA = 0.02
 local BLUR_NORMAL_POWER = 8
-local BENT_COS_SQUARED = {}
-local BENT_COS_SIN = {}
+local RAY_DIRECTIONS = {}
+local SAMPLE_INNER = {}
+local SAMPLE_OUTER = {}
+local SAMPLE_WEIGHT = {}
 
-for k = 0, BIT_COUNT - 1 do
-	local angle = (k + 0.5) / BIT_COUNT * math.pi - math.pi / 2
-	BENT_COS_SQUARED[k + 1] = string.format("%.7f", math.cos(angle) ^ 2)
-	BENT_COS_SIN[k + 1] = string.format("%.7f", math.cos(angle) * math.sin(angle))
+for i = 0, RAY_COUNT - 1 do
+	local angle = i * GOLDEN_ANGLE
+	local radius = math.sqrt((i + 0.5) / RAY_COUNT)
+	RAY_DIRECTIONS[i + 1] = string.format(
+		"vec3(%.7f, %.7f, %.7f)",
+		math.cos(angle) * radius,
+		math.sin(angle) * radius,
+		math.sqrt(1 - radius * radius)
+	)
+end
+
+for i = 0, SAMPLE_COUNT - 1 do
+	local inner = (i / SAMPLE_COUNT) ^ (SAMPLE_SKEW * 0.5)
+	local outer = ((i + 1) / SAMPLE_COUNT) ^ (SAMPLE_SKEW * 0.5)
+	local angle = i * GOLDEN_ANGLE
+	SAMPLE_INNER[i + 1] = string.format("vec2(%.7f, %.7f)", math.cos(angle) * inner, math.sin(angle) * inner)
+	SAMPLE_OUTER[i + 1] = string.format("vec2(%.7f, %.7f)", math.cos(angle) * outer, math.sin(angle) * outer)
+	SAMPLE_WEIGHT[i + 1] = string.format("%.7f", math.sqrt(outer * outer - inner * inner))
 end
 
 return {
@@ -60,6 +79,11 @@ return {
 					{"gi_enabled", "int"},
 					{"gi_strength", "float"},
 					{"ddgi_screen_tex", "int"},
+					{"radius", "float"},
+					{"screen_radius", "float"},
+					{"backface_threshold", "float"},
+					{"backface_boost", "float"},
+					{"inverse_max_slope", "float"},
 					gbuffer_layout.block,
 				},
 				write = function(self, block)
@@ -72,6 +96,11 @@ return {
 					block.gi_strength = ambient_occlusion.GetGIStrength()
 					local screen = gi.GetScreenTexture()
 					block.ddgi_screen_tex = screen and self:GetTextureIndex(screen) or -1
+					block.radius = ambient_occlusion.GetRadius()
+					block.screen_radius = ambient_occlusion.GetScreenRadius()
+					block.backface_threshold = ambient_occlusion.GetBackfaceThreshold()
+					block.backface_boost = ambient_occlusion.GetBackfaceBoost()
+					block.inverse_max_slope = 1 / ambient_occlusion.GetMaxSlopeCompensation()
 					gbuffer_layout.WriteBlock(self, block)
 					return block
 				end,
@@ -84,8 +113,12 @@ return {
 		shader = [[
 			vec2 in_uv;
 
-			const float BENT_COS_SQUARED[32] = float[32](]] .. table.concat(BENT_COS_SQUARED, ", ") .. [[);
-			const float BENT_COS_SIN[32] = float[32](]] .. table.concat(BENT_COS_SIN, ", ") .. [[);
+			const int RAY_COUNT = ]] .. RAY_COUNT .. [[;
+			const int SAMPLE_COUNT = ]] .. SAMPLE_COUNT .. [[;
+			const vec3 RAY_DIRECTIONS[RAY_COUNT] = vec3[RAY_COUNT](]] .. table.concat(RAY_DIRECTIONS, ", ") .. [[);
+			const vec2 SAMPLE_INNER[SAMPLE_COUNT] = vec2[SAMPLE_COUNT](]] .. table.concat(SAMPLE_INNER, ", ") .. [[);
+			const vec2 SAMPLE_OUTER[SAMPLE_COUNT] = vec2[SAMPLE_COUNT](]] .. table.concat(SAMPLE_OUTER, ", ") .. [[);
+			const float SAMPLE_WEIGHT[SAMPLE_COUNT] = float[SAMPLE_COUNT](]] .. table.concat(SAMPLE_WEIGHT, ", ") .. [[);
 			const float BELOW_HORIZON_WEIGHT = 0.25;
 			const float BOUNCE_MAX_LUMINANCE = 30000.0;
 
@@ -105,8 +138,14 @@ return {
 				return v * dot(from, to) + cross(axis, v) + axis * (dot(axis, v) / (1.0 + dot(from, to)));
 			}
 
+			vec3 get_view_pos(vec2 uv, float depth) {
+				vec4 v = lighting_data.inv_projection * vec4(uv * 2.0 - 1.0, depth, 1.0);
+				return v.xyz / v.w;
+			}
+
 			void get_ambient_occlusion(vec2 uv, vec3 world_pos, vec3 N, out float ao, out vec3 bounce, out vec3 bent) {
 				vec3 p = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
+				float linear_depth = -p.z;
 				vec3 V = normalize(-p);
 				vec3 view_normal = normalize(mat3(lighting_data.view) * N);
 				vec3 view_up = mat3(lighting_data.view) * vec3(0.0, 1.0, 0.0);
@@ -123,160 +162,132 @@ return {
 
 				ivec2 screen_size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
 				ivec2 pixel = ivec2(uv * vec2(screen_size));
-				vec2 noise = blue_noise_r2(blue_noise_texel(TEXTURE(lighting_data.blue_noise_tex), pixel).rg, float(lighting_data.frame));
-				
-				float random_offset = noise.x;
-				float random_rotation = noise.y * 6.28318;
+				vec4 noise_texel = blue_noise_texel(TEXTURE(lighting_data.blue_noise_tex), pixel);
+				vec2 noise = blue_noise_r2(noise_texel.rg, float(lighting_data.frame));
+				vec2 noise_b = blue_noise_r2(noise_texel.ba, float(lighting_data.frame));
+				float offset_dither = noise.x;
+				float sample_angle = noise.y * 6.2831853;
+				float tangent_angle = noise_b.x * 6.2831853;
+				float flip = noise_b.y < 0.5 ? -1.0 : 1.0;
 
-				float world_radius = 2.0 * lighting_data.view_scale;
-				float screen_radius = (world_radius * lighting_data.projection[0][0]) / (-p.z * 2.0);
+				float world_radius = lighting_data.radius * lighting_data.view_scale;
+				float max_apparent = abs(lighting_data.inv_projection[1][1]) * lighting_data.screen_radius * 2.0;
+				float clamped_radius = min(world_radius, linear_depth * max_apparent * inversesqrt(max_apparent * max_apparent + 1.0));
+				float apparent_radius = clamped_radius * inversesqrt(linear_depth * linear_depth - clamped_radius * clamped_radius);
+				float circle_radius = apparent_radius * linear_depth;
 
-				const int Nd = 3; 
-				const int Ns = 6; 
-				const uint Nb = 32;
-				float thickness = 0.5 * lighting_data.view_scale;
-				float thin_thickness = 0.03;
+				float pixel_size = abs(lighting_data.inv_projection[0][0]) / (float(screen_size.x) / ]] .. RATIO .. [[.0) * 1.41421356 * linear_depth;
+				vec3 center = p + view_normal * pixel_size;
+
+				float basis_a = 1.0 / (1.0 + V.z);
+				float basis_b = V.x * V.y * basis_a;
+				vec3 circle_right = vec3(V.x * V.x * basis_a - 1.0, basis_b, V.x) * flip * circle_radius;
+				vec3 circle_up = vec3(basis_b, V.y * V.y * basis_a - 1.0, V.y) * circle_radius;
+				vec2 sample_rotation = vec2(cos(sample_angle), sin(sample_angle));
+
+				float tangent_a = 1.0 / max(1.0 + view_normal.z, 1e-4);
+				float tangent_b = view_normal.x * view_normal.y * tangent_a;
+				vec3 tangent_0 = vec3(view_normal.x * view_normal.x * tangent_a - 1.0, tangent_b, view_normal.x);
+				vec3 bitangent_0 = vec3(tangent_b, view_normal.y * view_normal.y * tangent_a - 1.0, view_normal.y);
+				vec3 tangent = cos(tangent_angle) * tangent_0 + sin(tangent_angle) * bitangent_0;
+				vec3 bitangent = cos(tangent_angle) * bitangent_0 - sin(tangent_angle) * tangent_0;
 
 				float history_scale = get_pre_exposure() / get_previous_pre_exposure();
 				float bounce_max = BOUNCE_MAX_LUMINANCE * get_pre_exposure();
 				vec2 history_texel = 1.0 / vec2(screen_size);
-				float total_ao = 0.0;
 				vec3 total_bounce = vec3(0.0);
-				vec3 total_bent = vec3(0.0);
-				vec3 total_bent_open = vec3(0.0);
-				float total_weight = 0.0;
+				uint ray_bits = 0u;
 
-				for (int i = 0; i < Nd; i++) {
-					float angle = (float(i) / float(Nd)) * 3.14159 + random_rotation;
-					vec2 dir = vec2(cos(angle), sin(angle));
-					
-					vec4 dir_v = lighting_data.inv_projection * vec4(dir, 0.0, 0.0);
-					vec3 T_v = normalize(dir_v.xyz);
-					T_v = normalize(T_v - V * dot(T_v, V));
+				for (int i = 0; i < SAMPLE_COUNT; i++) {
+					vec2 offset = mix(SAMPLE_INNER[i], SAMPLE_OUTER[i], offset_dither);
+					vec2 rotated = vec2(
+						sample_rotation.x * offset.x - sample_rotation.y * offset.y,
+						sample_rotation.y * offset.x + sample_rotation.x * offset.y
+					);
+					vec4 clip = lighting_data.projection * vec4(center + circle_right * rotated.x + circle_up * rotated.y, 1.0);
 
-					vec3 M = cross(V, T_v);
-					vec3 n_proj = view_normal - M * dot(view_normal, M);
-					float n_proj_len = length(n_proj);
-					
-					float weight = max(0.0, n_proj_len);
-					if (weight < 0.001) continue;
-					
-					float theta_n = atan(dot(n_proj, T_v), dot(n_proj, V));
+					if (clip.w <= 0.0) continue;
 
-					uint bi = 0u;
-					vec3 slice_bounce = vec3(0.0);
+					vec2 sample_uv = clip.xy / clip.w * 0.5 + 0.5;
 
-					for (int j = 0; j < Ns; j++) {
-						float o = (float(j) + random_offset) / float(Ns);
-						float step_dist = o * o * screen_radius;
-						
-						for (float side = -1.0; side <= 1.0; side += 2.0) {
-							if (side == 0.0) continue;
-							vec2 sample_uv = uv + dir * step_dist * side;
-							
-							if (sample_uv.x < 0.0 || sample_uv.x > 1.0 || sample_uv.y < 0.0 || sample_uv.y > 1.0) continue;
+					if (sample_uv.x < 0.0 || sample_uv.x > 1.0 || sample_uv.y < 0.0 || sample_uv.y > 1.0) continue;
 
-							float sample_depth = gbuffer_depth(sample_uv);
-							vec4 sample_clip_pos = vec4(sample_uv * 2.0 - 1.0, sample_depth, 1.0);
-							vec4 sample_view_pos = lighting_data.inv_projection * sample_clip_pos;
-							vec3 sf = sample_view_pos.xyz / sample_view_pos.w;
-							
-							vec3 v_f = sf - p;
-							float dist2 = dot(v_f, v_f);
+					float sample_depth = gbuffer_depth(sample_uv);
 
-							if (dist2 > world_radius * world_radius || dist2 < 0.0001) continue;
+					if (sample_depth == 0.0) continue;
 
-							if (dot(v_f, view_normal) < 0.1 * sqrt(dist2)) continue;
+					vec3 d_pos = get_view_pos(sample_uv, sample_depth) - center;
+					float length_squared = dot(d_pos, d_pos);
 
-							bool sample_thin = gbuffer_is_thin(sample_uv);
-							float sample_thickness = sample_thin ? thin_thickness : thickness;
+					if (length_squared >= clamped_radius * clamped_radius || dot(d_pos, view_normal) <= 0.0) continue;
 
-							float theta_f = side * acos(clamp(dot(v_f * inversesqrt(dist2), V), -1.0, 1.0));
-							float theta_b = side * acos(clamp(dot(normalize(v_f - V * sample_thickness), V), -1.0, 1.0));
-							float diff_f = theta_f - theta_n;
-							float diff_b = theta_b - theta_n;
+					float inverse_length = inversesqrt(length_squared);
+					vec3 direction = d_pos * inverse_length;
+					vec3 sample_normal = normalize(mat3(lighting_data.view) * gbuffer_normal(sample_uv));
+					bool sample_thin = gbuffer_is_thin(sample_uv);
+					float slope = inversesqrt(max(dot(sample_normal, V), lighting_data.inverse_max_slope));
+					float occluder_radius = clamped_radius * SAMPLE_WEIGHT[i] * slope * inverse_length;
+					float sample_dot = dot(sample_normal, direction);
+					float facing = sample_thin ? 1.0 : clamp(-sample_dot, 0.0, 1.0);
 
-							float theta_min = clamp(min(diff_f, diff_b), -1.5708, 1.5708);
-							float theta_max = clamp(max(diff_f, diff_b), -1.5708, 1.5708);
-							
-							uint a = uint(round((theta_min + 1.5708) / 3.14159 * float(Nb)));
-							uint b = uint(round((theta_max + 1.5708) / 3.14159 * float(Nb)));
-							
-							a = clamp(a, 0u, Nb);
-							b = clamp(b, 0u, Nb);
-
-							if (b > a) {
-								uint count = b - a;
-								uint mask = (count >= 32u) ? 0xFFFFFFFFu : ((1u << count) - 1u) << a;
-
-								uint fresh = mask & ~bi;
-
-								if (lighting_data.gi_enabled != 0 && fresh != 0u) {
-									vec2 history_uv = lighting_data.velocity_tex == -1 ? sample_uv : sample_uv - texture(TEXTURE(lighting_data.velocity_tex), sample_uv).xy;
-
-									if (history_uv.x > 0.0 && history_uv.x < 1.0 && history_uv.y > 0.0 && history_uv.y < 1.0) {
-										vec3 sample_normal = normalize(mat3(lighting_data.view) * gbuffer_normal(sample_uv));
-										float facing = sample_thin ? 1.0 : clamp(dot(sample_normal, -v_f * inversesqrt(dist2)), 0.0, 1.0);
-										float cosine_share = 0.5 * (sin(theta_max) - sin(theta_min));
-										vec3 hit = (
-											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(-1.5, -0.5)).rgb +
-											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(0.5, -1.5)).rgb +
-											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(1.5, 0.5)).rgb +
-											texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(-0.5, 1.5)).rgb
-										) * (0.25 * history_scale);
-										hit *= min(1.0, bounce_max / max(luminance(hit), 1e-6));
-										slice_bounce += hit * (cosine_share * float(bitCount(fresh)) / float(count) * facing);
-									}
-								}
-
-								bi |= mask;
-							}
+					if (!sample_thin) {
+						if (sample_dot < lighting_data.backface_threshold) {
+							direction = normalize(direction - sample_normal * (occluder_radius / max(1.0 - occluder_radius * occluder_radius * 0.5, 1e-6)));
+						} else {
+							occluder_radius *= mix(1.0, slope, lighting_data.backface_boost);
 						}
 					}
 
-					total_bounce += slice_bounce * weight;
+					vec3 hemisphere_direction = vec3(dot(direction, tangent), dot(direction, bitangent), dot(direction, view_normal));
+					float occluder_cos = max(0.0, 1.0 - occluder_radius * occluder_radius * 0.5);
+					uint occluded = 0u;
 
-					float sky_open = 0.0;
-					float sky_total = 0.0;
-					float open_count = 0.0;
-					float open_cos_squared = 0.0;
-					float open_cos_sin = 0.0;
-
-					for (int k = 0; k < 32; k++) {
-						float bit_angle = theta_n + (float(k) + 0.5) / float(Nb) * 3.14159 - 1.5708;
-						float up = dot(V * cos(bit_angle) + T_v * sin(bit_angle), view_up);
-						float direction_weight = below_horizon_weight + (1.0 - below_horizon_weight) * clamp(up, 0.0, 1.0);
-						bool covered = ((bi >> uint(k)) & 1u) != 0u;
-						sky_total += direction_weight;
-
-						if (!covered) {
-							sky_open += direction_weight;
-							open_count += 1.0;
-						}
-
-						float open_share = covered ? (up <= 0.0 ? 1.0 - below_horizon_weight : 0.0) : 1.0;
-						open_cos_squared += BENT_COS_SQUARED[k] * open_share;
-						open_cos_sin += BENT_COS_SIN[k] * open_share;
+					for (int k = 0; k < RAY_COUNT; k++) {
+						if (dot(RAY_DIRECTIONS[k], hemisphere_direction) > occluder_cos) occluded |= 1u << uint(k);
 					}
 
-					total_ao += (sky_total > 1e-4 ? sky_open / sky_total : open_count / 32.0) * weight;
-					float cn = cos(theta_n);
-					float sn = sin(theta_n);
-					total_bent += (V * (open_cos_squared * cn - open_cos_sin * sn) + T_v * (open_cos_squared * sn + open_cos_sin * cn)) * weight;
-					total_bent_open += (V * cn + T_v * sn) * (weight * float(Nb / 2u));
-					total_weight += weight;
+					uint fresh = occluded & ~ray_bits;
+
+					if (lighting_data.gi_enabled != 0 && fresh != 0u) {
+						vec2 history_uv = lighting_data.velocity_tex == -1 ? sample_uv : sample_uv - texture(TEXTURE(lighting_data.velocity_tex), sample_uv).xy;
+
+						if (history_uv.x > 0.0 && history_uv.x < 1.0 && history_uv.y > 0.0 && history_uv.y < 1.0) {
+							vec3 hit = (
+								texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(-1.5, -0.5)).rgb +
+								texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(0.5, -1.5)).rgb +
+								texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(1.5, 0.5)).rgb +
+								texture(TEXTURE(lighting_data.last_frame_tex), history_uv + history_texel * vec2(-0.5, 1.5)).rgb
+							) * (0.25 * history_scale);
+							hit *= min(1.0, bounce_max / max(luminance(hit), 1e-6));
+							total_bounce += hit * (float(bitCount(fresh)) / float(RAY_COUNT) * facing);
+						}
+					}
+
+					ray_bits |= occluded;
 				}
 
-				if (total_weight <= 0.001) {
-					ao = 1.0;
-					bounce = vec3(0.0);
-					bent = N;
-					return;
+				float up_tangent = dot(tangent, view_up);
+				float up_bitangent = dot(bitangent, view_up);
+				float up_normal = dot(view_normal, view_up);
+				float sky_open = 0.0;
+				float sky_total = 0.0;
+				vec3 bent_tangent = vec3(0.0);
+
+				for (int k = 0; k < RAY_COUNT; k++) {
+					vec3 ray = RAY_DIRECTIONS[k];
+					float up = ray.x * up_tangent + ray.y * up_bitangent + ray.z * up_normal;
+					float direction_weight = below_horizon_weight + (1.0 - below_horizon_weight) * clamp(up, 0.0, 1.0);
+					bool covered = ((ray_bits >> uint(k)) & 1u) != 0u;
+					sky_total += direction_weight;
+
+					if (!covered) sky_open += direction_weight;
+
+					bent_tangent += ray * (covered ? (up <= 0.0 ? 1.0 - below_horizon_weight : 0.0) : 1.0);
 				}
 
-				ao = clamp(total_ao / total_weight, 0.0, 1.0);
-				bounce = total_bounce / total_weight * lighting_data.gi_strength;
-				vec3 open_bent = view_normal * dot(total_bent_open, view_normal) - (total_bent_open - total_bent);
+				ao = clamp(sky_open / sky_total, 0.0, 1.0);
+				bounce = total_bounce * lighting_data.gi_strength;
+				vec3 open_bent = tangent * bent_tangent.x + bitangent * bent_tangent.y + view_normal * bent_tangent.z;
 				float bent_length = length(open_bent);
 				bent = bent_length > 1e-4 ? normalize(mat3(lighting_data.inv_view) * (open_bent / bent_length)) : N;
 			}

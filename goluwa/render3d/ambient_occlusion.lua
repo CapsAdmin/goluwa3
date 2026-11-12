@@ -17,6 +17,36 @@ local gi_strength = pvars.Setup2{
 	max = 4,
 	help = "scale of the screen space bounce light",
 }
+local radius = pvars.Setup2{
+	key = "ambient_occlusion_radius",
+	default = 2.0,
+	help = "world space radius of the occlusion sphere in meters, multiplied by the view scale",
+}
+local screen_radius = pvars.Setup2{
+	key = "ambient_occlusion_screen_radius",
+	default = 0.2,
+	help = "largest radius of the sampling circle as a fraction of the screen height",
+}
+local backface_threshold = pvars.Setup2{
+	key = "ambient_occlusion_backface_threshold",
+	default = 0.5,
+	help = "an occluder whose normal points away from the pixel by more than this dot product is treated as a back face",
+}
+local backface_boost = pvars.Setup2{
+	key = "ambient_occlusion_backface_boost",
+	default = 0.5,
+	help = "how much the slope compensation widens back face occluders, against light leaking behind thin geometry",
+}
+local max_slope_compensation = pvars.Setup2{
+	key = "ambient_occlusion_max_slope_compensation",
+	default = 4.0,
+	help = "largest factor an occluder circle is widened by when its surface is seen at a grazing angle",
+}
+local samples = pvars.Setup2{
+	key = "ambient_occlusion_samples",
+	default = 32,
+	help = "depth samples per pixel and frame, read when the shader is built",
+}
 local DEBUG_VIEWS = {
 	off = 0,
 	occlusion = ambient_occlusion.DEBUG_AO,
@@ -37,6 +67,30 @@ end
 
 function ambient_occlusion.GetGIStrength()
 	return gi_strength:Get()
+end
+
+function ambient_occlusion.GetRadius()
+	return radius:Get()
+end
+
+function ambient_occlusion.GetScreenRadius()
+	return screen_radius:Get()
+end
+
+function ambient_occlusion.GetBackfaceThreshold()
+	return backface_threshold:Get()
+end
+
+function ambient_occlusion.GetBackfaceBoost()
+	return backface_boost:Get()
+end
+
+function ambient_occlusion.GetMaxSlopeCompensation()
+	return max_slope_compensation:Get()
+end
+
+function ambient_occlusion.GetSamples()
+	return samples:Get()
 end
 
 function ambient_occlusion.GetDebugView()
