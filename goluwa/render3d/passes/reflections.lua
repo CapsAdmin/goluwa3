@@ -117,7 +117,7 @@ local function get_uniform_buffers(with_ddgi)
 				{"raw_distance_tex", "int"},
 				{"filter_radius", "float"},
 				{"trace_size", "ivec2"},
-				{"roughness_cutoff", "float"},
+				ibl.reflection_weight_block,
 				{"hit_reprojection", "int"},
 				{"jitter_shift", "vec2"},
 				{"prev_view", "mat4"},
@@ -144,8 +144,7 @@ local function get_uniform_buffers(with_ddgi)
 				block.filter_radius = filter_radius:Get()
 				block.hit_reprojection = hit_reprojection:Get() and 1 or 0
 				block.trace_size[0], block.trace_size[1] = get_trace_size()
-				local _, gi_end = ibl.GetReflectionGIRange()
-				block.roughness_cutoff = gi_end
+				ibl.WriteReflectionWeightBlock(block)
 				local camera = render3d.GetCamera()
 				local viewport = camera:GetViewport()
 				block.jitter_shift[0] = (render3d.previous_jitter.x - camera:GetJitter().x) / viewport.w
@@ -262,7 +261,7 @@ return {
 			),
 		shader = [[
 		]] .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. glsl_common.GetBlueNoiseGLSL() .. gbuffer_layout.GetDecodeGLSL("reflection_data") .. surface_weather.GetRainSurfaceGLSL("reflection_data") .. [[
-		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. [[
+		]] .. ibl.GetBRDFGLSLCode() .. ibl.GetReflectionQuadGLSL() .. ibl.GetReflectionWeightGLSL("reflection_data") .. [[
 		]] .. ibl.GetEnvironmentGLSLCode() .. post_source.GetPreExposureGLSL("reflection_data") .. (
 				RAY_QUERY and
 				atmosphere.GetGLSLDefines("reflection_data", "reflection_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("reflection_data")
@@ -472,7 +471,7 @@ return {
 				vec3 N = gbuffer_normal(gbuffer_pos);
 				float roughness = get_reflection_roughness(gbuffer_pos, world_pos, get_reflection_footprint(-(reflection_data.view * vec4(world_pos, 1.0)).z, N, V), N);
 
-				if (roughness > reflection_data.roughness_cutoff) return 0;
+				if (get_reflection_traced_weight(roughness, gbuffer_metallic(gbuffer_pos)) <= 0.0) return 0;
 
 				int rays = scene_reflection_ray_count(roughness, reflection_data.rough_rays);
 				smooth_surface = rays <= 1;

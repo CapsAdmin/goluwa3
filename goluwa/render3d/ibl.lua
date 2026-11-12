@@ -16,11 +16,35 @@ local gi_fade = pvars.Setup2{
 	max = 1,
 	help = "how much perceptual roughness the fall from the traced reflection to the gi's light takes, starting at reflection_gi_threshold. a small value is a sharp edge on the surface where the roughness crosses it, a large one a smooth blend, and the rays are traced up to the end of it",
 }
+local trace_metals = pvars.Setup2{
+	key = "reflection_trace_metals",
+	default = true,
+	help = "metals are traced at every roughness and never fall to the gi's light (a partly metallic surface by its share). a metal's look is all reflection, and the gi's light is a far wider lobe than a rough metal's (it sees the whole hemisphere around the reflection), so a rough patch on a metal would change brightness where it crosses reflection_gi_threshold",
+}
 pvars.EndGroup()
 
 function ibl.GetReflectionGIRange()
 	local start = gi_threshold:Get()
 	return start, start + gi_fade:Get()
+end
+
+ibl.reflection_weight_block = {
+	{"reflection_gi_start", "float"},
+	{"reflection_gi_end", "float"},
+	{"reflection_trace_metals", "float"},
+}
+
+function ibl.WriteReflectionWeightBlock(block)
+	block.reflection_gi_start, block.reflection_gi_end = ibl.GetReflectionGIRange()
+	block.reflection_trace_metals = trace_metals:Get() and 1 or 0
+end
+
+function ibl.GetReflectionWeightGLSL(uniform_name)
+	return [[
+			float get_reflection_traced_weight(float perceptual_roughness, float metallic) {
+				return 1.0 - smoothstep(]] .. uniform_name .. [[.reflection_gi_start, ]] .. uniform_name .. [[.reflection_gi_end, perceptual_roughness) * (1.0 - metallic * ]] .. uniform_name .. [[.reflection_trace_metals);
+			}
+	]]
 end
 
 function ibl.GetBRDFGLSLCode()
@@ -232,9 +256,7 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				return mix(global_env, local_env, clamp(local_weight, 0.0, 1.0));
 			}
 
-			float get_reflection_blend_weight(float perceptual_roughness) {
-				return 1.0 - smoothstep(]] .. uniform_name .. [[.reflection_gi_start, ]] .. uniform_name .. [[.reflection_gi_end, clamp(perceptual_roughness, 0.0, 1.0));
-			}
+			]] .. ibl.GetReflectionWeightGLSL(uniform_name) .. [[
 
 			vec4 get_filtered_reflection(vec2 uv) {
 				if (]] .. uniform_name .. [[.reflection_tex == -1) return vec4(0.0);

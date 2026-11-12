@@ -122,7 +122,7 @@ return {
 			float Fc = F_SchlickScalar(CLEARCOAT_F0, coat_NdotV) * s.clearcoat;
 			vec3 tilt = mat3(lighting_data.view) * (s.coat_N - s.coat_smooth_N);
 			vec2 reflection_uv = in_uv + vec2(tilt.x, -tilt.y) * (0.1 / max(length(lighting_data.camera_position.xyz - s.world_pos), 1.0));
-			vec3 coat_reflection = get_reflection(s.coat_N, coat_roughness, s.V, s.world_pos, sky_visibility, irradiance, reflection_uv, SpecularOcclusion(coat_NdotV, ambient_occlusion, coat_roughness));
+			vec3 coat_reflection = get_reflection(s.coat_N, coat_roughness, 0.0, s.V, s.world_pos, sky_visibility, irradiance, reflection_uv, SpecularOcclusion(coat_NdotV, ambient_occlusion, coat_roughness));
 			ambient_diffuse *= 1.0 - Fc;
 			ambient_specular = ambient_specular * (1.0 - Fc) + coat_reflection * Fc;
 		}

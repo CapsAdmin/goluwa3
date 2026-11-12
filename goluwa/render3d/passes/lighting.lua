@@ -143,8 +143,7 @@ return {
 					{"gi_debug", "int"},
 					{"direct_debug", "int"},
 					{"reflection_tex", "int"},
-					{"reflection_gi_start", "float"},
-					{"reflection_gi_end", "float"},
+					ibl.reflection_weight_block,
 					{"ambient_occlusion_tex", "int"},
 					{"gi_overlay_tex", "int"},
 					{"sky_clouds", "int"},
@@ -192,7 +191,7 @@ return {
 						block.ambient_occlusion_tex = -1
 					end
 
-					block.reflection_gi_start, block.reflection_gi_end = ibl.GetReflectionGIRange()
+					ibl.WriteReflectionWeightBlock(block)
 					local overlay = gi.GetDebugOverlayTexture()
 					block.gi_overlay_tex = overlay and self:GetTextureIndex(overlay) or -1
 
@@ -320,7 +319,7 @@ return {
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
-			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback, vec2 reflection_uv, float specular_occlusion) {
+			vec3 get_reflection(vec3 normal, float roughness, float metallic, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback, vec2 reflection_uv, float specular_occlusion) {
 				vec3 raw_R = reflect(-V, normal);
 				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
 				vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
@@ -330,8 +329,7 @@ return {
 
 				if (lighting_data.reflection_tex == -1) return env_reflection * specular_occlusion;
 
-				vec4 traced = get_filtered_reflection(reflection_uv);
-				return combine_reflections(env_reflection, specular_occlusion, traced, get_reflection_blend_weight(roughness));
+				return combine_reflections(env_reflection, specular_occlusion, get_filtered_reflection(reflection_uv), get_reflection_traced_weight(roughness, metallic));
 			}
 
 			vec3 get_gi_irradiance(vec3 N, out float sky_visibility) {
@@ -408,7 +406,7 @@ return {
 				
 				vec4 screen_gi = get_ambient_occlusion(in_uv);
 				float ambient_occlusion = screen_gi.a;
-				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.V, s.world_pos, sky_visibility, reflection_gi, in_uv, SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness));
+				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.metallic, s.V, s.world_pos, sky_visibility, reflection_gi, in_uv, SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness));
 				vec3 bounce = screen_gi.rgb / get_pre_exposure();
 
 				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
