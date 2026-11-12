@@ -27,7 +27,7 @@ function META:Play(role, position, scale)
 			set.Paths,
 			position or self.Owner.transform:GetPosition(),
 			(set.Gain or 1) * (scale or 1),
-			(set.Pitch or 1) * math.randomf(0.95, 1.05)
+			(set.Pitch or 1) * math.randomf(0.95, 1.05) / self.Owner.transform:GetScale().y
 		)
 	end
 end

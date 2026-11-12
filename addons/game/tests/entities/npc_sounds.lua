@@ -142,3 +142,39 @@ T.Test("every npc sound file exists", function()
 		end
 	end
 end)
+
+T.Test("an npc voice and footstep pitch falls with its scale", function()
+	local sounds = import("lua/sounds.lua")
+	local original = sounds.PlayRandom
+	local pitches = {}
+
+	function sounds.PlayRandom(paths, position, volume, pitch)
+		pitches[#pitches + 1] = pitch
+	end
+
+	local ok, err = pcall(function()
+		local normal = Entity.New{transform = {}, npc_sounds = {Sounds = {Idle = {Paths = {"a"}}}}}
+		local big = Entity.New{
+			transform = {Scale = Vec3(2, 2, 2)},
+			npc_sounds = {Sounds = {Idle = {Paths = {"a"}}}},
+		}
+		local small = Entity.New{
+			transform = {Scale = Vec3(0.5, 0.5, 0.5)},
+			npc_sounds = {Sounds = {Idle = {Paths = {"a"}}}},
+		}
+
+		for _ = 1, 20 do
+			normal.npc_sounds:Play("Idle")
+			big.npc_sounds:Play("Idle")
+			small.npc_sounds:Play("Idle")
+		end
+
+		for i = 1, #pitches, 3 do
+			T(pitches[i + 1] / pitches[i])["~"](0.5, 0.12)
+			T(pitches[i + 2] / pitches[i])["~"](2, 0.5)
+		end
+	end)
+	sounds.PlayRandom = original
+
+	if not ok then error(err, 0) end
+end)

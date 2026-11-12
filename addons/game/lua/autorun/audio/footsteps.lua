@@ -24,6 +24,10 @@ event.AddListener("Impact", "footsteps", function(info)
 		set[index],
 		info.Position,
 		set.gain * math.clamp(info.Speed / LOUD_SPEED, QUIET, 1),
-		math.randomf(0.95, 1.05)
+		math.randomf(0.95, 1.05) / (
+				info.Entity.ai_controller and
+				info.Entity.transform:GetScale().y or
+				1
+			)
 	)
 end)
