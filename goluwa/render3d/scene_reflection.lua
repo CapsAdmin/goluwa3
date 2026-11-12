@@ -157,7 +157,6 @@ scene_reflection.CONSTANTS_GLSL = [[
 
 		#define SCENE_REFLECTION_MIRROR_THRESHOLD 0.06
 		#define SCENE_REFLECTION_MAX_HIT_LUMINANCE 8.0
-		#define SCENE_REFLECTION_ROUGH_LIMIT_SCALE 0.25
 ]]
 
 function scene_reflection.GetDirectionGLSL()
@@ -190,11 +189,7 @@ function scene_reflection.GetDirectionGLSL()
 			return R;
 		}
 
-		float scene_reflection_hit_luminance_limit(float roughness, float max_luminance, float cutoff) {
-			return max_luminance * mix(1.0, SCENE_REFLECTION_ROUGH_LIMIT_SCALE, smoothstep(SCENE_REFLECTION_MIRROR_THRESHOLD, cutoff, roughness));
-		}
-
-		vec3 scene_reflection_limit_hit(vec3 traced, float roughness, float limit) {
+		vec3 scene_reflection_limit_hit(vec3 traced, float limit) {
 			float traced_luma = dot(traced, vec3(0.2126, 0.7152, 0.0722));
 
 			return traced_luma > limit ? traced * (limit / traced_luma) : traced;

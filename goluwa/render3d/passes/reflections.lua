@@ -67,10 +67,6 @@ local shared_glsl = [[
 			vec4 inv_projection_row_w;
 			float max_hit_luminance;
 
-			float get_firefly_weight(vec3 color, float limit) {
-				return 1.0 / (1.0 + luminance(color) / max(limit * 0.1, 1e-6));
-			}
-
 			float linearize_depth(vec2 uv, float depth) {
 				vec4 clip = vec4(uv * 2.0 - 1.0, depth, 1.0);
 				return dot(inv_projection_row_z, clip) / dot(inv_projection_row_w, clip);
@@ -276,10 +272,6 @@ return {
 		]] .. screen_reconstruct.GetGeometricNormalGLSL("reflection_data", {world_pos_function = "get_world_pos"}) .. [[
 		]] .. shared_glsl .. scene_reflection.GetDirectionGLSL() .. [[
 
-			float get_hit_luminance_limit(float roughness) {
-				return scene_reflection_hit_luminance_limit(roughness, max_hit_luminance, REFLECTION_ROUGHNESS_CUTOFF);
-			}
-
 			float reflection_hit_distance;
 			vec2 blue_noise(ivec2 pixel, int sample_index) {
 				vec2 xi = blue_noise_texel(TEXTURE(reflection_data.blue_noise_tex), pixel).rg;
@@ -391,34 +383,17 @@ return {
 									float radius_uv = roughness * roughness * length(hit_vs - pos_vs) / max(-hit_vs.z, 0.1) * reflection_data.projection[1][1] * 0.5;
 									radius_uv = min(radius_uv, 0.05);
 									vec3 sum = vec3(0.0);
-									float sum_weight = 0.0;
-									float limit = get_hit_luminance_limit(roughness);
 									float spin = jitter * 6.2831853;
 
 									for (int k = 0; k < SCREENSPACE_CONE_TAPS; k++) {
 										float angle = spin + float(k) * 6.2831853 / float(SCREENSPACE_CONE_TAPS);
 										vec2 tap_uv = last_frame_uv + vec2(cos(angle), sin(angle)) * radius_uv * (0.35 + 0.65 * fract(jitter * 7.0 + float(k) * 0.381966));
-										vec3 tap = texture(TEXTURE(reflection_data.last_frame_tex), tap_uv).rgb / get_previous_pre_exposure();
-										float tap_luma = luminance(tap);
-
-										if (tap_luma > limit) tap *= limit / tap_luma;
-
-										float tap_weight = get_firefly_weight(tap, limit);
-										sum += tap * tap_weight;
-										sum_weight += tap_weight;
+										sum += scene_reflection_limit_hit(texture(TEXTURE(reflection_data.last_frame_tex), tap_uv).rgb / get_previous_pre_exposure(), max_hit_luminance);
 									}
 
-									hit_color = sum / sum_weight;
+									hit_color = sum / float(SCREENSPACE_CONE_TAPS);
 								} else {
 									hit_color = texture(TEXTURE(reflection_data.last_frame_tex), last_frame_uv).rgb / get_previous_pre_exposure();
-								}
-
-								if (roughness > SCENE_REFLECTION_MIRROR_THRESHOLD) {
-									float hit_luma = luminance(hit_color);
-
-									float hit_limit = get_hit_luminance_limit(roughness);
-
-									if (hit_luma > hit_limit) hit_color *= hit_limit / hit_luma;
 								}
 
 								reflection_hit_distance = length(hit_vs - pos_vs);
@@ -463,7 +438,7 @@ return {
 					vec3 traced = trace_scene_reflection(origin, R_world, N, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
 					reflection_hit_distance = traced_t;
 
-					if (roughness > SCENE_REFLECTION_MIRROR_THRESHOLD && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, roughness, get_hit_luminance_limit(roughness));
+					if (roughness > SCENE_REFLECTION_MIRROR_THRESHOLD && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, max_hit_luminance);
 
 					return vec4(mix(traced, hit.rgb, hit.a), 1.0);
 				}
@@ -658,7 +633,7 @@ return {
 					if (weight <= 0.0001) continue;
 
 					vec4 sample_value = texelFetch(TEXTURE(reflection_data.raw_tex), sample_pos, 0);
-					float sample_color_weight = weight * sample_value.a * get_firefly_weight(sample_value.rgb, max_hit_luminance);
+					float sample_color_weight = weight * sample_value.a;
 					moment1 += sample_value.rgb * sample_color_weight;
 					moment2 += sample_value.rgb * sample_value.rgb * sample_color_weight;
 					color_weight += sample_color_weight;

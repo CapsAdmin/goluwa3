@@ -1832,7 +1832,7 @@ list.insert(
 				if (rays_ready && refl_screen_weight < 0.999) {
 					refl_rough = refl_perceptual > SCENE_REFLECTION_MIRROR_THRESHOLD;
 					refl_rays = scene_reflection_ray_count(refl_perceptual, water_data.rough_rays);
-					refl_limit = scene_reflection_hit_luminance_limit(refl_perceptual, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), water_data.reflection_roughness_cutoff);
+					refl_limit = SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure();
 				}
 				#endif
 
@@ -2448,7 +2448,7 @@ list.insert(
 					vec3 traced = trace_scene_reflection(origin, dir, n, roughness, max_t, traced_t);
 
 					if (shade_mode == 2) {
-						if (refl_rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, refl_perceptual, refl_limit);
+						if (refl_rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, refl_limit);
 
 						refl_sum += traced;
 					} else if (ray == 0) {

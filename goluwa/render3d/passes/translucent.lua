@@ -698,7 +698,7 @@ local passes = {
 					bool reflection_rough = perceptual_roughness > SCENE_REFLECTION_MIRROR_THRESHOLD;
 					if (traced_weight > 0.0 && scene_reflection_ready()) {
 						reflection_rays = refractive ? scene_reflection_ray_count(perceptual_roughness, lighting_data.rough_rays) : 1;
-						reflection_limit = scene_reflection_hit_luminance_limit(perceptual_roughness, SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure(), lighting_data.reflection_gi_end);
+						reflection_limit = SCENE_REFLECTION_MAX_HIT_LUMINANCE / get_exposure();
 					}
 					#endif
 
@@ -803,7 +803,7 @@ local passes = {
 						vec3 traced = trace_scene_reflection(origin, dir, trace_N, environment_roughness, SCENE_REFLECTION_MAX_DISTANCE, traced_t);
 
 						if (reflected) {
-							if (reflection_rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, perceptual_roughness, reflection_limit);
+							if (reflection_rough && traced_t < SCENE_REFLECTION_MAX_DISTANCE) traced = scene_reflection_limit_hit(traced, reflection_limit);
 
 							reflection_sum += traced;
 						} else {
