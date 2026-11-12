@@ -187,7 +187,7 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 					// the map cannot see occluders closer than a few texels (single sided walls meeting at a corner), inside the soft filter's receiver plane tolerance, or with a penumbra under a texel
 					if (shadow_factor > 0.0 && ]] .. block_name .. [[.shadows.sun_contact_ray > 0.0) {
-						shadow_factor *= get_sun_contact_visibility(s.world_pos + shadow_N * (0.0001 + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach));
+						shadow_factor *= get_sun_contact_visibility(s.world_pos + shadow_N * (0.0001 * ]] .. block_name .. [[.view_scale + 0.0001 * distance(s.world_pos, ]] .. block_name .. [[.camera_position)), L, max(shadow_texel_world_size * ]] .. block_name .. [[.shadows.sun_contact_ray, shadow_ray_reach));
 					}
 				}
 
@@ -222,7 +222,7 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 					bool reach_is_light = false;
 
 					if (type == 0) {
-						reach = clamp(shadow_texel_world_size * 8.0, 0.5, reach);
+						reach = clamp(shadow_texel_world_size * 8.0, 0.5 * ]] .. block_name .. [[.view_scale, reach);
 					} else if (type != 2) {
 						float light_distance = length(light.position.xyz - s.world_pos);
 						reach_is_light = light_distance <= reach;
@@ -241,9 +241,9 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 				#ifdef GLASS_LIGHT
 				if (]] .. block_name .. [[.glass_light != 0 && brightest * shadow_factor * get_exposure() >= GLASS_LIGHT_MIN_SCREEN_RADIANCE) {
-					float glass_distance = type == 0 ? GLASS_SUN_DISTANCE : (type == 2 ? 50.0 : max(length(light.position.xyz - s.world_pos) - 0.05, 0.0));
-					float glass_search = type == 0 && shadow_factor < 0.999 ? clamp(shadow_texel_world_size * 3.0, 0.05, 0.5) : 0.0;
-					radiance *= get_glass_light(s.world_pos + shadow_N * 0.02, L, glass_distance, glass_search);
+					float glass_distance = type == 0 ? GLASS_SUN_DISTANCE : (type == 2 ? 50.0 : max(length(light.position.xyz - s.world_pos) - 0.05 * ]] .. block_name .. [[.view_scale, 0.0));
+					float glass_search = type == 0 && shadow_factor < 0.999 ? clamp(shadow_texel_world_size * 3.0, 0.05 * ]] .. block_name .. [[.view_scale, 0.5 * ]] .. block_name .. [[.view_scale) : 0.0;
+					radiance *= get_glass_light(s.world_pos + shadow_N * 0.02 * ]] .. block_name .. [[.view_scale, L, glass_distance, glass_search);
 				}
 				#endif
 

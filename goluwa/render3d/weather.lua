@@ -552,12 +552,13 @@ local function apply_sun_shadow()
 
 	local offset = exact.enabled and 1 or 0
 	local zoom, min_caster_texel_sizes, update_intervals = {}, {}, {}
+	local scale = render3d.GetSnappedViewScale()
 
 	if exact.enabled then
 		zoom[1] = exact.zoom
 		min_caster_texel_sizes[1] = exact.min_caster_texel_size
 		update_intervals[1] = exact.update_interval
-		map.cascade_fixed_splits = {exact.distance}
+		map.cascade_fixed_splits = {exact.distance * scale}
 	else
 		map.cascade_fixed_splits = {}
 	end
@@ -568,7 +569,7 @@ local function apply_sun_shadow()
 		update_intervals[offset + i] = cascades.update_interval
 	end
 
-	map.max_shadow_distance = cascades.enabled and cascades.distance or exact.distance
+	map.max_shadow_distance = (cascades.enabled and cascades.distance or exact.distance) * scale
 	map.cascade_split_lambda = cascades.split_lambda
 	map.cascade_zoom_factors = zoom
 	map.cascade_min_caster_texel_sizes = min_caster_texel_sizes
@@ -576,7 +577,7 @@ local function apply_sun_shadow()
 	map:SetUpdatePolicy{
 		shadow_update_mode = "continuous",
 		farthest_cascade_update_mode = cascades.enabled and cascades.cache_far_cascade and "world_changed" or nil,
-		farthest_cascade_camera_position_threshold = cascades.far_cascade_move,
+		farthest_cascade_camera_position_threshold = cascades.far_cascade_move * scale,
 	}
 	map:Invalidate()
 end
@@ -641,6 +642,10 @@ function weather.ResetSunShadow()
 
 	if weather.light then weather.BuildSunShadows() else apply_sun_shadow() end
 end
+
+event.AddListener("ViewScaleChanged", "weather_sun_shadows", function()
+	apply_sun_shadow()
+end)
 
 event.AddListener("RenderQualityChanged", "weather_sun_shadows", function()
 	if weather.light then weather.BuildSunShadows() end

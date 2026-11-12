@@ -180,7 +180,7 @@ return {
 					block.sky_from_environment = render3d.IsSkyFromProbe() and 1 or 0
 					block.screen_shadows = screen_shadows:Get() and quality.Get().screen_shadow_step_scale > 0 and 1 or 0
 					block.screen_shadows_debug = screen_shadows_debug:Get() and 1 or 0
-					block.screen_shadow_length = screen_shadow_length:Get()
+					block.screen_shadow_length = screen_shadow_length:Get() * render3d.GetViewScale()
 					block.screen_shadow_steps = math.max(math.floor(screen_shadow_steps:Get() * quality.Get().screen_shadow_step_scale), 2)
 					block.thin_specular = thin_specular:Get()
 					block.rough_sky = rough_sky:Get()
@@ -248,18 +248,19 @@ return {
 			float screen_shadow_term = 1.0;
 
 			float screen_space_shadow_visibility(vec3 world_pos, vec3 normal, vec3 light_dir, float reach, bool reach_is_light) {
+				float view_scale = lighting_data.view_scale;
 				vec3 start_vs = (lighting_data.view * vec4(world_pos, 1.0)).xyz;
-				float view_fade = 1.0 - smoothstep(60.0, 120.0, -start_vs.z);
+				float view_fade = 1.0 - smoothstep(60.0 * view_scale, 120.0 * view_scale, -start_vs.z);
 
 				if (view_fade <= 0.0) return 1.0;
 
-				start_vs += mat3(lighting_data.view) * normal * (0.004 + 0.001 * -start_vs.z);
+				start_vs += mat3(lighting_data.view) * normal * (0.004 * view_scale + 0.001 * -start_vs.z);
 				vec3 dir_vs = mat3(lighting_data.view) * light_dir;
 				float ray_len = reach;
 				float end_fade_start = reach_is_light ? 1.0 : 0.7;
 
-				if (start_vs.z + dir_vs.z * ray_len > -0.05) {
-					ray_len = (-0.05 - start_vs.z) / dir_vs.z;
+				if (start_vs.z + dir_vs.z * ray_len > -0.05 * view_scale) {
+					ray_len = (-0.05 * view_scale - start_vs.z) / dir_vs.z;
 					end_fade_start = 1.0;
 				}
 
@@ -299,8 +300,8 @@ return {
 					float z_surf = (depth_a * depth + depth_b) / (depth_c * depth + depth_d);
 					float z_ray = mix(q0, q1, t) / mix(k0, k1, t);
 					float diff = z_surf - z_ray;
-					float bias = 0.005 + 0.002 * -z_surf;
-					float thickness = 0.05 + 0.005 * -z_surf + step_z;
+					float bias = 0.005 * view_scale + 0.002 * -z_surf;
+					float thickness = 0.05 * view_scale + 0.005 * -z_surf + step_z;
 					float coverage = smoothstep(bias, bias * 3.0 + step_z * 0.25, diff) * (1.0 - smoothstep(thickness * 0.6, thickness, diff));
 
 					if (coverage > 0.0) {

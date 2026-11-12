@@ -163,7 +163,7 @@ local function shadowSearchBodyGLSL(block_macro, cascade_call)
 				float previous_split = cascade_idx > 0 ? @@BLOCK@@.shadows.cascade_splits[cascade_idx - 1] : 0.0;
 				float current_split = @@BLOCK@@.shadows.cascade_splits[cascade_idx];
 				float cascade_span = max(current_split - previous_split, 0.0001);
-				float blend_band = max(cascade_span * 0.15, 8.0);
+				float blend_band = max(cascade_span * 0.15, shadow_texel_world_size * 48.0);
 				float blend_start = current_split - blend_band;
 
 				if (dist > blend_start) {
