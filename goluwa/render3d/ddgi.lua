@@ -341,7 +341,7 @@ function ddgi.IsDebugGI()
 end
 
 function ddgi.GetCascadeSpacing(cascade)
-	return probe_spacing:Get() * cascade_ratio:Get() ^ cascade
+	return probe_spacing:Get() * render3d.GetSnappedViewScale() * cascade_ratio:Get() ^ cascade
 end
 
 function ddgi.GetProbeCount()
@@ -439,6 +439,10 @@ function ddgi.ResetHistory()
 	ddgi.force_reset = true
 end
 
+event.AddListener("ViewScaleChanged", "ddgi", function()
+	ddgi.ResetHistory()
+end)
+
 do
 	local state = {
 		frame = -1,
@@ -461,20 +465,21 @@ do
 	end
 
 	local function fit_region(axis, camera, bounds_min, bounds_max)
-		local lo, hi = camera - min_coverage:Get(), camera + min_coverage:Get()
+		local view_scale = render3d.GetSnappedViewScale()
+		local min_reach = min_coverage:Get() * view_scale
+		local max_reach = max_coverage:Get() * view_scale
+		local lo, hi = camera - min_reach, camera + min_reach
 
 		if bounds_min then
-			lo = math.max(bounds_min[axis], camera - max_coverage:Get())
-			hi = math.min(bounds_max[axis], camera + max_coverage:Get())
+			lo = math.max(bounds_min[axis], camera - max_reach)
+			hi = math.min(bounds_max[axis], camera + max_reach)
 
-			if hi < lo then
-				lo, hi = camera - min_coverage:Get(), camera + min_coverage:Get()
-			end
+			if hi < lo then lo, hi = camera - min_reach, camera + min_reach end
 		end
 
-		if hi - lo < min_coverage:Get() * 2 then
+		if hi - lo < min_reach * 2 then
 			local mid = (lo + hi) / 2
-			lo, hi = mid - min_coverage:Get(), mid + min_coverage:Get()
+			lo, hi = mid - min_reach, mid + min_reach
 		end
 
 		return lo, hi
@@ -1308,7 +1313,7 @@ function ddgi.GetCommonGLSL()
 			if (ddgi_cascade_reset(c)) return vec4(0.0);
 
 			float spacing = ddgi_spacing(c);
-			vec3 biased = P + (N * ddgi_data.ddgi_normal_bias + V * ddgi_data.ddgi_view_bias) * min(spacing, ]] .. string.format("%.17g", ddgi.BIAS_MAX_SPACING) .. [[);
+			vec3 biased = P + (N * ddgi_data.ddgi_normal_bias + V * ddgi_data.ddgi_view_bias) * min(spacing, ]] .. string.format("%.17g", ddgi.BIAS_MAX_SPACING) .. [[ * ddgi_data.ddgi_view_scale);
 			vec3 grid = biased / spacing;
 			int side = smooth_blend ? 3 : 2;
 			ivec3 base_world = smooth_blend ? ivec3(floor(grid + 0.5)) - 1 : ivec3(floor(grid));
@@ -1564,6 +1569,7 @@ function ddgi.GetProbeBlockLayout()
 		{"ddgi_ray_clamp", "float"},
 		{"ddgi_distance_exponent", "float"},
 		{"ddgi_normal_bias", "float"},
+		{"ddgi_view_scale", "float"},
 		{"ddgi_view_bias", "float"},
 		{"ddgi_backface_threshold", "float"},
 		{"ddgi_relocation_distance", "float"},
@@ -1664,6 +1670,7 @@ function ddgi.WriteProbeBlock(self, block)
 	block.ddgi_ray_clamp = ray_clamp:Get()
 	block.ddgi_distance_exponent = ddgi.DISTANCE_EXPONENT
 	block.ddgi_normal_bias = ddgi.NORMAL_BIAS
+	block.ddgi_view_scale = render3d.GetSnappedViewScale()
 	block.ddgi_view_bias = ddgi.VIEW_BIAS
 	block.ddgi_backface_threshold = ddgi.BACKFACE_THRESHOLD
 	block.ddgi_relocation_distance = relocation:Get() and ddgi.RELOCATION_DISTANCE or 0

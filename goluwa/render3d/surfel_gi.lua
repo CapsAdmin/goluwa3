@@ -313,7 +313,7 @@ end
 pvars.EndGroup()
 
 function surfel_gi.GetFogGatherDistance()
-	return fog_gather_distance:Get()
+	return fog_gather_distance:Get() * render3d.GetSnappedViewScale()
 end
 
 function surfel_gi.IsReordered()
@@ -353,6 +353,10 @@ end
 function surfel_gi.ResetHistory()
 	surfel_gi.reset_requested = true
 end
+
+event.AddListener("ViewScaleChanged", "surfel_gi", function()
+	surfel_gi.ResetHistory()
+end)
 
 do
 	local state = {frame = -1, reset = false, dirty = {}}
@@ -566,9 +570,10 @@ function surfel_gi.WritePassBlock(self, block)
 	block.surfel_hysteresis = hysteresis:Get()
 	block.surfel_interval = interval:Get()
 	block.surfel_max_ray_distance = max_ray_distance:Get()
-	block.surfel_cell_size = cell_size:Get()
-	block.surfel_lod_distance = lod_distance:Get()
-	block.surfel_max_distance = max_distance:Get()
+	local view_scale = render3d.GetSnappedViewScale()
+	block.surfel_cell_size = cell_size:Get() * view_scale
+	block.surfel_lod_distance = lod_distance:Get() * view_scale
+	block.surfel_max_distance = max_distance:Get() * view_scale
 	block.surfel_ray_budget = ray_budget:Get()
 	block.surfel_state_tex = -1
 	block.surfel_atlas_tex = -1
