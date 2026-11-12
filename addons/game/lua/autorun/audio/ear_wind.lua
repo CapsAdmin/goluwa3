@@ -5,6 +5,7 @@ local event = import("goluwa/event.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local shelter = import("goluwa/shelter.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local players = import("lua/players.lua")
 local SAMPLE_RATE = 24000
 local BUFFER_SECONDS = 0.08
@@ -226,8 +227,7 @@ event.AddListener("Update", "ear_wind", function(dt)
 		return
 	end
 
-	local local_player = players.GetLocal()
-	local scale = local_player and local_player.character_movement.Scale or 1
+	local scale = render3d.GetCamera():GetScale()
 	local speed = math.min(length / scale, MAX_SPEED)
 	local growth = LEVEL * (speed / REFERENCE_SPEED) ^ SPEED_EXPONENT
 	local amplitude = growth / (

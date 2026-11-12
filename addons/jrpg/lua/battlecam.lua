@@ -214,7 +214,7 @@ local function update_shot(owner, dt)
 		local hit = raycast.CastClosestSolid(shot.look, to_origin / length, length, blocks_camera, owner)
 
 		if hit then
-			origin = shot.look + to_origin / length * math.max(hit.distance - TRACE_MARGIN * owner.character_movement.Scale, 0)
+			origin = shot.look + to_origin / length * math.max(hit.distance - TRACE_MARGIN * render3d.GetMainCamera():GetScale(), 0)
 		end
 	end
 
@@ -225,7 +225,7 @@ end
 
 function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	dt = math.min(dt, MAX_DT)
-	local scale = owner.character_movement.Scale
+	local scale = render3d.GetMainCamera():GetScale()
 	local ROOM_SIZE = ROOM_SIZE * scale
 	local MIN_DISTANCE = MIN_DISTANCE * scale
 	local START_DISTANCE = START_DISTANCE * scale
