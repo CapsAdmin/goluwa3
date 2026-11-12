@@ -178,6 +178,7 @@ local function is_gizmo_entity(entity)
 	return entity and
 		entity:IsValid() and
 		entity ~= Entity.World and
+		not entity.static_world and
 		entity.transform and
 		entity.transform.Type == "transform_3d"
 end
@@ -1735,8 +1736,8 @@ function gizmo.EnableGizmo(entity)
 	if state.gizmo_entity == next_entity then return next_entity end
 
 	brush_editor.SetEntity(next_entity)
-
 	terrain_editor.SetEntity(next_entity)
+
 	if next_entity and next_entity.displacement then
 		next_entity.displacement:Activate()
 	elseif next_entity and next_entity.static_mesh then
@@ -1817,8 +1818,8 @@ function gizmo.Clear(owner)
 	state.hovered_handle = nil
 	end_drag()
 	brush_editor.SetEntity(nil)
-
 	terrain_editor.SetEntity(nil)
+
 	if not owner or state.callback_owner == owner then
 		state.callback_owner = nil
 		state.state_changed = nil

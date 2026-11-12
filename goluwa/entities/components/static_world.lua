@@ -7,6 +7,8 @@ local static_geometry = import("goluwa/source_engine/static_geometry.lua")
 local collision = import("goluwa/source_engine/bsp_collision.lua")
 local units = import("goluwa/source_engine/units.lua")
 local AABB = import("goluwa/structs/aabb.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local Quat = import("goluwa/structs/quat.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local system = import("goluwa/system.lua")
 local tasks = import("goluwa/tasks.lua")
@@ -79,6 +81,18 @@ function META:Clear()
 	self:ResetRuntime()
 
 	if META.active == self then META.active = nil end
+end
+
+-- the geometry is in world space and its visuals and collider hang off this entity, so it stays at the origin
+function META:OnAdd()
+	local transform = self.Owner.transform
+
+	if transform then
+		transform:SetPosition(Vec3(0, 0, 0))
+		transform:SetRotation(Quat(0, 0, 0, 1))
+	end
+
+	self:Reload()
 end
 
 function META:OnDeserialized()
