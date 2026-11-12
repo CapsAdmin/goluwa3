@@ -482,12 +482,120 @@ end
 
 function ui_driver.Press(button)
 	local window = ui_driver.Attach()
+	ui_driver.AddPulse(window.ui_driver_position, true)
 	window:OnMouseInput(button, true)
 end
 
 function ui_driver.Release(button)
 	local window = ui_driver.Attach()
+	ui_driver.AddPulse(window.ui_driver_position, false)
 	window:OnMouseInput(button, false)
+end
+
+-- a cursor, click rings and a caption drawn over everything while the overlay is on, so a replay can be watched
+do
+	local event = import("goluwa/event.lua")
+	local render2d = import("goluwa/render2d/render2d.lua")
+	local debug_draw = import("goluwa/debug_draw.lua")
+	local PULSE_TIME = 0.45
+	local PULSE_RADIUS = 26
+	local RING_SEGMENTS = 24
+	local ARROW = {
+		Vec2(0, 0),
+		Vec2(0, 20),
+		Vec2(5, 15),
+		Vec2(9, 23),
+		Vec2(12, 21),
+		Vec2(8, 14),
+		Vec2(15, 14),
+	}
+	local overlay = {enabled = false, caption = nil, pulses = {}, down = false}
+	ui_driver.overlay = overlay
+
+	function ui_driver.SetOverlay(enabled, caption)
+		overlay.enabled = enabled
+		overlay.caption = caption
+	end
+
+	function ui_driver.AddPulse(position, press)
+		overlay.down = press
+		overlay.pulses[#overlay.pulses + 1] = {
+			position = position:Copy(),
+			time = system.GetUnscaledElapsedTime(),
+			press = press,
+		}
+	end
+
+	local function line(a, b, width)
+		local dx, dy = b.x - a.x, b.y - a.y
+		render2d.DrawRectf(a.x, a.y, math.sqrt(dx * dx + dy * dy), width, math.atan2(dy, dx), 0, width / 2)
+	end
+
+	local function ring(center, radius, width)
+		for i = 0, RING_SEGMENTS - 1 do
+			local a = i / RING_SEGMENTS * math.pi * 2
+			local b = (i + 1) / RING_SEGMENTS * math.pi * 2
+			line(
+				Vec2(center.x + math.cos(a) * radius, center.y + math.sin(a) * radius),
+				Vec2(center.x + math.cos(b) * radius, center.y + math.sin(b) * radius),
+				width
+			)
+		end
+	end
+
+	local function arrow(position, width)
+		for i = 1, #ARROW do
+			line(position + ARROW[i], position + ARROW[i % #ARROW + 1], width)
+		end
+	end
+
+	event.AddListener(
+		"Draw2D",
+		"ui_driver_overlay",
+		function()
+			if not overlay.enabled then return end
+
+			local window = system.GetWindow()
+			local position = window.ui_driver_attached and window.ui_driver_position
+			local now = system.GetUnscaledElapsedTime()
+			render2d.SetTexture(nil)
+
+			for i = #overlay.pulses, 1, -1 do
+				local pulse = overlay.pulses[i]
+				local t = (now - pulse.time) / PULSE_TIME
+
+				if t >= 1 then
+					table.remove(overlay.pulses, i)
+				else
+					render2d.SetColor(1, pulse.press and 0.75 or 1, 0.2, 1 - t)
+					ring(pulse.position, PULSE_RADIUS * (pulse.press and t or 1 - t * 0.5), 3)
+				end
+			end
+
+			if position then
+				render2d.SetColor(0, 0, 0, 0.9)
+				arrow(position, 4)
+				render2d.SetColor(1, 1, 1, 1)
+				arrow(position, 2)
+
+				if overlay.down then
+					render2d.SetColor(1, 0.75, 0.2, 0.9)
+					render2d.DrawRect(position.x - 4, position.y - 4, 8, 8)
+				end
+			end
+
+			if overlay.caption then
+				local width = render2d.GetSize()
+				debug_draw.DrawTextBlock(
+					overlay.caption,
+					width / 2 - 200,
+					math.huge,
+					{background_alpha = 0.8, line_gap = 8, padding = 10}
+				)
+			end
+		end,
+		{priority = -1000}
+	)
 end
 
 function ui_driver.Click(pos, button, count)
