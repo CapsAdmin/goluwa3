@@ -137,7 +137,6 @@ function seat_camera.ApplyMovement(player_input, dt, attacking)
 	local forward = rotation:GetForward()
 	local view = Quat():Identity():RotateYaw(math.atan2(-forward.x, -forward.z)):RotatePitch(math.asin(math.clamp(forward.y, -1, 1)))
 	player_input:SetRotation(view)
-	player_input:SetPitch(-math.asin(math.clamp(forward.y, -1, 1)))
 end
 
 function seat_camera.AdjustCommand(cmd) end

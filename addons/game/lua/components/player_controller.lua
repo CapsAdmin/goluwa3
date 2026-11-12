@@ -327,10 +327,7 @@ function META:Spawn(position, rotation)
 	self:Start(position)
 	local player_input = self.Owner.player_input
 
-	if player_input then
-		player_input:SetRotation(rotation)
-		player_input.Pitch = 0
-	end
+	if player_input then player_input:SetRotation(rotation) end
 end
 
 function META:IsWaitingForServer()

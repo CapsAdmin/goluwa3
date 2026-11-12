@@ -63,6 +63,7 @@ META:GetSet("KeyboardMovement", false)
 
 function META:SetRotation(rotation)
 	self.Rotation = rotation:Copy()
+	self.Pitch = -math.asin(math.clamp(self.Rotation:GetForward().y, -1, 1))
 end
 
 local SLOT_KEYS = {"1", "2", "3", "4", "5", "6", "7", "8", "9"}
@@ -173,7 +174,6 @@ end
 
 function META:Reset()
 	self:SetRotation(Quat():Identity())
-	self.Pitch = 0
 	self:ResetFOV()
 end
 
@@ -182,8 +182,6 @@ function META:SyncFromCamera(camera)
 
 	self:SetRotation(camera:GetRotation():Copy())
 	self:SetFOV(camera:GetFOV())
-	local forward = self.Rotation:GetForward()
-	self.Pitch = math.asin(math.clamp(forward.y, -1, 1))
 end
 
 function META:GetAimAngles()
@@ -543,7 +541,6 @@ function META:OnCameraInputUpdate(dt)
 
 	local new_pitch = math.clamp(self.Pitch + mouse_delta.y, self.MinPitch, self.MaxPitch)
 	local pitch_delta = new_pitch - self.Pitch
-	self.Pitch = new_pitch
 	local yaw_quat = Quat():Identity()
 	yaw_quat:RotateYaw(-mouse_delta.x)
 	rotation = (yaw_quat * rotation):GetNormalized()
