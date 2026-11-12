@@ -83,8 +83,6 @@ do
 		"FlySpeed",
 		"Gravity",
 		"SwimSpeed",
-		"SafeFallSpeed",
-		"FatalFallSpeed",
 	}
 
 	function META:SetScale(scale)
@@ -104,6 +102,14 @@ do
 	end
 end
 
+local fall_damage_exponent = pvars.Setup2{
+	key = "sv_fall_damage_exponent",
+	category = "Game",
+	group = "Server",
+	prefix = "sv_",
+	default = 1,
+	help = "how the speeds that hurt and kill follow the character scale, 1 is the same fall relative to the body at every scale (small characters are hurt by small drops), 0 is the same speed at every scale (small characters shrug off falls, large ones are fragile), 0.5 is in between",
+}
 META.PlayerScale = pvars.Setup2{
 	key = "sv_player_scale",
 	category = "Game",
@@ -842,15 +848,17 @@ do
 
 		if
 			not health or
-			speed <= self.SafeFallSpeed or
+			speed <= self.SafeFallSpeed * self.Scale ^ fall_damage_exponent:Get()
+			or
 			self.ignore_impacts or
 			not network.HasAuthority()
 		then
 			return
 		end
 
-		local safe = self.SafeFallSpeed
-		local fatal = self.FatalFallSpeed
+		local factor = self.Scale ^ fall_damage_exponent:Get()
+		local safe = self.SafeFallSpeed * factor
+		local fatal = self.FatalFallSpeed * factor
 		damage.Deal(
 			owner,
 			{

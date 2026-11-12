@@ -3,6 +3,7 @@ local Entity = import("goluwa/entities/entity.lua")
 local physics = import("goluwa/physics.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 import("addons/game/lua/autorun/characters.lua")
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
@@ -96,8 +97,6 @@ T.TestPhysics("a scaled character jumps as high relative to its body and stays i
 	local tall = create_character(2).character_movement
 	T((tall.JumpSpeed ^ 2 / tall.Gravity) / (normal.JumpSpeed ^ 2 / normal.Gravity))["~"](2, 1e-6)
 	T((tall.JumpSpeed / tall.Gravity) / (normal.JumpSpeed / normal.Gravity))["~"](1, 1e-6)
-	T(tall.SafeFallSpeed / normal.SafeFallSpeed)["~"](2, 1e-6)
-	T(tall.FatalFallSpeed / normal.FatalFallSpeed)["~"](2, 1e-6)
 end)
 
 T.TestPhysics("a ragdoll is rebuilt at the new size when the character scale changes", function()
@@ -123,4 +122,24 @@ T.TestPhysics("a ragdoll is rebuilt at the new size when the character scale cha
 		T(other.definition.Radius)["~"](part.definition.Radius, 1e-6)
 		T(other.half)["~"](part.half, 1e-3)
 	end
+end)
+
+T.TestPhysics("the speed that hurts follows the character scale by the fall damage exponent", function()
+	local function health_after(scale, speed)
+		local character = create_character(scale)
+		character.character_movement:Impact(speed)
+		return character.health:GetHealth() / character.health:GetMaxHealth()
+	end
+
+	pvars.SetSession("sv_fall_damage_exponent", 1)
+	T(health_after(1, 6))["=="](1)
+	T(health_after(2, 12))["=="](1)
+	T(health_after(2, 16))["<"](1)
+	T(health_after(0.1, 0.9))["<"](1)
+	pvars.SetSession("sv_fall_damage_exponent", 0)
+	T(health_after(2, 6))["=="](1)
+	T(health_after(2, 16))["<"](1)
+	T(health_after(0.1, 0.9))["=="](1)
+	T(health_after(0.1, 9))["<"](1)
+	pvars.SetSession("sv_fall_damage_exponent", 1)
 end)
