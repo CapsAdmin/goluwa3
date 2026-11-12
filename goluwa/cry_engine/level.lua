@@ -703,6 +703,7 @@ function level.ParseEditorLevelDocument(document)
 
 	local sun_direction
 	local fog_density
+	local fog_atmosphere_height
 	local ocean
 	local missions = find_child_by_tag(root, "Missions")
 
@@ -730,6 +731,8 @@ function level.ParseEditorLevelDocument(document)
 			for variable in iter_children_by_tag(time_of_day, "Variable") do
 				if variable.attrs.Name == "Volumetric fog: Global density" then
 					fog_density = tonumber(variable.attrs.Value)
+				elseif variable.attrs.Name == "Volumetric fog: Atmosphere height" then
+					fog_atmosphere_height = tonumber(variable.attrs.Value)
 				end
 			end
 
@@ -749,6 +752,7 @@ function level.ParseEditorLevelDocument(document)
 	return {
 		sun_direction = sun_direction,
 		fog_density = fog_density,
+		fog_atmosphere_height = fog_atmosphere_height,
 		ocean = ocean,
 		heightmap_width = tonumber(attrs.HeightmapWidth) or 0,
 		heightmap_height = tonumber(attrs.HeightmapHeight) or 0,
