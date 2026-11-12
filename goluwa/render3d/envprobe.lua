@@ -754,7 +754,7 @@ function envprobe.CreatePipelines()
 						? normalize(fragment.sun_direction.xyz)
 						: vec3(0.0, 1.0, 0.0);
 
-					if (probe_ray_dir.y < 0.0) {
+					if (probe_ray_dir.y < 0.0 && ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX == -1) {
 						sky_color_output = get_ground_radiance(get_atmosphere_camera_origin(fragment.camera_position.xyz), probe_sun_dir);
 					}
 
