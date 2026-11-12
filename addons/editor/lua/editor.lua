@@ -173,7 +173,7 @@ local function make_menu_items(h)
 									options.materials = options.materials or options.textures or options.models
 									local stats = scene_export.Save(name, options)
 									logf(
-										"saved %d root entities to %s, %d materials, %d models, %d terrains, %d textures (%.1f mb), %d failed to load back, %d differ after loading, %d textures could not be read\n",
+										"saved %d entities to %s, %d materials, %d models, %d terrains, %d textures (%.1f mb), %d failed to load back, %d differ after loading, %d textures could not be read\n",
 										stats.entities,
 										scene.GetPath(name),
 										stats.materials,
@@ -401,6 +401,15 @@ local function open_node_menu(node, h)
 				end,
 			} or
 			nil,
+			can_remove and
+			MenuItem{
+				Text = "Rename",
+				Icon = "edit",
+				OnClick = function()
+					h.rename(entity)
+				end,
+			} or
+			nil,
 			can_create_shapes and
 			can_remove and
 			MenuItem{
@@ -625,6 +634,17 @@ local Editor = react.Component(
 							local entity = Entity.New{Name = asset.name, prefab = {Path = asset.name}}
 							entity:SetTransient(false)
 							h.add_child_entity(entity, parent_entity, owner, asset.name)
+						end,
+					}
+				end
+
+				function h.rename(entity)
+					name_prompt{
+						Title = "RENAME",
+						Text = entity:GetName(),
+						OnSubmit = function(name)
+							editor_history.SetProperty(entity, "Name", name)
+							tree.current:Refresh()
 						end,
 					}
 				end
@@ -901,6 +921,15 @@ local Editor = react.Component(
 				if press and key == "e" and input.IsControlDown() then
 					h.set_playing(not f.playing)
 					return true
+				end
+
+				if press and key == "f2" and not f.playing then
+					local entity = tree.current:GetSelectedEntity()
+
+					if entity and can_edit_components(entity) then
+						h.rename(entity)
+						return true
+					end
 				end
 			end
 		)
