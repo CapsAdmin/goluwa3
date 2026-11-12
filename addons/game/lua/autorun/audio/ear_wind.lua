@@ -226,12 +226,14 @@ event.AddListener("Update", "ear_wind", function(dt)
 		return
 	end
 
-	local speed = math.min(length, MAX_SPEED)
+	local local_player = players.GetLocal()
+	local scale = local_player and local_player.character_movement.Scale or 1
+	local speed = math.min(length / scale, MAX_SPEED)
 	local growth = LEVEL * (speed / REFERENCE_SPEED) ^ SPEED_EXPONENT
 	local amplitude = growth / (
 			1 + growth / MAX_AMPLITUDE
 		) * math.smoothstep(FADE_IN_START, FADE_IN_END, speed) * volume:Get()
-	local cutoff = BASE_CUTOFF + CUTOFF_PER_SPEED * speed
+	local cutoff = (BASE_CUTOFF + CUTOFF_PER_SPEED * speed) / scale
 
 	if length < 0.1 then
 		left.target_amplitude, right.target_amplitude = 0, 0
@@ -247,10 +249,10 @@ event.AddListener("Update", "ear_wind", function(dt)
 		local windward = c == 2 and side or -side
 		ear.target_amplitude = amplitude * (1 + SIDE_GAIN * windward)
 		ear.target_flutter_frequency = math.clamp(
-			FLUTTER_STROUHAL * speed / FLUTTER_SIZE,
-			FLUTTER_MIN_FREQUENCY,
-			FLUTTER_MAX_FREQUENCY
-		)
+				FLUTTER_STROUHAL * speed / FLUTTER_SIZE,
+				FLUTTER_MIN_FREQUENCY,
+				FLUTTER_MAX_FREQUENCY
+			) / scale
 		ear.target_flutter_depth = FLUTTER_DEPTH * math.smoothstep(FLUTTER_START, FLUTTER_FULL, speed) * (
 				1 + FLUTTER_SIDE * windward
 			)
