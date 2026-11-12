@@ -315,7 +315,7 @@ return {
 					float dist = abs(t) * len * reach_scale;
 					float depth = texelFetch(TEXTURE(mb_data.depth_tex), p, 0).r;
 					float z = get_view_depth((vec2(p) + 0.5) / vec2(size), depth);
-					float extent = 0.1 * center_z + 0.1;
+					float extent = 0.1 * center_z + 0.1 * mb_data.view_scale;
 					float in_front = clamp(1.0 - (z - center_z) / extent, 0.0, 1.0);
 					float behind = clamp(1.0 - (center_z - z) / extent, 0.0, 1.0);
 					float sample_len = length(get_blur(p, depth));

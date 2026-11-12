@@ -78,7 +78,7 @@ return {
 				vec2 uv = in_uv;
 				float aspect = float(size.x) / float(size.y);
 				float depth = texelFetch(TEXTURE(sf_data.depth_tex), ivec2(gl_FragCoord.xy), 0).r;
-				vec3 world = depth > 0.0 ? get_world_pos(uv, depth) : sf_data.camera_position + get_world_ray() * ]] .. SKY_DISTANCE .. [[.0;
+				vec3 world = depth > 0.0 ? get_world_pos(uv, depth) : sf_data.camera_position + get_world_ray() * (]] .. SKY_DISTANCE .. [[.0 * sf_data.view_scale);
 				vec2 offset = vec2(0.0);
 				vec2 blur = vec2(0.0);
 				vec2 chroma = vec2(0.0);
@@ -91,7 +91,7 @@ return {
 					vec4 look = sf_data.look[i];
 					vec4 grade = sf_data.grade[i];
 					float intensity = grade.w;
-					float thickness = max(look.x * shape.w, 0.05);
+					float thickness = max(look.x * shape.w, 0.05 * sf_data.view_scale);
 					float dist = length(world - shape.xyz);
 					float inside = 1.0 - smoothstep(shape.w - thickness, shape.w + thickness, dist);
 					float shell_x = (dist - shape.w) / thickness;

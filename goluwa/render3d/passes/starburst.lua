@@ -275,7 +275,7 @@ return {
 			const float PSF_LOG_RANGE = ]] .. string.format("%.6f", math.log(eye_psf.GetMaxDegrees()) - math.log(eye_psf.MIN_DEGREES)) .. [[;
 			const float SOURCE_THRESHOLD = 4.0;
 			const float TURN_STILL_PIXELS = 0.35;
-			const float TRAVEL_STILL_METERS = 0.004;
+			#define TRAVEL_STILL_METERS (0.004 * star_data.view_scale)
 			const vec2 JITTER_SIGN = vec2(-1.0, -1.0);
 		]] .. post_source.GetPreExposureFromExposureGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. screen_reconstruct.GetViewRayFromUVGLSL("star_data") .. [[
 			void main() {
