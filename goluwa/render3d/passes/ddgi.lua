@@ -242,7 +242,7 @@ local function pass_shade()
 				vec3 direct = vec3(0.0);
 
 				if (RT_HIT_SUN != 0 && sun_visible) {
-					float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_EYE_HEIGHT) .. [[ + P.y * 0.001;
+					float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
 					float fog = ddgi_ground_fog_sun_transmittance(fog_altitude, L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y);
 					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P) * fog;
 

@@ -22,8 +22,8 @@ local PI = math.pi
 local PLANET_RADIUS = 6371.0
 local ATMOSPHERE_RADIUS = 6471.0
 local CAMERA_METERS_TO_KM = 0.001
-local SEA_LEVEL_EYE_HEIGHT = 1.75 * CAMERA_METERS_TO_KM
-atmosphere.SEA_LEVEL_EYE_HEIGHT = SEA_LEVEL_EYE_HEIGHT
+local SEA_LEVEL_HEIGHT = 1.75 * CAMERA_METERS_TO_KM
+atmosphere.SEA_LEVEL_HEIGHT = SEA_LEVEL_HEIGHT
 local DEFAULT_OCEAN_LEVEL = 0
 local CAMERA_TEST_MULTIPLIER = 1
 atmosphere.METERS_TO_UNITS = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
@@ -94,7 +94,7 @@ local function get_shader_camera_position(cam_pos)
 	cam_pos = cam_pos or Vec3(0, 0, 0)
 	return {
 		x = cam_pos.x * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER,
-		y = PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + cam_pos.y * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER,
+		y = PLANET_RADIUS + SEA_LEVEL_HEIGHT + cam_pos.y * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER,
 		z = cam_pos.z * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER,
 	}
 end
@@ -449,7 +449,7 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 		vec3 world_camera_offset = cam_pos * ]] .. string.format("%.17g", CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER) .. [[;
 		return vec3(
 			world_camera_offset.x,
-			PLANET_RADIUS + ]] .. string.format("%.17g", SEA_LEVEL_EYE_HEIGHT) .. [[ + world_camera_offset.y,
+			PLANET_RADIUS + ]] .. string.format("%.17g", SEA_LEVEL_HEIGHT) .. [[ + world_camera_offset.y,
 			world_camera_offset.z
 		);
 	}
@@ -669,7 +669,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	const int AERIAL_PERSPECTIVE_STEPS = 32;
 	const float CAMERA_METERS_TO_KM = ]] .. CAMERA_METERS_TO_KM .. [[;
 	const float CAMERA_TEST_MULTIPLIER = ]] .. CAMERA_TEST_MULTIPLIER .. [[;
-	const float SEA_LEVEL_EYE_HEIGHT = ]] .. SEA_LEVEL_EYE_HEIGHT .. [[;
+	const float SEA_LEVEL_HEIGHT = ]] .. SEA_LEVEL_HEIGHT .. [[;
 	const float SUN_ANGULAR_RADIUS = ]] .. atmosphere.SUN_ANGULAR_RADIUS .. [[;
 	const float CLOUD_RADIANCE_SCALE = ]] .. string.format("%.8f", atmosphere.CLOUD_RADIANCE_SCALE) .. [[;
 
@@ -1105,7 +1105,7 @@ local function destroy_all_sky_view_textures()
 end
 
 do
-	local EYE_FALLOFF = math.exp(-SEA_LEVEL_EYE_HEIGHT / GROUND_FOG_SCALE_HEIGHT)
+	local EYE_FALLOFF = math.exp(-SEA_LEVEL_HEIGHT / GROUND_FOG_SCALE_HEIGHT)
 	atmosphere.DEFAULT_AEROSOL_VISIBILITY = 90000
 	atmosphere.DEFAULT_GROUND_FOG_VISIBILITY = 200000
 	atmosphere.aerosol_visibility = atmosphere.aerosol_visibility or atmosphere.DEFAULT_AEROSOL_VISIBILITY
@@ -1384,7 +1384,7 @@ function atmosphere.SetSunIlluminance(illuminance)
 end
 
 function atmosphere.GetGroundFogSunTransmittance(sun_up, height_m)
-	local altitude = math.max(SEA_LEVEL_EYE_HEIGHT + height_m * CAMERA_METERS_TO_KM, 0)
+	local altitude = math.max(SEA_LEVEL_HEIGHT + height_m * CAMERA_METERS_TO_KM, 0)
 
 	if altitude >= GROUND_FOG_TOP_HEIGHT then return 1 end
 
@@ -1720,7 +1720,7 @@ function atmosphere.GetTransmittance(sunDir, camPos)
 	camPos = camPos or Vec3(0, 0, 0)
 	local rayOrigin = Vec3(
 		camPos.x * CAMERA_METERS_TO_KM,
-		PLANET_RADIUS + SEA_LEVEL_EYE_HEIGHT + camPos.y * CAMERA_METERS_TO_KM,
+		PLANET_RADIUS + SEA_LEVEL_HEIGHT + camPos.y * CAMERA_METERS_TO_KM,
 		camPos.z * CAMERA_METERS_TO_KM
 	)
 	local tmin, tmax = math3d.RaySphereIntersect(rayOrigin, sunDir, ATMOSPHERE_RADIUS)

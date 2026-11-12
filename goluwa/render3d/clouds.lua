@@ -662,7 +662,7 @@ function clouds.GetGLSL(block)
 		#define CLOUD_BLOCK ]] .. block .. [[
 
 		const float CLOUD_PLANET_RADIUS = 6371000.0;
-		const float CLOUD_EYE_HEIGHT = ]] .. string.format("%.4f", 1.75) .. [[;
+		const float CLOUD_EYE_HEIGHT = ]] .. string.format("%.4f", atmosphere.SEA_LEVEL_HEIGHT / atmosphere.METERS_TO_UNITS) .. [[;
 		const int CLOUD_MAX_LAYERS = ]] .. clouds.MAX_LAYERS .. [[;
 		const int CLOUD_MAX_SEGMENTS = ]] .. (
 			clouds.MAX_LAYERS * 2
