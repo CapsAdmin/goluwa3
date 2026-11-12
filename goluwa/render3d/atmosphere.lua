@@ -61,9 +61,26 @@ atmosphere.SUN_COLOR = Vec3(1.1093, 0.9763, 0.9133)
 atmosphere.CLOUD_RADIANCE_SCALE = 1 / 16
 local DEBUG_DISABLE_GROUND_FOG = false
 local GROUND_FOG_SCALE_HEIGHT = 0.28
-local GROUND_FOG_TOP_HEIGHT = 1.1
-atmosphere.GROUND_FOG_SCALE_HEIGHT = GROUND_FOG_SCALE_HEIGHT
-atmosphere.GROUND_FOG_TOP_HEIGHT = GROUND_FOG_TOP_HEIGHT
+local GROUND_FOG_THICKNESS = 1.1
+atmosphere.DEFAULT_GROUND_FOG_SCALE_HEIGHT = GROUND_FOG_SCALE_HEIGHT
+atmosphere.ground_fog_scale_height = atmosphere.ground_fog_scale_height or GROUND_FOG_SCALE_HEIGHT
+atmosphere.ground_fog_start_height = atmosphere.ground_fog_start_height or 0
+atmosphere.GROUND_FOG_THICKNESS = GROUND_FOG_THICKNESS
+
+local function get_ground_fog_start_altitude()
+	return SEA_LEVEL_HEIGHT + atmosphere.ground_fog_start_height * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
+end
+
+local function get_ground_fog_top_altitude()
+	if atmosphere.ground_fog_end_height then
+		return SEA_LEVEL_HEIGHT + atmosphere.ground_fog_end_height * CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
+	end
+
+	return get_ground_fog_start_altitude() + GROUND_FOG_THICKNESS
+end
+
+atmosphere.GetGroundFogStartAltitude = get_ground_fog_start_altitude
+atmosphere.GetGroundFogTopAltitude = get_ground_fog_top_altitude
 atmosphere.sun_illuminance = atmosphere.sun_illuminance or DEFAULT_SUN_ILLUMINANCE
 pvars.StartGroup("Environment", "Fog", {store = false, prefix = "fog_"})
 local fog_ray_strength = pvars.Setup2{
@@ -161,8 +178,6 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 		"0.0" or
 		"1.0"
 	) .. [[;
-	const float GROUND_FOG_SCALE_HEIGHT = ]] .. GROUND_FOG_SCALE_HEIGHT .. [[;
-	const float GROUND_FOG_TOP_HEIGHT = ]] .. GROUND_FOG_TOP_HEIGHT .. [[;
 	const float GROUND_FOG_TOP_SOFTNESS = 0.3;
 	const float GROUND_FOG_MIE_G = 0.6;
 	const float GROUND_FOG_IRRADIANCE_FRACTION = 0.33;
@@ -266,6 +281,20 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 	#ifndef ATMOSPHERE_GROUND_FOG_EXTINCTION
 	#define ATMOSPHERE_GROUND_FOG_EXTINCTION 0.0
 	#endif
+	#ifndef GROUND_FOG_SCALE_HEIGHT
+	#define GROUND_FOG_SCALE_HEIGHT ]] .. GROUND_FOG_SCALE_HEIGHT .. [[
+
+	#endif
+	#ifndef GROUND_FOG_START_HEIGHT
+	#define GROUND_FOG_START_HEIGHT ]] .. SEA_LEVEL_HEIGHT .. [[
+
+	#endif
+	#ifndef GROUND_FOG_TOP_HEIGHT
+	#define GROUND_FOG_TOP_HEIGHT ]] .. (
+		SEA_LEVEL_HEIGHT + GROUND_FOG_THICKNESS
+	) .. [[
+
+	#endif
 	#ifndef ATMOSPHERE_PRECIPITATION_EXTINCTION
 	#define ATMOSPHERE_PRECIPITATION_EXTINCTION 0.0
 	#endif
@@ -294,9 +323,9 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 		if (GROUND_FOG_ENABLED < 0.5) return 0.0;
 
 		float altitude = max(length(point) - PLANET_RADIUS, 0.0);
-		float height_falloff = exp(-altitude / GROUND_FOG_SCALE_HEIGHT);
+		float height_falloff = exp(-max(altitude - GROUND_FOG_START_HEIGHT, 0.0) / GROUND_FOG_SCALE_HEIGHT);
 		float top_fade = 1.0 - smoothstep(
-			max(GROUND_FOG_TOP_HEIGHT - GROUND_FOG_TOP_SOFTNESS, 0.0),
+			max(GROUND_FOG_TOP_HEIGHT - GROUND_FOG_TOP_SOFTNESS, GROUND_FOG_START_HEIGHT),
 			GROUND_FOG_TOP_HEIGHT,
 			altitude
 		);
@@ -880,7 +909,9 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		if (GROUND_FOG_ENABLED < 0.5 || altitude >= GROUND_FOG_TOP_HEIGHT) return 1.0;
 
 		altitude = max(altitude, 0.0);
-		float optical_depth = fog_extinction * GROUND_FOG_SCALE_HEIGHT * (exp(-altitude / GROUND_FOG_SCALE_HEIGHT) - exp(-GROUND_FOG_TOP_HEIGHT / GROUND_FOG_SCALE_HEIGHT)) + precipitation_extinction * (GROUND_FOG_TOP_HEIGHT - altitude);
+		float below_start = max(GROUND_FOG_START_HEIGHT - altitude, 0.0);
+		float above_start = max(altitude - GROUND_FOG_START_HEIGHT, 0.0);
+		float optical_depth = fog_extinction * (below_start + GROUND_FOG_SCALE_HEIGHT * (exp(-above_start / GROUND_FOG_SCALE_HEIGHT) - exp(-(GROUND_FOG_TOP_HEIGHT - GROUND_FOG_START_HEIGHT) / GROUND_FOG_SCALE_HEIGHT))) + precipitation_extinction * (GROUND_FOG_TOP_HEIGHT - altitude);
 		return exp(-optical_depth / max(sun_up, 0.05));
 	}
 
@@ -889,7 +920,8 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	}
 
 	float get_ground_fog_layer_optical_depth() {
-		return ATMOSPHERE_GROUND_FOG_EXTINCTION * GROUND_FOG_SCALE_HEIGHT * (1.0 - exp(-GROUND_FOG_TOP_HEIGHT / GROUND_FOG_SCALE_HEIGHT)) + ATMOSPHERE_PRECIPITATION_EXTINCTION * GROUND_FOG_TOP_HEIGHT;
+		float thickness = GROUND_FOG_TOP_HEIGHT - GROUND_FOG_START_HEIGHT;
+		return ATMOSPHERE_GROUND_FOG_EXTINCTION * GROUND_FOG_SCALE_HEIGHT * (1.0 - exp(-thickness / GROUND_FOG_SCALE_HEIGHT)) + ATMOSPHERE_PRECIPITATION_EXTINCTION * thickness;
 	}
 
 	vec3 get_ground_fog_sky_ambient(vec3 ray_origin) {
@@ -1105,7 +1137,12 @@ local function destroy_all_sky_view_textures()
 end
 
 do
-	local EYE_FALLOFF = math.exp(-SEA_LEVEL_HEIGHT / GROUND_FOG_SCALE_HEIGHT)
+	local function get_eye_falloff()
+		return math.exp(
+			-math.max(SEA_LEVEL_HEIGHT - get_ground_fog_start_altitude(), 0) / atmosphere.ground_fog_scale_height
+		)
+	end
+
 	atmosphere.DEFAULT_AEROSOL_VISIBILITY = 90000
 	atmosphere.DEFAULT_GROUND_FOG_VISIBILITY = 200000
 	atmosphere.aerosol_visibility = atmosphere.aerosol_visibility or atmosphere.DEFAULT_AEROSOL_VISIBILITY
@@ -1128,9 +1165,7 @@ do
 	local function get_ground_fog_extinction()
 		if atmosphere.ground_fog_visibility == math.huge then return 0 end
 
-		return VISIBILITY_OPTICAL_DEPTH / (
-				atmosphere.ground_fog_visibility / 1000
-			) / EYE_FALLOFF
+		return VISIBILITY_OPTICAL_DEPTH / (atmosphere.ground_fog_visibility / 1000)
 	end
 
 	function atmosphere.SetAerosolVisibility(meters)
@@ -1196,12 +1231,39 @@ do
 		return atmosphere.ground_fog_visibility
 	end
 
+	function atmosphere.SetGroundFogStartHeight(meters)
+		atmosphere.ground_fog_start_height = meters or 0
+	end
+
+	function atmosphere.GetGroundFogStartHeight()
+		return atmosphere.ground_fog_start_height
+	end
+
+	function atmosphere.SetGroundFogEndHeight(meters)
+		atmosphere.ground_fog_end_height = meters
+	end
+
+	function atmosphere.GetGroundFogEndHeight()
+		return atmosphere.ground_fog_end_height or
+			atmosphere.ground_fog_start_height + GROUND_FOG_THICKNESS / CAMERA_METERS_TO_KM
+	end
+
+	function atmosphere.SetGroundFogScaleHeight(meters)
+		atmosphere.ground_fog_scale_height = meters and
+			meters * CAMERA_METERS_TO_KM or
+			atmosphere.DEFAULT_GROUND_FOG_SCALE_HEIGHT
+	end
+
+	function atmosphere.GetGroundFogScaleHeight()
+		return atmosphere.ground_fog_scale_height / CAMERA_METERS_TO_KM
+	end
+
 	function atmosphere.SetPrecipitationExtinction(extinction_per_km)
 		atmosphere.precipitation_extinction = extinction_per_km
 	end
 
 	function atmosphere.GetVisibility()
-		local ground_fog = get_ground_fog_extinction() * EYE_FALLOFF
+		local ground_fog = get_ground_fog_extinction() * get_eye_falloff()
 		return VISIBILITY_OPTICAL_DEPTH / (
 				RAYLEIGH_GREEN_EXTINCTION + get_aerosol_extinction_550() + ground_fog + atmosphere.precipitation_extinction
 			) * 1000
@@ -1385,13 +1447,20 @@ end
 
 function atmosphere.GetGroundFogSunTransmittance(sun_up, height_m)
 	local altitude = math.max(SEA_LEVEL_HEIGHT + height_m * CAMERA_METERS_TO_KM, 0)
+	local start = get_ground_fog_start_altitude()
+	local top = get_ground_fog_top_altitude()
 
-	if altitude >= GROUND_FOG_TOP_HEIGHT then return 1 end
+	if altitude >= top then return 1 end
 
-	local depth = atmosphere.GetGroundFogExtinction() * GROUND_FOG_SCALE_HEIGHT * (
-			math.exp(-altitude / GROUND_FOG_SCALE_HEIGHT) - math.exp(-GROUND_FOG_TOP_HEIGHT / GROUND_FOG_SCALE_HEIGHT)
+	local scale_height = atmosphere.ground_fog_scale_height
+	local below_start = math.max(start - altitude, 0)
+	local above_start = math.max(altitude - start, 0)
+	local depth = atmosphere.GetGroundFogExtinction() * (
+			below_start + scale_height * (
+				math.exp(-above_start / scale_height) - math.exp(-(top - start) / scale_height)
+			)
 		) + atmosphere.precipitation_extinction * (
-			GROUND_FOG_TOP_HEIGHT - altitude
+			top - altitude
 		)
 	return math.exp(-depth / math.max(sun_up, 0.05))
 end
@@ -1504,6 +1573,9 @@ function atmosphere.GetBlockLayout()
 		{"atmosphere_environment_texture_index", "int"},
 		{"atmosphere_environment_intensity", "float"},
 		{"atmosphere_ground_fog_extinction", "float"},
+		{"atmosphere_ground_fog_scale_height", "float"},
+		{"atmosphere_ground_fog_start_height", "float"},
+		{"atmosphere_ground_fog_top_height", "float"},
 		{"atmosphere_precipitation_extinction", "float"},
 		{"atmosphere_aerosol_extinction", "float"},
 		{"atmosphere_fog_ray_strength", "float"},
@@ -1551,6 +1623,9 @@ do
 		block.atmosphere_sky_view_texture_index = pipeline:GetTextureIndex(atmosphere.GetSkyViewTexture(cam_pos, sky_sun_dir))
 		block.atmosphere_stars_texture_index = pipeline:GetTextureIndex(atmosphere.GetStarsTexture())
 		block.atmosphere_ground_fog_extinction = environment_map and 0 or atmosphere.GetGroundFogExtinction()
+		block.atmosphere_ground_fog_scale_height = atmosphere.ground_fog_scale_height
+		block.atmosphere_ground_fog_start_height = get_ground_fog_start_altitude()
+		block.atmosphere_ground_fog_top_height = get_ground_fog_top_altitude()
 		block.atmosphere_precipitation_extinction = environment_map and 0 or atmosphere.precipitation_extinction
 		block.atmosphere_aerosol_extinction = aerosol_extinction
 		block.atmosphere_aerosol_angstrom = aerosol_shape[1]
@@ -1608,6 +1683,9 @@ do
 		block.atmosphere_sky_view_texture_index = -1
 		block.atmosphere_stars_texture_index = -1
 		block.atmosphere_ground_fog_extinction = 0
+		block.atmosphere_ground_fog_scale_height = atmosphere.ground_fog_scale_height
+		block.atmosphere_ground_fog_start_height = get_ground_fog_start_altitude()
+		block.atmosphere_ground_fog_top_height = get_ground_fog_top_altitude()
 		block.atmosphere_precipitation_extinction = 0
 		block.atmosphere_aerosol_extinction = 0
 		block.atmosphere_aerosol_angstrom = aerosol_shape[1]
@@ -1634,7 +1712,7 @@ do
 end
 
 function atmosphere.GetGLSLDefines(uniform_name, sun_illuminance_expr)
-	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_source_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_ambient_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_AEROSOL_SHAPE vec4(" .. uniform_name .. ".atmosphere_aerosol_angstrom, " .. uniform_name .. ".atmosphere_aerosol_albedo, " .. uniform_name .. ".atmosphere_aerosol_g, " .. uniform_name .. ".atmosphere_aerosol_scale_height)\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
+	return "#define ATMOSPHERE_SUN_ILLUMINANCE " .. sun_illuminance_expr .. "\n" .. "#define ATMOSPHERE_TRANSMITTANCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_transmittance_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_SOURCE_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_source_texture_index\n" .. "#define ATMOSPHERE_SCATTERING_AMBIENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_scattering_ambient_texture_index\n" .. "#define ATMOSPHERE_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_sky_view_texture_index\n" .. "#define ATMOSPHERE_STARS_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_stars_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_environment_texture_index\n" .. "#define ATMOSPHERE_ENVIRONMENT_INTENSITY " .. uniform_name .. ".atmosphere_environment_intensity\n" .. "#define ATMOSPHERE_GROUND_FOG_EXTINCTION " .. uniform_name .. ".atmosphere_ground_fog_extinction\n" .. "#define GROUND_FOG_SCALE_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_scale_height\n" .. "#define GROUND_FOG_START_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_start_height\n" .. "#define GROUND_FOG_TOP_HEIGHT " .. uniform_name .. ".atmosphere_ground_fog_top_height\n" .. "#define ATMOSPHERE_PRECIPITATION_EXTINCTION " .. uniform_name .. ".atmosphere_precipitation_extinction\n" .. "#define ATMOSPHERE_AEROSOL_EXTINCTION " .. uniform_name .. ".atmosphere_aerosol_extinction\n" .. "#define ATMOSPHERE_AEROSOL_SHAPE vec4(" .. uniform_name .. ".atmosphere_aerosol_angstrom, " .. uniform_name .. ".atmosphere_aerosol_albedo, " .. uniform_name .. ".atmosphere_aerosol_g, " .. uniform_name .. ".atmosphere_aerosol_scale_height)\n" .. "#define ATMOSPHERE_FOG_RAY_STRENGTH " .. uniform_name .. ".atmosphere_fog_ray_strength\n" .. "#define ATMOSPHERE_FOG_COLOR " .. uniform_name .. ".atmosphere_fog_color\n" .. "#define ATMOSPHERE_CLOUD_SKY_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_cloud_sky_texture_index\n" .. "#define ATMOSPHERE_CLOUD_TRANSMITTANCE " .. uniform_name .. ".atmosphere_cloud_transmittance\n" .. "#define ATMOSPHERE_SKY_SUN_DIRECTION " .. uniform_name .. ".atmosphere_sun_direction\n" .. "#define ATMOSPHERE_SUN_DISC_ILLUMINANCE " .. uniform_name .. ".atmosphere_sun_disc_illuminance\n" .. "#define ATMOSPHERE_MOON_DIRECTION " .. uniform_name .. ".atmosphere_moon_direction\n" .. "#define ATMOSPHERE_MOON_SKY_SCALE " .. uniform_name .. ".atmosphere_moon_sky_scale\n" .. "#define ATMOSPHERE_MOON_SKY_VIEW_TEXTURE_INDEX " .. uniform_name .. ".atmosphere_moon_sky_view_texture_index\n" .. "#define ATMOSPHERE_MOON_ANGULAR_RADIUS " .. uniform_name .. ".atmosphere_moon_angular_radius\n" .. "#define ATMOSPHERE_CELESTIAL_X " .. uniform_name .. ".atmosphere_celestial_x\n" .. "#define ATMOSPHERE_CELESTIAL_Y " .. uniform_name .. ".atmosphere_celestial_y\n" .. "#define ATMOSPHERE_CELESTIAL_Z " .. uniform_name .. ".atmosphere_celestial_z\n" .. "#define ATMOSPHERE_ENABLED " .. uniform_name .. ".atmosphere_enabled\n"
 end
 
 function atmosphere.GetGLSLCode()

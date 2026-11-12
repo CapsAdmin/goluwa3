@@ -243,7 +243,7 @@ local function pass_shade()
 
 				if (RT_HIT_SUN != 0 && sun_visible) {
 					float fog_altitude = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + P.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
-					float fog = ddgi_ground_fog_sun_transmittance(fog_altitude, L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y);
+					float fog = ddgi_ground_fog_sun_transmittance(fog_altitude, L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y, ddgi_data.ddgi_ground_fog.z, ddgi_data.ddgi_ground_fog_range.x, ddgi_data.ddgi_ground_fog_range.y);
 					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P) * fog;
 
 					if (ddgi_data.glass_light != 0) direct *= get_glass_light(P + N * 0.02 * ddgi_data.ddgi_view_scale, L, ddgi_data.ddgi_max_distance, 0.0);

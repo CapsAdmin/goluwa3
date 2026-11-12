@@ -31,6 +31,9 @@ META:StartStorable()
 META:GetSet("SunRotation", nil, {type = "quat"})
 META:GetSet("Climate", {})
 META:GetSet("FogColor", nil, {type = "vec3"})
+META:GetSet("GroundFogScaleHeight", nil, {type = "number"})
+META:GetSet("GroundFogStartHeight", nil, {type = "number"})
+META:GetSet("GroundFogEndHeight", nil, {type = "number"})
 META:GetSet("OceanEnabled", default_ocean_enabled)
 META:GetSet("OceanLevel", nil, {type = "number"})
 META:GetSet("OceanSettings", default_ocean_settings)
@@ -77,6 +80,30 @@ end
 
 function META:SetFogColor(color)
 	atmosphere.SetFogColor(color)
+end
+
+function META:GetGroundFogScaleHeight()
+	return atmosphere.GetGroundFogScaleHeight()
+end
+
+function META:SetGroundFogScaleHeight(meters)
+	atmosphere.SetGroundFogScaleHeight(meters)
+end
+
+function META:GetGroundFogStartHeight()
+	return atmosphere.GetGroundFogStartHeight()
+end
+
+function META:SetGroundFogStartHeight(meters)
+	atmosphere.SetGroundFogStartHeight(meters)
+end
+
+function META:GetGroundFogEndHeight()
+	return atmosphere.GetGroundFogEndHeight()
+end
+
+function META:SetGroundFogEndHeight(meters)
+	atmosphere.SetGroundFogEndHeight(meters)
 end
 
 function META:GetOceanEnabled()
@@ -126,6 +153,9 @@ end
 function META:ResetProperties()
 	self:SetClimate({})
 	self:SetFogColor(nil)
+	self:SetGroundFogScaleHeight(nil)
+	self:SetGroundFogStartHeight(nil)
+	self:SetGroundFogEndHeight(nil)
 	self:SetOceanEnabled(default_ocean_enabled)
 	self:SetOceanLevel(nil)
 	self:SetOceanSettings(default_ocean_settings)
