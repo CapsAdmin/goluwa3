@@ -14,6 +14,7 @@ local system = import("goluwa/system.lua")
 local Gizmo = import("lua/gizmo.lua")
 local highlight = import("lua/highlight.lua")
 local brush_editor = import("lua/brush_editor.lua")
+local terrain_editor = import("lua/terrain_editor.lua")
 local Breadcrumb = react.Element(import("goluwa/render2d/ui/widgets/breadcrumb.lua"))
 local IconButton = react.Element(import("goluwa/render2d/ui/widgets/icon_button.lua"))
 local MenuBar = react.Element(import("goluwa/render2d/ui/widgets/menu_bar.lua"))
@@ -54,6 +55,7 @@ local COMPONENT_ORDER = {
 }
 local NEARBY_COUNT = 10
 local NEARBY_SETTLE_TIME = 0.3
+local SPAWN_DISTANCE = 200
 
 local function is_hidden(entity, editor_window)
 	if entity == editor_window then return true end
@@ -129,6 +131,16 @@ local function go_to_entity(entity)
 	if not center then return end
 
 	camera.SetPosition(center - camera.GetRotation():GetForward() * math.max(radius * 2.2, 2))
+end
+
+local function get_spawn_position()
+	local position = camera.GetPosition()
+	local forward = camera.GetRotation():GetForward()
+	local hit = terrain_editor.CastSurface(position, forward)
+
+	if hit and (hit - position):GetLength() < SPAWN_DISTANCE then return hit end
+
+	return position + forward * 4
 end
 
 local function can_edit_components(entity)
@@ -605,7 +617,7 @@ local Editor = react.Component(
 				end
 
 				function h.add_child_entity(entity, parent_entity, owner, name)
-					local world_position = camera.GetPosition() + camera.GetRotation():GetForward() * 2
+					local world_position = get_spawn_position()
 					entity:SetParent(parent_entity)
 
 					if owner then entity:SetOwnedBy(owner) end
@@ -874,7 +886,8 @@ local Editor = react.Component(
 						or
 						gizmo_status.active_drag or
 						gizmo_status.hovered_handle or
-						brush_editor.IsBusy()
+						brush_editor.IsBusy() or
+						terrain_editor.IsBusy()
 				)
 				camera.Update(dt)
 				view:SetPosition(camera.GetPosition():Copy())
@@ -995,6 +1008,10 @@ local Editor = react.Component(
 							if selected_entity and entity == selected_entity then
 								sync_properties(|n|->n + 1)
 								prefab_tools.Watch(selected_entity)
+
+								if name == "terrain" or name == "scatter_placements" then
+									terrain_editor.SetEntity(selected_entity)
+								end
 							end
 
 							if name == "prefab" or name == "script" then tree.current:Refresh() end

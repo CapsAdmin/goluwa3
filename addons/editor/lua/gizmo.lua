@@ -14,6 +14,7 @@ local orientation = import("goluwa/render3d/orientation.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local system = import("goluwa/system.lua")
 local brush_editor = import("lua/brush_editor.lua")
+local terrain_editor = import("lua/terrain_editor.lua")
 local editor_history = import("lua/editor_history.lua")
 local gizmo = {}
 local listener_key = "gui_gizmo_service"
@@ -779,11 +780,7 @@ function get_screen_segment_distance(mouse_pos, start_pos, stop_pos)
 		return math.sqrt(sx * sx + sy * sy)
 	end
 
-	local t = clamp(
-		((mouse_pos.x - start_pos.x) * dx + (mouse_pos.y - start_pos.y) * dy) / len_sq,
-		0,
-		1
-	)
+	local t = clamp(((mouse_pos.x - start_pos.x) * dx + (mouse_pos.y - start_pos.y) * dy) / len_sq, 0, 1)
 	local px = start_pos.x + dx * t
 	local py = start_pos.y + dy * t
 	local ox = mouse_pos.x - px
@@ -1739,6 +1736,7 @@ function gizmo.EnableGizmo(entity)
 
 	brush_editor.SetEntity(next_entity)
 
+	terrain_editor.SetEntity(next_entity)
 	if next_entity and next_entity.displacement then
 		next_entity.displacement:Activate()
 	elseif next_entity and next_entity.static_mesh then
@@ -1820,6 +1818,7 @@ function gizmo.Clear(owner)
 	end_drag()
 	brush_editor.SetEntity(nil)
 
+	terrain_editor.SetEntity(nil)
 	if not owner or state.callback_owner == owner then
 		state.callback_owner = nil
 		state.state_changed = nil

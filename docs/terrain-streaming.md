@@ -12,6 +12,8 @@ A `terrain` component with an empty `Path` owns its data as properties: `Size`, 
 
 - Edits change `data.height.samples`/`data.indices.samples` and call `UpdateRegion(box)`: the maps are uploaded again and `Terrain:Invalidate(box)` bakes the tiles and colliders over the box again under a new `Generation` (part of the chunk key), swapping each in place when its chunk is ready. `CommitMaps()` writes the samples back to the properties.
 - With no more than four layer ids a layer id is always the same material slot, so a scatter prototype's `layers` weights mean the same layer in every chunk.
+- The editor's brush mode is `addons/editor/lua/terrain_editor.lua`: selecting an entity with a terrain (or `scatter_placements`) opens a tool window (raise, lower, smooth, flatten, paint a layer; radius, strength), one stroke is one undo entry, the gizmo hides while a tool is active and left drag paints instead of turning the camera.
+
 ## Tile streaming
 
 - `Terrain` has `Levels` (LOD rings) and `GridSize` (chunks per side of a level; the finer level fills the middle half, so the ring is `GridSize / 4` chunks thick; it must be at least 4, because the two levels snap differently). Reach is `GridSize * 64 * 2^(Levels-2)` m across; layout changes cost tiles, triangles, memory and load time but not gpu frame time.
