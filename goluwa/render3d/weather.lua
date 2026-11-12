@@ -676,13 +676,19 @@ function weather.Initialize()
 		size = Vec2() + SHELTER_SIZE,
 		format = "d16_unorm",
 		cascade_count = 1,
-		ortho_size = SHELTER_HALF_SIZE,
-		far_plane = SHELTER_DEPTH,
+		ortho_size = SHELTER_HALF_SIZE * render3d.GetSnappedViewScale(),
+		far_plane = SHELTER_DEPTH * render3d.GetSnappedViewScale(),
 		role = "shelter",
 	}
 	weather.shelter_map:SetUpdatePolicy{shadow_update_mode = "on_move"}
 	surface_weather.shelter_map = weather.shelter_map
 	weather.UpdateSky()
+
+	event.AddListener("ViewScaleChanged", "weather_shelter", function(scale)
+		weather.shelter_map.ortho_size = SHELTER_HALF_SIZE * scale
+		weather.shelter_map.far_plane = SHELTER_DEPTH * scale
+		weather.shelter_map:Invalidate()
+	end)
 
 	event.AddListener("Update", "weather_shelter", function(dt)
 		weather.shelter_map:SetEnabled(
@@ -720,7 +726,7 @@ function weather.Initialize()
 		local rotation = Quat(-dir.y, dir.x, 0, 1 + dir.z):Normalize()
 		local right = rotation:GetRight()
 		local up = rotation:GetUp()
-		local step = SHELTER_HALF_SIZE * 2 / SHELTER_SIZE * SHELTER_SNAP_TEXELS
+		local step = SHELTER_HALF_SIZE * render3d.GetSnappedViewScale() * 2 / SHELTER_SIZE * SHELTER_SNAP_TEXELS
 		local cam = render3d.GetCamera():GetPosition()
 		surface_weather.precipitation_direction = dir
 		weather.shelter_caster.transform:SetRotation(rotation)

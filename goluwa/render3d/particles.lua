@@ -114,11 +114,25 @@ function particles.Register(def)
 	return def
 end
 
+local retired_pools = {}
+
 function particles.GetPool(def, cmd)
-	if def.pool then return def.pool end
+	local frame = system.GetFrameNumber()
+
+	while retired_pools[1] and frame - retired_pools[1].frame > 8 do
+		table.remove(retired_pools, 1)
+	end
+
+	local bytes = (def.GetPoolCount and def.GetPoolCount() or def.max_count) * PARTICLE_BYTES
+
+	if def.pool and def.pool:GetSize() >= bytes then return def.pool end
+
+	if def.pool then
+		retired_pools[#retired_pools + 1] = {pool = def.pool, frame = frame}
+	end
 
 	def.pool = render.CreateBuffer{
-		byte_size = def.max_count * PARTICLE_BYTES,
+		byte_size = bytes,
 		buffer_usage = {"storage_buffer", "transfer_src", "transfer_dst", "shader_device_address"},
 		memory_property = {"device_local"},
 		label = "particles " .. def.name,
@@ -184,7 +198,7 @@ do
 		cmd:End()
 		render.SubmitAndWait(cmd)
 		cmd:Remove()
-		local out = RecordArray(def.max_count)
+		local out = RecordArray(size / PARTICLE_BYTES)
 		ffi.copy(out, readback:Map(), size)
 		readback:Remove()
 		return out
@@ -200,6 +214,8 @@ function particles.WriteSystems(block)
 
 		if def.IsActive() then count, coverage_scale = def.GetCount() end
 
+		if def.pool then count = math.min(count, def.pool:GetSize() / PARTICLE_BYTES) end
+
 		block.pools[i - 1] = def.pool and def.pool:GetDeviceAddress() or 0
 		entry.count = count
 		entry.first = first
@@ -209,7 +225,7 @@ function particles.WriteSystems(block)
 		entry.forward_fraction = def.forward_fraction
 		entry.fade_time = def.fade_time
 		entry.fade_near = def.fade_near * render3d.GetViewScale()
-		entry.fade_far = def.fade_far
+		entry.fade_far = def.fade_far * render3d.GetViewScale()
 		entry.collision = def.collision and
 			assert(COLLISION_MODES[def.collision], "unknown collision " .. def.collision) or
 			0
@@ -1122,7 +1138,7 @@ end
 event.AddListener("PreDraw3DTranslucent", "particles", function()
 	for _, def in ipairs(particles.systems) do
 		if def.IsActive() and particles.IsActive() then
-			render3d.ExtendTranslucentDepthRange(def.depth_near, def.depth_far)
+			render3d.ExtendTranslucentDepthRange(def.depth_near * render3d.GetViewScale(), def.depth_far * render3d.GetViewScale())
 		end
 	end
 end)

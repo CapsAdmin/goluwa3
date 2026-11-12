@@ -2,6 +2,7 @@ local pvars = import("goluwa/cli/pvars.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local particles = import("goluwa/render3d/particles.lua")
+local render3d = import("goluwa/render3d/render3d.lua")
 local precipitation = {}
 precipitation.name = "precipitation"
 precipitation.rain_rate = 0
@@ -44,6 +45,18 @@ local function get_snow_distribution()
 	return 3800 * rate ^ -0.87, 2.55 * rate ^ -0.48
 end
 
+local max_particles
+
+local function next_power_of_two(count)
+	return 2 ^ math.ceil(math.log(math.max(count, 1), 2))
+end
+
+local function get_scaled(physical, base_max)
+	local scale = render3d.GetSnappedViewScale()
+	return physical * scale ^ 3,
+	math.min(base_max * scale ^ 3, math.max(max_particles:Get(), base_max))
+end
+
 local function get_drawn(physical, max)
 	if physical <= 0 then return 0, 0 end
 
@@ -56,8 +69,10 @@ function precipitation.GetRainDropCount()
 
 	local lambda = get_rain_lambda()
 	return get_drawn(
-		MARSHALL_PALMER_N0 / lambda * math.exp(-lambda * RAIN_MIN_DIAMETER) * BOX_SIZE ^ 3,
-		MAX_RAIN_DROPS
+		get_scaled(
+			MARSHALL_PALMER_N0 / lambda * math.exp(-lambda * RAIN_MIN_DIAMETER) * BOX_SIZE ^ 3,
+			MAX_RAIN_DROPS
+		)
 	)
 end
 
@@ -80,8 +95,10 @@ function precipitation.GetSnowflakeCount()
 
 	local n0, lambda = get_snow_distribution()
 	return get_drawn(
-		n0 / lambda * math.exp(-lambda * SNOW_MIN_MELTED_DIAMETER) * BOX_SIZE ^ 3,
-		MAX_SNOWFLAKES
+		get_scaled(
+			n0 / lambda * math.exp(-lambda * SNOW_MIN_MELTED_DIAMETER) * BOX_SIZE ^ 3,
+			MAX_SNOWFLAKES
+		)
 	)
 end
 
@@ -110,6 +127,11 @@ local enabled = pvars.Setup2{
 	friendly = "precipitation",
 	help = "falling rain and snow around the camera",
 }
+max_particles = pvars.Setup2{
+	key = "r_precipitation_max_particles",
+	default = 2097152,
+	help = "most rain drops or snow flakes drawn at once. the box around a camera that is scaled up holds more of them (the density stays the same), past this each one is drawn heavier instead",
+}
 pvars.EndGroup()
 
 function precipitation.IsActive()
@@ -125,7 +147,7 @@ local function get_common_glsl()
 	return [[
 		#ifndef PRECIPITATION_COMMON
 		#define PRECIPITATION_COMMON
-		const float PRECIPITATION_BOX = ]] .. string.format("%.1f", BOX_SIZE) .. [[;
+		#define PRECIPITATION_BOX (]] .. string.format("%.1f", BOX_SIZE) .. [[ * particle_data.view_scale)
 
 		vec3 wrap_into_camera_box(vec3 position) {
 			vec3 camera = particle_data.camera_position;
@@ -153,6 +175,9 @@ precipitation.rain = particles.Register{
 		return enabled:Get() and atmosphere.IsEnabled() and precipitation.rain_rate > 0
 	end,
 	GetCount = precipitation.GetRainDropCount,
+	GetPoolCount = function()
+		return next_power_of_two((precipitation.GetRainDropCount()))
+	end,
 	block = {
 		{"lambda", "float"},
 		{"wind", "vec3"},
@@ -210,6 +235,9 @@ precipitation.snow = particles.Register{
 		return enabled:Get() and atmosphere.IsEnabled() and precipitation.snow_rate > 0
 	end,
 	GetCount = precipitation.GetSnowflakeCount,
+	GetPoolCount = function()
+		return next_power_of_two((precipitation.GetSnowflakeCount()))
+	end,
 	block = {
 		{"lambda", "float"},
 		{"wetness", "float"},

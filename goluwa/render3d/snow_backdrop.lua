@@ -26,9 +26,10 @@ event.AddListener("Draw3DGeometry", "snow_backdrop", function()
 	end
 
 	local position = render3d.GetCamera():GetPosition()
-	matrix.m00 = snow_backdrop.RADIUS
-	matrix.m11 = snow_backdrop.RADIUS
-	matrix.m22 = snow_backdrop.RADIUS
+	local radius = snow_backdrop.RADIUS * render3d.GetSnappedViewScale()
+	matrix.m00 = radius
+	matrix.m11 = radius
+	matrix.m22 = radius
 	matrix:SetTranslation(position.x, position.y, position.z)
 	gbuffer_instancing.Queue(polygon, material, matrix, matrix)
 end)
