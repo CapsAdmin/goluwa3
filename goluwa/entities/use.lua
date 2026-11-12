@@ -5,6 +5,10 @@ local use = {}
 use.MaxDistance = 3
 local trace_options = {IgnoreRigidBodies = false, IgnoreKinematicBodies = false}
 
+function use.GetMaxDistance(user)
+	return use.MaxDistance * (event.Call("UseReachScale", user) or 1)
+end
+
 function use.Fire(entity, user, hit)
 	local current = entity
 
@@ -24,11 +28,12 @@ local function is_not_user(entity, user)
 end
 
 function use.Trace(user, origin, direction)
-	local best = physics.Sweep(origin, direction * use.MaxDistance, 0, user, nil, trace_options)
+	local max_distance = use.GetMaxDistance(user)
+	local best = physics.Sweep(origin, direction * max_distance, 0, user, nil, trace_options)
 	best = best and best.entity and best or nil
 
 	if raycast then
-		local visual = raycast.CastClosestUnskinned(origin, direction, use.MaxDistance, is_not_user, user)
+		local visual = raycast.CastClosestUnskinned(origin, direction, max_distance, is_not_user, user)
 
 		if visual and (not best or visual.distance < best.distance) then
 			best = visual

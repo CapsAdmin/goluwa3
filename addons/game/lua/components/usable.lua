@@ -3,6 +3,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
 local use = import("goluwa/entities/use.lua")
+local character_scale = import("lua/character_scale.lua")
 local META = objects.CreateTemplate("usable")
 META:StartStorable()
 META:GetSet("Prompt", "use")
@@ -39,10 +40,14 @@ do
 	local FALLBACK_DISTANCE_MULT = 1.5
 	local fallback_hit = {entity = NULL, point = Vec3(), distance = 0}
 
+	event.AddListener("UseReachScale", "usable", function(user)
+		return character_scale.Get(user)
+	end)
+
 	event.AddListener("FindUseFallback", "usable", function(user, origin, direction, hit)
 		if hit and find_usable(hit.entity) then return end
 
-		local max_distance = use.MaxDistance * FALLBACK_DISTANCE_MULT
+		local max_distance = use.GetMaxDistance(user) * FALLBACK_DISTANCE_MULT
 		local best, best_score, best_distance, best_x, best_y, best_z
 
 		for _, usable in ipairs(META.Instances) do

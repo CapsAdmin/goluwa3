@@ -310,7 +310,7 @@ function META:GetEyeOffset()
 	local seat = self.seated
 
 	if seat and seat:IsValid() then
-		return seat:GetEyeOffset(self.Owner.transform:GetRotation())
+		return seat:GetEyeOffset(self.Owner.transform:GetRotation()) * self.Scale
 	end
 
 	local _, _, eye_height = self:GetDimensions()

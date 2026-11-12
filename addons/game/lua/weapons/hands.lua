@@ -25,6 +25,7 @@ local usercmd = import("goluwa/network/usercmd.lua")
 local physics = import("goluwa/physics.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
+local character_scale = import("lua/character_scale.lua")
 local META = objects.CreateTemplate("weapon_hands")
 META:GetSet("Range", 3)
 META:GetSet("MaxHalfWidth", 0.4)
@@ -84,6 +85,10 @@ function META:DropBody(velocity)
 	end
 end
 
+function META:GetScale()
+	return character_scale.Get(self.Owner:GetParent())
+end
+
 function META:CanHoldBody(body)
 	return body and body.IsValid and body:IsValid() and body.IsDynamic and body:IsDynamic()
 end
@@ -93,7 +98,7 @@ function META:TryAcquireBody(cmd)
 	local origin = player.transform:GetPosition() + player.character_movement:GetViewOffset()
 	local hit = physics.Sweep(
 		origin,
-		cmd.aim:GetForward() * self.Range,
+		cmd.aim:GetForward() * (self.Range * self:GetScale()),
 		0,
 		player,
 		function(entity)
@@ -124,10 +129,12 @@ function META:TryAcquireBody(cmd)
 	local half_height = half.x * math.abs(x_axis.y) + half.y * math.abs(y_axis.y) + half.z * math.abs(z_axis.y)
 	local half_depth = half.x * math.abs(x_axis.z) + half.y * math.abs(y_axis.z) + half.z * math.abs(z_axis.z)
 
+	local scale = self:GetScale()
+
 	if
-		half_width > self.MaxHalfWidth or
-		half_depth > self.MaxHalfDepth or
-		half_height > self.MaxHalfHeight
+		half_width > self.MaxHalfWidth * scale or
+		half_depth > self.MaxHalfDepth * scale or
+		half_height > self.MaxHalfHeight * scale
 	then
 		return false
 	end
@@ -155,10 +162,11 @@ end
 function META:PlaceHands(player, view, eye)
 	local body = self.held_body
 	local half_width = self.held_half_width
-	local hand_back = self.held_half_depth - math.min(self.held_half_depth, self.HandDepth)
+	local scale = self:GetScale()
+	local hand_back = self.held_half_depth - math.min(self.held_half_depth, self.HandDepth * scale)
 	local level = body:GetPosition() - view:GetForward() * hand_back
 	local right = view:GetRight()
-	local reach = half_width + 0.3
+	local reach = half_width + 0.3 * scale
 	local to_local = view:GetConjugated()
 	local right_hit = physics.Sweep(level + right * reach, right * (-2 * reach), 0, player, self.held_filter, AIM_OPTIONS)
 	local left_hit = physics.Sweep(level - right * reach, right * (2 * reach), 0, player, self.held_filter, AIM_OPTIONS)
@@ -185,10 +193,10 @@ function META:UpdateHeldBody(dt, cmd)
 
 	if self.throw_left > 0 then
 		self.throw_left = self.throw_left - dt
-		extra = self.ThrowReach * (1 - math.max(self.throw_left, 0) / self.ThrowTime)
+		extra = self.ThrowReach * self:GetScale() * (1 - math.max(self.throw_left, 0) / self.ThrowTime)
 
 		if self.throw_left <= 0 then
-			local velocity = cmd.aim:GetForward() * self.ThrowSpeed
+			local velocity = cmd.aim:GetForward() * (self.ThrowSpeed * self:GetScale())
 
 			if player.rigid_body then velocity = velocity + player.rigid_body:GetVelocity() end
 
@@ -197,13 +205,13 @@ function META:UpdateHeldBody(dt, cmd)
 		end
 	end
 
-	local target = eye + view:VecMul(Vec3(0, self.CarryHeight, -(player.character_movement:GetRadius() + self.NearGap + self.held_half_depth + extra)))
+	local target = eye + view:VecMul(Vec3(0, self.CarryHeight * self:GetScale(), -(player.character_movement:GetRadius() + self.NearGap * self:GetScale() + self.held_half_depth + extra)))
 	local offset = target - body:GetPosition()
 	local length = offset:GetLength()
 	local target_velocity = Vec3()
 
 	if length > 0.0001 then
-		target_velocity = offset / length * math.min(self.MaxHoldLinearSpeed, length * self.PositionStrength)
+		target_velocity = offset / length * math.min(self.MaxHoldLinearSpeed * self:GetScale(), length * self.PositionStrength)
 	end
 
 	local velocity = body:GetVelocity():Copy()
