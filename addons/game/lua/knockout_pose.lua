@@ -88,7 +88,7 @@ function knockout_pose.GetFactor(speed, time)
 	return math.min(speed / knockout_pose.FullSpeed, 1) * math.min(time * RAMP_RATE, 1)
 end
 
-function knockout_pose.Drive(state, rig, animator, position, entity_rotation, dt, dead, ground, margin)
+function knockout_pose.Drive(state, rig, animator, position, entity_rotation, dt, dead, ground, margin, scale)
 	if rig.held then return end
 
 	if state.entries and (state.rig ~= rig or animator.clip) then
@@ -275,7 +275,7 @@ function knockout_pose.Drive(state, rig, animator, position, entity_rotation, dt
 			if height < lowest then lowest = height end
 		end
 
-		local lift = math.clamp(ground - (position.y + lowest - margin), -MAX_SNAP, MAX_SNAP)
+		local lift = math.clamp(ground - (position.y + lowest * scale - margin), -MAX_SNAP, MAX_SNAP) / scale
 		target_x, target_y, target_z = rx * lift, ry * lift, rz * lift
 	end
 

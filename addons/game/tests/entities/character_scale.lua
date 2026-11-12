@@ -71,6 +71,26 @@ T.TestPhysics("changing the scale of a live character resizes its capsule", func
 	T(character.rigid_body:GetPhysicsShape():GetHeight())["~"](height, 1e-6)
 end)
 
+T.TestPhysics("the body parts of a scaled character are scaled with it", function()
+	Entity.New{
+		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(100, 1, 100)},
+		rigid_body = {MotionType = "static", Shape = BoxShape.New(Vec3(1, 1, 1))},
+	}
+	local normal = create_character(1)
+	local tall = create_character(2)
+	physics.UpdateFixed(1 / 60)
+	normal.character_pose:OnUpdate(1 / 60)
+	tall.character_pose:OnUpdate(1 / 60)
+
+	for i, part in ipairs(normal.ragdoll.parts) do
+		local other = tall.ragdoll.parts[i]
+		T(other.body:GetPhysicsShape():GetRadius())["~"](part.body:GetPhysicsShape():GetRadius() * 2, 1e-6)
+		T(other.half)["~"](part.half * 2, 1e-3)
+	end
+
+	T(tall.ragdoll.total_mass / normal.ragdoll.total_mass)["~"](8, 1e-3)
+end)
+
 T.TestPhysics("a scaled character jumps as high relative to its body and stays in the air as long", function()
 	local normal = create_character(1).character_movement
 	local tall = create_character(2).character_movement

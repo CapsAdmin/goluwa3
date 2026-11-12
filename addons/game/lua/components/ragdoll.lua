@@ -145,6 +145,11 @@ function META:Initialize()
 	self:AddGlobalEvent("Update")
 end
 
+local function get_scale(self)
+	local movement = self.Owner.character_movement
+	return movement and movement.Scale or 1
+end
+
 function META:GetProfile()
 	local profile = self.profile
 
@@ -154,10 +159,52 @@ function META:GetProfile()
 		profile = model_profile.Get(self.Owner.model.ModelPath)
 	else
 		profile = biped.Profiles[self.Profile]
+		local scale = get_scale(self)
+
+		if scale ~= 1 then
+			local scaled = table.shallow_copy(profile)
+			scaled.Parts = {}
+
+			for i, definition in ipairs(profile.Parts) do
+				local part = table.shallow_copy(definition)
+				part.Radius = definition.Radius * scale
+				part.Length = definition.Length and definition.Length * scale
+				part.ToOffset = definition.ToOffset and definition.ToOffset * scale
+				scaled.Parts[i] = part
+			end
+
+			profile = scaled
+		end
 	end
 
 	self.profile = profile
 	return profile
+end
+
+local scratch_bone = Matrix44():Identity()
+
+local function scale_bone(matrix, scale)
+	matrix.m30 = matrix.m30 * scale
+	matrix.m31 = matrix.m31 * scale
+	matrix.m32 = matrix.m32 * scale
+	return matrix
+end
+
+local function read_biped_bones(self, rig)
+	biped.ReadBones(rig, self.bones)
+	local scale = get_scale(self)
+
+	if scale ~= 1 then
+		for _, matrix in pairs(self.bones) do
+			scale_bone(matrix, scale)
+		end
+	end
+end
+
+local function set_rig_bone(rig, name, matrix, scale)
+	aim_pose.CopyMatrix(scratch_bone, matrix)
+	scale_bone(scratch_bone, 1 / scale)
+	rig:SetBone(name, scratch_bone, "model")
 end
 
 function META:GetRig()
@@ -177,7 +224,7 @@ function META:ReadPoseBones(rig)
 
 	for _, definition in ipairs(self.profile.Parts) do
 		local name = definition.Bone
-		pose_bones[name] = rig:GetBone(name, pose_bones[name])
+		pose_bones[name] = scale_bone(rig:GetBone(name, pose_bones[name]), get_scale(self))
 	end
 end
 
@@ -204,9 +251,25 @@ function META:ComputePose()
 
 	if rig then
 		if next(driver.bones) then
-			self.bones = driver.bones
+			local scale = get_scale(self)
+
+			if scale == 1 then
+				self.bones = driver.bones
+			else
+				local scaled = self.scaled_bones or {}
+				self.scaled_bones = scaled
+
+				for name, matrix in pairs(driver.bones) do
+					local copy = scaled[name] or Matrix44():Identity()
+					scaled[name] = copy
+					aim_pose.CopyMatrix(copy, matrix)
+					scale_bone(copy, scale)
+				end
+
+				self.bones = scaled
+			end
 		else
-			biped.ReadBones(rig, self.bones)
+			read_biped_bones(self, rig)
 		end
 
 		if not self.frames then self:BuildFrames() end
@@ -458,7 +521,7 @@ function META:Build()
 		profile_mass = profile_mass + definition.Mass
 	end
 
-	local mass_scale = CharacterMovement.BodyMass / profile_mass
+	local mass_scale = owner.character_movement.BodyMass / profile_mass
 	local joint_of = {}
 
 	for _, definition in ipairs(profile.Joints) do
@@ -1186,7 +1249,7 @@ function META:EnterBox(velocity)
 	end
 
 	local root = self.parts[1]
-	local half = math.max(root.definition.Radius, MIN_BOX_RADIUS)
+	local half = math.max(root.definition.Radius, MIN_BOX_RADIUS * get_scale(self))
 	local center = owner.transform:GetPosition() + Vec3(0, half, 0)
 	local entity = Entity.New{
 		Name = "corpse_box",
@@ -1194,7 +1257,7 @@ function META:EnterBox(velocity)
 		rigid_body = {
 			Shape = SphereShape.New(half),
 			MotionType = "dynamic",
-			Mass = CharacterMovement.BodyMass,
+			Mass = owner.character_movement.BodyMass,
 			AutomaticMass = false,
 			Friction = CharacterMovement.RagdollFriction,
 			FrictionCombineMode = "multiply",
@@ -1305,7 +1368,8 @@ function META:DriveKnockout(rig, animator, dt)
 		dt,
 		self.Owner.health:IsDead(),
 		ground,
-		self.box_half
+		self.box_half,
+		get_scale(self)
 	)
 end
 
@@ -1389,7 +1453,7 @@ function META:LandBox()
 			end
 		else
 			self.bones = {}
-			biped.ReadBones(rig, self.bones)
+			read_biped_bones(self, rig)
 		end
 	end
 
@@ -2221,7 +2285,7 @@ do
 			local locals = {}
 
 			for i = 0, count - 1 do
-				worlds[i] = rig:GetBone(names[i + 1])
+				worlds[i] = scale_bone(rig:GetBone(names[i + 1]), get_scale(self))
 			end
 
 			for i = 0, count - 1 do
@@ -2255,7 +2319,7 @@ do
 
 			if not self.free_part_bones[i] and parent >= 0 and affected[parent] then
 				self.free_locals[i]:GetMultiplied(worlds[parent], worlds[i])
-				rig:SetBone(names[i + 1], worlds[i], "model")
+				set_rig_bone(rig, names[i + 1], worlds[i], get_scale(self))
 				self.free_set[#self.free_set + 1] = names[i + 1]
 				affected[i] = true
 			end
@@ -2277,8 +2341,13 @@ do
 
 				if self:IsDriven(part) then
 					local index = rig.bone_indices[name:lower()]
-					calibrate_frame(self, part, entity_rotation, rig:GetBone(name))
-					rig:SetBone(name, get_part_bone(self, part, entity_rotation, worlds[index]), "model")
+					calibrate_frame(self, part, entity_rotation, scale_bone(rig:GetBone(name), get_scale(self)))
+					set_rig_bone(
+						rig,
+						name,
+						get_part_bone(self, part, entity_rotation, worlds[index]),
+						get_scale(self)
+					)
 					affected[index] = true
 				else
 					self.frames[part.definition.Name].calibrated = nil
@@ -2292,7 +2361,7 @@ do
 		end
 
 		if not self.frames then
-			biped.ReadBones(rig, self.bones)
+			read_biped_bones(self, rig)
 			self:BuildFrames()
 		end
 
@@ -2307,9 +2376,9 @@ do
 					local key = part.definition.Bone
 					local name = biped.GetBoneName(rig, key)
 					local index = rig.bone_indices[name:lower()]
-					calibrate_frame(self, part, entity_rotation, biped.GetBone(rig, key))
+					calibrate_frame(self, part, entity_rotation, scale_bone(biped.GetBone(rig, key), get_scale(self)))
 					biped.ToRigFrame(rig, key, get_part_bone(self, part, entity_rotation, worlds[index]))
-					rig:SetBone(name, worlds[index], "model")
+					set_rig_bone(rig, name, worlds[index], get_scale(self))
 					affected[index] = true
 				end
 			else
@@ -2330,7 +2399,7 @@ do
 		if armature then
 			for name in pairs(biped.SourceBones) do
 				if limp[self.owner_of[name]] and biped.HasBone(rig, name) then
-					armature:SetBone(name, biped.GetBone(rig, name), "model")
+					armature:SetBone(name, scale_bone(biped.GetBone(rig, name), get_scale(self)), "model")
 				end
 			end
 		end
