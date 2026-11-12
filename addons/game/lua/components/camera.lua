@@ -1,4 +1,5 @@
 local objects = import("goluwa/objects/objects.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local View = import("goluwa/render3d/view.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local third_person = import("lua/third_person.lua")
@@ -7,6 +8,14 @@ import("lua/seat_camera.lua")
 local outfit = import("lua/outfit.lua")
 local screen_shake = import("lua/screen_shake.lua")
 local META = objects.CreateTemplate("camera")
+local VIEW_SCALE_TIME = 0.2
+local view_scale = pvars.Setup2{
+	key = "r_view_scale",
+	category = "Game",
+	group = "Camera",
+	default = 1,
+	help = "multiplies the scale of the camera, which follows the scale of the player, 1 follows the player exactly",
+}
 META:GetSet("Active", false)
 META:GetSet("Priority", 0)
 META:GetSet("ViewOffset", Vec3(0, 0, 0))
@@ -66,6 +75,17 @@ function META:OnLateUpdate(dt)
 	local transform = self.Owner.transform
 	local view = self.view
 	local movement = self.Owner.character_movement
+	local target_scale = (movement and movement.Scale or 1) * view_scale:Get()
+	local scale = self.view_scale and
+		self.view_scale * (
+			target_scale / self.view_scale
+		) ^ (
+			1 - math.exp(-dt / VIEW_SCALE_TIME)
+		)
+		or
+		target_scale
+	self.view_scale = scale
+	view:SetScale(scale)
 
 	if movement then
 		local avatar = self.Owner.player_avatar
@@ -98,7 +118,7 @@ function META:OnLateUpdate(dt)
 				dt
 			)
 			view:SetFOV(fov)
-			view:SetNearZ(near_z)
+			view:SetNearZ(near_z * scale)
 			view:SetRotation(rotation:Copy())
 		elseif third_person.IsEnabled() then
 			local velocity = self.Owner.rigid_body:GetVelocity()
@@ -125,7 +145,7 @@ function META:OnLateUpdate(dt)
 				near = outfit.GetHeadNear()
 			end
 
-			view:SetNearZ(near)
+			view:SetNearZ(near * scale)
 			view:SetRotation(rotation:Copy())
 			view:SetFOV(look:GetFOV())
 		end

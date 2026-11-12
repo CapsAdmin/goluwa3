@@ -21,9 +21,15 @@ do
 	META:GetSet("FOV", math.rad(90), {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("NearZ", 0.1, {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("FarZ", 1000000, {callback = "InvalidateProjectionMatrix"})
+	META:GetSet("Scale", 1)
 	META:GetSet("Viewport", Rect(0, 0, 1000, 1000), {callback = "InvalidateProjectionMatrix"})
 	META:GetSet("Jitter", Vec2(0, 0), {callback = "InvalidateProjectionMatrix"})
 	META:EndStorable()
+
+	function META:SetScale(scale)
+		assert(scale > 0, "camera scale must be above zero")
+		self.Scale = scale
+	end
 
 	function META:InvalidateProjectionMatrix()
 		self.ProjectionMatrix = nil
@@ -237,11 +243,7 @@ do
 		world_to_screen_matrix:GetInverse(screen_to_world_inverse)
 		local near_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 1, screen_to_world_near)
 		local far_pos = clip_to_world(screen_to_world_inverse, ndc_x, ndc_y, 0, screen_to_world_far)
-		return Vec3(
-			far_pos.m00 - near_pos.m00,
-			far_pos.m01 - near_pos.m01,
-			far_pos.m02 - near_pos.m02
-		):GetNormalized()
+		return Vec3(far_pos.m00 - near_pos.m00, far_pos.m01 - near_pos.m01, far_pos.m02 - near_pos.m02):GetNormalized()
 	end
 end
 
@@ -256,6 +258,7 @@ function META:Copy()
 	cam:SetFOV(self:GetFOV())
 	cam:SetNearZ(self:GetNearZ())
 	cam:SetFarZ(self:GetFarZ())
+	cam:SetScale(self:GetScale())
 	cam:SetViewport(self:GetViewport():Copy())
 	cam:SetJitter(self:GetJitter():Copy())
 	cam:SetPosition(self:GetPosition():Copy())

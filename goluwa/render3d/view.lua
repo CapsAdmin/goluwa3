@@ -8,7 +8,16 @@ local active = {}
 local activation_serial = 0
 local camera_setters = {}
 
-for _, name in ipairs{"Position", "Rotation", "FOV", "NearZ", "FarZ", "OrthoMode", "OrthoHalfHeight"} do
+for _, name in ipairs{
+	"Position",
+	"Rotation",
+	"FOV",
+	"NearZ",
+	"FarZ",
+	"Scale",
+	"OrthoMode",
+	"OrthoHalfHeight",
+} do
 	View:GetSet(name, nil, {callback = "OnCameraPropertyChanged"})
 	camera_setters[name] = "Set" .. name
 end
@@ -47,6 +56,7 @@ function View.New(config)
 	self.FOV = camera:GetFOV()
 	self.NearZ = camera:GetNearZ()
 	self.FarZ = camera:GetFarZ()
+	self.Scale = camera:GetScale()
 	self.OrthoMode = camera:GetOrthoMode()
 	self.OrthoHalfHeight = camera:GetOrthoHalfHeight()
 

@@ -102,6 +102,7 @@ render3d.camera_block = {
 	{"normal_map_strength", "float"},
 	{"terrain_only", "int"},
 	{"noise_phase", "float"},
+	{"view_scale", "float"},
 }
 
 function render3d.WriteCameraBlock(self, block)
@@ -119,6 +120,7 @@ function render3d.WriteCameraBlock(self, block)
 	block.normal_map_strength = normal_map_strength:Get()
 	block.terrain_only = gbuffer_inspect.IsTerrainOnly() and 1 or 0
 	block.noise_phase = render3d.GetNoisePhase()
+	block.view_scale = camera:GetScale()
 	return block
 end
 
@@ -1188,6 +1190,29 @@ do
 
 	function render3d.GetMainCamera()
 		return render3d.main_camera
+	end
+
+	do
+		local snapped = 1
+		local SNAP_OCTAVES = 0.5
+		local SNAP_HYSTERESIS = 0.35
+
+		function render3d.GetViewScale()
+			return render3d.main_camera:GetScale()
+		end
+
+		function render3d.GetSnappedViewScale()
+			return snapped
+		end
+
+		event.AddListener("Update", "render3d_view_scale", function()
+			local octaves = math.log(render3d.GetViewScale(), 2)
+
+			if math.abs(octaves - math.log(snapped, 2)) > SNAP_HYSTERESIS then
+				snapped = 2 ^ (math.floor(octaves / SNAP_OCTAVES + 0.5) * SNAP_OCTAVES)
+				event.Call("ViewScaleChanged", snapped)
+			end
+		end)
 	end
 
 	function render3d.PushCamera(camera)
