@@ -135,3 +135,21 @@ T.Test2D("text edit context menu can be disabled", function()
 	T(#Panel.World:GetChildren())["=="](before)
 	text_edit:Remove()
 end)
+
+T.Test2D("text edit gets the first modifier pressed after it took focus", function()
+	local input = import("goluwa/input.lua")
+
+	local function window_key(name, press)
+		input.TriggerKey(name, press)
+		event.Call("KeyInput", name, press)
+	end
+
+	local text_edit = create{Text = "scene"}
+	window_key("left_control", true)
+	window_key("a", true)
+	window_key("a", false)
+	window_key("left_control", false)
+	type_text("x")
+	T(text_edit:GetText())["=="]("x")
+	text_edit:Remove()
+end)

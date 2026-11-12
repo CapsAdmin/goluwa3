@@ -2,11 +2,11 @@ local objects = import("goluwa/objects/objects.lua")
 local event = import("goluwa/event.lua")
 local input = import("goluwa/input.lua")
 local META = objects.CreateTemplate("key_input")
-
 local suppressed = {}
 local last_focused
 
-local function get_focused()
+-- keys held down while the focus moved belong to the old focus, except the key being pressed now
+local function get_focused(pressed_key)
 	local focused = objects.GetFocusedObject()
 
 	if focused ~= last_focused then
@@ -14,7 +14,7 @@ local function get_focused()
 		suppressed = {}
 
 		for _, key in ipairs(input.GetDownKeys("Key")) do
-			suppressed[key] = true
+			if key ~= pressed_key then suppressed[key] = true end
 		end
 	end
 
@@ -38,7 +38,7 @@ function META:OnFirstCreated()
 		"KeyInput",
 		"ecs_key_input_system",
 		function(key, press)
-			local focused = get_focused()
+			local focused = get_focused(press and key)
 
 			if not press then suppressed[key] = nil end
 
