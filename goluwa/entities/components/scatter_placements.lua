@@ -1,17 +1,18 @@
 local ffi = require("ffi")
 local objects = import("goluwa/objects/objects.lua")
+local timer = import("goluwa/timer.lua")
 local ScatterSet = import("goluwa/render3d/scatter_set.lua")
 local META = objects.CreateTemplate("scatter_placements")
 META:StartStorable()
-META:GetSet("Model", "", {asset = "models"})
-META:GetSet("MaterialOverride", "")
-META:GetSet("Bending", 0, {validate = "number"})
-META:GetSet("Billboard", false)
-META:GetSet("BillboardRadii", 56, {validate = "number"})
-META:GetSet("MaxDistance", 4000, {validate = "number"})
-META:GetSet("Shadow", true)
-META:GetSet("Conform", false)
-META:GetSet("Records", "")
+META:GetSet("Model", "", {asset = "models", callback = "Refresh"})
+META:GetSet("MaterialOverride", "", {callback = "Refresh"})
+META:GetSet("Bending", 0, {validate = "number", callback = "Refresh"})
+META:GetSet("Billboard", false, {callback = "Refresh"})
+META:GetSet("BillboardRadii", 56, {validate = "number", callback = "Refresh"})
+META:GetSet("MaxDistance", 4000, {validate = "number", callback = "Refresh"})
+META:GetSet("Shadow", true, {callback = "Refresh"})
+META:GetSet("Conform", false, {callback = "Refresh"})
+META:GetSet("Records", "", {callback = "Refresh", Hidden = true})
 META:EndStorable()
 local Record = ffi.typeof("struct { float x, y, z, scale, yaw, nx, ny, nz; }")
 local RecordPtr = ffi.typeof("$ *", Record)
@@ -78,10 +79,8 @@ end
 
 META.OnHide = META.RefreshHidden
 META.OnShow = META.RefreshHidden
-META.OnEntityConstructed = META.Place
-META.OnDeserialized = META.Place
 
-function META:OnRemove()
+function META:Unplace()
 	if self.handle then
 		import("goluwa/render3d/scatter.lua").RemovePlacements(self.handle)
 		self.handle = nil
@@ -93,6 +92,24 @@ function META:OnRemove()
 	end
 end
 
+-- places again at the end of the frame, after every property of an edit is set
+function META:Refresh()
+	if self.refresh_pending then return end
+
+	self.refresh_pending = true
+
+	timer.Delay(0, function()
+		if not self:IsValid() then return end
+
+		self.refresh_pending = false
+		self:Unplace()
+		self:Place()
+	end)
+end
+
+META.OnEntityConstructed = META.Refresh
+META.OnDeserialized = META.Refresh
+META.OnRemove = META.Unplace
 META.RECORD_SIZE = ffi.sizeof(Record)
 META.Record = Record
 META.WriteMatrix = write_matrix
