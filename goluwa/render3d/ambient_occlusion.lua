@@ -4,6 +4,9 @@ local ambient_occlusion = {}
 ambient_occlusion.DEBUG_AO = 1
 ambient_occlusion.DEBUG_BOUNCE = 2
 ambient_occlusion.DEBUG_BENT_NORMAL = 3
+ambient_occlusion.DEBUG_AO_AMPLIFIED = 4
+ambient_occlusion.DEBUG_BOUNCE_RAW = 5
+ambient_occlusion.DEBUG_BOUNCE_TEMPORAL = 6
 pvars.StartGroup("Lighting", "Ambient occlusion", {store = false, prefix = "ambient_occlusion_"})
 local gi = pvars.Setup2{
 	key = "ambient_occlusion_gi",
@@ -52,11 +55,22 @@ local DEBUG_VIEWS = {
 	occlusion = ambient_occlusion.DEBUG_AO,
 	bounce = ambient_occlusion.DEBUG_BOUNCE,
 	bent_normal = ambient_occlusion.DEBUG_BENT_NORMAL,
+	occlusion_amplified = ambient_occlusion.DEBUG_AO_AMPLIFIED,
+	bounce_raw = ambient_occlusion.DEBUG_BOUNCE_RAW,
+	bounce_temporal = ambient_occlusion.DEBUG_BOUNCE_TEMPORAL,
 }
 local debug_view = pvars.Setup2{
 	key = "ambient_occlusion_debug",
 	default = "off",
-	enums = {"off", "occlusion", "bounce", "bent_normal"},
+	enums = {
+		"off",
+		"occlusion",
+		"bounce",
+		"bent_normal",
+		"occlusion_amplified",
+		"bounce_raw",
+		"bounce_temporal",
+	},
 	help = "show only one output of the pass",
 }
 pvars.EndGroup()
