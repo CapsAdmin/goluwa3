@@ -1,6 +1,7 @@
 local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
+local character_scale = import("lua/character_scale.lua")
 local PIVOT = 0.4
 local PIVOT_FORWARD = 0.2
 local PIVOT_HEIGHT = 0.15
@@ -188,13 +189,10 @@ return {
 			inst.blend = blend
 			inst.blend_time = inst.time
 			local height = math.lerp(blend, PIVOT, PIVOT_HEIGHT)
-			local movement = pose.Owner.character_movement
 			local moved = position + (
 					base:VecMul(pivot) + Vec3(0, height - PIVOT, 0) - turned:VecMul(pivot)
 				) * (
-					movement and
-					movement.Scale or
-					1
+					character_scale.Get(pose.Owner)
 				)
 			position:Set(moved.x, moved.y, moved.z)
 			base:Set(turned.x, turned.y, turned.z, turned.w)

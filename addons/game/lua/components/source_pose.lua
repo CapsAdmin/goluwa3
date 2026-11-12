@@ -18,6 +18,7 @@ local movesets = import("lua/movesets.lua")
 local keyframes = import("lua/keyframes.lua")
 local impacts = import("lua/impacts.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
+local character_scale = import("lua/character_scale.lua")
 local META = objects.CreateTemplate("source_pose")
 local NO_RIG = {}
 META:StartStorable()
@@ -539,14 +540,12 @@ function META:UpdatePlayer(animator, pose, dt)
 end
 
 function META:GetBodyScale()
-	local movement = self.character.character_movement
-	return movement and movement.Scale or 1
+	return character_scale.Get(self.character)
 end
 
 function META:UpdateGroundSink(character, pose, dt)
 	local target = 0
-	local movement = character.character_movement
-	local max_sink = MAX_SINK * (movement and movement.Scale or 1)
+	local max_sink = MAX_SINK * character_scale.Get(character)
 
 	if pose.grounded and physics.instance and not pose:GetSeat():IsValid() then
 		local transform = character.transform
@@ -578,8 +577,7 @@ function META:UpdateFeet(character, pose, dt, bones, feet, soles)
 	local rotation = world:GetRotation():GetConjugated()
 	local ground = self.leg_ground
 	local mean = 0
-	local movement = character.character_movement
-	local owner_scale = movement and movement.Scale or 1
+	local owner_scale = character_scale.Get(character)
 	local scale = self.leg_scale * owner_scale
 
 	if not self.leg_ready then
@@ -680,8 +678,7 @@ end
 function META:UpdateLegs(character, pose, dt, bones)
 	local plane = self:UpdateFeet(character, pose, dt, bones, FEET)
 	local shift = self.leg_shift
-	local movement = character.character_movement
-	local owner_scale = movement and movement.Scale or 1
+	local owner_scale = character_scale.Get(character)
 	leg_pose.ApplyKeys(bones, pose, self.held_l and not self.held_r and -1 or 1, self.leg_state)
 	leg_pose.Apply(
 		bones,
@@ -784,8 +781,7 @@ do
 	end
 
 	function META:MirrorBones(rig, armature, pose, dt)
-		local movement = pose.Owner.character_movement
-		local scale = movement and movement.Scale or 1
+		local scale = character_scale.Get(pose.Owner)
 		local holder = pose.Owner.weapon_holder
 		local right = holder and holder:GetPosedWeapon("right") or false
 		local left = holder and holder:GetPosedWeapon("left") or false
@@ -1058,8 +1054,7 @@ function META:UpdateCreatureLimbs(rig, pose, dt)
 	end
 
 	local scale = self.leg_scale
-	local movement = pose.Owner.character_movement
-	local owner_scale = movement and movement.Scale or 1
+	local owner_scale = character_scale.Get(pose.Owner)
 	local plane = self:UpdateFeet(pose.Owner, pose, dt, bones, self.limb_feet, self.limb_samples)
 	local body_shift = math.clamp((self.pelvis_ground - plane) / owner_scale, -LEG_DROP * scale, LEG_RISE * scale)
 
@@ -1155,7 +1150,7 @@ function META:OnUpdate(dt)
 			for name in pairs(biped.SourceBones) do
 				if biped.HasBone(rig, name) then
 					aim_pose.CopyMatrix(armature_bone, biped.GetBone(rig, name))
-					local scale = host.character_movement and host.character_movement.Scale or 1
+					local scale = character_scale.Get(host)
 					armature_bone.m30 = armature_bone.m30 * scale
 					armature_bone.m31 = armature_bone.m31 * scale
 					armature_bone.m32 = armature_bone.m32 * scale
@@ -1175,9 +1170,7 @@ function META:OnUpdate(dt)
 			owner.eyes:SetLookTarget(
 				character.transform:GetPosition() + character.transform:GetRotation():VecMul(
 						Vec3(head.m30, head.m31, head.m32) * (
-								character.character_movement and
-								character.character_movement.Scale or
-								1
+								character_scale.Get(character)
 							)
 					) + pose.aim_rotation:GetForward() * EYE_LOOK_DISTANCE
 			)

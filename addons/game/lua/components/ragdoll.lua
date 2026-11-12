@@ -17,6 +17,7 @@ local RagdollPart = import("lua/components/ragdoll_part.lua")
 local CharacterMovement = import("lua/components/character_movement.lua")
 local aim_pose = import("lua/aim_pose.lua")
 local knockout_pose = import("lua/knockout_pose.lua")
+local character_scale = import("lua/character_scale.lua")
 local META = objects.CreateTemplate("ragdoll")
 -- an empty Network table is what makes the component part of the spawn packet
 META.Network = {Limp = {"boolean", 0.1, "reliable", to_owner = true}}
@@ -146,8 +147,7 @@ function META:Initialize()
 end
 
 local function get_scale(self)
-	local movement = self.Owner.character_movement
-	return movement and movement.Scale or 1
+	return character_scale.Get(self.Owner)
 end
 
 function META:GetProfile()

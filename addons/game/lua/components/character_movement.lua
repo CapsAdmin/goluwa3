@@ -98,6 +98,10 @@ do
 
 		if self.mode ~= nil then self:ApplyMode(self.mode) end
 
+		local avatar = self.Owner.player_avatar
+
+		if avatar and avatar.Scale ~= scale then avatar:SetScale(scale) end
+
 		if self.Owner.ragdoll then self.Owner.ragdoll:ResetParts() end
 	end
 end

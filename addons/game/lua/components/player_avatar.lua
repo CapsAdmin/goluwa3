@@ -3,6 +3,7 @@ local event = import("goluwa/event.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local prefab = import("goluwa/entities/prefab.lua")
 local outfit = import("lua/outfit.lua")
+local character_scale = import("lua/character_scale.lua")
 local outfit_source = import("lua/outfit_source.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local biped = import("lua/biped.lua")
@@ -22,12 +23,24 @@ for _, profile in ipairs{rig_profiles.ValveBiped, rig_profiles.Alyx} do
 end
 
 local NO_BONES = {}
--- an empty Network table is what makes the component part of the spawn packet
-META.Network = {}
+-- a Network table is what makes the component part of the spawn packet
+META.Network = {Scale = {"number", 0.1, "reliable", to_owner = true}}
 META:GetSet("Outfit", nil)
+META:GetSet("Scale", 1)
+
+function META:SetScale(scale)
+	self.Scale = scale
+	local movement = self.Owner.character_movement
+
+	if movement and movement.Scale ~= scale then movement:SetScale(scale) end
+end
 
 function META:Initialize()
 	self.Owner:EnsureComponent("transform")
+	local movement = self.Owner.character_movement
+
+	if movement then self.Scale = movement.Scale end
+
 	self.head_offset = Vec3()
 	self.head_camera_active = false
 	self.player_hidden = false
@@ -245,8 +258,7 @@ function META:UpdateOutfit()
 end
 
 function META:UpdateOutfitScale()
-	local movement = self.Owner.character_movement
-	local scale = movement and movement.Scale or 1
+	local scale = character_scale.Get(self.Owner)
 
 	if self.outfit_scale == scale or self.outfit_name ~= outfit_source.Name then
 		return

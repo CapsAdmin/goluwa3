@@ -3,6 +3,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local animations = import("lua/animations.lua")
 local aim_pose = import("lua/aim_pose.lua")
+local character_scale = import("lua/character_scale.lua")
 local keyframes = {}
 keyframes.Tracks = {
 	{
@@ -289,14 +290,13 @@ do
 		if def.Face then face(inst, pose, position, rotation) end
 
 		if def.BodyKeys then
-			local movement = pose.Owner.character_movement
 			apply_body_keys(
 				def.BodyKeys,
 				inst.phase,
 				inst.weight,
 				position,
 				rotation,
-				movement and movement.Scale or 1
+				character_scale.Get(pose.Owner)
 			)
 		end
 	end

@@ -8,6 +8,7 @@ local pose_variation = import("lua/pose_variation.lua")
 local impacts = import("lua/impacts.lua")
 local UNIT = import("goluwa/source_engine/units.lua").meters
 local FORWARD = import("goluwa/render3d/orientation.lua").FORWARD_VECTOR
+local character_scale = import("lua/character_scale.lua")
 local eye_pose = {}
 eye_pose.EyeRadius = 16 * UNIT
 eye_pose.BodyDrop = 8 * UNIT
@@ -147,8 +148,7 @@ function eye_pose.New()
 end
 
 function eye_pose.Compute(state, bones, owner, dt)
-	local movement = owner.character_movement
-	local scale = movement and movement.Scale or 1
+	local scale = character_scale.Get(owner)
 	local EYE_RADIUS = EYE_RADIUS * scale
 	local ARM_LENGTH = ARM_LENGTH * scale
 	local LEG_LENGTH = LEG_LENGTH * scale

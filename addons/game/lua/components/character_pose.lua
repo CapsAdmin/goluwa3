@@ -6,6 +6,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local pose_variation = import("lua/pose_variation.lua")
 local animations = import("lua/animations/definitions.lua")
+local character_scale = import("lua/character_scale.lua")
 local META = objects.CreateTemplate("character_pose")
 META.Network = {
 	Crouching = {"boolean", 0.1, "reliable"},
@@ -822,7 +823,7 @@ function META:OnUpdate(dt)
 		body:GetVelocity()
 		or
 		transform:GetRenderVelocity()
-	local scale = owner.character_movement and owner.character_movement.Scale or 1
+	local scale = character_scale.Get(owner)
 	self.forward_speed = velocity:Dot(entity_rotation:GetForward()) / scale
 	self.right_speed = velocity:Dot(entity_rotation:GetRight()) / scale
 	self.vertical_speed = velocity.y / scale

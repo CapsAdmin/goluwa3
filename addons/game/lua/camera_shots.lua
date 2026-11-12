@@ -1,6 +1,7 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local actors = import("lua/actors.lua")
+local character_scale = import("lua/character_scale.lua")
 local camera_shots = {}
 camera_shots.Battle = "battle"
 camera_shots.Shots = {
@@ -29,7 +30,7 @@ do
 		local matrix = armature and armature:GetBoneMatrix("mouth")
 
 		if not matrix then
-			return actors.GetCenter(entity) + Vec3(0, FACE_HEIGHT * entity.character_movement.Scale, 0)
+			return actors.GetCenter(entity) + Vec3(0, FACE_HEIGHT * character_scale.Get(entity), 0)
 		end
 
 		matrix:GetMultiplied(entity.transform:GetWorldMatrix(), face_world)
@@ -45,7 +46,7 @@ end
 
 function camera_shots.Place(shot, attacker, forward, right)
 	local offset = shot.Offset
-	local scale = attacker.character_movement.Scale
+	local scale = character_scale.Get(attacker)
 	local origin = get_point(shot.Anchor, attacker) + (
 			forward * offset[1] + right * offset[2]
 		) * scale

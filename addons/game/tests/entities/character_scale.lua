@@ -4,6 +4,7 @@ local physics = import("goluwa/physics.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local character_scale = import("lua/character_scale.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 import("addons/game/lua/autorun/characters.lua")
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
@@ -142,4 +143,36 @@ T.TestPhysics("the speed that hurts follows the character scale by the fall dama
 	T(health_after(0.1, 0.9))["=="](1)
 	T(health_after(0.1, 9))["<"](1)
 	pvars.SetSession("sv_fall_damage_exponent", 1)
+end)
+
+T.Test("the scale of a character comes from its movement, else its npc transform, else its avatar", function()
+	local function transform(scale)
+		return {
+			GetScale = function()
+				return Vec3(scale, scale, scale)
+			end,
+		}
+	end
+
+	T(
+		character_scale.Get{
+			transform = transform(1),
+			character_movement = {Scale = 4},
+			player_avatar = {Scale = 2},
+		}
+	)["=="](4)
+	T(character_scale.Get{transform = transform(3), ai_controller = {}, player_avatar = {Scale = 2}})["=="](3)
+	T(character_scale.Get{transform = transform(1), player_avatar = {Scale = 2}})["=="](2)
+	T(character_scale.Get{transform = transform(1)})["=="](1)
+end)
+
+T.TestPhysics("a player avatar and the movement of its character keep the same scale", function()
+	Entity.RegisterComponent("player_avatar", import("lua/components/player_avatar.lua"))
+	local character = create_character(2)
+	character:AddComponent("player_avatar")
+	T(character.player_avatar.Scale)["=="](2)
+	character.character_movement:SetScale(5)
+	T(character.player_avatar.Scale)["=="](5)
+	character.player_avatar:SetScale(0.5)
+	T(character.character_movement.Scale)["=="](0.5)
 end)

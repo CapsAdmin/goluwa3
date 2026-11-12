@@ -79,6 +79,7 @@ local objects = import("goluwa/objects/objects.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local aim_pose = import("lua/aim_pose.lua")
+local character_scale = import("lua/character_scale.lua")
 local META = objects.CreateTemplate("outfit_eye")
 local scratch = Quat(0, 0, 0, 1)
 
@@ -130,7 +131,7 @@ function META:OnUpdate()
 	local avatar = player.player_avatar
 	local bones = player.procedural_pose:GetBones()
 	local nodes = self.nodes
-	local scale = player.character_movement.Scale
+	local scale = character_scale.Get(player)
 
 	if self.applied_scale ~= scale then
 		self.applied_scale = scale
