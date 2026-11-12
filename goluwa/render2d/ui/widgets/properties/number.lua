@@ -36,7 +36,7 @@ local function format_number(value, precision)
 	local formatted = string.format("%." .. precision .. "f", numeric)
 	formatted = formatted:gsub("(%..-)0+$", "%1")
 	formatted = formatted:gsub("%.$", "")
-	return formatted
+	return formatted == "-0" and "0" or formatted
 end
 
 local function draw_slider_background(field, value)
