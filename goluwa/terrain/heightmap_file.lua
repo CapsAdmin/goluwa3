@@ -41,6 +41,7 @@ function heightmap_file.Save(directory, data, options)
 		origin = data.origin,
 		uv = data.uv,
 		outside = data.outside,
+		min_height = data.min_height,
 		max_height = data.max_height,
 		height = {width = height.width, height = height.height, file = "height.r16"},
 	}
@@ -140,6 +141,7 @@ function heightmap_file.Load(path)
 		origin = file.origin,
 		uv = file.uv,
 		outside = file.outside,
+		min_height = file.min_height,
 		max_height = file.max_height,
 		height = {width = width, height = height, samples = samples},
 		color = Texture.New{

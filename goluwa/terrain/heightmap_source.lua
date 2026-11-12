@@ -22,6 +22,7 @@ local NEAREST = {
 -- outside: the height outside the map: "zero", "clamp" (the height of the nearest edge sample) or a number
 --   (a constant height). The colors and layers outside always take the edge of the map.
 -- max_height: the height of a full sample
+-- min_height: the height of a zero sample (optional, 0)
 -- height: {width, height, samples = uint16 array of width * height} (a height map)
 -- color: a Texture, the color map, covering the map
 -- indices: {width, height, samples = uint8 array}, the layer id of every cell, 0 is none (optional)
@@ -30,6 +31,7 @@ local NEAREST = {
 -- Returns a terrain source, source.Data is the data.
 function HeightmapSource.New(data)
 	local size = math.max(data.size, 1)
+	local min_height = data.min_height or 0
 	local height = data.height
 	local indices = data.indices
 	local has_layers = indices ~= nil
@@ -86,7 +88,7 @@ function HeightmapSource.New(data)
 				vec2 uv = map_uv(world);
 				%s
 
-				return texture(TEXTURE(terrain_bake.texture0), uv + vec2(%.9f, %.9f)).r * %.6f;
+				return %.6f + texture(TEXTURE(terrain_bake.texture0), uv + vec2(%.9f, %.9f)).r * %.6f;
 			}
 		]],
 			data.origin[1],
@@ -97,9 +99,10 @@ function HeightmapSource.New(data)
 			uv[4],
 			size,
 			outside_glsl,
+			min_height,
 			0.5 / height.width,
 			0.5 / height.height,
-			data.max_height
+			data.max_height - min_height
 		),
 		SplatGLSL = has_layers and
 			[[
@@ -196,7 +199,7 @@ function HeightmapSource.New(data)
 				return chunk_layers, ids
 			end or
 			nil,
-		MinHeight = 0,
+		MinHeight = min_height,
 		MaxHeight = data.max_height,
 		Layers = {},
 	}
@@ -238,7 +241,8 @@ function HeightmapSource.SampleHeight(data, x, z)
 		math.lerp(tx, samples[y0 * width + x0], samples[y0 * width + x1]),
 		math.lerp(tx, samples[y1 * width + x0], samples[y1 * width + x1])
 	)
-	return raw / 65535 * data.max_height
+	local min_height = data.min_height or 0
+	return min_height + raw / 65535 * (data.max_height - min_height)
 end
 
 -- the surface type of the layer under a world position, nil without layers
