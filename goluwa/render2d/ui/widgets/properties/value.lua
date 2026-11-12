@@ -116,6 +116,7 @@ function META:OnCreate()
 		Wrap = false,
 		AlignY = 0.5,
 		IgnoreMouseInput = true,
+		visual = {Clipping = #right_elements > 0},
 		layout = {
 			GrowWidth = 1,
 			FitWidth = false,
