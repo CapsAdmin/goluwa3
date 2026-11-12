@@ -39,6 +39,7 @@ local function create()
 	local cmd = usercmd.New()
 	local owner = Entity.New{transform = {}, weapon_holder = {}}
 	owner.character_movement = {
+		Scale = 1,
 		GetCommand = function()
 			return cmd
 		end,

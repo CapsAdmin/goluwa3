@@ -49,3 +49,27 @@ T.Test("Spawned weapons serialize and come back with their script values", funct
 		copy:Remove()
 	end
 end)
+
+T.Test("A held weapon model is scaled with its holder and a dropped one is not", function()
+	Entity.RegisterComponent("weapon_holder", import("lua/components/weapon_holder.lua"))
+	local holder_entity = Entity.New{transform = {}, weapon_holder = {}}
+	holder_entity.character_movement = {
+		Scale = 3,
+		GetCommand = function() end,
+	}
+	local npc = Entity.New{transform = {Scale = Vec3(3, 3, 3)}, weapon_holder = {}}
+	npc.character_movement = {
+		Scale = 3,
+		GetCommand = function() end,
+	}
+	local held = holder_entity.weapon_holder:Give("weapon_pistol")
+	local npc_held = npc.weapon_holder:Give("weapon_pistol")
+	T(held.weapon:GetModel().transform:GetScale().x)["~"](3, 1e-6)
+	T(npc_held.weapon:GetModel().transform:GetScale().x)["~"](1, 1e-6)
+	held:UnParent()
+	T(held.weapon:GetModel().transform:GetScale().x)["~"](1, 1e-6)
+	held:Remove()
+	npc_held:Remove()
+	holder_entity:Remove()
+	npc:Remove()
+end)

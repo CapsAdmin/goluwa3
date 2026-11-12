@@ -6,6 +6,7 @@ local prefab = import("goluwa/entities/prefab.lua")
 local model_replacements = import("lua/model_replacements.lua")
 local BoxShape = import("goluwa/physics/shapes/box.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
+local character_scale = import("lua/character_scale.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local META = objects.CreateTemplate("weapon")
 local BUTTON = usercmd.BUTTON
@@ -175,7 +176,15 @@ function META:RefreshWorldState()
 
 	if model then
 		local sheathed = held and self:IsEquipped() and self:IsSheathed()
+		local scale = 1
+
+		if held then
+			local character = owner:GetParent()
+			scale = character_scale.Get(character) / character.transform:GetScale().y
+		end
+
 		prefab.Suppress()
+		model.transform:SetScale(Vec3(scale, scale, scale))
 		model.transform:SetAttachment(held and (sheathed and self.Sheath or SOCKETS[self.Equipped]) or "root")
 		model.transform:SetPosition(sheathed and self.SheathOffset:Copy() or held and Vec3() or self.WorldCenter * -1)
 		model.transform:SetRotation(sheathed and self.SheathRotation:Copy() or Quat(0, 0, 0, 1))

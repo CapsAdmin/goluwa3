@@ -103,6 +103,10 @@ do
 		if avatar and avatar.Scale ~= scale then avatar:SetScale(scale) end
 
 		if self.Owner.ragdoll then self.Owner.ragdoll:ResetParts() end
+
+		for _, child in ipairs(self.Owner:GetChildren()) do
+			if child.weapon then child.weapon:RefreshWorldState() end
+		end
 	end
 end
 
