@@ -29,7 +29,13 @@ local NamePrompt = react.Component(
 			end,
 			{}
 		)
-		react.UseEffect(||->edit.current:RequestTextFocus(), {})
+		react.UseEffect(
+			||-> do
+				edit.current:RequestTextFocus()
+				edit.current:SelectAll()
+			end,
+			{}
+		)
 
 		local function submit()
 			local name = edit.current:GetText():match("^%s*(.-)%s*$")
