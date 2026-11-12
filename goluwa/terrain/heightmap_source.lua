@@ -68,8 +68,6 @@ function HeightmapSource.New(data)
 			sampler = NEAREST,
 		} or
 		nil
-	local cells_per_meter_x = has_layers and indices.width / size or 0
-	local cells_per_meter_y = has_layers and indices.height / size or 0
 	local source = ShaderSource.New{
 		Textures = {height_texture, data.color, index_texture},
 		HeightGLSL = string.format(
@@ -159,18 +157,12 @@ function HeightmapSource.New(data)
 		SelectChunkLayers = has_layers and
 			function(request)
 				local samples = indices.samples
-				local first_row = math.clamp(math.floor(request.min_x * cells_per_meter_y), 0, indices.height - 1)
-				local last_row = math.clamp(
-					math.ceil((request.min_x + request.size) * cells_per_meter_y),
-					0,
-					indices.height - 1
-				)
-				local first_column = math.clamp(
-					math.floor(-(request.min_z + request.size) * cells_per_meter_x),
-					0,
-					indices.width - 1
-				)
-				local last_column = math.clamp(math.ceil(-request.min_z * cells_per_meter_x), 0, indices.width - 1)
+				local u1, v1 = HeightmapSource.ToMap(data, request.min_x, request.min_z)
+				local u2, v2 = HeightmapSource.ToMap(data, request.min_x + request.size, request.min_z + request.size)
+				local first_column = math.clamp(math.floor(math.min(u1, u2) * indices.width), 0, indices.width - 1)
+				local last_column = math.clamp(math.ceil(math.max(u1, u2) * indices.width), 0, indices.width - 1)
+				local first_row = math.clamp(math.floor(math.min(v1, v2) * indices.height), 0, indices.height - 1)
+				local last_row = math.clamp(math.ceil(math.max(v1, v2) * indices.height), 0, indices.height - 1)
 				local stride = math.max(math.floor(math.max(last_row - first_row, last_column - first_column) / 64), 1)
 				local counts = {}
 				local ids = {}
@@ -212,13 +204,17 @@ function HeightmapSource.New(data)
 	return source
 end
 
--- the height in meters at a world position, bilinear in the samples
-function HeightmapSource.SampleHeight(data, x, z)
+-- the map coordinates of a world position, the map is where both are in 0..1
+function HeightmapSource.ToMap(data, x, z)
 	local size = math.max(data.size, 1)
 	local uv = data.uv
 	local px, pz = x - data.origin[1], z - data.origin[2]
-	local u = (uv[1] * px + uv[2] * pz) / size
-	local v = (uv[3] * px + uv[4] * pz) / size
+	return (uv[1] * px + uv[2] * pz) / size, (uv[3] * px + uv[4] * pz) / size
+end
+
+-- the height in meters at a world position, bilinear in the samples
+function HeightmapSource.SampleHeight(data, x, z)
+	local u, v = HeightmapSource.ToMap(data, x, z)
 
 	if u < 0 or u > 1 or v < 0 or v > 1 then
 		local outside = data.outside
@@ -251,9 +247,9 @@ function HeightmapSource.SampleSurface(data, x, z)
 
 	if not indices then return nil end
 
-	local size = math.max(data.size, 1)
-	local row = math.clamp(math.floor(x * indices.height / size), 0, indices.height - 1)
-	local column = math.clamp(math.floor(-z * indices.width / size), 0, indices.width - 1)
+	local u, v = HeightmapSource.ToMap(data, x, z)
+	local row = math.clamp(math.floor(v * indices.height), 0, indices.height - 1)
+	local column = math.clamp(math.floor(u * indices.width), 0, indices.width - 1)
 	local layer = data.layers and data.layers[indices.samples[row * indices.width + column]]
 	return layer and layer.surface
 end
