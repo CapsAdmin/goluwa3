@@ -104,7 +104,7 @@ local function scan(components, first, last, camera_x, camera_y, camera_z, pixel
 			local pixels_per_meter = pixels_per_meter_at_one / max(sqrt(dx * dx + dy * dy + dz * dz), MIN_DISTANCE)
 
 			for _, entry in ipairs(component:GetRenderEntries()) do
-				local material = entry.material
+				local material = component:GetResolvedMaterial(entry)
 				local list = get_textures(material)
 
 				for t = 1, #list do
