@@ -28,7 +28,9 @@ do
 		local armature = entity.armature
 		local matrix = armature and armature:GetBoneMatrix("mouth")
 
-		if not matrix then return actors.GetCenter(entity) + Vec3(0, FACE_HEIGHT, 0) end
+		if not matrix then
+			return actors.GetCenter(entity) + Vec3(0, FACE_HEIGHT * entity.character_movement.Scale, 0)
+		end
 
 		matrix:GetMultiplied(entity.transform:GetWorldMatrix(), face_world)
 		return Vec3(face_world:GetTranslation())
@@ -43,8 +45,11 @@ end
 
 function camera_shots.Place(shot, attacker, forward, right)
 	local offset = shot.Offset
-	local origin = get_point(shot.Anchor, attacker) + forward * offset[1] + right * offset[2]
-	origin.y = origin.y + offset[3]
+	local scale = attacker.character_movement.Scale
+	local origin = get_point(shot.Anchor, attacker) + (
+			forward * offset[1] + right * offset[2]
+		) * scale
+	origin.y = origin.y + offset[3] * scale
 	return origin, get_point(shot.Look, attacker)
 end
 

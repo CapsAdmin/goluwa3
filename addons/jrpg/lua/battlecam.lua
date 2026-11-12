@@ -214,7 +214,7 @@ local function update_shot(owner, dt)
 		local hit = raycast.CastClosestSolid(shot.look, to_origin / length, length, blocks_camera, owner)
 
 		if hit then
-			origin = shot.look + to_origin / length * math.max(hit.distance - TRACE_MARGIN, 0)
+			origin = shot.look + to_origin / length * math.max(hit.distance - TRACE_MARGIN * owner.character_movement.Scale, 0)
 		end
 	end
 
@@ -225,6 +225,15 @@ end
 
 function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	dt = math.min(dt, MAX_DT)
+	local scale = owner.character_movement.Scale
+	local ROOM_SIZE = ROOM_SIZE * scale
+	local MIN_DISTANCE = MIN_DISTANCE * scale
+	local START_DISTANCE = START_DISTANCE * scale
+	local TARGET_SIZE = TARGET_SIZE * scale
+	local FOLLOW_NEAR = FOLLOW_NEAR * scale
+	local FOLLOW_FAR = FOLLOW_FAR * scale
+	local TRACE_MARGIN = TRACE_MARGIN * scale
+	local CHEST = CHEST * scale
 	state.owner = owner
 	local feet_y = eye.y - view_offset.y
 	pivot:Set(eye.x, feet_y + CHEST, eye.z)
@@ -373,7 +382,7 @@ function battlecam.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	look = look:GetLength() > 1e-4 and look:GetNormalized() or aim:VecMul(FORWARD)
 	state.rotation = state.rotation:Interpolate(Quat():SetLookDirection(look), k)
 	state.fov = state.fov + (target_fov - state.fov) * k
-	local sideways = velocity:Dot(state.rotation:VecMul(RIGHT)) / U
+	local sideways = velocity:Dot(state.rotation:VecMul(RIGHT)) / (U * scale)
 	local roll = target and math.rad(-5) or math.rad(math.clamp(-sideways * 0.01, -10, 10))
 	state.roll = state.roll + (roll - state.roll) * k
 	local shot_origin, shot_rotation, shot_fov = update_shot(owner, dt)
