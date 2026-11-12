@@ -54,6 +54,17 @@ local task_capacity = 16384
 local tasks = TaskArray(task_capacity)
 local body_objects = {}
 local man_objects = {}
+local body_refs = {}
+local man_refs = {}
+
+local function fill_refs(refs, array, capacity)
+	for i = 0, capacity - 1 do
+		refs[i] = array[i]
+	end
+end
+
+fill_refs(body_refs, bodies, body_capacity)
+fill_refs(man_refs, mans, man_capacity)
 local body_stamp = 0
 
 local function grow(array, ctype, used, capacity, needed)
@@ -169,10 +180,12 @@ function contact_solver.Add(
 )
 	if man_count + 1 > man_capacity then
 		mans, man_capacity = grow(mans, ManArray, man_count, man_capacity, man_count + 1)
+		fill_refs(man_refs, mans, man_capacity)
 	end
 
 	if body_count + 2 > body_capacity then
 		bodies, body_capacity = grow(bodies, BodyArray, body_count, body_capacity, body_count + 2)
+		fill_refs(body_refs, bodies, body_capacity)
 	end
 
 	local root_a = solve_a:GetBody()
@@ -202,7 +215,7 @@ function contact_solver.Add(
 	local m_index = man_count
 	man_count = man_count + 1
 	man_objects[m_index] = manifold_data
-	local m = mans[m_index]
+	local m = man_refs[m_index]
 	local normal = manifold_data.normal
 	local position, rotation
 	manifold_data.simple_a = solve_a == root_a
@@ -261,19 +274,19 @@ end
 function contact_solver.Reload(group, with_pose)
 	if with_pose then
 		for i = group.first_body, group.body_end - 1 do
-			load_velocity(bodies[i], body_objects[i])
-			load_pose(bodies[i], body_objects[i])
+			load_velocity(body_refs[i], body_objects[i])
+			load_pose(body_refs[i], body_objects[i])
 		end
 	else
 		for i = group.first_body, group.body_end - 1 do
-			load_velocity(bodies[i], body_objects[i])
+			load_velocity(body_refs[i], body_objects[i])
 		end
 	end
 end
 
 function contact_solver.Store(group, dt)
 	for i = group.first_body, group.body_end - 1 do
-		local b = bodies[i]
+		local b = body_refs[i]
 
 		if b.movable == 1 then
 			local body = body_objects[i]
@@ -746,7 +759,7 @@ end
 
 local function build_tasks(group)
 	for i = group.first_man, group.man_end - 1 do
-		local m = mans[i]
+		local m = man_refs[i]
 		add_task(i, 0, TASK_BEGIN, 0)
 
 		for k = 0, m.rows - 1 do
@@ -774,31 +787,31 @@ end
 local function solve_tasks(first, last, relax)
 	for t = first, last do
 		local task = tasks[t]
-		local m = mans[task.m]
+		local m = man_refs[task.m]
 		local kind = task.kind
 
 		if kind == TASK_NORMAL then
-			solve_normal(m, m.cs[task.k], bodies[m.a], bodies[m.b], relax)
+			solve_normal(m, m.cs[task.k], body_refs[m.a], body_refs[m.b], relax)
 		elseif kind == TASK_FRICTION then
-			solve_friction(m, m.cs[task.k], bodies[m.a], bodies[m.b])
+			solve_friction(m, m.cs[task.k], body_refs[m.a], body_refs[m.b])
 		elseif kind == TASK_NORMAL_EXTRA then
 			if m.passes >= task.pass then
-				solve_normal(m, m.cs[task.k], bodies[m.a], bodies[m.b], relax)
+				solve_normal(m, m.cs[task.k], body_refs[m.a], body_refs[m.b], relax)
 			end
 		elseif kind == TASK_BEGIN then
 			m.pcorr = -math.huge
-			m.passes = get_passes(m, bodies[m.a], bodies[m.b])
+			m.passes = get_passes(m, body_refs[m.a], body_refs[m.b])
 		else
-			solve_twist(m, bodies[m.a], bodies[m.b], m.rows - 1)
+			solve_twist(m, body_refs[m.a], body_refs[m.b], m.rows - 1)
 		end
 	end
 end
 
 local function commit_position_corrections(first, last)
 	for i = first, last do
-		local m = mans[i]
-		bodies[m.a].pc = math_max(bodies[m.a].pc, m.pcorr)
-		bodies[m.b].pc = math_max(bodies[m.b].pc, m.pcorr)
+		local m = man_refs[i]
+		body_refs[m.a].pc = math_max(body_refs[m.a].pc, m.pcorr)
+		body_refs[m.b].pc = math_max(body_refs[m.b].pc, m.pcorr)
 	end
 end
 
@@ -808,22 +821,22 @@ function contact_solver.Prepare(solver, group, dt)
 	contact_solver.Reload(group, true)
 
 	for i = first, last do
-		local m = mans[i]
+		local m = man_refs[i]
 
-		if prepare_manifold(m, bodies[m.a], bodies[m.b]) then
+		if prepare_manifold(m, body_refs[m.a], body_refs[m.b]) then
 			man_objects[i].touched_stamp = solver.StepStamp
 		end
 	end
 
 	for i = first, last do
-		local m = mans[i]
-		warm_start_manifold(m, bodies[m.a], bodies[m.b])
+		local m = man_refs[i]
+		warm_start_manifold(m, body_refs[m.a], body_refs[m.b])
 	end
 
 	local omega = 2 * math.pi * soft_hertz
 
 	for i = first, last do
-		local m = mans[i]
+		local m = man_refs[i]
 		m.resting = (
 				m.rows >= P.resting_min_contacts and
 				math_abs(m.ny) >= P.resting_min_normal_y and
