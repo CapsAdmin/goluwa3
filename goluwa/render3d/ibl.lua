@@ -282,8 +282,8 @@ function ibl.GetReflectionGLSLCode(uniform_name)
 				return vec4(color_accum / color_weight, clamp(alpha_accum / total_weight, 0.0, 1.0));
 			}
 
-			vec3 combine_reflections(vec3 env_reflection, vec4 traced_reflection, float reflection_weight) {
-				return mix(env_reflection, traced_reflection.rgb, clamp(traced_reflection.a * reflection_weight, 0.0, 1.0));
+			vec3 combine_reflections(vec3 env_reflection, float env_occlusion, vec4 traced_reflection, float traced_weight) {
+				return mix(env_reflection * env_occlusion, traced_reflection.rgb, clamp(traced_reflection.a * traced_weight, 0.0, 1.0));
 			}
 		]]
 end

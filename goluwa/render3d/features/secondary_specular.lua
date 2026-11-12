@@ -64,8 +64,8 @@ return {
 	indirect = [[
 		if (s.secondary_specular > 0.0) {
 			float lobe2_roughness = sqrt(clamp(s.secondary_specular_alpha, 0.0, 1.0));
-			vec3 lobe2_reflection = get_reflection(s.N, lobe2_roughness, s.V, s.world_pos, sky_visibility, irradiance, in_uv);
-			ambient_specular += lobe2_reflection * F_SchlickScalar(0.04, s.NdotV) * s.secondary_specular * SpecularOcclusion(s.NdotV, ambient_occlusion, lobe2_roughness);
+			vec3 lobe2_reflection = get_reflection(s.N, lobe2_roughness, s.V, s.world_pos, sky_visibility, irradiance, in_uv, SpecularOcclusion(s.NdotV, ambient_occlusion, lobe2_roughness));
+			ambient_specular += lobe2_reflection * F_SchlickScalar(0.04, s.NdotV) * s.secondary_specular;
 		}
 	]],
 }

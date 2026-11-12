@@ -322,7 +322,7 @@ return {
 
 			]] .. ibl.GetReflectionQuadGLSL() .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 
-			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback, vec2 reflection_uv) {
+			vec3 get_reflection(vec3 normal, float roughness, vec3 V, vec3 world_pos, float sky_visibility, vec3 gi_reflection_fallback, vec2 reflection_uv, float specular_occlusion) {
 				vec3 raw_R = reflect(-V, normal);
 				vec3 R = get_specular_dominant_direction(raw_R, normal, roughness);
 				vec3 sky_reflection = sample_environment_specular(lighting_data.env_tex, raw_R, normal, roughness);
@@ -330,10 +330,10 @@ return {
 				vec3 global_reflection = mix(gi_reflection_fallback, sky_reflection, sky_weight);
 				vec3 env_reflection = blend_probe_reflections(global_reflection, R, roughness, world_pos);
 
-				if (lighting_data.reflection_tex == -1) return env_reflection;
+				if (lighting_data.reflection_tex == -1) return env_reflection * specular_occlusion;
 
 				vec4 traced = get_filtered_reflection(reflection_uv);
-				return combine_reflections(env_reflection, traced, get_reflection_blend_weight(roughness));
+				return combine_reflections(env_reflection, specular_occlusion, traced, get_reflection_blend_weight(roughness));
 			}
 
 			vec3 get_gi_irradiance(vec3 N, out float sky_visibility) {
@@ -408,9 +408,9 @@ return {
 					reflection_gi = ddgi_screen_specular_sample(in_uv, s.N, in_view_depth).rgb;
 				}
 				
-				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.V, s.world_pos, sky_visibility, reflection_gi, in_uv);
 				vec4 screen_gi = get_ambient_occlusion(in_uv);
 				float ambient_occlusion = screen_gi.a;
+				vec3 reflection = get_reflection(s.N, s.perceptual_roughness, s.V, s.world_pos, sky_visibility, reflection_gi, in_uv, SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness));
 				vec3 bounce = screen_gi.rgb / get_pre_exposure();
 
 				vec2 envBRDF = texture(TEXTURE(lighting_data.brdf_lut_tex), vec2(s.NdotV, s.perceptual_roughness)).rg;
@@ -419,7 +419,6 @@ return {
 				vec3 ambient_diffuse = kD_ambient * (lighting_data.gi_per_pixel != 0 ? irradiance : irradiance * ambient_occlusion + bounce) * s.albedo;
 
 				vec3 ambient_specular = reflection * specular_albedo;
-				ambient_specular *= SpecularOcclusion(s.NdotV, ambient_occlusion, s.perceptual_roughness);
 				ambient_specular *= mix(1.0, lighting_data.thin_specular, get_thin_feature(in_view_depth, s.geometric_N));
 
 				]] .. surface_features.GetIndirectGLSL() .. [[
