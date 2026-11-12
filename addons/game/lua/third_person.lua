@@ -8,6 +8,7 @@ local event = import("goluwa/event.lua")
 local system = import("goluwa/system.lua")
 local input = import("goluwa/input.lua")
 local raycast = RENDER_3D and import("goluwa/render3d/raycast.lua")
+local render3d = RENDER_3D and import("goluwa/render3d/render3d.lua")
 local U = import("goluwa/source_engine/units.lua").meters
 local UP = orientation.UP_VECTOR
 local FORWARD = orientation.FORWARD_VECTOR
@@ -468,6 +469,7 @@ end
 function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt)
 	dt = math.min(dt, MAX_DT)
 	local s = settings
+	local scale = render3d.GetMainCamera():GetScale()
 
 	if not state.initialized or not state.prev_enabled then
 		third_person.Reset(eye, aim, aim_fov)
@@ -484,13 +486,31 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 	elseif s.pivot == "bottom" then
 		pivot:CopyFrom(feet)
 	else
-		pivot:Set(feet.x, feet.y + 36 * U, feet.z)
+		pivot:Set(feet.x, feet.y + 36 * U * scale, feet.z)
 	end
 
 	pivot:Set(
-		pivot.x + aim_right.x * s.center_right + aim_forward.x * s.center_forward + aim_up.x * s.center_up,
-		pivot.y + aim_right.y * s.center_right + aim_forward.y * s.center_forward + aim_up.y * s.center_up,
-		pivot.z + aim_right.z * s.center_right + aim_forward.z * s.center_forward + aim_up.z * s.center_up
+		pivot.x + aim_right.x * (
+				s.center_right * scale
+			) + aim_forward.x * (
+				s.center_forward * scale
+			) + aim_up.x * (
+				s.center_up * scale
+			),
+		pivot.y + aim_right.y * (
+				s.center_right * scale
+			) + aim_forward.y * (
+				s.center_forward * scale
+			) + aim_up.y * (
+				s.center_up * scale
+			),
+		pivot.z + aim_right.z * (
+				s.center_right * scale
+			) + aim_forward.z * (
+				s.center_forward * scale
+			) + aim_up.z * (
+				s.center_up * scale
+			)
 	)
 	local drag_button = state.drag_button
 
@@ -502,7 +522,7 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 	if drag_button then
 		if not state.drag_started then
 			local from_camera = pivot - state.origin
-			state.drag_distance = math.max(from_camera:GetLength(), 0.3)
+			state.drag_distance = math.max(from_camera:GetLength(), 0.3 * scale)
 			state.drag_yaw, state.drag_pitch = angles_of(from_camera:GetNormalized())
 			state.drag_started = true
 		end
@@ -513,7 +533,7 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 			state.drag_yaw = state.drag_yaw + delta.x * DRAG_SPEED
 			state.drag_pitch = math.clamp(state.drag_pitch + delta.y * DRAG_SPEED, -MAX_DRAG_PITCH, MAX_DRAG_PITCH)
 		else
-			state.drag_distance = math.max(state.drag_distance + delta.y * ZOOM_SPEED, 0.3)
+			state.drag_distance = math.max(state.drag_distance + delta.y * ZOOM_SPEED * scale, 0.3 * scale)
 		end
 
 		local direction = direction_of(state.drag_yaw, state.drag_pitch)
@@ -535,14 +555,14 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 
 	if s.zoom_distance_enabled then
 		local distance = (pivot - prev_origin):GetLength()
-		local zoom = s.zoom_distance
+		local zoom = s.zoom_distance * scale
 		fov = math.rad(math.clamp((zoom - distance) / (zoom / 100), s.zoom_distance_min, 75))
 	end
 
 	local origin_speed = 1
 
 	if s.threshold_enabled then
-		local ratio = (pivot - prev_origin):GetLength() / (s.threshold_radius * 0.5)
+		local ratio = (pivot - prev_origin):GetLength() / ((s.threshold_radius * scale) * 0.5)
 		origin_speed = math.clamp(ratio ^ 7 - 0.2, 0, 1)
 		target_origin:CopyFrom(pivot)
 	else
@@ -565,16 +585,30 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 				up = UP
 			end
 
-			offset = right * s.offset_right + forward * s.offset_forward + up * s.offset_up
+			offset = right * (
+					s.offset_right * scale
+				) + forward * (
+					s.offset_forward * scale
+				) + up * (
+					s.offset_up * scale
+				)
 		else
-			offset = Vec3(s.offset_right, s.offset_up, s.offset_forward)
+			offset = Vec3((s.offset_right * scale), (s.offset_up * scale), (s.offset_forward * scale))
 		end
 
 		target_origin:Set(pivot.x + offset.x, pivot.y + offset.y, pivot.z + offset.z)
 	end
 
 	local aim_hit = physics.RayCast(eye, aim_forward, AIM_DISTANCE, owner, nil, AIM_OPTIONS)
-	aim_point:CopyFrom(eye + aim_forward * (aim_hit and aim_hit.distance or s.crosshair_distance))
+	aim_point:CopyFrom(
+		eye + aim_forward * (
+				aim_hit and
+				aim_hit.distance or
+				(
+					s.crosshair_distance * scale
+				)
+			)
+	)
 	local lerp = s.aim_lerp / 100 * 2
 	local to_player = pivot - prev_origin
 	local to_player_length = to_player:GetLength()
@@ -649,23 +683,25 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 			block_distance = blocked_distance(pivot, to_origin / length, length, owner)
 
 			if block_distance and s.trace_enabled and not s.threshold_enabled then
-				trace_origin = pivot + to_origin / length * math.max(block_distance - s.trace_margin, 0)
+				trace_origin = pivot + to_origin / length * math.max(block_distance - (s.trace_margin * scale), 0)
 				target_origin:CopyFrom(trace_origin)
 			end
 		end
 	end
 
-	if s.trace_down > 0 then
-		local floor = blocked_distance(target_origin, -UP, s.trace_down, owner)
+	if (s.trace_down * scale) > 0 then
+		local floor = blocked_distance(target_origin, -UP, (s.trace_down * scale), owner)
 
-		if floor then target_origin.y = target_origin.y + (s.trace_down - floor) end
+		if floor then
+			target_origin.y = target_origin.y + ((s.trace_down * scale) - floor)
+		end
 	end
 
-	local near_z = s.near_z
+	local near_z = (s.near_z * scale)
 
 	if s.relative_near_z and block_distance then
-		near_z = math.max((target_origin - pivot):GetLength() - s.near_z, s.near_z)
-		near_z = math.min(near_z, math.max(block_distance, s.near_z))
+		near_z = math.max((target_origin - pivot):GetLength() - (s.near_z * scale), (s.near_z * scale))
+		near_z = math.min(near_z, math.max(block_distance, (s.near_z * scale)))
 	end
 
 	if s.angle_limit and not s.angle_limit_smooth then
@@ -681,7 +717,9 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 		origin_k = math.min(
 			dt * (
 					s.smooth_origin / (
-						s.threshold_radius * THRESHOLD_SCALE + 1e-4
+						(
+							s.threshold_radius * scale
+						) * THRESHOLD_SCALE + 1e-4
 					)
 				) * origin_speed,
 			1
@@ -715,7 +753,7 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 	local roll = 0
 
 	if s.roll_amount ~= 0 then
-		local sideways = velocity:Dot(state.rotation:VecMul(orientation.RIGHT_VECTOR)) / U
+		local sideways = velocity:Dot(state.rotation:VecMul(orientation.RIGHT_VECTOR)) / (U * scale)
 		roll = math.rad(math.clamp(-sideways * s.roll_amount / 500, -90, 90))
 	end
 
@@ -733,7 +771,7 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 			local distance = blocked_distance(pivot, to_origin / length, length, owner)
 
 			if distance then
-				origin:CopyFrom(pivot + to_origin / length * math.max(distance - s.trace_margin, 0))
+				origin:CopyFrom(pivot + to_origin / length * math.max(distance - (s.trace_margin * scale), 0))
 			end
 		end
 	end
