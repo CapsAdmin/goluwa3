@@ -118,19 +118,38 @@ local fall_damage_exponent = pvars.Setup2{
 	default = 1,
 	help = "how the speeds that hurt and kill follow the character scale, 1 is the same fall relative to the body at every scale (small characters are hurt by small drops), 0 is the same speed at every scale (small characters shrug off falls, large ones are fragile), 0.5 is in between",
 }
-META.PlayerScale = pvars.Setup2{
+local level_scale = 1
+local player_scale
+
+local function apply_player_scale()
+	local scale = player_scale:Get() * level_scale
+
+	for _, movement in ipairs(META.Instances or {}) do
+		if movement.Owner.player_controller then movement:SetScale(scale) end
+	end
+end
+
+player_scale = pvars.Setup2{
 	key = "sv_player_scale",
 	category = "Game",
 	group = "Server",
 	prefix = "sv_",
 	default = 1,
-	help = "scale of players: body, eyes, speeds and the outfit (1 is a 1.37 m Source player, 1.31 is 1.8 m)",
-	callback = function(scale)
-		for _, movement in ipairs(META.Instances or {}) do
-			if movement.Owner.player_controller then movement:SetScale(scale) end
-		end
-	end,
+	help = "scale of players: body, eyes, speeds and the outfit (1 is a 1.37 m Source player, 1.31 is 1.8 m), multiplied by the scale the loaded map asks for",
+	callback = apply_player_scale,
 }
+META.PlayerScale = player_scale
+
+function META.GetPlayerScale()
+	return player_scale:Get() * level_scale
+end
+
+function META.SetLevelScale(scale)
+	assert(scale > 0, "level scale must be above zero")
+	level_scale = scale
+	apply_player_scale()
+end
+
 local ROLL_ENTRY = 0.9
 local ROLL_HOLD = 0.5
 local ROLL_MIN = 0.5

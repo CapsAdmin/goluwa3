@@ -41,7 +41,7 @@ local rig = Entity.New{
 	player_controller = {
 		Networked = true,
 	},
-	character_movement = {Scale = import("lua/components/character_movement.lua").PlayerScale:Get()},
+	character_movement = {Scale = import("lua/components/character_movement.lua").GetPlayerScale()},
 }
 players.SetLocal(rig)
 rig.weapon_holder:GiveLoadout()

@@ -39,3 +39,5 @@ Beach has ~30k visuals and flying streams terrain, so a visual is added, removed
 ## Quarry test camera
 
 Objects sit around (1414, 178, -1158); the default camera at the origin is far away. Overview: `--pos 1380,215,-1080 --ang -20,-10,0 --fov 70`; ground level by a warehouse: `--pos 1395,170,-1105 --ang -5,-20,0 --fov 70`. `--settle 15` is enough for vegetation to show.
+
+- Players in Crysis levels are scaled to a 1.8 m person (`sv_cry_player_scale`, default `1.8 / 1.37`, times `sv_player_scale`): the levels' doors and props are built for that, the Source hull is 1.37 m, and no content is scaled. The loader does not convert units (a Cry unit is a meter).

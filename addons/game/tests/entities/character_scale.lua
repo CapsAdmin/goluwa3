@@ -5,6 +5,9 @@ local BoxShape = import("goluwa/physics/shapes/box.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local character_scale = import("lua/character_scale.lua")
+local CharacterMovement = import("lua/components/character_movement.lua")
+local engines = import("goluwa/engines.lua")
+local event = import("goluwa/event.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 import("addons/game/lua/autorun/characters.lua")
 Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
@@ -175,4 +178,23 @@ T.TestPhysics("a player avatar and the movement of its character keep the same s
 	T(character.player_avatar.Scale)["=="](5)
 	character.player_avatar:SetScale(0.5)
 	T(character.character_movement.Scale)["=="](0.5)
+end)
+
+T.TestPhysics("the scale a map asks for multiplies the player scale and a crysis level asks for a 1.8 m player", function()
+	import("addons/game/lua/autorun/level_player_scale.lua")
+	local character = create_character(1)
+	local movement = character.character_movement
+	local base = CharacterMovement.PlayerScale:Get()
+	CharacterMovement.SetLevelScale(2)
+	T(movement.Scale)["~"](base * 2, 1e-6)
+	CharacterMovement.SetLevelScale(1)
+	T(movement.Scale)["~"](base, 1e-6)
+	local previous = engines.loaded_map
+	engines.loaded_map = "cry:IA/Quarry"
+	event.Call("SceneLoad", "cry:IA/Quarry")
+	T(movement:GetHeight())["~"](1.8 * base, 1e-4)
+	engines.loaded_map = "source:gm_construct"
+	event.Call("SceneLoad", "gm_construct")
+	T(movement.Scale)["~"](base, 1e-6)
+	engines.loaded_map = previous
 end)

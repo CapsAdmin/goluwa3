@@ -47,7 +47,7 @@ if SERVER then
 			},
 			transform = {Position = position:Copy(), Rotation = rotation:Copy()},
 			player_controller = {Source = "queue"},
-			character_movement = {Scale = CharacterMovement.PlayerScale:Get()},
+			character_movement = {Scale = CharacterMovement.GetPlayerScale()},
 			player_avatar = {},
 			network = {NetworkOwner = uid, Predicted = true},
 		}
