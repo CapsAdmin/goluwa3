@@ -99,6 +99,8 @@ do
 		self.Scale = scale
 
 		if self.mode ~= nil then self:ApplyMode(self.mode) end
+
+		if self.Owner.ragdoll then self.Owner.ragdoll:ResetParts() end
 	end
 end
 

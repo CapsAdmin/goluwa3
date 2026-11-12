@@ -99,3 +99,28 @@ T.TestPhysics("a scaled character jumps as high relative to its body and stays i
 	T(tall.SafeFallSpeed / normal.SafeFallSpeed)["~"](2, 1e-6)
 	T(tall.FatalFallSpeed / normal.FatalFallSpeed)["~"](2, 1e-6)
 end)
+
+T.TestPhysics("a ragdoll is rebuilt at the new size when the character scale changes", function()
+	Entity.New{
+		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(100, 1, 100)},
+		rigid_body = {MotionType = "static", Shape = BoxShape.New(Vec3(1, 1, 1))},
+	}
+	local reference = create_character(1)
+	local character = create_character(10)
+	physics.UpdateFixed(1 / 60)
+	reference.character_pose:OnUpdate(1 / 60)
+	character.character_pose:OnUpdate(1 / 60)
+	T(character.ragdoll.parts[1].definition.Radius)["~"](reference.ragdoll.parts[1].definition.Radius * 10, 1e-6)
+	T(character.rigid_body:GetHalfExtents().x)[">"](reference.rigid_body:GetHalfExtents().x * 5)
+	character.character_movement:SetScale(1)
+	T(character.rigid_body:GetHalfExtents().x)["~"](reference.rigid_body:GetHalfExtents().x, 1e-4)
+	physics.UpdateFixed(1 / 60)
+	character.character_pose:OnUpdate(1 / 60)
+	T(#character.ragdoll.parts)["=="](#reference.ragdoll.parts)
+
+	for i, part in ipairs(reference.ragdoll.parts) do
+		local other = character.ragdoll.parts[i]
+		T(other.definition.Radius)["~"](part.definition.Radius, 1e-6)
+		T(other.half)["~"](part.half, 1e-3)
+	end
+end)

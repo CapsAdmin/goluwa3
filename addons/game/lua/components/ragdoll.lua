@@ -2406,6 +2406,37 @@ do
 	end
 end
 
+function META:ResetParts()
+	if not self.initialized or self.global_active or self.box_entity then return end
+
+	for _, part in ipairs(self.parts) do
+		if part.joint then part.joint:Remove() end
+
+		if part.entity:IsValid() then part.entity:Remove() end
+	end
+
+	self.parts = {}
+	self.part_by_name = {}
+	self.part_by_role = {}
+	self.bones = {}
+	self.pose_bones = {}
+	self.scaled_bones = nil
+	self.profile = nil
+	self.frames = nil
+	self.attached = nil
+	self.part_bones = nil
+	self.owner_of = nil
+	self.driven_rig = nil
+	self.free_worlds, self.free_affected, self.free_part_bones, self.free_locals = nil, nil, nil, nil
+	self.free_set = {}
+	self.sources = {}
+	self.impulses = {}
+	self.held = {}
+	self.total_mass = 0
+	self.dynamic_count = 0
+	self.frozen_count = 0
+end
+
 function META:OnRemove()
 	if self.box_entity then self.box_entity:Remove() end
 
