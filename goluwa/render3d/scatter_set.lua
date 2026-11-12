@@ -251,6 +251,26 @@ function ScatterSet.Get(name)
 	return named[name] or (factories[name] and factories[name]())
 end
 
+-- a set made on first use, so it can be picked by name before anything loaded it
+function ScatterSet.AddFactory(name, create)
+	factories[name] = create
+end
+
+function ScatterSet.GetNames()
+	local names = {}
+
+	for name in pairs(factories) do
+		names[#names + 1] = name
+	end
+
+	for name in pairs(named) do
+		if not factories[name] then names[#names + 1] = name end
+	end
+
+	table.sort(names)
+	return names
+end
+
 function ScatterSet.New(config)
 	local self = ScatterSet:CreateObject()
 	local known = {}
@@ -577,5 +597,5 @@ function ScatterSet.GetGrass()
 	return grass
 end
 
-factories.grass = ScatterSet.GetGrass
+ScatterSet.AddFactory("grass", ScatterSet.GetGrass)
 return ScatterSet:Register()
