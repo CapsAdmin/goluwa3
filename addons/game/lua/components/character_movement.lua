@@ -6,6 +6,7 @@ local Quat = import("goluwa/structs/quat.lua")
 local CapsuleShape = import("goluwa/physics/shapes/capsule.lua")
 local event = import("goluwa/event.lua")
 local usercmd = import("goluwa/network/usercmd.lua")
+local pvars = import("goluwa/cli/pvars.lua")
 local network = import("goluwa/network/network.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local damage = import("lua/damage.lua")
@@ -48,6 +49,7 @@ META:GetSet("CrouchMultiplier", 1 / 3)
 META:GetSet("RollSpeed", 220 * UNIT)
 META:GetSet("WalkMultiplier", 0.5)
 META:GetSet("SuperMultiplier", 3)
+META:GetSet("Scale", 1)
 META:GetSet("Mode", "fly")
 META:GetSet("SwimSpeed", 3)
 META:GetSet("SwimSprintMultiplier", 1.6)
@@ -62,6 +64,57 @@ META:GetSet("RespawnDelay", 1)
 META:GetSet("DeadFriction", 0.5)
 META:GetSet("DeadRollingFriction", 8)
 META:GetSet("DeadTipSpeed", 1.2)
+
+do
+	local scaled_lengths = {
+		"Radius",
+		"Height",
+		"EyeHeight",
+		"CrouchHeight",
+		"CrouchEyeHeight",
+		"StepHeight",
+		"GroundReach",
+		"GroundSpeed",
+		"AirSpeed",
+		"StopSpeed",
+		"JumpSpeed",
+		"LeaveGroundSpeed",
+		"RollSpeed",
+		"FlySpeed",
+		"Gravity",
+		"SwimSpeed",
+		"SafeFallSpeed",
+		"FatalFallSpeed",
+	}
+
+	function META:SetScale(scale)
+		assert(scale > 0, "character scale must be above zero")
+		local ratio = scale / self.Scale
+
+		for _, name in ipairs(scaled_lengths) do
+			self[name] = self[name] * ratio
+		end
+
+		self.BodyMass = self.BodyMass * ratio ^ 3
+		self.Scale = scale
+
+		if self.mode ~= nil then self:ApplyMode(self.mode) end
+	end
+end
+
+META.PlayerScale = pvars.Setup2{
+	key = "sv_player_scale",
+	category = "Game",
+	group = "Server",
+	prefix = "sv_",
+	default = 1,
+	help = "scale of players: body, eyes, speeds and the outfit (1 is a 1.37 m Source player, 1.31 is 1.8 m)",
+	callback = function(scale)
+		for _, movement in ipairs(META.Instances or {}) do
+			if movement.Owner.player_controller then movement:SetScale(scale) end
+		end
+	end,
+}
 local ROLL_ENTRY = 0.9
 local ROLL_HOLD = 0.5
 local ROLL_MIN = 0.5
@@ -405,8 +458,9 @@ function META:ApplyCrouchAlpha(alpha)
 	local start_y = feet.y
 
 	if shape and shape.GetTypeName and shape:GetTypeName() == "capsule" then
-		shape:SetRadius(radius)
-		shape:SetHeight(height)
+		local transform_scale = self.Owner.transform:GetScale().y
+		shape:SetRadius(radius / transform_scale)
+		shape:SetHeight(height / transform_scale)
 		self:InvalidateBodyGeometry()
 	end
 
@@ -551,6 +605,15 @@ function META:MoveBodyBy(body, offset)
 end
 
 function META:TryStepUp(direction, distance)
+	local scale = self.Scale
+	local STEP_PROBE_LIFT = STEP_PROBE_LIFT * scale
+	local STEP_REACH_MARGIN = STEP_REACH_MARGIN * scale
+	local STEP_IMMINENT_MARGIN = STEP_IMMINENT_MARGIN * scale
+	local STEP_PROBE_BACKOFF = STEP_PROBE_BACKOFF * scale
+	local STEP_MIN_GAIN = STEP_MIN_GAIN * scale
+	local STEP_MIN_RISE = STEP_MIN_RISE * scale
+	local STEP_LOW_PROBE_EXTRA = STEP_LOW_PROBE_EXTRA * scale
+	local STEP_LANDING_MARGIN = STEP_LANDING_MARGIN * scale
 	local body = self.Owner.rigid_body
 	local physics = body:GetPhysics()
 	local collider = body:GetColliders()[1]
@@ -658,6 +721,7 @@ function META:CanStand()
 end
 
 function META:FindGround(reach)
+	local GROUND_RAY_LIFT = GROUND_RAY_LIFT * self.Scale
 	local body = self.Owner.rigid_body
 	local physics = body:GetPhysics()
 	STEP_OPTIONS.Rotation = body:GetRotation()
@@ -816,9 +880,10 @@ function META:ApplyMode(mode)
 	local radius, height = self:GetDimensions()
 	local position = self.Owner.transform:GetPosition():Copy()
 	body:SetMotionType("dynamic")
-	body:SetShape(CapsuleShape.New(radius, height))
+	local transform_scale = self.Owner.transform:GetScale().y
+	body:SetShape(CapsuleShape.New(radius / transform_scale, height / transform_scale))
 	body:SetAutomaticMass(false)
-	body:SetMass(META.BodyMass)
+	body:SetMass(self.BodyMass)
 	body:SetCenterOffset(Vec3(0, height * 0.5, 0))
 	body:SetCCD(true)
 	body:SetCanSleep(false)
@@ -885,7 +950,7 @@ do
 		local smooth = offset.y
 
 		if smooth ~= 0 then
-			local decay = math.max(math.abs(smooth) * STEP_SMOOTH_SPEED, STEP_SMOOTH_MIN_SPEED) * dt
+			local decay = math.max(math.abs(smooth) * STEP_SMOOTH_SPEED, STEP_SMOOTH_MIN_SPEED * self.Scale) * dt
 			offset.y = math.abs(smooth) <= decay and 0 or smooth - math.sign(smooth) * decay
 		end
 	end

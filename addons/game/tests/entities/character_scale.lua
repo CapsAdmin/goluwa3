@@ -1,0 +1,81 @@
+local T = import("test/environment.lua")
+local Entity = import("goluwa/entities/entity.lua")
+local physics = import("goluwa/physics.lua")
+local BoxShape = import("goluwa/physics/shapes/box.lua")
+local usercmd = import("goluwa/network/usercmd.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+import("addons/game/lua/autorun/characters.lua")
+Entity.RegisterComponent("player_controller", import("lua/components/player_controller.lua"))
+Entity.RegisterComponent("character_movement", import("lua/components/character_movement.lua"))
+
+local function create_character(scale)
+	local character = Entity.New{
+		ComponentSet = {
+			"transform",
+			"player_controller",
+			"character_movement",
+			"character_pose",
+			"ragdoll",
+			"health",
+		},
+		transform = {Position = Vec3(0, 0.1, 0)},
+		player_controller = {Source = "queue"},
+		character_movement = {Scale = scale},
+	}
+	character.player_controller.cmd.mode = "walk"
+	character.player_controller.cmd.buttons = usercmd.BUTTON.ACTIVE
+	return character
+end
+
+local function run_forward(character, seconds)
+	for _ = 1, seconds * 60 do
+		character.player_controller.starved = 0
+		character.player_controller.cmd.forward = 1
+		physics.UpdateFixed(1 / 60)
+	end
+
+	return -character.transform:GetPosition().z
+end
+
+T.TestPhysics("a character scale multiplies the body, the eyes and the speeds", function()
+	Entity.New{
+		transform = {Position = Vec3(0, -0.5, 0), Scale = Vec3(400, 1, 400)},
+		rigid_body = {MotionType = "static", Shape = BoxShape.New(Vec3(1, 1, 1))},
+	}
+	local normal = create_character(1)
+	local tall = create_character(1.5)
+	local normal_movement, tall_movement = normal.character_movement, tall.character_movement
+	T(tall_movement:GetHeight())["~"](normal_movement:GetHeight() * 1.5, 1e-6)
+	T(tall_movement:GetEyeHeight())["~"](normal_movement:GetEyeHeight() * 1.5, 1e-6)
+	T(tall_movement:GetRadius())["~"](normal_movement:GetRadius() * 1.5, 1e-6)
+	T(tall_movement:GetGroundSpeed())["~"](normal_movement:GetGroundSpeed() * 1.5, 1e-6)
+	T(tall_movement:GetJumpSpeed())["~"](normal_movement:GetJumpSpeed() * 1.5, 1e-6)
+	T(tall_movement.BodyMass)["~"](normal_movement.BodyMass * 1.5 ^ 3, 1e-6)
+	T(tall.rigid_body:GetPhysicsShape():GetHeight())["~"](tall_movement:GetHeight(), 1e-6)
+	normal.transform:SetPosition(Vec3(-20, 0.1, 0))
+	tall.transform:SetPosition(Vec3(20, 0.1, 0))
+	local normal_distance = run_forward(normal, 2)
+	local tall_distance = run_forward(tall, 2)
+	T(tall_distance / normal_distance)["~"](1.5, 0.1)
+end)
+
+T.TestPhysics("changing the scale of a live character resizes its capsule", function()
+	local character = create_character(1)
+	local movement = character.character_movement
+	local height = movement:GetHeight()
+	movement:SetScale(2)
+	T(movement:GetHeight())["~"](height * 2, 1e-6)
+	T(character.rigid_body:GetPhysicsShape():GetHeight())["~"](height * 2, 1e-6)
+	movement:SetScale(1)
+	T(movement:GetHeight())["~"](height, 1e-6)
+	T(character.rigid_body:GetPhysicsShape():GetHeight())["~"](height, 1e-6)
+end)
+
+T.TestPhysics("a scaled character jumps as high relative to its body and stays in the air as long", function()
+	local normal = create_character(1).character_movement
+	local tall = create_character(2).character_movement
+	T((tall.JumpSpeed ^ 2 / tall.Gravity) / (normal.JumpSpeed ^ 2 / normal.Gravity))["~"](2, 1e-6)
+	T((tall.JumpSpeed / tall.Gravity) / (normal.JumpSpeed / normal.Gravity))["~"](1, 1e-6)
+	T(tall.SafeFallSpeed / normal.SafeFallSpeed)["~"](2, 1e-6)
+	T(tall.FatalFallSpeed / normal.FatalFallSpeed)["~"](2, 1e-6)
+end)

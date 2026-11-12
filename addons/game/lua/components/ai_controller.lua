@@ -247,7 +247,13 @@ function META:Finish(event_name)
 end
 
 function META:GetNav()
-	return GridNav.Get(self.Radius, self.Height, self.StepHeight, self.MaxDrop)
+	local scale = self.Owner.character_movement.Scale
+	return GridNav.Get(
+		self.Radius * scale,
+		self.Height * scale,
+		self.StepHeight * scale,
+		self.MaxDrop * scale
+	)
 end
 
 do
@@ -751,8 +757,8 @@ function META:NextCommand(dt)
 
 	cmd.aim:CopyFrom(view)
 	cmd.pressed = bit.band(cmd.buttons, bit.bnot(previous_buttons))
-	movement:SetGroundSpeed(speed)
-	movement:SetStopSpeed(self.WalkSpeed * STOP_SPEED_SHARE)
+	movement:SetGroundSpeed(speed * movement.Scale)
+	movement:SetStopSpeed(self.WalkSpeed * STOP_SPEED_SHARE * movement.Scale)
 	return cmd
 end
 
