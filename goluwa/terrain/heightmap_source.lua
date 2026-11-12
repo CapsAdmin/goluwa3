@@ -36,6 +36,14 @@ function HeightmapSource.New(data)
 	local indices = data.indices
 	local has_layers = indices ~= nil
 	local layers = data.layers or {}
+	-- with no more than four layers, layer id n is always slot n, so per slot settings (scatter
+	-- prototype layers) mean the same layer in every chunk; otherwise the most used layers of a chunk come first
+	local fixed_slots = true
+
+	for id in pairs(layers) do
+		if id < 1 or id > 4 then fixed_slots = false end
+	end
+
 	local uv = data.uv
 	local outside = data.outside
 	local outside_glsl
@@ -187,6 +195,17 @@ function HeightmapSource.New(data)
 				end)
 
 				local chunk_layers = {}
+
+				if fixed_slots then
+					local slot_ids = {}
+
+					for _, id in ipairs(ids) do
+						chunk_layers[id] = layers[id]
+						slot_ids[id] = id
+					end
+
+					return chunk_layers, slot_ids
+				end
 
 				for i = 9, #ids do
 					ids[i] = nil

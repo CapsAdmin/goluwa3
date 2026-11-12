@@ -159,7 +159,7 @@ end
 function tiles.GetShell(layers)
 	local shell = 0
 
-	for _, layer in ipairs(layers) do
+	for _, layer in pairs(layers) do
 		local relief = (
 				layer.height and
 				layer.height_scale or
