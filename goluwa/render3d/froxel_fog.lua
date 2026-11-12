@@ -157,21 +157,11 @@ end
 function froxel_fog.GetPointGLSL(block)
 	return screen_reconstruct.GetViewDepthGLSL(block) .. [[
 
-		float froxel_surface_depth(vec2 uv) {
-			float depth = textureLod(TEXTURE(]] .. block .. [[.depth_tex), uv, 0.0).r;
-			float view_depth = depth > 0.0 ? get_view_depth(uv, depth) : 1e30;
-			float air_distance = ]] .. block .. [[.water_distance_tex != -1 ? textureLod(TEXTURE(]] .. block .. [[.water_distance_tex), uv, 0.0).b : -1.0;
-			return air_distance >= 0.0 ? min(view_depth, air_distance / length(get_view_dir(uv))) : view_depth;
-		}
-
 		float froxel_point(ivec3 id, vec2 uv, float depth, out bool covered) {
-			float surface_depth = froxel_surface_depth(uv);
+			float surface_depth = texelFetch(tile_depth, id.xy, 0).r;
+			float air_distance = ]] .. block .. [[.water_distance_tex != -1 ? textureLod(TEXTURE(]] .. block .. [[.water_distance_tex), uv, 0.0).b : -1.0;
 
-			if (depth > surface_depth) {
-				for (int i = 0; i < 4; i++) {
-					surface_depth = max(surface_depth, froxel_surface_depth((vec2(id.xy) + vec2(i & 1, i >> 1) * 0.8 + 0.1) / ]] .. block .. [[.froxel_size));
-				}
-			}
+			if (air_distance >= 0.0) surface_depth = min(surface_depth, air_distance / length(get_view_dir(uv)));
 
 			covered = froxel_slice_depth(float(id.z) - 2.0) > surface_depth * 1.1;
 			return min(depth, froxel_surface_limit(surface_depth));
