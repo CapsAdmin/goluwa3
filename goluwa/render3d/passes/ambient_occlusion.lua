@@ -419,9 +419,47 @@ return {
 				vec4 motion = texture(TEXTURE(temporal_data.velocity_tex), uv);
 				vec2 history_uv = uv - motion.xy;
 
-				float history_depth = texelFetch(TEXTURE(temporal_data.history_bent_tex), clamp(ivec2(history_uv * vec2(size)), ivec2(0), size - 1), 0).w;
+				ivec2 history_texel = clamp(ivec2(history_uv * vec2(size)), ivec2(0), size - 1);
+				float depth_ratio = motion.z / max(current_bent.w, 1e-4);
+				float depth_min = 1e9;
+				float depth_max = 0.0;
+
+				for (int y = -1; y <= 1; y++) {
+					for (int x = -1; x <= 1; x++) {
+						float neighbor_depth = texelFetch(TEXTURE(temporal_data.raw_bent_tex), clamp(pos + ivec2(x, y), ivec2(0), size - 1), 0).w;
+
+						if (neighbor_depth > 0.0) {
+							depth_min = min(depth_min, neighbor_depth);
+							depth_max = max(depth_max, neighbor_depth);
+						}
+					}
+				}
+
+				float depth_spread = (depth_max - depth_min) * depth_ratio;
+				ivec2 history_pick = history_texel;
+				float history_depth = texelFetch(TEXTURE(temporal_data.history_bent_tex), history_texel, 0).w;
+
+				if (history_depth <= 0.0 || abs(history_depth - motion.z) > depth_spread + 0.05 * max(motion.z, 0.1)) {
+					history_depth = 0.0;
+					float history_pick_error = 1e9;
+
+					for (int y = -1; y <= 1; y++) {
+						for (int x = -1; x <= 1; x++) {
+							ivec2 texel = clamp(history_texel + ivec2(x, y), ivec2(0), size - 1);
+							float texel_depth = texelFetch(TEXTURE(temporal_data.history_bent_tex), texel, 0).w;
+
+							if (texel_depth > 0.0 && abs(texel_depth - motion.z) < history_pick_error) {
+								history_pick_error = abs(texel_depth - motion.z);
+								history_pick = texel;
+								history_depth = texel_depth;
+							}
+						}
+					}
+				}
+
+				bool history_exact = history_pick == history_texel;
 				bool valid = history_uv.x > 0.0 && history_uv.x < 1.0 && history_uv.y > 0.0 && history_uv.y < 1.0 && history_depth > 0.0;
-				float depth_error = abs(history_depth - motion.z) / max(motion.z, 0.1);
+				float depth_error = max(abs(history_depth - motion.z) - depth_spread, 0.0) / max(motion.z, 0.1);
 				float history_weight = 0.92 * (1.0 - smoothstep(0.05, 0.3, depth_error));
 
 				if (!valid || history_weight <= 0.0) {
@@ -454,11 +492,11 @@ return {
 				vec4 sigma = sqrt(max(mean_squared / 9.0 - mean * mean, vec4(0.0)));
 				wide_mean /= 25.0;
 				float wide_error = sqrt(max(wide_squared.a / 25.0 - wide_mean.a * wide_mean.a, 0.0));
-				vec4 history = texture(TEXTURE(temporal_data.history_ao_tex), history_uv);
+				vec4 history = history_exact ? texture(TEXTURE(temporal_data.history_ao_tex), history_uv) : texelFetch(TEXTURE(temporal_data.history_ao_tex), history_pick, 0);
 				history.rgb *= get_pre_exposure() / get_previous_pre_exposure();
 				history = clamp(history, mean - 2.0 * sigma, mean + 2.0 * sigma);
 				history_weight *= 1.0 - smoothstep(wide_error, 3.0 * wide_error + 0.02, abs(history.a - wide_mean.a));
-				vec4 history_bent = texture(TEXTURE(temporal_data.history_bent_tex), history_uv);
+				vec4 history_bent = history_exact ? texture(TEXTURE(temporal_data.history_bent_tex), history_uv) : texelFetch(TEXTURE(temporal_data.history_bent_tex), history_pick, 0);
 				imageStore(out_color, pos, mix(current, history, history_weight));
 				imageStore(out_bent_normal, pos, vec4(mix(current_bent.xyz, history_bent.xyz, history_weight), current_bent.w));
 			}
