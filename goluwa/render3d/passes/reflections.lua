@@ -29,6 +29,11 @@ local debug_scene = pvars.Setup2{
 	default = false,
 	help = "shows the scene the reflection rays trace, from the camera: the same hit shading, lights, probes and fog a reflection of it has (at the resolution of the reflections)",
 }
+local single_ray_roughness = pvars.Setup2{
+	key = "reflection_single_ray_roughness",
+	default = 0.8,
+	help = "perceptual roughness from which a rough pixel traces a single ray, its count falls to one from reflection_rough_rays over the 0.3 of roughness below this. a very rough lobe is smooth enough for the filter, which averages it over its widest disc, to make up for the rays (within a percent or two of the full count against a reference), so this trades little for the cost of the roughest surfaces. 2 keeps the full count",
+}
 local SCALES = scene_reflection.RESOLUTION_SCALES
 local resolution = pvars.Setup2{
 	key = "reflection_resolution",
@@ -117,6 +122,7 @@ local function get_uniform_buffers(with_ddgi)
 				{"raw_tex", "int"},
 				{"raw_distance_tex", "int"},
 				{"filter_radius", "float"},
+				{"single_ray_roughness", "float"},
 				{"trace_size", "ivec2"},
 				ibl.reflection_weight_block,
 				{"hit_reprojection", "int"},
@@ -143,6 +149,7 @@ local function get_uniform_buffers(with_ddgi)
 				block.rough_rays = rough_rays:Get()
 				block.debug_scene = debug_scene:Get() and 1 or 0
 				block.filter_radius = filter_radius:Get()
+				block.single_ray_roughness = single_ray_roughness:Get()
 				block.hit_reprojection = hit_reprojection:Get() and 1 or 0
 				block.trace_size[0], block.trace_size[1] = get_trace_size()
 				ibl.WriteReflectionWeightBlock(block)
@@ -478,7 +485,7 @@ return {
 
 				int rays = scene_reflection_ray_count(roughness, reflection_data.rough_rays);
 				smooth_surface = rays <= 1;
-				return rays;
+				return max(1, int(mix(float(rays), 1.0, smoothstep(reflection_data.single_ray_roughness - 0.3, reflection_data.single_ray_roughness, roughness)) + 0.5));
 			}
 
 			vec4 trace_reflection_pixel(ivec2 gbuffer_pos, int rays, out float hit_distance) {
