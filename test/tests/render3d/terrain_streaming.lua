@@ -222,3 +222,39 @@ T.Test("Terrain keeps a replaced tile until its replacements are drawn", functio
 	T(retiring)["=="](0)
 	assert_area_covered(terrain, 0, -32, 64, 32)
 end)
+
+T.Test("Terrain rebuilds the tiles over an invalidated box in place", function()
+	local terrain = create_terrain()
+	terrain:UpdateTiles(Vec3(0, 0, 0), FORWARD, HALF_ANGLE)
+	build_everything(terrain)
+	local before = {}
+
+	for key, tile in pairs(terrain.Tiles) do
+		before[key] = {entity = tile.entity, chunk_key = tile.chunk_key}
+	end
+
+	terrain:Invalidate(0, 0, 4, 4)
+	local queued = #terrain.BuildQueue
+	T(queued > 0)["=="](true)
+
+	for key, tile in pairs(terrain.Tiles) do
+		T(tile.entity == before[key].entity)["=="](true)
+	end
+
+	build_everything(terrain)
+	local rebuilt = 0
+
+	for key, tile in pairs(terrain.Tiles) do
+		local overlaps = tile.min_x < 4 and 0 < tile.max_x and tile.min_z < 4 and 0 < tile.max_z
+		T(tile.entity ~= before[key].entity)["=="](overlaps)
+		T(tile.rebuild_key == nil)["=="](true)
+
+		if overlaps then
+			rebuilt = rebuilt + 1
+			T(before[key].entity:IsValid())["=="](false)
+			T(terrain.Chunks[before[key].chunk_key] == nil)["=="](true)
+		end
+	end
+
+	T(rebuilt)["=="](queued)
+end)

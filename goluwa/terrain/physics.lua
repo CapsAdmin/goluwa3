@@ -43,6 +43,7 @@ function TerrainPhysics:BuildRequest(chunk_x, chunk_z)
 		min_x = chunk_x * self.ChunkSize,
 		min_z = chunk_z * self.ChunkSize,
 		size = self.ChunkSize,
+		generation = self.Terrain.Generation,
 		samples = self.Samples,
 	}
 end
@@ -107,6 +108,8 @@ function TerrainPhysics:Update(camera_position)
 
 			if collider.chunk_key then self.Terrain:ReleaseChunk(collider.chunk_key) end
 
+			if collider.rebuild_key then self.Terrain:ReleaseChunk(collider.rebuild_key) end
+
 			self.Colliders[key] = nil
 		end
 	end
@@ -128,6 +131,44 @@ function TerrainPhysics:Update(camera_position)
 	end
 end
 
+-- colliders over a box are built again and swapped once their chunk is ready
+function TerrainPhysics:Invalidate(box)
+	local chunk_size = self.ChunkSize
+
+	for key, collider in pairs(self.Colliders) do
+		local min_x, min_z = collider.chunk_x * chunk_size, collider.chunk_z * chunk_size
+
+		if
+			collider.entity and
+			min_x < box.max_x and
+			box.min_x < min_x + chunk_size and
+			min_z < box.max_z and
+			box.min_z < min_z + chunk_size
+		then
+			local old_rebuild = collider.rebuild_key
+			local generation = self.Terrain.Generation
+			collider.rebuild_generation = generation
+			collider.rebuild_key = self.Terrain:AcquireChunk(
+				self:BuildRequest(collider.chunk_x, collider.chunk_z),
+				function(chunk)
+					if self.Colliders[key] ~= collider or collider.rebuild_generation ~= generation then
+						return
+					end
+
+					collider.entity:Remove()
+					collider.entity = self:CreateCollider(key, collider.chunk_x, collider.chunk_z, chunk)
+					self.Terrain:ReleaseChunk(collider.chunk_key)
+					collider.chunk_key = collider.rebuild_key
+					collider.rebuild_key = nil
+				end,
+				-1
+			)
+
+			if old_rebuild then self.Terrain:ReleaseChunk(old_rebuild) end
+		end
+	end
+end
+
 function TerrainPhysics:Remove()
 	foliage_field.SetTerrain(nil)
 
@@ -135,6 +176,8 @@ function TerrainPhysics:Remove()
 		if collider.entity then collider.entity:Remove() end
 
 		if collider.chunk_key then self.Terrain:ReleaseChunk(collider.chunk_key) end
+
+		if collider.rebuild_key then self.Terrain:ReleaseChunk(collider.rebuild_key) end
 
 		self.Colliders[key] = nil
 	end

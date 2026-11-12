@@ -223,6 +223,8 @@ function HeightmapSource.New(data)
 		Layers = {},
 	}
 	source.Data = data
+	source.HeightTexture = height_texture
+	source.IndexTexture = index_texture
 	return source
 end
 
@@ -232,6 +234,14 @@ function HeightmapSource.ToMap(data, x, z)
 	local uv = data.uv
 	local px, pz = x - data.origin[1], z - data.origin[2]
 	return (uv[1] * px + uv[2] * pz) / size, (uv[3] * px + uv[4] * pz) / size
+end
+
+-- uploads the height samples and the layer map again after they were edited
+function HeightmapSource.UploadMaps(source)
+	local data = source.Data
+	source.HeightTexture:Upload(data.height.samples)
+
+	if source.IndexTexture then source.IndexTexture:Upload(data.indices.samples) end
 end
 
 -- the height in meters at a world position, bilinear in the samples

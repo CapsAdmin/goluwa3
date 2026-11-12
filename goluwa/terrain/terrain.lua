@@ -19,14 +19,15 @@ end
 
 local function build_chunk_key(request)
 	return string.format(
-		"%d:%d:%d:%s:%s:%s:%s",
+		"%d:%d:%d:%s:%s:%s:%s:%d",
 		request.min_x,
 		request.min_z,
 		request.size,
 		tostring(request.samples),
 		tostring(request.detail_size),
 		tostring(request.splat_size),
-		tostring(request.color_size)
+		tostring(request.color_size),
+		request.generation or 0
 	)
 end
 
@@ -89,6 +90,7 @@ function Terrain.New(config)
 	self.Physics = nil
 	self.time_until_update = 0
 	self.UpdateId = self.Name .. "_update"
+	self.Generation = 0
 	return self
 end
 
@@ -246,6 +248,7 @@ function Terrain:BuildTileRequest(level, chunk_x, chunk_z)
 		min_x = chunk_x * chunk_size,
 		min_z = chunk_z * chunk_size,
 		size = chunk_size,
+		generation = self.Generation,
 		samples = self.Samples,
 		detail_size = math.max(math.floor(self.DetailSize / detail_divisor), 32),
 		splat_size = math.max(math.floor(self.SplatSize / detail_divisor), 16),
@@ -342,6 +345,74 @@ function Terrain:CreateTile(want, chunk)
 	}
 end
 
+local function tiles_overlap(a, b)
+	return a.min_x < b.max_x and
+		b.min_x < a.max_x and
+		a.min_z < b.max_z and
+		b.min_z < a.max_z
+end
+
+local function set_tile_hidden(self, tile, hidden)
+	tile.hidden = hidden
+
+	if not hidden then tile.shown = self:GetFrame() end
+
+	if tile.bvh_entity then tile.bvh_entity.visual:SetVisible(not hidden) end
+
+	if not tile.entity or not tile.entity.visual then return end
+
+	tile.entity.visual:SetVisible(not hidden)
+	tile.entity.visual:SetCastShadows(not hidden and tile.level < self.ShadowLevels)
+end
+
+-- the source changed inside a box: tiles and colliders over it are baked again and swapped in place once
+-- the new chunk is ready, so nothing disappears meanwhile
+function Terrain:Invalidate(min_x, min_z, max_x, max_z)
+	self.Generation = self.Generation + 1
+	local box = {min_x = min_x, min_z = min_z, max_x = max_x, max_z = max_z}
+
+	for key, tile in pairs(self.Tiles) do
+		if tile.entity and tiles_overlap(tile, box) then
+			local generation = self.Generation
+			local want = {key = key, level = tile.level, chunk_x = tile.chunk_x, chunk_z = tile.chunk_z}
+			local old_rebuild = tile.rebuild_key
+			tile.rebuild_generation = generation
+			tile.rebuild_key = self:AcquireChunk(
+				self:BuildTileRequest(tile.level, tile.chunk_x, tile.chunk_z),
+				function(chunk)
+					if self.Tiles[key] ~= tile or tile.removed or tile.rebuild_generation ~= generation then
+						return
+					end
+
+					local built = self:CreateTile(want, chunk)
+					tile.entity:Remove()
+
+					if tile.bvh_entity then
+						tile.bvh_entity:Remove()
+						tile.bvh_entity = nil
+						tile.bvh_time = system.GetUnscaledElapsedTime()
+					end
+
+					self:ReleaseChunk(tile.chunk_key)
+					tile.chunk_key = tile.rebuild_key
+					tile.rebuild_key = nil
+					tile.entity = built.entity
+					tile.polygon = built.polygon
+					tile.chunk = chunk
+					tile.material = built.material
+					tile.scatter_entry = tile.material:GetScatterSet() and tile.entity.visual:GetRenderEntries()[1] or nil
+					set_tile_hidden(self, tile, tile.hidden)
+				end,
+				-1
+			)
+
+			if old_rebuild then self:ReleaseChunk(old_rebuild) end
+		end
+	end
+
+	if self.Physics then self.Physics:Invalidate(box) end
+end
+
 function Terrain:CreateBVHEntity(tile)
 	local entity = Entity.New{
 		Name = tile.entity:GetName() .. "_bvh",
@@ -382,26 +453,8 @@ function Terrain:RemoveTile(tile)
 	end
 
 	if tile.chunk_key then self:ReleaseChunk(tile.chunk_key) end
-end
 
-local function tiles_overlap(a, b)
-	return a.min_x < b.max_x and
-		b.min_x < a.max_x and
-		a.min_z < b.max_z and
-		b.min_z < a.max_z
-end
-
-local function set_tile_hidden(self, tile, hidden)
-	tile.hidden = hidden
-
-	if not hidden then tile.shown = self:GetFrame() end
-
-	if tile.bvh_entity then tile.bvh_entity.visual:SetVisible(not hidden) end
-
-	if not tile.entity or not tile.entity.visual then return end
-
-	tile.entity.visual:SetVisible(not hidden)
-	tile.entity.visual:SetCastShadows(not hidden and tile.level < self.ShadowLevels)
+	if tile.rebuild_key then self:ReleaseChunk(tile.rebuild_key) end
 end
 
 function Terrain:IsTileReplaced(tile)
