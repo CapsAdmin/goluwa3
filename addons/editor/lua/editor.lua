@@ -15,6 +15,9 @@ local Gizmo = import("lua/gizmo.lua")
 local highlight = import("lua/highlight.lua")
 local brush_editor = import("lua/brush_editor.lua")
 local terrain_editor = import("lua/terrain_editor.lua")
+local Brush = import("goluwa/entities/components/brush.lua")
+local static_world = import("goluwa/entities/components/static_world.lua")
+local units = import("goluwa/source_engine/units.lua")
 local Breadcrumb = react.Element(import("goluwa/render2d/ui/widgets/breadcrumb.lua"))
 local IconButton = react.Element(import("goluwa/render2d/ui/widgets/icon_button.lua"))
 local MenuBar = react.Element(import("goluwa/render2d/ui/widgets/menu_bar.lua"))
@@ -56,6 +59,8 @@ local COMPONENT_ORDER = {
 local NEARBY_COUNT = 10
 local NEARBY_SETTLE_TIME = 0.3
 local SPAWN_DISTANCE = 200
+local BRUSH_MATERIAL = "dev/dev_measuregeneric01"
+local BRUSH_GRID = 8
 
 local function is_hidden(entity, editor_window)
 	if entity == editor_window then return true end
@@ -348,6 +353,13 @@ local function open_node_menu(node, h)
 						h.pick_child_prefab(node.Root, node.Owner)
 					end,
 				},
+				MenuItem{
+					Text = "Brush",
+					Icon = "cube",
+					OnClick = function()
+						h.create_brush(node.Root)
+					end,
+				},
 				h.can_paste(node.Root) and
 				MenuItem{
 					Text = "Paste " .. f.cut:GetName(),
@@ -457,6 +469,15 @@ local function open_node_menu(node, h)
 				Icon = "layers",
 				OnClick = function()
 					h.pick_child_prefab(entity)
+				end,
+			} or
+			nil,
+			can_create_shapes and
+			MenuItem{
+				Text = "Brush",
+				Icon = "cube",
+				OnClick = function()
+					h.create_brush(entity)
 				end,
 			} or
 			nil,
@@ -659,6 +680,47 @@ local Editor = react.Component(
 							tree.current:Refresh()
 						end,
 					}
+				end
+
+				-- a box brush standing on the surface in front of the camera, in the static world of target or the
+				-- first one in the scene; a new static world is made when there is none
+				function h.create_brush(target)
+					local world = target.static_world or static_world.Find(target)
+
+					if not world then
+						for _, root in ipairs(Entity.World:GetChildren()) do
+							if root.static_world then
+								world = root.static_world
+
+								break
+							end
+						end
+					end
+
+					editor_history.Begin("create brush")
+
+					if not world then
+						local entity = Entity.New{Name = "world geometry", Parent = Entity.World}
+						entity:SetTransient(false)
+						entity:AddComponent("transform")
+						world = entity:AddComponent("static_world")
+						editor_history.RecordCreate("create world geometry", entity)
+					end
+
+					local position = get_spawn_position()
+					local a = units.PositionFromEngine(position - Vec3(1, 0, 1))
+					local b = units.PositionFromEngine(position + Vec3(1, 2, 1))
+					local min, max = Vec3(), Vec3()
+
+					for _, axis in ipairs{"x", "y", "z"} do
+						min[axis] = math.floor(math.min(a[axis], b[axis]) / BRUSH_GRID + 0.5) * BRUSH_GRID
+						max[axis] = math.floor(math.max(a[axis], b[axis]) / BRUSH_GRID + 0.5) * BRUSH_GRID
+					end
+
+					local entity = Brush.CreateBox(world.Owner, min, max, BRUSH_MATERIAL)
+					editor_history.RecordCreate("create brush", entity)
+					editor_history.End()
+					h.set_selected_target(entity)
 				end
 
 				function h.can_cut(entity)

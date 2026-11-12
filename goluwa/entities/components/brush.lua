@@ -39,6 +39,8 @@ function META:OnShapeChanged()
 		objects.NotifyPropertyListeners(self, {var_name = "DynamicProperties"})
 	end
 
+	objects.NotifyPropertyListeners(self, {var_name = "Size"})
+
 	if self.world then self.world:MarkDirty(self) end
 end
 
@@ -354,6 +356,47 @@ do
 end
 
 do
+	local function get_bounds(brush)
+		local min = Vec3(math.huge, math.huge, math.huge)
+		local max = Vec3(-math.huge, -math.huge, -math.huge)
+		local vertices = brush:GetVertices()
+
+		for _, vertex in ipairs(vertices) do
+			min.x, min.y, min.z = math.min(min.x, vertex.x), math.min(min.y, vertex.y), math.min(min.z, vertex.z)
+			max.x, max.y, max.z = math.max(max.x, vertex.x), math.max(max.y, vertex.y), math.max(max.z, vertex.z)
+		end
+
+		return min, max, vertices
+	end
+
+	-- the size of the brush's bounding box in meters on the engine axes
+	function META:GetSize()
+		local min, max = get_bounds(self)
+		local size = max - min
+		return Vec3(size.y, size.z, size.x) * units.meters
+	end
+
+	-- stretches the brush about the center of its bounding box so the box gets this size
+	function META:SetSize(size)
+		local min, max, vertices = get_bounds(self)
+		local center = (min + max) / 2
+		local old = max - min
+		local new = Vec3(size.z, size.x, size.y) / units.meters
+		local points = {}
+
+		for i, vertex in ipairs(vertices) do
+			points[i] = Vec3(
+				center.x + (vertex.x - center.x) * math.max(new.x, 1) / math.max(old.x, 1),
+				center.y + (vertex.y - center.y) * math.max(new.y, 1) / math.max(old.y, 1),
+				center.z + (vertex.z - center.z) * math.max(new.z, 1) / math.max(old.z, 1)
+			)
+		end
+
+		return self:RebuildFromPoints(points, self.sides, {})
+	end
+end
+
+do
 	local DEFAULT_VECS = {
 		x = {0, 1 / 256, 0, 0, 0, 0, -1 / 256, 0},
 		y = {1 / 256, 0, 0, 0, 0, 0, -1 / 256, 0},
@@ -394,6 +437,17 @@ do
 
 	function META:GetDynamicProperties()
 		local properties = {
+			{
+				var_name = "Size",
+				type = "vec3",
+				category = "Shape",
+				get = function(brush)
+					return brush:GetSize()
+				end,
+				set = function(brush, size)
+					brush:SetSize(size)
+				end,
+			},
 			{
 				var_name = "Set all",
 				type = "action",
