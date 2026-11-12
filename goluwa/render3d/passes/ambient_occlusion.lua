@@ -453,7 +453,7 @@ return {
 				mean /= 9.0;
 				vec4 sigma = sqrt(max(mean_squared / 9.0 - mean * mean, vec4(0.0)));
 				wide_mean /= 25.0;
-				float wide_error = sqrt(max(wide_squared.a / 25.0 - wide_mean.a * wide_mean.a, 0.0)) / 5.0;
+				float wide_error = sqrt(max(wide_squared.a / 25.0 - wide_mean.a * wide_mean.a, 0.0));
 				vec4 history = texture(TEXTURE(temporal_data.history_ao_tex), history_uv);
 				history.rgb *= get_pre_exposure() / get_previous_pre_exposure();
 				history = clamp(history, mean - 2.0 * sigma, mean + 2.0 * sigma);
