@@ -567,7 +567,9 @@ function Animator:OnFirstCreated()
 	end)
 
 	event.AddListener("Update", "animators", function(dt)
-		local camera = import("goluwa/render3d/render3d.lua").GetCamera():GetPosition()
+		local render3d = import("goluwa/render3d/render3d.lua")
+		local camera = render3d.GetCamera():GetPosition()
+		local view_scale = render3d.GetViewScale()
 		local now = system.GetElapsedTime()
 
 		for _, animator in ipairs(Animator.Instances) do
@@ -579,7 +581,7 @@ function Animator:OnFirstCreated()
 				if animator.skeleton and animator.targets[1] and visual:IsWithinCullDistance() then
 					local m = animator.Owner.transform:GetWorldMatrix()
 					local dx, dy, dz = m.m30 - camera.x, m.m31 - camera.y, m.m32 - camera.z
-					local interval = Animator.GetUpdateInterval(math.sqrt(dx * dx + dy * dy + dz * dz))
+					local interval = Animator.GetUpdateInterval(math.sqrt(dx * dx + dy * dy + dz * dz) / view_scale)
 					local bucket = interval > 0 and math.floor(now / interval + animator.phase) or nil
 
 					if bucket == nil or bucket ~= animator.update_bucket then
