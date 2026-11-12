@@ -679,8 +679,9 @@ return {
 				);
 				float hit_shift_per_texel = texel_size + 2.0 * hit_distance * normal_change;
 				float max_radius = max(1.0, reflection_data.filter_radius * 2.0 / float(texel_step.x));
-				float disc_radius = clamp(lobe_width / max(hit_shift_per_texel, 1e-5), 1.0, max_radius);
-				float disc_turn = 6.2831853 * fract(52.9829189 * fract(dot(vec2(pos), vec2(0.06711056, 0.00583715))));
+				float blur_texels = lobe_width / max(hit_shift_per_texel, 1e-5);
+				float disc_radius = clamp(blur_texels, 1.0, max_radius);
+				float disc_turn = 6.2831853 * fract(52.9829189 * fract(dot(vec2(pos), vec2(0.06711056, 0.00583715))) + 0.61803399 * float(reflection_data.frame_index % 64));
 				vec3 center_world = get_world_pos(uv, depth);
 
 				bool mirror = has_own && roughness <= 0.02;
@@ -784,7 +785,7 @@ return {
 								vec2 image_shift = image_clip.xy / image_clip.w * 0.5 - static_clip.xy / static_clip.w * 0.5;
 								float uncorrected = smoothstep(0.1, 0.5, roughness);
 								prev_uv += image_shift * (1.0 - uncorrected);
-								history_weight_scale = 1.0 - 0.5 * smoothstep(1.0, 6.0, length(image_shift * uncorrected * vec2(gbuffer_size)));
+								history_weight_scale = 1.0 - 0.5 * smoothstep(1.0, 6.0, length(image_shift * uncorrected * vec2(gbuffer_size)) / max(blur_texels * float(texel_step.x) * 0.25, 1.0));
 							}
 						}
 
