@@ -583,15 +583,71 @@ do
 			}
 		end
 
-		local entity = Entity.New{Name = "brush", Parent = parent}
-		entity:AddComponent("transform")
-		entity:SetTransient(false)
-		entity.transform:SetPosition(units.PositionToEngine((min + max) / 2))
-		local brush = entity:AddComponent("brush")
-		brush.sides = sides
-		brush:Attach()
-		return entity
+		return META.Create(parent, sides, "brush")
 	end
+end
+
+-- a brush entity with these sides (Source units, world space) under parent, its transform at the center of its faces
+function META.Create(parent, sides, name)
+	local entity = Entity.New{Name = name, Parent = parent}
+	entity:AddComponent("transform")
+	entity:SetTransient(false)
+	local brush = entity:AddComponent("brush")
+	brush.sides = sides
+	brush:Recenter()
+	brush:Attach()
+	return entity
+end
+
+-- subtracts this brush from every brush of its static world that it overlaps: each one is replaced by the convex
+-- pieces left of it. Returns {{target = entity, pieces = {entity, ...}}, ...}, the targets are left to the caller
+function META:Carve()
+	local world = self.world or static_world.Find(self.Owner)
+	local min, max = Vec3(math.huge, math.huge, math.huge), Vec3(-math.huge, -math.huge, -math.huge)
+
+	for _, vertex in ipairs(self:GetVertices()) do
+		min.x, min.y, min.z = math.min(min.x, vertex.x), math.min(min.y, vertex.y), math.min(min.z, vertex.z)
+		max.x, max.y, max.z = math.max(max.x, vertex.x), math.max(max.y, vertex.y), math.max(max.z, vertex.z)
+	end
+
+	local results = {}
+
+	for _, component in ipairs(list.copy(world.source_list)) do
+		local record = world.records[component]
+
+		if
+			component ~= self and
+			component.Type == "brush" and
+			world.sources[component] and
+			not (
+				record and
+				(
+					record.mins.x > max.x or
+					record.mins.y > max.y or
+					record.mins.z > max.z or
+					record.maxs.x < min.x or
+					record.maxs.y < min.y or
+					record.maxs.z < min.z
+				)
+			)
+		then
+			local pieces = brush_geometry.Subtract(component.sides, self.sides)
+
+			if pieces then
+				local target = component.Owner
+				local created = {}
+
+				for i, sides in ipairs(pieces) do
+					created[i] = META.Create(target:GetParent(), sides, target:GetName())
+					created[i].brush:SetCollide(component.Collide)
+				end
+
+				results[#results + 1] = {target = target, pieces = created}
+			end
+		end
+	end
+
+	return results
 end
 
 return META:Register()

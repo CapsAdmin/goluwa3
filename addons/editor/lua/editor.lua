@@ -481,6 +481,16 @@ local function open_node_menu(node, h)
 				end,
 			} or
 			nil,
+			can_remove and
+			entity.brush and
+			MenuItem{
+				Text = "Carve",
+				Icon = "minus",
+				OnClick = function()
+					h.carve(entity)
+				end,
+			} or
+			nil,
 			can_create_shapes and
 			can_remove and
 			not scene.IsTransientEntity(entity)
@@ -719,6 +729,22 @@ local Editor = react.Component(
 
 					local entity = Brush.CreateBox(world.Owner, min, max, BRUSH_MATERIAL)
 					editor_history.RecordCreate("create brush", entity)
+					editor_history.End()
+					h.set_selected_target(entity)
+				end
+
+				-- subtracts the brush from the brushes it overlaps, the brush stays as it is
+				function h.carve(entity)
+					editor_history.Begin("carve with " .. entity:GetName())
+
+					for _, result in ipairs(entity.brush:Carve()) do
+						for _, piece in ipairs(result.pieces) do
+							editor_history.RecordCreate("carve piece", piece)
+						end
+
+						editor_history.RemoveEntity(result.target)
+					end
+
 					editor_history.End()
 					h.set_selected_target(entity)
 				end
