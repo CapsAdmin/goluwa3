@@ -388,7 +388,7 @@ do
 				function(path, size, data, ext)
 					local lower = path:lower()
 
-					if found[lower] then return end
+					if found[lower] or lower:find("/%.") then return end
 
 					if accepts and not accepts(lower, ext) then return end
 
