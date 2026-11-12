@@ -349,17 +349,18 @@ local function finish_loading(proto, entries)
 	for _, entry in ipairs(entries) do
 		local polygon = entry.mesh
 		local mesh = polygon:GetMesh()
+		local material = entry.material or render3d.GetDefaultMaterial()
 
-		if polygon:GetLODLevel() == 0 and not polygon:GetLODBillboard() and mesh:IsValid() then
+		if override_slots then
+			material = override_slots[polygon:GetMaterialSlot()] or material
+		elseif override_material then
+			material = override_material
+		end
+
+		if material:GetNoDraw() then
+			goto continue
+		elseif polygon:GetLODLevel() == 0 and not polygon:GetLODBillboard() and mesh:IsValid() then
 			assert(mesh.index_buffer, proto.name .. " has a mesh without indices")
-			local material = entry.material or render3d.GetDefaultMaterial()
-
-			if override_slots then
-				material = override_slots[polygon:GetMaterialSlot()] or material
-			elseif override_material then
-				material = override_material
-			end
-
 			local aabb = polygon:GetAABB()
 			min_x, min_y, min_z = math.min(min_x, aabb.min_x),
 			math.min(min_y, aabb.min_y),
@@ -380,19 +381,13 @@ local function finish_loading(proto, entries)
 			end
 
 			if level == lod_level then
-				local material = entry.material or render3d.GetDefaultMaterial()
-
-				if override_slots then
-					material = override_slots[polygon:GetMaterialSlot()] or material
-				elseif override_material then
-					material = override_material
-				end
-
 				if proto.bending then material:SetBending(proto.bending) end
 
 				lod_parts[#lod_parts + 1] = {mesh = mesh, polygon = polygon, material = material}
 			end
 		end
+
+		::continue::
 	end
 
 	if not proto.parts[1] then
