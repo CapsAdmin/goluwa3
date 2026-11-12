@@ -116,3 +116,20 @@ T.Test("Scene load updates singleton entities in place", function()
 	singleton:Remove()
 	fs.remove_directory_recursive(scene.GetSceneDirectory(name))
 end)
+
+T.TestPhysics("Scene keeps a rigid body built from data and drops one with a shape set in code", function()
+	local BoxShape = import("goluwa/physics/shapes/box.lua")
+	local plain = Entity.New{Name = "plain_body", Parent = Entity.World}
+	plain:SetTransient(false)
+	plain:AddComponent("transform")
+	plain:AddComponent("rigid_body", {Mass = 3})
+	local coded = Entity.New{Name = "coded_body", Parent = Entity.World}
+	coded:SetTransient(false)
+	coded:AddComponent("transform")
+	coded:AddComponent("rigid_body", {Shape = BoxShape.New(Vec3(1, 1, 1))})
+	local records = scene.SerializeEntities{plain, coded}.entities
+	T(records[1].components.rigid_body.Mass)["=="](3)
+	T(records[2].components.rigid_body == nil)["=="](true)
+	plain:Remove()
+	coded:Remove()
+end)

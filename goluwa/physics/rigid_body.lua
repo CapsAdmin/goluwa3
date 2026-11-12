@@ -679,8 +679,9 @@ function RigidBody:LoadShapeModel()
 	)
 end
 
+-- shapes set from code are objects a scene can not store; a body without one builds its colliders from data
 function RigidBody:ShouldSerialize()
-	return self.ShapeModelPath ~= ""
+	return self.ShapeModelPath ~= "" or self.Shape == nil and self.Shapes == nil
 end
 
 function RigidBody:OnDeserialized()
