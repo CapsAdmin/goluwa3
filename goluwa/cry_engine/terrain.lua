@@ -137,6 +137,7 @@ local function get_or_create_cry_terrain_layers(terrain)
 					surface_type.detail_material_path
 				)
 			end
+					ice = material.cry_ice_absorption or 0,
 		end
 	end
 

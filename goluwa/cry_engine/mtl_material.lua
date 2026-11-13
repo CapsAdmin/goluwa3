@@ -234,6 +234,17 @@ end
 
 local function apply_cry_material_node(self, material_node, material_path)
 	local attrs = material_node.attrs or {}
+local ICE_ABSORPTION_DEFAULTS = {
+	["terrainice.layer"] = 10,
+	ice = 15,
+	iceoutdoor = 15,
+	iceindoor = 15,
+}
+
+local function is_terrain_layer_shader(shader)
+	return shader == "Terrain.Layer" or shader == "TerrainIce.Layer"
+end
+
 	local shader = attrs.Shader or ""
 	local gen_mask = tonumber(attrs.GenMask) or 0
 	local shader_masks = GEN_MASKS[shader] or {}
@@ -284,6 +295,15 @@ local function apply_cry_material_node(self, material_node, material_path)
 	local params = self.cry_public_params
 
 	do
+	local ice_absorption_default = ICE_ABSORPTION_DEFAULTS[shader:lower()]
+
+	if ice_absorption_default then
+		self.cry_ice_absorption = tonumber(params.Absorption) or ice_absorption_default
+
+		if not is_terrain_layer_shader(shader) then
+			self:SetIceAbsorption(self.cry_ice_absorption)
+		end
+	end
 		local r, g, b = unpack_csv_numbers(attrs.Specular)
 		self.cry_specular_color = Color(r or 0, g or 0, b or 0, 1)
 	end
@@ -299,7 +319,7 @@ local function apply_cry_material_node(self, material_node, material_path)
 	do
 		local r, g, b = unpack_csv_numbers(attrs.Diffuse)
 
-		if shader ~= "Terrain.Layer" then
+		if not is_terrain_layer_shader(shader) then
 			local scale = mtl_material.DIFFUSE_COLOR_SCALE
 			r, g, b = (r or 1) * scale, (g or 1) * scale, (b or 1) * scale
 		end
