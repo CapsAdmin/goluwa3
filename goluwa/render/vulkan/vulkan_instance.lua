@@ -20,6 +20,10 @@ if jit.os == "OSX" then
 	process.setenv("VK_LAYER_PATH", VULKAN_SDK .. "/macOS/share/vulkan/explicit_layer.d")
 end
 
+if jit.os == "Linux" and not os.getenv("__GL_SHADER_DISK_CACHE_SIZE") then
+	process.setenv("__GL_SHADER_DISK_CACHE_SIZE", tostring(16 * 1024 * 1024 * 1024))
+end
+
 local VulkanInstance = objects.CreateTemplate("render_vulkan_instance")
 
 function VulkanInstance.New(surface_handle, display_handle, pipeline_cache_data)
