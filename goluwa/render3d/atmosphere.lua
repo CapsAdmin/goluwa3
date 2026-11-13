@@ -5,6 +5,7 @@ local system = import("goluwa/system.lua")
 local Texture = import("goluwa/render/texture.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local scattering = import("goluwa/render3d/atmosphere_scattering.lua")
+local media = import("goluwa/render3d/media.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 atmosphere.stars_texture = nil
@@ -179,7 +180,19 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 		"1.0"
 	) .. [[;
 	const float GROUND_FOG_TOP_SOFTNESS = 0.3;
-	const float GROUND_FOG_MIE_G = 0.6;
+	const float GROUND_FOG_MIE_G = ]] .. string.format("%.4f", media.presets.fog.PhaseG) .. [[;
+	const vec3 GROUND_FOG_ALBEDO = ]] .. string.format(
+		"vec3(%.5f, %.5f, %.5f)",
+		media.presets.fog.Scattering.x / (
+				media.presets.fog.Scattering.x + media.presets.fog.Absorption.x
+			),
+		media.presets.fog.Scattering.y / (
+				media.presets.fog.Scattering.y + media.presets.fog.Absorption.y
+			),
+		media.presets.fog.Scattering.z / (
+				media.presets.fog.Scattering.z + media.presets.fog.Absorption.z
+			)
+	) .. [[;
 	const float GROUND_FOG_IRRADIANCE_FRACTION = 0.33;
 	const float GROUND_FOG_IRRADIANCE_THICKNESS = 1.685;
 	const int GROUND_FOG_OCTAVES = 3;
@@ -961,7 +974,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 
 		if (ATMOSPHERE_FOG_COLOR.w > 0.5) lit *= ATMOSPHERE_FOG_COLOR.rgb;
 
-		return lit * ground_fog_extinction(point);
+		return lit * ground_fog_extinction(point) * GROUND_FOG_ALBEDO;
 	}
 
 	vec4 integrate_ground_fog_segment(

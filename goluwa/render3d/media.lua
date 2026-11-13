@@ -28,6 +28,14 @@ media.presets = {
 			porous_color = {0.92, 0.96, 1.0},
 		},
 	},
+	fog = {
+		Absorption = Vec3(0, 0, 0),
+		Scattering = Vec3(1, 1, 1),
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = 0.6,
+		IOR = 1.0003,
+		AbbeNumber = 0,
+	},
 	ocean = water(Vec3(0.45, 0.065, 0.021), Vec3(0.030, 0.034, 0.042)),
 	open_ocean = water(Vec3(0.46, 0.072, 0.051), Vec3(0.126, 0.142, 0.174)),
 	temperate_sea = water(Vec3(0.47, 0.089, 0.137), Vec3(0.342, 0.386, 0.472)),
@@ -102,14 +110,42 @@ function media.WriteSlots(out)
 	end
 end
 
-local defined = 0
-
 function media.Define(absorption, scattering)
-	defined = defined + 1
-	local name = "defined_" .. defined
+	local name = string.format(
+		"custom:%.5f,%.5f,%.5f:%.5f,%.5f,%.5f",
+		absorption.x,
+		absorption.y,
+		absorption.z,
+		scattering.x,
+		scattering.y,
+		scattering.z
+	)
 	media.presets[name] = water(absorption, scattering)
 	return name
 end
+
+setmetatable(
+	media.presets,
+	{
+		__index = function(presets, name)
+			if type(name) ~= "string" or name:sub(1, 7) ~= "custom:" then return nil end
+
+			local numbers = {}
+
+			for number in name:gmatch("[-%d.e]+") do
+				numbers[#numbers + 1] = tonumber(number)
+			end
+
+			assert(#numbers == 6, "malformed custom medium " .. name)
+			local preset = water(
+				Vec3(numbers[1], numbers[2], numbers[3]),
+				Vec3(numbers[4], numbers[5], numbers[6])
+			)
+			rawset(presets, name, preset)
+			return preset
+		end,
+	}
+)
 
 function media.GetExtinction(name)
 	local preset = media.presets[name]

@@ -552,7 +552,7 @@ local scatter_pass = {
 				}
 			}
 
-			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction;
+			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction * GROUND_FOG_ALBEDO;
 
 			imageStore(out_scatter, id, vec4(scattering, covered ? 0.0 : 1.0));
 		}

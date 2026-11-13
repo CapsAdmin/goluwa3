@@ -203,3 +203,17 @@ T.Test("the medium feature takes its optical data from a media slot", function()
 	media.presets.test_amber = nil
 	T(pcall(media.Acquire, "test_amber", 1))["=="](false)
 end)
+
+T.Test("a defined medium keeps its data in its name", function()
+	local media = import("goluwa/render3d/media.lua")
+	local Vec3 = import("goluwa/structs/vec3.lua")
+	local name = media.Define(Vec3(0.5, 0.11, 0.19), Vec3(0.025, 0.035, 0.03))
+	rawset(media.presets, name, nil)
+	local preset = media.presets[name]
+	T(preset.Absorption.y)["~"](0.11, 1e-5)
+	T(preset.Scattering.z)["~"](0.03, 1e-5)
+	T(preset.PhaseG)["=="](media.PARTICLE_PHASE_G)
+	T(pcall(function()
+		return media.presets["custom:nonsense"]
+	end))["=="](false)
+end)

@@ -2,6 +2,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
 local Entity = import("goluwa/entities/entity.lua")
+local media = import("goluwa/render3d/media.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local assets = import("goluwa/assets.lua")
 import("goluwa/render3d/ddgi.lua").VISIBILITY_RAYS = 0
@@ -840,6 +841,29 @@ sweep(
 	sphere_on_grid
 )
 
+local SCATTERING_SCALES = {0, 1, 4, 16}
+local scattering_row = group("medium_scattering", medium)
+
+for i, scale in ipairs(SCATTERING_SCALES) do
+	local preset = table.shallow_copy(media.presets.ice)
+	preset.Scattering = media.presets.ice.Scattering * scale
+	media.presets["ice_scattering_" .. i] = preset
+	medium_block(
+		scattering_row,
+		"medium_scattering_" .. (i - 1),
+		(i - (#SCATTERING_SCALES + 1) / 2) * SPACING,
+		MEDIUM_Z + 7.8,
+		material{
+			Color = Color(1, 1, 1, 1),
+			Roughness = 0.05,
+			Metallic = 0,
+			SpecularMultiplier = 0.45,
+			Medium = "ice_scattering_" .. i,
+			MediumDensity = 1.4,
+		}
+	)
+end
+
 local ice_boxes = group("ice_boxes")
 local BOX_Z = 120
 local BOX_SIZE = 3
@@ -981,6 +1005,66 @@ local lit_sphere = ice_sphere("ice_sphere_lit_inside", -9)
 box_light(lit_sphere, "red_light", Vec3(-9.45, 1.1, BOX_Z), Color(1, 0.1, 0.05, 1))
 box_light(lit_sphere, "green_light", Vec3(-8.55, 1.1, BOX_Z), Color(0.1, 1, 0.1, 1))
 ice_sphere("ice_sphere_lit_outside", 9)
+local water_media = group("water_media")
+local TANK_Z = 132
+local TANK_SIZE = 3.2
+local TANK_DEPTH = 1.2
+local tank_wall = material{Color = Color(0.6, 0.6, 0.62, 1), Roughness = 0.8, Metallic = 0}
+local tank_object = material{Color = Color(0.85, 0.85, 0.85, 1), Roughness = 0.5, Metallic = 0}
+
+local function water_tank(name, x, medium_name)
+	local tank = group(name, water_media)
+	local height = TANK_DEPTH + 0.3
+
+	for _, wall in ipairs{
+		{Vec3(0, height / 2, TANK_SIZE / 2 + 0.05), Vec3(TANK_SIZE + 0.2, height, 0.1)},
+		{Vec3(0, height / 2, -TANK_SIZE / 2 - 0.05), Vec3(TANK_SIZE + 0.2, height, 0.1)},
+		{Vec3(TANK_SIZE / 2 + 0.05, height / 2, 0), Vec3(0.1, height, TANK_SIZE)},
+		{Vec3(-TANK_SIZE / 2 - 0.05, height / 2, 0), Vec3(0.1, height, TANK_SIZE)},
+	} do
+		shapes.Box{
+			Name = "wall",
+			Parent = tank,
+			Position = wall[1] + Vec3(x, 0, TANK_Z),
+			Size = wall[2],
+			Material = tank_wall,
+			RigidBody = STATIC,
+		}
+	end
+
+	Entity.New{
+		Name = "water",
+		Parent = tank,
+		transform = {Position = Vec3(x, TANK_DEPTH, TANK_Z)},
+		water_volume = {
+			Size = Vec3(TANK_SIZE, TANK_DEPTH, TANK_SIZE),
+			Medium = medium_name,
+			WaveHeight = 0.02,
+			WaveLength = 0.6,
+			Foam = 0,
+		},
+	}
+
+	for i, depth in ipairs{0.15, 0.55} do
+		shapes.Sphere{
+			Name = "submerged_" .. i,
+			Parent = tank,
+			Position = Vec3(x + (i - 1.5) * 1.1, depth, TANK_Z),
+			Radius = 0.3,
+			Material = tank_object,
+			RigidBody = STATIC,
+		}
+	end
+
+	local lamp = Entity.New{Name = "lamp", Parent = tank}
+	lamp:AddComponent("transform"):SetPosition(Vec3(x, 0.4, TANK_Z + 1.1))
+	lamp:AddComponent("light_point"):SetLumen(3000)
+end
+
+for i, medium_name in ipairs{"lake", "pool", "swamp", "glacial"} do
+	water_tank("water_tank_" .. medium_name, (i - 2.5) * 4.5, medium_name)
+end
+
 swatch(
 	"roughness_gradient",
 	-8.75,
