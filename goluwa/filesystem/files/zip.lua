@@ -3,6 +3,7 @@ local ffi = require("ffi")
 local Buffer = import("goluwa/structs/buffer.lua")
 local bit = require("bit")
 local deflate = import("goluwa/codecs/deflate.lua")
+local cry_pak = import("goluwa/codecs/cry_pak.lua")
 local Buffer = import("goluwa/structs/buffer.lua")
 local vfs = import("goluwa/filesystem/vfs.lua")
 local Tree = import("goluwa/structs/tree.lua")
@@ -229,7 +230,11 @@ function CONTEXT:Open(path_info, mode, ...)
 		local compressed_data = file:ReadBytes(file_info.compressedSize)
 		file:Close()
 
-		if file_info.compressionMethod == 8 then
+		if file_info.compressionMethod == 6 then
+			compressed_data = cry_pak.Decrypt(compressed_data, file_info.crc32)
+		end
+
+		if file_info.compressionMethod == 8 or file_info.compressionMethod == 6 then
 			local started = startup.Start()
 			local decompressed = deflate.Decode(
 				compressed_data,
