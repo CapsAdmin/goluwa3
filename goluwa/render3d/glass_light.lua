@@ -141,7 +141,7 @@ function glass_light.GetGLSL(scene_name)
 			while (rayQueryProceedEXT(query)) {
 				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
 
-				if (rayQueryGetIntersectionFrontFaceEXT(query, false) || (material.glass == 0 && !ddgi_has_medium(material))) continue;
+				if (!rayQueryGetIntersectionFrontFaceEXT(query, false) || (material.glass == 0 && !ddgi_has_medium(material))) continue;
 
 				float t = rayQueryGetIntersectionTEXT(query, false);
 
