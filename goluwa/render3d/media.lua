@@ -171,6 +171,18 @@ setmetatable(
 	}
 )
 
+function media.GetTint(name)
+	local preset = media.presets[name]
+	local total = preset.Absorption + preset.Scattering
+	return total / ((total.x + total.y + total.z) / 3)
+end
+
+function media.GetAlbedo(name)
+	local preset = media.presets[name]
+	local total = preset.Absorption + preset.Scattering
+	return Vec3(preset.Scattering.x / total.x, preset.Scattering.y / total.y, preset.Scattering.z / total.z)
+end
+
 function media.GetExtinction(name)
 	local preset = media.presets[name]
 	return preset.Absorption + media.MOLECULAR_SCATTERING + preset.Scattering

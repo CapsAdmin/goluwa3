@@ -563,7 +563,7 @@ local scatter_pass = {
 				}
 			}
 
-			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction * GROUND_FOG_ALBEDO;
+			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction * GROUND_FOG_TINT * GROUND_FOG_ALBEDO;
 
 			for (int v = 0; v < froxel_data.fog_volume_count; v++) {
 				float volume_density = fog_volume_density(v, world_pos);

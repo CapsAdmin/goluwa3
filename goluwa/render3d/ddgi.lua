@@ -1107,14 +1107,15 @@ end
 function ddgi.GetCommonGLSL()
 	return ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 
-		float ddgi_ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction, float scale_height, float start, float top) {
-			if (altitude >= top) return 1.0;
+		vec3 ddgi_ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction, float scale_height, float start, float top) {
+			if (altitude >= top) return vec3(1.0);
 
 			altitude = max(altitude, 0.0);
 			float below_start = max(start - altitude, 0.0);
 			float above_start = max(altitude - start, 0.0);
-			float optical_depth = fog_extinction * (below_start + scale_height * (exp(-above_start / scale_height) - exp(-(top - start) / scale_height))) + precipitation_extinction * (top - altitude);
-			return exp(-optical_depth / max(sun_up, 0.05));
+			float fog_depth = fog_extinction * (below_start + scale_height * (exp(-above_start / scale_height) - exp(-(top - start) / scale_height)));
+			float precipitation_depth = precipitation_extinction * (top - altitude);
+			return exp(-(fog_depth * ]] .. atmosphere.GROUND_FOG_TINT_GLSL .. [[ + precipitation_depth) / max(sun_up, 0.05));
 		}
 
 		ivec3 ddgi_volume_base(int c) {

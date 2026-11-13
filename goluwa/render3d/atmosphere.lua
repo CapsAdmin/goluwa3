@@ -28,6 +28,14 @@ atmosphere.SEA_LEVEL_HEIGHT = SEA_LEVEL_HEIGHT
 local DEFAULT_OCEAN_LEVEL = 0
 local CAMERA_TEST_MULTIPLIER = 1
 atmosphere.METERS_TO_UNITS = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
+
+do
+	local tint = media.GetTint("fog")
+	local albedo = media.GetAlbedo("fog")
+	atmosphere.GROUND_FOG_TINT_GLSL = string.format("vec3(%.5f, %.5f, %.5f)", tint.x, tint.y, tint.z)
+	atmosphere.GROUND_FOG_ALBEDO_GLSL = string.format("vec3(%.5f, %.5f, %.5f)", albedo.x, albedo.y, albedo.z)
+end
+
 local SKY_VIEW_LUT_WIDTH = 1024
 local SKY_VIEW_LUT_HEIGHT = 512
 local SKY_VIEW_STEPS = 128
@@ -181,42 +189,8 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 	) .. [[;
 	const float GROUND_FOG_TOP_SOFTNESS = 0.3;
 	const float GROUND_FOG_MIE_G = ]] .. string.format("%.4f", media.presets.fog.PhaseG) .. [[;
-	const vec3 GROUND_FOG_TINT = ]] .. string.format(
-		"vec3(%.5f, %.5f, %.5f)",
-		(
-				media.presets.fog.Absorption.x + media.presets.fog.Scattering.x
-			) / (
-				(
-					media.presets.fog.Absorption.x + media.presets.fog.Scattering.x + media.presets.fog.Absorption.y + media.presets.fog.Scattering.y + media.presets.fog.Absorption.z + media.presets.fog.Scattering.z
-				) / 3
-			),
-		(
-				media.presets.fog.Absorption.y + media.presets.fog.Scattering.y
-			) / (
-				(
-					media.presets.fog.Absorption.x + media.presets.fog.Scattering.x + media.presets.fog.Absorption.y + media.presets.fog.Scattering.y + media.presets.fog.Absorption.z + media.presets.fog.Scattering.z
-				) / 3
-			),
-		(
-				media.presets.fog.Absorption.z + media.presets.fog.Scattering.z
-			) / (
-				(
-					media.presets.fog.Absorption.x + media.presets.fog.Scattering.x + media.presets.fog.Absorption.y + media.presets.fog.Scattering.y + media.presets.fog.Absorption.z + media.presets.fog.Scattering.z
-				) / 3
-			)
-	) .. [[;
-	const vec3 GROUND_FOG_ALBEDO = ]] .. string.format(
-		"vec3(%.5f, %.5f, %.5f)",
-		media.presets.fog.Scattering.x / (
-				media.presets.fog.Scattering.x + media.presets.fog.Absorption.x
-			),
-		media.presets.fog.Scattering.y / (
-				media.presets.fog.Scattering.y + media.presets.fog.Absorption.y
-			),
-		media.presets.fog.Scattering.z / (
-				media.presets.fog.Scattering.z + media.presets.fog.Absorption.z
-			)
-	) .. [[;
+	const vec3 GROUND_FOG_TINT = ]] .. atmosphere.GROUND_FOG_TINT_GLSL .. [[;
+	const vec3 GROUND_FOG_ALBEDO = ]] .. atmosphere.GROUND_FOG_ALBEDO_GLSL .. [[;
 	const float GROUND_FOG_IRRADIANCE_FRACTION = 0.33;
 	const float GROUND_FOG_IRRADIANCE_THICKNESS = 1.685;
 	const int GROUND_FOG_OCTAVES = 3;
@@ -942,17 +916,18 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		);
 	}
 
-	float ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction) {
-		if (GROUND_FOG_ENABLED < 0.5 || altitude >= GROUND_FOG_TOP_HEIGHT) return 1.0;
+	vec3 ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction) {
+		if (GROUND_FOG_ENABLED < 0.5 || altitude >= GROUND_FOG_TOP_HEIGHT) return vec3(1.0);
 
 		altitude = max(altitude, 0.0);
 		float below_start = max(GROUND_FOG_START_HEIGHT - altitude, 0.0);
 		float above_start = max(altitude - GROUND_FOG_START_HEIGHT, 0.0);
-		float optical_depth = fog_extinction * (below_start + GROUND_FOG_SCALE_HEIGHT * (exp(-above_start / GROUND_FOG_SCALE_HEIGHT) - exp(-(GROUND_FOG_TOP_HEIGHT - GROUND_FOG_START_HEIGHT) / GROUND_FOG_SCALE_HEIGHT))) + precipitation_extinction * (GROUND_FOG_TOP_HEIGHT - altitude);
-		return exp(-optical_depth / max(sun_up, 0.05));
+		float fog_depth = fog_extinction * (below_start + GROUND_FOG_SCALE_HEIGHT * (exp(-above_start / GROUND_FOG_SCALE_HEIGHT) - exp(-(GROUND_FOG_TOP_HEIGHT - GROUND_FOG_START_HEIGHT) / GROUND_FOG_SCALE_HEIGHT)));
+		float precipitation_depth = precipitation_extinction * (GROUND_FOG_TOP_HEIGHT - altitude);
+		return exp(-(fog_depth * GROUND_FOG_TINT + precipitation_depth) / max(sun_up, 0.05));
 	}
 
-	float get_ground_fog_sun_transmittance(vec3 point, vec3 sun_dir) {
+	vec3 get_ground_fog_sun_transmittance(vec3 point, vec3 sun_dir) {
 		return ground_fog_sun_transmittance(length(point) - PLANET_RADIUS, dot(normalize(point), sun_dir), ATMOSPHERE_GROUND_FOG_EXTINCTION, ATMOSPHERE_PRECIPITATION_EXTINCTION);
 	}
 
@@ -978,7 +953,7 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		float sun_up = dot(normalize(ray_origin), sun_dir);
 		float mu = dot(ray_dir, sun_dir);
 		float thickness = pow(1.0 - exp(-get_ground_fog_layer_optical_depth()), GROUND_FOG_OCTAVE_THICKNESS);
-		float octaves = 0.0;
+		vec3 octaves = vec3(0.0);
 		float a = 1.0;
 		float b = 1.0;
 		float c = 1.0;
@@ -998,10 +973,15 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 
 		if (ATMOSPHERE_FOG_COLOR.w > 0.5) lit *= ATMOSPHERE_FOG_COLOR.rgb;
 
-		return lit * ground_fog_extinction(point) * GROUND_FOG_ALBEDO;
+		return lit * ground_fog_extinction(point) * GROUND_FOG_TINT * GROUND_FOG_ALBEDO;
 	}
 
-	vec4 integrate_ground_fog_segment(
+	struct GroundFogSegment {
+		vec3 scattered;
+		vec3 transmittance;
+	};
+
+	GroundFogSegment integrate_ground_fog_segment(
 		vec3 ray_origin,
 		vec3 ray_dir,
 		float fog_near,
@@ -1011,23 +991,24 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec3 gi_irradiance,
 		float sky_visibility
 	) {
-		if (ATMOSPHERE_ENABLED == 0) return vec4(0.0, 0.0, 0.0, 1.0);
+		if (ATMOSPHERE_ENABLED == 0) return GroundFogSegment(vec3(0.0), vec3(1.0));
 
 		float step_size = fog_length / float(AERIAL_PERSPECTIVE_STEPS);
 		vec3 ambient = mix(gi_irradiance / PI, get_ground_fog_sky_ambient(ray_origin), clamp(sky_visibility, 0.0, 1.0));
-		float transmittance = 1.0;
+		vec3 transmittance = vec3(1.0);
 		vec3 scattered = vec3(0.0);
 
 		for (int i = 0; i < AERIAL_PERSPECTIVE_STEPS; i++) {
 			vec3 sample_point = ray_origin + ray_dir * (fog_near + (float(i) + 0.5) * step_size);
-			float extinction = ground_fog_extinction(sample_point);
-			float step_transmittance = exp(-extinction * step_size);
+			vec3 extinction = ground_fog_extinction(sample_point) * GROUND_FOG_TINT;
+			vec3 step_transmittance = exp(-extinction * step_size);
 			vec3 in_scatter = get_ground_fog_in_scatter(sample_point, ray_dir, sun_dir, sun_visibility, ambient);
-			scattered += transmittance * in_scatter * (extinction > 1e-9 ? (1.0 - step_transmittance) / extinction : step_size);
+			vec3 weight = mix(vec3(step_size), (1.0 - step_transmittance) / max(extinction, vec3(1e-9)), greaterThan(extinction, vec3(1e-9)));
+			scattered += transmittance * in_scatter * weight;
 			transmittance *= step_transmittance;
 		}
 
-		return vec4(scattered, transmittance);
+		return GroundFogSegment(scattered, transmittance);
 	}
 
 	vec3 apply_ground_fog_segment(
@@ -1041,8 +1022,8 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 		vec3 gi_irradiance,
 		float sky_visibility
 	) {
-		vec4 fog = integrate_ground_fog_segment(ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
-		return scene_color * fog.a + fog.rgb;
+		GroundFogSegment fog = integrate_ground_fog_segment(ray_origin, ray_dir, fog_near, fog_length, sun_dir, sun_visibility, gi_irradiance, sky_visibility);
+		return scene_color * fog.transmittance + fog.scattered;
 	}
 
 	vec3 apply_ground_fog_ray(vec3 scene_color, vec3 ray_dir, vec3 sun_dir, vec3 cam_pos, float max_distance, float sun_visibility, vec3 gi_irradiance, float sky_visibility) {
