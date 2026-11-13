@@ -92,6 +92,22 @@ media.presets = {
 		IOR = 1.0003,
 		AbbeNumber = 0,
 	},
+	skin = {
+		Absorption = Vec3(32, 170, 480),
+		Scattering = Vec3(3700, 4400, 5050),
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = 0.8,
+		IOR = 1.4,
+		AbbeNumber = 0,
+	},
+	marble = {
+		Absorption = Vec3(2.1, 4.1, 7.1),
+		Scattering = Vec3(10950, 13100, 15000),
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = 0.8,
+		IOR = 1.5,
+		AbbeNumber = 0,
+	},
 	ocean = water(Vec3(0.45, 0.065, 0.021), Vec3(0.030, 0.034, 0.042)),
 	open_ocean = water(Vec3(0.46, 0.072, 0.051), Vec3(0.126, 0.142, 0.174)),
 	temperate_sea = water(Vec3(0.47, 0.089, 0.137), Vec3(0.342, 0.386, 0.472)),
@@ -213,6 +229,29 @@ function media.GetAlbedo(name)
 	local preset = media.presets[name]
 	local total = preset.Absorption + preset.Scattering
 	return Vec3(preset.Scattering.x / total.x, preset.Scattering.y / total.y, preset.Scattering.z / total.z)
+end
+
+local function get_diffusion_length(name, density)
+	local preset = media.presets[name]
+	local reduced = preset.Scattering * (1 - preset.PhaseG) * density
+	local absorption = preset.Absorption * density
+	return Vec3(
+			1 / math.sqrt(3 * absorption.x * (absorption.x + reduced.x)),
+			1 / math.sqrt(3 * absorption.y * (absorption.y + reduced.y)),
+			1 / math.sqrt(3 * absorption.z * (absorption.z + reduced.z))
+		) * 1000
+end
+
+local function luminance(color)
+	return 0.2126 * color.x + 0.7152 * color.y + 0.0722 * color.z
+end
+
+-- the subsurface pass takes the relative per channel scatter distance as a tint and the mean distance as a radius where 1 is the distance of skin
+function media.GetSubsurface(name, density)
+	local length = get_diffusion_length(name, density)
+	local reference = luminance(get_diffusion_length("skin", 1))
+	local mean = luminance(length)
+	return length / mean, mean / reference
 end
 
 function media.GetExtinction(name)

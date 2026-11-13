@@ -446,6 +446,13 @@ function Material:IsSeeThrough()
 	return self.Refraction > 0 or self.Additive or self.Modulate
 end
 
+function Material:SetSubsurfaceMedium(name, density)
+	local tint, radius = media.GetSubsurface(name, density)
+	self:SetSubsurface(1)
+	self:SetSubsurfaceColor(Color(tint.x, tint.y, tint.z, 1))
+	self:SetSubsurfaceRadius(radius)
+end
+
 function Material:InvalidateMediumSlot()
 	self.medium_slot = nil
 	self:InvalidateRayMaterial()

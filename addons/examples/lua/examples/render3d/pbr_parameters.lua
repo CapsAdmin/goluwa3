@@ -774,6 +774,32 @@ sweep(
 	translucent_sphere
 )
 
+local subsurface_media = group("subsurface_medium", subsurface)
+
+for i, entry in ipairs{
+	{"skin", 0.5},
+	{"skin", 1},
+	{"skin", 2},
+	{"marble", 0.5},
+	{"marble", 1},
+	{"marble", 2},
+} do
+	local subsurface_material = material{
+		Color = entry[1] == "skin" and Color(0.85, 0.65, 0.55, 1) or Color(0.9, 0.9, 0.88, 1),
+		Roughness = 0.4,
+		Metallic = 0,
+		SpecularMultiplier = 0.5,
+	}
+	subsurface_material:SetSubsurfaceMedium(entry[1], entry[2])
+	translucent_sphere(
+		subsurface_media,
+		"subsurface_medium_" .. i,
+		(i - 3.5) * 1.2,
+		SUBSURFACE_Z + 4.8,
+		subsurface_material
+	)
+end
+
 local medium = group("medium")
 local MEDIUM_Z = SUBSURFACE_Z + 5.8
 
