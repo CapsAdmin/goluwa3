@@ -110,7 +110,16 @@ T.Test3D("Graphics render3d gbuffer stores the medium slot", function(draw)
 
 	local small = media.Acquire("ice", 0.5)
 	local large = media.Acquire("ice", 2)
-	T(stored(0))["~"](0, 0.01)
-	T(stored(0.5))["~"](small / 15, 0.04)
-	T(stored(2))["~"](large / 15, 0.04)
+	T(stored(0))["~"](0, 0.003)
+	T(stored(0.5))["~"](small / 255, 0.003)
+	T(stored(2))["~"](large / 255, 0.003)
+	T(small ~= large)["=="](true)
+
+	for i = 1, 40 do
+		media.Acquire("ice", 3 + i * 0.1)
+	end
+
+	local far = media.Acquire("ice", 9)
+	T(far > 15)["=="](true)
+	T(stored(9))["~"](far / 255, 0.003)
 end)

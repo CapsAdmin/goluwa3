@@ -26,6 +26,7 @@ local KINDS = {
 	unorm4 = {class = "8", width = 0.5},
 	unorm16 = {class = "16", width = 1},
 	octa = {class = "16", width = 2},
+	velocity_alpha = {fixed = true},
 }
 
 function gbuffer_layout.Pack(fields)
@@ -56,14 +57,17 @@ function gbuffer_layout.Pack(fields)
 		local field = entry.field
 		local kind = KINDS[field.kind]
 		assert(kind, "unknown gbuffer field kind " .. tostring(field.kind))
-		local class = state[kind.class]
+		local class = kind.class and state[kind.class]
 
-		if not class then
+		if kind.class and not class then
 			class = {}
 			state[kind.class] = class
 		end
 
-		if kind.width == 0.5 and class.open then
+		if kind.fixed then
+			field.target = VELOCITY_TARGET
+			field.swizzle = "a"
+		elseif kind.width == 0.5 and class.open then
 			field.target = class.open.target
 			field.swizzle = class.open.swizzle
 			field.nibble = 1
@@ -122,6 +126,18 @@ do
 		)
 	end
 
+	local alpha_fields = {}
+
+	for _, field in ipairs(gbuffer_layout.fields) do
+		if field.kind == "velocity_alpha" then table.insert(alpha_fields, field) end
+	end
+
+	assert(#alpha_fields <= 1, "the spare channel of the velocity target holds one field")
+
+	for _, field in ipairs(alpha_fields) do
+		table.insert(VELOCITY_TARGET.channels, {field.name, "a"})
+	end
+
 	gbuffer_layout.targets = {ALBEDO_TARGET}
 
 	for _, target in ipairs(packed) do
@@ -142,6 +158,12 @@ for i, target in ipairs(gbuffer_layout.targets) do
 	gbuffer_layout.attachment_index[target.texture] = i
 end
 
+for _, field in ipairs(gbuffer_layout.fields) do
+	if field.kind == "velocity_alpha" then
+		table.insert(gbuffer_layout.block, {field.name .. "_tex", "int"})
+	end
+end
+
 function gbuffer_layout.GetTexture(name)
 	return render3d.pipelines.gbuffer:GetFramebuffer():GetAttachment(gbuffer_layout.attachment_index[name])
 end
@@ -156,6 +178,12 @@ function gbuffer_layout.WriteBlock(self, block)
 
 	for i, target in ipairs(gbuffer_layout.targets) do
 		block[target.texture .. "_tex"] = self:GetTextureIndex(framebuffer:GetAttachment(i))
+	end
+
+	for _, field in ipairs(gbuffer_layout.fields) do
+		if field.kind == "velocity_alpha" then
+			block[field.name .. "_tex"] = self:GetTextureIndex(framebuffer:GetAttachment(gbuffer_layout.attachment_index.velocity))
+		end
 	end
 
 	if not render3d.velocity_enabled:Get() then block.velocity_tex = -1 end
@@ -260,9 +288,22 @@ do
 
 	for _, field in ipairs(gbuffer_layout.fields) do
 		local accessor = "gbuffer_" .. (field.accessor or field.name)
-		local fetch = string.format("GBUFFER.%s_tex", field.target.texture)
+		local fetch = string.format(
+			"GBUFFER.%s_tex",
+			field.kind == "velocity_alpha" and field.name or field.target.texture
+		)
 
-		if field.kind == "octa" then
+		if field.kind == "velocity_alpha" then
+			table.insert(
+				decoders,
+				string.format(
+					"float %s(COORD c) { float v = gbuffer_fetch_nearest(%s, c).a; return %s; }",
+					accessor,
+					fetch,
+					field.decode or "v"
+				)
+			)
+		elseif field.kind == "octa" then
 			table.insert(
 				decoders,
 				string.format(

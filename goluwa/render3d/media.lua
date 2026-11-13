@@ -188,7 +188,7 @@ media.presets = {
 	pool = water(Vec3(0.34, 0.052, 0.016), Vec3(0.003, 0.003, 0.003)),
 }
 local EMPTY_SKIN = {tint_ratio = {0, 0, 0}, deep_color = {0, 0, 0}, porous_color = {0, 0, 0}}
-media.MAX_SLOTS = 15
+media.MAX_SLOTS = 255
 media.SLOT_STRIDE = 6
 media.TERRAIN_MEDIUM = "ice"
 media.slots = {}

@@ -24,12 +24,12 @@ return {
 		{
 			name = "medium_slot",
 			sheet = "specular",
-			kind = "unorm4",
+			kind = "velocity_alpha",
 			default = "0.0",
 			material = "get_medium_slot()",
-			encode = "v / 15.0",
-			decode = "floor(v * 15.0 + 0.5)",
-			max = 15,
+			encode = "v",
+			decode = "floor(v + 0.5)",
+			max = 255,
 			readers = {"lighting"},
 		},
 		{
