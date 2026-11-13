@@ -50,13 +50,13 @@ function medium_common.GetGLSL()
 		return mix(optical_transmittance(absorption, depth), medium_body_reflectance(absorption, scattering, g), medium_scatter_probability(scattering, depth));
 	}
 
-	bool medium_volume_intersect(mat4 to_local, vec3 shape, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
+	bool medium_volume_intersect(mat4 to_local, vec3 shape, float top_offset, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
 		vec3 origin = (to_local * vec4(ray_origin, 1.0)).xyz;
 		vec3 dir = (to_local * vec4(ray_dir, 0.0)).xyz;
 		dir = mix(dir, vec3(1e-7), lessThan(abs(dir), vec3(1e-7)));
 		vec3 inv = 1.0 / dir;
 		vec3 ta = (vec3(-shape.x, -shape.y, -shape.z) - origin) * inv;
-		vec3 tb = (vec3(shape.x, 0.0, shape.z) - origin) * inv;
+		vec3 tb = (vec3(shape.x, top_offset, shape.z) - origin) * inv;
 		vec3 tmin = min(ta, tb);
 		vec3 tmax = max(ta, tb);
 		t_entry = max(max(tmin.x, tmin.y), tmin.z);

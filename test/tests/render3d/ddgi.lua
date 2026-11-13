@@ -400,7 +400,7 @@ T.Test3DRayTracing("Graphics render3d ddgi material buffer marks materials witho
 			end,
 		}
 		local buffer = ddgi.WriteMaterialBuffer(pipeline)
-		local entry = ffi.cast(ffi.typeof("$ *", ddgi.MaterialEntry), buffer:Map(0, buffer:GetSize())) + id
+		local entry = ddgi.GetMaterialEntries(buffer) + id
 		T(entry.albedo[2])["=="](0.75)
 		T(entry.albedo_tex)["=="](-1)
 		T(entry.metallic)["=="](1)
@@ -427,6 +427,51 @@ T.Test3DRayTracing("Graphics render3d ddgi material buffer marks materials witho
 	end)
 	ent:Remove()
 	polygon3d:Remove()
+
+	if not ok then error(err, 0) end
+end)
+
+T.Test3DRayTracing("Graphics render3d ddgi material buffer carries media and the water volumes in its optical prefix", function(draw)
+	local materials = import("goluwa/render3d/scene/materials.lua")
+	local previous_ocean_enabled = render3d.IsOceanEnabled()
+	render3d.SetOceanEnabled(false)
+	local material = Material.New{Medium = "ice", MediumDensity = 2}
+	local volume = Entity.New{
+		Name = "ddgi_water_volume",
+		transform = {Position = Vec3(0, 1, 0)},
+		water_volume = {Size = Vec3(4, 2, 6), Medium = "lake", WaveHeight = 0.1},
+	}
+	local ok, err = pcall(function()
+		local id = materials.GetID(material)
+		local pipeline = {
+			GetTextureIndex = function()
+				return 7
+			end,
+			GetTextureIndexReleases = function()
+				return 0
+			end,
+		}
+		local buffer = ddgi.WriteMaterialBuffer(pipeline)
+		local entries = ddgi.GetMaterialEntries(buffer)
+		local entry = entries[id]
+		T(entry.medium_extinction[0])["~"](0.19 * 2, 1e-5)
+		T(entry.medium_scattering[1])["~"](2, 1e-5)
+		T(entry.medium_g)["~"](0.8, 1e-5)
+		T(entry.medium_porous_scattering[2])["~"](300, 1e-3)
+		local header, volumes = ddgi.GetOpticalVolumes(buffer)
+		T(header.media)["=="](1)
+		T(header.volumes)["=="](1)
+		T(volumes[0].shape[0])["=="](2)
+		T(volumes[0].shape[1])["=="](2)
+		T(volumes[0].shape[2])["=="](3)
+		T(volumes[0].wave)["~"](0.1, 1e-6)
+		T(volumes[0].ior)["~"](1.333, 1e-6)
+		T(volumes[0].extinction[0])["~"](0.5 + 0.00114 + 0.025, 1e-5)
+		T(ddgi.HasVolumes())["=="](true)
+		T(ddgi.HasDirectTint())["=="](true)
+	end)
+	volume:Remove()
+	render3d.SetOceanEnabled(previous_ocean_enabled)
 
 	if not ok then error(err, 0) end
 end)

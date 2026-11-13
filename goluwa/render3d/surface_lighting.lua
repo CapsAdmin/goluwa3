@@ -84,7 +84,7 @@ function surface_lighting.WriteBlock(self, block)
 	block.gi_screen_geometry_tex = gi_geometry_texture and self:GetTextureIndex(gi_geometry_texture) or -1
 	local gi_specular_texture = gi.GetScreenSpecularTexture()
 	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
-	block.glass_light = (glass_light.IsEnabled() and ddgi.HasGlass()) and 1 or 0
+	block.glass_light = (glass_light.IsEnabled() and ddgi.HasDirectTint()) and 1 or 0
 	block.optical_tint = (glass_light.IsEnabled() and (ddgi.HasGlass() or ddgi.HasMedium())) and 1 or 0
 	block.medium_thickness = medium_common.assumed_thickness
 	block.medium_base_height = medium_common.base_height

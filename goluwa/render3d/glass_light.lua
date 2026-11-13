@@ -80,7 +80,15 @@ function glass_light.GetGLSL(scene_name)
 			return medium_transmittance(material.medium_extinction, medium_scattering_at(material.medium_scattering, material.medium_porous_scattering, material.medium_porosity), material.medium_g, material.medium_thickness);
 		}
 
+		ivec3 get_optical_header() {
+			return optical_counts;
+		}
+
 		vec3 get_optical_tint_ray(vec3 origin, vec3 dir, float distance, bool through_medium) {
+			ivec3 header = get_optical_header();
+
+			if (header.x == 0 && (!through_medium || header.y == 0)) return vec3(1.0);
+
 			vec3 transmitted = vec3(1.0);
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsCullOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
@@ -115,28 +123,47 @@ function glass_light.GetGLSL(scene_name)
 			return transmitted;
 		}
 
-		vec3 get_medium_volume_tint(vec3 origin, vec3 dir, float distance) {
+		vec3 get_medium_volume_tint(vec3 origin, vec3 dir, float distance, bool light_ray) {
+			int volume_count = get_optical_header().z;
 			vec3 transmitted = vec3(1.0);
 
-			for (uint i = uint(ddgi_materials.length()); i > 0u; i--) {
-				ddgi_material volume = ddgi_materials[i - 1u];
+			for (int k = 0; k < volume_count; k++) {
+				optical_volume volume = optical_volumes[k];
+				vec3 local_origin = (volume.to_local * vec4(origin, 1.0)).xyz;
+				vec3 local_dir = (volume.to_local * vec4(dir, 0.0)).xyz;
+				vec3 averaged = vec3(0.0);
 
-				if (volume.medium_body < 1.5) break;
+				for (int w = 0; w < 3; w++) {
+					float top = (float(w) - 1.0) * volume.wave;
+					float t_entry;
+					float t_exit;
+					bool enters_through_top;
+					float path = 0.0;
 
-				float t_entry;
-				float t_exit;
-				bool top;
+					if (medium_volume_intersect(volume.to_local, volume.shape, top, origin, dir, t_entry, t_exit, enters_through_top)) {
+						path = min(t_exit, distance) - clamp(t_entry, 0.0, distance);
 
-				if (!medium_volume_intersect(volume.volume_to_local, volume.volume_shape, origin, dir, t_entry, t_exit, top)) continue;
+						if (light_ray && t_entry <= 0.0 && local_dir.y > 1e-4) {
+							float top_t = (top - local_origin.y) / local_dir.y;
 
-				transmitted *= optical_transmittance(volume.medium_extinction, min(t_exit, distance) - clamp(t_entry, 0.0, distance));
+							if (top_t < distance && t_exit >= top_t - 1e-3) {
+								float sin_water_squared = (1.0 - local_dir.y * local_dir.y) / (volume.ior * volume.ior);
+								path = (top - local_origin.y) / sqrt(max(1.0 - sin_water_squared, 1e-4));
+							}
+						}
+					}
+
+					averaged += (w == 1 ? 0.5 : 0.25) * optical_transmittance(volume.extinction, path);
+				}
+
+				transmitted *= averaged;
 			}
 
 			return transmitted;
 		}
 
 		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance) {
-			return get_optical_tint_ray(origin, dir, distance, true) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
+			return get_optical_tint_ray(origin, dir, distance, true) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), false);
 		}
 
 		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
@@ -151,7 +178,7 @@ function glass_light.GetGLSL(scene_name)
 				transmitted = min(transmitted, get_optical_tint_ray(origin - bitangent, dir, distance, false));
 			}
 
-			return transmitted;
+			return transmitted * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), true);
 		}
 	]]
 end

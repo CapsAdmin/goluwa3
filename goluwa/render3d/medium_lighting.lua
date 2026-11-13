@@ -43,7 +43,8 @@ function medium_lighting.WriteLightsBlock(self, block)
 	return lights
 end
 
-function medium_lighting.GetLocalLightsGLSL(data_block, limit)
+function medium_lighting.GetLocalLightsGLSL(data_block, limit, options)
+	options = options or {}
 	return [[
 		float calculateLocalDirectionalMediumShadow(vec3 world_pos, vec3 light_dir) {
 			int shadow_map_idx = ]] .. data_block .. [[.shadows.local_directional_shadow_map_index;
@@ -57,17 +58,42 @@ function medium_lighting.GetLocalLightsGLSL(data_block, limit)
 			return sampleMediumShadowProjection(shadow_map_idx, proj_coords, 1.35);
 		}
 
-		vec3 get_local_light_scattering(vec3 ray_dir, vec3 world_pos, float g) {
+		float get_medium_light_visibility(int i, lights_t light, vec3 world_pos, vec3 L) {
+			float occlusion = light_oct_shadow_factor(]] .. data_block .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
+
+			if (occlusion <= 0.0) return 0.0;
+
+			int type = get_light_type(light);
+			float shadow = 1.0;
+
+			if (type == 1) {
+				int point_shadow_slot = getPointShadowSlot(i);
+
+				if (point_shadow_slot >= 0) shadow = calculatePointShadow(point_shadow_slot, world_pos, L, L);
+			} else if (type == 2 && i == ]] .. data_block .. [[.shadows.local_directional_shadow_light_index) {
+				shadow = calculateLocalDirectionalMediumShadow(world_pos, L);
+			}
+
+			return shadow * occlusion;
+		}
+
+		vec3 ]] .. (
+			options.name or
+			"get_local_light_scattering"
+		) .. [[(vec3 ray_dir, vec3 world_pos, ]] .. (
+			options.params or
+			"float g"
+		) .. [[) {
 			vec3 result = vec3(0.0);
 			int processed = 0;
 
 			int light_cell = light_grid_cell(world_pos);
 
-			for (int w = 0; w < light_grid_words(]] .. data_block .. [[.light_count) && processed < ]] .. limit .. [[; w++) {
-			uint light_bits = light_grid_word(light_cell, w, ]] .. data_block .. [[.light_count);
+			for (int word = 0; word < light_grid_words(]] .. data_block .. [[.light_count) && processed < ]] .. limit .. [[; word++) {
+			uint light_bits = light_grid_word(light_cell, word, ]] .. data_block .. [[.light_count);
 
 			while (light_bits != 0u && processed < ]] .. limit .. [[) {
-				int i = w * 32 + findLSB(light_bits);
+				int i = word * 32 + findLSB(light_bits);
 				light_bits &= light_bits - 1u;
 				lights_t light = ]] .. data_block .. [[.lights[i];
 				int type = get_light_type(light);
@@ -79,24 +105,22 @@ function medium_lighting.GetLocalLightsGLSL(data_block, limit)
 
 				if (!get_light_vector_and_attenuation(light, world_pos, L, attenuation) || attenuation <= 0.0001) continue;
 
-				float occlusion = light_oct_shadow_factor(]] .. data_block .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, world_pos);
+				float visibility = get_medium_light_visibility(i, light, world_pos, L);
 
-				if (occlusion <= 0.0) continue;
+				if (visibility <= 0.0) continue;
 
 				processed++;
 				float core_falloff = get_light_falloff(light, length(light.position.xyz - world_pos));
 				attenuation *= core_falloff / max(core_falloff + light.falloff.w * light.falloff.w, 0.0001);
-				float shadow = 1.0;
-
-				if (type == 1) {
-					int point_shadow_slot = getPointShadowSlot(i);
-
-					if (point_shadow_slot >= 0) shadow = calculatePointShadow(point_shadow_slot, world_pos, L, L);
-				} else if (type == 2 && i == ]] .. data_block .. [[.shadows.local_directional_shadow_light_index) {
-					shadow = calculateLocalDirectionalMediumShadow(world_pos, L);
-				}
-
-				result += light.color.rgb * light.color.a * attenuation * shadow * occlusion * phase_henyey_greenstein(dot(ray_dir, L), g);
+				float mu = dot(ray_dir, L);
+				float dist = dot(light.position.xyz - world_pos, L);
+				result += light.color.rgb * light.color.a * attenuation * visibility * ]] .. (
+			options.phase or
+			"phase_henyey_greenstein(mu, g)"
+		) .. [[ * ]] .. (
+			options.attenuation or
+			"vec3(1.0)"
+		) .. [[;
 			}
 			}
 

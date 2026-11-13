@@ -13,11 +13,16 @@ local water = import("goluwa/render3d/water.lua")
 local media = import("goluwa/render3d/media.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
+local glass_light = import("goluwa/render3d/glass_light.lua")
+local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
+local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
+local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local ocean_fft = import("goluwa/render3d/ocean_fft.lua")
 local render = import("goluwa/render/render.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local RAY_QUERY = scene_reflection.RAY_QUERY
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
+local BINDING_OCCLUSION = 10
 local pvars = import("goluwa/cli/pvars.lua")
 local FEATURES = {}
 pvars.StartGroup("Environment", "Water", {store = false, prefix = "water_"})
@@ -630,6 +635,7 @@ do
 			block.volume_flow[i][2] = volume:GetCaustics()
 			block.volume_flow[i][3] = medium.AbbeNumber
 			block.volume_misc[i][0] = volume:GetOpen() and 0 or 1
+			block.volume_misc[i][1] = medium.PhaseG
 			count = count + 1
 		end
 
@@ -644,7 +650,8 @@ local function write_ocean(self, block)
 	local params = water.GetOcean()
 	local waves = water.GetOceanWaves()
 	block.ocean_enabled = render3d.IsOceanEnabled() and 1 or 0
-	block.gi_tinted = (RAY_QUERY and ddgi.HasMedium()) and 1 or 0
+	block.gi_tinted = (RAY_QUERY and ddgi.HasVolumes()) and 1 or 0
+	block.sun_tinted = (glass_light.IsEnabled() and ddgi.HasVolumes()) and 1 or 0
 	block.ocean_level = render3d.GetOceanLevel()
 	local medium = media.presets[params.Medium]
 	block.ocean_absorption[0] = medium.Absorption.x
@@ -654,6 +661,7 @@ local function write_ocean(self, block)
 	block.ocean_scattering[0] = medium.Scattering.x
 	block.ocean_scattering[1] = medium.Scattering.y
 	block.ocean_scattering[2] = medium.Scattering.z
+	block.ocean_phase_g = medium.PhaseG
 	block.ocean_scattering[3] = params.Foam
 	block.ocean_wave_info[0] = waves.height_std * 3.5 + 0.05
 	block.ocean_wave_info[1] = params.Caustics
@@ -727,12 +735,21 @@ list.insert(
 		descriptor_sets = RAY_QUERY and
 			scene_reflection.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
 			nil,
+		sampled_images = RAY_QUERY and
+			{
+				{
+					binding_index = BINDING_OCCLUSION,
+					get_descriptor = light_occlusion.GetOcclusionDescriptor,
+				},
+			} or
+			nil,
 		custom_declarations = [[
 			layout(set = 0, binding = 0, rgba16f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D out_water_distance;
 		]] .. (
 				RAY_QUERY and
-				scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) or
+				scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0)
+				or
 				""
 			),
 		uniform_buffers = {
@@ -762,9 +779,11 @@ list.insert(
 					{"primary_sun_color", "vec3"},
 					{"ocean_enabled", "int"},
 					{"gi_tinted", "int"},
+					{"sun_tinted", "int"},
 					{"ocean_level", "float"},
 					{"ocean_absorption", "vec4"},
 					{"ocean_scattering", "vec4"},
+					{"ocean_phase_g", "float"},
 					{"ocean_wave_info", "vec4"},
 					{"wave_tex", "int", #WAVE_CASCADES},
 					{"wave_origin", "vec4", #WAVE_CASCADES},
@@ -785,10 +804,11 @@ list.insert(
 					{"volume_flow", "vec4", water.MAX_VOLUMES},
 					{"volume_misc", "vec4", water.MAX_VOLUMES},
 					{"volume_count", "int"},
-					{"shadows", directional_shadows.BuildFogShadowBlockLayout()},
+					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					post_source.pre_exposure_block,
 					RAY_QUERY and scene_reflection.block or nil,
 					RAY_QUERY and atmosphere.GetBlockLayout() or nil,
+					RAY_QUERY and light_occlusion.GetBlockLayout() or nil,
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -834,13 +854,14 @@ list.insert(
 					directional_shadows.GetPrimarySunDirection(lights):CopyToFloatPointer(block.sun_direction)
 					block.primary_sun_illuminance = directional_shadows.GetPrimarySunIlluminance(lights)
 					directional_shadows.GetPrimarySunColor(lights):CopyToFloatPointer(block.primary_sun_color)
-					directional_shadows.WriteFogShadowBlock(self, block.shadows, lights)
+					scene_lights.WriteShadowBlock(self, block.shadows, lights)
 					write_ocean(self, block)
 					block.bump_tex = water.wave_bump and self:GetTextureIndex(water.wave_bump.texture) or -1
 					block.bump_info[0] = water.wave_bump and water.wave_bump.slope_variance or 0
 					write_volumes(block)
 
 					if RAY_QUERY then
+						light_occlusion.WriteOcclusionBlock(block, lights)
 						scene_reflection.WriteBlock(self, block)
 						atmosphere.WriteBlock(
 							self,
@@ -908,19 +929,10 @@ list.insert(
 			const vec3 WATER_MOLECULAR_SCATTERING = vec3(]] .. media.MOLECULAR_SCATTERING.x .. ", " .. media.MOLECULAR_SCATTERING.y .. ", " .. media.MOLECULAR_SCATTERING.z .. [[);
 			const float WATER_MULTIPLE_SCATTERING = 0.5;
 			const float WATER_CREST_GLOW = 20.0;
-			const float WATER_PARTICLE_G = ]] .. media.PARTICLE_PHASE_G .. [[;
-			const float WATER_PARTICLE_BACKSCATTER = ]] .. string.format(
-				"%.5f",
-				(
-						1 - media.PARTICLE_PHASE_G
-					) / (
-						2 * media.PARTICLE_PHASE_G
-					) * (
-						(
-							1 + media.PARTICLE_PHASE_G
-						) / math.sqrt(1 + media.PARTICLE_PHASE_G ^ 2) - 1
-					)
-			) .. [[;
+			float water_particle_backscatter(float g) {
+				if (abs(g) < 1e-3) return 0.5;
+				return (1.0 - g) / (2.0 * g) * ((1.0 + g) / sqrt(1.0 + g * g) - 1.0);
+			}
 			const float WATER_GRAVITY = ]] .. water.GRAVITY .. [[;
 			const int WAVE_CASCADES = ]] .. #WAVE_CASCADES .. [[;
 			const int RIPPLE_OCTAVES = ]] .. water.DETAIL_OCTAVES .. [[;
@@ -944,7 +956,7 @@ list.insert(
 			]] .. glsl_common.GetNoiseGLSL() .. glsl_common.GetFresnelGLSL() .. glsl_common.GetBlueNoiseGLSL() .. glsl_common.GetPhaseGLSL() .. ibl.GetBRDFGLSLCode() .. [[
 			]] .. ibl.GetEnvironmentGLSLCode() .. (
 				RAY_QUERY and
-				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("water_data", "water_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("water_data") .. scene_reflection.GetDirectionGLSL()
+				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("water_data", "water_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("water_data") .. scene_reflection.GetDirectionGLSL() .. light_occlusion.GetSamplingGLSL("water_data") .. scene_lights.GetPointShadowGLSL("water_data")
 				or
 				scene_reflection.CONSTANTS_GLSL .. "#define DDGI_NO_VISIBILITY_RAYS 1e30\nconst float SUN_ANGULAR_RADIUS = " .. atmosphere.SUN_ANGULAR_RADIUS .. ";\n"
 			) .. [[
@@ -1353,7 +1365,7 @@ list.insert(
 
 
 			bool intersect_volume(int i, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
-				return medium_volume_intersect(water_data.volume_to_local[i], water_data.volume_shape[i].xyz, ray_origin, ray_dir, t_entry, t_exit, top);
+				return medium_volume_intersect(water_data.volume_to_local[i], water_data.volume_shape[i].xyz, 0.0, ray_origin, ray_dir, t_entry, t_exit, top);
 			}
 
 			float get_volume_exit(int i, vec3 ray_origin, vec3 ray_dir) {
@@ -1388,6 +1400,7 @@ list.insert(
 				int volume;
 				vec3 absorption;
 				vec3 particles;
+				float g;
 				float ior;
 				float abbe;
 				float surface_y;
@@ -1402,6 +1415,7 @@ list.insert(
 				w.volume = -1;
 				w.absorption = water_data.ocean_absorption.rgb;
 				w.particles = water_data.ocean_scattering.rgb;
+				w.g = water_data.ocean_phase_g;
 				w.ior = water_data.ocean_absorption.w;
 				w.abbe = water_data.ocean_wave_info.w;
 				w.surface_y = water_data.ocean_level;
@@ -1417,6 +1431,7 @@ list.insert(
 				w.volume = i;
 				w.absorption = water_data.volume_absorption[i].rgb;
 				w.particles = water_data.volume_scattering[i].rgb;
+				w.g = water_data.volume_misc[i].y;
 				w.ior = water_data.volume_absorption[i].w;
 				w.abbe = water_data.volume_flow[i].w;
 				w.surface_y = water_data.volume_shape[i].w;
@@ -1433,6 +1448,7 @@ list.insert(
 				Water w = b;
 				w.absorption = mix(a.absorption, b.absorption, t);
 				w.particles = mix(a.particles, b.particles, t);
+				w.g = mix(a.g, b.g, t);
 				w.ior = mix(a.ior, b.ior, t);
 				w.abbe = mix(a.abbe, b.abbe, t);
 				w.foam = mix(a.foam, b.foam, t);
@@ -1447,7 +1463,7 @@ list.insert(
 			}
 
 			vec3 water_scatter(Water w, float mu) {
-				return WATER_MOLECULAR_SCATTERING * water_molecular_phase(mu) + w.particles * phase_henyey_greenstein(mu, WATER_PARTICLE_G);
+				return WATER_MOLECULAR_SCATTERING * water_molecular_phase(mu) + w.particles * phase_henyey_greenstein(mu, w.g);
 			}
 
 			vec3 get_sun_illuminance() {
@@ -1490,6 +1506,20 @@ list.insert(
 
 			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail);
 
+			#ifdef SCENE_REFLECTION
+			]] .. medium_lighting.GetLocalLightsGLSL(
+				"water_data",
+				"WATER_LIGHT_MAX_PER_SAMPLE",
+				{
+					name = "get_water_local_light_scattering",
+					params = "Water w, vec3 sigma",
+					phase = "water_scatter(w, mu)",
+					attenuation = "exp(-sigma * (light.position.y > w.surface_y ? min(dist, max(w.surface_y - world_pos.y, 0.0) / max(L.y, 0.1)) : dist))",
+				}
+			) .. [[
+			#endif
+
+
 			vec3 get_water_inscatter(Water w, vec3 origin, vec3 dir, float len, float jitter, out vec3 transmittance) {
 				vec3 sigma = get_extinction(w);
 				transmittance = exp(-sigma * len);
@@ -1528,10 +1558,10 @@ list.insert(
 					visibility /= float(shaft_samples);
 				}
 
-				vec3 backscatter = WATER_MOLECULAR_SCATTERING * 0.5 + w.particles * WATER_PARTICLE_BACKSCATTER;
+				vec3 backscatter = WATER_MOLECULAR_SCATTERING * 0.5 + w.particles * water_particle_backscatter(w.g);
 				vec3 diffuse_scatter = backscatter * (WATER_MULTIPLE_SCATTERING * 0.33 * 4.0) / (w.absorption + backscatter) * sigma / PI;
 				vec3 sun_scatter = sun_light * visibility * (water_scatter(w, dot(-dir, sun_dir)) + diffuse_scatter) * integrate_attenuated(sigma, depth_start, rate, len, sun_mu);
-				float particle_share = mix(WATER_PARTICLE_BACKSCATTER, 1.0 - WATER_PARTICLE_BACKSCATTER, 0.5 + 0.5 * dir.y) / (2.0 * PI);
+				float particle_share = mix(water_particle_backscatter(w.g), 1.0 - water_particle_backscatter(w.g), 0.5 + 0.5 * dir.y) / (2.0 * PI);
 				vec3 sky_phase = WATER_MOLECULAR_SCATTERING / (4.0 * PI) + w.particles * particle_share;
 				vec3 ambient = sample_environment_irradiance(water_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
 
@@ -1551,44 +1581,7 @@ list.insert(
 
 					for (int i = 0; i < WATER_LIGHT_SAMPLES; i++) {
 						float t = light_len * (float(i) + jitter) / float(WATER_LIGHT_SAMPLES);
-						vec3 p = origin + dir * t;
-						int light_cell = light_grid_cell(p);
-						int light_count = water_data.light_count;
-						float point_depth = max(w.surface_y - p.y, 0.0);
-						vec3 point_light = vec3(0.0);
-						int shaded = 0;
-
-						for (int word = 0; word < light_grid_words(light_count) && shaded < WATER_LIGHT_MAX_PER_SAMPLE; word++) {
-							uint light_bits = light_grid_word(light_cell, word, light_count);
-
-							while (light_bits != 0u && shaded < WATER_LIGHT_MAX_PER_SAMPLE) {
-								int li = word * 32 + findLSB(light_bits);
-								light_bits &= light_bits - 1u;
-								lights_t light = water_data.lights[li];
-
-								if (get_light_type(light) == 0) continue;
-
-								vec3 L;
-								float attenuation;
-
-								if (!get_light_vector_and_attenuation(light, p, L, attenuation)) continue;
-
-								float dist = dot(light.position.xyz - p, L);
-								float light_path = light.position.y > w.surface_y ? min(dist, point_depth / max(L.y, 0.1)) : dist;
-								vec3 contribution = light.color.rgb * light.color.a * attenuation * water_scatter(w, dot(dir, L)) * exp(-sigma * light_path);
-								float light_weight = scene_reflection_light_weight(contribution * exp(-sigma * t) * (light_len / float(WATER_LIGHT_SAMPLES)), p, li);
-
-								if (light_weight == 0.0) continue;
-
-								if (dist > 0.05) {
-									shaded++;
-									if (!scene_reflection_visible(p, L, dist - 0.05)) continue;
-								}
-
-								point_light += contribution * light_weight;
-							}
-						}
-
+						vec3 point_light = get_water_local_light_scattering(dir, origin + dir * t, w, sigma);
 						light_scatter += point_light * exp(-sigma * t) * (light_len / float(WATER_LIGHT_SAMPLES));
 					}
 				}
@@ -1607,11 +1600,12 @@ list.insert(
 				vec3 albedo = gbuffer_albedo(uv) * (1.0 - gbuffer_metallic(uv));
 				float no_l = max(dot(normal, normalize(water_data.sun_direction)), 0.0);
 				float shadow = get_water_sun_visibility(world_pos + normal * 0.1, water_data.sun_direction);
-				vec3 direct = min(albedo / PI * get_sun_illuminance() * (no_l * shadow), scene_color);
-				vec3 rest = scene_color - direct;
 				vec3 sun_path = exp(-sigma * (depth / max(-sun_dir.y, 0.05)));
 				vec3 sky_path = exp(-sigma * (depth / 0.75));
-				return direct * sun_path * (sun_transmission * caustic) + rest * mix(sky_path, vec3(1.0), float(water_data.gi_tinted));
+				vec3 sun_in_scene = water_data.sun_tinted != 0 ? sun_path : vec3(1.0);
+				vec3 direct = min(albedo / PI * get_sun_illuminance() * (no_l * shadow) * sun_in_scene, scene_color);
+				vec3 rest = scene_color - direct;
+				return direct * (water_data.sun_tinted != 0 ? vec3(1.0) : sun_path) * (sun_transmission * caustic) + rest * (water_data.gi_tinted != 0 ? vec3(1.0) : sky_path);
 			}
 
 			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail) {
@@ -1984,14 +1978,12 @@ list.insert(
 							vec3 lamp_half = normalize(above_view_dir + lamp_dir);
 							float lamp_specular = D_GGXAlpha(lamp_alpha, max(dot(normal, lamp_half), 0.0)) * V_SmithGGXCorrelated(lamp_alpha, above_no_v, lamp_no_l) * fresnel_dielectric(max(dot(above_view_dir, lamp_half), 0.0), 1.0 / w.ior);
 							vec3 lamp_light = light.color.rgb * light.color.a * attenuation * (lamp_specular * lamp_no_l);
-							float lamp_distance = dot(light.position.xyz - surface_pos, lamp_dir);
+							float lamp_visibility = get_medium_light_visibility(li, light, surface_pos, lamp_dir);
 
-							if (lamp_distance > 0.05) {
-								shaded++;
-								if (!scene_reflection_visible(surface_pos, lamp_dir, lamp_distance - 0.05)) continue;
-							}
+							if (lamp_visibility <= 0.0) continue;
 
-							color += lamp_light;
+							shaded++;
+							color += lamp_light * lamp_visibility;
 						}
 					}
 				}

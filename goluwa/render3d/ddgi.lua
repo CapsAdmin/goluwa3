@@ -22,6 +22,7 @@ local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local water = import("goluwa/render3d/water.lua")
 local ddgi = {}
+ddgi.OPTICAL_VOLUME_SLOTS = water.MAX_VOLUMES + 1
 pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "ddgi_"})
 
 event.AddListener("Render3DPassToggled", "ddgi", function(name, value)
@@ -906,10 +907,19 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			float medium_porosity_high;
 			float medium_thickness;
 			float medium_body;
-			mat4 volume_to_local;
-			vec3 volume_shape;
 			};
+
+		struct optical_volume {
+			mat4 to_local;
+			vec3 shape;
+			float wave;
+			float ior;
+			vec3 extinction;
+		};
+
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
+			ivec3 optical_counts;
+			optical_volume optical_volumes[]] .. ddgi.OPTICAL_VOLUME_SLOTS .. [[];
 			ddgi_material ddgi_materials[];
 		};
 
@@ -1751,7 +1761,7 @@ function ddgi.WriteBlock(self, block)
 	scene_lights.WriteLightsBlock(block.lights, lights)
 	clouds.WriteShadowBlock(self, block)
 	post_source.WritePreExposureBlock(self, block)
-	block.glass_light = ddgi.HasGlass() and 1 or 0
+	block.glass_light = ddgi.HasDirectTint() and 1 or 0
 	block.medium_gi = ddgi.HasMedium() and 1 or 0
 	return ddgi.WriteProbeBlock(self, block)
 end
@@ -1813,13 +1823,32 @@ local MaterialEntry = ffi.typeof([[struct {
 	float medium_porosity_high;
 	float medium_thickness;
 	float medium_body;
-	float volume_to_local[16];
-	float volume_shape[3];
 	}]])
 ddgi.MaterialEntry = MaterialEntry
-local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
 local MATERIAL_ENTRY_SIZE = ffi.sizeof(MaterialEntry)
+local OpticalHeader = ffi.typeof("struct {int32_t glass; int32_t media; int32_t volumes;}")
+local OpticalHeaderPointer = ffi.typeof("$*", OpticalHeader)
+local OpticalVolume = ffi.typeof(
+	"struct {float to_local[16]; float shape[3]; float wave; float ior; float extinction[3];}"
+)
+local OpticalVolumePointer = ffi.typeof("$*", OpticalVolume)
+local OPTICAL_HEADER_SIZE = ffi.sizeof(OpticalHeader)
+local OPTICAL_PREFIX_SIZE = OPTICAL_HEADER_SIZE + ddgi.OPTICAL_VOLUME_SLOTS * ffi.sizeof(OpticalVolume)
+local BytePointer = ffi.typeof("uint8_t*")
+
+function ddgi.GetMaterialEntries(buffer)
+	local base = ffi.cast(BytePointer, buffer:Map(0, buffer:GetSize()))
+	return ffi.cast(MaterialEntryPointer, base + OPTICAL_PREFIX_SIZE),
+	(buffer:GetSize() - OPTICAL_PREFIX_SIZE) / MATERIAL_ENTRY_SIZE
+end
+
+function ddgi.GetOpticalVolumes(buffer)
+	local base = ffi.cast(BytePointer, buffer:Map(0, buffer:GetSize()))
+	return ffi.cast(OpticalHeaderPointer, base),
+	ffi.cast(OpticalVolumePointer, base + OPTICAL_HEADER_SIZE)
+end
+
 local material_buffers = setmetatable({}, {__mode = "k"})
 local glass_count = 0
 local medium_count = 0
@@ -1830,61 +1859,75 @@ end
 
 local AXES = {"x", "y", "z"}
 local volume_count = 0
-local VOLUME_SLOTS = water.MAX_VOLUMES + 1
 local OCEAN_HALF_SIZE = 1e5
 local OCEAN_DEPTH = 1e4
+local OCEAN_WAVE_SCALE = 3.5
+local OCEAN_WAVE_FLOOR = 0.05
 
 function ddgi.HasMedium()
 	return medium_count > 0 or volume_count > 0
 end
 
-local function write_volume(entry, extinction, half_x, depth, half_z)
-	entry.medium_body = 2
-	entry.medium_extinction[0], entry.medium_extinction[1], entry.medium_extinction[2] = extinction.x, extinction.y, extinction.z
-	entry.volume_shape[0], entry.volume_shape[1], entry.volume_shape[2] = half_x, depth, half_z
+function ddgi.HasVolumes()
+	return volume_count > 0
 end
 
--- water volumes and the ocean ride at the end of the material buffer, packed from the last entry down, a material that is not a volume ends the list
+function ddgi.HasDirectTint()
+	return glass_count > 0 or volume_count > 0
+end
+
+local function write_volume(volume, extinction, half_x, depth, half_z, wave, ior)
+	volume.extinction[0], volume.extinction[1], volume.extinction[2] = extinction.x, extinction.y, extinction.z
+	volume.shape[0], volume.shape[1], volume.shape[2] = half_x, depth, half_z
+	volume.wave = wave
+	volume.ior = ior
+end
+
 local function refresh_volumes(state)
 	local frame_number = system.GetFrameNumber()
 
 	if state.volume_frame == frame_number then return end
 
 	state.volume_frame = frame_number
-	local capacity = state.buffer:GetSize() / MATERIAL_ENTRY_SIZE
-	local out = ffi.cast(MaterialEntryPointer, state.buffer:Map(0, state.buffer:GetSize()))
+	local header, volumes = ddgi.GetOpticalVolumes(state.buffer)
 	local count = 0
 
 	if render3d.IsOceanEnabled() then
-		local entry = out[capacity - 1]
-		ffi.fill(entry.volume_to_local, ffi.sizeof(entry.volume_to_local))
-		entry.volume_to_local[0], entry.volume_to_local[5], entry.volume_to_local[10], entry.volume_to_local[15] = 1, 1, 1, 1
-		entry.volume_to_local[13] = -render3d.GetOceanLevel()
+		local volume = volumes[0]
+		ffi.fill(volume.to_local, ffi.sizeof(volume.to_local))
+		volume.to_local[0], volume.to_local[5], volume.to_local[10], volume.to_local[15] = 1, 1, 1, 1
+		volume.to_local[13] = -render3d.GetOceanLevel()
 		write_volume(
-			entry,
+			volume,
 			media.GetExtinction(water.GetOcean().Medium),
 			OCEAN_HALF_SIZE,
 			OCEAN_DEPTH,
-			OCEAN_HALF_SIZE
+			OCEAN_HALF_SIZE,
+			water.GetOceanWaves().height_std * OCEAN_WAVE_SCALE + OCEAN_WAVE_FLOOR,
+			media.presets[water.GetOcean().Medium].IOR
 		)
 		count = 1
 	end
 
-	for _, volume in ipairs(water.GetVolumes()) do
-		if count >= VOLUME_SLOTS then break end
+	for _, water_volume in ipairs(water.GetVolumes()) do
+		if count >= ddgi.OPTICAL_VOLUME_SLOTS then break end
 
-		local entry = out[capacity - 1 - count]
-		local size = volume:GetSize()
-		volume.Owner.transform:GetWorldMatrixInverse():CopyToFloatPointer(entry.volume_to_local)
-		write_volume(entry, media.GetExtinction(volume:GetMedium()), size.x / 2, size.y, size.z / 2)
+		local volume = volumes[count]
+		local size = water_volume:GetSize()
+		water_volume.Owner.transform:GetWorldMatrixInverse():CopyToFloatPointer(volume.to_local)
+		write_volume(
+			volume,
+			media.GetExtinction(water_volume:GetMedium()),
+			size.x / 2,
+			size.y,
+			size.z / 2,
+			water_volume:GetWaveHeight(),
+			media.presets[water_volume:GetMedium()].IOR
+		)
 		count = count + 1
 	end
 
-	for i = count, state.volume_count - 1 do
-		out[capacity - 1 - i].medium_body = 0
-	end
-
-	state.volume_count = count
+	header.glass, header.media, header.volumes = glass_count, medium_count, count
 	volume_count = count
 end
 
@@ -1898,25 +1941,22 @@ function ddgi.WriteMaterialBuffer(self)
 
 	if
 		not state or
-		state.buffer:GetSize() < (
-			count + VOLUME_SLOTS
-		) * MATERIAL_ENTRY_SIZE
+		state.buffer:GetSize() < OPTICAL_PREFIX_SIZE + count * MATERIAL_ENTRY_SIZE
 	then
 		if state then state.buffer:Remove() end
 
-		local capacity = math.max(count, 1) * 2 + VOLUME_SLOTS
+		local capacity = math.max(count, 1) * 2
 		state = {
 			buffer = render.CreateBuffer{
-				byte_size = capacity * MATERIAL_ENTRY_SIZE,
+				byte_size = OPTICAL_PREFIX_SIZE + capacity * MATERIAL_ENTRY_SIZE,
 				buffer_usage = {"storage_buffer"},
 				memory_property = {"host_visible", "host_coherent"},
 				label = "ddgi_materials",
-				data = MaterialEntryArray(capacity),
+				data = ffi.new("uint8_t[?]", OPTICAL_PREFIX_SIZE + capacity * MATERIAL_ENTRY_SIZE),
 			},
 			written = 0,
 			generation = 0,
 			releases = -1,
-			volume_count = 0,
 		}
 		states[frame] = state
 	end
@@ -1947,7 +1987,7 @@ function ddgi.WriteMaterialBuffer(self)
 	state.media_generation = media.generation
 	local written = state.written
 	local stamp = state.generation
-	local out = ffi.cast(MaterialEntryPointer, state.buffer:Map(0, state.buffer:GetSize()))
+	local out = ddgi.GetMaterialEntries(state.buffer)
 
 	for i = 1, count do
 		local material = materials[i]

@@ -221,7 +221,7 @@ function scene_reflection.WriteBlock(self, block)
 	block.reflection_screenspace_roughness = screenspace_roughness:Get()
 	block.reflection_max_distance = scene_reflection.max_distance:Get()
 	block.reflection_fog = scene_reflection.fog:Get() and 1 or 0
-	block.glass_light = ddgi.HasGlass() and 1 or 0
+	block.glass_light = ddgi.HasDirectTint() and 1 or 0
 	block.optical_tint = (ddgi.HasGlass() or ddgi.HasMedium()) and 1 or 0
 	scene_lights.WriteLightsBlock(block.lights, lights)
 end
