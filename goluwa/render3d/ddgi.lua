@@ -1633,6 +1633,7 @@ function ddgi.GetBlockLayout()
 	table.add(layout, ddgi.GetProbeBlockLayout())
 	table.add(layout, post_source.pre_exposure_block)
 	layout[#layout + 1] = {"glass_light", "int"}
+	layout[#layout + 1] = {"medium_gi", "int"}
 	return layout
 end
 
@@ -1736,6 +1737,7 @@ function ddgi.WriteBlock(self, block)
 	clouds.WriteShadowBlock(self, block)
 	post_source.WritePreExposureBlock(self, block)
 	block.glass_light = ddgi.HasGlass() and 1 or 0
+	block.medium_gi = ddgi.HasMedium() and 1 or 0
 	return ddgi.WriteProbeBlock(self, block)
 end
 
@@ -1797,9 +1799,14 @@ local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
 local MATERIAL_ENTRY_SIZE = ffi.sizeof(MaterialEntry)
 local material_buffers = setmetatable({}, {__mode = "k"})
 local glass_count = 0
+local medium_count = 0
 
 function ddgi.HasGlass()
 	return glass_count > 0
+end
+
+function ddgi.HasMedium()
+	return medium_count > 0
 end
 
 function ddgi.WriteMaterialBuffer(self)
@@ -1841,6 +1848,7 @@ function ddgi.WriteMaterialBuffer(self)
 		state.medium_thickness == medium_common.assumed_thickness
 	then
 		glass_count = state.glass_count or 0
+		medium_count = state.medium_count or 0
 		return state.buffer
 	end
 
@@ -1990,6 +1998,15 @@ function ddgi.WriteMaterialBuffer(self)
 	state.releases = releases
 	state.glass = glass_enabled
 	glass_count = state.glass_count or 0
+	state.medium_count = 0
+
+	for i = 1, count do
+		if materials[i]:GetMediumAbsorption() > 0 then
+			state.medium_count = state.medium_count + 1
+		end
+	end
+
+	medium_count = state.medium_count
 	return state.buffer
 end
 
@@ -2071,6 +2088,7 @@ struct Payload
     uint instance;
     uint primitive;
     uint sun;
+    uint seed;
 };
 ]]
 ddgi.SCENE_FLAGS_GLSL = ddgi.ALPHA_TEST and
@@ -2116,6 +2134,8 @@ void main()
     int c = int(gl_LaunchIDEXT.z);
 
     if ((params.update_mask & (1 << c)) == 0) return;
+
+    payload.seed = ray * 747796405u + uint(probe) * 2891336453u + uint(c) * 277803737u + params.frame * 2654435761u;
 
     ivec3 n = ivec3(params.size[c].xyz);
 
@@ -2211,7 +2231,7 @@ layout(set = 1, binding = 0) uniform sampler2D textures[]] .. render.GetBindless
 hitAttributeEXT vec2 barycentrics;
 ]] .. payload_glsl .. [[
 layout(location = 0) rayPayloadInEXT Payload payload;
-]] .. scene_hit.GetGLSL(10) .. ddgi.GetMaterialDeclarationsGLSL(9) .. ddgi.GetAlphaTestGLSL() .. [[
+]] .. scene_hit.GetGLSL(10) .. ddgi.GetMaterialDeclarationsGLSL(9) .. ddgi.GetAlphaTestGLSL() .. medium_common.GetGLSL() .. [[
 
 void main()
 {
@@ -2221,6 +2241,13 @@ void main()
     if (payload.sun != 0u && ddgi_materials[material].glass != 0) ignoreIntersectionEXT;
 
     if (payload.sun == 0u && ddgi_materials[material].refractive != 0) ignoreIntersectionEXT;
+
+    if (payload.sun == 0u && ddgi_materials[material].medium.x > 0.0) {
+        payload.seed = payload.seed * 747796405u + 2891336453u;
+        float scatter = max(medium_scatter_amount(ddgi_materials[material].medium_thickness), ddgi_materials[material].medium.y);
+
+        if (float(payload.seed >> 8u) * (1.0 / 16777216.0) >= scatter) ignoreIntersectionEXT;
+    }
 
     if (!ddgi_alpha_passes(instance, uint(gl_PrimitiveID), barycentrics)) ignoreIntersectionEXT;
 }

@@ -5,6 +5,7 @@ local hit = import("goluwa/render3d/scene/hit.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
+local medium_common = import("goluwa/render3d/medium_common.lua")
 local glass_light = {}
 glass_light.RAY_QUERY = render.GetDevice().ray_query_supported
 glass_light.SUN_DISTANCE = 300
@@ -71,7 +72,7 @@ function glass_light.GetDeclarationGLSL(bindings)
 end
 
 function glass_light.GetGLSL(scene_name)
-	return [[
+	return medium_common.GetGLSL() .. [[
 		#define GLASS_LIGHT
 		#define GLASS_SUN_DISTANCE ]] .. string.format("%.1f", glass_light.SUN_DISTANCE) .. [[
 
@@ -111,12 +112,34 @@ function glass_light.GetGLSL(scene_name)
 
 			return transmitted;
 		}
+
+		vec3 get_medium_gi_tint(vec3 origin, vec3 dir, float distance) {
+			vec3 transmitted = vec3(1.0);
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsCullOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, distance);
+
+			while (rayQueryProceedEXT(query)) {
+				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
+
+				if (material.medium.x <= 0.0) continue;
+
+				if (material.medium_body > 0.0 && rayQueryGetIntersectionFrontFaceEXT(query, false)) continue;
+
+				transmitted *= medium_transmittance(material.medium_thickness, material.medium.x, material.medium.y);
+			}
+
+			return transmitted;
+		}
 	]]
 end
 
 function glass_light.GetStubGLSL()
 	return [[
 		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return vec3(1.0);
+		}
+
+		vec3 get_medium_gi_tint(vec3 origin, vec3 dir, float distance) {
 			return vec3(1.0);
 		}
 	]]

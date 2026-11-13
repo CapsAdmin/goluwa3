@@ -398,6 +398,8 @@ local function pass_shade()
 
 				if (ddgi_data.glass_light != 0) glass = get_glass_light(origin, dir, t < 0.0 ? ddgi_data.ddgi_max_distance : t, 0.0);
 
+				if (ddgi_data.medium_gi != 0) glass *= get_medium_gi_tint(origin, dir, t < 0.0 ? ddgi_data.ddgi_max_distance : t);
+
 				if (t < 0.0) {
 					store_ray(pos, vec4(ddgi_sky(dir) * glass, DDGI_MISS_DISTANCE * mix(0.5, 1.0, luminance(glass))));
 					return;
