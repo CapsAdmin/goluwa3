@@ -10,6 +10,7 @@ local bit = require("bit")
 local surface_types = import("goluwa/cry_engine/surface_types.lua")
 local FOLIAGE_WIND_EMISSION = Vec3(0.3, 0.6, 0.8)
 local Material = import("goluwa/render3d/material.lua")
+local medium_common = import("goluwa/render3d/medium_common.lua")
 local mtl_material = {}
 mtl_material.DIFFUSE_COLOR_SCALE = 2
 local cry_mtl_document_cache = {}
@@ -235,11 +236,14 @@ local function get_cry_height_texture(normal_map_path)
 end
 
 local MEDIUM_ABSORPTION_DEFAULTS = {
-	["terrainice.layer"] = 10,
-	ice = 15,
-	iceoutdoor = 15,
-	iceindoor = 15,
+	["terrainice.layer"] = true,
+	ice = true,
+	iceoutdoor = true,
+	iceindoor = true,
 }
+local MEDIUM_ABSORPTION = 14
+local MEDIUM_ASSUMED_THICKNESS = 8
+local MEDIUM_SCATTER_COEFFICIENT = 0.5
 
 local function is_terrain_layer_shader(shader)
 	return shader == "Terrain.Layer" or shader == "TerrainIce.Layer"
@@ -298,10 +302,14 @@ local function apply_cry_material_node(self, material_node, material_path)
 	local medium_absorption_default = MEDIUM_ABSORPTION_DEFAULTS[shader:lower()]
 
 	if medium_absorption_default then
-		self.cry_medium_absorption = tonumber(params.Absorption) or medium_absorption_default
+		self.cry_medium_absorption = MEDIUM_ABSORPTION
+		medium_common.assumed_thickness = MEDIUM_ASSUMED_THICKNESS
+		medium_common.scatter_coefficient = MEDIUM_SCATTER_COEFFICIENT
 
 		if not is_terrain_layer_shader(shader) then
-			self:SetMediumAbsorption(self.cry_medium_absorption)
+			self:SetMediumAbsorption(MEDIUM_ABSORPTION)
+			self:SetMediumPorosityFromAlbedo(1)
+			self.cry_medium_mesh = true
 		end
 	end
 
@@ -326,7 +334,11 @@ local function apply_cry_material_node(self, material_node, material_path)
 			r, g, b = (r or 1) * scale, (g or 1) * scale, (b or 1) * scale
 		end
 
-		self:SetColorMultiplier(Color(r or 1, g or 1, b or 1, alpha_test > 0 and 1 or opacity))
+		if self.cry_medium_mesh then
+			self:SetColorMultiplier(Color(1, 1, 1, 1))
+		else
+			self:SetColorMultiplier(Color(r or 1, g or 1, b or 1, alpha_test > 0 and 1 or opacity))
+		end
 	end
 
 	if alpha_test > 0 then
@@ -502,6 +514,11 @@ local function apply_cry_material_node(self, material_node, material_path)
 			end
 		else
 			self:SetRoughnessMultiplier(lobe)
+		end
+
+		if self.cry_medium_mesh then
+			self:SetRoughnessMultiplier(0.14)
+			self:SetSpecularMultiplier(0.5)
 		end
 	end
 
