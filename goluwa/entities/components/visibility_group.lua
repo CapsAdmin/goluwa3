@@ -25,6 +25,10 @@ local function apply(self, shown)
 		local water_volume = child.water_volume
 
 		if water_volume then water_volume:SetVisible(shown) end
+
+		local fog_volume = child.fog_volume
+
+		if fog_volume then fog_volume:SetVisible(shown) end
 	end
 end
 

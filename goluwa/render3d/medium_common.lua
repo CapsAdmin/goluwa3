@@ -50,19 +50,24 @@ function medium_common.GetGLSL()
 		return mix(optical_transmittance(absorption, depth), medium_body_reflectance(absorption, scattering, g), medium_scatter_probability(scattering, depth));
 	}
 
-	bool medium_volume_intersect(mat4 to_local, vec3 shape, float top_offset, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
+	bool medium_box_intersect(mat4 to_local, vec3 box_min, vec3 box_max, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit) {
 		vec3 origin = (to_local * vec4(ray_origin, 1.0)).xyz;
 		vec3 dir = (to_local * vec4(ray_dir, 0.0)).xyz;
 		dir = mix(dir, vec3(1e-7), lessThan(abs(dir), vec3(1e-7)));
 		vec3 inv = 1.0 / dir;
-		vec3 ta = (vec3(-shape.x, -shape.y, -shape.z) - origin) * inv;
-		vec3 tb = (vec3(shape.x, top_offset, shape.z) - origin) * inv;
-		vec3 tmin = min(ta, tb);
-		vec3 tmax = max(ta, tb);
-		t_entry = max(max(tmin.x, tmin.y), tmin.z);
-		t_exit = min(min(tmax.x, tmax.y), tmax.z);
-		top = tmin.y >= max(tmin.x, tmin.z) && dir.y < 0.0;
+		vec3 ta = (box_min - origin) * inv;
+		vec3 tb = (box_max - origin) * inv;
+		t_entry = max(max(min(ta, tb).x, min(ta, tb).y), min(ta, tb).z);
+		t_exit = min(min(max(ta, tb).x, max(ta, tb).y), max(ta, tb).z);
 		return t_exit > max(t_entry, 0.0);
+	}
+
+	bool medium_volume_intersect(mat4 to_local, vec3 shape, float top_offset, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
+		vec3 local_dir = (to_local * vec4(ray_dir, 0.0)).xyz;
+		bool hit = medium_box_intersect(to_local, vec3(-shape.x, -shape.y, -shape.z), vec3(shape.x, top_offset, shape.z), ray_origin, ray_dir, t_entry, t_exit);
+		vec3 local_origin = (to_local * vec4(ray_origin, 1.0)).xyz;
+		top = local_dir.y < 0.0 && abs(t_entry - (top_offset - local_origin.y) / local_dir.y) < 1e-4;
+		return hit;
 	}
 	#endif
 ]]

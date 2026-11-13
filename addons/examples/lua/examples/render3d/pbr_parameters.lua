@@ -360,8 +360,8 @@ end
 shapes.Box{
 	Name = "floor",
 	Parent = root,
-	Position = Vec3(0, -0.5, 62.5),
-	Size = Vec3(30, 1, 155),
+	Position = Vec3(0, -0.5, 72.5),
+	Size = Vec3(30, 1, 175),
 	Material = material{Color = Color(0.5, 0.5, 0.5, 1), Roughness = 0.8, Metallic = 0},
 	RigidBody = STATIC,
 }
@@ -1063,6 +1063,36 @@ end
 
 for i, medium_name in ipairs{"lake", "pool", "swamp", "glacial"} do
 	water_tank("water_tank_" .. medium_name, (i - 2.5) * 4.5, medium_name)
+end
+
+local fog_media = group("fog_volumes")
+local FOG_Z = 142
+
+for i, medium_name in ipairs{"fog", "steam", "smoke", "dust"} do
+	local x = (i - 2.5) * 4.5
+	local volume = group("fog_volume_" .. medium_name, fog_media)
+	Entity.New{
+		Name = "fog",
+		Parent = volume,
+		transform = {Position = Vec3(x, 1.6, FOG_Z)},
+		fog_volume = {
+			Size = Vec3(3.4, 3.2, 3.4),
+			Medium = medium_name,
+			Density = 0.35,
+			EdgeSoftness = 0.6,
+		},
+	}
+	shapes.Sphere{
+		Name = "inside",
+		Parent = volume,
+		Position = Vec3(x, 0.5, FOG_Z),
+		Radius = 0.5,
+		Material = tank_object,
+		RigidBody = STATIC,
+	}
+	local lamp = Entity.New{Name = "lamp", Parent = volume}
+	lamp:AddComponent("transform"):SetPosition(Vec3(x + 1.1, 1.4, FOG_Z))
+	lamp:AddComponent("light_point"):SetLumen(5000)
 end
 
 swatch(

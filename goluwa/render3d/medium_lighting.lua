@@ -46,6 +46,10 @@ end
 function medium_lighting.GetLocalLightsGLSL(data_block, limit, options)
 	options = options or {}
 	return [[
+		]] .. (
+			options.visibility == false and
+			"" or
+			[[
 		float calculateLocalDirectionalMediumShadow(vec3 world_pos, vec3 light_dir) {
 			int shadow_map_idx = ]] .. data_block .. [[.shadows.local_directional_shadow_map_index;
 
@@ -77,6 +81,8 @@ function medium_lighting.GetLocalLightsGLSL(data_block, limit, options)
 			return shadow * occlusion;
 		}
 
+		]]
+		) .. [[
 		vec3 ]] .. (
 			options.name or
 			"get_local_light_scattering"

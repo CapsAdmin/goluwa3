@@ -129,6 +129,30 @@ function glass_light.GetGLSL(scene_name)
 
 			for (int k = 0; k < volume_count; k++) {
 				optical_volume volume = optical_volumes[k];
+
+				if (volume.kind > 0.5) {
+					float fog_entry;
+					float fog_exit;
+
+					if (medium_box_intersect(volume.to_local, -volume.shape, volume.shape, origin, dir, fog_entry, fog_exit)) {
+						float start = clamp(fog_entry, 0.0, distance);
+						float finish = min(fog_exit, distance);
+
+						if (finish > start) {
+							float density = 1.0;
+
+							if (volume.falloff > 0.0) {
+								vec3 mid = (volume.to_local * vec4(origin + dir * (0.5 * (start + finish)), 1.0)).xyz;
+								density = exp(-(mid.y + volume.shape.y) / volume.falloff);
+							}
+
+							transmitted *= optical_transmittance(volume.extinction * density, finish - start);
+						}
+					}
+
+					continue;
+				}
+
 				vec3 local_origin = (volume.to_local * vec4(origin, 1.0)).xyz;
 				vec3 local_dir = (volume.to_local * vec4(dir, 0.0)).xyz;
 				vec3 averaged = vec3(0.0);

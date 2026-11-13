@@ -441,6 +441,11 @@ T.Test3DRayTracing("Graphics render3d ddgi material buffer carries media and the
 		transform = {Position = Vec3(0, 1, 0)},
 		water_volume = {Size = Vec3(4, 2, 6), Medium = "lake", WaveHeight = 0.1},
 	}
+	local fog = Entity.New{
+		Name = "ddgi_fog_volume",
+		transform = {Position = Vec3(0, 1, 0)},
+		fog_volume = {Size = Vec3(8, 4, 8), Medium = "smoke", Density = 0.5, HeightFalloff = 3},
+	}
 	local ok, err = pcall(function()
 		local id = materials.GetID(material)
 		local pipeline = {
@@ -460,17 +465,23 @@ T.Test3DRayTracing("Graphics render3d ddgi material buffer carries media and the
 		T(entry.medium_porous_scattering[2])["~"](300, 1e-3)
 		local header, volumes = ddgi.GetOpticalVolumes(buffer)
 		T(header.media)["=="](1)
-		T(header.volumes)["=="](1)
+		T(header.volumes)["=="](2)
 		T(volumes[0].shape[0])["=="](2)
 		T(volumes[0].shape[1])["=="](2)
 		T(volumes[0].shape[2])["=="](3)
 		T(volumes[0].wave)["~"](0.1, 1e-6)
 		T(volumes[0].ior)["~"](1.333, 1e-6)
 		T(volumes[0].extinction[0])["~"](0.5 + 0.00114 + 0.025, 1e-5)
+		T(volumes[0].kind)["=="](0)
+		T(volumes[1].kind)["=="](1)
+		T(volumes[1].shape[1])["=="](2)
+		T(volumes[1].falloff)["=="](3)
+		T(volumes[1].extinction[0])["~"](0.5 * (0.55 + 0.45), 1e-5)
 		T(ddgi.HasVolumes())["=="](true)
 		T(ddgi.HasDirectTint())["=="](true)
 	end)
 	volume:Remove()
+	fog:Remove()
 	render3d.SetOceanEnabled(previous_ocean_enabled)
 
 	if not ok then error(err, 0) end

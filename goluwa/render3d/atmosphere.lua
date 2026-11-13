@@ -181,6 +181,30 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 	) .. [[;
 	const float GROUND_FOG_TOP_SOFTNESS = 0.3;
 	const float GROUND_FOG_MIE_G = ]] .. string.format("%.4f", media.presets.fog.PhaseG) .. [[;
+	const vec3 GROUND_FOG_TINT = ]] .. string.format(
+		"vec3(%.5f, %.5f, %.5f)",
+		(
+				media.presets.fog.Absorption.x + media.presets.fog.Scattering.x
+			) / (
+				(
+					media.presets.fog.Absorption.x + media.presets.fog.Scattering.x + media.presets.fog.Absorption.y + media.presets.fog.Scattering.y + media.presets.fog.Absorption.z + media.presets.fog.Scattering.z
+				) / 3
+			),
+		(
+				media.presets.fog.Absorption.y + media.presets.fog.Scattering.y
+			) / (
+				(
+					media.presets.fog.Absorption.x + media.presets.fog.Scattering.x + media.presets.fog.Absorption.y + media.presets.fog.Scattering.y + media.presets.fog.Absorption.z + media.presets.fog.Scattering.z
+				) / 3
+			),
+		(
+				media.presets.fog.Absorption.z + media.presets.fog.Scattering.z
+			) / (
+				(
+					media.presets.fog.Absorption.x + media.presets.fog.Scattering.x + media.presets.fog.Absorption.y + media.presets.fog.Scattering.y + media.presets.fog.Absorption.z + media.presets.fog.Scattering.z
+				) / 3
+			)
+	) .. [[;
 	const vec3 GROUND_FOG_ALBEDO = ]] .. string.format(
 		"vec3(%.5f, %.5f, %.5f)",
 		media.presets.fog.Scattering.x / (

@@ -21,8 +21,9 @@ local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local water = import("goluwa/render3d/water.lua")
+local fog_volumes = import("goluwa/render3d/fog_volumes.lua")
 local ddgi = {}
-ddgi.OPTICAL_VOLUME_SLOTS = water.MAX_VOLUMES + 1
+ddgi.OPTICAL_VOLUME_SLOTS = water.MAX_VOLUMES + fog_volumes.MAX_VOLUMES + 1
 pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "ddgi_"})
 
 event.AddListener("Render3DPassToggled", "ddgi", function(name, value)
@@ -915,6 +916,8 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			float wave;
 			float ior;
 			vec3 extinction;
+			float kind;
+			float falloff;
 		};
 
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
@@ -1830,7 +1833,7 @@ local MATERIAL_ENTRY_SIZE = ffi.sizeof(MaterialEntry)
 local OpticalHeader = ffi.typeof("struct {int32_t glass; int32_t media; int32_t volumes;}")
 local OpticalHeaderPointer = ffi.typeof("$*", OpticalHeader)
 local OpticalVolume = ffi.typeof(
-	"struct {float to_local[16]; float shape[3]; float wave; float ior; float extinction[3];}"
+	"struct {float to_local[16]; float shape[3]; float wave; float ior; float extinction[3]; float kind; float falloff;}"
 )
 local OpticalVolumePointer = ffi.typeof("$*", OpticalVolume)
 local OPTICAL_HEADER_SIZE = ffi.sizeof(OpticalHeader)
@@ -1876,11 +1879,13 @@ function ddgi.HasDirectTint()
 	return glass_count > 0 or volume_count > 0
 end
 
-local function write_volume(volume, extinction, half_x, depth, half_z, wave, ior)
+local function write_volume(volume, extinction, half_x, depth, half_z, wave, ior, kind, falloff)
 	volume.extinction[0], volume.extinction[1], volume.extinction[2] = extinction.x, extinction.y, extinction.z
 	volume.shape[0], volume.shape[1], volume.shape[2] = half_x, depth, half_z
 	volume.wave = wave
 	volume.ior = ior
+	volume.kind = kind
+	volume.falloff = falloff
 end
 
 local function refresh_volumes(state)
@@ -1904,7 +1909,9 @@ local function refresh_volumes(state)
 			OCEAN_DEPTH,
 			OCEAN_HALF_SIZE,
 			water.GetOceanWaves().height_std * OCEAN_WAVE_SCALE + OCEAN_WAVE_FLOOR,
-			media.presets[water.GetOcean().Medium].IOR
+			media.presets[water.GetOcean().Medium].IOR,
+			0,
+			0
 		)
 		count = 1
 	end
@@ -1922,7 +1929,31 @@ local function refresh_volumes(state)
 			size.y,
 			size.z / 2,
 			water_volume:GetWaveHeight(),
-			media.presets[water_volume:GetMedium()].IOR
+			media.presets[water_volume:GetMedium()].IOR,
+			0,
+			0
+		)
+		count = count + 1
+	end
+
+	for _, fog_volume in ipairs(fog_volumes.GetVolumes()) do
+		if count >= ddgi.OPTICAL_VOLUME_SLOTS then break end
+
+		local volume = volumes[count]
+		local size = fog_volume:GetSize()
+		local medium = media.presets[fog_volume:GetMedium()]
+		local density = fog_volume:GetDensity()
+		fog_volume.Owner.transform:GetWorldMatrixInverse():CopyToFloatPointer(volume.to_local)
+		write_volume(
+			volume,
+			(medium.Absorption + medium.Scattering) * density,
+			size.x / 2,
+			size.y / 2,
+			size.z / 2,
+			0,
+			medium.IOR,
+			1,
+			fog_volume:GetHeightFalloff()
 		)
 		count = count + 1
 	end
