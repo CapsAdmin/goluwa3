@@ -14,6 +14,7 @@ local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local medium_common = import("goluwa/render3d/medium_common.lua")
 local shader_features = import("goluwa/render3d/shader_features.lua")
 local vfs = import("goluwa/vfs.lua")
 local surface_conditions = {}
@@ -1030,7 +1031,7 @@ function surface_conditions.GetCommonGLSL(block_name)
 	end
 
 	local glsl = (
-		glsl_common.GetHashGLSL() .. glsl_common.GetOctahedralGLSL() .. surface_conditions.GetBlackbodyGLSL() .. [[
+		medium_common.GetGLSL() .. glsl_common.GetHashGLSL() .. glsl_common.GetOctahedralGLSL() .. surface_conditions.GetBlackbodyGLSL() .. [[
 		#ifndef GOLUWA_SURFACE_EFFECTS_COMMON
 		#define GOLUWA_SURFACE_EFFECTS_COMMON
 		vec4 effect_noise(vec3 P, vec3 N, float scale) {

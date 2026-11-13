@@ -643,6 +643,17 @@ ring("transmission_scattering", 0, function(t)
 	}
 end)
 
+ring("transmission_medium", 10, function(t)
+	local leaf = material{
+		Color = Color(0.45, 0.6, 0.2, 1),
+		Roughness = 1,
+		Metallic = 0,
+		DoubleSided = true,
+	}
+	leaf:SetTransmissionMedium("leaf", math.lerp(t, 0.00008, 0.0006))
+	return leaf
+end)
+
 ring("transmission_color", 5, function(t)
 	return material{
 		Color = Color(0.7, 0.7, 0.7, 1),

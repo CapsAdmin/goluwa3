@@ -1,4 +1,7 @@
 local Color = import("goluwa/structs/color.lua")
+local media = import("goluwa/render3d/media.lua")
+local charcoal = media.presets.charcoal
+local ash = media.presets.ash
 local BURN_TIME = 40
 local THIN_SPEED = 5
 local GROW_RATE = 0.7
@@ -184,7 +187,11 @@ return {
 			w.snow_scale *= (1.0 - smoothstep(0.02, 0.3, e.heat)) * (1.0 - smoothstep(0.4, 1.0, e.burnt) * 0.6);
 			w.wet_scale *= 1.0 - smoothstep(0.1, 0.5, e.heat);
 		]],
-		surface = [[
+		surface = string.format(
+			[[
+			vec3 CHARCOAL_COLOR = medium_body_reflectance(vec3(%.5f, %.5f, %.5f), vec3(%.5f, %.5f, %.5f), %.4f);
+			vec3 ASH_COLOR = medium_body_reflectance(vec3(%.5f, %.5f, %.5f), vec3(%.5f, %.5f, %.5f), %.4f);
+
 			if (e.heat > 0.0 || e.burnt > 0.0) {
 				vec4 broad = effect_noise(e.P, e.N, 0.31);
 				vec4 cracks = effect_noise(e.P, e.N, 1.9);
@@ -195,9 +202,9 @@ return {
 				float crack = 1.0 - smoothstep(0.02, 0.16, cracks.b);
 				float cold = 1.0 - smoothstep(0.0, 0.2, e.heat);
 				float ash = smoothstep(0.7, 1.0, e.burnt) * cold * smoothstep(0.35, 0.8, cracks.a);
-				vec3 charcoal = vec3(0.022, 0.019, 0.017) * mix(0.55, 1.5, cracks.a);
+				vec3 charcoal = CHARCOAL_COLOR * mix(0.55, 1.5, cracks.a);
 				s.albedo = mix(s.albedo, s.albedo * vec3(0.42, 0.3, 0.2), scorch * 0.85);
-				s.albedo = mix(s.albedo, mix(charcoal, vec3(0.2, 0.19, 0.18), ash * 0.75), charred);
+				s.albedo = mix(s.albedo, mix(charcoal, ASH_COLOR, ash * 0.75), charred);
 				s.roughness_alpha = mix(s.roughness_alpha, 0.8, charred);
 				s.metallic *= 1.0 - charred;
 				vec3 crack_tilt = (vec3(cracks.a, fract(cracks.a * 7.31), fract(cracks.a * 13.7)) - 0.5) * 0.5;
@@ -211,5 +218,20 @@ return {
 				consumed = max(consumed, charred * smoothstep(0.55, 0.95, e.burnt));
 			}
 		]],
+			charcoal.Absorption.x,
+			charcoal.Absorption.y,
+			charcoal.Absorption.z,
+			charcoal.Scattering.x,
+			charcoal.Scattering.y,
+			charcoal.Scattering.z,
+			charcoal.PhaseG,
+			ash.Absorption.x,
+			ash.Absorption.y,
+			ash.Absorption.z,
+			ash.Scattering.x,
+			ash.Scattering.y,
+			ash.Scattering.z,
+			ash.PhaseG
+		),
 	},
 }

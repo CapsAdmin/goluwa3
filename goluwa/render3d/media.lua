@@ -92,6 +92,46 @@ media.presets = {
 		IOR = 1.0003,
 		AbbeNumber = 0,
 	},
+	leaf = {
+		Absorption = Vec3(7000, 1800, 8000),
+		Scattering = Vec3(3000, 3000, 3000),
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = 0.6,
+		IOR = 1.4,
+		AbbeNumber = 0,
+	},
+	fabric = {
+		Absorption = Vec3(500, 500, 500),
+		Scattering = Vec3(8000, 8000, 8000),
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = 0.3,
+		IOR = 1.5,
+		AbbeNumber = 0,
+	},
+	flame = {
+		Absorption = Vec3(2.78, 2.78, 2.78),
+		Scattering = Vec3(0, 0, 0),
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = 0,
+		IOR = 1.0003,
+		AbbeNumber = 0,
+	},
+	charcoal = {
+		Absorption = Vec3(9200, 9800, 10300),
+		Scattering = Vec3(2000, 2000, 2000),
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = 0.5,
+		IOR = 1.5,
+		AbbeNumber = 0,
+	},
+	ash = {
+		Absorption = Vec3(1320, 1417, 1536),
+		Scattering = Vec3(3000, 3000, 3000),
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = 0.3,
+		IOR = 1.5,
+		AbbeNumber = 0,
+	},
 	skin = {
 		Absorption = Vec3(32, 170, 480),
 		Scattering = Vec3(3700, 4400, 5050),
@@ -252,6 +292,31 @@ function media.GetSubsurface(name, density)
 	local reference = luminance(get_diffusion_length("skin", 1))
 	local mean = luminance(length)
 	return length / mean, mean / reference
+end
+
+function media.GetF0(name)
+	local ior = media.presets[name].IOR
+	return ((ior - 1) / (ior + 1)) ^ 2
+end
+
+-- a thin sheet of the medium: the transmitted tint, the transmitted fraction and the chance that the light scattered inside
+function media.GetTransmission(name, thickness)
+	local preset = media.presets[name]
+	local attenuation = preset.Absorption + preset.Scattering * (1 - preset.PhaseG)
+	local transmitted = Vec3(
+		math.exp(-attenuation.x * thickness),
+		math.exp(-attenuation.y * thickness),
+		math.exp(-attenuation.z * thickness)
+	)
+	local amount = luminance(transmitted)
+	local mean_scattering = (preset.Scattering.x + preset.Scattering.y + preset.Scattering.z) / 3
+	return transmitted / amount, amount, 1 - math.exp(-mean_scattering * thickness)
+end
+
+function media.GetOpacity(name, thickness)
+	local preset = media.presets[name]
+	local total = preset.Absorption + preset.Scattering
+	return 1 - math.exp(-(total.x + total.y + total.z) / 3 * thickness)
 end
 
 function media.GetExtinction(name)

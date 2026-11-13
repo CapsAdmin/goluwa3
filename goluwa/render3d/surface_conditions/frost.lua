@@ -1,4 +1,8 @@
 local Color = import("goluwa/structs/color.lua")
+local media = import("goluwa/render3d/media.lua")
+local ice = media.presets.ice
+local frost_scattering = ice.Scattering + ice.PorousScattering
+local FROST_THIN_DEPTH = 0.01
 local GROW_RATE = 0.8
 local SPREAD_RATE = 0.6
 local SPREAD_FALLOFF = 0.82
@@ -76,7 +80,13 @@ return {
 		weather = [[
 			w.wet_scale *= 1.0 - smoothstep(0.1, 0.6, e.frost);
 		]],
-		surface = [[
+		surface = string.format(
+			[[
+			vec3 FROST_ABSORPTION = vec3(%.5f, %.5f, %.5f);
+			vec3 FROST_SCATTERING = vec3(%.5f, %.5f, %.5f);
+			vec3 FROST_THICK_COLOR = medium_body_reflectance(FROST_ABSORPTION, FROST_SCATTERING, %.4f);
+			vec3 FROST_THIN_COLOR = FROST_THICK_COLOR * medium_scatter_probability(FROST_SCATTERING, %.5f);
+
 			if (e.frost > 0.0) {
 				vec4 broad = effect_noise(e.P, e.N, 0.53);
 				vec4 fine = effect_noise(e.P, e.N, 3.7);
@@ -86,7 +96,7 @@ return {
 				feather *= feather;
 				float thick = smoothstep(0.55, 1.0, e.frost + (broad.r - 0.5) * 0.3);
 				float density = cover * mix(0.4 + 0.5 * feather, 0.95, thick);
-				s.albedo = mix(s.albedo, mix(vec3(0.7, 0.79, 0.9), vec3(0.93, 0.96, 1.0), feather), density);
+				s.albedo = mix(s.albedo, mix(FROST_THIN_COLOR, FROST_THICK_COLOR, feather), density);
 				s.roughness_alpha = mix(s.roughness_alpha, mix(0.4, 0.06, thick * (1.0 - feather * 0.5)), cover);
 				s.metallic *= 1.0 - cover;
 				vec3 tilt = (micro.rgb - 0.5) * mix(0.3, 0.9, feather);
@@ -95,5 +105,14 @@ return {
 			}
 
 		]],
+			ice.Absorption.x,
+			ice.Absorption.y,
+			ice.Absorption.z,
+			frost_scattering.x,
+			frost_scattering.y,
+			frost_scattering.z,
+			ice.PhaseG,
+			FROST_THIN_DEPTH
+		),
 	},
 }

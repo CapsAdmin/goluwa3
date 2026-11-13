@@ -6,10 +6,12 @@ local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local surface_conditions = import("goluwa/render3d/surface_conditions.lua")
+local media = import("goluwa/render3d/media.lua")
 local sheets = {}
 sheets.name = "surface_condition_sheets"
 sheets.PER_SITE = 4
-sheets.OPACITY = 0.75
+sheets.SHEET_DEPTH = 0.5
+sheets.OPACITY = media.GetOpacity("flame", sheets.SHEET_DEPTH)
 sheets.GLOW = 0.35
 local kinds = surface_conditions.kinds
 

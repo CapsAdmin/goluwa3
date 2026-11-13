@@ -1,4 +1,5 @@
 local Color = import("goluwa/structs/color.lua")
+local media = import("goluwa/render3d/media.lua")
 return {
 	name = "transmission",
 	category = "Transmission",
@@ -103,7 +104,7 @@ return {
 
 		float transmission_phase(vec3 V, vec3 L, float cos_incidence, float scattering)
 		{
-			const float g = 0.6;
+			const float g = ]] .. string.format("%.4f", media.presets.leaf.PhaseG) .. [[;
 			float henyey_greenstein = phase_henyey_greenstein(-dot(V, L), g);
 			float c = saturate(cos_incidence);
 			float lobe_flux = 0.37707 + c * (0.58701 + c * (0.57085 + c * (-0.29538 + c * 0.06498)));

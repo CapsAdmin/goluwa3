@@ -231,3 +231,25 @@ T.Test("a medium gives the subsurface tint and radius of its diffusion length", 
 	local _, denser = media.GetSubsurface("skin", 4)
 	T(denser)["~"](0.25, 1e-6)
 end)
+
+T.Test("the surface condition media give the constants their shaders used to hard code", function()
+	local media = import("goluwa/render3d/media.lua")
+	T(media.GetOpacity("flame", 0.5))["~"](0.75, 0.005)
+	T(media.GetF0("rain"))["~"](0.02, 0.001)
+
+	local function reflectance(name, channel)
+		local preset = media.presets[name]
+		local reduced = preset.Scattering[channel] * (1 - preset.PhaseG)
+		local s = math.sqrt(1 - reduced / (reduced + preset.Absorption[channel]))
+		return (1 - s) * (1 - 0.139 * s) / (1 + 1.17 * s)
+	end
+
+	T(reflectance("charcoal", "x"))["~"](0.022, 0.005)
+	T(reflectance("ash", "y"))["~"](0.19, 0.02)
+	local tint, amount, scattering = media.GetTransmission("leaf", 0.00025)
+	T(amount > 0.2 and amount < 0.6)["=="](true)
+	T(tint.y > tint.x and tint.y > tint.z)["=="](true)
+	T(scattering > 0.3 and scattering < 0.7)["=="](true)
+	local _, thinner = media.GetTransmission("leaf", 0.0001)
+	T(thinner > amount)["=="](true)
+end)

@@ -453,6 +453,13 @@ function Material:SetSubsurfaceMedium(name, density)
 	self:SetSubsurfaceRadius(radius)
 end
 
+function Material:SetTransmissionMedium(name, thickness)
+	local tint, amount, scattering = media.GetTransmission(name, thickness)
+	self:SetDiffuseTransmission(amount)
+	self:SetTransmissionColor(Color(tint.x, tint.y, tint.z, 1))
+	self:SetTransmissionScattering(scattering)
+end
+
 function Material:InvalidateMediumSlot()
 	self.medium_slot = nil
 	self:InvalidateRayMaterial()

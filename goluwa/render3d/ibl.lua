@@ -1,5 +1,6 @@
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local pvars = import("goluwa/cli/pvars.lua")
+local media = import("goluwa/render3d/media.lua")
 local ibl = {}
 pvars.StartGroup("Lighting", "Reflections", {store = false, prefix = "reflection_"})
 local gi_threshold = pvars.Setup2{
@@ -74,7 +75,7 @@ function ibl.GetBRDFGLSLCode()
 				return 0.5 / (lambdaV + lambdaL);
 			}
 
-			const float CLEARCOAT_F0 = 0.02;
+			const float CLEARCOAT_F0 = ]] .. string.format("%.5f", media.GetF0("rain")) .. [[;
 
 			float V_Kelemen(float LoH) {
 				return 0.25 / max(LoH * LoH, 1e-4);
