@@ -4,6 +4,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local system = import("goluwa/system.lua")
 local event = import("goluwa/event.lua")
+local media = import("goluwa/render3d/media.lua")
 local water = {}
 water.GRAVITY = 9.81
 water.DETAIL_OCTAVES = 4
@@ -11,66 +12,6 @@ water.MAX_VOLUMES = 64
 water.WAVE_TEXELS_PER_WAVELENGTH = 3
 water.NEAR_TEXEL_SIZE = 64 * 2 / 512
 water.WAVE_PERIOD = 1024
-water.MOLECULAR_SCATTERING = Vec3(0.00114, 0.00191, 0.00454)
-water.PARTICLE_PHASE_G = 0.92
-water.ABBE_NUMBER = 55.8
-water.presets = {
-	ocean = {
-		Absorption = Vec3(0.45, 0.065, 0.021),
-		ParticleScattering = Vec3(0.030, 0.034, 0.042),
-	},
-	open_ocean = {
-		Absorption = Vec3(0.46, 0.072, 0.051),
-		ParticleScattering = Vec3(0.126, 0.142, 0.174),
-	},
-	temperate_sea = {
-		Absorption = Vec3(0.47, 0.089, 0.137),
-		ParticleScattering = Vec3(0.342, 0.386, 0.472),
-	},
-	tropical = {
-		Absorption = Vec3(0.42, 0.058, 0.024),
-		ParticleScattering = Vec3(0.064, 0.072, 0.088),
-	},
-	coastal = {
-		Absorption = Vec3(0.5, 0.1, 0.13),
-		ParticleScattering = Vec3(0.09, 0.13, 0.11),
-	},
-	lake = {
-		Absorption = Vec3(0.5, 0.11, 0.19),
-		ParticleScattering = Vec3(0.025, 0.035, 0.03),
-	},
-	pond = {
-		Absorption = Vec3(0.95, 0.42, 0.85),
-		ParticleScattering = Vec3(0.3, 0.42, 0.24),
-	},
-	swamp = {
-		Absorption = Vec3(0.9, 1.4, 2.6),
-		ParticleScattering = Vec3(0.32, 0.22, 0.08),
-	},
-	glacial = {
-		Absorption = Vec3(0.48, 0.075, 0.07),
-		ParticleScattering = Vec3(0.55, 0.7, 0.78),
-	},
-	pool = {
-		Absorption = Vec3(0.34, 0.052, 0.016),
-		ParticleScattering = Vec3(0.003, 0.003, 0.003),
-	},
-}
-
-function water.MediumFromFog(color, extinction, albedo_scale)
-	local brightest = math.max(color.x, color.y, color.z, 1e-4)
-	local absorption = Vec3()
-	local scattering = Vec3()
-
-	for _, c in ipairs({"x", "y", "z"}) do
-		local channel_extinction = extinction * math.lerp(color[c] / brightest, 1.8, 0.7)
-		scattering[c] = channel_extinction * math.clamp(color[c] * albedo_scale, 0.005, 0.9)
-		absorption[c] = channel_extinction - scattering[c]
-	end
-
-	return absorption, scattering
-end
-
 water.ocean = {
 	WindSpeed = 7,
 	WindDirection = 30,
@@ -82,10 +23,7 @@ water.ocean = {
 	SwellHeight = 0.35,
 	SwellWavelength = 140,
 	SwellDirection = 50,
-	Absorption = water.presets.ocean.Absorption:Copy(),
-	ParticleScattering = water.presets.ocean.ParticleScattering:Copy(),
-	IOR = 1.333,
-	AbbeNumber = water.ABBE_NUMBER,
+	Medium = "ocean",
 	Foam = 1,
 	GustAmount = 1,
 	SlickAmount = 1,

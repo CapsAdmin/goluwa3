@@ -1,4 +1,5 @@
 local vdf = import("goluwa/codecs/vdf.lua")
+local media = import("goluwa/render3d/media.lua")
 local vmt_loader = import("goluwa/source_engine/vmt.lua")
 local vfs = import("goluwa/vfs.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
@@ -152,7 +153,6 @@ end
 local collect_water_volumes
 
 do
-	local water = import("goluwa/render3d/water.lua")
 	local MAX_EXTINCTION = 4
 
 	local function read_vmt(path)
@@ -201,16 +201,16 @@ do
 		local fog_end = tonumber(vmt.fogend)
 
 		if not fog_color or not fog_end or fog_end <= 0 then
-			local preset = bit.band(contents, BSP_CONTENTS_SLIME) ~= 0 and
-				water.presets.swamp or
-				water.presets.lake
-			return preset.Absorption:Copy(), preset.ParticleScattering:Copy()
+			local preset_name = bit.band(contents, BSP_CONTENTS_SLIME) ~= 0 and "swamp" or "lake"
+			return preset_name
 		end
 
-		return water.MediumFromFog(
-			fog_color,
-			math.min(3 / math.max(fog_end * units.meters, 0.5), MAX_EXTINCTION),
-			4
+		return media.Define(
+			media.MediumFromFog(
+				fog_color,
+				math.min(3 / math.max(fog_end * units.meters, 0.5), MAX_EXTINCTION),
+				4
+			)
 		)
 	end
 
@@ -327,7 +327,7 @@ do
 			local material = materials[box.texname]
 
 			if not material then
-				material = {water_from_vmt(box.texname, box.contents)}
+				material = water_from_vmt(box.texname, box.contents)
 				materials[box.texname] = material
 			end
 
@@ -336,8 +336,7 @@ do
 				{
 					position = Vec3((box.min.x + box.max.x) / 2, box.max.y, (box.min.z + box.max.z) / 2),
 					size = box.max - box.min,
-					absorption = material[1],
-					scattering = material[2],
+					medium = material,
 					slime = bit.band(box.contents, BSP_CONTENTS_SLIME) ~= 0,
 					texname = box.texname,
 					visibility_group = box.visibility_group,

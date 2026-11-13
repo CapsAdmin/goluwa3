@@ -1,6 +1,6 @@
 local render3d = import("goluwa/render3d/render3d.lua")
 local weather = import("goluwa/render3d/weather.lua")
-local water = import("goluwa/render3d/water.lua")
+local media = import("goluwa/render3d/media.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
@@ -60,10 +60,11 @@ Entity.New{
 	transform = {Position = Vec3(0, 0, 0)},
 	water_volume = {
 		Size = Vec3(W, D, L),
-		Absorption = water.presets.lake.Absorption:Copy(),
-		ParticleScattering = water.presets.lake.ParticleScattering:Copy() * tonumber(os.getenv("SCAT") or "1"),
+		Medium = media.Define(
+			media.presets.lake.Absorption,
+			media.presets.lake.ParticleScattering * tonumber(os.getenv("SCAT") or "1")
+		),
 		WaveHeight = 0.08,
 		WaveLength = 2,
-		AbbeNumber = tonumber(os.getenv("ABBE") or "55.8"),
 	},
 }

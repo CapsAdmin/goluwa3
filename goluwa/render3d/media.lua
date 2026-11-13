@@ -1,5 +1,17 @@
 local Vec3 = import("goluwa/structs/vec3.lua")
 local media = {}
+media.MOLECULAR_SCATTERING = Vec3(0.00114, 0.00191, 0.00454)
+media.PARTICLE_PHASE_G = 0.92
+
+local function water(absorption, scattering)
+	return {
+		Absorption = absorption,
+		ParticleScattering = scattering,
+		IOR = 1.333,
+		AbbeNumber = 55.8,
+	}
+end
+
 media.presets = {
 	ice = {
 		Absorption = Vec3(0.19, 0.058, 0.012),
@@ -12,6 +24,16 @@ media.presets = {
 			porous_color = {0.92, 0.96, 1.0},
 		},
 	},
+	ocean = water(Vec3(0.45, 0.065, 0.021), Vec3(0.030, 0.034, 0.042)),
+	open_ocean = water(Vec3(0.46, 0.072, 0.051), Vec3(0.126, 0.142, 0.174)),
+	temperate_sea = water(Vec3(0.47, 0.089, 0.137), Vec3(0.342, 0.386, 0.472)),
+	tropical = water(Vec3(0.42, 0.058, 0.024), Vec3(0.064, 0.072, 0.088)),
+	coastal = water(Vec3(0.5, 0.1, 0.13), Vec3(0.09, 0.13, 0.11)),
+	lake = water(Vec3(0.5, 0.11, 0.19), Vec3(0.025, 0.035, 0.03)),
+	pond = water(Vec3(0.95, 0.42, 0.85), Vec3(0.3, 0.42, 0.24)),
+	swamp = water(Vec3(0.9, 1.4, 2.6), Vec3(0.32, 0.22, 0.08)),
+	glacial = water(Vec3(0.48, 0.075, 0.07), Vec3(0.55, 0.7, 0.78)),
+	pool = water(Vec3(0.34, 0.052, 0.016), Vec3(0.003, 0.003, 0.003)),
 }
 media.MAX_SLOTS = 15
 media.TERRAIN_MEDIUM = "ice"
@@ -63,6 +85,29 @@ function media.WriteSlots(out)
 		local porous = out[id * 4 + 3]
 		porous[0], porous[1], porous[2] = skin.porous_color[1], skin.porous_color[2], skin.porous_color[3]
 	end
+end
+
+local defined = 0
+
+function media.Define(absorption, scattering)
+	defined = defined + 1
+	local name = "defined_" .. defined
+	media.presets[name] = water(absorption, scattering)
+	return name
+end
+
+function media.MediumFromFog(color, extinction, albedo_scale)
+	local brightest = math.max(color.x, color.y, color.z, 1e-4)
+	local absorption = Vec3()
+	local scattering = Vec3()
+
+	for _, c in ipairs({"x", "y", "z"}) do
+		local channel_extinction = extinction * math.lerp(color[c] / brightest, 1.8, 0.7)
+		scattering[c] = channel_extinction * math.clamp(color[c] * albedo_scale, 0.005, 0.9)
+		absorption[c] = channel_extinction - scattering[c]
+	end
+
+	return absorption, scattering
 end
 
 return media

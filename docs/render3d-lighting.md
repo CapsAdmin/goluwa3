@@ -116,7 +116,7 @@ A per pixel final gather (`goluwa/render3d/restir_gi.lua` for pvars, `passes/res
 
 ## Water
 
-Ocean and `water_volume` components are both drawn by the `water` compute pass (`passes/water.lua`, with its denoiser `water_resolve`; the wave passes keep the `ocean_` prefix). Sea state and presets are in `goluwa/render3d/water.lua`; examples `water_showcase.lua`, `ocean_shore.lua`, `water_volume_test.lua`, `twilight_lake.lua`.
+Ocean and `water_volume` components are both drawn by the `water` compute pass (`passes/water.lua`, with its denoiser `water_resolve`; the wave passes keep the `ocean_` prefix). Sea state is in `goluwa/render3d/water.lua` and the water presets in `goluwa/render3d/media.lua`; examples `water_showcase.lua`, `ocean_shore.lua`, `water_volume_test.lua`, `twilight_lake.lua`.
 
 - The wave field is three inverse-FFT tiles (`water.FFT_CASCADES`) built from spectra on the CPU when ocean params change (`water.BuildOceanWaves`); the three wave textures sample them and write height, slope and foam. Foam is a world space field with memory (per cascade foam pass), driven by the Jacobian of waves 4 m and longer and the wind (`water.GetWhitecapFactor`). `water.SampleOcean` (buoyancy) sums the strongest modes on the CPU, so bodies follow the visible sea but not its smallest waves. Ocean level is the *mean* surface.
 - The trace from above is a sphere trace through the slab `level +- wave_bound` (`height_map_tracing`) with a mean-plane fallback; never let a ray with no crossing show what is behind the sea. The camera start is the near plane (`WATER_NEAR_PLANE`) per pixel, so the waterline is a soft edge instead of a whole-screen flip.

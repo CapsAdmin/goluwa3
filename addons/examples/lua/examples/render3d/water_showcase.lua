@@ -225,9 +225,7 @@ local function volume(name, position, config)
 end
 
 local function preset(name, config)
-	local out = table.shallow_copy(water.presets[name])
-	out.Absorption = out.Absorption:Copy()
-	out.ParticleScattering = out.ParticleScattering:Copy()
+	local out = {Medium = name}
 
 	for k, v in pairs(config) do
 		out[k] = v

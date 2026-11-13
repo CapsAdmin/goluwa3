@@ -10,6 +10,7 @@ local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local water = import("goluwa/render3d/water.lua")
+local media = import("goluwa/render3d/media.lua")
 local ocean_fft = import("goluwa/render3d/ocean_fft.lua")
 local render = import("goluwa/render/render.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
@@ -601,8 +602,9 @@ do
 			local transform = volume.Owner.transform
 			local i = count
 			local size = volume:GetSize()
-			local absorption = volume:GetAbsorption()
-			local scattering = volume:GetParticleScattering()
+			local medium = media.presets[volume:GetMedium()]
+			local absorption = medium.Absorption
+			local scattering = medium.ParticleScattering
 			local flow = volume:GetFlow()
 			transform:GetWorldMatrixInverse():CopyToFloatPointer(block.volume_to_local[i])
 			block.volume_shape[i][0] = size.x / 2
@@ -612,7 +614,7 @@ do
 			block.volume_absorption[i][0] = absorption.x
 			block.volume_absorption[i][1] = absorption.y
 			block.volume_absorption[i][2] = absorption.z
-			block.volume_absorption[i][3] = volume:GetIOR()
+			block.volume_absorption[i][3] = medium.IOR
 			block.volume_scattering[i][0] = scattering.x
 			block.volume_scattering[i][1] = scattering.y
 			block.volume_scattering[i][2] = scattering.z
@@ -624,7 +626,7 @@ do
 			block.volume_flow[i][0] = flow.x
 			block.volume_flow[i][1] = flow.y
 			block.volume_flow[i][2] = volume:GetCaustics()
-			block.volume_flow[i][3] = volume:GetAbbeNumber()
+			block.volume_flow[i][3] = medium.AbbeNumber
 			block.volume_misc[i][0] = volume:GetOpen() and 0 or 1
 			count = count + 1
 		end
@@ -641,18 +643,19 @@ local function write_ocean(self, block)
 	local waves = water.GetOceanWaves()
 	block.ocean_enabled = render3d.IsOceanEnabled() and 1 or 0
 	block.ocean_level = render3d.GetOceanLevel()
-	block.ocean_absorption[0] = params.Absorption.x
-	block.ocean_absorption[1] = params.Absorption.y
-	block.ocean_absorption[2] = params.Absorption.z
-	block.ocean_absorption[3] = params.IOR
-	block.ocean_scattering[0] = params.ParticleScattering.x
-	block.ocean_scattering[1] = params.ParticleScattering.y
-	block.ocean_scattering[2] = params.ParticleScattering.z
+	local medium = media.presets[params.Medium]
+	block.ocean_absorption[0] = medium.Absorption.x
+	block.ocean_absorption[1] = medium.Absorption.y
+	block.ocean_absorption[2] = medium.Absorption.z
+	block.ocean_absorption[3] = medium.IOR
+	block.ocean_scattering[0] = medium.ParticleScattering.x
+	block.ocean_scattering[1] = medium.ParticleScattering.y
+	block.ocean_scattering[2] = medium.ParticleScattering.z
 	block.ocean_scattering[3] = params.Foam
 	block.ocean_wave_info[0] = waves.height_std * 3.5 + 0.05
 	block.ocean_wave_info[1] = params.Caustics
 	block.ocean_wave_info[2] = waves.total_slope_variance
-	block.ocean_wave_info[3] = params.AbbeNumber
+	block.ocean_wave_info[3] = medium.AbbeNumber
 
 	for i, cascade in ipairs(WAVE_CASCADES) do
 		local pipeline = render3d.pipelines[cascade.name]
@@ -898,20 +901,20 @@ list.insert(
 			#define WATER_NEAR_PLANE (0.1 * water_data.view_scale)
 			const float WATER_TRACE_RANGE = 1000000.0;
 			const float WATER_MAX_SLOPE = 1.5;
-			const vec3 WATER_MOLECULAR_SCATTERING = vec3(]] .. water.MOLECULAR_SCATTERING.x .. ", " .. water.MOLECULAR_SCATTERING.y .. ", " .. water.MOLECULAR_SCATTERING.z .. [[);
+			const vec3 WATER_MOLECULAR_SCATTERING = vec3(]] .. media.MOLECULAR_SCATTERING.x .. ", " .. media.MOLECULAR_SCATTERING.y .. ", " .. media.MOLECULAR_SCATTERING.z .. [[);
 			const float WATER_MULTIPLE_SCATTERING = 0.5;
 			const float WATER_CREST_GLOW = 20.0;
-			const float WATER_PARTICLE_G = ]] .. water.PARTICLE_PHASE_G .. [[;
+			const float WATER_PARTICLE_G = ]] .. media.PARTICLE_PHASE_G .. [[;
 			const float WATER_PARTICLE_BACKSCATTER = ]] .. string.format(
 				"%.5f",
 				(
-						1 - water.PARTICLE_PHASE_G
+						1 - media.PARTICLE_PHASE_G
 					) / (
-						2 * water.PARTICLE_PHASE_G
+						2 * media.PARTICLE_PHASE_G
 					) * (
 						(
-							1 + water.PARTICLE_PHASE_G
-						) / math.sqrt(1 + water.PARTICLE_PHASE_G ^ 2) - 1
+							1 + media.PARTICLE_PHASE_G
+						) / math.sqrt(1 + media.PARTICLE_PHASE_G ^ 2) - 1
 					)
 			) .. [[;
 			const float WATER_GRAVITY = ]] .. water.GRAVITY .. [[;

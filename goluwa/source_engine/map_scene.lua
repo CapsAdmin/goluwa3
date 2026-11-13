@@ -599,8 +599,7 @@ function map_scene.Translate(data, map_name, map_path, offset)
 				water_volume = {
 					Size = info.size,
 					Open = true,
-					Absorption = info.absorption,
-					ParticleScattering = info.scattering,
+					Medium = info.medium,
 					WaveHeight = info.slime and 0 or 0.04,
 					WaveLength = 1.2,
 					Roughness = info.slime and 0.06 or 0.02,

@@ -303,8 +303,7 @@ water.SetOcean{
 	Choppiness = 0.4,
 	SwellHeight = 0.06,
 	SwellWavelength = 40,
-	Absorption = water.presets.lake.Absorption:Copy(),
-	ParticleScattering = water.presets.lake.ParticleScattering:Copy(),
+	Medium = "lake",
 }
 local ground = twilight.GetHeight
 local root = twilight.root
@@ -1106,8 +1105,7 @@ do
 		transform = {Position = Vec3(center.x, surface, center.z)},
 		water_volume = {
 			Size = Vec3(size.x, 0.2, size.z),
-			Absorption = water.presets.pool.Absorption:Copy(),
-			ParticleScattering = water.presets.pool.ParticleScattering:Copy(),
+			Medium = "pool",
 			WaveHeight = 0.012,
 			WaveLength = 0.6,
 			Foam = 0,

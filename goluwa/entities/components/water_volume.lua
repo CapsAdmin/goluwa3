@@ -6,10 +6,7 @@ local fluid = import("goluwa/physics/fluid.lua")
 local WaterVolume = objects.CreateTemplate("water_volume")
 WaterVolume:StartStorable()
 WaterVolume:GetSet("Size", Vec3(10, 3, 10))
-WaterVolume:GetSet("Absorption", water.presets.lake.Absorption:Copy())
-WaterVolume:GetSet("ParticleScattering", water.presets.lake.ParticleScattering:Copy())
-WaterVolume:GetSet("IOR", 1.333, {validate = "number"})
-WaterVolume:GetSet("AbbeNumber", water.ABBE_NUMBER, {validate = "number"})
+WaterVolume:GetSet("Medium", "lake")
 WaterVolume:GetSet("WaveHeight", 0.02, {validate = "number"})
 WaterVolume:GetSet("WaveLength", 1.2, {validate = "number"})
 WaterVolume:GetSet("WindDirection", 30, {validate = "number"})
@@ -21,15 +18,6 @@ WaterVolume:GetSet("Caustics", 1, {validate = "number"})
 WaterVolume:GetSet("Open", false)
 WaterVolume:GetSet("Visible", true)
 WaterVolume:EndStorable()
-
-function WaterVolume:SetPreset(name)
-	local preset = water.presets[name]
-
-	if not preset then error("unknown water preset " .. tostring(name), 2) end
-
-	self:SetAbsorption(preset.Absorption:Copy())
-	self:SetParticleScattering(preset.ParticleScattering:Copy())
-end
 
 function WaterVolume:RefreshRegistration()
 	local active = self.Visible and not self.Owner.visibility_hidden or false

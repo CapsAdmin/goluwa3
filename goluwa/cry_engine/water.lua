@@ -2,6 +2,7 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local units = import("goluwa/cry_engine/units.lua")
 local water = import("goluwa/render3d/water.lua")
+local media = import("goluwa/render3d/media.lua")
 local game = import("goluwa/cry_engine/game.lua")
 local Texture = import("goluwa/render/texture.lua")
 local cry_water = {}
@@ -28,15 +29,14 @@ local WATER_ALBEDO_SCALE = 4
 local RIVER_PIECE_LENGTH = 16
 
 function cry_water.GetMedium(fog_color, fog_color_multiplier, fog_density)
-	if not fog_color or not fog_density then
-		return water.presets.lake.Absorption:Copy(),
-		water.presets.lake.ParticleScattering:Copy()
-	end
+	if not fog_color or not fog_density then return "lake" end
 
-	return water.MediumFromFog(
-		Vec3(fog_color.x ^ 2.2, fog_color.y ^ 2.2, fog_color.z ^ 2.2) * fog_color_multiplier,
-		math.max(fog_density, 0.02),
-		WATER_ALBEDO_SCALE
+	return media.Define(
+		media.MediumFromFog(
+			Vec3(fog_color.x ^ 2.2, fog_color.y ^ 2.2, fog_color.z ^ 2.2) * fog_color_multiplier,
+			math.max(fog_density, 0.02),
+			WATER_ALBEDO_SCALE
+		)
 	)
 end
 
@@ -121,7 +121,7 @@ local function bezier(a, b, c, d, t)
 end
 
 function cry_water.BuildVolumes(object)
-	local absorption, scattering = cry_water.GetMedium(object.fog_color, object.fog_color_multiplier, object.fog_density)
+	local medium = cry_water.GetMedium(object.fog_color, object.fog_color_multiplier, object.fog_density)
 	local out = {}
 
 	local function add(position, axis, length, width, flow_speed)
@@ -130,8 +130,7 @@ function cry_water.BuildVolumes(object)
 			rotation = yaw_towards(axis),
 			config = {
 				Size = Vec3(length, object.depth, width),
-				Absorption = absorption:Copy(),
-				ParticleScattering = scattering:Copy(),
+				Medium = medium,
 				Flow = Vec2(axis.x, axis.z) * flow_speed,
 				WaveHeight = flow_speed ~= 0 and 0.05 or 0.03,
 				WaveLength = 1.2,
