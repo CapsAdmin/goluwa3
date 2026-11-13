@@ -71,6 +71,44 @@ function water.GetVolumes()
 	return water.volumes
 end
 
+do
+	local nearest = {}
+	local distances = {}
+
+	local function by_distance(a, b)
+		return distances[a] < distances[b]
+	end
+
+	function water.GetNearestVolumes(camera_position)
+		local volumes = water.volumes
+
+		if #volumes <= water.MAX_VOLUMES then return volumes end
+
+		list.clear(nearest)
+
+		for i, volume in ipairs(volumes) do
+			local position = volume.Owner.transform:GetWorldPosition()
+			local size = volume:GetSize()
+			distances[volume] = math.max(
+				math.sqrt(
+						(
+								position.x - camera_position.x
+							) ^ 2 + (
+								position.y - camera_position.y
+							) ^ 2 + (
+								position.z - camera_position.z
+							) ^ 2
+					) - math.sqrt(size.x * size.x + size.z * size.z) / 2,
+				0
+			)
+			nearest[i] = volume
+		end
+
+		table.sort(nearest, by_distance)
+		return nearest
+	end
+end
+
 function water.HasVolumes()
 	return water.volumes[1] ~= nil
 end

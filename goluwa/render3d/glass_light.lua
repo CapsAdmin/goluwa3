@@ -5,7 +5,6 @@ local hit = import("goluwa/render3d/scene/hit.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
-local medium_common = import("goluwa/render3d/medium_common.lua")
 local glass_light = {}
 glass_light.RAY_QUERY = render.GetDevice().ray_query_supported
 glass_light.SUN_DISTANCE = 300
@@ -72,7 +71,7 @@ function glass_light.GetDeclarationGLSL(bindings)
 end
 
 function glass_light.GetGLSL(scene_name)
-	return medium_common.GetGLSL() .. [[
+	return ddgi.GetOpticalTintGLSL() .. [[
 		#define GLASS_LIGHT
 		#define GLASS_SUN_DISTANCE ]] .. string.format("%.1f", glass_light.SUN_DISTANCE) .. [[
 
@@ -124,66 +123,7 @@ function glass_light.GetGLSL(scene_name)
 		}
 
 		vec3 get_medium_volume_tint(vec3 origin, vec3 dir, float distance, bool light_ray) {
-			int volume_count = get_optical_header().z;
-			vec3 transmitted = vec3(1.0);
-
-			for (int k = 0; k < volume_count; k++) {
-				optical_volume volume = optical_volumes[k];
-
-				if (volume.kind > 0.5) {
-					float fog_entry;
-					float fog_exit;
-
-					if (medium_box_intersect(volume.to_local, -volume.shape, volume.shape, origin, dir, fog_entry, fog_exit)) {
-						float start = clamp(fog_entry, 0.0, distance);
-						float finish = min(fog_exit, distance);
-
-						if (finish > start) {
-							float density = 1.0;
-
-							if (volume.falloff > 0.0) {
-								vec3 mid = (volume.to_local * vec4(origin + dir * (0.5 * (start + finish)), 1.0)).xyz;
-								density = exp(-(mid.y + volume.shape.y) / volume.falloff);
-							}
-
-							transmitted *= optical_transmittance(volume.extinction * density, finish - start);
-						}
-					}
-
-					continue;
-				}
-
-				vec3 local_origin = (volume.to_local * vec4(origin, 1.0)).xyz;
-				vec3 local_dir = (volume.to_local * vec4(dir, 0.0)).xyz;
-				vec3 averaged = vec3(0.0);
-
-				for (int w = 0; w < 3; w++) {
-					float top = (float(w) - 1.0) * volume.wave;
-					float t_entry;
-					float t_exit;
-					bool enters_through_top;
-					float path = 0.0;
-
-					if (medium_volume_intersect(volume.to_local, volume.shape, top, origin, dir, t_entry, t_exit, enters_through_top)) {
-						path = min(t_exit, distance) - clamp(t_entry, 0.0, distance);
-
-						if (light_ray && t_entry <= 0.0 && local_dir.y > 1e-4) {
-							float top_t = (top - local_origin.y) / local_dir.y;
-
-							if (top_t < distance && t_exit >= top_t - 1e-3) {
-								float sin_water_squared = (1.0 - local_dir.y * local_dir.y) / (volume.ior * volume.ior);
-								path = (top - local_origin.y) / sqrt(max(1.0 - sin_water_squared, 1e-4));
-							}
-						}
-					}
-
-					averaged += (w == 1 ? 0.5 : 0.25) * optical_transmittance(volume.extinction, path);
-				}
-
-				transmitted *= averaged;
-			}
-
-			return transmitted;
+			return optical_range_tint(0, get_optical_header().z, origin, dir, distance, light_ray);
 		}
 
 		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance) {

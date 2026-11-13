@@ -23,6 +23,7 @@ local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local RAY_QUERY = scene_reflection.RAY_QUERY
 local REFLECTION_BINDINGS = {scene = 5, hit = 30, materials = 7, light_grid = 9}
 local BINDING_OCCLUSION = 10
+local BINDING_OPTICAL = 11
 local pvars = import("goluwa/cli/pvars.lua")
 local FEATURES = {}
 pvars.StartGroup("Environment", "Water", {store = false, prefix = "water_"})
@@ -568,81 +569,6 @@ for _, cascade in ipairs(WAVE_CASCADES) do
 	)
 end
 
-local write_volumes
-
-do
-	local nearest = {}
-	local distances = setmetatable({}, {__mode = "k"})
-
-	local function by_distance(a, b)
-		return distances[a] < distances[b]
-	end
-
-	local function get_drawn_volumes()
-		local volumes = water.GetVolumes()
-
-		if #volumes <= water.MAX_VOLUMES then return volumes end
-
-		local cam = render3d.GetCamera():GetPosition()
-		list.clear(nearest)
-
-		for i, volume in ipairs(volumes) do
-			local pos = volume.Owner.transform:GetWorldPosition()
-			local size = volume:GetSize()
-			distances[volume] = math.max(
-				math.sqrt((pos.x - cam.x) ^ 2 + (pos.y - cam.y) ^ 2 + (pos.z - cam.z) ^ 2) - math.sqrt(size.x * size.x + size.z * size.z) / 2,
-				0
-			)
-			nearest[i] = volume
-		end
-
-		table.sort(nearest, by_distance)
-		return nearest
-	end
-
-	function write_volumes(block)
-		local count = 0
-
-		for _, volume in ipairs(get_drawn_volumes()) do
-			if count >= water.MAX_VOLUMES then break end
-
-			local transform = volume.Owner.transform
-			local i = count
-			local size = volume:GetSize()
-			local medium = media.presets[volume:GetMedium()]
-			local absorption = medium.Absorption
-			local scattering = medium.Scattering
-			local flow = volume:GetFlow()
-			transform:GetWorldMatrixInverse():CopyToFloatPointer(block.volume_to_local[i])
-			block.volume_shape[i][0] = size.x / 2
-			block.volume_shape[i][1] = size.y
-			block.volume_shape[i][2] = size.z / 2
-			block.volume_shape[i][3] = transform:GetWorldPosition().y
-			block.volume_absorption[i][0] = absorption.x
-			block.volume_absorption[i][1] = absorption.y
-			block.volume_absorption[i][2] = absorption.z
-			block.volume_absorption[i][3] = medium.IOR
-			block.volume_scattering[i][0] = scattering.x
-			block.volume_scattering[i][1] = scattering.y
-			block.volume_scattering[i][2] = scattering.z
-			block.volume_scattering[i][3] = volume:GetRoughness()
-			block.volume_waves[i][0] = volume:GetWaveHeight()
-			block.volume_waves[i][1] = math.max(volume:GetWaveLength(), 0.01)
-			block.volume_waves[i][2] = math.rad(volume:GetWindDirection())
-			block.volume_waves[i][3] = volume:GetFoam()
-			block.volume_flow[i][0] = flow.x
-			block.volume_flow[i][1] = flow.y
-			block.volume_flow[i][2] = volume:GetCaustics()
-			block.volume_flow[i][3] = medium.AbbeNumber
-			block.volume_misc[i][0] = volume:GetOpen() and 0 or 1
-			block.volume_misc[i][1] = medium.PhaseG
-			count = count + 1
-		end
-
-		block.volume_count = count
-	end
-end
-
 local SEA_DRIFT = 0.7
 local sea_offset = {x = 0, z = 0, time = 0, frame = -1}
 
@@ -727,11 +653,14 @@ list.insert(
 			{binding_index = 0, attachment = 1, dst_stage = {"compute", "fragment"}},
 			{binding_index = 1, attachment = 2, dst_stage = {"compute", "fragment"}},
 		},
-		on_pre_draw = RAY_QUERY and
-			function(self, cmd, frame, desc)
+		storage_buffers = not RAY_QUERY and {{binding_index = BINDING_OPTICAL}} or nil,
+		on_pre_draw = function(self, cmd, frame, desc)
+			if RAY_QUERY then
 				scene_reflection.Bind(self, cmd, desc, REFLECTION_BINDINGS)
-			end or
-			nil,
+			else
+				ddgi.BindOpticalVolumes(self, desc, BINDING_OPTICAL)
+			end
+		end,
 		descriptor_sets = RAY_QUERY and
 			scene_reflection.GetDescriptorSets(REFLECTION_BINDINGS, "compute") or
 			nil,
@@ -750,7 +679,7 @@ list.insert(
 				RAY_QUERY and
 				scene_reflection.GetDeclarationGLSL(REFLECTION_BINDINGS) .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0)
 				or
-				""
+				ddgi.GetOpticalDeclarationsGLSL(BINDING_OPTICAL)
 			),
 		uniform_buffers = {
 			{
@@ -796,14 +725,6 @@ list.insert(
 					{"sea_offset", "vec4"},
 					{"bump_tex", "int"},
 					{"bump_info", "vec4"},
-					{"volume_to_local", "mat4", water.MAX_VOLUMES},
-					{"volume_shape", "vec4", water.MAX_VOLUMES},
-					{"volume_absorption", "vec4", water.MAX_VOLUMES},
-					{"volume_scattering", "vec4", water.MAX_VOLUMES},
-					{"volume_waves", "vec4", water.MAX_VOLUMES},
-					{"volume_flow", "vec4", water.MAX_VOLUMES},
-					{"volume_misc", "vec4", water.MAX_VOLUMES},
-					{"volume_count", "int"},
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					post_source.pre_exposure_block,
 					RAY_QUERY and scene_reflection.block or nil,
@@ -858,7 +779,6 @@ list.insert(
 					write_ocean(self, block)
 					block.bump_tex = water.wave_bump and self:GetTextureIndex(water.wave_bump.texture) or -1
 					block.bump_info[0] = water.wave_bump and water.wave_bump.slope_variance or 0
-					write_volumes(block)
 
 					if RAY_QUERY then
 						light_occlusion.WriteOcclusionBlock(block, lights)
@@ -1364,8 +1284,40 @@ list.insert(
 			}
 
 
+			optical_volume water_record(int i) {
+				return optical_volumes[optical_ranges.x + i];
+			}
+
+			mat4 water_volume_to_local(int i) {
+				return water_record(i).to_local;
+			}
+
+			vec4 water_volume_shape(int i) {
+				return vec4(water_record(i).shape, water_record(i).surface_y);
+			}
+
+			vec4 water_volume_absorption(int i) {
+				return vec4(water_record(i).absorption, water_record(i).ior);
+			}
+
+			vec4 water_volume_scattering(int i) {
+				return vec4(water_record(i).scattering, water_record(i).roughness);
+			}
+
+			vec4 water_volume_waves(int i) {
+				return vec4(water_record(i).wave, water_record(i).wave_length, water_record(i).wind_direction, water_record(i).foam);
+			}
+
+			vec4 water_volume_flow(int i) {
+				return vec4(water_record(i).flow, water_record(i).caustics, water_record(i).abbe);
+			}
+
+			vec4 water_volume_misc(int i) {
+				return vec4(water_record(i).closed, water_record(i).g, 0.0, 0.0);
+			}
+
 			bool intersect_volume(int i, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
-				return medium_volume_intersect(water_data.volume_to_local[i], water_data.volume_shape[i].xyz, 0.0, ray_origin, ray_dir, t_entry, t_exit, top);
+				return medium_volume_intersect(water_volume_to_local(i), water_volume_shape(i).xyz, 0.0, ray_origin, ray_dir, t_entry, t_exit, top);
 			}
 
 			float get_volume_exit(int i, vec3 ray_origin, vec3 ray_dir) {
@@ -1377,22 +1329,22 @@ list.insert(
 			}
 
 			bool is_inside_volume(int i, vec3 p) {
-				vec4 shape = water_data.volume_shape[i];
-				vec3 local = (water_data.volume_to_local[i] * vec4(p, 1.0)).xyz;
+				vec4 shape = water_volume_shape(i);
+				vec3 local = (water_volume_to_local(i) * vec4(p, 1.0)).xyz;
 				return all(lessThanEqual(abs(local.xz), shape.xz + 0.05)) && local.y <= 0.0 && local.y >= -shape.y - 0.05;
 			}
 
 			float get_volume_ripples(int i, vec2 world_xz, float footprint, out vec2 grad, inout vec3 hess) {
-				vec4 waves = water_data.volume_waves[i];
+				vec4 waves = water_volume_waves(i);
 				grad = vec2(0.0);
 				if (waves.x <= 0.0) return 0.0;
 				float slope = waves.x * 0.25 / waves.y;
 
 				if (water_data.bump_tex != -1) {
-					return add_bump_waves(world_xz, footprint, 6.0 / waves.y, vec2(cos(waves.z), sin(waves.z)) + water_data.volume_flow[i].xy, clamp(waves.x / waves.y * 6.0, 0.0, 1.0), grad, hess);
+					return add_bump_waves(world_xz, footprint, 6.0 / waves.y, vec2(cos(waves.z), sin(waves.z)) + water_volume_flow(i).xy, clamp(waves.x / waves.y * 6.0, 0.0, 1.0), grad, hess);
 				}
 
-				return add_ripples(world_xz, footprint, vec2(cos(waves.z), sin(waves.z)), water_data.volume_flow[i].xy, 2.72 * slope * slope, waves.y, VOLUME_RIPPLE_UPWIND_SHARE, VOLUME_RIPPLE_LIFETIME, grad, hess);
+				return add_ripples(world_xz, footprint, vec2(cos(waves.z), sin(waves.z)), water_volume_flow(i).xy, 2.72 * slope * slope, waves.y, VOLUME_RIPPLE_UPWIND_SHARE, VOLUME_RIPPLE_LIFETIME, grad, hess);
 			}
 
 
@@ -1429,16 +1381,16 @@ list.insert(
 			Water get_volume_water(int i) {
 				Water w;
 				w.volume = i;
-				w.absorption = water_data.volume_absorption[i].rgb;
-				w.particles = water_data.volume_scattering[i].rgb;
-				w.g = water_data.volume_misc[i].y;
-				w.ior = water_data.volume_absorption[i].w;
-				w.abbe = water_data.volume_flow[i].w;
-				w.surface_y = water_data.volume_shape[i].w;
-				w.foam = water_data.volume_waves[i].w;
-				w.caustics = water_data.volume_flow[i].z;
-				w.roughness = water_data.volume_scattering[i].w;
-				w.closed = water_data.volume_misc[i].x;
+				w.absorption = water_volume_absorption(i).rgb;
+				w.particles = water_volume_scattering(i).rgb;
+				w.g = water_volume_misc(i).y;
+				w.ior = water_volume_absorption(i).w;
+				w.abbe = water_volume_flow(i).w;
+				w.surface_y = water_volume_shape(i).w;
+				w.foam = water_volume_waves(i).w;
+				w.caustics = water_volume_flow(i).z;
+				w.roughness = water_volume_scattering(i).w;
+				w.closed = water_volume_misc(i).x;
 				return w;
 			}
 
@@ -2180,7 +2132,7 @@ list.insert(
 				vec3 unused_hess = vec3(0.0);
 				vec3 scene_color = get_scene_color(in_uv);
 
-				if (water_data.scene_tex == -1 || (water_data.ocean_enabled == 0 && water_data.volume_count == 0)) {
+				if (water_data.scene_tex == -1 || (water_data.ocean_enabled == 0 && optical_ranges.y == 0)) {
 					write_passthrough(scene_color);
 					return;
 				}
@@ -2191,9 +2143,9 @@ list.insert(
 
 				bool near_surface = water_data.ocean_enabled != 0 && abs(camera_origin.y - water_data.ocean_level) < water_data.ocean_wave_info.x + 0.5;
 
-				for (int i = 0; i < water_data.volume_count && !near_surface; i++) {
-					vec3 local = (water_data.volume_to_local[i] * vec4(camera_origin, 1.0)).xyz;
-					vec4 shape = water_data.volume_shape[i];
+				for (int i = 0; i < optical_ranges.y && !near_surface; i++) {
+					vec3 local = (water_volume_to_local(i) * vec4(camera_origin, 1.0)).xyz;
+					vec4 shape = water_volume_shape(i);
 					near_surface = abs(local.y) < 0.5 && abs(local.x) < shape.x + 0.5 && abs(local.z) < shape.z + 0.5;
 				}
 
@@ -2204,9 +2156,9 @@ list.insert(
 						near_height = camera_origin.y - get_water_surface_height(camera_origin.xz);
 					}
 
-					for (int i = 0; i < water_data.volume_count; i++) {
-						vec3 local = (water_data.volume_to_local[i] * vec4(camera_origin, 1.0)).xyz;
-						vec4 shape = water_data.volume_shape[i];
+					for (int i = 0; i < optical_ranges.y; i++) {
+						vec3 local = (water_volume_to_local(i) * vec4(camera_origin, 1.0)).xyz;
+						vec4 shape = water_volume_shape(i);
 
 						if (abs(local.x) < shape.x + 0.5 && abs(local.z) < shape.z + 0.5 && abs(local.y) < abs(near_height)) near_height = local.y;
 					}
@@ -2241,7 +2193,7 @@ list.insert(
 				float volume_exit = 0.0;
 				bool volume_top = false;
 
-				for (int i = 0; i < water_data.volume_count; i++) {
+				for (int i = 0; i < optical_ranges.y; i++) {
 					float t_entry;
 					float t_exit;
 					bool top;
@@ -2293,7 +2245,7 @@ list.insert(
 				bool volume_in_sea = false;
 
 				if (volume >= 0 && water_data.ocean_enabled != 0) {
-					volume_in_sea = abs(water_data.volume_shape[volume].w - water_data.ocean_level) < water_data.ocean_wave_info.x + 0.5;
+					volume_in_sea = abs(water_volume_shape(volume).w - water_data.ocean_level) < water_data.ocean_wave_info.x + 0.5;
 
 					if (volume_in_sea && !volume_top && volume_entry > 0.0) volume = -1;
 				}
@@ -2343,8 +2295,8 @@ list.insert(
 						alpha = sqrt(w.roughness * w.roughness + lost_variance);
 
 						if (volume_in_sea) {
-							vec3 local = (water_data.volume_to_local[volume] * vec4(surface_pos, 1.0)).xyz;
-							vec4 shape = water_data.volume_shape[volume];
+							vec3 local = (water_volume_to_local(volume) * vec4(surface_pos, 1.0)).xyz;
+							vec4 shape = water_volume_shape(volume);
 							float edge = min(shape.x - abs(local.x), shape.z - abs(local.z));
 							float inside = smoothstep(0.0, min(VOLUME_EDGE_BLEND, 0.5 * min(shape.x, shape.z)), edge);
 

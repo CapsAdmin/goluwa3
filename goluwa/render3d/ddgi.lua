@@ -862,6 +862,110 @@ end
 
 local MIN_WEIGHT = "0.05"
 ddgi.MIN_WEIGHT = MIN_WEIGHT
+local OPTICAL_VOLUME_STRUCT_GLSL = [[
+		struct optical_volume {
+			mat4 to_local;
+			vec3 shape;
+			float kind;
+			vec3 absorption;
+			float ior;
+			vec3 scattering;
+			float g;
+			vec3 extinction;
+			float wave;
+			float surface_y;
+			float falloff;
+			float softness;
+			float abbe;
+			float foam;
+			float caustics;
+			float roughness;
+			float closed;
+			float wave_length;
+			float wind_direction;
+			vec2 flow;
+		};
+]]
+
+function ddgi.GetOpticalDeclarationsGLSL(binding)
+	return OPTICAL_VOLUME_STRUCT_GLSL .. [[
+
+		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer OpticalVolumes {
+			ivec3 optical_counts;
+			ivec4 optical_ranges;
+			optical_volume optical_volumes[]] .. ddgi.OPTICAL_VOLUME_SLOTS .. [[];
+		};
+	]]
+end
+
+function ddgi.GetOpticalTintGLSL()
+	return medium_common.GetGLSL() .. [[
+
+		vec3 optical_volume_tint(int index, vec3 origin, vec3 dir, float distance, bool light_ray) {
+			optical_volume volume = optical_volumes[index];
+
+			if (volume.kind > 0.5 && volume.kind < 1.5) {
+				float fog_entry;
+				float fog_exit;
+
+				if (!medium_box_intersect(volume.to_local, -volume.shape, volume.shape, origin, dir, fog_entry, fog_exit)) return vec3(1.0);
+
+				float start = clamp(fog_entry, 0.0, distance);
+				float finish = min(fog_exit, distance);
+
+				if (finish <= start) return vec3(1.0);
+
+				float density = 1.0;
+
+				if (volume.falloff > 0.0) {
+					vec3 mid = (volume.to_local * vec4(origin + dir * (0.5 * (start + finish)), 1.0)).xyz;
+					density = exp(-(mid.y + volume.shape.y) / volume.falloff);
+				}
+
+				return optical_transmittance(volume.extinction * density, finish - start);
+			}
+
+			vec3 local_origin = (volume.to_local * vec4(origin, 1.0)).xyz;
+			vec3 local_dir = (volume.to_local * vec4(dir, 0.0)).xyz;
+			vec3 averaged = vec3(0.0);
+
+			for (int w = 0; w < 3; w++) {
+				float top = (float(w) - 1.0) * volume.wave;
+				float t_entry;
+				float t_exit;
+				bool enters_through_top;
+				float path = 0.0;
+
+				if (medium_volume_intersect(volume.to_local, volume.shape, top, origin, dir, t_entry, t_exit, enters_through_top)) {
+					path = min(t_exit, distance) - clamp(t_entry, 0.0, distance);
+
+					if (light_ray && t_entry <= 0.0 && local_dir.y > 1e-4) {
+						float top_t = (top - local_origin.y) / local_dir.y;
+
+						if (top_t < distance && t_exit >= top_t - 1e-3) {
+							float sin_water_squared = (1.0 - local_dir.y * local_dir.y) / (volume.ior * volume.ior);
+							path = (top - local_origin.y) / sqrt(max(1.0 - sin_water_squared, 1e-4));
+						}
+					}
+				}
+
+				averaged += (w == 1 ? 0.5 : 0.25) * optical_transmittance(volume.extinction, path);
+			}
+
+			return averaged;
+		}
+
+		vec3 optical_range_tint(int first, int count, vec3 origin, vec3 dir, float distance, bool light_ray) {
+			vec3 transmitted = vec3(1.0);
+
+			for (int k = 0; k < count; k++) {
+				transmitted *= optical_volume_tint(first + k, origin, dir, distance, light_ray);
+			}
+
+			return transmitted;
+		}
+	]]
+end
 
 function ddgi.GetMaterialDeclarationsGLSL(binding)
 	return [[
@@ -910,18 +1014,11 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			float medium_body;
 			};
 
-		struct optical_volume {
-			mat4 to_local;
-			vec3 shape;
-			float wave;
-			float ior;
-			vec3 extinction;
-			float kind;
-			float falloff;
-		};
+		]] .. OPTICAL_VOLUME_STRUCT_GLSL .. [[
 
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ivec3 optical_counts;
+			ivec4 optical_ranges;
 			optical_volume optical_volumes[]] .. ddgi.OPTICAL_VOLUME_SLOTS .. [[];
 			ddgi_material ddgi_materials[];
 		};
@@ -1831,14 +1928,17 @@ local MaterialEntry = ffi.typeof([[struct {
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
 local MATERIAL_ENTRY_SIZE = ffi.sizeof(MaterialEntry)
-local OpticalHeader = ffi.typeof("struct {int32_t glass; int32_t media; int32_t volumes;}")
+local OpticalHeader = ffi.typeof(
+	"struct {int32_t glass; int32_t media; int32_t volumes; int32_t water_first; int32_t water_count; int32_t fog_first; int32_t fog_count;}"
+)
 local OpticalHeaderPointer = ffi.typeof("$*", OpticalHeader)
 local OpticalVolume = ffi.typeof(
-	"struct {float to_local[16]; float shape[3]; float wave; float ior; float extinction[3]; float kind; float falloff;}"
+	"struct {float to_local[16]; float shape[3]; float kind; float absorption[3]; float ior; float scattering[3]; float g; float extinction[3]; float wave; float surface_y; float falloff; float softness; float abbe; float foam; float caustics; float roughness; float closed; float wave_length; float wind_direction; float flow[2];}"
 )
 local OpticalVolumePointer = ffi.typeof("$*", OpticalVolume)
 local OPTICAL_HEADER_SIZE = ffi.sizeof(OpticalHeader)
-local OPTICAL_PREFIX_SIZE = OPTICAL_HEADER_SIZE + ddgi.OPTICAL_VOLUME_SLOTS * ffi.sizeof(OpticalVolume)
+local OPTICAL_VOLUME_SIZE = ffi.sizeof(OpticalVolume)
+local OPTICAL_PREFIX_SIZE = OPTICAL_HEADER_SIZE + ddgi.OPTICAL_VOLUME_SLOTS * OPTICAL_VOLUME_SIZE
 local BytePointer = ffi.typeof("uint8_t*")
 
 function ddgi.GetMaterialEntries(buffer)
@@ -1880,13 +1980,66 @@ function ddgi.HasDirectTint()
 	return glass_count > 0 or volume_count > 0
 end
 
-local function write_volume(volume, extinction, half_x, depth, half_z, wave, ior, kind, falloff)
-	volume.extinction[0], volume.extinction[1], volume.extinction[2] = extinction.x, extinction.y, extinction.z
-	volume.shape[0], volume.shape[1], volume.shape[2] = half_x, depth, half_z
-	volume.wave = wave
-	volume.ior = ior
-	volume.kind = kind
-	volume.falloff = falloff
+local function set_vec3(target, value)
+	target[0], target[1], target[2] = value.x, value.y, value.z
+end
+
+local function write_ocean_record(volume)
+	local params = water.GetOcean()
+	local medium = media.presets[params.Medium]
+	volume.to_local[0], volume.to_local[5], volume.to_local[10], volume.to_local[15] = 1, 1, 1, 1
+	volume.to_local[13] = -render3d.GetOceanLevel()
+	volume.shape[0], volume.shape[1], volume.shape[2] = OCEAN_HALF_SIZE, OCEAN_DEPTH, OCEAN_HALF_SIZE
+	volume.kind = 2
+	set_vec3(volume.absorption, medium.Absorption)
+	set_vec3(volume.scattering, medium.Scattering)
+	set_vec3(volume.extinction, media.GetExtinction(params.Medium))
+	volume.g = medium.PhaseG
+	volume.ior = medium.IOR
+	volume.abbe = medium.AbbeNumber
+	volume.wave = water.GetOceanWaves().height_std * OCEAN_WAVE_SCALE + OCEAN_WAVE_FLOOR
+	volume.surface_y = render3d.GetOceanLevel()
+end
+
+local function write_water_record(volume, water_volume)
+	local size = water_volume:GetSize()
+	local transform = water_volume.Owner.transform
+	local medium = media.presets[water_volume:GetMedium()]
+	local flow = water_volume:GetFlow()
+	transform:GetWorldMatrixInverse():CopyToFloatPointer(volume.to_local)
+	volume.shape[0], volume.shape[1], volume.shape[2] = size.x / 2, size.y, size.z / 2
+	volume.kind = 0
+	set_vec3(volume.absorption, medium.Absorption)
+	set_vec3(volume.scattering, medium.Scattering)
+	set_vec3(volume.extinction, media.GetExtinction(water_volume:GetMedium()))
+	volume.g = medium.PhaseG
+	volume.ior = medium.IOR
+	volume.abbe = medium.AbbeNumber
+	volume.wave = water_volume:GetWaveHeight()
+	volume.surface_y = transform:GetWorldPosition().y
+	volume.foam = water_volume:GetFoam()
+	volume.caustics = water_volume:GetCaustics()
+	volume.roughness = water_volume:GetRoughness()
+	volume.closed = water_volume:GetOpen() and 0 or 1
+	volume.wave_length = math.max(water_volume:GetWaveLength(), 0.01)
+	volume.wind_direction = math.rad(water_volume:GetWindDirection())
+	volume.flow[0], volume.flow[1] = flow.x, flow.y
+end
+
+local function write_fog_record(volume, fog_volume)
+	local size = fog_volume:GetSize()
+	local medium = media.presets[fog_volume:GetMedium()]
+	local density = fog_volume:GetDensity()
+	fog_volume.Owner.transform:GetWorldMatrixInverse():CopyToFloatPointer(volume.to_local)
+	volume.shape[0], volume.shape[1], volume.shape[2] = size.x / 2, size.y / 2, size.z / 2
+	volume.kind = 1
+	set_vec3(volume.absorption, medium.Absorption * density)
+	set_vec3(volume.scattering, medium.Scattering * density)
+	set_vec3(volume.extinction, (medium.Absorption + medium.Scattering) * density)
+	volume.g = medium.PhaseG
+	volume.ior = medium.IOR
+	volume.softness = fog_volume:GetEdgeSoftness()
+	volume.falloff = fog_volume:GetHeightFalloff()
 end
 
 local function refresh_volumes(state)
@@ -1899,68 +2052,40 @@ local function refresh_volumes(state)
 	local count = 0
 
 	if render3d.IsOceanEnabled() then
-		local volume = volumes[0]
-		ffi.fill(volume.to_local, ffi.sizeof(volume.to_local))
-		volume.to_local[0], volume.to_local[5], volume.to_local[10], volume.to_local[15] = 1, 1, 1, 1
-		volume.to_local[13] = -render3d.GetOceanLevel()
-		write_volume(
-			volume,
-			media.GetExtinction(water.GetOcean().Medium),
-			OCEAN_HALF_SIZE,
-			OCEAN_DEPTH,
-			OCEAN_HALF_SIZE,
-			water.GetOceanWaves().height_std * OCEAN_WAVE_SCALE + OCEAN_WAVE_FLOOR,
-			media.presets[water.GetOcean().Medium].IOR,
-			0,
-			0
-		)
+		ffi.fill(volumes, OPTICAL_VOLUME_SIZE)
+		write_ocean_record(volumes[0])
 		count = 1
 	end
 
-	for _, water_volume in ipairs(water.GetVolumes()) do
+	local water_first = count
+
+	for _, water_volume in ipairs(water.GetNearestVolumes(render3d.GetCamera():GetPosition())) do
 		if count >= ddgi.OPTICAL_VOLUME_SLOTS then break end
 
-		local volume = volumes[count]
-		local size = water_volume:GetSize()
-		water_volume.Owner.transform:GetWorldMatrixInverse():CopyToFloatPointer(volume.to_local)
-		write_volume(
-			volume,
-			media.GetExtinction(water_volume:GetMedium()),
-			size.x / 2,
-			size.y,
-			size.z / 2,
-			water_volume:GetWaveHeight(),
-			media.presets[water_volume:GetMedium()].IOR,
-			0,
-			0
-		)
+		ffi.fill(volumes + count, OPTICAL_VOLUME_SIZE)
+		write_water_record(volumes[count], water_volume)
 		count = count + 1
 	end
+
+	local fog_first = count
 
 	for _, fog_volume in ipairs(fog_volumes.GetVolumes()) do
 		if count >= ddgi.OPTICAL_VOLUME_SLOTS then break end
 
-		local volume = volumes[count]
-		local size = fog_volume:GetSize()
-		local medium = media.presets[fog_volume:GetMedium()]
-		local density = fog_volume:GetDensity()
-		fog_volume.Owner.transform:GetWorldMatrixInverse():CopyToFloatPointer(volume.to_local)
-		write_volume(
-			volume,
-			(medium.Absorption + medium.Scattering) * density,
-			size.x / 2,
-			size.y / 2,
-			size.z / 2,
-			0,
-			medium.IOR,
-			1,
-			fog_volume:GetHeightFalloff()
-		)
+		ffi.fill(volumes + count, OPTICAL_VOLUME_SIZE)
+		write_fog_record(volumes[count], fog_volume)
 		count = count + 1
 	end
 
 	header.glass, header.media, header.volumes = glass_count, medium_count, count
+	header.water_first, header.water_count = water_first, fog_first - water_first
+	header.fog_first, header.fog_count = fog_first, count - fog_first
 	volume_count = count
+end
+
+function ddgi.BindOpticalVolumes(self, desc, binding)
+	local buffer = ddgi.WriteMaterialBuffer(self)
+	self:UpdateDescriptorSet("storage_buffer", desc, binding, 0, buffer, buffer:GetSize())
 end
 
 function ddgi.WriteMaterialBuffer(self)
