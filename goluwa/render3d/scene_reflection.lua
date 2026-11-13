@@ -568,9 +568,11 @@ function scene_reflection.GetGLSL(block_name, shared)
 		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			vec3 radiance = trace_scene_reflection_hit(origin, dir, N, roughness, max_distance, hit_t);
 
-			if (]] .. block_name .. [[.optical_tint != 0) radiance *= get_optical_tint(origin, dir, hit_t);
+			bool fog_hit = ]] .. block_name .. [[.reflection_fog != 0 && hit_t < max_distance;
 
-			if (]] .. block_name .. [[.reflection_fog != 0 && hit_t < max_distance) {
+			if (]] .. block_name .. [[.optical_tint != 0) radiance *= get_optical_tint(origin, dir, hit_t, fog_hit);
+
+			if (fog_hit) {
 				float fog_sky = 1.0;
 				vec3 fog_gi = vec3(0.0);
 
@@ -585,7 +587,10 @@ function scene_reflection.GetGLSL(block_name, shared)
 					}
 				}
 
-				radiance = apply_ground_fog_ray(radiance, dir, ATMOSPHERE_SKY_SUN_DIRECTION, origin, hit_t * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[, fog_sky, fog_gi, fog_sky);
+				vec3 fog_origin = get_atmosphere_camera_origin(origin);
+				vec3 fog_ambient = mix(fog_gi / PI, get_ground_fog_sky_ambient(fog_origin), clamp(fog_sky, 0.0, 1.0));
+				vec3 fog_sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_origin, ATMOSPHERE_SKY_SUN_DIRECTION) * ATMOSPHERE_FOG_RAY_STRENGTH;
+				radiance += optical_inscatter(origin, dir, hit_t, fog_ambient, fog_sun, ATMOSPHERE_SKY_SUN_DIRECTION, true);
 			}
 
 			return radiance;

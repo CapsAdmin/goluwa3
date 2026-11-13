@@ -507,9 +507,11 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 						restir_sample(P, hit_N, shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), RESTIR_SURFACE, vec3(0.0));
 				}
 
-				if (restir_data.optical_tint != 0) s.L *= get_optical_tint(origin, dir, t);
+				if (restir_data.optical_tint != 0) {
+					s.L *= get_optical_tint(origin, dir, t, !miss);
 
-				if (!miss) s.L = ddgi_apply_ground_fog(s.L, origin, dir, t);
+					if (!miss) s.L += optical_inscatter(origin, dir, t, ddgi_sky(vec3(0.0, 1.0, 0.0)), ddgi_data.ddgi_sun_radiance.rgb, normalize(ddgi_data.ddgi_sun_direction.xyz), true);
+				}
 
 				s.L = min(max(s.L, vec3(0.0)), vec3(1e9));
 				return s;

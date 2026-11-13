@@ -1038,7 +1038,7 @@ local function pass_trace()
 				}
 
 				if (hit) {
-					result = vec4(ddgi_apply_ground_fog(shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), origin, dir, t), 0.0);
+					result = vec4(shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), 0.0);
 
 					if (surfel_data.surfel_hit_spawns != 0 && state.w > 0.5) {
 						scene_triangle tri = scene_hit_tri(instance, primitive);
@@ -1058,7 +1058,11 @@ local function pass_trace()
 					}
 				}
 
-				if (surfel_data.optical_tint != 0) result.rgb *= get_optical_tint(origin, dir, glass_distance);
+				if (surfel_data.optical_tint != 0) {
+					result.rgb *= get_optical_tint(origin, dir, glass_distance, hit);
+
+					if (hit) result.rgb += optical_inscatter(origin, dir, t, ddgi_sky(vec3(0.0, 1.0, 0.0)), ddgi_data.ddgi_sun_radiance.rgb, normalize(ddgi_data.ddgi_sun_direction.xyz), true);
+				}
 
 				result.rgb = dot(result.rgb, vec3(1.0)) >= 0.0 ? min(result.rgb, vec3(60000.0)) : vec3(0.0);
 				vec4 previous = imageLoad(surfel_atlas, atlas_texel);

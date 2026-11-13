@@ -122,8 +122,8 @@ function glass_light.GetGLSL(scene_name)
 			return transmitted;
 		}
 
-		vec3 get_medium_volume_tint(vec3 origin, vec3 dir, float distance, bool light_ray) {
-			return optical_range_tint(0, get_optical_header().z, origin, dir, distance, light_ray);
+		vec3 get_medium_volume_tint(vec3 origin, vec3 dir, float distance, bool light_ray, bool with_layer) {
+			return optical_range_tint(0, get_optical_header().z, origin, dir, distance, light_ray, with_layer);
 		}
 
 		float get_glass_body_path(vec3 origin, vec3 dir, float max_distance) {
@@ -145,8 +145,8 @@ function glass_light.GetGLSL(scene_name)
 			return exit_distance;
 		}
 
-		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance) {
-			return get_optical_tint_ray(origin, dir, distance, true) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), false);
+		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance, bool with_layer) {
+			return get_optical_tint_ray(origin, dir, distance, true) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), false, with_layer);
 		}
 
 		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
@@ -161,7 +161,7 @@ function glass_light.GetGLSL(scene_name)
 				transmitted = min(transmitted, get_optical_tint_ray(origin - bitangent, dir, distance, false));
 			}
 
-			return transmitted * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), true);
+			return transmitted * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), true, false);
 		}
 	]]
 end
@@ -172,7 +172,11 @@ function glass_light.GetStubGLSL()
 			return vec3(1.0);
 		}
 
-		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance) {
+		vec3 optical_inscatter(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
+			return vec3(0.0);
+		}
+
+		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance, bool with_layer) {
 			return vec3(1.0);
 		}
 	]]

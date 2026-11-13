@@ -23,7 +23,7 @@ local media = import("goluwa/render3d/media.lua")
 local water = import("goluwa/render3d/water.lua")
 local fog_volumes = import("goluwa/render3d/fog_volumes.lua")
 local ddgi = {}
-ddgi.OPTICAL_VOLUME_SLOTS = water.MAX_VOLUMES + fog_volumes.MAX_VOLUMES + 1
+ddgi.OPTICAL_VOLUME_SLOTS = water.MAX_VOLUMES + fog_volumes.MAX_VOLUMES + 2
 pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "ddgi_"})
 
 event.AddListener("Render3DPassToggled", "ddgi", function(name, value)
@@ -901,8 +901,47 @@ end
 function ddgi.GetOpticalTintGLSL()
 	return medium_common.GetGLSL() .. [[
 
-		vec3 optical_volume_tint(int index, vec3 origin, vec3 dir, float distance, bool light_ray) {
+		vec3 optical_layer_depth(optical_volume volume, vec3 origin, vec3 dir, float distance) {
+			float top = volume.shape.y;
+			float start = volume.surface_y;
+			float scale_height = volume.falloff;
+			float from = 0.0;
+			float to = distance;
+
+			if (abs(dir.y) < 1e-5) {
+				if (origin.y >= top) return vec3(0.0);
+			} else {
+				float top_distance = (top - origin.y) / dir.y;
+
+				if (dir.y > 0.0) to = min(to, top_distance); else from = max(from, top_distance);
+			}
+
+			if (to <= from) return vec3(0.0);
+
+			float below = 0.0;
+			float above = 0.0;
+
+			if (abs(dir.y) < 1e-5) {
+				if (origin.y <= start) below = to - from; else above = (to - from) * exp(-(origin.y - start) / scale_height);
+			} else {
+				float split = clamp((start - origin.y) / dir.y, from, to);
+				float above_from = dir.y > 0.0 ? split : from;
+				float above_to = dir.y > 0.0 ? to : split;
+				below = dir.y > 0.0 ? split - from : to - split;
+				above = scale_height / dir.y * (exp(-(origin.y + dir.y * above_from - start) / scale_height) - exp(-(origin.y + dir.y * above_to - start) / scale_height));
+			}
+
+			return volume.extinction * (below + above) + vec3(volume.softness * (to - from));
+		}
+
+		vec3 optical_volume_tint(int index, vec3 origin, vec3 dir, float distance, bool light_ray, bool with_layer) {
 			optical_volume volume = optical_volumes[index];
+
+			if (volume.kind > 2.5) {
+				if (light_ray || !with_layer) return vec3(1.0);
+
+				return exp(-optical_layer_depth(volume, origin, dir, distance));
+			}
 
 			if (volume.kind > 0.5 && volume.kind < 1.5) {
 				float fog_entry;
@@ -955,14 +994,34 @@ function ddgi.GetOpticalTintGLSL()
 			return averaged;
 		}
 
-		vec3 optical_range_tint(int first, int count, vec3 origin, vec3 dir, float distance, bool light_ray) {
+		vec3 optical_range_tint(int first, int count, vec3 origin, vec3 dir, float distance, bool light_ray, bool with_layer) {
 			vec3 transmitted = vec3(1.0);
 
 			for (int k = 0; k < count; k++) {
-				transmitted *= optical_volume_tint(first + k, origin, dir, distance, light_ray);
+				transmitted *= optical_volume_tint(first + k, origin, dir, distance, light_ray, with_layer);
 			}
 
 			return transmitted;
+		}
+
+		vec3 optical_inscatter(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
+			vec3 scattered = vec3(0.0);
+
+			for (int i = 0; i < optical_counts.z; i++) {
+				optical_volume volume = optical_volumes[i];
+				bool is_fog = volume.kind > 0.5 && volume.kind < 1.5;
+
+				if (!(is_fog || (volume.kind > 2.5 && with_layer))) continue;
+
+				vec3 transmittance = optical_volume_tint(i, origin, dir, distance, false, true);
+				vec3 albedo = volume.scattering / max(volume.extinction, vec3(1e-9));
+				vec3 sun_transmittance = optical_volume_tint(i, origin + dir * (0.5 * distance), sun_dir, 1.0e5, false, true);
+				float mu = dot(dir, sun_dir);
+				float phase = (1.0 - volume.g * volume.g) / (4.0 * 3.14159265359 * pow(max(1.0 + volume.g * volume.g - 2.0 * volume.g * mu, 1e-4), 1.5));
+				scattered += (ambient + sun_radiance * sun_transmittance * phase) * albedo * (vec3(1.0) - transmittance);
+			}
+
+			return scattered;
 		}
 	]]
 end
@@ -1336,41 +1395,6 @@ function ddgi.GetCommonGLSL()
 				dir_to_equirect_uv(correct_environment_lookup_dir(dir)),
 				1.0
 			).rgb * ddgi_data.ddgi_sky_intensity;
-		}
-
-		vec3 ddgi_apply_ground_fog(vec3 radiance, vec3 origin, vec3 dir, float distance) {
-			float extinction = ddgi_data.ddgi_ground_fog.x;
-			float precipitation = ddgi_data.ddgi_ground_fog.y;
-			float scale_height = ddgi_data.ddgi_ground_fog.z;
-			float start = ddgi_data.ddgi_ground_fog_range.x;
-			float top = ddgi_data.ddgi_ground_fog_range.y;
-
-			if (extinction + precipitation <= 0.0) return radiance;
-
-			float altitude_start = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + origin.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
-			float climb = dir.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
-			float step_length = distance * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[ / 6.0;
-			float fog_depth = 0.0;
-			float precipitation_depth = 0.0;
-
-			for (int i = 0; i < 6; i++) {
-				float altitude = altitude_start + climb * (float(i) + 0.5) * distance / 6.0;
-
-				if (altitude >= top) continue;
-
-				fog_depth += extinction * exp(-max(altitude - start, 0.0) / scale_height) * step_length;
-				precipitation_depth += precipitation * step_length;
-			}
-
-			vec3 transmittance = exp(-(fog_depth * ]] .. atmosphere.GROUND_FOG_TINT_GLSL .. [[ + precipitation_depth));
-			vec3 sun_dir = normalize(ddgi_data.ddgi_sun_direction.xyz);
-			float altitude_mid = altitude_start + climb * 0.5 * distance;
-			float g = ]] .. string.format("%.4f", media.presets.fog.PhaseG) .. [[;
-			float mu = dot(dir, sun_dir);
-			float phase = (1.0 - g * g) / (4.0 * 3.14159265359 * pow(max(1.0 + g * g - 2.0 * g * mu, 1e-4), 1.5));
-			vec3 sun = ddgi_data.ddgi_sun_radiance.rgb * phase * ddgi_ground_fog_sun_transmittance(altitude_mid, sun_dir.y, extinction, precipitation, scale_height, start, top);
-			vec3 source = (ddgi_sky(vec3(0.0, 1.0, 0.0)) + sun) * ]] .. atmosphere.GROUND_FOG_ALBEDO_GLSL .. [[;
-			return radiance * transmittance + source * (vec3(1.0) - transmittance);
 		}
 
 		bool ddgi_cascade_reset(int c) {
@@ -2070,6 +2094,19 @@ local function write_fog_record(volume, fog_volume)
 	volume.falloff = fog_volume:GetHeightFalloff()
 end
 
+local function write_layer_record(volume)
+	local per_meter = atmosphere.METERS_TO_UNITS
+	local extinction = media.GetTint("fog") * (atmosphere.GetGroundFogExtinction() * per_meter)
+	volume.kind = 3
+	volume.surface_y = (atmosphere.GetGroundFogStartAltitude() - atmosphere.SEA_LEVEL_HEIGHT) / per_meter
+	volume.shape[1] = (atmosphere.GetGroundFogTopAltitude() - atmosphere.SEA_LEVEL_HEIGHT) / per_meter
+	volume.falloff = atmosphere.ground_fog_scale_height / per_meter
+	volume.softness = atmosphere.precipitation_extinction * per_meter
+	set_vec3(volume.extinction, extinction)
+	set_vec3(volume.scattering, extinction * media.GetAlbedo("fog"))
+	volume.g = media.presets.fog.PhaseG
+end
+
 local function refresh_volumes(state)
 	local frame_number = system.GetFrameNumber()
 
@@ -2083,6 +2120,12 @@ local function refresh_volumes(state)
 		ffi.fill(volumes, OPTICAL_VOLUME_SIZE)
 		write_ocean_record(volumes[0])
 		count = 1
+	end
+
+	if atmosphere.GetGroundFogExtinction() + atmosphere.precipitation_extinction > 0 then
+		ffi.fill(volumes + count, OPTICAL_VOLUME_SIZE)
+		write_layer_record(volumes[count])
+		count = count + 1
 	end
 
 	local water_first = count

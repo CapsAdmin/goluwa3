@@ -492,7 +492,7 @@ local scatter_pass = {
 			{
 				visibility = false,
 				name = "get_fog_volume_light_scattering",
-				attenuation = "optical_range_tint(optical_ranges.z, optical_ranges.w, world_pos, L, max(dist, 0.0), false)",
+				attenuation = "optical_range_tint(optical_ranges.z, optical_ranges.w, world_pos, L, max(dist, 0.0), false, false)",
 			}
 		) .. froxel_fog.GetSliceGLSL("froxel_data") .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {
@@ -566,7 +566,7 @@ local scatter_pass = {
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction * GROUND_FOG_TINT * GROUND_FOG_ALBEDO;
 
-			vec3 fog_sun_tint = optical_range_tint(optical_ranges.z, optical_ranges.w, world_pos, sun_dir, 1000.0, false);
+			vec3 fog_sun_tint = optical_range_tint(optical_ranges.z, optical_ranges.w, world_pos, sun_dir, 1000.0, false, false);
 
 			for (int v = 0; v < optical_ranges.w; v++) {
 				optical_volume volume = optical_volumes[optical_ranges.z + v];
