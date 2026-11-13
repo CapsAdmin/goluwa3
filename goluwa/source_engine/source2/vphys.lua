@@ -124,7 +124,7 @@ local function add_hull_points(children, points)
 
 	local child = convex_hull.FromPolygon3D(polygon)
 
-	if child.ConvexHull then children[#children + 1] = child end
+	if child then children[#children + 1] = child end
 end
 
 function vphys.NewBody()

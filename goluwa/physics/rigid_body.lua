@@ -578,23 +578,28 @@ function RigidBody.CenterChildren(source)
 	local total = 0
 	local children = {}
 
-	for i, child in ipairs(source) do
+	for _, child in ipairs(source) do
 		child = child.Polygon3D and ConvexHull.FromPolygon3D(child.Polygon3D) or child
-		children[i] = child
-		local hull = child.ConvexHull
-		local weight = hull and
-			(
-				hull.bounds_max.x - hull.bounds_min.x
-			) * (
-				hull.bounds_max.y - hull.bounds_min.y
-			) * (
-				hull.bounds_max.z - hull.bounds_min.z
-			)
-			or
-			1
-		weighted = weighted + (child.Position or Vec3(0, 0, 0)) * weight
-		total = total + weight
+
+		if child then
+			children[#children + 1] = child
+			local hull = child.ConvexHull
+			local weight = hull and
+				(
+					hull.bounds_max.x - hull.bounds_min.x
+				) * (
+					hull.bounds_max.y - hull.bounds_min.y
+				) * (
+					hull.bounds_max.z - hull.bounds_min.z
+				)
+				or
+				1
+			weighted = weighted + (child.Position or Vec3(0, 0, 0)) * weight
+			total = total + weight
+		end
 	end
+
+	if not children[1] then return children, Vec3(0, 0, 0) end
 
 	local center = weighted / total
 
@@ -653,6 +658,16 @@ function RigidBody:LoadShapeModel()
 			else
 				local center
 				children, center = RigidBody.CenterChildren(model.physics.children)
+
+				if not children[1] then
+					self.shape_model_missing = true
+					wlog("rigid_body: %s has no usable collision hulls", path)
+
+					if self.RequireShapeModel then self:SkipMissingShapeModel() end
+
+					return
+				end
+
 				local scale = self.Owner.transform and self.Owner.transform.temp_scale
 				self.CenterOffset = scale and
 					Vec3(center.x * scale.x, center.y * scale.y, center.z * scale.z) or

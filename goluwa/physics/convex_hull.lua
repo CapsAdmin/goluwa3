@@ -857,7 +857,11 @@ do
 			point.x, point.y, point.z = point.x - center.x, point.y - center.y, point.z - center.z
 		end
 
-		return {ConvexHull = build_convex_hull(points), Position = center}
+		local hull = build_convex_hull(points)
+
+		if not hull then return nil end
+
+		return {ConvexHull = hull, Position = center}
 	end
 end
 
