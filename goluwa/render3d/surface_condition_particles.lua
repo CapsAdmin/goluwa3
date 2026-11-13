@@ -29,7 +29,7 @@ end
 surface_condition_particles.system = particles.Register{
 	name = "surface_conditions",
 	max_count = pool_size,
-	scatter_g = 0.35,
+	medium = "conditions",
 	streak_time = 1 / 40,
 	fade_near = 0.3,
 	depth_near = 0.1,

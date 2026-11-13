@@ -22,6 +22,7 @@ local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local compute_helpers = import("goluwa/render3d/compute_helpers.lua")
 local translucent_moments = import("goluwa/render3d/translucent_moments.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
+local media = import("goluwa/render3d/media.lua")
 local exposure_compensation = import("goluwa/render3d/exposure_compensation.lua")
 local particles = {}
 particles.MAX_SYSTEMS = 8
@@ -64,6 +65,7 @@ local system_layout = {
 	{"coverage_scale", "float"},
 	{"streak_time", "float"},
 	{"scatter_g", "float"},
+	{"albedo", "vec4"},
 	{"forward_fraction", "float"},
 	{"fade_time", "float"},
 	{"fade_near", "float"},
@@ -98,6 +100,8 @@ function particles.Register(def)
 	end
 
 	assert(index <= particles.MAX_SYSTEMS, "too many particle systems")
+	def.scatter_g = media.presets[def.medium].PhaseG
+	def.albedo = media.GetAlbedo(def.medium)
 	def.forward_fraction = get_forward_fraction(def.scatter_g)
 	def.block = def.block or {}
 	def.declarations = def.declarations or ""
@@ -222,6 +226,7 @@ function particles.WriteSystems(block)
 		entry.coverage_scale = coverage_scale
 		entry.streak_time = def.streak_time
 		entry.scatter_g = def.scatter_g
+		entry.albedo[0], entry.albedo[1], entry.albedo[2] = def.albedo.x, def.albedo.y, def.albedo.z
 		entry.forward_fraction = def.forward_fraction
 		entry.fade_time = def.fade_time
 		entry.fade_near = def.fade_near * render3d.GetViewScale()
@@ -577,7 +582,7 @@ function particles.GetSimulationGLSL()
 
 			if (visibility > 0.0 && system.lit != 0 && (fresh || was_hidden || (index + uint(particle_data.frame)) % ]] .. particles.RELIGHT_INTERVAL .. [[u == 0u)) {
 				vec3 view_dir = (p.position - particle_data.camera_position) / max(distance_to_camera, 1e-4);
-				vec3 light = get_particle_radiance(p.position, view_dir, system.scatter_g, system.forward_fraction);
+				vec3 light = get_particle_radiance(p.position, view_dir, system.scatter_g, system.forward_fraction) * system.albedo.rgb;
 				p.light = fresh || was_hidden || ddgi_data.gi_mode != GI_MODE_SURFELS ? light : mix(p.light, light, 0.35);
 			}
 

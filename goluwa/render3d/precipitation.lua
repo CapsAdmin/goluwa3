@@ -17,8 +17,6 @@ local BOX_SIZE = 20
 local MAX_RAIN_DROPS = 131072
 local MAX_SNOWFLAKES = 131072
 local EXPOSURE_TIME = 1 / 60
-local RAIN_SCATTER_G = 0.81
-local SNOW_SCATTER_G = 0.6
 
 function precipitation.SetRain(mm_per_hour)
 	precipitation.rain_rate = mm_per_hour
@@ -164,7 +162,7 @@ end
 precipitation.rain = particles.Register{
 	name = "rain",
 	max_count = MAX_RAIN_DROPS,
-	scatter_g = RAIN_SCATTER_G,
+	medium = "rain",
 	streak_time = EXPOSURE_TIME,
 	fade_time = 0.3,
 	fade_near = 1,
@@ -224,7 +222,7 @@ precipitation.rain = particles.Register{
 precipitation.snow = particles.Register{
 	name = "snow",
 	max_count = MAX_SNOWFLAKES,
-	scatter_g = SNOW_SCATTER_G,
+	medium = "snow",
 	streak_time = EXPOSURE_TIME,
 	fade_time = 0.3,
 	fade_near = 1,
