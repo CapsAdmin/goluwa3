@@ -126,6 +126,25 @@ function glass_light.GetGLSL(scene_name)
 			return optical_range_tint(0, get_optical_header().z, origin, dir, distance, light_ray);
 		}
 
+		float get_glass_body_path(vec3 origin, vec3 dir, float max_distance) {
+			if (dot(dir, dir) < 0.5 || get_optical_header().x + get_optical_header().y == 0) return 0.0;
+
+			float exit_distance = 0.0;
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.001, normalize(dir), max_distance);
+
+			while (rayQueryProceedEXT(query)) {
+				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
+
+				if (rayQueryGetIntersectionFrontFaceEXT(query, false) || (material.glass == 0 && !ddgi_has_medium(material))) continue;
+
+				float t = rayQueryGetIntersectionTEXT(query, false);
+				exit_distance = exit_distance == 0.0 ? t : min(exit_distance, t);
+			}
+
+			return exit_distance;
+		}
+
 		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance) {
 			return get_optical_tint_ray(origin, dir, distance, true) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), false);
 		}

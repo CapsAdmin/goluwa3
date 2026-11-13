@@ -50,6 +50,17 @@ function medium_common.GetGLSL()
 		return mix(optical_transmittance(absorption, depth), medium_body_reflectance(absorption, scattering, g), medium_scatter_probability(scattering, depth));
 	}
 
+	vec3 exponential_layer_transmittance(float altitude, float sun_up, float extinction, float precipitation_extinction, float scale_height, float start, float top, vec3 tint) {
+		if (altitude >= top) return vec3(1.0);
+
+		altitude = max(altitude, 0.0);
+		float below_start = max(start - altitude, 0.0);
+		float above_start = max(altitude - start, 0.0);
+		float fog_depth = extinction * (below_start + scale_height * (exp(-above_start / scale_height) - exp(-(top - start) / scale_height)));
+		float precipitation_depth = precipitation_extinction * (top - altitude);
+		return exp(-(fog_depth * tint + precipitation_depth) / max(sun_up, 0.05));
+	}
+
 	bool medium_box_intersect(mat4 to_local, vec3 box_min, vec3 box_max, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit) {
 		vec3 origin = (to_local * vec4(ray_origin, 1.0)).xyz;
 		vec3 dir = (to_local * vec4(ray_dir, 0.0)).xyz;

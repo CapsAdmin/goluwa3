@@ -6,6 +6,7 @@ local Texture = import("goluwa/render/texture.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local scattering = import("goluwa/render3d/atmosphere_scattering.lua")
 local media = import("goluwa/render3d/media.lua")
+local medium_common = import("goluwa/render3d/medium_common.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local math3d = import("goluwa/render3d/math3d.lua")
 atmosphere.stars_texture = nil
@@ -178,7 +179,7 @@ local function get_sky_view_texture_key(cam_pos, sun_dir)
 	elevation
 end
 
-local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.GetRaySphereGLSL() .. glsl_common.GetPhaseGLSL() .. [[
+local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.GetRaySphereGLSL() .. glsl_common.GetPhaseGLSL() .. medium_common.GetGLSL() .. [[
 	const float PLANET_RADIUS = 6371.0;
 	const float ATMOSPHERE_RADIUS = 6471.0;
 	const float RAYLEIGH_SCALE_HEIGHT = 8.0;
@@ -917,14 +918,9 @@ local atmosphere_glsl = build_atmosphere_shader_prelude(
 	}
 
 	vec3 ground_fog_sun_transmittance(float altitude, float sun_up, float fog_extinction, float precipitation_extinction) {
-		if (GROUND_FOG_ENABLED < 0.5 || altitude >= GROUND_FOG_TOP_HEIGHT) return vec3(1.0);
+		if (GROUND_FOG_ENABLED < 0.5) return vec3(1.0);
 
-		altitude = max(altitude, 0.0);
-		float below_start = max(GROUND_FOG_START_HEIGHT - altitude, 0.0);
-		float above_start = max(altitude - GROUND_FOG_START_HEIGHT, 0.0);
-		float fog_depth = fog_extinction * (below_start + GROUND_FOG_SCALE_HEIGHT * (exp(-above_start / GROUND_FOG_SCALE_HEIGHT) - exp(-(GROUND_FOG_TOP_HEIGHT - GROUND_FOG_START_HEIGHT) / GROUND_FOG_SCALE_HEIGHT)));
-		float precipitation_depth = precipitation_extinction * (GROUND_FOG_TOP_HEIGHT - altitude);
-		return exp(-(fog_depth * GROUND_FOG_TINT + precipitation_depth) / max(sun_up, 0.05));
+		return exponential_layer_transmittance(altitude, sun_up, fog_extinction, precipitation_extinction, GROUND_FOG_SCALE_HEIGHT, GROUND_FOG_START_HEIGHT, GROUND_FOG_TOP_HEIGHT, GROUND_FOG_TINT);
 	}
 
 	vec3 get_ground_fog_sun_transmittance(vec3 point, vec3 sun_dir) {
