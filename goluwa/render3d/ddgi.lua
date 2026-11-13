@@ -1078,6 +1078,10 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			float medium_porosity_high;
 			float medium_thickness;
 			float medium_body;
+			float medium_ior;
+			float medium_wave_height;
+			float medium_wave_length;
+			float medium_caustics;
 			};
 
 		]] .. OPTICAL_VOLUME_STRUCT_GLSL .. [[
@@ -1988,6 +1992,10 @@ local MaterialEntry = ffi.typeof([[struct {
 	float medium_porosity_high;
 	float medium_thickness;
 	float medium_body;
+	float medium_ior;
+	float medium_wave_height;
+	float medium_wave_length;
+	float medium_caustics;
 	}]])
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
@@ -2034,6 +2042,10 @@ local OCEAN_WAVE_FLOOR = 0.05
 
 function ddgi.HasMedium()
 	return medium_count > 0 or volume_count > 0
+end
+
+function ddgi.HasBodies()
+	return medium_count > 0 or glass_count > 0
 end
 
 function ddgi.HasVolumes()
@@ -2330,6 +2342,10 @@ function ddgi.WriteMaterialBuffer(self)
 					3
 				)
 			entry.medium_body = body > 0 and 1 or 0
+			entry.medium_ior = material:GetEffectiveIOR()
+			entry.medium_wave_height = material:GetMediumWaveHeight()
+			entry.medium_wave_length = material:GetMediumWaveLength()
+			entry.medium_caustics = material:GetMediumCaustics()
 			entry.transparent = material:IsTransparent() and 1 or 0
 			entry.refractive = material:IsSeeThrough() and 1 or 0
 			local albedo2 = material:GetAlbedo2Texture()

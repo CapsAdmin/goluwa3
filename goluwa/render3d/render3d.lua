@@ -359,6 +359,7 @@ local default_passes = {
 	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},
 	{"water", "goluwa/render3d/passes/water.lua"},
 	{"volumetric_fog", "goluwa/render3d/passes/volumetric_fog.lua"},
+	{"camera_medium", "goluwa/render3d/passes/camera_medium.lua"},
 	{"particles", "goluwa/render3d/passes/particles.lua"},
 	{"translucent", "goluwa/render3d/passes/translucent.lua"},
 	{"forward_overlay", "goluwa/render3d/passes/forward_overlay.lua"},

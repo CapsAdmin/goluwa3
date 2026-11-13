@@ -13,6 +13,9 @@ return {
 		{name = "MediumCover", default = 0.0, getter = "get_medium_cover"},
 		{name = "MediumPorosity", default = 0.0, callback = "InvalidateRayMaterial"},
 		{name = "MediumThickness", default = 0.0, callback = "InvalidateRayMaterial"},
+		{name = "MediumWaveHeight", default = 0.0, callback = "InvalidateRayMaterial"},
+		{name = "MediumWaveLength", default = 1.0, callback = "InvalidateRayMaterial"},
+		{name = "MediumCaustics", default = 1.0, callback = "InvalidateRayMaterial"},
 		{
 			name = "MediumPorosityFromAlbedo",
 			default = 0.0,

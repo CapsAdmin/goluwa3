@@ -34,12 +34,27 @@ function post_source.GetOpaqueSceneTexture()
 	return framebuffer and framebuffer:GetAttachment(1) or nil
 end
 
-function post_source.GetFoggedOpaqueSceneFramebuffer()
+function post_source.GetFogSourceFramebuffer()
 	if render3d.IsPassEnabled("volumetric_fog") then
 		return render3d.pipelines.volumetric_fog:GetFramebuffer()
 	end
 
 	return post_source.GetOpaqueSceneFramebuffer()
+end
+
+function post_source.GetFogSourceTexture()
+	return post_source.GetFogSourceFramebuffer():GetAttachment(1)
+end
+
+function post_source.GetFoggedOpaqueSceneFramebuffer()
+	if
+		render3d.IsPassEnabled("camera_medium") and
+		render3d.pipelines.camera_medium.is_enabled()
+	then
+		return render3d.pipelines.camera_medium:GetFramebuffer()
+	end
+
+	return post_source.GetFogSourceFramebuffer()
 end
 
 function post_source.GetFoggedOpaqueSceneTexture()

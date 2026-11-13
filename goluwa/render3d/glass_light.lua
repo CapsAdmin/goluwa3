@@ -24,6 +24,10 @@ local max_distance = pvars.Setup2{
 }
 pvars.EndGroup()
 
+function glass_light.GetMaxDistance()
+	return max_distance:Get()
+end
+
 function glass_light.IsEnabled()
 	return glass_light.RAY_QUERY and enabled:Get()
 end
@@ -206,7 +210,8 @@ function glass_light.GetGLSL(scene_name)
 
 			return optical_inscatter(origin, dir, distance, ambient, sun_radiance, sun_dir, sun_visibility, with_layer);
 		}
-	]]
+
+]]
 end
 
 function glass_light.GetStubGLSL()
