@@ -359,8 +359,8 @@ end
 shapes.Box{
 	Name = "floor",
 	Parent = root,
-	Position = Vec3(0, -0.5, 12),
-	Size = Vec3(30, 1, 54),
+	Position = Vec3(0, -0.5, 62.5),
+	Size = Vec3(30, 1, 155),
 	Material = material{Color = Color(0.5, 0.5, 0.5, 1), Roughness = 0.8, Metallic = 0},
 	RigidBody = STATIC,
 }
@@ -820,6 +820,146 @@ sweep(
 	medium_block
 )
 
+local ice_boxes = group("ice_boxes")
+local BOX_Z = 120
+local BOX_SIZE = 3
+local BOX_WALL = 0.2
+local ice_wall = material{
+	Color = Color(1, 1, 1, 1),
+	Roughness = 0.05,
+	Metallic = 0,
+	SpecularMultiplier = 0.45,
+	MediumAbsorption = 32,
+	MediumThickness = BOX_WALL,
+}
+
+local function add_cube_faces(poly, half, inward)
+	local axes = {Vec3(1, 0, 0), Vec3(0, 1, 0), Vec3(0, 0, 1)}
+
+	for axis = 1, 3 do
+		local u = axes[axis % 3 + 1]
+		local v = axes[(axis + 1) % 3 + 1]
+
+		for _, sign in ipairs{-1, 1} do
+			local outward = axes[axis] * sign
+			local normal = inward and -outward or outward
+			local center = outward * half
+			local corners = {
+				center - u * half - v * half,
+				center + u * half - v * half,
+				center + u * half + v * half,
+				center - u * half + v * half,
+			}
+			local uvs = {Vec2(0, 0), Vec2(1, 0), Vec2(1, 1), Vec2(0, 1)}
+
+			for _, triangle in ipairs{{1, 2, 3}, {1, 3, 4}} do
+				local a, b, c = triangle[1], triangle[2], triangle[3]
+
+				if (corners[b] - corners[a]):GetCross(corners[c] - corners[a]):GetDot(normal) < 0 then
+					b, c = c, b
+				end
+
+				for _, k in ipairs{a, c, b} do
+					poly:AddVertex{pos = corners[k], uv = uvs[k], normal = normal}
+				end
+			end
+		end
+	end
+end
+
+local function add_sphere_faces(poly, radius, inward)
+	local longitudes, latitudes = 48, 24
+
+	local function point(i, j)
+		local theta = j / latitudes * math.pi
+		local phi = i / longitudes * math.pi * 2
+		local direction = Vec3(
+			math.sin(theta) * math.cos(phi),
+			math.cos(theta),
+			math.sin(theta) * math.sin(phi)
+		)
+		return {
+			pos = direction * radius,
+			direction = direction,
+			uv = Vec2(i / longitudes, j / latitudes),
+		}
+	end
+
+	for j = 0, latitudes - 1 do
+		for i = 0, longitudes - 1 do
+			local quad = {point(i, j), point(i + 1, j), point(i + 1, j + 1), point(i, j + 1)}
+
+			for _, triangle in ipairs{{1, 2, 3}, {1, 3, 4}} do
+				local a, b, c = triangle[1], triangle[2], triangle[3]
+				local face = (quad[b].pos - quad[a].pos):GetCross(quad[c].pos - quad[a].pos)
+
+				if face:GetLengthSquared() > 1e-12 then
+					local outward = quad[a].direction + quad[b].direction + quad[c].direction
+
+					if face:GetDot(inward and -outward or outward) < 0 then b, c = c, b end
+
+					for _, k in ipairs{a, c, b} do
+						poly:AddVertex{
+							pos = quad[k].pos,
+							uv = quad[k].uv,
+							normal = inward and -quad[k].direction or quad[k].direction,
+						}
+					end
+				end
+			end
+		end
+	end
+end
+
+local function ice_sphere(name, x)
+	local sphere = group(name, ice_boxes)
+	shapes.Polygon{
+		Name = "shell",
+		Parent = sphere,
+		Position = Vec3(x, BOX_SIZE / 2, BOX_Z),
+		Polygon = function(poly)
+			add_sphere_faces(poly, BOX_SIZE / 2, false)
+			add_sphere_faces(poly, BOX_SIZE / 2 - BOX_WALL, true)
+		end,
+		Material = ice_wall,
+		RigidBody = false,
+	}
+	return sphere
+end
+
+local function ice_box(name, x)
+	local box = group(name, ice_boxes)
+	shapes.Polygon{
+		Name = "shell",
+		Parent = box,
+		Position = Vec3(x, BOX_SIZE / 2, BOX_Z),
+		Polygon = function(poly)
+			add_cube_faces(poly, BOX_SIZE / 2, false)
+			add_cube_faces(poly, BOX_SIZE / 2 - BOX_WALL, true)
+		end,
+		Material = ice_wall,
+		RigidBody = false,
+	}
+	return box
+end
+
+local function box_light(parent, name, position, color)
+	local lamp = Entity.New{Name = name, Parent = parent}
+	lamp:AddComponent("transform"):SetPosition(position)
+	local light = lamp:AddComponent("light_point")
+	light:SetColor(color)
+	light:SetLumen(20000)
+	light:SetSourceRadius(0.1)
+end
+
+local lit_box = ice_box("ice_box_lit_inside", -3)
+box_light(lit_box, "red_light", Vec3(-3.45, 1.1, BOX_Z), Color(1, 0.1, 0.05, 1))
+box_light(lit_box, "green_light", Vec3(-2.55, 1.1, BOX_Z), Color(0.1, 1, 0.1, 1))
+ice_box("ice_box_lit_outside", 3)
+local lit_sphere = ice_sphere("ice_sphere_lit_inside", -9)
+box_light(lit_sphere, "red_light", Vec3(-9.45, 1.1, BOX_Z), Color(1, 0.1, 0.05, 1))
+box_light(lit_sphere, "green_light", Vec3(-8.55, 1.1, BOX_Z), Color(0.1, 1, 0.1, 1))
+ice_sphere("ice_sphere_lit_outside", 9)
 swatch(
 	"roughness_gradient",
 	-8.75,
