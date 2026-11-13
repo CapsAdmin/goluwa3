@@ -308,7 +308,6 @@ local function apply_cry_material_node(self, material_node, material_path)
 
 		if not is_terrain_layer_shader(shader) then
 			self:SetMediumAbsorption(MEDIUM_ABSORPTION)
-			self:SetMediumPorosityFromAlbedo(1)
 			self.cry_medium_mesh = true
 		end
 	end
@@ -472,6 +471,14 @@ local function apply_cry_material_node(self, material_node, material_path)
 					LinearTexture(resolved) or
 					get_missing_cry_texture(material_path, texture_attrs, candidates)
 			)
+		end
+	end
+
+	if self.cry_medium_mesh then
+		local diffuse = self.cry_texture_maps.Diffuse
+
+		if diffuse and not diffuse.file:lower():find("defaults/white", 1, true) then
+			self:SetMediumPorosityFromAlbedo(1)
 		end
 	end
 
