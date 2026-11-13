@@ -212,6 +212,7 @@ scene_reflection.block = {
 	{"reflection_max_distance", "float"},
 	{"reflection_fog", "int"},
 	{"glass_light", "int"},
+	{"optical_tint", "int"},
 }
 
 function scene_reflection.WriteBlock(self, block)
@@ -221,6 +222,7 @@ function scene_reflection.WriteBlock(self, block)
 	block.reflection_max_distance = scene_reflection.max_distance:Get()
 	block.reflection_fog = scene_reflection.fog:Get() and 1 or 0
 	block.glass_light = ddgi.HasGlass() and 1 or 0
+	block.optical_tint = (ddgi.HasGlass() or ddgi.HasMedium()) and 1 or 0
 	scene_lights.WriteLightsBlock(block.lights, lights)
 end
 
@@ -566,7 +568,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 		vec3 trace_scene_reflection(vec3 origin, vec3 dir, vec3 N, float roughness, float max_distance, out float hit_t) {
 			vec3 radiance = trace_scene_reflection_hit(origin, dir, N, roughness, max_distance, hit_t);
 
-			if (]] .. block_name .. [[.glass_light != 0) radiance *= get_glass_light(origin, dir, hit_t, 0.0);
+			if (]] .. block_name .. [[.optical_tint != 0) radiance *= get_optical_tint(origin, dir, hit_t);
 
 			if (]] .. block_name .. [[.reflection_fog != 0 && hit_t < max_distance) {
 				float fog_sky = 1.0;

@@ -11,6 +11,8 @@ local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local water = import("goluwa/render3d/water.lua")
 local media = import("goluwa/render3d/media.lua")
+local medium_common = import("goluwa/render3d/medium_common.lua")
+local ddgi = import("goluwa/render3d/ddgi.lua")
 local ocean_fft = import("goluwa/render3d/ocean_fft.lua")
 local render = import("goluwa/render/render.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
@@ -642,6 +644,7 @@ local function write_ocean(self, block)
 	local params = water.GetOcean()
 	local waves = water.GetOceanWaves()
 	block.ocean_enabled = render3d.IsOceanEnabled() and 1 or 0
+	block.gi_tinted = (RAY_QUERY and ddgi.HasMedium()) and 1 or 0
 	block.ocean_level = render3d.GetOceanLevel()
 	local medium = media.presets[params.Medium]
 	block.ocean_absorption[0] = medium.Absorption.x
@@ -758,6 +761,7 @@ list.insert(
 					{"primary_sun_illuminance", "float"},
 					{"primary_sun_color", "vec3"},
 					{"ocean_enabled", "int"},
+					{"gi_tinted", "int"},
 					{"ocean_level", "float"},
 					{"ocean_absorption", "vec4"},
 					{"ocean_scattering", "vec4"},
@@ -852,7 +856,7 @@ list.insert(
 			},
 			RAY_QUERY and scene_reflection.GetDDGIUniformBuffer(8) or nil,
 		},
-		shader = [[
+		shader = medium_common.GetGLSL() .. [[
 			ivec2 water_pixel;
 			vec2 in_uv;
 
@@ -1349,20 +1353,7 @@ list.insert(
 
 
 			bool intersect_volume(int i, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
-				mat4 to_local = water_data.volume_to_local[i];
-				vec4 shape = water_data.volume_shape[i];
-				vec3 origin = (to_local * vec4(ray_origin, 1.0)).xyz;
-				vec3 dir = (to_local * vec4(ray_dir, 0.0)).xyz;
-				dir = mix(dir, vec3(1e-7), lessThan(abs(dir), vec3(1e-7)));
-				vec3 inv = 1.0 / dir;
-				vec3 ta = (vec3(-shape.x, -shape.y, -shape.z) - origin) * inv;
-				vec3 tb = (vec3(shape.x, 0.0, shape.z) - origin) * inv;
-				vec3 tmin = min(ta, tb);
-				vec3 tmax = max(ta, tb);
-				t_entry = max(max(tmin.x, tmin.y), tmin.z);
-				t_exit = min(min(tmax.x, tmax.y), tmax.z);
-				top = tmin.y >= max(tmin.x, tmin.z) && dir.y < 0.0;
-				return t_exit > max(t_entry, 0.0);
+				return medium_volume_intersect(water_data.volume_to_local[i], water_data.volume_shape[i].xyz, ray_origin, ray_dir, t_entry, t_exit, top);
 			}
 
 			float get_volume_exit(int i, vec3 ray_origin, vec3 ray_dir) {
@@ -1620,7 +1611,7 @@ list.insert(
 				vec3 rest = scene_color - direct;
 				vec3 sun_path = exp(-sigma * (depth / max(-sun_dir.y, 0.05)));
 				vec3 sky_path = exp(-sigma * (depth / 0.75));
-				return direct * sun_path * (sun_transmission * caustic) + rest * sky_path;
+				return direct * sun_path * (sun_transmission * caustic) + rest * mix(sky_path, vec3(1.0), float(water_data.gi_tinted));
 			}
 
 			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail) {

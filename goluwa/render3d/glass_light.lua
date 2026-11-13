@@ -111,8 +111,28 @@ function glass_light.GetGLSL(scene_name)
 			return transmitted;
 		}
 
+		vec3 get_medium_volume_tint(vec3 origin, vec3 dir, float distance) {
+			vec3 transmitted = vec3(1.0);
+
+			for (uint i = uint(ddgi_materials.length()); i > 0u; i--) {
+				ddgi_material volume = ddgi_materials[i - 1u];
+
+				if (volume.medium_body < 1.5) break;
+
+				float t_entry;
+				float t_exit;
+				bool top;
+
+				if (!medium_volume_intersect(volume.volume_to_local, volume.volume_shape, origin, dir, t_entry, t_exit, top)) continue;
+
+				transmitted *= optical_transmittance(volume.medium_extinction, min(t_exit, distance) - clamp(t_entry, 0.0, distance));
+			}
+
+			return transmitted;
+		}
+
 		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance) {
-			return get_optical_tint_ray(origin, dir, distance, true);
+			return get_optical_tint_ray(origin, dir, distance, true) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
 		}
 
 		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {

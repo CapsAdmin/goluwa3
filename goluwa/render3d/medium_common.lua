@@ -27,6 +27,21 @@ function medium_common.GetGLSL()
 		return mix(optical_transmittance(extinction, path), optical_transmittance(extinction, path * 0.35), porosity);
 	}
 
+	bool medium_volume_intersect(mat4 to_local, vec3 shape, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
+		vec3 origin = (to_local * vec4(ray_origin, 1.0)).xyz;
+		vec3 dir = (to_local * vec4(ray_dir, 0.0)).xyz;
+		dir = mix(dir, vec3(1e-7), lessThan(abs(dir), vec3(1e-7)));
+		vec3 inv = 1.0 / dir;
+		vec3 ta = (vec3(-shape.x, -shape.y, -shape.z) - origin) * inv;
+		vec3 tb = (vec3(shape.x, 0.0, shape.z) - origin) * inv;
+		vec3 tmin = min(ta, tb);
+		vec3 tmax = max(ta, tb);
+		t_entry = max(max(tmin.x, tmin.y), tmin.z);
+		t_exit = min(min(tmax.x, tmax.y), tmax.z);
+		top = tmin.y >= max(tmin.x, tmin.z) && dir.y < 0.0;
+		return t_exit > max(t_entry, 0.0);
+	}
+
 	float medium_scatter_amount(float thickness) {
 		return 1.0 - exp(-thickness);
 	}

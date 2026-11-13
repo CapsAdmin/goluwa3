@@ -1058,7 +1058,7 @@ local function pass_trace()
 					}
 				}
 
-				if (surfel_data.glass_light != 0) result.rgb *= get_glass_light(origin, dir, glass_distance, 0.0);
+				if (surfel_data.optical_tint != 0) result.rgb *= get_optical_tint(origin, dir, glass_distance);
 
 				result.rgb = dot(result.rgb, vec3(1.0)) >= 0.0 ? min(result.rgb, vec3(60000.0)) : vec3(0.0);
 				vec4 previous = imageLoad(surfel_atlas, atlas_texel);

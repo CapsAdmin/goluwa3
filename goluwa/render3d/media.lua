@@ -96,6 +96,11 @@ function media.Define(absorption, scattering)
 	return name
 end
 
+function media.GetExtinction(name)
+	local preset = media.presets[name]
+	return preset.Absorption + media.MOLECULAR_SCATTERING + preset.ParticleScattering
+end
+
 function media.MediumFromFog(color, extinction, albedo_scale)
 	local brightest = math.max(color.x, color.y, color.z, 1e-4)
 	local absorption = Vec3()

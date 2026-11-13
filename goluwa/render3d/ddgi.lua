@@ -20,6 +20,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
+local water = import("goluwa/render3d/water.lua")
 local ddgi = {}
 pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "ddgi_"})
 
@@ -903,6 +904,8 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			float medium_porosity_high;
 			float medium_thickness;
 			float medium_body;
+			mat4 volume_to_local;
+			vec3 volume_shape;
 			};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -1805,6 +1808,8 @@ local MaterialEntry = ffi.typeof([[struct {
 	float medium_porosity_high;
 	float medium_thickness;
 	float medium_body;
+	float volume_to_local[16];
+	float volume_shape[3];
 	}]])
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
@@ -1818,8 +1823,63 @@ function ddgi.HasGlass()
 	return glass_count > 0
 end
 
+local volume_count = 0
+local VOLUME_SLOTS = water.MAX_VOLUMES + 1
+local OCEAN_HALF_SIZE = 1e5
+local OCEAN_DEPTH = 1e4
+
 function ddgi.HasMedium()
-	return medium_count > 0
+	return medium_count > 0 or volume_count > 0
+end
+
+local function write_volume(entry, extinction, half_x, depth, half_z)
+	entry.medium_body = 2
+	entry.medium_extinction[0], entry.medium_extinction[1], entry.medium_extinction[2] = extinction.x, extinction.y, extinction.z
+	entry.volume_shape[0], entry.volume_shape[1], entry.volume_shape[2] = half_x, depth, half_z
+end
+
+-- water volumes and the ocean ride at the end of the material buffer, packed from the last entry down, a material that is not a volume ends the list
+local function refresh_volumes(state)
+	local frame_number = system.GetFrameNumber()
+
+	if state.volume_frame == frame_number then return end
+
+	state.volume_frame = frame_number
+	local capacity = state.buffer:GetSize() / MATERIAL_ENTRY_SIZE
+	local out = ffi.cast(MaterialEntryPointer, state.buffer:Map(0, state.buffer:GetSize()))
+	local count = 0
+
+	if render3d.IsOceanEnabled() then
+		local entry = out[capacity - 1]
+		ffi.fill(entry.volume_to_local, ffi.sizeof(entry.volume_to_local))
+		entry.volume_to_local[0], entry.volume_to_local[5], entry.volume_to_local[10], entry.volume_to_local[15] = 1, 1, 1, 1
+		entry.volume_to_local[13] = -render3d.GetOceanLevel()
+		write_volume(
+			entry,
+			media.GetExtinction(water.GetOcean().Medium),
+			OCEAN_HALF_SIZE,
+			OCEAN_DEPTH,
+			OCEAN_HALF_SIZE
+		)
+		count = 1
+	end
+
+	for _, volume in ipairs(water.GetVolumes()) do
+		if count >= VOLUME_SLOTS then break end
+
+		local entry = out[capacity - 1 - count]
+		local size = volume:GetSize()
+		volume.Owner.transform:GetWorldMatrixInverse():CopyToFloatPointer(entry.volume_to_local)
+		write_volume(entry, media.GetExtinction(volume:GetMedium()), size.x / 2, size.y, size.z / 2)
+		count = count + 1
+	end
+
+	for i = count, state.volume_count - 1 do
+		out[capacity - 1 - i].medium_body = 0
+	end
+
+	state.volume_count = count
+	volume_count = count
 end
 
 function ddgi.WriteMaterialBuffer(self)
@@ -1830,10 +1890,15 @@ function ddgi.WriteMaterialBuffer(self)
 	local states = material_buffers[self]
 	local state = states[frame]
 
-	if not state or state.buffer:GetSize() < count * MATERIAL_ENTRY_SIZE then
+	if
+		not state or
+		state.buffer:GetSize() < (
+			count + VOLUME_SLOTS
+		) * MATERIAL_ENTRY_SIZE
+	then
 		if state then state.buffer:Remove() end
 
-		local capacity = math.max(count, 1) * 2
+		local capacity = math.max(count, 1) * 2 + VOLUME_SLOTS
 		state = {
 			buffer = render.CreateBuffer{
 				byte_size = capacity * MATERIAL_ENTRY_SIZE,
@@ -1845,6 +1910,7 @@ function ddgi.WriteMaterialBuffer(self)
 			written = 0,
 			generation = 0,
 			releases = -1,
+			volume_count = 0,
 		}
 		states[frame] = state
 	end
@@ -1863,6 +1929,7 @@ function ddgi.WriteMaterialBuffer(self)
 	then
 		glass_count = state.glass_count or 0
 		medium_count = state.medium_count or 0
+		refresh_volumes(state)
 		return state.buffer
 	end
 
@@ -2036,6 +2103,7 @@ function ddgi.WriteMaterialBuffer(self)
 	end
 
 	medium_count = state.medium_count
+	refresh_volumes(state)
 	return state.buffer
 end
 

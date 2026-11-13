@@ -507,7 +507,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 						restir_sample(P, hit_N, shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), RESTIR_SURFACE, vec3(0.0));
 				}
 
-				if (restir_data.glass_light != 0) s.L *= get_glass_light(origin, dir, t, 0.0);
+				if (restir_data.optical_tint != 0) s.L *= get_optical_tint(origin, dir, t);
 
 				s.L = min(max(s.L, vec3(0.0)), vec3(1e9));
 				return s;

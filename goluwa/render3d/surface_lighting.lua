@@ -35,6 +35,7 @@ surface_lighting.block = {
 	{"gi_screen_geometry_tex", "int"},
 	{"gi_screen_specular_tex", "int"},
 	{"glass_light", "int"},
+	{"optical_tint", "int"},
 	{"medium_thickness", "float"},
 	{"medium_base_height", "float"},
 	{"medium_thickness_per_height", "float"},
@@ -85,6 +86,7 @@ function surface_lighting.WriteBlock(self, block)
 	local gi_specular_texture = gi.GetScreenSpecularTexture()
 	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
 	block.glass_light = (glass_light.IsEnabled() and ddgi.HasGlass()) and 1 or 0
+	block.optical_tint = (glass_light.IsEnabled() and (ddgi.HasGlass() or ddgi.HasMedium())) and 1 or 0
 	block.medium_thickness = medium_common.assumed_thickness
 	block.medium_base_height = medium_common.base_height
 	block.medium_thickness_per_height = medium_common.thickness_per_height
