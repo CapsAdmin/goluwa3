@@ -1038,7 +1038,7 @@ local function pass_trace()
 				}
 
 				if (hit) {
-					result = vec4(shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), 0.0);
+					result = vec4(ddgi_apply_ground_fog(shade_scene_reflection_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), origin, dir, t), 0.0);
 
 					if (surfel_data.surfel_hit_spawns != 0 && state.w > 0.5) {
 						scene_triangle tri = scene_hit_tri(instance, primitive);

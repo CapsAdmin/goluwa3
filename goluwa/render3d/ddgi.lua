@@ -1338,6 +1338,41 @@ function ddgi.GetCommonGLSL()
 			).rgb * ddgi_data.ddgi_sky_intensity;
 		}
 
+		vec3 ddgi_apply_ground_fog(vec3 radiance, vec3 origin, vec3 dir, float distance) {
+			float extinction = ddgi_data.ddgi_ground_fog.x;
+			float precipitation = ddgi_data.ddgi_ground_fog.y;
+			float scale_height = ddgi_data.ddgi_ground_fog.z;
+			float start = ddgi_data.ddgi_ground_fog_range.x;
+			float top = ddgi_data.ddgi_ground_fog_range.y;
+
+			if (extinction + precipitation <= 0.0) return radiance;
+
+			float altitude_start = ]] .. string.format("%.17g", atmosphere.SEA_LEVEL_HEIGHT) .. [[ + origin.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
+			float climb = dir.y * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[;
+			float step_length = distance * ]] .. string.format("%.17g", atmosphere.METERS_TO_UNITS) .. [[ / 6.0;
+			float fog_depth = 0.0;
+			float precipitation_depth = 0.0;
+
+			for (int i = 0; i < 6; i++) {
+				float altitude = altitude_start + climb * (float(i) + 0.5) * distance / 6.0;
+
+				if (altitude >= top) continue;
+
+				fog_depth += extinction * exp(-max(altitude - start, 0.0) / scale_height) * step_length;
+				precipitation_depth += precipitation * step_length;
+			}
+
+			vec3 transmittance = exp(-(fog_depth * ]] .. atmosphere.GROUND_FOG_TINT_GLSL .. [[ + precipitation_depth));
+			vec3 sun_dir = normalize(ddgi_data.ddgi_sun_direction.xyz);
+			float altitude_mid = altitude_start + climb * 0.5 * distance;
+			float g = ]] .. string.format("%.4f", media.presets.fog.PhaseG) .. [[;
+			float mu = dot(dir, sun_dir);
+			float phase = (1.0 - g * g) / (4.0 * 3.14159265359 * pow(max(1.0 + g * g - 2.0 * g * mu, 1e-4), 1.5));
+			vec3 sun = ddgi_data.ddgi_sun_radiance.rgb * phase * ddgi_ground_fog_sun_transmittance(altitude_mid, sun_dir.y, extinction, precipitation, scale_height, start, top);
+			vec3 source = (ddgi_sky(vec3(0.0, 1.0, 0.0)) + sun) * ]] .. atmosphere.GROUND_FOG_ALBEDO_GLSL .. [[;
+			return radiance * transmittance + source * (vec3(1.0) - transmittance);
+		}
+
 		bool ddgi_cascade_reset(int c) {
 			return (ddgi_data.ddgi_reset_mask & (1 << c)) != 0;
 		}

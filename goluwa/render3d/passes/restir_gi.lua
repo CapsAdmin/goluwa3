@@ -509,6 +509,8 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 
 				if (restir_data.optical_tint != 0) s.L *= get_optical_tint(origin, dir, t);
 
+				if (!miss) s.L = ddgi_apply_ground_fog(s.L, origin, dir, t);
+
 				s.L = min(max(s.L, vec3(0.0)), vec3(1e9));
 				return s;
 			}

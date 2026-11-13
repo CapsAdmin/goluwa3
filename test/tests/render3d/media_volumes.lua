@@ -21,6 +21,8 @@ local function use_passes()
 			import("goluwa/render3d/passes/ddgi.lua"),
 			import("goluwa/render3d/passes/lighting.lua"),
 			import("goluwa/render3d/passes/water.lua"),
+			import("goluwa/render3d/passes/surfel_gi.lua"),
+			import("goluwa/render3d/passes/restir_gi.lua"),
 			import("goluwa/render3d/passes/reflections.lua"),
 			import("goluwa/render3d/passes/translucent.lua"),
 			import("goluwa/render3d/passes/particles.lua"),

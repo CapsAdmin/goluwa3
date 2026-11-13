@@ -429,7 +429,7 @@ local function pass_shade()
 				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight).rgb;
 				#endif
 
-				store_ray(pos, vec4(radiance * glass, t));
+				store_ray(pos, vec4(ddgi_apply_ground_fog(radiance * glass, origin, dir, t), t));
 			}
 		]],
 	}
