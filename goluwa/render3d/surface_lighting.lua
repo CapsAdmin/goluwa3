@@ -13,6 +13,7 @@ local gi = import("goluwa/render3d/gi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
+local ice_common = import("goluwa/render3d/ice_common.lua")
 local surface_lighting = {}
 surface_lighting.block = {
 	render3d.camera_block,
@@ -33,6 +34,11 @@ surface_lighting.block = {
 	{"gi_screen_geometry_tex", "int"},
 	{"gi_screen_specular_tex", "int"},
 	{"glass_light", "int"},
+	{"ice_thickness", "float"},
+	{"ice_base_height", "float"},
+	{"ice_thickness_per_height", "float"},
+	{"ice_scatter_coefficient", "float"},
+	{"ice_snow_slope", "float"},
 	post_source.pre_exposure_block,
 }
 
@@ -71,6 +77,11 @@ function surface_lighting.WriteBlock(self, block)
 	local gi_specular_texture = gi.GetScreenSpecularTexture()
 	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
 	block.glass_light = (glass_light.IsEnabled() and ddgi.HasGlass()) and 1 or 0
+	block.ice_thickness = ice_common.assumed_thickness
+	block.ice_base_height = ice_common.base_height
+	block.ice_thickness_per_height = ice_common.thickness_per_height
+	block.ice_scatter_coefficient = ice_common.scatter_coefficient
+	block.ice_snow_slope = ice_common.snow_slope
 	post_source.WritePreExposureBlock(self, block)
 	return block
 end
@@ -116,6 +127,18 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 		) .. [[
 		}
 
+		float get_ice_assumed_thickness(vec3 P) {
+			return ]] .. block_name .. [[.ice_thickness + max(P.y - ]] .. block_name .. [[.ice_base_height, 0.0) * ]] .. block_name .. [[.ice_thickness_per_height;
+		}
+
+		float get_ice_scatter_coefficient() {
+			return ]] .. block_name .. [[.ice_scatter_coefficient;
+		}
+
+		float get_ice_snow_slope() {
+			return ]] .. block_name .. [[.ice_snow_slope;
+		}
+
 		float get_ice_light_path(vec3 origin, vec3 dir, float max_distance) {
 			]] .. (
 			ray_scene and
@@ -127,6 +150,24 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 			]] or
 			"return 0.0;"
 		) .. [[
+		}
+
+		float get_ice_local_thickness(vec3 P, vec3 N, vec3 G, float cap) {
+			vec3 up = abs(N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+			vec3 tangent = normalize(cross(up, N));
+			vec3 bitangent = cross(N, tangent);
+			vec3 origin = P - G * 0.02;
+			float sum = 0.0;
+
+			for (int i = 0; i < 6; i++) {
+				float azimuth = float(i) * 1.0471976;
+				float depression = (i & 1) == 0 ? 0.35 : 0.95;
+				vec3 dir = normalize(tangent * (cos(azimuth) * cos(depression)) + bitangent * (sin(azimuth) * cos(depression)) - N * sin(depression));
+				float t = get_ice_light_path(origin, dir, cap);
+				sum += t > 0.0 ? t : cap;
+			}
+
+			return sum / 6.0;
 		}
 
 		#define LIGHT_MIN_SCREEN_RADIANCE 0.0002
@@ -182,6 +223,8 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 				if (brightest * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
 
 				if (dot(s.N, L) <= 0.0 && !(]] .. surface_features.GetLitFromBehindExpressionGLSL() .. [[)) continue;
+				float scatter_floor = 0.0;
+				]] .. surface_features.GetDirectFloorGLSL() .. [[
 				vec3 shadow_N = s.geometric_N;
 				float shadow_facing = get_shadow_facing(s.N, L);
 				]] .. surface_features.GetDirectShadowGLSL() .. [[
@@ -218,7 +261,7 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 				} else if (type == 1 || type == 3) {
 					shadow_factor = light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light.position.xyz, light.params.x, s.world_pos);
 
-					if (brightest * shadow_factor * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
+					if (scatter_floor <= 0.0 && brightest * shadow_factor * get_exposure() < LIGHT_MIN_SCREEN_RADIANCE) continue;
 
 					int point_shadow_slot = getPointShadowSlot(i);
 
@@ -250,8 +293,6 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 				vec3 radiance = unshadowed_radiance * shadow_factor;
 
-				float scatter_floor = 0.0;
-				]] .. surface_features.GetDirectFloorGLSL() .. [[
 
 				if (radiance.r + radiance.g + radiance.b <= 0.0 && scatter_floor <= 0.0) continue;
 

@@ -894,6 +894,7 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			int roughness_channel;
 			vec3 emissive;
 			int emissive_alpha;
+			vec4 ice;
 			};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -902,7 +903,7 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 end
 
 function ddgi.GetMaterialGLSL()
-	return [[
+	return import("goluwa/render3d/ice_common.lua").GLSL .. [[
 
 		vec3 ddgi_albedo(ddgi_material material, vec3 P) {
 			if (material.terrain_tex >= 0) {
@@ -954,6 +955,16 @@ function ddgi.GetMaterialGLSL()
 			return albedo;
 		}
 
+vec3 ddgi_ice_albedo(ddgi_material material, vec3 albedo) {
+	if (material.ice.x <= 0.0) return albedo;
+
+	float brightness = pow(max(luminance(albedo), 0.0), 1.0 / 2.2);
+	float porosity = max(material.ice.y, clamp((brightness - material.ice.z) / max(material.ice.w - material.ice.z, 0.001), 0.0, 1.0));
+	float depth = 3.0 * clamp(material.ice.x / 10.0, 0.0, 1.0) * (1.0 - 0.6 * porosity);
+	vec3 tint = mix(exp(-depth * ICE_TINT_RATIO), ICE_POROUS_COLOR, porosity * porosity);
+	return mix(tint, albedo, porosity);
+}
+
 float ddgi_bounce_share(ddgi_material material) {
 	float metallic = material.metallic;
 
@@ -991,7 +1002,7 @@ function ddgi.GetHitAlbedoGLSL()
 	if not hit_textures:Get() then
 		return [[
 			vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint instance, uint primitive) {
-				return ddgi_albedo(material, P);
+				return ddgi_ice_albedo(material, ddgi_albedo(material, P));
 			}
 		]]
 	end
@@ -1000,7 +1011,7 @@ function ddgi.GetHitAlbedoGLSL()
 
 		#define DDGI_ALBEDO_UV_TEXELS ]] .. string.format("%.1f", hit_texels:Get()) .. [[
 
-		vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint instance, uint primitive) {
+		vec3 ddgi_hit_albedo_plain(ddgi_material material, vec3 P, uint instance, uint primitive) {
 			if (material.terrain_tex >= 0 || material.albedo_tex < 0) return ddgi_albedo(material, P);
 
 			scene_triangle tri = scene_hit_tri(instance, primitive);
@@ -1035,6 +1046,10 @@ function ddgi.GetHitAlbedoGLSL()
 			}
 
 			return material.albedo * rgb;
+		}
+
+		vec3 ddgi_hit_albedo(ddgi_material material, vec3 P, uint instance, uint primitive) {
+			return ddgi_ice_albedo(material, ddgi_hit_albedo_plain(material, P, instance, primitive));
 		}
 	]]
 end
@@ -1771,6 +1786,7 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t roughness_channel;
 	float emissive[3];
 	int32_t emissive_alpha;
+	float ice[4];
 	}]])
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
@@ -1885,6 +1901,11 @@ function ddgi.WriteMaterialBuffer(self)
 				-1
 			entry.emissive[0], entry.emissive[1], entry.emissive[2] = scene_materials.GetEmissive(material)
 			entry.emissive_alpha = material:GetAlbedoAlphaIsEmissive() and 1 or 0
+			local from_albedo = material:GetIcePorosityFromAlbedo() > 0
+			entry.ice[0] = material:GetIceAbsorption()
+			entry.ice[1] = material:GetIcePorosity()
+			entry.ice[2] = from_albedo and material:GetIcePorosityLow() or 2
+			entry.ice[3] = from_albedo and material:GetIcePorosityHigh() or 3
 			entry.transparent = material:IsTransparent() and 1 or 0
 			entry.refractive = material:IsSeeThrough() and 1 or 0
 			local albedo2 = material:GetAlbedo2Texture()
