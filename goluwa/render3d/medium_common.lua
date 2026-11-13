@@ -117,4 +117,22 @@ function medium_common.GetGLSL()
 ]]
 end
 
+function medium_common.GetShaftGLSL(options)
+	return "vec3 " .. options.name .. "(" .. options.params .. [[, vec3 shaft_origin, vec3 shaft_dir, float shaft_length, int shaft_samples, float shaft_jitter, vec3 shaft_attenuation) {
+		vec3 shaft_sum = vec3(0.0);
+
+		for (int i = 0; i < shaft_samples; i++) {
+			float f0 = float(i) / float(shaft_samples);
+			float f1 = float(i + 1) / float(shaft_samples);
+			float f = (float(i) + shaft_jitter) / float(shaft_samples);
+			float s = shaft_length * f * f;
+			vec3 p = shaft_origin + shaft_dir * s;
+			shaft_sum += (]] .. options.sample .. [[) * exp(-shaft_attenuation * s) * (shaft_length * (f1 * f1 - f0 * f0));
+		}
+
+		return shaft_sum;
+	}
+	]]
+end
+
 return medium_common

@@ -12,6 +12,7 @@ local post_source = import("goluwa/render3d/post_source.lua")
 local water = import("goluwa/render3d/water.lua")
 local media = import("goluwa/render3d/media.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
+local medium_surface = import("goluwa/render3d/medium_surface.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
@@ -109,14 +110,6 @@ local shaft_samples_pvar = pvars.Setup2{
 	max = 8,
 	integer = true,
 	help = "most samples along the view ray for the sun shafts under the surface (short paths take fewer), fewer is noisier shafts",
-}
-local ripple_pairs_pvar = pvars.Setup2{
-	key = "r_water_ripple_pairs",
-	default = 6,
-	min = 1,
-	max = 6,
-	integer = true,
-	help = "pairs of ripple waves per octave in the small ripples on top of the wave textures, fewer is a more regular ripple pattern",
 }
 local trace_steps_pvar = pvars.Setup2{
 	key = "r_water_trace_steps",
@@ -699,7 +692,6 @@ list.insert(
 					{"frame", "int"},
 					{"features", "int"},
 					{"shaft_samples", "int"},
-					{"ripple_pairs", "int"},
 					{"trace_steps", "int"},
 					{"rough_rays", "int"},
 					{"last_frame_tex", "int"},
@@ -727,8 +719,7 @@ list.insert(
 					{"ripple_info", "vec4"},
 					{"sea_info", "vec4"},
 					{"sea_offset", "vec4"},
-					{"bump_tex", "int"},
-					{"bump_info", "vec4"},
+					medium_surface.block,
 					{"shadows", scene_lights.BuildShadowsBlockLayout()},
 					post_source.pre_exposure_block,
 					RAY_QUERY and scene_reflection.block or nil,
@@ -760,7 +751,6 @@ list.insert(
 
 					block.features = features
 					block.shaft_samples = shaft_samples_pvar:Get()
-					block.ripple_pairs = ripple_pairs_pvar:Get()
 					block.trace_steps = trace_steps_pvar:Get()
 					local scale = scene_reflection.RESOLUTION_SCALES[pvars.Get("reflection_resolution")]
 					block.rough_rays = math.max(1, math.floor(scene_reflection.rough_rays:Get() * scale * scale + 0.5))
@@ -781,8 +771,7 @@ list.insert(
 					directional_shadows.GetPrimarySunColor(lights):CopyToFloatPointer(block.primary_sun_color)
 					scene_lights.WriteShadowBlock(self, block.shadows, lights)
 					write_ocean(self, block)
-					block.bump_tex = water.wave_bump and self:GetTextureIndex(water.wave_bump.texture) or -1
-					block.bump_info[0] = water.wave_bump and water.wave_bump.slope_variance or 0
+					medium_surface.WriteBlock(self, block)
 
 					if RAY_QUERY then
 						light_occlusion.WriteOcclusionBlock(block, lights)
@@ -856,9 +845,7 @@ list.insert(
 				if (abs(g) < 1e-3) return 0.5;
 				return (1.0 - g) / (2.0 * g) * ((1.0 + g) / sqrt(1.0 + g * g) - 1.0);
 			}
-			const float WATER_GRAVITY = ]] .. water.GRAVITY .. [[;
 			const int WAVE_CASCADES = ]] .. #WAVE_CASCADES .. [[;
-			const int RIPPLE_OCTAVES = ]] .. water.DETAIL_OCTAVES .. [[;
 			const float WAVE_TEXELS_PER_WAVELENGTH = ]] .. water.WAVE_TEXELS_PER_WAVELENGTH .. [[;
 			const float WATER_OPEN_DEPTH = 2000.0;
 			const float WATER_SCREENSPACE_DISTANCE = 20000.0;
@@ -895,11 +882,7 @@ list.insert(
 				return blue_noise_r2(blue_noise_texel(TEXTURE(water_data.blue_noise_tex), water_pixel).rg, float(water_data.frame * water_data.rough_rays + sample_index));
 			}
 
-			float water_hash(vec2 p) {
-				vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-				p3 += dot(p3, p3.yzx + 33.33);
-				return fract((p3.x + p3.y) * p3.z);
-			}
+			]] .. medium_surface.GetGLSL("water_data") .. [[
 
 			vec2 foam_cells(vec2 p) {
 				vec2 i = floor(p);
@@ -910,7 +893,7 @@ list.insert(
 				for (int y = -1; y <= 1; y++) {
 					for (int x = -1; x <= 1; x++) {
 						vec2 o = vec2(float(x), float(y));
-						vec2 r = o + vec2(water_hash(i + o), water_hash(i + o + 17.3)) - f;
+						vec2 r = o + vec2(medium_hash(i + o), medium_hash(i + o + 17.3)) - f;
 						float d = dot(r, r);
 
 						if (d < d1) {
@@ -949,14 +932,6 @@ list.insert(
 				return t * pixel_angle / sqrt(max(abs(cos_incidence), 0.03));
 			}
 
-			float get_wave_resolve(float wavelength, float footprint) {
-				float x = clamp(wavelength / max(footprint, 1e-6) * 0.5 - 1.0, 0.0, 1.0);
-				return x * x * (3.0 - 2.0 * x);
-			}
-
-
-
-
 			vec4 sample_wave_cascade(int cascade, vec2 world_xz, out float coverage) {
 				coverage = 0.0;
 				int tex = water_data.wave_tex[cascade];
@@ -980,7 +955,7 @@ list.insert(
 					uv = shifted / FAR_TILE + 0.5 / ]] .. water.FFT_SIZE .. [[.0;
 					float texel = FAR_TILE / ]] .. water.FFT_SIZE .. [[.0;
 					float lod = max(log2(footprint / texel), 0.0);
-					float weight = get_wave_resolve(texel * WAVE_TEXELS_PER_WAVELENGTH, footprint);
+					float weight = medium_surface_resolve(texel * WAVE_TEXELS_PER_WAVELENGTH, footprint);
 					vec4 far_derivatives = textureLod(TEXTURE(water_data.far_tex[1]), uv, lod);
 					data = vec4(textureLod(TEXTURE(water_data.far_tex[0]), uv, lod).y, far_derivatives.xy / (1.0 + water_data.wave_choppiness * far_derivatives.zw), 0.0);
 					data *= weight;
@@ -991,7 +966,7 @@ list.insert(
 					float coverage;
 					vec4 cascade = sample_wave_cascade(i, world_xz, coverage);
 					float texel = water_data.wave_origin[i].z * 2.0 / ]] .. WAVE_TEX_SIZE .. [[.0;
-					float weight = coverage * get_wave_resolve(texel * WAVE_TEXELS_PER_WAVELENGTH, footprint);
+					float weight = coverage * medium_surface_resolve(texel * WAVE_TEXELS_PER_WAVELENGTH, footprint);
 					data = mix(data, cascade, weight);
 					resolved_variance = mix(resolved_variance, water_data.wave_origin[i].w, weight);
 				}
@@ -1004,81 +979,7 @@ list.insert(
 				return water_data.ocean_level + get_wave_data(world_xz, 0.0, variance).r;
 			}
 
-			const float VOLUME_RIPPLE_LIFETIME = 10.0;
 			const float OCEAN_RIPPLE_UPWIND_SHARE = 0.1;
-			const float VOLUME_RIPPLE_UPWIND_SHARE = 0.5;
-
-			float add_ripples(vec2 p, float footprint, vec2 wind, vec2 flow, float slope_variance, float wavelength, float upwind_share, float lifetime, inout vec2 grad, inout vec3 hess) {
-				float lost_variance = 0.0;
-				float time = water_data.time;
-				float wind_angle = atan(wind.y, wind.x);
-				int PAIRS = water_data.ripple_pairs;
-				p -= flow * time;
-
-				for (int o = 0; o < RIPPLE_OCTAVES; o++) {
-					for (int i = 0; i < PAIRS; i++) {
-						float pair_seed = float(o * PAIRS + i);
-						float length = wavelength * exp2(-(float(i) + water_hash(vec2(pair_seed, 1.7))) / float(PAIRS));
-						float k = 6.28318530718 / length;
-						float resolve = get_wave_resolve(length, footprint);
-						lost_variance += slope_variance / float(PAIRS) * (1.0 - resolve);
-
-						if (resolve <= 0.0) continue;
-
-						float amplitude = sqrt(2.0 * slope_variance / float(PAIRS)) / k * resolve;
-						float omega = sqrt(WATER_GRAVITY * k + 0.074e-3 * k * k * k);
-						float life = lifetime * 6.28318530718 / omega;
-						float age = time / life + water_hash(vec2(pair_seed, 3.1));
-
-						for (int half_life = 0; half_life < 2; half_life++) {
-							float u = age + float(half_life) * 0.5;
-							float generation = floor(u);
-							float seed = pair_seed * 2.0 + float(half_life) + generation * 97.0;
-							float angle = wind_angle + (water_hash(vec2(seed, 5.3)) + water_hash(vec2(seed, 9.1)) - 1.0) * 2.0;
-							if (water_hash(vec2(seed, 7.7)) < upwind_share) angle += 3.14159265359;
-							vec2 kv = vec2(cos(angle), sin(angle)) * k;
-							float phase = dot(kv, p) - omega * time + water_hash(vec2(seed, 13.9)) * 6.28318530718;
-							float a = amplitude * sin(3.14159265359 * (u - generation));
-							grad += kv * (a * cos(phase));
-							hess -= vec3(kv.x * kv.x, kv.y * kv.y, kv.x * kv.y) * (a * sin(phase));
-						}
-					}
-
-					wavelength *= 0.5;
-				}
-
-				return lost_variance;
-			}
-
-			float add_bump_waves(vec2 p, float footprint, float scale, vec2 wind, float strength, inout vec2 grad, inout vec3 hess) {
-				const vec4 FREQUENCIES = vec4(0.02, 0.01, 0.04, 0.02);
-				const vec4 WEIGHTS = vec4(2.0, 2.0, 1.0, 1.0);
-				float lost_variance = 0.0;
-
-				for (int layer = 0; layer < 4; layer++) {
-					float frequency = FREQUENCIES[layer] * scale;
-					float texel = 1.0 / (frequency * 256.0);
-					float speed = sqrt(WATER_GRAVITY * 4.0 * texel / 6.28318530718);
-					bool transposed = (layer & 1) == 1;
-					vec2 direction = transposed ? wind.yx : wind;
-					vec2 q = (transposed ? p.yx : p) - direction * (speed * water_data.time);
-					float lod = max(log2(footprint / texel), 0.0);
-					float step_size = max(texel * 0.5, footprint * 0.5);
-					vec2 step_uv = vec2(step_size * frequency, 0.0);
-					float weight = WEIGHTS[layer] * 0.15 * strength;
-					vec2 here = (textureLod(TEXTURE(water_data.bump_tex), q * frequency, lod).rg - 0.5) * weight;
-					vec2 along_x = (textureLod(TEXTURE(water_data.bump_tex), q * frequency + (transposed ? step_uv.yx : step_uv), lod).rg - 0.5) * weight;
-					vec2 along_z = (textureLod(TEXTURE(water_data.bump_tex), q * frequency + (transposed ? step_uv : step_uv.yx), lod).rg - 0.5) * weight;
-					vec2 d_dx = (along_x - here) / step_size;
-					vec2 d_dz = (along_z - here) / step_size;
-					grad += here;
-					hess += vec3(d_dx.x, d_dz.y, 0.5 * (d_dx.y + d_dz.x));
-					float retained = 1.0 / max(footprint / texel, 1.0);
-					lost_variance += weight * weight * water_data.bump_info.x * (1.0 - retained * retained);
-				}
-
-				return lost_variance;
-			}
 
 			float sea_noise(vec2 p, float seed) {
 				return value_noise2(p + vec2(seed * 31.7, seed * 17.3));
@@ -1106,15 +1007,15 @@ list.insert(
 			float add_detail_ripples(vec2 p, float footprint, float rough, inout vec2 grad, inout vec3 hess) {
 				vec4 info = water_data.detail_info;
 				vec4 ripple = water_data.ripple_info;
-				if (!water_feature(WATER_RIPPLES) || !water_feature(WATER_WAVES)) return info.w * float(RIPPLE_OCTAVES);
+				if (!water_feature(WATER_RIPPLES) || !water_feature(WATER_WAVES)) return info.w * float(MEDIUM_SURFACE_OCTAVES);
 				float drawn = info.w * ripple.x * rough * rough;
 
 				if (water_data.bump_tex != -1) {
-					float lost = add_bump_waves(p, footprint, 1.0, info.xy, 1.0, grad, hess);
-					return max(info.w * float(RIPPLE_OCTAVES) - water_data.bump_info.x * 0.0225 * 10.0 + lost, 0.0);
+					float lost = medium_surface_bump(p, footprint, 1.0, info.xy, 1.0, grad, hess);
+					return max(info.w * float(MEDIUM_SURFACE_OCTAVES) - water_data.bump_info.x * 0.0225 * 10.0 + lost, 0.0);
 				}
 
-				return add_ripples(p, footprint, info.xy, vec2(0.0), drawn, info.z * ripple.y, OCEAN_RIPPLE_UPWIND_SHARE, ripple.z, grad, hess) + (info.w - drawn) * float(RIPPLE_OCTAVES);
+				return medium_surface_ripples(p, footprint, info.xy, vec2(0.0), drawn, info.z * ripple.y, OCEAN_RIPPLE_UPWIND_SHARE, ripple.z, grad, hess) + (info.w - drawn) * float(MEDIUM_SURFACE_OCTAVES);
 			}
 
 			float height_map_tracing(vec3 ray_dir, float plane_t, vec3 camera_origin, float scene_limit, out vec3 hit_pos) {
@@ -1335,16 +1236,7 @@ list.insert(
 			}
 
 			float get_volume_ripples(int i, vec2 world_xz, float footprint, out vec2 grad, inout vec3 hess) {
-				vec4 waves = water_volume_waves(i);
-				grad = vec2(0.0);
-				if (waves.x <= 0.0) return 0.0;
-				float slope = waves.x * 0.25 / waves.y;
-
-				if (water_data.bump_tex != -1) {
-					return add_bump_waves(world_xz, footprint, 6.0 / waves.y, vec2(cos(waves.z), sin(waves.z)) + water_volume_flow(i).xy, clamp(waves.x / waves.y * 6.0, 0.0, 1.0), grad, hess);
-				}
-
-				return add_ripples(world_xz, footprint, vec2(cos(waves.z), sin(waves.z)), water_volume_flow(i).xy, 2.72 * slope * slope, waves.y, VOLUME_RIPPLE_UPWIND_SHARE, VOLUME_RIPPLE_LIFETIME, grad, hess);
+				return medium_surface_gradient(water_volume_waves(i), water_volume_flow(i).xy, world_xz, footprint, grad, hess);
 			}
 
 
@@ -1475,6 +1367,27 @@ list.insert(
 			#endif
 
 
+			float water_shaft_sample(Water w, vec3 sun_dir, float shaft_focus, vec3 p) {
+				vec3 surface = p - sun_dir * ((p.y - w.surface_y) / sun_dir.y);
+				float shaft = get_water_sun_visibility(surface, water_data.sun_direction);
+
+				#ifdef SCENE_REFLECTION
+				if (shaft > 0.0 && scene_reflection_ready() && water_feature(WATER_SUN_SHADOWS) && !scene_reflection_visible(p, -sun_dir, distance(p, surface) - 0.05)) shaft = 0.0;
+				#endif
+
+				if (shaft_focus > 0.0 && shaft > 0.0) {
+					shaft *= mix(1.0, get_caustic(w, p, get_pixel_footprint(distance(p, water_data.camera_position.xyz), 1.0), 0, 3.0, false).g, shaft_focus);
+				}
+
+				return shaft;
+			}
+
+			]] .. medium_common.GetShaftGLSL{
+				name = "water_shaft",
+				params = "Water w, vec3 sun_dir, float shaft_focus",
+				sample = "vec3(water_shaft_sample(w, sun_dir, shaft_focus, p))",
+			} .. [[
+
 			vec3 get_water_inscatter(Water w, vec3 origin, vec3 dir, float len, float jitter, out vec3 transmittance) {
 				vec3 sigma = get_extinction(w);
 				transmittance = exp(-sigma * len);
@@ -1493,24 +1406,7 @@ list.insert(
 
 					int shaft_samples = min(len < 2.0 ? 2 : (len < 8.0 ? 4 : 8), water_data.shaft_samples);
 
-					for (int i = 0; i < shaft_samples; i++) {
-						float f = (float(i) + jitter) / float(shaft_samples);
-						vec3 p = origin + dir * (shadow_len * f * f);
-						vec3 surface = p - sun_dir * ((p.y - w.surface_y) / sun_dir.y);
-						float shaft = get_water_sun_visibility(surface, water_data.sun_direction);
-
-						#ifdef SCENE_REFLECTION
-						if (shaft > 0.0 && scene_reflection_ready() && water_feature(WATER_SUN_SHADOWS) && !scene_reflection_visible(p, -sun_dir, distance(p, surface) - 0.05)) shaft = 0.0;
-						#endif
-
-						if (shaft_focus > 0.0 && shaft > 0.0) {
-							shaft *= mix(1.0, get_caustic(w, p, get_pixel_footprint(distance(p, water_data.camera_position.xyz), 1.0), 0, 3.0, false).g, shaft_focus);
-						}
-
-						visibility += shaft;
-					}
-
-					visibility /= float(shaft_samples);
+					visibility = water_shaft(w, sun_dir, shaft_focus, origin, dir, shadow_len, shaft_samples, jitter, vec3(0.0)).x / shadow_len;
 				}
 
 				vec3 backscatter = w.molecular * 0.5 + w.particles * water_particle_backscatter(w.g);
@@ -1563,68 +1459,32 @@ list.insert(
 				return direct * (water_data.sun_tinted != 0 ? vec3(1.0) : sun_path) * (sun_transmission * caustic) + rest * (water_data.gi_tinted != 0 ? vec3(1.0) : sky_path);
 			}
 
+			]] .. medium_surface.GetCausticGLSL(
+				"water_data",
+				{
+					name = "water_caustic",
+					params = "Water w",
+					gradient = [=[
+if (w.volume >= 0) {
+			get_volume_ripples(w.volume, xz, filter_size, grad, hess);
+		} else {
+			float e = filter_size;
+			float variance;
+			vec2 gx = get_wave_data(xz + vec2(e, 0.0), filter_size, variance).gb - get_wave_data(xz - vec2(e, 0.0), filter_size, variance).gb;
+			vec2 gz = get_wave_data(xz + vec2(0.0, e), filter_size, variance).gb - get_wave_data(xz - vec2(0.0, e), filter_size, variance).gb;
+			hess = vec3(gx.x, gz.y, 0.5 * (gx.y + gz.x)) / (2.0 * e);
+			if (detail) add_detail_ripples(xz, filter_size, 1.0, grad, hess);
+		}]=],
+				}
+			) .. [[
+
 			vec3 get_caustic(Water w, vec3 world_pos, float footprint, int newton_steps, float fade, bool detail) {
 				if (w.caustics <= 0.0 || !water_feature(detail ? WATER_CAUSTICS : WATER_SHAFT_CAUSTICS)) return vec3(1.0);
 				float sun_transmission;
 				vec3 sun_dir = get_underwater_sun_dir(w, sun_transmission);
 				float depth = max(w.surface_y - world_pos.y, 0.0);
 				if (depth <= 0.0) return vec3(1.0);
-				float blur = clamp(smoothstep(4.0 * fade * water_data.view_scale, 30.0 * fade * water_data.view_scale, depth) + smoothstep(0.3 * water_data.view_scale, 2.0 * water_data.view_scale, footprint), 0.0, 1.0);
-				if (blur >= 1.0) return vec3(1.0);
-
-				if (blur >= 0.5) {
-					newton_steps = 0;
-					detail = false;
-				}
-
-				vec3 s = depth * (1.0 - 1.0 / screen_refraction_dispersed_ior(w.ior, w.abbe));
-				vec2 target = world_pos.xz - sun_dir.xz * (depth / max(-sun_dir.y, 0.05));
-				vec2 xz = target;
-				float filter_size = max(footprint, depth * 0.012);
-				vec2 grad;
-				vec3 hess;
-				bool refiltered = false;
-
-				for (int i = 0; i < newton_steps + 1; i++) {
-					grad = vec2(0.0);
-					hess = vec3(0.0);
-
-					if (w.volume >= 0) {
-						get_volume_ripples(w.volume, xz, filter_size, grad, hess);
-					} else {
-						float e = filter_size;
-						float variance;
-						vec2 gx = get_wave_data(xz + vec2(e, 0.0), filter_size, variance).gb - get_wave_data(xz - vec2(e, 0.0), filter_size, variance).gb;
-						vec2 gz = get_wave_data(xz + vec2(0.0, e), filter_size, variance).gb - get_wave_data(xz - vec2(0.0, e), filter_size, variance).gb;
-						hess = vec3(gx.x, gz.y, 0.5 * (gx.y + gz.x)) / (2.0 * e);
-						if (detail) add_detail_ripples(xz, filter_size, 1.0, grad, hess);
-					}
-
-					float focus = max(abs(s.g * hess.x), abs(s.g * hess.y));
-
-					if (i == 0 && !refiltered && focus > 1.0) {
-						refiltered = true;
-						filter_size *= min(focus, 8.0);
-						i--;
-						continue;
-					}
-
-					if (i == newton_steps) break;
-
-					vec2 residual = xz + s.g * grad - target;
-					float a = 1.0 + s.g * hess.x;
-					float d = 1.0 + s.g * hess.y;
-					float b = s.g * hess.z;
-					float det = a * d - b * b;
-					det = abs(det) < 0.15 ? (det < 0.0 ? -0.15 : 0.15) : det;
-					vec2 step = vec2(d * residual.x - b * residual.y, a * residual.y - b * residual.x) / det;
-					float max_step = depth * 0.15 + filter_size;
-					xz -= step * min(1.0, max_step / max(length(step), 1e-5));
-				}
-
-				vec3 jacobian = (1.0 + s * hess.x) * (1.0 + s * hess.y) - s * s * hess.z * hess.z;
-				vec3 intensity = 1.0 / sqrt(jacobian * jacobian + 0.0144);
-				return mix(vec3(1.0), mix(intensity, vec3(1.0), blur), clamp(w.caustics, 0.0, 1.0));
+				return water_caustic(w, world_pos, footprint, newton_steps, fade, detail, depth, sun_dir, w.ior, w.abbe, w.caustics);
 			}
 
 
@@ -2113,7 +1973,7 @@ list.insert(
 				vec2 grad = wd.gb;
 				sea_state = get_sea_detail(xz);
 				float detail_lost = add_detail_ripples(xz, footprint, sea_state.x, grad, unused_hess);
-				float detail_total = water_data.detail_info.w * float(RIPPLE_OCTAVES);
+				float detail_total = water_data.detail_info.w * float(MEDIUM_SURFACE_OCTAVES);
 
 				float unresolved = max(water_data.ocean_wave_info.z - (water_feature(WATER_UNIFORM_ROUGHNESS) ? water_data.wave_origin[0].w : resolved_variance) - (detail_total - detail_lost), 0.0) * sea_state.x * sea_state.x;
 				if (!water_feature(WATER_WAVES)) unresolved = 0.0;
