@@ -96,3 +96,19 @@ T.Test("gbuffer inspect groups the fields in sheets", function()
 	T(by_name.specular.entries[2].name)["=="]("secondary_specular")
 	T(by_name.depth.primary.name)["=="]("depth")
 end)
+
+T.Test3D("Graphics render3d gbuffer stores the ice absorption and saturates large values", function(draw)
+	local function stored(absorption)
+		local material = Material.New{IceAbsorption = absorption, ColorMultiplier = Color(0.5, 0.5, 0.5, 1)}
+		return inspect(draw, material, {mode = "field", name = "ice_absorption"})[1]
+	end
+
+	local none = stored(0)
+	local small = stored(5)
+	local large = stored(20)
+	local huge = stored(200)
+	T(none)["~"](0, 0.01)
+	T(small)["~"](5 / 32, 0.04)
+	T(large)["~"](20 / 32, 0.04)
+	T(huge)["~"](1, 0.01)
+end)

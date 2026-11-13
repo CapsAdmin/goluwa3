@@ -324,6 +324,7 @@ local LAYER_VALUES = {
 	{"CoverPower", "cover_power", 1},
 	{"CoverBlend", "cover_blend", 0.05},
 	{"CoverDepth", "cover_depth", 0},
+	{"Ice", "ice", 0},
 }
 local TERRAIN_WIND_EMISSION = Vec3(0.15, 0.3, 0.4)
 

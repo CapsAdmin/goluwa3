@@ -18,6 +18,7 @@ local LAYER_NUMBERS = {
 	"specular",
 	"scatter",
 	"roughness",
+	"ice",
 }
 local COLOR_SAMPLER = {
 	min_filter = "linear",

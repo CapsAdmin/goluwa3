@@ -67,6 +67,7 @@ local function layer_values(suffix, requires)
 	values("CoverPower", Color(1.0, 1.0, 1.0, 1.0))
 	values("CoverBlend", Color(0.05, 0.05, 0.05, 0.05))
 	values("CoverDepth", Color(0.0, 0.0, 0.0, 0.0))
+	values("Ice", Color(0.0, 0.0, 0.0, 0.0))
 end
 
 texture("TerrainMaterialTexture", nil, ray)

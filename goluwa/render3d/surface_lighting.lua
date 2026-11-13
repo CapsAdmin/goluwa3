@@ -116,6 +116,19 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 		) .. [[
 		}
 
+		float get_ice_light_path(vec3 origin, vec3 dir, float max_distance) {
+			]] .. (
+			ray_scene and
+			[[
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, ]] .. ray_scene .. [[, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, max_distance);
+			while (rayQueryProceedEXT(query)) {}
+			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 0.0 : rayQueryGetIntersectionTEXT(query, true);
+			]] or
+			"return 0.0;"
+		) .. [[
+		}
+
 		#define LIGHT_MIN_SCREEN_RADIANCE 0.0002
 		#define GLASS_LIGHT_MIN_SCREEN_RADIANCE 0.002
 
@@ -237,7 +250,10 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 				vec3 radiance = unshadowed_radiance * shadow_factor;
 
-				if (radiance.r + radiance.g + radiance.b <= 0.0) continue;
+				float scatter_floor = 0.0;
+				]] .. surface_features.GetDirectFloorGLSL() .. [[
+
+				if (radiance.r + radiance.g + radiance.b <= 0.0 && scatter_floor <= 0.0) continue;
 
 				#ifdef GLASS_LIGHT
 				if (]] .. block_name .. [[.glass_light != 0 && brightest * shadow_factor * get_exposure() >= GLASS_LIGHT_MIN_SCREEN_RADIANCE) {
