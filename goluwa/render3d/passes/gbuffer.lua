@@ -900,6 +900,7 @@ local function build_ssdm_fragment_shader(write_depth, prism, nearer)
 
 			apply_surface_overlays(surface, weather, in_instance_overlay, in_effect_position, in_effect_normal, in_uv);
 			weather_surface_features(surface, weather);
+			face_surface_features(surface, DoubleSided && gl_FrontFacing);
 			surface.roughness_alpha = get_antialiased_roughness(surface.N, surface.roughness_alpha);
 
 			if (gbuffer_data.normal_source == 1) {

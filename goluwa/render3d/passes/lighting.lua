@@ -495,6 +495,13 @@ return {
 				vec3 indirect = get_indirect_light(surface);
 				vec3 color = direct + indirect + surface.emissive;
 
+				{
+					Surface s = surface;
+					vec3 compose_color = color;
+					]] .. surface_features.GetComposeGLSL() .. [[
+					color = compose_color;
+				}
+
 				if (surface.subsurface > 0.0) {
 					vec3 diffuse_albedo = max(surface.albedo, vec3(]] .. string.format("%.3f", render3d.SUBSURFACE_MIN_ALBEDO) .. [[));
 					subsurface_diffuse_out = vec4(min((direct_diffuse + indirect_diffuse_light) * get_pre_exposure() / diffuse_albedo, vec3(65504.0)), surface.subsurface);

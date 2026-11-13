@@ -244,7 +244,7 @@ do
 	table.insert(lines, table.concat(defaults, "\n"))
 
 	function gbuffer_layout.GetEncodeGLSL()
-		return table.concat(lines, "\n") .. surface_features.GetSurfaceGLSL() .. surface_features.GetDefaultFunctionGLSL() .. surface_features.GetPrepareWeatherFunctionGLSL() .. surface_features.GetWeatherFunctionGLSL() .. surface_features.GetWriteFunctionGLSL()
+		return table.concat(lines, "\n") .. surface_features.GetSurfaceGLSL() .. surface_features.GetDefaultFunctionGLSL() .. surface_features.GetPrepareWeatherFunctionGLSL() .. surface_features.GetWeatherFunctionGLSL() .. surface_features.GetFaceFunctionGLSL() .. surface_features.GetWriteFunctionGLSL()
 	end
 end
 

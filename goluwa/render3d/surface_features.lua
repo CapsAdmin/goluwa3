@@ -263,6 +263,14 @@ function surface_features.New(source_list)
 		return build_function("void weather_surface_features(inout Surface s, SurfaceWeather w)", "weather")
 	end
 
+	function self.GetFaceFunctionGLSL()
+		return build_function("void face_surface_features(inout Surface s, bool back)", "face")
+	end
+
+	function self.GetComposeGLSL()
+		return join("compose")
+	end
+
 	function self.GetFinishFunctionGLSL()
 		return build_function("void finish_surface_features(inout Surface s)", "surface_finish")
 	end
