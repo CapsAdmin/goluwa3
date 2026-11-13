@@ -872,6 +872,7 @@ local OPTICAL_VOLUME_STRUCT_GLSL = [[
 			vec3 scattering;
 			float g;
 			vec3 extinction;
+			vec3 molecular;
 			float wave;
 			float surface_y;
 			float falloff;
@@ -983,8 +984,7 @@ function ddgi.GetOpticalTintGLSL()
 						float top_t = (top - local_origin.y) / local_dir.y;
 
 						if (top_t < distance && t_exit >= top_t - 1e-3) {
-							float sin_water_squared = (1.0 - local_dir.y * local_dir.y) / (volume.ior * volume.ior);
-							path = (top - local_origin.y) / sqrt(max(1.0 - sin_water_squared, 1e-4));
+							path = (top - local_origin.y) / medium_refracted_cosine(local_dir.y, volume.ior);
 						}
 					}
 				}
@@ -1997,7 +1997,7 @@ local OpticalHeader = ffi.typeof(
 )
 local OpticalHeaderPointer = ffi.typeof("$*", OpticalHeader)
 local OpticalVolume = ffi.typeof(
-	"struct {float to_local[16]; float shape[3]; float kind; float absorption[3]; float ior; float scattering[3]; float g; float extinction[3]; float wave; float surface_y; float falloff; float softness; float abbe; float foam; float caustics; float roughness; float closed; float wave_length; float wind_direction; float flow[2];}"
+	"struct {float to_local[16]; float shape[3]; float kind; float absorption[3]; float ior; float scattering[3]; float g; float extinction[3]; float molecular[3]; float wave; float surface_y; float falloff; float softness; float abbe; float foam; float caustics; float roughness; float closed; float wave_length; float wind_direction; float flow[2];}"
 )
 local OpticalVolumePointer = ffi.typeof("$*", OpticalVolume)
 local OPTICAL_HEADER_SIZE = ffi.sizeof(OpticalHeader)
@@ -2058,6 +2058,7 @@ local function write_ocean_record(volume)
 	set_vec3(volume.absorption, medium.Absorption)
 	set_vec3(volume.scattering, medium.Scattering)
 	set_vec3(volume.extinction, media.GetExtinction(params.Medium))
+	set_vec3(volume.molecular, medium.Molecular)
 	volume.g = medium.PhaseG
 	volume.ior = medium.IOR
 	volume.abbe = medium.AbbeNumber
@@ -2076,6 +2077,7 @@ local function write_water_record(volume, water_volume)
 	set_vec3(volume.absorption, medium.Absorption)
 	set_vec3(volume.scattering, medium.Scattering)
 	set_vec3(volume.extinction, media.GetExtinction(water_volume:GetMedium()))
+	set_vec3(volume.molecular, medium.Molecular)
 	volume.g = medium.PhaseG
 	volume.ior = medium.IOR
 	volume.abbe = medium.AbbeNumber

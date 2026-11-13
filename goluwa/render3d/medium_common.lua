@@ -1,3 +1,4 @@
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local medium_common = {}
 medium_common.assumed_thickness = 0
 medium_common.base_height = -1e9
@@ -8,7 +9,7 @@ medium_common.porosity_high = 1.0
 medium_common.local_thickness = true
 
 function medium_common.GetGLSL()
-	return [[
+	return glsl_common.GetPhaseGLSL() .. [[
 	#ifndef MEDIUM_COMMON
 	#define MEDIUM_COMMON
 	#define MEDIUM_MAX_PATH 60.0
@@ -20,6 +21,18 @@ function medium_common.GetGLSL()
 
 	vec3 optical_transmittance(vec3 extinction, float path) {
 		return exp(-extinction * path);
+	}
+
+	float medium_molecular_phase(float mu) {
+		return (1.0 + 0.835 * mu * mu) / (4.0 * PI * (1.0 + 0.835 / 3.0));
+	}
+
+	vec3 medium_scatter_phase(vec3 molecular, vec3 particles, float g, float mu) {
+		return molecular * medium_molecular_phase(mu) + particles * phase_henyey_greenstein(mu, g);
+	}
+
+	float medium_refracted_cosine(float cos_incident, float ior) {
+		return sqrt(max(1.0 - (1.0 - cos_incident * cos_incident) / (ior * ior), 1e-4));
 	}
 
 	vec3 medium_scattering_at(vec3 base, vec3 porous, float porosity) {

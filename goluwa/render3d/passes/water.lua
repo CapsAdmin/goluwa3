@@ -587,6 +587,9 @@ local function write_ocean(self, block)
 	block.ocean_scattering[0] = medium.Scattering.x
 	block.ocean_scattering[1] = medium.Scattering.y
 	block.ocean_scattering[2] = medium.Scattering.z
+	block.ocean_molecular[0] = medium.Molecular.x
+	block.ocean_molecular[1] = medium.Molecular.y
+	block.ocean_molecular[2] = medium.Molecular.z
 	block.ocean_phase_g = medium.PhaseG
 	block.ocean_scattering[3] = params.Foam
 	block.ocean_wave_info[0] = waves.height_std * 3.5 + 0.05
@@ -712,6 +715,7 @@ list.insert(
 					{"ocean_level", "float"},
 					{"ocean_absorption", "vec4"},
 					{"ocean_scattering", "vec4"},
+					{"ocean_molecular", "vec3"},
 					{"ocean_phase_g", "float"},
 					{"ocean_wave_info", "vec4"},
 					{"wave_tex", "int", #WAVE_CASCADES},
@@ -846,7 +850,6 @@ list.insert(
 			#define WATER_NEAR_PLANE (0.1 * water_data.view_scale)
 			const float WATER_TRACE_RANGE = 1000000.0;
 			const float WATER_MAX_SLOPE = 1.5;
-			const vec3 WATER_MOLECULAR_SCATTERING = vec3(]] .. media.MOLECULAR_SCATTERING.x .. ", " .. media.MOLECULAR_SCATTERING.y .. ", " .. media.MOLECULAR_SCATTERING.z .. [[);
 			const float WATER_MULTIPLE_SCATTERING = 0.5;
 			const float WATER_CREST_GLOW = 20.0;
 			float water_particle_backscatter(float g) {
@@ -951,9 +954,6 @@ list.insert(
 				return x * x * (3.0 - 2.0 * x);
 			}
 
-			float water_molecular_phase(float mu) {
-				return (1.0 + 0.835 * mu * mu) / (4.0 * PI * (1.0 + 0.835 / 3.0));
-			}
 
 
 
@@ -1352,6 +1352,7 @@ list.insert(
 				int volume;
 				vec3 absorption;
 				vec3 particles;
+				vec3 molecular;
 				float g;
 				float ior;
 				float abbe;
@@ -1367,6 +1368,7 @@ list.insert(
 				w.volume = -1;
 				w.absorption = water_data.ocean_absorption.rgb;
 				w.particles = water_data.ocean_scattering.rgb;
+				w.molecular = water_data.ocean_molecular;
 				w.g = water_data.ocean_phase_g;
 				w.ior = water_data.ocean_absorption.w;
 				w.abbe = water_data.ocean_wave_info.w;
@@ -1383,6 +1385,7 @@ list.insert(
 				w.volume = i;
 				w.absorption = water_volume_absorption(i).rgb;
 				w.particles = water_volume_scattering(i).rgb;
+				w.molecular = water_record(i).molecular;
 				w.g = water_volume_misc(i).y;
 				w.ior = water_volume_absorption(i).w;
 				w.abbe = water_volume_flow(i).w;
@@ -1400,6 +1403,7 @@ list.insert(
 				Water w = b;
 				w.absorption = mix(a.absorption, b.absorption, t);
 				w.particles = mix(a.particles, b.particles, t);
+				w.molecular = mix(a.molecular, b.molecular, t);
 				w.g = mix(a.g, b.g, t);
 				w.ior = mix(a.ior, b.ior, t);
 				w.abbe = mix(a.abbe, b.abbe, t);
@@ -1411,11 +1415,11 @@ list.insert(
 			}
 
 			vec3 get_extinction(Water w) {
-				return w.absorption + WATER_MOLECULAR_SCATTERING + w.particles;
+				return w.absorption + w.molecular + w.particles;
 			}
 
 			vec3 water_scatter(Water w, float mu) {
-				return WATER_MOLECULAR_SCATTERING * water_molecular_phase(mu) + w.particles * phase_henyey_greenstein(mu, w.g);
+				return medium_scatter_phase(w.molecular, w.particles, w.g, mu);
 			}
 
 			vec3 get_sun_illuminance() {
@@ -1427,8 +1431,7 @@ list.insert(
 				vec3 sun = normalize(water_data.sun_direction);
 				float cos_i = max(sun.y, 0.0);
 				transmission = 1.0 - fresnel_dielectric(cos_i, 1.0 / w.ior);
-				vec3 refracted = refract(-sun, vec3(0.0, 1.0, 0.0), 1.0 / w.ior);
-				return dot(refracted, refracted) > 0.0 ? normalize(refracted) : vec3(0.0, -1.0, 0.0);
+				return normalize(vec3(-sun.x / w.ior, -medium_refracted_cosine(cos_i, w.ior), -sun.z / w.ior));
 			}
 
 			vec3 get_ambient_irradiance(vec3 P, float visibility_min_weight, bool smooth_blend) {
@@ -1510,11 +1513,11 @@ list.insert(
 					visibility /= float(shaft_samples);
 				}
 
-				vec3 backscatter = WATER_MOLECULAR_SCATTERING * 0.5 + w.particles * water_particle_backscatter(w.g);
+				vec3 backscatter = w.molecular * 0.5 + w.particles * water_particle_backscatter(w.g);
 				vec3 diffuse_scatter = backscatter * (WATER_MULTIPLE_SCATTERING * 0.33 * 4.0) / (w.absorption + backscatter) * sigma / PI;
 				vec3 sun_scatter = sun_light * visibility * (water_scatter(w, dot(-dir, sun_dir)) + diffuse_scatter) * integrate_attenuated(sigma, depth_start, rate, len, sun_mu);
 				float particle_share = mix(water_particle_backscatter(w.g), 1.0 - water_particle_backscatter(w.g), 0.5 + 0.5 * dir.y) / (2.0 * PI);
-				vec3 sky_phase = WATER_MOLECULAR_SCATTERING / (4.0 * PI) + w.particles * particle_share;
+				vec3 sky_phase = w.molecular / (4.0 * PI) + w.particles * particle_share;
 				vec3 ambient = sample_environment_irradiance(water_data.env_irradiance_tex, vec3(0.0, 1.0, 0.0));
 
 				#ifdef SCENE_REFLECTION
@@ -1952,7 +1955,7 @@ list.insert(
 					vec2 sun_side = normalize(sun.xz + 1e-5);
 					float back = pow(clamp(dot(view_side, -sun_side) * 0.6 + 0.4, 0.0, 1.0), 2.5);
 					float lit_crest = clamp(crest * 0.9 + 0.1, 0.0, 1.0) * (clamp((1.0 - normal.y) * 4.0, 0.0, 1.0) + 0.25);
-					vec3 isotropic = (WATER_MOLECULAR_SCATTERING + w.particles) / (4.0 * PI);
+					vec3 isotropic = (w.molecular + w.particles) / (4.0 * PI);
 					color += (1.0 - above_fresnel) * sun_light * sun_transmission * isotropic * thickness * exp(-sigma * thickness) * WATER_CREST_GLOW * back * lit_crest * smoothstep(0.0, 0.25, sun.y);
 				}
 

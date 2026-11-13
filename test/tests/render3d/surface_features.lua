@@ -177,6 +177,7 @@ T.Test("the medium feature takes its optical data from a media slot", function()
 	media.presets.test_amber = {
 		Absorption = Vec3(0.01, 0.2, 1.5),
 		Scattering = Vec3(0.5, 0.5, 0.5),
+		Molecular = Vec3(0, 0, 0),
 		PorousScattering = Vec3(10, 10, 10),
 		PhaseG = 0.7,
 		Skin = {
