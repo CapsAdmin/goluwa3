@@ -42,6 +42,7 @@ surface_lighting.block = {
 	{"medium_porosity_low", "float"},
 	{"medium_porosity_high", "float"},
 	{"medium_noise_phase", "float"},
+	{"medium_local_thickness", "float"},
 	post_source.pre_exposure_block,
 }
 
@@ -88,6 +89,7 @@ function surface_lighting.WriteBlock(self, block)
 	block.medium_porosity_low = medium_common.porosity_low
 	block.medium_porosity_high = medium_common.porosity_high
 	block.medium_noise_phase = render3d.GetNoisePhase()
+	block.medium_local_thickness = medium_common.local_thickness and 1 or 0
 	post_source.WritePreExposureBlock(self, block)
 	return block
 end
@@ -147,6 +149,10 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 		float get_medium_porosity_high() {
 			return ]] .. block_name .. [[.medium_porosity_high;
+		}
+
+		float get_medium_use_local_thickness() {
+			return ]] .. block_name .. [[.medium_local_thickness;
 		}
 
 		float get_medium_cover_slope() {

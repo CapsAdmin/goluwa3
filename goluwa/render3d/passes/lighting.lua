@@ -13,6 +13,7 @@ local surface_features = import("goluwa/render3d/surface_features.lua")
 local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local gi = import("goluwa/render3d/gi.lua")
+local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local pvars = import("goluwa/cli/pvars.lua")
@@ -23,6 +24,7 @@ local BINDING_OUTPUT_DIFFUSE = 1
 local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
+local BINDING_DDGI = 12
 local GLASS_BINDINGS = {scene = 6, hit = 30, materials = 8}
 local SCREEN_SHADOW_MAX_STEPS = 64
 local SCREEN_SHADOW_STRIDE = 1.5
@@ -206,6 +208,7 @@ return {
 					return block
 				end,
 			},
+			scene_reflection.GetDDGIUniformBuffer(BINDING_DDGI),
 		},
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
@@ -315,7 +318,7 @@ return {
 				glass_light.RAY_QUERY and
 				glass_light.GetGLSL("glass_light_scene") or
 				""
-			) .. surface_lighting.GetGLSL("lighting_data", glass_light.RAY_QUERY and "glass_light_scene") .. ddgi.GetScreenSampleGLSL("lighting_data") .. [[
+			) .. surface_lighting.GetGLSL("lighting_data", glass_light.RAY_QUERY and "glass_light_scene") .. ddgi.GetScreenSampleGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. [[
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 

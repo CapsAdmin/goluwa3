@@ -7,6 +7,7 @@ medium_common.scatter_coefficient = 0.25
 medium_common.cover_slope = 0
 medium_common.porosity_low = 0.1
 medium_common.porosity_high = 1.0
+medium_common.local_thickness = true
 medium_common.presets = {
 	ice = {
 		extinction = {0.19, 0.058, 0.012},
@@ -47,6 +48,22 @@ do
 	#define MEDIUM_TINT_RATIO %s
 	#define MEDIUM_DEEP_COLOR %s
 	#define MEDIUM_POROUS_COLOR %s
+	#define MEDIUM_BOUNCE_SHARE 0.6
+	#define MEDIUM_TRANSMIT_SHARE 1.0
+
+	vec3 medium_transmittance(float path, float absorption, float porosity) {
+		vec3 coefficient = path * MEDIUM_EXTINCTION * (absorption / 10.0);
+		return mix(exp(-coefficient), exp(-coefficient * 0.35), porosity);
+	}
+
+	float medium_scatter_amount(float thickness) {
+		return 1.0 - exp(-thickness);
+	}
+
+	vec3 medium_scatter_color(float thickness, float absorption, float porosity) {
+		vec3 tint = exp(-min(thickness, MEDIUM_VIEW_DEPTH_CAP) * MEDIUM_EXTINCTION * (absorption / 10.0) * (1.0 - 0.6 * porosity));
+		return mix(tint, MEDIUM_POROUS_COLOR, porosity * porosity);
+	}
 	#endif
 ]],
 			vec3(preset.extinction),

@@ -896,6 +896,8 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			vec3 emissive;
 			int emissive_alpha;
 			vec4 medium;
+			float medium_thickness;
+			float medium_body;
 			};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
@@ -960,10 +962,8 @@ vec3 ddgi_medium_albedo(ddgi_material material, vec3 albedo) {
 	if (material.medium.x <= 0.0) return albedo;
 
 	float brightness = pow(max(luminance(albedo), 0.0), 1.0 / 2.2);
-	float porosity = max(material.medium.y, clamp((brightness - material.medium.z) / max(material.medium.w - material.medium.z, 0.001), 0.0, 1.0));
-	float depth = 3.0 * clamp(material.medium.x / 10.0, 0.0, 1.0) * (1.0 - 0.6 * porosity);
-	vec3 tint = mix(exp(-depth * MEDIUM_TINT_RATIO), MEDIUM_POROUS_COLOR, porosity * porosity);
-	return mix(tint, albedo, porosity);
+	float porosity = max(material.medium.y, smoothstep(material.medium.z, material.medium.w, brightness));
+	return mix(medium_scatter_color(material.medium_thickness, material.medium.x, porosity) * MEDIUM_BOUNCE_SHARE, albedo, porosity);
 }
 
 float ddgi_bounce_share(ddgi_material material) {
@@ -1788,6 +1788,8 @@ local MaterialEntry = ffi.typeof([[struct {
 	float emissive[3];
 	int32_t emissive_alpha;
 	float medium[4];
+	float medium_thickness;
+	float medium_body;
 	}]])
 ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryArray = ffi.typeof("$[?]", MaterialEntry)
@@ -1835,13 +1837,17 @@ function ddgi.WriteMaterialBuffer(self)
 		state.written == count and
 		state.generation == generation and
 		state.releases == releases and
-		state.glass == glass_enabled
+		state.glass == glass_enabled and
+		state.medium_thickness == medium_common.assumed_thickness
 	then
 		glass_count = state.glass_count or 0
 		return state.buffer
 	end
 
-	local rewrite_all = state.releases ~= releases or state.glass ~= glass_enabled
+	local rewrite_all = state.releases ~= releases or
+		state.glass ~= glass_enabled or
+		state.medium_thickness ~= medium_common.assumed_thickness
+	state.medium_thickness = medium_common.assumed_thickness
 	local written = state.written
 	local stamp = state.generation
 	local out = ffi.cast(MaterialEntryPointer, state.buffer:Map(0, state.buffer:GetSize()))
@@ -1907,6 +1913,15 @@ function ddgi.WriteMaterialBuffer(self)
 			entry.medium[1] = material:GetMediumPorosity()
 			entry.medium[2] = from_albedo and medium_common.porosity_low or 2
 			entry.medium[3] = from_albedo and medium_common.porosity_high or 3
+			local body = material:GetMediumThickness()
+			entry.medium_thickness = body > 0 and
+				body or
+				(
+					medium_common.assumed_thickness > 0 and
+					medium_common.assumed_thickness or
+					3
+				)
+			entry.medium_body = body > 0 and 1 or 0
 			entry.transparent = material:IsTransparent() and 1 or 0
 			entry.refractive = material:IsSeeThrough() and 1 or 0
 			local albedo2 = material:GetAlbedo2Texture()
