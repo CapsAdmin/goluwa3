@@ -481,7 +481,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 					vec3 contribution = picked_light[k];
 
-					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
+					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light_local(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
 
 					radiance += contribution * (total / (picked_weight[k] * float(RT_HIT_LIGHT_SAMPLES)));
 				}
@@ -518,7 +518,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_reflection_visible(surface, L, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
 
-					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
+					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light_local(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
 
 					radiance += contribution * light_weight;
 				}
@@ -590,7 +590,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 				vec3 fog_origin = get_atmosphere_camera_origin(origin);
 				vec3 fog_ambient = mix(fog_gi / PI, get_ground_fog_sky_ambient(fog_origin), clamp(fog_sky, 0.0, 1.0));
 				vec3 fog_sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_origin, ATMOSPHERE_SKY_SUN_DIRECTION) * ATMOSPHERE_FOG_RAY_STRENGTH;
-				radiance += optical_inscatter(origin, dir, hit_t, fog_ambient, fog_sun, ATMOSPHERE_SKY_SUN_DIRECTION, true);
+				radiance += optical_inscatter_lit(origin, dir, hit_t, fog_ambient, fog_sun, ATMOSPHERE_SKY_SUN_DIRECTION, true);
 			}
 
 			return radiance;

@@ -330,7 +330,7 @@ local function pass_shade()
 					if (visible) {
 						vec3 sample_light = picked_light[k];
 
-						if (ddgi_data.glass_light != 0) sample_light *= get_glass_light(P, picked_ray[k].xyz, shadow_distance, 0.0);
+						if (ddgi_data.glass_light != 0) sample_light *= get_glass_light_local(P, picked_ray[k].xyz, shadow_distance, 0.0);
 
 						direct += sample_light * (total / (picked_weight[k] * float(DDGI_LIGHT_SAMPLES)));
 					}
@@ -375,7 +375,7 @@ local function pass_shade()
 						vec3 emission = ddgi_emission(tri, ddgi_hit_albedo(ddgi_materials[tri.material], point, emitter_instance, emitter_triangle));
 						float emissive_luma = luminance(ddgi_materials[tri.material].emissive);
 						vec3 estimate = emission / emissive_luma * weight;
-						if (ddgi_data.glass_light != 0) estimate *= get_glass_light(origin, dir, length(point - origin), 0.0);
+						if (ddgi_data.glass_light != 0) estimate *= get_glass_light_local(origin, dir, length(point - origin), 0.0);
 
 						result = vec4(estimate / (float(DDGI_EMITTER_SAMPLES) * 3.14159265359), ddgi_pack_direction(dir));
 					}
@@ -429,7 +429,7 @@ local function pass_shade()
 				radiance += albedo * ddgi_sample_irradiance(P, N, N, -dir, false, DDGI_CONTRAST_VISIBILITY_RAYS, weight).rgb;
 				#endif
 
-				store_ray(pos, vec4(radiance * glass + optical_inscatter(origin, dir, t, ddgi_sky(vec3(0.0, 1.0, 0.0)), ddgi_data.ddgi_sun_radiance.rgb, normalize(ddgi_data.ddgi_sun_direction.xyz), true), t));
+				store_ray(pos, vec4(radiance * glass + optical_inscatter_lit(origin, dir, t, ddgi_fog_ambient(), ddgi_data.ddgi_sun_radiance.rgb, normalize(ddgi_data.ddgi_sun_direction.xyz), true), t));
 			}
 		]],
 	}

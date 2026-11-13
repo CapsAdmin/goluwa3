@@ -510,7 +510,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 				if (restir_data.optical_tint != 0) {
 					s.L *= get_optical_tint(origin, dir, t, !miss);
 
-					if (!miss) s.L += optical_inscatter(origin, dir, t, ddgi_sky(vec3(0.0, 1.0, 0.0)), ddgi_data.ddgi_sun_radiance.rgb, normalize(ddgi_data.ddgi_sun_direction.xyz), true);
+					if (!miss) s.L += optical_inscatter_lit(origin, dir, t, ddgi_fog_ambient(), ddgi_data.ddgi_sun_radiance.rgb, normalize(ddgi_data.ddgi_sun_direction.xyz), true);
 				}
 
 				s.L = min(max(s.L, vec3(0.0)), vec3(1e9));
@@ -663,7 +663,7 @@ local function pass_candidates()
 
 							vec3 L = ddgi_emission(tri, ddgi_albedo(material, point));
 
-							if (restir_data.glass_light != 0) L *= get_glass_light(origin, L_dir, dist, 0.0);
+							if (restir_data.glass_light != 0) L *= get_glass_light_local(origin, L_dir, dist, 0.0);
 
 							float target = luminance(L) * cosine;
 							float w = target * weight / (max(dot(material.emissive, vec3(0.2126, 0.7152, 0.0722)), 1e-6) * max(cosine, 1e-3));

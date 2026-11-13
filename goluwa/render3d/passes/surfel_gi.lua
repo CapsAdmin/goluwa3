@@ -1061,7 +1061,7 @@ local function pass_trace()
 				if (surfel_data.optical_tint != 0) {
 					result.rgb *= get_optical_tint(origin, dir, glass_distance, hit);
 
-					if (hit) result.rgb += optical_inscatter(origin, dir, t, ddgi_sky(vec3(0.0, 1.0, 0.0)), ddgi_data.ddgi_sun_radiance.rgb, normalize(ddgi_data.ddgi_sun_direction.xyz), true);
+					if (hit) result.rgb += optical_inscatter_lit(origin, dir, t, ddgi_fog_ambient(), ddgi_data.ddgi_sun_radiance.rgb, normalize(ddgi_data.ddgi_sun_direction.xyz), true);
 				}
 
 				result.rgb = dot(result.rgb, vec3(1.0)) >= 0.0 ? min(result.rgb, vec3(60000.0)) : vec3(0.0);
@@ -1151,7 +1151,7 @@ local function pass_emitters()
 
 						if (dist > 0.02 * surfel_data.view_scale && !scene_reflection_visible(origin, dir, dist - 0.02 * surfel_data.view_scale)) continue;
 
-						if (surfel_data.glass_light != 0) light *= get_glass_light(origin, dir, dist, 0.0);
+						if (surfel_data.glass_light != 0) light *= get_glass_light_local(origin, dir, dist, 0.0);
 
 						a += light;
 						bx += light * dir.x;

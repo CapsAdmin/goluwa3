@@ -478,6 +478,13 @@ T.Test3DRayTracing("Graphics render3d ddgi material buffer carries media and the
 		T(header.water_first)["=="](1)
 		T(volumes[0].kind)["=="](3)
 		T(volumes[0].falloff)["~"](atmosphere.ground_fog_scale_height / atmosphere.METERS_TO_UNITS, 1e-2)
+		T(volumes[0].shape[1])["~"](
+			(
+					atmosphere.GetGroundFogTopAltitude() - atmosphere.SEA_LEVEL_HEIGHT - atmosphere.GROUND_FOG_TOP_SOFTNESS / 2
+				) / atmosphere.METERS_TO_UNITS,
+			1e-2
+		)
+		T(header.layer)["=="](0)
 		T(volumes[0].extinction[0] > 0)["=="](true)
 		T(volumes[0].scattering[0] > 0)["=="](true)
 		T(header.water_count)["=="](1)

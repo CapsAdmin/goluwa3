@@ -893,6 +893,7 @@ function ddgi.GetOpticalDeclarationsGLSL(binding)
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer OpticalVolumes {
 			ivec3 optical_counts;
 			ivec4 optical_ranges;
+			int optical_layer;
 			optical_volume optical_volumes[]] .. ddgi.OPTICAL_VOLUME_SLOTS .. [[];
 		};
 	]]
@@ -938,7 +939,7 @@ function ddgi.GetOpticalTintGLSL()
 			optical_volume volume = optical_volumes[index];
 
 			if (volume.kind > 2.5) {
-				if (light_ray || !with_layer) return vec3(1.0);
+				if (!with_layer) return vec3(1.0);
 
 				return exp(-optical_layer_depth(volume, origin, dir, distance));
 			}
@@ -1004,7 +1005,7 @@ function ddgi.GetOpticalTintGLSL()
 			return transmitted;
 		}
 
-		vec3 optical_inscatter(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
+		vec3 optical_inscatter(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, float sun_visibility, bool with_layer) {
 			vec3 scattered = vec3(0.0);
 
 			for (int i = 0; i < optical_counts.z; i++) {
@@ -1013,12 +1014,18 @@ function ddgi.GetOpticalTintGLSL()
 
 				if (!(is_fog || (volume.kind > 2.5 && with_layer))) continue;
 
-				vec3 transmittance = optical_volume_tint(i, origin, dir, distance, false, true);
 				vec3 albedo = volume.scattering / max(volume.extinction, vec3(1e-9));
-				vec3 sun_transmittance = optical_volume_tint(i, origin + dir * (0.5 * distance), sun_dir, 1.0e5, false, true);
 				float mu = dot(dir, sun_dir);
 				float phase = (1.0 - volume.g * volume.g) / (4.0 * 3.14159265359 * pow(max(1.0 + volume.g * volume.g - 2.0 * volume.g * mu, 1e-4), 1.5));
-				scattered += (ambient + sun_radiance * sun_transmittance * phase) * albedo * (vec3(1.0) - transmittance);
+				vec3 previous = vec3(1.0);
+
+				for (int k = 0; k < 3; k++) {
+					vec3 transmittance_end = optical_volume_tint(i, origin, dir, distance * float(k + 1) / 3.0, false, true);
+					vec3 middle = origin + dir * (distance * (float(k) + 0.5) / 3.0);
+					vec3 sun_transmittance = optical_volume_tint(i, middle, sun_dir, 1.0e5, false, true);
+					scattered += (ambient + sun_radiance * sun_visibility * sun_transmittance * phase) * albedo * (previous - transmittance_end);
+					previous = transmittance_end;
+				}
 			}
 
 			return scattered;
@@ -1078,6 +1085,7 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ivec3 optical_counts;
 			ivec4 optical_ranges;
+			int optical_layer;
 			optical_volume optical_volumes[]] .. ddgi.OPTICAL_VOLUME_SLOTS .. [[];
 			ddgi_material ddgi_materials[];
 		};
@@ -1395,6 +1403,10 @@ function ddgi.GetCommonGLSL()
 				dir_to_equirect_uv(correct_environment_lookup_dir(dir)),
 				1.0
 			).rgb * ddgi_data.ddgi_sky_intensity;
+		}
+
+		vec3 ddgi_fog_ambient() {
+			return sample_environment_irradiance(ddgi_data.ddgi_env_irradiance_tex, vec3(0.0, 1.0, 0.0)) / 3.14159265359;
 		}
 
 		bool ddgi_cascade_reset(int c) {
@@ -1981,7 +1993,7 @@ ddgi.MaterialEntry = MaterialEntry
 local MaterialEntryPointer = ffi.typeof("$*", MaterialEntry)
 local MATERIAL_ENTRY_SIZE = ffi.sizeof(MaterialEntry)
 local OpticalHeader = ffi.typeof(
-	"struct {int32_t glass; int32_t media; int32_t volumes; int32_t water_first; int32_t water_count; int32_t fog_first; int32_t fog_count;}"
+	"struct {int32_t glass; int32_t media; int32_t volumes; int32_t water_first; int32_t water_count; int32_t fog_first; int32_t fog_count; int32_t layer;}"
 )
 local OpticalHeaderPointer = ffi.typeof("$*", OpticalHeader)
 local OpticalVolume = ffi.typeof(
@@ -2099,7 +2111,9 @@ local function write_layer_record(volume)
 	local extinction = media.GetTint("fog") * (atmosphere.GetGroundFogExtinction() * per_meter)
 	volume.kind = 3
 	volume.surface_y = (atmosphere.GetGroundFogStartAltitude() - atmosphere.SEA_LEVEL_HEIGHT) / per_meter
-	volume.shape[1] = (atmosphere.GetGroundFogTopAltitude() - atmosphere.SEA_LEVEL_HEIGHT) / per_meter
+	volume.shape[1] = (
+			atmosphere.GetGroundFogTopAltitude() - atmosphere.SEA_LEVEL_HEIGHT - atmosphere.GROUND_FOG_TOP_SOFTNESS / 2
+		) / per_meter
 	volume.falloff = atmosphere.ground_fog_scale_height / per_meter
 	volume.softness = atmosphere.precipitation_extinction * per_meter
 	set_vec3(volume.extinction, extinction)
@@ -2122,9 +2136,12 @@ local function refresh_volumes(state)
 		count = 1
 	end
 
+	local layer = -1
+
 	if atmosphere.GetGroundFogExtinction() + atmosphere.precipitation_extinction > 0 then
 		ffi.fill(volumes + count, OPTICAL_VOLUME_SIZE)
 		write_layer_record(volumes[count])
+		layer = count
 		count = count + 1
 	end
 
@@ -2151,6 +2168,7 @@ local function refresh_volumes(state)
 	header.glass, header.media, header.volumes = glass_count, medium_count, count
 	header.water_first, header.water_count = water_first, fog_first - water_first
 	header.fog_first, header.fog_count = fog_first, count - fog_first
+	header.layer = layer
 	volume_count = count
 end
 

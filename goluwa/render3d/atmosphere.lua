@@ -29,6 +29,7 @@ atmosphere.SEA_LEVEL_HEIGHT = SEA_LEVEL_HEIGHT
 local DEFAULT_OCEAN_LEVEL = 0
 local CAMERA_TEST_MULTIPLIER = 1
 atmosphere.METERS_TO_UNITS = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER
+atmosphere.GROUND_FOG_TOP_SOFTNESS = 0.3
 
 do
 	local tint = media.GetTint("fog")
@@ -188,7 +189,7 @@ local atmosphere_shared_glsl = glsl_common.GetConstantsGLSL() .. glsl_common.Get
 		"0.0" or
 		"1.0"
 	) .. [[;
-	const float GROUND_FOG_TOP_SOFTNESS = 0.3;
+	const float GROUND_FOG_TOP_SOFTNESS = ]] .. atmosphere.GROUND_FOG_TOP_SOFTNESS .. [[;
 	const float GROUND_FOG_MIE_G = ]] .. string.format("%.4f", media.presets.fog.PhaseG) .. [[;
 	const vec3 GROUND_FOG_TINT = ]] .. atmosphere.GROUND_FOG_TINT_GLSL .. [[;
 	const vec3 GROUND_FOG_ALBEDO = ]] .. atmosphere.GROUND_FOG_ALBEDO_GLSL .. [[;

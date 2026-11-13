@@ -165,7 +165,7 @@ function glass_light.GetGLSL(scene_name)
 			return get_optical_tint_ray(origin, dir, distance, true) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), false, with_layer);
 		}
 
-		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
+		vec3 get_glass_light_with(vec3 origin, vec3 dir, float distance, float search_radius, bool with_layer) {
 			vec3 transmitted = get_optical_tint_ray(origin, dir, distance, false);
 
 			if (search_radius > 0.0 && min(transmitted.r, min(transmitted.g, transmitted.b)) > 0.999) {
@@ -177,7 +177,29 @@ function glass_light.GetGLSL(scene_name)
 				transmitted = min(transmitted, get_optical_tint_ray(origin - bitangent, dir, distance, false));
 			}
 
-			return transmitted * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), true, false);
+			return transmitted * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), true, with_layer);
+		}
+
+		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return get_glass_light_with(origin, dir, distance, search_radius, false);
+		}
+
+		vec3 get_glass_light_local(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return get_glass_light_with(origin, dir, distance, search_radius, true);
+		}
+
+		float get_medium_sun_visibility(vec3 point, vec3 sun_dir) {
+			rayQueryEXT query;
+			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, point, 0.01, sun_dir, 1.0e4);
+			while (rayQueryProceedEXT(query)) {}
+			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
+		}
+
+		vec3 optical_inscatter_lit(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
+			if (get_optical_header().y + get_optical_header().z == 0) return vec3(0.0);
+
+			float sun_visibility = dot(sun_radiance, sun_radiance) > 0.0 ? get_medium_sun_visibility(origin + dir * (0.5 * distance), sun_dir) : 0.0;
+			return optical_inscatter(origin, dir, distance, ambient, sun_radiance, sun_dir, sun_visibility, with_layer);
 		}
 	]]
 end
@@ -188,7 +210,11 @@ function glass_light.GetStubGLSL()
 			return vec3(1.0);
 		}
 
-		vec3 optical_inscatter(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
+		vec3 get_glass_light_local(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return vec3(1.0);
+		}
+
+		vec3 optical_inscatter_lit(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
 			return vec3(0.0);
 		}
 
