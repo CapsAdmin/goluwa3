@@ -13,7 +13,7 @@ local gi = import("goluwa/render3d/gi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
-local ice_common = import("goluwa/render3d/ice_common.lua")
+local medium_common = import("goluwa/render3d/medium_common.lua")
 local surface_lighting = {}
 surface_lighting.block = {
 	render3d.camera_block,
@@ -34,11 +34,11 @@ surface_lighting.block = {
 	{"gi_screen_geometry_tex", "int"},
 	{"gi_screen_specular_tex", "int"},
 	{"glass_light", "int"},
-	{"ice_thickness", "float"},
-	{"ice_base_height", "float"},
-	{"ice_thickness_per_height", "float"},
-	{"ice_scatter_coefficient", "float"},
-	{"ice_snow_slope", "float"},
+	{"medium_thickness", "float"},
+	{"medium_base_height", "float"},
+	{"medium_thickness_per_height", "float"},
+	{"medium_scatter_coefficient", "float"},
+	{"medium_cover_slope", "float"},
 	post_source.pre_exposure_block,
 }
 
@@ -77,11 +77,11 @@ function surface_lighting.WriteBlock(self, block)
 	local gi_specular_texture = gi.GetScreenSpecularTexture()
 	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
 	block.glass_light = (glass_light.IsEnabled() and ddgi.HasGlass()) and 1 or 0
-	block.ice_thickness = ice_common.assumed_thickness
-	block.ice_base_height = ice_common.base_height
-	block.ice_thickness_per_height = ice_common.thickness_per_height
-	block.ice_scatter_coefficient = ice_common.scatter_coefficient
-	block.ice_snow_slope = ice_common.snow_slope
+	block.medium_thickness = medium_common.assumed_thickness
+	block.medium_base_height = medium_common.base_height
+	block.medium_thickness_per_height = medium_common.thickness_per_height
+	block.medium_scatter_coefficient = medium_common.scatter_coefficient
+	block.medium_cover_slope = medium_common.cover_slope
 	post_source.WritePreExposureBlock(self, block)
 	return block
 end
@@ -127,19 +127,19 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 		) .. [[
 		}
 
-		float get_ice_assumed_thickness(vec3 P) {
-			return ]] .. block_name .. [[.ice_thickness + max(P.y - ]] .. block_name .. [[.ice_base_height, 0.0) * ]] .. block_name .. [[.ice_thickness_per_height;
+		float get_medium_assumed_thickness(vec3 P) {
+			return ]] .. block_name .. [[.medium_thickness + max(P.y - ]] .. block_name .. [[.medium_base_height, 0.0) * ]] .. block_name .. [[.medium_thickness_per_height;
 		}
 
-		float get_ice_scatter_coefficient() {
-			return ]] .. block_name .. [[.ice_scatter_coefficient;
+		float get_medium_scatter_coefficient() {
+			return ]] .. block_name .. [[.medium_scatter_coefficient;
 		}
 
-		float get_ice_snow_slope() {
-			return ]] .. block_name .. [[.ice_snow_slope;
+		float get_medium_cover_slope() {
+			return ]] .. block_name .. [[.medium_cover_slope;
 		}
 
-		float get_ice_light_path(vec3 origin, vec3 dir, float max_distance) {
+		float get_medium_light_path(vec3 origin, vec3 dir, float max_distance) {
 			]] .. (
 			ray_scene and
 			[[
@@ -152,7 +152,7 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 		) .. [[
 		}
 
-		float get_ice_local_thickness(vec3 P, vec3 N, vec3 G, float cap) {
+		float get_medium_local_thickness(vec3 P, vec3 N, vec3 G, float cap) {
 			vec3 up = abs(N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
 			vec3 tangent = normalize(cross(up, N));
 			vec3 bitangent = cross(N, tangent);
@@ -163,7 +163,7 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 				float azimuth = float(i) * 1.0471976;
 				float depression = (i & 1) == 0 ? 0.35 : 0.95;
 				vec3 dir = normalize(tangent * (cos(azimuth) * cos(depression)) + bitangent * (sin(azimuth) * cos(depression)) - N * sin(depression));
-				float t = get_ice_light_path(origin, dir, cap);
+				float t = get_medium_light_path(origin, dir, cap);
 				sum += t > 0.0 ? t : cap;
 			}
 

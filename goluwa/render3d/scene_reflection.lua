@@ -402,7 +402,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			}
 			#endif
 
-			albedo = ddgi_ice_albedo(material, albedo);
+			albedo = ddgi_medium_albedo(material, albedo);
 			vec3 radiance = SCENE_HIT_EMISSION ? ddgi_emission(tri, albedo) : vec3(0.0);
 			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);

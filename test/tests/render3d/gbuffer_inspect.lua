@@ -97,10 +97,10 @@ T.Test("gbuffer inspect groups the fields in sheets", function()
 	T(by_name.depth.primary.name)["=="]("depth")
 end)
 
-T.Test3D("Graphics render3d gbuffer stores the ice absorption and saturates large values", function(draw)
+T.Test3D("Graphics render3d gbuffer stores the medium absorption and saturates large values", function(draw)
 	local function stored(absorption)
-		local material = Material.New{IceAbsorption = absorption, ColorMultiplier = Color(0.5, 0.5, 0.5, 1)}
-		return inspect(draw, material, {mode = "field", name = "ice_absorption"})[1]
+		local material = Material.New{MediumAbsorption = absorption, ColorMultiplier = Color(0.5, 0.5, 0.5, 1)}
+		return inspect(draw, material, {mode = "field", name = "medium_absorption"})[1]
 	end
 
 	local none = stored(0)

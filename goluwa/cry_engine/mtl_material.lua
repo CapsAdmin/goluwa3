@@ -234,7 +234,7 @@ local function get_cry_height_texture(normal_map_path)
 	return texture or nil
 end
 
-local ICE_ABSORPTION_DEFAULTS = {
+local MEDIUM_ABSORPTION_DEFAULTS = {
 	["terrainice.layer"] = 10,
 	ice = 15,
 	iceoutdoor = 15,
@@ -295,13 +295,13 @@ local function apply_cry_material_node(self, material_node, material_path)
 	end
 
 	local params = self.cry_public_params
-	local ice_absorption_default = ICE_ABSORPTION_DEFAULTS[shader:lower()]
+	local medium_absorption_default = MEDIUM_ABSORPTION_DEFAULTS[shader:lower()]
 
-	if ice_absorption_default then
-		self.cry_ice_absorption = tonumber(params.Absorption) or ice_absorption_default
+	if medium_absorption_default then
+		self.cry_medium_absorption = tonumber(params.Absorption) or medium_absorption_default
 
 		if not is_terrain_layer_shader(shader) then
-			self:SetIceAbsorption(self.cry_ice_absorption)
+			self:SetMediumAbsorption(self.cry_medium_absorption)
 		end
 	end
 

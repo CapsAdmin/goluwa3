@@ -171,3 +171,17 @@ T.Test("gbuffer layout packs every kind into its own slot", function()
 	T(count["8"])["=="](2)
 	T(count["16"])["=="](2)
 end)
+
+T.Test("the medium feature takes its optical data from a preset", function()
+	local medium_common = import("goluwa/render3d/medium_common.lua")
+	medium_common.presets.test_amber = {
+		extinction = {0.01, 0.2, 1.5},
+		tint_ratio = {1, 1, 1},
+		deep_color = {0.5, 0.2, 0.0},
+		porous_color = {0.9, 0.8, 0.5},
+	}
+	T(has(medium_common.GetGLSL("test_amber"), "#define MEDIUM_EXTINCTION vec3(0.01000, 0.20000, 1.50000)"))["=="](true)
+	T(has(medium_common.GetGLSL("ice"), "#define MEDIUM_EXTINCTION vec3(0.19000, 0.05800, 0.01200)"))["=="](true)
+	medium_common.presets.test_amber = nil
+	T(pcall(medium_common.GetGLSL, "test_amber"))["=="](false)
+end)

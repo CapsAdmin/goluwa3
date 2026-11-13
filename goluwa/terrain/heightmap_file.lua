@@ -8,7 +8,7 @@ local texture_compress = import("goluwa/render/texture_compress.lua")
 local material_file = import("goluwa/render3d/material_file.lua")
 local heightmap_file = {}
 heightmap_file.FileName = "terrain.lua"
-heightmap_file.Version = 2
+heightmap_file.Version = 3
 local LAYER_TEXTURES = {"albedo", "normal", "height"}
 local LAYER_NUMBERS = {
 	"height_scale",
@@ -18,7 +18,7 @@ local LAYER_NUMBERS = {
 	"specular",
 	"scatter",
 	"roughness",
-	"ice",
+	"medium",
 }
 local COLOR_SAMPLER = {
 	min_filter = "linear",
