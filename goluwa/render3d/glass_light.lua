@@ -198,7 +198,12 @@ function glass_light.GetGLSL(scene_name)
 		vec3 optical_inscatter_lit(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
 			if (get_optical_header().y + get_optical_header().z == 0) return vec3(0.0);
 
-			float sun_visibility = dot(sun_radiance, sun_radiance) > 0.0 ? get_medium_sun_visibility(origin + dir * (0.5 * distance), sun_dir) : 0.0;
+			vec3 sun_visibility = vec3(0.0);
+
+			if (dot(sun_radiance, sun_radiance) > 0.0) {
+				for (int k = 0; k < 3; k++) sun_visibility[k] = get_medium_sun_visibility(origin + dir * (distance * (float(k) + 0.5) / 3.0), sun_dir);
+			}
+
 			return optical_inscatter(origin, dir, distance, ambient, sun_radiance, sun_dir, sun_visibility, with_layer);
 		}
 	]]

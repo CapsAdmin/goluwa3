@@ -1005,7 +1005,7 @@ function ddgi.GetOpticalTintGLSL()
 			return transmitted;
 		}
 
-		vec3 optical_inscatter(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, float sun_visibility, bool with_layer) {
+		vec3 optical_inscatter(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, vec3 sun_visibility, bool with_layer) {
 			vec3 scattered = vec3(0.0);
 
 			for (int i = 0; i < optical_counts.z; i++) {
@@ -1023,7 +1023,7 @@ function ddgi.GetOpticalTintGLSL()
 					vec3 transmittance_end = optical_volume_tint(i, origin, dir, distance * float(k + 1) / 3.0, false, true);
 					vec3 middle = origin + dir * (distance * (float(k) + 0.5) / 3.0);
 					vec3 sun_transmittance = optical_volume_tint(i, middle, sun_dir, 1.0e5, false, true);
-					scattered += (ambient + sun_radiance * sun_visibility * sun_transmittance * phase) * albedo * (previous - transmittance_end);
+					scattered += (ambient + sun_radiance * sun_visibility[k] * sun_transmittance * phase) * albedo * (previous - transmittance_end);
 					previous = transmittance_end;
 				}
 			}
