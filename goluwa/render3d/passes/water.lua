@@ -606,7 +606,7 @@ do
 			local size = volume:GetSize()
 			local medium = media.presets[volume:GetMedium()]
 			local absorption = medium.Absorption
-			local scattering = medium.ParticleScattering
+			local scattering = medium.Scattering
 			local flow = volume:GetFlow()
 			transform:GetWorldMatrixInverse():CopyToFloatPointer(block.volume_to_local[i])
 			block.volume_shape[i][0] = size.x / 2
@@ -651,9 +651,9 @@ local function write_ocean(self, block)
 	block.ocean_absorption[1] = medium.Absorption.y
 	block.ocean_absorption[2] = medium.Absorption.z
 	block.ocean_absorption[3] = medium.IOR
-	block.ocean_scattering[0] = medium.ParticleScattering.x
-	block.ocean_scattering[1] = medium.ParticleScattering.y
-	block.ocean_scattering[2] = medium.ParticleScattering.z
+	block.ocean_scattering[0] = medium.Scattering.x
+	block.ocean_scattering[1] = medium.Scattering.y
+	block.ocean_scattering[2] = medium.Scattering.z
 	block.ocean_scattering[3] = params.Foam
 	block.ocean_wave_info[0] = waves.height_std * 3.5 + 0.05
 	block.ocean_wave_info[1] = params.Caustics

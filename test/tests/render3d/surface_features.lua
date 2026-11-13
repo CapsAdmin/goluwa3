@@ -176,6 +176,9 @@ T.Test("the medium feature takes its optical data from a media slot", function()
 	local Vec3 = import("goluwa/structs/vec3.lua")
 	media.presets.test_amber = {
 		Absorption = Vec3(0.01, 0.2, 1.5),
+		Scattering = Vec3(0.5, 0.5, 0.5),
+		PorousScattering = Vec3(10, 10, 10),
+		PhaseG = 0.7,
 		Skin = {
 			tint_ratio = {1, 1, 1},
 			deep_color = {0.5, 0.2, 0.0},
@@ -184,14 +187,18 @@ T.Test("the medium feature takes its optical data from a media slot", function()
 	}
 	local id = media.Acquire("test_amber", 2)
 	T(media.Acquire("test_amber", 2))["=="](id)
-	local out = ffi.new("float[?][4]", (media.MAX_SLOTS + 1) * 4)
+	local stride = media.SLOT_STRIDE
+	local out = ffi.new("float[?][4]", (media.MAX_SLOTS + 1) * stride)
 	media.WriteSlots(out)
-	T(out[id * 4][1])["~"](0.4, 1e-5)
-	T(out[id * 4][3])["~"](2, 1e-5)
-	T(out[id * 4 + 3][0])["~"](0.9, 1e-5)
+	T(out[id * stride][1])["~"](0.4, 1e-5)
+	T(out[id * stride][3])["~"](2, 1e-5)
+	T(out[id * stride + 1][0])["~"](1, 1e-5)
+	T(out[id * stride + 1][3])["~"](0.7, 1e-5)
+	T(out[id * stride + 2][2])["~"](20, 1e-5)
+	T(out[id * stride + 5][0])["~"](0.9, 1e-5)
 	media.SetDensity(id, 3)
 	media.WriteSlots(out)
-	T(out[id * 4][2])["~"](4.5, 1e-5)
+	T(out[id * stride][2])["~"](4.5, 1e-5)
 	T(media.Acquire("test_amber", 3))["=="](id)
 	media.presets.test_amber = nil
 	T(pcall(media.Acquire, "test_amber", 1))["=="](false)

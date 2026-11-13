@@ -866,7 +866,7 @@ local passes = {
 					vec3 pane_transmittance = vec3(1.0 - fresnel_front);
 
 					int glass_medium = int(get_medium_slot() + 0.5);
-					vec3 glass_extinction = glass_medium > 0 ? get_medium_slot_extinction(glass_medium).rgb : vec3(0.0);
+					vec3 glass_extinction = glass_medium > 0 ? get_medium_slot_extinction(glass_medium).rgb + get_medium_slot_scattering(glass_medium).rgb * (1.0 - get_medium_slot_scattering(glass_medium).a) : vec3(0.0);
 
 					if (refractive && refraction.thickness <= 0.0) {
 						vec3 tau = glass_medium > 0 ? albedo * optical_transmittance(glass_extinction, max(get_medium_assumed_thickness(world_pos), MEDIUM_PANE_PATH)) : albedo;

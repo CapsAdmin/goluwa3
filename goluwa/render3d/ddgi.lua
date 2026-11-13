@@ -898,7 +898,9 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			vec3 emissive;
 			int emissive_alpha;
 			vec3 medium_extinction;
-			vec3 medium_porous;
+			vec3 medium_scattering;
+			vec3 medium_porous_scattering;
+			float medium_g;
 			float medium_porosity;
 			float medium_porosity_low;
 			float medium_porosity_high;
@@ -975,7 +977,8 @@ vec3 ddgi_medium_albedo(ddgi_material material, vec3 albedo) {
 
 	float brightness = pow(max(luminance(albedo), 0.0), 1.0 / 2.2);
 	float porosity = max(material.medium_porosity, smoothstep(material.medium_porosity_low, material.medium_porosity_high, brightness));
-	return mix(medium_scatter_color(material.medium_extinction, material.medium_porous, material.medium_thickness, porosity) * MEDIUM_BOUNCE_SHARE, albedo, porosity);
+	vec3 scattering = medium_scattering_at(material.medium_scattering, material.medium_porous_scattering, porosity);
+	return mix(medium_scatter_color(material.medium_extinction, scattering, material.medium_g, material.medium_thickness) * MEDIUM_BOUNCE_SHARE, albedo, porosity);
 }
 
 float ddgi_bounce_share(ddgi_material material) {
@@ -1802,7 +1805,9 @@ local MaterialEntry = ffi.typeof([[struct {
 	float emissive[3];
 	int32_t emissive_alpha;
 	float medium_extinction[3];
-	float medium_porous[3];
+	float medium_scattering[3];
+	float medium_porous_scattering[3];
+	float medium_g;
 	float medium_porosity;
 	float medium_porosity_low;
 	float medium_porosity_high;
@@ -1823,6 +1828,7 @@ function ddgi.HasGlass()
 	return glass_count > 0
 end
 
+local AXES = {"x", "y", "z"}
 local volume_count = 0
 local VOLUME_SLOTS = water.MAX_VOLUMES + 1
 local OCEAN_HALF_SIZE = 1e5
@@ -2005,13 +2011,23 @@ function ddgi.WriteMaterialBuffer(self)
 			if medium_slot > 0 then
 				local slot = media.slots[medium_slot]
 				local preset = media.presets[slot.name]
-				local porous = preset.Skin.porous_color
-				entry.medium_extinction[0] = preset.Absorption.x * slot.density
-				entry.medium_extinction[1] = preset.Absorption.y * slot.density
-				entry.medium_extinction[2] = preset.Absorption.z * slot.density
-				entry.medium_porous[0], entry.medium_porous[1], entry.medium_porous[2] = porous[1], porous[2], porous[3]
+
+				for i = 0, 2 do
+					local axis = AXES[i + 1]
+					entry.medium_extinction[i] = preset.Absorption[axis] * slot.density
+					entry.medium_scattering[i] = preset.Scattering[axis] * slot.density
+					entry.medium_porous_scattering[i] = preset.PorousScattering[axis] * slot.density
+				end
+
+				entry.medium_g = preset.PhaseG
 			else
-				entry.medium_extinction[0], entry.medium_extinction[1], entry.medium_extinction[2] = 0, 0, 0
+				for i = 0, 2 do
+					entry.medium_extinction[i] = 0
+					entry.medium_scattering[i] = 0
+					entry.medium_porous_scattering[i] = 0
+				end
+
+				entry.medium_g = 0
 			end
 
 			entry.medium_porosity = material:GetMediumPorosity()
@@ -2341,7 +2357,7 @@ void main()
 
     if (payload.sun == 0u && ddgi_has_medium(ddgi_materials[material])) {
         payload.seed = payload.seed * 747796405u + 2891336453u;
-        float scatter = max(medium_scatter_amount(ddgi_materials[material].medium_thickness), ddgi_materials[material].medium_porosity);
+        float scatter = medium_scatter_probability(medium_scattering_at(ddgi_materials[material].medium_scattering, ddgi_materials[material].medium_porous_scattering, ddgi_materials[material].medium_porosity), ddgi_materials[material].medium_thickness);
 
         if (float(payload.seed >> 8u) * (1.0 / 16777216.0) >= scatter) ignoreIntersectionEXT;
     }

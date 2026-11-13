@@ -62,7 +62,7 @@ Entity.New{
 		Size = Vec3(W, D, L),
 		Medium = media.Define(
 			media.presets.lake.Absorption,
-			media.presets.lake.ParticleScattering * tonumber(os.getenv("SCAT") or "1")
+			media.presets.lake.Scattering * tonumber(os.getenv("SCAT") or "1")
 		),
 		WaveHeight = 0.08,
 		WaveLength = 2,

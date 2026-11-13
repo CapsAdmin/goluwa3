@@ -54,9 +54,11 @@ return {
 
 		vec3 medium_scatter;
 		vec3 medium_extinction;
+		vec3 medium_scattering;
 		vec3 medium_tint_ratio;
 		vec3 medium_deep;
 		vec3 medium_porous;
+		float medium_g;
 		float medium_density;
 		float medium_cover;
 		float medium_back;
@@ -66,9 +68,11 @@ return {
 	surface_default = [[
 		s.medium_scatter = vec3(0.0);
 		s.medium_extinction = vec3(0.0);
+		s.medium_scattering = vec3(0.0);
 		s.medium_tint_ratio = vec3(0.0);
 		s.medium_deep = vec3(0.0);
 		s.medium_porous = vec3(0.0);
+		s.medium_g = 0.0;
 		s.medium_density = 0.0;
 		s.medium_cover = 0.0;
 		s.medium_back = 0.0;
@@ -92,8 +96,10 @@ return {
 		if (s.medium_slot > 0.0) {
 			int medium_slot = int(s.medium_slot + 0.5);
 			vec4 slot_extinction = get_medium_slot_extinction(medium_slot);
+			vec4 slot_scattering = get_medium_slot_scattering(medium_slot);
 			s.medium_extinction = slot_extinction.rgb;
 			s.medium_density = slot_extinction.a;
+			s.medium_g = slot_scattering.a;
 			s.medium_tint_ratio = get_medium_slot_tint_ratio(medium_slot);
 			s.medium_deep = get_medium_slot_deep_color(medium_slot);
 			s.medium_porous = get_medium_slot_porous_color(medium_slot);
@@ -123,6 +129,7 @@ return {
 
 			float slope_snow = get_medium_cover_slope() * smoothstep(0.5, 0.85, s.N.y);
 			s.medium_porosity = max(s.medium_porosity, slope_snow);
+			s.medium_scattering = medium_scattering_at(slot_scattering.rgb, get_medium_slot_porous_scattering(medium_slot), s.medium_porosity);
 
 			float body = 1.0 - 0.6 * s.medium_porosity;
 			float fake_depth = 4.0 * strength * mix(0.5, 1.0, min(abs(dot(s.N, s.V)), 0.8) / 0.8) * body;
@@ -137,7 +144,7 @@ return {
 			view_path = max(view_path, s.medium_thickness);
 
 			if (view_path > 0.0) {
-				s.medium_scatter = medium_scatter_color(s.medium_extinction, s.medium_porous, view_path, s.medium_porosity);
+				s.medium_scatter = medium_scatter_color(s.medium_extinction, s.medium_scattering, s.medium_g, view_path);
 			} else {
 				s.medium_scatter = mix(tint, s.medium_porous, s.medium_porosity * s.medium_porosity);
 			}
@@ -159,7 +166,7 @@ return {
 	compose = [[
 		if (s.medium_slot > 0.0 && s.medium_back > 0.5 && get_medium_assumed_thickness(s.world_pos) <= 0.0) {
 			float inside_distance = min(distance(lighting_data.camera_position.xyz, s.world_pos), MEDIUM_VIEW_DEPTH_CAP);
-			vec3 transmit = medium_transmittance(s.medium_extinction, inside_distance, 0.0);
+			vec3 transmit = medium_transmittance(s.medium_extinction, s.medium_scattering, s.medium_g, inside_distance);
 			float medium_sky_visibility;
 			vec3 medium = s.medium_deep * get_gi_irradiance(s.N, medium_sky_visibility);
 			compose_color = mix(medium, compose_color, transmit);
@@ -171,8 +178,8 @@ return {
 	]],
 	direct = [[
 		if (s.medium_slot > 0.0) {
-			float diffusion = 1.0 - exp(-s.medium_thickness * get_medium_scatter_coefficient());
-			float surface_light = shadow_factor * mix(saturate(dot(s.N, L)), saturate((dot(s.N, L) + 0.5) / 1.5) / 1.5, diffusion) * mix(1.0, medium_scatter_amount(s.medium_thickness), s.medium_body);
+			float diffusion = 1.0 - exp(-s.medium_thickness * medium_reduced_scattering(s.medium_scattering, s.medium_g));
+			float surface_light = shadow_factor * mix(saturate(dot(s.N, L)), saturate((dot(s.N, L) + 0.5) / 1.5) / 1.5, diffusion) * mix(1.0, medium_scatter_probability(s.medium_scattering, s.medium_thickness), s.medium_body);
 			diffuse += (1.0 - max(s.medium_cover, s.medium_porosity)) * s.medium_scatter * unshadowed_radiance * surface_light * (1.0 - s.metallic) / PI;
 		}
 	]],
@@ -192,9 +199,9 @@ return {
 					if (back_weight > 0.0) back_irradiance = back_probes.rgb;
 				}
 				float far_side = get_medium_assumed_thickness(s.world_pos) > 0.0 ? s.medium_thickness : get_medium_light_path(s.world_pos - s.geometric_N * 0.003, -s.N, MEDIUM_MAX_PATH);
-				vec3 through = medium_transmittance(s.medium_extinction, far_side, 0.0);
-				float in_scatter = 0.3 * (1.0 - exp(-far_side * get_medium_scatter_coefficient()));
-				ambient_diffuse += medium_body * s.medium_scatter * (in_scatter * mix(1.0, medium_scatter_amount(s.medium_thickness), s.medium_body) * irradiance + (1.0 - in_scatter) * MEDIUM_TRANSMIT_SHARE * through * back_irradiance) * ambient_occlusion * (1.0 - s.metallic);
+				vec3 through = medium_transmittance(s.medium_extinction, s.medium_scattering, s.medium_g, far_side);
+				float in_scatter = 0.3 * (1.0 - exp(-far_side * medium_reduced_scattering(s.medium_scattering, s.medium_g)));
+				ambient_diffuse += medium_body * s.medium_scatter * (in_scatter * mix(1.0, medium_scatter_probability(s.medium_scattering, s.medium_thickness), s.medium_body) * irradiance + (1.0 - in_scatter) * MEDIUM_TRANSMIT_SHARE * through * back_irradiance) * ambient_occlusion * (1.0 - s.metallic);
 			}
 		}
 	]],

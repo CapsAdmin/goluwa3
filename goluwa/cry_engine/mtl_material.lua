@@ -243,7 +243,6 @@ local MEDIUM_MATERIAL_SHADERS = {
 }
 local MEDIUM_DENSITY = 1.4
 local MEDIUM_ASSUMED_THICKNESS = 8
-local MEDIUM_SCATTER_COEFFICIENT = 0.5
 
 local function is_terrain_layer_shader(shader)
 	return shader == "Terrain.Layer" or shader == "TerrainIce.Layer"
@@ -304,7 +303,6 @@ local function apply_cry_material_node(self, material_node, material_path)
 	if medium_shader then
 		self.cry_medium_density = MEDIUM_DENSITY
 		medium_common.assumed_thickness = MEDIUM_ASSUMED_THICKNESS
-		medium_common.scatter_coefficient = MEDIUM_SCATTER_COEFFICIENT
 
 		if not is_terrain_layer_shader(shader) then
 			self:SetMedium("ice")

@@ -76,6 +76,10 @@ function glass_light.GetGLSL(scene_name)
 		#define GLASS_LIGHT
 		#define GLASS_SUN_DISTANCE ]] .. string.format("%.1f", glass_light.SUN_DISTANCE) .. [[
 
+		vec3 get_material_medium_transmittance(ddgi_material material) {
+			return medium_transmittance(material.medium_extinction, medium_scattering_at(material.medium_scattering, material.medium_porous_scattering, material.medium_porosity), material.medium_g, material.medium_thickness);
+		}
+
 		vec3 get_optical_tint_ray(vec3 origin, vec3 dir, float distance, bool through_medium) {
 			vec3 transmitted = vec3(1.0);
 			rayQueryEXT query;
@@ -91,7 +95,7 @@ function glass_light.GetGLSL(scene_name)
 					vec3 through;
 
 					if (ddgi_has_medium(material)) {
-						through = medium_transmittance(material.medium_extinction, material.medium_thickness, material.medium_porosity);
+						through = get_material_medium_transmittance(material);
 					} else {
 						through = material.albedo;
 
@@ -104,7 +108,7 @@ function glass_light.GetGLSL(scene_name)
 				} else if (through_medium && ddgi_has_medium(material)) {
 					if (material.medium_body > 0.0 && front) continue;
 
-					transmitted *= medium_transmittance(material.medium_extinction, material.medium_thickness, material.medium_porosity);
+					transmitted *= get_material_medium_transmittance(material);
 				}
 			}
 

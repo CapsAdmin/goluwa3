@@ -6,7 +6,9 @@ media.PARTICLE_PHASE_G = 0.92
 local function water(absorption, scattering)
 	return {
 		Absorption = absorption,
-		ParticleScattering = scattering,
+		Scattering = scattering,
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = media.PARTICLE_PHASE_G,
 		IOR = 1.333,
 		AbbeNumber = 55.8,
 	}
@@ -15,7 +17,9 @@ end
 media.presets = {
 	ice = {
 		Absorption = Vec3(0.19, 0.058, 0.012),
-		ParticleScattering = Vec3(0, 0, 0),
+		Scattering = Vec3(1, 1, 1),
+		PorousScattering = Vec3(150, 150, 150),
+		PhaseG = 0.8,
 		IOR = 1.31,
 		AbbeNumber = 55.8,
 		Skin = {
@@ -35,7 +39,9 @@ media.presets = {
 	glacial = water(Vec3(0.48, 0.075, 0.07), Vec3(0.55, 0.7, 0.78)),
 	pool = water(Vec3(0.34, 0.052, 0.016), Vec3(0.003, 0.003, 0.003)),
 }
+local EMPTY_SKIN = {tint_ratio = {0, 0, 0}, deep_color = {0, 0, 0}, porous_color = {0, 0, 0}}
 media.MAX_SLOTS = 15
+media.SLOT_STRIDE = 6
 media.TERRAIN_MEDIUM = "ice"
 media.slots = {}
 media.generation = 0
@@ -70,19 +76,28 @@ end
 function media.WriteSlots(out)
 	for id, slot in ipairs(media.slots) do
 		local preset = media.presets[slot.name]
-		local skin = assert(preset.Skin, "medium " .. slot.name .. " has no skin")
-		local absorption = preset.Absorption
+		local skin = preset.Skin or EMPTY_SKIN
 		local density = slot.density
-		local extinction = out[id * 4]
-		extinction[0] = absorption.x * density
-		extinction[1] = absorption.y * density
-		extinction[2] = absorption.z * density
+		local base = id * media.SLOT_STRIDE
+		local extinction = out[base]
+		extinction[0] = preset.Absorption.x * density
+		extinction[1] = preset.Absorption.y * density
+		extinction[2] = preset.Absorption.z * density
 		extinction[3] = density
-		local tint = out[id * 4 + 1]
+		local scattering = out[base + 1]
+		scattering[0] = preset.Scattering.x * density
+		scattering[1] = preset.Scattering.y * density
+		scattering[2] = preset.Scattering.z * density
+		scattering[3] = preset.PhaseG
+		local porous_scattering = out[base + 2]
+		porous_scattering[0] = preset.PorousScattering.x * density
+		porous_scattering[1] = preset.PorousScattering.y * density
+		porous_scattering[2] = preset.PorousScattering.z * density
+		local tint = out[base + 3]
 		tint[0], tint[1], tint[2] = skin.tint_ratio[1], skin.tint_ratio[2], skin.tint_ratio[3]
-		local deep = out[id * 4 + 2]
+		local deep = out[base + 4]
 		deep[0], deep[1], deep[2] = skin.deep_color[1], skin.deep_color[2], skin.deep_color[3]
-		local porous = out[id * 4 + 3]
+		local porous = out[base + 5]
 		porous[0], porous[1], porous[2] = skin.porous_color[1], skin.porous_color[2], skin.porous_color[3]
 	end
 end
@@ -98,7 +113,7 @@ end
 
 function media.GetExtinction(name)
 	local preset = media.presets[name]
-	return preset.Absorption + media.MOLECULAR_SCATTERING + preset.ParticleScattering
+	return preset.Absorption + media.MOLECULAR_SCATTERING + preset.Scattering
 end
 
 function media.MediumFromFog(color, extinction, albedo_scale)

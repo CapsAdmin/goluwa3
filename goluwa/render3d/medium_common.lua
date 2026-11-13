@@ -2,7 +2,6 @@ local medium_common = {}
 medium_common.assumed_thickness = 0
 medium_common.base_height = -1e9
 medium_common.thickness_per_height = 0
-medium_common.scatter_coefficient = 0.25
 medium_common.cover_slope = 0
 medium_common.porosity_low = 0.1
 medium_common.porosity_high = 1.0
@@ -23,8 +22,32 @@ function medium_common.GetGLSL()
 		return exp(-extinction * path);
 	}
 
-	vec3 medium_transmittance(vec3 extinction, float path, float porosity) {
-		return mix(optical_transmittance(extinction, path), optical_transmittance(extinction, path * 0.35), porosity);
+	vec3 medium_scattering_at(vec3 base, vec3 porous, float porosity) {
+		return base + porous * porosity * porosity;
+	}
+
+	float medium_scatter_probability(vec3 scattering, float thickness) {
+		return 1.0 - exp(-dot(scattering, vec3(1.0 / 3.0)) * thickness);
+	}
+
+	float medium_reduced_scattering(vec3 scattering, float g) {
+		return dot(scattering, vec3(1.0 / 3.0)) * (1.0 - g);
+	}
+
+	vec3 medium_transmittance(vec3 absorption, vec3 scattering, float g, float path) {
+		return optical_transmittance(absorption + scattering * (1.0 - g), path);
+	}
+
+	vec3 medium_body_reflectance(vec3 absorption, vec3 scattering, float g) {
+		vec3 reduced = scattering * (1.0 - g);
+		vec3 albedo = reduced / max(reduced + absorption, vec3(1e-6));
+		vec3 s = sqrt(max(1.0 - albedo, vec3(0.0)));
+		return (1.0 - s) * (1.0 - 0.139 * s) / (1.0 + 1.17 * s);
+	}
+
+	vec3 medium_scatter_color(vec3 absorption, vec3 scattering, float g, float thickness) {
+		float depth = min(thickness, MEDIUM_VIEW_DEPTH_CAP);
+		return mix(optical_transmittance(absorption, depth), medium_body_reflectance(absorption, scattering, g), medium_scatter_probability(scattering, depth));
 	}
 
 	bool medium_volume_intersect(mat4 to_local, vec3 shape, vec3 ray_origin, vec3 ray_dir, out float t_entry, out float t_exit, out bool top) {
@@ -40,15 +63,6 @@ function medium_common.GetGLSL()
 		t_exit = min(min(tmax.x, tmax.y), tmax.z);
 		top = tmin.y >= max(tmin.x, tmin.z) && dir.y < 0.0;
 		return t_exit > max(t_entry, 0.0);
-	}
-
-	float medium_scatter_amount(float thickness) {
-		return 1.0 - exp(-thickness);
-	}
-
-	vec3 medium_scatter_color(vec3 extinction, vec3 porous_color, float thickness, float porosity) {
-		vec3 tint = exp(-min(thickness, MEDIUM_VIEW_DEPTH_CAP) * extinction * (1.0 - 0.6 * porosity));
-		return mix(tint, porous_color, porosity * porosity);
 	}
 	#endif
 ]]

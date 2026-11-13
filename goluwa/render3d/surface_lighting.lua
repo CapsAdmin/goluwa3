@@ -39,7 +39,6 @@ surface_lighting.block = {
 	{"medium_thickness", "float"},
 	{"medium_base_height", "float"},
 	{"medium_thickness_per_height", "float"},
-	{"medium_scatter_coefficient", "float"},
 	{"medium_cover_slope", "float"},
 	{"medium_porosity_low", "float"},
 	{"medium_porosity_high", "float"},
@@ -47,7 +46,7 @@ surface_lighting.block = {
 	{"medium_local_thickness", "float"},
 	{"medium_slots", "vec4", (
 		media.MAX_SLOTS + 1
-	) * 4},
+	) * media.SLOT_STRIDE},
 	post_source.pre_exposure_block,
 }
 
@@ -90,7 +89,6 @@ function surface_lighting.WriteBlock(self, block)
 	block.medium_thickness = medium_common.assumed_thickness
 	block.medium_base_height = medium_common.base_height
 	block.medium_thickness_per_height = medium_common.thickness_per_height
-	block.medium_scatter_coefficient = medium_common.scatter_coefficient
 	block.medium_cover_slope = medium_common.cover_slope
 	block.medium_porosity_low = medium_common.porosity_low
 	block.medium_porosity_high = medium_common.porosity_high
@@ -147,23 +145,27 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 		}
 
 		vec4 get_medium_slot_extinction(int slot) {
-			return ]] .. block_name .. [[.medium_slots[slot * 4];
+			return ]] .. block_name .. [[.medium_slots[slot * ]] .. media.SLOT_STRIDE .. [[];
+		}
+
+		vec4 get_medium_slot_scattering(int slot) {
+			return ]] .. block_name .. [[.medium_slots[slot * ]] .. media.SLOT_STRIDE .. [[ + 1];
+		}
+
+		vec3 get_medium_slot_porous_scattering(int slot) {
+			return ]] .. block_name .. [[.medium_slots[slot * ]] .. media.SLOT_STRIDE .. [[ + 2].rgb;
 		}
 
 		vec3 get_medium_slot_tint_ratio(int slot) {
-			return ]] .. block_name .. [[.medium_slots[slot * 4 + 1].rgb;
+			return ]] .. block_name .. [[.medium_slots[slot * ]] .. media.SLOT_STRIDE .. [[ + 3].rgb;
 		}
 
 		vec3 get_medium_slot_deep_color(int slot) {
-			return ]] .. block_name .. [[.medium_slots[slot * 4 + 2].rgb;
+			return ]] .. block_name .. [[.medium_slots[slot * ]] .. media.SLOT_STRIDE .. [[ + 4].rgb;
 		}
 
 		vec3 get_medium_slot_porous_color(int slot) {
-			return ]] .. block_name .. [[.medium_slots[slot * 4 + 3].rgb;
-		}
-
-		float get_medium_scatter_coefficient() {
-			return ]] .. block_name .. [[.medium_scatter_coefficient;
+			return ]] .. block_name .. [[.medium_slots[slot * ]] .. media.SLOT_STRIDE .. [[ + 5].rgb;
 		}
 
 		float get_medium_porosity_low() {
