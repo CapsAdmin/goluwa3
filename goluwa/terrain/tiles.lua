@@ -2,6 +2,7 @@ local ffi = require("ffi")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local Material = import("goluwa/render3d/material.lua")
 local Color = import("goluwa/structs/color.lua")
+local media = import("goluwa/render3d/media.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local AABB = import("goluwa/structs/aabb.lua")
 local assets = import("goluwa/assets.lua")
@@ -363,6 +364,7 @@ function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 	end
 
 	local any_scatter = false
+	local medium_density = 0
 
 	for _, def in ipairs(LAYER_VALUES) do
 		local name, key, default = def[1], def[2], def[3]
@@ -373,6 +375,11 @@ function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 			v[i] = layer[key] or default
 
 			if key == "height_scale" then v[i] = layer.height and layer.height_scale or 0 end
+
+			if key == "medium" then
+				medium_density = math.max(medium_density, v[i])
+				v[i] = v[i] > 0 and 1 or 0
+			end
 		end
 
 		material["SetTerrainLayer" .. name](material, Color(v[1], v[2], v[3], v[4]))
@@ -387,6 +394,12 @@ function tiles.CreateMaterial(chunk, layers, scatter_set, source, shell)
 	end
 
 	material:SetScatterSet(any_scatter and scatter_set or nil)
+
+	if medium_density > 0 then
+		material:SetMedium(media.TERRAIN_MEDIUM)
+		material:SetMediumDensity(medium_density)
+	end
+
 	return material
 end
 

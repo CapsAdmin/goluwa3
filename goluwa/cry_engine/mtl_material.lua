@@ -235,13 +235,13 @@ local function get_cry_height_texture(normal_map_path)
 	return texture or nil
 end
 
-local MEDIUM_ABSORPTION_DEFAULTS = {
+local MEDIUM_MATERIAL_SHADERS = {
 	["terrainice.layer"] = true,
 	ice = true,
 	iceoutdoor = true,
 	iceindoor = true,
 }
-local MEDIUM_ABSORPTION = 14
+local MEDIUM_DENSITY = 1.4
 local MEDIUM_ASSUMED_THICKNESS = 8
 local MEDIUM_SCATTER_COEFFICIENT = 0.5
 
@@ -299,15 +299,16 @@ local function apply_cry_material_node(self, material_node, material_path)
 	end
 
 	local params = self.cry_public_params
-	local medium_absorption_default = MEDIUM_ABSORPTION_DEFAULTS[shader:lower()]
+	local medium_shader = MEDIUM_MATERIAL_SHADERS[shader:lower()]
 
-	if medium_absorption_default then
-		self.cry_medium_absorption = MEDIUM_ABSORPTION
+	if medium_shader then
+		self.cry_medium_density = MEDIUM_DENSITY
 		medium_common.assumed_thickness = MEDIUM_ASSUMED_THICKNESS
 		medium_common.scatter_coefficient = MEDIUM_SCATTER_COEFFICIENT
 
 		if not is_terrain_layer_shader(shader) then
-			self:SetMediumAbsorption(MEDIUM_ABSORPTION)
+			self:SetMedium("ice")
+			self:SetMediumDensity(MEDIUM_DENSITY)
 			self.cry_medium_mesh = true
 		end
 	end

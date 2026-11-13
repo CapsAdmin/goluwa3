@@ -23,7 +23,6 @@ return {
 		},
 		Material = {
 			AbbeNumber = 20,
-			AttenuationDistance = 0.025,
 			DoubleSided = true,
 			IndexOfRefraction = 1.31,
 			Metallic = 0,

@@ -114,9 +114,7 @@ end)
 
 T.Test("surface features join the thin expressions of the features", function()
 	T(surface_features.New{{name = "a"}}.GetThinExpressionGLSL())["=="]("false")
-	T(
-		surface_features.New{{name = "a", thin = "x(c)"}, {name = "b"}, {name = "c", thin = "y(c)"}}.GetThinExpressionGLSL()
-	)["=="]("(x(c)) || (y(c))")
+	T(surface_features.New{{name = "a", thin = "x(c)"}, {name = "b"}, {name = "c", thin = "y(c)"}}.GetThinExpressionGLSL())["=="]("(x(c)) || (y(c))")
 end)
 
 T.Test("gbuffer layout packs every kind into its own slot", function()
@@ -172,16 +170,29 @@ T.Test("gbuffer layout packs every kind into its own slot", function()
 	T(count["16"])["=="](2)
 end)
 
-T.Test("the medium feature takes its optical data from a preset", function()
-	local medium_common = import("goluwa/render3d/medium_common.lua")
-	medium_common.presets.test_amber = {
-		extinction = {0.01, 0.2, 1.5},
-		tint_ratio = {1, 1, 1},
-		deep_color = {0.5, 0.2, 0.0},
-		porous_color = {0.9, 0.8, 0.5},
+T.Test("the medium feature takes its optical data from a media slot", function()
+	local ffi = require("ffi")
+	local media = import("goluwa/render3d/media.lua")
+	local Vec3 = import("goluwa/structs/vec3.lua")
+	media.presets.test_amber = {
+		Absorption = Vec3(0.01, 0.2, 1.5),
+		Skin = {
+			tint_ratio = {1, 1, 1},
+			deep_color = {0.5, 0.2, 0.0},
+			porous_color = {0.9, 0.8, 0.5},
+		},
 	}
-	T(has(medium_common.GetGLSL("test_amber"), "#define MEDIUM_EXTINCTION vec3(0.01000, 0.20000, 1.50000)"))["=="](true)
-	T(has(medium_common.GetGLSL("ice"), "#define MEDIUM_EXTINCTION vec3(0.19000, 0.05800, 0.01200)"))["=="](true)
-	medium_common.presets.test_amber = nil
-	T(pcall(medium_common.GetGLSL, "test_amber"))["=="](false)
+	local id = media.Acquire("test_amber", 2)
+	T(media.Acquire("test_amber", 2))["=="](id)
+	local out = ffi.new("float[?][4]", (media.MAX_SLOTS + 1) * 4)
+	media.WriteSlots(out)
+	T(out[id * 4][1])["~"](0.4, 1e-5)
+	T(out[id * 4][3])["~"](2, 1e-5)
+	T(out[id * 4 + 3][0])["~"](0.9, 1e-5)
+	media.SetDensity(id, 3)
+	media.WriteSlots(out)
+	T(out[id * 4][2])["~"](4.5, 1e-5)
+	T(media.Acquire("test_amber", 3))["=="](id)
+	media.presets.test_amber = nil
+	T(pcall(media.Acquire, "test_amber", 1))["=="](false)
 end)

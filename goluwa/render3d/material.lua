@@ -10,6 +10,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local orientation = import("goluwa/render3d/orientation.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
+local media = import("goluwa/render3d/media.lua")
 local FlagSet = import("goluwa/render/flag_set.lua")
 local Material = objects.CreateTemplate("render3d_material")
 Material:StartStorable({versioned = true})
@@ -52,6 +53,8 @@ for _, feature in ipairs(surface_features.list) do
 		for _, param in ipairs(feature.params) do
 			if param.category then Material:StartCategory(param.category) end
 
+			if param.storable == false then Material:EndStorable() end
+
 			Material:GetSet(
 				param.name,
 				param.default,
@@ -62,10 +65,15 @@ for _, feature in ipairs(surface_features.list) do
 					enums = param.enums,
 				}
 			)
+
+			if param.storable == false then Material:StartStorable({versioned = true}) end
 		end
 	end
 end
 
+Material:StartCategory("Medium")
+Material:GetSet("Medium", "", {callback = "InvalidateMediumSlot"})
+Material:GetSet("MediumDensity", 1.0, {callback = "InvalidateMediumSlot", requires = "Medium"})
 Material:StartCategory("Emission")
 Material:GetSet(
 	"EmissiveTexture",
@@ -436,6 +444,30 @@ end
 
 function Material:IsSeeThrough()
 	return self.Refraction > 0 or self.Additive or self.Modulate
+end
+
+function Material:InvalidateMediumSlot()
+	self.medium_slot = nil
+	self:InvalidateRayMaterial()
+end
+
+function Material:GetMediumSlot()
+	if self.Medium == "" then return 0 end
+
+	local slot = self.medium_slot
+
+	if not slot then
+		slot = media.Acquire(self.Medium, self.MediumDensity)
+		self.medium_slot = slot
+	end
+
+	return slot
+end
+
+function Material:GetEffectiveIOR()
+	if self.IndexOfRefraction > 0 then return math.max(self.IndexOfRefraction, 1) end
+
+	return self.Medium == "" and 1.5 or media.presets[self.Medium].IOR
 end
 
 function Material:IsGlass()

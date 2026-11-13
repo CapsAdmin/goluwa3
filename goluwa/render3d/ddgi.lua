@@ -19,6 +19,7 @@ local clouds = import("goluwa/render3d/clouds.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
+local media = import("goluwa/render3d/media.lua")
 local ddgi = {}
 pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "ddgi_"})
 
@@ -895,13 +896,21 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 			int roughness_channel;
 			vec3 emissive;
 			int emissive_alpha;
-			vec4 medium;
+			vec3 medium_extinction;
+			vec3 medium_porous;
+			float medium_porosity;
+			float medium_porosity_low;
+			float medium_porosity_high;
 			float medium_thickness;
 			float medium_body;
 			};
 		layout(scalar, set = 0, binding = ]] .. binding .. [[) readonly buffer DDGIMaterials {
 			ddgi_material ddgi_materials[];
 		};
+
+		bool ddgi_has_medium(ddgi_material material) {
+			return material.medium_extinction.x + material.medium_extinction.y + material.medium_extinction.z > 0.0;
+		}
 	]]
 end
 
@@ -959,11 +968,11 @@ function ddgi.GetMaterialGLSL()
 		}
 
 vec3 ddgi_medium_albedo(ddgi_material material, vec3 albedo) {
-	if (material.medium.x <= 0.0) return albedo;
+	if (!ddgi_has_medium(material)) return albedo;
 
 	float brightness = pow(max(luminance(albedo), 0.0), 1.0 / 2.2);
-	float porosity = max(material.medium.y, smoothstep(material.medium.z, material.medium.w, brightness));
-	return mix(medium_scatter_color(material.medium_thickness, material.medium.x, porosity) * MEDIUM_BOUNCE_SHARE, albedo, porosity);
+	float porosity = max(material.medium_porosity, smoothstep(material.medium_porosity_low, material.medium_porosity_high, brightness));
+	return mix(medium_scatter_color(material.medium_extinction, material.medium_porous, material.medium_thickness, porosity) * MEDIUM_BOUNCE_SHARE, albedo, porosity);
 }
 
 float ddgi_bounce_share(ddgi_material material) {
@@ -1789,7 +1798,11 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t roughness_channel;
 	float emissive[3];
 	int32_t emissive_alpha;
-	float medium[4];
+	float medium_extinction[3];
+	float medium_porous[3];
+	float medium_porosity;
+	float medium_porosity_low;
+	float medium_porosity_high;
 	float medium_thickness;
 	float medium_body;
 	}]])
@@ -1845,7 +1858,8 @@ function ddgi.WriteMaterialBuffer(self)
 		state.generation == generation and
 		state.releases == releases and
 		state.glass == glass_enabled and
-		state.medium_thickness == medium_common.assumed_thickness
+		state.medium_thickness == medium_common.assumed_thickness and
+		state.media_generation == media.generation
 	then
 		glass_count = state.glass_count or 0
 		medium_count = state.medium_count or 0
@@ -1854,8 +1868,10 @@ function ddgi.WriteMaterialBuffer(self)
 
 	local rewrite_all = state.releases ~= releases or
 		state.glass ~= glass_enabled or
-		state.medium_thickness ~= medium_common.assumed_thickness
+		state.medium_thickness ~= medium_common.assumed_thickness or
+		state.media_generation ~= media.generation
 	state.medium_thickness = medium_common.assumed_thickness
+	state.media_generation = media.generation
 	local written = state.written
 	local stamp = state.generation
 	local out = ffi.cast(MaterialEntryPointer, state.buffer:Map(0, state.buffer:GetSize()))
@@ -1917,10 +1933,23 @@ function ddgi.WriteMaterialBuffer(self)
 			entry.emissive[0], entry.emissive[1], entry.emissive[2] = scene_materials.GetEmissive(material)
 			entry.emissive_alpha = material:GetAlbedoAlphaIsEmissive() and 1 or 0
 			local from_albedo = material:GetMediumPorosityFromAlbedo() > 0
-			entry.medium[0] = material:GetMediumAbsorption()
-			entry.medium[1] = material:GetMediumPorosity()
-			entry.medium[2] = from_albedo and medium_common.porosity_low or 2
-			entry.medium[3] = from_albedo and medium_common.porosity_high or 3
+			local medium_slot = material:GetMediumSlot()
+
+			if medium_slot > 0 then
+				local slot = media.slots[medium_slot]
+				local preset = media.presets[slot.name]
+				local porous = preset.Skin.porous_color
+				entry.medium_extinction[0] = preset.Absorption.x * slot.density
+				entry.medium_extinction[1] = preset.Absorption.y * slot.density
+				entry.medium_extinction[2] = preset.Absorption.z * slot.density
+				entry.medium_porous[0], entry.medium_porous[1], entry.medium_porous[2] = porous[1], porous[2], porous[3]
+			else
+				entry.medium_extinction[0], entry.medium_extinction[1], entry.medium_extinction[2] = 0, 0, 0
+			end
+
+			entry.medium_porosity = material:GetMediumPorosity()
+			entry.medium_porosity_low = from_albedo and medium_common.porosity_low or 2
+			entry.medium_porosity_high = from_albedo and medium_common.porosity_high or 3
 			local body = material:GetMediumThickness()
 			entry.medium_thickness = body > 0 and
 				body or
@@ -2001,7 +2030,7 @@ function ddgi.WriteMaterialBuffer(self)
 	state.medium_count = 0
 
 	for i = 1, count do
-		if materials[i]:GetMediumAbsorption() > 0 then
+		if materials[i]:GetMediumSlot() > 0 then
 			state.medium_count = state.medium_count + 1
 		end
 	end
@@ -2242,9 +2271,9 @@ void main()
 
     if (payload.sun == 0u && ddgi_materials[material].refractive != 0) ignoreIntersectionEXT;
 
-    if (payload.sun == 0u && ddgi_materials[material].medium.x > 0.0) {
+    if (payload.sun == 0u && ddgi_has_medium(ddgi_materials[material])) {
         payload.seed = payload.seed * 747796405u + 2891336453u;
-        float scatter = max(medium_scatter_amount(ddgi_materials[material].medium_thickness), ddgi_materials[material].medium.y);
+        float scatter = max(medium_scatter_amount(ddgi_materials[material].medium_thickness), ddgi_materials[material].medium_porosity);
 
         if (float(payload.seed >> 8u) * (1.0 / 16777216.0) >= scatter) ignoreIntersectionEXT;
     }

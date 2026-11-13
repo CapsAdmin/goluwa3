@@ -76,56 +76,55 @@ function glass_light.GetGLSL(scene_name)
 		#define GLASS_LIGHT
 		#define GLASS_SUN_DISTANCE ]] .. string.format("%.1f", glass_light.SUN_DISTANCE) .. [[
 
-		vec3 get_glass_light_ray(vec3 origin, vec3 dir, float distance) {
+		vec3 get_optical_tint_ray(vec3 origin, vec3 dir, float distance, bool through_medium) {
 			vec3 transmitted = vec3(1.0);
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsCullOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
 
 			while (rayQueryProceedEXT(query)) {
 				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
+				bool front = rayQueryGetIntersectionFrontFaceEXT(query, false);
 
-				if (material.glass == 0) continue;
+				if (material.glass != 0) {
+					if (material.double_sided == 0 && front) continue;
 
-				if (material.double_sided == 0 && rayQueryGetIntersectionFrontFaceEXT(query, false)) continue;
+					vec3 through;
 
-				vec3 albedo = material.albedo;
+					if (ddgi_has_medium(material)) {
+						through = medium_transmittance(material.medium_extinction, material.medium_thickness, material.medium_porosity);
+					} else {
+						through = material.albedo;
 
-				if (material.albedo_tex >= 0) albedo *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).rgb;
+						if (material.albedo_tex >= 0) through *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).rgb;
 
-				transmitted *= clamp(material.glass_refraction * ]] .. string.format("%.2f", glass_light.TRANSMITTANCE) .. [[ * albedo + (1.0 - material.glass_refraction) * (1.0 - material.glass_covering), vec3(0.0), vec3(1.0));
+						through *= ]] .. string.format("%.2f", glass_light.TRANSMITTANCE) .. [[;
+					}
+
+					transmitted *= clamp(material.glass_refraction * through + (1.0 - material.glass_refraction) * (1.0 - material.glass_covering), vec3(0.0), vec3(1.0));
+				} else if (through_medium && ddgi_has_medium(material)) {
+					if (material.medium_body > 0.0 && front) continue;
+
+					transmitted *= medium_transmittance(material.medium_extinction, material.medium_thickness, material.medium_porosity);
+				}
 			}
 
 			return transmitted;
 		}
 
+		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance) {
+			return get_optical_tint_ray(origin, dir, distance, true);
+		}
+
 		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
-			vec3 transmitted = get_glass_light_ray(origin, dir, distance);
+			vec3 transmitted = get_optical_tint_ray(origin, dir, distance, false);
 
 			if (search_radius > 0.0 && min(transmitted.r, min(transmitted.g, transmitted.b)) > 0.999) {
 				vec3 tangent = normalize(cross(dir, abs(dir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0))) * search_radius;
 				vec3 bitangent = normalize(cross(dir, tangent)) * search_radius;
-				transmitted = min(transmitted, get_glass_light_ray(origin + tangent, dir, distance));
-				transmitted = min(transmitted, get_glass_light_ray(origin - tangent, dir, distance));
-				transmitted = min(transmitted, get_glass_light_ray(origin + bitangent, dir, distance));
-				transmitted = min(transmitted, get_glass_light_ray(origin - bitangent, dir, distance));
-			}
-
-			return transmitted;
-		}
-
-		vec3 get_medium_gi_tint(vec3 origin, vec3 dir, float distance) {
-			vec3 transmitted = vec3(1.0);
-			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsCullOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, distance);
-
-			while (rayQueryProceedEXT(query)) {
-				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
-
-				if (material.medium.x <= 0.0) continue;
-
-				if (material.medium_body > 0.0 && rayQueryGetIntersectionFrontFaceEXT(query, false)) continue;
-
-				transmitted *= medium_transmittance(material.medium_thickness, material.medium.x, material.medium.y);
+				transmitted = min(transmitted, get_optical_tint_ray(origin + tangent, dir, distance, false));
+				transmitted = min(transmitted, get_optical_tint_ray(origin - tangent, dir, distance, false));
+				transmitted = min(transmitted, get_optical_tint_ray(origin + bitangent, dir, distance, false));
+				transmitted = min(transmitted, get_optical_tint_ray(origin - bitangent, dir, distance, false));
 			}
 
 			return transmitted;
@@ -139,7 +138,7 @@ function glass_light.GetStubGLSL()
 			return vec3(1.0);
 		}
 
-		vec3 get_medium_gi_tint(vec3 origin, vec3 dir, float distance) {
+		vec3 get_optical_tint(vec3 origin, vec3 dir, float distance) {
 			return vec3(1.0);
 		}
 	]]

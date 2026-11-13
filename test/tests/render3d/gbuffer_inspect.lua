@@ -4,6 +4,7 @@ local gbuffer_inspect = import("goluwa/render3d/gbuffer_inspect.lua")
 local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local Material = import("goluwa/render3d/material.lua")
+local media = import("goluwa/render3d/media.lua")
 local Entity = import("goluwa/entities/entity.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
@@ -97,18 +98,19 @@ T.Test("gbuffer inspect groups the fields in sheets", function()
 	T(by_name.depth.primary.name)["=="]("depth")
 end)
 
-T.Test3D("Graphics render3d gbuffer stores the medium absorption and saturates large values", function(draw)
-	local function stored(absorption)
-		local material = Material.New{MediumAbsorption = absorption, ColorMultiplier = Color(0.5, 0.5, 0.5, 1)}
-		return inspect(draw, material, {mode = "field", name = "medium_absorption"})[1]
+T.Test3D("Graphics render3d gbuffer stores the medium slot", function(draw)
+	local function stored(density)
+		local material = Material.New{
+			Medium = density > 0 and "ice" or "",
+			MediumDensity = density > 0 and density or 1,
+			ColorMultiplier = Color(0.5, 0.5, 0.5, 1),
+		}
+		return inspect(draw, material, {mode = "field", name = "medium_slot"})[1]
 	end
 
-	local none = stored(0)
-	local small = stored(5)
-	local large = stored(20)
-	local huge = stored(200)
-	T(none)["~"](0, 0.01)
-	T(small)["~"](5 / 32, 0.04)
-	T(large)["~"](20 / 32, 0.04)
-	T(huge)["~"](1, 0.01)
+	local small = media.Acquire("ice", 0.5)
+	local large = media.Acquire("ice", 2)
+	T(stored(0))["~"](0, 0.01)
+	T(stored(0.5))["~"](small / 15, 0.04)
+	T(stored(2))["~"](large / 15, 0.04)
 end)

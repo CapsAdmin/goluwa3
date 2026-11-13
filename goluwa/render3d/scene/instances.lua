@@ -324,7 +324,7 @@ function instances.GetMaterialFlags(material)
 		bit.bor(instances.MASK_SOLID, instances.MASK_GI_SOLID)
 	mask = bit.bor(mask, instances.MASK_GI)
 
-	if material:IsGlass() or material:GetMediumAbsorption() > 0 then
+	if material:IsGlass() or material:GetMediumSlot() > 0 then
 		mask = bit.bor(mask, instances.MASK_GLASS)
 	end
 
@@ -341,7 +341,7 @@ function instances.GetMaterialFlags(material)
 	if
 		material:GetAlphaTest() or
 		material:IsTransparent() or
-		material:GetMediumAbsorption() > 0 or
+		material:GetMediumSlot() > 0 or
 		material:GetRayShadowOpacity() < 1
 	then
 		flags = flags + instances.FLAG_NO_OPAQUE

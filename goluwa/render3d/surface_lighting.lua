@@ -14,6 +14,7 @@ local glass_light = import("goluwa/render3d/glass_light.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
+local media = import("goluwa/render3d/media.lua")
 local surface_lighting = {}
 surface_lighting.block = {
 	render3d.camera_block,
@@ -43,6 +44,9 @@ surface_lighting.block = {
 	{"medium_porosity_high", "float"},
 	{"medium_noise_phase", "float"},
 	{"medium_local_thickness", "float"},
+	{"medium_slots", "vec4", (
+		media.MAX_SLOTS + 1
+	) * 4},
 	post_source.pre_exposure_block,
 }
 
@@ -90,6 +94,7 @@ function surface_lighting.WriteBlock(self, block)
 	block.medium_porosity_high = medium_common.porosity_high
 	block.medium_noise_phase = render3d.GetNoisePhase()
 	block.medium_local_thickness = medium_common.local_thickness and 1 or 0
+	media.WriteSlots(block.medium_slots)
 	post_source.WritePreExposureBlock(self, block)
 	return block
 end
@@ -137,6 +142,22 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 		float get_medium_assumed_thickness(vec3 P) {
 			return ]] .. block_name .. [[.medium_thickness + max(P.y - ]] .. block_name .. [[.medium_base_height, 0.0) * ]] .. block_name .. [[.medium_thickness_per_height;
+		}
+
+		vec4 get_medium_slot_extinction(int slot) {
+			return ]] .. block_name .. [[.medium_slots[slot * 4];
+		}
+
+		vec3 get_medium_slot_tint_ratio(int slot) {
+			return ]] .. block_name .. [[.medium_slots[slot * 4 + 1].rgb;
+		}
+
+		vec3 get_medium_slot_deep_color(int slot) {
+			return ]] .. block_name .. [[.medium_slots[slot * 4 + 2].rgb;
+		}
+
+		vec3 get_medium_slot_porous_color(int slot) {
+			return ]] .. block_name .. [[.medium_slots[slot * 4 + 3].rgb;
 		}
 
 		float get_medium_scatter_coefficient() {

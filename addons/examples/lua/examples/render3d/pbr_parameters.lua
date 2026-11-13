@@ -789,7 +789,7 @@ end
 
 sweep(
 	medium,
-	"medium_absorption",
+	"medium_density",
 	MEDIUM_Z,
 	function(t)
 		return material{
@@ -797,7 +797,8 @@ sweep(
 			Roughness = 0.05,
 			Metallic = 0,
 			SpecularMultiplier = 0.45,
-			MediumAbsorption = math.lerp(t, 2, 32),
+			Medium = "ice",
+			MediumDensity = math.lerp(t, 0.2, 3.2),
 		}
 	end,
 	medium_block
@@ -813,11 +814,30 @@ sweep(
 			Roughness = 0.05,
 			Metallic = 0,
 			SpecularMultiplier = 0.45,
-			MediumAbsorption = 32,
+			Medium = "ice",
+			MediumDensity = 3.2,
 			MediumPorosity = t,
 		}
 	end,
 	medium_block
+)
+
+sweep(
+	medium,
+	"medium_refraction",
+	MEDIUM_Z + 5.2,
+	function(t)
+		return material{
+			Color = Color(1, 1, 1, 1),
+			Roughness = 0.02,
+			Metallic = 0,
+			Refraction = 1,
+			IndexOfRefraction = 1.31,
+			Medium = "ice",
+			MediumDensity = math.lerp(t, 0.2, 3.2),
+		}
+	end,
+	sphere_on_grid
 )
 
 local ice_boxes = group("ice_boxes")
@@ -829,7 +849,8 @@ local ice_wall = material{
 	Roughness = 0.05,
 	Metallic = 0,
 	SpecularMultiplier = 0.45,
-	MediumAbsorption = 32,
+	Medium = "ice",
+	MediumDensity = 3.2,
 	MediumThickness = BOX_WALL,
 }
 

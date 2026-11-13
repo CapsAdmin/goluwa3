@@ -14,6 +14,7 @@ local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
+local medium_common = import("goluwa/render3d/medium_common.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local froxel_fog = import("goluwa/render3d/froxel_fog.lua")
@@ -364,15 +365,13 @@ local passes = {
 						{"ior", "float"},
 						{"abbe", "float"},
 						{"thickness", "float"},
-						{"attenuation", "float"},
 					},
 					write = function(self, block)
 						local material = render3d.GetMaterial()
 						block.amount = material:GetRefraction()
-						block.ior = math.max(material:GetIndexOfRefraction(), 1)
+						block.ior = material:GetEffectiveIOR()
 						block.abbe = material:GetAbbeNumber()
 						block.thickness = render3d.translucent_thickness
-						block.attenuation = material:GetAttenuationDistance()
 						return block
 					end,
 				},
@@ -386,7 +385,7 @@ local passes = {
 				) .. [[
 				layout(set = 2, binding = 0) uniform sampler3D froxel_volume;
 			]],
-			shader = glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_overlays.GetGLSL("translucent_camera") .. exposure_compensation.GetGLSL() .. (
+			shader = medium_common.GetGLSL() .. glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_overlays.GetGLSL("translucent_camera") .. exposure_compensation.GetGLSL() .. (
 					scene_reflection.RAY_QUERY and
 					glass_light.GetGLSL("ddgi_scene") or
 					""
@@ -866,8 +865,11 @@ local passes = {
 					vec3 pane_reflectance = vec3(fresnel_front);
 					vec3 pane_transmittance = vec3(1.0 - fresnel_front);
 
+					int glass_medium = int(get_medium_slot() + 0.5);
+					vec3 glass_extinction = glass_medium > 0 ? get_medium_slot_extinction(glass_medium).rgb : vec3(0.0);
+
 					if (refractive && refraction.thickness <= 0.0) {
-						vec3 tau = albedo;
+						vec3 tau = glass_medium > 0 ? albedo * optical_transmittance(glass_extinction, max(get_medium_assumed_thickness(world_pos), MEDIUM_PANE_PATH)) : albedo;
 						vec3 bounces = 1.0 - fresnel_front * fresnel_front * tau * tau;
 						pane_reflectance = fresnel_front + (1.0 - fresnel_front) * (1.0 - fresnel_front) * fresnel_front * tau * tau / bounces;
 						pane_transmittance = (1.0 - fresnel_front) * (1.0 - fresnel_front) * tau / bounces;
@@ -912,7 +914,7 @@ local passes = {
 
 					if (refraction.thickness > 0.0) {
 						float inside = path_length / float(channel_count);
-						vec3 absorbed = refraction.attenuation > 0.0 ? pow(max(albedo, vec3(1e-3)), vec3(inside / refraction.attenuation)) : albedo;
+						vec3 absorbed = glass_medium > 0 ? optical_transmittance(glass_extinction, inside) : albedo;
 						transmission = (1.0 - fresnel_front) * absorbed * (exit_transmitted / float(channel_count));
 						reflectance = vec3(fresnel_front);
 
@@ -1144,7 +1146,6 @@ local function build_multi_draw_pass(source, uniform_buffers, with_thickness, bi
 				float ior;
 				float abbe;
 				float thickness;
-				float attenuation;
 			};
 			RefractionView refraction;
 		]]
@@ -1163,7 +1164,7 @@ local function build_multi_draw_pass(source, uniform_buffers, with_thickness, bi
 		assert(main, "no main in the surface shader")
 		fragment.shader = source.fragment.shader:sub(1, main - 1) .. [[
 			void main() {
-				refraction = RefractionView(refraction_record.amount, refraction_record.ior, refraction_record.abbe, in_instance_thickness, refraction_record.attenuation);
+				refraction = RefractionView(refraction_record.amount, refraction_record.ior, refraction_record.abbe, in_instance_thickness);
 		]] .. source.fragment.shader:sub(main + #"void main() {")
 	end
 

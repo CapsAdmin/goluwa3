@@ -27,7 +27,7 @@ local NEAREST = {
 -- color: a Texture, the color map, covering the map
 -- indices: {width, height, samples = uint8 array}, the layer id of every cell, 0 is none (optional)
 -- layers: {[id] = {albedo, normal, height, height_scale, scale, detail, additive_detail, specular,
---   scatter, roughness, medium}}, the detail layers by id (medium: the absorbing medium strength of the layer, see features/medium.lua)
+--   scatter, roughness, medium}}, the detail layers by id (medium: the density of the terrain medium (`media.TERRAIN_MEDIUM`) the layer is made of, 0 is none, see features/medium.lua)
 -- Returns a terrain source, source.Data is the data.
 function HeightmapSource.New(data)
 	local size = math.max(data.size, 1)

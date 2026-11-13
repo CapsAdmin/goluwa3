@@ -497,14 +497,12 @@ do
 				{"amount", "float"},
 				{"ior", "float"},
 				{"abbe", "float"},
-				{"attenuation", "float"},
 			},
 			write = function(self, block)
 				local material = get_material()
 				block.amount = material:GetRefraction()
-				block.ior = math.max(material:GetIndexOfRefraction(), 1)
+				block.ior = material:GetEffectiveIOR()
 				block.abbe = material:GetAbbeNumber()
-				block.attenuation = material:GetAttenuationDistance()
 			end,
 		}
 		record_blocks[#record_blocks + 1] = {
