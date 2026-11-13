@@ -523,10 +523,10 @@ local function apply_cry_material_node(self, material_node, material_path)
 	end
 
 	do
-		local glow = tonumber(attrs.GlowAmount) or 0
+		local glow = 0
 
 		if has_gen("ALPHAGLOW") then
-			glow = glow + (tonumber(params.AmbientMultiplier) or 1)
+			glow = (tonumber(attrs.GlowAmount) or 0) + (tonumber(params.AmbientMultiplier) or 1)
 		end
 
 		if glow > 0 then
