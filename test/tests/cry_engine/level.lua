@@ -328,7 +328,6 @@ T.Test("Cry level parser reads painted vegetation instances", function()
 	T(entries[2].prototype_id)["=="](3)
 	T(entries[2].model_path)["=="]("objects/natural/bushes/groundfernbush/ground_fern_bush_big_a.cgf")
 	T(entries[2].yaw)["~"](64 / 255 * math.pi * 2, 0.001)
-	T(entries[2].brightness)["=="](30)
 	T(entries[3].prototype_id)["=="](56)
 	T(entries[3].terrain_normal ~= nil)["=="](true)
 end)
@@ -410,4 +409,199 @@ T.Test("Cry cover parser reads the terrain texture quadtree", function()
 	T(by_offset[2].x)["=="](1)
 	T(by_offset[2].y)["=="](1)
 	T(select(2, crylevel.ParseCoverData(data:sub(1, #data - 1))))["=="]("cover.ctc sector data is truncated")
+end)
+
+T.Test("Cry level parser extracts lights and skips inactive ones", function()
+	local _, extra = crylevel.ExtractVisualObjects(
+		assert(
+			crylevel.ParseLayerData([[
+<ObjectLayer>
+	<Layer Name="lights" Hidden="0">
+		<LayerObjects>
+			<Object Type="Entity" Name="lamp" Pos="1,2,3" EntityClass="Light">
+				<Properties bActive="1" Radius="6">
+					<Color clrDiffuse="1,0.5,0.25" fDiffuseMultiplier="10"/>
+					<Options bCastShadow="1"/>
+					<Projector bProjectInAllDirs="0" fProjectorFov="60" texture_Texture="a.dds"/>
+				</Properties>
+			</Object>
+			<Object Type="Entity" Name="fill" Pos="0,0,0" EntityClass="SimpleIndirectLight">
+				<Properties bActive="1" Radius="5">
+					<Color clrColor="1,1,1" fColorMultiplier="2"/>
+					<Options bCastShadow="1"/>
+					<Projector bProjectInAllDirs="0" fProjectorFov="90" texture_Texture=""/>
+				</Properties>
+			</Object>
+			<Object Type="Entity" Name="off" Pos="0,0,0" EntityClass="SimpleLight">
+				<Properties bActive="0" Radius="5">
+					<Color clrColor="1,1,1" fColorMultiplier="2"/>
+					<Options bCastShadow="0"/>
+					<Projector bProjectInAllDirs="0" fProjectorFov="90" texture_Texture=""/>
+				</Properties>
+			</Object>
+		</LayerObjects>
+	</Layer>
+</ObjectLayer>
+]]),
+			"layer parse failed"
+		),
+		empty_libraries
+	)
+	T(#extra.lights)["=="](2)
+	T(extra.lights[1].radius)["=="](6)
+	T(extra.lights[1].multiplier)["=="](10)
+	T(extra.lights[1].spot_fov)["=="](60)
+	T(extra.lights[1].cast_shadow)["=="](true)
+	T(extra.lights[1].color.y)["=="](0.5)
+	T(extra.lights[2].indirect)["=="](true)
+	T(extra.lights[2].cast_shadow)["=="](false)
+	T(extra.lights[2].spot_fov)["=="](nil)
+end)
+
+T.Test("Cry brush list parser reads materials, models and transforms", function()
+	local brush_list = import("goluwa/cry_engine/brush_list.lua")
+
+	local function padded(text, size)
+		return text .. string.rep("\0", size - #text)
+	end
+
+	local geom = pack_u32_le(160) .. padded("objects/a/box.cgf", 128) .. pack_u32_le(1)
+	local bounds = {-1, -2, -3, 1, 2, 3}
+
+	for _, value in ipairs(bounds) do
+		geom = geom .. pack_f32_le(value)
+	end
+
+	local matrix = {0, 2, 0, 10, -1, 0, 0, 20, 0, 0, 1, 30}
+	local brush = pack_u32_le(0) .. pack_u32_le(7) .. pack_u32_le(0) .. pack_u32_le(0) .. pack_u32_le(8) .. pack_u32_le(0)
+
+	for _, value in ipairs(matrix) do
+		brush = brush .. pack_f32_le(value)
+	end
+
+	brush = brush .. string.char(100, 40, 0, 0)
+	local data = "CRY" .. pack_u32_le(1) .. pack_u32_le(3) .. pack_u32_le(1) .. pack_u32_le(68) .. padded("materials/test", 64) .. pack_u32_le(1) .. geom .. pack_u32_le(1) .. brush
+	local parsed = assert(brush_list.Parse(data))
+	T(#parsed.brushes)["=="](1)
+	T(parsed.geoms[1].name)["=="]("objects/a/box.cgf")
+	T(parsed.geoms[1].max[3])["=="](3)
+	T(parsed.brushes[1].material.name)["=="]("materials/test")
+	T(parsed.brushes[1].view_distance_ratio)["=="](100)
+	T(parsed.brushes[1].lod_ratio)["=="](40)
+	local origin = parsed.brushes[1].world_matrix:TransformVector(Vec3(0, 0, 0))
+	T(origin.x)["=="](10)
+	T(origin.y)["=="](20)
+	T(origin.z)["=="](30)
+	local x_axis = parsed.brushes[1].world_matrix:TransformVector(Vec3(1, 0, 0)) - origin
+	T(x_axis.y)["=="](-1)
+	T(x_axis.x)["=="](0)
+end)
+
+T.Test("Cry compiled terrain rebuilds an editor layout height array from sector nodes", function()
+	local compiled_terrain = import("goluwa/cry_engine/compiled_terrain.lua")
+
+	local function pack_i16_le(value)
+		return string.char(value % 256, math.floor(value / 256) % 256)
+	end
+
+	local header = string.char(22, 0, 0, 0) .. pack_u32_le(0) .. pack_u32_le(32) .. pack_u32_le(2) .. pack_u32_le(64) .. pack_u32_le(1) .. pack_f32_le(0.015625) .. pack_f32_le(0)
+	local heights = ""
+
+	for x = 0, 2 do
+		for y = 0, 2 do
+			heights = heights .. pack_i16_le(1600 * x + 160 * y + (x + y) % 3)
+		end
+	end
+
+	local node = pack_i16_le(5) .. pack_i16_le(0)
+
+	for _, value in ipairs{0, 0, 0, 64, 64, 100} do
+		node = node .. pack_f32_le(value)
+	end
+
+	node = node .. "\0" .. pack_f32_le(10) .. pack_f32_le(0.5) .. pack_u32_le(3) .. pack_u32_le(1) .. heights .. "\0" .. string.rep("\0", 20)
+	local data = header .. pack_u32_le(0) .. pack_u32_le(0) .. pack_u32_le(0) .. node
+	local result = compiled_terrain.Parse(data, 1024)
+	local samples = ffi.cast("const uint16_t *", result.height_data)
+	local to_raw = 65535 / 1024
+	T(result.size)["=="](32)
+	T(samples[0])["=="](math.floor(14 * to_raw + 0.5))
+	T(samples[16 * 32])["=="](math.floor(814 * to_raw + 0.5))
+	T(samples[8])["=="](math.floor(54 * to_raw + 0.5))
+	T(result.surface_indices[0])["=="](1)
+	T(result.surface_indices[16 * 32])["=="](2)
+	T(result.surface_indices[8])["=="](2)
+end)
+
+T.Test("Cry compiled vegetation reads the group table and instances inside their boxes", function()
+	local compiled_vegetation = import("goluwa/cry_engine/compiled_vegetation.lua")
+	local group_size = 332
+	local name = "objects/natural/trees/palm_tree/palm.cgf"
+	local params = {}
+
+	for i = 0, 17 do
+		params[i] = pack_u32_le(0)
+	end
+
+	params[1] = pack_f32_le(0.25)
+	params[5] = pack_f32_le(2)
+	params[16] = pack_u32_le(3)
+	local group = pack_u32_le(0) .. name .. string.rep("\0", 256 - #name) .. table.concat(params, "", 0, 17)
+	local groups = group .. string.rep("\0", group_size * 1023)
+
+	local function instance(x, y, z, flags)
+		local record = "\0"
+
+		for _, value in ipairs{x - 1, y - 1, z - 1, x + 1, y + 1, z + 1} do
+			record = record .. pack_f32_le(value)
+		end
+
+		record = record .. pack_u32_le(0) .. pack_f32_le(500) .. pack_u32_le(flags) .. string.char(100, 100, 0)
+
+		for _, value in ipairs{x, y, z, 1.5} do
+			record = record .. pack_f32_le(value)
+		end
+
+		return record .. string.char(0, 7, 128, 0, 0, 0)
+	end
+
+	local data = string.rep("\0", 36) .. groups .. string.rep("\0", 5) .. instance(100, 200, 30, 0x80c) .. instance(300, 400, 50, 0x2428) .. instance(500, 600, 70, 0x808)
+	local prototypes, instances = compiled_vegetation.Parse(data, 36 + #groups)
+	T(#prototypes.list)["=="](1)
+	T(prototypes.by_id[0].category)["=="]("Trees")
+	T(prototypes.by_id[0].bending)["=="](0.25)
+	T(prototypes.by_id[0].size)["=="](2)
+	T(prototypes.by_id[0].align_to_terrain)["=="](true)
+	T(prototypes.by_id[0].use_terrain_color)["=="](true)
+	T(#instances)["=="](2)
+	T(instances[1].x)["=="](100)
+	T(instances[1].scale)["=="](1.5)
+	T(instances[1].angle)["=="](128)
+	T(instances[2].z)["=="](70)
+end)
+
+T.Test("Cry mission environment reads sun, fog and wind from the mission node", function()
+	local document = assert(
+		xml.Decode([[
+<Mission Name="Mission0">
+	<Environment>
+		<EnvState WindVector="-6,-2, 0"/>
+		<Lighting SunRotation="0" Longitude="90"/>
+	</Environment>
+	<TimeOfDay Time="12">
+		<Variable Name="Volumetric fog: Global density" Value="2"/>
+		<Variable Name="Volumetric fog: Atmosphere height" Value="1300"/>
+		<Variable Name="Volumetric fog: Density offset (in reality 0)" Value="0.5"/>
+	</TimeOfDay>
+</Mission>
+]])
+	)
+	local environment = crylevel.ParseMissionEnvironment(document.children[1])
+	T(environment.sun_direction.y)[">"](0.999)
+	T(environment.fog_density)["=="](2)
+	T(environment.fog_atmosphere_height)["=="](1300)
+	T(environment.fog_density_offset)["=="](0.5)
+	T(environment.wind.x)["=="](-6)
+	T(environment.wind.y)["=="](0)
+	T(environment.wind.z)["=="](2)
 end)

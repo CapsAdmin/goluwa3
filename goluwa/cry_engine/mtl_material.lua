@@ -144,6 +144,8 @@ local function resolve_cry_texture_path(material_path, texture_path)
 		add(game_root .. "Textures.pak/" .. relative_base .. ".dds")
 		add(game_root .. "Localized/english.pak/" .. relative_path)
 		add(game_root .. "Localized/english.pak/" .. relative_base .. ".dds")
+		add(relative_path)
+		add(relative_base .. ".dds")
 	end
 
 	if file_path.IsPathAbsolutePath(normalized) then
@@ -232,8 +234,6 @@ local function get_cry_height_texture(normal_map_path)
 	return texture or nil
 end
 
-local function apply_cry_material_node(self, material_node, material_path)
-	local attrs = material_node.attrs or {}
 local ICE_ABSORPTION_DEFAULTS = {
 	["terrainice.layer"] = 10,
 	ice = 15,
@@ -245,6 +245,8 @@ local function is_terrain_layer_shader(shader)
 	return shader == "Terrain.Layer" or shader == "TerrainIce.Layer"
 end
 
+local function apply_cry_material_node(self, material_node, material_path)
+	local attrs = material_node.attrs or {}
 	local shader = attrs.Shader or ""
 	local gen_mask = tonumber(attrs.GenMask) or 0
 	local shader_masks = GEN_MASKS[shader] or {}
@@ -293,8 +295,6 @@ end
 	end
 
 	local params = self.cry_public_params
-
-	do
 	local ice_absorption_default = ICE_ABSORPTION_DEFAULTS[shader:lower()]
 
 	if ice_absorption_default then
@@ -304,6 +304,8 @@ end
 			self:SetIceAbsorption(self.cry_ice_absorption)
 		end
 	end
+
+	do
 		local r, g, b = unpack_csv_numbers(attrs.Specular)
 		self.cry_specular_color = Color(r or 0, g or 0, b or 0, 1)
 	end

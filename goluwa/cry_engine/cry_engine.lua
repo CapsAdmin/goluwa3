@@ -44,7 +44,10 @@ engines.Register(
 	"cry",
 	{
 		Find = function(name)
-			for _, candidate in ipairs{name, "Multiplayer/" .. name} do
+			local key, rest = name:match("^(%a+):(.+)$")
+			local prefix = key and key .. ":" or ""
+
+			for _, candidate in ipairs{name, prefix .. "Multiplayer/" .. (rest or name)} do
 				if game.ResolveLevelDirectory(candidate) then return candidate end
 			end
 
@@ -52,28 +55,33 @@ engines.Register(
 		end,
 		Load = cry_engine.Load,
 		GetGames = function()
-			local cry_game = game.FindCryGame()
+			local games = {}
 
-			if not cry_game then return {} end
-
-			return {
-				{
-					id = cry_game.appid,
-					name = cry_game.name,
-					image = steam.GetGameImage(cry_game.appid, "header"),
-					mounted = game.IsMounted(),
+			for i, info in ipairs(game.GetInstalledGames()) do
+				games[i] = {
+					id = info.appid,
+					name = info.name,
+					image = steam.GetGameImage(info.appid, "header"),
+					mounted = game.IsMounted(info.appid),
 					mountable = true,
-				},
-			}
+				}
+			end
+
+			return games
 		end,
 		MountGame = game.MountContent,
 		UnmountGame = game.UnmountContent,
 		GetMaps = function()
 			local maps = {}
-			local cry_game = game.FindCryGame()
 
-			for i, level in ipairs(game.ListLevels()) do
-				maps[i] = {name = level, game = cry_game.appid, mounted = true}
+			for _, info in ipairs(game.GetInstalledGames()) do
+				for _, level in ipairs(game.ListLevels(info)) do
+					maps[#maps + 1] = {
+						name = info.appid == game.CRYSIS_APPID and level or info.key .. ":" .. level,
+						game = info.appid,
+						mounted = true,
+					}
+				end
 			end
 
 			return maps

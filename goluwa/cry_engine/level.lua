@@ -8,6 +8,9 @@ local Quat = import("goluwa/structs/quat.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local ffi = require("ffi")
 local game = import("goluwa/cry_engine/game.lua")
+local brush_list = import("goluwa/cry_engine/brush_list.lua")
+local compiled_terrain = import("goluwa/cry_engine/compiled_terrain.lua")
+local compiled_vegetation = import("goluwa/cry_engine/compiled_vegetation.lua")
 local units = import("goluwa/cry_engine/units.lua")
 local read_u32_le, read_u16_le, read_f32_le
 local sample_terrain_height01_at_world
@@ -396,6 +399,14 @@ function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, 
 		return out
 	end
 
+	if level.IsLightObject(attrs) then
+		local light = level.ExtractLight(node, world_matrix)
+
+		if light then list.insert(extra.lights, light) end
+
+		return out
+	end
+
 	if object_type == "Road" then
 		local road = extract_road_object(node, world_matrix, layer, group)
 
@@ -472,11 +483,47 @@ function level.ExtractVisualObjectsFromNode(node, parent_world, out, libraries, 
 	return out
 end
 
+do
+	local LIGHT_CLASSES = {Light = true, SimpleLight = true, SimpleIndirectLight = true}
+
+	function level.ExtractLight(node, world_matrix)
+		local attrs = node.attrs
+		local properties = find_child_by_tag(node, "Properties")
+
+		if not properties or properties.attrs.bActive ~= "1" then return nil end
+
+		local color = find_child_by_tag(properties, "Color").attrs
+		local options = find_child_by_tag(properties, "Options").attrs
+		local projector = find_child_by_tag(properties, "Projector")
+		local indirect = attrs.EntityClass == "SimpleIndirectLight"
+		local projector_attrs = projector and projector.attrs or {}
+		local has_projector = (projector_attrs.texture_Texture or "") ~= "" and projector_attrs.bProjectInAllDirs ~= "1"
+		return {
+			name = attrs.Name,
+			world_matrix = world_matrix,
+			radius = tonumber(properties.attrs.Radius),
+			color = parse_vec3(color.clrDiffuse or color.clrColor, 1, 1, 1),
+			multiplier = tonumber(color.fDiffuseMultiplier or color.fColorMultiplier),
+			cast_shadow = options.bCastShadow == "1" and not indirect,
+			indirect = indirect,
+			spot_fov = has_projector and tonumber(projector_attrs.fProjectorFov) or nil,
+		}
+	end
+
+	function level.IsLightObject(attrs)
+		return LIGHT_CLASSES[attrs.EntityClass] == true
+	end
+end
+
+local HIDDEN_MODELS = {
+	["objects/library/alien/ship_exterior/sphere_around_ship/zero_g_sphere_half.cgf"] = true,
+}
+
 function level.ExtractVisualObjects(nodes, libraries)
 	local by_id = {}
 	local world_matrices = {}
 	local out = {}
-	local extra = {water = {}, decals = {}, roads = {}, spawns = {}}
+	local extra = {water = {}, decals = {}, roads = {}, spawns = {}, lights = {}}
 
 	for _, node in ipairs(nodes) do
 		if node.attrs.Id then by_id[node.attrs.Id] = node end
@@ -522,7 +569,7 @@ function level.ExtractVisualObjects(nodes, libraries)
 end
 
 function level.LoadLibraries()
-	local libraries = {prefabs = {}, archetypes = {}, archetype_nodes = {}}
+	local libraries = {prefabs = {}, archetypes = {}, archetype_nodes = {}, archetype_ids = {}}
 
 	for _, file_name in ipairs(vfs.Find("Prefabs/") or {}) do
 		if file_name:lower():ends_with(".xml") then
@@ -539,27 +586,120 @@ function level.LoadLibraries()
 		end
 	end
 
-	for _, file_name in ipairs(vfs.Find("Libs/EntityArchetypes/") or {}) do
-		if file_name:lower():ends_with(".xml") then
-			local ok, document = pcall(xml.Decode, assert(vfs.Read("Libs/EntityArchetypes/" .. file_name)))
-			local root = ok and document and document.children and document.children[1]
+	for _, directory in ipairs{"Libs/EntityArchetypes/", "libs/EntityArchetypes/"} do
+		for _, file_name in ipairs(vfs.Find(directory) or {}) do
+			if file_name:lower():ends_with(".xml") then
+				local ok, document = pcall(xml.Decode, assert(vfs.Read(directory .. file_name)))
+				local root = ok and document and document.children and document.children[1]
 
-			if root then
-				for prototype in iter_children_by_tag(root, "EntityPrototype") do
-					local properties = find_child_by_tag(prototype, "Properties")
+				if root then
+					for prototype in iter_children_by_tag(root, "EntityPrototype") do
+						local properties = find_child_by_tag(prototype, "Properties")
 
-					if prototype.attrs.Id and properties then
-						libraries.archetypes[prototype.attrs.Id] = properties.attrs
-						libraries.archetype_nodes[prototype.attrs.Id] = prototype
+						if prototype.attrs.Id and properties then
+							libraries.archetypes[prototype.attrs.Id] = properties.attrs
+							libraries.archetype_nodes[prototype.attrs.Id] = prototype
+							libraries.archetype_ids[root.attrs.Name .. "." .. prototype.attrs.Name] = prototype.attrs.Id
+						end
 					end
+				else
+					wlog("failed to parse cry archetype library %s: %s", file_name, tostring(document))
 				end
-			else
-				wlog("failed to parse cry archetype library %s: %s", file_name, tostring(document))
 			end
 		end
 	end
 
 	return libraries
+end
+
+do
+	local COLLISION_PROXY_MATERIAL = "collision_proxy"
+
+	function level.ParseMissionObjects(mission, libraries)
+		local objects = find_child_by_tag(mission, "Objects")
+		local nodes = {}
+
+		if not objects then return nodes end
+
+		for _, node in ipairs(objects.children) do
+			local attrs = node.attrs
+
+			if node.tag == "Entity" and attrs.Archetype then
+				attrs.Type = "EntityArchetype"
+				attrs.Prototype = libraries.archetype_ids[attrs.Archetype]
+			end
+
+			nodes[#nodes + 1] = node
+		end
+
+		return nodes
+	end
+
+	function level.ParseBrushEntries(level_dir, brush_data, resource_list)
+		local list_data, err = brush_list.Parse(brush_data)
+
+		if not list_data then return nil, err end
+
+		local mtl_names = {}
+
+		for line in resource_list:gmatch("[^\r\n]+") do
+			if line:ends_with(".mtl") then mtl_names[#mtl_names + 1] = line:lower() end
+		end
+
+		local level_prefix = "levels/" .. (level_dir:match("/([^/]+)/$") or ""):lower() .. "/"
+		local material_cache = {}
+		local entries = {}
+
+		for _, brush in ipairs(list_data.brushes) do
+			local geom_path = brush.geom.name
+			local material_name = brush.material and brush.material.name
+
+			if
+				geom_path:lower():ends_with(".cgf") and
+				not (
+					material_name and
+					material_name:lower():find(COLLISION_PROXY_MATERIAL, 1, true)
+				)
+			then
+				if geom_path:lower():starts_with(level_prefix) then
+					geom_path = geom_path:sub(#level_prefix + 1)
+				end
+
+				local material_path
+
+				if material_name then
+					if material_cache[material_name] == nil then
+						local lower = material_name:lower()
+						local candidates = {}
+
+						for _, mtl in ipairs(mtl_names) do
+							if mtl:starts_with(lower) then candidates[#candidates + 1] = mtl end
+						end
+
+						material_cache[material_name] = #lower < 64 and
+							material_name or
+							#candidates == 1 and
+							candidates[1] or
+							false
+					end
+
+					material_path = material_cache[material_name] or nil
+				end
+
+				entries[#entries + 1] = {
+					name = file_path.GetFileNameFromPath(geom_path),
+					model_path = geom_path,
+					material_path = material_path,
+					type = "Brush",
+					physics = {motion = "static"},
+					world_matrix = brush.world_matrix,
+					layer = "brush",
+				}
+			end
+		end
+
+		return entries
+	end
 end
 
 function level.ParseLayerDocument(document)
@@ -683,6 +823,70 @@ function level.ParseLevelData(data)
 	return level.ParseLevelDataDocument(document)
 end
 
+function level.ParseMissionEnvironment(mission)
+	local sun_direction
+	local fog_density
+	local fog_atmosphere_height
+	local fog_density_offset = 0
+	local ocean
+	local wind
+	local environment = find_child_by_tag(mission, "Environment")
+	local env_state = environment and find_child_by_tag(environment, "EnvState")
+	local ocean_node = environment and find_child_by_tag(environment, "Ocean")
+	local animation = environment and find_child_by_tag(environment, "OceanAnimation")
+
+	if ocean_node then
+		local animation_attrs = animation and animation.attrs or {}
+		ocean = {
+			fog_color = parse_vec3(ocean_node.attrs.FogColor, 51, 127, 178) / 255,
+			fog_color_multiplier = tonumber(ocean_node.attrs.FogColorMultiplier) or 0.2,
+			fog_density = tonumber(ocean_node.attrs.FogDensity) or 0.1,
+			wind_direction = tonumber(animation_attrs.WindDirection) or 1,
+			wind_speed = tonumber(animation_attrs.WindSpeed) or 4,
+			waves_size = tonumber(animation_attrs.WavesSize) or 0.75,
+		}
+	end
+
+	if env_state and env_state.attrs.WindVector then
+		wind = units.ToEngine(parse_vec3(env_state.attrs.WindVector))
+	end
+
+	local time_of_day = find_child_by_tag(mission, "TimeOfDay")
+	local lighting = find_child_by_tag(mission, "Lighting") or
+		environment and
+		find_child_by_tag(environment, "Lighting")
+
+	for variable in iter_children_by_tag(time_of_day, "Variable") do
+		if variable.attrs.Name == "Volumetric fog: Global density" then
+			fog_density = tonumber(variable.attrs.Value)
+		elseif variable.attrs.Name == "Volumetric fog: Atmosphere height" then
+			fog_atmosphere_height = tonumber(variable.attrs.Value)
+		elseif variable.attrs.Name == "Volumetric fog: Density offset (in reality 0)" then
+			fog_density_offset = tonumber(variable.attrs.Value)
+		end
+	end
+
+	if time_of_day and lighting then
+		local time = ((tonumber(time_of_day.attrs.Time) + 12) / 24) * math.pi * 2
+		local longitude = 0.5 * math.pi - math.rad(tonumber(lighting.attrs.Longitude))
+		local latitude = -math.rad(tonumber(lighting.attrs.SunRotation))
+		local x, y, z = math.sin(time), math.cos(time), 0
+		y, z = y * math.cos(longitude), -y * math.sin(longitude)
+		x, z = x * math.cos(latitude) - z * math.sin(latitude),
+		x * math.sin(latitude) + z * math.cos(latitude)
+		sun_direction = units.ToEngine(Vec3(x, -z, y))
+	end
+
+	return {
+		sun_direction = sun_direction,
+		fog_density = fog_density,
+		fog_atmosphere_height = fog_atmosphere_height,
+		fog_density_offset = fog_density_offset,
+		wind = wind,
+		ocean = ocean,
+	}
+end
+
 function level.ParseEditorLevelDocument(document)
 	local root = document and document.children and document.children[1]
 	local attrs = root and root.attrs or nil
@@ -701,59 +905,22 @@ function level.ParseEditorLevelDocument(document)
 		end
 	end
 
-	local sun_direction
-	local fog_density
-	local fog_atmosphere_height
-	local ocean
+	local environment = {}
 	local missions = find_child_by_tag(root, "Missions")
 
 	for mission in iter_children_by_tag(missions, "Mission") do
 		if mission.attrs.Name == missions.attrs.Current then
-			local environment = find_child_by_tag(mission, "Environment")
-			local ocean_node = environment and find_child_by_tag(environment, "Ocean")
-			local animation = environment and find_child_by_tag(environment, "OceanAnimation")
-
-			if ocean_node then
-				local animation_attrs = animation and animation.attrs or {}
-				ocean = {
-					fog_color = parse_vec3(ocean_node.attrs.FogColor, 51, 127, 178) / 255,
-					fog_color_multiplier = tonumber(ocean_node.attrs.FogColorMultiplier) or 0.2,
-					fog_density = tonumber(ocean_node.attrs.FogDensity) or 0.1,
-					wind_direction = tonumber(animation_attrs.WindDirection) or 1,
-					wind_speed = tonumber(animation_attrs.WindSpeed) or 4,
-					waves_size = tonumber(animation_attrs.WavesSize) or 0.75,
-				}
-			end
-
-			local time_of_day = find_child_by_tag(mission, "TimeOfDay")
-			local lighting = find_child_by_tag(mission, "Lighting")
-
-			for variable in iter_children_by_tag(time_of_day, "Variable") do
-				if variable.attrs.Name == "Volumetric fog: Global density" then
-					fog_density = tonumber(variable.attrs.Value)
-				elseif variable.attrs.Name == "Volumetric fog: Atmosphere height" then
-					fog_atmosphere_height = tonumber(variable.attrs.Value)
-				end
-			end
-
-			if time_of_day and lighting then
-				local time = ((tonumber(time_of_day.attrs.Time) + 12) / 24) * math.pi * 2
-				local longitude = 0.5 * math.pi - math.rad(tonumber(lighting.attrs.Longitude))
-				local latitude = -math.rad(tonumber(lighting.attrs.SunRotation))
-				local x, y, z = math.sin(time), math.cos(time), 0
-				y, z = y * math.cos(longitude), -y * math.sin(longitude)
-				x, z = x * math.cos(latitude) - z * math.sin(latitude),
-				x * math.sin(latitude) + z * math.cos(latitude)
-				sun_direction = units.ToEngine(Vec3(x, -z, y))
-			end
+			environment = level.ParseMissionEnvironment(mission)
 		end
 	end
 
 	return {
-		sun_direction = sun_direction,
-		fog_density = fog_density,
-		fog_atmosphere_height = fog_atmosphere_height,
-		ocean = ocean,
+		sun_direction = environment.sun_direction,
+		fog_density = environment.fog_density,
+		fog_atmosphere_height = environment.fog_atmosphere_height,
+		fog_density_offset = environment.fog_density_offset,
+		wind = environment.wind,
+		ocean = environment.ocean,
 		heightmap_width = tonumber(attrs.HeightmapWidth) or 0,
 		heightmap_height = tonumber(attrs.HeightmapHeight) or 0,
 		tile_count_x = tonumber(attrs.TileCountX) or 0,
@@ -873,6 +1040,28 @@ local function sample_terrain_normal_at_world(terrain, world_x, world_z)
 	return normal:GetNormalized()
 end
 
+local function make_vegetation_entry(index, prototype, position, scale, angle, terrain)
+	local terrain_normal
+
+	if (prototype.align_to_terrain or prototype.fit_to_terrain) and terrain then
+		local engine_position = units.ToEngine(position)
+		terrain_normal = sample_terrain_normal_at_world(terrain, engine_position.x, engine_position.z)
+	end
+
+	return {
+		name = string.format("vegetation_%d_%d", prototype.id, index),
+		model_path = prototype.model_path,
+		material_path = prototype.material_path,
+		prototype_id = prototype.id,
+		position = position,
+		scale = scale,
+		yaw = angle / 255 * math.pi * 2,
+		use_sprites = prototype.use_sprites,
+		fit_to_terrain = prototype.fit_to_terrain,
+		terrain_normal = terrain_normal,
+	}
+end
+
 function level.ParseVegetationInstancesData(data, prototypes, terrain)
 	if type(data) ~= "string" or data == "" then return {} end
 
@@ -885,35 +1074,43 @@ function level.ParseVegetationInstancesData(data, prototypes, terrain)
 
 	for index = 0, math.floor(#data / stride) - 1 do
 		local offset = index * stride + 1
-		local prototype_id, brightness, angle = data:byte(offset + 16, offset + 18)
+		local prototype_id, _, angle = data:byte(offset + 16, offset + 18)
 		local prototype = prototypes and prototypes.by_id and prototypes.by_id[prototype_id] or nil
 
 		if level.IsVegetationPrototypeSupportedFirstPass(prototype, terrain) then
-			local position = Vec3(
-				read_f32_le(data, offset) or 0,
-				read_f32_le(data, offset + 4) or 0,
-				read_f32_le(data, offset + 8) or 0
+			entries[#entries + 1] = make_vegetation_entry(
+				index + 1,
+				prototype,
+				Vec3(
+					read_f32_le(data, offset) or 0,
+					read_f32_le(data, offset + 4) or 0,
+					read_f32_le(data, offset + 8) or 0
+				),
+				read_f32_le(data, offset + 12) or 1,
+				angle,
+				terrain
 			)
-			local terrain_normal
+		end
+	end
 
-			if (prototype.align_to_terrain or prototype.fit_to_terrain) and terrain then
-				local engine_position = units.ToEngine(position)
-				terrain_normal = sample_terrain_normal_at_world(terrain, engine_position.x, engine_position.z)
-			end
+	return entries
+end
 
-			entries[#entries + 1] = {
-				name = string.format("vegetation_%d_%d", prototype_id, index + 1),
-				model_path = prototype.model_path,
-				material_path = prototype.material_path,
-				prototype_id = prototype_id,
-				position = position,
-				scale = read_f32_le(data, offset + 12) or 1,
-				yaw = angle / 255 * math.pi * 2,
-				brightness = brightness,
-				use_sprites = prototype.use_sprites,
-				fit_to_terrain = prototype.fit_to_terrain,
-				terrain_normal = terrain_normal,
-			}
+function level.ParseCompiledVegetationInstances(instances, prototypes, terrain)
+	local entries = {}
+
+	for index, instance in ipairs(instances) do
+		local prototype = prototypes.by_id[instance.prototype_id]
+
+		if level.IsVegetationPrototypeSupportedFirstPass(prototype, terrain) then
+			entries[#entries + 1] = make_vegetation_entry(
+				index,
+				prototype,
+				Vec3(instance.x, instance.y, instance.z),
+				instance.scale,
+				instance.angle,
+				terrain
+			)
 		end
 	end
 
@@ -1009,7 +1206,17 @@ local function rebuild_terrain_surface_slot_cache(terrain)
 	terrain.surface_slot_samples = samples
 end
 
-function level.LoadTerrainData(level_dir)
+local function set_height_data(terrain, data, width, height)
+	terrain.height_data = data
+	terrain.height_data_offset = 1
+	terrain.height_samples_per_side = width
+	terrain.height_samples_width = width
+	terrain.height_samples_height = height
+	terrain.height_sample_scale = terrain.heightmap_max_height / 65535
+	rebuild_terrain_height_cache(terrain)
+end
+
+function level.LoadTerrainData(level_dir, mission_environment)
 	local level_data_path = level_dir .. "level.pak/leveldata.xml"
 	local level_data_xml, level_data_err = vfs.Read(level_data_path)
 
@@ -1022,7 +1229,8 @@ function level.LoadTerrainData(level_dir)
 	if not terrain then return nil, parse_err end
 
 	terrain.level_dir = level_dir
-	local cry_game = game.FindCryGame()
+	local cry_game = game.GetGameForLevel(level_dir)
+	terrain.plain_cover_color = cry_game.plain_terrain_color
 
 	do
 		local cover_path = level_dir .. "level.pak/terrain/cover.ctc"
@@ -1039,8 +1247,8 @@ function level.LoadTerrainData(level_dir)
 		terrain.cover = cover
 	end
 
-	local level_name = level_dir:match("/([^/]+)/$") or ""
-	local editor_level_path = level_dir .. level_name .. ".cry/level.editor_xml"
+	terrain.editor_level = mission_environment
+	local editor_level_path = game.GetEditorDirectory(level_dir) .. "level.editor_xml"
 	local editor_level_xml = vfs.Read(editor_level_path)
 
 	if editor_level_xml then
@@ -1057,7 +1265,7 @@ function level.LoadTerrainData(level_dir)
 		end
 	end
 
-	local surface_slot_path = level_dir .. level_name .. ".cry/heightmaplayeridbitmap.editor_data"
+	local surface_slot_path = game.GetEditorDirectory(level_dir) .. "heightmaplayeridbitmap.editor_data"
 	local surface_slot_data, surface_slot_err = vfs.Read(surface_slot_path)
 
 	if surface_slot_data then
@@ -1096,7 +1304,7 @@ function level.LoadTerrainData(level_dir)
 		)
 	end
 
-	local heightmap_path = level_dir .. level_name .. ".cry/heightmapdataw.editor_data"
+	local heightmap_path = game.GetEditorDirectory(level_dir) .. "heightmapdataw.editor_data"
 	local heightmap_data, heightmap_err = vfs.Read(heightmap_path)
 
 	if heightmap_data then
@@ -1113,13 +1321,7 @@ function level.LoadTerrainData(level_dir)
 			height_samples_h > 0 and
 			#heightmap_data == expected_size
 		then
-			terrain.height_data = heightmap_data
-			terrain.height_data_offset = 1
-			terrain.height_samples_per_side = height_samples_w
-			terrain.height_samples_width = height_samples_w
-			terrain.height_samples_height = height_samples_h
-			terrain.height_sample_scale = terrain.heightmap_max_height / 65535
-			rebuild_terrain_height_cache(terrain)
+			set_height_data(terrain, heightmap_data, height_samples_w, height_samples_h)
 		else
 			wlog(
 				"cry terrain editor heightmap %s size mismatch: got %d expected %d (%dx%d samples)",
@@ -1131,11 +1333,23 @@ function level.LoadTerrainData(level_dir)
 			)
 		end
 	else
-		wlog(
-			"failed to read cry terrain editor heightmap %s: %s",
-			tostring(heightmap_path),
-			tostring(heightmap_err)
-		)
+		local compiled_data = vfs.Read(level_dir .. "level.pak/terrain/heightmap.dat")
+
+		if compiled_data then
+			local compiled = compiled_terrain.Parse(compiled_data, terrain.heightmap_max_height)
+			set_height_data(terrain, compiled.height_data, compiled.size, compiled.size)
+			terrain.surface_indices = compiled.surface_indices
+			terrain.surface_slot_width = compiled.size
+			terrain.surface_slot_height = compiled.size
+			terrain.compiled_data = compiled_data
+			terrain.compiled_instances_offset = compiled.instances_offset
+		else
+			wlog(
+				"failed to read cry terrain editor heightmap %s: %s",
+				tostring(heightmap_path),
+				tostring(heightmap_err)
+			)
+		end
 	end
 
 	terrain.surface_types = terrain.surface_types or {}
@@ -1297,7 +1511,7 @@ function level.SampleRenderedTerrainHeight(terrain, world_x, world_z)
 end
 
 local loaded_levels = {}
-local libraries
+local libraries_by_game = {}
 
 function level.Load(level_dir)
 	startup.Begin("mount cry paks")
@@ -1306,6 +1520,7 @@ function level.Load(level_dir)
 
 	if loaded_levels[level_dir] then return loaded_levels[level_dir] end
 
+	local compiled = not vfs.IsDirectory(game.GetEditorDirectory(level_dir))
 	startup.Begin("read layers")
 	local nodes = {}
 	local layers_dir = level_dir .. "Layers/"
@@ -1331,8 +1546,7 @@ function level.Load(level_dir)
 
 	startup.End("read layers")
 	startup.Begin("parse editor objects")
-	local level_name = level_dir:match("/([^/]+)/$") or ""
-	local editor_level_path = level_dir .. level_name .. ".cry/level.editor_xml"
+	local editor_level_path = game.GetEditorDirectory(level_dir) .. "level.editor_xml"
 	local editor_level_data, editor_level_err = vfs.Read(editor_level_path)
 
 	if editor_level_data then
@@ -1347,7 +1561,7 @@ function level.Load(level_dir)
 				tostring(parse_err)
 			)
 		end
-	elseif editor_level_err then
+	elseif editor_level_err and not compiled then
 		wlog(
 			"failed to read cry editor level objects %s: %s",
 			tostring(editor_level_path),
@@ -1357,8 +1571,31 @@ function level.Load(level_dir)
 
 	startup.End("parse editor objects")
 	startup.Begin("extract visual objects")
-	libraries = libraries or level.LoadLibraries()
+	local appid = game.GetGameForLevel(level_dir).appid
+	local libraries = libraries_by_game[appid] or level.LoadLibraries()
+	libraries_by_game[appid] = libraries
+	local brush_entries
+	local mission
+
+	if compiled then
+		mission = assert(xml.Decode(assert(vfs.Read(level_dir .. "level.pak/mission_mission0.xml")))).children[1]
+		nodes = level.ParseMissionObjects(mission, libraries)
+		brush_entries = assert(
+			level.ParseBrushEntries(
+				level_dir,
+				assert(vfs.Read(level_dir .. "level.pak/brush.lst")),
+				assert(vfs.Read(level_dir .. "level.pak/resourcelist.txt"))
+			)
+		)
+	end
+
 	local entries, extra = level.ExtractVisualObjects(nodes, libraries)
+
+	if brush_entries then list.extend(entries, brush_entries) end
+
+	for i = #entries, 1, -1 do
+		if HIDDEN_MODELS[entries[i].model_path:lower()] then table.remove(entries, i) end
+	end
 
 	for _, entry in ipairs(entries) do
 		entry.model_path = game.ResolveModelPath(level_dir, entry.model_path)
@@ -1378,57 +1615,23 @@ function level.Load(level_dir)
 
 	startup.End("extract visual objects")
 	startup.Begin("load terrain data")
-	local terrain = level.LoadTerrainData(level_dir)
+	local terrain = level.LoadTerrainData(level_dir, mission and level.ParseMissionEnvironment(mission))
 	startup.End("load terrain data")
 	startup.Begin("vegetation instances")
 	local vegetation_entries = {}
 	local vegetation_prototypes
+	local vegetation_instances
 	local vegetation_map_data = editor_level_data
 
 	if vegetation_map_data then
 		local prototypes, vegetation_map_err = level.ParseVegetationMapData(vegetation_map_data)
-		local vegetation_instances_data, vegetation_instances_err = vfs.Read(level_dir .. level_name .. ".cry/vegetationinstancesarray.editor_data")
+		local vegetation_instances_data, vegetation_instances_err = vfs.Read(game.GetEditorDirectory(level_dir) .. "vegetationinstancesarray.editor_data")
 
 		if prototypes and vegetation_instances_data then
 			vegetation_prototypes = prototypes
-			local cgf_decoder = import("goluwa/render3d/model_decoders/cgf.lua")
-
-			for _, prototype in ipairs(prototypes.list) do
-				prototype.model_path = game.ResolveModelPath(level_dir, prototype.model_path)
-
-				if prototype.material_path then
-					prototype.material_path = game.ResolveMaterialPath(level_dir, prototype.material_path)
-				end
-
-				local material_paths = prototype.material_path and
-					{prototype.material_path} or
-					cgf_decoder.GetMaterialPaths(prototype.model_path)
-				prototype.material_paths = material_paths
-				prototype.surface = "wood"
-
-				for _, material_path in ipairs(material_paths) do
-					for _, material in ipairs(mtl_material.FromCryMTLList(material_path)) do
-						local surface = material:GetSurfaceType()
-
-						if surface == "rock" or surface == "boulder" then
-							prototype.surface = surface
-						end
-					end
-				end
-
-				prototype.has_physics = cgf_decoder.HasPhysics(prototype.model_path)
-				prototype.fit_to_terrain = level.IsVegetationFitToTerrain(material_paths)
-
-				if
-					prototype.use_terrain_color and
-					not prototype.material_path and
-					#material_paths == 1
-				then
-					prototype.material_path = material_paths[1]
-				end
+			vegetation_instances = function()
+				return level.ParseVegetationInstancesData(vegetation_instances_data, prototypes, terrain)
 			end
-
-			vegetation_entries = level.ParseVegetationInstancesData(vegetation_instances_data, prototypes, terrain)
 		elseif vegetation_map_err then
 			wlog(
 				"failed to parse cry vegetation map %s: %s",
@@ -1438,10 +1641,57 @@ function level.Load(level_dir)
 		elseif vegetation_instances_err then
 			wlog(
 				"failed to read cry vegetation instances %s: %s",
-				tostring(level_dir .. level_name .. ".cry/vegetationinstancesarray.editor_data"),
+				tostring(game.GetEditorDirectory(level_dir) .. "vegetationinstancesarray.editor_data"),
 				tostring(vegetation_instances_err)
 			)
 		end
+	elseif terrain and terrain.compiled_data then
+		local prototypes, instances = compiled_vegetation.Parse(terrain.compiled_data, terrain.compiled_instances_offset)
+		vegetation_prototypes = prototypes
+		vegetation_instances = function()
+			return level.ParseCompiledVegetationInstances(instances, prototypes, terrain)
+		end
+	end
+
+	if vegetation_prototypes then
+		local cgf_decoder = import("goluwa/render3d/model_decoders/cgf.lua")
+
+		for _, prototype in ipairs(vegetation_prototypes.list) do
+			prototype.model_path = game.ResolveModelPath(level_dir, prototype.model_path)
+
+			if prototype.material_path then
+				prototype.material_path = game.ResolveMaterialPath(level_dir, prototype.material_path)
+			end
+
+			local material_paths = prototype.material_path and
+				{prototype.material_path} or
+				cgf_decoder.GetMaterialPaths(prototype.model_path)
+			prototype.material_paths = material_paths
+			prototype.surface = "wood"
+
+			for _, material_path in ipairs(material_paths) do
+				for _, material in ipairs(mtl_material.FromCryMTLList(material_path)) do
+					local surface = material:GetSurfaceType()
+
+					if surface == "rock" or surface == "boulder" then
+						prototype.surface = surface
+					end
+				end
+			end
+
+			prototype.has_physics = cgf_decoder.HasPhysics(prototype.model_path)
+			prototype.fit_to_terrain = level.IsVegetationFitToTerrain(material_paths)
+
+			if
+				prototype.use_terrain_color and
+				not prototype.material_path and
+				#material_paths == 1
+			then
+				prototype.material_path = material_paths[1]
+			end
+		end
+
+		vegetation_entries = vegetation_instances()
 	end
 
 	startup.End("vegetation instances")
@@ -1454,6 +1704,7 @@ function level.Load(level_dir)
 		decals = extra.decals,
 		roads = extra.roads,
 		spawns = extra.spawns,
+		lights = extra.lights,
 		terrain = terrain,
 	}
 	return loaded_levels[level_dir]

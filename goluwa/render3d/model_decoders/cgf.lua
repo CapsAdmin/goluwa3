@@ -765,7 +765,13 @@ function cgf.ResolveMaterialPath(model_path, material_name)
 	end
 
 	local material_path = material_root .. name .. ".mtl"
-	return vfs.FindMixedCasePath(material_path) or material_path
+	local found = vfs.FindMixedCasePath(material_path)
+
+	if found then return found end
+
+	local pak_relative_root = material_root:match("%.[pP][aA][kK]/(.*)$")
+	local mounted = pak_relative_root and vfs.FindMixedCasePath(pak_relative_root .. name .. ".mtl")
+	return mounted or material_path
 end
 
 function cgf.HasPhysics(path)

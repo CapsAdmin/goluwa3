@@ -5,10 +5,40 @@ local event = import("goluwa/event.lua")
 local game = {
 	CRYSIS_APPID = 17300,
 }
+local GAMES = {
+	{
+		appid = 17300,
+		key = "crysis",
+		paks = {"ZPatch1", "Objects", "Textures", "GameData", "Localized/english"},
+	},
+	{
+		appid = 17340,
+		key = "wars",
+		paks = {"ZPatch1", "Objects", "Textures", "GameData", "Localized/english"},
+	},
+	{
+		appid = 17330,
+		key = "warhead",
+		plain_terrain_color = true,
+		paks = {
+			"VPatch1",
+			"Objects",
+			"Textures",
+			"GameData",
+			"Warhead_Objects",
+			"Warhead_Textures",
+			"Warhead_GameData",
+			"Localized/english",
+		},
+	},
+}
 local mounts = {}
 local content_mounts = {}
+local mounted_appid
+local enabled = {}
 local mount_root
-local cached_game
+local installed
+local current_game
 
 local function clear_mounts(mounts)
 	for _, mount in ipairs(mounts or {}) do
@@ -26,26 +56,61 @@ local function ensure_trailing_slash(path)
 	return path
 end
 
-function game.FindCryGame()
-	if cached_game then return cached_game end
+function game.GetInstalledGames()
+	if installed then return installed end
+
+	installed = {}
+	local by_appid = {}
 
 	for _, candidate in ipairs(steam.GetGames()) do
-		if candidate.appid == game.CRYSIS_APPID then
-			cached_game = candidate
-			return candidate
+		by_appid[candidate.appid] = candidate
+	end
+
+	for _, info in ipairs(GAMES) do
+		local steam_game = by_appid[info.appid]
+
+		if steam_game then
+			installed[#installed + 1] = {
+				appid = info.appid,
+				key = info.key,
+				name = steam_game.name,
+				game_dir = steam_game.game_dir,
+				paks = info.paks,
+				plain_terrain_color = info.plain_terrain_color,
+			}
 		end
 	end
 
-	return nil, "Crysis 1 not found"
+	return installed
 end
 
-function game.ListLevels()
-	local cry_game = game.FindCryGame()
+function game.GetGame(appid)
+	for _, info in ipairs(game.GetInstalledGames()) do
+		if info.appid == appid then return info end
+	end
+
+	return nil, "Crysis game " .. tostring(appid) .. " not found"
+end
+
+function game.GetGameForLevel(level_dir)
+	for _, info in ipairs(game.GetInstalledGames()) do
+		if level_dir:starts_with(info.game_dir) then return info end
+	end
+end
+
+function game.FindCryGame()
+	if current_game then return current_game end
+
+	local first = game.GetInstalledGames()[1]
+
+	if first then return first end
+
+	return nil, "Crysis not found"
+end
+
+function game.ListLevels(info)
 	local levels = {}
-
-	if not cry_game then return levels end
-
-	local root = cry_game.game_dir .. "Game/Levels/"
+	local root = info.game_dir .. "Game/Levels/"
 
 	local function scan(relative)
 		local entries = vfs.Find(root .. relative)
@@ -88,27 +153,46 @@ function game.ResolveLevelDirectory(level)
 		return nil, "missing Crysis level path"
 	end
 
-	local normalized = ensure_trailing_slash(level)
+	local key, rest = level:match("^(%a+):(.+)$")
+	local normalized = ensure_trailing_slash(rest or level)
 
 	if vfs.IsDirectory(normalized) then return normalized end
 
 	if not file_path.IsPathAbsolutePath(normalized) then
-		local cry_game, err = game.FindCryGame()
+		for _, info in ipairs(game.GetInstalledGames()) do
+			if not key or info.key == key then
+				local candidate = ensure_trailing_slash(info.game_dir .. "Game/Levels/" .. normalized)
 
-		if not cry_game then return nil, err end
-
-		local candidate = ensure_trailing_slash(cry_game.game_dir .. "Game/Levels/" .. normalized)
-
-		if vfs.IsDirectory(candidate) then return candidate end
+				if vfs.IsDirectory(candidate) then return candidate end
+			end
+		end
 	end
 
 	return nil, "could not resolve Crysis level directory " .. tostring(level)
 end
 
-local function resolve_model_path_impl(level_dir, model_path)
+do
+	local cache = {}
+
+	function game.GetEditorDirectory(level_dir)
+		local cached = cache[level_dir]
+
+		if cached then return cached end
+
+		for _, entry in ipairs(vfs.Find(level_dir)) do
+			if entry:lower():ends_with(".cry") then
+				cache[level_dir] = level_dir .. entry .. "/"
+				return cache[level_dir]
+			end
+		end
+
+		return level_dir .. (level_dir:match("/([^/]+)/$") or "") .. ".cry/"
+	end
+end
+
+local function resolve_model_path_impl(level_dir, model_path, cry_game)
 	local normalized = file_path.FixPathSlashes(model_path)
 	local candidates = {normalized}
-	local cry_game = game.FindCryGame()
 	local root, rest = normalized:match("^([^/]+)/(.+)$")
 	local root_lower = root and root:lower() or nil
 	local mounted_root = root_lower == "objects" and
@@ -128,7 +212,7 @@ local function resolve_model_path_impl(level_dir, model_path)
 	if level_dir then
 		candidates[#candidates + 1] = level_dir .. "level.pak/" .. normalized
 		candidates[#candidates + 1] = level_dir .. "terraintexture.pak/" .. normalized
-		candidates[#candidates + 1] = level_dir .. file_path.GetFileNameFromPath(level_dir:sub(1, -2)) .. ".cry/" .. normalized
+		candidates[#candidates + 1] = game.GetEditorDirectory(level_dir) .. normalized
 	end
 
 	if cry_game and cry_game.game_dir then
@@ -152,12 +236,20 @@ end
 local resolved_model_path_cache = {}
 
 function game.ResolveModelPath(level_dir, model_path)
-	local cache_key = (level_dir or "") .. "\0" .. model_path
+	local cry_game = level_dir and game.GetGameForLevel(level_dir) or game.FindCryGame()
+	local cache_key = (
+			cry_game and
+			cry_game.appid or
+			0
+		) .. "\0" .. (
+			level_dir or
+			""
+		) .. "\0" .. model_path
 	local cached = resolved_model_path_cache[cache_key]
 
 	if cached then return cached end
 
-	local result = resolve_model_path_impl(level_dir, model_path)
+	local result = resolve_model_path_impl(level_dir, model_path, cry_game)
 	resolved_model_path_cache[cache_key] = result
 	return result
 end
@@ -178,41 +270,71 @@ local function mount_directory(list, where, game_info)
 	end
 end
 
-function game.IsMounted()
-	return #content_mounts > 0
+local function unmount_content()
+	content_mounts = clear_mounts(content_mounts)
+	mounts = clear_mounts(mounts)
+	mount_root = nil
+	mounted_appid = nil
 end
 
-function game.MountContent()
-	if game.IsMounted() then return end
+local function mount_content(appid)
+	if mounted_appid == appid then return end
 
-	local cry_game, err = game.FindCryGame()
+	unmount_content()
+	local info = assert(game.GetGame(appid))
+	local game_info = {game = info.name}
 
-	if not cry_game then error(err) end
+	for _, pak in ipairs(info.paks) do
+		local path = vfs.FindMixedCasePath(info.game_dir .. "Game/" .. pak .. ".pak")
 
-	local game_info = {game = cry_game.name}
-	mount_directory(content_mounts, cry_game.game_dir .. "Game/Objects.pak/", game_info)
-	mount_directory(content_mounts, cry_game.game_dir .. "Game/Textures.pak/", game_info)
-	mount_directory(content_mounts, cry_game.game_dir .. "Game/GameData.pak/", game_info)
-	mount_directory(content_mounts, cry_game.game_dir .. "Game/Localized/english.pak/", game_info)
+		if path then mount_directory(content_mounts, path, game_info) end
+	end
+
+	mounted_appid = appid
+	current_game = info
 	event.Call("SourceGameMounted", game_info)
 end
 
-function game.UnmountContent()
-	content_mounts = clear_mounts(content_mounts)
+function game.IsMounted(appid)
+	if appid then return enabled[appid] == true end
+
+	return next(enabled) ~= nil
+end
+
+function game.MountContent(appid)
+	enabled[appid] = true
+	mount_content(appid)
+end
+
+function game.UnmountContent(appid)
+	enabled[appid] = nil
+
+	if appid ~= mounted_appid then return end
+
+	unmount_content()
+
+	for _, info in ipairs(game.GetInstalledGames()) do
+		if enabled[info.appid] then
+			mount_content(info.appid)
+
+			break
+		end
+	end
 end
 
 function game.EnsureLevelMounts(level_dir)
-	game.MountContent()
+	local info = assert(game.GetGameForLevel(level_dir), "level is not inside an installed Crysis game")
+	enabled[info.appid] = true
+	mount_content(info.appid)
 
 	if mount_root == level_dir then return end
 
 	mounts = clear_mounts(mounts)
 	mount_root = level_dir
-	local cry_game = game.FindCryGame()
-	local game_info = {game = cry_game.name}
+	local game_info = {game = info.name}
 	mount_directory(mounts, level_dir .. "level.pak/", game_info)
 	mount_directory(mounts, level_dir .. "terraintexture.pak/", game_info)
-	mount_directory(mounts, level_dir .. (level_dir:match("/([^/]+)/$") or "") .. ".cry/", game_info)
+	mount_directory(mounts, game.GetEditorDirectory(level_dir), game_info)
 end
 
 return game

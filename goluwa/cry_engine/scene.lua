@@ -6,6 +6,7 @@ local cry_water = import("goluwa/cry_engine/water.lua")
 local water = import("goluwa/render3d/water.lua")
 local fluid = import("goluwa/physics/fluid.lua")
 local scene = import("goluwa/entities/scene.lua")
+local Color = import("goluwa/structs/color.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
@@ -14,6 +15,10 @@ local cry_scene = {}
 local LEAF_CELL_TARGET = 64
 local LEAF_CHUNK_THRESHOLD = 256
 local DECAL_PROJECTIONS = {[0] = "planar", "objects", "terrain", "terrain_objects"}
+local CRY_LIGHT_LUX_PER_UNIT = 127000 / 3
+local CRY_LIGHT_INDIRECT_SOURCE_RADIUS = 0.5
+local CRY_LIGHT_SOURCE_RADIUS = 0.25
+local NO_OCEAN_WATER_LEVEL = -100000
 local DEFAULT_DENSITY = 1000
 local FRICTION = 0.8
 local MATRIX_FIELDS = {}
@@ -56,12 +61,13 @@ local function build_atmosphere_record(data)
 	local terrain = data.terrain
 	local editor_level = terrain and terrain.editor_level
 	local water_level = terrain and terrain.water_level or 0
-	local properties = {
-		OceanEnabled = water_level > 0,
-		OceanLevel = water_level,
-	}
+	local has_ocean = water_level > NO_OCEAN_WATER_LEVEL
+	local fog_base_height = has_ocean and water_level or 0
+	local properties = {OceanEnabled = water_level > 0}
 
-	if editor_level and editor_level.ocean then
+	if has_ocean then properties.OceanLevel = water_level end
+
+	if has_ocean and editor_level and editor_level.ocean then
 		local ocean = editor_level.ocean
 
 		if RENDER_3D then cry_water.EnableCrysisWaves() end
@@ -79,14 +85,17 @@ local function build_atmosphere_record(data)
 		}
 	end
 
+	if editor_level and editor_level.wind then
+		properties.Climate = {wind = editor_level.wind}
+	end
+
 	if editor_level and editor_level.fog_density then
-		local scale_height = editor_level.fog_atmosphere_height / 16
+		local scale_height = (editor_level.fog_atmosphere_height + editor_level.fog_density_offset) / 16
 		properties.GroundFogScaleHeight = scale_height
-		properties.GroundFogStartHeight = water_level
-		properties.GroundFogEndHeight = water_level + 8 * scale_height
-		properties.Climate = {
-			ground_fog_visibility = -math.log(0.02) / (0.01 * editor_level.fog_density),
-		}
+		properties.GroundFogStartHeight = fog_base_height
+		properties.GroundFogEndHeight = fog_base_height + 8 * scale_height
+		properties.Climate = properties.Climate or {}
+		properties.Climate.ground_fog_visibility = -math.log(0.02) / (0.01 * editor_level.fog_density)
 	end
 
 	if editor_level and editor_level.sun_direction then
@@ -495,6 +504,47 @@ function cry_scene.Translate(data, level_name, level_path, options)
 						Rotation = transform_data.rotation,
 					},
 					spawn_point = {Group = "spawn"},
+				},
+			}
+		end
+	end
+
+	if RENDER_3D and data.lights and data.lights[1] then
+		local lights_guid = add_folder(level_guid, "Lights")
+
+		for index, light in ipairs(data.lights) do
+			local transform_data = level.ConvertCryWorldMatrixToEngineTransform(light.world_matrix)
+			local source_radius = light.radius * (
+					light.indirect and
+					CRY_LIGHT_INDIRECT_SOURCE_RADIUS or
+					CRY_LIGHT_SOURCE_RADIUS
+				)
+			local color = Color(light.color.x, light.color.y, light.color.z, 1)
+			local lumen = 4 * math.pi * light.multiplier * CRY_LIGHT_LUX_PER_UNIT * (
+					1 + source_radius ^ 2
+				) * color:GetLuminance()
+			local component = {
+				Color = color,
+				Lumen = lumen,
+				SourceRadius = source_radius,
+				OcclusionMap = light.cast_shadow,
+			}
+
+			if light.spot_fov then
+				component.OuterCone = light.spot_fov / 2
+				component.InnerCone = light.spot_fov / 2 * 0.8
+			end
+
+			add{
+				guid = level_guid .. ":light:" .. index,
+				parent = lights_guid,
+				properties = {Name = light.name or "cry_light"},
+				components = {
+					transform = {
+						Position = transform_data.position,
+						Rotation = transform_data.rotation,
+					},
+					[light.spot_fov and "light_spot" or "light_point"] = component,
 				},
 			}
 		end

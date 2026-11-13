@@ -26,6 +26,14 @@ do
 		color = pow(color, vec3(1.5)) * 0.5;
 		return vec4(color, 1.0);
 	]]
+	local ATLAS_NODE_PLAIN_GLSL = [[
+		vec2 cell = uv * float(atlas_node.span) - vec2(atlas_node.x, atlas_node.y);
+
+		if (any(lessThan(cell, vec2(0.0))) || any(greaterThanEqual(cell, vec2(1.0)))) discard;
+
+		vec4 texel = texture(TEXTURE(atlas_node.source), cell);
+		return vec4(pow(texel.rgb, vec3(2.2)), 1.0);
+	]]
 	local LINEAR_CLAMP = {
 		min_filter = "linear",
 		mag_filter = "linear",
@@ -77,7 +85,7 @@ do
 			}
 			local constants = AtlasNodeConstants(0, node.x, node.y, 2 ^ node.level)
 			atlas:Shade(
-				ATLAS_NODE_GLSL,
+				terrain.plain_cover_color and ATLAS_NODE_PLAIN_GLSL or ATLAS_NODE_GLSL,
 				{
 					textures = {source},
 					load_op = i == 1 and "clear" or "load",
@@ -129,6 +137,7 @@ local function get_or_create_cry_terrain_layers(terrain)
 					specular = material:GetSpecularMultiplier(),
 					scatter = 0,
 					roughness = 1,
+					ice = material.cry_ice_absorption or 0,
 					surface = material:GetSurfaceType(),
 				}
 			else
@@ -137,7 +146,6 @@ local function get_or_create_cry_terrain_layers(terrain)
 					surface_type.detail_material_path
 				)
 			end
-					ice = material.cry_ice_absorption or 0,
 		end
 	end
 
