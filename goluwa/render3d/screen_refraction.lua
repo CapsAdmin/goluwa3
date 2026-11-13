@@ -1,3 +1,4 @@
+local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local screen_refraction = {}
 screen_refraction.WAVELENGTH_C = 0.6563
 screen_refraction.WAVELENGTH_D = 0.5876
@@ -5,7 +6,7 @@ screen_refraction.WAVELENGTH_F = 0.4861
 screen_refraction.WAVELENGTH_RGB = {0.61, 0.55, 0.465}
 
 function screen_refraction.GetGLSL(block_name)
-	return [[
+	return glsl_common.GetFresnelGLSL() .. [[
 
 		vec3 screen_refraction_dispersed_ior(float ior, float abbe) {
 			if (abbe <= 0.0) return vec3(ior);
@@ -15,6 +16,25 @@ function screen_refraction.GetGLSL(block_name)
 			return a + b / (wavelengths * wavelengths);
 		}
 
+		vec3 screen_refraction_fresnel(float cos_i, vec3 channel_ior) {
+			return vec3(
+				fresnel_dielectric(cos_i, channel_ior.r),
+				fresnel_dielectric(cos_i, channel_ior.g),
+				fresnel_dielectric(cos_i, channel_ior.b)
+			);
+		}
+
+		vec3 screen_refraction_exit(vec3 incident, vec3 outward, float ior, out float transmitted) {
+			vec3 exit_dir = refract(incident, -outward, ior);
+
+			if (dot(exit_dir, exit_dir) < 1e-6) {
+				transmitted = 1.0;
+				return incident;
+			}
+
+			transmitted = 1.0 - fresnel_dielectric(dot(incident, outward), ior);
+			return exit_dir;
+		}
 
 		vec3 screen_refraction_project(vec3 world_pos) {
 			vec4 clip = ]] .. block_name .. [[.projection * (]] .. block_name .. [[.view * vec4(world_pos, 1.0));

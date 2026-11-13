@@ -2018,11 +2018,7 @@ list.insert(
 				below_ray_dir = ray_dir;
 				float cos_i = dot(-normal_up, -ray_dir);
 				below_channel_ior = screen_refraction_dispersed_ior(w.ior, w.abbe);
-				below_fresnel = vec3(
-					fresnel_dielectric(cos_i, below_channel_ior.r),
-					fresnel_dielectric(cos_i, below_channel_ior.g),
-					fresnel_dielectric(cos_i, below_channel_ior.b)
-				);
+				below_fresnel = screen_refraction_fresnel(cos_i, below_channel_ior);
 				below_refracts = below_fresnel.r < 1.0;
 				below_primary = below_fresnel.g < 1.0 ? 1 : 0;
 				below_primary_dir = below_refracts ? normalize(refract(ray_dir, -normal_up, below_channel_ior[below_primary])) : normal_up;

@@ -733,17 +733,12 @@ local passes = {
 							if (traced_distance > 0.0) {
 								exit_pos = world_pos + T * traced_distance;
 								exit_outward = traced_normal;
-								exit_dir = refract(T, -traced_normal, ior);
+								float channel_transmitted;
+								exit_dir = screen_refraction_exit(T, traced_normal, ior, channel_transmitted);
+								exit_transmitted += channel_transmitted;
 								path_length += traced_distance;
 								flat_exit += dot(traced_normal, -facing_N) > 0.98 ? 1.0 : 0.0;
 								thick_body = true;
-
-								if (dot(exit_dir, exit_dir) < 1e-6) {
-									exit_dir = T;
-									exit_transmitted += 1.0;
-								} else {
-									exit_transmitted += 1.0 - fresnel_dielectric(dot(T, traced_normal), ior);
-								}
 							} else if (refraction.thickness > 0.0) {
 								float radius = max(1.0 / max(curvature, 1e-4), refraction.thickness * 0.5);
 								float cos_in = max(-dot(T, facing_N), 0.05);
@@ -752,17 +747,12 @@ local passes = {
 								exit_pos = world_pos + T * min(sphere_length, slab_length);
 								vec3 exit_N = sphere_length < slab_length ? normalize(exit_pos - (world_pos - facing_N * radius)) : -facing_N;
 								exit_outward = exit_N;
-								exit_dir = refract(T, -exit_N, ior);
+								float channel_transmitted;
+								exit_dir = screen_refraction_exit(T, exit_N, ior, channel_transmitted);
+								exit_transmitted += channel_transmitted;
 
 								path_length += min(sphere_length, slab_length);
 								flat_exit += sphere_length < slab_length ? 0.0 : 1.0;
-
-								if (dot(exit_dir, exit_dir) < 1e-6) {
-									exit_dir = T;
-									exit_transmitted += 1.0;
-								} else {
-									exit_transmitted += 1.0 - fresnel_dielectric(dot(T, exit_N), ior);
-								}
 							} else {
 								exit_dir = normalize(I + T - refract(I, facing_N, eta));
 							}
