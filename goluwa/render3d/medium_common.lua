@@ -5,6 +5,8 @@ medium_common.base_height = -1e9
 medium_common.thickness_per_height = 0
 medium_common.scatter_coefficient = 0.25
 medium_common.cover_slope = 0
+medium_common.porosity_low = 0.1
+medium_common.porosity_high = 1.0
 medium_common.presets = {
 	ice = {
 		extinction = {0.19, 0.058, 0.012},
@@ -35,7 +37,7 @@ do
 	function medium_common.GetGLSL(preset_name)
 		local preset = assert(medium_common.presets[preset_name or medium_common.preset:Get()], "unknown medium preset")
 		return string.format(
-		[[
+			[[
 	#ifndef MEDIUM_COMMON
 	#define MEDIUM_COMMON
 	#define MEDIUM_MAX_PATH 60.0
@@ -47,10 +49,10 @@ do
 	#define MEDIUM_POROUS_COLOR %s
 	#endif
 ]],
-		vec3(preset.extinction),
-		vec3(preset.tint_ratio),
-		vec3(preset.deep_color),
-		vec3(preset.porous_color)
+			vec3(preset.extinction),
+			vec3(preset.tint_ratio),
+			vec3(preset.deep_color),
+			vec3(preset.porous_color)
 		)
 	end
 end

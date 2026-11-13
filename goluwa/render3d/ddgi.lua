@@ -18,6 +18,7 @@ local directional_shadows = import("goluwa/render3d/directional_shadows.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
+local medium_common = import("goluwa/render3d/medium_common.lua")
 local ddgi = {}
 pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "ddgi_"})
 
@@ -903,7 +904,7 @@ function ddgi.GetMaterialDeclarationsGLSL(binding)
 end
 
 function ddgi.GetMaterialGLSL()
-	return import("goluwa/render3d/medium_common.lua").GetGLSL() .. [[
+	return medium_common.GetGLSL() .. [[
 
 		vec3 ddgi_albedo(ddgi_material material, vec3 P) {
 			if (material.terrain_tex >= 0) {
@@ -1904,8 +1905,8 @@ function ddgi.WriteMaterialBuffer(self)
 			local from_albedo = material:GetMediumPorosityFromAlbedo() > 0
 			entry.medium[0] = material:GetMediumAbsorption()
 			entry.medium[1] = material:GetMediumPorosity()
-			entry.medium[2] = from_albedo and material:GetMediumPorosityLow() or 2
-			entry.medium[3] = from_albedo and material:GetMediumPorosityHigh() or 3
+			entry.medium[2] = from_albedo and medium_common.porosity_low or 2
+			entry.medium[3] = from_albedo and medium_common.porosity_high or 3
 			entry.transparent = material:IsTransparent() and 1 or 0
 			entry.refractive = material:IsSeeThrough() and 1 or 0
 			local albedo2 = material:GetAlbedo2Texture()

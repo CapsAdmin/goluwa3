@@ -39,6 +39,9 @@ surface_lighting.block = {
 	{"medium_thickness_per_height", "float"},
 	{"medium_scatter_coefficient", "float"},
 	{"medium_cover_slope", "float"},
+	{"medium_porosity_low", "float"},
+	{"medium_porosity_high", "float"},
+	{"medium_noise_phase", "float"},
 	post_source.pre_exposure_block,
 }
 
@@ -82,6 +85,9 @@ function surface_lighting.WriteBlock(self, block)
 	block.medium_thickness_per_height = medium_common.thickness_per_height
 	block.medium_scatter_coefficient = medium_common.scatter_coefficient
 	block.medium_cover_slope = medium_common.cover_slope
+	block.medium_porosity_low = medium_common.porosity_low
+	block.medium_porosity_high = medium_common.porosity_high
+	block.medium_noise_phase = render3d.GetNoisePhase()
 	post_source.WritePreExposureBlock(self, block)
 	return block
 end
@@ -135,6 +141,14 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 			return ]] .. block_name .. [[.medium_scatter_coefficient;
 		}
 
+		float get_medium_porosity_low() {
+			return ]] .. block_name .. [[.medium_porosity_low;
+		}
+
+		float get_medium_porosity_high() {
+			return ]] .. block_name .. [[.medium_porosity_high;
+		}
+
 		float get_medium_cover_slope() {
 			return ]] .. block_name .. [[.medium_cover_slope;
 		}
@@ -157,11 +171,19 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 			vec3 tangent = normalize(cross(up, N));
 			vec3 bitangent = cross(N, tangent);
 			vec3 origin = P - G * 0.02;
+			uvec3 hash_v = floatBitsToUint(P) * 1664525u + 1013904223u;
+			hash_v.x += hash_v.y * hash_v.z;
+			hash_v.y += hash_v.z * hash_v.x;
+			hash_v.z += hash_v.x * hash_v.y;
+			hash_v ^= hash_v >> 16u;
+			hash_v.x += hash_v.y * hash_v.z;
+			float rotation = 6.2831853 * fract(float(hash_v.x >> 8u) / 16777216.0 + ]] .. block_name .. [[.medium_noise_phase);
+			float stratum = fract(float(hash_v.y >> 8u) / 16777216.0 + ]] .. block_name .. [[.medium_noise_phase * 1.6180339);
 			float sum = 0.0;
 
 			for (int i = 0; i < 6; i++) {
-				float azimuth = float(i) * 1.0471976;
-				float depression = (i & 1) == 0 ? 0.35 : 0.95;
+				float azimuth = float(i) * 2.3999632 + rotation;
+				float depression = mix(0.2, 1.1, fract(float(i) / 6.0 + stratum));
 				vec3 dir = normalize(tangent * (cos(azimuth) * cos(depression)) + bitangent * (sin(azimuth) * cos(depression)) - N * sin(depression));
 				float t = get_medium_light_path(origin, dir, cap);
 				sum += t > 0.0 ? t : cap;

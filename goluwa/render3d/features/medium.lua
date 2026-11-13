@@ -16,8 +16,6 @@ return {
 			default = 0.0,
 			callback = "InvalidateRayMaterial",
 		},
-		{name = "MediumPorosityLow", default = 0.35, callback = "InvalidateRayMaterial"},
-		{name = "MediumPorosityHigh", default = 0.8, callback = "InvalidateRayMaterial"},
 		{name = "MediumPorosityExposure", default = 0.0, getter = "get_medium_exposure"},
 	},
 	fields = {
@@ -37,7 +35,7 @@ return {
 			sheet = "specular",
 			kind = "unorm4",
 			default = "0.0",
-			material = "get_medium_porosity(uv)",
+			material = "factor_model.MediumPorosityFromAlbedo > 0.0 ? 1.0 : floor(min(factor_model.MediumPorosity, 1.0) * 14.0 + 0.5) / 15.0",
 			readers = {"lighting"},
 		},
 		{
@@ -49,18 +47,6 @@ return {
 			readers = {"lighting"},
 		},
 	},
-	getters = [[
-		float get_medium_porosity(vec2 uv) {
-			float porosity = factor_model.MediumPorosity;
-
-			if (factor_model.MediumPorosityFromAlbedo > 0.0) {
-				float brightness = pow(max(luminance(get_albedo_uv(uv)), 0.0), 1.0 / 2.2);
-				porosity = max(porosity, clamp((brightness - factor_model.MediumPorosityLow) / (factor_model.MediumPorosityHigh - factor_model.MediumPorosityLow), 0.0, 1.0));
-			}
-
-			return porosity;
-		}
-	]],
 	common = medium_common.GetGLSL(),
 	surface_members = [[
 
@@ -89,6 +75,15 @@ return {
 
 		if (s.medium_absorption > 0.0) {
 			float strength = saturate(s.medium_absorption / 10.0);
+
+			int porosity_level = int(floor(s.medium_porosity * 15.0 + 0.5));
+
+			if (porosity_level == 15) {
+				float brightness = pow(max(luminance(s.albedo), 0.0), 1.0 / 2.2);
+				s.medium_porosity = smoothstep(get_medium_porosity_low(), get_medium_porosity_high(), brightness);
+			} else {
+				s.medium_porosity = float(porosity_level) / 14.0;
+			}
 
 			int mode_level = int(floor(s.medium_mode * 15.0 + 0.5));
 			bool snow_mask = mode_level == 15;
@@ -151,7 +146,7 @@ return {
 	direct = [[
 		if (s.medium_absorption > 0.0) {
 			float diffusion = 1.0 - exp(-s.medium_thickness * get_medium_scatter_coefficient());
-			float surface_light = shadow_factor * mix(saturate(3.0 * dot(s.N, L)), saturate((dot(s.N, L) + 0.5) / 1.5), diffusion);
+			float surface_light = shadow_factor * mix(saturate(dot(s.N, L)), saturate((dot(s.N, L) + 0.5) / 1.5) / 1.5, diffusion);
 			vec3 through = vec3(0.0);
 
 			if (surface_light < 0.99) {
@@ -161,22 +156,24 @@ return {
 				through = mix(exp(-path * MEDIUM_EXTINCTION * (s.medium_absorption / 10.0)), exp(-path * MEDIUM_EXTINCTION * (s.medium_absorption / 10.0) * 0.35), s.medium_porosity);
 			}
 
-			vec3 light_through = surface_light + (1.0 - surface_light) * through;
+			vec3 light_through = surface_light + 0.5 * (1.0 - surface_light) * through;
 			diffuse += (1.0 - max(s.medium_cover, s.medium_porosity)) * s.medium_scatter * unshadowed_radiance * light_through * (1.0 - s.metallic) / PI;
 		}
 	]],
 	indirect = [[
 		if (s.medium_absorption > 0.0) {
-			float medium_body = 1.0 - max(s.medium_cover, s.medium_porosity);
+			float medium_matte = max(s.medium_cover, s.medium_porosity);
+			ambient_diffuse *= medium_matte;
+			float medium_body = 1.0 - medium_matte;
 
 			if (medium_body > 0.0) {
 				vec3 front_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, s.N) * sky_visibility;
 				vec3 back_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, -s.N);
 				vec3 back_irradiance = back_sky + max(irradiance - front_sky, vec3(0.0));
-				float far_side = max(get_medium_light_path(s.world_pos - s.geometric_N * 0.003, -s.N, MEDIUM_MAX_PATH), s.medium_thickness);
+				float far_side = get_medium_assumed_thickness(s.world_pos) > 0.0 ? s.medium_thickness : get_medium_light_path(s.world_pos - s.geometric_N * 0.003, -s.N, MEDIUM_MAX_PATH);
 				vec3 through = exp(-far_side * MEDIUM_EXTINCTION * (s.medium_absorption / 10.0));
-				ambient_diffuse += medium_body * s.medium_scatter * through * back_irradiance * ambient_occlusion * (1.0 - s.metallic);
-				ambient_diffuse += medium_body * s.medium_scatter * (1.0 - exp(-s.medium_thickness * get_medium_scatter_coefficient())) * 0.3 * irradiance * ambient_occlusion * (1.0 - s.metallic);
+				float in_scatter = 0.3 * (1.0 - exp(-far_side * get_medium_scatter_coefficient()));
+				ambient_diffuse += medium_body * s.medium_scatter * (in_scatter * irradiance + (1.0 - in_scatter) * through * back_irradiance) * ambient_occlusion * (1.0 - s.metallic);
 			}
 		}
 	]],
