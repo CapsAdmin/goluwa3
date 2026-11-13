@@ -18,6 +18,9 @@ function medium_common.GetGLSL()
 	#define MEDIUM_PANE_PATH 0.05
 	#define MEDIUM_BOUNCE_SHARE 0.6
 	#define MEDIUM_TRANSMIT_SHARE 1.0
+	#define MEDIUM_SCATTER_ORDERS 5
+	#define MEDIUM_ORDER_EXTINCTION 0.3
+	#define MEDIUM_ORDER_SCATTERING 0.55
 
 	vec3 optical_transmittance(vec3 extinction, float path) {
 		return exp(-extinction * path);
@@ -29,6 +32,23 @@ function medium_common.GetGLSL()
 
 	vec3 medium_scatter_phase(vec3 molecular, vec3 particles, float g, float mu) {
 		return molecular * medium_molecular_phase(mu) + particles * phase_henyey_greenstein(mu, g);
+	}
+
+	vec3 medium_multiple_scattering(vec3 optical_depth, float mu, float forward_g, float back_g, float back_share, float multiple) {
+		vec3 sum = vec3(0.0);
+		float a = 1.0;
+		float b = 1.0;
+		float c = 1.0;
+
+		for (int order = 0; order < MEDIUM_SCATTER_ORDERS; order++) {
+			float phase = mix(phase_henyey_greenstein(mu, forward_g * c), phase_henyey_greenstein(mu, back_g * c), back_share);
+			sum += (order == 0 ? 1.0 : b * multiple) * phase * exp(-optical_depth * a);
+			a *= MEDIUM_ORDER_EXTINCTION;
+			b *= MEDIUM_ORDER_SCATTERING;
+			c *= 0.5;
+		}
+
+		return sum;
 	}
 
 	float medium_refracted_cosine(float cos_incident, float ior) {

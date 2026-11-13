@@ -581,7 +581,7 @@ local scatter_pass = {
 				if (volume_density <= 0.0) continue;
 
 				vec3 volume_scattering = volume.scattering * volume_density;
-				vec3 volume_sun = sun * fog_sun_tint * phase_henyey_greenstein(mu, volume.g);
+				vec3 volume_sun = sun * medium_multiple_scattering(-log(max(fog_sun_tint, vec3(1e-6))), mu, volume.g, 0.0, 0.0, 1.0 - dot(fog_sun_tint, vec3(1.0 / 3.0)));
 				scattering += (volume_sun + ambient + get_fog_volume_light_scattering(ray_dir, world_pos, volume.g)) * volume_scattering;
 			}
 

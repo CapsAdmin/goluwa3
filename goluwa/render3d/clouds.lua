@@ -4,6 +4,8 @@ local Vec2 = import("goluwa/structs/vec2.lua")
 local Vec3 = import("goluwa/structs/vec3.lua")
 local atmosphere = import("goluwa/render3d/atmosphere.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
+local media = import("goluwa/render3d/media.lua")
+local medium_common = import("goluwa/render3d/medium_common.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local quality = import("goluwa/render3d/quality.lua")
 local clouds = {}
@@ -658,7 +660,7 @@ clouds.NOISE_GLSL = glsl_common.GetHashGLSL() .. glsl_common.GetRemapGLSL() .. [
 ]]
 
 function clouds.GetGLSL(block)
-	return glsl_common.GetRemapGLSL() .. [[
+	return medium_common.GetGLSL() .. glsl_common.GetRemapGLSL() .. [[
 		#define CLOUD_BLOCK ]] .. block .. [[
 
 		const float CLOUD_PLANET_RADIUS = 6371000.0;
@@ -676,8 +678,9 @@ function clouds.GetGLSL(block)
 		const float CLOUD_WARP_AMOUNT = 1.6;
 		const float CLOUD_WARP_NEAR = 2.0;
 		const float CLOUD_WARP_FAR = 8.0;
-		const float CLOUD_ORDER_EXTINCTION = 0.3;
-		const float CLOUD_ORDER_SCATTERING = 0.55;
+		const float CLOUD_FORWARD_G = ]] .. media.presets.cloud.PhaseG .. [[;
+		const float CLOUD_BACK_G = ]] .. media.presets.cloud.PhaseBackG .. [[;
+		const float CLOUD_BACK_SHARE = ]] .. media.presets.cloud.PhaseBackShare .. [[;
 		const float CLOUD_AMBIENT_SCALE = 0.85;
 		const float CLOUD_SUN_SCALE = 2.2;
 		const float CLOUD_DIFFUSION = 0.15 / (4.0 * PI);
@@ -901,26 +904,6 @@ function clouds.GetGLSL(block)
 			return field * shape.w;
 		}
 
-		float cloud_phase(float mu, float scale) {
-			return mix(phase_henyey_greenstein(mu, -0.25 * scale), phase_henyey_greenstein(mu, 0.8 * scale), 0.75);
-		}
-
-		float cloud_scattering(float od, float mu) {
-			float sum = 0.0;
-			float a = 1.0;
-			float b = 1.0;
-			float c = 1.0;
-
-			for (int o = 0; o < 5; o++) {
-				sum += b * cloud_phase(mu, c) * exp(-od * a);
-				a *= CLOUD_ORDER_EXTINCTION;
-				b *= CLOUD_ORDER_SCATTERING;
-				c *= 0.5;
-			}
-
-			return sum;
-		}
-
 		float cloud_light_optical_depth(int i, vec3 p, float alt, vec3 L, float L_up, int steps, float jitter) {
 			vec4 shape = CLOUD_BLOCK.cloud_layer_shape[i];
 			float step_size = shape.y * 0.025;
@@ -1107,7 +1090,7 @@ function clouds.GetGLSL(block)
 					float powder = mix(1.0, depth_powder * height_powder, saturate(mu * -0.5 + 0.6));
 					float base_shadow = mix(0.55, 1.0, smoothstep(-0.1, 0.45, shade));
 					float diffusion = CLOUD_DIFFUSION * exp(-light_od * 0.03) * mix(0.35, 1.0, smoothstep(0.0, 0.45, shade));
-					vec3 sun = light * CLOUD_SUN_SCALE * ((cloud_scattering(light_od, mu) + diffusion) * upper * powder * base_shadow * smoothstep(-0.1, 0.02, L_up));
+					vec3 sun = light * CLOUD_SUN_SCALE * ((medium_multiple_scattering(vec3(light_od), mu, CLOUD_FORWARD_G, CLOUD_BACK_G, CLOUD_BACK_SHARE, 1.0).x + diffusion) * upper * powder * base_shadow * smoothstep(-0.1, 0.02, L_up));
 					float column = shape.w * shape.y * ]] .. string.format("%.3f", MEAN_SHAPE_DENSITY * 0.05) .. [[;
 					float sky_od = cloud_density(i, p + up * CLOUD_SKY_PROBE_NEAR, alt + CLOUD_SKY_PROBE_NEAR, false, CLOUD_SKY_PROBE_NEAR) * (CLOUD_SKY_PROBE_NEAR * 2.0)
 						+ cloud_density(i, p + up * CLOUD_SKY_PROBE_FAR, alt + CLOUD_SKY_PROBE_FAR, false, CLOUD_SKY_PROBE_FAR) * (CLOUD_SKY_PROBE_FAR * 1.17)

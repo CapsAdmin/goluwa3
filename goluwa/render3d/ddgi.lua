@@ -1016,14 +1016,14 @@ function ddgi.GetOpticalTintGLSL()
 
 				vec3 albedo = volume.scattering / max(volume.extinction, vec3(1e-9));
 				float mu = dot(dir, sun_dir);
-				float phase = (1.0 - volume.g * volume.g) / (4.0 * 3.14159265359 * pow(max(1.0 + volume.g * volume.g - 2.0 * volume.g * mu, 1e-4), 1.5));
 				vec3 previous = vec3(1.0);
 
 				for (int k = 0; k < 3; k++) {
 					vec3 transmittance_end = optical_volume_tint(i, origin, dir, distance * float(k + 1) / 3.0, false, true);
 					vec3 middle = origin + dir * (distance * (float(k) + 0.5) / 3.0);
 					vec3 sun_transmittance = optical_volume_tint(i, middle, sun_dir, 1.0e5, false, true);
-					scattered += (ambient + sun_radiance * sun_visibility[k] * sun_transmittance * phase) * albedo * (previous - transmittance_end);
+					vec3 sun_phase = medium_multiple_scattering(-log(max(sun_transmittance, vec3(1e-6))), mu, volume.g, 0.0, 0.0, 1.0 - dot(sun_transmittance, vec3(1.0 / 3.0)));
+					scattered += (ambient + sun_radiance * sun_visibility[k] * sun_phase) * albedo * (previous - transmittance_end);
 					previous = transmittance_end;
 				}
 			}

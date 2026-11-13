@@ -30,6 +30,17 @@ media.presets = {
 			porous_color = {0.92, 0.96, 1.0},
 		},
 	},
+	cloud = {
+		Absorption = Vec3(0.0001, 0.0001, 0.0001),
+		Scattering = Vec3(1, 1, 1),
+		Molecular = Vec3(0, 0, 0),
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = 0.8,
+		PhaseBackG = -0.25,
+		PhaseBackShare = 0.25,
+		IOR = 1.33,
+		AbbeNumber = 55.8,
+	},
 	fog = {
 		Absorption = Vec3(0, 0, 0),
 		Scattering = Vec3(1, 1, 1),
