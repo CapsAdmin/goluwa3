@@ -709,6 +709,7 @@ local passes = {
 					float exit_transmitted = 0.0;
 					float path_length = 0.0;
 					float flat_exit = 0.0;
+					bool thick_body = refraction.thickness > 0.0;
 
 					if (refracts) {
 						vec3 I = -V;
@@ -722,8 +723,28 @@ local passes = {
 							vec3 exit_pos = world_pos;
 							vec3 exit_dir;
 							vec3 exit_outward = facing_N;
+							float traced_distance = 0.0;
+							vec3 traced_normal = vec3(0.0);
+							#ifdef GLASS_LIGHT
+							traced_distance = get_glass_body_exit(world_pos, T, MEDIUM_MAX_PATH, traced_normal);
+							#endif
+							bool channel_thick = traced_distance > 0.0 || refraction.thickness > 0.0;
 
-							if (refraction.thickness > 0.0) {
+							if (traced_distance > 0.0) {
+								exit_pos = world_pos + T * traced_distance;
+								exit_outward = traced_normal;
+								exit_dir = refract(T, -traced_normal, ior);
+								path_length += traced_distance;
+								flat_exit += dot(traced_normal, -facing_N) > 0.98 ? 1.0 : 0.0;
+								thick_body = true;
+
+								if (dot(exit_dir, exit_dir) < 1e-6) {
+									exit_dir = T;
+									exit_transmitted += 1.0;
+								} else {
+									exit_transmitted += 1.0 - fresnel_dielectric(dot(T, traced_normal), ior);
+								}
+							} else if (refraction.thickness > 0.0) {
 								float radius = max(1.0 / max(curvature, 1e-4), refraction.thickness * 0.5);
 								float cos_in = max(-dot(T, facing_N), 0.05);
 								float sphere_length = 2.0 * radius * cos_in;
@@ -752,7 +773,7 @@ local passes = {
 
 							if (lighting_data.refraction_tex < 0) {
 								channel_env[channel] = 1.0;
-							} else if (refraction.thickness > 0.0) {
+							} else if (channel_thick) {
 								float scene_depth = texture(TEXTURE(lighting_data.depth_tex), screen_uv).r;
 								float surface_distance = distance(lighting_data.camera_position.xyz, exit_pos);
 								float reach = 2.0 * surface_distance;
@@ -868,14 +889,8 @@ local passes = {
 					int glass_medium = int(get_medium_slot() + 0.5);
 					vec3 glass_extinction = glass_medium > 0 ? get_medium_slot_extinction(glass_medium).rgb + get_medium_slot_scattering(glass_medium).rgb * (1.0 - get_medium_slot_scattering(glass_medium).a) : vec3(0.0);
 
-					float traced_body_path = 0.0;
-					#ifdef GLASS_LIGHT
-					if (refractive && glass_medium > 0) traced_body_path = get_glass_body_path(world_pos, refract(-V, N, 1.0 / refraction.ior), MEDIUM_MAX_PATH);
-					#endif
-
-					if (refractive && refraction.thickness <= 0.0) {
-						float pane_path = traced_body_path > 0.0 ? traced_body_path : max(get_medium_assumed_thickness(world_pos), MEDIUM_PANE_PATH);
-						vec3 tau = glass_medium > 0 ? albedo * optical_transmittance(glass_extinction, pane_path) : albedo;
+					if (refractive && !thick_body) {
+						vec3 tau = glass_medium > 0 ? albedo * optical_transmittance(glass_extinction, max(get_medium_assumed_thickness(world_pos), MEDIUM_PANE_PATH)) : albedo;
 						vec3 bounces = 1.0 - fresnel_front * fresnel_front * tau * tau;
 						pane_reflectance = fresnel_front + (1.0 - fresnel_front) * (1.0 - fresnel_front) * fresnel_front * tau * tau / bounces;
 						pane_transmittance = (1.0 - fresnel_front) * (1.0 - fresnel_front) * tau / bounces;
@@ -918,8 +933,8 @@ local passes = {
 					vec3 transmission = pane_transmittance;
 					vec3 reflectance = pane_reflectance;
 
-					if (refraction.thickness > 0.0) {
-						float inside = traced_body_path > 0.0 ? traced_body_path : path_length / float(channel_count);
+					if (thick_body) {
+						float inside = path_length / float(channel_count);
 						vec3 absorbed = glass_medium > 0 ? optical_transmittance(glass_extinction, inside) : albedo;
 						transmission = (1.0 - fresnel_front) * absorbed * (exit_transmitted / float(channel_count));
 						reflectance = vec3(fresnel_front);

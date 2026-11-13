@@ -199,6 +199,28 @@ function hit.GetGLSL(binding)
 			uv.blend = vec3(vertices.v[a + SCENE_VERTEX_TEXTURE_BLEND], vertices.v[b + SCENE_VERTEX_TEXTURE_BLEND], vertices.v[c + SCENE_VERTEX_TEXTURE_BLEND]);
 			return uv;
 		}
+
+		vec3 scene_hit_smooth_normal(uint instance, uint primitive, vec2 barycentrics) {
+			scene_mesh mesh = scene_meshes[scene_instances[instance].mesh_row];
+			SceneVertexData vertices = SceneVertexData(mesh.vertex_address);
+			uint stride = mesh.vertex_stride / 4u;
+			uint a = scene_mesh_index(mesh, primitive * 3u) * stride;
+			uint b = scene_mesh_index(mesh, primitive * 3u + 1u) * stride;
+			uint c = scene_mesh_index(mesh, primitive * 3u + 2u) * stride;
+			vec3 n0 = vec3(vertices.v[a + SCENE_VERTEX_NORMAL], vertices.v[a + SCENE_VERTEX_NORMAL + 1u], vertices.v[a + SCENE_VERTEX_NORMAL + 2u]);
+			vec3 n1 = vec3(vertices.v[b + SCENE_VERTEX_NORMAL], vertices.v[b + SCENE_VERTEX_NORMAL + 1u], vertices.v[b + SCENE_VERTEX_NORMAL + 2u]);
+			vec3 n2 = vec3(vertices.v[c + SCENE_VERTEX_NORMAL], vertices.v[c + SCENE_VERTEX_NORMAL + 1u], vertices.v[c + SCENE_VERTEX_NORMAL + 2u]);
+			vec3 local_normal = n0 * (1.0 - barycentrics.x - barycentrics.y) + n1 * barycentrics.x + n2 * barycentrics.y;
+
+			if (dot(local_normal, local_normal) < 1e-8) return -scene_hit_tri(instance, primitive).normal;
+
+			scene_tlas_instance t = scene_tlas_instances[instance];
+			return normalize(vec3(
+				dot(vec3(t.m[0], t.m[1], t.m[2]), local_normal),
+				dot(vec3(t.m[4], t.m[5], t.m[6]), local_normal),
+				dot(vec3(t.m[8], t.m[9], t.m[10]), local_normal)
+			));
+		}
 	]]
 		):format(binding, binding + 1, binding + 2)
 end

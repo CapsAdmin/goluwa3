@@ -126,10 +126,15 @@ function glass_light.GetGLSL(scene_name)
 			return optical_range_tint(0, get_optical_header().z, origin, dir, distance, light_ray, with_layer);
 		}
 
-		float get_glass_body_path(vec3 origin, vec3 dir, float max_distance) {
+		float get_glass_body_exit(vec3 origin, vec3 dir, float max_distance, out vec3 outward_normal) {
+			outward_normal = vec3(0.0);
+
 			if (dot(dir, dir) < 0.5 || get_optical_header().x + get_optical_header().y == 0) return 0.0;
 
 			float exit_distance = 0.0;
+			uint exit_instance = 0u;
+			uint exit_primitive = 0u;
+			vec2 exit_barycentrics = vec2(0.0);
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.001, normalize(dir), max_distance);
 
@@ -139,7 +144,18 @@ function glass_light.GetGLSL(scene_name)
 				if (rayQueryGetIntersectionFrontFaceEXT(query, false) || (material.glass == 0 && !ddgi_has_medium(material))) continue;
 
 				float t = rayQueryGetIntersectionTEXT(query, false);
-				exit_distance = exit_distance == 0.0 ? t : min(exit_distance, t);
+
+				if (exit_distance == 0.0 || t < exit_distance) {
+					exit_distance = t;
+					exit_instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false));
+					exit_primitive = uint(rayQueryGetIntersectionPrimitiveIndexEXT(query, false));
+					exit_barycentrics = rayQueryGetIntersectionBarycentricsEXT(query, false);
+				}
+			}
+
+			if (exit_distance > 0.0) {
+				vec3 normal = scene_hit_smooth_normal(exit_instance, exit_primitive, exit_barycentrics);
+				outward_normal = dot(normal, dir) < 0.0 ? -normal : normal;
 			}
 
 			return exit_distance;
