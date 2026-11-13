@@ -359,8 +359,8 @@ end
 shapes.Box{
 	Name = "floor",
 	Parent = root,
-	Position = Vec3(0, -0.5, 9),
-	Size = Vec3(30, 1, 48),
+	Position = Vec3(0, -0.5, 12),
+	Size = Vec3(30, 1, 54),
 	Material = material{Color = Color(0.5, 0.5, 0.5, 1), Roughness = 0.8, Metallic = 0},
 	RigidBody = STATIC,
 }
@@ -771,6 +771,53 @@ sweep(
 		}
 	end,
 	translucent_sphere
+)
+
+local medium = group("medium")
+local MEDIUM_Z = SUBSURFACE_Z + 5.8
+
+local function medium_block(parent, name, x, z, mat)
+	shapes.Box{
+		Name = name,
+		Parent = parent,
+		Position = Vec3(x, 0.55, z),
+		Size = Vec3(1, 1.1, 2),
+		Material = mat,
+		RigidBody = STATIC,
+	}
+end
+
+sweep(
+	medium,
+	"medium_absorption",
+	MEDIUM_Z,
+	function(t)
+		return material{
+			Color = Color(1, 1, 1, 1),
+			Roughness = 0.05,
+			Metallic = 0,
+			SpecularMultiplier = 0.45,
+			MediumAbsorption = math.lerp(t, 2, 32),
+		}
+	end,
+	medium_block
+)
+
+sweep(
+	medium,
+	"medium_porosity",
+	MEDIUM_Z + 2.6,
+	function(t)
+		return material{
+			Color = Color(1, 1, 1, 1),
+			Roughness = 0.05,
+			Metallic = 0,
+			SpecularMultiplier = 0.45,
+			MediumAbsorption = 32,
+			MediumPorosity = t,
+		}
+	end,
+	medium_block
 )
 
 swatch(
