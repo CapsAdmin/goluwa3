@@ -412,7 +412,7 @@ function scene_hits.GetGLSL(block_name, shared)
 			#endif
 
 			albedo = ray_medium_albedo(material, albedo);
-			vec3 radiance = SCENE_HIT_EMISSION ? ray_material_emission(tri, albedo) : vec3(0.0);
+			vec3 radiance = SCENE_HIT_EMISSION ? ray_hit_emission(tri, albedo, P, hit_instance, hit_primitive) : vec3(0.0);
 			vec3 sun_L = normalize(ddgi_data.ddgi_sun_direction.xyz);
 			float sun_NoL = dot(hit_N, sun_L);
 

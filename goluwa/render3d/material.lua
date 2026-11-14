@@ -90,6 +90,7 @@ Material:GetSet(
 	Color(1.0, 1.0, 1.0, 1.0),
 	{callback = "InvalidateEmission"}
 )
+Material:GetSet("EmissiveMean", Color(1.0, 1.0, 1.0, 1.0), {callback = "InvalidateEmission"})
 Material:GetSet("EmitsLight", true, {callback = "InvalidateEmission"})
 Material:GetSet("IgnoredByLightOcclusion", false, {callback = "InvalidateSceneKey"})
 Material:GetSet(

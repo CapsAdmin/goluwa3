@@ -1,5 +1,7 @@
 local ffi = require("ffi")
 local lz4 = import("goluwa/codecs/lz4.lua")
+local bc = import("goluwa/codecs/bc.lua")
+local Buffer = import("goluwa/structs/buffer.lua")
 local vtex_c = {}
 vtex_c.file_extensions = {"vtex_c"}
 vtex_c.returns_blob = true
@@ -44,8 +46,44 @@ vtex_c.thread_job = [[
 	local meta, data = vtex_c.DecodeBuffer(Buffer.New(input, #input))
 	return meta, data
 ]]
+local decode
 
-function vtex_c.DecodeBuffer(buffer)
+-- the mean colour of a texture (sRGB encoded, 0 to 1) from its smallest mip, which sits right after the header, so a
+-- prefix of the file is enough; nil for formats that are not decoded
+function vtex_c.GetMeanColor(bytes)
+	local meta, data = decode(Buffer.New(bytes, #bytes), 1)
+
+	if not meta then return nil end
+
+	local mip = meta.mip_info[1]
+	local pixels = mip.width * mip.height
+	local rgba
+
+	if meta.is_compressed then
+		local format = meta.vulkan_format:match("^(bc%d)")
+		local ok, decoded = pcall(bc.Decode, format, data + mip.offset, mip.width, mip.height)
+
+		if not ok then return nil end
+
+		rgba = decoded
+	elseif meta.vulkan_format == "r8g8b8a8_unorm" then
+		rgba = data + mip.offset
+	else
+		return nil
+	end
+
+	local r, g, b = 0, 0, 0
+
+	for i = 0, pixels - 1 do
+		r = r + rgba[i * 4]
+		g = g + rgba[i * 4 + 1]
+		b = b + rgba[i * 4 + 2]
+	end
+
+	return r / pixels / 255, g / pixels / 255, b / pixels / 255
+end
+
+function decode(buffer, tail_mips)
 	local src = buffer:GetBuffer()
 	local total = buffer:GetSize()
 	local header = ffi.cast(u32_t, src)
@@ -110,8 +148,9 @@ function vtex_c.DecodeBuffer(buffer)
 	local is_volume = bit.band(flags, FLAG_VOLUME) ~= 0
 	local mips = {}
 	local out_size = 0
+	local first_mip = tail_mips and math.max(mip_count - tail_mips, 0) or 0
 
-	for m = 0, mip_count - 1 do
+	for m = first_mip, mip_count - 1 do
 		local w, h = math.max(1, bit.rshift(width, m)), math.max(1, bit.rshift(height, m))
 		local dp = is_volume and math.max(1, bit.rshift(depth, m)) or depth
 		local size = mip_size(info, w, h, dp * faces)
@@ -122,7 +161,7 @@ function vtex_c.DecodeBuffer(buffer)
 	local out = ffi.new("uint8_t[?]", out_size)
 	local read_pos = data_block.offset + data_block.size
 
-	for m = mip_count - 1, 0, -1 do
+	for m = mip_count - 1, first_mip, -1 do
 		local mip = mips[m]
 		local stored = mip.size
 		local csize = compressed_sizes and compressed_sizes[m]
@@ -148,8 +187,8 @@ function vtex_c.DecodeBuffer(buffer)
 
 	local mip_info = {}
 
-	for m = 0, mip_count - 1 do
-		mip_info[m + 1] = mips[m]
+	for m = first_mip, mip_count - 1 do
+		mip_info[m - first_mip + 1] = mips[m]
 	end
 
 	return {
@@ -169,6 +208,10 @@ function vtex_c.DecodeBuffer(buffer)
 		vtex_format = format,
 	},
 	out
+end
+
+function vtex_c.DecodeBuffer(buffer)
+	return decode(buffer)
 end
 
 return vtex_c

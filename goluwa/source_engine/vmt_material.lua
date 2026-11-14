@@ -1,4 +1,6 @@
 local tasks = import("goluwa/tasks.lua")
+local vfs = import("goluwa/vfs.lua")
+local vtf = import("goluwa/codecs/vtf.lua")
 local file_path = import("goluwa/filesystem/path.lua")
 local Texture = import("goluwa/render/texture.lua")
 local height_from_normals = import("goluwa/render/height_from_normals.lua")
@@ -750,6 +752,39 @@ local NORMAL_PARALLAX = {
 local SURFACEPROP_METAL_VOTE = 0.3
 local METAL_ROUGHNESS_BIAS = 0.25
 local SELFILLUM_ALPHA_FLOOR = 0.1
+local MEAN_COLOR_PREFIX = 65536
+local texture_means = {}
+
+-- the mean colour and alpha of a vtf, which the emitters need because they cannot see the whole texture; nil if it
+-- cannot be decoded
+local function get_mean_color(path)
+	if not path then return nil end
+
+	local cached = texture_means[path]
+
+	if cached ~= nil then
+		if cached then return cached[1], cached[2], cached[3], cached[4] end
+
+		return nil
+	end
+
+	local file, offset, size = vfs.GetReadLocation(path)
+	local bytes
+
+	if file then
+		local handle = assert(io.open(file, "rb"))
+		handle:seek("set", offset)
+		bytes = handle:read(math.min(size, MEAN_COLOR_PREFIX))
+		handle:close()
+	else
+		bytes = vfs.Read(path)
+	end
+
+	local r, g, b, a = vtf.GetMeanColor(bytes)
+	texture_means[path] = r and {r, g, b, a} or false
+	return r, g, b, a
+end
+
 local PARALLAX_DEFAULT_SCALE = 0.025
 local PARALLAX_DEFAULT_CENTER = 0.5
 local on_load_vmt
@@ -1454,9 +1489,18 @@ do
 			if vmt.selfillummask then
 				self:SetEmissiveTexture(linear(vmt.selfillummask))
 				self:SetAlbedoAlphaIsEmissive(false)
+				local mask = get_mean_color(vmt.selfillummask)
+
+				if mask then self:SetEmissiveMean(Color(mask, mask, mask, 1)) end
 			else
 				self:SetAlbedoAlphaIsEmissive(true)
 				self:SetEmissiveAlphaFloor(SELFILLUM_ALPHA_FLOOR)
+				local _, _, _, alpha = get_mean_color(type(vmt.basetexture) == "string" and vmt.basetexture or nil)
+
+				if alpha then
+					local mask = math.clamp((alpha - SELFILLUM_ALPHA_FLOOR) / (1 - SELFILLUM_ALPHA_FLOOR), 0, 1)
+					self:SetEmissiveMean(Color(mask, mask, mask, 1))
+				end
 			end
 		end
 

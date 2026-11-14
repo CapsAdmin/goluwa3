@@ -1,6 +1,7 @@
 local ffi = require("ffi")
 local bit = require("bit")
 local Buffer = import("goluwa/structs/buffer.lua")
+local bc = import("goluwa/codecs/bc.lua")
 local vtf = {}
 vtf.file_extensions = {"vtf"}
 vtf.magic_headers = {"VTF\0"}
@@ -154,6 +155,12 @@ local function vtf_to_vulkan_format(format)
 end
 
 local VTF_RESOURCE_IMAGE_DATA = 0x30
+local BC_FORMATS = {
+	[VTF_IMAGE_FORMAT.DXT1] = "bc1",
+	[VTF_IMAGE_FORMAT.DXT1_ONEBITALPHA] = "bc1",
+	[VTF_IMAGE_FORMAT.DXT3] = "bc2",
+	[VTF_IMAGE_FORMAT.DXT5] = "bc3",
+}
 
 local function parse_header(buffer)
 	local header = {}
@@ -397,6 +404,72 @@ function vtf.DecodeBuffer(input_buffer)
 		reflectivity = header.reflectivity,
 	},
 	data_buffer
+end
+
+-- the mean colour and alpha of a texture (0 to 1, as stored) from its smallest mip, which comes first in the image data,
+-- so a prefix of the file is enough; nil for formats that are not decoded
+function vtf.GetMeanColor(bytes)
+	local input_buffer = Buffer.New(bytes, #bytes)
+	local header = parse_header(input_buffer)
+
+	if not header then return nil end
+
+	local image_data_offset = header.resources and header.resources[VTF_RESOURCE_IMAGE_DATA]
+
+	if image_data_offset then
+		input_buffer:SetPosition(image_data_offset)
+	else
+		input_buffer:SetPosition(header.header_size)
+
+		if header.lowres_width > 0 and header.lowres_height > 0 then
+			local lowres_size = compute_image_size(header.lowres_width, header.lowres_height, 1, header.lowres_image_format)
+
+			if lowres_size then input_buffer:ReadBytes(lowres_size) end
+		end
+	end
+
+	local format = header.image_format
+	local shift = header.mip_count - 1
+	local width = math.max(1, math.floor(header.width / 2 ^ shift))
+	local height = math.max(1, math.floor(header.height / 2 ^ shift))
+	local src = input_buffer:GetBuffer() + input_buffer:GetPosition()
+	local pixels = width * height
+	local r, g, b, a = 0, 0, 0, 0
+	local bc_format = BC_FORMATS[format]
+
+	if bc_format then
+		local rgba = bc.Decode(bc_format, src, width, height)
+
+		for i = 0, pixels - 1 do
+			r, g, b, a = r + rgba[i * 4], g + rgba[i * 4 + 1], b + rgba[i * 4 + 2], a + rgba[i * 4 + 3]
+		end
+	elseif format == VTF_IMAGE_FORMAT.RGBA8888 or format == VTF_IMAGE_FORMAT.BGRA8888 then
+		local red = format == VTF_IMAGE_FORMAT.RGBA8888 and 0 or 2
+		local blue = 2 - red
+
+		for i = 0, pixels - 1 do
+			r, g, b, a = r + src[i * 4 + red],
+			g + src[i * 4 + 1],
+			b + src[i * 4 + blue],
+			a + src[i * 4 + 3]
+		end
+	elseif format == VTF_IMAGE_FORMAT.RGB888 or format == VTF_IMAGE_FORMAT.BGR888 then
+		local red = format == VTF_IMAGE_FORMAT.RGB888 and 0 or 2
+		local blue = 2 - red
+
+		for i = 0, pixels - 1 do
+			r, g, b, a = r + src[i * 3 + red], g + src[i * 3 + 1], b + src[i * 3 + blue], a + 255
+		end
+	elseif format == VTF_IMAGE_FORMAT.I8 then
+		for i = 0, pixels - 1 do
+			r, g, b, a = r + src[i], g + src[i], b + src[i], a + 255
+		end
+	else
+		return nil
+	end
+
+	local scale = 1 / (pixels * 255)
+	return r * scale, g * scale, b * scale, a * scale
 end
 
 local SHEET_RESOURCE = 0x10

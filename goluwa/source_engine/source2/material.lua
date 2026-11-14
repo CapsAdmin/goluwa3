@@ -7,6 +7,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
 local media = import("goluwa/render3d/media.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
+local vtex_c = import("goluwa/codecs/vtex_c.lua")
 local legacy_material = import("goluwa/source_engine/source2/legacy_material.lua")
 local texture_convert = import("goluwa/source_engine/source2/texture_convert.lua")
 import("goluwa/render3d/texture_streaming.lua")
@@ -251,6 +252,35 @@ function material.ApplyLiquid(self, info)
 	self:SetNormalTextureAlphaIsRoughness(false)
 end
 
+local MEAN_COLOR_PREFIX = 65536
+local texture_means = {}
+
+-- the linear mean colour of a vtex, which the emitters need because they cannot see the texture; nil if it cannot be decoded
+local function get_mean_color(path)
+	local cached = texture_means[path]
+
+	if cached ~= nil then return cached or nil end
+
+	local file_path, offset, size = vfs.GetReadLocation(path)
+	local bytes
+
+	if file_path then
+		local file = assert(io.open(file_path, "rb"))
+		file:seek("set", offset)
+		bytes = file:read(math.min(size, MEAN_COLOR_PREFIX))
+		file:close()
+	else
+		bytes = vfs.Read(path)
+	end
+
+	local r, g, b = vtex_c.GetMeanColor(bytes)
+	cached = r and
+		Color(math.srgb_to_linear(r), math.srgb_to_linear(g), math.srgb_to_linear(b), 1) or
+		false
+	texture_means[path] = cached
+	return cached or nil
+end
+
 function material.Prefetch(path)
 	local info = material.GetInfo(path)
 
@@ -451,6 +481,10 @@ function material.FromVMAT(path)
 	if ints.F_SELF_ILLUM == 1 and illum then
 		self:SetEmissiveTexture(Material.SRGBTexture(illum))
 		self:SetEmissiveTextureIsColor(true)
+		local mean = get_mean_color(illum)
+
+		if mean then self:SetEmissiveMean(mean) end
+
 		self:SetEmissiveAlbedoFactor(floats.g_flSelfIllumAlbedoFactor or 1)
 		local illum_tint = vectors.g_vSelfIllumTint
 		local scale = (floats.g_flSelfIllumScale or 1) * 2 ^ (floats.g_flSelfIllumBrightness or 0)

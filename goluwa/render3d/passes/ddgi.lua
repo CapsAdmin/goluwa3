@@ -373,7 +373,7 @@ local function pass_shade()
 						vec4 u = emitter_random(hit_index, uint(ddgi_data.ddgi_frame), hit.y >> 26u);
 						vec3 point = emitter_point(tri, u.yz);
 						vec3 dir = normalize(point - origin);
-						vec3 emission = ray_material_emission(tri, ray_hit_albedo(ray_materials[tri.material], point, emitter_instance, emitter_triangle));
+						vec3 emission = ray_hit_emission(tri, ray_hit_albedo(ray_materials[tri.material], point, emitter_instance, emitter_triangle), point, emitter_instance, emitter_triangle);
 						float emissive_luma = luminance(ray_materials[tri.material].emissive);
 						vec3 estimate = emission / emissive_luma * weight;
 						if (ddgi_data.light_transmittance != 0) estimate *= get_light_transmittance_local(origin, dir, length(point - origin), 0.0);

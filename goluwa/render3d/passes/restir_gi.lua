@@ -503,7 +503,7 @@ local TRACE_GLSL = "#define SCENE_HIT_GI_SHARE restir_hit_gi_share\n#define SCEN
 
 					vec3 P = origin + dir * t;
 					s = emitter ?
-						restir_sample(P, hit_N, ray_material_emission(tri, ray_material_albedo(ray_materials[tri.material], P)), RESTIR_EMITTER, restir_emitter_id(instance, primitive, barycentrics, dot(hit_N, tri.normal) > 0.0)) :
+						restir_sample(P, hit_N, ray_hit_emission(tri, ray_material_albedo(ray_materials[tri.material], P), P, instance, primitive), RESTIR_EMITTER, restir_emitter_id(instance, primitive, barycentrics, dot(hit_N, tri.normal) > 0.0)) :
 						restir_sample(P, hit_N, shade_scene_hit(origin, dir, 1.0, t, instance, primitive, barycentrics), RESTIR_SURFACE, vec3(0.0));
 				}
 
@@ -661,7 +661,7 @@ local function pass_candidates()
 
 							if (dot(emitter_N, L_dir) > 0.0) emitter_N = -emitter_N;
 
-							vec3 L = ray_material_emission(tri, ray_material_albedo(material, point));
+							vec3 L = ray_hit_emission(tri, ray_material_albedo(material, point), point, emitter_instance(e), emitter_triangle(e) & ~EMITTER_DOUBLE_SIDED);
 
 							if (restir_data.light_transmittance != 0) L *= get_light_transmittance_local(origin, L_dir, dist, 0.0);
 

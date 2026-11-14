@@ -98,3 +98,11 @@ T.Test("VTF sheets are parsed and image data is found through the resource table
 		)
 	)["=="](nil)
 end)
+
+T.Test("VTF mean colour comes from the smallest mip", function()
+	local r, g, b, a = vtf.GetMeanColor(build_sheet_vtf())
+	T(math.abs(r - 30 / 255) < 1e-6)["=="](true)
+	T(math.abs(g - 20 / 255) < 1e-6)["=="](true)
+	T(math.abs(b - 10 / 255) < 1e-6)["=="](true)
+	T(math.abs(a - 40 / 255) < 1e-6)["=="](true)
+end)

@@ -288,6 +288,11 @@ T.Test3D("source 2 self illumination is a colour map scaled by the albedo factor
 	T(liquid:GetEmissiveTextureIsColor())["=="](true)
 	T(liquid:GetEmissiveAlbedoFactor())["=="](1)
 	T(math.abs(liquid:GetEmissiveMultiplier().r - 2 ^ 1.5) < 1e-4)["=="](true)
+	local mean = liquid:GetEmissiveMean()
+	T(mean.r > mean.g and mean.g > mean.b and mean.r < 0.5)["=="](true)
+	local scene_materials = import("goluwa/render3d/scene/materials.lua")
+	local r = scene_materials.GetEmissive(liquid)
+	T(math.abs(r - liquid:GetEmissiveMultiplier().r * mean.r) < 1e-5)["=="](true)
 end)
 
 T.Test3D("source 2 vr_complex materials without F_SPECULAR have no specular", function()
@@ -323,6 +328,23 @@ T.Test("source 2 occluder draw calls have no material and are not packed", funct
 	}
 	mesh_pack.PackMeshes(nil, entries, data, nil, "occluder")
 	T(#entries)["=="](0)
+end)
+
+T.Test("vtex mean colour comes from the smallest mip of a prefix of the file", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local vtex_c = import("goluwa/codecs/vtex_c.lua")
+	local path = "models/props_combine/combine_fence/materials/combine_doorway_fence_lit_tga_ec057ec8.vtex_c"
+	local file_path, offset, size = vfs.GetReadLocation(path)
+	local file = assert(io.open(file_path, "rb"))
+	file:seek("set", offset)
+	local r, g, b = vtex_c.GetMeanColor(file:read(math.min(size, 65536)))
+	file:close()
+	T(r < g and r < b)["=="](true)
+	T(g > 0.1 and g < 0.4)["=="](true)
 end)
 
 T.Test("source 2 draw call tints reach the model as tinted entries", function()

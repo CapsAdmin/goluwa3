@@ -283,6 +283,11 @@ function ray_materials.GetMaterialDeclarationsGLSL(binding)
 			int roughness_channel;
 			vec3 emissive;
 			int emissive_alpha;
+			vec3 emissive_scale;
+			int emissive_tex;
+			int emissive_color;
+			float emissive_albedo;
+			float emissive_floor;
 			vec3 medium_extinction;
 			vec3 medium_scattering;
 			vec3 medium_porous_scattering;
@@ -406,6 +411,42 @@ vec3 ray_material_emission(scene_triangle tri, vec3 albedo) {
 
 			return min(emission, vec3(EMISSIVE_MAX_LUMINANCE));
 		}
+
+		#ifndef RAY_EMISSIVE_TEXELS
+		#define RAY_EMISSIVE_TEXELS 128.0
+		#endif
+
+		vec3 ray_hit_emission(scene_triangle tri, vec3 albedo, vec3 P, uint instance, uint primitive) {
+			ray_material material = ray_materials[tri.material];
+			bool alpha_mask = material.emissive_alpha != 0 && material.albedo_tex >= 0;
+
+			if (material.emissive_tex < 0 && !alpha_mask) return ray_material_emission(tri, albedo);
+
+			vec3 p = P - tri.v0;
+			float d00 = dot(tri.e1, tri.e1);
+			float d01 = dot(tri.e1, tri.e2);
+			float d11 = dot(tri.e2, tri.e2);
+			float d20 = dot(p, tri.e1);
+			float d21 = dot(p, tri.e2);
+			float inv = 1.0 / (d00 * d11 - d01 * d01);
+			float v = (d11 * d20 - d01 * d21) * inv;
+			float w = (d00 * d21 - d01 * d20) * inv;
+			scene_uv uv = scene_hit_uv(instance, primitive);
+			vec2 coord = uv.uv0 * (1.0 - v - w) + uv.uv1 * v + uv.uv2 * w;
+			int tex = alpha_mask ? material.albedo_tex : material.emissive_tex;
+			ivec2 size = textureSize(TEXTURE(tex), 0);
+			float lod = max(log2(float(max(size.x, size.y)) / RAY_EMISSIVE_TEXELS), 0.0);
+			vec4 texel = textureLod(TEXTURE(tex), coord, lod);
+			vec3 source;
+
+			if (alpha_mask) {
+				source = albedo * clamp((texel.a - material.emissive_floor) / (1.0 - material.emissive_floor), 0.0, 1.0);
+			} else {
+				source = material.emissive_color != 0 ? mix(texel.rgb, texel.rgb * albedo, material.emissive_albedo) : albedo * texel.r;
+			}
+
+			return min(material.emissive_scale * source * EMISSIVE_REFERENCE_LUMINANCE, vec3(EMISSIVE_MAX_LUMINANCE));
+		}
 	]]
 end
 
@@ -519,6 +560,11 @@ local MaterialEntry = ffi.typeof([[struct {
 	int32_t roughness_channel;
 	float emissive[3];
 	int32_t emissive_alpha;
+	float emissive_scale[3];
+	int32_t emissive_tex;
+	int32_t emissive_color;
+	float emissive_albedo;
+	float emissive_floor;
 	float medium_extinction[3];
 	float medium_scattering[3];
 	float medium_porous_scattering[3];
@@ -843,6 +889,22 @@ function ray_materials.WriteMaterialBuffer(self)
 				-1
 			entry.emissive[0], entry.emissive[1], entry.emissive[2] = scene_materials.GetEmissive(material)
 			entry.emissive_alpha = material:GetAlbedoAlphaIsEmissive() and 1 or 0
+			local emissive_multiplier = material:GetEmissiveMultiplier()
+			entry.emissive_scale[0] = emissive_multiplier.r * emissive_multiplier.a
+			entry.emissive_scale[1] = emissive_multiplier.g * emissive_multiplier.a
+			entry.emissive_scale[2] = emissive_multiplier.b * emissive_multiplier.a
+			local emissive_texture = material:GetEmissiveTexture()
+			entry.emissive_tex = emissive_texture and
+				emissive_texture:IsValid() and
+				not material:GetAdditive()
+				and
+				not material:GetAlbedoAlphaIsEmissive()
+				and
+				self:GetTextureIndex(emissive_texture) or
+				-1
+			entry.emissive_color = material:GetEmissiveTextureIsColor() and 1 or 0
+			entry.emissive_albedo = material:GetEmissiveAlbedoFactor()
+			entry.emissive_floor = material:GetEmissiveAlphaFloor()
 			local from_albedo = material:GetMediumPorosityFromAlbedo() > 0
 			local medium_slot = material:GetMediumSlot()
 

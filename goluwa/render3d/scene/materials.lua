@@ -1,3 +1,5 @@
+local Color = import("goluwa/structs/color.lua")
+local WHITE = Color(1, 1, 1, 1)
 local materials = {}
 materials.list = {}
 materials.ids = {}
@@ -21,9 +23,11 @@ function materials.GetEmissive(material)
 		material:GetEmissiveTexture() ~= nil
 	then
 		local multiplier = material:GetEmissiveMultiplier()
-		return multiplier.r * multiplier.a,
-		multiplier.g * multiplier.a,
-		multiplier.b * multiplier.a
+		local masked = material:GetEmissiveTexture() ~= nil or material:GetAlbedoAlphaIsEmissive()
+		local mean = masked and material:GetEmissiveMean() or WHITE
+		return multiplier.r * multiplier.a * mean.r,
+		multiplier.g * multiplier.a * mean.g,
+		multiplier.b * multiplier.a * mean.b
 	end
 
 	return 0, 0, 0
