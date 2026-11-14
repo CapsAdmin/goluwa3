@@ -90,7 +90,12 @@ return {
 					render3d.WriteCameraBlock(self, block)
 					render3d.WriteLastFrameBlock(self, block)
 					post_source.WritePreExposureBlock(self, block)
-					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+					block.blue_noise_tex = self:GetTextureIndex(
+						assert(
+							assets.GetTexture("textures/render/blue_noise.lua"),
+							"the blue noise texture is not registered"
+						)
+					)
 					block.frame = system.GetFrameNumber() % 4096
 					block.gi_enabled = ambient_occlusion.IsGIEnabled() and block.last_frame_tex ~= -1 and 1 or 0
 					block.gi_strength = ambient_occlusion.GetGIStrength()
@@ -162,7 +167,8 @@ return {
 
 				ivec2 screen_size = textureSize(TEXTURE(lighting_data.depth_tex), 0);
 				ivec2 pixel = ivec2(uv * vec2(screen_size));
-				vec4 noise_texel = blue_noise_texel(TEXTURE(lighting_data.blue_noise_tex), pixel);
+				vec4 noise_texel = vec4(0.5);
+				if (lighting_data.blue_noise_tex >= 0) noise_texel = blue_noise_texel(TEXTURE(lighting_data.blue_noise_tex), pixel);
 				vec2 noise = blue_noise_r2(noise_texel.rg, float(lighting_data.frame));
 				vec2 noise_b = blue_noise_r2(noise_texel.ba, float(lighting_data.frame));
 				float offset_dither = noise.x;

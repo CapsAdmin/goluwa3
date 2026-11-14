@@ -140,7 +140,12 @@ local function get_uniform_buffers(with_ddgi)
 				surface_weather.WriteRainSurfaceBlock(self, block)
 				render3d.WriteLastFrameBlock(self, block)
 				post_source.WritePreExposureBlock(self, block)
-				block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+				block.blue_noise_tex = self:GetTextureIndex(
+					assert(
+						assets.GetTexture("textures/render/blue_noise.lua"),
+						"the blue noise texture is not registered"
+					)
+				)
 				block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 				local exposure = post_source.GetExposureTexture(true)
 				block.exposure_tex = exposure and self:GetTextureIndex(exposure) or -1
@@ -283,7 +288,8 @@ return {
 			float max_hit_luminance;
 			float reflection_hit_distance;
 			vec2 blue_noise(ivec2 pixel, int sample_index) {
-				vec2 xi = blue_noise_texel(TEXTURE(reflection_data.blue_noise_tex), pixel).rg;
+				vec2 xi = vec2(0.5);
+				if (reflection_data.blue_noise_tex >= 0) xi = blue_noise_texel(TEXTURE(reflection_data.blue_noise_tex), pixel).rg;
 				return blue_noise_r2(xi, float((reflection_data.frame_index % 64) * reflection_data.rough_rays + sample_index));
 			}
 

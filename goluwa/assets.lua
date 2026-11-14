@@ -634,6 +634,33 @@ function assets.RegisterVirtualTexture(path, load)
 	return assets.RegisterVirtualAsset(path, {category = "textures", load = load, kind = "lua"})
 end
 
+local RENDER_TEXTURES = {
+	"blue_noise",
+	"brdf_lut",
+	"glow_line",
+	"glow_linear",
+	"glow_point",
+	"gradient_linear",
+	"metal_frame",
+	"retro_checker",
+	"retro_noise",
+}
+
+-- the generated textures render passes read by path, `textures/render/<name>.lua`
+function assets.RegisterRenderTextures()
+	for _, name in ipairs(RENDER_TEXTURES) do
+		local module_path = "goluwa/render/textures/" .. name .. ".lua"
+
+		assets.RegisterVirtualTexture("textures/render/" .. name .. ".lua", function(_, options)
+			local asset = import(module_path)
+
+			if type(asset) == "function" then return asset(options.config) end
+
+			return asset
+		end)
+	end
+end
+
 function assets.UnregisterVirtualAsset(path)
 	path = normalize_path(path)
 	local virtual_asset = assets.virtual_assets[path]

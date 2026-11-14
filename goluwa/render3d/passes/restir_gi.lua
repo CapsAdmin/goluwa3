@@ -100,7 +100,12 @@ local function restir_uniform(trace)
 			local frame = system.GetFrameNumber()
 			local current = frame % 2 + 1
 			local previous = (frame + 1) % 2 + 1
-			block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+			block.blue_noise_tex = self:GetTextureIndex(
+				assert(
+					assets.GetTexture("textures/render/blue_noise.lua"),
+					"the blue noise texture is not registered"
+				)
+			)
 			block.frame = frame % 65536
 			block.phase = render3d.GetTemporalFrame() % 4
 			local trace_pipeline = render3d.pipelines.restir_gi_temporal
@@ -599,7 +604,8 @@ local function pass_candidates()
 					bool guided = false;
 
 					{
-						vec2 xi = blue_noise_r2(blue_noise_texel(TEXTURE(restir_data.blue_noise_tex), pos).rg, float(frame % 4096u));
+						vec2 xi = vec2(0.5);
+						if (restir_data.blue_noise_tex >= 0) xi = blue_noise_r2(blue_noise_texel(TEXTURE(restir_data.blue_noise_tex), pos).rg, float(frame % 4096u));
 						vec3 dir = restir_cosine_direction(N, xi);
 						ivec2 guide_tile = ivec2(0);
 

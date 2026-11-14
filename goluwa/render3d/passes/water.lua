@@ -741,7 +741,12 @@ list.insert(
 
 					block.env_tex = self:GetTextureIndex(render3d.GetEnvironmentTexture())
 					block.env_irradiance_tex = self:GetTextureIndex(render3d.GetEnvironmentIrradianceTexture())
-					block.blue_noise_tex = self:GetTextureIndex(assets.GetTexture("textures/render/blue_noise.lua"))
+					block.blue_noise_tex = self:GetTextureIndex(
+						assert(
+							assets.GetTexture("textures/render/blue_noise.lua"),
+							"the blue noise texture is not registered"
+						)
+					)
 					block.frame = system.GetFrameNumber() % 4096
 					local features = 0
 

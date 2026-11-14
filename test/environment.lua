@@ -15,6 +15,7 @@ do
 	_G.PHYSICS = true
 end
 
+import("goluwa/assets.lua").RegisterRenderTextures()
 local has_rendering = false
 
 if pcall(import("goluwa/render/vulkan/loader_locator.lua").Locate) then

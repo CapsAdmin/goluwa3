@@ -306,32 +306,7 @@ local function run_game(startup_command)
 		startup.End("mount checked games")
 	end
 
-	if RENDER_2D then
-		local assets = import("goluwa/assets.lua")
-
-		local function register_virtual_texture(path, module_path)
-			assets.RegisterVirtualTexture(path, function(_, options)
-				local asset = import(module_path)
-
-				if type(asset) == "function" then return asset(options.config) end
-
-				return asset
-			end)
-		end
-
-		register_virtual_texture("textures/render/blue_noise.lua", "goluwa/render/textures/blue_noise.lua")
-		register_virtual_texture("textures/render/brdf_lut.lua", "goluwa/render/textures/brdf_lut.lua")
-		register_virtual_texture("textures/render/glow_line.lua", "goluwa/render/textures/glow_line.lua")
-		register_virtual_texture("textures/render/glow_linear.lua", "goluwa/render/textures/glow_linear.lua")
-		register_virtual_texture("textures/render/glow_point.lua", "goluwa/render/textures/glow_point.lua")
-		register_virtual_texture(
-			"textures/render/gradient_linear.lua",
-			"goluwa/render/textures/gradient_linear.lua"
-		)
-		register_virtual_texture("textures/render/metal_frame.lua", "goluwa/render/textures/metal_frame.lua")
-		register_virtual_texture("textures/render/retro_checker.lua", "goluwa/render/textures/retro_checker.lua")
-		register_virtual_texture("textures/render/retro_noise.lua", "goluwa/render/textures/retro_noise.lua")
-	end
+	if RENDER_2D then import("goluwa/assets.lua").RegisterRenderTextures() end
 
 	if SERVER or CLIENT then
 		startup.Begin("network")
