@@ -1,0 +1,23 @@
+local T = import("test/environment.lua")
+local Entity = import("goluwa/entities/entity.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
+local shapes = import("goluwa/render3d/shapes.lua")
+local Polygon3D = import("goluwa/render3d/polygon_3d.lua")
+
+T.Test("a visual with a ground height rests its bottom on it once it has bounds", function()
+	local ent = Entity.New{transform = {}, visual = {}}
+	ent.transform:SetPosition(Vec3(2, 5, 0))
+	ent.visual:SetGroundHeight(1)
+	T(ent.transform:GetPosition().y)["=="](5)
+	local polygon = Polygon3D.New()
+	shapes.BuildCube(polygon, 1)
+	polygon:BuildBoundingBox()
+	polygon:Upload()
+	local primitive = Entity.New{Parent = ent, transform = {}, visual_primitive = {}}
+	primitive.visual_primitive:SetPolygon3D(polygon)
+	ent.visual:BuildAABB()
+	ent.visual:SnapToGround()
+	T(math.abs(ent.visual:GetWorldAABB().min_y - 1) < 1e-4)["=="](true)
+	T(ent.transform:GetPosition().x)["=="](2)
+	ent:Remove()
+end)

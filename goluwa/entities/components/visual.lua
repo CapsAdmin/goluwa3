@@ -28,6 +28,7 @@ local system = import("goluwa/system.lua")
 local vfs = import("goluwa/vfs.lua")
 local ffi = require("ffi")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local memcmp = import("goluwa/bindings/memory.lua").memcmp
 local visual = {}
 visual.scene_dirty_components = {}
@@ -696,6 +697,18 @@ function Visual:SetLoading(loading)
 end
 
 Visual:IsSet("Loading", false)
+Visual:GetSet("GroundHeight", nil, {type = "number", callback = "SnapToGround"})
+
+function Visual:SnapToGround()
+	if self.Loading or not self.GroundHeight then return end
+
+	local min_y = self:GetWorldAABB().min_y
+
+	if min_y == math.huge then return end
+
+	local transform = self.Owner.transform
+	transform:SetPosition(transform:GetPosition() - Vec3(0, min_y - self.GroundHeight, 0))
+end
 
 function Visual:Initialize()
 	-- a visual added while its entity is being built is initialized once more when the build ends, which would drop its load
@@ -1045,6 +1058,7 @@ function Visual:SetModelPath(path)
 			self.Skeleton = data.skeleton
 			self:SetLoading(false)
 			self:BuildAABB()
+			self:SnapToGround()
 
 			if self:WantsBillboard() then self:AddBillboard() end
 		end,
