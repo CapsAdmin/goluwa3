@@ -40,7 +40,7 @@ function optical_rays.GetDeclarationGLSL(bindings)
 end
 
 function optical_rays.GetGLSL()
-	return ddgi.GetOpticalTintGLSL() .. [[
+	return ddgi.GetOpticalTintGLSL() .. hit.GetOccludedGLSL("ddgi_scene") .. [[
 		#define OPTICAL_RAYS
 		#define OPTICAL_SUN_DISTANCE ]] .. string.format("%.1f", optical_rays.SUN_DISTANCE) .. [[
 
@@ -157,20 +157,13 @@ function optical_rays.GetGLSL()
 			return get_light_transmittance_with(origin, dir, distance, search_radius, true);
 		}
 
-		float get_medium_sun_visibility(vec3 point, vec3 sun_dir) {
-			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, point, 0.01, sun_dir, 1.0e4);
-			while (rayQueryProceedEXT(query)) {}
-			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
-		}
-
 		vec3 optical_inscatter_lit(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, bool with_layer) {
 			if (get_optical_header().y + get_optical_header().z == 0) return vec3(0.0);
 
 			vec3 sun_visibility = vec3(0.0);
 
 			if (dot(sun_radiance, sun_radiance) > 0.0) {
-				for (int k = 0; k < 3; k++) sun_visibility[k] = get_medium_sun_visibility(origin + dir * (distance * (float(k) + 0.5) / 3.0), sun_dir);
+				for (int k = 0; k < 3; k++) sun_visibility[k] = scene_occluded(origin + dir * (distance * (float(k) + 0.5) / 3.0), sun_dir, 0.01, 1.0e4) ? 0.0 : 1.0;
 			}
 
 			return optical_inscatter(origin, dir, distance, ambient, sun_radiance, sun_dir, sun_visibility, with_layer);

@@ -16,6 +16,7 @@ local Color = import("goluwa/structs/color.lua")
 local Matrix44 = import("goluwa/structs/matrix44.lua")
 local event = import("goluwa/event.lua")
 local instances = import("goluwa/render3d/scene/instances.lua")
+local hit = import("goluwa/render3d/scene/hit.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local meshes = import("goluwa/render3d/scene/meshes.lua")
 local physics = import("goluwa/physics.lua")
@@ -330,28 +331,16 @@ local function get_pipelines()
 				nil,
 			custom_declarations = (
 					RAY_QUERY and
-					"#extension GL_EXT_ray_query : require\nlayout(set = 0, binding = 1) uniform accelerationStructureEXT fluid_scene;\n" or
+					hit.GetSceneGLSL("fluid_scene", 1) or
 					""
 				) .. [[
 				layout(set = 0, binding = 0, r8) uniform writeonly image3D out_obstacles;
 			]],
-			shader = COMMON_GLSL .. [[
-				bool fluid_ray_blocked(vec3 origin, vec3 dir, float dist) {
-					]] .. (
+			shader = COMMON_GLSL .. (
 					RAY_QUERY and
-					string.format(
-						[[
-					rayQueryEXT query;
-					rayQueryInitializeEXT(query, fluid_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0x%02X, origin, 0.0, dir, dist);
-					while (rayQueryProceedEXT(query)) {}
-					return rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
-					]],
-						instances.MASK_SOLID
-					) or
-					"return false;"
+					hit.GetOccludedGLSL("fluid_scene") or
+					hit.GetStubOccludedGLSL()
 				) .. [[
-				}
-
 				void main() {
 					ivec3 c = ivec3(gl_GlobalInvocationID);
 
@@ -366,7 +355,7 @@ local function get_pipelines()
 						for (int axis = 0; axis < 6 && !solid; axis++) {
 							vec3 dir = vec3(0.0);
 							dir[axis >> 1] = (axis & 1) == 0 ? 1.0 : -1.0;
-							solid = fluid_ray_blocked(world, normalize(mat3(fluid.to_world) * dir), reach);
+							solid = scene_occluded(world, normalize(mat3(fluid.to_world) * dir), 0.0, reach);
 						}
 					}
 

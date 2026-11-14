@@ -238,22 +238,6 @@ function hit.GetTraceGLSL(tlas_name, skip_mask)
 			skip_mask
 		) or
 		""
-	local skip_occluded = skip_mask and
-		string.format(
-			[[
-				uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
-
-				if ((scene_instances[instance].mask_lod & 0x%02Xu) != 0u) {
-					start = rayQueryGetIntersectionTEXT(query, true) + 0.002;
-					continue;
-				}
-			]],
-			skip_mask
-		) or
-		""
-	local occluded_flags = skip_mask and
-		"gl_RayFlagsOpaqueEXT" or
-		"gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT"
 	return [[
 		struct scene_trace_hit {
 			vec3 position;
@@ -292,6 +276,28 @@ function hit.GetTraceGLSL(tlas_name, skip_mask)
 			return false;
 		}
 
+	]] .. hit.GetOccludedGLSL(tlas_name, skip_mask)
+end
+
+function hit.GetOccludedGLSL(tlas_name, skip_mask)
+	local solid = string.format("0x%02X", instances.MASK_SOLID)
+	local skip_occluded = skip_mask and
+		string.format(
+			[[
+				uint instance = uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, true));
+
+				if ((scene_instances[instance].mask_lod & 0x%02Xu) != 0u) {
+					start = rayQueryGetIntersectionTEXT(query, true) + 0.002;
+					continue;
+				}
+			]],
+			skip_mask
+		) or
+		""
+	local occluded_flags = skip_mask and
+		"gl_RayFlagsOpaqueEXT" or
+		"gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT"
+	return [[
 		bool scene_occluded(vec3 origin, vec3 dir, float t_min, float t_max) {
 			float start = t_min;
 
@@ -327,7 +333,11 @@ function hit.GetStubTraceGLSL()
 		bool scene_trace(vec3 origin, vec3 dir, float t_min, float t_max, out scene_trace_hit hit) {
 			return false;
 		}
+	]] .. hit.GetStubOccludedGLSL()
+end
 
+function hit.GetStubOccludedGLSL()
+	return [[
 		bool scene_occluded(vec3 origin, vec3 dir, float t_min, float t_max) {
 			return false;
 		}

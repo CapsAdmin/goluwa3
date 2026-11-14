@@ -237,7 +237,7 @@ return {
 
 				vec3 sun_depth = attenuation * sun_path;
 				vec3 phase = medium_multiple_scattering(sun_depth, mu, body.medium_g, 0.0, 0.0, 1.0 - dot(exp(-sun_depth), vec3(1.0 / 3.0)));
-				float lit = get_medium_sun_visibility(p + sun_dir * (sun_path + 0.02), sun_dir);
+				float lit = scene_occluded(p + sun_dir * (sun_path + 0.02), sun_dir, 0.01, 1.0e4) ? 0.0 : 1.0;
 
 				if (body.medium_wave_height > 0.0 && wall_normal.y > 0.5 && sun_dir.y > 0.0) {
 					vec3 travel = normalize(vec3(-sun_dir.x / body.medium_ior, -medium_refracted_cosine(sun_dir.y, body.medium_ior), -sun_dir.z / body.medium_ior));
