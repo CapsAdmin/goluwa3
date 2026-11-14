@@ -89,8 +89,19 @@ function props.Spawn(model_path, position, rotation, on_spawn, options)
 
 			done = true
 			local physics = model.physics
+			local has_hulls = false
 
-			if not physics or not physics.children[1] then
+			if physics then
+				for _, child in ipairs(physics.children) do
+					if child.ConvexHull or child.Polygon3D then
+						has_hulls = true
+
+						break
+					end
+				end
+			end
+
+			if not has_hulls then
 				local points = {}
 				local vegetation = false
 
