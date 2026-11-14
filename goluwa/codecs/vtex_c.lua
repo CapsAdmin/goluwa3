@@ -25,7 +25,7 @@ local FORMAT = {
 	[32] = {vulkan = "r8_unorm", pixel = 1},
 	[33] = {vulkan = "r8_unorm", pixel = 1},
 }
-local FLAG_CUBE = 0x4
+local FLAG_CUBE = 0x10
 local FLAG_VOLUME = 0x20
 local EXTRA_COMPRESSED_MIP_SIZE = 4
 

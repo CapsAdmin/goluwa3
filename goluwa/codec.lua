@@ -246,7 +246,7 @@ function codec.DecodeFileAsync(path, callback)
 			file_path .. "\n" .. offset .. "\n" .. size,
 			size
 		):OnDone(function(job)
-			if job.err then
+			if job.err or not job.meta then
 				decode_file_async(path, callback)
 			else
 				callback(codec.AttachBlob(job.meta, job.blob))
@@ -283,7 +283,7 @@ function decode_file_async(path, callback)
 		local cost = mod.ThreadCost and mod.ThreadCost(file_content) or #file_content
 
 		import("goluwa/thread_pool.lua").Run(mod.thread_job, file_content, cost):OnDone(function(job)
-			if job.err then
+			if job.err or not job.meta then
 				local ok, decoded, err = pcall(codec.DecodeData, path, file_content)
 
 				if ok then callback(decoded, err) else callback(nil, decoded) end

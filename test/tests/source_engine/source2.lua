@@ -203,6 +203,21 @@ T.Test("xen foliage materials get subsurface scattering and transmission", funct
 	T(self:GetTransmissionColor().g > self:GetTransmissionColor().b)["=="](true)
 end)
 
+T.Test("vtex textures with clamp flags are not read as cube maps", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local Buffer = import("goluwa/structs/buffer.lua")
+	local vtex_c = import("goluwa/codecs/vtex_c.lua")
+	local data = vfs.Read("materials/models/hologram_fx/combine_locker_outline_color_tga_5bb97b2e.vtex_c")
+	local meta = vtex_c.DecodeBuffer(Buffer.New(data, #data))
+	T(meta.width)["=="](1024)
+	T(meta.depth)["=="](1)
+	T(meta.mip_info[1].depth)["=="](1)
+end)
+
 T.Test("source 2 draw call tints reach the model as tinted entries", function()
 	local info = steam.FindSourceGame(546560)
 
