@@ -17,7 +17,6 @@ local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local screen_reconstruct = import("goluwa/render3d/screen_reconstruct.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
 local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
-local fog_volumes = import("goluwa/render3d/fog_volumes.lua")
 local scene_hits = import("goluwa/render3d/scene_hits.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
@@ -500,12 +499,12 @@ local scatter_pass = {
 			{
 				attenuation = "(optical_layer >= 0 ? optical_volume_tint(optical_layer, world_pos, L, max(dist, 0.0), true, true) : vec3(1.0))",
 			}
-		) .. fog_volumes.GetGLSL() .. medium_lighting.GetLocalLightsGLSL(
+		) .. medium_lighting.GetLocalLightsGLSL(
 			"froxel_data",
 			LOCAL_LIGHT_LIMIT,
 			{
 				visibility = false,
-				name = "get_fog_volume_light_scattering",
+				name = "get_volume_light_scattering",
 				attenuation = "optical_range_tint(optical_ranges.z, optical_ranges.w, world_pos, L, max(dist, 0.0), false, false)",
 			}
 		) .. fluid_volumes.GetGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
@@ -588,19 +587,6 @@ local scatter_pass = {
 
 			if (fog_extinction > 0.0) scattering += get_local_light_scattering(ray_dir, world_pos, GROUND_FOG_MIE_G) * fog_extinction * GROUND_FOG_TINT * GROUND_FOG_ALBEDO;
 
-			vec3 fog_sun_tint = optical_range_tint(optical_ranges.z, optical_ranges.w, world_pos, sun_dir, 1000.0, false, false);
-
-			for (int v = 0; v < optical_ranges.w; v++) {
-				optical_volume volume = optical_volumes[optical_ranges.z + v];
-				float volume_density = fog_volume_segment_density(volume, segment_origin, ray_dir, segment_start, segment_end);
-
-				if (volume_density <= 0.0) continue;
-
-				vec3 volume_scattering = volume.scattering * volume_density;
-				vec3 volume_sun = sun * medium_multiple_scattering(-log(max(fog_sun_tint, vec3(1e-6))), mu, volume.g, 0.0, 0.0, 1.0 - dot(fog_sun_tint, vec3(1.0 / 3.0)));
-				scattering += (volume_sun + ambient + get_fog_volume_light_scattering(ray_dir, world_pos, volume.g)) * volume_scattering;
-			}
-
 			for (int i = 0; i < fluid_counts.x; i++) {
 				fluid_record v = fluid_records[i];
 
@@ -614,7 +600,7 @@ local scatter_pass = {
 
 				if (smoke + flame <= 0.0) continue;
 
-				scattering += smoke * v.scattering * (fluid_sun * fluid_sun_phase(v, l, mu) + ambient * fluid_ambient_transmittance(v, l) + get_fog_volume_light_scattering(ray_dir, world_pos, v.g));
+				scattering += smoke * v.scattering * (fluid_sun * fluid_sun_phase(v, l, mu) + ambient * fluid_ambient_transmittance(v, l) + get_volume_light_scattering(ray_dir, world_pos, v.g));
 				scattering += min((smoke * v.absorption + flame * v.flame_absorption) * fluid_emission(f.y), vec3(60000.0));
 			}
 
@@ -866,7 +852,7 @@ local integrate_pass = {
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_integrated;
 		layout(set = 0, binding = ]] .. BINDING_SCATTER .. [[) uniform sampler3D scatter;
 	]] .. ray_materials.GetOpticalDeclarationsGLSL(BINDING_OPTICAL) .. fluid_volume_passes.GetDeclarationGLSL(),
-	shader = atmosphere.GetGLSLDefines("froxel_data", string.format("%.17g", atmosphere.GetSunIlluminance())) .. atmosphere.GetAerialPerspectiveGLSLCode() .. fog_volumes.GetGLSL() .. fluid_volumes.GetGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
+	shader = atmosphere.GetGLSLDefines("froxel_data", string.format("%.17g", atmosphere.GetSunIlluminance())) .. atmosphere.GetAerialPerspectiveGLSLCode() .. fluid_volumes.GetGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
 		void main() {
 			ivec2 id = ivec2(gl_GlobalInvocationID.xy);
 
@@ -889,7 +875,7 @@ local integrate_pass = {
 				float layer_extinction = ground_fog_extinction(point) * per_meter;
 				float t0 = froxel_slice_depth(float(k)) * ray_scale;
 				float t1 = froxel_slice_depth(float(k + 1)) * ray_scale;
-				vec3 volume_extinction = fog_volume_segment_extinction(ray_origin, ray_dir, t0, t1) + fluid_froxel_segment_extinction(ray_origin, ray_dir, t0, t1);
+				vec3 volume_extinction = fluid_froxel_segment_extinction(ray_origin, ray_dir, t0, t1);
 				vec3 extinction = compute_view_tau(rayleigh_density(point), mie_density(point), ozone_density(point)) * per_meter + layer_extinction * GROUND_FOG_TINT + volume_extinction;
 
 				if (ATMOSPHERE_ENABLED == 0) extinction = vec3(0.0);

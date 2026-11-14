@@ -276,7 +276,7 @@ else
 			Name = "fog",
 			Parent = zone,
 			transform = {Position = Vec3(x, 1.8, z)},
-			fog_volume = {Size = Vec3(3.6, 3.6, 3.6), Medium = medium_name, Density = 0.35, EdgeSoftness = 0.6},
+			fluid_volume = {Simulation = "procedural", Fill = 1, Resolution = 32, Floor = false, Obstacles = false, Size = Vec3(3.6, 3.6, 3.6), Medium = medium_name, Density = 0.35, EdgeSoftness = 0.6},
 		}
 		sphere("inside", Vec3(x, 0.5, z), 0.5, grey, zone)
 		lamp("lamp", Vec3(x + 1.2, 1.4, z), Color(1, 0.95, 0.85, 1), 5000, zone)
@@ -287,7 +287,7 @@ else
 		Name = "fog",
 		Parent = shaded,
 		transform = {Position = Vec3(6, 2, 18)},
-		fog_volume = {Size = Vec3(7, 4, 4), Medium = "smoke", Density = 0.25, EdgeSoftness = 0.8},
+		fluid_volume = {Simulation = "procedural", Fill = 1, Resolution = 32, Floor = false, Obstacles = false, Size = Vec3(7, 4, 4), Medium = "smoke", Density = 0.25, EdgeSoftness = 0.8},
 	}
 	box("plate", Vec3(6, 3.6, 18), Vec3(3, 0.15, 4), concrete, shaded)
 	lamp("above", Vec3(6, 6, 18), Color(1, 1, 1, 1), 40000, shaded)
@@ -295,7 +295,7 @@ else
 		Name = "mist",
 		Parent = fogs,
 		transform = {Position = Vec3(0, 1.5, 8)},
-		fog_volume = {Size = Vec3(28, 3, 8), Medium = "steam", Density = 0.12, HeightFalloff = 0.8, EdgeSoftness = 1.5},
+		fluid_volume = {Simulation = "procedural", Fill = 1, Resolution = 32, Floor = false, Obstacles = false, Size = Vec3(28, 3, 8), Medium = "steam", Density = 0.12, HeightFalloff = 0.8, EdgeSoftness = 1.5},
 	}
 	camera("fog", Vec3(-4, 2.6, 28), Vec3(-8, 0, 0))
 

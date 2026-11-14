@@ -1112,7 +1112,7 @@ for i, medium_name in ipairs{"fog", "steam", "smoke", "dust"} do
 		Name = "fog",
 		Parent = volume,
 		transform = {Position = Vec3(x, 1.6, FOG_Z)},
-		fog_volume = {
+		fluid_volume = {Simulation = "procedural", Fill = 1, Resolution = 32, Floor = false, Obstacles = false, 
 			Size = Vec3(3.4, 3.2, 3.4),
 			Medium = medium_name,
 			Density = 0.35,

@@ -9,9 +9,9 @@ local Material = import("goluwa/render3d/material.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local water = import("goluwa/render3d/water.lua")
-local fog_volumes = import("goluwa/render3d/fog_volumes.lua")
+local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
 local ray_materials = {}
-ray_materials.OPTICAL_VOLUME_SLOTS = water.MAX_VOLUMES + fog_volumes.MAX_VOLUMES + 2
+ray_materials.OPTICAL_VOLUME_SLOTS = water.MAX_VOLUMES + fluid_volumes.MAX_VOLUMES + 2
 pvars.StartGroup("Rendering", "Ray traced hit shading", {store = false})
 local hit_textures = pvars.Setup2{
 	key = "r_rt_hit_textures",
@@ -640,11 +640,11 @@ local function write_water_record(volume, water_volume)
 	volume.flow[0], volume.flow[1] = flow.x, flow.y
 end
 
-local function write_fog_record(volume, fog_volume)
-	local size = fog_volume:GetSize()
-	local medium = media.presets[fog_volume:GetMedium()]
-	local density = fog_volume:GetDensity()
-	fog_volume.Owner.transform:GetWorldMatrixInverse():CopyToFloatPointer(volume.to_local)
+local function write_fog_record(volume, fluid_volume)
+	local size = fluid_volume:GetSize()
+	local medium = media.presets[fluid_volume:GetMedium()]
+	local density = fluid_volume:GetDensity() * fluid_volume:GetFill()
+	fluid_volume.Owner.transform:GetWorldMatrixInverse():CopyToFloatPointer(volume.to_local)
 	volume.shape[0], volume.shape[1], volume.shape[2] = size.x / 2, size.y / 2, size.z / 2
 	volume.kind = 1
 	set_vec3(volume.absorption, medium.Absorption * density)
@@ -652,8 +652,8 @@ local function write_fog_record(volume, fog_volume)
 	set_vec3(volume.extinction, (medium.Absorption + medium.Scattering) * density)
 	volume.g = medium.PhaseG
 	volume.ior = medium.IOR
-	volume.softness = fog_volume:GetEdgeSoftness()
-	volume.falloff = fog_volume:GetHeightFalloff()
+	volume.softness = fluid_volume:GetEdgeSoftness()
+	volume.falloff = fluid_volume:GetHeightFalloff()
 end
 
 local function write_layer_record(volume)
@@ -707,12 +707,14 @@ local function refresh_volumes(state)
 
 	local fog_first = count
 
-	for _, fog_volume in ipairs(fog_volumes.GetVolumes()) do
+	for _, fluid_volume in ipairs(fluid_volumes.GetVolumes()) do
 		if count >= ray_materials.OPTICAL_VOLUME_SLOTS then break end
 
-		ffi.fill(volumes + count, OPTICAL_VOLUME_SIZE)
-		write_fog_record(volumes[count], fog_volume)
-		count = count + 1
+		if fluid_volume:GetSimulation() == "procedural" then
+			ffi.fill(volumes + count, OPTICAL_VOLUME_SIZE)
+			write_fog_record(volumes[count], fluid_volume)
+			count = count + 1
+		end
 	end
 
 	header.glass, header.media, header.volumes = glass_count, medium_count, count

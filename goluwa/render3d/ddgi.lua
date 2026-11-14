@@ -22,7 +22,6 @@ local ambient_occlusion = import("goluwa/render3d/ambient_occlusion.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local media = import("goluwa/render3d/media.lua")
 local water = import("goluwa/render3d/water.lua")
-local fog_volumes = import("goluwa/render3d/fog_volumes.lua")
 local ddgi = {}
 pvars.StartGroup("Lighting", "DDGI", {store = false, prefix = "ddgi_"})
 

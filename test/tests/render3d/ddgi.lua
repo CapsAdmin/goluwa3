@@ -448,7 +448,7 @@ T.Test3DRayTracing("Graphics render3d ddgi material buffer carries media and the
 	local fog = Entity.New{
 		Name = "ddgi_fog_volume",
 		transform = {Position = Vec3(0, 1, 0)},
-		fog_volume = {Size = Vec3(8, 4, 8), Medium = "smoke", Density = 0.5, HeightFalloff = 3},
+		fluid_volume = {Simulation = "procedural", Fill = 1, Resolution = 32, Floor = false, Obstacles = false, Size = Vec3(8, 4, 8), Medium = "smoke", Density = 0.5, HeightFalloff = 3, EdgeSoftness = 1},
 	}
 	local ok, err = pcall(function()
 		local id = materials.GetID(material)

@@ -5,7 +5,7 @@ local Vec3 = import("goluwa/structs/vec3.lua")
 local Quat = import("goluwa/structs/quat.lua")
 local Color = import("goluwa/structs/color.lua")
 local Entity = import("goluwa/entities/entity.lua")
-local fog_volumes = import("goluwa/render3d/fog_volumes.lua")
+local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
 local FRAMES = 4
 
 local function frames(draw)
@@ -64,9 +64,9 @@ T.Test3DRayTracing("Graphics render3d fog volumes render and register by visibil
 		volume = Entity.New{
 			Name = "media_volumes_smoke",
 			transform = {Position = Vec3(0, 3, 0)},
-			fog_volume = {Size = Vec3(40, 12, 8), Medium = "smoke", Density = 0.4, EdgeSoftness = 0.5},
+			fluid_volume = {Simulation = "procedural", Fill = 1, Resolution = 32, Floor = false, Obstacles = false, Size = Vec3(40, 12, 8), Medium = "smoke", Density = 0.4, EdgeSoftness = 0.5},
 		}
-		T(#fog_volumes.GetVolumes())["=="](1)
+		T(#fluid_volumes.GetVolumes())["=="](1)
 		frames(draw)
 		local r, g, b, a = T.GetScreenPixel(256, 256)
 
@@ -74,8 +74,8 @@ T.Test3DRayTracing("Graphics render3d fog volumes render and register by visibil
 			T(v == v and v < math.huge)["=="](true)
 		end
 
-		volume.fog_volume:SetVisible(false)
-		T(#fog_volumes.GetVolumes())["=="](0)
+		volume.fluid_volume:SetVisible(false)
+		T(#fluid_volumes.GetVolumes())["=="](0)
 	end)
 
 	if volume then volume:Remove() end
@@ -107,7 +107,7 @@ T.Test3DRayTracing("Graphics render3d renders the ocean and a water volume under
 		entities[#entities + 1] = Entity.New{
 			Name = "media_volumes_steam",
 			transform = {Position = Vec3(0, 2, -2)},
-			fog_volume = {Size = Vec3(10, 4, 4), Medium = "steam", Density = 0.2, HeightFalloff = 2},
+			fluid_volume = {Simulation = "procedural", Fill = 1, Resolution = 32, Floor = false, Obstacles = false, Size = Vec3(10, 4, 4), Medium = "steam", Density = 0.2, HeightFalloff = 2},
 		}
 		local lamp = Entity.New{Name = "media_volumes_lamp"}
 		lamp:AddComponent("transform"):SetPosition(Vec3(0, 1, 2))

@@ -138,6 +138,7 @@ local fluid_block = {
 	{"gravity", "vec4"},
 	{"wind", "vec4"},
 	{"fill", "vec4"},
+	{"shape", "vec4"},
 	{"forces", "vec4"},
 	{"decay", "vec4"},
 	{"combustion", "vec4"},
@@ -158,6 +159,7 @@ local function write_fluid_block(self, block)
 	block.gravity[0], block.gravity[1], block.gravity[2] = params.gravity.x, params.gravity.y, params.gravity.z
 	block.wind[0], block.wind[1], block.wind[2] = params.wind.x, params.wind.y, params.wind.z
 	block.fill[0], block.fill[1], block.fill[2], block.fill[3] = params.fill, params.noise_scale, params.noise_amount, params.time
+	block.shape[0], block.shape[1] = params.height_falloff, params.edge_softness
 	block.forces[0], block.forces[1], block.forces[2], block.forces[3] = params.buoyancy, params.weight, params.vorticity, params.dt
 	block.decay[0], block.decay[1], block.decay[2], block.decay[3] = params.dissipation, params.cooling, params.flame_life, params.soot_yield
 	block.combustion[0], block.combustion[1], block.combustion[2] = params.ignition, params.burn_rate, params.heat_release
@@ -309,6 +311,14 @@ local function get_pipelines()
 					vec3 p = (world - fluid.wind.xyz * fluid.fill.w) / max(fluid.fill.y, 1e-4);
 					float n = value_noise3(p) * 0.5 + value_noise3(p * 2.03 + 17.1) * 0.3 + value_noise3(p * 4.11 + 41.7) * 0.2;
 					float density = fluid.fill.x * max(mix(1.0, (n - 0.5) * 3.0 + 1.0, fluid.fill.z), 0.0);
+					vec3 local = fluid_cell_local(vec3(c) + 0.5);
+
+					if (fluid.shape.x > 0.0) density *= exp(-(local.y + fluid.half_size.y) / fluid.shape.x);
+
+					if (fluid.shape.y > 0.0) {
+						vec3 inside = fluid.half_size.xyz - abs(local);
+						density *= smoothstep(0.0, fluid.shape.y, min(inside.x, min(inside.y, inside.z)));
+					}
 					vec4 scalars = vec4(density, fluid.thermal.x, 0.0, 0.0);
 					imageStore(velocity_a, c, vec4(fluid.wind.xyz, 0.0));
 					imageStore(velocity_b, c, vec4(fluid.wind.xyz, 0.0));
@@ -1595,6 +1605,7 @@ local function shift_state(cmd, state)
 	if x == 0 and y == 0 and z == 0 then return end
 
 	state.shift_x, state.shift_y, state.shift_z = 0, 0, 0
+	state.fill_key = nil
 
 	if math.abs(x) >= state.nx or math.abs(y) >= state.ny or math.abs(z) >= state.nz then
 		state.needs_fill = true
@@ -1639,6 +1650,8 @@ local function write_params(volume, state, dt, with_splats)
 	params.fill = volume:GetFill()
 	params.noise_scale = volume:GetNoiseScale()
 	params.noise_amount = volume:GetNoiseAmount()
+	params.height_falloff = volume:GetHeightFalloff()
+	params.edge_softness = volume:GetEdgeSoftness()
 	params.time = system.GetElapsedTime() % 100000
 	params.buoyancy = volume:GetBuoyancy()
 	params.weight = volume:GetWeight()
@@ -2086,7 +2099,25 @@ function fluid_volumes.Simulate(cmd)
 		)
 		barrier(cmd)
 
-		if state.needs_fill or not simulated then
+		local fill_key = not simulated and
+			volume:GetNoiseAmount() == 0 and
+			table.concat(
+				{
+					volume:GetFill(),
+					volume:GetHeightFalloff(),
+					volume:GetEdgeSoftness(),
+					state.nx,
+					state.ny,
+					state.nz,
+				},
+				" "
+			)
+
+		if fill_key and fill_key ~= state.fill_key then state.needs_fill = true end
+
+		state.fill_key = fill_key
+
+		if state.needs_fill or (not simulated and not fill_key) then
 			state.needs_fill = false
 			dispatch(
 				cmd,
