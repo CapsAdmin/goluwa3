@@ -353,20 +353,27 @@ return {
 
 				while (rayQueryProceedEXT(beyond)) {}
 
+				bool hit = rayQueryGetIntersectionTypeEXT(beyond, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+				float hit_t = hit ? rayQueryGetIntersectionTEXT(beyond, true) : 2000.0;
+				vec3 target = screen_refraction_project(exit_pos + exit_dir * hit_t);
 				float screen_weight = 0.0;
 				vec3 screen_seen = vec3(0.0);
 
-				if (rayQueryGetIntersectionTypeEXT(beyond, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
-					vec3 target = screen_refraction_project(exit_pos + exit_dir * rayQueryGetIntersectionTEXT(beyond, true));
+				if (hit && target.z > -1.0 && screen_refraction_on_screen(target.xy) && textureLod(TEXTURE(camera_medium_data.depth_tex), target.xy, 0.0).r <= target.z * 1.02 + 1e-6) {
+					vec2 edge = min(target.xy, 1.0 - target.xy);
+					screen_weight = smoothstep(0.0, ]] .. SCREEN_EDGE_BLEND .. [[, min(edge.x, edge.y));
+					screen_seen = texture(TEXTURE(camera_medium_data.source_tex), target.xy).rgb;
 
-					if (target.z > -1.0 && screen_refraction_on_screen(target.xy) && textureLod(TEXTURE(camera_medium_data.depth_tex), target.xy, 0.0).r <= target.z * 1.02 + 1e-6) {
-						vec2 edge = min(target.xy, 1.0 - target.xy);
-						screen_weight = smoothstep(0.0, ]] .. SCREEN_EDGE_BLEND .. [[, min(edge.x, edge.y));
-						screen_seen = texture(TEXTURE(camera_medium_data.source_tex), target.xy).rgb;
-					}
+					if (camera_medium_data.optical_tint != 0) screen_seen *= get_optical_tint(exit_pos, exit_dir, hit_t, false);
 				}
 
 				if (screen_weight >= 1.0) return screen_seen;
+
+				if (camera_medium_data.refraction_rays == 0) {
+					if (!hit || target.z <= -1.0) return sample_environment_specular(camera_medium_data.env_tex, exit_dir, exit_dir, 0.0) * get_pre_exposure();
+
+					return texture(TEXTURE(camera_medium_data.source_tex), clamp(target.xy, vec2(0.0), vec2(1.0))).rgb;
+				}
 
 				float traced_t;
 				return mix(trace_scene_reflection(exit_pos, exit_dir, exit_dir, 0.0, SCENE_REFLECTION_MAX_DISTANCE, traced_t) * get_pre_exposure(), screen_seen, screen_weight);

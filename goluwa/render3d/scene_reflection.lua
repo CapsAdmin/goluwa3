@@ -19,6 +19,11 @@ scene_reflection.fog = pvars.Setup2{
 	default = true,
 	help = "the ground fog between a reflection ray's origin and what it hit is applied to the hit (analytic, unshadowed), the volumetric fog only covers what the camera sees. the reflections, the glass and the water use it",
 }
+scene_reflection.refraction = pvars.Setup2{
+	key = "r_rt_refraction",
+	default = true,
+	help = "refracted rays (through glass and other translucent bodies, and the view from inside a body) find what they hit with a ray query and shade it by ray tracing when it is off screen or hidden, off they march the screen and keep what it holds. costs a ray per refracted sample",
+}
 scene_reflection.max_distance = pvars.Setup2{
 	key = "r_rt_reflection_distance",
 	default = 1000000,
@@ -213,6 +218,7 @@ scene_reflection.block = {
 	{"reflection_fog", "int"},
 	{"glass_light", "int"},
 	{"optical_tint", "int"},
+	{"refraction_rays", "int"},
 }
 
 function scene_reflection.WriteBlock(self, block)
@@ -223,6 +229,7 @@ function scene_reflection.WriteBlock(self, block)
 	block.reflection_fog = scene_reflection.fog:Get() and 1 or 0
 	block.glass_light = ddgi.HasDirectTint() and 1 or 0
 	block.optical_tint = (ddgi.HasGlass() or ddgi.HasMedium()) and 1 or 0
+	block.refraction_rays = scene_reflection.refraction:Get() and 1 or 0
 	scene_lights.WriteLightsBlock(block.lights, lights)
 end
 

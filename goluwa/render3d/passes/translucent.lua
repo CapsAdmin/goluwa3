@@ -134,9 +134,11 @@ table.insert(
 			{"moments_tex", "int"},
 			{"depth_warp", "vec2"},
 			{"fog", "int"},
+			{"refraction_rays", "int"},
 		},
 		write = function(self, block)
 			surface_lighting.WriteBlock(self, block)
+			block.refraction_rays = scene_reflection.refraction:Get() and 1 or 0
 			block.reflection_screenspace_roughness = 0
 			block.reflection_gi_start, block.reflection_gi_end = ibl.GetReflectionGIRange()
 			block.rough_rays = scene_reflection.rough_rays:Get()
@@ -482,20 +484,36 @@ local passes = {
 
 						vec2 uv;
 						float travel;
+						vec3 through_tint = vec3(1.0);
+						#ifdef SCENE_REFLECTION
+						if (lighting_data.refraction_rays != 0 && scene_reflection_ready()) {
+							// a ray that leaves a solid nearly along its surface must start outside it, or it meets the solid again
+							vec3 origin = exit_pos + exit_normal * 0.05 * lighting_data.view_scale + ray_dir * 0.02 * lighting_data.view_scale;
+							float hit_t = scene_hit_distance(origin, ray_dir, SCENE_REFLECTION_MAX_DISTANCE);
 
-						if (!screen_refraction_trace(surface_pos, exit_pos, ray_dir, reach, jitter, uv, travel)) {
-							#ifdef SCENE_REFLECTION
-							if (scene_reflection_ready()) {
-								// a ray that leaves a solid nearly along its surface must start outside it, or it meets the solid again
-								refraction_ray_origin[refraction_ray_count] = exit_pos + exit_normal * 0.05 * lighting_data.view_scale + ray_dir * 0.02 * lighting_data.view_scale;
+							if (hit_t >= SCENE_REFLECTION_MAX_DISTANCE) {
+								env_weight += weight;
+								continue;
+							}
+
+							vec3 hit_screen = screen_refraction_project(origin + ray_dir * hit_t);
+
+							if (hit_screen.z <= -1.0 || !screen_refraction_on_screen(hit_screen.xy) || texture(TEXTURE(lighting_data.depth_tex), hit_screen.xy).r > hit_screen.z * 1.02 + 1e-6) {
+								refraction_ray_origin[refraction_ray_count] = origin;
 								refraction_ray_dir[refraction_ray_count] = ray_dir;
 								refraction_ray_channel[refraction_ray_count] = channel;
 								refraction_ray_weight[refraction_ray_count] = weight;
 								refraction_ray_count++;
 								continue;
 							}
-							#endif
 
+							uv = hit_screen.xy;
+							travel = distance(exit_pos, origin + ray_dir * hit_t);
+
+							if (lighting_data.optical_tint != 0) through_tint = get_optical_tint(origin, ray_dir, hit_t, false);
+						} else
+						#endif
+						if (!screen_refraction_trace(surface_pos, exit_pos, ray_dir, reach, jitter, uv, travel)) {
 							float outside = length(uv - clamp(uv, vec2(0.0), vec2(1.0)));
 							float edge_blur = 1.0 + outside * lighting_data.render_size.y * 0.25;
 							vec3 edge = textureLod(TEXTURE(lighting_data.refraction_tex), clamp(uv, vec2(0.0), vec2(1.0)), log2(edge_blur)).rgb * to_absolute;
@@ -512,7 +530,7 @@ local passes = {
 						if (samples > 1) blur_pixels *= 0.5;
 
 						if (blur_pixels <= 2.0) {
-							sum += textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb * (to_absolute * weight);
+							sum += textureLod(TEXTURE(lighting_data.refraction_tex), uv, log2(max(blur_pixels, 1.0))).rgb * through_tint * (to_absolute * weight);
 							continue;
 						}
 
@@ -523,7 +541,7 @@ local passes = {
 							textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, -0.5), lod).rgb +
 							textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(-0.5, 0.5), lod).rgb +
 							textureLod(TEXTURE(lighting_data.refraction_tex), uv + spread * vec2(0.5, 0.5), lod).rgb
-						) * (0.25 * to_absolute * weight);
+						) * through_tint * (0.25 * to_absolute * weight);
 					}
 
 					return sum;
