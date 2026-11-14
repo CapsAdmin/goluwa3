@@ -961,26 +961,35 @@ function ddgi.GetCommonGLSL()
 		#define DDGI_NO_VISIBILITY_RAYS 1e30
 		#define DDGI_CONTRAST_VISIBILITY_RAYS 1e29
 		#define DDGI_CONTRAST_SHARE 0.002
+		#define DDGI_HIDDEN_LEAK_SHARE 0.5
+		#define DDGI_HIDDEN_LEAK_RATIO 2.0
+		#define DDGI_LOW_WEIGHT_FLOOR 0.4
 		float ddgi_contrast_reference = 0.0;
 
-		bool ddgi_probe_hidden(vec3 P, vec3 N, vec3 probe_pos, float spacing) {
+		float ddgi_probe_hit_fraction(vec3 P, vec3 N, vec3 probe_pos, float spacing) {
 			#ifdef DDGI_VISIBILITY_RAYS
 			vec3 origin = P + N * (0.02 * spacing);
 			vec3 to_probe_ray = probe_pos - origin;
 			float len = length(to_probe_ray);
 
 			// a ray query with a nan or zero direction is undefined
-			if (!(len > 1e-4)) return true;
+			if (!(len > 1e-4)) return 0.0;
 
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, scene_tlas, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | (ddgi_data.ddgi_visibility_front_faces_only != 0 ? gl_RayFlagsCullBackFacingTrianglesEXT : 0u), DDGI_VISIBILITY_MASK, origin, 0.0, to_probe_ray / len, len);
 
 			while (rayQueryProceedEXT(query)) {}
 
-			return rayQueryGetIntersectionTypeEXT(query, true) != gl_RayQueryCommittedIntersectionNoneEXT;
+			if (rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT) return 2.0;
+
+			return rayQueryGetIntersectionTEXT(query, true) / len;
 			#else
-			return false;
+			return 2.0;
 			#endif
+		}
+
+		bool ddgi_probe_hidden(vec3 P, vec3 N, vec3 probe_pos, float spacing) {
+			return ddgi_probe_hit_fraction(P, N, probe_pos, spacing) <= 1.0;
 		}
 
 		bool ddgi_probe_can_be_traced(vec3 probe_position, ivec3 world) {
@@ -1060,6 +1069,14 @@ function ddgi.GetCommonGLSL()
 			ivec3 volume_max = volume_min + ddgi_volume_size(c) - 1;
 			vec4 sum = vec4(0.0);
 			vec4 second_sum = vec4(0.0);
+			vec4 hidden_sum = vec4(0.0);
+			vec4 hidden_second_sum = vec4(0.0);
+			vec4 leak_sum = vec4(0.0);
+			vec4 leak_second_sum = vec4(0.0);
+			float leak_weight = 0.0;
+			float hidden_weight = 0.0;
+			float hidden_luma = 1e30;
+			float hidden_second_luma = 1e30;
 
 			for (int i = 0; i < side * side * side; i++) {
 				ivec3 offset = ivec3(i % side, (i / side) % side, i / (side * side));
@@ -1078,7 +1095,8 @@ function ddgi.GetCommonGLSL()
 				vec4 irradiance2 = textureLod(TEXTURE(ddgi_data.ddgi_irradiance_tex), ddgi_atlas_uv(slot, c, L2, DDGI_IRRADIANCE_TEXELS), 0.0);
 				bool trace = ddgi_probe_needs_trace(w, luminance(irradiance.rgb), sum, visibility_min_weight) || ddgi_probe_needs_trace(w, luminance(irradiance2.rgb), sum, visibility_min_weight);
 
-				bool hidden = trace && ddgi_probe_can_be_traced(probe_position, world) && ddgi_probe_hidden(P, N, probe_position * spacing, spacing);
+				float hit_fraction = trace && ddgi_probe_can_be_traced(probe_position, world) ? ddgi_probe_hit_fraction(P, N, probe_position * spacing, spacing) : 2.0;
+				bool hidden = hit_fraction <= 1.0;
 
 				#ifdef DDGI_VISIBILITY_STATS
 				stats_total += w;
@@ -1087,7 +1105,18 @@ function ddgi.GetCommonGLSL()
 				if (hidden) stats_hidden += w;
 				#endif
 
-				if (hidden) continue;
+				if (hidden) {
+					hidden_sum += irradiance * w;
+					hidden_second_sum += irradiance2 * w;
+					hidden_weight += w;
+					hidden_luma = min(hidden_luma, luminance(irradiance.rgb));
+					hidden_second_luma = min(hidden_second_luma, luminance(irradiance2.rgb));
+					float leak = w * DDGI_HIDDEN_LEAK_SHARE * hit_fraction * hit_fraction;
+					leak_sum += irradiance * leak;
+					leak_second_sum += irradiance2 * leak;
+					leak_weight += leak;
+					continue;
+				}
 
 				sum += irradiance * w;
 				second_sum += irradiance2 * w;
@@ -1099,8 +1128,40 @@ function ddgi.GetCommonGLSL()
 			ddgi_stats_unoccluded = stats_sum / max(stats_total, ]] .. MIN_WEIGHT .. [[);
 			#endif
 
-			second = second_sum / max(weight, ]] .. MIN_WEIGHT .. [[);
-			return sum / max(weight, ]] .. MIN_WEIGHT .. [[);
+			if (weight <= 0.0 && hidden_weight > 0.0) {
+				vec4 fallback = hidden_sum / hidden_weight;
+				vec4 fallback_second = hidden_second_sum / hidden_weight;
+				fallback.rgb *= min(1.0, hidden_luma / max(luminance(fallback.rgb), 1e-6));
+				fallback_second.rgb *= min(1.0, hidden_second_luma / max(luminance(fallback_second.rgb), 1e-6));
+				second = fallback_second;
+				return fallback;
+			}
+
+			if (weight <= 0.0) {
+				second = vec4(0.0);
+				return vec4(0.0);
+			}
+
+			vec4 visible = sum / weight;
+			vec4 visible_second = second_sum / weight;
+			float total = weight;
+
+			if (leak_weight > 0.0) {
+				vec4 leak = leak_sum / leak_weight;
+				vec4 leak_second = leak_second_sum / leak_weight;
+				leak.rgb *= min(1.0, DDGI_HIDDEN_LEAK_RATIO * luminance(visible.rgb) / max(luminance(leak.rgb), 1e-6));
+				leak_second.rgb *= min(1.0, DDGI_HIDDEN_LEAK_RATIO * luminance(visible_second.rgb) / max(luminance(leak_second.rgb), 1e-6));
+				leak_weight = min(leak_weight, DDGI_HIDDEN_LEAK_SHARE * weight);
+				total += leak_weight;
+				visible = (sum + leak * leak_weight) / total;
+				visible_second = (second_sum + leak_second * leak_weight) / total;
+			}
+
+			float fade = max(total / ]] .. MIN_WEIGHT .. [[, DDGI_LOW_WEIGHT_FLOOR);
+			visible.rgb *= min(1.0, fade);
+			visible_second.rgb *= min(1.0, fade);
+			second = visible_second;
+			return visible;
 		}
 
 		float ddgi_cascade_blend(int c, vec3 P, bool smooth_blend) {
