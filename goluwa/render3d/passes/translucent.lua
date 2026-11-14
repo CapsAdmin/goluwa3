@@ -744,7 +744,7 @@ local passes = {
 							float traced_distance = 0.0;
 							vec3 traced_normal = vec3(0.0);
 							#ifdef OPTICAL_RAYS
-							traced_distance = get_glass_body_exit(world_pos, T, MEDIUM_MAX_PATH, traced_normal);
+							traced_distance = get_body_exit(world_pos, T, MEDIUM_MAX_PATH, traced_normal);
 							#endif
 							bool channel_thick = traced_distance > 0.0 || refraction.thickness > 0.0;
 

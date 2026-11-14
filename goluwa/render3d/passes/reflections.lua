@@ -237,9 +237,7 @@ return {
 			local width, height = get_trace_size()
 			self.pipeline:DispatchForSize(cmd, width, height, 1, desc, self.dynamic_offsets)
 		end,
-		ray_generation = RAY_QUERY and
-			scene_hits.GetRayGeneration(scene_hits.IsReordered()) or
-			nil,
+		ray_generation = RAY_QUERY and scene_hits.GetRayGeneration(scene_hits.IsReordered()) or nil,
 		storage_images = {
 			{
 				binding_index = 0,

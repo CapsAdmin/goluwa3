@@ -486,7 +486,6 @@ function ray_materials.GetAlphaTestGLSL()
 	]]
 end
 
-
 local MaterialEntry = ffi.typeof([[struct {
 	float albedo[3];
 	int32_t albedo_tex;
@@ -963,6 +962,5 @@ function ray_materials.WriteMaterialBuffer(self)
 	refresh_volumes(state)
 	return state.buffer
 end
-
 
 return ray_materials

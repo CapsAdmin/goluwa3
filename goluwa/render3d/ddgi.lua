@@ -110,8 +110,6 @@ ddgi.MIN_PROBES_PER_AXIS = 4
 ddgi.RAYS_PER_PROBE = 128
 ddgi.HALF_PRECISION_RAYS = true
 ddgi.ALPHA_TEST = true
-
-
 ddgi.EMITTER_SAMPLES = 32
 ddgi.LIGHT_SAMPLES = 2
 ddgi.IRRADIANCE_TEXELS = 8
@@ -798,6 +796,7 @@ end
 
 local MIN_WEIGHT = "0.05"
 ddgi.MIN_WEIGHT = MIN_WEIGHT
+
 function ddgi.GetCommonGLSL()
 	return medium_common.GetGLSL() .. ddgi.GetDefinesGLSL() .. ddgi.GetRayDirectionGLSL() .. glsl_common.GetLuminanceGLSL() .. [[
 

@@ -95,7 +95,7 @@ function optical_rays.GetGLSL()
 			return optical_range_tint(0, get_optical_header().z, origin, dir, distance, light_ray, with_layer);
 		}
 
-		float get_glass_body_exit(vec3 origin, vec3 dir, float max_distance, out vec3 outward_normal) {
+		float get_body_exit(vec3 origin, vec3 dir, float max_distance, out vec3 outward_normal) {
 			outward_normal = vec3(0.0);
 
 			if (dot(dir, dir) < 0.5 || get_optical_header().x + get_optical_header().y == 0) return 0.0;

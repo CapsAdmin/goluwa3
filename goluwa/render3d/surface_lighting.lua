@@ -85,7 +85,16 @@ function surface_lighting.WriteBlock(self, block)
 	local gi_specular_texture = gi.GetScreenSpecularTexture()
 	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
 	block.light_transmittance = (optical_rays.IsEnabled() and ray_materials.HasDirectTint()) and 1 or 0
-	block.optical_tint = (optical_rays.IsEnabled() and (ray_materials.HasGlass() or ray_materials.HasMedium())) and 1 or 0
+	block.optical_tint = (
+			optical_rays.IsEnabled() and
+			(
+				ray_materials.HasGlass() or
+				ray_materials.HasMedium()
+			)
+		)
+		and
+		1 or
+		0
 	block.medium_thickness = medium_common.assumed_thickness
 	block.medium_base_height = medium_common.base_height
 	block.medium_thickness_per_height = medium_common.thickness_per_height
@@ -198,7 +207,7 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 			float solid = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 0.0 : rayQueryGetIntersectionTEXT(query, true);
 			#ifdef OPTICAL_RAYS
 			vec3 exit_normal;
-			float body = get_glass_body_exit(origin, dir, max_distance, exit_normal);
+			float body = get_body_exit(origin, dir, max_distance, exit_normal);
 
 			if (body > 0.0 && (solid <= 0.0 || body < solid)) return body;
 			#endif

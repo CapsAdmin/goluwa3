@@ -231,7 +231,7 @@ return {
 
 			vec3 camera_body_shaft_sample(ray_material body, vec3 sun_dir, vec3 attenuation, float mu, vec3 p) {
 				vec3 wall_normal;
-				float sun_path = get_glass_body_exit(p, sun_dir, ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[, wall_normal);
+				float sun_path = get_body_exit(p, sun_dir, ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[, wall_normal);
 
 				if (sun_path <= 0.0) return vec3(0.0);
 
@@ -429,7 +429,7 @@ return {
 							vec3 wall_normal;
 							d = reflect(d, n);
 							vec3 inside_pos = p - n * offset;
-							float wall = bounce < ]] .. MAX_BOUNCES .. [[ ? get_glass_body_exit(inside_pos, d, ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[, wall_normal) : 0.0;
+							float wall = bounce < ]] .. MAX_BOUNCES .. [[ ? get_body_exit(inside_pos, d, ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[, wall_normal) : 0.0;
 
 							if (wall <= 0.0) {
 								seen += throughput * view.inside_color;
