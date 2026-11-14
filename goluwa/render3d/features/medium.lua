@@ -67,6 +67,7 @@ return {
 		float medium_back;
 		float medium_thickness;
 		float medium_body;
+		float medium_transmission;
 	]],
 	surface_default = [[
 		s.medium_scatter = vec3(0.0);
@@ -81,6 +82,7 @@ return {
 		s.medium_back = 0.0;
 		s.medium_thickness = 0.0;
 		s.medium_body = 0.0;
+		s.medium_transmission = 0.0;
 	]],
 	material_init = [[
 		if (has_terrain_layers()) {
@@ -96,7 +98,18 @@ return {
 		s.medium_scatter = vec3(0.0);
 		s.medium_thickness = 0.0;
 
-		if (s.medium_slot > 0.0) {
+		s.medium_transmission = 0.0;
+
+		if (s.medium_slot > 0.0 && s.transmission > 0.0) {
+			s.medium_extinction = get_medium_slot_extinction(int(s.medium_slot + 0.5)).rgb;
+			s.medium_porosity = 1.0;
+			s.medium_back = 0.0;
+			s.medium_body = 0.0;
+			float far_side = get_medium_light_path(s.world_pos - s.geometric_N * 0.003, -s.N, MEDIUM_SOLID_PATH);
+			s.medium_thickness = far_side > 0.0 ? far_side : MEDIUM_PANE_PATH;
+			s.medium_transmission = s.transmission;
+			s.transmission = 0.0;
+		} else if (s.medium_slot > 0.0) {
 			int medium_slot = int(s.medium_slot + 0.5);
 			vec4 slot_extinction = get_medium_slot_extinction(medium_slot);
 			vec4 slot_scattering = get_medium_slot_scattering(medium_slot);
@@ -176,6 +189,9 @@ return {
 		}
 	]],
 	lit_from_behind = "s.medium_slot > 0.0",
+	direct_floor = [[
+		if (s.medium_transmission > 0.0) scatter_floor = 1.0;
+	]],
 	direct_layer = [[
 		if (s.medium_slot > 0.0) diffuse_weight *= max(s.medium_cover, s.medium_porosity);
 	]],
@@ -185,9 +201,26 @@ return {
 			float surface_light = shadow_factor * mix(saturate(dot(s.N, L)), saturate((dot(s.N, L) + 0.5) / 1.5) / 1.5, diffusion) * mix(1.0, medium_scatter_probability(s.medium_scattering, s.medium_thickness), s.medium_body);
 			diffuse += (1.0 - max(s.medium_cover, s.medium_porosity)) * s.medium_scatter * unshadowed_radiance * surface_light * (1.0 - s.metallic) / PI;
 		}
+
+		if (s.medium_transmission > 0.0) {
+			float entry_weight = saturate(0.5 - dot(s.N, L));
+
+			if (entry_weight > 0.0) {
+				float exit_path = get_medium_light_path(s.world_pos - s.geometric_N * 0.003, L, MEDIUM_SOLID_PATH);
+				if (exit_path <= 0.0) exit_path = MEDIUM_PANE_PATH;
+				vec3 exit_position = s.world_pos + L * exit_path;
+				float exit_visibility = get_light_visibility_at(i, type, exit_position + L * 0.02, L, light.position.xyz, light.params.x);
+				diffuse += s.medium_transmission * s.albedo * (1.0 - s.metallic) * optical_transmittance(s.medium_extinction, exit_path) * unshadowed_radiance * exit_visibility * entry_weight / PI;
+			}
+		}
 	]],
 	indirect = [[
-		if (s.medium_slot > 0.0) {
+		if (s.medium_transmission > 0.0) {
+			vec3 front_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, s.N) * sky_visibility;
+			vec3 back_sky = sample_environment_irradiance(lighting_data.env_irradiance_tex, -s.N) * sky_visibility;
+			vec3 back_irradiance = back_sky + max(irradiance - front_sky, vec3(0.0));
+			ambient_diffuse += s.medium_transmission * s.albedo * (1.0 - s.metallic) * optical_transmittance(s.medium_extinction, s.medium_thickness) * back_irradiance * ambient_occlusion;
+		} else if (s.medium_slot > 0.0) {
 			float medium_matte = max(s.medium_cover, s.medium_porosity);
 			ambient_diffuse *= medium_matte;
 			float medium_body = 1.0 - medium_matte;

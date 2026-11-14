@@ -260,6 +260,16 @@ function surface_lighting.GetGLSL(block_name, ray_queries)
 
 		]] .. surface_features.GetDefaultFunctionGLSL() .. surface_features.GetFinishFunctionGLSL() .. [[
 
+		float get_light_visibility_at(int i, int type, vec3 position, vec3 L, vec3 light_position, float light_range) {
+			if (type == 0) {
+				if (i == ]] .. block_name .. [[.shadows.directional_shadow_light_index && ]] .. block_name .. [[.shadows.shadow_map_indices[0] >= 0) return calculateShadow(position, L, L);
+			} else if (type == 1 || type == 3) {
+				return light_oct_shadow_factor(]] .. block_name .. [[.bvh_oct_slot[i], light_position, light_range, position);
+			}
+
+			return 1.0;
+		}
+
 		vec3 get_direct_light(in Surface s, out vec3 specular)
 		{
 			vec3 diffuse = vec3(0.0);
