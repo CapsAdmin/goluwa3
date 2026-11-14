@@ -20,7 +20,8 @@ local ARM_STRETCH = 0.04
 local EXPLOSION_SPL = 150
 local EXPLOSION_KEEP = 0.35
 local SOUNDS = {"weapons/explode3.wav", "weapons/explode4.wav", "weapons/explode5.wav"}
-local clips, vfx, screen_shake, sounds, render3d, screen_fields, raycast
+local FLUID_RESOLUTION = 64
+local clips, vfx, screen_shake, sounds, render3d, screen_fields, raycast, fluid_volumes
 
 local function enabled()
 	return RENDER_3D and import("goluwa/render/render.lua").IsInitialized()
@@ -458,6 +459,279 @@ local function spawn_fireball(position, normal, size)
 	spawn_smoke_columns(position, ax, ay, az, k)
 end
 
+local function fluid_box(size)
+	return Vec3(1.5, 2.2, 1.5) * size
+end
+
+local function spawn_fluid_fireball(position, normal, size)
+	local k = size / 6
+	local floor = normal.y > 0.7 and position.y + 0.1 or nil
+	local ax, ay, az = trace_blast(position, normal, size * 1.5)
+	local axis = Vec3(ax, ay, az)
+	local center = position + axis * (0.3 * k)
+	spawn_arms_and_trails(position, ax, ay, az, k * 1.7, floor)
+	fluid_volumes.Spawn{
+		position = center,
+		radius = 1.5 * k,
+		fuel = 10,
+		smoke = 3,
+		temperature = 1700,
+		expand = 12 * k,
+		velocity = axis * (3 * k),
+		offset = position + Vec3(0, 0.85 * size, 0) - center,
+		volume = {
+			Size = fluid_box(size),
+			Resolution = FLUID_RESOLUTION,
+			Medium = "smoke",
+			Floor = false,
+			BurnRate = 4,
+			FlameLife = 0.5,
+			SootYield = 1.5,
+			Dissipation = 0.05,
+			Buoyancy = 0.4,
+			Turbulence = 5 * k,
+			TurbulenceScale = 0.5 * k,
+			Vorticity = 3,
+		},
+	}
+end
+
+local function spawn_sprite_fire(p)
+	spawn_fireball(p.position, p.normal, p.size)
+	vfx.Flash(
+		p.position + p.normal * p.size * 0.3,
+		FIRE,
+		14000 * p.size * p.size,
+		4.5,
+		{
+			Range = p.size * 5,
+			SourceRadius = p.size * 0.05,
+			SourceRadiusEnd = p.size * 1.6,
+			ColorEnd = EMBER,
+			Attack = 0.06,
+			Falloff = 0.7,
+			Sustain = 0.25 / 3,
+			SustainTime = 0.12,
+			Flicker = 0.3,
+			Velocity = p.normal * p.size * 0.17,
+		}
+	)
+end
+
+local function spawn_fluid_fire(p)
+	spawn_fluid_fireball(p.position, p.normal, p.size)
+end
+
+local function explosion_clip(spawn_fire)
+	return {
+		Duration = 1.8,
+		Tracks = {
+			flash = {{0, 1, "outQuart"}, {0.14, 0}},
+			shock = {{0, 0.1, "outQuart"}, {0.4, 0.85}},
+			shock_fade = {{0, 1, "outQuad"}, {0.4, 0}},
+			ember = {{0, 0}, {0.04, 1, "outQuad"}, {1, 0}},
+			trail_fade = {{0, 1, "outQuad"}, {0.75, 0}},
+		},
+		Bursts = {
+			grenade_sparks = burst{
+				Spread = 160,
+				Speed = {6, 22},
+				Lifetime = {0.4, 1.1},
+				Size = {Keys = {{0, 0.025}, {1, 0}}},
+				Drag = 0.3,
+				GravityScale = 1,
+				Sparkle = 1,
+				Emissive = 6e5,
+				Color = {Keys = {{0, Color(1, 0.9, 0.55, 1)}, {1, Color(1, 0.3, 0.05, 0)}}},
+			},
+			grenade_embers = burst{
+				Spread = 180,
+				Speed = {1, 5},
+				Lifetime = {1.5, 3},
+				Size = {Keys = {{0, 0.02}, {1, 0}}},
+				Drag = 1,
+				GravityScale = -0.1,
+				Sparkle = 1,
+				Emissive = 3e5,
+				Color = {Keys = {{0, Color(1, 0.55, 0.15, 1)}, {1, Color(0.6, 0.08, 0.02, 0)}}},
+			},
+		},
+		Debris = {
+			grenade_shrapnel = {
+				Material = {Color = Color(0.14, 0.13, 0.12, 1), Roughness = 0.35, Metallic = 0.9},
+				Emitter = {
+					Mesh = "shard",
+					MaxParticles = 128,
+					Spread = 90,
+					Speed = {4, 14},
+					Lifetime = {1.2, 2.2},
+					Size = {Keys = {{0, 0.07}, {1, 0.05}}},
+					GravityScale = 1,
+					Drag = 0.2,
+					Spin = 500,
+					Collision = "rays",
+					OnHit = "bounce",
+					Restitution = 0.35,
+					Friction = 0.5,
+				},
+			},
+			grenade_chunks = {
+				Material = {Color = Color(0.22, 0.17, 0.12, 1), Roughness = 0.95, Metallic = 0},
+				Emitter = {
+					Mesh = "cube",
+					MaxParticles = 64,
+					Spread = 70,
+					Speed = {2, 8},
+					Lifetime = {1.5, 2.5},
+					Size = {Keys = {{0, 0.11}, {1, 0.09}}},
+					GravityScale = 1,
+					Drag = 0.3,
+					Spin = 300,
+					Collision = "rays",
+					OnHit = "bounce",
+					Restitution = 0.3,
+					Friction = 0.7,
+				},
+			},
+		},
+		Events = {
+			{0, Burst = "grenade_sparks", Count = 160, Direction = "normal"},
+			{0, Burst = "grenade_embers", Count = 50, Direction = "normal"},
+			{0, Debris = "grenade_shrapnel", Count = 40, Direction = "normal"},
+			{0, Debris = "grenade_chunks", Count = 14, Direction = "normal"},
+			{
+				0,
+				function(p)
+					spawn_fire(p)
+					screen_fields.Add{
+						Position = p.position + p.normal * 0.6,
+						Duration = 0.9,
+						Radius = p.size * 1.6,
+						Thickness = 0.3,
+						Blur = 55,
+						Ring = 0.04,
+						Aberration = 8,
+					}
+					screen_fields.Add{
+						Position = p.position + p.normal * p.size * 0.15,
+						Duration = 2.4,
+						Attack = 0.25,
+						Radius = p.size * 0.6,
+						Expand = false,
+						Thickness = 0.5,
+						Haze = 0.8,
+						Ring = 0.01,
+					}
+					vfx.Flash(
+						p.position + p.normal * 0.6,
+						FLASH_HOT,
+						60000 * p.size * p.size,
+						0.45,
+						{
+							Range = p.size * 5,
+							SourceRadius = p.size * 0.04,
+							ColorEnd = FLASH_COOL,
+							Attack = 0.03,
+							Falloff = 4,
+							Flicker = 0.15,
+						}
+					)
+					sounds.PlayRandom(
+						SOUNDS,
+						p.position,
+						sounds.SPLToVolume(EXPLOSION_SPL),
+						math.randomf(0.9, 1.1),
+						EXPLOSION_KEEP
+					)
+					local distance = (render3d.GetCamera():GetPosition() - p.position):GetLength()
+					local closeness = math.clamp(1 - distance / (p.size * 3), 0, 1)
+
+					if closeness > 0 then
+						screen_shake.Add(0.35 * closeness * closeness, 1.2, 0.8)
+					end
+				end,
+			},
+		},
+		Layers = {
+			{
+				Type = "sprite",
+				Texture = "flare",
+				Lift = 0.3,
+				Tint = 0.8,
+				Radius = 0.45,
+				ScaleBy = "size",
+				Brightness = 12,
+				Alpha = "flash",
+			},
+			{
+				Type = "sprite",
+				Texture = "ring",
+				Flat = true,
+				Lift = 0.05,
+				Tint = 0.5,
+				Radius = "shock",
+				ScaleBy = "size",
+				Brightness = 3,
+				Alpha = "shock_fade",
+			},
+			{
+				Type = "sprite",
+				Texture = "glow",
+				Flat = true,
+				Lift = 0.03,
+				Radius = 0.35,
+				ScaleBy = "size",
+				Brightness = 2,
+				Alpha = function(p, v)
+					return 0.35 * v.ember
+				end,
+			},
+			{
+				Type = "gpu_trail",
+				Count = TRAIL_COUNT,
+				Points = 48,
+				Texture = "orbit_trail",
+				Radius = 0.04,
+				Drift = 0.3,
+				Strength = 25,
+				Alpha = "trail_fade",
+				EndColor = function()
+					return EMBER
+				end,
+				Init = function(p, i)
+					local yaw = math.random() * math.pi * 2
+					local pitch = math.randomf(0.3, 1.3)
+					local speed = math.randomf(5, 12) * p.size / 6
+					local flat = math.cos(pitch)
+					return {
+						x = p.position.x,
+						y = p.position.y + 0.1,
+						z = p.position.z,
+						vx = math.cos(yaw) * flat * speed,
+						vy = math.sin(pitch) * speed,
+						vz = math.sin(yaw) * flat * speed,
+					}
+				end,
+				Push = function(p, v, trail, d, dt)
+					dt = math.min(dt, 0.05)
+					local ground = p.position.y + 0.04
+
+					if d.y > ground or d.vy > 0 then
+						local drag = 1 - 0.5 * dt
+						d.vy = d.vy - GRAVITY * dt
+						d.vx, d.vy, d.vz = d.vx * drag, d.vy * drag, d.vz * drag
+						d.x, d.y, d.z = d.x + d.vx * dt, d.y + d.vy * dt, d.z + d.vz * dt
+
+						if d.y < ground then d.y, d.vx, d.vy, d.vz = ground, 0, 0, 0 end
+					end
+
+					trail:ShiftXYZ(d.x, d.y, d.z)
+				end,
+			},
+		},
+	}
+end
+
 local function init()
 	if clips then return end
 
@@ -468,6 +742,7 @@ local function init()
 	sounds = import("lua/sounds.lua")
 	render3d = import("goluwa/render3d/render3d.lua")
 	raycast = import("goluwa/render3d/raycast.lua")
+	fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
 	event.AddListener("Update", "grenade_streamers", update_streamers)
 	clips.Define(
 		"grenade_fuse",
@@ -487,234 +762,8 @@ local function init()
 			},
 		}
 	)
-	clips.Define(
-		"grenade_explosion",
-		{
-			Duration = 1.8,
-			Tracks = {
-				flash = {{0, 1, "outQuart"}, {0.14, 0}},
-				shock = {{0, 0.1, "outQuart"}, {0.4, 0.85}},
-				shock_fade = {{0, 1, "outQuad"}, {0.4, 0}},
-				ember = {{0, 0}, {0.04, 1, "outQuad"}, {1, 0}},
-				trail_fade = {{0, 1, "outQuad"}, {0.75, 0}},
-			},
-			Bursts = {
-				grenade_sparks = burst{
-					Spread = 160,
-					Speed = {6, 22},
-					Lifetime = {0.4, 1.1},
-					Size = {Keys = {{0, 0.025}, {1, 0}}},
-					Drag = 0.3,
-					GravityScale = 1,
-					Sparkle = 1,
-					Emissive = 6e5,
-					Color = {Keys = {{0, Color(1, 0.9, 0.55, 1)}, {1, Color(1, 0.3, 0.05, 0)}}},
-				},
-				grenade_embers = burst{
-					Spread = 180,
-					Speed = {1, 5},
-					Lifetime = {1.5, 3},
-					Size = {Keys = {{0, 0.02}, {1, 0}}},
-					Drag = 1,
-					GravityScale = -0.1,
-					Sparkle = 1,
-					Emissive = 3e5,
-					Color = {Keys = {{0, Color(1, 0.55, 0.15, 1)}, {1, Color(0.6, 0.08, 0.02, 0)}}},
-				},
-			},
-			Debris = {
-				grenade_shrapnel = {
-					Material = {Color = Color(0.14, 0.13, 0.12, 1), Roughness = 0.35, Metallic = 0.9},
-					Emitter = {
-						Mesh = "shard",
-						MaxParticles = 128,
-						Spread = 90,
-						Speed = {4, 14},
-						Lifetime = {1.2, 2.2},
-						Size = {Keys = {{0, 0.07}, {1, 0.05}}},
-						GravityScale = 1,
-						Drag = 0.2,
-						Spin = 500,
-						Collision = "rays",
-						OnHit = "bounce",
-						Restitution = 0.35,
-						Friction = 0.5,
-					},
-				},
-				grenade_chunks = {
-					Material = {Color = Color(0.22, 0.17, 0.12, 1), Roughness = 0.95, Metallic = 0},
-					Emitter = {
-						Mesh = "cube",
-						MaxParticles = 64,
-						Spread = 70,
-						Speed = {2, 8},
-						Lifetime = {1.5, 2.5},
-						Size = {Keys = {{0, 0.11}, {1, 0.09}}},
-						GravityScale = 1,
-						Drag = 0.3,
-						Spin = 300,
-						Collision = "rays",
-						OnHit = "bounce",
-						Restitution = 0.3,
-						Friction = 0.7,
-					},
-				},
-			},
-			Events = {
-				{0, Burst = "grenade_sparks", Count = 160, Direction = "normal"},
-				{0, Burst = "grenade_embers", Count = 50, Direction = "normal"},
-				{0, Debris = "grenade_shrapnel", Count = 40, Direction = "normal"},
-				{0, Debris = "grenade_chunks", Count = 14, Direction = "normal"},
-				{
-					0,
-					function(p)
-						spawn_fireball(p.position, p.normal, p.size)
-						screen_fields.Add{
-							Position = p.position + p.normal * 0.6,
-							Duration = 0.9,
-							Radius = p.size * 1.6,
-							Thickness = 0.3,
-							Blur = 55,
-							Ring = 0.04,
-							Aberration = 8,
-						}
-						screen_fields.Add{
-							Position = p.position + p.normal * p.size * 0.15,
-							Duration = 2.4,
-							Attack = 0.25,
-							Radius = p.size * 0.6,
-							Expand = false,
-							Thickness = 0.5,
-							Haze = 0.8,
-							Ring = 0.01,
-						}
-						vfx.Flash(
-							p.position + p.normal * 0.6,
-							FLASH_HOT,
-							60000 * p.size * p.size,
-							0.45,
-							{
-								Range = p.size * 5,
-								SourceRadius = p.size * 0.04,
-								ColorEnd = FLASH_COOL,
-								Attack = 0.03,
-								Falloff = 4,
-								Flicker = 0.15,
-							}
-						)
-						vfx.Flash(
-							p.position + p.normal * p.size * 0.3,
-							FIRE,
-							14000 * p.size * p.size,
-							4.5,
-							{
-								Range = p.size * 5,
-								SourceRadius = p.size * 0.05,
-								SourceRadiusEnd = p.size * 1.6,
-								ColorEnd = EMBER,
-								Attack = 0.06,
-								Falloff = 0.7,
-								Sustain = 0.25 / 3,
-								SustainTime = 0.12,
-								Flicker = 0.3,
-								Velocity = p.normal * p.size * 0.17,
-							}
-						)
-						sounds.PlayRandom(
-							SOUNDS,
-							p.position,
-							sounds.SPLToVolume(EXPLOSION_SPL),
-							math.randomf(0.9, 1.1),
-							EXPLOSION_KEEP
-						)
-						local distance = (render3d.GetCamera():GetPosition() - p.position):GetLength()
-						local closeness = math.clamp(1 - distance / (p.size * 3), 0, 1)
-
-						if closeness > 0 then
-							screen_shake.Add(0.35 * closeness * closeness, 1.2, 0.8)
-						end
-					end,
-				},
-			},
-			Layers = {
-				{
-					Type = "sprite",
-					Texture = "flare",
-					Lift = 0.3,
-					Tint = 0.8,
-					Radius = 0.45,
-					ScaleBy = "size",
-					Brightness = 12,
-					Alpha = "flash",
-				},
-				{
-					Type = "sprite",
-					Texture = "ring",
-					Flat = true,
-					Lift = 0.05,
-					Tint = 0.5,
-					Radius = "shock",
-					ScaleBy = "size",
-					Brightness = 3,
-					Alpha = "shock_fade",
-				},
-				{
-					Type = "sprite",
-					Texture = "glow",
-					Flat = true,
-					Lift = 0.03,
-					Radius = 0.35,
-					ScaleBy = "size",
-					Brightness = 2,
-					Alpha = function(p, v)
-						return 0.35 * v.ember
-					end,
-				},
-				{
-					Type = "gpu_trail",
-					Count = TRAIL_COUNT,
-					Points = 48,
-					Texture = "orbit_trail",
-					Radius = 0.04,
-					Drift = 0.3,
-					Strength = 25,
-					Alpha = "trail_fade",
-					EndColor = function()
-						return EMBER
-					end,
-					Init = function(p, i)
-						local yaw = math.random() * math.pi * 2
-						local pitch = math.randomf(0.3, 1.3)
-						local speed = math.randomf(5, 12) * p.size / 6
-						local flat = math.cos(pitch)
-						return {
-							x = p.position.x,
-							y = p.position.y + 0.1,
-							z = p.position.z,
-							vx = math.cos(yaw) * flat * speed,
-							vy = math.sin(pitch) * speed,
-							vz = math.sin(yaw) * flat * speed,
-						}
-					end,
-					Push = function(p, v, trail, d, dt)
-						dt = math.min(dt, 0.05)
-						local ground = p.position.y + 0.04
-
-						if d.y > ground or d.vy > 0 then
-							local drag = 1 - 0.5 * dt
-							d.vy = d.vy - GRAVITY * dt
-							d.vx, d.vy, d.vz = d.vx * drag, d.vy * drag, d.vz * drag
-							d.x, d.y, d.z = d.x + d.vx * dt, d.y + d.vy * dt, d.z + d.vz * dt
-
-							if d.y < ground then d.y, d.vx, d.vy, d.vz = ground, 0, 0, 0 end
-						end
-
-						trail:ShiftXYZ(d.x, d.y, d.z)
-					end,
-				},
-			},
-		}
-	)
+	clips.Define("grenade_explosion", explosion_clip(spawn_sprite_fire))
+	clips.Define("grenade_explosion_fluid", explosion_clip(spawn_fluid_fire))
 end
 
 grenade_effects.Explode = new_event(
@@ -728,6 +777,22 @@ grenade_effects.Explode = new_event(
 	end,
 	enabled
 )
+grenade_effects.ExplodeFluid = new_event(
+	"grenade_explode_fluid",
+	function(position, normal, radius)
+		init()
+		clips.Play(
+			"grenade_explosion_fluid",
+			{position = position:Copy(), normal = normal, color = FIRE, size = radius}
+		)
+	end,
+	enabled
+)
+
+function grenade_effects.PrewarmFluid(radius, count)
+	init()
+	fluid_volumes.Prewarm(fluid_box(radius), FLUID_RESOLUTION, count)
+end
 
 function grenade_effects.StartFuse()
 	init()
