@@ -233,9 +233,10 @@ return {
 			return view;
 		}
 
-			vec3 camera_body_outside(vec3 exit_pos, vec3 exit_dir) {
+			vec3 camera_body_outside(vec3 wall_pos, vec3 outward, vec3 exit_dir) {
+				vec3 exit_pos = wall_pos + outward * (0.01 * camera_medium_data.view_scale);
 				rayQueryEXT beyond;
-				rayQueryInitializeEXT(beyond, ddgi_scene, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, exit_pos, 0.002 * camera_medium_data.view_scale, exit_dir, 2000.0);
+				rayQueryInitializeEXT(beyond, ddgi_scene, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, exit_pos, 0.0, exit_dir, 2000.0);
 
 				while (rayQueryProceedEXT(beyond)) {}
 
@@ -294,7 +295,7 @@ return {
 							bool total = dot(refracted, refracted) < 1e-6;
 							float transmitted = total ? 0.0 : 1.0 - fresnel_dielectric(dot(d, n), view.ior);
 
-							if (transmitted > 0.0) seen += throughput * transmitted * camera_body_outside(p, normalize(refracted));
+							if (transmitted > 0.0) seen += throughput * transmitted * camera_body_outside(p, n, normalize(refracted));
 
 							vec3 reflected_throughput = throughput * (1.0 - transmitted);
 
@@ -307,7 +308,8 @@ return {
 							float incidence = abs(dot(d, n));
 							vec3 wall_normal;
 							d = reflect(d, n);
-							float wall = bounce < ]] .. MAX_BOUNCES .. [[ ? get_glass_body_exit(p, d, ]] .. string.format("%.1f", glass_light.GetMaxDistance()) .. [[, wall_normal) : 0.0;
+							vec3 inside_pos = p - n * offset;
+							float wall = bounce < ]] .. MAX_BOUNCES .. [[ ? get_glass_body_exit(inside_pos, d, ]] .. string.format("%.1f", glass_light.GetMaxDistance()) .. [[, wall_normal) : 0.0;
 
 							if (wall <= 0.0) {
 								seen += throughput * view.inside_color;
@@ -318,18 +320,18 @@ return {
 							uint object_instance;
 							uint object_primitive;
 							vec2 object_barycentrics;
-							bool object = trace_scene_hit(p + d * offset, d, 0.0, wall - 2.0 * offset, object_t, object_instance, object_primitive, object_barycentrics);
-							float segment = object ? object_t + offset : wall;
+							bool object = trace_scene_hit(inside_pos, d, 0.0, wall - offset, object_t, object_instance, object_primitive, object_barycentrics);
+							float segment = object ? object_t : wall;
 							vec3 segment_transmittance = optical_transmittance(view.attenuation, segment);
 							seen += throughput * view.inside_color * (1.0 - segment_transmittance);
 							throughput *= segment_transmittance;
 
 							if (object) {
-								seen += throughput * shade_scene_reflection_hit(p + d * offset, d, 0.0, object_t, object_instance, object_primitive, object_barycentrics) * get_pre_exposure();
+								seen += throughput * shade_scene_reflection_hit(inside_pos, d, 0.0, object_t, object_instance, object_primitive, object_barycentrics) * get_pre_exposure();
 								break;
 							}
 
-							p += d * wall;
+							p = inside_pos + d * wall;
 							n = wall_normal;
 
 							if (total && abs(abs(dot(d, n)) - incidence) < 1e-3) {
