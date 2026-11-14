@@ -15,6 +15,7 @@ local infos = {}
 local materials = {}
 local BLEND_SHADERS = {["vr_simple_2way_blend.vfx"] = true}
 local INCHES = 0.0254
+local SOFT_ALPHA_EDGE_STRENGTH = 0.5
 local TREE_HEIGHT = 5.2
 local TREE_TRUNK_DEFLECTION = 0.04
 local TREE_BRANCH_DEFLECTION = 0.012
@@ -89,8 +90,25 @@ function material.GetInfo(path)
 	info.bottle = info.shader == "vr_simple_liquid.vfx" and info.ints.F_NO_LIQUID == 1
 	info.liquid = info.shader == "vr_simple_liquid.vfx" and not info.bottle
 	info.additive = info.ints.F_ADDITIVE_BLEND == 1
-	info.translucent = (info.ints.F_TRANSLUCENT or 0) > 0 or info.additive or info.glass or info.decal
 	info.alpha_test = info.ints.F_ALPHA_TEST == 1
+	info.alpha_coverage = info.alpha_test and
+		(
+			info.floats.g_flAntiAliasedEdgeStrength or
+			1
+		) < SOFT_ALPHA_EDGE_STRENGTH
+	info.soft_translucent = info.alpha_coverage and
+		(
+			path:find("trans", 1, true) or
+			path:find("glass", 1, true)
+		) ~= nil
+	info.translucent = (
+			info.ints.F_TRANSLUCENT or
+			0
+		) > 0 or
+		info.additive or
+		info.glass or
+		info.decal or
+		info.soft_translucent
 	info.tint_mask = info.ints.F_TINT_MASK == 1 or info.ints.F_ENABLE_TINT_MASKS == 1
 	return info
 end
@@ -367,9 +385,9 @@ function material.FromVMAT(path)
 	}
 	self:SetColorMultiplier(Color(color[1], color[2], color[3], 1))
 
-	if info.alpha_test then
+	if info.alpha_test and not info.soft_translucent then
 		self:SetAlphaTest(true)
-		self:SetAlphaCoverage(true)
+		self:SetAlphaCoverage(info.alpha_coverage)
 		self:SetAlphaCutoff(floats.g_flAlphaTestReference or 0.5)
 	end
 
