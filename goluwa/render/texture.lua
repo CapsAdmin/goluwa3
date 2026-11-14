@@ -1108,6 +1108,24 @@ do
 		return streamed_textures
 	end
 
+	table.insert(
+		import("goluwa/render/vulkan/internal/checkpoints.lua").state_reporters,
+		function()
+			local streamed = 0
+
+			for _ in pairs(streamed_textures) do
+				streamed = streamed + 1
+			end
+
+			return string.format(
+				"texture streaming: %d streamed textures, %d uploads in flight, %d images waiting to retire",
+				streamed,
+				#inflight,
+				#retired
+			)
+		end
+	)
+
 	function Texture.PollStreamUploads()
 		if not inflight[1] and not retired[1] then return end
 
@@ -1363,6 +1381,8 @@ function Texture:OnRemove()
 
 	if fallback_texture == self then fallback_texture = NULL end
 
+	if fallback_cubemap == self then fallback_cubemap = NULL end
+
 	streamed_textures[self] = nil
 
 	if self.image and not self:IsFallback() then self.image:Remove() end
@@ -1381,8 +1401,6 @@ function Texture:GenerateMipmaps(initial_layout, config)
 	local cmd = config.cmd or render.GetCommandBuffer()
 	local own_cmd = false
 	local dst_stage = config.dst_stage or "fragment"
-	if fallback_cubemap == self then fallback_cubemap = NULL end
-
 
 	if not cmd or cmd.is_rendering then
 		cmd = command_pool:AllocateCommandBuffer()

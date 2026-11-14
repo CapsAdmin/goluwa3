@@ -269,4 +269,28 @@ event.AddListener("TextureViewChanged", "bindless", function(tex)
 	bindless.RefreshView(device.bindless, tex, tex:GetView())
 end)
 
+table.insert(
+	import("goluwa/render/vulkan/internal/checkpoints.lua").state_reporters,
+	function()
+		local state = render.GetDevice().bindless
+
+		if not state then return end
+
+		local lines = {"bindless registry (used / free / pending release), " .. state.releases .. " releases so far:"}
+
+		for _, slot in ipairs{state.textures, state.cubemaps, state.views, state.samplers} do
+			lines[#lines + 1] = string.format(
+				"  %s: %d of %d used, %d free, %d pending",
+				slot.name,
+				slot.next_index - #slot.free - #slot.pending,
+				slot.capacity,
+				#slot.free,
+				#slot.pending
+			)
+		end
+
+		return table.concat(lines, "\n")
+	end
+)
+
 return bindless

@@ -5,6 +5,22 @@ local system = import("goluwa/system.lua")
 local checkpoints = {}
 -- functions (address, precision) returning a line that says what lives at a faulting gpu address, or nil
 checkpoints.address_describers = {}
+-- functions returning a short text about engine state to include in the device lost report
+checkpoints.state_reporters = {}
+local report_lines
+local function print(...)
+	_G.print(...)
+
+	if report_lines then
+		local parts = {}
+
+		for i = 1, select("#", ...) do
+			parts[i] = tostring((select(i, ...)))
+		end
+
+		report_lines[#report_lines + 1] = table.concat(parts, "\t")
+	end
+end
 checkpoints.enabled = os.getenv("GOLUWA_CHECKPOINTS") ~= nil
 local VkCheckpointDataArray = ffi.typeof("$[?]", vulkan.vk.VkCheckpointDataNV)
 local start_time = system.GetTime()
@@ -182,7 +198,16 @@ local function report_checkpoints()
 	end
 end
 
+local function report_state()
+	for _, report in ipairs(checkpoints.state_reporters) do
+		local text = report()
+
+		if text then print(text) end
+	end
+end
+
 function checkpoints.Report()
+	report_lines = {}
 	print(
 		string.format(
 			"device lost in frame %d, %.2f s after the engine started",
@@ -190,7 +215,12 @@ function checkpoints.Report()
 			system.GetTime() - start_time
 		)
 	)
-	local parts = {report_fault_info}
+	print(
+		checkpoints.enabled and
+			"checkpoints: on" or
+			"checkpoints: off, run with GOLUWA_CHECKPOINTS=1 to see the pass the queue was in"
+	)
+	local parts = {report_state, report_fault_info}
 
 	if checkpoints.enabled then table.insert(parts, report_checkpoints) end
 
@@ -201,6 +231,17 @@ function checkpoints.Report()
 
 		if not ok then print("device lost report failed: " .. tostring(err)) end
 	end
+
+	local path = "./storage/logs/device_lost_" .. os.date("%Y%m%d_%H%M%S") .. ".txt"
+	local file = io.open(path, "wb")
+
+	if file then
+		file:write(table.concat(report_lines, "\n"), "\n")
+		file:close()
+		_G.print("device lost report written to " .. path)
+	end
+
+	report_lines = nil
 end
 
 return checkpoints
