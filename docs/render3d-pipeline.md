@@ -37,6 +37,8 @@ How the 3D frame is put together and the invariants that are easy to break. Pass
 
 `Visual:SetGroundHeight(y)` moves the owner's transform once the model has loaded (and whenever it is set on a loaded visual) so the bottom of its world AABB is at `y`. It shifts the local position, so a rotated or scaled parent gives the wrong world offset. The AABB is the model's, so a model whose mesh floats above its origin still ends up resting on `y`. Used by `model_showcase`.
 
+`Material` `EmissiveAlbedoFactor` (with `EmissiveTextureIsColor`, default 0) blends the emissive texel between itself and itself times the albedo, which is how Source 2 self illumination masks work; without `EmissiveTextureIsColor` the emission is the albedo times the texel's red channel. The ray material emission used for GI hits and the emitter list only know the multiplier, not the texture colour.
+
 ## Alpha coverage
 
 `Material` `AlphaTest` discards below `AlphaCutoff` with a coverage that is sharpened by the screen space derivative of the alpha and dithered by the temporal noise. `AlphaCoverage` (with `AlphaTest`) uses the alpha itself as the coverage instead, in the same dither (gbuffer) or a screen door pattern (shadow maps), so a soft alpha texture fades instead of being cut. The cutoff is ignored then.

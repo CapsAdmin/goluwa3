@@ -44,6 +44,11 @@ Material:GetSet("RoughnessMax", 1.0, {callback = "InvalidateRayMaterial"})
 Material:GetSet("MetallicMaskMin", 0.0)
 Material:GetSet("MetallicMaskMax", 1.0)
 Material:GetSet("EmissiveAlphaFloor", 0.0)
+Material:GetSet(
+	"EmissiveAlbedoFactor",
+	0.0,
+	{callback = "InvalidateEmission", requires = "EmissiveTextureIsColor"}
+)
 Material:GetSet("SpecularMultiplier", 1.0)
 
 for _, feature in ipairs(surface_features.list) do

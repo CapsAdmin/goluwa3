@@ -52,6 +52,11 @@ local PBR_FACTOR_FIELDS = {
 	{type = "float", name = "EmissiveAlphaFloor", getter = "GetEmissiveAlphaFloor"},
 	{type = "float", name = "SpecularMultiplier", getter = "GetSpecularMultiplier"},
 	{type = "float", name = "AlphaCutoff", getter = "GetAlphaCutoff"},
+	{
+		type = "float",
+		name = "EmissiveAlbedoFactor",
+		getter = "GetEmissiveAlbedoFactor",
+	},
 	{type = "float", name = "NormalMapMultiplier", getter = "GetNormalMapMultiplier"},
 }
 local FEATURE_BLOCK_FIELDS = {}
@@ -828,8 +833,9 @@ do
 		"GetEmissiveAlphaFloor",
 		"GetSpecularMultiplier",
 		"GetAlphaCutoff",
+		"GetEmissiveAlbedoFactor",
 	}
-	local SCALAR_DEFAULTS = {1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.5}
+	local SCALAR_DEFAULTS = {1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.5, 0.0}
 	local FEATURE_GETTERS = {}
 	local FEATURE_DEFAULTS = {}
 
@@ -2446,7 +2452,7 @@ function model_pipeline.BuildPBRSurfaceGlsl(camera_block_name)
 					emissive = get_albedo_uv(uv) * mask * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
 				} else if (aux_model.EmissiveTexture != -1) {
 					vec3 texel = texture(TEXTURE(aux_model.EmissiveTexture), uv).rgb;
-					vec3 source = EmissiveTextureIsColor ? texel : get_albedo_uv(uv) * texel.r;
+					vec3 source = EmissiveTextureIsColor ? mix(texel, texel * get_albedo_uv(uv), factor_model.EmissiveAlbedoFactor) : get_albedo_uv(uv) * texel.r;
 					emissive = source * aux_model.EmissiveMultiplier.rgb * aux_model.EmissiveMultiplier.a;
 				} else if (aux_model.MetallicTexture != -1 && MetallicTextureAlphaIsEmissive) {
 					float mask = texture(TEXTURE(aux_model.MetallicTexture), uv).a;

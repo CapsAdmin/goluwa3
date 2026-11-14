@@ -408,8 +408,10 @@ function material.FromVMAT(path)
 
 	if ints.F_SELF_ILLUM == 1 and illum then
 		self:SetEmissiveTexture(Material.LinearTexture(illum))
+		self:SetEmissiveTextureIsColor(true)
+		self:SetEmissiveAlbedoFactor(floats.g_flSelfIllumAlbedoFactor or 1)
 		local illum_tint = vectors.g_vSelfIllumTint
-		local scale = floats.g_flSelfIllumScale or 1
+		local scale = (floats.g_flSelfIllumScale or 1) * 2 ^ (floats.g_flSelfIllumBrightness or 0)
 
 		if illum_tint then
 			self:SetEmissiveMultiplier(Color(illum_tint[1] * scale, illum_tint[2] * scale, illum_tint[3] * scale, 1))
