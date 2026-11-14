@@ -6,6 +6,9 @@ local View = import("goluwa/render3d/view.lua")
 local shapes = import("goluwa/render3d/shapes.lua")
 local render3d = import("goluwa/render3d/render3d.lua")
 local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
+local event = import("goluwa/event.lua")
+local system = import("goluwa/system.lua")
+local timer = import("goluwa/timer.lua")
 local fluid_scene = {}
 _G.fluid_scene = fluid_scene
 render3d.SetOceanEnabled(false)
@@ -168,6 +171,80 @@ Entity.New{
 		Obstacles = false,
 	},
 }
+local cart = shapes.Box{
+	Name = "burning_cart",
+	Parent = root,
+	Position = Vec3(-6, 0.4, 7),
+	Size = Vec3(1.2, 0.8, 0.8),
+	Material = grey,
+	RigidBody = {MotionType = "kinematic"},
+}
+Entity.New{
+	Name = "cart_smoke",
+	Parent = cart,
+	transform = {Position = Vec3(0, 2.1, 0)},
+	fluid_volume = {Size = Vec3(3, 5, 3), Resolution = 48, Medium = "smoke", Space = "world"},
+}
+Entity.New{
+	Name = "cart_fire",
+	Parent = cart,
+	transform = {Position = Vec3(0, 0.8, 0)},
+	fluid_emitter = {
+		Radius = 0.35,
+		Fuel = 8,
+		Smoke = 2,
+		Temperature = 1200,
+		Velocity = Vec3(0, 0.5, 0),
+	},
+}
+fluid_scene.cart_speed = 0.35
+
+event.AddListener("Update", "fluid_scene_cart", function()
+	if not cart:IsValid() then return event.destroy_tag end
+
+	cart.transform:SetPosition(Vec3(-3 + math.sin(system.GetElapsedTime() * fluid_scene.cart_speed) * 4, 0.4, 7))
+end)
+
+local EXPLOSION_SIZE = Vec3(6, 8, 6)
+local EXPLOSION_RESOLUTION = 48
+fluid_volumes.Prewarm(EXPLOSION_SIZE, EXPLOSION_RESOLUTION, 3)
+
+function fluid_scene.Explode(position)
+	return fluid_volumes.Spawn{
+		position = position or Vec3(2, 0.6, 9),
+		radius = 0.9,
+		fuel = 6,
+		smoke = 2,
+		temperature = 1500,
+		expand = 8,
+		offset = Vec3(0, 2.4, 0),
+		volume = {
+			Size = EXPLOSION_SIZE,
+			Resolution = EXPLOSION_RESOLUTION,
+			Medium = "smoke",
+			Floor = false,
+			BurnRate = 8,
+			Dissipation = 0.08,
+			Turbulence = 4,
+			Vorticity = 3,
+		},
+	}
+end
+
+function fluid_scene.Barrage(interval)
+	timer.Repeat(
+		"fluid_scene_barrage",
+		interval or 2.5,
+		0,
+		function()
+			fluid_scene.Explode(Vec3(math.randomf(-2, 9), 0.6, math.randomf(8, 12)))
+		end
+	)
+end
+
+function fluid_scene.StopBarrage()
+	timer.RemoveTimer("fluid_scene_barrage")
+end
 
 function fluid_scene.Drop(position)
 	local crate = shapes.Box{
@@ -207,6 +284,8 @@ fluid_scene.cameras = {
 	fire = {Vec3(-4, 1.8, 5), Vec3(-2, 0, 0)},
 	poison = {Vec3(4, 2.5, 6), Vec3(-20, 0, 0)},
 	steam = {Vec3(10, 2.5, 6), Vec3(-5, 0, 0)},
+	cart = {Vec3(-3, 2.5, 14), Vec3(-10, 0, 0)},
+	explosions = {Vec3(3.5, 3, 20), Vec3(-8, 0, 0)},
 }
 
 function fluid_scene.Goto(name)
