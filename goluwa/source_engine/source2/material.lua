@@ -292,6 +292,10 @@ function material.FromVMAT(path)
 
 	self:SetMetallicMultiplier(metalness)
 
+	if info.shader == "vr_complex.vfx" and ints.F_SPECULAR ~= 1 then
+		self:SetSpecularMultiplier(0)
+	end
+
 	if info.blend and textures.g_tColorB then
 		self:SetAlbedo2Texture(Material.SRGBTexture(textures.g_tColorB, {stream = true}))
 
@@ -345,10 +349,21 @@ function material.FromVMAT(path)
 	end
 
 	local tint = vectors.g_vColorTint or {1, 1, 1}
+	local metal_loss = (
+			ints.F_UNLIT == 1 and
+			ints.F_METALNESS_TEXTURE ~= 1
+		)
+		and
+		1 - (
+			floats.g_flMetalness or
+			0
+		)
+		or
+		1
 	local color = {
-		math.srgb_to_linear(tint[1]),
-		math.srgb_to_linear(tint[2]),
-		math.srgb_to_linear(tint[3]),
+		math.srgb_to_linear(tint[1]) * metal_loss,
+		math.srgb_to_linear(tint[2]) * metal_loss,
+		math.srgb_to_linear(tint[3]) * metal_loss,
 	}
 	self:SetColorMultiplier(Color(color[1], color[2], color[3], 1))
 

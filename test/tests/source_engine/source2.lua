@@ -281,6 +281,21 @@ T.Test3D("source 2 self illumination is a colour map scaled by the albedo factor
 	T(math.abs(liquid:GetEmissiveMultiplier().r - 2 ^ 1.5) < 1e-4)["=="](true)
 end)
 
+T.Test3D("source 2 vr_complex materials without F_SPECULAR have no specular", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local material = import("goluwa/source_engine/source2/material.lua")
+	T(
+		material.FromVMAT("materials/particle/hologram/box_noise_00_holo_fail.vmat"):GetSpecularMultiplier()
+	)["=="](0)
+	T(
+		material.FromVMAT("materials/models/props/combine/combine_antlion_juice_tank_liquid.vmat"):GetSpecularMultiplier()
+	)["=="](1)
+end)
+
 T.Test("source 2 draw call tints reach the model as tinted entries", function()
 	local info = steam.FindSourceGame(546560)
 
