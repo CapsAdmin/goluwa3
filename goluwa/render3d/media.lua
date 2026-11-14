@@ -68,6 +68,15 @@ media.presets = {
 		IOR = 1.0003,
 		AbbeNumber = 0,
 	},
+	poison = {
+		Absorption = Vec3(0.3, 0.07, 0.95),
+		Scattering = Vec3(0.35, 0.45, 0.25),
+		Molecular = Vec3(0, 0, 0),
+		PorousScattering = Vec3(0, 0, 0),
+		PhaseG = 0.5,
+		IOR = 1.0003,
+		AbbeNumber = 0,
+	},
 	steam = {
 		Absorption = Vec3(0.01, 0.01, 0.01),
 		Scattering = Vec3(1, 1, 1),
