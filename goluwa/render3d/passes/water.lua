@@ -14,7 +14,7 @@ local media = import("goluwa/render3d/media.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local medium_surface = import("goluwa/render3d/medium_surface.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
-local glass_light = import("goluwa/render3d/glass_light.lua")
+local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local medium_lighting = import("goluwa/render3d/medium_lighting.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
@@ -570,7 +570,7 @@ local function write_ocean(self, block)
 	local waves = water.GetOceanWaves()
 	block.ocean_enabled = render3d.IsOceanEnabled() and 1 or 0
 	block.gi_tinted = (RAY_QUERY and ddgi.HasVolumes()) and 1 or 0
-	block.sun_tinted = (glass_light.IsEnabled() and ddgi.HasVolumes()) and 1 or 0
+	block.sun_tinted = (optical_rays.IsEnabled() and ddgi.HasVolumes()) and 1 or 0
 	block.ocean_level = render3d.GetOceanLevel()
 	local medium = media.presets[params.Medium]
 	block.ocean_absorption[0] = medium.Absorption.x

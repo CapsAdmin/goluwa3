@@ -663,7 +663,7 @@ local function pass_candidates()
 
 							vec3 L = ddgi_emission(tri, ddgi_albedo(material, point));
 
-							if (restir_data.glass_light != 0) L *= get_glass_light_local(origin, L_dir, dist, 0.0);
+							if (restir_data.light_transmittance != 0) L *= get_light_transmittance_local(origin, L_dir, dist, 0.0);
 
 							float target = luminance(L) * cosine;
 							float w = target * weight / (max(dot(material.emissive, vec3(0.2126, 0.7152, 0.0722)), 1e-6) * max(cosine, 1e-3));

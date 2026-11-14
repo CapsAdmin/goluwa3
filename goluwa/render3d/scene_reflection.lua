@@ -8,7 +8,7 @@ local hit = import("goluwa/render3d/scene/hit.lua")
 local rt = import("goluwa/render3d/scene/rt.lua")
 local scene_lights = import("goluwa/render3d/scene_lights.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
-local glass_light = import("goluwa/render3d/glass_light.lua")
+local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local ray_reorder = import("goluwa/render3d/ray_reorder.lua")
 local scene_reflection = {}
@@ -128,7 +128,7 @@ function scene_reflection.GetDeclarationGLSL(bindings, shared)
 
 		#define SCENE_REFLECTION
 		#define SCENE_REFLECTION_CONE 0.0017
-	]] .. hit.GetSceneGLSL("ddgi_scene", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials) .. (
+	]] .. optical_rays.GetDeclarationGLSL(bindings) .. (
 			bindings.light_grid and
 			light_grid.GetGLSL(bindings.light_grid) or
 			""
@@ -216,7 +216,7 @@ scene_reflection.block = {
 	{"reflection_screenspace_roughness", "float"},
 	{"reflection_max_distance", "float"},
 	{"reflection_fog", "int"},
-	{"glass_light", "int"},
+	{"light_transmittance", "int"},
 	{"optical_tint", "int"},
 	{"refraction_rays", "int"},
 }
@@ -227,7 +227,7 @@ function scene_reflection.WriteBlock(self, block)
 	block.reflection_screenspace_roughness = screenspace_roughness:Get()
 	block.reflection_max_distance = scene_reflection.max_distance:Get()
 	block.reflection_fog = scene_reflection.fog:Get() and 1 or 0
-	block.glass_light = ddgi.HasDirectTint() and 1 or 0
+	block.light_transmittance = ddgi.HasDirectTint() and 1 or 0
 	block.optical_tint = (ddgi.HasGlass() or ddgi.HasMedium()) and 1 or 0
 	block.refraction_rays = scene_reflection.refraction:Get() and 1 or 0
 	scene_lights.WriteLightsBlock(block.lights, lights)
@@ -258,7 +258,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 		) .. ddgi.GetMaterialGLSL() .. ddgi.GetAlphaTestGLSL() .. (
 			shared and
 			"" or
-			glass_light.GetGLSL("ddgi_scene")
+			optical_rays.GetGLSL()
 		) .. glsl_common.GetHashGLSL() .. [[
 		#define SCENE_REFLECTION_MAX_DISTANCE (]] .. block_name .. [[.reflection_max_distance)
 
@@ -419,7 +419,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 			if (RT_HIT_SUN != 0 && sun_NoL > 0.0 && (RT_HIT_SHADOWS == 0 || scene_reflection_visible(surface, sun_L, SCENE_REFLECTION_MAX_DISTANCE))) {
 				vec3 sun_radiance = albedo * ddgi_data.ddgi_sun_radiance.rgb * (sun_NoL / 3.14159265359);
 
-				if (]] .. block_name .. [[.glass_light != 0) sun_radiance *= get_glass_light(surface, sun_L, GLASS_SUN_DISTANCE, 0.0);
+				if (]] .. block_name .. [[.light_transmittance != 0) sun_radiance *= get_light_transmittance(surface, sun_L, OPTICAL_SUN_DISTANCE, 0.0);
 
 				radiance += sun_radiance;
 			}
@@ -488,7 +488,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 					vec3 contribution = picked_light[k];
 
-					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light_local(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
+					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance_local(surface, picked_ray[k].xyz, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
 
 					radiance += contribution * (total / (picked_weight[k] * float(RT_HIT_LIGHT_SAMPLES)));
 				}
@@ -525,7 +525,7 @@ function scene_reflection.GetGLSL(block_name, shared)
 
 					if (RT_HIT_SHADOWS != 0 && dist > 0.05 * ]] .. block_name .. [[.view_scale && !scene_reflection_visible(surface, L, dist - 0.05 * ]] .. block_name .. [[.view_scale)) continue;
 
-					if (]] .. block_name .. [[.glass_light != 0) contribution *= get_glass_light_local(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
+					if (]] .. block_name .. [[.light_transmittance != 0) contribution *= get_light_transmittance_local(surface, L, max(dist - 0.05 * ]] .. block_name .. [[.view_scale, 0.0), 0.0);
 
 					radiance += contribution * light_weight;
 				}

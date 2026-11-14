@@ -7,7 +7,7 @@ local glsl_common = import("goluwa/render3d/glsl_common.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
-local glass_light = import("goluwa/render3d/glass_light.lua")
+local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local medium_surface = import("goluwa/render3d/medium_surface.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
@@ -37,8 +37,8 @@ local probe_buffers = {}
 local camera_inside = false
 
 local function probe_enabled()
-	return glass_light.RAY_QUERY and
-		glass_light.IsEnabled() and
+	return optical_rays.RAY_QUERY and
+		optical_rays.IsEnabled() and
 		enabled:Get() and
 		ddgi.HasBodies()
 end
@@ -57,7 +57,7 @@ return {
 		FramebufferSize = {x = 1, y = 1},
 		framebuffer_count = 1,
 		LocalSize = {x = 1, y = 1, z = 1},
-		descriptor_sets = glass_light.RAY_QUERY and
+		descriptor_sets = optical_rays.RAY_QUERY and
 			scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute") or
 			nil,
 		storage_buffers = {{binding_index = BINDING_PROBE}},
@@ -106,11 +106,11 @@ return {
 				uint probe_inside;
 			};
 		]] .. (
-				glass_light.RAY_QUERY and
+				optical_rays.RAY_QUERY and
 				scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) or
 				""
 			),
-		shader = glass_light.RAY_QUERY and
+		shader = optical_rays.RAY_QUERY and
 			[[
 			void main() {
 				uint inside = 1u;
@@ -119,7 +119,7 @@ return {
 					float nearest = 0.0;
 					bool front = false;
 					rayQueryEXT query;
-					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, probe_data.camera_position, 0.0, vec3(0.0, k == 0 ? 1.0 : -1.0, 0.0), ]] .. string.format("%.1f", glass_light.GetMaxDistance()) .. [[);
+					rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, probe_data.camera_position, 0.0, vec3(0.0, k == 0 ? 1.0 : -1.0, 0.0), ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[);
 
 					while (rayQueryProceedEXT(query)) {
 						ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
@@ -154,11 +154,11 @@ return {
 		framebuffer_count = 1,
 		LocalSize = COMPUTE_LOCAL_SIZE,
 		storage_images = {{binding_index = BINDING_OUTPUT, attachment = 1, dst_stage = "fragment"}},
-		descriptor_sets = glass_light.RAY_QUERY and
+		descriptor_sets = optical_rays.RAY_QUERY and
 			scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute") or
 			nil,
 		on_pre_draw = function(self, cmd, frame, desc)
-			if glass_light.RAY_QUERY then
+			if optical_rays.RAY_QUERY then
 				scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
 			end
 		end,
@@ -210,13 +210,13 @@ return {
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			]] .. (
-				glass_light.RAY_QUERY and
+				optical_rays.RAY_QUERY and
 				scene_reflection.GetDeclarationGLSL(SCENE_BINDINGS) or
 				""
 			) .. [[
 		]],
 		shader = glsl_common.GetConstantsGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. gbuffer_layout.GetDecodeGLSL("camera_medium_data") .. post_source.GetPreExposureGLSL("camera_medium_data") .. screen_refraction.GetGLSL("camera_medium_data") .. ibl.GetEnvironmentGLSLCode() .. medium_common.GetGLSL() .. (
-				glass_light.RAY_QUERY and
+				optical_rays.RAY_QUERY and
 				render3d.GetEmissiveGLSL() .. atmosphere.GetGLSLDefines("camera_medium_data", "camera_medium_data.primary_sun_illuminance") .. atmosphere.GetAerialPerspectiveGLSLCode() .. scene_reflection.GetGLSL("camera_medium_data") .. medium_surface.GetGLSL("camera_medium_data") .. medium_surface.GetCausticGLSL(
 					"camera_medium_data",
 					{
@@ -231,7 +231,7 @@ return {
 
 			vec3 camera_body_shaft_sample(ddgi_material body, vec3 sun_dir, vec3 attenuation, float mu, vec3 p) {
 				vec3 wall_normal;
-				float sun_path = get_glass_body_exit(p, sun_dir, ]] .. string.format("%.1f", glass_light.GetMaxDistance()) .. [[, wall_normal);
+				float sun_path = get_glass_body_exit(p, sun_dir, ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[, wall_normal);
 
 				if (sun_path <= 0.0) return vec3(0.0);
 
@@ -283,7 +283,7 @@ return {
 			vec2 nearest_barycentrics = vec2(0.0);
 			ddgi_material body;
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", glass_light.GetMaxDistance()) .. [[));
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[));
 
 			while (rayQueryProceedEXT(query)) {
 				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
@@ -316,7 +316,7 @@ return {
 
 				if (body.albedo_tex >= 0) through *= textureLod(TEXTURE(body.albedo_tex), vec2(0.5), 16.0).rgb;
 
-				through *= ]] .. string.format("%.2f", glass_light.TRANSMITTANCE) .. [[;
+				through *= ]] .. string.format("%.2f", optical_rays.TRANSMITTANCE) .. [[;
 				through = clamp(body.glass_refraction * through + (1.0 - body.glass_refraction) * (1.0 - body.glass_covering), vec3(0.001), vec3(1.0));
 				absorption = -log(through) / max(body.medium_thickness, 0.01);
 			}
@@ -429,7 +429,7 @@ return {
 							vec3 wall_normal;
 							d = reflect(d, n);
 							vec3 inside_pos = p - n * offset;
-							float wall = bounce < ]] .. MAX_BOUNCES .. [[ ? get_glass_body_exit(inside_pos, d, ]] .. string.format("%.1f", glass_light.GetMaxDistance()) .. [[, wall_normal) : 0.0;
+							float wall = bounce < ]] .. MAX_BOUNCES .. [[ ? get_glass_body_exit(inside_pos, d, ]] .. string.format("%.1f", optical_rays.GetMaxDistance()) .. [[, wall_normal) : 0.0;
 
 							if (wall <= 0.0) {
 								seen += throughput * view.inside_color;

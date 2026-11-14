@@ -13,7 +13,7 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local light_occlusion = import("goluwa/render3d/light_occlusion.lua")
 local screen_refraction = import("goluwa/render3d/screen_refraction.lua")
 local gi = import("goluwa/render3d/gi.lua")
-local glass_light = import("goluwa/render3d/glass_light.lua")
+local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local ibl = import("goluwa/render3d/ibl.lua")
@@ -389,9 +389,9 @@ local passes = {
 			]],
 			shader = medium_common.GetGLSL() .. glsl_common.GetHashGLSL() .. glsl_common.GetFresnelGLSL() .. model_pipeline.BuildPBRSurfaceGlsl("translucent_camera") .. surface_overlays.GetGLSL("translucent_camera") .. exposure_compensation.GetGLSL() .. (
 					scene_reflection.RAY_QUERY and
-					glass_light.GetGLSL("ddgi_scene") or
+					optical_rays.GetGLSL() or
 					""
-				) .. surface_lighting.GetGLSL("lighting_data", scene_reflection.RAY_QUERY and "ddgi_scene") .. gi.GetCommonGLSL() .. (
+				) .. surface_lighting.GetGLSL("lighting_data", scene_reflection.RAY_QUERY) .. gi.GetCommonGLSL() .. (
 					scene_reflection.RAY_QUERY and
 					scene_reflection.GetGLSL("lighting_data", true) .. scene_reflection.GetDirectionGLSL()
 					or
@@ -743,7 +743,7 @@ local passes = {
 							vec3 exit_outward = facing_N;
 							float traced_distance = 0.0;
 							vec3 traced_normal = vec3(0.0);
-							#ifdef GLASS_LIGHT
+							#ifdef OPTICAL_RAYS
 							traced_distance = get_glass_body_exit(world_pos, T, MEDIUM_MAX_PATH, traced_normal);
 							#endif
 							bool channel_thick = traced_distance > 0.0 || refraction.thickness > 0.0;

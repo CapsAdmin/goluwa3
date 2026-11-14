@@ -14,7 +14,7 @@ local surface_weather = import("goluwa/render3d/surface_weather.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
-local glass_light = import("goluwa/render3d/glass_light.lua")
+local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
 local fluid_volume_passes = import("goluwa/render3d/fluid_volume_passes.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
@@ -27,7 +27,7 @@ local BINDING_UNIFORM = 3
 local BINDING_OCCLUSION_MAP = 4
 local BINDING_LIGHT_GRID = 5
 local BINDING_DDGI = 12
-local GLASS_BINDINGS = {scene = 6, hit = 30, materials = 8}
+local SCENE_BINDINGS = {scene = 6, hit = 30, materials = 8}
 local SCREEN_SHADOW_MAX_STEPS = 64
 local SCREEN_SHADOW_STRIDE = 1.5
 pvars.StartGroup("Lighting", "Lighting", {store = false, prefix = "lighting_"})
@@ -118,8 +118,8 @@ return {
 			{binding_index = BINDING_LIGHT_GRID},
 			{binding_index = fluid_volume_passes.BINDING_RECORDS},
 		},
-		descriptor_sets = glass_light.RAY_QUERY and
-			glass_light.GetDescriptorSets(GLASS_BINDINGS, "compute") or
+		descriptor_sets = optical_rays.RAY_QUERY and
+			scene_reflection.GetDescriptorSets(SCENE_BINDINGS, "compute") or
 			nil,
 		on_pre_draw = function(self, cmd, frame, desc)
 			if not render3d.AreLightsOverridden() then light_occlusion.Draw(cmd) end
@@ -127,8 +127,8 @@ return {
 			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
 			fluid_volume_passes.BindRecords(self, desc)
 
-			if glass_light.RAY_QUERY then
-				glass_light.Bind(self, cmd, desc, GLASS_BINDINGS)
+			if optical_rays.RAY_QUERY then
+				scene_reflection.Bind(self, cmd, desc, SCENE_BINDINGS)
 			end
 		end,
 		sampled_images = {
@@ -221,8 +221,8 @@ return {
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT_DIFFUSE .. [[, rgba16f) uniform writeonly image2D out_subsurface_diffuse;
 			]] .. surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. fluid_volume_passes.GetDeclarationGLSL() .. (
-				glass_light.RAY_QUERY and
-				glass_light.GetDeclarationGLSL(GLASS_BINDINGS) or
+				optical_rays.RAY_QUERY and
+				optical_rays.GetDeclarationGLSL(SCENE_BINDINGS) or
 				""
 			) .. [[
 		]],
@@ -322,10 +322,10 @@ return {
 			}
 
 			]] .. (
-				glass_light.RAY_QUERY and
-				glass_light.GetGLSL("glass_light_scene") or
+				optical_rays.RAY_QUERY and
+				optical_rays.GetGLSL() or
 				""
-			) .. "#define FLUID_SHADOWS 1\n" .. fluid_volumes.GetGLSL() .. surface_lighting.GetGLSL("lighting_data", glass_light.RAY_QUERY and "glass_light_scene") .. ddgi.GetScreenSampleGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. [[
+			) .. "#define FLUID_SHADOWS 1\n" .. fluid_volumes.GetGLSL() .. surface_lighting.GetGLSL("lighting_data", optical_rays.RAY_QUERY) .. ddgi.GetScreenSampleGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. [[
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 

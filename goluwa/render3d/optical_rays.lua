@@ -2,82 +2,47 @@ local pvars = import("goluwa/cli/pvars.lua")
 local render = import("goluwa/render/render.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local hit = import("goluwa/render3d/scene/hit.lua")
-local rt = import("goluwa/render3d/scene/rt.lua")
 local Material = import("goluwa/render3d/material.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
-local glass_light = {}
-glass_light.RAY_QUERY = render.GetDevice().ray_query_supported
-glass_light.SUN_DISTANCE = 300
-glass_light.TRANSMITTANCE = 0.9
-pvars.StartGroup("Lighting", "Glass light", {store = false})
+local optical_rays = {}
+optical_rays.RAY_QUERY = render.GetDevice().ray_query_supported
+optical_rays.SUN_DISTANCE = 300
+optical_rays.TRANSMITTANCE = 0.9
+pvars.StartGroup("Lighting", "Optical rays", {store = false})
 local enabled = pvars.Setup2{
-	key = "r_glass_light",
+	key = "r_light_transmittance",
 	default = true,
-	friendly = "glass tints light",
-	help = "lights take on the colour of the glass between them and a surface, glass casts no shadow of its own",
+	friendly = "transparent bodies tint light",
+	help = "light passing through glass and media bodies takes on their colour and absorption along a ray instead of being blocked by the shadow map, so glass casts no shadow of its own",
 }
 local max_distance = pvars.Setup2{
-	key = "r_glass_light_distance",
+	key = "r_optical_ray_distance",
 	default = 4000,
 	min = 1,
-	help = "how far a ray looks for glass in front of what it lights, in meters, glass further away does not tint it. built into the shaders",
+	help = "how far optical rays (light transmittance, body exits) look for transparent bodies, in meters. built into the shaders",
 }
 pvars.EndGroup()
 
-function glass_light.GetMaxDistance()
+function optical_rays.GetMaxDistance()
 	return max_distance:Get()
 end
 
-function glass_light.IsEnabled()
-	return glass_light.RAY_QUERY and enabled:Get()
+function optical_rays.IsEnabled()
+	return optical_rays.RAY_QUERY and enabled:Get()
 end
 
 Material.GlassCastsShadow = function()
-	return not glass_light.IsEnabled()
+	return not optical_rays.IsEnabled()
 end
 
-function glass_light.GetDescriptorSets(bindings, stage)
-	local sets = hit.GetDescriptorSets(bindings.hit, stage, bindings.scene)
-	sets[#sets + 1] = {type = "storage_buffer", binding_index = bindings.materials, stageFlags = stage}
-	return sets
+function optical_rays.GetDeclarationGLSL(bindings)
+	return hit.GetSceneGLSL("ddgi_scene", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials)
 end
 
-do
-	local bound = setmetatable({}, {__mode = "k"})
-
-	function glass_light.Bind(self, cmd, desc, bindings)
-		local materials = ddgi.WriteMaterialBuffer(self)
-		local tlas = rt.GetTLAS(cmd)
-		bound[self] = bound[self] or {}
-		local last = bound[self][desc]
-
-		if not last then
-			last = {}
-			bound[self][desc] = last
-		end
-
-		if last.materials ~= materials then
-			self:UpdateDescriptorSet("storage_buffer", desc, bindings.materials, 0, materials, materials:GetSize())
-			last.materials = materials
-		end
-
-		if last.tlas ~= tlas then
-			self:UpdateDescriptorSet("acceleration_structure_khr", desc, bindings.scene, 0, tlas)
-			last.tlas = tlas
-		end
-
-		hit.Bind(self, desc, bindings.hit)
-	end
-end
-
-function glass_light.GetDeclarationGLSL(bindings)
-	return hit.GetSceneGLSL("glass_light_scene", bindings.scene) .. hit.GetGLSL(bindings.hit) .. ddgi.GetMaterialDeclarationsGLSL(bindings.materials)
-end
-
-function glass_light.GetGLSL(scene_name)
+function optical_rays.GetGLSL()
 	return ddgi.GetOpticalTintGLSL() .. [[
-		#define GLASS_LIGHT
-		#define GLASS_SUN_DISTANCE ]] .. string.format("%.1f", glass_light.SUN_DISTANCE) .. [[
+		#define OPTICAL_RAYS
+		#define OPTICAL_SUN_DISTANCE ]] .. string.format("%.1f", optical_rays.SUN_DISTANCE) .. [[
 
 		vec3 get_material_medium_transmittance(ddgi_material material) {
 			return medium_transmittance(material.medium_extinction, medium_scattering_at(material.medium_scattering, material.medium_porous_scattering, material.medium_porosity), material.medium_g, material.medium_thickness);
@@ -94,7 +59,7 @@ function glass_light.GetGLSL(scene_name)
 
 			vec3 transmitted = vec3(1.0);
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsCullOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsCullOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.0, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[));
 
 			while (rayQueryProceedEXT(query)) {
 				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
@@ -112,7 +77,7 @@ function glass_light.GetGLSL(scene_name)
 
 						if (material.albedo_tex >= 0) through *= textureLod(TEXTURE(material.albedo_tex), vec2(0.5), 16.0).rgb;
 
-						through *= ]] .. string.format("%.2f", glass_light.TRANSMITTANCE) .. [[;
+						through *= ]] .. string.format("%.2f", optical_rays.TRANSMITTANCE) .. [[;
 					}
 
 					transmitted *= clamp(material.glass_refraction * through + (1.0 - material.glass_refraction) * (1.0 - material.glass_covering), vec3(0.0), vec3(1.0));
@@ -140,7 +105,7 @@ function glass_light.GetGLSL(scene_name)
 			uint exit_primitive = 0u;
 			vec2 exit_barycentrics = vec2(0.0);
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.001, normalize(dir), max_distance);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsNoneEXT, ]] .. string.format("0x%02X", scene_instances.MASK_GLASS) .. [[, origin, 0.001, normalize(dir), max_distance);
 
 			while (rayQueryProceedEXT(query)) {
 				ddgi_material material = ddgi_materials[scene_instance_material(uint(rayQueryGetIntersectionInstanceCustomIndexEXT(query, false)))];
@@ -169,7 +134,7 @@ function glass_light.GetGLSL(scene_name)
 			return get_optical_tint_ray(origin, dir, distance, true) * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), false, with_layer);
 		}
 
-		vec3 get_glass_light_with(vec3 origin, vec3 dir, float distance, float search_radius, bool with_layer) {
+		vec3 get_light_transmittance_with(vec3 origin, vec3 dir, float distance, float search_radius, bool with_layer) {
 			vec3 transmitted = get_optical_tint_ray(origin, dir, distance, false);
 
 			if (search_radius > 0.0 && min(transmitted.r, min(transmitted.g, transmitted.b)) > 0.999) {
@@ -184,17 +149,17 @@ function glass_light.GetGLSL(scene_name)
 			return transmitted * get_medium_volume_tint(origin, dir, min(distance, ]] .. string.format("%.1f", max_distance:Get()) .. [[), true, with_layer);
 		}
 
-		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return get_glass_light_with(origin, dir, distance, search_radius, false);
+		vec3 get_light_transmittance(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return get_light_transmittance_with(origin, dir, distance, search_radius, false);
 		}
 
-		vec3 get_glass_light_local(vec3 origin, vec3 dir, float distance, float search_radius) {
-			return get_glass_light_with(origin, dir, distance, search_radius, true);
+		vec3 get_light_transmittance_local(vec3 origin, vec3 dir, float distance, float search_radius) {
+			return get_light_transmittance_with(origin, dir, distance, search_radius, true);
 		}
 
 		float get_medium_sun_visibility(vec3 point, vec3 sun_dir) {
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ]] .. scene_name .. [[, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, point, 0.01, sun_dir, 1.0e4);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, point, 0.01, sun_dir, 1.0e4);
 			while (rayQueryProceedEXT(query)) {}
 			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
 		}
@@ -214,13 +179,13 @@ function glass_light.GetGLSL(scene_name)
 ]]
 end
 
-function glass_light.GetStubGLSL()
+function optical_rays.GetStubGLSL()
 	return [[
-		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
+		vec3 get_light_transmittance(vec3 origin, vec3 dir, float distance, float search_radius) {
 			return vec3(1.0);
 		}
 
-		vec3 get_glass_light_local(vec3 origin, vec3 dir, float distance, float search_radius) {
+		vec3 get_light_transmittance_local(vec3 origin, vec3 dir, float distance, float search_radius) {
 			return vec3(1.0);
 		}
 
@@ -234,4 +199,4 @@ function glass_light.GetStubGLSL()
 	]]
 end
 
-return glass_light
+return optical_rays

@@ -10,7 +10,7 @@ local light_grid = import("goluwa/render3d/light_grid.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local ddgi = import("goluwa/render3d/ddgi.lua")
 local gi = import("goluwa/render3d/gi.lua")
-local glass_light = import("goluwa/render3d/glass_light.lua")
+local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local surface_features = import("goluwa/render3d/surface_features.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local medium_common = import("goluwa/render3d/medium_common.lua")
@@ -34,7 +34,7 @@ surface_lighting.block = {
 	{"gi_screen_tex", "int"},
 	{"gi_screen_geometry_tex", "int"},
 	{"gi_screen_specular_tex", "int"},
-	{"glass_light", "int"},
+	{"light_transmittance", "int"},
 	{"optical_tint", "int"},
 	{"medium_thickness", "float"},
 	{"medium_base_height", "float"},
@@ -84,8 +84,8 @@ function surface_lighting.WriteBlock(self, block)
 	block.gi_screen_geometry_tex = gi_geometry_texture and self:GetTextureIndex(gi_geometry_texture) or -1
 	local gi_specular_texture = gi.GetScreenSpecularTexture()
 	block.gi_screen_specular_tex = gi_specular_texture and self:GetTextureIndex(gi_specular_texture) or -1
-	block.glass_light = (glass_light.IsEnabled() and ddgi.HasDirectTint()) and 1 or 0
-	block.optical_tint = (glass_light.IsEnabled() and (ddgi.HasGlass() or ddgi.HasMedium())) and 1 or 0
+	block.light_transmittance = (optical_rays.IsEnabled() and ddgi.HasDirectTint()) and 1 or 0
+	block.optical_tint = (optical_rays.IsEnabled() and (ddgi.HasGlass() or ddgi.HasMedium())) and 1 or 0
 	block.medium_thickness = medium_common.assumed_thickness
 	block.medium_base_height = medium_common.base_height
 	block.medium_thickness_per_height = medium_common.thickness_per_height
@@ -103,7 +103,7 @@ function surface_lighting.GetDeclarationGLSL(grid_binding, occlusion_binding)
 	return light_occlusion.GetDeclarationGLSL(occlusion_binding) .. light_grid.GetGLSL(grid_binding)
 end
 
-function surface_lighting.GetGLSL(block_name, ray_scene)
+function surface_lighting.GetGLSL(block_name, ray_queries)
 	return atmosphere.GetGLSLDefines(block_name, block_name .. ".primary_sun_illuminance") .. atmosphere.GetGLSLCode() .. post_source.GetPreExposureGLSL(block_name) .. [[
 		]] .. ibl.GetBRDFGLSLCode() .. [[
 
@@ -121,22 +121,22 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 		]] .. directional_shadows.GetLocalDirectionalShadowGLSL(block_name) .. [[
 
-		#ifndef GLASS_LIGHT
-		vec3 get_glass_light(vec3 origin, vec3 dir, float distance, float search_radius) {
+		#ifndef OPTICAL_RAYS
+		vec3 get_light_transmittance(vec3 origin, vec3 dir, float distance, float search_radius) {
 			return vec3(1.0);
 		}
 
-		vec3 get_glass_light_local(vec3 origin, vec3 dir, float distance, float search_radius) {
+		vec3 get_light_transmittance_local(vec3 origin, vec3 dir, float distance, float search_radius) {
 			return vec3(1.0);
 		}
 		#endif
 
 		float get_sun_contact_visibility(vec3 origin, vec3 dir, float distance) {
 			]] .. (
-			ray_scene and
+			ray_queries and
 			[[
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ]] .. ray_scene .. [[, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, distance);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, distance);
 			while (rayQueryProceedEXT(query)) {}
 			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
 			]] or
@@ -190,13 +190,13 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 		float get_medium_light_path(vec3 origin, vec3 dir, float max_distance) {
 			]] .. (
-			ray_scene and
+			ray_queries and
 			[[
 			rayQueryEXT query;
-			rayQueryInitializeEXT(query, ]] .. ray_scene .. [[, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, max_distance);
+			rayQueryInitializeEXT(query, ddgi_scene, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, max_distance);
 			while (rayQueryProceedEXT(query)) {}
 			float solid = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 0.0 : rayQueryGetIntersectionTEXT(query, true);
-			#ifdef GLASS_LIGHT
+			#ifdef OPTICAL_RAYS
 			vec3 exit_normal;
 			float body = get_glass_body_exit(origin, dir, max_distance, exit_normal);
 
@@ -235,7 +235,7 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 		}
 
 		#define LIGHT_MIN_SCREEN_RADIANCE 0.0002
-		#define GLASS_LIGHT_MIN_SCREEN_RADIANCE 0.002
+		#define LIGHT_TRANSMITTANCE_MIN_SCREEN_RADIANCE 0.002
 
 		vec3 get_primary_sun_direction() {
 			vec3 sunDir = ]] .. block_name .. [[.primary_sun_direction.xyz;
@@ -365,11 +365,11 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 				if (radiance.r + radiance.g + radiance.b <= 0.0 && scatter_floor <= 0.0) continue;
 
-				#ifdef GLASS_LIGHT
-				if (]] .. block_name .. [[.glass_light != 0 && brightest * shadow_factor * get_exposure() >= GLASS_LIGHT_MIN_SCREEN_RADIANCE) {
-					float glass_distance = type == 0 ? GLASS_SUN_DISTANCE : (type == 2 ? 50.0 : max(length(light.position.xyz - s.world_pos) - 0.05 * ]] .. block_name .. [[.view_scale, 0.0));
+				#ifdef OPTICAL_RAYS
+				if (]] .. block_name .. [[.light_transmittance != 0 && brightest * shadow_factor * get_exposure() >= LIGHT_TRANSMITTANCE_MIN_SCREEN_RADIANCE) {
+					float glass_distance = type == 0 ? OPTICAL_SUN_DISTANCE : (type == 2 ? 50.0 : max(length(light.position.xyz - s.world_pos) - 0.05 * ]] .. block_name .. [[.view_scale, 0.0));
 					float glass_search = type == 0 && shadow_factor < 0.999 ? clamp(shadow_texel_world_size * 3.0, 0.05 * ]] .. block_name .. [[.view_scale, 0.5 * ]] .. block_name .. [[.view_scale) : 0.0;
-					radiance *= type == 0 ? get_glass_light(s.world_pos + shadow_N * 0.02 * ]] .. block_name .. [[.view_scale, L, glass_distance, glass_search) : get_glass_light_local(s.world_pos + shadow_N * 0.02 * ]] .. block_name .. [[.view_scale, L, glass_distance, glass_search);
+					radiance *= type == 0 ? get_light_transmittance(s.world_pos + shadow_N * 0.02 * ]] .. block_name .. [[.view_scale, L, glass_distance, glass_search) : get_light_transmittance_local(s.world_pos + shadow_N * 0.02 * ]] .. block_name .. [[.view_scale, L, glass_distance, glass_search);
 				}
 				#endif
 

@@ -358,7 +358,7 @@ local gi_pass = {
 							if (i == 0) open_sky = 1.0;
 						}
 
-						if (froxel_data.glass_light != 0) ray *= get_glass_light(P, d, t, 0.0);
+						if (froxel_data.light_transmittance != 0) ray *= get_light_transmittance(P, d, t, 0.0);
 
 						radiance += 0.5 * ray;
 					}
@@ -372,7 +372,7 @@ local gi_pass = {
 						vec3 light = emitter_sample_light(froxel_hash(uvec3(quad)), uint(froxel_data.frame), P, vec3(0.0), 0.1 + depth * 0.01, to_light, dist);
 
 						if (dot(light, vec3(1.0)) > 0.0 && (dist <= 0.02 || scene_reflection_visible(P, to_light, dist - 0.02))) {
-							if (froxel_data.glass_light != 0) light *= get_glass_light(P, to_light, dist, 0.0);
+							if (froxel_data.light_transmittance != 0) light *= get_light_transmittance(P, to_light, dist, 0.0);
 
 							glow = min(light / (4.0 * PI), vec3(60000.0));
 						}

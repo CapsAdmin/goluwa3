@@ -15,7 +15,7 @@ local ddgi = import("goluwa/render3d/ddgi.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local light_grid = import("goluwa/render3d/light_grid.lua")
 local clouds = import("goluwa/render3d/clouds.lua")
-local glass_light = import("goluwa/render3d/glass_light.lua")
+local optical_rays = import("goluwa/render3d/optical_rays.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local gpu_timing = import("goluwa/render/gpu_timing.lua")
 local P = ddgi.PROBES_PER_AXIS
@@ -228,8 +228,8 @@ local function pass_shade()
 		]] .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetMaterialDeclarationsGLSL(BINDING_MATERIALS) .. scene_emitters.GetDeclarationGLSL(BINDING_EMITTERS),
 		shader = "#define DDGI_UNSCALED\n" .. ddgi.GetHitDefinesGLSL() .. common_glsl() .. scene_lights.GetLightGLSLCode() .. scene_emitters.GetGLSL() .. ddgi.GetMaterialGLSL() .. ddgi.GetHitAlbedoGLSL() .. clouds.GetShadowGLSL("ddgi_data") .. (
 				VISIBILITY_RAYS and
-				glass_light.GetGLSL("ddgi_scene") or
-				glass_light.GetStubGLSL()
+				optical_rays.GetGLSL() or
+				optical_rays.GetStubGLSL()
 			) .. [[
 
 			void store_ray(ivec2 pos, vec4 ray) {
@@ -246,7 +246,7 @@ local function pass_shade()
 					vec3 fog = ddgi_ground_fog_sun_transmittance(fog_altitude, L.y, ddgi_data.ddgi_ground_fog.x, ddgi_data.ddgi_ground_fog.y, ddgi_data.ddgi_ground_fog.z, ddgi_data.ddgi_ground_fog_range.x, ddgi_data.ddgi_ground_fog_range.y);
 					direct += ddgi_data.ddgi_sun_radiance.rgb * (NoL / 3.14159265359) * get_cloud_shadow(P) * fog;
 
-					if (ddgi_data.glass_light != 0) direct *= get_glass_light(P + N * 0.02 * ddgi_data.ddgi_view_scale, L, ddgi_data.ddgi_max_distance, 0.0);
+					if (ddgi_data.light_transmittance != 0) direct *= get_light_transmittance(P + N * 0.02 * ddgi_data.ddgi_view_scale, L, ddgi_data.ddgi_max_distance, 0.0);
 				}
 
 				#if RT_HIT_LIGHTS == 0
@@ -330,7 +330,7 @@ local function pass_shade()
 					if (visible) {
 						vec3 sample_light = picked_light[k];
 
-						if (ddgi_data.glass_light != 0) sample_light *= get_glass_light_local(P, picked_ray[k].xyz, shadow_distance, 0.0);
+						if (ddgi_data.light_transmittance != 0) sample_light *= get_light_transmittance_local(P, picked_ray[k].xyz, shadow_distance, 0.0);
 
 						direct += sample_light * (total / (picked_weight[k] * float(DDGI_LIGHT_SAMPLES)));
 					}
@@ -375,7 +375,7 @@ local function pass_shade()
 						vec3 emission = ddgi_emission(tri, ddgi_hit_albedo(ddgi_materials[tri.material], point, emitter_instance, emitter_triangle));
 						float emissive_luma = luminance(ddgi_materials[tri.material].emissive);
 						vec3 estimate = emission / emissive_luma * weight;
-						if (ddgi_data.glass_light != 0) estimate *= get_glass_light_local(origin, dir, length(point - origin), 0.0);
+						if (ddgi_data.light_transmittance != 0) estimate *= get_light_transmittance_local(origin, dir, length(point - origin), 0.0);
 
 						result = vec4(estimate / (float(DDGI_EMITTER_SAMPLES) * 3.14159265359), ddgi_pack_direction(dir));
 					}
@@ -396,7 +396,7 @@ local function pass_shade()
 				float t = uintBitsToFloat(hit.x);
 				vec3 glass = vec3(1.0);
 
-				if (ddgi_data.glass_light != 0 || ddgi_data.medium_gi != 0) glass = get_optical_tint(origin, dir, t < 0.0 ? ddgi_data.ddgi_max_distance : t, t >= 0.0);
+				if (ddgi_data.light_transmittance != 0 || ddgi_data.medium_gi != 0) glass = get_optical_tint(origin, dir, t < 0.0 ? ddgi_data.ddgi_max_distance : t, t >= 0.0);
 
 				if (t < 0.0) {
 					store_ray(pos, vec4(ddgi_sky(dir) * glass, DDGI_MISS_DISTANCE * mix(0.5, 1.0, luminance(glass))));

@@ -1826,7 +1826,7 @@ function ddgi.GetBlockLayout()
 	}
 	table.add(layout, ddgi.GetProbeBlockLayout())
 	table.add(layout, post_source.pre_exposure_block)
-	layout[#layout + 1] = {"glass_light", "int"}
+	layout[#layout + 1] = {"light_transmittance", "int"}
 	layout[#layout + 1] = {"medium_gi", "int"}
 	return layout
 end
@@ -1930,7 +1930,7 @@ function ddgi.WriteBlock(self, block)
 	scene_lights.WriteLightsBlock(block.lights, lights)
 	clouds.WriteShadowBlock(self, block)
 	post_source.WritePreExposureBlock(self, block)
-	block.glass_light = ddgi.HasDirectTint() and 1 or 0
+	block.light_transmittance = ddgi.HasDirectTint() and 1 or 0
 	block.medium_gi = ddgi.HasMedium() and 1 or 0
 	return ddgi.WriteProbeBlock(self, block)
 end

@@ -1151,7 +1151,7 @@ local function pass_emitters()
 
 						if (dist > 0.02 * surfel_data.view_scale && !scene_reflection_visible(origin, dir, dist - 0.02 * surfel_data.view_scale)) continue;
 
-						if (surfel_data.glass_light != 0) light *= get_glass_light_local(origin, dir, dist, 0.0);
+						if (surfel_data.light_transmittance != 0) light *= get_light_transmittance_local(origin, dir, dist, 0.0);
 
 						a += light;
 						bx += light * dir.x;
