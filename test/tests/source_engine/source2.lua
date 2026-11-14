@@ -253,6 +253,21 @@ T.Test("vtex textures with clamp flags are not read as cube maps", function()
 	T(meta.mip_info[1].depth)["=="](1)
 end)
 
+T.Test3D("source 2 alpha tested materials use soft alpha coverage", function()
+	local info = steam.FindSourceGame(546560)
+
+	if not info then return T.Unavailable("half-life: alyx is not installed") end
+
+	steam.MountSourceGame(info)
+	local material = import("goluwa/source_engine/source2/material.lua")
+	local liquid = material.FromVMAT("materials/models/props/combine/combine_antlion_juice_tank_liquid_trans.vmat")
+	T(liquid:GetAlphaTest())["=="](true)
+	T(liquid:GetAlphaCoverage())["=="](true)
+	T(
+		material.FromVMAT("materials/models/props/combine/combine_antlion_juice_tank_base.vmat"):GetAlphaCoverage()
+	)["=="](false)
+end)
+
 T.Test("source 2 draw call tints reach the model as tinted entries", function()
 	local info = steam.FindSourceGame(546560)
 

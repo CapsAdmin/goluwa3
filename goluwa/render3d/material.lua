@@ -100,6 +100,7 @@ Material:GetSet("ExposureCompensation", 0.0, {callback = "InvalidateEmission"})
 Material:StartCategory("Blending")
 Material:GetSet("Translucent", false, {callback = "InvalidateFlags"})
 Material:GetSet("AlphaTest", false, {callback = "InvalidateFlags"})
+Material:GetSet("AlphaCoverage", false, {callback = "InvalidateFlags", requires = "AlphaTest"})
 Material:GetSet("Decal", false, {callback = "InvalidateFlags"})
 Material:GetSet("SharpAlpha", false, {callback = "InvalidateFlags"})
 Material:GetSet("DecalFade", false, {callback = "InvalidateFlags"})
@@ -534,6 +535,7 @@ local FLAGS = {
 	"MetallicFromRoughnessMask",
 	"Decal",
 	"SharpAlpha",
+	"AlphaCoverage",
 	"DecalFade",
 	"SnowBackdrop",
 	"BentNormals",

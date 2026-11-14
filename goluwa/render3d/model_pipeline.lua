@@ -1372,7 +1372,7 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, 
 	local decal = phase_expr and
 		[[
 					if (SharpAlpha) alpha = smoothstep(0.3, 0.7, alpha);
-					float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + %s);
+					float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + $PHASE);
 					if (alpha <= noise) discard;
 		]] or
 		[[
@@ -1381,31 +1381,39 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, 
 		]]
 	local alpha_test = phase_expr and
 		[[
-					float coverage = clamp((alpha - %s) / max(fwidth(alpha), 0.0001) + 0.5, 0.0, 1.0);
-					float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + %s);
-					if (coverage <= noise) discard;
+					if (AlphaCoverage) {
+						float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + $PHASE);
+						if (alpha <= noise) discard;
+					} else {
+						float coverage = clamp((alpha - $CUTOFF) / max(fwidth(alpha), 0.0001) + 0.5, 0.0, 1.0);
+						float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + $PHASE);
+						if (coverage <= noise) discard;
+					}
 		]] or
 		[[
-					if (alpha < %s) discard;
+					if (AlphaCoverage) {
+						if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > alpha) discard;
+					} else if (alpha < $CUTOFF) {
+						discard;
+					}
 		]]
-	return (
-		[[
+	local code = [[
 			void compute_translucency_and_discard(inout float alpha) {
 				if (AlphaTest) {
 ]] .. alpha_test .. [[
 				} else if (Decal) {
 ]] .. decal .. [[
 				} else if (Translucent) {
-					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > (%s)) discard;
+					if (fract(dot(vec2(171.0, 231.0) + alpha * 0.00001, gl_FragCoord.xy) / 103.0) > ($COVERAGE)) discard;
 				}
 			}
 		]]
-	):format(
-		alpha_cutoff_expr,
-		phase_expr or coverage_expr or "alpha * alpha",
-		phase_expr and phase_expr or nil,
-		phase_expr and (coverage_expr or "alpha * alpha") or nil
-	)
+	local replacements = {
+		CUTOFF = alpha_cutoff_expr,
+		PHASE = phase_expr or "0.0",
+		COVERAGE = coverage_expr or "alpha * alpha",
+	}
+	return (code:gsub("%$(%u+)", replacements))
 end
 
 function model_pipeline.SampleTextureGlsl(texture, uv)

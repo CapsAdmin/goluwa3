@@ -37,6 +37,10 @@ How the 3D frame is put together and the invariants that are easy to break. Pass
 
 `Visual:SetGroundHeight(y)` moves the owner's transform once the model has loaded (and whenever it is set on a loaded visual) so the bottom of its world AABB is at `y`. It shifts the local position, so a rotated or scaled parent gives the wrong world offset. The AABB is the model's, so a model whose mesh floats above its origin still ends up resting on `y`. Used by `model_showcase`.
 
+## Alpha coverage
+
+`Material` `AlphaTest` discards below `AlphaCutoff` with a coverage that is sharpened by the screen space derivative of the alpha and dithered by the temporal noise. `AlphaCoverage` (with `AlphaTest`) uses the alpha itself as the coverage instead, in the same dither (gbuffer) or a screen door pattern (shadow maps), so a soft alpha texture fades instead of being cut. The cutoff is ignored then.
+
 ## Overlay material and rim (forward overlay draw; see docs/surface-overlays.md for animated surface overlays)
 
 `Visual:SetOverlayMaterial(material)` draws every render entry a second time in the forward overlay pass with that material, on top of the normal draw. `Material` `RimColor` (rgb, a = strength) and `RimPower` add a view-angle dependent edge in the overlay fragment shader; a translucent material with a zero alpha `ColorMultiplier` draws only the rim. The overlay is unlit and has no depth test against the scene: it is drawn over everything unless the material sets `OcclusionRadius`. With a radius the fragment shader reads the gbuffer depth and fades the alpha by how far the scene is in front of the fragment (`gap`): up to `OcclusionRadius - OcclusionSoftness` is ignored, past `OcclusionRadius` fully hidden. Use a radius about the size of the effect (a glow sprite centered on a floor item) so geometry it intersects does not cut it, but real occluders do. An `IgnoreZ` + `Additive` material is drawn in this pass with additive blending.

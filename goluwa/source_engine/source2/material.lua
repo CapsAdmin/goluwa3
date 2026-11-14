@@ -354,6 +354,7 @@ function material.FromVMAT(path)
 
 	if info.alpha_test then
 		self:SetAlphaTest(true)
+		self:SetAlphaCoverage(true)
 		self:SetAlphaCutoff(floats.g_flAlphaTestReference or 0.5)
 	end
 
