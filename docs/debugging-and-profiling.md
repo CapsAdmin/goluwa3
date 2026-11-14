@@ -14,6 +14,7 @@ Temporary print logging and code edits are fine for finding causes; remove them 
 - On loss the engine always prints the `VK_EXT_device_fault` description and on Linux the recent `NVRM: Xid` kernel log lines (`checkpoints.Report`).
 - `GOLUWA_NO_RAY_TRACING=1` disables ray tracing, useful to bisect.
 - With `GOLUWA_VALIDATE=1` the device enables `robustBufferAccess2` (when supported), so out of bounds reads of descriptor bound buffers return zero instead of faulting; if a fault survives it, the read goes through a raw address (buffer reference), a bindless texture or the acceleration structure.
+- The fault report asks `checkpoints.address_describers` what a faulting address belongs to; `meshes.DescribeAddress` names the mesh buffer containing it, or the nearest ones (and lists every mesh when there are 8 or fewer).
 - Intermittent Xid losses in the biggest `vkCmdTraceRaysKHR` launch of a frame (ddgi_shade, reflections_trace) were timing dependent and traced to the driver, not to engine objects or synchronization; do not spend long hunting it in engine code.
 
 # Profiling

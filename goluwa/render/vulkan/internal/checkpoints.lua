@@ -3,6 +3,8 @@ local vulkan = import("goluwa/render/vulkan/internal/vulkan.lua")
 local render = import("goluwa/render/render.lua")
 local system = import("goluwa/system.lua")
 local checkpoints = {}
+-- functions (address, precision) returning a line that says what lives at a faulting gpu address, or nil
+checkpoints.address_describers = {}
 checkpoints.enabled = os.getenv("GOLUWA_CHECKPOINTS") ~= nil
 local VkCheckpointDataArray = ffi.typeof("$[?]", vulkan.vk.VkCheckpointDataNV)
 local start_time = system.GetTime()
@@ -90,14 +92,21 @@ local function report_fault_info()
 	)
 
 	for i = 0, counts[0].addressInfoCount - 1 do
+		local address = tonumber(addresses[i].reportedAddress)
 		print(
 			string.format(
 				"  address type %d  0x%x  precision 0x%x",
 				tonumber(addresses[i].addressType),
-				tonumber(addresses[i].reportedAddress),
+				address,
 				tonumber(addresses[i].addressPrecision)
 			)
 		)
+
+		for _, describe in ipairs(checkpoints.address_describers) do
+			local text = describe(address, tonumber(addresses[i].addressPrecision))
+
+			if text then print("    " .. text) end
+		end
 	end
 
 	for i = 0, counts[0].vendorInfoCount - 1 do

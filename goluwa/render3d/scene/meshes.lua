@@ -1,5 +1,6 @@
 local ffi = require("ffi")
 local render = import("goluwa/render/render.lua")
+local checkpoints = import("goluwa/render/vulkan/internal/checkpoints.lua")
 local store = import("goluwa/render3d/scene/store.lua")
 local accel = import("goluwa/render3d/scene/accel.lua")
 local index_pool = import("goluwa/render3d/index_pool.lua")
@@ -128,6 +129,103 @@ function meshes.EnsureRaster(row)
 	meshes.GetTable():Get()[row].pool_first_index = index_pool.GetFirstIndex(mesh.index_buffer)
 	record.raster_ready = true
 end
+
+local DESCRIBE_RANGE = 64 * 1024 * 1024
+
+-- what a gpu address belongs to: the mesh buffer that contains it, or the nearest ones, for fault reports
+function meshes.DescribeAddress(address, precision)
+	local best = {}
+
+	for row, record in pairs(records) do
+		local index_size = record.index_is_32 and 4 or 2
+		local ranges = {
+			{"vertex", record.vertex_address, record.vertex_count * record.vertex_stride},
+			{"index", record.index_address, record.triangle_count * 3 * index_size},
+		}
+
+		for _, range in ipairs(ranges) do
+			local kind, first, size = range[1], range[2], range[3]
+
+			if first ~= 0 then
+				local distance = address < first and
+					first - address or
+					(
+						address >= first + size and
+						address - (
+							first + size
+						) + 1 or
+						0
+					)
+
+				if distance <= DESCRIBE_RANGE then
+					best[#best + 1] = {distance = distance, row = row, kind = kind, first = first, size = size}
+				end
+			end
+		end
+	end
+
+	table.sort(best, function(a, b)
+		return a.distance < b.distance
+	end)
+
+	local small = table.count(records) <= 8
+	local listing = {}
+
+	if small then
+		local rows = meshes.GetTable():Get()
+
+		for row, record in pairs(records) do
+			listing[#listing + 1] = string.format(
+				"row %d vertex 0x%x (%d x %d) index 0x%x (%d triangles, %s) blas 0x%x (record 0x%x) flags %d",
+				row,
+				record.vertex_address,
+				record.vertex_count,
+				record.vertex_stride,
+				record.index_address,
+				record.triangle_count,
+				record.index_is_32 and "32 bit" or "16 bit",
+				tonumber(rows[row].blas_address),
+				record.address or 0,
+				rows[row].flags
+			)
+		end
+	end
+
+	if #best == 0 then
+		return (
+				small and
+				table.concat(listing, "\n    ") .. "\n    " or
+				""
+			) .. string.format(
+				"no mesh buffer within %d MB of 0x%x (%d meshes)",
+				DESCRIBE_RANGE / 1024 / 1024,
+				address,
+				table.count(records)
+			)
+	end
+
+	local lines = {}
+
+	for i = 1, math.min(#best, 3) do
+		local b = best[i]
+		local mesh = mesh_of_row[b.row]
+		lines[#lines + 1] = string.format(
+			"mesh row %d %s buffer 0x%x size %d: %s (%s)",
+			b.row,
+			b.kind,
+			b.first,
+			b.size,
+			b.distance == 0 and
+				"contains it" or
+				string.format("%d bytes %s", b.distance, address < b.first and "before it" or "past its end"),
+			mesh and tostring(mesh) or "mesh collected"
+		)
+	end
+
+	return table.concat(lines, "\n    ")
+end
+
+table.insert(checkpoints.address_describers, meshes.DescribeAddress)
 
 function meshes.GetRecord(row)
 	return records[row]
