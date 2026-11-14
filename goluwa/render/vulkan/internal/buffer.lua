@@ -110,6 +110,7 @@ function Buffer.New(config)
 	end
 
 	local memory_label = string.format("buffer %s size=%d", config.label or "unnamed", requirements.size)
+	self.label = config.label
 	local fast_type
 	local default_type = device.physical_device:FindMemoryType(requirements.memoryTypeBits, properties or {"host_visible", "host_coherent"})
 
@@ -224,8 +225,61 @@ function Buffer:GetDeviceAddress()
 	}
 	address = vulkan.lib.vkGetBufferDeviceAddress(self.device.ptr[0], info)
 	self.device_address = address
+	Buffer.addressed[self] = true
 	return address
 end
+
+Buffer.addressed = setmetatable({}, {__mode = "k"})
+local DESCRIBE_RANGE = 64 * 1024 * 1024
+
+-- the buffers with a device address that contain a gpu address or are nearest to it, for fault reports
+table.insert(import("goluwa/render/vulkan/internal/checkpoints.lua").address_describers, function(address)
+	local best = {}
+
+	for buffer in pairs(Buffer.addressed) do
+		local first = tonumber(buffer.device_address)
+		local size = buffer.size or 0
+		local distance = address < first and
+			first - address or
+			(
+				address >= first + size and
+				address - (
+					first + size
+				) + 1 or
+				0
+			)
+
+		if distance <= DESCRIBE_RANGE then
+			best[#best + 1] = {
+				distance = distance,
+				first = first,
+				size = size,
+				label = buffer.label or "unnamed",
+			}
+		end
+	end
+
+	table.sort(best, function(a, b)
+		return a.distance < b.distance
+	end)
+
+	local lines = {}
+
+	for i = 1, math.min(#best, 3) do
+		local b = best[i]
+		lines[#lines + 1] = string.format(
+			"buffer %q 0x%x size %d: %s",
+			b.label,
+			b.first,
+			b.size,
+			b.distance == 0 and
+				"contains it" or
+				string.format("%d bytes %s", b.distance, address < b.first and "before it" or "past its end")
+		)
+	end
+
+	return #lines > 0 and table.concat(lines, "\n    ") or nil
+end)
 
 function Buffer:Map(offset, size)
 	if not self.mapped_data then
