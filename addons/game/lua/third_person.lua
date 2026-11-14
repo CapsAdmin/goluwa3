@@ -75,15 +75,6 @@ define(
 define("position", "center_right", 0, {min = -3, max = 3})
 define("position", "center_forward", 0, {min = -3, max = 3})
 define("position", "center_up", 0, {min = -3, max = 3})
-define("position", "near_z", 0.05, {min = 0.01, max = 1})
-define(
-	"position",
-	"relative_near_z",
-	false,
-	{
-		help = "pull the near plane in when something is between the camera and the player",
-	}
-)
 define(
 	"position",
 	"threshold_enabled",
@@ -223,7 +214,6 @@ third_person.Presets = {
 			fov = 50,
 			angle_limit = true,
 			angle_limit_smooth = true,
-			near_z = 0.1,
 			hide_hud = true,
 		}
 	),
@@ -250,7 +240,6 @@ third_person.Presets = {
 			target_lerp = 15,
 			trace_down = 100 * U,
 			angle_limit = true,
-			near_z = 0.1,
 			crosshair = false,
 			black_bars = true,
 			black_bar_amount = 1.8,
@@ -280,7 +269,6 @@ third_person.Presets = {
 			trace_down = 70 * U,
 			angle_limit = true,
 			angle_limit_smooth = true,
-			near_z = 0.1,
 			black_bar_amount = 1.5,
 			hide_hud = true,
 		}
@@ -305,7 +293,6 @@ third_person.Presets = {
 			trace_enabled = false,
 			trace_down = 2000 * U,
 			angle_limit = true,
-			near_z = 0.1,
 			crosshair = false,
 			hide_hud = true,
 		}
@@ -387,7 +374,6 @@ local state = {
 	prev_rotation = Quat():Identity(),
 	fov = math.rad(90),
 	roll = 0,
-	near_z = 0.05,
 	initialized = false,
 	aim_point = Vec3(),
 	aim_blocked = false,
@@ -547,7 +533,7 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 		state.prev_rotation = state.rotation
 		state.roll = 0
 		state.fov = aim_fov
-		return state.origin, state.rotation, state.fov, state.near_z
+		return state.origin, state.rotation, state.fov
 	end
 
 	local prev_origin = state.prev_origin
@@ -672,17 +658,16 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 
 	local direction_length = direction:GetLength()
 	direction = direction_length > 1e-4 and direction / direction_length or aim_forward
-	local block_distance
 	local trace_origin = target_origin
 
-	if s.trace_enabled and not s.threshold_enabled or s.relative_near_z then
+	if s.trace_enabled and not s.threshold_enabled then
 		local to_origin = trace_origin - pivot
 		local length = to_origin:GetLength()
 
 		if length > 1e-4 then
-			block_distance = blocked_distance(pivot, to_origin / length, length, owner)
+			local block_distance = blocked_distance(pivot, to_origin / length, length, owner)
 
-			if block_distance and s.trace_enabled and not s.threshold_enabled then
+			if block_distance then
 				trace_origin = pivot + to_origin / length * math.max(block_distance - (s.trace_margin * scale), 0)
 				target_origin:CopyFrom(trace_origin)
 			end
@@ -695,13 +680,6 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 		if floor then
 			target_origin.y = target_origin.y + ((s.trace_down * scale) - floor)
 		end
-	end
-
-	local near_z = (s.near_z * scale)
-
-	if s.relative_near_z and block_distance then
-		near_z = math.max((target_origin - pivot):GetLength() - (s.near_z * scale), (s.near_z * scale))
-		near_z = math.min(near_z, math.max(block_distance, (s.near_z * scale)))
 	end
 
 	if s.angle_limit and not s.angle_limit_smooth then
@@ -789,13 +767,12 @@ function third_person.Update(owner, eye, view_offset, aim, aim_fov, velocity, dt
 	rotation:RotateRoll(math.rad(s.angle_roll) + state.roll)
 	state.prev_origin:CopyFrom(origin)
 	state.prev_rotation = rotation
-	state.near_z = near_z
 	state.aim_point:CopyFrom(aim_point)
 	local to_aim = aim_point - origin
 	local to_aim_length = to_aim:GetLength()
 	state.aim_blocked = to_aim_length > 1e-4 and
 		blocked_distance(origin, to_aim / to_aim_length, to_aim_length * 0.96, owner) ~= nil
-	return origin, rotation, state.fov, near_z
+	return origin, rotation, state.fov
 end
 
 function third_person.LimitDirection(direction, to_player, fov)
@@ -826,10 +803,6 @@ end
 
 function third_person.Disable(rig)
 	state.prev_enabled = false
-end
-
-function third_person.GetNearZ()
-	return state.near_z
 end
 
 function third_person.GetCrosshairPoint()

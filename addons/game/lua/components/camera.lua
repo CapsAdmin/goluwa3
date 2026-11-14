@@ -122,8 +122,8 @@ function META:OnLateUpdate(dt)
 			view:SetRotation(rotation:Copy())
 		elseif third_person.IsEnabled() then
 			local velocity = self.Owner.rigid_body:GetVelocity()
-			local fov, near_z
-			position, rotation, fov, near_z = third_person.Update(
+			local fov
+			position, rotation, fov = third_person.Update(
 				self.Owner,
 				position,
 				self.ViewOffset,
@@ -133,7 +133,7 @@ function META:OnLateUpdate(dt)
 				dt
 			)
 			view:SetFOV(fov)
-			view:SetNearZ(near_z)
+			view:SetNearZ(self.default_near_z * scale)
 			view:SetRotation(rotation:Copy())
 		else
 			camera_modes.Disable()
