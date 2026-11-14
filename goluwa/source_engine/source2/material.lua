@@ -3,7 +3,9 @@ local Material = import("goluwa/render3d/material.lua")
 local surface_types = import("goluwa/source_engine/surface_types.lua")
 local Color = import("goluwa/structs/color.lua")
 local Vec2 = import("goluwa/structs/vec2.lua")
+local Vec3 = import("goluwa/structs/vec3.lua")
 local Vec4 = import("goluwa/structs/vec4.lua")
+local media = import("goluwa/render3d/media.lua")
 local resource = import("goluwa/source_engine/source2/resource.lua")
 local legacy_material = import("goluwa/source_engine/source2/legacy_material.lua")
 local texture_convert = import("goluwa/source_engine/source2/texture_convert.lua")
@@ -152,38 +154,29 @@ local function get_plan(info)
 	return plan
 end
 
--- vr_xen_foliage lights like flesh: the wrap colour is what light bleeds into past the terminator and the transmission
--- colour what shines through its thin parts, the falloff distance (inches) sets how far it travels. The foam is meant to
--- look absorbent, so the radius, the contrast between the channels and the transmission are all pushed past the data.
-local XEN_RADIUS_SCALE = 2.5
-local XEN_COLOR_POWER = 1.6
-local XEN_TRANSMISSION_SCALE = 1.5
+-- vr_xen_foliage is a translucent solid: the albedo is the surface colour and the transmission colour is what survives a
+-- body of XEN_TRANSMISSION_DEPTH metres, so the medium absorbs it by wavelength over the thickness the light really crosses.
+local XEN_TRANSMISSION_DEPTH = 0.15
+local XEN_TRANSMISSION = 0.4
+local MIN_TRANSMITTANCE = 0.02
+local NO_SCATTERING = Vec3(0, 0, 0)
+
+local function define_absorbing_medium(color, depth)
+	return media.Define(
+		Vec3(
+			-math.log(math.max(color[1], MIN_TRANSMITTANCE)) / depth,
+			-math.log(math.max(color[2], MIN_TRANSMITTANCE)) / depth,
+			-math.log(math.max(color[3], MIN_TRANSMITTANCE)) / depth
+		),
+		NO_SCATTERING
+	)
+end
 
 function material.ApplyXenFoliage(self, info)
-	local floats, vectors = info.floats, info.vectors
-	local wrap = vectors.g_vDiffuseWrapColor or {1, 1, 1}
-	local peak = math.max(wrap[1], wrap[2], wrap[3], 1e-3)
-	self:SetSubsurface(math.clamp(floats.g_flDiffuseWrap or 0, 0, 1))
-	self:SetSubsurfaceColor(
-		Color(
-			(wrap[1] / peak) ^ XEN_COLOR_POWER,
-			(wrap[2] / peak) ^ XEN_COLOR_POWER,
-			(wrap[3] / peak) ^ XEN_COLOR_POWER,
-			1
-		)
+	self:SetMedium(
+		define_absorbing_medium(info.vectors.g_vTransmissionColor or {1, 1, 1}, XEN_TRANSMISSION_DEPTH)
 	)
-	self:SetSubsurfaceRadius(
-		math.clamp((floats.g_flTransmissionFalloffDistance or 25) / 25 * XEN_RADIUS_SCALE, 0.5, 16)
-	)
-	local transmission = vectors.g_vTransmissionColor
-
-	if transmission then
-		local ratio = (
-				transmission[1] * 0.2126 + transmission[2] * 0.7152 + transmission[3] * 0.0722
-			) * XEN_TRANSMISSION_SCALE
-		self:SetDiffuseTransmission(ratio / (1 + ratio))
-		self:SetTransmissionColor(Color(transmission[1], transmission[2], transmission[3], 1))
-	end
+	self:SetDiffuseTransmission(XEN_TRANSMISSION)
 end
 
 function material.Prefetch(path)
