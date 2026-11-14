@@ -195,7 +195,14 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 			rayQueryEXT query;
 			rayQueryInitializeEXT(query, ]] .. ray_scene .. [[, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, origin, 0.0, dir, max_distance);
 			while (rayQueryProceedEXT(query)) {}
-			return rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 0.0 : rayQueryGetIntersectionTEXT(query, true);
+			float solid = rayQueryGetIntersectionTypeEXT(query, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 0.0 : rayQueryGetIntersectionTEXT(query, true);
+			#ifdef GLASS_LIGHT
+			vec3 exit_normal;
+			float body = get_glass_body_exit(origin, dir, max_distance, exit_normal);
+
+			if (body > 0.0 && (solid <= 0.0 || body < solid)) return body;
+			#endif
+			return solid;
 			]] or
 			"return 0.0;"
 		) .. [[
