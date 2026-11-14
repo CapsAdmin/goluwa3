@@ -1372,7 +1372,7 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, 
 	local decal = phase_expr and
 		[[
 					if (SharpAlpha) alpha = smoothstep(0.3, 0.7, alpha);
-					float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + $PHASE);
+					float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy + $PHASE * 9.04165, vec2(0.06711056, 0.00583715))));
 					if (alpha <= noise) discard;
 		]] or
 		[[
@@ -1382,11 +1382,11 @@ function model_pipeline.BuildAlphaDiscardGlsl(alpha_cutoff_expr, coverage_expr, 
 	local alpha_test = phase_expr and
 		[[
 					if (AlphaCoverage) {
-						float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + $PHASE);
+						float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy + $PHASE * 9.04165, vec2(0.06711056, 0.00583715))));
 						if (alpha <= noise) discard;
 					} else {
 						float coverage = clamp((alpha - $CUTOFF) / max(fwidth(alpha), 0.0001) + 0.5, 0.0, 1.0);
-						float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + $PHASE);
+						float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy + $PHASE * 9.04165, vec2(0.06711056, 0.00583715))));
 						if (coverage <= noise) discard;
 					}
 		]] or
