@@ -38,6 +38,7 @@ do
 		local ipairs = ipairs
 		local ffi_new = ffi.new
 		local exit_on_error = os.getenv("GOLUWA_EXIT_ON_ERROR") == "1"
+		local no_traceback = os.getenv("GOLUWA_VALIDATE_NO_TRACEBACK") == "1"
 
 		local suppressed_warnings = {
 			"vk_loader_settings.json",
@@ -63,7 +64,7 @@ do
 				io_write("\n[" .. severity_flags .. "] [" .. type_flags .. "]\nNULL .pMessage")
 			end
 
-			if pUserData ~= nil then
+			if pUserData ~= nil and not no_traceback then
 				io_write("Lua stack trace:\n")
 				local trace = tostring(LuaState.FromLuaState(ffi.cast("lua_State*", pUserData)):TraceBack())
 				io_write(trace)

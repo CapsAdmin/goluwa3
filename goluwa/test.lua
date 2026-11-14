@@ -21,7 +21,7 @@ local tasks = import("goluwa/tasks.lua")
 local test = {}
 local total_test_count = 0
 local coroutine = _G.coroutine
-local TEST_TIMEOUT = 20
+local TEST_TIMEOUT = tonumber(os.getenv("GOLUWA_TEST_TIMEOUT")) or 20
 local current_test_name = ""
 local current_running_test_name = ""
 local current_wait = nil
@@ -600,7 +600,8 @@ function test.FindTests(path_pattern)
 
 			if
 				not addon_name:starts_with("__") and
-				not addon_name:starts_with(".") and
+				not addon_name:starts_with(".")
+				and
 				fs.is_directory(tests_directory)
 			then
 				table.insert(roots, {full = tests_directory, keep_relative_name = true})
@@ -1252,7 +1253,7 @@ local vfs = import("goluwa/vfs.lua")
 local MAX_PARALLEL_FILES = jit.os == "OSX" and 4 or math.max(1, math.floor(threads.get_thread_count() / 2))
 local MIN_MEMORY_HEADROOM = 4 * 1024 ^ 3
 local UNKNOWN_FILE_DURATION = 5
-local KILL_FILE_SECONDS = 120
+local KILL_FILE_SECONDS = tonumber(os.getenv("GOLUWA_TEST_KILL_SECONDS")) or 120
 local RESULT_MARKER = "@@goluwa test result@@"
 
 function test.FormatTimingReport(file_reports, info)
@@ -1321,10 +1322,14 @@ function test.FormatTimingReport(file_reports, info)
 	}
 
 	for i = 1, math.min(100, #tests) do
-		table.insert(lines, string.format("%7.2fs  %s  %s", tests[i].time, tests[i].file, tests[i].name))
+		table.insert(
+			lines,
+			string.format("%7.2fs  %s  %s", tests[i].time, tests[i].file, tests[i].name)
+		)
 	end
 
-	return table.concat(lines, "\n") .. "\n", "slowest test files:\n" .. format_files(10)
+	return table.concat(lines, "\n") .. "\n",
+	"slowest test files:\n" .. format_files(10)
 end
 
 commands.Add({
@@ -1383,7 +1388,10 @@ commands.Add({
 	local failures_only = flags["failures-only"] == true
 	RUN_SLOW = flags.slow == true
 	local name_pattern = flags["name-pattern"]
-	if os.getenv("GOLUWA_VALIDATE") ~= "0" then process.setenv("GOLUWA_VALIDATE", "1") end
+
+	if os.getenv("GOLUWA_VALIDATE") ~= "0" then
+		process.setenv("GOLUWA_VALIDATE", "1")
+	end
 
 	if name_pattern == "" or name_pattern == "all" then name_pattern = nil end
 
@@ -1582,7 +1590,7 @@ commands.Add({
 
 				repeat
 					local chunk = job.proc:read(65536)
-					job.stdout[#job.stdout + 1] = chunk
+					job.stdout[#job.stdout + 1] = chunk				
 				until chunk == ""
 
 				repeat
@@ -1599,7 +1607,7 @@ commands.Add({
 						end
 					end
 
-					job.stderr_line = job.stderr_line:match("([^\n]*)$")
+					job.stderr_line = job.stderr_line:match("([^\n]*)$")				
 				until chunk == ""
 
 				if not done and system.GetTime() >= job.next_warn_time then
@@ -1641,7 +1649,8 @@ commands.Add({
 						local reason = job.killed and
 							string.format(" (killed after %ds)", KILL_FILE_SECONDS) or
 							exit_code > 128 and
-							string.format(" (crashed, signal %d)", exit_code - 128) or
+							string.format(" (crashed, signal %d)", exit_code - 128)
+							or
 							""
 						table.insert(failed_file_names, job.test_name .. reason)
 
