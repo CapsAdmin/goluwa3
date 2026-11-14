@@ -126,6 +126,7 @@ System specific notes live in `docs/`. Read the relevant file before working in 
 - [docs/particles.md](docs/particles.md): the particle system (gpu pools, one compute pass, lit by the sun, local lights and DDGI or the sky), the particle_emitter_gpu and particle_emitter_cpu (gbuffer instancing) components, rain, snow, collision, measuring
 - [docs/vfx.md](docs/vfx.md): sprite batches, ribbon trails, bursts, flash lights and timelines (the engine side of effects)
 - [docs/surface-conditions.md](docs/surface-conditions.md): fire, frost, water (and game kinds like poison) on patches of the static world: the CPU cell field and simulation, the GPU field read by the gbuffer, flame sheets, smoke/ember particles, adding a kind, exposure (what touching a condition does to a moving thing)
+- [docs/fluid-volumes.md](docs/fluid-volumes.md): simulated and procedural gas volumes (smoke, fire, poison, steam, fog banks): the grid solver, combustion and blackbody emission, emitters and splats, the light atlas, raymarched versus froxel rendering, stats readback
 - [docs/surface-overlays.md](docs/surface-overlays.md): timed, animated or lasting looks on one visual (magic looks, status looks, charred): layers, kinds, the gpu evaluation
 - [docs/scatter.md](docs/scatter.md): scatter sets, models (grass, rocks, trees) grown on surfaces on the gpu: set rules, passes, pitfalls
 - [docs/foliage.md](docs/foliage.md): procedural trees, grass, rocks and plants (addons/foliage), their textures, model assets and scatter sets

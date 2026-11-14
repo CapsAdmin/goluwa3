@@ -350,6 +350,11 @@ function surface_lighting.GetGLSL(block_name, ray_scene)
 
 				vec3 radiance = unshadowed_radiance * shadow_factor;
 
+				#ifdef FLUID_SHADOWS
+				if (type == 0 && shadow_factor > 0.0) radiance *= fluid_sun_transmittance(s.world_pos, L, -1, -1);
+				if (type != 0 && shadow_factor > 0.0) radiance *= fluid_local_light_transmittance(s.world_pos, light.position.xyz, i);
+				#endif
+
 
 				if (radiance.r + radiance.g + radiance.b <= 0.0 && scatter_floor <= 0.0) continue;
 

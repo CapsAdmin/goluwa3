@@ -42,6 +42,8 @@ function Entity.GetValidComponents()
 			valid_components.particle_emitter_cpu = import("goluwa/entities/components/particle_emitter_cpu.lua")
 			valid_components.scatter_placements = import("goluwa/entities/components/scatter_placements.lua")
 			valid_components.surface_exposure = import("goluwa/entities/components/surface_exposure.lua")
+			valid_components.fluid_volume = import("goluwa/entities/components/fluid_volume.lua")
+			valid_components.fluid_emitter = import("goluwa/entities/components/fluid_emitter.lua")
 		end
 
 		valid_components.static_world = import("goluwa/entities/components/static_world.lua")

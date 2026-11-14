@@ -15,6 +15,8 @@ local ddgi = import("goluwa/render3d/ddgi.lua")
 local gi = import("goluwa/render3d/gi.lua")
 local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local glass_light = import("goluwa/render3d/glass_light.lua")
+local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
+local fluid_volume_passes = import("goluwa/render3d/fluid_volume_passes.lua")
 local post_source = import("goluwa/render3d/post_source.lua")
 local pvars = import("goluwa/cli/pvars.lua")
 local quality = import("goluwa/render3d/quality.lua")
@@ -112,7 +114,10 @@ return {
 				dst_stage = "compute",
 			},
 		},
-		storage_buffers = {{binding_index = BINDING_LIGHT_GRID}},
+		storage_buffers = {
+			{binding_index = BINDING_LIGHT_GRID},
+			{binding_index = fluid_volume_passes.BINDING_RECORDS},
+		},
 		descriptor_sets = glass_light.RAY_QUERY and
 			glass_light.GetDescriptorSets(GLASS_BINDINGS, "compute") or
 			nil,
@@ -120,6 +125,7 @@ return {
 			if not render3d.AreLightsOverridden() then light_occlusion.Draw(cmd) end
 
 			light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
+			fluid_volume_passes.BindRecords(self, desc)
 
 			if glass_light.RAY_QUERY then
 				glass_light.Bind(self, cmd, desc, GLASS_BINDINGS)
@@ -132,6 +138,7 @@ return {
 					return light_occlusion.GetOcclusionTexture()
 				end,
 			},
+			unpack(fluid_volume_passes.GetSampledImages()),
 		},
 		uniform_buffers = {
 			{
@@ -213,7 +220,7 @@ return {
 		custom_declarations = [[
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image2D out_color;
 			layout(set = 0, binding = ]] .. BINDING_OUTPUT_DIFFUSE .. [[, rgba16f) uniform writeonly image2D out_subsurface_diffuse;
-			]] .. surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. (
+			]] .. surface_lighting.GetDeclarationGLSL(BINDING_LIGHT_GRID, BINDING_OCCLUSION_MAP) .. fluid_volume_passes.GetDeclarationGLSL() .. (
 				glass_light.RAY_QUERY and
 				glass_light.GetDeclarationGLSL(GLASS_BINDINGS) or
 				""
@@ -318,7 +325,7 @@ return {
 				glass_light.RAY_QUERY and
 				glass_light.GetGLSL("glass_light_scene") or
 				""
-			) .. surface_lighting.GetGLSL("lighting_data", glass_light.RAY_QUERY and "glass_light_scene") .. ddgi.GetScreenSampleGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. [[
+			) .. "#define FLUID_SHADOWS 1\n" .. fluid_volumes.GetGLSL() .. surface_lighting.GetGLSL("lighting_data", glass_light.RAY_QUERY and "glass_light_scene") .. ddgi.GetScreenSampleGLSL("lighting_data") .. ddgi.GetCommonGLSL() .. [[
 
 			]] .. ibl.GetReflectionGLSLCode("lighting_data") .. [[
 

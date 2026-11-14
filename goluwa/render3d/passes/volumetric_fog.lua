@@ -22,6 +22,8 @@ local scene_reflection = import("goluwa/render3d/scene_reflection.lua")
 local scene_emitters = import("goluwa/render3d/scene/emitters.lua")
 local scene_instances = import("goluwa/render3d/scene/instances.lua")
 local surfel_gi = import("goluwa/render3d/surfel_gi.lua")
+local fluid_volumes = import("goluwa/render3d/fluid_volumes.lua")
+local fluid_volume_passes = import("goluwa/render3d/fluid_volume_passes.lua")
 local FROXEL_HISTORY = 0.9
 local LOCAL_LIGHT_LIMIT = 8
 local BINDING_OUTPUT = 0
@@ -441,6 +443,7 @@ local scatter_pass = {
 				return {froxels.gi_emitter:GetView(), froxels.gi_emitter_sampler}
 			end,
 		},
+		unpack(fluid_volume_passes.GetSampledImages()),
 	},
 	uniform_buffers = {
 		{
@@ -470,11 +473,16 @@ local scatter_pass = {
 			end,
 		},
 	},
-	storage_buffers = {{binding_index = BINDING_LIGHT_GRID}, {binding_index = BINDING_OPTICAL}},
+	storage_buffers = {
+		{binding_index = BINDING_LIGHT_GRID},
+		{binding_index = BINDING_OPTICAL},
+		{binding_index = fluid_volume_passes.BINDING_RECORDS},
+	},
 	on_pre_draw = function(self, cmd, frame, desc)
 		froxel_fog.EnsureResources()
 		light_grid.Bind(self, cmd, desc, BINDING_LIGHT_GRID)
 		ddgi.BindOpticalVolumes(self, desc, BINDING_OPTICAL)
+		fluid_volume_passes.BindRecords(self, desc)
 	end,
 	on_draw = function(self, cmd, fb, frame, desc)
 		self:UploadConstants()
@@ -485,7 +493,7 @@ local scatter_pass = {
 		layout(set = 0, binding = ]] .. BINDING_TILE_DEPTH .. [[) uniform sampler2D tile_depth;
 		layout(set = 0, binding = ]] .. BINDING_GI .. [[) uniform sampler3D froxel_gi;
 		layout(set = 0, binding = ]] .. BINDING_GI_EMITTER .. [[) uniform sampler3D froxel_gi_emitter;
-	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetOpticalDeclarationsGLSL(BINDING_OPTICAL),
+	]] .. light_occlusion.GetDeclarationGLSL(BINDING_OCCLUSION, 0) .. light_grid.GetGLSL(BINDING_LIGHT_GRID) .. ddgi.GetOpticalDeclarationsGLSL(BINDING_OPTICAL) .. fluid_volume_passes.GetDeclarationGLSL(),
 	shader = glsl_common.GetHashGLSL() .. glsl_common.GetConstantsGLSL() .. render3d.GetEmissiveGLSL() .. compute_helpers.GetScreenHelpersGLSL() .. ibl.GetEnvironmentGLSLCode() .. light_occlusion.GetSamplingGLSL("froxel_data") .. scene_lights.GetLightGLSLCode() .. medium_lighting.GetSunHelpersGLSL("froxel_data") .. atmosphere.GetGLSLDefines("froxel_data", "get_current_primary_sun_illuminance()") .. atmosphere.GetAerialPerspectiveGLSLCode() .. directional_shadows.GetMediumDirectionalShadowGLSL("froxel_data", "get_fog_sun_visibility") .. scene_lights.GetPointShadowGLSL("froxel_data") .. ddgi.GetOpticalTintGLSL() .. medium_lighting.GetLocalLightsGLSL(
 			"froxel_data",
 			LOCAL_LIGHT_LIMIT,
@@ -500,7 +508,7 @@ local scatter_pass = {
 				name = "get_fog_volume_light_scattering",
 				attenuation = "optical_range_tint(optical_ranges.z, optical_ranges.w, world_pos, L, max(dist, 0.0), false, false)",
 			}
-		) .. froxel_fog.GetSliceGLSL("froxel_data") .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
+		) .. fluid_volumes.GetGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. HIDDEN_GLSL .. froxel_fog.GetViewDirGLSL("froxel_data") .. froxel_fog.GetPointGLSL("froxel_data") .. [[
 		uint froxel_hash(uvec3 v) {
 			uvec3 h = pcg3d(v);
 			return h.x ^ h.y ^ h.z;
@@ -541,7 +549,11 @@ local scatter_pass = {
 			float density_m = mie_density(fog_point);
 			vec3 air_scattering = (RAYLEIGH_BETA * density_r + MIE_BETA * density_m) * per_meter;
 			float mu = dot(ray_dir, sun_dir);
-			float sun_visibility = get_fog_sun_visibility(world_pos, sun_dir);
+			vec3 raymarched_shadow = fluid_sun_transmittance(world_pos, sun_dir, -1, FLUID_MODE_FROXELS);
+			vec3 froxel_fluid_shadow = fluid_sun_transmittance(world_pos, sun_dir, -1, FLUID_MODE_RAYMARCH);
+			float sun_visibility = get_fog_sun_visibility(world_pos, sun_dir) * dot(raymarched_shadow, vec3(1.0 / 3.0));
+			vec3 fluid_sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * sun_visibility;
+			sun_visibility *= dot(froxel_fluid_shadow, vec3(1.0 / 3.0));
 			vec3 sun = ATMOSPHERE_SUN_ILLUMINANCE * SUN_COLOR * sample_transmittance_lut(fog_point, sun_dir) * get_ground_fog_sun_transmittance(fog_point, sun_dir) * sun_visibility;
 			vec4 gi = texelFetch(froxel_gi, ivec3(id.xy >> 1, id.z), 0);
 			float open_sky = gi.a < 0.0 ? 1.0 : gi.a;
@@ -583,6 +595,28 @@ local scatter_pass = {
 				vec3 volume_scattering = volume.scattering * volume_density;
 				vec3 volume_sun = sun * medium_multiple_scattering(-log(max(fog_sun_tint, vec3(1e-6))), mu, volume.g, 0.0, 0.0, 1.0 - dot(fog_sun_tint, vec3(1.0 / 3.0)));
 				scattering += (volume_sun + ambient + get_fog_volume_light_scattering(ray_dir, world_pos, volume.g)) * volume_scattering;
+			}
+
+			for (int i = 0; i < fluid_counts.x; i++) {
+				fluid_record v = fluid_records[i];
+
+				if (v.mode != FLUID_MODE_FROXELS) continue;
+
+				vec3 local = (v.to_local * vec4(world_pos, 1.0)).xyz;
+
+				if (any(greaterThan(abs(local), v.half_size))) continue;
+
+				vec3 uvw = fluid_atlas_uvw(v, local);
+				float edge = fluid_edge(v, local);
+				vec4 f = textureLod(fluid_fields_atlas, uvw, 0.0);
+				float smoke = f.x * edge;
+				float flame = f.w * edge;
+
+				if (smoke + flame <= 0.0) continue;
+
+				vec4 l = textureLod(fluid_light_atlas, uvw, 0.0);
+				scattering += smoke * v.scattering * (fluid_sun * fluid_sun_phase(v, l, mu) + ambient * fluid_ambient_transmittance(v, l) + get_fog_volume_light_scattering(ray_dir, world_pos, v.g));
+				scattering += min((smoke * v.absorption + flame * v.flame_absorption) * fluid_emission(f.y), vec3(60000.0));
 			}
 
 			imageStore(out_scatter, id, vec4(scattering, covered ? 0.0 : 1.0));
@@ -792,6 +826,7 @@ local integrate_pass = {
 				return {texture:GetView(), sampler}
 			end,
 		},
+		unpack(fluid_volume_passes.GetSampledImages()),
 	},
 	uniform_buffers = {
 		{
@@ -820,15 +855,19 @@ local integrate_pass = {
 		self:UploadConstants()
 		self.pipeline:DispatchForSize(cmd, froxels.width, froxels.height, 1, desc, self.dynamic_offsets)
 	end,
-	storage_buffers = {{binding_index = BINDING_OPTICAL}},
+	storage_buffers = {
+		{binding_index = BINDING_OPTICAL},
+		{binding_index = fluid_volume_passes.BINDING_RECORDS},
+	},
 	on_pre_draw = function(self, cmd, frame, desc)
 		ddgi.BindOpticalVolumes(self, desc, BINDING_OPTICAL)
+		fluid_volume_passes.BindRecords(self, desc)
 	end,
 	custom_declarations = [[
 		layout(set = 0, binding = ]] .. BINDING_OUTPUT .. [[, rgba16f) uniform writeonly image3D out_integrated;
 		layout(set = 0, binding = ]] .. BINDING_SCATTER .. [[) uniform sampler3D scatter;
-	]] .. ddgi.GetOpticalDeclarationsGLSL(BINDING_OPTICAL),
-	shader = atmosphere.GetGLSLDefines("froxel_data", string.format("%.17g", atmosphere.GetSunIlluminance())) .. atmosphere.GetAerialPerspectiveGLSLCode() .. fog_volumes.GetGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
+	]] .. ddgi.GetOpticalDeclarationsGLSL(BINDING_OPTICAL) .. fluid_volume_passes.GetDeclarationGLSL(),
+	shader = atmosphere.GetGLSLDefines("froxel_data", string.format("%.17g", atmosphere.GetSunIlluminance())) .. atmosphere.GetAerialPerspectiveGLSLCode() .. fog_volumes.GetGLSL() .. fluid_volumes.GetGLSL() .. froxel_fog.GetSliceGLSL("froxel_data") .. froxel_fog.GetViewDirGLSL("froxel_data") .. [[
 		void main() {
 			ivec2 id = ivec2(gl_GlobalInvocationID.xy);
 
@@ -847,7 +886,7 @@ local integrate_pass = {
 				vec3 mid = (froxel_data.inv_view * vec4(view_dir * froxel_slice_depth(float(k) + 0.5), 1.0)).xyz;
 				vec3 point = get_atmosphere_camera_origin(mid);
 				float layer_extinction = ground_fog_extinction(point) * per_meter;
-				vec3 volume_extinction = fog_volume_extinction(mid);
+				vec3 volume_extinction = fog_volume_extinction(mid) + fluid_froxel_extinction(mid);
 				vec3 extinction = compute_view_tau(rayleigh_density(point), mie_density(point), ozone_density(point)) * per_meter + layer_extinction * GROUND_FOG_TINT + volume_extinction;
 
 				if (ATMOSPHERE_ENABLED == 0) extinction = vec3(0.0);
@@ -895,6 +934,8 @@ local composite_pass = {
 					{"cloud_view_tex", "int"},
 					{"cloud_view_depth_tex", "int"},
 					{"frame", "int"},
+					{"fluid_scatter_tex", "int"},
+					{"fluid_transmittance_tex", "int"},
 				},
 				write = function(self, block)
 					render3d.WriteCameraBlock(self, block)
@@ -905,6 +946,16 @@ local composite_pass = {
 					block.cloud_view_depth_tex = cloud_view and self:GetTextureIndex(cloud_view_depth) or -1
 					block.frame = system.GetFrameNumber() % 64
 					block.source_tex = self:GetTextureIndex(post_source.GetOpaqueSceneTexture())
+
+					if fluid_volumes.HasRaymarched() then
+						local scatter, transmittance = fluid_volume_passes.GetViewTextures()
+						block.fluid_scatter_tex = self:GetTextureIndex(scatter)
+						block.fluid_transmittance_tex = self:GetTextureIndex(transmittance)
+					else
+						block.fluid_scatter_tex = -1
+						block.fluid_transmittance_tex = -1
+					end
+
 					write_water_distance_texture(self, block, "water_distance_tex")
 					write_gi_screen_texture(self, block, "gi_screen_tex")
 					medium_lighting.WriteLightsBlock(self, block)
@@ -1028,6 +1079,17 @@ local composite_pass = {
 					}
 				}
 
+				if (fog_data.fluid_scatter_tex >= 0) {
+					vec4 fluid = textureLod(TEXTURE(fog_data.fluid_scatter_tex), in_uv, 0.0);
+
+					if (fluid.a >= 0.0) {
+						vec3 fluid_transmittance = textureLod(TEXTURE(fog_data.fluid_transmittance_tex), in_uv, 0.0).rgb;
+						vec3 front_transmittance;
+						vec3 front_scattered = get_volumetric_fog(in_uv, fluid.a, front_transmittance);
+						color = front_scattered + front_transmittance * fluid.rgb / pre_exposure + fluid_transmittance * (color - front_scattered);
+					}
+				}
+
 				set_color(vec4(min(color * pre_exposure, vec3(65504.0)), scene.a));
 			}
 		]],
@@ -1045,5 +1107,6 @@ return {
 	scatter_pass,
 	temporal_pass,
 	integrate_pass,
+	fluid_volume_passes.view,
 	composite_pass,
 }

@@ -355,6 +355,7 @@ local default_passes = {
 	{"surfel_gi", "goluwa/render3d/passes/surfel_gi.lua", gi = "surfels"},
 	{"restir_gi", "goluwa/render3d/passes/restir_gi.lua", gi = "restir"},
 	{"reflections", "goluwa/render3d/passes/reflections.lua"},
+	{"fluid_volumes", "goluwa/render3d/passes/fluid_volumes.lua"},
 	{"lighting", "goluwa/render3d/passes/lighting.lua"},
 	{"subsurface", "goluwa/render3d/passes/subsurface.lua"},
 	{"water", "goluwa/render3d/passes/water.lua"},
