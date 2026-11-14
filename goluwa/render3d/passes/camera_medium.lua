@@ -240,7 +240,15 @@ return {
 						float transmitted = total ? 0.0 : 1.0 - fresnel_dielectric(dot(view_dir, view.exit_normal), view.ior);
 						vec3 exit_dir = total ? view_dir : normalize(refracted);
 						vec3 exit_pos = camera_medium_data.camera_position + view_dir * view.exit_distance;
-						vec3 target = screen_refraction_project(exit_pos + exit_dir * min(distance - view.exit_distance, 2000.0));
+						float travel = 2000.0;
+						rayQueryEXT beyond;
+						rayQueryInitializeEXT(beyond, glass_light_scene, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, exit_pos, 0.002 * camera_medium_data.view_scale, exit_dir, travel);
+
+						while (rayQueryProceedEXT(beyond)) {}
+
+						if (rayQueryGetIntersectionTypeEXT(beyond, true) != gl_RayQueryCommittedIntersectionNoneEXT) travel = rayQueryGetIntersectionTEXT(beyond, true);
+
+						vec3 target = screen_refraction_project(exit_pos + exit_dir * travel);
 
 						if (target.z > -1.0 && screen_refraction_on_screen(target.xy)) {
 							seen = texture(TEXTURE(camera_medium_data.source_tex), target.xy).rgb;
