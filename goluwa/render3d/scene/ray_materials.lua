@@ -219,7 +219,7 @@ function ray_materials.GetOpticalTintGLSL()
 			return transmitted;
 		}
 
-		vec3 optical_inscatter(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_radiance, vec3 sun_dir, vec3 sun_visibility, bool with_layer) {
+		vec3 optical_inscatter(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 ambient_visibility, vec3 sun_radiance, vec3 sun_dir, vec3 sun_visibility, bool with_layer) {
 			vec3 scattered = vec3(0.0);
 
 			for (int i = 0; i < optical_counts.z; i++) {
@@ -237,7 +237,7 @@ function ray_materials.GetOpticalTintGLSL()
 					vec3 middle = origin + dir * (distance * (float(k) + 0.5) / 3.0);
 					vec3 sun_transmittance = optical_volume_tint(i, middle, sun_dir, 1.0e5, false, true);
 					vec3 sun_phase = medium_multiple_scattering(-log(max(sun_transmittance, vec3(1e-6))), mu, volume.g, 0.0, 0.0, 1.0 - dot(sun_transmittance, vec3(1.0 / 3.0)));
-					scattered += (ambient + sun_radiance * sun_visibility[k] * sun_phase) * albedo * (previous - transmittance_end);
+					scattered += (ambient * ambient_visibility[k] + sun_radiance * sun_visibility[k] * sun_phase) * albedo * (previous - transmittance_end);
 					previous = transmittance_end;
 				}
 			}

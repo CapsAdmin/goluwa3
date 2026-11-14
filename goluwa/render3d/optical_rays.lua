@@ -166,7 +166,13 @@ function optical_rays.GetGLSL()
 				for (int k = 0; k < 3; k++) sun_visibility[k] = scene_occluded(origin + dir * (distance * (float(k) + 0.5) / 3.0), sun_dir, 0.01, 1.0e4) ? 0.0 : 1.0;
 			}
 
-			return optical_inscatter(origin, dir, distance, ambient, sun_radiance, sun_dir, sun_visibility, with_layer);
+			vec3 ambient_visibility = vec3(0.0);
+
+			if (dot(ambient, ambient) > 0.0) {
+				for (int k = 0; k < 3; k++) ambient_visibility[k] = scene_occluded(origin + dir * (distance * (float(k) + 0.5) / 3.0), vec3(0.0, 1.0, 0.0), 0.01, 1.0e4) ? 0.0 : 1.0;
+			}
+
+			return optical_inscatter(origin, dir, distance, ambient, ambient_visibility, sun_radiance, sun_dir, sun_visibility, with_layer);
 		}
 
 ]]
