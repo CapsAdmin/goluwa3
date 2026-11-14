@@ -449,7 +449,7 @@ function material.FromVMAT(path)
 	local illum = textures.g_tSelfIllumMask
 
 	if ints.F_SELF_ILLUM == 1 and illum then
-		self:SetEmissiveTexture(Material.LinearTexture(illum))
+		self:SetEmissiveTexture(Material.SRGBTexture(illum))
 		self:SetEmissiveTextureIsColor(true)
 		self:SetEmissiveAlbedoFactor(floats.g_flSelfIllumAlbedoFactor or 1)
 		local illum_tint = vectors.g_vSelfIllumTint
