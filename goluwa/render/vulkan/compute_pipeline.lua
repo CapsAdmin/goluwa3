@@ -363,6 +363,7 @@ end
 
 function ComputePipeline:Dispatch(cmd, group_count_x, group_count_y, group_count_z, frame_index, dynamic_offsets)
 	if checkpoints.enabled then
+		cmd.checkpoint_context = self.config.name
 		checkpoints.Set(cmd, "dispatch " .. tostring(self.config.name))
 	end
 
@@ -372,6 +373,7 @@ end
 
 function ComputePipeline:DispatchIndirect(cmd, buffer, offset, frame_index, dynamic_offsets)
 	if checkpoints.enabled then
+		cmd.checkpoint_context = self.config.name
 		checkpoints.Set(cmd, "dispatch indirect " .. tostring(self.config.name))
 	end
 

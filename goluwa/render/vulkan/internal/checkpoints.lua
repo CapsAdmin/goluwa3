@@ -39,7 +39,21 @@ function checkpoints.Instrument(meta, method_names)
 
 			checkpoints.Set(
 				self,
-				method .. " " .. (info and (info.short_src .. ":" .. info.currentline) or "?")
+				method .. " " .. (
+						info and
+						(
+							info.short_src .. ":" .. info.currentline
+						)
+						or
+						"?"
+					) .. (
+						self.checkpoint_context and
+						(
+							" [" .. self.checkpoint_context .. "]"
+						)
+						or
+						""
+					)
 			)
 			return original(self, ...)
 		end
