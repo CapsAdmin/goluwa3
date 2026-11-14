@@ -2282,7 +2282,32 @@ function fluid_volumes.GetGLSL()
 			return transmittance;
 		}
 
-		vec3 fluid_froxel_extinction(vec3 world) {
+		float fluid_segment_sample(fluid_record v, vec3 origin, vec3 dir, float t0, float t1, out vec4 fields, out vec4 light) {
+			fields = vec4(0.0);
+			light = vec4(0.0);
+			float a;
+			float b;
+
+			if (!medium_box_intersect(v.to_local, -v.half_size, v.half_size, origin, dir, a, b)) return 0.0;
+
+			a = max(a, t0);
+			b = min(b, t1);
+
+			if (b <= a) return 0.0;
+
+			for (int s = 0; s < 2; s++) {
+				vec3 local = (v.to_local * vec4(origin + dir * mix(a, b, 0.25 + 0.5 * float(s)), 1.0)).xyz;
+				vec3 uvw = fluid_atlas_uvw(v, local);
+				vec4 f = textureLod(fluid_fields_atlas, uvw, 0.0);
+				float edge = fluid_edge(v, local);
+				fields += 0.5 * vec4(f.x * edge, f.y, f.z, f.w * edge);
+				light += 0.5 * textureLod(fluid_light_atlas, uvw, 0.0);
+			}
+
+			return (b - a) / max(t1 - t0, 1e-6);
+		}
+
+		vec3 fluid_froxel_segment_extinction(vec3 origin, vec3 dir, float t0, float t1) {
 			vec3 extinction = vec3(0.0);
 
 			for (int i = 0; i < fluid_counts.x; i++) {
@@ -2290,12 +2315,10 @@ function fluid_volumes.GetGLSL()
 
 				if (v.mode != FLUID_MODE_FROXELS) continue;
 
-				vec3 local = (v.to_local * vec4(world, 1.0)).xyz;
-
-				if (any(greaterThan(abs(local), v.half_size))) continue;
-
-				vec4 f = textureLod(fluid_fields_atlas, fluid_atlas_uvw(v, local), 0.0) * fluid_edge(v, local);
-				extinction += f.x * (v.absorption + v.scattering) + f.w * v.flame_absorption;
+				vec4 f;
+				vec4 l;
+				float coverage = fluid_segment_sample(v, origin, dir, t0, t1, f, l);
+				extinction += coverage * (f.x * (v.absorption + v.scattering) + f.w * v.flame_absorption);
 			}
 
 			return extinction;

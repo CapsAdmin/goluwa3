@@ -541,6 +541,10 @@ local scatter_pass = {
 			vec3 air_pos = (froxel_data.inv_view * vec4(view_dir * slice_depth, 1.0)).xyz;
 			if (air_pos.y < world_pos.y) air_pos = world_pos;
 			vec3 ray_dir = normalize(mat3(froxel_data.inv_view) * view_dir);
+			vec3 segment_origin = froxel_data.camera_position.xyz;
+			bool unused_covered;
+			float segment_end = min(froxel_slice_depth(float(id.z + 1)), froxel_point(id, uv, 1e30, unused_covered)) * length(view_dir);
+			float segment_start = min(froxel_slice_depth(float(id.z)) * length(view_dir), segment_end);
 			vec3 sun_dir = get_current_primary_sun_direction();
 			vec3 fog_point = get_atmosphere_camera_origin(air_pos);
 			float per_meter = CAMERA_METERS_TO_KM * CAMERA_TEST_MULTIPLIER;
@@ -588,7 +592,7 @@ local scatter_pass = {
 
 			for (int v = 0; v < optical_ranges.w; v++) {
 				optical_volume volume = optical_volumes[optical_ranges.z + v];
-				float volume_density = fog_volume_density(volume, world_pos);
+				float volume_density = fog_volume_segment_density(volume, segment_origin, ray_dir, segment_start, segment_end);
 
 				if (volume_density <= 0.0) continue;
 
@@ -602,19 +606,14 @@ local scatter_pass = {
 
 				if (v.mode != FLUID_MODE_FROXELS) continue;
 
-				vec3 local = (v.to_local * vec4(world_pos, 1.0)).xyz;
-
-				if (any(greaterThan(abs(local), v.half_size))) continue;
-
-				vec3 uvw = fluid_atlas_uvw(v, local);
-				float edge = fluid_edge(v, local);
-				vec4 f = textureLod(fluid_fields_atlas, uvw, 0.0);
-				float smoke = f.x * edge;
-				float flame = f.w * edge;
+				vec4 f;
+				vec4 l;
+				float coverage = fluid_segment_sample(v, segment_origin, ray_dir, segment_start, segment_end, f, l);
+				float smoke = f.x * coverage;
+				float flame = f.w * coverage;
 
 				if (smoke + flame <= 0.0) continue;
 
-				vec4 l = textureLod(fluid_light_atlas, uvw, 0.0);
 				scattering += smoke * v.scattering * (fluid_sun * fluid_sun_phase(v, l, mu) + ambient * fluid_ambient_transmittance(v, l) + get_fog_volume_light_scattering(ray_dir, world_pos, v.g));
 				scattering += min((smoke * v.absorption + flame * v.flame_absorption) * fluid_emission(f.y), vec3(60000.0));
 			}
@@ -879,6 +878,8 @@ local integrate_pass = {
 			vec3 scattered = vec3(0.0);
 			vec3 transmittance = vec3(1.0);
 			float layer_transmittance = 1.0;
+			vec3 ray_origin = froxel_data.camera_position.xyz;
+			vec3 ray_dir = normalize(mat3(froxel_data.inv_view) * view_dir);
 
 			for (int k = 0; k < int(FROXEL_SLICES); k++) {
 				vec4 froxel = texelFetch(scatter, ivec3(id, k), 0);
@@ -886,7 +887,9 @@ local integrate_pass = {
 				vec3 mid = (froxel_data.inv_view * vec4(view_dir * froxel_slice_depth(float(k) + 0.5), 1.0)).xyz;
 				vec3 point = get_atmosphere_camera_origin(mid);
 				float layer_extinction = ground_fog_extinction(point) * per_meter;
-				vec3 volume_extinction = fog_volume_extinction(mid) + fluid_froxel_extinction(mid);
+				float t0 = froxel_slice_depth(float(k)) * ray_scale;
+				float t1 = froxel_slice_depth(float(k + 1)) * ray_scale;
+				vec3 volume_extinction = fog_volume_segment_extinction(ray_origin, ray_dir, t0, t1) + fluid_froxel_segment_extinction(ray_origin, ray_dir, t0, t1);
 				vec3 extinction = compute_view_tau(rayleigh_density(point), mie_density(point), ozone_density(point)) * per_meter + layer_extinction * GROUND_FOG_TINT + volume_extinction;
 
 				if (ATMOSPHERE_ENABLED == 0) extinction = vec3(0.0);
