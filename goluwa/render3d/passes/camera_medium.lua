@@ -20,6 +20,8 @@ local BINDING_UNIFORM = 3
 local SCENE_BINDINGS = {scene = 6, hit = 30, materials = 8, light_grid = 9}
 local BINDING_DDGI = 12
 local SCREEN_EDGE_BLEND = 0.03
+local MAX_BOUNCES = 3
+local MIN_REFLECTED = 0.08
 pvars.StartGroup("Lighting", "Camera medium", {store = false})
 local enabled = pvars.Setup2{
 	key = "r_camera_medium",
@@ -147,6 +149,7 @@ return {
 			float exit_distance;
 			vec3 exit_normal;
 			float ior;
+			vec3 attenuation;
 		};
 
 		camera_body_view get_camera_body_view(vec3 origin, vec3 dir, float distance, vec3 ambient, vec3 sun_dir, vec3 sun_radiance, float jitter) {
@@ -212,6 +215,7 @@ return {
 			view.inside_color = wall_light * reflectance;
 			view.exit_distance = nearest;
 			view.ior = body.medium_ior;
+			view.attenuation = attenuation;
 			vec3 normal = scene_hit_smooth_normal(nearest_instance, nearest_primitive, nearest_barycentrics);
 			view.exit_normal = dot(normal, dir) < 0.0 ? -normal : normal;
 
@@ -228,6 +232,31 @@ return {
 
 			return view;
 		}
+
+			vec3 camera_body_outside(vec3 exit_pos, vec3 exit_dir) {
+				rayQueryEXT beyond;
+				rayQueryInitializeEXT(beyond, ddgi_scene, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, exit_pos, 0.002 * camera_medium_data.view_scale, exit_dir, 2000.0);
+
+				while (rayQueryProceedEXT(beyond)) {}
+
+				float screen_weight = 0.0;
+				vec3 screen_seen = vec3(0.0);
+
+				if (rayQueryGetIntersectionTypeEXT(beyond, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
+					vec3 target = screen_refraction_project(exit_pos + exit_dir * rayQueryGetIntersectionTEXT(beyond, true));
+
+					if (target.z > -1.0 && screen_refraction_on_screen(target.xy) && textureLod(TEXTURE(camera_medium_data.depth_tex), target.xy, 0.0).r <= target.z * 1.02 + 1e-6) {
+						vec2 edge = min(target.xy, 1.0 - target.xy);
+						screen_weight = smoothstep(0.0, ]] .. SCREEN_EDGE_BLEND .. [[, min(edge.x, edge.y));
+						screen_seen = texture(TEXTURE(camera_medium_data.source_tex), target.xy).rgb;
+					}
+				}
+
+				if (screen_weight >= 1.0) return screen_seen;
+
+				float traced_t;
+				return mix(trace_scene_reflection(exit_pos, exit_dir, exit_dir, 0.0, SCENE_REFLECTION_MAX_DISTANCE, traced_t) * get_pre_exposure(), screen_seen, screen_weight);
+			}
 
 			void main() {
 				ivec2 pos = get_screen_pos();
@@ -253,38 +282,61 @@ return {
 
 				if (view.inside) {
 					if (view.exit_distance < distance) {
-						vec3 refracted = refract(view_dir, -view.exit_normal, view.ior);
-						bool total = dot(refracted, refracted) < 1e-6;
-						float transmitted = total ? 0.0 : 1.0 - fresnel_dielectric(dot(view_dir, view.exit_normal), view.ior);
-						vec3 exit_dir = total ? view_dir : normalize(refracted);
-						vec3 exit_pos = camera_medium_data.camera_position + view_dir * view.exit_distance;
-						rayQueryEXT beyond;
-						rayQueryInitializeEXT(beyond, ddgi_scene, gl_RayFlagsOpaqueEXT, ]] .. string.format("0x%02X", scene_instances.MASK_SOLID) .. [[, exit_pos, 0.002 * camera_medium_data.view_scale, exit_dir, 2000.0);
+						float offset = 0.002 * camera_medium_data.view_scale;
+						vec3 p = camera_medium_data.camera_position + view_dir * view.exit_distance;
+						vec3 d = view_dir;
+						vec3 n = view.exit_normal;
+						vec3 throughput = vec3(1.0);
+						seen = vec3(0.0);
 
-						while (rayQueryProceedEXT(beyond)) {}
+						for (int bounce = 0; bounce <= ]] .. MAX_BOUNCES .. [[; bounce++) {
+							vec3 refracted = refract(d, -n, view.ior);
+							bool total = dot(refracted, refracted) < 1e-6;
+							float transmitted = total ? 0.0 : 1.0 - fresnel_dielectric(dot(d, n), view.ior);
 
-						float screen_weight = 0.0;
-						vec3 screen_seen = vec3(0.0);
+							if (transmitted > 0.0) seen += throughput * transmitted * camera_body_outside(p, normalize(refracted));
 
-						if (rayQueryGetIntersectionTypeEXT(beyond, true) != gl_RayQueryCommittedIntersectionNoneEXT) {
-							vec3 target = screen_refraction_project(exit_pos + exit_dir * rayQueryGetIntersectionTEXT(beyond, true));
+							vec3 reflected_throughput = throughput * (1.0 - transmitted);
 
-							if (target.z > -1.0 && screen_refraction_on_screen(target.xy) && textureLod(TEXTURE(camera_medium_data.depth_tex), target.xy, 0.0).r <= target.z * 1.02 + 1e-6) {
-								vec2 edge = min(target.xy, 1.0 - target.xy);
-								screen_weight = smoothstep(0.0, ]] .. SCREEN_EDGE_BLEND .. [[, min(edge.x, edge.y));
-								screen_seen = texture(TEXTURE(camera_medium_data.source_tex), target.xy).rgb;
+							if (1.0 - transmitted < ]] .. MIN_REFLECTED .. [[) {
+								seen += reflected_throughput * view.inside_color;
+								break;
+							}
+
+							throughput = reflected_throughput;
+							float incidence = abs(dot(d, n));
+							vec3 wall_normal;
+							d = reflect(d, n);
+							float wall = bounce < ]] .. MAX_BOUNCES .. [[ ? get_glass_body_exit(p, d, ]] .. string.format("%.1f", glass_light.GetMaxDistance()) .. [[, wall_normal) : 0.0;
+
+							if (wall <= 0.0) {
+								seen += throughput * view.inside_color;
+								break;
+							}
+
+							float object_t;
+							uint object_instance;
+							uint object_primitive;
+							vec2 object_barycentrics;
+							bool object = trace_scene_hit(p + d * offset, d, 0.0, wall - 2.0 * offset, object_t, object_instance, object_primitive, object_barycentrics);
+							float segment = object ? object_t + offset : wall;
+							vec3 segment_transmittance = optical_transmittance(view.attenuation, segment);
+							seen += throughput * view.inside_color * (1.0 - segment_transmittance);
+							throughput *= segment_transmittance;
+
+							if (object) {
+								seen += throughput * shade_scene_reflection_hit(p + d * offset, d, 0.0, object_t, object_instance, object_primitive, object_barycentrics) * get_pre_exposure();
+								break;
+							}
+
+							p += d * wall;
+							n = wall_normal;
+
+							if (total && abs(abs(dot(d, n)) - incidence) < 1e-3) {
+								seen += throughput * view.inside_color;
+								break;
 							}
 						}
-
-						seen = screen_seen;
-
-						if (screen_weight < 1.0) {
-							float traced_t;
-							vec3 traced = trace_scene_reflection(exit_pos, exit_dir, exit_dir, 0.0, SCENE_REFLECTION_MAX_DISTANCE, traced_t) * get_pre_exposure();
-							seen = mix(traced, screen_seen, screen_weight);
-						}
-
-						seen = mix(view.inside_color, seen, transmitted);
 					}
 
 					seen = seen * view.transmittance + view.inscatter;
